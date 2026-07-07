@@ -8,6 +8,38 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
+## 交接状态（2026-07-07 compact 前）
+
+> 本轮在 17 任务 done 基础上，完成外部验证报告修复 + 买卖点优化 + 邮件通知 + 双部署 + 静态化 + 脚本体系。
+
+**工作模式**：监管派子进程（干活+验收 fresh context），监管只读汇报不跑命令，保持上下文干净。参数优化测试驱动（回测报告让用户选）。
+
+**本轮新增工作**：
+- **验证报告 8 bug**（交易信号网站验证报告.md）：A/C/D 实机正常（WebFetch 假象）；B 指数滞后=py_mini_racer 损坏已修；F 卖点文案改"走弱概率≈50%"；G REQUIREMENTS §6.5 披露 cross_market trim-mean + a_sentiment 权重公式；H 配对回测（10-买卖点配对回测.md）；E 指数/行业筛选+热力图切换。
+- **py_mini_racer 修复**：sqreen py-mini-racer 0.6.0 坏包（muslc.so）覆盖 bpcreech mini-racer 0.14.1。卸载 sqreen + 重装 mini-racer==0.14.1。requirements.txt 锁定。
+- **美股指数 4 个**：us_dji(.DJI)/us_ixic(.IXIC)/us_spx(.INX)/us_ndx(.NDX)，akshare index_us_stock_sina，fetchers.py 通用路径零改动。
+- **B 扩展指标 signals**：全球 tab 10 指标（cn10y/us10y/wti_oil/comex_silver/gold/oil/usdcnh/a_qvix_300/a_qvix_1000/cn_us_spread）+ 综合情绪（cross_market/a_sentiment）算买卖点。signal_daily 前缀 g.*/s.*。规则：买=RSI(value,14)上穿30（a_sentiment skip_buy RSI 失效）；卖=恒正%回落/含负数std。前端 valueChartWithSignals。
+- **B1+S1 买卖点优化**（11-买卖点优化方案回测.md 推荐）：买点加 BB下轨回归辅买 buy_aux（粉紫 #d63384，signal='buy_aux'）+ 卖点加 MA60 多头过滤（close>ma60）。卖/买比 3.99→0.49（买卖平衡）。buy 3861/buy_aux 5782/sell 4700。
+- **回测 tips**：signal_stats.py 算每品种全历史 buy/buy_aux/sell × 5/10/20 日 forward 收益（胜率/盈亏比/样本/均值）。存 data/signal_stats.json（60 品种）。API /api/index/{id}+/api/global+/api/sentiment 返回 stats。前端 statsHint 显示 tips："回测(全历史·信号后10日) 买点 胜率X% 盈亏比Y 样本Z 凯利W% | 辅买... | 卖点... | 凯利公式参考仓位，非投资建议"。凯利公式 f*=max(0,(b·p-(1-p))/b)。
+- **stats 动态更新**：runner.py step 10 每日重算 signal_stats.json + deploy export.py 导出静态 JSON。新买卖点入库 → 次日 update_all 自动刷新 stats。
+- **筛选 UX**：A 股/港股 tab 筛选按钮移到指数折线区前（.indices-section）+ 局部刷新（doRender 不整页，闭包 signalsCache 不 refetch）。
+- **邮件通知**：scripts/check_signals.py 查当天 signals + 发邮件（SMTP 163）。config/email.json（授权码 PVqAD9mWjNJtVMtd，发件 wy13465@163.com，收件 234058394@qq.com，.gitignore 排除）。品种中文名映射（index_id→name）。update_all.sh 第3步。14:30 盘中预警 + 15:33 收盘正式（launchd/cron）。
+- **双部署**：Cloudflare Pages Connect to Git（xxx.pages.dev 主用）+ GitHub Pages workflow（.github/workflows/deploy-pages.yml，actions/deploy-pages，需用户配 Settings → Pages → Source = GitHub Actions）。
+- **百度统计**：web/index.html + static-site/index.html 加百度统计代码（hm.js?e1d50bf3c782798dd0c0515a14b1a48c）。
+- **静态化**：static-site/ 子目录（index.html/app.js/style.css/vendor/export.py/DEPLOY.md/data 75 JSON 61.6MB）。export.py minify（industry-all.json 23.86MB <25MB）。
+- **脚本体系**：scripts/collect.sh（调 scheduler，含 runner step 1-10）+ deploy.sh（export+git push 总是 push 幂等）+ check_signals.sh（查signals+发邮件）+ update_all.sh（collect+deploy+check_signals）+ README。漏跑回填 width_history.run_recent(30) step 9。
+- **回测报告 06-11**：06 RSI阈值/07 卖点对策12方案/08 深度11策略244资产/09 指标/10 配对523回合/11 优化方案B1+S1推荐。
+- **git 仓库**：xp13465/trade-data-signal（SSH 已配，偶发网络抖动 push 失败重试成功）。
+
+**遗留**：
+- dev server（uvicorn --reload）watchfiles 偶发 stale（改代码后不 reload），重启解决：kill PID + nohup .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir /Users/linhuichen/code/trade。
+- 东财 push2his.eastmoney.com IP 封禁（industry_extras 行业资金流/换手率 fail，老问题，代码就绪待 IP 解封）。
+- mootdx 依赖 py-mini-racer（pip 元数据），未来 pip install mootdx 可能再拉 sqreen 坏包，需加 constraint。
+- GitHub Pages 需用户配 Settings → Pages → Source = GitHub Actions（否则 workflow 不部署）。
+- 静态版 industry-all.json 23.86MB，余量 1.14MB（约容 150 交易日增长，2026 年底前需考虑拆分）。
+
+**下轮起点**：用户反馈 → 派子进程修。开工先读 TASKS.md 交接状态节 + REQUIREMENTS.md + NOTES.md。
+
 ## 交接状态（2026-07-06 compact 前）
 
 > compact 后先读本节 + 「工作约定」+ 任务清单恢复上下文。记忆 `supervisor-loop-mode` 只是缓存，**以本文件为准**。
