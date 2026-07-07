@@ -371,7 +371,7 @@ function ruleBar() {
   div.innerHTML = `
     <div class="rule-summary">
       <span class="rule-toggle">▸</span>
-      <span class="rule-text"><b class="buy">买</b>: RSI(14)上穿30（主，红）+ BB下轨回归（辅，<span style="color:#d63384">粉紫</span>） · <b class="sell">卖</b>: 20日高回落5% ∧ close&gt;MA60（多头趋势过滤，砍下跌市假卖点）（<b>止盈/减仓提示，非高胜率卖点</b>；卖点后 10 日走弱概率≈50% 接近随机，不可作独立卖出指令）（cross 为情绪分级：冰点/偏冷/中性/偏热/狂热；卖点附 vs前买 盈亏标注：止盈/买点失败/无前买点）</span>
+      <span class="rule-text"><b class="buy">买</b>: RSI(14)上穿30（主，红）+ BB下轨回归（辅，<span style="color:#d63384">粉紫</span>；部分品类 per-index 叠加 RSI上穿40/反弹2% 确认） · <b class="sell">卖</b>: 20日高回落5% ∧ close&gt;MA60（多头趋势过滤）∧ DIF&lt;DEA（MACD 死叉确认，砍强趋势回调假摔；s.* 情绪分豁免）（<b>止盈/减仓提示，非高胜率卖点</b>；卖点后 10 日走弱概率≈50% 接近随机，不可作独立卖出指令）（cross 为情绪分级：冰点/偏冷/中性/偏热/狂热；卖点附 vs前买 盈亏标注：止盈/买点失败/无前买点）</span>
     </div>
     <div class="rule-detail hidden">
       <div><b>买·主（C1，不动）</b>：RSI 周期=14（Wilder RSI，EWM α=1/14）；触发=前一日 RSI≤30 且当日 RSI&gt;30（升回 30 之上，超卖结束、有望反弹）。前端红 <code>#e6492e</code>，标签「买」。</div>
@@ -494,7 +494,7 @@ async function renderOverview() {
       grid: { left: 2, right: 2, top: 4, bottom: 4 },
       xAxis: { type: "category", show: false, data: idx.dates },
       yAxis: { type: "value", show: false, scale: true },
-      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${Number(p[0].value).toFixed(2)}` },
+      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : Number(p[0].value).toFixed(2)}` },
       series: [{
         type: "line", smooth: true, symbol: "none", data: idx.closes,
         lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
@@ -755,7 +755,7 @@ function renderIndustryGrid(indices) {
       grid: { left: 2, right: 2, top: 6, bottom: 4 },
       xAxis: { type: "category", show: false, data: ohlc.map((d) => d.date) },
       yAxis: { type: "value", show: false, scale: true },
-      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${Number(p[0].value).toFixed(2)}` },
+      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : Number(p[0].value).toFixed(2)}` },
       series: [{
         type: "line", smooth: true, symbol: "none",
         data: ohlc.map((d) => [d.date, d.close]),
@@ -793,7 +793,7 @@ function renderIndustryGrid(indices) {
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         xAxis: { type: "category", show: false, data: spec.data.map((d) => d.date) },
         yAxis: { type: "value", show: false, scale: true },
-        tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${spec.label}: ${spec.fmt(Number(p[0].value))}` },
+        tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${spec.label}: ${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : spec.fmt(Number(p[0].value))}` },
         series: [{
           type: "line", smooth: true, symbol: "none",
           data: spec.data.map((d) => [d.date, d.value]),
@@ -822,6 +822,7 @@ function renderIndustryGrid(indices) {
         yAxis: { type: "value", show: false },
         tooltip: { trigger: "axis", formatter: (p) => {
           const d = widthData[p[0].dataIndex];
+          if (!d) return `${p[0].axisValue}<br/>-`;
           return `${p[0].axisValue}<br/>涨${d.up_count} 跌${d.down_count} | 涨停${d.zt_count} 跌停${d.dt_count} 炸板${d.zb_count}`;
         } },
         series: [
