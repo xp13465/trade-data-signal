@@ -8,6 +8,57 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
+## 交接状态（2026-07-08 compact 前）
+
+> 本轮在 2026-07-07 基础上，做 sell 卖点 MACD 死叉确认 + buy_aux 逐品类优化（8/32）+ 界面策略公式标注。配额 01:02:30 重置后继续。
+
+### 已完成
+
+**1. sell 卖点 MACD 死叉确认（方案B，s.* 豁免）** — commit ec0f88c/70eb01f
+- sell 加 `DIF<DEA`（MACD 12/26/9 死叉确认），过滤强趋势回调假摔。s.* 情绪分豁免（a_sentiment 加 MACD 后 n=106→7）。
+- 建议率 18.3%→43.3%（11→26 建议，47→29 不建议）。buy/buy_aux 零改动。
+- 报告 `13-卖点逻辑优化回测.md`，脚本 `a-stock-data/backtest_sell_optimize.py`。
+
+**2. buy_aux 逐品类优化（8/32 品类）** — per-index 配置化
+- 机制：`config/indicators.yaml` 的 `buy_aux_filter` 字段 + `signals.py` 的 `_load_buy_aux_filters()`。2 个 filter：`rsi_cross_40`（前日 RSI≤40 且当日>40）/ `close_above_bl_2pct`（close>下轨×1.02）。
+- 脚本 `a-stock-data/backtest_buy_aux_batch.py`（泛化，`python backtest_buy_aux_batch.py sid1 sid2 ...`）。A/B/C 三方案：A 反弹力度2% / B RSI上穿40 / C 放量1.2倍。
+- 8 品类结果：
+  - 家电 sw_801110：方案B rsi_cross_40，f -38%→+16% 转正（commit 7662ac3）
+  - 基础化工 sw_801030：方案A close_above_bl_2pct，f -21%→+20% 转正三 horizon 一致（commit 9d15a55）
+  - csi1000：方案B rsi_cross_40，f -20%→+3% 转正三 horizon 一致（commit 9b19917）
+  - 轻工 sw_801140：方案B rsi_cross_40，退而求其次（胜率 45%→50%，f 仍 -14%）（commit 9d15a55）
+  - 商贸 sw_801200 / 电力设备 sw_801730 / sh / hs300：维持现状（0 方案稳健转正或样本不足 n<30）
+- 报告 `14-家电`/`15-商贸`/`16-行业批量(电力设备-轻工-基础化工)`/`17-A股宽基(sh-csi1000-hs300)`。
+- 关键结论：**方案B 非通用**（仅家电/csi1000 稳健转正，消费白马适合；制造/周期/消费零售不适合）；**方案A 制造/周期部分有效但样本少**（n<30）；**A 与 B 转正品类不重叠**（价格力度确认 vs 动量确认适用不同行业，无单一通用方案）。
+
+**3. 界面策略公式标注** — commit 4ced8bd
+- 每个折线图 tips 顶部加蓝色「📋 策略」标注行（`.hint-strategy`），显示该品类实际用的买卖点公式。
+- 前端 `strategyDesc(indexId)` 硬编码 per-index 映射（4 品类自定义 + 基线兜底 + s.* skip_buy）。`statsHint(stats, indexId)` 接收 indexId。`indexChart`/`valueChartWithSignals` 签名加 indexId，调用点传 id。
+- 改 4 文件：web/app.js + web/style.css + static-site/app.js + static-site/style.css。node --check PASS。
+
+### 待办（配额 01:02:30 重置后继续）
+
+1. **传媒/综合/钢铁 buy_aux 回测** — 之前 worker 429 失败，待重派（backtest_buy_aux_batch.py，A/B/C 三方案，报告 18-）
+2. **凯利建议但胜率<50% 品类提胜率回测** — 用户新需求。恒生科技 hstech 买点 46.7%（f+11.5%,pl1.52）/ 辅买 48.6%（f+13.7%,pl1.47），凯利建议靠高盈亏比弥补低胜率，要"尽可能提高胜率"。需回测多方案（加确认条件提胜率，但可能降盈亏比，出报告让用户选）
+3. **buy_aux 剩余 ~20 品类逐个优化** — 已做 8 个，剩约 20 个（csi500/cyb/kc50/sz_div/sw_801040/sw_801050/sw_801120/sw_801130/sw_801150/sw_801160/sw_801170/sw_801210/sw_801760/sw_801880/sw_801890/sw_801970/g.cn10y/g.cn_us_spread/sz 等）。用户选了"逐个品类调参"而非批量
+4. **buy 16 个不建议** — C1 主买整体健康（41/60 建议），未动。收紧 RSI 方向（如 30→25 或加 cross 标签）
+5. **3 个结构性异常品类 skip** — g.usdcnh（汇率干预市）/ g.cn_us_spread（均值回归 sell 反向）/ g.oil（地缘驱动），调参救不了，建议 skip_buy/skip_sell（与 a_sentiment 同处理）
+6. **界面标注改后端注入** — strategyDesc 临时硬编码前端，配额恢复后改 export.py/main.py 注入 strategy 字段（读 indicators.yaml，避免后续品类优化前端漏改）
+7. **ruleBar 文案更新** — 顶部规则说明条不含 MACD 死叉 + per-index（旧文案），待更新
+8. **Cloudflare 部署问题** — git push 成功但 Cloudflare 停在 5 小时前，疑似 webhook 断或构建失败，用户查 dashboard 中。GitHub Pages 正常
+9. **备份表清理** — `signal_daily_bak_20260707` 无引用（verify 确认），可 DROP
+10. **industry-all.json 体积** — 23.74 MiB < 25 MiB，余量 1.26 MiB，2026 年底前需拆分
+
+### 工作模式（不变）
+- 监管+loop：派子 agent（fresh context）读 TASKS.md 领任务，主进程不直接干活
+- param-opt-test-driven：参数优化回测多方案，出报告让用户选，不问参数怎么定
+- 主对话 token 省：compact + 子 agent 干净上下文双省
+
+### 下轮起点
+读本节 + `REQUIREMENTS.md` §7（买卖点逻辑，含 MACD 死叉 + per-index 增强）+ `14/15/16/17` 回测报告恢复上下文。优先：① 重派传媒/钢铁回测 ② 恒生科技等凯利建议但胜率<50% 提胜率回测。
+
+---
+
 ## 交接状态（2026-07-07 compact 前）
 
 > 本轮在 17 任务 done 基础上，完成外部验证报告修复 + 买卖点优化 + 邮件通知 + 双部署 + 静态化 + 脚本体系。
