@@ -91,7 +91,7 @@ indices:
   - {id: sz,       name: 深成指,   market: a, func: stock_zh_index_daily, symbol: "sz399001"}
   - {id: hs300,    name: 沪深300,  market: a, func: stock_zh_index_daily, symbol: "sh000300"}
   - {id: csi500,   name: 中证500,  market: a, func: stock_zh_index_daily, symbol: "sh000905"}
-  - {id: csi1000,  name: 中证1000, market: a, func: stock_zh_index_daily, symbol: "sh000852"}
+  - {id: csi1000,  name: 中证1000, market: a, func: stock_zh_index_daily, symbol: "sh000852", buy_aux_filter: rsi_cross_40}
   - {id: cyb,      name: 创业板指, market: a, func: stock_zh_index_daily, symbol: "sz399006"}
   - {id: kc50,     name: 科创50,   market: a, func: stock_zh_index_daily, symbol: "sh000688"}
   # 红利指数：中证红利/红利低波走中证指数公司源（sina sh000922 数据停在 2019、930955 sina 无此代码），
@@ -127,6 +127,8 @@ indices:
   #   'rsi_cross_40' = RSI(14) 上穿40 确认（rp≤40 & r>40），与 C1 上穿30 对称，
   #     价格反弹 + 动量转升双维确认。sw_801110 家电 f -38%→+16% 转正（14-家电buy_aux优化回测.md）；
   #     sw_801140 轻工 f -25%→-14% 未转正但胜率 45%→50% 退而求其次（16-行业批量回测）。
+  #     csi1000 中证1000 f -19.5%→+3.47% 三 horizon 一致转正（5d/10d/20d 全 f>0），
+  #       胜率 49.3%→47.4%，盈亏比 0.74→1.20，n 71→19（17-A股宽基buy_aux回测-sh-csi1000-hs300.md）。
   #   'close_above_bl_2pct' = 反弹力度确认（close > bl × 1.02），过滤 barely-crossed 假信号。
   #     sw_801030 基础化工 f -21%→+20% 转正，三 horizon 一致，n=19<30 样本警示（16-行业批量回测）。
   - {id: sw_801110, name: "SW 家用电器", market: industry, func: index_hist_sw, symbol: "801110", buy_aux_filter: rsi_cross_40}
