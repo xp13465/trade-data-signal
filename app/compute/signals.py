@@ -14,7 +14,7 @@
 - S1 过滤：仅当 close > MA60（60 日均线，多头趋势）才放卖——砍下跌趋势中的假卖点
   （熊市噪声）。回测降噪率 39%（全史卖点 59830→36289）。
 - MACD 死叉确认（方案 B，2026-07-05）：D1+S1 基础上加 DIF<DEA（动量转弱确认），
-  过滤「强趋势中回调假摔」型假信号。回测 sell 凯利建议率 18.3%→43.3%（11→28 个建议）。
+  过滤「强趋势中回调假摔」型假信号。回测 sell 凯利建议率 18.3%→43.3%（11→26 个建议）。
   **s.* 情绪分序列豁免**（a_sentiment 加 MACD 后 n=106→7 样本不足），保留原 D1+S1。
 - MA60：close.rolling(60, min_periods=60).mean()。MA60 为 NaN（前 60 日）时 close>MA60
   为 False，自动不放卖（与 min_periods=60 一致）。
@@ -55,6 +55,14 @@ D1 变更（2026-07-06）：C1 卖点用 RSI 下穿70，回测显示全史 10日
 B1+S1 变更（2026-07-05）：买点加 BB 下轨回归辅买点（buy_aux，与 C1 互补，回测买点
 15007→38547 翻 2.57×）；卖点叠加 MA60 多头过滤（砍下跌趋势假卖点，回测卖点
 59830→36289 砍 39%）。组合卖/买比 3.99→0.94（买卖平衡）。详见 `11-买卖点优化方案回测.md`。
+
+Per-index buy_aux 增强（2026-07-05，配置化）：`config/indicators.yaml` 给单个指数加
+`buy_aux_filter` 字段即可叠加增强过滤（未配置的走基线 B1）。当前 sw_801110 家用电器配置
+`buy_aux_filter: rsi_cross_40` = BB下轨回归 ∧ RSI(14) 上穿40（rp≤40 & r>40，与 C1 上穿30
+对称，价格反弹+动量转升双维确认）。回测 sw_801110 buy_aux 10d 凯利 f -38.5%→+16.2% 转正，
+胜率 44.8%→54.5%，盈亏比 0.66→1.19，n 134→33，三 horizon（5d/10d/20d）一致转正
+（+19.1%/+16.2%/+17.1%），稳健非偶发。详见 `14-家电buy_aux优化回测.md`。其他 59 品类
+buy_aux 不动（基线 B1），后续逐品类验证后各自加方案。reason 加 `RSI[上穿40]` 段。
 """
 import pandas as pd
 
@@ -127,6 +135,35 @@ def _load_cross_score() -> pd.Series:
     return pd.Series({r["date"]: r["value"] for r in rows}).sort_index().astype(float)
 
 
+def _load_buy_aux_filters(cfg) -> dict:
+    """从 indicators.yaml 读 per-index buy_aux 增强配置（支持后续逐品类扩展）。
+
+    返回 {signal_daily_index_id: filter_name}。仅配置了 `buy_aux_filter` 字段的品类
+    出现，其他走基线 B1（无增强）。
+    - indices: key = idx['id']（如 'sw_801110'）
+    - metrics: key = 'g.' + mid（如 'g.cn10y'）—— 暂无品类配置，预留扩展
+    - scores: 情绪分 s.* 暂不支持 per-index 增强（结构不同，需要时再扩展）
+
+    当前取值：
+    - 'rsi_cross_40' = RSI(14) 上穿40 确认（rp≤40 & r>40），与 C1 上穿30 对称。
+      sw_801110 家电打样：f -38%→+16% 转正（14-家电buy_aux优化回测.md）。
+    """
+    out = {}
+    for idx in cfg.get("indices", []):
+        if not idx.get("enabled", True):
+            continue
+        f = idx.get("buy_aux_filter")
+        if f:
+            out[idx["id"]] = f
+    for m in cfg.get("metrics", []):
+        if not m.get("enabled", True):
+            continue
+        f = m.get("buy_aux_filter")
+        if f:
+            out[f"g.{m['id']}"] = f
+    return out
+
+
 # ============ B 扩展：全球指标 + 情绪分数买卖点（2026-07-07）============
 # value 当 close 算 RSI 买 + 20日高回落卖，规则按 09-指标买卖点回测.md 推荐：
 #   买 = RSI(14) 上穿 30（与指数 C1 一致）+ BB 下轨回归辅买点（B1，2026-07-05 加）
@@ -146,15 +183,19 @@ SCORE_IDS = ("cross_market", "a_sentiment")
 _STD_SELL_IDS = {"usdcnh", "cn_us_spread"}
 
 
-def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, kind: str = "指标"):
+def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, kind: str = "指标",
+                           buy_aux_filter: str = None):
     """value 序列 → 买卖点 signals（sid 已含 g./s. 前缀）。
 
     B1+S1（2026-07-05）：买加 BB 下轨回归辅买点（buy_aux），卖叠加 MA60 多头过滤。
+    Per-index buy_aux 增强（2026-07-05）：buy_aux_filter='rsi_cross_40' 叠加 RSI 上穿40
+    确认（配置化，支持后续逐品类扩展，当前仅 sw_801110 用，g.*/s.* 预留扩展位）。
 
     value: pd.Series（按 date 升序，float），当 close 用
     sid: signal_daily index_id（如 'g.cn10y' / 's.cross_market'）
     skip_buy: True 时跳过买信号（buy + buy_aux，a_sentiment 用，RSI 失效）
     kind: reason 标签（"指标"/"情绪分"），区分指数 signals
+    buy_aux_filter: per-index 增强过滤名（None=基线 B1；'rsi_cross_40'=RSI 上穿40 确认）
     """
     if len(value) < 60:  # MA60 需要 60 日，不足则卖点过滤全砍，无意义
         return []
@@ -173,6 +214,11 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
     else:
         _, _, bl_ = _bollinger(value, 20, 2.0)
         buy_aux = ((value.shift(1) < bl_.shift(1)) & (value > bl_)).fillna(False)
+        # Per-index buy_aux 增强（配置化）：'rsi_cross_40' 叠加 RSI 上穿40 确认
+        # （rp≤40 & r>40，与 C1 上穿30 对称，价格反弹+动量转升双维确认）
+        if buy_aux_filter == "rsi_cross_40":
+            rsi_cross_40 = ((rsi_prev <= 40) & (rsi > 40)).fillna(False)
+            buy_aux = buy_aux & rsi_cross_40
 
     # 卖点分支：恒正（min>0）且非窄幅 → %回落5%；否则（含负数/窄幅）→ std 2σ
     raw = sid.split(".", 1)[1] if "." in sid else sid
@@ -228,6 +274,8 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
                 parts.append("布林下轨回归")
             if pd.notna(r):
                 parts.append(f"RSI={r:.0f}")
+            if buy_aux_filter == "rsi_cross_40":
+                parts.append("RSI[上穿40]")
             parts.append(f"[{kind}]")
             out.append((date, sid, "buy_aux", ", ".join(parts)))
         if date in sell_set:
@@ -271,6 +319,7 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
 def compute():
     cfg = load_config()
     cross = _load_cross_score()
+    buy_aux_filters = _load_buy_aux_filters(cfg)  # per-index buy_aux 增强（如 sw_801110 RSI上穿40）
     signals = []
     for idx in cfg.get("indices", []):
         if not idx.get("enabled", True):
@@ -293,6 +342,14 @@ def compute():
         _, _, bl_ = _bollinger(close, 20, 2.0)
         buy_aux = ((close.shift(1) < bl_.shift(1)) & (close > bl_)).fillna(False)
 
+        # Per-index buy_aux 增强（配置化，支持后续逐品类扩展）：
+        # sw_801110 方案B = RSI 上穿40 确认（rp≤40 & r>40，与 C1 上穿30 对称），
+        # 价格反弹 + 动量转升双维确认，f -38%→+16% 转正（14-家电buy_aux优化回测.md）。
+        buy_aux_filter = buy_aux_filters.get(iid)
+        if buy_aux_filter == "rsi_cross_40":
+            rsi_cross_40 = ((rsi_prev <= 40) & (rsi > 40)).fillna(False)
+            buy_aux = buy_aux & rsi_cross_40
+
         # 卖点（D1，high-based 20 日回落 5%）：close 从近 20 日最高价（用 high 不用 close）
         # 回落 5% = 趋势转弱/止盈减仓提示。事件化：前一日还在阈之上、当日跌破阈才标。
         hh20 = high.rolling(20).max()
@@ -305,7 +362,7 @@ def compute():
         sell = sell & (close > ma60).fillna(False)
 
         # 方案 B（MACD 死叉确认，2026-07-05）：D1+S1 基础上加 DIF<DEA（动量转弱确认），
-        # 过滤「强趋势中回调假摔」型假信号。回测建议率 18.3%→43.3%（11→28 个建议）。
+        # 过滤「强趋势中回调假摔」型假信号。回测建议率 18.3%→43.3%（11→26 个建议）。
         # 指数（无前缀）一律应用 MACD 过滤；s.* 情绪分序列在 _compute_value_signals 豁免。
         dif, dea = _macd(close)
         sell = sell & (dif < dea).fillna(False)
@@ -345,6 +402,8 @@ def compute():
                     parts.append("布林下轨回归")
                 if pd.notna(r):
                     parts.append(f"RSI={r:.0f}")
+                if buy_aux_filter == "rsi_cross_40":
+                    parts.append("RSI[上穿40]")
                 cv = cross_aligned.get(date)
                 if pd.notna(cv):
                     parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
@@ -389,12 +448,14 @@ def compute():
         value = load_metric_value(mid)
         if value.empty:
             continue
-        signals.extend(_compute_value_signals(value, f"g.{mid}", kind="指标"))
+        signals.extend(_compute_value_signals(value, f"g.{mid}", kind="指标",
+                                              buy_aux_filter=buy_aux_filters.get(f"g.{mid}")))
     for scid in SCORE_IDS:
         value = load_score_value(scid)
         if value.empty:
             continue
-        signals.extend(_compute_value_signals(value, f"s.{scid}", skip_buy=(scid == "a_sentiment"), kind="情绪分"))
+        signals.extend(_compute_value_signals(value, f"s.{scid}", skip_buy=(scid == "a_sentiment"),
+                                              kind="情绪分", buy_aux_filter=buy_aux_filters.get(f"s.{scid}")))
 
     return signals
 
