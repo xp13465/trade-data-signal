@@ -9,11 +9,11 @@
 调 `app.scheduler.run()`：刷新交易日历 → 交易日闸门 → 采集 → 计算 → 告警检查（step 1-8）。scheduler 内部各 step 已 try/except，部分失败不阻塞整体。
 
 ```bash
-bash scripts/collect.sh            # 今天
-bash scripts/collect.sh 20260706   # 指定日期（透传给 scheduler）
+bash /Users/linhuichen/code/trade/scripts/collect.sh            # 今天
+bash /Users/linhuichen/code/trade/scripts/collect.sh 20260706   # 指定日期（透传给 scheduler）
 ```
 
-- 日志：`data/logs/collect_YYYYMMDD_HHMM.log`（tee 同时输出到终端）
+- 日志：`/Users/linhuichen/code/trade/data/logs/collect_YYYYMMDD_HHMM.log`（tee 同时输出到终端）
 - 退出码：scheduler 退出码（部分 step 失败仍返 0，scheduler 不抛）
 - 注意：`set -u` 但不 `set -e`——采集部分失败仍继续，记录退出码
 
@@ -22,11 +22,11 @@ bash scripts/collect.sh 20260706   # 指定日期（透传给 scheduler）
 跑 `static-site/export.py` 生成静态 JSON → `git add static-site/data/` → 检查有无变更 → 有变更才 commit + push（Cloudflare Pages 自动部署），无变更 skip。
 
 ```bash
-bash scripts/deploy.sh
+bash /Users/linhuichen/code/trade/scripts/deploy.sh
 ```
 
 - commit message：`data update YYYY-MM-DD_HH:MM`
-- 日志：`data/logs/deploy_YYYYMMDD_HHMM.log`
+- 日志：`/Users/linhuichen/code/trade/data/logs/deploy_YYYYMMDD_HHMM.log`
 - 退出码：0=成功（push 或 skip）；非 0=export 或 push 失败
 - 仓库 remote：`git@github.com:xp13465/trade-data-signal.git`（SSH 已认证）
 
@@ -35,10 +35,10 @@ bash scripts/deploy.sh
 顺序跑 collect → deploy。**无论采集成功失败都继续 deploy**——用现有（可能部分更新）数据导出推送，公网保持最新可用状态；collect 失败仅记日志、不改变最终退出码。
 
 ```bash
-bash scripts/update_all.sh
+bash /Users/linhuichen/code/trade/scripts/update_all.sh
 ```
 
-- 日志：`data/logs/update_all_YYYYMMDD_HHMM.log`（含 collect + deploy 子日志）
+- 日志：`/Users/linhuichen/code/trade/data/logs/update_all_YYYYMMDD_HHMM.log`（含 collect + deploy 子日志）
 - 退出码：deploy.sh 退出码（最终公网状态）
 
 ## 定时任务配置
@@ -101,7 +101,7 @@ launchctl unload ~/Library/LaunchAgents/com.trade.update-all.plist
 
 - 与旧 plist（`com.trade.sentiment`，仅采集）二选一即可，避免重复采集。如改用 update_all，建议先 `launchctl unload` 旧 plist。
 - A 股收盘 15:00，15:33 跑留出 33 分钟等盘后数据落盘；港股 / 美股时差另算。
-- Mac 睡眠时 launchd 不触发，醒来后 `RunAtLoad=false` 不会补跑。如需补跑可临时 `launchctl start` 或手动 `bash scripts/update_all.sh`。
+- Mac 睡眠时 launchd 不触发，醒来后 `RunAtLoad=false` 不会补跑。如需补跑可临时 `launchctl start` 或手动 `bash /Users/linhuichen/code/trade/scripts/update_all.sh`。
 
 ### 方案 B：cron
 
