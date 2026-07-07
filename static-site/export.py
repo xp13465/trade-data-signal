@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from app.calendar import last_trading_day  # noqa: E402
 from app.collector.fetchers import load_config  # noqa: E402
+from app.compute import signal_stats as sigstats  # noqa: E402
 from app.db import get_conn  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent
@@ -41,6 +42,15 @@ INDEX_DIR = DATA_DIR / "index"
 
 RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365}
 ALL_RANGES = list(RANGES.keys()) + ["all"]
+
+
+def _stats_all() -> dict:
+    """读 data/signal_stats.json（与 main.py _stats_all 一致）。"""
+    return sigstats.load()
+
+
+def _stats_for(stats_all: dict, index_id: str) -> dict:
+    return stats_all.get(index_id, {})
 
 # 概览 KPI 指标（与 main.py KPI_METRIC_IDS 一致）
 KPI_METRIC_IDS = [
@@ -275,19 +285,23 @@ def export_hk(conn, cfg, rng):
 def export_global(conn, cfg, rng):
     """复刻 /api/global。"""
     start, end = _range(rng)
+    stats_all = _stats_all()
     indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end)}
                for i in _indices_for_market(cfg, "global")}
     extras = {}
     extras_signals = {}
+    extras_stats = {}
     for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread"):
         extras[mid] = _metric_series(conn, mid, start, end)
         extras_signals[mid] = _signals(conn, f"g.{mid}", start, end)
-    return {"indices": indices, "extras": extras, "extras_signals": extras_signals}
+        extras_stats[mid] = _stats_for(stats_all, f"g.{mid}")
+    return {"indices": indices, "extras": extras, "extras_signals": extras_signals, "extras_stats": extras_stats}
 
 
 def export_sentiment(conn, cfg, rng):
     """复刻 /api/sentiment。"""
     start, end = _range(rng)
+    stats_all = _stats_all()
     return {
         "a_sentiment": _score_series(conn, "a_sentiment", start, end),
         "cross_market": _score_series(conn, "cross_market", start, end),
@@ -295,12 +309,17 @@ def export_sentiment(conn, cfg, rng):
             "a_sentiment": _signals(conn, "s.a_sentiment", start, end),
             "cross_market": _signals(conn, "s.cross_market", start, end),
         },
+        "stats": {
+            "a_sentiment": _stats_for(stats_all, "s.a_sentiment"),
+            "cross_market": _stats_for(stats_all, "s.cross_market"),
+        },
     }
 
 
 def export_industry(conn, cfg, rng):
     """复刻 /api/industry。"""
     start, end = _range(rng)
+    stats_all = _stats_all()
     indices_cfg = _indices_for_market(cfg, "industry")
     indices = {}
     for i in indices_cfg:
@@ -310,6 +329,7 @@ def export_industry(conn, cfg, rng):
             "name": i["name"],
             "data": _index_series(conn, iid, start, end),
             "signals": _signals(conn, iid, start, end),
+            "stats": _stats_for(stats_all, iid),
             "fund_flow": _metric_series(conn, f"ind_flow_{iid}", start, end),
             "turnover": _metric_series(conn, f"ind_turn_{iid}", start, end),
             "width": _industry_width(conn, ind_code, start, end),
@@ -318,9 +338,14 @@ def export_industry(conn, cfg, rng):
 
 
 def export_index_detail(conn, cfg, index_id):
-    """复刻 /api/index/{index_id}?range=all。全历史 ohlc + signals。"""
+    """复刻 /api/index/{index_id}?range=all。全历史 ohlc + signals + stats。"""
     start, end = _range("all")
-    return {"ohlc": _index_series(conn, index_id, start, end), "signals": _signals(conn, index_id, start, end)}
+    stats_all = _stats_all()
+    return {
+        "ohlc": _index_series(conn, index_id, start, end),
+        "signals": _signals(conn, index_id, start, end),
+        "stats": _stats_for(stats_all, index_id),
+    }
 
 
 def export_metrics(cfg):

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from .calendar import last_trading_day
 from .collector.fetchers import load_config
+from .compute import signal_stats as sigstats
 from .db import get_conn
 
 app = FastAPI(title="情绪数据复盘看板")
@@ -91,6 +92,17 @@ def _signals(index_id=None, start=None, end=None):
     rows = conn.execute(q + " ORDER BY date", params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# 买卖点回测 stats（读 data/signal_stats.json，由 app.compute.signal_stats 定期重算）。
+# 返回 {index_id: {buy/buy_aux/sell: {5d/10d/20d: {win_rate,pl,mean,n}}}}；文件缺失返 {}。
+def _stats_all() -> dict:
+    return sigstats.load()
+
+
+def _stats_for(index_id: str) -> dict:
+    """单品种 stats：{buy:{...}, buy_aux:{...}, sell:{...}}；无则空 dict。"""
+    return _stats_all().get(index_id, {})  # force-reload trigger
 
 
 def _metrics_for_groups(*groups):
@@ -254,10 +266,12 @@ def global_(range: str = Depends(range_dep)):
     indices = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end)} for i in _indices_for_market("global")}
     extras = {}
     extras_signals = {}
+    extras_stats = {}
     for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread"):
         extras[mid] = _metric_series(mid, start, end)
         extras_signals[mid] = _signals(f"g.{mid}", start, end)
-    return {"indices": indices, "extras": extras, "extras_signals": extras_signals}
+        extras_stats[mid] = _stats_for(f"g.{mid}")
+    return {"indices": indices, "extras": extras, "extras_signals": extras_signals, "extras_stats": extras_stats}
 
 
 @app.get("/api/sentiment")
@@ -269,6 +283,10 @@ def sentiment(range: str = Depends(range_dep)):
         "signals": {
             "a_sentiment": _signals("s.a_sentiment", start, end),
             "cross_market": _signals("s.cross_market", start, end),
+        },
+        "stats": {
+            "a_sentiment": _stats_for("s.a_sentiment"),
+            "cross_market": _stats_for("s.cross_market"),
         },
     }
 
@@ -333,6 +351,7 @@ def industry(range: str = Depends(range_dep)):
             "name": i["name"],
             "data": _index_series(iid, start, end),
             "signals": _signals(iid, start, end),
+            "stats": _stats_for(iid),
             # F2：行业资金流 + 换手率（daily_metric）；成交额已在 data[].amount（F1 index_daily）
             "fund_flow": _metric_series(f"ind_flow_{iid}", start, end),
             "turnover": _metric_series(f"ind_turn_{iid}", start, end),
@@ -347,7 +366,11 @@ def index_detail(index_id: str, range: str = Depends(range_dep)):
     if index_id not in _valid_index_ids():
         raise HTTPException(status_code=404, detail=f"未知的指数代码: {index_id}")
     start, end = _range(range)
-    return {"ohlc": _index_series(index_id, start, end), "signals": _signals(index_id, start, end)}
+    return {
+        "ohlc": _index_series(index_id, start, end),
+        "signals": _signals(index_id, start, end),
+        "stats": _stats_for(index_id),
+    }
 
 
 @app.get("/api/metrics")
