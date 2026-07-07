@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 大数据库（GitHub 限制 + 本地数据，不进 git）
+data/sentiment.db
+data/sentiment.db-wal
+data/sentiment.db-shm
+data/stock_daily.db
+data/stock_daily.db-wal
+data/stock_daily.db-shm
+
+# 第三方项目（独立 git 仓库，单独 clone）
+a-stock-data/
+
+# 本地状态/日志/进度
+data/logs/
+data/baostock_logs/
+data/*.log
+data/*_progress.json
+data/baostock_*.sh
+data/baostock_skipped_bj.txt
+data/cleanup_d3d2_report.json
+
+# 系统
+.DS_Store

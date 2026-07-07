@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>情绪数据复盘看板</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+  <script src="./vendor/echarts.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>📊 情绪数据复盘看板</h1>
+  </header>
+  <nav class="tabs">
+    <button data-tab="overview" class="active">概览</button>
+    <button data-tab="a-stock">A股</button>
+    <button data-tab="hk">港股</button>
+    <button data-tab="global">全球</button>
+    <button data-tab="sentiment">综合情绪</button>
+    <button data-tab="industry">行业</button>
+    <!-- UX：周期选择器移入 tab 栏右端，随 sticky tab 栏一起悬浮顶部，下滚始终可见可操作 -->
+    <div class="periods">
+      <button data-rng="1m">1月</button>
+      <button data-rng="3m">3月</button>
+      <button data-rng="6m">6月</button>
+      <button data-rng="1y" class="active">1年</button>
+      <button data-rng="all">全部</button>
+      <!-- 手动补录入口已移除：敏感操作不应在主导航暴露。后端 /api/manual/* API 保留，需要时直接调 API 或另设权限入口。 -->
+    </div>
+  </nav>
+  <main id="content"><div class="loading">加载中…</div></main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

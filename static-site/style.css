@@ -1,0 +1,275 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #f5f6f8;
+  color: #1f2329;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  background: #fff;
+  border-bottom: 1px solid #e5e6eb;
+}
+header h1 { font-size: 18px; margin: 0; }
+.periods button {
+  margin-left: 6px;
+  padding: 6px 12px;
+  border: 1px solid #d9dce0;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.periods button.active { background: #165dff; color: #fff; border-color: #165dff; }
+.periods button.ghost { background: transparent; }
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 24px;
+  background: #fff;
+  border-bottom: 1px solid #e5e6eb;
+  position: sticky;   /* UX：tab 栏滚动时悬浮顶部（周期选择器 .periods 在右端，随之悬浮）*/
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.tabs > button {   /* 仅直接子（tab 按钮），不影响 .periods 内的周期按钮 */
+  padding: 10px 18px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+  color: #4e5969;
+}
+.tabs > button.active { color: #165dff; border-bottom-color: #165dff; }
+/* UX：周期选择器贴 tab 栏右端，随 sticky tab 栏悬浮顶部右上角 */
+.tabs .periods {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+main { padding: 16px 24px; }
+.loading { color: #86909c; padding: 40px; text-align: center; }
+
+.chart-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.chart-card h3 { margin: 0 0 8px; font-size: 14px; color: #1f2329; }
+.chart-hint {
+  font-size: 12px;
+  color: #d4380d;
+  background: #fff2e8;
+  border: 1px solid #ffbb96;
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.cards { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-width: 180px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.card-title { font-size: 13px; color: #86909c; }
+.card-value { font-size: 32px; font-weight: 600; margin: 4px 0; }
+.card-date { font-size: 12px; color: #c9cdd4; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; color: #fff; }
+.tag.freeze { background: #e6492e; }
+.tag.overheat { background: #2e8b57; }
+
+.sig-list { list-style: none; padding: 0; margin: 0; }
+.sig-list li { padding: 6px 0; border-bottom: 1px solid #f2f3f5; font-size: 13px; }
+.sig-list b.buy { color: #e6492e; }
+.sig-list b.sell { color: #2e8b57; }
+.muted { color: #86909c; }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal.hidden { display: none; }
+.modal-body {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px 24px;
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modal-body label { display: flex; flex-direction: column; font-size: 13px; gap: 4px; }
+.modal-body input, .modal-body select { padding: 6px 8px; border: 1px solid #d9dce0; border-radius: 4px; }
+.modal-body .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.modal-body button { padding: 6px 16px; border: 1px solid #165dff; background: #165dff; color: #fff; border-radius: 4px; cursor: pointer; }
+.modal-body button.ghost { background: #fff; color: #4e5969; border-color: #d9dce0; }
+
+/* === 概览美化（G1）=== */
+.section-title {
+  font-size: 13px;
+  color: #4e5969;
+  font-weight: 600;
+  margin: 4px 0 8px 2px;
+  padding-left: 8px;
+  border-left: 3px solid #165dff;
+}
+.cards.kpi-row { gap: 12px; }
+.card.kpi { min-width: 150px; padding: 12px 16px; flex: 1 1 150px; }
+.card.kpi .card-value { font-size: 24px; margin: 2px 0; }
+.card-sub { font-size: 12px; color: #c9cdd4; }
+.tag.stale { background: #faad14; }
+
+.spark-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.spark-cell {
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.spark-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 2px;
+}
+.spark-name { font-size: 13px; color: #1f2329; font-weight: 500; }
+.pct-badge { font-size: 13px; font-weight: 600; }
+.spark-date { font-size: 11px; color: #c9cdd4; margin-top: 2px; }
+
+.ov-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.ov-2col .chart-card { margin-bottom: 0; }
+@media (max-width: 720px) {
+  .ov-2col { grid-template-columns: 1fr; }
+}
+.empty-note { color: #86909c; padding: 14px 0; font-size: 13px; }
+
+.placeholder .placeholder-body {
+  color: #86909c;
+  font-size: 13px;
+  padding: 24px 0;
+  text-align: center;
+  border: 1px dashed #d9dce0;
+  border-radius: 6px;
+}
+
+/* === 行业看板（F1）=== */
+.industry-grid {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.industry-grid .spark-cell .spark-chart { min-height: 90px; }
+.industry-grid .spark-name { font-size: 12px; }
+
+/* F2：行业资金流 / 成交额 / 换手率 mini sparklines */
+.industry-cell { padding: 8px 10px; }
+.ind-metrics { margin-top: 4px; }
+.ind-metric-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.ind-metric-label {
+  font-size: 10px;
+  color: #86909c;
+  width: 34px;
+  flex-shrink: 0;
+}
+.ind-metric-chart {
+  flex: 1;
+  height: 24px;
+  min-width: 0;
+}
+.ind-metric-val {
+  font-size: 10px;
+  color: #4e5969;
+  width: 50px;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* === 买卖点规则说明条（E3）=== */
+.rule-bar {
+  background: #fafbfc;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #4e5969;
+  line-height: 1.6;
+  position: sticky;   /* UX：ruleBar 悬浮在 tab 栏正下方（top = tab 栏实测高度，由 JS 写入 --tab-h，兜底 41px）*/
+  top: var(--tab-h, 41px);
+  z-index: 40;
+}
+.rule-bar .rule-summary {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rule-bar .rule-toggle {
+  color: #86909c;
+  font-size: 10px;
+  width: 12px;
+  flex-shrink: 0;
+}
+.rule-bar .rule-text { flex: 1; }
+.rule-bar .rule-detail {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #e5e6eb;
+}
+.rule-bar .rule-detail.hidden { display: none; }
+.rule-bar .rule-detail div { margin: 2px 0; }
+.rule-bar b.buy { color: #e6492e; }
+.rule-bar b.sell { color: #2e8b57; }
+
+/* === UX：右下角回到顶部浮动按钮 === */
+.back-to-top {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(31, 35, 41, 0.55);
+  color: #fff;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, background 0.2s ease;
+  z-index: 90;            /* 浮在内容上、低于 modal(100)；ECharts tooltip 自带高 z-index 不会被遮挡 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+.back-to-top.visible { opacity: 1; pointer-events: auto; }
+.back-to-top:hover { background: rgba(31, 35, 41, 0.82); }
+.back-to-top:focus-visible { outline: 2px solid #165dff; outline-offset: 2px; }
+

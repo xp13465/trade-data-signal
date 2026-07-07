@@ -1,0 +1,148 @@
+# 指标注册表 —— 加减指标只改此文件，fetchers.py 按此调用 akshare。
+# 字段：
+#   type: simple(单值入 daily_metric) | derived(计算模块产出)
+#   func: akshare 函数名 | direct:xxx(直爬) | TODO
+#   transform: count_rows|count_up|count_down|sum|mean|max|median|extract_item|ratio_count|null
+#   scale: 数值缩放（如 1e-8 元→亿元）
+#   direction: positive(越高越热) | negative(归一化取反) | neutral
+#   drop_zero: true 时把 0.0 当缺失跳过（仅用于 0 不可能是真值的指标，如 QVIX；
+#               资金流/IPO 数等可为 0 的指标不要加，否则误杀真 0）
+#   filter: {列名: 值} 行过滤（如 bond_china_yield 需筛「中债国债收益率曲线」一行）
+#   lookback_days: 序列型回溯天数（仅 bond_china_yield 分块拉取用，默认 3650≈10 年）
+# 环境说明：东财 push2 clist/板块端点被反爬封，已用 sina 源或直爬替代。
+
+metrics:
+  # ============ A股 · 市场宽度 ============
+  # 宽度指标历史段（2016-2026）由 app/collector/width_history.py 从 mootdx_daily_raw
+  # 算 close 口径回填（source='mootdx'）；近端每日由 scheduler 走 stock_zt_pool_em
+  # 等东财板池采集（source='akshare'，封板口径）。两口径 zt 交叉校验均值误差 ~3%。
+  # 口径详见 REQUIREMENTS.md §宽度指标口径。
+  - {id: a_width_up_count,      name: 上涨家数,   group: a_width, type: simple, func: stock_zh_a_spot,         transform: count_up,   unit: 家, direction: positive, enabled: true}
+  - {id: a_width_down_count,    name: 下跌家数,   group: a_width, type: simple, func: stock_zh_a_spot,         transform: count_down, unit: 家, direction: negative, enabled: true}
+  - {id: a_width_zt_count,      name: 涨停数(收盘封板),     group: a_width, type: simple, func: stock_zt_pool_em,        transform: count_rows, unit: 只, direction: positive, enabled: true}
+  - {id: a_width_dt_count,      name: 跌停数(收盘封板),     group: a_width, type: simple, func: stock_zt_pool_dtgc_em,   transform: count_rows, unit: 只, direction: negative, enabled: true}
+  - {id: a_width_max_lianban,   name: 连板高度,   group: a_width, type: simple, func: stock_zt_pool_em,        column: 连板数, transform: max, unit: 板, direction: positive, enabled: true}
+  - {id: a_width_zhaban_rate,   name: 炸板率,     group: a_width, type: simple, func: stock_zt_pool_zbgc_em,   func2: stock_zt_pool_em, transform: ratio_count, unit: "%", direction: negative, enabled: true}
+  - {id: a_width_fengban_rate,  name: 封板率,     group: a_width, type: derived, formula: "1 - a_width_zhaban_rate", unit: "%", direction: positive, enabled: true}
+  - {id: a_width_daban_premium, name: 打板溢价,   group: a_width, type: simple, func: stock_zt_pool_previous_em, column: 涨跌幅, transform: mean, unit: "%", direction: positive, enabled: true}
+  # 以下两指标由 width_history.py 从 mootdx_daily_raw 算 10 年历史回填（func=TODO，
+  # scheduler 不采集，仅查 daily_metric 历史）。zb_count=炸板数(收盘未封)，
+  # seal_rate=封板率=zt/(zt+zb)，与上方 fengban_rate(=1-zhaban_rate, 东财近2周)互补。
+  - {id: a_width_zb_count,      name: 炸板数(收盘未封),     group: a_width, type: simple, func: TODO, unit: 只, direction: negative, enabled: true}
+  - {id: a_width_seal_rate,     name: 封板率(zt/(zt+zb)),   group: a_width, type: simple, func: TODO, unit: "%", direction: positive, enabled: true}
+
+  # ============ A股 · 资金面 ============
+  - {id: a_fund_north,   name: 北向资金净流入(2024年8月停更), group: a_fund, type: simple, func: stock_hsgt_hist_em,     params: {symbol: 北向资金}, column: 当日成交净买额, unit: 亿元, direction: positive, enabled: true}
+  - {id: a_fund_margin,  name: 两融余额(沪市融资), group: a_fund, type: simple, func: stock_margin_sse,       column: 融资余额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
+  - {id: a_fund_main,    name: 主力净流入,     group: a_fund, type: simple, func: direct:market_fund_flow, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
+
+  # ============ A股 · 情绪指数 ============
+  - {id: a_qvix_300,        name: QVIX(300ETF),   group: a_sentiment, type: simple, func: index_option_300etf_qvix,    column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
+  - {id: a_qvix_1000,       name: QVIX(1000ETF),  group: a_sentiment, type: simple, func: index_option_1000index_qvix, column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
+  - {id: a_amount,          name: 成交额(沪深京),   group: a_sentiment, type: simple, func: stock_zh_a_spot,            column: 成交额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
+  # a_sentiment_score / cross_market_score 是综合分，写入 score_daily，经 /api/sentiment 出，不在此处登记
+  # 以下待源：sina 无换手率；legulegu.com 不稳定；东财情绪接口待验
+  - {id: a_turnover_rate,     name: 换手率,       group: a_sentiment, type: simple, func: tencent:index_turnover, params: {code: '000001'}, unit: "%", direction: neutral, enabled: true}
+  # 换手率分布（D2 遗留，由 cleanup_d3d2.py 从 baostock_daily_raw.turnover 按日聚合算得，
+  # source='baostock'，回填 2016-2026 ~2550 日）。mootdx 无 turnover 故 D2 跳过，改用 BaoStock。
+  # gt5_pct=换手率>5% 家数占比（0-1 小数，体现活跃度分化）。func=TODO：scheduler 不采，仅查历史。
+  - {id: a_turnover_mean,     name: 全市场换手率均值,  group: a_sentiment, type: simple, func: TODO, unit: "%", direction: neutral, enabled: true}
+  - {id: a_turnover_median,   name: 全市场换手率中位数, group: a_sentiment, type: simple, func: TODO, unit: "%", direction: neutral, enabled: true}
+  - {id: a_turnover_p90,      name: 换手率90分位,      group: a_sentiment, type: simple, func: TODO, unit: "%", direction: neutral, enabled: true}
+  - {id: a_turnover_p10,      name: 换手率10分位,      group: a_sentiment, type: simple, func: TODO, unit: "%", direction: neutral, enabled: true}
+  - {id: a_turnover_gt5_pct,  name: 换手率>5%家数占比, group: a_sentiment, type: simple, func: TODO, unit: "-", direction: neutral, enabled: true}
+  - {id: a_div_yield,         name: 上证A股股息率, group: a_sentiment, type: simple, func: stock_a_gxl_lg, params: {symbol: 上证A股}, column: 股息率, unit: "%", direction: negative, enabled: true}
+  - {id: a_legu,              name: 乐咕活跃度,   group: a_sentiment, type: simple, func: stock_market_activity_legu, transform: extract_item, extract: 活跃度, enabled: false}
+  - {id: a_dongcai_sentiment, name: 东财情绪,     group: a_sentiment, type: simple, func: TODO, enabled: false}
+
+  # ============ 港股 / 全球 ============
+  - {id: hk_south, name: 港股通净买入, group: hk,     type: simple, func: stock_hsgt_hist_em, params: {symbol: 南向资金}, column: 当日成交净买额, unit: 亿元, direction: positive, enabled: true}
+  - {id: usdcnh,   name: 离岸人民币,   group: global, type: simple, func: currency_boc_sina,  params: {symbol: 美元}, column: 央行中间价, unit: "-", direction: negative, enabled: true}
+  - {id: gold,     name: 黄金(沪金),   group: global, type: simple, func: futures_main_sina,  params: {symbol: AU0}, column: 收盘价, unit: 元/克, direction: negative, enabled: true}
+  - {id: oil,      name: 原油(INE主力连续), group: global, type: simple, func: futures_main_sina,  params: {symbol: sc0}, column: 收盘价, unit: 元/桶, direction: neutral, enabled: true}
+  - {id: wti_oil,      name: WTI原油,   group: global, type: simple, func: futures_foreign_hist, params: {symbol: CL}, column: close, unit: 美元/桶,   direction: neutral, enabled: true}
+  - {id: comex_silver, name: COMEX白银, group: global, type: simple, func: futures_foreign_hist, params: {symbol: SI}, column: close, unit: 美元/盎司, direction: neutral, enabled: true}
+  - {id: cn10y,        name: 中国10年国债收益率, group: global, type: simple, func: bond_china_yield, column: '10年', filter: {曲线名称: 中债国债收益率曲线}, unit: "%", direction: neutral, enabled: true}
+  - {id: us10y,        name: 美国10年国债收益率, group: global, type: simple, func: bond_zh_us_rate, params: {start_date: '20160101'}, column: 美国国债收益率10年, unit: "%", direction: neutral, enabled: true}
+  - {id: cn_us_spread, name: 中美利差(10Y),      group: global, type: derived, formula: "cn10y - us10y", unit: "%", direction: neutral, enabled: true}
+
+  # ============ 试采 · 龙虎榜 / 解禁 / IPO / 可转债 ============
+  - {id: lhb_count,           name: 龙虎榜上榜家数,   group: lhb,    type: simple, func: stock_lhb_detail_em,                transform: count_rows, unit: 只, direction: positive, enabled: true}
+  - {id: lhb_inst_net,        name: 机构净买入,       group: lhb,    type: simple, func: stock_lhb_jgmmtj_em,                column: 机构买入净额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
+  - {id: unlock_amount,       name: 解禁规模,         group: unlock, type: simple, func: stock_restricted_release_summary_em, column: 实际解禁市值, transform: sum, scale: 1.0e-8, unit: 亿元, direction: negative, enabled: true}
+  - {id: unlock_count,        name: 解禁家数,         group: unlock, type: simple, func: stock_restricted_release_queue_em,   transform: count_rows, unit: 只, direction: negative, enabled: true}
+  - {id: ipo_count,           name: IPO数量,          group: ipo,    type: simple, func: stock_ipo_summary_cninfo,            transform: count_rows, unit: 只, direction: neutral, enabled: true}
+  - {id: ipo_amount,          name: IPO募资额,        group: ipo,    type: simple, func: stock_ipo_summary_cninfo,            column: 募集资金净额, transform: sum, scale: 1.0e-4, unit: 亿元, direction: neutral, enabled: true}
+  - {id: cov_count,           name: 可转债数量,       group: cov,    type: simple, func: bond_zh_cov,                         transform: count_rows, unit: 只, direction: neutral, enabled: true}
+  - {id: cov_premium_median,  name: 转股溢价率中位数, group: cov,    type: simple, func: bond_zh_cov_value_analysis,          column: 转股溢价率, transform: median, unit: "%", direction: neutral, enabled: true}
+
+  # ============ 行业指标（F2，由 industry_extras.py 按行业批量采集，非单指标 runner 遍历）============
+  # id 格式：ind_flow_<sw_id>（资金流，31 个）、ind_turn_<sw_id>（换手率，31 个）。
+  # 成交额已在 index_daily.amount（F1 的 index_hist_sw 返回，申万源）。
+  # 资金流：东财 fflow daykline（push2his.eastmoney.com，非 clist 不被封），f52 主力净流入 ÷1e8 → 亿元，~121 天历史。
+  # 换手率：东财 kline（push2his.eastmoney.com），f61 换手率 %，2 年历史。
+  # 申万 801xxx → 东财 BKxxxx 映射见 industry_extras.py SW_EM_MAP（通过 clist m:90 t:2 按名称匹配）。
+  - {id: ind_flow_template, name: 行业资金流(模板), group: industry, type: simple, func: TODO, unit: 亿元, enabled: false}
+  - {id: ind_turn_template, name: 行业换手率(模板), group: industry, type: simple, func: TODO, unit: "%", enabled: false}
+
+# ============ 指数（入 index_daily）============
+indices:
+  - {id: sh,       name: 上证指数, market: a, func: stock_zh_index_daily, symbol: "sh000001"}
+  - {id: sz,       name: 深成指,   market: a, func: stock_zh_index_daily, symbol: "sz399001"}
+  - {id: hs300,    name: 沪深300,  market: a, func: stock_zh_index_daily, symbol: "sh000300"}
+  - {id: csi500,   name: 中证500,  market: a, func: stock_zh_index_daily, symbol: "sh000905"}
+  - {id: csi1000,  name: 中证1000, market: a, func: stock_zh_index_daily, symbol: "sh000852"}
+  - {id: cyb,      name: 创业板指, market: a, func: stock_zh_index_daily, symbol: "sz399006"}
+  - {id: kc50,     name: 科创50,   market: a, func: stock_zh_index_daily, symbol: "sh000688"}
+  # 红利指数：中证红利/红利低波走中证指数公司源（sina sh000922 数据停在 2019、930955 sina 无此代码），
+  # 深证红利走 sina 源。market=a 复用 A 股看板 renderAStock 自动渲染折线 + E1 买卖点。
+  - {id: csi_div,   name: 中证红利, market: a, func: stock_zh_index_hist_csindex, symbol: "000922"}
+  - {id: div_lowvol, name: 红利低波, market: a, func: stock_zh_index_hist_csindex, symbol: "930955"}
+  - {id: sz_div,    name: 深证红利, market: a, func: stock_zh_index_daily, symbol: "sz399324"}
+  - {id: hsi,      name: 恒生指数, market: hk, func: stock_hk_index_daily_sina, symbol: HSI}
+  - {id: hstech,   name: 恒生科技, market: hk, func: stock_hk_index_daily_sina, symbol: HSTECH}
+  - {id: hscei,    name: 恒生国企, market: hk, func: stock_hk_index_daily_sina, symbol: HSCEI}
+  # 美股指数：sina index_global_name_table 无道/纳/标普，待找源（stock_us_index 或直爬）
+  - {id: us_dji,   name: 道琼斯,   market: global, func: TODO, symbol: "", enabled: false}
+  - {id: us_ixic,  name: 纳斯达克, market: global, func: TODO, symbol: "", enabled: false}
+  - {id: us_spx,   name: 标普500,  market: global, func: TODO, symbol: "", enabled: false}
+  # 申万一级行业指数（31 个）—— F1。源 swsresearch.com（本地 DNS 失败，base.py 已 monkey-patch
+  # socket.getaddrinfo 走 8.8.8.8 解析的 IP）。index_hist_sw 返全量历史（1999 起），无 start/end 参数。
+  # market=industry 进 /api/industry；signals.py 自动遍历 cfg["indices"] 算 E1 买卖点。
+  - {id: sw_801010, name: "SW 农林牧渔", market: industry, func: index_hist_sw, symbol: "801010"}
+  - {id: sw_801030, name: "SW 基础化工", market: industry, func: index_hist_sw, symbol: "801030"}
+  - {id: sw_801040, name: "SW 钢铁",     market: industry, func: index_hist_sw, symbol: "801040"}
+  - {id: sw_801050, name: "SW 有色金属", market: industry, func: index_hist_sw, symbol: "801050"}
+  - {id: sw_801080, name: "SW 电子",     market: industry, func: index_hist_sw, symbol: "801080"}
+  - {id: sw_801880, name: "SW 汽车",     market: industry, func: index_hist_sw, symbol: "801880"}
+  - {id: sw_801110, name: "SW 家用电器", market: industry, func: index_hist_sw, symbol: "801110"}
+  - {id: sw_801120, name: "SW 食品饮料", market: industry, func: index_hist_sw, symbol: "801120"}
+  - {id: sw_801130, name: "SW 纺织服饰", market: industry, func: index_hist_sw, symbol: "801130"}
+  - {id: sw_801140, name: "SW 轻工制造", market: industry, func: index_hist_sw, symbol: "801140"}
+  - {id: sw_801150, name: "SW 医药生物", market: industry, func: index_hist_sw, symbol: "801150"}
+  - {id: sw_801160, name: "SW 公用事业", market: industry, func: index_hist_sw, symbol: "801160"}
+  - {id: sw_801170, name: "SW 交通运输", market: industry, func: index_hist_sw, symbol: "801170"}
+  - {id: sw_801180, name: "SW 房地产",   market: industry, func: index_hist_sw, symbol: "801180"}
+  - {id: sw_801200, name: "SW 商贸零售", market: industry, func: index_hist_sw, symbol: "801200"}
+  - {id: sw_801210, name: "SW 社会服务", market: industry, func: index_hist_sw, symbol: "801210"}
+  - {id: sw_801780, name: "SW 银行",     market: industry, func: index_hist_sw, symbol: "801780"}
+  - {id: sw_801790, name: "SW 非银金融", market: industry, func: index_hist_sw, symbol: "801790"}
+  - {id: sw_801230, name: "SW 综合",     market: industry, func: index_hist_sw, symbol: "801230"}
+  - {id: sw_801710, name: "SW 建筑材料", market: industry, func: index_hist_sw, symbol: "801710"}
+  - {id: sw_801720, name: "SW 建筑装饰", market: industry, func: index_hist_sw, symbol: "801720"}
+  - {id: sw_801730, name: "SW 电力设备", market: industry, func: index_hist_sw, symbol: "801730"}
+  - {id: sw_801890, name: "SW 机械设备", market: industry, func: index_hist_sw, symbol: "801890"}
+  - {id: sw_801740, name: "SW 国防军工", market: industry, func: index_hist_sw, symbol: "801740"}
+  - {id: sw_801750, name: "SW 计算机",   market: industry, func: index_hist_sw, symbol: "801750"}
+  - {id: sw_801760, name: "SW 传媒",     market: industry, func: index_hist_sw, symbol: "801760"}
+  - {id: sw_801770, name: "SW 通信",     market: industry, func: index_hist_sw, symbol: "801770"}
+  - {id: sw_801950, name: "SW 煤炭",     market: industry, func: index_hist_sw, symbol: "801950"}
+  - {id: sw_801960, name: "SW 石油石化", market: industry, func: index_hist_sw, symbol: "801960"}
+  - {id: sw_801970, name: "SW 环保",     market: industry, func: index_hist_sw, symbol: "801970"}
+  - {id: sw_801980, name: "SW 美容护理", market: industry, func: index_hist_sw, symbol: "801980"}
+
+# ============ 板块（入 board_daily）—— 东财端点反爬封，待直爬实现 ============
+boards:
+  - {type: industry, name: 行业板块, func: stock_board_industry_name_em, top: 5, enabled: false}
+  - {type: concept,  name: 概念板块, func: stock_board_concept_name_em,  top: 5, enabled: false}
+  - {type: industry_fund, name: 行业资金流, func: stock_sector_fund_flow_rank, top: 5, enabled: false}

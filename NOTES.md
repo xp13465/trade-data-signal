@@ -1,0 +1,296 @@
+# 调研与迭代笔记
+
+> 本文件记录项目演进过程中的调研结论、未解决缺口、关键决策与修复历史，供后续迭代参考。
+> 状态/需求见 [REQUIREMENTS.md](REQUIREMENTS.md)，用法见 [HELP.md](HELP.md)。
+> 最近更新：2026-07-06（A2 QVIX 0.0 过滤）
+
+---
+
+## 1. 当前项目状态（2026-07-06）
+
+- 看板运行中：`http://localhost:8000`（绑定 `0.0.0.0`，局域网可访问 `http://192.168.31.207:8000`）
+- 指标：33 项 metrics（删 2 个错配的 score 条目）+ 13 指数 + 3 板块；**29 启用 / 6 禁用**
+- 数据：§6 跨市场分 **2735 天**、§4 情绪分 7 天（近期）、买卖点 2425 个、派生封板率 16 天
+- 全链路通：采集 → 计算（含派生公式）→ API → 前端 5 tab → launchd 定时（待 `launchctl load`）
+- 采集层：akshare（sina 源为主）+ direct 直爬（em_get 防封）+ tencent（换手率）
+
+---
+
+## 2. a-stock-data 仓库评估
+
+仓库：`simonlin1212/a-stock-data`（已克隆到 `./a-stock-data/`，是 Claude Code skill 形态，SKILL.md 嵌 40 个 Python 函数，非数据库）。V3.0 不用 akshare，直连 mootdx/腾讯/东财(em_get防封)/同花顺/新浪/巨潮。免费无 key（仅 iwencai NL 搜索需 key）。
+
+### 对 7 个缺口的评估
+
+| # | 缺口 | 能否补 | 说明 |
+|---|---|---|---|
+| ① | 涨停板池 1 年历史 | ❌ | `em_zt_pool` 与 akshare 同源（push2ex），东财服务端只保留近 2 周 |
+| ② | 东财反爬 | ⚠️ 部分 | `em_get()` 1s 限流+重试能缓解速率型封锁；但 push2 clist 单请求就 RemoteDisconnected，更像硬封 |
+| ③ | 美股三大指数 | ❌ | 纯 A 股工具包，不覆盖美股 |
+| ④ | 板块数据 | ⚠️ 部分 | `industry_comparison()` 给行业涨跌幅+涨跌家数，但走同一个被封的 push2 clist 端点；行业资金流无端点 |
+| ⑤ | 北向 2024 后 | ❌ | SKILL 作者承认「2024-08 后净买额 NaN，上游断供」，只能从今天往前自缓存 |
+| ⑥ | 涨跌家数历史 | ❌ | 无全市场汇总端点，mootdx 只能按 symbol 枚举 |
+| ⑦ | 换手率/乐咕/东财情绪 | ⚠️ 1/3 | **换手率已补**（`tencent_quote` turnover_pct）；乐咕/东财情绪无 |
+
+### 已集成的部分
+
+1. **`em_get()` 防封层**（抄自 SKILL.md 302-334 行）→ `app/collector/base.py`
+   - 全局 Session + 1s 串行限流 + 0.1-0.5s 抖动 + HTTPAdapter 指数退避重试（429/5xx）
+   - 403 不重试（风控信号）
+   - **效果**：`a_fund_main`（主力资金流，push2his 端点）从间歇失败变稳定拿到 120 行历史
+2. **`tencent_quote()` 换手率**（抄自 SKILL.md 400-453 行）→ `app/collector/tencent.py`
+   - `fetch_index_turnover(code='000001')` 取上证指数换手率
+   - 启用 `a_turnover_rate` 指标（之前禁用）
+3. `direct.py` 的 `fetch_market_fund_flow` 改用 `em_get`（替代裸 direct_session）
+
+### 集成方式
+
+把 SKILL.md 里的 Python 函数直接复制进 `app/collector/`，不当 skill 调用。函数是无状态纯函数（除 `EM_SESSION`/`_em_last_call` 模块级全局），放进 FastAPI 没问题。注意：em_get 串行锁是进程内的，多 worker 部署会绕过限流（当前单 worker 无影响）。
+
+---
+
+## 3. 未解决缺口与未来路径
+
+| 缺口 | 现状 | 未来路径 |
+|---|---|---|
+| 涨停板池历史 | 东财 push2ex 只 2 周 | Tushare Pro 付费 / Wind / 接受 §4 从今天积累（4 个月稳定） |
+| 美股三大指数 | 禁用 | yfinance（需测 Clash 代理）/ stooq 直爬 / 新浪美股 |
+| 北向资金 2024+ | akshare `stock_hsgt_hist_em` 返 2024-08 后行但全 NaN（东财停实时披露） | 已过滤 NaN 冻结在 20240816；雪球有盘后数据但需另写爬虫，未做 |
+| 涨跌家数历史 | sina spot 只当日 | 无解；或 mootdx 枚举全 A（慢，需维护代码表） |
+| 板块涨跌幅 | 东财反爬 | 抄 `industry_comparison()` 用 em_get 试（未必解硬封） |
+| 行业资金流 | 无端点 | Tushare / 东财板块资金流 API 另找 |
+| 乐咕活跃度 | legulegu 不稳定 | 放弃，或找替代情绪指数 |
+| 东财情绪指数 | 无源 | 放弃 |
+
+---
+
+## 4. 关键决策与修复历史
+
+| 日期 | 决策/修复 | 原因 |
+|---|---|---|
+| 07-05 | §4 min_periods=10（非20） | 涨停板池只 2 周，放宽让近期 §4 可算，随每日积累稳定 |
+| 07-05 | §4 加 ≥3 分项过滤 | 避免仅北向单分项误导（删了 2245 天 north-only 历史假数据） |
+| 07-05 | 买卖点改 RSI 主信号 | cross 评分与价格不同步（拉指数不拉个股），原「冰点买」错位在价格高点 |
+| 07-05 | gold 方向 → negative | 避险涨=冷，原 neutral 导致 cross 与价格负相关 |
+| 07-05 | range 参数修复（rng→range） | FastAPI 按名匹配，前端发 `range` 后端收 `rng` 全用默认 1y |
+| 07-05 | uvicorn --host 0.0.0.0 | 局域网访问（原 127.0.0.1 只本机） |
+| 07-05 | trust_env=False 全局 | Clash 代理(7890) 拦截东财，绕过直连国内源 |
+| 07-05 | sina 源替代东财 clist | 东财 push2 clist 硬反爬（RemoteDisconnected），sina 可用 |
+| 07-06 | 集成 em_get 防封层 | 主力资金流间歇失败，em_get 限流+重试后稳定 |
+| 07-06 | 集成 tencent 换手率 | sina 无换手率列，腾讯 qt.gtimg.cn 有 turnover_pct |
+| 07-06 | collect_series 过滤 NaN | 北向/QVIX 源返 NaN 被当值入库（清掉 3679 null 行），NaN 跳过不入库 |
+| 07-06 | 两融加 NEEDS_DATE_RANGE(2000天)+scale 1e-8 | stock_margin_sse 无参只返 2015 老数据；融资余额单位是元，原未缩放飞存 1.5e12 |
+| 07-06 | 新建 compute/derived.py | 封板率 type=derived+formula 但无计算模块，补 eval 公式（1 - 炸板率）入 daily_metric |
+| 07-06 | 删 a_sentiment_score/cross_market_score 出 metrics | 它们是 score_daily 综合分，错配在 metrics 导致 /api/a-stock 取空、/api/metrics 误列 |
+| 07-06 | upsert 加 WHERE source!='manual' | 每日采集用 akshare 无条件覆盖手动补录，manual 补录实际失效（核心 bug） |
+| 07-06 | /api/manual 校验 metric_id+date + /api/manual/check | 原无校验，'invalid' 日期/指标写脏数据；补 check 端点供前端覆盖确认 |
+| 07-06 | /api/index 未知→404, range 非法→400 | 原都返 200，前端无法区分错误（依赖 range_dep） |
+| 07-06 | 前端日期去 .replace + 覆盖确认 + favicon | date input 需 yyyy-MM-dd；m-submit 调 check 确认；favicon 路由 204 |
+| 07-06 | **A1: collect_snapshot 拒绝历史日期回填（纯当日快照）** | `stock_zh_a_spot` 等「纯当日快照」无 date 参数，源永远返回今天数据；手动跑 `runner 20260703` 会把今天的盘中值盖章成历史日期 → 覆盖正确历史值（20260703 up 3803→1856 根因）。修复：func 不在 DATE_PARAM_FUNCS/DATE_RANGE_FUNCS 时，若 `date != last_trading_day()` 则跳过（zt_pool 带日期参数近 2 周可回填，不受影响） |
+| 07-06 | **A2: collect_series 加 drop_zero 按指标过滤 0.0** | `index_option_1000index_qvix` 源返 34 行 close=0.0（占位/解析缺失，非 NaN），`v!=v` 只判 NaN 漏过 → 入库 0.0。QVIX 真值 15-30 不可能 0，但资金流/IPO 数等可为 0，故用 yaml `drop_zero: true` 按指标开关（仅 QVIX 类），不误伤其他指标 |
+| 07-06 | **A3: 北向资金前端标注停更** | `a_fund_north` 已过滤 NaN（数据冻结在 20240816），1 年期窗口内为空 → 前端空白，用户分不清停更还是故障。修复：(1) `config/indicators.yaml` `a_fund_north.name` 加「(2024年8月停更)」——全局生效（看板图例 / 手动补录下拉 / 未来概览 KPI 都带标注）；(2) `web/app.js` `mkCard`/`lineChart` 加可选 `hint` 参数，A股看板「资金面」组渲染时传橙色提示条「数据源自 2024 年 8 月起停更（东财停止实时披露），冻结在 2024-08-16，1 年期窗口内为空属正常」——比图例标注更醒目 |
+| 07-06 | **S1: scheduler 跨年刷新 trade_dates**（A1 遗留） | A1 守卫依赖 `last_trading_day()` → `data/trade_dates.txt` 缓存（含 2026 全年），跨年时缓存缺新年日期 → `is_trading_day('20270104')=False` 误跳过采集 + `last_trading_day()` 停在旧年末日致 collect_snapshot 守卫误 skip。修复：(1) `app/scheduler.py` `run()` 开头（is_trading_day 闸门前）调 `refresh_trade_dates()`，try/except 兜底失败沿用旧缓存；(2) `app/calendar.py` `refresh_trade_dates()` 重写为安全刷新——先拉新数据成功才原子覆盖（写 `.tmp` 再 `replace`），失败保留旧缓存（旧实现 `unlink` 删盘后拉取，网络抖动会丢缓存）。跨年模拟验证通过（stale 缓存 max=20261231 → refresh 后 is_trading_day/last_trading_day 正确返 20270104；akshare 抛异常时缓存文件原样保留） |
+
+### 4.1 TASK-A1 根因详述：上涨家数 20260703 回归（3803→1856）
+
+**现象**：`a_width_up_count` 20260703 从 3803（与雪球 3804 一致）变为 1856（-51%），source=akshare。
+
+**根因**（collect_log 铁证）：
+- 2026-07-05 19:24（周六）：spot 返回 07-03（周五）收盘数据 → up=3803, down=1628, amount=32046.97 ✅ 正确
+- 2026-07-06 13:10（周一盘中，A 股 15:00 收盘）：手动跑 `python -m app.collector.runner 20260703` 回填。runner 把 `date=20260703` 传给 `collect_snapshot`，但 `stock_zh_a_spot` 是纯当日快照（无 date 参数），源仍返回 07-06 盘中数据（up=1856），却盖章成 20260703 → 覆盖正确历史值 ❌
+- 同批次 `a_width_down_count`（1628→3524）和 `a_amount`（32046.97→23303.91）也被同一机制污染
+
+**排除的假设**：「1856≈沪市主板量，只回部分市场」❌ —— 实测 `stock_zh_a_spot`(sina) 返回 5526 行=全市场（up+down+flat=5526），count_up transform 逻辑正确。1856 只是 07-06 盘中 up 数。
+
+**修复**：
+1. `app/collector/fetchers.py` `collect_snapshot` 加守卫：func 不在 `DATE_PARAM_FUNCS`/`DATE_RANGE_FUNCS`（即纯当日快照）且 `date != last_trading_day()` → 跳过，返回 `skip backfill: ...`。zt_pool 等带日期参数的快照近 2 周仍可回填。
+2. SQL 恢复 20260703 三个被污染值（取 07-05 19:24 正确采集值）：up=3803、down=1628、amount=32046.97034002。
+
+**遗留 / 风险**：
+- 20260706 的三个 spot 值（up=1788 等）是 13:36 盘中所采，非收盘值。scheduler 15:33 跑时会以 `last_trading_day()=20260706` 重新采集收盘值覆盖（守卫允许，因 date==ltd）。盘中手动采集属使用习惯问题，非脚本 bug。
+- 守卫依赖 `last_trading_day()` 准确。trade_dates 缓存（`data/trade_dates.txt`）目前含 2026 全年交易日，年内稳健；**跨年时需刷新**（`refresh_trade_dates()` 当前无自动调用点，scheduler 未调用）。建议后续在 scheduler 或定期任务里加 `refresh_trade_dates()`。
+- 正本清源：`stock_zh_a_spot` 无历史，宽度指标长期靠 D1（本地日线）回算更可靠（见 TASK-D2）。
+
+### 4.2 TASK-A2 根因详述：a_qvix_1000 0.0 异常值（28→34 条）
+
+**现象**：`a_qvix_1000` 有 34 条值为 0.0（QVIX 正常 15-30，0.0 不可能）。回归报告（07-06）记 28 条 / 135 总条，是当时中间态；实际清查时为 34 条 / 841 总条（差异是后续又采了若干天）。`a_qvix_300` 无 0.0（1567 条全正常，范围 12.87-45.86）。
+
+**根因**（源数据铁证）：
+- akshare `index_option_1000index_qvix()` 返回 2755 行历史，其中 1914 行 close=NaN（早期数据，已被 `collect_series` 的 `if v != v` 过滤），但另有 **34 行 close=0.0（字面 float 0，不是 NaN）**，分布在 20241025 ~ 20260529。
+- DB 的 34 个 0.0 日期与源的 34 个 0.0 日期**一一对应、无多余**（DB zeros ⊂ src zeros，且数量相等），证明污染纯来自源，无其他路径。
+- 源 0.0 有两种形态，均为源占位/解析缺失：
+  1. **整行 NaN + close=0.0**（open/high/low 全 NaN，close 却 0.0）——源对该日无数据但用 0 占位。如 20250224、20250721、20250924/25/26、20260415/21/27/29 等。
+  2. **OHLC 有效但 close=0.0**（源数据错误）——如 20241025: open=33.65/high=34.25/low=32.79/close=0.0（close 不可能低于 low）。源端 bug，非脚本问题。
+- `collect_series` 的 `if v != v` 只判 NaN，0.0 不是 NaN 所以漏过 → 入库。
+- 附带：1000 源自 20260313（值 17.83）后只返 0.0/NaN 占位至 20260626，所以 DB 最新非空值停在 20260313（看板显示「最新 0.0」即此，已随清理一并消除）。300 源仍正常到 20260626。
+
+**为什么不全量 `if v == 0: continue`**：`a_fund_north`（北向净流入）、`a_fund_main`（主力净流入）、`ipo_count`（IPO 数）、`a_width_dt_count`（跌停数）等指标 0 是合法真值，全量过滤会误杀。QVIX 是年化波动率指数，下限约 10-15，真 0 不可能，所以只对 QVIX 类过滤安全。
+
+**修复**：
+1. `config/indicators.yaml` 给 `a_qvix_300`、`a_qvix_1000` 加 `drop_zero: true`（300 防御性加上，当前无 0.0 但源可能回归）；yaml 头注释新增 `drop_zero` 字段说明。
+2. `app/collector/fetchers.py` `collect_series` 在 NaN 过滤后加 `if drop_zero and v == 0: continue`（`drop_zero = bool(metric.get("drop_zero"))`，按指标开关，不误伤其他指标）。
+3. SQL 清已入库：`DELETE FROM daily_metric WHERE metric_id='a_qvix_1000' AND value=0.0` 删 34 行；`a_qvix_300` 0 行（确认无 0.0）。
+
+**验收**：
+- DB：`a_qvix_1000` 807 条全非 0（min=11.76, max=43.57），`a_qvix_300` 1567 条全非 0。✅
+- 采集过滤：复跑 `collect_series(a_qvix_1000)` 返回 807 行 0 个 0.0（之前 841=807+34）；`a_qvix_300` 1567 行 0 个 0.0。✅
+- API：`/api/a-stock?range=all` 两个 QVIX 指标 `data` 数组均无 0.0 点。✅
+- 不误伤：`a_fund_north`、`ipo_count` 等无 `drop_zero` 标记，合法 0 不受影响。✅
+
+**遗留 / 风险**：
+- `a_qvix_1000` 源自 20260313 后停返有效数据（与回归报告 BUG-010/015「QVIX 源滞后停在 6-26」一致），属源问题非脚本 bug；本次只保证不再入库 0.0 占位。后续若源恢复，`collect_series` 会正常采到新值。
+- `drop_zero` 是按指标开关，新增「0 不可能是真值」的指标时记得在 yaml 加 `drop_zero: true`。
+
+### 4.3 TASK-D1 全 A 股日线本地拉取（回溯基础设施）
+
+**目标**：拉全 A 股（~5500 只）10 年日线，作为 D2（历史宽度回填）/ D3（BaoStock 校验）/ F3（行业内宽度）的本地数据底座，替代靠 `stock_zh_a_spot`（无历史）+ `stock_zt_pool_em`（仅近 2 周）的旧口径。
+
+**存储设计**（独立 SQLite 库，非 sentiment.db）：
+- 库 `data/stock_daily.db`，表 `stock_daily_raw`，与 `data/sentiment.db`（看板生产库）隔离。
+- 理由：(1) ~5500 只 × ~2400 天 ≈ 13M 行，撑大生产库会拖慢看板查询；(2) 仍是 SQLite，D2 可 SQL 跨表算宽度；(3) WAL + synchronous=NORMAL，读写并发安全；(4) 后续可平滑迁 parquet。
+- schema：`code/date/open/high/low/close/volume/amount/amplitude/pct_change/pct_amt/turnover`，PK(code,date)。
+  - `pct_change`（涨跌幅 %）、`pct_amt`（涨跌额）留作 D2 涨停价/跌停价判定（主板 10% / 创业板科创板 20% / ST 5%——D2 算，D1 只存 close + pct_change）。
+  - `adjust=""`（不复权原始价）——保证涨停价判定准确，复权价会破坏 limit 检测。
+
+**接口**（`app/collector/stock_daily.py`）：
+- `fetch_stock_codes()` → 5527 只全 A（`stock_info_a_code_name` 走东财 dataapi，非 push2his，未被反爬封；缓存 `data/stock_codes.json`）。
+- `fetch_one(code, start, end)` → 单只日线，1s 节流 + jitter，NaN 行过滤，遇 RemoteDisconnected/ConnectionError/429 → 抛 `CooldownError`（不硬刷）。
+- `upsert_rows(rows)` → 批量 upsert（PK 冲突幂等更新）。
+- `update_one(code, progress)` → **增量接口**：从 `progress[code]` 之后到今天只拉最新日。
+- `run_batch(codes, incremental=...)` → **断点续传**：读 `data/stock_daily_progress.json`（{code: last_date}），跳过已采 code，每 5 只落盘一次进度，遇 CooldownError 保存进度 + 写剩余待采报告 `data/stock_daily_cooldown.txt` + 抛出。
+- CLI：`python -m app.collector.stock_daily <full|update|one CODE|upone CODE|codes|stats>`。
+- **scheduler 集成**：`runner.run()` 末尾 step 5 调 `run_batch(incremental=True)`，封 IP 时记 fail 不阻塞其它采集。
+
+**防封**（复用 base.py 的 `trust_env=False` 全局补丁绕 Clash 代理）：1s 串行 + 0.1-0.5s jitter（与 `em_get` 同档）；遇 `RemoteDisconnected`/`ConnectionError`/`429` → `CooldownError` 停批次（不硬刷，冷却 30min 再重跑）。
+
+**首跑策略**（任务约束）：先 1 只（600519）验证字段 + schema；再小批量（20-50 只）验证流程 + 断点续传 + 增量接口；全量 5500 只留 IP 解封后后台分批跑。
+
+**首跑实际**（2026-07-05）：东财 push2his IP 被 F2 任务硬刷触发临时封锁（`RemoteDisconnected`），D1 启动时仍在封锁中。已验证：
+- schema + DB（init_db / upsert / PK 幂等）/ progress JSON 往返 / CooldownError 检测（实拨被封正确抛出）/ code 列表 5527 只 / CLI（codes/stats/one 含 cooldown 优雅退出）/ scheduler 集成 全部就绪。
+- 实拨单只 600519 因 IP 封锁未拿到数据（CooldownError 正确抛出）。后台 poller 每 5min 探一次，IP 解封后自动跑 1 + 20 只验证。
+- akshare 1.18.64 `stock_zh_a_hist` 列名已从源码确认：日期/开盘/收盘/最高/最低/成交量/成交额/振幅/涨跌幅/涨跌额/换手率/股票代码，字段映射已写入 `fetch_one`。
+
+**遗留**：
+- 全量 5500 只 × 10 年采集待 IP 解封后跑（`python -m app.collector.stock_daily full`，可 `--limit N` 分批；预计 ~3-4 小时 @ 1s/只）。
+- 若持续封 IP，可考虑 BaoStock（D3 任务）补 + mootdx K 线（TCP 7709 不封 IP）作备用源。
+- code 列表含北交所（4x/8x/9x 开头），`stock_zh_a_hist` 是否覆盖北交所需 IP 解封后验证；不覆盖则 D2 时过滤。
+
+### 4.5 TASK-D2 历史宽度指标计算与回填（10 年）
+
+**目标**：从 D1 的 `mootdx_daily_raw`（5203 只 SH/SZ 全历史日线）算 7 项宽度按日聚合，回填 `daily_metric` 2016-2026（2550 交易日），替代旧口径靠 `stock_zh_a_spot`（无历史）+ `stock_zt_pool_em`（仅近 2 周）。
+
+**实现**（`app/collector/width_history.py`，~280 行）：
+- pandas 向量化：读 10.18M 行，`prev_close = close/(1+pct_change/100)` 反推（避免 groupby shift），涨跌幅规则按代码前缀（300/301/688/689=20%，其余=10%），涨停价=prev×(1+rule)，close-beyond-limit 检测除权日，groupby date 聚合。
+- 7 指标：zt（close>=涨停价×0.999）、dt（close<=跌停价×1.001）、zb（high>=涨停价×0.999 且 close<涨停价×0.999）、seal_rate（zt/(zt+zb)）、up/down（pct_change 符号）、amount（sum/1e8）。
+- 写库 17844 行，source='mootdx'。
+
+**除权日检测改进（关键技术决策）**：
+- 任务草案建议 `|pct_change| > 规则×1.5`（主板>15%、创业板>30%）作除权日阈值。实测发现该阈值**漏判 10-15%/20-30% 段**：正常交易不可能突破 ±规则，故此段必为除权日，但 1.5x 不跳过 → dt 大量误判（创业板/科创板 -20%~-30% 除权日被计为跌停）。
+- 改用 **close-beyond-limit** 检测：`close > 涨停价×1.001 或 close < 跌停价×0.999`（close 超出限价 0.1% 以外必为除权日/数据异常）。修复后 dt 16 日均值误差 82%→33%，主要残差为 ST 误判。
+- 保留 pct_change 1.5x 作辅助阈值。deviation from task spec（1.5x → close-beyond-limit）属「技术细节自己定」，已写 REQUIREMENTS.md §8.5。
+
+**review gate（zt 交叉校验）**：
+- 本表 zt=**收盘封板**（close 达涨停价）vs stock_zt_pool_em=**盘中触板**（含炸板回封）。16 日均值误差 **3.36% < 5% ✅**（剔除盘中采集的 20260706 后 15 日均值 2.21%、中位 1.49%）。
+- 2 日 >5%（20260702 7.5%、20260703 5.6%）为封板 vs 触板口径差异（炸板回封数），非计算错误。
+- akshare stock_zt_pool_em 近 3 日可取（东财 push2ex 未封锁）：20260706=64/20260703=108/20260702=93，与本表 70/102/86 趋势一致。
+
+**已知误差**：
+1. **ST 5% 不处理**：mootdx 无 ST 标记，ST 股按 10% 规则算致 dt 系统性偏高 ~20-30%（每日 ~4 只 ST 在除权日 -10% 被误判跌停）。需 ST 历史列表才能修（akshare `stock_zh_a_st_em` 东财源待验证）。
+2. **北交所/B 股不覆盖**：mootdx 仅 SH/SZ 5203 只，不含北交所 324 只。2021-11 北交所开市后 up/down/amount 漏 ~6%。
+3. **dt 口径差异**：本表 dt=收盘封跌停 vs 东财跌停股池，加 ST 误判，均值误差 32.8%（非 gate 项）。
+
+**A1 近端值保护**：up/down/amount 仅回填 20160101-20260702，20260703/20260706（A1 全市场口径 source='akshare'）保留不覆盖。zt/dt 回填全段（覆盖近 2 周 stock_zt_pool_em）。
+
+**遗留**：~~换手率分布（a_turnover_*）mootdx turnover 全 NULL 跳过，等 D3 BaoStock 补~~ → **已补**（2026-07-06，见 §4.4 阶段2 + REQUIREMENTS.md §8.5 换手率分布）。
+
+### 4.4 TASK-D3 BaoStock 全段日线（D1 封锁期替代主力源 + 校验源）
+
+**背景**：D1（akshare `stock_zh_a_hist`，东财 push2his）因东财 IP 临时封锁（F2 触发）尚未采全量。BaoStock 走自己服务（baostock.com，非东财 HTTP），不受东财封锁影响。D3 用 BaoStock 采**全段（1990-2026）全 A 股日线**作封锁期间替代主力数据源。原 D3 范围是「1990-2015 老数据补 D1 早期段 + 校验」，因 D1 akshare 封锁调整为「BaoStock 采全段全 A 股日线，优先近 10 年 2016-2026（D2 急需），再补 1990-2015 老段」。D1 akshare 解封后采 2016-2026 作交叉校验源（阶段2，待 D1 数据采全后做）。
+
+**存储设计**（与 D1 同库不同表）：
+- 库 `data/stock_daily.db`，表 `baostock_daily_raw`，与 D1 的 `stock_daily_raw` 分开（校验时 JOIN 对比）。
+- schema 与 D1 对齐（共有字段）：`code/date/open/high/low/close/volume/amount/turnover/pct_change/preclose`，PK(code,date) + 双索引(date/code)。
+- BaoStock 不返振幅(amplitude)/涨跌额(pct_amt)，故缺这两个字段（D1 有）；校验时只比对共有字段。D2 算涨停价用 pct_change + preclose 已够（涨停价 = preclose × 1.10/1.20/1.05）。
+- `adjustflag="3"` 不复权（与 D1 一致，保证涨停价判定准确）。
+
+**接口**（`app/collector/baostock_daily.py`）：
+- `fetch_stock_codes()` → 复用 D1 的 `data/stock_codes.json`（5527 只，D1 用 `stock_info_a_code_name` 东财 dataapi 端点，非 push2his 未被封）。
+- `to_baostock_code(code)` → 6 位代码转 BaoStock 格式：6xxxxx（含 688 科创板）→ sh.；0xxxxx/2xxxxx/3xxxxx → sz.；920xxx/8xxxxx/4xxxxx（北交所）→ None（BaoStock 不支持，跳过 + 记 `data/baostock_skipped_bj.txt`）。实测 5527 只中 324 只北交所被跳过，5203 只可采。
+- `fetch_one(code, start, end)` → 单只日线，BaoStock `query_history_k_data_plus`，0.1s 节流，NaN/空串过滤。
+- `upsert_rows(rows)` → 批量 upsert（PK 冲突幂等更新）。
+- `run_segment(codes, seg)` → 段批量拉取：seg='r'（recent 2016-2026）/ 'o'（old 1990-2015）。跳过已采 + 北交所，每 10 只落盘进度。
+- `run_update(codes)` → 增量更新（recent 段，从 progress[code]['r'] 之后到今天）。
+- 进度：`data/baostock_progress.json` = `{code: {"r": yyyymmdd, "o": yyyymmdd}}`，原子写。
+- CLI：`python -m app.collector.baostock_daily <recent|old|full|update|one CODE|upone CODE|stats|codes>`。
+
+**并行加速**（`app/collector/baostock_parallel.py` + `app/collector/baostock_worker.py`）：
+- BaoStock 单只 10 年日线 ~6.5s（服务端 2.2ms/row），串行 5203 只 × 6.5s ≈ 9.4h。实测 BaoStock 支持同 IP 多连接（多进程独立 login），用 subprocess 起 N 个独立 worker 进程并行采不同 code 段。
+- `baostock_parallel.py` 把 code 列表分 N 块，subprocess.Popen 起 N 个 `baostock_worker.py`，各自 `bs.login()` 独立连接，进度共用 `baostock_progress.json`（原子写）。
+- 6 workers 实测 ~4000 codes/h（vs 串行 ~550/h），~7x 加速，全段 recent ~1.2-1.5h。
+- CLI：`python -m app.collector.baostock_parallel --seg=r --workers=6`。
+
+**BaoStock vs D1 akshare 差异**：
+- BaoStock 覆盖 1990-12-19 起（沪市老八股），比 akshare `stock_zh_a_hist`（2016 起，但可拉更早）历史更长。
+- BaoStock 不覆盖北交所（920xxx/8xxxxx/4xxxxx），D1 akshare 覆盖范围待 IP 解封后验证。
+- BaoStock 字段：date/code/open/high/low/close/volume/amount/turn(换手率%)/pctChg(涨跌幅%)/preclose(昨收)。D1 akshare 字段：日期/开盘/收盘/最高/最低/成交量/成交额/振幅/涨跌幅/涨跌额/换手率/股票代码。
+- 两源 adjustflag="3"/adjust="" 均不复权，价格应一致（阶段2 校验内容）。
+
+**scheduler 集成**：`runner.run()` step 6 调 `baostock_daily.run_update(todo)`，仅对已有 progress 的 code 增量（已 backfill recent 段的）；未 backfill 的由 `baostock_daily recent` 手动跑。BaoStock 无 IP 封锁风险，不需 CooldownError 处理。
+
+**阶段2 校验（BaoStock vs mootdx，2026-07-06 完成）**：
+- 原计划 BaoStock vs akshare，因 akshare 东财 IP 封锁未采（D1 改 mootdx 主力），改 **BaoStock vs mootdx** 交叉校验。两源 adjustflag="3"/不复权原始价应高度一致。
+- 校验脚本 `app/collector/cleanup_d3d2.py validate`，SQL JOIN on (code, date) 聚合 + 抽样 200 只 × 全段 (~493K 行) 算分位差异。报告 `data/cleanup_d3d2_report.json`。
+- **重叠行数**：9,847,524（BaoStock 9,987,727 + mootdx 10,179,172 in 2016-2026，重叠 9.85M）。BaoStock-only 140,203（1.4%），mootdx-only 331,648（3.3%，多为 baostock 不覆盖的 code/日期）。
+- **共有字段差异率（剔除除权日后）**：
+  | 字段 | 均值差异 | 中位 | 90 分位 | 最大 | 结论 |
+  |---|---|---|---|---|---|
+  | open/high/low/close | 0.0 | 0.0 | 0.0 | 0.0006% | 完全一致（同源原始价） |
+  | volume（mootdx×100 归一化到股） | 7e-06 | 2e-06 | 1.6e-05 | 7.53% | 高度一致（极少数源差异） |
+  | amount（元） | 0.0 | 0.0 | 0.0 | 0.075% | 完全一致（浮点精度内） |
+  | pct_change（百分点） | 0.0002pp | 0.0pp | 0.0pp | 0.49pp | 高度一致 |
+- **除权日检测**：两源 pct_change 差异 > 0.5%（绝对值）视为除权日/源差异，共 25,404 行 = 0.26% of overlap。除权日 baostock pct_change 用 adjusted preclose 算（含除权调整），mootdx 用 raw prev close 自算（跳水），故差异大；其余字段（OHLC/amount）除权日仍一致（同日真实价）。剔除后 pct_change 均值差异从 0.0195pp 降到 0.0002pp。
+- **结论**：所有共有字段差异 <1% ✅（实为 <0.01% 量级，除除权日外完全一致）。两源数据质量互证，D2 用 mootdx 算宽度、本任务用 BaoStock 算换手率分布，口径可信。
+- **volume 单位差异（关键发现）**：mootdx volume 单位=手（1 手=100 股），BaoStock volume 单位=股。校验时需 `mootdx.volume × 100` 归一化后对比。D2 width_history.py 用 amount 不用 volume，不受影响；其他模块若用 volume 需注意单位。
+- **pct_change 计算口径差异**：BaoStock pctChg 由源提供（基于 adjusted preclose），mootdx pct_change 自算 `(close/prev_close-1)*100` 基于 raw prev close。除权日两值差异大（BaoStock 反映真实涨跌、mootdx 失真），非除权日完全一致。D2 算涨停价用 mootdx pct_change 反推 prev_close，除权日会误判（已用 close-beyond-limit 检测跳过）。
+
+---
+
+## 5. 环境约束（持久）
+
+- **pypi.org / github.com DNS 不通** → 依赖经清华镜像 `pip install -i https://pypi.tuna.tsinghua.edu.cn/simple`
+- **Clash 系统代理 127.0.0.1:7890** → 拦截东财流量走境外被东财封 IP；代码全局 `requests.Session.trust_env=False` 绕过
+- **东财 push2/82.push2/80.push2 clist 端点硬反爬** → 单请求 RemoteDisconnected；用 sina 源（stock_zh_index_daily / stock_zh_a_spot）替代
+- **东财 push2ex 涨停板池只保留近 2 周** → §4 宽度分项无法回填历史
+- **akshare 1.18.64** 函数名变化：北向=`stock_hsgt_hist_em`、VIX→QVIX(`index_option_300etf_qvix`)、离岸人民币=`currency_boc_sina`、解禁=`stock_restricted_release_summary_em`
+
+---
+
+## 6. 下一步可迭代
+
+1. **板块**：抄 `industry_comparison()`（SKILL.md 1250 行）用 em_get 试，看能否解硬封；不行则放弃
+2. **美股指数**：测 yfinance 能否经代理装上/连上；或直爬新浪美股
+3. **§4 积累**：每日 launchd 跑，约 11 月后 120 日窗口稳定
+4. **信号调参**：RSI 阈值（现 30/70）可调，跨市场分过滤阈值（现 <80/>20）可调
+5. **历史回填**：评估 Tushare Pro（付费）能否补涨停/北向/涨跌家数历史
+6. **mootdx 备用源**：若 sina 再失效，可用 mootdx K 线（不封 IP，TCP 7709），需处理 BESTIP
+
+---
+
+## 7. 文件速查
+
+- `REQUIREMENTS.md` — 需求 + 实现状态（§10）+ 数据字典（§8）
+- `HELP.md` — 使用方法 + 注意事项 + 故障排查
+- `PLAN.md` — 实现方案
+- `config/indicators.yaml` — 指标注册表（增删改这里）
+- `app/collector/base.py` — em_get 防封层 + 限频 + trust_env 补丁
+- `app/collector/tencent.py` — 腾讯行情（换手率）
+- `app/collector/direct.py` — 直爬东财（主力资金流）
+- `app/compute/signals.py` — RSI 买卖点
+- `app/compute/sentiment.py` — §4 A股情绪分（6项加权）
+- `app/compute/cross.py` — §6 跨市场分（去极值均值）
+- `app/compute/derived.py` — 派生公式指标（封板率 = 1 - 炸板率）
+- `app/collector/stock_daily.py` — D1 全 A 股日线（akshare 东财源）
+- `app/collector/baostock_daily.py` — D3 全 A 股日线（BaoStock 源，封锁期替代主力）
+- `app/collector/baostock_parallel.py` + `baostock_worker.py` — D3 并行采数
+- `app/main.py` — FastAPI 端点 + range_dep 校验 + /api/manual/check + manual 值保护
+- `a-stock-data/SKILL.md` — 数据工具包源（可继续抄函数）
