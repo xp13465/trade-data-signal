@@ -334,7 +334,10 @@ def _json_default(o):
 
 def write_json(path: Path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(data, ensure_ascii=False, default=_json_default)
+    # 紧凑输出（separators 无空白）——industry-all.json 全历史约 26MB，
+    # 默认 ', '/': ' 分隔会让其超 Cloudflare Pages 25MB 单文件限制。
+    text = json.dumps(data, ensure_ascii=False, default=_json_default,
+                      separators=(",", ":"))
     path.write_text(text, encoding="utf-8")
     return len(text)
 
