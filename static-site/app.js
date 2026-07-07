@@ -99,8 +99,13 @@ function signalLabel(s) {
 
 // 买卖点回测 stats tips（折线图上方小字）：用 10 日 horizon 作主指标。
 // stats = {buy:{5d/10d/20d:{win_rate,pl,mean,n}}, buy_aux:..., sell:...}
-// 格式：买点 胜率53% 盈亏比1.2 样本45 | 辅买 胜率50% 盈亏比1.1 样本30 | 卖点 胜率55% 盈亏比0.9 样本80
-// 样本数<10 标"样本不足"；无 stats 返 null（不显示）。
+// 全历史 signals 回测，"10日"= 信号后 10 交易日 forward 收益窗口（非"只回测 10 日数据"）。
+// 凯利公式 f* = max(0, (b·p − (1−p)) / b)，b=盈亏比 pl，p=胜率 win_rate → 最佳仓位比例。
+//   买/辅买：f>0 标"凯利X%"（建议买入仓位比例）；f≤0 不显示（无正期望）。
+//   卖：f>0 标"凯利X%"（建议做空仓位比例）；f≤0 标"不建议做空"。
+//   样本数<10 标"样本不足"，不显示凯利。
+// 格式：回测(全历史·信号后10日) 买点 胜率53% 盈亏比1.2 样本45 凯利15% | 辅买 ... | 卖点 ...
+// 末尾追加免责：凯利公式参考仓位，非投资建议。
 function statsHint(stats) {
   if (!stats) return null;
   const parts = [];
@@ -116,10 +121,23 @@ function statsHint(stats) {
     }
     const wr = Math.round((d.win_rate || 0) * 100);
     const pl = d.pl != null ? d.pl.toFixed(2) : "-";
-    parts.push(`${labels[sig]} 胜率${wr}% 盈亏比${pl} 样本${n}`);
+    // 凯利仓位：f* = max(0, (b·p − (1−p)) / b)，b=盈亏比，p=胜率。
+    const p = d.win_rate || 0;
+    const b = d.pl;
+    let kellyTag = "";
+    if (b != null && b > 0) {
+      const f = Math.max(0, (b * p - (1 - p)) / b);
+      const kellyPct = Math.round(f * 100);
+      if (sig === "sell") {
+        kellyTag = kellyPct > 0 ? ` 凯利${kellyPct}%` : " 不建议做空";
+      } else {
+        kellyTag = kellyPct > 0 ? ` 凯利${kellyPct}%` : "";
+      }
+    }
+    parts.push(`${labels[sig]} 胜率${wr}% 盈亏比${pl} 样本${n}${kellyTag}`);
   }
   if (!parts.length) return null;
-  return "回测(10日) " + parts.join(" | ");
+  return "回测(全历史·信号后10日) " + parts.join(" | ") + " | 凯利公式参考仓位，非投资建议";
 }
 
 // 指数图 + 买卖点标注
