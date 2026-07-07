@@ -97,47 +97,82 @@ function signalLabel(s) {
   return "卖";
 }
 
-// 买卖点回测 stats tips（折线图上方小字）：用 10 日 horizon 作主指标。
-// stats = {buy:{5d/10d/20d:{win_rate,pl,mean,n}}, buy_aux:..., sell:...}
-// 全历史 signals 回测，"10日"= 信号后 10 交易日 forward 收益窗口（非"只回测 10 日数据"）。
-// 凯利公式 f* = max(0, (b·p − (1−p)) / b)，b=盈亏比 pl，p=胜率 win_rate → 最佳仓位比例。
-//   买/辅买：f>0 标"凯利X%"（建议买入仓位比例）；f≤0 不显示（无正期望）。
-//   卖：f>0 标"凯利X%"（建议做空仓位比例）；f≤0 标"不建议做空"。
-//   样本数<10 标"样本不足"，不显示凯利。
-// 格式：回测(全历史·信号后10日) 买点 胜率53% 盈亏比1.2 样本45 凯利15% | 辅买 ... | 卖点 ...
-// 末尾追加免责：凯利公式参考仓位，非投资建议。
+// 买卖点回测 stats tips（折线图上方）：散户化多块文案 + 胜率配色梯度 + 凯利公式折叠详解。
+// stats = {buy:{10d:{win_rate,pl,mean,n}}, buy_aux:..., sell:...}
+// "10日"= 信号后 10 交易日 forward 收益窗口（非"只回测 10 日数据"）；全历史 signals 回测。
+// 凯利公式 f* = max(0, (b·p − (1−p)) / b)，b=盈亏比 pl，p=胜率 win_rate → 数学最优下注比例。
+//   买/辅买：f>0 标"凯利建议仓位 X%"；f≤0 标"凯利不建议入场（负期望）"。
+//   卖：f>0 标"凯利建议做空 X%"；f≤0 标"凯利不建议做空（负期望，长期会亏）"。
+//   样本 n<10 标"样本不足，仅供参考"，不计凯利。
+// 卖点语义诚实声明：D1 卖点是"止盈减仓提示"非高胜率反向信号，胜率≈50% 接近随机（见 REQUIREMENTS §7.2）。
+// 胜率配色梯度（winRateClass）：≥80 深绿加粗 / 70-79 中绿加粗 / 60-69 浅绿 / 50-59 中性灰 /
+//   40-49 浅橙 / 30-39 橙加粗 / <30 红加粗。绿=可信、橙红=不可信，色盲友好（亮度+加粗区分）。
+function winRateClass(wr) {
+  if (wr >= 80) return "wr-excellent";
+  if (wr >= 70) return "wr-good";
+  if (wr >= 60) return "wr-fair";
+  if (wr >= 50) return "wr-neutral";
+  if (wr >= 40) return "wr-weak";
+  if (wr >= 30) return "wr-poor";
+  return "wr-bad";
+}
+
 function statsHint(stats) {
   if (!stats) return null;
-  const parts = [];
+  const blocks = [];
   const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
+  const sigClass = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
   for (const sig of ["buy", "buy_aux", "sell"]) {
     const s = stats[sig];
     if (!s || !s["10d"]) continue;
     const d = s["10d"];
     const n = d.n || 0;
+    const label = labels[sig];
+    const cls = sigClass[sig];
     if (n < 10) {
-      parts.push(`${labels[sig]} 样本不足(${n})`);
+      blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-warn">样本不足（仅 ${n} 例），仅供参考，不计凯利</span></div>`);
       continue;
     }
     const wr = Math.round((d.win_rate || 0) * 100);
     const pl = d.pl != null ? d.pl.toFixed(2) : "-";
+    const wrCls = winRateClass(wr);
     // 凯利仓位：f* = max(0, (b·p − (1−p)) / b)，b=盈亏比，p=胜率。
     const p = d.win_rate || 0;
     const b = d.pl;
-    let kellyTag = "";
+    let kellyHtml = "";
     if (b != null && b > 0) {
       const f = Math.max(0, (b * p - (1 - p)) / b);
       const kellyPct = Math.round(f * 100);
       if (sig === "sell") {
-        kellyTag = kellyPct > 0 ? ` 凯利${kellyPct}%` : " 不建议做空";
+        kellyHtml = kellyPct > 0
+          ? `<span class="hint-kelly">→ 凯利建议做空 <b>${kellyPct}%</b></span>`
+          : `<span class="hint-kelly warn">→ 凯利不建议做空（负期望，长期会亏）</span>`;
       } else {
-        kellyTag = kellyPct > 0 ? ` 凯利${kellyPct}%` : "";
+        kellyHtml = kellyPct > 0
+          ? `<span class="hint-kelly">→ 凯利建议仓位 <b>${kellyPct}%</b></span>`
+          : `<span class="hint-kelly warn">→ 凯利不建议入场（负期望）</span>`;
       }
     }
-    parts.push(`${labels[sig]} 胜率${wr}% 盈亏比${pl} 样本${n}${kellyTag}`);
+    // 卖点诚实声明：止盈减仓提示，非高胜率反向信号（详见凯利说明 + 规则说明条）
+    const honestTag = sig === "sell"
+      ? `<span class="hint-note">止盈减仓提示，非高胜率反向信号</span>`
+      : "";
+    // 卖点胜率语义是"走弱概率"（卖后 10 日下跌概率），与买点"胜率"语义对称但口径不同
+    const wrLabel = sig === "sell" ? "走弱概率" : "胜率";
+    blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-stat">${wrLabel} <b class="wr ${wrCls}">${wr}%</b></span><span class="hint-stat">盈亏比 ${pl}</span><span class="hint-stat">样本 ${n}</span>${kellyHtml}${honestTag}</div>`);
   }
-  if (!parts.length) return null;
-  return "回测(全历史·信号后10日) " + parts.join(" | ") + " | 凯利公式参考仓位，非投资建议";
+  if (!blocks.length) return null;
+  return `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
+    `<div class="hint-blocks">${blocks.join("")}</div>` +
+    `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
+    `<div class="hint-kelly-body">` +
+    `<div><b>公式</b>：f* = max(0, (盈亏比 × 胜率 − (1 − 胜率)) ÷ 盈亏比) —— 根据该信号的胜率与盈亏比，算出每次下注的最优资金比例。</div>` +
+    `<div><b>"凯利 X%"是什么</b>：理论上每次用总资金的 X% 买入（或做空）在数学上最优——长期复合增长最快、破产风险最低的下注比例。</div>` +
+    `<div><b>"凯利不建议做空/入场"</b>：公式算出 ≤0，说明这个信号<b>长期期望为负</b>（亏得多赢得少），按公式不应下注。卖点凯利为 0 通常因胜率接近 50% 且盈亏比&lt;1。</div>` +
+    `<div><b>卖点语义</b>：D1 卖点是<b>止盈减仓提示</b>，不是高胜率反向交易指令——卖点后 10 日走弱概率≈50% 接近随机，不可作为独立卖出依据（详见规则说明条）。</div>` +
+    `<div><b>重要提醒</b>：凯利公式假设胜率/盈亏比稳定已知，但回测统计本身有波动且含幸存者偏差；<b>请把凯利 X% 当参考上限，实战建议大幅打折</b>（如 1/2 凯利甚至 1/4 凯利）。</div>` +
+    `</div></details>` +
+    `<div class="hint-disclaimer">⚠ 以上为历史回测统计与数学公式参考仓位，非投资建议；过往表现不代表未来收益。</div>`;
 }
 
 // 指数图 + 买卖点标注

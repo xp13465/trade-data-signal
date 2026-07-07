@@ -63,15 +63,107 @@ main { padding: 16px 24px; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: #1f2329; }
+/* === 折线图回测 tips（.chart-hint）：散户化多块文案 + 胜率配色梯度 + 凯利折叠详解 === */
 .chart-hint {
   font-size: 12px;
-  color: #d4380d;
-  background: #fff2e8;
-  border: 1px solid #ffbb96;
+  color: #4e5969;
+  background: #fff7e6;            /* 浅暖底，呼应原 #fff2e8 但更柔 */
+  border: 1px solid #ffd591;
+  border-left: 3px solid #fa8c16; /* 左边框区分，不喧宾夺主 */
   border-radius: 4px;
-  padding: 6px 10px;
+  padding: 8px 10px;
   margin: 0 0 8px;
-  line-height: 1.5;
+  line-height: 1.55;
+}
+.chart-hint .hint-header {
+  font-size: 11px;
+  color: #86909c;
+  margin-bottom: 4px;
+}
+.chart-hint .hint-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.chart-hint .hint-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 10px;
+  font-size: 12px;
+}
+.chart-hint .hint-sig {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 11px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.chart-hint .hint-sig.buy { background: #e6492e; }
+.chart-hint .hint-sig.buy-aux { background: #d63384; }
+.chart-hint .hint-sig.sell { background: #2e8b57; }
+.chart-hint .hint-stat { color: #4e5969; font-variant-numeric: tabular-nums; }
+.chart-hint .hint-stat b { font-weight: 600; }
+.chart-hint .hint-kelly { color: #165dff; }
+.chart-hint .hint-kelly b { font-weight: 700; }
+.chart-hint .hint-kelly.warn { color: #d4380d; }
+.chart-hint .hint-warn { color: #d4380d; font-weight: 600; }
+.chart-hint .hint-note { color: #86909c; font-size: 11px; }
+.chart-hint .hint-note b { color: #d4380d; font-weight: 600; }
+
+/* 胜率配色梯度：≥60 加粗高亮（越绿越鲜艳）/ 50-59 中性 / <50 警示（越低越红）。
+   色盲友好：绿-灰-橙红渐变带亮度差异 + 加粗区分，非纯色相依赖。 */
+.chart-hint .wr.wr-excellent { color: #15803d; font-weight: 700; }   /* ≥80 深绿加粗 */
+.chart-hint .wr.wr-good { color: #16a34a; font-weight: 700; }        /* 70-79 中绿加粗 */
+.chart-hint .wr.wr-fair { color: #65a30d; font-weight: 600; }        /* 60-69 浅绿 */
+.chart-hint .wr.wr-neutral { color: #4e5969; }                       /* 50-59 中性灰（接近随机） */
+.chart-hint .wr.wr-weak { color: #d97706; }                          /* 40-49 浅橙 */
+.chart-hint .wr.wr-poor { color: #ea580c; font-weight: 600; }        /* 30-39 橙加粗 */
+.chart-hint .wr.wr-bad { color: #dc2626; font-weight: 700; }         /* <30 红加粗 */
+
+/* 凯利公式折叠说明（details 原生折叠，散户想看才展开，不占垂直空间） */
+.chart-hint .hint-kelly-explain {
+  margin-top: 6px;
+  font-size: 11px;
+}
+.chart-hint .hint-kelly-explain > summary {
+  cursor: pointer;
+  user-select: none;
+  color: #165dff;
+  font-size: 11px;
+  display: inline-block;
+}
+.chart-hint .hint-kelly-explain > summary:hover { color: #0e42d2; }
+.chart-hint .hint-kelly-body {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid #ffe7ba;
+  border-radius: 3px;
+  font-size: 11px;
+  color: #4e5969;
+  line-height: 1.65;
+}
+.chart-hint .hint-kelly-body > div { margin: 3px 0; }
+.chart-hint .hint-kelly-body b { color: #1f2329; font-weight: 600; }
+
+.chart-hint .hint-disclaimer {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #d4380d;
+  font-weight: 600;
+}
+
+/* 移动端：hint-row 自然换行后字号略缩，保持可读 */
+@media (max-width: 640px) {
+  .chart-hint { padding: 6px 8px; }
+  .chart-hint .hint-row { font-size: 11px; gap: 2px 8px; }
+  .chart-hint .hint-stat,
+  .chart-hint .hint-kelly,
+  .chart-hint .hint-warn,
+  .chart-hint .hint-note { font-size: 11px; }
 }
 
 .cards { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
