@@ -4,7 +4,7 @@
 > 每次开工前先读此文件，了解当前目标与已定/未定项。
 > 状态图例：✅ 已定 ｜ ⏳ 待确认 ｜ ⬜ 未开始
 
-最近更新：2026-07-06（方案 B 卖点盈亏标注：reason 附 vs前买 标签 + 前端分色 + 操作文案，触发逻辑不动）
+最近更新：2026-07-07（外部验证报告 BUG-F/G/H 修复：卖点文案改"走弱概率≈50%"+ 情绪分公式公开 + 买→卖配对回测）
 
 ---
 
@@ -110,6 +110,53 @@ A 股 · 可转债：转股溢价率 / 数量 🆕试采
 
 ---
 
+## 6.5 情绪分公式透明度（公开披露，BUG-G）✅
+
+> 合成情绪分（`a_sentiment` / `cross_market`）非黑盒，权重公式与输入源全部公开。实现见 `app/compute/sentiment.py` + `app/compute/cross.py` + `app/compute/normalize.py`，以下为可审计的精确公式。
+
+### A. A 股综合情绪分 `a_sentiment`（§4，固定权重加权）
+
+**公式**：`score = Σ(weight_i × norm_i) / Σ(weight_i for available i)`（缺项按可用重归一化权重，至少 3 个分项才出分，避免单分项误导）。
+
+**归一化 `norm_i`**：各分项原始值经 **120 日滚动百分位**（`rolling(120).rank(pct=True) × 100`，`min_periods=10`）映射到 0–100；`direction=negative` 的分项取反（`100 - p`，即越低越热→归一化后越高越热）。
+
+| 分项 key | 权重 | 输入 metric_id | 方向 | 数据源 |
+|---|---:|---|---|---|
+| ratio | 25% | `a_width_up_count` / `a_width_down_count`（涨/(涨+跌)） | positive | `stock_zh_a_spot_em` 全 A spot |
+| zt | 20% | `a_width_zt_count`（涨停数） | positive | `stock_zt_pool_em`（近 2 周）/ mootdx 历史 |
+| zhaban | 15% | `a_width_zhaban_rate`（炸板率） | **negative**（越低越热） | `stock_zt_pool_zbgc_em` |
+| lianban | 15% | `a_width_max_lianban`（连板高度） | positive | `stock_zt_pool_em` |
+| amount | 10% | `a_amount`（成交额） | positive | 指数成交 |
+| north | 15% | `a_fund_north`（北向资金净流入） | positive | `stock_hsgt_hist_em`（2024-08 停更） |
+
+**阈值**：< 20 = 冰点，> 80 = 过热。**已知限制**：涨停板池接口仅近 2 周历史，`a_sentiment` 历史段（2016-2026）由 `width_history.py` 从 mootdx 全 A 日线按收盘封板口径回填补齐（zt 交叉校验误差 ~3%）；北向资金 2024-08 后停更冻结，故 `north` 分项在 2024-08 后缺失，按可用 5 分项重归一化权重出分。
+
+### B. 跨市场综合评分 `cross_market`（§6，去极值截尾均值 / trimmed mean）
+
+**公式**：`score = mean(sorted(vals)[1:-1])`（升序排序后去掉最高 1 个 + 最低 1 个，其余算术均值）。
+
+**精确算法**（`cross.py::trim_mean`）：
+1. 取当日所有 `type=simple && enabled=true` 的 metric（见下表），各自 `normalized()` 归一化（同上 120 日滚动百分位 + direction 取反）；
+2. 该日 dropna，若可用指标 `< 3` 个返回 NA（不出分）；
+3. 升序排序，`iloc[1:-1]` 去掉最低 1 个 + 最高 1 个（固定去 1 each side，**非 10% 截尾**；指标多时可改去 top/bottom 2 或按 10% 截尾）；
+4. 其余取算术均值 → 0–100。
+
+**当前 trim-mean 池**（`config/indicators.yaml` 中 `type: simple, enabled: true` 的全部 metric，按日动态 dropna——以下为有数据的指标；TODO func 未采集的不出分）：
+
+| 类别 | metric_id（方向） |
+|---|---|
+| A 股宽度 | `a_width_up_count`(+) / `a_width_down_count`(−) / `a_width_zt_count`(+) / `a_width_dt_count`(−) / `a_width_max_lianban`(+) / `a_width_zhaban_rate`(−) / `a_width_daban_premium`(+) / `a_width_zb_count`(−) / `a_width_seal_rate`(+) |
+| A 股资金 | `a_fund_north`(+) / `a_fund_margin`(+) / `a_fund_main`(+) |
+| A 股情绪 | `a_qvix_300`(−) / `a_qvix_1000`(−) / `a_amount`(+) / `a_turnover_rate`(neutral) / `a_turnover_mean`/`median`/`p90`/`p10`(neutral) / `a_turnover_gt5_pct`(neutral) / `a_div_yield`(−) |
+| 港股 / 全球 | `hk_south`(+) / `usdcnh`(−) / `gold`(−) / `oil`(neutral) / `wti_oil`(neutral) / `comex_silver`(neutral) / `cn10y`(neutral) / `us10y`(neutral) |
+| 试采 | `lhb_count`(+) / `lhb_inst_net`(+) / `unlock_amount`(−) / `unlock_count`(−) / `ipo_count`(neutral) / `ipo_amount`(neutral) / `cov_count`(neutral) / `cov_premium_median`(neutral) |
+
+> 注：`cn_us_spread` 是 `type: derived`（cn10y − us10y），**不进** trim-mean 池（derived 已含其成分 cn10y/us10y，避免双重计入）。`a_width_fengban_rate` 同理 derived 不进。`direction: neutral` 的指标归一化不取反（直接用滚动百分位）。各指标在缺失日（NaN）被 dropna 跳过，故不同日期参与均值的指标数不同（早期年份池小、近期池大）。
+
+**阈值**：< 20 = 冰点，> 80 = 过热（同 §4）。**与 §4 区别**：§4 固定 6 项加权（A 股 only，权重固定）；§6 跨三市场、等权、去极值（池随配置动态变，视野更宽更稳健，单指标极端值被剔除不污染总分）。
+
+---
+
 ## 7. 买点 / 卖点逻辑 ✅
 
 **当前规则：买=RSI 事件化（C1），卖=20日高回落5%（D1 high-based）**（2026-07-06 D1 改，见 §7.4 / §9）
@@ -150,11 +197,11 @@ C1 卖点用 RSI 下穿 70，但回测显示它是**所有 12 个候选方案中
 ### 7.2 语义说明
 
 - **买在「超卖结束、升回 30 之上」时点**（C1，不动）：RSI 从 ≤30 升回 >30 那天，标价格有望反弹的拐点；不是 RSI 仍处于超卖区（≤30）的每一天。
-- **卖在「趋势转弱、跌破 5% 回落阈」时点**（D1）：close 从近 20 日最高价回落 5% 那天，标止盈减仓提示。语义从 C1 的「超买结束/有望回落」改为「**趋势转弱/止盈减仓提示**」——回测显示任何卖点都难有高胜率（指数向上漂移），D1 是反应型信号（不预测顶部，反应已发生的弱势），契合「卖点难预测」的现实。UI/文案避免「做空/反向」暗示。
+- **卖在「趋势转弱、跌破 5% 回落阈」时点**（D1）：close 从近 20 日最高价回落 5% 那天，标止盈减仓提示。语义从 C1 的「超买结束/有望回落」改为「**趋势转弱/止盈减仓提示**」——回测显示任何卖点都难有高胜率（指数向上漂移，D1 2016+ 10 日走弱概率仅 50.6%，接近随机），D1 是反应型信号（不预测顶部，反应已发生的弱势），契合「卖点难预测」的现实。**D1 是止盈减仓提示，非做空/反向交易指令；胜率≈50% 接近随机，不可作为独立卖出指令**——只能作"该检查仓位了"的风险注意灯，需结合仓位成本（vs前买 标注）与趋势背景综合判断。UI/文案避免「做空/反向」与「高胜率卖点」暗示。
 - **事件化**：只在「穿越」那一天标，一次连续超卖/回落期只产 1 个点。买点 RSI 反复进出超卖区则每次退出各 1 个点；卖点 close 反复穿越阈值则每次下穿各 1 个点，算独立事件。**结构上不可能出现连续两日的卖点**（T 日 sell 要求 close[T]<thresh[T]，T+1 日 sell 要求 close[T]≥thresh[T]，矛盾）。
 - **cross 软分级**：cross 仅作情绪参考标签附在 reason，不影响是否出信号。用户可结合标签判断「技术面拐点 + 市场情绪背景」的强弱（如买点 cross=冰点 比 cross=狂热 更可信）。
 - **首日处理**：`rsi.shift(1)` / `close.shift(1)` / `thresh.shift(1)` 首日为 NaN，`.fillna(False)` 跳过不标；`cross` 用 `reindex(close.index)` 对齐，缺失（NaN）时省略 reason 的 cross 段；`high` 用 `reindex(close.index)` 对齐，缺失（NaN）时 hh20 由 rolling 跳过。
-- 注：信号为参考用，非交易指令。D1 卖点为「最不坏」方案（非「好」方案），预期在震荡/下跌市提供有效止盈提示，在单边上涨市会产生假信号（趋势跟踪类信号的固有代价）。
+- 注：信号为参考用，非交易指令。D1 卖点为「最不坏」方案（非「好」方案），**走弱概率≈50% 接近随机，不可作为独立卖出指令**——预期在震荡/下跌市提供有效止盈提示，在单边上涨市会产生假信号（趋势跟踪类信号的固有代价）。买点 C1 反而有微弱正期望（未来 10 日均值 +1.62%、收益>0 占比 61.8%），是更值得关注的 alpha 来源（详见 `10-买卖点配对回测.md`）。
 
 ### 7.3 reason 字符串格式
 
@@ -390,6 +437,7 @@ mootdx turnover 全 NULL（D2 跳过），改用 BaoStock `baostock_daily_raw.tu
 - **2026-07-06（D3 阶段2 校验 + D2 换手率分布补遗）**：D3 阶段2 原计划 BaoStock vs akshare，因 akshare 东财 IP 封锁改 **BaoStock vs mootdx** 交叉校验。新建 `app/collector/cleanup_d3d2.py`，SQL JOIN on (code, date) 对比共有字段（open/high/low/close/volume/amount/pct_change）。重叠 9,847,524 行（2016-2026），除权日 25,404 行（0.26%，pct_change 差异 >0.5%）。剔除除权日后所有字段差异 <0.01% 量级（OHLC/amount 完全一致、volume 归一化后 7e-06 均值、pct_change 0.0002pp 均值），远 <1% 阈值 ✅。**关键发现**：mootdx volume 单位=手、BaoStock volume 单位=股（100x 差），对比需归一化；D2 用 amount 不受影响。同时用 BaoStock turnover 算全市场换手率分布 5 指标（mean/median/p90/p10/gt5_pct）回填 `daily_metric` 2550 日 × 5 = 12750 行（source='baostock'），补 D2 mootdx turnover 全 NULL 遗留。注册到 `config/indicators.yaml` a_sentiment 组；前端 `renderAStock` 加「换手率分布分位数」+「换手率>5%家数占比」两组折线。校验报告 `data/cleanup_d3d2_report.json`，口径详见 §8.5「换手率分布」+ NOTES.md §4.4。
 - **2026-07-06（C1 买卖点软条件化）**：`app/compute/signals.py` 去掉 cross 硬门槛。E1 版买要 cross<30（冰点）、卖要 cross>70（狂热），近年市场宽度结构变化致 cross 多在 30-70 中性区，近 1 年买点 0、卖点仅 29，信号可用性丧失。C1 改为：买 = RSI(14) 上穿 30、卖 = RSI(14) 下穿 70（事件化不变，shift(1).fillna(False) 保留）；cross 降为分级标签（`<30`冰点 / `30-50`偏冷 / `50-70`中性 / `70-80`偏热 / `≥80`狂热）经 `_cross_tag()` 写进 reason，NaN 时省略。reason 格式扩展为 `RSI上穿30(29->34),cross=8[冰点]`。重算 signal_daily 113→6893（近 1 年 buy 0→114 / sell 29→267；全史 buy 55→3311 / sell 58→3582）。规则详见 §7。
 - **2026-07-06（D1 卖点优化）**：`app/compute/signals.py` 卖点改 D1 = 20 日高回落 5%（high-based）。C1 卖点 RSI 下穿70 经回测（`07-卖点对策回测.md`，12 方案）验证为最差卖点（全史 10日胜率 43.1%/盈亏比 0.76/均值 +1.29%，方向相反）。D1：`hh20=high.rolling(20).max(); thresh=hh20*0.95; sell=(close_prev>=thresh_prev)&(close<thresh)`，fillna(False)。回测中 D1 唯一在 2016+ 窗口达标（胜率 50.6%/盈亏比 1.04，B 有效）。新增 `normalize.load_index_high()` 加载 high 列。RSI 在卖点降级为参考标签附 reason（不作触发）；买点 C1 不动（验收通过）。卖点定位改「趋势转弱/止盈减仓提示」（非做空/反向信号）。重算后买点不变（全史 3311 / 近 1 年 114），卖点改 D1（13 主要指数全史 2453 / 近 1 年 123，与回测一致；含 31 行业指数共全史 9162 / 近 1 年 450）。reason 卖点格式改 `20日高回落5%(高4259->阈4046,close4028), RSI=40, cross=53[中性]`。规则详见 §7。
+- **2026-07-07（外部验证报告 BUG-F/G/H 修复）**：依据 `交易信号网站验证报告.md`（独立 AI 测试代理复现）修 3 个 P3 体验/合规增强 bug。**BUG-F（卖点语义文案）**：ruleBar（`web/app.js` + `static-site/app.js`）"胜率50.6%"易被散户误读为高胜率卖点，改"走弱概率≈50%（接近随机，非高胜率卖点）"+ 强调"止盈减仓提示，不可作为独立卖出指令"；§7.2/§7 注同步强调"D1 非做空/反向交易指令；胜率≈50% 接近随机，不可作为独立卖出指令"，保留"最不坏非好方案"诚实声明。**BUG-G（情绪分公式透明度）**：新增 §6.5 情绪分公式公开披露章节——a_sentiment 披露 6 分项固定权重公式（ratio 25%/zt 20%/zhaban 15%/lianban 15%/amount 10%/north 15%）+ 120 日滚动百分位归一化 + 缺项可用权重重归一化（至少 3 分项出分）；cross_market 披露 trim-mean 池（38 个 enabled simple metric，含 cn10y/us10y/wti_oil/comex_silver/a_div_yield 等）+ 精确算法（dropna→<3 返 NA→升序去 iloc[1:-1] 即去最高 1+最低 1→其余算术均值）。实现校对自 `app/compute/sentiment.py`+`cross.py`+`normalize.py`。**BUG-H（买→卖配对回测）**：新建 `a-stock-data/backtest_pair.py`（独立脚本，自复刻 RSI/D1，不 import app）—— C1 买入→持有至下一个 D1 卖出（或 60 日时间止损）→算完整回合收益。13 主要指数全史 523 回合，持有期均值 +0.67%/胜率 44.6%/年化 +2.52%/平均持有 27.2 日/最大回撤 55.2%。关键发现：D1 卖点平仓回合（86.4%）均值 -0.19%（趋势转弱回吐浮盈），时间止损回合（12.6%）均值 +6.49%（强势趋势未触发 D1）；策略收益主要由强势回合贡献，D1 卖点作用是"转弱时止损避免更大亏损"而非"抓住赢家"。报告 `10-买卖点配对回测.md`。验收：node --check + py_compile 通过。
 
 ---
 
