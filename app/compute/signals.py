@@ -185,10 +185,12 @@ GLOBAL_METRIC_IDS = (
 SCORE_IDS = ("cross_market", "a_sentiment")
 # 窄幅序列（虽恒正但 %回落 0 信号，回测验证）+ 含负数序列 → 强制走 std 卖规则
 _STD_SELL_IDS = {"usdcnh", "cn_us_spread"}
+# #5 结构性异常品类（汇率干预市/均值回归 sell 反向/地缘驱动）——调参救不了，skip 买卖点
+SKIP_IDS = {"oil", "usdcnh", "cn_us_spread"}
 
 
 def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, kind: str = "指标",
-                           buy_aux_filter: str = None):
+                           buy_aux_filter: str = None, skip_sell: bool = False):
     """value 序列 → 买卖点 signals（sid 已含 g./s. 前缀）。
 
     B1+S1（2026-07-05）：买加 BB 下轨回归辅买点（buy_aux），卖叠加 MA60 多头过滤。
@@ -254,6 +256,10 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
         sell = sell & (dif < dea).fillna(False)
     else:
         dif = dea = None
+
+    # #5 结构性异常品类 skip 卖点（oil/usdcnh/cn_us_spread）
+    if skip_sell:
+        sell = pd.Series(False, index=value.index)
 
     # B 标注（vs前买）：分母用 |last_buy_value| 兼容负数序列
     # buy_aux 与 C1 同日时去重（保留 C1 主买）；buy_aux 也算买点，更新 last_buy_value
@@ -468,7 +474,8 @@ def compute():
         value = load_metric_value(mid)
         if value.empty:
             continue
-        signals.extend(_compute_value_signals(value, f"g.{mid}", kind="指标",
+        sk = mid in SKIP_IDS  # #5 oil/usdcnh/cn_us_spread 结构性异常 skip 买卖点
+        signals.extend(_compute_value_signals(value, f"g.{mid}", skip_buy=sk, skip_sell=sk, kind="指标",
                                               buy_aux_filter=buy_aux_filters.get(f"g.{mid}")))
     for scid in SCORE_IDS:
         value = load_score_value(scid)
