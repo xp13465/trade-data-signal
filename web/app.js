@@ -739,7 +739,7 @@ function renderIndustryGrid(indices) {
         <span class="spark-name">${idx.name}</span>
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
-      <div class="spark-chart" style="height:90px"></div>
+      <div class="spark-chart" style="height:110px"></div>
       <div class="ind-metrics"></div>`;
     grid.appendChild(cell);
     const sc = echarts.init(cell.querySelector(".spark-chart"));
@@ -755,7 +755,14 @@ function renderIndustryGrid(indices) {
       grid: { left: 2, right: 2, top: 6, bottom: 4 },
       xAxis: { type: "category", show: false, data: ohlc.map((d) => d.date) },
       yAxis: { type: "value", show: false, scale: true },
-      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : Number(p[0].value).toFixed(2)}` },
+      tooltip: { trigger: "axis", formatter: (p) => {
+        const d = ohlc[p[0].dataIndex];
+        if (!d || d.close == null) return `${p[0].axisValue}<br/>-`;
+        const lines = [p[0].axisValue, `收盘 ${d.close.toFixed(2)}`];
+        if (d.pct_change != null) lines.push(`涨跌 ${d.pct_change >= 0 ? "+" : ""}${d.pct_change.toFixed(2)}%`);
+        if (d.open != null && d.high != null && d.low != null) lines.push(`开 ${d.open.toFixed(2)} 高 ${d.high.toFixed(2)} 低 ${d.low.toFixed(2)}`);
+        return lines.join("<br/>");
+      } },
       series: [{
         type: "line", smooth: true, symbol: "none",
         data: ohlc.map((d) => [d.date, d.close]),
@@ -793,7 +800,11 @@ function renderIndustryGrid(indices) {
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         xAxis: { type: "category", show: false, data: spec.data.map((d) => d.date) },
         yAxis: { type: "value", show: false, scale: true },
-        tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${spec.label}: ${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : spec.fmt(Number(p[0].value))}` },
+        tooltip: { trigger: "axis", formatter: (p) => {
+          const d = spec.data[p[0].dataIndex];
+          if (!d || d.value == null) return `${p[0].axisValue}<br/>${spec.label}: -`;
+          return `${p[0].axisValue}<br/>${spec.label}: ${spec.fmt(d.value)}`;
+        } },
         series: [{
           type: "line", smooth: true, symbol: "none",
           data: spec.data.map((d) => [d.date, d.value]),
