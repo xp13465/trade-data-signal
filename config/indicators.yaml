@@ -116,19 +116,23 @@ indices:
   # socket.getaddrinfo 走 8.8.8.8 解析的 IP）。index_hist_sw 返全量历史（1999 起），无 start/end 参数。
   # market=industry 进 /api/industry；signals.py 自动遍历 cfg["indices"] 算 E1 买卖点。
   - {id: sw_801010, name: "SW 农林牧渔", market: industry, func: index_hist_sw, symbol: "801010"}
-  - {id: sw_801030, name: "SW 基础化工", market: industry, func: index_hist_sw, symbol: "801030"}
+  - {id: sw_801030, name: "SW 基础化工", market: industry, func: index_hist_sw, symbol: "801030", buy_aux_filter: close_above_bl_2pct}
   - {id: sw_801040, name: "SW 钢铁",     market: industry, func: index_hist_sw, symbol: "801040"}
   - {id: sw_801050, name: "SW 有色金属", market: industry, func: index_hist_sw, symbol: "801050"}
   - {id: sw_801080, name: "SW 电子",     market: industry, func: index_hist_sw, symbol: "801080"}
   - {id: sw_801880, name: "SW 汽车",     market: industry, func: index_hist_sw, symbol: "801880"}
   # buy_aux_filter（可选）= 该指数 buy_aux 辅买点的 per-index 增强过滤（2026-07-05 加）。
   # 配置化的品类叠加增强条件，未配置的走基线 B1（BB 下轨回归）。后续逐品类验证后各自加方案。
-  # 当前取值：'rsi_cross_40' = RSI(14) 上穿40 确认（rp≤40 & r>40），与 C1 上穿30 对称，
-  #   价格反弹 + 动量转升双维确认。sw_801110 家电打样：f -38%→+16% 转正（14-家电buy_aux优化回测.md）。
+  # 当前取值：
+  #   'rsi_cross_40' = RSI(14) 上穿40 确认（rp≤40 & r>40），与 C1 上穿30 对称，
+  #     价格反弹 + 动量转升双维确认。sw_801110 家电 f -38%→+16% 转正（14-家电buy_aux优化回测.md）；
+  #     sw_801140 轻工 f -25%→-14% 未转正但胜率 45%→50% 退而求其次（16-行业批量回测）。
+  #   'close_above_bl_2pct' = 反弹力度确认（close > bl × 1.02），过滤 barely-crossed 假信号。
+  #     sw_801030 基础化工 f -21%→+20% 转正，三 horizon 一致，n=19<30 样本警示（16-行业批量回测）。
   - {id: sw_801110, name: "SW 家用电器", market: industry, func: index_hist_sw, symbol: "801110", buy_aux_filter: rsi_cross_40}
   - {id: sw_801120, name: "SW 食品饮料", market: industry, func: index_hist_sw, symbol: "801120"}
   - {id: sw_801130, name: "SW 纺织服饰", market: industry, func: index_hist_sw, symbol: "801130"}
-  - {id: sw_801140, name: "SW 轻工制造", market: industry, func: index_hist_sw, symbol: "801140"}
+  - {id: sw_801140, name: "SW 轻工制造", market: industry, func: index_hist_sw, symbol: "801140", buy_aux_filter: rsi_cross_40}
   - {id: sw_801150, name: "SW 医药生物", market: industry, func: index_hist_sw, symbol: "801150"}
   - {id: sw_801160, name: "SW 公用事业", market: industry, func: index_hist_sw, symbol: "801160"}
   - {id: sw_801170, name: "SW 交通运输", market: industry, func: index_hist_sw, symbol: "801170"}

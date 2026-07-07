@@ -147,6 +147,10 @@ def _load_buy_aux_filters(cfg) -> dict:
     当前取值：
     - 'rsi_cross_40' = RSI(14) 上穿40 确认（rp≤40 & r>40），与 C1 上穿30 对称。
       sw_801110 家电打样：f -38%→+16% 转正（14-家电buy_aux优化回测.md）。
+      sw_801140 轻工：f -25%→-14% 未转正但胜率 45%→50% 退而求其次（16-行业批量回测）。
+    - 'close_above_bl_2pct' = 反弹力度确认（close > bl × 1.02），过滤 barely-crossed
+      假信号（dead cat bounce 前半段）。sw_801030 基础化工：f -21%→+20% 转正，
+      三 horizon 一致（5d/10d/20d 全 f>0），n=19<30 样本警示但最稳健（16-行业批量回测）。
     """
     out = {}
     for idx in cfg.get("indices", []):
@@ -219,6 +223,10 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
         if buy_aux_filter == "rsi_cross_40":
             rsi_cross_40 = ((rsi_prev <= 40) & (rsi > 40)).fillna(False)
             buy_aux = buy_aux & rsi_cross_40
+        elif buy_aux_filter == "close_above_bl_2pct":
+            # 方案A 反弹力度2%：close > bl × 1.02（蕴含 B1 的 close>bl）
+            close_above_bl_2pct = (value > bl_ * 1.02).fillna(False)
+            buy_aux = buy_aux & close_above_bl_2pct
 
     # 卖点分支：恒正（min>0）且非窄幅 → %回落5%；否则（含负数/窄幅）→ std 2σ
     raw = sid.split(".", 1)[1] if "." in sid else sid
@@ -276,6 +284,8 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
                 parts.append(f"RSI={r:.0f}")
             if buy_aux_filter == "rsi_cross_40":
                 parts.append("RSI[上穿40]")
+            if buy_aux_filter == "close_above_bl_2pct":
+                parts.append("反弹[2%]")
             parts.append(f"[{kind}]")
             out.append((date, sid, "buy_aux", ", ".join(parts)))
         if date in sell_set:
@@ -345,10 +355,18 @@ def compute():
         # Per-index buy_aux 增强（配置化，支持后续逐品类扩展）：
         # sw_801110 方案B = RSI 上穿40 确认（rp≤40 & r>40，与 C1 上穿30 对称），
         # 价格反弹 + 动量转升双维确认，f -38%→+16% 转正（14-家电buy_aux优化回测.md）。
+        # sw_801140 方案B = 同 sw_801110，f -25%→-14% 未转正但胜率 45%→50% 退而求其次
+        # （16-行业buy_aux批量回测）。
+        # sw_801030 方案A = 反弹力度确认（close > bl × 1.02），过滤 barely-crossed 假信号，
+        # f -21%→+20% 转正，三 horizon 一致，n=19<30 样本警示（16-行业buy_aux批量回测）。
         buy_aux_filter = buy_aux_filters.get(iid)
         if buy_aux_filter == "rsi_cross_40":
             rsi_cross_40 = ((rsi_prev <= 40) & (rsi > 40)).fillna(False)
             buy_aux = buy_aux & rsi_cross_40
+        elif buy_aux_filter == "close_above_bl_2pct":
+            # 方案A 反弹力度2%：B1 基线已含 close>bl，叠加 close > bl × 1.02（蕴含 close>bl）
+            close_above_bl_2pct = (close > bl_ * 1.02).fillna(False)
+            buy_aux = buy_aux & close_above_bl_2pct
 
         # 卖点（D1，high-based 20 日回落 5%）：close 从近 20 日最高价（用 high 不用 close）
         # 回落 5% = 趋势转弱/止盈减仓提示。事件化：前一日还在阈之上、当日跌破阈才标。
@@ -404,6 +422,8 @@ def compute():
                     parts.append(f"RSI={r:.0f}")
                 if buy_aux_filter == "rsi_cross_40":
                     parts.append("RSI[上穿40]")
+                if buy_aux_filter == "close_above_bl_2pct":
+                    parts.append("反弹[2%]")
                 cv = cross_aligned.get(date)
                 if pd.notna(cv):
                     parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
