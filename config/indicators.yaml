@@ -129,6 +129,8 @@ indices:
   #     sw_801140 轻工 f -25%→-14% 未转正但胜率 45%→50% 退而求其次（16-行业批量回测）。
   #     csi1000 中证1000 f -19.5%→+3.47% 三 horizon 一致转正（5d/10d/20d 全 f>0），
   #       胜率 49.3%→47.4%，盈亏比 0.74→1.20，n 71→19（17-A股宽基buy_aux回测-sh-csi1000-hs300.md）。
+  #     sw_801760 传媒 f -14%→+28% 三 horizon 一致转正（5d/10d/20d 全 f>0），
+  #       胜率 55%→74%，盈亏比 0.65→0.57，n 69→19（18-行业buy_aux回测-传媒-综合-钢铁.md）。
   #   'close_above_bl_2pct' = 反弹力度确认（close > bl × 1.02），过滤 barely-crossed 假信号。
   #     sw_801030 基础化工 f -21%→+20% 转正，三 horizon 一致，n=19<30 样本警示（16-行业批量回测）。
   - {id: sw_801110, name: "SW 家用电器", market: industry, func: index_hist_sw, symbol: "801110", buy_aux_filter: rsi_cross_40}
@@ -150,7 +152,7 @@ indices:
   - {id: sw_801890, name: "SW 机械设备", market: industry, func: index_hist_sw, symbol: "801890"}
   - {id: sw_801740, name: "SW 国防军工", market: industry, func: index_hist_sw, symbol: "801740"}
   - {id: sw_801750, name: "SW 计算机",   market: industry, func: index_hist_sw, symbol: "801750"}
-  - {id: sw_801760, name: "SW 传媒",     market: industry, func: index_hist_sw, symbol: "801760"}
+  - {id: sw_801760, name: "SW 传媒",     market: industry, func: index_hist_sw, symbol: "801760", buy_aux_filter: rsi_cross_40}
   - {id: sw_801770, name: "SW 通信",     market: industry, func: index_hist_sw, symbol: "801770"}
   - {id: sw_801950, name: "SW 煤炭",     market: industry, func: index_hist_sw, symbol: "801950"}
   - {id: sw_801960, name: "SW 石油石化", market: industry, func: index_hist_sw, symbol: "801960"}
