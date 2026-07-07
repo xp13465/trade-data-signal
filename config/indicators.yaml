@@ -92,7 +92,7 @@ indices:
   - {id: hs300,    name: 沪深300,  market: a, func: stock_zh_index_daily, symbol: "sh000300"}
   - {id: csi500,   name: 中证500,  market: a, func: stock_zh_index_daily, symbol: "sh000905"}
   - {id: csi1000,  name: 中证1000, market: a, func: stock_zh_index_daily, symbol: "sh000852", buy_aux_filter: rsi_cross_40}
-  - {id: cyb,      name: 创业板指, market: a, func: stock_zh_index_daily, symbol: "sz399006"}
+  - {id: cyb,      name: 创业板指, market: a, func: stock_zh_index_daily, symbol: "sz399006", buy_aux_filter: rsi_cross_40}
   - {id: kc50,     name: 科创50,   market: a, func: stock_zh_index_daily, symbol: "sh000688"}
   # 红利指数：中证红利/红利低波走中证指数公司源（sina sh000922 数据停在 2019、930955 sina 无此代码），
   # 深证红利走 sina 源。market=a 复用 A 股看板 renderAStock 自动渲染折线 + E1 买卖点。
@@ -131,13 +131,17 @@ indices:
   #       胜率 49.3%→47.4%，盈亏比 0.74→1.20，n 71→19（17-A股宽基buy_aux回测-sh-csi1000-hs300.md）。
   #     sw_801760 传媒 f -14%→+28% 三 horizon 一致转正（5d/10d/20d 全 f>0），
   #       胜率 55%→74%，盈亏比 0.65→0.57，n 69→19（18-行业buy_aux回测-传媒-综合-钢铁.md）。
+  #     cyb 创业板指 f -13%→+15% 三 horizon 一致转正（5d/10d/20d 全 f>0），
+  #       胜率 51%→65%，盈亏比 0.77→0.70，n 92→20（20-行业buy_aux回测，n<30 警示）。
+  #     sw_801150 医药生物 f -2%→+22% 三 horizon 一致转正（5d/10d/20d 全 f>0），n=36≥30 稳健转正；
+  #       胜率 48%→50%，盈亏比 1.04→1.80（20-行业buy_aux回测）。方案A 亦转正 f+38% 但 n=16<30 故选 B。
   #   'close_above_bl_2pct' = 反弹力度确认（close > bl × 1.02），过滤 barely-crossed 假信号。
   #     sw_801030 基础化工 f -21%→+20% 转正，三 horizon 一致，n=19<30 样本警示（16-行业批量回测）。
   - {id: sw_801110, name: "SW 家用电器", market: industry, func: index_hist_sw, symbol: "801110", buy_aux_filter: rsi_cross_40}
   - {id: sw_801120, name: "SW 食品饮料", market: industry, func: index_hist_sw, symbol: "801120"}
   - {id: sw_801130, name: "SW 纺织服饰", market: industry, func: index_hist_sw, symbol: "801130"}
   - {id: sw_801140, name: "SW 轻工制造", market: industry, func: index_hist_sw, symbol: "801140", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801150, name: "SW 医药生物", market: industry, func: index_hist_sw, symbol: "801150"}
+  - {id: sw_801150, name: "SW 医药生物", market: industry, func: index_hist_sw, symbol: "801150", buy_aux_filter: rsi_cross_40}
   - {id: sw_801160, name: "SW 公用事业", market: industry, func: index_hist_sw, symbol: "801160"}
   - {id: sw_801170, name: "SW 交通运输", market: industry, func: index_hist_sw, symbol: "801170"}
   - {id: sw_801180, name: "SW 房地产",   market: industry, func: index_hist_sw, symbol: "801180"}

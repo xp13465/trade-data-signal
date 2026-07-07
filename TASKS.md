@@ -36,11 +36,16 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - 前端 `strategyDesc(indexId)` 硬编码 per-index 映射（4 品类自定义 + 基线兜底 + s.* skip_buy）。`statsHint(stats, indexId)` 接收 indexId。`indexChart`/`valueChartWithSignals` 签名加 indexId，调用点传 id。
 - 改 4 文件：web/app.js + web/style.css + static-site/app.js + static-site/style.css。node --check PASS。
 
+**4. 传媒 buy_aux 落地 + 综合/钢铁维持现状（2026-07-08）** — commit b121d56
+- 传媒 sw_801760：方案B `rsi_cross_40` 落地，f -14%→+28%（5d+34%/10d+28%/20d+2.8% 三 horizon 一致），胜率 55%→74%，n 69→19。方案A 亦转正（f+74%）但 n=8<10 样本不足故选 B。
+- 综合 sw_801230 / 钢铁 sw_801040：维持现状（无方案三 horizon 一致转正；钢铁仅 C 放量 10d 转正但三 horizon 不一致 + C 非已实现 filter + n<30）。
+- signals.py 零改动（rsi_cross_40 早已实现），yaml 加一行。重算 buy_aux 5364→5314。报告 `18-行业buy_aux回测-传媒-综合-钢铁.md`。
+
 ### 待办（配额 01:02:30 重置后继续）
 
-1. **传媒/综合/钢铁 buy_aux 回测** — 之前 worker 429 失败，待重派（backtest_buy_aux_batch.py，A/B/C 三方案，报告 18-）
-2. **凯利建议但胜率<50% 品类提胜率回测** — 用户新需求。恒生科技 hstech 买点 46.7%（f+11.5%,pl1.52）/ 辅买 48.6%（f+13.7%,pl1.47），凯利建议靠高盈亏比弥补低胜率，要"尽可能提高胜率"。需回测多方案（加确认条件提胜率，但可能降盈亏比，出报告让用户选）
-3. **buy_aux 剩余 ~20 品类逐个优化** — 已做 8 个，剩约 20 个（csi500/cyb/kc50/sz_div/sw_801040/sw_801050/sw_801120/sw_801130/sw_801150/sw_801160/sw_801170/sw_801210/sw_801760/sw_801880/sw_801890/sw_801970/g.cn10y/g.cn_us_spread/sz 等）。用户选了"逐个品类调参"而非批量
+1. ~~传媒/综合/钢铁 buy_aux 回测~~ ✅ done（2026-07-08，commit b121d56）— 见上「已完成 #4」
+2. ~~凯利建议但胜率<50% 品类提胜率回测~~ ✅ done（2026-07-08，用户选「维持现状」）— 报告 `19-恒生科技提胜率回测.md` + 新脚本 `a-stock-data/backtest_hstech_winrate.py`。hstech 主买测 6 方案无法稳定提胜率（可信 n≥10 最高 46.7%；MACD金叉/MA60多头 与超卖反弹矛盾产 0 信号；s1 RSI上穿25 胜率85.7%但n=7；s6 BB下轨胜率反降45.5%）。**用户决策：主买维持现状 C1**（f+11.47% 靠 pl1.52 盈亏比），不新增 buy_filter 机制。辅买 s5 放量 三 horizon f>0 但 n=6 不足，留作后续样本累积观察。结构性原因：港股科技无涨跌停+超卖反弹弱+全史仅16信号。
+3. **buy_aux 剩余品类逐个优化** — ⏳ 部分完成（2026-07-08，worker 429 中断，weekly quota reset **2026-07-13**）。本批 6 品类（报告 `20-行业buy_aux回测-中证500-创业板指-深证红利-有色金属-食品饮料-医药生物.md`）：**cyb 创业板指 + sw_801150 医药生物** 方案B `rsi_cross_40` 落地（cyb f -13%→+15% 三 horizon 一致 n=20 警示；医药 f -2%→+22% 三 horizon 一致 n=36≥30 稳健，方案A 亦转正 f+38% 但 n=16 选 B）；csi500/sz_div/sw_801050/sw_801120 维持现状（无方案三 horizon 一致转正）。剩 ~14 品类未做（kc50/sz/sw_801130/sw_801160/sw_801170/sw_801180/sw_801210/sw_801770/sw_801880/sw_801890/sw_801970/g.cn10y 等，排除 #5 skip 候选 g.cn_us_spread/g.usdcnh/g.oil）。累计 **13/32 品类已优化**。**配额 7-13 reset 后继续**。
 4. **buy 16 个不建议** — C1 主买整体健康（41/60 建议），未动。收紧 RSI 方向（如 30→25 或加 cross 标签）
 5. **3 个结构性异常品类 skip** — g.usdcnh（汇率干预市）/ g.cn_us_spread（均值回归 sell 反向）/ g.oil（地缘驱动），调参救不了，建议 skip_buy/skip_sell（与 a_sentiment 同处理）
 6. **界面标注改后端注入** — strategyDesc 临时硬编码前端，配额恢复后改 export.py/main.py 注入 strategy 字段（读 indicators.yaml，避免后续品类优化前端漏改）
