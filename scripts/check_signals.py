@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import smtplib
 import sqlite3
 import sys
@@ -25,9 +26,12 @@ from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parent.parent
 DB_PATH = REPO / "data" / "sentiment.db"
 EMAIL_CONFIG = REPO / "config" / "email.json"
+INDICATORS_CONFIG = REPO / "config" / "indicators.yaml"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +39,15 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("check_signals")
+
+# score_daily 中的综合分 score_id → 中文名（不入 indicators.yaml，硬编码）
+SCORE_NAME_MAP = {
+    "cross_market": "跨市场综合分",
+    "a_sentiment": "A股综合情绪分",
+}
+
+# index_id 前缀（g.=指标/daily_metric，s.=score_daily 分数，无前缀=指数 index_daily）
+_PREFIX_RE = re.compile(r"^(?:g|s)\.(.+)$")
 
 # 邮件正文中的买卖点规则摘要
 RULE_SUMMARY = """【买卖点规则说明】
@@ -69,24 +82,77 @@ def query_signals(date: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def build_email(date: str, signals: list[dict]) -> tuple[str, str]:
+def load_name_map() -> dict[str, str]:
+    """加载 index_id(去前缀) → 中文名 映射。
+
+    来源：
+      - config/indicators.yaml 的 metrics[]（g.<id>）和 indices[]（无前缀）
+      - score_daily 综合分（s.<id>，硬编码 SCORE_NAME_MAP）
+    未匹配的 index_id 保留原值（调用方兜底）。
+    """
+    name_map: dict[str, str] = {}
+    name_map.update(SCORE_NAME_MAP)
+    if not INDICATORS_CONFIG.exists():
+        log.warning("config/indicators.yaml 不存在 —— 名称映射仅含硬编码 score")
+        return name_map
+    try:
+        cfg = yaml.safe_load(INDICATORS_CONFIG.read_text(encoding="utf-8")) or {}
+    except Exception as e:  # noqa: BLE001
+        log.error("config/indicators.yaml 解析失败：%s（仅用硬编码 score 映射）", e)
+        return name_map
+    for m in cfg.get("metrics", []) or []:
+        mid = m.get("id")
+        mname = m.get("name")
+        if mid and mname:
+            name_map[mid] = mname
+    for idx in cfg.get("indices", []) or []:
+        iid = idx.get("id")
+        iname = idx.get("name")
+        if iid and iname:
+            name_map[iid] = iname
+    return name_map
+
+
+def index_id_to_name(index_id: str, name_map: dict[str, str]) -> str:
+    """signal_daily.index_id → 中文名。去 g./s. 前缀后查映射；未匹配保留原 index_id。"""
+    m = _PREFIX_RE.match(index_id)
+    key = m.group(1) if m else index_id
+    return name_map.get(key, index_id)
+
+
+def _summary_names(signals: list[dict], name_map: dict[str, str], limit: int = 3) -> str:
+    """信号列表 → 品种名摘要（最多 limit 个，多了 '等N个'）。无信号返回 '无'。"""
+    if not signals:
+        return "无"
+    names = [index_id_to_name(s["index_id"], name_map) for s in signals]
+    head = ",".join(names[:limit])
+    if len(names) > limit:
+        return f"{head}等{len(names)}个"
+    return head
+
+
+def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tuple[str, str]:
     """构建邮件主题 + 正文。返回 (subject, body)。"""
     buys = [s for s in signals if s["signal"] == "buy"]
     sells = [s for s in signals if s["signal"] == "sell"]
     others = [s for s in signals if s["signal"] not in ("buy", "sell")]
     n = len(signals)
 
-    subject = f"[买卖点信号] {date} {n}个信号"
+    # 主题加品种摘要：买:WTI原油 卖:深成指,恒生（每边最多3个，多了等N个）
+    buy_summary = _summary_names(buys, name_map)
+    sell_summary = _summary_names(sells, name_map)
+    subject = f"[买卖点信号] {date} 买:{buy_summary} 卖:{sell_summary}"
 
     lines: list[str] = []
-    lines.append(f"【买卖点信号】{date}  共 {n} 个信号")
+    lines.append(f"【买卖点信号】{date}  共 {n} 个信号（买 {len(buys)} / 卖 {len(sells)}）")
     lines.append("")
 
     # 买入信号
     lines.append(f"═══════════ 📈 买入信号（{len(buys)}） ═══════════")
     if buys:
         for s in buys:
-            lines.append(f"  • {s['index_id']:<16}  {s['reason'] or ''}")
+            name = index_id_to_name(s["index_id"], name_map)
+            lines.append(f"  • {name}（{s['index_id']}）  {s['reason'] or ''}")
     else:
         lines.append("  （无）")
     lines.append("")
@@ -95,7 +161,8 @@ def build_email(date: str, signals: list[dict]) -> tuple[str, str]:
     lines.append(f"═══════════ 📉 卖出信号（{len(sells)}） ═══════════")
     if sells:
         for s in sells:
-            lines.append(f"  • {s['index_id']:<16}  {s['reason'] or ''}")
+            name = index_id_to_name(s["index_id"], name_map)
+            lines.append(f"  • {name}（{s['index_id']}）  {s['reason'] or ''}")
     else:
         lines.append("  （无）")
     lines.append("")
@@ -104,7 +171,8 @@ def build_email(date: str, signals: list[dict]) -> tuple[str, str]:
     if others:
         lines.append(f"═══════════ ⚠ 其他信号（{len(others)}） ═══════════")
         for s in others:
-            lines.append(f"  • {s['index_id']:<16}  {s['signal']}: {s['reason'] or ''}")
+            name = index_id_to_name(s["index_id"], name_map)
+            lines.append(f"  • {name}（{s['index_id']}）  {s['signal']}: {s['reason'] or ''}")
         lines.append("")
 
     lines.append("─" * 50)
@@ -177,7 +245,8 @@ def main(argv: list[str] | None = None) -> int:
     n_sell = sum(1 for s in signals if s["signal"] == "sell")
     log.info("查询到 %d 个信号（buy=%d, sell=%d）", len(signals), n_buy, n_sell)
 
-    subject, body = build_email(date, signals)
+    name_map = load_name_map()
+    subject, body = build_email(date, signals, name_map)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
