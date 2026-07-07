@@ -1,4 +1,6 @@
-const state = { tab: "overview", range: "1y" };
+// BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
+// 筛选只控制前端显示哪些折线/行业，不影响后端数据。
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all" };
 const content = document.getElementById("content");
 const charts = [];
 
@@ -158,6 +160,61 @@ function valueChartWithSignals(title, data, signals, opts = {}) {
 
 async function fetchJSON(url) {
   return fetch(url).then((r) => r.json());
+}
+
+// ============ BUG-E：交互增强（指数/行业筛选 + 热力图切换）============
+// 纯前端筛选，不影响后端数据。控件放看板顶部（ruleBar 之后），复用 .filter-bar 样式。
+// 指数筛选条：A 股/港股 tab 用，select 列出当前 tab 全部指数，选特定指数只渲染该指数折线，"全部"显示所有。
+function indexFilterBar(indices) {
+  const entries = Object.entries(indices || {});
+  if (!entries.length) return { entries, filterId: "all" };
+  // 当前 tab 不含已选 id 时回退"全部"（防跨 tab 状态残留导致空渲染）
+  const filterId = state.indexFilter !== "all" && entries.some(([id]) => id === state.indexFilter) ? state.indexFilter : "all";
+  const bar = document.createElement("div");
+  bar.className = "filter-bar";
+  bar.innerHTML = `<label>指数筛选：</label>`;
+  const sel = document.createElement("select");
+  sel.innerHTML = `<option value="all"${filterId === "all" ? " selected" : ""}>全部指数（${entries.length}）</option>` +
+    entries.map(([id, idx]) => `<option value="${id}"${filterId === id ? " selected" : ""}>${idx.name}</option>`).join("");
+  sel.onchange = () => {
+    state.indexFilter = sel.value;
+    renderTab();
+  };
+  bar.appendChild(sel);
+  content.appendChild(bar);
+  return { entries, filterId };
+}
+
+// 行业搜索条：行业 tab 用，输入关键词实时过滤行业网格（按 name 或 id 模糊匹配）。
+function industrySearchBar() {
+  const bar = document.createElement("div");
+  bar.className = "filter-bar";
+  bar.innerHTML = `<label>行业筛选：</label>`;
+  const input = document.createElement("input");
+  input.type = "search";
+  input.placeholder = "搜索行业名称或代码（如：银行、医药、sw_801）";
+  input.value = state.industrySearch;
+  let timer;
+  input.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      state.industrySearch = input.value.trim();
+      renderTab();
+    }, 250); // 防抖，避免每键触发 renderTab
+  };
+  bar.appendChild(input);
+  content.appendChild(bar);
+}
+
+function filterIndicesByName(indices, query) {
+  if (!query) return indices;
+  const q = query.toLowerCase();
+  const out = {};
+  for (const [id, idx] of Object.entries(indices || {})) {
+    const name = (idx.name || "").toLowerCase();
+    if (name.includes(q) || id.toLowerCase().includes(q)) out[id] = idx;
+  }
+  return out;
 }
 
 // 买卖点规则说明条（小字可折叠）。文案与 app/compute/signals.py + REQUIREMENTS.md §7 一致。
@@ -367,6 +424,8 @@ async function renderAStock() {
   const r = await fetchJSON(`/api/a-stock?range=${state.range}`);
   content.innerHTML = "";
   ruleBar();
+  // BUG-E：指数筛选条（只控制显示哪些指数折线，不影响数据）
+  const { entries: indexEntries, filterId } = indexFilterBar(r.indices);
   const groups = {
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
     "涨停/跌停/连板": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban"],
@@ -386,7 +445,8 @@ async function renderAStock() {
     const series = ids.map((id) => r.metrics[id]).filter(Boolean).map((m) => ({ name: m.name, data: m.data }));
     if (series.length && series.some((s) => s.data.length)) lineChart(g, series, {}, groupHints[g] || null);
   }
-  for (const [id, idx] of Object.entries(r.indices)) {
+  for (const [id, idx] of indexEntries) {
+    if (filterId !== "all" && id !== filterId) continue; // BUG-E：未选指数跳过渲染
     const sig = await fetchJSON(`/api/index/${id}?range=${state.range}`);
     if (idx.data.length) indexChart(idx.name, idx.data, sig.signals);
   }
@@ -396,8 +456,11 @@ async function renderHK() {
   const r = await fetchJSON(`/api/hk?range=${state.range}`);
   content.innerHTML = "";
   ruleBar();
+  // BUG-E：指数筛选条
+  const { entries: indexEntries, filterId } = indexFilterBar(r.indices);
   if (r.hk_south && r.hk_south.length) lineChart("港股通净买入（亿元）", r.hk_south.map((d) => ({ date: d.date, value: d.value })));
-  for (const [id, idx] of Object.entries(r.indices)) {
+  for (const [id, idx] of indexEntries) {
+    if (filterId !== "all" && id !== filterId) continue;
     const sig = await fetchJSON(`/api/index/${id}?range=${state.range}`);
     if (idx.data.length) indexChart(idx.name, idx.data, sig.signals);
   }
@@ -449,25 +512,47 @@ async function renderSentiment() {
 // ============ 行业看板（F1）============
 // 申万一级 31 个行业：折线网格（mini 折线 + E1 买卖点 markPoint）+ 涨跌幅热力图（近 1 日/近 5 日）。
 // 后端 /api/industry 一次性返回 indices（ohlc+signals）+ heatmap（pct_1d/pct_5d）。
+// BUG-E：热力图加近1日/近5日/全部切换按钮（嵌在卡片标题右侧），数据已有 pct_1d/pct_5d 只加 UI 切换。
 function renderIndustryHeatmap(heatmap, title) {
   if (!heatmap || !heatmap.length) return null;
+  const rangeMode = state.heatmapRange || "all";
   // 按近 1 日涨跌幅排序（红涨在前，绿跌在后），便于看强弱分布
   const sorted = [...heatmap].sort((a, b) => (b.pct_1d ?? -999) - (a.pct_1d ?? -999));
   const names = sorted.map((h) => h.name.replace(/^SW\s/, ""));
+  // BUG-E：按 rangeMode 决定 y 轴维度（近1日/近5日/全部两行）
+  const yCats = rangeMode === "1d" ? ["近 1 日"] : rangeMode === "5d" ? ["近 5 日"] : ["近 1 日", "近 5 日"];
+  const yIdxs = rangeMode === "1d" ? [0] : rangeMode === "5d" ? [1] : [0, 1];
   const data = [];
   sorted.forEach((h, i) => {
-    data.push([i, 0, h.pct_1d == null ? null : Number(h.pct_1d.toFixed(2))]);
-    data.push([i, 1, h.pct_5d == null ? null : Number(h.pct_5d.toFixed(2))]);
+    for (const yi of yIdxs) {
+      const v = yi === 0 ? h.pct_1d : h.pct_5d;
+      data.push([i, yi, v == null ? null : Number(v.toFixed(2))]);
+    }
   });
-  const c = mkCard(title || "申万一级行业涨跌幅热力图", 280);
+  // BUG-E：自建卡片（含切换按钮在标题右侧），不复用 mkCard（其标题不支持嵌入控件）
+  const div = document.createElement("div");
+  div.className = "chart-card";
+  const toggleBtns = [["1d", "近1日"], ["5d", "近5日"], ["all", "全部"]]
+    .map(([k, label]) => `<button type="button" data-hr="${k}" class="${rangeMode === k ? "active" : ""}">${label}</button>`).join("");
+  div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;
+  content.appendChild(div);
+  const c = echarts.init(div.querySelector(".chart"));
+  charts.push(c);
+  // 切换按钮：点击改 state.heatmapRange 后重渲染整个 tab（保持其他筛选状态）
+  div.querySelectorAll(".heatmap-toggle button").forEach((b) => {
+    b.onclick = () => {
+      state.heatmapRange = b.dataset.hr;
+      renderTab();
+    };
+  });
   c.setOption({
     tooltip: {
       trigger: "item",
-      formatter: (p) => `${names[p.value[0]]}<br/>${p.value[1] === 0 ? "近 1 日" : "近 5 日"}：${p.value[2] == null ? "-" : p.value[2] + "%"}`,
+      formatter: (p) => `${names[p.value[0]]}<br/>${yCats[p.value[1]]}：${p.value[2] == null ? "-" : p.value[2] + "%"}`,
     },
     grid: { left: 56, right: 16, top: 24, bottom: 90 },
     xAxis: { type: "category", data: names, axisLabel: { rotate: 50, fontSize: 10, interval: 0 }, splitArea: { show: false } },
-    yAxis: { type: "category", data: ["近 1 日", "近 5 日"], axisLabel: { fontSize: 11 } },
+    yAxis: { type: "category", data: yCats, axisLabel: { fontSize: 11 } },
     visualMap: {
       min: -5, max: 5, calculable: true, orient: "horizontal", left: "center", bottom: 4,
       inRange: { color: ["#2e8b57", "#a8d8b9", "#f2f3f5", "#f5b6a8", "#e6492e"] }, // 绿→灰→红（A 股惯例红涨绿跌）
@@ -613,11 +698,16 @@ async function renderIndustry() {
   content.innerHTML = "";
   ruleBar();
   renderIndustryHeatmap(r.heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）");
+  // BUG-E：行业搜索条（输入名称关键词实时过滤行业网格）
+  industrySearchBar();
   const title = document.createElement("div");
   title.className = "section-title";
-  title.textContent = `行业指数折线（${Object.keys(r.indices || {}).length} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
+  const total = Object.keys(r.indices || {}).length;
+  const filtered = filterIndicesByName(r.indices, state.industrySearch);
+  const shown = Object.keys(filtered).length;
+  title.textContent = `行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
   content.appendChild(title);
-  renderIndustryGrid(r.indices);
+  renderIndustryGrid(filtered);
 }
 
 // ============ 手动补录（前端入口已移除） ============

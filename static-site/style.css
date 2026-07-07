@@ -273,3 +273,65 @@ main { padding: 16px 24px; }
 .back-to-top:hover { background: rgba(31, 35, 41, 0.82); }
 .back-to-top:focus-visible { outline: 2px solid #165dff; outline-offset: 2px; }
 
+/* === BUG-E：筛选/切换控件 === */
+/* 指数筛选下拉 / 行业搜索框：看板顶部条，复用 .periods 按钮配色风格 */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.filter-bar > label {
+  color: #4e5969;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.filter-bar select,
+.filter-bar input[type="search"] {
+  padding: 5px 8px;
+  border: 1px solid #d9dce0;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #fff;
+  color: #1f2329;
+  min-width: 180px;
+}
+.filter-bar select:focus,
+.filter-bar input[type="search"]:focus {
+  outline: 2px solid #165dff;
+  outline-offset: -1px;
+  border-color: #165dff;
+}
+/* 热力图卡片标题：左侧文案 + 右侧切换按钮组 */
+.chart-card h3.with-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.heatmap-toggle {
+  display: inline-flex;
+  border: 1px solid #d9dce0;
+  border-radius: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.heatmap-toggle button {
+  padding: 4px 10px;
+  border: none;
+  background: #fff;
+  color: #4e5969;
+  cursor: pointer;
+  font-size: 12px;
+  border-right: 1px solid #d9dce0;
+}
+.heatmap-toggle button:last-child { border-right: none; }
+.heatmap-toggle button.active { background: #165dff; color: #fff; }
+.heatmap-toggle button:hover:not(.active) { background: #f2f3f5; }
+
