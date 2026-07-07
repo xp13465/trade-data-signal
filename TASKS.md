@@ -47,12 +47,13 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 2. ~~凯利建议但胜率<50% 品类提胜率回测~~ ✅ done（2026-07-08，用户选「维持现状」）— 报告 `19-恒生科技提胜率回测.md` + 新脚本 `a-stock-data/backtest_hstech_winrate.py`。hstech 主买测 6 方案无法稳定提胜率（可信 n≥10 最高 46.7%；MACD金叉/MA60多头 与超卖反弹矛盾产 0 信号；s1 RSI上穿25 胜率85.7%但n=7；s6 BB下轨胜率反降45.5%）。**用户决策：主买维持现状 C1**（f+11.47% 靠 pl1.52 盈亏比），不新增 buy_filter 机制。辅买 s5 放量 三 horizon f>0 但 n=6 不足，留作后续样本累积观察。结构性原因：港股科技无涨跌停+超卖反弹弱+全史仅16信号。
 3. **buy_aux 剩余品类逐个优化** — ⏳ 部分完成（2026-07-08，worker 429 中断，weekly quota reset **2026-07-13**）。本批 6 品类（报告 `20-行业buy_aux回测-中证500-创业板指-深证红利-有色金属-食品饮料-医药生物.md`）：**cyb 创业板指 + sw_801150 医药生物** 方案B `rsi_cross_40` 落地（cyb f -13%→+15% 三 horizon 一致 n=20 警示；医药 f -2%→+22% 三 horizon 一致 n=36≥30 稳健，方案A 亦转正 f+38% 但 n=16 选 B）；csi500/sz_div/sw_801050/sw_801120 维持现状（无方案三 horizon 一致转正）。剩 ~14 品类未做（kc50/sz/sw_801130/sw_801160/sw_801170/sw_801180/sw_801210/sw_801770/sw_801880/sw_801890/sw_801970/g.cn10y 等，排除 #5 skip 候选 g.cn_us_spread/g.usdcnh/g.oil）。累计 **13/32 品类已优化**。**配额 7-13 reset 后继续**。
 4. **buy 16 个不建议** — C1 主买整体健康（41/60 建议），未动。收紧 RSI 方向（如 30→25 或加 cross 标签）
-5. **3 个结构性异常品类 skip** — g.usdcnh（汇率干预市）/ g.cn_us_spread（均值回归 sell 反向）/ g.oil（地缘驱动），调参救不了，建议 skip_buy/skip_sell（与 a_sentiment 同处理）
-6. **界面标注改后端注入** — strategyDesc 临时硬编码前端，配额恢复后改 export.py/main.py 注入 strategy 字段（读 indicators.yaml，避免后续品类优化前端漏改）
-7. **ruleBar 文案更新** — 顶部规则说明条不含 MACD 死叉 + per-index（旧文案），待更新
+5. ~~3 个结构性异常品类 skip~~ ✅ done（2026-07-08，commit 0cb1152）— signals.py 加 `SKIP_IDS={oil,usdcnh,cn_us_spread}` + `skip_sell` 参数，3 品类全 skip 买卖点（与 a_sentiment skip_buy 同思路）。signal_daily 12284→11975（-309），3 品类信号归零，signal_stats + static-site 75 JSON 同步重导出。
+6. **界面标注改后端注入** — ⏳ 延后（配额 7-13 后）。strategyDesc 临时硬编码前端（web/app.js:118 / static-site/app.js:125）。**方案**：① export.py `export_index_detail` + tab export 读 `indicators.yaml` 的 `buy_aux_filter` + `SKIP_IDS` 生成 `strategy{buy,buy_aux,sell}` 字段塞进 index data；② main.py `/api/index` 同步注入；③ 前端 `strategyDesc(indexId)` 改读 `idx.strategy` 字段（删硬编码 per-index 映射，留兜底）。避免后续品类优化前端漏改。
+7. ~~ruleBar 文案更新~~ ✅ done（2026-07-08，commit a576993）— summary 补 MACD 死叉（DIF<DEA，s.* 豁免）+ per-index buy_aux 增强。**detail 行 379 卖点段未改**（summary 已含关键信息，detail 待后续补）。
 8. **Cloudflare 部署问题** — git push 成功但 Cloudflare 停在 5 小时前，疑似 webhook 断或构建失败，用户查 dashboard 中。GitHub Pages 正常
-9. **备份表清理** — `signal_daily_bak_20260707` 无引用（verify 确认），可 DROP
+9. ~~备份表清理~~ ✅ done（2026-07-08）— `signal_daily_bak_20260707`（12809 行）已 DROP。
 10. **industry-all.json 体积** — 23.74 MiB < 25 MiB，余量 1.26 MiB，2026 年底前需拆分
+11. ~~🐛 行业 tab 折线图 tooltip 显示 nan（bug）~~ ✅ done（2026-07-08，commit a576993）— 防御性改 `renderIndustryGrid` 所有 tooltip formatter（主折线/资金流·成交额·换手率 mini/宽度）兜底 null/NaN/undefined 显示 '-'。数据查无 nan/null，根因疑是 data(0706) 与 turnover(0707) 日期不同步 + 多数品类 fund_flow 空致 echarts 传 undefined。
 
 ### 工作模式（不变）
 - 监管+loop：派子 agent（fresh context）读 TASKS.md 领任务，主进程不直接干活
