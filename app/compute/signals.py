@@ -1,5 +1,5 @@
 """§7 买点/卖点：买=RSI 事件化（C1）+ BB下轨回归辅买点（B1），卖=20日高回落5%（D1）
-叠加 MA60 多头过滤（S1）。
+叠加 MA60 多头过滤（S1）+ MACD 死叉确认（DIF<DEA，方案 B 2026-07-05）。
 
 买点（C1 主买 + B1 辅买，2026-07-05 B1+S1 优化）：
 - C1 主买点 signal='buy' 不变：RSI(14) 上穿 30（前一日≤30 且当日>30，超卖结束、有望反弹）。
@@ -9,13 +9,17 @@
   - C1 与 BB 同日触发时去重：保留 C1（主买优先），不重复发 buy_aux。
   - buy_aux 也算买点：更新 last_buy_close 游标 + 参与 vs前买 标注。
 
-卖点（D1 + S1 MA60 多头过滤，2026-07-05 B1+S1 优化）：
+卖点（D1 + S1 MA60 多头过滤 + MACD 死叉确认，2026-07-05 方案 B）：
 - D1 触发逻辑保留：close 从近 20 日最高价（high-based）回落 5%。
 - S1 过滤：仅当 close > MA60（60 日均线，多头趋势）才放卖——砍下跌趋势中的假卖点
   （熊市噪声）。回测降噪率 39%（全史卖点 59830→36289）。
+- MACD 死叉确认（方案 B，2026-07-05）：D1+S1 基础上加 DIF<DEA（动量转弱确认），
+  过滤「强趋势中回调假摔」型假信号。回测 sell 凯利建议率 18.3%→43.3%（11→28 个建议）。
+  **s.* 情绪分序列豁免**（a_sentiment 加 MACD 后 n=106→7 样本不足），保留原 D1+S1。
 - MA60：close.rolling(60, min_periods=60).mean()。MA60 为 NaN（前 60 日）时 close>MA60
   为 False，自动不放卖（与 min_periods=60 一致）。
-- reason 末尾附 MA60 标签：`MA60={m:.0f}[趋势过滤]`。
+- MACD(12,26,9)：DIF=EMA(close,12)-EMA(close,26)，DEA=EMA(DIF,9)，EMA 用 ewm(span=N, adjust=False)。
+- reason 末尾附 MA60 标签 + MACD[死叉确认] 标签：`MA60={m:.0f}[趋势过滤] MACD=DIF{d}/DEA{e}[死叉确认]`。
 
 事件化：只在「穿越」那一天标，一次连续超卖/超买期只产 1 个点
 （RSI 反复进出超卖/超买区则每次退出各 1 个点，算独立事件）。
@@ -79,6 +83,20 @@ def _bollinger(close: pd.Series, window: int = 20, n_std: float = 2.0):
     return bu, mid, bl
 
 
+def _macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+    """MACD(12,26,9)：DIF = EMA(close,12) - EMA(close,26)，DEA = EMA(DIF,9)。
+
+    EMA 用 ewm(span=N, adjust=False).mean()（α=2/(N+1)，业界标准）。
+    与 `a-stock-data/backtest_sell_optimize.py::macd()` 一致（worker 已复刻验证）。
+    返回 (dif, dea)。MACD 柱 = (dif-dea)*2 不算（关键 DIF/DEA）。
+    """
+    ema_f = close.ewm(span=fast, adjust=False).mean()
+    ema_s = close.ewm(span=slow, adjust=False).mean()
+    dif = ema_f - ema_s
+    dea = dif.ewm(span=signal, adjust=False).mean()
+    return dif, dea
+
+
 def _cross_tag(cross_val) -> str:
     """cross 分级标签：<30 冰点 / 30-50 偏冷 / 50-70 中性 / 70-80 偏热 / >=80 狂热。
 
@@ -114,7 +132,8 @@ def _load_cross_score() -> pd.Series:
 #   买 = RSI(14) 上穿 30（与指数 C1 一致）+ BB 下轨回归辅买点（B1，2026-07-05 加）
 #   卖分支：恒正序列（min>0）用 %回落5%（thresh=hh20*0.95）；
 #           含负数/窄幅序列用 std 2σ（thresh=hh20-2.0*std20）。
-#   卖叠加 MA60 多头过滤（S1，2026-07-05 加）。
+#   卖叠加 MA60 多头过滤（S1，2026-07-05 加）+ MACD 死叉确认（方案 B，2026-07-05 加）。
+#   **s.* 情绪分序列豁免 MACD 过滤**（a_sentiment 加 MACD 后 n=106→7 样本不足），保留 D1+S1。
 # a_sentiment 买规则失效（RSI 结构性≥40，0 信号）→ skip_buy，仅算卖（buy_aux 也跳过）。
 # signal_daily index_id 前缀：g.<metric_id> / s.<score_id>（区分指数/指标/分数）。
 # 卖点 reason 附 vs前买 标注，分母用 |last_buy_value| 兼容负数序列（如 cn_us_spread）。
@@ -172,6 +191,16 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
     ma60 = value.rolling(60, min_periods=60).mean()
     sell = sell & (value > ma60).fillna(False)
 
+    # 方案 B（MACD 死叉确认，2026-07-05）：D1+S1 基础上加 DIF<DEA（动量转弱确认）。
+    # s.* 情绪分序列豁免（a_sentiment 加 MACD 后 n=106→7 样本不足，cross_market 同理），
+    # 保留原 D1+S1 逻辑。g.* 指标与非前缀指数一样应用 MACD 过滤。
+    use_macd = not sid.startswith("s.")
+    if use_macd:
+        dif, dea = _macd(value)
+        sell = sell & (dif < dea).fillna(False)
+    else:
+        dif = dea = None
+
     # B 标注（vs前买）：分母用 |last_buy_value| 兼容负数序列
     # buy_aux 与 C1 同日时去重（保留 C1 主买）；buy_aux 也算买点，更新 last_buy_value
     buy_set = set(buy[buy].index)
@@ -216,6 +245,12 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
             # S1 趋势过滤标签
             if pd.notna(m):
                 parts.append(f"MA60={m:.4g}[趋势过滤]")
+            # MACD 死叉确认标签（方案 B，2026-07-05）：s.* 豁免不加
+            if use_macd and dif is not None:
+                dv = dif.get(date)
+                ev = dea.get(date)
+                if pd.notna(dv) and pd.notna(ev):
+                    parts.append(f"MACD=DIF{dv:.4g}/DEA{ev:.4g}[死叉确认]")
             # vs前买 标注：分母 |last_buy_value| 兼容负数（cn_us_spread 可 -3~2）
             if last_buy_value is not None and pd.notna(v):
                 denom = abs(last_buy_value)
@@ -268,6 +303,12 @@ def compute():
         # MA60 前 60 日为 NaN，close>NaN 为 False，自动不放卖（与 min_periods=60 一致）。
         ma60 = close.rolling(60, min_periods=60).mean()
         sell = sell & (close > ma60).fillna(False)
+
+        # 方案 B（MACD 死叉确认，2026-07-05）：D1+S1 基础上加 DIF<DEA（动量转弱确认），
+        # 过滤「强趋势中回调假摔」型假信号。回测建议率 18.3%→43.3%（11→28 个建议）。
+        # 指数（无前缀）一律应用 MACD 过滤；s.* 情绪分序列在 _compute_value_signals 豁免。
+        dif, dea = _macd(close)
+        sell = sell & (dif < dea).fillna(False)
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
@@ -328,6 +369,11 @@ def compute():
                 # S1 趋势过滤标签
                 if pd.notna(m):
                     parts.append(f"MA60={m:.0f}[趋势过滤]")
+                # MACD 死叉确认标签（方案 B，2026-07-05）：DIF<DEA 动量转弱确认
+                dv = dif.get(date)
+                ev = dea.get(date)
+                if pd.notna(dv) and pd.notna(ev):
+                    parts.append(f"MACD=DIF{dv:.0f}/DEA{ev:.0f}[死叉确认]")
                 # vs前买 标注（方案 B）：按 close vs last_buy_close 分类
                 if last_buy_close is not None and pd.notna(c):
                     pct = (float(c) - last_buy_close) / last_buy_close * 100
