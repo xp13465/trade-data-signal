@@ -36,14 +36,15 @@ function clearCharts() {
   content.innerHTML = "";
 }
 
-function mkCard(title, height = 300, hint = null) {
+// container/chartArr 可选：默认挂 content + push 全局 charts；指数区局部刷新时传入本区容器 + 本区 chart 列表。
+function mkCard(title, height = 300, hint = null, container = content, chartArr = charts) {
   const div = document.createElement("div");
   div.className = "chart-card";
   const hintHtml = hint ? `<div class="chart-hint">${hint}</div>` : "";
   div.innerHTML = `<h3>${title}</h3>${hintHtml}<div class="chart" style="height:${height}px"></div>`;
-  content.appendChild(div);
+  container.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
-  charts.push(c);
+  chartArr.push(c);
   return c;
 }
 
@@ -122,9 +123,9 @@ function statsHint(stats) {
 }
 
 // 指数图 + 买卖点标注
-function indexChart(title, ohlc, signals, stats) {
+function indexChart(title, ohlc, signals, stats, container = content, chartArr = charts) {
   const hint = statsHint(stats);
-  const c = mkCard(title, 360, hint);
+  const c = mkCard(title, 360, hint, container, chartArr);
   const close = ohlc.map((d) => [d.date, d.close]);
   const markData = signals.map((s) => {
     const o = ohlc.find((x) => x.date === s.date);
@@ -207,26 +208,57 @@ async function fetchJSON(url) {
 }
 
 // ============ BUG-E：交互增强（指数/行业筛选 + 热力图切换）============
-// 纯前端筛选，不影响后端数据。控件放看板顶部（ruleBar 之后），复用 .filter-bar 样式。
-// 指数筛选条：A 股/港股 tab 用，select 列出当前 tab 全部指数，选特定指数只渲染该指数折线，"全部"显示所有。
-function indexFilterBar(indices) {
+// 纯前端筛选，不影响后端数据。指数筛选条放指数折线区前（紧挨被筛选内容），筛选时局部刷新：
+// 只重渲染指数区（filter bar + 指数折线），不调 renderTab、不 refetch（signals 缓存在闭包内）。
+// sectionCharts 同步 push 全局 charts（供 window resize），dispose 时从 charts 移除，避免悬空引用。
+// fetcher(id, idx) 返回 { signals, stats }；动态版按 range 走 API，静态版读 all.json 前端过滤。
+function renderIndicesSection(container, indices, fetcher) {
   const entries = Object.entries(indices || {});
-  if (!entries.length) return { entries, filterId: "all" };
-  // 当前 tab 不含已选 id 时回退"全部"（防跨 tab 状态残留导致空渲染）
-  const filterId = state.indexFilter !== "all" && entries.some(([id]) => id === state.indexFilter) ? state.indexFilter : "all";
-  const bar = document.createElement("div");
-  bar.className = "filter-bar";
-  bar.innerHTML = `<label>指数筛选：</label>`;
-  const sel = document.createElement("select");
-  sel.innerHTML = `<option value="all"${filterId === "all" ? " selected" : ""}>全部指数（${entries.length}）</option>` +
-    entries.map(([id, idx]) => `<option value="${id}"${filterId === id ? " selected" : ""}>${idx.name}</option>`).join("");
-  sel.onchange = () => {
-    state.indexFilter = sel.value;
-    renderTab();
-  };
-  bar.appendChild(sel);
-  content.appendChild(bar);
-  return { entries, filterId };
+  if (!entries.length) return Promise.resolve();
+
+  const signalsCache = {}; // 闭包级缓存：tab/range 切换时整个 renderAStock/renderHK 重建，缓存自然失效
+  const sectionCharts = [];
+
+  function disposeSectionCharts() {
+    sectionCharts.forEach((c) => {
+      if (!c) return;
+      c.dispose();
+      const i = charts.indexOf(c);
+      if (i >= 0) charts.splice(i, 1);
+    });
+    sectionCharts.length = 0;
+  }
+
+  async function doRender() {
+    disposeSectionCharts();
+    container.innerHTML = "";
+    // 当前 tab 不含已选 id 时回退"全部"（防跨 tab 状态残留导致空渲染）
+    const filterId = state.indexFilter !== "all" && entries.some(([id]) => id === state.indexFilter) ? state.indexFilter : "all";
+    const bar = document.createElement("div");
+    bar.className = "filter-bar";
+    bar.innerHTML = `<label>指数筛选：</label>`;
+    const sel = document.createElement("select");
+    sel.innerHTML = `<option value="all"${filterId === "all" ? " selected" : ""}>全部指数（${entries.length}）</option>` +
+      entries.map(([id, idx]) => `<option value="${id}"${filterId === id ? " selected" : ""}>${idx.name}</option>`).join("");
+    sel.onchange = async () => {
+      state.indexFilter = sel.value;
+      await doRender(); // 局部刷新：只重渲染指数区，不调 renderTab、不 refetch
+    };
+    bar.appendChild(sel);
+    container.appendChild(bar);
+    for (const [id, idx] of entries) {
+      if (filterId !== "all" && id !== filterId) continue; // 未选指数跳过渲染
+      if (!signalsCache[id]) signalsCache[id] = await fetcher(id, idx);
+      const sig = signalsCache[id];
+      if (idx.data && idx.data.length) {
+        // chart 入全局 charts（供 resize）+ sectionCharts（供本区 dispose）
+        const c = indexChart(idx.name, idx.data, sig.signals, sig.stats, container);
+        sectionCharts.push(c);
+      }
+    }
+  }
+
+  return doRender();
 }
 
 // 行业搜索条：行业 tab 用，输入关键词实时过滤行业网格（按 name 或 id 模糊匹配）。
@@ -478,8 +510,6 @@ async function renderAStock() {
   const r = await fetchJSON(`./data/a-stock-${state.range}.json`);
   content.innerHTML = "";
   ruleBar();
-  // BUG-E：指数筛选条（只控制显示哪些指数折线，不影响数据）
-  const { entries: indexEntries, filterId } = indexFilterBar(r.indices);
   const groups = {
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
     "涨停/跌停/连板": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban"],
@@ -499,28 +529,30 @@ async function renderAStock() {
     const series = ids.map((id) => r.metrics[id]).filter(Boolean).map((m) => ({ name: m.name, data: m.data }));
     if (series.length && series.some((s) => s.data.length)) lineChart(g, series, {}, groupHints[g] || null);
   }
-  for (const [id, idx] of indexEntries) {
-    if (filterId !== "all" && id !== filterId) continue; // BUG-E：未选指数跳过渲染
-    // 静态版：读 index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
-    const sig = await fetchJSON(`./data/index/${id}-all.json`);
-    const sigs = filterSignalsByRange(sig.signals, idx.data);
-    if (idx.data.length) indexChart(idx.name, idx.data, sigs, sig.stats);
-  }
+  // 指数折线区：筛选条移到本区前（紧挨指数折线），筛选时局部刷新（不 refetch、不动上方 KPI/宽度/资金面）
+  const indicesSection = document.createElement("div");
+  indicesSection.className = "indices-section";
+  content.appendChild(indicesSection);
+  // 静态版 fetcher：读 index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
+  await renderIndicesSection(indicesSection, r.indices, async (id, idx) => {
+    const raw = await fetchJSON(`./data/index/${id}-all.json`);
+    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
+  });
 }
 
 async function renderHK() {
   const r = await fetchJSON(`./data/hk-${state.range}.json`);
   content.innerHTML = "";
   ruleBar();
-  // BUG-E：指数筛选条
-  const { entries: indexEntries, filterId } = indexFilterBar(r.indices);
   if (r.hk_south && r.hk_south.length) lineChart("港股通净买入（亿元）", r.hk_south.map((d) => ({ date: d.date, value: d.value })));
-  for (const [id, idx] of indexEntries) {
-    if (filterId !== "all" && id !== filterId) continue;
-    const sig = await fetchJSON(`./data/index/${id}-all.json`);
-    const sigs = filterSignalsByRange(sig.signals, idx.data);
-    if (idx.data.length) indexChart(idx.name, idx.data, sigs, sig.stats);
-  }
+  // 指数折线区：筛选条移到本区前，筛选时局部刷新
+  const indicesSection = document.createElement("div");
+  indicesSection.className = "indices-section";
+  content.appendChild(indicesSection);
+  await renderIndicesSection(indicesSection, r.indices, async (id, idx) => {
+    const raw = await fetchJSON(`./data/index/${id}-all.json`);
+    return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
+  });
 }
 
 async function renderGlobal() {
