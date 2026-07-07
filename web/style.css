@@ -92,6 +92,7 @@ main { padding: 16px 24px; }
 .sig-list { list-style: none; padding: 0; margin: 0; }
 .sig-list li { padding: 6px 0; border-bottom: 1px solid #f2f3f5; font-size: 13px; }
 .sig-list b.buy { color: #e6492e; }
+.sig-list b.buy_aux { color: #d63384; }
 .sig-list b.sell { color: #2e8b57; }
 .muted { color: #86909c; }
 
@@ -244,6 +245,7 @@ main { padding: 16px 24px; }
 .rule-bar .rule-detail.hidden { display: none; }
 .rule-bar .rule-detail div { margin: 2px 0; }
 .rule-bar b.buy { color: #e6492e; }
+.rule-bar b.buy_aux { color: #d63384; }
 .rule-bar b.sell { color: #2e8b57; }
 
 /* === UX：右下角回到顶部浮动按钮 === */

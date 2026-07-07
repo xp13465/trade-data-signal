@@ -70,14 +70,23 @@ function lineChart(title, series, opts = {}, hint = null) {
 }
 
 // 卖点 markPoint 配色（方案 B 标注，2026-07-06）：买=红、卖止盈=绿、卖买点失败=灰、卖无前买=橙。
+// B1+S1（2026-07-05）：buy_aux 辅买=粉紫 #d63384（与 buy 红 区分）。
 // 判断按 reason 子串：含"买点失败"→灰、"止盈"→绿、"无前买点"→橙；买=红；兜底旧卖点无标签按绿。
 function signalColor(s) {
   if (s.signal === "buy") return "#e6492e";
+  if (s.signal === "buy_aux") return "#d63384";
   const r = s.reason || "";
   if (r.includes("买点失败")) return "#9e9e9e";
   if (r.includes("止盈")) return "#2e8b57";
   if (r.includes("无前买点")) return "#ff9800";
   return "#2e8b57";
+}
+
+// markPoint 标签文案：buy→"买"、buy_aux→"辅买"、sell→"卖"。
+function signalLabel(s) {
+  if (s.signal === "buy") return "买";
+  if (s.signal === "buy_aux") return "辅买";
+  return "卖";
 }
 
 // 指数图 + 买卖点标注
@@ -88,7 +97,7 @@ function indexChart(title, ohlc, signals) {
     const o = ohlc.find((x) => x.date === s.date);
     return {
       coord: [s.date, o ? o.close : null],
-      value: s.signal === "buy" ? "买" : "卖",
+      value: signalLabel(s),
       itemStyle: { color: signalColor(s) },
     };
   });
@@ -128,7 +137,7 @@ function valueChartWithSignals(title, data, signals, opts = {}) {
     const p = data.find((x) => x.date === s.date);
     return {
       coord: [s.date, p ? p.value : null],
-      value: s.signal === "buy" ? "买" : "卖",
+      value: signalLabel(s),
       itemStyle: { color: signalColor(s) },
     };
   });
@@ -225,19 +234,20 @@ function ruleBar() {
   div.innerHTML = `
     <div class="rule-summary">
       <span class="rule-toggle">▸</span>
-      <span class="rule-text"><b class="buy">买</b>: RSI(14)上穿30 · <b class="sell">卖</b>: 20日高回落5%（<b>止盈/减仓提示，非高胜率卖点</b>；卖点后 10 日走弱概率≈50% 接近随机，不可作独立卖出指令）（cross 为情绪分级：冰点/偏冷/中性/偏热/狂热；卖点附 vs前买 盈亏标注：止盈/买点失败/无前买点）</span>
+      <span class="rule-text"><b class="buy">买</b>: RSI(14)上穿30（主，红）+ BB下轨回归（辅，<span style="color:#d63384">粉紫</span>） · <b class="sell">卖</b>: 20日高回落5% ∧ close&gt;MA60（多头趋势过滤，砍下跌市假卖点）（<b>止盈/减仓提示，非高胜率卖点</b>；卖点后 10 日走弱概率≈50% 接近随机，不可作独立卖出指令）（cross 为情绪分级：冰点/偏冷/中性/偏热/狂热；卖点附 vs前买 盈亏标注：止盈/买点失败/无前买点）</span>
     </div>
     <div class="rule-detail hidden">
-      <div><b>买（C1，不动）</b>：RSI 周期=14（Wilder RSI，EWM α=1/14）；触发=前一日 RSI≤30 且当日 RSI&gt;30（升回 30 之上，超卖结束、有望反弹）。</div>
-      <div><b>卖（D1，2026-07-06 改）</b>：close 从近 20 日最高价（<b>high-based</b>，必须用 high 不用 close 以捕捉盘中真实波峰）回落 5%——<code>hh20=high.rolling(20).max(); thresh=hh20×0.95; sell=(close_prev≥thresh_prev)&(close&lt;thresh)</code>。前一日还在阈之上、当日跌破阈才标（事件化，结构上不可能连续两日）。定位为「<b>趋势转弱/止盈减仓提示</b>」——非做空/反向信号。</div>
+      <div><b>买·主（C1，不动）</b>：RSI 周期=14（Wilder RSI，EWM α=1/14）；触发=前一日 RSI≤30 且当日 RSI&gt;30（升回 30 之上，超卖结束、有望反弹）。前端红 <code>#e6492e</code>，标签「买」。</div>
+      <div><b>买·辅（B1，2026-07-05 加）</b>：BB 下轨回归——<code>mid=close.rolling(20).mean(); sd=close.rolling(20).std(ddof=0); bl=mid-2σ; buy_aux=(close_prev&lt;bl_prev)&(close&gt;bl)</code>。前一日跌破下轨、当日收回下轨之上 = 超卖反弹。语义与 C1 同为「超卖反弹」，强势市更敏感，互补 C1 盲区。前端粉紫 <code>#d63384</code>，标签「辅买」。C1 与 BB 同日触发时去重（保留 C1 主买）。<b>buy_aux 也算买点</b>：更新 vs前买 游标 + 参与盈亏标注。回测买点 15007→38547（翻 2.57×），近 3 年 10日 盈亏比 1.18（vs C1 1.13，不降质）。</div>
+      <div><b>卖（D1 + S1 MA60 过滤，2026-07-05）</b>：close 从近 20 日最高价（<b>high-based</b>，必须用 high 不用 close 以捕捉盘中真实波峰）回落 5%——<code>hh20=high.rolling(20).max(); thresh=hh20×0.95; sell=(close_prev≥thresh_prev)&(close&lt;thresh)</code>；<b>S1 趋势过滤</b>：叠加 <code>close&gt;MA60</code>（60 日均线多头才放卖，砍下跌趋势假卖点）——<code>ma60=close.rolling(60,min_periods=60).mean(); sell=sell&(close&gt;ma60)</code>。前一日还在阈之上、当日跌破阈且处于多头趋势才标。定位为「<b>趋势转弱/止盈减仓提示</b>」——非做空/反向信号。回测降噪 39%（全史卖点 59830→36289），近 3 年 10日 胜率 55.0%（vs D1 53.3%）。</div>
       <div><b>RSI 在卖点降级为参考标签</b>：买点 RSI 仍是主信号；卖点 reason 附 RSI 数值供参考但<b>不作触发条件</b>（C1 旧卖点 RSI 下穿70 经回测为最差卖点，已替换）。</div>
       <div><b>cross 软分级</b>：cross 不作硬门槛，仅作情绪分级标签附在 reason 供参考——&lt;30 冰点 / 30-50 偏冷 / 50-70 中性 / 70-80 偏热 / ≥80 狂热。用户可结合标签判断「技术面拐点 + 情绪背景」强弱。</div>
-      <div><b>事件化</b>：一次连续超卖/回落期只标 1 个点（穿越当日），RSI 反复进出则每次退出各 1 点（独立事件）。首日 shift(1)=NaN 跳过；cross/high 缺失（NaN）时省略对应 reason 段。</div>
-      <div><b>reason 示例</b>：<span class="muted">RSI上穿30(29-&gt;34),cross=8[冰点]</span> / <span class="muted">20日高回落5%(高4259-&gt;阈4046,close4028), RSI=40, cross=53[中性]</span>。信号为参考用，非交易指令。</div>
-      <div><b>D1 回测结论（2016+ 10日，13 主要指数）</b>：卖点后 10 日市场<b>走弱概率 50.6%（接近随机，非高胜率卖点）</b> / 盈亏比 1.04 / 均值 -0.11%（12 方案中唯一达标，B 有效）。high-based 比 close-based 走弱概率高 5pp（50.6% vs 45.6%）。<b>定位</b>：D1 是<b>止盈减仓提示</b>——非做空/反向交易指令，<b>不可作为独立卖出依据</b>（卖点本质难预测，指数向上漂移使胜率难显著高于 50%）。<b>诚实声明</b>：D1 是「最不坏」方案非「好」方案——在震荡/下跌市提供有效止盈提示，在单边上涨市会产生假信号（趋势跟踪类信号的固有代价）。详见 <code>07-卖点对策回测.md</code> + <code>10-买卖点配对回测.md</code>。</div>
-      <div><b>卖点盈亏标注（方案 B，2026-07-06）</b>：卖点 reason 附 <code>vs前买{±X.XX%}[分类]</code> 标签，标注相对最近一次前置买点 close 的盈亏——<span style="color:#2e8b57">● 绿=止盈</span>（卖点 close &gt; 前买点 close）/ <span style="color:#9e9e9e">● 灰=买点失败</span>（卖点 close &lt; 前买点 close）/ <span style="color:#ff9800">● 橙=无前买点</span>（窗口内无前置买点，趋势中）。前端 markPoint 按此分色（买=红、卖止盈=绿、卖买点失败=灰、卖无前买=橙）。</div>
-      <div><b>操作建议</b>：卖点低于买点（灰，买点失败）= <b>止损观望非止盈</b>——已持仓<b>止损</b>、未持仓<b>观望</b>，等下个买点或 MA60 转多；卖点高于买点（绿，止盈）= 趋势转弱<b>减仓/止盈</b>提示；无前买点（橙）= 无前置买点参照，单独看趋势（不属止盈也不属止损）。<b>注</b>：方案 B 只加标注，<b>买点 C1 + 卖点 D1 触发逻辑不动</b>（信号数不变）。</div>
-      <div><b>变更</b>：C1（2026-07-06，去 cross 硬门槛、降为分级标签）→ D1（2026-07-06，卖改 20 日高回落 5% high-based，买 C1 不动；C1 卖 RSI 下穿70 经回测为最差卖点已替换）→ 方案 B（2026-07-06，卖点 reason 加 vs前买 标注 + 前端分色 + 操作文案，触发逻辑不动）。重算后买点不变（全史 3311 / 近 1 年 114），卖点改 D1（13 主要指数全史 2453 / 近 1 年 123）；方案 B 标注分布：止盈 7227 / 买点失败 1739 / 无前买点 196（共 9162 卖点）。</div>
+      <div><b>事件化</b>：一次连续超卖/回落期只标 1 个点（穿越当日），RSI 反复进出则每次退出各 1 点（独立事件）。首日 shift(1)=NaN 跳过；cross/high 缺失（NaN）时省略对应 reason 段；MA60 前 60 日为 NaN 时 close&gt;MA60 为 False，自动不放卖。</div>
+      <div><b>reason 示例</b>：<span class="muted">RSI上穿30(29-&gt;34),cross=8[冰点]</span> / <span class="muted">布林下轨回归(下轨3852,close3870), RSI=41, cross=47[偏冷]</span> / <span class="muted">20日高回落5%(高4259-&gt;阈4046,close4028), RSI=40, cross=53[中性], MA60=4000[趋势过滤], vs前买+2.30%[止盈]</span>。信号为参考用，非交易指令。</div>
+      <div><b>D1+S1 回测结论（2016+ 10日，13 主要指数）</b>：D1 卖点后 10 日市场<b>走弱概率 50.6%（接近随机，非高胜率卖点）</b> / 盈亏比 1.04 / 均值 -0.11%（12 方案中唯一达标，B 有效）。S1 趋势过滤降噪 39%、近 3 年胜率 55.0%（+1.7pp）。high-based 比 close-based 走弱概率高 5pp（50.6% vs 45.6%）。<b>定位</b>：D1+S1 是<b>止盈减仓提示</b>——非做空/反向交易指令，<b>不可作为独立卖出依据</b>（卖点本质难预测，指数向上漂移使胜率难显著高于 50%）。<b>诚实声明</b>：D1 是「最不坏」方案非「好」方案——在震荡/下跌市提供有效止盈提示，在单边上涨市会产生假信号（趋势跟踪类信号的固有代价）；S1 过滤会砍掉部分上涨市卖点（多头才放卖）。详见 <code>07-卖点对策回测.md</code> + <code>10-买卖点配对回测.md</code> + <code>11-买卖点优化方案回测.md</code>。</div>
+      <div><b>卖点盈亏标注（方案 B，2026-07-06）</b>：卖点 reason 附 <code>vs前买{±X.XX%}[分类]</code> 标签，标注相对最近一次前置买点 close 的盈亏——<span style="color:#2e8b57">● 绿=止盈</span>（卖点 close &gt; 前买点 close）/ <span style="color:#9e9e9e">● 灰=买点失败</span>（卖点 close &lt; 前买点 close）/ <span style="color:#ff9800">● 橙=无前买点</span>（窗口内无前置买点，趋势中）。前端 markPoint 按此分色（买=红、辅买=粉紫、卖止盈=绿、卖买点失败=灰、卖无前买=橙）。</div>
+      <div><b>操作建议</b>：卖点低于买点（灰，买点失败）= <b>止损观望非止盈</b>——已持仓<b>止损</b>、未持仓<b>观望</b>，等下个买点或 MA60 转多；卖点高于买点（绿，止盈）= 趋势转弱<b>减仓/止盈</b>提示；无前买点（橙）= 无前置买点参照，单独看趋势（不属止盈也不属止损）。辅买（粉紫）置信度低于主买，可作小仓位试探或观察确认。</div>
+      <div><b>变更</b>：C1（2026-07-06，去 cross 硬门槛、降为分级标签）→ D1（2026-07-06，卖改 20 日高回落 5% high-based，买 C1 不动）→ 方案 B（2026-07-06，卖点 reason 加 vs前买 标注 + 前端分色 + 操作文案，触发逻辑不动）→ <b>B1+S1（2026-07-05，买加 BB 下轨回归辅买点 buy_aux + 卖叠加 MA60 多头过滤）</b>。B1+S1 重算后（含指数+行业+全球指标+情绪分）：buy 3861（C1 不变）/ buy_aux 5782（新增）/ sell 4700（vs 旧 11655，MA60 过滤砍 60%）；卖/买比 3.02→0.49（买卖平衡，回测 244 资产 3.99→0.94）。</div>
     </div>`;
   const summary = div.querySelector(".rule-summary");
   const toggle = div.querySelector(".rule-toggle");
@@ -398,7 +408,7 @@ async function renderOverview() {
   twoCol.className = "ov-2col";
   const sigHtml = (r.signals_today && r.signals_today.length)
     ? `<h3>今日买卖点（${r.date}）</h3><ul class="sig-list">${r.signals_today
-        .map((s) => `<li><b class="${s.signal}">${s.signal === "buy" ? "买" : "卖"}</b> ${s.index_id} <span class="muted">${s.reason || ""}</span></li>`)
+        .map((s) => `<li><b class="${s.signal}">${signalLabel(s)}</b> ${s.index_id} <span class="muted">${s.reason || ""}</span></li>`)
         .join("")}</ul>`
     : `<h3>今日买卖点（${r.date}）</h3><div class="empty-note">今日无买卖点信号</div>`;
   const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
@@ -602,7 +612,7 @@ function renderIndustryGrid(indices) {
       const o = ohlc.find((x) => x.date === s.date);
       return {
         coord: [s.date, o ? o.close : null],
-        value: s.signal === "buy" ? "买" : "卖",
+        value: signalLabel(s),
         itemStyle: { color: signalColor(s) },
       };
     });
