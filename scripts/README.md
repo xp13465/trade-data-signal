@@ -1,6 +1,6 @@
-# scripts/ — 采集 / 部署 / 一键更新
+# scripts/ — 采集 / 部署 / 一键更新 / 信号通知
 
-3 个 shell 脚本，串起「本地采集 → 静态 JSON 导出 → git push 自动部署 Cloudflare Pages」全流程。所有脚本内部用绝对路径，可从任意目录调用。
+4 个 shell 脚本，串起「本地采集 → 静态 JSON 导出 → git push 自动部署 Cloudflare Pages → 买卖点信号邮件通知」全流程。所有脚本内部用绝对路径，可从任意目录调用。
 
 ## 脚本
 
@@ -40,22 +40,88 @@ bash /Users/linhuichen/code/trade/scripts/deploy.sh
 - 仓库 remote：`git@github.com:xp13465/trade-data-signal.git`（SSH 已认证）
 - **总是 push**：即便无新数据变更也执行 `git push`，以兜底「上次 commit 成功但 push 失败」的恢复场景（见下方「重复跑 / 异常中断重跑」）。
 
-### `update_all.sh` — 一键更新（collect + deploy）
+### `check_signals.sh` — 买卖点信号邮件通知
 
-顺序跑 collect → deploy。**无论采集成功失败都继续 deploy**——用现有（可能部分更新）数据导出推送，公网保持最新可用状态；collect 失败仅记日志、不改变最终退出码。
+调 `scripts/check_signals.py`：查 `signal_daily` 当日（默认 today，可传日期参数）买卖点信号，有则发邮件（SMTP 163 SSL），无信号仅记日志。邮件发送失败不阻塞（退出码非 0 但脚本不崩）。
+
+```bash
+bash /Users/linhuichen/code/trade/scripts/check_signals.sh            # 今天
+bash /Users/linhuichen/code/trade/scripts/check_signals.sh 20260706   # 指定日期
+```
+
+- 邮件主题：`[买卖点信号] YYYYMMDD N个信号`
+- 邮件正文：按 buy/sell 分组列出 index_id + reason，附买卖点规则说明 + 免责声明
+- 收件人 / SMTP 配置：`config/email.json`（已 gitignore，模板见 `config/email.json.example`）
+- 日志：`/Users/linhuichen/code/trade/data/logs/check_signals_YYYYMMDD_HHMM.log`
+- 退出码：0=成功 / 无信号 / 占位密码跳过；2=邮件发送失败（不崩）；其他非 0=查询异常
+
+#### 首次配置（必读）
+
+`config/email.json` 含 SMTP 授权码属敏感信息，已 gitignore 不进仓库。首次使用需：
+
+```bash
+cp config/email.json.example config/email.json
+# 编辑 config/email.json，把 password 字段填上 163 邮箱 SMTP 授权码（非登录密码！）
+# 授权码获取：登录 mail.163.com → 设置 → POP3/SMTP/IMAP → 开启 SMTP 服务 → 生成授权码
+```
+
+未配置或 password 仍是占位符时，脚本只打印邮件内容到日志，不实际发送（便于测试）。
+
+### `update_all.sh` — 一键更新（collect + deploy + check_signals）
+
+顺序跑 collect → deploy → check_signals。**无论采集成功失败都继续 deploy**——用现有（可能部分更新）数据导出推送，公网保持最新可用状态；collect 失败仅记日志、不改变最终退出码。**check_signals 失败也不阻塞**——邮件发送失败 / 配置缺失仅记日志，不影响公网部署退出码。
 
 ```bash
 bash /Users/linhuichen/code/trade/scripts/update_all.sh
 ```
 
-- 日志：`/Users/linhuichen/code/trade/data/logs/update_all_YYYYMMDD_HHMM.log`（含 collect + deploy 子日志）
-- 退出码：deploy.sh 退出码（最终公网状态）
+- 日志：`/Users/linhuichen/code/trade/data/logs/update_all_YYYYMMDD_HHMM.log`（含 collect + deploy + check_signals 子日志）
+- 退出码：deploy.sh 退出码（最终公网状态）；collect / check_signals 退出码仅记日志
 
 ## 定时任务配置
 
+### 两个时间点
+
+- **14:30 盘中预警**：`collect.sh`（更新盘中数据 + compute）+ `check_signals.sh`（查当日信号 + 发邮件）。盘中数据可能未完整，但买卖点信号（RSI 上穿 30 / 20 日高回落 5%）已可初步判断，提前预警。
+- **15:33 收盘正式**：`update_all.sh`（collect + deploy + check_signals）。A 股 15:00 收盘，15:33 跑留出 33 分钟等盘后数据落盘；同时推送公网 + 发信号邮件。
+
 ### 方案 A：launchd（macOS 推荐）
 
-现有 `launchd/com.trade.sentiment.plist` 每日 15:33 直接跑 `app.scheduler`（仅采集，不部署）。如需每日盘后自动「采集 + 部署」一键完成，可改用下面的 `update_all.sh` plist：
+#### 14:30 盘中预警（`com.trade.check-signals-noon`）
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.check-signals-noon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>bash /Users/linhuichen/code/trade/scripts/collect.sh &amp;&amp; bash /Users/linhuichen/code/trade/scripts/check_signals.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>14</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/linhuichen/code/trade</string>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade/data/logs/check_signals_noon_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade/data/logs/check_signals_noon_launchd.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
+```
+
+#### 15:33 收盘正式（`com.trade.update-all`）
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -92,18 +158,21 @@ bash /Users/linhuichen/code/trade/scripts/update_all.sh
 
 ```bash
 # 放到 ~/Library/LaunchAgents/
-cp com.trade.update-all.plist ~/Library/LaunchAgents/
+cp com.trade.check-signals-noon.plist com.trade.update-all.plist ~/Library/LaunchAgents/
 
 # 加载（生效）
+launchctl load ~/Library/LaunchAgents/com.trade.check-signals-noon.plist
 launchctl load ~/Library/LaunchAgents/com.trade.update-all.plist
 
 # 立即手动触发一次测试
+launchctl start com.trade.check-signals-noon
 launchctl start com.trade.update-all
 
 # 查看状态
 launchctl list | grep com.trade
 
 # 卸载
+launchctl unload ~/Library/LaunchAgents/com.trade.check-signals-noon.plist
 launchctl unload ~/Library/LaunchAgents/com.trade.update-all.plist
 ```
 
@@ -112,6 +181,7 @@ launchctl unload ~/Library/LaunchAgents/com.trade.update-all.plist
 - 与旧 plist（`com.trade.sentiment`，仅采集）二选一即可，避免重复采集。如改用 update_all，建议先 `launchctl unload` 旧 plist。
 - A 股收盘 15:00，15:33 跑留出 33 分钟等盘后数据落盘；港股 / 美股时差另算。
 - Mac 睡眠时 launchd 不触发，醒来后 `RunAtLoad=false` 不会补跑。如需补跑可临时 `launchctl start` 或手动 `bash /Users/linhuichen/code/trade/scripts/update_all.sh`。
+- 14:30 盘中预警只跑 collect + check_signals（不 deploy），避免盘中数据未完整就推送公网；15:33 收盘正式才跑完整 update_all（含 deploy）。
 
 ### 方案 B：cron
 
@@ -119,17 +189,31 @@ launchctl unload ~/Library/LaunchAgents/com.trade.update-all.plist
 crontab -e
 ```
 
-加一行（每日 15:33 跑 update_all，输出到日志）：
+加两行（14:30 盘中预警 + 15:33 收盘正式，输出到日志）：
 
 ```cron
+30 14 * * * /bin/bash -c 'bash /Users/linhuichen/code/trade/scripts/collect.sh && bash /Users/linhuichen/code/trade/scripts/check_signals.sh' >> /Users/linhuichen/code/trade/data/logs/check_signals_noon_cron.log 2>&1
 33 15 * * * /bin/bash /Users/linhuichen/code/trade/scripts/update_all.sh >> /Users/linhuichen/code/trade/data/logs/update_all_cron.log 2>&1
 ```
 
 注意：cron 环境变量精简，PATH 可能不含 venv。脚本内已用 `.venv/bin/python` 绝对路径，无影响；但 git/ssh 需确保 SSH key 在 cron 用户上下文可用（macOS 默认 ssh-agent 不在 cron 注入，可加 `eval $(ssh-agent -s)` + `ssh-add ~/.ssh/id_*` 到脚本头，或用 launchd 方案更省心）。
 
+### 手动执行
+
+```bash
+# 假设数据已更新，只查信号 + 发邮件
+bash /Users/linhuichen/code/trade/scripts/check_signals.sh
+
+# 完整流程：采集 + 部署 + 信号通知
+bash /Users/linhuichen/code/trade/scripts/update_all.sh
+
+# 指定日期回看信号（不发真邮件如果 password 是占位符）
+bash /Users/linhuichen/code/trade/scripts/check_signals.sh 20260701
+```
+
 ## 重复跑 / 异常中断重跑
 
-3 个脚本均**重跑安全**（幂等）。脚本被中断或网络异常后，直接重跑即可补全，无需手动清理。
+4 个脚本均**重跑安全**（幂等）。脚本被中断或网络异常后，直接重跑即可补全，无需手动清理。
 
 ### `collect.sh` — 幂等
 
@@ -153,12 +237,19 @@ scheduler 各 step 幂等机制（已校验）：
 
 ### `update_all.sh` — 幂等
 
-collect + deploy 都幂等 → update_all 重跑安全。中断后直接重跑 `bash scripts/update_all.sh` 即可。
+collect + deploy + check_signals 都幂等 → update_all 重跑安全。中断后直接重跑 `bash scripts/update_all.sh` 即可。
+
+### `check_signals.sh` — 幂等
+
+- 只读 `signal_daily` 当日数据 + 发邮件，无写入副作用。
+- 重跑发多封邮件（内容相同）——如不想重复收信，可重跑前先看日志确认。
+- 邮件发送失败重跑会重试发送（SMTP 幂等性由邮件服务器保证，重复 sendmail 可能产生多封相同邮件）。
 
 ### 例外
 
 - **`git push` 本身失败**（网络不通 / SSH key 不可用 / 权限拒绝）需重跑 `deploy.sh`：脚本退出码非 0，日志记 `✗ git push 失败`。重跑会再 export + git add（无新变更跳过 commit）+ git push 重试。
 - collect.sh 内部某 step 抛异常被 scheduler try/except 兜底（部分失败），退出码仍 0，不影响 deploy。
+- check_signals.sh 邮件发送失败（SMTP 拒绝 / 授权码失效 / 网络不通）退出码 2，但不阻塞 update_all.sh，公网部署仍正常完成。需手动看日志修复 email.json 后重跑 `bash scripts/check_signals.sh`。
 
 ## 文件位置
 

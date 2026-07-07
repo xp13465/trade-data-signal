@@ -1,0 +1,7 @@
+{
+  "smtp": "smtp.163.com",
+  "port": 465,
+  "user": "wy13465@163.com",
+  "password": "<填163邮箱SMTP授权码，非登录密码>",
+  "to": "wy13465@163.com"
+}
