@@ -110,8 +110,33 @@ function winRateClass(wr) {
   return "wr-bad";
 }
 
-function statsHint(stats) {
-  if (!stats) return null;
+// 每个品类的买卖点策略公式标注（per-index，2026-07-05 加）。
+// 与 config/indicators.yaml 的 buy_aux_filter + app/compute/signals.py 逻辑一致。
+// 基线：C1 RSI上穿30 + B1 BB下轨回归 + D1 20日高回落5%+MA60+MACD死叉。
+// per-index 增强：4 个品类 buy_aux 加自定义过滤（rsi_cross_40 / close_above_bl_2pct）。
+// s.* 情绪分 skip_buy（无买/辅买），sell 豁免 MACD。
+function strategyDesc(indexId) {
+  if (!indexId) return null;
+  const auxMap = {
+    sw_801110: "BB下轨回归+RSI上穿40",
+    sw_801140: "BB下轨回归+RSI上穿40",
+    csi1000: "BB下轨回归+RSI上穿40",
+    sw_801030: "BB下轨回归+close>下轨×1.02",
+  };
+  if (indexId.startsWith("s.")) {
+    return { buy: "—（情绪分skip_buy）", buy_aux: "—（情绪分skip_buy）", sell: "20日高回落5%+MA60多头（s.*豁免MACD）" };
+  }
+  return {
+    buy: "C1 RSI(14)上穿30",
+    buy_aux: auxMap[indexId] || "BB下轨回归（基线）",
+    sell: "20日高回落5%+MA60多头+MACD死叉",
+  };
+}
+
+function statsHint(stats, indexId) {
+  const strat = strategyDesc(indexId);
+  const stratHtml = strat ? `<div class="hint-strategy">📋 策略｜买: ${strat.buy} · 辅买: ${strat.buy_aux} · 卖: ${strat.sell}</div>` : "";
+  if (!stats) return stratHtml || null;
   const blocks = [];
   const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
   const sigClass = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
@@ -154,8 +179,8 @@ function statsHint(stats) {
     const wrLabel = sig === "sell" ? "走弱概率" : "胜率";
     blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-stat">${wrLabel} <b class="wr ${wrCls}">${wr}%</b></span><span class="hint-stat">盈亏比 ${pl}</span><span class="hint-stat">样本 ${n}</span>${kellyHtml}${honestTag}</div>`);
   }
-  if (!blocks.length) return null;
-  return `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
+  if (!blocks.length) return stratHtml || null;
+  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
     `<div class="hint-kelly-body">` +
@@ -169,8 +194,8 @@ function statsHint(stats) {
 }
 
 // 指数图 + 买卖点标注
-function indexChart(title, ohlc, signals, stats, container = content, chartArr = charts) {
-  const hint = statsHint(stats);
+function indexChart(title, ohlc, signals, stats, indexId, container = content, chartArr = charts) {
+  const hint = statsHint(stats, indexId);
   const c = mkCard(title, 360, hint, container, chartArr);
   const close = ohlc.map((d) => [d.date, d.close]);
   const markData = signals.map((s) => {
@@ -210,9 +235,9 @@ function indexChart(title, ohlc, signals, stats, container = content, chartArr =
 // 单序列 value 折线 + 买卖点 markPoint（B 扩展：指标/情绪分用，数据是 [{date,value}]）
 // 与 indexChart 区别：数据结构是 value 单序列（无 close/high），量级差异大（gold 100-1249 /
 // cn10y 1.5-4 / usdcnh 680-722），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
-function valueChartWithSignals(title, data, signals, opts, stats) {
+function valueChartWithSignals(title, data, signals, opts, stats, indexId) {
   const sigs = signals || [];
-  const hint = statsHint(stats);
+  const hint = statsHint(stats, indexId);
   const c = mkCard(title, 360, hint);
   const markData = sigs.map((s) => {
     const p = data.find((x) => x.date === s.date);
@@ -297,7 +322,7 @@ function renderIndicesSection(container, indices, fetcher) {
       const sig = signalsCache[id];
       if (idx.data && idx.data.length) {
         // chart 入全局 charts（供 resize）+ sectionCharts（供本区 dispose）
-        const c = indexChart(idx.name, idx.data, sig.signals, sig.stats, container);
+        const c = indexChart(idx.name, idx.data, sig.signals, sig.stats, id, container);
         sectionCharts.push(c);
       }
     }
@@ -590,7 +615,7 @@ async function renderGlobal() {
   ruleBar();
   for (const [id, idx] of Object.entries(r.indices)) {
     const sig = await fetchJSON(`/api/index/${id}?range=${state.range}`);
-    if (idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats);
+    if (idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats, id);
   }
   const extras = {
     gold: "黄金（元/克）",
@@ -608,7 +633,7 @@ async function renderGlobal() {
   const extrasStats = r.extras_stats || {};
   for (const [id, name] of Object.entries(extras)) {
     const data = r.extras[id] || [];
-    if (data.length) valueChartWithSignals(name, data, extrasSignals[id] || [], {}, extrasStats[id]);
+    if (data.length) valueChartWithSignals(name, data, extrasSignals[id] || [], {}, extrasStats[id], `g.${id}`);
   }
 }
 
@@ -625,8 +650,8 @@ async function renderSentiment() {
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
         dimension: 1,
       },
-    }, stats.cross_market);
-  if (r.a_sentiment.length) valueChartWithSignals("A股综合情绪分（0-100）", r.a_sentiment.map((d) => ({ date: d.date, value: d.value })), sig.a_sentiment || [], {}, stats.a_sentiment);
+    }, stats.cross_market, "s.cross_market");
+  if (r.a_sentiment.length) valueChartWithSignals("A股综合情绪分（0-100）", r.a_sentiment.map((d) => ({ date: d.date, value: d.value })), sig.a_sentiment || [], {}, stats.a_sentiment, "s.a_sentiment");
 }
 
 // ============ 行业看板（F1）============
