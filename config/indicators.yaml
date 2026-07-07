@@ -102,10 +102,13 @@ indices:
   - {id: hsi,      name: 恒生指数, market: hk, func: stock_hk_index_daily_sina, symbol: HSI}
   - {id: hstech,   name: 恒生科技, market: hk, func: stock_hk_index_daily_sina, symbol: HSTECH}
   - {id: hscei,    name: 恒生国企, market: hk, func: stock_hk_index_daily_sina, symbol: HSCEI}
-  # 美股指数：sina index_global_name_table 无道/纳/标普，待找源（stock_us_index 或直爬）
-  - {id: us_dji,   name: 道琼斯,   market: global, func: TODO, symbol: "", enabled: false}
-  - {id: us_ixic,  name: 纳斯达克, market: global, func: TODO, symbol: "", enabled: false}
-  - {id: us_spx,   name: 标普500,  market: global, func: TODO, symbol: "", enabled: false}
+  # 美股指数：新浪 index_us_stock_sina（trust_env=False 直连可访问，无需代理）。
+  # symbol 映射：.DJI=道琼斯 / .IXIC=纳斯达克 / .INX=标普500。
+  # 返 2004 起 ~5600 行全量历史，列 date/open/high/low/close/volume/amount（英文小写，
+  # collect_index 通用路径已兼容）。近端 amount=0（仅 volume），无碍。
+  - {id: us_dji,   name: 道琼斯,   market: global, func: index_us_stock_sina, symbol: ".DJI",  enabled: true}
+  - {id: us_ixic,  name: 纳斯达克, market: global, func: index_us_stock_sina, symbol: ".IXIC", enabled: true}
+  - {id: us_spx,   name: 标普500,  market: global, func: index_us_stock_sina, symbol: ".INX",   enabled: true}
   # 申万一级行业指数（31 个）—— F1。源 swsresearch.com（本地 DNS 失败，base.py 已 monkey-patch
   # socket.getaddrinfo 走 8.8.8.8 解析的 IP）。index_hist_sw 返全量历史（1999 起），无 start/end 参数。
   # market=industry 进 /api/industry；signals.py 自动遍历 cfg["indices"] 算 E1 买卖点。
