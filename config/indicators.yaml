@@ -106,9 +106,12 @@ indices:
   # symbol 映射：.DJI=道琼斯 / .IXIC=纳斯达克 / .INX=标普500。
   # 返 2004 起 ~5600 行全量历史，列 date/open/high/low/close/volume/amount（英文小写，
   # collect_index 通用路径已兼容）。近端 amount=0（仅 volume），无碍。
-  - {id: us_dji,   name: 道琼斯,   market: global, func: index_us_stock_sina, symbol: ".DJI",  enabled: true}
-  - {id: us_ixic,  name: 纳斯达克, market: global, func: index_us_stock_sina, symbol: ".IXIC", enabled: true}
-  - {id: us_spx,   name: 标普500,  market: global, func: index_us_stock_sina, symbol: ".INX",   enabled: true}
+  - {id: us_dji,   name: 道琼斯,     market: global, func: index_us_stock_sina, symbol: ".DJI",  enabled: true}
+  - {id: us_ixic,  name: 纳斯达克,   market: global, func: index_us_stock_sina, symbol: ".IXIC", enabled: true}
+  - {id: us_spx,   name: 标普500,    market: global, func: index_us_stock_sina, symbol: ".INX",   enabled: true}
+  # 纳斯达克100（.NDX）：100只非金融大盘股，与 .IXIC（全市场）互补，科技龙头集中度更高。
+  # 走同一新浪源 index_us_stock_sina，trust_env=False 直连可访问（与 us_dji/us_ixic/us_spx 一致）。
+  - {id: us_ndx,   name: 纳斯达克100, market: global, func: index_us_stock_sina, symbol: ".NDX",   enabled: true}
   # 申万一级行业指数（31 个）—— F1。源 swsresearch.com（本地 DNS 失败，base.py 已 monkey-patch
   # socket.getaddrinfo 走 8.8.8.8 解析的 IP）。index_hist_sw 返全量历史（1999 起），无 start/end 参数。
   # market=industry 进 /api/industry；signals.py 自动遍历 cfg["indices"] 算 E1 买卖点。
