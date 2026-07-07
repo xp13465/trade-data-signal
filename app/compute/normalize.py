@@ -19,6 +19,35 @@ def load_metric_series(metric_id: str) -> pd.Series:
     return pd.Series({r["date"]: r["value"] for r in rows}).sort_index().astype(float)
 
 
+def load_metric_value(metric_id: str) -> pd.Series:
+    """从 daily_metric 取 value 序列（按 date 升序，过滤 NULL），供 signals 算指标买卖点用。
+
+    与 load_metric_series 区别：过滤 value IS NULL（signals 需严格数值序列，避免 NaN 污染 RSI）。
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT date, value FROM daily_metric WHERE metric_id=? AND value IS NOT NULL ORDER BY date",
+        (metric_id,),
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return pd.Series(dtype=float)
+    return pd.Series({r["date"]: r["value"] for r in rows}).sort_index().astype(float)
+
+
+def load_score_value(score_id: str) -> pd.Series:
+    """从 score_daily 取 value 序列（按 date 升序，过滤 NULL），供 signals 算情绪分买卖点用。"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT date, value FROM score_daily WHERE score_id=? AND value IS NOT NULL ORDER BY date",
+        (score_id,),
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return pd.Series(dtype=float)
+    return pd.Series({r["date"]: r["value"] for r in rows}).sort_index().astype(float)
+
+
 def load_index_high(index_id: str) -> pd.Series:
     """近 N 日最高价序列（D1 卖点用 high-based，必须用 high 不用 close 以捕捉盘中真实波峰）。"""
     conn = get_conn()

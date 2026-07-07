@@ -116,6 +116,46 @@ function indexChart(title, ohlc, signals) {
   return c;
 }
 
+// 单序列 value 折线 + 买卖点 markPoint（B 扩展：指标/情绪分用，数据是 [{date,value}]）
+// 与 indexChart 区别：数据结构是 value 单序列（无 close/high），量级差异大（gold 100-1249 /
+// cn10y 1.5-4 / usdcnh 680-722），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
+function valueChartWithSignals(title, data, signals, opts = {}) {
+  const sigs = signals || [];
+  const c = mkCard(title, 360);
+  const markData = sigs.map((s) => {
+    const p = data.find((x) => x.date === s.date);
+    return {
+      coord: [s.date, p ? p.value : null],
+      value: s.signal === "buy" ? "买" : "卖",
+      itemStyle: { color: signalColor(s) },
+    };
+  });
+  c.setOption({
+    tooltip: { trigger: "axis" },
+    grid: { left: 55, right: 20, top: 30, bottom: 50 },
+    xAxis: { type: "category", data: data.map((d) => d.date) },
+    yAxis: { type: "value", scale: true },
+    dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+    series: [{
+      name: title,
+      type: "line",
+      smooth: true,
+      symbol: "none",
+      connectNulls: true,
+      data: data.map((d) => [d.date, d.value]),
+      lineStyle: { width: 1.5 },
+      markPoint: {
+        symbol: "pin",
+        symbolSize: 34,
+        label: { fontSize: 11, color: "#fff" },
+        data: markData,
+      },
+    }],
+    ...opts,
+  });
+  return c;
+}
+
 async function fetchJSON(url) {
   return fetch(url).then((r) => r.json());
 }
@@ -383,8 +423,10 @@ async function renderGlobal() {
     us10y: "美国10年国债收益率（%）",
     cn_us_spread: "中美利差(10Y)（%）",
   };
+  const extrasSignals = r.extras_signals || {};
   for (const [id, name] of Object.entries(extras)) {
-    if (r.extras[id] && r.extras[id].length) lineChart(name, r.extras[id].map((d) => ({ date: d.date, value: d.value })));
+    const data = r.extras[id] || [];
+    if (data.length) valueChartWithSignals(name, data, extrasSignals[id] || []);
   }
 }
 
@@ -392,15 +434,16 @@ async function renderSentiment() {
   const r = await fetchJSON(`/api/sentiment?range=${state.range}`);
   content.innerHTML = "";
   ruleBar();
+  const sig = r.signals || {};
   if (r.cross_market.length)
-    lineChart("跨市场综合评分（0-100）", r.cross_market.map((d) => ({ date: d.date, value: d.value })), {
+    valueChartWithSignals("跨市场综合评分（0-100）", r.cross_market.map((d) => ({ date: d.date, value: d.value })), sig.cross_market || [], {
       visualMap: {
         show: false,
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
         dimension: 1,
       },
     });
-  if (r.a_sentiment.length) lineChart("A股综合情绪分（0-100）", r.a_sentiment.map((d) => ({ date: d.date, value: d.value })));
+  if (r.a_sentiment.length) valueChartWithSignals("A股综合情绪分（0-100）", r.a_sentiment.map((d) => ({ date: d.date, value: d.value })), sig.a_sentiment || []);
 }
 
 // ============ 行业看板（F1）============

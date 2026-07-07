@@ -253,9 +253,11 @@ def global_(range: str = Depends(range_dep)):
     start, end = _range(range)
     indices = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end)} for i in _indices_for_market("global")}
     extras = {}
+    extras_signals = {}
     for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread"):
         extras[mid] = _metric_series(mid, start, end)
-    return {"indices": indices, "extras": extras}
+        extras_signals[mid] = _signals(f"g.{mid}", start, end)
+    return {"indices": indices, "extras": extras, "extras_signals": extras_signals}
 
 
 @app.get("/api/sentiment")
@@ -264,6 +266,10 @@ def sentiment(range: str = Depends(range_dep)):
     return {
         "a_sentiment": _score_series("a_sentiment", start, end),
         "cross_market": _score_series("cross_market", start, end),
+        "signals": {
+            "a_sentiment": _signals("s.a_sentiment", start, end),
+            "cross_market": _signals("s.cross_market", start, end),
+        },
     }
 
 

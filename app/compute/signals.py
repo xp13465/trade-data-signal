@@ -40,7 +40,7 @@ D1 变更（2026-07-06）：C1 卖点用 RSI 下穿70，回测显示全史 10日
 """
 import pandas as pd
 
-from .normalize import load_index_close, load_index_high
+from .normalize import load_index_close, load_index_high, load_metric_value, load_score_value
 from ..collector.fetchers import load_config
 from ..db import get_conn
 
@@ -81,6 +81,97 @@ def _load_cross_score() -> pd.Series:
     if not rows:
         return pd.Series(dtype=float)
     return pd.Series({r["date"]: r["value"] for r in rows}).sort_index().astype(float)
+
+
+# ============ B 扩展：全球指标 + 情绪分数买卖点（2026-07-07）============
+# value 当 close 算 RSI 买 + 20日高回落卖，规则按 09-指标买卖点回测.md 推荐：
+#   买 = RSI(14) 上穿 30（与指数 C1 一致）
+#   卖分支：恒正序列（min>0）用 %回落5%（thresh=hh20*0.95）；
+#           含负数/窄幅序列用 std 2σ（thresh=hh20-2.0*std20）。
+# a_sentiment 买规则失效（RSI 结构性≥40，0 信号）→ skip_buy，仅算卖。
+# signal_daily index_id 前缀：g.<metric_id> / s.<score_id>（区分指数/指标/分数）。
+# 卖点 reason 附 vs前买 标注，分母用 |last_buy_value| 兼容负数序列（如 cn_us_spread）。
+GLOBAL_METRIC_IDS = (
+    "cn10y", "us10y", "wti_oil", "comex_silver", "gold", "oil",
+    "usdcnh", "a_qvix_300", "a_qvix_1000", "cn_us_spread",
+)
+SCORE_IDS = ("cross_market", "a_sentiment")
+# 窄幅序列（虽恒正但 %回落 0 信号，回测验证）+ 含负数序列 → 强制走 std 卖规则
+_STD_SELL_IDS = {"usdcnh", "cn_us_spread"}
+
+
+def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, kind: str = "指标"):
+    """value 序列 → 买卖点 signals（sid 已含 g./s. 前缀）。
+
+    value: pd.Series（按 date 升序，float），当 close 用
+    sid: signal_daily index_id（如 'g.cn10y' / 's.cross_market'）
+    skip_buy: True 时跳过买信号（a_sentiment 用，RSI 失效）
+    kind: reason 标签（"指标"/"情绪分"），区分指数 signals
+    """
+    if len(value) < 30:
+        return []
+    rsi = _rsi(value, 14)
+    rsi_prev = rsi.shift(1)
+
+    # 买点（C1 一致）：RSI 上穿 30；skip_buy 时全 False
+    if skip_buy:
+        buy = pd.Series(False, index=value.index)
+    else:
+        buy = ((rsi_prev <= 30) & (rsi > 30)).fillna(False)
+
+    # 卖点分支：恒正（min>0）且非窄幅 → %回落5%；否则（含负数/窄幅）→ std 2σ
+    raw = sid.split(".", 1)[1] if "." in sid else sid
+    use_std = (raw in _STD_SELL_IDS) or not (value.min() > 0)
+    hh20 = value.rolling(20).max()
+    if use_std:
+        std20 = value.rolling(20).std()
+        thresh = hh20 - 2.0 * std20
+        sell_label = "20日高回落2σ"
+    else:
+        thresh = hh20 * 0.95
+        sell_label = "20日高回落5%"
+    sell = ((value.shift(1) >= thresh.shift(1)) & (value < thresh)).fillna(False)
+
+    # B 标注（vs前买）：分母用 |last_buy_value| 兼容负数序列
+    buy_set = set(buy[buy].index)
+    sell_set = set(sell[sell].index)
+    out = []
+    last_buy_value = None
+    for date in sorted(buy_set | sell_set):
+        v = value.get(date)
+        if date in buy_set:
+            last_buy_value = float(v) if pd.notna(v) else last_buy_value
+            r = rsi.get(date)
+            rp = rsi_prev.get(date)
+            reason = f"RSI上穿30({rp:.0f}->{r:.0f})" if pd.notna(r) and pd.notna(rp) else "RSI=NA"
+            reason += f",[{kind}]"
+            out.append((date, sid, "buy", reason))
+        if date in sell_set:
+            h = hh20.get(date)
+            t = thresh.get(date)
+            parts = []
+            if pd.notna(h) and pd.notna(t) and pd.notna(v):
+                parts.append(f"{sell_label}(高{h:.4g}->阈{t:.4g},value{v:.4g})")
+            else:
+                parts.append(sell_label)
+            rv = rsi.get(date)
+            if pd.notna(rv):
+                parts.append(f"RSI={rv:.0f}")
+            # vs前买 标注：分母 |last_buy_value| 兼容负数（cn_us_spread 可 -3~2）
+            if last_buy_value is not None and pd.notna(v):
+                denom = abs(last_buy_value)
+                if denom > 0:
+                    pct = (float(v) - last_buy_value) / denom * 100
+                    sign = "+" if pct >= 0 else ""
+                    tag = "止盈" if pct > 0 else "买点失败"
+                    parts.append(f"vs前买{sign}{pct:.2f}%[{tag}]")
+                else:
+                    parts.append("无前买点[趋势中]")
+            else:
+                parts.append("无前买点[趋势中]")
+            parts.append(f"[{kind}]")
+            out.append((date, sid, "sell", ", ".join(parts)))
+    return out
 
 
 def compute():
@@ -155,6 +246,19 @@ def compute():
                 else:
                     parts.append("无前买点[趋势中]")
                 signals.append((date, iid, "sell", ", ".join(parts)))
+
+    # B 扩展：全球指标 + 情绪分数 signals（value 当 close，按 09 回测推荐规则）
+    for mid in GLOBAL_METRIC_IDS:
+        value = load_metric_value(mid)
+        if value.empty:
+            continue
+        signals.extend(_compute_value_signals(value, f"g.{mid}", kind="指标"))
+    for scid in SCORE_IDS:
+        value = load_score_value(scid)
+        if value.empty:
+            continue
+        signals.extend(_compute_value_signals(value, f"s.{scid}", skip_buy=(scid == "a_sentiment"), kind="情绪分"))
+
     return signals
 
 

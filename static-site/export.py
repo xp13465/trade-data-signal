@@ -278,9 +278,11 @@ def export_global(conn, cfg, rng):
     indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end)}
                for i in _indices_for_market(cfg, "global")}
     extras = {}
+    extras_signals = {}
     for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread"):
         extras[mid] = _metric_series(conn, mid, start, end)
-    return {"indices": indices, "extras": extras}
+        extras_signals[mid] = _signals(conn, f"g.{mid}", start, end)
+    return {"indices": indices, "extras": extras, "extras_signals": extras_signals}
 
 
 def export_sentiment(conn, cfg, rng):
@@ -289,6 +291,10 @@ def export_sentiment(conn, cfg, rng):
     return {
         "a_sentiment": _score_series(conn, "a_sentiment", start, end),
         "cross_market": _score_series(conn, "cross_market", start, end),
+        "signals": {
+            "a_sentiment": _signals(conn, "s.a_sentiment", start, end),
+            "cross_market": _signals(conn, "s.cross_market", start, end),
+        },
     }
 
 
