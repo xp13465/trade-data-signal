@@ -168,6 +168,53 @@ def _load_buy_aux_filters(cfg) -> dict:
     return out
 
 
+def strategy_desc(index_id: str, cfg: dict) -> dict:
+    """返回 {buy, buy_aux, sell} 策略描述字符串，供前端 hint-strategy 蓝色标注行。
+
+    纯描述函数，不改买卖点计算逻辑。读 indicators.yaml 的 buy_aux_filter + 本模块的
+    SKIP_IDS / s.* 前缀规则，与 _compute_value_signals / compute 的实际触发逻辑一致：
+    - buy: "RSI(14)上穿30"（C1 主买，所有非 skip 品类）；SKIP_IDS / s.a_sentiment → "skip"
+    - buy_aux:
+        基线（无 buy_aux_filter）"BB下轨回归"
+        rsi_cross_40 → "BB下轨回归+RSI上穿40"
+        close_above_bl_2pct → "BB下轨回归+反弹2%"
+        SKIP_IDS / s.a_sentiment → "skip"
+    - sell:
+        基线（g.* 指标 + 指数）"20日高回落5%+MA60多头+MACD死叉"
+        s.* 情绪分 → "20日高回落5%+MA60多头（豁免MACD）"（a_sentiment 加 MACD 后 n=106→7 故豁免）
+        SKIP_IDS → "skip"
+
+    index_id: signal_daily 的 index_id（指数裸 id 如 'sh'/'sw_801110'，或 'g.cn10y'/'s.a_sentiment'）
+    cfg: indicators.yaml 解析后的 dict（load_config() 返回）
+    """
+    raw = index_id.split(".", 1)[1] if "." in index_id else index_id
+    is_score = index_id.startswith("s.")
+    is_skip = raw in SKIP_IDS  # oil/usdcnh/cn_us_spread 结构性异常，skip 买卖点
+    is_a_sentiment = index_id == "s.a_sentiment"  # RSI 结构性≥40 → skip_buy（买/辅买都 skip）
+
+    if is_skip or is_a_sentiment:
+        buy = "skip"
+        buy_aux = "skip"
+    else:
+        buy = "RSI(14)上穿30"
+        filt = _load_buy_aux_filters(cfg).get(index_id)
+        if filt == "rsi_cross_40":
+            buy_aux = "BB下轨回归+RSI上穿40"
+        elif filt == "close_above_bl_2pct":
+            buy_aux = "BB下轨回归+反弹2%"
+        else:
+            buy_aux = "BB下轨回归"
+
+    if is_skip:
+        sell = "skip"
+    elif is_score:
+        sell = "20日高回落5%+MA60多头（豁免MACD）"
+    else:
+        sell = "20日高回落5%+MA60多头+MACD死叉"
+
+    return {"buy": buy, "buy_aux": buy_aux, "sell": sell}
+
+
 # ============ B 扩展：全球指标 + 情绪分数买卖点（2026-07-07）============
 # value 当 close 算 RSI 买 + 20日高回落卖，规则按 09-指标买卖点回测.md 推荐：
 #   买 = RSI(14) 上穿 30（与指数 C1 一致）+ BB 下轨回归辅买点（B1，2026-07-05 加）

@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT))
 from app.calendar import last_trading_day  # noqa: E402
 from app.collector.fetchers import load_config  # noqa: E402
 from app.compute import signal_stats as sigstats  # noqa: E402
+from app.compute.signals import strategy_desc  # noqa: E402
 from app.db import get_conn  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent
@@ -268,7 +269,8 @@ def export_a_stock(conn, cfg, rng):
     metrics = {}
     for m in _metrics_for_groups(cfg, *groups):
         metrics[m["id"]] = {"name": m["name"], "unit": m.get("unit"), "data": _metric_series(conn, m["id"], start, end)}
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end)}
+    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
+                         "strategy": strategy_desc(i["id"], cfg)}
                for i in _indices_for_market(cfg, "a")}
     return {"metrics": metrics, "indices": indices}
 
@@ -276,7 +278,8 @@ def export_a_stock(conn, cfg, rng):
 def export_hk(conn, cfg, rng):
     """复刻 /api/hk。"""
     start, end = _range(rng)
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end)}
+    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
+                         "strategy": strategy_desc(i["id"], cfg)}
                for i in _indices_for_market(cfg, "hk")}
     south = _metric_series(conn, "hk_south", start, end)
     return {"indices": indices, "hk_south": south}
@@ -286,16 +289,20 @@ def export_global(conn, cfg, rng):
     """复刻 /api/global。"""
     start, end = _range(rng)
     stats_all = _stats_all()
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end)}
+    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
+                         "strategy": strategy_desc(i["id"], cfg)}
                for i in _indices_for_market(cfg, "global")}
     extras = {}
     extras_signals = {}
     extras_stats = {}
+    extras_strategy = {}
     for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread"):
         extras[mid] = _metric_series(conn, mid, start, end)
         extras_signals[mid] = _signals(conn, f"g.{mid}", start, end)
         extras_stats[mid] = _stats_for(stats_all, f"g.{mid}")
-    return {"indices": indices, "extras": extras, "extras_signals": extras_signals, "extras_stats": extras_stats}
+        extras_strategy[mid] = strategy_desc(f"g.{mid}", cfg)
+    return {"indices": indices, "extras": extras, "extras_signals": extras_signals,
+            "extras_stats": extras_stats, "extras_strategy": extras_strategy}
 
 
 def export_sentiment(conn, cfg, rng):
@@ -312,6 +319,10 @@ def export_sentiment(conn, cfg, rng):
         "stats": {
             "a_sentiment": _stats_for(stats_all, "s.a_sentiment"),
             "cross_market": _stats_for(stats_all, "s.cross_market"),
+        },
+        "strategy": {
+            "a_sentiment": strategy_desc("s.a_sentiment", cfg),
+            "cross_market": strategy_desc("s.cross_market", cfg),
         },
     }
 
@@ -330,6 +341,7 @@ def export_industry(conn, cfg, rng):
             "data": _index_series(conn, iid, start, end),
             "signals": _signals(conn, iid, start, end),
             "stats": _stats_for(stats_all, iid),
+            "strategy": strategy_desc(iid, cfg),
             "fund_flow": _metric_series(conn, f"ind_flow_{iid}", start, end),
             "turnover": _metric_series(conn, f"ind_turn_{iid}", start, end),
             "width": _industry_width(conn, ind_code, start, end),
@@ -338,13 +350,14 @@ def export_industry(conn, cfg, rng):
 
 
 def export_index_detail(conn, cfg, index_id):
-    """复刻 /api/index/{index_id}?range=all。全历史 ohlc + signals + stats。"""
+    """复刻 /api/index/{index_id}?range=all。全历史 ohlc + signals + stats + strategy。"""
     start, end = _range("all")
     stats_all = _stats_all()
     return {
         "ohlc": _index_series(conn, index_id, start, end),
         "signals": _signals(conn, index_id, start, end),
         "stats": _stats_for(stats_all, index_id),
+        "strategy": strategy_desc(index_id, cfg),
     }
 
 

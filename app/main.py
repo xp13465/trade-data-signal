@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from .calendar import last_trading_day
 from .collector.fetchers import load_config
 from .compute import signal_stats as sigstats
+from .compute.signals import strategy_desc
 from .db import get_conn
 
 app = FastAPI(title="情绪数据复盘看板")
@@ -244,18 +245,22 @@ def overview():
 @app.get("/api/a-stock")
 def a_stock(range: str = Depends(range_dep)):
     start, end = _range(range)
+    cfg = load_config()
     groups = ("a_width", "a_fund", "a_sentiment", "lhb", "unlock", "ipo", "cov")
     metrics = {}
     for m in _metrics_for_groups(*groups):
         metrics[m["id"]] = {"name": m["name"], "unit": m.get("unit"), "data": _metric_series(m["id"], start, end)}
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end)} for i in _indices_for_market("a")}
+    indices = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end),
+                         "strategy": strategy_desc(i["id"], cfg)} for i in _indices_for_market("a")}
     return {"metrics": metrics, "indices": indices}
 
 
 @app.get("/api/hk")
 def hk(range: str = Depends(range_dep)):
     start, end = _range(range)
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end)} for i in _indices_for_market("hk")}
+    cfg = load_config()
+    indices = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end),
+                         "strategy": strategy_desc(i["id"], cfg)} for i in _indices_for_market("hk")}
     south = _metric_series("hk_south", start, end)
     return {"indices": indices, "hk_south": south}
 
@@ -263,20 +268,26 @@ def hk(range: str = Depends(range_dep)):
 @app.get("/api/global")
 def global_(range: str = Depends(range_dep)):
     start, end = _range(range)
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end)} for i in _indices_for_market("global")}
+    cfg = load_config()
+    indices = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end),
+                         "strategy": strategy_desc(i["id"], cfg)} for i in _indices_for_market("global")}
     extras = {}
     extras_signals = {}
     extras_stats = {}
+    extras_strategy = {}
     for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread"):
         extras[mid] = _metric_series(mid, start, end)
         extras_signals[mid] = _signals(f"g.{mid}", start, end)
         extras_stats[mid] = _stats_for(f"g.{mid}")
-    return {"indices": indices, "extras": extras, "extras_signals": extras_signals, "extras_stats": extras_stats}
+        extras_strategy[mid] = strategy_desc(f"g.{mid}", cfg)
+    return {"indices": indices, "extras": extras, "extras_signals": extras_signals,
+            "extras_stats": extras_stats, "extras_strategy": extras_strategy}
 
 
 @app.get("/api/sentiment")
 def sentiment(range: str = Depends(range_dep)):
     start, end = _range(range)
+    cfg = load_config()
     return {
         "a_sentiment": _score_series("a_sentiment", start, end),
         "cross_market": _score_series("cross_market", start, end),
@@ -287,6 +298,10 @@ def sentiment(range: str = Depends(range_dep)):
         "stats": {
             "a_sentiment": _stats_for("s.a_sentiment"),
             "cross_market": _stats_for("s.cross_market"),
+        },
+        "strategy": {
+            "a_sentiment": strategy_desc("s.a_sentiment", cfg),
+            "cross_market": strategy_desc("s.cross_market", cfg),
         },
     }
 
@@ -341,6 +356,7 @@ def _industry_width(industry_code: str, start: str, end: str):
 @app.get("/api/industry")
 def industry(range: str = Depends(range_dep)):
     start, end = _range(range)
+    cfg = load_config()
     indices_cfg = _indices_for_market("industry")
     indices = {}
     for i in indices_cfg:
@@ -352,6 +368,7 @@ def industry(range: str = Depends(range_dep)):
             "data": _index_series(iid, start, end),
             "signals": _signals(iid, start, end),
             "stats": _stats_for(iid),
+            "strategy": strategy_desc(iid, cfg),
             # F2：行业资金流 + 换手率（daily_metric）；成交额已在 data[].amount（F1 index_daily）
             "fund_flow": _metric_series(f"ind_flow_{iid}", start, end),
             "turnover": _metric_series(f"ind_turn_{iid}", start, end),
@@ -366,10 +383,12 @@ def index_detail(index_id: str, range: str = Depends(range_dep)):
     if index_id not in _valid_index_ids():
         raise HTTPException(status_code=404, detail=f"未知的指数代码: {index_id}")
     start, end = _range(range)
+    cfg = load_config()
     return {
         "ohlc": _index_series(index_id, start, end),
         "signals": _signals(index_id, start, end),
         "stats": _stats_for(index_id),
+        "strategy": strategy_desc(index_id, cfg),
     }
 
 
