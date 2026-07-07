@@ -258,6 +258,23 @@ def run(date=None, verbose=True):
         fail += 1
         details.append(("industry_width", "fail", str(e)[:150]))
 
+    # 9) 全市场宽度近期重算（D2，mootdx 增量后算近 30 天宽度，覆盖漏跑工作日）
+    #    run_recent 从 mootdx_daily_raw 算 zt/dt/zb/seal_rate/up/down/amount，不依赖
+    #    collect_snapshot 当日快照。漏跑工作日（如周一忘周二跑）下次执行时重算近 30 天
+    #    自动补全。A1 近端值保护：up/down/amount 跳过已有 akshare 值的日期；zt/dt/zb
+    #    全段覆盖（收盘封板口径替代 zt_pool 触板口径）。upsert WHERE source != 'manual'。
+    try:
+        from . import width_history
+        res = width_history.run_recent(days=30)
+        if "error" in res:
+            details.append(("width_history", "ok", f"skip ({res['error']})"))
+        else:
+            details.append(("width_history", "ok",
+                            f"+{res.get('computed_days',0)} days recent"))
+    except Exception as e:  # noqa: BLE001
+        fail += 1
+        details.append(("width_history", "fail", str(e)[:150]))
+
     if verbose:
         print(f"=== 采集 {date} 完成: ok={ok} fail={fail} ===")
         for mid, st, msg in details:

@@ -46,9 +46,24 @@ mootdx turnover 全 NULL，等 D3 BaoStock 补。本模块不写换手率。
 
 CLI
 ====
-python -m app.collector.width_history              # 全量回填 2016-2026
-python -m app.collector.width_history --validate   # 仅校验（对比 stock_zt_pool_em）
-python -m app.collector.width_history --dry-run    # 只算不写
+python -m app.collector.width_history                # 全量回填 2016-2026
+python -m app.collector.width_history --validate    # 仅校验（对比 stock_zt_pool_em）
+python -m app.collector.width_history --dry-run     # 只算不写
+python -m app.collector.width_history --recent      # 增量重算近 30 天（scheduler 每日调）
+python -m app.collector.width_history --recent --days=60  # 自定义天数
+
+漏跑工作日回填（run_recent）
+============================
+scheduler 每日跑 step 9 调 `run_recent(days=30)`：从 mootdx_daily_raw 重算近 30 天
+全市场宽度（zt/dt/zb/seal_rate/up/down/amount），覆盖漏跑工作日。用户漏跑几天
+（如周一忘周二跑），下次 scheduler 执行时本函数自动重算近 30 天补全。
+
+- run_recent 从 mootdx_daily_raw 算（不依赖 collect_snapshot 当日快照）。
+- zt/dt/zb/seal_rate：全段覆盖（mootdx 收盘封板口径替代 zt_pool 触板口径，与 run() 一致）。
+- up/down/amount：动态 A1 保护——跳过已有 source='akshare' 的日期（A1 全市场口径含
+  北交所更准），只写无 akshare 值的漏跑日。比 run() 的固定 A1_PROTECT_AFTER 掩码更灵活：
+  能为漏跑的未来日期补 mootdx 值，又不覆盖已采的 akshare 近端值。
+- 所有 upsert WHERE source != 'manual'（防覆盖手动补录）。
 """
 from __future__ import annotations
 
@@ -344,9 +359,138 @@ def run(*, dry_run: bool = False, validate_only: bool = False) -> dict:
     return {"computed_days": len(g), "validate": val, "recent_zt_pool": recent, "write": res}
 
 
+def _upsert_width_recent(g: pd.DataFrame, *, dry_run: bool = False) -> dict:
+    """run_recent 专用 upsert：动态 A1 保护（跳过已有 akshare 值的 up/down/amount 日期）。
+
+    与 upsert_width 的区别：
+    - upsert_width 用固定 A1_PROTECT_AFTER=20260702 掩码（一次性回填时的快照边界）。
+    - 本函数动态查 DB 已有 source='akshare' 的日期，跳过它们——能为漏跑的未来日期
+      补 mootdx 值，又不覆盖已采的 akshare 近端值。
+    - zt/dt/zb/seal_rate 仍全段覆盖（mootdx 收盘封板替代 zt_pool 触板口径，与 run() 一致）。
+    """
+    if dry_run:
+        return {"written": 0, "dry_run": True}
+
+    conn = sqlite3.connect(SENTIMENT_DB_PATH, timeout=30.0)
+    conn.execute("PRAGMA busy_timeout=10000;")
+    now = _now()
+    written = 0
+
+    # 查已有 akshare 值的日期（up/down/amount 保护用）
+    dates_in_window = g["date"].tolist()
+    placeholders = ",".join("?" * len(dates_in_window))
+    akshare_dates: set[str] = set()
+    for mid in ("a_width_up_count", "a_width_down_count", "a_amount"):
+        rows = conn.execute(
+            f"SELECT DISTINCT date FROM daily_metric "
+            f"WHERE metric_id=? AND source='akshare' AND date IN ({placeholders})",
+            [mid] + dates_in_window,
+        ).fetchall()
+        akshare_dates.update(r[0] for r in rows)
+
+    # 全段指标：zt/dt/zb/seal_rate（覆盖 akshare zt_pool，与 run() 一致）
+    full_metrics = [
+        ("a_width_zt_count", g["zt"]),
+        ("a_width_dt_count", g["dt"]),
+        ("a_width_zb_count", g["zb"]),
+        ("a_width_seal_rate", g["seal_rate"]),
+    ]
+    # A1 保护指标：up/down/amount（跳过已有 akshare 值的日期）
+    a1_mask = ~g["date"].isin(akshare_dates)
+    a1_metrics = [
+        ("a_width_up_count", g.loc[a1_mask, "up"]),
+        ("a_width_down_count", g.loc[a1_mask, "down"]),
+        ("a_amount", g.loc[a1_mask, "amount_sum"] / 1.0e8),  # 元 → 亿元
+    ]
+
+    def _upsert(metric_id, dates, values):
+        nonlocal written
+        rows = []
+        for d, v in zip(dates, values):
+            if v != v:  # NaN 跳过
+                continue
+            rows.append((d, metric_id, float(v), "mootdx", now))
+        if not rows:
+            return
+        cur = conn.executemany(
+            "INSERT INTO daily_metric (date, metric_id, value, source, updated_at) "
+            "VALUES (?,?,?,?,?) "
+            "ON CONFLICT(date, metric_id) DO UPDATE SET "
+            "value=excluded.value, source=excluded.source, updated_at=excluded.updated_at "
+            "WHERE daily_metric.source != 'manual'",
+            rows,
+        )
+        written += cur.rowcount if cur.rowcount > 0 else len(rows)
+
+    for mid, series in full_metrics:
+        _upsert(mid, g["date"].tolist(), series.tolist())
+    for mid, series in a1_metrics:
+        _upsert(mid, g.loc[a1_mask, "date"].tolist(), series.tolist())
+
+    conn.commit()
+    conn.close()
+    return {"written": written, "protected_akshare_dates": len(akshare_dates), "dry_run": False}
+
+
+def run_recent(days: int = 30, *, dry_run: bool = False) -> dict:
+    """增量重算最近 N 天全市场宽度（scheduler 每日跑，mootdx 增量后调）。
+
+    只加载近 days+20 自然日的 mootdx 数据（多 20 天确保 prev_close），算宽度后 upsert。
+    比 run() 全量快（~2s vs ~30s）。
+
+    漏跑工作日回填：用户漏跑几天（如周一忘周二跑），下次 scheduler 执行时本函数
+    重算近 days 天从 mootdx_daily_raw 算 zt/dt/zb/up/down/amount 覆盖漏跑日。
+    """
+    today = dt.date.today()
+    # 加载窗口：多读 50 天确保首日 prev_close（pct_change 自算需前一日 close）
+    load_start = (today - dt.timedelta(days=days + 50)).strftime("%Y%m%d")
+    end = today.strftime("%Y%m%d")
+    # 写入窗口起始（buffer 段仅辅助 prev_close，不写）
+    write_start = (today - dt.timedelta(days=days)).strftime("%Y%m%d")
+
+    conn = sqlite3.connect(f"file:{STOCK_DB_PATH}?mode=ro", uri=True, timeout=30.0)
+    try:
+        df = pd.read_sql_query(
+            "SELECT code, date, high, low, close, amount, pct_change "
+            "FROM mootdx_daily_raw "
+            f"WHERE date >= '{load_start}' AND date <= '{end}' "
+            "ORDER BY code, date",
+            conn,
+        )
+    finally:
+        conn.close()
+    if len(df) == 0:
+        return {"error": "no recent data"}
+    df["rule"] = df["code"].map(limit_rule)
+    # 只保留 >= load_start 用于聚合（buffer 段丢弃）
+    df = df[df["date"] >= load_start].copy()
+
+    g = compute_width(df)
+    g = g[g["date"] >= write_start].copy()
+    if len(g) == 0:
+        return {"error": "no data in write window"}
+    print(f"[D2-recent] {len(g)} trading days ({g['date'].min()}~{g['date'].max()}), "
+          f"zt total={g['zt'].sum()}, dt total={g['dt'].sum()}, "
+          f"zb total={g['zb'].sum()}, up total={g['up'].sum()}", flush=True)
+
+    res = _upsert_width_recent(g, dry_run=dry_run)
+    print(f"[D2-recent] wrote: {res}", flush=True)
+    return {"computed_days": len(g), "date_range": (g["date"].min(), g["date"].max()),
+            "write": res}
+
+
 def _cli(argv: list[str]) -> int:
     dry = "--dry-run" in argv
     vonly = "--validate" in argv
+    recent = "--recent" in argv
+    if recent:
+        days = 30
+        for a in argv:
+            if a.startswith("--days="):
+                days = int(a.split("=", 1)[1])
+        res = run_recent(days=days, dry_run=dry)
+        print(f"\n=== D2 recent done: {res} ===")
+        return 0
     res = run(dry_run=dry, validate_only=vonly)
     print(f"\n=== D2 done: {res} ===")
     return 0
