@@ -3,6 +3,8 @@
 const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all" };
 const content = document.getElementById("content");
 const charts = [];
+// 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
+const SIM_INDICES = new Set(['sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300']);
 
 window.addEventListener("resize", () => charts.forEach((c) => c && c.resize()));
 
@@ -170,7 +172,7 @@ function statsHint(stats, strategy, indexId) {
     blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-stat">${wrLabel} <b class="wr ${wrCls}">${wr}%</b></span><span class="hint-stat">盈亏比 ${pl}</span><span class="hint-stat">样本 ${n}</span>${kellyHtml}${honestTag}</div>`);
   }
   if (!blocks.length) return stratHtml || null;
-  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${indexId === 'sh' ? ` <a href="/static/trade_sim.html" target="_blank" class="sim-btn" title="查看上证指数三策略九场景模拟回测">📊 模拟回测</a>` : ''}</div>` +
+  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="/static/trade_sim_${indexId}.html" target="_blank" class="sim-btn" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
     `<div class="hint-kelly-body">` +

@@ -43,8 +43,9 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 ### 待办
 
-1. [x] **🔴 P0：模拟回测入口改为回测口径行高亮按钮** ✅ — 从凯利仓位行移到回测口径行，蓝色渐变按钮，醒目高亮
-2. [ ] **全品种模拟回测（56 品种）** — 见 `scripts/SIMULATION_CHECKLIST.md`
+1. [x] **🔴 P0：邮件通知增强 — 同步推送该信号回测统计（胜率/盈亏比/凯利仓位）** ✅ — `check_signals.py` `build_email()` 加 `load_signal_stats()` + `_format_stats_line()`，每条信号后追加 `回测(10日) 胜率XX% 盈亏比XX 样本XX → 凯利建议仓位 XX%`，数据源 `data/signal_stats.json`，缺失静默跳过不报错
+2. [x] **🔴 P0：模拟回测入口改为回测口径行高亮按钮** ✅
+3. [ ] **全品种模拟回测（56 品种）** — 见 `scripts/SIMULATION_CHECKLIST.md`
 
 ### 已完成 — 模拟回测优化（2026-07-08，13 项）✅
 

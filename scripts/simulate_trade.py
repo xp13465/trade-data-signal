@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""上证指数买卖点模拟回测 — 生成静态 HTML 报告。
+"""买卖点模拟回测 — 生成静态 HTML 报告。
 
 三种推演路径：
   路径 A：固定 1 万进出（FIFO）— 每次买 1 万，卖 FIFO 卖最早一笔，最多同时 10 笔
@@ -11,12 +11,14 @@
   2. 辅买+卖：仅 buy_aux (B1 辅买) + sell
   3. 主买+辅买+卖：buy + buy_aux + sell 全部
 
-用法：python scripts/simulate_trade.py [--output static-site/trade_sim.html]
+用法：python scripts/simulate_trade.py [--index sh] [--output path]
 """
 
+import argparse
 import sqlite3
 import os
 import sys
+import yaml
 from datetime import datetime
 
 DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sentiment.db")
@@ -25,6 +27,21 @@ OUTPUT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static-site",
 TOTAL_CAPITAL = 100_000   # 总资金池
 POSITION_SIZE = 10_000    # 每次固定操作金额（路径 A / C）
 MAX_POSITIONS = 10        # 最多同时持仓 10 笔
+
+
+def load_name_map():
+    """从 indicators.yaml 加载 index_id → 中文名映射。"""
+    indicators_yaml = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "indicators.yaml")
+    name_map = {}
+    if not os.path.exists(indicators_yaml):
+        return name_map
+    cfg = yaml.safe_load(open(indicators_yaml, encoding="utf-8")) or {}
+    for idx in cfg.get("indices", []) or []:
+        iid = idx.get("id")
+        iname = idx.get("name")
+        if iid and iname:
+            name_map[iid] = iname
+    return name_map
 
 
 def get_signals(index_id="sh"):
@@ -603,7 +620,7 @@ def format_num(n):
 # ============================================================
 #  HTML 构建（两级 Tab：外层策略路径，内层信号组合）
 # ============================================================
-def _scenario_panel(data):
+def _scenario_panel(data, index_name="上证指数"):
     """构建单个场景的内容面板（卡片 → SVG曲线 → 交易记录清单 → 未平仓 → 回合表）。"""
     s = data["summary"]
 
@@ -617,7 +634,7 @@ def _scenario_panel(data):
         op_badge = f'<span class="ledger-op {op_class}">{entry["op"]}</span>'
         pct_str = f'{entry["return_pct"]:+.2f}%'
         pct_color = color_for_pct(entry["return_pct"])
-        # 上证收盘价
+        # 收盘价
         close_str = f'{entry["close"]:.2f}'
         # 较上条涨跌
         idx_chg = entry.get("index_chg_pct")
@@ -665,11 +682,11 @@ def _scenario_panel(data):
 
     ledger_html = f"""
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（{s['ledger_count']} 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 上证收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × {index_name}收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
-          <th>#</th><th>日期</th><th>上证收盘</th><th>较上条涨跌</th><th>操作</th><th>交易金额</th><th>份额变动</th><th>持仓份额</th><th>持仓市值</th><th>当前总资产</th><th>累计收益率</th>
+          <th>#</th><th>日期</th><th>{index_name}收盘</th><th>较上条涨跌</th><th>操作</th><th>交易金额</th><th>份额变动</th><th>持仓份额</th><th>持仓市值</th><th>当前总资产</th><th>累计收益率</th>
         </tr></thead>
         <tbody>{ledger_rows}</tbody>
       </table>
@@ -763,7 +780,7 @@ def _scenario_panel(data):
     return cards + equity_svg + ledger_html + open_html + table
 
 
-def build_html(groups, signal_first_date=None, signal_last_date=None):
+def build_html(groups, index_id="sh", index_name="上证指数", signal_first_date=None, signal_last_date=None):
     """构建两级 Tab 页面。"""
     path_labels = list(groups.keys())
     sig_labels = list(next(iter(groups.values())).keys())
@@ -847,7 +864,7 @@ def build_html(groups, signal_first_date=None, signal_last_date=None):
             active_sub = "active" if si == 0 else ""
             sub_tabs += f'<button class="sim-sub-tab {active_sub}" data-path="{pi}" data-sig="{si}">{slabel}</button>\n'
             data = sub_scenarios[slabel]
-            panel = _scenario_panel(data)
+            panel = _scenario_panel(data, index_name)
             sub_panels += f'<div class="sim-scenario {active_sub}" data-path="{pi}" data-sig="{si}">{panel}</div>\n'
 
         groups_html += f"""
@@ -861,7 +878,7 @@ def build_html(groups, signal_first_date=None, signal_last_date=None):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>上证指数 · 买卖点模拟回测</title>
+<title>{index_name} · 买卖点模拟回测</title>
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 body {{ font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1f2329; padding: 24px; max-width: 1200px; margin: 0 auto; }}
@@ -914,7 +931,7 @@ tr:hover td {{ background: #f5f6f8; }}
 </style>
 </head>
 <body>
-<h1>上证指数 · 买卖点模拟回测</h1>
+<h1>{index_name} · 买卖点模拟回测</h1>
 <p class="subtitle">总资金 10 万 · 按信号当日收盘价成交{backtest_info} · 生成于 {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>
 {comparison_table}
 <div class="sim-main-tabs">{main_tabs}</div>
@@ -963,8 +980,25 @@ tr:hover td {{ background: #f5f6f8; }}
 
 
 def main():
-    output = sys.argv[1] if len(sys.argv) > 1 else OUTPUT
-    signals, (last_date, last_close) = get_signals("sh")
+    parser = argparse.ArgumentParser(description="买卖点模拟回测")
+    parser.add_argument("--index", default="sh", help="品种 index_id（默认 sh）")
+    parser.add_argument("--output", help="自定义输出路径（默认自动生成 trade_sim_{index_id}.html）")
+    args = parser.parse_args()
+
+    index_id = args.index
+    name_map = load_name_map()
+    index_name = name_map.get(index_id, index_id)
+
+    base_dir = os.path.dirname(os.path.dirname(__file__))
+    out_dir_static = os.path.join(base_dir, "static-site")
+    out_dir_web = os.path.join(base_dir, "web")
+
+    if args.output:
+        output = args.output
+    else:
+        output = os.path.join(out_dir_static, f"trade_sim_{index_id}.html")
+
+    signals, (last_date, last_close) = get_signals(index_id)
 
     SIG_LABELS = ["主买+卖", "辅买+卖", "主买+辅买+卖"]
     SIG_TYPES = [{"buy"}, {"buy_aux"}, {"buy", "buy_aux"}]
@@ -985,13 +1019,13 @@ def main():
 
     signal_first_date = signals[0][0] if signals else None
     signal_last_date = signals[-1][0] if signals else None
-    html = build_html(groups, signal_first_date, signal_last_date)
+    html = build_html(groups, index_id, index_name, signal_first_date, signal_last_date)
     os.makedirs(os.path.dirname(output), exist_ok=True)
     with open(output, "w", encoding="utf-8") as f:
         f.write(html)
-    print(f"Generated: {output} ({len(html)} bytes)")
+    print(f"Generated: {output} ({len(html)} bytes) - {index_name}")
 
-    web_output = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "trade_sim.html")
+    web_output = os.path.join(out_dir_web, f"trade_sim_{index_id}.html")
     with open(web_output, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"Copied to: {web_output}")

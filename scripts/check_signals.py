@@ -32,6 +32,7 @@ REPO = Path(__file__).resolve().parent.parent
 DB_PATH = REPO / "data" / "sentiment.db"
 EMAIL_CONFIG = REPO / "config" / "email.json"
 INDICATORS_CONFIG = REPO / "config" / "indicators.yaml"
+STATS_PATH = REPO / "data" / "signal_stats.json"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,6 +63,31 @@ DISCLAIMER = """【免责声明】
 
 # email.json.example 中的占位密码，识别后跳过实际发送（仅打印内容）
 PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
+
+
+def calc_kelly(win_rate: float | None, pl: float | None) -> float:
+    """凯利公式：计算建议仓位比例。win_rate/pl 无效时返回 0。"""
+    if pl is None or win_rate is None or pl <= 0 or win_rate <= 0:
+        return 0.0
+    b = pl  # 盈亏比
+    p = win_rate
+    return max(0.0, (b * p - (1 - p)) / b)
+
+
+def load_signal_stats() -> dict:
+    """加载 signal_stats.json。文件不存在或解析失败返回空 dict。"""
+    if not STATS_PATH.exists():
+        log.warning("signal_stats.json 不存在：%s", STATS_PATH)
+        return {}
+    try:
+        stats = json.loads(STATS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(stats, dict):
+            log.warning("signal_stats.json 格式异常（非 dict）")
+            return {}
+        return stats
+    except Exception as e:  # noqa: BLE001
+        log.warning("signal_stats.json 加载失败：%s", e)
+        return {}
 
 
 def query_signals(date: str) -> list[dict]:
@@ -131,14 +157,33 @@ def _summary_names(signals: list[dict], name_map: dict[str, str], limit: int = 3
     return head
 
 
+def _format_stats_line(stats_entry: dict | None) -> str | None:
+    """根据 stats 条目生成回测统计行。无数据返回 None。"""
+    if not stats_entry:
+        return None
+    win_rate = stats_entry.get("win_rate")
+    pl = stats_entry.get("pl")
+    n = stats_entry.get("n")
+    if win_rate is None or pl is None or n is None:
+        return None
+    kelly = calc_kelly(win_rate, pl)
+    kelly_str = f"凯利建议仓位 {kelly*100:.1f}%" if kelly > 0 else "凯利=0（不建议）"
+    return (
+        f"    回测(10日) 胜率{win_rate*100:.1f}% "
+        f"盈亏比{pl:.2f} 样本{n} → {kelly_str}"
+    )
+
+
 def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tuple[str, str]:
     """构建邮件主题 + 正文。返回 (subject, body)。"""
+    stats = load_signal_stats()
+
     buys = [s for s in signals if s["signal"] == "buy"]
     sells = [s for s in signals if s["signal"] == "sell"]
     others = [s for s in signals if s["signal"] not in ("buy", "sell")]
     n = len(signals)
 
-    # 主题加品种摘要：买:WTI原油 卖:深成指,恒生（每边最多3个，多了等N个）
+    # 主题加品种摘要
     buy_summary = _summary_names(buys, name_map)
     sell_summary = _summary_names(sells, name_map)
     subject = f"[买卖点信号] {date} 买:{buy_summary} 卖:{sell_summary}"
@@ -153,6 +198,10 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
         for s in buys:
             name = index_id_to_name(s["index_id"], name_map)
             lines.append(f"  • {name}（{s['index_id']}）  {s['reason'] or ''}")
+            sub = stats.get(s["index_id"], {}).get(s["signal"], {}).get("10d")
+            stats_line = _format_stats_line(sub)
+            if stats_line:
+                lines.append(stats_line)
     else:
         lines.append("  （无）")
     lines.append("")
@@ -163,16 +212,24 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
         for s in sells:
             name = index_id_to_name(s["index_id"], name_map)
             lines.append(f"  • {name}（{s['index_id']}）  {s['reason'] or ''}")
+            sub = stats.get(s["index_id"], {}).get(s["signal"], {}).get("10d")
+            stats_line = _format_stats_line(sub)
+            if stats_line:
+                lines.append(stats_line)
     else:
         lines.append("  （无）")
     lines.append("")
 
-    # 其他类型（保险起见，理论上只有 buy/sell）
+    # 其他类型
     if others:
         lines.append(f"═══════════ ⚠ 其他信号（{len(others)}） ═══════════")
         for s in others:
             name = index_id_to_name(s["index_id"], name_map)
             lines.append(f"  • {name}（{s['index_id']}）  {s['signal']}: {s['reason'] or ''}")
+            sub = stats.get(s["index_id"], {}).get(s["signal"], {}).get("10d")
+            stats_line = _format_stats_line(sub)
+            if stats_line:
+                lines.append(stats_line)
         lines.append("")
 
     lines.append("─" * 50)
