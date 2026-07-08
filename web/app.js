@@ -4,7 +4,19 @@ const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
-const SIM_INDICES = new Set(['sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300', 'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div', 'us_ixic', 'us_spx', 'us_dji', 'us_ndx', 'g.gold', 'g.comex_silver', 'g.wti_oil', 'gold', 'comex_silver', 'wti_oil']);
+const SIM_INDICES = new Set([
+  'sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300',
+  'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div',
+  'us_ixic', 'us_spx', 'us_dji', 'us_ndx',
+  'g.gold', 'g.comex_silver', 'g.wti_oil', 'g.us10y', 'g.a_qvix_300', 'g.a_qvix_1000',
+  'gold', 'comex_silver', 'wti_oil',
+  'sw_801010', 'sw_801030', 'sw_801040', 'sw_801050', 'sw_801080',
+  'sw_801110', 'sw_801130', 'sw_801150', 'sw_801160', 'sw_801170',
+  'sw_801180', 'sw_801210', 'sw_801230',
+  'sw_801710', 'sw_801720', 'sw_801730', 'sw_801740', 'sw_801750',
+  'sw_801760', 'sw_801770', 'sw_801780', 'sw_801790',
+  'sw_801880', 'sw_801890', 'sw_801950', 'sw_801960', 'sw_801970', 'sw_801980'
+]);
 // 全球 tab extras 回的 id 无 g. 前缀（如 gold），需映射到实际文件名（如 g.gold）
 const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 'g.wti_oil' };
 
