@@ -45,6 +45,21 @@ def get_signals(index_id="sh"):
     return rows, last
 
 
+def _ledger(date, op, amount, cash, positions, close):
+    """构建一条交易记录。"""
+    holdings_cost = sum(POSITION_SIZE for _ in positions) if positions else 0.0
+    hv = sum(s * close for _, _, s in positions) if positions else 0.0
+    total = cash + hv
+    return {
+        "date": str(date),
+        "op": op,
+        "amount": round(amount, 2),
+        "holdings_cost": round(holdings_cost, 2),
+        "total_assets": round(total, 2),
+        "return_pct": round((total - TOTAL_CAPITAL) / TOTAL_CAPITAL * 100, 2),
+    }
+
+
 # ============================================================
 #  路径 A：固定 1 万进出（FIFO）
 # ============================================================
@@ -57,6 +72,7 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
     max_holding_date = None
 
     rounds = []
+    ledger = []
     buy_count = 0
     sell_count = 0
     skipped_full = 0
@@ -80,6 +96,8 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
             if hv > max_holding:
                 max_holding = hv
                 max_holding_date = date
+            ledger.append(_ledger(date, "买入", POSITION_SIZE, cash, positions, close))
+
         elif is_buy and len(positions) >= MAX_POSITIONS:
             skipped_full += 1
         elif is_buy and cash < POSITION_SIZE:
@@ -98,6 +116,8 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
                 "pct": round(pct, 2), "amount_in": POSITION_SIZE,
                 "amount_out": round(sell_amount, 2), "profit": round(profit, 2),
             })
+            ledger.append(_ledger(date, "卖出", sell_amount, cash, positions, close))
+
         elif is_sell and not positions:
             skipped_no_position += 1
 
@@ -113,7 +133,7 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
     final_total = cash + holdings_value
 
     return _build_result(
-        scenario_name, cash, positions, rounds, last_close,
+        scenario_name, cash, positions, rounds, ledger, last_close,
         first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
         max_holding, max_holding_date, buy_count, sell_count,
         skipped_full, skipped_no_cash, skipped_no_position, max_positions_ever,
@@ -134,20 +154,20 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
     max_holding_date = None
 
     rounds = []
+    ledger = []
     buy_count = 0
     sell_count = 0
     skipped_consecutive_buy = 0
     skipped_consecutive_sell = 0
     skipped_no_holding = 0
     first_buy_date = None
-    last_signal = None  # track consecutive same-type signals
+    last_signal = None
 
     for date, sig, _, close in signals:
         is_buy = sig in buy_types
         is_sell = sig == "sell"
 
         if is_buy and holding is None:
-            # 跳过连续同向买点
             if last_signal == "buy":
                 skipped_consecutive_buy += 1
                 continue
@@ -156,12 +176,17 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
             buy_count += 1
             shares = cash / close
             holding = (date, close, shares)
+            buy_amount = cash  # all-in
             cash = 0.0
             hv = shares * close
             if hv > max_holding:
                 max_holding = hv
                 max_holding_date = date
             last_signal = "buy"
+            # 全仓买入的 ledger：持仓成本 = buy_amount
+            entry = _ledger(date, "买入", buy_amount, 0.0, [(date, close, shares)], close)
+            entry["holdings_cost"] = round(buy_amount, 2)
+            ledger.append(entry)
 
         elif is_sell and holding is not None:
             if last_signal == "sell":
@@ -172,8 +197,7 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
             sell_amount = shares * close
             cash = sell_amount
             pct = (close - buy_close) / buy_close * 100
-            profit = sell_amount - (shares * buy_close)  # actual P&L
-            # For display: amount_in = original cost
+            profit = sell_amount - (shares * buy_close)
             amount_in = round(shares * buy_close, 2)
             rounds.append({
                 "buy_date": str(buy_date), "buy_close": round(buy_close, 2),
@@ -184,6 +208,7 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
             })
             holding = None
             last_signal = "sell"
+            ledger.append(_ledger(date, "卖出", sell_amount, cash, [], close))
 
         elif is_sell and holding is None:
             skipped_no_holding += 1
@@ -200,7 +225,7 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
     positions = [holding] if holding else []
 
     return _build_result(
-        scenario_name, cash, positions, rounds, last_close,
+        scenario_name, cash, positions, rounds, ledger, last_close,
         first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
         max_holding, max_holding_date, buy_count, sell_count,
         skipped_consecutive_buy, 0, skipped_no_holding, 1 if holding else 0,
@@ -221,6 +246,7 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
     max_holding_date = None
 
     rounds = []
+    ledger = []
     buy_count = 0
     sell_count = 0
     skipped_full = 0
@@ -246,12 +272,13 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
                 max_holding = hv
                 max_holding_date = date
             last_signal = "buy"
+            ledger.append(_ledger(date, "买入", POSITION_SIZE, cash, positions, close))
+
         elif is_buy and len(positions) >= MAX_POSITIONS:
             skipped_full += 1
         elif is_buy and cash < POSITION_SIZE:
             skipped_no_cash += 1
         elif is_sell and positions:
-            # 跳过连续同向卖点
             if last_signal == "sell":
                 continue
             sell_count += 1
@@ -276,7 +303,6 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
                     "amount_out": round(sell_amount, 2),
                     "profit": round(sell_amount - POSITION_SIZE, 2),
                 })
-            # 合并为一轮（多笔买入 → 一次清仓卖出）
             rounds.append({
                 "buy_date": sold[0]["buy_date"] if len(sold) == 1 else f"{sold[0]['buy_date']}~{sold[-1]['buy_date']}",
                 "buy_close": round(sum(s["buy_close"] for s in sold) / len(sold), 2),
@@ -287,9 +313,11 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
                 "amount_in": round(total_amount_in, 2),
                 "amount_out": round(total_amount_out, 2),
                 "profit": round(total_profit, 2),
-                "_sub_rounds": sold,  # 子回合详情
+                "_sub_rounds": sold,
             })
             last_signal = "sell"
+            ledger.append(_ledger(date, "清仓卖出", total_amount_out, cash, [], close))
+
         elif is_sell and not positions:
             skipped_no_position += 1
 
@@ -305,7 +333,7 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
     final_total = cash + holdings_value
 
     return _build_result(
-        scenario_name, cash, positions, rounds, last_close,
+        scenario_name, cash, positions, rounds, ledger, last_close,
         first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
         max_holding, max_holding_date, buy_count, sell_count,
         skipped_full, skipped_no_cash, skipped_no_position, max_positions_ever,
@@ -316,7 +344,7 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
 # ============================================================
 #  公共：构建结果 & 计算统计
 # ============================================================
-def _build_result(scenario_name, cash, positions, rounds, last_close,
+def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
                   first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
                   max_holding, max_holding_date, buy_count, sell_count,
                   skip1, skip2, skip3, max_positions_ever, strategy_desc=""):
@@ -376,6 +404,7 @@ def _build_result(scenario_name, cash, positions, rounds, last_close,
 
     return {
         "rounds": rounds,
+        "ledger": ledger,
         "open_positions": open_positions,
         "summary": {
             "scenario": scenario_name,
@@ -400,6 +429,7 @@ def _build_result(scenario_name, cash, positions, rounds, last_close,
             "max_positions_ever": max_positions_ever,
             "total_rounds": len(rounds),
             "open_count": len(positions),
+            "ledger_count": len(ledger),
             "years": round(years, 1),
             "annualized": round(annualized, 1),
             "win_count": win_count,
@@ -437,11 +467,39 @@ def format_num(n):
 #  HTML 构建（两级 Tab：外层策略路径，内层信号组合）
 # ============================================================
 def _scenario_panel(data):
-    """构建单个场景的内容面板（卡片 + 未平仓 + 回合表）。"""
+    """构建单个场景的内容面板（卡片 → 交易记录清单 → 未平仓 → 回合表）。"""
     s = data["summary"]
-    parts = []
 
-    # 未平仓列表
+    # --- 交易记录清单（时间轴） ---
+    ledger_rows = ""
+    for j, entry in enumerate(data.get("ledger", [])):
+        op_class = "buy" if "买" in entry["op"] and "卖" not in entry["op"] else "sell"
+        op_badge = f'<span class="ledger-op {op_class}">{entry["op"]}</span>'
+        pct_str = f'{entry["return_pct"]:+.2f}%'
+        pct_color = color_for_pct(entry["return_pct"])
+        ledger_rows += f"""
+        <tr>
+          <td>{j + 1}</td>
+          <td>{entry['date']}</td>
+          <td>{op_badge}</td>
+          <td>{format_num(entry['amount'])}</td>
+          <td>{format_num(entry['holdings_cost'])}</td>
+          <td>{format_num(entry['total_assets'])}</td>
+          <td style="color:{pct_color};font-weight:600">{pct_str}</td>
+        </tr>"""
+
+    ledger_html = f"""
+    <h3 style="margin: 20px 0 10px; font-size: 15px;">📒 交易记录清单（{s['ledger_count']} 笔，按时间轴）</h3>
+    <div class="sim-table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>日期</th><th>操作</th><th>交易金额</th><th>当前持仓成本</th><th>当前总资产</th><th>累计收益率</th>
+        </tr></thead>
+        <tbody>{ledger_rows}</tbody>
+      </table>
+    </div>"""
+
+    # --- 未平仓列表 ---
     open_html = ""
     if data["open_positions"]:
         open_rows = ""
@@ -465,6 +523,7 @@ def _scenario_panel(data):
           </table>
         </div>"""
 
+    # --- 摘要卡片 ---
     cards = f"""
     <div class="sim-flow">{s['flow_desc']}</div>
     <div class="sim-cards">
@@ -478,7 +537,7 @@ def _scenario_panel(data):
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
     </div>"""
 
-    # 已完成回合表
+    # --- 已完成回合表 ---
     rows = ""
     for j, r in enumerate(data["rounds"]):
         sub_rows = ""
@@ -521,34 +580,22 @@ def _scenario_panel(data):
       </table>
     </div>"""
 
-    return cards + open_html + table
+    return cards + ledger_html + open_html + table
 
 
 def build_html(groups):
-    """构建两级 Tab 页面。
-
-    groups = {
-        "策略路径名": {
-            "信号组合名": simulation_data,
-            ...
-        },
-        ...
-    }
-    """
+    """构建两级 Tab 页面。"""
     path_labels = list(groups.keys())
     sig_labels = list(next(iter(groups.values())).keys())
 
-    # 外层主 tab
     main_tabs = ""
     for pi, plabel in enumerate(path_labels):
         active = "active" if pi == 0 else ""
         main_tabs += f'<button class="sim-main-tab {active}" data-path="{pi}">{plabel}</button>\n'
 
-    # 每个路径组的内容区
     groups_html = ""
     for pi, plabel in enumerate(path_labels):
         active_grp = "active" if pi == 0 else ""
-        # 内层子 tab
         sub_tabs = ""
         sub_panels = ""
         sub_scenarios = groups[plabel]
@@ -577,23 +624,19 @@ body {{ font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei"
 h1 {{ font-size: 20px; margin-bottom: 4px; }}
 .subtitle {{ color: #8f959e; font-size: 13px; margin-bottom: 20px; }}
 
-/* 外层主 tab（策略路径） */
 .sim-main-tabs {{ display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid #e5e6eb; }}
 .sim-main-tab {{ padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #646a73; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }}
 .sim-main-tab.active {{ color: #1f2329; font-weight: 600; border-bottom-color: #3370ff; }}
 .sim-main-tab:hover {{ color: #1f2329; }}
 
-/* 路径组 */
 .sim-path-group {{ display: none; }}
 .sim-path-group.active {{ display: block; }}
 
-/* 内层子 tab（信号组合） */
 .sim-sub-tabs {{ display: flex; gap: 4px; padding: 10px 0 12px; background: #fff; border-bottom: 1px solid #e5e6eb; margin-bottom: 16px; }}
 .sim-sub-tab {{ padding: 6px 14px; border: 1px solid #d9dce0; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; color: #4e5969; transition: all .2s; }}
 .sim-sub-tab.active {{ background: #165dff; color: #fff; border-color: #165dff; }}
 .sim-sub-tab:hover:not(.active) {{ background: #f2f3f5; }}
 
-/* 内容面板 */
 .sim-scenario {{ display: none; }}
 .sim-scenario.active {{ display: block; }}
 .sim-flow {{ background: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: #1f2329; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-left: 3px solid #3370ff; }}
@@ -607,6 +650,12 @@ table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
 th {{ background: #f5f6f8; padding: 10px 12px; text-align: left; font-weight: 600; color: #646a73; white-space: nowrap; border-bottom: 1px solid #e5e6eb; }}
 td {{ padding: 8px 12px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; }}
 tr:hover td {{ background: #f5f6f8; }}
+
+/* 交易记录操作标签 */
+.ledger-op {{ display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; color: #fff; }}
+.ledger-op.buy {{ background: #e6492e; }}
+.ledger-op.sell {{ background: #2e8b57; }}
+
 .footer {{ margin-top: 24px; font-size: 12px; color: #8f959e; }}
 .footer a {{ color: #3370ff; }}
 </style>
@@ -622,32 +671,27 @@ tr:hover td {{ background: #f5f6f8; }}
 </div>
 <script>
 (function() {{
-  // 记忆当前选中的路径和信号
   let currentPath = 0, currentSig = 0;
 
   function show() {{
-    // 隐藏所有
     document.querySelectorAll('.sim-main-tab').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.sim-path-group').forEach(g => g.classList.remove('active'));
     document.querySelectorAll('.sim-sub-tab').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.sim-scenario').forEach(s => s.classList.remove('active'));
-    // 激活当前
     document.querySelector('.sim-main-tab[data-path="' + currentPath + '"]').classList.add('active');
     document.querySelector('.sim-path-group[data-path="' + currentPath + '"]').classList.add('active');
     document.querySelector('.sim-sub-tab[data-path="' + currentPath + '"][data-sig="' + currentSig + '"]').classList.add('active');
     document.querySelector('.sim-scenario[data-path="' + currentPath + '"][data-sig="' + currentSig + '"]').classList.add('active');
   }}
 
-  // 外层主 tab 点击
   document.querySelectorAll('.sim-main-tab').forEach(btn => {{
     btn.onclick = () => {{
       currentPath = parseInt(btn.dataset.path);
-      currentSig = 0;  // 切换路径时重置子 tab 到第一个
+      currentSig = 0;
       show();
     }};
   }});
 
-  // 内层子 tab 点击
   document.querySelectorAll('.sim-sub-tab').forEach(btn => {{
     btn.onclick = () => {{
       currentPath = parseInt(btn.dataset.path);
@@ -670,17 +714,14 @@ def main():
 
     groups = {}
 
-    # 路径 1：固定 1 万进出（FIFO）
     groups["固定1万进出（FIFO）"] = {}
     for label, btypes in zip(SIG_LABELS, SIG_TYPES):
         groups["固定1万进出（FIFO）"][label] = simulate_fixed_1w(label, signals, btypes, last_date, last_close)
 
-    # 路径 2：全仓进出
     groups["全仓进出"] = {}
     for label, btypes in zip(SIG_LABELS, SIG_TYPES):
         groups["全仓进出"][label] = simulate_all_in(label, signals, btypes, last_date, last_close)
 
-    # 路径 3：买固定 1 万 + 卖清仓
     groups["买固定1万+卖清仓"] = {}
     for label, btypes in zip(SIG_LABELS, SIG_TYPES):
         groups["买固定1万+卖清仓"][label] = simulate_sell_all(label, signals, btypes, last_date, last_close)
@@ -706,6 +747,7 @@ def main():
             print(f"  总资产峰值 {s['total_assets_peak']:,.0f}（{s['total_assets_peak_date']}）")
             print(f"  最大持仓 {s['max_holding']:,.0f}（{s['max_holding_date']}）")
             print(f"  {s['buy_count']}买/{s['sell_count']}卖 | {s['total_rounds']}回合 | {s['open_count']}笔未平仓 | 峰值并发{s['max_positions_ever']}笔")
+            print(f"  交易记录 {s['ledger_count']} 笔")
             print(f"  胜率{s['win_rate']}% | 均盈{s['avg_win_pct']}% / 均亏{s['avg_loss_pct']}% | 盈亏比{s['avg_pl_ratio']}")
 
 
