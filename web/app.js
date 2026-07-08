@@ -4,7 +4,7 @@ const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
-const SIM_INDICES = new Set(['sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300']);
+const SIM_INDICES = new Set(['sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300', 'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div']);
 
 window.addEventListener("resize", () => charts.forEach((c) => c && c.resize()));
 
