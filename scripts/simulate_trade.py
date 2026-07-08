@@ -63,8 +63,7 @@ def simulate(scenario_name, signals, buy_types, last_date, last_close):
     holdings_cost = 0.0      # 持仓成本（买入金额）
     buy_price = 0.0          # 买入时的 close
     buy_date = None
-    total_invested = 0.0     # 累计投入（所有买入金额之和）
-    max_holding = 0.0        # 最大持仓金额
+    max_holding = 0.0        # 最大持仓金额（真实投入成本峰值）
     max_holding_date = None
     min_holding = float("inf")  # 最少持仓金额（0=空仓，或最低持仓值）
     min_holding_date = None
@@ -83,7 +82,6 @@ def simulate(scenario_name, signals, buy_types, last_date, last_close):
             buy_price = close
             buy_date = date
             holdings_cost = cash
-            total_invested += cash
             cash = 0.0
             if holdings_cost > max_holding:
                 max_holding = holdings_cost
@@ -156,12 +154,13 @@ def simulate(scenario_name, signals, buy_types, last_date, last_close):
         "summary": {
             "scenario": scenario_name,
             "initial": INITIAL,
-            "total_invested": round(total_invested, 2),
+            "total_ops": buy_count + sell_count,  # 总操作次数（买+卖）
             "total_return": round(total_return, 2),
             "total_return_pct": round(total_return_pct, 2),
             "final_cash": round(cash, 2),
             "max_holding": round(max_holding, 2),
             "max_holding_date": str(max_holding_date) if max_holding_date else "N/A",
+            "max_holding_ratio": round(max_holding / INITIAL, 1),  # 最大持仓/初始资金倍数
             "min_holding": round(min_holding, 2) if min_holding != float("inf") else 0.0,
             "min_holding_date": str(min_holding_date) if min_holding_date else "N/A",
             "buy_count": buy_count,
@@ -211,12 +210,11 @@ def build_html(scenarios):
         cards = f"""
         <div class="sim-cards">
           <div class="sim-card"><span class="k">初始资金</span><span class="v">{format_num(s['initial'])} 元</span></div>
-          <div class="sim-card"><span class="k">总投入</span><span class="v">{format_num(s['total_invested'])} 元</span></div>
           <div class="sim-card"><span class="k">最终资金</span><span class="v">{format_num(s['final_cash'])} 元</span></div>
           <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
-          <div class="sim-card"><span class="k">最大持仓</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div></span></div>
-          <div class="sim-card"><span class="k">最少持仓金额</span><span class="v">{format_num(s['min_holding'])} 元<div class="sub">{s['min_holding_date']}</div></span></div>
-          <div class="sim-card"><span class="k">执行买/卖</span><span class="v">{s['buy_count']} 次买 / {s['sell_count']} 次卖（{s['total_rounds']} 回合）</span></div>
+          <div class="sim-card"><span class="k">最大持仓（投入成本峰值）</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']} · 初始 {s['max_holding_ratio']} 倍</div></span></div>
+          <div class="sim-card"><span class="k">最少持仓</span><span class="v">{format_num(s['min_holding'])} 元<div class="sub">{s['min_holding_date']}</div></span></div>
+          <div class="sim-card"><span class="k">总操作</span><span class="v">{s['total_ops']} 次（{s['buy_count']}买/{s['sell_count']}卖 · {s['total_rounds']}回合）</span></div>
           <div class="sim-card"><span class="k">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
           <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
           <div class="sim-card"><span class="k">状态</span><span class="v">{s['final_status']}</span></div>
@@ -335,8 +333,8 @@ def main():
         print(f"\n{'='*50}")
         print(f"  {name}")
         print(f"  初始 {s['initial']:,.0f} → 最终 {s['final_cash']:,.0f}（{s['total_return_pct']:+.2f}%）")
-        print(f"  总投入 {s['total_invested']:,.0f} | 总收益 {s['total_return']:,.0f}")
-        print(f"  最大持仓 {s['max_holding']:,.0f}（{s['max_holding_date']}）")
+        print(f"  总操作 {s['total_ops']}次 | 总收益 {s['total_return']:,.0f}")
+        print(f"  最大持仓 {s['max_holding']:,.0f}（{s['max_holding_date']}）· 初始 {s['max_holding_ratio']} 倍")
         print(f"  最少持仓金额 {s['min_holding']:,.0f}（{s['min_holding_date']}）")
         print(f"  {s['buy_count']}买/{s['sell_count']}卖 | {s['total_rounds']}回合 | 胜率{s['win_rate']}%")
         print(f"  均盈{s['avg_win_pct']}% / 均亏{s['avg_loss_pct']}% | 盈亏比{s['avg_pl_ratio']}")
