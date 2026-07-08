@@ -32,8 +32,9 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - `scripts/simulate_trade.py` → 三路径九场景 → 静态 HTML `trade_sim.html`
 - 两级 Tab（外层策略路径 + 内层信号组合）
 - 固定 1w FIFO + 主+辅+卖 最优：10 万→72.4 万，年化 5.7%，胜率 71%
+- 交易记录清单：上证收盘 / 较上条涨跌 / 持仓成本变化 before→after / 当前总资产 / 累计收益率
 - 入口：主看板上证凯利仓位后「📊 模拟回测」链接
-- Commits：1efebd4 + ab9080c + 2b8ef09
+- Commits：1efebd4 + ab9080c + 2b8ef09 + 267f35e + 898b32f
 
 ### 工作模式（不变）
 - 监管+loop：派子 agent（fresh context）读 TASKS.md 领任务
@@ -42,7 +43,15 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 ### 待办
 
-1. **模拟回测：交易记录清单** — 在未平仓持仓和已完成回合之前，插入按时间轴排列的交易记录清单。每笔记录：日期、操作（买入/卖出）、交易金额、操作后当前持仓成本、当前总资产、累计收益、累计收益率。三路径九场景均需。
+1. [x] **🔴 P0：模拟回测入口改为回测口径行高亮按钮** ✅ — 从凯利仓位行移到回测口径行，蓝色渐变按钮，醒目高亮
+2. [ ] **全品种模拟回测（56 品种）** — 见 `scripts/SIMULATION_CHECKLIST.md`
+
+### 已完成 — 模拟回测优化（2026-07-08，13 项）✅
+
+> 📋 详细清单：`scripts/SIMULATION_CHECKLIST.md`
+> 优先级：P0(40个) → P1(5个) → P2(6个) → P3(5个可跳过)
+> 第一批推荐：sz → cyb → csi500 → csi1000 → kc50 → hs300（A股核心宽基）
+> **开工前需确认**：参数化改造方案 + 申万行业是否全做 + 非交易资产处理
 
 ### 遗留
 
@@ -50,7 +59,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 2. **g.cn10y buy_aux 回测** — 全球指标类（`_compute_value_signals` 路径），回测脚本需单独处理
 
 ### 下轮起点
-读本节 + `REQUIREMENTS.md` §7 + 回测报告 13-26。关键文件：`app/compute/signals.py`（买卖点计算 + strategy_desc）、`config/indicators.yaml`（per-index filter 配置）、`scripts/simulate_trade.py`（模拟回测）、`static-site/trade_sim.html`（回测页面）。
+读本节 + `scripts/SIMULATION_CHECKLIST.md`（全品种回测清单）。关键文件：`scripts/simulate_trade.py`（需参数化改造）、`static-site/trade_sim.html`（参考案例）、`data/signal_stats.json`（凯利/胜率数据）。
 
 ---
 

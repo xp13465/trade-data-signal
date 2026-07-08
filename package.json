@@ -1,0 +1,9 @@
+{
+  "name": "trade-data-signal",
+  "version": "1.0.0",
+  "description": "A股/港股/全球盘后复盘看板 - 静态版",
+  "homepage": "./static-site",
+  "scripts": {
+    "build": "echo 'static site, no build needed'"
+  }
+}

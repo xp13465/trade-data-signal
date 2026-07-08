@@ -157,7 +157,7 @@ function statsHint(stats, strategy, indexId) {
           : `<span class="hint-kelly warn">→ 凯利不建议做空（负期望，长期会亏）</span>`;
       } else {
         kellyHtml = kellyPct > 0
-          ? `<span class="hint-kelly">→ 凯利建议仓位 <b>${kellyPct}%</b>${indexId === 'sh' ? ` <a href="/static/trade_sim.html" target="_blank" class="sim-link" title="查看上证指数买卖点模拟回测">📊 模拟回测</a>` : ''}</span>`
+          ? `<span class="hint-kelly">→ 凯利建议仓位 <b>${kellyPct}%</b></span>`
           : `<span class="hint-kelly warn">→ 凯利不建议入场（负期望）</span>`;
       }
     }
@@ -170,7 +170,7 @@ function statsHint(stats, strategy, indexId) {
     blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-stat">${wrLabel} <b class="wr ${wrCls}">${wr}%</b></span><span class="hint-stat">盈亏比 ${pl}</span><span class="hint-stat">样本 ${n}</span>${kellyHtml}${honestTag}</div>`);
   }
   if (!blocks.length) return stratHtml || null;
-  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
+  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${indexId === 'sh' ? ` <a href="/static/trade_sim.html" target="_blank" class="sim-btn" title="查看上证指数三策略九场景模拟回测">📊 模拟回测</a>` : ''}</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
     `<div class="hint-kelly-body">` +
