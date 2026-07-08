@@ -157,7 +157,7 @@ function statsHint(stats, strategy, indexId) {
           : `<span class="hint-kelly warn">→ 凯利不建议做空（负期望，长期会亏）</span>`;
       } else {
         kellyHtml = kellyPct > 0
-          ? `<span class="hint-kelly">→ 凯利建议仓位 <b>${kellyPct}%</b>${indexId === 'sh' ? ` <a href="./trade_sim.html" target="_blank" class="sim-link" title="查看上证指数买卖点模拟回测">📊 模拟回测</a>` : ''}</span>`
+          ? `<span class="hint-kelly">→ 凯利建议仓位 <b>${kellyPct}%</b>${indexId === 'sh' ? ` <a href="/static/trade_sim.html" target="_blank" class="sim-link" title="查看上证指数买卖点模拟回测">📊 模拟回测</a>` : ''}</span>`
           : `<span class="hint-kelly warn">→ 凯利不建议入场（负期望）</span>`;
       }
     }

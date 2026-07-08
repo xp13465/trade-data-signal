@@ -461,4 +461,9 @@ def favicon():
     return Response(status_code=204)
 
 
+@app.get("/trade_sim.html")
+def trade_sim():
+    return FileResponse(WEB_DIR / "trade_sim.html")
+
+
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
