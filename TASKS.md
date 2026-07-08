@@ -8,114 +8,45 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
-## 交接状态（2026-07-08 模拟回测后）
+## 交接状态（2026-07-08，准备 compact）
 
-> 在 2026-07-08 compact 前 13 任务全部 done 的基础上，新增上证指数买卖点模拟回测功能。
+> 买卖点优化 + 界面标注 + 部署配置 + 模拟回测 全部完成。仅剩 2 个非阻塞遗留。
 
-### 新增：上证指数买卖点模拟回测（TASK-SIM）
+### 本轮已完成（概要）
 
-**需求**：从主看板凯利仓位建议处链接到模拟回测页面，用历史买卖点信号推演不同策略路径的收益表现。
+**买卖点逻辑优化**（REQUIREMENTS.md §7）：
+- sell 卖点 MACD 死叉确认（DIF<DEA，s.* 豁免），建议率 18%→43%
+- buy_aux 逐品类优化：18/32 品类已落地 per-index filter（rsi_cross_40 / close_above_bl_2pct），累计 18 品类优化
+- buy 精选 3 品类落地 buy_filter（kc50/电力设备/传媒 rsi_cross_25）
+- 3 个结构性异常品类 skip（oil/usdcnh/cn_us_spread）
+- 回测报告 13-26（`a-stock-data/` 目录）
 
-**实现**：`scripts/simulate_trade.py`（~400 行 Python）→ 生成静态 HTML `trade_sim.html`（~400KB 自包含）。
+**界面 + 部署**：
+- 策略公式后端注入（`strategy_desc()` → API → 前端读字段）
+- ruleBar 文案更新（MACD 死叉 + per-index 增强 + 变更历史）
+- 行业 tooltip 修复（`[date,value]` 二维数组取 dataIndex）
+- Cloudflare Workers Static Assets 部署（wrangler.jsonc）
+- 备份表清理（`signal_daily_bak_20260707` DROP）
 
-**三路径 × 三场景 = 9 个推演**：
+**模拟回测**（新增）：
+- `scripts/simulate_trade.py` → 三路径九场景 → 静态 HTML `trade_sim.html`
+- 两级 Tab（外层策略路径 + 内层信号组合）
+- 固定 1w FIFO + 主+辅+卖 最优：10 万→72.4 万，年化 5.7%，胜率 71%
+- 入口：主看板上证凯利仓位后「📊 模拟回测」链接
+- Commits：1efebd4 + ab9080c + 2b8ef09
 
-| 路径 | 策略 | 场景 |
-|------|------|------|
-| 固定1万进出（FIFO） | 每次买 1 万，卖 FIFO 卖最早一笔，最多同时 10 笔 | 主买+卖 / 辅买+卖 / 主+辅+卖 |
-| 全仓进出 | 一次一笔，买用全部现金，卖清仓，跳过连续同向 | 同上 |
-| 买固定1万+卖清仓 | 每次买 1 万（最多 10 笔），卖点清仓全部 | 同上 |
-
-**两级 Tab 结构**：外层 3 个主 tab（策略路径）→ 内层 3 个子 tab（信号组合），切换路径时自动重置子 tab。
-
-**关键指标**：总资产变化（10 万→X）、总收益/收益率、年化收益率（CAGR）、总资产峰值、最大持仓市值、胜率/盈亏比、已完成回合明细表、未平仓持仓列表。
-
-**核心结论**：固定 1 万 FIFO + 主+辅+卖 最优（10 万→72.4 万，年化 5.7%，胜率 71%）。全仓进出波动大但错失复利。卖清仓胜率最高（73%）但每次清仓丢浮盈收益最低。
-
-**改动文件**：
-- `scripts/simulate_trade.py` — 新建，三个 simulate 函数 + HTML 构建
-- `static-site/trade_sim.html` — 生成，静态页面（~400KB）
-- `web/trade_sim.html` — 副本（FastAPI 备用路由）
-- `web/app.js` + `static-site/app.js` — 上证凯利建议后加「📊 模拟回测」链接
-- `web/style.css` + `static-site/style.css` — `.sim-link` 样式
-- `app/main.py` — `/trade_sim.html` 备用路由
-
-**Commits**：1efebd4（三路径九场景）+ ab9080c（两级 Tab 重构）
-
-**入口**：主看板 → 上证指数折线图 → stats hint 凯利仓位后面 → 「📊 模拟回测」链接
+### 工作模式（不变）
+- 监管+loop：派子 agent（fresh context）读 TASKS.md 领任务
+- param-opt-test-driven：回测多方案出报告让用户选
+- 主对话 token 省：compact + 子 agent 干净上下文
 
 ### 遗留
 
 1. **industry-all.json 体积** — 23.74 MiB < 25 MiB，余量 1.26 MiB，2026 年底前需拆分
 2. **g.cn10y buy_aux 回测** — 全球指标类（`_compute_value_signals` 路径），回测脚本需单独处理
 
----
-
-## 交接状态（2026-07-08 compact 前）
-
-> 本轮在 2026-07-07 基础上，做 sell 卖点 MACD 死叉确认 + buy_aux 逐品类优化（8/32）+ 界面策略公式标注。配额 01:02:30 重置后继续。
-
-### 已完成
-
-**1. sell 卖点 MACD 死叉确认（方案B，s.* 豁免）** — commit ec0f88c/70eb01f
-- sell 加 `DIF<DEA`（MACD 12/26/9 死叉确认），过滤强趋势回调假摔。s.* 情绪分豁免（a_sentiment 加 MACD 后 n=106→7）。
-- 建议率 18.3%→43.3%（11→26 建议，47→29 不建议）。buy/buy_aux 零改动。
-- 报告 `13-卖点逻辑优化回测.md`，脚本 `a-stock-data/backtest_sell_optimize.py`。
-
-**2. buy_aux 逐品类优化（8/32 品类）** — per-index 配置化
-- 机制：`config/indicators.yaml` 的 `buy_aux_filter` 字段 + `signals.py` 的 `_load_buy_aux_filters()`。2 个 filter：`rsi_cross_40`（前日 RSI≤40 且当日>40）/ `close_above_bl_2pct`（close>下轨×1.02）。
-- 脚本 `a-stock-data/backtest_buy_aux_batch.py`（泛化，`python backtest_buy_aux_batch.py sid1 sid2 ...`）。A/B/C 三方案：A 反弹力度2% / B RSI上穿40 / C 放量1.2倍。
-- 8 品类结果：
-  - 家电 sw_801110：方案B rsi_cross_40，f -38%→+16% 转正（commit 7662ac3）
-  - 基础化工 sw_801030：方案A close_above_bl_2pct，f -21%→+20% 转正三 horizon 一致（commit 9d15a55）
-  - csi1000：方案B rsi_cross_40，f -20%→+3% 转正三 horizon 一致（commit 9b19917）
-  - 轻工 sw_801140：方案B rsi_cross_40，退而求其次（胜率 45%→50%，f 仍 -14%）（commit 9d15a55）
-  - 商贸 sw_801200 / 电力设备 sw_801730 / sh / hs300：维持现状（0 方案稳健转正或样本不足 n<30）
-- 报告 `14-家电`/`15-商贸`/`16-行业批量(电力设备-轻工-基础化工)`/`17-A股宽基(sh-csi1000-hs300)`。
-- 关键结论：**方案B 非通用**（仅家电/csi1000 稳健转正，消费白马适合；制造/周期/消费零售不适合）；**方案A 制造/周期部分有效但样本少**（n<30）；**A 与 B 转正品类不重叠**（价格力度确认 vs 动量确认适用不同行业，无单一通用方案）。
-
-**3. 界面策略公式标注** — commit 4ced8bd
-- 每个折线图 tips 顶部加蓝色「📋 策略」标注行（`.hint-strategy`），显示该品类实际用的买卖点公式。
-- 前端 `strategyDesc(indexId)` 硬编码 per-index 映射（4 品类自定义 + 基线兜底 + s.* skip_buy）。`statsHint(stats, indexId)` 接收 indexId。`indexChart`/`valueChartWithSignals` 签名加 indexId，调用点传 id。
-- 改 4 文件：web/app.js + web/style.css + static-site/app.js + static-site/style.css。node --check PASS。
-
-**4. 传媒 buy_aux 落地 + 综合/钢铁维持现状（2026-07-08）** — commit b121d56
-- 传媒 sw_801760：方案B `rsi_cross_40` 落地，f -14%→+28%（5d+34%/10d+28%/20d+2.8% 三 horizon 一致），胜率 55%→74%，n 69→19。方案A 亦转正（f+74%）但 n=8<10 样本不足故选 B。
-- 综合 sw_801230 / 钢铁 sw_801040：维持现状（无方案三 horizon 一致转正；钢铁仅 C 放量 10d 转正但三 horizon 不一致 + C 非已实现 filter + n<30）。
-- signals.py 零改动（rsi_cross_40 早已实现），yaml 加一行。重算 buy_aux 5364→5314。报告 `18-行业buy_aux回测-传媒-综合-钢铁.md`。
-
-**5. buy_aux 剩余品类全量回测 + 落地（2026-07-08）** — commit 394db52
-- 30 个剩余品类分 6 批次回测（报告 21-26），11 个新落地（18→18/32 品类已优化）：
-  - rsi_cross_40（4 个）：sw_801160 公用事业 f+30.33% n=25、sw_801180 房地产 f+32.83% n=31 稳健、sw_801210 社会服务 f+30.37% n=40 稳健、sw_801770 通信 f+31.15% n=12
-  - close_above_bl_2pct（7 个）：sw_801010 农林牧渔 f+8.78% n=19、sw_801080 电子 f+0.96% n=28、sw_801130 纺织服饰 f+22.11% n=17、sw_801170 交通运输 f+14.55% n=18、sw_801740 国防军工 f+2.29% n=15、sw_801750 计算机 f+34.54% n=15、sw_801890 机械设备 f+20.96% n=12
-- 19 个维持现状：kc50/sz/环保/建筑材料/建筑装饰/银行/非银金融/煤炭/石油石化/美容护理/中证红利/红利低波/恒生/恒生科技/恒生国企/道琼斯/纳斯达克/标普500/纳斯达克100（基线已正或方案无改善）
-- signals.py 零改动（仅 yaml 加 11 行配置）。重算 buy_aux 5155→3918（-1237），buy 3861→3769，sell 3268→3188。汇总报告 `21-26-buy_aux回测-剩余品类汇总.md`。
-- 遗留：g.cn10y 全球指标类未回测（回测脚本只支持 index_daily，需单独处理 `_compute_value_signals` 路径）
-
-### 待办（配额 01:02:30 重置后继续）
-
-1. ~~传媒/综合/钢铁 buy_aux 回测~~ ✅ done（2026-07-08，commit b121d56）— 见上「已完成 #4」
-2. ~~凯利建议但胜率<50% 品类提胜率回测~~ ✅ done（2026-07-08，用户选「维持现状」）— 报告 `19-恒生科技提胜率回测.md` + 新脚本 `a-stock-data/backtest_hstech_winrate.py`。hstech 主买测 6 方案无法稳定提胜率（可信 n≥10 最高 46.7%；MACD金叉/MA60多头 与超卖反弹矛盾产 0 信号；s1 RSI上穿25 胜率85.7%但n=7；s6 BB下轨胜率反降45.5%）。**用户决策：主买维持现状 C1**（f+11.47% 靠 pl1.52 盈亏比），不新增 buy_filter 机制。辅买 s5 放量 三 horizon f>0 但 n=6 不足，留作后续样本累积观察。结构性原因：港股科技无涨跌停+超卖反弹弱+全史仅16信号。
-3. **buy_aux 剩余品类逐个优化** — ✅ done（2026-07-08，批次 21-26）。30 个剩余品类全部回测完成，**11 个新落地**（sw_801010 农林牧渔/close_above_bl_2pct、sw_801080 电子/close_above_bl_2pct、sw_801130 纺织服饰/close_above_bl_2pct、sw_801160 公用事业/rsi_cross_40、sw_801170 交通运输/close_above_bl_2pct、sw_801180 房地产/rsi_cross_40、sw_801210 社会服务/rsi_cross_40、sw_801740 国防军工/close_above_bl_2pct、sw_801750 计算机/close_above_bl_2pct、sw_801770 通信/rsi_cross_40、sw_801890 机械设备/close_above_bl_2pct），其中 2 个稳健转正（房地产 n=31、社会服务 n=40），9 个 n<30 样本警示。19 个维持现状（kc50/sz/环保/建筑材料/建筑装饰/银行/非银金融/煤炭/石油石化/美容护理/中证红利/红利低波/恒生指数/恒生科技/恒生国企/道琼斯/纳斯达克/标普500/纳斯达克100）。累计 **18/32 品类已优化**（7 个已有 + 11 个新增）。报告 `21-26-buy_aux回测-剩余品类汇总.md`。signals.py 零改动（仅 yaml 加 11 行配置）。重算 buy_aux 5155→3918（-1237）。g.cn10y 全球指标类未处理（回测脚本只支持 index_daily，需单独处理）。
-4. ~~buy 21 个不建议~~ ✅ done 精选落地 3 品类（2026-07-08）— C1 主买整体健康（41/60 建议），21 个不建议品类全量 6 方案回测（`22-buy收紧RSI回测-21个不建议.md`），**精选落地 3 个改善最显著品类**：kc50 科创50（f 15.92%→57.56%）、sw_801730 电力设备（f 0%→29.55%）、sw_801760 传媒（f 0%→41.74%）。新增 `buy_filter` 机制（`_load_buy_filters()` + `compute()` 查表 apply，与 `_load_buy_aux_filters` 同模式），`indicators.yaml` 加 `buy_filter: rsi_cross_25`，reason 格式 `RSI上穿25(...)`。strategy_desc 同步更新。重算后 buy 3673（-188 vs 旧 3861，含自然数据变动），buy_aux 3928 + sell 3185 不变。其他 57 品类 buy 零改动（基线 RSI 上穿 30）。详见 REQUIREMENTS.md §7.4。
-5. ~~3 个结构性异常品类 skip~~ ✅ done（2026-07-08，commit 0cb1152）— signals.py 加 `SKIP_IDS={oil,usdcnh,cn_us_spread}` + `skip_sell` 参数，3 品类全 skip 买卖点（与 a_sentiment skip_buy 同思路）。signal_daily 12284→11975（-309），3 品类信号归零，signal_stats + static-site 75 JSON 同步重导出。
-6. ~~界面标注改后端注入~~ ✅ done（2026-07-08，commit 3d0aff1）— `app/compute/signals.py` 新增 `strategy_desc(index_id, cfg) -> {buy,buy_aux,sell}` 读 `indicators.yaml` 的 `buy_aux_filter` + `SKIP_IDS` + `s.*` 前缀逻辑生成策略描述。main.py + export.py 镜像注入：`/api/a-stock`/`/api/hk`/`/api/global`(indices+`extras_strategy`)/`/api/industry`/`/api/index/{id}` + `export_index_detail` 各 index 加 `strategy` 字段；`/api/sentiment` 加 `strategy` dict。前端 `strategyDesc(strategy)`（web+static-site 镜像）读字段删硬编码 per-index 映射 + s.* 分支，留基线兜底；`statsHint`/`indexChart`/`valueChartWithSignals` 签名 `indexId`→`strategy`。验收：node --check PASS + py_compile PASS + strategy_desc 12 品类输出正确（家电rsi_cross_40/基础化工close_above_bl_2pct/oil skip/sh基线/a_sentiment skip_buy+豁免MACD/cross_market 豁免MACD非skip/cn10y基线/usdcnh skip/医药+创业板+传媒rsi_cross_40/hs300基线）+ 重导出 75 JSON 含 strategy 字段。
-7. ~~ruleBar 文案更新~~ ✅ done（2026-07-08，commit a576993 + 3d82839）— summary 补 MACD 死叉（DIF<DEA，s.* 豁免）+ per-index buy_aux 增强。**detail 卖点段已补全**（commit 3d82839）：加 MACD 死叉确认 + s.* 豁免 + buy_filter RSI 收紧 + reason 示例 + 回测结论 + 变更历史，web+static 同步。。
-8. ~~Cloudflare 部署问题~~ ✅ resolved（2026-07-08，用户反馈已好）— webhook/构建恢复，push 后 Cloudflare 正常自动部署。
-9. ~~备份表清理~~ ✅ done（2026-07-08）— `signal_daily_bak_20260707`（12809 行）已 DROP。
-10. **industry-all.json 体积** — 23.74 MiB < 25 MiB，余量 1.26 MiB，2026 年底前需拆分
-11. ~~🐛 行业 tab 折线图 tooltip 显示 nan（bug）~~ ✅ done（2026-07-08，commit a576993）— 防御性改 `renderIndustryGrid` 所有 tooltip formatter（主折线/资金流·成交额·换手率 mini/宽度）兜底 null/NaN/undefined 显示 '-'。数据查无 nan/null，根因疑是 data(0706) 与 turnover(0707) 日期不同步 + 多数品类 fund_flow 空致 echarts 传 undefined。
-12. ~~🐛 行业 tooltip 必须显示曲线真实数值（#11 修订，用户不满意兜底 '-'）~~ ✅ done（2026-07-08，commit a0845c5）— **根因确认**：主折线 + 资金流/成交额/换手率 mini chart 的 series data 是 `[date,value]` 二维数组 + xAxis category，echarts `trigger:"axis"` 下 `p[0].value` 是整个数组而非标量，`Number(数组)=NaN`，#11 兜底 formatter 恒走 '-' 分支（数据有值却显示 -）。宽度 mini 本已用 `p[0].dataIndex` 索引故正常；概览 sparkline 用 `idx.closes` 标量数组故正常。**修复**：主折线 + 3 mini 的 tooltip formatter 改用 `p[0].dataIndex` 直接索引数据数组取真实值（主折线 `ohlc[idx]`→日期+收盘+涨跌幅%+开/高/低；mini `spec.data[idx].value`→label:fmt(value)），保留 null 兜底 '-'。宽度不变。**尺寸**：`.ind-metric-chart` 24→32px（hover 易定位）、`.spark-chart` 90→110px（inline+CSS min-height 同步），grid 列宽 240px 不变布局不乱。改 4 文件（web/static 各 app.js+style.css），node --check PASS。
-
-13. ~~Cloudflare 部署配置 as code（wrangler.jsonc）~~ ✅ done（2026-07-08，commit 29d24dc）— 后台是 wrangler deploy Worker 模式（非 Pages），项目无 Worker 代码用 Workers Static Assets：wrangler.jsonc 配 `assets.directory=./static-site`（无 main，去 nodejs_compat）。name=trade-data-signal 确认更新现有 Worker，解决 "Worker already exists" 报错。用户 dashboard 确认部署成功。DEPLOY.md 同步改为 Static Assets 部署方式。
-
-### 工作模式（不变）
-- 监管+loop：派子 agent（fresh context）读 TASKS.md 领任务，主进程不直接干活
-- param-opt-test-driven：参数优化回测多方案，出报告让用户选，不问参数怎么定
-- 主对话 token 省：compact + 子 agent 干净上下文双省
-
 ### 下轮起点
-读本节 + `REQUIREMENTS.md` §7（买卖点逻辑，含 MACD 死叉 + per-index buy_aux 增强 + buy_filter 收紧）+ 回测报告（14-26）恢复上下文。全部 13 任务 done，遗留：① industry-all.json 2026 年底前拆分 ② g.cn10y 全球指标类 buy_aux 回测（需单独处理 _compute_value_signals 路径）。
+读本节 + `REQUIREMENTS.md` §7 + 回测报告 13-26。关键文件：`app/compute/signals.py`（买卖点计算 + strategy_desc）、`config/indicators.yaml`（per-index filter 配置）、`scripts/simulate_trade.py`（模拟回测）、`static-site/trade_sim.html`（回测页面）。
 
 ---
 
