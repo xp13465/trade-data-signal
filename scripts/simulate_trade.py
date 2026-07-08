@@ -15,6 +15,7 @@
 """
 
 import argparse
+import json
 import sqlite3
 import os
 import sys
@@ -45,7 +46,42 @@ def load_name_map():
 
 
 def get_signals(index_id="sh"):
+    """获取信号和价格数据。对于 g.* 全球商品，从 JSON 文件读取价格数据。"""
     conn = sqlite3.connect(DB)
+
+    if index_id.startswith("g."):
+        # 全球商品：从 signal_daily 取信号，从 JSON 文件取价格
+        json_key = index_id[2:]  # g.gold -> gold
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        json_path = os.path.join(base_dir, "static-site", "data", "global-all.json")
+        price_map = {}
+        if os.path.exists(json_path):
+            with open(json_path, encoding="utf-8") as f:
+                data = json.load(f)
+            extras = data.get("extras", {})
+            records = extras.get(json_key, [])
+            for rec in records:
+                price_map[rec["date"]] = rec["value"]
+
+        signal_rows = conn.execute(
+            "SELECT date, signal, reason FROM signal_daily WHERE index_id=? ORDER BY date",
+            (index_id,),
+        ).fetchall()
+
+        rows = []
+        for date, signal, reason in signal_rows:
+            close = price_map.get(date)
+            if close is not None:
+                rows.append((date, signal, reason, close))
+
+        last_date, last_close = None, None
+        if price_map:
+            last_date = max(price_map.keys())
+            last_close = price_map[last_date]
+
+        conn.close()
+        return rows, (last_date, last_close)
+
     rows = conn.execute(
         """SELECT s.date, s.signal, s.reason, d.close
            FROM signal_daily s
