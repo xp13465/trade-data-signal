@@ -11,7 +11,9 @@ const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
-const SIM_INDICES = new Set(['sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300', 'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div', 'us_ixic', 'us_spx', 'us_dji', 'us_ndx', 'g.gold', 'g.comex_silver', 'g.wti_oil']);
+const SIM_INDICES = new Set(['sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300', 'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div', 'us_ixic', 'us_spx', 'us_dji', 'us_ndx', 'g.gold', 'g.comex_silver', 'g.wti_oil', 'gold', 'comex_silver', 'wti_oil']);
+// 全球 tab extras 回的 id 无 g. 前缀（如 gold），需映射到实际文件名（如 g.gold）
+const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 'g.wti_oil' };
 
 window.addEventListener("resize", () => charts.forEach((c) => c && c.resize()));
 
@@ -179,7 +181,7 @@ function statsHint(stats, strategy, indexId) {
     blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-stat">${wrLabel} <b class="wr ${wrCls}">${wr}%</b></span><span class="hint-stat">盈亏比 ${pl}</span><span class="hint-stat">样本 ${n}</span>${kellyHtml}${honestTag}</div>`);
   }
   if (!blocks.length) return stratHtml || null;
-  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="./trade_sim_${indexId}.html" target="_blank" class="sim-btn" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
+  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="./trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" target="_blank" class="sim-btn" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
     `<div class="hint-kelly-body">` +
