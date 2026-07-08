@@ -785,7 +785,7 @@ function renderIndustryGrid(indices) {
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
-      <div class="spark-chart" style="height:110px"></div>
+      <div class="spark-chart" style="height:120px"></div>
       <div class="ind-metrics"></div>`;
     grid.appendChild(cell);
     const sc = echarts.init(cell.querySelector(".spark-chart"));
@@ -798,8 +798,8 @@ function renderIndustryGrid(indices) {
       };
     });
     sc.setOption({
-      grid: { left: 2, right: 2, top: 6, bottom: 4 },
-      xAxis: { type: "category", show: false, data: ohlc.map((d) => d.date) },
+      grid: { left: 2, right: 2, top: 6, bottom: 18 },
+      xAxis: { type: "category", show: true, data: ohlc.map((d) => d.date), axisLabel: { fontSize: 8, color: "#86909c", interval: Math.max(1, Math.floor(ohlc.length / 5)), formatter: (v) => v.slice(0, 7) }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false } },
       yAxis: { type: "value", show: false, scale: true },
       tooltip: { trigger: "axis", formatter: (p) => {
         const d = ohlc[p[0].dataIndex];
