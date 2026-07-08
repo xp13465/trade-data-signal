@@ -41,7 +41,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - 综合 sw_801230 / 钢铁 sw_801040：维持现状（无方案三 horizon 一致转正；钢铁仅 C 放量 10d 转正但三 horizon 不一致 + C 非已实现 filter + n<30）。
 - signals.py 零改动（rsi_cross_40 早已实现），yaml 加一行。重算 buy_aux 5364→5314。报告 `18-行业buy_aux回测-传媒-综合-钢铁.md`。
 
-**5. buy_aux 剩余品类全量回测 + 落地（2026-07-08）** — 未 commit（待用户确认）
+**5. buy_aux 剩余品类全量回测 + 落地（2026-07-08）** — commit 394db52
 - 30 个剩余品类分 6 批次回测（报告 21-26），11 个新落地（18→18/32 品类已优化）：
   - rsi_cross_40（4 个）：sw_801160 公用事业 f+30.33% n=25、sw_801180 房地产 f+32.83% n=31 稳健、sw_801210 社会服务 f+30.37% n=40 稳健、sw_801770 通信 f+31.15% n=12
   - close_above_bl_2pct（7 个）：sw_801010 农林牧渔 f+8.78% n=19、sw_801080 电子 f+0.96% n=28、sw_801130 纺织服饰 f+22.11% n=17、sw_801170 交通运输 f+14.55% n=18、sw_801740 国防军工 f+2.29% n=15、sw_801750 计算机 f+34.54% n=15、sw_801890 机械设备 f+20.96% n=12
@@ -72,7 +72,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - 主对话 token 省：compact + 子 agent 干净上下文双省
 
 ### 下轮起点
-读本节 + `REQUIREMENTS.md` §7（买卖点逻辑，含 MACD 死叉 + per-index 增强）+ `14/15/16/17` 回测报告恢复上下文。优先：① 重派传媒/钢铁回测 ② 恒生科技等凯利建议但胜率<50% 提胜率回测。
+读本节 + `REQUIREMENTS.md` §7（买卖点逻辑，含 MACD 死叉 + per-index buy_aux 增强 + buy_filter 收紧）+ 回测报告（14-26）恢复上下文。全部 13 任务 done，遗留：① industry-all.json 2026 年底前拆分 ② g.cn10y 全球指标类 buy_aux 回测（需单独处理 _compute_value_signals 路径）③ detail 卖点段文案补全。
 
 ---
 
