@@ -302,10 +302,10 @@ main { padding: 16px 24px; }
 
 /* F2：行业资金流 / 成交额 / 换手率 mini sparklines */
 .industry-cell { padding: 8px 10px; }
-.industry-hint { font-size: 10px; color: #86909c; margin: 4px 0; line-height: 1.5; }
-.industry-hint .hint-row { margin: 1px 0; }
-.industry-hint .hint-header { margin-bottom: 2px; font-size: 10px; }
-.industry-hint .hint-strategy { font-size: 10px; }
+.spark-cell .chart-hint { font-size: 10px; padding: 4px 6px; margin: 4px 0 6px; }
+.spark-cell .chart-hint .hint-strategy { font-size: 9px; padding: 2px 6px; margin-bottom: 3px; }
+.spark-cell .chart-hint .hint-row { margin: 1px 0; }
+.spark-cell .chart-hint .hint-header { margin-bottom: 2px; font-size: 10px; }
 .ind-metrics { margin-top: 4px; }
 .ind-metric-row {
   display: flex;

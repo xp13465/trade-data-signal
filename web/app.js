@@ -784,8 +784,8 @@ function renderIndustryGrid(indices) {
         <span class="spark-name">${idx.name}</span>
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
+      ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart" style="height:110px"></div>
-      ${hint ? `<div class="industry-hint">${hint}</div>` : ""}
       <div class="ind-metrics"></div>`;
     grid.appendChild(cell);
     const sc = echarts.init(cell.querySelector(".spark-chart"));
