@@ -5,13 +5,13 @@
 
 准确率逻辑：
   - 从 futures_position 读每日 net_ratio，方向 sign = +1（净多）或 -1（净空）
-  - 从 index_daily 读对标指数的 close，算 N 日 forward 收益率
-  - 同向准确率 = (sign == sign(forward_return)) 的占比
-  - 逆向准确率 = (sign != sign(forward_return)) 的占比
-  - 使用滚动窗口（默认 120 日）计算，写入 futures_accuracy
+  - 从 index_daily 读对标指数的 close，算次日涨跌（1 日 forward）
+  - 同向准确率 = (sign == sign(next_day_return)) 的占比
+  - 逆向准确率 = (sign != sign(next_day_return)) 的占比
+  - 使用三个滚动窗口（30/60/120 日）计算，写入 futures_accuracy
 
 独立跑：python -m app.compute.futures_position compute [--date YYYYMMDD]
-        python -m app.compute.futures_position all
+        python -m app.compute.futures_position compute-all
 """
 import argparse
 import sys
@@ -30,17 +30,30 @@ VARIETY_INDEX_MAP = {
     "综合": "hs300",
 }
 
-HORIZONS = (1, 5, 10, 20)
-DEFAULT_WINDOW = 120
+DEFAULT_WINDOWS = [30, 60, 120]
 
 
-def _load_positions() -> pd.DataFrame:
-    """从 futures_position 读所有 net_ratio 数据，返回 pivot DataFrame（date × variety）。"""
+ROLES = ['top20', '中信期货', '国泰君安']
+
+
+def _load_positions(role: str = None) -> pd.DataFrame:
+    """从 futures_position 读所有 net_ratio 数据，返回 pivot DataFrame（date × variety）。
+
+    Args:
+        role: 角色过滤，None 则不过滤
+    """
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT date, variety, net_ratio FROM futures_position "
-        "WHERE net_ratio IS NOT NULL ORDER BY date, variety"
-    ).fetchall()
+    if role:
+        rows = conn.execute(
+            "SELECT date, variety, net_ratio FROM futures_position "
+            "WHERE role=? AND net_ratio IS NOT NULL ORDER BY date, variety",
+            (role,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT date, variety, net_ratio FROM futures_position "
+            "WHERE net_ratio IS NOT NULL ORDER BY date, variety"
+        ).fetchall()
     conn.close()
     if not rows:
         return pd.DataFrame()
@@ -69,12 +82,13 @@ def _compute_accuracy_for_variety(
     index_id: str,
     pos_series: pd.Series,
     close_series: pd.Series,
-    window: int,
+    windows: list,
     target_date: str = None,
 ) -> list[dict]:
     """对单个品种计算滚动窗口准确率，返回 rows 列表用于写入 futures_accuracy。
 
     如果 target_date 非空，只计算截至该日的单日准确率；否则全量计算所有日期。
+    windows: 滚动窗口大小列表，如 [30, 60, 120]
     """
     # 对齐日期
     common = pos_series.index.intersection(close_series.index)
@@ -90,26 +104,29 @@ def _compute_accuracy_for_variety(
     rows = []
     dates = list(pos.index)
 
+    max_window = max(windows)
+
     if target_date is not None:
         # 单日计算：取 target_date 及之前的数据
         if target_date not in pos.index:
             return []
         idx = dates.index(target_date)
-        start_idx = max(0, idx - window + 1)
+        start_idx = max(0, idx - max_window + 1)
         work_dates = dates[start_idx : idx + 1]
-        if len(work_dates) < window // 4:  # 窗口内至少要有 1/4 的数据
+        if len(work_dates) < max_window // 4:  # 窗口内至少要有 1/4 的数据
             return []
         work_dates = [target_date]  # 只输出 target_date 的准确率行
     else:
-        # 全量计算：从第 window 个日期开始
-        work_dates = dates[window - 1:]
+        # 全量计算：从第 max_window 个日期开始
+        work_dates = dates[max_window - 1:]
 
     for d in work_dates:
         idx = dates.index(d)
-        start_idx = max(0, idx - window + 1)
-        window_dates = dates[start_idx : idx + 1]
 
-        for h in HORIZONS:
+        for w in windows:
+            start_idx = max(0, idx - w + 1)
+            window_dates = dates[start_idx : idx + 1]
+
             follow_wins = 0
             follow_total = 0
             contrarian_wins = 0
@@ -117,7 +134,7 @@ def _compute_accuracy_for_variety(
 
             for wd in window_dates:
                 wd_pos = dates.index(wd)
-                fwd_idx = wd_pos + h
+                fwd_idx = wd_pos + 1  # 只看次日涨跌
                 if fwd_idx >= len(dates):
                     continue
 
@@ -125,8 +142,8 @@ def _compute_accuracy_for_variety(
                 fwd_close = close.iloc[fwd_idx]
                 if cur_close == 0:
                     continue
-                fwd_return = (fwd_close / cur_close - 1) * 100
-                fwd_sign = 1 if fwd_return > 0 else (-1 if fwd_return < 0 else 0)
+                next_day_return = (fwd_close / cur_close - 1) * 100
+                fwd_sign = 1 if next_day_return > 0 else (-1 if next_day_return < 0 else 0)
                 if fwd_sign == 0:
                     continue
 
@@ -145,16 +162,16 @@ def _compute_accuracy_for_variety(
             cur_dir = direction.loc[d] if d in direction.index else 0
             cur_return = None
             d_idx = dates.index(d)
-            if d_idx + h < len(dates):
+            if d_idx + 1 < len(dates):
                 c0 = close.iloc[d_idx]
                 if c0 != 0:
-                    cur_return = float((close.iloc[d_idx + h] / c0 - 1) * 100)
+                    cur_return = float((close.iloc[d_idx + 1] / c0 - 1) * 100)
 
             rows.append({
                 "date": d,
                 "variety": variety,
                 "index_id": index_id,
-                "window": h,
+                "window": w,  # 滚动窗口大小 30/60/120
                 "follow_accuracy": round(follow_wins / follow_total, 6) if follow_total > 0 else None,
                 "contrarian_accuracy": round(contrarian_wins / contrarian_total, 6) if contrarian_total > 0 else None,
                 "follow_n": follow_total,
@@ -166,31 +183,37 @@ def _compute_accuracy_for_variety(
     return rows
 
 
-def compute_accuracy(date: str = None, window: int = DEFAULT_WINDOW):
-    """计算截至 date 的滚动窗口准确率，写入 futures_accuracy。
+def compute_accuracy(date: str = None, windows: list = None):
+    """计算截至 date 的滚动窗口准确率，按角色分别计算，写入 futures_accuracy。
 
     Args:
         date: 目标日期（YYYYMMDD），None 则全量计算
-        window: 滚动窗口大小，默认 120
+        windows: 滚动窗口大小列表，默认 [30, 60, 120]
     """
-    pos_df = _load_positions()
-    if pos_df.empty:
-        print("futures_position 表无数据，跳过准确率计算")
-        return 0
+    if windows is None:
+        windows = DEFAULT_WINDOWS
 
     all_rows = []
-    for variety, index_id in VARIETY_INDEX_MAP.items():
-        if variety not in pos_df.columns:
-            continue
-        pos_series = pos_df[variety].dropna()
-        close_series = _load_index_close(index_id)
-        if close_series.empty:
+    for role in ROLES:
+        pos_df = _load_positions(role=role)
+        if pos_df.empty:
+            print(f"futures_position 表 {role} 无数据，跳过准确率计算")
             continue
 
-        rows = _compute_accuracy_for_variety(
-            variety, index_id, pos_series, close_series, window, target_date=date
-        )
-        all_rows.extend(rows)
+        for variety, index_id in VARIETY_INDEX_MAP.items():
+            if variety not in pos_df.columns:
+                continue
+            pos_series = pos_df[variety].dropna()
+            close_series = _load_index_close(index_id)
+            if close_series.empty:
+                continue
+
+            rows = _compute_accuracy_for_variety(
+                variety, index_id, pos_series, close_series, windows, target_date=date
+            )
+            for r in rows:
+                r["role"] = role
+            all_rows.extend(rows)
 
     if not all_rows:
         print("无准确率数据可写入")
@@ -199,10 +222,10 @@ def compute_accuracy(date: str = None, window: int = DEFAULT_WINDOW):
     conn = get_conn()
     conn.executemany(
         "INSERT OR REPLACE INTO futures_accuracy "
-        "(date, variety, index_id, window, follow_accuracy, contrarian_accuracy, "
+        "(date, variety, role, index_id, window, follow_accuracy, contrarian_accuracy, "
         "follow_n, contrarian_n, net_direction, actual_return) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        [(r["date"], r["variety"], r["index_id"], r["window"],
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [(r["date"], r["variety"], r["role"], r["index_id"], r["window"],
           r["follow_accuracy"], r["contrarian_accuracy"],
           r["follow_n"], r["contrarian_n"],
           r["net_direction"], r["actual_return"]) for r in all_rows],
@@ -221,29 +244,32 @@ def compute_net_position():
     """防御性每日汇总：从 futures_position 读取最新数据，计算综合净持仓（可选）。
 
     如果采集器已经直接写入 net_ratio，此函数作为防御性重算，确保综合品种的汇总值。
-    综合品种 = IF + IC + IH + IM 的 net_ratio 平均。
+    综合品种 = IF + IC + IH + IM 的 net_ratio 平均。按角色分别计算。
     """
-    pos_df = _load_positions()
-    if pos_df.empty:
-        return 0
-
     varieties = ["IF", "IC", "IH", "IM"]
-    available = [v for v in varieties if v in pos_df.columns]
-    if len(available) < 2:
-        return 0
-
-    composite = pos_df[available].mean(axis=1, skipna=True)
-    conn = get_conn()
     n = 0
-    for date_val, net_ratio in composite.dropna().items():
-        conn.execute(
-            "INSERT OR REPLACE INTO futures_position (date, variety, net_ratio, source) "
-            "VALUES (?,?,?,?)",
-            (date_val, "综合", float(net_ratio), "computed"),
-        )
-        n += 1
-    conn.commit()
-    conn.close()
+    conn = get_conn()
+    try:
+        for role in ROLES:
+            pos_df = _load_positions(role=role)
+            if pos_df.empty:
+                continue
+
+            available = [v for v in varieties if v in pos_df.columns]
+            if len(available) < 2:
+                continue
+
+            composite = pos_df[available].mean(axis=1, skipna=True)
+            for date_val, net_ratio in composite.dropna().items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO futures_position (date, variety, role, net_ratio, source) "
+                    "VALUES (?,?,?,?,?)",
+                    (date_val, "综合", role, float(net_ratio), "computed"),
+                )
+                n += 1
+        conn.commit()
+    finally:
+        conn.close()
     return n
 
 
@@ -251,11 +277,10 @@ def main():
     parser = argparse.ArgumentParser(description="期货机构持仓准确率计算")
     sub = parser.add_subparsers(dest="cmd")
 
-    p_compute = sub.add_parser("compute", help="计算截至指定日期的滚动窗口准确率")
+    p_compute = sub.add_parser("compute", help="计算截至指定日期的滚动窗口准确率（30/60/120 日）")
     p_compute.add_argument("--date", type=str, default=None, help="YYYYMMDD，默认最新交易日")
-    p_compute.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="滚动窗口大小，默认 120")
 
-    p_all = sub.add_parser("all", help="全量重算所有历史日期")
+    p_all = sub.add_parser("compute-all", help="全量重算所有历史日期")
 
     p_net = sub.add_parser("net", help="防御性重算综合品种净持仓")
 
@@ -264,9 +289,9 @@ def main():
     if args.cmd == "compute":
         from ..calendar import last_trading_day
         d = args.date or last_trading_day()
-        n = compute_accuracy(date=d, window=args.window)
-        print(f"=== 期货准确率计算完成: date={d}, window={args.window}, rows={n} ===")
-    elif args.cmd == "all":
+        n = compute_accuracy(date=d)
+        print(f"=== 期货准确率计算完成: date={d}, windows={DEFAULT_WINDOWS}, rows={n} ===")
+    elif args.cmd == "compute-all":
         n = compute_all()
         print(f"=== 期货准确率全量重算完成: rows={n} ===")
     elif args.cmd == "net":

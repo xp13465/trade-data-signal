@@ -366,52 +366,95 @@ def _industry_heatmap():
     return out
 
 
+# 品种名映射（代码 → 中文）
+_VARIETY_NAMES = {
+    "IF": "沪深300期货", "IC": "中证500期货",
+    "IH": "上证50期货", "IM": "中证1000期货",
+    "综合": "综合",
+}
+# 角色名映射（DB key → 对外展示）
+_ROLE_DISPLAY = {
+    "top20": "机构(前20)",
+    "中信期货": "中信期货",
+    "国泰君安": "国泰君安",
+}
+_ROLES_ORDER = ["top20", "中信期货", "国泰君安"]
+
+
 def _futures_data():
-    """期货持仓数据：近 1 年日度净持仓 + 最新准确率，供 /api/futures 和 /api/sentiment 共用。"""
+    """期货持仓数据：近 1 年日度净持仓（按角色分组）+ 最新准确率（按角色分组）。"""
     conn = get_conn()
 
-    # 近 1 年日度净持仓（net_ratio）
-    one_year_ago = (datetime.strptime(last_trading_day(), "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
+    ltd = last_trading_day()
+    # 近 1 年日度净持仓（net_ratio），按角色分组
+    one_year_ago = (datetime.strptime(ltd, "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
     pos_rows = conn.execute(
-        "SELECT date, variety, net_ratio FROM futures_position "
-        "WHERE date>=? AND net_ratio IS NOT NULL ORDER BY date, variety",
+        "SELECT date, variety, role, net_ratio FROM futures_position "
+        "WHERE date>=? AND net_ratio IS NOT NULL ORDER BY date, variety, role",
         (one_year_ago,),
     ).fetchall()
 
-    # 按日期 pivot：{date: {IF: 0.15, IC: -0.05, ...}}
+    # 按日期 → 角色 → 品种 pivot
     positions_by_date: dict[str, dict] = {}
     for r in pos_rows:
         d = r["date"]
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
         if d not in positions_by_date:
             positions_by_date[d] = {}
-        positions_by_date[d][r["variety"]] = r["net_ratio"]
+        if role_display not in positions_by_date[d]:
+            positions_by_date[d][role_display] = {}
+        positions_by_date[d][role_display][r["variety"]] = r["net_ratio"]
     positions = [{"date": d, **v} for d, v in sorted(positions_by_date.items())]
 
-    # 最新准确率数据（每个品种取最新 date 的四个 window）
+    # 最新 summary：取最新日期，按角色列出各品种 net_position（手数，非 ratio）
+    summary_date = positions[-1]["date"] if positions else ltd
+    summary_roles = {}
+    # 查 net_position（手数）用于 summary
+    summary_rows = conn.execute(
+        "SELECT variety, role, net_position FROM futures_position "
+        "WHERE date=? AND net_position IS NOT NULL",
+        (summary_date,),
+    ).fetchall()
+    for r in summary_rows:
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
+        vname = _VARIETY_NAMES.get(r["variety"], r["variety"])
+        if role_display not in summary_roles:
+            summary_roles[role_display] = {}
+        summary_roles[role_display][vname] = round(r["net_position"], 0)
+
+    summary = {
+        "date": summary_date,
+        "品种": ["沪深300期货", "中证500期货", "上证50期货", "中证1000期货"],
+        "roles": summary_roles,
+    }
+
+    # 最新准确率数据（仅综合品种，按角色+窗口，每个角色取最新 date 的 30/60/120 日窗口）
     accuracy_rows = conn.execute(
-        "SELECT a.date, a.variety, a.window, a.follow_accuracy, a.contrarian_accuracy, "
-        "a.follow_n, a.contrarian_n, a.net_direction, a.actual_return "
+        "SELECT a.date, a.role, a.window, a.follow_accuracy, a.contrarian_accuracy, "
+        "a.follow_n, a.contrarian_n "
         "FROM futures_accuracy a "
-        "INNER JOIN (SELECT variety, window, MAX(date) AS max_date FROM futures_accuracy GROUP BY variety, window) b "
-        "ON a.variety=b.variety AND a.window=b.window AND a.date=b.max_date "
-        "ORDER BY a.variety, a.window"
+        "INNER JOIN (SELECT role, window, MAX(date) AS max_date "
+        "            FROM futures_accuracy WHERE variety='综合' GROUP BY role, window) b "
+        "ON a.role=b.role AND a.window=b.window AND a.date=b.max_date "
+        "WHERE a.variety='综合' "
+        "ORDER BY a.role, a.window"
     ).fetchall()
 
     accuracy: dict[str, dict] = {}
     for r in accuracy_rows:
-        v = r["variety"]
-        if v not in accuracy:
-            accuracy[v] = {}
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
+        if role_display not in accuracy:
+            accuracy[role_display] = {}
         w = f"{r['window']}d"
-        accuracy[v][f"follow_{w}"] = r["follow_accuracy"]
-        accuracy[v][f"contrarian_{w}"] = r["contrarian_accuracy"]
-        accuracy[v][f"follow_{w}_n"] = r["follow_n"]
-        accuracy[v][f"contrarian_{w}_n"] = r["contrarian_n"]
-        accuracy[v][f"direction_{w}"] = r["net_direction"]
-        accuracy[v][f"return_{w}"] = r["actual_return"]
+        accuracy[role_display][w] = {
+            "follow": r["follow_accuracy"],
+            "contrarian": r["contrarian_accuracy"],
+            "follow_n": r["follow_n"],
+            "contrarian_n": r["contrarian_n"],
+        }
 
     conn.close()
-    return {"positions": positions, "accuracy": accuracy}
+    return {"summary": summary, "positions": positions, "accuracy": accuracy}
 
 
 @app.get("/api/futures")

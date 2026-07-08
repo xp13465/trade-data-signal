@@ -21,95 +21,92 @@ def _now():
     return dt.datetime.now().isoformat()
 
 
-def _upsert(conn, date: str, variety: str, total_long: float, total_short: float,
+def _upsert(conn, date: str, variety: str, role: str,
+            total_long: float, total_short: float,
             net_position: float, net_ratio: float, long_chg: float, short_chg: float,
             contract_count: int):
     conn.execute(
         "INSERT INTO futures_position "
-        "(date, variety, total_long, total_short, net_position, net_ratio, "
+        "(date, variety, role, total_long, total_short, net_position, net_ratio, "
         " long_chg, short_chg, contract_count, source, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
-        "ON CONFLICT(date, variety) DO UPDATE SET "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(date, variety, role) DO UPDATE SET "
         "total_long=excluded.total_long, total_short=excluded.total_short, "
         "net_position=excluded.net_position, net_ratio=excluded.net_ratio, "
         "long_chg=excluded.long_chg, short_chg=excluded.short_chg, "
         "contract_count=excluded.contract_count, source=excluded.source, "
         "created_at=excluded.created_at",
-        (date, variety, total_long, total_short, net_position, net_ratio,
+        (date, variety, role, total_long, total_short, net_position, net_ratio,
          long_chg, short_chg, contract_count, "akshare", _now()),
     )
 
 
 def collect_daily(date: str) -> dict:
-    """采集单日期货持仓数据，按品种汇总并写入 DB。
+    """采集单日期货持仓数据，按角色 × 品种汇总并写入 DB。
 
-    返回: {variety: {total_long, total_short, net_position, net_ratio, ...}, ...}
+    fetcher 返回: {role: {variety: {total_long, total_short, long_chg, short_chg, contract_count}}}
+
+    返回: {role: {variety: {total_long, total_short, net_position, net_ratio, ...}, ...}, ...}
     """
     data = fetch_futures_position(date)
     if not data:
         print(f"[futures_position] {date}: no data (non-trading day or API error)")
         return {}
 
-    # 按品种汇总所有合约的 rank=999 行
-    agg = {}  # variety -> {total_long, total_short, long_chg, short_chg, contract_count}
-    for contract, rows in data.items():
-        for row in rows:
-            v = row['variety']
-            if v not in agg:
-                agg[v] = {'total_long': 0, 'total_short': 0, 'long_chg': 0, 'short_chg': 0, 'contract_count': 0}
-            agg[v]['total_long'] += row['long_open_interest']
-            agg[v]['total_short'] += row['short_open_interest']
-            agg[v]['long_chg'] += row['long_open_interest_chg']
-            agg[v]['short_chg'] += row['short_open_interest_chg']
-            agg[v]['contract_count'] += 1
-
-    # 只保留我们关注的品种
     result = {}
     conn = get_conn()
     try:
-        for variety in VARIETIES:
-            if variety in agg:
-                a = agg[variety]
-                denom = a['total_long'] + a['total_short']
-                net = a['total_long'] - a['total_short']
-                ratio = net / denom if denom > 0 else 0.0
-                _upsert(conn, date, variety,
-                        a['total_long'], a['total_short'],
-                        net, ratio,
-                        a['long_chg'], a['short_chg'],
-                        a['contract_count'])
-                result[variety] = {
-                    'total_long': a['total_long'], 'total_short': a['total_short'],
-                    'net_position': net, 'net_ratio': ratio,
-                    'long_chg': a['long_chg'], 'short_chg': a['short_chg'],
-                    'contract_count': a['contract_count'],
-                }
+        for role, agg in data.items():
+            role_result = {}
 
-        # 综合：汇总 IF+IC+IH+IM 四个品种
-        total_long = sum(agg[v]['total_long'] for v in VARIETIES if v in agg)
-        total_short = sum(agg[v]['total_short'] for v in VARIETIES if v in agg)
-        long_chg = sum(agg[v]['long_chg'] for v in VARIETIES if v in agg)
-        short_chg = sum(agg[v]['short_chg'] for v in VARIETIES if v in agg)
-        contract_count = sum(agg[v]['contract_count'] for v in VARIETIES if v in agg)
-        denom = total_long + total_short
-        net = total_long - total_short
-        ratio = net / denom if denom > 0 else 0.0
-        _upsert(conn, date, '综合',
-                total_long, total_short, net, ratio,
-                long_chg, short_chg, contract_count)
-        result['综合'] = {
-            'total_long': total_long, 'total_short': total_short,
-            'net_position': net, 'net_ratio': ratio,
-            'long_chg': long_chg, 'short_chg': short_chg,
-            'contract_count': contract_count,
-        }
+            # 写入各品种
+            for variety in VARIETIES:
+                if variety in agg:
+                    a = agg[variety]
+                    denom = a['total_long'] + a['total_short']
+                    net = a['total_long'] - a['total_short']
+                    ratio = net / denom if denom > 0 else 0.0
+                    _upsert(conn, date, variety, role,
+                            a['total_long'], a['total_short'],
+                            net, ratio,
+                            a['long_chg'], a['short_chg'],
+                            a['contract_count'])
+                    role_result[variety] = {
+                        'total_long': a['total_long'], 'total_short': a['total_short'],
+                        'net_position': net, 'net_ratio': ratio,
+                        'long_chg': a['long_chg'], 'short_chg': a['short_chg'],
+                        'contract_count': a['contract_count'],
+                    }
+
+            # 综合：汇总 IF+IC+IH+IM 四个品种
+            total_long = sum(agg[v]['total_long'] for v in VARIETIES if v in agg)
+            total_short = sum(agg[v]['total_short'] for v in VARIETIES if v in agg)
+            long_chg = sum(agg[v]['long_chg'] for v in VARIETIES if v in agg)
+            short_chg = sum(agg[v]['short_chg'] for v in VARIETIES if v in agg)
+            contract_count = sum(agg[v]['contract_count'] for v in VARIETIES if v in agg)
+            denom = total_long + total_short
+            net = total_long - total_short
+            ratio = net / denom if denom > 0 else 0.0
+            _upsert(conn, date, '综合', role,
+                    total_long, total_short, net, ratio,
+                    long_chg, short_chg, contract_count)
+            role_result['综合'] = {
+                'total_long': total_long, 'total_short': total_short,
+                'net_position': net, 'net_ratio': ratio,
+                'long_chg': long_chg, 'short_chg': short_chg,
+                'contract_count': contract_count,
+            }
+
+            result[role] = role_result
 
         conn.commit()
     finally:
         conn.close()
 
-    print(f"[futures_position] {date}: collected {len(result)} varieties "
-          f"({', '.join(result.keys())})")
+    total_varieties = sum(len(v) for v in result.values())
+    roles_str = ', '.join(result.keys())
+    print(f"[futures_position] {date}: collected {total_varieties} variety-role combos "
+          f"across roles ({roles_str})")
     return result
 
 

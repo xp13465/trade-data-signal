@@ -861,89 +861,103 @@ function renderSentimentHeatmap(r) {
 function renderFuturesSection(data) {
   if (!data || !data.positions || !data.positions.length) return;
 
-  const symbols = ["IF", "IC", "IH", "IM", "综合"];
-  const seriesData = symbols.map((sym) => ({
-    name: sym,
-    data: data.positions.map((d) => ({ date: d.date, value: d[sym] })).filter((d) => d.value != null),
-  }));
+  const roles = ["机构(前20)", "中信期货", "国泰君安"];
+  const products = ["沪深300期货", "中证500期货", "上证50期货", "中证1000期货", "综合"];
 
-  // 1. 净持仓比例折线图
-  if (seriesData.some((s) => s.data.length)) {
-    const dates = [...new Set(seriesData.flatMap((s) => s.data.map((d) => d.date)))].sort();
-    const c = mkCard("各品种净持仓比例（近1年）", 320, "净持仓比例 = (前20会员多单 − 空单) / 总持仓。正值=净多（蓝），负值=净空（红）。数据来源：中金所。");
-    c.setOption({
-      tooltip: { trigger: "axis", formatter: (p) => {
-        let html = p[0].axisValue;
-        for (const item of p) {
-          const v = item.value;
-          const tag = v > 0 ? "净多" : v < 0 ? "净空" : "中性";
-          html += `<br/>${item.seriesName}: ${(v * 100).toFixed(1)}% (${tag})`;
-        }
-        return html;
-      } },
-      legend: { top: 0, type: "scroll" },
-      grid: { left: 55, right: 20, top: 35, bottom: 35 },
-      xAxis: { type: "category", data: dates },
-      yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v * 100).toFixed(0) + "%" } },
-      dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
-      series: seriesData.map((s, i) => ({
-        name: s.name,
-        type: "line",
-        smooth: true,
-        symbol: "none",
-        connectNulls: true,
-        data: dates.map((d) => {
-          const p = s.data.find((x) => x.date === d);
-          return p ? p.value : null;
-        }),
-        markLine: i === 0 ? {
-          silent: true,
-          symbol: "none",
-          lineStyle: { color: "#86909c", type: "dashed", width: 1 },
-          label: { formatter: "0", fontSize: 10 },
-          data: [{ yAxis: 0 }],
-        } : undefined,
-      })),
-    });
-  }
-
-  // 2. 机构方向准确率表格
-  if (data.accuracy) {
+  // 1. 昨日净多空概览卡片
+  if (data.summary && data.summary.roles) {
     const div = document.createElement("div");
     div.className = "chart-card";
-    const symNames = { IF: "IF", IC: "IC", IH: "IH", IM: "IM", 综合: "综合" };
-    const cols = [
-      { key: "follow_1d", label: "同向1日" },
-      { key: "follow_5d", label: "同向5日" },
-      { key: "follow_10d", label: "同向10日" },
-      { key: "follow_20d", label: "同向20日" },
-      { key: "contrarian_1d", label: "逆向1日" },
-      { key: "contrarian_5d", label: "逆向5日" },
-      { key: "contrarian_10d", label: "逆向10日" },
-      { key: "contrarian_20d", label: "逆向20日" },
-    ];
-
-    let html = '<h3>机构方向准确率</h3>';
-    html += '<div class="futures-note">同向=跟随机构方向做多/做空；逆向=反向操作。窗口越长准确率越高 → 机构中期方向比短期更可靠。数据来源：中金所前20会员持仓。</div>';
-    html += '<table class="accuracy-table"><thead><tr><th>品种</th>';
-    for (const c of cols) html += `<th>${c.label}</th>`;
+    const dateStr = data.summary.date || "";
+    let html = `<h3>昨日净多空（手） ${dateStr}</h3>`;
+    html += '<div class="futures-note">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
+    html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
+    for (const role of roles) html += `<th>${role}</th>`;
     html += '</tr></thead><tbody>';
-    for (const sym of symbols) {
-      const acc = data.accuracy[sym];
-      if (!acc) continue;
-      html += `<tr><td class="sym-name">${symNames[sym]}</td>`;
-      for (const c of cols) {
-        const v = acc[c.key];
-        let cls = "";
-        if (v != null) {
-          if (v > 0.55) cls = "acc-good";
-          else if (v < 0.45) cls = "acc-bad";
-        }
-        html += `<td class="${cls}">${v != null ? (v * 100).toFixed(1) + "%" : "-"}</td>`;
+    for (const prod of products) {
+      html += `<tr><td class="sym-name">${prod}</td>`;
+      for (const role of roles) {
+        const v = (data.summary.roles[role] || {})[prod];
+        const cls = v > 0 ? "futures-long" : v < 0 ? "futures-short" : "";
+        const sign = v > 0 ? "+" : "";
+        html += `<td class="${cls}">${v != null ? sign + v.toLocaleString() : "-"}</td>`;
       }
       html += '</tr>';
     }
     html += '</tbody></table>';
+    div.innerHTML = html;
+    content.appendChild(div);
+  }
+
+  // 2. 四张折线图：net_ratio 趋势
+  // 图1：综合净多空比例 — 3 条线（机构/中信/国君的综合品种）
+  const chart1Series = roles.map((role) => ({
+    name: role,
+    data: data.positions.map((d) => {
+      const r = d[role];
+      return r ? { date: d.date, value: r["综合"] } : { date: d.date, value: null };
+    }).filter((d) => d.value != null),
+  }));
+  if (chart1Series.some((s) => s.data.length)) {
+    lineChart("综合净多空比例", chart1Series, {
+      yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v * 100).toFixed(0) + "%" } },
+      tooltip: { trigger: "axis", valueFormatter: (v) => v != null ? (v * 100).toFixed(1) + "%" : "-" },
+      series: chart1Series.map((s, i) => ({
+        name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
+        markLine: { silent: true, symbol: "none", lineStyle: { color: "#86909c", type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
+      })),
+    });
+  }
+
+  // 图2-4：每个角色各品种
+  for (const role of roles) {
+    const prodSeries = products.map((prod) => ({
+      name: prod,
+      data: data.positions.map((d) => {
+        const r = d[role];
+        return r ? { date: d.date, value: r[prod] } : { date: d.date, value: null };
+      }).filter((d) => d.value != null),
+    }));
+    if (prodSeries.some((s) => s.data.length)) {
+      lineChart(`${role} 各品种净多空比例`, prodSeries, {
+        yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v * 100).toFixed(0) + "%" } },
+        tooltip: { trigger: "axis", valueFormatter: (v) => v != null ? (v * 100).toFixed(1) + "%" : "-" },
+        series: prodSeries.map((s, i) => ({
+          name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
+          markLine: i === 0 ? { silent: true, symbol: "none", lineStyle: { color: "#86909c", type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] } : undefined,
+        })),
+      });
+    }
+  }
+
+  // 3. 历史准确率表格
+  if (data.accuracy) {
+    const div = document.createElement("div");
+    div.className = "chart-card";
+    const windows = ["30d", "60d", "120d"];
+    let html = '<h3>历史同向/逆向准确率（次工作日涨跌）</h3>';
+    html += '<div class="futures-note">同向=跟随机构方向做多/做空；逆向=反向操作。滚动窗口统计，不构成未来预测。数据来源：中金所前20会员持仓。</div>';
+    html += '<table class="accuracy-table"><thead><tr><th>滚动窗口</th>';
+    for (const role of roles) html += `<th>${role}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const win of windows) {
+      html += `<tr><td class="sym-name">${win}</td>`;
+      for (const role of roles) {
+        const acc = (data.accuracy[role] || {})[win];
+        if (acc) {
+          const f = acc.follow != null ? Math.round(acc.follow * 100) : null;
+          const c = acc.contrarian != null ? Math.round(acc.contrarian * 100) : null;
+          const fCls = f != null && f > 55 ? "acc-good" : "";
+          const cCls = c != null && c > 55 ? "acc-warn" : "";
+          html += `<td><span class="${fCls}">同${f != null ? f + "%" : "-"}</span> <span class="${cCls}">逆${c != null ? c + "%" : "-"}</span></td>`;
+        } else {
+          html += '<td>-</td>';
+        }
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    html += '<div class="futures-note" style="margin-top:10px;">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     div.innerHTML = html;
     content.appendChild(div);
   }

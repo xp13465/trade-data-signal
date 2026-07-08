@@ -505,4 +505,44 @@ main { padding: 16px 24px; }
   color: #dc2626;
   font-weight: 600;
 }
+.accuracy-table td .acc-warn {
+  color: #e67e22;
+  font-weight: 600;
+}
+
+/* 期货净多空概览表 */
+.futures-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.futures-summary-table th,
+.futures-summary-table td {
+  padding: 8px 10px;
+  text-align: right;
+  border-bottom: 1px solid #f2f3f5;
+}
+.futures-summary-table th {
+  background: #fafbfc;
+  color: #4e5969;
+  font-weight: 500;
+  font-size: 12px;
+}
+.futures-summary-table th:first-child,
+.futures-summary-table td:first-child {
+  text-align: left;
+}
+.futures-summary-table td.sym-name {
+  font-weight: 600;
+  color: #1f2329;
+}
+.futures-long {
+  color: #e6492e;
+  font-weight: 600;
+}
+.futures-short {
+  color: #16a34a;
+  font-weight: 600;
+}
 

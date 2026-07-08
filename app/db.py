@@ -96,6 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_industry_width_ind ON industry_width_daily(indust
 CREATE TABLE IF NOT EXISTS futures_position (
   date TEXT NOT NULL,
   variety TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'top20',
   total_long REAL,
   total_short REAL,
   net_position REAL,
@@ -105,12 +106,13 @@ CREATE TABLE IF NOT EXISTS futures_position (
   contract_count INTEGER,
   source TEXT DEFAULT 'akshare',
   created_at TEXT DEFAULT (datetime('now','localtime')),
-  PRIMARY KEY (date, variety)
+  PRIMARY KEY (date, variety, role)
 );
 
 CREATE TABLE IF NOT EXISTS futures_accuracy (
   date TEXT NOT NULL,
   variety TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'top20',
   index_id TEXT NOT NULL,
   window INTEGER NOT NULL,
   follow_accuracy REAL,
@@ -119,7 +121,7 @@ CREATE TABLE IF NOT EXISTS futures_accuracy (
   contrarian_n INTEGER,
   net_direction TEXT,
   actual_return REAL,
-  PRIMARY KEY (date, variety, index_id, window)
+  PRIMARY KEY (date, variety, role, index_id, window)
 );
 """
 

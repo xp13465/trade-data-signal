@@ -379,44 +379,116 @@ def collect_board(board, date):
 # ================ 期货持仓排名 ================
 
 def fetch_futures_position(date: str) -> dict:
-    """采集 CFFEX 期货持仓排名数据。
+    """采集 CFFEX 期货持仓排名数据，返回三个角色各自按品种汇总的数据。
 
     入参 date: YYYYMMDD 格式
-    返回: dict[str, list[dict]]，key 为品种+合约（如 'IF2507'），
-          value 为 rank=999 汇总行列表，每行包含
-          {variety, long_open_interest, short_open_interest,
-           long_open_interest_chg, short_open_interest_chg}
+    返回:
+        {
+            'top20': {variety: {total_long, total_short, long_chg, short_chg, contract_count}},
+            '中信期货': {variety: {...}},
+            '国泰君安': {variety: {...}},
+        }
 
     调用 akshare.get_cffex_rank_table(date=date, vars_list=['IF', 'IC', 'IH', 'IM'])
     返回 dict[str, DataFrame]，每个合约 21 行（前20+1行汇总rank=999）。
-    只取 rank=999 的汇总行。
+
+    - top20: 取 rank=999 的汇总行，按品种累加各合约数据
+    - 中信期货: 遍历每个合约前20行，在 long_party_name 中找含"中信期货"的行
+      累加 long_open_interest，在 short_party_name 中找含"中信期货"的行累加
+      short_open_interest（分别判断，不同 rank 都要累加），按品种汇总
+    - 国泰君安: 同理，匹配"国泰君安"
     """
     result = safe_call(ak.get_cffex_rank_table, date=date, vars_list=['IF', 'IC', 'IH', 'IM'])
     if isinstance(result, Exception):
         return {}
     if not isinstance(result, dict) or len(result) == 0:
         return {}
-    out = {}
-    fields = ['long_open_interest', 'short_open_interest',
-              'long_open_interest_chg', 'short_open_interest_chg']
+
+    # 三个角色的品种累加器: role -> variety -> {total_long, total_short, ...}
+    roles_agg = {
+        'top20': {},
+        '中信期货': {},
+        '国泰君安': {},
+    }
+
+    # 检查 party_name 列名（不同 akshare 版本可能不同）
+    # 常见列名：long_party_name / short_party_name 或 long_party / short_party
     for contract, df in result.items():
         if df is None or len(df) == 0:
             continue
-        summary = df[df['rank'] == 999]
-        if len(summary) == 0:
+
+        # 确定列名
+        long_party_col = None
+        short_party_col = None
+        for col in df.columns:
+            if 'long_party' in col.lower() and 'name' in col.lower():
+                long_party_col = col
+            if 'short_party' in col.lower() and 'name' in col.lower():
+                short_party_col = col
+        if long_party_col is None or short_party_col is None:
             continue
-        rows = []
+
+        # --- top20: rank=999 汇总行 ---
+        summary = df[df['rank'] == 999]
         for _, r in summary.iterrows():
             try:
-                rows.append({
-                    'variety': str(r['variety']),
-                    'long_open_interest': float(r['long_open_interest']),
-                    'short_open_interest': float(r['short_open_interest']),
-                    'long_open_interest_chg': float(r['long_open_interest_chg']),
-                    'short_open_interest_chg': float(r['short_open_interest_chg']),
-                })
+                v = str(r['variety'])
+                agg = roles_agg['top20']
+                if v not in agg:
+                    agg[v] = {'total_long': 0, 'total_short': 0, 'long_chg': 0, 'short_chg': 0, 'contract_count': 0}
+                agg[v]['total_long'] += float(r['long_open_interest'])
+                agg[v]['total_short'] += float(r['short_open_interest'])
+                agg[v]['long_chg'] += float(r['long_open_interest_chg'])
+                agg[v]['short_chg'] += float(r['short_open_interest_chg'])
+                agg[v]['contract_count'] += 1
             except (TypeError, ValueError, KeyError):
                 continue
-        if rows:
-            out[contract] = rows
-    return out
+
+        # --- 中信期货 & 国泰君安: 遍历前20行 ---
+        detail = df[df['rank'] != 999]
+        for _, r in detail.iterrows():
+            try:
+                long_name = str(r[long_party_col])
+                short_name = str(r[short_party_col])
+                long_oi = float(r['long_open_interest'])
+                short_oi = float(r['short_open_interest'])
+                long_chg = float(r['long_open_interest_chg'])
+                short_chg = float(r['short_open_interest_chg'])
+                variety = str(r['variety'])
+            except (TypeError, ValueError, KeyError):
+                continue
+
+            # 中信期货：匹配"中信期货"但不匹配"中信建投"
+            if '中信期货' in long_name and '中信建投' not in long_name:
+                agg = roles_agg['中信期货']
+                if variety not in agg:
+                    agg[variety] = {'total_long': 0, 'total_short': 0, 'long_chg': 0, 'short_chg': 0, 'contract_count': 0}
+                agg[variety]['total_long'] += long_oi
+                agg[variety]['long_chg'] += long_chg
+                agg[variety]['contract_count'] = max(agg[variety]['contract_count'], 1)
+            if '中信期货' in short_name and '中信建投' not in short_name:
+                agg = roles_agg['中信期货']
+                if variety not in agg:
+                    agg[variety] = {'total_long': 0, 'total_short': 0, 'long_chg': 0, 'short_chg': 0, 'contract_count': 0}
+                agg[variety]['total_short'] += short_oi
+                agg[variety]['short_chg'] += short_chg
+                agg[variety]['contract_count'] = max(agg[variety]['contract_count'], 1)
+
+            # 国泰君安：匹配"国泰君安"
+            if '国泰君安' in long_name:
+                agg = roles_agg['国泰君安']
+                if variety not in agg:
+                    agg[variety] = {'total_long': 0, 'total_short': 0, 'long_chg': 0, 'short_chg': 0, 'contract_count': 0}
+                agg[variety]['total_long'] += long_oi
+                agg[variety]['long_chg'] += long_chg
+                agg[variety]['contract_count'] = max(agg[variety]['contract_count'], 1)
+            if '国泰君安' in short_name:
+                agg = roles_agg['国泰君安']
+                if variety not in agg:
+                    agg[variety] = {'total_long': 0, 'total_short': 0, 'long_chg': 0, 'short_chg': 0, 'contract_count': 0}
+                agg[variety]['total_short'] += short_oi
+                agg[variety]['short_chg'] += short_chg
+                agg[variety]['contract_count'] = max(agg[variety]['contract_count'], 1)
+
+    # 移除空角色
+    return {role: data for role, data in roles_agg.items() if data}
