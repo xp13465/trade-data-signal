@@ -860,8 +860,8 @@ def _scenario_panel(data, index_name="上证指数"):
     cards = f"""
     <div class="sim-flow">{s['flow_desc']}</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元</span></div>
-      <div class="sim-card"><span class="k">仓位情况</span><span class="v">最大持仓 {format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div>期末持仓 {format_num(s['final_holdings'])} 元</span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 {format_num(s['final_holdings'])} 元</div></span></div>
+      <div class="sim-card"><span class="k">仓位情况</span><span class="v">最大持仓 {format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
