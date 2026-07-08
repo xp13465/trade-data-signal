@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
 """上证指数买卖点模拟回测 — 生成静态 HTML 报告。
 
-三种场景：
+三种推演路径：
+  路径 A：固定 1 万进出（FIFO）— 每次买 1 万，卖 FIFO 卖最早一笔，最多同时 10 笔
+  路径 B：全仓进出 — 一次只持有一笔，买用全部现金，卖清仓
+  路径 C：买固定 1 万 + 卖清仓 — 每次买 1 万，卖点清仓全部
+
+每种路径 x 三种信号场景：
   1. 主买+卖：仅 buy (C1 主买) + sell
   2. 辅买+卖：仅 buy_aux (B1 辅买) + sell
   3. 主买+辅买+卖：buy + buy_aux + sell 全部
-
-交易逻辑：配对模式，全仓进出。
-  - 起始资金 10,000 元
-  - 买点触发：全仓买入（按当日 close 价）
-  - 卖点触发：全部卖出
-  - 连续同向信号跳过（已持仓/已空仓）
-  - 末尾未平仓买入按最后交易日 close 估价
 
 用法：python scripts/simulate_trade.py [--output static-site/trade_sim.html]
 """
 
 import sqlite3
-import json
 import os
 import sys
 from datetime import datetime
@@ -25,9 +22,12 @@ from datetime import datetime
 DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sentiment.db")
 OUTPUT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static-site", "trade_sim.html")
 
+TOTAL_CAPITAL = 100_000   # 总资金池
+POSITION_SIZE = 10_000    # 每次固定操作金额（路径 A / C）
+MAX_POSITIONS = 10        # 最多同时持仓 10 笔
+
 
 def get_signals(index_id="sh"):
-    """获取某指数的信号 + close 价格，按日期排序。"""
     conn = sqlite3.connect(DB)
     rows = conn.execute(
         """SELECT s.date, s.signal, s.reason, d.close
@@ -37,7 +37,6 @@ def get_signals(index_id="sh"):
            ORDER BY s.date""",
         (index_id,),
     ).fetchall()
-    # 获取最后交易日 close（用于估值未平仓）
     last = conn.execute(
         "SELECT date, close FROM index_daily WHERE index_id=? ORDER BY date DESC LIMIT 1",
         (index_id,),
@@ -46,107 +45,326 @@ def get_signals(index_id="sh"):
     return rows, last
 
 
-def simulate(scenario_name, signals, buy_types, last_date, last_close):
-    """
-    模拟交易。
-
-    buy_types: set of signal types to treat as buy (e.g. {'buy'}, {'buy_aux'}, {'buy','buy_aux'})
-    返回 {
-        'rounds': [{buy_date, buy_close, sell_date, sell_close, hold_days, pct, amount_in, amount_out, profit}],
-        'summary': {total_invested, total_return, total_return_pct, max_holding, max_holding_date,
-                    min_cash, min_cash_date, buy_count, sell_count, win_count, lose_count,
-                    win_rate, avg_win_pct, avg_loss_pct, final_cash, final_status}
-    }
-    """
-    INITIAL = 10000.0
-    cash = INITIAL
-    holdings_cost = 0.0      # 持仓成本（买入金额）
-    buy_price = 0.0          # 买入时的 close
-    buy_date = None
-    max_holding = 0.0        # 最大持仓金额（真实投入成本峰值）
+# ============================================================
+#  路径 A：固定 1 万进出（FIFO）
+# ============================================================
+def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
+    cash = TOTAL_CAPITAL
+    positions = []  # [(buy_date, buy_close, shares)]
+    total_assets_peak = TOTAL_CAPITAL
+    total_assets_peak_date = None
+    max_holding = 0.0
     max_holding_date = None
-    min_holding = float("inf")  # 最少持仓金额（0=空仓，或最低持仓值）
-    min_holding_date = None
 
     rounds = []
     buy_count = 0
     sell_count = 0
+    skipped_full = 0
+    skipped_no_cash = 0
+    skipped_no_position = 0
+    max_positions_ever = 0
+    first_buy_date = None
 
-    for date, sig, reason, close in signals:
+    for date, sig, _, close in signals:
         is_buy = sig in buy_types
         is_sell = sig == "sell"
 
-        if is_buy and cash > 0:
-            # 买入
+        if is_buy and cash >= POSITION_SIZE and len(positions) < MAX_POSITIONS:
+            if first_buy_date is None:
+                first_buy_date = date
             buy_count += 1
-            buy_price = close
-            buy_date = date
-            holdings_cost = cash
-            cash = 0.0
-            if holdings_cost > max_holding:
-                max_holding = holdings_cost
+            shares = POSITION_SIZE / close
+            positions.append((date, close, shares))
+            cash -= POSITION_SIZE
+            hv = sum(s * close for _, _, s in positions)
+            if hv > max_holding:
+                max_holding = hv
                 max_holding_date = date
-            if holdings_cost < min_holding:
-                min_holding = holdings_cost
-                min_holding_date = date
-
-        elif is_sell and holdings_cost > 0:
-            # 卖出
+        elif is_buy and len(positions) >= MAX_POSITIONS:
+            skipped_full += 1
+        elif is_buy and cash < POSITION_SIZE:
+            skipped_no_cash += 1
+        elif is_sell and positions:
             sell_count += 1
-            sell_amount = holdings_cost * (close / buy_price)
-            pct = (close - buy_price) / buy_price * 100
-            profit = sell_amount - holdings_cost
-            cash = sell_amount
-            # 卖出后持仓=0，记录空仓状态
-            if 0 < min_holding:
-                min_holding = 0.0
-                min_holding_date = date
-
-            hold_days = _days_between(buy_date, date)
+            buy_date, buy_close, shares = positions.pop(0)
+            sell_amount = shares * close
+            cash += sell_amount
+            pct = (close - buy_close) / buy_close * 100
+            profit = sell_amount - POSITION_SIZE
             rounds.append({
-                "buy_date": str(buy_date),
-                "buy_close": round(buy_price, 2),
+                "buy_date": str(buy_date), "buy_close": round(buy_close, 2),
+                "sell_date": str(date), "sell_close": round(close, 2),
+                "hold_days": _days_between(buy_date, date),
+                "pct": round(pct, 2), "amount_in": POSITION_SIZE,
+                "amount_out": round(sell_amount, 2), "profit": round(profit, 2),
+            })
+        elif is_sell and not positions:
+            skipped_no_position += 1
+
+        if len(positions) > max_positions_ever:
+            max_positions_ever = len(positions)
+        hv = sum(s * close for _, _, s in positions)
+        total = cash + hv
+        if total > total_assets_peak:
+            total_assets_peak = total
+            total_assets_peak_date = date
+
+    holdings_value = sum(s * last_close for _, _, s in positions)
+    final_total = cash + holdings_value
+
+    return _build_result(
+        scenario_name, cash, positions, rounds, last_close,
+        first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
+        max_holding, max_holding_date, buy_count, sell_count,
+        skipped_full, skipped_no_cash, skipped_no_position, max_positions_ever,
+        strategy_desc="固定 1 万进出（FIFO）",
+    )
+
+
+# ============================================================
+#  路径 B：全仓进出（一次一笔，买用全部现金，卖清仓）
+# ============================================================
+def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
+    """全仓进出：买→清仓→买→清仓，跳过连续同向信号。"""
+    cash = TOTAL_CAPITAL
+    holding = None  # (buy_date, buy_close, shares) or None
+    total_assets_peak = TOTAL_CAPITAL
+    total_assets_peak_date = None
+    max_holding = 0.0
+    max_holding_date = None
+
+    rounds = []
+    buy_count = 0
+    sell_count = 0
+    skipped_consecutive_buy = 0
+    skipped_consecutive_sell = 0
+    skipped_no_holding = 0
+    first_buy_date = None
+    last_signal = None  # track consecutive same-type signals
+
+    for date, sig, _, close in signals:
+        is_buy = sig in buy_types
+        is_sell = sig == "sell"
+
+        if is_buy and holding is None:
+            # 跳过连续同向买点
+            if last_signal == "buy":
+                skipped_consecutive_buy += 1
+                continue
+            if first_buy_date is None:
+                first_buy_date = date
+            buy_count += 1
+            shares = cash / close
+            holding = (date, close, shares)
+            cash = 0.0
+            hv = shares * close
+            if hv > max_holding:
+                max_holding = hv
+                max_holding_date = date
+            last_signal = "buy"
+
+        elif is_sell and holding is not None:
+            if last_signal == "sell":
+                skipped_consecutive_sell += 1
+                continue
+            sell_count += 1
+            buy_date, buy_close, shares = holding
+            sell_amount = shares * close
+            cash = sell_amount
+            pct = (close - buy_close) / buy_close * 100
+            profit = sell_amount - (shares * buy_close)  # actual P&L
+            # For display: amount_in = original cost
+            amount_in = round(shares * buy_close, 2)
+            rounds.append({
+                "buy_date": str(buy_date), "buy_close": round(buy_close, 2),
+                "sell_date": str(date), "sell_close": round(close, 2),
+                "hold_days": _days_between(buy_date, date),
+                "pct": round(pct, 2), "amount_in": amount_in,
+                "amount_out": round(sell_amount, 2), "profit": round(profit, 2),
+            })
+            holding = None
+            last_signal = "sell"
+
+        elif is_sell and holding is None:
+            skipped_no_holding += 1
+
+        # 更新峰值
+        hv = holding[2] * close if holding else 0.0
+        total = cash + hv
+        if total > total_assets_peak:
+            total_assets_peak = total
+            total_assets_peak_date = date
+
+    holdings_value = holding[2] * last_close if holding else 0.0
+    final_total = cash + holdings_value
+    positions = [holding] if holding else []
+
+    return _build_result(
+        scenario_name, cash, positions, rounds, last_close,
+        first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
+        max_holding, max_holding_date, buy_count, sell_count,
+        skipped_consecutive_buy, 0, skipped_no_holding, 1 if holding else 0,
+        strategy_desc="全仓进出（一次一笔，买全部现金，卖清仓）",
+    )
+
+
+# ============================================================
+#  路径 C：买固定 1 万 + 卖清仓
+# ============================================================
+def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
+    """每次买 1 万（最多 10 笔），出现卖点则清仓全部。"""
+    cash = TOTAL_CAPITAL
+    positions = []  # [(buy_date, buy_close, shares)]
+    total_assets_peak = TOTAL_CAPITAL
+    total_assets_peak_date = None
+    max_holding = 0.0
+    max_holding_date = None
+
+    rounds = []
+    buy_count = 0
+    sell_count = 0
+    skipped_full = 0
+    skipped_no_cash = 0
+    skipped_no_position = 0
+    max_positions_ever = 0
+    first_buy_date = None
+    last_signal = None
+
+    for date, sig, _, close in signals:
+        is_buy = sig in buy_types
+        is_sell = sig == "sell"
+
+        if is_buy and cash >= POSITION_SIZE and len(positions) < MAX_POSITIONS:
+            if first_buy_date is None:
+                first_buy_date = date
+            buy_count += 1
+            shares = POSITION_SIZE / close
+            positions.append((date, close, shares))
+            cash -= POSITION_SIZE
+            hv = sum(s * close for _, _, s in positions)
+            if hv > max_holding:
+                max_holding = hv
+                max_holding_date = date
+            last_signal = "buy"
+        elif is_buy and len(positions) >= MAX_POSITIONS:
+            skipped_full += 1
+        elif is_buy and cash < POSITION_SIZE:
+            skipped_no_cash += 1
+        elif is_sell and positions:
+            # 跳过连续同向卖点
+            if last_signal == "sell":
+                continue
+            sell_count += 1
+            # 清仓全部
+            sold = []
+            total_amount_in = 0.0
+            total_amount_out = 0.0
+            total_profit = 0.0
+            while positions:
+                buy_date, buy_close, shares = positions.pop(0)
+                sell_amount = shares * close
+                cash += sell_amount
+                total_amount_in += POSITION_SIZE
+                total_amount_out += sell_amount
+                total_profit += sell_amount - POSITION_SIZE
+                sold.append({
+                    "buy_date": str(buy_date), "buy_close": round(buy_close, 2),
+                    "sell_date": str(date), "sell_close": round(close, 2),
+                    "hold_days": _days_between(buy_date, date),
+                    "pct": round((close - buy_close) / buy_close * 100, 2),
+                    "amount_in": POSITION_SIZE,
+                    "amount_out": round(sell_amount, 2),
+                    "profit": round(sell_amount - POSITION_SIZE, 2),
+                })
+            # 合并为一轮（多笔买入 → 一次清仓卖出）
+            rounds.append({
+                "buy_date": sold[0]["buy_date"] if len(sold) == 1 else f"{sold[0]['buy_date']}~{sold[-1]['buy_date']}",
+                "buy_close": round(sum(s["buy_close"] for s in sold) / len(sold), 2),
                 "sell_date": str(date),
                 "sell_close": round(close, 2),
-                "hold_days": hold_days,
-                "pct": round(pct, 2),
-                "amount_in": round(holdings_cost, 2),
-                "amount_out": round(sell_amount, 2),
-                "profit": round(profit, 2),
+                "hold_days": sum(s["hold_days"] for s in sold),
+                "pct": round(total_profit / total_amount_in * 100, 2) if total_amount_in else 0,
+                "amount_in": round(total_amount_in, 2),
+                "amount_out": round(total_amount_out, 2),
+                "profit": round(total_profit, 2),
+                "_sub_rounds": sold,  # 子回合详情
             })
-            holdings_cost = 0.0
-            buy_price = 0.0
-            buy_date = None
+            last_signal = "sell"
+        elif is_sell and not positions:
+            skipped_no_position += 1
 
-    # 末尾未平仓：按最后交易日 close 估值
-    final_status = "空仓"
-    if holdings_cost > 0:
-        final_value = holdings_cost * (last_close / buy_price)
-        final_status = f"持仓（按{last_date}收盘{last_close:.2f}估值{final_value:.0f}元）"
-        cash = final_value
-        # 把未平仓买入也记录为一轮（无卖出）
-        rounds.append({
-            "buy_date": str(buy_date),
-            "buy_close": round(buy_price, 2),
-            "sell_date": f"{last_date}(估值)",
-            "sell_close": round(last_close, 2),
-            "hold_days": _days_between(buy_date, last_date),
-            "pct": round((last_close - buy_price) / buy_price * 100, 2),
-            "amount_in": round(holdings_cost, 2),
-            "amount_out": round(final_value, 2),
-            "profit": round(final_value - holdings_cost, 2),
+        if len(positions) > max_positions_ever:
+            max_positions_ever = len(positions)
+        hv = sum(s * close for _, _, s in positions)
+        total = cash + hv
+        if total > total_assets_peak:
+            total_assets_peak = total
+            total_assets_peak_date = date
+
+    holdings_value = sum(s * last_close for _, _, s in positions)
+    final_total = cash + holdings_value
+
+    return _build_result(
+        scenario_name, cash, positions, rounds, last_close,
+        first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
+        max_holding, max_holding_date, buy_count, sell_count,
+        skipped_full, skipped_no_cash, skipped_no_position, max_positions_ever,
+        strategy_desc="买固定 1 万 + 卖清仓全部",
+    )
+
+
+# ============================================================
+#  公共：构建结果 & 计算统计
+# ============================================================
+def _build_result(scenario_name, cash, positions, rounds, last_close,
+                  first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
+                  max_holding, max_holding_date, buy_count, sell_count,
+                  skip1, skip2, skip3, max_positions_ever, strategy_desc=""):
+    holdings_value = sum(s * last_close for _, _, s in positions)
+    final_total = cash + holdings_value
+    total_return = final_total - TOTAL_CAPITAL
+    total_return_pct = total_return / TOTAL_CAPITAL * 100
+
+    if first_buy_date:
+        years = _days_between(first_buy_date, last_date) / 365.25
+        annualized = ((final_total / TOTAL_CAPITAL) ** (1 / years) - 1) * 100 if years > 0 else 0
+    else:
+        years = 0
+        annualized = 0
+
+    # 未平仓
+    open_positions = []
+    for buy_date, buy_close, shares in positions:
+        open_positions.append({
+            "buy_date": str(buy_date), "buy_close": round(buy_close, 2),
+            "shares": round(shares, 4),
+            "current_value": round(shares * last_close, 2),
+            "pct": round((last_close - buy_close) / buy_close * 100, 2),
+            "profit": round(shares * last_close - POSITION_SIZE, 2),
         })
 
-    total_return = cash - INITIAL
-    total_return_pct = total_return / INITIAL * 100
-    return_on_max = total_return / max_holding * 100 if max_holding > 0 else 0  # 相对最大投入的收益率
-
-    # 资金流水描述
-    if holdings_cost > 0:
-        flow_desc = f"初始 {INITIAL:,.0f} 元 → 经过 {len(rounds)} 轮买卖 → 当前持仓按 {last_date} 收盘价 {last_close:.2f} 估值 {cash:,.0f} 元"
+    # 流水描述
+    flow_parts = [f"总资金 {TOTAL_CAPITAL:,} 元"]
+    flow_parts.append(strategy_desc)
+    if first_buy_date:
+        flow_parts.append(f"{first_buy_date} 首笔买入")
+    skip_parts = []
+    if skip1:
+        skip_parts.append(f"{skip1} 次跳过")
+    if skip2:
+        skip_parts.append(f"{skip2} 次跳过")
+    if skip3:
+        skip_parts.append(f"{skip3} 次跳过")
+    if skip_parts:
+        flow_parts.append("跳过: " + " · ".join(skip_parts))
+    if positions:
+        flow_parts.append(f"→ 经 {len(rounds)} 轮买卖 + {len(positions)} 笔未平仓")
+        flow_parts.append(f"→ 期末总资产 {final_total:,.0f} 元（现金 {cash:,.0f} + 持仓 {holdings_value:,.0f}）")
     else:
-        flow_desc = f"初始 {INITIAL:,.0f} 元 → 经过 {len(rounds)} 轮买卖 → 最终空仓持有现金 {cash:,.0f} 元"
+        flow_parts.append(f"→ 经 {len(rounds)} 轮买卖 → 期末空仓，总资产 {final_total:,.0f} 元")
+    flow_desc = " · ".join(flow_parts)
 
+    # 胜率统计
     win_rounds = [r for r in rounds if r["profit"] > 0]
     lose_rounds = [r for r in rounds if r["profit"] < 0]
     win_count = len(win_rounds)
@@ -158,36 +376,44 @@ def simulate(scenario_name, signals, buy_types, last_date, last_close):
 
     return {
         "rounds": rounds,
+        "open_positions": open_positions,
         "summary": {
             "scenario": scenario_name,
-            "initial": INITIAL,
-            "total_ops": buy_count + sell_count,  # 总操作次数（买+卖）
+            "strategy": strategy_desc,
+            "total_capital": TOTAL_CAPITAL,
+            "position_size": POSITION_SIZE,
+            "total_ops": buy_count + sell_count,
             "total_return": round(total_return, 2),
             "total_return_pct": round(total_return_pct, 2),
-            "return_on_max": round(return_on_max, 1),  # 相对最大投入的收益率
+            "final_total": round(final_total, 2),
             "final_cash": round(cash, 2),
+            "final_holdings": round(holdings_value, 2),
+            "total_assets_peak": round(total_assets_peak, 2),
+            "total_assets_peak_date": str(total_assets_peak_date) if total_assets_peak_date else "N/A",
             "max_holding": round(max_holding, 2),
             "max_holding_date": str(max_holding_date) if max_holding_date else "N/A",
-            "max_holding_ratio": round(max_holding / INITIAL, 1),  # 最大持仓/初始资金倍数
-            "min_holding": round(min_holding, 2) if min_holding != float("inf") else 0.0,
-            "min_holding_date": str(min_holding_date) if min_holding_date else "N/A",
             "buy_count": buy_count,
             "sell_count": sell_count,
+            "skipped_full": skip1,
+            "skipped_no_cash": skip2,
+            "skipped_no_position": skip3,
+            "max_positions_ever": max_positions_ever,
             "total_rounds": len(rounds),
+            "open_count": len(positions),
+            "years": round(years, 1),
+            "annualized": round(annualized, 1),
             "win_count": win_count,
             "lose_count": lose_count,
             "win_rate": round(win_rate, 1),
             "avg_win_pct": round(avg_win_pct, 2),
             "avg_loss_pct": round(avg_loss_pct, 2),
             "avg_pl_ratio": round(avg_pl_ratio, 2),
-            "final_status": final_status,
             "flow_desc": flow_desc,
         },
     }
 
 
 def _days_between(d1, d2):
-    """计算两个日期字符串之间的日历天数。"""
     dt1 = datetime(int(d1[:4]), int(d1[4:6]), int(d1[6:8]))
     dt2 = datetime(int(d2[:4]), int(d2[4:6]), int(d2[6:8]))
     return (dt2 - dt1).days
@@ -207,31 +433,74 @@ def format_num(n):
     return f"{n:,.2f}"
 
 
+# ============================================================
+#  HTML 构建
+# ============================================================
 def build_html(scenarios):
-    """构建完整静态 HTML 页面。"""
     tabs_html = ""
     content_html = ""
     for i, (name, data) in enumerate(scenarios.items()):
         s = data["summary"]
         active = "active" if i == 0 else ""
+        # 用 CSS class 区分路径组（A/B/C）
+        path_class = "path-group"
         tabs_html += f'<button class="sim-tab {active}" data-tab="{i}">{name}</button>\n'
-        # 摘要卡片
+
+        # 未平仓列表
+        open_html = ""
+        if data["open_positions"]:
+            open_rows = ""
+            for j, op in enumerate(data["open_positions"]):
+                open_rows += f"""
+                <tr>
+                  <td>{j + 1}</td>
+                  <td>{op['buy_date']}</td>
+                  <td>{op['buy_close']}</td>
+                  <td>{op['shares']}</td>
+                  <td style="color:{color_for_pct(op['pct'])};font-weight:600">{op['pct']:+.2f}%</td>
+                  <td>{format_num(op['current_value'])}</td>
+                  <td style="color:{color_for_pct(op['profit'])};font-weight:600">{op['profit']:+.2f}</td>
+                </tr>"""
+            open_html = f"""
+            <h3 style="margin: 20px 0 10px; font-size: 15px;">📌 未平仓持仓（{s['open_count']} 笔，按最后交易日收盘价估值）</h3>
+            <div class="sim-table-wrap">
+              <table>
+                <thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>份额</th><th>浮动盈亏%</th><th>当前市值</th><th>浮动盈亏</th></tr></thead>
+                <tbody>{open_rows}</tbody>
+              </table>
+            </div>"""
+
         cards = f"""
         <div class="sim-flow">{s['flow_desc']}</div>
         <div class="sim-cards">
-          <div class="sim-card"><span class="k">总收益（净利润）</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元</span></div>
-          <div class="sim-card"><span class="k">相对初始资金({format_num(s['initial'])}元)收益率</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{s['total_return_pct']:+.2f}%</span></div>
-          <div class="sim-card"><span class="k">相对最大投入({format_num(s['max_holding'])}元)收益率</span><span class="v" style="color:{color_for_pct(s['return_on_max'])}">{s['return_on_max']:+.1f}%</span></div>
-          <div class="sim-card"><span class="k">最大持仓（投入成本峰值）</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']} · 初始 {s['max_holding_ratio']} 倍</div></span></div>
-          <div class="sim-card"><span class="k">最少持仓</span><span class="v">{format_num(s['min_holding'])} 元<div class="sub">{s['min_holding_date']}</div></span></div>
-          <div class="sim-card"><span class="k">总操作</span><span class="v">{s['total_ops']} 次（{s['buy_count']}买/{s['sell_count']}卖 · {s['total_rounds']}回合）</span></div>
+          <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元</span></div>
+          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
+          <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
+          <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
+          <div class="sim-card"><span class="k">最大持仓市值</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div></span></div>
+          <div class="sim-card"><span class="k">总操作</span><span class="v">{s['total_ops']} 次（{s['buy_count']}买/{s['sell_count']}卖 · {s['total_rounds']}回合 · {s['open_count']}笔未平仓）<div class="sub">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次 · 峰值并发 {s['max_positions_ever']} 笔</div></span></div>
           <div class="sim-card"><span class="k">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
           <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
         </div>"""
 
-        # 详细回合表
+        # 已完成回合表
         rows = ""
         for j, r in enumerate(data["rounds"]):
+            # 如果有子回合（路径 C 卖清仓），展开显示
+            sub_rows = ""
+            if "_sub_rounds" in r and len(r["_sub_rounds"]) > 1:
+                for sr in r["_sub_rounds"]:
+                    sub_rows += f"""
+                <tr style="background:#fafbfc;font-size:11px;color:#646a73">
+                  <td colspan="2" style="padding-left:24px">└ {sr['buy_date']}</td>
+                  <td>{sr['buy_close']}</td>
+                  <td colspan="2"></td>
+                  <td>{sr['hold_days']} 天</td>
+                  <td style="color:{color_for_pct(sr['pct'])}">{sr['pct']:+.2f}%</td>
+                  <td>{format_num(sr['amount_in'])}</td>
+                  <td>{format_num(sr['amount_out'])}</td>
+                  <td style="color:{color_for_pct(sr['profit'])}">{sr['profit']:+.2f}</td>
+                </tr>"""
             rows += f"""
             <tr>
               <td>{j + 1}</td>
@@ -244,20 +513,21 @@ def build_html(scenarios):
               <td>{format_num(r['amount_in'])}</td>
               <td>{format_num(r['amount_out'])}</td>
               <td style="color:{color_for_pct(r['profit'])};font-weight:600">{r['profit']:+.2f}</td>
-            </tr>"""
+            </tr>{sub_rows}"""
 
         table = f"""
+        <h3 style="margin: 20px 0 10px; font-size: 15px;">📋 已完成回合（{s['total_rounds']} 轮）</h3>
         <div class="sim-table-wrap">
           <table>
             <thead><tr>
               <th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th>
-              <th>持有时长</th><th>盈亏%</th><th>投入金额</th><th>回收金额</th><th>净利润</th>
+              <th>持有时长</th><th>盈亏%</th><th>投入</th><th>回收</th><th>净利润</th>
             </tr></thead>
             <tbody>{rows}</tbody>
           </table>
         </div>"""
 
-        content_html += f'<div class="sim-scenario {"active" if i == 0 else ""}" data-idx="{i}">{cards}{table}</div>\n'
+        content_html += f'<div class="sim-scenario {"active" if i == 0 else ""}" data-idx="{i}">{cards}{open_html}{table}</div>\n'
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -270,8 +540,8 @@ def build_html(scenarios):
 body {{ font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1f2329; padding: 24px; max-width: 1200px; margin: 0 auto; }}
 h1 {{ font-size: 20px; margin-bottom: 4px; }}
 .subtitle {{ color: #8f959e; font-size: 13px; margin-bottom: 20px; }}
-.sim-tabs {{ display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e5e6eb; }}
-.sim-tab {{ padding: 8px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #646a73; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }}
+.sim-tabs {{ display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e5e6eb; flex-wrap: wrap; }}
+.sim-tab {{ padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 13px; color: #646a73; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }}
 .sim-tab.active {{ color: #1f2329; font-weight: 600; border-bottom-color: #3370ff; }}
 .sim-tab:hover {{ color: #1f2329; }}
 .sim-scenario {{ display: none; }}
@@ -289,15 +559,16 @@ td {{ padding: 8px 12px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; 
 tr:hover td {{ background: #f5f6f8; }}
 .footer {{ margin-top: 24px; font-size: 12px; color: #8f959e; }}
 .footer a {{ color: #3370ff; }}
+.path-sep {{ display: inline-block; padding: 8px 6px; color: #c9cdd4; font-size: 13px; user-select: none; }}
 </style>
 </head>
 <body>
 <h1>上证指数 · 买卖点模拟回测</h1>
-<p class="subtitle">初始资金 10,000 元 · 全仓进出 · 配对模式 · 按信号当日收盘价成交 · 生成于 {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>
+<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 生成于 {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>
 <div class="sim-tabs">{tabs_html}</div>
 {content_html}
 <div class="footer">
-  <p>模拟说明：买入=信号日收盘价全仓买入；卖出=信号日收盘价全部卖出。连续同向信号跳过（已持仓/已空仓）。末尾未平仓按最后交易日收盘价估值。此为历史模拟，非未来收益保证。</p>
+  <p>模拟说明：三种推演路径 × 三种信号场景，共 9 个场景。总资金 10 万元。路径 A 固定 1 万 FIFO 进出（最多同时 10 笔）；路径 B 全仓进出（一次一笔，买全部现金，卖清仓）；路径 C 买固定 1 万 + 卖清仓全部。连续同向信号跳过（避免重复操作）。此为历史模拟，非未来收益保证。</p>
   <p><a href="./">← 返回看板</a></p>
 </div>
 <script>
@@ -319,36 +590,40 @@ def main():
     signals, (last_date, last_close) = get_signals("sh")
 
     scenarios = {}
-    # 场景1：主买+卖
-    scenarios["主买+卖"] = simulate("主买+卖", signals, {"buy"}, last_date, last_close)
-    # 场景2：辅买+卖
-    scenarios["辅买+卖"] = simulate("辅买+卖", signals, {"buy_aux"}, last_date, last_close)
-    # 场景3：主买+辅买+卖
-    scenarios["主买+辅买+卖"] = simulate("主买+辅买+卖", signals, {"buy", "buy_aux"}, last_date, last_close)
+
+    # 路径 A：固定 1 万进出（FIFO）
+    for name, buy_types in [("A-主买+卖", {"buy"}), ("A-辅买+卖", {"buy_aux"}), ("A-主+辅+卖", {"buy", "buy_aux"})]:
+        scenarios[name] = simulate_fixed_1w(name, signals, buy_types, last_date, last_close)
+
+    # 路径 B：全仓进出
+    for name, buy_types in [("B-主买+卖", {"buy"}), ("B-辅买+卖", {"buy_aux"}), ("B-主+辅+卖", {"buy", "buy_aux"})]:
+        scenarios[name] = simulate_all_in(name, signals, buy_types, last_date, last_close)
+
+    # 路径 C：买固定 1 万 + 卖清仓
+    for name, buy_types in [("C-主买+卖", {"buy"}), ("C-辅买+卖", {"buy_aux"}), ("C-主+辅+卖", {"buy", "buy_aux"})]:
+        scenarios[name] = simulate_sell_all(name, signals, buy_types, last_date, last_close)
 
     html = build_html(scenarios)
     os.makedirs(os.path.dirname(output), exist_ok=True)
     with open(output, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"Generated: {output} ({len(html)} bytes)")
-    # 同时复制到 web/ 目录，供动态版（localhost:8000）访问
+
     web_output = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "trade_sim.html")
     with open(web_output, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"Copied to: {web_output}")
 
-    # 打印摘要到控制台
     for name, data in scenarios.items():
         s = data["summary"]
         print(f"\n{'='*50}")
-        print(f"  {name}")
-        print(f"  初始 {s['initial']:,.0f} → 最终 {s['final_cash']:,.0f}（{s['total_return_pct']:+.2f}%）")
-        print(f"  总操作 {s['total_ops']}次 | 总收益 {s['total_return']:,.0f}")
-        print(f"  最大持仓 {s['max_holding']:,.0f}（{s['max_holding_date']}）· 初始 {s['max_holding_ratio']} 倍")
-        print(f"  最少持仓金额 {s['min_holding']:,.0f}（{s['min_holding_date']}）")
-        print(f"  {s['buy_count']}买/{s['sell_count']}卖 | {s['total_rounds']}回合 | 胜率{s['win_rate']}%")
-        print(f"  均盈{s['avg_win_pct']}% / 均亏{s['avg_loss_pct']}% | 盈亏比{s['avg_pl_ratio']}")
-        print(f"  状态: {s['final_status']}")
+        print(f"  {name}  [{s['strategy']}]")
+        print(f"  总资产 {s['total_capital']:,} → {s['final_total']:,.0f}（+{s['total_return_pct']:.2f}%）")
+        print(f"  总收益 {s['total_return']:,.0f} | 年化 {s['annualized']:.1f}%（{s['years']} 年）")
+        print(f"  总资产峰值 {s['total_assets_peak']:,.0f}（{s['total_assets_peak_date']}）")
+        print(f"  最大持仓 {s['max_holding']:,.0f}（{s['max_holding_date']}）")
+        print(f"  {s['buy_count']}买/{s['sell_count']}卖 | {s['total_rounds']}回合 | {s['open_count']}笔未平仓 | 峰值并发{s['max_positions_ever']}笔")
+        print(f"  胜率{s['win_rate']}% | 均盈{s['avg_win_pct']}% / 均亏{s['avg_loss_pct']}% | 盈亏比{s['avg_pl_ratio']}")
 
 
 if __name__ == "__main__":
