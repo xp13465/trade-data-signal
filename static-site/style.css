@@ -293,7 +293,7 @@ main { padding: 16px 24px; }
 
 /* === 行业看板（F1）=== */
 .industry-grid {
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -302,6 +302,10 @@ main { padding: 16px 24px; }
 
 /* F2：行业资金流 / 成交额 / 换手率 mini sparklines */
 .industry-cell { padding: 8px 10px; }
+.industry-hint { font-size: 10px; color: #86909c; margin: 4px 0; line-height: 1.5; }
+.industry-hint .hint-row { margin: 1px 0; }
+.industry-hint .hint-header { margin-bottom: 2px; font-size: 10px; }
+.industry-hint .hint-strategy { font-size: 10px; }
 .ind-metrics { margin-top: 4px; }
 .ind-metric-row {
   display: flex;

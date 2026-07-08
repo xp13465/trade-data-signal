@@ -803,12 +803,14 @@ function renderIndustryGrid(indices) {
     const cell = document.createElement("div");
     cell.className = "spark-cell industry-cell";
     const sign = up ? "+" : "";
+    const hint = statsHint(idx.stats, idx.strategy, id);
     cell.innerHTML = `
       <div class="spark-head">
         <span class="spark-name">${idx.name}</span>
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
       <div class="spark-chart" style="height:110px"></div>
+      ${hint ? `<div class="industry-hint">${hint}</div>` : ""}
       <div class="ind-metrics"></div>`;
     grid.appendChild(cell);
     const sc = echarts.init(cell.querySelector(".spark-chart"));
