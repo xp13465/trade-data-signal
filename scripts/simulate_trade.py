@@ -434,100 +434,136 @@ def format_num(n):
 
 
 # ============================================================
-#  HTML 构建
+#  HTML 构建（两级 Tab：外层策略路径，内层信号组合）
 # ============================================================
-def build_html(scenarios):
-    tabs_html = ""
-    content_html = ""
-    for i, (name, data) in enumerate(scenarios.items()):
-        s = data["summary"]
-        active = "active" if i == 0 else ""
-        # 用 CSS class 区分路径组（A/B/C）
-        path_class = "path-group"
-        tabs_html += f'<button class="sim-tab {active}" data-tab="{i}">{name}</button>\n'
+def _scenario_panel(data):
+    """构建单个场景的内容面板（卡片 + 未平仓 + 回合表）。"""
+    s = data["summary"]
+    parts = []
 
-        # 未平仓列表
-        open_html = ""
-        if data["open_positions"]:
-            open_rows = ""
-            for j, op in enumerate(data["open_positions"]):
-                open_rows += f"""
-                <tr>
-                  <td>{j + 1}</td>
-                  <td>{op['buy_date']}</td>
-                  <td>{op['buy_close']}</td>
-                  <td>{op['shares']}</td>
-                  <td style="color:{color_for_pct(op['pct'])};font-weight:600">{op['pct']:+.2f}%</td>
-                  <td>{format_num(op['current_value'])}</td>
-                  <td style="color:{color_for_pct(op['profit'])};font-weight:600">{op['profit']:+.2f}</td>
-                </tr>"""
-            open_html = f"""
-            <h3 style="margin: 20px 0 10px; font-size: 15px;">📌 未平仓持仓（{s['open_count']} 笔，按最后交易日收盘价估值）</h3>
-            <div class="sim-table-wrap">
-              <table>
-                <thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>份额</th><th>浮动盈亏%</th><th>当前市值</th><th>浮动盈亏</th></tr></thead>
-                <tbody>{open_rows}</tbody>
-              </table>
-            </div>"""
-
-        cards = f"""
-        <div class="sim-flow">{s['flow_desc']}</div>
-        <div class="sim-cards">
-          <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元</span></div>
-          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
-          <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
-          <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
-          <div class="sim-card"><span class="k">最大持仓市值</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div></span></div>
-          <div class="sim-card"><span class="k">总操作</span><span class="v">{s['total_ops']} 次（{s['buy_count']}买/{s['sell_count']}卖 · {s['total_rounds']}回合 · {s['open_count']}笔未平仓）<div class="sub">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次 · 峰值并发 {s['max_positions_ever']} 笔</div></span></div>
-          <div class="sim-card"><span class="k">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
-          <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
-        </div>"""
-
-        # 已完成回合表
-        rows = ""
-        for j, r in enumerate(data["rounds"]):
-            # 如果有子回合（路径 C 卖清仓），展开显示
-            sub_rows = ""
-            if "_sub_rounds" in r and len(r["_sub_rounds"]) > 1:
-                for sr in r["_sub_rounds"]:
-                    sub_rows += f"""
-                <tr style="background:#fafbfc;font-size:11px;color:#646a73">
-                  <td colspan="2" style="padding-left:24px">└ {sr['buy_date']}</td>
-                  <td>{sr['buy_close']}</td>
-                  <td colspan="2"></td>
-                  <td>{sr['hold_days']} 天</td>
-                  <td style="color:{color_for_pct(sr['pct'])}">{sr['pct']:+.2f}%</td>
-                  <td>{format_num(sr['amount_in'])}</td>
-                  <td>{format_num(sr['amount_out'])}</td>
-                  <td style="color:{color_for_pct(sr['profit'])}">{sr['profit']:+.2f}</td>
-                </tr>"""
-            rows += f"""
+    # 未平仓列表
+    open_html = ""
+    if data["open_positions"]:
+        open_rows = ""
+        for j, op in enumerate(data["open_positions"]):
+            open_rows += f"""
             <tr>
               <td>{j + 1}</td>
-              <td>{r['buy_date']}</td>
-              <td>{r['buy_close']}</td>
-              <td>{r['sell_date']}</td>
-              <td>{r['sell_close']}</td>
-              <td>{r['hold_days']} 天</td>
-              <td style="color:{color_for_pct(r['pct'])};font-weight:600">{r['pct']:+.2f}%</td>
-              <td>{format_num(r['amount_in'])}</td>
-              <td>{format_num(r['amount_out'])}</td>
-              <td style="color:{color_for_pct(r['profit'])};font-weight:600">{r['profit']:+.2f}</td>
-            </tr>{sub_rows}"""
-
-        table = f"""
-        <h3 style="margin: 20px 0 10px; font-size: 15px;">📋 已完成回合（{s['total_rounds']} 轮）</h3>
+              <td>{op['buy_date']}</td>
+              <td>{op['buy_close']}</td>
+              <td>{op['shares']}</td>
+              <td style="color:{color_for_pct(op['pct'])};font-weight:600">{op['pct']:+.2f}%</td>
+              <td>{format_num(op['current_value'])}</td>
+              <td style="color:{color_for_pct(op['profit'])};font-weight:600">{op['profit']:+.2f}</td>
+            </tr>"""
+        open_html = f"""
+        <h3 style="margin: 20px 0 10px; font-size: 15px;">📌 未平仓持仓（{s['open_count']} 笔，按最后交易日收盘价估值）</h3>
         <div class="sim-table-wrap">
           <table>
-            <thead><tr>
-              <th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th>
-              <th>持有时长</th><th>盈亏%</th><th>投入</th><th>回收</th><th>净利润</th>
-            </tr></thead>
-            <tbody>{rows}</tbody>
+            <thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>份额</th><th>浮动盈亏%</th><th>当前市值</th><th>浮动盈亏</th></tr></thead>
+            <tbody>{open_rows}</tbody>
           </table>
         </div>"""
 
-        content_html += f'<div class="sim-scenario {"active" if i == 0 else ""}" data-idx="{i}">{cards}{open_html}{table}</div>\n'
+    cards = f"""
+    <div class="sim-flow">{s['flow_desc']}</div>
+    <div class="sim-cards">
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元</span></div>
+      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
+      <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
+      <div class="sim-card"><span class="k">最大持仓市值</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div></span></div>
+      <div class="sim-card"><span class="k">总操作</span><span class="v">{s['total_ops']} 次（{s['buy_count']}买/{s['sell_count']}卖 · {s['total_rounds']}回合 · {s['open_count']}笔未平仓）<div class="sub">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次 · 峰值并发 {s['max_positions_ever']} 笔</div></span></div>
+      <div class="sim-card"><span class="k">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
+      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
+    </div>"""
+
+    # 已完成回合表
+    rows = ""
+    for j, r in enumerate(data["rounds"]):
+        sub_rows = ""
+        if "_sub_rounds" in r and len(r["_sub_rounds"]) > 1:
+            for sr in r["_sub_rounds"]:
+                sub_rows += f"""
+            <tr style="background:#fafbfc;font-size:11px;color:#646a73">
+              <td colspan="2" style="padding-left:24px">└ {sr['buy_date']}</td>
+              <td>{sr['buy_close']}</td>
+              <td colspan="2"></td>
+              <td>{sr['hold_days']} 天</td>
+              <td style="color:{color_for_pct(sr['pct'])}">{sr['pct']:+.2f}%</td>
+              <td>{format_num(sr['amount_in'])}</td>
+              <td>{format_num(sr['amount_out'])}</td>
+              <td style="color:{color_for_pct(sr['profit'])}">{sr['profit']:+.2f}</td>
+            </tr>"""
+        rows += f"""
+        <tr>
+          <td>{j + 1}</td>
+          <td>{r['buy_date']}</td>
+          <td>{r['buy_close']}</td>
+          <td>{r['sell_date']}</td>
+          <td>{r['sell_close']}</td>
+          <td>{r['hold_days']} 天</td>
+          <td style="color:{color_for_pct(r['pct'])};font-weight:600">{r['pct']:+.2f}%</td>
+          <td>{format_num(r['amount_in'])}</td>
+          <td>{format_num(r['amount_out'])}</td>
+          <td style="color:{color_for_pct(r['profit'])};font-weight:600">{r['profit']:+.2f}</td>
+        </tr>{sub_rows}"""
+
+    table = f"""
+    <h3 style="margin: 20px 0 10px; font-size: 15px;">📋 已完成回合（{s['total_rounds']} 轮）</h3>
+    <div class="sim-table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th>
+          <th>持有时长</th><th>盈亏%</th><th>投入</th><th>回收</th><th>净利润</th>
+        </tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </div>"""
+
+    return cards + open_html + table
+
+
+def build_html(groups):
+    """构建两级 Tab 页面。
+
+    groups = {
+        "策略路径名": {
+            "信号组合名": simulation_data,
+            ...
+        },
+        ...
+    }
+    """
+    path_labels = list(groups.keys())
+    sig_labels = list(next(iter(groups.values())).keys())
+
+    # 外层主 tab
+    main_tabs = ""
+    for pi, plabel in enumerate(path_labels):
+        active = "active" if pi == 0 else ""
+        main_tabs += f'<button class="sim-main-tab {active}" data-path="{pi}">{plabel}</button>\n'
+
+    # 每个路径组的内容区
+    groups_html = ""
+    for pi, plabel in enumerate(path_labels):
+        active_grp = "active" if pi == 0 else ""
+        # 内层子 tab
+        sub_tabs = ""
+        sub_panels = ""
+        sub_scenarios = groups[plabel]
+        for si, slabel in enumerate(sig_labels):
+            active_sub = "active" if si == 0 else ""
+            sub_tabs += f'<button class="sim-sub-tab {active_sub}" data-path="{pi}" data-sig="{si}">{slabel}</button>\n'
+            data = sub_scenarios[slabel]
+            panel = _scenario_panel(data)
+            sub_panels += f'<div class="sim-scenario {active_sub}" data-path="{pi}" data-sig="{si}">{panel}</div>\n'
+
+        groups_html += f"""
+        <div class="sim-path-group {active_grp}" data-path="{pi}">
+          <div class="sim-sub-tabs">{sub_tabs}</div>
+          {sub_panels}
+        </div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -540,10 +576,24 @@ def build_html(scenarios):
 body {{ font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1f2329; padding: 24px; max-width: 1200px; margin: 0 auto; }}
 h1 {{ font-size: 20px; margin-bottom: 4px; }}
 .subtitle {{ color: #8f959e; font-size: 13px; margin-bottom: 20px; }}
-.sim-tabs {{ display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e5e6eb; flex-wrap: wrap; }}
-.sim-tab {{ padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 13px; color: #646a73; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }}
-.sim-tab.active {{ color: #1f2329; font-weight: 600; border-bottom-color: #3370ff; }}
-.sim-tab:hover {{ color: #1f2329; }}
+
+/* 外层主 tab（策略路径） */
+.sim-main-tabs {{ display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid #e5e6eb; }}
+.sim-main-tab {{ padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #646a73; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }}
+.sim-main-tab.active {{ color: #1f2329; font-weight: 600; border-bottom-color: #3370ff; }}
+.sim-main-tab:hover {{ color: #1f2329; }}
+
+/* 路径组 */
+.sim-path-group {{ display: none; }}
+.sim-path-group.active {{ display: block; }}
+
+/* 内层子 tab（信号组合） */
+.sim-sub-tabs {{ display: flex; gap: 4px; padding: 10px 0 12px; background: #fff; border-bottom: 1px solid #e5e6eb; margin-bottom: 16px; }}
+.sim-sub-tab {{ padding: 6px 14px; border: 1px solid #d9dce0; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; color: #4e5969; transition: all .2s; }}
+.sim-sub-tab.active {{ background: #165dff; color: #fff; border-color: #165dff; }}
+.sim-sub-tab:hover:not(.active) {{ background: #f2f3f5; }}
+
+/* 内容面板 */
 .sim-scenario {{ display: none; }}
 .sim-scenario.active {{ display: block; }}
 .sim-flow {{ background: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: #1f2329; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-left: 3px solid #3370ff; }}
@@ -559,27 +609,53 @@ td {{ padding: 8px 12px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; 
 tr:hover td {{ background: #f5f6f8; }}
 .footer {{ margin-top: 24px; font-size: 12px; color: #8f959e; }}
 .footer a {{ color: #3370ff; }}
-.path-sep {{ display: inline-block; padding: 8px 6px; color: #c9cdd4; font-size: 13px; user-select: none; }}
 </style>
 </head>
 <body>
 <h1>上证指数 · 买卖点模拟回测</h1>
 <p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 生成于 {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>
-<div class="sim-tabs">{tabs_html}</div>
-{content_html}
+<div class="sim-main-tabs">{main_tabs}</div>
+{groups_html}
 <div class="footer">
-  <p>模拟说明：三种推演路径 × 三种信号场景，共 9 个场景。总资金 10 万元。路径 A 固定 1 万 FIFO 进出（最多同时 10 笔）；路径 B 全仓进出（一次一笔，买全部现金，卖清仓）；路径 C 买固定 1 万 + 卖清仓全部。连续同向信号跳过（避免重复操作）。此为历史模拟，非未来收益保证。</p>
+  <p>模拟说明：三种策略路径 × 三种信号组合，共 9 个场景。总资金 10 万元。固定 1 万进出（FIFO，最多同时 10 笔）；全仓进出（一次一笔，买全部现金，卖清仓）；买固定 1 万 + 卖清仓全部。连续同向信号跳过（避免重复操作）。此为历史模拟，非未来收益保证。</p>
   <p><a href="./">← 返回看板</a></p>
 </div>
 <script>
-document.querySelectorAll('.sim-tab').forEach(btn => {{
-  btn.onclick = () => {{
-    document.querySelectorAll('.sim-tab').forEach(b => b.classList.remove('active'));
+(function() {{
+  // 记忆当前选中的路径和信号
+  let currentPath = 0, currentSig = 0;
+
+  function show() {{
+    // 隐藏所有
+    document.querySelectorAll('.sim-main-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sim-path-group').forEach(g => g.classList.remove('active'));
+    document.querySelectorAll('.sim-sub-tab').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.sim-scenario').forEach(s => s.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelector('.sim-scenario[data-idx="' + btn.dataset.tab + '"]').classList.add('active');
-  }};
-}});
+    // 激活当前
+    document.querySelector('.sim-main-tab[data-path="' + currentPath + '"]').classList.add('active');
+    document.querySelector('.sim-path-group[data-path="' + currentPath + '"]').classList.add('active');
+    document.querySelector('.sim-sub-tab[data-path="' + currentPath + '"][data-sig="' + currentSig + '"]').classList.add('active');
+    document.querySelector('.sim-scenario[data-path="' + currentPath + '"][data-sig="' + currentSig + '"]').classList.add('active');
+  }}
+
+  // 外层主 tab 点击
+  document.querySelectorAll('.sim-main-tab').forEach(btn => {{
+    btn.onclick = () => {{
+      currentPath = parseInt(btn.dataset.path);
+      currentSig = 0;  // 切换路径时重置子 tab 到第一个
+      show();
+    }};
+  }});
+
+  // 内层子 tab 点击
+  document.querySelectorAll('.sim-sub-tab').forEach(btn => {{
+    btn.onclick = () => {{
+      currentPath = parseInt(btn.dataset.path);
+      currentSig = parseInt(btn.dataset.sig);
+      show();
+    }};
+  }});
+}})();
 </script>
 </body>
 </html>"""
@@ -589,21 +665,27 @@ def main():
     output = sys.argv[1] if len(sys.argv) > 1 else OUTPUT
     signals, (last_date, last_close) = get_signals("sh")
 
-    scenarios = {}
+    SIG_LABELS = ["主买+卖", "辅买+卖", "主买+辅买+卖"]
+    SIG_TYPES = [{"buy"}, {"buy_aux"}, {"buy", "buy_aux"}]
 
-    # 路径 A：固定 1 万进出（FIFO）
-    for name, buy_types in [("A-主买+卖", {"buy"}), ("A-辅买+卖", {"buy_aux"}), ("A-主+辅+卖", {"buy", "buy_aux"})]:
-        scenarios[name] = simulate_fixed_1w(name, signals, buy_types, last_date, last_close)
+    groups = {}
 
-    # 路径 B：全仓进出
-    for name, buy_types in [("B-主买+卖", {"buy"}), ("B-辅买+卖", {"buy_aux"}), ("B-主+辅+卖", {"buy", "buy_aux"})]:
-        scenarios[name] = simulate_all_in(name, signals, buy_types, last_date, last_close)
+    # 路径 1：固定 1 万进出（FIFO）
+    groups["固定1万进出（FIFO）"] = {}
+    for label, btypes in zip(SIG_LABELS, SIG_TYPES):
+        groups["固定1万进出（FIFO）"][label] = simulate_fixed_1w(label, signals, btypes, last_date, last_close)
 
-    # 路径 C：买固定 1 万 + 卖清仓
-    for name, buy_types in [("C-主买+卖", {"buy"}), ("C-辅买+卖", {"buy_aux"}), ("C-主+辅+卖", {"buy", "buy_aux"})]:
-        scenarios[name] = simulate_sell_all(name, signals, buy_types, last_date, last_close)
+    # 路径 2：全仓进出
+    groups["全仓进出"] = {}
+    for label, btypes in zip(SIG_LABELS, SIG_TYPES):
+        groups["全仓进出"][label] = simulate_all_in(label, signals, btypes, last_date, last_close)
 
-    html = build_html(scenarios)
+    # 路径 3：买固定 1 万 + 卖清仓
+    groups["买固定1万+卖清仓"] = {}
+    for label, btypes in zip(SIG_LABELS, SIG_TYPES):
+        groups["买固定1万+卖清仓"][label] = simulate_sell_all(label, signals, btypes, last_date, last_close)
+
+    html = build_html(groups)
     os.makedirs(os.path.dirname(output), exist_ok=True)
     with open(output, "w", encoding="utf-8") as f:
         f.write(html)
@@ -614,16 +696,17 @@ def main():
         f.write(html)
     print(f"Copied to: {web_output}")
 
-    for name, data in scenarios.items():
-        s = data["summary"]
-        print(f"\n{'='*50}")
-        print(f"  {name}  [{s['strategy']}]")
-        print(f"  总资产 {s['total_capital']:,} → {s['final_total']:,.0f}（+{s['total_return_pct']:.2f}%）")
-        print(f"  总收益 {s['total_return']:,.0f} | 年化 {s['annualized']:.1f}%（{s['years']} 年）")
-        print(f"  总资产峰值 {s['total_assets_peak']:,.0f}（{s['total_assets_peak_date']}）")
-        print(f"  最大持仓 {s['max_holding']:,.0f}（{s['max_holding_date']}）")
-        print(f"  {s['buy_count']}买/{s['sell_count']}卖 | {s['total_rounds']}回合 | {s['open_count']}笔未平仓 | 峰值并发{s['max_positions_ever']}笔")
-        print(f"  胜率{s['win_rate']}% | 均盈{s['avg_win_pct']}% / 均亏{s['avg_loss_pct']}% | 盈亏比{s['avg_pl_ratio']}")
+    for path_label, sig_map in groups.items():
+        for sig_label, data in sig_map.items():
+            s = data["summary"]
+            print(f"\n{'='*50}")
+            print(f"  [{path_label}] {sig_label}")
+            print(f"  总资产 {s['total_capital']:,} → {s['final_total']:,.0f}（+{s['total_return_pct']:.2f}%）")
+            print(f"  总收益 {s['total_return']:,.0f} | 年化 {s['annualized']:.1f}%（{s['years']} 年）")
+            print(f"  总资产峰值 {s['total_assets_peak']:,.0f}（{s['total_assets_peak_date']}）")
+            print(f"  最大持仓 {s['max_holding']:,.0f}（{s['max_holding_date']}）")
+            print(f"  {s['buy_count']}买/{s['sell_count']}卖 | {s['total_rounds']}回合 | {s['open_count']}笔未平仓 | 峰值并发{s['max_positions_ever']}笔")
+            print(f"  胜率{s['win_rate']}% | 均盈{s['avg_win_pct']}% / 均亏{s['avg_loss_pct']}% | 盈亏比{s['avg_pl_ratio']}")
 
 
 if __name__ == "__main__":
