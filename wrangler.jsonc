@@ -1,8 +1,12 @@
-// Cloudflare Pages 配置（as code）。纯静态站，无 Worker runtime：
-// pages_build_output_dir 指向 static-site，push 到 main 后 Pages Connect to Git 自动部署。
+// Cloudflare Workers Static Assets 配置（as code）。
+// 后台是 wrangler deploy（Worker 模式，非 Pages）。项目无 Worker 代码，
+// 用 Static Assets 托管 static-site/：Cloudflare 自动生成静态托管 Worker。
+// push 到 main 后 Cloudflare 构建环境跑 wrangler deploy，读此文件更新现有 Worker。
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "trade-data-signal",
   "compatibility_date": "2026-07-07",
-  "pages_build_output_dir": "static-site"
+  "assets": {
+    "directory": "./static-site"
+  }
 }
