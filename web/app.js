@@ -341,10 +341,10 @@ function renderIndicesSection(container, indices, fetcher) {
 function industrySearchBar() {
   const bar = document.createElement("div");
   bar.className = "filter-bar";
-  bar.innerHTML = `<label>行业筛选：</label>`;
+  bar.innerHTML = `<label>行业/概念筛选：</label>`;
   const input = document.createElement("input");
   input.type = "search";
-  input.placeholder = "搜索行业名称或代码（如：银行、医药、sw_801）";
+  input.placeholder = "搜索行业/概念名称或代码（如：银行、机器人、thsc_）";
   input.value = state.industrySearch;
   let timer;
   input.oninput = () => {
@@ -908,7 +908,7 @@ async function renderIndustry() {
   const total = Object.keys(r.indices || {}).length;
   const filtered = filterIndicesByName(r.indices, state.industrySearch);
   const shown = Object.keys(filtered).length;
-  title.textContent = `行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
+  title.textContent = `申万行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
   content.appendChild(title);
   renderIndustryGrid(filtered);
   // 概念板块指数折线（独立于行业搜索，不受搜索词过滤）
