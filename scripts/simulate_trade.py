@@ -665,41 +665,79 @@ def _fmt_date(d):
 
 
 def _equity_svg(ledger, chart_id=0):
-    """Generate a mini SVG equity curve from ledger data."""
+    """Generate a mini SVG equity curve from ledger data with title, values, and labels."""
     if len(ledger) < 2:
         return ""
     values = [e["total_assets"] for e in ledger]
-    y_min = min(min(values), TOTAL_CAPITAL) * 0.98
-    y_max = max(max(values), TOTAL_CAPITAL) * 1.02
-    height = 120
+    y_min = min(min(values), TOTAL_CAPITAL) * 0.95
+    y_max = max(max(values), TOTAL_CAPITAL) * 1.05
+    height = 140
     width = 800
+    margin_left = 80
+    margin_right = 10
+    margin_top = 5
+    margin_bottom = 5
+    plot_width = width - margin_left - margin_right
+    plot_height = height - margin_top - margin_bottom
     n = len(values)
 
     def scale_y(v):
-        return height - (v - y_min) / (y_max - y_min) * height if y_max > y_min else height / 2
+        return margin_top + plot_height - (v - y_min) / (y_max - y_min) * plot_height if y_max > y_min else margin_top + plot_height / 2
+
+    def scale_x(i):
+        return margin_left + i / (n - 1) * plot_width if n > 1 else margin_left
 
     baseline_y = scale_y(TOTAL_CAPITAL)
+    final_val = values[-1]
+    peak_val = max(values)
+    peak_idx = values.index(peak_val)
+    min_val = min(values)
+    min_idx = values.index(min_val)
 
     points = []
     for i, v in enumerate(values):
-        x = i / (n - 1) * width if n > 1 else 0
+        x = scale_x(i)
         y = scale_y(v)
         points.append(f"{x:.1f},{y:.1f}")
 
     area_points = " ".join(points)
-    area_points += f" {width:.1f},{height:.1f} 0,{height:.1f}"
+    area_points += f" {scale_x(n-1):.1f},{margin_top + plot_height:.1f} {scale_x(0):.1f},{margin_top + plot_height:.1f}"
+
+    # Y-axis labels: 起始, 最低, 峰值, 期末
+    def fmt_val(v):
+        if v >= 10000:
+            return f"{v/10000:.1f}万"
+        return f"{v:.0f}"
+
+    y_labels = []
+    for label, val, color in [
+        ("起始", TOTAL_CAPITAL, "#86909c"),
+        ("最低", min_val, "#e6492e"),
+        ("峰值", peak_val, "#2e8b57"),
+        ("期末", final_val, "#3370ff"),
+    ]:
+        y = scale_y(val)
+        y_labels.append(f'<text x="{margin_left - 4}" y="{y:.1f}" text-anchor="end" font-size="10" fill="{color}" dominant-baseline="middle">{label} {fmt_val(val)}</text>')
+
+    # 峰值 marker
+    peak_marker = f'<circle cx="{scale_x(peak_idx):.1f}" cy="{scale_y(peak_val):.1f}" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>'
+    # 期末 marker
+    final_marker = f'<circle cx="{scale_x(n-1):.1f}" cy="{scale_y(final_val):.1f}" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>'
 
     return f'''
-    <svg width="100%" height="120" viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    <svg width="100%" height="150" viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
       <defs>
         <linearGradient id="equityGrad{chart_id}" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="0" y1="{baseline_y:.1f}" x2="{width}" y2="{baseline_y:.1f}" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="{margin_left}" y1="{baseline_y:.1f}" x2="{scale_x(n-1):.1f}" y2="{baseline_y:.1f}" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="{area_points}" fill="url(#equityGrad{chart_id})"/>
       <polyline points="{' '.join(points)}" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
+      {' '.join(y_labels)}
+      {peak_marker}
+      {final_marker}
     </svg>'''
 
 
@@ -725,7 +763,7 @@ def _scenario_panel(data, index_name="上证指数"):
     s = data["summary"]
 
     # --- 资产曲线 SVG 迷你图 ---
-    equity_svg = _equity_svg(data.get("ledger", []))
+    equity_svg = f'<h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 {TOTAL_CAPITAL:,} 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>' + _equity_svg(data.get("ledger", []))
 
     # --- 交易记录清单（时间轴） ---
     ledger_rows = ""
