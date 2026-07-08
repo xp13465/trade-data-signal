@@ -15,6 +15,7 @@ h1 { font-size: 20px; margin-bottom: 4px; }
 .sim-tab:hover { color: #1f2329; }
 .sim-scenario { display: none; }
 .sim-scenario.active { display: block; }
+.sim-flow { background: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: #1f2329; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-left: 3px solid #3370ff; }
 .sim-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 24px; }
 .sim-card { background: #fff; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .sim-card .k { display: block; font-size: 12px; color: #8f959e; margin-bottom: 4px; }
@@ -31,22 +32,22 @@ tr:hover td { background: #f5f6f8; }
 </head>
 <body>
 <h1>上证指数 · 买卖点模拟回测</h1>
-<p class="subtitle">初始资金 10,000 元 · 全仓进出 · 配对模式 · 按信号当日收盘价成交 · 生成于 2026-07-08 12:06</p>
+<p class="subtitle">初始资金 10,000 元 · 全仓进出 · 配对模式 · 按信号当日收盘价成交 · 生成于 2026-07-08 12:09</p>
 <div class="sim-tabs"><button class="sim-tab active" data-tab="0">主买+卖</button>
 <button class="sim-tab " data-tab="1">辅买+卖</button>
 <button class="sim-tab " data-tab="2">主买+辅买+卖</button>
 </div>
 <div class="sim-scenario active" data-idx="0">
+        <div class="sim-flow">初始 10,000 元 → 经过 28 轮买卖 → 当前持仓按 20260706 收盘价 4041.24 估值 45,979 元</div>
         <div class="sim-cards">
-          <div class="sim-card"><span class="k">初始资金</span><span class="v">10,000.00 元</span></div>
-          <div class="sim-card"><span class="k">最终资金</span><span class="v">45,979.39 元</span></div>
-          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">35,979.39 元（+359.79%）</span></div>
+          <div class="sim-card"><span class="k">总收益（净利润）</span><span class="v" style="color:#e6492e">35,979.39 元</span></div>
+          <div class="sim-card"><span class="k">相对初始资金(10,000.00元)收益率</span><span class="v" style="color:#e6492e">+359.79%</span></div>
+          <div class="sim-card"><span class="k">相对最大投入(74,285.38元)收益率</span><span class="v" style="color:#e6492e">+48.4%</span></div>
           <div class="sim-card"><span class="k">最大持仓（投入成本峰值）</span><span class="v">74,285.38 元<div class="sub">20071129 · 初始 7.4 倍</div></span></div>
           <div class="sim-card"><span class="k">最少持仓</span><span class="v">0.00 元<div class="sub">19910930</div></span></div>
           <div class="sim-card"><span class="k">总操作</span><span class="v">55 次（28买/27卖 · 28回合）</span></div>
           <div class="sim-card"><span class="k">胜率</span><span class="v">57.1%（16胜/12负）</span></div>
           <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">1.96（均盈28.19% / 均亏-14.38%）</span></div>
-          <div class="sim-card"><span class="k">状态</span><span class="v">持仓（按20260706收盘4041.24估值45979元）</span></div>
         </div>
         <div class="sim-table-wrap">
           <table>
@@ -394,16 +395,16 @@ tr:hover td { background: #f5f6f8; }
           </table>
         </div></div>
 <div class="sim-scenario " data-idx="1">
+        <div class="sim-flow">初始 10,000 元 → 经过 38 轮买卖 → 当前持仓按 20260706 收盘价 4041.24 估值 33,149 元</div>
         <div class="sim-cards">
-          <div class="sim-card"><span class="k">初始资金</span><span class="v">10,000.00 元</span></div>
-          <div class="sim-card"><span class="k">最终资金</span><span class="v">33,149.22 元</span></div>
-          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">23,149.22 元（+231.49%）</span></div>
+          <div class="sim-card"><span class="k">总收益（净利润）</span><span class="v" style="color:#e6492e">23,149.22 元</span></div>
+          <div class="sim-card"><span class="k">相对初始资金(10,000.00元)收益率</span><span class="v" style="color:#e6492e">+231.49%</span></div>
+          <div class="sim-card"><span class="k">相对最大投入(86,480.27元)收益率</span><span class="v" style="color:#e6492e">+26.8%</span></div>
           <div class="sim-card"><span class="k">最大持仓（投入成本峰值）</span><span class="v">86,480.27 元<div class="sub">20071114 · 初始 8.6 倍</div></span></div>
           <div class="sim-card"><span class="k">最少持仓</span><span class="v">0.00 元<div class="sub">19910930</div></span></div>
           <div class="sim-card"><span class="k">总操作</span><span class="v">75 次（38买/37卖 · 38回合）</span></div>
           <div class="sim-card"><span class="k">胜率</span><span class="v">60.5%（23胜/15负）</span></div>
           <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">1.38（均盈22.14% / 均亏-16.06%）</span></div>
-          <div class="sim-card"><span class="k">状态</span><span class="v">持仓（按20260706收盘4041.24估值33149元）</span></div>
         </div>
         <div class="sim-table-wrap">
           <table>
@@ -871,16 +872,16 @@ tr:hover td { background: #f5f6f8; }
           </table>
         </div></div>
 <div class="sim-scenario " data-idx="2">
+        <div class="sim-flow">初始 10,000 元 → 经过 38 轮买卖 → 当前持仓按 20260706 收盘价 4041.24 估值 34,843 元</div>
         <div class="sim-cards">
-          <div class="sim-card"><span class="k">初始资金</span><span class="v">10,000.00 元</span></div>
-          <div class="sim-card"><span class="k">最终资金</span><span class="v">34,842.88 元</span></div>
-          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">24,842.88 元（+248.43%）</span></div>
+          <div class="sim-card"><span class="k">总收益（净利润）</span><span class="v" style="color:#e6492e">24,842.88 元</span></div>
+          <div class="sim-card"><span class="k">相对初始资金(10,000.00元)收益率</span><span class="v" style="color:#e6492e">+248.43%</span></div>
+          <div class="sim-card"><span class="k">相对最大投入(91,014.48元)收益率</span><span class="v" style="color:#e6492e">+27.3%</span></div>
           <div class="sim-card"><span class="k">最大持仓（投入成本峰值）</span><span class="v">91,014.48 元<div class="sub">20071114 · 初始 9.1 倍</div></span></div>
           <div class="sim-card"><span class="k">最少持仓</span><span class="v">0.00 元<div class="sub">19910930</div></span></div>
           <div class="sim-card"><span class="k">总操作</span><span class="v">75 次（38买/37卖 · 38回合）</span></div>
           <div class="sim-card"><span class="k">胜率</span><span class="v">57.9%（22胜/16负）</span></div>
           <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">1.56（均盈23.12% / 均亏-14.84%）</span></div>
-          <div class="sim-card"><span class="k">状态</span><span class="v">持仓（按20260706收盘4041.24估值34843元）</span></div>
         </div>
         <div class="sim-table-wrap">
           <table>

@@ -139,6 +139,13 @@ def simulate(scenario_name, signals, buy_types, last_date, last_close):
 
     total_return = cash - INITIAL
     total_return_pct = total_return / INITIAL * 100
+    return_on_max = total_return / max_holding * 100 if max_holding > 0 else 0  # 相对最大投入的收益率
+
+    # 资金流水描述
+    if holdings_cost > 0:
+        flow_desc = f"初始 {INITIAL:,.0f} 元 → 经过 {len(rounds)} 轮买卖 → 当前持仓按 {last_date} 收盘价 {last_close:.2f} 估值 {cash:,.0f} 元"
+    else:
+        flow_desc = f"初始 {INITIAL:,.0f} 元 → 经过 {len(rounds)} 轮买卖 → 最终空仓持有现金 {cash:,.0f} 元"
 
     win_rounds = [r for r in rounds if r["profit"] > 0]
     lose_rounds = [r for r in rounds if r["profit"] < 0]
@@ -157,6 +164,7 @@ def simulate(scenario_name, signals, buy_types, last_date, last_close):
             "total_ops": buy_count + sell_count,  # 总操作次数（买+卖）
             "total_return": round(total_return, 2),
             "total_return_pct": round(total_return_pct, 2),
+            "return_on_max": round(return_on_max, 1),  # 相对最大投入的收益率
             "final_cash": round(cash, 2),
             "max_holding": round(max_holding, 2),
             "max_holding_date": str(max_holding_date) if max_holding_date else "N/A",
@@ -173,6 +181,7 @@ def simulate(scenario_name, signals, buy_types, last_date, last_close):
             "avg_loss_pct": round(avg_loss_pct, 2),
             "avg_pl_ratio": round(avg_pl_ratio, 2),
             "final_status": final_status,
+            "flow_desc": flow_desc,
         },
     }
 
@@ -208,16 +217,16 @@ def build_html(scenarios):
         tabs_html += f'<button class="sim-tab {active}" data-tab="{i}">{name}</button>\n'
         # 摘要卡片
         cards = f"""
+        <div class="sim-flow">{s['flow_desc']}</div>
         <div class="sim-cards">
-          <div class="sim-card"><span class="k">初始资金</span><span class="v">{format_num(s['initial'])} 元</span></div>
-          <div class="sim-card"><span class="k">最终资金</span><span class="v">{format_num(s['final_cash'])} 元</span></div>
-          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
+          <div class="sim-card"><span class="k">总收益（净利润）</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元</span></div>
+          <div class="sim-card"><span class="k">相对初始资金({format_num(s['initial'])}元)收益率</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{s['total_return_pct']:+.2f}%</span></div>
+          <div class="sim-card"><span class="k">相对最大投入({format_num(s['max_holding'])}元)收益率</span><span class="v" style="color:{color_for_pct(s['return_on_max'])}">{s['return_on_max']:+.1f}%</span></div>
           <div class="sim-card"><span class="k">最大持仓（投入成本峰值）</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']} · 初始 {s['max_holding_ratio']} 倍</div></span></div>
           <div class="sim-card"><span class="k">最少持仓</span><span class="v">{format_num(s['min_holding'])} 元<div class="sub">{s['min_holding_date']}</div></span></div>
           <div class="sim-card"><span class="k">总操作</span><span class="v">{s['total_ops']} 次（{s['buy_count']}买/{s['sell_count']}卖 · {s['total_rounds']}回合）</span></div>
           <div class="sim-card"><span class="k">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
           <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
-          <div class="sim-card"><span class="k">状态</span><span class="v">{s['final_status']}</span></div>
         </div>"""
 
         # 详细回合表
@@ -267,6 +276,7 @@ h1 {{ font-size: 20px; margin-bottom: 4px; }}
 .sim-tab:hover {{ color: #1f2329; }}
 .sim-scenario {{ display: none; }}
 .sim-scenario.active {{ display: block; }}
+.sim-flow {{ background: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: #1f2329; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-left: 3px solid #3370ff; }}
 .sim-cards {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 24px; }}
 .sim-card {{ background: #fff; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }}
 .sim-card .k {{ display: block; font-size: 12px; color: #8f959e; margin-bottom: 4px; }}
