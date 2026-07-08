@@ -65,11 +65,11 @@ function mkCard(title, height = 300, hint = null, container = content, chartArr 
 }
 
 // 通用折线：series = [{name, data:[{date,value}]}] 或单条 [{date,value}]
-function lineChart(title, series, opts = {}, hint = null) {
+function lineChart(title, series, opts = {}, hint = null, container = content) {
   const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
   const arr = multi ? series : [{ name: title, data: series }];
   const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
-  const c = mkCard(title, 300, hint);
+  const c = mkCard(title, 300, hint, container);
   c.setOption({
     tooltip: { trigger: "axis" },
     legend: { top: 0, type: "scroll" },
@@ -609,10 +609,46 @@ async function renderAStock() {
   const groupHints = {
     "资金面": "注：北向资金数据源自 2024 年 8 月起停更（东财停止实时披露），该序列冻结在 2024-08-16，1 年期窗口内为空属正常。",
   };
-  for (const [g, ids] of Object.entries(groups)) {
+  const entries = Object.entries(groups);
+  const mainEntries = entries.slice(0, 8);
+  const extraEntries = entries.slice(8);
+  // 前8张卡片：4行2列网格
+  const grid2col = document.createElement("div");
+  grid2col.className = "ov-2col";
+  content.appendChild(grid2col);
+  for (const [g, ids] of mainEntries) {
     const series = ids.map((id) => r.metrics[id]).filter(Boolean).map((m) => ({ name: m.name, data: m.data }));
-    if (series.length && series.some((s) => s.data.length)) lineChart(g, series, {}, groupHints[g] || null);
+    if (series.length && series.some((s) => s.data.length)) lineChart(g, series, {}, groupHints[g] || null, grid2col);
   }
+  // 龙虎榜 + 解禁/IPO/可转债：默认隐藏，点击「更多」展开
+  const extraWrap = document.createElement("div");
+  extraWrap.style.marginBottom = "16px";
+  content.appendChild(extraWrap);
+  const moreBtn = document.createElement("button");
+  moreBtn.textContent = "更多 ▼";
+  moreBtn.className = "more-toggle";
+  moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed #d9d9d9;border-radius:6px;background:#fafafa;color:#86909c;cursor:pointer;font-size:13px;";
+  extraWrap.appendChild(moreBtn);
+  const extraGrid = document.createElement("div");
+  extraGrid.className = "ov-2col";
+  extraGrid.style.display = "none";
+  extraWrap.appendChild(extraGrid);
+  moreBtn.onclick = () => {
+    if (extraGrid.style.display === "none") {
+      extraGrid.style.display = "grid";
+      moreBtn.textContent = "收起 ▲";
+      if (!extraGrid.dataset.rendered) {
+        for (const [g, ids] of extraEntries) {
+          const series = ids.map((id) => r.metrics[id]).filter(Boolean).map((m) => ({ name: m.name, data: m.data }));
+          if (series.length && series.some((s) => s.data.length)) lineChart(g, series, {}, groupHints[g] || null, extraGrid);
+        }
+        extraGrid.dataset.rendered = "1";
+      }
+    } else {
+      extraGrid.style.display = "none";
+      moreBtn.textContent = "更多 ▼";
+    }
+  };
   // 指数折线区：筛选条移到本区前（紧挨指数折线），筛选时局部刷新（不 refetch、不动上方 KPI/宽度/资金面）
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
