@@ -661,8 +661,8 @@ function renderIndustryHeatmap(heatmap, title) {
   const yIdxs = rangeMode === "1d" ? [0] : rangeMode === "5d" ? [1] : [0, 1];
   const data = [];
   sorted.forEach((h, i) => {
-    for (const yi of yIdxs) {
-      const v = yi === 0 ? h.pct_1d : h.pct_5d;
+    for (let yi = 0; yi < yIdxs.length; yi++) {
+      const v = yIdxs[yi] === 0 ? h.pct_1d : h.pct_5d;
       data.push([i, yi, v == null ? null : Number(v.toFixed(2))]);
     }
   });
