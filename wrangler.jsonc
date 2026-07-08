@@ -1,0 +1,8 @@
+// Cloudflare Pages 配置（as code）。纯静态站，无 Worker runtime：
+// pages_build_output_dir 指向 static-site，push 到 main 后 Pages Connect to Git 自动部署。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "trade-data-signal",
+  "compatibility_date": "2026-07-07",
+  "pages_build_output_dir": "static-site"
+}
