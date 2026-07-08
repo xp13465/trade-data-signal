@@ -123,7 +123,7 @@ function strategyDesc(strategy) {
   };
 }
 
-function statsHint(stats, strategy) {
+function statsHint(stats, strategy, indexId) {
   const strat = strategyDesc(strategy);
   const stratHtml = strat ? `<div class="hint-strategy">📋 策略｜买: ${strat.buy} · 辅买: ${strat.buy_aux} · 卖: ${strat.sell}</div>` : "";
   if (!stats) return stratHtml || null;
@@ -157,7 +157,7 @@ function statsHint(stats, strategy) {
           : `<span class="hint-kelly warn">→ 凯利不建议做空（负期望，长期会亏）</span>`;
       } else {
         kellyHtml = kellyPct > 0
-          ? `<span class="hint-kelly">→ 凯利建议仓位 <b>${kellyPct}%</b></span>`
+          ? `<span class="hint-kelly">→ 凯利建议仓位 <b>${kellyPct}%</b>${indexId === 'sh' ? ` <a href="./trade_sim.html" target="_blank" class="sim-link" title="查看上证指数买卖点模拟回测">📊 模拟回测</a>` : ''}</span>`
           : `<span class="hint-kelly warn">→ 凯利不建议入场（负期望）</span>`;
       }
     }
@@ -184,8 +184,8 @@ function statsHint(stats, strategy) {
 }
 
 // 指数图 + 买卖点标注
-function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts) {
-  const hint = statsHint(stats, strategy);
+function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId) {
+  const hint = statsHint(stats, strategy, indexId);
   const c = mkCard(title, 360, hint, container, chartArr);
   const close = ohlc.map((d) => [d.date, d.close]);
   const markData = signals.map((s) => {
@@ -225,9 +225,9 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
 // 单序列 value 折线 + 买卖点 markPoint（B 扩展：指标/情绪分用，数据是 [{date,value}]）
 // 与 indexChart 区别：数据结构是 value 单序列（无 close/high），量级差异大（gold 100-1249 /
 // cn10y 1.5-4 / usdcnh 680-722），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
-function valueChartWithSignals(title, data, signals, opts, stats, strategy) {
+function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId) {
   const sigs = signals || [];
-  const hint = statsHint(stats, strategy);
+  const hint = statsHint(stats, strategy, indexId);
   const c = mkCard(title, 360, hint);
   const markData = sigs.map((s) => {
     const p = data.find((x) => x.date === s.date);
@@ -312,7 +312,7 @@ function renderIndicesSection(container, indices, fetcher) {
       const sig = signalsCache[id];
       if (idx.data && idx.data.length) {
         // chart 入全局 charts（供 resize）+ sectionCharts（供本区 dispose）
-        const c = indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container);
+        const c = indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
         sectionCharts.push(c);
       }
     }
@@ -605,7 +605,7 @@ async function renderGlobal() {
   ruleBar();
   for (const [id, idx] of Object.entries(r.indices)) {
     const sig = await fetchJSON(`/api/index/${id}?range=${state.range}`);
-    if (idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy);
+    if (idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, content, charts, id);
   }
   const extras = {
     gold: "黄金（元/克）",
@@ -624,7 +624,7 @@ async function renderGlobal() {
   const extrasStrategy = r.extras_strategy || {};
   for (const [id, name] of Object.entries(extras)) {
     const data = r.extras[id] || [];
-    if (data.length) valueChartWithSignals(name, data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id]);
+    if (data.length) valueChartWithSignals(name, data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id);
   }
 }
 

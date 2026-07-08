@@ -119,6 +119,8 @@ main { padding: 16px 24px; }
 .chart-hint .hint-kelly { color: #165dff; }
 .chart-hint .hint-kelly b { font-weight: 700; }
 .chart-hint .hint-kelly.warn { color: #d4380d; }
+.chart-hint .hint-kelly .sim-link { color: #3370ff; font-size: 11px; font-weight: 500; text-decoration: none; margin-left: 4px; }
+.chart-hint .hint-kelly .sim-link:hover { text-decoration: underline; }
 .chart-hint .hint-warn { color: #d4380d; font-weight: 600; }
 .chart-hint .hint-note { color: #86909c; font-size: 11px; }
 .chart-hint .hint-note b { color: #d4380d; font-weight: 600; }

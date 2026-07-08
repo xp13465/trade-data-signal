@@ -1,0 +1,1369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>上证指数 · 买卖点模拟回测</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1f2329; padding: 24px; max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 20px; margin-bottom: 4px; }
+.subtitle { color: #8f959e; font-size: 13px; margin-bottom: 20px; }
+.sim-tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #e5e6eb; }
+.sim-tab { padding: 8px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #646a73; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }
+.sim-tab.active { color: #1f2329; font-weight: 600; border-bottom-color: #3370ff; }
+.sim-tab:hover { color: #1f2329; }
+.sim-scenario { display: none; }
+.sim-scenario.active { display: block; }
+.sim-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.sim-card { background: #fff; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.sim-card .k { display: block; font-size: 12px; color: #8f959e; margin-bottom: 4px; }
+.sim-card .v { display: block; font-size: 16px; font-weight: 600; }
+.sim-card .sub { font-size: 11px; color: #8f959e; font-weight: 400; margin-top: 2px; }
+.sim-table-wrap { overflow-x: auto; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: #f5f6f8; padding: 10px 12px; text-align: left; font-weight: 600; color: #646a73; white-space: nowrap; border-bottom: 1px solid #e5e6eb; }
+td { padding: 8px 12px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; }
+tr:hover td { background: #f5f6f8; }
+.footer { margin-top: 24px; font-size: 12px; color: #8f959e; }
+.footer a { color: #3370ff; }
+</style>
+</head>
+<body>
+<h1>上证指数 · 买卖点模拟回测</h1>
+<p class="subtitle">初始资金 10,000 元 · 全仓进出 · 配对模式 · 按信号当日收盘价成交 · 生成于 2026-07-08 11:52</p>
+<div class="sim-tabs"><button class="sim-tab active" data-tab="0">主买+卖</button>
+<button class="sim-tab " data-tab="1">辅买+卖</button>
+<button class="sim-tab " data-tab="2">主买+辅买+卖</button>
+</div>
+<div class="sim-scenario active" data-idx="0">
+        <div class="sim-cards">
+          <div class="sim-card"><span class="k">初始资金</span><span class="v">10,000.00 元</span></div>
+          <div class="sim-card"><span class="k">总投入</span><span class="v">910,074.11 元</span></div>
+          <div class="sim-card"><span class="k">最终资金</span><span class="v">45,979.39 元</span></div>
+          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">35,979.39 元（+359.79%）</span></div>
+          <div class="sim-card"><span class="k">最大持仓</span><span class="v">74,285.38 元<div class="sub">20071129</div></span></div>
+          <div class="sim-card"><span class="k">最少持仓金额</span><span class="v">0.00 元<div class="sub">19910930</div></span></div>
+          <div class="sim-card"><span class="k">执行买/卖</span><span class="v">28 次买 / 27 次卖（28 回合）</span></div>
+          <div class="sim-card"><span class="k">胜率</span><span class="v">57.1%（16胜/12负）</span></div>
+          <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">1.96（均盈28.19% / 均亏-14.38%）</span></div>
+          <div class="sim-card"><span class="k">状态</span><span class="v">持仓（按20260706收盘4041.24估值45979元）</span></div>
+        </div>
+        <div class="sim-table-wrap">
+          <table>
+            <thead><tr>
+              <th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th>
+              <th>持有时长</th><th>盈亏%</th><th>投入金额</th><th>回收金额</th><th>净利润</th>
+            </tr></thead>
+            <tbody>
+            <tr>
+              <td>1</td>
+              <td>19910521</td>
+              <td>108.81</td>
+              <td>19910930</td>
+              <td>180.92</td>
+              <td>132 天</td>
+              <td style="color:#e6492e;font-weight:600">+66.27%</td>
+              <td>10,000.00</td>
+              <td>16,627.15</td>
+              <td style="color:#e6492e;font-weight:600">+6627.15</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>19920813</td>
+              <td>850.94</td>
+              <td>19930222</td>
+              <td>1456.29</td>
+              <td>193 天</td>
+              <td style="color:#e6492e;font-weight:600">+71.14%</td>
+              <td>16,627.15</td>
+              <td>28,455.53</td>
+              <td style="color:#e6492e;font-weight:600">+11828.38</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>19930528</td>
+              <td>972.77</td>
+              <td>19950919</td>
+              <td>736.74</td>
+              <td>844 天</td>
+              <td style="color:#2e8b57;font-weight:600">-24.26%</td>
+              <td>28,455.53</td>
+              <td>21,551.17</td>
+              <td style="color:#2e8b57;font-weight:600">-6904.36</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>19951128</td>
+              <td>652.57</td>
+              <td>19960521</td>
+              <td>661.85</td>
+              <td>175 天</td>
+              <td style="color:#e6492e;font-weight:600">+1.42%</td>
+              <td>21,551.17</td>
+              <td>21,857.70</td>
+              <td style="color:#e6492e;font-weight:600">+306.54</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>19970708</td>
+              <td>1109.67</td>
+              <td>19971112</td>
+              <td>1174.19</td>
+              <td>127 天</td>
+              <td style="color:#e6492e;font-weight:600">+5.81%</td>
+              <td>21,857.70</td>
+              <td>23,128.65</td>
+              <td style="color:#e6492e;font-weight:600">+1270.95</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>19980819</td>
+              <td>1126.08</td>
+              <td>19990812</td>
+              <td>1575.64</td>
+              <td>358 天</td>
+              <td style="color:#e6492e;font-weight:600">+39.92%</td>
+              <td>23,128.65</td>
+              <td>32,362.21</td>
+              <td style="color:#e6492e;font-weight:600">+9233.56</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td>19991229</td>
+              <td>1356.93</td>
+              <td>20000315</td>
+              <td>1681.47</td>
+              <td>77 天</td>
+              <td style="color:#e6492e;font-weight:600">+23.92%</td>
+              <td>32,362.21</td>
+              <td>40,102.50</td>
+              <td style="color:#e6492e;font-weight:600">+7740.29</td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td>20000907</td>
+              <td>1950.66</td>
+              <td>20020329</td>
+              <td>1603.9</td>
+              <td>568 天</td>
+              <td style="color:#2e8b57;font-weight:600">-17.78%</td>
+              <td>40,102.50</td>
+              <td>32,973.71</td>
+              <td style="color:#2e8b57;font-weight:600">-7128.79</td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td>20020604</td>
+              <td>1490.51</td>
+              <td>20020731</td>
+              <td>1651.59</td>
+              <td>57 天</td>
+              <td style="color:#e6492e;font-weight:600">+10.81%</td>
+              <td>32,973.71</td>
+              <td>36,537.18</td>
+              <td style="color:#e6492e;font-weight:600">+3563.47</td>
+            </tr>
+            <tr>
+              <td>10</td>
+              <td>20020919</td>
+              <td>1619.35</td>
+              <td>20030423</td>
+              <td>1541.96</td>
+              <td>216 天</td>
+              <td style="color:#2e8b57;font-weight:600">-4.78%</td>
+              <td>36,537.18</td>
+              <td>34,790.96</td>
+              <td style="color:#2e8b57;font-weight:600">-1746.23</td>
+            </tr>
+            <tr>
+              <td>11</td>
+              <td>20030829</td>
+              <td>1421.98</td>
+              <td>20040308</td>
+              <td>1637.14</td>
+              <td>192 天</td>
+              <td style="color:#e6492e;font-weight:600">+15.13%</td>
+              <td>34,790.96</td>
+              <td>40,055.19</td>
+              <td style="color:#e6492e;font-weight:600">+5264.24</td>
+            </tr>
+            <tr>
+              <td>12</td>
+              <td>20040512</td>
+              <td>1603.77</td>
+              <td>20050922</td>
+              <td>1159.96</td>
+              <td>498 天</td>
+              <td style="color:#2e8b57;font-weight:600">-27.67%</td>
+              <td>40,055.19</td>
+              <td>28,970.79</td>
+              <td style="color:#2e8b57;font-weight:600">-11084.41</td>
+            </tr>
+            <tr>
+              <td>13</td>
+              <td>20051031</td>
+              <td>1092.82</td>
+              <td>20060607</td>
+              <td>1589.55</td>
+              <td>219 天</td>
+              <td style="color:#e6492e;font-weight:600">+45.45%</td>
+              <td>28,970.79</td>
+              <td>42,139.14</td>
+              <td style="color:#e6492e;font-weight:600">+13168.35</td>
+            </tr>
+            <tr>
+              <td>14</td>
+              <td>20060808</td>
+              <td>1580.58</td>
+              <td>20070131</td>
+              <td>2786.34</td>
+              <td>176 天</td>
+              <td style="color:#e6492e;font-weight:600">+76.29%</td>
+              <td>42,139.14</td>
+              <td>74,285.38</td>
+              <td style="color:#e6492e;font-weight:600">+32146.24</td>
+            </tr>
+            <tr>
+              <td>15</td>
+              <td>20071129</td>
+              <td>5003.33</td>
+              <td>20081222</td>
+              <td>1987.76</td>
+              <td>389 天</td>
+              <td style="color:#2e8b57;font-weight:600">-60.27%</td>
+              <td>74,285.38</td>
+              <td>29,512.56</td>
+              <td style="color:#2e8b57;font-weight:600">-44772.83</td>
+            </tr>
+            <tr>
+              <td>16</td>
+              <td>20090820</td>
+              <td>2911.58</td>
+              <td>20091126</td>
+              <td>3170.98</td>
+              <td>98 天</td>
+              <td style="color:#e6492e;font-weight:600">+8.91%</td>
+              <td>29,512.56</td>
+              <td>32,141.88</td>
+              <td style="color:#e6492e;font-weight:600">+2629.33</td>
+            </tr>
+            <tr>
+              <td>17</td>
+              <td>20100203</td>
+              <td>3003.84</td>
+              <td>20101112</td>
+              <td>2985.43</td>
+              <td>282 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.61%</td>
+              <td>32,141.88</td>
+              <td>31,945.00</td>
+              <td style="color:#2e8b57;font-weight:600">-196.89</td>
+            </tr>
+            <tr>
+              <td>18</td>
+              <td>20110531</td>
+              <td>2743.47</td>
+              <td>20120323</td>
+              <td>2349.54</td>
+              <td>297 天</td>
+              <td style="color:#2e8b57;font-weight:600">-14.36%</td>
+              <td>31,945.00</td>
+              <td>27,358.04</td>
+              <td style="color:#2e8b57;font-weight:600">-4586.96</td>
+            </tr>
+            <tr>
+              <td>19</td>
+              <td>20120330</td>
+              <td>2262.79</td>
+              <td>20130222</td>
+              <td>2314.16</td>
+              <td>329 天</td>
+              <td style="color:#e6492e;font-weight:600">+2.27%</td>
+              <td>27,358.04</td>
+              <td>27,979.20</td>
+              <td style="color:#e6492e;font-weight:600">+621.16</td>
+            </tr>
+            <tr>
+              <td>20</td>
+              <td>20130614</td>
+              <td>2162.04</td>
+              <td>20130926</td>
+              <td>2155.81</td>
+              <td>104 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.29%</td>
+              <td>27,979.20</td>
+              <td>27,898.55</td>
+              <td style="color:#2e8b57;font-weight:600">-80.65</td>
+            </tr>
+            <tr>
+              <td>21</td>
+              <td>20131224</td>
+              <td>2092.91</td>
+              <td>20141224</td>
+              <td>2972.53</td>
+              <td>365 天</td>
+              <td style="color:#e6492e;font-weight:600">+42.03%</td>
+              <td>27,898.55</td>
+              <td>39,624.03</td>
+              <td style="color:#e6492e;font-weight:600">+11725.48</td>
+            </tr>
+            <tr>
+              <td>22</td>
+              <td>20150706</td>
+              <td>3775.91</td>
+              <td>20151127</td>
+              <td>3436.3</td>
+              <td>144 天</td>
+              <td style="color:#2e8b57;font-weight:600">-8.99%</td>
+              <td>39,624.03</td>
+              <td>36,060.21</td>
+              <td style="color:#2e8b57;font-weight:600">-3563.82</td>
+            </tr>
+            <tr>
+              <td>23</td>
+              <td>20160108</td>
+              <td>3186.41</td>
+              <td>20160429</td>
+              <td>2938.32</td>
+              <td>112 天</td>
+              <td style="color:#2e8b57;font-weight:600">-7.79%</td>
+              <td>36,060.21</td>
+              <td>33,252.63</td>
+              <td style="color:#2e8b57;font-weight:600">-2807.58</td>
+            </tr>
+            <tr>
+              <td>24</td>
+              <td>20170425</td>
+              <td>3134.57</td>
+              <td>20190425</td>
+              <td>3123.83</td>
+              <td>730 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.34%</td>
+              <td>33,252.63</td>
+              <td>33,138.68</td>
+              <td style="color:#2e8b57;font-weight:600">-113.94</td>
+            </tr>
+            <tr>
+              <td>25</td>
+              <td>20190507</td>
+              <td>2926.39</td>
+              <td>20200724</td>
+              <td>3196.77</td>
+              <td>444 天</td>
+              <td style="color:#e6492e;font-weight:600">+9.24%</td>
+              <td>33,138.68</td>
+              <td>36,200.45</td>
+              <td style="color:#e6492e;font-weight:600">+3061.77</td>
+            </tr>
+            <tr>
+              <td>26</td>
+              <td>20210729</td>
+              <td>3411.72</td>
+              <td>20220715</td>
+              <td>3228.06</td>
+              <td>351 天</td>
+              <td style="color:#2e8b57;font-weight:600">-5.38%</td>
+              <td>36,200.45</td>
+              <td>34,251.68</td>
+              <td style="color:#2e8b57;font-weight:600">-1948.78</td>
+            </tr>
+            <tr>
+              <td>27</td>
+              <td>20220927</td>
+              <td>3093.86</td>
+              <td>20241115</td>
+              <td>3330.73</td>
+              <td>780 天</td>
+              <td style="color:#e6492e;font-weight:600">+7.66%</td>
+              <td>34,251.68</td>
+              <td>36,873.96</td>
+              <td style="color:#e6492e;font-weight:600">+2622.29</td>
+            </tr>
+            <tr>
+              <td>28</td>
+              <td>20250114</td>
+              <td>3240.94</td>
+              <td>20260706(估值)</td>
+              <td>4041.24</td>
+              <td>538 天</td>
+              <td style="color:#e6492e;font-weight:600">+24.69%</td>
+              <td>36,873.96</td>
+              <td>45,979.39</td>
+              <td style="color:#e6492e;font-weight:600">+9105.43</td>
+            </tr></tbody>
+          </table>
+        </div></div>
+<div class="sim-scenario " data-idx="1">
+        <div class="sim-cards">
+          <div class="sim-card"><span class="k">初始资金</span><span class="v">10,000.00 元</span></div>
+          <div class="sim-card"><span class="k">总投入</span><span class="v">1,007,213.16 元</span></div>
+          <div class="sim-card"><span class="k">最终资金</span><span class="v">33,149.22 元</span></div>
+          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">23,149.22 元（+231.49%）</span></div>
+          <div class="sim-card"><span class="k">最大持仓</span><span class="v">86,480.27 元<div class="sub">20071114</div></span></div>
+          <div class="sim-card"><span class="k">最少持仓金额</span><span class="v">0.00 元<div class="sub">19910930</div></span></div>
+          <div class="sim-card"><span class="k">执行买/卖</span><span class="v">38 次买 / 37 次卖（38 回合）</span></div>
+          <div class="sim-card"><span class="k">胜率</span><span class="v">60.5%（23胜/15负）</span></div>
+          <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">1.38（均盈22.14% / 均亏-16.06%）</span></div>
+          <div class="sim-card"><span class="k">状态</span><span class="v">持仓（按20260706收盘4041.24估值33149元）</span></div>
+        </div>
+        <div class="sim-table-wrap">
+          <table>
+            <thead><tr>
+              <th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th>
+              <th>持有时长</th><th>盈亏%</th><th>投入金额</th><th>回收金额</th><th>净利润</th>
+            </tr></thead>
+            <tbody>
+            <tr>
+              <td>1</td>
+              <td>19910205</td>
+              <td>128.58</td>
+              <td>19910930</td>
+              <td>180.92</td>
+              <td>237 天</td>
+              <td style="color:#e6492e;font-weight:600">+40.71%</td>
+              <td>10,000.00</td>
+              <td>14,070.62</td>
+              <td style="color:#e6492e;font-weight:600">+4070.62</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>19920716</td>
+              <td>1124.64</td>
+              <td>19930222</td>
+              <td>1456.29</td>
+              <td>221 天</td>
+              <td style="color:#e6492e;font-weight:600">+29.49%</td>
+              <td>14,070.62</td>
+              <td>18,219.96</td>
+              <td style="color:#e6492e;font-weight:600">+4149.35</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>19930302</td>
+              <td>1245.11</td>
+              <td>19950919</td>
+              <td>736.74</td>
+              <td>931 天</td>
+              <td style="color:#2e8b57;font-weight:600">-40.83%</td>
+              <td>18,219.96</td>
+              <td>10,780.88</td>
+              <td style="color:#2e8b57;font-weight:600">-7439.09</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>19951114</td>
+              <td>688.87</td>
+              <td>19960521</td>
+              <td>661.85</td>
+              <td>189 天</td>
+              <td style="color:#2e8b57;font-weight:600">-3.92%</td>
+              <td>10,780.88</td>
+              <td>10,358.04</td>
+              <td style="color:#2e8b57;font-weight:600">-422.83</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>19960827</td>
+              <td>787.47</td>
+              <td>19970514</td>
+              <td>1379.22</td>
+              <td>260 天</td>
+              <td style="color:#e6492e;font-weight:600">+75.15%</td>
+              <td>10,358.04</td>
+              <td>18,141.74</td>
+              <td style="color:#e6492e;font-weight:600">+7783.69</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>19970523</td>
+              <td>1254.27</td>
+              <td>19971112</td>
+              <td>1174.19</td>
+              <td>173 天</td>
+              <td style="color:#2e8b57;font-weight:600">-6.38%</td>
+              <td>18,141.74</td>
+              <td>16,983.50</td>
+              <td style="color:#2e8b57;font-weight:600">-1158.24</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td>19971126</td>
+              <td>1143.82</td>
+              <td>19980225</td>
+              <td>1194.67</td>
+              <td>91 天</td>
+              <td style="color:#e6492e;font-weight:600">+4.45%</td>
+              <td>16,983.50</td>
+              <td>17,738.60</td>
+              <td style="color:#e6492e;font-weight:600">+755.10</td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td>19980702</td>
+              <td>1331.65</td>
+              <td>19990812</td>
+              <td>1575.64</td>
+              <td>406 天</td>
+              <td style="color:#e6492e;font-weight:600">+18.32%</td>
+              <td>17,738.60</td>
+              <td>20,988.76</td>
+              <td style="color:#e6492e;font-weight:600">+3250.16</td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td>19991012</td>
+              <td>1537.8</td>
+              <td>20000315</td>
+              <td>1681.47</td>
+              <td>155 天</td>
+              <td style="color:#e6492e;font-weight:600">+9.34%</td>
+              <td>20,988.76</td>
+              <td>22,949.72</td>
+              <td style="color:#e6492e;font-weight:600">+1960.96</td>
+            </tr>
+            <tr>
+              <td>10</td>
+              <td>20000516</td>
+              <td>1724.54</td>
+              <td>20000901</td>
+              <td>1999.86</td>
+              <td>108 天</td>
+              <td style="color:#e6492e;font-weight:600">+15.96%</td>
+              <td>22,949.72</td>
+              <td>26,613.62</td>
+              <td style="color:#e6492e;font-weight:600">+3663.90</td>
+            </tr>
+            <tr>
+              <td>11</td>
+              <td>20010619</td>
+              <td>2170.45</td>
+              <td>20020329</td>
+              <td>1603.9</td>
+              <td>283 天</td>
+              <td style="color:#2e8b57;font-weight:600">-26.10%</td>
+              <td>26,613.62</td>
+              <td>19,666.73</td>
+              <td style="color:#2e8b57;font-weight:600">-6946.90</td>
+            </tr>
+            <tr>
+              <td>12</td>
+              <td>20020521</td>
+              <td>1588.11</td>
+              <td>20020731</td>
+              <td>1651.59</td>
+              <td>71 天</td>
+              <td style="color:#e6492e;font-weight:600">+4.00%</td>
+              <td>19,666.73</td>
+              <td>20,452.92</td>
+              <td style="color:#e6492e;font-weight:600">+786.19</td>
+            </tr>
+            <tr>
+              <td>13</td>
+              <td>20021014</td>
+              <td>1531.68</td>
+              <td>20030423</td>
+              <td>1541.96</td>
+              <td>191 天</td>
+              <td style="color:#e6492e;font-weight:600">+0.67%</td>
+              <td>20,452.92</td>
+              <td>20,590.25</td>
+              <td style="color:#e6492e;font-weight:600">+137.33</td>
+            </tr>
+            <tr>
+              <td>14</td>
+              <td>20030626</td>
+              <td>1515.38</td>
+              <td>20040308</td>
+              <td>1637.14</td>
+              <td>256 天</td>
+              <td style="color:#e6492e;font-weight:600">+8.04%</td>
+              <td>20,590.25</td>
+              <td>22,244.79</td>
+              <td style="color:#e6492e;font-weight:600">+1654.54</td>
+            </tr>
+            <tr>
+              <td>15</td>
+              <td>20040416</td>
+              <td>1693.86</td>
+              <td>20050922</td>
+              <td>1159.96</td>
+              <td>524 天</td>
+              <td style="color:#2e8b57;font-weight:600">-31.52%</td>
+              <td>22,244.79</td>
+              <td>15,233.28</td>
+              <td style="color:#2e8b57;font-weight:600">-7011.51</td>
+            </tr>
+            <tr>
+              <td>16</td>
+              <td>20050929</td>
+              <td>1155.48</td>
+              <td>20060607</td>
+              <td>1589.55</td>
+              <td>251 天</td>
+              <td style="color:#e6492e;font-weight:600">+37.57%</td>
+              <td>15,233.28</td>
+              <td>20,955.69</td>
+              <td style="color:#e6492e;font-weight:600">+5722.41</td>
+            </tr>
+            <tr>
+              <td>17</td>
+              <td>20060612</td>
+              <td>1552.8</td>
+              <td>20060719</td>
+              <td>1645.16</td>
+              <td>37 天</td>
+              <td style="color:#e6492e;font-weight:600">+5.95%</td>
+              <td>20,955.69</td>
+              <td>22,202.16</td>
+              <td style="color:#e6492e;font-weight:600">+1246.47</td>
+            </tr>
+            <tr>
+              <td>18</td>
+              <td>20060802</td>
+              <td>1600.87</td>
+              <td>20070131</td>
+              <td>2786.34</td>
+              <td>182 天</td>
+              <td style="color:#e6492e;font-weight:600">+74.05%</td>
+              <td>22,202.16</td>
+              <td>38,643.10</td>
+              <td style="color:#e6492e;font-weight:600">+16440.94</td>
+            </tr>
+            <tr>
+              <td>19</td>
+              <td>20070206</td>
+              <td>2675.7</td>
+              <td>20070530</td>
+              <td>4053.09</td>
+              <td>113 天</td>
+              <td style="color:#e6492e;font-weight:600">+51.48%</td>
+              <td>38,643.10</td>
+              <td>58,535.73</td>
+              <td style="color:#e6492e;font-weight:600">+19892.63</td>
+            </tr>
+            <tr>
+              <td>20</td>
+              <td>20070605</td>
+              <td>3767.1</td>
+              <td>20070614</td>
+              <td>4115.21</td>
+              <td>9 天</td>
+              <td style="color:#e6492e;font-weight:600">+9.24%</td>
+              <td>58,535.73</td>
+              <td>63,944.87</td>
+              <td style="color:#e6492e;font-weight:600">+5409.13</td>
+            </tr>
+            <tr>
+              <td>21</td>
+              <td>20070706</td>
+              <td>3781.35</td>
+              <td>20070911</td>
+              <td>5113.97</td>
+              <td>67 天</td>
+              <td style="color:#e6492e;font-weight:600">+35.24%</td>
+              <td>63,944.87</td>
+              <td>86,480.27</td>
+              <td style="color:#e6492e;font-weight:600">+22535.41</td>
+            </tr>
+            <tr>
+              <td>22</td>
+              <td>20071114</td>
+              <td>5412.69</td>
+              <td>20081222</td>
+              <td>1987.76</td>
+              <td>404 天</td>
+              <td style="color:#2e8b57;font-weight:600">-63.28%</td>
+              <td>86,480.27</td>
+              <td>31,758.97</td>
+              <td style="color:#2e8b57;font-weight:600">-54721.30</td>
+            </tr>
+            <tr>
+              <td>23</td>
+              <td>20090813</td>
+              <td>3140.56</td>
+              <td>20091126</td>
+              <td>3170.98</td>
+              <td>105 天</td>
+              <td style="color:#e6492e;font-weight:600">+0.97%</td>
+              <td>31,758.97</td>
+              <td>32,066.59</td>
+              <td style="color:#e6492e;font-weight:600">+307.62</td>
+            </tr>
+            <tr>
+              <td>24</td>
+              <td>20091221</td>
+              <td>3122.97</td>
+              <td>20101112</td>
+              <td>2985.43</td>
+              <td>326 天</td>
+              <td style="color:#2e8b57;font-weight:600">-4.40%</td>
+              <td>32,066.59</td>
+              <td>30,654.36</td>
+              <td style="color:#2e8b57;font-weight:600">-1412.24</td>
+            </tr>
+            <tr>
+              <td>25</td>
+              <td>20101118</td>
+              <td>2865.45</td>
+              <td>20120323</td>
+              <td>2349.54</td>
+              <td>491 天</td>
+              <td style="color:#2e8b57;font-weight:600">-18.00%</td>
+              <td>30,654.36</td>
+              <td>25,135.17</td>
+              <td style="color:#2e8b57;font-weight:600">-5519.19</td>
+            </tr>
+            <tr>
+              <td>26</td>
+              <td>20120326</td>
+              <td>2350.6</td>
+              <td>20130222</td>
+              <td>2314.16</td>
+              <td>333 天</td>
+              <td style="color:#2e8b57;font-weight:600">-1.55%</td>
+              <td>25,135.17</td>
+              <td>24,745.56</td>
+              <td style="color:#2e8b57;font-weight:600">-389.60</td>
+            </tr>
+            <tr>
+              <td>27</td>
+              <td>20130305</td>
+              <td>2326.31</td>
+              <td>20130308</td>
+              <td>2318.61</td>
+              <td>3 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.33%</td>
+              <td>24,745.56</td>
+              <td>24,663.71</td>
+              <td style="color:#2e8b57;font-weight:600">-81.85</td>
+            </tr>
+            <tr>
+              <td>28</td>
+              <td>20130618</td>
+              <td>2159.29</td>
+              <td>20130926</td>
+              <td>2155.81</td>
+              <td>100 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.16%</td>
+              <td>24,663.71</td>
+              <td>24,623.94</td>
+              <td style="color:#2e8b57;font-weight:600">-39.77</td>
+            </tr>
+            <tr>
+              <td>29</td>
+              <td>20131028</td>
+              <td>2133.87</td>
+              <td>20141224</td>
+              <td>2972.53</td>
+              <td>422 天</td>
+              <td style="color:#e6492e;font-weight:600">+39.30%</td>
+              <td>24,623.94</td>
+              <td>34,301.75</td>
+              <td style="color:#e6492e;font-weight:600">+9677.81</td>
+            </tr>
+            <tr>
+              <td>30</td>
+              <td>20150623</td>
+              <td>4576.49</td>
+              <td>20151127</td>
+              <td>3436.3</td>
+              <td>157 天</td>
+              <td style="color:#2e8b57;font-weight:600">-24.91%</td>
+              <td>34,301.75</td>
+              <td>25,755.80</td>
+              <td style="color:#2e8b57;font-weight:600">-8545.95</td>
+            </tr>
+            <tr>
+              <td>31</td>
+              <td>20160106</td>
+              <td>3361.84</td>
+              <td>20160429</td>
+              <td>2938.32</td>
+              <td>114 天</td>
+              <td style="color:#2e8b57;font-weight:600">-12.60%</td>
+              <td>25,755.80</td>
+              <td>22,511.15</td>
+              <td style="color:#2e8b57;font-weight:600">-3244.65</td>
+            </tr>
+            <tr>
+              <td>32</td>
+              <td>20160511</td>
+              <td>2837.04</td>
+              <td>20190425</td>
+              <td>3123.83</td>
+              <td>1079 天</td>
+              <td style="color:#e6492e;font-weight:600">+10.11%</td>
+              <td>22,511.15</td>
+              <td>24,786.75</td>
+              <td style="color:#e6492e;font-weight:600">+2275.60</td>
+            </tr>
+            <tr>
+              <td>33</td>
+              <td>20190430</td>
+              <td>3078.34</td>
+              <td>20200724</td>
+              <td>3196.77</td>
+              <td>451 天</td>
+              <td style="color:#e6492e;font-weight:600">+3.85%</td>
+              <td>24,786.75</td>
+              <td>25,740.33</td>
+              <td style="color:#e6492e;font-weight:600">+953.59</td>
+            </tr>
+            <tr>
+              <td>34</td>
+              <td>20200908</td>
+              <td>3316.42</td>
+              <td>20210226</td>
+              <td>3509.08</td>
+              <td>171 天</td>
+              <td style="color:#e6492e;font-weight:600">+5.81%</td>
+              <td>25,740.33</td>
+              <td>27,235.69</td>
+              <td style="color:#e6492e;font-weight:600">+1495.35</td>
+            </tr>
+            <tr>
+              <td>35</td>
+              <td>20210311</td>
+              <td>3436.83</td>
+              <td>20220715</td>
+              <td>3228.06</td>
+              <td>491 天</td>
+              <td style="color:#2e8b57;font-weight:600">-6.07%</td>
+              <td>27,235.69</td>
+              <td>25,581.26</td>
+              <td style="color:#2e8b57;font-weight:600">-1654.43</td>
+            </tr>
+            <tr>
+              <td>36</td>
+              <td>20220718</td>
+              <td>3278.1</td>
+              <td>20220725</td>
+              <td>3250.39</td>
+              <td>7 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.85%</td>
+              <td>25,581.26</td>
+              <td>25,364.98</td>
+              <td style="color:#2e8b57;font-weight:600">-216.28</td>
+            </tr>
+            <tr>
+              <td>37</td>
+              <td>20220804</td>
+              <td>3189.04</td>
+              <td>20241115</td>
+              <td>3330.73</td>
+              <td>834 天</td>
+              <td style="color:#e6492e;font-weight:600">+4.44%</td>
+              <td>25,364.98</td>
+              <td>26,491.93</td>
+              <td style="color:#e6492e;font-weight:600">+1126.95</td>
+            </tr>
+            <tr>
+              <td>38</td>
+              <td>20250107</td>
+              <td>3229.64</td>
+              <td>20260706(估值)</td>
+              <td>4041.24</td>
+              <td>545 天</td>
+              <td style="color:#e6492e;font-weight:600">+25.13%</td>
+              <td>26,491.93</td>
+              <td>33,149.22</td>
+              <td style="color:#e6492e;font-weight:600">+6657.29</td>
+            </tr></tbody>
+          </table>
+        </div></div>
+<div class="sim-scenario " data-idx="2">
+        <div class="sim-cards">
+          <div class="sim-card"><span class="k">初始资金</span><span class="v">10,000.00 元</span></div>
+          <div class="sim-card"><span class="k">总投入</span><span class="v">1,052,291.23 元</span></div>
+          <div class="sim-card"><span class="k">最终资金</span><span class="v">34,842.88 元</span></div>
+          <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">24,842.88 元（+248.43%）</span></div>
+          <div class="sim-card"><span class="k">最大持仓</span><span class="v">91,014.48 元<div class="sub">20071114</div></span></div>
+          <div class="sim-card"><span class="k">最少持仓金额</span><span class="v">0.00 元<div class="sub">19910930</div></span></div>
+          <div class="sim-card"><span class="k">执行买/卖</span><span class="v">38 次买 / 37 次卖（38 回合）</span></div>
+          <div class="sim-card"><span class="k">胜率</span><span class="v">57.9%（22胜/16负）</span></div>
+          <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">1.56（均盈23.12% / 均亏-14.84%）</span></div>
+          <div class="sim-card"><span class="k">状态</span><span class="v">持仓（按20260706收盘4041.24估值34843元）</span></div>
+        </div>
+        <div class="sim-table-wrap">
+          <table>
+            <thead><tr>
+              <th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th>
+              <th>持有时长</th><th>盈亏%</th><th>投入金额</th><th>回收金额</th><th>净利润</th>
+            </tr></thead>
+            <tbody>
+            <tr>
+              <td>1</td>
+              <td>19910205</td>
+              <td>128.58</td>
+              <td>19910930</td>
+              <td>180.92</td>
+              <td>237 天</td>
+              <td style="color:#e6492e;font-weight:600">+40.71%</td>
+              <td>10,000.00</td>
+              <td>14,070.62</td>
+              <td style="color:#e6492e;font-weight:600">+4070.62</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>19920716</td>
+              <td>1124.64</td>
+              <td>19930222</td>
+              <td>1456.29</td>
+              <td>221 天</td>
+              <td style="color:#e6492e;font-weight:600">+29.49%</td>
+              <td>14,070.62</td>
+              <td>18,219.96</td>
+              <td style="color:#e6492e;font-weight:600">+4149.35</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>19930302</td>
+              <td>1245.11</td>
+              <td>19950919</td>
+              <td>736.74</td>
+              <td>931 天</td>
+              <td style="color:#2e8b57;font-weight:600">-40.83%</td>
+              <td>18,219.96</td>
+              <td>10,780.88</td>
+              <td style="color:#2e8b57;font-weight:600">-7439.09</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>19951114</td>
+              <td>688.87</td>
+              <td>19960521</td>
+              <td>661.85</td>
+              <td>189 天</td>
+              <td style="color:#2e8b57;font-weight:600">-3.92%</td>
+              <td>10,780.88</td>
+              <td>10,358.04</td>
+              <td style="color:#2e8b57;font-weight:600">-422.83</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>19960827</td>
+              <td>787.47</td>
+              <td>19970514</td>
+              <td>1379.22</td>
+              <td>260 天</td>
+              <td style="color:#e6492e;font-weight:600">+75.15%</td>
+              <td>10,358.04</td>
+              <td>18,141.74</td>
+              <td style="color:#e6492e;font-weight:600">+7783.69</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>19970523</td>
+              <td>1254.27</td>
+              <td>19971112</td>
+              <td>1174.19</td>
+              <td>173 天</td>
+              <td style="color:#2e8b57;font-weight:600">-6.38%</td>
+              <td>18,141.74</td>
+              <td>16,983.50</td>
+              <td style="color:#2e8b57;font-weight:600">-1158.24</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td>19971126</td>
+              <td>1143.82</td>
+              <td>19980225</td>
+              <td>1194.67</td>
+              <td>91 天</td>
+              <td style="color:#e6492e;font-weight:600">+4.45%</td>
+              <td>16,983.50</td>
+              <td>17,738.60</td>
+              <td style="color:#e6492e;font-weight:600">+755.10</td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td>19980702</td>
+              <td>1331.65</td>
+              <td>19990812</td>
+              <td>1575.64</td>
+              <td>406 天</td>
+              <td style="color:#e6492e;font-weight:600">+18.32%</td>
+              <td>17,738.60</td>
+              <td>20,988.76</td>
+              <td style="color:#e6492e;font-weight:600">+3250.16</td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td>19991012</td>
+              <td>1537.8</td>
+              <td>20000315</td>
+              <td>1681.47</td>
+              <td>155 天</td>
+              <td style="color:#e6492e;font-weight:600">+9.34%</td>
+              <td>20,988.76</td>
+              <td>22,949.72</td>
+              <td style="color:#e6492e;font-weight:600">+1960.96</td>
+            </tr>
+            <tr>
+              <td>10</td>
+              <td>20000516</td>
+              <td>1724.54</td>
+              <td>20000901</td>
+              <td>1999.86</td>
+              <td>108 天</td>
+              <td style="color:#e6492e;font-weight:600">+15.96%</td>
+              <td>22,949.72</td>
+              <td>26,613.62</td>
+              <td style="color:#e6492e;font-weight:600">+3663.90</td>
+            </tr>
+            <tr>
+              <td>11</td>
+              <td>20000907</td>
+              <td>1950.66</td>
+              <td>20020329</td>
+              <td>1603.9</td>
+              <td>568 天</td>
+              <td style="color:#2e8b57;font-weight:600">-17.78%</td>
+              <td>26,613.62</td>
+              <td>21,882.68</td>
+              <td style="color:#2e8b57;font-weight:600">-4730.95</td>
+            </tr>
+            <tr>
+              <td>12</td>
+              <td>20020521</td>
+              <td>1588.11</td>
+              <td>20020731</td>
+              <td>1651.59</td>
+              <td>71 天</td>
+              <td style="color:#e6492e;font-weight:600">+4.00%</td>
+              <td>21,882.68</td>
+              <td>22,757.45</td>
+              <td style="color:#e6492e;font-weight:600">+874.78</td>
+            </tr>
+            <tr>
+              <td>13</td>
+              <td>20020919</td>
+              <td>1619.35</td>
+              <td>20030423</td>
+              <td>1541.96</td>
+              <td>216 天</td>
+              <td style="color:#2e8b57;font-weight:600">-4.78%</td>
+              <td>22,757.45</td>
+              <td>21,669.80</td>
+              <td style="color:#2e8b57;font-weight:600">-1087.65</td>
+            </tr>
+            <tr>
+              <td>14</td>
+              <td>20030626</td>
+              <td>1515.38</td>
+              <td>20040308</td>
+              <td>1637.14</td>
+              <td>256 天</td>
+              <td style="color:#e6492e;font-weight:600">+8.04%</td>
+              <td>21,669.80</td>
+              <td>23,411.10</td>
+              <td style="color:#e6492e;font-weight:600">+1741.29</td>
+            </tr>
+            <tr>
+              <td>15</td>
+              <td>20040416</td>
+              <td>1693.86</td>
+              <td>20050922</td>
+              <td>1159.96</td>
+              <td>524 天</td>
+              <td style="color:#2e8b57;font-weight:600">-31.52%</td>
+              <td>23,411.10</td>
+              <td>16,031.97</td>
+              <td style="color:#2e8b57;font-weight:600">-7379.12</td>
+            </tr>
+            <tr>
+              <td>16</td>
+              <td>20050929</td>
+              <td>1155.48</td>
+              <td>20060607</td>
+              <td>1589.55</td>
+              <td>251 天</td>
+              <td style="color:#e6492e;font-weight:600">+37.57%</td>
+              <td>16,031.97</td>
+              <td>22,054.41</td>
+              <td style="color:#e6492e;font-weight:600">+6022.44</td>
+            </tr>
+            <tr>
+              <td>17</td>
+              <td>20060612</td>
+              <td>1552.8</td>
+              <td>20060719</td>
+              <td>1645.16</td>
+              <td>37 天</td>
+              <td style="color:#e6492e;font-weight:600">+5.95%</td>
+              <td>22,054.41</td>
+              <td>23,366.23</td>
+              <td style="color:#e6492e;font-weight:600">+1311.82</td>
+            </tr>
+            <tr>
+              <td>18</td>
+              <td>20060802</td>
+              <td>1600.87</td>
+              <td>20070131</td>
+              <td>2786.34</td>
+              <td>182 天</td>
+              <td style="color:#e6492e;font-weight:600">+74.05%</td>
+              <td>23,366.23</td>
+              <td>40,669.18</td>
+              <td style="color:#e6492e;font-weight:600">+17302.95</td>
+            </tr>
+            <tr>
+              <td>19</td>
+              <td>20070206</td>
+              <td>2675.7</td>
+              <td>20070530</td>
+              <td>4053.09</td>
+              <td>113 天</td>
+              <td style="color:#e6492e;font-weight:600">+51.48%</td>
+              <td>40,669.18</td>
+              <td>61,604.79</td>
+              <td style="color:#e6492e;font-weight:600">+20935.61</td>
+            </tr>
+            <tr>
+              <td>20</td>
+              <td>20070605</td>
+              <td>3767.1</td>
+              <td>20070614</td>
+              <td>4115.21</td>
+              <td>9 天</td>
+              <td style="color:#e6492e;font-weight:600">+9.24%</td>
+              <td>61,604.79</td>
+              <td>67,297.53</td>
+              <td style="color:#e6492e;font-weight:600">+5692.74</td>
+            </tr>
+            <tr>
+              <td>21</td>
+              <td>20070706</td>
+              <td>3781.35</td>
+              <td>20070911</td>
+              <td>5113.97</td>
+              <td>67 天</td>
+              <td style="color:#e6492e;font-weight:600">+35.24%</td>
+              <td>67,297.53</td>
+              <td>91,014.48</td>
+              <td style="color:#e6492e;font-weight:600">+23716.95</td>
+            </tr>
+            <tr>
+              <td>22</td>
+              <td>20071114</td>
+              <td>5412.69</td>
+              <td>20081222</td>
+              <td>1987.76</td>
+              <td>404 天</td>
+              <td style="color:#2e8b57;font-weight:600">-63.28%</td>
+              <td>91,014.48</td>
+              <td>33,424.11</td>
+              <td style="color:#2e8b57;font-weight:600">-57590.37</td>
+            </tr>
+            <tr>
+              <td>23</td>
+              <td>20090813</td>
+              <td>3140.56</td>
+              <td>20091126</td>
+              <td>3170.98</td>
+              <td>105 天</td>
+              <td style="color:#e6492e;font-weight:600">+0.97%</td>
+              <td>33,424.11</td>
+              <td>33,747.86</td>
+              <td style="color:#e6492e;font-weight:600">+323.75</td>
+            </tr>
+            <tr>
+              <td>24</td>
+              <td>20091221</td>
+              <td>3122.97</td>
+              <td>20101112</td>
+              <td>2985.43</td>
+              <td>326 天</td>
+              <td style="color:#2e8b57;font-weight:600">-4.40%</td>
+              <td>33,747.86</td>
+              <td>32,261.58</td>
+              <td style="color:#2e8b57;font-weight:600">-1486.28</td>
+            </tr>
+            <tr>
+              <td>25</td>
+              <td>20101118</td>
+              <td>2865.45</td>
+              <td>20120323</td>
+              <td>2349.54</td>
+              <td>491 天</td>
+              <td style="color:#2e8b57;font-weight:600">-18.00%</td>
+              <td>32,261.58</td>
+              <td>26,453.02</td>
+              <td style="color:#2e8b57;font-weight:600">-5808.57</td>
+            </tr>
+            <tr>
+              <td>26</td>
+              <td>20120326</td>
+              <td>2350.6</td>
+              <td>20130222</td>
+              <td>2314.16</td>
+              <td>333 天</td>
+              <td style="color:#2e8b57;font-weight:600">-1.55%</td>
+              <td>26,453.02</td>
+              <td>26,042.99</td>
+              <td style="color:#2e8b57;font-weight:600">-410.03</td>
+            </tr>
+            <tr>
+              <td>27</td>
+              <td>20130305</td>
+              <td>2326.31</td>
+              <td>20130308</td>
+              <td>2318.61</td>
+              <td>3 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.33%</td>
+              <td>26,042.99</td>
+              <td>25,956.84</td>
+              <td style="color:#2e8b57;font-weight:600">-86.15</td>
+            </tr>
+            <tr>
+              <td>28</td>
+              <td>20130614</td>
+              <td>2162.04</td>
+              <td>20130926</td>
+              <td>2155.81</td>
+              <td>104 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.29%</td>
+              <td>25,956.84</td>
+              <td>25,882.02</td>
+              <td style="color:#2e8b57;font-weight:600">-74.82</td>
+            </tr>
+            <tr>
+              <td>29</td>
+              <td>20131028</td>
+              <td>2133.87</td>
+              <td>20141224</td>
+              <td>2972.53</td>
+              <td>422 天</td>
+              <td style="color:#e6492e;font-weight:600">+39.30%</td>
+              <td>25,882.02</td>
+              <td>36,054.29</td>
+              <td style="color:#e6492e;font-weight:600">+10172.27</td>
+            </tr>
+            <tr>
+              <td>30</td>
+              <td>20150623</td>
+              <td>4576.49</td>
+              <td>20151127</td>
+              <td>3436.3</td>
+              <td>157 天</td>
+              <td style="color:#2e8b57;font-weight:600">-24.91%</td>
+              <td>36,054.29</td>
+              <td>27,071.71</td>
+              <td style="color:#2e8b57;font-weight:600">-8982.58</td>
+            </tr>
+            <tr>
+              <td>31</td>
+              <td>20160106</td>
+              <td>3361.84</td>
+              <td>20160429</td>
+              <td>2938.32</td>
+              <td>114 天</td>
+              <td style="color:#2e8b57;font-weight:600">-12.60%</td>
+              <td>27,071.71</td>
+              <td>23,661.29</td>
+              <td style="color:#2e8b57;font-weight:600">-3410.43</td>
+            </tr>
+            <tr>
+              <td>32</td>
+              <td>20160511</td>
+              <td>2837.04</td>
+              <td>20190425</td>
+              <td>3123.83</td>
+              <td>1079 天</td>
+              <td style="color:#e6492e;font-weight:600">+10.11%</td>
+              <td>23,661.29</td>
+              <td>26,053.15</td>
+              <td style="color:#e6492e;font-weight:600">+2391.86</td>
+            </tr>
+            <tr>
+              <td>33</td>
+              <td>20190430</td>
+              <td>3078.34</td>
+              <td>20200724</td>
+              <td>3196.77</td>
+              <td>451 天</td>
+              <td style="color:#e6492e;font-weight:600">+3.85%</td>
+              <td>26,053.15</td>
+              <td>27,055.46</td>
+              <td style="color:#e6492e;font-weight:600">+1002.31</td>
+            </tr>
+            <tr>
+              <td>34</td>
+              <td>20200908</td>
+              <td>3316.42</td>
+              <td>20210226</td>
+              <td>3509.08</td>
+              <td>171 天</td>
+              <td style="color:#e6492e;font-weight:600">+5.81%</td>
+              <td>27,055.46</td>
+              <td>28,627.21</td>
+              <td style="color:#e6492e;font-weight:600">+1571.75</td>
+            </tr>
+            <tr>
+              <td>35</td>
+              <td>20210311</td>
+              <td>3436.83</td>
+              <td>20220715</td>
+              <td>3228.06</td>
+              <td>491 天</td>
+              <td style="color:#2e8b57;font-weight:600">-6.07%</td>
+              <td>28,627.21</td>
+              <td>26,888.25</td>
+              <td style="color:#2e8b57;font-weight:600">-1738.96</td>
+            </tr>
+            <tr>
+              <td>36</td>
+              <td>20220718</td>
+              <td>3278.1</td>
+              <td>20220725</td>
+              <td>3250.39</td>
+              <td>7 天</td>
+              <td style="color:#2e8b57;font-weight:600">-0.85%</td>
+              <td>26,888.25</td>
+              <td>26,660.92</td>
+              <td style="color:#2e8b57;font-weight:600">-227.33</td>
+            </tr>
+            <tr>
+              <td>37</td>
+              <td>20220804</td>
+              <td>3189.04</td>
+              <td>20241115</td>
+              <td>3330.73</td>
+              <td>834 天</td>
+              <td style="color:#e6492e;font-weight:600">+4.44%</td>
+              <td>26,660.92</td>
+              <td>27,845.45</td>
+              <td style="color:#e6492e;font-weight:600">+1184.53</td>
+            </tr>
+            <tr>
+              <td>38</td>
+              <td>20250107</td>
+              <td>3229.64</td>
+              <td>20260706(估值)</td>
+              <td>4041.24</td>
+              <td>545 天</td>
+              <td style="color:#e6492e;font-weight:600">+25.13%</td>
+              <td>27,845.45</td>
+              <td>34,842.88</td>
+              <td style="color:#e6492e;font-weight:600">+6997.43</td>
+            </tr></tbody>
+          </table>
+        </div></div>
+
+<div class="footer">
+  <p>模拟说明：买入=信号日收盘价全仓买入；卖出=信号日收盘价全部卖出。连续同向信号跳过（已持仓/已空仓）。末尾未平仓按最后交易日收盘价估值。此为历史模拟，非未来收益保证。</p>
+  <p><a href="./">← 返回看板</a></p>
+</div>
+<script>
+document.querySelectorAll('.sim-tab').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.sim-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.sim-scenario').forEach(s => s.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelector('.sim-scenario[data-idx="' + btn.dataset.tab + '"]').classList.add('active');
+  };
+});
+</script>
+</body>
+</html>
