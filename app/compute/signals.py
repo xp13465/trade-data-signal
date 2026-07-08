@@ -28,7 +28,8 @@ cross 不再作硬门槛过滤，而是分级标签附在 reason 末尾供参考
 <30 冰点 / 30-50 偏冷 / 50-70 中性 / 70-80 偏热 / >=80 狂热。
 
 阈值定义（语义）：
-- 买触发 rsi_prev<=30 且 rsi>30：前一日在超卖区（含边界）、当日升回 30 之上 = 超卖结束
+- 买触发 rsi_prev<=30 且 rsi>30（基线）：前一日在超卖区（含边界）、当日升回 30 之上 = 超卖结束
+  per-index buy_filter=rsi_cross_25 时改为 rsi_prev<=25 且 rsi>25（更宽松、更早捕捉超卖反弹）
 - 辅买触发 close_prev<bl_prev 且 close>bl：前一日跌破下轨、当日收回下轨之上 = 超卖反弹
 - 卖触发 close_prev>=thresh 且 close<thresh：前一日还在阈之上、当日跌破阈 = 趋势转弱
   且 close>MA60：多头趋势中（过滤熊市假卖点）
@@ -63,6 +64,14 @@ Per-index buy_aux 增强（2026-07-05，配置化）：`config/indicators.yaml` 
 胜率 44.8%→54.5%，盈亏比 0.66→1.19，n 134→33，三 horizon（5d/10d/20d）一致转正
 （+19.1%/+16.2%/+17.1%），稳健非偶发。详见 `14-家电buy_aux优化回测.md`。其他 59 品类
 buy_aux 不动（基线 B1），后续逐品类验证后各自加方案。reason 加 `RSI[上穿40]` 段。
+
+Per-index buy 主买点 RSI 阈值收紧（2026-07-08，配置化）：`config/indicators.yaml` 给单个
+指数加 `buy_filter` 字段即可收紧 C1 主买 RSI 阈值（未配置走基线 RSI 上穿 30）。
+当前 kc50 科创50、sw_801730 电力设备、sw_801760 传媒 配置 `buy_filter: rsi_cross_25`
+= RSI(14) 上穿 25（rp≤25 & r>25，比基线 30 更宽松、更早捕捉超卖反弹）。回测三品类
+10d 凯利 f 显著改善：kc50 15.92%→57.56%、sw_801730 0%→29.55%、sw_801760 0%→41.74%。
+详见 `22-buy收紧RSI回测-21个不建议.md`。其他 57 品类 buy 不动（基线 RSI 上穿 30），
+后续逐品类验证后各自加方案。reason 格式改为 `RSI上穿25(...)`（标注实际阈值）。
 """
 import pandas as pd
 
@@ -168,12 +177,39 @@ def _load_buy_aux_filters(cfg) -> dict:
     return out
 
 
+def _load_buy_filters(cfg) -> dict:
+    """从 indicators.yaml 读 per-index buy 主买点 RSI 阈值配置（C1 收紧）。
+
+    返回 {signal_daily_index_id: filter_name}。仅配置了 `buy_filter` 字段的品类
+    出现，其他走基线 C1（RSI 上穿 30）。
+    - indices: key = idx['id']（如 'kc50'）
+    - metrics: key = 'g.' + mid（预留扩展）
+    - scores: 情绪分 s.* 暂不支持 per-index 增强（结构不同，需要时再扩展）
+
+    当前取值：
+    - 'rsi_cross_25' = RSI(14) 上穿 25（rp≤25 & r>25），比基线 30 更宽松、
+      更早捕捉超卖反弹。回测显示 kc50 科创50（f 15.92%→57.56%）、
+      sw_801730 电力设备（f 0%→29.55%）、sw_801760 传媒（f 0%→41.74%）
+      三品类用 25 替代 30 后凯利 f 显著改善（详见 22-buy收紧RSI回测-21个不建议.md）。
+    """
+    out = {}
+    for idx in cfg.get("indices", []):
+        if not idx.get("enabled", True):
+            continue
+        f = idx.get("buy_filter")
+        if f:
+            out[idx["id"]] = f
+    # metrics/scores 预留扩展，当前无配置
+    return out
+
+
 def strategy_desc(index_id: str, cfg: dict) -> dict:
     """返回 {buy, buy_aux, sell} 策略描述字符串，供前端 hint-strategy 蓝色标注行。
 
-    纯描述函数，不改买卖点计算逻辑。读 indicators.yaml 的 buy_aux_filter + 本模块的
+    纯描述函数，不改买卖点计算逻辑。读 indicators.yaml 的 buy_filter / buy_aux_filter + 本模块的
     SKIP_IDS / s.* 前缀规则，与 _compute_value_signals / compute 的实际触发逻辑一致：
-    - buy: "RSI(14)上穿30"（C1 主买，所有非 skip 品类）；SKIP_IDS / s.a_sentiment → "skip"
+    - buy: "RSI(14)上穿30"（C1 主买，基线）；per-index buy_filter=rsi_cross_25 → "RSI(14)上穿25"
+      SKIP_IDS / s.a_sentiment → "skip"
     - buy_aux:
         基线（无 buy_aux_filter）"BB下轨回归"
         rsi_cross_40 → "BB下轨回归+RSI上穿40"
@@ -196,7 +232,11 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
         buy = "skip"
         buy_aux = "skip"
     else:
-        buy = "RSI(14)上穿30"
+        buy_filt = _load_buy_filters(cfg).get(index_id)
+        if buy_filt == "rsi_cross_25":
+            buy = "RSI(14)上穿25"
+        else:
+            buy = "RSI(14)上穿30"
         filt = _load_buy_aux_filters(cfg).get(index_id)
         if filt == "rsi_cross_40":
             buy_aux = "BB下轨回归+RSI上穿40"
@@ -383,6 +423,7 @@ def compute():
     cfg = load_config()
     cross = _load_cross_score()
     buy_aux_filters = _load_buy_aux_filters(cfg)  # per-index buy_aux 增强（如 sw_801110 RSI上穿40）
+    buy_filters = _load_buy_filters(cfg)  # per-index buy 主买点 RSI 阈值收紧（如 kc50 RSI上穿25）
     signals = []
     for idx in cfg.get("indices", []):
         if not idx.get("enabled", True):
@@ -396,9 +437,14 @@ def compute():
         cross_aligned = cross.reindex(close.index)
         rsi_prev = rsi.shift(1)
 
-        # 买点（C1 主买，不动）：RSI 上穿 30 事件化；首日 shift 出 NaN，fillna(False) 跳过。
+        # 买点（C1 主买）：RSI 上穿阈值事件化；首日 shift 出 NaN，fillna(False) 跳过。
+        # 基线 RSI 上穿 30；per-index buy_filter 可收紧阈值（如 rsi_cross_25 = 上穿 25）。
         # cross 不再作硬门槛，仅作分级标签写进 reason。
-        buy = ((rsi_prev <= 30) & (rsi > 30)).fillna(False)
+        buy_filter = buy_filters.get(iid)
+        if buy_filter == "rsi_cross_25":
+            buy = ((rsi_prev <= 25) & (rsi > 25)).fillna(False)
+        else:
+            buy = ((rsi_prev <= 30) & (rsi > 30)).fillna(False)
 
         # B1 辅买点：BB 下轨回归（close 从下轨下回到上方）——强势市更敏感，互补 C1 盲区。
         # mid=MA20, sd=std(ddof=0), bu=mid+2σ, bl=mid-2σ（与 11 回测报告一致）。
@@ -451,11 +497,14 @@ def compute():
         last_buy_close = None  # 游标：最近一次买点 close（buy 或 buy_aux，None=窗口内无前置买点）
         for date in sorted(buy_set | buy_aux_set | sell_set):
             if date in buy_set:
-                # 买点（C1 主买，不动）：RSI 上穿 30 事件化；reason 不变。
+                # 买点（C1 主买）：RSI 上穿阈值事件化；reason 标注实际阈值。
                 last_buy_close = float(close.get(date)) if pd.notna(close.get(date)) else last_buy_close
                 r = rsi.get(date)
                 rp = rsi_prev.get(date)
-                reason = f"RSI上穿30({rp:.0f}->{r:.0f})" if pd.notna(r) and pd.notna(rp) else "RSI=NA"
+                if buy_filter == "rsi_cross_25":
+                    reason = f"RSI上穿25({rp:.0f}->{r:.0f})" if pd.notna(r) and pd.notna(rp) else "RSI=NA"
+                else:
+                    reason = f"RSI上穿30({rp:.0f}->{r:.0f})" if pd.notna(r) and pd.notna(rp) else "RSI=NA"
                 cv = cross_aligned.get(date)
                 if pd.notna(cv):
                     reason += f",cross={cv:.0f}[{_cross_tag(cv)}]"

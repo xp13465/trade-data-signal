@@ -93,7 +93,7 @@ indices:
   - {id: csi500,   name: 中证500,  market: a, func: stock_zh_index_daily, symbol: "sh000905"}
   - {id: csi1000,  name: 中证1000, market: a, func: stock_zh_index_daily, symbol: "sh000852", buy_aux_filter: rsi_cross_40}
   - {id: cyb,      name: 创业板指, market: a, func: stock_zh_index_daily, symbol: "sz399006", buy_aux_filter: rsi_cross_40}
-  - {id: kc50,     name: 科创50,   market: a, func: stock_zh_index_daily, symbol: "sh000688"}
+  - {id: kc50,     name: 科创50,   market: a, func: stock_zh_index_daily, symbol: "sh000688", buy_filter: rsi_cross_25}
   # 红利指数：中证红利/红利低波走中证指数公司源（sina sh000922 数据停在 2019、930955 sina 无此代码），
   # 深证红利走 sina 源。market=a 复用 A 股看板 renderAStock 自动渲染折线 + E1 买卖点。
   - {id: csi_div,   name: 中证红利, market: a, func: stock_zh_index_hist_csindex, symbol: "000922"}
@@ -115,49 +115,45 @@ indices:
   # 申万一级行业指数（31 个）—— F1。源 swsresearch.com（本地 DNS 失败，base.py 已 monkey-patch
   # socket.getaddrinfo 走 8.8.8.8 解析的 IP）。index_hist_sw 返全量历史（1999 起），无 start/end 参数。
   # market=industry 进 /api/industry；signals.py 自动遍历 cfg["indices"] 算 E1 买卖点。
-  - {id: sw_801010, name: "SW 农林牧渔", market: industry, func: index_hist_sw, symbol: "801010"}
+  - {id: sw_801010, name: "SW 农林牧渔", market: industry, func: index_hist_sw, symbol: "801010", buy_aux_filter: close_above_bl_2pct}
   - {id: sw_801030, name: "SW 基础化工", market: industry, func: index_hist_sw, symbol: "801030", buy_aux_filter: close_above_bl_2pct}
   - {id: sw_801040, name: "SW 钢铁",     market: industry, func: index_hist_sw, symbol: "801040"}
   - {id: sw_801050, name: "SW 有色金属", market: industry, func: index_hist_sw, symbol: "801050"}
-  - {id: sw_801080, name: "SW 电子",     market: industry, func: index_hist_sw, symbol: "801080"}
+  - {id: sw_801080, name: "SW 电子",     market: industry, func: index_hist_sw, symbol: "801080", buy_aux_filter: close_above_bl_2pct}
   - {id: sw_801880, name: "SW 汽车",     market: industry, func: index_hist_sw, symbol: "801880"}
   # buy_aux_filter（可选）= 该指数 buy_aux 辅买点的 per-index 增强过滤（2026-07-05 加）。
-  # 配置化的品类叠加增强条件，未配置的走基线 B1（BB 下轨回归）。后续逐品类验证后各自加方案。
-  # 当前取值：
-  #   'rsi_cross_40' = RSI(14) 上穿40 确认（rp≤40 & r>40），与 C1 上穿30 对称，
-  #     价格反弹 + 动量转升双维确认。sw_801110 家电 f -38%→+16% 转正（14-家电buy_aux优化回测.md）；
-  #     sw_801140 轻工 f -25%→-14% 未转正但胜率 45%→50% 退而求其次（16-行业批量回测）。
-  #     csi1000 中证1000 f -19.5%→+3.47% 三 horizon 一致转正（5d/10d/20d 全 f>0），
-  #       胜率 49.3%→47.4%，盈亏比 0.74→1.20，n 71→19（17-A股宽基buy_aux回测-sh-csi1000-hs300.md）。
-  #     sw_801760 传媒 f -14%→+28% 三 horizon 一致转正（5d/10d/20d 全 f>0），
-  #       胜率 55%→74%，盈亏比 0.65→0.57，n 69→19（18-行业buy_aux回测-传媒-综合-钢铁.md）。
-  #     cyb 创业板指 f -13%→+15% 三 horizon 一致转正（5d/10d/20d 全 f>0），
-  #       胜率 51%→65%，盈亏比 0.77→0.70，n 92→20（20-行业buy_aux回测，n<30 警示）。
-  #     sw_801150 医药生物 f -2%→+22% 三 horizon 一致转正（5d/10d/20d 全 f>0），n=36≥30 稳健转正；
-  #       胜率 48%→50%，盈亏比 1.04→1.80（20-行业buy_aux回测）。方案A 亦转正 f+38% 但 n=16<30 故选 B。
-  #   'close_above_bl_2pct' = 反弹力度确认（close > bl × 1.02），过滤 barely-crossed 假信号。
-  #     sw_801030 基础化工 f -21%→+20% 转正，三 horizon 一致，n=19<30 样本警示（16-行业批量回测）。
+  # 当前 18/32 品类已配置。未配置的走基线 B1（BB 下轨回归）。
+  # 取值：
+  #   'rsi_cross_40' = RSI(14) 上穿40 确认（11 品类）：家电/轻工/中证1000/传媒/创业板/医药
+  #     公用事业/房地产/社会服务/通信（2026-07-08 批次新增最后 4 个）
+  #   'close_above_bl_2pct' = 反弹力度2%确认（7 品类）：基础化工/农林牧渔/电子/纺织服饰
+  #     交通运输/国防军工/计算机/机械设备（2026-07-08 批次新增最后 7 个）
+  # 详见报告 21-26 及 REQUIREMENTS.md §7.4。
+  # buy_filter（可选）= 该指数 buy 主买点（C1）的 per-index RSI 阈值收紧（2026-07-08 加）。
+  # 未配置的走基线 C1（RSI 上穿 30）。取值：
+  #   'rsi_cross_25' = RSI(14) 上穿 25（3 品类）：kc50 科创50 / sw_801730 电力设备 / sw_801760 传媒
+  # 详见报告 22-buy收紧RSI回测-21个不建议.md 及 REQUIREMENTS.md §7.4。
   - {id: sw_801110, name: "SW 家用电器", market: industry, func: index_hist_sw, symbol: "801110", buy_aux_filter: rsi_cross_40}
   - {id: sw_801120, name: "SW 食品饮料", market: industry, func: index_hist_sw, symbol: "801120"}
-  - {id: sw_801130, name: "SW 纺织服饰", market: industry, func: index_hist_sw, symbol: "801130"}
+  - {id: sw_801130, name: "SW 纺织服饰", market: industry, func: index_hist_sw, symbol: "801130", buy_aux_filter: close_above_bl_2pct}
   - {id: sw_801140, name: "SW 轻工制造", market: industry, func: index_hist_sw, symbol: "801140", buy_aux_filter: rsi_cross_40}
   - {id: sw_801150, name: "SW 医药生物", market: industry, func: index_hist_sw, symbol: "801150", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801160, name: "SW 公用事业", market: industry, func: index_hist_sw, symbol: "801160"}
-  - {id: sw_801170, name: "SW 交通运输", market: industry, func: index_hist_sw, symbol: "801170"}
-  - {id: sw_801180, name: "SW 房地产",   market: industry, func: index_hist_sw, symbol: "801180"}
+  - {id: sw_801160, name: "SW 公用事业", market: industry, func: index_hist_sw, symbol: "801160", buy_aux_filter: rsi_cross_40}
+  - {id: sw_801170, name: "SW 交通运输", market: industry, func: index_hist_sw, symbol: "801170", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801180, name: "SW 房地产",   market: industry, func: index_hist_sw, symbol: "801180", buy_aux_filter: rsi_cross_40}
   - {id: sw_801200, name: "SW 商贸零售", market: industry, func: index_hist_sw, symbol: "801200"}
-  - {id: sw_801210, name: "SW 社会服务", market: industry, func: index_hist_sw, symbol: "801210"}
+  - {id: sw_801210, name: "SW 社会服务", market: industry, func: index_hist_sw, symbol: "801210", buy_aux_filter: rsi_cross_40}
   - {id: sw_801780, name: "SW 银行",     market: industry, func: index_hist_sw, symbol: "801780"}
   - {id: sw_801790, name: "SW 非银金融", market: industry, func: index_hist_sw, symbol: "801790"}
   - {id: sw_801230, name: "SW 综合",     market: industry, func: index_hist_sw, symbol: "801230"}
   - {id: sw_801710, name: "SW 建筑材料", market: industry, func: index_hist_sw, symbol: "801710"}
   - {id: sw_801720, name: "SW 建筑装饰", market: industry, func: index_hist_sw, symbol: "801720"}
-  - {id: sw_801730, name: "SW 电力设备", market: industry, func: index_hist_sw, symbol: "801730"}
-  - {id: sw_801890, name: "SW 机械设备", market: industry, func: index_hist_sw, symbol: "801890"}
-  - {id: sw_801740, name: "SW 国防军工", market: industry, func: index_hist_sw, symbol: "801740"}
-  - {id: sw_801750, name: "SW 计算机",   market: industry, func: index_hist_sw, symbol: "801750"}
-  - {id: sw_801760, name: "SW 传媒",     market: industry, func: index_hist_sw, symbol: "801760", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801770, name: "SW 通信",     market: industry, func: index_hist_sw, symbol: "801770"}
+  - {id: sw_801730, name: "SW 电力设备", market: industry, func: index_hist_sw, symbol: "801730", buy_filter: rsi_cross_25}
+  - {id: sw_801890, name: "SW 机械设备", market: industry, func: index_hist_sw, symbol: "801890", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801740, name: "SW 国防军工", market: industry, func: index_hist_sw, symbol: "801740", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801750, name: "SW 计算机",   market: industry, func: index_hist_sw, symbol: "801750", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801760, name: "SW 传媒",     market: industry, func: index_hist_sw, symbol: "801760", buy_aux_filter: rsi_cross_40, buy_filter: rsi_cross_25}
+  - {id: sw_801770, name: "SW 通信",     market: industry, func: index_hist_sw, symbol: "801770", buy_aux_filter: rsi_cross_40}
   - {id: sw_801950, name: "SW 煤炭",     market: industry, func: index_hist_sw, symbol: "801950"}
   - {id: sw_801960, name: "SW 石油石化", market: industry, func: index_hist_sw, symbol: "801960"}
   - {id: sw_801970, name: "SW 环保",     market: industry, func: index_hist_sw, symbol: "801970"}
