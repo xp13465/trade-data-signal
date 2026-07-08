@@ -45,21 +45,31 @@ log = logging.getLogger("check_signals")
 SCORE_NAME_MAP = {
     "cross_market": "跨市场综合分",
     "a_sentiment": "A股综合情绪分",
+    "sentiment_sz50": "上证50情绪分",
+    "sentiment_hs300": "沪深300情绪分",
+    "sentiment_csi500": "中证500情绪分",
+    "sentiment_csi1000": "中证1000情绪分",
+    "sentiment_cyb": "创业板情绪分",
+    "sentiment_kc50": "科创50情绪分",
 }
 
 # index_id 前缀（g.=指标/daily_metric，s.=score_daily 分数，无前缀=指数 index_daily）
 _PREFIX_RE = re.compile(r"^(?:g|s)\.(.+)$")
 
-# 邮件正文中的买卖点规则摘要
+# 邮件正文中的买卖点规则摘要（HTML）
 RULE_SUMMARY = """【买卖点规则说明】
-• 买入信号（buy）：RSI 上穿 30（超卖反弹启动）。
-• 卖出信号（sell）：20 日高点回落 5%（止盈离场）。
-  附 RSI 当前值、综合情绪分 cross 状态、相对前一买点涨跌幅。
-"""
+• 主买（buy）：RSI 上穿 30（超卖反弹启动）。
+• 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）。
+• 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）。
+  附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注。</div>"""
 
 DISCLAIMER = """【免责声明】
 本信号由历史数据量化回测生成，仅供研究参考，不构成任何投资建议。
-市场有风险，投资需谨慎。请结合自身判断与资金管理做出决策。"""
+市场有风险，投资需谨慎。请结合自身判断与资金管理做出决策。</div>"""
+
+# 信号类型中文标签
+SIGNAL_LABELS = {"buy": "主买", "buy_aux": "辅买", "sell": "卖"}
+SIGNAL_ORDER = ["buy", "buy_aux", "sell"]
 
 # email.json.example 中的占位密码，识别后跳过实际发送（仅打印内容）
 PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
@@ -147,14 +157,30 @@ def index_id_to_name(index_id: str, name_map: dict[str, str]) -> str:
 
 
 def _summary_names(signals: list[dict], name_map: dict[str, str], limit: int = 3) -> str:
-    """信号列表 → 品种名摘要（最多 limit 个，多了 '等N个'）。无信号返回 '无'。"""
+    """信号列表 → 品种名摘要（最多 limit 个，多了 '等N个'）。无信号返回空串。"""
     if not signals:
-        return "无"
+        return ""
     names = [index_id_to_name(s["index_id"], name_map) for s in signals]
-    head = ",".join(names[:limit])
+    head = "、".join(names[:limit])
     if len(names) > limit:
         return f"{head}等{len(names)}个"
     return head
+
+
+def _signal_label(sig_type: str) -> str:
+    """信号类型 → 中文标签。"""
+    return SIGNAL_LABELS.get(sig_type, sig_type)
+
+
+def _signal_emoji(sig_type: str) -> str:
+    """信号类型 → 图标。"""
+    if sig_type == "buy":
+        return "🔴"
+    if sig_type == "buy_aux":
+        return "🟣"
+    if sig_type == "sell":
+        return "🟢"
+    return "⚪"
 
 
 def _format_stats_line(stats_entry: dict | None) -> str | None:
@@ -175,71 +201,105 @@ def _format_stats_line(stats_entry: dict | None) -> str | None:
 
 
 def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tuple[str, str]:
-    """构建邮件主题 + 正文。返回 (subject, body)。"""
+    """构建邮件主题 + HTML 正文。返回 (subject, html_body)。"""
     stats = load_signal_stats()
 
-    buys = [s for s in signals if s["signal"] == "buy"]
-    sells = [s for s in signals if s["signal"] == "sell"]
-    others = [s for s in signals if s["signal"] not in ("buy", "sell")]
-    n = len(signals)
+    # 按 signal 类型分组（buy / buy_aux / sell）
+    groups: dict[str, list[dict]] = {k: [] for k in SIGNAL_ORDER}
+    for s in signals:
+        sig = s["signal"]
+        if sig in groups:
+            groups[sig].append(s)
+        else:
+            groups.setdefault(sig, []).append(s)
 
-    # 主题加品种摘要
-    buy_summary = _summary_names(buys, name_map)
-    sell_summary = _summary_names(sells, name_map)
-    subject = f"[买卖点信号] {date} 买:{buy_summary} 卖:{sell_summary}"
+    n_total = len(signals)
+    n_buy = len(groups["buy"])
+    n_aux = len(groups["buy_aux"])
+    n_sell = len(groups["sell"])
 
-    lines: list[str] = []
-    lines.append(f"【买卖点信号】{date}  共 {n} 个信号（买 {len(buys)} / 卖 {len(sells)}）")
-    lines.append("")
+    # === 标题：信号类型 + 品种摘要 ===
+    parts = []
+    for sig_type in SIGNAL_ORDER:
+        g = groups[sig_type]
+        label = _signal_label(sig_type)
+        if g:
+            summary = _summary_names(g, name_map, limit=3)
+            parts.append(f"{label}×{len(g)} {summary}")
+    subject = f"[买卖点信号] {date}  {' | '.join(parts) if parts else '无信号'}"
 
-    # 买入信号
-    lines.append(f"═══════════ 📈 买入信号（{len(buys)}） ═══════════")
-    if buys:
-        for s in buys:
-            name = index_id_to_name(s["index_id"], name_map)
-            lines.append(f"  • {name}（{s['index_id']}）  {s['reason'] or ''}")
-            sub = stats.get(s["index_id"], {}).get(s["signal"], {}).get("10d")
-            stats_line = _format_stats_line(sub)
-            if stats_line:
-                lines.append(stats_line)
+    # === HTML 正文 ===
+    html_parts = [f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
+<h2 style="margin:0 0 8px 0;color:#1d2129;">📊 买卖点信号日报</h2>
+<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 卖 {n_sell}）</p>"""]
+
+    if n_total == 0:
+        html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
     else:
-        lines.append("  （无）")
-    lines.append("")
+        # 信号表格
+        html_parts.append("""<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+<thead><tr style="background:#f2f3f5;text-align:left;">
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">品种</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:48px;">类型</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">触发条件</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">胜率</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">盈亏比</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:130px;text-align:center;">凯利建议</th>
+</tr></thead><tbody>""")
 
-    # 卖出信号
-    lines.append(f"═══════════ 📉 卖出信号（{len(sells)}） ═══════════")
-    if sells:
-        for s in sells:
-            name = index_id_to_name(s["index_id"], name_map)
-            lines.append(f"  • {name}（{s['index_id']}）  {s['reason'] or ''}")
-            sub = stats.get(s["index_id"], {}).get(s["signal"], {}).get("10d")
-            stats_line = _format_stats_line(sub)
-            if stats_line:
-                lines.append(stats_line)
-    else:
-        lines.append("  （无）")
-    lines.append("")
+        for sig_type in SIGNAL_ORDER:
+            for s in groups[sig_type]:
+                name = index_id_to_name(s["index_id"], name_map)
+                reason = (s["reason"] or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                label = _signal_label(sig_type)
+                emoji = _signal_emoji(sig_type)
+                # 回测统计
+                sub = stats.get(s["index_id"], {}).get(sig_type, {}).get("10d")
+                wr = sub.get("win_rate") if sub else None
+                pl = sub.get("pl") if sub else None
+                n_s = sub.get("n") if sub else None
+                wr_str = f'{(wr or 0)*100:.0f}%' if wr is not None else "-"
+                pl_str = f'{pl:.2f}' if pl is not None else "-"
+                if wr is not None and pl is not None and n_s is not None and n_s >= 10:
+                    kelly = calc_kelly(wr, pl)
+                    if kelly > 0:
+                        kelly_str = f'建议仓位 <b>{kelly*100:.0f}%</b>'
+                        kelly_color = "#2e8b57"
+                    else:
+                        kelly_str = "不建议入场"
+                        kelly_color = "#86909c"
+                else:
+                    kelly_str = f'样本不足({n_s or 0}例)' if n_s else "-"
+                    kelly_color = "#c9cdd4"
+                wr_color = "#2e8b57" if (wr or 0) >= 0.6 else "#e6492e" if (wr or 0) < 0.4 else "#1d2129"
+                html_parts.append(f"""<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">{emoji} <b>{name}</b></td>
+<td style="padding:8px 10px;font-size:12px;">{label}</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">{reason}</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:{wr_color};">{wr_str}</td>
+<td style="padding:8px 10px;text-align:center;">{pl_str}</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:{kelly_color};">{kelly_str}</td>
+</tr>""")
 
-    # 其他类型
-    if others:
-        lines.append(f"═══════════ ⚠ 其他信号（{len(others)}） ═══════════")
-        for s in others:
-            name = index_id_to_name(s["index_id"], name_map)
-            lines.append(f"  • {name}（{s['index_id']}）  {s['signal']}: {s['reason'] or ''}")
-            sub = stats.get(s["index_id"], {}).get(s["signal"], {}).get("10d")
-            stats_line = _format_stats_line(sub)
-            if stats_line:
-                lines.append(stats_line)
-        lines.append("")
+        html_parts.append("</tbody></table>")
 
-    lines.append("─" * 50)
-    lines.append(RULE_SUMMARY)
-    lines.append(DISCLAIMER)
-    lines.append("")
-    lines.append("—— A股/港股/全球情绪数据复盘看板")
-    lines.append(f"   生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # 规则说明 + 免责
+    html_parts.append(f"""<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#4e5969;line-height:1.8;">
+<div style="font-weight:600;margin-bottom:4px;color:#1d2129;">📋 规则说明</div>
+• 主买（buy）：RSI 上穿 30（超卖反弹启动）<br>
+• 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）<br>
+• 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
+• 附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注
+</div>
+<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;font-size:12px;color:#86909c;line-height:1.8;">
+<div style="font-weight:600;margin-bottom:4px;color:#1d2129;">⚠️ 免责声明</div>
+本信号由历史数据量化回测生成，仅供研究参考，不构成任何投资建议。<br>
+市场有风险，投资需谨慎。请结合自身判断与资金管理做出决策。
+</div>
+<p style="color:#c9cdd4;font-size:11px;margin-top:16px;">—— A股/港股/全球情绪数据复盘看板 · 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+</body></html>""")
 
-    body = "\n".join(lines)
+    body = "\n".join(html_parts)
     return subject, body
 
 
@@ -271,7 +331,7 @@ def send_email(cfg: dict, subject: str, body: str) -> None:
         log.warning("SMTP password 仍是占位符 —— 跳过实际发送（邮件内容已打印到日志）")
         return
 
-    msg = MIMEText(body, "plain", "utf-8")
+    msg = MIMEText(body, "html", "utf-8")
     msg["Subject"] = subject
     msg["From"] = formataddr(("A股情绪看板", user))
     msg["To"] = to
@@ -299,8 +359,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     n_buy = sum(1 for s in signals if s["signal"] == "buy")
+    n_aux = sum(1 for s in signals if s["signal"] == "buy_aux")
     n_sell = sum(1 for s in signals if s["signal"] == "sell")
-    log.info("查询到 %d 个信号（buy=%d, sell=%d）", len(signals), n_buy, n_sell)
+    log.info("查询到 %d 个信号（主买=%d, 辅买=%d, 卖=%d）", len(signals), n_buy, n_aux, n_sell)
 
     name_map = load_name_map()
     subject, body = build_email(date, signals, name_map)

@@ -307,6 +307,12 @@ main { padding: 16px 24px; }
 .spark-cell .chart-hint .hint-row { margin: 1px 0; }
 .spark-cell .chart-hint .hint-header { margin-bottom: 2px; font-size: 10px; }
 .ind-metrics { margin-top: 4px; }
+.ind-metric-empty {
+  font-size: 10px;
+  color: #c9cdd4;
+  text-align: center;
+  padding: 4px 0;
+}
 .ind-metric-row {
   display: flex;
   align-items: center;
@@ -460,4 +466,43 @@ main { padding: 16px 24px; }
 .heatmap-toggle button:last-child { border-right: none; }
 .heatmap-toggle button.active { background: #165dff; color: #fff; }
 .heatmap-toggle button:hover:not(.active) { background: #f2f3f5; }
+
+/* === 期货机构持仓 === */
+.futures-note {
+  font-size: 12px;
+  color: #86909c;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.accuracy-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.accuracy-table th,
+.accuracy-table td {
+  padding: 6px 8px;
+  text-align: center;
+  border-bottom: 1px solid #f2f3f5;
+}
+.accuracy-table th {
+  background: #fafbfc;
+  color: #4e5969;
+  font-weight: 500;
+  font-size: 11px;
+}
+.accuracy-table td.sym-name {
+  font-weight: 600;
+  text-align: left;
+  color: #1f2329;
+}
+.accuracy-table td.acc-good {
+  color: #16a34a;
+  font-weight: 600;
+}
+.accuracy-table td.acc-bad {
+  color: #dc2626;
+  font-weight: 600;
+}
 

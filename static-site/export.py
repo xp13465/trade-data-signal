@@ -312,17 +312,41 @@ def export_sentiment(conn, cfg, rng):
     return {
         "a_sentiment": _score_series(conn, "a_sentiment", start, end),
         "cross_market": _score_series(conn, "cross_market", start, end),
+        "sentiment_sz50": _score_series(conn, "sentiment_sz50", start, end),
+        "sentiment_hs300": _score_series(conn, "sentiment_hs300", start, end),
+        "sentiment_csi500": _score_series(conn, "sentiment_csi500", start, end),
+        "sentiment_csi1000": _score_series(conn, "sentiment_csi1000", start, end),
+        "sentiment_cyb": _score_series(conn, "sentiment_cyb", start, end),
+        "sentiment_kc50": _score_series(conn, "sentiment_kc50", start, end),
         "signals": {
             "a_sentiment": _signals(conn, "s.a_sentiment", start, end),
             "cross_market": _signals(conn, "s.cross_market", start, end),
+            "sentiment_sz50": _signals(conn, "s.sentiment_sz50", start, end),
+            "sentiment_hs300": _signals(conn, "s.sentiment_hs300", start, end),
+            "sentiment_csi500": _signals(conn, "s.sentiment_csi500", start, end),
+            "sentiment_csi1000": _signals(conn, "s.sentiment_csi1000", start, end),
+            "sentiment_cyb": _signals(conn, "s.sentiment_cyb", start, end),
+            "sentiment_kc50": _signals(conn, "s.sentiment_kc50", start, end),
         },
         "stats": {
             "a_sentiment": _stats_for(stats_all, "s.a_sentiment"),
             "cross_market": _stats_for(stats_all, "s.cross_market"),
+            "sentiment_sz50": _stats_for(stats_all, "s.sentiment_sz50"),
+            "sentiment_hs300": _stats_for(stats_all, "s.sentiment_hs300"),
+            "sentiment_csi500": _stats_for(stats_all, "s.sentiment_csi500"),
+            "sentiment_csi1000": _stats_for(stats_all, "s.sentiment_csi1000"),
+            "sentiment_cyb": _stats_for(stats_all, "s.sentiment_cyb"),
+            "sentiment_kc50": _stats_for(stats_all, "s.sentiment_kc50"),
         },
         "strategy": {
             "a_sentiment": strategy_desc("s.a_sentiment", cfg),
             "cross_market": strategy_desc("s.cross_market", cfg),
+            "sentiment_sz50": strategy_desc("s.sentiment_sz50", cfg),
+            "sentiment_hs300": strategy_desc("s.sentiment_hs300", cfg),
+            "sentiment_csi500": strategy_desc("s.sentiment_csi500", cfg),
+            "sentiment_csi1000": strategy_desc("s.sentiment_csi1000", cfg),
+            "sentiment_cyb": strategy_desc("s.sentiment_cyb", cfg),
+            "sentiment_kc50": strategy_desc("s.sentiment_kc50", cfg),
         },
     }
 
@@ -382,6 +406,47 @@ def export_metrics(cfg):
             for m in cfg.get("metrics", []) if m.get("enabled")]
 
 
+def export_futures(conn):
+    """复刻 /api/futures。"""
+    end = last_trading_day()
+    one_year_ago = (datetime.strptime(end, "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
+
+    # 近 1 年日度净持仓
+    pos_rows = conn.execute(
+        "SELECT date, variety, net_ratio FROM futures_position "
+        "WHERE date>=? AND net_ratio IS NOT NULL ORDER BY date, variety",
+        (one_year_ago,),
+    ).fetchall()
+
+    positions_by_date = {}
+    for r in pos_rows:
+        d = r["date"]
+        if d not in positions_by_date:
+            positions_by_date[d] = {}
+        positions_by_date[d][r["variety"]] = r["net_ratio"]
+    positions = [{"date": d, **v} for d, v in sorted(positions_by_date.items())]
+
+    # 最新准确率
+    accuracy_rows = conn.execute(
+        "SELECT a.date, a.variety, a.window, a.follow_accuracy, a.contrarian_accuracy "
+        "FROM futures_accuracy a "
+        "INNER JOIN (SELECT variety, window, MAX(date) AS max_date FROM futures_accuracy GROUP BY variety, window) b "
+        "ON a.variety=b.variety AND a.window=b.window AND a.date=b.max_date "
+        "ORDER BY a.variety, a.window"
+    ).fetchall()
+
+    accuracy = {}
+    for r in accuracy_rows:
+        v = r["variety"]
+        if v not in accuracy:
+            accuracy[v] = {}
+        w = f"{r['window']}d"
+        accuracy[v][f"follow_{w}"] = r["follow_accuracy"]
+        accuracy[v][f"contrarian_{w}"] = r["contrarian_accuracy"]
+
+    return {"positions": positions, "accuracy": accuracy}
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -428,6 +493,10 @@ def main():
     # 7. metrics
     counts["metrics.json"] = write_json(DATA_DIR / "metrics.json", export_metrics(cfg))
     print(f"  metrics.json ({counts['metrics.json']} bytes)")
+
+    # 7.5. futures
+    counts["futures.json"] = write_json(DATA_DIR / "futures.json", export_futures(conn))
+    print(f"  futures.json ({counts['futures.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]

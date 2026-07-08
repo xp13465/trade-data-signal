@@ -8,33 +8,48 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
-## 交接状态（2026-07-08，准备 compact）
+## 交接状态（2026-07-09，compact 前最后更新）
 
-> 买卖点优化 + 界面标注 + 部署配置 + 模拟回测 全部完成。仅剩 2 个非阻塞遗留。
+> 概念板块 + 情绪Tab扩充 + 邮件格式优化 + 期货机构持仓方案 全部完成。剩余 2 个待办 + 2 个遗留。
 
 ### 本轮已完成（概要）
 
+**概念板块（27个）**：
+- 27 个同花顺概念板块（量子科技、元宇宙、东数西算、信创、算力租赁等）
+- 数据采集：`app/collector/fetchers.py` 新增 `index_hist_ths_concept` fetcher
+- 买卖点信号 + 回测统计（signals.compute + signal_stats.compute）
+- 模拟回测 HTML（27 个 trade_sim 页面）
+- 前端：行业Tab 展示概念板块，无资金流/换手率显示"暂无数据"提示
+
+**情绪Tab扩充（2图→8图+热力图）**：
+- 6 个 per-index 情绪分：上证50/沪深300/中证500/中证1000/创业板/科创50
+- 冰点热力图（6指数 × 时间轴）
+- 冰点检测：value < 20 = is_freeze, value > 80 = is_overheat
+- 数据表：score_daily 新增 sentiment_sz50/hs300/csi500/csi1000/cyb/kc50
+- 前后端全链路：compute → API → 前端 → 静态站导出
+
 **买卖点逻辑优化**（REQUIREMENTS.md §7）：
 - sell 卖点 MACD 死叉确认（DIF<DEA，s.* 豁免），建议率 18%→43%
-- buy_aux 逐品类优化：18/32 品类已落地 per-index filter（rsi_cross_40 / close_above_bl_2pct），累计 18 品类优化
+- buy_aux 逐品类优化：18/32 品类已落地 per-index filter
 - buy 精选 3 品类落地 buy_filter（kc50/电力设备/传媒 rsi_cross_25）
 - 3 个结构性异常品类 skip（oil/usdcnh/cn_us_spread）
-- 回测报告 13-26（`a-stock-data/` 目录）
+
+**邮件格式优化**（scripts/check_signals.py）：
+- 标题改为 `[买卖点信号] {date} 主买×N xxx | 辅买×N xxx | 卖×N xxx`
+- 正文改为 HTML 表格格式（品种/类型/触发条件/胜率/盈亏比/凯利建议）
+- 信号类型：主买(buy)🔴 / 辅买(buy_aux)🟣 / 卖(sell)🟢
+- 凯利公式：f* = max(0, (b·p-(1-p))/b)
 
 **界面 + 部署**：
 - 策略公式后端注入（`strategy_desc()` → API → 前端读字段）
 - ruleBar 文案更新（MACD 死叉 + per-index 增强 + 变更历史）
-- 行业 tooltip 修复（`[date,value]` 二维数组取 dataIndex）
 - Cloudflare Workers Static Assets 部署（wrangler.jsonc）
-- 备份表清理（`signal_daily_bak_20260707` DROP）
 
 **模拟回测**（新增）：
 - `scripts/simulate_trade.py` → 三路径九场景 → 静态 HTML `trade_sim.html`
 - 两级 Tab（外层策略路径 + 内层信号组合）
 - 固定 1w FIFO + 主+辅+卖 最优：10 万→72.4 万，年化 5.7%，胜率 71%
-- 交易记录清单：上证收盘 / 较上条涨跌 / 持仓成本变化 before→after / 当前总资产 / 累计收益率
 - 入口：主看板上证凯利仓位后「📊 模拟回测」链接
-- Commits：1efebd4 + ab9080c + 2b8ef09 + 267f35e + 898b32f
 
 ### 工作模式（不变）
 - 监管+loop：派子 agent（fresh context）读 TASKS.md 领任务
@@ -45,7 +60,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 1. [x] **🔴 P0：邮件通知增强 — 同步推送该信号回测统计（胜率/盈亏比/凯利仓位）** ✅ — `check_signals.py` `build_email()` 加 `load_signal_stats()` + `_format_stats_line()`，每条信号后追加 `回测(10日) 胜率XX% 盈亏比XX 样本XX → 凯利建议仓位 XX%`，数据源 `data/signal_stats.json`，缺失静默跳过不报错
 2. [x] **🔴 P0：模拟回测入口改为回测口径行高亮按钮** ✅
-3. [ ] **全品种模拟回测（56 品种）** — 见 `scripts/SIMULATION_CHECKLIST.md`
+3. [x] **全品种模拟回测（56 品种）** ✅ — P0 39/40（缺 s.cross_market 非交易资产）+ P1 5/5 + P2 6/6 = 50 个指数/行业 + 27 个概念板块 = 77 个 HTML。P3 5 个（凯利=0%）有意跳过。见 `scripts/SIMULATION_CHECKLIST.md`
+4. [x] **期货机构净多空持仓指标** ✅ — 数据源 `ak.get_cffex_rank_table()`，IF/IC/IH/IM 前20会员多空持仓汇总 → 净持仓比例 + 同向/逆向准确率。详细方案见 NOTES.md §9。拆为 6 个子任务全部完成：F1 采集器(3035行/607交易日) + F2 建表+计算+API+Runner + F5 前端(折线图+准确率表格) + F6 静态导出
 
 ### 已完成 — 模拟回测优化（2026-07-08，13 项）✅
 
@@ -60,7 +76,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 2. **g.cn10y buy_aux 回测** — 全球指标类（`_compute_value_signals` 路径），回测脚本需单独处理
 
 ### 下轮起点
-读本节 + `scripts/SIMULATION_CHECKLIST.md`（全品种回测清单）。关键文件：`scripts/simulate_trade.py`（需参数化改造）、`static-site/trade_sim.html`（参考案例）、`data/signal_stats.json`（凯利/胜率数据）。
+剩余待办仅 **期货机构净多空持仓指标**（待实施，先不做）。日常维护：读本节 + `REQUIREMENTS.md` + `NOTES.md`。
 
 ---
 

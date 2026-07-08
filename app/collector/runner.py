@@ -275,6 +275,25 @@ def run(date=None, verbose=True):
         fail += 1
         details.append(("width_history", "fail", str(e)[:150]))
 
+    # 10) 期货机构净多空持仓采集 + 准确率计算
+    try:
+        from . import futures_position as fp_collector
+        fp_collector.collect_daily(date)
+        details.append(("futures_position", "ok", f"collected {date}"))
+        ok += 1
+    except Exception as e:  # noqa: BLE001
+        fail += 1
+        details.append(("futures_position", "fail", str(e)[:150]))
+
+    try:
+        from ..compute.futures_position import compute_accuracy
+        n_acc = compute_accuracy(date=date)
+        details.append(("futures_accuracy", "ok", f"{n_acc} rows"))
+        ok += 1
+    except Exception as e:  # noqa: BLE001
+        fail += 1
+        details.append(("futures_accuracy", "fail", str(e)[:150]))
+
     if verbose:
         print(f"=== 采集 {date} 完成: ok={ok} fail={fail} ===")
         for mid, st, msg in details:

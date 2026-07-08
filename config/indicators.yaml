@@ -90,6 +90,7 @@ indices:
   - {id: sh,       name: 上证指数, market: a, func: stock_zh_index_daily, symbol: "sh000001"}
   - {id: sz,       name: 深成指,   market: a, func: stock_zh_index_daily, symbol: "sz399001"}
   - {id: hs300,    name: 沪深300,  market: a, func: stock_zh_index_daily, symbol: "sh000300"}
+  - {id: sz50,     name: 上证50,   market: a, func: stock_zh_index_daily, symbol: "sh000016"}
   - {id: csi500,   name: 中证500,  market: a, func: stock_zh_index_daily, symbol: "sh000905"}
   - {id: csi1000,  name: 中证1000, market: a, func: stock_zh_index_daily, symbol: "sh000852", buy_aux_filter: rsi_cross_40}
   - {id: cyb,      name: 创业板指, market: a, func: stock_zh_index_daily, symbol: "sz399006", buy_aux_filter: rsi_cross_40}

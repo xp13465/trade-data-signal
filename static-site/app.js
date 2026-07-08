@@ -22,7 +22,13 @@ const SIM_INDICES = new Set([
   'sw_801180', 'sw_801210', 'sw_801230',
   'sw_801710', 'sw_801720', 'sw_801730', 'sw_801740', 'sw_801750',
   'sw_801760', 'sw_801770', 'sw_801780', 'sw_801790',
-  'sw_801880', 'sw_801890', 'sw_801950', 'sw_801960', 'sw_801970', 'sw_801980'
+  'sw_801880', 'sw_801890', 'sw_801950', 'sw_801960', 'sw_801970', 'sw_801980',
+  'thsc_300816', 'thsc_309119', 'thsc_308700', 'thsc_309049', 'thsc_301085',
+  'thsc_307940', 'thsc_302035', 'thsc_309068', 'thsc_308828', 'thsc_309020',
+  'thsc_309060', 'thsc_300008', 'thsc_301079', 'thsc_300733', 'thsc_306380',
+  'thsc_308294', 'thsc_309115', 'thsc_308014', 'thsc_300082', 'thsc_300830',
+  'thsc_308725', 'thsc_308300', 'thsc_309113', 'thsc_308491', 'thsc_308870',
+  'thsc_308752', 'thsc_309128'
 ]);
 // 全球 tab extras 回的 id 无 g. 前缀（如 gold），需映射到实际文件名（如 g.gold）
 const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 'g.wti_oil' };
@@ -111,6 +117,53 @@ function signalLabel(s) {
   if (s.signal === "buy") return "买";
   if (s.signal === "buy_aux") return "辅买";
   return "卖";
+}
+
+// index_id → 中文名 转译（散户友好，去除代码前缀，查不到保留原值）
+const _INDEX_NAME_MAP = {
+  // A股宽基
+  sh: '上证指数', sz: '深证成指', cyb: '创业板指', csi500: '中证500', csi1000: '中证1000',
+  kc50: '科创50', hs300: '沪深300', sz50: '上证50',
+  // 港股
+  hsi: '恒生指数', hscei: '国企指数', hstech: '恒生科技',
+  // 美股
+  us_dji: '道琼斯', us_ixic: '纳斯达克', us_spx: '标普500', us_ndx: '纳斯达克100',
+  // 红利/低波
+  div_lowvol: '红利低波', csi_div: '中证红利', sz_div: '深证红利',
+  // 全球指标
+  cn10y: '中国10年国债', us10y: '美国10年国债', wti_oil: 'WTI原油',
+  comex_silver: 'COMEX白银', gold: '伦敦金', oil: '原油', usdcnh: '美元/离岸人民币',
+  a_qvix_300: '300波动率', a_qvix_1000: '1000波动率', cn_us_spread: '中美利差',
+  // 综合情绪
+  cross_market: '跨市场综合分', a_sentiment: 'A股综合情绪分',
+  sentiment_sz50: '上证50情绪分', sentiment_hs300: '沪深300情绪分',
+  sentiment_csi500: '中证500情绪分', sentiment_csi1000: '中证1000情绪分',
+  sentiment_cyb: '创业板情绪分', sentiment_kc50: '科创50情绪分',
+  // 申万行业（31个）
+  sw_801010: '农林牧渔', sw_801030: '基础化工', sw_801040: '钢铁', sw_801050: '有色金属',
+  sw_801080: '电子', sw_801110: '家用电器', sw_801120: '食品饮料', sw_801130: '纺织服饰',
+  sw_801140: '轻工制造', sw_801150: '医药生物', sw_801160: '公用事业', sw_801170: '交通运输',
+  sw_801180: '房地产', sw_801200: '商贸零售', sw_801210: '社会服务', sw_801230: '综合',
+  sw_801710: '建筑材料', sw_801720: '建筑装饰', sw_801730: '电力设备', sw_801740: '国防军工',
+  sw_801750: '计算机', sw_801760: '传媒', sw_801770: '通信', sw_801780: '银行',
+  sw_801790: '非银金融', sw_801880: '汽车', sw_801890: '机械设备', sw_801950: '煤炭',
+  sw_801960: '石油石化', sw_801970: '环保', sw_801980: '美容护理',
+  // 概念板块（27个同花顺）
+  thsc_300008: '新能源汽车', thsc_300082: '军工', thsc_300733: '锂电池概念',
+  thsc_300816: '机器人概念', thsc_300830: '量子科技', thsc_301079: '光伏概念',
+  thsc_301085: '芯片概念', thsc_302035: '人工智能', thsc_306380: '储能',
+  thsc_307940: '存储芯片', thsc_308014: '创新药', thsc_308294: '固态电池',
+  thsc_308300: 'MCU芯片', thsc_308491: '氢能源', thsc_308700: '第三代半导体',
+  thsc_308725: '汽车芯片', thsc_308752: '元宇宙', thsc_308828: '东数西算(算力)',
+  thsc_308870: '数字经济', thsc_309020: '信创', thsc_309049: '共封装光学(CPO)',
+  thsc_309060: '数据要素', thsc_309068: '算力租赁', thsc_309113: '飞行汽车(eVTOL)',
+  thsc_309115: '低空经济', thsc_309119: '人形机器人', thsc_309128: '军工信息化',
+};
+
+function indexIdToName(indexId) {
+  // 去掉 g./s. 前缀后查表
+  const key = indexId.replace(/^(g|s)\./, '');
+  return _INDEX_NAME_MAP[key] || indexId;
 }
 
 // 买卖点回测 stats tips（折线图上方）：散户化多块文案 + 胜率配色梯度 + 凯利公式折叠详解。
@@ -568,12 +621,12 @@ async function renderOverview() {
   twoCol.className = "ov-2col";
   const sigHtml = (r.signals_today && r.signals_today.length)
     ? `<h3>今日买卖点（${r.date}）</h3><ul class="sig-list">${r.signals_today
-        .map((s) => `<li><b class="${s.signal}">${signalLabel(s)}</b> ${s.index_id} <span class="muted">${s.reason || ""}</span></li>`)
+        .map((s) => `<li><b class="${s.signal}">${signalLabel(s)}</b> ${indexIdToName(s.index_id)} <span class="muted">${s.reason || ""}</span></li>`)
         .join("")}</ul>`
     : `<h3>今日买卖点（${r.date}）</h3><div class="empty-note">今日无买卖点信号</div>`;
   const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
     ? `<h3>近期冰点日</h3><ul class="sig-list">${r.recent_freeze
-        .map((s) => `<li>${s.date} <span class="muted">${s.score_id}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
+        .map((s) => `<li>${s.date} <span class="muted">${indexIdToName(s.score_id)}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
         .join("")}</ul>`
     : `<h3>近期冰点日</h3><div class="empty-note">无近期冰点日</div>`;
   twoCol.innerHTML = `<div class="chart-card">${sigHtml}</div><div class="chart-card">${freezeHtml}</div>`;
@@ -712,6 +765,29 @@ async function renderSentiment() {
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
+  if (r.a_sentiment.length) valueChartWithSignals("A股综合情绪分（0-100）", r.a_sentiment.map((d) => ({ date: d.date, value: d.value })), sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+  const idxNames = {
+    sentiment_sz50: '上证50情绪分（0-100）',
+    sentiment_hs300: '沪深300情绪分（0-100）',
+    sentiment_csi500: '中证500情绪分（0-100）',
+    sentiment_csi1000: '中证1000情绪分（0-100）',
+    sentiment_cyb: '创业板情绪分（0-100）',
+    sentiment_kc50: '科创50情绪分（0-100）',
+  };
+  for (const [key, title] of Object.entries(idxNames)) {
+    if (r[key] && r[key].length) {
+      valueChartWithSignals(title, r[key].map(d => ({date: d.date, value: d.value})),
+        sig[key] || [], {
+          visualMap: {
+            show: false,
+            pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
+            dimension: 1,
+          },
+        }, stats[key], strat[key]);
+    }
+  }
+  // 冰点/过热热力图
+  renderSentimentHeatmap(r);
   if (r.cross_market.length)
     valueChartWithSignals("跨市场综合评分（0-100）", r.cross_market.map((d) => ({ date: d.date, value: d.value })), sig.cross_market || [], {
       visualMap: {
@@ -720,7 +796,182 @@ async function renderSentiment() {
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market);
-  if (r.a_sentiment.length) valueChartWithSignals("A股综合情绪分（0-100）", r.a_sentiment.map((d) => ({ date: d.date, value: d.value })), sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+  // 期货机构持仓
+  const futures = await fetchJSON("./data/futures.json");
+  if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures);
+}
+
+// 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=红(冰点≤20)/绿(过热>80)/灰(中性)
+function renderSentimentHeatmap(r) {
+  const idxNames = [
+    { key: 'sentiment_sz50', label: '上证50' },
+    { key: 'sentiment_hs300', label: '沪深300' },
+    { key: 'sentiment_csi500', label: '中证500' },
+    { key: 'sentiment_csi1000', label: '中证1000' },
+    { key: 'sentiment_cyb', label: '创业板' },
+    { key: 'sentiment_kc50', label: '科创50' },
+  ];
+  // 收集所有日期（取各指数日期并集）
+  const allDates = new Set();
+  const idxData = {};
+  for (const { key, label } of idxNames) {
+    const series = r[key] || [];
+    idxData[key] = series;
+    series.forEach((d) => allDates.add(d.date));
+  }
+  if (!allDates.size) return;
+  const dates = [...allDates].sort();
+  const dateIdx = {};
+  dates.forEach((d, i) => { dateIdx[d] = i; });
+
+  // 构建 heatmap 数据：[dateIndex, yIndex, value]
+  const data = [];
+  idxNames.forEach(({ key }, yi) => {
+    (idxData[key] || []).forEach((d) => {
+      const xi = dateIdx[d.date];
+      if (xi != null) data.push([xi, yi, d.value]);
+    });
+  });
+  if (!data.length) return;
+
+  const div = document.createElement("div");
+  div.className = "chart-card";
+  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图</h3><div class="chart" style="height:220px"></div>`;
+  content.appendChild(div);
+  const c = echarts.init(div.querySelector(".chart"));
+  charts.push(c);
+
+  // 日期标签：只显示约 10 个刻度以免太密
+  const labelInterval = Math.max(1, Math.floor(dates.length / 10));
+  c.setOption({
+    tooltip: {
+      trigger: "item",
+      formatter: (p) => {
+        const d = dates[p.value[0]];
+        const lbl = idxNames[p.value[1]].label;
+        const v = p.value[2];
+        const tag = v <= 20 ? "冰点" : v > 80 ? "过热" : "中性";
+        return `${d}<br/>${lbl}: ${v != null ? v.toFixed(1) : "-"} (${tag})`;
+      },
+    },
+    grid: { left: 80, right: 20, top: 20, bottom: 50 },
+    xAxis: {
+      type: "category", data: dates,
+      axisLabel: { rotate: 45, fontSize: 10, interval: labelInterval },
+      splitArea: { show: false },
+    },
+    yAxis: {
+      type: "category",
+      data: idxNames.map((x) => x.label),
+      axisLabel: { fontSize: 12 },
+    },
+    visualMap: {
+      min: 0, max: 100,
+      pieces: [
+        { lte: 20, color: "#e6492e", label: "冰点(≤20)" },
+        { gt: 20, lte: 80, color: "#d9d9d9", label: "中性(20-80)" },
+        { gt: 80, color: "#2e8b57", label: "过热(>80)" },
+      ],
+      orient: "horizontal", left: "center", bottom: 4,
+    },
+    series: [{
+      type: "heatmap", data: data,
+      label: { show: false },
+      emphasis: { itemStyle: { borderColor: "#1f2329", borderWidth: 1 } },
+    }],
+  });
+}
+
+// 期货机构持仓：净持仓比例折线图 + 方向准确率表格
+function renderFuturesSection(data) {
+  if (!data || !data.positions || !data.positions.length) return;
+
+  const symbols = ["IF", "IC", "IH", "IM", "综合"];
+  const seriesData = symbols.map((sym) => ({
+    name: sym,
+    data: data.positions.map((d) => ({ date: d.date, value: d[sym] })).filter((d) => d.value != null),
+  }));
+
+  // 1. 净持仓比例折线图
+  if (seriesData.some((s) => s.data.length)) {
+    const dates = [...new Set(seriesData.flatMap((s) => s.data.map((d) => d.date)))].sort();
+    const c = mkCard("各品种净持仓比例（近1年）", 320, "净持仓比例 = (前20会员多单 − 空单) / 总持仓。正值=净多（蓝），负值=净空（红）。数据来源：中金所。");
+    c.setOption({
+      tooltip: { trigger: "axis", formatter: (p) => {
+        let html = p[0].axisValue;
+        for (const item of p) {
+          const v = item.value;
+          const tag = v > 0 ? "净多" : v < 0 ? "净空" : "中性";
+          html += `<br/>${item.seriesName}: ${(v * 100).toFixed(1)}% (${tag})`;
+        }
+        return html;
+      } },
+      legend: { top: 0, type: "scroll" },
+      grid: { left: 55, right: 20, top: 35, bottom: 35 },
+      xAxis: { type: "category", data: dates },
+      yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v * 100).toFixed(0) + "%" } },
+      dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+      series: seriesData.map((s, i) => ({
+        name: s.name,
+        type: "line",
+        smooth: true,
+        symbol: "none",
+        connectNulls: true,
+        data: dates.map((d) => {
+          const p = s.data.find((x) => x.date === d);
+          return p ? p.value : null;
+        }),
+        markLine: i === 0 ? {
+          silent: true,
+          symbol: "none",
+          lineStyle: { color: "#86909c", type: "dashed", width: 1 },
+          label: { formatter: "0", fontSize: 10 },
+          data: [{ yAxis: 0 }],
+        } : undefined,
+      })),
+    });
+  }
+
+  // 2. 机构方向准确率表格
+  if (data.accuracy) {
+    const div = document.createElement("div");
+    div.className = "chart-card";
+    const symNames = { IF: "IF", IC: "IC", IH: "IH", IM: "IM", 综合: "综合" };
+    const cols = [
+      { key: "follow_1d", label: "同向1日" },
+      { key: "follow_5d", label: "同向5日" },
+      { key: "follow_10d", label: "同向10日" },
+      { key: "follow_20d", label: "同向20日" },
+      { key: "contrarian_1d", label: "逆向1日" },
+      { key: "contrarian_5d", label: "逆向5日" },
+      { key: "contrarian_10d", label: "逆向10日" },
+      { key: "contrarian_20d", label: "逆向20日" },
+    ];
+
+    let html = '<h3>机构方向准确率</h3>';
+    html += '<div class="futures-note">同向=跟随机构方向做多/做空；逆向=反向操作。窗口越长准确率越高 → 机构中期方向比短期更可靠。数据来源：中金所前20会员持仓。</div>';
+    html += '<table class="accuracy-table"><thead><tr><th>品种</th>';
+    for (const c of cols) html += `<th>${c.label}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const sym of symbols) {
+      const acc = data.accuracy[sym];
+      if (!acc) continue;
+      html += `<tr><td class="sym-name">${symNames[sym]}</td>`;
+      for (const c of cols) {
+        const v = acc[c.key];
+        let cls = "";
+        if (v != null) {
+          if (v > 0.55) cls = "acc-good";
+          else if (v < 0.45) cls = "acc-bad";
+        }
+        html += `<td class="${cls}">${v != null ? (v * 100).toFixed(1) + "%" : "-"}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    div.innerHTML = html;
+    content.appendChild(div);
+  }
 }
 
 // ============ 行业看板（F1）============
@@ -855,9 +1106,12 @@ function renderIndustryGrid(indices) {
       { label: "成交额", data: amountData, color: "#9b6dff", fmt: (v) => v.toFixed(0) + "亿" },
       { label: "换手率", data: turnover, color: "#36cfc9", fmt: (v) => v.toFixed(2) + "%" },
     ];
+    let hasAnyMetric = false;
     for (const spec of miniSpecs) {
       const hasData = spec.data && spec.data.length;
-      const lastVal = hasData ? spec.data[spec.data.length - 1].value : null;
+      if (!hasData) continue;
+      hasAnyMetric = true;
+      const lastVal = spec.data[spec.data.length - 1].value;
       const row = document.createElement("div");
       row.className = "ind-metric-row";
       row.innerHTML = `
@@ -865,7 +1119,6 @@ function renderIndustryGrid(indices) {
         <div class="ind-metric-chart"></div>
         <span class="ind-metric-val">${lastVal == null ? "-" : spec.fmt(lastVal)}</span>`;
       metricsBox.appendChild(row);
-      if (!hasData) continue;
       const mc = echarts.init(row.querySelector(".ind-metric-chart"));
       mc.setOption({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
@@ -884,6 +1137,12 @@ function renderIndustryGrid(indices) {
         }],
       });
       charts.push(mc);
+    }
+    if (!hasAnyMetric) {
+      const emptyNote = document.createElement("div");
+      emptyNote.className = "ind-metric-empty";
+      emptyNote.textContent = "暂无资金流/换手率数据";
+      metricsBox.appendChild(emptyNote);
     }
 
     // F3：行业内宽度 mini chart（涨跌家数堆叠：红涨/绿跌）

@@ -374,3 +374,49 @@ def collect_board(board, date):
             flow = None
         rows.append((date, board["type"], str(r[name_col]), pct, flow))
     return rows, "ok"
+
+
+# ================ 期货持仓排名 ================
+
+def fetch_futures_position(date: str) -> dict:
+    """采集 CFFEX 期货持仓排名数据。
+
+    入参 date: YYYYMMDD 格式
+    返回: dict[str, list[dict]]，key 为品种+合约（如 'IF2507'），
+          value 为 rank=999 汇总行列表，每行包含
+          {variety, long_open_interest, short_open_interest,
+           long_open_interest_chg, short_open_interest_chg}
+
+    调用 akshare.get_cffex_rank_table(date=date, vars_list=['IF', 'IC', 'IH', 'IM'])
+    返回 dict[str, DataFrame]，每个合约 21 行（前20+1行汇总rank=999）。
+    只取 rank=999 的汇总行。
+    """
+    result = safe_call(ak.get_cffex_rank_table, date=date, vars_list=['IF', 'IC', 'IH', 'IM'])
+    if isinstance(result, Exception):
+        return {}
+    if not isinstance(result, dict) or len(result) == 0:
+        return {}
+    out = {}
+    fields = ['long_open_interest', 'short_open_interest',
+              'long_open_interest_chg', 'short_open_interest_chg']
+    for contract, df in result.items():
+        if df is None or len(df) == 0:
+            continue
+        summary = df[df['rank'] == 999]
+        if len(summary) == 0:
+            continue
+        rows = []
+        for _, r in summary.iterrows():
+            try:
+                rows.append({
+                    'variety': str(r['variety']),
+                    'long_open_interest': float(r['long_open_interest']),
+                    'short_open_interest': float(r['short_open_interest']),
+                    'long_open_interest_chg': float(r['long_open_interest_chg']),
+                    'short_open_interest_chg': float(r['short_open_interest_chg']),
+                })
+            except (TypeError, ValueError, KeyError):
+                continue
+        if rows:
+            out[contract] = rows
+    return out
