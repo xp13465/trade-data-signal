@@ -35,19 +35,17 @@ cd /Users/linhuichen/code/trade
 
 这会重新生成 `static-site/data/` 下所有 JSON（覆盖旧文件）。导出约 1-2 秒，产出 71 个 JSON 文件（~63 MB）。
 
-## 部署到 Cloudflare Pages
+## 部署到 Cloudflare（Workers Static Assets）
 
-### 方式一：Git push 自动部署（推荐）
+后台用 `wrangler deploy`（Worker 模式，**非 Pages**）。仓库根 `wrangler.jsonc` 配 Workers Static Assets：`assets.directory` 指向 `static-site/`，Cloudflare 自动生成静态托管 Worker（无需 Worker 代码，无 `main`）。push 到 main 后 Cloudflare 构建环境跑 `wrangler deploy`，读 `wrangler.jsonc` 更新现有 Worker `trade-data-signal`。
 
-1. 将 `static-site/` 目录推到 GitHub 仓库（公开或私有均可）。
-2. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com) → Workers & Pages → Create application → Pages → Connect to Git。
-3. 选择仓库，配置构建：
-   - **Build command**: 留空（纯静态，无需构建）
-   - **Build output directory**: `static-site`（或你推送的目录名）
-   - **Root directory**: `/`（仓库根）
-4. 保存部署。之后每次 `git push` 自动触发部署（~30 秒生效）。
+### 方式一：Git push 自动部署（推荐，as code）
 
-**数据更新流程**：本地跑 `export.py` → `git add static-site/data/ && git commit -m "update data" && git push` → Cloudflare Pages 自动部署。
+1. 仓库根已有 `wrangler.jsonc`（`name=trade-data-signal`、`assets.directory=./static-site`、`compatibility_date=2026-07-07`）。
+2. Cloudflare Dashboard → Workers & Pages → trade-data-signal → Settings → Build & deploy，Build command 配 `wrangler deploy`，Root directory=`/`。
+3. 每次 `git push origin main` 自动触发部署（~30-60 秒生效）。
+
+**数据更新流程**：本地跑 `export.py` → `git add static-site/data/ && git commit -m "update data" && git push` → Cloudflare 自动 `wrangler deploy`。
 
 ### 方式二：wrangler CLI 手动部署
 
@@ -58,12 +56,12 @@ npm install -g wrangler
 # 登录 Cloudflare
 wrangler login
 
-# 部署（static-site 目录作为站点根）
+# 部署（读仓库根 wrangler.jsonc，部署 Static Assets Worker）
 cd /Users/linhuichen/code/trade
-wrangler pages deploy static-site --project-name sentiment-dashboard
+wrangler deploy
 ```
 
-首次会提示创建项目。之后每次更新数据后重新跑 `export.py` + `wrangler pages deploy` 即可。
+首次会提示创建项目。之后每次更新数据后重新跑 `export.py` + `wrangler deploy` 即可。
 
 ## 本地预览
 

@@ -65,6 +65,6 @@ if [ "$PUSH_RC" -ne 0 ]; then
   exit "$PUSH_RC"
 fi
 
-echo "✓ push 成功（Cloudflare Pages 将自动部署）" | tee -a "$LOG"
+echo "✓ push 成功（Cloudflare wrangler deploy 将自动部署）" | tee -a "$LOG"
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
 exit 0

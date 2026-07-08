@@ -56,6 +56,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 11. ~~🐛 行业 tab 折线图 tooltip 显示 nan（bug）~~ ✅ done（2026-07-08，commit a576993）— 防御性改 `renderIndustryGrid` 所有 tooltip formatter（主折线/资金流·成交额·换手率 mini/宽度）兜底 null/NaN/undefined 显示 '-'。数据查无 nan/null，根因疑是 data(0706) 与 turnover(0707) 日期不同步 + 多数品类 fund_flow 空致 echarts 传 undefined。
 12. ~~🐛 行业 tooltip 必须显示曲线真实数值（#11 修订，用户不满意兜底 '-'）~~ ✅ done（2026-07-08，commit a0845c5）— **根因确认**：主折线 + 资金流/成交额/换手率 mini chart 的 series data 是 `[date,value]` 二维数组 + xAxis category，echarts `trigger:"axis"` 下 `p[0].value` 是整个数组而非标量，`Number(数组)=NaN`，#11 兜底 formatter 恒走 '-' 分支（数据有值却显示 -）。宽度 mini 本已用 `p[0].dataIndex` 索引故正常；概览 sparkline 用 `idx.closes` 标量数组故正常。**修复**：主折线 + 3 mini 的 tooltip formatter 改用 `p[0].dataIndex` 直接索引数据数组取真实值（主折线 `ohlc[idx]`→日期+收盘+涨跌幅%+开/高/低；mini `spec.data[idx].value`→label:fmt(value)），保留 null 兜底 '-'。宽度不变。**尺寸**：`.ind-metric-chart` 24→32px（hover 易定位）、`.spark-chart` 90→110px（inline+CSS min-height 同步），grid 列宽 240px 不变布局不乱。改 4 文件（web/static 各 app.js+style.css），node --check PASS。
 
+13. ~~Cloudflare 部署配置 as code（wrangler.jsonc）~~ ✅ done（2026-07-08，commit 29d24dc）— 后台是 wrangler deploy Worker 模式（非 Pages），项目无 Worker 代码用 Workers Static Assets：wrangler.jsonc 配 `assets.directory=./static-site`（无 main，去 nodejs_compat）。name=trade-data-signal 确认更新现有 Worker，解决 "Worker already exists" 报错。用户 dashboard 确认部署成功。DEPLOY.md 同步改为 Static Assets 部署方式。
+
 ### 工作模式（不变）
 - 监管+loop：派子 agent（fresh context）读 TASKS.md 领任务，主进程不直接干活
 - param-opt-test-driven：参数优化回测多方案，出报告让用户选，不问参数怎么定
