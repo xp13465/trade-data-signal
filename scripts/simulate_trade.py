@@ -676,12 +676,12 @@ def _equity_svg(ledger, chart_id=0):
     values = [e["total_assets"] for e in ledger]
     y_min = min(min(values), TOTAL_CAPITAL) * 0.95
     y_max = max(max(values), TOTAL_CAPITAL) * 1.05
-    height = 140
+    height = 160
     width = 800
     margin_left = 80
     margin_right = 10
     margin_top = 5
-    margin_bottom = 5
+    margin_bottom = 24
     plot_width = width - margin_left - margin_right
     plot_height = height - margin_top - margin_bottom
     n = len(values)
@@ -729,6 +729,21 @@ def _equity_svg(ledger, chart_id=0):
     # 期末 marker
     final_marker = f'<circle cx="{scale_x(n-1):.1f}" cy="{scale_y(final_val):.1f}" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>'
 
+    # X-axis time labels: evenly spaced year-month labels
+    x_labels = []
+    dates = [e["date"] for e in ledger]
+    # pick ~5-7 evenly spaced ticks
+    tick_count = min(7, max(3, n // 2))
+    step = (n - 1) / (tick_count - 1) if tick_count > 1 else 1
+    for k in range(tick_count):
+        i = min(int(round(k * step)), n - 1)
+        if i >= n:
+            i = n - 1
+        date_str = dates[i]  # format: YYYY-MM-DD
+        label = date_str[:7]  # YYYY-MM
+        x = scale_x(i)
+        x_labels.append(f'<text x="{x:.1f}" y="{height - 4:.1f}" text-anchor="middle" font-size="9" fill="#86909c">{label}</text>')
+
     return f'''
     <svg width="100%" height="150" viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
       <defs>
@@ -743,6 +758,7 @@ def _equity_svg(ledger, chart_id=0):
       {' '.join(y_labels)}
       {peak_marker}
       {final_marker}
+      {' '.join(x_labels)}
     </svg>'''
 
 
