@@ -215,6 +215,10 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
     holdings_value = sum(s * last_close for _, _, s in positions)
     final_total = cash + holdings_value
 
+    # 构建 price_map 计算回合回撤
+    price_map = {s[0]: s[3] for s in signals}
+    round_dds = _calc_round_drawdowns(rounds, price_map)
+
     return _build_result(
         scenario_name, cash, positions, rounds, ledger, last_close,
         first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
@@ -223,6 +227,7 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
         strategy_desc="固定 1 万进出（FIFO）",
         max_drawdown=max_drawdown, max_drawdown_date=max_drawdown_date,
         skip1_label="仓位已满", skip2_label="现金不足", skip3_label="无持仓可卖",
+        round_drawdowns=round_dds,
     )
 
 
@@ -323,6 +328,10 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
     final_total = cash + holdings_value
     positions = [holding] if holding else []
 
+    # 构建 price_map 计算回合回撤
+    price_map = {s[0]: s[3] for s in signals}
+    round_dds = _calc_round_drawdowns(rounds, price_map)
+
     return _build_result(
         scenario_name, cash, positions, rounds, ledger, last_close,
         first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
@@ -331,6 +340,7 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
         strategy_desc="全仓进出（一次一笔，买全部现金，卖清仓）",
         max_drawdown=max_drawdown, max_drawdown_date=max_drawdown_date,
         skip1_label="连续同向买入", skip2_label="", skip3_label="无持仓可卖",
+        round_drawdowns=round_dds,
     )
 
 
@@ -452,6 +462,10 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
     holdings_value = sum(s * last_close for _, _, s in positions)
     final_total = cash + holdings_value
 
+    # 构建 price_map 计算回合回撤
+    price_map = {s[0]: s[3] for s in signals}
+    round_dds = _calc_round_drawdowns(rounds, price_map)
+
     return _build_result(
         scenario_name, cash, positions, rounds, ledger, last_close,
         first_buy_date, last_date, total_assets_peak, total_assets_peak_date,
@@ -460,6 +474,7 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
         strategy_desc="买固定 1 万 + 卖清仓全部",
         max_drawdown=max_drawdown, max_drawdown_date=max_drawdown_date,
         skip1_label="仓位已满", skip2_label="现金不足", skip3_label="无持仓可卖",
+        round_drawdowns=round_dds,
     )
 
 
@@ -471,7 +486,8 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
                   max_holding, max_holding_date, buy_count, sell_count,
                   skip1, skip2, skip3, max_positions_ever, strategy_desc="",
                   max_drawdown=0.0, max_drawdown_date=None,
-                  skip1_label="跳过", skip2_label="跳过", skip3_label="跳过"):
+                  skip1_label="跳过", skip2_label="跳过", skip3_label="跳过",
+                  round_drawdowns=None):
     holdings_value = sum(s * last_close for _, _, s in positions)
     final_total = cash + holdings_value
     total_return = final_total - TOTAL_CAPITAL
@@ -544,6 +560,25 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
             cur_win = 0
             cur_lose = 0
 
+    # 回撤中位数 & 去极值回撤均值
+    median_dd = 0.0
+    trimmed_mean_dd = 0.0
+    if round_drawdowns and len(round_drawdowns) > 0:
+        sorted_dds = sorted(round_drawdowns)
+        n = len(sorted_dds)
+        # 中位数
+        if n % 2 == 1:
+            median_dd = sorted_dds[n // 2]
+        else:
+            median_dd = (sorted_dds[n // 2 - 1] + sorted_dds[n // 2]) / 2
+        # 去极值均值（去掉顶部10%和底部10%）
+        trim_n = max(1, int(n * 0.1))
+        if n > 2 * trim_n:
+            trimmed = sorted_dds[trim_n:n - trim_n]
+            trimmed_mean_dd = sum(trimmed) / len(trimmed)
+        else:
+            trimmed_mean_dd = sum(sorted_dds) / n
+
     return {
         "rounds": rounds,
         "ledger": ledger,
@@ -584,9 +619,38 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
             "avg_win_pct": round(avg_win_pct, 2),
             "avg_loss_pct": round(avg_loss_pct, 2),
             "avg_pl_ratio": round(avg_pl_ratio, 2),
+            "median_drawdown": round(median_dd, 2),
+            "trimmed_mean_drawdown": round(trimmed_mean_dd, 2),
             "flow_desc": flow_desc,
         },
     }
+
+
+def _calc_round_drawdowns(rounds, price_map):
+    """计算每个回合的回合内最大回撤。
+    price_map: {date_str_YYYYMMDD: close_price}
+    返回: list of drawdown percentages (float)
+    """
+    dds = []
+    for r in rounds:
+        buy_date = r["buy_date"].replace("-", "")  # 2024-01-15 → 20240115
+        sell_date = r["sell_date"].replace("-", "")
+        # 取区间内所有价格
+        prices = [close for d, close in price_map.items() if buy_date <= d <= sell_date]
+        if len(prices) < 2:
+            dds.append(0.0)
+            continue
+        # 找到峰值到谷底的最大回撤
+        peak = prices[0]
+        max_dd = 0.0
+        for p in prices[1:]:
+            if p > peak:
+                peak = p
+            dd = (peak - p) / peak * 100
+            if dd > max_dd:
+                max_dd = dd
+        dds.append(round(max_dd, 2))
+    return dds
 
 
 def _days_between(d1, d2):
@@ -763,6 +827,7 @@ def _scenario_panel(data, index_name="上证指数"):
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:{color_for_pct(-s['max_drawdown'])}">{dd_str}<div class="sub">{dd_date}</div></span></div>
+      <div class="sim-card"><span class="k">回合回撤（中位数/去极均值）</span><span class="v" style="color:{color_for_pct(-s['median_drawdown'])}">{s['median_drawdown']:.1f}% / {s['trimmed_mean_drawdown']:.1f}%</span></div>
       <div class="sim-card"><span class="k">最大持仓市值</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div></span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">{s['total_ops']} 次（{s['buy_count']}买/{s['sell_count']}卖 · {s['total_rounds']}回合 · {s['open_count']}笔未平仓）<div class="sub">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次 · 峰值并发 {s['max_positions_ever']} 笔</div></span></div>
       <div class="sim-card"><span class="k">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
