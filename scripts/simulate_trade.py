@@ -861,14 +861,14 @@ def _scenario_panel(data, index_name="上证指数"):
     <div class="sim-flow">{s['flow_desc']}</div>
     <div class="sim-cards">
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元</span></div>
-      <div class="sim-card"><span class="k">仓位情况</span><span class="v">期末 {format_num(s['final_holdings'])} 元 / 期中最大 {format_num(s['max_holding'])} 元</span></div>
+      <div class="sim-card"><span class="k">仓位情况</span><span class="v">最大持仓 {format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div>期末持仓 {format_num(s['final_holdings'])} 元</span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:{color_for_pct(-s['max_drawdown'])}">{dd_str}<div class="sub">{dd_date}</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:{color_for_pct(-s['median_drawdown'])}">{s['median_drawdown']:.1f}% / {s['trimmed_mean_drawdown']:.1f}%</span></div>
       <div class="sim-card"><span class="k">最大持仓市值</span><span class="v">{format_num(s['max_holding'])} 元<div class="sub">{s['max_holding_date']}</div></span></div>
-      <div class="sim-card"><span class="k">总操作</span><span class="v">{s['total_ops']} 次（{s['buy_count']}买/{s['sell_count']}卖 · {s['total_rounds']}回合 · {s['open_count']}笔未平仓）<div class="sub">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次 · 峰值并发 {s['max_positions_ever']} 笔</div></span></div>
+      <div class="sim-card"><span class="k">总操作</span><span class="v">{s['buy_count']}买/{s['sell_count']}卖（{s['total_rounds']}笔成对 · {s['open_count']}笔未平仓）<div class="sub">共 {s['total_ops'] + s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 {s['max_positions_ever']} 笔</span></div></span></div>
       <div class="sim-card"><span class="k">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">{s['max_win_streak']} 轮 / {s['max_lose_streak']} 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
