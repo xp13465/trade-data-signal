@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import akshare as ak
+import pandas as pd
 import yaml
 
 from .base import safe_call
@@ -259,7 +260,39 @@ def _apply_transform(df, metric, date):
 
 # ================ 指数 ================
 
+def _collect_ths_concept(idx, start_date, end_date):
+    """Collect THS concept board index data."""
+    df = safe_call(ak.stock_board_concept_index_ths, symbol=idx["symbol"], start_date=start_date, end_date=end_date)
+    if isinstance(df, Exception):
+        return [], f"ths_concept error: {df}"
+    if df is None or len(df) == 0:
+        return [], "ths_concept empty"
+
+    rows = []
+    prev = None
+    for _, r in df.iterrows():
+        date_str = str(r['日期'])[:10].replace('-', '')  # 2020-01-02 → 20200102
+        close = float(r['收盘价']) if pd.notna(r['收盘价']) else None
+        pct = None
+        if prev and close:
+            pct = (close / prev - 1) * 100
+        rows.append((
+            date_str, idx["id"],
+            float(r['开盘价']) if pd.notna(r['开盘价']) else None,
+            float(r['最高价']) if pd.notna(r['最高价']) else None,
+            float(r['最低价']) if pd.notna(r['最低价']) else None,
+            close,
+            pct,
+            float(r['成交额']) if pd.notna(r['成交额']) else None,
+        ))
+        if close:
+            prev = close
+    return rows, "ok"
+
+
 def collect_index(idx, start_date, end_date):
+    if idx["func"] == "index_hist_ths_concept":
+        return _collect_ths_concept(idx, start_date, end_date)
     fn = getattr(ak, idx["func"], None)
     if fn is None:
         return [], f"no attr {idx['func']}"

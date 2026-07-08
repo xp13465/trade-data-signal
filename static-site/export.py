@@ -346,7 +346,22 @@ def export_industry(conn, cfg, rng):
             "turnover": _metric_series(conn, f"ind_turn_{iid}", start, end),
             "width": _industry_width(conn, ind_code, start, end),
         }
-    return {"indices": indices, "heatmap": _industry_heatmap(conn, cfg)}
+
+    # Also include concept boards
+    concepts_cfg = _indices_for_market(cfg, "concept")
+    concepts = {}
+    for i in concepts_cfg:
+        iid = i["id"]
+        concepts[iid] = {
+            "name": i["name"],
+            "data": _index_series(conn, iid, start, end),
+            "signals": _signals(conn, iid, start, end),
+            "stats": _stats_for(stats_all, iid),
+            "strategy": strategy_desc(iid, cfg),
+        }
+
+    return {"indices": indices, "heatmap": _industry_heatmap(conn, cfg),
+            "concepts": concepts}
 
 
 def export_index_detail(conn, cfg, index_id):

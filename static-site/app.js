@@ -936,6 +936,15 @@ async function renderIndustry() {
   title.textContent = `行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
   content.appendChild(title);
   renderIndustryGrid(filtered);
+  // 概念板块指数折线（独立于行业搜索，不受搜索词过滤）
+  const conceptLen = Object.keys(r.concepts || {}).length;
+  if (conceptLen > 0) {
+    const conceptTitle = document.createElement("div");
+    conceptTitle.className = "section-title";
+    conceptTitle.textContent = `概念板块指数折线（${conceptLen} 个，含买卖点 + 回测统计）`;
+    content.appendChild(conceptTitle);
+    renderIndustryGrid(r.concepts || {});
+  }
 }
 
 // ============ 手动补录（前端入口已移除） ============

@@ -375,7 +375,22 @@ def industry(range: str = Depends(range_dep)):
             # F3：行业内宽度（涨跌家数/涨停/跌停/炸板/封板率/成交额）
             "width": _industry_width(ind_code, start, end),
         }
-    return {"indices": indices, "heatmap": _industry_heatmap()}
+
+    # Also include concept boards
+    concepts_cfg = _indices_for_market("concept")
+    concepts = {}
+    for i in concepts_cfg:
+        iid = i["id"]
+        concepts[iid] = {
+            "name": i["name"],
+            "data": _index_series(iid, start, end),
+            "signals": _signals(iid, start, end),
+            "stats": _stats_for(iid),
+            "strategy": strategy_desc(iid, cfg),
+        }
+
+    return {"indices": indices, "heatmap": _industry_heatmap(),
+            "concepts": concepts}
 
 
 @app.get("/api/index/{index_id}")

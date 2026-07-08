@@ -159,6 +159,36 @@ indices:
   - {id: sw_801970, name: "SW 环保",     market: industry, func: index_hist_sw, symbol: "801970"}
   - {id: sw_801980, name: "SW 美容护理", market: industry, func: index_hist_sw, symbol: "801980"}
 
+  # 同花顺概念板块指数（27 个）—— F1。源 akshare stock_board_concept_index_ths，
+  # market=concept 进 /api/industry；signals.py 自动遍历 cfg["indices"] 算 E1 买卖点。
+  - {id: thsc_300816, name: "机器人概念", market: concept, func: index_hist_ths_concept, symbol: "机器人概念", enabled: true}
+  - {id: thsc_309119, name: "人形机器人", market: concept, func: index_hist_ths_concept, symbol: "人形机器人", enabled: true}
+  - {id: thsc_308700, name: "第三代半导体", market: concept, func: index_hist_ths_concept, symbol: "第三代半导体", enabled: true}
+  - {id: thsc_309049, name: "共封装光学(CPO)", market: concept, func: index_hist_ths_concept, symbol: "共封装光学(CPO)", enabled: true}
+  - {id: thsc_301085, name: "芯片概念", market: concept, func: index_hist_ths_concept, symbol: "芯片概念", enabled: true}
+  - {id: thsc_307940, name: "存储芯片", market: concept, func: index_hist_ths_concept, symbol: "存储芯片", enabled: true}
+  - {id: thsc_302035, name: "人工智能", market: concept, func: index_hist_ths_concept, symbol: "人工智能", enabled: true}
+  - {id: thsc_309068, name: "算力租赁", market: concept, func: index_hist_ths_concept, symbol: "算力租赁", enabled: true}
+  - {id: thsc_308828, name: "东数西算(算力)", market: concept, func: index_hist_ths_concept, symbol: "东数西算(算力)", enabled: true}
+  - {id: thsc_309020, name: "信创", market: concept, func: index_hist_ths_concept, symbol: "信创", enabled: true}
+  - {id: thsc_309060, name: "数据要素", market: concept, func: index_hist_ths_concept, symbol: "数据要素", enabled: true}
+  - {id: thsc_300008, name: "新能源汽车", market: concept, func: index_hist_ths_concept, symbol: "新能源汽车", enabled: true}
+  - {id: thsc_301079, name: "光伏概念", market: concept, func: index_hist_ths_concept, symbol: "光伏概念", enabled: true}
+  - {id: thsc_300733, name: "锂电池概念", market: concept, func: index_hist_ths_concept, symbol: "锂电池概念", enabled: true}
+  - {id: thsc_306380, name: "储能", market: concept, func: index_hist_ths_concept, symbol: "储能", enabled: true}
+  - {id: thsc_308294, name: "固态电池", market: concept, func: index_hist_ths_concept, symbol: "固态电池", enabled: true}
+  - {id: thsc_309115, name: "低空经济", market: concept, func: index_hist_ths_concept, symbol: "低空经济", enabled: true}
+  - {id: thsc_308014, name: "创新药", market: concept, func: index_hist_ths_concept, symbol: "创新药", enabled: true}
+  - {id: thsc_300082, name: "军工", market: concept, func: index_hist_ths_concept, symbol: "军工", enabled: true}
+  - {id: thsc_300830, name: "量子科技", market: concept, func: index_hist_ths_concept, symbol: "量子科技", enabled: true}
+  - {id: thsc_308725, name: "汽车芯片", market: concept, func: index_hist_ths_concept, symbol: "汽车芯片", enabled: true}
+  - {id: thsc_308300, name: "MCU芯片", market: concept, func: index_hist_ths_concept, symbol: "MCU芯片", enabled: true}
+  - {id: thsc_309113, name: "飞行汽车(eVTOL)", market: concept, func: index_hist_ths_concept, symbol: "飞行汽车(eVTOL)", enabled: true}
+  - {id: thsc_308491, name: "氢能源", market: concept, func: index_hist_ths_concept, symbol: "氢能源", enabled: true}
+  - {id: thsc_308870, name: "数字经济", market: concept, func: index_hist_ths_concept, symbol: "数字经济", enabled: true}
+  - {id: thsc_308752, name: "元宇宙", market: concept, func: index_hist_ths_concept, symbol: "元宇宙", enabled: true}
+  - {id: thsc_309128, name: "军工信息化", market: concept, func: index_hist_ths_concept, symbol: "军工信息化", enabled: true}
+
 # ============ 板块（入 board_daily）—— 东财端点反爬封，待直爬实现 ============
 boards:
   - {type: industry, name: 行业板块, func: stock_board_industry_name_em, top: 5, enabled: false}
