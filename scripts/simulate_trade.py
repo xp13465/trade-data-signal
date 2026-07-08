@@ -898,6 +898,8 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
                 "total_return_pct": s["total_return_pct"],
                 "annualized": s["annualized"],
                 "max_drawdown": s.get("max_drawdown", 0),
+                "median_drawdown": s.get("median_drawdown", 0),
+                "trimmed_mean_drawdown": s.get("trimmed_mean_drawdown", 0),
                 "win_rate": s["win_rate"],
                 "total_ops": s["total_ops"],
             })
@@ -907,6 +909,8 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     best_return = max(r["total_return_pct"] for r in comparison_rows)
     best_annual = max(r["annualized"] for r in comparison_rows)
     best_dd = min(r["max_drawdown"] for r in comparison_rows)
+    best_median_dd = min(r["median_drawdown"] for r in comparison_rows)
+    best_trimmed_dd = min(r["trimmed_mean_drawdown"] for r in comparison_rows)
     best_win = max(r["win_rate"] for r in comparison_rows)
     best_ops = max(r["total_ops"] for r in comparison_rows)
 
@@ -928,6 +932,8 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
           <td>{cmp_cell(r['total_return_pct'], best_return, '.2f', is_pct=True)}</td>
           <td>{cmp_cell(r['annualized'], best_annual, '.1f', is_pct=True)}</td>
           <td>{cmp_cell(r['max_drawdown'], best_dd, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['median_drawdown'], best_median_dd, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['trimmed_mean_drawdown'], best_trimmed_dd, '.1f', is_pct=True)}</td>
           <td>{cmp_cell(r['win_rate'], best_win, '.1f', is_pct=True)}</td>
           <td>{cmp_cell(r['total_ops'], best_ops, '.0f', suffix=' 次')}</td>
         </tr>"""
@@ -936,7 +942,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     <div class="sim-cmp-table">
       <table>
         <thead><tr>
-          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th>年化</th><th>最大回撤</th><th>胜率</th><th>交易笔数</th>
+          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th>年化</th><th>最大回撤</th><th>回撤中位数</th><th>去极值回撤</th><th>胜率</th><th>交易笔数</th>
         </tr></thead>
         <tbody>{cmp_table_rows}</tbody>
       </table>
