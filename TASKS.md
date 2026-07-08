@@ -57,7 +57,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 4. ~~buy 21 个不建议~~ ✅ done 精选落地 3 品类（2026-07-08）— C1 主买整体健康（41/60 建议），21 个不建议品类全量 6 方案回测（`22-buy收紧RSI回测-21个不建议.md`），**精选落地 3 个改善最显著品类**：kc50 科创50（f 15.92%→57.56%）、sw_801730 电力设备（f 0%→29.55%）、sw_801760 传媒（f 0%→41.74%）。新增 `buy_filter` 机制（`_load_buy_filters()` + `compute()` 查表 apply，与 `_load_buy_aux_filters` 同模式），`indicators.yaml` 加 `buy_filter: rsi_cross_25`，reason 格式 `RSI上穿25(...)`。strategy_desc 同步更新。重算后 buy 3673（-188 vs 旧 3861，含自然数据变动），buy_aux 3928 + sell 3185 不变。其他 57 品类 buy 零改动（基线 RSI 上穿 30）。详见 REQUIREMENTS.md §7.4。
 5. ~~3 个结构性异常品类 skip~~ ✅ done（2026-07-08，commit 0cb1152）— signals.py 加 `SKIP_IDS={oil,usdcnh,cn_us_spread}` + `skip_sell` 参数，3 品类全 skip 买卖点（与 a_sentiment skip_buy 同思路）。signal_daily 12284→11975（-309），3 品类信号归零，signal_stats + static-site 75 JSON 同步重导出。
 6. ~~界面标注改后端注入~~ ✅ done（2026-07-08，commit 3d0aff1）— `app/compute/signals.py` 新增 `strategy_desc(index_id, cfg) -> {buy,buy_aux,sell}` 读 `indicators.yaml` 的 `buy_aux_filter` + `SKIP_IDS` + `s.*` 前缀逻辑生成策略描述。main.py + export.py 镜像注入：`/api/a-stock`/`/api/hk`/`/api/global`(indices+`extras_strategy`)/`/api/industry`/`/api/index/{id}` + `export_index_detail` 各 index 加 `strategy` 字段；`/api/sentiment` 加 `strategy` dict。前端 `strategyDesc(strategy)`（web+static-site 镜像）读字段删硬编码 per-index 映射 + s.* 分支，留基线兜底；`statsHint`/`indexChart`/`valueChartWithSignals` 签名 `indexId`→`strategy`。验收：node --check PASS + py_compile PASS + strategy_desc 12 品类输出正确（家电rsi_cross_40/基础化工close_above_bl_2pct/oil skip/sh基线/a_sentiment skip_buy+豁免MACD/cross_market 豁免MACD非skip/cn10y基线/usdcnh skip/医药+创业板+传媒rsi_cross_40/hs300基线）+ 重导出 75 JSON 含 strategy 字段。
-7. ~~ruleBar 文案更新~~ ✅ done（2026-07-08，commit a576993）— summary 补 MACD 死叉（DIF<DEA，s.* 豁免）+ per-index buy_aux 增强。**detail 行 379 卖点段未改**（summary 已含关键信息，detail 待后续补）。
+7. ~~ruleBar 文案更新~~ ✅ done（2026-07-08，commit a576993 + 3d82839）— summary 补 MACD 死叉（DIF<DEA，s.* 豁免）+ per-index buy_aux 增强。**detail 卖点段已补全**（commit 3d82839）：加 MACD 死叉确认 + s.* 豁免 + buy_filter RSI 收紧 + reason 示例 + 回测结论 + 变更历史，web+static 同步。。
 8. ~~Cloudflare 部署问题~~ ✅ resolved（2026-07-08，用户反馈已好）— webhook/构建恢复，push 后 Cloudflare 正常自动部署。
 9. ~~备份表清理~~ ✅ done（2026-07-08）— `signal_daily_bak_20260707`（12809 行）已 DROP。
 10. **industry-all.json 体积** — 23.74 MiB < 25 MiB，余量 1.26 MiB，2026 年底前需拆分
@@ -72,7 +72,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - 主对话 token 省：compact + 子 agent 干净上下文双省
 
 ### 下轮起点
-读本节 + `REQUIREMENTS.md` §7（买卖点逻辑，含 MACD 死叉 + per-index buy_aux 增强 + buy_filter 收紧）+ 回测报告（14-26）恢复上下文。全部 13 任务 done，遗留：① industry-all.json 2026 年底前拆分 ② g.cn10y 全球指标类 buy_aux 回测（需单独处理 _compute_value_signals 路径）③ detail 卖点段文案补全。
+读本节 + `REQUIREMENTS.md` §7（买卖点逻辑，含 MACD 死叉 + per-index buy_aux 增强 + buy_filter 收紧）+ 回测报告（14-26）恢复上下文。全部 13 任务 done，遗留：① industry-all.json 2026 年底前拆分 ② g.cn10y 全球指标类 buy_aux 回测（需单独处理 _compute_value_signals 路径）。
 
 ---
 
