@@ -99,27 +99,71 @@ def _stats_for_returns(returns: list[float], is_sell: bool) -> dict:
     }
 
 
+def _compute_frequency(sig_map: dict) -> dict:
+    """计算每个品种×信号类型的频率统计。
+
+    返回 {index_id: {signal: {year_count, monthly_avg, months: {YYYY-MM: count}}}}
+    """
+    from datetime import datetime
+    freq: dict = {}
+    for iid, sigs in sig_map.items():
+        iid_freq: dict = {}
+        for sig, dates in sigs.items():
+            if not dates:
+                continue
+            # 今年累计
+            year_start = str(datetime.now().year) + "0101"
+            year_dates = [d for d in dates if d >= year_start]
+            year_count = len(year_dates)
+            # 按月统计
+            month_counts: dict = {}
+            for d in dates:
+                m = d[:6]  # YYYYMM (YYYYMMDD → YYYYMM)
+                month_counts[m] = month_counts.get(m, 0) + 1
+            # 最近12个月各月次数
+            months_sorted = sorted(month_counts.items())[-12:]
+            months_dict = {m: c for m, c in months_sorted}
+            # 月均（全历史有信号的月份数）
+            active_months = len(month_counts)
+            monthly_avg = round(len(dates) / max(active_months, 1), 2) if active_months > 0 else 0
+            iid_freq[sig] = {
+                "year_count": year_count,
+                "monthly_avg": monthly_avg,
+                "total_count": len(dates),
+                "months": months_dict,
+            }
+        if iid_freq:
+            freq[iid] = iid_freq
+    return freq
+
+
 def compute() -> dict:
     """遍历每品种 × 每信号 × 每 horizon，算 stats，返回完整 dict。"""
     sig_map = _load_signal_dates()
+    freq_map = _compute_frequency(sig_map)
     out: dict = {}
     for iid, sigs in sig_map.items():
         series = _load_series_for(iid)
-        if series.empty:
-            continue
-        # 预计算 forward 收益（horizon → Series 对齐 series.index）
-        fwd = {h: (series.shift(-h) / series - 1.0) * 100.0 for h in HORIZONS}
+        has_series = not series.empty
+        if has_series:
+            fwd = {h: (series.shift(-h) / series - 1.0) * 100.0 for h in HORIZONS}
         iid_stats: dict = {}
         for sig, dates in sigs.items():
             is_sell = sig == "sell"
             sig_stats: dict = {}
-            for h in HORIZONS:
-                # 只取信号日有 forward 数据的（dropna）
-                fwd_h = fwd[h]
-                returns = [float(fwd_h.get(d)) for d in dates if d in fwd_h.index]
-                sig_stats[f"{h}d"] = _stats_for_returns(returns, is_sell)
-            iid_stats[sig] = sig_stats
-        out[iid] = iid_stats
+            if has_series:
+                for h in HORIZONS:
+                    fwd_h = fwd[h]
+                    returns = [float(fwd_h.get(d)) for d in dates if d in fwd_h.index]
+                    sig_stats[f"{h}d"] = _stats_for_returns(returns, is_sell)
+            # 频率统计
+            freq = freq_map.get(iid, {}).get(sig)
+            if freq:
+                sig_stats["frequency"] = freq
+            if sig_stats:
+                iid_stats[sig] = sig_stats
+        if iid_stats:
+            out[iid] = iid_stats
     return out
 
 

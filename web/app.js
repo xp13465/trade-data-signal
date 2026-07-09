@@ -282,8 +282,24 @@ function statsHint(stats, strategy, indexId) {
     blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-stat">${wrLabel} <b class="wr ${wrCls}">${wr}%</b></span><span class="hint-stat">盈亏比 ${pl}</span><span class="hint-stat">样本 ${n}</span>${kellyHtml}${honestTag}</div>`);
   }
   if (!blocks.length) return stratHtml || null;
+  // 频率统计区块
+  let freqHtml = "";
+  const freqBlocks = [];
+  for (const sig of ["buy", "buy_aux", "sell"]) {
+    const s = stats[sig];
+    if (!s || !s.frequency) continue;
+    const f = s.frequency;
+    const label = labels[sig];
+    const cls = sigClass[sig];
+    const monthsStr = f.months ? Object.entries(f.months).map(([m, c]) => `${m.substring(4,6)}月${c}次`).join(" ") : "";
+    freqBlocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-stat">今年 <b>${f.year_count}</b> 次</span><span class="hint-stat">总计 <b>${f.total_count}</b> 次</span><span class="hint-stat">月均 <b>${f.monthly_avg}</b> 次</span>${monthsStr ? `<span class="hint-stat muted">${monthsStr}</span>` : ""}</div>`);
+  }
+  if (freqBlocks.length) {
+    freqHtml = `<div class="hint-header">📅 信号频率</div><div class="hint-blocks">${freqBlocks.join("")}</div>`;
+  }
   return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="/static/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" target="_blank" class="sim-btn" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
+    freqHtml +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
     `<div class="hint-kelly-body">` +
     `<div><b>公式</b>：f* = max(0, (盈亏比 × 胜率 − (1 − 胜率)) ÷ 盈亏比) —— 根据该信号的胜率与盈亏比，算出每次下注的最优资金比例。</div>` +
