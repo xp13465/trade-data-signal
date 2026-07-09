@@ -284,7 +284,7 @@ def run_batch(codes: list[str], *, incremental: bool = False,
     init_db()
     progress = load_progress()
     today = dt.date.today().strftime("%Y%m%d")
-    ok = fail = total_rows = 0
+    ok = fail = total_rows = empty_count = 0
     details: list[tuple] = []
     remaining = list(codes)
     i = 0
@@ -315,11 +315,18 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                 ok += 1
                 total_rows += n
                 details.append((code, "ok", msg))
+                if verbose and empty_count > 0:
+                    print(f"  ... ({empty_count} 只无新数据)", flush=True)
+                    empty_count = 0
+                if verbose:
+                    print(f"  [{i+1}/{len(remaining)}] {code}: {msg}", flush=True)
             else:
                 fail += 1
                 details.append((code, "fail", msg))
-            if verbose:
-                print(f"  [{i+1}/{len(remaining)}] {code}: {msg}", flush=True)
+                empty_count += 1
+                # 每100只 empty 汇总一次
+                if verbose and empty_count > 0 and empty_count % 100 == 0:
+                    print(f"  [{i+1}/{len(remaining)}] ... ({empty_count} 只无新数据，继续...)", flush=True)
         except CooldownError as e:
             # 封 IP：保存进度，汇报剩余，停
             save_progress(progress)
@@ -341,6 +348,8 @@ def run_batch(codes: list[str], *, incremental: bool = False,
         if i % save_every == 0:
             save_progress(progress)
     save_progress(progress)
+    if verbose and empty_count > 0:
+        print(f"  === 股票日线采集完成: {ok} 只有新数据, {fail} 只无新数据（含 {empty_count} 只 empty）===", flush=True)
     return {"ok": ok, "fail": fail, "total_rows": total_rows,
             "processed": len(codes), "details": details}
 

@@ -126,7 +126,12 @@ def log_collect(run_date: str, metric_id: str, status: str, message: str = "") -
 
 
 def safe_call(fn, retries: int = 2, **kwargs):
-    """调用函数，失败重试。返回结果或异常对象（由调用方判断）。"""
+    """调用函数，失败重试。返回结果或异常对象（由调用方判断）。
+
+    连接类错误（ConnectionError/RemoteDisconnected/Timeout）用更长退避(2-5s)，
+    避免在远端过载时雪上加霜；其他错误用标准退避(0.8s)。
+    """
+    import random
     last_err = None
     for i in range(retries + 1):
         try:
@@ -134,5 +139,12 @@ def safe_call(fn, retries: int = 2, **kwargs):
             return fn(**kwargs) if kwargs else fn()
         except Exception as e:  # noqa: BLE001
             last_err = e
-            time.sleep(0.8 * (i + 1))
+            ename = type(e).__name__
+            msg = str(e)
+            if any(kw in ename or kw in msg for kw in (
+                "Connection", "RemoteDisconnected", "Timeout", "ProtocolError",
+            )):
+                time.sleep(random.uniform(2, 5) * (i + 1))
+            else:
+                time.sleep(0.8 * (i + 1))
     return last_err
