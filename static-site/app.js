@@ -1592,6 +1592,63 @@ function _freqPopupHtml(stats) {
   return parts.length ? parts.join("<br>") : null;
 }
 
+// 行业卡片：把 statsHint 直显的"📅 信号频率"区块改为 hover pop，绑到对应信号的成功率行上。
+// hint-row 的 .hint-sig class（buy/buy-aux/sell）关联同信号的频率 -> 悬浮成功率行弹频率 pop。
+function _bindFreqPopupToHintRows(cell, stats) {
+  const hintEl = cell.querySelector(".chart-hint");
+  if (!hintEl || !stats) return;
+  // 定位并移除直显的频率区块（"📅 信号频率" hint-header 到下一个 hint-header/details 之间）
+  const headers = hintEl.querySelectorAll(".hint-header");
+  let freqHeader = null;
+  for (const h of headers) {
+    if (h.textContent.includes("信号频率")) { freqHeader = h; break; }
+  }
+  if (!freqHeader) return;
+  // 收集频率区块的兄弟节点（freqHeader 及其后到下一个 hint-header/details/disclaimer）
+  const freqNodes = [freqHeader];
+  let nxt = freqHeader.nextElementSibling;
+  while (nxt && !nxt.classList.contains("hint-header") && nxt.tagName !== "DETAILS" && !nxt.classList.contains("hint-disclaimer")) {
+    freqNodes.push(nxt);
+    nxt = nxt.nextElementSibling;
+  }
+  // 从每个频率行提取该信号的频率文案，按 sig class 存映射
+  const freqBySig = {};
+  for (const node of freqNodes) {
+    node.querySelectorAll(".hint-row").forEach((row) => {
+      const sigSpan = row.querySelector(".hint-sig");
+      if (!sigSpan) return;
+      let sig = null;
+      for (const c of ["buy", "buy-aux", "sell"]) {
+        if (sigSpan.classList.contains(c)) { sig = c; break; }
+      }
+      if (sig) freqBySig[sig] = row.innerHTML;
+    });
+  }
+  // 移除直显的频率区块
+  freqNodes.forEach((n) => n.remove());
+  // 给每个信号的成功率 hint-row 绑 hover pop
+  const sigMap = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
+  hintEl.querySelectorAll(".hint-row").forEach((row) => {
+    const sigSpan = row.querySelector(".hint-sig");
+    if (!sigSpan) return;
+    let sig = null;
+    for (const [k, v] of Object.entries(sigMap)) {
+      if (sigSpan.classList.contains(v)) { sig = k; break; }
+    }
+    const freqHtml = sig ? freqBySig[sig] : null;
+    if (!freqHtml) return;
+    row.classList.add("freq-hover-row");
+    const popup = document.createElement("div");
+    popup.className = "freq-popup";
+    popup.innerHTML = `<div class="hint-header">📅 信号频率</div><div class="hint-row">${freqHtml}</div>`;
+    popup.style.cssText = "display:none;position:absolute;z-index:100;background:#fff;border:1px solid #e5e6eb;border-radius:8px;padding:8px 12px;box-shadow:0 4px 12px rgba(0,0,0,0.12);font-size:12px;white-space:nowrap;left:0;top:100%;margin-top:2px;";
+    row.style.position = "relative";
+    row.appendChild(popup);
+    row.addEventListener("mouseenter", () => { popup.style.display = "block"; });
+    row.addEventListener("mouseleave", () => { popup.style.display = "none"; });
+  });
+}
+
 function renderIndustryGrid(indices, containerOverride) {
   const entries = Object.entries(indices).filter(([, idx]) => idx.data && idx.data.length);
   const ctn = containerOverride || content;
@@ -1615,27 +1672,17 @@ function renderIndustryGrid(indices, containerOverride) {
     const cell = document.createElement("div");
     cell.className = "spark-cell industry-cell";
     const sign = up ? "+" : "";
+    const hint = statsHint(idx.stats, idx.strategy, id);
     cell.innerHTML = `
       <div class="spark-head">
         <span class="spark-name">${idx.name}</span>
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
+      ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
       <div class="ind-metrics"></div>`;
-    // 频率统计 hover popup（悬浮在涨跌幅数字上触发）
-    const freqPopup = _freqPopupHtml(idx.stats);
-    if (freqPopup) {
-      const badge = cell.querySelector(".pct-badge");
-      const popup = document.createElement("div");
-      popup.className = "freq-popup";
-      popup.innerHTML = freqPopup;
-      popup.style.cssText = "display:none;position:absolute;z-index:100;background:#fff;border:1px solid #e5e6eb;border-radius:8px;padding:8px 12px;box-shadow:0 4px 12px rgba(0,0,0,0.12);font-size:12px;white-space:nowrap;";
-      cell.style.position = "relative";
-      cell.appendChild(popup);
-      badge.style.cursor = "pointer";
-      badge.addEventListener("mouseenter", () => { popup.style.display = "block"; });
-      badge.addEventListener("mouseleave", () => { popup.style.display = "none"; });
-    }
+    // 信号频率改为 hover pop：绑在对应信号的成功率行(hint-row)上，悬浮显示频率
+    _bindFreqPopupToHintRows(cell, idx.stats);
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
