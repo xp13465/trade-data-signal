@@ -281,10 +281,11 @@ main { padding: 16px 24px; }
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-bottom: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 .ov-2col > * {
-  min-height: 280px;
+  display: flex;
+  flex-direction: column;
 }
 .ov-2col .chart-card { margin-bottom: 12px; }
 .ov-2col .chart-card:last-child { margin-bottom: 0; }
