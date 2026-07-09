@@ -434,6 +434,22 @@ def export_position():
     return {"positions": compute_position()}
 
 
+def export_signal_freq():
+    """复刻 /api/signal_freq：全局信号频率统计。"""
+    all_stats = sigstats.load()
+    freq = {"buy": {"year": 0, "total": 0}, "buy_aux": {"year": 0, "total": 0}, "sell": {"year": 0, "total": 0}}
+    for iid, sigs in all_stats.items():
+        if iid.startswith("_"):
+            continue
+        for sig in ("buy", "buy_aux", "sell"):
+            s = sigs.get(sig, {})
+            f = s.get("frequency")
+            if f:
+                freq[sig]["year"] += f.get("year_count", 0)
+                freq[sig]["total"] += f.get("total_count", 0)
+    return freq
+
+
 def export_summary():
     """复刻 /api/summary。"""
     return generate_summary()
@@ -877,6 +893,8 @@ def main():
     # 7.9. summary
     counts["summary.json"] = write_json(DATA_DIR / "summary.json", export_summary())
     print(f"  summary.json ({counts['summary.json']} bytes)")
+    counts["signal_freq.json"] = write_json(DATA_DIR / "signal_freq.json", export_signal_freq())
+    print(f"  signal_freq.json ({counts['signal_freq.json']} bytes)")
 
     # 7.10. rotation
     counts["rotation.json"] = write_json(DATA_DIR / "rotation.json", export_rotation(conn))

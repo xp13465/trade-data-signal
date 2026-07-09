@@ -611,13 +611,34 @@ function initRuleButton() {
   // 创建 modal
   const modal = document.createElement('div');
   modal.className = 'rule-modal hidden';
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>&#128203; 买卖点策略说明</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + ruleContentHtml() + '</div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>&#128203; 买卖点策略说明</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="rule-freq-stats"></div>' + ruleContentHtml() + '</div></div>';
   document.body.appendChild(modal);
 
   const overlay = modal.querySelector('.rule-modal-overlay');
   const closeBtn = modal.querySelector('.rule-modal-close');
 
-  const open = () => { modal.classList.remove('hidden'); document.body.style.overflow = 'hidden'; };
+  const open = () => {
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    const freqDiv = modal.querySelector('.rule-freq-stats');
+    if (freqDiv && !freqDiv.dataset.loaded) {
+      fetchJSON("./data/signal_freq.json").then((freq) => {
+        if (freq) {
+          const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
+          const cls = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
+          let html = '<div class="hint-header">📅 全品种信号频率汇总</div><div class="hint-blocks">';
+          for (const sig of ["buy", "buy_aux", "sell"]) {
+            const f = freq[sig];
+            if (!f || !f.total) continue;
+            html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year}</b> 次</span><span class="hint-stat">总计 <b>${f.total}</b> 次</span></div>`;
+          }
+          html += '</div>';
+          freqDiv.innerHTML = html;
+          freqDiv.dataset.loaded = "1";
+        }
+      }).catch(() => {});
+    }
+  };
   const close = () => { modal.classList.add('hidden'); document.body.style.overflow = ''; };
 
   btn.addEventListener('click', open);
@@ -1517,9 +1538,15 @@ function renderFuturesSection(data) {
 function renderIndustryHeatmap(heatmap, title, containerOverride) {
   if (!heatmap || !heatmap.length) return null;
   const rangeMode = state.heatmapRange || "all";
-  // 按近 1 日涨跌幅排序（红涨在前，绿跌在后），便于看强弱分布
-  const sortBy = rangeMode === "5d" ? "pct_5d" : "pct_1d";
-  const sorted = [...heatmap].sort((a, b) => (b[sortBy] ?? -999) - (a[sortBy] ?? -999));
+  // 排序：单日模式按对应字段，全部模式按两日平均值（红涨在前，绿跌在后）
+  const sortBy = rangeMode === "5d" ? "pct_5d" : rangeMode === "1d" ? "pct_1d" : null;
+  const sorted = sortBy
+    ? [...heatmap].sort((a, b) => (b[sortBy] ?? -999) - (a[sortBy] ?? -999))
+    : [...heatmap].sort((a, b) => {
+        const avgA = ((a.pct_1d ?? 0) + (a.pct_5d ?? 0)) / 2;
+        const avgB = ((b.pct_1d ?? 0) + (b.pct_5d ?? 0)) / 2;
+        return avgB - avgA;
+      });
   const names = sorted.map((h) => h.name.replace(/^SW\s/, ""));
   // BUG-E：按 rangeMode 决定 y 轴维度（近1日/近5日/全部两行）
   const yCats = rangeMode === "1d" ? ["近 1 日"] : rangeMode === "5d" ? ["近 5 日"] : ["近 1 日", "近 5 日"];

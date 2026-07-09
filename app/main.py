@@ -856,6 +856,23 @@ def summary(date: str | None = None):
     return generate_summary(date)
 
 
+@app.get("/api/signal_freq")
+def signal_freq():
+    """全局信号频率统计：汇总所有品种 buy/buy_aux/sell 的今年次数/总计。"""
+    all_stats = sigstats.load()
+    freq = {"buy": {"year": 0, "total": 0}, "buy_aux": {"year": 0, "total": 0}, "sell": {"year": 0, "total": 0}}
+    for iid, sigs in all_stats.items():
+        if iid.startswith("_"):
+            continue
+        for sig in ("buy", "buy_aux", "sell"):
+            s = sigs.get(sig, {})
+            f = s.get("frequency")
+            if f:
+                freq[sig]["year"] += f.get("year_count", 0)
+                freq[sig]["total"] += f.get("total_count", 0)
+    return freq
+
+
 @app.get("/api/rotation")
 def rotation():
     """板块轮动速度：SW 行业 + 同花顺概念板块领涨变化频率，最近 250 日。"""
