@@ -261,6 +261,11 @@ def export_overview(conn, cfg):
                     "SELECT date, value, is_freeze, is_overheat FROM score_daily "
                     "WHERE score_id='a_sentiment' AND date>=? ORDER BY date",
                     (six_m_start,))]
+    fg_6m = [{"date": r["date"], "value": r["value"]}
+             for r in conn.execute(
+                 "SELECT date, value FROM score_daily "
+                 "WHERE score_id='fear_greed' AND date>=? ORDER BY date",
+                 (six_m_start,))]
 
     return {
         "date": score_date,
@@ -275,6 +280,7 @@ def export_overview(conn, cfg):
         "width_1m": width_1m,
         "cross_market_6m": cross_6m,
         "a_sentiment_6m": asent_6m,
+        "fear_greed_6m": fg_6m,
         "industry_heatmap": _industry_heatmap(conn, cfg),
     }
 
