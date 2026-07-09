@@ -90,6 +90,9 @@
 | 07-06 | **A2: collect_series 加 drop_zero 按指标过滤 0.0** | `index_option_1000index_qvix` 源返 34 行 close=0.0（占位/解析缺失，非 NaN），`v!=v` 只判 NaN 漏过 → 入库 0.0。QVIX 真值 15-30 不可能 0，但资金流/IPO 数等可为 0，故用 yaml `drop_zero: true` 按指标开关（仅 QVIX 类），不误伤其他指标 |
 | 07-06 | **A3: 北向资金前端标注停更** | `a_fund_north` 已过滤 NaN（数据冻结在 20240816），1 年期窗口内为空 → 前端空白，用户分不清停更还是故障。修复：(1) `config/indicators.yaml` `a_fund_north.name` 加「(2024年8月停更)」——全局生效（看板图例 / 手动补录下拉 / 未来概览 KPI 都带标注）；(2) `web/app.js` `mkCard`/`lineChart` 加可选 `hint` 参数，A股看板「资金面」组渲染时传橙色提示条「数据源自 2024 年 8 月起停更（东财停止实时披露），冻结在 2024-08-16，1 年期窗口内为空属正常」——比图例标注更醒目 |
 | 07-06 | **S1: scheduler 跨年刷新 trade_dates**（A1 遗留） | A1 守卫依赖 `last_trading_day()` → `data/trade_dates.txt` 缓存（含 2026 全年），跨年时缓存缺新年日期 → `is_trading_day('20270104')=False` 误跳过采集 + `last_trading_day()` 停在旧年末日致 collect_snapshot 守卫误 skip。修复：(1) `app/scheduler.py` `run()` 开头（is_trading_day 闸门前）调 `refresh_trade_dates()`，try/except 兜底失败沿用旧缓存；(2) `app/calendar.py` `refresh_trade_dates()` 重写为安全刷新——先拉新数据成功才原子覆盖（写 `.tmp` 再 `replace`），失败保留旧缓存（旧实现 `unlink` 删盘后拉取，网络抖动会丢缓存）。跨年模拟验证通过（stale 缓存 max=20261231 → refresh 后 is_trading_day/last_trading_day 正确返 20270104；akshare 抛异常时缓存文件原样保留） |
+| 07-09 | **HomeSignalGrid: 首页卡片按日分组，后端取"最近9个日期"(=9行)** | 前端按 date 分组(一天一行)，若 `LIMIT 9` 按记录截断会 9 条挤少数几天(实测 signals 9条/3天)；改子查询 `SELECT DISTINCT date ... LIMIT 9` 再 `WHERE date IN(...)` 取全部记录，保证9天=9行 |
+| 07-09 | **HomeSignalGrid: 单日信号超4折叠** | 某日多达16-19个信号 wrap 成多行撑高卡片。每日期最多显示前4个(4列一行 `_SIG_PER_DAY=4`)，多余塞 `.sig-items-extra(hidden)`+"+X"徽章点击展开(`_bindSignalGridMore`)；`.signal-grid max-height:300px` 兜底滚动 |
+| 07-09 | **HomeSignalGrid: 周期参数** | freeze 取近120日、signal 取近15交易日(25自然日)范围内的最近9个日期；9行实测不突破卡片 min-height 350px(每行~30px)。今日高亮用 r.date 基准(非 fmtDate 的浏览器今日，避免周末漂移) |
 
 ### 4.1 TASK-A1 根因详述：上涨家数 20260703 回归（3803→1856）
 

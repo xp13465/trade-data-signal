@@ -366,6 +366,22 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 ---
 
+### TASK-HomeSignalGrid 首页冰点/买卖点卡片改按日分组网格+今日高亮+折叠
+- 状态: done
+- 负责人: 主会话（非 worker 派发，用户多轮直接验收驱动迭代）
+- 描述: 概览页右列「近期冰点日」「近期买卖点」卡片优化。原版冰点日只取近30交易日(实际5条/2日)太少、买卖点只取今日(20260709=0条)且卡片右侧大片空白。需求：扩周期 + 改"今日买卖点"为"近期买卖点"(今日高亮排首) + 同日信号一行显示4个超4换行 + 卡片不撑高布局错位。
+- 验收标准: 卡片高度恒定不撑开布局；取9天=9行；单日超4折叠；今日(date===r.date)高亮排首；dev API 与 static 一致。
+- 依赖: G1 概览美化 + B1S1 信号
+- review gate: 否（UI 迭代，用户已多轮视觉验收）
+- 结果备注: 3 commit 逐轮迭代（复盘见下，教训：扩数据量须同步考虑前端容器约束、按分组键截断而非记录数）：
+  (1) `0e504ad` 后端扩周期(freeze 45->120日/signal 今日->近15交易日) + 前端 `_renderSignalGrid` 按日分组 4列 grid + 今日(date===r.date)高亮排首🔥 + r.date 基准(不复用 fmtDate 浏览器今日)。**问题**：freeze 31条/signals 90条撑开卡片致布局错位。
+  (2) `a074e88` 草率 LIMIT 9 + `.signal-grid max-height:300px` 兜底。**问题**：LIMIT 9 按原始记录截断，9条可能挤少数几天(signals 实测9条/3天)，未达"9行"本意。
+  (3) `dc7b6b0` 最终方案：子查询 `SELECT DISTINCT date ... LIMIT 9` 再 `WHERE date IN(...)` 取全部记录(=9行) + 每日期前4个显示(_SIG_PER_DAY=4) + 多余塞 `.sig-items-extra(hidden)` + "+X"徽章点击原位展开/收起(`_bindSignalGridMore`)。freeze 27条/9天、signal 68条/9天；单日最多19个(0701)正确折叠为前4+15隐藏(徽章 +15↔收起)。
+  改 7 文件：`app/main.py`+`static-site/export.py`(子查询9日期) / `web/app.js`+`static-site/app.js`(`_renderSignalGrid`+`_bindSignalGridMore`，两份逐字一致) / `web/style.css`+`static-site/style.css`(`.sig-more`徽章/`.sig-items-extra`/`.hidden`/`.signal-grid max-height 300px`兜底) / `static-site/data/overview.json`(重导)。验证：py_compile+node --check 过；dev API 与 static 数据一致(date=20260709/freeze=9天/signals=9天)；点击逻辑 mock 验证三轮切换(初始+12折叠→点击展开hidden=false徽章变收起→再点收起回+12)正确。
+- 验收备注: 用户视觉验收多轮并指出问题驱动迭代，最终方案满足"9行+单日不撑开"。今日(20260709)无 freeze/信号(信号算到0708)，今日高亮待信号算出后自动生效。配套：compact 反馈已存 memory `always-reply-in-chinese`（compact 后勿切英文）。
+
+---
+
 ## 进度看板
 
 | 任务 | 状态 | 优先级 | review gate | 依赖 |
@@ -391,3 +407,4 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 | B3 全球指标+情绪分数 signals | done | - | 是 | 09回测 |
 | B1S1 买卖点优化 BB辅买+MA60卖过滤 | done | - | 是 | 11回测 |
 | SignalStats 每品种买卖点回测 stats+折线图tips | done | - | 是 | B1S1 |
+| HomeSignalGrid 首页冰点/买卖点卡片分组+折叠 | done | - | 否 | G1,B1S1 |
