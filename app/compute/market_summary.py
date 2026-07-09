@@ -64,6 +64,18 @@ def generate_summary(date: str | None = None) -> dict:
     if date is None:
         date = last_trading_day()
 
+    # 若该日尚无情绪分数据（今天还没跑），回退到最近有 a_sentiment 的日期。
+    # 这样保证一句话总结基于"最近有数据"的交易日，而非空数据的今天。
+    if conn.execute(
+        "SELECT 1 FROM score_daily WHERE score_id='a_sentiment' AND date=?",
+        (date,),
+    ).fetchone() is None:
+        latest = conn.execute(
+            "SELECT date FROM score_daily WHERE score_id='a_sentiment' ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        if latest:
+            date = latest["date"]
+
     # ---- 1. 情绪分 + 恐贪指数 ----
     score_row = conn.execute(
         "SELECT value FROM score_daily WHERE score_id='a_sentiment' AND date=?",

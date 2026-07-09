@@ -720,7 +720,7 @@ async function renderOverview() {
       banner.className = "summary-banner";
       const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
       const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
-      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${fmtDate(s.date)}数据 · ${s.generated_at || ""}</span></div>`;
+      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${s.date ? s.date.substring(4,6)+"-"+s.date.substring(6,8) : ""}数据 · ${s.generated_at || ""}</span></div>`;
       content.insertBefore(banner, content.firstChild);
     }
   }).catch(() => {});
