@@ -8,75 +8,47 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
-## 交接状态（2026-07-09，compact 前最后更新）
+## 交接状态（2026-07-09，用户体验评审后更新）
 
-> 概念板块 + 情绪Tab扩充 + 邮件格式优化 + 期货机构持仓方案 全部完成。剩余 2 个待办 + 2 个遗留。
+> 功能建设全部完成（期货指标上线）。进入**体验优化阶段**，依据 `REVIEW_REPORT.md` 评审报告。
 
 ### 本轮已完成（概要）
+- 全品种模拟回测（77品种 HTML）
+- 期货机构净多空持仓（机构/中信/国君三角色）
+- index_id 全量中文化转译
+- 用户体验评审报告（`REVIEW_REPORT.md`）
 
-**概念板块（27个）**：
-- 27 个同花顺概念板块（量子科技、元宇宙、东数西算、信创、算力租赁等）
-- 数据采集：`app/collector/fetchers.py` 新增 `index_hist_ths_concept` fetcher
-- 买卖点信号 + 回测统计（signals.compute + signal_stats.compute）
-- 模拟回测 HTML（27 个 trade_sim 页面）
-- 前端：行业Tab 展示概念板块，无资金流/换手率显示"暂无数据"提示
+### 待办 — 体验优化（按优先级）
 
-**情绪Tab扩充（2图→8图+热力图）**：
-- 6 个 per-index 情绪分：上证50/沪深300/中证500/中证1000/创业板/科创50
-- 冰点热力图（6指数 × 时间轴）
-- 冰点检测：value < 20 = is_freeze, value > 80 = is_overheat
-- 数据表：score_daily 新增 sentiment_sz50/hs300/csi500/csi1000/cyb/kc50
-- 前后端全链路：compute → API → 前端 → 静态站导出
+#### P0 — 立即改 ✅ 已完成
+1. [x] **概览布局改为两列** — 两列布局（左：市场宽度+情绪分，右：买卖点+冰点+位置感），Spark和热力图保持全宽
+2. [x] **情绪分加文字标签** — 数字旁标注"冰点/偏冷/中性/偏热/过热"，新增 `sentimentTag()` 函数
+3. [x] **KPI 卡片排序** — 涨停→跌停→炸板率→成交额→量比→情绪分→跨市场→两融→北向
 
-**买卖点逻辑优化**（REQUIREMENTS.md §7）：
-- sell 卖点 MACD 死叉确认（DIF<DEA，s.* 豁免），建议率 18%→43%
-- buy_aux 逐品类优化：18/32 品类已落地 per-index filter
-- buy 精选 3 品类落地 buy_filter（kc50/电力设备/传媒 rsi_cross_25）
-- 3 个结构性异常品类 skip（oil/usdcnh/cn_us_spread）
+#### P1 — 近期改 ✅ 已完成
+4. [x] **Tab 合并** — 6→4：概览/大盘(含A股/港股/全球二级Tab)/情绪/行业概念
+5. [x] **ruleBar 改为全局浮动按钮** — 右下角蓝色"📋 策略说明"按钮，点击弹出 modal
+6. [x] **期货区折叠** — 默认显示概览表+准确率，折线图折叠，点击展开
+7. [x] **行业Tab 加锚点导航** — sticky 导航条，申万行业/概念板块 快速跳转+平滑滚动
 
-**邮件格式优化**（scripts/check_signals.py）：
-- 标题改为 `[买卖点信号] {date} 主买×N xxx | 辅买×N xxx | 卖×N xxx`
-- 正文改为 HTML 表格格式（品种/类型/触发条件/胜率/盈亏比/凯利建议）
-- 信号类型：主买(buy)🔴 / 辅买(buy_aux)🟣 / 卖(sell)🟢
-- 凯利公式：f* = max(0, (b·p-(1-p))/b)
+#### P2 — 新功能 ✅ 已完成
+8. [x] **新增涨跌家数比 + 腾落线（AD Line）** — `app/compute/ad_line.py`，概览左列双轴图
+9. [x] **新增成交量对比** — `app/compute/volume_ratio.py`，概览 KPI+折线图，放量/缩量标注
+10. [x] **新增大盘位置感** — `app/compute/position.py`，概览右列进度条卡片，8指数分位
+11. [x] **新增一句话总结** — `app/compute/market_summary.py`，概览顶部横幅，规则引擎
 
-**界面 + 部署**：
-- 策略公式后端注入（`strategy_desc()` → API → 前端读字段）
-- ruleBar 文案更新（MACD 死叉 + per-index 增强 + 变更历史）
-- Cloudflare Workers Static Assets 部署（wrangler.jsonc）
-
-**模拟回测**（新增）：
-- `scripts/simulate_trade.py` → 三路径九场景 → 静态 HTML `trade_sim.html`
-- 两级 Tab（外层策略路径 + 内层信号组合）
-- 固定 1w FIFO + 主+辅+卖 最优：10 万→72.4 万，年化 5.7%，胜率 71%
-- 入口：主看板上证凯利仓位后「📊 模拟回测」链接
-
-### 工作模式（不变）
-- 监管+loop：派子 agent（fresh context）读 TASKS.md 领任务
-- param-opt-test-driven：回测多方案出报告让用户选
-- 主对话 token 省：compact + 子 agent 干净上下文
-
-### 待办
-
-1. [x] **🔴 P0：邮件通知增强 — 同步推送该信号回测统计（胜率/盈亏比/凯利仓位）** ✅ — `check_signals.py` `build_email()` 加 `load_signal_stats()` + `_format_stats_line()`，每条信号后追加 `回测(10日) 胜率XX% 盈亏比XX 样本XX → 凯利建议仓位 XX%`，数据源 `data/signal_stats.json`，缺失静默跳过不报错
-2. [x] **🔴 P0：模拟回测入口改为回测口径行高亮按钮** ✅
-3. [x] **全品种模拟回测（56 品种）** ✅ — P0 39/40（缺 s.cross_market 非交易资产）+ P1 5/5 + P2 6/6 = 50 个指数/行业 + 27 个概念板块 = 77 个 HTML。P3 5 个（凯利=0%）有意跳过。见 `scripts/SIMULATION_CHECKLIST.md`
-4. [x] **期货机构净多空持仓指标** ✅ — 机构(前20)/中信期货/国泰君安 三角色 × 4品种，手数展示，30/60/120日滚动准确率。4张折线图+概览表+准确率表。commit 081da28
-
-### 已完成 — 模拟回测优化（2026-07-08，13 项）✅
-
-> 📋 详细清单：`scripts/SIMULATION_CHECKLIST.md`
-> 优先级：P0(40个) → P1(5个) → P2(6个) → P3(5个可跳过)
-> 第一批推荐：sz → cyb → csi500 → csi1000 → kc50 → hs300（A股核心宽基）
-> **开工前需确认**：参数化改造方案 + 申万行业是否全做 + 非交易资产处理
+#### P3 — 长期 ✅ 已完成
+12. [x] **恐贪指数** — `app/compute/fear_greed.py`，8情绪分等权合成，概览KPI+情绪Tab图表
+13. [x] **板块轮动速度** — `app/compute/rotation.py`，行业Tab轮动卡片，5/10/20日窗口
+14. [x] **新高新低家数** — `app/compute/new_high_low.py`，概览NH-NL卡片+迷你折线，52周/20日
+15. [x] **均线排列状态** — `app/compute/ma_alignment.py`，概览均线卡片，多头/空头/震荡统计
 
 ### 遗留
-
 1. **industry-all.json 体积** — 23.74 MiB < 25 MiB，余量 1.26 MiB，2026 年底前需拆分
 2. **g.cn10y buy_aux 回测** — 全球指标类（`_compute_value_signals` 路径），回测脚本需单独处理
 
 ### 下轮起点
-剩余待办仅 **期货机构净多空持仓指标**（待实施，先不做）。日常维护：读本节 + `REQUIREMENTS.md` + `NOTES.md`。
+体验优化阶段已完成（15/15 条建议全部实施）。下轮关注：前端样式微调 + 数据质量持续监控 + industry-all.json 体积优化。
 
 ---
 

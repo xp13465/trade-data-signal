@@ -294,6 +294,17 @@ def run(date=None, verbose=True):
         fail += 1
         details.append(("futures_accuracy", "fail", str(e)[:150]))
 
+    # 11) AD Line（腾落线）+ 涨跌家数比
+    try:
+        from ..compute.ad_line import compute_ad_line, store_ad_line
+        out = compute_ad_line()
+        n = store_ad_line(out)
+        details.append(("ad_line", "ok", f"{n} rows derived"))
+        ok += 1
+    except Exception as e:  # noqa: BLE001
+        fail += 1
+        details.append(("ad_line", "fail", str(e)[:150]))
+
     if verbose:
         print(f"=== 采集 {date} 完成: ok={ok} fail={fail} ===")
         for mid, st, msg in details:

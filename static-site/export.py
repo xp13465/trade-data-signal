@@ -34,6 +34,8 @@ sys.path.insert(0, str(ROOT))
 from app.calendar import last_trading_day  # noqa: E402
 from app.collector.fetchers import load_config  # noqa: E402
 from app.compute import signal_stats as sigstats  # noqa: E402
+from app.compute.position import compute_position  # noqa: E402
+from app.compute.market_summary import generate_summary  # noqa: E402
 from app.compute.signals import strategy_desc  # noqa: E402
 from app.db import get_conn  # noqa: E402
 
@@ -59,6 +61,7 @@ KPI_METRIC_IDS = [
     "a_width_dt_count",
     "a_width_zhaban_rate",
     "a_amount",
+    "a_volume_ratio",
     "a_fund_north",
     "a_fund_margin",
 ]
@@ -171,6 +174,7 @@ def export_overview(conn, cfg):
     ).fetchall()}
 
     metric_cfg = {m["id"]: m for m in cfg.get("metrics", []) if m.get("enabled")}
+    metric_cfg["a_volume_ratio"] = {"id": "a_volume_ratio", "name": "量比", "unit": ""}
     today_metrics = []
     for mid in KPI_METRIC_IDS:
         m = metric_cfg.get(mid)
@@ -182,14 +186,27 @@ def export_overview(conn, cfg):
             (mid,),
         ).fetchone()
         if r:
-            today_metrics.append({
+            entry = {
                 "id": mid,
                 "name": m["name"],
                 "unit": m.get("unit"),
                 "value": r["value"],
                 "date": r["date"],
                 "source": r["source"],
-            })
+            }
+            if mid == "a_volume_ratio":
+                sig_row = conn.execute(
+                    "SELECT value FROM daily_metric WHERE metric_id='a_volume_signal' AND date=?",
+                    (r["date"],),
+                ).fetchone()
+                signal_labels = {0: "正常", 1: "放量上涨", 2: "放量下跌", 3: "缩量上涨", 4: "缩量下跌"}
+                entry["signal"] = signal_labels.get(int(sig_row["value"]) if sig_row and sig_row["value"] is not None else 0, "正常")
+                amt_row = conn.execute(
+                    "SELECT value FROM daily_metric WHERE metric_id='a_amount' AND date=?",
+                    (r["date"],),
+                ).fetchone()
+                entry["amount"] = amt_row["value"] if amt_row else None
+            today_metrics.append(entry)
 
     sigs = [dict(r) for r in conn.execute(
         "SELECT date, index_id, signal, reason FROM signal_daily WHERE date=?",
@@ -406,6 +423,95 @@ def export_metrics(cfg):
             for m in cfg.get("metrics", []) if m.get("enabled")]
 
 
+def export_position():
+    """复刻 /api/position。"""
+    return {"positions": compute_position()}
+
+
+def export_summary():
+    """复刻 /api/summary。"""
+    return generate_summary()
+
+
+def export_rotation(conn):
+    """复刻 /api/rotation。"""
+    metric_ids = [
+        "a_rotation_5d", "a_rotation_10d", "a_rotation_20d",
+        "a_rotation_concept_5d", "a_rotation_concept_10d", "a_rotation_concept_20d",
+    ]
+    series: dict[str, dict[str, float]] = {}
+    for mid in metric_ids:
+        rows = conn.execute(
+            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
+            (mid,),
+        ).fetchall()
+        series[mid] = {r["date"]: r["value"] for r in rows}
+
+    all_dates = sorted(set().union(*[s.keys() for s in series.values()]))
+    all_dates = all_dates[-250:]
+
+    data = []
+    for d in all_dates:
+        data.append({
+            "date": d,
+            "speed_5d": series.get("a_rotation_5d", {}).get(d),
+            "speed_10d": series.get("a_rotation_10d", {}).get(d),
+            "speed_20d": series.get("a_rotation_20d", {}).get(d),
+            "speed_concept_5d": series.get("a_rotation_concept_5d", {}).get(d),
+            "speed_concept_10d": series.get("a_rotation_concept_10d", {}).get(d),
+            "speed_concept_20d": series.get("a_rotation_concept_20d", {}).get(d),
+        })
+
+    # 最新值摘要：从 index_daily 直接取当日领涨板块
+    last_date = all_dates[-1] if all_dates else ""
+    sw_top3 = []
+    concept_top3 = []
+    sw_leader = None
+    concept_leader = None
+    if last_date:
+        sw_rows = conn.execute(
+            "SELECT index_id, pct_change FROM index_daily "
+            "WHERE index_id LIKE 'sw_%' AND date=? AND pct_change IS NOT NULL "
+            "ORDER BY pct_change DESC LIMIT 3",
+            (last_date,),
+        ).fetchall()
+        sw_top3 = [{"index_id": r["index_id"], "pct_change": r["pct_change"]} for r in sw_rows]
+        sw_leader = sw_top3[0]["index_id"] if sw_top3 else None
+
+        thsc_rows = conn.execute(
+            "SELECT index_id, pct_change FROM index_daily "
+            "WHERE index_id LIKE 'thsc_%' AND date=? AND pct_change IS NOT NULL "
+            "ORDER BY pct_change DESC LIMIT 3",
+            (last_date,),
+        ).fetchall()
+        concept_top3 = [{"index_id": r["index_id"], "pct_change": r["pct_change"]} for r in thsc_rows]
+        concept_leader = concept_top3[0]["index_id"] if concept_top3 else None
+
+    latest_sw = {
+        "speed_5d": data[-1]["speed_5d"] if data else None,
+        "speed_10d": data[-1]["speed_10d"] if data else None,
+        "speed_20d": data[-1]["speed_20d"] if data else None,
+        "leader": sw_leader,
+        "top3": sw_top3,
+    }
+    latest_concept = {
+        "speed_5d": data[-1]["speed_concept_5d"] if data else None,
+        "speed_10d": data[-1]["speed_concept_10d"] if data else None,
+        "speed_20d": data[-1]["speed_concept_20d"] if data else None,
+        "leader": concept_leader,
+        "top3": concept_top3,
+    }
+
+    return {
+        "data": data,
+        "latest": {
+            "date": last_date,
+            "sw": latest_sw,
+            "concept": latest_concept,
+        },
+    }
+
+
 def export_futures(conn):
     """复刻 /api/futures。"""
     end = last_trading_day()
@@ -445,6 +551,258 @@ def export_futures(conn):
         accuracy[v][f"contrarian_{w}"] = r["contrarian_accuracy"]
 
     return {"positions": positions, "accuracy": accuracy}
+
+
+def export_ad_line(conn):
+    """复刻 /api/ad_line。"""
+    metrics = ["a_width_up_count", "a_width_down_count", "a_up_down_ratio",
+               "a_ad_line", "a_ad_line_ma5", "a_ad_line_ma20"]
+    series: dict[str, dict[str, float]] = {}
+    for mid in metrics:
+        rows = conn.execute(
+            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
+            (mid,),
+        ).fetchall()
+        series[mid] = {r["date"]: r["value"] for r in rows}
+
+    all_dates = sorted(set().union(*[s.keys() for s in series.values()]))
+    all_dates = all_dates[-250:]
+
+    data = []
+    for d in all_dates:
+        up = series.get("a_width_up_count", {}).get(d)
+        down = series.get("a_width_down_count", {}).get(d)
+        data.append({
+            "date": d,
+            "up_count": up,
+            "down_count": down,
+            "ratio": series.get("a_up_down_ratio", {}).get(d),
+            "ad_line": series.get("a_ad_line", {}).get(d),
+            "ad_line_ma5": series.get("a_ad_line_ma5", {}).get(d),
+            "ad_line_ma20": series.get("a_ad_line_ma20", {}).get(d),
+        })
+    return {"data": data}
+
+
+def export_volume_ratio(conn):
+    """复刻 /api/volume_ratio。"""
+    amount_rows = conn.execute(
+        "SELECT date, value FROM daily_metric WHERE metric_id='a_amount' ORDER BY date"
+    ).fetchall()
+    amount_map = {r["date"]: r["value"] for r in amount_rows}
+
+    ratio_rows = conn.execute(
+        "SELECT date, value FROM daily_metric WHERE metric_id='a_volume_ratio' ORDER BY date"
+    ).fetchall()
+    ratio_map = {r["date"]: r["value"] for r in ratio_rows}
+
+    ma5_rows = conn.execute(
+        "SELECT date, value FROM daily_metric WHERE metric_id='a_amount_ma5' ORDER BY date"
+    ).fetchall()
+    ma5_map = {r["date"]: r["value"] for r in ma5_rows}
+
+    ma20_rows = conn.execute(
+        "SELECT date, value FROM daily_metric WHERE metric_id='a_amount_ma20' ORDER BY date"
+    ).fetchall()
+    ma20_map = {r["date"]: r["value"] for r in ma20_rows}
+
+    signal_rows = conn.execute(
+        "SELECT date, value FROM daily_metric WHERE metric_id='a_volume_signal' ORDER BY date"
+    ).fetchall()
+    signal_map = {r["date"]: int(r["value"]) for r in signal_rows if r["value"] is not None}
+
+    pct_rows = conn.execute(
+        "SELECT date, pct_change FROM index_daily WHERE index_id='sh' ORDER BY date"
+    ).fetchall()
+    pct_map = {r["date"]: r["pct_change"] for r in pct_rows}
+
+    all_dates = sorted(set(amount_map.keys()) & set(ratio_map.keys()))
+    all_dates = all_dates[-250:]
+
+    signal_labels = {0: "正常", 1: "放量上涨", 2: "放量下跌", 3: "缩量上涨", 4: "缩量下跌"}
+
+    data = []
+    for d in all_dates:
+        data.append({
+            "date": d,
+            "amount": amount_map.get(d),
+            "ma5": ma5_map.get(d),
+            "ma20": ma20_map.get(d),
+            "ratio": ratio_map.get(d),
+            "signal": signal_labels.get(signal_map.get(d), "正常"),
+            "signal_code": signal_map.get(d, 0),
+            "pct_change": pct_map.get(d),
+        })
+    return {"data": data}
+
+
+def export_new_high_low(conn):
+    """复刻 /api/new_high_low。"""
+    from app.compute.new_high_low import INDICES, INDEX_NAMES, WINDOW_52W, WINDOW_20D
+
+    metric_ids = ["a_nh_52w", "a_nl_52w", "a_nhnl_52w", "a_nh_20d", "a_nl_20d"]
+    series = {}
+    for mid in metric_ids:
+        rows = conn.execute(
+            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
+            (mid,),
+        ).fetchall()
+        series[mid] = {r["date"]: r["value"] for r in rows}
+
+    all_dates = sorted(set().union(*[s.keys() for s in series.values()]))
+    all_dates = all_dates[-250:]
+
+    latest_date = all_dates[-1] if all_dates else None
+    latest_details = []
+    if latest_date:
+        import pandas as pd
+        placeholders = ",".join(["?"] * len(INDICES))
+        idx_rows = conn.execute(
+            f"SELECT date, index_id, close FROM index_daily "
+            f"WHERE index_id IN ({placeholders}) AND close IS NOT NULL ORDER BY date",
+            INDICES,
+        ).fetchall()
+
+        if idx_rows:
+            df = pd.DataFrame(idx_rows, columns=["date", "index_id", "close"])
+            pivoted = df.pivot(index="date", columns="index_id", values="close")
+
+            for iid in INDICES:
+                if iid not in pivoted.columns:
+                    continue
+                series_i = pivoted[iid].dropna()
+                if latest_date not in series_i.index:
+                    continue
+
+                close_val = float(series_i.loc[latest_date])
+                idx_loc = series_i.index.get_loc(latest_date)
+
+                nh_52w = False
+                nl_52w = False
+                if idx_loc >= WINDOW_52W:
+                    lookback_52w = series_i.iloc[idx_loc - WINDOW_52W:idx_loc]
+                    if len(lookback_52w) > 0:
+                        prev_high = float(lookback_52w.max())
+                        prev_low = float(lookback_52w.min())
+                        if close_val > prev_high:
+                            nh_52w = True
+                        if close_val < prev_low:
+                            nl_52w = True
+
+                nh_20d = False
+                nl_20d = False
+                if idx_loc >= WINDOW_20D:
+                    lookback_20d = series_i.iloc[idx_loc - WINDOW_20D:idx_loc]
+                    if len(lookback_20d) > 0:
+                        prev_high = float(lookback_20d.max())
+                        prev_low = float(lookback_20d.min())
+                        if close_val > prev_high:
+                            nh_20d = True
+                        if close_val < prev_low:
+                            nl_20d = True
+
+                latest_details.append({
+                    "index_id": iid,
+                    "name": INDEX_NAMES.get(iid, iid),
+                    "close": round(close_val, 2),
+                    "nh_52w": nh_52w,
+                    "nl_52w": nl_52w,
+                    "nh_20d": nh_20d,
+                    "nl_20d": nl_20d,
+                })
+
+    data = []
+    for d in all_dates:
+        entry = {
+            "date": d,
+            "nh_52w": series.get("a_nh_52w", {}).get(d),
+            "nl_52w": series.get("a_nl_52w", {}).get(d),
+            "nhnl_52w": series.get("a_nhnl_52w", {}).get(d),
+            "nh_20d": series.get("a_nh_20d", {}).get(d),
+            "nl_20d": series.get("a_nl_20d", {}).get(d),
+            "details": latest_details if d == latest_date else [],
+        }
+        data.append(entry)
+
+    return {"data": data}
+
+
+def export_ma_alignment(conn):
+    """复刻 /api/ma_alignment。"""
+    from app.compute.ma_alignment import INDICES, INDEX_NAMES, MA_PERIODS
+
+    metric_ids = ["a_ma_bullish", "a_ma_bearish", "a_ma_cross"]
+    series = {}
+    for mid in metric_ids:
+        rows = conn.execute(
+            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
+            (mid,),
+        ).fetchall()
+        series[mid] = {r["date"]: r["value"] for r in rows}
+
+    all_dates = sorted(set().union(*[s.keys() for s in series.values()]))
+    all_dates = all_dates[-250:]
+
+    latest_date = all_dates[-1] if all_dates else None
+    latest_details = []
+    if latest_date:
+        import pandas as pd
+        placeholders = ",".join(["?"] * len(INDICES))
+        idx_rows = conn.execute(
+            f"SELECT date, index_id, close FROM index_daily "
+            f"WHERE index_id IN ({placeholders}) AND close IS NOT NULL ORDER BY date",
+            INDICES,
+        ).fetchall()
+
+        if idx_rows:
+            df = pd.DataFrame(idx_rows, columns=["date", "index_id", "close"])
+            pivoted = df.pivot(index="date", columns="index_id", values="close")
+
+            for iid in INDICES:
+                if iid not in pivoted.columns:
+                    continue
+                series_i = pivoted[iid].dropna()
+                if len(series_i) < max(MA_PERIODS) or latest_date not in series_i.index:
+                    continue
+
+                vals = {}
+                for p in MA_PERIODS:
+                    ma_vals = series_i.rolling(p, min_periods=p).mean()
+                    v = ma_vals.get(latest_date)
+                    vals[f"ma{p}"] = round(float(v), 2) if v is not None and not pd.isna(v) else None
+
+                if any(v is None for v in vals.values()):
+                    continue
+
+                if vals["ma5"] > vals["ma10"] > vals["ma20"] > vals["ma60"]:
+                    alignment = "bullish"
+                elif vals["ma5"] < vals["ma10"] < vals["ma20"] < vals["ma60"]:
+                    alignment = "bearish"
+                else:
+                    alignment = "cross"
+
+                latest_details.append({
+                    "index_id": iid,
+                    "name": INDEX_NAMES.get(iid, iid),
+                    "alignment": alignment,
+                    "ma5": vals["ma5"],
+                    "ma10": vals["ma10"],
+                    "ma20": vals["ma20"],
+                    "ma60": vals["ma60"],
+                })
+
+    data = []
+    for d in all_dates:
+        entry = {
+            "date": d,
+            "bullish": series.get("a_ma_bullish", {}).get(d),
+            "bearish": series.get("a_ma_bearish", {}).get(d),
+            "cross": series.get("a_ma_cross", {}).get(d),
+            "details": latest_details if d == latest_date else [],
+        }
+        data.append(entry)
+
+    return {"data": data}
 
 
 # ============ JSON 序列化 + 写盘 ============
@@ -497,6 +855,34 @@ def main():
     # 7.5. futures
     counts["futures.json"] = write_json(DATA_DIR / "futures.json", export_futures(conn))
     print(f"  futures.json ({counts['futures.json']} bytes)")
+
+    # 7.6. ad_line
+    counts["ad_line.json"] = write_json(DATA_DIR / "ad_line.json", export_ad_line(conn))
+    print(f"  ad_line.json ({counts['ad_line.json']} bytes)")
+
+    # 7.7. volume_ratio
+    counts["volume_ratio.json"] = write_json(DATA_DIR / "volume_ratio.json", export_volume_ratio(conn))
+    print(f"  volume_ratio.json ({counts['volume_ratio.json']} bytes)")
+
+    # 7.8. position
+    counts["position.json"] = write_json(DATA_DIR / "position.json", export_position())
+    print(f"  position.json ({counts['position.json']} bytes)")
+
+    # 7.9. summary
+    counts["summary.json"] = write_json(DATA_DIR / "summary.json", export_summary())
+    print(f"  summary.json ({counts['summary.json']} bytes)")
+
+    # 7.10. rotation
+    counts["rotation.json"] = write_json(DATA_DIR / "rotation.json", export_rotation(conn))
+    print(f"  rotation.json ({counts['rotation.json']} bytes)")
+
+    # 7.11. new_high_low
+    counts["new_high_low.json"] = write_json(DATA_DIR / "new_high_low.json", export_new_high_low(conn))
+    print(f"  new_high_low.json ({counts['new_high_low.json']} bytes)")
+
+    # 7.12. ma_alignment
+    counts["ma_alignment.json"] = write_json(DATA_DIR / "ma_alignment.json", export_ma_alignment(conn))
+    print(f"  ma_alignment.json ({counts['ma_alignment.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]

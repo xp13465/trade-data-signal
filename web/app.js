@@ -1,6 +1,6 @@
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all" };
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock" };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -39,6 +39,7 @@ document.querySelectorAll('.periods button[data-rng]').forEach((b) => {
 document.querySelectorAll(".tabs button[data-tab]").forEach((b) => {
   b.onclick = () => {
     state.tab = b.dataset.tab;
+    if (state.tab === "market" && !state.subtab) state.subtab = "a-stock";
     document.querySelectorAll(".tabs button[data-tab]").forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
     renderTab();
@@ -112,6 +113,36 @@ function signalLabel(s) {
   return "卖";
 }
 
+// 情绪分文字标签：散户秒懂，数值旁边加标签
+function sentimentTag(value) {
+  if (value == null) return "";
+  if (value <= 20) return "🔴 冰点";
+  if (value <= 40) return "🟠 偏冷";
+  if (value <= 60) return "⚪ 中性";
+  if (value <= 80) return "🟢 偏热";
+  return "🔥 过热";
+}
+
+// 恐贪指数标签：0-25 极度恐惧，25-40 恐惧，40-60 中性，60-75 贪婪，75-100 极度贪婪
+function fearGreedLabel(value) {
+  if (value == null) return "";
+  if (value <= 25) return "😱 极度恐惧";
+  if (value <= 40) return "😟 恐惧";
+  if (value <= 60) return "😐 中性";
+  if (value <= 75) return "😤 贪婪";
+  return "🤩 极度贪婪";
+}
+
+// 恐贪标签颜色：极度恐惧=深红，恐惧=橙，中性=灰，贪婪=浅绿，极度贪婪=深绿
+function fearGreedColor(value) {
+  if (value == null) return "#86909c";
+  if (value <= 25) return "#c62828";
+  if (value <= 40) return "#e6a23c";
+  if (value <= 60) return "#86909c";
+  if (value <= 75) return "#67c23a";
+  return "#2e8b57";
+}
+
 // index_id → 中文名 转译（散户友好，去除代码前缀，查不到保留原值）
 const _INDEX_NAME_MAP = {
   // A股宽基
@@ -132,6 +163,7 @@ const _INDEX_NAME_MAP = {
   sentiment_sz50: '上证50情绪分', sentiment_hs300: '沪深300情绪分',
   sentiment_csi500: '中证500情绪分', sentiment_csi1000: '中证1000情绪分',
   sentiment_cyb: '创业板情绪分', sentiment_kc50: '科创50情绪分',
+  fear_greed: '恐贪指数',
   // 申万行业（31个）
   sw_801010: '农林牧渔', sw_801030: '基础化工', sw_801040: '钢铁', sw_801050: '有色金属',
   sw_801080: '电子', sw_801110: '家用电器', sw_801120: '食品饮料', sw_801130: '纺织服饰',
@@ -391,7 +423,7 @@ function renderIndicesSection(container, indices, fetcher) {
 }
 
 // 行业搜索条：行业 tab 用，输入关键词实时过滤行业网格（按 name 或 id 模糊匹配）。
-function industrySearchBar() {
+function industrySearchBar(containerOverride) {
   const bar = document.createElement("div");
   bar.className = "filter-bar";
   bar.innerHTML = `<label>行业/概念筛选：</label>`;
@@ -408,7 +440,7 @@ function industrySearchBar() {
     }, 250); // 防抖，避免每键触发 renderTab
   };
   bar.appendChild(input);
-  content.appendChild(bar);
+  (containerOverride || content).appendChild(bar);
 }
 
 function filterIndicesByName(indices, query) {
@@ -424,45 +456,148 @@ function filterIndicesByName(indices, query) {
 
 // 买卖点规则说明条（小字可折叠）。文案与 app/compute/signals.py + REQUIREMENTS.md §7 一致。
 // 每个 tab 调用一次；行业 tab（F1）建好后直接调 ruleBar() 即可复用。
-function ruleBar() {
-  const div = document.createElement("div");
-  div.className = "rule-bar";
-  div.innerHTML = `
-    <div class="rule-summary">
-      <span class="rule-toggle">▸</span>
-      <span class="rule-text"><b class="buy">买</b>: RSI(14)上穿30（主，红）+ BB下轨回归（辅，<span style="color:#d63384">粉紫</span>；部分品类 per-index 叠加 RSI上穿40/反弹2% 确认） · <b class="sell">卖</b>: 20日高回落5% ∧ close&gt;MA60（多头趋势过滤）∧ DIF&lt;DEA（MACD 死叉确认，砍强趋势回调假摔；s.* 情绪分豁免）（<b>止盈/减仓提示，非高胜率卖点</b>；卖点后 10 日走弱概率≈50% 接近随机，不可作独立卖出指令）（cross 为情绪分级：冰点/偏冷/中性/偏热/狂热；卖点附 vs前买 盈亏标注：止盈/买点失败/无前买点）</span>
+// 买卖点规则说明 HTML 内容（供浮动按钮 modal 使用）。复用原 ruleBar 的详细规则。
+function ruleContentHtml() {
+  return `<div class="rule-detail">
+
+    <div class="rule-section">
+      <h4><span class="rule-dot rule-dot-buy"></span>买点信号</h4>
+
+      <div class="rule-card rule-card-buy">
+        <div class="rule-card-head"><span class="rule-badge badge-buy">主买</span> 超卖反弹（RSI 指标）</div>
+        <p>当市场<b>短期跌过头了</b>，开始反弹时，提示买入机会。</p>
+        <table class="rule-table">
+          <tr><td class="rule-td-label">含义</td><td>RSI 指标跌到 30 以下（超卖区），然后回升到 30 以上 —— 说明抛压衰竭、买方开始进场</td></tr>
+          <tr><td class="rule-td-label">触发</td><td>前一日 RSI ≤ 30，当日回升到 30 以上</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-buy">红色</span> 图表上标记为「买」</td></tr>
+          <tr><td class="rule-td-label">胜率</td><td>近 3 年 10 日内盈亏比 <b>1.13</b></td></tr>
+          <tr><td class="rule-td-label">特殊</td><td><b>科创50、电力设备、传媒</b> 这 3 个品种波动更大，阈值收紧到 25（RSI ≤ 25 才算超卖），更早捕捉反弹</td></tr>
+        </table>
+      </div>
+
+      <div class="rule-card rule-card-aux">
+        <div class="rule-card-head"><span class="rule-badge badge-aux">辅买</span> 超卖反弹（布林带下轨）</div>
+        <p>价格<b>跌破布林带下轨后弹回来</b>，也是超卖反弹信号，与主买互补。</p>
+        <table class="rule-table">
+          <tr><td class="rule-td-label">含义</td><td>布林带下轨 = 近 20 日均价 - 2 倍标准差，跌破后收回 = 极端超卖后的反弹</td></tr>
+          <tr><td class="rule-td-label">触发</td><td>前一日收盘价跌破布林下轨，当日回升到下轨之上</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-aux">粉紫</span> 图表上标记为「辅买」</td></tr>
+          <tr><td class="rule-td-label">胜率</td><td>近 3 年 10 日内盈亏比 <b>1.18</b></td></tr>
+          <tr><td class="rule-td-label">去重</td><td>如果同一天主买和辅买同时触发，只保留主买（不重复标记）</td></tr>
+        </table>
+      </div>
     </div>
-    <div class="rule-detail hidden">
-      <div><b>买·主（C1，不动）</b>：RSI 周期=14（Wilder RSI，EWM α=1/14）；触发=前一日 RSI≤30 且当日 RSI&gt;30（升回 30 之上，超卖结束、有望反弹）。前端红 <code>#e6492e</code>，标签「买」。<b>per-index RSI 阈值收紧（2026-07-08）</b>：kc50 科创50 / sw_801730 电力设备 / sw_801760 传媒 三品类 C1 主买 RSI 阈值从 30 收紧到 25（<code>rsi_prev≤25 且 rsi&gt;25</code>），更早捕捉超卖反弹。回测 kc50 f 15.92%→57.56%、电力设备 f 0%→29.55%、传媒 f 0%→41.74%。其他 57 品类维持基线 RSI 上穿 30。详见 <code>22-buy收紧RSI回测-21个不建议.md</code>。</div>
-      <div><b>买·辅（B1，2026-07-05 加）</b>：BB 下轨回归——<code>mid=close.rolling(20).mean(); sd=close.rolling(20).std(ddof=0); bl=mid-2σ; buy_aux=(close_prev&lt;bl_prev)&(close&gt;bl)</code>。前一日跌破下轨、当日收回下轨之上 = 超卖反弹。语义与 C1 同为「超卖反弹」，强势市更敏感，互补 C1 盲区。前端粉紫 <code>#d63384</code>，标签「辅买」。C1 与 BB 同日触发时去重（保留 C1 主买）。<b>buy_aux 也算买点</b>：更新 vs前买 游标 + 参与盈亏标注。回测买点 15007→38547（翻 2.57×），近 3 年 10日 盈亏比 1.18（vs C1 1.13，不降质）。</div>
-      <div><b>卖（D1 + S1 + MACD 死叉确认，2026-07-08）</b>：close 从近 20 日最高价（<b>high-based</b>，必须用 high 不用 close 以捕捉盘中真实波峰）回落 5%——<code>hh20=high.rolling(20).max(); thresh=hh20×0.95; sell=(close_prev≥thresh_prev)&(close&lt;thresh)</code>；<b>S1 趋势过滤</b>：叠加 <code>close&gt;MA60</code>（60 日均线多头才放卖，砍下跌趋势假卖点）——<code>ma60=close.rolling(60,min_periods=60).mean(); sell=sell&(close&gt;ma60)</code>。前一日还在阈之上、当日跌破阈且处于多头趋势才标。定位为「<b>趋势转弱/止盈减仓提示</b>」——非做空/反向信号。回测降噪 39%（全史卖点 59830→36289），近 3 年 10日 胜率 55.0%（vs D1 53.3%）。<b>MACD 死叉确认（2026-07-05 加）</b>：叠加 <code>DIF&lt;DEA</code>（MACD(12,26,9) 业界标准，DIF=EMA(close,12)-EMA(close,26)，DEA=EMA(DIF,9)），动量转弱双维确认（价格弱 + 动量弱），过滤强趋势中回调假摔型假信号。<b>s.* 情绪分序列豁免 MACD 过滤</b>（a_sentiment 加 MACD 后 n=106→7 样本不足），保留原 D1+S1。回测建议率 18.3%→43.3%（11→26 建议），MACD 砍 30% 卖点（4700→3268）。</div>
-      <div><b>RSI 在卖点降级为参考标签</b>：买点 RSI 仍是主信号；卖点 reason 附 RSI 数值供参考但<b>不作触发条件</b>（C1 旧卖点 RSI 下穿70 经回测为最差卖点，已替换）。</div>
-      <div><b>cross 软分级</b>：cross 不作硬门槛，仅作情绪分级标签附在 reason 供参考——&lt;30 冰点 / 30-50 偏冷 / 50-70 中性 / 70-80 偏热 / ≥80 狂热。用户可结合标签判断「技术面拐点 + 情绪背景」强弱。</div>
-      <div><b>事件化</b>：一次连续超卖/回落期只标 1 个点（穿越当日），RSI 反复进出则每次退出各 1 点（独立事件）。首日 shift(1)=NaN 跳过；cross/high 缺失（NaN）时省略对应 reason 段；MA60 前 60 日为 NaN 时 close&gt;MA60 为 False，自动不放卖。</div>
-      <div><b>reason 示例</b>：<span class="muted">RSI上穿30(29-&gt;34),cross=8[冰点]</span>（per-index RSI 收紧品类例：<span class="muted">RSI上穿25(24-&gt;28),cross=44[偏冷]</span>） / <span class="muted">布林下轨回归(下轨3852,close3870), RSI=41, cross=47[偏冷]</span> / <span class="muted">20日高回落5%(高4259-&gt;阈4046,close4028), RSI=40, cross=53[中性], MA60=4000[趋势过滤], MACD=DIF39/DEA62[死叉确认], vs前买+2.30%[止盈]</span>。信号为参考用，非交易指令。</div>
-      <div><b>D1+S1+MACD 回测结论（2016+ 10日，13 主要指数）</b>：D1 卖点后 10 日市场<b>走弱概率 50.6%（接近随机，非高胜率卖点）</b> / 盈亏比 1.04 / 均值 -0.11%（12 方案中唯一达标，B 有效）。S1 趋势过滤降噪 39%、近 3 年胜率 55.0%（+1.7pp）。high-based 比 close-based 走弱概率高 5pp（50.6% vs 45.6%）。<b>MACD 死叉确认后</b>：建议率 18.3%→43.3%（凯利 11→26 建议），卖点 4700→3268（砍 30%），s.* 豁免保留样本（a_sentiment n=106 未受损）。<b>定位</b>：D1+S1+MACD 是<b>止盈减仓提示</b>——非做空/反向交易指令，<b>不可作为独立卖出依据</b>（卖点本质难预测，指数向上漂移使胜率难显著高于 50%）。<b>诚实声明</b>：D1 是「最不坏」方案非「好」方案——在震荡/下跌市提供有效止盈提示，在单边上涨市会产生假信号（趋势跟踪类信号的固有代价）；S1 过滤会砍掉部分上涨市卖点（多头才放卖）。详见 <code>07-卖点对策回测.md</code> + <code>10-买卖点配对回测.md</code> + <code>11-买卖点优化方案回测.md</code>。</div>
-      <div><b>卖点盈亏标注（方案 B，2026-07-06）</b>：卖点 reason 附 <code>vs前买{±X.XX%}[分类]</code> 标签，标注相对最近一次前置买点 close 的盈亏——<span style="color:#2e8b57">● 绿=止盈</span>（卖点 close &gt; 前买点 close）/ <span style="color:#9e9e9e">● 灰=买点失败</span>（卖点 close &lt; 前买点 close）/ <span style="color:#ff9800">● 橙=无前买点</span>（窗口内无前置买点，趋势中）。前端 markPoint 按此分色（买=红、辅买=粉紫、卖止盈=绿、卖买点失败=灰、卖无前买=橙）。</div>
-      <div><b>操作建议</b>：卖点低于买点（灰，买点失败）= <b>止损观望非止盈</b>——已持仓<b>止损</b>、未持仓<b>观望</b>，等下个买点或 MA60 转多；卖点高于买点（绿，止盈）= 趋势转弱<b>减仓/止盈</b>提示；无前买点（橙）= 无前置买点参照，单独看趋势（不属止盈也不属止损）。辅买（粉紫）置信度低于主买，可作小仓位试探或观察确认。</div>
-      <div><b>变更</b>：C1（2026-07-06，去 cross 硬门槛、降为分级标签）→ D1（2026-07-06，卖改 20 日高回落 5% high-based，买 C1 不动）→ 方案 B（2026-07-06，卖点 reason 加 vs前买 标注 + 前端分色 + 操作文案，触发逻辑不动）→ <b>B1+S1（2026-07-05，买加 BB 下轨回归辅买点 buy_aux + 卖叠加 MA60 多头过滤）</b>→ <b>MACD 死叉确认（2026-07-05，DIF&lt;DEA 双维确认 + s.* 豁免）</b>→ <b>per-index buy_aux 增强（2026-07-05~08，18/32 品类）</b>→ <b>per-index buy_filter RSI 收紧（2026-07-08，3 品类 rsi_cross_25）</b>。重算后（含指数+行业+全球指标+情绪分）：buy 3673（C1 主，含 3 品类 rsi_cross_25）/ buy_aux 3918（B1 辅，18 品类 per-index 增强）/ sell 3185（D1+S1+MACD，s.* 豁免）；卖/买比 0.42（买卖平衡）。</div>
-    </div>`;
-  const summary = div.querySelector(".rule-summary");
-  const toggle = div.querySelector(".rule-toggle");
-  const detail = div.querySelector(".rule-detail");
-  summary.onclick = () => {
-    const hidden = detail.classList.toggle("hidden");
-    toggle.textContent = hidden ? "▸" : "▾";
-  };
-  content.appendChild(div);
+
+    <div class="rule-section">
+      <h4><span class="rule-dot rule-dot-sell"></span>卖点信号</h4>
+
+      <div class="rule-card rule-card-sell">
+        <div class="rule-card-head"><span class="rule-badge badge-sell">卖点</span> 趋势转弱 · 止盈减仓提示</div>
+        <p>价格从<b>近期高点回落</b>，且动量转弱时，提示减仓或止盈。三个条件<b>同时满足</b>才触发：</p>
+        <table class="rule-table">
+          <tr><td class="rule-td-label">① 价格回落</td><td>从近 20 个交易日的<b>最高价</b>回落超过 <b>5%</b>（用最高价而非收盘价，更能捕捉盘中真实高点）</td></tr>
+          <tr><td class="rule-td-label">② 趋势过滤</td><td>收盘价仍在 <b>60 日均线</b> 之上（只在多头趋势中提示卖出，下跌趋势中不制造噪音）</td></tr>
+          <tr><td class="rule-td-label">③ 动量确认</td><td><b>MACD 死叉</b> —— 短期动量线（DIF）下穿长期动量线（DEA），确认上涨动能减弱</td></tr>
+        </table>
+        <p class="rule-note">⚠️ <b>重要</b>：这是止盈减仓提示，<b>不是做空信号</b>。在单边上涨市中可能出现假信号（趋势跟踪类指标的固有代价）。震荡/下跌市中止盈提示更有效。近 3 年 10 日胜率 <b>55%</b>。</p>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h4><span class="rule-dot rule-dot-read"></span>如何解读信号</h4>
+
+      <p class="rule-subtitle">盈亏标注（卖点颜色含义）</p>
+      <table class="rule-table rule-table-color">
+        <tr>
+          <td style="width:33%"><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 止盈</b></td>
+          <td style="width:33%"><span class="rule-dot-sm rule-dot-loss"></span> <b>灰色 = 买点失败</b></td>
+          <td><span class="rule-dot-sm rule-dot-noref"></span> <b>橙色 = 无前买点</b></td>
+        </tr>
+        <tr>
+          <td>卖点价格 &gt; 前一个买点价格<br><span class="muted">→ 获利了结或减仓</span></td>
+          <td>卖点价格 &lt; 前一个买点价格<br><span class="muted">→ 已持仓建议止损，未持仓建议观望</span></td>
+          <td>附近窗口内没有买点参考<br><span class="muted">→ 单独看趋势判断，不属止盈也不属止损</span></td>
+        </tr>
+      </table>
+
+      <p class="rule-subtitle">情绪背景标签</p>
+      <p class="muted">卖点信号会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
+      <table class="rule-table rule-table-tags">
+        <tr>
+          <td><span class="rule-tag tag-freeze">冰点</span> ≤ 20</td>
+          <td><span class="rule-tag tag-cool">偏冷</span> 21–40</td>
+          <td><span class="rule-tag tag-neutral">中性</span> 41–60</td>
+          <td><span class="rule-tag tag-warm">偏热</span> 61–80</td>
+          <td><span class="rule-tag tag-hot">过热</span> &gt; 80</td>
+        </tr>
+      </table>
+
+      <p class="rule-subtitle">买点信号示例</p>
+      <div class="rule-example"><span class="muted">主买：</span>RSI上穿30(29→34), 情绪=8[冰点]</div>
+      <div class="rule-example"><span class="muted">辅买：</span>布林下轨回归(下轨3852,收盘3870), RSI=41, 情绪=47[偏冷]</div>
+
+      <p class="rule-subtitle">卖点信号示例</p>
+      <div class="rule-example"><span class="muted">卖点：</span>20日高回落5%(高4259→阈4046,收盘4028), RSI=40, 情绪=53[中性], MA60=4000[趋势过滤], MACD=死叉确认, 较前买+2.30%[止盈]</div>
+    </div>
+
+    <div class="rule-section rule-section-sm">
+      <h4><span class="rule-dot rule-dot-stat"></span>当前信号统计</h4>
+      <table class="rule-table rule-table-stat">
+        <tr><td class="rule-td-label">主买</td><td><b>3,673</b> 个</td><td class="rule-td-label">辅买</td><td><b>3,918</b> 个</td></tr>
+        <tr><td class="rule-td-label">卖点</td><td><b>3,185</b> 个</td><td class="rule-td-label">卖买比</td><td><b>0.42</b>（买卖平衡）</td></tr>
+      </table>
+    </div>
+
+    <p class="rule-disclaimer">以上信号为技术分析参考，不构成交易指令。投资有风险，决策需谨慎。</p>
+
+  </div>`;
 }
+
+// 右下角浮动"策略说明"按钮 + modal。点击弹出规则详情，替代原来每个 Tab 顶部的 ruleBar。
+function initRuleButton() {
+  // 创建浮动按钮
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'rule-float-btn';
+  btn.innerHTML = '&#128203;';
+  btn.setAttribute('aria-label', '策略说明');
+  btn.title = '策略说明';
+  document.body.appendChild(btn);
+
+  // 创建 modal
+  const modal = document.createElement('div');
+  modal.className = 'rule-modal hidden';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>&#128203; 买卖点策略说明</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + ruleContentHtml() + '</div></div>';
+  document.body.appendChild(modal);
+
+  const overlay = modal.querySelector('.rule-modal-overlay');
+  const closeBtn = modal.querySelector('.rule-modal-close');
+
+  const open = () => { modal.classList.remove('hidden'); document.body.style.overflow = 'hidden'; };
+  const close = () => { modal.classList.add('hidden'); document.body.style.overflow = ''; };
+
+  btn.addEventListener('click', open);
+  overlay.addEventListener('click', close);
+  closeBtn.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.classList.contains('hidden')) close(); });
+
+  // 跟随回到顶部按钮的显示/隐藏
+  const onScroll = () => {
+    if (window.scrollY > 300) { btn.classList.add('visible'); }
+    else { btn.classList.remove('visible'); }
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+}
+
+
 
 async function renderTab() {
   clearCharts();
   content.innerHTML = '<div class="loading">加载中…</div>';
   try {
     if (state.tab === "overview") await renderOverview();
-    else if (state.tab === "a-stock") await renderAStock();
-    else if (state.tab === "hk") await renderHK();
-    else if (state.tab === "global") await renderGlobal();
+    else if (state.tab === "market") await renderMarket();
     else if (state.tab === "sentiment") await renderSentiment();
     else if (state.tab === "industry") await renderIndustry();
   } catch (e) {
@@ -473,6 +608,18 @@ async function renderTab() {
 async function renderOverview() {
   const r = await fetchJSON("/api/overview");
   content.innerHTML = "";
+
+  // ---- 0. 一句话总结横幅 ----
+  fetchJSON("/api/summary").then((s) => {
+    if (s && s.summary) {
+      const banner = document.createElement("div");
+      banner.className = "summary-banner";
+      const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
+      const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
+      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${s.date || ""}</span></div>`;
+      content.insertBefore(banner, content.firstChild);
+    }
+  }).catch(() => {});
 
   const sectionTitle = (text) => {
     const h = document.createElement("div");
@@ -492,81 +639,100 @@ async function renderOverview() {
       case "a_amount":
       case "a_fund_margin": return v.toFixed(0);
       case "a_fund_north": return (v >= 0 ? "+" : "") + v.toFixed(1);
+      case "a_volume_ratio": return v.toFixed(2) + "x";
       default: return v.toFixed(2);
     }
   };
 
-  // ---- 1. KPI 卡片行（情绪分 / 跨市场分 / 涨停 / 跌停 / 炸板率 / 成交额 / 北向 / 两融）----
-  sectionTitle("今日快照");
-  const scoreNames = { a_sentiment: "A股综合情绪分", cross_market: "跨市场综合评分" };
-  const kpiCards = [];
-  for (const [id, s] of Object.entries(r.today.scores || {})) {
-    kpiCards.push({
-      title: scoreNames[id] || id,
-      value: s.value != null ? s.value.toFixed(1) : "-",
-      sub: "0-100",
-      date: s.date || r.date,
-      tag: s.is_freeze ? "冰点" : s.is_overheat ? "过热" : "",
-    });
-  }
-  for (const m of r.today.metrics || []) {
-    kpiCards.push({
-      title: m.name,
-      value: fmtMetric(m),
-      sub: m.unit || "",
-      date: m.date,
-      tag: m.id === "a_fund_north" ? "停更" : "",
-    });
-  }
-  const cards = document.createElement("div");
-  cards.className = "cards kpi-row";
-  for (const k of kpiCards) {
-    const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : "stale";
-    const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
-    const sub = k.sub ? `${k.sub} · ${k.date}` : (k.date || "");
-    cards.innerHTML += `<div class="card kpi"><div class="card-title">${k.title}${tagHtml}</div><div class="card-value">${k.value}</div><div class="card-sub">${sub}</div></div>`;
-  }
-  content.appendChild(cards);
+  // ---- 1. 首屏两列：左=恐贪指数+情绪分，右=位置感+买卖点+冰点日 ----
+  // 用户优先级：独家数据（恐贪/情绪/位置感/买卖点/冰点）> 基础数据（KPI/sparkline）
+  const ov2ColA = document.createElement("div");
+  ov2ColA.className = "ov-2col";
+  const colA1 = document.createElement("div");
+  const colA2 = document.createElement("div");
+  ov2ColA.appendChild(colA1);
+  ov2ColA.appendChild(colA2);
+  content.appendChild(ov2ColA);
 
-  // ---- 2. 主要指数 sparkline 网格（上证/深成/沪深300/创业板/科创50/恒生/恒生科技）----
-  sectionTitle("主要指数（近 30 日）");
-  const grid = document.createElement("div");
-  grid.className = "spark-grid";
-  content.appendChild(grid);
-  for (const [, idx] of Object.entries(r.indices_sparkline || {})) {
-    if (!idx.closes || !idx.closes.length) continue;
-    const up = (idx.pct_change || 0) >= 0;
-    const color = up ? "#e6492e" : "#2e8b57"; // A股惯例：红涨绿跌
-    const cell = document.createElement("div");
-    cell.className = "spark-cell";
-    const sign = up ? "+" : "";
-    cell.innerHTML = `
-      <div class="spark-head">
-        <span class="spark-name">${idx.name}</span>
-        <span class="pct-badge" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
-      </div>
-      <div class="spark-chart" style="height:72px"></div>
-      <div class="spark-date">${idx.last_date || ""}</div>`;
-    grid.appendChild(cell);
-    const sc = echarts.init(cell.querySelector(".spark-chart"));
-    sc.setOption({
-      grid: { left: 2, right: 2, top: 4, bottom: 4 },
-      xAxis: { type: "category", show: false, data: idx.dates },
-      yAxis: { type: "value", show: false, scale: true },
-      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : Number(p[0].value).toFixed(2)}` },
-      series: [{
-        type: "line", smooth: true, symbol: "none", data: idx.closes,
-        lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
-      }],
-    });
-    charts.push(sc);
+  // 左列：恐贪指数折线（近 6 月，visualMap 分段着色）
+  if (r.fear_greed_6m && r.fear_greed_6m.length) {
+    lineChart("😐 恐贪指数（近 6 月）", r.fear_greed_6m.map((d) => ({ date: d.date, value: d.value })), {
+      visualMap: {
+        show: false,
+        pieces: [
+          { lte: 25, color: "#c62828" },
+          { gt: 25, lte: 40, color: "#e6a23c" },
+          { gt: 40, lte: 60, color: "#86909c" },
+          { gt: 60, lte: 75, color: "#67c23a" },
+          { gt: 75, color: "#2e8b57" },
+        ],
+        dimension: 1,
+      },
+    }, null, colA1);
   }
 
-  // ---- 3. 市场宽度图（上涨/下跌家数堆叠面积，近 1 月）----
+  // 左列：A股综合情绪分折线（近 6 月）
+  if (r.a_sentiment_6m && r.a_sentiment_6m.length) {
+    lineChart("A股综合情绪分（近 6 月）", r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value })), {}, null, colA1);
+  }
+
+  // 右列：大盘位置感卡片
+  fetchJSON("/api/position").then((posData) => {
+    if (posData && posData.positions && posData.positions.length) {
+      const posCard = document.createElement("div");
+      posCard.className = "chart-card position-card";
+      let posHtml = `<h3>&#x1F4CD; 大盘位置感</h3><div class="position-list">`;
+      for (const p of posData.positions) {
+        const pct = p.percentile_1y != null ? p.percentile_1y : 50;
+        const barColor = pct <= 40 ? "#2e8b57" : pct <= 60 ? "#86909c" : pct <= 80 ? "#e6a23c" : "#e6492e";
+        posHtml += `<div class="position-row">
+          <span class="pos-name">${p.name}</span>
+          <span class="pos-price">${p.current.toLocaleString()}</span>
+          <div class="pos-bar-bg"><div class="pos-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+          <span class="pos-pct">${pct.toFixed(0)}%</span>
+          <span class="pos-label" style="color:${barColor}">${p.label}</span>
+        </div>`;
+      }
+      posHtml += `</div>`;
+      posCard.innerHTML = posHtml;
+      colA2.appendChild(posCard);
+    }
+  }).catch(() => {});
+
+  // 右列：今日买卖点 + 近期冰点日
+  const sigHtml = (r.signals_today && r.signals_today.length)
+    ? `<h3>今日买卖点（${r.date}）</h3><ul class="sig-list">${r.signals_today
+        .map((s) => `<li><b class="${s.signal}">${signalLabel(s)}</b> ${indexIdToName(s.index_id)} <span class="muted">${s.reason || ""}</span></li>`)
+        .join("")}</ul>`
+    : `<h3>今日买卖点（${r.date}）</h3><div class="empty-note">今日无买卖点信号</div>`;
+  const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
+    ? `<h3>近期冰点日</h3><ul class="sig-list">${r.recent_freeze
+        .map((s) => `<li>${s.date} <span class="muted">${indexIdToName(s.score_id)}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
+        .join("")}</ul>`
+    : `<h3>近期冰点日</h3><div class="empty-note">无近期冰点日</div>`;
+  const sigCard = document.createElement("div");
+  sigCard.className = "chart-card";
+  sigCard.innerHTML = sigHtml;
+  colA2.appendChild(sigCard);
+  const freezeCard = document.createElement("div");
+  freezeCard.className = "chart-card";
+  freezeCard.innerHTML = freezeHtml;
+  colA2.appendChild(freezeCard);
+
+  // ---- 2. 信号强度两列：左=市场宽度+跨市场，右=新高新低+均线排列 ----
+  const ov2ColB = document.createElement("div");
+  ov2ColB.className = "ov-2col";
+  const colB1 = document.createElement("div");
+  const colB2 = document.createElement("div");
+  ov2ColB.appendChild(colB1);
+  ov2ColB.appendChild(colB2);
+  content.appendChild(ov2ColB);
+
+  // 左列：市场宽度图（上涨/下跌家数堆叠面积，近 1 月）
   const w = r.width_1m || { up: [], down: [] };
   const wDates = [...new Set([...w.up.map((d) => d.date), ...w.down.map((d) => d.date)])].sort();
   if (wDates.length) {
-    const wc = mkCard("市场宽度（涨跌家数，近 1 月）", 260);
+    const wc = mkCard("市场宽度（涨跌家数，近 1 月）", 260, null, colB1);
     wc.setOption({
       tooltip: { trigger: "axis" },
       legend: { top: 0, data: ["上涨家数", "下跌家数"] },
@@ -582,7 +748,7 @@ async function renderOverview() {
     });
   }
 
-  // ---- 4. 跨市场综合评分折线（近 6 月，保留 visualMap 配色）----
+  // 左列：跨市场综合评分折线（近 6 月）
   if (r.cross_market_6m && r.cross_market_6m.length) {
     lineChart("跨市场综合评分（近 6 月）", r.cross_market_6m.map((d) => ({ date: d.date, value: d.value })), {
       visualMap: {
@@ -590,32 +756,241 @@ async function renderOverview() {
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
         dimension: 1,
       },
+    }, null, colB1);
+  }
+
+  // 右列：新高新低卡片（NH-NL）
+  fetchJSON("/api/new_high_low").then((nhlData) => {
+    const d = (nhlData.data || []).slice(-1)[0];
+    if (d) {
+      const nhlCard = document.createElement("div");
+      nhlCard.className = "chart-card nhnl-card";
+      const nhnl = d.nhnl_52w != null ? d.nhnl_52w : 0;
+      const nhnlColor = nhnl > 0 ? "#e6492e" : nhnl < 0 ? "#2e8b57" : "#86909c";
+      const sign = nhnl > 0 ? "+" : "";
+      let nhlHtml = `<h3>&#x1F4CA; 新高新低（NH-NL）</h3>`;
+      nhlHtml += `<div class="nhnl-value" style="color:${nhnlColor}">${sign}${nhnl}</div>`;
+      nhlHtml += `<div class="nhnl-sub">${d.nh_52w || 0} 个指数创年度新高 / ${d.nl_52w || 0} 个创年度新低</div>`;
+      const recent30 = (nhlData.data || []).slice(-30);
+      nhlHtml += `<div class="nhnl-spark" style="height:60px"></div>`;
+      nhlCard.innerHTML = nhlHtml;
+      colB2.appendChild(nhlCard);
+
+      const sparkDiv = nhlCard.querySelector(".nhnl-spark");
+      if (sparkDiv && recent30.length > 1) {
+        const sc = echarts.init(sparkDiv);
+        charts.push(sc);
+        sc.setOption({
+          grid: { left: 2, right: 2, top: 4, bottom: 4 },
+          xAxis: { type: "category", show: false, data: recent30.map(function(r) { return r.date; }) },
+          yAxis: { type: "value", show: false, scale: true },
+          tooltip: { trigger: "axis", formatter: function(p) { return p[0].axisValue + "<br/>NH-NL: " + p[0].value; } },
+          series: [{
+            type: "line", smooth: true, symbol: "none",
+            data: recent30.map(function(r) { return r.nhnl_52w; }),
+            lineStyle: { color: "#5b8ff9", width: 1.5 },
+            areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [{ offset: 0, color: "rgba(91,143,249,0.3)" }, { offset: 1, color: "rgba(91,143,249,0.05)" }] } },
+          }],
+        });
+      }
+    }
+  }).catch(function() {});
+
+  // 右列：均线排列卡片
+  fetchJSON("/api/ma_alignment").then((maData) => {
+    const d = (maData.data || []).slice(-1)[0];
+    if (d) {
+      const maCard = document.createElement("div");
+      maCard.className = "chart-card ma-card";
+      let maHtml = `<h3>&#x1F4C8; 均线排列</h3>`;
+      const bullish = d.bullish || 0;
+      const bearish = d.bearish || 0;
+      const cross = d.cross || 0;
+      maHtml += `<div class="ma-summary">`;
+      maHtml += `<span class="ma-count bullish">${bullish} 个多头</span> `;
+      maHtml += `<span class="ma-count bearish">${bearish} 个空头</span> `;
+      maHtml += `<span class="ma-count cross">${cross} 个震荡</span>`;
+      maHtml += `</div>`;
+      if (d.details && d.details.length) {
+        maHtml += `<table class="ma-table"><thead><tr><th>指数</th><th>MA5</th><th>MA10</th><th>MA20</th><th>MA60</th><th>状态</th></tr></thead><tbody>`;
+        for (const det of d.details) {
+          const alignLabel = { bullish: "多头", bearish: "空头", cross: "震荡" }[det.alignment] || det.alignment;
+          const alignCls = det.alignment;
+          maHtml += `<tr><td>${det.name}</td><td>${det.ma5}</td><td>${det.ma10}</td><td>${det.ma20}</td><td>${det.ma60}</td><td class="${alignCls}">${alignLabel}</td></tr>`;
+        }
+        maHtml += `</tbody></table>`;
+      }
+      maCard.innerHTML = maHtml;
+      colB2.appendChild(maCard);
+    }
+  }).catch(function() {});
+
+  // ---- 3. 基础数据区：KPI 卡片行 ----
+  sectionTitle("基础数据");
+  const scoreNames = { a_sentiment: "A股综合情绪分", cross_market: "跨市场综合评分", fear_greed: "恐贪指数" };
+  const kpiCards = [];
+  for (const [id, s] of Object.entries(r.today.scores || {})) {
+    kpiCards.push({
+      id: id,
+      title: scoreNames[id] || id,
+      value: s.value != null ? s.value.toFixed(1) : "-",
+      valueNum: s.value,
+      sub: "0-100",
+      date: s.date || r.date,
+      tag: s.is_freeze ? "冰点" : s.is_overheat ? "过热" : "",
     });
   }
+  for (const m of r.today.metrics || []) {
+    kpiCards.push({
+      id: m.id,
+      title: m.name,
+      value: fmtMetric(m),
+      valueNum: m.value,
+      sub: m.unit || "",
+      date: m.date,
+      tag: m.id === "a_fund_north" ? "停更" : "",
+      signal: m.signal || "",
+      amount: m.amount,
+    });
+  }
+  const kpiOrder = {
+    a_width_zt_count: 1, a_width_dt_count: 2, a_width_zhaban_rate: 3,
+    a_amount: 4, a_volume_ratio: 5, a_sentiment: 6, cross_market: 7, fear_greed: 8, a_fund_margin: 9, a_fund_north: 10,
+  };
+  kpiCards.sort((a, b) => (kpiOrder[a.id] || 99) - (kpiOrder[b.id] || 99));
+  const cards = document.createElement("div");
+  cards.className = "cards kpi-row";
+  for (const k of kpiCards) {
+    const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : "stale";
+    const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
+    const sentTag = k.id === "a_sentiment" || k.id === "cross_market" ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
+    const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
+    let sub = k.sub ? `${k.sub} · ${k.date}` : (k.date || "");
+    let valueHtml = k.value;
+    if (k.id === "a_volume_ratio") {
+      const sig = k.signal || "";
+      const isFangliang = sig.startsWith("放量");
+      const isSuoliang = sig.startsWith("缩量");
+      let sigCls = "";
+      if (isFangliang) sigCls = "fangliang";
+      else if (isSuoliang) sigCls = "suoliang";
+      const sigHtml = sig ? ` <span class="tag ${sigCls}">${sig}</span>` : "";
+      valueHtml = k.value + sigHtml;
+      sub = sig + " · " + (k.date || "");
+    }
+    cards.innerHTML += `<div class="card kpi"><div class="card-title">${k.title}${tagHtml}</div><div class="card-value">${valueHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
+  }
+  content.appendChild(cards);
 
-  // ---- 5. A股综合情绪分折线（近 6 月，新增）----
-  if (r.a_sentiment_6m && r.a_sentiment_6m.length) {
-    lineChart("A股综合情绪分（近 6 月）", r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value })));
+  // ---- 4. 主要指数 sparkline 网格 ----
+  const grid = document.createElement("div");
+  grid.className = "spark-grid";
+  content.appendChild(grid);
+  for (const [, idx] of Object.entries(r.indices_sparkline || {})) {
+    if (!idx.closes || !idx.closes.length) continue;
+    const up = (idx.pct_change || 0) >= 0;
+    const color = up ? "#e6492e" : "#2e8b57";
+    const cell = document.createElement("div");
+    cell.className = "spark-cell";
+    const sign = up ? "+" : "";
+    cell.innerHTML = `
+      <div class="spark-head">
+        <span class="spark-name">${idx.name}</span>
+        <span class="pct-badge" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
+      </div>
+      <div class="spark-chart"></div>
+      <div class="spark-date">${idx.last_date || ""}</div>`;
+    grid.appendChild(cell);
+    const chartDom = cell.querySelector(".spark-chart");
+    const exist = echarts.getInstanceByDom(chartDom);
+    if (exist) exist.dispose();
+    const sc = echarts.init(chartDom);
+    sc.setOption({
+      grid: { left: 2, right: 2, top: 4, bottom: 4 },
+      xAxis: { type: "category", show: false, data: idx.dates },
+      yAxis: { type: "value", show: false, scale: true },
+      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : Number(p[0].value).toFixed(2)}` },
+      series: [{
+        type: "line", smooth: true, symbol: "none", data: idx.closes,
+        lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
+      }],
+    });
+    charts.push(sc);
   }
 
-  // ---- 6. 今日买卖点 + 近期冰点日（保留，美化排版）----
-  ruleBar();
-  const twoCol = document.createElement("div");
-  twoCol.className = "ov-2col";
-  const sigHtml = (r.signals_today && r.signals_today.length)
-    ? `<h3>今日买卖点（${r.date}）</h3><ul class="sig-list">${r.signals_today
-        .map((s) => `<li><b class="${s.signal}">${signalLabel(s)}</b> ${indexIdToName(s.index_id)} <span class="muted">${s.reason || ""}</span></li>`)
-        .join("")}</ul>`
-    : `<h3>今日买卖点（${r.date}）</h3><div class="empty-note">今日无买卖点信号</div>`;
-  const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
-    ? `<h3>近期冰点日</h3><ul class="sig-list">${r.recent_freeze
-        .map((s) => `<li>${s.date} <span class="muted">${indexIdToName(s.score_id)}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
-        .join("")}</ul>`
-    : `<h3>近期冰点日</h3><div class="empty-note">无近期冰点日</div>`;
-  twoCol.innerHTML = `<div class="chart-card">${sigHtml}</div><div class="chart-card">${freezeHtml}</div>`;
-  content.appendChild(twoCol);
+  // ---- 5. AD Line 腾落线 + 成交量对比（全宽，横跨两列）----
+  const ov2ColC = document.createElement("div");
+  ov2ColC.className = "ov-2col";
+  const colC1 = document.createElement("div");
+  const colC2 = document.createElement("div");
+  ov2ColC.appendChild(colC1);
+  ov2ColC.appendChild(colC2);
+  content.appendChild(ov2ColC);
 
-  // ---- 7. 申万行业涨跌幅热力图（接 F1，数据随 /api/overview 返回）----
+  // 左：AD Line 腾落线
+  try {
+    const adRes = await fetchJSON("/api/ad_line");
+    const adData = (adRes.data || []).slice(-120);
+    if (adData.length) {
+      const adDates = adData.map(d => d.date);
+      const ratioData = adData.map(d => d.ratio);
+      const adLineData = adData.map(d => d.ad_line);
+      const adMA20 = adData.map(d => d.ad_line_ma20);
+      const ratioColors = adData.map(d => (d.up_count >= d.down_count) ? "#e6492e" : "#2e8b57");
+
+      const adc = mkCard("📊 腾落线（AD Line）", 300, null, colC1);
+      adc.setOption({
+        tooltip: { trigger: "axis" },
+        legend: { top: 0, data: ["涨跌家数比", "AD Line", "AD Line MA20"] },
+        grid: { left: 55, right: 55, top: 35, bottom: 35 },
+        xAxis: { type: "category", data: adDates },
+        yAxis: [
+          { type: "value", name: "涨跌比", axisLabel: { formatter: v => v.toFixed(2) }, splitLine: { show: false } },
+          { type: "value", name: "AD Line" },
+        ],
+        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        series: [
+          { name: "涨跌家数比", type: "bar", yAxisIndex: 0, data: ratioData.map((v, i) => ({ value: v, itemStyle: { color: ratioColors[i] } })), barWidth: "60%" },
+          { name: "AD Line", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adLineData, lineStyle: { color: "#5b8ff9", width: 1.5 } },
+          { name: "AD Line MA20", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adMA20, lineStyle: { color: "#f6bd16", width: 1.5, type: "dashed" } },
+        ],
+      });
+    }
+  } catch (e) { /* 无声降级 */ }
+
+  // 右：成交量对比
+  try {
+    const vrRes = await fetchJSON("/api/volume_ratio");
+    const vrData = (vrRes.data || []).slice(-120);
+    if (vrData.length) {
+      const vrDates = vrData.map(d => d.date);
+      const vrAmount = vrData.map(d => d.amount);
+      const vrMA5 = vrData.map(d => d.ma5);
+      const vrMA20 = vrData.map(d => d.ma20);
+      const vrColors = vrData.map(d => (d.pct_change >= 0) ? "#e6492e" : "#2e8b57");
+
+      const vrc = mkCard("📈 成交额与量比（近 120 日）", 300, null, colC2);
+      vrc.setOption({
+        tooltip: { trigger: "axis", formatter: function(params) {
+          const d = vrData[params[0].dataIndex];
+          return `<b>${d.date}</b><br/>成交额: ${(d.amount || 0).toFixed(0)} 亿<br/>MA5: ${(d.ma5 || 0).toFixed(0)} 亿<br/>MA20: ${(d.ma20 || 0).toFixed(0)} 亿<br/>量比: ${(d.ratio || 0).toFixed(2)}x<br/>信号: ${d.signal || "正常"}`;
+        }},
+        legend: { top: 0, data: ["成交额", "MA5", "MA20"] },
+        grid: { left: 55, right: 20, top: 35, bottom: 35 },
+        xAxis: { type: "category", data: vrDates },
+        yAxis: { type: "value", name: "亿元", axisLabel: { formatter: v => (v / 10000).toFixed(1) + "万" } },
+        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        series: [
+          { name: "成交额", type: "bar", data: vrAmount.map((v, i) => ({ value: v, itemStyle: { color: vrColors[i] } })), barWidth: "60%" },
+          { name: "MA5", type: "line", symbol: "none", smooth: true, data: vrMA5, lineStyle: { color: "#f6bd16", width: 1.5 } },
+          { name: "MA20", type: "line", symbol: "none", smooth: true, data: vrMA20, lineStyle: { color: "#5b8ff9", width: 1.5, type: "dashed" } },
+        ],
+      });
+    }
+  } catch (e) { /* 无声降级 */ }
+
+  // ---- 6. 申万行业涨跌幅热力图 ----
   if (r.industry_heatmap && r.industry_heatmap.length) {
     renderIndustryHeatmap(r.industry_heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）");
   } else {
@@ -626,10 +1001,44 @@ async function renderOverview() {
   }
 }
 
-async function renderAStock() {
-  const r = await fetchJSON(`/api/a-stock?range=${state.range}`);
+// 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
+async function renderMarket() {
   content.innerHTML = "";
-  ruleBar();
+  // 二级 tab 栏
+  const subtabBar = document.createElement("div");
+  subtabBar.className = "subtab-bar";
+  const subtabs = [
+    ["a-stock", "A股"],
+    ["hk", "港股"],
+    ["global", "全球"],
+  ];
+  subtabs.forEach(([key, label]) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.dataset.subtab = key;
+    if (state.subtab === key) btn.classList.add("active");
+    btn.onclick = () => {
+      state.subtab = key;
+      renderMarket(); // 重新渲染大盘 tab
+    };
+    subtabBar.appendChild(btn);
+  });
+  content.appendChild(subtabBar);
+
+  // 子内容容器
+  const subContent = document.createElement("div");
+  subContent.className = "market-sub-content";
+  content.appendChild(subContent);
+
+  // 根据 subtab 渲染对应内容
+  if (state.subtab === "a-stock") await renderAStock(subContent);
+  else if (state.subtab === "hk") await renderHK(subContent);
+  else if (state.subtab === "global") await renderGlobal(subContent);
+}
+
+async function renderAStock(container = content) {
+  const r = await fetchJSON(`/api/a-stock?range=${state.range}`);
+  container.innerHTML = "";
   const groups = {
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
     "涨停/跌停/连板": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban"],
@@ -651,7 +1060,7 @@ async function renderAStock() {
   // 前8张卡片：4行2列网格
   const grid2col = document.createElement("div");
   grid2col.className = "ov-2col";
-  content.appendChild(grid2col);
+  container.appendChild(grid2col);
   for (const [g, ids] of mainEntries) {
     const series = ids.map((id) => r.metrics[id]).filter(Boolean).map((m) => ({ name: m.name, data: m.data }));
     if (series.length && series.some((s) => s.data.length)) lineChart(g, series, {}, groupHints[g] || null, grid2col);
@@ -659,7 +1068,7 @@ async function renderAStock() {
   // 龙虎榜 + 解禁/IPO/可转债：默认隐藏，点击「更多」展开
   const extraWrap = document.createElement("div");
   extraWrap.style.marginBottom = "16px";
-  content.appendChild(extraWrap);
+  container.appendChild(extraWrap);
   const moreBtn = document.createElement("button");
   moreBtn.textContent = "更多 ▼";
   moreBtn.className = "more-toggle";
@@ -688,29 +1097,27 @@ async function renderAStock() {
   // 指数折线区：筛选条移到本区前（紧挨指数折线），筛选时局部刷新（不 refetch、不动上方 KPI/宽度/资金面）
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
-  content.appendChild(indicesSection);
+  container.appendChild(indicesSection);
   await renderIndicesSection(indicesSection, r.indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`));
 }
 
-async function renderHK() {
+async function renderHK(container = content) {
   const r = await fetchJSON(`/api/hk?range=${state.range}`);
-  content.innerHTML = "";
-  ruleBar();
-  if (r.hk_south && r.hk_south.length) lineChart("港股通净买入（亿元）", r.hk_south.map((d) => ({ date: d.date, value: d.value })));
+  container.innerHTML = "";
+  if (r.hk_south && r.hk_south.length) lineChart("港股通净买入（亿元）", r.hk_south.map((d) => ({ date: d.date, value: d.value })), {}, null, container);
   // 指数折线区：筛选条移到本区前，筛选时局部刷新
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
-  content.appendChild(indicesSection);
+  container.appendChild(indicesSection);
   await renderIndicesSection(indicesSection, r.indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`));
 }
 
-async function renderGlobal() {
+async function renderGlobal(container = content) {
   const r = await fetchJSON(`/api/global?range=${state.range}`);
-  content.innerHTML = "";
-  ruleBar();
+  container.innerHTML = "";
   for (const [id, idx] of Object.entries(r.indices)) {
     const sig = await fetchJSON(`/api/index/${id}?range=${state.range}`);
-    if (idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, content, charts, id);
+    if (idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
   }
   const extras = {
     gold: "黄金（元/克）",
@@ -736,22 +1143,50 @@ async function renderGlobal() {
 async function renderSentiment() {
   const r = await fetchJSON(`/api/sentiment?range=${state.range}`);
   content.innerHTML = "";
-  ruleBar();
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
-  if (r.a_sentiment.length) valueChartWithSignals("A股综合情绪分（0-100）", r.a_sentiment.map((d) => ({ date: d.date, value: d.value })), sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+
+  // 恐贪指数（综合情绪指标，放最前面）
+  if (r.fear_greed && r.fear_greed.length) {
+    const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value }));
+    const latest = data[data.length - 1] && data[data.length - 1].value;
+    const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) : ""}`;
+    valueChartWithSignals(title, data, [], {
+      visualMap: {
+        show: false,
+        pieces: [
+          { lte: 25, color: "#c62828" },
+          { gt: 25, lte: 40, color: "#e6a23c" },
+          { gt: 40, lte: 60, color: "#86909c" },
+          { gt: 60, lte: 75, color: "#67c23a" },
+          { gt: 75, color: "#2e8b57" },
+        ],
+        dimension: 1,
+      },
+    });
+  }
+
+  if (r.a_sentiment.length) {
+    const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value }));
+    const latest = data[data.length - 1] && data[data.length - 1].value;
+    const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) : ""}`;
+    valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+  }
   const idxNames = {
-    sentiment_sz50: '上证50情绪分（0-100）',
-    sentiment_hs300: '沪深300情绪分（0-100）',
-    sentiment_csi500: '中证500情绪分（0-100）',
-    sentiment_csi1000: '中证1000情绪分（0-100）',
-    sentiment_cyb: '创业板情绪分（0-100）',
-    sentiment_kc50: '科创50情绪分（0-100）',
+    sentiment_sz50: '上证50情绪分',
+    sentiment_hs300: '沪深300情绪分',
+    sentiment_csi500: '中证500情绪分',
+    sentiment_csi1000: '中证1000情绪分',
+    sentiment_cyb: '创业板情绪分',
+    sentiment_kc50: '科创50情绪分',
   };
-  for (const [key, title] of Object.entries(idxNames)) {
+  for (const [key, baseTitle] of Object.entries(idxNames)) {
     if (r[key] && r[key].length) {
-      valueChartWithSignals(title, r[key].map(d => ({date: d.date, value: d.value})),
+      const data = r[key].map(d => ({date: d.date, value: d.value}));
+      const latest = data[data.length - 1] && data[data.length - 1].value;
+      const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) : ""}`;
+      valueChartWithSignals(title, data,
         sig[key] || [], {
           visualMap: {
             show: false,
@@ -763,14 +1198,18 @@ async function renderSentiment() {
   }
   // 冰点/过热热力图
   renderSentimentHeatmap(r);
-  if (r.cross_market.length)
-    valueChartWithSignals("跨市场综合评分（0-100）", r.cross_market.map((d) => ({ date: d.date, value: d.value })), sig.cross_market || [], {
+  if (r.cross_market.length) {
+    const data = r.cross_market.map((d) => ({ date: d.date, value: d.value }));
+    const latest = data[data.length - 1] && data[data.length - 1].value;
+    const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) : ""}`;
+    valueChartWithSignals(title, data, sig.cross_market || [], {
       visualMap: {
         show: false,
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market);
+  }
   // 期货机构持仓
   const futures = await fetchJSON("/api/futures");
   if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures);
@@ -871,7 +1310,7 @@ function renderFuturesSection(data) {
     div.className = "chart-card";
     const dateStr = data.summary.date || "";
     let html = `<h3>昨日净多空（手） ${dateStr}</h3>`;
-    html += '<div class="futures-note">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
+    html += '<div class="futures-note">正数=净多（绿），负数=净空（红）。数据来源：中金所前20会员持仓。</div>';
     html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
     for (const role of roles) html += `<th>${role}</th>`;
     html += '</tr></thead><tbody>';
@@ -922,8 +1361,29 @@ function renderFuturesSection(data) {
     content.appendChild(div);
   }
 
-  // 3. 四张折线图：net_position 手数趋势
-  // 图1：综合净多空手数 — 3 条线（机构/中信/国君的综合品种）
+  // 3. 四张折线图：net_position 手数趋势（默认折叠，点击展开）
+  const chartsCollapse = document.createElement("div");
+  chartsCollapse.className = "futures-collapse";
+  const chartsToggle = document.createElement("button");
+  chartsToggle.className = "futures-collapse-toggle";
+  chartsToggle.textContent = "📈 展开净多空趋势图";
+  chartsToggle.onclick = () => {
+    const body = chartsCollapse.querySelector(".futures-collapse-body");
+    const hidden = body.classList.toggle("hidden");
+    chartsToggle.textContent = hidden ? "📈 展开净多空趋势图" : "📈 收起净多空趋势图";
+  };
+  content.appendChild(chartsToggle);
+  const chartsBody = document.createElement("div");
+  chartsBody.className = "futures-collapse-body hidden";
+  chartsCollapse.appendChild(chartsBody);
+  content.appendChild(chartsCollapse);
+  // 后续 mkCard 改用 chartsBody 作为容器
+  const _origMkCard = mkCard;
+  mkCard = function(title, height, hint) {
+    return _origMkCard(title, height, hint, chartsBody);
+  };
+
+// 图1：综合净多空手数 — 3 条线（机构/中信/国君的综合品种）
   const chart1Series = roles.map((role) => ({
     name: role,
     data: data.positions.map((d) => {
@@ -1022,6 +1482,8 @@ function renderFuturesSection(data) {
     }
   }
 
+  mkCard = _origMkCard;
+
   // 4. 说明文字
   {
     const div = document.createElement("div");
@@ -1035,7 +1497,7 @@ function renderFuturesSection(data) {
 // 申万一级 31 个行业：折线网格（mini 折线 + E1 买卖点 markPoint）+ 涨跌幅热力图（近 1 日/近 5 日）。
 // 后端 /api/industry 一次性返回 indices（ohlc+signals）+ heatmap（pct_1d/pct_5d）。
 // BUG-E：热力图加近1日/近5日/全部切换按钮（嵌在卡片标题右侧），数据已有 pct_1d/pct_5d 只加 UI 切换。
-function renderIndustryHeatmap(heatmap, title) {
+function renderIndustryHeatmap(heatmap, title, containerOverride) {
   if (!heatmap || !heatmap.length) return null;
   const rangeMode = state.heatmapRange || "all";
   // 按近 1 日涨跌幅排序（红涨在前，绿跌在后），便于看强弱分布
@@ -1052,12 +1514,13 @@ function renderIndustryHeatmap(heatmap, title) {
     }
   });
   // BUG-E：自建卡片（含切换按钮在标题右侧），不复用 mkCard（其标题不支持嵌入控件）
+  const ctn = containerOverride || content;
   const div = document.createElement("div");
   div.className = "chart-card";
   const toggleBtns = [["1d", "近1日"], ["5d", "近5日"], ["all", "全部"]]
     .map(([k, label]) => `<button type="button" data-hr="${k}" class="${rangeMode === k ? "active" : ""}">${label}</button>`).join("");
   div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;
-  content.appendChild(div);
+  ctn.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
   // 切换按钮：点击改 state.heatmapRange 后重渲染整个 tab（保持其他筛选状态）
@@ -1089,18 +1552,19 @@ function renderIndustryHeatmap(heatmap, title) {
   return c;
 }
 
-function renderIndustryGrid(indices) {
+function renderIndustryGrid(indices, containerOverride) {
   const entries = Object.entries(indices).filter(([, idx]) => idx.data && idx.data.length);
+  const ctn = containerOverride || content;
   if (!entries.length) {
     const note = document.createElement("div");
     note.className = "empty-note";
     note.textContent = "暂无行业指数数据";
-    content.appendChild(note);
+    ctn.appendChild(note);
     return;
   }
   const grid = document.createElement("div");
   grid.className = "spark-grid industry-grid";
-  content.appendChild(grid);
+  ctn.appendChild(grid);
   for (const [id, idx] of entries) {
     const ohlc = idx.data;
     const signals = idx.signals || [];
@@ -1118,10 +1582,13 @@ function renderIndustryGrid(indices) {
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
-      <div class="spark-chart" style="height:120px"></div>
+      <div class="spark-chart"></div>
       <div class="ind-metrics"></div>`;
     grid.appendChild(cell);
-    const sc = echarts.init(cell.querySelector(".spark-chart"));
+    const chartDom = cell.querySelector(".spark-chart");
+    const exist = echarts.getInstanceByDom(chartDom);
+    if (exist) exist.dispose();
+    const sc = echarts.init(chartDom);
     const markData = signals.map((s) => {
       const o = ohlc.find((x) => x.date === s.date);
       return {
@@ -1237,29 +1704,119 @@ function renderIndustryGrid(indices) {
   }
 }
 
+// ============ 板块轮动速度卡片 ============
+async function renderRotationCard(container) {
+  try {
+    const r = await fetchJSON("/api/rotation");
+    if (!r || !r.latest) return;
+
+    const latest = r.latest;
+    const sw = latest.sw || {};
+    const concept = latest.concept || {};
+
+    function speedLabel(v) {
+      if (v == null) return { text: "N/A", cls: "" };
+      if (v >= 60) return { text: "快速轮动", cls: "fast" };
+      if (v >= 30) return { text: "中等轮动", cls: "mid" };
+      return { text: "轮动缓慢", cls: "slow" };
+    }
+    function speedHint(v) {
+      if (v == null) return "";
+      if (v >= 60) return "板块快速轮动，追热点风险大";
+      if (v >= 30) return "轮动速度适中，可关注主线";
+      return "主线明确，适合趋势跟踪";
+    }
+
+    const sw5 = speedLabel(sw.speed_5d);
+    const sw10 = speedLabel(sw.speed_10d);
+    const sw20 = speedLabel(sw.speed_20d);
+    const swHint = speedHint(sw.speed_5d);
+
+    const card = document.createElement("div");
+    card.className = "rotation-card";
+    card.innerHTML = `
+      <div class="rotation-card-header">🌀 板块轮动速度</div>
+      <div class="rotation-card-body">
+        <div class="rotation-row">
+          <span class="rotation-label">申万行业</span>
+          <span class="rotation-item ${sw5.cls}">5日: ${sw.speed_5d != null ? sw.speed_5d + "%" : "N/A"} ${sw5.text}</span>
+          <span class="rotation-item ${sw10.cls}">10日: ${sw.speed_10d != null ? sw.speed_10d + "%" : "N/A"} ${sw10.text}</span>
+          <span class="rotation-item ${sw20.cls}">20日: ${sw.speed_20d != null ? sw.speed_20d + "%" : "N/A"} ${sw20.text}</span>
+        </div>
+        ${concept.speed_5d != null ? `
+        <div class="rotation-row">
+          <span class="rotation-label">概念板块</span>
+          <span class="rotation-item ${speedLabel(concept.speed_5d).cls}">5日: ${concept.speed_5d}% ${speedLabel(concept.speed_5d).text}</span>
+          <span class="rotation-item ${speedLabel(concept.speed_10d).cls}">10日: ${concept.speed_10d}% ${speedLabel(concept.speed_10d).text}</span>
+          <span class="rotation-item ${speedLabel(concept.speed_20d).cls}">20日: ${concept.speed_20d}% ${speedLabel(concept.speed_20d).text}</span>
+        </div>` : ""}
+        <div class="rotation-hint">💡 ${swHint}</div>
+      </div>`;
+    container.appendChild(card);
+  } catch (e) {
+    // 静默失败，不影响主流程
+    console.warn("轮动速度卡片加载失败:", e);
+  }
+}
+
 async function renderIndustry() {
   const r = await fetchJSON(`/api/industry?range=${state.range}`);
   content.innerHTML = "";
-  ruleBar();
-  renderIndustryHeatmap(r.heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）");
+
+  // 锚点导航条：sticky 定位，快速跳转申万行业 / 概念板块
+  const swCount = Object.keys(r.indices || {}).length;
+  const conceptCount = Object.keys(r.concepts || {}).length;
+  const anchorBar = document.createElement("div");
+  anchorBar.className = "industry-anchor-bar";
+  anchorBar.innerHTML = `
+    <div class="anchor-btn-group">
+      <button type="button" data-anchor="sw-industries" class="active">申万行业（${swCount}）</button>
+      <button type="button" data-anchor="thsc-concepts">概念板块（${conceptCount}）</button>
+    </div>
+    <a class="anchor-back-top" href="#" onclick="window.scrollTo({top:0,behavior:'smooth'});return false">回到顶部</a>`;
+  content.appendChild(anchorBar);
+  // 按钮点击：平滑滚动到对应区域
+  anchorBar.querySelectorAll("button[data-anchor]").forEach((btn) => {
+    btn.onclick = () => {
+      const el = document.getElementById(btn.dataset.anchor);
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+      // 更新激活状态
+      anchorBar.querySelectorAll("button[data-anchor]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    };
+  });
+
+  // 板块轮动速度卡片（放在锚点导航下方、热力图上方）
+  await renderRotationCard(content);
+
+  // 申万行业区域
+  const swSection = document.createElement("div");
+  swSection.id = "sw-industries";
+  content.appendChild(swSection);
+
+  renderIndustryHeatmap(r.heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）", swSection);
   // BUG-E：行业搜索条（输入名称关键词实时过滤行业网格）
-  industrySearchBar();
+  industrySearchBar(swSection);
   const title = document.createElement("div");
   title.className = "section-title";
   const total = Object.keys(r.indices || {}).length;
   const filtered = filterIndicesByName(r.indices, state.industrySearch);
   const shown = Object.keys(filtered).length;
   title.textContent = `申万行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
-  content.appendChild(title);
-  renderIndustryGrid(filtered);
-  // 概念板块指数折线（独立于行业搜索，不受搜索词过滤）
-  const conceptLen = Object.keys(r.concepts || {}).length;
-  if (conceptLen > 0) {
+  swSection.appendChild(title);
+  renderIndustryGrid(filtered, swSection);
+
+  // 概念板块区域
+  if (conceptCount > 0) {
+    const thscSection = document.createElement("div");
+    thscSection.id = "thsc-concepts";
+    content.appendChild(thscSection);
+
     const conceptTitle = document.createElement("div");
     conceptTitle.className = "section-title";
-    conceptTitle.textContent = `概念板块指数折线（${conceptLen} 个，含买卖点 + 回测统计）`;
-    content.appendChild(conceptTitle);
-    renderIndustryGrid(r.concepts || {});
+    conceptTitle.textContent = `概念板块指数折线（${conceptCount} 个，含买卖点 + 回测统计）`;
+    thscSection.appendChild(conceptTitle);
+    renderIndustryGrid(r.concepts || {}, thscSection);
   }
 }
 
@@ -1268,8 +1825,7 @@ async function renderIndustry() {
 // 需要时直接调 API 或另设权限入口。原 modal/handler 代码已删除。
 
 // === UX 优化：sticky 偏移测量 + 右下角回到顶部浮动按钮 ===
-// 测量顶部 tab 栏实际高度写入 CSS 变量 --tab-h，供 .rule-bar sticky top 引用。
-// 不硬编码像素——tab 栏改样式时 ruleBar 的 sticky 偏移自适应（兜底 41px）。
+// 测量顶部 tab 栏实际高度写入 CSS 变量 --tab-h（兜底 41px）。
 function initStickyOffset() {
   const tabs = document.querySelector('.tabs');
   if (!tabs) return;
@@ -1299,4 +1855,5 @@ function initBackToTop() {
 
 initStickyOffset();
 initBackToTop();
+initRuleButton();
 renderTab();
