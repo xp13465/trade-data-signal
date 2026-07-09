@@ -6,6 +6,7 @@
 
 from ..db import get_conn
 from ..calendar import last_trading_day
+from datetime import datetime
 
 
 def _sentiment_desc(score: float) -> str:
@@ -305,6 +306,7 @@ def generate_summary(date: str | None = None) -> dict:
 
     return {
         "date": date,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "summary": summary,
         "summary_short": summary_short,
         "sentiment_label": sentiment_desc_str,

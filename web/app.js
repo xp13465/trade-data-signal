@@ -211,6 +211,17 @@ function winRateClass(wr) {
   return "wr-bad";
 }
 
+// YYYYMMDD → "MM-DD" 格式，若是今天则显示"今日"
+function fmtDate(dateStr) {
+  if (!dateStr || dateStr.length < 8) return dateStr || "";
+  const m = dateStr.substring(4, 6), d = dateStr.substring(6, 8);
+  const today = new Date();
+  const isToday = today.getFullYear() === parseInt(dateStr.substring(0, 4)) &&
+                  today.getMonth() + 1 === parseInt(m) &&
+                  today.getDate() === parseInt(d);
+  return isToday ? "今日" : `${m}-${d}`;
+}
+
 // 每个品类的买卖点策略公式标注。后端注入 idx.strategy 字段（{buy,buy_aux,sell}），
 // 由 app/compute/signals.py::strategy_desc 读 indicators.yaml 的 buy_aux_filter +
 // SKIP_IDS/s.* 前缀逻辑生成。无 strategy 字段时用基线兜底（兼容旧数据/未注入端点）。
@@ -616,7 +627,7 @@ async function renderOverview() {
       banner.className = "summary-banner";
       const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
       const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
-      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${s.date || ""}</span></div>`;
+      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${fmtDate(s.date)}数据 · ${s.generated_at || ""}</span></div>`;
       content.insertBefore(banner, content.firstChild);
     }
   }).catch(() => {});
@@ -689,10 +700,10 @@ async function renderOverview() {
 
   // 右列：今日买卖点
   const sigHtml = (r.signals_today && r.signals_today.length)
-    ? `<h3>今日买卖点（${r.date}）</h3><ul class="sig-list">${r.signals_today
+    ? `<h3>${fmtDate(r.date)}买卖点</h3><ul class="sig-list">${r.signals_today
         .map((s) => `<li><b class="${s.signal}">${signalLabel(s)}</b> ${indexIdToName(s.index_id)} <span class="muted">${s.reason || ""}</span></li>`)
         .join("")}</ul>`
-    : `<h3>今日买卖点（${r.date}）</h3><div class="empty-note">今日无买卖点信号</div>`;
+    : `<h3>${fmtDate(r.date)}买卖点</h3><div class="empty-note">${fmtDate(r.date)}无买卖点信号</div>`;
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card";
   sigCard.innerHTML = sigHtml;
@@ -1464,7 +1475,8 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
   if (!heatmap || !heatmap.length) return null;
   const rangeMode = state.heatmapRange || "all";
   // 按近 1 日涨跌幅排序（红涨在前，绿跌在后），便于看强弱分布
-  const sorted = [...heatmap].sort((a, b) => (b.pct_1d ?? -999) - (a.pct_1d ?? -999));
+  const sortBy = rangeMode === "5d" ? "pct_5d" : "pct_1d";
+  const sorted = [...heatmap].sort((a, b) => (b[sortBy] ?? -999) - (a[sortBy] ?? -999));
   const names = sorted.map((h) => h.name.replace(/^SW\s/, ""));
   // BUG-E：按 rangeMode 决定 y 轴维度（近1日/近5日/全部两行）
   const yCats = rangeMode === "1d" ? ["近 1 日"] : rangeMode === "5d" ? ["近 5 日"] : ["近 1 日", "近 5 日"];
