@@ -1401,27 +1401,7 @@ function renderFuturesSection(data) {
     content.appendChild(div);
   }
 
-  // 3. 四张折线图：net_position 手数趋势（默认折叠，点击展开）
-  const chartsCollapse = document.createElement("div");
-  chartsCollapse.className = "futures-collapse";
-  const chartsToggle = document.createElement("button");
-  chartsToggle.className = "futures-collapse-toggle";
-  chartsToggle.textContent = "📈 展开净多空趋势图";
-  chartsToggle.onclick = () => {
-    const body = chartsCollapse.querySelector(".futures-collapse-body");
-    const hidden = body.classList.toggle("hidden");
-    chartsToggle.textContent = hidden ? "📈 展开净多空趋势图" : "📈 收起净多空趋势图";
-  };
-  content.appendChild(chartsToggle);
-  const chartsBody = document.createElement("div");
-  chartsBody.className = "futures-collapse-body hidden";
-  chartsCollapse.appendChild(chartsBody);
-  content.appendChild(chartsCollapse);
-  // 后续 mkCard 改用 chartsBody 作为容器
-  const _origMkCard = mkCard;
-  mkCard = function(title, height, hint) {
-    return _origMkCard(title, height, hint, chartsBody);
-  };
+  // 3. 四张折线图：net_position 手数趋势（默认展开，直接渲染到 content）
 
 // 图1：综合净多空手数 — 3 条线（机构/中信/国君的综合品种）
   const chart1Series = roles.map((role) => ({
@@ -1521,8 +1501,6 @@ function renderFuturesSection(data) {
       });
     }
   }
-
-  mkCard = _origMkCard;
 
   // 4. 说明文字
   {

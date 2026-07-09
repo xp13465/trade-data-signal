@@ -812,28 +812,6 @@ main { padding: 16px 24px; }
   font-weight: 600;
 }
 
-/* 期货折线图折叠区 */
-.futures-collapse-toggle {
-  display: block;
-  width: 100%;
-  padding: 10px 16px;
-  border: 1px dashed #d9dce0;
-  border-radius: 6px;
-  background: #fafbfc;
-  color: #4e5969;
-  cursor: pointer;
-  font-size: 13px;
-  margin-bottom: 12px;
-  text-align: center;
-  transition: background 0.2s;
-}
-.futures-collapse-toggle:hover {
-  background: #f0f5ff;
-  border-color: #165dff;
-  color: #165dff;
-}
-.futures-collapse-body.hidden { display: none; }
-
 /* === 大盘Tab 二级 Tab 栏 === */
 .subtab-bar {
   display: flex;
