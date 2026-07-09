@@ -824,7 +824,7 @@ async function renderOverview() {
       valueHtml = k.value + sigHtml;
       sub = sig + " · " + (k.date || "");
     }
-    cards.innerHTML += `<div class="card kpi"><div class="card-title">${k.title}${tagHtml}</div><div class="card-value">${valueHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
+    cards.innerHTML += `<div class="card kpi"><div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
   }
   content.appendChild(cards);
 
