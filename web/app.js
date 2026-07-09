@@ -644,7 +644,7 @@ async function renderOverview() {
     }
   };
 
-  // ---- 1. 首屏两列：左=恐贪指数+情绪分，右=位置感+买卖点+冰点日 ----
+  // ---- 1. 首屏两列：左=恐贪指数+情绪分，右=位置感+买卖点 ----
   // 用户优先级：独家数据（恐贪/情绪/位置感/买卖点/冰点）> 基础数据（KPI/sparkline）
   const ov2ColA = document.createElement("div");
   ov2ColA.className = "ov-2col";
@@ -699,27 +699,18 @@ async function renderOverview() {
     }
   }).catch(() => {});
 
-  // 右列：今日买卖点 + 近期冰点日
+  // 右列：今日买卖点
   const sigHtml = (r.signals_today && r.signals_today.length)
     ? `<h3>今日买卖点（${r.date}）</h3><ul class="sig-list">${r.signals_today
         .map((s) => `<li><b class="${s.signal}">${signalLabel(s)}</b> ${indexIdToName(s.index_id)} <span class="muted">${s.reason || ""}</span></li>`)
         .join("")}</ul>`
     : `<h3>今日买卖点（${r.date}）</h3><div class="empty-note">今日无买卖点信号</div>`;
-  const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
-    ? `<h3>近期冰点日</h3><ul class="sig-list">${r.recent_freeze
-        .map((s) => `<li>${s.date} <span class="muted">${indexIdToName(s.score_id)}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
-        .join("")}</ul>`
-    : `<h3>近期冰点日</h3><div class="empty-note">无近期冰点日</div>`;
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card";
   sigCard.innerHTML = sigHtml;
   colA2.appendChild(sigCard);
-  const freezeCard = document.createElement("div");
-  freezeCard.className = "chart-card";
-  freezeCard.innerHTML = freezeHtml;
-  colA2.appendChild(freezeCard);
 
-  // ---- 2. 信号强度两列：左=市场宽度+跨市场，右=新高新低+均线排列 ----
+  // ---- 2. 信号强度两列：左=市场宽度+跨市场，右=均线排列+冰点日 ----
   const ov2ColB = document.createElement("div");
   ov2ColB.className = "ov-2col";
   const colB1 = document.createElement("div");
@@ -759,62 +750,6 @@ async function renderOverview() {
     }, null, colB1);
   }
 
-  // 右列：新高新低卡片（NH-NL）— 默认隐藏，点击「更多」展开
-  const nhlWrap = document.createElement("div");
-  nhlWrap.style.display = "none";
-  let nhlRendered = false;
-  fetchJSON("/api/new_high_low").then((nhlData) => {
-    const d = (nhlData.data || []).slice(-1)[0];
-    if (d) {
-      const nhlCard = document.createElement("div");
-      nhlCard.className = "chart-card nhnl-card";
-      const nhnl = d.nhnl_52w != null ? d.nhnl_52w : 0;
-      const nhnlColor = nhnl > 0 ? "#e6492e" : nhnl < 0 ? "#2e8b57" : "#86909c";
-      const sign = nhnl > 0 ? "+" : "";
-      let nhlHtml = `<h3>&#x1F4CA; 新高新低（NH-NL）</h3>`;
-      nhlHtml += `<div class="nhnl-value" style="color:${nhnlColor}">${sign}${nhnl}</div>`;
-      nhlHtml += `<div class="nhnl-sub">${d.nh_52w || 0} 个指数创年度新高 / ${d.nl_52w || 0} 个创年度新低</div>`;
-      const recent30 = (nhlData.data || []).slice(-30);
-      nhlHtml += `<div class="nhnl-spark" style="height:60px"></div>`;
-      nhlCard.innerHTML = nhlHtml;
-      nhlWrap.appendChild(nhlCard);
-      nhlRendered = true;
-
-      const sparkDiv = nhlCard.querySelector(".nhnl-spark");
-      if (sparkDiv && recent30.length > 1) {
-        const sc = echarts.init(sparkDiv);
-        charts.push(sc);
-        sc.setOption({
-          grid: { left: 2, right: 2, top: 4, bottom: 4 },
-          xAxis: { type: "category", show: false, data: recent30.map(function(r) { return r.date; }) },
-          yAxis: { type: "value", show: false, scale: true },
-          tooltip: { trigger: "axis", formatter: function(p) { return p[0].axisValue + "<br/>NH-NL: " + p[0].value; } },
-          series: [{
-            type: "line", smooth: true, symbol: "none",
-            data: recent30.map(function(r) { return r.nhnl_52w; }),
-            lineStyle: { color: "#5b8ff9", width: 1.5 },
-            areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: "rgba(91,143,249,0.3)" }, { offset: 1, color: "rgba(91,143,249,0.05)" }] } },
-          }],
-        });
-      }
-    }
-  }).catch(function() {});
-
-  // 更多按钮（切换新高新低）
-  const moreBtn = document.createElement("button");
-  moreBtn.textContent = "更多 ▾";
-  moreBtn.className = "more-toggle";
-  moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed #d9d9d9;border-radius:6px;background:#fafafa;color:#86909c;cursor:pointer;font-size:13px;margin-top:4px;";
-  moreBtn.onclick = function() {
-    if (nhlWrap.style.display === "none") {
-      nhlWrap.style.display = "block";
-      moreBtn.textContent = "收起 ▴";
-    } else {
-      nhlWrap.style.display = "none";
-      moreBtn.textContent = "更多 ▾";
-    }
-  };
   // 右列：均线排列卡片
   fetchJSON("/api/ma_alignment").then((maData) => {
     const d = (maData.data || []).slice(-1)[0];
@@ -842,12 +777,17 @@ async function renderOverview() {
       maCard.innerHTML = maHtml;
       colB2.appendChild(maCard);
     }
-    colB2.appendChild(moreBtn);
-    colB2.appendChild(nhlWrap);
-  }).catch(function() {
-    colB2.appendChild(moreBtn);
-    colB2.appendChild(nhlWrap);
-  });
+    // 冰点日卡片（从首屏右列移过来，与均线排列配对）
+    const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
+      ? `<h3>近期冰点日</h3><ul class="sig-list">${r.recent_freeze
+          .map((s) => `<li>${s.date} <span class="muted">${indexIdToName(s.score_id)}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
+          .join("")}</ul>`
+      : `<h3>近期冰点日</h3><div class="empty-note">无近期冰点日</div>`;
+    const freezeCard = document.createElement("div");
+    freezeCard.className = "chart-card";
+    freezeCard.innerHTML = freezeHtml;
+    colB2.appendChild(freezeCard);
+  }).catch(function() {});
 
   // ---- 3. 基础数据区：KPI 卡片行 ----
   sectionTitle("基础数据");
