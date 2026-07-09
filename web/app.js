@@ -1587,16 +1587,19 @@ function _bindFreqPopupToHintRows(cell, stats) {
     freqNodes.push(nxt);
     nxt = nxt.nextElementSibling;
   }
-  // 从每个频率行提取该信号的频率文案，按 sig class 存映射
+  // 从每个频率行提取该信号的频率文案，按 sig 名存映射
+  // 注意：class 名是 buy-aux，sig 名是 buy_aux（买/卖两者相同，辅买不同），需统一存 sig 名
+  const clsToSig = { buy: "buy", "buy-aux": "buy_aux", sell: "sell" };
   const freqBySig = {};
   for (const node of freqNodes) {
     node.querySelectorAll(".hint-row").forEach((row) => {
       const sigSpan = row.querySelector(".hint-sig");
       if (!sigSpan) return;
-      let sig = null;
+      let cls = null;
       for (const c of ["buy", "buy-aux", "sell"]) {
-        if (sigSpan.classList.contains(c)) { sig = c; break; }
+        if (sigSpan.classList.contains(c)) { cls = c; break; }
       }
+      const sig = cls ? clsToSig[cls] : null;
       if (sig) freqBySig[sig] = row.innerHTML;
     });
   }
