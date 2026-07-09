@@ -644,8 +644,8 @@ async function renderOverview() {
     }
   };
 
-  // ---- 1. 首屏两列：左=恐贪指数+情绪分，右=位置感+买卖点 ----
-  // 用户优先级：独家数据（恐贪/情绪/位置感/买卖点/冰点）> 基础数据（KPI/sparkline）
+  // ---- 1. 首屏两列：左=恐贪指数+情绪分，右=冰点日+买卖点 ----
+  // 用户优先级：独家数据（恐贪/情绪/冰点日/买卖点/位置感）> 基础数据（KPI/sparkline）
   const ov2ColA = document.createElement("div");
   ov2ColA.className = "ov-2col";
   const colA1 = document.createElement("div");
@@ -676,28 +676,16 @@ async function renderOverview() {
     lineChart("A股综合情绪分（近 6 月）", r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value })), {}, null, colA1);
   }
 
-  // 右列：大盘位置感卡片
-  fetchJSON("/api/position").then((posData) => {
-    if (posData && posData.positions && posData.positions.length) {
-      const posCard = document.createElement("div");
-      posCard.className = "chart-card position-card";
-      let posHtml = `<h3>&#x1F4CD; 大盘位置感</h3><div class="position-list">`;
-      for (const p of posData.positions) {
-        const pct = p.percentile_1y != null ? p.percentile_1y : 50;
-        const barColor = pct <= 40 ? "#2e8b57" : pct <= 60 ? "#86909c" : pct <= 80 ? "#e6a23c" : "#e6492e";
-        posHtml += `<div class="position-row">
-          <span class="pos-name">${p.name}</span>
-          <span class="pos-price">${p.current.toLocaleString()}</span>
-          <div class="pos-bar-bg"><div class="pos-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
-          <span class="pos-pct">${pct.toFixed(0)}%</span>
-          <span class="pos-label" style="color:${barColor}">${p.label}</span>
-        </div>`;
-      }
-      posHtml += `</div>`;
-      posCard.innerHTML = posHtml;
-      colA2.appendChild(posCard);
-    }
-  }).catch(() => {});
+  // 右列：冰点日卡片
+  const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
+    ? `<h3>近期冰点日</h3><ul class="sig-list">${r.recent_freeze
+        .map((s) => `<li>${s.date} <span class="muted">${indexIdToName(s.score_id)}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
+        .join("")}</ul>`
+    : `<h3>近期冰点日</h3><div class="empty-note">无近期冰点日</div>`;
+  const freezeCard = document.createElement("div");
+  freezeCard.className = "chart-card";
+  freezeCard.innerHTML = freezeHtml;
+  colA2.appendChild(freezeCard);
 
   // 右列：今日买卖点
   const sigHtml = (r.signals_today && r.signals_today.length)
@@ -710,7 +698,7 @@ async function renderOverview() {
   sigCard.innerHTML = sigHtml;
   colA2.appendChild(sigCard);
 
-  // ---- 2. 信号强度两列：左=市场宽度+跨市场，右=均线排列+冰点日 ----
+  // ---- 2. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----
   const ov2ColB = document.createElement("div");
   ov2ColB.className = "ov-2col";
   const colB1 = document.createElement("div");
@@ -777,16 +765,28 @@ async function renderOverview() {
       maCard.innerHTML = maHtml;
       colB2.appendChild(maCard);
     }
-    // 冰点日卡片（从首屏右列移过来，与均线排列配对）
-    const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
-      ? `<h3>近期冰点日</h3><ul class="sig-list">${r.recent_freeze
-          .map((s) => `<li>${s.date} <span class="muted">${indexIdToName(s.score_id)}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
-          .join("")}</ul>`
-      : `<h3>近期冰点日</h3><div class="empty-note">无近期冰点日</div>`;
-    const freezeCard = document.createElement("div");
-    freezeCard.className = "chart-card";
-    freezeCard.innerHTML = freezeHtml;
-    colB2.appendChild(freezeCard);
+    // 位置感卡片（从首屏右列移过来，与均线排列配对）
+    fetchJSON("/api/position").then((posData) => {
+      if (posData && posData.positions && posData.positions.length) {
+        const posCard = document.createElement("div");
+        posCard.className = "chart-card position-card";
+        let posHtml = `<h3>&#x1F4CD; 大盘位置感</h3><div class="position-list">`;
+        for (const p of posData.positions) {
+          const pct = p.percentile_1y != null ? p.percentile_1y : 50;
+          const barColor = pct <= 40 ? "#2e8b57" : pct <= 60 ? "#86909c" : pct <= 80 ? "#e6a23c" : "#e6492e";
+          posHtml += `<div class="position-row">
+            <span class="pos-name">${p.name}</span>
+            <span class="pos-price">${p.current.toLocaleString()}</span>
+            <div class="pos-bar-bg"><div class="pos-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+            <span class="pos-pct">${pct.toFixed(0)}%</span>
+            <span class="pos-label" style="color:${barColor}">${p.label}</span>
+          </div>`;
+        }
+        posHtml += `</div>`;
+        posCard.innerHTML = posHtml;
+        colB2.appendChild(posCard);
+      }
+    }).catch(() => {});
   }).catch(function() {});
 
   // ---- 3. 基础数据区：KPI 卡片行 ----
