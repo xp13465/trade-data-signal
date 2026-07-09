@@ -1827,9 +1827,9 @@ async function renderRotationCard(container) {
     }
     function speedHint(v) {
       if (v == null) return "";
-      if (v >= 60) return "板块快速轮动，追热点风险大";
+      if (v >= 60) return "板块天天换领涨，没持续主线，追热点易接盘";
       if (v >= 30) return "轮动速度适中，可关注主线";
-      return "主线明确，适合趋势跟踪";
+      return "同一板块连续领涨，主线明确，适合跟主线";
     }
 
     const sw5 = speedLabel(sw.speed_5d);
@@ -1856,6 +1856,12 @@ async function renderRotationCard(container) {
           <span class="rotation-item ${speedLabel(concept.speed_20d).cls}">20日: ${concept.speed_20d}% ${speedLabel(concept.speed_20d).text}</span>
         </div>` : ""}
         <div class="rotation-hint">💡 ${swHint}</div>
+        <details class="rotation-explain"><summary>📊 这个百分比怎么看？</summary><div class="rotation-explain-body">
+          <div>每天找出当天<b>涨幅最高</b>的板块（领涨板块），看过去 N 天领涨<b>换了几次</b>：换得越多百分比越高。</div>
+          <div>举例（5 日窗口，最多换 4 次）：</div>
+          <div class="rotation-explain-example">同一板块连涨 5 天 -> 换 0 次 -> <b>0%</b>（轮动缓慢）<br>5 天换 4 次领涨 -> <b>100%</b>（快速轮动，一天换一个）</div>
+          <div>所以：<b>100%</b> = 过去几天每天领涨都不同，板块天天换、没持续主线，追热点容易接盘；<b>越低</b> = 同一板块连续领涨、主线明确，适合跟主线做。</div>
+        </div></details>
       </div>`;
     container.appendChild(card);
   } catch (e) {

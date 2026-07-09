@@ -1070,4 +1070,24 @@ main { padding: 16px 24px; }
   color: #86909c;
   margin-top: 2px;
 }
+/* 大白话解释折叠（details 原生，想懂才展开） */
+.rotation-explain { margin-top: 6px; font-size: 12px; }
+.rotation-explain > summary {
+  cursor: pointer;
+  color: #165dff;
+  user-select: none;
+  list-style: none;
+}
+.rotation-explain > summary::-webkit-details-marker { display: none; }
+.rotation-explain > summary:hover { color: #0e42d2; }
+.rotation-explain-body { padding: 6px 0 0 4px; color: #4a5568; line-height: 1.7; }
+.rotation-explain-body > div { margin: 3px 0; }
+.rotation-explain-body b { color: #1f2329; font-weight: 600; }
+.rotation-explain-example {
+  background: #f7f8fa;
+  border-left: 3px solid #d6dbe0;
+  padding: 5px 8px;
+  margin: 4px 0;
+  border-radius: 0 4px 4px 0;
+}
 
