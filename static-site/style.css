@@ -218,7 +218,10 @@ main { padding: 16px 24px; }
 .sig-list b.sell { color: #2e8b57; }
 
 /* 首页冰点日/买卖点卡片：按日分组、同日4个/行、今日高亮 */
-.signal-grid { margin-top: 4px; }
+.signal-grid { margin-top: 4px; max-height: 300px; overflow-y: auto; }
+.signal-grid::-webkit-scrollbar { width: 6px; }
+.signal-grid::-webkit-scrollbar-thumb { background: #d6dbe0; border-radius: 3px; }
+.signal-grid::-webkit-scrollbar-track { background: transparent; }
 .sig-day-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 6px; border-bottom: 1px solid #f2f3f5; }
 .sig-day-row:last-child { border-bottom: none; }
 .sig-day-date { flex: 0 0 70px; font-size: 12px; color: #86909c; padding-top: 3px; white-space: nowrap; }

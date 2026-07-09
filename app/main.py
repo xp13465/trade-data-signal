@@ -189,12 +189,12 @@ def overview():
     sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=25)).strftime("%Y%m%d")
     sigs = [dict(r) for r in conn.execute(
         "SELECT date, index_id, signal, reason FROM signal_daily "
-        "WHERE date >= ? ORDER BY date DESC, index_id", (sig_start,)
+        "WHERE date >= ? ORDER BY date DESC, index_id LIMIT 9", (sig_start,)
     ).fetchall()]
     freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_days = [dict(r) for r in conn.execute(
         "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 "
-        "AND date >= ? ORDER BY date DESC", (freeze_start,)
+        "AND date >= ? ORDER BY date DESC LIMIT 9", (freeze_start,)
     ).fetchall()]
 
     # 指数 sparkline：近 30 个交易日收盘 + 当日涨跌幅
