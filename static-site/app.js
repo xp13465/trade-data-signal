@@ -776,7 +776,11 @@ async function renderOverview() {
     }, null, colB1);
   }
 
-  // 右列：新高新低卡片（NH-NL）
+  // 右列：新高新低卡片（NH-NL）— 默认隐藏，点击「更多」展开
+  const nhlWrap = document.createElement("div");
+  nhlWrap.style.display = "none";
+  colB2.appendChild(nhlWrap);
+  let nhlRendered = false;
   fetchJSON("./data/new_high_low.json").then((nhlData) => {
     const d = (nhlData.data || []).slice(-1)[0];
     if (d) {
@@ -791,7 +795,8 @@ async function renderOverview() {
       const recent30 = (nhlData.data || []).slice(-30);
       nhlHtml += `<div class="nhnl-spark" style="height:60px"></div>`;
       nhlCard.innerHTML = nhlHtml;
-      colB2.appendChild(nhlCard);
+      nhlWrap.appendChild(nhlCard);
+      nhlRendered = true;
 
       const sparkDiv = nhlCard.querySelector(".nhnl-spark");
       if (sparkDiv && recent30.length > 1) {
@@ -813,6 +818,22 @@ async function renderOverview() {
       }
     }
   }).catch(function() {});
+
+  // 更多按钮（切换新高新低）
+  const moreBtn = document.createElement("button");
+  moreBtn.textContent = "更多 ▾";
+  moreBtn.className = "more-toggle";
+  moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed #d9d9d9;border-radius:6px;background:#fafafa;color:#86909c;cursor:pointer;font-size:13px;margin-top:4px;";
+  moreBtn.onclick = function() {
+    if (nhlWrap.style.display === "none") {
+      nhlWrap.style.display = "block";
+      moreBtn.textContent = "收起 ▴";
+    } else {
+      nhlWrap.style.display = "none";
+      moreBtn.textContent = "更多 ▾";
+    }
+  };
+  colB2.appendChild(moreBtn);
 
   // 右列：均线排列卡片
   fetchJSON("./data/ma_alignment.json").then((maData) => {
