@@ -1030,10 +1030,10 @@ async function renderAStock(container = content) {
   const r = await fetchJSON(`/api/a-stock?range=${state.range}`);
   container.innerHTML = "";
   const groups = {
-    "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
     "涨停/跌停/连板": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban"],
-    "炸板率/封板率/打板溢价": ["a_width_zhaban_rate", "a_width_fengban_rate", "a_width_daban_premium"],
+    "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
     "资金面": ["a_fund_north", "a_fund_margin", "a_fund_main", "a_amount"],
+    "炸板率/封板率/打板溢价": ["a_width_zhaban_rate", "a_width_fengban_rate", "a_width_daban_premium"],
     "情绪指数（QVIX/换手率）": ["a_qvix_300", "a_qvix_1000", "a_turnover_rate"],
     "换手率分布分位数（%，BaoStock 全市场）": ["a_turnover_mean", "a_turnover_median", "a_turnover_p90", "a_turnover_p10"],
     "换手率>5%家数占比（0-1，活跃度分化）": ["a_turnover_gt5_pct"],
@@ -1137,7 +1137,10 @@ async function renderSentiment() {
   const stats = r.stats || {};
   const strat = r.strategy || {};
 
-  // 恐贪指数（综合情绪指标，放最前面）
+  // 冰点/过热热力图（一眼全局，放最前面）
+  renderSentimentHeatmap(r);
+
+  // 恐贪指数（市场温度计）
   if (r.fear_greed && r.fear_greed.length) {
     const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
@@ -1163,13 +1166,14 @@ async function renderSentiment() {
     const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) : ""}`;
     valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
   }
+  // 细分指数：散户关注度排序（小盘/成长优先）
   const idxNames = {
-    sentiment_sz50: '上证50情绪分',
-    sentiment_hs300: '沪深300情绪分',
-    sentiment_csi500: '中证500情绪分',
     sentiment_csi1000: '中证1000情绪分',
     sentiment_cyb: '创业板情绪分',
     sentiment_kc50: '科创50情绪分',
+    sentiment_csi500: '中证500情绪分',
+    sentiment_hs300: '沪深300情绪分',
+    sentiment_sz50: '上证50情绪分',
   };
   for (const [key, baseTitle] of Object.entries(idxNames)) {
     if (r[key] && r[key].length) {
@@ -1186,8 +1190,6 @@ async function renderSentiment() {
         }, stats[key], strat[key]);
     }
   }
-  // 冰点/过热热力图
-  renderSentimentHeatmap(r);
   if (r.cross_market.length) {
     const data = r.cross_market.map((d) => ({ date: d.date, value: d.value }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
@@ -1754,6 +1756,9 @@ async function renderIndustry() {
   const r = await fetchJSON(`/api/industry?range=${state.range}`);
   content.innerHTML = "";
 
+  // 板块轮动速度卡片（最先展示，判断行情性质）
+  await renderRotationCard(content);
+
   // 锚点导航条：sticky 定位，快速跳转申万行业 / 概念板块
   const swCount = Object.keys(r.indices || {}).length;
   const conceptCount = Object.keys(r.concepts || {}).length;
@@ -1776,9 +1781,6 @@ async function renderIndustry() {
       btn.classList.add("active");
     };
   });
-
-  // 板块轮动速度卡片（放在锚点导航下方、热力图上方）
-  await renderRotationCard(content);
 
   // 申万行业区域
   const swSection = document.createElement("div");
