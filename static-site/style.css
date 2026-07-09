@@ -286,6 +286,7 @@ main { padding: 16px 24px; }
 .ov-2col > * {
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
 }
 .ov-2col .chart-card { margin-bottom: 12px; }
 .ov-2col .chart-card:last-child { margin-bottom: 0; }
