@@ -261,9 +261,9 @@ def export_overview(conn, cfg):
                     "SELECT date, value, is_freeze, is_overheat FROM score_daily "
                     "WHERE score_id='a_sentiment' AND date>=? ORDER BY date",
                     (six_m_start,))]
-    fg_6m = [{"date": r["date"], "value": r["value"]}
+    fg_6m = [{"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
              for r in conn.execute(
-                 "SELECT date, value FROM score_daily "
+                 "SELECT date, value, is_freeze, is_overheat FROM score_daily "
                  "WHERE score_id='fear_greed' AND date>=? ORDER BY date",
                  (six_m_start,))]
 
@@ -341,6 +341,7 @@ def export_sentiment(conn, cfg, rng):
         "sentiment_csi1000": _score_series(conn, "sentiment_csi1000", start, end),
         "sentiment_cyb": _score_series(conn, "sentiment_cyb", start, end),
         "sentiment_kc50": _score_series(conn, "sentiment_kc50", start, end),
+        "fear_greed": _score_series(conn, "fear_greed", start, end),
         "signals": {
             "a_sentiment": _signals(conn, "s.a_sentiment", start, end),
             "cross_market": _signals(conn, "s.cross_market", start, end),
@@ -541,43 +542,114 @@ def export_rotation(conn):
 
 def export_futures(conn):
     """复刻 /api/futures。"""
+    _VARIETY_NAMES = {
+        "IF": "沪深300期货", "IC": "中证500期货",
+        "IH": "上证50期货", "IM": "中证1000期货",
+        "综合": "综合",
+    }
+    _ROLE_DISPLAY = {
+        "top20": "机构(前20)",
+        "中信期货": "中信期货",
+        "国泰君安": "国泰君安",
+    }
+
     end = last_trading_day()
     one_year_ago = (datetime.strptime(end, "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
 
-    # 近 1 年日度净持仓
+    # 近 1 年日度净持仓（按角色分组）
     pos_rows = conn.execute(
-        "SELECT date, variety, net_ratio FROM futures_position "
-        "WHERE date>=? AND net_ratio IS NOT NULL ORDER BY date, variety",
+        "SELECT date, variety, role, net_position, net_ratio FROM futures_position "
+        "WHERE date>=? AND (net_position IS NOT NULL OR net_ratio IS NOT NULL) ORDER BY date, variety, role",
         (one_year_ago,),
     ).fetchall()
 
     positions_by_date = {}
+    ratio_by_date = {}
     for r in pos_rows:
         d = r["date"]
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
         if d not in positions_by_date:
             positions_by_date[d] = {}
-        positions_by_date[d][r["variety"]] = r["net_ratio"]
+            ratio_by_date[d] = {}
+        if role_display not in positions_by_date[d]:
+            positions_by_date[d][role_display] = {}
+            ratio_by_date[d][role_display] = {}
+        positions_by_date[d][role_display][_VARIETY_NAMES.get(r["variety"], r["variety"])] = r["net_position"]
+        ratio_by_date[d][role_display][_VARIETY_NAMES.get(r["variety"], r["variety"])] = r["net_ratio"]
     positions = [{"date": d, **v} for d, v in sorted(positions_by_date.items())]
+    positions_ratio = [{"date": d, **v} for d, v in sorted(ratio_by_date.items())]
 
-    # 最新准确率
+    # 最新 summary
+    summary_date = positions[-1]["date"] if positions else end
+    summary_roles = {}
+    summary_rows = conn.execute(
+        "SELECT variety, role, net_position FROM futures_position "
+        "WHERE date=? AND net_position IS NOT NULL",
+        (summary_date,),
+    ).fetchall()
+    for r in summary_rows:
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
+        vname = _VARIETY_NAMES.get(r["variety"], r["variety"])
+        if role_display not in summary_roles:
+            summary_roles[role_display] = {}
+        summary_roles[role_display][vname] = round(r["net_position"], 0)
+
+    summary = {
+        "date": summary_date,
+        "品种": ["沪深300期货", "中证500期货", "上证50期货", "中证1000期货"],
+        "roles": summary_roles,
+    }
+
+    # 最新准确率（按角色+窗口，仅综合品种）
     accuracy_rows = conn.execute(
-        "SELECT a.date, a.variety, a.window, a.follow_accuracy, a.contrarian_accuracy "
+        "SELECT a.date, a.role, a.window, a.follow_accuracy, a.contrarian_accuracy, "
+        "a.follow_n, a.contrarian_n "
         "FROM futures_accuracy a "
-        "INNER JOIN (SELECT variety, window, MAX(date) AS max_date FROM futures_accuracy GROUP BY variety, window) b "
-        "ON a.variety=b.variety AND a.window=b.window AND a.date=b.max_date "
-        "ORDER BY a.variety, a.window"
+        "INNER JOIN (SELECT role, window, MAX(date) AS max_date "
+        "            FROM futures_accuracy WHERE variety='综合' GROUP BY role, window) b "
+        "ON a.role=b.role AND a.window=b.window AND a.date=b.max_date "
+        "WHERE a.variety='综合' "
+        "ORDER BY a.role, a.window"
     ).fetchall()
 
     accuracy = {}
     for r in accuracy_rows:
-        v = r["variety"]
-        if v not in accuracy:
-            accuracy[v] = {}
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
+        if role_display not in accuracy:
+            accuracy[role_display] = {}
         w = f"{r['window']}d"
-        accuracy[v][f"follow_{w}"] = r["follow_accuracy"]
-        accuracy[v][f"contrarian_{w}"] = r["contrarian_accuracy"]
+        accuracy[role_display][w] = {
+            "follow": r["follow_accuracy"],
+            "contrarian": r["contrarian_accuracy"],
+            "follow_n": r["follow_n"],
+            "contrarian_n": r["contrarian_n"],
+        }
 
-    return {"positions": positions, "accuracy": accuracy}
+    # 历史准确率序列
+    acc_history_rows = conn.execute(
+        "SELECT date, role, window, follow_accuracy, contrarian_accuracy "
+        "FROM futures_accuracy WHERE variety='综合' "
+        "ORDER BY date, role, window"
+    ).fetchall()
+    acc_history = []
+    _acc_by_date = {}
+    for r in acc_history_rows:
+        d = r["date"]
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
+        if d not in _acc_by_date:
+            _acc_by_date[d] = {}
+        if role_display not in _acc_by_date[d]:
+            _acc_by_date[d][role_display] = {}
+        w = f"{r['window']}d"
+        _acc_by_date[d][role_display][w] = {
+            "follow": r["follow_accuracy"],
+            "contrarian": r["contrarian_accuracy"],
+        }
+    for d in sorted(_acc_by_date.keys()):
+        acc_history.append({"date": d, **_acc_by_date[d]})
+
+    return {"summary": summary, "positions": positions, "positions_ratio": positions_ratio,
+            "accuracy": accuracy, "accuracy_history": acc_history}
 
 
 def export_ad_line(conn):
