@@ -833,8 +833,6 @@ async function renderOverview() {
       moreBtn.textContent = "更多 ▾";
     }
   };
-  colB2.appendChild(moreBtn);
-
   // 右列：均线排列卡片
   fetchJSON("./data/ma_alignment.json").then((maData) => {
     const d = (maData.data || []).slice(-1)[0];
@@ -862,7 +860,10 @@ async function renderOverview() {
       maCard.innerHTML = maHtml;
       colB2.appendChild(maCard);
     }
-  }).catch(function() {});
+    colB2.appendChild(moreBtn);
+  }).catch(function() {
+    colB2.appendChild(moreBtn);
+  });
 
   // ---- 3. 基础数据区：KPI 卡片行 ----
   sectionTitle("基础数据");
