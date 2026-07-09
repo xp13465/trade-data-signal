@@ -762,7 +762,6 @@ async function renderOverview() {
   // 右列：新高新低卡片（NH-NL）— 默认隐藏，点击「更多」展开
   const nhlWrap = document.createElement("div");
   nhlWrap.style.display = "none";
-  colB2.appendChild(nhlWrap);
   let nhlRendered = false;
   fetchJSON("/api/new_high_low").then((nhlData) => {
     const d = (nhlData.data || []).slice(-1)[0];
@@ -844,8 +843,10 @@ async function renderOverview() {
       colB2.appendChild(maCard);
     }
     colB2.appendChild(moreBtn);
+    colB2.appendChild(nhlWrap);
   }).catch(function() {
     colB2.appendChild(moreBtn);
+    colB2.appendChild(nhlWrap);
   });
 
   // ---- 3. 基础数据区：KPI 卡片行 ----
