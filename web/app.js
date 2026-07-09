@@ -695,8 +695,101 @@ async function renderOverview() {
     }
   };
 
-  // ---- 1. 首屏两列：左=恐贪指数+情绪分，右=冰点日+买卖点 ----
-  // 用户优先级：独家数据（恐贪/情绪/冰点日/买卖点/位置感）> 基础数据（KPI/sparkline）
+  // ---- 1. 基础数据区（置顶）：KPI 卡片行 + 指数 sparkline 网格 ----
+  // 散户最先看的行情速览：涨停/跌停/成交额/情绪分 等 KPI + 10 大指数迷你走势
+  sectionTitle("基础数据");
+  const scoreNames = { a_sentiment: "A股综合情绪分", cross_market: "跨市场综合评分", fear_greed: "恐贪指数" };
+  const kpiCards = [];
+  for (const [id, s] of Object.entries(r.today.scores || {})) {
+    kpiCards.push({
+      id: id,
+      title: scoreNames[id] || indexIdToName(id),
+      value: s.value != null ? s.value.toFixed(1) : "-",
+      valueNum: s.value,
+      sub: "0-100",
+      date: s.date || r.date,
+      tag: s.is_freeze ? "冰点" : s.is_overheat ? "过热" : "",
+    });
+  }
+  for (const m of r.today.metrics || []) {
+    kpiCards.push({
+      id: m.id,
+      title: m.name,
+      value: fmtMetric(m),
+      valueNum: m.value,
+      sub: m.unit || "",
+      date: m.date,
+      tag: m.id === "a_fund_north" ? "停更" : "",
+      signal: m.signal || "",
+      amount: m.amount,
+    });
+  }
+  const kpiOrder = {
+    a_width_zt_count: 1, a_width_dt_count: 2, a_width_zhaban_rate: 3,
+    a_amount: 4, a_volume_ratio: 5, a_sentiment: 6, cross_market: 7, fear_greed: 8, a_fund_margin: 9, a_fund_north: 10,
+  };
+  kpiCards.sort((a, b) => (kpiOrder[a.id] || 99) - (kpiOrder[b.id] || 99));
+  const cards = document.createElement("div");
+  cards.className = "cards kpi-row";
+  for (const k of kpiCards) {
+    const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : "stale";
+    const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
+    const sentTag = k.id === "a_sentiment" || k.id === "cross_market" ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
+    const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
+    let sub = k.sub ? `${k.sub} · ${k.date}` : (k.date || "");
+    let valueHtml = k.value;
+    if (k.id === "a_volume_ratio") {
+      const sig = k.signal || "";
+      const isFangliang = sig.startsWith("放量");
+      const isSuoliang = sig.startsWith("缩量");
+      let sigCls = "";
+      if (isFangliang) sigCls = "fangliang";
+      else if (isSuoliang) sigCls = "suoliang";
+      const sigHtml = sig ? ` <span class="tag ${sigCls}">${sig}</span>` : "";
+      valueHtml = k.value + sigHtml;
+      sub = sig + " · " + (k.date || "");
+    }
+    cards.innerHTML += `<div class="card kpi"><div class="card-title">${k.title}${tagHtml}</div><div class="card-value">${valueHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
+  }
+  content.appendChild(cards);
+
+  // 指数 sparkline 网格
+  const grid = document.createElement("div");
+  grid.className = "spark-grid";
+  content.appendChild(grid);
+  for (const [, idx] of Object.entries(r.indices_sparkline || {})) {
+    if (!idx.closes || !idx.closes.length) continue;
+    const up = (idx.pct_change || 0) >= 0;
+    const color = up ? "#e6492e" : "#2e8b57";
+    const cell = document.createElement("div");
+    cell.className = "spark-cell";
+    const sign = up ? "+" : "";
+    cell.innerHTML = `
+      <div class="spark-head">
+        <span class="spark-name">${idx.name}</span>
+        <span class="pct-badge" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
+      </div>
+      <div class="spark-chart"></div>
+      <div class="spark-date">${idx.last_date || ""}</div>`;
+    grid.appendChild(cell);
+    const chartDom = cell.querySelector(".spark-chart");
+    const exist = echarts.getInstanceByDom(chartDom);
+    if (exist) exist.dispose();
+    const sc = echarts.init(chartDom);
+    sc.setOption({
+      grid: { left: 2, right: 2, top: 4, bottom: 4 },
+      xAxis: { type: "category", show: false, data: idx.dates },
+      yAxis: { type: "value", show: false, scale: true },
+      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : Number(p[0].value).toFixed(2)}` },
+      series: [{
+        type: "line", smooth: true, symbol: "none", data: idx.closes,
+        lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
+      }],
+    });
+    charts.push(sc);
+  }
+
+  // ---- 2. 首屏两列：左=恐贪指数+情绪分，右=冰点日+买卖点 ----
   const ov2ColA = document.createElement("div");
   ov2ColA.className = "ov-2col";
   const colA1 = document.createElement("div");
@@ -749,7 +842,7 @@ async function renderOverview() {
   sigCard.innerHTML = sigHtml;
   colA2.appendChild(sigCard);
 
-  // ---- 2. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----
+  // ---- 3. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----
   const ov2ColB = document.createElement("div");
   ov2ColB.className = "ov-2col";
   const colB1 = document.createElement("div");
@@ -840,100 +933,7 @@ async function renderOverview() {
     }).catch(() => {});
   }).catch(function() {});
 
-  // ---- 3. 基础数据区：KPI 卡片行 ----
-  sectionTitle("基础数据");
-  const scoreNames = { a_sentiment: "A股综合情绪分", cross_market: "跨市场综合评分", fear_greed: "恐贪指数" };
-  const kpiCards = [];
-  for (const [id, s] of Object.entries(r.today.scores || {})) {
-    kpiCards.push({
-      id: id,
-      title: scoreNames[id] || id,
-      value: s.value != null ? s.value.toFixed(1) : "-",
-      valueNum: s.value,
-      sub: "0-100",
-      date: s.date || r.date,
-      tag: s.is_freeze ? "冰点" : s.is_overheat ? "过热" : "",
-    });
-  }
-  for (const m of r.today.metrics || []) {
-    kpiCards.push({
-      id: m.id,
-      title: m.name,
-      value: fmtMetric(m),
-      valueNum: m.value,
-      sub: m.unit || "",
-      date: m.date,
-      tag: m.id === "a_fund_north" ? "停更" : "",
-      signal: m.signal || "",
-      amount: m.amount,
-    });
-  }
-  const kpiOrder = {
-    a_width_zt_count: 1, a_width_dt_count: 2, a_width_zhaban_rate: 3,
-    a_amount: 4, a_volume_ratio: 5, a_sentiment: 6, cross_market: 7, fear_greed: 8, a_fund_margin: 9, a_fund_north: 10,
-  };
-  kpiCards.sort((a, b) => (kpiOrder[a.id] || 99) - (kpiOrder[b.id] || 99));
-  const cards = document.createElement("div");
-  cards.className = "cards kpi-row";
-  for (const k of kpiCards) {
-    const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : "stale";
-    const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
-    const sentTag = k.id === "a_sentiment" || k.id === "cross_market" ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
-    const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
-    let sub = k.sub ? `${k.sub} · ${k.date}` : (k.date || "");
-    let valueHtml = k.value;
-    if (k.id === "a_volume_ratio") {
-      const sig = k.signal || "";
-      const isFangliang = sig.startsWith("放量");
-      const isSuoliang = sig.startsWith("缩量");
-      let sigCls = "";
-      if (isFangliang) sigCls = "fangliang";
-      else if (isSuoliang) sigCls = "suoliang";
-      const sigHtml = sig ? ` <span class="tag ${sigCls}">${sig}</span>` : "";
-      valueHtml = k.value + sigHtml;
-      sub = sig + " · " + (k.date || "");
-    }
-    cards.innerHTML += `<div class="card kpi"><div class="card-title">${k.title}${tagHtml}</div><div class="card-value">${valueHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
-  }
-  content.appendChild(cards);
-
-  // ---- 4. 主要指数 sparkline 网格 ----
-  const grid = document.createElement("div");
-  grid.className = "spark-grid";
-  content.appendChild(grid);
-  for (const [, idx] of Object.entries(r.indices_sparkline || {})) {
-    if (!idx.closes || !idx.closes.length) continue;
-    const up = (idx.pct_change || 0) >= 0;
-    const color = up ? "#e6492e" : "#2e8b57";
-    const cell = document.createElement("div");
-    cell.className = "spark-cell";
-    const sign = up ? "+" : "";
-    cell.innerHTML = `
-      <div class="spark-head">
-        <span class="spark-name">${idx.name}</span>
-        <span class="pct-badge" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
-      </div>
-      <div class="spark-chart"></div>
-      <div class="spark-date">${idx.last_date || ""}</div>`;
-    grid.appendChild(cell);
-    const chartDom = cell.querySelector(".spark-chart");
-    const exist = echarts.getInstanceByDom(chartDom);
-    if (exist) exist.dispose();
-    const sc = echarts.init(chartDom);
-    sc.setOption({
-      grid: { left: 2, right: 2, top: 4, bottom: 4 },
-      xAxis: { type: "category", show: false, data: idx.dates },
-      yAxis: { type: "value", show: false, scale: true },
-      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : Number(p[0].value).toFixed(2)}` },
-      series: [{
-        type: "line", smooth: true, symbol: "none", data: idx.closes,
-        lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
-      }],
-    });
-    charts.push(sc);
-  }
-
-  // ---- 5. AD Line 腾落线 + 成交量对比（全宽，横跨两列）----
+  // ---- 4. AD Line 腾落线 + 成交量对比（全宽，横跨两列）----
   const ov2ColC = document.createElement("div");
   ov2ColC.className = "ov-2col";
   const colC1 = document.createElement("div");
@@ -1004,7 +1004,7 @@ async function renderOverview() {
     }
   } catch (e) { /* 无声降级 */ }
 
-  // ---- 6. 申万行业涨跌幅热力图 ----
+  // ---- 5. 申万行业涨跌幅热力图 ----
   if (r.industry_heatmap && r.industry_heatmap.length) {
     renderIndustryHeatmap(r.industry_heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）");
   } else {
