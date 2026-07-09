@@ -208,12 +208,17 @@ def export_overview(conn, cfg):
                 entry["amount"] = amt_row["value"] if amt_row else None
             today_metrics.append(entry)
 
+    sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=25)).strftime("%Y%m%d")
     sigs = [dict(r) for r in conn.execute(
-        "SELECT date, index_id, signal, reason FROM signal_daily WHERE date=?",
-        (score_date,),
+        "SELECT date, index_id, signal, reason FROM signal_daily "
+        "WHERE date >= ? ORDER BY date DESC, index_id",
+        (sig_start,),
     ).fetchall()]
+    freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_days = [dict(r) for r in conn.execute(
-        "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 ORDER BY date DESC LIMIT 5"
+        "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 "
+        "AND date >= ? ORDER BY date DESC",
+        (freeze_start,),
     ).fetchall()]
 
     spark_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=60)).strftime("%Y%m%d")

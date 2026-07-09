@@ -191,6 +191,44 @@ function indexIdToName(indexId) {
   return _INDEX_NAME_MAP[key] || indexId;
 }
 
+// 首页冰点日/买卖点卡片：按日期分组渲染，同日4个/行，今日(date===todayDate)高亮且排首。
+// items: freeze={date,score_id,value} | signal={date,index_id,signal,reason}
+// kind: "freeze" | "signal"；todayDate: 数据"今日"基准(r.date)
+function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
+  if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
+  // 按 date 分组（降序），今日组单独提到最前
+  const groups = {};
+  for (const it of items) {
+    (groups[it.date] = groups[it.date] || []).push(it);
+  }
+  let dates = Object.keys(groups).sort((a, b) => (a < b ? 1 : -1));
+  // 今日组排首
+  if (todayDate && groups[todayDate]) {
+    dates = [todayDate, ...dates.filter((d) => d !== todayDate)];
+  }
+  let rows = "";
+  for (const dt of dates) {
+    const isToday = dt === todayDate;
+    const dayItems = groups[dt];
+    // 今日组内部再按信号优先级排（买>辅买>卖）；冰点按值升序（越冷越前）
+    if (kind === "signal") {
+      const ord = { buy: 0, buy_aux: 1, sell: 2 };
+      dayItems.sort((a, b) => (ord[a.signal] ?? 9) - (ord[b.signal] ?? 9));
+    } else {
+      dayItems.sort((a, b) => (a.value ?? 99) - (b.value ?? 99));
+    }
+    const cellsHtml = dayItems.map((it) => {
+      if (kind === "signal") {
+        return `<span class="sig-item"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`;
+      }
+      return `<span class="sig-item"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
+    }).join("");
+    const dateLabel = isToday ? `🔥今日` : fmtDate(dt);
+    rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cellsHtml}</div></div>`;
+  }
+  return `<h3>${title}</h3><div class="signal-grid">${rows}</div>`;
+}
+
 // 买卖点回测 stats tips（折线图上方）：散户化多块文案 + 胜率配色梯度 + 凯利公式折叠详解。
 // stats = {buy:{10d:{win_rate,pl,mean,n}}, buy_aux:..., sell:...}
 // "10日"= 信号后 10 交易日 forward 收益窗口（非"只回测 10 日数据"）；全历史 signals 回测。
@@ -820,26 +858,16 @@ async function renderOverview() {
     lineChart("A股综合情绪分（近 6 月）", r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value })), {}, null, colA1);
   }
 
-  // 右列：冰点日卡片
-  const freezeHtml = (r.recent_freeze && r.recent_freeze.length)
-    ? `<h3>近期冰点日</h3><ul class="sig-list">${r.recent_freeze
-        .map((s) => `<li>${s.date} <span class="muted">${indexIdToName(s.score_id)}=${s.value != null ? s.value.toFixed(1) : "-"}</span></li>`)
-        .join("")}</ul>`
-    : `<h3>近期冰点日</h3><div class="empty-note">无近期冰点日</div>`;
+  // 右列：冰点日卡片（近120日，按日分组4个/行）
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";
-  freezeCard.innerHTML = freezeHtml;
+  freezeCard.innerHTML = _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）", "freeze", "无近期冰点日");
   colA2.appendChild(freezeCard);
 
-  // 右列：今日买卖点
-  const sigHtml = (r.signals_today && r.signals_today.length)
-    ? `<h3>${fmtDate(r.date)}买卖点</h3><ul class="sig-list">${r.signals_today
-        .map((s) => `<li><b class="${s.signal}">${signalLabel(s)}</b> ${indexIdToName(s.index_id)} <span class="muted">${s.reason || ""}</span></li>`)
-        .join("")}</ul>`
-    : `<h3>${fmtDate(r.date)}买卖点</h3><div class="empty-note">${fmtDate(r.date)}无买卖点信号</div>`;
+  // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card";
-  sigCard.innerHTML = sigHtml;
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期买卖点（近 15 交易日 · 今日高亮）", "signal", "近期无买卖点信号");
   colA2.appendChild(sigCard);
 
   // ---- 3. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----

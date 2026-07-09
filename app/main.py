@@ -184,12 +184,17 @@ def overview():
                 entry["amount"] = entry["amount"]["value"] if entry["amount"] else None
             today_metrics.append(entry)
 
-    # 今日买卖点 + 近期冰点/过热日（保留原逻辑）
+    # 近期买卖点（近15交易日，含今日）+ 近期冰点日（近30交易日）
+    # 用日历日范围覆盖足够交易日：15交易日≈25天，30交易日≈45天
+    sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=25)).strftime("%Y%m%d")
     sigs = [dict(r) for r in conn.execute(
-        "SELECT date, index_id, signal, reason FROM signal_daily WHERE date=?", (score_date,)
+        "SELECT date, index_id, signal, reason FROM signal_daily "
+        "WHERE date >= ? ORDER BY date DESC, index_id", (sig_start,)
     ).fetchall()]
+    freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_days = [dict(r) for r in conn.execute(
-        "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 ORDER BY date DESC LIMIT 5"
+        "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 "
+        "AND date >= ? ORDER BY date DESC", (freeze_start,)
     ).fetchall()]
 
     # 指数 sparkline：近 30 个交易日收盘 + 当日涨跌幅

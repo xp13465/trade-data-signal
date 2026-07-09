@@ -216,6 +216,22 @@ main { padding: 16px 24px; }
 .sig-list b.buy { color: #e6492e; }
 .sig-list b.buy_aux { color: #d63384; }
 .sig-list b.sell { color: #2e8b57; }
+
+/* 首页冰点日/买卖点卡片：按日分组、同日4个/行、今日高亮 */
+.signal-grid { margin-top: 4px; }
+.sig-day-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 6px; border-bottom: 1px solid #f2f3f5; }
+.sig-day-row:last-child { border-bottom: none; }
+.sig-day-date { flex: 0 0 70px; font-size: 12px; color: #86909c; padding-top: 3px; white-space: nowrap; }
+.sig-items { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px 8px; }
+.sig-item { font-size: 13px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sig-item b { font-weight: 600; margin-right: 2px; }
+.sig-item b.buy { color: #e6492e; }
+.sig-item b.buy_aux { color: #d63384; }
+.sig-item b.sell { color: #2e8b57; }
+.sig-freeze-name { color: #4a5568; }
+.sig-item b.freeze-val { color: #2563eb; }
+.sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
+.sig-day-row.today-row .sig-day-date { color: #e6492e; font-weight: 600; }
 .muted { color: #86909c; }
 
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
