@@ -65,7 +65,7 @@ KPI_METRIC_IDS = [
     "a_fund_north",
     "a_fund_margin",
 ]
-SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "cyb", "kc50", "hsi", "hstech"]
+SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "csi500", "csi1000", "hsi", "hstech"]
 
 
 # ============ 查询辅助（复刻 main.py 私有函数，保证结构一致）============
