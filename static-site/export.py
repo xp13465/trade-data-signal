@@ -436,8 +436,10 @@ def export_position():
 
 def export_signal_freq():
     """复刻 /api/signal_freq：全局信号频率统计。"""
+    from datetime import datetime
     all_stats = sigstats.load()
     freq = {"buy": {"year": 0, "total": 0}, "buy_aux": {"year": 0, "total": 0}, "sell": {"year": 0, "total": 0}}
+    cur_month = datetime.now().month
     for iid, sigs in all_stats.items():
         if iid.startswith("_"):
             continue
@@ -447,6 +449,9 @@ def export_signal_freq():
             if f:
                 freq[sig]["year"] += f.get("year_count", 0)
                 freq[sig]["total"] += f.get("total_count", 0)
+    for sig in freq:
+        y = freq[sig]["year"]
+        freq[sig]["monthly_avg"] = round(y / max(cur_month, 1), 2)
     return freq
 
 

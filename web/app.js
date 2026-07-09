@@ -575,6 +575,8 @@ function ruleContentHtml() {
       </table>
     </div>
 
+    <div class="rule-freq-stats"></div>
+
     <p class="rule-disclaimer">以上信号为技术分析参考，不构成交易指令。投资有风险，决策需谨慎。</p>
 
   </div>`;
@@ -594,7 +596,7 @@ function initRuleButton() {
   // 创建 modal
   const modal = document.createElement('div');
   modal.className = 'rule-modal hidden';
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>&#128203; 买卖点策略说明</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="rule-freq-stats"></div>' + ruleContentHtml() + '</div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>&#128203; 买卖点策略说明</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + ruleContentHtml() + '</div></div>';
   document.body.appendChild(modal);
 
   const overlay = modal.querySelector('.rule-modal-overlay');
@@ -603,7 +605,7 @@ function initRuleButton() {
   const open = () => {
     modal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
-    // 加载信号频率统计
+    // 加载信号频率统计（放在当前信号统计下面）
     const freqDiv = modal.querySelector('.rule-freq-stats');
     if (freqDiv && !freqDiv.dataset.loaded) {
       fetchJSON("/api/signal_freq").then((freq) => {
@@ -614,7 +616,7 @@ function initRuleButton() {
           for (const sig of ["buy", "buy_aux", "sell"]) {
             const f = freq[sig];
             if (!f || !f.total) continue;
-            html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year}</b> 次</span><span class="hint-stat">总计 <b>${f.total}</b> 次</span></div>`;
+            html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year}</b> 次</span><span class="hint-stat">总计 <b>${f.total}</b> 次</span><span class="hint-stat">月均 <b>${f.monthly_avg}</b> 次</span></div>`;
           }
           html += '</div>';
           freqDiv.innerHTML = html;
@@ -1573,6 +1575,21 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
   return c;
 }
 
+// 从 stats 中提取频率信息，生成 hover popup HTML
+function _freqPopupHtml(stats) {
+  if (!stats) return null;
+  const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
+  const cls = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
+  let parts = [];
+  for (const sig of ["buy", "buy_aux", "sell"]) {
+    const s = stats[sig];
+    if (!s || !s.frequency) continue;
+    const f = s.frequency;
+    parts.push(`<span class="hint-sig ${cls[sig]}">${labels[sig]}</span> 今年<b>${f.year_count}</b>次 总计<b>${f.total_count}</b>次 月均<b>${f.monthly_avg}</b>次`);
+  }
+  return parts.length ? parts.join("<br>") : null;
+}
+
 function renderIndustryGrid(indices, containerOverride) {
   const entries = Object.entries(indices).filter(([, idx]) => idx.data && idx.data.length);
   const ctn = containerOverride || content;
@@ -1596,15 +1613,27 @@ function renderIndustryGrid(indices, containerOverride) {
     const cell = document.createElement("div");
     cell.className = "spark-cell industry-cell";
     const sign = up ? "+" : "";
-    const hint = statsHint(idx.stats, idx.strategy, id);
     cell.innerHTML = `
       <div class="spark-head">
         <span class="spark-name">${idx.name}</span>
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
-      ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
       <div class="ind-metrics"></div>`;
+    // 频率统计 hover popup（悬浮在涨跌幅数字上触发）
+    const freqPopup = _freqPopupHtml(idx.stats);
+    if (freqPopup) {
+      const badge = cell.querySelector(".pct-badge");
+      const popup = document.createElement("div");
+      popup.className = "freq-popup";
+      popup.innerHTML = freqPopup;
+      popup.style.cssText = "display:none;position:absolute;z-index:100;background:#fff;border:1px solid #e5e6eb;border-radius:8px;padding:8px 12px;box-shadow:0 4px 12px rgba(0,0,0,0.12);font-size:12px;white-space:nowrap;";
+      cell.style.position = "relative";
+      cell.appendChild(popup);
+      badge.style.cursor = "pointer";
+      badge.addEventListener("mouseenter", () => { popup.style.display = "block"; });
+      badge.addEventListener("mouseleave", () => { popup.style.display = "none"; });
+    }
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);

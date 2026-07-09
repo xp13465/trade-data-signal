@@ -858,9 +858,11 @@ def summary(date: str | None = None):
 
 @app.get("/api/signal_freq")
 def signal_freq():
-    """全局信号频率统计：汇总所有品种 buy/buy_aux/sell 的今年次数/总计。"""
+    """全局信号频率统计：汇总所有品种 buy/buy_aux/sell 的今年次数/总计/月均。"""
+    from datetime import datetime
     all_stats = sigstats.load()
     freq = {"buy": {"year": 0, "total": 0}, "buy_aux": {"year": 0, "total": 0}, "sell": {"year": 0, "total": 0}}
+    cur_month = datetime.now().month  # 用于计算月均
     for iid, sigs in all_stats.items():
         if iid.startswith("_"):
             continue
@@ -870,6 +872,9 @@ def signal_freq():
             if f:
                 freq[sig]["year"] += f.get("year_count", 0)
                 freq[sig]["total"] += f.get("total_count", 0)
+    for sig in freq:
+        y = freq[sig]["year"]
+        freq[sig]["monthly_avg"] = round(y / max(cur_month, 1), 2)
     return freq
 
 
