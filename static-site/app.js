@@ -201,8 +201,7 @@ function indexIdToName(indexId) {
 // 首页冰点日/买卖点卡片：按日期分组渲染，同日4个/行，今日(date===todayDate)高亮且排首。
 // items: freeze={date,score_id,value} | signal={date,index_id,signal,reason}
 // kind: "freeze" | "signal"；todayDate: 数据"今日"基准(r.date)
-// 每日期最多显示前 PER_DAY 个，多余的折叠为 "+X" 徽章，点击原位展开/收起。
-const _SIG_PER_DAY = 4;
+// 每日期全部显示（不做折叠），卡片 .signal-grid 有 max-height+overflow 滚动兜底。
 function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // 按 date 分组（降序），今日组单独提到最前
@@ -229,32 +228,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
     const cellHtml = (it) => kind === "signal"
       ? `<span class="sig-item"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
       : `<span class="sig-item"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
-    const shown = dayItems.slice(0, _SIG_PER_DAY).map(cellHtml).join("");
-    const rest = dayItems.slice(_SIG_PER_DAY);
-    const more = rest.length
-      ? `<span class="sig-more" data-date="${dt}" data-expanded="0" title="点击展开/收起">+${rest.length}</span>`
-        + `<span class="sig-items-extra hidden">${rest.map(cellHtml).join("")}</span>`
-      : "";
+    const cellsHtml = dayItems.map(cellHtml).join("");
     const dateLabel = isToday ? `🔥今日` : fmtDate(dt);
-    rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${shown}${more}</div></div>`;
+    rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cellsHtml}</div></div>`;
   }
   return `<h3>${title}</h3><div class="signal-grid">${rows}</div>`;
-}
-
-// 信号网格折叠：点击 "+X" 徽章原位展开/收起当日剩余信号。
-function _bindSignalGridMore(container) {
-  container.querySelectorAll(".sig-more").forEach((el) => {
-    if (el.dataset.bound) return;
-    el.dataset.bound = "1";
-    el.addEventListener("click", () => {
-      const expanded = el.dataset.expanded === "1";
-      const extra = el.nextElementSibling;
-      if (!extra) return;
-      extra.classList.toggle("hidden", expanded);
-      el.dataset.expanded = expanded ? "0" : "1";
-      el.textContent = expanded ? `+${extra.children.length}` : "收起";
-    });
-  });
 }
 
 // 买卖点回测 stats tips（折线图上方）：散户化多块文案 + 胜率配色梯度 + 凯利公式折叠详解。
@@ -907,9 +885,6 @@ async function renderOverview() {
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期买卖点（近 15 交易日 · 今日高亮）", "signal", "近期无买卖点信号");
   colA2.appendChild(sigCard);
 
-  // 绑定卡片内 "+X" 折叠展开
-  _bindSignalGridMore(freezeCard);
-  _bindSignalGridMore(sigCard);
 
   // ---- 3. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----
   const ov2ColB = document.createElement("div");

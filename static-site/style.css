@@ -235,11 +235,7 @@ main { padding: 16px 24px; }
 .sig-item b.freeze-val { color: #2563eb; }
 .sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
 .sig-day-row.today-row .sig-day-date { color: #e6492e; font-weight: 600; }
-/* "+X" 折叠徽章 + 剩余信号容器 */
-.sig-more { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 22px; padding: 0 6px; font-size: 12px; font-weight: 600; color: #4a5568; background: #f2f3f5; border-radius: 11px; cursor: pointer; user-select: none; white-space: nowrap; transition: background 0.15s; }
-.sig-more:hover { background: #e3e6ea; }
-.sig-items-extra { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px 8px; margin-top: 4px; }
-.sig-items-extra.hidden { display: none; }
+/* 通用隐藏类（rule-modal 等复用） */
 .hidden { display: none !important; }
 .muted { color: #86909c; }
 
