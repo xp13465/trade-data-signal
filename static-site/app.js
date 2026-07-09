@@ -889,6 +889,7 @@ function renderFuturesSection(data) {
   const roles = ["机构(前20)", "中信期货", "国泰君安"];
   const products = ["沪深300期货", "中证500期货", "上证50期货", "中证1000期货", "综合"];
 
+  
   // 1. 昨日净多空概览卡片
   if (data.summary && data.summary.roles) {
     const div = document.createElement("div");
@@ -914,48 +915,7 @@ function renderFuturesSection(data) {
     content.appendChild(div);
   }
 
-  // 2. 四张折线图：net_ratio 趋势
-  // 图1：综合净多空比例 — 3 条线（机构/中信/国君的综合品种）
-  const chart1Series = roles.map((role) => ({
-    name: role,
-    data: data.positions.map((d) => {
-      const r = d[role];
-      return r ? { date: d.date, value: r["综合"] } : { date: d.date, value: null };
-    }).filter((d) => d.value != null),
-  }));
-  if (chart1Series.some((s) => s.data.length)) {
-    lineChart("综合净多空比例", chart1Series, {
-      yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v * 100).toFixed(0) + "%" } },
-      tooltip: { trigger: "axis", valueFormatter: (v) => v != null ? (v * 100).toFixed(1) + "%" : "-" },
-      series: chart1Series.map((s, i) => ({
-        name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
-        markLine: { silent: true, symbol: "none", lineStyle: { color: "#86909c", type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
-      })),
-    });
-  }
-
-  // 图2-4：每个角色各品种
-  for (const role of roles) {
-    const prodSeries = products.map((prod) => ({
-      name: prod,
-      data: data.positions.map((d) => {
-        const r = d[role];
-        return r ? { date: d.date, value: r[prod] } : { date: d.date, value: null };
-      }).filter((d) => d.value != null),
-    }));
-    if (prodSeries.some((s) => s.data.length)) {
-      lineChart(`${role} 各品种净多空比例`, prodSeries, {
-        yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v * 100).toFixed(0) + "%" } },
-        tooltip: { trigger: "axis", valueFormatter: (v) => v != null ? (v * 100).toFixed(1) + "%" : "-" },
-        series: prodSeries.map((s, i) => ({
-          name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
-          markLine: i === 0 ? { silent: true, symbol: "none", lineStyle: { color: "#86909c", type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] } : undefined,
-        })),
-      });
-    }
-  }
-
-  // 3. 历史准确率表格
+  // 2. 历史准确率表格（移到综合图前面）
   if (data.accuracy) {
     const div = document.createElement("div");
     div.className = "chart-card";
@@ -984,6 +944,114 @@ function renderFuturesSection(data) {
     html += '</tbody></table>';
     html += '<div class="futures-note" style="margin-top:10px;">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     div.innerHTML = html;
+    content.appendChild(div);
+  }
+
+  // 3. 四张折线图：net_position 手数趋势
+  // 图1：综合净多空手数 — 3 条线（机构/中信/国君的综合品种）
+  const chart1Series = roles.map((role) => ({
+    name: role,
+    data: data.positions.map((d) => {
+      const r = d[role];
+      return r ? { date: d.date, value: r["综合"] } : { date: d.date, value: null };
+    }).filter((d) => d.value != null),
+  }));
+  if (chart1Series.some((s) => s.data.length)) {
+    const dates1 = [...new Set(chart1Series.flatMap((s) => s.data.map((d) => d.date)))].sort();
+    const c1 = mkCard("综合净多空手数", 300);
+    c1.setOption({
+      tooltip: {
+        trigger: "axis",
+        formatter: function (params) {
+          if (!params || !params.length) return "";
+          let html = '<strong>' + params[0].axisValue + '</strong><br/>';
+          const accEntry = data.accuracy_history ? data.accuracy_history.find((a) => a.date === params[0].axisValue) : null;
+          params.forEach((p) => {
+            const v = p.data;
+            const handStr = v != null ? (v > 0 ? "+" : "") + (v / 10000).toFixed(1) + "万手" : "-";
+            const dirStr = v > 0 ? "净多" : v < 0 ? "净空" : "";
+            html += p.marker + ' ' + p.seriesName + ': ' + handStr + ' ' + dirStr + '<br/>';
+            if (accEntry) {
+              const roleAcc = accEntry[p.seriesName];
+              if (roleAcc) {
+                html += '<span style="color:#86909c;font-size:11px;margin-left:16px;">';
+                const parts = [];
+                for (const w of ["30d", "60d", "120d"]) {
+                  const a = roleAcc[w];
+                  if (a) {
+                    const f = Math.round(a.follow * 100);
+                    const c = Math.round(a.contrarian * 100);
+                    const fStyle = f > c ? 'color:#16a34a;font-weight:bold' : 'color:#86909c';
+                    const cStyle = c > f ? 'color:#16a34a;font-weight:bold' : 'color:#86909c';
+                    parts.push(w + ' <span style="' + fStyle + '">同' + f + '%</span> <span style="' + cStyle + '">逆' + c + '%</span>');
+                  }
+                }
+                html += parts.join(' | ') + '</span><br/>';
+              }
+            }
+          });
+          return html;
+        },
+      },
+      legend: { top: 0, type: "scroll" },
+      grid: { left: 55, right: 20, top: 35, bottom: 35 },
+      xAxis: { type: "category", data: dates1 },
+      yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v / 10000).toFixed(1) + "万手" } },
+      dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+      series: chart1Series.map((s) => ({
+        name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
+        data: dates1.map((d) => { const p = s.data.find((x) => x.date === d); return p ? p.value : null; }),
+        markLine: { silent: true, symbol: "none", lineStyle: { color: "#86909c", type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
+      })),
+    });
+  }
+
+  // 图2-4：每个角色各品种手数
+  for (const role of roles) {
+    const prodSeries = products.map((prod) => ({
+      name: prod,
+      data: data.positions.map((d) => {
+        const r = d[role];
+        return r ? { date: d.date, value: r[prod] } : { date: d.date, value: null };
+      }).filter((d) => d.value != null),
+    }));
+    if (prodSeries.some((s) => s.data.length)) {
+      const datesP = [...new Set(prodSeries.flatMap((s) => s.data.map((d) => d.date)))].sort();
+      const cP = mkCard(`${role} 各品种净多空手数`, 300);
+      cP.setOption({
+        tooltip: {
+          trigger: "axis",
+          formatter: function (params) {
+            if (!params || !params.length) return "";
+            let html = '<strong>' + params[0].axisValue + '</strong><br/>';
+            params.forEach((p) => {
+              const v = p.data;
+              const handStr = v != null ? (v > 0 ? "+" : "") + (v / 10000).toFixed(1) + "万手" : "-";
+              const dirStr = v > 0 ? "净多" : v < 0 ? "净空" : "";
+              html += p.marker + ' ' + p.seriesName + ': ' + handStr + ' ' + dirStr + '<br/>';
+            });
+            return html;
+          },
+        },
+        legend: { top: 0, type: "scroll" },
+        grid: { left: 55, right: 20, top: 35, bottom: 35 },
+        xAxis: { type: "category", data: datesP },
+        yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v / 10000).toFixed(1) + "万手" } },
+        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        series: prodSeries.map((s) => ({
+          name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
+          data: datesP.map((d) => { const p = s.data.find((x) => x.date === d); return p ? p.value : null; }),
+          markLine: { silent: true, symbol: "none", lineStyle: { color: "#86909c", type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
+        })),
+      });
+    }
+  }
+
+  // 4. 说明文字
+  {
+    const div = document.createElement("div");
+    div.className = "chart-card";
+    div.innerHTML = '<div class="futures-note">机构=中金所前20会员汇总。中信/国君为单独席位。折线图为净多空手数（正=净多，负=净空），hover 可查看比例。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     content.appendChild(div);
   }
 }

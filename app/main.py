@@ -386,25 +386,30 @@ def _futures_data():
     conn = get_conn()
 
     ltd = last_trading_day()
-    # 近 1 年日度净持仓（net_ratio），按角色分组
+    # 近 1 年日度净持仓（net_position 手数 + net_ratio 比例），按角色分组
     one_year_ago = (datetime.strptime(ltd, "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
     pos_rows = conn.execute(
-        "SELECT date, variety, role, net_ratio FROM futures_position "
-        "WHERE date>=? AND net_ratio IS NOT NULL ORDER BY date, variety, role",
+        "SELECT date, variety, role, net_position, net_ratio FROM futures_position "
+        "WHERE date>=? AND (net_position IS NOT NULL OR net_ratio IS NOT NULL) ORDER BY date, variety, role",
         (one_year_ago,),
     ).fetchall()
 
-    # 按日期 → 角色 → 品种 pivot
+    # 按日期 → 角色 → 品种 pivot（手数 + 比例各一份）
     positions_by_date: dict[str, dict] = {}
+    ratio_by_date: dict[str, dict] = {}
     for r in pos_rows:
         d = r["date"]
         role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
         if d not in positions_by_date:
             positions_by_date[d] = {}
+            ratio_by_date[d] = {}
         if role_display not in positions_by_date[d]:
             positions_by_date[d][role_display] = {}
-        positions_by_date[d][role_display][r["variety"]] = r["net_ratio"]
+            ratio_by_date[d][role_display] = {}
+        positions_by_date[d][role_display][_VARIETY_NAMES.get(r["variety"], r["variety"])] = r["net_position"]
+        ratio_by_date[d][role_display][_VARIETY_NAMES.get(r["variety"], r["variety"])] = r["net_ratio"]
     positions = [{"date": d, **v} for d, v in sorted(positions_by_date.items())]
+    positions_ratio = [{"date": d, **v} for d, v in sorted(ratio_by_date.items())]
 
     # 最新 summary：取最新日期，按角色列出各品种 net_position（手数，非 ratio）
     summary_date = positions[-1]["date"] if positions else ltd
@@ -453,8 +458,31 @@ def _futures_data():
             "contrarian_n": r["contrarian_n"],
         }
 
+    # 历史准确率序列（按日期 pivot，供前端折线图 tooltip 使用）
+    acc_history_rows = conn.execute(
+        "SELECT date, role, window, follow_accuracy, contrarian_accuracy "
+        "FROM futures_accuracy WHERE variety='综合' "
+        "ORDER BY date, role, window"
+    ).fetchall()
+    acc_history: list[dict] = []
+    _acc_by_date: dict[str, dict] = {}
+    for r in acc_history_rows:
+        d = r["date"]
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
+        if d not in _acc_by_date:
+            _acc_by_date[d] = {}
+        if role_display not in _acc_by_date[d]:
+            _acc_by_date[d][role_display] = {}
+        w = f"{r['window']}d"
+        _acc_by_date[d][role_display][w] = {
+            "follow": r["follow_accuracy"],
+            "contrarian": r["contrarian_accuracy"],
+        }
+    for d in sorted(_acc_by_date.keys()):
+        acc_history.append({"date": d, **_acc_by_date[d]})
+
     conn.close()
-    return {"summary": summary, "positions": positions, "accuracy": accuracy}
+    return {"summary": summary, "positions": positions, "positions_ratio": positions_ratio, "accuracy": accuracy, "accuracy_history": acc_history}
 
 
 @app.get("/api/futures")
