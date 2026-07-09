@@ -186,16 +186,31 @@ def overview():
 
     # 近期买卖点（近15交易日，含今日）+ 近期冰点日（近30交易日）
     # 用日历日范围覆盖足够交易日：15交易日≈25天，30交易日≈45天
+    # 前端按日分组（一天一行），故取"最近9个日期"的全部记录而非LIMIT 9条记录
     sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=25)).strftime("%Y%m%d")
-    sigs = [dict(r) for r in conn.execute(
-        "SELECT date, index_id, signal, reason FROM signal_daily "
-        "WHERE date >= ? ORDER BY date DESC, index_id LIMIT 9", (sig_start,)
+    sig_dates = [r[0] for r in conn.execute(
+        "SELECT DISTINCT date FROM signal_daily WHERE date >= ? ORDER BY date DESC LIMIT 9",
+        (sig_start,)
     ).fetchall()]
+    sigs = []
+    if sig_dates:
+        sigs = [dict(r) for r in conn.execute(
+            "SELECT date, index_id, signal, reason FROM signal_daily "
+            "WHERE date IN (%s) ORDER BY date DESC, index_id" % ",".join("?" * len(sig_dates)),
+            sig_dates
+        ).fetchall()]
     freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
-    freeze_days = [dict(r) for r in conn.execute(
-        "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 "
-        "AND date >= ? ORDER BY date DESC LIMIT 9", (freeze_start,)
+    freeze_dates = [r[0] for r in conn.execute(
+        "SELECT DISTINCT date FROM score_daily WHERE is_freeze=1 AND date >= ? ORDER BY date DESC LIMIT 9",
+        (freeze_start,)
     ).fetchall()]
+    freeze_days = []
+    if freeze_dates:
+        freeze_days = [dict(r) for r in conn.execute(
+            "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 "
+            "AND date IN (%s) ORDER BY date DESC" % ",".join("?" * len(freeze_dates)),
+            freeze_dates
+        ).fetchall()]
 
     # 指数 sparkline：近 30 个交易日收盘 + 当日涨跌幅
     spark_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=60)).strftime("%Y%m%d")
