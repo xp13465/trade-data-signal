@@ -40,7 +40,13 @@ document.querySelectorAll('button[data-rng]').forEach((b) => {
     state.range = b.dataset.rng;
     document.querySelectorAll('button[data-rng]').forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
-    renderTab();
+    // 锁定内容区高度避免清空时塌陷跳顶，渲染后恢复滚动位置（周期切换不丢阅读位置）
+    const savedScroll = window.scrollY;
+    content.style.minHeight = content.offsetHeight + "px";
+    renderTab().then(() => {
+      content.style.minHeight = "";
+      requestAnimationFrame(() => window.scrollTo(0, savedScroll));
+    });
   };
 });
 document.querySelectorAll("button[data-tab]").forEach((b) => {
@@ -1562,6 +1568,27 @@ function renderFuturesSection(data) {
 // BUG-E：热力图加近1日/近5日/全部切换按钮（嵌在卡片标题右侧），数据已有 pct_1d/pct_5d 只加 UI 切换。
 function renderIndustryHeatmap(heatmap, title, containerOverride) {
   if (!heatmap || !heatmap.length) return null;
+  // BUG-E：自建卡片（含切换按钮在标题右侧），不复用 mkCard（其标题不支持嵌入控件）
+  const ctn = containerOverride || content;
+  const div = document.createElement("div");
+  div.className = "chart-card";
+  const toggleBtns = [["1d", "近1日"], ["5d", "近5日"], ["all", "全部"]]
+    .map(([k, label]) => `<button type="button" data-hr="${k}">${label}</button>`).join("");
+  div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;
+  ctn.appendChild(div);
+  const c = echarts.init(div.querySelector(".chart"));
+  charts.push(c);
+  const toggleBtnsEl = div.querySelector(".heatmap-toggle");
+  // 切换按钮：就地重画该热力图（不调 renderTab，避免整页重渲染丢滚动位置）
+  _heatmapSetOption(c, heatmap, toggleBtnsEl);
+  div.querySelectorAll(".heatmap-toggle button").forEach((b) => {
+    b.onclick = () => { state.heatmapRange = b.dataset.hr; _heatmapSetOption(c, heatmap, toggleBtnsEl); };
+  });
+  return c;
+}
+
+// 热力图按 state.heatmapRange 计算 setOption 数据并应用到实例 c，同步按钮 active 态
+function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
   const rangeMode = state.heatmapRange || "all";
   // 排序：单日模式按对应字段，全部模式按两日平均值（红涨在前，绿跌在后）
   const sortBy = rangeMode === "5d" ? "pct_5d" : rangeMode === "1d" ? "pct_1d" : null;
@@ -1583,22 +1610,8 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
       data.push([i, yi, v == null ? null : Number(v.toFixed(2))]);
     }
   });
-  // BUG-E：自建卡片（含切换按钮在标题右侧），不复用 mkCard（其标题不支持嵌入控件）
-  const ctn = containerOverride || content;
-  const div = document.createElement("div");
-  div.className = "chart-card";
-  const toggleBtns = [["1d", "近1日"], ["5d", "近5日"], ["all", "全部"]]
-    .map(([k, label]) => `<button type="button" data-hr="${k}" class="${rangeMode === k ? "active" : ""}">${label}</button>`).join("");
-  div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;
-  ctn.appendChild(div);
-  const c = echarts.init(div.querySelector(".chart"));
-  charts.push(c);
-  // 切换按钮：点击改 state.heatmapRange 后重渲染整个 tab（保持其他筛选状态）
-  div.querySelectorAll(".heatmap-toggle button").forEach((b) => {
-    b.onclick = () => {
-      state.heatmapRange = b.dataset.hr;
-      renderTab();
-    };
+  if (toggleBtnsEl) toggleBtnsEl.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.hr === rangeMode);
   });
   c.setOption({
     tooltip: {
@@ -1619,7 +1632,6 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
       emphasis: { itemStyle: { borderColor: "#1f2329", borderWidth: 1 } },
     }],
   });
-  return c;
 }
 
 // 从 stats 中提取频率信息，生成 hover popup HTML
