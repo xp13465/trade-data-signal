@@ -1,0 +1,292 @@
+{
+  "sw_801010": {
+    "name": "SW 农林牧渔",
+    "etf_code": "159865",
+    "etf_name": "养殖ETF国泰"
+  },
+  "sw_801030": {
+    "name": "SW 基础化工",
+    "etf_code": "159870",
+    "etf_name": "化工ETF鹏华"
+  },
+  "sw_801040": {
+    "name": "SW 钢铁",
+    "etf_code": "515210",
+    "etf_name": "钢铁ETF国泰"
+  },
+  "sw_801050": {
+    "name": "SW 有色金属",
+    "etf_code": "512400",
+    "etf_name": "有色金属ETF南方"
+  },
+  "sw_801080": {
+    "name": "SW 电子",
+    "etf_code": "159732",
+    "etf_name": "消费电子ETF华夏"
+  },
+  "sw_801880": {
+    "name": "SW 汽车",
+    "etf_code": "515030",
+    "etf_name": "新能源车ETF华夏"
+  },
+  "sw_801110": {
+    "name": "SW 家用电器",
+    "etf_code": "159996",
+    "etf_name": "家电ETF国泰"
+  },
+  "sw_801120": {
+    "name": "SW 食品饮料",
+    "etf_code": "512690",
+    "etf_name": "酒ETF鹏华"
+  },
+  "sw_801130": {
+    "name": "SW 纺织服饰",
+    "etf_code": null,
+    "etf_name": null
+  },
+  "sw_801140": {
+    "name": "SW 轻工制造",
+    "etf_code": null,
+    "etf_name": null
+  },
+  "sw_801150": {
+    "name": "SW 医药生物",
+    "etf_code": "512170",
+    "etf_name": "医疗ETF华宝"
+  },
+  "sw_801160": {
+    "name": "SW 公用事业",
+    "etf_code": "159159",
+    "etf_name": "公用事业ETF国投瑞银"
+  },
+  "sw_801170": {
+    "name": "SW 交通运输",
+    "etf_code": "159666",
+    "etf_name": "交通运输ETF华夏"
+  },
+  "sw_801180": {
+    "name": "SW 房地产",
+    "etf_code": "512200",
+    "etf_name": "房地产ETF南方"
+  },
+  "sw_801200": {
+    "name": "SW 商贸零售",
+    "etf_code": null,
+    "etf_name": null
+  },
+  "sw_801210": {
+    "name": "SW 社会服务",
+    "etf_code": "159766",
+    "etf_name": "旅游ETF富国"
+  },
+  "sw_801780": {
+    "name": "SW 银行",
+    "etf_code": "512800",
+    "etf_name": "银行ETF华宝"
+  },
+  "sw_801790": {
+    "name": "SW 非银金融",
+    "etf_code": "512880",
+    "etf_name": "证券ETF国泰"
+  },
+  "sw_801230": {
+    "name": "SW 综合",
+    "etf_code": null,
+    "etf_name": null
+  },
+  "sw_801710": {
+    "name": "SW 建筑材料",
+    "etf_code": "159745",
+    "etf_name": "建材ETF国泰"
+  },
+  "sw_801720": {
+    "name": "SW 建筑装饰",
+    "etf_code": "516970",
+    "etf_name": "基建ETF广发"
+  },
+  "sw_801730": {
+    "name": "SW 电力设备",
+    "etf_code": "159755",
+    "etf_name": "电池ETF广发"
+  },
+  "sw_801890": {
+    "name": "SW 机械设备",
+    "etf_code": "560280",
+    "etf_name": "工程机械ETF广发"
+  },
+  "sw_801740": {
+    "name": "SW 国防军工",
+    "etf_code": "512710",
+    "etf_name": "军工龙头ETF富国"
+  },
+  "sw_801750": {
+    "name": "SW 计算机",
+    "etf_code": "159852",
+    "etf_name": "软件ETF嘉实"
+  },
+  "sw_801760": {
+    "name": "SW 传媒",
+    "etf_code": "512980",
+    "etf_name": "传媒ETF广发"
+  },
+  "sw_801770": {
+    "name": "SW 通信",
+    "etf_code": "515880",
+    "etf_name": "通信ETF国泰"
+  },
+  "sw_801950": {
+    "name": "SW 煤炭",
+    "etf_code": "515220",
+    "etf_name": "煤炭ETF国泰"
+  },
+  "sw_801960": {
+    "name": "SW 石油石化",
+    "etf_code": "561360",
+    "etf_name": "石油ETF国泰"
+  },
+  "sw_801970": {
+    "name": "SW 环保",
+    "etf_code": "512580",
+    "etf_name": "环保ETF广发"
+  },
+  "sw_801980": {
+    "name": "SW 美容护理",
+    "etf_code": null,
+    "etf_name": null
+  },
+  "thsc_300816": {
+    "name": "机器人概念",
+    "etf_code": "562500",
+    "etf_name": "机器人ETF华夏"
+  },
+  "thsc_309119": {
+    "name": "人形机器人",
+    "etf_code": "562500",
+    "etf_name": "机器人ETF华夏"
+  },
+  "thsc_308700": {
+    "name": "第三代半导体",
+    "etf_code": "588200",
+    "etf_name": "科创芯片ETF嘉实"
+  },
+  "thsc_309049": {
+    "name": "共封装光学(CPO)",
+    "etf_code": "515880",
+    "etf_name": "通信ETF国泰"
+  },
+  "thsc_301085": {
+    "name": "芯片概念",
+    "etf_code": "588200",
+    "etf_name": "科创芯片ETF嘉实"
+  },
+  "thsc_307940": {
+    "name": "存储芯片",
+    "etf_code": "588200",
+    "etf_name": "科创芯片ETF嘉实"
+  },
+  "thsc_302035": {
+    "name": "人工智能",
+    "etf_code": "159819",
+    "etf_name": "人工智能ETF易方达"
+  },
+  "thsc_309068": {
+    "name": "算力租赁",
+    "etf_code": "516510",
+    "etf_name": "云计算ETF易方达"
+  },
+  "thsc_308828": {
+    "name": "东数西算(算力)",
+    "etf_code": "516510",
+    "etf_name": "云计算ETF易方达"
+  },
+  "thsc_309020": {
+    "name": "信创",
+    "etf_code": "159939",
+    "etf_name": "信息技术ETF广发"
+  },
+  "thsc_309060": {
+    "name": "数据要素",
+    "etf_code": "515400",
+    "etf_name": "大数据ETF富国"
+  },
+  "thsc_300008": {
+    "name": "新能源汽车",
+    "etf_code": "515030",
+    "etf_name": "新能源车ETF华夏"
+  },
+  "thsc_301079": {
+    "name": "光伏概念",
+    "etf_code": "515790",
+    "etf_name": "光伏ETF华泰柏瑞"
+  },
+  "thsc_300733": {
+    "name": "锂电池概念",
+    "etf_code": "159755",
+    "etf_name": "电池ETF广发"
+  },
+  "thsc_306380": {
+    "name": "储能",
+    "etf_code": "159566",
+    "etf_name": "储能电池ETF易方达"
+  },
+  "thsc_308294": {
+    "name": "固态电池",
+    "etf_code": "159755",
+    "etf_name": "电池ETF广发"
+  },
+  "thsc_309115": {
+    "name": "低空经济",
+    "etf_code": "159378",
+    "etf_name": "通用航空ETF永赢"
+  },
+  "thsc_308014": {
+    "name": "创新药",
+    "etf_code": "159992",
+    "etf_name": "创新药ETF银华"
+  },
+  "thsc_300082": {
+    "name": "军工",
+    "etf_code": "512710",
+    "etf_name": "军工龙头ETF富国"
+  },
+  "thsc_300830": {
+    "name": "量子科技",
+    "etf_code": null,
+    "etf_name": null
+  },
+  "thsc_308725": {
+    "name": "汽车芯片",
+    "etf_code": "588200",
+    "etf_name": "科创芯片ETF嘉实"
+  },
+  "thsc_308300": {
+    "name": "MCU芯片",
+    "etf_code": "588200",
+    "etf_name": "科创芯片ETF嘉实"
+  },
+  "thsc_309113": {
+    "name": "飞行汽车(eVTOL)",
+    "etf_code": "159378",
+    "etf_name": "通用航空ETF永赢"
+  },
+  "thsc_308491": {
+    "name": "氢能源",
+    "etf_code": null,
+    "etf_name": null
+  },
+  "thsc_308870": {
+    "name": "数字经济",
+    "etf_code": "560800",
+    "etf_name": "数字经济ETF鹏扬"
+  },
+  "thsc_308752": {
+    "name": "元宇宙",
+    "etf_code": null,
+    "etf_name": null
+  },
+  "thsc_309128": {
+    "name": "军工信息化",
+    "etf_code": "512710",
+    "etf_name": "军工龙头ETF富国"
+  }
+}

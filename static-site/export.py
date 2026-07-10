@@ -123,6 +123,23 @@ def _indices_for_market(cfg, market):
     return [i for i in cfg.get("indices", []) if i.get("market") == market and i.get("enabled", True)]
 
 
+# 行业/概念 -> 主流 ETF 代码映射（读 data/board_etf_map.json）。
+ETF_MAP_PATH = ROOT / "data" / "board_etf_map.json"
+_ETF_CACHE = None
+
+
+def _etf_for(index_id):
+    """返回 {etf_code, etf_name}；无映射返 None 值。"""
+    global _ETF_CACHE
+    if _ETF_CACHE is None:
+        _ETF_CACHE = json.loads(ETF_MAP_PATH.read_text(encoding="utf-8")) if ETF_MAP_PATH.exists() else {}
+    entry = _ETF_CACHE.get(index_id) or {}
+    return {
+        "etf_code": entry.get("etf_code"),
+        "etf_name": entry.get("etf_name"),
+    }
+
+
 def _industry_heatmap(conn, cfg):
     """申万一级行业近 1 日 / 近 5 日涨跌幅（与 main.py _industry_heatmap 一致）。"""
     indices = _indices_for_market(cfg, "industry")
@@ -411,6 +428,7 @@ def export_industry(conn, cfg, rng):
             "fund_flow": _metric_series(conn, f"ind_flow_{iid}", start, end),
             "turnover": _metric_series(conn, f"ind_turn_{iid}", start, end),
             "width": _industry_width(conn, ind_code, start, end),
+            **_etf_for(iid),
         }
 
     # Also include concept boards
@@ -424,6 +442,7 @@ def export_industry(conn, cfg, rng):
             "signals": _signals(conn, iid, start, end),
             "stats": _stats_for(stats_all, iid),
             "strategy": strategy_desc(iid, cfg),
+            **_etf_for(iid),
         }
 
     return {"indices": indices, "heatmap": _industry_heatmap(conn, cfg),

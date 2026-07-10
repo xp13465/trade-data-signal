@@ -332,6 +332,24 @@ main { padding: 16px 24px; }
 }
 .industry-grid .spark-cell .spark-chart { min-height: 120px; }
 .industry-grid .spark-name { font-size: 12px; }
+/* ETF 代码标注（行业/概念卡片，点击复制） */
+.etf-tag {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #165dff;
+  background: #e8f3ff;
+  border-radius: 3px;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  transition: background 0.15s;
+}
+.etf-tag:hover { background: #cfe5ff; }
+.etf-tag.copied { background: #e8f5e9; color: #2e7d32; }
 
 /* F2：行业资金流 / 成交额 / 换手率 mini sparklines */
 .industry-cell { padding: 8px 10px; }

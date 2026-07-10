@@ -1,6 +1,8 @@
 """FastAPI 后端：提供看板数据 + 手动补录 + 静态前端。"""
+import json
 import re
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -117,6 +119,27 @@ def _metrics_for_groups(*groups):
 def _indices_for_market(market):
     cfg = load_config()
     return [i for i in cfg.get("indices", []) if i.get("market") == market and i.get("enabled", True)]
+
+
+# 行业/概念 -> 主流 ETF 代码映射（读 data/board_etf_map.json）。
+# {sw_801010: {name, etf_code, etf_name}, ...}；文件缺失返 {}。
+ETF_MAP_PATH = Path(__file__).resolve().parent.parent / "data" / "board_etf_map.json"
+
+
+@lru_cache(maxsize=1)
+def _etf_map() -> dict:
+    if not ETF_MAP_PATH.exists():
+        return {}
+    return json.loads(ETF_MAP_PATH.read_text(encoding="utf-8"))
+
+
+def _etf_for(index_id: str) -> dict:
+    """返回 {etf_code, etf_name}；无映射返 {etf_code: None, etf_name: None}。"""
+    entry = _etf_map().get(index_id) or {}
+    return {
+        "etf_code": entry.get("etf_code"),
+        "etf_name": entry.get("etf_name"),
+    }
 
 
 # ============ API ============
@@ -571,6 +594,8 @@ def industry(range: str = Depends(range_dep)):
             "turnover": _metric_series(f"ind_turn_{iid}", start, end),
             # F3：行业内宽度（涨跌家数/涨停/跌停/炸板/封板率/成交额）
             "width": _industry_width(ind_code, start, end),
+            # ETF 代码（便于用户照着买，无映射则 None）
+            **_etf_for(iid),
         }
 
     # Also include concept boards
@@ -584,6 +609,7 @@ def industry(range: str = Depends(range_dep)):
             "signals": _signals(iid, start, end),
             "stats": _stats_for(iid),
             "strategy": strategy_desc(iid, cfg),
+            **_etf_for(iid),
         }
 
     return {"indices": indices, "heatmap": _industry_heatmap(),

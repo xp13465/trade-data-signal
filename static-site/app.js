@@ -1704,9 +1704,12 @@ function renderIndustryGrid(indices, containerOverride) {
     cell.className = "spark-cell industry-cell";
     const sign = up ? "+" : "";
     const hint = statsHint(idx.stats, idx.strategy, id);
+    const etf = idx.etf_code
+      ? `<span class="etf-tag" title="${idx.etf_name || ""}（点击复制）">${idx.etf_code}</span>`
+      : "";
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${idx.name}</span>
+        <span class="spark-name">${idx.name}${etf}</span>
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
@@ -1714,6 +1717,21 @@ function renderIndustryGrid(indices, containerOverride) {
       <div class="ind-metrics"></div>`;
     // 信号频率改为 hover pop：绑在对应信号的成功率行(hint-row)上，悬浮显示频率
     _bindFreqPopupToHintRows(cell, idx.stats);
+    // ETF 代码点击复制
+    const etfEl = cell.querySelector(".etf-tag");
+    if (etfEl) {
+      etfEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const code = etfEl.textContent;
+        const txt = navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.resolve();
+        txt.then(() => {
+          const orig = etfEl.textContent;
+          etfEl.textContent = "已复制";
+          etfEl.classList.add("copied");
+          setTimeout(() => { etfEl.textContent = orig; etfEl.classList.remove("copied"); }, 800);
+        });
+      });
+    }
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
