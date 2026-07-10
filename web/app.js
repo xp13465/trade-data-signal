@@ -1659,6 +1659,50 @@ function _bindFreqPopupToHintRows(cell, stats) {
   });
 }
 
+// 行业/概念卡片：ETF 多候选展示（对齐用户诉求 -- 不替用户硬选1个）。
+// top1 代码标签（可点复制）+ "+N" 提示更多；悬浮弹出全部候选（按成交额降序，每行可点复制）。
+// 匹配不到（etfs 为空）则不渲染，避免硬塞"代理"ETF 误导用户。
+function _renderEtfTag(etfs) {
+  if (!etfs || !etfs.length) return "";
+  const top = etfs[0];
+  const more = etfs.length > 1 ? `<span class="etf-more">+${etfs.length - 1}</span>` : "";
+  return `<span class="etf-tag" title="相关ETF · 点击复制代码，悬浮看全部候选">${top.code}${more}</span>`;
+}
+
+function _copyEtfCode(el, code) {
+  const txt = navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.resolve();
+  txt.then(() => {
+    const origTitle = el.getAttribute("title") || "";
+    el.classList.add("copied");
+    el.setAttribute("title", `已复制 ${code}`);
+    setTimeout(() => { el.classList.remove("copied"); el.setAttribute("title", origTitle); }, 900);
+  });
+}
+
+function _bindEtfPopup(cell, etfs) {
+  if (!etfs || !etfs.length) return;
+  const tag = cell.querySelector(".etf-tag");
+  if (!tag) return;
+  const popup = document.createElement("div");
+  popup.className = "etf-popup";
+  popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` +
+    etfs.map((e) => `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span></div>`).join("");
+  tag.appendChild(popup);
+  tag.addEventListener("click", (e) => {
+    if (e.target.closest(".etf-pop-row")) return;
+    e.stopPropagation();
+    _copyEtfCode(tag, etfs[0].code);
+  });
+  popup.querySelectorAll(".etf-pop-row").forEach((row) => {
+    row.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _copyEtfCode(row, row.dataset.code);
+    });
+  });
+  tag.addEventListener("mouseenter", () => { popup.style.display = "block"; });
+  tag.addEventListener("mouseleave", () => { popup.style.display = "none"; });
+}
+
 function renderIndustryGrid(indices, containerOverride) {
   const entries = Object.entries(indices).filter(([, idx]) => idx.data && idx.data.length);
   const ctn = containerOverride || content;
@@ -1683,12 +1727,10 @@ function renderIndustryGrid(indices, containerOverride) {
     cell.className = "spark-cell industry-cell";
     const sign = up ? "+" : "";
     const hint = statsHint(idx.stats, idx.strategy, id);
-    const etf = idx.etf_code
-      ? `<span class="etf-tag" title="${idx.etf_name || ""}（点击复制）">${idx.etf_code}</span>`
-      : "";
+    const etfTag = _renderEtfTag(idx.etfs);
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${idx.name}${etf}</span>
+        <span class="spark-name">${idx.name}${etfTag}</span>
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
@@ -1696,21 +1738,8 @@ function renderIndustryGrid(indices, containerOverride) {
       <div class="ind-metrics"></div>`;
     // 信号频率改为 hover pop：绑在对应信号的成功率行(hint-row)上，悬浮显示频率
     _bindFreqPopupToHintRows(cell, idx.stats);
-    // ETF 代码点击复制
-    const etfEl = cell.querySelector(".etf-tag");
-    if (etfEl) {
-      etfEl.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const code = etfEl.textContent;
-        const txt = navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.resolve();
-        txt.then(() => {
-          const orig = etfEl.textContent;
-          etfEl.textContent = "已复制";
-          etfEl.classList.add("copied");
-          setTimeout(() => { etfEl.textContent = orig; etfEl.classList.remove("copied"); }, 800);
-        });
-      });
-    }
+    // ETF：top1 标签可点复制，悬浮弹全部候选（按成交额降序，每行可复制）
+    _bindEtfPopup(cell, idx.etfs);
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);

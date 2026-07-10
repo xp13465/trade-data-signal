@@ -121,8 +121,8 @@ def _indices_for_market(market):
     return [i for i in cfg.get("indices", []) if i.get("market") == market and i.get("enabled", True)]
 
 
-# 行业/概念 -> 主流 ETF 代码映射（读 data/board_etf_map.json）。
-# {sw_801010: {name, etf_code, etf_name}, ...}；文件缺失返 {}。
+# 行业/概念 -> 相关 ETF 候选列表映射（读 data/board_etf_map.json，由 scripts/build_board_etf_map.py 生成）。
+# {sw_801010: [{code, name, amount}, ...]} 按成交额降序；匹配不到为空列表；文件缺失返 {}。
 ETF_MAP_PATH = Path(__file__).resolve().parent.parent / "data" / "board_etf_map.json"
 
 
@@ -134,12 +134,12 @@ def _etf_map() -> dict:
 
 
 def _etf_for(index_id: str) -> dict:
-    """返回 {etf_code, etf_name}；无映射返 {etf_code: None, etf_name: None}。"""
-    entry = _etf_map().get(index_id) or {}
-    return {
-        "etf_code": entry.get("etf_code"),
-        "etf_name": entry.get("etf_name"),
-    }
+    """返回 {etfs: [{code, name, amount}, ...]}，按成交额降序；无匹配返空列表。
+
+    匹配到多个时全部返回，前端按体量排序展示、用户自选；匹配不到为空数组
+    （不再硬塞"代理"ETF，避免名称对不上误导用户）。
+    """
+    return {"etfs": _etf_map().get(index_id) or []}
 
 
 # ============ API ============
@@ -594,7 +594,7 @@ def industry(range: str = Depends(range_dep)):
             "turnover": _metric_series(f"ind_turn_{iid}", start, end),
             # F3：行业内宽度（涨跌家数/涨停/跌停/炸板/封板率/成交额）
             "width": _industry_width(ind_code, start, end),
-            # ETF 代码（便于用户照着买，无映射则 None）
+            # 相关 ETF 候选列表（按成交额降序，前端悬浮展示供用户自选）
             **_etf_for(iid),
         }
 

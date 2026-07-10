@@ -123,21 +123,17 @@ def _indices_for_market(cfg, market):
     return [i for i in cfg.get("indices", []) if i.get("market") == market and i.get("enabled", True)]
 
 
-# 行业/概念 -> 主流 ETF 代码映射（读 data/board_etf_map.json）。
+# 行业/概念 -> 相关 ETF 候选列表映射（读 data/board_etf_map.json，由 scripts/build_board_etf_map.py 生成）。
 ETF_MAP_PATH = ROOT / "data" / "board_etf_map.json"
 _ETF_CACHE = None
 
 
 def _etf_for(index_id):
-    """返回 {etf_code, etf_name}；无映射返 None 值。"""
+    """返回 {etfs: [{code, name, amount}, ...]}，按成交额降序；无匹配返空列表。"""
     global _ETF_CACHE
     if _ETF_CACHE is None:
         _ETF_CACHE = json.loads(ETF_MAP_PATH.read_text(encoding="utf-8")) if ETF_MAP_PATH.exists() else {}
-    entry = _ETF_CACHE.get(index_id) or {}
-    return {
-        "etf_code": entry.get("etf_code"),
-        "etf_name": entry.get("etf_name"),
-    }
+    return {"etfs": _ETF_CACHE.get(index_id) or []}
 
 
 def _industry_heatmap(conn, cfg):
