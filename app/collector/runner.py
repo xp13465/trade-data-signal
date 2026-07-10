@@ -165,6 +165,18 @@ def run(date=None, verbose=True, steps=None):
                 fail += 1
                 details.append((idx["id"], "fail", str(e)))
 
+        # step2 采后校验 + 多源补采（主源新浪当日延迟 -> baostock/腾讯兜底，
+        # 避免首页涨幅 0% / 恐贪卡片缺失；详见 index_backfill.py）
+        try:
+            from .index_backfill import verify_and_backfill_indices
+            bk_ok, bk_fail, bk_details = verify_and_backfill_indices(date, verbose=verbose)
+            ok += bk_ok
+            fail += bk_fail
+            details.extend(bk_details)
+        except Exception as e:  # noqa: BLE001
+            if verbose:
+                print(f"  [校验] 补采异常: {e}")
+
     # 3) 板块
     if _want(steps, "boards"):
         for b in cfg.get("boards", []):
