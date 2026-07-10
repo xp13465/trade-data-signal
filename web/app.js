@@ -229,7 +229,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
       ? `<span class="sig-item"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
       : `<span class="sig-item"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     const cellsHtml = dayItems.map(cellHtml).join("");
-    const dateLabel = isToday ? `🔥今日` : fmtDate(dt);
+    const dateLabel = fmtDate(dt);
     rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cellsHtml}</div></div>`;
   }
   return `<h3>${title}</h3><div class="signal-grid">${rows}</div>`;
@@ -255,15 +255,11 @@ function winRateClass(wr) {
   return "wr-bad";
 }
 
-// YYYYMMDD → "MM-DD" 格式，若是今天则显示"今日"
+// YYYYMMDD -> "MM-DD" 格式(今日不再替换为今日文字,仅靠行背景色 today-row 高亮)
 function fmtDate(dateStr) {
   if (!dateStr || dateStr.length < 8) return dateStr || "";
   const m = dateStr.substring(4, 6), d = dateStr.substring(6, 8);
-  const today = new Date();
-  const isToday = today.getFullYear() === parseInt(dateStr.substring(0, 4)) &&
-                  today.getMonth() + 1 === parseInt(m) &&
-                  today.getDate() === parseInt(d);
-  return isToday ? "今日" : `${m}-${d}`;
+  return `${m}-${d}`;
 }
 
 // 判断指标是否停更：数据日期距最新交易日超过 days 天视为停更（如北向资金 2024-08 起源端停更）。
@@ -715,6 +711,14 @@ async function renderTab() {
 
 async function renderOverview() {
   const r = await fetchJSON("/api/overview");
+  // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
+  const _ct = r.collected_at || "";
+  document.querySelectorAll(".pc-collect-time").forEach((el) => {
+    el.textContent = _ct ? `数据采集时间：${_ct}` : "";
+  });
+  document.querySelectorAll(".h5-collect-time").forEach((el) => {
+    el.textContent = _ct;
+  });
   content.innerHTML = "";
 
   // ---- 0. 一句话总结横幅 ----

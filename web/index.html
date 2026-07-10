@@ -24,7 +24,7 @@
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"WebApplication","name":"tdsignal 情绪数据复盘看板","alternateName":"trade-data-signal","url":"http://tdsignal-ujpzw01zm.maozi.io/","description":"A股/港股/全球盘后复盘情绪数据看板：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, A股情绪, 买卖点, 行业热力图, 模拟回测"}
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=6a50e609">
+  <link rel="stylesheet" href="/static/style.css?v=6a512ba1">
   <script src="/static/vendor/echarts.min.js?v=6a4a42d8"></script>
 <script>
 var _hmt = _hmt || [];
@@ -59,11 +59,13 @@ var _hmt = _hmt || [];
   <header>
     <h1>📊 情绪数据复盘看板</h1>
     <button class="share-btn pc-share-btn" title="生成分享图">📤 分享</button>
+    <span class="collect-time pc-collect-time" title="数据采集时间"></span>
     <!-- H5 顶部精简条：当前 tab 名 + 时效 + 历史入口（PC 隐藏，@media 显示）-->
     <div class="h5-topbar">
       <span class="h5-tab-name">📊 概览</span>
       <span class="h5-meta">
         <button class="share-btn h5-share-btn" title="生成分享图">📤</button>
+        <span class="collect-time h5-collect-time"></span>
         <span class="h5-gen"></span>
         <button class="h5-history-btn" title="历史一句话总结">📜</button>
       </span>
@@ -103,6 +105,6 @@ var _hmt = _hmt || [];
     <button data-tab="industry"><span class="bn-icon">🏭</span><span class="bn-label">行业</span></button>
   </nav>
 
-  <script src="/static/app.js?v=6a50e62f"></script>
+  <script src="/static/app.js?v=6a512ba1"></script>
 </body>
 </html>

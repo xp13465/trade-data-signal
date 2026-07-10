@@ -298,8 +298,18 @@ def export_overview(conn, cfg):
                  "WHERE score_id='fear_greed' AND date>=? ORDER BY date",
                  (six_m_start,))]
 
+    # 采集时间：collect_log 最新 run_at（脚本运行记录），格式 YYYYMMDD HH:MM:SS
+    _collected = conn.execute(
+        "SELECT run_at FROM collect_log ORDER BY run_at DESC LIMIT 1"
+    ).fetchone()
+    collected_at = ""
+    if _collected and _collected["run_at"] and len(_collected["run_at"]) >= 19:
+        _raw = _collected["run_at"]  # 如 "2026-07-10T16:46:00.799605"
+        collected_at = _raw[:10].replace("-", "") + " " + _raw[11:19]
+
     return {
         "date": score_date,
+        "collected_at": collected_at,
         "scores": scores,
         "signals_today": sigs,
         "recent_freeze": freeze_days,
