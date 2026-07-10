@@ -1209,3 +1209,108 @@ main { padding: 16px 24px; }
   border-radius: 0 4px 4px 0;
 }
 
+/* === H5 移动端（方案B：底部导航 + 顶部精简条 + 1/2列切换）=== */
+/* @media(max-width:768px) 视口驱动自动切换，PC(>768) 零影响。body.h5 由 JS matchMedia 加（兜底）。 */
+/* PC 默认隐藏 H5 专用元素 */
+.h5-topbar, .h5-period-bar, .h5-bottomnav { display: none; }
+
+@media (max-width: 768px) {
+  /* header 精简：隐藏 PC h1，显示 H5 顶部条（当前 tab 名 + 时效 + 列切换 + 历史）*/
+  header { padding: 8px 12px; }
+  header h1 { display: none; }
+  .h5-topbar { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
+  .h5-tab-name { font-size: 15px; font-weight: 600; color: #1f2329; white-space: nowrap; }
+  .h5-meta { display: flex; align-items: center; gap: 6px; }
+  .h5-gen { font-size: 11px; color: #86909c; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .h5-cols-toggle, .h5-history-btn {
+    border: 1px solid #d9dce0; background: #fff; border-radius: 12px;
+    padding: 3px 10px; font-size: 12px; cursor: pointer; color: #4e5969;
+  }
+  .h5-cols-toggle:active, .h5-history-btn:active { background: #f2f3f5; }
+
+  /* PC tab 栏隐藏（4 tab 移到底部导航）；周期选择器移到 H5 周期条 */
+  nav.tabs { display: none; }
+  .h5-period-bar {
+    display: block; position: sticky; top: 0; z-index: 50;
+    background: #fff; border-bottom: 1px solid #e5e6eb; padding: 8px 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .h5-periods { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .h5-periods::-webkit-scrollbar { display: none; }
+  .h5-periods button {
+    padding: 5px 14px; border: 1px solid #d9dce0; background: #fff;
+    border-radius: 16px; font-size: 13px; cursor: pointer; flex-shrink: 0; color: #4e5969;
+  }
+  .h5-periods button.active { background: #165dff; color: #fff; border-color: #165dff; }
+
+  /* 内容边距缩 + 底部留空避开底导航 */
+  main { padding: 12px; padding-bottom: 76px; }
+  .chart-card { padding: 10px 12px; margin-bottom: 12px; }
+  .chart-card h3 { font-size: 13px; }
+  .card { padding: 12px 14px; }
+
+  /* 网格默认 1 列；body.h5-cols-2 切 2 列（概览 sparkline + 行业卡片）*/
+  .spark-grid { grid-template-columns: 1fr; gap: 10px; }
+  .industry-grid { grid-template-columns: 1fr; gap: 10px; }
+  body.h5-cols-2 .spark-grid { grid-template-columns: 1fr 1fr; }
+  body.h5-cols-2 .industry-grid { grid-template-columns: 1fr 1fr; }
+  .spark-cell { padding: 8px 10px; }
+  .industry-grid .spark-cell .spark-chart { min-height: 100px; }
+  /* KPI 卡片 2 列（信息密度适中）*/
+  .cards { gap: 10px; }
+  .card.kpi { flex: 1 1 calc(50% - 5px); min-width: 0; padding: 10px 12px; }
+  .card.kpi .card-value { font-size: 20px; }
+  .ov-2col { grid-template-columns: 1fr; gap: 12px; }
+  .ov-2col .chart-card { min-height: 280px; }
+  .sig-items { grid-template-columns: repeat(2, 1fr); }
+  .sig-day-date { flex: 0 0 56px; font-size: 11px; }
+
+  /* 表格横向滚动（display:block + overflow-x:auto，保留表格内对齐）*/
+  .accuracy-table, .futures-summary-table, .ma-table {
+    display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  /* 大盘位置感卡片：缩固定列宽，避免 bar 被挤没 */
+  .pos-name { width: 56px; font-size: 12px; }
+  .pos-price { width: 68px; font-size: 12px; }
+  .pos-bar-bg { min-width: 40px; }
+
+  /* chart-hint 回测数据纵向堆叠，避免多列换行错位 */
+  .chart-hint .hint-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .chart-hint { padding: 6px 8px; font-size: 11px; }
+
+  /* sticky 规则条/锚点条让位 H5 周期条：rule-bar 取消 sticky，anchor-bar 下移到周期条下 */
+  .rule-bar { position: static; }
+  .industry-anchor-bar { top: 46px; }
+
+  /* 一句话总结横幅：H5 顶部条已有时效+历史，banner 内重复项隐藏 */
+  .summary-banner { padding: 10px 12px; font-size: 13px; }
+  .summary-banner .summary-date, .summary-banner .summary-history-btn { display: none; }
+  .summary-meta { padding-left: 0; flex-wrap: wrap; }
+
+  /* 弹窗近全宽 */
+  .rule-modal-body { width: 94vw !important; max-width: 94vw; max-height: 88vh; }
+  .modal-body { width: 94vw; }
+  .summary-history-body { max-width: 94vw; }
+  .summary-history-list { max-height: 70vh; }
+  .rule-modal-content { padding: 16px; }
+
+  /* 浮动按钮上移避开底部导航 */
+  .back-to-top { bottom: 88px; right: 16px; width: 40px; height: 40px; font-size: 20px; }
+  .rule-float-btn { bottom: 144px; right: 16px; width: 40px; height: 40px; font-size: 18px; }
+
+  /* 底部固定导航（4 主 tab，复用 data-tab 切换）*/
+  .h5-bottomnav {
+    display: flex; position: fixed; bottom: 0; left: 0; right: 0;
+    background: #fff; border-top: 1px solid #e5e6eb; padding: 6px 0 8px;
+    z-index: 60; box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+  }
+  .h5-bottomnav button {
+    flex: 1; border: none; background: transparent; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 4px 0; color: #86909c; font-size: 11px;
+  }
+  .h5-bottomnav button.active { color: #165dff; }
+  .h5-bottomnav .bn-icon { font-size: 20px; line-height: 1; }
+  .h5-bottomnav .bn-label { font-size: 11px; }
+}
+

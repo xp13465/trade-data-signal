@@ -20,6 +20,15 @@ var _hmt = _hmt || [];
 <body>
   <header>
     <h1>📊 情绪数据复盘看板</h1>
+    <!-- H5 顶部精简条：当前 tab 名 + 时效 + 列切换 + 历史入口（PC 隐藏，@media 显示）-->
+    <div class="h5-topbar">
+      <span class="h5-tab-name">📊 概览</span>
+      <span class="h5-meta">
+        <button class="h5-cols-toggle" title="切换卡片列数">2列</button>
+        <span class="h5-gen"></span>
+        <button class="h5-history-btn" title="历史一句话总结">📜</button>
+      </span>
+    </div>
   </header>
   <nav class="tabs">
     <button data-tab="overview" class="active">概览</button>
@@ -36,7 +45,24 @@ var _hmt = _hmt || [];
       <!-- 手动补录入口已移除：敏感操作不应在主导航暴露。后端 /api/manual/* API 保留，需要时直接调 API 或另设权限入口。 -->
     </div>
   </nav>
+  <!-- H5 周期段控条（PC 隐藏；移动端 sticky 顶部，替代 tab 栏右端周期选择器）-->
+  <nav class="h5-period-bar">
+    <div class="h5-periods">
+      <button data-rng="1m">1月</button>
+      <button data-rng="3m">3月</button>
+      <button data-rng="6m">6月</button>
+      <button data-rng="1y" class="active">1年</button>
+      <button data-rng="all">全部</button>
+    </div>
+  </nav>
   <main id="content"><div class="loading">加载中…</div></main>
+  <!-- H5 底部固定导航：4 主 tab，复用 data-tab 切换逻辑（PC 隐藏）-->
+  <nav class="h5-bottomnav">
+    <button data-tab="overview" class="active"><span class="bn-icon">📊</span><span class="bn-label">概览</span></button>
+    <button data-tab="market"><span class="bn-icon">📈</span><span class="bn-label">大盘</span></button>
+    <button data-tab="sentiment"><span class="bn-icon">😊</span><span class="bn-label">情绪</span></button>
+    <button data-tab="industry"><span class="bn-icon">🏭</span><span class="bn-label">行业</span></button>
+  </nav>
 
   <script src="/static/app.js"></script>
 </body>

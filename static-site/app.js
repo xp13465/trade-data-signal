@@ -35,20 +35,21 @@ const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 
 
 window.addEventListener("resize", () => charts.forEach((c) => c && c.resize()));
 
-document.querySelectorAll('.periods button[data-rng]').forEach((b) => {
+document.querySelectorAll('button[data-rng]').forEach((b) => {
   b.onclick = () => {
     state.range = b.dataset.rng;
-    document.querySelectorAll('.periods button[data-rng]').forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll('button[data-rng]').forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
     renderTab();
   };
 });
-document.querySelectorAll(".tabs button[data-tab]").forEach((b) => {
+document.querySelectorAll("button[data-tab]").forEach((b) => {
   b.onclick = () => {
     state.tab = b.dataset.tab;
     if (state.tab === "market" && !state.subtab) state.subtab = "a-stock";
-    document.querySelectorAll(".tabs button[data-tab]").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
+    updateH5Topbar();
     renderTab();
   };
 });
@@ -2135,7 +2136,51 @@ function closeSummaryHistoryModal() {
   document.body.style.overflow = "";
 }
 
+// === H5 移动端适配（方案B：底部导航 + 顶部精简条 + 1/2列切换）===
+// matchMedia 驱动 body.h5，@media(max-width:768px) 自动切换布局，PC(>768) 零影响。
+const SUMMARY_URL = "./data/summary.json";
+const _H5_TAB_NAMES = { overview: "📊 概览", market: "📈 大盘", sentiment: "😊 综合情绪", industry: "🏭 行业概念" };
+
+function updateH5Topbar() {
+  if (!document.body.classList.contains("h5")) return;
+  const el = document.querySelector(".h5-tab-name");
+  if (el) el.textContent = _H5_TAB_NAMES[state.tab] || state.tab;
+}
+
+function applyH5(on) {
+  document.body.classList.toggle("h5", on);
+  updateH5Topbar();
+  // 切换 PC<->H5 时图表容器宽度变化，resize 所有 ECharts
+  setTimeout(() => charts.forEach((c) => c && c.resize()), 60);
+}
+
+async function initH5Topbar() {
+  // 时效 + 历史入口：fetch summary 缓存 generated_at 填顶部条
+  try {
+    const s = await fetchJSON(SUMMARY_URL);
+    const gen = document.querySelector(".h5-gen");
+    if (gen) gen.textContent = s.generated_at || "";
+  } catch (e) {}
+  const histBtn = document.querySelector(".h5-history-btn");
+  if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
+  // 1/2列切换：默认 1 列，点击切 2 列，并 resize sparkline
+  const colsBtn = document.querySelector(".h5-cols-toggle");
+  if (colsBtn) colsBtn.addEventListener("click", () => {
+    const two = document.body.classList.toggle("h5-cols-2");
+    colsBtn.textContent = two ? "1列" : "2列";
+    setTimeout(() => charts.forEach((c) => c && c.resize()), 60);
+  });
+}
+
+function initH5() {
+  const mql = window.matchMedia("(max-width: 768px)");
+  applyH5(mql.matches);
+  mql.addEventListener("change", (e) => applyH5(e.matches));
+  initH5Topbar();
+}
+
 initStickyOffset();
 initBackToTop();
 initRuleButton();
+initH5();
 renderTab();
