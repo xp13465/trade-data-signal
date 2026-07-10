@@ -6,6 +6,7 @@
 
 from ..db import get_conn
 from ..calendar import last_trading_day
+import datetime as dt
 
 
 def _sentiment_desc(score: float) -> str:
@@ -277,9 +278,18 @@ def generate_summary(date: str | None = None) -> dict:
     # ---- 构建总结文案 ----
     hot_names = "、".join([i["name"].replace("SW ", "") for i in top_industries]) if top_industries else "无明显热点板块"
 
+    # 日期前缀用具体日期替代"今日"，避免盘中/回退日文案误导（用户不知实际数据日）。
+    # generated_at 区分盘中快照（date=今天且 15:00 前未收盘）/ 收盘分析，明确数据时效。
+    date_prefix = f"{int(date[4:6])}月{int(date[6:8])}日"
+    _now = dt.datetime.now()
+    if date == _now.strftime("%Y%m%d") and _now.hour < 15:
+        generated_at = f"{date_prefix} 盘中快照（截至{_now.hour}:{_now.minute:02d}）"
+    else:
+        generated_at = f"{date_prefix} 收盘分析"
+
     # 一句话短版（概览横幅）
     summary_short = (
-        f"今日A股{sentiment_desc_str}，上证{direction}{abs(sh_pct or 0):.2f}%，"
+        f"{date_prefix}A股{sentiment_desc_str}，上证{direction}{abs(sh_pct or 0):.2f}%，"
         f"{width_desc}（{up_count}涨{down_count}跌），"
         f"成交额{vol_display}（{vol_label}）。"
         f"热点：{hot_names}"
@@ -287,7 +297,7 @@ def generate_summary(date: str | None = None) -> dict:
 
     # 段落长版（含更多分析维度）
     parts = []
-    parts.append(f"今日A股{sentiment_desc_str}")
+    parts.append(f"{date_prefix}A股{sentiment_desc_str}")
     if fg_value is not None:
         parts[0] += f"（恐贪指数{fg_value:.0f}，{fg_label}）"
     parts[0] += "。"
@@ -317,7 +327,7 @@ def generate_summary(date: str | None = None) -> dict:
 
     return {
         "date": date,
-        "generated_at": f"{date[:4]}-{date[4:6]}-{date[6:8]} 收盘分析",
+        "generated_at": generated_at,
         "summary": summary,
         "summary_short": summary_short,
         "sentiment_label": sentiment_desc_str,
