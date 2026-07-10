@@ -1222,11 +1222,11 @@ main { padding: 16px 24px; }
   .h5-tab-name { font-size: 15px; font-weight: 600; color: #1f2329; white-space: nowrap; }
   .h5-meta { display: flex; align-items: center; gap: 6px; }
   .h5-gen { font-size: 11px; color: #86909c; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .h5-cols-toggle, .h5-history-btn {
+  .h5-history-btn {
     border: 1px solid #d9dce0; background: #fff; border-radius: 12px;
     padding: 3px 10px; font-size: 12px; cursor: pointer; color: #4e5969;
   }
-  .h5-cols-toggle:active, .h5-history-btn:active { background: #f2f3f5; }
+  .h5-history-btn:active { background: #f2f3f5; }
 
   /* PC tab 栏隐藏（4 tab 移到底部导航）；周期选择器移到 H5 周期条 */
   nav.tabs { display: none; }
@@ -1249,11 +1249,9 @@ main { padding: 16px 24px; }
   .chart-card h3 { font-size: 13px; }
   .card { padding: 12px 14px; }
 
-  /* 网格默认 1 列；body.h5-cols-2 切 2 列（概览 sparkline + 行业卡片）*/
-  .spark-grid { grid-template-columns: 1fr; gap: 10px; }
+  /* 概览 sparkline 默认 2 列（移动端信息密度合适）；行业卡片内容多，强制 1 列 */
+  .spark-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
   .industry-grid { grid-template-columns: 1fr; gap: 10px; }
-  body.h5-cols-2 .spark-grid { grid-template-columns: 1fr 1fr; }
-  body.h5-cols-2 .industry-grid { grid-template-columns: 1fr 1fr; }
   .spark-cell { padding: 8px 10px; }
   .industry-grid .spark-cell .spark-chart { min-height: 100px; }
   /* KPI 卡片 2 列（信息密度适中）*/

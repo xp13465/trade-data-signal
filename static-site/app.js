@@ -2163,13 +2163,6 @@ async function initH5Topbar() {
   } catch (e) {}
   const histBtn = document.querySelector(".h5-history-btn");
   if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
-  // 1/2列切换：默认 1 列，点击切 2 列，并 resize sparkline
-  const colsBtn = document.querySelector(".h5-cols-toggle");
-  if (colsBtn) colsBtn.addEventListener("click", () => {
-    const two = document.body.classList.toggle("h5-cols-2");
-    colsBtn.textContent = two ? "1列" : "2列";
-    setTimeout(() => charts.forEach((c) => c && c.resize()), 60);
-  });
 }
 
 function initH5() {
