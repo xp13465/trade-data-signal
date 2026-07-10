@@ -711,3 +711,40 @@ SPA 动态渲染爬虫抓不到内容，补静态 SEO：
 ### 遗留
 
 见 TASKS.md 交接状态节「遗留 / 待用户手动做」（GitHub topics / README 截图 / HelloGitHub 提交 / og.png 预览验证 / g.cn10y buy_aux 回测）。
+
+## §12 update_all 拆并行流水线（2026-07-10，c6407aa）
+
+### 痛点
+原 `update_all.sh` 串行 collect(11 步)->deploy->check，mootdx 5072 只 ~10min 等慢任务拖累整体，核心数据（指数/指标/情绪分）已采却要等慢任务跑完才推送上线（实测日志 ok=109 fail=5217，慢任务大量失败仍阻塞核心上线）。
+
+### 依赖分析结论（拆分依据）
+- 慢任务（mootdx/stock_daily/baostock）写到独立库 `stock_daily.db`，**不写 sentiment.db**；export 只读 sentiment.db。慢任务通过 step8/step9 算宽度写回 sentiment.db 才影响上线。
+- **核心看板**（指数/scores/signals/sentiment tabs/overview 大部分/position/summary/new_high_low/ma_alignment/rotation）只依赖快采集 step1+2+4。
+- step3(boards 全 disabled)、step5(stock_daily_raw 无消费方)、step6(baostock 默认跳过) 是**死端**，不影响任何上线 JSON。
+- compute 里 sentiment/ad_line/volume_ratio 依赖 width，需 width 完成后重算。
+
+### 4 条 pipeline
+| pipeline | step | compute | export | 上线 |
+|---|---|---|---|---|
+| core | metrics,indices,industry_extras | 全量(用现有width) | 全量 | 最先(分钟级) |
+| width | mootdx,industry_width,width_history | 全量(重算新width) | 全量覆盖 | 慢(~10min)后补 |
+| futures | futures | step内accuracy | 全量 | 独立快 |
+| stock_daily | stock_daily | 无 | 无(不push) | 后台死端不阻塞 |
+
+core 先上线时情绪分用昨日 width（宽度日变化小，偏差可接受），width 完成后覆盖。
+
+### 关键文件
+- `scripts/update_all.sh`：并发启动 4 pipeline + 统一交易日闸门 + wait core/width/futures
+- `scripts/pipeline.sh`(新)：通用流水线 采集(子集)+compute+export+持锁 commit+push
+- `scripts/with_lock.py`(新)：fcntl.flock 持锁串行化 git（**macOS 无 flock 命令**，用 Python fcntl）
+- `app/collector/runner.py`：`run(steps=None)` 加 steps 参数，`_want` 守卫，向后兼容
+- `scripts/deploy.sh`：加可选 `$1` pipeline 名参数（commit msg 标注 `[core]`/`[width]`/...）
+- `scripts/update_all_serial.sh`：旧串行版备份回退
+
+### 并发安全（3 处）
+1. **SQLite 并发写**：`db.py` get_conn 加 `busy_timeout=30000`；stock_daily/baostock 加 `busy_timeout=10000`。WAL + busy_timeout 多进程写串行化自动重试，避免 `database is locked`。
+2. **git 并发 commit+push**：`with_lock.py` 持 fcntl.flock 独占锁调 deploy.sh 串行化（避免 index.lock 冲突 + 避免 git add 把别 pipeline 正在写的半截 JSON stage 进来）。
+3. **signal_stats.json 并发写**：`signal_stats.store` 改原子写（.tmp + os.replace），避免 core/width 并发 compute 撕裂 JSON。
+
+### 验证状态
+组件级全通过：bash -n 语法 / runner steps=[] 守卫 / with_lock 串行(2s) / busy_timeout=30000ms 生效 / signal_stats 原子写(无 .tmp 残留)。**完整端到端待手动跑** `bash scripts/update_all.sh`（会真采集+部署公网，mootdx ~10min）。

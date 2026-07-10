@@ -8,6 +8,24 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
+## 交接状态（2026-07-10，update_all 拆并行流水线，c6407aa）
+
+> 用户反馈 `update_all.sh` 跑太慢，串行模式下慢任务（mootdx 5072 只 ~10min）拖累核心数据上线。拆成 4 条并行 pipeline，各自独立 采集->计算->导出->commit+push，慢任务不阻塞快核心。详见 `NOTES.md §12`。
+
+**本轮已完成（1 commit，已推 main）**：
+- `c6407aa` update_all 拆并行流水线：core(快核心,先上线) / width(慢宽度,后覆盖) / futures(独立) / stock_daily(后台死端不阻塞)
+
+**关键决策**：
+- core 先上线用昨日 width（情绪分略偏差），width 完成后覆盖 -- 符合「不阻塞上线」诉求
+- macOS 无 `flock(1)` 命令，用 Python `fcntl.flock`（`with_lock.py`）串行化 git commit+push
+- SQLite WAL + busy_timeout（db.py 30s / stock_daily 10s）保多 pipeline 并发写安全
+- signal_stats.store 改原子写，避免并发 compute 撕裂
+- 旧串行版备份 `scripts/update_all_serial.sh` 可一键回退
+
+**遗留 / 待手动做**：
+1. **完整端到端验证**：手动 `bash scripts/update_all.sh`，看 `git log` 出现 `[core]`/`[width]`/`[futures]` 多个 data update commit（按完成顺序，core 先 push），公网核心数据先更新、宽度后更新。组件级验证已全通过（语法/steps守卫/with_lock串行/busy_timeout/原子写）。
+2. 之前 H5 轮遗留（GitHub topics / README 截图 / HelloGitHub / og.png 验证 / g.cn10y 回测）见下节。
+
 ## 交接状态（2026-07-10，H5打磨 + 获客SEO/分享图/README）
 
 > 本轮聚焦**移动端体验打磨** + **公网获客基础设施**。公网地址 http://tdsignal-ujpzw01zm.maozi.io/ ，目标是让人搜得到、能分享、技术圈可传播。
