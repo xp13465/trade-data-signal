@@ -149,3 +149,36 @@ def verify_and_backfill_indices(date, verbose=True):
         bs.logout()
 
     return ok, fail, details
+
+
+def main():
+    """晚间轻量补采兜底入口（供 backfill_indices.sh / launchd 18:00 调用）。
+
+    交易日才跑：校验补采 -> 补到新数据则重算情绪分 + 推送；齐全或三源都缺则跳过。
+    与 update_all.sh 区别：不全量采集，只补缺失指数 + 重算 + 推送（几十秒）。
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    from ..calendar import is_trading_day, last_trading_day
+
+    if not is_trading_day():
+        print("[backfill] 非交易日,跳过")
+        return
+
+    today = last_trading_day().strftime("%Y%m%d")
+    print(f"[backfill] 目标日期 {today}")
+    ok, fail, _ = verify_and_backfill_indices(today, verbose=True)
+    print(f"[backfill] 补采结果 ok={ok} fail={fail}")
+
+    if fail > 0:
+        print(f"[backfill] ⚠ {fail} 个指数三源都缺今日(已写 collect_log 告警)")
+
+    if ok > 0:
+        print("[backfill] 补到新数据 -> 重算情绪分 + 推送公网")
+        repo = Path(__file__).resolve().parent.parent.parent
+        subprocess.run([sys.executable, "-m", "app.compute.runner"], check=False)
+        subprocess.run(["bash", "scripts/deploy.sh", "backfill"], cwd=repo, check=False)
+        print("[backfill] ✓ 补采+重算+推送完成")
+    else:
+        print("[backfill] 无新数据(15:33 已采全或三源都缺),跳过重算+推送")
