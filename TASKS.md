@@ -8,6 +8,48 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
+## 交接状态（2026-07-10，H5打磨 + 获客SEO/分享图/README）
+
+> 本轮聚焦**移动端体验打磨** + **公网获客基础设施**。公网地址 http://tdsignal-ujpzw01zm.maozi.io/ ，目标是让人搜得到、能分享、技术圈可传播。
+
+**工作模式**：用户直接驱动迭代（非 worker 派发），每改完立即验证双版一致 + 跑 `bump_asset_version.py` 破缓存 + commit + push。
+
+**本轮已完成（8 个 commit，全部已推 main）**：
+1. `3e4a7b0` 模拟回测浮层加 loading 转圈 -- sim html 最大近 1MB，iframe 加载白屏无反馈；打开时显示转圈+「加载回测中…」，frame.onload 后隐藏
+2. `13e63c2` H5 移动端网格列数固定 -- 概览 sparkline 默认 2 列、行业卡片强制 1 列（内容多不再挤）、KPI 小卡片 2 列；移除「1列/2列」按钮（列数已固定为最佳值，留着行业 tab 点无反应困惑）
+3. `3fff0c7` H5 概览 KPI 小卡片改用 grid 强制 2 列 -- 原 flex `calc(50%-5px)` + wrap 因 subpixel rounding 换行成 1 列；改 `grid-template-columns:1fr 1fr` 硬约束稳定 2 列
+4. `a17f508` 概览隐藏停更指标（北向资金）-- 新增 `isStaleMetric(m.date, r.date, days=30)` 基于数据日期 vs 最新交易日天数差动态判断，恢复更新后自动显示；移除 `tag: m.id==="a_fund_north"?"停更":""` 硬编码
+5. `624e8de` 热力图按钮局部重画 + 周期切换保留滚动 -- 热力图抽出 `_heatmapSetOption()` 复用同实例 setOption（不调 renderTab 不丢滚动）；周期按钮记 scrollY + 锁 `content.minHeight` 防清空塌陷跳顶 + 渲染后恢复
+6. `7fc98fa` SEO 静态文案 + JSON-LD + OG 标签 + og.png -- head 加 title/description/keywords(含 trade-data-signal/tdsignal/tdsignal-ujpzw01zm)/canonical/OG/Twitter Card/JSON-LD(WebApplication)；body 加 noscript 静态文案区(爬虫可读)；`scripts/gen_og_image.py` Pillow 生成 og.png(1200×630 深色品牌卡片)；main.py 加 /og.png 路由
+7. `76f7558` 分享图功能 -- canvas 自绘 1080×1350 品牌分享卡(品牌标题+3情绪分卡+3宽度卡+上证迷你走势+域名)，PC header 📤按钮 + H5 顶部条📤图标按钮，弹窗预览+下载，无第三方库
+8. `539f5b0` README 重写为对外吸引版 + LICENSE(MIT) + HelloGitHub 提交文案 -- 前置 demo+og图+6大功能+技术栈+快速开始；`HELLOGITHUB.md` 含提交说明+入选建议
+
+**关键技术决策**：
+- **双版同步**：web/(动态 FastAPI) + static-site/(静态 Cloudflare Pages) 每次改动逐字一致，仅数据源 URL 差异（`/api/overview` vs `./data/overview.json`）。所有 diff 验证除该 URL 外一致才提交。
+- **分享图自绘不用 html2canvas**：纯 canvas API + PingFang 字体，无依赖、体积小、样式可控、自带品牌引流水印。og.png 用 Pillow 脚本生成（macOS PingFang.ttc 字体）。
+- **停更判断动态化**：不硬编码指标 id，用日期差判断（北向 date=20240816 vs r.date=20260709 差近 2 年），任何指标恢复更新自动重新显示。
+- **H5 网格用 grid 不用 flex**：flex-basis 是建议值，subpixel rounding 致换行；grid 列宽硬约束稳定。
+
+**遗留 / 待用户手动做**：
+1. **GitHub 仓库加 topics 标签**：`finance` `data-visualization` `stock` `echarts` `akshare` `python`（提升搜索发现率）
+2. **README 顶部配 1-2 张看板截图**（GIF 更佳，HelloGitHub 入选关键）
+3. **提交 HelloGitHub**：按 `HELLOGITHUB.md` 到 https://github.com/521xueweihan/HelloGitHub/issues 提交（审核周期~1 月）
+4. **验证 og.png 预览**：公网部署后用 https://www.opengraph.xyz 贴 URL 检查分享卡片效果
+5. **g.cn10y buy_aux 回测**（老遗留）：全球指标类（`_compute_value_signals` 路径）回测脚本需单独处理，`backtest_metrics.py` 只覆盖 C1 主买未覆盖 buy_aux
+
+**除 SEO 外的其他获客方法（未实施，供后续选择）**：
+- 内容营销：掘金/知乎/CSDN/少数派写"用 Python+ECharts 搭 A 股情绪看板"技术文带链接吃长尾
+- 社区分发：V2EX、即刻、少数派 Matrix、开发者头条
+- 工具属性独立页：把"情绪温度计""冰点检测"做成独立小页引流主站
+- 订阅回访：冰点 RSS/邮件推送（已有邮件通知基础）带看板链接
+- 开放免费 API：开发者用时带来源链接
+- 友链：和同类 A 股工具站互链
+- 微信生态：公众号/群每日冰点提醒带看板链接
+
+**下轮起点**：用户反馈驱动。开工先读本节 + REQUIREMENTS.md + NOTES.md。移动端打磨 + 获客基础设施已就位，下轮关注数据质量监控 / 获客方法落地 / 截图补充。
+
+---
+
 ## 交接状态（2026-07-09，用户体验评审后更新）
 
 > 功能建设全部完成（期货指标上线）。进入**体验优化阶段**，依据 `REVIEW_REPORT.md` 评审报告。
