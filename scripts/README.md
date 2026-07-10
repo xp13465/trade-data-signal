@@ -97,7 +97,7 @@ cd /Users/linhuichen/code/trade
 # 增量更新所有 code（recent 段 2016-2026 增量，等价原 scheduler 第 6 步）
 .venv/bin/python -m app.collector.baostock_daily update
 
-# 首次全量回填近 10 年段（2016-2026，D2 急需；~5000 codes 串行 ~1h）
+# 全量回填近 10 年段（2016-2026，D2 急需；~5000 codes 串行，单只 10 年日线 ~6.5s，首次全量 ~9h；已采 code 自动跳过，后续只补新股很快）
 .venv/bin/python -m app.collector.baostock_daily recent
 
 # 补老段（1990-2015）
