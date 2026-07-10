@@ -14,7 +14,7 @@ from .calendar import last_trading_day
 from .collector.fetchers import load_config
 from .compute import signal_stats as sigstats
 from .compute.position import compute_position, _label_from_percentile, _level_from_percentile
-from .compute.market_summary import generate_summary
+from .compute.market_summary import generate_summary, summary_brief
 from .compute.rotation import compute_rotation
 from .compute.signals import strategy_desc
 from .db import get_conn
@@ -900,6 +900,26 @@ def position():
 def summary(date: str | None = None):
     """一句话市场总结：情绪+涨跌+家数+量能+热点板块。"""
     return generate_summary(date)
+
+
+@app.get("/api/summary/history")
+def summary_history(offset: int = 0, limit: int = 15):
+    """历史一句话总结（时间倒序，实时回算当页）。
+
+    取有 a_sentiment 数据的交易日倒序，skip offset 取 limit 个，每个调
+    generate_summary(date) 回算。用于首页"更多"弹窗分页。无缓存表，靠各原料
+    表的全历史实时回算（单页 15 天 ~12 SQL/天 <1s）。
+    """
+    conn = get_conn()
+    dates = [r["date"] for r in conn.execute(
+        "SELECT DISTINCT date FROM score_daily WHERE score_id='a_sentiment' "
+        "ORDER BY date DESC"
+    ).fetchall()]
+    conn.close()
+    total = len(dates)
+    items = [summary_brief(generate_summary(d))
+             for d in dates[offset:offset + limit]]
+    return {"items": items, "total": total, "offset": offset, "limit": len(items)}
 
 
 @app.get("/api/signal_freq")

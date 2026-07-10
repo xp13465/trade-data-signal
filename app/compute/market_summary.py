@@ -343,3 +343,18 @@ def generate_summary(date: str | None = None) -> dict:
         "ma_bearish": ma_bearish,
         "top_industries": top_industries,
     }
+
+
+# 弹窗历史列表展示用的精简字段（去掉 top_industries 等大字段，省 JSON 体积）。
+BRIEF_FIELDS = (
+    "date", "generated_at", "summary", "summary_short",
+    "sentiment_label", "sentiment_score",
+    "fear_greed_value", "fear_greed_label", "is_freeze",
+    "sh_pct", "up_count", "down_count",
+    "zt_count", "dt_count", "buy_count", "sell_count",
+)
+
+
+def summary_brief(s: dict) -> dict:
+    """从 generate_summary 完整结果取弹窗展示用精简字段。"""
+    return {k: s.get(k) for k in BRIEF_FIELDS}

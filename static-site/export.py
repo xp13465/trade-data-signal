@@ -35,7 +35,7 @@ from app.calendar import last_trading_day  # noqa: E402
 from app.collector.fetchers import load_config  # noqa: E402
 from app.compute import signal_stats as sigstats  # noqa: E402
 from app.compute.position import compute_position  # noqa: E402
-from app.compute.market_summary import generate_summary  # noqa: E402
+from app.compute.market_summary import generate_summary, summary_brief  # noqa: E402
 from app.compute.signals import strategy_desc  # noqa: E402
 from app.db import get_conn  # noqa: E402
 
@@ -492,6 +492,23 @@ def export_signal_freq():
 def export_summary():
     """复刻 /api/summary。"""
     return generate_summary()
+
+
+def export_summary_history(days: int = 90):
+    """复刻 /api/summary/history：最近 N 天一句话总结（时间倒序）。
+
+    静态站无后端，预生成 summary_history.json 供前端"更多"弹窗本地分页。
+    取有 a_sentiment 的日期倒序前 N 个，每个调 generate_summary(date) 回算。
+    """
+    conn = get_conn()
+    dates = [r["date"] for r in conn.execute(
+        "SELECT DISTINCT date FROM score_daily WHERE score_id='a_sentiment' "
+        "ORDER BY date DESC LIMIT ?",
+        (days,),
+    ).fetchall()]
+    conn.close()
+    items = [summary_brief(generate_summary(d)) for d in dates]
+    return {"items": items, "total": len(items)}
 
 
 def export_rotation(conn):
@@ -1003,6 +1020,9 @@ def main():
     # 7.9. summary
     counts["summary.json"] = write_json(DATA_DIR / "summary.json", export_summary())
     print(f"  summary.json ({counts['summary.json']} bytes)")
+    counts["summary_history.json"] = write_json(
+        DATA_DIR / "summary_history.json", export_summary_history())
+    print(f"  summary_history.json ({counts['summary_history.json']} bytes)")
     counts["signal_freq.json"] = write_json(DATA_DIR / "signal_freq.json", export_signal_freq())
     print(f"  signal_freq.json ({counts['signal_freq.json']} bytes)")
 

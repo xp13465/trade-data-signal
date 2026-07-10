@@ -708,8 +708,10 @@ async function renderOverview() {
       banner.className = "summary-banner";
       const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
       const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
-      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${s.date ? s.date.substring(4,6)+"-"+s.date.substring(6,8) : ""}数据 · ${s.generated_at || ""}</span></div>`;
+      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${s.date ? s.date.substring(4,6)+"-"+s.date.substring(6,8) : ""}数据 · ${s.generated_at || ""}</span><button class="summary-history-btn" title="查看历史一句话总结">📜 更多</button></div>`;
       content.insertBefore(banner, content.firstChild);
+      const histBtn = banner.querySelector(".summary-history-btn");
+      if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
     }
   }).catch(() => {});
 
@@ -2013,6 +2015,76 @@ function initBackToTop() {
   };
   window.addEventListener('scroll', onScroll, { passive: true });
   onScroll();
+}
+
+// ---- 历史一句话总结弹窗（横幅"更多"按钮触发）----
+let _summaryHistoryState = { page: 0, limit: 15, total: 0, cache: null };
+
+function _summaryHistoryModalEl() {
+  let modal = document.getElementById("summaryHistoryModal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "summaryHistoryModal";
+  modal.className = "rule-modal hidden";
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body summary-history-body"><div class="rule-modal-header"><h3>📜 历史一句话总结</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="summary-history-list"></div><div class="summary-history-pager"><button class="sh-prev">上一页</button><span class="sh-page"></span><button class="sh-next">下一页</button></div></div></div>';
+  document.body.appendChild(modal);
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", closeSummaryHistoryModal);
+  modal.querySelector(".rule-modal-close").addEventListener("click", closeSummaryHistoryModal);
+  modal.querySelector(".sh-prev").addEventListener("click", () => {
+    if (_summaryHistoryState.page > 0) { _summaryHistoryState.page--; _loadSummaryHistoryPage(); }
+  });
+  modal.querySelector(".sh-next").addEventListener("click", () => {
+    const maxPage = Math.max(0, Math.ceil(_summaryHistoryState.total / _summaryHistoryState.limit) - 1);
+    if (_summaryHistoryState.page < maxPage) { _summaryHistoryState.page++; _loadSummaryHistoryPage(); }
+  });
+  return modal;
+}
+
+function _summaryHistoryItemHtml(s) {
+  const date = s.date ? `${s.date.substring(4,6)}-${s.date.substring(6,8)}` : "";
+  const fg = s.fear_greed_label ? `<span class="sh-fg">😐 ${s.fear_greed_label} ${s.fear_greed_value != null ? s.fear_greed_value.toFixed(0) : ""}</span>` : "";
+  const freeze = s.is_freeze ? `<span class="sh-freeze">❄️冰点</span>` : "";
+  const sh = s.sh_pct != null ? `<span class="sh-sh">${s.sh_pct >= 0 ? "+" : ""}${s.sh_pct.toFixed(2)}%</span>` : "";
+  const width = (s.up_count != null || s.down_count != null) ? `<span class="sh-width">${s.up_count || 0}涨${s.down_count || 0}跌</span>` : "";
+  const ztdt = (s.zt_count || s.dt_count) ? `<span class="sh-ztdt">涨停${s.zt_count || 0} 跌停${s.dt_count || 0}</span>` : "";
+  const sig = (s.buy_count || s.sell_count) ? `<span class="sh-sig">买${s.buy_count || 0}/卖${s.sell_count || 0}</span>` : "";
+  return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div><div class="sh-text">${s.summary || ""}</div><div class="sh-stats">${sh}${width}${ztdt}${sig}</div></div>`;
+}
+
+async function _loadSummaryHistoryPage() {
+  const modal = _summaryHistoryModalEl();
+  const list = modal.querySelector(".summary-history-list");
+  const pager = modal.querySelector(".sh-page");
+  const prev = modal.querySelector(".sh-prev");
+  const next = modal.querySelector(".sh-next");
+  list.innerHTML = '<div class="summary-history-loading">加载中…</div>';
+  const { page, limit } = _summaryHistoryState;
+  const offset = page * limit;
+  try {
+    const r = await fetchJSON(`/api/summary/history?offset=${offset}&limit=${limit}`);
+    _summaryHistoryState.total = r.total || 0;
+    list.innerHTML = (r.items || []).map(_summaryHistoryItemHtml).join("") || '<div class="summary-history-empty">暂无历史数据</div>';
+  } catch (e) {
+    list.innerHTML = `<div class="summary-history-empty">加载失败：${e}</div>`;
+  }
+  const maxPage = Math.max(0, Math.ceil(_summaryHistoryState.total / limit) - 1);
+  pager.textContent = `第 ${page + 1}/${maxPage + 1} 页 · 共 ${_summaryHistoryState.total} 天`;
+  prev.disabled = page <= 0;
+  next.disabled = page >= maxPage;
+}
+
+function openSummaryHistoryModal() {
+  _summaryHistoryState.page = 0;
+  _summaryHistoryState.total = 0;
+  _summaryHistoryModalEl().classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  _loadSummaryHistoryPage();
+}
+
+function closeSummaryHistoryModal() {
+  const modal = document.getElementById("summaryHistoryModal");
+  if (modal) modal.classList.add("hidden");
+  document.body.style.overflow = "";
 }
 
 initStickyOffset();

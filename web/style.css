@@ -1007,6 +1007,91 @@ main { padding: 16px 24px; }
   font-size: 11px;
   color: #c9cdd4;
 }
+.summary-history-btn {
+  flex-shrink: 0;
+  margin-left: 8px;
+  background: #165dff;
+  color: #fff;
+  border: none;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.summary-history-btn:hover { background: #0e4ed6; }
+
+/* ---- 历史一句话总结弹窗 ---- */
+.summary-history-body { max-width: 720px; }
+.summary-history-list {
+  max-height: 65vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.summary-history-item {
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fafbfc;
+}
+.sh-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2329;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sh-label { font-weight: 400; color: #4e5969; }
+.sh-fg, .sh-freeze {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+}
+.sh-fg { background: #f5f5f5; color: #616161; }
+.sh-freeze { background: #ffebee; color: #c62828; font-weight: 600; }
+.sh-text { font-size: 13px; color: #1f2329; line-height: 1.7; margin-bottom: 6px; }
+.sh-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+}
+.sh-stats span {
+  background: #f2f3f5;
+  color: #4e5969;
+  padding: 1px 7px;
+  border-radius: 9px;
+}
+.summary-history-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #4e5969;
+}
+.summary-history-pager button {
+  background: #f2f3f5;
+  color: #1f2329;
+  border: none;
+  padding: 5px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.summary-history-pager button:hover:not(:disabled) { background: #e5e6eb; }
+.summary-history-pager button:disabled { opacity: 0.4; cursor: not-allowed; }
+.summary-history-loading, .summary-history-empty {
+  text-align: center;
+  color: #86909c;
+  padding: 30px 0;
+  font-size: 13px;
+}
 
 /* ---- 大盘位置感卡片 ---- */
 .position-card { padding: 16px; }
