@@ -1923,8 +1923,13 @@ async function renderRotationCard(container) {
   }
 }
 
+async function _loadIndustryData(range) {
+  return await fetchJSON(`/api/industry?range=${range}`);
+}
+
 async function renderIndustry() {
-  const r = await fetchJSON(`/api/industry?range=${state.range}`);
+  content.innerHTML = '<div class="loading">加载行业数据…</div>';
+  const r = await _loadIndustryData(state.range);
   content.innerHTML = "";
 
   // 板块轮动速度卡片（最先展示，判断行情性质）

@@ -1948,8 +1948,25 @@ async function renderRotationCard(container) {
   }
 }
 
+async function _loadIndustryData(range) {
+  if (range !== "all") return await fetchJSON(`./data/industry-${range}.json`);
+  // all range：Cloudflare 25MB 限制，industry-all 拆成 31 行业文件 + concepts + meta，并发加载
+  const meta = await fetchJSON("./data/industry-all-meta.json");
+  const ids = meta.index_ids || [];
+  const entries = await Promise.all(
+    ids.map(async (iid) => [iid, await fetchJSON(`./data/industry-all-indices/${iid}.json`)])
+  );
+  const conceptsRes = await fetchJSON("./data/industry-all-concepts.json");
+  return {
+    indices: Object.fromEntries(entries),
+    heatmap: meta.heatmap,
+    concepts: conceptsRes.concepts || {},
+  };
+}
+
 async function renderIndustry() {
-  const r = await fetchJSON(`./data/industry-${state.range}.json`);
+  content.innerHTML = '<div class="loading">加载行业数据…</div>';
+  const r = await _loadIndustryData(state.range);
   content.innerHTML = "";
 
   // 板块轮动速度卡片（最先展示，判断行情性质）

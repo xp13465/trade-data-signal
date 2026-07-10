@@ -992,10 +992,28 @@ def main():
     }
     for name, fn in tab_exporters.items():
         for rng in ALL_RANGES:
+            if name == "industry" and rng == "all":
+                continue  # industry-all 拆分为多文件（见下方），避免单文件超 Cloudflare 25MB
             fname = f"{name}-{rng}.json"
             data = fn(conn, cfg, rng)
             counts[fname] = write_json(DATA_DIR / fname, data)
             print(f"  {fname} ({counts[fname]} bytes)")
+
+    # industry-all 拆分：31 行业各一个文件（各~1MB）+ concepts + meta，
+    # 避免 industry-all.json 全历史 29MB 超 Cloudflare Pages 25MB 单文件限制。
+    # 前端 all range 并发 fetch 31 文件组装（见 app.js _loadIndustryData）。
+    ind_all = export_industry(conn, cfg, "all")
+    ind_split_dir = DATA_DIR / "industry-all-indices"
+    ind_split_dir.mkdir(parents=True, exist_ok=True)
+    for iid, ind in ind_all["indices"].items():
+        counts[f"industry-all-indices/{iid}.json"] = write_json(ind_split_dir / f"{iid}.json", ind)
+    counts["industry-all-concepts.json"] = write_json(
+        DATA_DIR / "industry-all-concepts.json", {"concepts": ind_all["concepts"]})
+    counts["industry-all-meta.json"] = write_json(
+        DATA_DIR / "industry-all-meta.json",
+        {"heatmap": ind_all["heatmap"], "index_ids": list(ind_all["indices"].keys()),
+         "concept_ids": list(ind_all["concepts"].keys())})
+    print(f"  industry-all 拆分: {len(ind_all['indices'])} 行业 + concepts + meta")
 
     # 7. metrics
     counts["metrics.json"] = write_json(DATA_DIR / "metrics.json", export_metrics(cfg))
