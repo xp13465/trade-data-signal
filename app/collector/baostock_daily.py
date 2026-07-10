@@ -120,10 +120,12 @@ CREATE INDEX IF NOT EXISTS idx_baostock_code ON baostock_daily_raw(code);
 
 def get_conn() -> sqlite3.Connection:
     STOCK_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(STOCK_DB_PATH)
+    conn = sqlite3.connect(STOCK_DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
+    # 与 mootdx/stock_daily 并发写同库不同表时写锁串行化自动重试。
+    conn.execute("PRAGMA busy_timeout=10000;")
     return conn
 
 

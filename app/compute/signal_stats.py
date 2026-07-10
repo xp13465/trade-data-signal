@@ -168,12 +168,18 @@ def compute() -> dict:
 
 
 def store(stats: dict) -> int:
-    """写 data/signal_stats.json（覆盖）。返回字节数。"""
+    """写 data/signal_stats.json（覆盖，原子写）。返回字节数。
+
+    原子写（写 .tmp 再 replace）：core/width 多 pipeline 并发跑 compute 时，
+    避免两进程同时 write_text 导致文件撕裂/读到半截 JSON。
+    """
     from app.calendar import last_trading_day
     stats_with_meta = {"_updated_at": last_trading_day(), **stats}
     STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(stats_with_meta, ensure_ascii=False, separators=(",", ":"))
-    STATS_PATH.write_text(text, encoding="utf-8")
+    tmp = STATS_PATH.parent / (STATS_PATH.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(STATS_PATH)  # 原子替换（POSIX rename）
     return len(text)
 
 

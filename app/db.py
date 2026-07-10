@@ -128,9 +128,12 @@ CREATE TABLE IF NOT EXISTS futures_accuracy (
 
 def get_conn() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
+    # busy_timeout=30s：多 pipeline 并发写 sentiment.db 时写锁串行化自动重试，
+    # 避免立即抛 "database is locked"（WAL 允许并发读 + 单写排队）。
+    conn.execute("PRAGMA busy_timeout=30000;")
     return conn
 
 

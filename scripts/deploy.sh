@@ -22,6 +22,7 @@ EXPORT="$REPO/static-site/export.py"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
 LOG="$LOGDIR/deploy_${STAMP}.log"
+NAME="${1:-all}"   # 可选 pipeline 名（pipeline.sh 持锁调用时传入；无参=all）
 
 mkdir -p "$LOGDIR"
 
@@ -46,7 +47,7 @@ if git -C "$REPO" diff --cached --quiet; then
   echo "✓ 无新数据变更，跳过 commit（仍 push 推未 push commit）" | tee -a "$LOG"
 else
   # 4. 有变更 → commit
-  COMMIT_MSG="data update $(date +%Y-%m-%d_%H:%M)"
+  COMMIT_MSG="data update [$NAME] $(date +%Y-%m-%d_%H:%M)"
   echo "→ git commit: $COMMIT_MSG" | tee -a "$LOG"
   git -C "$REPO" commit -m "$COMMIT_MSG" 2>&1 | tee -a "$LOG"
   COMMIT_RC=${PIPESTATUS[0]}
