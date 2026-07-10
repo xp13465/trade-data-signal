@@ -260,6 +260,15 @@ function fmtDate(dateStr) {
   return isToday ? "今日" : `${m}-${d}`;
 }
 
+// 判断指标是否停更：数据日期距最新交易日超过 days 天视为停更（如北向资金 2024-08 起源端停更）。
+// 用于概览 KPI 卡片：停则隐藏，恢复更新后自动显示回来。
+function isStaleMetric(metricDate, latestDate, days = 30) {
+  if (!metricDate || !latestDate || metricDate.length < 8 || latestDate.length < 8) return false;
+  const p = (s) => new Date(+s.substring(0, 4), +s.substring(4, 6) - 1, +s.substring(6, 8));
+  const diff = Math.round((p(latestDate) - p(metricDate)) / 86400000);
+  return diff > days;
+}
+
 // 每个品类的买卖点策略公式标注。后端注入 idx.strategy 字段（{buy,buy_aux,sell}），
 // 由 app/compute/signals.py::strategy_desc 读 indicators.yaml 的 buy_aux_filter +
 // SKIP_IDS/s.* 前缀逻辑生成。无 strategy 字段时用基线兜底（兼容旧数据/未注入端点）。
@@ -756,6 +765,7 @@ async function renderOverview() {
     });
   }
   for (const m of r.today.metrics || []) {
+    if (isStaleMetric(m.date, r.date)) continue;  // 停更指标隐藏（如北向资金 2024-08 起停更），恢复更新后自动显示
     kpiCards.push({
       id: m.id,
       title: m.name,
@@ -763,7 +773,7 @@ async function renderOverview() {
       valueNum: m.value,
       sub: m.unit || "",
       date: m.date,
-      tag: m.id === "a_fund_north" ? "停更" : "",
+      tag: "",
       signal: m.signal || "",
       amount: m.amount,
     });
