@@ -78,6 +78,53 @@ bash /Users/linhuichen/code/trade/scripts/update_all.sh
 - 日志：`/Users/linhuichen/code/trade/data/logs/update_all_YYYYMMDD_HHMM.log`（含 collect + deploy + check_signals 子日志）
 - 退出码：deploy.sh 退出码（最终公网状态）；collect / check_signals 退出码仅记日志
 
+### baostock_daily 日常跳过与手动补数据（2026-07-09 P1 提速后）
+
+**背景**：`update_all.sh` / `collect.sh` 调用的 scheduler 第 6 步（baostock 全 A 股日线增量）默认**跳过**。原因：`baostock_daily_raw` 表仅 `cleanup_d3d2` 手动做数据交叉校验时读，日常看板 / 导出不依赖（全 A 日线主力是 `mootdx_daily`）；而该步 5072 codes 串行 + 45% 失败重试耗时 ~1h，拖慢 `update_all`。故日常不跑，需要时手动补。日志中该步显示 `skip (日常不跑; 需时 RUN_BAOSTOCK=1 或手动 baostock_daily recent)`。
+
+**何时需要手动补**：
+- 跑 `cleanup_d3d2`（D3/D2 数据清理，需 baostock 作交叉校验源）前
+- 想刷新 baostock 全 A 日线（如 mootdx 与东财均有缺口，需第三方源校验 / 补全）
+
+**手动命令**（均在仓库根目录 `/Users/linhuichen/code/trade` 下执行）：
+
+```bash
+cd /Users/linhuichen/code/trade
+
+# 查现状（codes 数 / 行数 / 日期范围 / progress 完成度）
+.venv/bin/python -m app.collector.baostock_daily stats
+
+# 增量更新所有 code（recent 段 2016-2026 增量，等价原 scheduler 第 6 步）
+.venv/bin/python -m app.collector.baostock_daily update
+
+# 首次全量回填近 10 年段（2016-2026，D2 急需；~5000 codes 串行 ~1h）
+.venv/bin/python -m app.collector.baostock_daily recent
+
+# 补老段（1990-2015）
+.venv/bin/python -m app.collector.baostock_daily old
+
+# 全段（先 recent 后 old）
+.venv/bin/python -m app.collector.baostock_daily full
+
+# 单只增量 / 单只全量（排查单 code 用）
+.venv/bin/python -m app.collector.baostock_daily upone 600000
+.venv/bin/python -m app.collector.baostock_daily one 600000
+```
+
+**断点续传**：进度存 `data/baostock_progress.json`（`{code: {"r": yyyymmdd, "o": yyyymmdd}}`），中断（含 `Ctrl+C`）后重跑自动跳过已采 code、只采未完成。`Ctrl+C` 会保存进度再退出（退出码 130）。
+
+**小批量测试**：任一批量命令加 `--limit=N` 先跑 N 只验证，如 `recent --limit=10`。
+
+**临时让 update_all 自动跑一次 baostock**（不想手动、想走完整流程时）：
+
+```bash
+RUN_BAOSTOCK=1 bash scripts/update_all.sh
+# 或只采集不部署：
+RUN_BAOSTOCK=1 bash scripts/collect.sh
+```
+
+设 `RUN_BAOSTOCK=1` 环境变量即启用 scheduler 第 6 步，跑完即恢复默认跳过（不改代码）。
+
 ## 定时任务配置
 
 ### 两个时间点
@@ -221,7 +268,7 @@ scheduler 各 step 幂等机制（已校验）：
 
 - **upsert 覆盖**：`width_history.upsert_width` / `_upsert_width_recent` 用 `INSERT ... ON CONFLICT DO UPDATE WHERE source != 'manual'`（防覆盖手动补录）。同一日重复采集直接覆盖旧值。
 - **DELETE 重算**：信号类指标（如 `signal_daily`）`DELETE FROM signal_daily` 后全表重算，重跑不留旧数据残影。
-- **progress 跳过**：baostock 采全 A 股日线时用 `data/baostock_progress.json` 记录已采 code，重跑跳过已完成、只采未完成。
+- **progress 跳过**：baostock 采全 A 股日线时用 `data/baostock_progress.json` 记录已采 code，重跑跳过已完成、只采未完成。（注：P1 提速后 scheduler 第 6 步默认跳过 baostock，此幂等机制对手动 `baostock_daily update/recent` 同样生效；手动补数据见下文「baostock_daily 日常跳过与手动补数据」节）
 - **`width_history.run_recent(days=30)`**：从 `mootdx_daily_raw` 全 A 股日线重算近 30 天宽度并 upsert，不依赖当日快照——漏跑日自动回填，重复跑覆盖。
 
 中断后重跑：scheduler 从头跑一遍各 step，已落库的覆盖、未完成的补全。
