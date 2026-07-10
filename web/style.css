@@ -1274,9 +1274,10 @@ main { padding: 16px 24px; }
   .pos-price { width: 68px; font-size: 12px; }
   .pos-bar-bg { min-width: 40px; }
 
-  /* chart-hint 回测数据纵向堆叠，避免多列换行错位 */
-  .chart-hint .hint-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+  /* chart-hint 回测数据横向流动填满窄屏（去纵向堆叠，避免每 stat 一行右边空白）*/
+  .chart-hint .hint-row { flex-wrap: wrap; gap: 2px 8px; }
   .chart-hint { padding: 6px 8px; font-size: 11px; }
+  .chart-hint .hint-stat, .chart-hint .hint-kelly, .chart-hint .hint-note, .chart-hint .hint-sig { font-size: 11px; }
 
   /* sticky 规则条/锚点条让位 H5 周期条：rule-bar 取消 sticky，anchor-bar 下移到周期条下 */
   .rule-bar { position: static; }

@@ -53,11 +53,31 @@ tr:hover td { background: #f5f6f8; }
 
 .footer { margin-top: 24px; font-size: 12px; color: #8f959e; }
 .footer a { color: #3370ff; }
+
+/* 移动端适配（iframe 在 H5 浮层窄屏打开时）：边距缩、卡片 2 列、tab 横滚、表格紧凑 */
+@media (max-width: 768px) {
+  body { padding: 12px; max-width: 100%; }
+  h1 { font-size: 17px; }
+  .subtitle { font-size: 12px; margin-bottom: 12px; }
+  .sim-cmp-table, .sim-table-wrap { padding: 6px; margin-bottom: 12px; }
+  .sim-cmp-table table { font-size: 11px; }
+  .sim-main-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .sim-main-tab { padding: 8px 14px; font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+  .sim-sub-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 8px 0 10px; }
+  .sim-sub-tab { padding: 5px 12px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+  .sim-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px; }
+  .sim-card { padding: 10px 12px; }
+  .sim-card .v { font-size: 15px; }
+  .sim-flow { padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+  table { font-size: 12px; }
+  th, td { padding: 6px 8px; }
+  .footer { font-size: 11px; margin-top: 16px; }
+}
 </style>
 </head>
 <body>
 <h1>SW 通信 · 买卖点模拟回测</h1>
-<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2014-03-03 ~ 2026-06-10（12.3 年） · 生成于 2026-07-08 20:52</p>
+<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2014-03-03 ~ 2026-06-10（12.3 年） · 生成于 2026-07-10 13:57</p>
 
     <div class="sim-cmp-table">
       <table>
@@ -130,7 +150,7 @@ tr:hover td { background: #f5f6f8; }
           <td>主买+辅买+卖</td>
           <td><span style="color:#2e8b57;font-weight:700">216,341 元</span></td>
           <td><span style="color:#2e8b57;font-weight:700">+116.34%</span></td>
-          <td><span style="color:#2e8b57;font-weight:700">+6.50%</span></td>
+          <td><span style="color:#2e8b57;font-weight:700">+6.40%</span></td>
           <td><span style="">+40.66%</span></td>
           <td><span style="">+9.71%</span></td>
           <td><span style="">+12.19%</span></td>
@@ -1519,7 +1539,7 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 106,512.89 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 0.00 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">25,154.00 元（26.4%）<div class="sub">2018-09-11</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">6,512.89 元（+6.51%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+0.7%<div class="sub">首笔买入至今 9.2 年</div></span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+0.7%<div class="sub">首笔买入至今 9.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">106,512.89 元<div class="sub">2025-09-12</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">8.3%<div class="sub">2018-10-19</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">12.8% / 11.2%</span></div>
@@ -4093,7 +4113,7 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 170,894.99 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 0.00 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">101,191.09 元（100.0%）<div class="sub">2018-01-16</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">70,894.99 元（+70.89%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.0%<div class="sub">首笔买入至今 9.2 年</div></span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.0%<div class="sub">首笔买入至今 9.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">170,894.99 元<div class="sub">2025-09-12</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">39.0%<div class="sub">2024-02-06</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">13.1% / 12.4%</span></div>
@@ -4448,7 +4468,7 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 216,340.66 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 0.00 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">126,768.73 元（100.0%）<div class="sub">2025-01-07</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">116,340.66 元（+116.34%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.5%<div class="sub">首笔买入至今 12.3 年</div></span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.4%<div class="sub">首笔买入至今 12.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">216,340.66 元<div class="sub">2025-09-12</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">40.7%<div class="sub">2018-10-19</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">9.7% / 12.2%</span></div>
@@ -6419,7 +6439,7 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 111,353.33 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 0.00 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">25,154.00 元（26.4%）<div class="sub">2018-09-11</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">11,353.33 元（+11.35%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+1.2%<div class="sub">首笔买入至今 9.2 年</div></span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+1.2%<div class="sub">首笔买入至今 9.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">111,353.33 元<div class="sub">2025-09-12</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">8.3%<div class="sub">2018-10-19</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">13.9% / 13.4%</span></div>

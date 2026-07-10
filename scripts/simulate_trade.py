@@ -1095,6 +1095,26 @@ tr:hover td {{ background: #f5f6f8; }}
 
 .footer {{ margin-top: 24px; font-size: 12px; color: #8f959e; }}
 .footer a {{ color: #3370ff; }}
+
+/* 移动端适配（iframe 在 H5 浮层窄屏打开时）：边距缩、卡片 2 列、tab 横滚、表格紧凑 */
+@media (max-width: 768px) {{
+  body {{ padding: 12px; max-width: 100%; }}
+  h1 {{ font-size: 17px; }}
+  .subtitle {{ font-size: 12px; margin-bottom: 12px; }}
+  .sim-cmp-table, .sim-table-wrap {{ padding: 6px; margin-bottom: 12px; }}
+  .sim-cmp-table table {{ font-size: 11px; }}
+  .sim-main-tabs {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+  .sim-main-tab {{ padding: 8px 14px; font-size: 13px; white-space: nowrap; flex-shrink: 0; }}
+  .sim-sub-tabs {{ overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 8px 0 10px; }}
+  .sim-sub-tab {{ padding: 5px 12px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }}
+  .sim-cards {{ grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px; }}
+  .sim-card {{ padding: 10px 12px; }}
+  .sim-card .v {{ font-size: 15px; }}
+  .sim-flow {{ padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }}
+  table {{ font-size: 12px; }}
+  th, td {{ padding: 6px 8px; }}
+  .footer {{ font-size: 11px; margin-top: 16px; }}
+}}
 </style>
 </head>
 <body>
@@ -1146,26 +1166,17 @@ tr:hover td {{ background: #f5f6f8; }}
 </html>"""
 
 
-def main():
-    parser = argparse.ArgumentParser(description="买卖点模拟回测")
-    parser.add_argument("--index", default="sh", help="品种 index_id（默认 sh）")
-    parser.add_argument("--output", help="自定义输出路径（默认自动生成 trade_sim_{index_id}.html）")
-    args = parser.parse_args()
+def _generate_one(index_id, name_map, out_dir_static, out_dir_web, output=None):
+    """生成单个品种的回测 HTML。
 
-    index_id = args.index
-    name_map = load_name_map()
+    output 非 None 时只写该路径；否则同时写 static-site/ 和 web/ 两份。
+    返回 True 成功；无数据（signals 为空或 last 为 None）时返回 False 不写文件。
+    """
     index_name = name_map.get(index_id, index_id)
-
-    base_dir = os.path.dirname(os.path.dirname(__file__))
-    out_dir_static = os.path.join(base_dir, "static-site")
-    out_dir_web = os.path.join(base_dir, "web")
-
-    if args.output:
-        output = args.output
-    else:
-        output = os.path.join(out_dir_static, f"trade_sim_{index_id}.html")
-
-    signals, (last_date, last_close) = get_signals(index_id)
+    signals, last = get_signals(index_id)
+    if not signals or last is None:
+        return False
+    last_date, last_close = last
 
     SIG_LABELS = ["主买+卖", "辅买+卖", "主买+辅买+卖"]
     SIG_TYPES = [{"buy"}, {"buy_aux"}, {"buy", "buy_aux"}]
@@ -1187,31 +1198,57 @@ def main():
     signal_first_date = signals[0][0] if signals else None
     signal_last_date = signals[-1][0] if signals else None
     html = build_html(groups, index_id, index_name, signal_first_date, signal_last_date)
-    os.makedirs(os.path.dirname(output), exist_ok=True)
-    with open(output, "w", encoding="utf-8") as f:
-        f.write(html)
-    print(f"Generated: {output} ({len(html)} bytes) - {index_name}")
 
-    web_output = os.path.join(out_dir_web, f"trade_sim_{index_id}.html")
-    with open(web_output, "w", encoding="utf-8") as f:
-        f.write(html)
-    print(f"Copied to: {web_output}")
+    if output:
+        outputs = [output]
+    else:
+        outputs = [
+            os.path.join(out_dir_static, f"trade_sim_{index_id}.html"),
+            os.path.join(out_dir_web, f"trade_sim_{index_id}.html"),
+        ]
+    for out in outputs:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(html)
+    return True
 
-    for path_label, sig_map in groups.items():
-        for sig_label, data in sig_map.items():
-            s = data["summary"]
-            print(f"\n{'='*50}")
-            print(f"  [{path_label}] {sig_label}")
-            print(f"  总资产 {s['total_capital']:,} → {s['final_total']:,.0f}（+{s['total_return_pct']:.2f}%）")
-            print(f"  总收益 {s['total_return']:,.0f} | 年化 {s['annualized']:.1f}%（{s['years']} 年）")
-            print(f"  总资产峰值 {s['total_assets_peak']:,.0f}（{s['total_assets_peak_date']}）")
-            print(f"  最大回撤 {s['max_drawdown']:.1f}%（{s['max_drawdown_date']}）")
-            print(f"  最大持仓 {s['max_holding']:,.0f}（{s['max_holding_date']}）")
-            print(f"  {s['buy_count']}买/{s['sell_count']}卖 | {s['total_rounds']}回合 | {s['open_count']}笔未平仓 | 峰值并发{s['max_positions_ever']}笔")
-            print(f"  交易记录 {s['ledger_count']} 笔")
-            print(f"  胜率{s['win_rate']}% | 均盈{s['avg_win_pct']}% / 均亏{s['avg_loss_pct']}% | 盈亏比{s['avg_pl_ratio']}")
-            print(f"  连胜/连败 {s['max_win_streak']}/{s['max_lose_streak']} 轮")
 
+def main():
+    parser = argparse.ArgumentParser(description="买卖点模拟回测")
+    parser.add_argument("--index", help="品种 index_id（默认 sh）")
+    parser.add_argument("--all", action="store_true", help="批量生成所有品种（同时写 static-site + web）")
+    parser.add_argument("--output", help="自定义输出路径（仅单品种，只写该路径）")
+    args = parser.parse_args()
+
+    base_dir = os.path.dirname(os.path.dirname(__file__))
+    out_dir_static = os.path.join(base_dir, "static-site")
+    out_dir_web = os.path.join(base_dir, "web")
+    name_map = load_name_map()
+
+    if args.all:
+        ids = list(name_map.keys())
+        ok = 0; skip = 0; fail = 0
+        for index_id in ids:
+            try:
+                if _generate_one(index_id, name_map, out_dir_static, out_dir_web):
+                    ok += 1
+                else:
+                    skip += 1
+                    print(f"SKIP（无数据）: {index_id}", file=sys.stderr)
+            except Exception as e:
+                fail += 1
+                print(f"FAIL: {index_id} - {e}", file=sys.stderr)
+        print(f"完成: 成功 {ok} / 跳过 {skip} / 失败 {fail} / 共 {len(ids)}")
+        return
+
+    index_id = args.index or "sh"
+    index_name = name_map.get(index_id, index_id)
+    if _generate_one(index_id, name_map, out_dir_static, out_dir_web, output=args.output):
+        target = args.output if args.output else "static-site + web"
+        print(f"Generated: {index_name} -> {target}")
+    else:
+        print(f"无数据: {index_id}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

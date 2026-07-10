@@ -53,11 +53,31 @@ tr:hover td { background: #f5f6f8; }
 
 .footer { margin-top: 24px; font-size: 12px; color: #8f959e; }
 .footer a { color: #3370ff; }
+
+/* 移动端适配（iframe 在 H5 浮层窄屏打开时）：边距缩、卡片 2 列、tab 横滚、表格紧凑 */
+@media (max-width: 768px) {
+  body { padding: 12px; max-width: 100%; }
+  h1 { font-size: 17px; }
+  .subtitle { font-size: 12px; margin-bottom: 12px; }
+  .sim-cmp-table, .sim-table-wrap { padding: 6px; margin-bottom: 12px; }
+  .sim-cmp-table table { font-size: 11px; }
+  .sim-main-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .sim-main-tab { padding: 8px 14px; font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+  .sim-sub-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 8px 0 10px; }
+  .sim-sub-tab { padding: 5px 12px; font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+  .sim-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px; }
+  .sim-card { padding: 10px 12px; }
+  .sim-card .v { font-size: 15px; }
+  .sim-flow { padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+  table { font-size: 12px; }
+  th, td { padding: 6px 8px; }
+  .footer { font-size: 11px; margin-top: 16px; }
+}
 </style>
 </head>
 <body>
 <h1>光伏概念 · 买卖点模拟回测</h1>
-<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2020-02-06 ~ 2026-06-09（6.3 年） · 生成于 2026-07-08 21:49</p>
+<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2020-02-06 ~ 2026-06-09（6.3 年） · 生成于 2026-07-10 13:57</p>
 
     <div class="sim-cmp-table">
       <table>
@@ -70,7 +90,7 @@ tr:hover td { background: #f5f6f8; }
           <td>主买+卖</td>
           <td><span style="">130,630 元</span></td>
           <td><span style="">+30.63%</span></td>
-          <td><span style="">+4.30%</span></td>
+          <td><span style="">+4.20%</span></td>
           <td><span style="color:#2e8b57;font-weight:700">+11.17%</span></td>
           <td><span style="">+3.25%</span></td>
           <td><span style="">+6.50%</span></td>
@@ -80,8 +100,8 @@ tr:hover td { background: #f5f6f8; }
         <tr>
           <td>买固定1万+卖清仓</td>
           <td>辅买+卖</td>
-          <td><span style="">132,740 元</span></td>
-          <td><span style="">+32.74%</span></td>
+          <td><span style="">132,867 元</span></td>
+          <td><span style="">+32.87%</span></td>
           <td><span style="">+4.60%</span></td>
           <td><span style="">+16.13%</span></td>
           <td><span style="">+3.01%</span></td>
@@ -92,8 +112,8 @@ tr:hover td { background: #f5f6f8; }
         <tr>
           <td>买固定1万+卖清仓</td>
           <td>主买+辅买+卖</td>
-          <td><span style="">155,663 元</span></td>
-          <td><span style="">+55.66%</span></td>
+          <td><span style="">155,790 元</span></td>
+          <td><span style="">+55.79%</span></td>
           <td><span style="">+7.10%</span></td>
           <td><span style="">+20.89%</span></td>
           <td><span style="color:#2e8b57;font-weight:700">+0.69%</span></td>
@@ -106,7 +126,7 @@ tr:hover td { background: #f5f6f8; }
           <td>主买+卖</td>
           <td><span style="color:#2e8b57;font-weight:700">342,672 元</span></td>
           <td><span style="color:#2e8b57;font-weight:700">+242.67%</span></td>
-          <td><span style="color:#2e8b57;font-weight:700">+21.20%</span></td>
+          <td><span style="color:#2e8b57;font-weight:700">+21.10%</span></td>
           <td><span style="">+32.38%</span></td>
           <td><span style="">+3.25%</span></td>
           <td><span style="">+6.61%</span></td>
@@ -116,9 +136,9 @@ tr:hover td { background: #f5f6f8; }
         <tr>
           <td>全仓进出</td>
           <td>辅买+卖</td>
-          <td><span style="">268,391 元</span></td>
-          <td><span style="">+168.39%</span></td>
-          <td><span style="">+16.90%</span></td>
+          <td><span style="">272,090 元</span></td>
+          <td><span style="">+172.09%</span></td>
+          <td><span style="">+17.20%</span></td>
           <td><span style="">+34.12%</span></td>
           <td><span style="">+4.08%</span></td>
           <td><span style="">+6.17%</span></td>
@@ -128,9 +148,9 @@ tr:hover td { background: #f5f6f8; }
         <tr>
           <td>全仓进出</td>
           <td>主买+辅买+卖</td>
-          <td><span style="">295,739 元</span></td>
-          <td><span style="">+195.74%</span></td>
-          <td><span style="">+18.40%</span></td>
+          <td><span style="">299,815 元</span></td>
+          <td><span style="">+199.81%</span></td>
+          <td><span style="">+18.70%</span></td>
           <td><span style="">+34.12%</span></td>
           <td><span style="">+4.08%</span></td>
           <td><span style="">+6.17%</span></td>
@@ -142,7 +162,7 @@ tr:hover td { background: #f5f6f8; }
           <td>主买+卖</td>
           <td><span style="">164,372 元</span></td>
           <td><span style="">+64.37%</span></td>
-          <td><span style="">+8.10%</span></td>
+          <td><span style="">+8.00%</span></td>
           <td><span style="">+25.27%</span></td>
           <td><span style="">+22.35%</span></td>
           <td><span style="">+20.97%</span></td>
@@ -152,8 +172,8 @@ tr:hover td { background: #f5f6f8; }
         <tr>
           <td>固定1万进出（FIFO）</td>
           <td>辅买+卖</td>
-          <td><span style="">160,350 元</span></td>
-          <td><span style="">+60.35%</span></td>
+          <td><span style="">160,769 元</span></td>
+          <td><span style="">+60.77%</span></td>
           <td><span style="">+7.80%</span></td>
           <td><span style="">+29.91%</span></td>
           <td><span style="">+22.35%</span></td>
@@ -164,9 +184,9 @@ tr:hover td { background: #f5f6f8; }
         <tr>
           <td>固定1万进出（FIFO）</td>
           <td>主买+辅买+卖</td>
-          <td><span style="">193,411 元</span></td>
-          <td><span style="">+93.41%</span></td>
-          <td><span style="">+10.80%</span></td>
+          <td><span style="">194,197 元</span></td>
+          <td><span style="">+94.20%</span></td>
+          <td><span style="">+10.90%</span></td>
           <td><span style="">+29.47%</span></td>
           <td><span style="">+12.62%</span></td>
           <td><span style="">+19.79%</span></td>
@@ -191,7 +211,7 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 130,630.02 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 0.00 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">49,109.27 元（45.0%）<div class="sub">2024-02-08</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">30,630.02 元（+30.63%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+4.3%<div class="sub">首笔买入至今 6.4 年</div></span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+4.2%<div class="sub">首笔买入至今 6.4 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">130,630.02 元<div class="sub">2025-10-17</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">11.2%<div class="sub">2024-02-06</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">3.2% / 6.5%</span></div>
@@ -857,11 +877,11 @@ tr:hover td { background: #f5f6f8; }
       </table>
     </div></div>
 <div class="sim-scenario " data-path="0" data-sig="1">
-    <div class="sim-flow">总资金 100,000 元 · 买固定 1 万 + 卖清仓全部 · 2020-03-17 首笔买入 · 跳过: 无持仓可卖 13 次 · → 经 14 轮买卖 + 1 笔未平仓 · → 期末总资产 132,740 元（现金 123,515 + 持仓 9,224）</div>
+    <div class="sim-flow">总资金 100,000 元 · 买固定 1 万 + 卖清仓全部 · 2020-03-17 首笔买入 · 跳过: 无持仓可卖 13 次 · → 经 14 轮买卖 + 1 笔未平仓 · → 期末总资产 132,867 元（现金 123,515 + 持仓 9,352）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 132,739.93 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 9,224.45 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 132,867.05 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 9,351.57 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">61,702.18 元（54.2%）<div class="sub">2024-01-24</div></span></div>
-      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">32,739.93 元（+32.74%）</span></div>
+      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">32,867.05 元（+32.87%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+4.6%<div class="sub">首笔买入至今 6.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">133,515.48 元<div class="sub">2026-05-27</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">16.1%<div class="sub">2024-02-06</div></span></div>
@@ -1518,9 +1538,9 @@ tr:hover td { background: #f5f6f8; }
               <td>2026-06-09</td>
               <td>4723.41</td>
               <td>2.1171</td>
-              <td style="color:#2e8b57;font-weight:600">-7.76%</td>
-              <td>9,224.45</td>
-              <td style="color:#2e8b57;font-weight:600">-775.55</td>
+              <td style="color:#2e8b57;font-weight:600">-6.48%</td>
+              <td>9,351.57</td>
+              <td style="color:#2e8b57;font-weight:600">-648.43</td>
             </tr></tbody>
           </table>
         </div>
@@ -1943,11 +1963,11 @@ tr:hover td { background: #f5f6f8; }
       </table>
     </div></div>
 <div class="sim-scenario " data-path="0" data-sig="2">
-    <div class="sim-flow">总资金 100,000 元 · 买固定 1 万 + 卖清仓全部 · 2020-02-06 首笔买入 · 跳过: 仓位已满 5 次 · 无持仓可卖 13 次 · → 经 14 轮买卖 + 1 笔未平仓 · → 期末总资产 155,663 元（现金 146,439 + 持仓 9,224）</div>
+    <div class="sim-flow">总资金 100,000 元 · 买固定 1 万 + 卖清仓全部 · 2020-02-06 首笔买入 · 跳过: 仓位已满 5 次 · 无持仓可卖 13 次 · → 经 14 轮买卖 + 1 笔未平仓 · → 期末总资产 155,790 元（现金 146,439 + 持仓 9,352）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 155,663.22 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 9,224.45 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 155,790.34 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 9,351.57 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">96,332.07 元（71.6%）<div class="sub">2023-12-06</div></span></div>
-      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">55,663.22 元（+55.66%）</span></div>
+      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">55,790.34 元（+55.79%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+7.1%<div class="sub">首笔买入至今 6.4 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">156,438.76 元<div class="sub">2026-05-27</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">20.9%<div class="sub">2024-02-06</div></span></div>
@@ -2799,9 +2819,9 @@ tr:hover td { background: #f5f6f8; }
               <td>2026-06-09</td>
               <td>4723.41</td>
               <td>2.1171</td>
-              <td style="color:#2e8b57;font-weight:600">-7.76%</td>
-              <td>9,224.45</td>
-              <td style="color:#2e8b57;font-weight:600">-775.55</td>
+              <td style="color:#2e8b57;font-weight:600">-6.48%</td>
+              <td>9,351.57</td>
+              <td style="color:#2e8b57;font-weight:600">-648.43</td>
             </tr></tbody>
           </table>
         </div>
@@ -3406,7 +3426,7 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 342,672.15 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 0.00 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">260,309.81 元（100.0%）<div class="sub">2025-04-10</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">242,672.15 元（+242.67%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+21.2%<div class="sub">首笔买入至今 6.4 年</div></span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+21.1%<div class="sub">首笔买入至今 6.4 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">342,672.15 元<div class="sub">2025-10-17</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">32.4%<div class="sub">2024-02-06</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">3.2% / 6.6%</span></div>
@@ -3756,12 +3776,12 @@ tr:hover td { background: #f5f6f8; }
       </table>
     </div></div>
 <div class="sim-scenario " data-path="1" data-sig="1">
-    <div class="sim-flow">总资金 100,000 元 · 全仓进出（一次一笔，买全部现金，卖清仓） · 2020-03-17 首笔买入 · 跳过: 无持仓可卖 13 次 · → 经 14 轮买卖 + 1 笔未平仓 · → 期末总资产 268,391 元（现金 0 + 持仓 268,391）</div>
+    <div class="sim-flow">总资金 100,000 元 · 全仓进出（一次一笔，买全部现金，卖清仓） · 2020-03-17 首笔买入 · 跳过: 无持仓可卖 13 次 · → 经 14 轮买卖 + 1 笔未平仓 · → 期末总资产 272,090 元（现金 0 + 持仓 272,090）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 268,391.38 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 268,391.38 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 272,090.02 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 272,090.02 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">290,956.42 元（100.0%）<div class="sub">2026-06-09</div></span></div>
-      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">168,391.38 元（+168.39%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+16.9%<div class="sub">首笔买入至今 6.3 年</div></span></div>
+      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">172,090.02 元（+172.09%）</span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+17.2%<div class="sub">首笔买入至今 6.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">290,956.42 元<div class="sub">2026-05-27</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">34.1%<div class="sub">2024-02-06</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">4.1% / 6.2%</span></div>
@@ -4183,9 +4203,9 @@ tr:hover td { background: #f5f6f8; }
               <td>2026-06-09</td>
               <td>4723.41</td>
               <td>61.5987</td>
-              <td style="color:#2e8b57;font-weight:600">-7.76%</td>
-              <td>268,391.38</td>
-              <td style="color:#e6492e;font-weight:600">+258391.38</td>
+              <td style="color:#2e8b57;font-weight:600">-6.48%</td>
+              <td>272,090.02</td>
+              <td style="color:#e6492e;font-weight:600">+262090.02</td>
             </tr></tbody>
           </table>
         </div>
@@ -4368,12 +4388,12 @@ tr:hover td { background: #f5f6f8; }
       </table>
     </div></div>
 <div class="sim-scenario " data-path="1" data-sig="2">
-    <div class="sim-flow">总资金 100,000 元 · 全仓进出（一次一笔，买全部现金，卖清仓） · 2020-02-06 首笔买入 · 跳过: 无持仓可卖 13 次 · → 经 14 轮买卖 + 1 笔未平仓 · → 期末总资产 295,739 元（现金 0 + 持仓 295,739）</div>
+    <div class="sim-flow">总资金 100,000 元 · 全仓进出（一次一笔，买全部现金，卖清仓） · 2020-02-06 首笔买入 · 跳过: 无持仓可卖 13 次 · → 经 14 轮买卖 + 1 笔未平仓 · → 期末总资产 299,815 元（现金 0 + 持仓 299,815）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 295,739.14 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 295,739.14 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 299,814.65 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 299,814.65 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">320,603.45 元（100.0%）<div class="sub">2026-06-09</div></span></div>
-      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">195,739.14 元（+195.74%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+18.4%<div class="sub">首笔买入至今 6.4 年</div></span></div>
+      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">199,814.65 元（+199.81%）</span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+18.7%<div class="sub">首笔买入至今 6.4 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">320,603.45 元<div class="sub">2026-05-27</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">34.1%<div class="sub">2024-02-06</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">4.1% / 6.2%</span></div>
@@ -4795,9 +4815,9 @@ tr:hover td { background: #f5f6f8; }
               <td>2026-06-09</td>
               <td>4723.41</td>
               <td>67.8754</td>
-              <td style="color:#2e8b57;font-weight:600">-7.76%</td>
-              <td>295,739.14</td>
-              <td style="color:#e6492e;font-weight:600">+285739.14</td>
+              <td style="color:#2e8b57;font-weight:600">-6.48%</td>
+              <td>299,814.65</td>
+              <td style="color:#e6492e;font-weight:600">+289814.65</td>
             </tr></tbody>
           </table>
         </div>
@@ -4992,7 +5012,7 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 164,372.35 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 0.00 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">87,091.29 元（79.8%）<div class="sub">2024-01-25</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">64,372.35 元（+64.37%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+8.1%<div class="sub">首笔买入至今 6.4 年</div></span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+8.0%<div class="sub">首笔买入至今 6.4 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">164,372.35 元<div class="sub">2026-05-27</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">25.3%<div class="sub">2024-02-06</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">22.4% / 21.0%</span></div>
@@ -5760,11 +5780,11 @@ tr:hover td { background: #f5f6f8; }
       </table>
     </div></div>
 <div class="sim-scenario " data-path="2" data-sig="1">
-    <div class="sim-flow">总资金 100,000 元 · 固定 1 万进出（FIFO） · 2020-03-17 首笔买入 · 跳过: 仓位已满 5 次 · 无持仓可卖 2 次 · → 经 25 轮买卖 + 3 笔未平仓 · → 期末总资产 160,350 元（现金 129,976 + 持仓 30,375）</div>
+    <div class="sim-flow">总资金 100,000 元 · 固定 1 万进出（FIFO） · 2020-03-17 首笔买入 · 跳过: 仓位已满 5 次 · 无持仓可卖 2 次 · → 经 25 轮买卖 + 3 笔未平仓 · → 期末总资产 160,769 元（现金 129,976 + 持仓 30,793）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 160,350.50 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 30,374.80 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 160,769.08 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 30,793.39 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">99,600.30 元（85.2%）<div class="sub">2023-08-24</div></span></div>
-      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">60,350.50 元（+60.35%）</span></div>
+      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">60,769.08 元（+60.77%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+7.8%<div class="sub">首笔买入至今 6.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">163,763.50 元<div class="sub">2026-05-27</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">29.9%<div class="sub">2024-02-06</div></span></div>
@@ -6499,27 +6519,27 @@ tr:hover td { background: #f5f6f8; }
               <td>2025-11-25</td>
               <td>3854.27</td>
               <td>2.5945</td>
-              <td style="color:#e6492e;font-weight:600">+13.05%</td>
-              <td>11,304.59</td>
-              <td style="color:#e6492e;font-weight:600">+1304.59</td>
+              <td style="color:#e6492e;font-weight:600">+14.60%</td>
+              <td>11,460.38</td>
+              <td style="color:#e6492e;font-weight:600">+1460.38</td>
             </tr>
             <tr>
               <td>2</td>
               <td>2026-03-24</td>
               <td>4425.35</td>
               <td>2.2597</td>
-              <td style="color:#2e8b57;font-weight:600">-1.54%</td>
-              <td>9,845.76</td>
-              <td style="color:#2e8b57;font-weight:600">-154.24</td>
+              <td style="color:#2e8b57;font-weight:600">-0.19%</td>
+              <td>9,981.44</td>
+              <td style="color:#2e8b57;font-weight:600">-18.56</td>
             </tr>
             <tr>
               <td>3</td>
               <td>2026-06-09</td>
               <td>4723.41</td>
               <td>2.1171</td>
-              <td style="color:#2e8b57;font-weight:600">-7.76%</td>
-              <td>9,224.45</td>
-              <td style="color:#2e8b57;font-weight:600">-775.55</td>
+              <td style="color:#2e8b57;font-weight:600">-6.48%</td>
+              <td>9,351.57</td>
+              <td style="color:#2e8b57;font-weight:600">-648.43</td>
             </tr></tbody>
           </table>
         </div>
@@ -6834,12 +6854,12 @@ tr:hover td { background: #f5f6f8; }
       </table>
     </div></div>
 <div class="sim-scenario " data-path="2" data-sig="2">
-    <div class="sim-flow">总资金 100,000 元 · 固定 1 万进出（FIFO） · 2020-02-06 首笔买入 · 跳过: 仓位已满 21 次 · → 经 27 轮买卖 + 5 笔未平仓 · → 期末总资产 193,411 元（现金 136,398 + 持仓 57,013）</div>
+    <div class="sim-flow">总资金 100,000 元 · 固定 1 万进出（FIFO） · 2020-02-06 首笔买入 · 跳过: 仓位已满 21 次 · → 经 27 轮买卖 + 5 笔未平仓 · → 期末总资产 194,197 元（现金 136,398 + 持仓 57,799）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 193,411.01 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 57,013.49 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 194,196.70 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 57,799.18 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">117,897.92 元（77.7%）<div class="sub">2023-03-15</div></span></div>
-      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">93,411.01 元（+93.41%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+10.8%<div class="sub">首笔买入至今 6.4 年</div></span></div>
+      <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">94,196.70 元（+94.20%）</span></div>
+      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+10.9%<div class="sub">首笔买入至今 6.4 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">199,898.16 元<div class="sub">2026-05-27</div></span></div>
       <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">29.5%<div class="sub">2024-02-06</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">12.6% / 19.8%</span></div>
@@ -7651,45 +7671,45 @@ tr:hover td { background: #f5f6f8; }
               <td>2025-04-10</td>
               <td>2861.66</td>
               <td>3.4945</td>
-              <td style="color:#e6492e;font-weight:600">+52.26%</td>
-              <td>15,225.74</td>
-              <td style="color:#e6492e;font-weight:600">+5225.74</td>
+              <td style="color:#e6492e;font-weight:600">+54.36%</td>
+              <td>15,435.57</td>
+              <td style="color:#e6492e;font-weight:600">+5435.57</td>
             </tr>
             <tr>
               <td>2</td>
               <td>2025-10-20</td>
               <td>3817.68</td>
               <td>2.6194</td>
-              <td style="color:#e6492e;font-weight:600">+14.13%</td>
-              <td>11,412.94</td>
-              <td style="color:#e6492e;font-weight:600">+1412.94</td>
+              <td style="color:#e6492e;font-weight:600">+15.70%</td>
+              <td>11,570.22</td>
+              <td style="color:#e6492e;font-weight:600">+1570.22</td>
             </tr>
             <tr>
               <td>3</td>
               <td>2025-11-25</td>
               <td>3854.27</td>
               <td>2.5945</td>
-              <td style="color:#e6492e;font-weight:600">+13.05%</td>
-              <td>11,304.59</td>
-              <td style="color:#e6492e;font-weight:600">+1304.59</td>
+              <td style="color:#e6492e;font-weight:600">+14.60%</td>
+              <td>11,460.38</td>
+              <td style="color:#e6492e;font-weight:600">+1460.38</td>
             </tr>
             <tr>
               <td>4</td>
               <td>2026-03-24</td>
               <td>4425.35</td>
               <td>2.2597</td>
-              <td style="color:#2e8b57;font-weight:600">-1.54%</td>
-              <td>9,845.76</td>
-              <td style="color:#2e8b57;font-weight:600">-154.24</td>
+              <td style="color:#2e8b57;font-weight:600">-0.19%</td>
+              <td>9,981.44</td>
+              <td style="color:#2e8b57;font-weight:600">-18.56</td>
             </tr>
             <tr>
               <td>5</td>
               <td>2026-06-09</td>
               <td>4723.41</td>
               <td>2.1171</td>
-              <td style="color:#2e8b57;font-weight:600">-7.76%</td>
-              <td>9,224.45</td>
-              <td style="color:#2e8b57;font-weight:600">-775.55</td>
+              <td style="color:#2e8b57;font-weight:600">-6.48%</td>
+              <td>9,351.57</td>
+              <td style="color:#2e8b57;font-weight:600">-648.43</td>
             </tr></tbody>
           </table>
         </div>
