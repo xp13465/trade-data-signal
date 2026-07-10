@@ -2136,30 +2136,34 @@ function initH5() {
   initH5Topbar();
 }
 
-// === 模拟回测全屏 iframe 覆盖层（左键点 sim-btn 在当前页覆盖打开，关闭后停留原位置不丢滚动状态）===
+// === 模拟回测 iframe 浮层（遮罩+圆角边框+缩放动画；左键点 sim-btn 打开，关闭后停留原位置）===
 function initSimOverlay() {
   const overlay = document.createElement('div');
-  overlay.className = 'sim-overlay hidden';
-  overlay.innerHTML = '<button class="sim-close" aria-label="关闭回测" title="关闭">✕</button><iframe class="sim-frame" src="about:blank" title="模拟回测"></iframe>';
+  overlay.className = 'sim-overlay';  // CSS 默认 opacity:0/visibility:hidden 隐藏
+  overlay.innerHTML = '<div class="sim-window"><button class="sim-close" aria-label="关闭回测" title="关闭">✕</button><iframe class="sim-frame" src="about:blank" title="模拟回测"></iframe></div>';
   document.body.appendChild(overlay);
   const frame = overlay.querySelector('.sim-frame');
+  let closeTimer = null;
   const close = () => {
-    overlay.classList.add('hidden');
-    frame.src = 'about:blank';  // 停止 iframe 内脚本/动画
+    overlay.classList.remove('show');
     document.body.style.overflow = '';
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => { frame.src = 'about:blank'; }, 260);  // 等缩放过渡结束再清 src，避免白闪
   };
   overlay.querySelector('.sim-close').addEventListener('click', close);
-  // 事件委托：所有 .sim-btn（动态生成于 hint）左键在当前页覆盖打开 iframe；中键仍可新标签
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });  // 点遮罩区关闭
+  // 事件委托：所有 .sim-btn（动态生成于 hint）左键在当前页浮层打开 iframe；中键仍可新标签
   document.addEventListener('click', (e) => {
     const a = e.target.closest('.sim-btn');
     if (!a) return;
     e.preventDefault();
+    clearTimeout(closeTimer);
     frame.src = a.href;
-    overlay.classList.remove('hidden');
+    overlay.classList.add('show');
     document.body.style.overflow = 'hidden';
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) close();
+    if (e.key === 'Escape' && overlay.classList.contains('show')) close();
   });
 }
 
