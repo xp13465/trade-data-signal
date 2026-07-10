@@ -117,11 +117,17 @@ cd /Users/linhuichen/code/trade
 
 **临时让 update_all 自动跑一次 baostock**（不想手动、想走完整流程时）：
 
+`RUN_BAOSTOCK=1` 是环境变量前缀，**必须放在命令最前**——它传给 bash 进程，再由 bash 继承给 `collect.sh` → `.venv/bin/python` → scheduler 第 6 步（runner.py 读 `os.environ.get("RUN_BAOSTOCK")`）。放在最前只对该次命令生效，跑完自动恢复默认跳过，不改代码、不污染当前 shell。
+
 ```bash
-RUN_BAOSTOCK=1 bash scripts/update_all.sh
+# 你日常用的绝对路径形式（在任意目录都能跑，无需 cd 仓库）：
+RUN_BAOSTOCK=1 /bin/bash /Users/linhuichen/code/trade/scripts/update_all.sh
+
 # 或只采集不部署：
-RUN_BAOSTOCK=1 bash scripts/collect.sh
+RUN_BAOSTOCK=1 /bin/bash /Users/linhuichen/code/trade/scripts/collect.sh
 ```
+
+也可先 `export RUN_BAOSTOCK=1` 再跑原命令（`/bin/bash /Users/linhuichen/code/trade/scripts/update_all.sh`），但会污染当前 shell 会话，跑完记得 `unset RUN_BAOSTOCK`。
 
 设 `RUN_BAOSTOCK=1` 环境变量即启用 scheduler 第 6 步，跑完即恢复默认跳过（不改代码）。
 
