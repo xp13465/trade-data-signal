@@ -1106,4 +1106,9 @@ def trade_sim():
     return FileResponse(WEB_DIR / "trade_sim.html")
 
 
+@app.get("/og.png")
+def og_image():
+    return FileResponse(WEB_DIR / "og.png", media_type="image/png")
+
+
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
