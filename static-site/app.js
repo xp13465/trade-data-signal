@@ -359,6 +359,8 @@ function statsHint(stats, strategy, indexId) {
 function indexChart(title, ohlc, signals, stats, strategy, container = content, chartArr = charts, indexId) {
   const hint = statsHint(stats, strategy, indexId);
   const c = mkCard(title, 360, hint, container, chartArr);
+  // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
+  _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   const close = ohlc.map((d) => [d.date, d.close]);
   const markData = signals.map((s) => {
     const o = ohlc.find((x) => x.date === s.date);
@@ -401,6 +403,8 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
   const sigs = signals || [];
   const hint = statsHint(stats, strategy, indexId);
   const c = mkCard(title, 360, hint);
+  // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
+  _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   const markData = sigs.map((s) => {
     const p = data.find((x) => x.date === s.date);
     return {
