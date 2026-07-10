@@ -1254,9 +1254,9 @@ main { padding: 16px 24px; }
   .industry-grid { grid-template-columns: 1fr; gap: 10px; }
   .spark-cell { padding: 8px 10px; }
   .industry-grid .spark-cell .spark-chart { min-height: 100px; }
-  /* KPI 卡片 2 列（信息密度适中）*/
-  .cards { gap: 10px; }
-  .card.kpi { flex: 1 1 calc(50% - 5px); min-width: 0; padding: 10px 12px; }
+  /* KPI 卡片 2 列（用 grid 避免 flex+calc 的 subpixel 换行问题）*/
+  .cards.kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card.kpi { min-width: 0; padding: 10px 12px; }
   .card.kpi .card-value { font-size: 20px; }
   .ov-2col { grid-template-columns: 1fr; gap: 12px; }
   .ov-2col .chart-card { min-height: 280px; }
