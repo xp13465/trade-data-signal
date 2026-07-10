@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -1073,9 +1073,27 @@ def manual(entry: ManualEntry):
 
 
 # ============ 前端静态文件 ============
+_INDEX_CACHE = {"sig": None, "html": None}
+_INDEX_ASSETS = ("style.css", "app.js", "vendor/echarts.min.js")
+
+
+def _render_index():
+    """读 index.html，给 CSS/JS 引用注入 ?v=<mtime hex> 破缓存；sig 变化才重算。"""
+    idx = WEB_DIR / "index.html"
+    sig = (idx.stat().st_mtime, tuple((WEB_DIR / a).stat().st_mtime for a in _INDEX_ASSETS))
+    if _INDEX_CACHE["sig"] != sig:
+        html = idx.read_text("utf-8")
+        for a in _INDEX_ASSETS:
+            ver = format(int((WEB_DIR / a).stat().st_mtime), "x")
+            html = re.sub(rf'(/static/{re.escape(a)})(\?v=[a-f0-9]+)?', rf'\1?v={ver}', html)
+        _INDEX_CACHE["sig"] = sig
+        _INDEX_CACHE["html"] = html
+    return _INDEX_CACHE["html"]
+
+
 @app.get("/")
 def root():
-    return FileResponse(WEB_DIR / "index.html")
+    return HTMLResponse(_render_index(), headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 @app.get("/favicon.ico")
