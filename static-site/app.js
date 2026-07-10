@@ -342,7 +342,7 @@ function statsHint(stats, strategy, indexId) {
   if (freqBlocks.length) {
     freqHtml = `<div class="hint-header">📅 信号频率</div><div class="hint-blocks">${freqBlocks.join("")}</div>`;
   }
-  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="./trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" target="_blank" class="sim-btn" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
+  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="./trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     freqHtml +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
@@ -2179,8 +2179,36 @@ function initH5() {
   initH5Topbar();
 }
 
+// === 模拟回测全屏 iframe 覆盖层（左键点 sim-btn 在当前页覆盖打开，关闭后停留原位置不丢滚动状态）===
+function initSimOverlay() {
+  const overlay = document.createElement('div');
+  overlay.className = 'sim-overlay hidden';
+  overlay.innerHTML = '<button class="sim-close" aria-label="关闭回测" title="关闭">✕</button><iframe class="sim-frame" src="about:blank" title="模拟回测"></iframe>';
+  document.body.appendChild(overlay);
+  const frame = overlay.querySelector('.sim-frame');
+  const close = () => {
+    overlay.classList.add('hidden');
+    frame.src = 'about:blank';  // 停止 iframe 内脚本/动画
+    document.body.style.overflow = '';
+  };
+  overlay.querySelector('.sim-close').addEventListener('click', close);
+  // 事件委托：所有 .sim-btn（动态生成于 hint）左键在当前页覆盖打开 iframe；中键仍可新标签
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('.sim-btn');
+    if (!a) return;
+    e.preventDefault();
+    frame.src = a.href;
+    overlay.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) close();
+  });
+}
+
 initStickyOffset();
 initBackToTop();
 initRuleButton();
 initH5();
+initSimOverlay();
 renderTab();
