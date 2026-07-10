@@ -748,3 +748,36 @@ core 先上线时情绪分用昨日 width（宽度日变化小，偏差可接受
 
 ### 验证状态
 组件级全通过：bash -n 语法 / runner steps=[] 守卫 / with_lock 串行(2s) / busy_timeout=30000ms 生效 / signal_stats 原子写(无 .tmp 残留)。**完整端到端待手动跑** `bash scripts/update_all.sh`（会真采集+部署公网，mootdx ~10min）。
+
+## §13 多源补采 + launchd 定时 + 前端两项（2026-07-10，f2e710b/442f1e0/26f390b）
+
+### 痛点
+- 新浪指数主源 15:30 收盘后当日延迟（要到 16 点后才稳定有今日），导致 15:33 全量采集可能采到昨日。
+- 采集一直是**手动跑**，launchd 从未加载过。
+- 近期冰点/买卖点"今日"文字替换多余（用户要求只保留行背景色）；分享按钮旁无采集时间，用户无法判断数据新旧。
+
+### 多源补采（index_backfill.py）
+- `app/collector/index_backfill.py`：`CORE_A_INDICES` 映射 8 指数 → (baostock_code, tencent_symbol)。kc50 仅腾讯（baostock 缺）。
+- `verify_and_backfill_indices(date)`：查每个指数 `index_daily` 最新日期；缺则 baostock（跳 kc50）→ 腾讯兜底；全失败 `log_collect` 告警。返回 (ok, fail, details)。
+- **集成点**：`runner.py` step2 指数循环后调一次（主源当日延迟 → 自动兜底）。
+- **三源链路**：新浪（主，快）→ baostock（备1，7/8 覆盖）→ 腾讯（备2，全覆盖，慢）。
+
+### launchd 两个时间点（scripts/plists/）
+- `com.trade.update-all.plist`：**15:33** 全量采集（update_all.sh），RunAtLoad=false。
+- `com.trade.backfill-evening.plist`：**18:00** 轻量回填兜底（backfill_indices.sh → index_backfill.main()）。
+- `main()`：非交易日跳过；调 verify_and_backfill；有新数据则重算情绪分 + 推送公网，无则跳过（15:33 已采全或三源都缺）。
+- PATH 显式设 `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`（launchd 默认 PATH 极小，python3 在 homebrew）。
+- 加载：`launchctl load ~/Library/LaunchAgents/com.trade.{update-all,backfill-evening}.plist`。
+
+### 前端两项（26f390b）
+1. **取消今日替换**：`_renderSignalGrid` `dateLabel = fmtDate(dt)`（去掉🔥今日）；`fmtDate` 去今日判断纯格式化 MM-DD。今日行**仅靠 `today-row` 背景色**高亮。
+2. **采集时间显示**：分享按钮旁 `<span class="collect-time">`。
+   - 数据源 = `collect_log` 表最新 `run_at`（**脚本运行记录**，非 generated_at 收盘分析标签），格式 `YYYYMMDD HH:MM:SS`。
+   - `export.py` export_overview + `app/main.py` /api/overview 加 `collected_at` 字段（`run_at[:10].replace("-","") + " " + run_at[11:19]`）。
+   - `renderOverview`：PC 填 `数据采集时间：YYYYMMDD HH:MM:SS`，H5 @media 精简只填时间串。
+   - **双版同步**：static-site/ + web/ + app/main.py 全改；`bump_asset_version.py` 破缓存。
+
+### 验证
+- index_backfill 3 场景（全有/部分缺/全缺）通过。
+- launchctl list 确认两 plist 已加载（状态码 0）。
+- 前端双版一致性：🔥今日残留 0、collected_at 填 DOM 1、span 2（PC+H5）；`/api/overview` 返回 `collected_at='20260710 16:46:00'`、`date=20260710`；node -c 两 app.js 语法 OK。
