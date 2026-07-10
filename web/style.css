@@ -14,6 +14,35 @@ header {
   border-bottom: 1px solid #e5e6eb;
 }
 header h1 { font-size: 18px; margin: 0; }
+/* 分享按钮：PC header 右上角 */
+.pc-share-btn {
+  margin-left: auto;
+  border: 1px solid #165dff; background: #165dff; color: #fff;
+  border-radius: 16px; padding: 5px 14px; font-size: 13px; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.pc-share-btn:hover { opacity: 0.88; }
+/* H5 隐藏 PC 分享按钮（H5 用顶部条内的图标按钮） */
+.h5-share-btn { display: none; }
+
+/* 分享图 modal */
+.share-modal-body { width: min(96vw, 1120px); max-width: 1120px; max-height: 92vh; }
+.share-content { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 4px 4px; }
+.share-img { width: 100%; max-width: 540px; height: auto; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); }
+.share-download-btn {
+  display: inline-block; background: #165dff; color: #fff; text-decoration: none;
+  border-radius: 8px; padding: 10px 28px; font-size: 15px; font-weight: 600;
+}
+.share-download-btn:hover { opacity: 0.9; }
+@media (max-width: 768px) {
+  .pc-share-btn { display: none; }
+  .h5-share-btn {
+    display: inline-flex; border: 1px solid #d9dce0; background: #fff; border-radius: 12px;
+    padding: 3px 10px; font-size: 16px; cursor: pointer; color: #4e5969; line-height: 1;
+  }
+  .h5-share-btn:active { background: #f2f3f5; }
+  .share-img { max-width: 100%; }
+}
 .periods button {
   margin-left: 6px;
   padding: 6px 12px;

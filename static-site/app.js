@@ -2228,9 +2228,178 @@ function initSimOverlay() {
   });
 }
 
+// === 分享图：canvas 自绘品牌分享卡片（含当日关键数据 + 上证迷你走势 + 域名）===
+function _roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function _metricVal(metrics, id) {
+  const m = (metrics || []).find((x) => x.id === id);
+  return m ? m.value : null;
+}
+
+function drawShareCard(r) {
+  const W = 1080, H = 1350;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  // 背景渐变
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#1f2329"); g.addColorStop(1, "#2d3239");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.textBaseline = "alphabetic";
+
+  // 顶部品牌条
+  ctx.fillStyle = "#165dff";
+  _roundRect(ctx, 60, 60, 240, 64, 18); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.font = "bold 30px 'PingFang SC',sans-serif"; ctx.textBaseline = "middle";
+  ctx.fillText("📊 tdsignal", 84, 93);
+  ctx.fillStyle = "#aab2bd"; ctx.font = "26px 'PingFang SC',sans-serif";
+  ctx.fillText("trade-data-signal", 320, 93);
+
+  // 主标题
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#fff"; ctx.font = "bold 76px 'PingFang SC',sans-serif";
+  ctx.fillText("A股情绪看板", 60, 220);
+  ctx.fillStyle = "#aab2bd"; ctx.font = "32px 'PingFang SC',sans-serif";
+  ctx.fillText(`${fmtDate(r.date)} 收盘复盘`, 60, 272);
+
+  // 分隔线
+  ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(60, 320); ctx.lineTo(1020, 320); ctx.stroke();
+
+  // 情绪分卡片（3个）
+  const scores = r.today && r.today.scores || {};
+  const sentVal = scores.a_sentiment ? scores.a_sentiment.value : null;
+  const crossVal = scores.cross_market ? scores.cross_market.value : null;
+  const fgVal = scores.fear_greed ? scores.fear_greed.value : null;
+  const sentCards = [
+    { label: "A股情绪分", val: sentVal, tag: sentVal != null ? sentimentTag(sentVal) : "" },
+    { label: "跨市场评分", val: crossVal, tag: crossVal != null ? sentimentTag(crossVal) : "" },
+    { label: "恐贪指数", val: fgVal, tag: fgVal != null ? fearGreedLabel(fgVal) : "" },
+  ];
+  const metrics = r.today && r.today.metrics || [];
+  const zt = _metricVal(metrics, "a_width_zt_count");
+  const dt = _metricVal(metrics, "a_width_dt_count");
+  const amt = _metricVal(metrics, "a_amount");
+  const widthCards = [
+    { label: "涨停", val: zt, color: "#e6492e" },
+    { label: "跌停", val: dt, color: "#2e8b57" },
+    { label: "成交额(亿)", val: amt, color: "#165dff" },
+  ];
+
+  const cardW = 290, cardH = 150, gap = 25, startX = 60, startY = 360;
+  const drawDataCard = (c, x, y, idx) => {
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    _roundRect(ctx, x, y, cardW, cardH, 14); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+    _roundRect(ctx, x, y, cardW, cardH, 14); ctx.stroke();
+    ctx.fillStyle = "#aab2bd"; ctx.font = "26px 'PingFang SC',sans-serif";
+    ctx.fillText(c.label, x + 22, y + 44);
+    const v = c.val;
+    ctx.fillStyle = c.color || "#fff"; ctx.font = "bold 56px 'PingFang SC',sans-serif";
+    const vText = v == null ? "-" : (typeof v === "number" && Math.abs(v) >= 1000 ? v.toFixed(0) : (typeof v === "number" ? v.toFixed(1) : v));
+    ctx.fillText(vText, x + 22, y + 108);
+    if (c.tag) {
+      ctx.fillStyle = c.color || "#aab2bd"; ctx.font = "22px 'PingFang SC',sans-serif";
+      const tw = ctx.measureText(vText).width;
+      ctx.fillText("[" + c.tag + "]", x + 38 + tw, y + 108);
+    }
+  };
+  sentCards.forEach((c, i) => drawDataCard(c, startX + i * (cardW + gap), startY, i));
+  widthCards.forEach((c, i) => drawDataCard(c, startX + i * (cardW + gap), startY + cardH + gap, i));
+
+  // 上证迷你走势
+  const sparkY = startY + cardH * 2 + gap * 2 + 40;
+  const sps = r.indices_sparkline ? Object.values(r.indices_sparkline) : [];
+  const sh = sps.find((s) => /sh000001|上证/.test(s.id || s.name)) || sps[0];
+  if (sh && sh.closes && sh.closes.length > 1) {
+    ctx.fillStyle = "#aab2bd"; ctx.font = "26px 'PingFang SC',sans-serif";
+    ctx.fillText(`${sh.name} 近30日走势`, 60, sparkY - 16);
+    const up = (sh.pct_change || 0) >= 0;
+    const lineColor = up ? "#e6492e" : "#2e8b57";
+    const cx0 = 60, cy0 = sparkY, cw = W - 120, ch = 240;
+    ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
+    _roundRect(ctx, cx0, cy0, cw, ch, 12); ctx.stroke();
+    const closes = sh.closes;
+    const mn = Math.min(...closes), mx = Math.max(...closes);
+    const range = mx - mn || 1;
+    const pad = 20;
+    ctx.beginPath();
+    closes.forEach((v, i) => {
+      const x = cx0 + pad + (i / (closes.length - 1)) * (cw - pad * 2);
+      const y = cy0 + ch - pad - ((v - mn) / range) * (ch - pad * 2);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.lineTo(cx0 + cw - pad, cy0 + ch - pad);
+    ctx.lineTo(cx0 + pad, cy0 + ch - pad);
+    ctx.closePath();
+    ctx.fillStyle = lineColor; ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.beginPath();
+    closes.forEach((v, i) => {
+      const x = cx0 + pad + (i / (closes.length - 1)) * (cw - pad * 2);
+      const y = cy0 + ch - pad - ((v - mn) / range) * (ch - pad * 2);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = lineColor; ctx.lineWidth = 3; ctx.stroke();
+    // 涨跌幅标注
+    const sign = up ? "+" : "";
+    ctx.fillStyle = lineColor; ctx.font = "bold 28px 'PingFang SC',sans-serif";
+    ctx.fillText(`${sign}${(sh.pct_change || 0).toFixed(2)}%`, cx0 + cw - 140, cy0 + 36);
+  }
+
+  // 底部分隔 + 域名
+  ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(60, H - 150); ctx.lineTo(1020, H - 150); ctx.stroke();
+  ctx.fillStyle = "#165dff"; ctx.font = "bold 34px 'PingFang SC',sans-serif";
+  ctx.fillText("tdsignal-ujpzw01zm.maozi.io", 60, H - 95);
+  ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
+  ctx.fillText("盘后复盘 · 情绪数据 · 买卖点信号 · 行业热力图 · 模拟回测", 60, H - 55);
+  return canvas;
+}
+
+async function openShareModal() {
+  const r = await fetchJSON("./data/overview.json").catch(() => null);
+  if (!r) { alert("数据加载失败，无法生成分享图"); return; }
+  let modal = document.getElementById("share-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "share-modal";
+    modal.className = "rule-modal hidden";
+    modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body share-modal-body"><div class="rule-modal-header"><h3>📤 分享图</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content share-content"></div></div>';
+    document.body.appendChild(modal);
+    modal.querySelector(".rule-modal-close").addEventListener("click", () => modal.classList.add("hidden"));
+    modal.querySelector(".rule-modal-overlay").addEventListener("click", () => modal.classList.add("hidden"));
+  }
+  const content = modal.querySelector(".share-content");
+  content.innerHTML = '<div class="summary-history-loading">生成中…</div>';
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  try {
+    const canvas = drawShareCard(r);
+    const dataUrl = canvas.toDataURL("image/png");
+    content.innerHTML = `<img class="share-img" src="${dataUrl}" alt="tdsignal 情绪看板分享图"><a class="share-download-btn" href="${dataUrl}" download="tdsignal-${r.date}.png">⬇ 下载图片</a>`;
+  } catch (e) {
+    content.innerHTML = `<div class="summary-history-empty">生成失败：${e}</div>`;
+  }
+}
+
+function initShareButton() {
+  document.querySelectorAll(".share-btn").forEach((b) => {
+    b.addEventListener("click", openShareModal);
+  });
+}
+
 initStickyOffset();
 initBackToTop();
 initRuleButton();
 initH5();
 initSimOverlay();
+initShareButton();
 renderTab();
