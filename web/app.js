@@ -2140,9 +2140,10 @@ function initH5() {
 function initSimOverlay() {
   const overlay = document.createElement('div');
   overlay.className = 'sim-overlay';  // CSS 默认 opacity:0/visibility:hidden 隐藏
-  overlay.innerHTML = '<div class="sim-window"><button class="sim-close" aria-label="关闭回测" title="关闭">✕</button><iframe class="sim-frame" src="about:blank" title="模拟回测"></iframe></div>';
+  overlay.innerHTML = '<div class="sim-window"><div class="sim-loading"><span class="sim-spinner"></span>加载回测中…</div><button class="sim-close" aria-label="关闭回测" title="关闭">✕</button><iframe class="sim-frame" src="about:blank" title="模拟回测"></iframe></div>';
   document.body.appendChild(overlay);
   const frame = overlay.querySelector('.sim-frame');
+  const loading = overlay.querySelector('.sim-loading');
   let closeTimer = null;
   const close = () => {
     overlay.classList.remove('show');
@@ -2158,10 +2159,12 @@ function initSimOverlay() {
     if (!a) return;
     e.preventDefault();
     clearTimeout(closeTimer);
+    loading.classList.add('show');            // 显示 loading（iframe 加载期间盖白屏）
     frame.src = a.href;
     overlay.classList.add('show');
     document.body.style.overflow = 'hidden';
   });
+  frame.addEventListener('load', () => { loading.classList.remove('show'); });  // iframe 加载完隐藏 loading
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && overlay.classList.contains('show')) close();
   });
