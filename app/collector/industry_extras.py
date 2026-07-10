@@ -90,8 +90,8 @@ def fetch_fund_flow(em_code):
             "fields1": "f1,f2,f3,f7",
             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
             "ut": "b2884a393a59ad64002292a3e90d46a5",
-        }, timeout=15)
-    r = safe_call(_fetch, retries=3)
+        }, timeout=5)
+    r = safe_call(_fetch, retries=0)
     if isinstance(r, Exception) or r is None:
         return [], f"fflow error: {r}"
     try:
@@ -125,8 +125,8 @@ def fetch_turnover(em_code, beg="20240101", end="20261231"):
             "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
             "klt": "101", "fqt": "1", "beg": beg, "end": end,
             "ut": "fa5fd1943c7b386f172d6893dbbd1",
-        }, timeout=15)
-    r = safe_call(_fetch, retries=3)
+        }, timeout=5)
+    r = safe_call(_fetch, retries=0)
     if isinstance(r, Exception) or r is None:
         return [], f"kline error: {r}"
     try:
@@ -157,10 +157,13 @@ def collect_industry_extras(verbose=True):
     ok = fail = 0
     details = []
     items = list(SW_EM_MAP.items())
+    consec_fail = 0  # 连续全失败行业数（东财封 IP 检测，达阈值提前结束避免空等）
+    ABORT_THRESHOLD = 3
     for i, (sw_id, em_code) in enumerate(items):
         # 资金流
         rows, msg = fetch_fund_flow(em_code)
-        if rows:
+        flow_ok = bool(rows)
+        if flow_ok:
             _upsert_many(f"ind_flow_{sw_id}", rows)
             ok += 1
             details.append((f"ind_flow_{sw_id}", "ok", f"{len(rows)} rows"))
@@ -171,11 +174,12 @@ def collect_industry_extras(verbose=True):
             details.append((f"ind_flow_{sw_id}", "fail", msg))
             if verbose:
                 print(f"  [{i+1}/{len(items)}] ind_flow_{sw_id} FAIL: {msg}", flush=True)
-        time.sleep(2.0)  # 额外节流，防东财连接级封 IP
+        time.sleep(0.5)
 
         # 换手率
         rows, msg = fetch_turnover(em_code)
-        if rows:
+        turn_ok = bool(rows)
+        if turn_ok:
             _upsert_many(f"ind_turn_{sw_id}", rows)
             ok += 1
             details.append((f"ind_turn_{sw_id}", "ok", f"{len(rows)} rows"))
@@ -186,7 +190,20 @@ def collect_industry_extras(verbose=True):
             details.append((f"ind_turn_{sw_id}", "fail", msg))
             if verbose:
                 print(f"  [{i+1}/{len(items)}] ind_turn_{sw_id} FAIL: {msg}", flush=True)
-        time.sleep(2.0)
+        time.sleep(0.5)
+
+        # 连续全失败 -> 东财封 IP，提前结束避免剩余行业空等重试
+        if not flow_ok and not turn_ok:
+            consec_fail += 1
+            if consec_fail >= ABORT_THRESHOLD:
+                skip_n = len(items) - i - 1
+                details.append(("industry_extras", "skip",
+                                f"连续{ABORT_THRESHOLD}行业全失败(东财封IP),跳过剩余{skip_n}行业"))
+                if verbose:
+                    print(f"  ⚠ 连续{ABORT_THRESHOLD}个行业全失败(东财封IP),提前结束剩余{skip_n}个行业", flush=True)
+                break
+        else:
+            consec_fail = 0
 
     if verbose:
         print(f"=== 行业资金流/换手率采集完成: ok={ok} fail={fail} ===")

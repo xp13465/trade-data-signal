@@ -295,6 +295,12 @@ def update_one(code: str, progress: dict[str, str] | None = None,
         today = dt.date.today().strftime("%Y%m%d")
     last = progress.get(code)
 
+    # 增量跳过：今天已采（last>=today）直接返回，不发 TCP 请求。
+    # mootdx 是 5203 codes 串行主力，update_all 当日重复跑或多数 code 当日已采，
+    # 跳过省 ~10-25min。日 K 未收盘本就无新数据，last>=today 跳过安全。
+    if last and last >= today:
+        return 0, f"up-to-date (last={last})", client
+
     rows, msg, client = fetch_one(code, client=client, max_pages=MAX_PAGES_INC)
     if not rows:
         return 0, msg, client

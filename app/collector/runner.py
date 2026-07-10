@@ -203,26 +203,31 @@ def run(date=None, verbose=True):
         fail += 1
         details.append(("stock_daily", "fail", str(e)[:150]))
 
-    # 6) BaoStock 日线增量更新（D3，BaoStock 走自己服务，不受东财封锁影响）
-    # 仅对已有 progress 的 code 增量（已 backfill 过的）；未 backfill 的由
-    # `python -m app.collector.baostock_daily recent` 手动跑（避免 scheduler 触发全量回填）。
-    try:
-        from . import baostock_daily
-        prog = baostock_daily.load_progress()
-        todo = [c for c, v in prog.items() if v.get("r")]  # 已 backfill recent 段的 code
-        if todo:
-            res = baostock_daily.run_update(todo, verbose=verbose)
-            ok += res["ok"]
-            fail += res["fail"]
-            details.append(("baostock_daily", "ok" if res["fail"] == 0 else "fail",
-                            f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
-                            f"({len(todo)} codes)"))
-        else:
-            details.append(("baostock_daily", "ok",
-                            "skip (no progress yet, run `baostock_daily recent` manually)"))
-    except Exception as e:  # noqa: BLE001
-        fail += 1
-        details.append(("baostock_daily", "fail", str(e)[:150]))
+    # 6) BaoStock 日线增量更新 -- 默认跳过：baostock_daily_raw 仅手动 cleanup_d3d2 读，
+    # 日常看板/导出不依赖（全 A 股日线主力是 mootdx_daily）。5072 codes 串行 + 45% 失败
+    # 重试耗时 ~1h，故日常不跑；需补数据时手动 `python -m app.collector.baostock_daily recent`，
+    # 或设环境变量 RUN_BAOSTOCK=1 临时启用本步。
+    import os
+    if os.environ.get("RUN_BAOSTOCK"):
+        try:
+            from . import baostock_daily
+            prog = baostock_daily.load_progress()
+            todo = [c for c, v in prog.items() if v.get("r")]  # 已 backfill recent 段的 code
+            if todo:
+                res = baostock_daily.run_update(todo, verbose=verbose)
+                ok += res["ok"]
+                fail += res["fail"]
+                details.append(("baostock_daily", "ok" if res["fail"] == 0 else "fail",
+                                f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
+                                f"({len(todo)} codes)"))
+            else:
+                details.append(("baostock_daily", "ok", "skip (no progress)"))
+        except Exception as e:  # noqa: BLE001
+            fail += 1
+            details.append(("baostock_daily", "fail", str(e)[:150]))
+    else:
+        details.append(("baostock_daily", "ok",
+                        "skip (日常不跑; 需时 RUN_BAOSTOCK=1 或手动 `baostock_daily recent`)"))
 
     # 7) mootdx 日线增量更新（D1 主力，TCP 7709 不封 IP，akshare 东财封锁后改用）
     # 仅对已有 progress 的 code 增量（已 backfill 过的）；未 backfill 的由
