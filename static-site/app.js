@@ -750,7 +750,7 @@ async function renderOverview() {
       banner.className = "summary-banner";
       const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
       const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
-      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${s.generated_at || ""}</span><button class="summary-history-btn" title="查看历史一句话总结">📜 更多</button></div>`;
+      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${(s.generated_at || "").replace(/^\d+月\d+日\s*/, "")}</span><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></div>`;
       content.insertBefore(banner, content.firstChild);
       const histBtn = banner.querySelector(".summary-history-btn");
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
@@ -2095,7 +2095,7 @@ function initBackToTop() {
   onScroll();
 }
 
-// ---- 历史一句话总结弹窗（横幅"更多"按钮触发）----
+// ---- 历史收盘分析弹窗（横幅"更多"按钮触发）----
 let _summaryHistoryState = { page: 0, limit: 15, total: 0, cache: null };
 
 function _summaryHistoryModalEl() {
@@ -2104,7 +2104,7 @@ function _summaryHistoryModalEl() {
   modal = document.createElement("div");
   modal.id = "summaryHistoryModal";
   modal.className = "rule-modal hidden";
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body summary-history-body"><div class="rule-modal-header"><h3>📜 历史一句话总结</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="summary-history-list"></div><div class="summary-history-pager"><button class="sh-prev">上一页</button><span class="sh-page"></span><button class="sh-next">下一页</button></div></div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body summary-history-body"><div class="rule-modal-header"><h3>📜 历史收盘分析</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="summary-history-list"></div><div class="summary-history-pager"><button class="sh-prev">上一页</button><span class="sh-page"></span><button class="sh-next">下一页</button></div></div></div>';
   document.body.appendChild(modal);
   modal.querySelector(".rule-modal-overlay").addEventListener("click", closeSummaryHistoryModal);
   modal.querySelector(".rule-modal-close").addEventListener("click", closeSummaryHistoryModal);
@@ -2194,7 +2194,7 @@ async function initH5Topbar() {
   try {
     const s = await fetchJSON(SUMMARY_URL);
     const gen = document.querySelector(".h5-gen");
-    if (gen) gen.textContent = s.generated_at || "";
+    if (gen) gen.textContent = (s.generated_at || "").replace(/^\d+月\d+日\s*/, "");
   } catch (e) {}
   const histBtn = document.querySelector(".h5-history-btn");
   if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);

@@ -1074,7 +1074,7 @@ main { padding: 16px 24px; }
 }
 .summary-history-btn:hover { background: #0e4ed6; }
 
-/* ---- 历史一句话总结弹窗（宽度与"买卖点策略说明"弹窗一致） ---- */
+/* ---- 历史收盘分析弹窗（宽度与"买卖点策略说明"弹窗一致） ---- */
 .summary-history-body { max-width: 820px; }
 .summary-history-list {
   max-height: 65vh;
@@ -1278,7 +1278,7 @@ main { padding: 16px 24px; }
   .h5-meta { display: flex; align-items: center; gap: 6px; }
   .h5-gen { font-size: 11px; color: #86909c; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pc-collect-time { display: none; }
-  .h5-collect-time { display: inline; font-size: 10px; color: #86909c; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .h5-collect-time { display: inline; font-size: 10px; color: #86909c; white-space: nowrap; }
   .h5-history-btn {
     border: 1px solid #d9dce0; background: #fff; border-radius: 12px;
     padding: 3px 10px; font-size: 12px; cursor: pointer; color: #4e5969;
