@@ -1649,7 +1649,7 @@ main { padding: 16px 24px; }
 .lab-mp { font-size: 11px; color: #86909c; }
 .lab-mn { font-size: 10px; color: #c9cdd4; }
 .lab-matrix-pass {
-  background: #e8f5e9;
+  border: 2px solid #52c41a;
 }
 .lab-matrix-pass .lab-mw { color: #2e7d32; }
 .lab-matrix-na { color: #c9cdd4; }
@@ -1657,6 +1657,40 @@ main { padding: 16px 24px; }
 .lab-matrix-source { font-size: 11px; color: #86909c; margin-bottom: 2px; }
 .lab-matrix-note { font-size: 11px; color: #c9cdd4; }
 .lab-matrix-empty { font-size: 13px; color: #c9cdd4; text-align: center; padding: 20px; }
+
+/* 自白黄块（多段） */
+.lab-warning-essay { padding: 10px 14px; line-height: 1.6; }
+.lab-warning-essay .lab-warning-head { font-weight: 600; margin-bottom: 4px; }
+.lab-warning-essay p { margin: 4px 0; font-weight: 400; font-size: 12.5px; color: #874d00; }
+.lab-warning-essay strong { color: #d4380d; font-weight: 700; }
+
+/* 矩阵三色分级 */
+.lab-matrix-good { background: #f0f9eb; }
+.lab-matrix-warn { background: #fffbe6; }
+.lab-matrix-bad { background: #fff1f0; }
+.lab-matrix-bad .lab-mw { color: #c92a2a; }
+.lab-matrix-good .lab-mw { color: #2e7d32; }
+
+/* 矩阵格内：平均收益 + 100元换算 */
+.lab-mm { font-size: 11px; color: #4e5969; }
+.lab-my { font-size: 10px; color: #9c27b0; }
+
+/* 矩阵图例栏 */
+.lab-matrix-legend {
+  font-size: 12px; color: #4e5969; background: #f7f8fa;
+  padding: 8px 10px; border-radius: 6px; margin-bottom: 8px;
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+}
+.lab-matrix-legend b { color: #1f2329; }
+.lab-matrix-legend span { white-space: nowrap; }
+.lab-matrix-tip {
+  font-size: 11px; color: #ad6800; background: #fff9e6;
+  padding: 6px 10px; border-radius: 4px; margin-bottom: 8px;
+}
+.lab-matrix-legend-color {
+  display: flex; gap: 10px; margin-top: 6px; font-size: 11px;
+}
+.lab-matrix-legend-color span { padding: 2px 8px; border-radius: 3px; font-weight: 500; }
 
 /* H5 适配 */
 @media (max-width: 600px) {

@@ -2694,7 +2694,7 @@ function _labFmt(v, isPct) {
   return v.toFixed(2);
 }
 
-// 渲染多周期回测矩阵
+// 渲染多周期回测矩阵（散户化：胜率/平均收益/100元换算/盈亏比/样本 + 三色分级）
 function renderLabMatrix(strategyData) {
   if (!strategyData || !strategyData.periods) {
     return '<div class="lab-matrix-empty">暂无回测数据</div>';
@@ -2714,10 +2714,25 @@ function renderLabMatrix(strategyData) {
         const winPct = (cell.win * 100).toFixed(1) + "%";
         const pl = cell.pl.toFixed(2);
         const n = cell.n;
-        // 达标高亮：胜率>50% 且 盈亏比>1
+        const meanStr = (cell.mean > 0 ? "+" : "") + (cell.mean * 100).toFixed(1) + "%";
+        const yuan100 = (100 * (1 + cell.mean)).toFixed(1);
+        // 三色分级：综合 win/pl/mean
+        const winLv = cell.win > 0.55 ? "good" : cell.win >= 0.45 ? "warn" : "bad";
+        const plLv = cell.pl > 1.3 ? "good" : cell.pl >= 1.0 ? "warn" : "bad";
+        const meanLv = cell.mean > 0 ? "good" : "bad";
+        const goods = [winLv, plLv, meanLv].filter(x => x === "good").length;
+        const bads = [winLv, plLv, meanLv].filter(x => x === "bad").length;
+        const lvl = goods >= 2 ? "good" : bads >= 2 ? "bad" : "warn";
+        // 达标边框（保留原逻辑）
         const pass = cell.win > 0.5 && cell.pl > 1;
-        const cls = pass ? "lab-matrix-cell lab-matrix-pass" : "lab-matrix-cell";
-        html += `<td class="${cls}"><span class="lab-mw">${winPct}</span><span class="lab-mp">PL ${pl}</span><span class="lab-mn">n=${n}</span></td>`;
+        const cls = `lab-matrix-cell lab-matrix-${lvl}` + (pass ? " lab-matrix-pass" : "");
+        html += `<td class="${cls}">` +
+          `<span class="lab-mw">胜率 ${winPct}</span>` +
+          `<span class="lab-mm">平均 ${meanStr}</span>` +
+          `<span class="lab-my">100元→${yuan100}元</span>` +
+          `<span class="lab-mp">盈亏比 ${pl}</span>` +
+          `<span class="lab-mn">样本 n=${n}</span>` +
+          `</td>`;
       }
     });
     html += '</tr>';
@@ -2752,13 +2767,18 @@ async function renderLabDetail(key) {
     `<span class="lab-tag-side">${meta.side === "buy" ? "买点" : "卖点"}</span>`;
   content.appendChild(header);
 
-  // 警示条（非生产策略）
-  if (meta.status !== "live") {
-    const warn = document.createElement("div");
-    warn.className = "lab-warning";
-    warn.textContent = "⚠ " + (meta.status === "excluded" ? "已排除策略，仅供反面参考" : meta.status === "experimental" ? "实验中策略，非生产信号，仅供参考" : "开发中策略，尚未实盘验证，仅供参考");
-    content.appendChild(warn);
-  }
+  // 实验室自白黄块（所有策略都显示，通用介绍 + 抖音号）
+  const warnHead = meta.status === "excluded" ? "⚠ 已排除策略 · 反面参考"
+    : meta.status === "experimental" ? "⚠ 实验中策略 · 非生产信号"
+    : meta.status === "live" ? "⚠ 生产策略 · 已上线参考"
+    : "⚠ 开发中策略 · 非生产信号";
+  const warn = document.createElement("div");
+  warn.className = "lab-warning lab-warning-essay";
+  warn.innerHTML =
+    `<div class="lab-warning-head">${warnHead}</div>` +
+    `<p>本实验室用历史数据回测，校验网上流传的交易策略与买卖信号是否真的可靠，避免盲目跟风。我们会定期收录热门策略在此验证，表现稳健的将纳入主功能图表融合上线。</p>` +
+    `<p>有好的策略建议或测试想法，欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
+  content.appendChild(warn);
 
   // 文案区
   const docCard = document.createElement("div");
@@ -2847,10 +2867,17 @@ async function renderLabDetail(key) {
   const genAt = data ? data.generated_at : "";
   matrixCard.innerHTML =
     '<h3>📊 多周期回测矩阵</h3>' +
+    '<div class="lab-matrix-legend"><b>怎么看这张表：</b>' +
+    '<span><b>胜率</b>=信号后上涨(买)/下跌(卖)概率</span>' +
+    '<span><b>平均收益</b>=每次操作平均赚多少(含亏的)</span>' +
+    '<span><b>盈亏比</b>=平均赚÷平均亏，&gt;1才划算</span>' +
+    '<span><b>样本</b>=测试了多少次信号</span></div>' +
+    '<div class="lab-matrix-tip">⚠ 以上为单次操作平均收益，非连续复利；信号触发不定期，不可直接相乘。</div>' +
     '<div class="lab-matrix-wrap">' + renderLabMatrix(stratData) + '</div>' +
     '<div class="lab-matrix-foot">' +
     '<div class="lab-matrix-source">数据来源：08-买卖点策略深度回测（重跑于 ' + (genAt || '2026-07-11') + '）</div>' +
-    '<div class="lab-matrix-note">买点胜率=收益>0占比；卖点胜率=收益<0占比。绿色=胜率>50%且盈亏比>1（达标）。</div>' +
+    '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价买入，持有 N 个交易日后按收盘价卖出，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>买点胜率</b>=信号后上涨占比；<b>卖点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见模拟回测（开发中）。</div>' +
+    '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">绿=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">红=差</span></div>' +
     '</div>';
   content.appendChild(matrixCard);
 }
