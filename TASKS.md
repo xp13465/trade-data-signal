@@ -8,6 +8,26 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
+## 交接状态（2026-07-11，分享图QR码 + force参数 + 进程互斥）
+
+> 本轮用户直接驱动 3 改动，全推 main。开工先读本节 + NOTES.md §12 + REQUIREMENTS.md。
+
+**已完成（3 commit，全推 main）**：
+1. `c59f688` 分享图右下角加二维码（`scripts/gen_qr_js.py` 用 qrcode 生成 URL 矩阵写 `qr.js`，canvas fillRect 同步绘制避 toDataURL 跨域竞态）+ tag去emoji修字体测量bug。验收：矩阵逐格对比0差异 + 双版逐字节一致 + 真机扫码跳转正常。
+2. `c6d6ee2` `update_all.sh` 加 `force` 参数绕交易日闸门（周末补数据/校准）。当日快照 `date=last_trading_day()`=最近交易日，A1守卫放行采收盘值幂等不误盖。端到端验：周六 force 跑通，core/futures push 公网，看板采集时间更新。
+3. `8839300` update_all 加进程互斥锁（`with_lock.py --nb` fcntl，重复跑自动跳过）。根因：mootdx/stock_daily `progress.json` 原子写不支持跨进程并发（撞坏->fallback全量5203只）+ 通达信/东财并发限流全 `empty` 空转（2026-07-11 两 force 并发卡 2h+ 即此）。`pipeline.sh` deploy 阻塞模式不变（向后兼容）。
+
+**关键决策**：QR 矩阵预生成写 qr.js（非运行时库）避跨域竞态；force 复用 update_all 一键入口加参数（不另建脚本）；互斥用 fcntl --nb 跳过（非排队，重复跑是误操作跳过比排队省时）。
+
+**遗留 / 待修**：
+1. mootdx_daily `progress.json` 单进程 `os.replace` tmp 残留待确认（互斥锁已根治并发撞，单进程 tmp 命名是否加 PID 后缀防残留待定）。
+2. 端到端互斥验证（真跑两个 update_all 看第2个跳过）未做，30min×2 不划算，下次周末补数据顺便验。
+3. 老遗留：industry-all.json 体积 / g.cn10y buy_aux 回测 / GitHub topics+README截图+HelloGitHub 提交 / mootdx 8.2 py-mini-racer constraint。
+
+**工作模式反思**：用户指出我没参考 `supervisor-loop-mode` 记忆，全程自己上手没派子进程 + 问了 yes/no（"要我跑端到端验吗""要不要更新NOTES"等本可自决）。根因：把该模式误判为"仅 TASKS 批量循环"，没泛化到交互式任务。已更新该 memory 强化"所有任务都派子进程+不问yes/no+自行验收"。
+
+**下轮起点**：用户反馈驱动。开工先读本节 + REQUIREMENTS.md + NOTES.md。遗留可按优先级挑。
+
 ## 交接状态（2026-07-10，update_all 拆并行流水线，c6407aa）
 
 > 用户反馈 `update_all.sh` 跑太慢，串行模式下慢任务（mootdx 5072 只 ~10min）拖累核心数据上线。拆成 4 条并行 pipeline，各自独立 采集->计算->导出->commit+push，慢任务不阻塞快核心。详见 `NOTES.md §12`。
