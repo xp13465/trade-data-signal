@@ -2490,7 +2490,7 @@ function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
 }
 
 // === 22策略元数据注册表（分区/状态/触发/结论/理论/场景/注意/08报告结论）===
-// 文案来源：08-买卖点策略深度回测.md（重跑于 2026-07-11，244资产全史/近10年/近5年/近3年/近1年 × 5d/10d/20d/60d）
+// 文案来源：买卖点策略深度回测.md（重跑于 2026-07-11，244资产全史/近10年/近5年/近3年/近1年 × 5d/10d/20d/60d）
 // zone: buy=候选买点 / sell=候选卖点 / excluded=已排除 / prod=生产参考
 // status: live=已上线生产 / experimental=实验中 / dev=开发中 / excluded=已排除
 const LAB_STRATEGIES = {
@@ -2884,7 +2884,7 @@ function _labWarningEssayHTML(status) {
     : status === "experimental" ? "⚠ 实验中策略 · 非生产信号"
     : status === "live" ? "⚠ 生产策略 · 已上线参考"
     : status ? "⚠ 开发中策略 · 非生产信号"
-    : "⚠ 策略实验室 · 候选/实验中策略非生产信号，仅供参考";
+    : "⚠ 候选/实验中策略非生产信号，仅供参考";
   return `<div class="lab-warning-head">${head}</div>` +
     `<p>本实验室用历史数据回测，校验网上流传的交易策略与买卖信号是否真的可靠，避免盲目跟风。我们会定期收录热门策略在此验证，表现稳健的将纳入主功能图表融合上线。</p>` +
     `<p>有好的策略建议或测试想法，欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
@@ -3018,7 +3018,7 @@ async function renderLabDetail(key) {
     '<div class="lab-matrix-tip">⚠ 以上为单次操作平均收益，非连续复利；信号触发不定期，不可直接相乘。</div>' +
     '<div class="lab-matrix-wrap">' + renderLabMatrix(stratData) + '</div>' +
     '<div class="lab-matrix-foot">' +
-    '<div class="lab-matrix-source">数据来源：08-买卖点策略深度回测（重跑于 ' + (genAt || '2026-07-11') + '）</div>' +
+    '<div class="lab-matrix-source">数据来源：买卖点策略深度回测（基于历史数据验证，重跑于 ' + (genAt || '2026-07-11') + '）</div>' +
     '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价买入，持有 N 个交易日后按收盘价卖出，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>买点胜率</b>=信号后上涨占比；<b>卖点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见下方模拟回测。</div>' +
     '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">红=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">绿=差</span></div>' +
     '</div>';
@@ -3040,12 +3040,6 @@ async function renderSignalLab() {
   }
 
   content.innerHTML = "";
-
-  // 警示条
-  const warn = document.createElement("div");
-  warn.className = "lab-warning";
-  warn.textContent = "⚠ 策略实验室：候选/实验中策略非生产信号，仅供参考。多周期回测矩阵数据来自08-买卖点策略深度回测。";
-  content.appendChild(warn);
 
   // 标题
   const h = document.createElement("h2");
