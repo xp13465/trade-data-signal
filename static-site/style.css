@@ -1052,8 +1052,8 @@ main { padding: 16px 24px; }
 }
 .summary-history-btn:hover { background: #0e4ed6; }
 
-/* ---- 历史一句话总结弹窗 ---- */
-.summary-history-body { max-width: 720px; }
+/* ---- 历史一句话总结弹窗（宽度与"买卖点策略说明"弹窗一致） ---- */
+.summary-history-body { max-width: 820px; }
 .summary-history-list {
   max-height: 65vh;
   overflow-y: auto;
