@@ -8,6 +8,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 相关文件：`REQUIREMENTS.md`（需求 + 实现状态 + §9 变更史）、`NOTES.md`（调研 + 修复史）、`05-回归测试报告.md`（本轮回归）、`01-问题清单.md`（上轮 bug）、`config/indicators.yaml`（指标注册表）、`app/`（采集 + 计算 + API）、`web/`（前端）。
 
+> ⚠ 开工先看 `data/alerts/latest.md` 是否有未处理严重告警，有则优先排查。
+
 ## 交接状态（2026-07-11，分享图QR码 + force参数 + 进程互斥）
 
 > 本轮用户直接驱动 3 改动，全推 main。开工先读本节 + NOTES.md §12 + REQUIREMENTS.md。
