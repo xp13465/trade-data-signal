@@ -1900,10 +1900,10 @@ async function renderRotationCard(container) {
     const concept = latest.concept || {};
 
     function speedLabel(v) {
-      if (v == null) return { text: "N/A", cls: "" };
-      if (v >= 60) return { text: "快速轮动", cls: "fast" };
-      if (v >= 30) return { text: "中等轮动", cls: "mid" };
-      return { text: "轮动缓慢", cls: "slow" };
+      if (v == null) return { text: "N/A", cls: "", short: "-" };
+      if (v >= 60) return { text: "快速轮动", cls: "fast", short: "快" };
+      if (v >= 30) return { text: "中等轮动", cls: "mid", short: "中" };
+      return { text: "轮动缓慢", cls: "slow", short: "慢" };
     }
     function speedHint(v) {
       if (v == null) return "";
@@ -1916,6 +1916,9 @@ async function renderRotationCard(container) {
     const sw10 = speedLabel(sw.speed_10d);
     const sw20 = speedLabel(sw.speed_20d);
     const swHint = speedHint(sw.speed_5d);
+    const c5 = speedLabel(concept.speed_5d);
+    const c10 = speedLabel(concept.speed_10d);
+    const c20 = speedLabel(concept.speed_20d);
 
     const card = document.createElement("div");
     card.className = "rotation-card";
@@ -1924,16 +1927,16 @@ async function renderRotationCard(container) {
       <div class="rotation-card-body">
         <div class="rotation-row">
           <span class="rotation-label">申万行业</span>
-          <span class="rotation-item ${sw5.cls}">5日: ${sw.speed_5d != null ? sw.speed_5d + "%" : "N/A"} ${sw5.text}</span>
-          <span class="rotation-item ${sw10.cls}">10日: ${sw.speed_10d != null ? sw.speed_10d + "%" : "N/A"} ${sw10.text}</span>
-          <span class="rotation-item ${sw20.cls}">20日: ${sw.speed_20d != null ? sw.speed_20d + "%" : "N/A"} ${sw20.text}</span>
+          <span class="rotation-item ${sw5.cls}">5日: ${sw.speed_5d != null ? sw.speed_5d + "%" : "N/A"} <span class="rit-full">${sw5.text}</span><span class="rit-short">${sw5.short}</span></span>
+          <span class="rotation-item ${sw10.cls}">10日: ${sw.speed_10d != null ? sw.speed_10d + "%" : "N/A"} <span class="rit-full">${sw10.text}</span><span class="rit-short">${sw10.short}</span></span>
+          <span class="rotation-item ${sw20.cls}">20日: ${sw.speed_20d != null ? sw.speed_20d + "%" : "N/A"} <span class="rit-full">${sw20.text}</span><span class="rit-short">${sw20.short}</span></span>
         </div>
         ${concept.speed_5d != null ? `
         <div class="rotation-row">
           <span class="rotation-label">概念板块</span>
-          <span class="rotation-item ${speedLabel(concept.speed_5d).cls}">5日: ${concept.speed_5d}% ${speedLabel(concept.speed_5d).text}</span>
-          <span class="rotation-item ${speedLabel(concept.speed_10d).cls}">10日: ${concept.speed_10d}% ${speedLabel(concept.speed_10d).text}</span>
-          <span class="rotation-item ${speedLabel(concept.speed_20d).cls}">20日: ${concept.speed_20d}% ${speedLabel(concept.speed_20d).text}</span>
+          <span class="rotation-item ${c5.cls}">5日: ${concept.speed_5d}% <span class="rit-full">${c5.text}</span><span class="rit-short">${c5.short}</span></span>
+          <span class="rotation-item ${c10.cls}">10日: ${concept.speed_10d}% <span class="rit-full">${c10.text}</span><span class="rit-short">${c10.short}</span></span>
+          <span class="rotation-item ${c20.cls}">20日: ${concept.speed_20d}% <span class="rit-full">${c20.text}</span><span class="rit-short">${c20.short}</span></span>
         </div>` : ""}
         <div class="rotation-hint">💡 ${swHint}</div>
         <details class="rotation-explain"><summary>📊 这个百分比怎么看？</summary><div class="rotation-explain-body">

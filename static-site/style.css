@@ -1237,6 +1237,7 @@ main { padding: 16px 24px; }
 .rotation-item.fast { background: #fff3e0; color: #e67e22; font-weight: 500; }
 .rotation-item.mid { background: #fffde7; color: #f9a825; font-weight: 500; }
 .rotation-item.slow { background: #e8f5e9; color: #2e7d32; font-weight: 500; }
+.rit-short { display: none; }
 .rotation-hint {
   font-size: 12px;
   color: #86909c;
@@ -1332,6 +1333,14 @@ main { padding: 16px 24px; }
   .chart-hint .hint-row { flex-wrap: wrap; gap: 2px 8px; }
   .chart-hint { padding: 6px 8px; font-size: 11px; }
   .chart-hint .hint-stat, .chart-hint .hint-kelly, .chart-hint .hint-note, .chart-hint .hint-sig { font-size: 11px; }
+
+  /* 板块轮动速度卡片：移动端 grid 3列等宽 + 缩文案（快/中/慢），申万/概念两行结构一致 */
+  .rotation-card { padding: 10px 12px; }
+  .rotation-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 8px; }
+  .rotation-label { grid-column: 1 / -1; min-width: 0; margin-bottom: 2px; }
+  .rotation-item { font-size: 11px; padding: 2px 4px; text-align: center; justify-content: center; }
+  .rit-full { display: none; }
+  .rit-short { display: inline; }
 
   /* sticky 规则条/锚点条让位 H5 周期条：rule-bar 取消 sticky，anchor-bar 下移到周期条下 */
   .rule-bar { position: static; }
