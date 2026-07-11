@@ -749,6 +749,12 @@ core 先上线时情绪分用昨日 width（宽度日变化小，偏差可接受
 ### 验证状态
 组件级全通过：bash -n 语法 / runner steps=[] 守卫 / with_lock 串行(2s) / busy_timeout=30000ms 生效 / signal_stats 原子写(无 .tmp 残留)。**完整端到端待手动跑** `bash scripts/update_all.sh`（会真采集+部署公网，mootdx ~10min）。
 
+### force 参数（周末补数据/校准，c6d6ee2）
+- `bash scripts/update_all.sh force` 绕交易日闸门强制全量采集；无参仍走闸门（非交易日仅 deploy+check_signals）。
+- 场景：周一到周五忘跑，周末补漏跑日。回填类 step（`collect_series` / `width_history.run_recent` / mootdx 增量）不依赖"今天交易日"，源周末有历史数据。
+- 当日快照 `date=last_trading_day()`=最近交易日，A1 守卫放行采收盘值，幂等不误盖（不会把上周五数据盖成今天）。
+- launchd 15:33 无参不变；force 仅手动触发。
+
 ## §13 多源补采 + launchd 定时 + 前端两项（2026-07-10，f2e710b/442f1e0/26f390b）
 
 ### 痛点
