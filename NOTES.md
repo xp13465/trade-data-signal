@@ -776,7 +776,7 @@ core 先上线时情绪分用昨日 width（宽度日变化小，偏差可接受
 
 ### launchd 两个时间点（scripts/plists/）
 - `com.trade.update-all.plist`：**15:33** 全量采集（update_all.sh），RunAtLoad=false。
-- `com.trade.backfill-evening.plist`：**18:00** 轻量回填兜底（backfill_indices.sh → index_backfill.main()）。
+- `com.trade.backfill-evening.plist`：**20:00** 轻量回填兜底（backfill_indices.sh → index_backfill.main()）。
 - `main()`：非交易日跳过；调 verify_and_backfill；有新数据则重算情绪分 + 推送公网，无则跳过（15:33 已采全或三源都缺）。
 - PATH 显式设 `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`（launchd 默认 PATH 极小，python3 在 homebrew）。
 - 加载：`launchctl load ~/Library/LaunchAgents/com.trade.{update-all,backfill-evening}.plist`。

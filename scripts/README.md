@@ -137,7 +137,7 @@ RUN_BAOSTOCK=1 /bin/bash /Users/linhuichen/code/trade/scripts/collect.sh
 
 - **14:30 盘中预警**：`collect.sh`（更新盘中数据 + compute）+ `check_signals.sh`（查当日信号 + 发邮件）。盘中数据可能未完整，但买卖点信号（RSI 上穿 30 / 20 日高回落 5%）已可初步判断，提前预警。
 - **15:33 收盘正式**：`update_all.sh`（collect + deploy + check_signals）。A 股 15:00 收盘，15:33 跑留出 33 分钟等盘后数据落盘；同时推送公网 + 发信号邮件。采后自动多源补采（新浪主源当日延迟则 baostock/腾讯补，见 `app/collector/index_backfill.py`）。
-- **18:00 晚间补采兜底**：`backfill_indices.sh`（只校验补采缺失指数 + 重算情绪分 + 推送，不全量采集，几十秒）。兜底 15:33 早跑时三源都没今日数据的情况——18:00 三源已更新，补上。plist 模板：`scripts/plists/com.trade.backfill-evening.plist`。
+- **20:00 晚间补采兜底**：`backfill_indices.sh`（只校验补采缺失指数 + 重算情绪分 + 推送，不全量采集，几十秒）。兜底 15:33 早跑时三源都没今日数据的情况——20:00 三源已更新，补上。plist 模板：`scripts/plists/com.trade.backfill-evening.plist`。
 
 ### 方案 A：launchd（macOS 推荐）
 
