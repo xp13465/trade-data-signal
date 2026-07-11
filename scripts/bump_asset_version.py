@@ -15,7 +15,7 @@ import os
 import re
 
 BASE = os.path.dirname(os.path.dirname(__file__))
-ASSETS = ["style.css", "app.js", "vendor/echarts.min.js"]
+ASSETS = ["style.css", "app.js", "qr.js", "vendor/echarts.min.js"]
 
 
 def _ver(path):

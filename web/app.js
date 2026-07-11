@@ -2268,9 +2268,12 @@ function drawShareCard(r) {
     const vText = v == null ? "-" : (typeof v === "number" && Math.abs(v) >= 1000 ? v.toFixed(0) : (typeof v === "number" ? v.toFixed(1) : v));
     ctx.fillText(vText, x + 22, y + 108);
     if (c.tag) {
-      ctx.fillStyle = c.color || "#aab2bd"; ctx.font = "22px 'PingFang SC',sans-serif";
+      // 用数值字体(56px)测量宽度——必须在切到tag字体前测,否则22px测56px的数值tw偏小,tag会叠到数值上
       const tw = ctx.measureText(vText).width;
-      ctx.fillText("[" + c.tag + "]", x + 38 + tw, y + 108);
+      // tag去emoji(emoji在canvas宽度不确定+跨平台渲染不一致+分享图更清爽),只留中文文字
+      const tagText = "[" + c.tag.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, "").trim() + "]";
+      ctx.fillStyle = c.color || "#aab2bd"; ctx.font = "22px 'PingFang SC',sans-serif";
+      ctx.fillText(tagText, x + 38 + tw, y + 108);
     }
   };
   sentCards.forEach((c, i) => drawDataCard(c, startX + i * (cardW + gap), startY, i));
@@ -2315,13 +2318,26 @@ function drawShareCard(r) {
     ctx.fillText(`${sign}${(sh.pct_change || 0).toFixed(2)}%`, cx0 + cw - 140, cy0 + 36);
   }
 
-  // 底部分隔 + 域名
+  // 底部分隔 + 域名（分隔线让出右侧二维码区）
   ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(60, H - 150); ctx.lineTo(1020, H - 150); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(60, H - 150); ctx.lineTo(870, H - 150); ctx.stroke();
   ctx.fillStyle = "#165dff"; ctx.font = "bold 34px 'PingFang SC',sans-serif";
   ctx.fillText("tdsignal-ujpzw01zm.maozi.io", 60, H - 95);
   ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
   ctx.fillText("盘后复盘 · 情绪数据 · 买卖点信号 · 行业热力图 · 模拟回测", 60, H - 55);
+  // 右下角二维码（扫码访问公网看板；矩阵来自 qr.js，fillRect 同步绘制，无图片加载竞态）
+  if (window.QR_MODULES && window.QR_MODULES.length) {
+    const mods = window.QR_MODULES, nq = mods.length, quiet = 2;
+    const qrSize = 130, cell = qrSize / (nq + quiet * 2);
+    const qx = W - 60 - qrSize, qy = H - 12 - qrSize;
+    ctx.fillStyle = "#fff";
+    _roundRect(ctx, qx - 6, qy - 6, qrSize + 12, qrSize + 12, 8); ctx.fill();
+    ctx.fillStyle = "#1f2329";
+    const cs = Math.ceil(cell) + 0.5;
+    for (let i = 0; i < nq; i++)
+      for (let j = 0; j < nq; j++)
+        if (mods[i][j]) ctx.fillRect(qx + (j + quiet) * cell, qy + (i + quiet) * cell, cs, cs);
+  }
   return canvas;
 }
 
