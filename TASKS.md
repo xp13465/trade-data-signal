@@ -10,6 +10,21 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 > ⚠ 开工先看 `data/alerts/latest.md` 是否有未处理严重告警，有则优先排查。
 
+## 交接状态（2026-07-11 续，监控通知 + 兜底改20:00）
+
+> 同日续做。3 commit 全推 main。
+
+**已完成**：
+1. `f66f1d4` 晚间兜底 18:00->20:00（避开 update_all 拖长致数据源限流，三源更晚更新补采更稳）。live plist + `scripts/plists/` 模板 + 文档同步，launchctl reload。
+2. `041a08e` update_all 监控通知：新建 `scripts/notify.py`（复用 email.json 发邮件，严重时写 `data/alerts/latest.md`）；`with_lock.py` 加 `--on-skip`（锁跳过触发通知）；`update_all.sh` 记耗时，>1h 或 core 失败发严重邮件+alerts，正常发完成邮件；`on_skip_notify.sh` 处理锁跳过。
+3. `a37cff9` TASKS.md 顶部加 alerts 提醒。
+
+**通知机制**：update_all 跑完发邮件（完成/严重两类）。严重（耗时>1h / core失败 / 锁跳过）邮件标 `[需Claude排查]` + 写 `data/alerts/latest.md`，下轮开工读到自动排查。渠道=`config/email.json`（163->QQ）。
+
+**遗留**：非交易日无 force 静默跳过不通知（符合预期）；3 个轻微观察（with_lock --on-skip 参数解析理论边界 / dry-run 仍写 alerts / ISSUE 尾部空格）非 bug 不修。
+
+**下轮起点**：开工先看 `data/alerts/latest.md`。监控通知下个交易日 15:33 首次真触发，留意邮件。
+
 ## 交接状态（2026-07-11，分享图QR码 + force参数 + 进程互斥）
 
 > 本轮用户直接驱动 3 改动，全推 main。开工先读本节 + NOTES.md §12 + REQUIREMENTS.md。
