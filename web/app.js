@@ -2741,6 +2741,18 @@ function renderLabMatrix(strategyData) {
   return html;
 }
 
+// 实验室自白黄块 HTML（列表页 + 详情页共用）
+function _labWarningEssayHTML(status) {
+  const head = status === "excluded" ? "⚠ 已排除策略 · 反面参考"
+    : status === "experimental" ? "⚠ 实验中策略 · 非生产信号"
+    : status === "live" ? "⚠ 生产策略 · 已上线参考"
+    : status ? "⚠ 开发中策略 · 非生产信号"
+    : "⚠ 策略实验室 · 候选/实验中策略非生产信号，仅供参考";
+  return `<div class="lab-warning-head">${head}</div>` +
+    `<p>本实验室用历史数据回测，校验网上流传的交易策略与买卖信号是否真的可靠，避免盲目跟风。我们会定期收录热门策略在此验证，表现稳健的将纳入主功能图表融合上线。</p>` +
+    `<p>有好的策略建议或测试想法，欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
+}
+
 // 渲染策略详情页
 async function renderLabDetail(key) {
   const meta = LAB_STRATEGIES[key];
@@ -2768,16 +2780,9 @@ async function renderLabDetail(key) {
   content.appendChild(header);
 
   // 实验室自白黄块（所有策略都显示，通用介绍 + 抖音号）
-  const warnHead = meta.status === "excluded" ? "⚠ 已排除策略 · 反面参考"
-    : meta.status === "experimental" ? "⚠ 实验中策略 · 非生产信号"
-    : meta.status === "live" ? "⚠ 生产策略 · 已上线参考"
-    : "⚠ 开发中策略 · 非生产信号";
   const warn = document.createElement("div");
   warn.className = "lab-warning lab-warning-essay";
-  warn.innerHTML =
-    `<div class="lab-warning-head">${warnHead}</div>` +
-    `<p>本实验室用历史数据回测，校验网上流传的交易策略与买卖信号是否真的可靠，避免盲目跟风。我们会定期收录热门策略在此验证，表现稳健的将纳入主功能图表融合上线。</p>` +
-    `<p>有好的策略建议或测试想法，欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
+  warn.innerHTML = _labWarningEssayHTML(meta.status);
   content.appendChild(warn);
 
   // 文案区
@@ -2877,7 +2882,7 @@ async function renderLabDetail(key) {
     '<div class="lab-matrix-foot">' +
     '<div class="lab-matrix-source">数据来源：08-买卖点策略深度回测（重跑于 ' + (genAt || '2026-07-11') + '）</div>' +
     '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价买入，持有 N 个交易日后按收盘价卖出，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>买点胜率</b>=信号后上涨占比；<b>卖点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见模拟回测（开发中）。</div>' +
-    '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">绿=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">红=差</span></div>' +
+    '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">红=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">绿=差</span></div>' +
     '</div>';
   content.appendChild(matrixCard);
 }
@@ -2903,6 +2908,12 @@ async function renderSignalLab() {
   h.className = "lab-title";
   h.textContent = "🧪 策略实验室";
   content.appendChild(h);
+
+  // 实验室自白黄块（列表页也显示，通用介绍 + 抖音号）
+  const essayWarn = document.createElement("div");
+  essayWarn.className = "lab-warning lab-warning-essay";
+  essayWarn.innerHTML = _labWarningEssayHTML();
+  content.appendChild(essayWarn);
 
   // 预加载回测数据（用于卡片摘要）
   const data = await fetchLabData();
