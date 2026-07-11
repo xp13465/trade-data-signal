@@ -7,7 +7,7 @@
 
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock" };
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh" };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -714,12 +714,18 @@ function initRuleButton() {
 
 async function renderTab() {
   clearCharts();
+  // 策略实验 tab 展示全历史+BB，周期选择无意义，隐藏 .periods 和 .h5-period-bar；切走恢复
+  const _labActive = state.tab === "lab";
+  document.querySelectorAll(".periods, .h5-period-bar").forEach((el) => {
+    el.style.display = _labActive ? "none" : "";
+  });
   content.innerHTML = '<div class="loading">加载中…</div>';
   try {
     if (state.tab === "overview") await renderOverview();
     else if (state.tab === "market") await renderMarket();
     else if (state.tab === "sentiment") await renderSentiment();
     else if (state.tab === "industry") await renderIndustry();
+    else if (state.tab === "lab") await renderSignalLab();
   } catch (e) {
     content.innerHTML = `<div class="loading">出错了：${e}</div>`;
   }
@@ -2168,7 +2174,7 @@ function closeSummaryHistoryModal() {
 // === H5 移动端适配（方案B：底部导航 + 顶部精简条 + 1/2列切换）===
 // matchMedia 驱动 body.h5，@media(max-width:768px) 自动切换布局，PC(>768) 零影响。
 const SUMMARY_URL = "./data/summary.json";
-const _H5_TAB_NAMES = { overview: "📊 概览", market: "📈 大盘", sentiment: "😊 综合情绪", industry: "🏭 行业概念" };
+const _H5_TAB_NAMES = { overview: "📊 概览", market: "📈 大盘", sentiment: "😊 综合情绪", industry: "🏭 行业概念", lab: "🧪 策略实验" };
 
 function updateH5Topbar() {
   if (!document.body.classList.contains("h5")) return;
@@ -2417,6 +2423,176 @@ function initShareButton() {
   document.querySelectorAll(".share-btn").forEach((b) => {
     b.addEventListener("click", openShareModal);
   });
+}
+
+// === 策略实验 tab：BB_upper_revert（布林上轨回落辅卖点）===
+// 纯前端 JS 实时算，不碰后端 signals.py / signal_daily。
+// BB: mid=MA20(close), sd=std(close,ddof=0), bu=mid+2σ, bl=mid-2σ（与 _bollinger() 一致）
+// 触发: close[i-1] > bu[i-1] && close[i] < bu[i]（参考 a-stock-data/backtest_strategies.py:193）
+function computeBBLab(ohlc) {
+  const N = 20, K = 2.0;
+  const closes = ohlc.map((d) => d.close);
+  const bu = [], bl = [], mid = [];
+  for (let i = 0; i < ohlc.length; i++) {
+    if (i < N - 1) { bu.push(null); bl.push(null); mid.push(null); continue; }
+    const slice = closes.slice(i - N + 1, i + 1);
+    const m = slice.reduce((a, b) => a + b, 0) / N;
+    const variance = slice.reduce((a, b) => a + (b - m) * (b - m), 0) / N; // ddof=0
+    const sd = Math.sqrt(variance);
+    mid.push(m); bu.push(m + K * sd); bl.push(m - K * sd);
+  }
+  const signals = [];
+  for (let i = 1; i < ohlc.length; i++) {
+    if (bu[i - 1] == null || bu[i] == null) continue;
+    if (closes[i - 1] > bu[i - 1] && closes[i] < bu[i]) {
+      signals.push({ date: ohlc[i].date, close: closes[i] });
+    }
+  }
+  return { bu, bl, mid, signals };
+}
+
+function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
+  const c = mkCard(title, 400, null, container, chartArr);
+  const dates = ohlc.map((d) => d.date);
+  const markData = signals.map((s) => ({
+    coord: [s.date, s.close],
+    value: "实验卖",
+    itemStyle: { color: "#9c27b0" },
+  }));
+  c.setOption({
+    tooltip: { trigger: "axis" },
+    legend: { top: 0, data: ["收盘价", "布林上轨", "布林下轨"] },
+    grid: { left: 55, right: 20, top: 35, bottom: 50 },
+    xAxis: { type: "category", data: dates },
+    yAxis: { type: "value", scale: true },
+    dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+    series: [
+      {
+        name: "收盘价", type: "line", smooth: true, symbol: "none",
+        data: ohlc.map((d) => d.close), lineStyle: { width: 1.5 },
+        markPoint: {
+          symbol: "pin", symbolSize: 34,
+          label: { fontSize: 10, color: "#fff" },
+          data: markData,
+        },
+      },
+      {
+        name: "布林上轨", type: "line", symbol: "none", data: bb.bu, smooth: true,
+        lineStyle: { width: 1, type: "dashed", color: "#c9cdd4" },
+      },
+      {
+        name: "布林下轨", type: "line", symbol: "none", data: bb.bl, smooth: true,
+        lineStyle: { width: 1, type: "dashed", color: "#c9cdd4" },
+      },
+    ],
+  });
+  return c;
+}
+
+// 08 报告硬编码回测数据（来源：08-买卖点策略深度回测.md, 2026-07）
+const _LAB_BACKTEST_DATA = [
+  { horizon: "5日", samples: 5476, winRate: "57.3%", plRatio: "0.88" },
+  { horizon: "10日", samples: 5444, winRate: "54.3%", plRatio: "0.84" },
+  { horizon: "20日", samples: 5416, winRate: "54.1%", plRatio: "0.75" },
+  { horizon: "60日", samples: 5086, winRate: "53.7%", plRatio: "0.59" },
+];
+
+async function renderSignalLab() {
+  content.innerHTML = "";
+
+  // 警示条
+  const warn = document.createElement("div");
+  warn.className = "lab-warning";
+  warn.textContent = "⚠ 实验中策略，非生产信号，仅供参考";
+  content.appendChild(warn);
+
+  // 标题
+  const h = document.createElement("h2");
+  h.className = "lab-title";
+  h.textContent = "🧪 策略实验 · BB_upper_revert（布林上轨回落辅卖点）";
+  content.appendChild(h);
+
+  // 指数选择器
+  const filterBar = document.createElement("div");
+  filterBar.className = "filter-bar";
+  const label = document.createElement("label");
+  label.textContent = "选择指数";
+  filterBar.appendChild(label);
+  const select = document.createElement("select");
+  const groups = [
+    ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50"]],
+    ["港股", ["hsi", "hscei", "hstech"]],
+    ["美股", ["us_dji", "us_ixic", "us_spx", "us_ndx"]],
+    ["红利/低波", ["div_lowvol", "csi_div", "sz_div"]],
+  ];
+  groups.forEach(([gname, ids]) => {
+    const og = document.createElement("optgroup");
+    og.label = gname;
+    ids.forEach((id) => {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = _INDEX_NAME_MAP[id] || id;
+      if (id === state.labIndex) opt.selected = true;
+      og.appendChild(opt);
+    });
+    select.appendChild(og);
+  });
+  select.onchange = () => { state.labIndex = select.value; renderSignalLab(); };
+  filterBar.appendChild(select);
+  content.appendChild(filterBar);
+
+  // 图表区
+  const chartSection = document.createElement("div");
+  chartSection.innerHTML = '<div class="loading">加载中…</div>';
+  content.appendChild(chartSection);
+
+  // 回测卡片
+  const btCard = document.createElement("div");
+  btCard.className = "chart-card lab-backtest-card";
+  btCard.innerHTML =
+    '<h3>📊 回测数据（近3年·244品种聚合）</h3>' +
+    '<div class="lab-backtest-source">数据来源：08-买卖点策略深度回测.md (2026-07)</div>' +
+    '<table class="lab-backtest-table"><thead><tr><th>持有期</th><th>样本数</th><th>胜率</th><th>盈亏比</th></tr></thead><tbody>' +
+    _LAB_BACKTEST_DATA.map((d) => `<tr><td>${d.horizon}</td><td>${d.samples}</td><td>${d.winRate}</td><td>${d.plRatio}</td></tr>`).join("") +
+    '</tbody></table>' +
+    '<div class="lab-backtest-conclusion"><b>结论：</b>5d/10d 胜率最高，与 D1（20d 最强）时间维度互补。' +
+    '短周期止盈最强，适合做 D1 的短周期互补（候选 C）。</div>';
+  content.appendChild(btCard);
+
+  // 策略说明
+  const descCard = document.createElement("div");
+  descCard.className = "chart-card lab-strategy-card";
+  descCard.innerHTML =
+    '<h3>📖 策略说明</h3>' +
+    '<div class="lab-strategy-content">' +
+    '<p><b>策略名：</b>BB_upper_revert（布林上轨回落辅卖点）</p>' +
+    '<p><b>触发条件：</b>前一日收盘价突破布林上轨（close[i-1] > bu[i-1]），当日收盘价回落至上轨下方（close[i] < bu[i]）。</p>' +
+    '<p><b>布林带参数：</b>MA20 ± 2σ（std ddof=0），与生产信号 _bollinger() 算法一致。</p>' +
+    '<p><b>语义：</b>价格从布林上轨上方回落至下方，标记「趋势转弱/短周期止盈」参考点。</p>' +
+    '<p><b>与生产卖点 D1 的关系：</b>D1 = 20日高回落5%（20d 最强）；BB_upper_revert = 布林上轨穿越（5d/10d 最强）。两者时间维度互补，可作双重确认。</p>' +
+    '<p><b>状态：</b>实验中，未写入 signal_daily，未融入生产信号流水线。验证有效后再考虑融合。</p>' +
+    '</div>';
+  content.appendChild(descCard);
+
+  // 获取数据并渲染图表
+  try {
+    const r = await fetchJSON(`./data/index/${state.labIndex}-all.json`);
+    const ohlc = r.ohlc;
+    if (!ohlc || !ohlc.length) {
+      chartSection.innerHTML = '<div class="empty-note">该指数暂无数据</div>';
+      return;
+    }
+    const bb = computeBBLab(ohlc);
+    chartSection.innerHTML = "";
+    const name = _INDEX_NAME_MAP[state.labIndex] || state.labIndex;
+    renderLabChart(`${name} · 布林上轨回落实验`, ohlc, bb, bb.signals, chartSection, charts);
+    const statDiv = document.createElement("div");
+    statDiv.className = "lab-signal-stat";
+    statDiv.innerHTML = `共触发 <b>${bb.signals.length}</b> 个实验卖点（全历史）`;
+    chartSection.appendChild(statDiv);
+  } catch (e) {
+    chartSection.innerHTML = `<div class="loading">加载失败：${e}</div>`;
+  }
 }
 
 initStickyOffset();

@@ -1426,3 +1426,63 @@ main { padding: 16px 24px; }
   .sim-spinner { width: 24px; height: 24px; }
 }
 
+/* === 策略实验 tab（lab）=== */
+.lab-warning {
+  background: #fff9e6;
+  border: 1px solid #ffe58f;
+  border-radius: 6px;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #ad6800;
+  font-weight: 500;
+}
+.lab-title {
+  font-size: 16px;
+  color: #1f2329;
+  margin: 0 0 12px;
+}
+.lab-backtest-card { border-left: 3px solid #9c27b0; }
+.lab-backtest-source {
+  font-size: 11px;
+  color: #86909c;
+  margin-bottom: 8px;
+}
+.lab-backtest-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.lab-backtest-table th,
+.lab-backtest-table td {
+  padding: 6px 10px;
+  text-align: center;
+  border-bottom: 1px solid #f0f0f0;
+}
+.lab-backtest-table th {
+  background: #fafbfc;
+  color: #4e5969;
+  font-weight: 500;
+}
+.lab-backtest-conclusion {
+  font-size: 12px;
+  color: #4e5969;
+  line-height: 1.6;
+  padding-top: 8px;
+  border-top: 1px dashed #e5e6eb;
+}
+.lab-strategy-card { border-left: 3px solid #9c27b0; }
+.lab-strategy-content p {
+  margin: 4px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #4e5969;
+}
+.lab-signal-stat {
+  padding: 8px 0;
+  font-size: 13px;
+  color: #4e5969;
+}
+.lab-signal-stat b { color: #9c27b0; }
+
