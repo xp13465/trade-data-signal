@@ -1097,6 +1097,7 @@ async function renderMarket() {
   const subContent = document.createElement("div");
   subContent.className = "market-sub-content";
   content.appendChild(subContent);
+  subContent.innerHTML = '<div class="loading">加载中…</div>';
 
   // 根据 subtab 渲染对应内容
   if (state.subtab === "a-stock") await renderAStock(subContent);
