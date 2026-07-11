@@ -974,13 +974,39 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     best_win = max(r["win_rate"] for r in comparison_rows)
     best_ops = max(r["total_ops"] for r in comparison_rows)
 
-    def cmp_cell(val, best, fmt=".2f", is_pct=False, suffix=""):
-        """Render a comparison cell, green+bold if it's the best value."""
+    # 计算每列最差值（回撤类 worst=max，其余 worst=min；与 best 语义对称）
+    worst_final = min(r["final_total"] for r in comparison_rows)
+    worst_return = min(r["total_return_pct"] for r in comparison_rows)
+    worst_annual = min(r["annualized"] for r in comparison_rows)
+    worst_dd = max(r["max_drawdown"] for r in comparison_rows)
+    worst_median_dd = max(r["median_drawdown"] for r in comparison_rows)
+    worst_trimmed_dd = max(r["trimmed_mean_drawdown"] for r in comparison_rows)
+    worst_win = min(r["win_rate"] for r in comparison_rows)
+    worst_ops = min(r["total_ops"] for r in comparison_rows)
+
+    def cmp_cell(val, best, worst, fmt=".2f", is_pct=False, suffix="", signed=False):
+        """渲染策略对比单元格。
+        最好=浅金底加粗(#fff8e1)，最坏=浅灰底加粗(#f5f5f5)，最好优先(列内全同标金底)。
+        signed=True 时字色按正红负绿0灰(正=#e6492e 负=#2e8b57 0=#9e9e9e)；signed=False 黑字。
+        底色与字色不冲突：底色高亮最好/最坏，字色留给正负。"""
         is_best = abs(val - best) < 0.001
-        style = "color:#2e8b57;font-weight:700" if is_best else ""
+        is_worst = abs(val - worst) < 0.001
+        style_parts = []
+        if is_best:
+            style_parts.append("background:#fff8e1;font-weight:700")
+        elif is_worst:
+            style_parts.append("background:#f5f5f5;font-weight:700")
+        if signed:
+            if val > 0:
+                style_parts.append("color:#e6492e")
+            elif val < 0:
+                style_parts.append("color:#2e8b57")
+            else:
+                style_parts.append("color:#9e9e9e")
+        style_attr = f' style="{";".join(style_parts)}"' if style_parts else ""
         if is_pct:
-            return f'<span style="{style}">{val:+.2f}%</span>'
-        return f'<span style="{style}">{val:{fmt}}{suffix}</span>'
+            return f'<span{style_attr}>{val:+.2f}%</span>'
+        return f'<span{style_attr}>{val:{fmt}}{suffix}</span>'
 
     cmp_table_rows = ""
     for r in comparison_rows:
@@ -988,14 +1014,14 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
         <tr>
           <td>{r['path']}</td>
           <td>{r['sig']}</td>
-          <td>{cmp_cell(r['final_total'], best_final, ',.0f', suffix=' 元')}</td>
-          <td>{cmp_cell(r['total_return_pct'], best_return, '.2f', is_pct=True)}</td>
-          <td>{cmp_cell(r['annualized'], best_annual, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['max_drawdown'], best_dd, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['median_drawdown'], best_median_dd, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['trimmed_mean_drawdown'], best_trimmed_dd, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['win_rate'], best_win, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['total_ops'], best_ops, '.0f', suffix=' 次')}</td>
+          <td>{cmp_cell(r['final_total'], best_final, worst_final, ',.0f', suffix=' 元')}</td>
+          <td>{cmp_cell(r['total_return_pct'], best_return, worst_return, '.2f', is_pct=True, signed=True)}</td>
+          <td>{cmp_cell(r['annualized'], best_annual, worst_annual, '.1f', is_pct=True, signed=True)}</td>
+          <td>{cmp_cell(r['max_drawdown'], best_dd, worst_dd, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['median_drawdown'], best_median_dd, worst_median_dd, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['trimmed_mean_drawdown'], best_trimmed_dd, worst_trimmed_dd, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['win_rate'], best_win, worst_win, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['total_ops'], best_ops, worst_ops, '.0f', suffix=' 次')}</td>
         </tr>"""
 
     comparison_table = f"""
