@@ -9,10 +9,11 @@
 #   stock_daily 后台死端（全 A 股日线备用源），不 export 不 push，不阻塞
 # 各 pipeline 的 commit+push 经 flock /tmp/trade_deploy.lock 串行，避免 git index.lock 冲突。
 #
-# 非交易日：跳过采集，仅 deploy 补推 + check_signals（与原逻辑一致）。
+# 非交易日：默认跳过采集仅 deploy+check_signals；传 force 绕闸门强制采集（周末补数据/校准）。
 # 旧串行版备份：scripts/update_all_serial.sh。
 #
-# 用法：bash scripts/update_all.sh
+# 用法：bash scripts/update_all.sh [force]
+#   force: 绕过交易日闸门，非交易日也跑全量 pipeline（补漏跑数据/校准；当日快照采最近交易日值）
 # 日志：data/logs/update_all_YYYYMMDD_HHMM.log（汇总，含各 pipeline 交错输出）
 #       data/logs/pipeline_<name>_<STAMP>.log（各流水线独立日志）
 # 退出码：core pipeline 退出码（核心看板公网状态）。
@@ -29,17 +30,23 @@ cd "$REPO"
 
 echo "=== update_all.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
+# force 模式：绕过交易日闸门（周末补数据/校准；当日快照采最近交易日值，幂等不误盖）
+FORCE=0
+[ "${1:-}" = "force" ] && FORCE=1
+
 # 交易日闸门（统一判断一次，避免各 pipeline 重复判断；闸门内部已 refresh_trade_dates）
 IS_TRADING=$("$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null)
-echo "交易日判断: IS_TRADING=${IS_TRADING:-unknown}" | tee -a "$LOG"
+echo "交易日判断: IS_TRADING=${IS_TRADING:-unknown} FORCE=$FORCE" | tee -a "$LOG"
 
-if [ "$IS_TRADING" != "1" ]; then
-  echo "非交易日，跳过采集，仅 deploy 补推 + check_signals" | tee -a "$LOG"
+if [ "$IS_TRADING" != "1" ] && [ "$FORCE" != "1" ]; then
+  echo "非交易日，跳过采集，仅 deploy 补推 + check_signals（force 可绕过）" | tee -a "$LOG"
   bash "$REPO/scripts/deploy.sh" 2>&1 | tee -a "$LOG"
   bash "$REPO/scripts/check_signals.sh" 2>&1 | tee -a "$LOG"
   echo "=== update_all.sh 结束（非交易日）$(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
   exit 0
 fi
+
+[ "$FORCE" = "1" ] && [ "$IS_TRADING" != "1" ] && echo "⚠ force 模式：非交易日强制采集（补数据/校准）" | tee -a "$LOG"
 
 # 交易日：并发启动 pipeline
 # core/width/futures 前台并发（wait 等）；stock_daily 后台（死端不 wait，不阻塞）
