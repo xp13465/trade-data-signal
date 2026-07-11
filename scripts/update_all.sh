@@ -32,9 +32,12 @@ cd "$REPO"
 # 通达信/东财并发限流全 empty 空转）。fcntl.flock 非阻塞独占锁，持不到=已有在跑=跳过。
 # 自包装：首次调用经 with_lock.py --nb 持锁重跑自己，UPDATE_ALL_LOCKED=1 防递归。
 if [ -z "${UPDATE_ALL_LOCKED:-}" ]; then
-  exec "$PY" "$REPO/scripts/with_lock.py" --nb /tmp/trade_update_all.lock \
+  exec "$PY" "$REPO/scripts/with_lock.py" --nb --on-skip "$REPO/scripts/on_skip_notify.sh" /tmp/trade_update_all.lock \
     env UPDATE_ALL_LOCKED=1 bash "$0" "$@"
 fi
+
+# 记开始时间（锁跳过分支不会到这；末尾算耗时发监控通知）
+START_TS=$(date +%s)
 
 echo "=== update_all.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
@@ -83,6 +86,24 @@ SIGNAL_RC=${PIPESTATUS[0]}
 
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES check_signals=$SIGNAL_RC" | tee -a "$LOG"
+
+# 监控通知：耗时 + 退出码 + 日志路径（发邮件 + 严重时写 alerts）
+END_TS=$(date +%s)
+ELAPSED=$((END_TS - START_TS))
+ELAPSED_MIN=$((ELAPSED / 60))
+SEVERE=0
+[ "$ELAPSED" -gt 3600 ] && SEVERE=1
+[ "$RC_CORE" -ne 0 ] && SEVERE=1
+NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
+NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES check_signals=$SIGNAL_RC<br>日志：$LOG<br>结束时间：$NOW_STR"
+if [ "$SEVERE" -eq 1 ]; then
+  ISSUE="update_all 严重告警："
+  [ "$ELAPSED" -gt 3600 ] && ISSUE="${ISSUE}耗时超1h(${ELAPSED_MIN}分钟) "
+  [ "$RC_CORE" -ne 0 ] && ISSUE="${ISSUE}core退出码非0($RC_CORE)"
+  "$PY" "$REPO/scripts/notify.py" "[严重]update_all告警" "$NOTIFY_BODY" --severe --alert-issue "$ISSUE" --alert-log "$LOG" || true
+else
+  "$PY" "$REPO/scripts/notify.py" "[完成]update_all" "$NOTIFY_BODY" || true
+fi
 
 # 退出码以 core 为准（核心看板公网状态）
 exit "$RC_CORE"
