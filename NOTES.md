@@ -755,6 +755,12 @@ core 先上线时情绪分用昨日 width（宽度日变化小，偏差可接受
 - 当日快照 `date=last_trading_day()`=最近交易日，A1 守卫放行采收盘值，幂等不误盖（不会把上周五数据盖成今天）。
 - launchd 15:33 无参不变；force 仅手动触发。
 
+### 进程互斥（防并发撞 progress / 限流空转）
+- `update_all.sh` 开头 `exec with_lock.py --nb /tmp/trade_update_all.lock` 自包装持锁（`UPDATE_ALL_LOCKED=1` 防递归）；重复跑的第 2 个持不到锁直接 exit 0 跳过。
+- 根因：mootdx/stock_daily/baostock 的 `progress.json` 原子写（`os.replace(tmp->真)`）不支持跨进程并发 -> 撞坏 -> fallback 全量 5203 只；且两进程并发连通达信/东财被限流全 `empty` 空转（2026-07-11 两个 force 并发卡 2h+ 即此）。
+- `with_lock.py` 加 `--nb` 非阻塞选项；`pipeline.sh` 的 deploy 仍用阻塞模式（排队串行 git），向后兼容。
+- 锁会自动跳过第 2 个，但仍应避免同时手动跑两个 update_all。
+
 ## §13 多源补采 + launchd 定时 + 前端两项（2026-07-10，f2e710b/442f1e0/26f390b）
 
 ### 痛点

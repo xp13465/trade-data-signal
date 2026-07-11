@@ -28,6 +28,14 @@ LOG="$LOGDIR/update_all_${STAMP}.log"
 mkdir -p "$LOGDIR"
 cd "$REPO"
 
+# 进程互斥：防止多个 update_all 并发跑（撞 mootdx/stock_daily progress 原子写 +
+# 通达信/东财并发限流全 empty 空转）。fcntl.flock 非阻塞独占锁，持不到=已有在跑=跳过。
+# 自包装：首次调用经 with_lock.py --nb 持锁重跑自己，UPDATE_ALL_LOCKED=1 防递归。
+if [ -z "${UPDATE_ALL_LOCKED:-}" ]; then
+  exec "$PY" "$REPO/scripts/with_lock.py" --nb /tmp/trade_update_all.lock \
+    env UPDATE_ALL_LOCKED=1 bash "$0" "$@"
+fi
+
 echo "=== update_all.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
 # force 模式：绕过交易日闸门（周末补数据/校准；当日快照采最近交易日值，幂等不误盖）
