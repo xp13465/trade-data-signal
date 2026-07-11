@@ -1705,7 +1705,6 @@ function _bindFreqPopupToHintRows(cell, stats) {
     const popup = document.createElement("div");
     popup.className = "freq-popup";
     popup.innerHTML = `<div class="hint-header">📅 信号频率</div><div class="hint-row">${freqHtml}</div>`;
-    popup.style.cssText = "display:none;position:absolute;z-index:100;background:#fff;border:1px solid #e5e6eb;border-radius:8px;padding:8px 12px;box-shadow:0 4px 12px rgba(0,0,0,0.12);font-size:12px;white-space:nowrap;left:0;top:100%;margin-top:2px;";
     row.style.position = "relative";
     row.appendChild(popup);
     row.addEventListener("mouseenter", () => { popup.style.display = "block"; });
