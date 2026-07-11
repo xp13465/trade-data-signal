@@ -1,6 +1,6 @@
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null };
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -2687,6 +2687,101 @@ async function fetchLabData() {
   return state.labData;
 }
 
+// 获取 lab_simulate.json 数据（缓存到 state.labSimData）
+async function fetchLabSimData() {
+  if (state.labSimData) return state.labSimData;
+  try {
+    state.labSimData = await fetchJSON("/static/data/lab_simulate.json");
+  } catch (e) {
+    state.labSimData = null;
+  }
+  return state.labSimData;
+}
+
+// 模拟回测净值曲线 SVG（轻量纯SVG，不依赖 ECharts）
+function _labSimSVG(curve, initCapital) {
+  if (!curve || curve.length < 2) return '<div class="lab-sim-empty">净值数据不足</div>';
+  const vals = curve.map((e) => e.value);
+  const dates = curve.map((e) => e.date);
+  let yMin = Math.min(...vals, initCapital) * 0.95;
+  let yMax = Math.max(...vals, initCapital) * 1.05;
+  if (yMax <= yMin) yMax = yMin + 1;
+  const W = 800, H = 160, ml = 70, mr = 10, mt = 8, mb = 24;
+  const pw = W - ml - mr, ph = H - mt - mb;
+  const n = vals.length;
+  const sy = (v) => mt + ph - ((v - yMin) / (yMax - yMin)) * ph;
+  const sx = (i) => ml + (n > 1 ? (i / (n - 1)) * pw : 0);
+  const baselineY = sy(initCapital);
+  const finalVal = vals[n - 1];
+  const peakVal = Math.max(...vals);
+  const peakIdx = vals.indexOf(peakVal);
+  const minVal = Math.min(...vals);
+  const pts = vals.map((v, i) => `${sx(i).toFixed(1)},${sy(v).toFixed(1)}`);
+  const areaPts = pts.join(" ") + ` ${sx(n - 1).toFixed(1)},${(mt + ph).toFixed(1)} ${sx(0).toFixed(1)},${(mt + ph).toFixed(1)}`;
+  const fmtV = (v) => (v >= 10000 ? `${(v / 10000).toFixed(1)}万` : v.toFixed(0));
+  const yLabels = [
+    { l: "起始", v: initCapital, c: "#86909c" },
+    { l: "最低", v: minVal, c: "#2e7d32" },
+    { l: "峰值", v: peakVal, c: "#c92a2a" },
+    { l: "期末", v: finalVal, c: "#3370ff" },
+  ].map((it) => `<text x="${ml - 4}" y="${sy(it.v).toFixed(1)}" text-anchor="end" font-size="10" fill="${it.c}" dominant-baseline="middle">${it.l} ${fmtV(it.v)}</text>`).join("");
+  const tickCount = Math.min(7, Math.max(3, Math.floor(n / 2)));
+  const step = n > 1 ? (n - 1) / (tickCount - 1) : 1;
+  const xLabels = [];
+  for (let k = 0; k < tickCount; k++) {
+    const i = Math.min(Math.round(k * step), n - 1);
+    xLabels.push(`<text x="${sx(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="9" fill="#86909c">${dates[i].substring(0, 7)}</text>`);
+  }
+  const lineColor = finalVal >= initCapital ? "#c92a2a" : "#2e7d32";
+  return `<svg width="100%" height="150" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    <defs><linearGradient id="labSimGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${lineColor}" stop-opacity="0.12"/><stop offset="100%" stop-color="${lineColor}" stop-opacity="0.01"/></linearGradient></defs>
+    <line x1="${ml}" y1="${baselineY.toFixed(1)}" x2="${sx(n - 1).toFixed(1)}" y2="${baselineY.toFixed(1)}" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+    <polygon points="${areaPts}" fill="url(#labSimGrad)"/>
+    <polyline points="${pts.join(" ")}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linejoin="round"/>
+    ${yLabels}
+    <circle cx="${sx(peakIdx).toFixed(1)}" cy="${sy(peakVal).toFixed(1)}" r="3" fill="#c92a2a" stroke="#fff" stroke-width="1"/>
+    <circle cx="${sx(n - 1).toFixed(1)}" cy="${sy(finalVal).toFixed(1)}" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
+    ${xLabels.join("")}
+  </svg>`;
+}
+
+// 渲染模拟回测卡片（配对交易 + 净值曲线 + 交易记录）
+function _labSimCardHTML(key, simData) {
+  if (!simData || !simData.strategies || !simData.strategies[key] || !simData.strategies[key].stats) {
+    return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">模拟回测数据准备中</div>';
+  }
+  const strat = simData.strategies[key];
+  const s = strat.stats;
+  const initCapital = simData.initial_capital || 100000;
+  const sideLabel = strat.side === "buy" ? "买入" : "卖出";
+  const pairLabel = strat.pair_with || "";
+  const retColor = s.total_ret >= 0 ? "#c92a2a" : "#2e7d32";
+  const ddColor = "#2e7d32";
+  const winColor = s.win_rate >= 50 ? "#c92a2a" : "#2e7d32";
+  const winTrades = Math.round((s.win_rate / 100) * s.n_trades);
+  const loseTrades = s.n_trades - winTrades;
+  const svgHTML = _labSimSVG(strat.equity_curve, initCapital);
+  const trades = strat.trades || [];
+  const showTrades = trades.slice(0, 20);
+  const tradeRows = showTrades.map((t, i) => {
+    const tc = t.ret > 0 ? "#c92a2a" : (t.ret < 0 ? "#2e7d32" : "#86909c");
+    return `<tr><td>${i + 1}</td><td>${t.buy_date}</td><td>${t.buy_price}</td><td>${t.sell_date}</td><td>${t.sell_price}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hold_days} 天</td></tr>`;
+  }).join("");
+  return '<h3>💰 模拟回测（配对交易）</h3>' +
+    `<div class="lab-sim-desc">本金 ${initCapital.toLocaleString()} 元起 · 全仓复利滚动 · 信号当日收盘价成交 · ${sideLabel}信号配对${pairLabel} · 末尾未平仓按末日收盘估值</div>` +
+    '<div class="lab-sim-stats">' +
+    `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">10万起复利，期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">首笔交易至今 ${s.years} 年</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="color:${ddColor}">${s.max_drawdown}%</span><span class="sub">从峰值最大跌幅</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜 / ${loseTrades}负 · 共 ${s.n_trades} 笔</span></div>` +
+    '</div>' +
+    `<div class="lab-sim-equity"><div class="lab-sim-equity-label">📈 净值曲线（虚线=初始本金）</div>${svgHTML}</div>` +
+    `<div class="lab-sim-trades"><div class="lab-sim-trades-label">📋 交易记录（前 ${showTrades.length} 条${trades.length > 20 ? "，共 " + trades.length + " 笔" : ""}）</div>` +
+    '<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有天数</th></tr></thead><tbody>' +
+    (tradeRows || '<tr><td colspan="7" style="text-align:center;color:#c9cdd4">无交易记录</td></tr>') +
+    '</tbody></table></div></div>';
+}
+
 // 格式化矩阵单元格值
 function _labFmt(v, isPct) {
   if (v == null || isNaN(v)) return "-";
@@ -2759,6 +2854,7 @@ async function renderLabDetail(key) {
   if (!meta) { state.labStrategy = null; renderSignalLab(); return; }
 
   const data = await fetchLabData();
+  const simData = await fetchLabSimData();
   const stratData = data && data.strategies ? data.strategies[key] : null;
   const tag = LAB_STATUS_TAGS[meta.status] || LAB_STATUS_TAGS.dev;
 
@@ -2881,10 +2977,16 @@ async function renderLabDetail(key) {
     '<div class="lab-matrix-wrap">' + renderLabMatrix(stratData) + '</div>' +
     '<div class="lab-matrix-foot">' +
     '<div class="lab-matrix-source">数据来源：08-买卖点策略深度回测（重跑于 ' + (genAt || '2026-07-11') + '）</div>' +
-    '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价买入，持有 N 个交易日后按收盘价卖出，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>买点胜率</b>=信号后上涨占比；<b>卖点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见模拟回测（开发中）。</div>' +
+    '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价买入，持有 N 个交易日后按收盘价卖出，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>买点胜率</b>=信号后上涨占比；<b>卖点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见下方模拟回测。</div>' +
     '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">红=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">绿=差</span></div>' +
     '</div>';
   content.appendChild(matrixCard);
+
+  // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录）
+  const simCard = document.createElement("div");
+  simCard.className = "chart-card lab-sim-card";
+  simCard.innerHTML = _labSimCardHTML(key, simData);
+  content.appendChild(simCard);
 }
 
 // 渲染策略实验室主入口（分区tab + 卡片列表 / 详情页）
