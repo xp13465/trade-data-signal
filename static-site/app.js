@@ -273,11 +273,12 @@ function fmtDate(dateStr) {
 }
 
 // 图表标题追加"最新日期 数值"，无需 hover 即可见最新值（复用 fmtDate 转 MM-DD）
+// 用 <span class="chart-latest"> 包裹高亮，与标题文字区分便于一眼看到最新数据
 function latestSuffix(data) {
   if (!data || !data.length) return "";
   const last = data[data.length - 1];
   if (!last || last.value == null) return "";
-  return ` · ${fmtDate(last.date)} ${last.value.toFixed(2)}`;
+  return `<span class="chart-latest"> · ${fmtDate(last.date)} ${last.value.toFixed(2)}</span>`;
 }
 
 // 最新值紧凑格式：万级缩写、整数直出、其余按量级保留1-2位小数（标题后缀用，简洁为主）
@@ -312,7 +313,7 @@ function latestSuffixMulti(series) {
     const lbl = s.label || s.name || "";
     parts.push(`${lbl}${fmtLatestVal(v)}`);
   }
-  return ` · ${fmtDate(lastDate)} ${parts.join(" ")}`;
+  return `<span class="chart-latest"> · ${fmtDate(lastDate)} ${parts.join(" ")}</span>`;
 }
 
 // 判断指标是否停更：数据日期距最新交易日超过 days 天视为停更（如北向资金 2024-08 起源端停更）。
@@ -418,7 +419,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const hint = statsHint(stats, strategy, indexId);
   // 标题追加最新日期+收盘价（OHLC 图，取最后一条 close）
   const _last = ohlc && ohlc.length ? ohlc[ohlc.length - 1] : null;
-  const _suffix = _last && _last.close != null ? ` · ${fmtDate(_last.date)} ${_last.close.toFixed(2)}` : "";
+  const _suffix = _last && _last.close != null ? `<span class="chart-latest"> · ${fmtDate(_last.date)} ${_last.close.toFixed(2)}</span>` : "";
   const c = mkCard(title + _suffix, 360, hint, container, chartArr);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
@@ -1121,7 +1122,7 @@ async function renderOverview() {
     const wLast = wDates[wDates.length - 1];
     const wUpV = (w.up.find((x) => x.date === wLast) || {}).value;
     const wDnV = (w.down.find((x) => x.date === wLast) || {}).value;
-    const wSuffix = wLast ? ` · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}` : "";
+    const wSuffix = wLast ? `<span class="chart-latest"> · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}</span>` : "";
     const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + wSuffix, 260, null, colB1);
     wc.setOption({
       tooltip: { trigger: "axis" },
@@ -1159,7 +1160,7 @@ async function renderOverview() {
       const bullish = d.bullish || 0;
       const bearish = d.bearish || 0;
       const cross = d.cross || 0;
-      const maSuffix = d.date ? ` · ${fmtDate(d.date)} 多头${bullish} 空头${bearish} 震荡${cross}` : "";
+      const maSuffix = d.date ? `<span class="chart-latest"> · ${fmtDate(d.date)} 多头${bullish} 空头${bearish} 震荡${cross}</span>` : "";
       let maHtml = `<h3>&#x1F4C8; 均线排列${maSuffix}</h3>`;
       maHtml += `<div class="ma-summary">`;
       maHtml += `<span class="ma-count bullish">${bullish} 个多头</span> `;
@@ -1189,7 +1190,7 @@ async function renderOverview() {
           const pct = p.percentile_1y != null ? p.percentile_1y : 50;
           if (pct <= 40) posLow++; else if (pct > 60) posHigh++;
         }
-        const posDateSuffix = posDates.length ? ` · ${fmtDate(posDates[posDates.length - 1])} 低位${posLow} 高位${posHigh}` : "";
+        const posDateSuffix = posDates.length ? `<span class="chart-latest"> · ${fmtDate(posDates[posDates.length - 1])} 低位${posLow} 高位${posHigh}</span>` : "";
         let posHtml = `<h3>&#x1F4CD; 大盘位置感${posDateSuffix}</h3><div class="position-list">`;
         for (const p of posData.positions) {
           const pct = p.percentile_1y != null ? p.percentile_1y : 50;
@@ -1293,7 +1294,7 @@ async function renderOverview() {
   // ---- 5. 申万行业涨跌幅热力图 ----
   if (r.industry_heatmap && r.industry_heatmap.length) {
     const hmDates = r.industry_heatmap.map(h => h.last_date).filter(Boolean).sort();
-    const hmSuffix = hmDates.length ? " · " + fmtDate(hmDates[hmDates.length - 1]) : "";
+    const hmSuffix = hmDates.length ? `<span class="chart-latest"> · ${fmtDate(hmDates[hmDates.length - 1])}</span>` : "";
     renderIndustryHeatmap(r.industry_heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）" + hmSuffix);
   } else {
     const ph = document.createElement("div");
@@ -1609,7 +1610,7 @@ function renderSentimentHeatmap(r) {
       }
     }
 
-    hmSuffix = ` · ${fmtDate(latestDate)} 冰点${coldCount} 过热${hotCount}`;
+    hmSuffix = `<span class="chart-latest"> · ${fmtDate(latestDate)} 冰点${coldCount} 过热${hotCount}</span>`;
   }
 
   div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}</h3><div class="chart" style="height:220px"></div>`;
@@ -1697,7 +1698,7 @@ function renderFuturesSection(data) {
     div.className = "chart-card";
     const windows = ["30d", "60d", "120d"];
     const accDates = (data.positions || []).map(p => p.date).filter(Boolean).sort();
-    const accDateSuffix = accDates.length ? " · " + fmtDate(accDates[accDates.length - 1]) : "";
+    const accDateSuffix = accDates.length ? `<span class="chart-latest"> · ${fmtDate(accDates[accDates.length - 1])}</span>` : "";
     let html = `<h3>历史同向/逆向准确率（次工作日涨跌）${accDateSuffix}</h3>`;
     html += '<div class="futures-note">同向=跟随机构方向做多/做空；逆向=反向操作。滚动窗口统计，不构成未来预测。数据来源：中金所前20会员持仓。</div>';
     html += '<table class="accuracy-table"><thead><tr><th>滚动窗口</th>';
@@ -2055,7 +2056,7 @@ function renderIndustryGrid(indices, containerOverride) {
     const hint = statsHint(idx.stats, idx.strategy, id);
     const etfTag = _renderEtfTag(idx.etfs);
     // 行业卡片标题加最新收盘值（与全站图表 latestSuffix 一致：· MM-DD 收盘价）
-    const closeSuffix = (last && last.close != null) ? ` · ${fmtDate(last.date)} ${last.close.toFixed(2)}` : "";
+    const closeSuffix = (last && last.close != null) ? `<span class="chart-latest"> · ${fmtDate(last.date)} ${last.close.toFixed(2)}</span>` : "";
     cell.innerHTML = `
       <div class="spark-head">
         <span class="spark-name">${idx.name}${etfTag}${closeSuffix}</span>
@@ -2221,7 +2222,7 @@ async function renderRotationCard(container) {
 
     const card = document.createElement("div");
     card.className = "rotation-card";
-    const rotDateSuffix = latest.date ? " · " + fmtDate(latest.date) : "";
+    const rotDateSuffix = latest.date ? `<span class="chart-latest"> · ${fmtDate(latest.date)}</span>` : "";
     card.innerHTML = `
       <div class="rotation-card-header">🌀 板块轮动速度${rotDateSuffix}</div>
       <div class="rotation-card-body">
@@ -2306,7 +2307,7 @@ async function renderIndustry() {
   content.appendChild(swSection);
 
   const indHmDates = (r.heatmap || []).map(h => h.last_date).filter(Boolean).sort();
-  const indHmSuffix = indHmDates.length ? " · " + fmtDate(indHmDates[indHmDates.length - 1]) : "";
+  const indHmSuffix = indHmDates.length ? `<span class="chart-latest"> · ${fmtDate(indHmDates[indHmDates.length - 1])}</span>` : "";
   renderIndustryHeatmap(r.heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）" + indHmSuffix, swSection);
   // BUG-E：行业搜索条（输入名称关键词实时过滤行业网格）
   industrySearchBar(swSection);

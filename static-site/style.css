@@ -118,6 +118,8 @@ main { padding: 16px 24px; }
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: #1f2329; }
+/* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
+.chart-latest { color: #2563eb; font-weight: 600; background: rgba(37,99,235,0.08); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* === 折线图回测 tips（.chart-hint）：散户化多块文案 + 胜率配色梯度 + 凯利折叠详解 === */
 .chart-hint {
   font-size: 12px;
@@ -1337,6 +1339,7 @@ main { padding: 16px 24px; }
   main { padding: 12px; padding-bottom: 76px; }
   .chart-card { padding: 10px 12px; margin-bottom: 12px; }
   .chart-card h3 { font-size: 13px; }
+  .chart-latest { padding: 1px 4px; font-size: 12px; }
   .card { padding: 12px 14px; }
 
   /* 概览 sparkline 默认 2 列（移动端信息密度合适）；行业卡片内容多，强制 1 列 */
