@@ -960,6 +960,210 @@ async function renderLabDetail(key) {
   _labRestoreScroll();
 }
 
+// === 回测推荐榜（列表页底部，128组配对多维度排序 + 点击弹窗细节）===
+// 数据源：lab_simulate.json。配对 buy_X×sell_Y 与 sell_Y×buy_X 在 JSON 中双向存储且
+// stats 完全相同，故仅遍历 buy 侧即可得 8买×8卖×2模式=128 组去重配对。
+const LAB_RANK_TABS = [
+  { key: "composite", label: "🏆 综合推荐" },
+  { key: "ret", label: "📈 收益率" },
+  { key: "win", label: "🎯 胜率" },
+  { key: "stable", label: "🛡 稳健(回撤小)" },
+  { key: "risk_adj", label: "⚖ 风险调整" },
+];
+
+// 聚合128组配对（仅遍历 buy 侧去重）+ 算综合评分与风险调整
+function _labRankAggregate(simData) {
+  if (!simData || !simData.strategies) return [];
+  const st = simData.strategies;
+  const buys = Object.keys(st).filter((k) => st[k].side === "buy");
+  const rows = [];
+  for (const bk of buys) {
+    const pairs = st[bk].pairs || {};
+    for (const sk in pairs) {
+      for (const mode of ["full_in", "fixed_10k"]) {
+        const md = pairs[sk] && pairs[sk][mode];
+        if (!md || !md.stats) continue;
+        const s = md.stats;
+        rows.push({
+          buyKey: bk, sellKey: sk, mode,
+          buyName: (LAB_STRATEGIES[bk] || {}).name || bk,
+          sellName: (LAB_STRATEGIES[sk] || {}).name || sk,
+          modeName: mode === "full_in" ? "全仓" : "定额",
+          total_ret: s.total_ret, annual_ret: s.annual_ret,
+          max_drawdown: s.max_drawdown, win_rate: s.win_rate,
+          n_trades: s.n_trades, years: s.years, final_total: s.final_total,
+        });
+      }
+    }
+  }
+  // 风险调整：年化/最大回撤（类 Calmar）。回撤极小且年化为正时给大值，避免除0。
+  rows.forEach((r) => {
+    if (r.max_drawdown > 0.5) r.risk_adj = r.annual_ret / r.max_drawdown;
+    else r.risk_adj = r.annual_ret > 0 ? 999 : -999;
+  });
+  // 综合评分：各项 min-max 归一化到 [0,1] 后加权。norm(v)=(v-min)/(max-min)。
+  // 回撤用 -max_drawdown 归一化（回撤越小→值越大→分越高）。
+  const mm = (acc) => {
+    const vs = rows.map(acc);
+    const mn = Math.min(...vs), mx = Math.max(...vs);
+    return (v) => (mx === mn ? 0.5 : (v - mn) / (mx - mn));
+  };
+  const nRet = mm((r) => r.total_ret);
+  const nWin = mm((r) => r.win_rate);
+  const nDd = mm((r) => -r.max_drawdown);
+  const nN = mm((r) => r.n_trades);
+  rows.forEach((r) => {
+    r.score = 0.4 * nRet(r.total_ret) + 0.3 * nWin(r.win_rate) +
+              0.2 * nDd(-r.max_drawdown) + 0.1 * nN(r.n_trades);
+  });
+  return rows;
+}
+
+function _labRankSort(rows, tab) {
+  const arr = rows.slice();
+  if (tab === "ret") arr.sort((a, b) => b.total_ret - a.total_ret);
+  else if (tab === "win") arr.sort((a, b) => b.win_rate - a.win_rate);
+  else if (tab === "stable") arr.sort((a, b) => a.max_drawdown - b.max_drawdown);
+  else if (tab === "risk_adj") arr.sort((a, b) => b.risk_adj - a.risk_adj);
+  else arr.sort((a, b) => b.score - a.score); // composite
+  return arr;
+}
+
+function _labRankItemHTML(row, rank, tab) {
+  const retC = row.total_ret >= 0 ? "#c92a2a" : "#2e7d32";
+  const winC = row.win_rate >= 50 ? "#c92a2a" : "#2e7d32";
+  const ddC = row.max_drawdown <= 30 ? "#c92a2a" : (row.max_drawdown >= 60 ? "#2e7d32" : "#ad6800");
+  const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "";
+  let extra = "";
+  if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
+  else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 998 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
+  return `<button type="button" class="lab-rank-item" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
+    `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
+    `<span class="lab-rank-name">买${row.buyName} × 卖${row.sellName} · ${row.modeName}</span>` +
+    `<span class="lab-rank-stats">` +
+      `<span style="color:${retC}">收益${row.total_ret > 0 ? "+" : ""}${row.total_ret}%</span>` +
+      `<span style="color:${winC}">胜${row.win_rate}%</span>` +
+      `<span style="color:${ddC}">回撤${row.max_drawdown}%</span>` +
+      `<span class="lab-rank-n">n=${row.n_trades}</span>` +
+    `</span>` + extra + `</button>`;
+}
+
+function _labRankHTML(simData) {
+  if (!simData) return '<div class="lab-rank-empty">推荐榜数据加载失败，请稍后重试</div>';
+  const rows = _labRankAggregate(simData);
+  if (rows.length === 0) return '<div class="lab-rank-empty">暂无推荐榜数据</div>';
+  state.labRankRows = rows;
+  const tab = state.labRankTab || "composite";
+  const sorted = _labRankSort(rows, tab);
+  const showAll = !!state.labRankShowAll;
+  const shown = showAll ? sorted : sorted.slice(0, 20);
+  const tabsHTML = LAB_RANK_TABS.map((t) =>
+    `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
+  ).join("");
+  const itemsHTML = shown.map((r, i) => _labRankItemHTML(r, i + 1, tab)).join("");
+  const moreBtn = sorted.length > 20
+    ? `<button type="button" class="lab-rank-more">${showAll ? "收起 ▲" : `显示全部 ${sorted.length} 组 ▼`}</button>`
+    : "";
+  const legend = tab === "composite"
+    ? "综合评分 = 收益率(40%) + 胜率(30%) + 回撤倒数(20%) + 样本量(10%)，各项 min-max 归一化到[0,1]后加权再×100，越高越好。"
+    : tab === "risk_adj"
+      ? "风险调整 = 年化收益 ÷ 最大回撤（类 Calmar 比率），衡量每承担1%回撤换来多少年化收益，越高越好。"
+      : tab === "stable"
+        ? "稳健榜按最大回撤从小到大排序，回撤越小越稳。"
+        : tab === "ret"
+          ? "收益率榜按总收益率从高到低排序。"
+          : "胜率榜按胜率从高到低排序。";
+  return `<div class="lab-rank-tabs">${tabsHTML}</div>` +
+    `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。</div>` +
+    `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
+}
+
+function _labRankAttachHandlers(section, simData) {
+  section.querySelectorAll(".lab-rank-tab").forEach((btn) => {
+    btn.onclick = () => { state.labRankTab = btn.dataset.tab; state.labRankShowAll = false; _labRankRerender(section, simData); };
+  });
+  section.querySelectorAll(".lab-rank-item").forEach((item) => {
+    item.onclick = () => _labRankOpenModal(simData, item.dataset.buy, item.dataset.sell, item.dataset.mode);
+  });
+  const more = section.querySelector(".lab-rank-more");
+  if (more) more.onclick = () => { state.labRankShowAll = !state.labRankShowAll; _labRankRerender(section, simData); };
+}
+
+function _labRankRerender(section, simData) {
+  const body = section.querySelector(".lab-rank-body");
+  if (body) body.innerHTML = _labRankHTML(simData);
+  _labRankAttachHandlers(section, simData);
+}
+
+// 推荐榜弹窗：复用 _labSimModeBlock 渲染 4数字+净值曲线+交易记录
+function _labRankOpenModal(simData, buyKey, sellKey, mode) {
+  let overlay = document.getElementById("labRankOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labRankOverlay";
+    overlay.className = "lab-rank-overlay";
+    document.body.appendChild(overlay);
+  }
+  state.labRankModal = { buyKey, sellKey, mode, page: 0, open: true };
+  _labRankModalRender(overlay, simData);
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labRankCloseModal(); };
+}
+
+function _labRankCloseModal() {
+  const overlay = document.getElementById("labRankOverlay");
+  if (overlay) { overlay.classList.remove("show"); overlay.innerHTML = ""; overlay.onclick = null; }
+  document.body.style.overflow = "";
+  state.labRankModal = null;
+}
+
+function _labRankModalRender(overlay, simData) {
+  const m = state.labRankModal;
+  if (!m) return;
+  const st = simData.strategies;
+  const buyStrat = st[m.buyKey];
+  const pairData = buyStrat && buyStrat.pairs && buyStrat.pairs[m.sellKey];
+  const modeData = pairData && pairData[m.mode];
+  const buyName = (LAB_STRATEGIES[m.buyKey] || {}).name || m.buyKey;
+  const sellName = (LAB_STRATEGIES[m.sellKey] || {}).name || m.sellKey;
+  const modeName = m.mode === "full_in" ? "全仓" : "定额";
+  const initCapital = simData.initial_capital || 100000;
+  let bodyHTML;
+  if (!modeData || !modeData.stats) {
+    bodyHTML = '<div class="lab-rank-modal-empty">该配对无交易数据</div>';
+  } else {
+    // 同步 page 到有效范围（_labSimModeBlock 内部也会 clamp，此处保持 state 一致）
+    const trades = modeData.trades || [];
+    const totalPages = Math.max(1, Math.ceil(trades.length / 20));
+    if (m.page > totalPages - 1) m.page = totalPages - 1;
+    if (m.page < 0) m.page = 0;
+    bodyHTML = _labSimModeBlock(m.mode, modeData, initCapital, m.page, m.open);
+  }
+  overlay.innerHTML = `<div class="lab-rank-modal">` +
+    `<div class="lab-rank-modal-head">` +
+    `<span class="lab-rank-modal-title">买${buyName} × 卖${sellName} · ${modeName}</span>` +
+    `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+    `</div>` +
+    `<div class="lab-rank-modal-body">${bodyHTML}</div>` +
+    `</div>`;
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labRankCloseModal;
+  const hdr = overlay.querySelector(".lab-sim-trades-header");
+  if (hdr) hdr.onclick = () => { m.open = !m.open; _labRankModalRender(overlay, simData); };
+  const prev = overlay.querySelector(".lab-sim-prev");
+  if (prev) prev.onclick = () => { if (m.page > 0) { m.page--; _labRankModalRender(overlay, simData); } };
+  const next = overlay.querySelector(".lab-sim-next");
+  if (next && !next.disabled) next.onclick = () => { m.page++; _labRankModalRender(overlay, simData); };
+}
+
+// ESC 关闭弹窗
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const ov = document.getElementById("labRankOverlay");
+    if (ov && ov.classList.contains("show")) _labRankCloseModal();
+  }
+});
+
 // 渲染策略实验室主入口（分区tab + 卡片列表 / 详情页）
 async function renderSignalLab() {
   // 如果有选中的策略，进详情页
@@ -1033,6 +1237,18 @@ async function renderSignalLab() {
     list.appendChild(card);
   });
   content.appendChild(list);
+
+  // 回测推荐榜（列表页底部空白区，异步加载 lab_simulate.json ~4.8MB，不阻塞上方骨架）
+  const rankSection = document.createElement("div");
+  rankSection.className = "chart-card lab-rank-card";
+  rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3><div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…（约4.8MB，请稍候）</div></div>';
+  content.appendChild(rankSection);
+  fetchLabSimData().then((simData) => {
+    const body = rankSection.querySelector(".lab-rank-body");
+    if (body) body.innerHTML = _labRankHTML(simData);
+    _labRankAttachHandlers(rankSection, simData);
+  });
+
   // F5 恢复：更新 hash + 恢复滚动位置
   _labSetHash("#lab");
   _labRestoreScroll();
