@@ -579,6 +579,7 @@ function _labGetPair(simData, buyKey, sellKey) {
 
 // 取某窗口的切片数据：stats(单窗口) + trades(按 tw 切片) + equity_curve(按 ew 切片)
 // 新结构 trades/equity_curve 全史共享一份，tw/ew 存各窗口 [start,end] 切片索引
+// hasFull 标记 full 数据(trades/equity_curve)是否已加载，未加载时仅 stats 可用
 function _labPairWinData(pairData, mode, win) {
   const md = pairData && pairData[mode];
   if (!md) return null;
@@ -587,7 +588,8 @@ function _labPairWinData(pairData, mode, win) {
   const ew = md.ew && md.ew[win];
   const trades = (tw && md.trades) ? md.trades.slice(tw[0], tw[1]) : (md.trades || []);
   const equity_curve = (ew && md.equity_curve) ? md.equity_curve.slice(ew[0], ew[1]) : (md.equity_curve || []);
-  return { stats, trades, equity_curve };
+  const hasFull = !!md.trades || !!md.equity_curve;
+  return { stats, trades, equity_curve, hasFull };
 }
 
 // 窗口切换 tabs HTML（默认近1年：全史太密）
@@ -872,16 +874,97 @@ const LAB_SIM_INDEXES = [
   { id: "kc50", name: "科创50" },
 ];
 
-// 获取 lab_simulate_{index}.json 数据（per-index 缓存到 state.labSimDataMap）
+// 获取 lab_sim_{index}_stats.json 数据（小文件，推荐榜/矩阵/配对卡片秒开）
+// per-index 缓存到 state.labSimDataMap。详情(trades/equity_curve)由 fetchLabSimFullData 按需加载并合并。
 // web 版走 /static/ 挂载点（main.py 的 StaticFiles(directory=web)），static 版走 ./data/
 async function fetchLabSimData(index) {
   index = index || "sh";
   if (!state.labSimDataMap) state.labSimDataMap = {};
   if (state.labSimDataMap[index]) return state.labSimDataMap[index];
   try {
-    state.labSimDataMap[index] = await fetchJSON("/static/data/lab/lab_simulate_" + index + ".json");
+    state.labSimDataMap[index] = await fetchJSON("/static/data/lab/lab_sim_" + index + "_stats.json");
   } catch (e) {
     state.labSimDataMap[index] = null;
+  }
+  return state.labSimDataMap[index];
+}
+
+// 检查某指数 full 数据是否已合并入缓存（用于判断详情是否需显示 loading）
+function _labSimFullLoaded(index) {
+  index = index || "sh";
+  return !!(state.labSimFullMap && state.labSimFullMap[index] === true);
+}
+
+// 带 HTTP 进度的 fetch JSON（读 ReadableStream 累计 received/Content-Length 算百分比）
+// 无 Content-Length 或不支持流时降级为普通 fetchJSON，onProgress(-1) 表示无法测算
+async function fetchJSONProgress(url, onProgress) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
+    if (!total || !resp.body || !resp.body.getReader) {
+      if (onProgress) onProgress(-1, 0);
+      return resp.json();
+    }
+    const reader = resp.body.getReader();
+    let received = 0;
+    const chunks = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) { chunks.push(value); received += value.length; if (onProgress) onProgress(received, total); }
+    }
+    if (onProgress) onProgress(total, total);
+    const blob = new Blob(chunks);
+    const txt = await blob.text();
+    return JSON.parse(txt);
+  } catch (e) {
+    // 流式读取失败（如浏览器不支持），降级普通 fetch
+    if (onProgress) onProgress(-1, 0);
+    return fetchJSON(url);
+  }
+}
+
+// 加载完整数据(trades/equity_curve/tw/ew)，合并入已缓存的 stats 数据
+// onProgress(received, total) 用于进度条；total<0 表示无法测算
+// 返回合并后的 simData（即 state.labSimDataMap[index]）
+async function fetchLabSimFullData(index, onProgress) {
+  index = index || "sh";
+  if (!state.labSimFullMap) state.labSimFullMap = {};
+  if (state.labSimFullMap[index] === true) return state.labSimDataMap[index]; // 已合并
+  if (state.labSimFullMap[index] === "loading") {
+    // 已有加载中请求，轮询等待完成（避免重复下载）
+    for (let i = 0; i < 600; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (state.labSimFullMap[index] === true) return state.labSimDataMap[index];
+      if (state.labSimFullMap[index] === null) break;
+    }
+    return state.labSimDataMap[index];
+  }
+  const stats = state.labSimDataMap && state.labSimDataMap[index];
+  if (!stats) return null;
+  state.labSimFullMap[index] = "loading";
+  try {
+    const full = await fetchJSONProgress("/static/data/lab/lab_sim_" + index + "_full.json", onProgress);
+    if (full && full.pairs && stats.pairs) {
+      for (const pk in full.pairs) {
+        const fp = full.pairs[pk];
+        const sp = stats.pairs[pk];
+        if (!sp) continue;
+        for (const mode of ["full_in", "fixed_10k"]) {
+          if (fp[mode]) {
+            if (!sp[mode]) sp[mode] = {};
+            sp[mode].equity_curve = fp[mode].equity_curve;
+            sp[mode].trades = fp[mode].trades;
+            sp[mode].tw = fp[mode].tw;
+            sp[mode].ew = fp[mode].ew;
+          }
+        }
+      }
+    }
+    state.labSimFullMap[index] = true;
+  } catch (e) {
+    state.labSimFullMap[index] = null;
   }
   return state.labSimDataMap[index];
 }
@@ -1019,6 +1102,18 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
       `</tbody></table></div>${pagerHTML}</div>`
     : "";
 
+  // full 数据未加载时，stats 数字可见（来自小 stats 文件），净值曲线/交易记录显示加载占位
+  const detailHTML = winData.hasFull
+    ? `<div class="lab-sim-equity"><div class="lab-sim-equity-label">📈 净值曲线（虚线=初始本金）</div>${svgHTML}</div>` +
+      `<div class="lab-sim-trades">` +
+      `<div class="lab-sim-trades-header" data-mode="${mode}">` +
+      `<span class="lab-sim-trades-label">📋 交易记录 共 ${totalReal} 笔${truncNote}</span>` +
+      `<span class="lab-sim-trades-toggle">${isOpen ? "收起 ▲" : "展开 ▼"}</span>` +
+      `</div>` +
+      tradesBody +
+      `</div>`
+    : `<div class="lab-sim-full-loading">⏳ 加载明细数据（净值曲线/交易记录）中…</div>`;
+
   return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
     `<div class="lab-sim-stats">` +
     `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
@@ -1027,14 +1122,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
     `</div>` +
     (signalBtnHTML || "") +
-    `<div class="lab-sim-equity"><div class="lab-sim-equity-label">📈 净值曲线（虚线=初始本金）</div>${svgHTML}</div>` +
-    `<div class="lab-sim-trades">` +
-    `<div class="lab-sim-trades-header" data-mode="${mode}">` +
-    `<span class="lab-sim-trades-label">📋 交易记录 共 ${totalReal} 笔${truncNote}</span>` +
-    `<span class="lab-sim-trades-toggle">${isOpen ? "收起 ▲" : "展开 ▼"}</span>` +
-    `</div>` +
-    tradesBody +
-    `</div>` +
+    detailHTML +
     `</div>`;
 }
 
@@ -1441,6 +1529,10 @@ async function renderLabDetail(key) {
       _labUpdateMatrixRowHighlight();
     };
     _rerenderSim();
+    // 分阶段加载：stats 已渲染（配对卡片秒开），异步加载 full 数据后重渲染详情(trades/equity_curve)
+    if (simData && !_labSimFullLoaded(simIdx.id)) {
+      fetchLabSimFullData(simIdx.id).then(() => _rerenderSim()).catch(() => {});
+    }
   }
   // F5 恢复：更新 hash + 恢复滚动位置
   _labSetHash("#lab/" + key);
@@ -1601,6 +1693,32 @@ function _labRankOpenModal(simData, buyKey, sellKey, mode) {
   overlay.classList.add("show");
   document.body.style.overflow = "hidden";
   overlay.onclick = (e) => { if (e.target === overlay) _labRankCloseModal(); };
+  // 详情需 full 数据(trades/equity_curve)，未加载则按需加载（带进度条）并重渲染
+  const idx = (simData && simData.index_id) || (state.labSimIndex || "sh");
+  if (!_labSimFullLoaded(idx)) _labRankEnsureFull(overlay, simData, idx);
+}
+
+// 弹窗内按需加载 full 数据：更新 loading 占位为进度条，加载完重渲染
+async function _labRankEnsureFull(overlay, simData, idx) {
+  const setProg = (pct) => {
+    const el = overlay.querySelector(".lab-sim-full-loading");
+    if (!el) return;
+    if (pct < 0) { el.textContent = "⏳ 加载明细数据中…"; return; }
+    el.innerHTML = `⏳ 加载明细数据中… ${pct}%<div class="lab-full-prog"><div style="width:${pct}%"></div></div>`;
+  };
+  // 超时兜底：15s 后提示加载较慢
+  const slowTimer = setTimeout(() => {
+    const el = overlay.querySelector(".lab-sim-full-loading");
+    if (el) el.textContent = "⏳ 加载较慢，请稍候…";
+  }, 15000);
+  try {
+    await fetchLabSimFullData(idx, (received, total) => {
+      setProg(total > 0 ? Math.round(received / total * 100) : -1);
+    });
+  } finally {
+    clearTimeout(slowTimer);
+  }
+  if (state.labRankModal) _labRankModalRender(overlay, simData);
 }
 
 function _labRankCloseModal() {

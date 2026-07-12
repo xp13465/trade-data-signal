@@ -14,26 +14,32 @@
   - equity_curve 全史采样存一份，各窗口存 [start,end) 切片索引（ew）。
   - stats 每窗口独立计算（5窗口×7字段，体积可忽略）。
 
-输出结构:
+输出结构: 每个指数拆两文件，分阶段加载（推荐榜秒开，详情按需加载）
+
+  1) lab_sim_{iid}_stats.json（小，~几百KB）：推荐榜/矩阵/配对卡片所需
   {
     generated_at, index_id, index_name, initial_capital,
-    windows: [{k,l,s,e}, ...],          // 5窗口元数据
-    strategies: {                        // 16个策略，只存侧+伙伴列表（去重）
-      key: {side:"buy"/"sell", partners:[paired_key, ...]}
-    },
-    pairs: {                             // 64组配对，去重存储
-      "buy_key|sell_key": {
-        full_in:   {stats:{all,y10,y5,y3,y1}, equity_curve, trades, tw, ew},
-        fixed_10k: {stats:{all,y10,y5,y3,y1}, equity_curve, trades, tw, ew}
-      }
-    }
+    windows: [{k,l,s,e}, ...],
+    strategies: {key: {side, partners}},
+    pairs: {"buy_key|sell_key": {
+      full_in:   {stats:{all,y10,y5,y3,y1}},
+      fixed_10k: {stats:{all,y10,y5,y3,y1}}
+    }}
+  }
+
+  2) lab_sim_{iid}_full.json（大，原大小）：详情/配对卡片用，按需加载
+  {
+    pairs: {"buy_key|sell_key": {
+      full_in:   {equity_curve, trades, tw, ew},
+      fixed_10k: {equity_curve, trades, tw, ew}
+    }}
   }
 
   - tw/ew: {window_key: [start_idx, end_exclusive_idx]}，指向同组 trades/equity_curve 数组。
   - 前端双向查找：给定策略A+伙伴B，若A.side=="buy"则pair_id=A+"|"+B，否则pair_id=B+"|"+A。
+  - 前端先 fetch stats（秒开推荐榜+矩阵+配对卡片），点详情/弹窗时再 fetch full 合并入已缓存 stats。
 
-输出: web/data/lab/lab_simulate_{index_id}.json + static-site/data/lab/lab_simulate_{index_id}.json
-      每个指数一个文件，前端按选指数按需加载。
+输出: web/data/lab/ + static-site/data/lab/ 各两个文件 lab_sim_{iid}_stats.json / lab_sim_{iid}_full.json
 """
 import bisect
 import json
@@ -466,17 +472,43 @@ def run_index(iid, iname):
 
     print(f"\n[配对] {n_pairs} 组 × 2模式 × 5窗口 = {n_pairs * 2 * 5} 组窗口回测")
 
-    # 写入双版（per-index 文件）
-    out_paths = [
-        os.path.join(BASE, 'web', 'data', 'lab', f'lab_simulate_{iid}.json'),
-        os.path.join(BASE, 'static-site', 'data', 'lab', f'lab_simulate_{iid}.json'),
+    # 拆分输出：stats（小，推荐榜/矩阵/配对卡片用）+ full（大，详情trades/equity_curve用）
+    stats_result = {
+        'generated_at': result['generated_at'],
+        'index_id': iid,
+        'index_name': iname,
+        'initial_capital': INITIAL_CAPITAL,
+        'windows': result['windows'],
+        'strategies': result['strategies'],
+        'pairs': {},
+    }
+    full_result = {'index_id': iid, 'pairs': {}}
+    for pk, pv in result['pairs'].items():
+        stats_result['pairs'][pk] = {}
+        full_result['pairs'][pk] = {}
+        for mode in ('full_in', 'fixed_10k'):
+            mpv = pv[mode]
+            stats_result['pairs'][pk][mode] = {'stats': mpv['stats']}
+            full_result['pairs'][pk][mode] = {
+                'equity_curve': mpv['equity_curve'],
+                'trades': mpv['trades'],
+                'tw': mpv['tw'],
+                'ew': mpv['ew'],
+            }
+
+    # 写入双版（per-index 拆两文件：stats 小秒开，full 大按需）
+    out_files = [
+        (f'lab_sim_{iid}_stats.json', stats_result),
+        (f'lab_sim_{iid}_full.json', full_result),
     ]
-    for p in out_paths:
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, separators=(',', ':'))
-        size_kb = os.path.getsize(p) / 1024
-        print(f"[output] {p} ({size_kb:.1f} KB)")
+    for fname, data in out_files:
+        for base_dir in ('web', 'static-site'):
+            p = os.path.join(BASE, base_dir, 'data', 'lab', fname)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
+            size_kb = os.path.getsize(p) / 1024
+            print(f"[output] {p} ({size_kb:.1f} KB)")
 
     print(f"完成: {iid} ({iname}) - {n_pairs} 组配对, {len(all_keys)} 个策略, 5窗口")
 
