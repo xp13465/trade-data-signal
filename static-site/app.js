@@ -769,7 +769,17 @@ function _signalChartModalEl() {
   modal = document.createElement("div");
   modal.id = "signalChartModal";
   modal.className = "rule-modal hidden";
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body signal-chart-modal-body"><div class="rule-modal-header"><h3 class="signal-chart-title">走势图</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content signal-chart-content"></div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body signal-chart-modal-body"><div class="rule-modal-header"><h3 class="signal-chart-title">走势图</h3><div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全历史</button></div><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content signal-chart-content"></div></div>';
+  // 添加时间段切换按钮事件监听
+  modal.querySelectorAll('.lab-signal-period-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      modal.querySelectorAll('.lab-signal-period-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      // 重新加载数据
+      const period = e.target.dataset.period;
+      openSignalChartModal(indexId, signal, date, freezeVal, period);
+    });
+  });
   document.body.appendChild(modal);
   const close = () => closeSignalChartModal();
   modal.querySelector(".rule-modal-overlay").addEventListener("click", close);
@@ -787,7 +797,7 @@ function closeSignalChartModal() {
   _signalModalCharts = [];
 }
 
-async function openSignalChartModal(indexId, signal, date, freezeVal) {
+async function openSignalChartModal(indexId, signal, date, freezeVal, period = "1y") {
   const modal = _signalChartModalEl();
   const body = modal.querySelector(".signal-chart-content");
   const titleEl = modal.querySelector(".signal-chart-title");
@@ -802,6 +812,20 @@ async function openSignalChartModal(indexId, signal, date, freezeVal) {
   document.body.style.overflow = "hidden";
   try {
     let chartData, sigs, stats, strategy, isValue = false;
+    // 根据period参数确定过滤日期
+    let filterDate = null;
+    if (period !== "all") {
+      const dateObj = new Date();
+      if (period === "1y") {
+        dateObj.setFullYear(dateObj.getFullYear() - 1);
+      } else if (period === "3y") {
+        dateObj.setFullYear(dateObj.getFullYear() - 3);
+      } else if (period === "5y") {
+        dateObj.setFullYear(dateObj.getFullYear() - 5);
+      }
+      filterDate = dateObj.toISOString().slice(0, 10).replace(/-/g, '');
+    }
+
     if (indexId.startsWith("g.")) {
       const key = indexId.slice(2);
       const r = await fetchJSON("./data/global-all.json");
@@ -810,6 +834,10 @@ async function openSignalChartModal(indexId, signal, date, freezeVal) {
       stats = (r.extras_stats && r.extras_stats[key]) || {};
       strategy = r.extras_strategy && r.extras_strategy[key];
       chartData = data.map((d) => ({ date: d.date, value: d.value }));
+      // 根据period过滤数据
+      if (filterDate) {
+        chartData = chartData.filter(d => d.date >= filterDate);
+      }
       isValue = true;
     } else if (indexId.startsWith("s.")) {
       const key = indexId.slice(2);
@@ -819,13 +847,21 @@ async function openSignalChartModal(indexId, signal, date, freezeVal) {
       stats = (r.stats && r.stats[key]) || {};
       strategy = r.strategy && r.strategy[key];
       chartData = data.map((d) => ({ date: d.date, value: d.value }));
-      isValue = true;
+      // 根据period过滤数据
+      if (filterDate) {
+        chartData = chartData.filter(d => d.date >= filterDate);
+      }
     } else {
       const r = await fetchJSON(`./data/index/${indexId}-all.json`);
       chartData = r.ohlc || [];
       sigs = r.signals || [];
       stats = r.stats || {};
       strategy = r.strategy;
+      // 根据period过滤数据
+      if (filterDate) {
+        chartData = chartData.filter(d => d.date >= filterDate);
+        sigs = sigs.filter(d => d.date >= filterDate);
+      }
     }
     if (!chartData || !chartData.length) {
       body.innerHTML = `<div class="empty-note">暂无「${name}」走势数据</div>`;

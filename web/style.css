@@ -57,6 +57,29 @@ header h1 { font-size: 18px; margin: 0; }
 }
 .periods button.active { background: #165dff; color: #fff; border-color: #165dff; }
 .periods button.ghost { background: transparent; }
+
+/* 弹窗内的时间段选择按钮 */
+.signal-chart-periods {
+  margin-left: 16px;
+  display: inline-block;
+}
+.signal-chart-periods .lab-signal-period-btn {
+  margin-left: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid #d9dce0;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.signal-chart-periods .lab-signal-period-btn.active {
+  background: #9c27b0;
+  color: #fff;
+  border-color: #9c27b0;
+}
+.signal-chart-periods .lab-signal-period-btn:hover {
+  background: #f7f8fa;
+}
 .tabs {
   display: flex;
   gap: 4px;
