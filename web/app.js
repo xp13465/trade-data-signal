@@ -2557,6 +2557,12 @@ window.addEventListener("scroll", () => {
   updateH5Topbar();
   _tabInitialRestore = true;
 })();
-renderTab().then(() => {
-  if (_tabInitialRestore) { _tabInitialRestore = false; _restoreMainTabScroll(); }
-});
+// #lab* hash 由 lab.js 接管初始渲染（_labInitHashRestore 的 labBtn.click 触发 renderTab）。
+// 此处跳过 bootstrap renderTab，避免与 lab 渲染竞态导致概览内容（含行业热力图）串入实验室页 / 高亮与内容不一致。
+if (location.hash.startsWith("#lab")) {
+  content.innerHTML = '<div class="loading">加载中…</div>';
+} else {
+  renderTab().then(() => {
+    if (_tabInitialRestore) { _tabInitialRestore = false; _restoreMainTabScroll(); }
+  });
+}
