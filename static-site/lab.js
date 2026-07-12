@@ -340,25 +340,25 @@ const LAB_STRATEGIES = {
   // --- 候选买点区（7个） ---
   BB_lower_revert: {
     name: "布林下轨回归买", side: "buy", zone: "buy", status: "experimental",
-    trigger: "前一日 close 跌破 BB 下轨，当日 close 收回下轨之上（超卖反弹）",
+    trigger: "前一日收盘价跌破布林带下轨，当日收盘价收回下轨之上（超卖反弹）",
     conclusion: "3/4窗口达标并列第1，近3年60d盈亏比1.84最高，与C1语义互补",
-    theory: "布林带下轨回归。价格跌破下轨后收回，意味超卖极端已过、反弹拐点出现。与C1同为「超卖反弹」语义，但用价格穿越BB下轨而非RSI阈值，强势市更敏感。",
-    scenario: "震荡市/下跌市超卖反弹；强势市中RSI未到30但价格已破下轨时补C1盲区。",
-    note: "近1年是唯一达标买点（52.1%/1.23），与C1互补性最强。实验中：已实现图表（收盘价+BB轨+绿色实验买markPoint），未写入signal_daily。",
-    report: "回测报告：BB_lower_revert 达标数3/4（近10年/近3年/近1年），与C1并列第1。近3年60d盈亏比1.79、均值+4.7%为买点最高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs RSI阈值），适合做互补买点。",
+    theory: "布林带下轨回归。价格跌破下轨后收回，意味超卖极端已过、反弹拐点出现。与C1同为「超卖反弹」语义，但用价格穿越布林带下轨而非相对强弱指标(RSI)阈值，强势市更敏感。",
+    scenario: "震荡市/下跌市超卖反弹；强势市中相对强弱指标未到30但价格已破下轨时补C1盲区。",
+    note: "近1年是唯一达标买点（52.1%/1.23），与C1互补性最强。实验中：已实现图表（收盘价+布林带轨道+绿色实验买标注），未写入signal_daily。",
+    report: "回测报告：BB_lower_revert 达标数3/4（近10年/近3年/近1年），与C1并列第1。近3年60d盈亏比1.79、均值+4.7%为买点最高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs 相对强弱阈值），适合做互补买点。",
   },
   Supertrend_buy: {
     name: "Supertrend翻多买", side: "buy", zone: "buy", status: "experimental",
-    trigger: "ATR(10)×3 趋势线从翻空转为翻多（趋势跟踪买点）",
+    trigger: "真实波幅ATR(10)×3 趋势线从翻空转为翻多（趋势跟踪买点）",
     conclusion: "2/4达标，语义与C1正交（趋势启动 vs 超卖反弹），最佳互补候选",
-    theory: "Supertrend 指标基于 ATR 的动态趋势线。翻多意味趋势已确认启动，与C1的「超卖反弹」正交，捕捉的是趋势延续而非拐点。",
+    theory: "超级趋势(Supertrend)指标基于真实波幅(ATR)的动态趋势线。翻多意味趋势已确认启动，与C1的「超卖反弹」正交，捕捉的是趋势延续而非拐点。",
     scenario: "趋势启动确认；与C1互补覆盖不同市场状态。",
-    note: "近3年全horizon胜率≥48.8%，盈亏比1.40-1.61。信号较C1稀疏。实验中：已实现图表（收盘价+Supertrend趋势线+绿色实验买markPoint），未写入signal_daily。",
+    note: "近3年全持有期胜率≥48.8%，盈亏比1.40-1.61。信号较C1稀疏。实验中：已实现图表（收盘价+超级趋势线+绿色实验买标注），未写入signal_daily。",
     report: "回测报告：Supertrend_buy 全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是最佳互补候选。近3年10d均值+1.0%，60d均值+3.8%。",
   },
   Donchian20_up: {
     name: "唐奇安20日突破买", side: "buy", zone: "buy", status: "dev",
-    trigger: "close 突破近20日最高价（通道突破买）",
+    trigger: "收盘价突破近20日最高价（通道突破买）",
     conclusion: "2/4达标，近3年胜率<50%，趋势跟踪型信号",
     theory: "唐奇安通道突破。价格创新高意味多头力量突破，经典趋势跟踪系统。",
     scenario: "强趋势市突破入场；震荡市假信号多。",
@@ -367,7 +367,7 @@ const LAB_STRATEGIES = {
   },
   Donchian55_up: {
     name: "海龟55日突破买", side: "buy", zone: "buy", status: "dev",
-    trigger: "close 突破近55日最高价（海龟交易法System 2）",
+    trigger: "收盘价突破近55日最高价（海龟交易法System 2）",
     conclusion: "2/4达标，胜率<50%，长周期突破信号滞后",
     theory: "海龟交易法 System 2 入场。55日突破捕捉中长期趋势启动，经典趋势跟踪。",
     scenario: "中长期趋势确认入场；短周期信号滞后。",
@@ -376,7 +376,7 @@ const LAB_STRATEGIES = {
   },
   MA_golden_5_20: {
     name: "MA5/MA20金叉买", side: "buy", zone: "buy", status: "dev",
-    trigger: "MA5 上穿 MA20（短期金叉买点）",
+    trigger: "5日均线上穿20日均线（短期金叉买点）",
     conclusion: "1/4达标，信号密集胜率平庸",
     theory: "双均线金叉。短期均线上穿长期均线意味短期动量转强，经典趋势确认信号。",
     scenario: "趋势确认入场；震荡市频繁假金叉。",
@@ -385,18 +385,18 @@ const LAB_STRATEGIES = {
   },
   MA_golden_10_60: {
     name: "MA10/MA60金叉买", side: "buy", zone: "buy", status: "dev",
-    trigger: "MA10 上穿 MA60（中长期金叉买点）",
+    trigger: "10日均线上穿60日均线（中长期金叉买点）",
     conclusion: "2/4达标，滞后严重",
-    theory: "中长期双均线金叉。MA10上穿MA60确认中长期趋势转多，但MA60滞后严重。",
+    theory: "中长期双均线金叉。10日均线上穿60日均线确认中长期趋势转多，但60日均线滞后严重。",
     scenario: "中长期趋势确认；信号滞后，入场点偏晚。",
     note: "近3年胜率47.1%低于50%。全史样本11809较少。",
-    report: "回测报告：MA_golden_10_60 全史+近1年达标（2/4），近3年胜率47.1%低于50%。MA60滞后严重，信号少且入场偏晚。全史60d均值+2.1%。",
+    report: "回测报告：MA_golden_10_60 全史+近1年达标（2/4），近3年胜率47.1%低于50%。60日均线滞后严重，信号少且入场偏晚。全史60d均值+2.1%。",
   },
   MACD_golden: {
     name: "MACD金叉买", side: "buy", zone: "buy", status: "dev",
-    trigger: "DIF 上穿 DEA（MACD金叉买点）",
+    trigger: "差离值(DIF)上穿信号线(DEA)（MACD金叉买点）",
     conclusion: "1/4达标，信号最多但平庸",
-    theory: "MACD金叉。DIF上穿DEA意味短期动量强于长期，经典趋势确认。MACD(12,26,9)业界标准参数。",
+    theory: "MACD金叉。差离值(DIF)上穿信号线(DEA)意味短期动量强于长期，经典趋势确认。MACD(12,26,9)业界标准参数。",
     scenario: "趋势确认入场；震荡市假金叉多。",
     note: "信号全史最多（38930），但近3年胜率49.1%接近随机。",
     report: "回测报告：MACD_golden 仅全史达标（1/4），近3年10d胜率49.1%接近随机。信号全史最多（38930个），但胜率平庸。近3年60d盈亏比1.76、均值+4.6%。",
@@ -404,34 +404,34 @@ const LAB_STRATEGIES = {
   // --- 候选卖点区（7个） ---
   BB_upper_revert: {
     name: "布林上轨回落卖", side: "sell", zone: "sell", status: "experimental",
-    trigger: "前一日 close 突破 BB 上轨，当日 close 回落至上轨下方（短周期止盈）",
+    trigger: "前一日收盘价突破布林带上轨，当日收盘价回落至上轨下方（短周期止盈）",
     conclusion: "近3年5d/10d胜率第1(57%/54%)，与D1(20d最强)时间维度互补",
     theory: "布林带上轨回归。价格从上轨上方回落至下方，意味超买极端已过、短周期止盈拐点。与D1的「20日高回落5%」时间维度互补。",
     scenario: "短周期止盈/减仓提示；与D1（20d最强）双重确认。",
-    note: "实验中，已实现图表（close折线+BB轨+紫色实验卖markPoint）。未写入signal_daily。",
+    note: "实验中，已实现图表（收盘价折线+布林带轨道+紫色实验卖标注）。未写入signal_daily。",
     report: "回测报告：BB_upper_revert 近3年5d胜率56.8%/10d胜率54.1%为卖点最高，短周期止盈最强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（卖点结构性问题），但方向胜率top1。",
   },
   MA_death_5_20: {
     name: "MA5/MA20死叉卖", side: "sell", zone: "sell", status: "experimental",
-    trigger: "MA5 下穿 MA20（短期死叉卖点）",
+    trigger: "5日均线下穿20日均线（短期死叉卖点）",
     conclusion: "近3年20d胜率56.3%最高，短周期偏弱但中周期强",
     theory: "双均线死叉。短期均线下穿长期均线意味短期动量转弱，经典趋势转弱确认。",
     scenario: "趋势转弱减仓；震荡市频繁假死叉。",
-    note: "近3年20d胜率54.8%较高，但5d/10d偏弱。PL0.90<1。实验中：已实现图表（收盘价+MA5/MA20+紫色实验卖markPoint），未写入signal_daily。",
+    note: "近3年20d胜率54.8%较高，但5d/10d偏弱。PL0.90<1。实验中：已实现图表（收盘价+5日/20日均线+紫色实验卖标注），未写入signal_daily。",
     report: "回测报告：MA_death_5_20 近3年20d胜率54.8%为卖点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（卖点结构性问题）。",
   },
   BB_middle_break: {
     name: "跌破布林中轨卖", side: "sell", zone: "sell", status: "dev",
-    trigger: "close 跌破布林中轨（MA20），中轨破位卖",
+    trigger: "收盘价跌破布林中轨（20日均线），中轨破位卖",
     conclusion: "中规中矩，PL偏低",
-    theory: "布林中轨破位。中轨=MA20，跌破意味价格回到均线下方，趋势转弱确认。",
+    theory: "布林中轨破位。中轨=20日均线，跌破意味价格回到均线下方，趋势转弱确认。",
     scenario: "趋势转弱确认减仓；信号密集。",
     note: "近3年10d胜率52.6%，PL0.82偏低。样本最大（10177）。",
     report: "回测报告：BB_middle_break 近3年10d胜率52.6%、PL0.82。样本10177最大。中规中矩，无突出优势。",
   },
   Donchian10_down: {
     name: "跌破10日最低卖", side: "sell", zone: "sell", status: "dev",
-    trigger: "close 跌破近10日最低价（海龟退出信号）",
+    trigger: "收盘价跌破近10日最低价（海龟退出信号）",
     conclusion: "胜率刚过50%",
     theory: "唐奇安通道下破/海龟退出。跌破短期低点意味短期趋势已破，海龟System 2退出信号。",
     scenario: "短期趋势破位退出；信号密集。",
@@ -440,7 +440,7 @@ const LAB_STRATEGIES = {
   },
   Donchian20_down: {
     name: "跌破20日最低卖", side: "sell", zone: "sell", status: "dev",
-    trigger: "close 跌破近20日最低价（通道下破卖）",
+    trigger: "收盘价跌破近20日最低价（通道下破卖）",
     conclusion: "PL相对高但平庸",
     theory: "唐奇安通道下破。跌破20日低点意味中期趋势已破，比10日更滞后但更可靠。",
     scenario: "中期趋势破位减仓；信号较稀疏。",
@@ -449,18 +449,18 @@ const LAB_STRATEGIES = {
   },
   MACD_death: {
     name: "MACD死叉卖", side: "sell", zone: "sell", status: "dev",
-    trigger: "DIF 下穿 DEA（MACD死叉卖点）",
+    trigger: "差离值(DIF)下穿信号线(DEA)（MACD死叉卖点）",
     conclusion: "PL0.79偏低",
-    theory: "MACD死叉。DIF下穿DEA意味短期动量弱于长期，经典趋势转弱确认。MACD(12,26,9)业界标准。",
+    theory: "MACD死叉。差离值(DIF)下穿信号线(DEA)意味短期动量弱于长期，经典趋势转弱确认。MACD(12,26,9)业界标准。",
     scenario: "趋势转弱减仓；震荡市假死叉多。",
     note: "近3年10d胜率51.8%，PL0.83偏低。样本6844较大。",
     report: "回测报告：MACD_death 近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，卖点结构性问题突出。",
   },
   ATR_trail_stop: {
     name: "ATR追踪止损卖", side: "sell", zone: "sell", status: "dev",
-    trigger: "close < 近20日最高close − 3×ATR(14)（追踪止损）",
+    trigger: "收盘价 < 近20日最高收盘价 − 3×真实波幅ATR(14)（追踪止损）",
     conclusion: "胜率刚过50%",
-    theory: "ATR追踪止损。基于波动率的动态止损线，价格跌破意味趋势已反转。ATR自适应波动率。",
+    theory: "真实波幅(ATR)追踪止损。基于波动率的动态止损线，价格跌破意味趋势已反转。真实波幅(ATR)自适应波动率。",
     scenario: "趋势跟踪止损；波动率大时止损线更宽。",
     note: "近3年10d胜率51.1%，PL0.86。全史PL0.96相对高。",
     report: "回测报告：ATR_trail_stop 近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点最高之一。追踪止损型信号，胜率刚过50%。",
@@ -468,7 +468,7 @@ const LAB_STRATEGIES = {
   // --- 已排除反面教材区（6个） ---
   BB_upper_break: {
     name: "突破布林上轨买", side: "buy", zone: "excluded", status: "excluded",
-    trigger: "close 突破布林上轨（追高买）",
+    trigger: "收盘价突破布林上轨（追高买）",
     conclusion: "0/4达标，追高被套，胜率长期<50%",
     theory: "布林上轨突破。价格突破上轨意味强势，但A股追高易被套。",
     scenario: "不推荐使用。",
@@ -477,16 +477,16 @@ const LAB_STRATEGIES = {
   },
   KDJ_golden_oversold: {
     name: "KDJ超卖金叉买", side: "buy", zone: "excluded", status: "excluded",
-    trigger: "KDJ 金叉且 K<35（超卖金叉买）",
+    trigger: "随机指标(KDJ)金叉且 K<35（超卖金叉买）",
     conclusion: "0/4达标，近3年10d胜率46.1%",
-    theory: "KDJ超卖金叉。KDJ在超卖区金叉意味短期反弹，但A股KDJ信号噪声大。",
+    theory: "随机指标(KDJ)超卖金叉。随机指标(KDJ)在超卖区金叉意味短期反弹，但A股随机指标(KDJ)信号噪声大。",
     scenario: "不推荐使用。",
     note: "已排除。近3年10d胜率45.5%<50%。",
     report: "回测报告：KDJ_golden_oversold 0/4达标，近3年10d胜率45.5%<50%。信号密集（6839）但胜率低，明确排除。",
   },
   Vol_breakout: {
     name: "放量突破买", side: "buy", zone: "excluded", status: "excluded",
-    trigger: "volume > 2×20日均量 且 当日close涨幅>2%（放量突破）",
+    trigger: "成交量 > 2×20日均量 且 当日收盘价涨幅>2%（放量突破）",
     conclusion: "0/4达标，近3年胜率42.6%反向指标",
     theory: "放量突破。量价齐升意味资金入场，但A股个股放量突破后常回调。",
     scenario: "不推荐使用。在A股个股上反而是反向指标。",
@@ -497,25 +497,25 @@ const LAB_STRATEGIES = {
     name: "RSI下穿70卖", side: "sell", zone: "excluded", status: "excluded",
     trigger: "RSI(14) 前日≥70 且 当日<70（超买结束卖）",
     conclusion: "PL0.81最差，旧基线已弃",
-    theory: "RSI超买结束。RSI从≥70回落意味超买结束，但回测显示方向相反（信号后价格仍涨）。",
+    theory: "相对强弱指标(RSI)超买结束。相对强弱指标(RSI)从≥70回落意味超买结束，但回测显示方向相反（信号后价格仍涨）。",
     scenario: "不推荐使用。已弃用，改用D1。",
     note: "已排除。全史PL0.84最差，旧基线。已被D1_high20_drop5替代。",
     report: "回测报告：B0_RSI70 0/4达标，全史10d胜率48.7%/PL0.84/均值+0.9%（方向相反，信号后价格仍涨）。是所有卖点中最差的，旧基线已弃，改用D1。",
   },
   KDJ_death_overbought: {
     name: "KDJ超买死叉卖", side: "sell", zone: "excluded", status: "excluded",
-    trigger: "KDJ 死叉且 K>70（超买死叉卖）",
+    trigger: "随机指标(KDJ)死叉且 K>70（超买死叉卖）",
     conclusion: "近3年10d胜率46.3%失效",
-    theory: "KDJ超买死叉。KDJ在超买区死叉意味短期转弱，但近年失效。",
+    theory: "随机指标(KDJ)超买死叉。随机指标(KDJ)在超买区死叉意味短期转弱，但近年失效。",
     scenario: "不推荐使用。近年失效。",
     note: "已排除。近3年10d胜率47.8%<50%。",
     report: "回测报告：KDJ_death_overbought 0/4达标，近3年10d胜率47.8%<50%。近年失效，明确排除。全史10d胜率45.4%也低。",
   },
   Supertrend_sell: {
     name: "Supertrend翻空卖", side: "sell", zone: "excluded", status: "excluded",
-    trigger: "ATR(10)×3 趋势线从翻多转为翻空（趋势跟踪卖）",
+    trigger: "真实波幅ATR(10)×3 趋势线从翻多转为翻空（趋势跟踪卖）",
     conclusion: "全史唯一PL≥1但近3年48.9%失效",
-    theory: "Supertrend翻空。趋势线翻空意味趋势已反转，但近年A股向上漂移致失效。",
+    theory: "超级趋势(Supertrend)翻空。趋势线翻空意味趋势已反转，但近年A股向上漂移致失效。",
     scenario: "不推荐使用。近年失效。",
     note: "已排除。全史PL0.95（接近1），但近3年胜率48.9%<50%失效。",
     report: "回测报告：Supertrend_sell 全史唯一PL≥1（0.95接近1，胜率51.9%），但近3年10d胜率48.9%/PL0.85失效。近年A股向上漂移致趋势跟踪卖点失效，明确排除。",
@@ -525,16 +525,16 @@ const LAB_STRATEGIES = {
     name: "RSI上穿30买", side: "buy", zone: "prod", status: "live",
     trigger: "RSI(14) 从 ≤30 升回 >30 那天（超卖结束、价格有望反弹）",
     conclusion: "3/4达标，结构最稳健，当前主买点",
-    theory: "RSI经典超卖回归。RSI≤30表示超卖，升回30之上意味空头力量衰竭、反弹拐点出现。事件化（仅穿越当日标）。",
-    scenario: "震荡市/下跌市超卖反弹；通用主买点。per-index可收紧阈值至RSI上穿25（kc50/电力设备/传媒已配）。",
-    note: "已上线生产。signal='buy'。近3年全horizon胜率>50%，盈亏比随horizon单调上升。",
-    report: "回测报告：C1_RSI30 达标数3/4（全史/近10年/近3年）并列第1。近3年全horizon胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随horizon单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构最稳健，当前主买点，无需改买点。",
+    theory: "相对强弱指标(RSI)经典超卖回归。相对强弱指标(RSI)≤30表示超卖，升回30之上意味空头力量衰竭、反弹拐点出现。事件化（仅穿越当日标）。",
+    scenario: "震荡市/下跌市超卖反弹；通用主买点。按指数可收紧阈值至相对强弱指标上穿25（kc50/电力设备/传媒已配）。",
+    note: "已上线生产。signal='buy'。近3年全持有期胜率>50%，盈亏比随持有期单调上升。",
+    report: "回测报告：C1_RSI30 达标数3/4（全史/近10年/近3年）并列第1。近3年全持有期胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随持有期单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构最稳健，当前主买点，无需改买点。",
   },
   D1_high20_drop5: {
     name: "20日高回落5%卖", side: "sell", zone: "prod", status: "live",
-    trigger: "close 从近20日最高 high 回落 5%（前日≥阈 且 当日<阈），且 close>MA60，且 DIF<DEA",
+    trigger: "收盘价从近20日最高价回落 5%（前日≥阈 且 当日<阈），且收盘价>60日均线，且差离值<信号线",
     conclusion: "20d胜率55.7%样本最大，当前主卖点",
-    theory: "high-based 回落止盈。从20日最高价回落5%意味趋势转弱，叠加MA60多头过滤+MACD死叉确认。反应型信号（不预测顶部，反应已发生的弱势）。",
+    theory: "基于最高价的回落止盈。从20日最高价回落5%意味趋势转弱，叠加60日均线多头过滤+MACD死叉确认。反应型信号（不预测顶部，反应已发生的弱势）。",
     scenario: "趋势转弱/止盈减仓提示；非做空/反向交易指令。胜率≈50%接近随机，不可作独立卖出指令。",
     note: "已上线生产。signal='sell'。卖点本质难预测（PL<1），D1是「最不坏」方案非「好」方案。",
     report: "回测报告：D1_high20_drop5 近3年20d胜率55.9%为卖点最高，样本9873最大（统计最稳）。10d均值-0.1%（方向正确）。盈亏比0.86<1（卖点结构性问题：A股向上漂移），但在所有卖点中PL仍属前列。维持现状合理，是「最不坏」方案。",
@@ -1447,7 +1447,7 @@ async function renderLabDetail(key) {
   // 标题 + 状态标签
   const header = document.createElement("div");
   header.className = "lab-detail-header";
-  header.innerHTML = `<h2 class="lab-detail-title">${meta.name} <code class="lab-detail-key">${key}</code></h2>` +
+  header.innerHTML = `<h2 class="lab-detail-title">${meta.name}</h2>` +
     `<span class="lab-tag ${tag.cls}">${tag.label}</span>` +
     `<span class="lab-tag-side">${meta.side === "buy" ? "买点" : "卖点"}</span>`;
   content.appendChild(header);
@@ -1480,7 +1480,7 @@ async function renderLabDetail(key) {
   // 图表区：实验中策略显示指标曲线+信号标注，开发中策略显示占位
   if (LAB_CHART_KEYS[key]) {
     // 窗口切换条（独立于模拟回测窗口，默认全历史）
-    if (!state.labChartWin) state.labChartWin = "all";
+    if (!state.labChartWin) state.labChartWin = "y5";
     const winBar = document.createElement("div");
     winBar.className = "lab-win-bar";
     winBar.innerHTML = '<span class="lab-win-bar-label">时间窗口</span>' +
@@ -1910,10 +1910,11 @@ function _labSignalOpenModal(buyKey, sellKey) {
     overlay.className = "lab-signal-overlay";
     document.body.appendChild(overlay);
   }
+  // 同步外部选择：指数取模拟回测 labSimIdx（信号按钮在 sim 卡片内）+ 窗口取 labSimWindow
   state.labSignalModal = {
     buyKey, sellKey,
-    index: state.labIndex || "sh",
-    period: "1y",
+    index: state.labSimIdx || state.labIndex || "sh",
+    win: state.labSimWindow || "y1",
     charts: [],
   };
   _labSignalModalRender(overlay);
@@ -1932,16 +1933,17 @@ function _labSignalCloseModal() {
   state.labSignalModal = null;
 }
 
-// 买卖信号弹窗周期切换：根据全历史 ohlc 末日回推 N 年，返回 YYYYMMDD 截止日（含）
-// period: 1y/3y/5y/all。all 返回 null（不过滤）。ohlc 末日为YYYYMMDD字符串。
-function _labSignalCutoffDate(ohlc, period) {
-  if (!ohlc || !ohlc.length || period === "all") return null;
+// 买卖信号弹窗窗口切片：根据全历史 ohlc 末日回推 N 年，返回 YYYYMMDD 截止日（含）
+// winKey: all/y10/y5/y3/y1。all 返回 null（不过滤）。ohlc 末日为YYYYMMDD字符串。
+function _labSignalCutoffDate(ohlc, winKey) {
+  if (!ohlc || !ohlc.length || winKey === "all") return null;
   const last = ohlc[ohlc.length - 1].date;
   if (!last || last.length < 8) return null;
   const y = parseInt(last.substring(0, 4), 10);
   const m = parseInt(last.substring(4, 6), 10);
   const d = parseInt(last.substring(6, 8), 10);
-  const yrs = period === "1y" ? 1 : period === "3y" ? 3 : period === "5y" ? 5 : 0;
+  const yrMap = { y10: 10, y5: 5, y3: 3, y1: 1 };
+  const yrs = yrMap[winKey];
   if (!yrs) return null;
   let cy = y - yrs, cm = m, cd = d;
   if (cm === 2 && cd === 29) cd = 28; // 闰日简化
@@ -1969,10 +1971,9 @@ async function _labSignalModalRender(overlay) {
     `</optgroup>`
   ).join("");
 
-  const period = m.period || "1y";
-  const periodOpts = [["1y", "1年"], ["3y", "3年"], ["5y", "5年"], ["all", "全历史"]];
-  const periodBtnsHTML = periodOpts.map(([p, lbl]) =>
-    `<button type="button" class="lab-signal-period-btn${period === p ? " active" : ""}" data-period="${p}">${lbl}</button>`
+  const win = m.win || "y1";
+  const periodBtnsHTML = LAB_WIN_DEFS.map((w) =>
+    `<button type="button" class="lab-signal-period-btn${w.k === win ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
   ).join("");
 
   overlay.innerHTML = `<div class="lab-signal-modal">` +
@@ -1991,7 +1992,7 @@ async function _labSignalModalRender(overlay) {
   overlay.querySelector(".lab-rank-modal-close").onclick = _labSignalCloseModal;
   overlay.querySelector(".lab-signal-index").onchange = (e) => { m.index = e.target.value; _labSignalModalRender(overlay); };
   overlay.querySelectorAll(".lab-signal-period-btn").forEach((b) => {
-    b.onclick = () => { m.period = b.dataset.period; _labSignalModalRender(overlay); };
+    b.onclick = () => { m.win = b.dataset.win; _labSignalModalRender(overlay); };
   });
 
   // 释放旧图表
@@ -2029,8 +2030,8 @@ async function _labSignalModalRender(overlay) {
     const sellSigs = ((sellCfg && sellCfg.signals) || []).map((s) => ({ date: s.date, close: s.close, color: SELL_COLOR, label: "卖" }));
     const allSignals = buySigs.concat(sellSigs).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
-    // 按周期切片 ohlc + 指标 + 信号（指标在全历史算好后切片，避免窗口边界预热失真）
-    const cutoff = _labSignalCutoffDate(ohlcFull, period);
+    // 按窗口切片 ohlc + 指标 + 信号（指标在全历史算好后切片，避免窗口边界预热失真）
+    const cutoff = _labSignalCutoffDate(ohlcFull, win);
     let ohlc = ohlcFull, slicedInd = indicators, sigs = allSignals;
     if (cutoff) {
       const startIdx = ohlcFull.findIndex((d) => d.date >= cutoff);
@@ -2045,15 +2046,15 @@ async function _labSignalModalRender(overlay) {
       return;
     }
 
-    const periodLabel = period === "all" ? "全历史" : period === "1y" ? "近1年" : period === "3y" ? "近3年" : "近5年";
-    const title = `${indexName} · 买卖信号（${periodLabel}）`;
+    const winLabel = LAB_WIN_CN[win] || "近1年";
+    const title = `${indexName} · 买卖信号（${winLabel}）`;
     chartArea.innerHTML = "";
     renderLabChartEx(title, ohlc, slicedInd, sigs, chartArea, m.charts, "信号", "#9c27b0");
     const buyCnt = sigs.filter((x) => x.color === BUY_COLOR).length;
     const sellCnt = sigs.filter((x) => x.color === SELL_COLOR).length;
     const statDiv = document.createElement("div");
     statDiv.className = "lab-signal-stat";
-    statDiv.innerHTML = `${periodLabel}触发：<b style="color:${BUY_COLOR}">买 ${buyCnt}</b> · <b style="color:${SELL_COLOR}">卖 ${sellCnt}</b>`;
+    statDiv.innerHTML = `${winLabel}触发：<b style="color:${BUY_COLOR}">买 ${buyCnt}</b> · <b style="color:${SELL_COLOR}">卖 ${sellCnt}</b>`;
     chartArea.appendChild(statDiv);
   } catch (e) {
     chartArea.innerHTML = `<div class="loading">加载失败：${e}</div>`;
