@@ -95,6 +95,10 @@ indices:
   - {id: csi1000,  name: 中证1000, market: a, func: stock_zh_index_daily, symbol: "sh000852", buy_aux_filter: rsi_cross_40}
   - {id: cyb,      name: 创业板指, market: a, func: stock_zh_index_daily, symbol: "sz399006", buy_aux_filter: rsi_cross_40}
   - {id: kc50,     name: 科创50,   market: a, func: stock_zh_index_daily, symbol: "sh000688", buy_filter: rsi_cross_25}
+  # 北证50（899050）：北交所旗舰指数，2022-11 发布历史较短。
+  # 新浪源 symbol=bj899050（与沪深 sh/sz 前缀不同），返英文列名 close/volume（collect_index
+  # 通用路径已兼容：close 匹配、pct 自算、amount=None）。baostock 无该指数，腾讯 bj899050 兜底。
+  - {id: bj50,     name: 北证50,   market: a, func: stock_zh_index_daily, symbol: "bj899050"}
   # 红利指数：中证红利/红利低波走中证指数公司源（sina sh000922 数据停在 2019、930955 sina 无此代码），
   # 深证红利走 sina 源。market=a 复用 A 股看板 renderAStock 自动渲染折线 + E1 买卖点。
   - {id: csi_div,   name: 中证红利, market: a, func: stock_zh_index_hist_csindex, symbol: "000922"}

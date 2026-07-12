@@ -16,8 +16,8 @@
 from .base import log_collect
 from ..db import get_conn
 
-# 8 个核心 A 股指数：(baostock_code, tencent_symbol)
-# 这 8 个决定上证涨幅展示 + fear_greed 的 6 个 per-index 情绪分。
+# 9 个核心 A 股指数：(baostock_code, tencent_symbol)
+# 这 9 个决定上证涨幅展示 + fear_greed 的 6 个 per-index 情绪分 + 北证50 卡片。
 CORE_A_INDICES = {
     "sh":      ("sh.000001", "sh000001"),
     "sz":      ("sz.399001", "sz399001"),
@@ -27,6 +27,7 @@ CORE_A_INDICES = {
     "csi1000": ("sh.000852", "sh000852"),
     "cyb":     ("sz.399006", "sz399006"),
     "kc50":    ("sh.000688", "sh000688"),  # baostock 无，腾讯补
+    "bj50":    (None, "bj899050"),          # baostock 无北证50，腾讯补
 }
 
 
@@ -122,8 +123,8 @@ def verify_and_backfill_indices(date, verbose=True):
             bs_code, tx_symbol = CORE_A_INDICES[idx_id]
             rows = []
             src = None
-            # 1. baostock（kc50 跳过，baostock 无该指数）
-            if idx_id != "kc50":
+            # 1. baostock（kc50/bj50 跳过：baostock 无该指数）
+            if bs_code and idx_id != "kc50":
                 rows = _baostock_fetch(bs_code, idx_id, bs_date, date)
                 if rows:
                     src = "baostock"

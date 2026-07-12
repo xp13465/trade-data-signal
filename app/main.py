@@ -155,7 +155,7 @@ KPI_METRIC_IDS = [
     "a_fund_margin",        # 两融余额
 ]
 # sparkline 网格所需指数（按展示顺序）
-SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "csi500", "csi1000", "hsi", "hstech"]
+SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech"]
 
 
 @app.get("/api/overview")

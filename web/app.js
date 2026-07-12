@@ -155,7 +155,7 @@ function fearGreedColor(value) {
 const _INDEX_NAME_MAP = {
   // A股宽基
   sh: '上证指数', sz: '深证成指', cyb: '创业板指', csi500: '中证500', csi1000: '中证1000',
-  kc50: '科创50', hs300: '沪深300', sz50: '上证50',
+  kc50: '科创50', bj50: '北证50', hs300: '沪深300', sz50: '上证50',
   // 港股
   hsi: '恒生指数', hscei: '国企指数', hstech: '恒生科技',
   // 美股
