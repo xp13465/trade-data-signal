@@ -126,6 +126,146 @@ function computeMADeathCrossLab(ohlc) {
   return { ma5, ma20, signals };
 }
 
+// === 通用指标计算辅助（复刻 a-stock-data/backtest_strategies.py 指标定义）===
+// 信号逻辑严格对齐 backtest_strategies.gen_buy_signals / gen_sell_signals，
+// 使图表信号点与回测矩阵统计同源。
+
+// EWM (exponentially weighted mean), adjust=False, seed=首个非null值
+// 复刻 pandas Series.ewm(alpha, adjust=False).mean()
+function _ewmLab(values, alpha) {
+  const n = values.length;
+  const out = new Array(n).fill(null);
+  let started = false, prev = 0;
+  for (let i = 0; i < n; i++) {
+    const v = values[i];
+    if (v == null || (typeof v === "number" && isNaN(v))) continue;
+    if (!started) { prev = v; started = true; out[i] = v; }
+    else { prev = (1 - alpha) * prev + alpha * v; out[i] = prev; }
+  }
+  return out;
+}
+// 简单移动平均（min_periods=n，前 n-1 个为 null）
+function _smaLab(values, n) {
+  const out = new Array(values.length).fill(null);
+  for (let i = n - 1; i < values.length; i++) {
+    let s = 0; for (let j = i - n + 1; j <= i; j++) s += values[j];
+    out[i] = s / n;
+  }
+  return out;
+}
+// RSI(14)：EWM α=1/14, adjust=False（复刻 backtest_strategies.rsi）
+function computeRSILab(ohlc, period) {
+  period = period || 14;
+  const closes = ohlc.map((d) => d.close);
+  const n = closes.length;
+  const delta = new Array(n).fill(null);
+  for (let i = 1; i < n; i++) delta[i] = closes[i] - closes[i - 1];
+  const gain = delta.map((d) => (d == null ? null : d > 0 ? d : 0));
+  const loss = delta.map((d) => (d == null ? null : d < 0 ? -d : 0));
+  const avgGain = _ewmLab(gain, 1 / period);
+  const avgLoss = _ewmLab(loss, 1 / period);
+  const rsi = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (avgGain[i] == null || avgLoss[i] == null) continue;
+    if (avgLoss[i] === 0) rsi[i] = 100;
+    else rsi[i] = 100 - 100 / (1 + avgGain[i] / avgLoss[i]);
+  }
+  return rsi;
+}
+// Donchian 通道：upper=前 n 日最高(不含当日), lower=前 n 日最低(不含当日)
+// 复刻 backtest_strategies: du20 = high.rolling(20).max().shift(1)
+function computeDonchianLab(ohlc, n) {
+  const highs = ohlc.map((d) => d.high);
+  const lows = ohlc.map((d) => d.low);
+  const len = ohlc.length;
+  const upper = new Array(len).fill(null);
+  const lower = new Array(len).fill(null);
+  for (let i = n; i < len; i++) {
+    let mx = -Infinity, mn = Infinity;
+    for (let j = i - n; j <= i - 1; j++) {
+      if (highs[j] > mx) mx = highs[j];
+      if (lows[j] < mn) mn = lows[j];
+    }
+    upper[i] = mx; lower[i] = mn;
+  }
+  return { upper, lower };
+}
+// MACD(12,26,9)：DIF=EMA12-EMA26, DEA=EMA(DIF,9)
+function computeMACDLab(ohlc) {
+  const closes = ohlc.map((d) => d.close);
+  const ef = _ewmLab(closes, 2 / 13);
+  const es = _ewmLab(closes, 2 / 27);
+  const dif = closes.map((_, i) => (ef[i] == null || es[i] == null ? null : ef[i] - es[i]));
+  const dea = _ewmLab(dif, 2 / 10);
+  return { dif, dea };
+}
+// KDJ(9)：RSV=(close-low_n)/(high_n-low_n)*100, K=EMA(RSV,3), D=EMA(K,3)
+function computeKDJLab(ohlc, n) {
+  n = n || 9;
+  const highs = ohlc.map((d) => d.high);
+  const lows = ohlc.map((d) => d.low);
+  const closes = ohlc.map((d) => d.close);
+  const len = ohlc.length;
+  const rsv = new Array(len).fill(null);
+  for (let i = n - 1; i < len; i++) {
+    let mn = Infinity, mx = -Infinity;
+    for (let j = i - n + 1; j <= i; j++) {
+      if (lows[j] < mn) mn = lows[j];
+      if (highs[j] > mx) mx = highs[j];
+    }
+    rsv[i] = mx === mn ? 0 : (closes[i] - mn) / (mx - mn) * 100;
+  }
+  const k = _ewmLab(rsv, 1 / 3);
+  const d = _ewmLab(k, 1 / 3);
+  return { k, d };
+}
+// ATR(14) 追踪止损：trail = 近20日最高close - 3×ATR(14)
+// 复刻 backtest_strategies: close < hc20 - 3*atr 且 前日未破
+function computeATRTrailLab(ohlc) {
+  const closes = ohlc.map((d) => d.close);
+  const len = ohlc.length;
+  const tr = new Array(len).fill(null);
+  if (len) tr[0] = ohlc[0].high - ohlc[0].low;
+  for (let i = 1; i < len; i++) {
+    tr[i] = Math.max(ohlc[i].high - ohlc[i].low, Math.abs(ohlc[i].high - closes[i - 1]), Math.abs(ohlc[i].low - closes[i - 1]));
+  }
+  const atr = _ewmLab(tr, 1 / 14);
+  const hc20 = new Array(len).fill(null);
+  for (let i = 19; i < len; i++) {
+    let mx = -Infinity;
+    for (let j = i - 19; j <= i; j++) if (closes[j] > mx) mx = closes[j];
+    hc20[i] = mx;
+  }
+  const trail = new Array(len).fill(null);
+  for (let i = 0; i < len; i++) if (hc20[i] != null && atr[i] != null) trail[i] = hc20[i] - 3 * atr[i];
+  const signals = [];
+  for (let i = 1; i < len; i++) {
+    if (trail[i] == null || trail[i - 1] == null) continue;
+    if (closes[i] < trail[i] && closes[i - 1] >= trail[i - 1]) signals.push({ date: ohlc[i].date, close: closes[i] });
+  }
+  return { trail, signals };
+}
+// D1：20日最高high回落5%阈值线 + 信号
+// 复刻 backtest_strategies: th = hh20*0.95, close前日>=th且当日<th
+function computeD1Lab(ohlc) {
+  const closes = ohlc.map((d) => d.close);
+  const highs = ohlc.map((d) => d.high);
+  const len = ohlc.length;
+  const hh20 = new Array(len).fill(null);
+  for (let i = 19; i < len; i++) {
+    let mx = -Infinity;
+    for (let j = i - 19; j <= i; j++) if (highs[j] > mx) mx = highs[j];
+    hh20[i] = mx;
+  }
+  const th = hh20.map((v) => (v == null ? null : v * 0.95));
+  const signals = [];
+  for (let i = 1; i < len; i++) {
+    if (th[i] == null || th[i - 1] == null) continue;
+    if (closes[i - 1] >= th[i - 1] && closes[i] < th[i]) signals.push({ date: ohlc[i].date, close: closes[i] });
+  }
+  return { th, signals };
+}
+
 // 通用实验图表：收盘价折线 + 自定义指标线 + 信号 markPoint
 // indicators: [{name, data, color, dash}]  data 与 ohlc 等长（null=无值）
 // signalLabel 用策略中文名，label 以彩色标签框显示在 pin 上方，hideOverlap 防密集重叠
@@ -145,17 +285,22 @@ function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr,
     };
   });
   const legendData = ["收盘价"].concat(indicators.map((it) => it.name));
+  // 含副图指标（RSI/MACD/KDJ，axis:'osc'）时启用双 y 轴：左轴价格、右轴指标(0-100量级)
+  const hasOsc = indicators.some((it) => it.axis === "osc");
+  const yAxis = [{ type: "value", scale: true, name: hasOsc ? "价格" : "" }];
+  if (hasOsc) yAxis.push({ type: "value", scale: true, name: "指标", splitLine: { show: false }, axisLabel: { fontSize: 9 } });
   const indSeries = indicators.map((it) => ({
     name: it.name, type: "line", symbol: "none", data: it.data, smooth: true,
     lineStyle: { width: 1, type: it.dash ? "dashed" : "solid", color: it.color || "#c9cdd4" },
     connectNulls: false,
+    yAxisIndex: it.axis === "osc" ? 1 : 0,
   }));
   c.setOption({
     tooltip: { trigger: "axis" },
     legend: { top: 0, data: legendData },
-    grid: { left: 55, right: 20, top: 35, bottom: 50 },
+    grid: { left: 55, right: hasOsc ? 55 : 20, top: 35, bottom: 50 },
     xAxis: { type: "category", data: dates },
-    yAxis: { type: "value", scale: true },
+    yAxis,
     dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
     series: [
       {
@@ -454,15 +599,32 @@ function _labWinTabsHTML() {
 }
 
 // 有图表实现的策略 key（仅这4个有指标+信号图表）
-const LAB_CHART_KEYS = { BB_upper_revert: 1, BB_lower_revert: 1, Supertrend_buy: 1, MA_death_5_20: 1 };
+const LAB_CHART_KEYS = {
+  // 候选买点
+  BB_lower_revert: 1, Supertrend_buy: 1, Donchian20_up: 1, Donchian55_up: 1,
+  MA_golden_5_20: 1, MA_golden_10_60: 1, MACD_golden: 1,
+  // 候选卖点
+  BB_upper_revert: 1, MA_death_5_20: 1, BB_middle_break: 1, Donchian10_down: 1,
+  Donchian20_down: 1, MACD_death: 1, ATR_trail_stop: 1,
+  // 已排除（反面教材仍出图便于直观对比）
+  BB_upper_break: 1, KDJ_golden_oversold: 1, B0_RSI70: 1, KDJ_death_overbought: 1, Supertrend_sell: 1,
+  // 生产参考
+  C1_RSI30: 1, D1_high20_drop5: 1,
+  // Vol_breakout 不出图：指数数据无 volume，该策略仅在个股回测
+};
 
 // 构建策略图表配置（指标线+信号+标注文案），供 renderLabDetail 和买卖信号弹窗复用
 // 返回 { indicators, signals, signalLabel, signalColor, chartTitle, statLabel } 或 null（无图表实现）
+// 信号逻辑严格对齐 a-stock-data/backtest_strategies.py 的 gen_buy_signals/gen_sell_signals
 function _labBuildChartConfig(key, ohlc, indexName) {
   if (!LAB_CHART_KEYS[key]) return null;
   const meta = LAB_STRATEGIES[key];
   const signalLabel = meta.name; // 信号标注用策略中文名
   const name = indexName || "";
+  const isBuy = meta.side === "buy";
+  const sigColor = isBuy ? "#2e7d32" : "#9c27b0";   // 买绿卖紫（单策略详情图）
+  const statLabel = isBuy ? "买点" : "卖点";
+
   if (key === "BB_upper_revert") {
     const bb = computeBBLab(ohlc);
     return {
@@ -493,7 +655,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
       signals: r2.signals, signalLabel, signalColor: "#2e7d32",
       chartTitle: `${name} · Supertrend翻多实验`, statLabel: "实验买点",
     };
-  } else { // MA_death_5_20
+  } else if (key === "MA_death_5_20") {
     const r2 = computeMADeathCrossLab(ohlc);
     return {
       indicators: [
@@ -504,6 +666,190 @@ function _labBuildChartConfig(key, ohlc, indexName) {
       chartTitle: `${name} · MA5/20死叉实验`, statLabel: "实验卖点",
     };
   }
+
+  // --- BB 族扩展：中轨破位 / 上轨突破 ---
+  if (key === "BB_middle_break") {
+    const bb = computeBBLab(ohlc);
+    const closes = ohlc.map((d) => d.close);
+    const signals = [];
+    for (let i = 1; i < closes.length; i++) {
+      if (bb.mid[i - 1] == null || bb.mid[i] == null) continue;
+      if (closes[i - 1] >= bb.mid[i - 1] && closes[i] < bb.mid[i]) signals.push({ date: ohlc[i].date, close: closes[i] });
+    }
+    return {
+      indicators: [
+        { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
+        { name: "布林中轨MA20", data: bb.mid, color: "#86909c", dash: false },
+        { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+      ],
+      signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · 跌破布林中轨`, statLabel,
+    };
+  } else if (key === "BB_upper_break") {
+    const bb = computeBBLab(ohlc);
+    const closes = ohlc.map((d) => d.close);
+    const signals = [];
+    for (let i = 1; i < closes.length; i++) {
+      if (bb.bu[i - 1] == null || bb.bu[i] == null) continue;
+      if (closes[i - 1] <= bb.bu[i - 1] && closes[i] > bb.bu[i]) signals.push({ date: ohlc[i].date, close: closes[i] });
+    }
+    return {
+      indicators: [
+        { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
+        { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+      ],
+      signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · 突破布林上轨`, statLabel,
+    };
+  }
+
+  // --- Supertrend 翻空卖 ---
+  if (key === "Supertrend_sell") {
+    const r2 = computeSupertrendLab(ohlc);
+    const signals = [];
+    for (let i = 1; i < r2.dir.length; i++) {
+      if (!r2.dir[i] || !r2.dir[i - 1]) continue;
+      if (r2.dir[i - 1] === 1 && r2.dir[i] === -1) signals.push({ date: ohlc[i].date, close: ohlc[i].close });
+    }
+    return {
+      indicators: [
+        { name: "趋势线(多)", data: r2.stBull, color: "#2e7d32", dash: false },
+        { name: "趋势线(空)", data: r2.stBear, color: "#c92a2a", dash: false },
+      ],
+      signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · Supertrend翻空`, statLabel,
+    };
+  }
+
+  // --- Donchian 通道突破（20买/55买/10卖/20卖）---
+  if (key === "Donchian20_up" || key === "Donchian55_up" || key === "Donchian10_down" || key === "Donchian20_down") {
+    const nMap = { Donchian20_up: 20, Donchian55_up: 55, Donchian10_down: 10, Donchian20_down: 20 };
+    const n = nMap[key];
+    const dc = computeDonchianLab(ohlc, n);
+    const closes = ohlc.map((d) => d.close);
+    const isUp = key.indexOf("_up") > 0;
+    const band = isUp ? dc.upper : dc.lower;
+    const signals = [];
+    for (let i = 1; i < closes.length; i++) {
+      if (band[i] == null || band[i - 1] == null) continue;
+      if (isUp) { if (closes[i] > band[i] && closes[i - 1] <= band[i - 1]) signals.push({ date: ohlc[i].date, close: closes[i] }); }
+      else { if (closes[i] < band[i] && closes[i - 1] >= band[i - 1]) signals.push({ date: ohlc[i].date, close: closes[i] }); }
+    }
+    const bandName = isUp ? `${n}日最高(前)` : `${n}日最低(前)`;
+    return {
+      indicators: [{ name: bandName, data: band, color: isUp ? "#2e7d32" : "#c92a2a", dash: false }],
+      signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · ${meta.name}`, statLabel,
+    };
+  }
+
+  // --- MA 金叉/死叉 ---
+  if (key === "MA_golden_5_20" || key === "MA_golden_10_60") {
+    const S = key === "MA_golden_5_20" ? 5 : 10;
+    const L = key === "MA_golden_5_20" ? 20 : 60;
+    const closes = ohlc.map((d) => d.close);
+    const maS = _smaLab(closes, S), maL = _smaLab(closes, L);
+    const signals = [];
+    for (let i = 1; i < closes.length; i++) {
+      if (maS[i] == null || maL[i] == null || maS[i - 1] == null || maL[i - 1] == null) continue;
+      if (maS[i - 1] <= maL[i - 1] && maS[i] > maL[i]) signals.push({ date: ohlc[i].date, close: closes[i] });
+    }
+    return {
+      indicators: [
+        { name: `MA${S}`, data: maS, color: "#1f6feb", dash: false },
+        { name: `MA${L}`, data: maL, color: "#f0883e", dash: false },
+      ],
+      signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · ${meta.name}`, statLabel,
+    };
+  }
+
+  // --- MACD 金叉/死叉（副图 osc 轴）---
+  if (key === "MACD_golden" || key === "MACD_death") {
+    const m = computeMACDLab(ohlc);
+    const golden = key === "MACD_golden";
+    const signals = [];
+    for (let i = 1; i < m.dif.length; i++) {
+      if (m.dif[i] == null || m.dea[i] == null || m.dif[i - 1] == null || m.dea[i - 1] == null) continue;
+      if (golden) { if (m.dif[i - 1] <= m.dea[i - 1] && m.dif[i] > m.dea[i]) signals.push({ date: ohlc[i].date, close: ohlc[i].close }); }
+      else { if (m.dif[i - 1] >= m.dea[i - 1] && m.dif[i] < m.dea[i]) signals.push({ date: ohlc[i].date, close: ohlc[i].close }); }
+    }
+    return {
+      indicators: [
+        { name: "DIF", data: m.dif, color: "#1f6feb", dash: false, axis: "osc" },
+        { name: "DEA", data: m.dea, color: "#f0883e", dash: false, axis: "osc" },
+      ],
+      signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · ${meta.name}`, statLabel,
+    };
+  }
+
+  // --- KDJ 金叉/死叉（副图 osc 轴）---
+  if (key === "KDJ_golden_oversold" || key === "KDJ_death_overbought") {
+    const kd = computeKDJLab(ohlc, 9);
+    const golden = key === "KDJ_golden_oversold";
+    const signals = [];
+    for (let i = 1; i < kd.k.length; i++) {
+      if (kd.k[i] == null || kd.d[i] == null || kd.k[i - 1] == null || kd.d[i - 1] == null) continue;
+      if (golden) { if (kd.k[i - 1] <= kd.d[i - 1] && kd.k[i] > kd.d[i] && kd.k[i] < 35) signals.push({ date: ohlc[i].date, close: ohlc[i].close }); }
+      else { if (kd.k[i - 1] >= kd.d[i - 1] && kd.k[i] < kd.d[i] && kd.k[i] > 70) signals.push({ date: ohlc[i].date, close: ohlc[i].close }); }
+    }
+    const len = kd.k.length;
+    return {
+      indicators: [
+        { name: "K", data: kd.k, color: "#1f6feb", dash: false, axis: "osc" },
+        { name: "D", data: kd.d, color: "#f0883e", dash: false, axis: "osc" },
+        { name: "超卖35", data: new Array(len).fill(35), color: "#2e7d32", dash: true, axis: "osc" },
+        { name: "超买70", data: new Array(len).fill(70), color: "#c92a2a", dash: true, axis: "osc" },
+      ],
+      signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · ${meta.name}`, statLabel,
+    };
+  }
+
+  // --- RSI 上穿30买 / 下穿70卖（副图 osc 轴）---
+  if (key === "C1_RSI30" || key === "B0_RSI70") {
+    const rsi = computeRSILab(ohlc, 14);
+    const crossUp = key === "C1_RSI30";
+    const signals = [];
+    for (let i = 1; i < rsi.length; i++) {
+      if (rsi[i] == null || rsi[i - 1] == null) continue;
+      if (crossUp) { if (rsi[i - 1] <= 30 && rsi[i] > 30) signals.push({ date: ohlc[i].date, close: ohlc[i].close }); }
+      else { if (rsi[i - 1] >= 70 && rsi[i] < 70) signals.push({ date: ohlc[i].date, close: ohlc[i].close }); }
+    }
+    const len = rsi.length;
+    return {
+      indicators: [
+        { name: "RSI(14)", data: rsi, color: "#1f6feb", dash: false, axis: "osc" },
+        { name: "超卖30", data: new Array(len).fill(30), color: "#2e7d32", dash: true, axis: "osc" },
+        { name: "超买70", data: new Array(len).fill(70), color: "#c92a2a", dash: true, axis: "osc" },
+      ],
+      signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · ${meta.name}`, statLabel,
+    };
+  }
+
+  // --- ATR 追踪止损 ---
+  if (key === "ATR_trail_stop") {
+    const r = computeATRTrailLab(ohlc);
+    return {
+      indicators: [{ name: "ATR追踪止损线", data: r.trail, color: "#c92a2a", dash: true }],
+      signals: r.signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · ATR追踪止损`, statLabel,
+    };
+  }
+
+  // --- D1 20日高回落5% ---
+  if (key === "D1_high20_drop5") {
+    const r = computeD1Lab(ohlc);
+    return {
+      indicators: [{ name: "回落阈值(-5%)", data: r.th, color: "#c92a2a", dash: true }],
+      signals: r.signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · 20日高回落5%`, statLabel,
+    };
+  }
+
+  return null;
 }
 
 // 获取 lab_backtest.json 数据（缓存到 state.labData）
@@ -1035,12 +1381,12 @@ async function renderLabDetail(key) {
       chartDiv.innerHTML = `<div class="loading">加载失败：${e}</div>`;
     }
   } else {
-    // 其他策略：开发中占位
+    // Vol_breakout 等无图策略：指数数据无 volume，该策略仅在个股回测
     chartSection.innerHTML =
       '<div class="lab-placeholder">' +
-      '<div class="lab-placeholder-icon">🔧</div>' +
-      '<div class="lab-placeholder-text">图表开发中</div>' +
-      '<div class="lab-placeholder-sub">该策略的交互式图表尚未实现，暂显示多周期回测矩阵。</div>' +
+      '<div class="lab-placeholder-icon">📊</div>' +
+      '<div class="lab-placeholder-text">该策略依赖成交量数据</div>' +
+      '<div class="lab-placeholder-sub">指数数据无 volume 字段，放量突破类策略仅在个股回测中统计，暂不提供指数图表。下方仍可看多周期回测矩阵。</div>' +
       '</div>';
   }
 
