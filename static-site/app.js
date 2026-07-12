@@ -1019,10 +1019,11 @@ async function renderOverview() {
     if (d) {
       const maCard = document.createElement("div");
       maCard.className = "chart-card ma-card";
-      let maHtml = `<h3>&#x1F4C8; 均线排列${d.date ? " · " + fmtDate(d.date) : ""}</h3>`;
       const bullish = d.bullish || 0;
       const bearish = d.bearish || 0;
       const cross = d.cross || 0;
+      const maSuffix = d.date ? ` · ${fmtDate(d.date)} 多头${bullish} 空头${bearish} 震荡${cross}` : "";
+      let maHtml = `<h3>&#x1F4C8; 均线排列${maSuffix}</h3>`;
       maHtml += `<div class="ma-summary">`;
       maHtml += `<span class="ma-count bullish">${bullish} 个多头</span> `;
       maHtml += `<span class="ma-count bearish">${bearish} 个空头</span> `;
@@ -1046,7 +1047,12 @@ async function renderOverview() {
         const posCard = document.createElement("div");
         posCard.className = "chart-card position-card";
         const posDates = posData.positions.map((p) => p.current_date).filter(Boolean).sort();
-        const posDateSuffix = posDates.length ? ` · ${fmtDate(posDates[posDates.length - 1])}` : "";
+        let posLow = 0, posHigh = 0;
+        for (const p of posData.positions) {
+          const pct = p.percentile_1y != null ? p.percentile_1y : 50;
+          if (pct <= 40) posLow++; else if (pct > 60) posHigh++;
+        }
+        const posDateSuffix = posDates.length ? ` · ${fmtDate(posDates[posDates.length - 1])} 低位${posLow} 高位${posHigh}` : "";
         let posHtml = `<h3>&#x1F4CD; 大盘位置感${posDateSuffix}</h3><div class="position-list">`;
         for (const p of posData.positions) {
           const pct = p.percentile_1y != null ? p.percentile_1y : 50;
