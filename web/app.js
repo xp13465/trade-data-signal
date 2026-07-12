@@ -227,7 +227,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
       dayItems.sort((a, b) => (a.value ?? 99) - (b.value ?? 99));
     }
     const cellHtml = (it) => kind === "signal"
-      ? `<span class="sig-item"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
+      ? `<span class="sig-item sig-clickable" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
       : `<span class="sig-item"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     const cellsHtml = dayItems.map(cellHtml).join("");
     const dateLabel = fmtDate(dt);
@@ -451,10 +451,10 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
 // 单序列 value 折线 + 买卖点 markPoint（B 扩展：指标/情绪分用，数据是 [{date,value}]）
 // 与 indexChart 区别：数据结构是 value 单序列（无 close/high），量级差异大（gold 100-1249 /
 // cn10y 1.5-4 / usdcnh 680-722），用通用折线 + markPoint。opts 透传 visualMap 等（cross_market 用）。
-function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId) {
+function valueChartWithSignals(title, data, signals, opts, stats, strategy, indexId, container = content, chartArr = charts) {
   const sigs = signals || [];
   const hint = statsHint(stats, strategy, indexId);
-  const c = mkCard(title, 360, hint);
+  const c = mkCard(title, 360, hint, container, chartArr);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   const markData = sigs.map((s) => {
@@ -741,6 +741,86 @@ function initRuleButton() {
   onScroll();
 }
 
+// ============ 首页买卖点卡片点击弹窗：展示该指数/品类走势图+买卖信号标注 ============
+// indexId 可能带前缀：g.=全球指标(wti_oil等，读 global 接口 extras)、s.=情绪分(sentiment_*/cross_market，读 sentiment 接口)、
+// 无前缀=常规指数(sh/sz/sw_/thsc_/hsi 等，读 index 接口)。复用 indexChart/valueChartWithSignals + rule-modal 样式。
+let _signalModalCharts = [];
+function _signalChartModalEl() {
+  let modal = document.getElementById("signalChartModal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "signalChartModal";
+  modal.className = "rule-modal hidden";
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body signal-chart-modal-body"><div class="rule-modal-header"><h3 class="signal-chart-title">走势图</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content signal-chart-content"></div></div>';
+  document.body.appendChild(modal);
+  const close = () => closeSignalChartModal();
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", close);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
+  return modal;
+}
+
+function closeSignalChartModal() {
+  const modal = document.getElementById("signalChartModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  document.body.style.overflow = "";
+  _signalModalCharts.forEach((c) => c && c.dispose());
+  _signalModalCharts = [];
+}
+
+async function openSignalChartModal(indexId, signal, date) {
+  const modal = _signalChartModalEl();
+  const body = modal.querySelector(".signal-chart-content");
+  const titleEl = modal.querySelector(".signal-chart-title");
+  _signalModalCharts.forEach((c) => c && c.dispose());
+  _signalModalCharts = [];
+  body.innerHTML = '<div class="loading">加载中…</div>';
+  const name = indexIdToName(indexId);
+  const sigLabel = signal === "buy" ? "买" : signal === "buy_aux" ? "辅买" : signal === "sell" ? "卖" : signal;
+  titleEl.textContent = `${name} · ${sigLabel} · ${fmtDate(date)}`;
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  try {
+    let chartData, sigs, stats, strategy, isValue = false;
+    if (indexId.startsWith("g.")) {
+      const key = indexId.slice(2);
+      const r = await fetchJSON("/api/global?range=all");
+      const data = (r.extras && r.extras[key]) || [];
+      sigs = (r.extras_signals && r.extras_signals[key]) || [];
+      stats = (r.extras_stats && r.extras_stats[key]) || {};
+      strategy = r.extras_strategy && r.extras_strategy[key];
+      chartData = data.map((d) => ({ date: d.date, value: d.value }));
+      isValue = true;
+    } else if (indexId.startsWith("s.")) {
+      const key = indexId.slice(2);
+      const r = await fetchJSON("/api/sentiment?range=all");
+      const data = r[key] || [];
+      sigs = (r.signals && r.signals[key]) || [];
+      stats = (r.stats && r.stats[key]) || {};
+      strategy = r.strategy && r.strategy[key];
+      chartData = data.map((d) => ({ date: d.date, value: d.value }));
+      isValue = true;
+    } else {
+      const r = await fetchJSON(`/api/index/${indexId}?range=all`);
+      chartData = r.ohlc || [];
+      sigs = r.signals || [];
+      stats = r.stats || {};
+      strategy = r.strategy;
+    }
+    if (!chartData || !chartData.length) {
+      body.innerHTML = `<div class="empty-note">暂无「${name}」走势数据</div>`;
+      return;
+    }
+    body.innerHTML = "";
+    const title = name + latestSuffix(chartData);
+    if (isValue) valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts);
+    else indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
+    requestAnimationFrame(() => _signalModalCharts.forEach((c) => c && c.resize()));
+  } catch (e) {
+    body.innerHTML = `<div class="loading">加载失败：${e}</div>`;
+  }
+}
 
 
 async function renderTab() {
@@ -949,6 +1029,13 @@ async function renderOverview() {
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card";
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期买卖点（近 15 交易日 · 今日高亮）", "signal", "近期无买卖点信号");
+  // 点击买卖点卡片弹窗：展示对应指数/品类走势图+买卖信号标注
+  sigCard.addEventListener("click", (e) => {
+    const item = e.target.closest(".sig-clickable");
+    if (!item) return;
+    e.preventDefault();
+    openSignalChartModal(item.dataset.idx, item.dataset.sig, item.dataset.date);
+  });
   colA2.appendChild(sigCard);
 
   // ---- 3. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----

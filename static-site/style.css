@@ -267,6 +267,10 @@ main { padding: 16px 24px; }
 .sig-item b.freeze-val { color: #2563eb; }
 .sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
 .sig-day-row.today-row .sig-day-date { color: #e6492e; font-weight: 600; }
+/* 买卖点卡片可点击：弹窗展示走势图+信号 */
+.sig-clickable { cursor: pointer; transition: background 0.12s; border-radius: 4px; padding: 1px 3px; margin: -1px -3px; }
+.sig-clickable:hover { background: #eef4ff; }
+.sig-clickable:active { background: #dbe7ff; }
 /* 通用隐藏类（rule-modal 等复用） */
 .hidden { display: none !important; }
 .muted { color: #86909c; }
@@ -610,6 +614,12 @@ main { padding: 16px 24px; }
   flex: 1;
 }
 .rule-modal-content .rule-detail div { margin: 3px 0; }
+
+/* 买卖点卡片走势图弹窗：比规则说明略宽，承载图表 */
+.signal-chart-modal-body { width: min(94vw, 1080px); max-height: 88vh; }
+.signal-chart-content { padding: 16px 20px; }
+.signal-chart-content .chart-card { margin-bottom: 0; }
+.signal-chart-content .chart { height: 380px; }
 
 /* --- 策略说明 modal 新版样式 --- */
 .rule-section {
