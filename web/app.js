@@ -1419,8 +1419,32 @@ function renderSentimentHeatmap(r) {
 
   const div = document.createElement("div");
   div.className = "chart-card";
-  const hmDateSuffix = dates.length ? " · " + fmtDate(dates[dates.length - 1]) : "";
-  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmDateSuffix}</h3><div class="chart" style="height:220px"></div>`;
+
+  // 计算最新日期的冰点/过热统计
+  let hmSuffix = "";
+  if (dates.length) {
+    const latestDate = dates[dates.length - 1];
+    let coldCount = 0;
+    let hotCount = 0;
+
+    // 遍历所有指数，获取最新日期的值
+    for (const { key } of idxNames) {
+      const series = idxData[key] || [];
+      // 从后往前找最新日期的数据
+      for (let i = series.length - 1; i >= 0; i--) {
+        const d = series[i];
+        if (d.date === latestDate) {
+          if (d.value <= 20) coldCount++;
+          else if (d.value > 80) hotCount++;
+          break;
+        }
+      }
+    }
+
+    hmSuffix = ` · ${fmtDate(latestDate)} 冰点${coldCount} 过热${hotCount}`;
+  }
+
+  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}</h3><div class="chart" style="height:220px"></div>`;
   content.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
