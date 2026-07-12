@@ -8,6 +8,25 @@ from ..db import get_conn
 from ..calendar import last_trading_day
 import datetime as dt
 
+# score_id -> 中文名（用于一句话总结里冰点提示，避免代码字段直接暴露给用户）。
+# 与前端 _INDEX_NAME_MAP 含义一致，这里去掉"分"后缀以适配"❗{name}冰点(xx分)"句式。
+_SCORE_ID_CN = {
+    "a_sentiment": "A股情绪",
+    "cross_market": "跨市场情绪",
+    "fear_greed": "恐贪指数",
+    "sentiment_sz50": "上证50情绪",
+    "sentiment_hs300": "沪深300情绪",
+    "sentiment_csi500": "中证500情绪",
+    "sentiment_csi1000": "中证1000情绪",
+    "sentiment_cyb": "创业板情绪",
+    "sentiment_kc50": "科创50情绪",
+}
+
+
+def _score_id_cn(score_id: str) -> str:
+    """score_id 代码转中文名，未知 id 原样返回。"""
+    return _SCORE_ID_CN.get(score_id, score_id)
+
 
 def _sentiment_desc(score: float) -> str:
     """情绪分 → 描述。"""
@@ -109,7 +128,7 @@ def generate_summary(date: str | None = None) -> dict:
         (date,),
     ).fetchone()
     is_freeze = freeze_row is not None
-    freeze_info = f"❗{freeze_row['score_id']}情绪冰点({freeze_row['value']:.0f}分)" if freeze_row else ""
+    freeze_info = f"❗{_score_id_cn(freeze_row['score_id'])}冰点({freeze_row['value']:.0f}分)" if freeze_row else ""
 
     # ---- 2. 上证指数涨跌 ----
     sh_row = conn.execute(
