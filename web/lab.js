@@ -400,13 +400,25 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
   const truncNote = truncated ? `（仅展示前${trades.length}笔）` : "";
 
   const tradeRows = showTrades.map((t, i) => {
+    const gi = startIdx + i;  // 全局索引（用于取上一笔算"较上次"差值）
+    const prev = gi > 0 ? trades[gi - 1] : null;
     const tc = t.ret > 0 ? "#c92a2a" : (t.ret < 0 ? "#2e7d32" : "#86909c");
-    const cr = t.cumulative_return != null ? t.cumulative_return : 0;
-    const pc = cr >= 0 ? "#c92a2a" : "#2e7d32";
-    const at = t.account_total != null ? Math.round(t.account_total).toLocaleString() : "-";
-    const cp = t.cumulative_profit != null ? (t.cumulative_profit >= 0 ? "+" : "") + Math.round(t.cumulative_profit).toLocaleString() : "-";
-    const crStr = t.cumulative_return != null ? (cr >= 0 ? "+" : "") + t.cumulative_return + "%" : "-";
-    return `<tr><td>${startIdx + i + 1}</td><td>${t.buy_date}</td><td>${t.buy_price}</td><td>${t.sell_date}</td><td>${t.sell_price}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hold_days}天</td><td>${at}</td><td style="color:${pc}">${cp}</td><td style="color:${pc};font-weight:600">${crStr}</td></tr>`;
+    const cpVal = t.cp != null ? t.cp : 0;                // 累计盈亏金额
+    const crVal = cpVal / initCapital * 100;              // 累计收益率（前端由 cp 算，省 JSON 体积）
+    const pc = crVal >= 0 ? "#c92a2a" : "#2e7d32";
+    const at = t.at != null ? Math.round(t.at).toLocaleString() : "-";
+    const cpStr = t.cp != null ? (cpVal >= 0 ? "+" : "") + Math.round(cpVal).toLocaleString() : "-";
+    const crStr = t.cp != null ? (crVal >= 0 ? "+" : "") + crVal.toFixed(2) + "%" : "-";
+    // "较上次"列：本笔累计收益率/累计盈亏 - 上一笔的差值（本笔赚还是亏）。首笔显示"-"
+    let deltaHTML = '<span style="color:#c9cdd4">-</span>';
+    if (prev && t.cp != null && prev.cp != null) {
+      const dr = crVal - (prev.cp / initCapital * 100);   // 累计收益率差（百分点）
+      const dp = cpVal - prev.cp;                         // 累计盈亏差=本笔盈亏金额
+      const dc = dp >= 0 ? "#c92a2a" : "#2e7d32";         // 国人配色 红赚绿亏
+      deltaHTML = `<span style="color:${dc};font-weight:600">${dr >= 0 ? "+" : ""}${dr.toFixed(2)}%</span>` +
+        `<br><span style="color:${dc};font-size:11px">${dp >= 0 ? "+" : ""}${Math.round(dp).toLocaleString()}</span>`;
+    }
+    return `<tr><td>${gi + 1}</td><td>${t.bd}</td><td>${t.bp}</td><td>${t.sd}</td><td>${t.sp}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hd}天</td><td>${at}</td><td style="color:${pc}">${cpStr}</td><td style="color:${pc};font-weight:600">${crStr}</td><td>${deltaHTML}</td></tr>`;
   }).join("");
 
   const pagerHTML = totalPages > 1
@@ -421,8 +433,8 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
 
   const tradesBody = isOpen
     ? `<div class="lab-sim-trades-body">` +
-      `<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th></tr></thead><tbody>` +
-      (tradeRows || '<tr><td colspan="10" style="text-align:center;color:#c9cdd4">无交易记录</td></tr>') +
+      `<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th title="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
+      (tradeRows || '<tr><td colspan="11" style="text-align:center;color:#c9cdd4">无交易记录</td></tr>') +
       `</tbody></table></div>${pagerHTML}</div>`
     : "";
 
@@ -774,7 +786,7 @@ async function renderLabDetail(key) {
   content.appendChild(matrixCard);
 
   // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页）
-  // lab_simulate.json 较大（~3MB），先渲染 loading 占位，异步加载就绪后填充，不阻塞上方骨架
+  // lab_simulate.json 较大（~4.8MB），先渲染 loading 占位，异步加载就绪后填充，不阻塞上方骨架
   state.labSimPairFi = null;
   state.labSimPairFk = null;
   state.labSimPageFi = 0;
@@ -783,7 +795,7 @@ async function renderLabDetail(key) {
   state.labSimFkOpen = false;
   const simCard = document.createElement("div");
   simCard.className = "chart-card lab-sim-card";
-  simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…（约3MB，请稍候）</div>';
+  simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…（约4.8MB，请稍候）</div>';
   content.appendChild(simCard);
   const simData = await fetchLabSimData();
   const _rerenderSim = () => {

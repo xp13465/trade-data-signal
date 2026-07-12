@@ -42,7 +42,6 @@ INITIAL_CAPITAL = 100_000
 POSITION_SIZE = 10_000
 MAX_POSITIONS = 10
 MAX_CURVE_POINTS = 100  # 净值曲线最多保留点数（从200降至100，为trades新增账户快照字段腾体积）
-MAX_TRADES_STORED = 40  # 每组交易记录最多存储笔数（从50降至40，前端分页每页20条够2页；stats.n_trades 保留完整笔数）
 
 # 8个买策略（候选7 + 生产1）
 BUY_KEYS = [
@@ -98,7 +97,7 @@ def _build_stats(trades, final_total, last_date, equity_curve):
     """计算统计指标。"""
     total_ret = (final_total - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100
     if trades:
-        first_buy_date = pd.Timestamp(trades[0]['buy_date'])
+        first_buy_date = pd.Timestamp(trades[0]['bd'])
         years = _days_between(first_buy_date, last_date) / 365.25
         if years > 0 and final_total > 0:
             annual_ret = ((final_total / INITIAL_CAPITAL) ** (1 / years) - 1) * 100
@@ -166,17 +165,16 @@ def simulate_full_in(df, buy_mask, sell_mask):
             # 卖出后账户快照（全仓模式：全部现金，无持仓）
             account_total = cash
             cum_profit = account_total - INITIAL_CAPITAL
-            cum_return = cum_profit / INITIAL_CAPITAL * 100
             trades.append({
-                'buy_date': _fmt_date(buy_date),
-                'buy_price': round(buy_close, 2),
-                'sell_date': _fmt_date(date),
-                'sell_price': round(close_val, 2),
+                'bd': _fmt_date(buy_date),
+                'bp': round(buy_close, 2),
+                'sd': _fmt_date(date),
+                'sp': round(close_val, 2),
                 'ret': round(ret_pct, 2),
-                'hold_days': hold_days,
-                'account_total': round(account_total, 2),
-                'cumulative_profit': round(cum_profit, 2),
-                'cumulative_return': round(cum_return, 2),
+                'hd': hold_days,
+                'at': round(account_total, 2),
+                'cp': round(cum_profit, 2),
+                # cumulative_return 去除：前端由 cp/initial_capital*100 算（省体积）
             })
             equity_curve.append({'date': _fmt_date(date), 'value': round(cash, 2)})
 
@@ -195,7 +193,7 @@ def simulate_full_in(df, buy_mask, sell_mask):
     return {
         'stats': stats,
         'equity_curve': sample_curve(equity_curve),
-        'trades': trades[:MAX_TRADES_STORED],
+        'trades': trades,
     }
 
 
@@ -234,17 +232,16 @@ def simulate_fixed_10k(df, buy_mask, sell_mask):
             # 卖出后账户快照（定额模式：现金+持仓市值，此时持仓已清仓=纯现金）
             account_total = cash
             cum_profit = account_total - INITIAL_CAPITAL
-            cum_return = cum_profit / INITIAL_CAPITAL * 100
             trades.append({
-                'buy_date': _fmt_date(first_buy_date),
-                'buy_price': round(avg_buy_price, 2),
-                'sell_date': _fmt_date(date),
-                'sell_price': round(close_val, 2),
+                'bd': _fmt_date(first_buy_date),
+                'bp': round(avg_buy_price, 2),
+                'sd': _fmt_date(date),
+                'sp': round(close_val, 2),
                 'ret': round(ret_pct, 2),
-                'hold_days': hold_days,
-                'account_total': round(account_total, 2),
-                'cumulative_profit': round(cum_profit, 2),
-                'cumulative_return': round(cum_return, 2),
+                'hd': hold_days,
+                'at': round(account_total, 2),
+                'cp': round(cum_profit, 2),
+                # cumulative_return 去除：前端由 cp/initial_capital*100 算（省体积）
             })
             equity_curve.append({'date': _fmt_date(date), 'value': round(cash, 2)})
 
@@ -260,7 +257,7 @@ def simulate_fixed_10k(df, buy_mask, sell_mask):
     return {
         'stats': stats,
         'equity_curve': sample_curve(equity_curve),
-        'trades': trades[:MAX_TRADES_STORED],
+        'trades': trades,
     }
 
 
