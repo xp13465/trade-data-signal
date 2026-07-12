@@ -383,13 +383,7 @@ function _labSimCardHTML(key, simData) {
   const currentMode = state.labSimMode || "full_in";
   let currentPage = state.labSimPage || 0;
 
-  // 配对选择器
   const pairSideLabel = side === "buy" ? "卖点" : "买点";
-  const pairOptions = pairKeys.map((pk) => {
-    const meta = LAB_STRATEGIES[pk];
-    const name = meta ? meta.name : pk;
-    return `<option value="${pk}"${pk === currentPair ? " selected" : ""}>${name} (${pk})</option>`;
-  }).join("");
 
   // 模式切换
   const modeToggle =
@@ -397,6 +391,37 @@ function _labSimCardHTML(key, simData) {
     `<button class="${currentMode === "full_in" ? "active" : ""}" data-mode="full_in">全仓进出</button>` +
     `<button class="${currentMode === "fixed_10k" ? "active" : ""}" data-mode="fixed_10k">1万定额</button>` +
     "</div>";
+
+  // 配对策略卡片列表（每个可配对策略一张小卡片，显示名称+总收益率+胜率，三色分级）
+  // 摘要数值取当前交易模式 full_in/fixed_10k 的 stats；切换模式时整卡重渲染，摘要随之更新
+  const pairCards = pairKeys.map((pk) => {
+    const meta = LAB_STRATEGIES[pk];
+    const name = meta ? meta.name : pk;
+    const pd = pairs[pk] && pairs[pk][currentMode];
+    const st = pd && pd.stats;
+    let retStr = "—", winStr = "—", nStr = "", lvl = "warn", retLv = "warn", winLv = "warn";
+    if (st) {
+      retStr = (st.total_ret > 0 ? "+" : "") + st.total_ret + "%";
+      winStr = st.win_rate + "%";
+      nStr = "n=" + st.n_trades;
+      // 三色分级：复用矩阵逻辑（红=好/绿=差国人风格）
+      retLv = st.total_ret > 5 ? "good" : st.total_ret >= -5 ? "warn" : "bad";
+      winLv = st.win_rate >= 55 ? "good" : st.win_rate >= 45 ? "warn" : "bad";
+      const goods = [retLv, winLv].filter((x) => x === "good").length;
+      const bads = [retLv, winLv].filter((x) => x === "bad").length;
+      lvl = goods >= 2 ? "good" : bads >= 2 ? "bad" : "warn";
+    }
+    const activeCls = pk === currentPair ? " active" : "";
+    return `<button type="button" class="lab-sim-pair-card lab-matrix-${lvl}${activeCls}" data-pair="${pk}">` +
+      `<span class="pc-name" title="${name}">${name}</span>` +
+      `<span class="pc-ret pc-lvl-${retLv}">${retStr}</span>` +
+      `<span class="pc-meta"><span class="pc-win pc-lvl-${winLv}">胜率 ${winStr}</span>${nStr ? `<span class="pc-n">${nStr}</span>` : ""}</span>` +
+      `</button>`;
+  }).join("");
+
+  const pairListHTML =
+    `<div class="lab-sim-pair-section"><div class="lab-sim-pair-label">配对${pairSideLabel}（点卡片切换 · 颜色为当前模式下表现）</div>` +
+    `<div class="lab-sim-pair-list">${pairCards}</div></div>`;
 
   // 取当前配对+模式的数据
   const pairData = pairs[currentPair];
@@ -406,7 +431,8 @@ function _labSimCardHTML(key, simData) {
 
   if (!s) {
     return '<h3>💰 模拟回测（配对交易）</h3>' +
-      `<div class="lab-sim-controls"><div class="lab-sim-pair-select"><label>配对${pairSideLabel}</label><select id="labSimPairSelect">${pairOptions}</select></div>${modeToggle}</div>` +
+      `<div class="lab-sim-controls">${modeToggle}</div>` +
+      pairListHTML +
       '<div class="lab-sim-empty">该配对无交易数据</div>';
   }
 
@@ -452,7 +478,8 @@ function _labSimCardHTML(key, simData) {
       : "";
 
   return '<h3>💰 模拟回测（配对交易）</h3>' +
-    `<div class="lab-sim-controls"><div class="lab-sim-pair-select"><label>配对${pairSideLabel}</label><select id="labSimPairSelect">${pairOptions}</select></div>${modeToggle}</div>` +
+    `<div class="lab-sim-controls">${modeToggle}</div>` +
+    pairListHTML +
     `<div class="lab-sim-desc">${modeDesc}</div>` +
     '<div class="lab-sim-stats">' +
     `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">10万起，期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
@@ -471,14 +498,14 @@ function _labSimCardHTML(key, simData) {
 
 // 模拟回测卡片交互绑定（配对切换 / 模式切换 / 分页）
 function _labSimAttachHandlers(key, simData, simCard, rerender) {
-  const pairSelect = simCard.querySelector("#labSimPairSelect");
-  if (pairSelect) {
-    pairSelect.onchange = () => {
-      state.labSimPair = pairSelect.value;
+  const pairCards = simCard.querySelectorAll(".lab-sim-pair-card");
+  pairCards.forEach((card) => {
+    card.onclick = () => {
+      state.labSimPair = card.dataset.pair;
       state.labSimPage = 0;
       rerender();
     };
-  }
+  });
   const modeBtns = simCard.querySelectorAll(".lab-sim-mode-toggle button");
   modeBtns.forEach((btn) => {
     btn.onclick = () => {

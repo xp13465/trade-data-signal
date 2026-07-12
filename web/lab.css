@@ -268,9 +268,51 @@
 .lab-sim-card { margin-top: 16px; }
 .lab-sim-card h3 { margin-bottom: 4px; }
 .lab-sim-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-.lab-sim-pair-select { display: flex; align-items: center; gap: 6px; }
-.lab-sim-pair-select label { font-size: 13px; font-weight: 600; color: #1f2329; white-space: nowrap; }
-.lab-sim-pair-select select { padding: 4px 8px; border: 1px solid #d9dce3; border-radius: 6px; font-size: 12px; background: #fff; color: #1f2329; max-width: 260px; }
+/* 配对策略卡片切换（替代下拉，带摘要+三色分级） */
+.lab-sim-pair-section { margin-bottom: 10px; }
+.lab-sim-pair-label { font-size: 12px; font-weight: 600; color: #4e5969; margin-bottom: 6px; }
+.lab-sim-pair-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 6px;
+}
+.lab-sim-pair-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 7px 9px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  font-family: inherit;
+  min-width: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.lab-sim-pair-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); transform: translateY(-1px); }
+.lab-sim-pair-card.active {
+  border-color: #3370ff;
+  box-shadow: 0 0 0 2px rgba(51,112,255,0.25);
+}
+.lab-sim-pair-card .pc-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2329;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lab-sim-pair-card .pc-ret { font-size: 15px; font-weight: 700; line-height: 1.2; }
+.lab-sim-pair-card .pc-meta { font-size: 10px; color: #86909c; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.lab-sim-pair-card .pc-win { font-weight: 600; }
+.lab-sim-pair-card .pc-n { color: #c9cdd4; }
+/* 三色分级：背景复用 .lab-matrix-good/warn/bad，数值色红好/绿差（国人风格） */
+.lab-sim-pair-card .pc-lvl-good { color: #c92a2a; }
+.lab-sim-pair-card .pc-lvl-warn { color: #ad6800; }
+.lab-sim-pair-card .pc-lvl-bad { color: #2e7d32; }
 .lab-sim-mode-toggle { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid #d9dce3; }
 .lab-sim-mode-toggle button { padding: 4px 12px; border: none; background: #fff; font-size: 12px; cursor: pointer; color: #646a73; transition: all 0.15s; }
 .lab-sim-mode-toggle button.active { background: #3370ff; color: #fff; font-weight: 600; }
@@ -304,7 +346,8 @@
   .lab-detail-title { font-size: 16px; }
   .lab-zone-tab { padding: 6px 10px; font-size: 12px; }
   .lab-sim-controls { flex-direction: column; align-items: stretch; gap: 6px; }
-  .lab-sim-pair-select select { max-width: 100%; }
+  .lab-sim-pair-list { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
+  .lab-sim-pair-card .pc-ret { font-size: 14px; }
   .lab-sim-stats { grid-template-columns: repeat(2, 1fr); }
   .lab-sim-stat .v { font-size: 16px; }
   .lab-sim-table-wrap th, .lab-sim-table-wrap td { padding: 4px 6px; font-size: 11px; }
