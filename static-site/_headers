@@ -16,5 +16,11 @@
 /app.js
   Cache-Control: public, max-age=31536000, immutable
 
+/lab.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/lab.css
+  Cache-Control: public, max-age=31536000, immutable
+
 /vendor/echarts.min.js
   Cache-Control: public, max-age=31536000, immutable
