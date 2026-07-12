@@ -24,17 +24,127 @@ function computeBBLab(ohlc) {
   return { bu, bl, mid, signals };
 }
 
-function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
+// BB_lower_revert：布林下轨回归辅买信号（复用 computeBBLab 的 BB 带，信号逻辑镜像 BB_upper_revert）
+// 触发: 前日 close < bl[i-1]（跌破下轨）且 当日 close > bl[i]（收回下轨之上）
+function computeBBLowerRevertLab(ohlc) {
+  const bb = computeBBLab(ohlc); // {bu, bl, mid, signals(上轨回落，忽略)}
+  const closes = ohlc.map((d) => d.close);
+  const signals = [];
+  for (let i = 1; i < ohlc.length; i++) {
+    if (bb.bl[i - 1] == null || bb.bl[i] == null) continue;
+    if (closes[i - 1] < bb.bl[i - 1] && closes[i] > bb.bl[i]) {
+      signals.push({ date: ohlc[i].date, close: closes[i] });
+    }
+  }
+  return { bu: bb.bu, bl: bb.bl, mid: bb.mid, signals };
+}
+
+// Supertrend(10,3) 翻多买：ATR(10) Wilder平滑 × 3 乘数的动态趋势线
+// 趋势线=多头下轨(绿)/空头上轨(红)；翻多信号=前日空头、当日多头
+function computeSupertrendLab(ohlc) {
+  const N = 10, K = 3.0, len = ohlc.length;
+  // True Range
+  const tr = new Array(len).fill(0);
+  for (let i = 0; i < len; i++) {
+    if (i === 0) { tr[i] = ohlc[i].high - ohlc[i].low; continue; }
+    const pc = ohlc[i - 1].close;
+    tr[i] = Math.max(ohlc[i].high - ohlc[i].low, Math.abs(ohlc[i].high - pc), Math.abs(ohlc[i].low - pc));
+  }
+  // ATR(Wilder RMA)：前 N 个用 SMA 作种子，之后 (prev*(N-1)+tr)/N
+  const atr = new Array(len).fill(null);
+  if (len >= N) {
+    let sum = 0;
+    for (let i = 0; i < N; i++) sum += tr[i];
+    atr[N - 1] = sum / N;
+    for (let i = N; i < len; i++) atr[i] = (atr[i - 1] * (N - 1) + tr[i]) / N;
+  }
+  // basic/final bands + supertrend + direction
+  const fUp = new Array(len).fill(null);
+  const fLo = new Array(len).fill(null);
+  const st = new Array(len).fill(null);
+  const dir = new Array(len).fill(0); // 1=多头, -1=空头
+  for (let i = 0; i < len; i++) {
+    if (atr[i] == null) continue;
+    const hl2 = (ohlc[i].high + ohlc[i].low) / 2;
+    const bUp = hl2 + K * atr[i];
+    const bLo = hl2 - K * atr[i];
+    if (fUp[i - 1] == null) { // 首个有效 bar，默认多头
+      fUp[i] = bUp; fLo[i] = bLo; dir[i] = 1; st[i] = fLo[i]; continue;
+    }
+    fUp[i] = (bUp < fUp[i - 1] || ohlc[i - 1].close > fUp[i - 1]) ? bUp : fUp[i - 1];
+    fLo[i] = (bLo > fLo[i - 1] || ohlc[i - 1].close < fLo[i - 1]) ? bLo : fLo[i - 1];
+    if (dir[i - 1] === -1) { // 前日空头
+      if (ohlc[i].close > fUp[i]) { dir[i] = 1; st[i] = fLo[i]; }   // 翻多
+      else { dir[i] = -1; st[i] = fUp[i]; }                          // 维持空头
+    } else { // 前日多头
+      if (ohlc[i].close < fLo[i]) { dir[i] = -1; st[i] = fUp[i]; }  // 翻空
+      else { dir[i] = 1; st[i] = fLo[i]; }                           // 维持多头
+    }
+  }
+  // 翻多信号
+  const signals = [];
+  for (let i = 1; i < len; i++) {
+    if (!dir[i] || !dir[i - 1]) continue;
+    if (dir[i - 1] === -1 && dir[i] === 1) signals.push({ date: ohlc[i].date, close: ohlc[i].close });
+  }
+  // 拆分多头(绿)/空头(红)线段，翻转点双重赋值以视觉连接
+  const stBull = new Array(len).fill(null);
+  const stBear = new Array(len).fill(null);
+  for (let i = 0; i < len; i++) {
+    if (st[i] == null) continue;
+    if (dir[i] === 1) stBull[i] = st[i]; else stBear[i] = st[i];
+    if (i > 0 && dir[i] && dir[i - 1] && dir[i] !== dir[i - 1]) {
+      if (dir[i - 1] === -1) stBear[i] = st[i]; else stBull[i] = st[i];
+    }
+  }
+  return { st, stBull, stBear, dir, signals };
+}
+
+// MA5/MA20 死叉卖：MA5 前日>=MA20 且 当日<MA20（5日下穿20日）
+function computeMADeathCrossLab(ohlc) {
+  const S = 5, L = 20;
+  const closes = ohlc.map((d) => d.close);
+  const ma5 = new Array(closes.length).fill(null);
+  const ma20 = new Array(closes.length).fill(null);
+  for (let i = 0; i < closes.length; i++) {
+    if (i >= S - 1) {
+      let s = 0; for (let j = i - S + 1; j <= i; j++) s += closes[j];
+      ma5[i] = s / S;
+    }
+    if (i >= L - 1) {
+      let s = 0; for (let j = i - L + 1; j <= i; j++) s += closes[j];
+      ma20[i] = s / L;
+    }
+  }
+  const signals = [];
+  for (let i = 1; i < closes.length; i++) {
+    if (ma5[i - 1] == null || ma20[i - 1] == null || ma5[i] == null || ma20[i] == null) continue;
+    if (ma5[i - 1] >= ma20[i - 1] && ma5[i] < ma20[i]) {
+      signals.push({ date: ohlc[i].date, close: closes[i] });
+    }
+  }
+  return { ma5, ma20, signals };
+}
+
+// 通用实验图表：收盘价折线 + 自定义指标线 + 信号 markPoint
+// indicators: [{name, data, color, dash}]  data 与 ohlc 等长（null=无值）
+function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr, signalLabel, signalColor) {
   const c = mkCard(title, 400, null, container, chartArr);
   const dates = ohlc.map((d) => d.date);
   const markData = signals.map((s) => ({
     coord: [s.date, s.close],
-    value: "实验卖",
-    itemStyle: { color: "#9c27b0" },
+    value: signalLabel || "实验",
+    itemStyle: { color: signalColor || "#9c27b0" },
+  }));
+  const legendData = ["收盘价"].concat(indicators.map((it) => it.name));
+  const indSeries = indicators.map((it) => ({
+    name: it.name, type: "line", symbol: "none", data: it.data, smooth: true,
+    lineStyle: { width: 1, type: it.dash ? "dashed" : "solid", color: it.color || "#c9cdd4" },
+    connectNulls: false,
   }));
   c.setOption({
     tooltip: { trigger: "axis" },
-    legend: { top: 0, data: ["收盘价", "布林上轨", "布林下轨"] },
+    legend: { top: 0, data: legendData },
     grid: { left: 55, right: 20, top: 35, bottom: 50 },
     xAxis: { type: "category", data: dates },
     yAxis: { type: "value", scale: true },
@@ -49,17 +159,18 @@ function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
           data: markData,
         },
       },
-      {
-        name: "布林上轨", type: "line", symbol: "none", data: bb.bu, smooth: true,
-        lineStyle: { width: 1, type: "dashed", color: "#c9cdd4" },
-      },
-      {
-        name: "布林下轨", type: "line", symbol: "none", data: bb.bl, smooth: true,
-        lineStyle: { width: 1, type: "dashed", color: "#c9cdd4" },
-      },
+      ...indSeries,
     ],
   });
   return c;
+}
+
+// BB_upper_revert 兼容封装
+function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
+  return renderLabChartEx(title, ohlc, [
+    { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
+    { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+  ], signals, container, chartArr, "实验卖", "#9c27b0");
 }
 
 // === 22策略元数据注册表（分区/状态/触发/结论/理论/场景/注意/08报告结论）===
@@ -69,21 +180,21 @@ function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
 const LAB_STRATEGIES = {
   // --- 候选买点区（7个） ---
   BB_lower_revert: {
-    name: "布林下轨回归买", side: "buy", zone: "buy", status: "dev",
+    name: "布林下轨回归买", side: "buy", zone: "buy", status: "experimental",
     trigger: "前一日 close 跌破 BB 下轨，当日 close 收回下轨之上（超卖反弹）",
     conclusion: "3/4窗口达标并列第1，近3年60d盈亏比1.84最高，与C1语义互补",
     theory: "布林带下轨回归。价格跌破下轨后收回，意味超卖极端已过、反弹拐点出现。与C1同为「超卖反弹」语义，但用价格穿越BB下轨而非RSI阈值，强势市更敏感。",
     scenario: "震荡市/下跌市超卖反弹；强势市中RSI未到30但价格已破下轨时补C1盲区。",
-    note: "近1年是唯一达标买点（52.1%/1.23），与C1互补性最强。信号密集度中等。",
+    note: "近1年是唯一达标买点（52.1%/1.23），与C1互补性最强。实验中：已实现图表（收盘价+BB轨+绿色实验买markPoint），未写入signal_daily。",
     report: "08报告：BB_lower_revert 达标数3/4（近10年/近3年/近1年），与C1并列第1。近3年60d盈亏比1.79、均值+4.7%为买点最高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs RSI阈值），适合做互补买点。",
   },
   Supertrend_buy: {
-    name: "Supertrend翻多买", side: "buy", zone: "buy", status: "dev",
+    name: "Supertrend翻多买", side: "buy", zone: "buy", status: "experimental",
     trigger: "ATR(10)×3 趋势线从翻空转为翻多（趋势跟踪买点）",
     conclusion: "2/4达标，语义与C1正交（趋势启动 vs 超卖反弹），最佳互补候选",
     theory: "Supertrend 指标基于 ATR 的动态趋势线。翻多意味趋势已确认启动，与C1的「超卖反弹」正交，捕捉的是趋势延续而非拐点。",
     scenario: "趋势启动确认；与C1互补覆盖不同市场状态。",
-    note: "近3年全horizon胜率≥48.8%，盈亏比1.40-1.61。信号较C1稀疏。",
+    note: "近3年全horizon胜率≥48.8%，盈亏比1.40-1.61。信号较C1稀疏。实验中：已实现图表（收盘价+Supertrend趋势线+绿色实验买markPoint），未写入signal_daily。",
     report: "08报告：Supertrend_buy 全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是最佳互补候选。近3年10d均值+1.0%，60d均值+3.8%。",
   },
   Donchian20_up: {
@@ -142,12 +253,12 @@ const LAB_STRATEGIES = {
     report: "08报告：BB_upper_revert 近3年5d胜率56.8%/10d胜率54.1%为卖点最高，短周期止盈最强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（卖点结构性问题），但方向胜率top1。",
   },
   MA_death_5_20: {
-    name: "MA5/MA20死叉卖", side: "sell", zone: "sell", status: "dev",
+    name: "MA5/MA20死叉卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "MA5 下穿 MA20（短期死叉卖点）",
     conclusion: "近3年20d胜率56.3%最高，短周期偏弱但中周期强",
     theory: "双均线死叉。短期均线下穿长期均线意味短期动量转弱，经典趋势转弱确认。",
     scenario: "趋势转弱减仓；震荡市频繁假死叉。",
-    note: "近3年20d胜率54.8%较高，但5d/10d偏弱。PL0.90<1。",
+    note: "近3年20d胜率54.8%较高，但5d/10d偏弱。PL0.90<1。实验中：已实现图表（收盘价+MA5/MA20+紫色实验卖markPoint），未写入signal_daily。",
     report: "08报告：MA_death_5_20 近3年20d胜率54.8%为卖点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（卖点结构性问题）。",
   },
   BB_middle_break: {
@@ -273,8 +384,8 @@ const LAB_STRATEGIES = {
 
 // 4分区定义
 const LAB_ZONES = [
-  { key: "buy", label: "🧪 候选买点", count: 7, desc: "候选买点策略（开发中）" },
-  { key: "sell", label: "🧪 候选卖点", count: 7, desc: "候选卖点策略（含BB_upper_revert实验中）" },
+  { key: "buy", label: "🧪 候选买点", count: 7, desc: "候选买点策略（含BB下轨/Supertrend实验中）" },
+  { key: "sell", label: "🧪 候选卖点", count: 7, desc: "候选卖点策略（含BB上轨/MA死叉实验中）" },
   { key: "excluded", label: "📋 已排除", count: 6, desc: "反面教材（回测不达标已弃用）" },
   { key: "prod", label: "✅ 生产参考", count: 2, desc: "已上线生产策略" },
 ];
@@ -703,8 +814,10 @@ async function renderLabDetail(key) {
   chartSection.className = "lab-chart-section";
   content.appendChild(chartSection);
 
-  if (key === "BB_upper_revert") {
-    // BB_upper_revert：复用 computeBBLab + renderLabChart + 指数选择器
+  // 图表区：实验中策略显示指标曲线+信号标注，开发中策略显示占位
+  const LAB_CHART_KEYS = { BB_upper_revert: 1, BB_lower_revert: 1, Supertrend_buy: 1, MA_death_5_20: 1 };
+  if (LAB_CHART_KEYS[key]) {
+    // 指数选择器（实验策略共用）
     const filterBar = document.createElement("div");
     filterBar.className = "filter-bar";
     const label = document.createElement("label");
@@ -743,20 +856,53 @@ async function renderLabDetail(key) {
       if (!ohlc || !ohlc.length) {
         chartDiv.innerHTML = '<div class="empty-note">该指数暂无数据</div>';
       } else {
-        const bb = computeBBLab(ohlc);
-        chartDiv.innerHTML = "";
         const name = _INDEX_NAME_MAP[state.labIndex] || state.labIndex;
-        renderLabChart(`${name} · 布林上轨回落实验`, ohlc, bb, bb.signals, chartDiv, charts);
+        let indicators, signals, signalLabel, signalColor, chartTitle, statLabel;
+        if (key === "BB_upper_revert") {
+          const bb = computeBBLab(ohlc);
+          indicators = [
+            { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
+            { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+          ];
+          signals = bb.signals; signalLabel = "实验卖"; signalColor = "#9c27b0";
+          chartTitle = `${name} · 布林上轨回落实验`; statLabel = "实验卖点";
+        } else if (key === "BB_lower_revert") {
+          const r2 = computeBBLowerRevertLab(ohlc);
+          indicators = [
+            { name: "布林上轨", data: r2.bu, color: "#c9cdd4", dash: true },
+            { name: "布林下轨", data: r2.bl, color: "#c9cdd4", dash: true },
+          ];
+          signals = r2.signals; signalLabel = "实验买"; signalColor = "#2e7d32";
+          chartTitle = `${name} · 布林下轨回归实验`; statLabel = "实验买点";
+        } else if (key === "Supertrend_buy") {
+          const r2 = computeSupertrendLab(ohlc);
+          indicators = [
+            { name: "趋势线(多)", data: r2.stBull, color: "#2e7d32", dash: false },
+            { name: "趋势线(空)", data: r2.stBear, color: "#c92a2a", dash: false },
+          ];
+          signals = r2.signals; signalLabel = "实验买"; signalColor = "#2e7d32";
+          chartTitle = `${name} · Supertrend翻多实验`; statLabel = "实验买点";
+        } else { // MA_death_5_20
+          const r2 = computeMADeathCrossLab(ohlc);
+          indicators = [
+            { name: "MA5", data: r2.ma5, color: "#1f6feb", dash: false },
+            { name: "MA20", data: r2.ma20, color: "#f0883e", dash: false },
+          ];
+          signals = r2.signals; signalLabel = "实验卖"; signalColor = "#9c27b0";
+          chartTitle = `${name} · MA5/20死叉实验`; statLabel = "实验卖点";
+        }
+        chartDiv.innerHTML = "";
+        renderLabChartEx(chartTitle, ohlc, indicators, signals, chartDiv, charts, signalLabel, signalColor);
         const statDiv = document.createElement("div");
         statDiv.className = "lab-signal-stat";
-        statDiv.innerHTML = `共触发 <b>${bb.signals.length}</b> 个实验卖点（全历史）`;
+        statDiv.innerHTML = `共触发 <b>${signals.length}</b> 个${statLabel}（全历史）`;
         chartDiv.appendChild(statDiv);
       }
     } catch (e) {
       chartDiv.innerHTML = `<div class="loading">加载失败：${e}</div>`;
     }
   } else {
-    // 其他21个策略：开发中占位
+    // 其他策略：开发中占位
     chartSection.innerHTML =
       '<div class="lab-placeholder">' +
       '<div class="lab-placeholder-icon">🔧</div>' +
