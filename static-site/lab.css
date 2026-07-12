@@ -354,10 +354,15 @@
   align-items: baseline;
   gap: 8px;
   margin-bottom: 10px;
-  padding-bottom: 8px;
+  padding: 6px 0 8px;
   border-bottom: 1px solid #f0f0f0;
+  position: sticky;        /* UX：滚动时吸顶，常驻显示当前配对名 */
+  top: var(--tab-h, 41px);
+  background: #fff;
+  z-index: 30;
 }
-.lab-sim-strat-name { font-size: 15px; font-weight: 700; color: #1f2329; }
+.lab-sim-strat-name { font-size: 15px; font-weight: 700; color: #1f2329; flex-shrink: 0; }
+.lab-sim-strat-pair { font-size: 13px; font-weight: 600; color: #165dff; flex-shrink: 0; }
 .lab-sim-strat-desc { font-size: 12px; color: #86909c; }
 /* mode-block 嵌入 section 内，无边框/padding */
 .lab-sim-mode-block { min-width: 0; }
@@ -393,4 +398,8 @@
   .lab-sim-stats { grid-template-columns: repeat(2, 1fr); }
   .lab-sim-stat .v { font-size: 16px; }
   .lab-sim-table-wrap th, .lab-sim-table-wrap td { padding: 4px 6px; font-size: 11px; }
+  /* 吸顶标题移动端精简：隐藏描述，保留策略名+配对名 */
+  .lab-sim-strat-desc { display: none; }
+  .lab-sim-strat-name { font-size: 14px; }
+  .lab-sim-strat-pair { font-size: 12px; }
 }

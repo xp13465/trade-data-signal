@@ -580,6 +580,8 @@ function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pai
   let currentPair = state[pairStateKey] || defaultPair;
   if (!pairs[currentPair]) currentPair = pairKeys[0];
   state[pairStateKey] = currentPair;
+  // 当前配对名（吸顶时常驻显示，让用户滚动看详情时仍知当前配的是什么）
+  const curPairName = (LAB_STRATEGIES[currentPair] && LAB_STRATEGIES[currentPair].name) || currentPair;
 
   // 配对策略卡片列表（仅显示本 mode 的 ret/胜率/样本）
   const pairCards = pairKeys.map((pk) => {
@@ -615,10 +617,11 @@ function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pai
 
   const pairData = pairs[currentPair];
   const modeData = pairData && pairData[mode];
+  // 区块标题：策略名 + 当前配对名 + 描述（sticky 吸顶时常驻）
+  const headHTML = `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-pair">· 配 ${curPairName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>`;
   if (!modeData || !modeData.stats) {
     return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
-      `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>` +
-      pairListHTML + '<div class="lab-sim-empty">该模式无交易数据</div></div>';
+      headHTML + pairListHTML + '<div class="lab-sim-empty">该模式无交易数据</div></div>';
   }
 
   const page = mode === "full_in" ? (state.labSimPageFi || 0) : (state.labSimPageFk || 0);
@@ -626,8 +629,7 @@ function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pai
   const detailBlock = _labSimModeBlock(mode, modeData, initCapital, page, isOpen);
 
   return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
-    `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>` +
-    pairListHTML + detailBlock + '</div>';
+    headHTML + pairListHTML + detailBlock + '</div>';
 }
 
 // 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换）

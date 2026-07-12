@@ -49,6 +49,7 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
     document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
     updateH5Topbar();
+    _setTabHash(state.tab);
     renderTab();
   };
 });
@@ -2388,4 +2389,47 @@ initRuleButton();
 initH5();
 initSimOverlay();
 initShareButton();
-renderTab();
+
+// === 主 tab hash 记忆 + 滚动位置恢复 ===
+// 切 tab 写 hash（replaceState 不入历史、不触发 hashchange），F5 读 hash 恢复 tab + 滚动位置。
+// #lab 开头归 lab.js 的 lab 恢复逻辑（含 #lab/策略key），此模块只管 4 个非 lab 主 tab。
+const _MAIN_TABS = ["overview", "market", "sentiment", "industry"];
+function _setTabHash(tab) {
+  const h = "#" + tab;
+  if (location.hash === h) return;
+  try { history.replaceState(null, "", location.pathname + location.search + h); } catch (e) {}
+}
+let _tabInitialRestore = false;
+function _restoreMainTabScroll() {
+  try {
+    const y = parseInt(sessionStorage.getItem("tabScrollY_" + state.tab) || "0", 10);
+    if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
+  } catch (e) {}
+}
+// 滚动位置持续保存（per-tab，仅非 lab 主 tab；lab 由 lab.js 的 labScrollY 管理）
+let _tabScrollTimer = null;
+window.addEventListener("scroll", () => {
+  if (!_MAIN_TABS.includes(state.tab)) return;
+  if (_tabScrollTimer) clearTimeout(_tabScrollTimer);
+  _tabScrollTimer = setTimeout(() => {
+    try { sessionStorage.setItem("tabScrollY_" + state.tab, String(window.scrollY)); } catch (e) {}
+  }, 200);
+}, { passive: true });
+
+// F5 刷新：读 URL hash 恢复主 tab（#lab 开头归 lab.js 处理）
+(function _initMainTabHashRestore() {
+  const h = location.hash;
+  if (!h || h.startsWith("#lab")) return;
+  const tab = h.slice(1).split("/")[0];
+  if (!_MAIN_TABS.includes(tab)) return;
+  state.tab = tab;
+  if (tab === "market" && !state.subtab) state.subtab = "a-stock";
+  document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
+  const btn = document.querySelector(`button[data-tab="${tab}"]`);
+  if (btn) btn.classList.add("active");
+  updateH5Topbar();
+  _tabInitialRestore = true;
+})();
+renderTab().then(() => {
+  if (_tabInitialRestore) { _tabInitialRestore = false; _restoreMainTabScroll(); }
+});
