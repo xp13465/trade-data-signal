@@ -11,7 +11,7 @@
 控体积设计：
   - 配对去重：pairs 顶层字典以 "buy_key|sell_key" 组合键存一份（不再对称双存，体积减半）。
   - trades 全史存一份，各窗口存 [start,end) 切片索引（tw），前端按索引切片展示。
-  - equity_curve 全史采样存一份，各窗口存 [start,end) 切片索引（ew）。
+  - equity_curve 每窗口独立计算（从 INITIAL_CAPITAL 起算），采样后存储。结构为 dict {all,y10,y5,y3,y1}。
   - stats 每窗口独立计算（5窗口×7字段，体积可忽略）。
 
 输出结构: 每个指数拆两文件，分阶段加载（推荐榜秒开，详情按需加载）
@@ -30,12 +30,13 @@
   2) lab_sim_{iid}_full.json（大，原大小）：详情/配对卡片用，按需加载
   {
     pairs: {"buy_key|sell_key": {
-      full_in:   {equity_curve, trades, tw, ew},
-      fixed_10k: {equity_curve, trades, tw, ew}
+      full_in:   {equity_curve:{all,y10,y5,y3,y1}, trades, tw},
+      fixed_10k: {equity_curve:{all,y10,y5,y3,y1}, trades, tw}
     }}
   }
 
-  - tw/ew: {window_key: [start_idx, end_exclusive_idx]}，指向同组 trades/equity_curve 数组。
+  - tw: {window_key: [start_idx, end_exclusive_idx]}，指向同组 trades 数组。
+  - equity_curve: {window_key: [{date,value},...]}，每窗口从 INITIAL_CAPITAL 独立起算，采样后存储。
   - 前端双向查找：给定策略A+伙伴B，若A.side=="buy"则pair_id=A+"|"+B，否则pair_id=B+"|"+A。
   - 前端先 fetch stats（秒开推荐榜+矩阵+配对卡片），点详情/弹窗时再 fetch full 合并入已缓存 stats。
 
@@ -70,7 +71,8 @@ SIM_INDEXES = [
 INITIAL_CAPITAL = 100_000
 POSITION_SIZE = 10_000
 MAX_POSITIONS = 10
-MAX_CURVE_POINTS = 200  # 净值曲线采样点数（去重后体积充裕，100→200，短窗口切片更有意义）
+MAX_CURVE_POINTS = 100  # 全历史窗口净值曲线采样点数
+MAX_CURVE_POINTS_WIN = 100  # 子窗口采样点数
 
 # 5个回测窗口：(key, label, years_or_None)
 WINDOW_DEFS = [
@@ -131,18 +133,18 @@ def sample_curve(curve, max_points=MAX_CURVE_POINTS):
     return [curve[i] for i in indices]
 
 
-def _build_stats(trades, final_total, last_date, equity_curve):
-    """计算全历史统计指标（"all"窗口）。"""
+def _build_stats(trades, final_total, last_date, equity_curve, years=None):
+    """计算统计指标。years=None 时从首笔交易日算，指定时用窗口年限。"""
     total_ret = (final_total - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100
-    if trades:
-        first_buy_date = pd.Timestamp(trades[0]['bd'])
-        years = _days_between(first_buy_date, last_date) / 365.25
-        if years > 0 and final_total > 0:
-            annual_ret = ((final_total / INITIAL_CAPITAL) ** (1 / years) - 1) * 100
+    if years is None:
+        if trades:
+            first_buy_date = pd.Timestamp(trades[0]['bd'])
+            years = _days_between(first_buy_date, last_date) / 365.25
         else:
-            annual_ret = 0.0
+            years = 0
+    if years > 0 and final_total > 0:
+        annual_ret = ((final_total / INITIAL_CAPITAL) ** (1 / years) - 1) * 100
     else:
-        years = 0
         annual_ret = 0.0
 
     win_trades = [t for t in trades if t['ret'] > 0]
@@ -170,19 +172,33 @@ def _build_stats(trades, final_total, last_date, equity_curve):
     }
 
 
-def simulate_full_in(df, buy_mask, sell_mask):
-    """全仓进出模式：买信号全仓买入，卖信号全仓卖出。返回未采样 equity_curve。"""
+def simulate_full_in(df, buy_mask, sell_mask, w_start=None):
+    """全仓进出模式：买信号全仓买入，卖信号全仓卖出。
+    w_start: 窗口起始(Timestamp)，None=全历史。指定时只处理 >= w_start 的事件，
+    equity 从 INITIAL_CAPITAL 起算。返回未采样 equity_curve + trades + final_total。"""
     close = df['close']
     dates = df.index
 
-    events = [(d, 'buy') for d in dates[buy_mask].tolist()] + \
-             [(d, 'sell') for d in dates[sell_mask].tolist()]
+    buy_dates = dates[buy_mask]
+    sell_dates = dates[sell_mask]
+    if w_start is not None:
+        buy_dates = buy_dates[buy_dates >= w_start]
+        sell_dates = sell_dates[sell_dates >= w_start]
+
+    events = [(d, 'buy') for d in buy_dates.tolist()] + \
+             [(d, 'sell') for d in sell_dates.tolist()]
     events.sort(key=lambda x: x[0])
 
     cash = float(INITIAL_CAPITAL)
     holding = None  # (buy_date, buy_close, shares)
     trades = []
-    equity_curve = [{'date': _fmt_date(dates[0]), 'value': round(cash, 2)}]
+    # equity 起点：全历史用 dates[0]，子窗口用 >= w_start 的首个交易日
+    if w_start is not None:
+        si = dates.searchsorted(w_start)
+        start_dt = dates[si] if si < len(dates) else dates[-1]
+    else:
+        start_dt = dates[0]
+    equity_curve = [{'date': _fmt_date(start_dt), 'value': round(cash, 2)}]
 
     for date, sig_type in events:
         close_val = close.loc[date]
@@ -224,27 +240,40 @@ def simulate_full_in(df, buy_mask, sell_mask):
         if equity_curve[-1]['date'] != _fmt_date(last_date):
             equity_curve.append({'date': _fmt_date(last_date), 'value': round(final_total, 2)})
 
-    stats = _build_stats(trades, final_total, last_date, equity_curve)
     return {
-        'stats': stats,
-        'equity_curve': equity_curve,  # 未采样，build_pair_result 中采样
+        'equity_curve': equity_curve,
         'trades': trades,
+        'final_total': final_total,
+        'last_date': last_date,
     }
 
 
-def simulate_fixed_10k(df, buy_mask, sell_mask):
-    """1万定额模式：每次买信号买入1万元（最多10笔），卖信号清仓全部。返回未采样 equity_curve。"""
+def simulate_fixed_10k(df, buy_mask, sell_mask, w_start=None):
+    """1万定额模式：每次买信号买入1万元（最多10笔），卖信号清仓全部。
+    w_start: 窗口起始(Timestamp)，None=全历史。指定时只处理 >= w_start 的事件，
+    equity 从 INITIAL_CAPITAL 起算。返回未采样 equity_curve + trades + final_total。"""
     close = df['close']
     dates = df.index
 
-    events = [(d, 'buy') for d in dates[buy_mask].tolist()] + \
-             [(d, 'sell') for d in dates[sell_mask].tolist()]
+    buy_dates = dates[buy_mask]
+    sell_dates = dates[sell_mask]
+    if w_start is not None:
+        buy_dates = buy_dates[buy_dates >= w_start]
+        sell_dates = sell_dates[sell_dates >= w_start]
+
+    events = [(d, 'buy') for d in buy_dates.tolist()] + \
+             [(d, 'sell') for d in sell_dates.tolist()]
     events.sort(key=lambda x: x[0])
 
     cash = float(INITIAL_CAPITAL)
     positions = []  # [(buy_date, buy_close, shares)]
     trades = []
-    equity_curve = [{'date': _fmt_date(dates[0]), 'value': round(cash, 2)}]
+    if w_start is not None:
+        si = dates.searchsorted(w_start)
+        start_dt = dates[si] if si < len(dates) else dates[-1]
+    else:
+        start_dt = dates[0]
+    equity_curve = [{'date': _fmt_date(start_dt), 'value': round(cash, 2)}]
 
     for date, sig_type in events:
         close_val = close.loc[date]
@@ -286,111 +315,76 @@ def simulate_fixed_10k(df, buy_mask, sell_mask):
     if positions or equity_curve[-1]['date'] != _fmt_date(last_date):
         equity_curve.append({'date': _fmt_date(last_date), 'value': round(final_total, 2)})
 
-    stats = _build_stats(trades, final_total, last_date, equity_curve)
     return {
-        'stats': stats,
-        'equity_curve': equity_curve,  # 未采样，build_pair_result 中采样
+        'equity_curve': equity_curve,
         'trades': trades,
+        'final_total': final_total,
+        'last_date': last_date,
     }
 
 
-def _max_drawdown(vals):
-    """从值列表计算最大回撤。"""
-    max_dd = 0.0
-    if len(vals) > 1:
-        pk = vals[0]
-        for v in vals[1:]:
-            if v > pk:
-                pk = v
-            dd = (pk - v) / pk * 100 if pk > 0 else 0
-            if dd > max_dd:
-                max_dd = dd
-    return max_dd
+def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
+    """每窗口独立模拟：从 INITIAL_CAPITAL 起算该窗口的净值曲线。
 
-
-def build_pair_result(full_in_raw, fixed_10k_raw, last_date, first_date):
-    """把 simulate_* 的原始结果（全史、未采样）转为最终结构：
-    per-window stats + trades共享 + equity_curve采样 + 窗口切片索引(tw/ew)。
-
-    trades 切片索引指向全史 trades 数组（trades 不随窗口变化）。
-    equity 切片索引指向采样后的 equity_curve（ew 中索引对应存储的 equity_curve）。
-    stats.max_drawdown 从未采样 equity_curve 计算（精度不丢）。
+    - all: 全历史模拟（同原逻辑，equity 从 dates[0] 起算）
+    - y10/y5/y3/y1: 窗口内独立模拟，起点资金=INITIAL_CAPITAL
+    - trades: 全史共享一份，tw 存各窗口切片索引
+    - equity_curve: 每窗口独立一份 dict {all,y10,y5,y3,y1}，采样后存储
+    - stats: 每窗口独立计算（从未采样 equity_curve 算 max_dd，精度不丢）
     """
     out = {}
-    for mode, raw in (('full_in', full_in_raw), ('fixed_10k', fixed_10k_raw)):
-        trades = raw['trades']
-        eq_full = raw['equity_curve']            # 未采样
-        eq_sampled = sample_curve(eq_full)       # 采样后存储
-
-        trade_sds = [t['sd'] for t in trades]
-        ec_full_dates = [p['date'] for p in eq_full]
-        ec_samp_dates = [p['date'] for p in eq_sampled]
-
-        stats_all = {}
-        tw = {}   # trade window indices: {window_key: [start, end_exclusive)}
-        ew = {}   # equity window indices: {window_key: [start, end_exclusive)}
+    for mode, sim_func in (('full_in', simulate_full_in), ('fixed_10k', simulate_fixed_10k)):
+        win_eq = {}      # {window_key: sampled equity_curve}
+        win_stats = {}
+        all_trades = None
 
         for wk, _wl, wy in WINDOW_DEFS:
             if wk == 'all':
-                stats_all[wk] = raw['stats']
-                tw[wk] = [0, len(trades)]
-                ew[wk] = [0, len(eq_sampled)]
-                continue
+                w_start = None
+                actual_years = None   # 从首笔交易日算
+            else:
+                w_start = last_date - pd.DateOffset(years=wy)
+                if w_start < first_date:
+                    w_start = first_date
+                actual_years = _days_between(w_start, last_date) / 365.25
 
-            # 窗口起止日期
+            raw = sim_func(df, buy_mask, sell_mask, w_start=w_start)
+            eq_sampled = sample_curve(
+                raw['equity_curve'],
+                MAX_CURVE_POINTS if wk == 'all' else MAX_CURVE_POINTS_WIN,
+            )
+            stats = _build_stats(
+                raw['trades'], raw['final_total'], raw['last_date'],
+                raw['equity_curve'], years=actual_years,
+            )
+
+            win_eq[wk] = eq_sampled
+            win_stats[wk] = stats
+            if wk == 'all':
+                all_trades = raw['trades']
+
+        # tw: trades 窗口切片索引（指向全史 trades 数组）
+        trades = all_trades
+        trade_sds = [t['sd'] for t in trades]
+        tw = {}
+        for wk, _wl, wy in WINDOW_DEFS:
+            if wk == 'all':
+                tw[wk] = [0, len(trades)]
+                continue
             w_start = last_date - pd.DateOffset(years=wy)
             if w_start < first_date:
                 w_start = first_date
             w_start_str = _fmt_date(w_start)
             w_end_str = _fmt_date(last_date)
-            actual_years = _days_between(w_start, last_date) / 365.25
-
-            # --- trades 切片（索引指向全史 trades 数组）---
             ts = bisect.bisect_left(trade_sds, w_start_str)
             te = bisect.bisect_right(trade_sds, w_end_str)
             tw[wk] = [ts, te]
-            win_trades = trades[ts:te]
-
-            # --- equity 切片（未采样，用于 stats 精度）---
-            es_full = bisect.bisect_left(ec_full_dates, w_start_str)
-            ee_full = bisect.bisect_right(ec_full_dates, w_end_str)
-            # 纳入窗口前最后一个点作为回撤基准/起始值
-            dd_start = max(0, es_full - 1)
-            win_ec = eq_full[dd_start:ee_full] if ee_full > dd_start else []
-            entry_val = win_ec[0]['value'] if win_ec else float(INITIAL_CAPITAL)
-            exit_val = win_ec[-1]['value'] if win_ec else entry_val
-            max_dd = _max_drawdown([p['value'] for p in win_ec])
-
-            # --- stats ---
-            total_ret = (exit_val - entry_val) / entry_val * 100 if entry_val > 0 else 0.0
-            if actual_years > 0 and entry_val > 0 and exit_val > 0:
-                annual_ret = ((exit_val / entry_val) ** (1 / actual_years) - 1) * 100
-            else:
-                annual_ret = 0.0
-            win_count = sum(1 for t in win_trades if t['ret'] > 0)
-            win_rate = win_count / len(win_trades) * 100 if win_trades else 0.0
-
-            stats_all[wk] = {
-                'total_ret': round(total_ret, 2),
-                'annual_ret': round(annual_ret, 1),
-                'max_drawdown': round(max_dd, 1),
-                'win_rate': round(win_rate, 1),
-                'n_trades': len(win_trades),
-                'final_total': round(exit_val, 2),
-                'years': round(actual_years, 1),
-            }
-
-            # --- equity 切片（采样后，索引指向存储的 equity_curve）---
-            es_samp = bisect.bisect_left(ec_samp_dates, w_start_str)
-            ee_samp = bisect.bisect_right(ec_samp_dates, w_end_str)
-            ew[wk] = [es_samp, ee_samp]
 
         out[mode] = {
-            'stats': stats_all,
-            'equity_curve': eq_sampled,
+            'stats': win_stats,
+            'equity_curve': win_eq,
             'trades': trades,
             'tw': tw,
-            'ew': ew,
         }
     return out
 
@@ -455,13 +449,9 @@ def run_index(iid, iname):
                 print(f"  SKIP sell {sell_key}: 无信号")
                 continue
 
-            # 两种交易模式（全史回测，未采样）
-            full_in_raw = simulate_full_in(df, buy_mask, sell_mask)
-            fixed_10k_raw = simulate_fixed_10k(df, buy_mask, sell_mask)
-
-            # 构建最终结构（5窗口 stats + trades共享 + 切片索引）
+            # 构建最终结构（5窗口各自独立模拟，equity 从 INITIAL_CAPITAL 起算）
             pair_id = f"{buy_key}|{sell_key}"
-            pair_data = build_pair_result(full_in_raw, fixed_10k_raw, last_date, first_date)
+            pair_data = build_pair_result(df, buy_mask, sell_mask, last_date, first_date)
             result['pairs'][pair_id] = pair_data
 
             # 伙伴关系（双向，用于前端查找 pair_id）
@@ -498,7 +488,6 @@ def run_index(iid, iname):
                 'equity_curve': mpv['equity_curve'],
                 'trades': mpv['trades'],
                 'tw': mpv['tw'],
-                'ew': mpv['ew'],
             }
 
     # 写入双版（per-index 拆两文件：stats 小秒开，full 大按需）

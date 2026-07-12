@@ -577,28 +577,26 @@ function _labGetPair(simData, buyKey, sellKey) {
   return simData.pairs && simData.pairs[buyKey + "|" + sellKey];
 }
 
-// 取某窗口的切片数据：stats(单窗口) + trades(按 tw 切片) + equity_curve(按 ew 切片)
-// 新结构 trades/equity_curve 全史共享一份，tw/ew 存各窗口 [start,end] 切片索引
+// 取某窗口的数据：stats(单窗口) + trades(按 tw 切片) + equity_curve(该窗口独立)
+// equity_curve 为每窗口独立从 INITIAL_CAPITAL 起算的净值曲线 dict {all,y10,y5,y3,y1}
 // hasFull 标记 full 数据(trades/equity_curve)是否已加载，未加载时仅 stats 可用
 function _labPairWinData(pairData, mode, win, simData) {
   const md = pairData && pairData[mode];
   if (!md) return null;
   const stats = (md.stats && md.stats[win]) || null;
   const tw = md.tw && md.tw[win];
-  const ew = md.ew && md.ew[win];
   const trades = (tw && md.trades) ? md.trades.slice(tw[0], tw[1]) : (md.trades || []);
-  let equity_curve = (ew && md.equity_curve) ? md.equity_curve.slice(ew[0], ew[1]) : (md.equity_curve || []);
-  // 非全历史窗口补窗口起点基准点：采样后曲线首点常晚于窗口起点，
-  // 导致净值曲线只显示窗口尾部。补一个窗口起点 + 前一点值，让曲线覆盖完整窗口。
-  if (win !== "all" && ew && md.equity_curve && ew[0] > 0 && equity_curve.length > 0) {
-    const baseVal = md.equity_curve[ew[0] - 1].value;
-    const winMeta = simData && simData.windows ? simData.windows.find((w) => w.k === win) : null;
-    const baseDate = winMeta ? winMeta.s : md.equity_curve[ew[0] - 1].date;
-    if (equity_curve[0].date !== baseDate) {
-      equity_curve = [{ date: baseDate, value: baseVal }].concat(equity_curve);
-    }
+  // equity_curve: 新结构为 dict {all,y10,...}，旧结构为数组(全史)兼容
+  const ec = md.equity_curve;
+  let equity_curve;
+  if (Array.isArray(ec)) {
+    equity_curve = ec;  // 旧结构兼容
+  } else if (ec && ec[win]) {
+    equity_curve = ec[win];
+  } else {
+    equity_curve = [];
   }
-  const hasFull = !!md.trades || !!md.equity_curve;
+  const hasFull = !!md.trades || !!ec;
   return { stats, trades, equity_curve, hasFull };
 }
 
@@ -987,7 +985,6 @@ async function fetchLabSimFullData(index, onProgress) {
             sp[mode].equity_curve = fp[mode].equity_curve;
             sp[mode].trades = fp[mode].trades;
             sp[mode].tw = fp[mode].tw;
-            sp[mode].ew = fp[mode].ew;
           }
         }
       }
