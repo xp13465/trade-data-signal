@@ -128,13 +128,15 @@ function computeMADeathCrossLab(ohlc) {
 
 // 通用实验图表：收盘价折线 + 自定义指标线 + 信号 markPoint
 // indicators: [{name, data, color, dash}]  data 与 ohlc 等长（null=无值）
+// signalLabel 用策略中文名，label 以彩色标签框显示在 pin 上方，hideOverlap 防密集重叠
 function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr, signalLabel, signalColor) {
   const c = mkCard(title, 400, null, container, chartArr);
   const dates = ohlc.map((d) => d.date);
+  const lblColor = signalColor || "#9c27b0";
   const markData = signals.map((s) => ({
     coord: [s.date, s.close],
-    value: signalLabel || "实验",
-    itemStyle: { color: signalColor || "#9c27b0" },
+    value: signalLabel || "信号",
+    itemStyle: { color: lblColor },
   }));
   const legendData = ["收盘价"].concat(indicators.map((it) => it.name));
   const indSeries = indicators.map((it) => ({
@@ -154,10 +156,16 @@ function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr,
         name: "收盘价", type: "line", smooth: true, symbol: "none",
         data: ohlc.map((d) => d.close), lineStyle: { width: 1.5 },
         markPoint: {
-          symbol: "pin", symbolSize: 34,
-          label: { fontSize: 10, color: "#fff" },
+          symbol: "pin", symbolSize: 30,
+          label: {
+            fontSize: 9, color: "#fff",
+            position: "top", distance: 2,
+            backgroundColor: lblColor,
+            padding: [2, 5], borderRadius: 10, borderWidth: 0,
+          },
           data: markData,
         },
+        labelLayout: { hideOverlap: true },
       },
       ...indSeries,
     ],
@@ -170,7 +178,7 @@ function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
   return renderLabChartEx(title, ohlc, [
     { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
     { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
-  ], signals, container, chartArr, "实验卖", "#9c27b0");
+  ], signals, container, chartArr, "布林上轨回落卖", "#9c27b0");
 }
 
 // === 22策略元数据注册表（分区/状态/触发/结论/理论/场景/注意/08报告结论）===
@@ -402,6 +410,59 @@ const LAB_STATUS_TAGS = {
 const LAB_WINDOWS = ["全史", "近10年", "近5年", "近3年", "近1年"];
 const LAB_HORIZONS = ["5d", "10d", "20d", "60d"];
 
+// 有图表实现的策略 key（仅这4个有指标+信号图表）
+const LAB_CHART_KEYS = { BB_upper_revert: 1, BB_lower_revert: 1, Supertrend_buy: 1, MA_death_5_20: 1 };
+
+// 构建策略图表配置（指标线+信号+标注文案），供 renderLabDetail 和买卖信号弹窗复用
+// 返回 { indicators, signals, signalLabel, signalColor, chartTitle, statLabel } 或 null（无图表实现）
+function _labBuildChartConfig(key, ohlc, indexName) {
+  if (!LAB_CHART_KEYS[key]) return null;
+  const meta = LAB_STRATEGIES[key];
+  const signalLabel = meta.name; // 信号标注用策略中文名
+  const name = indexName || "";
+  if (key === "BB_upper_revert") {
+    const bb = computeBBLab(ohlc);
+    return {
+      indicators: [
+        { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
+        { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+      ],
+      signals: bb.signals, signalLabel, signalColor: "#9c27b0",
+      chartTitle: `${name} · 布林上轨回落实验`, statLabel: "实验卖点",
+    };
+  } else if (key === "BB_lower_revert") {
+    const r2 = computeBBLowerRevertLab(ohlc);
+    return {
+      indicators: [
+        { name: "布林上轨", data: r2.bu, color: "#c9cdd4", dash: true },
+        { name: "布林下轨", data: r2.bl, color: "#c9cdd4", dash: true },
+      ],
+      signals: r2.signals, signalLabel, signalColor: "#2e7d32",
+      chartTitle: `${name} · 布林下轨回归实验`, statLabel: "实验买点",
+    };
+  } else if (key === "Supertrend_buy") {
+    const r2 = computeSupertrendLab(ohlc);
+    return {
+      indicators: [
+        { name: "趋势线(多)", data: r2.stBull, color: "#2e7d32", dash: false },
+        { name: "趋势线(空)", data: r2.stBear, color: "#c92a2a", dash: false },
+      ],
+      signals: r2.signals, signalLabel, signalColor: "#2e7d32",
+      chartTitle: `${name} · Supertrend翻多实验`, statLabel: "实验买点",
+    };
+  } else { // MA_death_5_20
+    const r2 = computeMADeathCrossLab(ohlc);
+    return {
+      indicators: [
+        { name: "MA5", data: r2.ma5, color: "#1f6feb", dash: false },
+        { name: "MA20", data: r2.ma20, color: "#f0883e", dash: false },
+      ],
+      signals: r2.signals, signalLabel, signalColor: "#9c27b0",
+      chartTitle: `${name} · MA5/20死叉实验`, statLabel: "实验卖点",
+    };
+  }
+}
+
 // 获取 lab_backtest.json 数据（缓存到 state.labData）
 // web 版走 /static/ 挂载点（main.py 的 StaticFiles(directory=web)），static 版走 ./data/
 async function fetchLabData() {
@@ -569,7 +630,7 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
 
 // 渲染单个策略区块（标题+描述 -> 配对卡片切换 -> 详情）
 // 上下两区各自独立：配对卡片切换、4数字、净值曲线、折叠交易记录都各自一套
-function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pairSideLabel) {
+function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pairSideLabel, mainKey, side) {
   const modeName = mode === "full_in" ? "全仓交易策略" : "定额交易策略";
   const modeDesc = mode === "full_in"
     ? "每次全仓买入卖出，本金复利滚动，收益和风险都放大"
@@ -619,9 +680,13 @@ function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pai
   const modeData = pairData && pairData[mode];
   // 区块标题：策略名 + 当前配对名 + 描述（sticky 吸顶时常驻）
   const headHTML = `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-pair">· 配 ${curPairName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>`;
+  // 买卖信号弹窗入口：买策略+卖策略 key
+  const buyKey = side === "buy" ? mainKey : currentPair;
+  const sellKey = side === "buy" ? currentPair : mainKey;
+  const signalBtnHTML = `<div class="lab-sim-signal-btn-wrap"><button type="button" class="lab-sim-signal-btn" data-buy="${buyKey}" data-sell="${sellKey}">📊 查看买卖信号</button></div>`;
   if (!modeData || !modeData.stats) {
     return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
-      headHTML + pairListHTML + '<div class="lab-sim-empty">该模式无交易数据</div></div>';
+      headHTML + pairListHTML + '<div class="lab-sim-empty">该模式无交易数据</div>' + signalBtnHTML + '</div>';
   }
 
   const page = mode === "full_in" ? (state.labSimPageFi || 0) : (state.labSimPageFk || 0);
@@ -629,7 +694,7 @@ function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pai
   const detailBlock = _labSimModeBlock(mode, modeData, initCapital, page, isOpen);
 
   return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
-    headHTML + pairListHTML + detailBlock + '</div>';
+    headHTML + pairListHTML + detailBlock + signalBtnHTML + '</div>';
 }
 
 // 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换）
@@ -651,8 +716,8 @@ function _labSimCardHTML(key, simData) {
   const pairSideLabel = side === "buy" ? "卖点" : "买点";
 
   // 上区：全仓交易策略 / 下区：定额交易策略（各自独立配对切换+详情）
-  const fiSection = _labSimSectionHTML("full_in", pairs, pairKeys, defaultPair, initCapital, pairSideLabel);
-  const fkSection = _labSimSectionHTML("fixed_10k", pairs, pairKeys, defaultPair, initCapital, pairSideLabel);
+  const fiSection = _labSimSectionHTML("full_in", pairs, pairKeys, defaultPair, initCapital, pairSideLabel, key, side);
+  const fkSection = _labSimSectionHTML("fixed_10k", pairs, pairKeys, defaultPair, initCapital, pairSideLabel, key, side);
 
   return '<h3>💰 模拟回测（配对交易）</h3>' + fiSection + fkSection;
 }
@@ -696,6 +761,10 @@ function _labSimAttachHandlers(key, simData, simCard, rerender) {
       if (mode === "full_in") { state.labSimPageFi = (state.labSimPageFi || 0) + 1; rerender(); }
       else { state.labSimPageFk = (state.labSimPageFk || 0) + 1; rerender(); }
     };
+  });
+  // 买卖信号弹窗入口
+  simCard.querySelectorAll(".lab-sim-signal-btn").forEach((btn) => {
+    btn.onclick = () => _labSignalOpenModal(btn.dataset.buy, btn.dataset.sell);
   });
 }
 
@@ -817,7 +886,6 @@ async function renderLabDetail(key) {
   content.appendChild(chartSection);
 
   // 图表区：实验中策略显示指标曲线+信号标注，开发中策略显示占位
-  const LAB_CHART_KEYS = { BB_upper_revert: 1, BB_lower_revert: 1, Supertrend_buy: 1, MA_death_5_20: 1 };
   if (LAB_CHART_KEYS[key]) {
     // 指数选择器（实验策略共用）
     const filterBar = document.createElement("div");
@@ -859,45 +927,12 @@ async function renderLabDetail(key) {
         chartDiv.innerHTML = '<div class="empty-note">该指数暂无数据</div>';
       } else {
         const name = _INDEX_NAME_MAP[state.labIndex] || state.labIndex;
-        let indicators, signals, signalLabel, signalColor, chartTitle, statLabel;
-        if (key === "BB_upper_revert") {
-          const bb = computeBBLab(ohlc);
-          indicators = [
-            { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
-            { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
-          ];
-          signals = bb.signals; signalLabel = "实验卖"; signalColor = "#9c27b0";
-          chartTitle = `${name} · 布林上轨回落实验`; statLabel = "实验卖点";
-        } else if (key === "BB_lower_revert") {
-          const r2 = computeBBLowerRevertLab(ohlc);
-          indicators = [
-            { name: "布林上轨", data: r2.bu, color: "#c9cdd4", dash: true },
-            { name: "布林下轨", data: r2.bl, color: "#c9cdd4", dash: true },
-          ];
-          signals = r2.signals; signalLabel = "实验买"; signalColor = "#2e7d32";
-          chartTitle = `${name} · 布林下轨回归实验`; statLabel = "实验买点";
-        } else if (key === "Supertrend_buy") {
-          const r2 = computeSupertrendLab(ohlc);
-          indicators = [
-            { name: "趋势线(多)", data: r2.stBull, color: "#2e7d32", dash: false },
-            { name: "趋势线(空)", data: r2.stBear, color: "#c92a2a", dash: false },
-          ];
-          signals = r2.signals; signalLabel = "实验买"; signalColor = "#2e7d32";
-          chartTitle = `${name} · Supertrend翻多实验`; statLabel = "实验买点";
-        } else { // MA_death_5_20
-          const r2 = computeMADeathCrossLab(ohlc);
-          indicators = [
-            { name: "MA5", data: r2.ma5, color: "#1f6feb", dash: false },
-            { name: "MA20", data: r2.ma20, color: "#f0883e", dash: false },
-          ];
-          signals = r2.signals; signalLabel = "实验卖"; signalColor = "#9c27b0";
-          chartTitle = `${name} · MA5/20死叉实验`; statLabel = "实验卖点";
-        }
+        const cfg = _labBuildChartConfig(key, ohlc, name);
         chartDiv.innerHTML = "";
-        renderLabChartEx(chartTitle, ohlc, indicators, signals, chartDiv, charts, signalLabel, signalColor);
+        renderLabChartEx(cfg.chartTitle, ohlc, cfg.indicators, cfg.signals, chartDiv, charts, cfg.signalLabel, cfg.signalColor);
         const statDiv = document.createElement("div");
         statDiv.className = "lab-signal-stat";
-        statDiv.innerHTML = `共触发 <b>${signals.length}</b> 个${statLabel}（全历史）`;
+        statDiv.innerHTML = `共触发 <b>${cfg.signals.length}</b> 个${cfg.statLabel}（全历史）`;
         chartDiv.appendChild(statDiv);
       }
     } catch (e) {
@@ -1156,11 +1191,123 @@ function _labRankModalRender(overlay, simData) {
   if (next && !next.disabled) next.onclick = () => { m.page++; _labRankModalRender(overlay, simData); };
 }
 
+// === 买卖信号弹窗：配对详情入口，显示买/卖策略图表+品类切换 ===
+function _labSignalOpenModal(buyKey, sellKey) {
+  let overlay = document.getElementById("labSignalOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labSignalOverlay";
+    overlay.className = "lab-signal-overlay";
+    document.body.appendChild(overlay);
+  }
+  state.labSignalModal = {
+    buyKey, sellKey,
+    index: state.labIndex || "sh",
+    tab: "buy",
+    charts: [],
+  };
+  _labSignalModalRender(overlay);
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labSignalCloseModal(); };
+}
+
+function _labSignalCloseModal() {
+  const overlay = document.getElementById("labSignalOverlay");
+  if (overlay) { overlay.classList.remove("show"); overlay.innerHTML = ""; overlay.onclick = null; }
+  document.body.style.overflow = "";
+  if (state.labSignalModal && state.labSignalModal.charts) {
+    state.labSignalModal.charts.forEach((c) => { try { c.dispose(); } catch (e) {} });
+  }
+  state.labSignalModal = null;
+}
+
+async function _labSignalModalRender(overlay) {
+  const m = state.labSignalModal;
+  if (!m) return;
+  const buyName = (LAB_STRATEGIES[m.buyKey] || {}).name || m.buyKey;
+  const sellName = (LAB_STRATEGIES[m.sellKey] || {}).name || m.sellKey;
+  const buyHasChart = !!LAB_CHART_KEYS[m.buyKey];
+  const sellHasChart = !!LAB_CHART_KEYS[m.sellKey];
+
+  // 指数选择器 options
+  const groups = [
+    ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50"]],
+    ["港股", ["hsi", "hscei", "hstech"]],
+    ["美股", ["us_dji", "us_ixic", "us_spx", "us_ndx"]],
+    ["红利/低波", ["div_lowvol", "csi_div", "sz_div"]],
+  ];
+  const selectHTML = groups.map(([gname, ids]) =>
+    `<optgroup label="${gname}">` +
+    ids.map((id) => `<option value="${id}"${id === m.index ? " selected" : ""}>${_INDEX_NAME_MAP[id] || id}</option>`).join("") +
+    `</optgroup>`
+  ).join("");
+
+  const tab = m.tab || "buy";
+  const tabName = tab === "buy" ? buyName : sellName;
+  const hasChart = tab === "buy" ? buyHasChart : sellHasChart;
+
+  overlay.innerHTML = `<div class="lab-signal-modal">` +
+    `<div class="lab-signal-modal-head">` +
+    `<span class="lab-signal-modal-title">📊 买卖信号 · 买${buyName} × 卖${sellName}</span>` +
+    `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+    `</div>` +
+    `<div class="lab-signal-modal-body">` +
+    `<div class="lab-signal-filter"><label>选择指数</label><select class="lab-signal-index">${selectHTML}</select></div>` +
+    `<div class="lab-signal-tabs">` +
+    `<button type="button" class="lab-signal-tab${tab === "buy" ? " active" : ""}" data-tab="buy">买信号：${buyName}${buyHasChart ? "" : "（无图）"}</button>` +
+    `<button type="button" class="lab-signal-tab${tab === "sell" ? " active" : ""}" data-tab="sell">卖信号：${sellName}${sellHasChart ? "" : "（无图）"}</button>` +
+    `</div>` +
+    `<div class="lab-signal-chart-area"><div class="loading">加载中…</div></div>` +
+    `</div></div>`;
+
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labSignalCloseModal;
+  overlay.querySelector(".lab-signal-index").onchange = (e) => { m.index = e.target.value; _labSignalModalRender(overlay); };
+  overlay.querySelectorAll(".lab-signal-tab").forEach((t) => {
+    t.onclick = () => { m.tab = t.dataset.tab; _labSignalModalRender(overlay); };
+  });
+
+  // 释放旧图表
+  if (m.charts) m.charts.forEach((c) => { try { c.dispose(); } catch (e) {} });
+  m.charts = [];
+
+  const chartArea = overlay.querySelector(".lab-signal-chart-area");
+  if (!hasChart) {
+    chartArea.innerHTML = '<div class="lab-signal-no-chart">🔧 该策略图表开发中</div>';
+    return;
+  }
+  try {
+    const r = await fetchJSON(`./data/index/${m.index}-all.json`);
+    const ohlc = r.ohlc;
+    if (!ohlc || !ohlc.length) {
+      chartArea.innerHTML = '<div class="lab-signal-no-chart">该指数暂无数据</div>';
+      return;
+    }
+    const indexName = _INDEX_NAME_MAP[m.index] || m.index;
+    const chartKey = tab === "buy" ? m.buyKey : m.sellKey;
+    const cfg = _labBuildChartConfig(chartKey, ohlc, indexName);
+    if (!cfg) {
+      chartArea.innerHTML = '<div class="lab-signal-no-chart">🔧 该策略图表开发中</div>';
+      return;
+    }
+    chartArea.innerHTML = "";
+    renderLabChartEx(cfg.chartTitle, ohlc, cfg.indicators, cfg.signals, chartArea, m.charts, cfg.signalLabel, cfg.signalColor);
+    const statDiv = document.createElement("div");
+    statDiv.className = "lab-signal-stat";
+    statDiv.innerHTML = `共触发 <b>${cfg.signals.length}</b> 个${cfg.statLabel}（全历史）`;
+    chartArea.appendChild(statDiv);
+  } catch (e) {
+    chartArea.innerHTML = `<div class="loading">加载失败：${e}</div>`;
+  }
+}
+
 // ESC 关闭弹窗
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     const ov = document.getElementById("labRankOverlay");
     if (ov && ov.classList.contains("show")) _labRankCloseModal();
+    const sv = document.getElementById("labSignalOverlay");
+    if (sv && sv.classList.contains("show")) _labSignalCloseModal();
   }
 });
 
