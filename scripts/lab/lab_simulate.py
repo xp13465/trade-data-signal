@@ -22,7 +22,7 @@
     }
   }
 
-输出: web/data/lab_simulate.json + static-site/data/lab_simulate.json
+输出: web/data/lab/lab_simulate.json + static-site/data/lab/lab_simulate.json
 """
 import json
 import os
@@ -30,11 +30,11 @@ import sys
 import sqlite3
 import pandas as pd
 
-A_STOCK_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "a-stock-data")
+A_STOCK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "a-stock-data")
 sys.path.insert(0, A_STOCK_DIR)
 from backtest_strategies import gen_buy_signals, gen_sell_signals
 
-BASE = os.path.dirname(os.path.dirname(__file__))
+BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 DB = os.path.join(BASE, "data", "sentiment.db")
 INDEX_ID = "sh"
 INDEX_NAME = "上证指数"
@@ -314,8 +314,8 @@ def main():
 
     # 写入双版
     out_paths = [
-        os.path.join(BASE, 'web', 'data', 'lab_simulate.json'),
-        os.path.join(BASE, 'static-site', 'data', 'lab_simulate.json'),
+        os.path.join(BASE, 'web', 'data', 'lab', 'lab_simulate.json'),
+        os.path.join(BASE, 'static-site', 'data', 'lab', 'lab_simulate.json'),
     ]
     for p in out_paths:
         os.makedirs(os.path.dirname(p), exist_ok=True)

@@ -1,0 +1,311 @@
+/* === 策略实验室 tab（lab）=== */
+.lab-warning {
+  background: #fff9e6;
+  border: 1px solid #ffe58f;
+  border-radius: 6px;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #ad6800;
+  font-weight: 500;
+}
+.lab-title {
+  font-size: 16px;
+  color: #1f2329;
+  margin: 0 0 12px;
+}
+.lab-signal-stat {
+  padding: 8px 0;
+  font-size: 13px;
+  color: #4e5969;
+}
+.lab-signal-stat b { color: #9c27b0; }
+
+/* 分区 tab */
+.lab-zone-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.lab-zone-tab {
+  padding: 7px 14px;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #4e5969;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.lab-zone-tab:hover { background: #f7f8fa; }
+.lab-zone-tab.active {
+  background: #1f6feb;
+  color: #fff;
+  border-color: #1f6feb;
+}
+.lab-zone-count {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: 2px;
+}
+.lab-zone-desc {
+  font-size: 12px;
+  color: #86909c;
+  margin-bottom: 12px;
+  padding: 0 2px;
+}
+
+/* 策略卡片列表 */
+.lab-strategy-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+}
+.lab-strategy-card {
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: #fff;
+}
+.lab-strategy-card:hover {
+  border-color: #9c27b0;
+  box-shadow: 0 2px 8px rgba(156, 39, 176, 0.1);
+}
+.lab-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.lab-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2329;
+}
+.lab-card-trigger {
+  font-size: 12px;
+  color: #4e5969;
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+.lab-card-summary {
+  font-size: 11px;
+  color: #86909c;
+  margin-bottom: 4px;
+  font-family: monospace;
+}
+.lab-card-conclusion {
+  font-size: 12px;
+  color: #9c27b0;
+  line-height: 1.5;
+  padding-top: 4px;
+  border-top: 1px dashed #f0f0f0;
+}
+
+/* 状态标签 */
+.lab-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.lab-tag-live { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+.lab-tag-exp { background: #f3e5f5; color: #9c27b0; border: 1px solid #e1bee7; }
+.lab-tag-dev { background: #f5f5f5; color: #757575; border: 1px solid #e0e0e0; }
+.lab-tag-excluded { background: #fbe9e7; color: #bf360c; border: 1px solid #ffccbc; }
+.lab-tag-side {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #86909c;
+  background: #f7f8fa;
+  border: 1px solid #e5e6eb;
+  margin-left: 6px;
+}
+
+/* 详情页 */
+.lab-back-btn {
+  padding: 5px 14px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #fff;
+  color: #4e5969;
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: all 0.15s;
+}
+.lab-back-btn:hover { border-color: #1f6feb; color: #1f6feb; }
+.lab-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.lab-detail-title {
+  font-size: 18px;
+  color: #1f2329;
+  margin: 0;
+  font-weight: 600;
+}
+.lab-detail-key {
+  font-size: 12px;
+  color: #86909c;
+  background: #f7f8fa;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+.lab-doc-card { border-left: 3px solid #1f6feb; }
+.lab-doc-content p {
+  margin: 6px 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #4e5969;
+}
+.lab-doc-content b { color: #1f2329; }
+
+/* 图表区 + 占位 */
+.lab-chart-section { margin-bottom: 12px; }
+.lab-placeholder {
+  border: 2px dashed #d9d9d9;
+  border-radius: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  background: #fafbfc;
+}
+.lab-placeholder-icon { font-size: 32px; margin-bottom: 8px; }
+.lab-placeholder-text { font-size: 15px; color: #86909c; font-weight: 500; margin-bottom: 4px; }
+.lab-placeholder-sub { font-size: 12px; color: #c9cdd4; }
+
+/* 多周期回测矩阵 */
+.lab-matrix-card { border-left: 3px solid #9c27b0; }
+.lab-matrix-wrap { overflow-x: auto; margin-bottom: 8px; }
+.lab-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 420px;
+}
+.lab-matrix-table th,
+.lab-matrix-table td {
+  padding: 5px 6px;
+  text-align: center;
+  border: 1px solid #f0f0f0;
+}
+.lab-matrix-table th {
+  background: #fafbfc;
+  color: #4e5969;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.lab-matrix-rowhead {
+  font-weight: 500;
+  color: #1f2329;
+  background: #fafbfc;
+  white-space: nowrap;
+}
+.lab-matrix-cell {
+  vertical-align: top;
+  line-height: 1.4;
+}
+.lab-matrix-cell span { display: block; }
+.lab-mw { font-weight: 600; color: #1f2329; }
+.lab-mp { font-size: 11px; color: #86909c; }
+.lab-mn { font-size: 10px; color: #c9cdd4; }
+.lab-matrix-pass {
+  border: 2px solid #c92a2a;
+}
+.lab-matrix-pass .lab-mw { color: #c92a2a; }
+.lab-matrix-na { color: #c9cdd4; }
+.lab-matrix-foot { padding-top: 8px; border-top: 1px dashed #e5e6eb; }
+.lab-matrix-source { font-size: 11px; color: #86909c; margin-bottom: 2px; }
+.lab-matrix-note { font-size: 11px; color: #c9cdd4; }
+.lab-matrix-empty { font-size: 13px; color: #c9cdd4; text-align: center; padding: 20px; }
+
+/* 自白黄块（多段） */
+.lab-warning-essay { padding: 10px 14px; line-height: 1.6; }
+.lab-warning-essay .lab-warning-head { font-weight: 600; margin-bottom: 4px; }
+.lab-warning-essay p { margin: 4px 0; font-weight: 400; font-size: 12.5px; color: #874d00; }
+.lab-warning-essay strong { color: #d4380d; font-weight: 700; }
+
+/* 矩阵三色分级 */
+.lab-matrix-good { background: #fff1f0; }
+.lab-matrix-warn { background: #fffbe6; }
+.lab-matrix-bad { background: #f0f9eb; }
+.lab-matrix-bad .lab-mw { color: #2e7d32; }
+.lab-matrix-good .lab-mw { color: #c92a2a; }
+
+/* 矩阵格内：平均收益 + 100元换算 */
+.lab-mm { font-size: 11px; color: #4e5969; }
+.lab-my { font-size: 10px; color: #9c27b0; }
+
+/* 矩阵图例栏 */
+.lab-matrix-legend {
+  font-size: 12px; color: #4e5969; background: #f7f8fa;
+  padding: 8px 10px; border-radius: 6px; margin-bottom: 8px;
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+}
+.lab-matrix-legend b { color: #1f2329; }
+.lab-matrix-legend span { white-space: nowrap; }
+.lab-matrix-tip {
+  font-size: 11px; color: #ad6800; background: #fff9e6;
+  padding: 6px 10px; border-radius: 4px; margin-bottom: 8px;
+}
+.lab-matrix-legend-color {
+  display: flex; gap: 10px; margin-top: 6px; font-size: 11px;
+}
+.lab-matrix-legend-color span { padding: 2px 8px; border-radius: 3px; font-weight: 500; }
+
+/* 模拟回测卡片（配对交易） */
+.lab-sim-card { margin-top: 16px; }
+.lab-sim-card h3 { margin-bottom: 4px; }
+.lab-sim-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.lab-sim-pair-select { display: flex; align-items: center; gap: 6px; }
+.lab-sim-pair-select label { font-size: 13px; font-weight: 600; color: #1f2329; white-space: nowrap; }
+.lab-sim-pair-select select { padding: 4px 8px; border: 1px solid #d9dce3; border-radius: 6px; font-size: 12px; background: #fff; color: #1f2329; max-width: 260px; }
+.lab-sim-mode-toggle { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid #d9dce3; }
+.lab-sim-mode-toggle button { padding: 4px 12px; border: none; background: #fff; font-size: 12px; cursor: pointer; color: #646a73; transition: all 0.15s; }
+.lab-sim-mode-toggle button.active { background: #3370ff; color: #fff; font-weight: 600; }
+.lab-sim-mode-toggle button:hover:not(.active) { background: #f0f2f5; }
+.lab-sim-desc { font-size: 12px; color: #86909c; margin-bottom: 12px; line-height: 1.5; }
+.lab-sim-empty { font-size: 13px; color: #c9cdd4; text-align: center; padding: 20px; }
+.lab-sim-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.lab-sim-stat { background: #f7f8fa; border-radius: 8px; padding: 12px 14px; }
+.lab-sim-stat .k { display: block; font-size: 12px; color: #86909c; margin-bottom: 4px; }
+.lab-sim-stat .v { display: block; font-size: 18px; font-weight: 700; }
+.lab-sim-stat .sub { display: block; font-size: 11px; color: #86909c; margin-top: 2px; }
+.lab-sim-equity { margin-bottom: 16px; }
+.lab-sim-equity-label { font-size: 13px; font-weight: 600; color: #1f2329; margin-bottom: 2px; }
+.lab-sim-trades { }
+.lab-sim-trades-label { font-size: 13px; font-weight: 600; color: #1f2329; margin-bottom: 6px; }
+.lab-sim-table-wrap { overflow-x: auto; }
+.lab-sim-table-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.lab-sim-table-wrap th { background: #f5f6f8; padding: 6px 10px; text-align: left; font-weight: 600; color: #646a73; white-space: nowrap; border-bottom: 1px solid #e5e6eb; }
+.lab-sim-table-wrap td { padding: 5px 10px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; }
+.lab-sim-table-wrap tr:nth-child(even) td { background: #fafbfc; }
+.lab-sim-table-wrap tr:hover td { background: #f5f6f8; }
+.lab-sim-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
+.lab-sim-pager button { padding: 4px 12px; border: 1px solid #d9dce3; border-radius: 4px; background: #fff; font-size: 12px; cursor: pointer; color: #646a73; transition: all 0.15s; }
+.lab-sim-pager button:hover:not(:disabled) { background: #f0f2f5; }
+.lab-sim-pager button:disabled { opacity: 0.4; cursor: not-allowed; }
+.lab-sim-page-info { font-size: 12px; color: #86909c; }
+
+/* H5 适配 */
+@media (max-width: 600px) {
+  .lab-strategy-list { grid-template-columns: 1fr; }
+  .lab-detail-title { font-size: 16px; }
+  .lab-zone-tab { padding: 6px 10px; font-size: 12px; }
+  .lab-sim-controls { flex-direction: column; align-items: stretch; gap: 6px; }
+  .lab-sim-pair-select select { max-width: 100%; }
+  .lab-sim-stats { grid-template-columns: repeat(2, 1fr); }
+  .lab-sim-stat .v { font-size: 16px; }
+  .lab-sim-table-wrap th, .lab-sim-table-wrap td { padding: 4px 6px; font-size: 11px; }
+}
