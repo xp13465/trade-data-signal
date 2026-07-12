@@ -229,6 +229,7 @@
 .lab-matrix-source { font-size: 11px; color: #86909c; margin-bottom: 2px; }
 .lab-matrix-note { font-size: 11px; color: #c9cdd4; }
 .lab-matrix-empty { font-size: 13px; color: #c9cdd4; text-align: center; padding: 20px; }
+.lab-matrix-loading { font-size: 13px; color: #86909c; text-align: center; padding: 20px; }
 
 /* 自白黄块（多段） */
 .lab-warning-essay { padding: 10px 14px; line-height: 1.6; }

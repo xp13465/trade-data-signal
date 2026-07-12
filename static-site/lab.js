@@ -332,7 +332,7 @@ function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
   ], signals, container, chartArr, "布林上轨回落卖", "#9c27b0");
 }
 
-// === 22策略元数据注册表（分区/状态/触发/结论/理论/场景/注意/08报告结论）===
+// === 22策略元数据注册表（分区/状态/触发/结论/理论/场景/注意/回测报告结论）===
 // 文案来源：买卖点策略深度回测.md（重跑于 2026-07-11，244资产全史/近10年/近5年/近3年/近1年 × 5d/10d/20d/60d）
 // zone: buy=候选买点 / sell=候选卖点 / excluded=已排除 / prod=生产参考
 // status: live=已上线生产 / experimental=实验中 / dev=开发中 / excluded=已排除
@@ -345,7 +345,7 @@ const LAB_STRATEGIES = {
     theory: "布林带下轨回归。价格跌破下轨后收回，意味超卖极端已过、反弹拐点出现。与C1同为「超卖反弹」语义，但用价格穿越BB下轨而非RSI阈值，强势市更敏感。",
     scenario: "震荡市/下跌市超卖反弹；强势市中RSI未到30但价格已破下轨时补C1盲区。",
     note: "近1年是唯一达标买点（52.1%/1.23），与C1互补性最强。实验中：已实现图表（收盘价+BB轨+绿色实验买markPoint），未写入signal_daily。",
-    report: "08报告：BB_lower_revert 达标数3/4（近10年/近3年/近1年），与C1并列第1。近3年60d盈亏比1.79、均值+4.7%为买点最高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs RSI阈值），适合做互补买点。",
+    report: "回测报告：BB_lower_revert 达标数3/4（近10年/近3年/近1年），与C1并列第1。近3年60d盈亏比1.79、均值+4.7%为买点最高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs RSI阈值），适合做互补买点。",
   },
   Supertrend_buy: {
     name: "Supertrend翻多买", side: "buy", zone: "buy", status: "experimental",
@@ -354,7 +354,7 @@ const LAB_STRATEGIES = {
     theory: "Supertrend 指标基于 ATR 的动态趋势线。翻多意味趋势已确认启动，与C1的「超卖反弹」正交，捕捉的是趋势延续而非拐点。",
     scenario: "趋势启动确认；与C1互补覆盖不同市场状态。",
     note: "近3年全horizon胜率≥48.8%，盈亏比1.40-1.61。信号较C1稀疏。实验中：已实现图表（收盘价+Supertrend趋势线+绿色实验买markPoint），未写入signal_daily。",
-    report: "08报告：Supertrend_buy 全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是最佳互补候选。近3年10d均值+1.0%，60d均值+3.8%。",
+    report: "回测报告：Supertrend_buy 全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是最佳互补候选。近3年10d均值+1.0%，60d均值+3.8%。",
   },
   Donchian20_up: {
     name: "唐奇安20日突破买", side: "buy", zone: "buy", status: "dev",
@@ -363,7 +363,7 @@ const LAB_STRATEGIES = {
     theory: "唐奇安通道突破。价格创新高意味多头力量突破，经典趋势跟踪系统。",
     scenario: "强趋势市突破入场；震荡市假信号多。",
     note: "近3年10d胜率47.7%低于50%，但近1年51.0%转正。60d盈亏比1.56较高。",
-    report: "08报告：Donchian20_up 全史+近1年达标（2/4），近3年胜率47.7%低于50%。全史样本38731最大之一，但胜率平庸。近3年60d盈亏比1.56、均值+2.3%。",
+    report: "回测报告：Donchian20_up 全史+近1年达标（2/4），近3年胜率47.7%低于50%。全史样本38731最大之一，但胜率平庸。近3年60d盈亏比1.56、均值+2.3%。",
   },
   Donchian55_up: {
     name: "海龟55日突破买", side: "buy", zone: "buy", status: "dev",
@@ -372,7 +372,7 @@ const LAB_STRATEGIES = {
     theory: "海龟交易法 System 2 入场。55日突破捕捉中长期趋势启动，经典趋势跟踪。",
     scenario: "中长期趋势确认入场；短周期信号滞后。",
     note: "近3年胜率47.1%，但近1年51.0%。60d盈亏比1.45。",
-    report: "08报告：Donchian55_up 全史+近1年达标（2/4），近3年胜率47.1%低于50%。全史样本20895，60d均值+3.4%。海龟系统长周期突破信号滞后但盈亏比尚可。",
+    report: "回测报告：Donchian55_up 全史+近1年达标（2/4），近3年胜率47.1%低于50%。全史样本20895，60d均值+3.4%。海龟系统长周期突破信号滞后但盈亏比尚可。",
   },
   MA_golden_5_20: {
     name: "MA5/MA20金叉买", side: "buy", zone: "buy", status: "dev",
@@ -381,7 +381,7 @@ const LAB_STRATEGIES = {
     theory: "双均线金叉。短期均线上穿长期均线意味短期动量转强，经典趋势确认信号。",
     scenario: "趋势确认入场；震荡市频繁假金叉。",
     note: "信号最多（全史30754），但近3年胜率49.8%接近随机。60d盈亏比1.75较高。",
-    report: "08报告：MA_golden_5_20 仅全史达标（1/4），近3年10d胜率49.8%接近随机。信号密集（全史30754个），胜率平庸。近3年60d盈亏比1.75、均值+4.9%是唯一亮点。",
+    report: "回测报告：MA_golden_5_20 仅全史达标（1/4），近3年10d胜率49.8%接近随机。信号密集（全史30754个），胜率平庸。近3年60d盈亏比1.75、均值+4.9%是唯一亮点。",
   },
   MA_golden_10_60: {
     name: "MA10/MA60金叉买", side: "buy", zone: "buy", status: "dev",
@@ -390,7 +390,7 @@ const LAB_STRATEGIES = {
     theory: "中长期双均线金叉。MA10上穿MA60确认中长期趋势转多，但MA60滞后严重。",
     scenario: "中长期趋势确认；信号滞后，入场点偏晚。",
     note: "近3年胜率47.1%低于50%。全史样本11809较少。",
-    report: "08报告：MA_golden_10_60 全史+近1年达标（2/4），近3年胜率47.1%低于50%。MA60滞后严重，信号少且入场偏晚。全史60d均值+2.1%。",
+    report: "回测报告：MA_golden_10_60 全史+近1年达标（2/4），近3年胜率47.1%低于50%。MA60滞后严重，信号少且入场偏晚。全史60d均值+2.1%。",
   },
   MACD_golden: {
     name: "MACD金叉买", side: "buy", zone: "buy", status: "dev",
@@ -399,7 +399,7 @@ const LAB_STRATEGIES = {
     theory: "MACD金叉。DIF上穿DEA意味短期动量强于长期，经典趋势确认。MACD(12,26,9)业界标准参数。",
     scenario: "趋势确认入场；震荡市假金叉多。",
     note: "信号全史最多（38930），但近3年胜率49.1%接近随机。",
-    report: "08报告：MACD_golden 仅全史达标（1/4），近3年10d胜率49.1%接近随机。信号全史最多（38930个），但胜率平庸。近3年60d盈亏比1.76、均值+4.6%。",
+    report: "回测报告：MACD_golden 仅全史达标（1/4），近3年10d胜率49.1%接近随机。信号全史最多（38930个），但胜率平庸。近3年60d盈亏比1.76、均值+4.6%。",
   },
   // --- 候选卖点区（7个） ---
   BB_upper_revert: {
@@ -409,7 +409,7 @@ const LAB_STRATEGIES = {
     theory: "布林带上轨回归。价格从上轨上方回落至下方，意味超买极端已过、短周期止盈拐点。与D1的「20日高回落5%」时间维度互补。",
     scenario: "短周期止盈/减仓提示；与D1（20d最强）双重确认。",
     note: "实验中，已实现图表（close折线+BB轨+紫色实验卖markPoint）。未写入signal_daily。",
-    report: "08报告：BB_upper_revert 近3年5d胜率56.8%/10d胜率54.1%为卖点最高，短周期止盈最强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（卖点结构性问题），但方向胜率top1。",
+    report: "回测报告：BB_upper_revert 近3年5d胜率56.8%/10d胜率54.1%为卖点最高，短周期止盈最强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（卖点结构性问题），但方向胜率top1。",
   },
   MA_death_5_20: {
     name: "MA5/MA20死叉卖", side: "sell", zone: "sell", status: "experimental",
@@ -418,7 +418,7 @@ const LAB_STRATEGIES = {
     theory: "双均线死叉。短期均线下穿长期均线意味短期动量转弱，经典趋势转弱确认。",
     scenario: "趋势转弱减仓；震荡市频繁假死叉。",
     note: "近3年20d胜率54.8%较高，但5d/10d偏弱。PL0.90<1。实验中：已实现图表（收盘价+MA5/MA20+紫色实验卖markPoint），未写入signal_daily。",
-    report: "08报告：MA_death_5_20 近3年20d胜率54.8%为卖点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（卖点结构性问题）。",
+    report: "回测报告：MA_death_5_20 近3年20d胜率54.8%为卖点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（卖点结构性问题）。",
   },
   BB_middle_break: {
     name: "跌破布林中轨卖", side: "sell", zone: "sell", status: "dev",
@@ -427,7 +427,7 @@ const LAB_STRATEGIES = {
     theory: "布林中轨破位。中轨=MA20，跌破意味价格回到均线下方，趋势转弱确认。",
     scenario: "趋势转弱确认减仓；信号密集。",
     note: "近3年10d胜率52.6%，PL0.82偏低。样本最大（10177）。",
-    report: "08报告：BB_middle_break 近3年10d胜率52.6%、PL0.82。样本10177最大。中规中矩，无突出优势。",
+    report: "回测报告：BB_middle_break 近3年10d胜率52.6%、PL0.82。样本10177最大。中规中矩，无突出优势。",
   },
   Donchian10_down: {
     name: "跌破10日最低卖", side: "sell", zone: "sell", status: "dev",
@@ -436,7 +436,7 @@ const LAB_STRATEGIES = {
     theory: "唐奇安通道下破/海龟退出。跌破短期低点意味短期趋势已破，海龟System 2退出信号。",
     scenario: "短期趋势破位退出；信号密集。",
     note: "近3年10d胜率52.4%，PL0.89。样本10731较大。",
-    report: "08报告：Donchian10_down 近3年10d胜率52.4%、PL0.89。胜率刚过50%，无突出优势。样本10731较大。",
+    report: "回测报告：Donchian10_down 近3年10d胜率52.4%、PL0.89。胜率刚过50%，无突出优势。样本10731较大。",
   },
   Donchian20_down: {
     name: "跌破20日最低卖", side: "sell", zone: "sell", status: "dev",
@@ -445,7 +445,7 @@ const LAB_STRATEGIES = {
     theory: "唐奇安通道下破。跌破20日低点意味中期趋势已破，比10日更滞后但更可靠。",
     scenario: "中期趋势破位减仓；信号较稀疏。",
     note: "近3年10d胜率51.8%、PL0.88。全史PL0.94相对高。",
-    report: "08报告：Donchian20_down 近3年10d胜率51.8%、PL0.88。全史PL0.94为卖点相对高，但整体平庸。样本7533。",
+    report: "回测报告：Donchian20_down 近3年10d胜率51.8%、PL0.88。全史PL0.94为卖点相对高，但整体平庸。样本7533。",
   },
   MACD_death: {
     name: "MACD死叉卖", side: "sell", zone: "sell", status: "dev",
@@ -454,7 +454,7 @@ const LAB_STRATEGIES = {
     theory: "MACD死叉。DIF下穿DEA意味短期动量弱于长期，经典趋势转弱确认。MACD(12,26,9)业界标准。",
     scenario: "趋势转弱减仓；震荡市假死叉多。",
     note: "近3年10d胜率51.8%，PL0.83偏低。样本6844较大。",
-    report: "08报告：MACD_death 近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，卖点结构性问题突出。",
+    report: "回测报告：MACD_death 近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，卖点结构性问题突出。",
   },
   ATR_trail_stop: {
     name: "ATR追踪止损卖", side: "sell", zone: "sell", status: "dev",
@@ -463,7 +463,7 @@ const LAB_STRATEGIES = {
     theory: "ATR追踪止损。基于波动率的动态止损线，价格跌破意味趋势已反转。ATR自适应波动率。",
     scenario: "趋势跟踪止损；波动率大时止损线更宽。",
     note: "近3年10d胜率51.1%，PL0.86。全史PL0.96相对高。",
-    report: "08报告：ATR_trail_stop 近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点最高之一。追踪止损型信号，胜率刚过50%。",
+    report: "回测报告：ATR_trail_stop 近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点最高之一。追踪止损型信号，胜率刚过50%。",
   },
   // --- 已排除反面教材区（6个） ---
   BB_upper_break: {
@@ -473,7 +473,7 @@ const LAB_STRATEGIES = {
     theory: "布林上轨突破。价格突破上轨意味强势，但A股追高易被套。",
     scenario: "不推荐使用。",
     note: "已排除。近3年10d胜率45.5%，全史48.8%均<50%。",
-    report: "08报告：BB_upper_break 0/4达标，全史+近3年+近1年胜率均<50%（48.8%/45.5%/48.4%）。追高被套，明确排除。",
+    report: "回测报告：BB_upper_break 0/4达标，全史+近3年+近1年胜率均<50%（48.8%/45.5%/48.4%）。追高被套，明确排除。",
   },
   KDJ_golden_oversold: {
     name: "KDJ超卖金叉买", side: "buy", zone: "excluded", status: "excluded",
@@ -482,7 +482,7 @@ const LAB_STRATEGIES = {
     theory: "KDJ超卖金叉。KDJ在超卖区金叉意味短期反弹，但A股KDJ信号噪声大。",
     scenario: "不推荐使用。",
     note: "已排除。近3年10d胜率45.5%<50%。",
-    report: "08报告：KDJ_golden_oversold 0/4达标，近3年10d胜率45.5%<50%。信号密集（6839）但胜率低，明确排除。",
+    report: "回测报告：KDJ_golden_oversold 0/4达标，近3年10d胜率45.5%<50%。信号密集（6839）但胜率低，明确排除。",
   },
   Vol_breakout: {
     name: "放量突破买", side: "buy", zone: "excluded", status: "excluded",
@@ -491,7 +491,7 @@ const LAB_STRATEGIES = {
     theory: "放量突破。量价齐升意味资金入场，但A股个股放量突破后常回调。",
     scenario: "不推荐使用。在A股个股上反而是反向指标。",
     note: "已排除。近3年10d胜率43.0%，全史44.8%均<50%。",
-    report: "08报告：Vol_breakout 0/4达标，近3年10d胜率43.0%为所有策略最低。放量突破在A股个股上反而是反向指标（追高被套），明确排除。",
+    report: "回测报告：Vol_breakout 0/4达标，近3年10d胜率43.0%为所有策略最低。放量突破在A股个股上反而是反向指标（追高被套），明确排除。",
   },
   B0_RSI70: {
     name: "RSI下穿70卖", side: "sell", zone: "excluded", status: "excluded",
@@ -500,7 +500,7 @@ const LAB_STRATEGIES = {
     theory: "RSI超买结束。RSI从≥70回落意味超买结束，但回测显示方向相反（信号后价格仍涨）。",
     scenario: "不推荐使用。已弃用，改用D1。",
     note: "已排除。全史PL0.84最差，旧基线。已被D1_high20_drop5替代。",
-    report: "08报告：B0_RSI70 0/4达标，全史10d胜率48.7%/PL0.84/均值+0.9%（方向相反，信号后价格仍涨）。是所有卖点中最差的，旧基线已弃，改用D1。",
+    report: "回测报告：B0_RSI70 0/4达标，全史10d胜率48.7%/PL0.84/均值+0.9%（方向相反，信号后价格仍涨）。是所有卖点中最差的，旧基线已弃，改用D1。",
   },
   KDJ_death_overbought: {
     name: "KDJ超买死叉卖", side: "sell", zone: "excluded", status: "excluded",
@@ -509,7 +509,7 @@ const LAB_STRATEGIES = {
     theory: "KDJ超买死叉。KDJ在超买区死叉意味短期转弱，但近年失效。",
     scenario: "不推荐使用。近年失效。",
     note: "已排除。近3年10d胜率47.8%<50%。",
-    report: "08报告：KDJ_death_overbought 0/4达标，近3年10d胜率47.8%<50%。近年失效，明确排除。全史10d胜率45.4%也低。",
+    report: "回测报告：KDJ_death_overbought 0/4达标，近3年10d胜率47.8%<50%。近年失效，明确排除。全史10d胜率45.4%也低。",
   },
   Supertrend_sell: {
     name: "Supertrend翻空卖", side: "sell", zone: "excluded", status: "excluded",
@@ -518,7 +518,7 @@ const LAB_STRATEGIES = {
     theory: "Supertrend翻空。趋势线翻空意味趋势已反转，但近年A股向上漂移致失效。",
     scenario: "不推荐使用。近年失效。",
     note: "已排除。全史PL0.95（接近1），但近3年胜率48.9%<50%失效。",
-    report: "08报告：Supertrend_sell 全史唯一PL≥1（0.95接近1，胜率51.9%），但近3年10d胜率48.9%/PL0.85失效。近年A股向上漂移致趋势跟踪卖点失效，明确排除。",
+    report: "回测报告：Supertrend_sell 全史唯一PL≥1（0.95接近1，胜率51.9%），但近3年10d胜率48.9%/PL0.85失效。近年A股向上漂移致趋势跟踪卖点失效，明确排除。",
   },
   // --- 生产参考区（2个） ---
   C1_RSI30: {
@@ -528,7 +528,7 @@ const LAB_STRATEGIES = {
     theory: "RSI经典超卖回归。RSI≤30表示超卖，升回30之上意味空头力量衰竭、反弹拐点出现。事件化（仅穿越当日标）。",
     scenario: "震荡市/下跌市超卖反弹；通用主买点。per-index可收紧阈值至RSI上穿25（kc50/电力设备/传媒已配）。",
     note: "已上线生产。signal='buy'。近3年全horizon胜率>50%，盈亏比随horizon单调上升。",
-    report: "08报告：C1_RSI30 达标数3/4（全史/近10年/近3年）并列第1。近3年全horizon胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随horizon单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构最稳健，当前主买点，无需改买点。",
+    report: "回测报告：C1_RSI30 达标数3/4（全史/近10年/近3年）并列第1。近3年全horizon胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随horizon单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构最稳健，当前主买点，无需改买点。",
   },
   D1_high20_drop5: {
     name: "20日高回落5%卖", side: "sell", zone: "prod", status: "live",
@@ -537,7 +537,7 @@ const LAB_STRATEGIES = {
     theory: "high-based 回落止盈。从20日最高价回落5%意味趋势转弱，叠加MA60多头过滤+MACD死叉确认。反应型信号（不预测顶部，反应已发生的弱势）。",
     scenario: "趋势转弱/止盈减仓提示；非做空/反向交易指令。胜率≈50%接近随机，不可作独立卖出指令。",
     note: "已上线生产。signal='sell'。卖点本质难预测（PL<1），D1是「最不坏」方案非「好」方案。",
-    report: "08报告：D1_high20_drop5 近3年20d胜率55.9%为卖点最高，样本9873最大（统计最稳）。10d均值-0.1%（方向正确）。盈亏比0.86<1（卖点结构性问题：A股向上漂移），但在所有卖点中PL仍属前列。维持现状合理，是「最不坏」方案。",
+    report: "回测报告：D1_high20_drop5 近3年20d胜率55.9%为卖点最高，样本9873最大（统计最稳）。10d均值-0.1%（方向正确）。盈亏比0.86<1（卖点结构性问题：A股向上漂移），但在所有卖点中PL仍属前列。维持现状合理，是「最不坏」方案。",
   },
 };
 
@@ -580,21 +580,31 @@ function _labGetPair(simData, buyKey, sellKey) {
 // 取某窗口的切片数据：stats(单窗口) + trades(按 tw 切片) + equity_curve(按 ew 切片)
 // 新结构 trades/equity_curve 全史共享一份，tw/ew 存各窗口 [start,end] 切片索引
 // hasFull 标记 full 数据(trades/equity_curve)是否已加载，未加载时仅 stats 可用
-function _labPairWinData(pairData, mode, win) {
+function _labPairWinData(pairData, mode, win, simData) {
   const md = pairData && pairData[mode];
   if (!md) return null;
   const stats = (md.stats && md.stats[win]) || null;
   const tw = md.tw && md.tw[win];
   const ew = md.ew && md.ew[win];
   const trades = (tw && md.trades) ? md.trades.slice(tw[0], tw[1]) : (md.trades || []);
-  const equity_curve = (ew && md.equity_curve) ? md.equity_curve.slice(ew[0], ew[1]) : (md.equity_curve || []);
+  let equity_curve = (ew && md.equity_curve) ? md.equity_curve.slice(ew[0], ew[1]) : (md.equity_curve || []);
+  // 非全历史窗口补窗口起点基准点：采样后曲线首点常晚于窗口起点，
+  // 导致净值曲线只显示窗口尾部。补一个窗口起点 + 前一点值，让曲线覆盖完整窗口。
+  if (win !== "all" && ew && md.equity_curve && ew[0] > 0 && equity_curve.length > 0) {
+    const baseVal = md.equity_curve[ew[0] - 1].value;
+    const winMeta = simData && simData.windows ? simData.windows.find((w) => w.k === win) : null;
+    const baseDate = winMeta ? winMeta.s : md.equity_curve[ew[0] - 1].date;
+    if (equity_curve[0].date !== baseDate) {
+      equity_curve = [{ date: baseDate, value: baseVal }].concat(equity_curve);
+    }
+  }
   const hasFull = !!md.trades || !!md.equity_curve;
   return { stats, trades, equity_curve, hasFull };
 }
 
 // 窗口切换 tabs HTML（默认近1年：全史太密）
 function _labWinTabsHTML() {
-  const cur = state.labSimWindow || "y5";
+  const cur = state.labSimWindow || "y1";
   return '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
     `<button type="button" class="lab-win-tab${w.k === cur ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
   ).join("") + "</div>";
@@ -864,6 +874,21 @@ async function fetchLabData() {
     state.labData = null;
   }
   return state.labData;
+}
+
+// 获取按指数拆分的矩阵数据（lab_backtest_{index}.json）
+// idx="all" 时加载全市场聚合数据（lab_backtest.json），复用 fetchLabData 缓存
+async function fetchLabMatrixData(idx) {
+  idx = idx || "all";
+  if (idx === "all") return fetchLabData();
+  if (!state.labMatrixDataMap) state.labMatrixDataMap = {};
+  if (state.labMatrixDataMap[idx]) return state.labMatrixDataMap[idx];
+  try {
+    state.labMatrixDataMap[idx] = await fetchJSON("./data/lab/lab_backtest_" + idx + ".json");
+  } catch (e) {
+    state.labMatrixDataMap[idx] = null;
+  }
+  return state.labMatrixDataMap[idx];
 }
 
 // 模拟回测可选指数（每个指数一个 JSON 文件，前端按需加载）
@@ -1139,7 +1164,7 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
   const modeDesc = mode === "full_in"
     ? "每次全仓买入卖出，本金复利滚动，收益和风险都放大"
     : "每次固定买入1万元分批建仓，卖信号清仓，风险更分散";
-  const win = state.labSimWindow || "y5";
+  const win = state.labSimWindow || "y1";
 
   // 各 mode 独立的配对选择
   const pairStateKey = mode === "full_in" ? "labSimPairFi" : "labSimPairFk";
@@ -1156,7 +1181,7 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
     const buyKey = side === "buy" ? mainKey : pk;
     const sellKey = side === "buy" ? pk : mainKey;
     const pairData = _labGetPair(simData, buyKey, sellKey);
-    const wd = _labPairWinData(pairData, mode, win);
+    const wd = _labPairWinData(pairData, mode, win, simData);
     const st = wd && wd.stats;
     let lvl = "warn";
     if (st) {
@@ -1187,7 +1212,7 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
   const buyKey = side === "buy" ? mainKey : currentPair;
   const sellKey = side === "buy" ? currentPair : mainKey;
   const pairData = _labGetPair(simData, buyKey, sellKey);
-  const winData = _labPairWinData(pairData, mode, win);
+  const winData = _labPairWinData(pairData, mode, win, simData);
   // 区块标题：策略名 + 当前配对名 + 描述（sticky 吸顶时常驻）
   const headHTML = `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-pair">· 配 ${curPairName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>`;
   // 买卖信号弹窗入口：买策略+卖策略 key
@@ -1205,17 +1230,23 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
     headHTML + pairListHTML + detailBlock + '</div>';
 }
 
-// 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换 · 5窗口切换）
+// 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换 · 5窗口切换 · 指数切换）
 function _labSimCardHTML(key, simData) {
+  const simIdxId = (simData && simData.index_id) || state.labSimIdx || "sh";
+  const idxBtns = LAB_SIM_INDEXES.map((x) =>
+    `<button type="button" class="lab-idx-tab${x.id === simIdxId ? " active" : ""}" data-sidx="${x.id}">${x.name}</button>`
+  ).join("");
+  const idxBarHTML = `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtns}</div></div>`;
   if (!simData || !simData.strategies || !simData.strategies[key] || !simData.pairs) {
     const idxName = (simData && simData.index_name) || "该指数";
-    return `<h3>💰 模拟回测（${idxName} · 配对交易）</h3><div class="lab-sim-empty">${simData ? "该策略暂无模拟回测数据" : "暂无模拟回测数据"}</div>`;
+    return `<h3>💰 模拟回测（${idxName} · 配对交易）</h3>` + idxBarHTML +
+      `<div class="lab-sim-empty">${simData ? "该策略暂无模拟回测数据" : "暂无模拟回测数据"}</div>`;
   }
   const strat = simData.strategies[key];
   const side = strat.side;
   const pairKeys = strat.partners || [];
   if (pairKeys.length === 0) {
-    return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
+    return '<h3>💰 模拟回测（配对交易）</h3>' + idxBarHTML + '<div class="lab-sim-empty">暂无模拟回测数据</div>';
   }
 
   // 默认配对：买策略配 D1 卖，卖策略配 C1 买
@@ -1228,9 +1259,10 @@ function _labSimCardHTML(key, simData) {
   const fkSection = _labSimSectionHTML("fixed_10k", simData, key, side, pairKeys, defaultPair, initCapital, pairSideLabel);
 
   // 窗口切换 tabs（默认近1年）
-  const winLabel = LAB_WIN_DEFS.find((w) => w.k === (state.labSimWindow || "y5"));
+  const winLabel = LAB_WIN_DEFS.find((w) => w.k === (state.labSimWindow || "y1"));
   const idxName = simData.index_name || "";
   return `<h3>💰 模拟回测（${idxName} · 配对交易）</h3>` +
+    idxBarHTML +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}<span class="lab-win-bar-cur">${winLabel ? winLabel.l : ""}</span></div>` +
     fiSection + fkSection;
 }
@@ -1310,7 +1342,7 @@ function renderLabMatrix(strategyData) {
   LAB_WINDOWS.forEach((w) => {
     const wp = periods[w];
     // 高亮当前选中窗口行（窗口切换按钮联动矩阵）
-    const curWin = LAB_WIN_CN[state.labSimWindow || "y5"];
+    const curWin = LAB_WIN_CN[state.labSimWindow || "y1"];
     const rowHi = w === curWin ? " lab-matrix-row-active" : "";
     html += `<tr class="${rowHi.trim()}"><td class="lab-matrix-rowhead">${w}</td>`;
     LAB_HORIZONS.forEach((h) => {
@@ -1350,11 +1382,37 @@ function renderLabMatrix(strategyData) {
 
 // 窗口切换后同步矩阵当前行高亮（DOM 直接 toggle，无需重渲染矩阵）
 function _labUpdateMatrixRowHighlight() {
-  const curWin = LAB_WIN_CN[state.labSimWindow || "y5"];
+  const curWin = LAB_WIN_CN[state.labSimWindow || "y1"];
   document.querySelectorAll(".lab-matrix-table tbody tr").forEach((tr) => {
     const head = tr.querySelector(".lab-matrix-rowhead");
     tr.classList.toggle("lab-matrix-row-active", !!(head && head.textContent === curWin));
   });
+}
+
+// 实验图表窗口切片：按年数截取 ohlc/指标/信号（指标在全历史算好后切片，避免预热失真）
+// winKey: all/y10/y5/y3/y1。返回 {ohlc, indicators, signals}
+function _labChartSlice(ohlcFull, indicators, signals, winKey) {
+  if (winKey === "all" || !ohlcFull || !ohlcFull.length) {
+    return { ohlc: ohlcFull, indicators, signals };
+  }
+  const yrMap = { y10: 10, y5: 5, y3: 3, y1: 1 };
+  const yrs = yrMap[winKey];
+  if (!yrs) return { ohlc: ohlcFull, indicators, signals };
+  const last = ohlcFull[ohlcFull.length - 1].date;
+  if (!last || last.length < 8) return { ohlc: ohlcFull, indicators, signals };
+  const y = parseInt(last.substring(0, 4), 10);
+  const m = parseInt(last.substring(4, 6), 10);
+  const d = parseInt(last.substring(6, 8), 10);
+  let cy = y - yrs, cm = m, cd = d;
+  if (cm === 2 && cd === 29) cd = 28;
+  const cutoff = `${cy}${String(cm).padStart(2, "0")}${String(cd).padStart(2, "0")}`;
+  const startIdx = ohlcFull.findIndex((x) => x.date >= cutoff);
+  const s = startIdx < 0 ? ohlcFull.length : startIdx;
+  return {
+    ohlc: ohlcFull.slice(s),
+    indicators: indicators.map((it) => ({ ...it, data: it.data.slice(s) })),
+    signals: signals.filter((x) => x.date >= cutoff),
+  };
 }
 
 // 实验室自白黄块 HTML（列表页 + 详情页共用）
@@ -1375,7 +1433,6 @@ async function renderLabDetail(key) {
   if (!meta) { state.labStrategy = null; renderSignalLab(); return; }
 
   const data = await fetchLabData();
-  const stratData = data && data.strategies ? data.strategies[key] : null;
   const tag = LAB_STATUS_TAGS[meta.status] || LAB_STATUS_TAGS.dev;
 
   content.innerHTML = "";
@@ -1411,7 +1468,7 @@ async function renderLabDetail(key) {
     `<p><b>理论依据：</b>${meta.theory}</p>` +
     `<p><b>适用场景：</b>${meta.scenario}</p>` +
     `<p><b>注意事项：</b>${meta.note}</p>` +
-    `<p><b>08回测结论：</b>${meta.report}</p>` +
+    `<p><b>回测结论：</b>${meta.report}</p>` +
     '</div>';
   content.appendChild(docCard);
 
@@ -1422,6 +1479,16 @@ async function renderLabDetail(key) {
 
   // 图表区：实验中策略显示指标曲线+信号标注，开发中策略显示占位
   if (LAB_CHART_KEYS[key]) {
+    // 窗口切换条（独立于模拟回测窗口，默认全历史）
+    if (!state.labChartWin) state.labChartWin = "all";
+    const winBar = document.createElement("div");
+    winBar.className = "lab-win-bar";
+    winBar.innerHTML = '<span class="lab-win-bar-label">时间窗口</span>' +
+      '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
+        `<button type="button" class="lab-win-tab${w.k === state.labChartWin ? " active" : ""}" data-cwin="${w.k}">${w.l}</button>`
+      ).join("") + "</div>";
+    chartSection.appendChild(winBar);
+
     // 指数选择器（实验策略共用）
     const filterBar = document.createElement("div");
     filterBar.className = "filter-bar";
@@ -1457,18 +1524,38 @@ async function renderLabDetail(key) {
 
     try {
       const r = await fetchJSON(`./data/index/${state.labIndex}-all.json`);
-      const ohlc = r.ohlc;
-      if (!ohlc || !ohlc.length) {
+      const ohlcFull = r.ohlc;
+      if (!ohlcFull || !ohlcFull.length) {
         chartDiv.innerHTML = '<div class="empty-note">该指数暂无数据</div>';
       } else {
         const name = _INDEX_NAME_MAP[state.labIndex] || state.labIndex;
-        const cfg = _labBuildChartConfig(key, ohlc, name);
-        chartDiv.innerHTML = "";
-        renderLabChartEx(cfg.chartTitle, ohlc, cfg.indicators, cfg.signals, chartDiv, charts, cfg.signalLabel, cfg.signalColor);
-        const statDiv = document.createElement("div");
-        statDiv.className = "lab-signal-stat";
-        statDiv.innerHTML = `共触发 <b>${cfg.signals.length}</b> 个${cfg.statLabel}（全历史）`;
-        chartDiv.appendChild(statDiv);
+        // 指标/信号在全历史上算好后切片（避免窗口边界预热失真）
+        const cfg = _labBuildChartConfig(key, ohlcFull, name);
+        const localChart = { inst: null };
+        const renderChart = () => {
+          if (localChart.inst) {
+            try { localChart.inst.dispose(); } catch (e) {}
+            const i = charts.indexOf(localChart.inst);
+            if (i >= 0) charts.splice(i, 1);
+          }
+          const sliced = _labChartSlice(ohlcFull, cfg.indicators, cfg.signals, state.labChartWin);
+          chartDiv.innerHTML = "";
+          localChart.inst = renderLabChartEx(cfg.chartTitle, sliced.ohlc, sliced.indicators, sliced.signals, chartDiv, charts, cfg.signalLabel, cfg.signalColor);
+          const winLabel = (LAB_WIN_DEFS.find((w) => w.k === state.labChartWin) || {}).l || "全历史";
+          const statDiv = document.createElement("div");
+          statDiv.className = "lab-signal-stat";
+          statDiv.innerHTML = `共触发 <b>${sliced.signals.length}</b> 个${cfg.statLabel}（${winLabel}）`;
+          chartDiv.appendChild(statDiv);
+        };
+        renderChart();
+        // 窗口切换：局部刷新图表，不整页 reload
+        winBar.querySelectorAll(".lab-win-tab").forEach((btn) => {
+          btn.onclick = () => {
+            state.labChartWin = btn.dataset.cwin;
+            winBar.querySelectorAll(".lab-win-tab").forEach((b) => b.classList.toggle("active", b === btn));
+            renderChart();
+          };
+        });
       }
     } catch (e) {
       chartDiv.innerHTML = `<div class="loading">加载失败：${e}</div>`;
@@ -1483,28 +1570,58 @@ async function renderLabDetail(key) {
       '</div>';
   }
 
-  // 回测区：多周期矩阵
+  // 回测区：多周期矩阵（指数切换：全市场聚合 + 8个A股宽基指数独立回测）
   const matrixCard = document.createElement("div");
   matrixCard.className = "chart-card lab-matrix-card";
-  const genAt = data ? data.generated_at : "";
+  if (!state.labMatrixIdx) state.labMatrixIdx = "all";
+  const _matrixIdxName = (id) => id === "all" ? "全市场" :
+    (LAB_SIM_INDEXES.find((x) => x.id === id) || {}).name || id;
+  const matrixIdxBtns = '<button type="button" class="lab-idx-tab' + (state.labMatrixIdx === "all" ? " active" : "") + '" data-midx="all">全市场</button>' +
+    LAB_SIM_INDEXES.map((x) =>
+      '<button type="button" class="lab-idx-tab' + (state.labMatrixIdx === x.id ? " active" : "") + '" data-midx="' + x.id + '">' + x.name + '</button>'
+    ).join("");
   matrixCard.innerHTML =
     '<h3>📊 多周期回测矩阵</h3>' +
+    '<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">' + matrixIdxBtns + '</div><span class="lab-win-bar-cur">' + _matrixIdxName(state.labMatrixIdx) + '</span></div>' +
     '<div class="lab-matrix-legend"><b>怎么看这张表：</b>' +
     '<span><b>胜率</b>=信号后上涨(买)/下跌(卖)概率</span>' +
     '<span><b>平均收益</b>=每次操作平均赚多少(含亏的)</span>' +
     '<span><b>盈亏比</b>=平均赚÷平均亏，&gt;1才划算</span>' +
     '<span><b>样本</b>=测试了多少次信号</span></div>' +
     '<div class="lab-matrix-tip">⚠ 以上为单次操作平均收益，非连续复利；信号触发不定期，不可直接相乘。</div>' +
-    '<div class="lab-matrix-wrap">' + renderLabMatrix(stratData) + '</div>' +
+    '<div class="lab-matrix-wrap"><div class="lab-matrix-loading">加载中…</div></div>' +
     '<div class="lab-matrix-foot">' +
-    '<div class="lab-matrix-source">数据来源：买卖点策略深度回测（基于历史数据验证，重跑于 ' + (genAt || '2026-07-11') + '）</div>' +
+    '<div class="lab-matrix-source">数据来源：买卖点策略深度回测（基于历史数据验证）</div>' +
     '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价买入，持有 N 个交易日后按收盘价卖出，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>买点胜率</b>=信号后上涨占比；<b>卖点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见下方模拟回测。</div>' +
     '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">红=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">绿=差</span></div>' +
     '</div>';
   content.appendChild(matrixCard);
+  // 异步加载矩阵数据并渲染（指数切换时局部刷新）
+  const matrixWrap = matrixCard.querySelector(".lab-matrix-wrap");
+  const renderMatrix = async () => {
+    const mIdx = state.labMatrixIdx || "all";
+    const mData = await fetchLabMatrixData(mIdx);
+    const mStratData = mData && mData.strategies ? mData.strategies[key] : null;
+    const mGenAt = mData ? mData.generated_at : "";
+    matrixWrap.innerHTML = renderLabMatrix(mStratData);
+    const srcEl = matrixCard.querySelector(".lab-matrix-source");
+    if (srcEl) srcEl.textContent = '数据来源：买卖点策略深度回测（' + _matrixIdxName(mIdx) + '，基于历史数据验证，重跑于 ' + (mGenAt || '2026-07-11') + '）';
+    _labUpdateMatrixRowHighlight();
+  };
+  renderMatrix();
+  matrixCard.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = async () => {
+      state.labMatrixIdx = btn.dataset.midx;
+      matrixCard.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      const curEl = matrixCard.querySelector(".lab-win-bar-cur");
+      if (curEl) curEl.textContent = _matrixIdxName(state.labMatrixIdx);
+      matrixWrap.innerHTML = '<div class="lab-matrix-loading">加载中…</div>';
+      await renderMatrix();
+    };
+  });
 
-  // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页）
-  // lab_simulate_{index}.json 按指数拆分，前端按 state.labIndex 按需加载
+  // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页 + 指数切换）
+  // lab_simulate_{index}.json 按指数拆分，前端按 state.labSimIdx 按需加载
   // 局部刷新：切指数只重渲染 simCard，不整页 reload（保留 tab/配对/模式/窗口上下文）
   state.labSimPairFi = null;
   state.labSimPairFk = null;
@@ -1512,33 +1629,46 @@ async function renderLabDetail(key) {
   state.labSimPageFk = 0;
   state.labSimFiOpen = false;
   state.labSimFkOpen = false;
+  if (!state.labSimIdx) state.labSimIdx = state.labIndex || "sh";
   const simCard = document.createElement("div");
   simCard.className = "chart-card lab-sim-card";
-  const simIdxName = _INDEX_NAME_MAP[state.labIndex] || state.labIndex || "上证指数";
-  simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…</div>`;
   content.appendChild(simCard);
-  // 检查该指数是否有模拟回测数据（仅4个指数有）
-  const simIdx = LAB_SIM_INDEXES.find((x) => x.id === (state.labIndex || "sh"));
-  if (!simIdx) {
-    simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">该指数暂无模拟回测数据（仅支持A股宽基指数）</div>`;
-  } else {
-    const simData = await fetchLabSimData(simIdx.id);
+
+  const renderSimCard = async () => {
+    const simIdxId = state.labSimIdx || "sh";
+    const simIdxName = (LAB_SIM_INDEXES.find((x) => x.id === simIdxId) || {}).name || simIdxId;
+    simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…</div>`;
+    const simData = await fetchLabSimData(simIdxId);
+    if (!simData) {
+      simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">模拟回测数据加载失败，请稍后重试</div>`;
+      return;
+    }
     const _rerenderSim = () => {
-      if (!simData) {
-        simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">模拟回测数据加载失败，请稍后重试</div>`;
-        return;
-      }
       simCard.innerHTML = _labSimCardHTML(key, simData);
       _labSimAttachHandlers(key, simData, simCard, _rerenderSim);
+      // 指数切换：重置配对/分页状态后重新加载该指数数据
+      simCard.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+        btn.onclick = () => {
+          state.labSimIdx = btn.dataset.sidx;
+          state.labSimPairFi = null;
+          state.labSimPairFk = null;
+          state.labSimPageFi = 0;
+          state.labSimPageFk = 0;
+          state.labSimFiOpen = false;
+          state.labSimFkOpen = false;
+          renderSimCard();
+        };
+      });
       // 窗口切换后同步矩阵行高亮（矩阵与 sim 卡片在同一详情页）
       _labUpdateMatrixRowHighlight();
     };
     _rerenderSim();
     // 分阶段加载：stats 已渲染（配对卡片秒开），异步加载 full 数据后重渲染详情(trades/equity_curve)
-    if (simData && !_labSimFullLoaded(simIdx.id)) {
-      fetchLabSimFullData(simIdx.id).then(() => _rerenderSim()).catch(() => {});
+    if (!_labSimFullLoaded(simIdxId)) {
+      fetchLabSimFullData(simIdxId).then(() => _rerenderSim()).catch(() => {});
     }
-  }
+  };
+  await renderSimCard();
   // F5 恢复：更新 hash + 恢复滚动位置
   _labSetHash("#lab/" + key);
   _labRestoreScroll();
@@ -1565,7 +1695,7 @@ function _labRankAggregate(simData, win) {
     const bk = parts[0], sk = parts[1];
     const pairData = simData.pairs[pairKey];
     for (const mode of ["full_in", "fixed_10k"]) {
-      const wd = _labPairWinData(pairData, mode, win);
+      const wd = _labPairWinData(pairData, mode, win, simData);
       if (!wd || !wd.stats) continue;
       const s = wd.stats;
       rows.push({
@@ -1633,7 +1763,7 @@ function _labRankItemHTML(row, rank, tab) {
 
 function _labRankHTML(simData) {
   if (!simData) return '<div class="lab-rank-empty">推荐榜数据加载失败，请稍后重试</div>';
-  const win = state.labSimWindow || "y5";
+  const win = state.labSimWindow || "y1";
   const rows = _labRankAggregate(simData, win);
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无推荐榜数据</div>';
   state.labRankRows = rows;
@@ -1736,9 +1866,9 @@ function _labRankCloseModal() {
 function _labRankModalRender(overlay, simData) {
   const m = state.labRankModal;
   if (!m) return;
-  const win = state.labSimWindow || "y5";
+  const win = state.labSimWindow || "y1";
   const pairData = _labGetPair(simData, m.buyKey, m.sellKey);
-  const winData = _labPairWinData(pairData, m.mode, win);
+  const winData = _labPairWinData(pairData, m.mode, win, simData);
   const buyName = (LAB_STRATEGIES[m.buyKey] || {}).name || m.buyKey;
   const sellName = (LAB_STRATEGIES[m.sellKey] || {}).name || m.sellKey;
   const modeName = m.mode === "full_in" ? "全仓" : "定额";
