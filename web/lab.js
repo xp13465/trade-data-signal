@@ -370,16 +370,12 @@ function _labLvl(val, thresholds) {
   return "warn";
 }
 
-// 渲染单个交易模式区块（全仓进出 / 1万定额）
+// 渲染单个交易模式区块详情（4数字 + 净值曲线 + 折叠交易记录）
+// 区块标题由外层 _labSimSectionHTML 的 .lab-sim-strat-head 提供，此处不含 head
 function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
-  const modeName = mode === "full_in" ? "全仓进出" : "1万定额";
-  const modeDesc = mode === "full_in"
-    ? "本金复利滚动 · 全仓买卖"
-    : "每次买1万(最多10笔) · 卖信号清仓";
   const s = modeData && modeData.stats;
   if (!s) {
     return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
-      `<div class="lab-sim-mode-head"><span class="lab-sim-mode-name">${modeName}</span><span class="lab-sim-mode-desc">${modeDesc}</span></div>` +
       `<div class="lab-sim-empty">该模式无交易数据</div></div>`;
   }
 
@@ -431,7 +427,6 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
     : "";
 
   return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
-    `<div class="lab-sim-mode-head"><span class="lab-sim-mode-name">${modeName}</span><span class="lab-sim-mode-desc">${modeDesc}</span></div>` +
     `<div class="lab-sim-stats">` +
     `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
     `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">${s.years} 年</span></div>` +
@@ -449,58 +444,46 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
     `</div>`;
 }
 
-// 渲染模拟回测卡片（配对交易 + 双交易策略并列对比 + 折叠交易记录）
-function _labSimCardHTML(key, simData) {
-  if (!simData || !simData.strategies || !simData.strategies[key] || !simData.strategies[key].pairs) {
-    return '<h3>💰 模拟回测（配对交易 · 全仓 vs 定额并列对比）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
-  }
-  const strat = simData.strategies[key];
-  const side = strat.side;
-  const pairs = strat.pairs;
-  const pairKeys = Object.keys(pairs);
-  if (pairKeys.length === 0) {
-    return '<h3>💰 模拟回测（配对交易 · 全仓 vs 定额并列对比）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
-  }
+// 渲染单个策略区块（标题+描述 -> 配对卡片切换 -> 详情）
+// 上下两区各自独立：配对卡片切换、4数字、净值曲线、折叠交易记录都各自一套
+function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pairSideLabel) {
+  const modeName = mode === "full_in" ? "全仓交易策略" : "定额交易策略";
+  const modeDesc = mode === "full_in"
+    ? "每次全仓买入卖出，本金复利滚动，收益和风险都放大"
+    : "每次固定买入1万元分批建仓，卖信号清仓，风险更分散";
 
-  // 默认配对：买策略配 D1 卖，卖策略配 C1 买
-  const defaultPair = side === "buy" ? "D1_high20_drop5" : "C1_RSI30";
-  let currentPair = state.labSimPair || defaultPair;
+  // 各 mode 独立的配对选择
+  const pairStateKey = mode === "full_in" ? "labSimPairFi" : "labSimPairFk";
+  let currentPair = state[pairStateKey] || defaultPair;
   if (!pairs[currentPair]) currentPair = pairKeys[0];
-  state.labSimPair = currentPair;
+  state[pairStateKey] = currentPair;
 
-  const pairSideLabel = side === "buy" ? "卖点" : "买点";
-  const initCapital = simData.initial_capital || 100000;
-
-  // 配对策略卡片列表（双模式摘要：全仓 ret/胜率 + 定额 ret/胜率）
+  // 配对策略卡片列表（仅显示本 mode 的 ret/胜率/样本）
   const pairCards = pairKeys.map((pk) => {
     const meta = LAB_STRATEGIES[pk];
     const name = meta ? meta.name : pk;
     const pd = pairs[pk];
-    const fiSt = pd && pd.full_in && pd.full_in.stats;
-    const fkSt = pd && pd.fixed_10k && pd.fixed_10k.stats;
-    // 卡片整体分级基于 full_in
+    const md = pd && pd[mode];
+    const st = md && md.stats;
     let lvl = "warn";
-    if (fiSt) {
-      const retLv = _labLvl(fiSt.total_ret, { good: 5, bad: -5 });
-      const winLv = _labLvl(fiSt.win_rate, { good: 55, bad: 45 });
+    if (st) {
+      const retLv = _labLvl(st.total_ret, { good: 5, bad: -5 });
+      const winLv = _labLvl(st.win_rate, { good: 55, bad: 45 });
       const goods = [retLv, winLv].filter((x) => x === "good").length;
       const bads = [retLv, winLv].filter((x) => x === "bad").length;
       lvl = goods >= 2 ? "good" : bads >= 2 ? "bad" : "warn";
     }
     const activeCls = pk === currentPair ? " active" : "";
-    const fiRow = fiSt
-      ? `<span class="pc-mode-row"><span class="pc-mode-tag">全仓</span>` +
-        `<span class="pc-ret pc-lvl-${_labLvl(fiSt.total_ret, { good: 5, bad: -5 })}">${fiSt.total_ret > 0 ? "+" : ""}${fiSt.total_ret}%</span>` +
-        `<span class="pc-win pc-lvl-${_labLvl(fiSt.win_rate, { good: 55, bad: 45 })}">胜${fiSt.win_rate}%</span></span>`
-      : "";
-    const fkRow = fkSt
-      ? `<span class="pc-mode-row"><span class="pc-mode-tag">定额</span>` +
-        `<span class="pc-ret-sm pc-lvl-${_labLvl(fkSt.total_ret, { good: 5, bad: -5 })}">${fkSt.total_ret > 0 ? "+" : ""}${fkSt.total_ret}%</span>` +
-        `<span class="pc-win-sm pc-lvl-${_labLvl(fkSt.win_rate, { good: 55, bad: 45 })}">胜${fkSt.win_rate}%</span></span>`
-      : "";
-    const nStr = fiSt ? `<span class="pc-n">样本 n=${fiSt.n_trades}</span>` : "";
-    return `<button type="button" class="lab-sim-pair-card lab-matrix-${lvl}${activeCls}" data-pair="${pk}">` +
-      `<span class="pc-name" title="${name}">${name}</span>${fiRow}${fkRow}${nStr}</button>`;
+    const retStr = st ? `${st.total_ret > 0 ? "+" : ""}${st.total_ret}%` : "-";
+    const retCls = st ? `pc-lvl-${_labLvl(st.total_ret, { good: 5, bad: -5 })}` : "";
+    const winStr = st ? `胜${st.win_rate}%` : "";
+    const winCls = st ? `pc-lvl-${_labLvl(st.win_rate, { good: 55, bad: 45 })}` : "";
+    const nStr = st ? `n=${st.n_trades}` : "";
+    return `<button type="button" class="lab-sim-pair-card lab-matrix-${lvl}${activeCls}" data-pair="${pk}" data-mode="${mode}">` +
+      `<span class="pc-name" title="${name}">${name}</span>` +
+      (st ? `<span class="pc-ret ${retCls}">${retStr}</span>` +
+       `<span class="pc-meta"><span class="pc-win ${winCls}">${winStr}</span><span class="pc-n">${nStr}</span></span>` : "") +
+      `</button>`;
   }).join("");
 
   const pairListHTML =
@@ -508,32 +491,60 @@ function _labSimCardHTML(key, simData) {
     `<div class="lab-sim-pair-list">${pairCards}</div></div>`;
 
   const pairData = pairs[currentPair];
-  if (!pairData || !pairData.full_in || !pairData.full_in.stats) {
-    return '<h3>💰 模拟回测（配对交易 · 全仓 vs 定额并列对比）</h3>' +
-      pairListHTML + '<div class="lab-sim-empty">该配对无交易数据</div>';
+  const modeData = pairData && pairData[mode];
+  if (!modeData || !modeData.stats) {
+    return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
+      `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>` +
+      pairListHTML + '<div class="lab-sim-empty">该模式无交易数据</div></div>';
   }
 
-  const pageFi = state.labSimPageFi || 0;
-  const pageFk = state.labSimPageFk || 0;
-  const fiOpen = !!state.labSimFiOpen;
-  const fkOpen = !!state.labSimFkOpen;
+  const page = mode === "full_in" ? (state.labSimPageFi || 0) : (state.labSimPageFk || 0);
+  const isOpen = mode === "full_in" ? !!state.labSimFiOpen : !!state.labSimFkOpen;
+  const detailBlock = _labSimModeBlock(mode, modeData, initCapital, page, isOpen);
 
-  const fiBlock = _labSimModeBlock("full_in", pairData.full_in, initCapital, pageFi, fiOpen);
-  const fkBlock = _labSimModeBlock("fixed_10k", pairData.fixed_10k, initCapital, pageFk, fkOpen);
-
-  return '<h3>💰 模拟回测（配对交易 · 全仓 vs 定额并列对比）</h3>' +
-    pairListHTML +
-    `<div class="lab-sim-dual">${fiBlock}${fkBlock}</div>`;
+  return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
+    `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>` +
+    pairListHTML + detailBlock + '</div>';
 }
 
-// 模拟回测卡片交互绑定（配对切换 / 交易记录折叠 / 分页）
+// 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换）
+function _labSimCardHTML(key, simData) {
+  if (!simData || !simData.strategies || !simData.strategies[key] || !simData.strategies[key].pairs) {
+    return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
+  }
+  const strat = simData.strategies[key];
+  const side = strat.side;
+  const pairs = strat.pairs;
+  const pairKeys = Object.keys(pairs);
+  if (pairKeys.length === 0) {
+    return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
+  }
+
+  // 默认配对：买策略配 D1 卖，卖策略配 C1 买
+  const defaultPair = side === "buy" ? "D1_high20_drop5" : "C1_RSI30";
+  const initCapital = simData.initial_capital || 100000;
+  const pairSideLabel = side === "buy" ? "卖点" : "买点";
+
+  // 上区：全仓交易策略 / 下区：定额交易策略（各自独立配对切换+详情）
+  const fiSection = _labSimSectionHTML("full_in", pairs, pairKeys, defaultPair, initCapital, pairSideLabel);
+  const fkSection = _labSimSectionHTML("fixed_10k", pairs, pairKeys, defaultPair, initCapital, pairSideLabel);
+
+  return '<h3>💰 模拟回测（配对交易）</h3>' + fiSection + fkSection;
+}
+
+// 模拟回测卡片交互绑定（per-mode 配对切换 / 交易记录折叠 / 分页）
 function _labSimAttachHandlers(key, simData, simCard, rerender) {
-  // 配对策略卡片切换
+  // 配对策略卡片切换（各 mode 独立）
   simCard.querySelectorAll(".lab-sim-pair-card").forEach((card) => {
     card.onclick = () => {
-      state.labSimPair = card.dataset.pair;
-      state.labSimPageFi = 0;
-      state.labSimPageFk = 0;
+      const mode = card.dataset.mode;
+      if (mode === "full_in") {
+        state.labSimPairFi = card.dataset.pair;
+        state.labSimPageFi = 0;
+      } else {
+        state.labSimPairFk = card.dataset.pair;
+        state.labSimPageFk = 0;
+      }
       rerender();
     };
   });
@@ -764,7 +775,8 @@ async function renderLabDetail(key) {
 
   // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页）
   // lab_simulate.json 较大（~3MB），先渲染 loading 占位，异步加载就绪后填充，不阻塞上方骨架
-  state.labSimPair = null;
+  state.labSimPairFi = null;
+  state.labSimPairFk = null;
   state.labSimPageFi = 0;
   state.labSimPageFk = 0;
   state.labSimFiOpen = false;
@@ -783,6 +795,9 @@ async function renderLabDetail(key) {
     _labSimAttachHandlers(key, simData, simCard, _rerenderSim);
   };
   _rerenderSim();
+  // F5 恢复：更新 hash + 恢复滚动位置
+  _labSetHash("#lab/" + key);
+  _labRestoreScroll();
 }
 
 // 渲染策略实验室主入口（分区tab + 卡片列表 / 详情页）
@@ -858,4 +873,63 @@ async function renderSignalLab() {
     list.appendChild(card);
   });
   content.appendChild(list);
+  // F5 恢复：更新 hash + 恢复滚动位置
+  _labSetHash("#lab");
+  _labRestoreScroll();
 }
+
+// === F5 刷新恢复：URL hash 记 tab+策略，sessionStorage 记滚动位置 ===
+// 不改 app.js 的 tab 逻辑，通过 lab.js 自身初始化钩子实现恢复
+let _labInitialRestore = false; // 仅首次加载时恢复滚动
+
+// 更新 URL hash（replaceState 不触发 hashchange）
+function _labSetHash(hash) {
+  if (location.hash === hash) return;
+  try { history.replaceState(null, "", location.pathname + location.search + hash); } catch (e) {}
+}
+
+// 恢复滚动位置（仅首次加载时执行一次）
+function _labRestoreScroll() {
+  if (!_labInitialRestore) return;
+  _labInitialRestore = false;
+  try {
+    const y = parseInt(sessionStorage.getItem("labScrollY") || "0", 10);
+    if (y > 0) requestAnimationFrame(() => window.scrollTo(0, y));
+  } catch (e) {}
+}
+
+// 滚动位置持续保存到 sessionStorage（debounced）
+let _labScrollTimer = null;
+window.addEventListener("scroll", () => {
+  if (state.tab !== "lab") return;
+  if (_labScrollTimer) clearTimeout(_labScrollTimer);
+  _labScrollTimer = setTimeout(() => {
+    try { sessionStorage.setItem("labScrollY", String(window.scrollY)); } catch (e) {}
+  }, 200);
+}, { passive: true });
+
+// 离开 lab tab 时清除 hash（避免从其他 tab F5 又跳回 lab）
+document.querySelectorAll("button[data-tab]").forEach((b) => {
+  if (b.dataset.tab !== "lab") {
+    b.addEventListener("click", () => {
+      if (location.hash.startsWith("#lab")) _labSetHash("");
+    });
+  }
+});
+
+// 初始加载：读 hash 恢复 tab + 策略（lab.js 在 app.js 之后加载，renderTab 已启动）
+(function _labInitHashRestore() {
+  const h = location.hash;
+  if (!h || !h.startsWith("#lab")) return;
+  _labInitialRestore = true;
+  state.tab = "lab";
+  const parts = h.slice(1).split("/"); // "lab/key" -> ["lab", "key"]
+  if (parts[1] && LAB_STRATEGIES[parts[1]]) {
+    state.labStrategy = parts[1];
+  }
+  // 激活 lab tab 按钮 -> 触发 renderTab -> renderSignalLab/renderLabDetail
+  setTimeout(() => {
+    const labBtn = document.querySelector('button[data-tab="lab"]');
+    if (labBtn) labBtn.click();
+  }, 0);
+})();
