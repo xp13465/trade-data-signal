@@ -42,6 +42,7 @@ INITIAL_CAPITAL = 100_000
 POSITION_SIZE = 10_000
 MAX_POSITIONS = 10
 MAX_CURVE_POINTS = 200  # 净值曲线最多保留点数
+MAX_TRADES_STORED = 50  # 每组交易记录最多存储笔数（前端分页每页20条，50笔够2-3页；stats.n_trades 保留完整笔数）
 
 # 8个买策略（候选7 + 生产1）
 BUY_KEYS = [
@@ -187,7 +188,7 @@ def simulate_full_in(df, buy_mask, sell_mask):
     return {
         'stats': stats,
         'equity_curve': sample_curve(equity_curve),
-        'trades': trades,
+        'trades': trades[:MAX_TRADES_STORED],
     }
 
 
@@ -245,7 +246,7 @@ def simulate_fixed_10k(df, buy_mask, sell_mask):
     return {
         'stats': stats,
         'equity_curve': sample_curve(equity_curve),
-        'trades': trades,
+        'trades': trades[:MAX_TRADES_STORED],
     }
 
 
@@ -319,8 +320,9 @@ def main():
     ]
     for p in out_paths:
         os.makedirs(os.path.dirname(p), exist_ok=True)
+        # 紧凑序列化（无缩进 + 最短分隔符），体积约为 indent=2 的 45%
         with open(p, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
+            json.dump(result, f, ensure_ascii=False, separators=(',', ':'))
         size_kb = os.path.getsize(p) / 1024
         print(f"[output] {p} ({size_kb:.1f} KB)")
 

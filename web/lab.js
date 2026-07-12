@@ -425,7 +425,7 @@ function _labSimCardHTML(key, simData) {
   const svgHTML = _labSimSVG(modeData.equity_curve, initCapital);
   const trades = modeData.trades || [];
 
-  // 分页
+  // 分页（trades 已在后端截断到前50笔；stats.n_trades 为真实完整笔数）
   const perPage = 20;
   const totalPages = Math.max(1, Math.ceil(trades.length / perPage));
   if (currentPage >= totalPages) currentPage = totalPages - 1;
@@ -433,6 +433,9 @@ function _labSimCardHTML(key, simData) {
   state.labSimPage = currentPage;
   const startIdx = currentPage * perPage;
   const showTrades = trades.slice(startIdx, startIdx + perPage);
+  const totalReal = s.n_trades;                 // 真实完整笔数
+  const truncated = totalReal > trades.length;   // 后端是否截断了交易记录
+  const truncNote = truncated ? `（仅展示前${trades.length}笔）` : "";
   const tradeRows = showTrades.map((t, i) => {
     const tc = t.ret > 0 ? "#c92a2a" : (t.ret < 0 ? "#2e7d32" : "#86909c");
     return `<tr><td>${startIdx + i + 1}</td><td>${t.buy_date}</td><td>${t.buy_price}</td><td>${t.sell_date}</td><td>${t.sell_price}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hold_days} 天</td></tr>`;
@@ -441,11 +444,11 @@ function _labSimCardHTML(key, simData) {
   const pagerHTML = totalPages > 1
     ? `<div class="lab-sim-pager">` +
       `<button class="lab-sim-prev"${currentPage === 0 ? " disabled" : ""}>上一页</button>` +
-      `<span class="lab-sim-page-info">第 ${currentPage + 1}/${totalPages} 页（共 ${trades.length} 笔）</span>` +
+      `<span class="lab-sim-page-info">第 ${currentPage + 1}/${totalPages} 页（共 ${totalReal} 笔${truncNote}）</span>` +
       `<button class="lab-sim-next"${currentPage >= totalPages - 1 ? " disabled" : ""}>下一页</button>` +
       `</div>`
     : trades.length > 0
-      ? `<div class="lab-sim-pager"><span class="lab-sim-page-info">共 ${trades.length} 笔交易</span></div>`
+      ? `<div class="lab-sim-pager"><span class="lab-sim-page-info">共 ${totalReal} 笔交易${truncNote}</span></div>`
       : "";
 
   return '<h3>💰 模拟回测（配对交易）</h3>' +
@@ -570,7 +573,6 @@ async function renderLabDetail(key) {
   if (!meta) { state.labStrategy = null; renderSignalLab(); return; }
 
   const data = await fetchLabData();
-  const simData = await fetchLabSimData();
   const stratData = data && data.strategies ? data.strategies[key] : null;
   const tag = LAB_STATUS_TAGS[meta.status] || LAB_STATUS_TAGS.dev;
 
@@ -699,17 +701,24 @@ async function renderLabDetail(key) {
   content.appendChild(matrixCard);
 
   // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页）
+  // lab_simulate.json 较大（~3MB），先渲染 loading 占位，异步加载就绪后填充，不阻塞上方骨架
   state.labSimPair = null;
   state.labSimMode = "full_in";
   state.labSimPage = 0;
   const simCard = document.createElement("div");
   simCard.className = "chart-card lab-sim-card";
+  simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…（约3MB，请稍候）</div>';
+  content.appendChild(simCard);
+  const simData = await fetchLabSimData();
   const _rerenderSim = () => {
+    if (!simData) {
+      simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">模拟回测数据加载失败，请稍后重试</div>';
+      return;
+    }
     simCard.innerHTML = _labSimCardHTML(key, simData);
     _labSimAttachHandlers(key, simData, simCard, _rerenderSim);
   };
   _rerenderSim();
-  content.appendChild(simCard);
 }
 
 // 渲染策略实验室主入口（分区tab + 卡片列表 / 详情页）
