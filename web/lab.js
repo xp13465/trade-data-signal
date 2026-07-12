@@ -542,6 +542,14 @@ function _labLvl(val, thresholds) {
   return "warn";
 }
 
+// 最大回撤配色：国人风格 红=好(回撤小)/黄=一般/绿=差(回撤大)，与 .lab-matrix-good/warn/bad 同色值
+// 阈值：回撤<20%=good红、20-40%=warn黄、>40%=bad绿
+function _labDdColor(dd) {
+  if (dd < 20) return "#c92a2a";   // good 红
+  if (dd > 40) return "#2e7d32";   // bad 绿
+  return "#ad6800";                 // warn 黄
+}
+
 // 渲染单个交易模式区块详情（4数字 + 净值曲线 + 折叠交易记录）
 // 区块标题由外层 _labSimSectionHTML 的 .lab-sim-strat-head 提供，此处不含 head
 function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
@@ -614,7 +622,7 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
     `<div class="lab-sim-stats">` +
     `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
     `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">${s.years} 年</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="color:#2e7d32">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="color:${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
     `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
     `</div>` +
     `<div class="lab-sim-equity"><div class="lab-sim-equity-label">📈 净值曲线（虚线=初始本金）</div>${svgHTML}</div>` +
@@ -1067,7 +1075,7 @@ function _labRankSort(rows, tab) {
 function _labRankItemHTML(row, rank, tab) {
   const retC = row.total_ret >= 0 ? "#c92a2a" : "#2e7d32";
   const winC = row.win_rate >= 50 ? "#c92a2a" : "#2e7d32";
-  const ddC = row.max_drawdown <= 30 ? "#c92a2a" : (row.max_drawdown >= 60 ? "#2e7d32" : "#ad6800");
+  const ddC = _labDdColor(row.max_drawdown);
   const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "";
   let extra = "";
   if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;

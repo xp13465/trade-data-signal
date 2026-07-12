@@ -270,6 +270,14 @@ function fmtDate(dateStr) {
   return `${m}-${d}`;
 }
 
+// 图表标题追加"最新日期 数值"，无需 hover 即可见最新值（复用 fmtDate 转 MM-DD）
+function latestSuffix(data) {
+  if (!data || !data.length) return "";
+  const last = data[data.length - 1];
+  if (!last || last.value == null) return "";
+  return ` · ${fmtDate(last.date)} ${last.value.toFixed(2)}`;
+}
+
 // 判断指标是否停更：数据日期距最新交易日超过 days 天视为停更（如北向资金 2024-08 起源端停更）。
 // 用于概览 KPI 卡片：停则隐藏，恢复更新后自动显示回来。
 function isStaleMetric(metricDate, latestDate, days = 30) {
@@ -933,7 +941,11 @@ async function renderOverview() {
   const w = r.width_1m || { up: [], down: [] };
   const wDates = [...new Set([...w.up.map((d) => d.date), ...w.down.map((d) => d.date)])].sort();
   if (wDates.length) {
-    const wc = mkCard("市场宽度（涨跌家数，近 1 月）", 260, null, colB1);
+    const wLast = wDates[wDates.length - 1];
+    const wUpV = (w.up.find((x) => x.date === wLast) || {}).value;
+    const wDnV = (w.down.find((x) => x.date === wLast) || {}).value;
+    const wSuffix = wLast ? ` · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}` : "";
+    const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + wSuffix, 260, null, colB1);
     wc.setOption({
       tooltip: { trigger: "axis" },
       legend: { top: 0, data: ["上涨家数", "下跌家数"] },
@@ -951,7 +963,8 @@ async function renderOverview() {
 
   // 左列：跨市场综合评分折线（近 6 月）
   if (r.cross_market_6m && r.cross_market_6m.length) {
-    lineChart("跨市场综合评分（近 6 月）", r.cross_market_6m.map((d) => ({ date: d.date, value: d.value })), {
+    const cm6 = r.cross_market_6m.map((d) => ({ date: d.date, value: d.value }));
+    lineChart("跨市场综合评分（近 6 月）" + latestSuffix(cm6), cm6, {
       visualMap: {
         show: false,
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
@@ -992,7 +1005,9 @@ async function renderOverview() {
       if (posData && posData.positions && posData.positions.length) {
         const posCard = document.createElement("div");
         posCard.className = "chart-card position-card";
-        let posHtml = `<h3>&#x1F4CD; 大盘位置感</h3><div class="position-list">`;
+        const posDates = posData.positions.map((p) => p.current_date).filter(Boolean).sort();
+        const posDateSuffix = posDates.length ? ` · ${fmtDate(posDates[posDates.length - 1])}` : "";
+        let posHtml = `<h3>&#x1F4CD; 大盘位置感${posDateSuffix}</h3><div class="position-list">`;
         for (const p of posData.positions) {
           const pct = p.percentile_1y != null ? p.percentile_1y : 50;
           const barColor = pct <= 40 ? "#2e8b57" : pct <= 60 ? "#86909c" : pct <= 80 ? "#e6a23c" : "#e6492e";
@@ -1255,7 +1270,7 @@ async function renderSentiment() {
   if (r.fear_greed && r.fear_greed.length) {
     const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) : ""}`;
+    const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) + latestSuffix(data) : ""}`;
     valueChartWithSignals(title, data, [], {
       visualMap: {
         show: false,
@@ -1274,7 +1289,7 @@ async function renderSentiment() {
   if (r.a_sentiment.length) {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) : ""}`;
+    const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
     valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
   }
   // 细分指数：散户关注度排序（小盘/成长优先）
@@ -1290,7 +1305,7 @@ async function renderSentiment() {
     if (r[key] && r[key].length) {
       const data = r[key].map(d => ({date: d.date, value: d.value}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
-      const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) : ""}`;
+      const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
       valueChartWithSignals(title, data,
         sig[key] || [], {
           visualMap: {
@@ -1304,7 +1319,7 @@ async function renderSentiment() {
   if (r.cross_market.length) {
     const data = r.cross_market.map((d) => ({ date: d.date, value: d.value }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) : ""}`;
+    const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
     valueChartWithSignals(title, data, sig.cross_market || [], {
       visualMap: {
         show: false,
