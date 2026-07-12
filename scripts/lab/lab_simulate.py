@@ -41,8 +41,8 @@ INDEX_NAME = "上证指数"
 INITIAL_CAPITAL = 100_000
 POSITION_SIZE = 10_000
 MAX_POSITIONS = 10
-MAX_CURVE_POINTS = 200  # 净值曲线最多保留点数
-MAX_TRADES_STORED = 50  # 每组交易记录最多存储笔数（前端分页每页20条，50笔够2-3页；stats.n_trades 保留完整笔数）
+MAX_CURVE_POINTS = 100  # 净值曲线最多保留点数（从200降至100，为trades新增账户快照字段腾体积）
+MAX_TRADES_STORED = 40  # 每组交易记录最多存储笔数（从50降至40，前端分页每页20条够2页；stats.n_trades 保留完整笔数）
 
 # 8个买策略（候选7 + 生产1）
 BUY_KEYS = [
@@ -161,6 +161,12 @@ def simulate_full_in(df, buy_mask, sell_mask):
             sell_amount = shares * close_val
             ret_pct = (close_val - buy_close) / buy_close * 100
             hold_days = _days_between(buy_date, date)
+            cash = sell_amount
+            holding = None
+            # 卖出后账户快照（全仓模式：全部现金，无持仓）
+            account_total = cash
+            cum_profit = account_total - INITIAL_CAPITAL
+            cum_return = cum_profit / INITIAL_CAPITAL * 100
             trades.append({
                 'buy_date': _fmt_date(buy_date),
                 'buy_price': round(buy_close, 2),
@@ -168,9 +174,10 @@ def simulate_full_in(df, buy_mask, sell_mask):
                 'sell_price': round(close_val, 2),
                 'ret': round(ret_pct, 2),
                 'hold_days': hold_days,
+                'account_total': round(account_total, 2),
+                'cumulative_profit': round(cum_profit, 2),
+                'cumulative_return': round(cum_return, 2),
             })
-            cash = sell_amount
-            holding = None
             equity_curve.append({'date': _fmt_date(date), 'value': round(cash, 2)})
 
     # 期末估值
@@ -222,6 +229,12 @@ def simulate_fixed_10k(df, buy_mask, sell_mask):
             avg_buy_price = total_cost / total_shares
             ret_pct = (close_val - avg_buy_price) / avg_buy_price * 100
             hold_days = _days_between(first_buy_date, date)
+            cash += sell_amount
+            positions = []
+            # 卖出后账户快照（定额模式：现金+持仓市值，此时持仓已清仓=纯现金）
+            account_total = cash
+            cum_profit = account_total - INITIAL_CAPITAL
+            cum_return = cum_profit / INITIAL_CAPITAL * 100
             trades.append({
                 'buy_date': _fmt_date(first_buy_date),
                 'buy_price': round(avg_buy_price, 2),
@@ -229,9 +242,10 @@ def simulate_fixed_10k(df, buy_mask, sell_mask):
                 'sell_price': round(close_val, 2),
                 'ret': round(ret_pct, 2),
                 'hold_days': hold_days,
+                'account_total': round(account_total, 2),
+                'cumulative_profit': round(cum_profit, 2),
+                'cumulative_return': round(cum_return, 2),
             })
-            cash += sell_amount
-            positions = []
             equity_curve.append({'date': _fmt_date(date), 'value': round(cash, 2)})
 
     # 期末估值

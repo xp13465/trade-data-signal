@@ -315,7 +315,9 @@ async function fetchLabSimData() {
 }
 
 // 模拟回测净值曲线 SVG（轻量纯SVG，不依赖 ECharts）
-function _labSimSVG(curve, initCapital) {
+// gradId 用于双图并列时避免 gradient id 冲突
+function _labSimSVG(curve, initCapital, gradId) {
+  gradId = gradId || "labSimGrad";
   if (!curve || curve.length < 2) return '<div class="lab-sim-empty">净值数据不足</div>';
   const vals = curve.map((e) => e.value);
   const dates = curve.map((e) => e.date);
@@ -350,9 +352,9 @@ function _labSimSVG(curve, initCapital) {
   }
   const lineColor = finalVal >= initCapital ? "#c92a2a" : "#2e7d32";
   return `<svg width="100%" height="150" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
-    <defs><linearGradient id="labSimGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${lineColor}" stop-opacity="0.12"/><stop offset="100%" stop-color="${lineColor}" stop-opacity="0.01"/></linearGradient></defs>
+    <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${lineColor}" stop-opacity="0.12"/><stop offset="100%" stop-color="${lineColor}" stop-opacity="0.01"/></linearGradient></defs>
     <line x1="${ml}" y1="${baselineY.toFixed(1)}" x2="${sx(n - 1).toFixed(1)}" y2="${baselineY.toFixed(1)}" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
-    <polygon points="${areaPts}" fill="url(#labSimGrad)"/>
+    <polygon points="${areaPts}" fill="url(#${gradId})"/>
     <polyline points="${pts.join(" ")}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linejoin="round"/>
     ${yLabels}
     <circle cx="${sx(peakIdx).toFixed(1)}" cy="${sy(peakVal).toFixed(1)}" r="3" fill="#c92a2a" stroke="#fff" stroke-width="1"/>
@@ -361,17 +363,103 @@ function _labSimSVG(curve, initCapital) {
   </svg>`;
 }
 
-// 渲染模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页）
+// 三色分级辅助
+function _labLvl(val, thresholds) {
+  if (val > thresholds.good) return "good";
+  if (val < thresholds.bad) return "bad";
+  return "warn";
+}
+
+// 渲染单个交易模式区块（全仓进出 / 1万定额）
+function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
+  const modeName = mode === "full_in" ? "全仓进出" : "1万定额";
+  const modeDesc = mode === "full_in"
+    ? "本金复利滚动 · 全仓买卖"
+    : "每次买1万(最多10笔) · 卖信号清仓";
+  const s = modeData && modeData.stats;
+  if (!s) {
+    return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
+      `<div class="lab-sim-mode-head"><span class="lab-sim-mode-name">${modeName}</span><span class="lab-sim-mode-desc">${modeDesc}</span></div>` +
+      `<div class="lab-sim-empty">该模式无交易数据</div></div>`;
+  }
+
+  const retColor = s.total_ret >= 0 ? "#c92a2a" : "#2e7d32";
+  const winColor = s.win_rate >= 50 ? "#c92a2a" : "#2e7d32";
+  const winTrades = Math.round((s.win_rate / 100) * s.n_trades);
+  const loseTrades = s.n_trades - winTrades;
+  const gradId = "labSimGrad_" + mode;
+  const svgHTML = _labSimSVG(modeData.equity_curve, initCapital, gradId);
+  const trades = modeData.trades || [];
+
+  // 分页
+  const perPage = 20;
+  const totalPages = Math.max(1, Math.ceil(trades.length / perPage));
+  let currentPage = page || 0;
+  if (currentPage >= totalPages) currentPage = totalPages - 1;
+  if (currentPage < 0) currentPage = 0;
+  const startIdx = currentPage * perPage;
+  const showTrades = trades.slice(startIdx, startIdx + perPage);
+  const totalReal = s.n_trades;
+  const truncated = totalReal > trades.length;
+  const truncNote = truncated ? `（仅展示前${trades.length}笔）` : "";
+
+  const tradeRows = showTrades.map((t, i) => {
+    const tc = t.ret > 0 ? "#c92a2a" : (t.ret < 0 ? "#2e7d32" : "#86909c");
+    const cr = t.cumulative_return != null ? t.cumulative_return : 0;
+    const pc = cr >= 0 ? "#c92a2a" : "#2e7d32";
+    const at = t.account_total != null ? Math.round(t.account_total).toLocaleString() : "-";
+    const cp = t.cumulative_profit != null ? (t.cumulative_profit >= 0 ? "+" : "") + Math.round(t.cumulative_profit).toLocaleString() : "-";
+    const crStr = t.cumulative_return != null ? (cr >= 0 ? "+" : "") + t.cumulative_return + "%" : "-";
+    return `<tr><td>${startIdx + i + 1}</td><td>${t.buy_date}</td><td>${t.buy_price}</td><td>${t.sell_date}</td><td>${t.sell_price}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hold_days}天</td><td>${at}</td><td style="color:${pc}">${cp}</td><td style="color:${pc};font-weight:600">${crStr}</td></tr>`;
+  }).join("");
+
+  const pagerHTML = totalPages > 1
+    ? `<div class="lab-sim-pager">` +
+      `<button class="lab-sim-prev" data-mode="${mode}"${currentPage === 0 ? " disabled" : ""}>上一页</button>` +
+      `<span class="lab-sim-page-info">第 ${currentPage + 1}/${totalPages} 页（共 ${totalReal} 笔${truncNote}）</span>` +
+      `<button class="lab-sim-next" data-mode="${mode}"${currentPage >= totalPages - 1 ? " disabled" : ""}>下一页</button>` +
+      `</div>`
+    : trades.length > 0
+      ? `<div class="lab-sim-pager"><span class="lab-sim-page-info">共 ${totalReal} 笔交易${truncNote}</span></div>`
+      : "";
+
+  const tradesBody = isOpen
+    ? `<div class="lab-sim-trades-body">` +
+      `<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th></tr></thead><tbody>` +
+      (tradeRows || '<tr><td colspan="10" style="text-align:center;color:#c9cdd4">无交易记录</td></tr>') +
+      `</tbody></table></div>${pagerHTML}</div>`
+    : "";
+
+  return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
+    `<div class="lab-sim-mode-head"><span class="lab-sim-mode-name">${modeName}</span><span class="lab-sim-mode-desc">${modeDesc}</span></div>` +
+    `<div class="lab-sim-stats">` +
+    `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">${s.years} 年</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="color:#2e7d32">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
+    `</div>` +
+    `<div class="lab-sim-equity"><div class="lab-sim-equity-label">📈 净值曲线（虚线=初始本金）</div>${svgHTML}</div>` +
+    `<div class="lab-sim-trades">` +
+    `<div class="lab-sim-trades-header" data-mode="${mode}">` +
+    `<span class="lab-sim-trades-label">📋 交易记录 共 ${totalReal} 笔${truncNote}</span>` +
+    `<span class="lab-sim-trades-toggle">${isOpen ? "收起 ▲" : "展开 ▼"}</span>` +
+    `</div>` +
+    tradesBody +
+    `</div>` +
+    `</div>`;
+}
+
+// 渲染模拟回测卡片（配对交易 + 双交易策略并列对比 + 折叠交易记录）
 function _labSimCardHTML(key, simData) {
   if (!simData || !simData.strategies || !simData.strategies[key] || !simData.strategies[key].pairs) {
-    return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
+    return '<h3>💰 模拟回测（配对交易 · 全仓 vs 定额并列对比）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
   }
   const strat = simData.strategies[key];
   const side = strat.side;
   const pairs = strat.pairs;
   const pairKeys = Object.keys(pairs);
   if (pairKeys.length === 0) {
-    return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
+    return '<h3>💰 模拟回测（配对交易 · 全仓 vs 定额并列对比）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
   }
 
   // 默认配对：买策略配 D1 卖，卖策略配 C1 买
@@ -380,152 +468,99 @@ function _labSimCardHTML(key, simData) {
   if (!pairs[currentPair]) currentPair = pairKeys[0];
   state.labSimPair = currentPair;
 
-  const currentMode = state.labSimMode || "full_in";
-  let currentPage = state.labSimPage || 0;
-
   const pairSideLabel = side === "buy" ? "卖点" : "买点";
+  const initCapital = simData.initial_capital || 100000;
 
-  // 模式切换
-  const modeToggle =
-    '<div class="lab-sim-mode-toggle">' +
-    `<button class="${currentMode === "full_in" ? "active" : ""}" data-mode="full_in">全仓进出</button>` +
-    `<button class="${currentMode === "fixed_10k" ? "active" : ""}" data-mode="fixed_10k">1万定额</button>` +
-    "</div>";
-
-  // 配对策略卡片列表（每个可配对策略一张小卡片，显示名称+总收益率+胜率，三色分级）
-  // 摘要数值取当前交易模式 full_in/fixed_10k 的 stats；切换模式时整卡重渲染，摘要随之更新
+  // 配对策略卡片列表（双模式摘要：全仓 ret/胜率 + 定额 ret/胜率）
   const pairCards = pairKeys.map((pk) => {
     const meta = LAB_STRATEGIES[pk];
     const name = meta ? meta.name : pk;
-    const pd = pairs[pk] && pairs[pk][currentMode];
-    const st = pd && pd.stats;
-    let retStr = "—", winStr = "—", nStr = "", lvl = "warn", retLv = "warn", winLv = "warn";
-    if (st) {
-      retStr = (st.total_ret > 0 ? "+" : "") + st.total_ret + "%";
-      winStr = st.win_rate + "%";
-      nStr = "n=" + st.n_trades;
-      // 三色分级：复用矩阵逻辑（红=好/绿=差国人风格）
-      retLv = st.total_ret > 5 ? "good" : st.total_ret >= -5 ? "warn" : "bad";
-      winLv = st.win_rate >= 55 ? "good" : st.win_rate >= 45 ? "warn" : "bad";
+    const pd = pairs[pk];
+    const fiSt = pd && pd.full_in && pd.full_in.stats;
+    const fkSt = pd && pd.fixed_10k && pd.fixed_10k.stats;
+    // 卡片整体分级基于 full_in
+    let lvl = "warn";
+    if (fiSt) {
+      const retLv = _labLvl(fiSt.total_ret, { good: 5, bad: -5 });
+      const winLv = _labLvl(fiSt.win_rate, { good: 55, bad: 45 });
       const goods = [retLv, winLv].filter((x) => x === "good").length;
       const bads = [retLv, winLv].filter((x) => x === "bad").length;
       lvl = goods >= 2 ? "good" : bads >= 2 ? "bad" : "warn";
     }
     const activeCls = pk === currentPair ? " active" : "";
+    const fiRow = fiSt
+      ? `<span class="pc-mode-row"><span class="pc-mode-tag">全仓</span>` +
+        `<span class="pc-ret pc-lvl-${_labLvl(fiSt.total_ret, { good: 5, bad: -5 })}">${fiSt.total_ret > 0 ? "+" : ""}${fiSt.total_ret}%</span>` +
+        `<span class="pc-win pc-lvl-${_labLvl(fiSt.win_rate, { good: 55, bad: 45 })}">胜${fiSt.win_rate}%</span></span>`
+      : "";
+    const fkRow = fkSt
+      ? `<span class="pc-mode-row"><span class="pc-mode-tag">定额</span>` +
+        `<span class="pc-ret-sm pc-lvl-${_labLvl(fkSt.total_ret, { good: 5, bad: -5 })}">${fkSt.total_ret > 0 ? "+" : ""}${fkSt.total_ret}%</span>` +
+        `<span class="pc-win-sm pc-lvl-${_labLvl(fkSt.win_rate, { good: 55, bad: 45 })}">胜${fkSt.win_rate}%</span></span>`
+      : "";
+    const nStr = fiSt ? `<span class="pc-n">n=${fiSt.n_trades}</span>` : "";
     return `<button type="button" class="lab-sim-pair-card lab-matrix-${lvl}${activeCls}" data-pair="${pk}">` +
-      `<span class="pc-name" title="${name}">${name}</span>` +
-      `<span class="pc-ret pc-lvl-${retLv}">${retStr}</span>` +
-      `<span class="pc-meta"><span class="pc-win pc-lvl-${winLv}">胜率 ${winStr}</span>${nStr ? `<span class="pc-n">${nStr}</span>` : ""}</span>` +
-      `</button>`;
+      `<span class="pc-name" title="${name}">${name}</span>${fiRow}${fkRow}${nStr}</button>`;
   }).join("");
 
   const pairListHTML =
-    `<div class="lab-sim-pair-section"><div class="lab-sim-pair-label">配对${pairSideLabel}（点卡片切换 · 颜色为当前模式下表现）</div>` +
+    `<div class="lab-sim-pair-section"><div class="lab-sim-pair-label">配对${pairSideLabel}（点卡片切换 · 红好/绿差）</div>` +
     `<div class="lab-sim-pair-list">${pairCards}</div></div>`;
 
-  // 取当前配对+模式的数据
   const pairData = pairs[currentPair];
-  const modeData = pairData && pairData[currentMode];
-  const s = modeData && modeData.stats;
-  const initCapital = simData.initial_capital || 100000;
-
-  if (!s) {
-    return '<h3>💰 模拟回测（配对交易）</h3>' +
-      `<div class="lab-sim-controls">${modeToggle}</div>` +
-      pairListHTML +
-      '<div class="lab-sim-empty">该配对无交易数据</div>';
+  if (!pairData || !pairData.full_in || !pairData.full_in.stats) {
+    return '<h3>💰 模拟回测（配对交易 · 全仓 vs 定额并列对比）</h3>' +
+      pairListHTML + '<div class="lab-sim-empty">该配对无交易数据</div>';
   }
 
-  const sideLabel = side === "buy" ? "买入" : "卖出";
-  const pairMeta = LAB_STRATEGIES[currentPair];
-  const pairLabel = pairMeta ? pairMeta.name : currentPair;
-  const modeDesc = currentMode === "full_in"
-    ? `本金 ${initCapital.toLocaleString()} 元起 · 全仓复利滚动 · 信号当日收盘价成交 · ${sideLabel}信号配对${pairLabel} · 末尾未平仓按末日收盘估值`
-    : `本金 ${initCapital.toLocaleString()} 元 · 每次买入 10,000 元(最多10笔) · 卖信号清仓全部 · ${sideLabel}信号配对${pairLabel}`;
+  const pageFi = state.labSimPageFi || 0;
+  const pageFk = state.labSimPageFk || 0;
+  const fiOpen = !!state.labSimFiOpen;
+  const fkOpen = !!state.labSimFkOpen;
 
-  const retColor = s.total_ret >= 0 ? "#c92a2a" : "#2e7d32";
-  const ddColor = "#2e7d32";
-  const winColor = s.win_rate >= 50 ? "#c92a2a" : "#2e7d32";
-  const winTrades = Math.round((s.win_rate / 100) * s.n_trades);
-  const loseTrades = s.n_trades - winTrades;
-  const svgHTML = _labSimSVG(modeData.equity_curve, initCapital);
-  const trades = modeData.trades || [];
+  const fiBlock = _labSimModeBlock("full_in", pairData.full_in, initCapital, pageFi, fiOpen);
+  const fkBlock = _labSimModeBlock("fixed_10k", pairData.fixed_10k, initCapital, pageFk, fkOpen);
 
-  // 分页（trades 已在后端截断到前50笔；stats.n_trades 为真实完整笔数）
-  const perPage = 20;
-  const totalPages = Math.max(1, Math.ceil(trades.length / perPage));
-  if (currentPage >= totalPages) currentPage = totalPages - 1;
-  if (currentPage < 0) currentPage = 0;
-  state.labSimPage = currentPage;
-  const startIdx = currentPage * perPage;
-  const showTrades = trades.slice(startIdx, startIdx + perPage);
-  const totalReal = s.n_trades;                 // 真实完整笔数
-  const truncated = totalReal > trades.length;   // 后端是否截断了交易记录
-  const truncNote = truncated ? `（仅展示前${trades.length}笔）` : "";
-  const tradeRows = showTrades.map((t, i) => {
-    const tc = t.ret > 0 ? "#c92a2a" : (t.ret < 0 ? "#2e7d32" : "#86909c");
-    return `<tr><td>${startIdx + i + 1}</td><td>${t.buy_date}</td><td>${t.buy_price}</td><td>${t.sell_date}</td><td>${t.sell_price}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hold_days} 天</td></tr>`;
-  }).join("");
-
-  const pagerHTML = totalPages > 1
-    ? `<div class="lab-sim-pager">` +
-      `<button class="lab-sim-prev"${currentPage === 0 ? " disabled" : ""}>上一页</button>` +
-      `<span class="lab-sim-page-info">第 ${currentPage + 1}/${totalPages} 页（共 ${totalReal} 笔${truncNote}）</span>` +
-      `<button class="lab-sim-next"${currentPage >= totalPages - 1 ? " disabled" : ""}>下一页</button>` +
-      `</div>`
-    : trades.length > 0
-      ? `<div class="lab-sim-pager"><span class="lab-sim-page-info">共 ${totalReal} 笔交易${truncNote}</span></div>`
-      : "";
-
-  return '<h3>💰 模拟回测（配对交易）</h3>' +
-    `<div class="lab-sim-controls">${modeToggle}</div>` +
+  return '<h3>💰 模拟回测（配对交易 · 全仓 vs 定额并列对比）</h3>' +
     pairListHTML +
-    `<div class="lab-sim-desc">${modeDesc}</div>` +
-    '<div class="lab-sim-stats">' +
-    `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">10万起，期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">首笔交易至今 ${s.years} 年</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="color:${ddColor}">${s.max_drawdown}%</span><span class="sub">从峰值最大跌幅</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜 / ${loseTrades}负 · 共 ${s.n_trades} 笔</span></div>` +
-    '</div>' +
-    `<div class="lab-sim-equity"><div class="lab-sim-equity-label">📈 净值曲线（虚线=初始本金）</div>${svgHTML}</div>` +
-    `<div class="lab-sim-trades"><div class="lab-sim-trades-label">📋 交易记录${totalPages > 1 ? `（第 ${currentPage + 1}/${totalPages} 页）` : ""}</div>` +
-    '<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有天数</th></tr></thead><tbody>' +
-    (tradeRows || '<tr><td colspan="7" style="text-align:center;color:#c9cdd4">无交易记录</td></tr>') +
-    '</tbody></table></div>' +
-    pagerHTML +
-    '</div>';
+    `<div class="lab-sim-dual">${fiBlock}${fkBlock}</div>`;
 }
 
-// 模拟回测卡片交互绑定（配对切换 / 模式切换 / 分页）
+// 模拟回测卡片交互绑定（配对切换 / 交易记录折叠 / 分页）
 function _labSimAttachHandlers(key, simData, simCard, rerender) {
-  const pairCards = simCard.querySelectorAll(".lab-sim-pair-card");
-  pairCards.forEach((card) => {
+  // 配对策略卡片切换
+  simCard.querySelectorAll(".lab-sim-pair-card").forEach((card) => {
     card.onclick = () => {
       state.labSimPair = card.dataset.pair;
-      state.labSimPage = 0;
+      state.labSimPageFi = 0;
+      state.labSimPageFk = 0;
       rerender();
     };
   });
-  const modeBtns = simCard.querySelectorAll(".lab-sim-mode-toggle button");
-  modeBtns.forEach((btn) => {
+  // 交易记录折叠/展开（点击 header 整行）
+  simCard.querySelectorAll(".lab-sim-trades-header").forEach((hdr) => {
+    hdr.onclick = () => {
+      const mode = hdr.dataset.mode;
+      if (mode === "full_in") state.labSimFiOpen = !state.labSimFiOpen;
+      else state.labSimFkOpen = !state.labSimFkOpen;
+      rerender();
+    };
+  });
+  // 分页
+  simCard.querySelectorAll(".lab-sim-prev").forEach((btn) => {
     btn.onclick = () => {
-      state.labSimMode = btn.dataset.mode;
-      state.labSimPage = 0;
-      rerender();
+      const mode = btn.dataset.mode;
+      if (mode === "full_in" && (state.labSimPageFi || 0) > 0) { state.labSimPageFi--; rerender(); }
+      else if (mode === "fixed_10k" && (state.labSimPageFk || 0) > 0) { state.labSimPageFk--; rerender(); }
     };
   });
-  const prevBtn = simCard.querySelector(".lab-sim-prev");
-  if (prevBtn) {
-    prevBtn.onclick = () => {
-      if (state.labSimPage > 0) { state.labSimPage--; rerender(); }
+  simCard.querySelectorAll(".lab-sim-next").forEach((btn) => {
+    btn.onclick = () => {
+      const mode = btn.dataset.mode;
+      if (mode === "full_in") { state.labSimPageFi = (state.labSimPageFi || 0) + 1; rerender(); }
+      else { state.labSimPageFk = (state.labSimPageFk || 0) + 1; rerender(); }
     };
-  }
-  const nextBtn = simCard.querySelector(".lab-sim-next");
-  if (nextBtn) {
-    nextBtn.onclick = () => {
-      state.labSimPage++; rerender();
-    };
-  }
+  });
 }
 
 // 格式化矩阵单元格值
@@ -730,8 +765,10 @@ async function renderLabDetail(key) {
   // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页）
   // lab_simulate.json 较大（~3MB），先渲染 loading 占位，异步加载就绪后填充，不阻塞上方骨架
   state.labSimPair = null;
-  state.labSimMode = "full_in";
-  state.labSimPage = 0;
+  state.labSimPageFi = 0;
+  state.labSimPageFk = 0;
+  state.labSimFiOpen = false;
+  state.labSimFkOpen = false;
   const simCard = document.createElement("div");
   simCard.className = "chart-card lab-sim-card";
   simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…（约3MB，请稍候）</div>';
