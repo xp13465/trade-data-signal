@@ -114,6 +114,7 @@ function lineChart(title, series, opts = {}, hint = null, container = content) {
 function signalColor(s) {
   if (s.signal === "buy") return "#e6492e";
   if (s.signal === "buy_aux") return "#d63384";
+  if (s.signal === "freeze") return "#2563eb"; // 冰点标注=蓝色
   const r = s.reason || "";
   if (r.includes("买点失败")) return "#9e9e9e";
   if (r.includes("止盈")) return "#2e8b57";
@@ -125,6 +126,7 @@ function signalColor(s) {
 function signalLabel(s) {
   if (s.signal === "buy") return "买";
   if (s.signal === "buy_aux") return "辅买";
+  if (s.signal === "freeze") return "冰点";
   return "卖";
 }
 
@@ -235,7 +237,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
     }
     const cellHtml = (it) => kind === "signal"
       ? `<span class="sig-item sig-clickable" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
-      : `<span class="sig-item"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
+      : `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     const cellsHtml = dayItems.map(cellHtml).join("");
     const dateLabel = fmtDate(dt);
     rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cellsHtml}</div></div>`;
@@ -785,7 +787,7 @@ function closeSignalChartModal() {
   _signalModalCharts = [];
 }
 
-async function openSignalChartModal(indexId, signal, date) {
+async function openSignalChartModal(indexId, signal, date, freezeVal) {
   const modal = _signalChartModalEl();
   const body = modal.querySelector(".signal-chart-content");
   const titleEl = modal.querySelector(".signal-chart-title");
@@ -793,7 +795,8 @@ async function openSignalChartModal(indexId, signal, date) {
   _signalModalCharts = [];
   body.innerHTML = '<div class="loading">加载中…</div>';
   const name = indexIdToName(indexId);
-  const sigLabel = signal === "buy" ? "买" : signal === "buy_aux" ? "辅买" : signal === "sell" ? "卖" : signal;
+  const isFreeze = signal === "freeze";
+  const sigLabel = signal === "buy" ? "买" : signal === "buy_aux" ? "辅买" : signal === "sell" ? "卖" : isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signal;
   titleEl.textContent = `${name} · ${sigLabel} · ${fmtDate(date)}`;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -827,6 +830,10 @@ async function openSignalChartModal(indexId, signal, date) {
     if (!chartData || !chartData.length) {
       body.innerHTML = `<div class="empty-note">暂无「${name}」走势数据</div>`;
       return;
+    }
+    // 冰点模式：用情绪分≤20 的点替换买卖信号作为 markPoint 标注（蓝色"冰点"）
+    if (isFreeze) {
+      sigs = chartData.filter((d) => d.value != null && d.value <= 20).map((d) => ({ date: d.date, signal: "freeze" }));
     }
     body.innerHTML = "";
     const title = name + latestSuffix(chartData);
@@ -1039,6 +1046,13 @@ async function renderOverview() {
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";
   freezeCard.innerHTML = _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）", "freeze", "无近期冰点日");
+  // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
+  freezeCard.addEventListener("click", (e) => {
+    const item = e.target.closest(".sig-clickable");
+    if (!item) return;
+    e.preventDefault();
+    openSignalChartModal(item.dataset.idx, item.dataset.sig, item.dataset.date, item.dataset.val);
+  });
   colA2.appendChild(freezeCard);
 
   // 右列：近期买卖点（近15交易日，今日高亮排首）
