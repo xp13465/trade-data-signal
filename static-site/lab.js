@@ -498,7 +498,7 @@ function _labSimCardHTML(key, simData) {
         `<span class="pc-ret-sm pc-lvl-${_labLvl(fkSt.total_ret, { good: 5, bad: -5 })}">${fkSt.total_ret > 0 ? "+" : ""}${fkSt.total_ret}%</span>` +
         `<span class="pc-win-sm pc-lvl-${_labLvl(fkSt.win_rate, { good: 55, bad: 45 })}">胜${fkSt.win_rate}%</span></span>`
       : "";
-    const nStr = fiSt ? `<span class="pc-n">n=${fiSt.n_trades}</span>` : "";
+    const nStr = fiSt ? `<span class="pc-n">样本 n=${fiSt.n_trades}</span>` : "";
     return `<button type="button" class="lab-sim-pair-card lab-matrix-${lvl}${activeCls}" data-pair="${pk}">` +
       `<span class="pc-name" title="${name}">${name}</span>${fiRow}${fkRow}${nStr}</button>`;
   }).join("");
