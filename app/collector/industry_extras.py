@@ -52,6 +52,10 @@ SW_EM_MAP = {
     "sw_801980": "BK1035",  # 美容护理
 }
 
+# TODO(换源): 2026-07-13 实测 push2his.eastmoney.com 全端点被封
+# (RemoteDisconnected)，ind_flow_sw_* / ind_turn_sw_* 0710 起采不到。
+# base.py 已关系统代理(NO_PROXY=*)仍被封，疑 IP 级封锁非代理问题。
+# 待办：换源（同花顺 sector_fund_flow / 新浪）或加代理池轮换。
 FFLOW_URL = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
 KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 

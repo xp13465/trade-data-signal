@@ -66,10 +66,23 @@ _TDX_SERVERS = [
 
 
 def _probe(ip, port, timeout=2.0):
-    """TCP 握手探测，判断服务器是否可达。"""
+    """TCP 握手探测，判断服务器是否可达。
+
+    注意：仅测 TCP 握手可达，不验证能否返回行情数据。部分服务器 TCP 可达
+    但 bars() 返回空（协议升级/停服）。故 tdx_client 优先用 bestip=True。
+    """
     try:
         with socket.create_connection((ip, port), timeout=timeout):
             return True
+    except Exception:
+        return False
+
+
+def _bars_ok(client, code='000001'):
+    """发一个真实 bars 请求验证服务器能返回行情数据（非仅 TCP 握手）。"""
+    try:
+        df = client.bars(symbol=code, frequency=9, offset=10, start=0)
+        return df is not None and len(df) > 0
     except Exception:
         return False
 
@@ -78,23 +91,37 @@ def tdx_client(market='std'):
     """创建 mootdx 客户端，规避 0.11.x BESTIP.HQ 空串 bug。
 
     顺序兜底：
-      1) 顺序探测 _TDX_SERVERS，用第一个 TCP 可达的显式 server；
-      2) 全部不可达 → 回退 mootdx bestip 测速选优；
-      3) 再不行 → 回退裸 factory（老用户 config 已有可用 BESTIP）；
-      4) 仍失败 → 抛 RuntimeError。
+      1) mootdx bestip=True 测速选优（自动选能返回行情的服务器，最可靠）；
+      2) bestip 失败 -> 顺序探测 _TDX_SERVERS，用第一个 TCP 可达且 bars 实测通过的；
+      3) 再不行 -> 回退裸 factory（老用户 config 已有可用 BESTIP）；
+      4) 仍失败 -> 抛 RuntimeError。
+
+    2026-07-12 回归：_TDX_SERVERS 全部 TCP 握手可达但 bars() 返回空（协议升级），
+    只有 bestip=True 选出的服务器能正常返回行情，故改为优先 bestip。
     """
-    for ip, port in _TDX_SERVERS:
-        if _probe(ip, port):
-            return Quotes.factory(market=market, server=(ip, port))
+    # 1. 优先 bestip=True（mootdx 自动测速选服务器，验证行情可达）
     try:
-        return Quotes.factory(market=market, bestip=True)
+        client = Quotes.factory(market=market, bestip=True)
+        if _bars_ok(client):
+            return client
     except Exception:
         pass
+    # 2. _TDX_SERVERS 逐个验证（TCP 握手 + bars 实测）
+    for ip, port in _TDX_SERVERS:
+        if not _probe(ip, port):
+            continue
+        try:
+            client = Quotes.factory(market=market, server=(ip, port))
+            if _bars_ok(client):
+                return client
+        except Exception:
+            continue
+    # 3. 回退裸 factory
     try:
         return Quotes.factory(market=market)
     except Exception as e:
         raise RuntimeError(
-            "所有 mootdx 服务器均不可达。海外网络通常全部超时（TCP 7709），"
+            "所有 mootdx 服务器均不可达或 bars 返回空。海外网络通常全部超时（TCP 7709），"
             "请走国内代理或更新 _TDX_SERVERS 列表。原始错误：%s" % e
         )
 

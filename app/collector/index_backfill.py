@@ -11,6 +11,13 @@
   腾讯 stock_zh_index_daily_tx 全覆盖，无pct(自算)，慢(12s/只)  备用2
   东财 index_zh_a_hist / _em   均被封 RemoteDisconnected       弃用
 
+申万一级行业指数（31 个 sw_801xxx）额外补采：
+  申万官方 trend API（swsresearch.com）返全量历史，但 T+1 发布延迟（周五数据
+  可能要到周一才更新）。新浪/腾讯/baostock/mootdx 均不支持申万行业指数代码，
+  东财被封。故 sw_* 只能依赖申万官方源，补采 = 重拉 trend 全量取最新行。
+  工作日采集时 trend API 若已发布当日数据则补上；未发布（T+1 延迟）则跳过
+  写告警，下次定时任务再补。
+
 触发：runner.step2 indices 采完后调用 verify_and_backfill_indices(date)。
 """
 from .base import log_collect
@@ -29,6 +36,17 @@ CORE_A_INDICES = {
     "kc50":    ("sh.000688", "sh000688"),  # baostock 无，腾讯补
     "bj50":    (None, "bj899050"),          # baostock 无北证50，腾讯补
 }
+
+# 31 个申万一级行业指数代码（symbol 传给申万 trend API）
+SW_INDICES = [
+    "sw_801010", "sw_801030", "sw_801040", "sw_801050", "sw_801080",
+    "sw_801880", "sw_801110", "sw_801120", "sw_801130", "sw_801140",
+    "sw_801150", "sw_801160", "sw_801170", "sw_801180", "sw_801200",
+    "sw_801210", "sw_801780", "sw_801790", "sw_801230", "sw_801710",
+    "sw_801720", "sw_801730", "sw_801890", "sw_801740", "sw_801750",
+    "sw_801760", "sw_801770", "sw_801950", "sw_801960", "sw_801970",
+    "sw_801980",
+]
 
 
 def _f(v):
@@ -83,8 +101,52 @@ def _tencent_fetch(tx_symbol, idx_id, date):
     return [(date, idx_id, open_, high, low, close, pct, None)]
 
 
+def _sw_trend_fetch(sw_id, date):
+    """申万官方 trend API 补采 sw_* 指数。
+
+    swsresearch.com 的 trend API 返全量历史（无 beg/end 参数），取最新行。
+    若最新行 == date 则补采成功；若 < date 说明源 T+1 延迟尚未发布当日数据。
+
+    返回 [(date, idx_id, open, high, low, close, pct, amount)] 或 []。
+    """
+    import requests
+    # base.py 已 monkey-patch DNS，但这里用独立 session 避免影响
+    symbol = sw_id.replace("sw_", "")
+    url = "https://www.swsresearch.com/institute-sw/api/index_publish/trend/"
+    try:
+        r = requests.get(url, params={"swindexcode": symbol, "period": "DAY"},
+                         headers={"User-Agent": "Mozilla/5.0"}, verify=False, timeout=15)
+        data = r.json().get("data", []) or []
+    except Exception:
+        return []
+
+    if not data:
+        return []
+
+    # trend API 返全量（升序），取最后一行（最新交易日）
+    last = data[-1]
+    last_date = str(last.get("bargaindate", ""))[:10].replace("-", "")
+    if last_date != date:
+        # 源最新数据 != 目标日期（T+1 延迟，周末/节假日未发布）
+        return []
+
+    def _tof(v):
+        try:
+            f = float(v)
+            return f if f == f else None  # NaN -> None
+        except (TypeError, ValueError):
+            return None
+
+    return [(date, sw_id, _tof(last.get("openindex")), _tof(last.get("maxindex")),
+             _tof(last.get("minindex")), _tof(last.get("closeindex")),
+             _tof(last.get("markup")), _tof(last.get("bargainsum")))]
+
+
 def verify_and_backfill_indices(date, verbose=True):
-    """step2 采后校验：核心 A 股指数今日缺失则 baostock -> 腾讯 补采。
+    """step2 采后校验：核心 A 股指数 + 申万行业指数今日缺失则多源补采。
+
+    核心A股（sh/sz/cyb/...9个）：新浪主源 -> baostock -> 腾讯 回退。
+    申万行业（sw_801xxx 31个）：申万官方 trend API（唯一支持源，T+1 延迟）。
 
     返回 (ok, fail, details)。补后仍缺 -> collect_log 写 warn（告警，避免下次
     看首页才发现 0%/卡片缺失）。
@@ -92,6 +154,8 @@ def verify_and_backfill_indices(date, verbose=True):
     bs_date = f"{date[:4]}-{date[4:6]}-{date[6:]}"
 
     conn = get_conn()
+
+    # ── 1. 核心A股指数校验 ──
     missing = []
     for idx_id in CORE_A_INDICES:
         r = conn.execute(
@@ -99,55 +163,88 @@ def verify_and_backfill_indices(date, verbose=True):
         ).fetchone()
         if r["d"] != date:
             missing.append(idx_id)
-    conn.close()
-
-    if not missing:
-        if verbose:
-            print(f"  [校验] {len(CORE_A_INDICES)} 个核心 A 股指数今日({date})齐全 ✓")
-        return 0, 0, []
-
-    if verbose:
-        print(f"  [校验] {len(missing)} 个指数缺今日 {date}: {missing} -> 多源补采")
-
-    import baostock as bs
-    bs.login()
 
     ok = 0
     fail = 0
     details = []
-    try:
-        # 延迟 import 避免与 runner 循环导入
-        from .runner import upsert_index_rows
 
-        for idx_id in missing:
-            bs_code, tx_symbol = CORE_A_INDICES[idx_id]
-            rows = []
-            src = None
-            # 1. baostock（kc50/bj50 跳过：baostock 无该指数）
-            if bs_code and idx_id != "kc50":
-                rows = _baostock_fetch(bs_code, idx_id, bs_date, date)
+    if not missing:
+        if verbose:
+            print(f"  [校验] {len(CORE_A_INDICES)} 个核心 A 股指数今日({date})齐全 ✓")
+    else:
+        if verbose:
+            print(f"  [校验] {len(missing)} 个指数缺今日 {date}: {missing} -> 多源补采")
+
+        import baostock as bs
+        bs.login()
+        try:
+            # 延迟 import 避免与 runner 循环导入
+            from .runner import upsert_index_rows
+
+            for idx_id in missing:
+                bs_code, tx_symbol = CORE_A_INDICES[idx_id]
+                rows = []
+                src = None
+                # 1. baostock（kc50/bj50 跳过：baostock 无该指数）
+                if bs_code and idx_id != "kc50":
+                    rows = _baostock_fetch(bs_code, idx_id, bs_date, date)
+                    if rows:
+                        src = "baostock"
+                # 2. 腾讯兜底
+                if not rows:
+                    rows = _tencent_fetch(tx_symbol, idx_id, date)
+                    if rows:
+                        src = "tencent"
                 if rows:
-                    src = "baostock"
-            # 2. 腾讯兜底
-            if not rows:
-                rows = _tencent_fetch(tx_symbol, idx_id, date)
-                if rows:
-                    src = "tencent"
+                    upsert_index_rows(rows)
+                    ok += 1
+                    details.append((idx_id, "ok", f"backfill {src} close={rows[0][5]}"))
+                    if verbose:
+                        print(f"    ✓ {idx_id} <- {src} close={rows[0][5]} pct={rows[0][6]}")
+                else:
+                    fail += 1
+                    details.append((idx_id, "fail", "三源均无今日数据"))
+                    log_collect(date, idx_id, "warn",
+                                "指数今日数据缺失：新浪主源未取到，baostock+腾讯补采亦失败")
+                    if verbose:
+                        print(f"    ✗ {idx_id} 补采失败（三源均无）<- 已写告警")
+        finally:
+            bs.logout()
+
+    # ── 2. 申万一级行业指数（sw_*）补采 ──────────────────────────────────
+    # 申万官方 trend API 是唯一支持 sw_* OHLC 历史的源（新浪/腾讯/baostock/
+    # mootdx/东财均不支持申万行业指数代码）。主源 index_hist_sw 已在 runner
+    # step1 采过，这里只校验今日是否到位，缺失则重拉 trend 全量取最新行补采。
+    # 申万源 T+1 发布延迟：周五数据可能要周一才出，未发布则跳过写告警。
+    sw_missing = []
+    for sw_id in SW_INDICES:
+        r = conn.execute(
+            "SELECT max(date) AS d FROM index_daily WHERE index_id=?", (sw_id,)
+        ).fetchone()
+        if r["d"] != date:
+            sw_missing.append(sw_id)
+    conn.close()
+
+    if not sw_missing:
+        if verbose:
+            print(f"  [校验] {len(SW_INDICES)} 个申万行业指数今日({date})齐全 ✓")
+    else:
+        if verbose:
+            print(f"  [校验] {len(sw_missing)} 个申万行业指数缺今日 {date} -> 申万 trend API 补采")
+        from .runner import upsert_index_rows
+        for sw_id in sw_missing:
+            rows = _sw_trend_fetch(sw_id, date)
             if rows:
                 upsert_index_rows(rows)
                 ok += 1
-                details.append((idx_id, "ok", f"backfill {src} close={rows[0][5]}"))
+                details.append((sw_id, "ok", f"backfill sw-trend close={rows[0][5]}"))
                 if verbose:
-                    print(f"    ✓ {idx_id} <- {src} close={rows[0][5]} pct={rows[0][6]}")
+                    print(f"    ✓ {sw_id} <- sw-trend close={rows[0][5]} pct={rows[0][6]}")
             else:
                 fail += 1
-                details.append((idx_id, "fail", "三源均无今日数据"))
-                log_collect(date, idx_id, "warn",
-                            "指数今日数据缺失：新浪主源未取到，baostock+腾讯补采亦失败")
+                details.append((sw_id, "fail", "申万源 T+1 延迟未发布当日数据"))
                 if verbose:
-                    print(f"    ✗ {idx_id} 补采失败（三源均无）<- 已写告警")
-    finally:
-        bs.logout()
+                    print(f"    - {sw_id} 申万源未发布当日（T+1 延迟），下次定时任务再补")
 
     return ok, fail, details
 
