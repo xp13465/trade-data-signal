@@ -867,11 +867,16 @@ async function fetchLabData() {
 }
 
 // 模拟回测可选指数（每个指数一个 JSON 文件，前端按需加载）
+// 8个A股宽基指数：覆盖大盘/成长/价值/中小盘全谱系，须与 lab_simulate.py 的 SIM_INDEXES 同步
 const LAB_SIM_INDEXES = [
   { id: "sh", name: "上证指数" },
   { id: "sz", name: "深证成指" },
   { id: "cyb", name: "创业板指" },
   { id: "kc50", name: "科创50" },
+  { id: "sz50", name: "上证50" },
+  { id: "hs300", name: "沪深300" },
+  { id: "csi500", name: "中证500" },
+  { id: "csi1000", name: "中证1000" },
 ];
 
 // 获取 lab_sim_{index}_stats.json 数据（小文件，推荐榜/矩阵/配对卡片秒开）
@@ -1515,7 +1520,7 @@ async function renderLabDetail(key) {
   // 检查该指数是否有模拟回测数据（仅4个指数有）
   const simIdx = LAB_SIM_INDEXES.find((x) => x.id === (state.labIndex || "sh"));
   if (!simIdx) {
-    simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">该指数暂无模拟回测数据（仅支持上证/深证/创业板/科创50）</div>`;
+    simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">该指数暂无模拟回测数据（仅支持A股宽基指数）</div>`;
   } else {
     const simData = await fetchLabSimData(simIdx.id);
     const _rerenderSim = () => {
@@ -2012,12 +2017,13 @@ async function renderSignalLab() {
   // 回测推荐榜（列表页底部空白区，按指数加载 lab_simulate_{index}.json，不阻塞上方骨架）
   const rankSection = document.createElement("div");
   rankSection.className = "chart-card lab-rank-card";
-  // 指数选择器（持久，不随 rank body 重渲染消失）
-  const rankIdxOpts = LAB_SIM_INDEXES.map((x) =>
-    `<option value="${x.id}"${x.id === (state.labSimIndex || "sh") ? " selected" : ""}>${x.name}</option>`
+  // 指数选择器（持久，不随 rank body 重渲染消失）。按钮组样式与"时间窗口"一致。
+  const _curIdx = state.labSimIndex || "sh";
+  const rankIdxBtns = LAB_SIM_INDEXES.map((x) =>
+    `<button type="button" class="lab-idx-tab${x.id === _curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
   ).join("");
   rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3>' +
-    `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><select class="lab-rank-index">${rankIdxOpts}</select></div>` +
+    `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…</div></div>';
   content.appendChild(rankSection);
   const _loadRank = async () => {
@@ -2026,14 +2032,17 @@ async function renderSignalLab() {
     _labRankRerender(rankSection, simData);
   };
   _loadRank();
-  // 指数切换：重新加载该指数数据并重渲染 rank body
-  rankSection.querySelector(".lab-rank-index").onchange = (e) => {
-    state.labSimIndex = e.target.value;
-    state.labRankShowAll = false;
-    const body = rankSection.querySelector(".lab-rank-body");
-    if (body) body.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
-    _loadRank();
-  };
+  // 指数切换：切换 active 按钮，重新加载该指数数据并重渲染 rank body
+  rankSection.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labSimIndex = btn.dataset.idx;
+      state.labRankShowAll = false;
+      rankSection.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      const body = rankSection.querySelector(".lab-rank-body");
+      if (body) body.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
+      _loadRank();
+    };
+  });
 
   // F5 恢复：更新 hash + 恢复滚动位置
   _labSetHash("#lab");

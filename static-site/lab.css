@@ -436,6 +436,14 @@
 }
 .lab-win-tab:hover { background: #f3f4f6; }
 .lab-win-tab.active { background: #3370ff; color: #fff; border-color: #3370ff; }
+/* 指数选择按钮组：与 .lab-win-tab 同尺寸/字号/间距（风格一致），独立类避免与窗口按钮的事件绑定冲突 */
+.lab-idx-tab {
+  padding: 5px 11px; border: 1px solid #e5e6eb; border-radius: 6px;
+  background: #fff; color: #4e5969; font-size: 12px; cursor: pointer;
+  transition: all 0.15s; -webkit-appearance: none; appearance: none;
+}
+.lab-idx-tab:hover { background: #f3f4f6; }
+.lab-idx-tab.active { background: #3370ff; color: #fff; border-color: #3370ff; }
 /* 矩阵当前窗口行高亮 */
 .lab-matrix-table tr.lab-matrix-row-active > td { background: #f0f5ff; }
 .lab-matrix-table tr.lab-matrix-row-active > .lab-matrix-rowhead { color: #3370ff; font-weight: 700; }
