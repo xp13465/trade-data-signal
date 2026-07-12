@@ -10,6 +10,36 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 > ⚠ 开工先看 `data/alerts/latest.md` 是否有未处理严重告警，有则优先排查。
 
+## 交接状态（2026-07-11 续4，模拟回测升级-穷尽配对+双模式+分页）
+
+> 阶段二模拟回测升级：穷尽买点配对 + 双交易模式 + 交易记录分页。1 commit 推 main。
+
+**已完成**：
+1. `459784d` 模拟回测升级：
+   - **后端 `scripts/lab_simulate.py` 重写**：8买×8卖=64组配对×2模式=128组回测。旧版16策略单一配对(买配D1/卖配C1)仅全仓模式，新版穷尽所有买×卖组合 + 双交易模式。
+   - **两种交易模式**：
+     - `full_in`（全仓进出）：买信号全仓买入，卖信号全仓卖出，本金复利滚动（与旧版一致）
+     - `fixed_10k`（1万定额）：每次买信号买入1万元(最多10笔)，卖信号清仓全部（参考 `simulate_trade.py` 路径C）
+   - **新JSON结构**：`strategies->{key}->{side, pairs->{paired_key->{full_in/fixed_10k->{stats, equity_curve, trades}}}}`，对称存储(买策略下存卖策略key / 卖策略下存买策略key)
+   - **净值曲线均匀采样**：最多200点，超长曲线按步长采样保留首尾
+   - **JSON体积**：12.3MB（128组×双版存储），远低于25MB限制
+   - **前端模拟回测卡片重做**：
+     - 配对买/卖点下拉选择器（默认：买策略配D1卖/卖策略配C1买，可切换所有8个配对）
+     - 交易模式toggle（全仓进出 / 1万定额），切换即时刷新统计+净值曲线+交易记录
+     - 交易记录分页（每页20条 + 上一页/下一页按钮 + 页码信息）
+     - 状态管理：`state.labSimPair/labSimMode/labSimPage`，策略切换时重置
+   - **CSS新增**：`.lab-sim-controls/.lab-sim-pair-select/.lab-sim-mode-toggle/.lab-sim-pager` 等，H5适配纵向排列
+   - 双版同步 web/+static-site/ 逐字一致（仅URL差异），bump_asset_version 破缓存
+   - 公网已验证：JSON新结构生效，JS/CSS已部署
+
+**关键发现**（穷尽配对后）：
+- C1_RSI30×D1_high20_drop5（生产组合）：full_in -31.2% / fixed_10k +1.2%（分批建仓大幅降低风险）
+- 最佳组合：Donchian20_up×MACD_death full_in +73444%（趋势跟踪+MACD死叉确认）
+- BB_lower_revert×D1 full_in -47.2%（超卖反弹+回落止盈在长期配对中仍亏）
+- fixed_10k模式普遍收益更低但回撤更小（分批建仓风险控制）
+
+**下轮起点**：用户看公网效果后决定待办 1/2 方向（其他策略图表 / BB_upper_revert 融生产）。
+
 ## 交接状态（2026-07-11 续3，策略实验室阶段二上线 + 配色/去重/文案）
 
 > 阶段二模拟回测 + 多轮 UI 打磨。4 commit 全推 main。
