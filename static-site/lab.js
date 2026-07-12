@@ -416,6 +416,43 @@ const LAB_STATUS_TAGS = {
 const LAB_WINDOWS = ["全史", "近10年", "近5年", "近3年", "近1年"];
 const LAB_HORIZONS = ["5d", "10d", "20d", "60d"];
 
+// === 5窗口切换（lab_simulate.json 新结构：stats/trades切片/equity切片 均按窗口独立）===
+// win key -> 矩阵中文窗口名（用于行高亮）
+const LAB_WIN_CN = { all: "全史", y10: "近10年", y5: "近5年", y3: "近3年", y1: "近1年" };
+const LAB_WIN_DEFS = [
+  { k: "all", l: "全历史" },
+  { k: "y10", l: "近10年" },
+  { k: "y5", l: "近5年" },
+  { k: "y3", l: "近3年" },
+  { k: "y1", l: "近1年" },
+];
+
+// 配对查找：新结构 pairs 按 "buyKey|sellKey" 存一份（配对去重），直接取
+function _labGetPair(simData, buyKey, sellKey) {
+  return simData.pairs && simData.pairs[buyKey + "|" + sellKey];
+}
+
+// 取某窗口的切片数据：stats(单窗口) + trades(按 tw 切片) + equity_curve(按 ew 切片)
+// 新结构 trades/equity_curve 全史共享一份，tw/ew 存各窗口 [start,end] 切片索引
+function _labPairWinData(pairData, mode, win) {
+  const md = pairData && pairData[mode];
+  if (!md) return null;
+  const stats = (md.stats && md.stats[win]) || null;
+  const tw = md.tw && md.tw[win];
+  const ew = md.ew && md.ew[win];
+  const trades = (tw && md.trades) ? md.trades.slice(tw[0], tw[1]) : (md.trades || []);
+  const equity_curve = (ew && md.equity_curve) ? md.equity_curve.slice(ew[0], ew[1]) : (md.equity_curve || []);
+  return { stats, trades, equity_curve };
+}
+
+// 窗口切换 tabs HTML（默认近1年：全史太密）
+function _labWinTabsHTML() {
+  const cur = state.labSimWindow || "y1";
+  return '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
+    `<button type="button" class="lab-win-tab${w.k === cur ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
+  ).join("") + "</div>";
+}
+
 // 有图表实现的策略 key（仅这4个有指标+信号图表）
 const LAB_CHART_KEYS = { BB_upper_revert: 1, BB_lower_revert: 1, Supertrend_buy: 1, MA_death_5_20: 1 };
 
@@ -558,8 +595,9 @@ function _labDdColor(dd) {
 
 // 渲染单个交易模式区块详情（4数字 + 净值曲线 + 折叠交易记录）
 // 区块标题由外层 _labSimSectionHTML 的 .lab-sim-strat-head 提供，此处不含 head
-function _labSimModeBlock(mode, modeData, initCapital, page, isOpen, signalBtnHTML) {
-  const s = modeData && modeData.stats;
+// winData = {stats, trades, equity_curve}，已按当前窗口切片（_labPairWinData 产出）
+function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML) {
+  const s = winData && winData.stats;
   if (!s) {
     return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
       `<div class="lab-sim-empty">该模式无交易数据</div></div>`;
@@ -570,8 +608,8 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen, signalBtnHT
   const winTrades = Math.round((s.win_rate / 100) * s.n_trades);
   const loseTrades = s.n_trades - winTrades;
   const gradId = "labSimGrad_" + mode;
-  const svgHTML = _labSimSVG(modeData.equity_curve, initCapital, gradId);
-  const trades = modeData.trades || [];
+  const svgHTML = _labSimSVG(winData.equity_curve, initCapital, gradId);
+  const trades = winData.trades || [];
 
   // 分页
   const perPage = 20;
@@ -645,27 +683,31 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen, signalBtnHT
 
 // 渲染单个策略区块（标题+描述 -> 配对卡片切换 -> 详情）
 // 上下两区各自独立：配对卡片切换、4数字、净值曲线、折叠交易记录都各自一套
-function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pairSideLabel, mainKey, side) {
+// 新结构：pairs 在 simData.pairs 按 "buyKey|sellKey" 去重存储，按 mainKey 的 side 决定 partner 方向
+function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair, initCapital, pairSideLabel) {
   const modeName = mode === "full_in" ? "全仓交易策略" : "定额交易策略";
   const modeDesc = mode === "full_in"
     ? "每次全仓买入卖出，本金复利滚动，收益和风险都放大"
     : "每次固定买入1万元分批建仓，卖信号清仓，风险更分散";
+  const win = state.labSimWindow || "y1";
 
   // 各 mode 独立的配对选择
   const pairStateKey = mode === "full_in" ? "labSimPairFi" : "labSimPairFk";
   let currentPair = state[pairStateKey] || defaultPair;
-  if (!pairs[currentPair]) currentPair = pairKeys[0];
+  if (pairKeys.indexOf(currentPair) < 0) currentPair = pairKeys[0];
   state[pairStateKey] = currentPair;
   // 当前配对名（吸顶时常驻显示，让用户滚动看详情时仍知当前配的是什么）
   const curPairName = (LAB_STRATEGIES[currentPair] && LAB_STRATEGIES[currentPair].name) || currentPair;
 
-  // 配对策略卡片列表（仅显示本 mode 的 ret/胜率/样本）
+  // 配对策略卡片列表（仅显示本 mode 的 ret/胜率/样本，按当前窗口 stats）
   const pairCards = pairKeys.map((pk) => {
     const meta = LAB_STRATEGIES[pk];
     const name = meta ? meta.name : pk;
-    const pd = pairs[pk];
-    const md = pd && pd[mode];
-    const st = md && md.stats;
+    const buyKey = side === "buy" ? mainKey : pk;
+    const sellKey = side === "buy" ? pk : mainKey;
+    const pairData = _labGetPair(simData, buyKey, sellKey);
+    const wd = _labPairWinData(pairData, mode, win);
+    const st = wd && wd.stats;
     let lvl = "warn";
     if (st) {
       const retLv = _labLvl(st.total_ret, { good: 5, bad: -5 });
@@ -691,36 +733,36 @@ function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pai
     `<div class="lab-sim-pair-section"><div class="lab-sim-pair-label">配对${pairSideLabel}（点卡片切换 · 红好/绿差）</div>` +
     `<div class="lab-sim-pair-list">${pairCards}</div></div>`;
 
-  const pairData = pairs[currentPair];
-  const modeData = pairData && pairData[mode];
+  // 当前配对的窗口切片数据
+  const buyKey = side === "buy" ? mainKey : currentPair;
+  const sellKey = side === "buy" ? currentPair : mainKey;
+  const pairData = _labGetPair(simData, buyKey, sellKey);
+  const winData = _labPairWinData(pairData, mode, win);
   // 区块标题：策略名 + 当前配对名 + 描述（sticky 吸顶时常驻）
   const headHTML = `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-pair">· 配 ${curPairName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>`;
   // 买卖信号弹窗入口：买策略+卖策略 key
-  const buyKey = side === "buy" ? mainKey : currentPair;
-  const sellKey = side === "buy" ? currentPair : mainKey;
   const signalBtnHTML = `<div class="lab-sim-signal-btn-wrap"><button type="button" class="lab-sim-signal-btn" data-buy="${buyKey}" data-sell="${sellKey}">📊 查看买卖信号</button></div>`;
-  if (!modeData || !modeData.stats) {
+  if (!winData || !winData.stats) {
     return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
       headHTML + pairListHTML + '<div class="lab-sim-empty">该模式无交易数据</div>' + signalBtnHTML + '</div>';
   }
 
   const page = mode === "full_in" ? (state.labSimPageFi || 0) : (state.labSimPageFk || 0);
   const isOpen = mode === "full_in" ? !!state.labSimFiOpen : !!state.labSimFkOpen;
-  const detailBlock = _labSimModeBlock(mode, modeData, initCapital, page, isOpen, signalBtnHTML);
+  const detailBlock = _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML);
 
   return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
     headHTML + pairListHTML + detailBlock + '</div>';
 }
 
-// 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换）
+// 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换 · 5窗口切换）
 function _labSimCardHTML(key, simData) {
-  if (!simData || !simData.strategies || !simData.strategies[key] || !simData.strategies[key].pairs) {
+  if (!simData || !simData.strategies || !simData.strategies[key] || !simData.pairs) {
     return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
   }
   const strat = simData.strategies[key];
   const side = strat.side;
-  const pairs = strat.pairs;
-  const pairKeys = Object.keys(pairs);
+  const pairKeys = strat.partners || [];
   if (pairKeys.length === 0) {
     return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
   }
@@ -731,14 +773,28 @@ function _labSimCardHTML(key, simData) {
   const pairSideLabel = side === "buy" ? "卖点" : "买点";
 
   // 上区：全仓交易策略 / 下区：定额交易策略（各自独立配对切换+详情）
-  const fiSection = _labSimSectionHTML("full_in", pairs, pairKeys, defaultPair, initCapital, pairSideLabel, key, side);
-  const fkSection = _labSimSectionHTML("fixed_10k", pairs, pairKeys, defaultPair, initCapital, pairSideLabel, key, side);
+  const fiSection = _labSimSectionHTML("full_in", simData, key, side, pairKeys, defaultPair, initCapital, pairSideLabel);
+  const fkSection = _labSimSectionHTML("fixed_10k", simData, key, side, pairKeys, defaultPair, initCapital, pairSideLabel);
 
-  return '<h3>💰 模拟回测（配对交易）</h3>' + fiSection + fkSection;
+  // 窗口切换 tabs（默认近1年）
+  const winLabel = LAB_WIN_DEFS.find((w) => w.k === (state.labSimWindow || "y1"));
+  return '<h3>💰 模拟回测（配对交易）</h3>' +
+    `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}<span class="lab-win-bar-cur">${winLabel ? winLabel.l : ""}</span></div>` +
+    fiSection + fkSection;
 }
 
-// 模拟回测卡片交互绑定（per-mode 配对切换 / 交易记录折叠 / 分页）
+// 模拟回测卡片交互绑定（窗口切换 / per-mode 配对切换 / 交易记录折叠 / 分页）
 function _labSimAttachHandlers(key, simData, simCard, rerender) {
+  // 窗口切换
+  simCard.querySelectorAll(".lab-win-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labSimWindow = btn.dataset.win;
+      // 切窗口重置分页（不同窗口交易笔数不同）
+      state.labSimPageFi = 0;
+      state.labSimPageFk = 0;
+      rerender();
+    };
+  });
   // 配对策略卡片切换（各 mode 独立）
   simCard.querySelectorAll(".lab-sim-pair-card").forEach((card) => {
     card.onclick = () => {
@@ -801,7 +857,10 @@ function renderLabMatrix(strategyData) {
   html += '</tr></thead><tbody>';
   LAB_WINDOWS.forEach((w) => {
     const wp = periods[w];
-    html += `<tr><td class="lab-matrix-rowhead">${w}</td>`;
+    // 高亮当前选中窗口行（窗口切换按钮联动矩阵）
+    const curWin = LAB_WIN_CN[state.labSimWindow || "y1"];
+    const rowHi = w === curWin ? " lab-matrix-row-active" : "";
+    html += `<tr class="${rowHi.trim()}"><td class="lab-matrix-rowhead">${w}</td>`;
     LAB_HORIZONS.forEach((h) => {
       const cell = wp && wp[h];
       if (!cell) {
@@ -835,6 +894,15 @@ function renderLabMatrix(strategyData) {
   });
   html += '</tbody></table>';
   return html;
+}
+
+// 窗口切换后同步矩阵当前行高亮（DOM 直接 toggle，无需重渲染矩阵）
+function _labUpdateMatrixRowHighlight() {
+  const curWin = LAB_WIN_CN[state.labSimWindow || "y1"];
+  document.querySelectorAll(".lab-matrix-table tbody tr").forEach((tr) => {
+    const head = tr.querySelector(".lab-matrix-rowhead");
+    tr.classList.toggle("lab-matrix-row-active", !!(head && head.textContent === curWin));
+  });
 }
 
 // 实验室自白黄块 HTML（列表页 + 详情页共用）
@@ -984,7 +1052,7 @@ async function renderLabDetail(key) {
   content.appendChild(matrixCard);
 
   // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页）
-  // lab_simulate.json 较大（~4.8MB），先渲染 loading 占位，异步加载就绪后填充，不阻塞上方骨架
+  // lab_simulate.json 较大（~2.6MB），先渲染 loading 占位，异步加载就绪后填充，不阻塞上方骨架
   state.labSimPairFi = null;
   state.labSimPairFk = null;
   state.labSimPageFi = 0;
@@ -993,7 +1061,7 @@ async function renderLabDetail(key) {
   state.labSimFkOpen = false;
   const simCard = document.createElement("div");
   simCard.className = "chart-card lab-sim-card";
-  simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…（约4.8MB，请稍候）</div>';
+  simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…（约2.6MB，请稍候）</div>';
   content.appendChild(simCard);
   const simData = await fetchLabSimData();
   const _rerenderSim = () => {
@@ -1003,6 +1071,8 @@ async function renderLabDetail(key) {
     }
     simCard.innerHTML = _labSimCardHTML(key, simData);
     _labSimAttachHandlers(key, simData, simCard, _rerenderSim);
+    // 窗口切换后同步矩阵行高亮（矩阵与 sim 卡片在同一详情页）
+    _labUpdateMatrixRowHighlight();
   };
   _rerenderSim();
   // F5 恢复：更新 hash + 恢复滚动位置
@@ -1011,8 +1081,8 @@ async function renderLabDetail(key) {
 }
 
 // === 回测推荐榜（列表页底部，128组配对多维度排序 + 点击弹窗细节）===
-// 数据源：lab_simulate.json。配对 buy_X×sell_Y 与 sell_Y×buy_X 在 JSON 中双向存储且
-// stats 完全相同，故仅遍历 buy 侧即可得 8买×8卖×2模式=128 组去重配对。
+// 数据源：lab_simulate.json。新结构 pairs 按 "buyKey|sellKey" 去重存储（只存一份），
+// 直接遍历 simData.pairs 即得 8买×8卖×2模式=128 组去重配对。窗口切换共用 state.labSimWindow。
 const LAB_RANK_TABS = [
   { key: "composite", label: "🏆 综合推荐" },
   { key: "ret", label: "📈 收益率" },
@@ -1021,29 +1091,28 @@ const LAB_RANK_TABS = [
   { key: "risk_adj", label: "⚖ 风险调整" },
 ];
 
-// 聚合128组配对（仅遍历 buy 侧去重）+ 算综合评分与风险调整
-function _labRankAggregate(simData) {
-  if (!simData || !simData.strategies) return [];
-  const st = simData.strategies;
-  const buys = Object.keys(st).filter((k) => st[k].side === "buy");
+// 聚合128组配对 + 算综合评分与风险调整
+// 新结构：simData.pairs 按 "buyKey|sellKey" 去重存储（配对只存一份），直接遍历即得 8买×8卖×2模式=128 组
+function _labRankAggregate(simData, win) {
+  if (!simData || !simData.pairs) return [];
   const rows = [];
-  for (const bk of buys) {
-    const pairs = st[bk].pairs || {};
-    for (const sk in pairs) {
-      for (const mode of ["full_in", "fixed_10k"]) {
-        const md = pairs[sk] && pairs[sk][mode];
-        if (!md || !md.stats) continue;
-        const s = md.stats;
-        rows.push({
-          buyKey: bk, sellKey: sk, mode,
-          buyName: (LAB_STRATEGIES[bk] || {}).name || bk,
-          sellName: (LAB_STRATEGIES[sk] || {}).name || sk,
-          modeName: mode === "full_in" ? "全仓" : "定额",
-          total_ret: s.total_ret, annual_ret: s.annual_ret,
-          max_drawdown: s.max_drawdown, win_rate: s.win_rate,
-          n_trades: s.n_trades, years: s.years, final_total: s.final_total,
-        });
-      }
+  for (const pairKey in simData.pairs) {
+    const parts = pairKey.split("|");
+    const bk = parts[0], sk = parts[1];
+    const pairData = simData.pairs[pairKey];
+    for (const mode of ["full_in", "fixed_10k"]) {
+      const wd = _labPairWinData(pairData, mode, win);
+      if (!wd || !wd.stats) continue;
+      const s = wd.stats;
+      rows.push({
+        buyKey: bk, sellKey: sk, mode,
+        buyName: (LAB_STRATEGIES[bk] || {}).name || bk,
+        sellName: (LAB_STRATEGIES[sk] || {}).name || sk,
+        modeName: mode === "full_in" ? "全仓" : "定额",
+        total_ret: s.total_ret, annual_ret: s.annual_ret,
+        max_drawdown: s.max_drawdown, win_rate: s.win_rate,
+        n_trades: s.n_trades, years: s.years, final_total: s.final_total,
+      });
     }
   }
   // 风险调整：年化/最大回撤（类 Calmar）。回撤极小且年化为正时给大值，避免除0。
@@ -1100,7 +1169,8 @@ function _labRankItemHTML(row, rank, tab) {
 
 function _labRankHTML(simData) {
   if (!simData) return '<div class="lab-rank-empty">推荐榜数据加载失败，请稍后重试</div>';
-  const rows = _labRankAggregate(simData);
+  const win = state.labSimWindow || "y1";
+  const rows = _labRankAggregate(simData, win);
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无推荐榜数据</div>';
   state.labRankRows = rows;
   const tab = state.labRankTab || "composite";
@@ -1123,12 +1193,17 @@ function _labRankHTML(simData) {
         : tab === "ret"
           ? "收益率榜按总收益率从高到低排序。"
           : "胜率榜按胜率从高到低排序。";
-  return `<div class="lab-rank-tabs">${tabsHTML}</div>` +
+  return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}</div>` +
+    `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。</div>` +
     `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
 }
 
 function _labRankAttachHandlers(section, simData) {
+  // 窗口切换
+  section.querySelectorAll(".lab-win-tab").forEach((btn) => {
+    btn.onclick = () => { state.labSimWindow = btn.dataset.win; _labRankRerender(section, simData); };
+  });
   section.querySelectorAll(".lab-rank-tab").forEach((btn) => {
     btn.onclick = () => { state.labRankTab = btn.dataset.tab; state.labRankShowAll = false; _labRankRerender(section, simData); };
   });
@@ -1171,28 +1246,28 @@ function _labRankCloseModal() {
 function _labRankModalRender(overlay, simData) {
   const m = state.labRankModal;
   if (!m) return;
-  const st = simData.strategies;
-  const buyStrat = st[m.buyKey];
-  const pairData = buyStrat && buyStrat.pairs && buyStrat.pairs[m.sellKey];
-  const modeData = pairData && pairData[m.mode];
+  const win = state.labSimWindow || "y1";
+  const pairData = _labGetPair(simData, m.buyKey, m.sellKey);
+  const winData = _labPairWinData(pairData, m.mode, win);
   const buyName = (LAB_STRATEGIES[m.buyKey] || {}).name || m.buyKey;
   const sellName = (LAB_STRATEGIES[m.sellKey] || {}).name || m.sellKey;
   const modeName = m.mode === "full_in" ? "全仓" : "定额";
+  const winLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
   const initCapital = simData.initial_capital || 100000;
   let bodyHTML;
-  if (!modeData || !modeData.stats) {
+  if (!winData || !winData.stats) {
     bodyHTML = '<div class="lab-rank-modal-empty">该配对无交易数据</div>';
   } else {
     // 同步 page 到有效范围（_labSimModeBlock 内部也会 clamp，此处保持 state 一致）
-    const trades = modeData.trades || [];
+    const trades = winData.trades || [];
     const totalPages = Math.max(1, Math.ceil(trades.length / 20));
     if (m.page > totalPages - 1) m.page = totalPages - 1;
     if (m.page < 0) m.page = 0;
-    bodyHTML = _labSimModeBlock(m.mode, modeData, initCapital, m.page, m.open);
+    bodyHTML = _labSimModeBlock(m.mode, winData, initCapital, m.page, m.open);
   }
   overlay.innerHTML = `<div class="lab-rank-modal">` +
     `<div class="lab-rank-modal-head">` +
-    `<span class="lab-rank-modal-title">买${buyName} × 卖${sellName} · ${modeName}</span>` +
+    `<span class="lab-rank-modal-title">买${buyName} × 卖${sellName} · ${modeName}（${winLabel}）</span>` +
     `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
     `</div>` +
     `<div class="lab-rank-modal-body">${bodyHTML}</div>` +
@@ -1449,10 +1524,10 @@ async function renderSignalLab() {
   });
   content.appendChild(list);
 
-  // 回测推荐榜（列表页底部空白区，异步加载 lab_simulate.json ~4.8MB，不阻塞上方骨架）
+  // 回测推荐榜（列表页底部空白区，异步加载 lab_simulate.json ~2.6MB，不阻塞上方骨架）
   const rankSection = document.createElement("div");
   rankSection.className = "chart-card lab-rank-card";
-  rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3><div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…（约4.8MB，请稍候）</div></div>';
+  rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3><div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…（约2.6MB，请稍候）</div></div>';
   content.appendChild(rankSection);
   fetchLabSimData().then((simData) => {
     const body = rankSection.querySelector(".lab-rank-body");

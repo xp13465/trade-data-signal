@@ -1887,9 +1887,11 @@ function renderIndustryGrid(indices, containerOverride) {
     const sign = up ? "+" : "";
     const hint = statsHint(idx.stats, idx.strategy, id);
     const etfTag = _renderEtfTag(idx.etfs);
+    // 行业卡片标题加最新收盘值（与全站图表 latestSuffix 一致：· MM-DD 收盘价）
+    const closeSuffix = (last && last.close != null) ? ` · ${fmtDate(last.date)} ${last.close.toFixed(2)}` : "";
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${idx.name}${etfTag}</span>
+        <span class="spark-name">${idx.name}${etfTag}${closeSuffix}</span>
         <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}

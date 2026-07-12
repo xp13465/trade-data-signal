@@ -418,6 +418,24 @@
 }
 .lab-rank-tab:hover { background: #f7f8fa; }
 .lab-rank-tab.active { background: #9c27b0; color: #fff; border-color: #9c27b0; }
+/* 5窗口切换条（模拟回测+推荐榜共用） */
+.lab-win-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 6px 0 10px; padding: 8px 10px; background: #f7f8fa; border-radius: 8px;
+}
+.lab-win-bar-label { font-size: 12px; color: #86909c; flex-shrink: 0; }
+.lab-win-bar-cur { font-size: 12px; color: #9c27b0; font-weight: 600; margin-left: auto; }
+.lab-win-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.lab-win-tab {
+  padding: 5px 11px; border: 1px solid #e5e6eb; border-radius: 6px;
+  background: #fff; color: #4e5969; font-size: 12px; cursor: pointer;
+  transition: all 0.15s; -webkit-appearance: none; appearance: none;
+}
+.lab-win-tab:hover { background: #f3f4f6; }
+.lab-win-tab.active { background: #3370ff; color: #fff; border-color: #3370ff; }
+/* 矩阵当前窗口行高亮 */
+.lab-matrix-table tr.lab-matrix-row-active > td { background: #f0f5ff; }
+.lab-matrix-table tr.lab-matrix-row-active > .lab-matrix-rowhead { color: #3370ff; font-weight: 700; }
 .lab-rank-legend {
   font-size: 12px; color: #86909c; background: #f7f8fa;
   padding: 8px 10px; border-radius: 6px; margin-bottom: 10px; line-height: 1.6;
