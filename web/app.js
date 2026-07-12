@@ -707,10 +707,10 @@ function initRuleButton() {
 
 async function renderTab() {
   clearCharts();
-  // 策略实验 tab 展示全历史+BB，周期选择无意义，隐藏 .periods 和 .h5-period-bar；切走恢复
-  const _labActive = state.tab === "lab";
+  // 概览 tab 图表固定近60日、策略实验 tab 全历史，周期切换均无意义，隐藏 .periods 和 .h5-period-bar；切走恢复
+  const _hidePeriods = (state.tab === "lab" || state.tab === "overview");
   document.querySelectorAll(".periods, .h5-period-bar").forEach((el) => {
-    el.style.display = _labActive ? "none" : "";
+    el.style.display = _hidePeriods ? "none" : "";
   });
   content.innerHTML = '<div class="loading">加载中…</div>';
   try {

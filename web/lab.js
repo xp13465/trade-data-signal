@@ -133,11 +133,17 @@ function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr,
   const c = mkCard(title, 400, null, container, chartArr);
   const dates = ohlc.map((d) => d.date);
   const lblColor = signalColor || "#9c27b0";
-  const markData = signals.map((s) => ({
-    coord: [s.date, s.close],
-    value: signalLabel || "信号",
-    itemStyle: { color: lblColor },
-  }));
+  // 每个信号可自带 color/label（买卖合一展示时买红卖绿），未带则回退全局 signalLabel/signalColor
+  const markData = signals.map((s) => {
+    const c0 = s.color || lblColor;
+    const lbl0 = s.label || signalLabel || "信号";
+    return {
+      coord: [s.date, s.close],
+      value: lbl0,
+      itemStyle: { color: c0 },
+      label: { backgroundColor: c0 },
+    };
+  });
   const legendData = ["收盘价"].concat(indicators.map((it) => it.name));
   const indSeries = indicators.map((it) => ({
     name: it.name, type: "line", symbol: "none", data: it.data, smooth: true,
@@ -552,7 +558,7 @@ function _labDdColor(dd) {
 
 // 渲染单个交易模式区块详情（4数字 + 净值曲线 + 折叠交易记录）
 // 区块标题由外层 _labSimSectionHTML 的 .lab-sim-strat-head 提供，此处不含 head
-function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
+function _labSimModeBlock(mode, modeData, initCapital, page, isOpen, signalBtnHTML) {
   const s = modeData && modeData.stats;
   if (!s) {
     return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
@@ -625,6 +631,7 @@ function _labSimModeBlock(mode, modeData, initCapital, page, isOpen) {
     `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="color:${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
     `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
     `</div>` +
+    (signalBtnHTML || "") +
     `<div class="lab-sim-equity"><div class="lab-sim-equity-label">📈 净值曲线（虚线=初始本金）</div>${svgHTML}</div>` +
     `<div class="lab-sim-trades">` +
     `<div class="lab-sim-trades-header" data-mode="${mode}">` +
@@ -699,10 +706,10 @@ function _labSimSectionHTML(mode, pairs, pairKeys, defaultPair, initCapital, pai
 
   const page = mode === "full_in" ? (state.labSimPageFi || 0) : (state.labSimPageFk || 0);
   const isOpen = mode === "full_in" ? !!state.labSimFiOpen : !!state.labSimFkOpen;
-  const detailBlock = _labSimModeBlock(mode, modeData, initCapital, page, isOpen);
+  const detailBlock = _labSimModeBlock(mode, modeData, initCapital, page, isOpen, signalBtnHTML);
 
   return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
-    headHTML + pairListHTML + detailBlock + signalBtnHTML + '</div>';
+    headHTML + pairListHTML + detailBlock + '</div>';
 }
 
 // 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换）
@@ -1211,7 +1218,7 @@ function _labSignalOpenModal(buyKey, sellKey) {
   state.labSignalModal = {
     buyKey, sellKey,
     index: state.labIndex || "sh",
-    tab: "buy",
+    period: "1y",
     charts: [],
   };
   _labSignalModalRender(overlay);
@@ -1228,6 +1235,22 @@ function _labSignalCloseModal() {
     state.labSignalModal.charts.forEach((c) => { try { c.dispose(); } catch (e) {} });
   }
   state.labSignalModal = null;
+}
+
+// 买卖信号弹窗周期切换：根据全历史 ohlc 末日回推 N 年，返回 YYYYMMDD 截止日（含）
+// period: 1y/3y/5y/all。all 返回 null（不过滤）。ohlc 末日为YYYYMMDD字符串。
+function _labSignalCutoffDate(ohlc, period) {
+  if (!ohlc || !ohlc.length || period === "all") return null;
+  const last = ohlc[ohlc.length - 1].date;
+  if (!last || last.length < 8) return null;
+  const y = parseInt(last.substring(0, 4), 10);
+  const m = parseInt(last.substring(4, 6), 10);
+  const d = parseInt(last.substring(6, 8), 10);
+  const yrs = period === "1y" ? 1 : period === "3y" ? 3 : period === "5y" ? 5 : 0;
+  if (!yrs) return null;
+  let cy = y - yrs, cm = m, cd = d;
+  if (cm === 2 && cd === 29) cd = 28; // 闰日简化
+  return `${cy}${String(cm).padStart(2, "0")}${String(cd).padStart(2, "0")}`;
 }
 
 async function _labSignalModalRender(overlay) {
@@ -1251,9 +1274,11 @@ async function _labSignalModalRender(overlay) {
     `</optgroup>`
   ).join("");
 
-  const tab = m.tab || "buy";
-  const tabName = tab === "buy" ? buyName : sellName;
-  const hasChart = tab === "buy" ? buyHasChart : sellHasChart;
+  const period = m.period || "1y";
+  const periodOpts = [["1y", "1年"], ["3y", "3年"], ["5y", "5年"], ["all", "全历史"]];
+  const periodBtnsHTML = periodOpts.map(([p, lbl]) =>
+    `<button type="button" class="lab-signal-period-btn${period === p ? " active" : ""}" data-period="${p}">${lbl}</button>`
+  ).join("");
 
   overlay.innerHTML = `<div class="lab-signal-modal">` +
     `<div class="lab-signal-modal-head">` +
@@ -1261,18 +1286,17 @@ async function _labSignalModalRender(overlay) {
     `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
     `</div>` +
     `<div class="lab-signal-modal-body">` +
-    `<div class="lab-signal-filter"><label>选择指数</label><select class="lab-signal-index">${selectHTML}</select></div>` +
-    `<div class="lab-signal-tabs">` +
-    `<button type="button" class="lab-signal-tab${tab === "buy" ? " active" : ""}" data-tab="buy">买信号：${buyName}${buyHasChart ? "" : "（无图）"}</button>` +
-    `<button type="button" class="lab-signal-tab${tab === "sell" ? " active" : ""}" data-tab="sell">卖信号：${sellName}${sellHasChart ? "" : "（无图）"}</button>` +
+    `<div class="lab-signal-filter"><label>选择指数</label><select class="lab-signal-index">${selectHTML}</select>` +
+    `<span class="lab-signal-period">${periodBtnsHTML}</span>` +
+    `<span class="lab-signal-legend"><i style="background:#c92a2a"></i>买信号${buyHasChart ? "" : "(无图)"}<i style="background:#2e7d32"></i>卖信号${sellHasChart ? "" : "(无图)"}</span>` +
     `</div>` +
     `<div class="lab-signal-chart-area"><div class="loading">加载中…</div></div>` +
     `</div></div>`;
 
   overlay.querySelector(".lab-rank-modal-close").onclick = _labSignalCloseModal;
   overlay.querySelector(".lab-signal-index").onchange = (e) => { m.index = e.target.value; _labSignalModalRender(overlay); };
-  overlay.querySelectorAll(".lab-signal-tab").forEach((t) => {
-    t.onclick = () => { m.tab = t.dataset.tab; _labSignalModalRender(overlay); };
+  overlay.querySelectorAll(".lab-signal-period-btn").forEach((b) => {
+    b.onclick = () => { m.period = b.dataset.period; _labSignalModalRender(overlay); };
   });
 
   // 释放旧图表
@@ -1280,29 +1304,61 @@ async function _labSignalModalRender(overlay) {
   m.charts = [];
 
   const chartArea = overlay.querySelector(".lab-signal-chart-area");
-  if (!hasChart) {
-    chartArea.innerHTML = '<div class="lab-signal-no-chart">🔧 该策略图表开发中</div>';
+  if (!buyHasChart && !sellHasChart) {
+    chartArea.innerHTML = '<div class="lab-signal-no-chart">🔧 买卖策略图表均开发中</div>';
     return;
   }
   try {
     const r = await fetchJSON(`/api/index/${m.index}?range=all`);
-    const ohlc = r.ohlc;
-    if (!ohlc || !ohlc.length) {
+    const ohlcFull = r.ohlc;
+    if (!ohlcFull || !ohlcFull.length) {
       chartArea.innerHTML = '<div class="lab-signal-no-chart">该指数暂无数据</div>';
       return;
     }
     const indexName = _INDEX_NAME_MAP[m.index] || m.index;
-    const chartKey = tab === "buy" ? m.buyKey : m.sellKey;
-    const cfg = _labBuildChartConfig(chartKey, ohlc, indexName);
-    if (!cfg) {
-      chartArea.innerHTML = '<div class="lab-signal-no-chart">🔧 该策略图表开发中</div>';
+    // 在全历史 ohlc 上分别构建买/卖配置（指标预热正确），再合并到一张图
+    const buyCfg = buyHasChart ? _labBuildChartConfig(m.buyKey, ohlcFull, indexName) : null;
+    const sellCfg = sellHasChart ? _labBuildChartConfig(m.sellKey, ohlcFull, indexName) : null;
+
+    // 合并指标线（按 name 去重，避免 BB 双轨重复绘制）
+    const indMap = new Map();
+    [buyCfg, sellCfg].forEach((cfg) => {
+      if (!cfg) return;
+      cfg.indicators.forEach((it) => { if (!indMap.has(it.name)) indMap.set(it.name, it); });
+    });
+    const indicators = Array.from(indMap.values());
+
+    // 合并信号：买=红 / 卖=绿（A股习惯），每个信号带 color+label 供 renderLabChartEx 逐点着色
+    const BUY_COLOR = "#c92a2a", SELL_COLOR = "#2e7d32";
+    const buySigs = ((buyCfg && buyCfg.signals) || []).map((s) => ({ date: s.date, close: s.close, color: BUY_COLOR, label: "买" }));
+    const sellSigs = ((sellCfg && sellCfg.signals) || []).map((s) => ({ date: s.date, close: s.close, color: SELL_COLOR, label: "卖" }));
+    const allSignals = buySigs.concat(sellSigs).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    // 按周期切片 ohlc + 指标 + 信号（指标在全历史算好后切片，避免窗口边界预热失真）
+    const cutoff = _labSignalCutoffDate(ohlcFull, period);
+    let ohlc = ohlcFull, slicedInd = indicators, sigs = allSignals;
+    if (cutoff) {
+      const startIdx = ohlcFull.findIndex((d) => d.date >= cutoff);
+      const s = startIdx < 0 ? ohlcFull.length : startIdx;
+      ohlc = ohlcFull.slice(s);
+      slicedInd = indicators.map((it) => ({ ...it, data: it.data.slice(s) }));
+      sigs = allSignals.filter((x) => x.date >= cutoff);
+    }
+
+    if (!ohlc.length) {
+      chartArea.innerHTML = '<div class="lab-signal-no-chart">该周期内无数据</div>';
       return;
     }
+
+    const periodLabel = period === "all" ? "全历史" : period === "1y" ? "近1年" : period === "3y" ? "近3年" : "近5年";
+    const title = `${indexName} · 买卖信号（${periodLabel}）`;
     chartArea.innerHTML = "";
-    renderLabChartEx(cfg.chartTitle, ohlc, cfg.indicators, cfg.signals, chartArea, m.charts, cfg.signalLabel, cfg.signalColor);
+    renderLabChartEx(title, ohlc, slicedInd, sigs, chartArea, m.charts, "信号", "#9c27b0");
+    const buyCnt = sigs.filter((x) => x.color === BUY_COLOR).length;
+    const sellCnt = sigs.filter((x) => x.color === SELL_COLOR).length;
     const statDiv = document.createElement("div");
     statDiv.className = "lab-signal-stat";
-    statDiv.innerHTML = `共触发 <b>${cfg.signals.length}</b> 个${cfg.statLabel}（全历史）`;
+    statDiv.innerHTML = `${periodLabel}触发：<b style="color:${BUY_COLOR}">买 ${buyCnt}</b> · <b style="color:${SELL_COLOR}">卖 ${sellCnt}</b>`;
     chartArea.appendChild(statDiv);
   } catch (e) {
     chartArea.innerHTML = `<div class="loading">加载失败：${e}</div>`;
