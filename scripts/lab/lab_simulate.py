@@ -32,7 +32,8 @@
   - tw/ew: {window_key: [start_idx, end_exclusive_idx]}，指向同组 trades/equity_curve 数组。
   - 前端双向查找：给定策略A+伙伴B，若A.side=="buy"则pair_id=A+"|"+B，否则pair_id=B+"|"+A。
 
-输出: web/data/lab/lab_simulate.json + static-site/data/lab/lab_simulate.json
+输出: web/data/lab/lab_simulate_{index_id}.json + static-site/data/lab/lab_simulate_{index_id}.json
+      每个指数一个文件，前端按选指数按需加载。
 """
 import bisect
 import json
@@ -48,8 +49,13 @@ from backtest_strategies import gen_buy_signals, gen_sell_signals
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 DB = os.path.join(BASE, "data", "sentiment.db")
-INDEX_ID = "sh"
-INDEX_NAME = "上证指数"
+# 多指数回测：每个指数独立跑128组配对×5窗口，输出 lab_simulate_{iid}.json
+SIM_INDEXES = [
+    ('sh',   '上证指数'),
+    ('sz',   '深证成指'),
+    ('cyb',  '创业板指'),
+    ('kc50', '科创50'),
+]
 INITIAL_CAPITAL = 100_000
 POSITION_SIZE = 10_000
 MAX_POSITIONS = 10
@@ -378,12 +384,13 @@ def build_pair_result(full_in_raw, fixed_10k_raw, last_date, first_date):
     return out
 
 
-def main():
-    print(f"[load] {INDEX_ID} ({INDEX_NAME}) from {DB}")
-    df = load_index_data(INDEX_ID)
+def run_index(iid, iname):
+    """单指数回测：128组配对×2模式×5窗口，输出 lab_simulate_{iid}.json。"""
+    print(f"\n[load] {iid} ({iname}) from {DB}")
+    df = load_index_data(iid)
     if df is None:
-        print(f"ERROR: 无法加载 {INDEX_ID} 数据", file=sys.stderr)
-        sys.exit(1)
+        print(f"  ERROR: 无法加载 {iid} 数据，跳过")
+        return
     first_date = df.index[0]
     last_date = df.index[-1]
     print(f"  数据: {len(df)} 条, {first_date.date()} ~ {last_date.date()}")
@@ -407,8 +414,8 @@ def main():
     # 初始化结果结构
     result = {
         'generated_at': _fmt_date(last_date),
-        'index_id': INDEX_ID,
-        'index_name': INDEX_NAME,
+        'index_id': iid,
+        'index_name': iname,
         'initial_capital': INITIAL_CAPITAL,
         'windows': windows,
         'strategies': {},
@@ -459,10 +466,10 @@ def main():
 
     print(f"\n[配对] {n_pairs} 组 × 2模式 × 5窗口 = {n_pairs * 2 * 5} 组窗口回测")
 
-    # 写入双版
+    # 写入双版（per-index 文件）
     out_paths = [
-        os.path.join(BASE, 'web', 'data', 'lab', 'lab_simulate.json'),
-        os.path.join(BASE, 'static-site', 'data', 'lab', 'lab_simulate.json'),
+        os.path.join(BASE, 'web', 'data', 'lab', f'lab_simulate_{iid}.json'),
+        os.path.join(BASE, 'static-site', 'data', 'lab', f'lab_simulate_{iid}.json'),
     ]
     for p in out_paths:
         os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -471,7 +478,17 @@ def main():
         size_kb = os.path.getsize(p) / 1024
         print(f"[output] {p} ({size_kb:.1f} KB)")
 
-    print(f"\n完成: {n_pairs} 组配对, {len(all_keys)} 个策略, 5窗口")
+    print(f"完成: {iid} ({iname}) - {n_pairs} 组配对, {len(all_keys)} 个策略, 5窗口")
+
+
+def main():
+    print(f"=== 策略实验室多指数回测 ===")
+    print(f"指数: {[i[0] for i in SIM_INDEXES]}")
+    total_start = pd.Timestamp.now()
+    for iid, iname in SIM_INDEXES:
+        run_index(iid, iname)
+    elapsed = pd.Timestamp.now() - total_start
+    print(f"\n=== 全部完成: {len(SIM_INDEXES)} 个指数, 总耗时 {elapsed.total_seconds():.1f}s ===")
 
 
 if __name__ == '__main__':

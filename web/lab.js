@@ -518,15 +518,26 @@ async function fetchLabData() {
   return state.labData;
 }
 
-// 获取 lab_simulate.json 数据（缓存到 state.labSimData）
-async function fetchLabSimData() {
-  if (state.labSimData) return state.labSimData;
+// 模拟回测可选指数（每个指数一个 JSON 文件，前端按需加载）
+const LAB_SIM_INDEXES = [
+  { id: "sh", name: "上证指数" },
+  { id: "sz", name: "深证成指" },
+  { id: "cyb", name: "创业板指" },
+  { id: "kc50", name: "科创50" },
+];
+
+// 获取 lab_simulate_{index}.json 数据（per-index 缓存到 state.labSimDataMap）
+// web 版走 /static/ 挂载点（main.py 的 StaticFiles(directory=web)），static 版走 ./data/
+async function fetchLabSimData(index) {
+  index = index || "sh";
+  if (!state.labSimDataMap) state.labSimDataMap = {};
+  if (state.labSimDataMap[index]) return state.labSimDataMap[index];
   try {
-    state.labSimData = await fetchJSON("/static/data/lab/lab_simulate.json");
+    state.labSimDataMap[index] = await fetchJSON("/static/data/lab/lab_simulate_" + index + ".json");
   } catch (e) {
-    state.labSimData = null;
+    state.labSimDataMap[index] = null;
   }
-  return state.labSimData;
+  return state.labSimDataMap[index];
 }
 
 // 模拟回测净值曲线 SVG（轻量纯SVG，不依赖 ECharts）
@@ -758,7 +769,8 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
 // 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换 · 5窗口切换）
 function _labSimCardHTML(key, simData) {
   if (!simData || !simData.strategies || !simData.strategies[key] || !simData.pairs) {
-    return '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">暂无模拟回测数据</div>';
+    const idxName = (simData && simData.index_name) || "该指数";
+    return `<h3>💰 模拟回测（${idxName} · 配对交易）</h3><div class="lab-sim-empty">${simData ? "该策略暂无模拟回测数据" : "暂无模拟回测数据"}</div>`;
   }
   const strat = simData.strategies[key];
   const side = strat.side;
@@ -778,7 +790,8 @@ function _labSimCardHTML(key, simData) {
 
   // 窗口切换 tabs（默认近1年）
   const winLabel = LAB_WIN_DEFS.find((w) => w.k === (state.labSimWindow || "y1"));
-  return '<h3>💰 模拟回测（配对交易）</h3>' +
+  const idxName = simData.index_name || "";
+  return `<h3>💰 模拟回测（${idxName} · 配对交易）</h3>` +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}<span class="lab-win-bar-cur">${winLabel ? winLabel.l : ""}</span></div>` +
     fiSection + fkSection;
 }
@@ -1052,7 +1065,8 @@ async function renderLabDetail(key) {
   content.appendChild(matrixCard);
 
   // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页）
-  // lab_simulate.json 较大（~2.6MB），先渲染 loading 占位，异步加载就绪后填充，不阻塞上方骨架
+  // lab_simulate_{index}.json 按指数拆分，前端按 state.labIndex 按需加载
+  // 局部刷新：切指数只重渲染 simCard，不整页 reload（保留 tab/配对/模式/窗口上下文）
   state.labSimPairFi = null;
   state.labSimPairFk = null;
   state.labSimPageFi = 0;
@@ -1061,20 +1075,27 @@ async function renderLabDetail(key) {
   state.labSimFkOpen = false;
   const simCard = document.createElement("div");
   simCard.className = "chart-card lab-sim-card";
-  simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…（约2.6MB，请稍候）</div>';
+  const simIdxName = _INDEX_NAME_MAP[state.labIndex] || state.labIndex || "上证指数";
+  simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…</div>`;
   content.appendChild(simCard);
-  const simData = await fetchLabSimData();
-  const _rerenderSim = () => {
-    if (!simData) {
-      simCard.innerHTML = '<h3>💰 模拟回测（配对交易）</h3><div class="lab-sim-empty">模拟回测数据加载失败，请稍后重试</div>';
-      return;
-    }
-    simCard.innerHTML = _labSimCardHTML(key, simData);
-    _labSimAttachHandlers(key, simData, simCard, _rerenderSim);
-    // 窗口切换后同步矩阵行高亮（矩阵与 sim 卡片在同一详情页）
-    _labUpdateMatrixRowHighlight();
-  };
-  _rerenderSim();
+  // 检查该指数是否有模拟回测数据（仅4个指数有）
+  const simIdx = LAB_SIM_INDEXES.find((x) => x.id === (state.labIndex || "sh"));
+  if (!simIdx) {
+    simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">该指数暂无模拟回测数据（仅支持上证/深证/创业板/科创50）</div>`;
+  } else {
+    const simData = await fetchLabSimData(simIdx.id);
+    const _rerenderSim = () => {
+      if (!simData) {
+        simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">模拟回测数据加载失败，请稍后重试</div>`;
+        return;
+      }
+      simCard.innerHTML = _labSimCardHTML(key, simData);
+      _labSimAttachHandlers(key, simData, simCard, _rerenderSim);
+      // 窗口切换后同步矩阵行高亮（矩阵与 sim 卡片在同一详情页）
+      _labUpdateMatrixRowHighlight();
+    };
+    _rerenderSim();
+  }
   // F5 恢复：更新 hash + 恢复滚动位置
   _labSetHash("#lab/" + key);
   _labRestoreScroll();
@@ -1524,16 +1545,31 @@ async function renderSignalLab() {
   });
   content.appendChild(list);
 
-  // 回测推荐榜（列表页底部空白区，异步加载 lab_simulate.json ~2.6MB，不阻塞上方骨架）
+  // 回测推荐榜（列表页底部空白区，按指数加载 lab_simulate_{index}.json，不阻塞上方骨架）
   const rankSection = document.createElement("div");
   rankSection.className = "chart-card lab-rank-card";
-  rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3><div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…（约2.6MB，请稍候）</div></div>';
+  // 指数选择器（持久，不随 rank body 重渲染消失）
+  const rankIdxOpts = LAB_SIM_INDEXES.map((x) =>
+    `<option value="${x.id}"${x.id === (state.labSimIndex || "sh") ? " selected" : ""}>${x.name}</option>`
+  ).join("");
+  rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3>' +
+    `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><select class="lab-rank-index">${rankIdxOpts}</select></div>` +
+    '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…</div></div>';
   content.appendChild(rankSection);
-  fetchLabSimData().then((simData) => {
+  const _loadRank = async () => {
+    const idx = state.labSimIndex || "sh";
+    const simData = await fetchLabSimData(idx);
+    _labRankRerender(rankSection, simData);
+  };
+  _loadRank();
+  // 指数切换：重新加载该指数数据并重渲染 rank body
+  rankSection.querySelector(".lab-rank-index").onchange = (e) => {
+    state.labSimIndex = e.target.value;
+    state.labRankShowAll = false;
     const body = rankSection.querySelector(".lab-rank-body");
-    if (body) body.innerHTML = _labRankHTML(simData);
-    _labRankAttachHandlers(rankSection, simData);
-  });
+    if (body) body.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
+    _loadRank();
+  };
 
   // F5 恢复：更新 hash + 恢复滚动位置
   _labSetHash("#lab");
