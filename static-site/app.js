@@ -117,6 +117,41 @@ function dzOpts() {
   ];
 }
 
+// 重注入主题色到所有已渲染 ECharts 图表（charts 全局 + 信号弹窗 _signalModalCharts）。
+// ECharts canvas 不响应 CSS 变量，需手动读 getComputedStyle 重注入 UI 语义色
+// （轴线/网格/坐标文字/tooltip/legend/dataZoom slider/visualMap 文字）。
+// 两处调用：
+//  ① renderTab 渲染完后经 requestAnimationFrame 调用--修刷新/切 tab 后配色时序 bug：
+//     mkCard 先 setOption(chartThemeOpts)（无 series/visualMap）作首帧，业务 setOption 再 merge
+//     注入 series+visualMap；visualMap 经 merge 注入时首帧未完成着色映射（恐贪分段线呈默认单色）。
+//     此处重置 visualMap 触发重映射立即分段着色，刷新即正常，无需切皮肤。rAF 等待 CSS 变量就绪
+//     后读色，兜底首屏 CSS 未算完的边角时序。
+//  ② applyTheme 切皮肤后经 requestAnimationFrame 调用--等 data-theme 改完 CSS 重算再读色重注入。
+function rethemeCharts() {
+  try {
+    var dzColor = cssVar("--text-1");
+    var vmColor = cssVar("--text-1");
+    function retheme(c) {
+      if (!c || c.isDisposed()) return;
+      c.setOption(chartThemeOpts());
+      var opt = c.getOption();
+      if (opt.dataZoom && opt.dataZoom.length) {
+        c.setOption({ dataZoom: opt.dataZoom.map(function (d) {
+          if (d.type === "slider") return Object.assign({}, d, { textStyle: Object.assign({}, d.textStyle, { color: dzColor }) });
+          return d;
+        }) });
+      }
+      if (opt.visualMap && opt.visualMap.length) {
+        c.setOption({ visualMap: opt.visualMap.map(function (v) {
+          return Object.assign({}, v, { textStyle: Object.assign({}, v.textStyle, { color: vmColor }) });
+        }) });
+      }
+    }
+    charts.forEach(retheme);
+    _signalModalCharts.forEach(retheme);
+  } catch (e) {}
+}
+
 // container/chartArr 可选：默认挂 content + push 全局 charts；指数区局部刷新时传入本区容器 + 本区 chart 列表。
 function mkCard(title, height = 300, hint = null, container = content, chartArr = charts) {
   const div = document.createElement("div");
@@ -992,6 +1027,9 @@ async function renderTab() {
   } catch (e) {
     content.innerHTML = `<div class="loading">出错了：${e}</div>`;
   }
+  // 渲染完后下一帧重注入主题色：修刷新/切 tab 后 visualMap 经 merge 注入首帧未着色的时序 bug
+  // （rAF 等 CSS 变量就绪后读色，重置 visualMap 触发重映射分段着色）。刷新即正常，无需切皮肤。
+  requestAnimationFrame(rethemeCharts);
 }
 
 // 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
@@ -3252,32 +3290,8 @@ function initThemeSwitcher() {
     document.querySelectorAll('.sim-frame').forEach(function (f) {
       try { if (f.contentWindow) f.contentWindow.postMessage({ type: 'set-theme', theme: t || '' }, '*'); } catch (e) {}
     });
-    // ECharts canvas 不响应 CSS 变量，切换主题后下一帧重注入 UI 语义色（轴线/网格/tooltip 等）
-    // dataZoom slider / visualMap 文字色同理需手动重注入：读 getOption 仅更新已有组件，不新增
-    requestAnimationFrame(function () {
-      try {
-        var dzColor = cssVar("--text-1");
-        var vmColor = cssVar("--text-1");
-        function retheme(c) {
-          if (!c || c.isDisposed()) return;
-          c.setOption(chartThemeOpts());
-          var opt = c.getOption();
-          if (opt.dataZoom && opt.dataZoom.length) {
-            c.setOption({ dataZoom: opt.dataZoom.map(function (d) {
-              if (d.type === "slider") return Object.assign({}, d, { textStyle: Object.assign({}, d.textStyle, { color: dzColor }) });
-              return d;
-            }) });
-          }
-          if (opt.visualMap && opt.visualMap.length) {
-            c.setOption({ visualMap: opt.visualMap.map(function (v) {
-              return Object.assign({}, v, { textStyle: Object.assign({}, v.textStyle, { color: vmColor }) });
-            }) });
-          }
-        }
-        charts.forEach(retheme);
-        _signalModalCharts.forEach(retheme);
-      } catch (e) {}
-    });
+    // ECharts canvas 不响应 CSS 变量，切换主题后下一帧重注入 UI 语义色（等 data-theme 改完 CSS 重算再读色）
+    requestAnimationFrame(rethemeCharts);
   }
   function renderActive() {
     var cur = currentTheme();
