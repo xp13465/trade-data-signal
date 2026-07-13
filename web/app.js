@@ -92,6 +92,15 @@ function chartThemeOpts() {
   };
 }
 
+// dataZoom 滑块配置（slider 底部日期文字色跟主题；inside 无 UI 无需设色）。
+// 抽成函数供所有折线图共用，applyTheme 主题切换时也调它重注入。
+function dzOpts() {
+  return [
+    { type: "inside" },
+    { type: "slider", height: 18, bottom: 8, textStyle: { color: cssVar("--text-3") } },
+  ];
+}
+
 // container/chartArr 可选：默认挂 content + push 全局 charts；指数区局部刷新时传入本区容器 + 本区 chart 列表。
 function mkCard(title, height = 300, hint = null, container = content, chartArr = charts) {
   const div = document.createElement("div");
@@ -117,7 +126,7 @@ function lineChart(title, series, opts = {}, hint = null, container = content) {
     grid: { left: 55, right: 20, top: 35, bottom: 35 },
     xAxis: { type: "category", data: dates },
     yAxis: { type: "value", scale: true },
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+    dataZoom: dzOpts(),
     series: arr.map((s) => ({
       name: s.name,
       type: "line",
@@ -483,7 +492,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
     yAxis: { type: "value", scale: true },
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+    dataZoom: dzOpts(),
     series: [
       {
         name: stripHtml(title),
@@ -526,7 +535,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: data.map((d) => d.date) },
     yAxis: { type: "value", scale: true },
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+    dataZoom: dzOpts(),
     series: [{
       name: stripHtml(title),
       type: "line",
@@ -1222,6 +1231,7 @@ async function renderOverview() {
     const exist = echarts.getInstanceByDom(chartDom);
     if (exist) exist.dispose();
     const sc = echarts.init(chartDom);
+    sc.setOption(chartThemeOpts());
     sc.setOption({
       grid: { left: 2, right: 2, top: 4, bottom: 4 },
       xAxis: { type: "category", show: false, data: idx.dates },
@@ -1437,7 +1447,7 @@ async function renderOverview() {
           { type: "value", name: "涨跌比", axisLabel: { formatter: v => v.toFixed(2) }, splitLine: { show: false } },
           { type: "value", name: "AD Line" },
         ],
-        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        dataZoom: dzOpts(),
         series: [
           { name: "涨跌家数比", type: "bar", yAxisIndex: 0, data: ratioData.map((v, i) => ({ value: v, itemStyle: { color: ratioColors[i] } })), barWidth: "60%" },
           { name: "AD Line", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adLineData, lineStyle: { color: "#5b8ff9", width: 1.5 } },
@@ -1476,7 +1486,7 @@ async function renderOverview() {
         grid: { left: 55, right: 20, top: 35, bottom: 35 },
         xAxis: { type: "category", data: vrDates },
         yAxis: { type: "value", name: "亿元", axisLabel: { formatter: v => (v / 10000).toFixed(1) + "万" } },
-        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        dataZoom: dzOpts(),
         series: [
           { name: "成交额", type: "bar", data: vrAmount.map((v, i) => ({ value: v, itemStyle: { color: vrColors[i] } })), barWidth: "60%" },
           { name: "MA5", type: "line", symbol: "none", smooth: true, data: vrMA5, lineStyle: { color: "#f6bd16", width: 1.5 } },
@@ -1510,7 +1520,7 @@ async function renderOverview() {
           { type: "value", name: "家数", splitLine: { show: false } },
           { type: "value", name: "NH-NL" },
         ],
-        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        dataZoom: dzOpts(),
         series: [
           { name: "52周新高", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nh_52w), itemStyle: { color: "#e6492e" }, barWidth: "40%" },
           { name: "52周新低", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nl_52w), itemStyle: { color: "#2e8b57" }, barWidth: "40%" },
@@ -1898,6 +1908,7 @@ function renderSentimentHeatmap(r) {
         { gt: 80, color: "#2e8b57", label: "过热(>80)" },
       ],
       orient: "horizontal", left: "center", bottom: 4,
+      textStyle: { color: cssVar("--text-2") },
     },
     series: [{
       type: "heatmap", data: data,
@@ -2028,11 +2039,11 @@ function renderFuturesSection(data) {
       grid: { left: 55, right: 20, top: 35, bottom: 35 },
       xAxis: { type: "category", data: dates1 },
       yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v / 10000).toFixed(1) + "万手" } },
-      dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+      dataZoom: dzOpts(),
       series: chart1Series.map((s) => ({
         name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
         data: dates1.map((d) => { const p = s.data.find((x) => x.date === d); return p ? p.value : null; }),
-        markLine: { silent: true, symbol: "none", lineStyle: { color: cssVar("--border-strong"), type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
+        markLine: { silent: true, symbol: "none", lineStyle: { color: cssVar("--border-strong"), type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10, color: cssVar("--text-3") }, data: [{ yAxis: 0 }] },
       })),
     });
   }
@@ -2070,11 +2081,11 @@ function renderFuturesSection(data) {
         grid: { left: 55, right: 20, top: 35, bottom: 35 },
         xAxis: { type: "category", data: datesP },
         yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v / 10000).toFixed(1) + "万手" } },
-        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        dataZoom: dzOpts(),
         series: prodSeries.map((s) => ({
           name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
           data: datesP.map((d) => { const p = s.data.find((x) => x.date === d); return p ? p.value : null; }),
-          markLine: { silent: true, symbol: "none", lineStyle: { color: cssVar("--border-strong"), type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
+          markLine: { silent: true, symbol: "none", lineStyle: { color: cssVar("--border-strong"), type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10, color: cssVar("--text-3") }, data: [{ yAxis: 0 }] },
         })),
       });
     }
@@ -2153,6 +2164,7 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
       min: -5, max: 5, calculable: true, orient: "horizontal", left: "center", bottom: 4,
       inRange: { color: ["#2e8b57", "#a8d8b9", "#f2f3f5", "#f5b6a8", "#e6492e"] }, // 绿→灰→红（A 股惯例红涨绿跌）
       text: ["+5%", "-5%"],
+      textStyle: { color: cssVar("--text-2") },
     },
     series: [{
       type: "heatmap", data: data,
@@ -2418,6 +2430,7 @@ function renderIndustryGrid(indices, containerOverride) {
         <span class="ind-metric-val">涨${lastW.up_count == null ? "-" : lastW.up_count} 跌${lastW.down_count == null ? "-" : lastW.down_count}</span>`;
       metricsBox.appendChild(row);
       const wc = echarts.init(row.querySelector(".ind-metric-chart"));
+      wc.setOption(chartThemeOpts());
       wc.setOption({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         xAxis: { type: "category", show: false, data: widthData.map((d) => d.date) },
@@ -3002,10 +3015,29 @@ function initThemeSwitcher() {
       try { if (f.contentWindow) f.contentWindow.postMessage({ type: 'set-theme', theme: t || '' }, '*'); } catch (e) {}
     });
     // ECharts canvas 不响应 CSS 变量，切换主题后下一帧重注入 UI 语义色（轴线/网格/tooltip 等）
+    // dataZoom slider / visualMap 文字色同理需手动重注入：读 getOption 仅更新已有组件，不新增
     requestAnimationFrame(function () {
       try {
-        charts.forEach(function (c) { if (c && !c.isDisposed()) c.setOption(chartThemeOpts()); });
-        _signalModalCharts.forEach(function (c) { if (c && !c.isDisposed()) c.setOption(chartThemeOpts()); });
+        var dzColor = cssVar("--text-3");
+        var vmColor = cssVar("--text-2");
+        function retheme(c) {
+          if (!c || c.isDisposed()) return;
+          c.setOption(chartThemeOpts());
+          var opt = c.getOption();
+          if (opt.dataZoom && opt.dataZoom.length) {
+            c.setOption({ dataZoom: opt.dataZoom.map(function (d) {
+              if (d.type === "slider") return Object.assign({}, d, { textStyle: Object.assign({}, d.textStyle, { color: dzColor }) });
+              return d;
+            }) });
+          }
+          if (opt.visualMap && opt.visualMap.length) {
+            c.setOption({ visualMap: opt.visualMap.map(function (v) {
+              return Object.assign({}, v, { textStyle: Object.assign({}, v.textStyle, { color: vmColor }) });
+            }) });
+          }
+        }
+        charts.forEach(retheme);
+        _signalModalCharts.forEach(retheme);
       } catch (e) {}
     });
   }

@@ -301,7 +301,7 @@ function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr,
     grid: { left: 55, right: hasOsc ? 55 : 20, top: 35, bottom: 50 },
     xAxis: { type: "category", data: dates },
     yAxis,
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+    dataZoom: dzOpts(),
     series: [
       {
         name: "收盘价", type: "line", smooth: true, symbol: "none",
