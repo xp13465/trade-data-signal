@@ -56,6 +56,9 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **[性能-P2-5] H5 无轻量版**：移动端加载完整 app.js+lab.js+echarts。靠 P0-1 gzip + P1-1 defer 后可接受；远期按 tab 懒加载 lab.js。
 - **设计已良好（不动）**：ECharts 实例 dispose 干净、lab_sim 按需懒加载、intraday_snapshot 单例 Promise 防重复、行业搜索纯客户端不 refetch。
 
+### ✅ 已完成：国家队宽基 ETF 资金动向后端（2026-07-13）
+新建 `app/collector/etf_national_team.py`：4 fetcher（SSE/SZSE份额 + mootdx OHLC + 东财持有人直爬）+ 信号算法（z-score+放量+季度校准）+ export。独立库 `data/etf_national_team.db`（3表）。回填 2023至今 852交易日×12只=10224行，881条信号。**2023汇金增持期验证通过**：10/23 汇金宣布增持当天 510300/510310 触发 share_surge（z=4.62/7.47），510050 机构占比 65.84%->91.46% 增持轨迹清晰。API `/api/etf-national-team` + static-site JSON 双版。详见 REQUIREMENTS.md §8.6 + NOTES.md §14。**前端（大盘二级菜单展示）是另一批 agent 做，不碰**。
+
 ### 下轮起点
 排队-1/2 已完成。下一步：性能 P0（部署层，待用户确认服务器可改性）/ 性能 P1 前端可改项（P1-1/P1-2 等 A 皮肤适配完成后串行做，都改 app.js/lab.js）/ 排队-3 Vol_breakout / 排队-4 P2-L1 / 排队-5 P3-11条。开工先读本节。
 

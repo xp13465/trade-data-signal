@@ -485,6 +485,91 @@ mootdx turnover 全 NULL（D2 跳过），改用 BaoStock `baostock_daily_raw.tu
 
 ---
 
+## 8.6 国家队宽基 ETF 资金动向（2026-07-13）✅
+
+**口径声明（重要）**：本指标为代理推断，非真实国家队席位数据。基于 ETF 每日份额变动 + 成交额放量，结合季度机构持仓占比校准，推断疑似大资金进场/离场。**无法精确区分汇金/证金/社保/险资/公募**。份额变动可能来自任何机构/大户申赎，不等于国家队操作。
+
+### ETF 清单（12 只宽基）
+
+| 代码 | 名称 | 跟踪指数 | 市场 |
+|---|---|---|---|
+| 510050 | 50ETF华夏 | 上证50 | 沪 |
+| 510300 | 300ETF华泰柏瑞 | 沪深300 | 沪 |
+| 510310 | 300ETF易方达 | 沪深300 | 沪 |
+| 159919 | 300ETF嘉实 | 沪深300 | 深 |
+| 510500 | 500ETF南方 | 中证500 | 沪 |
+| 159922 | 500ETF嘉实 | 中证500 | 深 |
+| 512100 | 1000ETF南方 | 中证1000 | 沪 |
+| 159845 | 1000ETF华夏 | 中证1000 | 深 |
+| 159915 | 创业板ETF易方达 | 创业板 | 深 |
+| 159952 | 创业板ETF广发 | 创业板 | 深 |
+| 588000 | 科创50ETF华夏 | 科创50 | 沪 |
+| 588050 | 科创50ETF工银 | 科创50 | 沪 |
+
+### 数据源（4 fetcher）
+
+| Fetcher | 数据 | 源 | 备注 |
+|---|---|---|---|
+| A | 沪市 ETF 每日份额 | akshare `fund_etf_scale_sse(date)` | 上交所，工作日可达，周末抛 KeyError 跳过 |
+| B | 深市 ETF 每日份额 | akshare `fund_scale_daily_szse(start,end,"ETF")` | 深交所，区间批量 |
+| C | ETF OHLC+成交额 | mootdx `bars(frequency=9)` | **替代**东财 push2his（2026-07-13 起 IP 封），复用项目 mootdx_daily 基建 |
+| D | 季度持有人结构 | 直爬东财 `FundArchivesDatas.aspx?type=cyrjg` | 走 em_get 防封；半年报+年报，滞后 2-3 月 |
+
+### 信号算法
+
+```
+份额异动 z-score: z = (share_change - mean(过去20日share_change,不含当日)) / std(过去20日,不含当日)
+放量倍数: vol_ratio = amount / mean(过去5日amount,不含当日)
+
+信号触发:
+  疑似大资金进场 share_surge:  share_change > 0 AND z > 2  AND vol_ratio > 1.5
+  疑似大资金离场 share_outflow: share_change < 0 AND z < -2 AND vol_ratio > 1.5
+  放量 volume_surge: vol_ratio > 2 （独立信号）
+
+强度分级（写进 note）:
+  z ∈ [2,3): 轻度异动
+  z ∈ [3,5): 显著异动
+  z ≥ 5: 极端异动
+
+季度校准加权（写进 note）:
+  当季机构占比 > 85%: 信号置信度 ×1.5（国家队主导品种）
+  当季机构占比 < 60%: 信号置信度 ×0.7（散户主导噪声大）
+
+折算日排除:
+  abs(share_change_pct) > 30% 且当日 vol_ratio < 1.0 -> 标记 signal_type='split_suspect' note='份额折算疑似,不触发信号'
+```
+
+### 存储
+
+独立库 `data/etf_national_team.db`（与 sentiment.db 隔离），3 张表：`etf_daily`（日级核心）、`etf_signal`（信号）、`etf_holder_quarterly`（季度持有人）。schema 见 `app/collector/etf_national_team.py::SCHEMA`。
+
+### export
+
+- `data/etf_national_team.json`：12 只 ETF 近 60 日份额+成交额+信号
+- `data/etf_national_team_quarterly.json`：机构占比历史轨迹
+- API：`/api/etf-national-team`（daily）+ `/api/etf-national-team/quarterly`
+- 双版同步：web API + static-site JSON
+
+### CLI
+
+```
+python -m app.collector.etf_national_team backfill --start 20230101   全量回填
+python -m app.collector.etf_national_team daily                         当日增量
+python -m app.collector.etf_national_team signals                      重算信号
+python -m app.collector.etf_national_team holders                      只拉持有人(半年一次)
+```
+
+进程互斥：fcntl.flock（macOS 用 fcntl 非 flock 命令）。
+
+### 已知限制
+
+- **push2his IP 封**：东财 K 线端点 2026-07-13 起被封，C fetcher 改用 mootdx（通达信协议）。akshare `fund_etf_hist_em` 不可用。
+- **持有人滞后**：半年报+年报，当前能拿到的最新是 2025-12-31；2026-06-30 半年报要等 2026-08 底。
+- **份额变动≠国家队**：份额变动可能来自任何机构/大户申赎，机构占比高只能说明该 ETF 由机构主导，不能精确归因到国家队。
+- **z-score 需 20 日窗口**：回填初期不足 20 日跳过信号。
+
+---
+
 ## 9. 变更记录
 
 - **2026-07-05**：初始化需求文档。已定：场景=盘后复盘、技术栈=Python/FastAPI/SQLite/ECharts、部署=Mac本地、历史回溯先 1 年、按天折线 + 周期按钮（1月/3月/6月/1年/全部）。两个综合分：§4 A 股综合情绪分（6 项加权，120 日滚动百分位）、§6 跨市场综合评分（去极值截尾均值）。§7 买点/卖点=情绪+技术双确认。宽基指数补充中证500/中证1000。指标全量纳入共 35 项（含板块轮动/龙虎榜/解禁/IPO/可转债 5 类试采项 + QVIX），原则：先采后筛、配置驱动可插拔。

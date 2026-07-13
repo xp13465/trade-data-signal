@@ -967,6 +967,22 @@ def export_intraday_snapshot():
     return snap
 
 
+def export_etf_national_team():
+    """国家队宽基 ETF 资金动向（12 只近 60 日份额+成交额+信号）。
+    与 /api/etf-national-team 返回结构一致。读 data/etf_national_team.db。
+    """
+    from app.collector.etf_national_team import export_data
+    daily, _quarterly = export_data()
+    return daily
+
+
+def export_etf_national_team_quarterly():
+    """季度持有人结构（机构占比历史轨迹）。与 /api/etf-national-team/quarterly 一致。"""
+    from app.collector.etf_national_team import export_data
+    _daily, quarterly = export_data()
+    return quarterly
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -1073,6 +1089,14 @@ def main():
     counts["intraday_snapshot.json"] = write_json(
         DATA_DIR / "intraday_snapshot.json", export_intraday_snapshot())
     print(f"  intraday_snapshot.json ({counts['intraday_snapshot.json']} bytes)")
+
+    # 7.14. etf_national_team（国家队宽基ETF资金动向，读 etf_national_team.db）
+    counts["etf_national_team.json"] = write_json(
+        DATA_DIR / "etf_national_team.json", export_etf_national_team())
+    print(f"  etf_national_team.json ({counts['etf_national_team.json']} bytes)")
+    counts["etf_national_team_quarterly.json"] = write_json(
+        DATA_DIR / "etf_national_team_quarterly.json", export_etf_national_team_quarterly())
+    print(f"  etf_national_team_quarterly.json ({counts['etf_national_team_quarterly.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]

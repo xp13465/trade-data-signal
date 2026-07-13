@@ -1028,6 +1028,25 @@ def index_detail(index_id: str, range: str = Depends(range_dep)):
     }
 
 
+@app.get("/api/etf-national-team")
+def etf_national_team():
+    """国家队宽基 ETF 资金动向：12 只宽基 ETF 近 60 日份额+成交额+信号。
+    口径声明：本指标为代理推断，非真实国家队席位数据。基于 ETF 每日份额变动+成交额放量，
+    结合季度机构持仓占比校准，推断疑似大资金进场/离场。无法精确区分汇金/证金/社保/险资/公募。
+    """
+    from .collector.etf_national_team import export_data
+    daily, _quarterly = export_data()
+    return daily
+
+
+@app.get("/api/etf-national-team/quarterly")
+def etf_national_team_quarterly():
+    """季度持有人结构（机构占比历史轨迹，半年报+年报）。"""
+    from .collector.etf_national_team import export_data
+    _daily, quarterly = export_data()
+    return quarterly
+
+
 @app.get("/api/metrics")
 def metrics_list():
     """供手动补录表单用的指标列表。"""

@@ -793,3 +793,59 @@ core 先上线时情绪分用昨日 width（宽度日变化小，偏差可接受
 - index_backfill 3 场景（全有/部分缺/全缺）通过。
 - launchctl list 确认两 plist 已加载（状态码 0）。
 - 前端双版一致性：🔥今日残留 0、collected_at 填 DOM 1、span 2（PC+H5）；`/api/overview` 返回 `collected_at='20260710 16:46:00'`、`date=20260710`；node -c 两 app.js 语法 OK。
+
+---
+
+## §14 国家队宽基 ETF 资金动向追踪（2026-07-13）
+
+### 背景
+追踪 12 只宽基 ETF 的份额变动+成交额放量，推断疑似大资金（含国家队）进场/离场。口径声明：代理推断，非真实国家队席位数据（无法区分汇金/证金/社保/险资/公募）。详见 REQUIREMENTS.md §8.6。
+
+### 实施
+新建 `app/collector/etf_national_team.py`（4 fetcher + 日级/daily pipeline + 信号算法 + export）。独立库 `data/etf_national_team.db`（3 表：etf_daily/etf_signal/etf_holder_quarterly），与 sentiment.db 隔离（参考 stock_daily.py 理念）。
+
+**4 个 fetcher（全部实测可达）**：
+1. **A 沪市份额** `ak.fund_etf_scale_sse(date)`：返回当日全沪市 ETF（~400只），过滤本清单 7 只沪市。周末抛 KeyError（try/except 跳过）。单位：份。510050 ~586 亿份。
+2. **B 深市份额** `ak.fund_scale_daily_szse(start,end,"ETF")`：区间批量，一次返回多日全部深市 ETF。过滤本清单 5 只深市。**要求 YYYYMMDD 格式**（曾误传 YYYY-MM-DD 报 ValueError）。
+3. **C ETF OHLC** mootdx `client.bars(symbol, frequency=9)`：**替代东财 push2his**（2026-07-13 起 IP 封，`fund_etf_hist_em` 不可用，sina 备选也空）。mootdx 完美支持 ETF（510050/159915 均通），返回 open/close/high/low/amount（元）。复用项目 `mootdx_daily.tdx_client`。按任务 schema 仅存 close+amount（信号算法只需这两个）。
+4. **D 持有人结构** 直爬东财 `fundf10.eastmoney.com/FundArchivesDatas.aspx?type=cyrjg&code=XXX`：走 `em_get`（1s 限流+重试防封）。返回 `var apidata={content:"<table>...",summary:"..."}` JS（非 JSON），正则提取 content 后 bs4+lxml 解析 HTML 表。510050 历史轨迹：2023-12-31 机构 68.22% -> 2024-06 80.26% -> 2024-12 84.31% -> 2025-06 88.69% -> 2025-12 91.46%（增持轨迹清晰）。半年报+年报，滞后 2-3 月。
+
+**信号算法**：z-score（过去20日 share_change，shift(1) 不含当日）+ vol_ratio（过去5日 amount，shift(1) 不含当日）。share_surge/outflow/volume_surge 三类。折算日排除（|pct|>30% 且 vol<1.0 标 split_suspect 不触发）。季度校准（机构>85% ×1.5 / <60% ×0.7 写进 note）。强度分级（z≥5 极端 / ≥3 显著 / ≥2 轻度）。
+
+**存储隔离**：独立 db + fcntl.flock 进程互斥（macOS 用 fcntl 非 flock 命令，参考 with_lock.py）。
+
+**export 双版同步**：
+- `data/etf_national_team.json`（12 只 ETF 近 60 日份额+成交额+信号）
+- `data/etf_national_team_quarterly.json`（机构占比历史）
+- web API：`/api/etf-national-team` + `/api/etf-national-team/quarterly`
+- `static-site/export.py` 加 `export_etf_national_team()` + `export_etf_national_team_quarterly()`，main() 里 write_json
+
+**CLI**：`backfill --start 20230101` / `daily` / `signals` / `holders` / `export`。
+
+### 关键决策
+1. **C fetcher 换源 mootdx**：任务原指定 `fund_etf_hist_em`（push2his），实测当天 IP 封。baostock 不支持 ETF（返 0 行）。mootdx 是唯一可用源（项目已有完整基建）。文档已注明换源。
+2. **独立 db**：与 sentiment.db 隔离，采集异常不影响看板（参考 stock_daily.py）。
+3. **etf_daily 不存 open/high/low**：任务 schema 只要 close/amount/fund_share/share_change，信号算法也只需这些。mootdx 拉的 open/high/low 在内存中但不入库（_upsert_daily fields 参数控制）。
+4. **份额单位统一为份**：SSE/SZSE 返回份（510050 ~5.86e10），持有人表 total_share 用亿份（东财原样）。export JSON 加 fund_share_yi 字段（份转亿份）便于前端展示。
+5. **159845 代码核实**：子 agent 探测误报"A50ETF"，实测 fund_scale_daily_szse 返回"中证1000ETF"（任务清单正确）。
+
+### 测试结果
+- etf_daily: 10224 行（12只ETF × 852交易日，20230103~20260713）
+- etf_signal: 881 条（share_surge 345 / share_outflow 160 / volume_surge 375 / split_suspect 1）
+- etf_holder_quarterly: 284 期（510050 43期 ~ 588050 12期，新ETF历史短）
+- backfill 耗时 1282s（21min）：OHLC 12min（tdx_client 每只重新选服务器，已优化 client 复用）+ SSE 6min（852交易日×0.6s）+ 其他
+- daily 增量 65s（client 复用优化后，12只ETF 一次选服务器）
+
+### 验证：2023 汇金增持期信号
+Q4 2023（20231001-20231231）共 59 条信号，准确捕捉 2023-10-23 汇金宣布增持 ETF：
+- 510300（沪深300华泰柏瑞）：10/23 份额+9.9亿 倍量2.1 z=4.62 显著异动 机构90%
+- 510310（沪深300易方达）：10/23 份额+4.3亿 z=7.47 极端异动；10/24 +13.8亿 z=13.24 极端异动 机构98%
+- 159919（沪深300嘉实）：10/24 份额+3.8亿 z=9.00 极端异动 机构97%
+- 510050（上证50）：11/17 份额+12.1亿 z=4.19 显著异动 机构91%
+510050 机构占比轨迹：2023H1 65.84% -> 2023年报 68.22% -> 2024H1 80.26% -> 2024年报 84.31% -> 2025H1 88.69% -> 2025年报 91.46%（持续增持，总份额 226亿->566亿）。
+
+### daily 增量验证
+`python -m app.collector.etf_national_team daily` 65s 完成：ohlc=72 sse=42 szse=25 signals=881。client 复用优化生效（原 backfill 每只ETF 1min选服务器，daily 一次选服务器拉12只）。无报错。
+
+### 已知小问题
+- ResourceWarning：fcntl.flock 锁文件 fd 未显式关闭（进程退出时 GC 释放，不影响功能）；tdxpy socket 未关闭（mootdx 库 bug）。两者均不影响数据正确性。

@@ -26,6 +26,9 @@ data/*_progress.json
 data/baostock_*.sh
 data/baostock_skipped_bj.txt
 data/cleanup_d3d2_report.json
+data/etf_national_team.lock
+data/etf_national_team.db-wal
+data/etf_national_team.db-shm
 
 # 邮件配置（含 SMTP 授权码，敏感 —— 用 email.json.example 作模板）
 config/email.json
