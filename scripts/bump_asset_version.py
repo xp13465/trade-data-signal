@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-"""给 index.html 的 CSS/JS 引用注入 ?v=<mtime hex> 版本号，破浏览器/CDN 缓存。
+"""给 index.html 的 CSS/JS 引用注入 ?v=<content hash> 版本号，破浏览器/CDN 缓存。
 
 每次改动 web/style.css 或 web/app.js（源码）后：
   1. python scripts/build_min.py        # 重新生成 app.min.js / lab.min.js + source map
   2. python scripts/bump_asset_version.py  # 刷新 ?v= 版本号
   3. commit + push
 
-- web/index.html:        /static/<asset>  -> /static/<asset>?v=<ver>   (ver = web/<asset> 的 mtime)
-- static-site/index.html: ./<asset>       -> ./<asset>?v=<ver>          (ver = static-site/<asset> 的 mtime)
-- 幂等：已有 ?v= 会被替换为最新 mtime。
+- web/index.html:        /static/<asset>  -> /static/<asset>?v=<ver>   (ver = web/<asset> 的 md5 前 8 位)
+- static-site/index.html: ./<asset>       -> ./<asset>?v=<ver>          (ver = static-site/<asset> 的 md5 前 8 位)
+- 幂等：已有 ?v= 会被替换为最新内容哈希。
+- 内容一致性：同一文件 web/ 与 static-site/ 内容相同时，版本号相同，
+  便于双版同步校验（若两版版本号不同，说明内容已漂移）。
 
 注意：app.js/lab.js 是开发源码（保留供开发），index.html 上线引用 app.min.js/lab.min.js。
-版本号基于 .min.js 的 mtime，build_min.py 重新生成后 mtime 更新 -> bump 自动刷新版本。
+版本号基于 .min.js 的内容哈希，build_min.py 重新生成后内容变化 -> bump 自动刷新版本。
 
 动态站 (FastAPI / 路由) 会动态注入版本号（防忘跑脚本）；
 静态站 (Cloudflare Pages) 依赖本脚本 + static-site/_headers 的 no-cache 策略。
 """
+import hashlib
 import os
 import re
 
@@ -24,7 +27,12 @@ ASSETS = ["style.css", "app.min.js", "lab.css", "lab.min.js", "qr.js", "vendor/e
 
 
 def _ver(path):
-    return format(int(os.path.getmtime(path)), "x")
+    """返回文件内容 md5 前 8 位（16 进制），内容相同则版本号相同。"""
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()[:8]
 
 
 def bump(html_path, prefix, asset_dir):

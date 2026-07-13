@@ -13,10 +13,10 @@
 /style.css
   Cache-Control: public, max-age=31536000, immutable
 
-/app.js
+/app.min.js
   Cache-Control: public, max-age=31536000, immutable
 
-/lab.js
+/lab.min.js
   Cache-Control: public, max-age=31536000, immutable
 
 /lab.css
