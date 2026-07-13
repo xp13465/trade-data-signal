@@ -38,9 +38,24 @@ if [ "$EXPORT_RC" -ne 0 ]; then
 fi
 echo "✓ export.py 完成" | tee -a "$LOG"
 
-# 2. git add 静态数据
-echo "→ git add static-site/data/ ..." | tee -a "$LOG"
-git -C "$REPO" add static-site/data/ 2>&1 | tee -a "$LOG"
+# 1.5 重新生成 minified JS（确保 app.min.js/lab.min.js 与源 app.js/lab.js 同步）
+# 安全网：dev 改了 app.js 源码但忘跑 build_min.py 时，此处补生成。
+# build_min.py 失败不阻断数据部署（已有 min 文件仍可用），仅告警。
+echo "→ 运行 build_min.py 重新生成 min JS ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/build_min.py" 2>&1 | tee -a "$LOG"
+BUILD_RC=${PIPESTATUS[0]}
+if [ "$BUILD_RC" -ne 0 ]; then
+  echo "⚠ build_min.py 失败（退出码 $BUILD_RC），min JS 可能过期，继续数据部署" | tee -a "$LOG"
+else
+  echo "✓ build_min.py 完成" | tee -a "$LOG"
+fi
+
+# 2. git add 静态数据 + min JS（min 重新生成后若有变更一并提交）
+echo "→ git add static-site/data/ + min JS ..." | tee -a "$LOG"
+git -C "$REPO" add static-site/data/ \
+  web/app.min.js web/app.min.js.map web/lab.min.js web/lab.min.js.map \
+  static-site/app.min.js static-site/app.min.js.map static-site/lab.min.js static-site/lab.min.js.map \
+  2>&1 | tee -a "$LOG"
 
 # 3. 检查有无变更（cached diff 非空才 commit；无变更跳过 commit 但仍 push）
 if git -C "$REPO" diff --cached --quiet; then

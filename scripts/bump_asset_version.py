@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """给 index.html 的 CSS/JS 引用注入 ?v=<mtime hex> 版本号，破浏览器/CDN 缓存。
 
-每次改动 web/style.css 或 web/app.js 后，跑一次此脚本再 commit + push：
-  python scripts/bump_asset_version.py
+每次改动 web/style.css 或 web/app.js（源码）后：
+  1. python scripts/build_min.py        # 重新生成 app.min.js / lab.min.js + source map
+  2. python scripts/bump_asset_version.py  # 刷新 ?v= 版本号
+  3. commit + push
 
 - web/index.html:        /static/<asset>  -> /static/<asset>?v=<ver>   (ver = web/<asset> 的 mtime)
 - static-site/index.html: ./<asset>       -> ./<asset>?v=<ver>          (ver = static-site/<asset> 的 mtime)
 - 幂等：已有 ?v= 会被替换为最新 mtime。
+
+注意：app.js/lab.js 是开发源码（保留供开发），index.html 上线引用 app.min.js/lab.min.js。
+版本号基于 .min.js 的 mtime，build_min.py 重新生成后 mtime 更新 -> bump 自动刷新版本。
 
 动态站 (FastAPI / 路由) 会动态注入版本号（防忘跑脚本）；
 静态站 (Cloudflare Pages) 依赖本脚本 + static-site/_headers 的 no-cache 策略。
@@ -15,7 +20,7 @@ import os
 import re
 
 BASE = os.path.dirname(os.path.dirname(__file__))
-ASSETS = ["style.css", "app.js", "lab.css", "lab.js", "qr.js", "vendor/echarts.min.js"]
+ASSETS = ["style.css", "app.min.js", "lab.css", "lab.min.js", "qr.js", "vendor/echarts.min.js"]
 
 
 def _ver(path):

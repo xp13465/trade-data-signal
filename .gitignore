@@ -3,6 +3,10 @@
 __pycache__/
 *.pyc
 
+# Node（terser 等 dev 依赖，用 npx --yes terser 无需本地安装，防误提交）
+node_modules/
+
+
 # 大数据库（stock_daily 4.6GB 不进 git；sentiment.db 45MB 进 git 供动态版运行）
 data/sentiment.db-wal
 data/sentiment.db-shm
