@@ -2,19 +2,19 @@
 :root {
   --bg-page: #f5f6f8;        /* 页面背景 */
   --bg-card: #fff;           /* 卡片/容器背景 */
-  --bg-hover: var(--bg-hover);       /* hover/浅底 */
-  --bg-active: var(--primary-bg);      /* 激活浅底 */
-  --border: var(--border);         /* 边框 */
-  --border-strong: var(--border-strong);  /* 强边框 */
-  --text-1: var(--text-1);         /* 主文字 */
-  --text-2: var(--text-2);         /* 次文字 */
-  --text-3: var(--text-3);         /* 弱文字 */
-  --text-4: var(--text-4);         /* 最弱文字 */
-  --primary: var(--primary);        /* 主色 */
-  --primary-hover: var(--primary-hover);  /* 主色 hover */
-  --primary-bg: var(--primary-bg);     /* 主色浅底 */
-  --shadow: var(--shadow);        /* 卡片阴影 */
-  --shadow-strong: var(--shadow-strong); /* 强阴影 */
+  --bg-hover: #f7f8fa;       /* hover/浅底 */
+  --bg-active: #f0f5ff;     /* 激活浅底 */
+  --border: #e5e6eb;         /* 边框 */
+  --border-strong: #d9dce0;  /* 强边框 */
+  --text-1: #1f2329;         /* 主文字 */
+  --text-2: #4e5969;         /* 次文字 */
+  --text-3: #86909c;         /* 弱文字 */
+  --text-4: #c9cdd4;        /* 最弱文字 */
+  --primary: #165dff;        /* 主色 */
+  --primary-hover: #0e42d2;  /* 主色 hover */
+  --primary-bg: #f0f5ff;     /* 主色浅底 */
+  --shadow: rgba(0,0,0,0.04);/* 卡片阴影 */
+  --shadow-strong: rgba(0,0,0,0.12); /* 强阴影 */
 }
 /* 深色专业（金融终端风）*/
 [data-theme="dark"] {
