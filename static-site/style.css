@@ -1211,20 +1211,60 @@ main { padding: 16px 24px; }
 }
 .summary-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 6px;
 }
 .summary-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
 .summary-text { flex: 1; color: var(--text-1); }
+.summary-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
 .summary-meta {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
   font-size: 12px;
   color: var(--text-3);
-  padding-left: 28px;
+  padding-left: 0;
 }
+.summary-snap-tag { flex-shrink: 0; font-size: 12px; }
+.summary-time-label { font-size: 11px; color: var(--text-4); flex-shrink: 0; }
+/* 指标 chips 流式排版（横幅 + 历史弹窗共用） */
+.summary-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+.summary-chips:last-child { margin-bottom: 0; }
+.summary-chip {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  line-height: 1.6;
+}
+.summary-chips-top { color: var(--text-2); }
+.summary-chips-top > span { font-weight: 500; }
 .summary-tag {
   flex-shrink: 0;
   background: var(--primary);
@@ -1535,9 +1575,12 @@ main { padding: 16px 24px; }
   .rule-bar { position: static; }
   .industry-anchor-bar { top: 46px; }
 
-  /* 一句话总结横幅：H5 与 PC 一致，时效(收盘分析)+历史入口留在横幅内 */
+  /* 收盘分析横幅：H5 精简--去"收盘分析"时效文字，只留 snapBadge + 📜按钮；chips 自动 flex-wrap */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
-  .summary-meta { padding-left: 0; flex-wrap: wrap; }
+  .summary-top { flex-wrap: wrap; }
+  .summary-meta { flex-wrap: wrap; }
+  .summary-title { font-size: 14px; }
+  .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
   .rule-modal-body { width: 94vw !important; max-width: 94vw; max-height: 88vh; }

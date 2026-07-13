@@ -1011,6 +1011,86 @@ function injectSnapshotToSummary(text, s, snap) {
   return out;
 }
 
+// 收盘分析横幅/历史弹窗共用的指标 chips 渲染（双版一致）。
+// snap 存在且未收盘时优先用快照实时值覆盖上证涨跌幅/点位与领涨板块；s 缺值时兜底用快照。
+// 不含恐贪/冰点标签（由调用方自行放置），只返回指标 chips 行 + 领涨板块行。
+function renderSummaryChips(s, snap) {
+  // 快照同日校验（避免旧快照覆盖新数据）：以 sh000001 的 datetime 判定
+  let snapSameDay = false, snapShIdx = null;
+  if (snap && snap.indices) {
+    snapShIdx = snap.indices.find((i) => i.code === "sh000001");
+    if (snapShIdx && snapShIdx.pct_change != null) {
+      const snapDate = (snapShIdx.datetime || "").slice(0, 8);
+      snapSameDay = !s.date || !snapDate || snapDate === s.date;
+    }
+  }
+  const intraday = snap && snap.is_closed === false;
+  // 上证：盘中(snap 未收盘)优先用快照实时值；收盘后用 s 原值；s 缺失时兜底快照
+  let shPct = s.sh_pct, shClose = s.sh_close;
+  if (snapShIdx && snapSameDay && (intraday || s.sh_pct == null)) {
+    shPct = snapShIdx.pct_change;
+    if (snapShIdx.price != null) shClose = snapShIdx.price;
+  }
+  const chips = [];
+  // 上证 chip（涨红跌绿，硬编码语义色）
+  if (shPct != null) {
+    const shColor = shPct >= 0 ? "#e6492e" : "#2e8b57";
+    const shSign = shPct >= 0 ? "+" : "";
+    const closeStr = shClose != null ? ` · ${Math.round(shClose)}点` : "";
+    chips.push(`<span class="summary-chip" style="color:${shColor}">上证 ${shSign}${shPct.toFixed(2)}%${closeStr}</span>`);
+  }
+  // 涨跌家数
+  if (s.up_count != null || s.down_count != null) {
+    chips.push(`<span class="summary-chip">${s.up_count || 0}涨 ${s.down_count || 0}跌</span>`);
+  }
+  // 成交额
+  if (s.volume_amount != null) {
+    const v = s.volume_amount;
+    const amtStr = v >= 10000 ? `${(v / 10000).toFixed(2)}万亿` : `${Math.round(v)}亿`;
+    const vLabel = s.volume_label ? ` ${s.volume_label}` : "";
+    chips.push(`<span class="summary-chip">成交${amtStr}${vLabel}</span>`);
+  }
+  // 涨跌停
+  if (s.zt_count || s.dt_count) {
+    chips.push(`<span class="summary-chip">涨停${s.zt_count || 0} 跌停${s.dt_count || 0}</span>`);
+  }
+  // 买卖信号
+  if (s.buy_count || s.sell_count) {
+    chips.push(`<span class="summary-chip">买${s.buy_count || 0} 卖${s.sell_count || 0}</span>`);
+  }
+  // 新高新低
+  if (s.nh_count != null || s.nl_count != null) {
+    chips.push(`<span class="summary-chip">新高${s.nh_count || 0} 新低${s.nl_count || 0}</span>`);
+  }
+  // 均线多空
+  if ((s.ma_bullish != null || s.ma_bearish != null) && (s.ma_bullish || s.ma_bearish)) {
+    chips.push(`<span class="summary-chip">均线${s.ma_bullish || 0}多${s.ma_bearish || 0}空</span>`);
+  }
+  const chipsRow = chips.length ? `<div class="summary-chips">${chips.join("")}</div>` : "";
+
+  // 领涨板块行：盘中(snap 未收盘)优先用快照 top3；s 为空时兜底快照
+  let topInds = s.top_industries;
+  if (snap && snap.industries && snap.industries.length && snapSameDay && (intraday || !topInds || !topInds.length)) {
+    topInds = [...snap.industries]
+      .sort((a, b) => (b.pct_change ?? -999) - (a.pct_change ?? -999))
+      .slice(0, 3)
+      .map((d) => ({ name: (d.sw_name || d.name || "").replace("SW ", ""), pct_change: d.pct_change }));
+  }
+  let topRow = "";
+  if (topInds && topInds.length) {
+    const parts = topInds.slice(0, 3).map((d) => {
+      const nm = d.name || "";
+      const pc = d.pct_change;
+      const color = pc != null ? (pc >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-2)";
+      const sign = pc != null && pc >= 0 ? "+" : "";
+      const pcStr = pc != null ? `(${sign}${pc.toFixed(2)}%)` : "";
+      return `<span style="color:${color}">${nm}${pcStr}</span>`;
+    });
+    topRow = `<div class="summary-chips summary-chips-top">🔥领涨：${parts.join("、")}</div>`;
+  }
+  return chipsRow + topRow;
+}
+
 async function renderOverview() {
   const r = await fetchJSON("./data/overview.json");
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
@@ -1035,7 +1115,18 @@ async function renderOverview() {
         : "";
       const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
       const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
-      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${snapBadge}${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${(s.generated_at || "").replace(/^\d+月\d+日\s*/, "")}</span><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></div>`;
+      // 标题：📊 + 日期前缀 + "A股{情绪标签}"；右侧时效标签从 generated_at 去掉日期前缀
+      const genAt = s.generated_at || "";
+      const dm = genAt.match(/^(\d+月\d+日)/);
+      let datePrefix = dm ? dm[1] : "";
+      if (!datePrefix && s.date && s.date.length === 8) {
+        datePrefix = `${parseInt(s.date.substring(4, 6), 10)}月${parseInt(s.date.substring(6, 8), 10)}日`;
+      }
+      const timeLabel = genAt.replace(/^\d+月\d+日\s*/, "").trim();
+      const titleText = `📊 ${datePrefix} A股${s.sentiment_label || ""}`.replace(/\s+/g, " ").trim();
+      // 标签行：恐贪 + 冰点（可选）
+      const tagRow = (fgBadge || freezeBadge) ? `<div class="summary-tags">${fgBadge}${freezeBadge}</div>` : "";
+      banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label">${timeLabel}</span><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${tagRow}${renderSummaryChips(s, snap)}`;
       content.insertBefore(banner, content.firstChild);
       const histBtn = banner.querySelector(".summary-history-btn");
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
@@ -2608,11 +2699,8 @@ function _summaryHistoryItemHtml(s) {
   const date = s.date ? `${s.date.substring(4,6)}-${s.date.substring(6,8)}` : "";
   const fg = s.fear_greed_label ? `<span class="sh-fg">😐 ${s.fear_greed_label} ${s.fear_greed_value != null ? s.fear_greed_value.toFixed(0) : ""}</span>` : "";
   const freeze = s.is_freeze ? `<span class="sh-freeze">❄️冰点</span>` : "";
-  const sh = s.sh_pct != null ? `<span class="sh-sh">${s.sh_pct >= 0 ? "+" : ""}${s.sh_pct.toFixed(2)}%</span>` : "";
-  const width = (s.up_count != null || s.down_count != null) ? `<span class="sh-width">${s.up_count || 0}涨${s.down_count || 0}跌</span>` : "";
-  const ztdt = (s.zt_count || s.dt_count) ? `<span class="sh-ztdt">涨停${s.zt_count || 0} 跌停${s.dt_count || 0}</span>` : "";
-  const sig = (s.buy_count || s.sell_count) ? `<span class="sh-sig">买${s.buy_count || 0}/卖${s.sell_count || 0}</span>` : "";
-  return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div><div class="sh-text">${s.summary || ""}</div><div class="sh-stats">${sh}${width}${ztdt}${sig}</div></div>`;
+  // 去掉裸 summary 文字，改用指标 chips（与横幅一致）；历史接口缺的字段做空值兜底跳过
+  return `<div class="summary-history-item"><div class="sh-date">${date} <span class="sh-label">${s.sentiment_label || ""}</span>${fg}${freeze}</div>${renderSummaryChips(s, null)}</div>`;
 }
 
 async function _loadSummaryHistoryPage() {
