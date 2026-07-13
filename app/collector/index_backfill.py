@@ -188,10 +188,11 @@ def verify_and_backfill_indices(date, verbose=True):
     # ── 1. 核心A股指数校验 ──
     missing = []
     for idx_id in CORE_A_INDICES:
+        # 查 date 行 close 完整性而非 max(date): 防御 intraday 反哺半成品行(close=None)骗校验
         r = conn.execute(
-            "SELECT max(date) AS d FROM index_daily WHERE index_id=?", (idx_id,)
+            "SELECT close FROM index_daily WHERE index_id=? AND date=?", (idx_id, date)
         ).fetchone()
-        if r["d"] != date:
+        if r is None or r["close"] is None:
             missing.append(idx_id)
 
     ok = 0
@@ -248,10 +249,12 @@ def verify_and_backfill_indices(date, verbose=True):
     # 申万源 T+1 发布延迟：周五数据可能要周一才出，未发布则跳过写告警。
     sw_missing = []
     for sw_id in SW_INDICES:
+        # 查 date 行 close 完整性而非 max(date): intraday_snapshot._backfill_industry_daily
+        # 会写 pct_change 半成品行(close=None),只看日期会被骗漏补采。
         r = conn.execute(
-            "SELECT max(date) AS d FROM index_daily WHERE index_id=?", (sw_id,)
+            "SELECT close FROM index_daily WHERE index_id=? AND date=?", (sw_id, date)
         ).fetchone()
-        if r["d"] != date:
+        if r is None or r["close"] is None:
             sw_missing.append(sw_id)
     conn.close()
 
