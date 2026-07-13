@@ -1290,7 +1290,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
 
   const tradesBody = isOpen
     ? `<div class="lab-sim-trades-body">` +
-      `<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th title="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
+      `<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
       (tradeRows || '<tr><td colspan="11" style="text-align:center;color:var(--text-4)">无交易记录</td></tr>') +
       `</tbody></table></div>${pagerHTML}</div>`
     : "";
@@ -1362,7 +1362,7 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
     const winCls = st ? `pc-lvl-${_labLvl(st.win_rate, { good: 55, bad: 45 })}` : "";
     const nStr = st ? `n=${st.n_trades}` : "";
     return `<button type="button" class="lab-sim-pair-card lab-matrix-${lvl}${activeCls}" data-pair="${pk}" data-mode="${mode}">` +
-      `<span class="pc-name" title="${name}">${name}</span>` +
+      `<span class="pc-name" data-tip="${name}">${name}</span>` +
       (st ? `<span class="pc-ret ${retCls}">${retStr}</span>` +
        `<span class="pc-meta"><span class="pc-win ${winCls}">${winStr}</span><span class="pc-n">${nStr}</span></span>` : "") +
       `</button>`;
@@ -1689,7 +1689,7 @@ async function renderLabDetail(key) {
       '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
         `<button type="button" class="lab-win-tab${w.k === state.labChartWin ? " active" : ""}" data-cwin="${w.k}">${w.l}</button>`
       ).join("") + "</div>" +
-      `<button type="button" class="lab-win-sync-btn" title="开启后实验图表窗口跟随模拟回测窗口联动" style="margin-left:6px;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:${state.labWinSync ? "var(--bg-hover)" : "var(--bg-card)"};color:${state.labWinSync ? "var(--text-1)" : "var(--text-3)"};font-size:12px;cursor:pointer;white-space:nowrap;${state.labWinSync ? "font-weight:600;" : ""}">🔗 同步${state.labWinSync ? "✓" : ""}</button>`;
+      `<button type="button" class="lab-win-sync-btn" data-tip="开启后实验图表窗口跟随模拟回测窗口联动" style="margin-left:6px;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:${state.labWinSync ? "var(--bg-hover)" : "var(--bg-card)"};color:${state.labWinSync ? "var(--text-1)" : "var(--text-3)"};font-size:12px;cursor:pointer;white-space:nowrap;${state.labWinSync ? "font-weight:600;" : ""}">🔗 同步${state.labWinSync ? "✓" : ""}</button>`;
     chartSection.appendChild(winBar);
 
     // 指数选择器（实验策略共用）

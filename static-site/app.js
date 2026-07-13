@@ -392,8 +392,44 @@ function stripHtml(s) { return String(s == null ? "" : s).replace(/<span class="
 
 // A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip）
 function termTip(text) {
-  return ` <span class="term-tip" title="${text}">❓</span>`;
+  return ` <span class="term-tip" data-tip="${text}">❓</span>`;
 }
+
+// ❓ 问号 hover pop 浮层（替代浏览器原生 title，pop 风格：圆角/阴影/主题色/小箭头）
+// 事件委托：document mouseover/mouseout 检查 target.closest('[data-tip]')，
+// 覆盖 termTip 生成的 .term-tip + lab.js 的 data-tip 元素，一次绑定全局生效。
+(function _initTermPop() {
+  var pop = document.createElement("div");
+  pop.className = "term-pop";
+  pop.style.display = "none";
+  document.body.appendChild(pop);
+  var hideTimer = null;
+  function show(el, text) {
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    pop.textContent = text;
+    pop.style.display = "block";
+    var r = el.getBoundingClientRect();
+    var pw = pop.offsetWidth, ph = pop.offsetHeight;
+    var left = r.left + r.width / 2 - pw / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+    var top = r.bottom + 6;
+    if (top + ph > window.innerHeight - 8) top = r.top - ph - 6;
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+  }
+  function hide() { hideTimer = setTimeout(function () { pop.style.display = "none"; }, 80); }
+  document.addEventListener("mouseover", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+    if (el) show(el, el.getAttribute("data-tip"));
+  });
+  document.addEventListener("mouseout", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+    if (el) hide();
+  });
+  pop.addEventListener("mouseenter", function () { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } });
+  pop.addEventListener("mouseleave", hide);
+})();
+
 // B：卡片底部追加一行 muted 白话小字（最晦涩术语常驻解释，放卡片底部）
 function appendPlainTip(chartOrEl, text) {
   const dom = chartOrEl && chartOrEl.getDom ? chartOrEl.getDom() : chartOrEl;
@@ -1749,7 +1785,7 @@ async function renderNationalTeam(container = content) {
   const banner = document.createElement("div");
   banner.className = "nt-banner";
   banner.innerHTML =
-    `<h3>🐶 汪汪队 - 国家队宽基 ETF 资金动向 <span class="term-tip" title="汪汪队=国家队。追踪12只宽基ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动+成交额放量，推断疑似大资金进场/离场。份额异动z-score>2且放量1.5倍以上=疑似大资金进场(红)，反之为离场(绿)。注意：这是代理推断，无法100%确认是国家队，份额变动可能来自任何机构/大户申赎。">❓</span></h3>` +
+    `<h3>🐶 汪汪队 - 国家队宽基 ETF 资金动向 <span class="term-tip" data-tip="汪汪队=国家队。追踪12只宽基ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动+成交额放量，推断疑似大资金进场/离场。份额异动z-score>2且放量1.5倍以上=疑似大资金进场(红)，反之为离场(绿)。注意：这是代理推断，无法100%确认是国家队，份额变动可能来自任何机构/大户申赎。">❓</span></h3>` +
     `<div class="nt-banner-body">追踪 12 只宽基 ETF 的<span style="color:var(--primary)">份额变动+成交额放量</span>，推断疑似大资金（含国家队）进场/离场。<b>口径声明</b>：本指标为代理推断，非真实国家队席位数据，无法精确区分汇金/证金/社保/险资/公募。份额变动可能来自任何机构/大户申赎，不等于国家队操作。当季机构占比&gt;85% 时置信度×1.5（国家队主导品种）。</div>`;
   container.appendChild(banner);
 
@@ -1810,9 +1846,76 @@ function ntBuildSummary(data, qData) {
   });
 }
 
+// ── 总盘汇总层：12只ETF合计持仓市值+净增持额+份额趋势（看"国家队整体持仓"而非单只）──
+function renderNationalTeamTotalPanel(container, data) {
+  // 聚合12只ETF的daily，按日期合并：合计市值/合计份额/当日净增持
+  var dateMap = {};
+  data.etfs.forEach(function (e) {
+    (e.daily || []).forEach(function (d) {
+      var dt = d.date;
+      if (!dateMap[dt]) dateMap[dt] = { date: dt, mktCap: 0, share: 0, netAdd: 0 };
+      var share = d.fund_share_yi || 0;   // 亿份
+      var chg = d.share_change_yi || 0;  // 亿份变动
+      var close = d.close || 0;          // 元
+      dateMap[dt].mktCap += share * close;  // 亿元（亿份×元）
+      dateMap[dt].share += share;            // 亿份
+      dateMap[dt].netAdd += chg * close;     // 亿元
+    });
+  });
+  var dates = Object.keys(dateMap).sort();
+  if (!dates.length) return;
+  var series = dates.map(function (dt) { return dateMap[dt]; });
+  var last = series[series.length - 1];
+  var cum20 = series.slice(-20).reduce(function (s, d) { return s + d.netAdd; }, 0);
+
+  // ▼ 第0层 KPI 大字：国家队总市值 + 今日净增持 + 近20日累计净增持 ▼
+  var kpi = document.createElement("div");
+  kpi.className = "nt-total-kpi";
+  var netCls = last.netAdd >= 0 ? "nt-up" : "nt-down";
+  var netSign = last.netAdd >= 0 ? "+" : "";
+  var cumCls = cum20 >= 0 ? "nt-up" : "nt-down";
+  var cumSign = cum20 >= 0 ? "+" : "";
+  kpi.innerHTML =
+    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div><div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span></div></div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">今日净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=国家队今日净买入，负值=净卖出。份额变动是硬数据不受价格波动干扰。") + '</div><div class="nt-tk-val ' + netCls + '">' + netSign + last.netAdd.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看国家队近一个月持续买入还是卖出。") + '</div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>';
+  container.appendChild(kpi);
+
+  var mktData = series.map(function (d) { return { date: d.date, value: +d.mktCap.toFixed(2) }; });
+  var shareData = series.map(function (d) { return { date: d.date, value: +d.share.toFixed(2) }; });
+  var netData = series.map(function (d) { return { date: d.date, value: +d.netAdd.toFixed(2) }; });
+
+  // 图1：合计持仓市值趋势（份额×价合计）
+  lineChart("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。") + latestSuffix(mktData), mktData, {
+    yAxis: { type: "value", name: "亿元", scale: true },
+  }, null, container);
+
+  // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）
+  lineChart("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。") + latestSuffix(shareData), shareData, {
+    yAxis: { type: "value", name: "亿份", scale: true },
+  }, null, container);
+
+  // 图3：每日净增持额柱状（红流入绿流出）
+  var c3 = mkCard("📉 每日净增持额（近60日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(国家队买入)，绿柱=净流出(卖出)。"), 300, null, container);
+  c3.setOption(withTheme({
+    tooltip: { trigger: "axis", formatter: function (p) { var v = p[0]; return fmtDate(v.axisValue) + "<br/>" + (v.value >= 0 ? "+" : "") + (+v.value).toFixed(2) + " 亿元"; } },
+    grid: { left: 55, right: 20, top: 30, bottom: 50 },
+    xAxis: { type: "category", data: dates },
+    yAxis: { type: "value", name: "亿元" },
+    dataZoom: dzOpts(),
+    series: [{
+      name: "净增持额", type: "bar", data: netData.map(function (d) { return d.value; }),
+      itemStyle: { color: function (p) { return p.value >= 0 ? "#e6492e" : "#2e8b57"; } },
+    }],
+  }));
+}
+
 // ── 4层概览首屏：总览摘要条+矩阵热力图+卡片墙+叠加对比折线 ──
 function renderNationalTeamOverview(container, data, qData) {
   var summary = ntBuildSummary(data, qData);
+
+  // ▼ 第0层：国家队总盘（合计持仓市值+净增持+份额趋势，最顶部在摘要条之上）▼
+  renderNationalTeamTotalPanel(container, data);
 
   // ▼ 第1层：总览摘要条 ▼
   // 净流入=各ETF当日份额变动(亿份)×收盘价(元)求和=亿元；红流入绿流出
@@ -1835,7 +1938,7 @@ function renderNationalTeamOverview(container, data, qData) {
   // 12行×指标列，色阶着色：份额变动红流入/绿流出，机构占比高深色，放量倍数>1.5橙色
   var heatSec = document.createElement("div");
   heatSec.className = "chart-card nt-heatmap-card";
-  heatSec.innerHTML = '<h3>12 只 ETF 资金矩阵 <span class="term-tip" title="一屏看全12只：份额变动%(红=流入/绿=流出，色越深变动越大)、最新信号、机构占比%(深色=国家队主导>85%)、放量倍数(橙=成交活跃>1.5倍)。点行进单只详情。">❓</span></h3>';
+  heatSec.innerHTML = '<h3>12 只 ETF 资金矩阵 <span class="term-tip" data-tip="一屏看全12只：份额变动%(红=流入/绿=流出，色越深变动越大)、最新信号、机构占比%(深色=国家队主导>85%)、放量倍数(橙=成交活跃>1.5倍)。点行进单只详情。">❓</span></h3>';
   var heatWrap = document.createElement("div");
   heatWrap.className = "nt-heatmap-wrap";
   heatWrap.innerHTML = '<table class="nt-heatmap"><thead><tr>' +
@@ -1871,7 +1974,7 @@ function renderNationalTeamOverview(container, data, qData) {
   // 3×4网格(H5 2列)，每张迷你卡含 sparkline+份额变动%+信号标注，点卡片进详情
   var wallSec = document.createElement("div");
   wallSec.className = "chart-card nt-wall-card";
-  wallSec.innerHTML = '<h3>12 只 ETF 走势卡片墙 <span class="term-tip" title="每张迷你卡片含份额折线(sparkline)+当日份额变动%+信号标注。🔴进=疑似大资金进场/🟢出=疑似离场/🟠量=放量。点卡片进单只详情。">❓</span></h3>';
+  wallSec.innerHTML = '<h3>12 只 ETF 走势卡片墙 <span class="term-tip" data-tip="每张迷你卡片含份额折线(sparkline)+当日份额变动%+信号标注。🔴进=疑似大资金进场/🟢出=疑似离场/🟠量=放量。点卡片进单只详情。">❓</span></h3>';
   var wall = document.createElement("div");
   wall.className = "nt-card-wall";
   summary.forEach(function (s) {
@@ -1929,7 +2032,7 @@ function renderNationalTeamOverview(container, data, qData) {
     });
   });
   overlaySeries.push({ name: "信号", type: "scatter", data: sigPoints, symbolSize: 7, z: 10 });
-  var overlayTitle = '12 只 ETF 份额归一化叠加（基准=最早日 100%）<span class="term-tip" title="所有ETF份额除以各自最早日份额×100，叠加在同一图看谁被持续增持(线上行)/谁流出(线下行)。🔴点=进场信号/🟢点=离场信号，多只同时触发=汇金增持期共振。点图例切换显隐。">❓</span>';
+  var overlayTitle = '12 只 ETF 份额归一化叠加（基准=最早日 100%）<span class="term-tip" data-tip="所有ETF份额除以各自最早日份额×100，叠加在同一图看谁被持续增持(线上行)/谁流出(线下行)。🔴点=进场信号/🟢点=离场信号，多只同时触发=汇金增持期共振。点图例切换显隐。">❓</span>';
   var c4 = mkCard(overlayTitle, 400, null, container);
   c4.setOption(withTheme({
     tooltip: {
