@@ -10,12 +10,20 @@
         <string>/Users/linhuichen/code/trade/scripts/backfill_indices.sh</string>
     </array>
     <key>StartCalendarInterval</key>
-    <dict>
+    <array>
+      <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+      </dict>
+      <dict>
         <key>Hour</key>
         <integer>20</integer>
         <key>Minute</key>
         <integer>0</integer>
-    </dict>
+      </dict>
+    </array>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

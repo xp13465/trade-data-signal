@@ -30,7 +30,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 三段式数据更新策略（P0 核心，已上线）
 - **盘中实时（9:35-15:35 每30分钟）**：快照秒级，腾讯/同花顺实时源不依赖T+1，反哺index_daily+重算恐贪。盘中/收盘5分钟内看当日。
 - **收盘正式（17:50）**：update_all 全量，baostock~17:45出当日T+1后跑，补完整OHLC+情绪分+deploy+信号邮件。
-- **晚间兜底（20:00）**：backfill 轻量补采缺失+重算情绪分。
+- **晚间兜底（02:00+20:00）**：backfill 轻量补采缺失+重算情绪分。02:00 凌晨兜底确保次日清晨齐全，20:00 晚间补三源更新后缺失。
 
 ### 🔄 排队任务（本轮新增，待做）
 - **[排队-1] iframe 模拟回测弹窗跟随主题** ✅ 已完成（commit 7485005，URL hash+postMessage 双保险）。
@@ -131,12 +131,12 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 **下轮起点**：用户要看公网效果后决定待办1/2方向。开工先读本节 + memory `new-feature-isolated-tab-first`。
 
-## 交接状态（2026-07-11 续，监控通知 + 兜底改20:00）
+## 交接状态（2026-07-11 续，监控通知 + 兜底改20:00；07-13 加02:00凌晨兜底）
 
 > 同日续做。3 commit 全推 main。
 
 **已完成**：
-1. `f66f1d4` 晚间兜底 18:00->20:00（避开 update_all 拖长致数据源限流，三源更晚更新补采更稳）。live plist + `scripts/plists/` 模板 + 文档同步，launchctl reload。
+1. `f66f1d4` 晚间兜底 18:00->20:00（避开 update_all 拖长致数据源限流，三源更晚更新补采更稳）。live plist + `scripts/plists/` 模板 + 文档同步，launchctl reload。07-13 加 02:00 凌晨兜底时点（StartCalendarInterval 改数组 02:00+20:00），确保次日清晨数据齐全。
 2. `041a08e` update_all 监控通知：新建 `scripts/notify.py`（复用 email.json 发邮件，严重时写 `data/alerts/latest.md`）；`with_lock.py` 加 `--on-skip`（锁跳过触发通知）；`update_all.sh` 记耗时，>1h 或 core 失败发严重邮件+alerts，正常发完成邮件；`on_skip_notify.sh` 处理锁跳过。
 3. `a37cff9` TASKS.md 顶部加 alerts 提醒。
 
