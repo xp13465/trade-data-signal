@@ -71,6 +71,69 @@ ETF_BY_CODE = {c: (n, idx, mkt) for c, n, idx, mkt in ETF_LIST}
 SH_CODES = [c for c, _, _, m in ETF_LIST if m == "sh"]
 SZ_CODES = [c for c, _, _, m in ETF_LIST if m == "sz"]
 
+# ── v2: cninfo PDF 解析汇金/证金具名持有人 ──────────────────────────────────────
+# cninfo 公告查询 API（巨潮资讯网）
+CNINFO_ANNOUNCE_URL = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
+CNINFO_PDF_BASE = "http://static.cninfo.com.cn/"
+
+# 深市 ETF 在 cninfo 的 orgId（从 fund_stock.json 拿到；沪市 ETF cninfo 未收录 orgId）
+CNINFO_ETF_ORGID = {
+    "159919": "jjjl0000037",  # 沪深300ETF嘉实
+    "159922": "jjjl0000037",  # 中证500ETF嘉实
+    "159845": "jjjl0000031",  # 中证1000ETF华夏
+    "159915": "jjjl0000041",  # 创业板ETF易方达
+    "159952": "jjjl0000065",  # 创业板ETF广发
+}
+
+# 国家队主体识别关键词（持有人名称包含这些即归类）
+NATIONAL_TEAM_PATTERNS = [
+    ("汇金", ["中央汇金投资有限责任公司", "中央汇金资产管理有限责任公司", "中央汇金"]),
+    ("证金", ["中国证券金融股份有限公司", "中国证券金融", "中证金融"]),
+    ("社保", ["全国社保基金", "社保基金"]),
+    ("外管局", ["中央外汇业务中心", "国家外汇管理局"]),
+]
+
+# 历史公开增持里程碑事件 seed（基于新华社/证监会公开公告整理，用于前端"关键事件"展示）
+# 这类汇金/证金"宣布增持"声明不通过 cninfo 披露（汇金非上市公司），作为 seed 静态补充
+NATIONAL_TEAM_EVENTS = [
+    {
+        "date": "20231011", "actor": "汇金",
+        "action": "宣布增持四大行",
+        "note": "中央汇金在二级市场增持工/农/中/建四大行A股，并拟未来6个月继续增持。",
+        "source": "新华财经",
+    },
+    {
+        "date": "20231023", "actor": "汇金",
+        "action": "宣布增持ETF",
+        "note": "中央汇金公告称当日买入交易型开放式指数基金（ETF），并将在未来继续增持。本系统 v1 信号准确捕捉：510300当日份额+9.9亿(z=4.62)，510310份额+4.3亿(z=7.47)。",
+        "source": "新华财经",
+    },
+    {
+        "date": "20240206", "actor": "汇金",
+        "action": "扩大ETF增持范围",
+        "note": "中央汇金公告称充分认可当前A股配置价值，已扩大ETF增持范围并将持续加大增持力度。",
+        "source": "新华财经",
+    },
+    {
+        "date": "20150705", "actor": "证金",
+        "action": "入场维稳（A股救市）",
+        "note": "中国证券金融公司获央行流动性支持，通过申购公募基金等方式入场维稳（千股跌停期间）。",
+        "source": "证监会公告",
+    },
+    {
+        "date": "20080923", "actor": "汇金",
+        "action": "首次宣布增持三大行",
+        "note": "中央汇金在二级市场增持工/中/建三行A股（金融危机期间维稳）。",
+        "source": "上交所公告",
+    },
+    {
+        "date": "20130620", "actor": "汇金",
+        "action": "增持工行/建行",
+        "note": "中央汇金增持工商银行、建设银行A股（钱荒期间维稳）。",
+        "source": "新华财经",
+    },
+]
+
 DEFAULT_START = "20050101"  # 最大化历史: 510050 上市日 2005-02-23, mootdx 可采到上市首日
 
 # SSE fund_etf_scale_sse 最早可采日(~2012-01-04), 早于此日返回 KeyError, 避免空转
@@ -117,6 +180,22 @@ CREATE TABLE IF NOT EXISTS etf_holder_quarterly (
   PRIMARY KEY (report_date, etf_code)
 );
 CREATE INDEX IF NOT EXISTS idx_etf_holder_code ON etf_holder_quarterly(etf_code);
+
+-- v2: 汇金/证金具名持有人（从 cninfo 年报/半年报 PDF "9.2 期末上市基金前十名持有人" 解析）
+CREATE TABLE IF NOT EXISTS national_team_holders (
+  report_date TEXT NOT NULL,      -- 报告期 YYYYMMDD（年报 2024-12-31 -> 20241231）
+  etf_code TEXT NOT NULL,
+  holder_name TEXT NOT NULL,      -- 持有人全称（如"中央汇金投资有限责任公司"）
+  holder_type TEXT,               -- '汇金'/'证金'/'其他机构'
+  hold_share REAL,                -- 持有份额（份）
+  hold_pct REAL,                  -- 占上市总份额比例 %
+  rank INTEGER,                   -- 前十大持有人排名 1-10
+  source_pdf_url TEXT,            -- 来源 PDF URL
+  fetch_date TEXT,
+  PRIMARY KEY (report_date, etf_code, holder_name)
+);
+CREATE INDEX IF NOT EXISTS idx_nth_code ON national_team_holders(etf_code);
+CREATE INDEX IF NOT EXISTS idx_nth_type ON national_team_holders(holder_type);
 """
 
 
@@ -306,6 +385,230 @@ def fetch_holder_structure(code: str) -> list[dict]:
             except Exception:  # noqa: BLE001
                 continue
     return out
+
+
+# ── v2 Fetcher E: cninfo PDF 解析汇金/证金具名持有人 ────────────────────────────
+def _cninfo_session():
+    """trust_env=False 的 session（绕 Clash 直连 cninfo）。"""
+    import requests
+    s = requests.Session()
+    s.trust_env = False
+    return s
+
+
+def fetch_cninfo_reports(code: str, org_id: str, report_types: tuple = ("annual", "semi")) -> list[dict]:
+    """查 cninfo ETF 年报/半年报公告列表。
+    返回 [{title, pub_date, pdf_url, announcement_id}]。
+    report_types: 'annual' 年报 / 'semi' 半年报。
+    """
+    s = _cninfo_session()
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "http://www.cninfo.com.cn/",
+               "X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*; q=0.01"}
+    out = []
+    page = 1
+    while page <= 5:  # 最多5页=150条，足够覆盖10+年
+        data = {
+            "pageNum": str(page), "pageSize": "30", "column": "fund",
+            "tabName": "fulltext", "category": "category_jjgg_ndbg_szsh",
+            "plate": "", "stock": f"{code},{org_id}", "searchkey": "",
+            "secid": "", "sortName": "", "sortType": "", "isHLtitle": "true",
+        }
+        try:
+            r = s.post(CNINFO_ANNOUNCE_URL, data=data, timeout=15, headers=headers)
+            j = r.json()
+        except Exception as e:  # noqa: BLE001
+            print(f"  [cninfo] {code} 查询失败 p{page}: {type(e).__name__}", flush=True)
+            break
+        ann = j.get("announcements") or []
+        if not ann:
+            break
+        for a in ann:
+            title = a.get("announcementTitle", "").replace("<em>", "").replace("</em>", "")
+            # 只要年报/半年报全文（排除"摘要"/"推迟披露"/"提示性公告"）
+            is_annual = "年度报告" in title and "摘要" not in title and "推迟" not in title and "提示" not in title
+            is_semi = "半年度报告" in title and "摘要" not in title and "推迟" not in title
+            if not (is_annual or is_semi):
+                continue
+            t = a.get("announcementTime")
+            pub = dt.datetime.fromtimestamp(t / 1000).strftime("%Y%m%d") if t else ""
+            rtype = "annual" if is_annual else "semi"
+            out.append({
+                "title": title,
+                "pub_date": pub,
+                "report_type": rtype,
+                "pdf_url": CNINFO_PDF_BASE + a.get("adjunctUrl", ""),
+                "announcement_id": a.get("announcementId", ""),
+            })
+        if len(ann) < 30:
+            break
+        page += 1
+    return out
+
+
+def _extract_report_date(title: str, report_type: str) -> str | None:
+    """从公告标题提取报告期 YYYYMMDD。
+    年报 '2024年年度报告' -> '20241231'；半年报 '2024年半年度报告' -> '20240630'。
+    """
+    m = re.search(r"(20\d{2})年", title)
+    if not m:
+        return None
+    year = m.group(1)
+    if report_type == "semi":
+        return f"{year}0630"
+    return f"{year}1231"
+
+
+def parse_top_holders_from_pdf(pdf_path: str) -> list[dict]:
+    """pdfplumber 解析"9.2 期末上市基金前十名持有人"表格。
+    返回 [{rank, holder_name, hold_share, hold_pct}]，解析失败返 []。
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        print("  [pdf] pdfplumber 未安装", flush=True)
+        return []
+    out = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            # 跳过目录页（含....）+ 必须含 9.2 前十名持有人
+            if "...." in text:
+                continue
+            if "前十名持有人" not in text and "前十名份额持有人" not in text:
+                continue
+            tables = page.extract_tables()
+            for t in tables:
+                flat = " ".join(str(c) for row in t for c in row if c)
+                if "持有人名称" not in flat and "持有份额" not in flat:
+                    continue
+                for row in t:
+                    cells = [(c or "").replace("\n", "").strip() for c in row]
+                    # 找序号 1-15
+                    seq = None
+                    for c in cells:
+                        if c.isdigit() and 1 <= int(c) <= 15:
+                            seq = int(c)
+                            break
+                    if seq is None:
+                        continue
+                    hold_share = None
+                    hold_pct = None
+                    holder_name = None
+                    for c in cells:
+                        if not c or c == str(seq):
+                            continue
+                        # 份额：含逗号的大数字 或 纯数字>4位
+                        if hold_share is None and re.match(r"^[\d,]+\.?\d*$", c) and len(c.replace(",", "")) > 4:
+                            hold_share = float(c.replace(",", ""))
+                        # 占比：纯小数（如 51.56）
+                        elif hold_pct is None and re.match(r"^\d+\.\d{1,3}$", c):
+                            hold_pct = float(c)
+                        # 持有人名称：含中文长度>4 且不是表头
+                        if holder_name is None and re.search(r"[一-鿿]{4,}", c):
+                            if "占" not in c and "持有人" not in c and "份额" not in c and "比例" not in c:
+                                holder_name = c
+                    if holder_name and (hold_share is not None or hold_pct is not None):
+                        out.append({
+                            "rank": seq,
+                            "holder_name": holder_name,
+                            "hold_share": hold_share,
+                            "hold_pct": hold_pct,
+                        })
+            if out:  # 同一页找到就不再翻后续页
+                break
+    return out
+
+
+def classify_holder(name: str) -> str:
+    """识别持有人类型：'汇金'/'证金'/'社保'/'外管局'/'其他机构'。"""
+    for htype, patterns in NATIONAL_TEAM_PATTERNS:
+        for p in patterns:
+            if p in name:
+                return htype
+    return "其他机构"
+
+
+def download_cninfo_pdf(pdf_url: str, dest_path: Path) -> bool:
+    """下载 cninfo PDF。"""
+    s = _cninfo_session()
+    try:
+        r = s.get(pdf_url, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200 or len(r.content) < 1000:
+            return False
+        dest_path.write_bytes(r.content)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"    下载失败: {type(e).__name__}", flush=True)
+        return False
+
+
+def _store_holders_v2(conn, code: str, report_date: str, holders: list[dict], pdf_url: str) -> int:
+    """存 v2 具名持有人到 national_team_holders 表。"""
+    fetch_date = dt.datetime.now().strftime("%Y%m%d")
+    n = 0
+    for h in holders:
+        htype = classify_holder(h["holder_name"])
+        # v2 只存国家队 + 前十大（其他机构也存，前端可选择性展示）
+        conn.execute(
+            "INSERT OR REPLACE INTO national_team_holders "
+            "(report_date, etf_code, holder_name, holder_type, hold_share, hold_pct, rank, source_pdf_url, fetch_date) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (report_date, code, h["holder_name"], htype, h.get("hold_share"),
+             h.get("hold_pct"), h["rank"], pdf_url, fetch_date),
+        )
+        n += 1
+    conn.commit()
+    return n
+
+
+def fetch_and_parse_holders_v2(code: str, org_id: str, start_year: int = 2015) -> dict:
+    """完整 v2 pipeline: 查年报列表 -> 下载 PDF -> 解析前十大持有人 -> 入库。
+    返回 {reports_found, pdfs_downloaded, holders_extracted, national_team_count}。
+    """
+    conn = get_conn()
+    stats = {"reports_found": 0, "pdfs_downloaded": 0, "holders_extracted": 0, "nt_count": 0}
+    reports = fetch_cninfo_reports(code, org_id)
+    stats["reports_found"] = len(reports)
+    if not reports:
+        conn.close()
+        return stats
+
+    print(f"  {code}: 找到 {len(reports)} 份年报/半年报", flush=True)
+    tmp_dir = _DATA_DIR / ".cninfo_pdf"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    for rep in reports:
+        report_date = _extract_report_date(rep["title"], rep["report_type"])
+        if not report_date or report_date < f"{start_year}0101":
+            continue
+        # 已解析过的报告期跳过（DB 有该期数据则跳，除非强制）
+        existing = conn.execute(
+            "SELECT 1 FROM national_team_holders WHERE etf_code=? AND report_date=? LIMIT 1",
+            (code, report_date)).fetchone()
+        if existing:
+            continue
+        pdf_name = f"{code}_{report_date}.pdf"
+        pdf_path = tmp_dir / pdf_name
+        print(f"    {report_date} ({rep['report_type']}): 下载 {rep['pdf_url'][-40:]}", flush=True)
+        if not download_cninfo_pdf(rep["pdf_url"], pdf_path):
+            continue
+        stats["pdfs_downloaded"] += 1
+        holders = parse_top_holders_from_pdf(str(pdf_path))
+        if not holders:
+            print(f"      解析失败（无前十大持有人表）", flush=True)
+            continue
+        n = _store_holders_v2(conn, code, report_date, holders, rep["pdf_url"])
+        stats["holders_extracted"] += n
+        nt = sum(1 for h in holders if classify_holder(h["holder_name"]) != "其他机构")
+        stats["nt_count"] += nt
+        print(f"      解析 {n} 个持有人（国家队 {nt}）", flush=True)
+        # 清理 PDF 释放空间
+        try:
+            pdf_path.unlink()
+        except Exception:  # noqa: BLE001
+            pass
+    conn.close()
+    return stats
 
 
 # ── 数据入库 ────────────────────────────────────────────────────────────────────
@@ -694,6 +997,36 @@ def pipeline_signals() -> int:
     return n
 
 
+def pipeline_holders_v2(start_year: int = 2015) -> dict:
+    """v2: cninfo PDF 解析汇金/证金具名持有人。
+    对深市 5 只 ETF（有 orgId 的）查年报/半年报 -> 下载 PDF -> 解析前十大持有人。
+    沪市 7 只 cninfo 未收录 orgId，跳过（前端标注"待补"）。
+    """
+    print(f"[etf_nt] v2 holders 开始 {dt.datetime.now():%Y-%m-%d %H:%M:%S}", flush=True)
+    t0 = time.time()
+    total = {"reports_found": 0, "pdfs_downloaded": 0, "holders_extracted": 0, "nt_count": 0}
+    for code, name, _, _ in ETF_LIST:
+        org_id = CNINFO_ETF_ORGID.get(code)
+        if not org_id:
+            print(f"  {code} {name}: 跳过（cninfo 无 orgId，沪市待补）", flush=True)
+            continue
+        print(f"  {code} {name}: orgId={org_id}", flush=True)
+        stats = fetch_and_parse_holders_v2(code, org_id, start_year=start_year)
+        for k in total:
+            total[k] += stats[k]
+    conn = get_conn()
+    # 统计国家队总数
+    nt_total = conn.execute(
+        "SELECT COUNT(*) FROM national_team_holders WHERE holder_type!='其他机构'"
+    ).fetchone()[0]
+    conn.close()
+    dt_sec = time.time() - t0
+    print(f"[etf_nt] v2 holders 完成 {dt_sec:.0f}s: reports={total['reports_found']} "
+          f"pdfs={total['pdfs_downloaded']} holders={total['holders_extracted']} "
+          f"新国家队={total['nt_count']}（DB累计国家队记录 {nt_total}）", flush=True)
+    return total
+
+
 # ── export JSON（双版同步：web API + static-site 文件）─────────────────────────
 def export_data() -> tuple[dict, dict]:
     """生成两个 JSON 结构（daily + quarterly），供 web API 和 static-site 共用。"""
@@ -762,31 +1095,101 @@ def export_data() -> tuple[dict, dict]:
             "history": history,
         })
 
+    # v2 具名持有人（cninfo PDF 解析的前十大持有人，含汇金/证金识别）
+    h_etfs: list[dict] = []
+    for code, name, index, mkt in ETF_LIST:
+        rows = conn.execute(
+            "SELECT report_date, holder_name, holder_type, hold_share, hold_pct, rank, source_pdf_url "
+            "FROM national_team_holders WHERE etf_code=? ORDER BY report_date DESC, rank",
+            (code,),
+        ).fetchall()
+        if not rows:
+            h_etfs.append({
+                "code": code, "name": name, "index": index,
+                "has_data": False,
+                "note": "cninfo未收录orgId，待补" if code not in CNINFO_ETF_ORGID else "暂无解析数据",
+            })
+            continue
+        # 按报告期分组
+        reports_map: dict[str, dict] = {}
+        for r in rows:
+            rd = r["report_date"]
+            rep = reports_map.setdefault(rd, {"report_date": rd, "holders": []})
+            h = {
+                "rank": r["rank"],
+                "name": r["holder_name"],
+                "type": r["holder_type"],
+                "hold_share": r["hold_share"],
+                "hold_pct": r["hold_pct"],
+            }
+            if r["hold_share"] is not None:
+                h["hold_share_yi"] = round(r["hold_share"] / 1e8, 2)
+            rep["holders"].append(h)
+        # 每期国家队汇总（汇金合计/证金合计）
+        reports = []
+        for rd in sorted(reports_map.keys(), reverse=True):
+            rep = reports_map[rd]
+            holders = rep["holders"]
+            nt_sum: dict[str, dict] = {}
+            for h in holders:
+                if h["type"] == "其他机构":
+                    continue
+                t = h["type"]
+                d = nt_sum.setdefault(t, {"count": 0, "total_share": 0.0, "total_pct": 0.0})
+                d["count"] += 1
+                if h["hold_share"]:
+                    d["total_share"] += h["hold_share"]
+                if h["hold_pct"]:
+                    d["total_pct"] += h["hold_pct"]
+            for d in nt_sum.values():
+                d["total_share_yi"] = round(d["total_share"] / 1e8, 2)
+                d["total_pct"] = round(d["total_pct"], 2)
+            rep["national_team_summary"] = nt_sum
+            reports.append(rep)
+        # 最新一期国家队合计
+        latest_nt = reports[0]["national_team_summary"] if reports else {}
+        h_etfs.append({
+            "code": code, "name": name, "index": index,
+            "has_data": True,
+            "reports": reports,
+            "latest_national_team": latest_nt,
+        })
+
     conn.close()
     daily_json = {"updated_at": updated_at, "etfs": etfs}
     quarterly_json = {"updated_at": updated_at, "etfs": q_etfs}
-    return daily_json, quarterly_json
+    holders_json = {
+        "updated_at": updated_at,
+        "source": "cninfo 年报/半年报 PDF §9.2 期末上市基金前十名持有人（pdfplumber 解析）",
+        "note": "仅深市5只ETF有cninfo orgId；沪市7只待补。持有人类型按名称关键词识别汇金/证金/社保/外管局。",
+        "etfs": h_etfs,
+        # 历史公开增持事件 seed（汇金/证金宣布增持的里程碑事件）
+        "events": NATIONAL_TEAM_EVENTS,
+    }
+    return daily_json, quarterly_json, holders_json
 
 
 def export_json_files() -> None:
-    """写两个 JSON 到 static-site/data/（static-site 前端读 ./data/*.json）。
+    """写三个 JSON 到 static-site/data/（static-site 前端读 ./data/*.json）。
     web 版走 /api/etf-national-team 动态读 DB，不需静态 JSON（与项目现有模式一致：overview/futures 等均只写 static-site/data/）。
     """
-    daily_json, quarterly_json = export_data()
+    daily_json, quarterly_json, holders_json = export_data()
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (STATIC_DATA_DIR / "etf_national_team.json").write_text(
         json.dumps(daily_json, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     (STATIC_DATA_DIR / "etf_national_team_quarterly.json").write_text(
         json.dumps(quarterly_json, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"[etf_nt] export JSON 完成 -> static-site/data/", flush=True)
+    (STATIC_DATA_DIR / "etf_national_team_holders.json").write_text(
+        json.dumps(holders_json, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"[etf_nt] export JSON 完成 -> static-site/data/ (3 files)", flush=True)
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "daily"
-    if cmd in ("daily", "backfill", "signals", "holders", "export"):
-        # 进程互斥（daily/backfill 持锁跑，signals/export 不需要锁）
+    if cmd in ("daily", "backfill", "signals", "holders", "holders_v2", "export"):
+        # 进程互斥（daily/backfill/holders 持锁跑，signals/export/holders_v2 不需要锁）
         if cmd in ("daily", "backfill", "holders"):
             if not _acquire_lock(nonblock=True):
                 print(f"[etf_nt] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
@@ -806,6 +1209,9 @@ def main():
         elif cmd == "holders":
             pipeline_holders()
             export_json_files()
+        elif cmd == "holders_v2":
+            pipeline_holders_v2()
+            export_json_files()
         elif cmd == "export":
             export_json_files()
     else:
@@ -815,6 +1221,7 @@ def main():
         print(f"  daily                       当日增量")
         print(f"  signals                     重算信号")
         print(f"  holders                     只拉持有人(半年一次)")
+        print(f"  holders_v2                  v2 cninfo PDF解析汇金/证金具名持有人")
         print(f"  export                      只导出JSON")
         sys.exit(1)
 

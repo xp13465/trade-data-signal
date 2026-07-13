@@ -1035,7 +1035,7 @@ def etf_national_team():
     结合季度机构持仓占比校准，推断疑似大资金进场/离场。无法精确区分汇金/证金/社保/险资/公募。
     """
     from .collector.etf_national_team import export_data
-    daily, _quarterly = export_data()
+    daily, _q, _h = export_data()
     return daily
 
 
@@ -1043,8 +1043,18 @@ def etf_national_team():
 def etf_national_team_quarterly():
     """季度持有人结构（机构占比历史轨迹，半年报+年报）。"""
     from .collector.etf_national_team import export_data
-    _daily, quarterly = export_data()
+    _d, quarterly, _h = export_data()
     return quarterly
+
+
+@app.get("/api/etf-national-team/holders")
+def etf_national_team_holders():
+    """v2 具名持有人：cninfo 年报/半年报 PDF 解析的前十大持有人（含汇金/证金识别）。
+    仅深市5只ETF有cninfo orgId；沪市7只待补。含历史汇金/证金公开增持事件 seed。
+    """
+    from .collector.etf_national_team import export_data
+    _d, _q, holders = export_data()
+    return holders
 
 
 @app.get("/api/metrics")

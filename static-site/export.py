@@ -972,15 +972,24 @@ def export_etf_national_team():
     与 /api/etf-national-team 返回结构一致。读 data/etf_national_team.db。
     """
     from app.collector.etf_national_team import export_data
-    daily, _quarterly = export_data()
+    daily, _q, _h = export_data()
     return daily
 
 
 def export_etf_national_team_quarterly():
     """季度持有人结构（机构占比历史轨迹）。与 /api/etf-national-team/quarterly 一致。"""
     from app.collector.etf_national_team import export_data
-    _daily, quarterly = export_data()
+    _d, quarterly, _h = export_data()
     return quarterly
+
+
+def export_etf_national_team_holders():
+    """v2 具名持有人（cninfo PDF 解析的前十大持有人，含汇金/证金识别）。
+    与 /api/etf-national-team/holders 一致。
+    """
+    from app.collector.etf_national_team import export_data
+    _d, _q, holders = export_data()
+    return holders
 
 
 # ============ JSON 序列化 + 写盘 ============
@@ -1097,6 +1106,9 @@ def main():
     counts["etf_national_team_quarterly.json"] = write_json(
         DATA_DIR / "etf_national_team_quarterly.json", export_etf_national_team_quarterly())
     print(f"  etf_national_team_quarterly.json ({counts['etf_national_team_quarterly.json']} bytes)")
+    counts["etf_national_team_holders.json"] = write_json(
+        DATA_DIR / "etf_national_team_holders.json", export_etf_national_team_holders())
+    print(f"  etf_national_team_holders.json ({counts['etf_national_team_holders.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]

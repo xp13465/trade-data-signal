@@ -1716,10 +1716,11 @@ async function renderMarket() {
 async function renderNationalTeam(container = content) {
   _disposeContainerCharts(container);
   container.innerHTML = '<div class="loading">加载中…</div>';
-  let data, qData;
+  let data, qData, hData;
   try {
     data = await fetchJSON("/api/etf-national-team");
     qData = await fetchJSON("/api/etf-national-team/quarterly");
+    try { hData = await fetchJSON("/api/etf-national-team/holders"); } catch (e) { hData = null; }
   } catch (e) {
     container.innerHTML = "";
     renderFailCard(container, "🐶 汪汪队", e);
@@ -1740,7 +1741,7 @@ async function renderNationalTeam(container = content) {
   container.appendChild(banner);
 
   if (state.ntView === "detail") {
-    renderNationalTeamDetail(container, data, qData);
+    renderNationalTeamDetail(container, data, qData, hData);
   } else {
     renderNationalTeamOverview(container, data, qData);
   }
@@ -2006,7 +2007,7 @@ function renderNationalTeamOverview(container, data, qData) {
 }
 
 // ── 单只详情：保留原 ETF 选择器+5KPI+3图+信号表+汇金验证 ──
-function renderNationalTeamDetail(container, data, qData) {
+function renderNationalTeamDetail(container, data, qData, hData) {
   // 返回概览按钮
   var backBtn = document.createElement("button");
   backBtn.className = "nt-back-btn";
@@ -2178,7 +2179,75 @@ function renderNationalTeamDetail(container, data, qData) {
     `<b>季度校准</b>：当季机构占比&gt;85% 置信×1.5（国家队主导品种）；&lt;60% 置信×0.7（散户主导噪声大）。持有人数据半年报+年报，滞后2-3月。` +
     `</div>`;
   container.appendChild(evt);
-  // v2 占位（任务#60 具名识别）：汇金/证金增持明细待 v2 后端补席位数据后接入
+
+  // ── v2: 汇金/证金具名持有人（cninfo PDF 解析）──
+  if (hData && hData.etfs) {
+    var hCard = document.createElement("div");
+    hCard.className = "nt-banner";
+    var curEtf = null;
+    for (var i = 0; i < hData.etfs.length; i++) {
+      if (hData.etfs[i].code === state.ntEtf) { curEtf = hData.etfs[i]; break; }
+    }
+    var v2Html = '<h3>📊 汇金/证金具名持有人 <span class="term-tip" data-tip="数据来自巨潮资讯网(cninfo)年报/半年报PDF的§9.2期末上市基金前十名持有人表格,用pdfplumber解析。持有人类型按名称关键词识别:含中央汇金=汇金,含中国证券金融=证金,含全国社保基金=社保。仅深市5只ETF有cninfo orgId,沪市7只待补。">❓</span></h3>';
+    v2Html += '<div class="nt-banner-body">';
+    if (curEtf && curEtf.has_data && curEtf.reports && curEtf.reports.length) {
+      var latestRep = curEtf.reports[0];
+      var ntSum = latestRep.national_team_summary || {};
+      var ntKeys = Object.keys(ntSum);
+      v2Html += '<b>最新一期（报告期 ' + latestRep.report_date + '）国家队持股</b>：';
+      if (ntKeys.length) {
+        for (var k = 0; k < ntKeys.length; k++) {
+          var s = ntSum[ntKeys[k]];
+          v2Html += '<span style="color:var(--primary)">' + ntKeys[k] + '</span> ' + s.count + '席/合计<b>' + s.total_share_yi + '亿份</b>(' + s.total_pct + '%)、';
+        }
+        v2Html = v2Html.replace(/、$/, '');
+      } else {
+        v2Html += '<span style="opacity:0.7">前十大持有人中无国家队席位</span>';
+      }
+      v2Html += '<br/>';
+      // 历史轨迹表（只列国家队席位）
+      var ntHistoryCount = 0;
+      curEtf.reports.forEach(function (rep) {
+        rep.holders.forEach(function (h) { if (h.type !== '其他机构') ntHistoryCount++; });
+      });
+      if (ntHistoryCount > 0) {
+        v2Html += '<details><summary>📜 ' + curEtf.name + ' 国家队持股历史轨迹（' + curEtf.reports.length + '期，' + ntHistoryCount + '条国家队记录）</summary>';
+        v2Html += '<table class="nt-table"><thead><tr><th>报告期</th><th>持有人</th><th>类型</th><th>份额(亿份)</th><th>占比%</th><th>排名</th></tr></thead><tbody>';
+        curEtf.reports.forEach(function (rep) {
+          rep.holders.forEach(function (h) {
+            if (h.type !== '其他机构') {
+              v2Html += '<tr><td>' + rep.report_date + '</td><td>' + h.name + '</td><td style="color:var(--primary)">' + h.type + '</td><td>' + (h.hold_share_yi != null ? h.hold_share_yi : '-') + '</td><td>' + (h.hold_pct != null ? h.hold_pct : '-') + '</td><td>' + h.rank + '</td></tr>';
+            }
+          });
+        });
+        v2Html += '</tbody></table></details>';
+      }
+    } else {
+      v2Html += '<b>' + (curEtf ? curEtf.name : state.ntEtf) + ' 暂无具名数据</b>：' + (curEtf ? curEtf.note || 'cninfo未收录该ETF的orgId' : '未找到') + '。<br/>';
+      var hasData = hData.etfs.filter(function (e) { return e.has_data; });
+      if (hasData.length) {
+        v2Html += '其他有具名数据的ETF：';
+        hasData.forEach(function (e) {
+          var nt = e.latest_national_team || {};
+          var ntDesc = Object.keys(nt).map(function (k) { return k + nt[k].total_share_yi + '亿份'; }).join('/');
+          v2Html += e.name + '(' + ntDesc + ')、';
+        });
+        v2Html = v2Html.replace(/、$/, '');
+      }
+    }
+    v2Html += '</div>';
+    // 历史公开增持事件时间线
+    if (hData.events && hData.events.length) {
+      v2Html += '<details style="margin-top:8px"><summary>🏛 历史汇金/证金公开增持事件（' + hData.events.length + '件，基于新华社/证监会公告整理）</summary>';
+      v2Html += '<div class="nt-banner-body">';
+      hData.events.forEach(function (ev) {
+        v2Html += '<b>' + ev.date + '</b> <span style="color:var(--primary)">' + ev.actor + '</span> ' + ev.action + '：<span style="opacity:0.85">' + ev.note + '</span> <i style="opacity:0.6">(' + ev.source + ')</i><br/>';
+      });
+      v2Html += '</div></details>';
+    }
+    hCard.innerHTML = v2Html;
+    container.appendChild(hCard);
+  }
 }
 
 async function renderAStock(container = content) {

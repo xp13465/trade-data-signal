@@ -35,3 +35,4 @@ config/email.json
 
 # 系统
 .DS_Store
+data/.cninfo_pdf/
