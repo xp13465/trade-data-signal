@@ -357,7 +357,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：Supertrend翻多买全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是最佳互补候选。近3年10d均值+1.0%，60d均值+3.8%。",
   },
   Donchian20_up: {
-    name: "唐奇安20日突破买", side: "buy", zone: "buy", status: "dev",
+    name: "唐奇安20日突破买", side: "buy", zone: "buy", status: "experimental",
     trigger: "收盘价突破近20日最高价（通道突破买）",
     conclusion: "2/4达标，近3年胜率<50%，趋势跟踪型信号",
     theory: "唐奇安通道突破。价格创新高意味多头力量突破，经典趋势跟踪系统。",
@@ -366,7 +366,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：唐奇安20日突破买全史+近1年达标（2/4），近3年胜率47.7%低于50%。全史样本38731最大之一，但胜率平庸。近3年60d盈亏比1.56、均值+2.3%。",
   },
   Donchian55_up: {
-    name: "海龟55日突破买", side: "buy", zone: "buy", status: "dev",
+    name: "海龟55日突破买", side: "buy", zone: "buy", status: "experimental",
     trigger: "收盘价突破近55日最高价（海龟交易法System 2）",
     conclusion: "2/4达标，胜率<50%，长周期突破信号滞后",
     theory: "海龟交易法 System 2 入场。55日突破捕捉中长期趋势启动，经典趋势跟踪。",
@@ -375,7 +375,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：海龟55日突破买全史+近1年达标（2/4），近3年胜率47.1%低于50%。全史样本20895，60d均值+3.4%。海龟系统长周期突破信号滞后但盈亏比尚可。",
   },
   MA_golden_5_20: {
-    name: "MA5/MA20金叉买", side: "buy", zone: "buy", status: "dev",
+    name: "MA5/MA20金叉买", side: "buy", zone: "buy", status: "experimental",
     trigger: "5日均线上穿20日均线（短期金叉买点）",
     conclusion: "1/4达标，信号密集胜率平庸",
     theory: "双均线金叉。短期均线上穿长期均线意味短期动量转强，经典趋势确认信号。",
@@ -384,7 +384,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：MA5/MA20金叉买仅全史达标（1/4），近3年10d胜率49.8%接近随机。信号密集（全史30754个），胜率平庸。近3年60d盈亏比1.75、均值+4.9%是唯一亮点。",
   },
   MA_golden_10_60: {
-    name: "MA10/MA60金叉买", side: "buy", zone: "buy", status: "dev",
+    name: "MA10/MA60金叉买", side: "buy", zone: "buy", status: "experimental",
     trigger: "10日均线上穿60日均线（中长期金叉买点）",
     conclusion: "2/4达标，滞后严重",
     theory: "中长期双均线金叉。10日均线上穿60日均线确认中长期趋势转多，但60日均线滞后严重。",
@@ -393,7 +393,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：MA10/MA60金叉买全史+近1年达标（2/4），近3年胜率47.1%低于50%。60日均线滞后严重，信号少且入场偏晚。全史60d均值+2.1%。",
   },
   MACD_golden: {
-    name: "MACD金叉买", side: "buy", zone: "buy", status: "dev",
+    name: "MACD金叉买", side: "buy", zone: "buy", status: "experimental",
     trigger: "差离值(DIF)上穿信号线(DEA)（MACD金叉买点）",
     conclusion: "1/4达标，信号最多但平庸",
     theory: "MACD金叉。差离值(DIF)上穿信号线(DEA)意味短期动量强于长期，经典趋势确认。MACD(12,26,9)业界标准参数。",
@@ -421,7 +421,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：MA5/MA20死叉卖近3年20d胜率54.8%为卖点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（卖点结构性问题）。",
   },
   BB_middle_break: {
-    name: "跌破布林中轨卖", side: "sell", zone: "sell", status: "dev",
+    name: "跌破布林中轨卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "收盘价跌破布林中轨（20日均线），中轨破位卖",
     conclusion: "中规中矩，PL偏低",
     theory: "布林中轨破位。中轨=20日均线，跌破意味价格回到均线下方，趋势转弱确认。",
@@ -430,7 +430,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：跌破布林中轨卖近3年10d胜率52.6%、PL0.82。样本10177最大。中规中矩，无突出优势。",
   },
   Donchian10_down: {
-    name: "跌破10日最低卖", side: "sell", zone: "sell", status: "dev",
+    name: "跌破10日最低卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "收盘价跌破近10日最低价（海龟退出信号）",
     conclusion: "胜率刚过50%",
     theory: "唐奇安通道下破/海龟退出。跌破短期低点意味短期趋势已破，海龟System 2退出信号。",
@@ -439,7 +439,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：跌破10日最低卖近3年10d胜率52.4%、PL0.89。胜率刚过50%，无突出优势。样本10731较大。",
   },
   Donchian20_down: {
-    name: "跌破20日最低卖", side: "sell", zone: "sell", status: "dev",
+    name: "跌破20日最低卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "收盘价跌破近20日最低价（通道下破卖）",
     conclusion: "PL相对高但平庸",
     theory: "唐奇安通道下破。跌破20日低点意味中期趋势已破，比10日更滞后但更可靠。",
@@ -448,7 +448,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：跌破20日最低卖近3年10d胜率51.8%、PL0.88。全史PL0.94为卖点相对高，但整体平庸。样本7533。",
   },
   MACD_death: {
-    name: "MACD死叉卖", side: "sell", zone: "sell", status: "dev",
+    name: "MACD死叉卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "差离值(DIF)下穿信号线(DEA)（MACD死叉卖点）",
     conclusion: "PL0.79偏低",
     theory: "MACD死叉。差离值(DIF)下穿信号线(DEA)意味短期动量弱于长期，经典趋势转弱确认。MACD(12,26,9)业界标准。",
@@ -457,7 +457,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：MACD死叉卖近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，卖点结构性问题突出。",
   },
   ATR_trail_stop: {
-    name: "ATR追踪止损卖", side: "sell", zone: "sell", status: "dev",
+    name: "ATR追踪止损卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "收盘价 < 近20日最高收盘价 − 3×真实波幅ATR(14)（追踪止损）",
     conclusion: "胜率刚过50%",
     theory: "真实波幅(ATR)追踪止损。基于波动率的动态止损线，价格跌破意味趋势已反转。真实波幅(ATR)自适应波动率。",
