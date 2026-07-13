@@ -2202,12 +2202,6 @@ async function renderSignalLab() {
 
   content.innerHTML = "";
 
-  // 标题
-  const h = document.createElement("h2");
-  h.className = "lab-title";
-  h.textContent = "🧪 策略实验室";
-  content.appendChild(h);
-
   // 实验室自白黄块（列表页也显示，通用介绍 + 抖音号）
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
