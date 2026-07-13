@@ -101,6 +101,28 @@ function chartThemeOpts() {
   };
 }
 
+// 将 chartThemeOpts() 的 UI 语义色深合并进业务 option，供一次性 setOption 首帧即含主题色 + series + visualMap。
+// 治本（修刷新闪烁）：原先 mkCard 先 setOption(chartThemeOpts) 作首帧（无 series/visualMap），业务 setOption
+// 再 merge 注入 series+visualMap；visualMap 经 merge 注入时首帧未完成着色映射（恐贪分段线呈默认单色），
+// 需 rethemeCharts 事后 rAF 重绘修正=闪烁。现在第一次 setOption 即完整含主题色 + series + visualMap，
+// ECharts 建立组件时 visualMap 与 series 同步初始化、着色一次完成，首帧正确不闪，不再依赖 retheme 重绘。
+// xAxis/yAxis 支持数组（多轴）逐项合并：业务 axisLabel 显式色覆盖主题 axisLabel，业务未设的
+// axisLine/splitLine/nameTextStyle 等主题色保留。legend/tooltip 同样浅合并保留双方键。
+function withTheme(opt) {
+  const t = chartThemeOpts();
+  const mergeAxis = (ta, oa) => {
+    if (oa === undefined) return ta;
+    if (Array.isArray(oa)) return oa.map((o) => Object.assign({}, ta, o));
+    return Object.assign({}, ta, oa);
+  };
+  return Object.assign({}, t, opt, {
+    xAxis: mergeAxis(t.xAxis, opt.xAxis),
+    yAxis: mergeAxis(t.yAxis, opt.yAxis),
+    legend: Object.assign({}, t.legend, opt.legend),
+    tooltip: Object.assign({}, t.tooltip, opt.tooltip),
+  });
+}
+
 // dataZoom 滑块配置（slider 底部日期文字色跟主题；inside 无 UI 无需设色）。
 // 抽成函数供所有折线图共用，applyTheme 主题切换时也调它重注入。
 function dzOpts() {
@@ -113,13 +135,10 @@ function dzOpts() {
 // 重注入主题色到所有已渲染 ECharts 图表（charts 全局 + 信号弹窗 _signalModalCharts）。
 // ECharts canvas 不响应 CSS 变量，需手动读 getComputedStyle 重注入 UI 语义色
 // （轴线/网格/坐标文字/tooltip/legend/dataZoom slider/visualMap 文字）。
-// 两处调用：
-//  ① renderTab 渲染完后经 requestAnimationFrame 调用——修刷新/切 tab 后配色时序 bug：
-//     mkCard 先 setOption(chartThemeOpts)（无 series/visualMap）作首帧，业务 setOption 再 merge
-//     注入 series+visualMap；visualMap 经 merge 注入时首帧未完成着色映射（恐贪分段线呈默认单色）。
-//     此处重置 visualMap 触发重映射立即分段着色，刷新即正常，无需切皮肤。rAF 等待 CSS 变量就绪
-//     后读色，兜底首屏 CSS 未算完的边角时序。
-//  ② applyTheme 切皮肤后经 requestAnimationFrame 调用——等 data-theme 改完 CSS 重算再读色重注入。
+// 调用时机：applyTheme 切皮肤后经 requestAnimationFrame 调用——等 data-theme 改完 CSS 重算再读色重注入。
+// 注：刷新/切 tab 首帧不再调用本函数——已通过 withTheme() 让业务 setOption 一次性含主题色 + series +
+// visualMap，首帧着色即正确（治本，见 withTheme 注释）。切皮肤是运行时改 CSS 变量，已渲染的 canvas
+// 不会自动跟随，故仍需此处重注入。
 function rethemeCharts() {
   try {
     var dzColor = cssVar("--text-1");
@@ -153,7 +172,6 @@ function mkCard(title, height = 300, hint = null, container = content, chartArr 
   div.innerHTML = `<h3>${title}</h3>${hintHtml}<div class="chart" style="height:${height}px"></div>`;
   container.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
-  c.setOption(chartThemeOpts()); // 先注入主题基色，后续业务 setOption merge 保留
   chartArr.push(c);
   return c;
 }
@@ -164,7 +182,7 @@ function lineChart(title, series, opts = {}, hint = null, container = content) {
   const arr = multi ? series : [{ name: stripHtml(title), data: series }];
   const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
   const c = mkCard(title, 300, hint, container);
-  c.setOption({
+  c.setOption(withTheme({
     tooltip: { trigger: "axis" },
     legend: { top: 0, type: "scroll" },
     grid: { left: 55, right: 20, top: 35, bottom: 35 },
@@ -183,7 +201,7 @@ function lineChart(title, series, opts = {}, hint = null, container = content) {
       }),
     })),
     ...opts,
-  });
+  }));
   return c;
 }
 
@@ -531,7 +549,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
       itemStyle: { color: signalColor(s) },
     };
   });
-  c.setOption({
+  c.setOption(withTheme({
     tooltip: { trigger: "axis" },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
@@ -553,7 +571,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         },
       },
     ],
-  });
+  }));
   return c;
 }
 
@@ -574,7 +592,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
       itemStyle: { color: signalColor(s) },
     };
   });
-  c.setOption({
+  c.setOption(withTheme({
     tooltip: { trigger: "axis" },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: data.map((d) => d.date) },
@@ -596,7 +614,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
       },
     }],
     ...opts,
-  });
+  }));
   return c;
 }
 
@@ -978,9 +996,6 @@ async function renderTab() {
   } catch (e) {
     content.innerHTML = `<div class="loading">出错了：${e}</div>`;
   }
-  // 渲染完后下一帧重注入主题色：修刷新/切 tab 后 visualMap 经 merge 注入首帧未着色的时序 bug
-  // （rAF 等 CSS 变量就绪后读色，重置 visualMap 触发重映射分段着色）。刷新即正常，无需切皮肤。
-  requestAnimationFrame(rethemeCharts);
 }
 
 // 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
@@ -1282,8 +1297,7 @@ async function renderOverview() {
     const exist = echarts.getInstanceByDom(chartDom);
     if (exist) exist.dispose();
     const sc = echarts.init(chartDom);
-    sc.setOption(chartThemeOpts());
-    sc.setOption({
+    sc.setOption(withTheme({
       grid: { left: 2, right: 2, top: 4, bottom: 4 },
       xAxis: { type: "category", show: false, data: idx.dates },
       yAxis: { type: "value", show: false, scale: true },
@@ -1292,7 +1306,7 @@ async function renderOverview() {
         type: "line", smooth: true, symbol: "none", data: idx.closes,
         lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
       }],
-    });
+    }));
     charts.push(sc);
   }
 
@@ -1374,7 +1388,7 @@ async function renderOverview() {
     const wSuffix = wLast ? `<span class="chart-latest"> · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}</span>` : "";
     const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix, 260, null, colB1);
     appendPlainTip(wc, "上涨家数远多于下跌=普涨行情；两者接近=市场分化");
-    wc.setOption({
+    wc.setOption(withTheme({
       tooltip: { trigger: "axis" },
       legend: { top: 0, data: ["上涨家数", "下跌家数"] },
       grid: { left: 55, right: 20, top: 35, bottom: 35 },
@@ -1386,7 +1400,7 @@ async function renderOverview() {
         { name: "下跌家数", type: "line", stack: "width", symbol: "none", areaStyle: {}, color: "#2e8b57",
           data: wDates.map((d) => { const p = w.down.find((x) => x.date === d); return p ? p.value : null; }) },
       ],
-    });
+    }));
   }
 
   // 左列：跨市场综合评分折线（近 6 月）
@@ -1497,7 +1511,7 @@ async function renderOverview() {
       ];
       const adc = mkCard("📊 腾落线（AD Line）" + termTip("上涨家数减下跌家数的累计值，反映多数股在涨还是跌") + latestSuffixMulti(adSeries), 300, null, colC1);
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
-      adc.setOption({
+      adc.setOption(withTheme({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["涨跌家数比", "AD Line", "AD Line MA20"] },
         grid: { left: 55, right: 55, top: 35, bottom: 35 },
@@ -1512,7 +1526,7 @@ async function renderOverview() {
           { name: "AD Line", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adLineData, lineStyle: { color: "#5b8ff9", width: 1.5 } },
           { name: "AD Line MA20", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adMA20, lineStyle: { color: "#f6bd16", width: 1.5, type: "dashed" } },
         ],
-      });
+      }));
     } else {
       renderFailCard(colC1, "📊 腾落线（AD Line）");
     }
@@ -1537,7 +1551,7 @@ async function renderOverview() {
       ];
       const vrc = mkCard("📈 成交额与量比（近 120 日）" + termTip("今日成交 vs 近期平均成交，>1放量<1缩量") + latestSuffixMulti(vrSeries), 300, null, colC2);
       appendPlainTip(vrc, "量比>1.5为明显放量，<0.5为明显缩量");
-      vrc.setOption({
+      vrc.setOption(withTheme({
         tooltip: { trigger: "axis", formatter: function(params) {
           const d = vrData[params[0].dataIndex];
           return `<b>${d.date}</b><br/>成交额: ${(d.amount || 0).toFixed(0)} 亿<br/>MA5: ${(d.ma5 || 0).toFixed(0)} 亿<br/>MA20: ${(d.ma20 || 0).toFixed(0)} 亿<br/>量比: ${(d.ratio || 0).toFixed(2)}x<br/>信号: ${d.signal || "正常"}`;
@@ -1552,7 +1566,7 @@ async function renderOverview() {
           { name: "MA5", type: "line", symbol: "none", smooth: true, data: vrMA5, lineStyle: { color: "#f6bd16", width: 1.5 } },
           { name: "MA20", type: "line", symbol: "none", smooth: true, data: vrMA20, lineStyle: { color: "#5b8ff9", width: 1.5, type: "dashed" } },
         ],
-      });
+      }));
     } else {
       renderFailCard(colC2, "📈 成交额与量比");
     }
@@ -1572,7 +1586,7 @@ async function renderOverview() {
       ];
       const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 280, null, colC1);
       appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
-      nhlCard.setOption({
+      nhlCard.setOption(withTheme({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["52周新高", "52周新低", "NH-NL"] },
         grid: { left: 55, right: 55, top: 35, bottom: 35 },
@@ -1587,7 +1601,7 @@ async function renderOverview() {
           { name: "52周新低", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nl_52w), itemStyle: { color: "#2e8b57" }, barWidth: "40%" },
           { name: "NH-NL", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: nhlData.map(d => d.nhnl_52w), lineStyle: { color: "#5b8ff9", width: 1.5 } },
         ],
-      });
+      }));
       // 最新日的指数级详情（8 个指数是否创 52周/20日新高新低）
       const latest = nhlData[nhlData.length - 1];
       if (latest && latest.details && latest.details.length) {
@@ -1986,12 +2000,11 @@ function renderSentimentHeatmap(r) {
   div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}</h3><div class="chart" style="height:220px"></div>`;
   content.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
-  c.setOption(chartThemeOpts());
   charts.push(c);
 
   // 日期标签：上限 10 个均匀采样（i % step === 0），避免全历史数百日期在窄屏 45° 旋转重叠
   const labelStep = Math.max(1, Math.ceil(dates.length / 10));
-  c.setOption({
+  c.setOption(withTheme({
     tooltip: {
       trigger: "item",
       formatter: (p) => {
@@ -2028,7 +2041,7 @@ function renderSentimentHeatmap(r) {
       label: { show: false },
       emphasis: { itemStyle: { borderColor: cssVar("--text-1"), borderWidth: 1 } },
     }],
-  });
+  }));
 }
 
 // 期货机构持仓：净持仓比例折线图 + 方向准确率表格
@@ -2114,7 +2127,7 @@ function renderFuturesSection(data) {
     const c1Series = chart1Series.map((s) => ({ ...s, label: roleLabels[s.name] || s.name }));
     const c1 = mkCard("综合净多空手数" + termTip("机构多头仓位减空头仓位，正数=机构偏看多") + latestSuffixMulti(c1Series), 300);
     appendPlainTip(c1, "净多空为正且持续增加，机构看多情绪增强");
-    c1.setOption({
+    c1.setOption(withTheme({
       tooltip: {
         trigger: "axis",
         formatter: function (params) {
@@ -2158,7 +2171,7 @@ function renderFuturesSection(data) {
         data: dates1.map((d) => { const p = s.data.find((x) => x.date === d); return p ? p.value : null; }),
         markLine: { silent: true, symbol: "none", lineStyle: { color: cssVar("--border-strong"), type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10, color: cssVar("--text-1") }, data: [{ yAxis: 0 }] },
       })),
-    });
+    }));
   }
 
   // 图2-4：每个角色各品种手数
@@ -2175,7 +2188,7 @@ function renderFuturesSection(data) {
       const prodLabels = { "沪深300期货": "300", "中证500期货": "500", "上证50期货": "50", "中证1000期货": "1000", "综合": "综合" };
       const cPSeries = prodSeries.map((s) => ({ ...s, label: prodLabels[s.name] || s.name }));
       const cP = mkCard(`${role} 各品种净多空手数` + termTip("该角色在各期货品种上的净多空手数，正数看多负数看空") + latestSuffixMulti(cPSeries), 300);
-      cP.setOption({
+      cP.setOption(withTheme({
         tooltip: {
           trigger: "axis",
           formatter: function (params) {
@@ -2200,7 +2213,7 @@ function renderFuturesSection(data) {
           data: datesP.map((d) => { const p = s.data.find((x) => x.date === d); return p ? p.value : null; }),
           markLine: { silent: true, symbol: "none", lineStyle: { color: cssVar("--border-strong"), type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10, color: cssVar("--text-1") }, data: [{ yAxis: 0 }] },
         })),
-      });
+      }));
     }
   }
 
@@ -2228,7 +2241,6 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
   div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;
   ctn.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
-  c.setOption(chartThemeOpts());
   charts.push(c);
   const toggleBtnsEl = div.querySelector(".heatmap-toggle");
   // 切换按钮：就地重画该热力图（不调 renderTab，避免整页重渲染丢滚动位置）
@@ -2265,7 +2277,7 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
   if (toggleBtnsEl) toggleBtnsEl.querySelectorAll("button").forEach((b) => {
     b.classList.toggle("active", b.dataset.hr === rangeMode);
   });
-  c.setOption({
+  c.setOption(withTheme({
     tooltip: {
       trigger: "item",
       formatter: (p) => `${names[p.value[0]]}<br/>${yCats[p.value[1]]}：${p.value[2] == null ? "-" : p.value[2] + "%"}`,
@@ -2284,7 +2296,7 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
       label: { show: true, fontSize: 9, color: "#333", formatter: (p) => (p.value[2] == null ? "-" : p.value[2].toFixed(1)) },
       emphasis: { itemStyle: { borderColor: cssVar("--text-1"), borderWidth: 1 } },
     }],
-  });
+  }));
 }
 
 // 从 stats 中提取频率信息，生成 hover popup HTML
@@ -2449,7 +2461,6 @@ function renderIndustryGrid(indices, containerOverride) {
     const exist = echarts.getInstanceByDom(chartDom);
     if (exist) exist.dispose();
     const sc = echarts.init(chartDom);
-    sc.setOption(chartThemeOpts());
     const markData = signals.map((s) => {
       const o = ohlc.find((x) => x.date === s.date);
       return {
@@ -2458,7 +2469,7 @@ function renderIndustryGrid(indices, containerOverride) {
         itemStyle: { color: signalColor(s) },
       };
     });
-    sc.setOption({
+    sc.setOption(withTheme({
       grid: { left: 2, right: 2, top: 6, bottom: 18 },
       xAxis: { type: "category", show: true, data: ohlc.map((d) => d.date), axisLabel: { fontSize: 8, color: cssVar("--text-1"), interval: Math.max(1, Math.floor(ohlc.length / 5)), formatter: (v) => v.slice(0, 4) + "-" + v.slice(4, 6) }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false } },
       yAxis: { type: "value", show: false, scale: true },
@@ -2476,7 +2487,7 @@ function renderIndustryGrid(indices, containerOverride) {
         lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
         markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: "#fff" }, data: markData },
       }],
-    });
+    }));
     charts.push(sc);
 
     // F2：行业资金流 / 成交额 / 换手率 mini sparklines
@@ -2505,8 +2516,7 @@ function renderIndustryGrid(indices, containerOverride) {
         <span class="ind-metric-val">${lastVal == null ? "-" : spec.fmt(lastVal)}</span>`;
       metricsBox.appendChild(row);
       const mc = echarts.init(row.querySelector(".ind-metric-chart"));
-      mc.setOption(chartThemeOpts());
-      mc.setOption({
+      mc.setOption(withTheme({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         xAxis: { type: "category", show: false, data: spec.data.map((d) => d.date) },
         yAxis: { type: "value", show: false, scale: true },
@@ -2521,7 +2531,7 @@ function renderIndustryGrid(indices, containerOverride) {
           lineStyle: { color: spec.color, width: 1.2 },
           areaStyle: { color: spec.color, opacity: 0.1 },
         }],
-      });
+      }));
       charts.push(mc);
     }
     if (!hasAnyMetric) {
@@ -2543,8 +2553,7 @@ function renderIndustryGrid(indices, containerOverride) {
         <span class="ind-metric-val">涨${lastW.up_count == null ? "-" : lastW.up_count} 跌${lastW.down_count == null ? "-" : lastW.down_count}</span>`;
       metricsBox.appendChild(row);
       const wc = echarts.init(row.querySelector(".ind-metric-chart"));
-      wc.setOption(chartThemeOpts());
-      wc.setOption({
+      wc.setOption(withTheme({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         xAxis: { type: "category", show: false, data: widthData.map((d) => d.date) },
         yAxis: { type: "value", show: false },
@@ -2561,7 +2570,7 @@ function renderIndustryGrid(indices, containerOverride) {
             data: widthData.map((d) => [d.date, -(d.down_count || 0)]),
             lineStyle: { color: "#2e8b57", width: 0.8 }, areaStyle: { color: "#2e8b57", opacity: 0.35 } },
         ],
-      });
+      }));
       charts.push(wc);
     }
   }
