@@ -85,6 +85,9 @@ function chartThemeOpts() {
     nameTextStyle: { color: nameText },
   };
   return {
+    // 全局默认字色：未显式设色的 canvas 文字（含多轴 yAxis[1+] 的 axisLabel/nameTextStyle
+    // 等 merge 不到 axisCommon 的组件）一律回退到 --text-2，避免 ECharts 默认 #333 在深底看不清。
+    textStyle: { color: nameText },
     xAxis: axisCommon,
     yAxis: axisCommon,
     legend: { textStyle: { color: nameText } },
@@ -1460,8 +1463,8 @@ async function renderOverview() {
         grid: { left: 55, right: 55, top: 35, bottom: 35 },
         xAxis: { type: "category", data: adDates },
         yAxis: [
-          { type: "value", name: "涨跌比", axisLabel: { formatter: v => v.toFixed(2) }, splitLine: { show: false } },
-          { type: "value", name: "AD Line" },
+          { type: "value", name: "涨跌比", axisLabel: { color: cssVar("--text-3"), formatter: v => v.toFixed(2) }, nameTextStyle: { color: cssVar("--text-2") }, splitLine: { show: false } },
+          { type: "value", name: "AD Line", axisLabel: { color: cssVar("--text-3") }, nameTextStyle: { color: cssVar("--text-2") } },
         ],
         dataZoom: dzOpts(),
         series: [
@@ -1502,7 +1505,7 @@ async function renderOverview() {
         legend: { top: 0, data: ["成交额", "MA5", "MA20"] },
         grid: { left: 55, right: 20, top: 35, bottom: 35 },
         xAxis: { type: "category", data: vrDates },
-        yAxis: { type: "value", name: "亿元", axisLabel: { formatter: v => (v / 10000).toFixed(1) + "万" } },
+        yAxis: { type: "value", name: "亿元", axisLabel: { color: cssVar("--text-3"), formatter: v => (v / 10000).toFixed(1) + "万" }, nameTextStyle: { color: cssVar("--text-2") } },
         dataZoom: dzOpts(),
         series: [
           { name: "成交额", type: "bar", data: vrAmount.map((v, i) => ({ value: v, itemStyle: { color: vrColors[i] } })), barWidth: "60%" },
@@ -1535,8 +1538,8 @@ async function renderOverview() {
         grid: { left: 55, right: 55, top: 35, bottom: 35 },
         xAxis: { type: "category", data: nhlDates },
         yAxis: [
-          { type: "value", name: "家数", splitLine: { show: false } },
-          { type: "value", name: "NH-NL" },
+          { type: "value", name: "家数", axisLabel: { color: cssVar("--text-3") }, nameTextStyle: { color: cssVar("--text-2") }, splitLine: { show: false } },
+          { type: "value", name: "NH-NL", axisLabel: { color: cssVar("--text-3") }, nameTextStyle: { color: cssVar("--text-2") } },
         ],
         dataZoom: dzOpts(),
         series: [
@@ -1962,13 +1965,13 @@ function renderSentimentHeatmap(r) {
     grid: { left: 80, right: 20, top: 20, bottom: 50 },
     xAxis: {
       type: "category", data: dates,
-      axisLabel: { rotate: 45, fontSize: 10, interval: (i) => i % labelStep === 0 },
+      axisLabel: { color: cssVar("--text-3"), rotate: 45, fontSize: 10, interval: (i) => i % labelStep === 0 },
       splitArea: { show: false },
     },
     yAxis: {
       type: "category",
       data: idxNames.map((x) => x.label),
-      axisLabel: { fontSize: 12 },
+      axisLabel: { color: cssVar("--text-3"), fontSize: 12 },
     },
     visualMap: {
       min: 0, max: 100,
@@ -2108,7 +2111,7 @@ function renderFuturesSection(data) {
       legend: { top: 0, type: "scroll" },
       grid: { left: 55, right: 20, top: 35, bottom: 35 },
       xAxis: { type: "category", data: dates1 },
-      yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v / 10000).toFixed(1) + "万手" } },
+      yAxis: { type: "value", scale: true, axisLabel: { color: cssVar("--text-3"), formatter: (v) => (v / 10000).toFixed(1) + "万手" }, nameTextStyle: { color: cssVar("--text-2") } },
       dataZoom: dzOpts(),
       series: chart1Series.map((s) => ({
         name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
@@ -2150,7 +2153,7 @@ function renderFuturesSection(data) {
         legend: { top: 0, type: "scroll" },
         grid: { left: 55, right: 20, top: 35, bottom: 35 },
         xAxis: { type: "category", data: datesP },
-        yAxis: { type: "value", scale: true, axisLabel: { formatter: (v) => (v / 10000).toFixed(1) + "万手" } },
+        yAxis: { type: "value", scale: true, axisLabel: { color: cssVar("--text-3"), formatter: (v) => (v / 10000).toFixed(1) + "万手" }, nameTextStyle: { color: cssVar("--text-2") } },
         dataZoom: dzOpts(),
         series: prodSeries.map((s) => ({
           name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
@@ -2228,8 +2231,8 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
       formatter: (p) => `${names[p.value[0]]}<br/>${yCats[p.value[1]]}：${p.value[2] == null ? "-" : p.value[2] + "%"}`,
     },
     grid: { left: 56, right: 16, top: 24, bottom: 90 },
-    xAxis: { type: "category", data: names, axisLabel: { rotate: 50, fontSize: 10, interval: 0 }, splitArea: { show: false } },
-    yAxis: { type: "category", data: yCats, axisLabel: { fontSize: 11 } },
+    xAxis: { type: "category", data: names, axisLabel: { color: cssVar("--text-3"), rotate: 50, fontSize: 10, interval: 0 }, splitArea: { show: false } },
+    yAxis: { type: "category", data: yCats, axisLabel: { color: cssVar("--text-3"), fontSize: 11 } },
     visualMap: {
       min: -5, max: 5, calculable: true, orient: "horizontal", left: "center", bottom: 4,
       inRange: { color: ["#2e8b57", "#a8d8b9", "#f2f3f5", "#f5b6a8", "#e6492e"] }, // 绿→灰→红（A 股惯例红涨绿跌）
@@ -2238,7 +2241,7 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
     },
     series: [{
       type: "heatmap", data: data,
-      label: { show: true, fontSize: 9, formatter: (p) => (p.value[2] == null ? "-" : p.value[2].toFixed(1)) },
+      label: { show: true, fontSize: 9, color: "#333", formatter: (p) => (p.value[2] == null ? "-" : p.value[2].toFixed(1)) },
       emphasis: { itemStyle: { borderColor: cssVar("--text-1"), borderWidth: 1 } },
     }],
   });
