@@ -71,7 +71,12 @@ ETF_BY_CODE = {c: (n, idx, mkt) for c, n, idx, mkt in ETF_LIST}
 SH_CODES = [c for c, _, _, m in ETF_LIST if m == "sh"]
 SZ_CODES = [c for c, _, _, m in ETF_LIST if m == "sz"]
 
-DEFAULT_START = "20230101"
+DEFAULT_START = "20050101"  # 最大化历史: 510050 上市日 2005-02-23, mootdx 可采到上市首日
+
+# SSE fund_etf_scale_sse 最早可采日(~2012-01-04), 早于此日返回 KeyError, 避免空转
+SSE_SHARES_EARLIEST = "20120104"
+# mootdx bars 翻页安全上限(510050 上市2005~21年≈5180根, 留余量到6000)
+MOOTDX_PAGE_LIMIT = 6000
 
 # ── DB schema ───────────────────────────────────────────────────────────────────
 SCHEMA = """
@@ -227,7 +232,7 @@ def fetch_etf_ohlc(code: str, start_yyyymmdd: str = DEFAULT_START, client=None) 
         if len(df) < PAGE:
             break
         start_off += PAGE
-        if start_off > 5000:  # 安全上限 ~20年
+        if start_off > MOOTDX_PAGE_LIMIT:  # 安全上限 ~24年(510050 2005上市≈5180根)
             break
     return out
 
@@ -573,7 +578,7 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
     today = dt.datetime.now().strftime("%Y%m%d")
     stats = {"ohlc": 0, "holders": 0, "sse": 0, "szse": 0, "signals": 0}
 
-    # 1. mootdx OHLC（每只ETF全历史，一次800根够覆盖2023至今，复用 client 提速）
+    # 1. mootdx OHLC（每只ETF全历史, 老牌如510050上市2005需翻页7次, 复用 client 提速）
     print(f"[etf_nt] 1/4 OHLC（mootdx, 12只ETF）...", flush=True)
     from .mootdx_daily import tdx_client
     _tdx = tdx_client(market="std")
@@ -624,8 +629,10 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
     print(f"  深市份额入库 {stats['szse']} 行", flush=True)
 
     # 4. 沪市份额（SSE 按日循环，最慢）
-    print(f"[etf_nt] 3b/4 沪市份额（SSE按日循环 {start}-{today}）...", flush=True)
-    tdays = trading_days_between(start, today)
+    # SSE fund_etf_scale_sse 最早~2012-01-04 有数据, 早于此日 KeyError 空转, 取 max
+    sse_start = max(start, SSE_SHARES_EARLIEST)
+    print(f"[etf_nt] 3b/4 沪市份额（SSE按日循环 {sse_start}-{today}）...", flush=True)
+    tdays = trading_days_between(sse_start, today)
     n_done = 0
     for d in tdays:
         try:
