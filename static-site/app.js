@@ -1080,22 +1080,7 @@ async function renderOverview() {
     });
   }
   for (const m of r.today.metrics || []) {
-    if (isStaleMetric(m.date, r.date)) {
-      // 北向资金特殊处理：停更后显示占位提示（与大盘tab显示空图+hint一致），其他停更指标仍隐藏
-      if (m.id === "a_fund_north") {
-        const stopMonth = (m.date && m.date.length >= 6) ? m.date.slice(0, 4) + "-" + m.date.slice(4, 6) : "";
-        kpiCards.push({
-          id: m.id,
-          title: m.name,
-          value: "-",
-          valueNum: null,
-          sub: "",
-          date: stopMonth ? `停更于 ${stopMonth}` : "已停更",
-          tag: "已停更",
-        });
-      }
-      continue;  // 其他停更指标保持隐藏，恢复更新后自动显示
-    }
+    if (isStaleMetric(m.date, r.date)) continue;  // 停更指标隐藏（如北向资金 2024-08 起停更），恢复更新后自动显示
     kpiCards.push({
       id: m.id,
       title: m.name,
