@@ -1474,9 +1474,17 @@ async function renderOverview() {
   ov2ColC.appendChild(colC2);
   content.appendChild(ov2ColC);
 
+  // 并行拉取 AD Line / 成交量对比 / 新高新低（3 个独立 fetch，allSettled 互不影响，失败各自降级）
+  const [adLineP, volRatioP, newHighLowP] = await Promise.allSettled([
+    fetchJSON("./data/ad_line.json"),
+    fetchJSON("./data/volume_ratio.json"),
+    fetchJSON("./data/new_high_low.json"),
+  ]);
+
   // 左：AD Line 腾落线
   try {
-    const adRes = await fetchJSON("./data/ad_line.json");
+    if (adLineP.status !== "fulfilled") throw adLineP.reason;
+    const adRes = adLineP.value;
     const adData = (adRes.data || []).slice(-120);
     if (adData.length) {
       const adDates = adData.map(d => d.date);
@@ -1515,7 +1523,8 @@ async function renderOverview() {
 
   // 右：成交量对比
   try {
-    const vrRes = await fetchJSON("./data/volume_ratio.json");
+    if (volRatioP.status !== "fulfilled") throw volRatioP.reason;
+    const vrRes = volRatioP.value;
     const vrData = (vrRes.data || []).slice(-120);
     if (vrData.length) {
       const vrDates = vrData.map(d => d.date);
@@ -1554,7 +1563,8 @@ async function renderOverview() {
 
   // ---- 4b. 新高新低家数（NH-NL，52周/20日，X1 死端接入）----
   try {
-    const nhlRes = await fetchJSON("./data/new_high_low.json");
+    if (newHighLowP.status !== "fulfilled") throw newHighLowP.reason;
+    const nhlRes = newHighLowP.value;
     const nhlData = (nhlRes.data || []).slice(-120);
     if (nhlData.length) {
       const nhlDates = nhlData.map(d => d.date);

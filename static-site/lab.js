@@ -2010,11 +2010,13 @@ function _labRankAttachHandlers(section, simData) {
   });
   // 过滤输入：实时过滤（只刷新结果区，保留输入焦点不重建面板）
   section.querySelectorAll(".lab-rank-finput").forEach((inp) => {
+    let _labFilterTimer;
     inp.addEventListener("input", () => {
       if (!state.labRankFilter) state.labRankFilter = _labRankDefaultFilter();
       state.labRankFilter[inp.dataset.fk] = inp.value;
       state.labRankShowAll = false;
-      _labRankRerenderResults(section, simData);
+      clearTimeout(_labFilterTimer);
+      _labFilterTimer = setTimeout(() => _labRankRerenderResults(section, simData), 100);
     });
   });
   const reset = section.querySelector(".lab-rank-freset");
