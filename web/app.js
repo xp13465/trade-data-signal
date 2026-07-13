@@ -498,6 +498,14 @@ async function fetchJSON(url) {
   return fetch(url).then((r) => r.json());
 }
 
+// 加载失败占位卡片：统一错误兜底（X4）。失败时显示"加载失败"而非空白，与空数据 empty-note 区分。
+function renderFailCard(container, title, err) {
+  const card = document.createElement("div");
+  card.className = "chart-card placeholder";
+  card.innerHTML = `<h3>${title || ""}</h3><div class="placeholder-body">加载失败${err ? "：" + err : ""}</div>`;
+  (container || content).appendChild(card);
+}
+
 // ============ BUG-E：交互增强（指数/行业筛选 + 热力图切换）============
 // 纯前端筛选，不影响后端数据。指数筛选条放指数折线区前（紧挨被筛选内容），筛选时局部刷新：
 // 只重渲染指数区（filter bar + 指数折线），不调 renderTab、不 refetch（signals 缓存在闭包内）。
@@ -553,7 +561,8 @@ function renderIndicesSection(container, indices, fetcher) {
 }
 
 // 行业搜索条：行业 tab 用，输入关键词实时过滤行业网格（按 name 或 id 模糊匹配）。
-function industrySearchBar(containerOverride) {
+// I1：onSearch 回调只做客户端筛选+局部重渲染（不调 renderTab、不 refetch）。
+function industrySearchBar(containerOverride, onSearch) {
   const bar = document.createElement("div");
   bar.className = "filter-bar";
   bar.innerHTML = `<label>行业/概念筛选：</label>`;
@@ -566,8 +575,8 @@ function industrySearchBar(containerOverride) {
     clearTimeout(timer);
     timer = setTimeout(() => {
       state.industrySearch = input.value.trim();
-      renderTab();
-    }, 250); // 防抖，避免每键触发 renderTab
+      if (onSearch) onSearch(); // 局部筛选，不 refetch
+    }, 250); // 防抖
   };
   bar.appendChild(input);
   (containerOverride || content).appendChild(bar);
@@ -1111,7 +1120,7 @@ async function renderOverview() {
     }, null, colB1);
   }
 
-  // 右列：均线排列卡片
+  // 右列：均线排列卡片（独立 fetch，失败不影响位置感卡片 O1）
   fetchJSON("/api/ma_alignment").then((maData) => {
     const d = (maData.data || []).slice(-1)[0];
     if (d) {
@@ -1139,36 +1148,37 @@ async function renderOverview() {
       maCard.innerHTML = maHtml;
       colB2.appendChild(maCard);
     }
-    // 位置感卡片（从首屏右列移过来，与均线排列配对）
-    fetchJSON("/api/position").then((posData) => {
-      if (posData && posData.positions && posData.positions.length) {
-        const posCard = document.createElement("div");
-        posCard.className = "chart-card position-card";
-        const posDates = posData.positions.map((p) => p.current_date).filter(Boolean).sort();
-        let posLow = 0, posHigh = 0;
-        for (const p of posData.positions) {
-          const pct = p.percentile_1y != null ? p.percentile_1y : 50;
-          if (pct <= 40) posLow++; else if (pct > 60) posHigh++;
-        }
-        const posDateSuffix = posDates.length ? `<span class="chart-latest"> · ${fmtDate(posDates[posDates.length - 1])} 低位${posLow} 高位${posHigh}</span>` : "";
-        let posHtml = `<h3>&#x1F4CD; 大盘位置感${posDateSuffix}</h3><div class="position-list">`;
-        for (const p of posData.positions) {
-          const pct = p.percentile_1y != null ? p.percentile_1y : 50;
-          const barColor = pct <= 40 ? "#2e8b57" : pct <= 60 ? "#86909c" : pct <= 80 ? "#e6a23c" : "#e6492e";
-          posHtml += `<div class="position-row">
-            <span class="pos-name">${p.name}</span>
-            <span class="pos-price">${p.current.toLocaleString()}</span>
-            <div class="pos-bar-bg"><div class="pos-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
-            <span class="pos-pct">${pct.toFixed(0)}%</span>
-            <span class="pos-label" style="color:${barColor}">${p.label}</span>
-          </div>`;
-        }
-        posHtml += `</div>`;
-        posCard.innerHTML = posHtml;
-        colB2.appendChild(posCard);
+  }).catch((e) => { renderFailCard(colB2, "&#x1F4C8; 均线排列", e); });
+
+  // 位置感卡片（独立 fetch，与均线排列互不依赖 O1）
+  fetchJSON("/api/position").then((posData) => {
+    if (posData && posData.positions && posData.positions.length) {
+      const posCard = document.createElement("div");
+      posCard.className = "chart-card position-card";
+      const posDates = posData.positions.map((p) => p.current_date).filter(Boolean).sort();
+      let posLow = 0, posHigh = 0;
+      for (const p of posData.positions) {
+        const pct = p.percentile_1y != null ? p.percentile_1y : 50;
+        if (pct <= 40) posLow++; else if (pct > 60) posHigh++;
       }
-    }).catch(() => {});
-  }).catch(function() {});
+      const posDateSuffix = posDates.length ? `<span class="chart-latest"> · ${fmtDate(posDates[posDates.length - 1])} 低位${posLow} 高位${posHigh}</span>` : "";
+      let posHtml = `<h3>&#x1F4CD; 大盘位置感${posDateSuffix}</h3><div class="position-list">`;
+      for (const p of posData.positions) {
+        const pct = p.percentile_1y != null ? p.percentile_1y : 50;
+        const barColor = pct <= 40 ? "#2e8b57" : pct <= 60 ? "#86909c" : pct <= 80 ? "#e6a23c" : "#e6492e";
+        posHtml += `<div class="position-row">
+          <span class="pos-name">${p.name}</span>
+          <span class="pos-price">${p.current.toLocaleString()}</span>
+          <div class="pos-bar-bg"><div class="pos-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+          <span class="pos-pct">${pct.toFixed(0)}%</span>
+          <span class="pos-label" style="color:${barColor}">${p.label}</span>
+        </div>`;
+      }
+      posHtml += `</div>`;
+      posCard.innerHTML = posHtml;
+      colB2.appendChild(posCard);
+    }
+  }).catch((e) => { renderFailCard(colB2, "&#x1F4CD; 大盘位置感", e); });
 
   // ---- 4. AD Line 腾落线 + 成交量对比（全宽，横跨两列）----
   const ov2ColC = document.createElement("div");
@@ -1212,8 +1222,10 @@ async function renderOverview() {
           { name: "AD Line MA20", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adMA20, lineStyle: { color: "#f6bd16", width: 1.5, type: "dashed" } },
         ],
       });
+    } else {
+      renderFailCard(colC1, "📊 腾落线（AD Line）");
     }
-  } catch (e) { /* 无声降级 */ }
+  } catch (e) { renderFailCard(colC1, "📊 腾落线（AD Line）", e); }
 
   // 右：成交量对比
   try {
@@ -1248,8 +1260,57 @@ async function renderOverview() {
           { name: "MA20", type: "line", symbol: "none", smooth: true, data: vrMA20, lineStyle: { color: "#5b8ff9", width: 1.5, type: "dashed" } },
         ],
       });
+    } else {
+      renderFailCard(colC2, "📈 成交额与量比");
     }
-  } catch (e) { /* 无声降级 */ }
+  } catch (e) { renderFailCard(colC2, "📈 成交额与量比", e); }
+
+  // ---- 4b. 新高新低家数（NH-NL，52周/20日，X1 死端接入）----
+  try {
+    const nhlRes = await fetchJSON("/api/new_high_low");
+    const nhlData = (nhlRes.data || []).slice(-120);
+    if (nhlData.length) {
+      const nhlDates = nhlData.map(d => d.date);
+      const nhlSeries = [
+        { name: "52周新高", data: nhlData.map(d => ({ date: d.date, value: d.nh_52w })), label: "新高" },
+        { name: "52周新低", data: nhlData.map(d => ({ date: d.date, value: d.nl_52w })), label: "新低" },
+        { name: "NH-NL", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "NH-NL" },
+      ];
+      const nhlCard = mkCard("🔬 新高新低家数（52 周）" + latestSuffixMulti(nhlSeries), 280, null, colC1);
+      nhlCard.setOption({
+        tooltip: { trigger: "axis" },
+        legend: { top: 0, data: ["52周新高", "52周新低", "NH-NL"] },
+        grid: { left: 55, right: 55, top: 35, bottom: 35 },
+        xAxis: { type: "category", data: nhlDates },
+        yAxis: [
+          { type: "value", name: "家数", splitLine: { show: false } },
+          { type: "value", name: "NH-NL" },
+        ],
+        dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
+        series: [
+          { name: "52周新高", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nh_52w), itemStyle: { color: "#e6492e" }, barWidth: "40%" },
+          { name: "52周新低", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nl_52w), itemStyle: { color: "#2e8b57" }, barWidth: "40%" },
+          { name: "NH-NL", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: nhlData.map(d => d.nhnl_52w), lineStyle: { color: "#5b8ff9", width: 1.5 } },
+        ],
+      });
+      // 最新日的指数级详情（8 个指数是否创 52周/20日新高新低）
+      const latest = nhlData[nhlData.length - 1];
+      if (latest && latest.details && latest.details.length) {
+        const detCard = document.createElement("div");
+        detCard.className = "chart-card";
+        let detHtml = `<h3>&#x1F50D; 指数新高新低明细<span class="chart-latest"> · ${fmtDate(latest.date)}</span></h3>`;
+        detHtml += `<table class="ma-table"><thead><tr><th>指数</th><th>收盘</th><th>52周</th><th>20日</th></tr></thead><tbody>`;
+        for (const it of latest.details) {
+          const tag52 = it.nh_52w ? '<span class="ma-count bullish">新高</span>' : it.nl_52w ? '<span class="ma-count bearish">新低</span>' : '<span style="color:#86909c">-</span>';
+          const tag20 = it.nh_20d ? '<span class="ma-count bullish">新高</span>' : it.nl_20d ? '<span class="ma-count bearish">新低</span>' : '<span style="color:#86909c">-</span>';
+          detHtml += `<tr><td>${it.name}</td><td>${(it.close || 0).toLocaleString()}</td><td>${tag52}</td><td>${tag20}</td></tr>`;
+        }
+        detHtml += `</tbody></table>`;
+        detCard.innerHTML = detHtml;
+        colC2.appendChild(detCard);
+      }
+    }
+  } catch (e) { /* new_high_low 失败不影响主流程，静默降级 */ }
 
   // ---- 5. 申万行业涨跌幅热力图 ----
   if (r.industry_heatmap && r.industry_heatmap.length) {
@@ -1403,9 +1464,16 @@ async function renderHK(container = content) {
 async function renderGlobal(container = content) {
   const r = await fetchJSON(`/api/global?range=${state.range}`);
   container.innerHTML = "";
-  for (const [id, idx] of Object.entries(r.indices)) {
-    const sig = await fetchJSON(`/api/index/${id}?range=${state.range}`);
-    if (idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
+  // M1：4 个美股指数信号并发请求（原为串行 await，移动端慢网络叠加延迟）
+  const idxEntries = Object.entries(r.indices || {});
+  if (idxEntries.length) {
+    const sigResults = await Promise.all(
+      idxEntries.map(([id]) => fetchJSON(`/api/index/${id}?range=${state.range}`).catch(() => null))
+    );
+    idxEntries.forEach(([id, idx], i) => {
+      const sig = sigResults[i] || { signals: [], stats: {} };
+      if (idx.data && idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
+    });
   }
   const extras = {
     gold: "黄金（元/克）",
@@ -2210,9 +2278,32 @@ async function _loadIndustryData(range) {
   return await fetchJSON(`/api/industry?range=${range}`);
 }
 
+// I1：行业数据缓存（按 range 缓存，搜索只做客户端筛选不 refetch）
+let _industryCache = { range: null, r: null };
+
+// 释放指定容器内 ECharts 实例并从全局 charts 移除（搜索重渲染前清理）
+function _disposeContainerCharts(container) {
+  if (!container) return;
+  container.querySelectorAll(".spark-chart, [_echarts_instance_]").forEach((dom) => {
+    const inst = echarts.getInstanceByDom(dom);
+    if (inst) {
+      inst.dispose();
+      const i = charts.indexOf(inst);
+      if (i >= 0) charts.splice(i, 1);
+    }
+  });
+}
+
 async function renderIndustry() {
   content.innerHTML = '<div class="loading">加载行业数据…</div>';
-  const r = await _loadIndustryData(state.range);
+  // I1：命中缓存则不 refetch
+  let r;
+  if (_industryCache.range === state.range && _industryCache.r) {
+    r = _industryCache.r;
+  } else {
+    r = await _loadIndustryData(state.range);
+    _industryCache = { range: state.range, r };
+  }
   content.innerHTML = "";
 
   // 板块轮动速度卡片（最先展示，判断行情性质）
@@ -2249,16 +2340,25 @@ async function renderIndustry() {
   const indHmDates = (r.heatmap || []).map(h => h.last_date).filter(Boolean).sort();
   const indHmSuffix = indHmDates.length ? `<span class="chart-latest"> · ${fmtDate(indHmDates[indHmDates.length - 1])}</span>` : "";
   renderIndustryHeatmap(r.heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）" + indHmSuffix, swSection);
+
+  // I1：搜索只局部重渲染 swGridWrap（title + grid），不 refetch、不重建热力图/轮动卡
+  const swGridWrap = document.createElement("div");
+  swSection.appendChild(swGridWrap);
+  function _applyIndustryFilter() {
+    _disposeContainerCharts(swGridWrap);
+    swGridWrap.innerHTML = "";
+    const title = document.createElement("div");
+    title.className = "section-title";
+    const total = Object.keys(r.indices || {}).length;
+    const filtered = filterIndicesByName(r.indices, state.industrySearch);
+    const shown = Object.keys(filtered).length;
+    title.textContent = `申万行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
+    swGridWrap.appendChild(title);
+    renderIndustryGrid(filtered, swGridWrap);
+  }
   // BUG-E：行业搜索条（输入名称关键词实时过滤行业网格）
-  industrySearchBar(swSection);
-  const title = document.createElement("div");
-  title.className = "section-title";
-  const total = Object.keys(r.indices || {}).length;
-  const filtered = filterIndicesByName(r.indices, state.industrySearch);
-  const shown = Object.keys(filtered).length;
-  title.textContent = `申万行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
-  swSection.appendChild(title);
-  renderIndustryGrid(filtered, swSection);
+  industrySearchBar(swSection, _applyIndustryFilter);
+  _applyIndustryFilter();
 
   // 概念板块区域
   if (conceptCount > 0) {
