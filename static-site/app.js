@@ -810,8 +810,8 @@ function initRuleButton() {
           let html = '<div class="hint-header">📅 全品种信号频率汇总</div><div class="hint-blocks">';
           for (const sig of ["buy", "buy_aux", "sell"]) {
             const f = freq[sig];
-            if (!f || !f.total) continue;
-            html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year}</b> 次</span><span class="hint-stat">总计 <b>${f.total}</b> 次</span><span class="hint-stat">月均 <b>${f.monthly_avg}</b> 次</span></div>`;
+            if (!f || !f.total_count) continue;
+            html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year_count}</b> 次</span><span class="hint-stat">总计 <b>${f.total_count}</b> 次</span><span class="hint-stat">月均 <b>${f.monthly_avg}</b> 次</span>${f.active_months ? `<span class="hint-stat muted">今年${f.active_months}月均</span>` : ""}</div>`;
           }
           html += '</div>';
           freqDiv.innerHTML = html;
@@ -1138,7 +1138,9 @@ function renderSummaryChips(s, snap) {
 }
 
 async function renderOverview() {
-  const r = await fetchJSON("./data/overview.json");
+  // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
+  const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
+  _setCachedOverview(r);
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
   applyCollectTime(r.collected_at);
   content.innerHTML = "";
@@ -1769,7 +1771,7 @@ async function renderHK(container = content) {
 async function renderGlobal(container = content) {
   const r = await fetchJSON(`./data/global-${state.range}.json`);
   container.innerHTML = "";
-  // M1：4 个美股指数信号并发请求（原为串行 await，移动端慢网络叠加延迟）
+  // M2：r.indices 已有 || {} 兜底；为空时显示空数据提示而非静默空白
   const idxEntries = Object.entries(r.indices || {});
   if (idxEntries.length) {
     const sigResults = await Promise.all(
@@ -1780,6 +1782,11 @@ async function renderGlobal(container = content) {
       const sigs = filterSignalsByRange(sig.signals, idx.data);
       if (idx.data && idx.data.length) indexChart(idx.name, idx.data, sigs, sig.stats, idx.strategy, container, charts, id);
     });
+  } else {
+    const note = document.createElement("div");
+    note.className = "empty-note";
+    note.textContent = "暂无全球指数数据";
+    container.appendChild(note);
   }
   const extras = {
     gold: "黄金（元/克）",
@@ -2609,6 +2616,8 @@ async function _loadIndustryData(range) {
 
 // I1：行业数据缓存（按 range 缓存，搜索只做客户端筛选不 refetch）
 let _industryCache = { range: null, r: null };
+// I3：行业锚点 scrollspy observer（切 tab 时 disconnect 旧实例避免泄漏）
+let _industryScrollSpy = null;
 
 // 释放指定容器内 ECharts 实例并从全局 charts 移除（搜索重渲染前清理）
 function _disposeContainerCharts(container) {
@@ -2660,6 +2669,18 @@ async function renderIndustry() {
       btn.classList.add("active");
     };
   });
+  // I3：scrollspy -- 滚动时自动高亮当前可视区对应锚点按钮
+  if (_industryScrollSpy) { _industryScrollSpy.disconnect(); }
+  _industryScrollSpy = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        anchorBar.querySelectorAll("button[data-anchor]").forEach((b) => {
+          b.classList.toggle("active", b.dataset.anchor === id);
+        });
+      }
+    });
+  }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
 
   // 申万行业区域
   const swSection = document.createElement("div");
@@ -2673,7 +2694,25 @@ async function renderIndustry() {
   // I1：搜索只局部重渲染 swGridWrap（title + grid），不 refetch、不重建热力图/轮动卡
   const swGridWrap = document.createElement("div");
   swSection.appendChild(swGridWrap);
+
+  // I2：概念板块也加搜索筛选 -- 共用 state.industrySearch，一个搜索条同时过滤两区
+  let conceptGridWrap = null;
+  if (conceptCount > 0) {
+    const thscSection = document.createElement("div");
+    thscSection.id = "thsc-concepts";
+    content.appendChild(thscSection);
+
+    const conceptTitle = document.createElement("div");
+    conceptTitle.className = "section-title";
+    conceptTitle.textContent = `概念板块指数折线（${conceptCount} 个，含买卖点 + 回测统计）`;
+    thscSection.appendChild(conceptTitle);
+
+    conceptGridWrap = document.createElement("div");
+    thscSection.appendChild(conceptGridWrap);
+  }
+
   function _applyIndustryFilter() {
+    // 申万行业
     _disposeContainerCharts(swGridWrap);
     swGridWrap.innerHTML = "";
     const title = document.createElement("div");
@@ -2684,23 +2723,23 @@ async function renderIndustry() {
     title.textContent = `申万行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
     swGridWrap.appendChild(title);
     renderIndustryGrid(filtered, swGridWrap);
+    // I2：概念板块共用搜索条筛选
+    if (conceptGridWrap) {
+      _disposeContainerCharts(conceptGridWrap);
+      conceptGridWrap.innerHTML = "";
+      const conceptFiltered = filterIndicesByName(r.concepts, state.industrySearch);
+      renderIndustryGrid(conceptFiltered, conceptGridWrap);
+    }
   }
-  // BUG-E：行业搜索条（输入名称关键词实时过滤行业网格）
+  // BUG-E：行业搜索条（输入名称关键词实时过滤行业 + 概念网格）
   industrySearchBar(swSection, _applyIndustryFilter);
   _applyIndustryFilter();
 
-  // 概念板块区域
-  if (conceptCount > 0) {
-    const thscSection = document.createElement("div");
-    thscSection.id = "thsc-concepts";
-    content.appendChild(thscSection);
-
-    const conceptTitle = document.createElement("div");
-    conceptTitle.className = "section-title";
-    conceptTitle.textContent = `概念板块指数折线（${conceptCount} 个，含买卖点 + 回测统计）`;
-    thscSection.appendChild(conceptTitle);
-    renderIndustryGrid(r.concepts || {}, thscSection);
-  }
+  // I3：scrollspy 绑定到各锚点目标（swSection + thscSection 均已创建）
+  anchorBar.querySelectorAll("button[data-anchor]").forEach((btn) => {
+    const target = document.getElementById(btn.dataset.anchor);
+    if (target && _industryScrollSpy) _industryScrollSpy.observe(target);
+  });
 }
 
 // ============ 手动补录（前端入口已移除） ============
@@ -3025,9 +3064,26 @@ function drawShareCard(r) {
   return canvas;
 }
 
+// O3：overview 数据缓存（5 分钟 TTL），避免分享图重复请求已加载的概览数据
+const _OVERVIEW_TTL = 5 * 60 * 1000;
+let _overviewCache = { data: null, ts: 0 };
+function _getCachedOverview() {
+  const now = Date.now();
+  if (_overviewCache.data && (now - _overviewCache.ts) < _OVERVIEW_TTL) return _overviewCache.data;
+  return null;
+}
+function _setCachedOverview(r) {
+  _overviewCache = { data: r, ts: Date.now() };
+}
+
 async function openShareModal() {
-  const r = await fetchJSON("./data/overview.json").catch(() => null);
-  if (!r) { alert("数据加载失败，无法生成分享图"); return; }
+  // O3：优先复用缓存（概览页已加载过），避免每次点分享都重新请求
+  let r = _getCachedOverview();
+  if (!r) {
+    r = await fetchJSON("./data/overview.json").catch(() => null);
+    if (!r) { alert("数据加载失败，无法生成分享图"); return; }
+    _setCachedOverview(r);
+  }
   let modal = document.getElementById("share-modal");
   if (!modal) {
     modal = document.createElement("div");
