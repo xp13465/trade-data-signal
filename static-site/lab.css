@@ -40,9 +40,9 @@
 }
 .lab-zone-tab:hover { background: var(--bg-hover); }
 .lab-zone-tab.active {
-  background: #1f6feb;
+  background: var(--primary);
   color: #fff;
-  border-color: #1f6feb;
+  border-color: var(--primary);
 }
 .lab-zone-count {
   font-size: 11px;
@@ -116,7 +116,7 @@
 }
 .lab-tag-live { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
 .lab-tag-exp { background: #f3e5f5; color: #9c27b0; border: 1px solid #e1bee7; }
-.lab-tag-dev { background: #f5f5f5; color: #757575; border: 1px solid #e0e0e0; }
+.lab-tag-dev { background: var(--bg-hover); color: var(--text-3); border: 1px solid var(--border-strong); }
 .lab-tag-excluded { background: #fbe9e7; color: #bf360c; border: 1px solid #ffccbc; }
 .lab-tag-side {
   display: inline-block;
@@ -141,7 +141,7 @@
   margin-bottom: 12px;
   transition: all 0.15s;
 }
-.lab-back-btn:hover { border-color: #1f6feb; color: #1f6feb; }
+.lab-back-btn:hover { border-color: var(--primary); color: var(--primary); }
 .lab-detail-header {
   display: flex;
   align-items: center;
@@ -163,7 +163,7 @@
   border-radius: 3px;
   font-family: monospace;
 }
-.lab-doc-card { border-left: 3px solid #1f6feb; }
+.lab-doc-card { border-left: 3px solid var(--primary); }
 .lab-doc-content p {
   margin: 6px 0;
   font-size: 13px;
@@ -294,7 +294,7 @@
 }
 .lab-sim-pair-card:hover { box-shadow: 0 2px 8px var(--shadow); transform: translateY(-1px); }
 .lab-sim-pair-card.active {
-  border-color: #3370ff;
+  border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(51,112,255,0.25);
 }
 .lab-sim-pair-card .pc-name {
@@ -316,13 +316,13 @@
 .lab-sim-pair-card .pc-lvl-bad { color: #2e7d32; }
 .lab-sim-mode-toggle { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-strong); }
 .lab-sim-mode-toggle button { padding: 4px 12px; border: none; background: var(--bg-card); font-size: 12px; cursor: pointer; color: var(--text-2); transition: all 0.15s; }
-.lab-sim-mode-toggle button.active { background: #3370ff; color: #fff; font-weight: 600; }
+.lab-sim-mode-toggle button.active { background: var(--primary); color: #fff; font-weight: 600; }
 .lab-sim-mode-toggle button:hover:not(.active) { background: var(--bg-hover); }
 .lab-sim-desc { font-size: 12px; color: var(--text-3); margin-bottom: 12px; line-height: 1.5; }
 .lab-sim-empty { font-size: 13px; color: var(--text-4); text-align: center; padding: 20px; }
 .lab-sim-full-loading { font-size: 13px; color: var(--text-3); text-align: center; padding: 24px 16px; background: var(--bg-hover); border-radius: 8px; }
 .lab-full-prog { height: 6px; background: var(--border); border-radius: 3px; margin-top: 8px; overflow: hidden; }
-.lab-full-prog > div { height: 100%; background: #3370ff; border-radius: 3px; transition: width .2s; }
+.lab-full-prog > div { height: 100%; background: var(--primary); border-radius: 3px; transition: width .2s; }
 .lab-sim-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
 .lab-sim-stat { background: var(--bg-hover); border-radius: 8px; padding: 12px 14px; }
 .lab-sim-stat .k { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
@@ -390,7 +390,7 @@
   padding: 8px 12px;
   margin-bottom: 12px;
   background: linear-gradient(90deg, var(--primary-bg) 0%, var(--bg-hover) 100%);
-  border-left: 3px solid #3370ff;
+  border-left: 3px solid var(--primary);
   border-radius: 4px;
   font-size: 12px;
   line-height: 1.5;
@@ -412,7 +412,7 @@
 .lab-sim-pair-desc .ps-buy .ps-tag { background: #c92a2a; }
 .lab-sim-pair-desc .ps-sell .ps-tag { background: #2e7d32; }
 .lab-sim-pair-desc .ps-trig { font-size: 11px; color: var(--text-3); }
-.lab-sim-pair-desc .ps-x { font-size: 13px; font-weight: 700; color: #3370ff; flex-shrink: 0; }
+.lab-sim-pair-desc .ps-x { font-size: 13px; font-weight: 700; color: var(--primary); flex-shrink: 0; }
 /* 交易记录折叠 */
 .lab-sim-trades-header {
   display: flex;
@@ -426,7 +426,7 @@
   user-select: none;
 }
 .lab-sim-trades-header:hover { background: var(--bg-hover); }
-.lab-sim-trades-toggle { font-size: 12px; color: #3370ff; font-weight: 600; }
+.lab-sim-trades-toggle { font-size: 12px; color: var(--primary); font-weight: 600; }
 .lab-sim-trades-body { margin-top: 8px; }
 /* pair card 双模式摘要 */
 .lab-sim-pair-card .pc-mode-row { display: flex; align-items: center; gap: 4px; font-size: 11px; }
@@ -481,7 +481,7 @@
   transition: all 0.15s; -webkit-appearance: none; appearance: none;
 }
 .lab-win-tab:hover { background: var(--bg-hover); }
-.lab-win-tab.active { background: #3370ff; color: #fff; border-color: #3370ff; }
+.lab-win-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 /* 指数选择按钮组：与 .lab-win-tab 同尺寸/字号/间距（风格一致），独立类避免与窗口按钮的事件绑定冲突 */
 .lab-idx-tab {
   padding: 5px 11px; border: 1px solid var(--border); border-radius: 6px;
@@ -489,10 +489,10 @@
   transition: all 0.15s; -webkit-appearance: none; appearance: none;
 }
 .lab-idx-tab:hover { background: var(--bg-hover); }
-.lab-idx-tab.active { background: #3370ff; color: #fff; border-color: #3370ff; }
+.lab-idx-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 /* 矩阵当前窗口行高亮 */
 .lab-matrix-table tr.lab-matrix-row-active > td { background: var(--primary-bg); }
-.lab-matrix-table tr.lab-matrix-row-active > .lab-matrix-rowhead { color: #3370ff; font-weight: 700; }
+.lab-matrix-table tr.lab-matrix-row-active > .lab-matrix-rowhead { color: var(--primary); font-weight: 700; }
 .lab-rank-legend {
   font-size: 12px; color: var(--text-3); background: var(--bg-hover);
   padding: 8px 10px; border-radius: 6px; margin-bottom: 10px; line-height: 1.6;
@@ -651,8 +651,8 @@
 }
 .lab-subnav-tab:hover { color: var(--text-2); }
 .lab-subnav-tab.active {
-  color: #1f6feb;
-  border-bottom-color: #1f6feb;
+  color: var(--primary);
+  border-bottom-color: var(--primary);
   font-weight: 600;
 }
 
@@ -681,7 +681,7 @@
   font-size: 11px;
   background: var(--primary-bg);
   color: var(--primary);
-  border: 1px solid #d6e4ff;
+  border: 1px solid var(--border);
 }
 .lab-fusion-empty {
   grid-column: 1 / -1;

@@ -287,7 +287,7 @@ main { padding: 16px 24px; }
 .chart-hint .sim-btn {
   display: inline-block;
   padding: 2px 10px;
-  background: linear-gradient(135deg, #3370ff, var(--primary));
+  background: linear-gradient(135deg, var(--primary-hover), var(--primary));
   color: #fff;
   border-radius: 10px;
   font-size: 11px;
@@ -298,7 +298,7 @@ main { padding: 16px 24px; }
   vertical-align: middle;
 }
 .chart-hint .sim-btn:hover {
-  background: linear-gradient(135deg, var(--primary), #0e4bd8);
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
   box-shadow: 0 2px 6px rgba(51,112,255,.3);
   color: #fff;
 }
@@ -517,7 +517,7 @@ main { padding: 16px 24px; }
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   transition: background 0.15s;
 }
-.etf-tag:hover { background: #cfe5ff; }
+.etf-tag:hover { background: var(--primary-bg); }
 .etf-tag.copied { background: #e8f5e9; color: #2e7d32; }
 .etf-tag { position: relative; }
 .etf-tag .etf-more { font-size: 9px; opacity: 0.7; margin-left: 1px; }
@@ -839,7 +839,7 @@ main { padding: 16px 24px; }
 .rule-table td {
   padding: 4px 8px;
   vertical-align: top;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border);
   line-height: 1.6;
 }
 .rule-table tr:last-child td { border-bottom: none; }
@@ -1151,7 +1151,7 @@ main { padding: 16px 24px; }
 /* ---- 一句话总结横幅 ---- */
 .summary-banner {
   background: var(--primary-bg);
-  border: 1px solid #b8d8fe;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 12px 16px;
   margin-bottom: 12px;
@@ -1184,8 +1184,8 @@ main { padding: 16px 24px; }
 }
 .summary-fg-tag {
   flex-shrink: 0;
-  background: #f5f5f5;
-  color: #616161;
+  background: var(--bg-hover);
+  color: var(--text-2);
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 12px;
@@ -1248,7 +1248,7 @@ main { padding: 16px 24px; }
   padding: 1px 7px;
   border-radius: 9px;
 }
-.sh-fg { background: #f5f5f5; color: #616161; }
+.sh-fg { background: var(--bg-hover); color: var(--text-2); }
 .sh-freeze { background: #ffebee; color: #c62828; font-weight: 600; }
 .sh-text { font-size: 13px; color: var(--text-1); line-height: 1.7; margin-bottom: 6px; }
 .sh-stats {
@@ -1331,14 +1331,14 @@ main { padding: 16px 24px; }
 .ma-count { padding: 2px 10px; border-radius: 10px; font-size: 13px; font-weight: 500; }
 .ma-count.bullish { background: #e8f5e9; color: #2e7d32; }
 .ma-count.bearish { background: #fce4ec; color: #c62828; }
-.ma-count.cross { background: #f5f5f5; color: #616161; }
+.ma-count.cross { background: var(--bg-hover); color: var(--text-2); }
 .ma-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .ma-table th, .ma-table td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--bg-hover); }
 .ma-table th { background: var(--bg-hover); color: var(--text-2); font-weight: 500; font-size: 11px; }
 .ma-table th:first-child, .ma-table td:first-child { text-align: left; }
 .ma-table td.bullish { color: #2e7d32; font-weight: 600; }
 .ma-table td.bearish { color: #c62828; font-weight: 600; }
-.ma-table td.cross { color: #616161; }
+.ma-table td.cross { color: var(--text-2); }
 
 /* 板块轮动速度卡片 */
 .rotation-card {

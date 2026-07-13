@@ -699,7 +699,7 @@ const LAB_CHART_KEYS = {
   // Vol_breakout 不出图：指数数据无 volume，该策略仅在个股回测
 };
 
-// 策略 -> 用到的技术指标 key（散户白话释义用，仅列出图策略实际用到的指标）
+// 策略 → 用到的技术指标 key（散户白话释义用，仅列出图策略实际用到的指标）
 const LAB_STRATEGY_INDICATORS = {
   BB_upper_revert: ["BB"], BB_lower_revert: ["BB"], BB_middle_break: ["BB"], BB_upper_break: ["BB"],
   Supertrend_buy: ["Supertrend"], Supertrend_sell: ["Supertrend"],
@@ -1123,27 +1123,27 @@ function _labSimSVG(curve, initCapital, gradId) {
   const areaPts = pts.join(" ") + ` ${sx(n - 1).toFixed(1)},${(mt + ph).toFixed(1)} ${sx(0).toFixed(1)},${(mt + ph).toFixed(1)}`;
   const fmtV = (v) => (v >= 10000 ? `${(v / 10000).toFixed(1)}万` : v.toFixed(0));
   const yLabels = [
-    { l: "起始", v: initCapital, c: "#86909c" },
+    { l: "起始", v: initCapital, c: "var(--text-3)" },
     { l: "最低", v: minVal, c: "#2e7d32" },
     { l: "峰值", v: peakVal, c: "#c92a2a" },
     { l: "期末", v: finalVal, c: "#3370ff" },
-  ].map((it) => `<text x="${ml - 4}" y="${sy(it.v).toFixed(1)}" text-anchor="end" font-size="10" fill="${it.c}" dominant-baseline="middle">${it.l} ${fmtV(it.v)}</text>`).join("");
+  ].map((it) => `<text x="${ml - 4}" y="${sy(it.v).toFixed(1)}" text-anchor="end" font-size="10" style="fill:${it.c}" dominant-baseline="middle">${it.l} ${fmtV(it.v)}</text>`).join("");
   const tickCount = Math.min(7, Math.max(3, Math.floor(n / 2)));
   const step = n > 1 ? (n - 1) / (tickCount - 1) : 1;
   const xLabels = [];
   for (let k = 0; k < tickCount; k++) {
     const i = Math.min(Math.round(k * step), n - 1);
-    xLabels.push(`<text x="${sx(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="9" fill="#86909c">${dates[i].substring(0, 7)}</text>`);
+    xLabels.push(`<text x="${sx(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="9" style="fill:var(--text-3)">${dates[i].substring(0, 7)}</text>`);
   }
   const lineColor = finalVal >= initCapital ? "#c92a2a" : "#2e7d32";
-  return `<svg width="100%" height="150" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+  return `<svg width="100%" height="150" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
     <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${lineColor}" stop-opacity="0.12"/><stop offset="100%" stop-color="${lineColor}" stop-opacity="0.01"/></linearGradient></defs>
-    <line x1="${ml}" y1="${baselineY.toFixed(1)}" x2="${sx(n - 1).toFixed(1)}" y2="${baselineY.toFixed(1)}" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+    <line x1="${ml}" y1="${baselineY.toFixed(1)}" x2="${sx(n - 1).toFixed(1)}" y2="${baselineY.toFixed(1)}" style="stroke:var(--border-strong)" stroke-dasharray="6,4" stroke-width="1"/>
     <polygon points="${areaPts}" fill="url(#${gradId})"/>
     <polyline points="${pts.join(" ")}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linejoin="round"/>
     ${yLabels}
-    <circle cx="${sx(peakIdx).toFixed(1)}" cy="${sy(peakVal).toFixed(1)}" r="3" fill="#c92a2a" stroke="#fff" stroke-width="1"/>
-    <circle cx="${sx(n - 1).toFixed(1)}" cy="${sy(finalVal).toFixed(1)}" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
+    <circle cx="${sx(peakIdx).toFixed(1)}" cy="${sy(peakVal).toFixed(1)}" r="3" fill="#c92a2a" style="stroke:var(--bg-card)" stroke-width="1"/>
+    <circle cx="${sx(n - 1).toFixed(1)}" cy="${sy(finalVal).toFixed(1)}" r="3" fill="#3370ff" style="stroke:var(--bg-card)" stroke-width="1"/>
     ${xLabels.join("")}
   </svg>`;
 }
@@ -1216,7 +1216,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     const cpStr = t.cp != null ? (cpVal >= 0 ? "+" : "") + Math.round(cpVal).toLocaleString() : "-";
     const crStr = t.cp != null ? (crVal >= 0 ? "+" : "") + crVal.toFixed(2) + "%" : "-";
     // "较上次"列：本笔累计收益率/累计盈亏 - 上一笔的差值（本笔赚还是亏）。首笔显示"-"
-    let deltaHTML = '<span style="color:#c9cdd4">-</span>';
+    let deltaHTML = '<span style="color:var(--text-4)">-</span>';
     if (prev && t.cp != null && prev.cp != null) {
       const dr = crVal - (prev.cp / initCapital * 100);   // 累计收益率差（百分点）
       const dp = cpVal - prev.cp;                         // 累计盈亏差=本笔盈亏金额
@@ -1240,7 +1240,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
   const tradesBody = isOpen
     ? `<div class="lab-sim-trades-body">` +
       `<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th title="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
-      (tradeRows || '<tr><td colspan="11" style="text-align:center;color:#c9cdd4">无交易记录</td></tr>') +
+      (tradeRows || '<tr><td colspan="11" style="text-align:center;color:var(--text-4)">无交易记录</td></tr>') +
       `</tbody></table></div>${pagerHTML}</div>`
     : "";
 
@@ -1837,11 +1837,11 @@ const LAB_RANK_FILTERS = [
   { label: "样本数", minKey: "nMin", maxKey: "nMax", field: "n_trades" },
 ];
 const _LAB_FSTYLE = {
-  panel: "display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;background:#f7f8fa;border-radius:8px;margin-bottom:8px;",
-  lbl: "font-size:12px;color:#4e5969;white-space:nowrap;display:flex;align-items:center;gap:3px;",
-  input: "width:54px;padding:4px 5px;border:1px solid #e5e6eb;border-radius:5px;font-size:12px;text-align:center;background:#fff;-webkit-appearance:none;appearance:none;-moz-appearance:textfield;",
-  dash: "color:#c9cdd4;font-size:11px;",
-  reset: "padding:4px 12px;border:1px solid #d9dce3;border-radius:6px;background:#fff;color:#646a73;font-size:12px;cursor:pointer;margin-left:auto;transition:background .15s;",
+  panel: "display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;background:var(--bg-hover);border-radius:8px;margin-bottom:8px;",
+  lbl: "font-size:12px;color:var(--text-2);white-space:nowrap;display:flex;align-items:center;gap:3px;",
+  input: "width:54px;padding:4px 5px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:center;background:var(--bg-card);-webkit-appearance:none;appearance:none;-moz-appearance:textfield;",
+  dash: "color:var(--text-4);font-size:11px;",
+  reset: "padding:4px 12px;border:1px solid var(--border-strong);border-radius:6px;background:var(--bg-card);color:var(--text-2);font-size:12px;cursor:pointer;margin-left:auto;transition:background .15s;",
 };
 
 function _labRankDefaultFilter() {
@@ -1990,7 +1990,7 @@ function _labRankResultsHTML() {
   const sorted = _labRankSort(filtered, tab);
   const showAll = !!state.labRankShowAll;
   const shown = showAll ? sorted : sorted.slice(0, 20);
-  const countHTML = `<div style="font-size:12px;color:#86909c;margin-bottom:6px;">符合 <b style="color:#9c27b0;">${filtered.length}</b> / 共 ${rows.length} 个配对</div>`;
+  const countHTML = `<div style="font-size:12px;color:var(--text-3);margin-bottom:6px;">符合 <b style="color:#9c27b0;">${filtered.length}</b> / 共 ${rows.length} 个配对</div>`;
   const itemsHTML = shown.length > 0
     ? shown.map((r, i) => _labRankItemHTML(r, i + 1, tab)).join("")
     : '<div class="lab-rank-empty">当前过滤条件下无匹配配对</div>';
