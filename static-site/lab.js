@@ -699,6 +699,32 @@ const LAB_CHART_KEYS = {
   // Vol_breakout 不出图：指数数据无 volume，该策略仅在个股回测
 };
 
+// 策略 -> 用到的技术指标 key（散户白话释义用，仅列出图策略实际用到的指标）
+const LAB_STRATEGY_INDICATORS = {
+  BB_upper_revert: ["BB"], BB_lower_revert: ["BB"], BB_middle_break: ["BB"], BB_upper_break: ["BB"],
+  Supertrend_buy: ["Supertrend"], Supertrend_sell: ["Supertrend"],
+  MA_death_5_20: ["MA"], MA_golden_5_20: ["MA"], MA_golden_10_60: ["MA"],
+  Donchian20_up: ["Donchian"], Donchian55_up: ["Donchian"], Donchian10_down: ["Donchian"], Donchian20_down: ["Donchian"],
+  MACD_golden: ["MACD"], MACD_death: ["MACD"],
+  KDJ_golden_oversold: ["KDJ"], KDJ_death_overbought: ["KDJ"],
+  C1_RSI30: ["RSI"], B0_RSI70: ["RSI"],
+  ATR_trail_stop: ["ATR"],
+  D1_high20_drop5: ["Drop5"],
+};
+
+// 技术指标散户白话释义（初中生能懂）
+const LAB_INDICATOR_PLAIN = {
+  BB: { name: "BB 布林带", plain: "用近20日均价和波动幅度画的价格通道。触及上轨=近期偏贵可能回落，触及下轨=偏便宜可能反弹，中轨=20日均线。" },
+  Supertrend: { name: "Supertrend 超级趋势", plain: "基于波动率(ATR)画的趋势跟踪线。翻红=转多(买)，翻绿=转空(卖)。" },
+  MA: { name: "MA 均线", plain: "近N个交易日的平均价。短期均线在长期均线之上=多头排列、趋势向上，反之=空头、趋势向下。" },
+  Donchian: { name: "Donchian 通道", plain: "近N日最高价和最低价画的通道。价格突破上轨=创新高看多，跌破下轨=创新低看空。" },
+  MACD: { name: "MACD", plain: "动量指标。DIF上穿DEA=金叉看多，DIF下穿DEA=死叉看空。" },
+  KDJ: { name: "KDJ", plain: "超买超卖指标。K线上穿D线=金叉(低位更准)，K线下穿D线=死叉(高位更准)。" },
+  RSI: { name: "RSI 相对强弱", plain: "0-100的强弱指标。<30超卖(跌多了可能反弹)，>70超买(涨多了可能回落)。" },
+  ATR: { name: "ATR 真实波幅", plain: "衡量波动剧烈程度，数值越大波动越猛。追踪止损线=近期高点-3倍ATR，跌破即止损。" },
+  Drop5: { name: "20日高回落5%", plain: "近20日最高价下跌5%触发止盈。回落阈值线会随创新高而上移。" },
+};
+
 // 构建策略图表配置（指标线+信号+标注文案），供 renderLabDetail 和买卖信号弹窗复用
 // 返回 { indicators, signals, signalLabel, signalColor, chartTitle, statLabel } 或 null（无图表实现）
 // 信号逻辑严格对齐 a-stock-data/backtest_strategies.py 的 gen_buy_signals/gen_sell_signals
@@ -1573,6 +1599,15 @@ async function renderLabDetail(key) {
   // 文案区
   const docCard = document.createElement("div");
   docCard.className = "chart-card lab-doc-card";
+  // 指标释义折叠：列出该策略用到的技术指标 + 散户白话（仅出图策略有指标）
+  const indKeys = LAB_STRATEGY_INDICATORS[key];
+  const indItems = (indKeys || []).map((k) => LAB_INDICATOR_PLAIN[k]).filter(Boolean);
+  const indHtml = indItems.length
+    ? '<details class="indicator-explain"><summary>📖 指标释义（这些指标怎么看？）</summary>' +
+      '<div class="indicator-explain-body">' +
+      indItems.map((it) => `<div><b>${it.name}</b>：${it.plain}</div>`).join("") +
+      '</div></details>'
+    : "";
   docCard.innerHTML =
     '<h3>📖 策略说明</h3>' +
     '<div class="lab-doc-content">' +
@@ -1581,7 +1616,7 @@ async function renderLabDetail(key) {
     `<p><b>适用场景：</b>${meta.scenario}</p>` +
     `<p><b>注意事项：</b>${meta.note}</p>` +
     `<p><b>回测结论：</b>${meta.report}</p>` +
-    '</div>';
+    '</div>' + indHtml;
   content.appendChild(docCard);
 
   // 图表区

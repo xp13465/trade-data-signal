@@ -120,6 +120,26 @@ main { padding: 16px 24px; }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: #1f2329; }
 /* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
 .chart-latest { color: #2563eb; font-weight: 600; background: rgba(37,99,235,0.08); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+/* A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip） */
+.term-tip {
+  display: inline-block;
+  font-size: 11px;
+  color: #86909c;
+  cursor: help;
+  margin-left: 3px;
+  vertical-align: middle;
+  line-height: 1;
+}
+.term-tip:hover { color: #165dff; }
+/* B：卡片底部 muted 白话小字（最晦涩术语常驻解释，区别于橙色 chart-hint） */
+.term-plain {
+  font-size: 11px;
+  color: #86909c;
+  margin: 6px 4px 4px;
+  padding-top: 5px;
+  border-top: 1px dashed #e5e6eb;
+  line-height: 1.5;
+}
 /* === 折线图回测 tips（.chart-hint）：散户化多块文案 + 胜率配色梯度 + 凯利折叠详解 === */
 .chart-hint {
   font-size: 12px;

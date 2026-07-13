@@ -283,7 +283,22 @@ function latestSuffix(data) {
 
 // series.name 去 HTML：latestSuffix 的 <span> 高亮只供卡片标题（HTML 容器），
 // 进 ECharts series.name 会被 tooltip 默认 formatter HTML 转义成字面量 <span>，故 tooltip 用纯文本
-function stripHtml(s) { return String(s == null ? "" : s).replace(/<[^>]+>/g, ""); }
+function stripHtml(s) { return String(s == null ? "" : s).replace(/<span class="term-tip"[^>]*>[\s\S]*?<\/span>/g, "").replace(/<[^>]+>/g, ""); }
+
+// A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip）
+function termTip(text) {
+  return ` <span class="term-tip" title="${text}">❓</span>`;
+}
+// B：卡片底部追加一行 muted 白话小字（最晦涩术语常驻解释，放卡片底部）
+function appendPlainTip(chartOrEl, text) {
+  const dom = chartOrEl && chartOrEl.getDom ? chartOrEl.getDom() : chartOrEl;
+  const card = dom && dom.closest ? dom.closest(".chart-card") : null;
+  if (!card) return;
+  const d = document.createElement("div");
+  d.className = "term-plain";
+  d.textContent = text;
+  card.appendChild(d);
+}
 
 // 最新值紧凑格式：万级缩写、整数直出、其余按量级保留1-2位小数（标题后缀用，简洁为主）
 function fmtLatestVal(v) {
@@ -1107,7 +1122,7 @@ async function renderOverview() {
   // 左列：恐贪指数折线（近 6 月，visualMap 分段着色）
   if (r.fear_greed_6m && r.fear_greed_6m.length) {
     const fg6 = r.fear_greed_6m.map((d) => ({ date: d.date, value: d.value }));
-    lineChart("😐 恐贪指数（近 6 月）" + latestSuffix(fg6), fg6, {
+    lineChart("😐 恐贪指数（近 6 月）" + termTip("综合5类市场情绪算的0-100温度计，越低越恐惧越高越贪婪") + latestSuffix(fg6), fg6, {
       visualMap: {
         show: false,
         pieces: [
@@ -1125,7 +1140,7 @@ async function renderOverview() {
   // 左列：A股综合情绪分折线（近 6 月）
   if (r.a_sentiment_6m && r.a_sentiment_6m.length) {
     const as6 = r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value }));
-    lineChart("A股综合情绪分（近 6 月）" + latestSuffix(as6), as6, {}, null, colA1);
+    lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的情绪温度计0-100，≤20冰点≥80过热") + latestSuffix(as6), as6, {}, null, colA1);
   }
 
   // 右列：冰点日卡片（近120日，按日分组4个/行）
@@ -1172,7 +1187,8 @@ async function renderOverview() {
     const wUpV = (w.up.find((x) => x.date === wLast) || {}).value;
     const wDnV = (w.down.find((x) => x.date === wLast) || {}).value;
     const wSuffix = wLast ? `<span class="chart-latest"> · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}</span>` : "";
-    const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + wSuffix, 260, null, colB1);
+    const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix, 260, null, colB1);
+    appendPlainTip(wc, "上涨家数远多于下跌=普涨行情；两者接近=市场分化");
     wc.setOption({
       tooltip: { trigger: "axis" },
       legend: { top: 0, data: ["上涨家数", "下跌家数"] },
@@ -1191,7 +1207,7 @@ async function renderOverview() {
   // 左列：跨市场综合评分折线（近 6 月）
   if (r.cross_market_6m && r.cross_market_6m.length) {
     const cm6 = r.cross_market_6m.map((d) => ({ date: d.date, value: d.value }));
-    lineChart("跨市场综合评分（近 6 月）" + latestSuffix(cm6), cm6, {
+    lineChart("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
       visualMap: {
         show: false,
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
@@ -1210,7 +1226,7 @@ async function renderOverview() {
       const bearish = d.bearish || 0;
       const cross = d.cross || 0;
       const maSuffix = d.date ? `<span class="chart-latest"> · ${fmtDate(d.date)} 多头${bullish} 空头${bearish} 震荡${cross}</span>` : "";
-      let maHtml = `<h3>&#x1F4C8; 均线排列${maSuffix}</h3>`;
+      let maHtml = `<h3>&#x1F4C8; 均线排列${termTip("MA5>MA10>MA20>MA60 为多头排列趋势向上，反之为空头")}${maSuffix}</h3>`;
       maHtml += `<div class="ma-summary">`;
       maHtml += `<span class="ma-count bullish">${bullish} 个多头</span> `;
       maHtml += `<span class="ma-count bearish">${bearish} 个空头</span> `;
@@ -1227,6 +1243,7 @@ async function renderOverview() {
       }
       maCard.innerHTML = maHtml;
       colB2.appendChild(maCard);
+      appendPlainTip(maCard, "多头排列=短期均线在长期之上，趋势向上；反之趋势向下");
     }
   }).catch((e) => { renderFailCard(colB2, "&#x1F4C8; 均线排列", e); });
 
@@ -1242,7 +1259,7 @@ async function renderOverview() {
         if (pct <= 40) posLow++; else if (pct > 60) posHigh++;
       }
       const posDateSuffix = posDates.length ? `<span class="chart-latest"> · ${fmtDate(posDates[posDates.length - 1])} 低位${posLow} 高位${posHigh}</span>` : "";
-      let posHtml = `<h3>&#x1F4CD; 大盘位置感${posDateSuffix}</h3><div class="position-list">`;
+      let posHtml = `<h3>&#x1F4CD; 大盘位置感${termTip("当前价在近1年最高最低之间的位置%，越低越便宜越高越贵")}${posDateSuffix}</h3><div class="position-list">`;
       for (const p of posData.positions) {
         const pct = p.percentile_1y != null ? p.percentile_1y : 50;
         const barColor = pct <= 40 ? "#2e8b57" : pct <= 60 ? "#86909c" : pct <= 80 ? "#e6a23c" : "#e6492e";
@@ -1285,7 +1302,8 @@ async function renderOverview() {
         { name: "AD Line", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "AD" },
         { name: "AD Line MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
       ];
-      const adc = mkCard("📊 腾落线（AD Line）" + latestSuffixMulti(adSeries), 300, null, colC1);
+      const adc = mkCard("📊 腾落线（AD Line）" + termTip("上涨家数减下跌家数的累计值，反映多数股在涨还是跌") + latestSuffixMulti(adSeries), 300, null, colC1);
+      appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
       adc.setOption({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["涨跌家数比", "AD Line", "AD Line MA20"] },
@@ -1323,7 +1341,8 @@ async function renderOverview() {
         { name: "MA5", data: vrData.map(d => ({ date: d.date, value: d.ma5 })), label: "MA5" },
         { name: "MA20", data: vrData.map(d => ({ date: d.date, value: d.ma20 })), label: "MA20" },
       ];
-      const vrc = mkCard("📈 成交额与量比（近 120 日）" + latestSuffixMulti(vrSeries), 300, null, colC2);
+      const vrc = mkCard("📈 成交额与量比（近 120 日）" + termTip("今日成交 vs 近期平均成交，>1放量<1缩量") + latestSuffixMulti(vrSeries), 300, null, colC2);
+      appendPlainTip(vrc, "量比>1.5为明显放量，<0.5为明显缩量");
       vrc.setOption({
         tooltip: { trigger: "axis", formatter: function(params) {
           const d = vrData[params[0].dataIndex];
@@ -1356,7 +1375,8 @@ async function renderOverview() {
         { name: "52周新低", data: nhlData.map(d => ({ date: d.date, value: d.nl_52w })), label: "新低" },
         { name: "NH-NL", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "NH-NL" },
       ];
-      const nhlCard = mkCard("🔬 新高新低家数（52 周）" + latestSuffixMulti(nhlSeries), 280, null, colC1);
+      const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 280, null, colC1);
+      appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
       nhlCard.setOption({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["52周新高", "52周新低", "NH-NL"] },
@@ -1851,7 +1871,8 @@ function renderFuturesSection(data) {
     const dates1 = [...new Set(chart1Series.flatMap((s) => s.data.map((d) => d.date)))].sort();
     const roleLabels = { "机构(前20)": "机构", "中信期货": "中信", "国泰君安": "国君" };
     const c1Series = chart1Series.map((s) => ({ ...s, label: roleLabels[s.name] || s.name }));
-    const c1 = mkCard("综合净多空手数" + latestSuffixMulti(c1Series), 300);
+    const c1 = mkCard("综合净多空手数" + termTip("机构多头仓位减空头仓位，正数=机构偏看多") + latestSuffixMulti(c1Series), 300);
+    appendPlainTip(c1, "净多空为正且持续增加，机构看多情绪增强");
     c1.setOption({
       tooltip: {
         trigger: "axis",
@@ -1912,7 +1933,7 @@ function renderFuturesSection(data) {
       const datesP = [...new Set(prodSeries.flatMap((s) => s.data.map((d) => d.date)))].sort();
       const prodLabels = { "沪深300期货": "300", "中证500期货": "500", "上证50期货": "50", "中证1000期货": "1000", "综合": "综合" };
       const cPSeries = prodSeries.map((s) => ({ ...s, label: prodLabels[s.name] || s.name }));
-      const cP = mkCard(`${role} 各品种净多空手数` + latestSuffixMulti(cPSeries), 300);
+      const cP = mkCard(`${role} 各品种净多空手数` + termTip("该角色在各期货品种上的净多空手数，正数看多负数看空") + latestSuffixMulti(cPSeries), 300);
       cP.setOption({
         tooltip: {
           trigger: "axis",

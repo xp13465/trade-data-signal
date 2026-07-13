@@ -702,6 +702,32 @@
 }
 .lab-fusion-phase-note b { color: #d4380d; }
 
+/* 实验室策略详情：指标释义折叠块（散户白话，复用凯利折叠风格） */
+.indicator-explain {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.indicator-explain > summary {
+  cursor: pointer;
+  user-select: none;
+  color: #165dff;
+  font-size: 12px;
+  display: inline-block;
+}
+.indicator-explain > summary:hover { color: #0e42d2; }
+.indicator-explain-body {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #f6f8fa;
+  border: 1px solid #e5e6eb;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #4e5969;
+  line-height: 1.7;
+}
+.indicator-explain-body > div { margin: 4px 0; }
+.indicator-explain-body b { color: #1f2329; font-weight: 600; }
+
 @media (max-width: 600px) {
   .lab-subnav-tab { padding: 6px 12px; font-size: 13px; }
   .lab-fusion-cond { font-size: 10px; padding: 1px 5px; }
