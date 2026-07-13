@@ -136,8 +136,8 @@ RUN_BAOSTOCK=1 /bin/bash /Users/linhuichen/code/trade/scripts/collect.sh
 ### 三个时间点
 
 - **14:30 盘中预警**：`collect.sh`（更新盘中数据 + compute）+ `check_signals.sh`（查当日信号 + 发邮件）。盘中数据可能未完整，但买卖点信号（RSI 上穿 30 / 20 日高回落 5%）已可初步判断，提前预警。
-- **15:33 收盘正式**：`update_all.sh`（collect + deploy + check_signals）。A 股 15:00 收盘，15:33 跑留出 33 分钟等盘后数据落盘；同时推送公网 + 发信号邮件。采后自动多源补采（新浪主源当日延迟则 baostock/腾讯补，见 `app/collector/index_backfill.py`）。
-- **20:00 晚间补采兜底**：`backfill_indices.sh`（只校验补采缺失指数 + 重算情绪分 + 推送，不全量采集，几十秒）。兜底 15:33 早跑时三源都没今日数据的情况——20:00 三源已更新，补上。plist 模板：`scripts/plists/com.trade.backfill-evening.plist`。
+- **17:50 收盘正式**：`update_all.sh`（collect + deploy + check_signals）。A 股 15:00 收盘，**baostock 等主源 ~17:45 才发布当日 T+1 数据**（15:33 跑太早采不到当日，已实测），故后移到 17:50；同时推送公网 + 发信号邮件。采后自动多源补采（新浪主源当日延迟则 baostock/腾讯补，见 `app/collector/index_backfill.py`）。申万 trend 通常更晚出，靠快照反哺 + 20:00 backfill 兜底。
+- **20:00 晚间补采兜底**：`backfill_indices.sh`（只校验补采缺失指数 + 重算情绪分 + 推送，不全量采集，几十秒）。兜底 17:50 跑时三源还没今日数据的情况——20:00 三源已更新，补上。plist 模板：`scripts/plists/com.trade.backfill-evening.plist`。
 
 ### 方案 A：launchd（macOS 推荐）
 
@@ -175,7 +175,7 @@ RUN_BAOSTOCK=1 /bin/bash /Users/linhuichen/code/trade/scripts/collect.sh
 </plist>
 ```
 
-#### 15:33 收盘正式（`com.trade.update-all`）
+#### 17:50 收盘正式（`com.trade.update-all`）
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -233,9 +233,9 @@ launchctl unload ~/Library/LaunchAgents/com.trade.update-all.plist
 注意：
 
 - 与旧 plist（`com.trade.sentiment`，仅采集）二选一即可，避免重复采集。如改用 update_all，建议先 `launchctl unload` 旧 plist。
-- A 股收盘 15:00，15:33 跑留出 33 分钟等盘后数据落盘；港股 / 美股时差另算。
+- A 股收盘 15:00，17:50 跑留出 约 2 小时 50 分钟等 baostock 等主源发布当日 T+1 数据；港股 / 美股时差另算。
 - Mac 睡眠时 launchd 不触发，醒来后 `RunAtLoad=false` 不会补跑。如需补跑可临时 `launchctl start` 或手动 `bash /Users/linhuichen/code/trade/scripts/update_all.sh`。
-- 14:30 盘中预警只跑 collect + check_signals（不 deploy），避免盘中数据未完整就推送公网；15:33 收盘正式才跑完整 update_all（含 deploy）。
+- 14:30 盘中预警只跑 collect + check_signals（不 deploy），避免盘中数据未完整就推送公网；17:50 收盘正式才跑完整 update_all（含 deploy）。
 
 ### 方案 B：cron
 
@@ -243,7 +243,7 @@ launchctl unload ~/Library/LaunchAgents/com.trade.update-all.plist
 crontab -e
 ```
 
-加两行（14:30 盘中预警 + 15:33 收盘正式，输出到日志）：
+加两行（14:30 盘中预警 + 17:50 收盘正式，输出到日志）：
 
 ```cron
 30 14 * * * /bin/bash -c 'bash /Users/linhuichen/code/trade/scripts/collect.sh && bash /Users/linhuichen/code/trade/scripts/check_signals.sh' >> /Users/linhuichen/code/trade/data/logs/check_signals_noon_cron.log 2>&1
