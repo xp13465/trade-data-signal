@@ -266,6 +266,40 @@ function computeD1Lab(ohlc) {
   return { th, signals };
 }
 
+// Vol_breakout：放量突破买（成交额代理成交量）
+// 触发: amount > 2×20日均额 且 close 涨幅>2%（复刻 backtest_strategies.Vol_breakout: vol>2*vma & pct>0.02）
+// 指数无 volume 字段，用 amount(成交额) 代理；A 股宽基 amount 为空时量比为 null、不出信号
+function computeVolBreakoutLab(ohlc) {
+  const N = 20;
+  const len = ohlc.length;
+  const amounts = ohlc.map((d) => d.amount);
+  const closes = ohlc.map((d) => d.close);
+  // 20日均额（min_periods=10，跳过 null/NaN/0 的 amount）
+  const vma = new Array(len).fill(null);
+  for (let i = N - 1; i < len; i++) {
+    let sum = 0, cnt = 0;
+    for (let j = i - N + 1; j <= i; j++) {
+      const a = amounts[j];
+      if (a != null && !isNaN(a) && a > 0) { sum += a; cnt++; }
+    }
+    if (cnt >= 10) vma[i] = sum / cnt;
+  }
+  // 量比 = amount / vma（>2 放量，<1 缩量）
+  const vratio = new Array(len).fill(null);
+  for (let i = 0; i < len; i++) {
+    const a = amounts[i];
+    if (a != null && !isNaN(a) && vma[i] != null && vma[i] > 0) vratio[i] = a / vma[i];
+  }
+  // 信号：量比 > 2 且 close 涨幅 > 2%
+  const signals = [];
+  for (let i = 1; i < len; i++) {
+    if (vratio[i] == null) continue;
+    const pct = closes[i - 1] > 0 ? closes[i] / closes[i - 1] - 1 : 0;
+    if (vratio[i] > 2.0 && pct > 0.02) signals.push({ date: ohlc[i].date, close: closes[i] });
+  }
+  return { vratio, signals };
+}
+
 // 通用实验图表：收盘价折线 + 自定义指标线 + 信号 markPoint
 // indicators: [{name, data, color, dash}]  data 与 ohlc 等长（null=无值）
 // signalLabel 用策略中文名，label 以彩色标签框显示在 pin 上方，hideOverlap 防密集重叠
@@ -693,10 +727,9 @@ const LAB_CHART_KEYS = {
   BB_upper_revert: 1, MA_death_5_20: 1, BB_middle_break: 1, Donchian10_down: 1,
   Donchian20_down: 1, MACD_death: 1, ATR_trail_stop: 1,
   // 已排除（反面教材仍出图便于直观对比）
-  BB_upper_break: 1, KDJ_golden_oversold: 1, B0_RSI70: 1, KDJ_death_overbought: 1, Supertrend_sell: 1,
+  BB_upper_break: 1, KDJ_golden_oversold: 1, Vol_breakout: 1, B0_RSI70: 1, KDJ_death_overbought: 1, Supertrend_sell: 1,
   // 生产参考
   C1_RSI30: 1, D1_high20_drop5: 1,
-  // Vol_breakout 不出图：指数数据无 volume，该策略仅在个股回测
 };
 
 // 策略 → 用到的技术指标 key（散户白话释义用，仅列出图策略实际用到的指标）
@@ -710,6 +743,7 @@ const LAB_STRATEGY_INDICATORS = {
   C1_RSI30: ["RSI"], B0_RSI70: ["RSI"],
   ATR_trail_stop: ["ATR"],
   D1_high20_drop5: ["Drop5"],
+  Vol_breakout: ["Vol"],
 };
 
 // 技术指标散户白话释义（初中生能懂）
@@ -723,6 +757,7 @@ const LAB_INDICATOR_PLAIN = {
   RSI: { name: "RSI 相对强弱", plain: "0-100的强弱指标。<30超卖(跌多了可能反弹)，>70超买(涨多了可能回落)。" },
   ATR: { name: "ATR 真实波幅", plain: "衡量波动剧烈程度，数值越大波动越猛。追踪止损线=近期高点-3倍ATR，跌破即止损。" },
   Drop5: { name: "20日高回落5%", plain: "近20日最高价下跌5%触发止盈。回落阈值线会随创新高而上移。" },
+  Vol: { name: "量比 成交额比值", plain: "今日成交额除以近20日平均成交额。>2=放量（资金涌入），<1=缩量。指数无成交量字段，用成交额代理。" },
 };
 
 // 构建策略图表配置（指标线+信号+标注文案），供 renderLabDetail 和买卖信号弹窗复用
@@ -958,6 +993,20 @@ function _labBuildChartConfig(key, ohlc, indexName) {
       indicators: [{ name: "回落阈值(-5%)", data: r.th, color: "#c92a2a", dash: true }],
       signals: r.signals, signalLabel, signalColor: sigColor,
       chartTitle: `${name} · 20日高回落5%`, statLabel,
+    };
+  }
+
+  // --- Vol_breakout 放量突破（成交额代理，副图 osc 轴）---
+  if (key === "Vol_breakout") {
+    const r = computeVolBreakoutLab(ohlc);
+    const len = ohlc.length;
+    return {
+      indicators: [
+        { name: "量比(成交额/20均)", data: r.vratio, color: "#1f6feb", dash: false, axis: "osc" },
+        { name: "放量阈值2.0", data: new Array(len).fill(2.0), color: "#c92a2a", dash: true, axis: "osc" },
+      ],
+      signals: r.signals, signalLabel, signalColor: sigColor,
+      chartTitle: `${name} · 放量突破（成交额代理）`, statLabel,
     };
   }
 
@@ -1705,12 +1754,12 @@ async function renderLabDetail(key) {
       chartDiv.innerHTML = `<div class="loading">加载失败：${e}</div>`;
     }
   } else {
-    // Vol_breakout 等无图策略：指数数据无 volume，该策略仅在个股回测
+    // 无图策略兜底（当前22策略均有图，此处为安全网）
     chartSection.innerHTML =
       '<div class="lab-placeholder">' +
       '<div class="lab-placeholder-icon">📊</div>' +
-      '<div class="lab-placeholder-text">该策略依赖成交量数据</div>' +
-      '<div class="lab-placeholder-sub">指数数据无 volume 字段，放量突破类策略仅在个股回测中统计，暂不提供指数图表。下方仍可看多周期回测矩阵。</div>' +
+      '<div class="lab-placeholder-text">该策略暂无图表实现</div>' +
+      '<div class="lab-placeholder-sub">下方仍可看多周期回测矩阵。</div>' +
       '</div>';
   }
 
