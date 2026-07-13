@@ -1077,9 +1077,9 @@ function _labSimFullLoaded(index) {
 
 // 带 HTTP 进度的 fetch JSON（读 ReadableStream 累计 received/Content-Length 算百分比）
 // 无 Content-Length 或不支持流时降级为普通 fetchJSON，onProgress(-1) 表示无法测算
-async function fetchJSONProgress(url, onProgress) {
+async function fetchJSONProgress(url, onProgress, signal) {
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(url, signal ? { signal } : undefined);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
     if (!total || !resp.body || !resp.body.getReader) {
@@ -1099,6 +1099,7 @@ async function fetchJSONProgress(url, onProgress) {
     const txt = await blob.text();
     return JSON.parse(txt);
   } catch (e) {
+    if (e && e.name === "AbortError") throw e; // 中止不降级，向上抛
     // 流式读取失败（如浏览器不支持），降级普通 fetch
     if (onProgress) onProgress(-1, 0);
     return fetchJSON(url);
@@ -1108,7 +1109,7 @@ async function fetchJSONProgress(url, onProgress) {
 // 加载完整数据(trades/equity_curve/tw/ew)，合并入已缓存的 stats 数据
 // onProgress(received, total) 用于进度条；total<0 表示无法测算
 // 返回合并后的 simData（即 state.labSimDataMap[index]）
-async function fetchLabSimFullData(index, onProgress) {
+async function fetchLabSimFullData(index, onProgress, signal) {
   index = index || "sh";
   if (!state.labSimFullMap) state.labSimFullMap = {};
   if (state.labSimFullMap[index] === true) return state.labSimDataMap[index]; // 已合并
@@ -1118,6 +1119,7 @@ async function fetchLabSimFullData(index, onProgress) {
       await new Promise((r) => setTimeout(r, 100));
       if (state.labSimFullMap[index] === true) return state.labSimDataMap[index];
       if (state.labSimFullMap[index] === null) break;
+      if (signal && signal.aborted) return state.labSimDataMap[index]; // 中止轮询
     }
     return state.labSimDataMap[index];
   }
@@ -1125,7 +1127,7 @@ async function fetchLabSimFullData(index, onProgress) {
   if (!stats) return null;
   state.labSimFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("./data/lab/lab_sim_" + index + "_full.json", onProgress);
+    const full = await fetchJSONProgress("./data/lab/lab_sim_" + index + "_full.json", onProgress, signal);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
@@ -1454,6 +1456,13 @@ function _labSimAttachHandlers(key, simData, simCard, rerender) {
       state.labSimPageFi = 0;
       state.labSimPageFk = 0;
       rerender();
+      // 同步：同时切换实验图表窗口
+      if (state.labWinSync) {
+        state.labChartWin = btn.dataset.win;
+        const chartWinBar = document.querySelector(".lab-chart-section .lab-win-bar");
+        if (chartWinBar) chartWinBar.querySelectorAll(".lab-win-tab").forEach((b) => b.classList.toggle("active", b.dataset.cwin === btn.dataset.win));
+        if (state._labChartRerender) state._labChartRerender();
+      }
     };
   });
   // 配对策略卡片切换（各 mode 独立）
@@ -1679,7 +1688,8 @@ async function renderLabDetail(key) {
     winBar.innerHTML = '<span class="lab-win-bar-label">时间窗口</span>' +
       '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
         `<button type="button" class="lab-win-tab${w.k === state.labChartWin ? " active" : ""}" data-cwin="${w.k}">${w.l}</button>`
-      ).join("") + "</div>";
+      ).join("") + "</div>" +
+      `<button type="button" class="lab-win-sync-btn" title="开启后实验图表窗口跟随模拟回测窗口联动" style="margin-left:6px;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:${state.labWinSync ? "var(--bg-hover)" : "var(--bg-card)"};color:${state.labWinSync ? "var(--text-1)" : "var(--text-3)"};font-size:12px;cursor:pointer;white-space:nowrap;${state.labWinSync ? "font-weight:600;" : ""}">🔗 同步${state.labWinSync ? "✓" : ""}</button>`;
     chartSection.appendChild(winBar);
 
     // 指数选择器（实验策略共用）
@@ -1741,12 +1751,35 @@ async function renderLabDetail(key) {
           chartDiv.appendChild(statDiv);
         };
         renderChart();
+        state._labChartRerender = renderChart;
+        // 同步窗口开关
+        const syncBtn = winBar.querySelector(".lab-win-sync-btn");
+        if (syncBtn) {
+          syncBtn.onclick = () => {
+            state.labWinSync = !state.labWinSync;
+            syncBtn.style.background = state.labWinSync ? "var(--bg-hover)" : "var(--bg-card)";
+            syncBtn.style.color = state.labWinSync ? "var(--text-1)" : "var(--text-3)";
+            syncBtn.style.fontWeight = state.labWinSync ? "600" : "normal";
+            syncBtn.textContent = `🔗 同步${state.labWinSync ? "✓" : ""}`;
+            if (state.labWinSync) {
+              // 开启同步：chart 窗口立即跟随 sim 窗口
+              state.labChartWin = state.labSimWindow || "y5";
+              winBar.querySelectorAll(".lab-win-tab").forEach((b) => b.classList.toggle("active", b.dataset.cwin === state.labChartWin));
+              renderChart();
+            }
+          };
+        }
         // 窗口切换：局部刷新图表，不整页 reload
         winBar.querySelectorAll(".lab-win-tab").forEach((btn) => {
           btn.onclick = () => {
             state.labChartWin = btn.dataset.cwin;
             winBar.querySelectorAll(".lab-win-tab").forEach((b) => b.classList.toggle("active", b === btn));
             renderChart();
+            // 同步：同时切换模拟回测窗口
+            if (state.labWinSync) {
+              state.labSimWindow = btn.dataset.cwin;
+              if (state._labSimRerender) state._labSimRerender();
+            }
           };
         });
       }
@@ -1855,6 +1888,7 @@ async function renderLabDetail(key) {
       // 窗口切换后同步矩阵行高亮（矩阵与 sim 卡片在同一详情页）
       _labUpdateMatrixRowHighlight();
     };
+    state._labSimRerender = _rerenderSim;
     _rerenderSim();
     // 分阶段加载：stats 已渲染（配对卡片秒开），异步加载 full 数据后重渲染详情(trades/equity_curve)
     if (!_labSimFullLoaded(simIdxId)) {
@@ -2128,19 +2162,32 @@ async function _labRankEnsureFull(overlay, simData, idx) {
     if (pct < 0) { el.textContent = "⏳ 加载明细数据中…"; return; }
     el.innerHTML = `⏳ 加载明细数据中… ${pct}%<div class="lab-full-prog"><div style="width:${pct}%"></div></div>`;
   };
-  // 超时兜底：15s 后提示加载较慢
+  // 超时取消：15s 后 abort 请求并显示重试按钮
+  const controller = new AbortController();
+  let timedOut = false;
   const slowTimer = setTimeout(() => {
-    const el = overlay.querySelector(".lab-sim-full-loading");
-    if (el) el.textContent = "⏳ 加载较慢，请稍候…";
+    timedOut = true;
+    controller.abort();
   }, 15000);
   try {
     await fetchLabSimFullData(idx, (received, total) => {
       setProg(total > 0 ? Math.round(received / total * 100) : -1);
-    });
+    }, controller.signal);
   } finally {
     clearTimeout(slowTimer);
   }
-  if (state.labRankModal) _labRankModalRender(overlay, simData);
+  // 加载成功则重渲染弹窗；失败/超时则显示重试按钮
+  if (_labSimFullLoaded(idx)) {
+    if (state.labRankModal) _labRankModalRender(overlay, simData);
+  } else {
+    const el = overlay.querySelector(".lab-sim-full-loading");
+    if (el) {
+      el.innerHTML = `<span>${timedOut ? "⏳ 加载超时" : "⚠ 加载失败"}</span> ` +
+        `<button type="button" class="lab-full-retry" style="margin-left:8px;padding:3px 12px;border:1px solid var(--border-strong);border-radius:5px;background:var(--bg-card);color:var(--text-1);font-size:12px;cursor:pointer;">重试</button>`;
+      const retryBtn = el.querySelector(".lab-full-retry");
+      if (retryBtn) retryBtn.onclick = () => _labRankEnsureFull(overlay, simData, idx);
+    }
+  }
 }
 
 function _labRankCloseModal() {

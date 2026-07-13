@@ -7,7 +7,7 @@
 
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null };
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -801,7 +801,8 @@ function initRuleButton() {
     modal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
     const freqDiv = modal.querySelector('.rule-freq-stats');
-    if (freqDiv && !freqDiv.dataset.loaded) {
+    if (freqDiv) {
+      freqDiv.innerHTML = '<div class="hint-loading">加载中…</div>';
       fetchJSON("./data/signal_freq.json").then((freq) => {
         if (freq) {
           const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
@@ -814,7 +815,6 @@ function initRuleButton() {
           }
           html += '</div>';
           freqDiv.innerHTML = html;
-          freqDiv.dataset.loaded = "1";
         }
       }).catch(() => {});
     }
@@ -3169,6 +3169,7 @@ function updateRulesContentHtml() {
         '<tr><td>15:05</td><td>收盘快照</td><td>收盘后5分钟出当日涨跌幅+热点</td></tr>' +
         '<tr><td>17:50</td><td>收盘全量</td><td>baostock等T+1源出数据后全量采集</td></tr>' +
         '<tr><td>20:00</td><td>晚间兜底</td><td>补采晚出的申万等数据</td></tr>' +
+        '<tr><td>02:00</td><td>凌晨兜底</td><td>补采遗漏确保次日数据齐全</td></tr>' +
       '</tbody></table>' +
     '</div>' +
     '<div class="rule-section">' +
@@ -3187,7 +3188,7 @@ function updateRulesContentHtml() {
         '<li>实时快照源（腾讯/同花顺）秒级出当日 -> 这些数据是当天的</li>' +
         '<li>T+1 源（申万/baostock）收盘后次日才发布当日 -> 历史走势/部分情绪分可能停在 T-1</li>' +
         '<li>收盘后约 2 小时（17:50 update_all）T+1 源出数据后会补全</li>' +
-        '<li>晚 20:00 再兜底补一次</li>' +
+        '<li>晚 20:00 再兜底补一次，凌晨 02:00 也会兜底一次</li>' +
       '</ul>' +
     '</div>'
   );
