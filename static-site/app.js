@@ -283,7 +283,8 @@ function latestSuffix(data) {
 
 // series.name 去 HTML：latestSuffix 的 <span> 高亮只供卡片标题（HTML 容器），
 // 进 ECharts series.name 会被 tooltip 默认 formatter HTML 转义成字面量 <span>，故 tooltip 用纯文本
-function stripHtml(s) { return String(s == null ? "" : s).replace(/<span class="term-tip"[^>]*>[\s\S]*?<\/span>/g, "").replace(/<[^>]+>/g, ""); }
+// 最后 collapse 连续空格并 trim：termTip 返回的前导空格在剥离 span 后会残留，避免 legend 多空格
+function stripHtml(s) { return String(s == null ? "" : s).replace(/<span class="term-tip"[^>]*>[\s\S]*?<\/span>/g, "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(); }
 
 // A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip）
 function termTip(text) {

@@ -1156,17 +1156,14 @@ function _labLvl(val, thresholds) {
 }
 
 // 最大回撤配色：统一绿色渐变（浅绿=回撤小好，深绿=回撤大差），连续线性插值不分档
-// t = min(max_dd/50, 1)，背景 = lerp(#c8f7c5, #1b5e20, t)；文字色按背景亮度自动白/深绿保证可读
-// 返回完整 inline style（background+color+padding+radius），调用方直接 style="${_labDdColor(dd)}"
+// t = min(max_dd/50, 1)，文字色 = lerp(#c8f7c5, #1b5e20, t)，只改文字色不加背景/padding/radius
+// 返回 inline style 的 color 项，调用方直接 style="${_labDdColor(dd)}"
 function _labDdColor(dd) {
   var t = Math.min(Math.max((dd || 0) / 50, 0), 1);
   var r = Math.round(0xc8 + (0x1b - 0xc8) * t);
   var g = Math.round(0xf7 + (0x5e - 0xf7) * t);
   var b = Math.round(0xc5 + (0x20 - 0xc5) * t);
-  var lum = 0.299 * r + 0.587 * g + 0.114 * b;
-  var fg = lum > 150 ? "#1b5e20" : "#ffffff";
-  return "background:rgb(" + r + "," + g + "," + b + ");color:" + fg +
-         ";padding:1px 6px;border-radius:4px";
+  return "color:rgb(" + r + "," + g + "," + b + ");";
 }
 
 // 提取策略触发简述：优先取中文括号内内容，否则取逗号前
