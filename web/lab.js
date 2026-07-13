@@ -557,6 +557,82 @@ const LAB_STATUS_TAGS = {
   excluded: { label: "已排除", cls: "lab-tag-excluded" },
 };
 
+// === 融合信号注册表（多信号同日AND共振）===
+// 字段与 LAB_STRATEGIES 对齐，新增 conditions 数组（组成条件列表）
+const LAB_FUSION_STRATEGIES = {
+  // --- 生产参考区（2个，主项目提取） ---
+  F_D1_S1_MACD: {
+    name: "D1回落5%+MA60多头+MACD死叉 融合卖", side: "sell", zone: "prod", status: "live",
+    conditions: ["20日高回落5%", "MA60多头", "MACD死叉"],
+    trigger: "同日AND：close从20日最高价回落5% 且 close>MA60 且 DIF<DEA",
+    conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后凯利建议率18.3%→43.3%",
+    theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加MA60多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日AND，大幅降噪。",
+    scenario: "上升趋势中回落止盈/减仓；三条件共振过滤假信号。非做空指令。",
+    note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），凯利建议率18.3%→43.3%。已上线signal_daily。",
+    report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），凯利建议率从18.3%升至43.3%，信号质量显著提升。主项目生产卖点D1_high20_drop5的融合形态。",
+  },
+  F_D1_S1: {
+    name: "D1回落5%+MA60多头（豁免MACD） 融合卖", side: "sell", zone: "prod", status: "live",
+    conditions: ["20日高回落5%", "MA60多头"],
+    trigger: "同日AND：close从20日最高价回落5% 且 close>MA60（s.*情绪分序列豁免MACD，因加MACD后样本n=106→7不足）",
+    conclusion: "主项目s.*情绪分变体。对比F_D1_S1_MACD可看MACD过滤的增益",
+    theory: "D1回落5%+MA60多头双条件融合。豁免MACD条件，因s.*情绪分序列加MACD后样本从106降至7，不足统计。用于对比F_D1_S1_MACD可单独看MACD过滤的增益。",
+    scenario: "s.*情绪分变体的融合卖点；与F_D1_S1_MACD对比MACD过滤增益。",
+    note: "主项目s.*情绪分变体。加MACD后样本n=106→7不足，故豁免MACD。",
+    report: "回测：s.*情绪分变体的基础形态（不含MACD）。对比F_D1_S1_MACD可看MACD过滤的增益效果。",
+  },
+  // --- 候选买点区（3个） ---
+  F_B1_RSI40: {
+    name: "BB下轨回归+RSI上穿40 融合买", side: "buy", zone: "candidate_buy", status: "live",
+    conditions: ["BB下轨回归", "RSI上穿40"],
+    trigger: "同日AND：close从BB下轨下方回归上轨 且 RSI从≤40上穿>40",
+    conclusion: "主项目sw_801110家电/sw_801140轻工已配置。f -38.5%→+16.2%转正，胜率44.8%→54.5%，盈亏比0.66→1.19",
+    theory: "多信号融合买点。BB下轨回归捕捉超卖反弹拐点，叠加RSI上穿40确认动量转强。两条件同日AND，过滤单一BB下轨穿越的假信号。",
+    scenario: "超卖反弹+动量确认共振入场；震荡市/下跌市效果好。",
+    note: "主项目sw_801110家电/sw_801140轻工已配置。f -38.5%→+16.2%转正，胜率44.8%→54.5%，盈亏比0.66→1.19。",
+    report: "回测：加RSI上穿40后f从-38.5%转正至+16.2%，胜率44.8%→54.5%，盈亏比0.66→1.19。sw_801110家电/sw_801140轻工已配置。",
+  },
+  F_B1_rebound2pct: {
+    name: "BB下轨回归+反弹2% 融合买", side: "buy", zone: "candidate_buy", status: "live",
+    conditions: ["BB下轨回归", "反弹2%"],
+    trigger: "同日AND：close从BB下轨回归 且 close>下轨*1.02（过滤barely-crossed假信号/dead cat bounce）",
+    conclusion: "主项目sw_801030基础化工已配置。f -21%→+20%转正，5d/10d/20d三horizon一致，n=19<30样本警示",
+    theory: "多信号融合买点。BB下轨回归捕捉超卖反弹，叠加反弹2%过滤（close>下轨*1.02），过滤barely-crossed假信号和dead cat bounce。",
+    scenario: "超卖反弹确认入场；过滤假突破/死猫反弹。",
+    note: "主项目sw_801030基础化工已配置。f -21%→+20%转正，5d/10d/20d三horizon一致，n=19<30样本警示。",
+    report: "回测：加反弹2%过滤后f从-21%转正至+20%，5d/10d/20d三horizon一致。样本n=19<30偏小，需持续观察。",
+  },
+  F_C1_MACD_golden: {
+    name: "RSI上穿30+MACD金叉 融合买（实验性新组合）", side: "buy", zone: "candidate_buy", status: "experimental",
+    conditions: ["RSI上穿30", "MACD金叉"],
+    trigger: "同日AND：RSI从≤30上穿>30（超卖反弹） 且 DIF上穿DEA（动量确认）",
+    conclusion: "实验性新组合。超卖反弹+动量确认共振，待回测验证",
+    theory: "实验性新组合。RSI上穿30捕捉超卖反弹拐点，叠加MACD金叉确认动量转强。两条件同日AND共振。",
+    scenario: "超卖反弹+动量确认共振入场；实验性，待回测验证。",
+    note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
+    report: "实验性新组合，暂无回测数据。阶段二将验证超卖反弹+动量确认共振的有效性。",
+  },
+  // --- 候选卖点区（1个） ---
+  F_D1_MA_death: {
+    name: "D1回落5%+MA5/20死叉 融合卖（实验性新组合）", side: "sell", zone: "candidate_sell", status: "experimental",
+    conditions: ["20日高回落5%", "MA5/20死叉"],
+    trigger: "同日AND：close从20日最高价回落5% 且 MA5下穿MA20（均线死叉共振）",
+    conclusion: "实验性新组合。回落+均线死叉共振，待回测验证",
+    theory: "实验性新组合。20日高回落5%捕捉趋势转弱，叠加MA5/20死叉确认均线转弱。两条件同日AND共振。",
+    scenario: "趋势转弱+均线死叉共振减仓；实验性，待回测验证。",
+    note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
+    report: "实验性新组合，暂无回测数据。阶段二将验证回落+均线死叉共振的有效性。",
+  },
+};
+
+// 融合信号4分区定义（zone key 与 LAB_FUSION_STRATEGIES 的 zone 字段对齐）
+const LAB_FUSION_ZONES = [
+  { key: "candidate_buy", label: "🧪 候选买点", count: 3, desc: "融合候选买点（多信号共振入场）" },
+  { key: "candidate_sell", label: "🧪 候选卖点", count: 1, desc: "融合候选卖点（多信号共振出场）" },
+  { key: "excluded", label: "📋 已排除", count: 0, desc: "回测不达标已弃用的融合信号" },
+  { key: "prod", label: "✅ 生产参考", count: 2, desc: "已上线生产的融合信号" },
+];
+
 // 矩阵窗口/horizon 定义
 const LAB_WINDOWS = ["全史", "近10年", "近5年", "近3年", "近1年"];
 const LAB_HORIZONS = ["5d", "10d", "20d", "60d"];
@@ -1456,6 +1532,13 @@ function _labWarningEssayHTML(status) {
     `<p>有好的策略建议或测试想法，欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
 }
 
+// 融合信号实验自白黄块
+function _labFusionEssayHTML() {
+  return `<div class="lab-warning-head">⚠ 融合信号实验 · 多信号共振</div>` +
+    `<p>融合信号=多个单一信号同日AND触发，通过多条件共振过滤假信号、提升信号质量。本页展示从主项目提取的融合策略及实验性新组合。</p>` +
+    `<p>阶段一仅展示条件描述与说明，阶段二将开放回测数据/图表/推荐榜。欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
+}
+
 // 渲染策略详情页
 async function renderLabDetail(key) {
   const meta = LAB_STRATEGIES[key];
@@ -2193,14 +2276,110 @@ document.addEventListener("keydown", (e) => {
 });
 
 // 渲染策略实验室主入口（分区tab + 卡片列表 / 详情页）
+// === 二级导航（单一信号实验 / 融合信号实验）===
+function _renderLabSubNav() {
+  const isFusion = state.labSubMode === "fusion";
+  const subNav = document.createElement("div");
+  subNav.className = "lab-subnav";
+  subNav.innerHTML =
+    `<button type="button" class="lab-subnav-tab${!isFusion ? " active" : ""}" data-sub="single">单一信号实验</button>` +
+    `<button type="button" class="lab-subnav-tab${isFusion ? " active" : ""}" data-sub="fusion">融合信号实验</button>`;
+  subNav.querySelectorAll(".lab-subnav-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labSubMode = btn.dataset.sub;
+      state.labStrategy = null; // 切换模式时清空策略选择，避免串模式
+      renderSignalLab();
+    };
+  });
+  content.appendChild(subNav);
+}
+
+// === 融合信号列表页（阶段一：仅展示元数据，不跑回测）===
+async function renderFusionLab() {
+  // 实验室自白黄块
+  const essayWarn = document.createElement("div");
+  essayWarn.className = "lab-warning lab-warning-essay";
+  essayWarn.innerHTML = _labFusionEssayHTML();
+  content.appendChild(essayWarn);
+
+  // 分区 tab
+  const curZone = state.labFusionZone || "prod";
+  const zoneTabs = document.createElement("div");
+  zoneTabs.className = "lab-zone-tabs";
+  LAB_FUSION_ZONES.forEach((z) => {
+    const btn = document.createElement("button");
+    btn.className = "lab-zone-tab" + (curZone === z.key ? " active" : "");
+    btn.innerHTML = `${z.label} <span class="lab-zone-count">${z.count}</span>`;
+    btn.onclick = () => { state.labFusionZone = z.key; renderSignalLab(); };
+    zoneTabs.appendChild(btn);
+  });
+  content.appendChild(zoneTabs);
+
+  // 分区描述
+  const zMeta = LAB_FUSION_ZONES.find((z) => z.key === curZone) || LAB_FUSION_ZONES[0];
+  const zoneDesc = document.createElement("div");
+  zoneDesc.className = "lab-zone-desc";
+  zoneDesc.textContent = zMeta.desc;
+  content.appendChild(zoneDesc);
+
+  // 策略卡片列表
+  const list = document.createElement("div");
+  list.className = "lab-strategy-list";
+  const zoneStrategies = Object.entries(LAB_FUSION_STRATEGIES).filter(([k, v]) => v.zone === curZone);
+  if (zoneStrategies.length === 0) {
+    list.innerHTML = '<div class="lab-fusion-empty">暂无融合信号</div>';
+  } else {
+    zoneStrategies.forEach(([key, meta]) => {
+      const tag = LAB_STATUS_TAGS[meta.status] || LAB_STATUS_TAGS.dev;
+      const condsHTML = (meta.conditions && meta.conditions.length)
+        ? `<div class="lab-fusion-conditions"><span class="lab-fusion-cond-label">组成条件</span>` +
+          meta.conditions.map((c) => `<span class="lab-fusion-cond">${c}</span>`).join("") +
+          `</div>`
+        : "";
+      const card = document.createElement("div");
+      card.className = "lab-strategy-card lab-fusion-card";
+      card.innerHTML =
+        `<div class="lab-card-top">` +
+        `<span class="lab-card-name">${meta.name}</span>` +
+        `<span class="lab-tag ${tag.cls}">${tag.label}</span>` +
+        `</div>` +
+        condsHTML +
+        `<div class="lab-card-trigger">${meta.trigger}</div>` +
+        `<div class="lab-card-conclusion">${meta.conclusion}</div>`;
+      card.onclick = () => {
+        // 阶段一不进详情页，点击暂不响应（阶段二回测待开放）
+      };
+      list.appendChild(card);
+    });
+  }
+  content.appendChild(list);
+
+  // 阶段二提示
+  const phaseNote = document.createElement("div");
+  phaseNote.className = "lab-fusion-phase-note";
+  phaseNote.innerHTML = "📌 融合信号实验为<b>阶段一</b>（列表页展示条件与说明），<b>阶段二</b>将开放回测数据/图表/推荐榜。";
+  content.appendChild(phaseNote);
+}
+
 async function renderSignalLab() {
-  // 如果有选中的策略，进详情页
-  if (state.labStrategy) {
+  // 如果有选中的策略，进详情页（仅单一信号模式）
+  if (state.labStrategy && state.labSubMode !== "fusion") {
     await renderLabDetail(state.labStrategy);
     return;
   }
 
   content.innerHTML = "";
+
+  // === 二级导航（单一信号实验 / 融合信号实验）===
+  _renderLabSubNav();
+
+  // 融合信号模式 -> 渲染融合列表页（阶段一：仅元数据，不跑回测）
+  if (state.labSubMode === "fusion") {
+    await renderFusionLab();
+    _labSetHash("#lab");
+    _labRestoreScroll();
+    return;
+  }
 
   // 实验室自白黄块（列表页也显示，通用介绍 + 抖音号）
   const essayWarn = document.createElement("div");
