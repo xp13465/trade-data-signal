@@ -602,7 +602,7 @@ function _labPairWinData(pairData, mode, win, simData) {
 
 // 窗口切换 tabs HTML（默认近1年：全史太密）
 function _labWinTabsHTML() {
-  const cur = state.labSimWindow || "y1";
+  const cur = state.labSimWindow || "y5";
   return '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
     `<button type="button" class="lab-win-tab${w.k === cur ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
   ).join("") + "</div>";
@@ -1172,7 +1172,7 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
   const modeDesc = mode === "full_in"
     ? "每次全仓买入卖出，本金复利滚动，收益和风险都放大"
     : "每次固定买入1万元分批建仓，卖信号清仓，风险更分散";
-  const win = state.labSimWindow || "y1";
+  const win = state.labSimWindow || "y5";
 
   // 各 mode 独立的配对选择
   const pairStateKey = mode === "full_in" ? "labSimPairFi" : "labSimPairFk";
@@ -1282,7 +1282,7 @@ function _labSimCardHTML(key, simData) {
   const fkSection = _labSimSectionHTML("fixed_10k", simData, key, side, pairKeys, defaultPair, initCapital, pairSideLabel);
 
   // 窗口切换 tabs（默认近1年）
-  const winLabel = LAB_WIN_DEFS.find((w) => w.k === (state.labSimWindow || "y1"));
+  const winLabel = LAB_WIN_DEFS.find((w) => w.k === (state.labSimWindow || "y5"));
   const idxName = simData.index_name || "";
   return `<h3>💰 模拟回测（${idxName} · 配对交易）</h3>` +
     idxBarHTML +
@@ -1365,7 +1365,7 @@ function renderLabMatrix(strategyData) {
   LAB_WINDOWS.forEach((w) => {
     const wp = periods[w];
     // 高亮当前选中窗口行（窗口切换按钮联动矩阵）
-    const curWin = LAB_WIN_CN[state.labSimWindow || "y1"];
+    const curWin = LAB_WIN_CN[state.labSimWindow || "y5"];
     const rowHi = w === curWin ? " lab-matrix-row-active" : "";
     html += `<tr class="${rowHi.trim()}"><td class="lab-matrix-rowhead">${w}</td>`;
     LAB_HORIZONS.forEach((h) => {
@@ -1405,7 +1405,7 @@ function renderLabMatrix(strategyData) {
 
 // 窗口切换后同步矩阵当前行高亮（DOM 直接 toggle，无需重渲染矩阵）
 function _labUpdateMatrixRowHighlight() {
-  const curWin = LAB_WIN_CN[state.labSimWindow || "y1"];
+  const curWin = LAB_WIN_CN[state.labSimWindow || "y5"];
   document.querySelectorAll(".lab-matrix-table tbody tr").forEach((tr) => {
     const head = tr.querySelector(".lab-matrix-rowhead");
     tr.classList.toggle("lab-matrix-row-active", !!(head && head.textContent === curWin));
@@ -1786,7 +1786,7 @@ function _labRankItemHTML(row, rank, tab) {
 
 function _labRankHTML(simData) {
   if (!simData) return '<div class="lab-rank-empty">推荐榜数据加载失败，请稍后重试</div>';
-  const win = state.labSimWindow || "y1";
+  const win = state.labSimWindow || "y5";
   const rows = _labRankAggregate(simData, win);
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无推荐榜数据</div>';
   state.labRankRows = rows;
@@ -1889,7 +1889,7 @@ function _labRankCloseModal() {
 function _labRankModalRender(overlay, simData) {
   const m = state.labRankModal;
   if (!m) return;
-  const win = state.labSimWindow || "y1";
+  const win = state.labSimWindow || "y5";
   const pairData = _labGetPair(simData, m.buyKey, m.sellKey);
   const winData = _labPairWinData(pairData, m.mode, win, simData);
   const buyName = (LAB_STRATEGIES[m.buyKey] || {}).name || m.buyKey;
@@ -1937,7 +1937,7 @@ function _labSignalOpenModal(buyKey, sellKey) {
   state.labSignalModal = {
     buyKey, sellKey,
     index: state.labSimIdx || state.labIndex || "sh",
-    win: state.labSimWindow || "y1",
+    win: state.labSimWindow || "y5",
     charts: [],
   };
   _labSignalModalRender(overlay);
