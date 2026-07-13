@@ -1708,6 +1708,57 @@ const LAB_RANK_TABS = [
   { key: "risk_adj", label: "⚖ 风险调整" },
 ];
 
+// 排行榜过滤维度（4维 min/max，留空=该边界不限制）。字段单位：均为百分比数值(如36.26=36.26%)，n_trades 为整数次数。
+const LAB_RANK_FILTERS = [
+  { label: "收益(%)", minKey: "retMin", maxKey: "retMax", field: "total_ret" },
+  { label: "胜率(%)", minKey: "winMin", maxKey: "winMax", field: "win_rate" },
+  { label: "回撤(%)", minKey: "ddMin", maxKey: "ddMax", field: "max_drawdown" },
+  { label: "样本数", minKey: "nMin", maxKey: "nMax", field: "n_trades" },
+];
+const _LAB_FSTYLE = {
+  panel: "display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;background:#f7f8fa;border-radius:8px;margin-bottom:8px;",
+  lbl: "font-size:12px;color:#4e5969;white-space:nowrap;display:flex;align-items:center;gap:3px;",
+  input: "width:54px;padding:4px 5px;border:1px solid #e5e6eb;border-radius:5px;font-size:12px;text-align:center;background:#fff;-webkit-appearance:none;appearance:none;-moz-appearance:textfield;",
+  dash: "color:#c9cdd4;font-size:11px;",
+  reset: "padding:4px 12px;border:1px solid #d9dce3;border-radius:6px;background:#fff;color:#646a73;font-size:12px;cursor:pointer;margin-left:auto;transition:background .15s;",
+};
+
+function _labRankDefaultFilter() {
+  return { retMin: "", retMax: "", winMin: "", winMax: "", ddMin: "", ddMax: "", nMin: "", nMax: "" };
+}
+
+// 过滤：AND 组合，min/max 闭区间(>=min 且 <=max)。作用于当前窗口统计值（rows 已按 state.labSimWindow 聚合）。
+function _labRankApplyFilter(rows) {
+  const f = state.labRankFilter;
+  if (!f) return rows;
+  const has = LAB_RANK_FILTERS.some((d) => f[d.minKey] !== "" || f[d.maxKey] !== "");
+  if (!has) return rows; // 过滤为空时行为与原版完全一致
+  return rows.filter((r) => {
+    for (const d of LAB_RANK_FILTERS) {
+      const mn = f[d.minKey], mx = f[d.maxKey];
+      if (mn !== "" && mn != null && r[d.field] < +mn) return false;
+      if (mx !== "" && mx != null && r[d.field] > +mx) return false;
+    }
+    return true;
+  });
+}
+
+// 过滤面板 HTML（输入框值绑 state.labRankFilter）。实时过滤只刷新结果区、不重建本面板，保留输入焦点。
+function _labRankFilterHTML() {
+  if (!state.labRankFilter) state.labRankFilter = _labRankDefaultFilter();
+  const f = state.labRankFilter;
+  const items = LAB_RANK_FILTERS.map((d) =>
+    `<label style="${_LAB_FSTYLE.lbl}">${d.label}` +
+    `<input type="number" class="lab-rank-finput" data-fk="${d.minKey}" placeholder="最小" value="${f[d.minKey] != null ? f[d.minKey] : ""}" style="${_LAB_FSTYLE.input}">` +
+    `<span style="${_LAB_FSTYLE.dash}">~</span>` +
+    `<input type="number" class="lab-rank-finput" data-fk="${d.maxKey}" placeholder="最大" value="${f[d.maxKey] != null ? f[d.maxKey] : ""}" style="${_LAB_FSTYLE.input}">` +
+    `</label>`
+  ).join("");
+  return `<div class="lab-rank-filter" style="${_LAB_FSTYLE.panel}">` +
+    `<span style="font-size:12px;color:#9c27b0;font-weight:600;white-space:nowrap;">🔍 过滤</span>` + items +
+    `<button type="button" class="lab-rank-freset" style="${_LAB_FSTYLE.reset}">重置</button></div>`;
+}
+
 // 聚合128组配对 + 算综合评分与风险调整
 // 新结构：simData.pairs 按 "buyKey|sellKey" 去重存储（配对只存一份），直接遍历即得 8买×8卖×2模式=128 组
 function _labRankAggregate(simData, win) {
@@ -1791,16 +1842,9 @@ function _labRankHTML(simData) {
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无推荐榜数据</div>';
   state.labRankRows = rows;
   const tab = state.labRankTab || "composite";
-  const sorted = _labRankSort(rows, tab);
-  const showAll = !!state.labRankShowAll;
-  const shown = showAll ? sorted : sorted.slice(0, 20);
   const tabsHTML = LAB_RANK_TABS.map((t) =>
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
-  const itemsHTML = shown.map((r, i) => _labRankItemHTML(r, i + 1, tab)).join("");
-  const moreBtn = sorted.length > 20
-    ? `<button type="button" class="lab-rank-more">${showAll ? "收起 ▲" : `显示全部 ${sorted.length} 组 ▼`}</button>`
-    : "";
   const legend = tab === "composite"
     ? "综合评分 = 收益率(40%) + 胜率(30%) + 回撤倒数(20%) + 样本量(10%)，各项 min-max 归一化到[0,1]后加权再×100，越高越好。"
     : tab === "risk_adj"
@@ -1813,7 +1857,26 @@ function _labRankHTML(simData) {
   return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}</div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。</div>` +
-    `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
+    _labRankFilterHTML() +
+    `<div class="lab-rank-results">${_labRankResultsHTML()}</div>`;
+}
+
+// 结果区(数量提示+列表+更多按钮)：聚合后用 state.labRankRows，过滤->排序->分页。过滤输入时只刷新本区，不重建过滤面板(保焦点)。
+function _labRankResultsHTML() {
+  const rows = state.labRankRows || [];
+  const tab = state.labRankTab || "composite";
+  const filtered = _labRankApplyFilter(rows);
+  const sorted = _labRankSort(filtered, tab);
+  const showAll = !!state.labRankShowAll;
+  const shown = showAll ? sorted : sorted.slice(0, 20);
+  const countHTML = `<div style="font-size:12px;color:#86909c;margin-bottom:6px;">符合 <b style="color:#9c27b0;">${filtered.length}</b> / 共 ${rows.length} 个配对</div>`;
+  const itemsHTML = shown.length > 0
+    ? shown.map((r, i) => _labRankItemHTML(r, i + 1, tab)).join("")
+    : '<div class="lab-rank-empty">当前过滤条件下无匹配配对</div>';
+  const moreBtn = sorted.length > 20
+    ? `<button type="button" class="lab-rank-more">${showAll ? "收起 ▲" : `显示全部 ${sorted.length} 组 ▼`}</button>`
+    : "";
+  return countHTML + `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
 }
 
 function _labRankAttachHandlers(section, simData) {
@@ -1824,11 +1887,40 @@ function _labRankAttachHandlers(section, simData) {
   section.querySelectorAll(".lab-rank-tab").forEach((btn) => {
     btn.onclick = () => { state.labRankTab = btn.dataset.tab; state.labRankShowAll = false; _labRankRerender(section, simData); };
   });
+  // 过滤输入：实时过滤（只刷新结果区，保留输入焦点不重建面板）
+  section.querySelectorAll(".lab-rank-finput").forEach((inp) => {
+    inp.addEventListener("input", () => {
+      if (!state.labRankFilter) state.labRankFilter = _labRankDefaultFilter();
+      state.labRankFilter[inp.dataset.fk] = inp.value;
+      state.labRankShowAll = false;
+      _labRankRerenderResults(section, simData);
+    });
+  });
+  const reset = section.querySelector(".lab-rank-freset");
+  if (reset) reset.onclick = () => {
+    state.labRankFilter = _labRankDefaultFilter();
+    state.labRankShowAll = false;
+    _labRankRerender(section, simData); // 重置需重建面板清空输入框
+  };
+  // 列表项 + 更多按钮（结果区内部）
+  _labRankAttachResultsHandlers(section, simData);
+}
+
+// 结果区事件绑定（列表项点击+更多按钮）。全量重渲染和仅结果重渲染都调用本函数。
+function _labRankAttachResultsHandlers(section, simData) {
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
     item.onclick = () => _labRankOpenModal(simData, item.dataset.buy, item.dataset.sell, item.dataset.mode);
   });
   const more = section.querySelector(".lab-rank-more");
-  if (more) more.onclick = () => { state.labRankShowAll = !state.labRankShowAll; _labRankRerender(section, simData); };
+  if (more) more.onclick = () => { state.labRankShowAll = !state.labRankShowAll; _labRankRerenderResults(section, simData); };
+}
+
+// 仅刷新结果区(过滤输入/更多按钮)：不重建过滤面板，输入焦点不丢失
+function _labRankRerenderResults(section, simData) {
+  const res = section.querySelector(".lab-rank-results");
+  if (!res) return;
+  res.innerHTML = _labRankResultsHTML();
+  _labRankAttachResultsHandlers(section, simData);
 }
 
 function _labRankRerender(section, simData) {
