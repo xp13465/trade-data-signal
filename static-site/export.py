@@ -479,24 +479,13 @@ def export_position():
 
 
 def export_signal_freq():
-    """复刻 /api/signal_freq：全局信号频率统计。"""
-    from datetime import datetime
-    all_stats = sigstats.load()
-    freq = {"buy": {"year": 0, "total": 0}, "buy_aux": {"year": 0, "total": 0}, "sell": {"year": 0, "total": 0}}
-    cur_month = datetime.now().month
-    for iid, sigs in all_stats.items():
-        if iid.startswith("_"):
-            continue
-        for sig in ("buy", "buy_aux", "sell"):
-            s = sigs.get(sig, {})
-            f = s.get("frequency")
-            if f:
-                freq[sig]["year"] += f.get("year_count", 0)
-                freq[sig]["total"] += f.get("total_count", 0)
-    for sig in freq:
-        y = freq[sig]["year"]
-        freq[sig]["monthly_avg"] = round(y / max(cur_month, 1), 2)
-    return freq
+    """复刻 /api/signal_freq：全局信号频率统计。
+
+    委托 signal_stats.compute_global_freq()，与动态版 /api/signal_freq 字段完全一致
+    （含 year/year_count、total/total_count 两套字段，X6 兼容期；月均按今年实际有
+    信号的有效月份数计算，S2 修复）。
+    """
+    return sigstats.compute_global_freq()
 
 
 def export_summary():

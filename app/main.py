@@ -934,24 +934,13 @@ def summary_history(offset: int = 0, limit: int = 15):
 
 @app.get("/api/signal_freq")
 def signal_freq():
-    """全局信号频率统计：汇总所有品种 buy/buy_aux/sell 的今年次数/总计/月均。"""
-    from datetime import datetime
-    all_stats = sigstats.load()
-    freq = {"buy": {"year": 0, "total": 0}, "buy_aux": {"year": 0, "total": 0}, "sell": {"year": 0, "total": 0}}
-    cur_month = datetime.now().month  # 用于计算月均
-    for iid, sigs in all_stats.items():
-        if iid.startswith("_"):
-            continue
-        for sig in ("buy", "buy_aux", "sell"):
-            s = sigs.get(sig, {})
-            f = s.get("frequency")
-            if f:
-                freq[sig]["year"] += f.get("year_count", 0)
-                freq[sig]["total"] += f.get("total_count", 0)
-    for sig in freq:
-        y = freq[sig]["year"]
-        freq[sig]["monthly_avg"] = round(y / max(cur_month, 1), 2)
-    return freq
+    """全局信号频率统计：汇总所有品种 buy/buy_aux/sell 的今年次数/总计/月均。
+
+    委托 signal_stats.compute_global_freq()，月均按今年实际有信号的有效月份数计算
+    （S2 修复，避免 1 月查看时 year/1 虚高）；同时返回 year/year_count、
+    total/total_count 两套字段（X6 兼容期），前端可任选其一读取。
+    """
+    return sigstats.compute_global_freq()
 
 
 @app.get("/api/rotation")
