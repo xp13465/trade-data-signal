@@ -256,7 +256,6 @@ def verify_and_backfill_indices(date, verbose=True):
         ).fetchone()
         if r is None or r["close"] is None:
             sw_missing.append(sw_id)
-    conn.close()
 
     if not sw_missing:
         if verbose:
@@ -290,6 +289,73 @@ def verify_and_backfill_indices(date, verbose=True):
                 if verbose:
                     print(f"    - {sw_id} 申万源故障/同花顺当日未发布，下次定时任务再补")
 
+    # ── 3. 港股+全球指数校验补采 ──────────────────────────────────────────
+    # 港股(hsi/hstech/hscei)走新浪全量源 stock_hk_index_daily_sina,16:00收盘后出当日。
+    # 美股(us_dji/us_ixic/us_spx/us_ndx)走 index_us_stock_sina,北京时差晚21:30+才开盘,
+    # A股交易日时美股最新通常是T-1或T-2(跨周末),不强求当日,校验"最新日期>=5天内"即可。
+    # 根因: backfill 之前只管A股核心9+申万31,港股美股漏采(17:50没跑就卡T-1)。
+    HK_GLOBAL_INDICES = [
+        ("hsi", "hsi", True),      # (id, symbol, require_today)
+        ("hstech", "HSTECH", True),
+        ("hscei", "HSCEI", True),
+        ("us_dji", ".DJI", False),
+        ("us_ixic", ".IXIC", False),
+        ("us_spx", ".INX", False),
+        ("us_ndx", ".NDX", False),
+    ]
+    from . import fetchers as _fetchers_mod
+    from datetime import datetime as _dt, timedelta as _td
+    cfg = _fetchers_mod.load_config()
+    idx_cfg_map = {i["id"]: i for i in cfg.get("indices", []) if i.get("enabled", True)}
+    for idx_id, _sym, require_today in HK_GLOBAL_INDICES:
+        idx_cfg = idx_cfg_map.get(idx_id)
+        if idx_cfg is None:
+            continue
+        r = conn.execute(
+            "SELECT date, close FROM index_daily WHERE index_id=? ORDER BY date DESC LIMIT 1",
+            (idx_id,)
+        ).fetchone()
+        need_backfill = False
+        if r is None or r["close"] is None:
+            need_backfill = True
+        elif require_today:
+            if r["date"] != date:
+                need_backfill = True
+        else:
+            # 美股: 最新日期距今 >5 天才算漏(覆盖跨周末+节假日)
+            try:
+                last_d = _dt.strptime(r["date"], "%Y%m%d").date()
+                today_d = _dt.strptime(date, "%Y%m%d").date()
+                if (today_d - last_d).days > 5:
+                    need_backfill = True
+            except (ValueError, TypeError):
+                need_backfill = True
+        if not need_backfill:
+            continue
+        # 新浪全量拉取 UPSERT(collect_index 拉全量,有当日就入没就跳)
+        rows, msg = _fetchers_mod.collect_index(idx_cfg, "20200101", date)
+        if rows:
+            upsert_index_rows(rows)
+            # 取最新行确认
+            latest = conn.execute(
+                "SELECT date, close FROM index_daily WHERE index_id=? ORDER BY date DESC LIMIT 1",
+                (idx_id,)
+            ).fetchone()
+            ok += 1
+            details.append((idx_id, "ok", f"backfill 新浪 close={latest['close']} date={latest['date']}"))
+            if verbose:
+                print(f"    ✓ {idx_id} <- 新浪 close={latest['close']} date={latest['date']}")
+        else:
+            fail += 1
+            details.append((idx_id, "fail", f"新浪源空: {msg}"))
+            if verbose:
+                print(f"    ✗ {idx_id} 新浪源空({msg})")
+
+    # 港股美股校验汇总(已齐全的不打印上面跳过了,这里给个汇总行)
+    if verbose:
+        print(f"  [校验] 港股+全球指数({len(HK_GLOBAL_INDICES)}个) 最新日期检查完成")
+
+    conn.close()
     return ok, fail, details
 
 
