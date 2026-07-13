@@ -102,25 +102,50 @@ def _tencent_fetch(tx_symbol, idx_id, date):
 
 
 def _sw_trend_fetch(sw_id, date):
-    """申万官方 trend API 补采 sw_* 指数。
+    """申万官方 trend API 补采 sw_* 指数（含 SSL/网络错误重试）。
 
     swsresearch.com 的 trend API 返全量历史（无 beg/end 参数），取最新行。
     若最新行 == date 则补采成功；若 < date 说明源 T+1 延迟尚未发布当日数据。
 
+    2026-07 实测 SSLEOFError（疑似服务端临时故障）：加 3 次指数退避重试
+    (1s/2s/4s)。持续失败不崩，只 warn 日志跳过该行业，不影响其他行业采集，
+    等下次定时任务再补。
+
     返回 [(date, idx_id, open, high, low, close, pct, amount)] 或 []。
     """
     import requests
+    import time as _time
     # base.py 已 monkey-patch DNS，但这里用独立 session 避免影响
     symbol = sw_id.replace("sw_", "")
     url = "https://www.swsresearch.com/institute-sw/api/index_publish/trend/"
-    try:
-        r = requests.get(url, params={"swindexcode": symbol, "period": "DAY"},
-                         headers={"User-Agent": "Mozilla/5.0"}, verify=False, timeout=15)
-        data = r.json().get("data", []) or []
-    except Exception:
+
+    # SSL/网络错误重试：1 初始 + 3 重试，指数退避 1s/2s/4s
+    _RETRYABLE = ("SSL", "Connection", "Timeout", "Remote", "Protocol", "EOF")
+    data = None
+    last_err = None
+    for attempt in range(4):
+        try:
+            r = requests.get(url, params={"swindexcode": symbol, "period": "DAY"},
+                             headers={"User-Agent": "Mozilla/5.0"}, verify=False, timeout=15)
+            data = r.json().get("data", []) or []
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            ename = type(e).__name__ + " " + str(e)
+            if any(k in ename for k in _RETRYABLE) and attempt < 3:
+                _time.sleep(2 ** attempt)  # 1s / 2s / 4s
+                continue
+            break  # 非网络错误（如 JSON 解析失败）不重试
+
+    if last_err is not None:
+        log_collect(date, sw_id, "warn",
+                    f"申万trend网络故障({type(last_err).__name__}),跳过等下次定时补")
         return []
 
     if not data:
+        log_collect(date, sw_id, "warn",
+                    "申万trend返回空data(服务端持续故障?)")
         return []
 
     # trend API 返全量（升序），取最后一行（最新交易日）
