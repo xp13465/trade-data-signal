@@ -35,7 +35,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 🔄 排队任务（本轮新增，待做）
 - **[排队-1] iframe 模拟回测弹窗跟随主题** ✅ 已完成（commit 7485005，URL hash+postMessage 双保险）。
 - **[排队-2] ECharts canvas 线色跟随主题** ✅ 部分完成（commit 2cb2aab，轴线/网格/tooltip/布林轨道改读 CSS 变量）。**补漏已完成**（commit 581f40d）：卡片标注 `.chart-latest` 改反转实心徽章（color:var(--bg-card) + background:var(--primary)），解决红金主题下金色字与标题浅金撞色看不清（字色 vs 标题对比 1.36:1 -> 10:1，各皮肤字底对比 >4.3:1）；`.periods button` 未选中态显式加 color:var(--text-2)（解决 button UA 默认色不继承导致深底看不清，各皮肤对比 >7:1）。双版同步 + bump 版本号。
-- **[排队-3] Vol_breakout 图表**：策略实验室补图（策略实验室缺该策略的图表，复用 computeBBLab 模式）。
+- **[排队-3] Vol_breakout 图表** ✅ 已完成（commit 81b10ed，成交额代理成交量，量比副图 osc 轴+阈值 2.0 线+信号标注，复用 renderLabChartEx 模式）。
 - **[排队-4] P2 剩 L1**：买卖信号弹窗下全历史（lab.js 专项，评估报告 P2 级遗留）。
 - **[排队-5] P3 剩余 11 条**：评估报告 P3 级遗留项。清单见 `EVAL_REPORT_2026-07-13.md`，已确认 11 条（O3 分享图重复请求/M2 renderGlobal null守卫/S2 月均年初虚高/I2 概念无搜索/I3 锚点无scrollspy/L2 实验图表窗口不联动/L3 规则弹窗频率缓存不刷新/L4 推荐榜超时只提示不取消/X2 _headers漏qr.js/X3 版本号用mtime非hash/X6 信号频率字段双轨）。
 
@@ -60,7 +60,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 新建 `app/collector/etf_national_team.py`：4 fetcher（SSE/SZSE份额 + mootdx OHLC + 东财持有人直爬）+ 信号算法（z-score+放量+季度校准）+ export。独立库 `data/etf_national_team.db`（3表）。回填 2023至今 852交易日×12只=10224行，881条信号。**2023汇金增持期验证通过**：10/23 汇金宣布增持当天 510300/510310 触发 share_surge（z=4.62/7.47），510050 机构占比 65.84%->91.46% 增持轨迹清晰。API `/api/etf-national-team` + static-site JSON 双版。详见 REQUIREMENTS.md §8.6 + NOTES.md §14。**前端（大盘二级菜单展示）是另一批 agent 做，不碰**。
 
 ### 下轮起点
-排队-1/2 已完成。下一步：性能 P0（部署层，待用户确认服务器可改性）/ 性能 P1 前端可改项（P1-1/P1-2 等 A 皮肤适配完成后串行做，都改 app.js/lab.js）/ 排队-3 Vol_breakout / 排队-4 P2-L1 / 排队-5 P3-11条。开工先读本节。
+排队-1/2/3 已完成。下一步：性能 P0（部署层，待用户确认服务器可改性）/ 性能 P1 前端可改项（P1-1/P1-2 等 A 皮肤适配完成后串行做，都改 app.js/lab.js）/ 排队-4 P2-L1 / 排队-5 P3-11条。开工先读本节。
 
 ## 交接状态（2026-07-11 续4，模拟回测升级-穷尽配对+双模式+分页）
 
