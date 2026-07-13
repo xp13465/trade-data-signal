@@ -1010,6 +1010,21 @@ def rotation():
     }
 
 
+@app.get("/api/intraday_snapshot")
+def intraday_snapshot():
+    """盘中实时快照：9 指数实时行情 + 31 行业实时涨跌幅。
+
+    数据源：腾讯实时（指数）+ 同花顺行业 summary（聚合申万一级）。
+    盘中采集更新最新一行；无数据时返回空结构。
+    """
+    from .collector.intraday_snapshot import load_latest_snapshot
+    snap = load_latest_snapshot()
+    if snap is None:
+        return {"collected_at": None, "is_closed": True, "label": "暂无快照",
+                "indices": [], "industries": []}
+    return snap
+
+
 @app.get("/api/index/{index_id}")
 def index_detail(index_id: str, range: str = Depends(range_dep)):
     if index_id not in _valid_index_ids():

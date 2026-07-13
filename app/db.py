@@ -123,6 +123,16 @@ CREATE TABLE IF NOT EXISTS futures_accuracy (
   actual_return REAL,
   PRIMARY KEY (date, variety, role, index_id, window)
 );
+
+-- 盘中实时快照：单行覆盖（id=1 CHECK 强制只保留最新一行）。
+-- indices/industries 存 JSON 字符串。每次采集 UPSERT 覆盖，体现"最新快照"语义。
+CREATE TABLE IF NOT EXISTS intraday_snapshot (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  collected_at TEXT NOT NULL,
+  is_closed INTEGER NOT NULL,
+  indices TEXT NOT NULL,
+  industries TEXT NOT NULL
+);
 """
 
 

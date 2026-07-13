@@ -84,6 +84,13 @@ bash "$REPO/scripts/check_signals.sh" 2>&1 | tee -a "$LOG"
 SIGNAL_RC=${PIPESTATUS[0]}
 [ "$SIGNAL_RC" -ne 0 ] && echo "⚠ check_signals 退出码 $SIGNAL_RC（邮件失败或配置缺失，不影响公网部署）" | tee -a "$LOG"
 
+# 盘中实时快照：update_all 末尾顺便刷新（写 DB + dump static-site/data/intraday_snapshot.json）
+# 盘中跑会采实时行情；收盘后/非交易日也跑（采最近交易日值，label 自动判"收盘快照"）。
+# 不额外 git push（static JSON 本地更新，下次 deploy 自动推送；web/ 走 /api/ 实时读 DB）。
+echo "-> intraday_snapshot 采集 ..." | tee -a "$LOG"
+"$PY" -m app.collector.intraday_snapshot >> "$LOG" 2>&1 || \
+  echo "⚠ intraday_snapshot 采集失败（不阻塞主流程）" | tee -a "$LOG"
+
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES check_signals=$SIGNAL_RC" | tee -a "$LOG"
 

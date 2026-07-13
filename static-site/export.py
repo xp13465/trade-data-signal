@@ -964,6 +964,20 @@ def export_ma_alignment(conn):
     return {"data": data}
 
 
+def export_intraday_snapshot():
+    """复刻 /api/intraday_snapshot：从 DB 读最新盘中实时快照。
+
+    与 API 返回结构一致：{collected_at, is_closed, label, indices, industries}。
+    DB 无数据时返回空结构（label="暂无快照"），保证双版一致。
+    """
+    from app.collector.intraday_snapshot import load_latest_snapshot
+    snap = load_latest_snapshot()
+    if snap is None:
+        return {"collected_at": None, "is_closed": True, "label": "暂无快照",
+                "indices": [], "industries": []}
+    return snap
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -1065,6 +1079,11 @@ def main():
     # 7.12. ma_alignment
     counts["ma_alignment.json"] = write_json(DATA_DIR / "ma_alignment.json", export_ma_alignment(conn))
     print(f"  ma_alignment.json ({counts['ma_alignment.json']} bytes)")
+
+    # 7.13. intraday_snapshot（盘中实时快照，从 DB 读最新行）
+    counts["intraday_snapshot.json"] = write_json(
+        DATA_DIR / "intraday_snapshot.json", export_intraday_snapshot())
+    print(f"  intraday_snapshot.json ({counts['intraday_snapshot.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]
