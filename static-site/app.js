@@ -82,7 +82,7 @@ function mkCard(title, height = 300, hint = null, container = content, chartArr 
 // 通用折线：series = [{name, data:[{date,value}]}] 或单条 [{date,value}]
 function lineChart(title, series, opts = {}, hint = null, container = content) {
   const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
-  const arr = multi ? series : [{ name: title, data: series }];
+  const arr = multi ? series : [{ name: stripHtml(title), data: series }];
   const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
   const c = mkCard(title, 300, hint, container);
   c.setOption({
@@ -281,6 +281,10 @@ function latestSuffix(data) {
   return `<span class="chart-latest"> · ${fmtDate(last.date)} ${last.value.toFixed(2)}</span>`;
 }
 
+// series.name 去 HTML：latestSuffix 的 <span> 高亮只供卡片标题（HTML 容器），
+// 进 ECharts series.name 会被 tooltip 默认 formatter HTML 转义成字面量 <span>，故 tooltip 用纯文本
+function stripHtml(s) { return String(s == null ? "" : s).replace(/<[^>]+>/g, ""); }
+
 // 最新值紧凑格式：万级缩写、整数直出、其余按量级保留1-2位小数（标题后缀用，简洁为主）
 function fmtLatestVal(v) {
   if (v == null || isNaN(v)) return "-";
@@ -440,7 +444,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
     series: [
       {
-        name: title,
+        name: stripHtml(title),
         type: "line",
         smooth: true,
         symbol: "none",
@@ -482,7 +486,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
     yAxis: { type: "value", scale: true },
     dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
     series: [{
-      name: title,
+      name: stripHtml(title),
       type: "line",
       smooth: true,
       symbol: "none",
