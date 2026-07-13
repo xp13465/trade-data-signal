@@ -22,7 +22,7 @@ from .db import get_conn
 app = FastAPI(title="情绪数据复盘看板")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365}
+RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
 VALID_RANGES = set(RANGES) | {"all"}
 _DATE_RE = re.compile(r"^\d{8}$")
 

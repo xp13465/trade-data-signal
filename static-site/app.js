@@ -492,7 +492,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
       markPoint: {
         symbol: "pin",
         symbolSize: 34,
-        label: { fontSize: 11, color: "#fff" },
+        label: { fontSize: 11, color: "#fff", hideOverlap: true },
         data: markData,
       },
     }],
@@ -776,9 +776,10 @@ function _signalChartModalEl() {
     btn.addEventListener('click', (e) => {
       modal.querySelectorAll('.lab-signal-period-btn').forEach(b => b.classList.remove('active'));
       e.target.classList.add('active');
-      // 重新加载数据
+      // 重新加载数据（上下文存于 modal._ctx，由 openSignalChartModal 写入）
       const period = e.target.dataset.period;
-      openSignalChartModal(indexId, signal, date, freezeVal, period);
+      const ctx = modal._ctx || {};
+      openSignalChartModal(ctx.indexId, ctx.signal, ctx.date, ctx.freezeVal, period);
     });
   });
   document.body.appendChild(modal);
@@ -811,6 +812,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   titleEl.textContent = `${name} · ${sigLabel} · ${fmtDate(date)}`;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
+  modal._ctx = { indexId, signal, date, freezeVal };
   try {
     let chartData, sigs, stats, strategy, isValue = false;
     // 根据period参数确定过滤日期
@@ -852,6 +854,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       if (filterDate) {
         chartData = chartData.filter(d => d.date >= filterDate);
       }
+      isValue = true;
     } else {
       const r = await fetchJSON(`./data/index/${indexId}-all.json`);
       chartData = r.ohlc || [];
