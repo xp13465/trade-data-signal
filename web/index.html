@@ -41,8 +41,12 @@ var _hmt = _hmt || [];
 (function(){
   try {
     var t = localStorage.getItem('trade-theme');
+    // 首次访问（null）默认红金中国风
+    if (t === null) t = 'redgold';
     if (t) document.documentElement.setAttribute('data-theme', t);
-  } catch(e){}
+  } catch(e){
+    document.documentElement.setAttribute('data-theme', 'redgold');
+  }
 })();
 </script>
 </head>
@@ -120,7 +124,7 @@ var _hmt = _hmt || [];
   </nav>
 
   <script src="/static/qr.js?v=6a51946c"></script>
-  <script src="/static/app.js?v=6a54abb5"></script>
+  <script src="/static/app.js?v=6a54b413"></script>
   <script src="/static/lab.js?v=6a549969"></script>
 </body>
 </html>

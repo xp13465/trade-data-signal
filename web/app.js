@@ -2836,9 +2836,9 @@ function initShareButton() {
 // === 配色皮肤切换 ===
 function initThemeSwitcher() {
   var THEMES = [
-    { id: "", name: "浅色", desc: "字节蓝（默认）", swatch: ["#f5f6f8", "#fff", "#165dff"] },
+    { id: "", name: "浅色", desc: "字节蓝", swatch: ["#f5f6f8", "#fff", "#165dff"] },
     { id: "dark", name: "深色专业", desc: "金融终端风", swatch: ["#0d1117", "#161b22", "#58a6ff"] },
-    { id: "redgold", name: "红金中国", desc: "琥珀金主色", swatch: ["#1a1d29", "#252836", "#f0b90b"] },
+    { id: "redgold", name: "红金中国", desc: "琥珀金主色（默认）", swatch: ["#1a1d29", "#252836", "#f0b90b"] },
     { id: "morandi", name: "莫兰迪", desc: "低饱和柔和", swatch: ["#f5f1ec", "#fffaf3", "#6b7c93"] }
   ];
   var modal = document.createElement("div");
@@ -2864,13 +2864,18 @@ function initThemeSwitcher() {
     '</div>';
   document.body.appendChild(modal);
 
+  var DEFAULT_THEME = "redgold";
   function currentTheme() {
-    try { return localStorage.getItem("trade-theme") || ""; } catch (e) { return ""; }
+    try {
+      var v = localStorage.getItem("trade-theme");
+      return v === null ? DEFAULT_THEME : v;
+    } catch (e) { return DEFAULT_THEME; }
   }
   function applyTheme(t) {
+    // t="" 表示浅色（无 data-theme 即浅色），显式存空串区分"用户选了浅色"与"没选过"
     if (t) document.documentElement.setAttribute("data-theme", t);
     else document.documentElement.removeAttribute("data-theme");
-    try { localStorage.setItem("trade-theme", t); } catch (e) {}
+    try { localStorage.setItem("trade-theme", t === "" ? "" : (t || DEFAULT_THEME)); } catch (e) {}
   }
   function renderActive() {
     var cur = currentTheme();
