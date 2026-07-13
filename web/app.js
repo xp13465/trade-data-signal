@@ -942,7 +942,22 @@ async function renderOverview() {
     });
   }
   for (const m of r.today.metrics || []) {
-    if (isStaleMetric(m.date, r.date)) continue;  // 停更指标隐藏（如北向资金 2024-08 起停更），恢复更新后自动显示
+    if (isStaleMetric(m.date, r.date)) {
+      // 北向资金特殊处理：停更后显示占位提示（与大盘tab显示空图+hint一致），其他停更指标仍隐藏
+      if (m.id === "a_fund_north") {
+        const stopMonth = (m.date && m.date.length >= 6) ? m.date.slice(0, 4) + "-" + m.date.slice(4, 6) : "";
+        kpiCards.push({
+          id: m.id,
+          title: m.name,
+          value: "-",
+          valueNum: null,
+          sub: "",
+          date: stopMonth ? `停更于 ${stopMonth}` : "已停更",
+          tag: "已停更",
+        });
+      }
+      continue;  // 其他停更指标保持隐藏，恢复更新后自动显示
+    }
     kpiCards.push({
       id: m.id,
       title: m.name,
@@ -1501,7 +1516,11 @@ async function renderGlobal(container = content) {
 }
 
 async function renderSentiment() {
-  const r = await fetchJSON(`/api/sentiment?range=${state.range}`);
+  // 期货数据与情绪数据无依赖，用 Promise.all 并发请求；futures 失败不影响情绪图（独立 .catch）
+  const [r, futures] = await Promise.all([
+    fetchJSON(`/api/sentiment?range=${state.range}`),
+    fetchJSON("/api/futures").catch(() => null),
+  ]);
   content.innerHTML = "";
   const sig = r.signals || {};
   const stats = r.stats || {};
@@ -1572,8 +1591,7 @@ async function renderSentiment() {
       },
     }, stats.cross_market, strat.cross_market);
   }
-  // 期货机构持仓
-  const futures = await fetchJSON("/api/futures");
+  // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
   if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures);
 }
 
@@ -1642,8 +1660,8 @@ function renderSentimentHeatmap(r) {
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
 
-  // 日期标签：只显示约 10 个刻度以免太密
-  const labelInterval = Math.max(1, Math.floor(dates.length / 10));
+  // 日期标签：上限 10 个均匀采样（i % step === 0），避免全历史数百日期在窄屏 45° 旋转重叠
+  const labelStep = Math.max(1, Math.ceil(dates.length / 10));
   c.setOption({
     tooltip: {
       trigger: "item",
@@ -1658,7 +1676,7 @@ function renderSentimentHeatmap(r) {
     grid: { left: 80, right: 20, top: 20, bottom: 50 },
     xAxis: {
       type: "category", data: dates,
-      axisLabel: { rotate: 45, fontSize: 10, interval: labelInterval },
+      axisLabel: { rotate: 45, fontSize: 10, interval: (i) => i % labelStep === 0 },
       splitArea: { show: false },
     },
     yAxis: {

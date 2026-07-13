@@ -812,6 +812,23 @@ function closeSignalChartModal() {
   _signalModalCharts = [];
 }
 
+// 信号弹窗日期过滤截止日：基于数据末日回推（而非 new Date() 今天），
+// 保证静态版窗口与动态版（后端按数据末日算）一致，避免周末数据滞后时窗口多出几天。
+// 复用 lab.js _labSignalCutoffDate 同款实现。chartData 末日格式 YYYYMMDD。
+function _signalModalCutoff(chartData, period) {
+  if (period === "all" || !chartData || !chartData.length) return null;
+  const last = chartData[chartData.length - 1].date;
+  if (!last || last.length < 8) return null;
+  const y = parseInt(last.substring(0, 4), 10);
+  const m = parseInt(last.substring(4, 6), 10);
+  const d = parseInt(last.substring(6, 8), 10);
+  const yrs = period === "1y" ? 1 : period === "3y" ? 3 : period === "5y" ? 5 : 0;
+  if (!yrs) return null;
+  let cy = y - yrs, cm = m, cd = d;
+  if (cm === 2 && cd === 29) cd = 28; // 闰日简化
+  return `${cy}${String(cm).padStart(2, "0")}${String(cd).padStart(2, "0")}`;
+}
+
 async function openSignalChartModal(indexId, signal, date, freezeVal, period = "1y") {
   const modal = _signalChartModalEl();
   const body = modal.querySelector(".signal-chart-content");
@@ -828,19 +845,6 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   modal._ctx = { indexId, signal, date, freezeVal };
   try {
     let chartData, sigs, stats, strategy, isValue = false;
-    // 根据period参数确定过滤日期
-    let filterDate = null;
-    if (period !== "all") {
-      const dateObj = new Date();
-      if (period === "1y") {
-        dateObj.setFullYear(dateObj.getFullYear() - 1);
-      } else if (period === "3y") {
-        dateObj.setFullYear(dateObj.getFullYear() - 3);
-      } else if (period === "5y") {
-        dateObj.setFullYear(dateObj.getFullYear() - 5);
-      }
-      filterDate = dateObj.toISOString().slice(0, 10).replace(/-/g, '');
-    }
 
     if (indexId.startsWith("g.")) {
       const key = indexId.slice(2);
@@ -850,7 +854,8 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       stats = (r.extras_stats && r.extras_stats[key]) || {};
       strategy = r.extras_strategy && r.extras_strategy[key];
       chartData = data.map((d) => ({ date: d.date, value: d.value }));
-      // 根据period过滤数据
+      // 根据period过滤数据（截止日基于数据末日，非今天）
+      const filterDate = _signalModalCutoff(chartData, period);
       if (filterDate) {
         chartData = chartData.filter(d => d.date >= filterDate);
       }
@@ -863,7 +868,8 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       stats = (r.stats && r.stats[key]) || {};
       strategy = r.strategy && r.strategy[key];
       chartData = data.map((d) => ({ date: d.date, value: d.value }));
-      // 根据period过滤数据
+      // 根据period过滤数据（截止日基于数据末日，非今天）
+      const filterDate = _signalModalCutoff(chartData, period);
       if (filterDate) {
         chartData = chartData.filter(d => d.date >= filterDate);
       }
@@ -874,7 +880,8 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       sigs = r.signals || [];
       stats = r.stats || {};
       strategy = r.strategy;
-      // 根据period过滤数据
+      // 根据period过滤数据（截止日基于数据末日，非今天）
+      const filterDate = _signalModalCutoff(chartData, period);
       if (filterDate) {
         chartData = chartData.filter(d => d.date >= filterDate);
         sigs = sigs.filter(d => d.date >= filterDate);
@@ -984,7 +991,22 @@ async function renderOverview() {
     });
   }
   for (const m of r.today.metrics || []) {
-    if (isStaleMetric(m.date, r.date)) continue;  // 停更指标隐藏（如北向资金 2024-08 起停更），恢复更新后自动显示
+    if (isStaleMetric(m.date, r.date)) {
+      // 北向资金特殊处理：停更后显示占位提示（与大盘tab显示空图+hint一致），其他停更指标仍隐藏
+      if (m.id === "a_fund_north") {
+        const stopMonth = (m.date && m.date.length >= 6) ? m.date.slice(0, 4) + "-" + m.date.slice(4, 6) : "";
+        kpiCards.push({
+          id: m.id,
+          title: m.name,
+          value: "-",
+          valueNum: null,
+          sub: "",
+          date: stopMonth ? `停更于 ${stopMonth}` : "已停更",
+          tag: "已停更",
+        });
+      }
+      continue;  // 其他停更指标保持隐藏，恢复更新后自动显示
+    }
     kpiCards.push({
       id: m.id,
       title: m.name,
@@ -1552,7 +1574,11 @@ async function renderGlobal(container = content) {
 }
 
 async function renderSentiment() {
-  const r = await fetchJSON(`./data/sentiment-${state.range}.json`);
+  // 期货数据与情绪数据无依赖，用 Promise.all 并发请求；futures 失败不影响情绪图（独立 .catch）
+  const [r, futures] = await Promise.all([
+    fetchJSON(`./data/sentiment-${state.range}.json`),
+    fetchJSON("./data/futures.json").catch(() => null),
+  ]);
   content.innerHTML = "";
   const sig = r.signals || {};
   const stats = r.stats || {};
@@ -1623,8 +1649,7 @@ async function renderSentiment() {
       },
     }, stats.cross_market, strat.cross_market);
   }
-  // 期货机构持仓
-  const futures = await fetchJSON("./data/futures.json");
+  // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
   if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures);
 }
 
@@ -1693,8 +1718,8 @@ function renderSentimentHeatmap(r) {
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
 
-  // 日期标签：只显示约 10 个刻度以免太密
-  const labelInterval = Math.max(1, Math.floor(dates.length / 10));
+  // 日期标签：上限 10 个均匀采样（i % step === 0），避免全历史数百日期在窄屏 45° 旋转重叠
+  const labelStep = Math.max(1, Math.ceil(dates.length / 10));
   c.setOption({
     tooltip: {
       trigger: "item",
@@ -1709,7 +1734,7 @@ function renderSentimentHeatmap(r) {
     grid: { left: 80, right: 20, top: 20, bottom: 50 },
     xAxis: {
       type: "category", data: dates,
-      axisLabel: { rotate: 45, fontSize: 10, interval: labelInterval },
+      axisLabel: { rotate: 45, fontSize: 10, interval: (i) => i % labelStep === 0 },
       splitArea: { show: false },
     },
     yAxis: {
