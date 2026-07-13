@@ -925,16 +925,27 @@ async function renderTab() {
   }
 }
 
-async function renderOverview() {
-  const r = await fetchJSON("./data/overview.json");
-  // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
-  const _ct = r.collected_at || "";
+// 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
+function applyCollectTime(ct) {
+  const _ct = ct || "";
   document.querySelectorAll(".pc-collect-time").forEach((el) => {
     el.textContent = _ct ? `数据采集时间：${_ct}` : "";
   });
   document.querySelectorAll(".h5-collect-time").forEach((el) => {
     el.textContent = _ct;
   });
+}
+async function fetchCollectTime() {
+  try {
+    const r = await fetchJSON("./data/overview.json");
+    applyCollectTime(r.collected_at);
+  } catch (e) { /* 兜底不崩，保持空 */ }
+}
+
+async function renderOverview() {
+  const r = await fetchJSON("./data/overview.json");
+  // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
+  applyCollectTime(r.collected_at);
   content.innerHTML = "";
 
   // ---- 0. 一句话总结横幅 ----
@@ -2877,6 +2888,8 @@ window.addEventListener("scroll", () => {
   updateH5Topbar();
   _tabInitialRestore = true;
 })();
+// 采集时间独立获取（不依赖当前 tab），保证切到非概览 tab 刷新后顶部仍显示
+fetchCollectTime();
 // #lab* hash 由 lab.js 接管初始渲染（_labInitHashRestore 的 labBtn.click 触发 renderTab）。
 // 此处跳过 bootstrap renderTab，避免与 lab 渲染竞态导致概览内容（含行业热力图）串入实验室页 / 高亮与内容不一致。
 if (location.hash.startsWith("#lab")) {
