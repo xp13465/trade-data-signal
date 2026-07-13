@@ -634,15 +634,21 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
     print(f"[etf_nt] 3b/4 沪市份额（SSE按日循环 {sse_start}-{today}）...", flush=True)
     tdays = trading_days_between(sse_start, today)
     n_done = 0
+    batch_rows: list[dict] = []
+    BATCH_SIZE = 100  # 批量提交减少WAL抖动, 防止长时间运行DB损坏
     for d in tdays:
         try:
             shares = fetch_sse_shares(d)
-            rows = [{"date": d, "etf_code": c, "fund_share": s} for c, s in shares.items()]
-            stats["sse"] += _upsert_daily(conn, rows, ["fund_share"])
+            for c, s in shares.items():
+                batch_rows.append({"date": d, "etf_code": c, "fund_share": s})
         except Exception as e:  # noqa: BLE001
             pass  # 周末/节假日 KeyError 静默跳过
         n_done += 1
-        if n_done % 50 == 0:
+        if n_done % BATCH_SIZE == 0 or n_done == len(tdays):
+            if batch_rows:
+                stats["sse"] += _upsert_daily(conn, batch_rows, ["fund_share"])
+                batch_rows = []
+            conn.execute("PRAGMA wal_checkpoint(PASSIVE);")
             print(f"  SSE 进度 {n_done}/{len(tdays)} 天, 累计入库 {stats['sse']} 行", flush=True)
     print(f"  沪市份额入库 {stats['sse']} 行（{n_done} 交易日）", flush=True)
 
