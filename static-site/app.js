@@ -67,6 +67,38 @@ function clearCharts() {
   content.innerHTML = "";
 }
 
+// === ECharts 主题色：canvas 不支持 CSS var()，运行时读 getComputedStyle 取值注入 ===
+// 15 个皮肤变量见 style.css :root / [data-theme]。UI 语义中性色（轴线/网格/坐标文字/tooltip/legend）
+// 跟随主题；数据语义色（涨红跌绿/冰点过热/恐贪色阶/辅买紫/指标蓝橙黄）保持硬编码不变。
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+// ECharts 公共 UI 语义色配置片段。mkCard 初始化后立即 setOption 注入；
+// applyTheme 切换主题时对已渲染图表重注入以跟随皮肤（merge 模式，业务 option 保留）。
+function chartThemeOpts() {
+  const axisLabel = cssVar("--text-3");
+  const axisLine = cssVar("--border-strong");
+  const splitLine = cssVar("--border");
+  const nameText = cssVar("--text-2");
+  const axisCommon = {
+    axisLine: { lineStyle: { color: axisLine } },
+    axisTick: { lineStyle: { color: axisLine } },
+    axisLabel: { color: axisLabel },
+    splitLine: { lineStyle: { color: splitLine } },
+    nameTextStyle: { color: nameText },
+  };
+  return {
+    xAxis: axisCommon,
+    yAxis: axisCommon,
+    legend: { textStyle: { color: nameText } },
+    tooltip: {
+      backgroundColor: cssVar("--bg-card"),
+      borderColor: cssVar("--border-strong"),
+      textStyle: { color: cssVar("--text-1") },
+    },
+  };
+}
+
 // container/chartArr 可选：默认挂 content + push 全局 charts；指数区局部刷新时传入本区容器 + 本区 chart 列表。
 function mkCard(title, height = 300, hint = null, container = content, chartArr = charts) {
   const div = document.createElement("div");
@@ -75,6 +107,7 @@ function mkCard(title, height = 300, hint = null, container = content, chartArr 
   div.innerHTML = `<h3>${title}</h3>${hintHtml}<div class="chart" style="height:${height}px"></div>`;
   container.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
+  c.setOption(chartThemeOpts()); // 先注入主题基色，后续业务 setOption merge 保留
   chartArr.push(c);
   return c;
 }
@@ -1888,6 +1921,7 @@ function renderSentimentHeatmap(r) {
   div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}</h3><div class="chart" style="height:220px"></div>`;
   content.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
+  c.setOption(chartThemeOpts());
   charts.push(c);
 
   // 日期标签：上限 10 个均匀采样（i % step === 0），避免全历史数百日期在窄屏 45° 旋转重叠
@@ -1926,7 +1960,7 @@ function renderSentimentHeatmap(r) {
     series: [{
       type: "heatmap", data: data,
       label: { show: false },
-      emphasis: { itemStyle: { borderColor: "#1f2329", borderWidth: 1 } },
+      emphasis: { itemStyle: { borderColor: cssVar("--text-1"), borderWidth: 1 } },
     }],
   });
 }
@@ -2036,8 +2070,8 @@ function renderFuturesSection(data) {
                   if (a) {
                     const f = Math.round(a.follow * 100);
                     const c = Math.round(a.contrarian * 100);
-                    const fStyle = f > c ? 'color:#16a34a;font-weight:bold' : 'color:#86909c';
-                    const cStyle = c > f ? 'color:#16a34a;font-weight:bold' : 'color:#86909c';
+                    const fStyle = f > c ? 'color:#16a34a;font-weight:bold' : 'color:var(--text-3)';
+                    const cStyle = c > f ? 'color:#16a34a;font-weight:bold' : 'color:var(--text-3)';
                     parts.push(w + ' <span style="' + fStyle + '">同' + f + '%</span> <span style="' + cStyle + '">逆' + c + '%</span>');
                   }
                 }
@@ -2056,7 +2090,7 @@ function renderFuturesSection(data) {
       series: chart1Series.map((s) => ({
         name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
         data: dates1.map((d) => { const p = s.data.find((x) => x.date === d); return p ? p.value : null; }),
-        markLine: { silent: true, symbol: "none", lineStyle: { color: "#86909c", type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
+        markLine: { silent: true, symbol: "none", lineStyle: { color: cssVar("--border-strong"), type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
       })),
     });
   }
@@ -2098,7 +2132,7 @@ function renderFuturesSection(data) {
         series: prodSeries.map((s) => ({
           name: s.name, type: "line", smooth: true, symbol: "none", connectNulls: true,
           data: datesP.map((d) => { const p = s.data.find((x) => x.date === d); return p ? p.value : null; }),
-          markLine: { silent: true, symbol: "none", lineStyle: { color: "#86909c", type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
+          markLine: { silent: true, symbol: "none", lineStyle: { color: cssVar("--border-strong"), type: "dashed", width: 1 }, label: { formatter: "0", fontSize: 10 }, data: [{ yAxis: 0 }] },
         })),
       });
     }
@@ -2128,6 +2162,7 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
   div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;
   ctn.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
+  c.setOption(chartThemeOpts());
   charts.push(c);
   const toggleBtnsEl = div.querySelector(".heatmap-toggle");
   // 切换按钮：就地重画该热力图（不调 renderTab，避免整页重渲染丢滚动位置）
@@ -2180,7 +2215,7 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
     series: [{
       type: "heatmap", data: data,
       label: { show: true, fontSize: 9, formatter: (p) => (p.value[2] == null ? "-" : p.value[2].toFixed(1)) },
-      emphasis: { itemStyle: { borderColor: "#1f2329", borderWidth: 1 } },
+      emphasis: { itemStyle: { borderColor: cssVar("--text-1"), borderWidth: 1 } },
     }],
   });
 }
@@ -2347,6 +2382,7 @@ function renderIndustryGrid(indices, containerOverride) {
     const exist = echarts.getInstanceByDom(chartDom);
     if (exist) exist.dispose();
     const sc = echarts.init(chartDom);
+    sc.setOption(chartThemeOpts());
     const markData = signals.map((s) => {
       const o = ohlc.find((x) => x.date === s.date);
       return {
@@ -2357,7 +2393,7 @@ function renderIndustryGrid(indices, containerOverride) {
     });
     sc.setOption({
       grid: { left: 2, right: 2, top: 6, bottom: 18 },
-      xAxis: { type: "category", show: true, data: ohlc.map((d) => d.date), axisLabel: { fontSize: 8, color: "#86909c", interval: Math.max(1, Math.floor(ohlc.length / 5)), formatter: (v) => v.slice(0, 4) + "-" + v.slice(4, 6) }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false } },
+      xAxis: { type: "category", show: true, data: ohlc.map((d) => d.date), axisLabel: { fontSize: 8, color: cssVar("--text-3"), interval: Math.max(1, Math.floor(ohlc.length / 5)), formatter: (v) => v.slice(0, 4) + "-" + v.slice(4, 6) }, axisTick: { show: false }, axisLine: { show: false }, splitLine: { show: false } },
       yAxis: { type: "value", show: false, scale: true },
       tooltip: { trigger: "axis", formatter: (p) => {
         const d = ohlc[p[0].dataIndex];
@@ -2402,6 +2438,7 @@ function renderIndustryGrid(indices, containerOverride) {
         <span class="ind-metric-val">${lastVal == null ? "-" : spec.fmt(lastVal)}</span>`;
       metricsBox.appendChild(row);
       const mc = echarts.init(row.querySelector(".ind-metric-chart"));
+      mc.setOption(chartThemeOpts());
       mc.setOption({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
         xAxis: { type: "category", show: false, data: spec.data.map((d) => d.date) },
@@ -3039,6 +3076,13 @@ function initThemeSwitcher() {
     // 通知模拟回测 iframe 跟随主题切换（URL hash 传初始主题，postMessage 传动态切换）
     document.querySelectorAll('.sim-frame').forEach(function (f) {
       try { if (f.contentWindow) f.contentWindow.postMessage({ type: 'set-theme', theme: t || '' }, '*'); } catch (e) {}
+    });
+    // ECharts canvas 不响应 CSS 变量，切换主题后下一帧重注入 UI 语义色（轴线/网格/tooltip 等）
+    requestAnimationFrame(function () {
+      try {
+        charts.forEach(function (c) { if (c && !c.isDisposed()) c.setOption(chartThemeOpts()); });
+        _signalModalCharts.forEach(function (c) { if (c && !c.isDisposed()) c.setOption(chartThemeOpts()); });
+      } catch (e) {}
     });
   }
   function renderActive() {

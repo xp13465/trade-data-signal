@@ -291,7 +291,7 @@ function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr,
   if (hasOsc) yAxis.push({ type: "value", scale: true, name: "指标", splitLine: { show: false }, axisLabel: { fontSize: 9 } });
   const indSeries = indicators.map((it) => ({
     name: it.name, type: "line", symbol: "none", data: it.data, smooth: true,
-    lineStyle: { width: 1, type: it.dash ? "dashed" : "solid", color: it.color || "#c9cdd4" },
+    lineStyle: { width: 1, type: it.dash ? "dashed" : "solid", color: it.color || cssVar('--text-4') },
     connectNulls: false,
     yAxisIndex: it.axis === "osc" ? 1 : 0,
   }));
@@ -327,8 +327,8 @@ function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr,
 // BB_upper_revert 兼容封装
 function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
   return renderLabChartEx(title, ohlc, [
-    { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
-    { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+    { name: "布林上轨", data: bb.bu, color: cssVar('--text-4'), dash: true },
+    { name: "布林下轨", data: bb.bl, color: cssVar('--text-4'), dash: true },
   ], signals, container, chartArr, "布林上轨回落卖", "#9c27b0");
 }
 
@@ -741,8 +741,8 @@ function _labBuildChartConfig(key, ohlc, indexName) {
     const bb = computeBBLab(ohlc);
     return {
       indicators: [
-        { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
-        { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+        { name: "布林上轨", data: bb.bu, color: cssVar('--text-4'), dash: true },
+        { name: "布林下轨", data: bb.bl, color: cssVar('--text-4'), dash: true },
       ],
       signals: bb.signals, signalLabel, signalColor: "#9c27b0",
       chartTitle: `${name} · 布林上轨回落实验`, statLabel: "实验卖点",
@@ -751,8 +751,8 @@ function _labBuildChartConfig(key, ohlc, indexName) {
     const r2 = computeBBLowerRevertLab(ohlc);
     return {
       indicators: [
-        { name: "布林上轨", data: r2.bu, color: "#c9cdd4", dash: true },
-        { name: "布林下轨", data: r2.bl, color: "#c9cdd4", dash: true },
+        { name: "布林上轨", data: r2.bu, color: cssVar('--text-4'), dash: true },
+        { name: "布林下轨", data: r2.bl, color: cssVar('--text-4'), dash: true },
       ],
       signals: r2.signals, signalLabel, signalColor: "#2e7d32",
       chartTitle: `${name} · 布林下轨回归实验`, statLabel: "实验买点",
@@ -790,9 +790,9 @@ function _labBuildChartConfig(key, ohlc, indexName) {
     }
     return {
       indicators: [
-        { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
-        { name: "布林中轨MA20", data: bb.mid, color: "#86909c", dash: false },
-        { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+        { name: "布林上轨", data: bb.bu, color: cssVar('--text-4'), dash: true },
+        { name: "布林中轨MA20", data: bb.mid, color: cssVar('--text-3'), dash: false },
+        { name: "布林下轨", data: bb.bl, color: cssVar('--text-4'), dash: true },
       ],
       signals, signalLabel, signalColor: sigColor,
       chartTitle: `${name} · 跌破布林中轨`, statLabel,
@@ -807,8 +807,8 @@ function _labBuildChartConfig(key, ohlc, indexName) {
     }
     return {
       indicators: [
-        { name: "布林上轨", data: bb.bu, color: "#c9cdd4", dash: true },
-        { name: "布林下轨", data: bb.bl, color: "#c9cdd4", dash: true },
+        { name: "布林上轨", data: bb.bu, color: cssVar('--text-4'), dash: true },
+        { name: "布林下轨", data: bb.bl, color: cssVar('--text-4'), dash: true },
       ],
       signals, signalLabel, signalColor: sigColor,
       chartTitle: `${name} · 突破布林上轨`, statLabel,
