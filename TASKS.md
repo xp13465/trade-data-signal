@@ -34,7 +34,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 ### 🔄 排队任务（本轮新增，待做）
 - **[排队-1] iframe 模拟回测弹窗跟随主题** ✅ 已完成（commit 7485005，URL hash+postMessage 双保险）。
-- **[排队-2] ECharts canvas 线色跟随主题** ✅ 部分完成（commit 2cb2aab，轴线/网格/tooltip/布林轨道改读 CSS 变量）。**补漏中**：title/legend/axisLabel/series name 文字色 + 卡片标注文字色硬编码未覆盖，用户反馈"看不清"。皮肤适配 agent 正在做这个补漏。
+- **[排队-2] ECharts canvas 线色跟随主题** ✅ 部分完成（commit 2cb2aab，轴线/网格/tooltip/布林轨道改读 CSS 变量）。**补漏已完成**（commit 581f40d）：卡片标注 `.chart-latest` 改反转实心徽章（color:var(--bg-card) + background:var(--primary)），解决红金主题下金色字与标题浅金撞色看不清（字色 vs 标题对比 1.36:1 -> 10:1，各皮肤字底对比 >4.3:1）；`.periods button` 未选中态显式加 color:var(--text-2)（解决 button UA 默认色不继承导致深底看不清，各皮肤对比 >7:1）。双版同步 + bump 版本号。
 - **[排队-3] Vol_breakout 图表**：策略实验室补图（策略实验室缺该策略的图表，复用 computeBBLab 模式）。
 - **[排队-4] P2 剩 L1**：买卖信号弹窗下全历史（lab.js 专项，评估报告 P2 级遗留）。
 - **[排队-5] P3 剩余 11 条**：评估报告 P3 级遗留项。清单见 `EVAL_REPORT_2026-07-13.md`，已确认 11 条（O3 分享图重复请求/M2 renderGlobal null守卫/S2 月均年初虚高/I2 概念无搜索/I3 锚点无scrollspy/L2 实验图表窗口不联动/L3 规则弹窗频率缓存不刷新/L4 推荐榜超时只提示不取消/X2 _headers漏qr.js/X3 版本号用mtime非hash/X6 信号频率字段双轨）。
