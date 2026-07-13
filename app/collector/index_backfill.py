@@ -305,7 +305,9 @@ def main():
         print("[backfill] 非交易日,跳过")
         return
 
-    today = last_trading_day().strftime("%Y%m%d")
+    today = last_trading_day()  # 已是 YYYYMMDD str
+    if hasattr(today, "strftime"):
+        today = today.strftime("%Y%m%d")
     print(f"[backfill] 目标日期 {today}")
     ok, fail, _ = verify_and_backfill_indices(today, verbose=True)
     print(f"[backfill] 补采结果 ok={ok} fail={fail}")
