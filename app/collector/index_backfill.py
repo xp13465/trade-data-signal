@@ -18,6 +18,11 @@
   工作日采集时 trend API 若已发布当日数据则补上；未发布（T+1 延迟）则跳过
   写告警，下次定时任务再补。
 
+  2026-07-13 起 trend API 持续 SSL 故障，加同花顺聚合兜底（industry_extras.
+  _fetch_sw_ohlc_ths，90 子行业聚合 31 一级 + 锚定申万末日避免绝对值跳变）。
+  SW_OHLC_SOURCE=="ths" 时跳过申万 trend 直接走同花顺；=="sw" 时走申万（恢复
+  后回切）。
+
 触发：runner.step2 indices 采完后调用 verify_and_backfill_indices(date)。
 """
 from .base import log_collect
@@ -257,19 +262,30 @@ def verify_and_backfill_indices(date, verbose=True):
         if verbose:
             print(f"  [校验] {len(sw_missing)} 个申万行业指数缺今日 {date} -> 申万 trend API 补采")
         from .runner import upsert_index_rows
+        from .industry_extras import SW_OHLC_SOURCE, _fetch_sw_ohlc_ths
         for sw_id in sw_missing:
-            rows = _sw_trend_fetch(sw_id, date)
+            # SW_OHLC_SOURCE=="ths" 时申万 trend 已知 SSL 故障，跳过省 31×7s 重试
+            rows = []
+            src = "ths"
+            if SW_OHLC_SOURCE == "sw":
+                rows = _sw_trend_fetch(sw_id, date)
+                src = "sw-trend"
+            if not rows:
+                # 申万 trend 故障/未发布 -> 同花顺聚合兜底（只取今日那行）
+                rows2, _tmsg = _fetch_sw_ohlc_ths(sw_id, date, date)
+                rows = [r for r in rows2 if r[0] == date]
+                src = "ths"
             if rows:
                 upsert_index_rows(rows)
                 ok += 1
-                details.append((sw_id, "ok", f"backfill sw-trend close={rows[0][5]}"))
+                details.append((sw_id, "ok", f"backfill {src} close={rows[0][5]}"))
                 if verbose:
-                    print(f"    ✓ {sw_id} <- sw-trend close={rows[0][5]} pct={rows[0][6]}")
+                    print(f"    ✓ {sw_id} <- {src} close={rows[0][5]} pct={rows[0][6]}")
             else:
                 fail += 1
-                details.append((sw_id, "fail", "申万源 T+1 延迟未发布当日数据"))
+                details.append((sw_id, "fail", "申万源故障且同花顺当日未发布"))
                 if verbose:
-                    print(f"    - {sw_id} 申万源未发布当日（T+1 延迟），下次定时任务再补")
+                    print(f"    - {sw_id} 申万源故障/同花顺当日未发布，下次定时任务再补")
 
     return ok, fail, details
 

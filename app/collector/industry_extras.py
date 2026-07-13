@@ -137,6 +137,135 @@ THS_TO_SW = {
 }
 
 
+# ── 申万行业指数 OHLC 数据源选择（2026-07-13）──
+# 申万官方 swsresearch.com trend/index API 自 0710 起持续 SSL 故障（SSLEOFError），
+# sw_* OHLC 停采在 0709。主源换同花顺 stock_board_industry_index_ths（90 二级行业指数
+# -> 聚合 31 申万一级，见 _fetch_sw_ohlc_ths）。申万源恢复后把本常量改回 "sw"
+# 即回切（fetchers.collect_index 会走 ak.index_hist_sw 通用逻辑）。
+SW_OHLC_SOURCE = "ths"
+
+
+def _fetch_sw_ohlc_ths(sw_id, start_date, end_date, verbose=False):
+    """同花顺二级行业指数 -> 申万一级行业 OHLC（聚合 + 锚定申万末日，只补新增日期）。
+
+    解决两个问题：
+    1. 粒度差异：同花顺是 90 个二级行业，申万是 31 个一级行业。通过 THS_TO_SW 反查
+       该 sw_id 的全部同花顺子行业，按成交额加权聚合。
+    2. 绝对值跳变：同花顺指数点数基点 ≠ 申万官方点数（如电子 THS 半导体 22183 vs
+       申万 801080 close 11450）。处理：以申万末日(junction) close 为锚，各子行业
+       close 归一到 1.0，加权平均后 × 申万末日 close。使 junction 当日 = 申万值，
+       新增日期与之连续，mini 图无断点。**只返回 > junction 的新增日期，不重写
+       申万历史**（upsert_index_rows 会覆盖，故这里主动过滤）。
+
+    聚合公式（amount 加权，amount=成交额）：
+      norm_X_i[t] = X_i[t] / close_i[junction]   (X=O/H/L/C, i=子行业)
+      agg_X[t]    = (Σ amount_i[t]·norm_X_i[t]) / (Σ amount_i[t]) × sw_close_junction
+      amount[t]   = Σ amount_i[t] / 1e8          (元->亿元，与申万 DB amount 单位一致)
+      pct[t]      = close[t] / close[t-1] - 1     (scale-invariant)
+
+    返回 (rows, msg)：rows=[(date, sw_id, open, high, low, close, pct, amount), ...]
+    只含 > junction 且 <= end_date 的日期。无申万历史可锚时返空（msg 说明）。
+    """
+    import akshare as ak
+    import time as _time
+    import pandas as pd
+    from ..db import get_conn
+
+    subs = [name for name, sid in THS_TO_SW.items() if sid == sw_id]
+    if not subs:
+        return [], f"no THS sub mapped to {sw_id}"
+
+    # 申万末日 + close 作锚
+    conn = get_conn()
+    r = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id=? "
+        "ORDER BY date DESC LIMIT 1", (sw_id,)
+    ).fetchone()
+    conn.close()
+    if not r or r["close"] is None:
+        return [], f"no SW history to anchor {sw_id}"
+    junction = r["date"]
+    sw_close_junction = float(r["close"])
+
+    # 各子行业拉 junction..end_date OHLC（含 junction 行用于归一化基）
+    sub_data = {}  # name -> {date_yyyymmdd: {O,H,L,C,amt}}
+    for name in subs:
+        try:
+            df = ak.stock_board_industry_index_ths(
+                symbol=name, start_date=junction, end_date=end_date)
+        except Exception as e:  # noqa: BLE001
+            if verbose:
+                print(f"    {name} ths-idx err: {type(e).__name__} {e}", flush=True)
+            continue
+        if df is None or len(df) == 0:
+            continue
+        m = {}
+        for _, row in df.iterrows():
+            d = str(row["日期"])[:10].replace("-", "")
+            m[d] = {
+                "O": float(row["开盘价"]) if pd.notna(row["开盘价"]) else None,
+                "H": float(row["最高价"]) if pd.notna(row["最高价"]) else None,
+                "L": float(row["最低价"]) if pd.notna(row["最低价"]) else None,
+                "C": float(row["收盘价"]) if pd.notna(row["收盘价"]) else None,
+                "amt": float(row["成交额"]) if pd.notna(row["成交额"]) else 0.0,
+            }
+        sub_data[name] = m
+        _time.sleep(0.15)  # 限流（90 子行业 × 多次调用）
+
+    if not sub_data:
+        return [], f"all THS subs empty for {sw_id}"
+
+    # 各子行业 junction close（归一化基）；无 junction 数据的子行业跳过
+    sub_jc = {name: m[junction]["C"] for name, m in sub_data.items()
+              if m.get(junction) and m[junction]["C"]}
+    if not sub_jc:
+        return [], f"no THS sub has junction {junction} for {sw_id}"
+
+    # 聚合 > junction 的新增日期
+    new_dates = sorted({d for m in sub_data.values() for d in m
+                        if d > junction and d <= end_date})
+    if not new_dates:
+        return [], f"no new THS dates after {junction} for {sw_id}"
+
+    rows = []
+    prev_close = sw_close_junction  # 末日锚，pct 基准
+    for d in new_dates:
+        tot = 0.0
+        wC = wO = wH = wL = 0.0
+        nO = nH = nL = 0  # 各字段有数据的子行业计数
+        for name, m in sub_data.items():
+            jc = sub_jc.get(name)
+            if not jc:
+                continue
+            rec = m.get(d)
+            if not rec or rec["C"] is None or rec["amt"] <= 0:
+                continue
+            amt = rec["amt"]
+            tot += amt
+            wC += amt * (rec["C"] / jc)
+            if rec["O"] is not None:
+                wO += amt * (rec["O"] / jc); nO += 1
+            if rec["H"] is not None:
+                wH += amt * (rec["H"] / jc); nH += 1
+            if rec["L"] is not None:
+                wL += amt * (rec["L"] / jc); nL += 1
+        if tot <= 0:
+            continue
+        C = (wC / tot) * sw_close_junction
+        O = (wO / tot) * sw_close_junction if nO else None
+        H = (wH / tot) * sw_close_junction if nH else None
+        L = (wL / tot) * sw_close_junction if nL else None
+        amt_yi = tot / 1e8  # 元 -> 亿元（与申万 DB amount 单位一致，校准比值 1.001）
+        pct = (C / prev_close - 1) * 100 if prev_close else None
+        rows.append((d, sw_id, O, H, L, C, pct, amt_yi))
+        prev_close = C
+
+    if not rows:
+        return [], f"no aggregatable new dates for {sw_id}"
+    return rows, (f"ok ({len(rows)} new dates, "
+                  f"{len(sub_jc)}/{len(subs)} subs anchored, junction={junction})")
+
+
 def _now_iso():
     from datetime import datetime
     return datetime.now().isoformat()

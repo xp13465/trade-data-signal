@@ -293,6 +293,15 @@ def _collect_ths_concept(idx, start_date, end_date):
 def collect_index(idx, start_date, end_date):
     if idx["func"] == "index_hist_ths_concept":
         return _collect_ths_concept(idx, start_date, end_date)
+    # 申万一级行业指数：申万官方 swsresearch.com 自 2026-07-10 起 SSL 故障，
+    # 主源换同花顺聚合（industry_extras._fetch_sw_ohlc_ths，90 子行业聚合 31 一级
+    # + 锚定申万末日避免绝对值跳变）。申万恢复后把 SW_OHLC_SOURCE 改回 "sw" 即回切
+    # 到下方通用 ak.index_hist_sw 逻辑。
+    if idx["func"] == "index_hist_sw":
+        from .industry_extras import SW_OHLC_SOURCE, _fetch_sw_ohlc_ths
+        if SW_OHLC_SOURCE == "ths":
+            return _fetch_sw_ohlc_ths(idx["id"], start_date, end_date)
+        # SW_OHLC_SOURCE == "sw": 走申万官方 ak.index_hist_sw（下方通用逻辑）
     fn = getattr(ak, idx["func"], None)
     if fn is None:
         return [], f"no attr {idx['func']}"
