@@ -1732,6 +1732,9 @@ async function renderNationalTeam(container = content) {
   }
   container.innerHTML = "";
 
+  // 按 state.range 时间窗口切片 daily（数据全量在 JSON，前端切片不 refetch）
+  data = ntSliceDataByRange(data);
+
   // ── 口径声明横幅 ──
   const banner = document.createElement("div");
   banner.className = "nt-banner";
@@ -1745,6 +1748,25 @@ async function renderNationalTeam(container = content) {
   } else {
     renderNationalTeamOverview(container, data, qData);
   }
+}
+
+// 按 state.range 时间窗口切片 daily（数据全量在 JSON，前端切片不 refetch）
+function ntSliceDataByRange(data) {
+  var rangeDays = { "1m": 30, "3m": 90, "6m": 180, "1y": 365 };
+  var days = rangeDays[state.range];
+  if (!days) return data; // all 或未知 -> 全量
+  var dd = new Date();
+  dd.setDate(dd.getDate() - days);
+  var cutoff = "" + dd.getFullYear() + String(dd.getMonth() + 1).padStart(2, "0") + String(dd.getDate()).padStart(2, "0");
+  var out = { updated_at: data.updated_at, etfs: [] };
+  data.etfs.forEach(function (e) {
+    out.etfs.push({
+      code: e.code, name: e.name, index: e.index, market: e.market,
+      daily: (e.daily || []).filter(function (x) { return x.date >= cutoff; }),
+      latest: e.latest, // 保留原始最新行（不随 range 切）
+    });
+  });
+  return out;
 }
 
 // 散户白话：汪汪队 ETF 每只份额迷你折线（sparkline），SVG 轻量不走 ECharts，currentColor 跟主题
@@ -1847,7 +1869,7 @@ function renderNationalTeamTotalPanel(container, data) {
   }, null, container);
 
   // 图3：每日净增持额柱状（红流入绿流出）
-  var c3 = mkCard("📉 每日净增持额（近60日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(国家队买入)，绿柱=净流出(卖出)。"), 300, null, container);
+  var c3 = mkCard("📉 每日净增持额（近" + dates.length + "日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(国家队买入)，绿柱=净流出(卖出)。"), 300, null, container);
   c3.setOption(withTheme({
     tooltip: { trigger: "axis", formatter: function (p) { var v = p[0]; return fmtDate(v.axisValue) + "<br/>" + (v.value >= 0 ? "+" : "") + (+v.value).toFixed(2) + " 亿元"; } },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
@@ -2062,7 +2084,7 @@ function renderNationalTeamDetail(container, data, qData, hData) {
     `<div class="nt-kpi-item"><div class="nt-kpi-label">当日份额变动</div><div class="nt-kpi-val ${latest.share_change_yi >= 0 ? "nt-up" : "nt-down"}">${chgDisp}</div></div>` +
     `<div class="nt-kpi-item"><div class="nt-kpi-label">最新收盘价</div><div class="nt-kpi-val">${closeDisp}</div></div>` +
     `<div class="nt-kpi-item"><div class="nt-kpi-label">机构占比${qDateTxt ? "（" + qDateTxt + "）" : ""}</div><div class="nt-kpi-val">${instDisp}</div></div>` +
-    `<div class="nt-kpi-item"><div class="nt-kpi-label">近60日信号数</div><div class="nt-kpi-val">${sigCount}</div></div>`;
+    `<div class="nt-kpi-item"><div class="nt-kpi-label">区间信号数</div><div class="nt-kpi-val">${sigCount}</div></div>`;
   container.appendChild(kpi);
 
   // ── 图1: 份额变化趋势（亿份）+ 信号标注 ──

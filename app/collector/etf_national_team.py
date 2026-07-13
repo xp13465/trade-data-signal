@@ -1031,25 +1031,22 @@ def pipeline_holders_v2(start_year: int = 2015) -> dict:
 def export_data() -> tuple[dict, dict]:
     """生成两个 JSON 结构（daily + quarterly），供 web API 和 static-site 共用。"""
     conn = get_conn()
-    today = dt.datetime.now().strftime("%Y%m%d")
-    # 近60日
-    start60 = (dt.datetime.now() - dt.timedelta(days=90)).strftime("%Y%m%d")
     updated_at = dt.datetime.now().isoformat()
 
     etfs: list[dict] = []
     for code, name, index, mkt in ETF_LIST:
-        # 日级数据（近60日，过滤非交易日后的实际数据）
+        # 日级数据（导全历史；前端按 state.range 时间窗口切片显示）
         rows = conn.execute(
             "SELECT date, etf_name, close, amount, fund_share, share_change, share_change_pct "
-            "FROM etf_daily WHERE etf_code=? AND date>=? ORDER BY date",
-            (code, start60),
+            "FROM etf_daily WHERE etf_code=? ORDER BY date",
+            (code,),
         ).fetchall()
         daily = [dict(r) for r in rows]
-        # 该ETF的信号（近60日）
+        # 该ETF的信号（全历史）
         sig_rows = conn.execute(
             "SELECT date, signal_type, share_change, amount_ratio, intensity, note "
-            "FROM etf_signal WHERE etf_code=? AND date>=? AND signal_type!='split_suspect' "
-            "ORDER BY date", (code, start60),
+            "FROM etf_signal WHERE etf_code=? AND signal_type!='split_suspect' "
+            "ORDER BY date", (code,),
         ).fetchall()
         sig_map: dict[str, list] = {}
         for s in sig_rows:
