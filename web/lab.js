@@ -1250,7 +1250,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
 // 上下两区各自独立：配对卡片切换、4数字、净值曲线、折叠交易记录都各自一套
 // 新结构：pairs 在 simData.pairs 按 "buyKey|sellKey" 去重存储，按 mainKey 的 side 决定 partner 方向
 function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair, initCapital, pairSideLabel) {
-  const modeName = mode === "full_in" ? "全仓交易策略" : "定额交易策略";
+  const modeName = mode === "full_in" ? "全仓交易策略" : "定额（10%）交易策略";
   const modeDesc = mode === "full_in"
     ? "每次全仓买入卖出，本金复利滚动，收益和风险都放大"
     : "每次固定买入1万元分批建仓，卖信号清仓，风险更分散";
@@ -1359,7 +1359,7 @@ function _labSimCardHTML(key, simData) {
   const initCapital = simData.initial_capital || 100000;
   const pairSideLabel = side === "buy" ? "卖点" : "买点";
 
-  // 上区：全仓交易策略 / 下区：定额交易策略（各自独立配对切换+详情）
+  // 上区：全仓交易策略 / 下区：定额（10%）交易策略（各自独立配对切换+详情）
   const fiSection = _labSimSectionHTML("full_in", simData, key, side, pairKeys, defaultPair, initCapital, pairSideLabel);
   const fkSection = _labSimSectionHTML("fixed_10k", simData, key, side, pairKeys, defaultPair, initCapital, pairSideLabel);
 
@@ -1865,7 +1865,7 @@ function _labRankAggregate(simData, win) {
         buyKey: bk, sellKey: sk, mode,
         buyName: (LAB_STRATEGIES[bk] || {}).name || bk,
         sellName: (LAB_STRATEGIES[sk] || {}).name || sk,
-        modeName: mode === "full_in" ? "全仓" : "定额",
+        modeName: mode === "full_in" ? "全仓" : "定额（10%）",
         total_ret: s.total_ret, annual_ret: s.annual_ret,
         max_drawdown: s.max_drawdown, win_rate: s.win_rate,
         n_trades: s.n_trades, years: s.years, final_total: s.final_total,
@@ -2075,7 +2075,7 @@ function _labRankModalRender(overlay, simData) {
   const winData = _labPairWinData(pairData, m.mode, win, simData);
   const buyName = (LAB_STRATEGIES[m.buyKey] || {}).name || m.buyKey;
   const sellName = (LAB_STRATEGIES[m.sellKey] || {}).name || m.sellKey;
-  const modeName = m.mode === "full_in" ? "全仓" : "定额";
+  const modeName = m.mode === "full_in" ? "全仓" : "定额（10%）";
   const winLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
   const initCapital = simData.initial_capital || 100000;
   let bodyHTML;
