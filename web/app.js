@@ -26,7 +26,11 @@ const SIM_INDICES = new Set([
 // 全球 tab extras 回的 id 无 g. 前缀（如 gold），需映射到实际文件名（如 g.gold）
 const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 'g.wti_oil' };
 
-window.addEventListener("resize", () => charts.forEach((c) => c && c.resize()));
+let _resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(() => charts.forEach((c) => c && c.resize()), 150);
+});
 
 document.querySelectorAll('button[data-rng]').forEach((b) => {
   b.onclick = () => {
