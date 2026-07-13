@@ -1029,7 +1029,7 @@ async function renderOverview() {
       banner.className = "summary-banner";
       // 盘中/收盘标注（快照存在时显示）
       const snapBadge = snap && snap.indices
-        ? `<span class="summary-snap-tag" style="color:${snap.is_closed ? "#86909c" : "#e6a23c"}">${snap.is_closed ? "📍 收盘快照" : "⏰ 盘中实时小结（未收盘，当日数据还会变化）"}</span>`
+        ? `<span class="summary-snap-tag" style="color:${snap.is_closed ? "var(--text-3)" : "#e6a23c"}">${snap.is_closed ? "📍 收盘快照" : "⏰ 盘中实时小结（未收盘，当日数据还会变化）"}</span>`
         : "";
       const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
       const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
@@ -1449,8 +1449,8 @@ async function renderOverview() {
         let detHtml = `<h3>&#x1F50D; 指数新高新低明细<span class="chart-latest"> · ${fmtDate(latest.date)}</span></h3>`;
         detHtml += `<table class="ma-table"><thead><tr><th>指数</th><th>收盘</th><th>52周</th><th>20日</th></tr></thead><tbody>`;
         for (const it of latest.details) {
-          const tag52 = it.nh_52w ? '<span class="ma-count bullish">新高</span>' : it.nl_52w ? '<span class="ma-count bearish">新低</span>' : '<span style="color:#86909c">-</span>';
-          const tag20 = it.nh_20d ? '<span class="ma-count bullish">新高</span>' : it.nl_20d ? '<span class="ma-count bearish">新低</span>' : '<span style="color:#86909c">-</span>';
+          const tag52 = it.nh_52w ? '<span class="ma-count bullish">新高</span>' : it.nl_52w ? '<span class="ma-count bearish">新低</span>' : '<span style="color:var(--text-3)">-</span>';
+          const tag20 = it.nh_20d ? '<span class="ma-count bullish">新高</span>' : it.nl_20d ? '<span class="ma-count bearish">新低</span>' : '<span style="color:var(--text-3)">-</span>';
           detHtml += `<tr><td>${it.name}</td><td>${(it.close || 0).toLocaleString()}</td><td>${tag52}</td><td>${tag20}</td></tr>`;
         }
         detHtml += `</tbody></table>`;
@@ -1566,7 +1566,7 @@ async function renderAStock(container = content) {
   const moreBtn = document.createElement("button");
   moreBtn.textContent = "更多 ▼";
   moreBtn.className = "more-toggle";
-  moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed #d9d9d9;border-radius:6px;background:#fafafa;color:#86909c;cursor:pointer;font-size:13px;";
+  moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed var(--border-strong);border-radius:6px;background:var(--bg-hover);color:var(--text-3);cursor:pointer;font-size:13px;";
   extraWrap.appendChild(moreBtn);
   const extraGrid = document.createElement("div");
   extraGrid.className = "ov-2col";
@@ -1936,7 +1936,7 @@ function renderFuturesSection(data) {
             if (accEntry) {
               const roleAcc = accEntry[p.seriesName];
               if (roleAcc) {
-                html += '<span style="color:#86909c;font-size:11px;margin-left:16px;">';
+                html += '<span style="color:var(--text-3);font-size:11px;margin-left:16px;">';
                 const parts = [];
                 for (const w of ["30d", "60d", "120d"]) {
                   const a = roleAcc[w];
@@ -2909,6 +2909,71 @@ function initShareButton() {
   });
 }
 
+// === 配色皮肤切换 ===
+function initThemeSwitcher() {
+  var THEMES = [
+    { id: "", name: "浅色", desc: "字节蓝（默认）", swatch: ["#f5f6f8", "#fff", "#165dff"] },
+    { id: "dark", name: "深色专业", desc: "金融终端风", swatch: ["#0d1117", "#161b22", "#58a6ff"] },
+    { id: "redgold", name: "红金中国", desc: "琥珀金主色", swatch: ["#1a1d29", "#252836", "#f0b90b"] },
+    { id: "morandi", name: "莫兰迪", desc: "低饱和柔和", swatch: ["#f5f1ec", "#fffaf3", "#6b7c93"] }
+  ];
+  var modal = document.createElement("div");
+  modal.className = "modal theme-modal hidden";
+  modal.innerHTML =
+    '<div class="modal-body">' +
+      '<button class="theme-modal-close" title="关闭">×</button>' +
+      '<h3>🎨 切换皮肤</h3>' +
+      '<div class="theme-options">' +
+        THEMES.map(function (t) {
+          return (
+            '<button class="theme-option" data-theme="' + t.id + '">' +
+              '<span class="theme-swatch">' +
+                t.swatch.map(function (c) { return '<span style="background:' + c + '"></span>'; }).join("") +
+              '</span>' +
+              '<span class="theme-info"><span class="theme-name">' + t.name + '</span>' +
+              '<span class="theme-desc">' + t.desc + '</span></span>' +
+              '<span class="theme-check">✓</span>' +
+            '</button>'
+          );
+        }).join("") +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+
+  function currentTheme() {
+    try { return localStorage.getItem("trade-theme") || ""; } catch (e) { return ""; }
+  }
+  function applyTheme(t) {
+    if (t) document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+    try { localStorage.setItem("trade-theme", t); } catch (e) {}
+  }
+  function renderActive() {
+    var cur = currentTheme();
+    modal.querySelectorAll(".theme-option").forEach(function (opt) {
+      opt.classList.toggle("active", opt.dataset.theme === cur);
+    });
+  }
+  document.querySelectorAll(".theme-btn").forEach(function (b) {
+    b.addEventListener("click", function () {
+      renderActive();
+      modal.classList.remove("hidden");
+    });
+  });
+  modal.addEventListener("click", function (e) {
+    if (e.target === modal || e.target.classList.contains("theme-modal-close")) {
+      modal.classList.add("hidden");
+      return;
+    }
+    var opt = e.target.closest(".theme-option");
+    if (opt) {
+      applyTheme(opt.dataset.theme);
+      renderActive();
+      setTimeout(function () { modal.classList.add("hidden"); }, 180);
+    }
+  });
+}
+
 
 initStickyOffset();
 initBackToTop();
@@ -2916,6 +2981,7 @@ initRuleButton();
 initH5();
 initSimOverlay();
 initShareButton();
+initThemeSwitcher();
 
 // === 主 tab hash 记忆 + 滚动位置恢复 ===
 // 切 tab 写 hash（replaceState 不入历史、不触发 hashchange），F5 读 hash 恢复 tab + 滚动位置。
