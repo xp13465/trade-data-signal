@@ -33,14 +33,31 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **晚间兜底（20:00）**：backfill 轻量补采缺失+重算情绪分。
 
 ### 🔄 排队任务（本轮新增，待做）
-- **[排队-1] iframe 模拟回测弹窗跟随主题**：大盘 tab 模拟回测弹窗里的 `trade_sim_*.html`（scripts/simulate_trade.py 生成 80+ 个独立 HTML），硬编码浅色，红金/深色主题下 iframe 内仍白底黑字。需改生成脚本模板加 CSS 变量定义+主题传递（postMessage/URL hash）+ 重新生成全部 HTML。当前红金下能看清，不紧急。
-- **[排队-2] ECharts canvas 线色跟随主题**：布林轨道(#c9cdd4)/中轨(#86909c)等 ECharts canvas 配置不支持 CSS var()，深色主题下可能不协调。需读 CSS 变量值传给 ECharts option。
+- **[排队-1] iframe 模拟回测弹窗跟随主题** ✅ 已完成（commit 7485005，URL hash+postMessage 双保险）。
+- **[排队-2] ECharts canvas 线色跟随主题** ✅ 部分完成（commit 2cb2aab，轴线/网格/tooltip/布林轨道改读 CSS 变量）。**补漏中**：title/legend/axisLabel/series name 文字色 + 卡片标注文字色硬编码未覆盖，用户反馈"看不清"。皮肤适配 agent 正在做这个补漏。
 - **[排队-3] Vol_breakout 图表**：策略实验室补图（策略实验室缺该策略的图表，复用 computeBBLab 模式）。
 - **[排队-4] P2 剩 L1**：买卖信号弹窗下全历史（lab.js 专项，评估报告 P2 级遗留）。
-- **[排队-5] P3 剩余 10 条**：评估报告 P3 级遗留项。先读 `EVAL_REPORT_2026-07-13.md` 确认 P3 具体清单。
+- **[排队-5] P3 剩余 11 条**：评估报告 P3 级遗留项。清单见 `EVAL_REPORT_2026-07-13.md`，已确认 11 条（O3 分享图重复请求/M2 renderGlobal null守卫/S2 月均年初虚高/I2 概念无搜索/I3 锚点无scrollspy/L2 实验图表窗口不联动/L3 规则弹窗频率缓存不刷新/L4 推荐榜超时只提示不取消/X2 _headers漏qr.js/X3 版本号用mtime非hash/X6 信号频率字段双轨）。
+
+### 🚀 性能优化排队（2026-07-13 评估）
+> 评估共 P0×2 + P1×5 + P2×5 = 12 条。最大杠杆是 P0 两项（服务器压缩+缓存头），属部署层配置非纯代码。
+
+- **[性能-P0-1] 服务器开 gzip/br 压缩**：线上 MaoziYun/3.17.0 零压缩，JS/CSS/JSON 全裸传。echarts 1MB、app.js 162KB、大盘"全部"tab 4MB、行业"全部"24MB。开 gzip 后首屏 296KB->83KB，弱网提速 3-5 倍。**单项最高收益**。需 MaoziYun 改 nginx `gzip on; gzip_types application/json text/javascript text/css;` 或接 Cloudflare 代理。**待用户确认服务器可改性**。
+- **[性能-P0-2] 修缓存头**：`_headers` 是 Cloudflare Pages 专属，线上 MaoziYun 不解析，所有文件统一 `max-age=1200`（20分钟）。版本化资源（app.js?v=xxx）本该 1 年 immutable，index.html/data 本该 no-cache。回访用户每天重复下载 1.4MB JS+1MB echarts。需服务器配 Cache-Control 或接 Cloudflare。**与 P0-1 同属部署层，一起做**。
+- **[性能-P1-1] echarts.min.js 加 defer**：1MB 在 `<head>` 同步阻塞渲染（index.html:29），加 defer 首屏提前 200-800ms。或按需引入（echarts/core+charts，tree-shake 后 1MB->300KB）。
+- **[性能-P1-2] window.resize 加 debounce**：app.js:36 拖拽时高频触发全量图表 resize，加 150ms debounce，CPU 降 90%+。
+- **[性能-P1-3] 行业"全部"范围 31 文件 24MB**：并发拉 31 个 industry-all-indices/*.json。短期靠 P0-1 gzip 降到 3.6MB；中期服务端预合并单文件或 HTTP/2 server-push。
+- **[性能-P1-4] app.js/lab.js minify**：161KB/135KB 源码含注释直上线。加 terser/esbuild 构建步骤（保留 source map），各省 ~50%。
+- **[性能-P1-5] 全球"全部"范围 5.5MB**：global-all 3.1MB + 4 美股详情 2.4MB（只为取标注字段）。后端导出轻量 global-extras-signals.json 只含 signals/stats。
+- **[性能-P2-1] renderOverview 串行 fetch 改并行**：ad_line/volume_ratio/new_high_low 三个 await 改 Promise.all，省 100-200ms。
+- **[性能-P2-2] trade_sim 83个 45MB**：按需 iframe 加载设计合理，靠 P0-1 gzip 即可（1.5MB->200KB）。
+- **[性能-P2-3] FastAPI StaticFiles 无 etag/cache-control**：web/ 动态站静态资源无缓存头。加 CacheControlMiddleware。优先级低（公网主入口是 static-site/）。
+- **[性能-P2-4] lab 过滤输入无 debounce**：lab.js:2013 每次按键重建 DOM，82 项规模影响小，可加 100ms debounce。
+- **[性能-P2-5] H5 无轻量版**：移动端加载完整 app.js+lab.js+echarts。靠 P0-1 gzip + P1-1 defer 后可接受；远期按 tab 懒加载 lab.js。
+- **设计已良好（不动）**：ECharts 实例 dispose 干净、lab_sim 按需懒加载、intraday_snapshot 单例 Promise 防重复、行业搜索纯客户端不 refetch。
 
 ### 下轮起点
-排队-1/2 做完后，转暂缓待办（见下方 TASKS.md 任务清单）或装 superpowers 插件（memory `todo-install-superpowers-plugin`）。开工先读本节。
+排队-1/2 已完成。下一步：性能 P0（部署层，待用户确认服务器可改性）/ 性能 P1 前端可改项（P1-1/P1-2 等 A 皮肤适配完成后串行做，都改 app.js/lab.js）/ 排队-3 Vol_breakout / 排队-4 P2-L1 / 排队-5 P3-11条。开工先读本节。
 
 ## 交接状态（2026-07-11 续4，模拟回测升级-穷尽配对+双模式+分页）
 
