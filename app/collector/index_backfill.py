@@ -386,6 +386,11 @@ def main():
 
     if ok > 0:
         print("[backfill] 补到新数据 -> 重算情绪分 + 推送公网")
+        # 写 collect_log 让 overview.json 的 collected_at 更新为本次 backfill 时间
+        # (export.py collected_at 读 collect_log 最新 run_at; compute.runner 不写它,
+        #  不写则前端采集时间卡在上次 update_all 时间,用户以为没更新)
+        from .base import log_collect
+        log_collect(today, "backfill", "ok", f"backfill补采{ok}项->重算+推送")
         repo = Path(__file__).resolve().parent.parent.parent
         subprocess.run([sys.executable, "-m", "app.compute.runner"], check=False)
         subprocess.run(["bash", "scripts/deploy.sh", "backfill"], cwd=repo, check=False)
