@@ -1099,7 +1099,7 @@ def manual(entry: ManualEntry):
 
 # ============ 前端静态文件 ============
 _INDEX_CACHE = {"sig": None, "html": None}
-_INDEX_ASSETS = ("style.css", "app.js", "vendor/echarts.min.js")
+_INDEX_ASSETS = ("style.css", "app.min.js", "lab.css", "lab.min.js", "qr.js", "vendor/echarts.min.js")
 
 
 def _render_index():
