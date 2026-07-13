@@ -19,6 +19,10 @@
 # 退出码：core pipeline 退出码（核心看板公网状态）。
 set -u
 
+# 防止脚本运行期间 mac 休眠（17:50 launchd 触发时若 mac 在睡眠边缘，跑期间不再睡；
+# caffeinate -i 防系统空闲睡眠，-w $$ 跟随本脚本 PID，脚本退出 caffeinate 自动结束）
+caffeinate -i -w $$ >/dev/null 2>&1 &
+
 REPO=/Users/linhuichen/code/trade
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
