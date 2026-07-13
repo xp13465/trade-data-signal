@@ -85,6 +85,11 @@
 [data-theme="redgold"] .rule-float-btn:hover { background: rgba(240,185,11,0.92); }
 [data-theme="morandi"] .rule-float-btn { background: rgba(107,124,147,0.72); box-shadow: 0 2px 8px rgba(107,124,147,0.25); }
 [data-theme="morandi"] .rule-float-btn:hover { background: rgba(107,124,147,0.92); }
+/* 深色/红金主题：chart-hint 浅暖底 + 今日行浅橙底在深底刺眼且浅色文字看不清，改主题底 */
+[data-theme="dark"] .chart-hint,
+[data-theme="redgold"] .chart-hint { background: var(--bg-hover); border-color: var(--border-strong); }
+[data-theme="dark"] .sig-day-row.today-row,
+[data-theme="redgold"] .sig-day-row.today-row { background: var(--bg-active); }
 
 * { box-sizing: border-box; }
 body {
@@ -207,7 +212,7 @@ main { padding: 16px 24px; }
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); }
 /* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
-.chart-latest { color: var(--primary); font-weight: 600; background: rgba(37,99,235,0.08); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+.chart-latest { color: var(--primary); font-weight: 600; background: var(--primary-bg); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip） */
 .term-tip {
   display: inline-block;
