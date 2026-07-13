@@ -213,7 +213,7 @@ main { padding: 16px 24px; }
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); }
 /* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
-.chart-latest { color: var(--bg-card); font-weight: 600; background: var(--primary); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+.chart-latest { color: var(--primary); font-weight: 600; background: var(--primary-bg); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 港股盘中实时标注（快照注入 _snap_intraday=true 时显示在图表标题旁） */
 .snap-intraday-tag { color: #e6a23c; font-size: 12px; font-weight: normal; white-space: nowrap; }
 /* A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip） */
