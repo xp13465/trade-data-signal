@@ -35,6 +35,9 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 🔄 排队任务（本轮新增，待做）
 - **[排队-1] iframe 模拟回测弹窗跟随主题**：大盘 tab 模拟回测弹窗里的 `trade_sim_*.html`（scripts/simulate_trade.py 生成 80+ 个独立 HTML），硬编码浅色，红金/深色主题下 iframe 内仍白底黑字。需改生成脚本模板加 CSS 变量定义+主题传递（postMessage/URL hash）+ 重新生成全部 HTML。当前红金下能看清，不紧急。
 - **[排队-2] ECharts canvas 线色跟随主题**：布林轨道(#c9cdd4)/中轨(#86909c)等 ECharts canvas 配置不支持 CSS var()，深色主题下可能不协调。需读 CSS 变量值传给 ECharts option。
+- **[排队-3] Vol_breakout 图表**：策略实验室补图（策略实验室缺该策略的图表，复用 computeBBLab 模式）。
+- **[排队-4] P2 剩 L1**：买卖信号弹窗下全历史（lab.js 专项，评估报告 P2 级遗留）。
+- **[排队-5] P3 剩余 10 条**：评估报告 P3 级遗留项。先读 `EVAL_REPORT_2026-07-13.md` 确认 P3 具体清单。
 
 ### 下轮起点
 排队-1/2 做完后，转暂缓待办（见下方 TASKS.md 任务清单）或装 superpowers 插件（memory `todo-install-superpowers-plugin`）。开工先读本节。
