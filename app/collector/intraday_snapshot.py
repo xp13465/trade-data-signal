@@ -7,6 +7,10 @@
 - 31 申万一级行业实时涨跌幅：复用同花顺 stock_board_industry_summary_ths（90 子行业），
   通过 THS_TO_SW 聚合（涨跌幅按成交额加权、净流入求和、领涨股取涨幅最高子行业）。
 - is_market_closed：本地时间判断盘中区间（9:30-11:30/13:00-15:00 交易日）。
+- **指数反哺**：采集完 9 指数后，把当日 OHLC 写入 index_daily 表（UPSERT），
+  触发重算 per-index 情绪分 + 恐贪指数 + dump 静态 JSON，
+  使指数卡片/恐贪/per-index 情绪分到当日（解决 T+1 延迟致停在 T-2 的问题）。
+  非交易日不反哺；快照 datetime 非当日不写（避免旧快照污染）。
 """
 import json
 import time
@@ -38,6 +42,19 @@ _SINA_HEADERS = {"User-Agent": UA, "Referer": "https://finance.sina.com.cn"}
 
 # static-site 静态 JSON 输出路径（与 export.py 的 DATA_DIR 同源）
 STATIC_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "static-site" / "data"
+
+# 快照 code -> index_daily.index_id 映射（9 核心指数）
+_SNAPSHOT_TO_INDEX_ID = {
+    "sh000001": "sh",      # 上证指数
+    "sz399001": "sz",      # 深证成指
+    "sh000300": "hs300",   # 沪深300
+    "sh000016": "sz50",    # 上证50
+    "sh000905": "csi500",  # 中证500
+    "sh000852": "csi1000",  # 中证1000
+    "sz399006": "cyb",     # 创业板指
+    "sh000688": "kc50",    # 科创50
+    "bj899050": "bj50",    # 北证50
+}
 
 
 def _now_iso() -> str:
@@ -313,6 +330,119 @@ def _save_db(collected_at: str, is_closed: bool,
     conn.close()
 
 
+def _backfill_index_daily(indices: list[dict]) -> int:
+    """把盘中快照的当日指数 OHLC 反哺 index_daily 表（UPSERT，幂等）。
+
+    解决 T+1 数据源（baostock/东财 trend）收盘后未出当日数据致指数卡片/恐贪停在 T-2 的问题。
+    快照无成交额，amount 留 NULL（per-index 情绪分的 volume 分项会缺，但 RSI+pct_change 仍可算）。
+    非交易日不写；快照 datetime 非当日不写（避免旧快照污染）。
+    返回写入的指数条数。
+    """
+    from ..calendar import is_trading_day
+
+    today = datetime.now().strftime("%Y%m%d")
+    if not is_trading_day(today):
+        print(f"  [intraday] 非交易日({today})，跳过 index_daily 反哺", flush=True)
+        return 0
+
+    conn = get_conn()
+    n = 0
+    for idx in indices:
+        code = idx.get("code", "")
+        index_id = _SNAPSHOT_TO_INDEX_ID.get(code)
+        if not index_id:
+            continue
+        price = idx.get("price")
+        if price is None:
+            continue
+        # datetime 校验：必须是当日数据，避免旧快照污染
+        dtstr = idx.get("datetime", "")
+        snap_date = dtstr[:8] if len(dtstr) >= 8 else ""
+        if snap_date and snap_date != today:
+            print(f"  [intraday] {code} 快照日期 {snap_date} != 今日 {today}，跳过", flush=True)
+            continue
+
+        conn.execute(
+            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
+            "VALUES (?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(date, index_id) DO UPDATE SET "
+            "open=excluded.open, high=excluded.high, low=excluded.low, "
+            "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+            (today, index_id, idx.get("open"), idx.get("high"), idx.get("low"),
+             price, idx.get("pct_change"), None),
+        )
+        n += 1
+    conn.commit()
+    conn.close()
+    print(f"  [intraday] index_daily 反哺完成：{n} 条（来源：实时快照，amount=NULL）", flush=True)
+    return n
+
+
+def _recompute_scores() -> None:
+    """反哺后重算 6 个 per-index 情绪分 + 恐贪指数。
+
+    per-index 情绪分（sentiment_sz50/hs300/csi500/csi1000/cyb/kc50）依赖 index_daily OHLC，
+    反哺当日数据后重算即可得到当日值。恐贪 = 8 子情绪分等权平均，6 个 per-index 更新后
+    连同已有的 a_sentiment + cross_market（均到当日）合成恐贪当日值。
+    """
+    from ..compute import sentiment, fear_greed
+
+    index_ids = ["sz50", "hs300", "csi500", "csi1000", "cyb", "kc50"]
+    for idx_id in index_ids:
+        idx_score, idx_comps = sentiment.compute_index_sentiment(idx_id)
+        n = sentiment.store(idx_score, idx_comps, score_id=f"sentiment_{idx_id}")
+        last_val = round(float(idx_score.dropna().iloc[-1]), 2) if not idx_score.dropna().empty else None
+        last_date = idx_score.dropna().index[-1] if not idx_score.dropna().empty else "?"
+        print(f"  [intraday] sentiment_{idx_id}: {n}天, 末日={last_date}={last_val}", flush=True)
+
+    n_fg = fear_greed.compute_fear_greed()
+    # 查恐贪末日验证
+    conn = get_conn()
+    fg_last = conn.execute(
+        "SELECT date, value FROM score_daily WHERE score_id='fear_greed' ORDER BY date DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    fg_str = f"{fg_last['date']}={fg_last['value']}" if fg_last else "?"
+    print(f"  [intraday] fear_greed 重算: {n_fg}天, 末日={fg_str}", flush=True)
+
+
+def _export_affected_json() -> None:
+    """重算后 dump 受影响的静态 JSON（双版同步：static-site/data/）。
+
+    导出：overview + sentiment(5 ranges) + 9 指数 detail，
+    让 static-site 的恐贪/情绪分/指数 sparkline 都到当日。
+    """
+    import importlib.util
+    from .fetchers import load_config
+
+    ROOT = Path(__file__).resolve().parent.parent.parent
+    spec = importlib.util.spec_from_file_location("export", ROOT / "static-site" / "export.py")
+    export_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(export_mod)
+
+    cfg = load_config()
+    conn = get_conn()
+
+    # overview（含 scores + indices_sparkline + fear_greed_6m）
+    export_mod.write_json(export_mod.DATA_DIR / "overview.json",
+                          export_mod.export_overview(conn, cfg))
+
+    # sentiment 5 ranges（含 6 per-index + fear_greed 全历史）
+    for rng in export_mod.ALL_RANGES:
+        export_mod.write_json(export_mod.DATA_DIR / f"sentiment-{rng}.json",
+                              export_mod.export_sentiment(conn, cfg, rng))
+
+    # 9 指数 detail（反哺的指数 OHLC + signals）
+    affected = list(_SNAPSHOT_TO_INDEX_ID.values())
+    for iid in affected:
+        export_mod.write_json(export_mod.INDEX_DIR / f"{iid}-all.json",
+                              export_mod.export_index_detail(conn, cfg, iid))
+
+    conn.close()
+    print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)}",
+          flush=True)
+
+
 def build_snapshot() -> dict:
     """采集 + 组装快照 dict（不落库）。供 collect_and_save 和 API 共用。"""
     indices = fetch_index_realtime()
@@ -328,7 +458,13 @@ def build_snapshot() -> dict:
 
 
 def collect_and_save() -> dict:
-    """采集 + 存 DB + dump 静态 JSON。返回快照 dict。"""
+    """采集 + 存 DB + dump 静态 JSON。返回快照 dict。
+
+    采集完腾讯实时 9 指数后，把当日 OHLC 反哺 index_daily 表（UPSERT），
+    再重算 per-index 情绪分 + 恐贪指数，最后 dump 受影响的静态 JSON，
+    使指数卡片/恐贪/per-index 情绪分都能到当日（解决 T+1 延迟致停在 T-2 的问题）。
+    反哺/重算/export 失败不阻断快照本身（快照已落库落盘）。
+    """
     print(f"[intraday] 开始采集盘中实时快照 {datetime.now():%Y-%m-%d %H:%M:%S}", flush=True)
     t0 = time.time()
 
@@ -345,8 +481,22 @@ def collect_and_save() -> dict:
     out_path.write_text(text, encoding="utf-8")
 
     dt = time.time() - t0
-    print(f"[intraday] 完成：{len(snap['indices'])} 指数 / {len(snap['industries'])} 行业 "
+    print(f"[intraday] 快照完成：{len(snap['indices'])} 指数 / {len(snap['industries'])} 行业 "
           f"({snap['label']})，{dt:.1f}s -> {out_path.name}", flush=True)
+
+    # 反哺 index_daily + 重算情绪分/恐贪 + dump 静态 JSON
+    # 失败不阻断快照本身（快照已落库落盘，反哺是增强）
+    try:
+        n_backfill = _backfill_index_daily(snap["indices"])
+        if n_backfill > 0:
+            _recompute_scores()
+            _export_affected_json()
+            print(f"[intraday] 反哺+重算+export 完成（{n_backfill} 指数反哺）", flush=True)
+        else:
+            print(f"[intraday] 无指数反哺（非交易日或快照非当日），跳过重算", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[intraday] 反哺/重算/export 失败（快照已保存）: {type(e).__name__} {e}", flush=True)
+
     return snap
 
 
