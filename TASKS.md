@@ -10,6 +10,35 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 > ⚠ 开工先看 `data/alerts/latest.md` 是否有未处理严重告警，有则优先排查。
 
+## 交接状态（2026-07-13，盘中实时快照 P0 + 配色皮肤切换）
+
+> 本轮解决用户 P0 核心需求「最早看到最多数据」+ 站点配色优化。20 commit 全推 main。
+
+### 本轮已完成
+1. **盘中实时快照采集**（`dfc6fd9`）：腾讯9指数实时+同花顺31行业实时涨跌幅，秒级。新建 `app/collector/intraday_snapshot.py`，API `/api/intraday_snapshot` + 静态 `data/intraday_snapshot.json` 双版。
+2. **快照反哺 index_daily + 重算情绪分**（`938c5c8`）：快照把腾讯实时9指数当日收盘价写入 index_daily，触发重算 6 个 per-index 情绪分 + 恐贪指数 + dump 静态 JSON。**解决收盘后指数/恐贪卡片停 T-2 问题**（不依赖 T+1 源）。
+3. **前端接入快照 + 盘中标注**（`f3063b6`）：首页一句话总结优先用快照（解决"上证涨0%/无明显热点板块"空数据），盘中标注 `⏰ 盘中实时小结（未收盘，当日数据还会变化）` / `📍 收盘快照`。
+4. **盘中快照 launchd 定时**（`a86bdbc`）：11 时点（9:35/10:05/10:35/11:05/11:30/13:05/13:35/14:05/14:35/15:05/15:35）每 30 分钟跑一次。脚本 `scripts/intraday_snapshot.sh`，plist 备份 `scripts/plists/`。
+5. **update_all 定时后移 15:33 -> 17:50**（`3251f83`）：实测 baostock 17:49 才出当日 T+1 数据，15:33 跑太早采不到。后移到 17:50 让主源采到当日。申万 trend 更晚出，靠快照反哺+20:00 backfill 兜底。
+6. **配色皮肤切换**（`37353c8`）：4 套皮肤（浅色/深色dark/红金redgold/莫兰迪morandi）。抽 15 个 CSS 变量，UI 色抽 var()，数据语义色（涨红跌绿/冰点过热/恐贪色阶/辅买紫）保留硬编码。🎨 按钮在 header 右侧（PC+H5），localStorage 持久化。
+7. **默认皮肤改红金中国**（`c135d0c`）：用户偏好，首次访问（localStorage null）回退 redgold。
+8. **皮肤适配修复**（`3ef3ab6`）：`_LAB_FSTYLE` 内联色改 var()、净值曲线 SVG 改 var()、lab.css/style.css 硬编码 UI 色改 var()。
+9. **北向资金停更卡片恢复隐藏**（`68fe402`）：M3 修复（aafa8bf）误把北向从"停更隐藏"改成"显示占位"，改回隐藏。
+10. **回撤颜色改纯文字色**（`ed67d98`）：去背景/padding/radius，只保留浅绿到深绿文字渐变 + stripHtml 去多余空格。
+11. **散户白话注释 A+B**（`7d1cd5b`）：11 处标题❓hover + 6 卡片底部 muted + 实验室指标释义折叠。
+
+### 三段式数据更新策略（P0 核心，已上线）
+- **盘中实时（9:35-15:35 每30分钟）**：快照秒级，腾讯/同花顺实时源不依赖T+1，反哺index_daily+重算恐贪。盘中/收盘5分钟内看当日。
+- **收盘正式（17:50）**：update_all 全量，baostock~17:45出当日T+1后跑，补完整OHLC+情绪分+deploy+信号邮件。
+- **晚间兜底（20:00）**：backfill 轻量补采缺失+重算情绪分。
+
+### 🔄 排队任务（本轮新增，待做）
+- **[排队-1] iframe 模拟回测弹窗跟随主题**：大盘 tab 模拟回测弹窗里的 `trade_sim_*.html`（scripts/simulate_trade.py 生成 80+ 个独立 HTML），硬编码浅色，红金/深色主题下 iframe 内仍白底黑字。需改生成脚本模板加 CSS 变量定义+主题传递（postMessage/URL hash）+ 重新生成全部 HTML。当前红金下能看清，不紧急。
+- **[排队-2] ECharts canvas 线色跟随主题**：布林轨道(#c9cdd4)/中轨(#86909c)等 ECharts canvas 配置不支持 CSS var()，深色主题下可能不协调。需读 CSS 变量值传给 ECharts option。
+
+### 下轮起点
+排队-1/2 做完后，转暂缓待办（见下方 TASKS.md 任务清单）或装 superpowers 插件（memory `todo-install-superpowers-plugin`）。开工先读本节。
+
 ## 交接状态（2026-07-11 续4，模拟回测升级-穷尽配对+双模式+分页）
 
 > 阶段二模拟回测升级：穷尽买点配对 + 双交易模式 + 交易记录分页。1 commit 推 main。
