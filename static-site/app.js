@@ -3260,9 +3260,10 @@ function updateRulesContentHtml() {
       '<h4>📅 更新时间表</h4>' +
       '<table class="ur-table"><thead><tr><th>时间</th><th>更新内容</th><th>说明</th></tr></thead><tbody>' +
         '<tr><td>盘中每30分钟</td><td>实时快照</td><td>9:35-15:35，腾讯/同花顺实时数据</td></tr>' +
-        '<tr><td>15:05</td><td>收盘快照</td><td>收盘后5分钟出当日涨跌幅+热点</td></tr>' +
+        '<tr><td>15:33</td><td>收盘快照</td><td>A股收盘后实时源采当日涨跌幅+热点</td></tr>' +
+        '<tr><td>16:30</td><td>港股补采</td><td>港股16:00收盘后补采当日恒生指数</td></tr>' +
         '<tr><td>17:50</td><td>收盘全量</td><td>baostock等T+1源出数据后全量采集</td></tr>' +
-        '<tr><td>20:00</td><td>晚间兜底</td><td>补采晚出的申万等数据</td></tr>' +
+        '<tr><td>20:00</td><td>晚间兜底</td><td>补采晚出的申万/港股等数据</td></tr>' +
         '<tr><td>02:00</td><td>凌晨兜底</td><td>补采遗漏确保次日数据齐全</td></tr>' +
       '</tbody></table>' +
     '</div>' +
