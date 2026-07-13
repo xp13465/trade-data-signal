@@ -1053,12 +1053,18 @@ function _labLvl(val, thresholds) {
   return "warn";
 }
 
-// 最大回撤配色：国人风格 红=好(回撤小)/黄=一般/绿=差(回撤大)，与 .lab-matrix-good/warn/bad 同色值
-// 阈值：回撤<20%=good红、20-40%=warn黄、>40%=bad绿
+// 最大回撤配色：统一绿色渐变（浅绿=回撤小好，深绿=回撤大差），连续线性插值不分档
+// t = min(max_dd/50, 1)，背景 = lerp(#c8f7c5, #1b5e20, t)；文字色按背景亮度自动白/深绿保证可读
+// 返回完整 inline style（background+color+padding+radius），调用方直接 style="${_labDdColor(dd)}"
 function _labDdColor(dd) {
-  if (dd < 20) return "#c92a2a";   // good 红
-  if (dd > 40) return "#2e7d32";   // bad 绿
-  return "#ad6800";                 // warn 黄
+  var t = Math.min(Math.max((dd || 0) / 50, 0), 1);
+  var r = Math.round(0xc8 + (0x1b - 0xc8) * t);
+  var g = Math.round(0xf7 + (0x5e - 0xf7) * t);
+  var b = Math.round(0xc5 + (0x20 - 0xc5) * t);
+  var lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  var fg = lum > 150 ? "#1b5e20" : "#ffffff";
+  return "background:rgb(" + r + "," + g + "," + b + ");color:" + fg +
+         ";padding:1px 6px;border-radius:4px";
 }
 
 // 提取策略触发简述：优先取中文括号内内容，否则取逗号前
@@ -1156,7 +1162,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     `<div class="lab-sim-stats">` +
     `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
     `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">${s.years} 年</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="color:${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
     `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
     `</div>` +
     (signalBtnHTML || "") +
@@ -1830,7 +1836,7 @@ function _labRankItemHTML(row, rank, tab) {
     `<span class="lab-rank-stats">` +
       `<span style="color:${retC}">收益${row.total_ret > 0 ? "+" : ""}${row.total_ret}%</span>` +
       `<span style="color:${winC}">胜${row.win_rate}%</span>` +
-      `<span style="color:${ddC}">回撤${row.max_drawdown}%</span>` +
+      `<span style="${ddC}">回撤${row.max_drawdown}%</span>` +
       `<span class="lab-rank-n">n=${row.n_trades}</span>` +
     `</span>` + extra + `</button>`;
 }
