@@ -1816,7 +1816,73 @@ main { padding: 16px 24px; }
 }
 .nt-sig-table th { color: var(--text-1); font-weight: 600; }
 .nt-sig-table td:last-child { white-space: normal; }
+
+/* ── 4层概览看板 ── */
+/* 第1层：总览摘要条 */
+.nt-summary-bar {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  background: var(--bg-card); border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--primary); border-radius: 8px;
+  padding: 10px 14px; margin-bottom: 14px;
+}
+.nt-sum-item { display: flex; flex-direction: column; min-width: 90px; padding: 0 10px; border-right: 1px solid var(--border); }
+.nt-sum-item:last-child { border-right: none; flex: 1; }
+.nt-sum-label { font-size: 11px; color: var(--text-3); margin-bottom: 3px; }
+.nt-sum-val { font-size: 15px; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+
+/* 第2层：矩阵热力图 */
+.nt-heatmap-card { margin-bottom: 14px; }
+.nt-heatmap-wrap { overflow-x: auto; }
+.nt-heatmap { width: 100%; border-collapse: collapse; font-size: 12px; }
+.nt-heatmap th, .nt-heatmap td {
+  padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left;
+  color: var(--text-2); white-space: nowrap;
+}
+.nt-heatmap th { color: var(--text-1); font-weight: 600; }
+.nt-heat-row { cursor: pointer; transition: background 0.12s; }
+.nt-heat-row:hover { background: var(--bg-hover); }
+.nt-cell-code { color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+.nt-cell-name { font-size: 11px; color: var(--text-3); font-weight: 400; }
+.nt-cell-num { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* 第3层：卡片墙 */
+.nt-wall-card { margin-bottom: 14px; }
+.nt-card-wall {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+}
+.nt-mini-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; cursor: pointer; transition: all 0.15s;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.nt-mini-card:hover { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+.nt-mini-head { display: flex; align-items: baseline; gap: 6px; }
+.nt-mini-code { font-size: 13px; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.nt-mini-name { font-size: 11px; color: var(--text-3); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nt-mini-spark { color: var(--text-2); height: 30px; }
+.nt-mini-spark .nt-spark { display: block; }
+.nt-mini-foot { display: flex; align-items: center; justify-content: space-between; }
+.nt-mini-chg { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.nt-badge { font-size: 12px; line-height: 1; }
+.nt-mini-chg.nt-up { color: #e6492e; }
+.nt-mini-chg.nt-down { color: #2e8b57; }
+
+/* 返回概览按钮 */
+.nt-back-btn {
+  margin-bottom: 12px; padding: 6px 14px;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  background: var(--bg-card); color: var(--text-2); cursor: pointer;
+  font-size: 13px; font-weight: 600; font-family: inherit;
+  transition: all 0.15s;
+}
+.nt-back-btn:hover { border-color: var(--primary); color: var(--primary); }
+
 @media (max-width: 768px) {
   .nt-kpi { grid-template-columns: repeat(2, 1fr); }
+  .nt-card-wall { grid-template-columns: repeat(2, 1fr); }
+  .nt-heatmap { font-size: 11px; }
+  .nt-heatmap th, .nt-heatmap td { padding: 6px 8px; }
+  .nt-sum-item { min-width: 70px; padding: 0 6px; }
+  .nt-sum-val { font-size: 14px; }
 }
 

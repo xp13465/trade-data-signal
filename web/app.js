@@ -1,6 +1,6 @@
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300" };
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview" };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1676,7 +1676,9 @@ async function renderMarket() {
 // 口径：代理推断，非真实国家队席位数据。基于 ETF 每日份额变动+成交额放量，结合季度机构持仓占比校准，
 // 推断疑似大资金进场/离场。无法精确区分汇金/证金/社保/险资/公募。详见 REQUIREMENTS.md §8.6。
 // v2 待办（任务#60）：汇金/证金具名识别展示位置 - 等 v2 后端补具名席位数据后，在下方"关键事件"区前加明细卡片。
+// 首屏=4层概览看板（总览摘要条+矩阵热力图+卡片墙+叠加对比折线），点卡片/热力图行/折线进单只详情。
 async function renderNationalTeam(container = content) {
+  _disposeContainerCharts(container);
   container.innerHTML = '<div class="loading">加载中…</div>';
   let data, qData;
   try {
@@ -1700,6 +1702,214 @@ async function renderNationalTeam(container = content) {
     `<h3>🐶 汪汪队 - 国家队宽基 ETF 资金动向 <span class="term-tip" title="汪汪队=国家队。追踪12只宽基ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动+成交额放量，推断疑似大资金进场/离场。份额异动z-score>2且放量1.5倍以上=疑似大资金进场(红)，反之为离场(绿)。注意：这是代理推断，无法100%确认是国家队，份额变动可能来自任何机构/大户申赎。">❓</span></h3>` +
     `<div class="nt-banner-body">追踪 12 只宽基 ETF 的<span style="color:var(--primary)">份额变动+成交额放量</span>，推断疑似大资金（含国家队）进场/离场。<b>口径声明</b>：本指标为代理推断，非真实国家队席位数据，无法精确区分汇金/证金/社保/险资/公募。份额变动可能来自任何机构/大户申赎，不等于国家队操作。当季机构占比&gt;85% 时置信度×1.5（国家队主导品种）。</div>`;
   container.appendChild(banner);
+
+  if (state.ntView === "detail") {
+    renderNationalTeamDetail(container, data, qData);
+  } else {
+    renderNationalTeamOverview(container, data, qData);
+  }
+}
+
+// 散户白话：汪汪队 ETF 每只份额迷你折线（sparkline），SVG 轻量不走 ECharts，currentColor 跟主题
+function ntSparkline(daily, w, h) {
+  var vals = (daily || []).map(function (d) { return d.fund_share_yi; }).filter(function (v) { return v != null; });
+  if (vals.length < 2) return "";
+  var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+  var range = max - min || 1;
+  var pts = vals.map(function (v, i) {
+    var x = (i / (vals.length - 1)) * w;
+    var y = h - 2 - ((v - min) / range) * (h - 4);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  var lastV = vals[vals.length - 1];
+  var lastY = h - 2 - ((lastV - min) / range) * (h - 4);
+  return '<svg class="nt-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
+    '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+    '<circle cx="' + w.toFixed(1) + '" cy="' + lastY.toFixed(1) + '" r="2.2" fill="currentColor"/></svg>';
+}
+
+// 计算12只ETF的概览摘要（最新日份额变动/信号/机构占比/放量倍数）
+function ntBuildSummary(data, qData) {
+  return data.etfs.map(function (e) {
+    var daily = e.daily || [];
+    var latest = e.latest || daily[daily.length - 1] || {};
+    var qEtf = qData.etfs.find(function (q) { return q.code === e.code; });
+    var qLatest = qEtf && qEtf.history && qEtf.history.length ? qEtf.history[qEtf.history.length - 1] : null;
+    // 放量倍数=当日成交额/前5日均量（不含当日）
+    var recent5 = daily.slice(-6, -1);
+    var avg5 = recent5.length ? recent5.reduce(function (s, d) { return s + (d.amount || 0); }, 0) / recent5.length : 0;
+    var volRatio = avg5 > 0 && latest.amount ? latest.amount / avg5 : 0;
+    // 最近一条信号
+    var latestSig = null;
+    for (var i = daily.length - 1; i >= 0; i--) {
+      if (daily[i].signals && daily[i].signals.length) {
+        latestSig = Object.assign({}, daily[i].signals[0], { date: daily[i].date });
+        break;
+      }
+    }
+    return {
+      e: e, code: e.code, name: e.name, index: e.index,
+      daily: daily, latest: latest, qLatest: qLatest,
+      shareChangeYi: latest.share_change_yi || 0,
+      shareChangePct: latest.share_change_pct || 0,
+      close: latest.close || 0,
+      instPct: qLatest ? qLatest.inst_hold_pct : null,
+      volRatio: volRatio,
+      latestSig: latestSig,
+    };
+  });
+}
+
+// ── 4层概览首屏：总览摘要条+矩阵热力图+卡片墙+叠加对比折线 ──
+function renderNationalTeamOverview(container, data, qData) {
+  var summary = ntBuildSummary(data, qData);
+
+  // ▼ 第1层：总览摘要条 ▼
+  // 净流入=各ETF当日份额变动(亿份)×收盘价(元)求和=亿元；红流入绿流出
+  var netInflow = summary.reduce(function (s, e) { return s + e.shareChangeYi * e.close; }, 0);
+  var inflowCount = summary.filter(function (e) { return e.shareChangeYi > 0; }).length;
+  var outflowCount = summary.filter(function (e) { return e.shareChangeYi < 0; }).length;
+  var mostActive = summary.reduce(function (m, e) { return Math.abs(e.shareChangeYi) > Math.abs(m.shareChangeYi) ? e : m; }, summary[0]);
+  var bar = document.createElement("div");
+  bar.className = "nt-summary-bar";
+  var netCls = netInflow >= 0 ? "nt-up" : "nt-down";
+  var netSign = netInflow >= 0 ? "+" : "";
+  bar.innerHTML =
+    '<div class="nt-sum-item"><span class="nt-sum-label">净流入</span><span class="nt-sum-val ' + netCls + '">' + netSign + netInflow.toFixed(2) + ' 亿</span></div>' +
+    '<div class="nt-sum-item"><span class="nt-sum-label">增持</span><span class="nt-sum-val nt-up">' + inflowCount + ' 只</span></div>' +
+    '<div class="nt-sum-item"><span class="nt-sum-label">减持</span><span class="nt-sum-val nt-down">' + outflowCount + ' 只</span></div>' +
+    '<div class="nt-sum-item"><span class="nt-sum-label">最活跃</span><span class="nt-sum-val">' + mostActive.code + ' ' + mostActive.name + '</span></div>';
+  container.appendChild(bar);
+
+  // ▼ 第2层：矩阵热力图 ▼
+  // 12行×指标列，色阶着色：份额变动红流入/绿流出，机构占比高深色，放量倍数>1.5橙色
+  var heatSec = document.createElement("div");
+  heatSec.className = "chart-card nt-heatmap-card";
+  heatSec.innerHTML = '<h3>12 只 ETF 资金矩阵 <span class="term-tip" title="一屏看全12只：份额变动%(红=流入/绿=流出，色越深变动越大)、最新信号、机构占比%(深色=国家队主导>85%)、放量倍数(橙=成交活跃>1.5倍)。点行进单只详情。">❓</span></h3>';
+  var heatWrap = document.createElement("div");
+  heatWrap.className = "nt-heatmap-wrap";
+  heatWrap.innerHTML = '<table class="nt-heatmap"><thead><tr>' +
+    '<th>ETF</th><th>跟踪指数</th><th>份额变动%</th><th>最新信号</th><th>机构占比%</th><th>放量倍数</th>' +
+    '</tr></thead><tbody></tbody></table>';
+  heatSec.appendChild(heatWrap);
+  container.appendChild(heatSec);
+  var tbody = heatWrap.querySelector("tbody");
+  summary.forEach(function (s) {
+    var tr = document.createElement("tr");
+    tr.className = "nt-heat-row";
+    tr.onclick = function () { state.ntEtf = s.code; state.ntView = "detail"; renderNationalTeam(container); };
+    var scp = s.shareChangePct;
+    var scpColor = scp > 0 ? "rgba(230,73,46," + Math.min(Math.abs(scp) / 5, 0.45).toFixed(2) + ")"
+      : scp < 0 ? "rgba(46,139,87," + Math.min(Math.abs(scp) / 5, 0.45).toFixed(2) + ")" : "transparent";
+    var inst = s.instPct;
+    var instColor = inst != null ? "rgba(230,73,46," + (inst / 100 * 0.35).toFixed(2) + ")" : "transparent";
+    var vr = s.volRatio;
+    var vrColor = vr > 1.5 ? "rgba(255,152,0," + Math.min((vr - 1) / 2, 0.4).toFixed(2) + ")" : "transparent";
+    var sigTxt = s.latestSig ? (s.latestSig.type === "share_surge" ? "🔴 进" : s.latestSig.type === "share_outflow" ? "🟢 出" : "🟠 量") : "-";
+    var scpSign = scp > 0 ? "+" : "";
+    tr.innerHTML =
+      '<td class="nt-cell-code">' + s.code + '<br><span class="nt-cell-name">' + s.name + '</span></td>' +
+      '<td>' + s.index + '</td>' +
+      '<td class="nt-cell-num" style="background:' + scpColor + '">' + scpSign + scp.toFixed(2) + '%</td>' +
+      '<td>' + sigTxt + '</td>' +
+      '<td class="nt-cell-num" style="background:' + instColor + '">' + (inst != null ? inst.toFixed(1) + "%" : "-") + '</td>' +
+      '<td class="nt-cell-num" style="background:' + vrColor + '">' + (vr ? vr.toFixed(2) + "倍" : "-") + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  // ▼ 第3层：卡片墙 ▼
+  // 3×4网格(H5 2列)，每张迷你卡含 sparkline+份额变动%+信号标注，点卡片进详情
+  var wallSec = document.createElement("div");
+  wallSec.className = "chart-card nt-wall-card";
+  wallSec.innerHTML = '<h3>12 只 ETF 走势卡片墙 <span class="term-tip" title="每张迷你卡片含份额折线(sparkline)+当日份额变动%+信号标注。🔴进=疑似大资金进场/🟢出=疑似离场/🟠量=放量。点卡片进单只详情。">❓</span></h3>';
+  var wall = document.createElement("div");
+  wall.className = "nt-card-wall";
+  summary.forEach(function (s) {
+    var card = document.createElement("div");
+    card.className = "nt-mini-card";
+    card.onclick = function () { state.ntEtf = s.code; state.ntView = "detail"; renderNationalTeam(container); };
+    var spark = ntSparkline(s.daily, 120, 30);
+    var scp = s.shareChangePct;
+    var scpCls = scp > 0 ? "nt-up" : scp < 0 ? "nt-down" : "";
+    var scpSign = scp > 0 ? "+" : "";
+    var sigBadge = s.latestSig
+      ? (s.latestSig.type === "share_surge" ? '<span class="nt-badge nt-badge-in">🔴</span>'
+        : s.latestSig.type === "share_outflow" ? '<span class="nt-badge nt-badge-out">🟢</span>'
+        : '<span class="nt-badge nt-badge-vol">🟠</span>')
+      : "";
+    card.innerHTML =
+      '<div class="nt-mini-head"><span class="nt-mini-code">' + s.code + '</span><span class="nt-mini-name">' + s.name + '</span></div>' +
+      '<div class="nt-mini-spark">' + spark + '</div>' +
+      '<div class="nt-mini-foot"><span class="nt-mini-chg ' + scpCls + '">' + scpSign + scp.toFixed(2) + '%</span>' + sigBadge + '</div>';
+    wall.appendChild(card);
+  });
+  wallSec.appendChild(wall);
+  container.appendChild(wallSec);
+
+  // ▼ 第4层：叠加对比折线 ▼
+  // 12只ETF份额归一化为%(基准=各自最早日100%)，叠加看谁份额增长快/谁流出
+  // 信号散点标在图上(🔴进/🟢出)，多只同时触发=汇金增持期共振
+  var allDatesSet = {};
+  data.etfs.forEach(function (e) { (e.daily || []).forEach(function (d) { allDatesSet[d.date] = 1; }); });
+  var allDates = Object.keys(allDatesSet).sort();
+  var overlaySeries = [];
+  var sigPoints = [];
+  data.etfs.forEach(function (e) {
+    var daily = e.daily || [];
+    if (!daily.length) return;
+    var base = daily[0].fund_share_yi;
+    if (!base) return;
+    var lookup = {};
+    daily.forEach(function (d) { lookup[d.date] = +(d.fund_share_yi / base * 100).toFixed(2); });
+    overlaySeries.push({
+      name: e.code, type: "line", smooth: true, symbol: "none", connectNulls: true,
+      data: daily.map(function (d) { return [d.date, lookup[d.date]]; }),
+      lineStyle: { width: 1.4 },
+      emphasis: { focus: "series" },
+    });
+    daily.forEach(function (d) {
+      (d.signals || []).forEach(function (sig) {
+        if (sig.type === "share_surge" || sig.type === "share_outflow") {
+          sigPoints.push({
+            value: [d.date, lookup[d.date], e.code, sig.type === "share_surge" ? "进" : "出"],
+            itemStyle: { color: sig.type === "share_surge" ? "#e6492e" : "#2e8b57" },
+          });
+        }
+      });
+    });
+  });
+  overlaySeries.push({ name: "信号", type: "scatter", data: sigPoints, symbolSize: 7, z: 10 });
+  var overlayTitle = '12 只 ETF 份额归一化叠加（基准=最早日 100%）<span class="term-tip" title="所有ETF份额除以各自最早日份额×100，叠加在同一图看谁被持续增持(线上行)/谁流出(线下行)。🔴点=进场信号/🟢点=离场信号，多只同时触发=汇金增持期共振。点图例切换显隐。">❓</span>';
+  var c4 = mkCard(overlayTitle, 400, null, container);
+  c4.setOption(withTheme({
+    tooltip: {
+      trigger: "item",
+      formatter: function (p) {
+        var v = p.value;
+        if (!Array.isArray(v)) return p.seriesName;
+        if (p.seriesType === "scatter") {
+          return v[2] + " " + v[3] + "<br/>" + fmtDate(v[0]) + " " + (+v[1]).toFixed(1) + "%";
+        }
+        return p.seriesName + "<br/>" + fmtDate(v[0]) + " " + (+v[1]).toFixed(2) + "%";
+      },
+    },
+    legend: { top: 0, type: "scroll" },
+    grid: { left: 55, right: 20, top: 40, bottom: 50 },
+    xAxis: { type: "category", data: allDates },
+    yAxis: { type: "value", name: "归一化%" },
+    dataZoom: dzOpts(),
+    series: overlaySeries,
+  }));
+}
+
+// ── 单只详情：保留原 ETF 选择器+5KPI+3图+信号表+汇金验证 ──
+function renderNationalTeamDetail(container, data, qData) {
+  // 返回概览按钮
+  var backBtn = document.createElement("button");
+  backBtn.className = "nt-back-btn";
+  backBtn.innerHTML = "← 返回概览";
+  backBtn.onclick = function () { state.ntView = "overview"; renderNationalTeam(container); };
+  container.appendChild(backBtn);
 
   // ── ETF 选择器（12只，按跟踪指数分组）──
   const selWrap = document.createElement("div");
