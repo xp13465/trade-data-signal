@@ -1,6 +1,6 @@
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0 };
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -909,6 +909,57 @@ async function fetchCollectTime() {
   } catch (e) { /* 兜底不崩，保持空 */ }
 }
 
+// 盘中实时快照独立获取（不依赖当前 tab），用于一句话总结覆盖 T+1 缺失的指数/行业数据。
+// 单例 Promise：多次调用复用同一次请求，避免重复 fetch。
+let _intradaySnapPromise = null;
+function fetchIntradaySnapshot() {
+  if (_intradaySnapPromise) return _intradaySnapPromise;
+  _intradaySnapPromise = (async () => {
+    try {
+      const snap = await fetchJSON("/api/intraday_snapshot");
+      if (snap && snap.indices) state.intradaySnapshot = snap;
+    } catch (e) { /* 兜底不崩，保持空 */ }
+  })();
+  return _intradaySnapPromise;
+}
+
+// 盘中实时快照覆盖一句话总结文本：T+1 指数源缺当日数据（sh_pct=null / top_industries=空）时，
+// 用快照的实时 pct_change 和领涨行业替换，保证收盘后立即看到当日真实涨跌与热点板块。
+function injectSnapshotToSummary(text, s, snap) {
+  if (!text || !snap || !snap.indices) return text;
+  const shIdx = snap.indices.find((i) => i.code === "sh000001");
+  if (!shIdx || shIdx.pct_change == null) return text;
+  // 快照须与 summary 同日，避免旧快照覆盖新数据
+  const snapDate = (shIdx.datetime || "").slice(0, 8);
+  if (s.date && snapDate && snapDate !== s.date) return text;
+
+  let out = text;
+  // 1. 上证涨跌幅：T+1 指数源缺当日（sh_pct=null）时用快照实时值
+  if (s.sh_pct == null) {
+    const pct = shIdx.pct_change;
+    const dir = pct >= 0 ? "涨" : "跌";
+    const val = Math.abs(pct).toFixed(2);
+    const ptStr = shIdx.price != null ? `至${Math.round(shIdx.price)}点` : "";
+    // 长版"上证指数涨0.00%（至X点）？"
+    out = out.replace(/上证指数[涨跌]\d+\.\d+%(?:至\d+点)?/, `上证指数${dir}${val}%${ptStr}`);
+    // 短版"上证涨0.00%"
+    out = out.replace(/上证[涨跌]\d+\.\d+%/, `上证${dir}${val}%`);
+  }
+  // 2. 领涨板块：top_industries 为空时用快照 top1
+  if ((!s.top_industries || !s.top_industries.length) && snap.industries && snap.industries.length) {
+    const top1 = [...snap.industries].sort((a, b) => (b.pct_change ?? -999) - (a.pct_change ?? -999))[0];
+    if (top1 && top1.pct_change != null) {
+      const name = (top1.sw_name || top1.name || "").replace("SW ", "");
+      const lead = top1.lead_stock ? `（${top1.lead_stock}）` : "";
+      const sign = top1.pct_change >= 0 ? "+" : "";
+      const hot = `${name} ${sign}${top1.pct_change.toFixed(2)}%${lead}`;
+      out = out.replace(/领涨板块：无明显热点板块/, `领涨板块：${hot}`);
+      out = out.replace(/热点：无明显热点板块/, `热点：${hot}`);
+    }
+  }
+  return out;
+}
+
 async function renderOverview() {
   const r = await fetchJSON("/api/overview");
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
@@ -916,13 +967,24 @@ async function renderOverview() {
   content.innerHTML = "";
 
   // ---- 0. 一句话总结横幅 ----
-  fetchJSON("/api/summary").then((s) => {
+  fetchJSON("/api/summary").then(async (s) => {
     if (s && s.summary) {
+      // 等快照就绪（已在 bootstrap 发起，最多等 1.5s 避免阻塞渲染），保证 T+1 缺数据时能覆盖
+      try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+      const snap = state.intradaySnapshot;
+      if (snap && snap.indices) {
+        s.summary = injectSnapshotToSummary(s.summary, s, snap);
+        s.summary_short = injectSnapshotToSummary(s.summary_short, s, snap);
+      }
       const banner = document.createElement("div");
       banner.className = "summary-banner";
+      // 盘中/收盘标注（快照存在时显示）
+      const snapBadge = snap && snap.indices
+        ? `<span class="summary-snap-tag" style="color:${snap.is_closed ? "#86909c" : "#e6a23c"}">${snap.is_closed ? "📍 收盘快照" : "⏰ 盘中实时小结（未收盘，当日数据还会变化）"}</span>`
+        : "";
       const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
       const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
-      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${(s.generated_at || "").replace(/^\d+月\d+日\s*/, "")}</span><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></div>`;
+      banner.innerHTML = `<div class="summary-top"><span class="summary-icon">&#x1F4CA;</span><span class="summary-text">${s.summary}</span></div><div class="summary-meta">${snapBadge}${s.sentiment_label || ""}${fgBadge}${freezeBadge}<span class="summary-date">${(s.generated_at || "").replace(/^\d+月\d+日\s*/, "")}</span><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></div>`;
       content.insertBefore(banner, content.firstChild);
       const histBtn = banner.querySelector(".summary-history-btn");
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
@@ -2835,6 +2897,8 @@ window.addEventListener("scroll", () => {
 })();
 // 采集时间独立获取（不依赖当前 tab），保证切到非概览 tab 刷新后顶部仍显示
 fetchCollectTime();
+// 盘中实时快照独立获取（不依赖当前 tab），一句话总结覆盖 T+1 缺失数据用
+fetchIntradaySnapshot();
 // #lab* hash 由 lab.js 接管初始渲染（_labInitHashRestore 的 labBtn.click 触发 renderTab）。
 // 此处跳过 bootstrap renderTab，避免与 lab 渲染竞态导致概览内容（含行业热力图）串入实验室页 / 高亮与内容不一致。
 if (location.hash.startsWith("#lab")) {
