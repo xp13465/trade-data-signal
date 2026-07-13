@@ -432,6 +432,12 @@ def _export_affected_json() -> None:
         export_mod.write_json(export_mod.DATA_DIR / f"sentiment-{rng}.json",
                               export_mod.export_sentiment(conn, cfg, rng))
 
+    # summary + summary_history（恐贪/情绪分变了，收盘分析横幅与历史弹窗也要更新）
+    export_mod.write_json(export_mod.DATA_DIR / "summary.json",
+                          export_mod.export_summary())
+    export_mod.write_json(export_mod.DATA_DIR / "summary_history.json",
+                          export_mod.export_summary_history())
+
     # 9 指数 detail（反哺的指数 OHLC + signals）
     affected = list(_SNAPSHOT_TO_INDEX_ID.values())
     for iid in affected:
