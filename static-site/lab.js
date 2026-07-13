@@ -2292,6 +2292,10 @@ async function _labSignalModalRender(overlay) {
     return;
   }
   try {
+    // 按窗口传 range 减少下载：取比窗口大一档作指标预热缓冲（最长MA60≈60根），
+    // 再由下方 cutoff 切到目标窗口。y10/all 无对应 range 用 all。
+    // 静态版无 ranged JSON 固定取 -all.json 由 cutoff 前端切（全历史预热正确）。
+    const apiRange = ({ y1: "3y", y3: "5y", y5: "5y", y10: "all", all: "all" }[win]) || "all";
     const r = await fetchJSON(`./data/index/${m.index}-all.json`);
     const ohlcFull = r.ohlc;
     if (!ohlcFull || !ohlcFull.length) {
