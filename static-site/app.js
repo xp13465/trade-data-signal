@@ -2776,7 +2776,8 @@ function initBackToTop() {
 }
 
 // ---- 历史收盘分析弹窗（横幅"更多"按钮触发）----
-let _summaryHistoryState = { page: 0, limit: 15, total: 0, cache: null };
+// limit=30：每页 30 条（约 3 个月每日），90 条数据分 3 页，第 1 页能显示到约 2 个月前
+let _summaryHistoryState = { page: 0, limit: 30, total: 0, cache: null };
 
 function _summaryHistoryModalEl() {
   let modal = document.getElementById("summaryHistoryModal");
@@ -2784,7 +2785,7 @@ function _summaryHistoryModalEl() {
   modal = document.createElement("div");
   modal.id = "summaryHistoryModal";
   modal.className = "rule-modal hidden";
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body summary-history-body"><div class="rule-modal-header"><h3>📜 历史收盘分析</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="summary-history-list"></div><div class="summary-history-pager"><button class="sh-prev">上一页</button><span class="sh-page"></span><button class="sh-next">下一页</button></div></div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body summary-history-body"><div class="rule-modal-header"><h3>📜 历史收盘分析</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div class="summary-history-info"></div><div class="summary-history-list"></div><div class="summary-history-pager"><button class="sh-prev">‹ 上一页</button><div class="sh-pages"></div><button class="sh-next">下一页 ›</button></div></div></div>';
   document.body.appendChild(modal);
   modal.querySelector(".rule-modal-overlay").addEventListener("click", closeSummaryHistoryModal);
   modal.querySelector(".rule-modal-close").addEventListener("click", closeSummaryHistoryModal);
@@ -2809,9 +2810,6 @@ function _summaryHistoryItemHtml(s) {
 async function _loadSummaryHistoryPage() {
   const modal = _summaryHistoryModalEl();
   const list = modal.querySelector(".summary-history-list");
-  const pager = modal.querySelector(".sh-page");
-  const prev = modal.querySelector(".sh-prev");
-  const next = modal.querySelector(".sh-next");
   list.innerHTML = '<div class="summary-history-loading">加载中…</div>';
   const { page, limit } = _summaryHistoryState;
   // 静态站：一次性加载 summary_history.json，本地分页（无后端 API）
@@ -2828,10 +2826,50 @@ async function _loadSummaryHistoryPage() {
   const offset = page * limit;
   const items = _summaryHistoryState.cache.slice(offset, offset + limit);
   list.innerHTML = items.map(_summaryHistoryItemHtml).join("") || '<div class="summary-history-empty">暂无历史数据</div>';
-  const maxPage = Math.max(0, Math.ceil(_summaryHistoryState.total / limit) - 1);
-  pager.textContent = `第 ${page + 1}/${maxPage + 1} 页 · 共 ${_summaryHistoryState.total} 天`;
+  // 翻页后列表回顶（用户想看新页内容，不是底部）
+  list.scrollTop = 0;
+  _renderSummaryPager(modal);
+}
+
+// 渲染分页器：顶部 info 行 + 上一页/下一页按钮（带禁用态）+ 可点击页码按钮（当前页高亮）
+function _renderSummaryPager(modal) {
+  const { page, limit, total } = _summaryHistoryState;
+  const maxPage = Math.max(0, Math.ceil(total / limit) - 1);
+  const pageCount = maxPage + 1;
+  // 顶部 info：让用户立刻知道有更多页
+  const info = modal.querySelector(".summary-history-info");
+  info.textContent = total > 0 ? `共 ${total} 条记录 · 第 ${page + 1} / ${pageCount} 页` : "";
+  // 上一页 / 下一页 禁用态
+  const prev = modal.querySelector(".sh-prev");
+  const next = modal.querySelector(".sh-next");
   prev.disabled = page <= 0;
   next.disabled = page >= maxPage;
+  // 页码按钮：≤7 全显示，>7 智能 1 … cur-1 cur cur+1 … N
+  const pagesEl = modal.querySelector(".sh-pages");
+  let btns = [];
+  if (pageCount <= 7) {
+    for (let i = 0; i < pageCount; i++) btns.push(i);
+  } else {
+    btns.push(0);
+    if (page > 2) btns.push(-1);
+    for (let i = Math.max(1, page - 1); i <= Math.min(pageCount - 2, page + 1); i++) btns.push(i);
+    if (page < pageCount - 3) btns.push(-2);
+    btns.push(pageCount - 1);
+  }
+  pagesEl.innerHTML = btns.map(i =>
+    i < 0
+      ? '<span class="sh-ellipsis">…</span>'
+      : `<button class="sh-page-btn${i === page ? ' active' : ''}" data-page="${i}">${i + 1}</button>`
+  ).join("");
+  pagesEl.querySelectorAll(".sh-page-btn").forEach(b => {
+    b.addEventListener("click", () => {
+      const p = +b.dataset.page;
+      if (p !== _summaryHistoryState.page) {
+        _summaryHistoryState.page = p;
+        _loadSummaryHistoryPage();
+      }
+    });
+  });
 }
 
 function openSummaryHistoryModal() {
