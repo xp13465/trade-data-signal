@@ -378,6 +378,47 @@ def _backfill_index_daily(indices: list[dict]) -> int:
     return n
 
 
+def _backfill_industry_daily(industries: list[dict]) -> int:
+    """把盘中快照的 31 申万行业涨跌幅反哺 index_daily 表（UPSERT，幂等）。
+
+    解决收盘分析历史弹窗领涨空的问题：market_summary 的 top_industries 查
+    index_daily WHERE index_id LIKE 'sw_%' AND pct_change IS NOT NULL，
+    盘中快照此前只反哺 9 指数没反哺行业，致当日申万行业行不存在 -> 领涨空。
+    同花顺行业 summary 只给涨跌幅无 OHLC，open/high/low/close/amount 留 NULL；
+    ON CONFLICT 只更新 pct_change，不覆盖已有 OHLC（防申万晚间 OHLC 被快照 NULL 覆盖）。
+    非交易日不写；pct_change 为 None 跳过该条。
+    返回写入的行业条数。
+    """
+    from ..calendar import is_trading_day
+
+    today = datetime.now().strftime("%Y%m%d")
+    if not is_trading_day(today):
+        print(f"  [intraday] 非交易日({today})，跳过 index_daily 行业反哺", flush=True)
+        return 0
+
+    conn = get_conn()
+    n = 0
+    for ind in industries:
+        sw_code = ind.get("sw_code", "")
+        if not sw_code:
+            continue
+        pct = ind.get("pct_change")
+        if pct is None:
+            continue
+        conn.execute(
+            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
+            "VALUES (?, ?, NULL, NULL, NULL, NULL, ?, NULL) "
+            "ON CONFLICT(date, index_id) DO UPDATE SET "
+            "pct_change=excluded.pct_change",
+            (today, sw_code, pct),
+        )
+        n += 1
+    conn.commit()
+    conn.close()
+    print(f"  [intraday] index_daily 行业反哺完成：{n} 条", flush=True)
+    return n
+
+
 def _recompute_scores() -> None:
     """反哺后重算 6 个 per-index 情绪分 + 恐贪指数。
 
@@ -494,12 +535,14 @@ def collect_and_save() -> dict:
     # 失败不阻断快照本身（快照已落库落盘，反哺是增强）
     try:
         n_backfill = _backfill_index_daily(snap["indices"])
+        n_ind = _backfill_industry_daily(snap["industries"])
         if n_backfill > 0:
             _recompute_scores()
+        if n_backfill > 0 or n_ind > 0:
             _export_affected_json()
-            print(f"[intraday] 反哺+重算+export 完成（{n_backfill} 指数反哺）", flush=True)
+            print(f"[intraday] 反哺+重算+export 完成（{n_backfill} 指数 + {n_ind} 行业反哺）", flush=True)
         else:
-            print(f"[intraday] 无指数反哺（非交易日或快照非当日），跳过重算", flush=True)
+            print(f"[intraday] 无反哺（非交易日或快照非当日），跳过重算", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"[intraday] 反哺/重算/export 失败（快照已保存）: {type(e).__name__} {e}", flush=True)
 
