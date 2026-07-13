@@ -616,8 +616,10 @@ function renderIndicesSection(container, indices, fetcher) {
       if (!signalsCache[id]) signalsCache[id] = await fetcher(id, idx);
       const sig = signalsCache[id];
       if (idx.data && idx.data.length) {
+        // 港股盘中实时标注（快照注入 _snap_intraday=true 时显示）
+        const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
         // chart 入全局 charts（供 resize）+ sectionCharts（供本区 dispose）
-        const c = indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
+        const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
         sectionCharts.push(c);
       }
     }
@@ -1697,6 +1699,49 @@ async function renderAStock(container = content) {
   await renderIndicesSection(indicesSection, r.indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`));
 }
 
+// 港股快照 code -> index_id 映射（与 intraday_snapshot.py 的 _SNAPSHOT_TO_INDEX_ID 一致）。
+// 腾讯 v_r_hkHSI 经 _parse_tencent 提取后 key="hkHSI"（r_ 前缀被 split("_")[-1] 吃掉）。
+const _HK_SNAP_TO_IID = {
+  hkHSI: "hsi",
+  hkHSTECH: "hstech",
+  hkHSCEI: "hscei",
+};
+
+// 把盘中快照的港股实时数据注入到 /api/hk 返回的 indices 中。
+// 快照日期 >= indices 最新日期时追加/替换最新点为快照实时值，让港股卡片显示当日实时涨跌。
+// 同时标记 _snap_intraday=true（港股未收盘时）供前端显示"盘中实时"标签。
+function _injectHkSnapshot(indices, snap) {
+  if (!snap || !snap.indices) return indices;
+  const snapHkMap = {};
+  for (const si of snap.indices) {
+    const iid = _HK_SNAP_TO_IID[si.code];
+    if (iid && si.pct_change != null) {
+      const snapDate = (si.datetime || "").slice(0, 8);
+      if (snapDate) snapHkMap[iid] = { si, snapDate };
+    }
+  }
+  const out = {};
+  for (const [id, idx] of Object.entries(indices || {})) {
+    const entry = snapHkMap[id];
+    if (!entry) { out[id] = idx; continue; }
+    const { si, snapDate } = entry;
+    const newData = [...(idx.data || [])];
+    const snapPt = {
+      date: snapDate,
+      open: si.open, high: si.high, low: si.low,
+      close: si.price, pct_change: si.pct_change, amount: null,
+    };
+    const lastPt = newData.length ? newData[newData.length - 1] : null;
+    if (!lastPt || lastPt.date < snapDate) {
+      newData.push(snapPt);
+    } else if (lastPt.date === snapDate) {
+      newData[newData.length - 1] = { ...lastPt, ...snapPt };
+    }
+    out[id] = { ...idx, data: newData, _snap_intraday: si.is_closed === false };
+  }
+  return out;
+}
+
 async function renderHK(container = content) {
   const r = await fetchJSON(`/api/hk?range=${state.range}`);
   container.innerHTML = "";
@@ -1704,11 +1749,15 @@ async function renderHK(container = content) {
     const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
     lineChart("港股通净买入（亿元）" + latestSuffix(hks), hks, {}, null, container);
   }
+  // 等快照就绪，注入港股实时数据（盘中让港股卡片显示当日实时涨跌）
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+  const snap = state.intradaySnapshot;
+  const indices = _injectHkSnapshot(r.indices, snap);
   // 指数折线区：筛选条移到本区前，筛选时局部刷新
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
   container.appendChild(indicesSection);
-  await renderIndicesSection(indicesSection, r.indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`));
+  await renderIndicesSection(indicesSection, indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`));
 }
 
 async function renderGlobal(container = content) {
@@ -3183,9 +3232,9 @@ function updateRulesContentHtml() {
     '<div class="rule-section">' +
       '<h4>📅 更新时间表</h4>' +
       '<table class="ur-table"><thead><tr><th>时间</th><th>更新内容</th><th>说明</th></tr></thead><tbody>' +
-        '<tr><td>盘中每30分钟</td><td>实时快照</td><td>9:35-15:35，腾讯/同花顺实时数据</td></tr>' +
+        '<tr><td>盘中每30分钟</td><td>实时快照</td><td>9:35-15:35，腾讯/同花顺实时数据（含港股盘中实时）</td></tr>' +
         '<tr><td>15:33</td><td>收盘快照</td><td>A股收盘后实时源采当日涨跌幅+热点</td></tr>' +
-        '<tr><td>16:30</td><td>港股补采</td><td>港股16:00收盘后补采当日恒生指数</td></tr>' +
+        '<tr><td>16:35</td><td>港股补采</td><td>港股16:00收盘后补采当日恒生指数</td></tr>' +
         '<tr><td>17:50</td><td>收盘全量</td><td>baostock等T+1源出数据后全量采集</td></tr>' +
         '<tr><td>20:00</td><td>晚间兜底</td><td>补采晚出的申万/港股等数据</td></tr>' +
         '<tr><td>02:00</td><td>凌晨兜底</td><td>补采遗漏确保次日数据齐全</td></tr>' +
@@ -3194,7 +3243,9 @@ function updateRulesContentHtml() {
     '<div class="rule-section">' +
       '<h4>⏱️ 各数据时效</h4>' +
       '<ul class="ur-list">' +
-        '<li>📈 <b>指数涨跌幅/热点板块/一句话总结</b>：实时（秒级，快照采）</li>' +
+        '<li>📈 <b>A股指数涨跌幅/热点板块/一句话总结</b>：实时（秒级，快照采）</li>' +
+        '<li>🇭🇰 <b>港股指数（恒生/恒生科技/国企）</b>：盘中实时快照（9:30-16:00），16:35 补完整收盘 OHLC</li>' +
+        '<li>🇺🇸 <b>美股指数</b>：北京时差晚 21:30 开盘，A 股交易日看美股最新是 T-1 或 T-2（跨周末），属正常</li>' +
         '<li>📊 <b>指数历史走势 OHLC</b>：T+1（申万/baostock 收盘后次日补全）</li>' +
         '<li>😐 <b>恐贪指数 / per-index 情绪分</b>：快照反哺后当日可用，否则停 T-1</li>' +
         '<li>📋 <b>A股综合情绪分</b>：当日（mootdx 实时算）</li>' +
@@ -3206,6 +3257,8 @@ function updateRulesContentHtml() {
       '<ul class="ur-list">' +
         '<li>实时快照源（腾讯/同花顺）秒级出当日 -> 这些数据是当天的</li>' +
         '<li>T+1 源（申万/baostock）收盘后次日才发布当日 -> 历史走势/部分情绪分可能停在 T-1</li>' +
+        '<li>港股 16:00 收盘（比 A 股晚 1 小时），盘中快照采实时价，16:35 后补完整收盘 OHLC</li>' +
+        '<li>美股北京时差晚 21:30 才开盘，A 股交易日看美股最新通常是 T-1 或 T-2（跨周末更久），属正常</li>' +
         '<li>收盘后约 2 小时（17:50 update_all）T+1 源出数据后会补全</li>' +
         '<li>晚 20:00 再兜底补一次，凌晨 02:00 也会兜底一次</li>' +
       '</ul>' +

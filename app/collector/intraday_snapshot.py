@@ -23,7 +23,8 @@ from ..db import get_conn
 from .base import UA, throttle
 from .industry_extras import THS_TO_SW
 
-# 9 核心指数（代码 -> 名称兜底，实际 name 取源返回）
+# 9 核心 A 股指数 + 3 港股指数（腾讯 qt 支持混合请求）
+# 港股用 r_hkXXX 前缀（腾讯港股实时源），盘中（9:30-16:00）返实时价，16:00 收盘后返收盘价
 INDEX_CODES = [
     "sh000001",  # 上证指数
     "sz399001",  # 深证成指
@@ -34,16 +35,24 @@ INDEX_CODES = [
     "sz399006",  # 创业板指
     "sh000688",  # 科创50
     "bj899050",  # 北证50
+    "r_hkHSI",   # 恒生指数（港股）
+    "r_hkHSTECH",  # 恒生科技指数（港股）
+    "r_hkHSCEI",   # 国企指数（港股）
 ]
 
+# A 股 codes（用于新浪兜底；新浪不支持 r_hkXXX 格式，港股只走腾讯）
+_A_STOCK_CODES = [c for c in INDEX_CODES if not c.startswith("r_hk")]
+
 _TENCENT_URL = "http://qt.gtimg.cn/q=" + ",".join(INDEX_CODES)
-_SINA_URL = "http://hq.sinajs.cn/list=" + ",".join(INDEX_CODES)
+_SINA_URL = "http://hq.sinajs.cn/list=" + ",".join(_A_STOCK_CODES)
 _SINA_HEADERS = {"User-Agent": UA, "Referer": "https://finance.sina.com.cn"}
 
 # static-site 静态 JSON 输出路径（与 export.py 的 DATA_DIR 同源）
 STATIC_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "static-site" / "data"
 
-# 快照 code -> index_daily.index_id 映射（9 核心指数）
+# 快照 code -> index_daily.index_id 映射（9 核心 A 股 + 3 港股）
+# 注意：_parse_tencent 提取 key 时 strip "v_" 前缀 + split("_")[-1]，
+#   A 股 v_sh000001 -> "sh000001"；港股 v_r_hkHSI -> "hkHSI"（r_ 被吃掉）。
 _SNAPSHOT_TO_INDEX_ID = {
     "sh000001": "sh",      # 上证指数
     "sz399001": "sz",      # 深证成指
@@ -54,6 +63,9 @@ _SNAPSHOT_TO_INDEX_ID = {
     "sz399006": "cyb",     # 创业板指
     "sh000688": "kc50",    # 科创50
     "bj899050": "bj50",    # 北证50
+    "hkHSI": "hsi",        # 恒生指数（港股）
+    "hkHSTECH": "hstech",  # 恒生科技（港股）
+    "hkHSCEI": "hscei",    # 国企指数（港股）
 }
 
 
@@ -62,10 +74,14 @@ def _now_iso() -> str:
 
 
 def _parse_tencent(text: str) -> list[dict]:
-    """解析腾讯 qt 返回：每条 v_xxx="字段1~字段2~..."，按 ~ split（88 字段）。
+    """解析腾讯 qt 返回：每条 v_xxx="字段1~字段2~..."，按 ~ split。
 
-    字段：[1]=name [3]=price [4]=pre_close [5]=open [30]=datetime(YYYYMMDDHHMMSS)
-          [31]=change [32]=pct_change [33]=high [34]=low
+    A 股 88 字段 / 港股 78 字段，关键字段位置一致：
+    [1]=name [3]=price [4]=pre_close [5]=open [6]=amount(港股)
+         [30]=datetime [31]=change [32]=pct_change [33]=high [34]=low
+
+    datetime 差异：A 股 "YYYYMMDDHHMMSS"（无分隔符），
+                  港股 "YYYY/MM/DD HH:MM:SS"（有分隔符，需规范化为 YYYYMMDDHHMMSS）。
     """
     out = []
     for line in text.strip().split(";"):
@@ -73,7 +89,7 @@ def _parse_tencent(text: str) -> list[dict]:
         if not line or "=" not in line or '"' not in line:
             continue
         try:
-            key = line.split("=", 1)[0].split("_")[-1]  # sh000001 / sz399001 ...
+            key = line.split("=", 1)[0].split("_")[-1]  # sh000001 / hkHSI ...
             vals = line.split('"', 2)[1].split("~")
             if len(vals) < 35:
                 continue
@@ -98,7 +114,13 @@ def _parse_tencent(text: str) -> list[dict]:
             # 符号兜底：change 与 pct 符号不一致以 change 为准
             if change is not None and abs(pct) > 1e-6 and (change > 0) != (pct > 0):
                 pct = -abs(pct) if change < 0 else abs(pct)
-        dtstr = vals[30].strip() if len(vals) > 30 else ""
+        # 规范化 datetime：A 股 "YYYYMMDDHHMMSS"，港股 "YYYY/MM/DD HH:MM:SS"
+        dtstr_raw = vals[30].strip() if len(vals) > 30 else ""
+        if "/" in dtstr_raw:
+            # 港股格式 YYYY/MM/DD HH:MM:SS -> YYYYMMDDHHMMSS
+            dtstr = dtstr_raw.replace("/", "").replace(" ", "").replace(":", "")
+        else:
+            dtstr = dtstr_raw
         out.append({
             "code": key,
             "name": name,
@@ -166,8 +188,9 @@ def _parse_sina(text: str) -> list[dict]:
 
 
 def fetch_index_realtime() -> list[dict]:
-    """采集 9 指数实时行情。腾讯主，失败逐个降级新浪。返回 9 条。"""
-    # 1) 腾讯主源（一次拉全部）
+    """采集 12 指数实时行情（9 A 股 + 3 港股）。腾讯主，A 股失败逐个降级新浪。
+    港股只走腾讯（新浪不支持 r_hkXXX 格式）。返回 12 条。"""
+    # 1) 腾讯主源（一次拉全部，含 A 股 + 港股）
     try:
         throttle()
         r = requests.get(_TENCENT_URL, headers={"User-Agent": UA}, timeout=10)
@@ -175,15 +198,19 @@ def fetch_index_realtime() -> list[dict]:
         got = {d["code"] for d in tdata if d.get("price")}
         if len(got) >= len(INDEX_CODES) - 1:  # 容忍 1 个缺失
             return tdata
-        # 缺的用新浪补
-        missing = [c for c in INDEX_CODES if c not in got]
-        print(f"  [intraday] 腾讯缺 {len(missing)} 指数，新浪补采: {missing}", flush=True)
+        # 缺的用新浪补（仅 A 股，港股跳过新浪不支持）
+        missing = [c for c in INDEX_CODES if c not in got and not c.startswith("r_hk")]
+        if missing:
+            print(f"  [intraday] 腾讯缺 {len(missing)} A 股指数，新浪补采: {missing}", flush=True)
+        hk_missing = [c for c in INDEX_CODES if c not in got and c.startswith("r_hk")]
+        if hk_missing:
+            print(f"  [intraday] 腾讯缺 {len(hk_missing)} 港股指数（新浪不支持，跳过）: {hk_missing}", flush=True)
     except Exception as e:  # noqa: BLE001
         tdata = []
-        missing = list(INDEX_CODES)
-        print(f"  [intraday] 腾讯请求失败，全量降级新浪: {type(e).__name__} {e}", flush=True)
+        missing = [c for c in INDEX_CODES if not c.startswith("r_hk")]  # 全量降级新浪（仅 A 股）
+        print(f"  [intraday] 腾讯请求失败，A 股降级新浪: {type(e).__name__} {e}", flush=True)
 
-    # 2) 新浪补缺失（逐个，新浪支持 list 批量但分批更稳）
+    # 2) 新浪补缺失（仅 A 股，逐个，新浪支持 list 批量但分批更稳）
     if missing:
         try:
             throttle()
@@ -291,7 +318,7 @@ def fetch_industry_realtime() -> list[dict]:
 
 
 def is_market_closed() -> tuple[bool, str]:
-    """判断当前是否收盘。返回 (is_closed, label)。
+    """判断 A 股是否收盘。返回 (is_closed, label)。
 
     用本地时间 + 交易日历判断盘中区间（9:30-11:30/13:00-15:00 周一至五）。
     """
@@ -309,6 +336,29 @@ def is_market_closed() -> tuple[bool, str]:
     )
     is_closed = not in_session
     label = "收盘快照" if is_closed else "盘中实时小结"
+    return is_closed, label
+
+
+def is_hk_market_closed() -> tuple[bool, str]:
+    """判断港股是否收盘。返回 (is_closed, label)。
+
+    港股交易时间 9:30-12:00 / 13:00-16:00（北京时间，与 A 股同时区）。
+    16:00 收盘，A 股 15:00 收盘后到 16:00 之间港股仍在盘中。
+    """
+    try:
+        from ..calendar import is_trading_day
+        trading = is_trading_day()
+    except Exception:  # noqa: BLE001
+        trading = True
+    now = datetime.now()
+    hm = now.hour * 100 + now.minute
+    wd = now.weekday()
+    in_session = (
+        trading and wd < 5
+        and ((930 <= hm < 1200) or (1300 <= hm < 1600))
+    )
+    is_closed = not in_session
+    label = "收盘快照" if is_closed else "盘中实时"
     return is_closed, label
 
 
@@ -334,7 +384,9 @@ def _backfill_index_daily(indices: list[dict]) -> int:
     """把盘中快照的当日指数 OHLC 反哺 index_daily 表（UPSERT，幂等）。
 
     解决 T+1 数据源（baostock/东财 trend）收盘后未出当日数据致指数卡片/恐贪停在 T-2 的问题。
-    快照无成交额，amount 留 NULL（per-index 情绪分的 volume 分项会缺，但 RSI+pct_change 仍可算）。
+    A 股 15:00 收盘 -> 快照 price 即收盘价；港股 16:00 收盘 -> 15:35 快照时 price 是盘中
+    实时价（非最终收盘价），但写入 close 让港股卡片显示当日实时涨跌；16:35 update_all
+    新浪全量会覆盖为真正收盘价。快照无成交额，amount 留 NULL。
     非交易日不写；快照 datetime 非当日不写（避免旧快照污染）。
     返回写入的指数条数。
     """
@@ -479,14 +531,19 @@ def _export_affected_json() -> None:
     export_mod.write_json(export_mod.DATA_DIR / "summary_history.json",
                           export_mod.export_summary_history())
 
-    # 9 指数 detail（反哺的指数 OHLC + signals）
+    # 9 指数 detail（反哺的指数 OHLC + signals，含港股 hsi/hstech/hscei）
     affected = list(_SNAPSHOT_TO_INDEX_ID.values())
     for iid in affected:
         export_mod.write_json(export_mod.INDEX_DIR / f"{iid}-all.json",
                               export_mod.export_index_detail(conn, cfg, iid))
 
+    # hk tab JSON（含港股指数 OHLC + 港股通；港股反哺后需更新）
+    for rng in export_mod.ALL_RANGES:
+        export_mod.write_json(export_mod.DATA_DIR / f"hk-{rng}.json",
+                              export_mod.export_hk(conn, cfg, rng))
+
     conn.close()
-    print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)}",
+    print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)} + hk×{len(export_mod.ALL_RANGES)}",
           flush=True)
 
 
@@ -495,6 +552,11 @@ def build_snapshot() -> dict:
     indices = fetch_index_realtime()
     industries = fetch_industry_realtime()
     is_closed, label = is_market_closed()
+    is_hk_closed, _ = is_hk_market_closed()
+    # 给每条指数加 is_closed（A 股按 15:00 判断，港股按 16:00 判断）
+    for d in indices:
+        code = d.get("code", "")
+        d["is_closed"] = is_hk_closed if code.startswith("hk") else is_closed
     return {
         "collected_at": _now_iso(),
         "is_closed": is_closed,
@@ -507,9 +569,10 @@ def build_snapshot() -> dict:
 def collect_and_save() -> dict:
     """采集 + 存 DB + dump 静态 JSON。返回快照 dict。
 
-    采集完腾讯实时 9 指数后，把当日 OHLC 反哺 index_daily 表（UPSERT），
-    再重算 per-index 情绪分 + 恐贪指数，最后 dump 受影响的静态 JSON，
+    采集完腾讯实时 12 指数（9 A 股 + 3 港股）后，把当日 OHLC 反哺 index_daily 表
+    （UPSERT），再重算 per-index 情绪分 + 恐贪指数，最后 dump 受影响的静态 JSON，
     使指数卡片/恐贪/per-index 情绪分都能到当日（解决 T+1 延迟致停在 T-2 的问题）。
+    港股盘中（15:35 快照）反哺实时价作为 close，17:50 update_all 覆盖为收盘价。
     反哺/重算/export 失败不阻断快照本身（快照已落库落盘）。
     """
     print(f"[intraday] 开始采集盘中实时快照 {datetime.now():%Y-%m-%d %H:%M:%S}", flush=True)
@@ -528,7 +591,7 @@ def collect_and_save() -> dict:
     out_path.write_text(text, encoding="utf-8")
 
     dt = time.time() - t0
-    print(f"[intraday] 快照完成：{len(snap['indices'])} 指数 / {len(snap['industries'])} 行业 "
+    print(f"[intraday] 快照完成：{len(snap['indices'])} 指数（9 A 股 + 3 港股） / {len(snap['industries'])} 行业 "
           f"({snap['label']})，{dt:.1f}s -> {out_path.name}", flush=True)
 
     # 反哺 index_daily + 重算情绪分/恐贪 + dump 静态 JSON
