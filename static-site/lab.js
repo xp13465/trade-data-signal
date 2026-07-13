@@ -427,7 +427,7 @@ const LAB_STRATEGIES = {
     theory: "布林中轨破位。中轨=20日均线，跌破意味价格回到均线下方，趋势转弱确认。",
     scenario: "趋势转弱确认减仓；信号密集。",
     note: "近3年10d胜率52.6%，PL0.82偏低。样本最大（10177）。",
-    report: "回测报告：跌破布林中轨卖"近3年10d胜率52.6%、PL0.82。样本10177最大。中规中矩，无突出优势。",
+    report: "回测报告：跌破布林中轨卖近3年10d胜率52.6%、PL0.82。样本10177最大。中规中矩，无突出优势。",
   },
   Donchian10_down: {
     name: "跌破10日最低卖", side: "sell", zone: "sell", status: "dev",
@@ -436,7 +436,7 @@ const LAB_STRATEGIES = {
     theory: "唐奇安通道下破/海龟退出。跌破短期低点意味短期趋势已破，海龟System 2退出信号。",
     scenario: "短期趋势破位退出；信号密集。",
     note: "近3年10d胜率52.4%，PL0.89。样本10731较大。",
-    report: "回测报告：跌破10日最低卖"近3年10d胜率52.4%、PL0.89。胜率刚过50%，无突出优势。样本10731较大。",
+    report: "回测报告：跌破10日最低卖近3年10d胜率52.4%、PL0.89。胜率刚过50%，无突出优势。样本10731较大。",
   },
   Donchian20_down: {
     name: "跌破20日最低卖", side: "sell", zone: "sell", status: "dev",
@@ -445,7 +445,7 @@ const LAB_STRATEGIES = {
     theory: "唐奇安通道下破。跌破20日低点意味中期趋势已破，比10日更滞后但更可靠。",
     scenario: "中期趋势破位减仓；信号较稀疏。",
     note: "近3年10d胜率51.8%、PL0.88。全史PL0.94相对高。",
-    report: "回测报告：跌破20日最低卖"近3年10d胜率51.8%、PL0.88。全史PL0.94为卖点相对高，但整体平庸。样本7533。",
+    report: "回测报告：跌破20日最低卖近3年10d胜率51.8%、PL0.88。全史PL0.94为卖点相对高，但整体平庸。样本7533。",
   },
   MACD_death: {
     name: "MACD死叉卖", side: "sell", zone: "sell", status: "dev",
@@ -454,7 +454,7 @@ const LAB_STRATEGIES = {
     theory: "MACD死叉。差离值(DIF)下穿信号线(DEA)意味短期动量弱于长期，经典趋势转弱确认。MACD(12,26,9)业界标准。",
     scenario: "趋势转弱减仓；震荡市假死叉多。",
     note: "近3年10d胜率51.8%，PL0.83偏低。样本6844较大。",
-    report: "回测报告：MACD死叉卖 近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，卖点结构性问题突出。",
+    report: "回测报告：MACD死叉卖近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，卖点结构性问题突出。",
   },
   ATR_trail_stop: {
     name: "ATR追踪止损卖", side: "sell", zone: "sell", status: "dev",
@@ -463,7 +463,7 @@ const LAB_STRATEGIES = {
     theory: "真实波幅(ATR)追踪止损。基于波动率的动态止损线，价格跌破意味趋势已反转。真实波幅(ATR)自适应波动率。",
     scenario: "趋势跟踪止损；波动率大时止损线更宽。",
     note: "近3年10d胜率51.1%，PL0.86。全史PL0.96相对高。",
-    report: "回测报告：ATR追踪止损卖 近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点最高之一。追踪止损型信号，胜率刚过50%。",
+    report: "回测报告：ATR追踪止损卖近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点最高之一。追踪止损型信号，胜率刚过50%。",
   },
   // --- 已排除反面教材区（6个） ---
   BB_upper_break: {
@@ -890,12 +890,13 @@ async function fetchLabMatrixData(idx) {
 }
 
 // 模拟回测可选指数（每个指数一个 JSON 文件，前端按需加载）
-// 8个A股宽基指数：覆盖大盘/成长/价值/中小盘全谱系，须与 lab_simulate.py 的 SIM_INDEXES 同步
+// 9个A股宽基指数：覆盖大盘/成长/价值/中小盘全谱系（含北证50，历史较短2022起），须与 lab_simulate.py 的 SIM_INDEXES 同步
 const LAB_SIM_INDEXES = [
   { id: "sh", name: "上证指数" },
   { id: "sz", name: "深证成指" },
   { id: "cyb", name: "创业板指" },
   { id: "kc50", name: "科创50" },
+  { id: "bj50", name: "北证50" },
   { id: "sz50", name: "上证50" },
   { id: "hs300", name: "沪深300" },
   { id: "csi500", name: "中证500" },
@@ -1060,13 +1061,22 @@ function _labDdColor(dd) {
   return "#ad6800";                 // warn 黄
 }
 
+// 提取策略触发简述：优先取中文括号内内容，否则取逗号前
+function _labTriggerBrief(trigger) {
+  if (!trigger) return "";
+  var m = trigger.match(/[（]([^）]+)[）]/);
+  if (m) return m[1];
+  return trigger.split(/[，,]/)[0];
+}
+
 // 渲染单个交易模式区块详情（4数字 + 净值曲线 + 折叠交易记录）
 // 区块标题由外层 _labSimSectionHTML 的 .lab-sim-strat-head 提供，此处不含 head
 // winData = {stats, trades, equity_curve}，已按当前窗口切片（_labPairWinData 产出）
-function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML) {
+function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel) {
   const s = winData && winData.stats;
   if (!s) {
     return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
+      (pairLabel ? `<div class="lab-sim-cur-pair">当前配对：${pairLabel}</div>` : "") +
       `<div class="lab-sim-empty">该模式无交易数据</div></div>`;
   }
 
@@ -1142,6 +1152,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     : `<div class="lab-sim-full-loading">⏳ 加载明细数据（净值曲线/交易记录）中…</div>`;
 
   return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
+    (pairLabel ? `<div class="lab-sim-cur-pair">当前配对：${pairLabel}</div>` : "") +
     `<div class="lab-sim-stats">` +
     `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
     `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">${s.years} 年</span></div>` +
@@ -1210,21 +1221,36 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
   const sellKey = side === "buy" ? currentPair : mainKey;
   const pairData = _labGetPair(simData, buyKey, sellKey);
   const winData = _labPairWinData(pairData, mode, win, simData);
+
+  // 配对买卖点描述（策略卡与数据卡片之间的内容隔断 + 当前配对标注）
+  const buyMeta = LAB_STRATEGIES[buyKey] || {};
+  const sellMeta = LAB_STRATEGIES[sellKey] || {};
+  const buyName = buyMeta.name || buyKey;
+  const sellName = sellMeta.name || sellKey;
+  const buyBrief = _labTriggerBrief(buyMeta.trigger);
+  const sellBrief = _labTriggerBrief(sellMeta.trigger);
+  const pairLabel = buyName + " × " + sellName;
+  const pairDescHTML = `<div class="lab-sim-pair-desc">` +
+    `<span class="ps-buy"><span class="ps-tag">买</span>${buyName}${buyBrief ? `<span class="ps-trig">${buyBrief}</span>` : ""}</span>` +
+    `<span class="ps-x">×</span>` +
+    `<span class="ps-sell"><span class="ps-tag">卖</span>${sellName}${sellBrief ? `<span class="ps-trig">${sellBrief}</span>` : ""}</span>` +
+    `</div>`;
+
   // 区块标题：策略名 + 当前配对名 + 描述（sticky 吸顶时常驻）
   const headHTML = `<div class="lab-sim-strat-head"><span class="lab-sim-strat-name">${modeName}</span><span class="lab-sim-strat-pair">· 配 ${curPairName}</span><span class="lab-sim-strat-desc">${modeDesc}</span></div>`;
   // 买卖信号弹窗入口：买策略+卖策略 key
   const signalBtnHTML = `<div class="lab-sim-signal-btn-wrap"><button type="button" class="lab-sim-signal-btn" data-buy="${buyKey}" data-sell="${sellKey}">📊 查看买卖信号</button></div>`;
   if (!winData || !winData.stats) {
     return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
-      headHTML + pairListHTML + '<div class="lab-sim-empty">该模式无交易数据</div>' + signalBtnHTML + '</div>';
+      headHTML + pairListHTML + pairDescHTML + '<div class="lab-sim-empty">该模式无交易数据</div>' + signalBtnHTML + '</div>';
   }
 
   const page = mode === "full_in" ? (state.labSimPageFi || 0) : (state.labSimPageFk || 0);
   const isOpen = mode === "full_in" ? !!state.labSimFiOpen : !!state.labSimFkOpen;
-  const detailBlock = _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML);
+  const detailBlock = _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel);
 
   return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
-    headHTML + pairListHTML + detailBlock + '</div>';
+    headHTML + pairListHTML + pairDescHTML + detailBlock + '</div>';
 }
 
 // 渲染模拟回测卡片（双策略上下常驻 · 各自独立配对切换 · 5窗口切换 · 指数切换）

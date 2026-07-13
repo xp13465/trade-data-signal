@@ -370,6 +370,49 @@
 .lab-sim-strat-desc { font-size: 12px; color: #86909c; }
 /* mode-block 嵌入 section 内，无边框/padding */
 .lab-sim-mode-block { min-width: 0; }
+/* 当前配对名标注（stats 数据前，标注当前是哪个配对策略） */
+.lab-sim-cur-pair {
+  font-size: 12px;
+  font-weight: 600;
+  color: #165dff;
+  background: #f0f5ff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  display: inline-block;
+}
+/* 配对买卖点描述（策略卡与数据卡片之间的内容隔断 + 当前配对标注） */
+.lab-sim-pair-desc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: linear-gradient(90deg, #f0f5ff 0%, #f7f8fa 100%);
+  border-left: 3px solid #3370ff;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.lab-sim-pair-desc .ps-buy, .lab-sim-pair-desc .ps-sell {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.lab-sim-pair-desc .ps-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: #fff;
+  flex-shrink: 0;
+}
+.lab-sim-pair-desc .ps-buy .ps-tag { background: #c92a2a; }
+.lab-sim-pair-desc .ps-sell .ps-tag { background: #2e7d32; }
+.lab-sim-pair-desc .ps-trig { font-size: 11px; color: #86909c; }
+.lab-sim-pair-desc .ps-x { font-size: 13px; font-weight: 700; color: #3370ff; flex-shrink: 0; }
 /* 交易记录折叠 */
 .lab-sim-trades-header {
   display: flex;
@@ -406,6 +449,8 @@
   .lab-sim-strat-desc { display: none; }
   .lab-sim-strat-name { font-size: 14px; }
   .lab-sim-strat-pair { font-size: 12px; }
+  .lab-sim-pair-desc { padding: 6px 8px; font-size: 11px; gap: 6px; }
+  .lab-sim-cur-pair { font-size: 11px; padding: 3px 8px; }
 }
 
 /* === 回测推荐榜（列表页底部）=== */

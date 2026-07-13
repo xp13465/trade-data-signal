@@ -57,12 +57,13 @@ from backtest_strategies import gen_buy_signals, gen_sell_signals
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 DB = os.path.join(BASE, "data", "sentiment.db")
 # 多指数回测：每个指数独立跑128组配对×5窗口，输出 lab_simulate_{iid}.json
-# 8个A股宽基指数：覆盖大盘/成长/价值/中小盘全谱系
+# 9个A股宽基指数：覆盖大盘/成长/价值/中小盘全谱系（含北证50，历史较短2022起）
 SIM_INDEXES = [
     ('sh',      '上证指数'),
     ('sz',      '深证成指'),
     ('cyb',     '创业板指'),
     ('kc50',    '科创50'),
+    ('bj50',    '北证50'),
     ('sz50',    '上证50'),
     ('hs300',   '沪深300'),
     ('csi500',  '中证500'),
