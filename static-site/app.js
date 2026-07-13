@@ -7,7 +7,7 @@
 
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false };
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300" };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1694,6 +1694,7 @@ async function renderMarket() {
     ["a-stock", "A股"],
     ["hk", "港股"],
     ["global", "全球"],
+    ["national-team", "🐶 汪汪队"],
   ];
   subtabs.forEach(([key, label]) => {
     const btn = document.createElement("button");
@@ -1718,6 +1719,203 @@ async function renderMarket() {
   if (state.subtab === "a-stock") await renderAStock(subContent);
   else if (state.subtab === "hk") await renderHK(subContent);
   else if (state.subtab === "global") await renderGlobal(subContent);
+  else if (state.subtab === "national-team") await renderNationalTeam(subContent);
+}
+
+// ============ 🐶 汪汪队：国家队宽基 ETF 资金动向 ============
+// 口径：代理推断，非真实国家队席位数据。基于 ETF 每日份额变动+成交额放量，结合季度机构持仓占比校准，
+// 推断疑似大资金进场/离场。无法精确区分汇金/证金/社保/险资/公募。详见 REQUIREMENTS.md §8.6。
+// v2 待办（任务#60）：汇金/证金具名识别展示位置 - 等 v2 后端补具名席位数据后，在下方"关键事件"区前加明细卡片。
+async function renderNationalTeam(container = content) {
+  container.innerHTML = '<div class="loading">加载中…</div>';
+  let data, qData;
+  try {
+    data = await fetchJSON("./data/etf_national_team.json");
+    qData = await fetchJSON("./data/etf_national_team_quarterly.json");
+  } catch (e) {
+    container.innerHTML = "";
+    renderFailCard(container, "🐶 汪汪队", e);
+    return;
+  }
+  if (!data || !data.etfs || !data.etfs.length) {
+    container.innerHTML = '<div class="loading">暂无数据</div>';
+    return;
+  }
+  container.innerHTML = "";
+
+  // ── 口径声明横幅 ──
+  const banner = document.createElement("div");
+  banner.className = "nt-banner";
+  banner.innerHTML =
+    `<h3>🐶 汪汪队 - 国家队宽基 ETF 资金动向 <span class="term-tip" title="汪汪队=国家队。追踪12只宽基ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动+成交额放量，推断疑似大资金进场/离场。份额异动z-score>2且放量1.5倍以上=疑似大资金进场(红)，反之为离场(绿)。注意：这是代理推断，无法100%确认是国家队，份额变动可能来自任何机构/大户申赎。">❓</span></h3>` +
+    `<div class="nt-banner-body">追踪 12 只宽基 ETF 的<span style="color:var(--primary)">份额变动+成交额放量</span>，推断疑似大资金（含国家队）进场/离场。<b>口径声明</b>：本指标为代理推断，非真实国家队席位数据，无法精确区分汇金/证金/社保/险资/公募。份额变动可能来自任何机构/大户申赎，不等于国家队操作。当季机构占比&gt;85% 时置信度×1.5（国家队主导品种）。</div>`;
+  container.appendChild(banner);
+
+  // ── ETF 选择器（12只，按跟踪指数分组）──
+  const selWrap = document.createElement("div");
+  selWrap.className = "nt-selector";
+  const idxOrder = ["上证50", "沪深300", "中证500", "中证1000", "创业板", "科创50"];
+  const groups = {};
+  data.etfs.forEach((e) => { (groups[e.index] = groups[e.index] || []).push(e); });
+  idxOrder.forEach((idx) => {
+    const list = groups[idx];
+    if (!list) return;
+    const grp = document.createElement("span");
+    grp.className = "nt-grp-label";
+    grp.textContent = idx;
+    selWrap.appendChild(grp);
+    list.forEach((e) => {
+      const btn = document.createElement("button");
+      btn.textContent = e.code;
+      btn.title = `${e.code} ${e.name}（${e.index}）`;
+      btn.dataset.code = e.code;
+      if (e.code === state.ntEtf) btn.classList.add("active");
+      btn.onclick = () => { state.ntEtf = e.code; renderNationalTeam(container); };
+      selWrap.appendChild(btn);
+    });
+  });
+  container.appendChild(selWrap);
+
+  // ── 选中 ETF ──
+  const cur = data.etfs.find((e) => e.code === state.ntEtf) || data.etfs[0];
+  const curQ = qData.etfs.find((e) => e.code === cur.code);
+  const daily = cur.daily || [];
+
+  // ── 顶部摘要 KPI ──
+  const latest = cur.latest || daily[daily.length - 1] || {};
+  const qLatest = curQ && curQ.history && curQ.history.length ? curQ.history[curQ.history.length - 1] : null;
+  const sigCount = daily.reduce((n, d) => n + (d.signals ? d.signals.length : 0), 0);
+  const kpi = document.createElement("div");
+  kpi.className = "nt-kpi";
+  const shareDisp = latest.fund_share_yi != null ? latest.fund_share_yi.toFixed(1) + " 亿份" : "-";
+  const chgDisp = latest.share_change_yi != null
+    ? (latest.share_change_yi >= 0 ? "+" : "") + latest.share_change_yi.toFixed(2) + " 亿份" : "-";
+  const closeDisp = latest.close != null ? latest.close.toFixed(3) + " 元" : "-";
+  const qDateTxt = qLatest ? qLatest.report_date.slice(0, 4) + "-" + qLatest.report_date.slice(4, 6) + "-" + qLatest.report_date.slice(6, 8) : "";
+  const instDisp = qLatest && qLatest.inst_hold_pct != null ? qLatest.inst_hold_pct.toFixed(1) + "%" : "-";
+  kpi.innerHTML =
+    `<div class="nt-kpi-item"><div class="nt-kpi-label">最新份额</div><div class="nt-kpi-val">${shareDisp}</div></div>` +
+    `<div class="nt-kpi-item"><div class="nt-kpi-label">当日份额变动</div><div class="nt-kpi-val ${latest.share_change_yi >= 0 ? "nt-up" : "nt-down"}">${chgDisp}</div></div>` +
+    `<div class="nt-kpi-item"><div class="nt-kpi-label">最新收盘价</div><div class="nt-kpi-val">${closeDisp}</div></div>` +
+    `<div class="nt-kpi-item"><div class="nt-kpi-label">机构占比${qDateTxt ? "（" + qDateTxt + "）" : ""}</div><div class="nt-kpi-val">${instDisp}</div></div>` +
+    `<div class="nt-kpi-item"><div class="nt-kpi-label">近60日信号数</div><div class="nt-kpi-val">${sigCount}</div></div>`;
+  container.appendChild(kpi);
+
+  // ── 图1: 份额变化趋势（亿份）+ 信号标注 ──
+  // share_surge=红"进"（疑似大资金进场）/ share_outflow=绿"出"（疑似大资金离场）
+  const shareData = daily.map((d) => [d.date, d.fund_share_yi]);
+  const shareMarks = [];
+  daily.forEach((d) => {
+    if (!d.signals) return;
+    if (d.signals.find((s) => s.type === "share_surge"))
+      shareMarks.push({ coord: [d.date, d.fund_share_yi], value: "进", itemStyle: { color: "#e6492e" } });
+    if (d.signals.find((s) => s.type === "share_outflow"))
+      shareMarks.push({ coord: [d.date, d.fund_share_yi], value: "出", itemStyle: { color: "#2e8b57" } });
+  });
+  const shareTitle = `${cur.code} ${cur.name} 份额趋势（亿份）${latest.fund_share_yi != null ? `<span class="chart-latest"> · ${fmtDate(latest.date)} ${latest.fund_share_yi.toFixed(1)}亿份</span>` : ""}`;
+  const c1 = mkCard(shareTitle, 320, null, container);
+  c1.setOption(withTheme({
+    tooltip: { trigger: "axis" },
+    grid: { left: 55, right: 20, top: 30, bottom: 50 },
+    xAxis: { type: "category", data: daily.map((d) => d.date) },
+    yAxis: { type: "value", scale: true, name: "亿份" },
+    dataZoom: dzOpts(),
+    series: [{
+      name: "基金份额", type: "line", smooth: true, symbol: "none", connectNulls: true,
+      data: shareData, lineStyle: { width: 1.8 },
+      markPoint: { symbol: "pin", symbolSize: 36, label: { fontSize: 11, color: "#fff" }, data: shareMarks },
+    }],
+  }));
+
+  // ── 图2: 收盘价(元) + 成交额(亿元) 双轴，volume_surge 标注 ──
+  // volume_surge=橙"量"（成交额/5日均量>2倍，独立放量信号）
+  const closeData = daily.map((d) => [d.date, d.close]);
+  const amtData = daily.map((d) => [d.date, d.amount != null ? +(d.amount / 1e8).toFixed(2) : null]);
+  const volMarks = [];
+  daily.forEach((d) => {
+    if (!d.signals) return;
+    if (d.signals.find((s) => s.type === "volume_surge"))
+      volMarks.push({ coord: [d.date, d.close], value: "量", itemStyle: { color: "#ff9800" } });
+  });
+  const priceTitle = `${cur.code} ${cur.name} 收盘价 / 成交额`;
+  const c2 = mkCard(priceTitle, 320, null, container);
+  c2.setOption(withTheme({
+    tooltip: { trigger: "axis" },
+    legend: { top: 0, data: ["收盘价", "成交额"] },
+    grid: { left: 55, right: 60, top: 35, bottom: 50 },
+    xAxis: { type: "category", data: daily.map((d) => d.date) },
+    yAxis: [
+      { type: "value", scale: true, name: "元", position: "left" },
+      { type: "value", scale: true, name: "亿元", position: "right" },
+    ],
+    dataZoom: dzOpts(),
+    series: [
+      { name: "收盘价", type: "line", smooth: true, symbol: "none", data: closeData, lineStyle: { width: 1.5 },
+        markPoint: { symbol: "pin", symbolSize: 34, label: { fontSize: 11, color: "#fff" }, data: volMarks } },
+      { name: "成交额", type: "bar", yAxisIndex: 1, data: amtData, itemStyle: { opacity: 0.4 } },
+    ],
+  }));
+
+  // ── 图3: 季度持有人结构变化（机构/个人占比%）──
+  if (curQ && curQ.history && curQ.history.length) {
+    // 近5年（基于数据末日年份回推）
+    const endYr = latest.date ? parseInt(latest.date.slice(0, 4), 10) : 2026;
+    const hist = curQ.history.filter((h) => parseInt(h.report_date.slice(0, 4), 10) >= endYr - 5);
+    const instData = hist.map((h) => [h.report_date, h.inst_hold_pct]);
+    const retailData = hist.filter((h) => h.retail_hold_pct != null).map((h) => [h.report_date, h.retail_hold_pct]);
+    const qTitle = `${cur.code} ${cur.name} 持有人结构变化（%）`;
+    const c3 = mkCard(qTitle, 300, null, container);
+    c3.setOption(withTheme({
+      tooltip: { trigger: "axis" },
+      legend: { top: 0, data: ["机构占比", "个人占比"] },
+      grid: { left: 55, right: 20, top: 35, bottom: 50 },
+      xAxis: { type: "category", data: hist.map((h) => h.report_date) },
+      yAxis: { type: "value", scale: true, name: "%", max: 100 },
+      dataZoom: dzOpts(),
+      series: [
+        { name: "机构占比", type: "line", smooth: true, symbol: "circle", symbolSize: 5, data: instData, lineStyle: { width: 1.8 } },
+        { name: "个人占比", type: "line", smooth: true, symbol: "circle", symbolSize: 5, data: retailData, lineStyle: { width: 1.5 } },
+      ],
+    }));
+  }
+
+  // ── 信号明细表（近60日，按日期倒序）──
+  const sigRows = [];
+  daily.forEach((d) => { (d.signals || []).forEach((s) => sigRows.push({ date: d.date, ...s })); });
+  sigRows.sort((a, b) => (a.date < b.date ? 1 : -1));
+  const sigTypeText = { share_surge: "🔴 疑似进场", share_outflow: "🟢 疑似离场", volume_surge: "🟠 放量" };
+  const sigCard = document.createElement("div");
+  sigCard.className = "chart-card";
+  let sigHtml = `<h3>${cur.code} ${cur.name} 信号明细（近60日，共 ${sigRows.length} 条）</h3>`;
+  if (sigRows.length) {
+    sigHtml += `<div class="nt-sig-table-wrap"><table class="nt-sig-table"><thead><tr>` +
+      `<th>日期</th><th>类型</th><th>份额变动(亿份)</th><th>放量倍数</th><th>z强度</th><th>备注</th>` +
+      `</tr></thead><tbody>`;
+    sigRows.forEach((r) => {
+      const sc = r.share_change != null ? (r.share_change / 1e8).toFixed(2) : "-";
+      const ar = r.amount_ratio != null ? r.amount_ratio.toFixed(2) + "倍" : "-";
+      const zi = r.intensity != null ? r.intensity.toFixed(2) : "-";
+      sigHtml += `<tr><td>${fmtDate(r.date)}</td><td>${sigTypeText[r.type] || r.type}</td><td>${sc}</td><td>${ar}</td><td>${zi}</td><td>${r.note || ""}</td></tr>`;
+    });
+    sigHtml += `</tbody></table></div>`;
+  } else {
+    sigHtml += `<div class="placeholder-body">近60日无信号</div>`;
+  }
+  sigCard.innerHTML = sigHtml;
+  container.appendChild(sigCard);
+
+  // ── 关键事件与口径说明（含2023汇金增持期历史验证）──
+  const evt = document.createElement("div");
+  evt.className = "nt-banner";
+  evt.innerHTML =
+    `<h3>📌 关键事件与口径说明</h3>` +
+    `<div class="nt-banner-body">` +
+    `<b>2023年10月汇金增持（历史验证）</b>：2023-10-23 汇金宣布增持 ETF，本系统准确捕捉--510300 当日份额+9.9亿（z=4.62 显著异动）、510310 份额+4.3亿（z=7.47 极端异动）、159919 次日份额+3.8亿（z=9.00 极端异动）。510050 机构占比轨迹：2023年报68% -> 2024年报84% -> 2025年报91%（持续增持）。<br/>` +
+    `<b>信号含义</b>：🔴疑似进场=份额增加且 z&gt;2 且放量1.5倍；🟢疑似离场=份额减少且 z&lt;-2 且放量1.5倍；🟠放量=成交额/5日均量&gt;2倍（独立信号）。z≥5 极端 / ≥3 显著 / ≥2 轻度。<br/>` +
+    `<b>季度校准</b>：当季机构占比&gt;85% 置信×1.5（国家队主导品种）；&lt;60% 置信×0.7（散户主导噪声大）。持有人数据半年报+年报，滞后2-3月。` +
+    `</div>`;
+  container.appendChild(evt);
+  // v2 占位（任务#60 具名识别）：汇金/证金增持明细待 v2 后端补席位数据后接入
 }
 
 async function renderAStock(container = content) {

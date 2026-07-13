@@ -1770,3 +1770,53 @@ main { padding: 16px 24px; }
   .theme-modal .modal-body { width: 94vw; }
 }
 
+/* === 🐶 汪汪队（国家队 ETF 资金动向）=== */
+.nt-banner {
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--primary);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.nt-banner h3 { margin: 0 0 6px; font-size: 14px; color: var(--text-1); }
+.nt-banner-body { font-size: 12px; color: var(--text-2); line-height: 1.7; }
+.nt-banner-body b { color: var(--text-1); }
+.nt-selector {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  margin-bottom: 14px; padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.nt-selector .nt-grp-label {
+  font-size: 11px; color: var(--text-3); margin: 0 6px 0 8px; white-space: nowrap;
+}
+.nt-selector .nt-grp-label:first-child { margin-left: 0; }
+.nt-selector button {
+  padding: 4px 10px; border: 1px solid var(--border-strong);
+  background: var(--bg-card); border-radius: 6px; cursor: pointer;
+  font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.nt-selector button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.nt-selector button:hover:not(.active) { background: var(--bg-hover); }
+.nt-kpi {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px;
+}
+.nt-kpi-item {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+}
+.nt-kpi-label { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+.nt-kpi-val { font-size: 16px; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.nt-kpi-val.nt-up { color: #e6492e; }
+.nt-kpi-val.nt-down { color: #2e8b57; }
+.nt-sig-table-wrap { overflow-x: auto; }
+.nt-sig-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+.nt-sig-table th, .nt-sig-table td {
+  padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left;
+  color: var(--text-2); white-space: nowrap;
+}
+.nt-sig-table th { color: var(--text-1); font-weight: 600; }
+.nt-sig-table td:last-child { white-space: normal; }
+@media (max-width: 768px) {
+  .nt-kpi { grid-template-columns: repeat(2, 1fr); }
+}
+
