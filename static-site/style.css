@@ -1470,14 +1470,8 @@ main { padding: 16px 24px; }
   .h5-topbar { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
   .h5-tab-name { font-size: 15px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
   .h5-meta { display: flex; align-items: center; gap: 6px; }
-  .h5-gen { font-size: 11px; color: var(--text-3); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pc-collect-time { display: none; }
   .h5-collect-time { display: inline; font-size: 10px; color: var(--text-3); white-space: nowrap; }
-  .h5-history-btn {
-    border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 12px;
-    padding: 3px 10px; font-size: 12px; cursor: pointer; color: var(--text-2);
-  }
-  .h5-history-btn:active { background: var(--bg-hover); }
 
   /* PC tab 栏隐藏（4 tab 移到底部导航）；周期选择器移到 H5 周期条 */
   nav.tabs { display: none; }
@@ -1541,9 +1535,8 @@ main { padding: 16px 24px; }
   .rule-bar { position: static; }
   .industry-anchor-bar { top: 46px; }
 
-  /* 一句话总结横幅：H5 顶部条已有时效+历史，banner 内重复项隐藏 */
+  /* 一句话总结横幅：H5 与 PC 一致，时效(收盘分析)+历史入口留在横幅内 */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
-  .summary-banner .summary-date, .summary-banner .summary-history-btn { display: none; }
   .summary-meta { padding-left: 0; flex-wrap: wrap; }
 
   /* 弹窗近全宽 */
