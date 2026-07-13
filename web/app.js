@@ -2730,7 +2730,7 @@ function _summaryHistoryModalEl() {
 }
 
 function _summaryHistoryItemHtml(s) {
-  const date = s.date ? `${s.date.substring(4,6)}-${s.date.substring(6,8)}` : "";
+  const date = s.date ? `${s.date.substring(0,4)}-${s.date.substring(4,6)}-${s.date.substring(6,8)}` : "";
   const fg = s.fear_greed_label ? `<span class="sh-fg">😐 ${s.fear_greed_label} ${s.fear_greed_value != null ? s.fear_greed_value.toFixed(0) : ""}</span>` : "";
   const freeze = s.is_freeze ? `<span class="sh-freeze">❄️冰点</span>` : "";
   // 去掉裸 summary 文字，改用指标 chips（与横幅一致）；历史接口缺的字段做空值兜底跳过
