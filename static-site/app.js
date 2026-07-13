@@ -942,13 +942,15 @@ async function renderTab() {
 }
 
 // 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
+// 末尾追加 ℹ️ 图标，点击弹"数据更新规则"modal（事件委托在 initUpdateRules 绑定 document，重渲染不失效）。
+const _UPDATE_RULES_ICON = '<span class="update-rules-btn" title="数据更新规则" role="button" tabindex="0" aria-label="数据更新规则">ℹ️</span>';
 function applyCollectTime(ct) {
   const _ct = ct || "";
   document.querySelectorAll(".pc-collect-time").forEach((el) => {
-    el.textContent = _ct ? `数据采集时间：${_ct}` : "";
+    el.innerHTML = _ct ? `数据采集时间：${_ct}${_UPDATE_RULES_ICON}` : "";
   });
   document.querySelectorAll(".h5-collect-time").forEach((el) => {
-    el.textContent = _ct;
+    el.innerHTML = _ct ? `${_ct}${_UPDATE_RULES_ICON}` : "";
   });
 }
 async function fetchCollectTime() {
@@ -2979,6 +2981,72 @@ function initThemeSwitcher() {
   });
 }
 
+// === 数据更新规则 modal（采集时间旁 ℹ️ 图标入口）===
+// 复用 rule-modal 结构/样式（CSS 变量自动适配 4 套皮肤）。事件委托绑定 document，
+// applyCollectTime 每次 innerHTML 重渲染后 ℹ️ 图标仍可点。
+function updateRulesContentHtml() {
+  return (
+    '<div class="rule-section">' +
+      '<h4>📅 更新时间表</h4>' +
+      '<table class="ur-table"><thead><tr><th>时间</th><th>更新内容</th><th>说明</th></tr></thead><tbody>' +
+        '<tr><td>盘中每30分钟</td><td>实时快照</td><td>9:35-15:35，腾讯/同花顺实时数据</td></tr>' +
+        '<tr><td>15:05</td><td>收盘快照</td><td>收盘后5分钟出当日涨跌幅+热点</td></tr>' +
+        '<tr><td>17:50</td><td>收盘全量</td><td>baostock等T+1源出数据后全量采集</td></tr>' +
+        '<tr><td>20:00</td><td>晚间兜底</td><td>补采晚出的申万等数据</td></tr>' +
+      '</tbody></table>' +
+    '</div>' +
+    '<div class="rule-section">' +
+      '<h4>⏱️ 各数据时效</h4>' +
+      '<ul class="ur-list">' +
+        '<li>📈 <b>指数涨跌幅/热点板块/一句话总结</b>：实时（秒级，快照采）</li>' +
+        '<li>📊 <b>指数历史走势 OHLC</b>：T+1（申万/baostock 收盘后次日补全）</li>' +
+        '<li>😐 <b>恐贪指数 / per-index 情绪分</b>：快照反哺后当日可用，否则停 T-1</li>' +
+        '<li>📋 <b>A股综合情绪分</b>：当日（mootdx 实时算）</li>' +
+      '</ul>' +
+    '</div>' +
+    '<div class="rule-section">' +
+      '<h4>💡 为什么时间更新了但有些数据还是前天的？</h4>' +
+      '<p>右上角时间是"脚本跑完时间"。脚本跑了≠每个数据源都采到当日：</p>' +
+      '<ul class="ur-list">' +
+        '<li>实时快照源（腾讯/同花顺）秒级出当日 -> 这些数据是当天的</li>' +
+        '<li>T+1 源（申万/baostock）收盘后次日才发布当日 -> 历史走势/部分情绪分可能停在 T-1</li>' +
+        '<li>收盘后约 2 小时（17:50 update_all）T+1 源出数据后会补全</li>' +
+        '<li>晚 20:00 再兜底补一次</li>' +
+      '</ul>' +
+    '</div>'
+  );
+}
+function initUpdateRules() {
+  const modal = document.createElement("div");
+  modal.className = "rule-modal hidden update-rules-modal";
+  modal.innerHTML =
+    '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body"><div class="rule-modal-header"><h3>📋 数据更新规则</h3>' +
+    '<button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+    '<div class="rule-modal-content">' + updateRulesContentHtml() + '</div></div>';
+  document.body.appendChild(modal);
+
+  const overlay = modal.querySelector(".rule-modal-overlay");
+  const closeBtn = modal.querySelector(".rule-modal-close");
+  const open = () => { modal.classList.remove("hidden"); document.body.style.overflow = "hidden"; };
+  const close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+
+  // 事件委托：applyCollectTime 每次 innerHTML 重渲染后图标仍可点
+  document.addEventListener("click", (e) => {
+    if (e.target.closest(".update-rules-btn")) { e.preventDefault(); open(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") &&
+        document.activeElement && document.activeElement.classList &&
+        document.activeElement.classList.contains("update-rules-btn")) {
+      e.preventDefault(); open();
+    }
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+  });
+  overlay.addEventListener("click", close);
+  closeBtn.addEventListener("click", close);
+}
+
 
 initStickyOffset();
 initBackToTop();
@@ -2987,6 +3055,7 @@ initH5();
 initSimOverlay();
 initShareButton();
 initThemeSwitcher();
+initUpdateRules();
 
 // === 主 tab hash 记忆 + 滚动位置恢复 ===
 // 切 tab 写 hash（replaceState 不入历史、不触发 hashchange），F5 读 hash 恢复 tab + 滚动位置。

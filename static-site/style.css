@@ -748,6 +748,57 @@ main { padding: 16px 24px; }
 }
 .rule-modal-content .rule-detail div { margin: 3px 0; }
 
+/* === 数据更新规则 modal（采集时间旁 ℹ️ 入口）=== */
+/* ℹ️ 图标：浅色小号，hover/聚焦变主色；随采集时间文字一起渲染 */
+.update-rules-btn {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+  margin-left: 4px;
+  vertical-align: middle;
+  line-height: 1;
+  user-select: none;
+  transition: color 0.15s;
+}
+.update-rules-btn:hover,
+.update-rules-btn:focus-visible { color: var(--primary); outline: none; }
+.update-rules-modal .rule-modal-body { width: min(92vw, 720px); }
+.update-rules-modal .rule-section { margin-bottom: 18px; }
+.update-rules-modal .rule-section:last-child { margin-bottom: 0; }
+.update-rules-modal .rule-section h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text-1);
+}
+.update-rules-modal .ur-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+.update-rules-modal .ur-table th,
+.update-rules-modal .ur-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.update-rules-modal .ur-table th {
+  background: var(--bg-hover);
+  color: var(--text-1);
+  font-weight: 600;
+}
+.update-rules-modal .ur-table td:first-child {
+  color: var(--primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.update-rules-modal .ur-list { margin: 6px 0 0; padding-left: 20px; }
+.update-rules-modal .ur-list li { margin: 4px 0; }
+.update-rules-modal p { margin: 6px 0; }
+.update-rules-modal b { color: var(--text-1); }
+
 /* 买卖点卡片走势图弹窗：比规则说明略宽，承载图表 */
 .signal-chart-modal-body { width: min(94vw, 1080px); max-height: 88vh; }
 .signal-chart-content { padding: 16px 20px; }
@@ -1501,6 +1552,11 @@ main { padding: 16px 24px; }
   .summary-history-body { max-width: 94vw; }
   .summary-history-list { max-height: 70vh; }
   .rule-modal-content { padding: 16px; }
+  /* 数据更新规则 modal 移动端微调 */
+  .update-rules-modal .rule-modal-content { padding: 14px; font-size: 12.5px; }
+  .update-rules-modal .ur-table { font-size: 12px; }
+  .update-rules-modal .ur-table th,
+  .update-rules-modal .ur-table td { padding: 5px 6px; }
 
   /* 浮动按钮上移避开底部导航 */
   .back-to-top { bottom: 88px; right: 16px; width: 40px; height: 40px; font-size: 20px; }
