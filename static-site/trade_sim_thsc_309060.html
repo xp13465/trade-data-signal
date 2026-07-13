@@ -5,54 +5,84 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>数据要素 · 买卖点模拟回测</title>
 <style>
+
+:root {
+  --bg-page: #f5f6f8; --bg-card: #fff; --bg-hover: #f7f8fa; --bg-active: #f0f5ff;
+  --border: #e5e6eb; --border-strong: #d9dce0;
+  --text-1: #1f2329; --text-2: #4e5969; --text-3: #86909c; --text-4: #c9cdd4;
+  --primary: #165dff; --primary-hover: #0e42d2; --primary-bg: #f0f5ff;
+  --shadow: rgba(0,0,0,0.04); --shadow-strong: rgba(0,0,0,0.12);
+}
+[data-theme="dark"] {
+  --bg-page: #0d1117; --bg-card: #161b22; --bg-hover: #21262d; --bg-active: #1c2333;
+  --border: #30363d; --border-strong: #484f58;
+  --text-1: #e6edf3; --text-2: #b1bac4; --text-3: #7d8590; --text-4: #484f58;
+  --primary: #58a6ff; --primary-hover: #79b8ff; --primary-bg: #1c2536;
+  --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+}
+[data-theme="redgold"] {
+  --bg-page: #1a1d29; --bg-card: #252836; --bg-hover: #2d3142; --bg-active: #3a2e1a;
+  --border: #3a3d4d; --border-strong: #545767;
+  --text-1: #f0e6c4; --text-2: #c4b896; --text-3: #8a7f5e; --text-4: #5c5444;
+  --primary: #f0b90b; --primary-hover: #ffc933; --primary-bg: #2a2410;
+  --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+}
+[data-theme="morandi"] {
+  --bg-page: #f5f1ec; --bg-card: #fffaf3; --bg-hover: #ede7df; --bg-active: #e6e9ed;
+  --border: #d9d3cb; --border-strong: #c2bbb0;
+  --text-1: #3d3a35; --text-2: #6b665e; --text-3: #9a948a; --text-4: #b8b2a6;
+  --primary: #6b7c93; --primary-hover: #5a6b82; --primary-bg: #e6e9ed;
+  --shadow: rgba(120,110,90,0.06); --shadow-strong: rgba(120,110,90,0.14);
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1f2329; padding: 24px; max-width: 1200px; margin: 0 auto; }
+body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg-page); color: var(--text-1); padding: 24px; max-width: 1200px; margin: 0 auto; }
 h1 { font-size: 20px; margin-bottom: 4px; }
-.subtitle { color: #8f959e; font-size: 13px; margin-bottom: 20px; }
+.subtitle { color: var(--text-3); font-size: 13px; margin-bottom: 20px; }
 
 /* 全局对比表 */
-.sim-cmp-table { margin-bottom: 20px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 8px; overflow-x: auto; }
+.sim-cmp-table { margin-bottom: 20px; background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); padding: 8px; overflow-x: auto; }
 .sim-cmp-table table { font-size: 12px; width: 100%; border-collapse: collapse; }
-.sim-cmp-table th { background: #f5f6f8; padding: 6px 10px; text-align: left; font-weight: 600; color: #646a73; white-space: nowrap; border-bottom: 1px solid #e5e6eb; }
-.sim-cmp-table td { padding: 5px 10px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; }
-.sim-cmp-table tr:hover td { background: #f5f6f8; }
+.sim-cmp-table th { background: var(--bg-hover); padding: 6px 10px; text-align: left; font-weight: 600; color: var(--text-2); white-space: nowrap; border-bottom: 1px solid var(--border); }
+.sim-cmp-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.sim-cmp-table tr:hover td { background: var(--bg-hover); }
 
-.sim-main-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid #e5e6eb; }
-.sim-main-tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #646a73; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }
-.sim-main-tab.active { color: #1f2329; font-weight: 600; border-bottom-color: #3370ff; }
-.sim-main-tab:hover { color: #1f2329; }
+.sim-main-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid var(--border); }
+.sim-main-tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }
+.sim-main-tab.active { color: var(--text-1); font-weight: 600; border-bottom-color: var(--primary); }
+.sim-main-tab:hover { color: var(--text-1); }
 
 .sim-path-group { display: none; }
 .sim-path-group.active { display: block; }
 
-.sim-sub-tabs { display: flex; gap: 4px; padding: 10px 0 12px; background: #fff; border-bottom: 1px solid #e5e6eb; margin-bottom: 16px; }
-.sim-sub-tab { padding: 6px 14px; border: 1px solid #d9dce0; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; color: #4e5969; transition: all .2s; }
-.sim-sub-tab.active { background: #165dff; color: #fff; border-color: #165dff; }
-.sim-sub-tab:hover:not(.active) { background: #f2f3f5; }
+.sim-sub-tabs { display: flex; gap: 4px; padding: 10px 0 12px; background: var(--bg-card); border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.sim-sub-tab { padding: 6px 14px; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-2); transition: all .2s; }
+.sim-sub-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.sim-sub-tab:hover:not(.active) { background: var(--bg-hover); }
 
 .sim-scenario { display: none; }
 .sim-scenario.active { display: block; }
-.sim-flow { background: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: #1f2329; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-left: 3px solid #3370ff; }
+.sim-flow { background: var(--bg-card); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: var(--text-1); box-shadow: 0 1px 3px var(--shadow); border-left: 3px solid var(--primary); }
 .sim-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
-.sim-card { background: #fff; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-.sim-card .k { display: block; font-size: 12px; color: #8f959e; margin-bottom: 4px; }
+.sim-card { background: var(--bg-card); border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px var(--shadow); }
+.sim-card .k { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
 .sim-card .v { display: block; font-size: 16px; font-weight: 600; }
-.sim-card .sub { font-size: 11px; color: #8f959e; font-weight: 400; margin-top: 2px; }
-.sim-table-wrap { overflow-x: auto; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 8px; }
+.sim-card .sub { font-size: 11px; color: var(--text-3); font-weight: 400; margin-top: 2px; }
+.sim-table-wrap { overflow-x: auto; background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); padding: 8px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { background: #f5f6f8; padding: 10px 12px; text-align: left; font-weight: 600; color: #646a73; white-space: nowrap; border-bottom: 1px solid #e5e6eb; }
-td { padding: 8px 12px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; }
-tr:nth-child(even) td { background: #fafbfc; }
-tr:hover td { background: #f5f6f8; }
+th { background: var(--bg-hover); padding: 10px 12px; text-align: left; font-weight: 600; color: var(--text-2); white-space: nowrap; border-bottom: 1px solid var(--border); }
+td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tr:nth-child(even) td { background: var(--bg-hover); }
+tr:hover td { background: var(--bg-hover); }
 
-/* 交易记录操作标签 */
+/* 交易记录操作标签（涨红/辅买紫/卖出绿为数据语义色，保持硬编码）*/
 .ledger-op { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; color: #fff; }
 .ledger-op.buy { background: #e6492e; }
 .ledger-op.buy_aux { background: #d63384; }
 .ledger-op.sell { background: #2e8b57; }
 
-.footer { margin-top: 24px; font-size: 12px; color: #8f959e; }
-.footer a { color: #3370ff; }
+.footer { margin-top: 24px; font-size: 12px; color: var(--text-3); }
+.footer a { color: var(--primary); }
 
 /* 移动端适配（iframe 在 H5 浮层窄屏打开时）：边距缩、卡片 2 列、tab 横滚、表格紧凑 */
 @media (max-width: 768px) {
@@ -74,10 +104,24 @@ tr:hover td { background: #f5f6f8; }
   .footer { font-size: 11px; margin-top: 16px; }
 }
 </style>
+<script>
+// 主题跟随父页面：URL hash 传初始主题 + postMessage 动态切换（双保险）
+(function(){
+  var t = location.hash.replace(/^#/,'');
+  try { t = decodeURIComponent(t); } catch(e) {}
+  if (t) document.documentElement.setAttribute('data-theme', t);
+  window.addEventListener('message', function(e){
+    if (e.data && e.data.type === 'set-theme'){
+      if (e.data.theme) document.documentElement.setAttribute('data-theme', e.data.theme);
+      else document.documentElement.removeAttribute('data-theme');
+    }
+  });
+})();
+</script>
 </head>
 <body>
 <h1>数据要素 · 买卖点模拟回测</h1>
-<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2023-04-28 ~ 2026-06-30（3.2 年） · 生成于 2026-07-11 12:57</p>
+<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2023-04-28 ~ 2026-06-30（3.2 年） · 生成于 2026-07-13 18:46</p>
 
     <div class="sim-cmp-table">
       <table>
@@ -208,7 +252,7 @@ tr:hover td { background: #f5f6f8; }
           <div class="sim-scenario active" data-path="0" data-sig="0">
     <div class="sim-flow">总资金 100,000 元 · 买固定 1 万 + 卖清仓全部 · 2023-04-28 首笔买入 · 跳过: 无持仓可卖 7 次 · → 经 4 轮买卖 + 2 笔未平仓 · → 期末总资产 121,168 元（现金 102,330 + 持仓 18,838）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 121,167.78 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 18,838.26 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 121,167.78 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 18,838.26 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">53,000.41 元（56.2%）<div class="sub">2024-06-07</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">21,167.78 元（+21.17%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.2%<div class="sub">首笔买入至今 3.2 年</div></span></div>
@@ -220,24 +264,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">4 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈21.80% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">4笔成对 · 2笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="100.9" x2="790.0" y2="100.9" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="100.9" x2="790.0" y2="100.9" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,100.9 127.3,103.7 174.7,96.4 222.0,96.4 269.3,98.3 316.7,99.3 364.0,120.1 411.3,109.5 458.7,120.0 506.0,44.1 553.3,44.1 600.7,36.4 648.0,36.4 695.3,25.6 742.7,25.6 790.0,29.8 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,100.9 127.3,103.7 174.7,96.4 222.0,96.4 269.3,98.3 316.7,99.3 364.0,120.1 411.3,109.5 458.7,120.0 506.0,44.1 553.3,44.1 600.7,36.4 648.0,36.4 695.3,25.6 742.7,25.6 790.0,29.8" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="100.9" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="120.1" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 9.4万</text> <text x="76" y="25.6" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 12.2万</text> <text x="76" y="29.8" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 12.1万</text>
+      <text x="76" y="100.9" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="120.1" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 9.4万</text> <text x="76" y="25.6" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 12.2万</text> <text x="76" y="29.8" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 12.1万</text>
       <circle cx="695.3" cy="25.6" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="29.8" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-04</text> <text x="174.7" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-11</text> <text x="316.7" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-01</text> <text x="458.7" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-06</text> <text x="553.3" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-01</text> <text x="648.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-04</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2026-06</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-04</text> <text x="174.7" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-11</text> <text x="316.7" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-01</text> <text x="458.7" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-06</text> <text x="553.3" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-01</text> <text x="648.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-04</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2026-06</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（16 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -248,9 +292,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-04-28</td>
           <td style="white-space:nowrap">956.88</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.45股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.45股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.45</span></td>
           <td>10.45</td>
           <td>10,000.00</td>
@@ -263,7 +307,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">874.77</td>
           <td><span style="color:#2e8b57;font-weight:600">-8.58%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.43股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.43股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.43</span></td>
           <td>21.88</td>
           <td>19,141.88</td>
@@ -276,10 +320,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+11.38%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>21,320.16 <span style="font-size:10px;color:#8f959e">(21.88股→)</span></td>
+          <td>21,320.16 <span style="font-size:10px;color:var(--text-3)">(21.88股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-21.88</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>101,320.16</td>
           <td style="color:#e6492e;font-weight:600">+1.32%</td>
         </tr>
@@ -289,7 +333,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">902.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-7.36%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.08股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.08股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.08</span></td>
           <td>11.08</td>
           <td>10,000.00</td>
@@ -302,7 +346,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">851.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.64%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.74股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.74股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.74</span></td>
           <td>22.82</td>
           <td>19,436.26</td>
@@ -315,7 +359,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">838.34</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.57%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.93股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.93股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.93</span></td>
           <td>34.75</td>
           <td>29,131.24</td>
@@ -328,7 +372,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">660.88</td>
           <td><span style="color:#2e8b57;font-weight:600">-21.17%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←15.13股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←15.13股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+15.13</span></td>
           <td>49.88</td>
           <td>32,964.85</td>
@@ -341,7 +385,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">724.17</td>
           <td><span style="color:#e6492e;font-weight:600">+9.58%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←13.81股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←13.81股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+13.81</span></td>
           <td>63.69</td>
           <td>46,121.82</td>
@@ -354,7 +398,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">675.16</td>
           <td><span style="color:#2e8b57;font-weight:600">-6.77%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←14.81股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←14.81股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+14.81</span></td>
           <td>78.50</td>
           <td>53,000.41</td>
@@ -367,10 +411,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+42.52%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>75,536.31 <span style="font-size:10px;color:#8f959e">(78.50股→)</span></td>
+          <td>75,536.31 <span style="font-size:10px;color:var(--text-3)">(78.50股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-78.50</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>116,856.47</td>
           <td style="color:#e6492e;font-weight:600">+16.86%</td>
         </tr>
@@ -380,7 +424,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">950.90</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.18%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.52股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.52股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.52</span></td>
           <td>10.52</td>
           <td>10,000.00</td>
@@ -393,10 +437,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+22.65%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>12,265.35 <span style="font-size:10px;color:#8f959e">(10.52股→)</span></td>
+          <td>12,265.35 <span style="font-size:10px;color:var(--text-3)">(10.52股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.52</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>119,121.82</td>
           <td style="color:#e6492e;font-weight:600">+19.12%</td>
         </tr>
@@ -406,7 +450,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1006.49</td>
           <td><span style="color:#2e8b57;font-weight:600">-13.70%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←9.94股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←9.94股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+9.94</span></td>
           <td>9.94</td>
           <td>10,000.00</td>
@@ -419,10 +463,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+32.08%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>13,207.70 <span style="font-size:10px;color:#8f959e">(9.94股→)</span></td>
+          <td>13,207.70 <span style="font-size:10px;color:var(--text-3)">(9.94股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-9.94</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>122,329.51</td>
           <td style="color:#e6492e;font-weight:600">+22.33%</td>
         </tr>
@@ -432,7 +476,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1282.88</td>
           <td><span style="color:#2e8b57;font-weight:600">-3.50%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.79股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.79股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.79</span></td>
           <td>7.79</td>
           <td>10,000.00</td>
@@ -445,7 +489,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1123.44</td>
           <td><span style="color:#2e8b57;font-weight:600">-12.43%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←8.90股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←8.90股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+8.90</span></td>
           <td>16.70</td>
           <td>18,757.19</td>
@@ -499,8 +543,8 @@ tr:hover td { background: #f5f6f8; }
           <td>21,320.16</td>
           <td style="color:#e6492e;font-weight:600">+1320.16</td>
         </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2023-04-28</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2023-04-28</td>
               <td>956.88</td>
               <td colspan="2"></td>
               <td>216 天</td>
@@ -509,8 +553,8 @@ tr:hover td { background: #f5f6f8; }
               <td>10,182.20</td>
               <td style="color:#e6492e;font-weight:600">+182.20</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2023-10-24</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2023-10-24</td>
               <td>874.77</td>
               <td colspan="2"></td>
               <td>37 天</td>
@@ -531,8 +575,8 @@ tr:hover td { background: #f5f6f8; }
           <td>75,536.31</td>
           <td style="color:#e6492e;font-weight:600">+15536.31</td>
         </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-01-11</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-01-11</td>
               <td>902.58</td>
               <td colspan="2"></td>
               <td>295 天</td>
@@ -541,8 +585,8 @@ tr:hover td { background: #f5f6f8; }
               <td>10,660.96</td>
               <td style="color:#e6492e;font-weight:600">+660.96</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-01-18</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-01-18</td>
               <td>851.7</td>
               <td colspan="2"></td>
               <td>288 天</td>
@@ -551,8 +595,8 @@ tr:hover td { background: #f5f6f8; }
               <td>11,297.86</td>
               <td style="color:#e6492e;font-weight:600">+1297.86</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-01-25</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-01-25</td>
               <td>838.34</td>
               <td colspan="2"></td>
               <td>281 天</td>
@@ -561,8 +605,8 @@ tr:hover td { background: #f5f6f8; }
               <td>11,477.99</td>
               <td style="color:#e6492e;font-weight:600">+1477.99</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-02-08</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-02-08</td>
               <td>660.88</td>
               <td colspan="2"></td>
               <td>267 天</td>
@@ -571,8 +615,8 @@ tr:hover td { background: #f5f6f8; }
               <td>14,560.00</td>
               <td style="color:#e6492e;font-weight:600">+4560.00</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-04-17</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-04-17</td>
               <td>724.17</td>
               <td colspan="2"></td>
               <td>198 天</td>
@@ -581,8 +625,8 @@ tr:hover td { background: #f5f6f8; }
               <td>13,287.48</td>
               <td style="color:#e6492e;font-weight:600">+3287.48</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-06-07</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-06-07</td>
               <td>675.16</td>
               <td colspan="2"></td>
               <td>147 天</td>
@@ -620,7 +664,7 @@ tr:hover td { background: #f5f6f8; }
 <div class="sim-scenario " data-path="0" data-sig="1">
     <div class="sim-flow">总资金 100,000 元 · 买固定 1 万 + 卖清仓全部 · 2023-07-24 首笔买入 · 跳过: 无持仓可卖 7 次 · → 经 4 轮买卖 + 7 笔未平仓 · → 期末总资产 113,201 元（现金 52,136 + 持仓 61,065）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 113,201.30 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 61,065.02 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 113,201.30 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 61,065.02 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">68,553.84 元（56.8%）<div class="sub">2026-06-01</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">13,201.30 元（+13.20%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+4.3%<div class="sub">首笔买入至今 3.0 年</div></span></div>
@@ -632,24 +676,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">4 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈15.51% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">4笔成对 · 7笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="103.7" x2="790.0" y2="103.7" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="103.7" x2="790.0" y2="103.7" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,103.7 117.4,102.5 154.7,102.5 192.1,106.5 229.5,121.0 266.8,99.8 304.2,114.9 341.6,118.9 378.9,41.9 416.3,41.9 453.7,38.5 491.1,38.5 528.4,33.6 565.8,33.6 603.2,32.5 640.5,32.9 677.9,35.4 715.3,24.8 752.6,38.1 790.0,38.2 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,103.7 117.4,102.5 154.7,102.5 192.1,106.5 229.5,121.0 266.8,99.8 304.2,114.9 341.6,118.9 378.9,41.9 416.3,41.9 453.7,38.5 491.1,38.5 528.4,33.6 565.8,33.6 603.2,32.5 640.5,32.9 677.9,35.4 715.3,24.8 752.6,38.1 790.0,38.2" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="103.7" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="121.0" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 9.5万</text> <text x="76" y="24.8" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 12.5万</text> <text x="76" y="38.2" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 12.1万</text>
+      <text x="76" y="103.7" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="121.0" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 9.5万</text> <text x="76" y="24.8" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 12.5万</text> <text x="76" y="38.2" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 12.1万</text>
       <circle cx="715.3" cy="24.8" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="38.2" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-07</text> <text x="192.1" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-01</text> <text x="304.2" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-06</text> <text x="453.7" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-02</text> <text x="565.8" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-10</text> <text x="677.9" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-12</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2026-06</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-07</text> <text x="192.1" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-01</text> <text x="304.2" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-06</text> <text x="453.7" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-02</text> <text x="565.8" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-10</text> <text x="677.9" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-12</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2026-06</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（20 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -660,9 +704,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-07-24</td>
           <td style="white-space:nowrap">939.15</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.65股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.65股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.65</span></td>
           <td>10.65</td>
           <td>10,000.00</td>
@@ -675,10 +719,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+3.74%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>10,374.42 <span style="font-size:10px;color:#8f959e">(10.65股→)</span></td>
+          <td>10,374.42 <span style="font-size:10px;color:var(--text-3)">(10.65股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.65</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>100,374.42</td>
           <td style="color:#e6492e;font-weight:600">+0.37%</td>
         </tr>
@@ -688,7 +732,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">920.94</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.48%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.86股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.86股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.86</span></td>
           <td>10.86</td>
           <td>10,000.00</td>
@@ -701,7 +745,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">804.66</td>
           <td><span style="color:#2e8b57;font-weight:600">-12.63%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←12.43股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←12.43股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+12.43</span></td>
           <td>23.29</td>
           <td>18,737.35</td>
@@ -714,7 +758,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">607.48</td>
           <td><span style="color:#2e8b57;font-weight:600">-24.51%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←16.46股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←16.46股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+16.46</span></td>
           <td>39.75</td>
           <td>24,145.76</td>
@@ -727,7 +771,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">775.80</td>
           <td><span style="color:#e6492e;font-weight:600">+27.71%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←12.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←12.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+12.89</span></td>
           <td>52.64</td>
           <td>40,836.18</td>
@@ -740,7 +784,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">685.69</td>
           <td><span style="color:#2e8b57;font-weight:600">-11.62%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←14.58股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←14.58股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+14.58</span></td>
           <td>67.22</td>
           <td>46,093.05</td>
@@ -753,7 +797,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">666.55</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.79%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←15.00股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←15.00股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+15.00</span></td>
           <td>82.22</td>
           <td>54,806.70</td>
@@ -766,10 +810,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+44.36%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>79,119.49 <span style="font-size:10px;color:#8f959e">(82.22股→)</span></td>
+          <td>79,119.49 <span style="font-size:10px;color:var(--text-3)">(82.22股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-82.22</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>119,493.91</td>
           <td style="color:#e6492e;font-weight:600">+19.49%</td>
         </tr>
@@ -779,7 +823,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1053.14</td>
           <td><span style="color:#e6492e;font-weight:600">+9.45%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←9.50股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←9.50股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+9.50</span></td>
           <td>9.50</td>
           <td>10,000.00</td>
@@ -792,10 +836,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+10.75%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>11,074.58 <span style="font-size:10px;color:#8f959e">(9.50股→)</span></td>
+          <td>11,074.58 <span style="font-size:10px;color:var(--text-3)">(9.50股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-9.50</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>120,568.49</td>
           <td style="color:#e6492e;font-weight:600">+20.57%</td>
         </tr>
@@ -805,7 +849,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1149.18</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.47%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←8.70股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←8.70股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+8.70</span></td>
           <td>8.70</td>
           <td>10,000.00</td>
@@ -818,10 +862,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+15.68%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>11,567.79 <span style="font-size:10px;color:#8f959e">(8.70股→)</span></td>
+          <td>11,567.79 <span style="font-size:10px;color:var(--text-3)">(8.70股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-8.70</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>122,136.28</td>
           <td style="color:#e6492e;font-weight:600">+22.14%</td>
         </tr>
@@ -831,7 +875,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-4.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>7.89</td>
           <td>10,000.00</td>
@@ -844,7 +888,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1310.90</td>
           <td><span style="color:#e6492e;font-weight:600">+3.41%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.63股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.63股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.63</span></td>
           <td>15.52</td>
           <td>20,340.77</td>
@@ -857,7 +901,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1302.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-0.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.68股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.68股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.68</span></td>
           <td>23.19</td>
           <td>30,211.58</td>
@@ -870,7 +914,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1269.24</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.56%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.88股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.88股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.88</span></td>
           <td>31.07</td>
           <td>39,438.47</td>
@@ -883,7 +927,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1376.69</td>
           <td><span style="color:#e6492e;font-weight:600">+8.47%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.26股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.26股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.26</span></td>
           <td>38.34</td>
           <td>52,777.23</td>
@@ -896,7 +940,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.37</td>
           <td><span style="color:#2e8b57;font-weight:600">-7.94%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>46.23</td>
           <td>58,586.01</td>
@@ -909,7 +953,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1266.67</td>
           <td><span style="color:#2e8b57;font-weight:600">-0.05%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>54.12</td>
           <td>68,553.84</td>
@@ -1020,8 +1064,8 @@ tr:hover td { background: #f5f6f8; }
           <td>79,119.49</td>
           <td style="color:#e6492e;font-weight:600">+19119.49</td>
         </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2023-12-27</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2023-12-27</td>
               <td>920.94</td>
               <td colspan="2"></td>
               <td>310 天</td>
@@ -1030,8 +1074,8 @@ tr:hover td { background: #f5f6f8; }
               <td>10,448.49</td>
               <td style="color:#e6492e;font-weight:600">+448.49</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-01-24</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-01-24</td>
               <td>804.66</td>
               <td colspan="2"></td>
               <td>282 天</td>
@@ -1040,8 +1084,8 @@ tr:hover td { background: #f5f6f8; }
               <td>11,958.41</td>
               <td style="color:#e6492e;font-weight:600">+1958.41</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-02-07</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-02-07</td>
               <td>607.48</td>
               <td colspan="2"></td>
               <td>268 天</td>
@@ -1050,8 +1094,8 @@ tr:hover td { background: #f5f6f8; }
               <td>15,840.01</td>
               <td style="color:#e6492e;font-weight:600">+5840.01</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-04-11</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-04-11</td>
               <td>775.8</td>
               <td colspan="2"></td>
               <td>204 天</td>
@@ -1060,8 +1104,8 @@ tr:hover td { background: #f5f6f8; }
               <td>12,403.26</td>
               <td style="color:#e6492e;font-weight:600">+2403.26</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-06-11</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-06-11</td>
               <td>685.69</td>
               <td colspan="2"></td>
               <td>143 天</td>
@@ -1070,8 +1114,8 @@ tr:hover td { background: #f5f6f8; }
               <td>14,033.22</td>
               <td style="color:#e6492e;font-weight:600">+4033.22</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-07-09</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-07-09</td>
               <td>666.55</td>
               <td colspan="2"></td>
               <td>115 天</td>
@@ -1109,7 +1153,7 @@ tr:hover td { background: #f5f6f8; }
 <div class="sim-scenario " data-path="0" data-sig="2">
     <div class="sim-flow">总资金 100,000 元 · 买固定 1 万 + 卖清仓全部 · 2023-04-28 首笔买入 · 跳过: 仓位已满 2 次 · 无持仓可卖 7 次 · → 经 4 轮买卖 + 9 笔未平仓 · → 期末总资产 125,900 元（现金 45,996 + 持仓 79,903）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 125,899.75 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 79,903.28 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 125,899.75 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 79,903.28 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">88,539.35 元（98.1%）<div class="sub">2024-06-07</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">25,899.75 元（+25.90%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+7.5%<div class="sub">首笔买入至今 3.2 年</div></span></div>
@@ -1121,24 +1165,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">4 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈18.11% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">4笔成对 · 9笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="99.9" x2="790.0" y2="99.9" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="99.9" x2="790.0" y2="99.9" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,99.9 104.5,100.3 129.0,103.1 153.4,96.4 177.9,96.4 202.4,96.8 226.9,99.1 251.4,102.4 275.9,99.2 300.3,127.0 324.8,118.7 349.3,97.3 373.8,108.3 398.3,120.2 422.8,42.0 447.2,42.0 471.7,44.0 496.2,35.1 520.7,35.1 545.2,37.7 569.7,25.2 594.1,25.2 618.6,24.5 643.1,24.7 667.6,26.3 692.1,19.4 716.6,26.9 741.0,28.4 765.5,28.4 790.0,46.8 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,99.9 104.5,100.3 129.0,103.1 153.4,96.4 177.9,96.4 202.4,96.8 226.9,99.1 251.4,102.4 275.9,99.2 300.3,127.0 324.8,118.7 349.3,97.3 373.8,108.3 398.3,120.2 422.8,42.0 447.2,42.0 471.7,44.0 496.2,35.1 520.7,35.1 545.2,37.7 569.7,25.2 594.1,25.2 618.6,24.5 643.1,24.7 667.6,26.3 692.1,19.4 716.6,26.9 741.0,28.4 765.5,28.4 790.0,46.8" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="99.9" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="127.0" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 8.7万</text> <text x="76" y="19.4" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.9万</text> <text x="76" y="46.8" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 12.6万</text>
+      <text x="76" y="99.9" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="127.0" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 8.7万</text> <text x="76" y="19.4" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.9万</text> <text x="76" y="46.8" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 12.6万</text>
       <circle cx="692.1" cy="19.4" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="46.8" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-04</text> <text x="202.4" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-01</text> <text x="324.8" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-02</text> <text x="422.8" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-11</text> <text x="545.2" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-04</text> <text x="667.6" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-12</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2026-06</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-04</text> <text x="202.4" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-01</text> <text x="324.8" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-02</text> <text x="422.8" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-11</text> <text x="545.2" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-04</text> <text x="667.6" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-12</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2026-06</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（30 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -1149,9 +1193,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-04-28</td>
           <td style="white-space:nowrap">956.88</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.45股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.45股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.45</span></td>
           <td>10.45</td>
           <td>10,000.00</td>
@@ -1164,7 +1208,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">939.15</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.85%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.65股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.65股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.65</span></td>
           <td>21.10</td>
           <td>19,814.71</td>
@@ -1177,7 +1221,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">874.77</td>
           <td><span style="color:#2e8b57;font-weight:600">-6.86%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.43股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.43股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.43</span></td>
           <td>32.53</td>
           <td>28,456.35</td>
@@ -1190,10 +1234,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+11.38%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>31,694.58 <span style="font-size:10px;color:#8f959e">(32.53股→)</span></td>
+          <td>31,694.58 <span style="font-size:10px;color:var(--text-3)">(32.53股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-32.53</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>101,694.58</td>
           <td style="color:#e6492e;font-weight:600">+1.69%</td>
         </tr>
@@ -1203,7 +1247,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">920.94</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.48%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.86股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.86股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.86</span></td>
           <td>10.86</td>
           <td>10,000.00</td>
@@ -1216,7 +1260,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">902.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.99%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.08股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.08股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.08</span></td>
           <td>21.94</td>
           <td>19,800.70</td>
@@ -1229,7 +1273,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">851.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.64%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.74股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.74股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.74</span></td>
           <td>33.68</td>
           <td>28,684.46</td>
@@ -1242,7 +1286,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">804.66</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.52%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←12.43股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←12.43股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+12.43</span></td>
           <td>46.11</td>
           <td>37,100.00</td>
@@ -1255,7 +1299,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">838.34</td>
           <td><span style="color:#e6492e;font-weight:600">+4.19%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.93股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.93股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.93</span></td>
           <td>58.04</td>
           <td>48,652.87</td>
@@ -1268,7 +1312,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">607.48</td>
           <td><span style="color:#2e8b57;font-weight:600">-27.54%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←16.46股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←16.46股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+16.46</span></td>
           <td>74.50</td>
           <td>45,254.84</td>
@@ -1281,7 +1325,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">660.88</td>
           <td><span style="color:#e6492e;font-weight:600">+8.79%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←15.13股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←15.13股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+15.13</span></td>
           <td>89.63</td>
           <td>59,233.34</td>
@@ -1294,7 +1338,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">775.80</td>
           <td><span style="color:#e6492e;font-weight:600">+17.39%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←12.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←12.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+12.89</span></td>
           <td>102.52</td>
           <td>79,533.12</td>
@@ -1307,7 +1351,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">724.17</td>
           <td><span style="color:#2e8b57;font-weight:600">-6.65%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←13.81股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←13.81股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+13.81</span></td>
           <td>116.33</td>
           <td>84,240.52</td>
@@ -1320,7 +1364,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">675.16</td>
           <td><span style="color:#2e8b57;font-weight:600">-6.77%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←14.81股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←14.81股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+14.81</span></td>
           <td>131.14</td>
           <td>88,539.35</td>
@@ -1333,10 +1377,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+42.52%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>126,186.48 <span style="font-size:10px;color:#8f959e">(131.14股→)</span></td>
+          <td>126,186.48 <span style="font-size:10px;color:var(--text-3)">(131.14股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-131.14</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>127,881.06</td>
           <td style="color:#e6492e;font-weight:600">+27.88%</td>
         </tr>
@@ -1346,7 +1390,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1053.14</td>
           <td><span style="color:#e6492e;font-weight:600">+9.45%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←9.50股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←9.50股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+9.50</span></td>
           <td>9.50</td>
           <td>10,000.00</td>
@@ -1359,7 +1403,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">950.90</td>
           <td><span style="color:#2e8b57;font-weight:600">-9.71%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.52股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.52股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.52</span></td>
           <td>20.01</td>
           <td>19,029.16</td>
@@ -1372,10 +1416,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+22.65%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>23,339.93 <span style="font-size:10px;color:#8f959e">(20.01股→)</span></td>
+          <td>23,339.93 <span style="font-size:10px;color:var(--text-3)">(20.01股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-20.01</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>131,220.99</td>
           <td style="color:#e6492e;font-weight:600">+31.22%</td>
         </tr>
@@ -1385,7 +1429,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1149.18</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.47%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←8.70股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←8.70股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+8.70</span></td>
           <td>8.70</td>
           <td>10,000.00</td>
@@ -1398,7 +1442,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1006.49</td>
           <td><span style="color:#2e8b57;font-weight:600">-12.42%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←9.94股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←9.94股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+9.94</span></td>
           <td>18.64</td>
           <td>18,758.37</td>
@@ -1411,10 +1455,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+32.08%</span></td>
           <td><span class="ledger-op sell">清仓卖出</span></td>
-          <td>24,775.49 <span style="font-size:10px;color:#8f959e">(18.64股→)</span></td>
+          <td>24,775.49 <span style="font-size:10px;color:var(--text-3)">(18.64股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-18.64</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>135,996.47</td>
           <td style="color:#e6492e;font-weight:600">+36.00%</td>
         </tr>
@@ -1424,7 +1468,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-4.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>7.89</td>
           <td>10,000.00</td>
@@ -1437,7 +1481,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1310.90</td>
           <td><span style="color:#e6492e;font-weight:600">+3.41%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.63股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.63股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.63</span></td>
           <td>15.52</td>
           <td>20,340.77</td>
@@ -1450,7 +1494,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1302.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-0.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.68股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.68股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.68</span></td>
           <td>23.19</td>
           <td>30,211.58</td>
@@ -1463,7 +1507,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1269.24</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.56%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.88股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.88股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.88</span></td>
           <td>31.07</td>
           <td>39,438.47</td>
@@ -1476,7 +1520,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1376.69</td>
           <td><span style="color:#e6492e;font-weight:600">+8.47%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.26股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.26股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.26</span></td>
           <td>38.34</td>
           <td>52,777.23</td>
@@ -1489,7 +1533,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1282.88</td>
           <td><span style="color:#2e8b57;font-weight:600">-6.81%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.79股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.79股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.79</span></td>
           <td>46.13</td>
           <td>59,180.80</td>
@@ -1502,7 +1546,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.37</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.21%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>54.02</td>
           <td>68,465.07</td>
@@ -1515,7 +1559,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1266.67</td>
           <td><span style="color:#2e8b57;font-weight:600">-0.05%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>61.92</td>
           <td>78,427.47</td>
@@ -1528,7 +1572,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1123.44</td>
           <td><span style="color:#2e8b57;font-weight:600">-11.31%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←8.90股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←8.90股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+8.90</span></td>
           <td>70.82</td>
           <td>79,559.39</td>
@@ -1645,8 +1689,8 @@ tr:hover td { background: #f5f6f8; }
           <td>31,694.58</td>
           <td style="color:#e6492e;font-weight:600">+1694.58</td>
         </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2023-04-28</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2023-04-28</td>
               <td>956.88</td>
               <td colspan="2"></td>
               <td>216 天</td>
@@ -1655,8 +1699,8 @@ tr:hover td { background: #f5f6f8; }
               <td>10,182.20</td>
               <td style="color:#e6492e;font-weight:600">+182.20</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2023-07-24</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2023-07-24</td>
               <td>939.15</td>
               <td colspan="2"></td>
               <td>129 天</td>
@@ -1665,8 +1709,8 @@ tr:hover td { background: #f5f6f8; }
               <td>10,374.42</td>
               <td style="color:#e6492e;font-weight:600">+374.42</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2023-10-24</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2023-10-24</td>
               <td>874.77</td>
               <td colspan="2"></td>
               <td>37 天</td>
@@ -1687,8 +1731,8 @@ tr:hover td { background: #f5f6f8; }
           <td>126,186.48</td>
           <td style="color:#e6492e;font-weight:600">+26186.48</td>
         </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2023-12-27</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2023-12-27</td>
               <td>920.94</td>
               <td colspan="2"></td>
               <td>310 天</td>
@@ -1697,8 +1741,8 @@ tr:hover td { background: #f5f6f8; }
               <td>10,448.49</td>
               <td style="color:#e6492e;font-weight:600">+448.49</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-01-11</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-01-11</td>
               <td>902.58</td>
               <td colspan="2"></td>
               <td>295 天</td>
@@ -1707,8 +1751,8 @@ tr:hover td { background: #f5f6f8; }
               <td>10,660.96</td>
               <td style="color:#e6492e;font-weight:600">+660.96</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-01-18</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-01-18</td>
               <td>851.7</td>
               <td colspan="2"></td>
               <td>288 天</td>
@@ -1717,8 +1761,8 @@ tr:hover td { background: #f5f6f8; }
               <td>11,297.86</td>
               <td style="color:#e6492e;font-weight:600">+1297.86</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-01-24</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-01-24</td>
               <td>804.66</td>
               <td colspan="2"></td>
               <td>282 天</td>
@@ -1727,8 +1771,8 @@ tr:hover td { background: #f5f6f8; }
               <td>11,958.41</td>
               <td style="color:#e6492e;font-weight:600">+1958.41</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-01-25</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-01-25</td>
               <td>838.34</td>
               <td colspan="2"></td>
               <td>281 天</td>
@@ -1737,8 +1781,8 @@ tr:hover td { background: #f5f6f8; }
               <td>11,477.99</td>
               <td style="color:#e6492e;font-weight:600">+1477.99</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-02-07</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-02-07</td>
               <td>607.48</td>
               <td colspan="2"></td>
               <td>268 天</td>
@@ -1747,8 +1791,8 @@ tr:hover td { background: #f5f6f8; }
               <td>15,840.01</td>
               <td style="color:#e6492e;font-weight:600">+5840.01</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-02-08</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-02-08</td>
               <td>660.88</td>
               <td colspan="2"></td>
               <td>267 天</td>
@@ -1757,8 +1801,8 @@ tr:hover td { background: #f5f6f8; }
               <td>14,560.00</td>
               <td style="color:#e6492e;font-weight:600">+4560.00</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-04-11</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-04-11</td>
               <td>775.8</td>
               <td colspan="2"></td>
               <td>204 天</td>
@@ -1767,8 +1811,8 @@ tr:hover td { background: #f5f6f8; }
               <td>12,403.26</td>
               <td style="color:#e6492e;font-weight:600">+2403.26</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-04-17</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-04-17</td>
               <td>724.17</td>
               <td colspan="2"></td>
               <td>198 天</td>
@@ -1777,8 +1821,8 @@ tr:hover td { background: #f5f6f8; }
               <td>13,287.48</td>
               <td style="color:#e6492e;font-weight:600">+3287.48</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-06-07</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-06-07</td>
               <td>675.16</td>
               <td colspan="2"></td>
               <td>147 天</td>
@@ -1799,8 +1843,8 @@ tr:hover td { background: #f5f6f8; }
           <td>23,339.93</td>
           <td style="color:#e6492e;font-weight:600">+3339.93</td>
         </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2024-12-26</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2024-12-26</td>
               <td>1053.14</td>
               <td colspan="2"></td>
               <td>64 天</td>
@@ -1809,8 +1853,8 @@ tr:hover td { background: #f5f6f8; }
               <td>11,074.58</td>
               <td style="color:#e6492e;font-weight:600">+1074.58</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2025-01-07</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2025-01-07</td>
               <td>950.9</td>
               <td colspan="2"></td>
               <td>52 天</td>
@@ -1831,8 +1875,8 @@ tr:hover td { background: #f5f6f8; }
           <td>24,775.49</td>
           <td style="color:#e6492e;font-weight:600">+4775.49</td>
         </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2025-03-26</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2025-03-26</td>
               <td>1149.18</td>
               <td colspan="2"></td>
               <td>160 天</td>
@@ -1841,8 +1885,8 @@ tr:hover td { background: #f5f6f8; }
               <td>11,567.79</td>
               <td style="color:#e6492e;font-weight:600">+1567.79</td>
             </tr>
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ 2025-04-09</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ 2025-04-09</td>
               <td>1006.49</td>
               <td colspan="2"></td>
               <td>146 天</td>
@@ -1863,7 +1907,7 @@ tr:hover td { background: #f5f6f8; }
           <div class="sim-scenario active" data-path="1" data-sig="0">
     <div class="sim-flow">总资金 100,000 元 · 全仓进出（一次一笔，买全部现金，卖清仓） · 2023-04-28 首笔买入 · 跳过: 无持仓可卖 7 次 · → 经 4 轮买卖 + 1 笔未平仓 · → 期末总资产 154,662 元（现金 0 + 持仓 154,662）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 154,661.57 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 154,661.57 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 154,661.57 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 154,661.57 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">175,850.89 元（100.0%）<div class="sub">2026-03-24</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">54,661.57 元（+54.66%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+14.6%<div class="sub">首笔买入至今 3.2 年</div></span></div>
@@ -1875,24 +1919,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">4 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈15.79% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">4笔成对 · 1笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="128.7" x2="790.0" y2="128.7" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="128.7" x2="790.0" y2="128.7" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,128.7 168.8,126.0 257.5,126.0 346.2,116.2 435.0,116.2 523.8,80.3 612.5,80.3 701.2,17.8 790.0,17.8 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,128.7 168.8,126.0 257.5,126.0 346.2,116.2 435.0,116.2 523.8,80.3 612.5,80.3 701.2,17.8 790.0,17.8" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="128.7" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="128.7" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 10.0万</text> <text x="76" y="17.8" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 17.6万</text> <text x="76" y="17.8" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 17.6万</text>
+      <text x="76" y="128.7" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="128.7" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 10.0万</text> <text x="76" y="17.8" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 17.6万</text> <text x="76" y="17.8" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 17.6万</text>
       <circle cx="701.2" cy="17.8" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="17.8" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-04</text> <text x="346.2" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-11</text> <text x="523.8" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-02</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2026-03</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-04</text> <text x="346.2" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-11</text> <text x="523.8" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-02</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2026-03</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（9 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -1903,9 +1947,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-04-28</td>
           <td style="white-space:nowrap">956.88</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>100,000.00 <span style="font-size:10px;color:#8f959e">(←104.51股)</span></td>
+          <td>100,000.00 <span style="font-size:10px;color:var(--text-3)">(←104.51股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+104.51</span></td>
           <td>104.51</td>
           <td>100,000.00</td>
@@ -1918,10 +1962,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+1.82%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>101,821.96 <span style="font-size:10px;color:#8f959e">(104.51股→)</span></td>
+          <td>101,821.96 <span style="font-size:10px;color:var(--text-3)">(104.51股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-104.51</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>101,821.96</td>
           <td style="color:#e6492e;font-weight:600">+1.82%</td>
         </tr>
@@ -1931,7 +1975,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">902.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-7.36%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>101,821.96 <span style="font-size:10px;color:#8f959e">(←112.81股)</span></td>
+          <td>101,821.96 <span style="font-size:10px;color:var(--text-3)">(←112.81股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+112.81</span></td>
           <td>112.81</td>
           <td>101,821.96</td>
@@ -1944,10 +1988,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+6.61%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>108,551.96 <span style="font-size:10px;color:#8f959e">(112.81股→)</span></td>
+          <td>108,551.96 <span style="font-size:10px;color:var(--text-3)">(112.81股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-112.81</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>108,551.96</td>
           <td style="color:#e6492e;font-weight:600">+8.55%</td>
         </tr>
@@ -1957,7 +2001,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">950.90</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.18%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>108,551.96 <span style="font-size:10px;color:#8f959e">(←114.16股)</span></td>
+          <td>108,551.96 <span style="font-size:10px;color:var(--text-3)">(←114.16股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+114.16</span></td>
           <td>114.16</td>
           <td>108,551.96</td>
@@ -1970,10 +2014,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+22.65%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>133,142.75 <span style="font-size:10px;color:#8f959e">(114.16股→)</span></td>
+          <td>133,142.75 <span style="font-size:10px;color:var(--text-3)">(114.16股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-114.16</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>133,142.75</td>
           <td style="color:#e6492e;font-weight:600">+33.14%</td>
         </tr>
@@ -1983,7 +2027,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1006.49</td>
           <td><span style="color:#2e8b57;font-weight:600">-13.70%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>133,142.75 <span style="font-size:10px;color:#8f959e">(←132.28股)</span></td>
+          <td>133,142.75 <span style="font-size:10px;color:var(--text-3)">(←132.28股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+132.28</span></td>
           <td>132.28</td>
           <td>133,142.75</td>
@@ -1996,10 +2040,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+32.08%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>175,850.89 <span style="font-size:10px;color:#8f959e">(132.28股→)</span></td>
+          <td>175,850.89 <span style="font-size:10px;color:var(--text-3)">(132.28股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-132.28</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>175,850.89</td>
           <td style="color:#e6492e;font-weight:600">+75.85%</td>
         </tr>
@@ -2009,7 +2053,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1282.88</td>
           <td><span style="color:#2e8b57;font-weight:600">-3.50%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>175,850.89 <span style="font-size:10px;color:#8f959e">(←137.07股)</span></td>
+          <td>175,850.89 <span style="font-size:10px;color:var(--text-3)">(←137.07股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+137.07</span></td>
           <td>137.07</td>
           <td>175,850.89</td>
@@ -2095,7 +2139,7 @@ tr:hover td { background: #f5f6f8; }
 <div class="sim-scenario " data-path="1" data-sig="1">
     <div class="sim-flow">总资金 100,000 元 · 全仓进出（一次一笔，买全部现金，卖清仓） · 2023-07-24 首笔买入 · 跳过: 无持仓可卖 7 次 · → 经 4 轮买卖 + 1 笔未平仓 · → 期末总资产 123,595 元（现金 0 + 持仓 123,595）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 123,595.33 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 123,595.33 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 123,595.33 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 123,595.33 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">138,865.71 元（100.0%）<div class="sub">2025-10-20</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">23,595.33 元（+23.60%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+7.4%<div class="sub">首笔买入至今 3.0 年</div></span></div>
@@ -2107,24 +2151,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">4 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈8.66% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">4笔成对 · 1笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="123.1" x2="790.0" y2="123.1" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="123.1" x2="790.0" y2="123.1" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,123.1 168.8,113.5 257.5,113.5 346.2,101.5 435.0,101.5 523.8,71.4 612.5,71.4 701.2,22.9 790.0,22.9 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,123.1 168.8,113.5 257.5,113.5 346.2,101.5 435.0,101.5 523.8,71.4 612.5,71.4 701.2,22.9 790.0,22.9" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="123.1" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="123.1" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 10.0万</text> <text x="76" y="22.9" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.9万</text> <text x="76" y="22.9" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 13.9万</text>
+      <text x="76" y="123.1" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="123.1" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 10.0万</text> <text x="76" y="22.9" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.9万</text> <text x="76" y="22.9" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 13.9万</text>
       <circle cx="701.2" cy="22.9" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="22.9" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-07</text> <text x="346.2" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-11</text> <text x="523.8" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-02</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-10</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-07</text> <text x="346.2" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-11</text> <text x="523.8" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-02</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-10</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（9 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -2135,9 +2179,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-07-24</td>
           <td style="white-space:nowrap">939.15</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>100,000.00 <span style="font-size:10px;color:#8f959e">(←106.48股)</span></td>
+          <td>100,000.00 <span style="font-size:10px;color:var(--text-3)">(←106.48股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+106.48</span></td>
           <td>106.48</td>
           <td>100,000.00</td>
@@ -2150,10 +2194,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+3.74%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>103,744.22 <span style="font-size:10px;color:#8f959e">(106.48股→)</span></td>
+          <td>103,744.22 <span style="font-size:10px;color:var(--text-3)">(106.48股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-106.48</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>103,744.22</td>
           <td style="color:#e6492e;font-weight:600">+3.74%</td>
         </tr>
@@ -2163,7 +2207,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">920.94</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.48%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>103,744.22 <span style="font-size:10px;color:#8f959e">(←112.65股)</span></td>
+          <td>103,744.22 <span style="font-size:10px;color:var(--text-3)">(←112.65股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+112.65</span></td>
           <td>112.65</td>
           <td>103,744.22</td>
@@ -2176,10 +2220,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+4.48%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>108,397.03 <span style="font-size:10px;color:#8f959e">(112.65股→)</span></td>
+          <td>108,397.03 <span style="font-size:10px;color:var(--text-3)">(112.65股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-112.65</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>108,397.03</td>
           <td style="color:#e6492e;font-weight:600">+8.40%</td>
         </tr>
@@ -2189,7 +2233,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1053.14</td>
           <td><span style="color:#e6492e;font-weight:600">+9.45%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>108,397.03 <span style="font-size:10px;color:#8f959e">(←102.93股)</span></td>
+          <td>108,397.03 <span style="font-size:10px;color:var(--text-3)">(←102.93股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+102.93</span></td>
           <td>102.93</td>
           <td>108,397.03</td>
@@ -2202,10 +2246,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+10.75%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>120,045.13 <span style="font-size:10px;color:#8f959e">(102.93股→)</span></td>
+          <td>120,045.13 <span style="font-size:10px;color:var(--text-3)">(102.93股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-102.93</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>120,045.13</td>
           <td style="color:#e6492e;font-weight:600">+20.05%</td>
         </tr>
@@ -2215,7 +2259,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1149.18</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.47%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>120,045.13 <span style="font-size:10px;color:#8f959e">(←104.46股)</span></td>
+          <td>120,045.13 <span style="font-size:10px;color:var(--text-3)">(←104.46股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+104.46</span></td>
           <td>104.46</td>
           <td>120,045.13</td>
@@ -2228,10 +2272,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+15.68%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>138,865.71 <span style="font-size:10px;color:#8f959e">(104.46股→)</span></td>
+          <td>138,865.71 <span style="font-size:10px;color:var(--text-3)">(104.46股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-104.46</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>138,865.71</td>
           <td style="color:#e6492e;font-weight:600">+38.87%</td>
         </tr>
@@ -2241,7 +2285,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-4.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>138,865.71 <span style="font-size:10px;color:#8f959e">(←109.54股)</span></td>
+          <td>138,865.71 <span style="font-size:10px;color:var(--text-3)">(←109.54股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+109.54</span></td>
           <td>109.54</td>
           <td>138,865.71</td>
@@ -2327,7 +2371,7 @@ tr:hover td { background: #f5f6f8; }
 <div class="sim-scenario " data-path="1" data-sig="2">
     <div class="sim-flow">总资金 100,000 元 · 全仓进出（一次一笔，买全部现金，卖清仓） · 2023-04-28 首笔买入 · 跳过: 无持仓可卖 7 次 · → 经 4 轮买卖 + 1 笔未平仓 · → 期末总资产 121,305 元（现金 0 + 持仓 121,305）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 121,305.24 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 121,305.24 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 121,305.24 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 121,305.24 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">136,292.68 元（100.0%）<div class="sub">2025-10-20</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">21,305.24 元（+21.31%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.2%<div class="sub">首笔买入至今 3.2 年</div></span></div>
@@ -2339,24 +2383,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">4 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈8.18% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">4笔成对 · 1笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="122.4" x2="790.0" y2="122.4" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="122.4" x2="790.0" y2="122.4" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,122.4 168.8,117.4 257.5,117.4 346.2,105.0 435.0,105.0 523.8,73.9 612.5,73.9 701.2,23.6 790.0,23.6 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,122.4 168.8,117.4 257.5,117.4 346.2,105.0 435.0,105.0 523.8,73.9 612.5,73.9 701.2,23.6 790.0,23.6" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="122.4" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="122.4" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 10.0万</text> <text x="76" y="23.6" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.6万</text> <text x="76" y="23.6" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 13.6万</text>
+      <text x="76" y="122.4" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="122.4" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 10.0万</text> <text x="76" y="23.6" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.6万</text> <text x="76" y="23.6" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 13.6万</text>
       <circle cx="701.2" cy="23.6" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="23.6" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-04</text> <text x="346.2" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-11</text> <text x="523.8" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-02</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-10</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-04</text> <text x="346.2" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-11</text> <text x="523.8" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-02</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-10</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（9 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -2367,9 +2411,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-04-28</td>
           <td style="white-space:nowrap">956.88</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>100,000.00 <span style="font-size:10px;color:#8f959e">(←104.51股)</span></td>
+          <td>100,000.00 <span style="font-size:10px;color:var(--text-3)">(←104.51股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+104.51</span></td>
           <td>104.51</td>
           <td>100,000.00</td>
@@ -2382,10 +2426,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+1.82%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>101,821.96 <span style="font-size:10px;color:#8f959e">(104.51股→)</span></td>
+          <td>101,821.96 <span style="font-size:10px;color:var(--text-3)">(104.51股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-104.51</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>101,821.96</td>
           <td style="color:#e6492e;font-weight:600">+1.82%</td>
         </tr>
@@ -2395,7 +2439,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">920.94</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.48%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>101,821.96 <span style="font-size:10px;color:#8f959e">(←110.56股)</span></td>
+          <td>101,821.96 <span style="font-size:10px;color:var(--text-3)">(←110.56股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+110.56</span></td>
           <td>110.56</td>
           <td>101,821.96</td>
@@ -2408,10 +2452,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+4.48%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>106,388.55 <span style="font-size:10px;color:#8f959e">(110.56股→)</span></td>
+          <td>106,388.55 <span style="font-size:10px;color:var(--text-3)">(110.56股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-110.56</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>106,388.55</td>
           <td style="color:#e6492e;font-weight:600">+6.39%</td>
         </tr>
@@ -2421,7 +2465,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1053.14</td>
           <td><span style="color:#e6492e;font-weight:600">+9.45%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>106,388.55 <span style="font-size:10px;color:#8f959e">(←101.02股)</span></td>
+          <td>106,388.55 <span style="font-size:10px;color:var(--text-3)">(←101.02股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+101.02</span></td>
           <td>101.02</td>
           <td>106,388.55</td>
@@ -2434,10 +2478,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+10.75%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>117,820.83 <span style="font-size:10px;color:#8f959e">(101.02股→)</span></td>
+          <td>117,820.83 <span style="font-size:10px;color:var(--text-3)">(101.02股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-101.02</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>117,820.83</td>
           <td style="color:#e6492e;font-weight:600">+17.82%</td>
         </tr>
@@ -2447,7 +2491,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1149.18</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.47%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>117,820.83 <span style="font-size:10px;color:#8f959e">(←102.53股)</span></td>
+          <td>117,820.83 <span style="font-size:10px;color:var(--text-3)">(←102.53股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+102.53</span></td>
           <td>102.53</td>
           <td>117,820.83</td>
@@ -2460,10 +2504,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+15.68%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>136,292.68 <span style="font-size:10px;color:#8f959e">(102.53股→)</span></td>
+          <td>136,292.68 <span style="font-size:10px;color:var(--text-3)">(102.53股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-102.53</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>136,292.68</td>
           <td style="color:#e6492e;font-weight:600">+36.29%</td>
         </tr>
@@ -2473,7 +2517,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-4.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>136,292.68 <span style="font-size:10px;color:#8f959e">(←107.51股)</span></td>
+          <td>136,292.68 <span style="font-size:10px;color:var(--text-3)">(←107.51股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+107.51</span></td>
           <td>107.51</td>
           <td>136,292.68</td>
@@ -2566,7 +2610,7 @@ tr:hover td { background: #f5f6f8; }
           <div class="sim-scenario active" data-path="2" data-sig="0">
     <div class="sim-flow">总资金 100,000 元 · 固定 1 万进出（FIFO） · 2023-04-28 首笔买入 · 跳过: 无持仓可卖 1 次 · → 经 10 轮买卖 + 2 笔未平仓 · → 期末总资产 130,238 元（现金 111,400 + 持仓 18,838）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 130,237.88 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 18,838.26 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 130,237.88 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 18,838.26 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">53,000.41 元（56.2%）<div class="sub">2024-06-07</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">30,237.88 元（+30.24%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+8.6%<div class="sub">首笔买入至今 3.2 年</div></span></div>
@@ -2578,24 +2622,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">10 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈31.40% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">10笔成对 · 2笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="107.8" x2="790.0" y2="107.8" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="107.8" x2="790.0" y2="107.8" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,107.8 113.8,110.1 147.6,104.2 181.4,104.2 215.2,104.2 249.0,105.7 282.9,106.5 316.7,123.2 350.5,114.7 384.3,123.1 418.1,62.1 451.9,42.7 485.7,46.5 519.5,40.2 553.3,42.3 587.1,47.0 621.0,32.3 654.8,31.5 688.6,31.5 722.4,22.8 756.2,22.8 790.0,26.2 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,107.8 113.8,110.1 147.6,104.2 181.4,104.2 215.2,104.2 249.0,105.7 282.9,106.5 316.7,123.2 350.5,114.7 384.3,123.1 418.1,62.1 451.9,42.7 485.7,46.5 519.5,40.2 553.3,42.3 587.1,47.0 621.0,32.3 654.8,31.5 688.6,31.5 722.4,22.8 756.2,22.8 790.0,26.2" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="107.8" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="123.2" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 9.4万</text> <text x="76" y="22.8" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.1万</text> <text x="76" y="26.2" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 13.0万</text>
+      <text x="76" y="107.8" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="123.2" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 9.4万</text> <text x="76" y="22.8" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.1万</text> <text x="76" y="26.2" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 13.0万</text>
       <circle cx="722.4" cy="22.8" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="26.2" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-04</text> <text x="215.2" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-01</text> <text x="316.7" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-02</text> <text x="418.1" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-11</text> <text x="553.3" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-12</text> <text x="688.6" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-04</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2026-06</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-04</text> <text x="215.2" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-01</text> <text x="316.7" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-02</text> <text x="418.1" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-11</text> <text x="553.3" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-12</text> <text x="688.6" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-04</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2026-06</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（22 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -2606,9 +2650,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-04-28</td>
           <td style="white-space:nowrap">956.88</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.45股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.45股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.45</span></td>
           <td>10.45</td>
           <td>10,000.00</td>
@@ -2621,7 +2665,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">874.77</td>
           <td><span style="color:#2e8b57;font-weight:600">-8.58%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.43股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.43股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.43</span></td>
           <td>21.88</td>
           <td>19,141.88</td>
@@ -2634,7 +2678,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+11.38%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>10,182.20 <span style="font-size:10px;color:#8f959e">(10.45股→)</span></td>
+          <td>10,182.20 <span style="font-size:10px;color:var(--text-3)">(10.45股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.45</span></td>
           <td>11.43</td>
           <td>11,137.97</td>
@@ -2647,10 +2691,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">975.71</td>
           <td><span style="color:#e6492e;font-weight:600">+0.14%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>11,153.90 <span style="font-size:10px;color:#8f959e">(11.43股→)</span></td>
+          <td>11,153.90 <span style="font-size:10px;color:var(--text-3)">(11.43股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-11.43</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>101,336.10</td>
           <td style="color:#e6492e;font-weight:600">+1.34%</td>
         </tr>
@@ -2660,7 +2704,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">902.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-7.49%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.08股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.08股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.08</span></td>
           <td>11.08</td>
           <td>10,000.00</td>
@@ -2673,7 +2717,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">851.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.64%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.74股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.74股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.74</span></td>
           <td>22.82</td>
           <td>19,436.26</td>
@@ -2686,7 +2730,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">838.34</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.57%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.93股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.93股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.93</span></td>
           <td>34.75</td>
           <td>29,131.24</td>
@@ -2699,7 +2743,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">660.88</td>
           <td><span style="color:#2e8b57;font-weight:600">-21.17%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←15.13股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←15.13股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+15.13</span></td>
           <td>49.88</td>
           <td>32,964.85</td>
@@ -2712,7 +2756,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">724.17</td>
           <td><span style="color:#e6492e;font-weight:600">+9.58%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←13.81股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←13.81股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+13.81</span></td>
           <td>63.69</td>
           <td>46,121.82</td>
@@ -2725,7 +2769,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">675.16</td>
           <td><span style="color:#2e8b57;font-weight:600">-6.77%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←14.81股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←14.81股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+14.81</span></td>
           <td>78.50</td>
           <td>53,000.41</td>
@@ -2738,7 +2782,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+42.52%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>10,660.96 <span style="font-size:10px;color:#8f959e">(11.08股→)</span></td>
+          <td>10,660.96 <span style="font-size:10px;color:var(--text-3)">(11.08股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-11.08</span></td>
           <td>67.42</td>
           <td>64,875.35</td>
@@ -2751,7 +2795,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1068.62</td>
           <td><span style="color:#e6492e;font-weight:600">+11.05%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>12,546.82 <span style="font-size:10px;color:#8f959e">(11.74股→)</span></td>
+          <td>12,546.82 <span style="font-size:10px;color:var(--text-3)">(11.74股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-11.74</span></td>
           <td>55.68</td>
           <td>59,500.38</td>
@@ -2764,7 +2808,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1043.51</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.35%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>12,447.35 <span style="font-size:10px;color:#8f959e">(11.93股→)</span></td>
+          <td>12,447.35 <span style="font-size:10px;color:var(--text-3)">(11.93股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-11.93</span></td>
           <td>43.75</td>
           <td>45,654.97</td>
@@ -2777,7 +2821,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1096.29</td>
           <td><span style="color:#e6492e;font-weight:600">+5.06%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>16,588.28 <span style="font-size:10px;color:#8f959e">(15.13股→)</span></td>
+          <td>16,588.28 <span style="font-size:10px;color:var(--text-3)">(15.13股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-15.13</span></td>
           <td>28.62</td>
           <td>31,375.90</td>
@@ -2790,7 +2834,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1070.14</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.39%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>14,777.42 <span style="font-size:10px;color:#8f959e">(13.81股→)</span></td>
+          <td>14,777.42 <span style="font-size:10px;color:var(--text-3)">(13.81股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-13.81</span></td>
           <td>14.81</td>
           <td>15,850.12</td>
@@ -2803,7 +2847,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">950.90</td>
           <td><span style="color:#2e8b57;font-weight:600">-11.14%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.52股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.52股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.52</span></td>
           <td>25.33</td>
           <td>24,083.99</td>
@@ -2816,7 +2860,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+22.65%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>17,274.50 <span style="font-size:10px;color:#8f959e">(14.81股→)</span></td>
+          <td>17,274.50 <span style="font-size:10px;color:var(--text-3)">(14.81股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-14.81</span></td>
           <td>10.52</td>
           <td>12,265.35</td>
@@ -2829,10 +2873,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1194.37</td>
           <td><span style="color:#e6492e;font-weight:600">+2.41%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>12,560.50 <span style="font-size:10px;color:#8f959e">(10.52股→)</span></td>
+          <td>12,560.50 <span style="font-size:10px;color:var(--text-3)">(10.52股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.52</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>128,191.92</td>
           <td style="color:#e6492e;font-weight:600">+28.19%</td>
         </tr>
@@ -2842,7 +2886,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1006.49</td>
           <td><span style="color:#2e8b57;font-weight:600">-15.73%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←9.94股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←9.94股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+9.94</span></td>
           <td>9.94</td>
           <td>10,000.00</td>
@@ -2855,10 +2899,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+32.08%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>13,207.70 <span style="font-size:10px;color:#8f959e">(9.94股→)</span></td>
+          <td>13,207.70 <span style="font-size:10px;color:var(--text-3)">(9.94股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-9.94</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>131,399.62</td>
           <td style="color:#e6492e;font-weight:600">+31.40%</td>
         </tr>
@@ -2868,7 +2912,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1282.88</td>
           <td><span style="color:#2e8b57;font-weight:600">-3.50%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.79股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.79股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.79</span></td>
           <td>7.79</td>
           <td>10,000.00</td>
@@ -2881,7 +2925,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1123.44</td>
           <td><span style="color:#2e8b57;font-weight:600">-12.43%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←8.90股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←8.90股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+8.90</span></td>
           <td>16.70</td>
           <td>18,757.19</td>
@@ -3048,7 +3092,7 @@ tr:hover td { background: #f5f6f8; }
 <div class="sim-scenario " data-path="2" data-sig="1">
     <div class="sim-flow">总资金 100,000 元 · 固定 1 万进出（FIFO） · 2023-07-24 首笔买入 · 跳过: 无持仓可卖 2 次 · → 经 9 轮买卖 + 7 笔未平仓 · → 期末总资产 122,490 元（现金 61,425 + 持仓 61,065）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 122,490.44 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 61,065.02 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 122,490.44 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 61,065.02 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">68,553.84 元（52.7%）<div class="sub">2026-06-01</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">22,490.44 元（+22.49%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+7.1%<div class="sub">首笔买入至今 3.0 年</div></span></div>
@@ -3060,24 +3104,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">9 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈34.92% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">9笔成对 · 7笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="109.8" x2="790.0" y2="109.8" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="109.8" x2="790.0" y2="109.8" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,109.8 109.6,108.9 139.2,108.9 168.8,112.1 198.3,123.9 227.9,106.7 257.5,118.9 287.1,122.2 316.7,59.9 346.2,40.4 375.8,44.2 405.4,38.5 435.0,40.5 464.6,41.1 494.2,34.0 523.8,33.3 553.3,33.3 582.9,29.3 612.5,29.3 642.1,28.4 671.7,28.8 701.2,30.8 730.8,22.2 760.4,32.9 790.0,33.0 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,109.8 109.6,108.9 139.2,108.9 168.8,112.1 198.3,123.9 227.9,106.7 257.5,118.9 287.1,122.2 316.7,59.9 346.2,40.4 375.8,44.2 405.4,38.5 435.0,40.5 464.6,41.1 494.2,34.0 523.8,33.3 553.3,33.3 582.9,29.3 612.5,29.3 642.1,28.4 671.7,28.8 701.2,30.8 730.8,22.2 760.4,32.9 790.0,33.0" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="109.8" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="123.9" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 9.5万</text> <text x="76" y="22.2" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.4万</text> <text x="76" y="33.0" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 13.0万</text>
+      <text x="76" y="109.8" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="123.9" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 9.5万</text> <text x="76" y="22.2" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 13.4万</text> <text x="76" y="33.0" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 13.0万</text>
       <circle cx="730.8" cy="22.2" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="33.0" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-07</text> <text x="198.3" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-02</text> <text x="316.7" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-11</text> <text x="435.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-12</text> <text x="553.3" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-03</text> <text x="671.7" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-12</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2026-06</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-07</text> <text x="198.3" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-02</text> <text x="316.7" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-11</text> <text x="435.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-12</text> <text x="553.3" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-03</text> <text x="671.7" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-12</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2026-06</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（25 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -3088,9 +3132,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-07-24</td>
           <td style="white-space:nowrap">939.15</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.65股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.65股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.65</span></td>
           <td>10.65</td>
           <td>10,000.00</td>
@@ -3103,10 +3147,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+3.74%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>10,374.42 <span style="font-size:10px;color:#8f959e">(10.65股→)</span></td>
+          <td>10,374.42 <span style="font-size:10px;color:var(--text-3)">(10.65股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.65</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>100,374.42</td>
           <td style="color:#e6492e;font-weight:600">+0.37%</td>
         </tr>
@@ -3116,7 +3160,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">920.94</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.48%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.86股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.86股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.86</span></td>
           <td>10.86</td>
           <td>10,000.00</td>
@@ -3129,7 +3173,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">804.66</td>
           <td><span style="color:#2e8b57;font-weight:600">-12.63%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←12.43股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←12.43股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+12.43</span></td>
           <td>23.29</td>
           <td>18,737.35</td>
@@ -3142,7 +3186,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">607.48</td>
           <td><span style="color:#2e8b57;font-weight:600">-24.51%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←16.46股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←16.46股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+16.46</span></td>
           <td>39.75</td>
           <td>24,145.76</td>
@@ -3155,7 +3199,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">775.80</td>
           <td><span style="color:#e6492e;font-weight:600">+27.71%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←12.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←12.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+12.89</span></td>
           <td>52.64</td>
           <td>40,836.18</td>
@@ -3168,7 +3212,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">685.69</td>
           <td><span style="color:#2e8b57;font-weight:600">-11.62%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←14.58股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←14.58股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+14.58</span></td>
           <td>67.22</td>
           <td>46,093.05</td>
@@ -3181,7 +3225,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">666.55</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.79%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←15.00股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←15.00股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+15.00</span></td>
           <td>82.22</td>
           <td>54,806.70</td>
@@ -3194,7 +3238,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+44.36%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>10,448.49 <span style="font-size:10px;color:#8f959e">(10.86股→)</span></td>
+          <td>10,448.49 <span style="font-size:10px;color:var(--text-3)">(10.86股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.86</span></td>
           <td>71.37</td>
           <td>68,671.00</td>
@@ -3207,7 +3251,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1068.62</td>
           <td><span style="color:#e6492e;font-weight:600">+11.05%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>13,280.40 <span style="font-size:10px;color:#8f959e">(12.43股→)</span></td>
+          <td>13,280.40 <span style="font-size:10px;color:var(--text-3)">(12.43股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-12.43</span></td>
           <td>58.94</td>
           <td>62,982.06</td>
@@ -3220,7 +3264,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1043.51</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.35%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>17,177.76 <span style="font-size:10px;color:#8f959e">(16.46股→)</span></td>
+          <td>17,177.76 <span style="font-size:10px;color:var(--text-3)">(16.46股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-16.46</span></td>
           <td>42.48</td>
           <td>44,324.42</td>
@@ -3233,7 +3277,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1096.29</td>
           <td><span style="color:#e6492e;font-weight:600">+5.06%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>14,131.09 <span style="font-size:10px;color:#8f959e">(12.89股→)</span></td>
+          <td>14,131.09 <span style="font-size:10px;color:var(--text-3)">(12.89股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-12.89</span></td>
           <td>29.59</td>
           <td>32,435.24</td>
@@ -3246,7 +3290,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1070.14</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.39%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>15,606.78 <span style="font-size:10px;color:#8f959e">(14.58股→)</span></td>
+          <td>15,606.78 <span style="font-size:10px;color:var(--text-3)">(14.58股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-14.58</span></td>
           <td>15.00</td>
           <td>16,054.83</td>
@@ -3259,7 +3303,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1053.14</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.59%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←9.50股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←9.50股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+9.50</span></td>
           <td>24.50</td>
           <td>25,799.80</td>
@@ -3272,7 +3316,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+10.75%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>17,497.61 <span style="font-size:10px;color:#8f959e">(15.00股→)</span></td>
+          <td>17,497.61 <span style="font-size:10px;color:var(--text-3)">(15.00股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-15.00</span></td>
           <td>9.50</td>
           <td>11,074.58</td>
@@ -3285,10 +3329,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1194.37</td>
           <td><span style="color:#e6492e;font-weight:600">+2.41%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>11,341.08 <span style="font-size:10px;color:#8f959e">(9.50股→)</span></td>
+          <td>11,341.08 <span style="font-size:10px;color:var(--text-3)">(9.50股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-9.50</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>129,857.63</td>
           <td style="color:#e6492e;font-weight:600">+29.86%</td>
         </tr>
@@ -3298,7 +3342,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1149.18</td>
           <td><span style="color:#2e8b57;font-weight:600">-3.78%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←8.70股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←8.70股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+8.70</span></td>
           <td>8.70</td>
           <td>10,000.00</td>
@@ -3311,10 +3355,10 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+15.68%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>11,567.79 <span style="font-size:10px;color:#8f959e">(8.70股→)</span></td>
+          <td>11,567.79 <span style="font-size:10px;color:var(--text-3)">(8.70股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-8.70</span></td>
-          <td><span style="color:#999">0</span></td>
-          <td><span style="color:#999">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
+          <td><span style="color:var(--text-3)">0</span></td>
           <td>131,425.42</td>
           <td style="color:#e6492e;font-weight:600">+31.43%</td>
         </tr>
@@ -3324,7 +3368,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-4.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>7.89</td>
           <td>10,000.00</td>
@@ -3337,7 +3381,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1310.90</td>
           <td><span style="color:#e6492e;font-weight:600">+3.41%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.63股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.63股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.63</span></td>
           <td>15.52</td>
           <td>20,340.77</td>
@@ -3350,7 +3394,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1302.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-0.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.68股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.68股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.68</span></td>
           <td>23.19</td>
           <td>30,211.58</td>
@@ -3363,7 +3407,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1269.24</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.56%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.88股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.88股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.88</span></td>
           <td>31.07</td>
           <td>39,438.47</td>
@@ -3376,7 +3420,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1376.69</td>
           <td><span style="color:#e6492e;font-weight:600">+8.47%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.26股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.26股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.26</span></td>
           <td>38.34</td>
           <td>52,777.23</td>
@@ -3389,7 +3433,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.37</td>
           <td><span style="color:#2e8b57;font-weight:600">-7.94%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>46.23</td>
           <td>58,586.01</td>
@@ -3402,7 +3446,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1266.67</td>
           <td><span style="color:#2e8b57;font-weight:600">-0.05%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>54.12</td>
           <td>68,553.84</td>
@@ -3602,7 +3646,7 @@ tr:hover td { background: #f5f6f8; }
 <div class="sim-scenario " data-path="2" data-sig="2">
     <div class="sim-flow">总资金 100,000 元 · 固定 1 万进出（FIFO） · 2023-04-28 首笔买入 · 跳过: 仓位已满 7 次 · → 经 11 轮买卖 + 10 笔未平仓 · → 期末总资产 144,028 元（现金 41,585 + 持仓 102,443）</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 144,027.74 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 102,443.12 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 144,027.74 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 102,443.12 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">124,995.97 元（75.0%）<div class="sub">2026-03-05</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">44,027.74 元（+44.03%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+12.1%<div class="sub">首笔买入至今 3.2 年</div></span></div>
@@ -3614,24 +3658,24 @@ tr:hover td { background: #f5f6f8; }
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">11 轮 / 0 轮</span></div>
       <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">-（均盈37.80% / 均亏0.00%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">11笔成对 · 10笔未平仓</span></div>
-    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
-    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
+    <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad0" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="80" y1="106.9" x2="790.0" y2="106.9" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="80" y1="106.9" x2="790.0" y2="106.9" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="80.0,106.9 102.9,107.2 125.8,109.0 148.7,104.6 171.6,104.6 194.5,105.4 217.4,106.0 240.3,108.3 263.2,111.2 286.1,108.5 309.0,130.4 331.9,124.1 354.8,108.3 377.7,116.3 400.6,74.9 423.5,58.1 446.5,61.7 469.4,54.9 492.3,57.9 515.2,59.5 538.1,70.6 561.0,44.1 583.9,41.1 606.8,45.0 629.7,58.6 652.6,23.3 675.5,24.3 698.4,27.9 721.3,24.3 744.2,25.1 767.1,28.5 790.0,16.3 790.0,136.0 80.0,136.0" fill="url(#equityGrad0)"/>
       <polyline points="80.0,106.9 102.9,107.2 125.8,109.0 148.7,104.6 171.6,104.6 194.5,105.4 217.4,106.0 240.3,108.3 263.2,111.2 286.1,108.5 309.0,130.4 331.9,124.1 354.8,108.3 377.7,116.3 400.6,74.9 423.5,58.1 446.5,61.7 469.4,54.9 492.3,57.9 515.2,59.5 538.1,70.6 561.0,44.1 583.9,41.1 606.8,45.0 629.7,58.6 652.6,23.3 675.5,24.3 698.4,27.9 721.3,24.3 744.2,25.1 767.1,28.5 790.0,16.3" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
-      <text x="76" y="106.9" text-anchor="end" font-size="10" fill="#86909c" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="130.4" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 8.3万</text> <text x="76" y="16.3" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 16.7万</text> <text x="76" y="16.3" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 16.7万</text>
+      <text x="76" y="106.9" text-anchor="end" font-size="10" fill="var(--text-3)" dominant-baseline="middle">起始 10.0万</text> <text x="76" y="130.4" text-anchor="end" font-size="10" fill="#e6492e" dominant-baseline="middle">最低 8.3万</text> <text x="76" y="16.3" text-anchor="end" font-size="10" fill="#2e8b57" dominant-baseline="middle">峰值 16.7万</text> <text x="76" y="16.3" text-anchor="end" font-size="10" fill="#3370ff" dominant-baseline="middle">期末 16.7万</text>
       <circle cx="790.0" cy="16.3" r="3" fill="#2e8b57" stroke="#fff" stroke-width="1"/>
       <circle cx="790.0" cy="16.3" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>
-      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-04</text> <text x="194.5" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2023-12</text> <text x="309.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-02</text> <text x="446.5" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2024-11</text> <text x="561.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-02</text> <text x="675.5" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2025-09</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="#86909c">2026-03</text>
+      <text x="80.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-04</text> <text x="194.5" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2023-12</text> <text x="309.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-02</text> <text x="446.5" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2024-11</text> <text x="561.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-02</text> <text x="675.5" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2025-09</text> <text x="790.0" y="156.0" text-anchor="middle" font-size="9" fill="var(--text-3)">2026-03</text>
     </svg>
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（32 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × 数据要素收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -3642,9 +3686,9 @@ tr:hover td { background: #f5f6f8; }
           <td>1</td>
           <td>2023-04-28</td>
           <td style="white-space:nowrap">956.88</td>
-          <td><span style="color:#999">—</span></td>
+          <td><span style="color:var(--text-3)">—</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.45股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.45股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.45</span></td>
           <td>10.45</td>
           <td>10,000.00</td>
@@ -3657,7 +3701,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">939.15</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.85%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.65股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.65股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.65</span></td>
           <td>21.10</td>
           <td>19,814.71</td>
@@ -3670,7 +3714,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">874.77</td>
           <td><span style="color:#2e8b57;font-weight:600">-6.86%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.43股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.43股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.43</span></td>
           <td>32.53</td>
           <td>28,456.35</td>
@@ -3683,7 +3727,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">974.32</td>
           <td><span style="color:#e6492e;font-weight:600">+11.38%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>10,182.20 <span style="font-size:10px;color:#8f959e">(10.45股→)</span></td>
+          <td>10,182.20 <span style="font-size:10px;color:var(--text-3)">(10.45股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.45</span></td>
           <td>22.08</td>
           <td>21,512.39</td>
@@ -3696,7 +3740,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">975.71</td>
           <td><span style="color:#e6492e;font-weight:600">+0.14%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>10,389.27 <span style="font-size:10px;color:#8f959e">(10.65股→)</span></td>
+          <td>10,389.27 <span style="font-size:10px;color:var(--text-3)">(10.65股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.65</span></td>
           <td>11.43</td>
           <td>11,153.90</td>
@@ -3709,7 +3753,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">920.94</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.61%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.86股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.86股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.86</span></td>
           <td>22.29</td>
           <td>20,527.75</td>
@@ -3722,7 +3766,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">902.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.99%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.08股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.08股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.08</span></td>
           <td>33.37</td>
           <td>30,118.64</td>
@@ -3735,7 +3779,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">851.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.64%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.74股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.74股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.74</span></td>
           <td>45.11</td>
           <td>38,420.74</td>
@@ -3748,7 +3792,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">804.66</td>
           <td><span style="color:#2e8b57;font-weight:600">-5.52%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←12.43股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←12.43股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+12.43</span></td>
           <td>57.54</td>
           <td>46,298.47</td>
@@ -3761,7 +3805,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">838.34</td>
           <td><span style="color:#e6492e;font-weight:600">+4.19%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←11.93股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←11.93股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+11.93</span></td>
           <td>69.47</td>
           <td>58,236.35</td>
@@ -3774,7 +3818,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">607.48</td>
           <td><span style="color:#2e8b57;font-weight:600">-27.54%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←16.46股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←16.46股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+16.46</span></td>
           <td>85.93</td>
           <td>52,199.23</td>
@@ -3787,7 +3831,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">660.88</td>
           <td><span style="color:#e6492e;font-weight:600">+8.79%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←15.13股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←15.13股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+15.13</span></td>
           <td>101.06</td>
           <td>66,788.22</td>
@@ -3800,7 +3844,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">775.80</td>
           <td><span style="color:#e6492e;font-weight:600">+17.39%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←12.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←12.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+12.89</span></td>
           <td>113.95</td>
           <td>88,401.68</td>
@@ -3813,7 +3857,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">724.17</td>
           <td><span style="color:#2e8b57;font-weight:600">-6.65%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←13.81股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←13.81股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+13.81</span></td>
           <td>127.76</td>
           <td>92,518.92</td>
@@ -3826,7 +3870,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">962.24</td>
           <td><span style="color:#e6492e;font-weight:600">+32.87%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>10,999.91 <span style="font-size:10px;color:#8f959e">(11.43股→)</span></td>
+          <td>10,999.91 <span style="font-size:10px;color:var(--text-3)">(11.43股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-11.43</span></td>
           <td>116.33</td>
           <td>111,934.45</td>
@@ -3839,7 +3883,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1068.62</td>
           <td><span style="color:#e6492e;font-weight:600">+11.05%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>11,603.55 <span style="font-size:10px;color:#8f959e">(10.86股→)</span></td>
+          <td>11,603.55 <span style="font-size:10px;color:var(--text-3)">(10.86股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-10.86</span></td>
           <td>105.47</td>
           <td>112,705.06</td>
@@ -3852,7 +3896,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1043.51</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.35%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>11,561.32 <span style="font-size:10px;color:#8f959e">(11.08股→)</span></td>
+          <td>11,561.32 <span style="font-size:10px;color:var(--text-3)">(11.08股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-11.08</span></td>
           <td>94.39</td>
           <td>98,495.53</td>
@@ -3865,7 +3909,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1096.29</td>
           <td><span style="color:#e6492e;font-weight:600">+5.06%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>12,871.71 <span style="font-size:10px;color:#8f959e">(11.74股→)</span></td>
+          <td>12,871.71 <span style="font-size:10px;color:var(--text-3)">(11.74股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-11.74</span></td>
           <td>82.65</td>
           <td>90,605.68</td>
@@ -3878,7 +3922,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1070.14</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.39%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>13,299.32 <span style="font-size:10px;color:#8f959e">(12.43股→)</span></td>
+          <td>13,299.32 <span style="font-size:10px;color:var(--text-3)">(12.43股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-12.43</span></td>
           <td>70.22</td>
           <td>75,145.28</td>
@@ -3891,7 +3935,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1053.14</td>
           <td><span style="color:#2e8b57;font-weight:600">-1.59%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←9.50股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←9.50股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+9.50</span></td>
           <td>79.72</td>
           <td>83,951.61</td>
@@ -3904,7 +3948,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">950.90</td>
           <td><span style="color:#2e8b57;font-weight:600">-9.71%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←10.52股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←10.52股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+10.52</span></td>
           <td>90.23</td>
           <td>85,801.25</td>
@@ -3917,7 +3961,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1166.31</td>
           <td><span style="color:#e6492e;font-weight:600">+22.65%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>13,912.17 <span style="font-size:10px;color:#8f959e">(11.93股→)</span></td>
+          <td>13,912.17 <span style="font-size:10px;color:var(--text-3)">(11.93股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-11.93</span></td>
           <td>78.30</td>
           <td>91,326.04</td>
@@ -3930,7 +3974,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1194.37</td>
           <td><span style="color:#e6492e;font-weight:600">+2.41%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>19,661.27 <span style="font-size:10px;color:#8f959e">(16.46股→)</span></td>
+          <td>19,661.27 <span style="font-size:10px;color:var(--text-3)">(16.46股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-16.46</span></td>
           <td>61.84</td>
           <td>73,862.44</td>
@@ -3943,7 +3987,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1149.18</td>
           <td><span style="color:#2e8b57;font-weight:600">-3.78%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←8.70股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←8.70股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+8.70</span></td>
           <td>70.54</td>
           <td>81,067.43</td>
@@ -3956,7 +4000,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1006.49</td>
           <td><span style="color:#2e8b57;font-weight:600">-12.42%</span></td>
           <td><span class="ledger-op buy">主买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←9.94股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←9.94股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+9.94</span></td>
           <td>80.48</td>
           <td>81,001.87</td>
@@ -3969,7 +4013,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1329.34</td>
           <td><span style="color:#e6492e;font-weight:600">+32.08%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>20,114.76 <span style="font-size:10px;color:#8f959e">(15.13股→)</span></td>
+          <td>20,114.76 <span style="font-size:10px;color:var(--text-3)">(15.13股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-15.13</span></td>
           <td>65.35</td>
           <td>86,870.05</td>
@@ -3982,7 +4026,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1318.01</td>
           <td><span style="color:#2e8b57;font-weight:600">-0.85%</span></td>
           <td><span class="ledger-op sell">卖出</span></td>
-          <td>16,989.16 <span style="font-size:10px;color:#8f959e">(12.89股→)</span></td>
+          <td>16,989.16 <span style="font-size:10px;color:var(--text-3)">(12.89股→)</span></td>
           <td><span style="color:#2e8b57;font-weight:600">-12.89</span></td>
           <td>52.46</td>
           <td>69,140.50</td>
@@ -3995,7 +4039,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1267.70</td>
           <td><span style="color:#2e8b57;font-weight:600">-3.82%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.89股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.89股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.89</span></td>
           <td>60.35</td>
           <td>76,501.23</td>
@@ -4008,7 +4052,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1310.90</td>
           <td><span style="color:#e6492e;font-weight:600">+3.41%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.63股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.63股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.63</span></td>
           <td>67.97</td>
           <td>89,108.19</td>
@@ -4021,7 +4065,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1302.58</td>
           <td><span style="color:#2e8b57;font-weight:600">-0.64%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.68股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.68股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.68</span></td>
           <td>75.65</td>
           <td>98,542.23</td>
@@ -4034,7 +4078,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1269.24</td>
           <td><span style="color:#2e8b57;font-weight:600">-2.56%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.88股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.88股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.88</span></td>
           <td>83.53</td>
           <td>106,020.53</td>
@@ -4047,7 +4091,7 @@ tr:hover td { background: #f5f6f8; }
           <td style="white-space:nowrap">1376.69</td>
           <td><span style="color:#e6492e;font-weight:600">+8.47%</span></td>
           <td><span class="ledger-op buy_aux">辅买</span></td>
-          <td>10,000.00 <span style="font-size:10px;color:#8f959e">(←7.26股)</span></td>
+          <td>10,000.00 <span style="font-size:10px;color:var(--text-3)">(←7.26股)</span></td>
           <td><span style="color:#e6492e;font-weight:600">+7.26</span></td>
           <td>90.79</td>
           <td>124,995.97</td>
@@ -4299,7 +4343,7 @@ tr:hover td { background: #f5f6f8; }
         </div>
 <div class="footer">
   <p><a href="./">← 返回看板</a></p>
-  <details style="margin-top: 12px; font-size: 12px; color: #8f959e;">
+  <details style="margin-top: 12px; font-size: 12px; color: var(--text-3);">
     <summary style="cursor: pointer; margin-bottom: 8px;">📖 模拟说明</summary>
     <p>模拟说明：三种策略路径 × 三种信号组合，共 9 个场景。总资金 10 万元。买固定 1 万 + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1 万进出（FIFO，最多同时 10 笔）。主买=红色，辅买=紫色，卖出=绿色。连续同向信号跳过（避免重复操作）。此为历史模拟，非未来收益保证。</p>
   </details>

@@ -716,7 +716,7 @@ def _equity_svg(ledger, chart_id=0):
 
     y_labels = []
     for label, val, color in [
-        ("起始", TOTAL_CAPITAL, "#86909c"),
+        ("起始", TOTAL_CAPITAL, "var(--text-3)"),
         ("最低", min_val, "#e6492e"),
         ("峰值", peak_val, "#2e8b57"),
         ("期末", final_val, "#3370ff"),
@@ -742,17 +742,17 @@ def _equity_svg(ledger, chart_id=0):
         date_str = dates[i]  # format: YYYY-MM-DD
         label = date_str[:7]  # YYYY-MM
         x = scale_x(i)
-        x_labels.append(f'<text x="{x:.1f}" y="{height - 4:.1f}" text-anchor="middle" font-size="9" fill="#86909c">{label}</text>')
+        x_labels.append(f'<text x="{x:.1f}" y="{height - 4:.1f}" text-anchor="middle" font-size="9" fill="var(--text-3)">{label}</text>')
 
     return f'''
-    <svg width="100%" height="150" viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:#fafbfc">
+    <svg width="100%" height="150" viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
       <defs>
         <linearGradient id="equityGrad{chart_id}" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#3370ff" stop-opacity="0.12"/>
           <stop offset="100%" stop-color="#3370ff" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <line x1="{margin_left}" y1="{baseline_y:.1f}" x2="{scale_x(n-1):.1f}" y2="{baseline_y:.1f}" stroke="#c9cdd4" stroke-dasharray="6,4" stroke-width="1"/>
+      <line x1="{margin_left}" y1="{baseline_y:.1f}" x2="{scale_x(n-1):.1f}" y2="{baseline_y:.1f}" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>
       <polygon points="{area_points}" fill="url(#equityGrad{chart_id})"/>
       <polyline points="{' '.join(points)}" fill="none" stroke="#3370ff" stroke-width="1.5" stroke-linejoin="round"/>
       {' '.join(y_labels)}
@@ -784,7 +784,7 @@ def _scenario_panel(data, index_name="上证指数"):
     s = data["summary"]
 
     # --- 资产曲线 SVG 迷你图 ---
-    equity_svg = f'<h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:#8f959e">虚线 = 初始资金 {TOTAL_CAPITAL:,} 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>' + _equity_svg(data.get("ledger", []))
+    equity_svg = f'<h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 {TOTAL_CAPITAL:,} 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>' + _equity_svg(data.get("ledger", []))
 
     # --- 交易记录清单（时间轴） ---
     ledger_rows = ""
@@ -801,7 +801,7 @@ def _scenario_panel(data, index_name="上证指数"):
             idx_chg_color = color_for_pct(idx_chg)
             idx_chg_str = f'<span style="color:{idx_chg_color};font-weight:600">{idx_chg:+.2f}%</span>'
         else:
-            idx_chg_str = '<span style="color:#999">—</span>'
+            idx_chg_str = '<span style="color:var(--text-3)">—</span>'
         # 份额变动
         shares_trd = entry.get("shares_traded", 0)
         if shares_trd > 0:
@@ -809,19 +809,19 @@ def _scenario_panel(data, index_name="上证指数"):
         elif shares_trd < 0:
             shares_str = f'<span style="color:#2e8b57;font-weight:600">{shares_trd:.2f}</span>'
         else:
-            shares_str = '<span style="color:#999">—</span>'
+            shares_str = '<span style="color:var(--text-3)">—</span>'
         # 持仓份额
         total_sh = entry.get("total_shares", 0)
-        total_sh_str = f'{total_sh:.2f}' if total_sh > 0 else '<span style="color:#999">0</span>'
+        total_sh_str = f'{total_sh:.2f}' if total_sh > 0 else '<span style="color:var(--text-3)">0</span>'
         # 持仓市值
         hv = entry.get("holdings_value", 0)
-        hv_str = format_num(hv) if hv > 0 else '<span style="color:#999">0</span>'
+        hv_str = format_num(hv) if hv > 0 else '<span style="color:var(--text-3)">0</span>'
         # 交易金额 + 份额关系标注
         amt = entry["amount"]
         if shares_trd > 0:
-            amt_str = f'{format_num(amt)} <span style="font-size:10px;color:#8f959e">(←{shares_trd:.2f}股)</span>'
+            amt_str = f'{format_num(amt)} <span style="font-size:10px;color:var(--text-3)">(←{shares_trd:.2f}股)</span>'
         elif shares_trd < 0:
-            amt_str = f'{format_num(amt)} <span style="font-size:10px;color:#8f959e">({abs(shares_trd):.2f}股→)</span>'
+            amt_str = f'{format_num(amt)} <span style="font-size:10px;color:var(--text-3)">({abs(shares_trd):.2f}股→)</span>'
         else:
             amt_str = format_num(amt)
         ledger_rows += f"""
@@ -841,7 +841,7 @@ def _scenario_panel(data, index_name="上证指数"):
 
     ledger_html = f"""
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（{s['ledger_count']} 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:#8f959e">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × {index_name}收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × {index_name}收盘价。</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -881,7 +881,7 @@ def _scenario_panel(data, index_name="上证指数"):
     cards = f"""
     <div class="sim-flow">{s['flow_desc']}</div>
     <div class="sim-cards">
-      <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元<div class="sub" style="font-size:11px;color:#999;">期末持仓 {format_num(s['final_holdings'])} 元</div></span></div>
+      <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 {format_num(s['final_holdings'])} 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">{format_num(s['max_holding'])} 元（{s['max_holding_pct']}%）<div class="sub">{s['max_holding_date']}</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
       <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
@@ -902,8 +902,8 @@ def _scenario_panel(data, index_name="上证指数"):
         if "_sub_rounds" in r and len(r["_sub_rounds"]) > 1:
             for sr in r["_sub_rounds"]:
                 sub_rows += f"""
-            <tr style="background:#f0f1f3;font-size:11px;color:#646a73">
-              <td colspan="2" style="padding-left:20px;border-left:3px solid #d9dce0">└ {sr['buy_date']}</td>
+            <tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">
+              <td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ {sr['buy_date']}</td>
               <td>{sr['buy_close']}</td>
               <td colspan="2"></td>
               <td>{sr['hold_days']} 天</td>
@@ -1066,6 +1066,38 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
           {sub_panels}
         </div>"""
 
+    # 主题变量 CSS（与父页面 web/style.css 一致；iframe 是独立文档，需自带变量定义）
+    THEME_CSS = """
+:root {
+  --bg-page: #f5f6f8; --bg-card: #fff; --bg-hover: #f7f8fa; --bg-active: #f0f5ff;
+  --border: #e5e6eb; --border-strong: #d9dce0;
+  --text-1: #1f2329; --text-2: #4e5969; --text-3: #86909c; --text-4: #c9cdd4;
+  --primary: #165dff; --primary-hover: #0e42d2; --primary-bg: #f0f5ff;
+  --shadow: rgba(0,0,0,0.04); --shadow-strong: rgba(0,0,0,0.12);
+}
+[data-theme="dark"] {
+  --bg-page: #0d1117; --bg-card: #161b22; --bg-hover: #21262d; --bg-active: #1c2333;
+  --border: #30363d; --border-strong: #484f58;
+  --text-1: #e6edf3; --text-2: #b1bac4; --text-3: #7d8590; --text-4: #484f58;
+  --primary: #58a6ff; --primary-hover: #79b8ff; --primary-bg: #1c2536;
+  --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+}
+[data-theme="redgold"] {
+  --bg-page: #1a1d29; --bg-card: #252836; --bg-hover: #2d3142; --bg-active: #3a2e1a;
+  --border: #3a3d4d; --border-strong: #545767;
+  --text-1: #f0e6c4; --text-2: #c4b896; --text-3: #8a7f5e; --text-4: #5c5444;
+  --primary: #f0b90b; --primary-hover: #ffc933; --primary-bg: #2a2410;
+  --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+}
+[data-theme="morandi"] {
+  --bg-page: #f5f1ec; --bg-card: #fffaf3; --bg-hover: #ede7df; --bg-active: #e6e9ed;
+  --border: #d9d3cb; --border-strong: #c2bbb0;
+  --text-1: #3d3a35; --text-2: #6b665e; --text-3: #9a948a; --text-4: #b8b2a6;
+  --primary: #6b7c93; --primary-hover: #5a6b82; --primary-bg: #e6e9ed;
+  --shadow: rgba(120,110,90,0.06); --shadow-strong: rgba(120,110,90,0.14);
+}
+"""
+
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1073,54 +1105,55 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{index_name} · 买卖点模拟回测</title>
 <style>
+{THEME_CSS}
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{ font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1f2329; padding: 24px; max-width: 1200px; margin: 0 auto; }}
+body {{ font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg-page); color: var(--text-1); padding: 24px; max-width: 1200px; margin: 0 auto; }}
 h1 {{ font-size: 20px; margin-bottom: 4px; }}
-.subtitle {{ color: #8f959e; font-size: 13px; margin-bottom: 20px; }}
+.subtitle {{ color: var(--text-3); font-size: 13px; margin-bottom: 20px; }}
 
 /* 全局对比表 */
-.sim-cmp-table {{ margin-bottom: 20px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 8px; overflow-x: auto; }}
+.sim-cmp-table {{ margin-bottom: 20px; background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); padding: 8px; overflow-x: auto; }}
 .sim-cmp-table table {{ font-size: 12px; width: 100%; border-collapse: collapse; }}
-.sim-cmp-table th {{ background: #f5f6f8; padding: 6px 10px; text-align: left; font-weight: 600; color: #646a73; white-space: nowrap; border-bottom: 1px solid #e5e6eb; }}
-.sim-cmp-table td {{ padding: 5px 10px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; }}
-.sim-cmp-table tr:hover td {{ background: #f5f6f8; }}
+.sim-cmp-table th {{ background: var(--bg-hover); padding: 6px 10px; text-align: left; font-weight: 600; color: var(--text-2); white-space: nowrap; border-bottom: 1px solid var(--border); }}
+.sim-cmp-table td {{ padding: 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }}
+.sim-cmp-table tr:hover td {{ background: var(--bg-hover); }}
 
-.sim-main-tabs {{ display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid #e5e6eb; }}
-.sim-main-tab {{ padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #646a73; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }}
-.sim-main-tab.active {{ color: #1f2329; font-weight: 600; border-bottom-color: #3370ff; }}
-.sim-main-tab:hover {{ color: #1f2329; }}
+.sim-main-tabs {{ display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid var(--border); }}
+.sim-main-tab {{ padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; }}
+.sim-main-tab.active {{ color: var(--text-1); font-weight: 600; border-bottom-color: var(--primary); }}
+.sim-main-tab:hover {{ color: var(--text-1); }}
 
 .sim-path-group {{ display: none; }}
 .sim-path-group.active {{ display: block; }}
 
-.sim-sub-tabs {{ display: flex; gap: 4px; padding: 10px 0 12px; background: #fff; border-bottom: 1px solid #e5e6eb; margin-bottom: 16px; }}
-.sim-sub-tab {{ padding: 6px 14px; border: 1px solid #d9dce0; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; color: #4e5969; transition: all .2s; }}
-.sim-sub-tab.active {{ background: #165dff; color: #fff; border-color: #165dff; }}
-.sim-sub-tab:hover:not(.active) {{ background: #f2f3f5; }}
+.sim-sub-tabs {{ display: flex; gap: 4px; padding: 10px 0 12px; background: var(--bg-card); border-bottom: 1px solid var(--border); margin-bottom: 16px; }}
+.sim-sub-tab {{ padding: 6px 14px; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-2); transition: all .2s; }}
+.sim-sub-tab.active {{ background: var(--primary); color: #fff; border-color: var(--primary); }}
+.sim-sub-tab:hover:not(.active) {{ background: var(--bg-hover); }}
 
 .sim-scenario {{ display: none; }}
 .sim-scenario.active {{ display: block; }}
-.sim-flow {{ background: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: #1f2329; box-shadow: 0 1px 3px rgba(0,0,0,.06); border-left: 3px solid #3370ff; }}
+.sim-flow {{ background: var(--bg-card); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: var(--text-1); box-shadow: 0 1px 3px var(--shadow); border-left: 3px solid var(--primary); }}
 .sim-cards {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }}
-.sim-card {{ background: #fff; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }}
-.sim-card .k {{ display: block; font-size: 12px; color: #8f959e; margin-bottom: 4px; }}
+.sim-card {{ background: var(--bg-card); border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px var(--shadow); }}
+.sim-card .k {{ display: block; font-size: 12px; color: var(--text-3); margin-bottom: 4px; }}
 .sim-card .v {{ display: block; font-size: 16px; font-weight: 600; }}
-.sim-card .sub {{ font-size: 11px; color: #8f959e; font-weight: 400; margin-top: 2px; }}
-.sim-table-wrap {{ overflow-x: auto; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 8px; }}
+.sim-card .sub {{ font-size: 11px; color: var(--text-3); font-weight: 400; margin-top: 2px; }}
+.sim-table-wrap {{ overflow-x: auto; background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); padding: 8px; }}
 table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-th {{ background: #f5f6f8; padding: 10px 12px; text-align: left; font-weight: 600; color: #646a73; white-space: nowrap; border-bottom: 1px solid #e5e6eb; }}
-td {{ padding: 8px 12px; border-bottom: 1px solid #f2f3f5; white-space: nowrap; }}
-tr:nth-child(even) td {{ background: #fafbfc; }}
-tr:hover td {{ background: #f5f6f8; }}
+th {{ background: var(--bg-hover); padding: 10px 12px; text-align: left; font-weight: 600; color: var(--text-2); white-space: nowrap; border-bottom: 1px solid var(--border); }}
+td {{ padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }}
+tr:nth-child(even) td {{ background: var(--bg-hover); }}
+tr:hover td {{ background: var(--bg-hover); }}
 
-/* 交易记录操作标签 */
+/* 交易记录操作标签（涨红/辅买紫/卖出绿为数据语义色，保持硬编码）*/
 .ledger-op {{ display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; color: #fff; }}
 .ledger-op.buy {{ background: #e6492e; }}
 .ledger-op.buy_aux {{ background: #d63384; }}
 .ledger-op.sell {{ background: #2e8b57; }}
 
-.footer {{ margin-top: 24px; font-size: 12px; color: #8f959e; }}
-.footer a {{ color: #3370ff; }}
+.footer {{ margin-top: 24px; font-size: 12px; color: var(--text-3); }}
+.footer a {{ color: var(--primary); }}
 
 /* 移动端适配（iframe 在 H5 浮层窄屏打开时）：边距缩、卡片 2 列、tab 横滚、表格紧凑 */
 @media (max-width: 768px) {{
@@ -1142,6 +1175,20 @@ tr:hover td {{ background: #f5f6f8; }}
   .footer {{ font-size: 11px; margin-top: 16px; }}
 }}
 </style>
+<script>
+// 主题跟随父页面：URL hash 传初始主题 + postMessage 动态切换（双保险）
+(function(){{
+  var t = location.hash.replace(/^#/,'');
+  try {{ t = decodeURIComponent(t); }} catch(e) {{}}
+  if (t) document.documentElement.setAttribute('data-theme', t);
+  window.addEventListener('message', function(e){{
+    if (e.data && e.data.type === 'set-theme'){{
+      if (e.data.theme) document.documentElement.setAttribute('data-theme', e.data.theme);
+      else document.documentElement.removeAttribute('data-theme');
+    }}
+  }});
+}})();
+</script>
 </head>
 <body>
 <h1>{index_name} · 买卖点模拟回测</h1>
@@ -1151,7 +1198,7 @@ tr:hover td {{ background: #f5f6f8; }}
 {groups_html}
 <div class="footer">
   <p><a href="./">← 返回看板</a></p>
-  <details style="margin-top: 12px; font-size: 12px; color: #8f959e;">
+  <details style="margin-top: 12px; font-size: 12px; color: var(--text-3);">
     <summary style="cursor: pointer; margin-bottom: 8px;">📖 模拟说明</summary>
     <p>模拟说明：三种策略路径 × 三种信号组合，共 9 个场景。总资金 10 万元。买固定 1 万 + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1 万进出（FIFO，最多同时 10 笔）。主买=红色，辅买=紫色，卖出=绿色。连续同向信号跳过（避免重复操作）。此为历史模拟，非未来收益保证。</p>
   </details>

@@ -2600,14 +2600,7 @@ function applyH5(on) {
 }
 
 async function initH5Topbar() {
-  // 时效 + 历史入口：fetch summary 缓存 generated_at 填顶部条
-  try {
-    const s = await fetchJSON(SUMMARY_URL);
-    const gen = document.querySelector(".h5-gen");
-    if (gen) gen.textContent = (s.generated_at || "").replace(/^\d+月\d+日\s*/, "");
-  } catch (e) {}
-  const histBtn = document.querySelector(".h5-history-btn");
-  if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
+  // 顶部条精简为「分享/采集时间/皮肤」与 PC 一致；历史收盘分析入口回归横幅（.summary-history-btn）
 }
 
 function initH5() {
@@ -2641,7 +2634,8 @@ function initSimOverlay() {
     e.preventDefault();
     clearTimeout(closeTimer);
     loading.classList.add('show');            // 显示 loading（iframe 加载期间盖白屏）
-    frame.src = a.href;
+    var _th; try { var _v = localStorage.getItem('trade-theme'); _th = (_v === null) ? 'redgold' : _v; } catch (e) { _th = 'redgold'; }
+    frame.src = a.href.split('#')[0] + '#' + encodeURIComponent(_th);  // hash 传当前主题给 iframe
     overlay.classList.add('show');
     document.body.style.overflow = 'hidden';
   });
@@ -2878,6 +2872,10 @@ function initThemeSwitcher() {
     if (t) document.documentElement.setAttribute("data-theme", t);
     else document.documentElement.removeAttribute("data-theme");
     try { localStorage.setItem("trade-theme", t === "" ? "" : (t || DEFAULT_THEME)); } catch (e) {}
+    // 通知模拟回测 iframe 跟随主题切换（URL hash 传初始主题，postMessage 传动态切换）
+    document.querySelectorAll('.sim-frame').forEach(function (f) {
+      try { if (f.contentWindow) f.contentWindow.postMessage({ type: 'set-theme', theme: t || '' }, '*'); } catch (e) {}
+    });
   }
   function renderActive() {
     var cur = currentTheme();
