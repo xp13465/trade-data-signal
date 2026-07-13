@@ -374,13 +374,18 @@ def generate_summary(date: str | None = None) -> dict:
     }
 
 
-# 弹窗历史列表展示用的精简字段（去掉 top_industries 等大字段，省 JSON 体积）。
+# 弹窗历史列表展示用的精简字段。
+# top_industries 为 top3 小数组（每个对象只含 name/pct_change/code/index_id），体积可控，已纳入；
+# 仍排除 nhnl（可由 nh_count/nl_count 推导）等冗余字段。
 BRIEF_FIELDS = (
     "date", "generated_at", "summary", "summary_short",
     "sentiment_label", "sentiment_score",
-    "fear_greed_value", "fear_greed_label", "is_freeze",
-    "sh_pct", "up_count", "down_count",
+    "fear_greed_value", "fear_greed_label", "is_freeze", "freeze_info",
+    "volume_amount", "volume_label",
+    "sh_pct", "sh_close", "up_count", "down_count",
     "zt_count", "dt_count", "buy_count", "sell_count",
+    "nh_count", "nl_count", "ma_bullish", "ma_bearish",
+    "top_industries",
 )
 
 
