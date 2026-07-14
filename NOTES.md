@@ -938,5 +938,42 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - **角标 4 态**：盘中绿.intraday/午休黄.lunch/待收盘灰.pending/收盘主题色.closed。
 - **prev_trading_day**：基于 akshare 交易日历，判断数据真滞后（正常 T+1 vs 异常滞后）。
 - **数据 push worktree 方案**：detached HEAD @ origin/main，采集在主仓库（DB 持久化），commit+push 在 worktree。
-- **build_min 验证**：改 app.js 后必须 `grep -c` min.js 字面量计数确认同步，否则前端不显示。
+- **build_min 验证**：改 app.js 后必须 `grep -c` min.js 字面量计数确认同步，否则前端不显示。**注意 min.js 是单行文件，`grep -c` 按行算永远≤1 误导，改用 `grep -o '关键词' file | wc -l`**。
 - **app.js 是热点文件**：多 agent 并行改 app.js 会撞 build_min/push，需串行或合并派。
+
+## §17 工作模式强化 + 本轮（2026-07-14 新会话）状态（2026-07-14）
+
+### 工作模式再强化（用户明确要求，2026-07-14）
+- **调研/代码定位/分析问题也派子 agent**，不只派"实施"。主上下文不做 grep/Read/方案分析这些"调研活"——把"调研需求+定位代码+给方案"作为 agent 任务派出去，收结论后再派实施 agent。
+- 主控只做三件事：①派发（含目标+约束+验收口径）②收总结 ③验证关键结论（逐字 grep 报告，**不信 agent 报告**，dot is not defined / min.js grep -c 教训）。
+- **不问 yes/no**（"要我跑吗""要不要更新文档""要不要验"类自决），自行验收连轴转；只在真·方向分叉给选项。
+- **不冲突就并行**派发，不串行等。app.js 改动串行（撞 build_min/push）；.py / 独立 HTML / 只读调研可并行。
+- **重要状态/决策/方案落 NOTES.md/TASKS.md commit 进 git，不进 memory**（memory 只暂存会丢）。
+- 核对 agent 看完成通知会丢，查 jsonl mtime（`stat -f "%Sm" .../tasks/<id>.output`）确认真实状态。
+
+### §16 状态修正（D/B/A/C/E 实际全完成，§16 进行中/排队段已过时）
+- **D 收盘分析加领跌** ✅ commit c28e466（market_summary.py 加 bottom_industries + 双版 app.js renderSummaryChips/renderIntradayChips 加❄领跌）
+- **B collect_health 误报** ✅ commit 41c42df（复核 index_daily 当日 close，移除 backfill 陈旧误报，items 19->10）
+- **A 数据时效** ✅ commit 1eef457（移除红点 _healthDotHtml + 健康横幅 renderDataHealthBanner 替代 + 北向停更30天规则 + CSS）
+- **C 卡片文案对齐** ✅ commit 4c73aca（.card.kpi .card-value flex + cv-val/cv-tags span）
+- **E spark 角标** ✅ commit 4c73aca（删 spark-date + addCardTimeBadge 复用 4 态 + .spark-cell position:relative）
+- **hotfix dot is not defined** ✅ commit 2fafe2e（A 删 _healthDotHtml 漏删 _renderCollectTime 两处 ${dot}）
+
+### 本轮（2026-07-14 新会话）已完成
+| commit | 内容 |
+|---|---|
+| 81e6997 | 收盘小结+历史弹窗领涨领跌带💰资金净流入+name去SW前缀（B1：index_daily 加 net_inflow 字段 db.py migration ALTER + intraday_snapshot _backfill_industry_daily 反哺 net_inflow + market_summary top/bottom 带 net_inflow + name .replace("SW ","")。当日有💰；B1 前历史 net_inflow NULL 只显示涨跌幅）|
+| f22018d | 全站 170 个 HTML 注入百度自动推送 JS（SEO 收录）+ 修 2 bug（split(':')[0] / getElementsByTagName("script")[0]，markdown 吞 [0]）+ simulate_trade.py 生成器模板同步（future 自带）。注意：.io 域名无法工信部备案，百度收录效果存疑，代码无害保留 |
+| 9f38fa4 | spark 卡左下角补点位+涨跌点数（spark-foot `${_lastClose.toFixed(2)}` + `${_chgText}` 带色）。接手 spark agent 收尾：补 static-site/style.css 双版同步 + build_min + bump（agent 漏 commit/漏双版 style.css/通知丢了，查 jsonl mtime 发现）|
+
+### 本轮进行中（已派 agent，后台跑）
+- **数据时效栏手机端默认折叠+修跳动**（agent afe0e4196，改 app.js+style.css）：L1271 `localStorage.getItem("dhb-collapsed")` 改首次访问手机端 ≤768px 默认折叠（`window.matchMedia`），用户切过尊重记忆；style.css `.dhb-chips` display:none 改 max-height 过渡修跳动。
+- **策略表格背景色跟主题**（agent a21b4f8c，改 simulate_trade.py+trade_sim_*.html）：cmp_cell L996/998 硬编码 `#fff8e1`/`#f5f5f5` 改 var(--bg-best)/var(--bg-worst)，加 4 套主题变量（:root保留原值/dark rgba透明/redgold 金底呼应/morandi 低饱和），重生成 168 个 trade_sim_*.html。字色红绿不动。
+- **汪汪队7-13未更新诊断+补采**（agent a0545d65，改 .py+采集）：etf_national_team.py 数据为何停 7-13 未到 7-14。
+- **两融7-13诊断**（agent a7fed704，改 .py）：akshare 两融数据源 7-14 是否已出+补采。
+- **合计层加进/出/量信号方案**（agent a5530b32，只读调研）：国家队合计持仓市值趋势+份额合计趋势加信号，方案A聚合单只信号 vs 方案B合计层独立算 z-score。
+
+### 关键约束补充
+- **百度推送代码 bug**：官方原版带 `[0]`（`split(':')[0]` + `getElementsByTagName("script")[0]`），markdown 渲染吞 `[0]` 致看起来漏。push.js 源码是 1×1 img 打 sp0.baidu.com 上报 URL。
+- **index_daily.net_inflow**：db.py `_migrate` 用 PRAGMA table_info 检查列存在性+ALTER TABLE ADD COLUMN 兼容旧 DB。
+- **数据时效栏折叠**：localStorage `dhb-collapsed` 记忆，首次手机端默认折叠 PC 默认展开。
