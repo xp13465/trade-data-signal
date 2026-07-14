@@ -298,18 +298,33 @@ def export_overview(conn, cfg):
                  "WHERE score_id='fear_greed' AND date>=? ORDER BY date",
                  (six_m_start,))]
 
-    # 采集时间：collect_log 最新 run_at（脚本运行记录），格式 YYYYMMDD HH:MM:SS
-    _collected = conn.execute(
-        "SELECT run_at FROM collect_log ORDER BY run_at DESC LIMIT 1"
+    # 采集时间 + 数据健康度：collect_log 最新一次 run（run_at 取最新时间，run_date 取当天全部记录）
+    _last = conn.execute(
+        "SELECT run_date, run_at FROM collect_log ORDER BY run_at DESC LIMIT 1"
     ).fetchone()
     collected_at = ""
-    if _collected and _collected["run_at"] and len(_collected["run_at"]) >= 19:
-        _raw = _collected["run_at"]  # 如 "2026-07-10T16:46:00.799605"
+    if _last and _last["run_at"] and len(_last["run_at"]) >= 19:
+        _raw = _last["run_at"]  # 如 "2026-07-10T16:46:00.799605"
         collected_at = _raw[:10].replace("-", "") + " " + _raw[11:19]
+    # 数据健康度：最新一次 run 的 warn/error 记录（绿=全ok/黄=有warn/红=有error）
+    # 采集时间旁圆点展示，hover pop 显示具体告警，管理用户预期（如某指数源未取到）
+    collect_health = {"level": "ok", "items": []}
+    if _last and _last["run_date"]:
+        _hrows = conn.execute(
+            "SELECT metric_id, status, message FROM collect_log WHERE run_date=? AND status!='ok' ORDER BY run_at",
+            (_last["run_date"],)
+        ).fetchall()
+        if _hrows:
+            collect_health["level"] = "error" if any(r["status"] == "error" for r in _hrows) else "warn"
+            collect_health["items"] = [
+                {"metric_id": r["metric_id"], "status": r["status"], "message": r["message"]}
+                for r in _hrows
+            ]
 
     return {
         "date": score_date,
         "collected_at": collected_at,
+        "collect_health": collect_health,
         "scores": scores,
         "signals_today": sigs,
         "recent_freeze": freeze_days,

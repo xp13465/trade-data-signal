@@ -235,7 +235,7 @@ main { padding: 16px 24px; }
   border-radius: 8px; padding: 8px 12px;
   box-shadow: 0 4px 14px var(--shadow-strong);
   font-size: 12px; line-height: 1.6; max-width: 320px;
-  white-space: normal; word-break: break-word;
+  white-space: pre-line; word-break: break-word;
 }
 /* B：卡片底部 muted 白话小字（最晦涩术语常驻解释，区别于橙色 chart-hint） */
 .term-plain {
@@ -246,6 +246,16 @@ main { padding: 16px 24px; }
   border-top: 1px dashed var(--border);
   line-height: 1.5;
 }
+/* 情绪分组成因子展开区：折线图卡片下方，默认折叠，散户白话标签（rsi=RSI 等） */
+.comp-block { margin: -8px 0 12px; padding: 0 16px; }
+.comp-block details { font-size: 12px; color: var(--text-2); }
+.comp-block summary { cursor: pointer; color: var(--text-2); user-select: none; line-height: 1.8; }
+.comp-block summary:hover { color: var(--primary); }
+.comp-list { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
+.comp-item { display: inline-flex; align-items: baseline; gap: 4px; }
+.comp-k { color: var(--text-3); font-size: 11px; }
+.comp-v { color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+.comp-date { color: var(--text-4); font-size: 11px; margin-left: 4px; }
 /* === 折线图回测 tips（.chart-hint）：散户化多块文案 + 胜率配色梯度 + 凯利折叠详解 === */
 .chart-hint {
   font-size: 12px;
@@ -767,6 +777,19 @@ main { padding: 16px 24px; }
 .rule-modal-content .rule-detail div { margin: 3px 0; }
 
 /* === 数据更新规则 modal（采集时间旁 ℹ️ 入口）=== */
+/* 数据健康度圆点：采集时间旁绿(全ok)/黄(有warn)/红(有error)，hover 弹具体告警（复用 .term-pop 事件委托） */
+.health-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+  cursor: help;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.health-dot.health-ok { background: #2e8b57; }
+.health-dot.health-warn { background: #e6a23c; }
+.health-dot.health-error { background: #e6492e; }
 /* ℹ️ 图标：浅色小号，hover/聚焦变主色；随采集时间文字一起渲染 */
 .update-rules-btn {
   display: inline-block;

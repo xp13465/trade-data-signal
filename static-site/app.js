@@ -1086,19 +1086,33 @@ async function renderTab() {
 // 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
 // 末尾追加 ℹ️ 图标，点击弹"数据更新规则"modal（事件委托在 initUpdateRules 绑定 document，重渲染不失效）。
 const _UPDATE_RULES_ICON = '<span class="update-rules-btn" title="数据更新规则" role="button" tabindex="0" aria-label="数据更新规则">ℹ️</span>';
-function applyCollectTime(ct) {
+// 数据健康度圆点：绿=全ok/黄=有warn/红=有error。data-tip 复用 .term-pop 事件委托，hover 弹具体告警管理用户预期
+function _healthDotHtml(h) {
+  const lvl = (h && h.level) || "ok";
+  const items = (h && h.items) || [];
+  // 无告警时也给个提示，让圆点 hover 有反馈
+  const tip = items.length
+    ? items.map((it) => `[${it.status}] ${it.metric_id}：${it.message}`).join("\n")
+    : "数据采集正常，无告警";
+  // 属性值转义：& " < 及换行(&#10; 便于 getAttribute 解码回 \n，配合 .term-pop 的 pre-line 换行显示)
+  const tipEsc = tip.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/\n/g, "&#10;");
+  const label = lvl === "error" ? "有报错" : lvl === "warn" ? "有告警" : "正常";
+  return ` <span class="health-dot health-${lvl}" data-tip="${tipEsc}" title="数据健康度：${label}"></span>`;
+}
+function applyCollectTime(ct, health) {
   const _ct = ct || "";
+  const dot = _healthDotHtml(health);
   document.querySelectorAll(".pc-collect-time").forEach((el) => {
-    el.innerHTML = _ct ? `数据采集时间：${_ct}${_UPDATE_RULES_ICON}` : "";
+    el.innerHTML = _ct ? `数据采集时间：${_ct}${dot}${_UPDATE_RULES_ICON}` : "";
   });
   document.querySelectorAll(".h5-collect-time").forEach((el) => {
-    el.innerHTML = _ct ? `${_ct}${_UPDATE_RULES_ICON}` : "";
+    el.innerHTML = _ct ? `${_ct}${dot}${_UPDATE_RULES_ICON}` : "";
   });
 }
 async function fetchCollectTime() {
   try {
     const r = await fetchJSON("./data/overview.json");
-    applyCollectTime(r.collected_at);
+    applyCollectTime(r.collected_at, r.collect_health);
   } catch (e) { /* 兜底不崩，保持空 */ }
 }
 
@@ -1245,7 +1259,7 @@ async function renderOverview() {
   const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
   _setCachedOverview(r);
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
-  applyCollectTime(r.collected_at);
+  applyCollectTime(r.collected_at, r.collect_health);
   content.innerHTML = "";
 
   // ---- 0. 一句话总结横幅 ----
@@ -2549,6 +2563,35 @@ async function renderGlobal(container = content) {
   }
 }
 
+// 情绪分组成因子展开区：显示最新一天的 components（rsi/涨跌幅/炸板率等子因子），散户白话标签
+// per-index 多数只有 rsi/pct_change 两项，信息量有限，展开区简洁展示即可（默认折叠）
+const _COMP_NAMES = {
+  rsi: "RSI", pct_change: "涨跌幅", qvix: "恐慌波动",
+  ratio: "涨跌比", zt: "涨停热度", zhaban: "炸板率", lianban: "连板", amount: "成交活跃",
+};
+function _fmtComp(k, v) {
+  if (v == null || isNaN(v)) return "-";
+  const n = Number(v);
+  if (k === "pct_change" || k === "zhaban") return n.toFixed(1) + "%";
+  return n.toFixed(1);
+}
+function appendComponentsBlock(data, tipText) {
+  const last = data[data.length - 1];
+  if (!last || !last.components) return;
+  let comp;
+  try { comp = typeof last.components === "string" ? JSON.parse(last.components) : last.components; } catch (e) { return; }
+  const keys = Object.keys(comp);
+  if (!keys.length) return;
+  const chips = keys.map((k) => {
+    const name = _COMP_NAMES[k] || k;
+    return `<span class="comp-item"><span class="comp-k">${name}</span><span class="comp-v">${_fmtComp(k, comp[k])}</span></span>`;
+  }).join("");
+  const div = document.createElement("div");
+  div.className = "comp-block";
+  div.innerHTML = `<details><summary>组成因子${termTip(tipText || "情绪分由这些因子综合计算")}<span class="comp-date"> · ${fmtDate(last.date)}</span></summary><div class="comp-list">${chips}</div></details>`;
+  content.appendChild(div);
+}
+
 async function renderSentiment() {
   // 期货数据与情绪数据无依赖，用 Promise.all 并发请求；futures 失败不影响情绪图（独立 .catch）
   const [r, futures] = await Promise.all([
@@ -2565,7 +2608,7 @@ async function renderSentiment() {
 
   // 恐贪指数（市场温度计）
   if (r.fear_greed && r.fear_greed.length) {
-    const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value }));
+    const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) + latestSuffix(data) : ""}`;
     valueChartWithSignals(title, data, [], {
@@ -2581,13 +2624,15 @@ async function renderSentiment() {
         dimension: 1,
       },
     });
+    appendComponentsBlock(data);
   }
 
   if (r.a_sentiment.length) {
-    const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value }));
+    const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
     valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+    appendComponentsBlock(data);
   }
   // 细分指数：散户关注度排序（小盘/成长优先）
   const idxNames = {
@@ -2600,7 +2645,7 @@ async function renderSentiment() {
   };
   for (const [key, baseTitle] of Object.entries(idxNames)) {
     if (r[key] && r[key].length) {
-      const data = r[key].map(d => ({date: d.date, value: d.value}));
+      const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
       const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
       valueChartWithSignals(title, data,
@@ -2611,10 +2656,11 @@ async function renderSentiment() {
             dimension: 1,
           },
         }, stats[key], strat[key]);
+      appendComponentsBlock(data);
     }
   }
   if (r.cross_market.length) {
-    const data = r.cross_market.map((d) => ({ date: d.date, value: d.value }));
+    const data = r.cross_market.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
     valueChartWithSignals(title, data, sig.cross_market || [], {
@@ -2624,6 +2670,7 @@ async function renderSentiment() {
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market);
+    appendComponentsBlock(data);
   }
   // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
   if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures);
@@ -3285,7 +3332,7 @@ function renderIndustryGrid(indices, containerOverride) {
         tooltip: { trigger: "axis", formatter: (p) => {
           const d = widthData[p[0].dataIndex];
           if (!d) return `${p[0].axisValue}<br/>-`;
-          return `${p[0].axisValue}<br/>涨${d.up_count} 跌${d.down_count} | 涨停${d.zt_count} 跌停${d.dt_count} 炸板${d.zb_count}`;
+          return `${p[0].axisValue}<br/>涨${d.up_count} 跌${d.down_count} | 涨停${d.zt_count} 跌停${d.dt_count} 炸板${d.zb_count}<br/>封板率${d.seal_rate != null ? (d.seal_rate * 100).toFixed(0) + "%" : "-"} | 成交额${d.amount != null ? d.amount.toFixed(0) + "亿" : "-"}`;
         } },
         series: [
           { name: "上涨", type: "line", stack: "wd", symbol: "none", smooth: true,
