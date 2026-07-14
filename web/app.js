@@ -3307,42 +3307,10 @@ async function renderIndustry() {
   // 板块轮动速度卡片（最先展示，判断行情性质）
   await renderRotationCard(content);
 
-  // 锚点导航条：sticky 定位，快速跳转申万行业 / 概念板块
   const swCount = Object.keys(r.indices || {}).length;
   const conceptCount = Object.keys(r.concepts || {}).length;
-  const anchorBar = document.createElement("div");
-  anchorBar.className = "industry-anchor-bar";
-  anchorBar.innerHTML = `
-    <div class="anchor-btn-group">
-      <button type="button" data-anchor="sw-industries" class="active">申万行业（${swCount}）</button>
-      <button type="button" data-anchor="thsc-concepts">概念板块（${conceptCount}）</button>
-    </div>
-    <a class="anchor-back-top" href="#" onclick="window.scrollTo({top:0,behavior:'smooth'});return false">回到顶部</a>`;
-  content.appendChild(anchorBar);
-  // 按钮点击：平滑滚动到对应区域
-  anchorBar.querySelectorAll("button[data-anchor]").forEach((btn) => {
-    btn.onclick = () => {
-      const el = document.getElementById(btn.dataset.anchor);
-      if (el) el.scrollIntoView({ behavior: "smooth" });
-      // 更新激活状态
-      anchorBar.querySelectorAll("button[data-anchor]").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-    };
-  });
-  // I3：scrollspy -- 滚动时自动高亮当前可视区对应锚点按钮
-  if (_industryScrollSpy) { _industryScrollSpy.disconnect(); }
-  _industryScrollSpy = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        const id = entry.target.id;
-        anchorBar.querySelectorAll("button[data-anchor]").forEach((b) => {
-          b.classList.toggle("active", b.dataset.anchor === id);
-        });
-      }
-    });
-  }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
 
-  // 申万行业区域
+  // 申万行业区域（热力图）；tab 按钮 + 搜索框移到热力图下方（anchorBar，sticky 吸顶）
   const swSection = document.createElement("div");
   swSection.id = "sw-industries";
   content.appendChild(swSection);
@@ -3351,9 +3319,32 @@ async function renderIndustry() {
   const indHmSuffix = indHmDates.length ? `<span class="chart-latest"> · ${fmtDate(indHmDates[indHmDates.length - 1])}</span>` : "";
   renderIndustryHeatmap(r.heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）" + indHmSuffix, swSection);
 
+  // 锚点 + 搜索条：热力图下方，sticky 吸顶（申万/概念 tab 按钮 + 搜索框同一行）
+  // 吸顶时锚点跳转与搜索筛选均可用；搜索共用 state.industrySearch（I2 概念区同筛）
+  const anchorBar = document.createElement("div");
+  anchorBar.className = "industry-anchor-bar";
+  anchorBar.innerHTML = `
+    <div class="anchor-btn-group">
+      <button type="button" data-anchor="sw-industries" class="active">申万行业（${swCount}）</button>
+      <button type="button" data-anchor="thsc-concepts">概念板块（${conceptCount}）</button>
+    </div>
+    <input type="search" class="anchor-search" placeholder="搜索行业/概念名称或代码（如：银行、机器人、thsc_）" aria-label="搜索行业/概念" />`;
+  content.appendChild(anchorBar);
+  // tab 按钮：平滑滚动到对应区域
+  anchorBar.querySelectorAll("button[data-anchor]").forEach((btn) => {
+    btn.onclick = () => {
+      const el = document.getElementById(btn.dataset.anchor);
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+      anchorBar.querySelectorAll("button[data-anchor]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    };
+  });
+
   // I1：搜索只局部重渲染 swGridWrap（title + grid），不 refetch、不重建热力图/轮动卡
+  // swGridWrap 作为 content 直接子元素（与 anchorBar 同级），使 anchorBar sticky 跨申万+概念两区生效
   const swGridWrap = document.createElement("div");
-  swSection.appendChild(swGridWrap);
+  swGridWrap.dataset.spyFor = "sw-industries"; // I3: scrollspy 申万网格映射到 sw-industries
+  content.appendChild(swGridWrap);
 
   // I2：概念板块也加搜索筛选 -- 共用 state.industrySearch，一个搜索条同时过滤两区
   let conceptGridWrap = null;
@@ -3391,15 +3382,37 @@ async function renderIndustry() {
       renderIndustryGrid(conceptFiltered, conceptGridWrap);
     }
   }
-  // BUG-E：行业搜索条（输入名称关键词实时过滤行业 + 概念网格）
-  industrySearchBar(swSection, _applyIndustryFilter);
+  // 搜索框（锚点条内）：防抖 + 局部筛选（I1 不 refetch/不重建热力图轮动卡）
+  const searchInput = anchorBar.querySelector(".anchor-search");
+  searchInput.value = state.industrySearch || "";
+  let _searchTimer;
+  searchInput.oninput = () => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => {
+      state.industrySearch = searchInput.value.trim();
+      _applyIndustryFilter();
+    }, 250);
+  };
   _applyIndustryFilter();
 
-  // I3：scrollspy 绑定到各锚点目标（swSection + thscSection 均已创建）
+  // I3：scrollspy -- 滚动时自动高亮当前可视区对应锚点按钮
+  // 观察热力图区(sw-industries)、申万网格(spyFor=sw-industries)、概念区(thsc-concepts)
+  if (_industryScrollSpy) { _industryScrollSpy.disconnect(); }
+  _industryScrollSpy = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id || entry.target.dataset.spyFor;
+        anchorBar.querySelectorAll("button[data-anchor]").forEach((b) => {
+          b.classList.toggle("active", b.dataset.anchor === id);
+        });
+      }
+    });
+  }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
   anchorBar.querySelectorAll("button[data-anchor]").forEach((btn) => {
     const target = document.getElementById(btn.dataset.anchor);
     if (target && _industryScrollSpy) _industryScrollSpy.observe(target);
   });
+  if (_industryScrollSpy) _industryScrollSpy.observe(swGridWrap);
 }
 
 // ============ 手动补录（前端入口已移除） ============

@@ -1205,6 +1205,24 @@ main { padding: 16px 24px; }
   color: #fff;
   border-color: var(--primary);
 }
+/* 搜索框（与 tab 按钮同一行，吸顶时也可用）：占满按钮右侧剩余空间 */
+.industry-anchor-bar .anchor-search {
+  margin-left: auto;
+  flex: 1 1 200px;
+  max-width: 360px;
+  min-width: 140px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--bg-card);
+  color: var(--text-1);
+}
+.industry-anchor-bar .anchor-search:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}
 .industry-anchor-bar .anchor-back-top {
   margin-left: auto;
   font-size: 11px;
@@ -1634,6 +1652,8 @@ main { padding: 16px 24px; }
   /* sticky 规则条/锚点条让位 H5 周期条：rule-bar 取消 sticky，anchor-bar 下移到周期条下 */
   .rule-bar { position: static; }
   .industry-anchor-bar { top: 46px; }
+  /* H5：tab 按钮+搜索框一行放不下时，搜索框换行占满整行 */
+  .industry-anchor-bar .anchor-search { flex-basis: 100%; max-width: none; margin-left: 0; }
 
   /* 收盘分析横幅：H5 精简--去"收盘分析"时效文字，只留 snapBadge + 📜按钮；chips 自动 flex-wrap */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
