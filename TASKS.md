@@ -714,17 +714,16 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 ### 排队（2026-07-14 续更新，全量待办汇总）
 
-**A. 本轮新增/遗留（小改，可立即派）**
-- **行业tab热力榜补挂角标**：web/app.js:4448 / static-site/app.js:4533 调 `renderIndustryHeatmap` 后无 `addCardTimeBadge`（概览tab L2547 有挂，行业tab漏挂）。本轮 098c287 只移位（右上->右下）没补挂。改动小（2处JS双版加 addCardTimeBadge 调用 + build_min + bump）。
+**A. 本轮新增/遗留**
+- **行业tab热力榜补挂角标** ✅ 已完成（commit 369f036，照搬概览tab addCardTimeBadge，hm-badge-bottom落右下）。
 - **百度推送效果验证**：⏸️ 搁置（用户 2026-07-14 决定）。maozi.io 在百度资源平台能否 HTML 标签/DNS 验证绑定（不需备案），能绑则推送可能生效；否则考虑 .com/.cn 备案域名做主站。f22018d 推送代码已注入全站，待用户后续实测收录再启动。
-- **合计层共振信号阈值密度调整**：✅ 已回算（agent a1906bea1，详见 NOTES §18）。结论 **保持当前 THR={surge:2,outflow:2,volume:3} 不变**：近1年39信号天/周均0.80/月均3.37（理想区间下沿不密不疏），volume阈值3->4无差异(触发时往往≥4只)，{1,1,2}单只不算共振语义错，{3,3,4}砍一半漏小规模协同。无需调参。
-- **合计层pin文案瑕疵**：web/app.js:2778,2793 图1/图2 termTip 用 `THR.surge`(=2)统一描述三种pin阈值，但量pin实际=THR.volume(3)。当前阈值下量文案错（说≥2实际≥3）。修法改分别说明 `进/出≥${THR.surge}只、量≥${THR.volume}只`。双版 app.js + build_min + bump。等 A1（补挂角标）完成后串行派（同改 app.js 避免冲突）。
+- **合计层共振信号阈值密度调整** ✅ 已回算（agent a1906bea1，详见 NOTES §18）。结论 **保持当前 THR={surge:2,outflow:2,volume:3} 不变**：近1年39信号天/周均0.80/月均3.37（理想区间下沿不密不疏），volume阈值3->4无差异(触发时往往≥4只)，{1,1,2}单只不算共振语义错，{3,3,4}砍一半漏小规模协同。无需调参。
+- **合计层pin文案瑕疵** ✅ 已完成（commit 97c3585，图1/图2 termTip 改 `进/出≥THR.surge只、量≥THR.volume只`，原用 THR.surge=2 统一描述量实际≥3文案错）。
 
-**B. 性能优化剩余（需用户决策，本轮不做）**
+**B. 性能优化剩余（需用户决策）**
 - **P0-1/P0-2 部署层 gzip/缓存头**：⏸️ 搁置（用户 2026-07-14 决定）。MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。用户后续给服务器/Cloudflare 方向再启动。
-- P1-3 行业全部 24MB / P1-5 全球 5.5MB / P2-2 trade_sim 45MB：⏸️ 靠 P0 gzip 或改动大，随 B1 一并搁置。
-- P2-5 H5 懒加载 lab.js：⏸️ 远期按 tab 懒加载，随 B1 一并搁置。
-- ✅ 已完成：P1-1 defer / P1-2 resize debounce / P1-4 minify / P2-1 并行fetch / P2-3 FastAPI缓存头(22da604) / P2-4 lab debounce（详见 NOTES §18）。
+- P2-2 trade_sim 45MB：⏸️ 强依赖 B1，随 B1 搁置（HTML 表格高度重复 gzip 压缩率80%，独立方案收益被 gzip 抹平）。
+- ✅ 已完成：P1-1 defer / P1-2 resize debounce / P1-4 minify / P2-1 并行fetch / P2-3 FastAPI缓存头(22da604) / P2-4 lab debounce / **B3 全球轻量JSON(c556ae3省70%)** / **B5 lab.js懒加载(4642735省88KB)** / **B2 行业瘦身折中(d114508 24MB->14MB省42%+detail按视口懒加载)**（详见 NOTES §18）。
 
 **C. 策略实验室**
 - 其他策略图表融入实验室：BB_lower_revert / Supertrend / MA_death 等（BB_upper_revert 已决策不融生产仅留实验室，见 §15）。
