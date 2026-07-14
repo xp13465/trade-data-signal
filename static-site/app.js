@@ -2220,7 +2220,7 @@ async function renderOverview() {
       sub = sig || "";
     }
     const _badge = getCardTimeBadge(k.date, snap);
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub" title="${sub}">${sub}</div></div>`;
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   content.appendChild(cards);
 
@@ -2243,8 +2243,7 @@ async function renderOverview() {
         <span class="pct-badge" data-spark-id="${sparkId}" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
       </div>
       <div class="spark-chart"></div>
-      ${_INDEX_TO_TENCENT_MINUTE[sparkId] ? '<div class="spark-intraday" data-intraday-code="' + sparkId + '"></div>' : ''}
-      <div class="spark-date">${idx.last_date || ""}</div>`;
+      ${_INDEX_TO_TENCENT_MINUTE[sparkId] ? '<div class="spark-intraday" data-intraday-code="' + sparkId + '"></div>' : ''}`;
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
@@ -2261,6 +2260,7 @@ async function renderOverview() {
       }],
     }));
     charts.push(sc);
+    addCardTimeBadge(cell, idx.last_date, snap);
   }
   _dynamicBadgeIds = _sparkDynIds;
 
