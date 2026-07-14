@@ -1240,6 +1240,51 @@ function renderSummaryChips(s, snap) {
   return chipsRow + topRow;
 }
 
+// 盘中横幅专用 chips：summary 是 T-1 收盘、snap 是 T 盘中时，横幅仅用 snap 实时数据。
+// 只显示 snap 有的字段（上证/深成/创业板/科创50 等指数实时 + 领涨板块），
+// 隐藏 summary 独有指标（恐贪/冰点/涨跌家数/成交额/涨跌停等，盘中不稳定且属 T-1，收盘才有意义）。
+function renderIntradayChips(snap) {
+  if (!snap || !snap.indices) return "";
+  const mainCodes = [
+    { code: "sh000001", label: "上证" },
+    { code: "sz399001", label: "深成" },
+    { code: "sz399006", label: "创业板" },
+    { code: "sh000688", label: "科创50" },
+  ];
+  const chips = [];
+  for (const { code, label } of mainCodes) {
+    const idx = snap.indices.find((i) => i.code === code);
+    if (idx && idx.pct_change != null) {
+      const color = idx.pct_change >= 0 ? "#e6492e" : "#2e8b57";
+      const sign = idx.pct_change >= 0 ? "+" : "";
+      const ptStr = idx.price != null ? ` · ${Math.round(idx.price)}点` : "";
+      chips.push(`<span class="summary-chip" style="color:${color}">${label} ${sign}${idx.pct_change.toFixed(2)}%${ptStr}</span>`);
+    }
+  }
+  const chipsRow = chips.length ? `<div class="summary-chips">${chips.join("")}</div>` : "";
+  // 领涨板块 top3（与 renderSummaryChips 同款样式，复用 term-tip 事件委托）
+  let topRow = "";
+  if (snap.industries && snap.industries.length) {
+    const top3 = [...snap.industries].sort((a, b) => (b.pct_change ?? -999) - (a.pct_change ?? -999)).slice(0, 3);
+    const parts = top3.map((d) => {
+      const nm = (d.sw_name || d.name || "").replace("SW ", "");
+      const pc = d.pct_change;
+      const color = pc != null ? (pc >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-2)";
+      const sign = pc != null && pc >= 0 ? "+" : "";
+      const pcStr = pc != null ? `(${sign}${pc.toFixed(2)}%)` : "";
+      let flowStr = "";
+      if (d.net_inflow != null) {
+        const fColor = d.net_inflow >= 0 ? "#e6492e" : "#2e8b57";
+        const fSign = d.net_inflow >= 0 ? "+" : "";
+        flowStr = ` <span style="color:${fColor}">💰${fSign}${d.net_inflow.toFixed(1)}亿</span>`;
+      }
+      return `<span style="color:${color}">${nm}${pcStr}</span>${flowStr}`;
+    });
+    topRow = `<div class="summary-chips summary-chips-top"><span class="term-tip" data-tip="领涨板块按涨跌幅排序；💰为该行业当日资金净流入(亿元)，正值=资金流入(红)，负值=流出(绿)">🔥领涨❓</span>${parts.join("、")}</div>`;
+  }
+  return chipsRow + topRow;
+}
+
 async function renderOverview() {
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
   const r = _getCachedOverview() || await fetchJSON("/api/overview");
@@ -1258,26 +1303,39 @@ async function renderOverview() {
         s.summary = injectSnapshotToSummary(s.summary, s, snap);
         s.summary_short = injectSnapshotToSummary(s.summary_short, s, snap);
       }
+      // 同日判断：summary 是 T-1 收盘、snap 是 T 盘中时，横幅改用 snap 实时数据，避免标题/数据日期错位
+      const snapShIdx = snap && snap.indices ? snap.indices.find((i) => i.code === "sh000001") : null;
+      const snapDate = snapShIdx ? (snapShIdx.datetime || "").slice(0, 8) : "";
+      const isSameDay = !snapDate || !s.date || snapDate === s.date;
+      const intradayMismatched = snap && snap.is_closed === false && !isSameDay;
       const banner = document.createElement("div");
       banner.className = "summary-banner";
-      // 盘中/收盘标注（快照存在时显示）
-      const snapBadge = snap && snap.indices
-        ? `<span class="summary-snap-tag" style="color:${snap.is_closed ? "var(--text-3)" : "#e6a23c"}">${snap.is_closed ? "📍 收盘快照" : "⏰ 盘中实时小结（未收盘，当日数据还会变化）"}</span>`
-        : "";
-      const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
-      const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
-      // 标题：📊 + 日期前缀 + "A股{情绪标签}"；右侧时效标签从 generated_at 去掉日期前缀
-      const genAt = s.generated_at || "";
-      const dm = genAt.match(/^(\d+月\d+日)/);
-      let datePrefix = dm ? dm[1] : "";
-      if (!datePrefix && s.date && s.date.length === 8) {
-        datePrefix = `${parseInt(s.date.substring(4, 6), 10)}月${parseInt(s.date.substring(6, 8), 10)}日`;
+      if (intradayMismatched) {
+        // 盘中横幅：summary 是 T-1，改用 snap T 日实时数据（标题日期/chips 均来自 snap）
+        const datePrefix = snapDate && snapDate.length === 8
+          ? `${parseInt(snapDate.substring(4, 6), 10)}月${parseInt(snapDate.substring(6, 8), 10)}日` : "";
+        const hhmm = snapShIdx && snapShIdx.datetime ? `${snapShIdx.datetime.slice(8, 10)}:${snapShIdx.datetime.slice(10, 12)}` : "";
+        const titleText = `📊 ${datePrefix} 盘中实时 A股`.replace(/\s+/g, " ").trim();
+        const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ 盘中实时小结（未收盘，当日数据还会变化）</span>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}${hhmm ? `<span class="summary-time-label">${hhmm}</span>` : ""}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${renderIntradayChips(snap)}`;
+      } else {
+        // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
+        const snapBadge = snap && snap.indices
+          ? `<span class="summary-snap-tag" style="color:${snap.is_closed ? "var(--text-3)" : "#e6a23c"}">${snap.is_closed ? "📍 收盘快照" : "⏰ 盘中实时小结（未收盘，当日数据还会变化）"}</span>`
+          : "";
+        const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
+        const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
+        const genAt = s.generated_at || "";
+        const dm = genAt.match(/^(\d+月\d+日)/);
+        let datePrefix = dm ? dm[1] : "";
+        if (!datePrefix && s.date && s.date.length === 8) {
+          datePrefix = `${parseInt(s.date.substring(4, 6), 10)}月${parseInt(s.date.substring(6, 8), 10)}日`;
+        }
+        const timeLabel = genAt.replace(/^\d+月\d+日\s*/, "").trim();
+        const titleText = `📊 ${datePrefix} A股${s.sentiment_label || ""}`.replace(/\s+/g, " ").trim();
+        const tagRow = (fgBadge || freezeBadge) ? `<div class="summary-tags">${fgBadge}${freezeBadge}</div>` : "";
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label">${timeLabel}</span><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${tagRow}${renderSummaryChips(s, snap)}`;
       }
-      const timeLabel = genAt.replace(/^\d+月\d+日\s*/, "").trim();
-      const titleText = `📊 ${datePrefix} A股${s.sentiment_label || ""}`.replace(/\s+/g, " ").trim();
-      // 标签行：恐贪 + 冰点（可选）
-      const tagRow = (fgBadge || freezeBadge) ? `<div class="summary-tags">${fgBadge}${freezeBadge}</div>` : "";
-      banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label">${timeLabel}</span><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${tagRow}${renderSummaryChips(s, snap)}`;
       content.insertBefore(banner, content.firstChild);
       const histBtn = banner.querySelector(".summary-history-btn");
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
@@ -2052,11 +2110,13 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData) {
   var allDates = Object.keys(allDatesSet).sort();
   var overlaySeries = [];
   var sigPoints = [];
+  var baseInfo = {};  // code -> {name, baseDate} 用于tooltip显示基准日
   data.etfs.forEach(function (e) {
     var daily = e.daily || [];
     if (!daily.length) return;
     var base = daily[0].fund_share_yi;
     if (!base) return;
+    baseInfo[e.code] = { name: e.name, baseDate: daily[0].date };
     var lookup = {};
     daily.forEach(function (d) { lookup[d.date] = +(d.fund_share_yi / base * 100).toFixed(2); });
     overlaySeries.push({
@@ -2077,6 +2137,8 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData) {
     });
   });
   overlaySeries.push({ name: "信号", type: "scatter", data: sigPoints, symbolSize: 7, z: 10 });
+  // YYYYMMDD -> YYYY-MM-DD（tooltip需带年份，与fmtDate的MM-DD区分）
+  function fmtFull(s) { return s && s.length >= 8 ? s.substring(0,4) + "-" + s.substring(4,6) + "-" + s.substring(6,8) : (s || ""); }
   var overlayTitle = '12 只 ETF 份额归一化叠加（基准=最早日 100%）<span class="term-tip" data-tip="所有ETF份额除以各自最早日份额×100，叠加在同一图看谁被持续增持(线上行)/谁流出(线下行)。🔴点=进场信号/🟢点=离场信号，多只同时触发=汇金增持期共振。点图例切换显隐。">❓</span>';
   var c4 = mkCard(overlayTitle, 400, null, container);
   c4.setOption(withTheme({
@@ -2085,10 +2147,14 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData) {
       formatter: function (p) {
         var v = p.value;
         if (!Array.isArray(v)) return p.seriesName;
+        var code = p.seriesType === "scatter" ? v[2] : p.seriesName;
+        var bi = baseInfo[code] || {};
+        var nameStr = bi.name ? bi.name + " " + code : code;
+        var baseStr = bi.baseDate ? "（基准 " + fmtFull(bi.baseDate) + "=100%）" : "";
         if (p.seriesType === "scatter") {
-          return v[2] + " " + v[3] + "<br/>" + fmtDate(v[0]) + " " + (+v[1]).toFixed(1) + "%";
+          return nameStr + " " + v[3] + "<br/>" + fmtFull(v[0]) + " 份额归一 " + (+v[1]).toFixed(1) + "%" + baseStr;
         }
-        return p.seriesName + "<br/>" + fmtDate(v[0]) + " " + (+v[1]).toFixed(2) + "%";
+        return nameStr + "<br/>" + fmtFull(v[0]) + " 份额归一 " + (+v[1]).toFixed(2) + "%" + baseStr;
       },
     },
     legend: { top: 0, type: "scroll" },
