@@ -414,16 +414,22 @@ function termTip(text) {
 // ❓ 问号 hover pop 浮层（替代浏览器原生 title，pop 风格：圆角/阴影/主题色/小箭头）
 // 事件委托：document mouseover/mouseout 检查 target.closest('[data-tip]')，
 // 覆盖 termTip 生成的 .term-tip + lab.js 的 data-tip 元素，一次绑定全局生效。
+// 移动端增强：(hover:none) 设备补 click 委托——点 [data-tip] 弹 pop(防合成 mouseover
+// 闪现 80ms 后消失)、再点同一元素或点别处关闭、点 pop 内容不关；PC (hover:hover) 仍纯 hover。
 (function _initTermPop() {
   var pop = document.createElement("div");
   pop.className = "term-pop";
   pop.style.display = "none";
   document.body.appendChild(pop);
   var hideTimer = null;
+  var popByClick = false;  // pop 由 click 触发(移动端)，此时 mouseout 不立即关
+  var popEl = null;        // 当前触发元素，用于同元素再点 toggle 关
+  var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
   function show(el, text) {
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     pop.textContent = text;
     pop.style.display = "block";
+    popEl = el;
     var r = el.getBoundingClientRect();
     var pw = pop.offsetWidth, ph = pop.offsetHeight;
     var left = r.left + r.width / 2 - pw / 2;
@@ -434,14 +440,28 @@ function termTip(text) {
     pop.style.top = top + "px";
   }
   function hide() { hideTimer = setTimeout(function () { pop.style.display = "none"; }, 80); }
+  function hideNow() { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } pop.style.display = "none"; popByClick = false; }
   document.addEventListener("mouseover", function (e) {
     var el = e.target.closest ? e.target.closest("[data-tip]") : null;
-    if (el) show(el, el.getAttribute("data-tip"));
+    if (el && !popByClick) show(el, el.getAttribute("data-tip"));
   });
   document.addEventListener("mouseout", function (e) {
     var el = e.target.closest ? e.target.closest("[data-tip]") : null;
-    if (el) hide();
+    if (el && !popByClick) hide();
   });
+  if (isTouch) {
+    document.addEventListener("click", function (e) {
+      var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+      if (el) {
+        if (popByClick && popEl === el) { hideNow(); return; }  // 同元素再点 -> 关
+        show(el, el.getAttribute("data-tip"));
+        popByClick = true;  // 标记后 mouseout 不立即关，直到下次 click 别处
+        return;
+      }
+      if (e.target.closest && e.target.closest(".term-pop")) return;  // 点 pop 内容不关
+      if (popByClick) hideNow();  // 点别处 -> 关
+    });
+  }
   pop.addEventListener("mouseenter", function () { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } });
   pop.addEventListener("mouseleave", hide);
 })();
