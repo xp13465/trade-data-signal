@@ -292,7 +292,7 @@ def verify_and_backfill_indices(date, verbose=True):
     # ── 3. 港股+全球指数校验补采 ──────────────────────────────────────────
     # 港股(hsi/hstech/hscei)走新浪全量源 stock_hk_index_daily_sina,16:00收盘后出当日。
     # 美股(us_dji/us_ixic/us_spx/us_ndx)走 index_us_stock_sina,北京时差晚21:30+才开盘,
-    # A股交易日时美股最新通常是T-1或T-2(跨周末),不强求当日,校验"最新日期>=5天内"即可。
+    # A股交易日时美股最新通常是T-1或T-2(跨周末),不强求当日,校验"最新日期距今<=3天"(覆盖跨周末)即可。
     # 根因: backfill 之前只管A股核心9+申万31,港股美股漏采(17:50没跑就卡T-1)。
     HK_GLOBAL_INDICES = [
         ("hsi", "hsi", True),      # (id, symbol, require_today)
@@ -322,11 +322,12 @@ def verify_and_backfill_indices(date, verbose=True):
             if r["date"] != date:
                 need_backfill = True
         else:
-            # 美股: 最新日期距今 >5 天才算漏(覆盖跨周末+节假日)
+            # 美股: 覆盖跨周末即可(周五收盘->周一采集=3天),T+1第二天就该采到昨日。
+            # 长假(国庆等)期间 backfill 每天跑会逐步补上,不卡死。
             try:
                 last_d = _dt.strptime(r["date"], "%Y%m%d").date()
                 today_d = _dt.strptime(date, "%Y%m%d").date()
-                if (today_d - last_d).days > 5:
+                if (today_d - last_d).days > 3:
                     need_backfill = True
             except (ValueError, TypeError):
                 need_backfill = True
