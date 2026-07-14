@@ -689,9 +689,9 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 ---
 
-## 交接状态（2026-07-14 新会话，领涨领跌带💰 + 百度推送 + spark-foot + 策略表格背景色 + 数据时效折叠 + 汪汪队/两融诊断）
+## 交接状态（2026-07-14 新会话，领涨领跌带💰 + 百度推送 + spark-foot + 策略表格背景色 + 数据时效折叠 + 汪汪队/两融诊断 + 合计层共振信号 + sim页主题对齐）
 
-> 详见 NOTES.md §17。工作模式再强化：**调研/定位/分析也派子 agent**，主控只派发+收总结+验关键结论（不信报告逐字 grep），不亲自 grep/Read/分析。重要状态落 NOTES/TASKS 不进 memory。
+> 详见 NOTES.md §17。工作模式再强化：**调研/定位/分析也派子 agent**，主控只派发+收总结+验关键结论（不信报告逐字 grep），不亲自 grep/Read/分析。重要状态落 NOTES/TASKS 不进 memory。本轮全部收口（3+3 commit + 3 诊断），已推 main。
 
 ### 已完成（已 commit）
 | commit | 内容 |
@@ -700,18 +700,21 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 | f22018d | 全站170个HTML注入百度自动推送JS(SEO收录)+修2bug(split(':')[0]/getElementsByTagName("script")[0],markdown吞[0])+simulate_trade.py生成器模板同步。注意.io无法工信部备案,百度收录存疑,代码无害保留 |
 | 9f38fa4 | spark卡左下角补点位+涨跌点数(spark-foot _lastClose.toFixed(2)+_chgText带色)。接手spark agent收尾:补static-site/style.css双版同步+build_min+bump(agent漏commit/漏双版style.css/通知丢,查jsonl mtime发现)|
 
-### 进行中（已派 agent，后台跑）
-| agent | 任务 | 改文件 |
-|---|---|---|
-| afe0e4196 | 数据时效栏手机端默认折叠+修跳动（L1271 localStorage改首次手机端≤768px默认折叠尊重记忆;style.css .dhb-chips display:none改max-height过渡修跳动）| app.js+style.css |
-| a21b4f8c | 策略表格背景色跟主题（cmp_cell L996/998 #fff8e1/#f5f5f5改var(--bg-best/worst)+4套主题变量+重生成168个trade_sim_*.html。字色红绿不动）| simulate_trade.py+trade_sim_*.html |
-| a0545d65 | 汪汪队7-13未更新诊断+补采（etf_national_team.py数据为何停7-13）| .py+采集 |
-| a7fed704 | 两融7-13诊断（akshare两融7-14是否已出+补采）| .py |
-| a5530b32 | 合计层加进/出/量信号方案调研（国家队合计持仓市值+份额合计趋势加信号,方案A聚合单只vs方案B独立算z-score）| 只读 |
+### 进行中
+无。5 个 agent 全部收口，详见 NOTES.md §17「本轮续（2026-07-14）已完成」。
+
+### 本轮续已完成（3 commit + 3 诊断）
+| commit | 内容 |
+|---|---|
+| 9346451 | 汪汪队ETF数据自动更新-新增20:07 launchd调度（scripts/plists/com.trade.etf-national-team.plist，独立锁不撞 update_all。SSE/SZSE ETF份额18:00-20:00发布，20:07跑当晚出信号。根治 etf_nt 不在任何调度致停7-13） |
+| f316153 | 国家队合计层图1/图2加共振信号 markPoint pin（进N/出N/量N）。方案A聚合单只 signals，THR={surge:2,outflow:2,volume:3}。不改 lineChart 用 mkCard+setOption。双版 renderNationalTeamTotalPanel 同步 |
+| 2a29984 | sim页主题初始化对齐主看板（hash->localStorage->默认redgold 三级优先级）。重生成166个 trade_sim HTML。同时修复 13dee00 策略表格背景色未生效问题（根因是子页主题不应用） |
+
+诊断结论（无 commit）：① 汪汪队7-13停更根因=etf_nt不在任何调度，已由 9346451 根治；② 两融7-13已由 0f86acc backfill 20:00 series 补采修复；③ 合计信号调研(a5530b32)推荐方案A，已由 f316153 实施。
 
 ### 排队
-- **合计层加信号实施**：等 a5530b32 调研方案落地 + app.js 空闲（afe0e4196 完成后）派实施 agent。
 - **百度推送效果验证**：maozi.io 在百度资源平台能否 HTML 标签/DNS 验证绑定（不需备案），能绑则推送可能生效；否则考虑 .com/.cn 备案域名做主站。
+- **合计层共振信号阈值密度调整**：当前 THR={surge:2,outflow:2,volume:3}（进/出≥2只，量≥3只），上线观察后按实际信号频率调参（参考 memory `param-opt-test-driven`：多方案+数据报告让用户选）。
 
 ### review gate
 本轮均为 UI/数据展示/SEO 迭代，用户视觉验收驱动，不走 review gate。

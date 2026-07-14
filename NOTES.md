@@ -966,12 +966,34 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 | f22018d | 全站 170 个 HTML 注入百度自动推送 JS（SEO 收录）+ 修 2 bug（split(':')[0] / getElementsByTagName("script")[0]，markdown 吞 [0]）+ simulate_trade.py 生成器模板同步（future 自带）。注意：.io 域名无法工信部备案，百度收录效果存疑，代码无害保留 |
 | 9f38fa4 | spark 卡左下角补点位+涨跌点数（spark-foot `${_lastClose.toFixed(2)}` + `${_chgText}` 带色）。接手 spark agent 收尾：补 static-site/style.css 双版同步 + build_min + bump（agent 漏 commit/漏双版 style.css/通知丢了，查 jsonl mtime 发现）|
 
-### 本轮进行中（已派 agent，后台跑）
-- **数据时效栏手机端默认折叠+修跳动**（agent afe0e4196，改 app.js+style.css）：L1271 `localStorage.getItem("dhb-collapsed")` 改首次访问手机端 ≤768px 默认折叠（`window.matchMedia`），用户切过尊重记忆；style.css `.dhb-chips` display:none 改 max-height 过渡修跳动。
-- **策略表格背景色跟主题**（agent a21b4f8c，改 simulate_trade.py+trade_sim_*.html）：cmp_cell L996/998 硬编码 `#fff8e1`/`#f5f5f5` 改 var(--bg-best)/var(--bg-worst)，加 4 套主题变量（:root保留原值/dark rgba透明/redgold 金底呼应/morandi 低饱和），重生成 168 个 trade_sim_*.html。字色红绿不动。
-- **汪汪队7-13未更新诊断+补采**（agent a0545d65，改 .py+采集）：etf_national_team.py 数据为何停 7-13 未到 7-14。
-- **两融7-13诊断**（agent a7fed704，改 .py）：akshare 两融数据源 7-14 是否已出+补采。
-- **合计层加进/出/量信号方案**（agent a5530b32，只读调研）：国家队合计持仓市值趋势+份额合计趋势加信号，方案A聚合单只信号 vs 方案B合计层独立算 z-score。
+### 本轮续（2026-07-14）已完成
+5 个进行中 agent 全部收口，3 commit + 3 诊断结论。
+
+| commit | 内容 |
+|---|---|
+| 9346451 | 汪汪队ETF数据自动更新-新增20:07 launchd调度（scripts/plists/com.trade.etf-national-team.plist，复用现有plist模板，StartCalendarInterval 20:07，独立锁 data/etf_national_team.lock 不撞 update_all。SSE/SZSE ETF份额18:00-20:00发布，20:07跑当晚出信号不再滞后。launchctl已加载exit 0。根治 etf_nt 采集不在任何调度致停7-13问题） |
+| f316153 | 国家队合计层图1（合计持仓市值趋势）+图2（份额合计趋势）加共振信号 markPoint pin（进N/出N/量N）。方案A聚合单只信号：遍历 data.etfs[].daily[].signals，某日≥N只ETF同出信号即合计层标pin。阈值 THR={surge:2,outflow:2,volume:3}（进/出≥2只，量≥3只放量更常见故更严）。share_surge->"进N"红#e6492e / share_outflow->"出N"绿#2e8b57 / volume_surge->"量N"橙#ff9800。不改 lineChart 签名（10+处调用回归风险），图1/图2改用 mkCard+setOption 直接画+markPoint pin。value含共振只数N不依赖hover。双版 app.js renderNationalTeamTotalPanel 逐字同步。无数据缺口（signals字段链路完整，不改export.py/采集/DB） |
+| 2a29984 | sim页（模拟回测 trade_sim_*.html）主题初始化对齐主看板。根因：sim页主题JS只读 location.hash 不读 localStorage，直接访问（非iframe，如行业图表按钮弹窗）时无hash回退 :root 浅色，浅色下 --bg-best=#fff8e1 正好等于旧硬编码值致背景色看不出变化。修复：simulate_trade.py L1183-1194 主题JS改三级优先级（hash优先->localStorage->首次默认redgold），与 web/index.html L42-49 对齐。重生成 83+83=166 个 trade_sim HTML（28个 sw_801* 数据None失败 + 6个 g.* 不在 name_map，用Python原地补丁：56个 sw_801* 替换旧JS块 + 12个 g.* 注入新主题JS块，g.* 原完全无主题支持）。验证：trade-theme 83+83，redgold 83+83，旧块残留0，花括号无残留，push.js仍170。这同时修复了之前 13dee00 的策略表格背景色未生效问题（根因是子页主题不应用，非背景色代码问题） |
+
+#### 诊断结论（无 commit，报告型）
+- **汪汪队7-13停更根因**：etf_nt 采集不在任何调度（update_all 4 pipeline / runner.py steps / launchd / crontab 都没有），只能手动CLI跑。已由 9346451 根治（新增20:07 launchd）。
+- **两融7-13**：已由之前 0f86acc 加 backfill 20:00 补采步骤（series 补采覆盖两融等晚发布指标，不再漏采）。
+- **合计信号调研（a5530b32）**：方案A聚合单只信号推荐，不改 lineChart 改用 mkCard+setOption，无数据缺口。已由 f316153 实施。
+
+#### 进行中 agent 状态收口
+| agent | 任务 | 结果 |
+|---|---|---|
+| afe0e4196 | 数据时效栏手机端默认折叠+修跳动 | ✅ 代码已在 321c467 落地（dhb-collapsed localStorage + matchMedia ≤768px 默认折叠 + .dhb-chips max-height 过渡修跳动） |
+| a21b4f8c | 策略表格背景色跟主题 | ✅ 13dee00 初版（cmp_cell 改 var(--bg-best/worst)+4套主题变量）+ 2a29984 根因修复（sim页主题JS三级优先级，子页主题不应用致背景色不生效） |
+| a0545d65 | 汪汪队7-13未更新诊断+补采 | ✅ 诊断：etf_nt 不在任何调度 -> 9346451 根治（20:07 launchd） |
+| a7fed704 | 两融7-13诊断 | ✅ 诊断：akshare 两融晚发布 -> 0f86acc 已修（backfill 20:00 加 series 补采） |
+| a5530b32 | 合计层加进/出/量信号方案调研 | ✅ 方案A推荐 -> f316153 实施（共振信号 markPoint pin） |
+
+### 关键技术点（本轮续补充）
+- **sim页主题JS三级优先级**：hash（iframe传入）-> localStorage -> 首次默认 redgold，与主看板 web/index.html L42-49 对齐。原 sim 页只读 hash 不读 localStorage，直接访问（非 iframe）时无 hash 回退浅色。
+- **g.* trade_sim 页原完全无主题支持**：本次 2a29984 用 Python 原地补丁注入新主题 JS 块（12个 g.* 文件），sw_801* 系列 56 个文件替换旧 JS 块。
+- **合计层共振信号**：方案A聚合单只 signals，THR={surge:2,outflow:2,volume:3}（进/出≥2只，量≥3只放量更常见故更严）。不改 lineChart 签名（10+处调用回归风险），图1/图2改用 mkCard+setOption 直接画+markPoint pin。value 含共振只数N不依赖 hover。
+- **etf_nt launchd 20:07**：复用 scripts/plists/ 模板，独立锁 data/etf_national_team.lock 不撞 update_all。SSE/SZSE ETF份额18:00-20:00发布，20:07跑当晚出信号不再滞后。
 
 ### 关键约束补充
 - **百度推送代码 bug**：官方原版带 `[0]`（`split(':')[0]` + `getElementsByTagName("script")[0]`），markdown 渲染吞 `[0]` 致看起来漏。push.js 源码是 1×1 img 打 sp0.baidu.com 上报 URL。
