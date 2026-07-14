@@ -1930,7 +1930,7 @@ main { padding: 16px 24px; }
   padding: 10px 12px; cursor: pointer; transition: all 0.15s;
   display: flex; flex-direction: column; gap: 6px;
 }
-.nt-mini-card:hover { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+/* hover 交给 .clickable-card 统一处理（lift+shadow+border），此处不再单独定义 */
 .nt-mini-head { display: flex; align-items: baseline; gap: 6px; }
 .nt-mini-code { font-size: 13px; font-weight: 600; color: var(--text-1); font-variant-numeric: tabular-nums; }
 .nt-mini-name { font-size: 11px; color: var(--text-3); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1941,6 +1941,61 @@ main { padding: 16px 24px; }
 .nt-badge { font-size: 12px; line-height: 1; }
 .nt-mini-chg.nt-up { color: #e6492e; }
 .nt-mini-chg.nt-down { color: #2e8b57; }
+
+/* === 全局可点击卡片发现性提示（PC hover浮层 + 移动端↗图标） ===
+   覆盖元素：.nt-mini-card(汪汪队卡片墙) / .lab-rank-item(策略推荐榜行)
+   PC：hover上浮+阴影+边框高亮，右下角浮出"查看详情 ->"小标签（移开消失，不常驻）
+   移动端：无hover，右上角常驻↗图标明示可点
+   表格行 .nt-heat-row 与 chip .sig-clickable 因布局特殊性单独处理（见下） */
+.clickable-card { position: relative; }
+.clickable-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px var(--shadow-strong);
+  border-color: var(--primary);
+}
+.clickable-card::after {
+  content: "查看详情 ->";
+  position: absolute; right: 6px; bottom: 4px;
+  padding: 1px 7px; border-radius: 10px;
+  background: var(--primary); color: #fff;
+  font-size: 10px; font-weight: 600; line-height: 1.5; white-space: nowrap;
+  opacity: 0; transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none; z-index: 3;
+}
+.clickable-card:hover::after { opacity: 1; transform: translateY(0); }
+.clickable-card::before {
+  content: "↗";
+  position: absolute; top: 4px; right: 6px;
+  font-size: 12px; font-weight: 700; line-height: 1;
+  color: var(--primary); opacity: 0.6;
+  pointer-events: none; z-index: 3;
+  display: none;
+}
+@media (max-width: 768px) {
+  .clickable-card::after { display: none; }      /* 移动端无hover，隐藏浮层 */
+  .clickable-card::before { display: block; }    /* 显示↗图标 */
+}
+@media (min-width: 769px) {
+  .clickable-card::before { display: none; }     /* PC不需要常驻图标 */
+}
+
+/* 汪汪队矩阵表格行（tr 不支持 transform/absolute，改用首格 ↗ 内联提示） */
+.nt-heat-row .nt-cell-code::after {
+  content: " ↗";
+  font-size: 11px; font-weight: 700;
+  color: var(--text-4);
+  transition: color 0.15s ease;
+}
+.nt-heat-row:hover .nt-cell-code::after { color: var(--primary); }
+@media (max-width: 768px) {
+  .nt-heat-row .nt-cell-code::after { color: var(--primary); opacity: 0.7; }
+}
+
+/* 买卖点/冰点 chip（.sig-clickable）：移动端无hover，加底色暗示可点（避免每chip加↗过载） */
+@media (max-width: 768px) {
+  .sig-clickable { background: var(--bg-active); }
+}
 
 /* 返回概览按钮 */
 .nt-back-btn {

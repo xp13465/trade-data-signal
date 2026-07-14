@@ -2028,7 +2028,7 @@ function _labRankItemHTML(row, rank, tab) {
   let extra = "";
   if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
   else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 998 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
-  return `<button type="button" class="lab-rank-item" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
+  return `<button type="button" class="lab-rank-item clickable-card" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">买${row.buyName} × 卖${row.sellName} · ${row.modeName}</span>` +
     `<span class="lab-rank-stats">` +

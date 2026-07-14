@@ -2133,7 +2133,7 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData) {
   wall.className = "nt-card-wall";
   summary.forEach(function (s) {
     var card = document.createElement("div");
-    card.className = "nt-mini-card";
+    card.className = "nt-mini-card clickable-card";
     card.onclick = function () { openNtDetailOverlay(s.code, rawData, qData, hData); };
     var spark = ntSparkline(s.daily, 120, 30);
     var scp = s.shareChangePct;
