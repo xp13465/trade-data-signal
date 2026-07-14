@@ -298,6 +298,15 @@ main { padding: 16px 24px; }
   .dhb-chip { padding: 1px 5px; }
   .dhb-chip .dhb-val { font-size: 10px; }
   .dhb-actions { margin-left: 0; }
+  .data-health-banner:not(.collapsed) .dhb-chips {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+  }
+  .data-health-banner:not(.collapsed) .dhb-chips .dhb-chip {
+    white-space: normal; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  }
+}
+@media (min-width: 481px) and (max-width: 768px) {
+  .data-health-banner:not(.collapsed) .dhb-chips { grid-template-columns: repeat(3, 1fr); }
 }
 /* 走势图大卡(.chart-card)右上角空旷，角标放回右上角；基础数据小卡(.card.kpi)保持右下角(右上更盖标题，右下是两害取其轻) */
 .chart-card .card-time-badge { top: 6px; right: 8px; bottom: auto; }
@@ -1404,6 +1413,14 @@ main { padding: 16px 24px; }
   font-weight: 600;
   color: var(--text-1);
 }
+.summary-title-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .summary-meta {
   display: flex;
   align-items: center;
@@ -1462,8 +1479,8 @@ main { padding: 16px 24px; }
 }
 .summary-freeze {
   flex-shrink: 0;
-  background: #ffebee;
-  color: #c62828;
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card));
+  color: var(--primary);
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 12px;
@@ -1812,6 +1829,8 @@ main { padding: 16px 24px; }
   .summary-top { flex-wrap: wrap; }
   .summary-meta { flex-wrap: wrap; }
   .summary-title { font-size: 14px; }
+  .summary-title-tags { width: 100%; }
+  .summary-history-btn { margin-left: auto; }
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */

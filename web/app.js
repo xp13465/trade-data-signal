@@ -2087,7 +2087,7 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>3min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-title-tags"></span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
         _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -2121,7 +2121,7 @@ async function renderOverview() {
         const titleText = `📊 ${datePrefix} ${s.sentiment_label || ""}`.replace(/\s+/g, " ").trim();
         // 标签跟在标题后面同一行(对齐历史弹窗布局)
         const titleTags = (fgBadge || freezeBadge) ? `${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText} ${titleTags}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-title-tags">${titleTags}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
