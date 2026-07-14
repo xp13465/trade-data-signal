@@ -712,9 +712,24 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 诊断结论（无 commit）：① 汪汪队7-13停更根因=etf_nt不在任何调度，已由 9346451 根治；② 两融7-13已由 0f86acc backfill 20:00 series 补采修复；③ 合计信号调研(a5530b32)推荐方案A，已由 f316153 实施。
 
-### 排队
-- **百度推送效果验证**：maozi.io 在百度资源平台能否 HTML 标签/DNS 验证绑定（不需备案），能绑则推送可能生效；否则考虑 .com/.cn 备案域名做主站。
+### 排队（2026-07-14 续更新，全量待办汇总）
+
+**A. 本轮新增/遗留（小改，可立即派）**
+- **行业tab热力榜补挂角标**：web/app.js:4448 / static-site/app.js:4533 调 `renderIndustryHeatmap` 后无 `addCardTimeBadge`（概览tab L2547 有挂，行业tab漏挂）。本轮 098c287 只移位（右上->右下）没补挂。改动小（2处JS双版加 addCardTimeBadge 调用 + build_min + bump）。
+- **百度推送效果验证**：maozi.io 在百度资源平台能否 HTML 标签/DNS 验证绑定（不需备案），能绑则推送可能生效；否则考虑 .com/.cn 备案域名做主站。f22018d 代码已注入，待实测收录。
 - **合计层共振信号阈值密度调整**：当前 THR={surge:2,outflow:2,volume:3}（进/出≥2只，量≥3只），上线观察后按实际信号频率调参（参考 memory `param-opt-test-driven`：多方案+数据报告让用户选）。
 
+**B. 性能优化剩余（需用户决策，本轮不做）**
+- **P0-1/P0-2 部署层 gzip/缓存头**：MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。
+- P1-3 行业全部 24MB / P1-5 全球 5.5MB / P2-2 trade_sim 45MB：靠 P0 gzip 或改动大。
+- P2-5 H5 懒加载 lab.js：远期按 tab 懒加载。
+- ✅ 已完成：P1-1 defer / P1-2 resize debounce / P1-4 minify / P2-1 并行fetch / P2-3 FastAPI缓存头(22da604) / P2-4 lab debounce（详见 NOTES §18）。
+
+**C. 策略实验室**
+- 其他策略图表融入实验室：BB_lower_revert / Supertrend / MA_death 等（BB_upper_revert 已决策不融生产仅留实验室，见 §15）。
+
+**D. memory 侧待办（非项目代码）**
+- 装 superpowers 插件试 /write-plan+/execute-plan 工作流（当前活告一段落后）。
+
 ### review gate
-本轮均为 UI/数据展示/SEO 迭代，用户视觉验收驱动，不走 review gate。
+本轮均为 UI/数据展示/SEO/性能迭代，用户视觉验收驱动，不走 review gate。
