@@ -761,6 +761,7 @@ function renderIndicesSection(container, indices, fetcher) {
         // chart 入全局 charts（供 resize）+ sectionCharts（供本区 dispose）
         const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
         sectionCharts.push(c);
+        addCardTimeBadge(c.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot);
       }
     }
   }
@@ -3088,6 +3089,9 @@ async function renderAStock(container = content) {
     return;
   }
   container.innerHTML = "";
+  // 拉取盘中快照，供走势卡角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+  const snap = state.intradaySnapshot;
   const groups = {
     "涨停/跌停/连板/炸板数": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban", "a_width_zb_count"],
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
@@ -3133,7 +3137,14 @@ async function renderAStock(container = content) {
   container.appendChild(grid2col);
   for (const [g, ids] of mainEntries) {
     const series = buildSeries(g, ids);
-    if (series.length && series.some((s) => s.data.length)) lineChart(g + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col);
+    if (series.length && series.some((s) => s.data.length)) {
+      const chart = lineChart(g + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col);
+      if (chart) {
+        let lastDate = "";
+        for (const s of series) { if (s && s.data && s.data.length) { const d = s.data[s.data.length - 1]; if (d && d.date && d.date > lastDate) lastDate = d.date; } }
+        addCardTimeBadge(chart.getDom().parentElement, lastDate, snap);
+      }
+    }
   }
   // 龙虎榜 + 解禁/IPO/可转债：默认隐藏，点击「更多」展开
   const extraWrap = document.createElement("div");
@@ -3155,7 +3166,14 @@ async function renderAStock(container = content) {
       if (!extraGrid.dataset.rendered) {
         for (const [g, ids] of extraEntries) {
           const series = buildSeries(g, ids);
-          if (series.length && series.some((s) => s.data.length)) lineChart(g + latestSuffixMulti(series), series, {}, groupHints[g] || null, extraGrid);
+          if (series.length && series.some((s) => s.data.length)) {
+            const chart = lineChart(g + latestSuffixMulti(series), series, {}, groupHints[g] || null, extraGrid);
+            if (chart) {
+              let lastDate = "";
+              for (const s of series) { if (s && s.data && s.data.length) { const d = s.data[s.data.length - 1]; if (d && d.date && d.date > lastDate) lastDate = d.date; } }
+              addCardTimeBadge(chart.getDom().parentElement, lastDate, snap);
+            }
+          }
         }
         extraGrid.dataset.rendered = "1";
       }
@@ -3223,13 +3241,14 @@ async function renderHK(container = content) {
     return;
   }
   container.innerHTML = "";
-  if (r.hk_south && r.hk_south.length) {
-    const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
-    lineChart("港股通净买入（亿元）" + latestSuffix(hks), hks, {}, null, container);
-  }
-  // 等快照就绪，注入港股实时数据（盘中让港股卡片显示当日实时涨跌）
+  // 等快照就绪，注入港股实时数据 + 供走势卡角标判断盘中/收盘状态
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
+  if (r.hk_south && r.hk_south.length) {
+    const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
+    const chart = lineChart("港股通净买入（亿元）" + latestSuffix(hks), hks, {}, null, container);
+    if (chart) addCardTimeBadge(chart.getDom().parentElement, hks.length ? hks[hks.length - 1].date : "", snap);
+  }
   const indices = _injectHkSnapshot(r.indices, snap);
   // 指数折线区：筛选条移到本区前，筛选时局部刷新
   const indicesSection = document.createElement("div");
@@ -3247,6 +3266,9 @@ async function renderGlobal(container = content) {
     return;
   }
   container.innerHTML = "";
+  // 拉取盘中快照，供走势卡角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+  const snap = state.intradaySnapshot;
   // M2：r.indices 已有 || {} 兜底；为空时显示空数据提示而非静默空白
   const idxEntries = Object.entries(r.indices || {});
   if (idxEntries.length) {
@@ -3255,7 +3277,10 @@ async function renderGlobal(container = content) {
     );
     idxEntries.forEach(([id, idx], i) => {
       const sig = sigResults[i] || { signals: [], stats: {} };
-      if (idx.data && idx.data.length) indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
+      if (idx.data && idx.data.length) {
+        const chart = indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
+        if (chart) addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap);
+      }
     });
   } else {
     const note = document.createElement("div");
@@ -3280,7 +3305,10 @@ async function renderGlobal(container = content) {
   const extrasStrategy = r.extras_strategy || {};
   for (const [id, name] of Object.entries(extras)) {
     const data = r.extras[id] || [];
-    if (data.length) valueChartWithSignals(name + latestSuffix(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id);
+    if (data.length) {
+      const chart = valueChartWithSignals(name + latestSuffix(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id);
+      if (chart) addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
+    }
   }
 }
 
