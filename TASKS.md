@@ -682,6 +682,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 | c28e466 | D 收盘分析横幅加领跌板块（market_summary.py加bottom_industries ORDER BY pct_change ASC LIMIT 3 + 双版app.js renderSummaryChips/renderIntradayChips加❄领跌行,历史弹窗复用renderSummaryChips自动同步） |
 | 1eef457 | A 数据时效完整化（移除采集时间红点_healthDotHtml,健康横幅renderDataHealthBanner已替代;北向停更30天规则 stoppedDays>30不提示,北向2024-08停更快2年不再显示;commit健康横幅CSS 54增13删 .health-dot清掉;renderDataHealthBanner验证通过） |
 | 4c73aca | C+E 卡片文案对齐+spark角标统一（C:.card.kpi .card-value flex布局+cv-val/cv-tags span数值左对齐tag右侧避让角标,解决0.94x/缩量上涨·66.1/偏热未对齐;E:删spark-cell左下角spark-date,addCardTimeBadge(cell,idx.last_date,snap)复用KPI卡4态规则,.spark-cell加position:relative+删.spark-date+加.spark-cell .card-time-badge右下角定位） |
+| 2fafe2e | hotfix: 删applyCollectTime残留${dot}致概览页"dot is not defined"加载失败（A任务移除_healthDotHtml时删了const dot但漏删_renderCollectTime模板L1108/1111两处${dot},ReferenceError。双版删+重build min+bump。教训:agent报告"去掉两处${dot}"需逐字grep验证不能信报告） |
 
 ### 进行中
 无。本轮 D/B/A/C/E 全部完成，已 merge main 公网部署。
