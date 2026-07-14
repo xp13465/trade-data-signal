@@ -2775,18 +2775,27 @@ function ntBuildSummary(data, qData) {
 
 // ── 总盘汇总层：12只ETF合计持仓市值+净增持额+份额趋势（看"国家队整体持仓"而非单只）──
 function renderNationalTeamTotalPanel(container, data) {
-  // 聚合12只ETF的daily，按日期合并：合计市值/合计份额/当日净增持
+  // 合计层共振信号阈值：≥N只宽基ETF同日同步异动=国家队共振
+  // 进/出=份额激增/流出(≥2只)，量=放量(≥3只，放量标准更严因更常见)
+  var THR = { surge: 2, outflow: 2, volume: 3 };
+  // 聚合12只ETF的daily，按日期合并：合计市值/合计份额/当日净增持 + 信号计数
   var dateMap = {};
   data.etfs.forEach(function (e) {
     (e.daily || []).forEach(function (d) {
       var dt = d.date;
-      if (!dateMap[dt]) dateMap[dt] = { date: dt, mktCap: 0, share: 0, netAdd: 0 };
+      if (!dateMap[dt]) dateMap[dt] = { date: dt, mktCap: 0, share: 0, netAdd: 0, nSurge: 0, nOutflow: 0, nVolume: 0 };
       var share = d.fund_share_yi || 0;   // 亿份
       var chg = d.share_change_yi || 0;  // 亿份变动
       var close = d.close || 0;          // 元
       dateMap[dt].mktCap += share * close;  // 亿元（亿份×元）
       dateMap[dt].share += share;            // 亿份
       dateMap[dt].netAdd += chg * close;     // 亿元
+      // 聚合单只信号：当日有多少只ETF出 share_surge/share_outflow/volume_surge
+      (d.signals || []).forEach(function (sig) {
+        if (sig.type === "share_surge") dateMap[dt].nSurge++;
+        else if (sig.type === "share_outflow") dateMap[dt].nOutflow++;
+        else if (sig.type === "volume_surge") dateMap[dt].nVolume++;
+      });
     });
   });
   var dates = Object.keys(dateMap).sort();
@@ -2812,15 +2821,55 @@ function renderNationalTeamTotalPanel(container, data) {
   var shareData = series.map(function (d) { return { date: d.date, value: +d.share.toFixed(2) }; });
   var netData = series.map(function (d) { return { date: d.date, value: +d.netAdd.toFixed(2) }; });
 
-  // 图1：合计持仓市值趋势（份额×价合计）
-  lineChart("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。") + latestSuffix(mktData), mktData, {
-    yAxis: { type: "value", name: "亿元", scale: true },
-  }, null, container);
+  // 合计层共振信号 markPoint：≥THR 只宽基同步异动（语义：国家队共振）
+  // value 含共振只数，不依赖 hover 即可读出强度
+  var mktMarks = [], shareMarks = [];
+  series.forEach(function (d) {
+    var mktY = +d.mktCap.toFixed(2);
+    var shareY = +d.share.toFixed(2);
+    if (d.nSurge >= THR.surge) {
+      mktMarks.push({ coord: [d.date, mktY], value: "进" + d.nSurge, itemStyle: { color: "#e6492e" } });
+      shareMarks.push({ coord: [d.date, shareY], value: "进" + d.nSurge, itemStyle: { color: "#e6492e" } });
+    }
+    if (d.nOutflow >= THR.outflow) {
+      mktMarks.push({ coord: [d.date, mktY], value: "出" + d.nOutflow, itemStyle: { color: "#2e8b57" } });
+      shareMarks.push({ coord: [d.date, shareY], value: "出" + d.nOutflow, itemStyle: { color: "#2e8b57" } });
+    }
+    if (d.nVolume >= THR.volume) {
+      mktMarks.push({ coord: [d.date, mktY], value: "量" + d.nVolume, itemStyle: { color: "#ff9800" } });
+      shareMarks.push({ coord: [d.date, shareY], value: "量" + d.nVolume, itemStyle: { color: "#ff9800" } });
+    }
+  });
 
-  // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）
-  lineChart("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。") + latestSuffix(shareData), shareData, {
+  // 图1：合计持仓市值趋势（份额×价合计）+ 共振信号 pin 标注
+  var c1 = mkCard("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=≥" + THR.surge + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(mktData), 320, null, container);
+  c1.setOption(withTheme({
+    tooltip: { trigger: "axis" },
+    grid: { left: 55, right: 20, top: 30, bottom: 50 },
+    xAxis: { type: "category", data: dates },
+    yAxis: { type: "value", name: "亿元", scale: true },
+    dataZoom: dzOpts(),
+    series: [{
+      name: "合计市值", type: "line", smooth: true, symbol: "none", connectNulls: true,
+      data: mktData.map(function (d) { return d.value; }), lineStyle: { width: 1.8 },
+      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#fff" }, data: mktMarks },
+    }],
+  }));
+
+  // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）+ 共振信号 pin 标注
+  var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。pin=≥" + THR.surge + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(shareData), 320, null, container);
+  c2.setOption(withTheme({
+    tooltip: { trigger: "axis" },
+    grid: { left: 55, right: 20, top: 30, bottom: 50 },
+    xAxis: { type: "category", data: dates },
     yAxis: { type: "value", name: "亿份", scale: true },
-  }, null, container);
+    dataZoom: dzOpts(),
+    series: [{
+      name: "份额合计", type: "line", smooth: true, symbol: "none", connectNulls: true,
+      data: shareData.map(function (d) { return d.value; }), lineStyle: { width: 1.8 },
+      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#fff" }, data: shareMarks },
+    }],
+  }));
 
   // 图3：每日净增持额柱状（红流入绿流出）
   var c3 = mkCard("📉 每日净增持额（近" + dates.length + "日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(国家队买入)，绿柱=净流出(卖出)。"), 300, null, container);
