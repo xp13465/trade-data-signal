@@ -298,7 +298,12 @@ main { padding: 16px 24px; }
   .dhb-chip { padding: 1px 5px; }
   .dhb-chip .dhb-val { font-size: 10px; }
   .dhb-actions { margin-left: 0; }
+  /* H5 头行合成：title+summary+actions 一行紧凑，chips 网格换到第二行占满 */
+  .data-health-banner:not(.collapsed) .dhb-title { order: 1; flex-shrink: 0; }
+  .data-health-banner:not(.collapsed) .dhb-summary { order: 2; flex-shrink: 0; }
+  .data-health-banner:not(.collapsed) .dhb-actions { order: 3; margin-left: auto; }
   .data-health-banner:not(.collapsed) .dhb-chips {
+    order: 4; flex-basis: 100%;
     display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
   }
   .data-health-banner:not(.collapsed) .dhb-chips .dhb-chip {
@@ -1413,14 +1418,6 @@ main { padding: 16px 24px; }
   font-weight: 600;
   color: var(--text-1);
 }
-.summary-title-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .summary-meta {
   display: flex;
   align-items: center;
@@ -1829,8 +1826,6 @@ main { padding: 16px 24px; }
   .summary-top { flex-wrap: wrap; }
   .summary-meta { flex-wrap: wrap; }
   .summary-title { font-size: 14px; }
-  .summary-title-tags { width: 100%; }
-  .summary-history-btn { margin-left: auto; }
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
