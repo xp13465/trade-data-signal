@@ -652,7 +652,7 @@ def export_futures(conn):
     # 最新准确率（按角色+窗口，仅综合品种）
     accuracy_rows = conn.execute(
         "SELECT a.date, a.role, a.window, a.follow_accuracy, a.contrarian_accuracy, "
-        "a.follow_n, a.contrarian_n "
+        "a.follow_n, a.contrarian_n, a.net_direction, a.actual_return "
         "FROM futures_accuracy a "
         "INNER JOIN (SELECT role, window, MAX(date) AS max_date "
         "            FROM futures_accuracy WHERE variety='综合' GROUP BY role, window) b "
@@ -672,6 +672,25 @@ def export_futures(conn):
             "contrarian": r["contrarian_accuracy"],
             "follow_n": r["follow_n"],
             "contrarian_n": r["contrarian_n"],
+        }
+        # net_direction/actual_return 同日同角色跨窗口一致，写入 role 级别
+        accuracy[role_display]["net_direction"] = r["net_direction"]
+        accuracy[role_display]["actual_return"] = r["actual_return"]
+
+    # 最近已完成的方向+涨跌（actual_return 非null 的最新日期）
+    latest_bet_rows = conn.execute(
+        "SELECT role, net_direction, actual_return, date "
+        "FROM futures_accuracy WHERE variety='综合' AND actual_return IS NOT NULL "
+        "AND date=(SELECT MAX(date) FROM futures_accuracy WHERE variety='综合' AND actual_return IS NOT NULL) "
+        "ORDER BY role"
+    ).fetchall()
+    latest_bet = {}
+    for r in latest_bet_rows:
+        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
+        latest_bet[role_display] = {
+            "net_direction": r["net_direction"],
+            "actual_return": r["actual_return"],
+            "date": r["date"],
         }
 
     # 历史准确率序列
@@ -698,7 +717,7 @@ def export_futures(conn):
         acc_history.append({"date": d, **_acc_by_date[d]})
 
     return {"summary": summary, "positions": positions, "positions_ratio": positions_ratio,
-            "accuracy": accuracy, "accuracy_history": acc_history}
+            "accuracy": accuracy, "accuracy_history": acc_history, "latest_bet": latest_bet}
 
 
 def export_ad_line(conn):

@@ -1167,7 +1167,7 @@ function renderSummaryChips(s, snap) {
     topInds = [...snap.industries]
       .sort((a, b) => (b.pct_change ?? -999) - (a.pct_change ?? -999))
       .slice(0, 3)
-      .map((d) => ({ name: (d.sw_name || d.name || "").replace("SW ", ""), pct_change: d.pct_change }));
+      .map((d) => ({ name: (d.sw_name || d.name || "").replace("SW ", ""), pct_change: d.pct_change, net_inflow: d.net_inflow }));
   }
   let topRow = "";
   if (topInds && topInds.length) {
@@ -1177,9 +1177,16 @@ function renderSummaryChips(s, snap) {
       const color = pc != null ? (pc >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-2)";
       const sign = pc != null && pc >= 0 ? "+" : "";
       const pcStr = pc != null ? `(${sign}${pc.toFixed(2)}%)` : "";
-      return `<span style="color:${color}">${nm}${pcStr}</span>`;
+      // 资金净流入：正值=流入(红)，负值=流出(绿)
+      let flowStr = "";
+      if (d.net_inflow != null) {
+        const fColor = d.net_inflow >= 0 ? "#e6492e" : "#2e8b57";
+        const fSign = d.net_inflow >= 0 ? "+" : "";
+        flowStr = ` <span style="color:${fColor}">💰${fSign}${d.net_inflow.toFixed(1)}亿</span>`;
+      }
+      return `<span style="color:${color}">${nm}${pcStr}</span>${flowStr}`;
     });
-    topRow = `<div class="summary-chips summary-chips-top">🔥领涨：${parts.join("、")}</div>`;
+    topRow = `<div class="summary-chips summary-chips-top"><span class="term-tip" data-tip="领涨板块按涨跌幅排序；💰为该行业当日资金净流入(亿元)，正值=资金流入(红)，负值=流出(绿)">🔥领涨❓</span>${parts.join("、")}</div>`;
   }
   return chipsRow + topRow;
 }
@@ -2312,7 +2319,7 @@ async function renderAStock(container = content) {
     "换手率>5%家数占比（0-1，活跃度分化）": ["a_turnover_gt5_pct"],
     "股息率": ["a_div_yield"],
     "龙虎榜": ["lhb_count", "lhb_inst_net"],
-    "解禁/IPO/可转债": ["unlock_amount", "ipo_count", "cov_count", "cov_premium_median"],
+    "解禁/IPO/可转债": ["unlock_amount", "unlock_count", "ipo_count", "ipo_amount", "cov_count", "cov_premium_median"],
   };
   const groupHints = {
     "资金面": "注：北向资金数据源自 2024 年 8 月起停更（东财停止实时披露），该序列冻结在 2024-08-16，1 年期窗口内为空属正常。",
@@ -2328,7 +2335,7 @@ async function renderAStock(container = content) {
     "换手率>5%家数占比（0-1，活跃度分化）": { a_turnover_gt5_pct: ">5%占比" },
     "股息率": { a_div_yield: "股息率" },
     "龙虎榜": { lhb_count: "上榜", lhb_inst_net: "机构" },
-    "解禁/IPO/可转债": { unlock_amount: "解禁", ipo_count: "IPO", cov_count: "可转债", cov_premium_median: "溢价率" },
+    "解禁/IPO/可转债": { unlock_amount: "解禁", unlock_count: "解禁家数", ipo_count: "IPO", ipo_amount: "募资额", cov_count: "可转债", cov_premium_median: "溢价率" },
   };
   // 构建带短标签的 series 并追加最新值后缀到标题
   function buildSeries(g, ids) {
@@ -2734,6 +2741,39 @@ function renderFuturesSection(data) {
       }
       html += '</tr>';
     }
+    // 当期方向+实际涨跌行：net_direction(红多绿空) + actual_return(涨跌)
+    html += `<tr><td class="sym-name"><span class="term-tip" data-tip="机构最新持仓方向(多/空)及对应指数实际涨跌幅。多+涨/空+跌=赌对方向，反之赌错。actual_return待收盘次日更新">当期方向❓</span></td>`;
+    for (const role of roles) {
+      const acc = data.accuracy[role] || {};
+      let dir = acc.net_direction;
+      let ret = acc.actual_return;
+      // 最新日期 actual_return 常为 null(待收盘)，回退到最近已完成的方向+涨跌
+      let betDate = "";
+      if (ret == null && data.latest_bet && data.latest_bet[role]) {
+        const lb = data.latest_bet[role];
+        dir = lb.net_direction;
+        ret = lb.actual_return;
+        betDate = lb.date ? `(${lb.date.slice(4, 6)}/${lb.date.slice(6, 8)})` : "";
+      }
+      if (dir != null) {
+        const dirText = dir === "long" ? "多" : dir === "short" ? "空" : dir;
+        const dirColor = dir === "long" ? "#e6492e" : "#2e8b57";
+        let retStr = "待收盘";
+        let retColor = "var(--text-3)";
+        let judge = "";
+        if (ret != null) {
+          retStr = (ret >= 0 ? "+" : "") + ret.toFixed(2) + "%";
+          retColor = ret >= 0 ? "#e6492e" : "#2e8b57";
+          // 赌对方向：多+涨 / 空+跌
+          const correct = (dir === "long" && ret >= 0) || (dir === "short" && ret < 0);
+          judge = correct ? " ✓" : " ✗";
+        }
+        html += `<td><span style="color:${dirColor}">${dirText}</span> <span style="color:${retColor}">${retStr}</span>${betDate}<span style="color:${ret != null ? (ret >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-3)"}">${judge}</span></td>`;
+      } else {
+        html += '<td>-</td>';
+      }
+    }
+    html += '</tr>';
     html += '</tbody></table>';
     html += '<div class="futures-note" style="margin-top:10px;">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     div.innerHTML = html;
