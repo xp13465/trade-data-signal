@@ -1085,28 +1085,16 @@ async function renderTab() {
 // 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
 // 末尾追加 ℹ️ 图标，点击弹"数据更新规则"modal（事件委托在 initUpdateRules 绑定 document，重渲染不失效）。
 const _UPDATE_RULES_ICON = '<span class="update-rules-btn" title="数据更新规则" role="button" tabindex="0" aria-label="数据更新规则">ℹ️</span>';
-// 数据健康度圆点：绿=全ok/黄=有warn/红=有error。data-tip 复用 .term-pop 事件委托，hover 弹具体告警管理用户预期
-function _healthDotHtml(h) {
-  const lvl = (h && h.level) || "ok";
-  const items = (h && h.items) || [];
-  // 无告警时也给个提示，让圆点 hover 有反馈
-  const tip = items.length
-    ? items.map((it) => `[${it.status}] ${it.metric_id}：${it.message}`).join("\n")
-    : "数据采集正常，无告警";
-  // 属性值转义：& " < 及换行(&#10; 便于 getAttribute 解码回 \n，配合 .term-pop 的 pre-line 换行显示)
-  const tipEsc = tip.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/\n/g, "&#10;");
-  const label = lvl === "error" ? "有报错" : lvl === "warn" ? "有告警" : "正常";
-  return ` <span class="health-dot health-${lvl}" data-tip="${tipEsc}" title="数据健康度：${label}"></span>`;
-}
-function applyCollectTime(ct, health) {
-  _collectTimeBase = { ct: ct || "", health };
+// 采集时间不再展示数据健康度圆点：采集层报错(如 HTTPSConnectionPool)用户看不懂且与数据时效横幅功能重叠，
+// collect_health 留给后端日志，前端只显示采集时间文本。数据时效以顶部健康横幅为准。
+function applyCollectTime(ct) {
+  _collectTimeBase = { ct: ct || "" };
   _renderCollectTime();
 }
 // 采集时间统一口径（阶段2）：盘中"HH:MM · 动态(3min)"（腾讯最近拉取时间），收盘"HH:MM · 收盘快照"。
 // 盘中优先显腾讯动态时间，无则回退 snap 采集时间；后缀让用户一眼区分动态 vs 收盘。
 function _renderCollectTime() {
-  const { ct, health } = _collectTimeBase;
-  const dot = _healthDotHtml(health);
+  const { ct } = _collectTimeBase;
   const _icon = _UPDATE_RULES_ICON;
   if (!ct) {
     document.querySelectorAll(".pc-collect-time,.h5-collect-time").forEach((el) => { el.innerHTML = ""; });
@@ -1126,7 +1114,7 @@ function _renderCollectTime() {
 async function fetchCollectTime() {
   try {
     const r = await fetchJSON("/api/overview");
-    applyCollectTime(r.collected_at, r.collect_health);
+    applyCollectTime(r.collected_at);
   } catch (e) { /* 兜底不崩，保持空 */ }
 }
 
@@ -1247,10 +1235,16 @@ function _buildHealthSources(r, snap) {
     const f = _dataFreshness(margin.date, ptd);
     sources.push({ name: "两融", cls: f.cls, text: f.text });
   }
-  // 北向资金 2024-08 停更，单独标注
+  // 北向资金 2024-08 起源端停更。停≤30天提示用户，>30天长期停更不再提醒（避免长期挂红条烦扰）。
+  // 通用规则：任何源端停更的数据源均按此30天口径（与 isStaleMetric 同源日期差逻辑）。
   const north = findM("a_fund_north");
-  if (north && north.date) {
-    sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}` });
+  if (north && north.date && ptd && north.date.length === 8 && ptd.length === 8) {
+    const dN = new Date(+north.date.slice(0, 4), +north.date.slice(4, 6) - 1, +north.date.slice(6, 8));
+    const dL = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
+    const stoppedDays = Math.round((dL - dN) / 86400000);
+    if (stoppedDays > 0 && stoppedDays <= 30) {
+      sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}` });
+    }
   }
   // 成交额/涨停数（intraday 源 metrics，盘中实时）
   const amt = findM("a_amount");
@@ -2004,7 +1998,7 @@ async function renderOverview() {
   const r = _getCachedOverview() || await fetchJSON("/api/overview");
   _setCachedOverview(r);
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
-  applyCollectTime(r.collected_at, r.collect_health);
+  applyCollectTime(r.collected_at);
   // 盘中标注：等快照就绪（最多 1.5s），让每张卡片角标判断 714 实时 vs 713 待收盘
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((res) => setTimeout(res, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
