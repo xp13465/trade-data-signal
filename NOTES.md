@@ -1051,6 +1051,12 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - **P0-1/P0-2（gzip/缓存头部署层）**：MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传。需确认服务器可改性或接 Cloudflare。**单项最高收益**（弱网提速 3-5 倍）。
 - P1-3/P1-5/P2-2/P2-5：靠 P0 或改动大，本轮不做。
 
+### 两融 7-14 滞后补充诊断（前序 agent a7fed704，2026-07-14）
+- **根因不是调度**（调度已由 0f86acc 根治，backfill_series_metrics 在 index_backfill.py:363，20:00/02:00 兜底补采 series 指标），而是 **SSE 源一次性异常延迟**：7-14 盘后 5.5 小时（到 20:35）仍未发布，轮询 24 次全返 max=7-13。stock_margin_sse + macro_china_market_margin_sh 双源均无 7-14。
+- **实测 DB**（07-14）：a_fund_margin=20260713，但 a_qvix_300/a_div_yield/hk_south 均已补 20260714（同 20:00 backfill 采到，证 backfill_series_metrics 生效，仅 SSE 源没出）。
+- **兜底**：02:00 backfill（index_backfill.py:434 main 调用）会重跑，SSE 一旦发布即采到+重算+推送。未来交易日 20:00/02:00 都兜底，不再系统性漏采。
+- **区分**：两融是 SERIES_FUNCS（依赖 SSE 盘后发布，17:50 update_all 赶不上）；涨停/成交额是 intraday_snapshot（15:35 收盘后即有）。前者滞后是源发布晚非采集 bug。
+
 ### TASKS.md 回填
 - L39 排队-4 标 ✅（commit ad88fb3 + apiRange 映射说明）。
 - L40 排队-5 标 ✅ 全部完成（11 项 + 6 commit 清单 + 逐项证据，注明 EVAL_REPORT 是修复前基线快照）。
