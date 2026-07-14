@@ -1094,3 +1094,21 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - **收益**：初始加载 24MB->13.86MB(省43%)，detail 按视口懒加载。tooltip 首次显示可能降级(显示"-")，rootMargin 提前预取缓解，动态版无此问题。
 - **不碰**：app/main.py(动态版 /api/industry 单次返回完整无25MB限制)/concepts(无width)/采集。
 - 实施 agent a8b86fd747be0089d 跑中。
+
+## §19 两个数据层系统隐患（2026-07-14 发现）
+
+### 隐患1：sentiment.db / etf_national_team.db 进 git 跟踪
+- 现状：.gitignore 第10行注释"sentiment.db 45MB 进 git 供动态版运行"，git ls-files 确认 data/sentiment.db + data/etf_national_team.db 被跟踪
+- **事故**：2026-07-14 线上采集时间停 13:32:14，根因是 7-13 晚 git checkout/merge 分支时 git 用旧版本 sentiment.db 覆盖了本地 DB，把 7-14 18:04 update_all 跑出的收盘快照（intraday_snapshot 表）丢回 13:05:04 盘中快照
+- 危害：45MB 二进制进版本库 = 反模式。每次切分支都可能污染 DB（本次事故根因）；仓库 .git 持续膨胀；merge 易冲突
+- 约束：注释说"供动态版运行"——maozi.io 动态版可能依赖从 git 拉 sentiment.db 启动。改前必须先确认动态版部署机制（服务器 DB 来源：git pull？还是服务器本地独立 DB？）
+- 待办：调研 maozi.io 部署机制后，方案二选一：(a)DB 不进 git + 服务器本地独立采集维护 DB；(b)保留进 git 但加 pre-commit hook 防误推/checkout 时 git stash 保护 DB
+- 临时规避：切分支时若 git 报 "local changes would be overwritten"，用 `git stash push data/sentiment.db` 保护，切完 `git stash pop`，**绝不能 git restore / git checkout -- data/sentiment.db**（会再次污染）
+
+### 隐患2：net_inflow 列缺失致 export.py 中断
+- 现象：export.py 在 summary.json 步骤中断，报 `index_daily has no column named net_inflow`
+- 根因：commit 81e6997 引入 app/compute/market_summary.py 读取 index_daily.net_inflow 列，但旧 DB 用旧 schema 建表缺该列，且 app/db.py 的 init_db._migrate() 从未被某些采集流程调用（直接 sqlite3.connect 绕过 migrate）
+- 影响：export 中断 = static-site/data 下 summary.json / summary_history.json / signal_freq.json / rotation.json / new_high_low.json / ma_alignment.json 等多个 JSON 不生成 = 线上对应模块无数据/旧数据
+- 临时修复（2026-07-14 已做）：跑 `.venv/bin/python -c "from app.db import init_db; init_db()"` 执行 ALTER TABLE 加 net_inflow 列，本地 DB schema 修复。修复后 export 198 个 JSON 完整生成（125.5MB）
+- 待办：排查哪个采集流程直接 sqlite3.connect 绕过了 init_db._migrate()，统一改为走 init_db() 入口确保 migrate 执行。这样别人 clone 仓库后首次跑也不会缺列
+- 关联文件：app/db.py（_migrate 逻辑已有，只需确保被调用）、app/compute/market_summary.py（读 net_inflow）、static-site/export.py（被中断处）
