@@ -1777,7 +1777,7 @@ async function renderNationalTeam(container = content) {
 // range 缺省时用 state.range（外层概览切片）；弹窗内传 ntDetailRange 独立切片
 function ntSliceDataByRange(data, range) {
   var rng = range || state.range;
-  var rangeDays = { "1m": 30, "3m": 90, "6m": 180, "1y": 365 };
+  var rangeDays = { "1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825 };
   var days = rangeDays[rng];
   if (!days) return data; // all 或未知 -> 全量
   var dd = new Date();
@@ -3821,8 +3821,8 @@ function _renderNtDetailToolbar(ov, rawData, qData, hData) {
   tb.innerHTML = '';
   var rngWrap = document.createElement('div');
   rngWrap.className = 'nt-detail-rng';
-  rngWrap.innerHTML = '<span class="nt-detail-rng-label">周期' + termTip('弹窗内时间窗口切换，只影响本弹窗数据，不影响外层页面。默认继承点击前外部周期。1月=近30日/3月=近90日/6月=近180日/1年=近365日/全部=全历史') + '</span>';
-  var ranges = [['1m', '1月'], ['3m', '3月'], ['6m', '6月'], ['1y', '1年'], ['all', '全部']];
+  rngWrap.innerHTML = '<span class="nt-detail-rng-label">周期' + termTip('弹窗内时间窗口切换，只影响本弹窗数据，不影响外层页面。默认继承点击前外部周期。3月=近90日/6月=近180日/1年=近365日/3年=近1095日/5年=近1825日/全部=全历史') + '</span>';
+  var ranges = [['3m', '3月'], ['6m', '6月'], ['1y', '1年'], ['3y', '3年'], ['5y', '5年'], ['all', '全部']];
   ranges.forEach(function (r) {
     var btn = document.createElement('button');
     btn.textContent = r[1];

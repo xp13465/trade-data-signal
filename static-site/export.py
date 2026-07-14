@@ -6,11 +6,11 @@
 
 导出端点：
   - data/overview.json                 （今日快照 + 指数 sparkline + 宽度 + 分数 + 行业热力图 + 买卖点 + 冰点日）
-  - data/a-stock-{1m,3m,6m,1y,all}.json
-  - data/hk-{1m,3m,6m,1y,all}.json
-  - data/global-{1m,3m,6m,1y,all}.json
-  - data/sentiment-{1m,3m,6m,1y,all}.json
-  - data/industry-{1m,3m,6m,1y,all}.json
+  - data/a-stock-{1m,3m,6m,1y,3y,5y,all}.json
+  - data/hk-{1m,3m,6m,1y,3y,5y,all}.json
+  - data/global-{1m,3m,6m,1y,3y,5y,all}.json
+  - data/sentiment-{1m,3m,6m,1y,3y,5y,all}.json
+  - data/industry-{1m,3m,6m,1y,3y,5y,all}.json
   - data/metrics.json                  （指标注册表）
   - data/index/{index_id}-all.json     （44 个指数 ohlc + signals 全历史）
 
@@ -43,7 +43,7 @@ STATIC_DIR = Path(__file__).resolve().parent
 DATA_DIR = STATIC_DIR / "data"
 INDEX_DIR = DATA_DIR / "index"
 
-RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365}
+RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
 ALL_RANGES = list(RANGES.keys()) + ["all"]
 
 
@@ -1158,7 +1158,7 @@ def main():
     total_bytes = sum(counts.values())
     print(f"\n导出完成：{len(counts)} 个 JSON 文件，{total_bytes / 1024 / 1024:.1f} MB")
     print(f"  - overview: 1")
-    print(f"  - tab ranges: 5 tabs × 5 ranges = 25")
+    print(f"  - tab ranges: 5 tabs × {len(ALL_RANGES)} ranges")
     print(f"  - metrics: 1")
     print(f"  - index detail: {len(all_indices)} (all range, full history)")
     print(f"输出目录: {DATA_DIR}")

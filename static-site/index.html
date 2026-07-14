@@ -93,10 +93,11 @@ var _hmt = _hmt || [];
     <button data-tab="lab">🧪 策略实验室</button>
     <!-- UX：周期选择器移入 tab 栏右端，随 sticky tab 栏一起悬浮顶部，下滚始终可见可操作 -->
     <div class="periods">
-      <button data-rng="1m">1月</button>
       <button data-rng="3m">3月</button>
       <button data-rng="6m">6月</button>
       <button data-rng="1y" class="active">1年</button>
+      <button data-rng="3y">3年</button>
+      <button data-rng="5y">5年</button>
       <button data-rng="all">全部</button>
       <!-- 手动补录入口已移除：敏感操作不应在主导航暴露。后端 /api/manual/* API 保留，需要时直接调 API 或另设权限入口。 -->
     </div>
@@ -104,10 +105,11 @@ var _hmt = _hmt || [];
   <!-- H5 周期段控条（PC 隐藏；移动端 sticky 顶部，替代 tab 栏右端周期选择器）-->
   <nav class="h5-period-bar">
     <div class="h5-periods">
-      <button data-rng="1m">1月</button>
       <button data-rng="3m">3月</button>
       <button data-rng="6m">6月</button>
       <button data-rng="1y" class="active">1年</button>
+      <button data-rng="3y">3年</button>
+      <button data-rng="5y">5年</button>
       <button data-rng="all">全部</button>
     </div>
   </nav>
@@ -122,7 +124,7 @@ var _hmt = _hmt || [];
   </nav>
 
   <script src="./qr.js?v=6577e491"></script>
-  <script defer src="./app.min.js?v=205b5d08"></script>
+  <script defer src="./app.min.js?v=7bf11032"></script>
   <script defer src="./lab.min.js?v=8cee6600"></script>
 </body>
 </html>
