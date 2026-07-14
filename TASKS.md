@@ -720,9 +720,9 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **合计层共振信号阈值密度调整**：当前 THR={surge:2,outflow:2,volume:3}（进/出≥2只，量≥3只），上线观察后按实际信号频率调参（参考 memory `param-opt-test-driven`：多方案+数据报告让用户选）。
 
 **B. 性能优化剩余（需用户决策，本轮不做）**
-- **P0-1/P0-2 部署层 gzip/缓存头**：MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。
-- P1-3 行业全部 24MB / P1-5 全球 5.5MB / P2-2 trade_sim 45MB：靠 P0 gzip 或改动大。
-- P2-5 H5 懒加载 lab.js：远期按 tab 懒加载。
+- **P0-1/P0-2 部署层 gzip/缓存头**：⏸️ 搁置（用户 2026-07-14 决定）。MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。用户后续给服务器/Cloudflare 方向再启动。
+- P1-3 行业全部 24MB / P1-5 全球 5.5MB / P2-2 trade_sim 45MB：⏸️ 靠 P0 gzip 或改动大，随 B1 一并搁置。
+- P2-5 H5 懒加载 lab.js：⏸️ 远期按 tab 懒加载，随 B1 一并搁置。
 - ✅ 已完成：P1-1 defer / P1-2 resize debounce / P1-4 minify / P2-1 并行fetch / P2-3 FastAPI缓存头(22da604) / P2-4 lab debounce（详见 NOTES §18）。
 
 **C. 策略实验室**
