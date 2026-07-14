@@ -15,7 +15,7 @@
 """
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -679,8 +679,9 @@ def _recompute_scores() -> None:
 def _export_affected_json() -> None:
     """重算后 dump 受影响的静态 JSON（双版同步：static-site/data/）。
 
-    导出：overview + sentiment(5 ranges) + 9 指数 detail，
-    让 static-site 的恐贪/情绪分/指数 sparkline 都到当日。
+    导出：overview + sentiment(5 ranges) + 9 指数 detail + hk + a-stock + global，
+    让 static-site 的恐贪/情绪分/指数 sparkline/大盘 tab 都到当日。
+    a-stock 重导后指数图和 width 指标反映盘中最新值（解决大盘 A 股 tab 冻结在早盘）。
     """
     import importlib.util
     from .fetchers import load_config
@@ -719,8 +720,28 @@ def _export_affected_json() -> None:
         export_mod.write_json(export_mod.DATA_DIR / f"hk-{rng}.json",
                               export_mod.export_hk(conn, cfg, rng))
 
+    # a-stock（大盘A股tab，复用 export_a_stock；指数图 + width 指标到当日盘中值）
+    # a-stock 读 index_daily（已反哺到当日）+ daily_metric（width 类已采到当日），
+    # 重导后指数图和 width 指标反映盘中最新值（解决大盘 A 股 tab 冻结在早盘的问题）。
+    for rng in export_mod.ALL_RANGES:
+        try:
+            export_mod.write_json(export_mod.DATA_DIR / f"a-stock-{rng}.json",
+                                  export_mod.export_a_stock(conn, cfg, rng))
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] a-stock-{rng} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+    # global（大盘全球tab，复用 export_global；外盘 T+1 重导意义不大但保持完整性）
+    for rng in export_mod.ALL_RANGES:
+        try:
+            export_mod.write_json(export_mod.DATA_DIR / f"global-{rng}.json",
+                                  export_mod.export_global(conn, cfg, rng))
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] global-{rng} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
     conn.close()
-    print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)} + hk×{len(export_mod.ALL_RANGES)}",
+    print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)} "
+          f"+ hk×{len(export_mod.ALL_RANGES)} + a-stock×{len(export_mod.ALL_RANGES)} "
+          f"+ global×{len(export_mod.ALL_RANGES)}",
           flush=True)
 
 
@@ -740,10 +761,16 @@ def build_snapshot() -> dict:
     for d in indices:
         code = d.get("code", "")
         d["is_closed"] = is_hk_closed if code.startswith("hk") else is_closed
+    # prev_trading_day: 快照日的前一个交易日(YYYYMMDD)，供前端 pending 角标判断
+    # 卡片 dataDate == prev_trading_day 为正常 T+1，< 则为数据滞后(采集断了)
+    # 用交易日历而非自然日差值，避免周末/节假日误判
+    from ..calendar import last_trading_day
+    prev_td = last_trading_day(collected_dt.date() - timedelta(days=1))
     return {
         "collected_at": collected_dt.isoformat(),
         "is_closed": is_closed,
         "label": label,
+        "prev_trading_day": prev_td,
         "indices": indices,
         "industries": industries,
     }
@@ -822,9 +849,13 @@ def load_latest_snapshot() -> dict | None:
         return None
     is_closed = bool(row["is_closed"])
     # 基于 collected_at 重构 label（时间+数据双重判断）
+    # 同时算 prev_trading_day(上一交易日)，供前端 pending 角标判断数据是否滞后
+    prev_td = ""
     try:
         collected_dt = datetime.fromisoformat(row["collected_at"])
         _, label = is_market_closed(at=collected_dt)
+        from ..calendar import last_trading_day
+        prev_td = last_trading_day(collected_dt.date() - timedelta(days=1))
     except Exception:  # noqa: BLE001
         label = "收盘快照" if is_closed else "盘中实时小结"
     try:
@@ -839,6 +870,7 @@ def load_latest_snapshot() -> dict | None:
         "collected_at": row["collected_at"],
         "is_closed": is_closed,
         "label": label,
+        "prev_trading_day": prev_td,
         "indices": indices,
         "industries": industries,
     }
