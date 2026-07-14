@@ -533,6 +533,46 @@ main { padding: 16px 24px; }
 .pct-badge { font-size: 13px; font-weight: 600; }
 .spark-date { font-size: 11px; color: var(--text-4); margin-top: 2px; }
 
+/* === 当日分时图（腾讯API直拉，盘中3分钟动态刷新）=== */
+.intraday-section { margin-bottom: 16px; }
+.intraday-header {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 8px;
+}
+.intraday-title { font-size: 15px; font-weight: 600; color: var(--text-1); }
+.intraday-refresh-hint { font-size: 11px; color: var(--text-3); }
+.intraday-toggle {
+  display: block; width: 100%; padding: 10px 14px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-1); font-size: 14px; cursor: pointer; text-align: center;
+  transition: border-color 0.2s;
+}
+.intraday-toggle:hover { border-color: var(--border-strong); }
+.intraday-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.intraday-cell {
+  background: var(--bg-card); border-radius: 8px;
+  padding: 8px 10px; box-shadow: 0 1px 3px var(--shadow);
+}
+.intraday-cell-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 2px;
+}
+.intraday-cell-name { font-size: 13px; color: var(--text-1); font-weight: 500; }
+.intraday-cell-market { font-size: 10px; color: var(--text-4); }
+.intraday-chart { width: 100%; height: 120px; }
+.intraday-fail {
+  height: 120px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--text-3); text-align: center;
+}
+.intraday-notice {
+  padding: 6px 10px; margin-top: 8px; font-size: 12px;
+  color: #e6a23c; text-align: center;
+}
+
 .ov-2col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1680,6 +1720,10 @@ main { padding: 16px 24px; }
   .industry-grid { grid-template-columns: 1fr; gap: 10px; }
   .spark-cell { padding: 8px 10px; }
   .industry-grid .spark-cell .spark-chart { min-height: 100px; }
+  /* 分时图移动端 2 列，超窄屏 1 列 */
+  .intraday-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .intraday-chart { height: 100px; }
+  .intraday-fail { height: 100px; }
   /* KPI 卡片 2 列（用 grid 避免 flex+calc 的 subpixel 换行问题）*/
   .cards.kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .card.kpi { min-width: 0; padding: 10px 12px; }
@@ -1768,6 +1812,11 @@ main { padding: 16px 24px; }
   .h5-bottomnav button.active { color: var(--primary); }
   .h5-bottomnav .bn-icon { font-size: 20px; line-height: 1; }
   .h5-bottomnav .bn-label { font-size: 11px; }
+}
+
+/* 分时图超窄屏单列 */
+@media (max-width: 480px) {
+  .intraday-grid { grid-template-columns: 1fr; }
 }
 
 /* === 模拟回测 iframe 浮层（遮罩+圆角边框+缩放展开动画，明确是浮层非跳转；关闭后停留原位置）=== */

@@ -66,6 +66,7 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
 });
 
 function clearCharts() {
+  _stopIntradayRefresh();
   charts.forEach((c) => c && c.dispose());
   charts.length = 0;
   content.innerHTML = "";
@@ -1413,6 +1414,324 @@ function renderIntradayChips(snap) {
   return chipsRow + topRow;
 }
 
+// ============ 当日分时图（腾讯分时API直拉 + 3分钟动态刷新）============
+// CORS 已确认：腾讯分时API access-control-allow-origin:*，前端可直拉。
+// 盘中每3分钟刷新分时走势；收盘后默认收起，点按钮按需展开。
+// 海外指数盘中无分时（时差），维持T+1现状不动态。
+
+// 指数ID -> 腾讯分时API code 映射（复用现有指数ID体系：sh/sz/hs300/cyb 等）
+const _INDEX_TO_TENCENT_MINUTE = {
+  sh: "sh000001", sz: "sz399001", hs300: "sh000300", sz50: "sh000016",
+  cyb: "sz399006", kc50: "sh000688", bj50: "bj899050",
+  csi500: "sh000905", csi1000: "sh000852",
+  hsi: "hkHSI", hstech: "hkHSTECH", hscei: "hkHSCEI",
+};
+// 指数ID -> 市场类型（cn=A股 9:30-11:30/13:00-15:00，hk=港股 9:30-12:00/13:00-16:00）
+const _INDEX_MARKET = {};
+["sh","sz","hs300","sz50","cyb","kc50","bj50","csi500","csi1000"].forEach((k) => _INDEX_MARKET[k] = "cn");
+["hsi","hstech","hscei"].forEach((k) => _INDEX_MARKET[k] = "hk");
+
+// 分时图展示的指数（9个：7 A股 + 2 港股）
+const _INTRADAY_INDICES = [
+  { id: "sh", name: "上证指数" },
+  { id: "sz", name: "深证成指" },
+  { id: "cyb", name: "创业板指" },
+  { id: "kc50", name: "科创50" },
+  { id: "hs300", name: "沪深300" },
+  { id: "sz50", name: "上证50" },
+  { id: "csi500", name: "中证500" },
+  { id: "hsi", name: "恒生指数" },
+  { id: "hstech", name: "恒生科技" },
+];
+
+const INTRADAY_REFRESH_MS = 3 * 60 * 1000; // 3分钟
+const INTRADAY_MAX_FAILS = 3; // 连续失败3次暂停刷新
+
+// 分时fetch in-flight去重（同URL并发只发一次，复用Promise）
+const _inflightMinute = new Map();
+let _intradayFailCount = 0;
+let _intradayRefreshTimer = null;
+let _intradayLastFetch = 0;
+let _intradayActive = false;
+let _intradayRenderCtx = null; // { grid, indices, snap }
+let _intradayVisBound = false;
+
+// fetch腾讯分时API，解析返回 {name,price,preClose,pct,date,points:[{time,price,volume,amount}]}
+// code参数是项目内指数ID（sh/sz/cyb 等），内部映射到腾讯code（sh000001 等）。
+// 异常（fetch失败/解析失败/code!=0/空数据）返回null，调用方走降级。
+async function fetchTencentMinute(code) {
+  const tcCode = _INDEX_TO_TENCENT_MINUTE[code];
+  if (!tcCode) return null;
+  const url = "https://web.ifzq.gtimgs.cn/appstock/app/minute/query?code=" + tcCode;
+  const cached = _inflightMinute.get(url);
+  if (cached) return cached;
+  const p = (async () => {
+    try {
+      const resp = await fetch(url);
+      const json = await resp.json();
+      if (!json || json.code !== 0 || !json.data) return null;
+      const node = json.data[tcCode];
+      if (!node || !node.data || !node.data.data) return null;
+      const rawPts = node.data.data;
+      const date = node.data.date || "";
+      const points = [];
+      for (const line of rawPts) {
+        const parts = String(line).split(" ");
+        if (parts.length < 2) continue;
+        const hhmm = parts[0];
+        const time = hhmm.length === 4 ? hhmm.slice(0, 2) + ":" + hhmm.slice(2) : hhmm;
+        const price = parseFloat(parts[1]);
+        if (isNaN(price)) continue;
+        const volume = parts[2] ? parseInt(parts[2], 10) || 0 : 0;
+        const amount = parts[3] ? parseFloat(parts[3]) || 0 : 0;
+        points.push({ time, price, volume, amount });
+      }
+      if (!points.length) return null;
+      // qt: [1]=名称 [3]=当前价 [4]=昨收
+      const qt = node.qt && node.qt[tcCode];
+      const name = qt && qt[1] ? qt[1] : "";
+      const curPrice = qt && qt[3] ? parseFloat(qt[3]) : points[points.length - 1].price;
+      const preClose = qt && qt[4] ? parseFloat(qt[4]) : null;
+      const pct = preClose && curPrice ? ((curPrice - preClose) / preClose) * 100 : null;
+      return { name, price: curPrice, preClose, pct, date, points };
+    } catch (e) { return null; }
+  })();
+  _inflightMinute.set(url, p);
+  p.finally(() => _inflightMinute.delete(url));
+  return p;
+}
+
+// 从snap提取HH:MM时间（取sh000001的datetime末尾4位）
+function _snapTimeStr(snap) {
+  if (!snap || !snap.indices) return "";
+  const sh = snap.indices.find((i) => i.code === "sh000001");
+  if (!sh || !sh.datetime) return "";
+  return sh.datetime.slice(8, 10) + ":" + sh.datetime.slice(10, 12);
+}
+
+// 从snap获取指数preClose（snap.indices的code是sh000001等腾讯code）
+function _snapPreClose(snap, code) {
+  const tcCode = _INDEX_TO_TENCENT_MINUTE[code] || "";
+  const idx = snap && snap.indices ? snap.indices.find((i) => i.code === tcCode) : null;
+  return idx ? idx.pre_close : null;
+}
+
+// 分时图拉取失败的降级提示
+function _renderIntradayFail(container, snapTime) {
+  if (!container || !container.isConnected) return;
+  const old = echarts.getInstanceByDom(container);
+  if (old) { old.dispose(); const i = charts.indexOf(old); if (i >= 0) charts.splice(i, 1); }
+  container.innerHTML = '<div class="intraday-fail">实时拉取失败' + (snapTime ? "·显示快照 " + snapTime : "") + "</div>";
+}
+
+// 渲染单个指数分时图。返回 Promise<boolean>（true=成功 false=失败）
+function _renderIntradayChart(container, code, preClose, snapTime) {
+  if (!container || !container.isConnected) return Promise.resolve(false);
+  return fetchTencentMinute(code).then((result) => {
+    if (!container.isConnected) return false;
+    if (!result || !result.points || !result.points.length) {
+      _renderIntradayFail(container, snapTime);
+      return false;
+    }
+    // dispose 旧实例避免内存泄漏
+    const old = echarts.getInstanceByDom(container);
+    if (old) { old.dispose(); const i = charts.indexOf(old); if (i >= 0) charts.splice(i, 1); }
+    container.innerHTML = "";
+    const pc = preClose || result.preClose;
+    const lastPrice = result.points[result.points.length - 1].price;
+    const up = pc != null ? lastPrice >= pc : true;
+    const color = up ? "#e6492e" : "#2e8b57"; // 红涨绿跌（中国风）
+    const times = result.points.map((p) => p.time);
+    const prices = result.points.map((p) => p.price);
+    // 午休边界：找最后午前点和首个午后点，markArea标注午休
+    let morningLast = null, afternoonFirst = null;
+    for (const p of result.points) {
+      if (p.time < "13:00") morningLast = p.time;
+      else if (!afternoonFirst) { afternoonFirst = p.time; break; }
+    }
+    const markAreaData = (morningLast && afternoonFirst && morningLast !== afternoonFirst)
+      ? [[{ xAxis: morningLast }, { xAxis: afternoonFirst }]] : [];
+    const chart = echarts.init(container);
+    chart.setOption(withTheme({
+      grid: { left: 38, right: 6, top: 8, bottom: 18 },
+      xAxis: {
+        type: "category", data: times, boundaryGap: false,
+        axisLabel: { interval: Math.max(1, Math.floor(times.length / 4)), fontSize: 10 },
+      },
+      yAxis: {
+        type: "value", scale: true, splitNumber: 2,
+        axisLabel: { fontSize: 10, formatter: (v) => v.toFixed(0) },
+      },
+      tooltip: {
+        trigger: "axis",
+        formatter: (p) => p[0] ? p[0].axisValue + "<br/>" + (p[0].value != null ? Number(p[0].value).toFixed(2) : "-") : "",
+      },
+      series: [{
+        type: "line", data: prices, symbol: "none", connectNulls: false,
+        lineStyle: { color, width: 1.2 }, areaStyle: { color, opacity: 0.1 },
+        // 昨收基准横虚线
+        markLine: pc != null ? {
+          symbol: "none", silent: true,
+          lineStyle: { type: "dashed", color: cssVar("--text-3"), width: 1 },
+          data: [{ yAxis: pc, label: { formatter: "昨收", position: "end", fontSize: 9, color: cssVar("--text-3") } }],
+        } : undefined,
+        // 午休灰色横条标注
+        markArea: markAreaData.length ? {
+          silent: true, itemStyle: { color: "rgba(128,128,128,0.08)" },
+          label: { show: true, position: "insideTop", formatter: "午休", fontSize: 9, color: cssVar("--text-4") },
+          data: markAreaData,
+        } : undefined,
+      }],
+    }));
+    charts.push(chart);
+    return true;
+  }).catch(() => { _renderIntradayFail(container, snapTime); return false; });
+}
+
+// 渲染分时图网格（9个指数各一个cell）
+function _renderIntradayGrid(grid, indices, snap) {
+  if (!grid || !grid.isConnected) return;
+  grid.innerHTML = "";
+  const snapTime = _snapTimeStr(snap);
+  for (const item of indices) {
+    if (!_INDEX_TO_TENCENT_MINUTE[item.id]) continue;
+    const cell = document.createElement("div");
+    cell.className = "intraday-cell";
+    const market = _INDEX_MARKET[item.id] || "cn";
+    const sessionLabel = market === "hk" ? "港股" : "";
+    cell.innerHTML =
+      '<div class="intraday-cell-head"><span class="intraday-cell-name">' + item.name + "</span>" +
+      (sessionLabel ? '<span class="intraday-cell-market">' + sessionLabel + "</span>" : "") + "</div>" +
+      '<div class="intraday-chart"></div>';
+    grid.appendChild(cell);
+    const chartEl = cell.querySelector(".intraday-chart");
+    const preClose = _snapPreClose(snap, item.id);
+    _renderIntradayChart(chartEl, item.id, preClose, snapTime);
+  }
+}
+
+// 分时图section主入口：盘中展开+启动刷新，收盘收起+按钮
+function renderIntradaySection(parent, snap) {
+  const isClosed = !snap || snap.is_closed !== false;
+  const section = document.createElement("div");
+  section.className = "intraday-section" + (isClosed ? "" : " expanded");
+  section.id = "intraday-section";
+  parent.appendChild(section);
+  const header = document.createElement("div");
+  header.className = "intraday-header";
+  header.innerHTML = '<span class="intraday-title">📈 当日分时走势</span>' +
+    (isClosed ? "" : '<span class="intraday-refresh-hint">每3分钟刷新</span>');
+  section.appendChild(header);
+  const grid = document.createElement("div");
+  grid.className = "intraday-grid";
+  section.appendChild(grid);
+  if (isClosed) {
+    // 收盘后：默认收起，按钮按需展开
+    const toggle = document.createElement("button");
+    toggle.className = "intraday-toggle";
+    toggle.textContent = "📊 查看当日分时";
+    let expanded = false;
+    toggle.onclick = () => {
+      expanded = !expanded;
+      grid.style.display = expanded ? "" : "none";
+      toggle.textContent = expanded ? "📊 收起分时" : "📊 查看当日分时";
+      if (expanded) _renderIntradayGrid(grid, _INTRADAY_INDICES, snap);
+    };
+    section.insertBefore(toggle, grid);
+    grid.style.display = "none";
+  } else {
+    // 盘中：展开 + 启动3分钟动态刷新
+    _renderIntradayGrid(grid, _INTRADAY_INDICES, snap);
+    _intradayRenderCtx = { grid, indices: _INTRADAY_INDICES, snap };
+    _startIntradayRefresh();
+  }
+  // 连续失败暂停提示（隐藏，3次失败时显示）
+  const notice = document.createElement("div");
+  notice.className = "intraday-notice";
+  notice.textContent = "⚠ 实时拉取连续失败，已暂停刷新。可刷新页面重试。";
+  notice.style.display = "none";
+  section.appendChild(notice);
+}
+
+// 启动3分钟动态刷新（setTimeout递归，避免tab隐藏时堆积）
+function _startIntradayRefresh() {
+  _stopIntradayRefresh();
+  _intradayActive = true;
+  _intradayFailCount = 0;
+  _intradayLastFetch = Date.now();
+  _scheduleNextRefresh();
+  if (!_intradayVisBound) {
+    _intradayVisBound = true;
+    document.addEventListener("visibilitychange", _onIntradayVisChange);
+  }
+}
+
+// 停止刷新（切tab/收盘时调用）
+function _stopIntradayRefresh() {
+  _intradayActive = false;
+  _intradayRenderCtx = null;
+  if (_intradayRefreshTimer) { clearTimeout(_intradayRefreshTimer); _intradayRefreshTimer = null; }
+}
+
+// 调度下次刷新（不可见时跳过但重新调度，不堆积）
+function _scheduleNextRefresh() {
+  if (!_intradayActive) return;
+  if (_intradayFailCount >= INTRADAY_MAX_FAILS) return;
+  if (_intradayRefreshTimer) clearTimeout(_intradayRefreshTimer);
+  _intradayRefreshTimer = setTimeout(() => {
+    _intradayRefreshTimer = null;
+    if (!_intradayActive) return;
+    if (document.hidden) { _scheduleNextRefresh(); return; } // 页面不可见时跳过
+    _doIntradayRefresh();
+  }, INTRADAY_REFRESH_MS);
+}
+
+// 执行一轮刷新：并行refetch所有图表，跟踪成功/失败
+async function _doIntradayRefresh() {
+  if (!_intradayRenderCtx || !_intradayRenderCtx.grid) { _scheduleNextRefresh(); return; }
+  const ctx = _intradayRenderCtx;
+  _intradayLastFetch = Date.now();
+  // 刷新snap检查是否收盘（2s超时避免阻塞）
+  _intradaySnapPromise = null;
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 2000))]); } catch (e) {}
+  const curSnap = state.intradaySnapshot || ctx.snap;
+  if (curSnap && curSnap.is_closed === true) { _stopIntradayRefresh(); return; }
+  ctx.snap = curSnap;
+  const snapTime = _snapTimeStr(curSnap);
+  const cells = ctx.grid.querySelectorAll(".intraday-cell");
+  const promises = [];
+  for (let i = 0; i < cells.length; i++) {
+    const chartEl = cells[i].querySelector(".intraday-chart");
+    const item = ctx.indices[i];
+    if (!item || !chartEl) continue;
+    const preClose = _snapPreClose(curSnap, item.id);
+    promises.push(_renderIntradayChart(chartEl, item.id, preClose, snapTime));
+  }
+  const results = await Promise.all(promises);
+  const anyOk = results.some((r) => r);
+  if (anyOk) {
+    _intradayFailCount = 0;
+  } else {
+    _intradayFailCount++;
+    if (_intradayFailCount >= INTRADAY_MAX_FAILS) {
+      const notice = ctx.grid.parentElement.querySelector(".intraday-notice");
+      if (notice) notice.style.display = "";
+      return; // 暂停刷新，不再调度
+    }
+  }
+  _scheduleNextRefresh();
+}
+
+// visibilitychange：切回tab且距上次>3分钟时立即刷新
+function _onIntradayVisChange() {
+  if (document.hidden || !_intradayActive) return;
+  if (Date.now() - _intradayLastFetch >= INTRADAY_REFRESH_MS) {
+    _doIntradayRefresh();
+  } else if (!_intradayRefreshTimer) {
+    _scheduleNextRefresh();
+  }
+}
+
 async function renderOverview() {
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
   const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
@@ -1593,6 +1912,9 @@ async function renderOverview() {
     }));
     charts.push(sc);
   }
+
+  // ---- 1b. 当日分时图（腾讯分时API直拉，盘中3分钟动态刷新）----
+  renderIntradaySection(content, snap);
 
   // ---- 2. 首屏两列：左=恐贪指数+情绪分，右=冰点日+买卖点 ----
   const ov2ColA = document.createElement("div");
