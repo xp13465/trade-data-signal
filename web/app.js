@@ -654,8 +654,18 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
   return c;
 }
 
+// in-flight fetch 去重：同 URL 并发请求只发一次，复用 Promise。
+// 解决重复点击二级 tab / 周期切换时启动多个并行 fetch 的重复劳动（首个 fetch 白等、总耗时被拉长）。
+// 不同 URL 各自独立缓存；fetch 完成后（resolve/reject）立即清 key，下次调用重新发请求。
+const _inflightFetch = new Map();
 async function fetchJSON(url) {
-  return fetch(url).then((r) => r.json());
+  const cached = _inflightFetch.get(url);
+  if (cached) return cached;
+  const p = fetch(url)
+    .then((r) => r.json())
+    .finally(() => _inflightFetch.delete(url));
+  _inflightFetch.set(url, p);
+  return p;
 }
 
 // 加载失败占位卡片：统一错误兜底（X4）。失败时显示"加载失败"而非空白，与空数据 empty-note 区分。
