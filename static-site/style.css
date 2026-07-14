@@ -202,7 +202,14 @@ header h1 { font-size: 18px; margin: 0; }
   align-items: center;
 }
 main { padding: 16px 24px; }
-.loading { color: var(--text-3); padding: 40px; text-align: center; }
+.loading { color: var(--text-3); padding: 40px 20px; text-align: center; }
+/* 加载中状态：spinner + 文字，让用户明确看到正在加载而非卡死 */
+.loading--active, .loading--error { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.loading__spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: sim-spin 0.8s linear infinite; }
+.loading__text { font-size: 14px; color: var(--text-3); }
+.loading__hint { font-size: 12px; color: var(--text-4); }
+.loading__retry { padding: 8px 24px; border: 1px solid var(--primary); border-radius: 6px; background: transparent; color: var(--primary); cursor: pointer; font-size: 14px; transition: background 0.15s, color 0.15s; }
+.loading__retry:hover { background: var(--primary); color: var(--bg-card); }
 
 .chart-card {
   background: var(--bg-card);

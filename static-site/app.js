@@ -674,6 +674,41 @@ function renderFailCard(container, title, err) {
   (container || content).appendChild(card);
 }
 
+// 加载中状态：spinner+文字，3秒后追加"网络较慢"提示。返回 timer 句柄供 clearLoadingTimer 清理。
+// 解决手机端点二级tab后页面空白无反馈、用户不知是卡死还是加载中的问题。
+function renderLoadingState(container, msg) {
+  container.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "loading loading--active";
+  el.innerHTML = `<span class="loading__spinner"></span><span class="loading__text">${msg || "加载中…"}</span>`;
+  container.appendChild(el);
+  const timer = setTimeout(() => {
+    const hint = document.createElement("div");
+    hint.className = "loading__hint";
+    hint.textContent = "网络较慢，请稍候…";
+    el.appendChild(hint);
+  }, 3000);
+  return timer;
+}
+function clearLoadingTimer(timer) { if (timer) clearTimeout(timer); }
+// 加载失败状态：错误信息 + 重试按钮，retryFn 为重试回调
+function renderErrorState(container, err, retryFn) {
+  container.innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "loading loading--error";
+  const msg = document.createElement("span");
+  msg.className = "loading__text";
+  const errStr = typeof err === "string" ? err : (err && err.message ? err.message : String(err));
+  msg.textContent = "加载失败" + (errStr ? "：" + errStr : "");
+  el.appendChild(msg);
+  const btn = document.createElement("button");
+  btn.className = "loading__retry";
+  btn.textContent = "重试";
+  btn.onclick = () => { if (retryFn) retryFn(); };
+  el.appendChild(btn);
+  container.appendChild(el);
+}
+
 // ============ BUG-E：交互增强（指数/行业筛选 + 热力图切换）============
 // 纯前端筛选，不影响后端数据。指数筛选条放指数折线区前（紧挨被筛选内容），筛选时局部刷新：
 // 只重渲染指数区（filter bar + 指数折线），不调 renderTab、不 refetch（signals 缓存在闭包内）。
@@ -993,7 +1028,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   const titleEl = modal.querySelector(".signal-chart-title");
   _signalModalCharts.forEach((c) => c && c.dispose());
   _signalModalCharts = [];
-  body.innerHTML = '<div class="loading">加载中…</div>';
+  renderLoadingState(body);
   const name = indexIdToName(indexId);
   const isFreeze = signal === "freeze";
   const sigLabel = signal === "buy" ? "买" : signal === "buy_aux" ? "辅买" : signal === "sell" ? "卖" : isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signal;
@@ -1059,7 +1094,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     else indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
     requestAnimationFrame(() => _signalModalCharts.forEach((c) => c && c.resize()));
   } catch (e) {
-    body.innerHTML = `<div class="loading">加载失败：${e}</div>`;
+    renderErrorState(body, e, () => openSignalChartModal(indexId, signal, date, freezeVal, period));
   }
 }
 
@@ -1071,7 +1106,7 @@ async function renderTab() {
   document.querySelectorAll(".periods, .h5-period-bar").forEach((el) => {
     el.style.display = _hidePeriods ? "none" : "";
   });
-  content.innerHTML = '<div class="loading">加载中…</div>';
+  renderLoadingState(content);
   try {
     if (state.tab === "overview") await renderOverview();
     else if (state.tab === "market") await renderMarket();
@@ -1079,7 +1114,7 @@ async function renderTab() {
     else if (state.tab === "industry") await renderIndustry();
     else if (state.tab === "lab") await renderSignalLab();
   } catch (e) {
-    content.innerHTML = `<div class="loading">出错了：${e}</div>`;
+    renderErrorState(content, e, () => renderTab());
   }
 }
 
@@ -1771,7 +1806,7 @@ async function renderMarket() {
   const subContent = document.createElement("div");
   subContent.className = "market-sub-content";
   content.appendChild(subContent);
-  subContent.innerHTML = '<div class="loading">加载中…</div>';
+  renderLoadingState(subContent);
 
   // 根据 subtab 渲染对应内容
   if (state.subtab === "a-stock") await renderAStock(subContent);
@@ -1787,15 +1822,14 @@ async function renderMarket() {
 // 首屏=4层概览看板（总览摘要条+矩阵热力图+卡片墙+叠加对比折线），点卡片/热力图行/折线进单只详情。
 async function renderNationalTeam(container = content) {
   _disposeContainerCharts(container);
-  container.innerHTML = '<div class="loading">加载中…</div>';
+  renderLoadingState(container);
   let data, qData, hData;
   try {
     data = await fetchJSON(`./data/etf_national_team-${state.range}.json`);
     qData = await fetchJSON("./data/etf_national_team_quarterly.json");
     try { hData = await fetchJSON("./data/etf_national_team_holders.json"); } catch (e) { hData = null; }
   } catch (e) {
-    container.innerHTML = "";
-    renderFailCard(container, "🐶 汪汪队", e);
+    renderErrorState(container, e, () => renderNationalTeam(container));
     return;
   }
   if (!data || !data.etfs || !data.etfs.length) {
@@ -2429,7 +2463,13 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
 }
 
 async function renderAStock(container = content) {
-  const r = await fetchJSON(`./data/a-stock-${state.range}.json`);
+  let r;
+  try {
+    r = await fetchJSON(`./data/a-stock-${state.range}.json`);
+  } catch (e) {
+    renderErrorState(container, e, () => renderAStock(container));
+    return;
+  }
   container.innerHTML = "";
   const groups = {
     "涨停/跌停/连板/炸板数": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban", "a_width_zb_count"],
@@ -2562,7 +2602,13 @@ function _injectHkSnapshot(indices, snap) {
 }
 
 async function renderHK(container = content) {
-  const r = await fetchJSON(`./data/hk-${state.range}.json`);
+  let r;
+  try {
+    r = await fetchJSON(`./data/hk-${state.range}.json`);
+  } catch (e) {
+    renderErrorState(container, e, () => renderHK(container));
+    return;
+  }
   container.innerHTML = "";
   if (r.hk_south && r.hk_south.length) {
     const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
@@ -2583,7 +2629,13 @@ async function renderHK(container = content) {
 }
 
 async function renderGlobal(container = content) {
-  const r = await fetchJSON(`./data/global-${state.range}.json`);
+  let r;
+  try {
+    r = await fetchJSON(`./data/global-${state.range}.json`);
+  } catch (e) {
+    renderErrorState(container, e, () => renderGlobal(container));
+    return;
+  }
   container.innerHTML = "";
   // M2：r.indices 已有 || {} 兜底；为空时显示空数据提示而非静默空白
   const idxEntries = Object.entries(r.indices || {});
@@ -3508,7 +3560,7 @@ function _disposeContainerCharts(container) {
 }
 
 async function renderIndustry() {
-  content.innerHTML = '<div class="loading">加载行业数据…</div>';
+  renderLoadingState(content, "加载行业数据…");
   // I1：命中缓存则不 refetch
   let r;
   if (_industryCache.range === state.range && _industryCache.r) {
@@ -4338,7 +4390,7 @@ fetchIntradaySnapshot();
 // #lab* hash 由 lab.js 接管初始渲染（_labInitHashRestore 的 labBtn.click 触发 renderTab）。
 // 此处跳过 bootstrap renderTab，避免与 lab 渲染竞态导致概览内容（含行业热力图）串入实验室页 / 高亮与内容不一致。
 if (location.hash.startsWith("#lab")) {
-  content.innerHTML = '<div class="loading">加载中…</div>';
+  renderLoadingState(content);
 } else {
   renderTab().then(() => {
     if (_tabInitialRestore) { _tabInitialRestore = false; _restoreMainTabScroll(); }
