@@ -3,7 +3,8 @@
 #
 # 跑 .venv/bin/python -m app.collector.intraday_snapshot（秒级）：
 #   采腾讯9指数实时 + 同花顺行业实时涨跌幅，存 DB + dump static-site/data/intraday_snapshot.json
-# 然后 commit + push 该 JSON（推公网，供前端"盘中实时小结"展示）。
+# 然后 commit + push 该 JSON 到 main 分支（部署分支），供前端"盘中实时小结"展示。
+#   采集在主仓库跑（DB 持久化），commit+push 在独立 worktree 操作 main（不影响当前 feat 开发）。
 #
 # 进程互斥：
 #   - 快照锁 /tmp/trade_intraday_snapshot.lock（--nb 非阻塞）：防快照自身重复，秒级。
@@ -60,15 +61,45 @@ if [ "$SNAP_RC" -ne 0 ]; then
   exit "$SNAP_RC"
 fi
 
-# 2) commit + push 受影响的静态数据 JSON
+# 2) commit + push 受影响的静态数据 JSON 到 main 分支（部署分支）
+#    用独立 git worktree 操作 main，不影响当前 feat 开发分支：
+#    - 采集在主仓库跑（DB 是主仓库的，写入持久化），数据 JSON 写到主仓库 static-site/data/
+#    - commit + push 在 main worktree 里跑（数据 commit 到 main，不携带 feat 代码 commit）
+#    - 采集器写的 JSON 从主仓库 cp 到 worktree，再 git add+commit+push origin HEAD:main
 #    持 deploy.lock 串行化 git（阻塞，等 update_all pipeline 释放；避免 index.lock 冲突）。
 #    只 add 数据文件，不碰 app.js/style.css 等（前端 agent 可能改了，-A 会把半成品提交）。
 #    用环境变量传 commit message，避免 bash -c 引号转义问题。
 COMMIT_MSG="data update [intraday] $(date +%Y-%m-%d_%H:%M)"
 export INTRADAY_COMMIT_MSG="$COMMIT_MSG"
-echo "-> commit + push 受影响数据 JSON（持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "${LOG}"
+echo "-> commit + push 数据 JSON 到 main（独立 work tree，持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "${LOG}"
 "$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash -c '
-  cd /Users/linhuichen/code/trade
+  set -euo pipefail
+  REPO="/Users/linhuichen/code/trade"
+
+  # 拉取最新 origin/main（work tree 基于此创建，确保 push 是 fast-forward）
+  git -C "$REPO" fetch origin main
+
+  # 清理上次崩溃残留的 stale worktree 元数据
+  git -C "$REPO" worktree prune
+
+  # 创建独立 work tree（detached HEAD @ origin/main，即使 main 已被主仓库 checkout 也不冲突）
+  WORKTREE=$(mktemp -d /tmp/trade_intraday_wt.XXXXXX)
+  cleanup() {
+    cd "$REPO" 2>/dev/null || true
+    git worktree remove "$WORKTREE" --force 2>/dev/null || rm -rf "$WORKTREE"
+  }
+  trap cleanup EXIT
+
+  if ! git -C "$REPO" worktree add --detach "$WORKTREE" origin/main; then
+    echo "✗ 创建 work tree 失败" >&2
+    exit 1
+  fi
+  cd "$WORKTREE"
+
+  # 从主仓库拷贝采集器刚写的数据 JSON（采集器已在主仓库跑完，写在 static-site/data/）
+  cp -R "$REPO/static-site/data/." static-site/data/
+
+  # 只 add 数据文件，不碰 app.js/style.css 等
   git add static-site/data/intraday_snapshot.json \
           static-site/data/overview.json \
           static-site/data/sentiment-*.json \
@@ -79,12 +110,13 @@ echo "-> commit + push 受影响数据 JSON（持 deploy 锁串行）msg=\"${COM
           static-site/data/a-stock-*.json \
           static-site/data/global-*.json
   if git diff --cached --quiet; then
-    echo "✓ 数据 JSON 无变更，跳过 commit（仍 push 推未 push commit）"
+    echo "✓ 数据 JSON 无变更，跳过 commit"
   else
     git commit -m "$INTRADAY_COMMIT_MSG"
-    echo "✓ git commit 完成"
+    echo "✓ git commit 完成（work tree @ main）"
   fi
-  git push
+  git push origin HEAD:main
+  echo "✓ git push origin HEAD:main 完成"
 ' 2>&1 | tee -a "$LOG"
 PUSH_RC=${PIPESTATUS[0]}
 if [ "$PUSH_RC" -ne 0 ]; then
