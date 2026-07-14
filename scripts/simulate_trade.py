@@ -23,6 +23,8 @@ import yaml
 from datetime import datetime
 
 DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sentiment.db")
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from app.db import get_conn
 OUTPUT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static-site", "trade_sim.html")
 
 TOTAL_CAPITAL = 100_000   # 总资金池
@@ -47,7 +49,7 @@ def load_name_map():
 
 def get_signals(index_id="sh"):
     """获取信号和价格数据。对于 g.* 全球商品，从 JSON 文件读取价格数据。"""
-    conn = sqlite3.connect(DB)
+    conn = get_conn()
 
     if index_id.startswith("g."):
         # 全球商品：从 signal_daily 取信号，从 JSON 文件取价格

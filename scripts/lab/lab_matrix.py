@@ -31,6 +31,8 @@ SELL_ORDER = ['B0_RSI70', 'D1_high20_drop5', 'Donchian10_down', 'Donchian20_down
               'MA_death_5_20', 'MACD_death', 'ATR_trail_stop', 'KDJ_death_overbought']
 
 SENT_DB = os.path.join(BASE, "data", "sentiment.db")
+sys.path.insert(0, BASE)
+from app.db import get_conn
 HORIZONS = (5, 10, 20, 60)
 PERIODS_JSON = [('全史', None), ('近10年', 'y10'), ('近5年', 'y5'),
                 ('近3年', 'y3'), ('近1年', 'y1')]
@@ -50,7 +52,7 @@ SIM_INDEXES = [
 
 def run_index(iid, iname):
     print(f"\n[load] {iid} ({iname})")
-    con = sqlite3.connect(SENT_DB)
+    con = get_conn()
     df = load_index_series(con, iid)
     con.close()
     if df is None or len(df) < 60:

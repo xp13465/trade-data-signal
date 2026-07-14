@@ -210,11 +210,10 @@ CREATE INDEX IF NOT EXISTS idx_industry_width_ind ON industry_width_daily(indust
 
 
 def _get_sentiment_conn() -> sqlite3.Connection:
-    SENTIMENT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(SENTIMENT_DB_PATH, timeout=30.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=10000;")
-    return conn
+    """统一走 app.db.get_conn()：确保建表+迁移（net_inflow 等）在首次连接时执行，
+    避免 clone 仓库后直接跑采集器缺列报错。"""
+    from app.db import get_conn
+    return get_conn()
 
 
 def init_db() -> None:

@@ -29,6 +29,9 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+from app.db import get_conn
+
 DB_PATH = REPO / "data" / "sentiment.db"
 EMAIL_CONFIG = REPO / "config" / "email.json"
 INDICATORS_CONFIG = REPO / "config" / "indicators.yaml"
@@ -105,7 +108,7 @@ def query_signals(date: str) -> list[dict]:
     if not DB_PATH.exists():
         log.error("数据库不存在：%s", DB_PATH)
         return []
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(

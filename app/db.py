@@ -136,7 +136,15 @@ CREATE TABLE IF NOT EXISTS intraday_snapshot (
 """
 
 
+_schema_ensured = False
+
+
 def get_conn() -> sqlite3.Connection:
+    """统一 DB 连接入口：首次调用时自动建表 + 迁移（幂等），保证 clone 仓库后
+    首次跑任何采集/脚本都不会缺列。后续调用仅返回连接（_schema_ensured 标志
+    避免重复开销，幂等操作多线程/多进程并发也安全）。
+    """
+    global _schema_ensured
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
@@ -144,6 +152,11 @@ def get_conn() -> sqlite3.Connection:
     # busy_timeout=30s：多 pipeline 并发写 sentiment.db 时写锁串行化自动重试，
     # 避免立即抛 "database is locked"（WAL 允许并发读 + 单写排队）。
     conn.execute("PRAGMA busy_timeout=30000;")
+    if not _schema_ensured:
+        conn.executescript(SCHEMA)
+        _migrate(conn)
+        conn.commit()
+        _schema_ensured = True
     return conn
 
 
@@ -156,9 +169,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 def init_db() -> None:
     conn = get_conn()
-    conn.executescript(SCHEMA)
-    _migrate(conn)
-    conn.commit()
     conn.close()
 
 

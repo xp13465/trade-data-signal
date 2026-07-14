@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from app.db import get_conn
+
 # ── 路径 ──────────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"
@@ -378,8 +380,7 @@ def upsert_turnover(g: pd.DataFrame) -> dict:
     """
     if g is None or len(g) == 0:
         return {"written": 0, "error": "no data"}
-    conn = sqlite3.connect(SENTIMENT_DB_PATH, timeout=30.0)
-    conn.execute("PRAGMA busy_timeout=10000;")
+    conn = get_conn()
     now = _now()
     written = 0
 

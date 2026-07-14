@@ -55,6 +55,8 @@ sys.path.insert(0, A_STOCK_DIR)
 from backtest_strategies import gen_buy_signals, gen_sell_signals
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, BASE)
+from app.db import get_conn
 DB = os.path.join(BASE, "data", "sentiment.db")
 # 多指数回测：每个指数独立跑128组配对×5窗口，输出 lab_simulate_{iid}.json
 # 9个A股宽基指数：覆盖大盘/成长/价值/中小盘全谱系（含北证50，历史较短2022起）
@@ -97,7 +99,7 @@ SELL_KEYS = [
 
 
 def load_index_data(iid):
-    conn = sqlite3.connect(DB)
+    conn = get_conn()
     df = pd.read_sql_query(
         "SELECT date,open,high,low,close FROM index_daily "
         "WHERE index_id=? ORDER BY date", conn, params=(iid,),

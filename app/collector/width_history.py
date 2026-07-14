@@ -74,6 +74,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from app.db import get_conn
+
 # ── 路径 ──────────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"
@@ -201,8 +203,7 @@ def upsert_width(g: pd.DataFrame, *, dry_run: bool = False) -> dict:
     if dry_run:
         return {"written": 0, "skipped_manual": 0, "dry_run": True}
 
-    conn = sqlite3.connect(SENTIMENT_DB_PATH, timeout=30.0)
-    conn.execute("PRAGMA busy_timeout=10000;")
+    conn = get_conn()
     now = _now()
     written = 0
     skipped_manual = 0
@@ -264,7 +265,7 @@ def validate(g: pd.DataFrame) -> dict:
     daily_metric 现有 a_width_zt_count/dt_count 来自 stock_zt_pool_em（封板口径），
     本模块算的是 close 口径。对比重叠日期的误差。
     """
-    conn = sqlite3.connect(SENTIMENT_DB_PATH, timeout=30.0)
+    conn = get_conn()
     try:
         existing = pd.read_sql_query(
             "SELECT date, metric_id, value FROM daily_metric "
@@ -371,8 +372,7 @@ def _upsert_width_recent(g: pd.DataFrame, *, dry_run: bool = False) -> dict:
     if dry_run:
         return {"written": 0, "dry_run": True}
 
-    conn = sqlite3.connect(SENTIMENT_DB_PATH, timeout=30.0)
-    conn.execute("PRAGMA busy_timeout=10000;")
+    conn = get_conn()
     now = _now()
     written = 0
 
