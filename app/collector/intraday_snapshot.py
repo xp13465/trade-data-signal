@@ -905,10 +905,10 @@ def snapshot_industry_heatmap(snap: dict) -> list[dict]:
 
 
 def maybe_override_heatmap(heatmap: list[dict]) -> list[dict]:
-    """盘中时用快照行业覆盖 heatmap（P2-B）；收盘或无今日快照时返回原 heatmap。
+    """盘中时用快照行业覆盖 heatmap 的实时字段（P2-B）；收盘或无今日快照时返回原 heatmap。
 
-    判断当前是否盘中（is_market_closed 返回 False）且快照是今天的，才用 snap.industries
-    覆盖；否则用 DB heatmap（P0-A 已修 SQL 让盘中行业 close=NULL 也能取到 pct_change）。
+    MERGE 而非 REPLACE：保留 DB heatmap 的 pct_5d（盘中已用累乘法算出），
+    仅用快照的 pct_1d / net_inflow / lead_stock 覆盖实时字段。
     snap 缺 pct_5d 但多 net_inflow + lead_stock，前端 tooltip 兼容。
     """
     try:
@@ -923,7 +923,19 @@ def maybe_override_heatmap(heatmap: list[dict]) -> list[dict]:
         if not collected_at.startswith(today):
             return heatmap
         snap_hm = snapshot_industry_heatmap(snap)
-        return snap_hm if snap_hm else heatmap
+        if not snap_hm:
+            return heatmap
+        # MERGE: 把 snap 的实时字段(pct_1d/net_inflow/lead_stock)叠加到 DB heatmap 上，
+        # 保留 DB 的 pct_5d（累乘法已算出），避免盘中近5日被清空。
+        snap_map = {h["id"]: h for h in snap_hm}
+        for h in heatmap:
+            sh = snap_map.get(h["id"])
+            if sh:
+                h["pct_1d"] = sh.get("pct_1d")
+                h["net_inflow"] = sh.get("net_inflow")
+                h["lead_stock"] = sh.get("lead_stock")
+                h["last_date"] = sh.get("last_date", h.get("last_date"))
+        return heatmap
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] maybe_override_heatmap 失败（回退 DB heatmap）: {type(e).__name__} {e}", flush=True)
         return heatmap

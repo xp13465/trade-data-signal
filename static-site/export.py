@@ -152,12 +152,18 @@ def _industry_heatmap(conn, cfg):
         latest = rows[0]
         pct_1d = latest["pct_change"]
         pct_5d = None
-        # 行业盘中反哺只写 pct_change（close=NULL），close 缺时不算 pct_5d，前端兼容只显 pct_1d
+        # 优先用 close 算；盘中反哺行 close=NULL 时改用近 5 日 pct_change 累乘
         if latest["close"]:
             if len(rows) >= 6 and rows[5]["close"]:
                 pct_5d = (latest["close"] / rows[5]["close"] - 1) * 100
             elif len(rows) >= 2 and rows[-1]["close"]:
                 pct_5d = (latest["close"] / rows[-1]["close"] - 1) * 100
+        elif len(rows) >= 5:
+            # 盘中 close=NULL：用近 5 日 pct_change 累乘算累计收益
+            cum = 1.0
+            for r in rows[:5]:
+                cum *= (1 + (r["pct_change"] or 0) / 100)
+            pct_5d = (cum - 1) * 100
         out.append({
             "id": iid,
             "name": idx["name"],
