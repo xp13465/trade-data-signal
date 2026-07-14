@@ -1001,13 +1001,33 @@ def export_intraday_snapshot():
     return snap
 
 
-def export_etf_national_team():
-    """国家队宽基 ETF 资金动向（12 只近 60 日份额+成交额+信号）。
-    与 /api/etf-national-team 返回结构一致。读 data/etf_national_team.db。
-    """
+def _nt_slice_by_range(daily_json, rng):
+    """按 range 切片 daily（日历日），与前端 ntSliceDataByRange 一致。
+    all/未知 -> 全量；1m/3m/6m/1y/3y/5y -> 按天数 cutoff 过滤 date。
+    保留 latest（全历史最新行不随 range 切，与前端 ntSliceDataByRange 行为一致）。"""
+    if rng == "all":
+        return daily_json
+    days = RANGES.get(rng, 365)
+    end = last_trading_day()
+    cutoff = (datetime.strptime(end, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
+    out_etfs = []
+    for e in daily_json.get("etfs", []):
+        out_etfs.append({
+            "code": e["code"], "name": e["name"], "index": e["index"],
+            "market": e.get("market"),
+            "daily": [d for d in (e.get("daily") or []) if d.get("date", "") >= cutoff],
+            "latest": e.get("latest"),
+        })
+    return {"updated_at": daily_json.get("updated_at"), "etfs": out_etfs}
+
+
+def export_etf_national_team(rng="all"):
+    """国家队宽基 ETF 资金动向（12 只宽基 ETF 份额+成交额+信号）。
+    与 /api/etf-national-team?range=rng 返回结构一致。读 data/etf_national_team.db。
+    rng 默认 all（全历史）；1y/3y/5y 等按日历日切片，大幅减小默认加载体积。"""
     from app.collector.etf_national_team import export_data
     daily, _q, _h = export_data()
-    return daily
+    return _nt_slice_by_range(daily, rng)
 
 
 def export_etf_national_team_quarterly():
@@ -1133,15 +1153,19 @@ def main():
         DATA_DIR / "intraday_snapshot.json", export_intraday_snapshot())
     print(f"  intraday_snapshot.json ({counts['intraday_snapshot.json']} bytes)")
 
-    # 7.14. etf_national_team（国家队宽基ETF资金动向，读 etf_national_team.db）
-    counts["etf_national_team.json"] = write_json(
-        DATA_DIR / "etf_national_team.json", export_etf_national_team())
-    print(f"  etf_national_team.json ({counts['etf_national_team.json']} bytes)")
+    # 7.14. etf_national_team × range（默认1y≈0.67MB，all≈7.6MB；手机默认只下1y，避免7.6MB裸传卡顿）
+    # 仿 sentiment 拆分：预生成 1m/3m/6m/1y/3y/5y/all 七个文件，前端按 state.range 按需 fetch。
+    from app.collector.etf_national_team import export_data as _nt_export_data
+    _nt_daily, _nt_quarterly, _nt_holders = _nt_export_data()
+    for rng in ALL_RANGES:
+        fname = f"etf_national_team-{rng}.json"
+        counts[fname] = write_json(DATA_DIR / fname, _nt_slice_by_range(_nt_daily, rng))
+        print(f"  {fname} ({counts[fname]} bytes)")
     counts["etf_national_team_quarterly.json"] = write_json(
-        DATA_DIR / "etf_national_team_quarterly.json", export_etf_national_team_quarterly())
+        DATA_DIR / "etf_national_team_quarterly.json", _nt_quarterly)
     print(f"  etf_national_team_quarterly.json ({counts['etf_national_team_quarterly.json']} bytes)")
     counts["etf_national_team_holders.json"] = write_json(
-        DATA_DIR / "etf_national_team_holders.json", export_etf_national_team_holders())
+        DATA_DIR / "etf_national_team_holders.json", _nt_holders)
     print(f"  etf_national_team_holders.json ({counts['etf_national_team_holders.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）

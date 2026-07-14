@@ -1790,7 +1790,7 @@ async function renderNationalTeam(container = content) {
   container.innerHTML = '<div class="loading">加载中…</div>';
   let data, qData, hData;
   try {
-    data = await fetchJSON("./data/etf_national_team.json");
+    data = await fetchJSON(`./data/etf_national_team-${state.range}.json`);
     qData = await fetchJSON("./data/etf_national_team_quarterly.json");
     try { hData = await fetchJSON("./data/etf_national_team_holders.json"); } catch (e) { hData = null; }
   } catch (e) {

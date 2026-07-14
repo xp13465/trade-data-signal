@@ -1166,19 +1166,49 @@ def export_data() -> tuple[dict, dict]:
     return daily_json, quarterly_json, holders_json
 
 
+# range 拆分（与 static-site/export.py _nt_slice_by_range + 前端 ntSliceDataByRange 一致）
+# 默认前端只下 1y 文件（≈0.67MB），避免全量 7.6MB 裸传卡手机。
+_NT_RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
+_NT_ALL_RANGES = list(_NT_RANGES.keys()) + ["all"]
+
+
+def _nt_slice_by_range(daily_json, rng):
+    """按 range 切片 daily（日历日），与 static-site/export.py + 前端 ntSliceDataByRange 一致。"""
+    if rng == "all":
+        return daily_json
+    days = _NT_RANGES.get(rng, 365)
+    from ..calendar import last_trading_day
+    end = last_trading_day()
+    cutoff = (dt.datetime.strptime(end, "%Y%m%d") - dt.timedelta(days=days)).strftime("%Y%m%d")
+    out_etfs = []
+    for e in daily_json.get("etfs", []):
+        out_etfs.append({
+            "code": e["code"], "name": e["name"], "index": e["index"],
+            "market": e.get("market"),
+            "daily": [d for d in (e.get("daily") or []) if d.get("date", "") >= cutoff],
+            "latest": e.get("latest"),
+        })
+    return {"updated_at": daily_json.get("updated_at"), "etfs": out_etfs}
+
+
 def export_json_files() -> None:
-    """写三个 JSON 到 static-site/data/（static-site 前端读 ./data/*.json）。
-    web 版走 /api/etf-national-team 动态读 DB，不需静态 JSON（与项目现有模式一致：overview/futures 等均只写 static-site/data/）。
+    """写 range 拆分 JSON 到 static-site/data/（static-site 前端读 ./data/*.json）。
+    仿 sentiment 拆分：预生成 etf_national_team-{1m,3m,6m,1y,3y,5y,all}.json，
+    前端按 state.range 按需 fetch（默认1y≈0.67MB，避免全量7.6MB裸传卡手机）。
+    web 版走 /api/etf-national-team?range= 动态读 DB，不需静态 JSON。
     """
     daily_json, quarterly_json, holders_json = export_data()
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    (STATIC_DATA_DIR / "etf_national_team.json").write_text(
-        json.dumps(daily_json, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    for rng in _NT_ALL_RANGES:
+        (STATIC_DATA_DIR / f"etf_national_team-{rng}.json").write_text(
+            json.dumps(_nt_slice_by_range(daily_json, rng), ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8")
     (STATIC_DATA_DIR / "etf_national_team_quarterly.json").write_text(
         json.dumps(quarterly_json, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     (STATIC_DATA_DIR / "etf_national_team_holders.json").write_text(
         json.dumps(holders_json, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"[etf_nt] export JSON 完成 -> static-site/data/ (3 files)", flush=True)
+    print(f"[etf_nt] export JSON 完成 -> static-site/data/ "
+          f"(daily ×{len(_NT_ALL_RANGES)} ranges + quarterly + holders)", flush=True)
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────

@@ -1063,14 +1063,15 @@ def index_detail(index_id: str, range: str = Depends(range_dep)):
 
 
 @app.get("/api/etf-national-team")
-def etf_national_team():
-    """国家队宽基 ETF 资金动向：12 只宽基 ETF 近 60 日份额+成交额+信号。
+def etf_national_team(range: str = Depends(range_dep)):
+    """国家队宽基 ETF 资金动向：12 只宽基 ETF 近份额+成交额+信号。
     口径声明：本指标为代理推断，非真实国家队席位数据。基于 ETF 每日份额变动+成交额放量，
     结合季度机构持仓占比校准，推断疑似大资金进场/离场。无法精确区分汇金/证金/社保/险资/公募。
+    range 参数：1m/3m/6m/1y/3y/5y/all，按日历日切片 daily（默认1y，避免全量裸传卡手机）。
     """
-    from .collector.etf_national_team import export_data
+    from .collector.etf_national_team import export_data, _nt_slice_by_range
     daily, _q, _h = export_data()
-    return daily
+    return _nt_slice_by_range(daily, range)
 
 
 @app.get("/api/etf-national-team/quarterly")
