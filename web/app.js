@@ -3328,7 +3328,7 @@ async function renderSentiment() {
     const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) + latestSuffix(data) : ""}`;
-    valueChartWithSignals(title, data, [], {
+    const chart = valueChartWithSignals(title, data, [], {
       visualMap: {
         show: false,
         pieces: [
@@ -3341,6 +3341,7 @@ async function renderSentiment() {
         dimension: 1,
       },
     });
+    addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
     appendComponentsBlock(data);
   }
 
@@ -3348,7 +3349,8 @@ async function renderSentiment() {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
-    valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+    const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+    addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
     appendComponentsBlock(data);
   }
   // 细分指数：散户关注度排序（小盘/成长优先）
@@ -3365,7 +3367,7 @@ async function renderSentiment() {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
       const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
-      valueChartWithSignals(title, data,
+      const chart = valueChartWithSignals(title, data,
         sig[key] || [], {
           visualMap: {
             show: false,
@@ -3373,6 +3375,7 @@ async function renderSentiment() {
             dimension: 1,
           },
         }, stats[key], strat[key]);
+      addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
       appendComponentsBlock(data);
     }
   }
@@ -3380,13 +3383,14 @@ async function renderSentiment() {
     const data = r.cross_market.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
-    valueChartWithSignals(title, data, sig.cross_market || [], {
+    const chart = valueChartWithSignals(title, data, sig.cross_market || [], {
       visualMap: {
         show: false,
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market);
+    addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
     appendComponentsBlock(data);
   }
   // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
@@ -3394,7 +3398,7 @@ async function renderSentiment() {
 }
 
 // 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=红(冰点≤20)/绿(过热>80)/灰(中性)
-function renderSentimentHeatmap(r) {
+function renderSentimentHeatmap(r, snap) {
   const idxNames = [
     { key: 'sentiment_sz50', label: '上证50' },
     { key: 'sentiment_hs300', label: '沪深300' },
@@ -3457,6 +3461,8 @@ function renderSentimentHeatmap(r) {
   content.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
+  // 热力图为单一大卡容器，右上角加盘中角标（日期取最新一日）
+  addCardTimeBadge(div, dates.length ? dates[dates.length - 1] : "", snap);
 
   // 日期标签：上限 10 个均匀采样（i % step === 0），避免全历史数百日期在窄屏 45° 旋转重叠
   const labelStep = Math.max(1, Math.ceil(dates.length / 10));
