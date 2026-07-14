@@ -2161,11 +2161,13 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData) {
   var allDates = Object.keys(allDatesSet).sort();
   var overlaySeries = [];
   var sigPoints = [];
+  var baseInfo = {};  // code -> {name, baseDate} 用于tooltip显示基准日
   data.etfs.forEach(function (e) {
     var daily = e.daily || [];
     if (!daily.length) return;
     var base = daily[0].fund_share_yi;
     if (!base) return;
+    baseInfo[e.code] = { name: e.name, baseDate: daily[0].date };
     var lookup = {};
     daily.forEach(function (d) { lookup[d.date] = +(d.fund_share_yi / base * 100).toFixed(2); });
     overlaySeries.push({
@@ -2186,6 +2188,8 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData) {
     });
   });
   overlaySeries.push({ name: "信号", type: "scatter", data: sigPoints, symbolSize: 7, z: 10 });
+  // YYYYMMDD -> YYYY-MM-DD（tooltip需带年份，与fmtDate的MM-DD区分）
+  function fmtFull(s) { return s && s.length >= 8 ? s.substring(0,4) + "-" + s.substring(4,6) + "-" + s.substring(6,8) : (s || ""); }
   var overlayTitle = '12 只 ETF 份额归一化叠加（基准=最早日 100%）<span class="term-tip" data-tip="所有ETF份额除以各自最早日份额×100，叠加在同一图看谁被持续增持(线上行)/谁流出(线下行)。🔴点=进场信号/🟢点=离场信号，多只同时触发=汇金增持期共振。点图例切换显隐。">❓</span>';
   var c4 = mkCard(overlayTitle, 400, null, container);
   c4.setOption(withTheme({
@@ -2194,10 +2198,14 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData) {
       formatter: function (p) {
         var v = p.value;
         if (!Array.isArray(v)) return p.seriesName;
+        var code = p.seriesType === "scatter" ? v[2] : p.seriesName;
+        var bi = baseInfo[code] || {};
+        var nameStr = bi.name ? bi.name + " " + code : code;
+        var baseStr = bi.baseDate ? "（基准 " + fmtFull(bi.baseDate) + "=100%）" : "";
         if (p.seriesType === "scatter") {
-          return v[2] + " " + v[3] + "<br/>" + fmtDate(v[0]) + " " + (+v[1]).toFixed(1) + "%";
+          return nameStr + " " + v[3] + "<br/>" + fmtFull(v[0]) + " 份额归一 " + (+v[1]).toFixed(1) + "%" + baseStr;
         }
-        return p.seriesName + "<br/>" + fmtDate(v[0]) + " " + (+v[1]).toFixed(2) + "%";
+        return nameStr + "<br/>" + fmtFull(v[0]) + " 份额归一 " + (+v[1]).toFixed(2) + "%" + baseStr;
       },
     },
     legend: { top: 0, type: "scroll" },
