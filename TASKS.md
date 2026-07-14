@@ -654,3 +654,42 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 | B1S1 买卖点优化 BB辅买+MA60卖过滤 | done | - | 是 | 11回测 |
 | SignalStats 每品种买卖点回测 stats+折线图tips | done | - | 是 | B1S1 |
 | HomeSignalGrid 首页冰点/买卖点卡片分组+折叠 | done | - | 否 | G1,B1S1 |
+
+## 交接状态（2026-07-13/14，收盘分析领跌 + 数据时效 + collect_health + 分时图/角标一揽子）
+
+> 详见 NOTES.md §16。本轮多处改动此前只在对话上下文未落文件，本次补记。
+
+### 已完成（已 commit）
+| commit | 内容 |
+|---|---|
+| d8afc74 | 分时图嵌入指数卡内部（11对应，盘中展开盘后隐藏，腾讯API前端3分钟动态拉取） |
+| a610548 | min.js 重建同步分时图重构（min.js 不同步致无数据，教训：改app.js后grep验证） |
+| 92271d7 | 数据push固定main分支（worktree方案，detached HEAD @ origin/main） |
+| 3d07f9d | 大盘tab走势卡加右上角角标（A股/港股/全球，复用addCardTimeBadge） |
+| 2d01476 | backfill美股补采阈值5天->3天（覆盖跨周末，正常T+1不再漏采） |
+| 321c467 | 分时图腾讯API域名修正 gtimgs.cn->gtimg.cn（带s是NXDOMAIN致fetch失败降级） |
+| 2679328 | 热力图近5日空修复（close=NULL累乘fallback+MERGE保留pct_5d+修硬编码） |
+| 664dfef/4aa317c/399d395/504117a | 角标体系（4态+滞后分级+大卡右上小卡右下+毛玻璃浮动） |
+| cffcddb | KPI卡去第三行日期（角标已含日期，冗余且被压） |
+| 76506b4 | 收盘分析横幅文案改"盘中动态小结·更新于HH:MM"（原"实时"误导） |
+| 2cb2aab | ECharts线色跟随主题（轴线/网格/tooltip/布林读CSS变量，切换重绘） |
+| ef53e14 | 收盘分析横幅+历史弹窗改指标chips流式排版 |
+| d265955 | H5顶部与PC统一 |
+| 7485005 | 模拟回测iframe跟随父页面皮肤主题（URL hash+postMessage双保险） |
+| eadcf20 | 采集时间ℹ️图标+数据更新规则modal |
+| - | 去省略号改截取（card-value不要ellipsis，能显示多少显示多少） |
+
+### 进行中（已派 agent，后台跑）
+| 任务 | agent | 内容 | 碰的文件 |
+|---|---|---|---|
+| D 收盘分析加领跌 | a79b60f141ff47ea6 | market_summary.py加bottom_industries(ORDER BY pct_change ASC LIMIT 3) + 双版app.js renderSummaryChips/renderIntradayChips加❄领跌行(对称🔥领涨) + build_min + push feat + merge main。历史弹窗复用renderSummaryChips自动同步 | market_summary.py, app.js×2, app.min.js×2, index.html×2 |
+| B collect_health误报修复 | a6f9242b59516e40b | collect_health对指数缺失类item复核snap.indices/index_daily实际数据再定level，不再用陈旧backfill日志(_hrows) | app/main.py, static-site/export.py |
+
+### 排队（等 D 完成 app.js 空闲后合并派，避免 build_min/push 撞车）
+| 任务 | 内容 | 备注 |
+|---|---|---|
+| A 数据时效提示app.js JS | getCardTimeBadge三档分级(📅T+1灰/⚠滞后黄/🚨异常红,基于prev_trading_day)+顶部健康横幅渲染(汇总各数据源状态,可折叠) | style.css CSS已就绪未提交(t1/t1-stale/t1-severe+.data-health-banner)，JS待做 |
+| C 卡片文案对齐 | .card.kpi .card-value改flex布局,数值左对齐+tag固定右侧,避让右下角角标 | 解决0.94x和缩量上涨/66.1和偏热未对齐 |
+
+### review gate
+D/B/A/C 均为 UI/数据展示迭代，用户视觉验收驱动，不走 review gate。

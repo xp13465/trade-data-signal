@@ -903,3 +903,40 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - 实验室卖点：`web/lab.js` `computeBBLab()` BB_upper_revert（保留，前端实时算不落库）
 - 回测数据：`lab_simulate.json`（64 组配对×2 模式）/ `lab_backtest.json`（22 策略×5 窗口×4 horizon）
 - 决策记录：TASKS.md `## 交接状态（2026-07-14，策略实验室 C1 排查诊断 + BB_upper_revert 不融生产决策）`
+
+## §16 收盘分析领跌 + 数据时效提示 + collect_health 修复 + 分时图/角标/数据push 一揽子（2026-07-13/14）
+
+### 背景
+延续 §14/§15。本轮聚焦分时图实时化、角标体系、数据时效提示、数据 push 链路、收盘分析对称化。**多处改动此前只在对话上下文/memory，未落文件，本次补记**（用户明确要求：重要状态落 NOTES/TASKS commit，不能只存 memory）。
+
+### 已完成（已 commit）
+1. **分时图嵌入指数卡内部**（d8afc74）：从"另起一行"改为嵌入 spark-cell 内部，11 只指数 11 个分时图一一对应，手机端上证指数卡和分时卡同屏可对照。盘中默认展开、盘后默认隐藏，切换按钮。前端 3 分钟动态拉取腾讯分时 API（一次返回全天 240 个 1 分钟点），不依赖后端采集。
+2. **min.js 重建同步**（a610548）：d8afc74 改 app.js 后 min.js 是旧版（spark-intraday 计数 0）致分时图无数据，重跑 build_min.py 强制同步。**教训**：每次改 app.js 后必须 grep min.js 字面量计数验证同步。
+3. **数据 push 固定 main**（92271d7）：intraday_snapshot.sh 的 git push 不指定分支，push 到当前 checkout 的 feat 分支，公网停 13:05。改 worktree 方案：detached HEAD @ origin/main，cp 数据，push HEAD:main，trap cleanup 清理。数据直接推 main 触发 Pages/Workers 部署。
+4. **大盘 tab 走势卡加右上角角标**（3d07f9d）：A股/港股/全球走势大卡复用 addCardTimeBadge 标注盘中/收盘状态。
+5. **backfill 美股补采阈值 5天->3天**（2d01476）：`(today_d - last_d).days > 5` 把正常 T+1 当不缺跳过，美股停 7-10。改 >3 覆盖跨周末。
+6. **分时图腾讯 API 域名修正**（321c467）：fetchTencentMinute 用 `web.ifzq.gtimgs.cn`（带 s 是 NXDOMAIN），fetch DNS 失败触发降级"实时拉取失败·显示快照15:35"。改 `gtimg.cn`（不带 s）。**教训**：agent 报告结论要逐字落实，阶段1实施 agent 仍用错域名。
+7. **热力图近5日空修复**（2679328）：3 bug 叠加--close=NULL 致 pct_5d 永远 None + snap 硬编码 None + maybe_override_heatmap REPLACE 清空。修复：close=NULL 时用近5日 pct_change 累乘 fallback + MERGE 保留 DB pct_5d + 修硬编码。
+8. **角标体系**（664dfef/4aa317c/399d395/504117a）：4 态（盘中绿.intraday/午休黄.lunch/待收盘灰.pending/收盘主题色.closed）+ 滞后分级（基于 prev_trading_day）+ 大卡右上角小卡右下角（两害取其轻避免盖标题）+ 半透明毛玻璃浮动 + 删 padding-right（曾挤标题错位）。
+9. **KPI 卡去第三行日期**（cffcddb）：角标已含日期，第三行日期冗余且被角标压。
+10. **收盘分析横幅文案**（76506b4）："盘中实时小结"误导（30分钟采集不算实时），改"盘中动态小结·更新于HH:MM"。
+11. **去省略号改截取**：card-value 不要 ellipsis，能显示多少显示多少。
+12. **ECharts 线色跟随主题**（2cb2aab）：轴线/网格/tooltip/布林轨道改读 CSS 变量，主题切换重绘。
+13. **收盘分析横幅+历史弹窗 chips 流式排版**（ef53e14）/ **H5 顶部与 PC 统一**（d265955）/ **模拟回测 iframe 跟随父页面皮肤**（7485005，URL hash+postMessage 双保险）/ **采集时间ℹ️图标+数据更新规则 modal**（eadcf20）。
+
+### 进行中（已派 agent，后台跑）
+- **D 收盘分析加领跌**（agent a79b60f141ff47ea6）：`app/compute/market_summary.py` 加 `bottom_industries`（L279-298 同款 SQL 但 `ORDER BY pct_change ASC LIMIT 3`，L373 纳入 summary，L388 BRIEF_FIELDS 白名单）+ 双版 `app.js` 的 `renderSummaryChips`/`renderIntradayChips` 加 ❄领跌行（对称 🔥领涨，盘中 snap.industries 升序取 bottom3 否则 s.bottom_industries）+ build_min + push feat + merge main。历史弹窗复用 `renderSummaryChips` 自动同步，数据全在 snap.industries 不用额外采集。
+- **B collect_health 误报修复**（agent a6f9242b59516e40b）：`app/main.py:313-338` + `static-site/export.py:330-354` 的 collect_health 直接用 backfill 校验日志（`_hrows`）判 level，backfill 在 snap 采集前跑、陈旧，致"指数今日数据缺失：新浪主源未找到，baostock+腾讯补采亦失败"误报（实际 snap.indices 已采到 7-14 15:35 sh000001 pct=1.36）。修复：对指数缺失类 item 复核 snap.indices/index_daily 实际数据，有则移除/降级。纯 .py 不碰 app.js。
+
+### 排队（等 D 完成 app.js 空闲后合并派，避免 build_min/push 撞车）
+- **A 数据时效提示 app.js JS**：接着 style.css 半成品（角标三档 `.t1`/`.t1-stale`/`.t1-severe` + 顶部健康横幅 `.data-health-banner` CSS 已就绪但未提交，见 `git diff web/style.css`）。JS 待做：`getCardTimeBadge` 三档分级（📅T+1正常灰/⚠滞后黄/🚨异常红，基于 prev_trading_day 判断滞后天数）+ 顶部全局健康横幅渲染（汇总各数据源最新状态，有滞后整体加黄边严重加红边，可折叠）。数据来源待设计（基于 collect_health + 各卡片 dataDate）。
+- **C 卡片文案对齐**：`.card.kpi .card-value` 改 flex 布局，数值左对齐 + tag（偏热/缩量上涨等）固定右侧，避让右下角角标。解决 0.94x 和缩量上涨未对齐、66.1 和偏热未对齐等。
+
+### 关键技术点
+- **双版同步铁律**：web/(/api/) + static-site/(./data/) 改动逐字一致除数据源 URL。
+- **腾讯分时 API**：域名 `web.ifzq.gtimg.cn`（**不带 s**，带 s 是 NXDOMAIN），CORS `access-control-allow-origin: *`，返回全天 240 个 1 分钟点，格式 `"0930 3909.27 4306268 8109534289.50"`（HHMM 价格 成交量 成交额），qt 数组 [1]=名称 [3]=当前价 [4]=昨收。
+- **角标 4 态**：盘中绿.intraday/午休黄.lunch/待收盘灰.pending/收盘主题色.closed。
+- **prev_trading_day**：基于 akshare 交易日历，判断数据真滞后（正常 T+1 vs 异常滞后）。
+- **数据 push worktree 方案**：detached HEAD @ origin/main，采集在主仓库（DB 持久化），commit+push 在 worktree。
+- **build_min 验证**：改 app.js 后必须 `grep -c` min.js 字面量计数确认同步，否则前端不显示。
+- **app.js 是热点文件**：多 agent 并行改 app.js 会撞 build_min/push，需串行或合并派。
