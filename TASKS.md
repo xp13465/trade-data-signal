@@ -690,6 +690,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 |---|---|---|
 | A 数据时效提示app.js JS | getCardTimeBadge三档分级(📅T+1灰/⚠滞后黄/🚨异常红,基于prev_trading_day)+顶部健康横幅渲染(汇总各数据源状态,可折叠) | style.css CSS已就绪未提交(t1/t1-stale/t1-severe+.data-health-banner)，JS待做 |
 | C 卡片文案对齐 | .card.kpi .card-value改flex布局,数值左对齐+tag固定右侧,避让右下角角标 | 解决0.94x和缩量上涨/66.1和偏热未对齐 |
+| E spark卡角标统一 | 删spark-cell左下角spark-date(font-size:11px;color:var(--text-4)最弱色致不清晰),cell创建后调addCardTimeBadge(cell,idx.last_date,snap)复用getCardTimeBadge(和涨停数KPI卡同规则4态动态)。style.css:.spark-cell加position:relative,删.spark-date规则,加.spark-cell .card-time-badge复用.card.kpi右下角定位(bottom:4px;right:6px) | 解决左下角日期字体不清晰+统一角标格式+4态高亮动态规则 |
 
 ### review gate
-D/B/A/C 均为 UI/数据展示迭代，用户视觉验收驱动，不走 review gate。
+D/B/A/C/E 均为 UI/数据展示迭代，用户视觉验收驱动，不走 review gate。
