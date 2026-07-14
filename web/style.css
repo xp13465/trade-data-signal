@@ -498,9 +498,11 @@ main { padding: 16px 24px; }
 }
 .cards.kpi-row { gap: 12px; }
 .card.kpi { min-width: 150px; padding: 12px 16px; flex: 1 1 150px; }
-.card.kpi .card-value { font-size: 24px; margin: 2px 0; }
+.card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card.kpi .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 4px; right: 6px; max-width: 70%; }
-.card-sub { font-size: 12px; color: var(--text-4); }
+.card-sub { font-size: 12px; color: var(--text-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 角标浮动在右下角，给 card-sub 预留右侧空间防止文字被角标遮挡 */
+.card.kpi.has-time-badge .card-sub { padding-right: 70px; }
 .tag.stale { background: #faad14; }
 
 .spark-grid {
@@ -1683,6 +1685,7 @@ main { padding: 16px 24px; }
   /* 盘中标注角标移动端更小，避免遮住 KPI 数值 */
   .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 5px; right: 6px; }
   .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
+  .card.kpi.has-time-badge .card-sub { padding-right: 58px; }
   .ov-2col { grid-template-columns: 1fr; gap: 12px; }
   .ov-2col .chart-card { min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }

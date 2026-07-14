@@ -1467,12 +1467,12 @@ async function renderOverview() {
       let sigCls = "";
       if (isFangliang) sigCls = "fangliang";
       else if (isSuoliang) sigCls = "suoliang";
-      const sigHtml = sig ? ` <span class="tag ${sigCls}">${sig}</span>` : "";
+      const sigHtml = sig ? ` <span class="tag ${sigCls}" title="${sig}">${sig}</span>` : "";
       valueHtml = k.value + sigHtml;
       sub = sig + " · " + (k.date || "");
     }
     const _badge = getCardTimeBadge(k.date, snap);
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   content.appendChild(cards);
 
