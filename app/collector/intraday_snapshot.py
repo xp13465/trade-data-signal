@@ -6,7 +6,8 @@
 - 9 指数实时：腾讯 qt.gtimg.cn（主），新浪 hq.sinajs.cn（逐个降级备）。
 - 31 申万一级行业实时涨跌幅：复用同花顺 stock_board_industry_summary_ths（90 子行业），
   通过 THS_TO_SW 聚合（涨跌幅按成交额加权、净流入求和、领涨股取涨幅最高子行业）。
-- is_market_closed：本地时间判断盘中区间（9:30-11:30/13:00-15:00 交易日）。
+- is_market_closed：时间+数据双重判断盘中区间（9:30-11:30/13:00-15:00 交易日），
+  传 at=collected_at 时按数据时刻判断，不传默认 now（向后兼容）。
 - **指数反哺**：采集完 9 指数后，把当日 OHLC 写入 index_daily 表（UPSERT），
   触发重算 per-index 情绪分 + 恐贪指数 + dump 静态 JSON，
   使指数卡片/恐贪/per-index 情绪分到当日（解决 T+1 延迟致停在 T-2 的问题）。
@@ -317,49 +318,66 @@ def fetch_industry_realtime() -> list[dict]:
     return out
 
 
-def is_market_closed() -> tuple[bool, str]:
+def is_market_closed(at: datetime | None = None) -> tuple[bool, str]:
     """判断 A 股是否收盘。返回 (is_closed, label)。
 
-    用本地时间 + 交易日历判断盘中区间（9:30-11:30/13:00-15:00 周一至五）。
+    时间+数据双重判断：传入 at（通常是快照 collected_at）时按该时刻判断
+    落在哪个时段；不传默认 now（向后兼容现有无参调用）。
+
+    4 态区分（基于 at 而非当前时钟）：
+    - 盘中(9:30-11:30 / 13:00-15:00 周一至五交易日): (False, "盘中实时小结")
+    - 午休(11:30-13:00): (False, "午休·盘中暂停（13:00复牌）")  # 午休也算未收盘
+    - 收盘 / 非交易日: (True, "收盘快照")
+    - at 早于今天（旧数据）: (True, "上一交易日收盘")
     """
+    at = at or datetime.now()
+    today = datetime.now().date()
+    at_date = at.date()
+    # 数据来自前一交易日 -> 已收盘的旧数据（非今日实时）
+    if at_date < today:
+        return True, "上一交易日收盘"
     try:
         from ..calendar import is_trading_day
-        trading = is_trading_day()
+        trading = is_trading_day(at_date)
     except Exception:  # noqa: BLE001
         trading = True  # 拿不到日历默认按交易日处理（仅影响 label 文案）
-    now = datetime.now()
-    hm = now.hour * 100 + now.minute
-    wd = now.weekday()  # 0=Mon
-    in_session = (
-        trading and wd < 5
-        and ((930 <= hm < 1130) or (1300 <= hm < 1500))
-    )
-    is_closed = not in_session
-    label = "收盘快照" if is_closed else "盘中实时小结"
-    return is_closed, label
+    if not trading:
+        return True, "收盘快照"
+    hm = at.hour * 100 + at.minute
+    if (930 <= hm <= 1130) or (1300 <= hm < 1500):
+        return False, "盘中实时小结"
+    if 1130 < hm < 1300:
+        return False, "午休·盘中暂停（13:00复牌）"
+    return True, "收盘快照"
 
 
-def is_hk_market_closed() -> tuple[bool, str]:
+def is_hk_market_closed(at: datetime | None = None) -> tuple[bool, str]:
     """判断港股是否收盘。返回 (is_closed, label)。
 
     港股交易时间 9:30-12:00 / 13:00-16:00（北京时间，与 A 股同时区）。
     16:00 收盘，A 股 15:00 收盘后到 16:00 之间港股仍在盘中。
+    午休 12:00-13:00 属"盘中暂停"而非收盘：is_closed=False，label 提示午休。
+
+    时间+数据双重判断：传入 at 时按该时刻判断；不传默认 now（向后兼容）。
     """
+    at = at or datetime.now()
+    today = datetime.now().date()
+    at_date = at.date()
+    if at_date < today:
+        return True, "上一交易日收盘"
     try:
         from ..calendar import is_trading_day
-        trading = is_trading_day()
+        trading = is_trading_day(at_date)
     except Exception:  # noqa: BLE001
         trading = True
-    now = datetime.now()
-    hm = now.hour * 100 + now.minute
-    wd = now.weekday()
-    in_session = (
-        trading and wd < 5
-        and ((930 <= hm < 1200) or (1300 <= hm < 1600))
-    )
-    is_closed = not in_session
-    label = "收盘快照" if is_closed else "盘中实时"
-    return is_closed, label
+    if not trading:
+        return True, "收盘快照"
+    hm = at.hour * 100 + at.minute
+    if (930 <= hm <= 1200) or (1300 <= hm < 1600):
+        return False, "盘中实时"
+    if 1200 < hm < 1300:
+        return False, "午休·盘中暂停（13:00复牌）"
+    return True, "收盘快照"
 
 
 def _save_db(collected_at: str, is_closed: bool,
@@ -707,17 +725,23 @@ def _export_affected_json() -> None:
 
 
 def build_snapshot() -> dict:
-    """采集 + 组装快照 dict（不落库）。供 collect_and_save 和 API 共用。"""
+    """采集 + 组装快照 dict（不落库）。供 collect_and_save 和 API 共用。
+
+    在采集前捕获 collected_at，传给 is_market_closed/is_hk_market_closed，
+    使 JSON 里的 is_closed/label 反映"这份数据的时效"而非"写入时的时钟"
+    （采集行业 summary 可能 20s+，跨 11:30 边界时 now 已进午休但数据是上午盘中的）。
+    """
+    collected_dt = datetime.now()  # 采集起始时刻 = 数据时间
     indices = fetch_index_realtime()
     industries = fetch_industry_realtime()
-    is_closed, label = is_market_closed()
-    is_hk_closed, _ = is_hk_market_closed()
+    is_closed, label = is_market_closed(at=collected_dt)
+    is_hk_closed, _ = is_hk_market_closed(at=collected_dt)
     # 给每条指数加 is_closed（A 股按 15:00 判断，港股按 16:00 判断）
     for d in indices:
         code = d.get("code", "")
         d["is_closed"] = is_hk_closed if code.startswith("hk") else is_closed
     return {
-        "collected_at": _now_iso(),
+        "collected_at": collected_dt.isoformat(),
         "is_closed": is_closed,
         "label": label,
         "indices": indices,
@@ -782,7 +806,12 @@ def collect_and_save() -> dict:
 
 
 def load_latest_snapshot() -> dict | None:
-    """从 DB 读最新快照（供 API / export 用）。无数据返 None。"""
+    """从 DB 读最新快照（供 API / export 用）。无数据返 None。
+
+    label 基于 collected_at 重构（时间+数据双重判断在读端同样生效）：
+    DB 只存 is_closed（0/1），label 由 is_market_closed(at=collected_at) 推导，
+    这样午休采的快照读出来 label 仍是"午休·盘中暂停"而非丢失成"盘中实时小结"。
+    """
     conn = get_conn()
     row = conn.execute(
         "SELECT collected_at, is_closed, indices, industries "
@@ -792,6 +821,12 @@ def load_latest_snapshot() -> dict | None:
     if not row:
         return None
     is_closed = bool(row["is_closed"])
+    # 基于 collected_at 重构 label（时间+数据双重判断）
+    try:
+        collected_dt = datetime.fromisoformat(row["collected_at"])
+        _, label = is_market_closed(at=collected_dt)
+    except Exception:  # noqa: BLE001
+        label = "收盘快照" if is_closed else "盘中实时小结"
     try:
         indices = json.loads(row["indices"])
     except Exception:  # noqa: BLE001
@@ -803,7 +838,7 @@ def load_latest_snapshot() -> dict | None:
     return {
         "collected_at": row["collected_at"],
         "is_closed": is_closed,
-        "label": "收盘快照" if is_closed else "盘中实时小结",
+        "label": label,
         "indices": indices,
         "industries": industries,
     }
