@@ -1105,10 +1105,10 @@ function _renderCollectTime() {
   const timeStr = (intraday && _intradayDynamicTime) ? _intradayDynamicTime : ct;
   const suffix = intraday ? " · 动态(3min)" : " · 收盘快照";
   document.querySelectorAll(".pc-collect-time").forEach((el) => {
-    el.innerHTML = `数据采集时间：${timeStr}${suffix}${dot}${_icon}`;
+    el.innerHTML = `数据采集时间：${timeStr}${suffix}${_icon}`;
   });
   document.querySelectorAll(".h5-collect-time").forEach((el) => {
-    el.innerHTML = `${timeStr}${suffix}${dot}${_icon}`;
+    el.innerHTML = `${timeStr}${suffix}${_icon}`;
   });
 }
 async function fetchCollectTime() {

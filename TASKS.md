@@ -681,11 +681,10 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 | 41c42df | B collect_health误报修复（复核index_daily当日close,移除backfill陈旧误报,items 19->10,仅剩真实error如宽度指标disabled/资金流向连接失败） |
 | c28e466 | D 收盘分析横幅加领跌板块（market_summary.py加bottom_industries ORDER BY pct_change ASC LIMIT 3 + 双版app.js renderSummaryChips/renderIntradayChips加❄领跌行,历史弹窗复用renderSummaryChips自动同步） |
 | 1eef457 | A 数据时效完整化（移除采集时间红点_healthDotHtml,健康横幅renderDataHealthBanner已替代;北向停更30天规则 stoppedDays>30不提示,北向2024-08停更快2年不再显示;commit健康横幅CSS 54增13删 .health-dot清掉;renderDataHealthBanner验证通过） |
+| 4c73aca | C+E 卡片文案对齐+spark角标统一（C:.card.kpi .card-value flex布局+cv-val/cv-tags span数值左对齐tag右侧避让角标,解决0.94x/缩量上涨·66.1/偏热未对齐;E:删spark-cell左下角spark-date,addCardTimeBadge(cell,idx.last_date,snap)复用KPI卡4态规则,.spark-cell加position:relative+删.spark-date+加.spark-cell .card-time-badge右下角定位） |
 
-### 进行中（已派 agent，后台跑）
-| 任务 | agent | 内容 | 碰的文件 |
-|---|---|---|---|
-| C+E 卡片文案对齐+spark角标统一 | aabeebea8b245a4dc | C:.card.kpi .card-value改flex布局数值左对齐+tag固定右侧避让右下角角标(解决0.94x/缩量上涨、66.1/偏热未对齐)。E:删spark-cell左下角spark-date(font-size:11px;color:var(--text-4)不清晰),cell创建后调addCardTimeBadge(cell,idx.last_date,snap)复用KPI卡4态规则,.spark-cell加position:relative+删.spark-date+加.spark-cell .card-time-badge右下角定位。合并派(都app.js+style.css串行避免build_min/push撞) | app.js×2, style.css×2, app.min.js×2, index.html×2 |
+### 进行中
+无。本轮 D/B/A/C/E 全部完成，已 merge main 公网部署。
 
 ### review gate
-C/E 均为 UI/数据展示迭代，用户视觉验收驱动，不走 review gate。
+本轮均为 UI/数据展示迭代，用户视觉验收驱动，不走 review gate。
