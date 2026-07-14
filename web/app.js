@@ -1746,7 +1746,7 @@ async function renderNationalTeam(container = content) {
   if (state.ntView === "detail") {
     renderNationalTeamDetail(container, data, qData, hData);
   } else {
-    renderNationalTeamOverview(container, data, qData);
+    renderNationalTeamOverview(container, data, qData, hData);
   }
 }
 
@@ -1884,7 +1884,7 @@ function renderNationalTeamTotalPanel(container, data) {
 }
 
 // ── 4层概览首屏：总览摘要条+矩阵热力图+卡片墙+叠加对比折线 ──
-function renderNationalTeamOverview(container, data, qData) {
+function renderNationalTeamOverview(container, data, qData, hData) {
   var summary = ntBuildSummary(data, qData);
 
   // ▼ 第0层：国家队总盘（合计持仓市值+净增持+份额趋势，最顶部在摘要条之上）▼
@@ -1909,6 +1909,7 @@ function renderNationalTeamOverview(container, data, qData) {
 
   // ▼ 第2层：矩阵热力图 ▼
   // 12行×指标列，色阶着色：份额变动红流入/绿流出，机构占比高深色，放量倍数>1.5橙色
+  // 标注就地 hover pop（data-tip 复用 .term-pop 事件委托）+ 点行弹 iframe 式满屏弹窗（不切页，保留滚动）
   var heatSec = document.createElement("div");
   heatSec.className = "chart-card nt-heatmap-card";
   heatSec.innerHTML = '<h3>12 只 ETF 资金矩阵 <span class="term-tip" data-tip="一屏看全12只：份额变动%(红=流入/绿=流出，色越深变动越大)、最新信号、机构占比%(深色=国家队主导>85%)、放量倍数(橙=成交活跃>1.5倍)。点行进单只详情。">❓</span></h3>';
@@ -1923,7 +1924,7 @@ function renderNationalTeamOverview(container, data, qData) {
   summary.forEach(function (s) {
     var tr = document.createElement("tr");
     tr.className = "nt-heat-row";
-    tr.onclick = function () { state.ntEtf = s.code; state.ntView = "detail"; renderNationalTeam(container); };
+    tr.onclick = function () { openNtDetailOverlay(s.code, data, qData, hData); };
     var scp = s.shareChangePct;
     var scpColor = scp > 0 ? "rgba(230,73,46," + Math.min(Math.abs(scp) / 5, 0.45).toFixed(2) + ")"
       : scp < 0 ? "rgba(46,139,87," + Math.min(Math.abs(scp) / 5, 0.45).toFixed(2) + ")" : "transparent";
@@ -1931,20 +1932,31 @@ function renderNationalTeamOverview(container, data, qData) {
     var instColor = inst != null ? "rgba(230,73,46," + (inst / 100 * 0.35).toFixed(2) + ")" : "transparent";
     var vr = s.volRatio;
     var vrColor = vr > 1.5 ? "rgba(255,152,0," + Math.min((vr - 1) / 2, 0.4).toFixed(2) + ")" : "transparent";
-    var sigTxt = s.latestSig ? (s.latestSig.type === "share_surge" ? "🔴 进" : s.latestSig.type === "share_outflow" ? "🟢 出" : "🟠 量") : "-";
+    // 信号标注就地 hover pop：data-tip 复用 .term-pop 事件委托，简短一句+点击查看详情
+    var sigType = s.latestSig ? s.latestSig.type : null;
+    var sigTxt;
+    if (sigType === "share_surge") {
+      sigTxt = '<span class="nt-sig-tip" data-tip="份额激增，疑似大资金进场。点击查看详情">🔴 进</span>';
+    } else if (sigType === "share_outflow") {
+      sigTxt = '<span class="nt-sig-tip" data-tip="份额流出，疑似大资金离场。点击查看详情">🟢 出</span>';
+    } else if (sigType === "volume_surge") {
+      sigTxt = '<span class="nt-sig-tip" data-tip="成交放量(份额未大动)，资金活跃。点击查看详情">🟠 量</span>';
+    } else {
+      sigTxt = '<span class="nt-sig-tip" data-tip="近期无大资金信号。点击查看详情">-</span>';
+    }
     var scpSign = scp > 0 ? "+" : "";
     tr.innerHTML =
       '<td class="nt-cell-code">' + s.code + '<br><span class="nt-cell-name">' + s.name + '</span></td>' +
       '<td>' + s.index + '</td>' +
-      '<td class="nt-cell-num" style="background:' + scpColor + '">' + scpSign + scp.toFixed(2) + '%</td>' +
+      '<td class="nt-cell-num" style="background:' + scpColor + '"><span data-tip="当日份额变动%，红流入绿流出。点击查看详情">' + scpSign + scp.toFixed(2) + '%</span></td>' +
       '<td>' + sigTxt + '</td>' +
-      '<td class="nt-cell-num" style="background:' + instColor + '">' + (inst != null ? inst.toFixed(1) + "%" : "-") + '</td>' +
-      '<td class="nt-cell-num" style="background:' + vrColor + '">' + (vr ? vr.toFixed(2) + "倍" : "-") + '</td>';
+      '<td class="nt-cell-num" style="background:' + instColor + '"><span data-tip="当季机构持有占比，>85%为国家队主导品种。点击查看详情">' + (inst != null ? inst.toFixed(1) + "%" : "-") + '</span></td>' +
+      '<td class="nt-cell-num" style="background:' + vrColor + '"><span data-tip="当日成交额/前5日均量，>1.5倍为放量。点击查看详情">' + (vr ? vr.toFixed(2) + "倍" : "-") + '</span></td>';
     tbody.appendChild(tr);
   });
 
   // ▼ 第3层：卡片墙 ▼
-  // 3×4网格(H5 2列)，每张迷你卡含 sparkline+份额变动%+信号标注，点卡片进详情
+  // 3×4网格(H5 2列)，每张迷你卡含 sparkline+份额变动%+信号标注，点卡片弹详情
   var wallSec = document.createElement("div");
   wallSec.className = "chart-card nt-wall-card";
   wallSec.innerHTML = '<h3>12 只 ETF 走势卡片墙 <span class="term-tip" data-tip="每张迷你卡片含份额折线(sparkline)+当日份额变动%+信号标注。🔴进=疑似大资金进场/🟢出=疑似离场/🟠量=放量。点卡片进单只详情。">❓</span></h3>';
@@ -1953,20 +1965,20 @@ function renderNationalTeamOverview(container, data, qData) {
   summary.forEach(function (s) {
     var card = document.createElement("div");
     card.className = "nt-mini-card";
-    card.onclick = function () { state.ntEtf = s.code; state.ntView = "detail"; renderNationalTeam(container); };
+    card.onclick = function () { openNtDetailOverlay(s.code, data, qData, hData); };
     var spark = ntSparkline(s.daily, 120, 30);
     var scp = s.shareChangePct;
     var scpCls = scp > 0 ? "nt-up" : scp < 0 ? "nt-down" : "";
     var scpSign = scp > 0 ? "+" : "";
     var sigBadge = s.latestSig
-      ? (s.latestSig.type === "share_surge" ? '<span class="nt-badge nt-badge-in">🔴</span>'
-        : s.latestSig.type === "share_outflow" ? '<span class="nt-badge nt-badge-out">🟢</span>'
-        : '<span class="nt-badge nt-badge-vol">🟠</span>')
+      ? (s.latestSig.type === "share_surge" ? '<span class="nt-badge nt-badge-in" data-tip="份额激增，疑似大资金进场。点击查看详情">🔴</span>'
+        : s.latestSig.type === "share_outflow" ? '<span class="nt-badge nt-badge-out" data-tip="份额流出，疑似大资金离场。点击查看详情">🟢</span>'
+        : '<span class="nt-badge nt-badge-vol" data-tip="成交放量(份额未大动)，资金活跃。点击查看详情">🟠</span>')
       : "";
     card.innerHTML =
       '<div class="nt-mini-head"><span class="nt-mini-code">' + s.code + '</span><span class="nt-mini-name">' + s.name + '</span></div>' +
       '<div class="nt-mini-spark">' + spark + '</div>' +
-      '<div class="nt-mini-foot"><span class="nt-mini-chg ' + scpCls + '">' + scpSign + scp.toFixed(2) + '%</span>' + sigBadge + '</div>';
+      '<div class="nt-mini-foot"><span class="nt-mini-chg ' + scpCls + '" data-tip="当日份额变动%，红流入绿流出。点击查看详情">' + scpSign + scp.toFixed(2) + '%</span>' + sigBadge + '</div>';
     wall.appendChild(card);
   });
   wallSec.appendChild(wall);
@@ -2029,12 +2041,17 @@ function renderNationalTeamOverview(container, data, qData) {
 }
 
 // ── 单只详情：保留原 ETF 选择器+5KPI+3图+信号表+汇金验证 ──
-function renderNationalTeamDetail(container, data, qData, hData) {
-  // 返回概览按钮
+// opts.overlay=true 时为弹窗模式：返回按钮=关闭弹窗，选择器=重渲染弹窗内 detail（不切页）
+function renderNationalTeamDetail(container, data, qData, hData, opts) {
+  opts = opts || {};
+  var isOverlay = !!opts.overlay;
+  // 返回概览按钮（弹窗模式=关闭弹窗，保留滚动位置）
   var backBtn = document.createElement("button");
   backBtn.className = "nt-back-btn";
-  backBtn.innerHTML = "← 返回概览";
-  backBtn.onclick = function () { state.ntView = "overview"; renderNationalTeam(container); };
+  backBtn.innerHTML = isOverlay ? "✕ 关闭" : "← 返回概览";
+  backBtn.onclick = isOverlay
+    ? function () { closeNtDetailOverlay(); }
+    : function () { state.ntView = "overview"; renderNationalTeam(container); };
   container.appendChild(backBtn);
 
   // ── ETF 选择器（12只，按跟踪指数分组）──
@@ -2056,7 +2073,17 @@ function renderNationalTeamDetail(container, data, qData, hData) {
       btn.title = `${e.code} ${e.name}（${e.index}）`;
       btn.dataset.code = e.code;
       if (e.code === state.ntEtf) btn.classList.add("active");
-      btn.onclick = () => { state.ntEtf = e.code; renderNationalTeam(container); };
+      btn.onclick = () => {
+        state.ntEtf = e.code;
+        if (isOverlay) {
+          // 弹窗内切换ETF：清空旧内容+dispose旧ECharts，重渲染弹窗内 detail
+          _disposeContainerCharts(container);
+          container.innerHTML = "";
+          renderNationalTeamDetail(container, data, qData, hData, opts);
+        } else {
+          renderNationalTeam(container);
+        }
+      };
       selWrap.appendChild(btn);
     });
   });
@@ -3575,6 +3602,51 @@ function initSimOverlay() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && overlay.classList.contains('show')) close();
   });
+}
+
+// === 汪汪队单只详情 iframe 式满屏弹窗（复用 sim-overlay 结构，留边框 90vw/90vh，关闭后停留原位置）===
+// 点矩阵行/卡片墙卡片弹出，渲染 renderNationalTeamDetail 内容到弹窗内；关闭不重渲染 overview，保留滚动位置
+var _ntDetailOverlay = null;
+function _ntDetailOverlayEl() {
+  if (_ntDetailOverlay) return _ntDetailOverlay;
+  var ov = document.createElement('div');
+  ov.className = 'nt-detail-overlay';  // CSS 默认 opacity:0/visibility:hidden 隐藏
+  ov.innerHTML = '<div class="nt-detail-window"><button class="nt-detail-close" aria-label="关闭" title="关闭">✕</button><div class="nt-detail-body"></div></div>';
+  document.body.appendChild(ov);
+  _ntDetailOverlay = ov;
+  var close = function () {
+    ov.classList.remove('show');
+    document.body.style.overflow = '';
+    // dispose 弹窗内 ECharts + 从全局 charts 数组移除，避免内存泄漏
+    var body = ov.querySelector('.nt-detail-body');
+    _disposeContainerCharts(body);
+    body.innerHTML = '';
+  };
+  ov.querySelector('.nt-detail-close').addEventListener('click', close);
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });  // 点遮罩区关闭
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && ov.classList.contains('show')) close();
+  });
+  ov._close = close;
+  return ov;
+}
+
+function closeNtDetailOverlay() {
+  var ov = _ntDetailOverlayEl();
+  if (ov._close) ov._close();
+}
+
+function openNtDetailOverlay(code, data, qData, hData) {
+  var ov = _ntDetailOverlayEl();
+  var body = ov.querySelector('.nt-detail-body');
+  // 清空旧内容（dispose 旧 ECharts）
+  _disposeContainerCharts(body);
+  body.innerHTML = '';
+  state.ntEtf = code;
+  // 渲染单只详情到弹窗 body（opts.overlay 让返回按钮=关闭、选择器=重渲染弹窗）
+  renderNationalTeamDetail(body, data, qData, hData, { overlay: true });
+  ov.classList.add('show');
+  document.body.style.overflow = 'hidden';
 }
 
 // === 分享图：canvas 自绘品牌分享卡片（含当日关键数据 + 上证迷你走势 + 域名）===
