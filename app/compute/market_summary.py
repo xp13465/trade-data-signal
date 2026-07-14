@@ -278,7 +278,7 @@ def generate_summary(date: str | None = None) -> dict:
     idx_name_map = {i["id"]: i["name"] for i in cfg.get("indices", []) if i.get("enabled", True)}
     top_industries = []
     ind_rows = conn.execute(
-        "SELECT index_id, pct_change FROM index_daily "
+        "SELECT index_id, pct_change, net_inflow FROM index_daily "
         "WHERE date=? AND index_id LIKE 'sw_%' AND pct_change IS NOT NULL "
         "ORDER BY pct_change DESC LIMIT 3",
         (date,),
@@ -288,14 +288,15 @@ def generate_summary(date: str | None = None) -> dict:
         top_industries.append({
             "code": code,
             "index_id": r["index_id"],
-            "name": idx_name_map.get(r["index_id"], r["index_id"]),
+            "name": idx_name_map.get(r["index_id"], r["index_id"]).replace("SW ", ""),
             "pct_change": r["pct_change"],
+            "net_inflow": r["net_inflow"],
         })
 
     # 领跌板块（取当日跌幅最大的前3个行业，与领涨对称）
     bottom_industries = []
     ind_rows_desc = conn.execute(
-        "SELECT index_id, pct_change FROM index_daily "
+        "SELECT index_id, pct_change, net_inflow FROM index_daily "
         "WHERE date=? AND index_id LIKE 'sw_%' AND pct_change IS NOT NULL "
         "ORDER BY pct_change ASC LIMIT 3",
         (date,),
@@ -305,8 +306,9 @@ def generate_summary(date: str | None = None) -> dict:
         bottom_industries.append({
             "code": code,
             "index_id": r["index_id"],
-            "name": idx_name_map.get(r["index_id"], r["index_id"]),
+            "name": idx_name_map.get(r["index_id"], r["index_id"]).replace("SW ", ""),
             "pct_change": r["pct_change"],
+            "net_inflow": r["net_inflow"],
         })
 
     conn.close()

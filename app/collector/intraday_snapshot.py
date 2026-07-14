@@ -455,7 +455,8 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
     index_daily WHERE index_id LIKE 'sw_%' AND pct_change IS NOT NULL，
     盘中快照此前只反哺 9 指数没反哺行业，致当日申万行业行不存在 -> 领涨空。
     同花顺行业 summary 只给涨跌幅无 OHLC，open/high/low/close/amount 留 NULL；
-    ON CONFLICT 只更新 pct_change，不覆盖已有 OHLC（防申万晚间 OHLC 被快照 NULL 覆盖）。
+    ON CONFLICT 只更新 pct_change + net_inflow，不覆盖已有 OHLC（防申万晚间 OHLC 被快照 NULL 覆盖）。
+    net_inflow 来自同花顺实时净流入求和（亿元），反哺使收盘小结/历史弹窗领涨领跌带💰。
     非交易日不写；pct_change 为 None 跳过该条。
     返回写入的行业条数。
     """
@@ -475,17 +476,18 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
         pct = ind.get("pct_change")
         if pct is None:
             continue
+        net = ind.get("net_inflow")
         conn.execute(
-            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
-            "VALUES (?, ?, NULL, NULL, NULL, NULL, ?, NULL) "
+            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, net_inflow) "
+            "VALUES (?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?) "
             "ON CONFLICT(date, index_id) DO UPDATE SET "
-            "pct_change=excluded.pct_change",
-            (today, sw_code, pct),
+            "pct_change=excluded.pct_change, net_inflow=excluded.net_inflow",
+            (today, sw_code, pct, net),
         )
         n += 1
     conn.commit()
     conn.close()
-    print(f"  [intraday] index_daily 行业反哺完成：{n} 条", flush=True)
+    print(f"  [intraday] index_daily 行业反哺完成：{n} 条（含 net_inflow）", flush=True)
     return n
 
 
