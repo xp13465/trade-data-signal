@@ -300,14 +300,25 @@ def export_overview(conn, cfg):
                  "WHERE score_id='fear_greed' AND date>=? ORDER BY date",
                  (six_m_start,))]
 
-    # 采集时间 + 数据健康度：collect_log 最新一次 run（run_at 取最新时间，run_date 取当天全部记录）
+    # 采集时间 + 数据健康度：collect_log 最新一次 run（run_date 取当天全部记录）
     _last = conn.execute(
         "SELECT run_date, run_at FROM collect_log ORDER BY run_at DESC LIMIT 1"
     ).fetchone()
-    collected_at = ""
+    # collected_at：盘中 snap 每30分钟更新（11:30/13:05等），但凌晨 backfill 让
+    # collect_log.run_at 停在 02:01；取 snap.collected_at 与 collect_log run_at 较新者显示。
+    def _fmt_iso(iso: str) -> str:
+        return iso[:10].replace("-", "") + " " + iso[11:19] if iso and len(iso) >= 19 else ""
+    _cands: list[tuple[str, str]] = []  # (iso, formatted) 取较新者
     if _last and _last["run_at"] and len(_last["run_at"]) >= 19:
-        _raw = _last["run_at"]  # 如 "2026-07-10T16:46:00.799605"
-        collected_at = _raw[:10].replace("-", "") + " " + _raw[11:19]
+        _cands.append((_last["run_at"], _fmt_iso(_last["run_at"])))
+    try:
+        from app.collector.intraday_snapshot import load_latest_snapshot
+        _snap = load_latest_snapshot()
+        if _snap and _snap.get("collected_at") and len(_snap["collected_at"]) >= 19:
+            _cands.append((_snap["collected_at"], _fmt_iso(_snap["collected_at"])))
+    except Exception:  # noqa: BLE001
+        pass
+    collected_at = max(_cands, key=lambda x: x[0])[1] if _cands else ""
     # 数据健康度：最新一次 run 的 warn/error 记录（绿=全ok/黄=有warn/红=有error）
     # 采集时间旁圆点展示，hover pop 显示具体告警，管理用户预期（如某指数源未取到）
     collect_health = {"level": "ok", "items": []}
