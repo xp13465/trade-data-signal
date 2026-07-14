@@ -1454,15 +1454,17 @@ const _INDEX_MARKET = {};
 ["sh","sz","hs300","sz50","cyb","kc50","bj50","csi500","csi1000"].forEach((k) => _INDEX_MARKET[k] = "cn");
 ["hsi","hstech","hscei"].forEach((k) => _INDEX_MARKET[k] = "hk");
 
-// 分时图展示的指数（9个：7 A股 + 2 港股）
+// 分时图展示的指数（11个：9 A股 + 2 港股，与 spark-grid 一一对应）
 const _INTRADAY_INDICES = [
   { id: "sh", name: "上证指数" },
   { id: "sz", name: "深证成指" },
-  { id: "cyb", name: "创业板指" },
-  { id: "kc50", name: "科创50" },
   { id: "hs300", name: "沪深300" },
   { id: "sz50", name: "上证50" },
+  { id: "cyb", name: "创业板指" },
+  { id: "kc50", name: "科创50" },
+  { id: "bj50", name: "北证50" },
   { id: "csi500", name: "中证500" },
+  { id: "csi1000", name: "中证1000" },
   { id: "hsi", name: "恒生指数" },
   { id: "hstech", name: "恒生科技" },
 ];
@@ -1476,7 +1478,7 @@ let _intradayFailCount = 0;
 let _intradayRefreshTimer = null;
 let _intradayLastFetch = 0;
 let _intradayActive = false;
-let _intradayRenderCtx = null; // { grid, indices, snap }
+let _intradayRenderCtx = null; // { sparkGrid, snap }
 let _intradayVisBound = false;
 
 // ============ 盘中动态值统一（阶段2）：腾讯分时数据驱动卡片badge/横幅chips/采集时间 ============
@@ -1743,69 +1745,74 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
   }).catch(() => { _renderIntradayFail(container, snapTime); return false; });
 }
 
-// 渲染分时图网格（9个指数各一个cell）
-function _renderIntradayGrid(grid, indices, snap) {
-  if (!grid || !grid.isConnected) return;
-  grid.innerHTML = "";
+// 渲染分时图到 spark-cell 内的 .spark-intraday 容器（仅渲染可见容器）
+function _renderIntradayInSparkCells(sparkGrid, snap) {
+  if (!sparkGrid || !sparkGrid.isConnected) return;
   const snapTime = _snapTimeStr(snap);
-  for (const item of indices) {
-    if (!_INDEX_TO_TENCENT_MINUTE[item.id]) continue;
-    const cell = document.createElement("div");
-    cell.className = "intraday-cell";
-    const market = _INDEX_MARKET[item.id] || "cn";
-    const sessionLabel = market === "hk" ? "港股" : "";
-    cell.innerHTML =
-      '<div class="intraday-cell-head"><span class="intraday-cell-name">' + item.name + "</span>" +
-      (sessionLabel ? '<span class="intraday-cell-market">' + sessionLabel + "</span>" : "") + "</div>" +
-      '<div class="intraday-chart"></div>';
-    grid.appendChild(cell);
-    const chartEl = cell.querySelector(".intraday-chart");
-    const preClose = _snapPreClose(snap, item.id);
-    _renderIntradayChart(chartEl, item.id, preClose, snapTime);
-  }
+  const containers = sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]:not(.collapsed)");
+  containers.forEach((el) => {
+    const code = el.getAttribute("data-intraday-code");
+    if (!_INDEX_TO_TENCENT_MINUTE[code]) return;
+    const preClose = _snapPreClose(snap, code);
+    _renderIntradayChart(el, code, preClose, snapTime);
+  });
 }
 
-// 分时图section主入口：盘中展开+启动刷新，收盘收起+按钮
-function renderIntradaySection(parent, snap) {
+// 分时图主入口：分时图嵌入 spark-cell 内，全局切换按钮控制显隐
+function renderIntradaySection(sparkGrid, snap) {
   const isClosed = !snap || snap.is_closed !== false;
-  const section = document.createElement("div");
-  section.className = "intraday-section" + (isClosed ? "" : " expanded");
-  section.id = "intraday-section";
-  parent.appendChild(section);
-  const header = document.createElement("div");
-  header.className = "intraday-header";
-  header.innerHTML = '<span class="intraday-title">📈 当日分时走势</span>' +
-    (isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>3min动态刷新</span>');
-  section.appendChild(header);
-  const grid = document.createElement("div");
-  grid.className = "intraday-grid";
-  section.appendChild(grid);
-  if (isClosed) {
-    // 收盘后：默认收起，按钮按需展开
-    const toggle = document.createElement("button");
-    toggle.className = "intraday-toggle";
-    toggle.textContent = "📊 查看当日分时";
-    let expanded = false;
-    toggle.onclick = () => {
-      expanded = !expanded;
-      grid.style.display = expanded ? "" : "none";
-      toggle.textContent = expanded ? "📊 收起分时" : "📊 查看当日分时";
-      if (expanded) _renderIntradayGrid(grid, _INTRADAY_INDICES, snap);
-    };
-    section.insertBefore(toggle, grid);
-    grid.style.display = "none";
+  // 默认展开：盘中=true 盘后=false；localStorage 记忆覆盖
+  let lsExpanded = null;
+  try { lsExpanded = localStorage.getItem("intraday-chart-expanded"); } catch (e) {}
+  const defaultExpanded = isClosed ? false : true;
+  const expanded = lsExpanded === null ? defaultExpanded : lsExpanded === "1";
+
+  // 全局切换按钮（控制所有 .spark-intraday 显隐）
+  const toggle = document.createElement("button");
+  toggle.className = "intraday-toggle" + (expanded ? " expanded" : "");
+  const pulseHtml = isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>3min</span>';
+  toggle.innerHTML = (expanded ? "📊 收起分时图" : "📊 显示分时图") + pulseHtml;
+  sparkGrid.parentElement.insertBefore(toggle, sparkGrid);
+
+  toggle.onclick = () => {
+    const nowExpanded = !toggle.classList.contains("expanded");
+    toggle.classList.toggle("expanded", nowExpanded);
+    toggle.innerHTML = (nowExpanded ? "📊 收起分时图" : "📊 显示分时图") +
+      (isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>3min</span>');
+    sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]").forEach((el) => {
+      el.classList.toggle("collapsed", !nowExpanded);
+      // 展开时若容器为空才渲染（避免重复渲染）
+      if (nowExpanded && !el.querySelector("div")) {
+        const code = el.getAttribute("data-intraday-code");
+        if (code && _INDEX_TO_TENCENT_MINUTE[code]) {
+          const preClose = _snapPreClose(snap, code);
+          const snapTime = _snapTimeStr(snap);
+          _renderIntradayChart(el, code, preClose, snapTime);
+        }
+      }
+    });
+    try { localStorage.setItem("intraday-chart-expanded", nowExpanded ? "1" : "0"); } catch (e) {}
+  };
+
+  // 初始状态：collapsed 类控制显隐
+  if (!expanded) {
+    sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]").forEach((el) => el.classList.add("collapsed"));
   } else {
-    // 盘中：展开 + 启动3分钟动态刷新
-    _renderIntradayGrid(grid, _INTRADAY_INDICES, snap);
-    _intradayRenderCtx = { grid, indices: _INTRADAY_INDICES, snap };
+    _renderIntradayInSparkCells(sparkGrid, snap);
+  }
+
+  // 盘中启动3分钟动态刷新（无论展开与否，badge/chips 都需刷新）
+  if (!isClosed) {
+    _intradayRenderCtx = { sparkGrid, snap };
     _startIntradayRefresh();
   }
+
   // 连续失败暂停提示（隐藏，3次失败时显示）
   const notice = document.createElement("div");
   notice.className = "intraday-notice";
   notice.textContent = "⚠ 实时拉取连续失败，已暂停刷新。可刷新页面重试。";
   notice.style.display = "none";
-  section.appendChild(notice);
+  sparkGrid.parentElement.insertBefore(notice, sparkGrid.nextSibling);
 }
 
 // 启动3分钟动态刷新（setTimeout递归，避免tab隐藏时堆积）
@@ -1844,7 +1851,7 @@ function _scheduleNextRefresh() {
 
 // 执行一轮刷新：并行refetch所有图表，跟踪成功/失败
 async function _doIntradayRefresh() {
-  if (!_intradayRenderCtx || !_intradayRenderCtx.grid) { _scheduleNextRefresh(); return; }
+  if (!_intradayRenderCtx || !_intradayRenderCtx.sparkGrid) { _scheduleNextRefresh(); return; }
   const ctx = _intradayRenderCtx;
   _intradayLastFetch = Date.now();
   // 刷新snap检查是否收盘（2s超时避免阻塞）
@@ -1858,27 +1865,26 @@ async function _doIntradayRefresh() {
   }
   ctx.snap = curSnap;
   const snapTime = _snapTimeStr(curSnap);
-  const cells = ctx.grid.querySelectorAll(".intraday-cell");
   // 并发：动态值拉取（badge/chips/时间用）与分时图重绘
-  // （共用 fetchTencentMinute in-flight 去重，9 指数只发一次请求，不重复）
+  // （共用 fetchTencentMinute in-flight 去重，11 指数只发一次请求，不重复）
   const dynP = _refreshDynamicAll(curSnap);
   const promises = [];
-  for (let i = 0; i < cells.length; i++) {
-    const chartEl = cells[i].querySelector(".intraday-chart");
-    const item = ctx.indices[i];
-    if (!item || !chartEl) continue;
-    const preClose = _snapPreClose(curSnap, item.id);
-    promises.push(_renderIntradayChart(chartEl, item.id, preClose, snapTime));
-  }
+  const chartEls = ctx.sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]:not(.collapsed)");
+  chartEls.forEach((chartEl) => {
+    const code = chartEl.getAttribute("data-intraday-code");
+    const preClose = _snapPreClose(curSnap, code);
+    promises.push(_renderIntradayChart(chartEl, code, preClose, snapTime));
+  });
   const results = await Promise.all(promises);
-  await dynP; // 确保 badge/chips 已更新
-  const anyOk = results.some((r) => r);
+  const dynResult = await dynP; // 确保 badge/chips 已更新
+  // 判断成功：有分时图渲染成功 OR 动态值拉取成功（分时图全收起时靠动态值判断）
+  const anyOk = results.length > 0 ? results.some((r) => r) : (dynResult && dynResult.ok);
   if (anyOk) {
     _intradayFailCount = 0;
   } else {
     _intradayFailCount++;
     if (_intradayFailCount >= INTRADAY_MAX_FAILS) {
-      const notice = ctx.grid.parentElement.querySelector(".intraday-notice");
+      const notice = ctx.sparkGrid.parentElement.querySelector(".intraday-notice");
       if (notice) notice.style.display = "";
       return; // 暂停刷新，不再调度
     }
@@ -2079,6 +2085,7 @@ async function renderOverview() {
         <span class="pct-badge" data-spark-id="${sparkId}" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
       </div>
       <div class="spark-chart"></div>
+      ${_INDEX_TO_TENCENT_MINUTE[sparkId] ? '<div class="spark-intraday" data-intraday-code="' + sparkId + '"></div>' : ''}
       <div class="spark-date">${idx.last_date || ""}</div>`;
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
@@ -2099,10 +2106,10 @@ async function renderOverview() {
   }
   _dynamicBadgeIds = _sparkDynIds;
 
-  // ---- 1b. 当日分时图（腾讯分时API直拉，盘中3分钟动态刷新）----
-  renderIntradaySection(content, snap);
+  // ---- 1b. 当日分时图（嵌入 spark-cell，腾讯分时API直拉，盘中3分钟动态刷新）----
+  renderIntradaySection(grid, snap);
   // 盘中：立即拉取腾讯动态值刷新卡片badge/横幅chips/采集时间
-  // （与分时图共用 fetchTencentMinute in-flight 去重，9 指数只发一次请求不重复）
+  // （与分时图共用 fetchTencentMinute in-flight 去重，11 指数只发一次请求不重复）
   if (snap && snap.is_closed === false) _refreshDynamicAll(snap);
 
   // ---- 2. 首屏两列：左=恐贪指数+情绪分，右=冰点日+买卖点 ----
