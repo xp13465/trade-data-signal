@@ -333,11 +333,28 @@ def export_overview(conn, cfg):
             "SELECT metric_id, status, message FROM collect_log WHERE run_date=? AND status!='ok' ORDER BY run_at",
             (_last["run_date"],)
         ).fetchall()
-        if _hrows:
-            collect_health["level"] = "error" if any(r["status"] == "error" for r in _hrows) else "warn"
+        # 复核"指数今日数据缺失"类告警：backfill 凌晨跑时新浪主源未取到当日指数，
+        # 但盘中 intraday_snapshot 反哺后 index_daily 已有当日 close，旧告警成陈旧误报，
+        # 前端小红点因此常亮误导用户。对核心 A 股指数（index_backfill.CORE_A_INDICES）
+        # 的该类 item 复核 index_daily 是否已有当日 close，有则移除该 item。
+        _CORE_A_IDX = {"sh", "sz", "hs300", "sz50", "csi500", "csi1000", "cyb", "kc50", "bj50"}
+        _hrun_date = _last["run_date"]
+        _filtered = []
+        for _r in _hrows:
+            _msg = _r["message"] or ""
+            if _r["metric_id"] in _CORE_A_IDX and "指数今日数据缺失" in _msg:
+                _chk = conn.execute(
+                    "SELECT close FROM index_daily WHERE index_id=? AND date=?",
+                    (_r["metric_id"], _hrun_date)
+                ).fetchone()
+                if _chk and _chk["close"] is not None:
+                    continue  # 实际已有数据，跳过陈旧误报
+            _filtered.append(_r)
+        if _filtered:
+            collect_health["level"] = "error" if any(r["status"] == "error" for r in _filtered) else "warn"
             collect_health["items"] = [
                 {"metric_id": r["metric_id"], "status": r["status"], "message": r["message"]}
-                for r in _hrows
+                for r in _filtered
             ]
 
     # 行业热力图：盘中时用快照行业覆盖（P2-B，含 net_inflow/lead_stock），收盘后用 DB（P0-A 已修 SQL）

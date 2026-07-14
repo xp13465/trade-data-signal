@@ -292,6 +292,23 @@ def generate_summary(date: str | None = None) -> dict:
             "pct_change": r["pct_change"],
         })
 
+    # 领跌板块（取当日跌幅最大的前3个行业，与领涨对称）
+    bottom_industries = []
+    ind_rows_desc = conn.execute(
+        "SELECT index_id, pct_change FROM index_daily "
+        "WHERE date=? AND index_id LIKE 'sw_%' AND pct_change IS NOT NULL "
+        "ORDER BY pct_change ASC LIMIT 3",
+        (date,),
+    ).fetchall()
+    for r in ind_rows_desc:
+        code = r["index_id"][3:] if r["index_id"].startswith("sw_") else r["index_id"]
+        bottom_industries.append({
+            "code": code,
+            "index_id": r["index_id"],
+            "name": idx_name_map.get(r["index_id"], r["index_id"]),
+            "pct_change": r["pct_change"],
+        })
+
     conn.close()
 
     # ---- 构建总结文案 ----
@@ -371,6 +388,7 @@ def generate_summary(date: str | None = None) -> dict:
         "ma_bullish": ma_bullish,
         "ma_bearish": ma_bearish,
         "top_industries": top_industries,
+        "bottom_industries": bottom_industries,
     }
 
 
@@ -386,6 +404,7 @@ BRIEF_FIELDS = (
     "zt_count", "dt_count", "buy_count", "sell_count",
     "nh_count", "nl_count", "ma_bullish", "ma_bearish",
     "top_industries",
+    "bottom_industries",
 )
 
 
