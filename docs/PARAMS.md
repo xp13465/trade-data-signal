@@ -44,7 +44,7 @@
 |-----------|--------|------------------|------|--------|
 | D1_high20_drop5 | 20日高回落5%卖 | th=hh20×0.95；close 前日≥th 且 当日<th，**且** close>MA60（多头过滤），**且** DIF<DEA（MACD死叉确认） | **live 生产** | signals.py / lab.js `computeD1Lab()` |
 | B0_RSI70 | RSI下穿70卖 | RSI(14) 前日≥70 且 当日<70 | **已排除**（旧基线，已被 D1 替代） | lab.js |
-| BB_upper_revert | 布林上轨回落卖 | close 前日>bu[前日] 且 当日<bu[当日]（突破上轨后回落） | 实验中 | lab.js `computeBBLab()` |
+| BB_upper_revert | 布林上轨回落卖 | close 前日>bu[前日] 且 当日<bu[当日]（突破上轨后回落） | 实验中（**不融生产**，回测劣于 D1，见 NOTES §15） | lab.js `computeBBLab()` |
 | MA_death_5_20 | MA5/MA20死叉卖 | MA5 前日≥MA20 且 当日<MA20 | 实验中 | lab.js `computeMADeathCrossLab()` |
 | BB_middle_break | 跌破布林中轨卖 | close 前日≥mid 且 当日<mid（mid=MA20） | 实验中 | lab.js |
 | Donchian10_down | 跌破10日最低卖 | close 当日<lower[10] 且 前日≥lower[10] | 实验中 | lab.js |
