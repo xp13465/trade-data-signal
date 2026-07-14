@@ -24,7 +24,6 @@ PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
 LOG="$LOGDIR/intraday_snapshot_${STAMP}.log"
-SNAP_JSON="static-site/data/intraday_snapshot.json"
 
 mkdir -p "$LOGDIR"
 cd "$REPO"
@@ -61,18 +60,26 @@ if [ "$SNAP_RC" -ne 0 ]; then
   exit "$SNAP_RC"
 fi
 
-# 2) commit + push intraday_snapshot.json
+# 2) commit + push 受影响的静态数据 JSON
 #    持 deploy.lock 串行化 git（阻塞，等 update_all pipeline 释放；避免 index.lock 冲突）。
-#    只 add intraday_snapshot.json，不碰其他文件（前端 agent 可能改了 app.js 等）。
+#    只 add 数据文件，不碰 app.js/style.css 等（前端 agent 可能改了，-A 会把半成品提交）。
 #    用环境变量传 commit message，避免 bash -c 引号转义问题。
 COMMIT_MSG="data update [intraday] $(date +%Y-%m-%d_%H:%M)"
 export INTRADAY_COMMIT_MSG="$COMMIT_MSG"
-echo "-> commit + push ${SNAP_JSON}（持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "${LOG}"
+echo "-> commit + push 受影响数据 JSON（持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "${LOG}"
 "$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash -c '
   cd /Users/linhuichen/code/trade
-  git add static-site/data/intraday_snapshot.json
+  git add static-site/data/intraday_snapshot.json \
+          static-site/data/overview.json \
+          static-site/data/sentiment-*.json \
+          static-site/data/summary.json \
+          static-site/data/summary_history.json \
+          static-site/data/index/ \
+          static-site/data/hk-*.json \
+          static-site/data/a-stock-*.json \
+          static-site/data/global-*.json
   if git diff --cached --quiet; then
-    echo "✓ 快照 JSON 无变更，跳过 commit（仍 push 推未 push commit）"
+    echo "✓ 数据 JSON 无变更，跳过 commit（仍 push 推未 push commit）"
   else
     git commit -m "$INTRADAY_COMMIT_MSG"
     echo "✓ git commit 完成"

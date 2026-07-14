@@ -245,6 +245,8 @@ main { padding: 16px 24px; }
 .card-time-badge.lunch { color: #e6a23c; border-color: rgba(230,162,60,0.5); background: rgba(230,162,60,0.2); }
 .card-time-badge.pending { color: var(--text-3); border-color: var(--border-strong); }
 .card-time-badge.closed { color: var(--primary); border-color: var(--primary); background: color-mix(in srgb, var(--primary-bg) 82%, transparent); }
+/* 走势图大卡(.chart-card)右上角空旷，角标放回右上角；基础数据小卡(.card.kpi)保持右下角(右上更盖标题，右下是两害取其轻) */
+.chart-card .card-time-badge { top: 6px; right: 8px; bottom: auto; }
 /* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
 .chart-latest { color: var(--primary); font-weight: 600; background: var(--primary-bg); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 港股盘中实时标注（快照注入 _snap_intraday=true 时显示在图表标题旁） */
@@ -498,9 +500,11 @@ main { padding: 16px 24px; }
 }
 .cards.kpi-row { gap: 12px; }
 .card.kpi { min-width: 150px; padding: 12px 16px; flex: 1 1 150px; }
-.card.kpi .card-value { font-size: 24px; margin: 2px 0; }
+.card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; }
 .card.kpi .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 4px; right: 6px; max-width: 70%; }
-.card-sub { font-size: 12px; color: var(--text-4); }
+.card-sub { font-size: 12px; color: var(--text-4); white-space: nowrap; overflow: hidden; }
+/* 角标浮动在右下角，给 card-sub 预留右侧空间防止文字被角标遮挡 */
+.card.kpi.has-time-badge .card-sub { padding-right: 70px; }
 .tag.stale { background: #faad14; }
 
 .spark-grid {
@@ -528,6 +532,41 @@ main { padding: 16px 24px; }
 .spark-name { font-size: 13px; color: var(--text-1); font-weight: 500; }
 .pct-badge { font-size: 13px; font-weight: 600; }
 .spark-date { font-size: 11px; color: var(--text-4); margin-top: 2px; }
+
+/* === 当日分时图（嵌入 spark-cell，腾讯API直拉，盘中3分钟动态刷新）=== */
+/* 盘中动态值脉冲标注（阶段2）：badge/横幅/toggle旁绿点呼吸 + 3min 小字 */
+.dyn-pulse {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; color: var(--text-3); flex-shrink: 0;
+}
+.dyn-pulse-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #2e8b57;
+  animation: dyn-pulse-anim 1.6s ease-in-out infinite;
+}
+@keyframes dyn-pulse-anim {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(46,139,87,0.45); }
+  50% { opacity: 0.45; transform: scale(0.8); box-shadow: 0 0 0 4px rgba(46,139,87,0); }
+}
+@media (prefers-reduced-motion: reduce) { .dyn-pulse-dot { animation: none; } }
+.intraday-toggle {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; padding: 8px 14px; margin-bottom: 10px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-1); font-size: 13px; cursor: pointer; text-align: center;
+  transition: border-color 0.2s;
+}
+.intraday-toggle:hover { border-color: var(--border-strong); }
+/* 分时图容器：嵌入 spark-cell 内 spark-chart 下方 */
+.spark-intraday { width: 100%; height: 100px; margin-top: 4px; }
+.spark-intraday.collapsed { display: none; }
+.intraday-fail {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--text-3); text-align: center;
+}
+.intraday-notice {
+  padding: 6px 10px; margin-top: 8px; font-size: 12px;
+  color: #e6a23c; text-align: center;
+}
 
 .ov-2col {
   display: grid;
@@ -1676,13 +1715,17 @@ main { padding: 16px 24px; }
   .industry-grid { grid-template-columns: 1fr; gap: 10px; }
   .spark-cell { padding: 8px 10px; }
   .industry-grid .spark-cell .spark-chart { min-height: 100px; }
+  /* 分时图嵌入 spark-cell，移动端高度适配 */
+  .spark-intraday { height: 80px; }
   /* KPI 卡片 2 列（用 grid 避免 flex+calc 的 subpixel 换行问题）*/
   .cards.kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .card.kpi { min-width: 0; padding: 10px 12px; }
   .card.kpi .card-value { font-size: 20px; }
-  /* 盘中标注角标移动端更小，避免遮住 KPI 数值 */
+  /* 盘中标注角标移动端更小，避免遮住 KPI 数值；大卡(走势图)右上角，小卡(KPI)右下角 */
   .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 5px; right: 6px; }
+  .chart-card .card-time-badge { top: 5px; right: 6px; bottom: auto; }
   .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
+  .card.kpi.has-time-badge .card-sub { padding-right: 58px; }
   .ov-2col { grid-template-columns: 1fr; gap: 12px; }
   .ov-2col .chart-card { min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }

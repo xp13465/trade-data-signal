@@ -59,6 +59,7 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
 });
 
 function clearCharts() {
+  _stopIntradayRefresh();
   charts.forEach((c) => c && c.dispose());
   charts.length = 0;
   content.innerHTML = "";
@@ -1097,13 +1098,28 @@ function _healthDotHtml(h) {
   return ` <span class="health-dot health-${lvl}" data-tip="${tipEsc}" title="数据健康度：${label}"></span>`;
 }
 function applyCollectTime(ct, health) {
-  const _ct = ct || "";
+  _collectTimeBase = { ct: ct || "", health };
+  _renderCollectTime();
+}
+// 采集时间统一口径（阶段2）：盘中"HH:MM · 动态(3min)"（腾讯最近拉取时间），收盘"HH:MM · 收盘快照"。
+// 盘中优先显腾讯动态时间，无则回退 snap 采集时间；后缀让用户一眼区分动态 vs 收盘。
+function _renderCollectTime() {
+  const { ct, health } = _collectTimeBase;
   const dot = _healthDotHtml(health);
+  const _icon = _UPDATE_RULES_ICON;
+  if (!ct) {
+    document.querySelectorAll(".pc-collect-time,.h5-collect-time").forEach((el) => { el.innerHTML = ""; });
+    return;
+  }
+  const snap = state.intradaySnapshot;
+  const intraday = snap && snap.is_closed === false;
+  const timeStr = (intraday && _intradayDynamicTime) ? _intradayDynamicTime : ct;
+  const suffix = intraday ? " · 动态(3min)" : " · 收盘快照";
   document.querySelectorAll(".pc-collect-time").forEach((el) => {
-    el.innerHTML = _ct ? `数据采集时间：${_ct}${dot}${_UPDATE_RULES_ICON}` : "";
+    el.innerHTML = `数据采集时间：${timeStr}${suffix}${dot}${_icon}`;
   });
   document.querySelectorAll(".h5-collect-time").forEach((el) => {
-    el.innerHTML = _ct ? `${_ct}${dot}${_UPDATE_RULES_ICON}` : "";
+    el.innerHTML = `${timeStr}${suffix}${dot}${_icon}`;
   });
 }
 async function fetchCollectTime() {
@@ -1130,7 +1146,11 @@ function fetchIntradaySnapshot() {
 // 盘中标注角标：根据卡片数据日期 vs 快照判断时效，让用户一眼区分 714 实时 / 713 待收盘 / 收盘
 // - 盘中(snap.is_closed===false) 且 dataDate==snapDate(当日) -> "⏰ 盘中·HH:MM"(绿)
 // - 午休(snap.label 含"午休"，is_closed 仍 false) -> "⏰ 午休·HH:MM"(黄)，后端 label 区分盘中暂停
-// - 盘中但 dataDate 早于 snapDate(T-1或更早) -> "📍 待收盘·MM-DD"(灰)
+// - 盘中但 dataDate 早于 snapDate(非当日) -> 按是否滞后分级：
+//   · dataDate == prev_trading_day(上一交易日) -> "📍 待收盘·MM-DD"(灰，正常T+1)
+//   · dataDate < prev_trading_day -> "⚠ 数据滞后·MM-DD"(采集断了，非周末/节假日正常延迟)
+//   · 日历日差>15天(覆盖国庆7天+周末不误判) -> "⚠ 数据异常·MM-DD"
+//   · prev_trading_day 缺失 -> 兜底"待收盘"(不误报)
 // - 收盘后/无快照 -> "📍 收盘·MM-DD"(主题色)
 function getCardTimeBadge(dataDate, snap) {
   if (!dataDate) return "";
@@ -1148,6 +1168,19 @@ function getCardTimeBadge(dataDate, snap) {
       return `<span class="card-time-badge lunch">⏰ 午休·${hh}:${mm}</span>`;
     }
     return `<span class="card-time-badge intraday">⏰ 盘中·${hh}:${mm}</span>`;
+  }
+  // pending 分支：盘中但卡片数据非当日。用后端预算的 prev_trading_day 判断是否真滞后
+  const ptd = snap.prev_trading_day || "";
+  if (ptd && dataDate < ptd) {
+    // 严重滞后：日历日差>15天(覆盖国庆7天长假+周末，不误判节假日)
+    let severe = false;
+    if (dataDate.length === 8 && ptd.length === 8) {
+      const d1 = new Date(+dataDate.slice(0, 4), +dataDate.slice(4, 6) - 1, +dataDate.slice(6, 8));
+      const d2 = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
+      severe = (d2 - d1) / 86400000 > 15;
+    }
+    const txt = severe ? "⚠ 数据异常" : "⚠ 数据滞后";
+    return `<span class="card-time-badge pending">${txt}·${mmdd}</span>`;
   }
   return `<span class="card-time-badge pending">📍 待收盘·${mmdd}</span>`;
 }
@@ -1218,6 +1251,11 @@ function renderSummaryChips(s, snap) {
   if (snapShIdx && snapSameDay && (intraday || s.sh_pct == null)) {
     shPct = snapShIdx.pct_change;
     if (snapShIdx.price != null) shClose = snapShIdx.price;
+  }
+  // 盘中优先用腾讯动态值（与分时图/卡片badge同源，消除"分时图2%但卡片1%"矛盾）
+  if (intraday && _dynPct("sh") != null) {
+    shPct = _dynPct("sh");
+    if (_dynPrice("sh") != null) shClose = _dynPrice("sh");
   }
   const chips = [];
   // 上证 chip（涨红跌绿，硬编码语义色）
@@ -1292,19 +1330,22 @@ function renderSummaryChips(s, snap) {
 function renderIntradayChips(snap) {
   if (!snap || !snap.indices) return "";
   const mainCodes = [
-    { code: "sh000001", label: "上证" },
-    { code: "sz399001", label: "深成" },
-    { code: "sz399006", label: "创业板" },
-    { code: "sh000688", label: "科创50" },
+    { code: "sh000001", id: "sh", label: "上证" },
+    { code: "sz399001", id: "sz", label: "深成" },
+    { code: "sz399006", id: "cyb", label: "创业板" },
+    { code: "sh000688", id: "kc50", label: "科创50" },
   ];
   const chips = [];
-  for (const { code, label } of mainCodes) {
+  for (const { code, id, label } of mainCodes) {
     const idx = snap.indices.find((i) => i.code === code);
-    if (idx && idx.pct_change != null) {
-      const color = idx.pct_change >= 0 ? "#e6492e" : "#2e8b57";
-      const sign = idx.pct_change >= 0 ? "+" : "";
-      const ptStr = idx.price != null ? ` · ${Math.round(idx.price)}点` : "";
-      chips.push(`<span class="summary-chip" style="color:${color}">${label} ${sign}${idx.pct_change.toFixed(2)}%${ptStr}</span>`);
+    // 盘中优先用腾讯动态值（与分时图/卡片badge同源），无则回退snap
+    const pct = _dynPct(id) != null ? _dynPct(id) : (idx ? idx.pct_change : null);
+    const price = _dynPrice(id) != null ? _dynPrice(id) : (idx ? idx.price : null);
+    if (pct != null) {
+      const color = pct >= 0 ? "#e6492e" : "#2e8b57";
+      const sign = pct >= 0 ? "+" : "";
+      const ptStr = price != null ? ` · ${Math.round(price)}点` : "";
+      chips.push(`<span class="summary-chip" style="color:${color}">${label} ${sign}${pct.toFixed(2)}%${ptStr}</span>`);
     }
   }
   const chipsRow = chips.length ? `<div class="summary-chips">${chips.join("")}</div>` : "";
@@ -1331,6 +1372,471 @@ function renderIntradayChips(snap) {
   return chipsRow + topRow;
 }
 
+// ============ 当日分时图（腾讯分时API直拉 + 3分钟动态刷新）============
+// CORS 已确认：腾讯分时API access-control-allow-origin:*，前端可直拉。
+// 盘中每3分钟刷新分时走势；收盘后默认收起，点按钮按需展开。
+// 海外指数盘中无分时（时差），维持T+1现状不动态。
+
+// 指数ID -> 腾讯分时API code 映射（复用现有指数ID体系：sh/sz/hs300/cyb 等）
+const _INDEX_TO_TENCENT_MINUTE = {
+  sh: "sh000001", sz: "sz399001", hs300: "sh000300", sz50: "sh000016",
+  cyb: "sz399006", kc50: "sh000688", bj50: "bj899050",
+  csi500: "sh000905", csi1000: "sh000852",
+  hsi: "hkHSI", hstech: "hkHSTECH", hscei: "hkHSCEI",
+};
+// 指数ID -> 市场类型（cn=A股 9:30-11:30/13:00-15:00，hk=港股 9:30-12:00/13:00-16:00）
+const _INDEX_MARKET = {};
+["sh","sz","hs300","sz50","cyb","kc50","bj50","csi500","csi1000"].forEach((k) => _INDEX_MARKET[k] = "cn");
+["hsi","hstech","hscei"].forEach((k) => _INDEX_MARKET[k] = "hk");
+
+// 分时图展示的指数（11个：9 A股 + 2 港股，与 spark-grid 一一对应）
+const _INTRADAY_INDICES = [
+  { id: "sh", name: "上证指数" },
+  { id: "sz", name: "深证成指" },
+  { id: "hs300", name: "沪深300" },
+  { id: "sz50", name: "上证50" },
+  { id: "cyb", name: "创业板指" },
+  { id: "kc50", name: "科创50" },
+  { id: "bj50", name: "北证50" },
+  { id: "csi500", name: "中证500" },
+  { id: "csi1000", name: "中证1000" },
+  { id: "hsi", name: "恒生指数" },
+  { id: "hstech", name: "恒生科技" },
+];
+
+const INTRADAY_REFRESH_MS = 3 * 60 * 1000; // 3分钟
+const INTRADAY_MAX_FAILS = 3; // 连续失败3次暂停刷新
+
+// 分时fetch in-flight去重（同URL并发只发一次，复用Promise）
+const _inflightMinute = new Map();
+let _intradayFailCount = 0;
+let _intradayRefreshTimer = null;
+let _intradayLastFetch = 0;
+let _intradayActive = false;
+let _intradayRenderCtx = null; // { sparkGrid, snap }
+let _intradayVisBound = false;
+
+// ============ 盘中动态值统一（阶段2）：腾讯分时数据驱动卡片badge/横幅chips/采集时间 ============
+// 盘中所有"实时数值类"展示（分时图/卡片涨跌幅badge/横幅chips）同源，均由腾讯分时数据驱动（3分钟）。
+// snap（30分钟）退居后端职责：反哺日K+重算情绪分+收盘归档，不再驱动前端盘中数值展示。
+// _intradayDynamicPct: {sh:{pct,price}, sz:{...}} 腾讯最近一次成功拉取的动态值
+// _intradayDynamicTime: "HH:MM" 腾讯最近成功拉取时间（取上证最新分时点时间，无则空）
+let _intradayDynamicPct = {};
+let _intradayDynamicTime = "";
+let _dynamicBadgeIds = [];        // spark-grid 中可映射腾讯code的指数id列表（renderOverview 设置）
+let _bannerRenderCtx = null;      // {el, s, snap, type:"intraday"|"summary"} 横幅渲染上下文，刷新时复用
+let _collectTimeBase = { ct: "", health: null };
+
+// fetch腾讯分时API，解析返回 {name,price,preClose,pct,date,points:[{time,price,volume,amount}]}
+// code参数是项目内指数ID（sh/sz/cyb 等），内部映射到腾讯code（sh000001 等）。
+// 异常（fetch失败/解析失败/code!=0/空数据）返回null，调用方走降级。
+async function fetchTencentMinute(code) {
+  const tcCode = _INDEX_TO_TENCENT_MINUTE[code];
+  if (!tcCode) return null;
+  const url = "https://web.ifzq.gtimgs.cn/appstock/app/minute/query?code=" + tcCode;
+  const cached = _inflightMinute.get(url);
+  if (cached) return cached;
+  const p = (async () => {
+    try {
+      const resp = await fetch(url);
+      const json = await resp.json();
+      if (!json || json.code !== 0 || !json.data) return null;
+      const node = json.data[tcCode];
+      if (!node || !node.data || !node.data.data) return null;
+      const rawPts = node.data.data;
+      const date = node.data.date || "";
+      const points = [];
+      for (const line of rawPts) {
+        const parts = String(line).split(" ");
+        if (parts.length < 2) continue;
+        const hhmm = parts[0];
+        const time = hhmm.length === 4 ? hhmm.slice(0, 2) + ":" + hhmm.slice(2) : hhmm;
+        const price = parseFloat(parts[1]);
+        if (isNaN(price)) continue;
+        const volume = parts[2] ? parseInt(parts[2], 10) || 0 : 0;
+        const amount = parts[3] ? parseFloat(parts[3]) || 0 : 0;
+        points.push({ time, price, volume, amount });
+      }
+      if (!points.length) return null;
+      // qt: [1]=名称 [3]=当前价 [4]=昨收
+      const qt = node.qt && node.qt[tcCode];
+      const name = qt && qt[1] ? qt[1] : "";
+      const curPrice = qt && qt[3] ? parseFloat(qt[3]) : points[points.length - 1].price;
+      const preClose = qt && qt[4] ? parseFloat(qt[4]) : null;
+      const pct = preClose && curPrice ? ((curPrice - preClose) / preClose) * 100 : null;
+      return { name, price: curPrice, preClose, pct, date, points };
+    } catch (e) { return null; }
+  })();
+  _inflightMinute.set(url, p);
+  p.finally(() => _inflightMinute.delete(url));
+  return p;
+}
+
+// 从snap提取HH:MM时间（取sh000001的datetime末尾4位）
+function _snapTimeStr(snap) {
+  if (!snap || !snap.indices) return "";
+  const sh = snap.indices.find((i) => i.code === "sh000001");
+  if (!sh || !sh.datetime) return "";
+  return sh.datetime.slice(8, 10) + ":" + sh.datetime.slice(10, 12);
+}
+
+// 从snap获取指数preClose（snap.indices的code是sh000001等腾讯code）
+function _snapPreClose(snap, code) {
+  const tcCode = _INDEX_TO_TENCENT_MINUTE[code] || "";
+  const idx = snap && snap.indices ? snap.indices.find((i) => i.code === tcCode) : null;
+  return idx ? idx.pre_close : null;
+}
+
+// 取某指数的腾讯动态pct（无则null），供 badge/chips 复用
+function _dynPct(id) {
+  const d = _intradayDynamicPct[id];
+  return d && d.pct != null ? d.pct : null;
+}
+function _dynPrice(id) {
+  const d = _intradayDynamicPct[id];
+  return d && d.price != null ? d.price : null;
+}
+
+// 并行拉取多个指数的腾讯动态值（复用 fetchTencentMinute 的 in-flight 去重，不重复请求）。
+// 成功更新 _intradayDynamicPct/_intradayDynamicTime，返回 {results, ok}。
+async function _fetchDynamicPcts(ids) {
+  const valid = (ids || []).filter((id) => _INDEX_TO_TENCENT_MINUTE[id]);
+  if (!valid.length) return { results: {}, ok: false };
+  const pairs = await Promise.all(valid.map((id) => fetchTencentMinute(id).then((r) => [id, r])));
+  const results = {};
+  for (const [id, r] of pairs) {
+    if (r && r.pct != null) {
+      results[id] = r;
+      _intradayDynamicPct[id] = { pct: r.pct, price: r.price };
+      if (id === "sh" && r.points && r.points.length) {
+        const t = r.points[r.points.length - 1].time;
+        if (t) _intradayDynamicTime = t;
+      }
+    }
+  }
+  return { results, ok: Object.keys(results).length > 0 };
+}
+
+// 更新所有 spark-grid 卡片涨跌幅 badge 为腾讯动态值（无动态值时保持原值不闪烁，静默回退）
+function _applyDynamicToBadges(results) {
+  document.querySelectorAll(".pct-badge[data-spark-id]").forEach((el) => {
+    const id = el.getAttribute("data-spark-id");
+    const r = (results && results[id]) || _intradayDynamicPct[id];
+    if (!r || r.pct == null) return; // 静默回退：保持原值
+    if (!el.hasAttribute("data-snap-txt")) {
+      el.setAttribute("data-snap-txt", el.textContent);
+      el.setAttribute("data-snap-color", el.style.color || "");
+    }
+    const pct = r.pct;
+    const color = pct >= 0 ? "#e6492e" : "#2e8b57";
+    const sign = pct >= 0 ? "+" : "";
+    el.style.color = color;
+    el.textContent = `${sign}${pct.toFixed(2)}%`;
+    el.classList.add("dyn-updated");
+  });
+}
+
+// 重渲染横幅 chips（盘中用动态值覆盖指数chip）
+function _applyDynamicToChips(snap) {
+  if (!_bannerRenderCtx || !_bannerRenderCtx.el) return;
+  const host = _bannerRenderCtx.el.querySelector("#banner-chips-host");
+  if (!host) return;
+  const { s, type } = _bannerRenderCtx;
+  if (type === "intraday") {
+    host.innerHTML = renderIntradayChips(snap); // renderIntradayChips 内部优先读 _intradayDynamicPct
+  } else {
+    host.innerHTML = renderSummaryChips(s, snap);
+  }
+}
+
+// 更新横幅时间标签 + 采集时间后缀（盘中用腾讯时间，收盘用snap时间）
+function _applyDynamicToBannerTime(snap) {
+  if (_bannerRenderCtx && _bannerRenderCtx.el) {
+    const tl = _bannerRenderCtx.el.querySelector("#banner-time-label");
+    if (tl) {
+      const intraday = snap && snap.is_closed === false;
+      const _lunch = snap && snap.label && /午休/.test(snap.label);
+      const t = _intradayDynamicTime || _snapTimeStr(snap);
+      if (intraday && !_lunch) tl.textContent = `更新于 ${t}`;
+      else if (intraday && _lunch) tl.textContent = "13:00复牌";
+      else tl.textContent = `收盘快照 · ${t}`;
+    }
+  }
+  _renderCollectTime(); // 采集时间后缀随动态时间更新
+}
+
+// 一轮动态值刷新：拉取 + 应用到 badge/chips/时间（盘中调用）
+async function _refreshDynamicAll(snap) {
+  if (!snap || snap.is_closed !== false) return { results: {}, ok: false };
+  const ids = _dynamicBadgeIds && _dynamicBadgeIds.length
+    ? _dynamicBadgeIds
+    : _INTRADAY_INDICES.map((i) => i.id);
+  const { results } = await _fetchDynamicPcts(ids);
+  _applyDynamicToBadges(results);
+  _applyDynamicToChips(snap);
+  _applyDynamicToBannerTime(snap);
+  return { results, ok: Object.keys(results).length > 0 };
+}
+
+// 收盘：清空动态值缓存，badge/chips/采集时间恢复读 overview/snap 收盘值
+function _onMarketClosed() {
+  _intradayDynamicPct = {};
+  _intradayDynamicTime = "";
+  // badge 恢复原值（overview 的 pct_change）
+  document.querySelectorAll(".pct-badge.dyn-updated").forEach((el) => {
+    const txt = el.getAttribute("data-snap-txt");
+    const col = el.getAttribute("data-snap-color");
+    if (txt != null) el.textContent = txt;
+    if (col != null) el.style.color = col;
+    el.classList.remove("dyn-updated");
+  });
+  const snap = state.intradaySnapshot;
+  if (_bannerRenderCtx) {
+    _applyDynamicToChips(snap);
+    _applyDynamicToBannerTime(snap);
+    const p = _bannerRenderCtx.el.querySelector("#banner-pulse");
+    if (p) p.remove();
+  }
+  _renderCollectTime();
+}
+
+// 分时图拉取失败的降级提示
+function _renderIntradayFail(container, snapTime) {
+  if (!container || !container.isConnected) return;
+  const old = echarts.getInstanceByDom(container);
+  if (old) { old.dispose(); const i = charts.indexOf(old); if (i >= 0) charts.splice(i, 1); }
+  container.innerHTML = '<div class="intraday-fail">实时拉取失败' + (snapTime ? "·显示快照 " + snapTime : "") + "</div>";
+}
+
+// 渲染单个指数分时图。返回 Promise<boolean>（true=成功 false=失败）
+function _renderIntradayChart(container, code, preClose, snapTime) {
+  if (!container || !container.isConnected) return Promise.resolve(false);
+  return fetchTencentMinute(code).then((result) => {
+    if (!container.isConnected) return false;
+    if (!result || !result.points || !result.points.length) {
+      _renderIntradayFail(container, snapTime);
+      return false;
+    }
+    // 复用本次拉取填充动态值缓存（badge/chips/采集时间共用，避免重复请求）
+    if (result.pct != null) {
+      _intradayDynamicPct[code] = { pct: result.pct, price: result.price };
+      if (code === "sh" && result.points && result.points.length) {
+        const t = result.points[result.points.length - 1].time;
+        if (t) _intradayDynamicTime = t;
+      }
+    }
+    // dispose 旧实例避免内存泄漏
+    const old = echarts.getInstanceByDom(container);
+    if (old) { old.dispose(); const i = charts.indexOf(old); if (i >= 0) charts.splice(i, 1); }
+    container.innerHTML = "";
+    const pc = preClose || result.preClose;
+    const lastPrice = result.points[result.points.length - 1].price;
+    const up = pc != null ? lastPrice >= pc : true;
+    const color = up ? "#e6492e" : "#2e8b57"; // 红涨绿跌（中国风）
+    const times = result.points.map((p) => p.time);
+    const prices = result.points.map((p) => p.price);
+    // 午休边界：找最后午前点和首个午后点，markArea标注午休
+    let morningLast = null, afternoonFirst = null;
+    for (const p of result.points) {
+      if (p.time < "13:00") morningLast = p.time;
+      else if (!afternoonFirst) { afternoonFirst = p.time; break; }
+    }
+    const markAreaData = (morningLast && afternoonFirst && morningLast !== afternoonFirst)
+      ? [[{ xAxis: morningLast }, { xAxis: afternoonFirst }]] : [];
+    const chart = echarts.init(container);
+    chart.setOption(withTheme({
+      grid: { left: 38, right: 6, top: 8, bottom: 18 },
+      xAxis: {
+        type: "category", data: times, boundaryGap: false,
+        axisLabel: { interval: Math.max(1, Math.floor(times.length / 4)), fontSize: 10 },
+      },
+      yAxis: {
+        type: "value", scale: true, splitNumber: 2,
+        axisLabel: { fontSize: 10, formatter: (v) => v.toFixed(0) },
+      },
+      tooltip: {
+        trigger: "axis",
+        formatter: (p) => p[0] ? p[0].axisValue + "<br/>" + (p[0].value != null ? Number(p[0].value).toFixed(2) : "-") : "",
+      },
+      series: [{
+        type: "line", data: prices, symbol: "none", connectNulls: false,
+        lineStyle: { color, width: 1.2 }, areaStyle: { color, opacity: 0.1 },
+        // 昨收基准横虚线
+        markLine: pc != null ? {
+          symbol: "none", silent: true,
+          lineStyle: { type: "dashed", color: cssVar("--text-3"), width: 1 },
+          data: [{ yAxis: pc, label: { formatter: "昨收", position: "end", fontSize: 9, color: cssVar("--text-3") } }],
+        } : undefined,
+        // 午休灰色横条标注
+        markArea: markAreaData.length ? {
+          silent: true, itemStyle: { color: "rgba(128,128,128,0.08)" },
+          label: { show: true, position: "insideTop", formatter: "午休", fontSize: 9, color: cssVar("--text-4") },
+          data: markAreaData,
+        } : undefined,
+      }],
+    }));
+    charts.push(chart);
+    return true;
+  }).catch(() => { _renderIntradayFail(container, snapTime); return false; });
+}
+
+// 渲染分时图到 spark-cell 内的 .spark-intraday 容器（仅渲染可见容器）
+function _renderIntradayInSparkCells(sparkGrid, snap) {
+  if (!sparkGrid || !sparkGrid.isConnected) return;
+  const snapTime = _snapTimeStr(snap);
+  const containers = sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]:not(.collapsed)");
+  containers.forEach((el) => {
+    const code = el.getAttribute("data-intraday-code");
+    if (!_INDEX_TO_TENCENT_MINUTE[code]) return;
+    const preClose = _snapPreClose(snap, code);
+    _renderIntradayChart(el, code, preClose, snapTime);
+  });
+}
+
+// 分时图主入口：分时图嵌入 spark-cell 内，全局切换按钮控制显隐
+function renderIntradaySection(sparkGrid, snap) {
+  const isClosed = !snap || snap.is_closed !== false;
+  // 默认展开：盘中=true 盘后=false；localStorage 记忆覆盖
+  let lsExpanded = null;
+  try { lsExpanded = localStorage.getItem("intraday-chart-expanded"); } catch (e) {}
+  const defaultExpanded = isClosed ? false : true;
+  const expanded = lsExpanded === null ? defaultExpanded : lsExpanded === "1";
+
+  // 全局切换按钮（控制所有 .spark-intraday 显隐）
+  const toggle = document.createElement("button");
+  toggle.className = "intraday-toggle" + (expanded ? " expanded" : "");
+  const pulseHtml = isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>3min</span>';
+  toggle.innerHTML = (expanded ? "📊 收起分时图" : "📊 显示分时图") + pulseHtml;
+  sparkGrid.parentElement.insertBefore(toggle, sparkGrid);
+
+  toggle.onclick = () => {
+    const nowExpanded = !toggle.classList.contains("expanded");
+    toggle.classList.toggle("expanded", nowExpanded);
+    toggle.innerHTML = (nowExpanded ? "📊 收起分时图" : "📊 显示分时图") +
+      (isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>3min</span>');
+    sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]").forEach((el) => {
+      el.classList.toggle("collapsed", !nowExpanded);
+      // 展开时若容器为空才渲染（避免重复渲染）
+      if (nowExpanded && !el.querySelector("div")) {
+        const code = el.getAttribute("data-intraday-code");
+        if (code && _INDEX_TO_TENCENT_MINUTE[code]) {
+          const preClose = _snapPreClose(snap, code);
+          const snapTime = _snapTimeStr(snap);
+          _renderIntradayChart(el, code, preClose, snapTime);
+        }
+      }
+    });
+    try { localStorage.setItem("intraday-chart-expanded", nowExpanded ? "1" : "0"); } catch (e) {}
+  };
+
+  // 初始状态：collapsed 类控制显隐
+  if (!expanded) {
+    sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]").forEach((el) => el.classList.add("collapsed"));
+  } else {
+    _renderIntradayInSparkCells(sparkGrid, snap);
+  }
+
+  // 盘中启动3分钟动态刷新（无论展开与否，badge/chips 都需刷新）
+  if (!isClosed) {
+    _intradayRenderCtx = { sparkGrid, snap };
+    _startIntradayRefresh();
+  }
+
+  // 连续失败暂停提示（隐藏，3次失败时显示）
+  const notice = document.createElement("div");
+  notice.className = "intraday-notice";
+  notice.textContent = "⚠ 实时拉取连续失败，已暂停刷新。可刷新页面重试。";
+  notice.style.display = "none";
+  sparkGrid.parentElement.insertBefore(notice, sparkGrid.nextSibling);
+}
+
+// 启动3分钟动态刷新（setTimeout递归，避免tab隐藏时堆积）
+function _startIntradayRefresh() {
+  _stopIntradayRefresh();
+  _intradayActive = true;
+  _intradayFailCount = 0;
+  _intradayLastFetch = Date.now();
+  _scheduleNextRefresh();
+  if (!_intradayVisBound) {
+    _intradayVisBound = true;
+    document.addEventListener("visibilitychange", _onIntradayVisChange);
+  }
+}
+
+// 停止刷新（切tab/收盘时调用）
+function _stopIntradayRefresh() {
+  _intradayActive = false;
+  _intradayRenderCtx = null;
+  _bannerRenderCtx = null; // 横幅已随 tab 切换移除，置空避免操作已分离 DOM
+  if (_intradayRefreshTimer) { clearTimeout(_intradayRefreshTimer); _intradayRefreshTimer = null; }
+}
+
+// 调度下次刷新（不可见时跳过但重新调度，不堆积）
+function _scheduleNextRefresh() {
+  if (!_intradayActive) return;
+  if (_intradayFailCount >= INTRADAY_MAX_FAILS) return;
+  if (_intradayRefreshTimer) clearTimeout(_intradayRefreshTimer);
+  _intradayRefreshTimer = setTimeout(() => {
+    _intradayRefreshTimer = null;
+    if (!_intradayActive) return;
+    if (document.hidden) { _scheduleNextRefresh(); return; } // 页面不可见时跳过
+    _doIntradayRefresh();
+  }, INTRADAY_REFRESH_MS);
+}
+
+// 执行一轮刷新：并行refetch所有图表，跟踪成功/失败
+async function _doIntradayRefresh() {
+  if (!_intradayRenderCtx || !_intradayRenderCtx.sparkGrid) { _scheduleNextRefresh(); return; }
+  const ctx = _intradayRenderCtx;
+  _intradayLastFetch = Date.now();
+  // 刷新snap检查是否收盘（2s超时避免阻塞）
+  _intradaySnapPromise = null;
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 2000))]); } catch (e) {}
+  const curSnap = state.intradaySnapshot || ctx.snap;
+  if (curSnap && curSnap.is_closed === true) {
+    _onMarketClosed(); // 先恢复 badge/chips/时间为收盘态（需 _bannerRenderCtx 未置空）
+    _stopIntradayRefresh();
+    return;
+  }
+  ctx.snap = curSnap;
+  const snapTime = _snapTimeStr(curSnap);
+  // 并发：动态值拉取（badge/chips/时间用）与分时图重绘
+  // （共用 fetchTencentMinute in-flight 去重，11 指数只发一次请求，不重复）
+  const dynP = _refreshDynamicAll(curSnap);
+  const promises = [];
+  const chartEls = ctx.sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]:not(.collapsed)");
+  chartEls.forEach((chartEl) => {
+    const code = chartEl.getAttribute("data-intraday-code");
+    const preClose = _snapPreClose(curSnap, code);
+    promises.push(_renderIntradayChart(chartEl, code, preClose, snapTime));
+  });
+  const results = await Promise.all(promises);
+  const dynResult = await dynP; // 确保 badge/chips 已更新
+  // 判断成功：有分时图渲染成功 OR 动态值拉取成功（分时图全收起时靠动态值判断）
+  const anyOk = results.length > 0 ? results.some((r) => r) : (dynResult && dynResult.ok);
+  if (anyOk) {
+    _intradayFailCount = 0;
+  } else {
+    _intradayFailCount++;
+    if (_intradayFailCount >= INTRADAY_MAX_FAILS) {
+      const notice = ctx.sparkGrid.parentElement.querySelector(".intraday-notice");
+      if (notice) notice.style.display = "";
+      return; // 暂停刷新，不再调度
+    }
+  }
+  _scheduleNextRefresh();
+}
+
+// visibilitychange：切回tab且距上次>3分钟时立即刷新
+function _onIntradayVisChange() {
+  if (document.hidden || !_intradayActive) return;
+  if (Date.now() - _intradayLastFetch >= INTRADAY_REFRESH_MS) {
+    _doIntradayRefresh();
+  } else if (!_intradayRefreshTimer) {
+    _scheduleNextRefresh();
+  }
+}
+
 async function renderOverview() {
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
   const r = _getCachedOverview() || await fetchJSON("/api/overview");
@@ -1340,6 +1846,7 @@ async function renderOverview() {
   // 盘中标注：等快照就绪（最多 1.5s），让每张卡片角标判断 714 实时 vs 713 待收盘
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((res) => setTimeout(res, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
+  _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
 
   // ---- 0. 一句话总结横幅 ----
@@ -1365,15 +1872,33 @@ async function renderOverview() {
           ? `${parseInt(snapDate.substring(4, 6), 10)}月${parseInt(snapDate.substring(6, 8), 10)}日` : "";
         const hhmm = snapShIdx && snapShIdx.datetime ? `${snapShIdx.datetime.slice(8, 10)}:${snapShIdx.datetime.slice(10, 12)}` : "";
         const _lunch = snap && snap.label && /午休/.test(snap.label);
-        const titleText = `📊 ${datePrefix} ${_lunch ? "午休盘中" : "盘中实时"} A股`.replace(/\s+/g, " ").trim();
-        const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? snap.label : "盘中实时小结（未收盘，当日数据还会变化）"}</span>`;
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}${hhmm ? `<span class="summary-time-label">${hhmm}</span>` : ""}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${renderIntradayChips(snap)}`;
+        const titleText = `📊 ${datePrefix} ${_lunch ? "午休" : "盘中动态"} A股`.replace(/\s+/g, " ").trim();
+        const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
+        const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
+        const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>3min</span>';
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
+        _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
         const _lunch2 = snap && snap.label && /午休/.test(snap.label);
-        const snapBadge = snap && snap.indices
-          ? `<span class="summary-snap-tag" style="color:${snap.is_closed ? "var(--text-3)" : "#e6a23c"}">${snap.is_closed ? "📍 收盘快照" : _lunch2 ? `⏰ ${snap.label}` : "⏰ 盘中实时小结（未收盘，当日数据还会变化）"}</span>`
-          : "";
+        const _intraday2 = snap && snap.is_closed === false;
+        const _tTime2 = _intradayDynamicTime || _snapTimeStr(snap);
+        let snapBadge = "";
+        if (snap && snap.indices) {
+          if (snap.is_closed) {
+            snapBadge = `<span class="summary-snap-tag" style="color:var(--text-3)">📍 收盘小结</span>`;
+          } else if (_lunch2) {
+            snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ 午休小结</span>`;
+          } else {
+            snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ 盘中动态小结</span>`;
+          }
+        }
+        let _tLabel2;
+        if (snap && snap.is_closed) _tLabel2 = `收盘快照 · ${_tTime2}`;
+        else if (_lunch2) _tLabel2 = "13:00复牌";
+        else if (_intraday2) _tLabel2 = `更新于 ${_tTime2}`;
+        else _tLabel2 = (s.generated_at || "").replace(/^\d+月\d+日\s*/, "").trim();
+        const _pulse2 = _intraday2 ? '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>3min</span>' : "";
         const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
         const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
         const genAt = s.generated_at || "";
@@ -1382,10 +1907,10 @@ async function renderOverview() {
         if (!datePrefix && s.date && s.date.length === 8) {
           datePrefix = `${parseInt(s.date.substring(4, 6), 10)}月${parseInt(s.date.substring(6, 8), 10)}日`;
         }
-        const timeLabel = genAt.replace(/^\d+月\d+日\s*/, "").trim();
         const titleText = `📊 ${datePrefix} A股${s.sentiment_label || ""}`.replace(/\s+/g, " ").trim();
         const tagRow = (fgBadge || freezeBadge) ? `<div class="summary-tags">${fgBadge}${freezeBadge}</div>` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label">${timeLabel}</span><button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${tagRow}${renderSummaryChips(s, snap)}`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${tagRow}<div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
       const histBtn = banner.querySelector(".summary-history-btn");
@@ -1458,7 +1983,7 @@ async function renderOverview() {
     const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
     const sentTag = k.id === "a_sentiment" || k.id === "cross_market" ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
     const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
-    let sub = k.sub ? `${k.sub} · ${k.date}` : (k.date || "");
+    let sub = k.sub || "";
     let valueHtml = k.value;
     if (k.id === "a_volume_ratio") {
       const sig = k.signal || "";
@@ -1467,12 +1992,12 @@ async function renderOverview() {
       let sigCls = "";
       if (isFangliang) sigCls = "fangliang";
       else if (isSuoliang) sigCls = "suoliang";
-      const sigHtml = sig ? ` <span class="tag ${sigCls}">${sig}</span>` : "";
+      const sigHtml = sig ? ` <span class="tag ${sigCls}" title="${sig}">${sig}</span>` : "";
       valueHtml = k.value + sigHtml;
-      sub = sig + " · " + (k.date || "");
+      sub = sig || "";
     }
     const _badge = getCardTimeBadge(k.date, snap);
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   content.appendChild(cards);
 
@@ -1480,8 +2005,10 @@ async function renderOverview() {
   const grid = document.createElement("div");
   grid.className = "spark-grid";
   content.appendChild(grid);
-  for (const [, idx] of Object.entries(r.indices_sparkline || {})) {
+  const _sparkDynIds = [];
+  for (const [sparkId, idx] of Object.entries(r.indices_sparkline || {})) {
     if (!idx.closes || !idx.closes.length) continue;
+    if (_INDEX_TO_TENCENT_MINUTE[sparkId]) _sparkDynIds.push(sparkId);
     const up = (idx.pct_change || 0) >= 0;
     const color = up ? "#e6492e" : "#2e8b57";
     const cell = document.createElement("div");
@@ -1490,9 +2017,10 @@ async function renderOverview() {
     cell.innerHTML = `
       <div class="spark-head">
         <span class="spark-name">${idx.name}</span>
-        <span class="pct-badge" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
+        <span class="pct-badge" data-spark-id="${sparkId}" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
       </div>
       <div class="spark-chart"></div>
+      ${_INDEX_TO_TENCENT_MINUTE[sparkId] ? '<div class="spark-intraday" data-intraday-code="' + sparkId + '"></div>' : ''}
       <div class="spark-date">${idx.last_date || ""}</div>`;
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
@@ -1511,6 +2039,13 @@ async function renderOverview() {
     }));
     charts.push(sc);
   }
+  _dynamicBadgeIds = _sparkDynIds;
+
+  // ---- 1b. 当日分时图（嵌入 spark-cell，腾讯分时API直拉，盘中3分钟动态刷新）----
+  renderIntradaySection(grid, snap);
+  // 盘中：立即拉取腾讯动态值刷新卡片badge/横幅chips/采集时间
+  // （与分时图共用 fetchTencentMinute in-flight 去重，11 指数只发一次请求不重复）
+  if (snap && snap.is_closed === false) _refreshDynamicAll(snap);
 
   // ---- 2. 首屏两列：左=恐贪指数+情绪分，右=冰点日+买卖点 ----
   const ov2ColA = document.createElement("div");
@@ -2788,16 +3323,19 @@ async function renderSentiment() {
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
+  // 拉取盘中快照，供情绪大卡右上角角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+  const snap = state.intradaySnapshot;
 
   // 冰点/过热热力图（一眼全局，放最前面）
-  renderSentimentHeatmap(r);
+  renderSentimentHeatmap(r, snap);
 
   // 恐贪指数（市场温度计）
   if (r.fear_greed && r.fear_greed.length) {
     const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) + latestSuffix(data) : ""}`;
-    valueChartWithSignals(title, data, [], {
+    const chart = valueChartWithSignals(title, data, [], {
       visualMap: {
         show: false,
         pieces: [
@@ -2810,6 +3348,7 @@ async function renderSentiment() {
         dimension: 1,
       },
     });
+    addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
     appendComponentsBlock(data);
   }
 
@@ -2817,7 +3356,8 @@ async function renderSentiment() {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
-    valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+    const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+    addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
     appendComponentsBlock(data);
   }
   // 细分指数：散户关注度排序（小盘/成长优先）
@@ -2834,7 +3374,7 @@ async function renderSentiment() {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
       const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
-      valueChartWithSignals(title, data,
+      const chart = valueChartWithSignals(title, data,
         sig[key] || [], {
           visualMap: {
             show: false,
@@ -2842,6 +3382,7 @@ async function renderSentiment() {
             dimension: 1,
           },
         }, stats[key], strat[key]);
+      addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
       appendComponentsBlock(data);
     }
   }
@@ -2849,13 +3390,14 @@ async function renderSentiment() {
     const data = r.cross_market.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
-    valueChartWithSignals(title, data, sig.cross_market || [], {
+    const chart = valueChartWithSignals(title, data, sig.cross_market || [], {
       visualMap: {
         show: false,
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market);
+    addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
     appendComponentsBlock(data);
   }
   // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
@@ -2863,7 +3405,7 @@ async function renderSentiment() {
 }
 
 // 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=红(冰点≤20)/绿(过热>80)/灰(中性)
-function renderSentimentHeatmap(r) {
+function renderSentimentHeatmap(r, snap) {
   const idxNames = [
     { key: 'sentiment_sz50', label: '上证50' },
     { key: 'sentiment_hs300', label: '沪深300' },
@@ -2926,6 +3468,8 @@ function renderSentimentHeatmap(r) {
   content.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
+  // 热力图为单一大卡容器，右上角加盘中角标（日期取最新一日）
+  addCardTimeBadge(div, dates.length ? dates[dates.length - 1] : "", snap);
 
   // 日期标签：上限 10 个均匀采样（i % step === 0），避免全历史数百日期在窄屏 45° 旋转重叠
   const labelStep = Math.max(1, Math.ceil(dates.length / 10));
@@ -4337,12 +4881,20 @@ function updateRulesContentHtml() {
     '<div class="rule-section">' +
       '<h4>⏱️ 各数据时效</h4>' +
       '<ul class="ur-list">' +
-        '<li>📈 <b>A股指数涨跌幅/热点板块/一句话总结</b>：实时（秒级，快照采）</li>' +
+        '<li>📈 <b>A股指数涨跌幅/热点板块/一句话总结</b>：盘中前端动态拉取腾讯分时数据（约3分钟刷新）；30分钟服务器快照仅用于收盘归档与情绪分计算</li>' +
         '<li>🇭🇰 <b>港股指数（恒生/恒生科技/国企）</b>：盘中实时快照（9:30-16:00），16:35 补完整收盘 OHLC</li>' +
         '<li>🇺🇸 <b>美股指数</b>：北京时差晚 21:30 开盘，A 股交易日看美股最新是 T-1 或 T-2（跨周末），属正常</li>' +
         '<li>📊 <b>指数历史走势 OHLC</b>：T+1（申万/baostock 收盘后次日补全）</li>' +
         '<li>😐 <b>恐贪指数 / per-index 情绪分</b>：快照反哺后当日可用，否则停 T-1</li>' +
         '<li>📋 <b>A股综合情绪分</b>：当日（mootdx 实时算）</li>' +
+      '</ul>' +
+    '</div>' +
+    '<div class="rule-section">' +
+      '<h4>🔄 盘中动态值说明</h4>' +
+      '<ul class="ur-list">' +
+        '<li>盘中：卡片涨跌幅、横幅指标 chips、分时图均为前端动态拉取腾讯分时数据，约3分钟刷新，三处数值同源一致</li>' +
+        '<li>30分钟服务器快照仅用于收盘归档与情绪分计算，不直接展示盘中数值</li>' +
+        '<li>收盘后：切换为服务器收盘快照，停止动态更新</li>' +
       '</ul>' +
     '</div>' +
     '<div class="rule-section">' +

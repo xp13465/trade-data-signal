@@ -462,15 +462,22 @@ def _industry_heatmap():
             continue
         latest = rows[0]
         pct_1d = latest["pct_change"]
-        # 近 5 日累计：用 close 算 (latest / close_5d_ago - 1) * 100
+        # 近 5 日累计：优先用 close 算 (latest / close_5d_ago - 1) * 100；
+        # 盘中反哺行 close=NULL 时改用近 5 日 pct_change 累乘（实时累计收益）。
         pct_5d = None
-        # 行业盘中反哺只写 pct_change（close=NULL），close 缺时不算 pct_5d，前端兼容只显 pct_1d
         if latest["close"]:
             if len(rows) >= 6 and rows[5]["close"]:
                 pct_5d = (latest["close"] / rows[5]["close"] - 1) * 100
             elif len(rows) >= 2 and rows[-1]["close"]:
                 # 不足 6 个交易日，用最早可用的算（标注实际天数）
                 pct_5d = (latest["close"] / rows[-1]["close"] - 1) * 100
+        elif len(rows) >= 5:
+            # 盘中 close=NULL：用近 5 日 pct_change 累乘算累计收益
+            # rows[0..4] = 今日(盘中) + 前4日，累乘 = 5日累计涨跌幅
+            cum = 1.0
+            for r in rows[:5]:
+                cum *= (1 + (r["pct_change"] or 0) / 100)
+            pct_5d = (cum - 1) * 100
         out.append({
             "id": iid,
             "name": idx["name"],
@@ -1065,7 +1072,7 @@ def intraday_snapshot():
     snap = load_latest_snapshot()
     if snap is None:
         return {"collected_at": None, "is_closed": True, "label": "暂无快照",
-                "indices": [], "industries": []}
+                "prev_trading_day": "", "indices": [], "industries": []}
     return snap
 
 
