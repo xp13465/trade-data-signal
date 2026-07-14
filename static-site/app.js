@@ -1392,7 +1392,7 @@ function renderDataHealthBanner(r, snap) {
   else if (hasStale) wrapCls.push("warn");
   if (collapsed) wrapCls.push("collapsed");
   const chips = sources.map((s) =>
-    `<span class="dhb-chip ${s.cls}" title="${s.hint || ""}">${s.name}<span class="dhb-val">${s.text}</span></span>`
+    `<span class="dhb-chip ${s.cls}" data-tip="${s.hint || ""}">${s.name}<span class="dhb-val">${s.text}</span></span>`
   ).join("");
   const summary = hasSevere ? `🚨 ${staleCount}项异常` : hasStale ? `⚠ ${staleCount}项滞后` : "✓ 全部正常";
   return (
