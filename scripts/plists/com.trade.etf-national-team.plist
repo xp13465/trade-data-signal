@@ -18,9 +18,8 @@
 	</array>
 	<key>RunAtLoad</key>
 	<false/>
-	<!-- 每日 20:07 跑：SSE/SZSE ETF 每日份额当日晚间 ~18:00-20:00 才发布，
-	     20:07 错开 backfill-evening 的 20:00 槽，且确保份额已出。
-	     采集器内置 6 天回填窗口，即使当日份额滞后，次日跑也会补上。 -->
+	<!-- 每日 20:07 跑：SSE/SZSE ETF 每日份额为 T+1 发布，实测 22:06 仍无当日数据（源端常深夜或次日才出）。
+	     20:07 错开 backfill-evening 的 20:00 槽。采集器内置 6 天回填窗口，当日份额滞后时靠次日跑补上。 -->
 	<key>StartCalendarInterval</key>
 	<dict>
 		<key>Hour</key>

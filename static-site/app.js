@@ -1261,10 +1261,13 @@ function getCardTimeBadge(dataDate, snap) {
     }
     const cls = severe ? "t1-severe" : "t1-stale";
     const txt = severe ? "🚨 异常" : "⚠ 滞后";
-    return `<span class="card-time-badge ${cls}">${txt}·${mmdd}</span>`;
+    const ttl = severe
+      ? "严重滞后(>15天),可能采集异常,请反馈"
+      : "该指标公开平台已更新但我们未采到,属异常滞后,请反馈";
+    return `<span class="card-time-badge ${cls}" title="${ttl}">${txt}·${mmdd}</span>`;
   }
   // 正常T+1：dataDate==prev_trading_day（数据源盘后T+1公布，公开平台也才到这个日期）
-  return `<span class="card-time-badge t1">📅 T+1·${mmdd}</span>`;
+  return `<span class="card-time-badge t1" title="T+1数据源盘后次日公布,15:30收盘后显示昨日属正常,次日采集后更新当日。详情见顶部数据时效栏">📅 T+1·${mmdd}</span>`;
 }
 // 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
 // 同时加 has-time-badge 类，CSS 据此给标题预留 padding-right 防角标压文字
@@ -1305,17 +1308,17 @@ function _buildHealthSources(r, snap) {
   const shIdx = snap && snap.indices ? snap.indices.find((i) => i.code === "sh000001") : null;
   const shDate = shIdx ? (shIdx.datetime || "").slice(0, 8) : "";
   if (intraday && shDate) {
-    sources.push({ name: "A股", cls: "intraday", text: "✓ 实时" });
+    sources.push({ name: "A股", cls: "intraday", text: "✓ 实时", hint: "沪深京A股指数实时,盘中每30秒刷新,15:00收盘后定格" });
   } else {
-    sources.push({ name: "A股", cls: "closed", text: `📍 收盘·${mmdd(shDate || (r && r.date) || "")}` });
+    sources.push({ name: "A股", cls: "closed", text: `📍 收盘·${mmdd(shDate || (r && r.date) || "")}`, hint: "沪深京A股指数,收盘后定格为当日收盘价" });
   }
   // 港股指数（实时源，盘中 hkHSI.is_closed===false）
   const hkIdx = snap && snap.indices ? snap.indices.find((i) => i.code === "hkHSI") : null;
   const hkDate = hkIdx ? (hkIdx.datetime || "").slice(0, 8) : "";
   if (hkIdx && hkIdx.is_closed === false) {
-    sources.push({ name: "港股", cls: "intraday", text: "✓ 实时" });
+    sources.push({ name: "港股", cls: "intraday", text: "✓ 实时", hint: "恒生指数实时,港股交易时段(9:30-16:00)刷新" });
   } else {
-    sources.push({ name: "港股", cls: "closed", text: `📍 收盘·${mmdd(hkDate)}` });
+    sources.push({ name: "港股", cls: "closed", text: `📍 收盘·${mmdd(hkDate)}`, hint: "恒生指数,港股收盘后定格" });
   }
   // T+1 指标：从 overview.today.metrics 提取最新日期
   const metrics = (r && r.today && r.today.metrics) || [];
@@ -1323,7 +1326,7 @@ function _buildHealthSources(r, snap) {
   const margin = findM("a_fund_margin");
   if (margin && margin.date) {
     const f = _dataFreshness(margin.date, ptd);
-    sources.push({ name: "两融", cls: f.cls, text: f.text });
+    sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布,次日开盘前更新当日" });
   }
   // 北向资金 2024-08 起源端停更。停≤30天提示用户，>30天长期停更不再提醒（避免长期挂红条烦扰）。
   // 通用规则：任何源端停更的数据源均按此30天口径（与 isStaleMetric 同源日期差逻辑）。
@@ -1333,22 +1336,44 @@ function _buildHealthSources(r, snap) {
     const dL = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
     const stoppedDays = Math.round((dL - dN) / 86400000);
     if (stoppedDays > 0 && stoppedDays <= 30) {
-      sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}` });
+      sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}`, hint: "北向资金2024-08起源端停更,显示为停更前最后日期" });
     }
   }
   // 成交额/涨停数（intraday 源 metrics，盘中实时）
   const amt = findM("a_amount");
   if (amt && amt.date) {
-    if (intraday) sources.push({ name: "成交/涨停", cls: "intraday", text: "✓ 实时" });
-    else { const f = _dataFreshness(amt.date, ptd); sources.push({ name: "成交/涨停", cls: f.cls, text: f.text }); }
+    if (intraday) sources.push({ name: "成交/涨停", cls: "intraday", text: "✓ 实时", hint: "成交额/涨停数盘中实时(东财板池),收盘后定格" });
+    else { const f = _dataFreshness(amt.date, ptd); sources.push({ name: "成交/涨停", cls: f.cls, text: f.text, hint: "成交额/涨停数,收盘后定格" }); }
   }
   // 综合情绪分
   const scores = (r && r.today && r.today.scores) || {};
   const aSent = scores.a_sentiment;
   if (aSent && aSent.date) {
     const f = _dataFreshness(aSent.date, ptd);
-    sources.push({ name: "情绪分", cls: f.cls, text: f.text });
+    sources.push({ name: "情绪分", cls: f.cls, text: f.text, hint: "综合情绪分基于各指标计算,随依赖指标更新而更新" });
   }
+  // === T+1 补充源：多为盘后次日发布。优先从 today.metrics / indices_sparkline 取最新日期分级；
+  //   overview 未暴露的取不到 date 时显示该源预估时点（像追剧有预期），不跳过。
+  const spark = (r && r.indices_sparkline) || {};
+  const EXTRA = [
+    { name: "商品", mid: "gold", hint: "黄金/原油等商品期货T+1,源端(新浪期货)次日盘后发布,15:30收盘后显示昨日属正常,次日盘后更新当日", def: "📅 次日盘后" },
+    { name: "国债", mid: "cn10y", hint: "国债收益率T+1,中债/美债盘后次日发布,美债更滞后(常停T-3)", def: "📅 次日盘后" },
+    { name: "龙虎榜", mid: "lhb_count", hint: "龙虎榜T+1,东财盘后次日发布,当日18点后更新当日", def: "📅 当日18点后" },
+    { name: "期货持仓", mid: null, hint: "CFFEX期货机构持仓T+1,次日盘后发布,次日20:00后更新当日", def: "📅 次日20点后" },
+    { name: "ETF国家队", mid: null, hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日", def: "📅 次日22点+" },
+    { name: "QVIX", mid: "a_qvix_300", hint: "QVIX期权波动率指数T+1,源端盘后次日发布", def: "📅 次日盘后" },
+    { name: "红利指数", iid: "csi_div", hint: "红利指数T+1,中证指数公司盘后次日发布", def: "📅 次日盘后" },
+    { name: "美股", iid: "us_dji", hint: "美股指数时区滞后,美东21:30开盘(北京),次日晨才出当日收盘,当前显示T-1属正常", def: "📅 次日晨(T-1)" },
+  ];
+  EXTRA.forEach((cfg) => {
+    let dateStr = "";
+    if (cfg.mid) { const m = findM(cfg.mid); if (m && m.date) dateStr = m.date; }
+    else if (cfg.iid) { const sp = spark[cfg.iid]; if (sp && sp.last_date) dateStr = sp.last_date; }
+    let cls, text;
+    if (dateStr) { const f = _dataFreshness(dateStr, ptd); cls = f.cls; text = f.text; }
+    else { cls = "t1"; text = cfg.def; }
+    sources.push({ name: cfg.name, cls, text, hint: cfg.hint });
+  });
   return sources;
 }
 function renderDataHealthBanner(r, snap) {
@@ -1367,7 +1392,7 @@ function renderDataHealthBanner(r, snap) {
   else if (hasStale) wrapCls.push("warn");
   if (collapsed) wrapCls.push("collapsed");
   const chips = sources.map((s) =>
-    `<span class="dhb-chip ${s.cls}">${s.name}<span class="dhb-val">${s.text}</span></span>`
+    `<span class="dhb-chip ${s.cls}" title="${s.hint || ""}">${s.name}<span class="dhb-val">${s.text}</span></span>`
   ).join("");
   const summary = hasSevere ? `🚨 ${staleCount}项异常` : hasStale ? `⚠ ${staleCount}项滞后` : "✓ 全部正常";
   return (
@@ -2839,6 +2864,12 @@ function renderNationalTeamTotalPanel(container, data) {
   var series = dates.map(function (dt) { return dateMap[dt]; });
   var last = series[series.length - 1];
   var cum20 = series.slice(-20).reduce(function (s, d) { return s + d.netAdd; }, 0);
+
+  // ▼ T+1 提示行：让用户知道国家队份额为何停 T-1 ▼
+  var t1Hint = document.createElement("div");
+  t1Hint.className = "nt-t1-hint";
+  t1Hint.textContent = "⏳ ETF份额数据为T+1：上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日";
+  container.appendChild(t1Hint);
 
   // ▼ 第0层 KPI 大字：国家队总市值 + 今日净增持 + 近20日累计净增持 ▼
   var kpi = document.createElement("div");
