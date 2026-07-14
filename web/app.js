@@ -3982,7 +3982,7 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
   // BUG-E：自建卡片（含切换按钮在标题右侧），不复用 mkCard（其标题不支持嵌入控件）
   const ctn = containerOverride || content;
   const div = document.createElement("div");
-  div.className = "chart-card";
+  div.className = "chart-card hm-badge-bottom";
   const toggleBtns = [["1d", "近1日"], ["5d", "近5日"], ["all", "全部"]]
     .map(([k, label]) => `<button type="button" data-hr="${k}">${label}</button>`).join("");
   div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;

@@ -301,6 +301,8 @@ main { padding: 16px 24px; }
 }
 /* 走势图大卡(.chart-card)右上角空旷，角标放回右上角；基础数据小卡(.card.kpi)保持右下角(右上更盖标题，右下是两害取其轻) */
 .chart-card .card-time-badge { top: 6px; right: 8px; bottom: auto; }
+/* 热力榜右上被周期按钮占用,角标回退右下 */
+.chart-card.hm-badge-bottom .card-time-badge { top: auto; bottom: 6px; right: 8px; }
 /* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
 .chart-latest { color: var(--primary); font-weight: 600; background: var(--primary-bg); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 港股盘中实时标注（快照注入 _snap_intraday=true 时显示在图表标题旁） */
@@ -1768,6 +1770,7 @@ main { padding: 16px 24px; }
   /* 盘中标注角标移动端更小，避免遮住 KPI 数值；大卡(走势图)右上角，小卡(KPI)右下角 */
   .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 5px; right: 6px; }
   .chart-card .card-time-badge { top: 5px; right: 6px; bottom: auto; }
+  .chart-card.hm-badge-bottom .card-time-badge { top: auto; bottom: 5px; right: 6px; }
   .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
   .spark-cell .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
   .card.kpi.has-time-badge .card-sub { padding-right: 58px; }
