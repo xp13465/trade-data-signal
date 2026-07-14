@@ -109,10 +109,18 @@ tr:hover td { background: var(--bg-hover); }
 }
 </style>
 <script>
-// 主题跟随父页面：URL hash 传初始主题 + postMessage 动态切换（双保险）
+// 主题跟随父页面：URL hash 优先(iframe 传入) + localStorage + 首次默认redgold + postMessage 动态切换
 (function(){
-  var t = location.hash.replace(/^#/,'');
-  try { t = decodeURIComponent(t); } catch(e) {}
+  var t = '';
+  var h = location.hash.replace(/^#/,'');
+  try { h = decodeURIComponent(h); } catch(e) {}
+  if (h) t = h;
+  else {
+    try {
+      var v = localStorage.getItem('trade-theme');
+      t = (v === null) ? 'redgold' : (v || '');
+    } catch(e) { t = 'redgold'; }
+  }
   if (t) document.documentElement.setAttribute('data-theme', t);
   window.addEventListener('message', function(e){
     if (e.data && e.data.type === 'set-theme'){
@@ -125,7 +133,7 @@ tr:hover td { background: var(--bg-hover); }
 </head>
 <body>
 <h1>SW 电子 · 买卖点模拟回测</h1>
-<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2000-03-17 ~ 2026-06-05（26.2 年） · 生成于 2026-07-14 18:08</p>
+<p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2000-03-17 ~ 2026-06-05（26.2 年） · 生成于 2026-07-14 19:41</p>
 
     <div class="sim-cmp-table">
       <table>

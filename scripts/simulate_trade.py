@@ -1180,10 +1180,18 @@ tr:hover td {{ background: var(--bg-hover); }}
 }}
 </style>
 <script>
-// 主题跟随父页面：URL hash 传初始主题 + postMessage 动态切换（双保险）
+// 主题跟随父页面：URL hash 优先(iframe 传入) + localStorage + 首次默认redgold + postMessage 动态切换
 (function(){{
-  var t = location.hash.replace(/^#/,'');
-  try {{ t = decodeURIComponent(t); }} catch(e) {{}}
+  var t = '';
+  var h = location.hash.replace(/^#/,'');
+  try {{ h = decodeURIComponent(h); }} catch(e) {{}}
+  if (h) t = h;
+  else {{
+    try {{
+      var v = localStorage.getItem('trade-theme');
+      t = (v === null) ? 'redgold' : (v || '');
+    }} catch(e) {{ t = 'redgold'; }}
+  }}
   if (t) document.documentElement.setAttribute('data-theme', t);
   window.addEventListener('message', function(e){{
     if (e.data && e.data.type === 'set-theme'){{
