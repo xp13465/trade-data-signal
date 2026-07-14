@@ -12,6 +12,7 @@
   --text-1: #1f2329; --text-2: #4e5969; --text-3: #86909c; --text-4: #c9cdd4;
   --primary: #165dff; --primary-hover: #0e42d2; --primary-bg: #f0f5ff;
   --shadow: rgba(0,0,0,0.04); --shadow-strong: rgba(0,0,0,0.12);
+  --bg-best: #fff8e1; --bg-worst: #f5f5f5;
 }
 [data-theme="dark"] {
   --bg-page: #0d1117; --bg-card: #161b22; --bg-hover: #21262d; --bg-active: #1c2333;
@@ -19,6 +20,7 @@
   --text-1: #e6edf3; --text-2: #b1bac4; --text-3: #7d8590; --text-4: #484f58;
   --primary: #58a6ff; --primary-hover: #79b8ff; --primary-bg: #1c2536;
   --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+  --bg-best: rgba(240,185,11,0.16); --bg-worst: rgba(255,255,255,0.06);
 }
 [data-theme="redgold"] {
   --bg-page: #1a1d29; --bg-card: #252836; --bg-hover: #2d3142; --bg-active: #3a2e1a;
@@ -26,6 +28,7 @@
   --text-1: #f0e6c4; --text-2: #c4b896; --text-3: #8a7f5e; --text-4: #5c5444;
   --primary: #f0b90b; --primary-hover: #ffc933; --primary-bg: #2a2410;
   --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+  --bg-best: rgba(240,185,11,0.22); --bg-worst: rgba(0,0,0,0.20);
 }
 [data-theme="morandi"] {
   --bg-page: #f5f1ec; --bg-card: #fffaf3; --bg-hover: #ede7df; --bg-active: #e6e9ed;
@@ -33,6 +36,7 @@
   --text-1: #3d3a35; --text-2: #6b665e; --text-3: #9a948a; --text-4: #b8b2a6;
   --primary: #6b7c93; --primary-hover: #5a6b82; --primary-bg: #e6e9ed;
   --shadow: rgba(120,110,90,0.06); --shadow-strong: rgba(120,110,90,0.14);
+  --bg-best: #e8dcc4; --bg-worst: #e0dad0;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -140,13 +144,13 @@ tr:hover td { background: var(--bg-hover); }
         <tr>
           <td>买固定1万+卖清仓</td>
           <td>主买+卖</td>
-          <td><span style="background:#f5f5f5;font-weight:700">103,524 元</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700;color:#e6492e">+3.52%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700;color:#e6492e">+0.10%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">103,524 元</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700;color:#e6492e">+3.52%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700;color:#e6492e">+0.10%</span></td>
           <td><span>+34.76%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">+2.89%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">+6.44%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">+81.80%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">+2.89%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">+6.44%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">+81.80%</span></td>
           <td><span>105 次</span></td>
         </tr>
         <tr>
@@ -155,7 +159,7 @@ tr:hover td { background: var(--bg-hover); }
           <td><span>134,272 元</span></td>
           <td><span style="color:#e6492e">+34.27%</span></td>
           <td><span style="color:#e6492e">+1.10%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">+28.03%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">+28.03%</span></td>
           <td><span>+7.45%</span></td>
           <td><span>+8.64%</span></td>
           <td><span>+64.70%</span></td>
@@ -171,7 +175,7 @@ tr:hover td { background: var(--bg-hover); }
           <td><span>+6.98%</span></td>
           <td><span>+8.34%</span></td>
           <td><span>+71.40%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">212 次</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">212 次</span></td>
         </tr>
         <tr>
           <td>全仓进出</td>
@@ -183,7 +187,7 @@ tr:hover td { background: var(--bg-hover); }
           <td><span>+7.36%</span></td>
           <td><span>+8.84%</span></td>
           <td><span>+63.60%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">45 次</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">45 次</span></td>
         </tr>
         <tr>
           <td>全仓进出</td>
@@ -191,10 +195,10 @@ tr:hover td { background: var(--bg-hover); }
           <td><span>184,902 元</span></td>
           <td><span style="color:#e6492e">+84.90%</span></td>
           <td><span style="color:#e6492e">+2.40%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+62.31%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+62.31%</span></td>
           <td><span>+9.23%</span></td>
           <td><span>+10.38%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+52.90%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+52.90%</span></td>
           <td><span>69 次</span></td>
         </tr>
         <tr>
@@ -203,7 +207,7 @@ tr:hover td { background: var(--bg-hover); }
           <td><span>218,084 元</span></td>
           <td><span style="color:#e6492e">+118.08%</span></td>
           <td><span style="color:#e6492e">+3.00%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+62.31%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+62.31%</span></td>
           <td><span>+8.08%</span></td>
           <td><span>+10.02%</span></td>
           <td><span>+54.30%</span></td>
@@ -236,12 +240,12 @@ tr:hover td { background: var(--bg-hover); }
         <tr>
           <td>固定1万进出（FIFO）</td>
           <td>主买+辅买+卖</td>
-          <td><span style="background:#fff8e1;font-weight:700">321,507 元</span></td>
-          <td><span style="background:#fff8e1;font-weight:700;color:#e6492e">+221.51%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700;color:#e6492e">+4.50%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">321,507 元</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700;color:#e6492e">+221.51%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700;color:#e6492e">+4.50%</span></td>
           <td><span>+40.01%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+25.84%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+24.35%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+25.84%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+24.35%</span></td>
           <td><span>+65.60%</span></td>
           <td><span>190 次</span></td>
         </tr></tbody>
