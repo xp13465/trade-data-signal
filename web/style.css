@@ -217,8 +217,30 @@ main { padding: 16px 24px; }
   padding: 12px 16px;
   margin-bottom: 16px;
   box-shadow: 0 1px 3px var(--shadow);
+  position: relative;
 }
-.chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); }
+.chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); padding-right: 4px; }
+/* 盘中标注角标：右上角药丸，区分 714 实时(绿) / 713 待收盘(灰) / 收盘(主题色) */
+.card-time-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card-time-badge.intraday { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.1); }
+.card-time-badge.pending { color: var(--text-3); border-color: var(--border-strong); }
+.card-time-badge.closed { color: var(--primary); border-color: var(--primary); background: var(--primary-bg); }
 /* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
 .chart-latest { color: var(--primary); font-weight: 600; background: var(--primary-bg); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 港股盘中实时标注（快照注入 _snap_intraday=true 时显示在图表标题旁） */
@@ -401,8 +423,9 @@ main { padding: 16px 24px; }
   padding: 16px 20px;
   min-width: 180px;
   box-shadow: 0 1px 3px var(--shadow);
+  position: relative;
 }
-.card-title { font-size: 13px; color: var(--text-3); }
+.card-title { font-size: 13px; color: var(--text-3); padding-right: 4px; }
 .card-value { font-size: 32px; font-weight: 600; margin: 4px 0; }
 .card-date { font-size: 12px; color: var(--text-4); }
 .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; color: #fff; }
@@ -472,6 +495,7 @@ main { padding: 16px 24px; }
 .cards.kpi-row { gap: 12px; }
 .card.kpi { min-width: 150px; padding: 12px 16px; flex: 1 1 150px; }
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; }
+.card.kpi .card-time-badge { font-size: 10px; padding: 1px 5px; top: 4px; right: 6px; max-width: 70%; }
 .card-sub { font-size: 12px; color: var(--text-4); }
 .tag.stale { background: #faad14; }
 
@@ -1652,6 +1676,9 @@ main { padding: 16px 24px; }
   .cards.kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .card.kpi { min-width: 0; padding: 10px 12px; }
   .card.kpi .card-value { font-size: 20px; }
+  /* 盘中标注角标移动端更小，避免遮住 KPI 数值 */
+  .card-time-badge { font-size: 10px; padding: 1px 5px; top: 5px; right: 6px; }
+  .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; top: 3px; right: 4px; }
   .ov-2col { grid-template-columns: 1fr; gap: 12px; }
   .ov-2col .chart-card { min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
