@@ -7,7 +7,9 @@ __pycache__/
 node_modules/
 
 
-# 大数据库（stock_daily 4.6GB 不进 git；sentiment.db 45MB 进 git 供动态版运行）
+# 大数据库不进 git（本地采集维护，线上全是静态 JSON 不依赖 DB）。
+# sentiment.db / etf_national_team.db 曾进 git 致切分支污染 DB（2026-07-14 事故根因），现移出。
+data/sentiment.db
 data/sentiment.db-wal
 data/sentiment.db-shm
 data/stock_daily.db
@@ -27,6 +29,7 @@ data/baostock_*.sh
 data/baostock_skipped_bj.txt
 data/cleanup_d3d2_report.json
 data/etf_national_team.lock
+data/etf_national_team.db
 data/etf_national_team.db-wal
 data/etf_national_team.db-shm
 
