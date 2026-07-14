@@ -2263,6 +2263,60 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     }));
   }
 
+  // ── 信号趋势：按月信号数堆叠柱状 + 强度散点（散户看大资金活跃度月度变化）──
+  // 收集区间内所有信号，按月汇总次数 + 散点展示 z 强度
+  const allSigs = [];
+  daily.forEach((d) => { (d.signals || []).forEach((s) => allSigs.push({ date: d.date, ...s })); });
+  if (allSigs.length) {
+    // 按月汇总信号数（YYYYMM -> {进场/离场/放量}）
+    const monthMap = {};
+    allSigs.forEach((s) => {
+      const m = s.date.slice(0, 6);
+      monthMap[m] = monthMap[m] || { share_surge: 0, share_outflow: 0, volume_surge: 0 };
+      if (monthMap[m][s.type] != null) monthMap[m][s.type]++;
+    });
+    const months = Object.keys(monthMap).sort();
+    const monthLabels = months.map((m) => m.slice(0, 4) + "-" + m.slice(4));
+    const sigTrendTitle = `${cur.code} ${cur.name} 信号趋势（按月汇总）` +
+      termTip("每月大资金进场(红)/离场(绿)/放量(橙)信号次数堆叠，柱子越高当月越活跃");
+    const c4 = mkCard(sigTrendTitle, 280, null, container);
+    c4.setOption(withTheme({
+      tooltip: { trigger: "axis" },
+      legend: { top: 0, data: ["疑似进场", "疑似离场", "放量"] },
+      grid: { left: 45, right: 20, top: 35, bottom: 35 },
+      xAxis: { type: "category", data: monthLabels },
+      yAxis: { type: "value", name: "次数", minInterval: 1 },
+      series: [
+        { name: "疑似进场", type: "bar", stack: "sig", data: months.map((m) => monthMap[m].share_surge), itemStyle: { color: "#e6492e" } },
+        { name: "疑似离场", type: "bar", stack: "sig", data: months.map((m) => monthMap[m].share_outflow), itemStyle: { color: "#2e8b57" } },
+        { name: "放量", type: "bar", stack: "sig", data: months.map((m) => monthMap[m].volume_surge), itemStyle: { color: "#ff9800" } },
+      ],
+    }));
+    // 信号强度散点：x=日期, y=z强度, 颜色按类型（z>=5极端/>=3显著/>=2轻度）
+    const scatterByType = { share_surge: [], share_outflow: [], volume_surge: [] };
+    allSigs.forEach((s) => {
+      if (s.intensity != null && scatterByType[s.type]) {
+        scatterByType[s.type].push([s.date, +s.intensity.toFixed(2)]);
+      }
+    });
+    const intTitle = `${cur.code} ${cur.name} 信号强度分布（z-score）` +
+      termTip("每条信号的z强度散点，z>=5极端>=3显著>=2轻度，越高越异常");
+    const c5 = mkCard(intTitle, 260, null, container);
+    c5.setOption(withTheme({
+      tooltip: { trigger: "item", formatter: (p) => `${p.data[0]}<br/>z = ${p.data[1]}` },
+      legend: { top: 0, data: ["疑似进场", "疑似离场", "放量"] },
+      grid: { left: 45, right: 20, top: 35, bottom: 50 },
+      xAxis: { type: "category", data: daily.map((d) => d.date), axisLabel: { hideOverlap: true } },
+      yAxis: { type: "value", name: "z强度", scale: true },
+      dataZoom: dzOpts(),
+      series: [
+        { name: "疑似进场", type: "scatter", data: scatterByType.share_surge, symbolSize: 8, itemStyle: { color: "#e6492e" } },
+        { name: "疑似离场", type: "scatter", data: scatterByType.share_outflow, symbolSize: 8, itemStyle: { color: "#2e8b57" } },
+        { name: "放量", type: "scatter", data: scatterByType.volume_surge, symbolSize: 8, itemStyle: { color: "#ff9800" } },
+      ],
+    }));
+  }
+
   // ── 信号明细表（近60日，按日期倒序）──
   const sigRows = [];
   daily.forEach((d) => { (d.signals || []).forEach((s) => sigRows.push({ date: d.date, ...s })); });
@@ -2372,7 +2426,7 @@ async function renderAStock(container = content) {
   const r = await fetchJSON(`./data/a-stock-${state.range}.json`);
   container.innerHTML = "";
   const groups = {
-    "涨停/跌停/连板": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban"],
+    "涨停/跌停/连板/炸板数": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban", "a_width_zb_count"],
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
     "资金面": ["a_fund_north", "a_fund_margin", "a_fund_main", "a_amount"],
     "炸板率/封板率/打板溢价": ["a_width_zhaban_rate", "a_width_fengban_rate", "a_width_daban_premium"],
@@ -2388,7 +2442,7 @@ async function renderAStock(container = content) {
   };
   // 各分组序列短标签（标题后缀用，避免长名堆积）：id -> 短标签
   const groupLabels = {
-    "涨停/跌停/连板": { a_width_zt_count: "涨停", a_width_dt_count: "跌停", a_width_max_lianban: "连板" },
+    "涨停/跌停/连板/炸板数": { a_width_zt_count: "涨停", a_width_dt_count: "跌停", a_width_max_lianban: "连板", a_width_zb_count: "炸板" },
     "市场宽度（涨跌家数）": { a_width_up_count: "涨", a_width_down_count: "跌" },
     "资金面": { a_fund_north: "北向", a_fund_margin: "融资", a_fund_main: "主力", a_amount: "成交" },
     "炸板率/封板率/打板溢价": { a_width_zhaban_rate: "炸板", a_width_fengban_rate: "封板", a_width_daban_premium: "打板" },

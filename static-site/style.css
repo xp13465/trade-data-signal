@@ -1228,10 +1228,10 @@ main { padding: 16px 24px; }
   color: #fff;
   border-color: var(--primary);
 }
-/* 搜索框（与 tab 按钮同一行，吸顶时也可用）：占满按钮右侧剩余空间 */
+/* 搜索框（与 tab 按钮同一行，吸顶时也可用）：贴着切换按钮右侧，不撑满整行 */
 .industry-anchor-bar .anchor-search {
-  margin-left: auto;
-  flex: 1 1 200px;
+  margin-left: 0;
+  flex: 0 1 200px;
   max-width: 360px;
   min-width: 140px;
   padding: 5px 10px;
