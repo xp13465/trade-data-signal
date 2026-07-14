@@ -970,7 +970,7 @@ function _signalChartModalEl() {
   modal = document.createElement("div");
   modal.id = "signalChartModal";
   modal.className = "rule-modal hidden";
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body signal-chart-modal-body"><div class="rule-modal-header"><h3 class="signal-chart-title">走势图</h3><div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全历史</button></div><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content signal-chart-content"></div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body signal-chart-modal-body"><div class="rule-modal-header"><h3 class="signal-chart-title">走势图</h3><div class="signal-chart-periods"><button class="lab-signal-period-btn" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn active" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content signal-chart-content"></div></div>';
   // 添加时间段切换按钮事件监听
   modal.querySelectorAll('.lab-signal-period-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -1045,9 +1045,10 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       body.innerHTML = `<div class="empty-note">暂无「${name}」走势数据</div>`;
       return;
     }
-    // 冰点模式：用情绪分≤20 的点替换买卖信号作为 markPoint 标注（蓝色"冰点"）
+    // 冰点模式：在原买卖点标注基础上追加冰点标注（≤20 蓝色），走势图同时显示买卖点+冰点
     if (isFreeze) {
-      sigs = chartData.filter((d) => d.value != null && d.value <= 20).map((d) => ({ date: d.date, signal: "freeze" }));
+      const freezePts = chartData.filter((d) => d.value != null && d.value <= 20).map((d) => ({ date: d.date, signal: "freeze" }));
+      sigs = [...sigs, ...freezePts];
     }
     body.innerHTML = "";
     const title = name + latestSuffix(chartData);
@@ -1128,6 +1129,7 @@ function fetchIntradaySnapshot() {
 
 // 盘中标注角标：根据卡片数据日期 vs 快照判断时效，让用户一眼区分 714 实时 / 713 待收盘 / 收盘
 // - 盘中(snap.is_closed===false) 且 dataDate==snapDate(当日) -> "⏰ 盘中·HH:MM"(绿)
+// - 午休(snap.label 含"午休"，is_closed 仍 false) -> "⏰ 午休·HH:MM"(黄)，后端 label 区分盘中暂停
 // - 盘中但 dataDate 早于 snapDate(T-1或更早) -> "📍 待收盘·MM-DD"(灰)
 // - 收盘后/无快照 -> "📍 收盘·MM-DD"(主题色)
 function getCardTimeBadge(dataDate, snap) {
@@ -1141,15 +1143,23 @@ function getCardTimeBadge(dataDate, snap) {
   if (snapDate && dataDate === snapDate) {
     const hh = shIdx.datetime.slice(8, 10);
     const mm = shIdx.datetime.slice(10, 12);
+    // 午休：后端 label 含"午休"时显午休态(黄)，区分盘中交易时段(绿)
+    if (snap.label && /午休/.test(snap.label)) {
+      return `<span class="card-time-badge lunch">⏰ 午休·${hh}:${mm}</span>`;
+    }
     return `<span class="card-time-badge intraday">⏰ 盘中·${hh}:${mm}</span>`;
   }
   return `<span class="card-time-badge pending">📍 待收盘·${mmdd}</span>`;
 }
 // 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
+// 同时加 has-time-badge 类，CSS 据此给标题预留 padding-right 防角标压文字
 function addCardTimeBadge(cardEl, dataDate, snap) {
   if (!cardEl) return;
   const html = getCardTimeBadge(dataDate, snap);
-  if (html) cardEl.insertAdjacentHTML("beforeend", html);
+  if (html) {
+    cardEl.insertAdjacentHTML("beforeend", html);
+    cardEl.classList.add("has-time-badge");
+  }
 }
 
 // 盘中实时快照覆盖一句话总结文本：T+1 指数源缺当日数据（sh_pct=null / top_industries=空）时，
@@ -1354,13 +1364,15 @@ async function renderOverview() {
         const datePrefix = snapDate && snapDate.length === 8
           ? `${parseInt(snapDate.substring(4, 6), 10)}月${parseInt(snapDate.substring(6, 8), 10)}日` : "";
         const hhmm = snapShIdx && snapShIdx.datetime ? `${snapShIdx.datetime.slice(8, 10)}:${snapShIdx.datetime.slice(10, 12)}` : "";
-        const titleText = `📊 ${datePrefix} 盘中实时 A股`.replace(/\s+/g, " ").trim();
-        const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ 盘中实时小结（未收盘，当日数据还会变化）</span>`;
+        const _lunch = snap && snap.label && /午休/.test(snap.label);
+        const titleText = `📊 ${datePrefix} ${_lunch ? "午休盘中" : "盘中实时"} A股`.replace(/\s+/g, " ").trim();
+        const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? snap.label : "盘中实时小结（未收盘，当日数据还会变化）"}</span>`;
         banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}${hhmm ? `<span class="summary-time-label">${hhmm}</span>` : ""}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${renderIntradayChips(snap)}`;
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
+        const _lunch2 = snap && snap.label && /午休/.test(snap.label);
         const snapBadge = snap && snap.indices
-          ? `<span class="summary-snap-tag" style="color:${snap.is_closed ? "var(--text-3)" : "#e6a23c"}">${snap.is_closed ? "📍 收盘快照" : "⏰ 盘中实时小结（未收盘，当日数据还会变化）"}</span>`
+          ? `<span class="summary-snap-tag" style="color:${snap.is_closed ? "var(--text-3)" : "#e6a23c"}">${snap.is_closed ? "📍 收盘快照" : _lunch2 ? `⏰ ${snap.label}` : "⏰ 盘中实时小结（未收盘，当日数据还会变化）"}</span>`
           : "";
         const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
         const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
@@ -1459,7 +1471,8 @@ async function renderOverview() {
       valueHtml = k.value + sigHtml;
       sub = sig + " · " + (k.date || "");
     }
-    cards.innerHTML += `<div class="card kpi">${getCardTimeBadge(k.date, snap)}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
+    const _badge = getCardTimeBadge(k.date, snap);
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
   }
   content.appendChild(cards);
 

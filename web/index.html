@@ -24,7 +24,7 @@
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"WebApplication","name":"tdsignal 情绪数据复盘看板","alternateName":"trade-data-signal","url":"http://tdsignal-ujpzw01zm.maozi.io/","description":"A股/港股/全球盘后复盘情绪数据看板：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, A股情绪, 买卖点, 行业热力图, 模拟回测"}
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=d5090edd">
+  <link rel="stylesheet" href="/static/style.css?v=d5947c14">
   <link rel="stylesheet" href="/static/lab.css?v=22082e79">
   <script defer src="/static/vendor/echarts.min.js?v=ef12c5c6"></script>
 <script>
@@ -92,7 +92,8 @@ var _hmt = _hmt || [];
     <button data-tab="industry">行业概念</button>
     <button data-tab="lab">🧪 策略实验室</button>
     <!-- UX：周期选择器移入 tab 栏右端，随 sticky tab 栏一起悬浮顶部，下滚始终可见可操作 -->
-    <div class="periods">
+    <!-- 默认隐藏防闪烁：概览/实验室 tab 无需周期切换，renderTab 按 tab 控制显隐 -->
+    <div class="periods" style="display:none">
       <button data-rng="3m">3月</button>
       <button data-rng="6m">6月</button>
       <button data-rng="1y" class="active">1年</button>
@@ -103,7 +104,8 @@ var _hmt = _hmt || [];
     </div>
   </nav>
   <!-- H5 周期段控条（PC 隐藏；移动端 sticky 顶部，替代 tab 栏右端周期选择器）-->
-  <nav class="h5-period-bar">
+  <!-- 默认隐藏防闪烁：概览/实验室 tab 无需周期切换，renderTab 按 tab 控制显隐 -->
+  <nav class="h5-period-bar" style="display:none">
     <div class="h5-periods">
       <button data-rng="3m">3月</button>
       <button data-rng="6m">6月</button>
@@ -124,7 +126,7 @@ var _hmt = _hmt || [];
   </nav>
 
   <script src="/static/qr.js?v=6577e491"></script>
-  <script defer src="/static/app.min.js?v=17a24d15"></script>
+  <script defer src="/static/app.min.js?v=418de82d"></script>
   <script defer src="/static/lab.min.js?v=1fa618b5"></script>
 </body>
 </html>
