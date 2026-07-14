@@ -1501,7 +1501,34 @@ function renderSummaryChips(s, snap) {
     });
     topRow = `<div class="summary-chips summary-chips-top"><span class="term-tip" data-tip="领涨板块按涨跌幅排序；💰为该行业当日资金净流入(亿元)，正值=资金流入(红)，负值=流出(绿)">🔥领涨❓</span>${parts.join("、")}</div>`;
   }
-  return chipsRow + topRow;
+  // 领跌板块行：盘中(snap 未收盘)优先用快照 bottom3(升序)；s 为空时兜底快照
+  let bottomInds = s.bottom_industries;
+  if (snap && snap.industries && snap.industries.length && snapSameDay && (intraday || !bottomInds || !bottomInds.length)) {
+    bottomInds = [...snap.industries]
+      .sort((a, b) => (a.pct_change ?? 999) - (b.pct_change ?? 999))
+      .slice(0, 3)
+      .map((d) => ({ name: (d.sw_name || d.name || "").replace("SW ", ""), pct_change: d.pct_change, net_inflow: d.net_inflow }));
+  }
+  let bottomRow = "";
+  if (bottomInds && bottomInds.length) {
+    const parts = bottomInds.slice(0, 3).map((d) => {
+      const nm = d.name || "";
+      const pc = d.pct_change;
+      const color = pc != null ? (pc >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-2)";
+      const sign = pc != null && pc >= 0 ? "+" : "";
+      const pcStr = pc != null ? `(${sign}${pc.toFixed(2)}%)` : "";
+      // 资金净流入：正值=流入(红)，负值=流出(绿)
+      let flowStr = "";
+      if (d.net_inflow != null) {
+        const fColor = d.net_inflow >= 0 ? "#e6492e" : "#2e8b57";
+        const fSign = d.net_inflow >= 0 ? "+" : "";
+        flowStr = ` <span style="color:${fColor}">💰${fSign}${d.net_inflow.toFixed(1)}亿</span>`;
+      }
+      return `<span style="color:${color}">${nm}${pcStr}</span>${flowStr}`;
+    });
+    bottomRow = `<div class="summary-chips summary-chips-top"><span class="term-tip" data-tip="领跌板块按涨跌幅倒序排序；💰为该行业当日资金净流入(亿元)，正值=资金流入(红)，负值=流出(绿)">❄领跌❓</span>${parts.join("、")}</div>`;
+  }
+  return chipsRow + topRow + bottomRow;
 }
 
 // 盘中横幅专用 chips：summary 是 T-1 收盘、snap 是 T 盘中时，横幅仅用 snap 实时数据。
@@ -1549,7 +1576,27 @@ function renderIntradayChips(snap) {
     });
     topRow = `<div class="summary-chips summary-chips-top"><span class="term-tip" data-tip="领涨板块按涨跌幅排序；💰为该行业当日资金净流入(亿元)，正值=资金流入(红)，负值=流出(绿)">🔥领涨❓</span>${parts.join("、")}</div>`;
   }
-  return chipsRow + topRow;
+  // 领跌板块 bottom3（升序，与 renderSummaryChips 同款样式，复用 term-tip 事件委托）
+  let bottomRow = "";
+  if (snap.industries && snap.industries.length) {
+    const bottom3 = [...snap.industries].sort((a, b) => (a.pct_change ?? 999) - (b.pct_change ?? 999)).slice(0, 3);
+    const parts = bottom3.map((d) => {
+      const nm = (d.sw_name || d.name || "").replace("SW ", "");
+      const pc = d.pct_change;
+      const color = pc != null ? (pc >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-2)";
+      const sign = pc != null && pc >= 0 ? "+" : "";
+      const pcStr = pc != null ? `(${sign}${pc.toFixed(2)}%)` : "";
+      let flowStr = "";
+      if (d.net_inflow != null) {
+        const fColor = d.net_inflow >= 0 ? "#e6492e" : "#2e8b57";
+        const fSign = d.net_inflow >= 0 ? "+" : "";
+        flowStr = ` <span style="color:${fColor}">💰${fSign}${d.net_inflow.toFixed(1)}亿</span>`;
+      }
+      return `<span style="color:${color}">${nm}${pcStr}</span>${flowStr}`;
+    });
+    bottomRow = `<div class="summary-chips summary-chips-top"><span class="term-tip" data-tip="领跌板块按涨跌幅倒序排序；💰为该行业当日资金净流入(亿元)，正值=资金流入(红)，负值=流出(绿)">❄领跌❓</span>${parts.join("、")}</div>`;
+  }
+  return chipsRow + topRow + bottomRow;
 }
 
 // ============ 当日分时图（腾讯分时API直拉 + 3分钟动态刷新）============
