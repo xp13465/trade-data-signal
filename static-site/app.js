@@ -1069,7 +1069,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
 
     if (indexId.startsWith("g.")) {
       const key = indexId.slice(2);
-      const r = await fetchJSON("./data/global-all.json");
+      const r = await fetchJSON("./data/global-extras-all.json");
       const data = (r.extras && r.extras[key]) || [];
       sigs = (r.extras_signals && r.extras_signals[key]) || [];
       stats = (r.extras_stats && r.extras_stats[key]) || {};

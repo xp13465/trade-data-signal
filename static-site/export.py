@@ -1134,6 +1134,12 @@ def main():
             data = fn(conn, cfg, rng)
             counts[fname] = write_json(DATA_DIR / fname, data)
             print(f"  {fname} ({counts[fname]} bytes)")
+            # 信号弹窗只需 extras 四件套（不含 indices），单独导出轻量版省 ~68% 体积
+            if name == "global" and rng == "all":
+                counts["global-extras-all.json"] = write_json(
+                    DATA_DIR / "global-extras-all.json",
+                    {k: data[k] for k in ("extras", "extras_signals", "extras_stats", "extras_strategy")})
+                print(f"  global-extras-all.json ({counts['global-extras-all.json']} bytes)")
 
     # industry-all 拆分：31 行业各一个文件（各~1MB）+ concepts + meta，
     # 避免 industry-all.json 全历史 29MB 超 Cloudflare Pages 25MB 单文件限制。
