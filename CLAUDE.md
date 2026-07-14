@@ -47,10 +47,12 @@
 - 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
 - 双版改完 diff 验证 IDENTICAL
 
-## 10. 切分支保护 DB
-- data/sentiment.db(45MB)进 git 跟踪是历史隐患,切分支时 git 可能用旧版覆盖污染 DB
-- 切 main 前 `git stash push data/sentiment.db` 保护,切回 feat 后 `git stash pop`
-- 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(会再次污染)
+## 10. 切分支保护 DB(2026-07-14 已根治,作历史教训留存)
+- 历史隐患:data/sentiment.db(80MB)+ etf_national_team.db 曾进 git 跟踪,切分支时 git 用旧版覆盖污染 DB,致 2026-07-14 事故(收盘快照丢失)
+- **2026-07-14 已根治(commit 8e3f5fa)**:两 DB 移出 git(git rm --cached + .gitignore),现 untracked。线上全是 static-site/data/*.json 静态产物,不依赖 DB
+- 切分支现在不会再碰 DB(untracked 文件 git 不跟踪)
+- **教训(派 agent 同步分支时注意)**:DB 仍 tracked 时,checkout 切到另一分支会触发 git 用该分支版本覆盖本地 DB。正确同步 main 的方式 = 避免本地 checkout,用 `git fetch origin && git push origin feat/xxx:main` 或 reset,而非 `git checkout main && merge --ff-only`(中间态 checkout 仍 track DB 的分支会复现事故)
+- 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
 ## 验收铁律
 逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报"完成"不等于真完成。
