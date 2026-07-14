@@ -1212,11 +1212,11 @@ function fetchIntradaySnapshot() {
 // 盘中标注角标：根据卡片数据日期 vs 快照判断时效，让用户一眼区分 714 实时 / 713 待收盘 / 收盘
 // - 盘中(snap.is_closed===false) 且 dataDate==snapDate(当日) -> "⏰ 盘中·HH:MM"(绿)
 // - 午休(snap.label 含"午休"，is_closed 仍 false) -> "⏰ 午休·HH:MM"(黄)，后端 label 区分盘中暂停
-// - 盘中但 dataDate 早于 snapDate(非当日) -> 按是否滞后分级：
-//   · dataDate == prev_trading_day(上一交易日) -> "📍 待收盘·MM-DD"(灰，正常T+1)
-//   · dataDate < prev_trading_day -> "⚠ 数据滞后·MM-DD"(采集断了，非周末/节假日正常延迟)
-//   · 日历日差>15天(覆盖国庆7天+周末不误判) -> "⚠ 数据异常·MM-DD"
-//   · prev_trading_day 缺失 -> 兜底"待收盘"(不误报)
+// - 盘中但 dataDate 早于 snapDate(非当日) -> 三档分级，让用户一眼区分"正常T+1(数据源盘后公布)" vs "异常滞后(我们没采到)"：
+//   · dataDate == prev_trading_day(上一交易日) -> "📅 T+1·MM-DD"(灰，数据源T+1正常最新，公开平台也才到这个日期)
+//   · dataDate < prev_trading_day 且日历日差<=15天 -> "⚠ 滞后·MM-DD"(黄，公开平台有更新我们没采到)
+//   · 日历日差>15天(覆盖国庆7天+周末不误判) -> "🚨 异常·MM-DD"(红，严重滞后)
+//   · prev_trading_day 缺失 -> 兜底"T+1"(不误报)
 // - 收盘后/无快照 -> "📍 收盘·MM-DD"(主题色)
 function getCardTimeBadge(dataDate, snap) {
   if (!dataDate) return "";
@@ -1235,20 +1235,23 @@ function getCardTimeBadge(dataDate, snap) {
     }
     return `<span class="card-time-badge intraday">⏰ 盘中·${hh}:${mm}</span>`;
   }
-  // pending 分支：盘中但卡片数据非当日。用后端预算的 prev_trading_day 判断是否真滞后
+  // pending 分支：盘中但卡片数据非当日。用后端预算的 prev_trading_day 三档分级，
+  // 让用户一眼区分"正常T+1(数据源盘后公布，公开平台也才到这个日期)" vs "异常滞后(我们没采到)"。
   const ptd = snap.prev_trading_day || "";
   if (ptd && dataDate < ptd) {
-    // 严重滞后：日历日差>15天(覆盖国庆7天长假+周末，不误判节假日)
+    // 滞后：日历日差>15天判为严重(覆盖国庆7天长假+周末，不误判节假日)
     let severe = false;
     if (dataDate.length === 8 && ptd.length === 8) {
       const d1 = new Date(+dataDate.slice(0, 4), +dataDate.slice(4, 6) - 1, +dataDate.slice(6, 8));
       const d2 = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
       severe = (d2 - d1) / 86400000 > 15;
     }
-    const txt = severe ? "⚠ 数据异常" : "⚠ 数据滞后";
-    return `<span class="card-time-badge pending">${txt}·${mmdd}</span>`;
+    const cls = severe ? "t1-severe" : "t1-stale";
+    const txt = severe ? "🚨 异常" : "⚠ 滞后";
+    return `<span class="card-time-badge ${cls}">${txt}·${mmdd}</span>`;
   }
-  return `<span class="card-time-badge pending">📍 待收盘·${mmdd}</span>`;
+  // 正常T+1：dataDate==prev_trading_day（数据源盘后T+1公布，公开平台也才到这个日期）
+  return `<span class="card-time-badge t1">📅 T+1·${mmdd}</span>`;
 }
 // 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
 // 同时加 has-time-badge 类，CSS 据此给标题预留 padding-right 防角标压文字
@@ -1259,6 +1262,117 @@ function addCardTimeBadge(cardEl, dataDate, snap) {
     cardEl.insertAdjacentHTML("beforeend", html);
     cardEl.classList.add("has-time-badge");
   }
+}
+
+// === 顶部全局数据时效健康横幅 ===
+// 汇总各数据源最新日期，让用户一眼区分"正常T+1(数据源盘后公布，公开平台也才到这个日期)" vs
+// "异常滞后(公开平台有更新我们没采到)"。从 overview + intraday_snapshot 提取各源最新日期分级显示。
+// 横幅可折叠（localStorage 记忆），有任何滞后整体加黄色警示边框，严重滞后加红色。
+// 复用 getCardTimeBadge 的三档分级口径，保证角标与横幅文案一致。
+function _dataFreshness(dateStr, ptd) {
+  if (!dateStr) return { cls: "", text: "无数据" };
+  const mmdd = dateStr.length === 8 ? `${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}` : dateStr;
+  if (!ptd || dateStr >= ptd) return { cls: "t1", text: `📅 T+1·${mmdd}` };
+  let severe = false;
+  if (dateStr.length === 8 && ptd.length === 8) {
+    const d1 = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8));
+    const d2 = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
+    severe = (d2 - d1) / 86400000 > 15;
+  }
+  return severe
+    ? { cls: "t1-severe", text: `🚨 异常·${mmdd}` }
+    : { cls: "t1-stale", text: `⚠ 滞后·${mmdd}` };
+}
+function _buildHealthSources(r, snap) {
+  const ptd = (snap && snap.prev_trading_day) || (r && r.date) || "";
+  const intraday = !!(snap && snap.is_closed === false);
+  const mmdd = (d) => (d && d.length === 8) ? `${d.slice(4, 6)}-${d.slice(6, 8)}` : (d || "");
+  const sources = [];
+  // A股指数（实时源）
+  const shIdx = snap && snap.indices ? snap.indices.find((i) => i.code === "sh000001") : null;
+  const shDate = shIdx ? (shIdx.datetime || "").slice(0, 8) : "";
+  if (intraday && shDate) {
+    sources.push({ name: "A股", cls: "intraday", text: "✓ 实时" });
+  } else {
+    sources.push({ name: "A股", cls: "closed", text: `📍 收盘·${mmdd(shDate || (r && r.date) || "")}` });
+  }
+  // 港股指数（实时源，盘中 hkHSI.is_closed===false）
+  const hkIdx = snap && snap.indices ? snap.indices.find((i) => i.code === "hkHSI") : null;
+  const hkDate = hkIdx ? (hkIdx.datetime || "").slice(0, 8) : "";
+  if (hkIdx && hkIdx.is_closed === false) {
+    sources.push({ name: "港股", cls: "intraday", text: "✓ 实时" });
+  } else {
+    sources.push({ name: "港股", cls: "closed", text: `📍 收盘·${mmdd(hkDate)}` });
+  }
+  // T+1 指标：从 overview.today.metrics 提取最新日期
+  const metrics = (r && r.today && r.today.metrics) || [];
+  const findM = (id) => metrics.find((m) => m.id === id);
+  const margin = findM("a_fund_margin");
+  if (margin && margin.date) {
+    const f = _dataFreshness(margin.date, ptd);
+    sources.push({ name: "两融", cls: f.cls, text: f.text });
+  }
+  // 北向资金 2024-08 停更，单独标注
+  const north = findM("a_fund_north");
+  if (north && north.date) {
+    sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}` });
+  }
+  // 成交额/涨停数（intraday 源 metrics，盘中实时）
+  const amt = findM("a_amount");
+  if (amt && amt.date) {
+    if (intraday) sources.push({ name: "成交/涨停", cls: "intraday", text: "✓ 实时" });
+    else { const f = _dataFreshness(amt.date, ptd); sources.push({ name: "成交/涨停", cls: f.cls, text: f.text }); }
+  }
+  // 综合情绪分
+  const scores = (r && r.today && r.today.scores) || {};
+  const aSent = scores.a_sentiment;
+  if (aSent && aSent.date) {
+    const f = _dataFreshness(aSent.date, ptd);
+    sources.push({ name: "情绪分", cls: f.cls, text: f.text });
+  }
+  return sources;
+}
+function renderDataHealthBanner(r, snap) {
+  const sources = _buildHealthSources(r, snap);
+  let hasStale = false, hasSevere = false, staleCount = 0;
+  sources.forEach((s) => {
+    if (s.cls === "t1-stale" || s.cls === "t1-severe") { hasStale = true; staleCount++; }
+    if (s.cls === "t1-severe") hasSevere = true;
+  });
+  const collapsed = localStorage.getItem("dhb-collapsed") === "1";
+  const wrapCls = ["data-health-banner"];
+  if (hasSevere) wrapCls.push("severe");
+  else if (hasStale) wrapCls.push("warn");
+  if (collapsed) wrapCls.push("collapsed");
+  const chips = sources.map((s) =>
+    `<span class="dhb-chip ${s.cls}">${s.name}<span class="dhb-val">${s.text}</span></span>`
+  ).join("");
+  const summary = hasSevere ? `🚨 ${staleCount}项异常` : hasStale ? `⚠ ${staleCount}项滞后` : "✓ 全部正常";
+  return (
+    `<div class="${wrapCls.join(" ")}" id="data-health-banner">` +
+      `<span class="dhb-title" id="dhb-toggle" title="点击折叠/展开">📊 数据时效</span>` +
+      `<span class="dhb-summary">${summary}</span>` +
+      `<span class="dhb-chips">${chips}</span>` +
+      `<span class="dhb-actions">` +
+        `<button class="dhb-detail update-rules-btn" type="button" title="查看数据更新规则详情">详情</button>` +
+        `<button class="dhb-toggle-btn" type="button" aria-label="折叠/展开">${collapsed ? "▸" : "▾"}</button>` +
+      `</span>` +
+    `</div>`
+  );
+}
+// 横幅折叠/展开（事件委托 document，renderOverview 重建 DOM 后仍生效）
+function initDataHealthBanner() {
+  document.addEventListener("click", (e) => {
+    const banner = e.target.closest("#data-health-banner");
+    if (!banner) return;
+    if (e.target.closest(".dhb-toggle") || e.target.closest(".dhb-toggle-btn")) {
+      const collapsed = banner.classList.toggle("collapsed");
+      localStorage.setItem("dhb-collapsed", collapsed ? "1" : "0");
+      const btn = banner.querySelector(".dhb-toggle-btn");
+      if (btn) btn.textContent = collapsed ? "▸" : "▾";
+      e.preventDefault();
+    }
+  });
 }
 
 // 盘中实时快照覆盖一句话总结文本：T+1 指数源缺当日数据（sh_pct=null / top_industries=空）时，
@@ -1499,7 +1613,7 @@ let _collectTimeBase = { ct: "", health: null };
 async function fetchTencentMinute(code) {
   const tcCode = _INDEX_TO_TENCENT_MINUTE[code];
   if (!tcCode) return null;
-  const url = "https://web.ifzq.gtimgs.cn/appstock/app/minute/query?code=" + tcCode;
+  const url = "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=" + tcCode;
   const cached = _inflightMinute.get(url);
   if (cached) return cached;
   const p = (async () => {
@@ -1914,6 +2028,8 @@ async function renderOverview() {
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
+  // 顶部数据时效健康横幅：汇总各数据源最新状态，一眼区分正常T+1 vs 异常滞后（插在 summary 横幅下）
+  content.insertAdjacentHTML("afterbegin", renderDataHealthBanner(r, snap));
 
   // ---- 0. 一句话总结横幅 ----
   fetchJSON("./data/summary.json").then(async (s) => {
@@ -5009,6 +5125,17 @@ function updateRulesContentHtml() {
       '</ul>' +
     '</div>' +
     '<div class="rule-section">' +
+      '<h4>🏷️ 卡片角标时效分级</h4>' +
+      '<ul class="ur-list">' +
+        '<li>📅 <b>T+1·MM-DD（灰）</b>：正常。数据源盘后T+1公布，公开平台（行情软件）也才到这个日期，次日才更新</li>' +
+        '<li>⏰ <b>盘中·HH:MM（绿）/ 午休（黄）</b>：实时。A股/港股指数盘中动态拉取，约3分钟刷新</li>' +
+        '<li>📍 <b>收盘·MM-DD（主题色）</b>：收盘后切换为收盘快照归档</li>' +
+        '<li>⚠ <b>滞后·MM-DD（黄）</b>：异常。公开平台已有更新但我们没采到，采集可能中断，正在修复</li>' +
+        '<li>🚨 <b>异常·MM-DD（红）</b>：严重滞后（>15天），请反馈</li>' +
+        '<li>顶部"📊 数据时效"横幅汇总各数据源最新状态，可一眼区分正常T+1 vs 异常滞后</li>' +
+      '</ul>' +
+    '</div>' +
+    '<div class="rule-section">' +
       '<h4>🔄 盘中动态值说明</h4>' +
       '<ul class="ur-list">' +
         '<li>盘中：卡片涨跌幅、横幅指标 chips、分时图均为前端动态拉取腾讯分时数据，约3分钟刷新，三处数值同源一致</li>' +
@@ -5070,6 +5197,7 @@ initSimOverlay();
 initShareButton();
 initThemeSwitcher();
 initUpdateRules();
+initDataHealthBanner();
 
 // === 主 tab hash 记忆 + 滚动位置恢复 ===
 // 切 tab 写 hash（replaceState 不入历史、不触发 hashchange），F5 读 hash 恢复 tab + 滚动位置。
