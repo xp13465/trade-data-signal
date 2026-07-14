@@ -1769,7 +1769,7 @@ async function renderNationalTeam(container = content) {
   if (state.ntView === "detail") {
     renderNationalTeamDetail(container, data, qData, hData);
   } else {
-    renderNationalTeamOverview(container, data, qData, hData);
+    renderNationalTeamOverview(container, data, qData, hData, rawData);
   }
 }
 
@@ -1909,7 +1909,7 @@ function renderNationalTeamTotalPanel(container, data) {
 }
 
 // ── 4层概览首屏：总览摘要条+矩阵热力图+卡片墙+叠加对比折线 ──
-function renderNationalTeamOverview(container, data, qData, hData) {
+function renderNationalTeamOverview(container, data, qData, hData, rawData) {
   var summary = ntBuildSummary(data, qData);
 
   // ▼ 第0层：国家队总盘（合计持仓市值+净增持+份额趋势，最顶部在摘要条之上）▼
