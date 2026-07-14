@@ -1072,4 +1072,11 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 ### A3 衍生文案瑕疵（待修，排队）
 - **bug**：web/app.js:2778,2793（图1 c1/图2 c2 termTip）写 `pin=≥" + THR.surge + "只宽基同步异动...进红/出绿/量橙`，用 THR.surge(=2)统一描述三种pin，但量pin实际阈值=THR.volume(=3)。当前阈值下量阈值文案错（说≥2实际≥3）。
 - **修法**：termTip 文案改为分别说明 `进/出≥${THR.surge}只、量≥${THR.volume}只`。双版 app.js 同改 + build_min + bump。
-- **排队**：等 A1（a6561ba1cae28f635 补挂角标，也改 app.js）完成后串行派，避免撞 app.js。
+- **排队**：A1 已完成(369f036)。串行在 B3/B5 之后（都改 app.js，避免 merge 冲突）。
+
+### B2-B5 独立性调研（agent a4c370e8，2026-07-14，只读分析）
+- **B3 全球轻量 JSON**：完全独立可立即做。static-site/data/global-all.json 3.1MB（indices 2.31MB + extras 0.87MB + extras_signals 0.1MB），信号弹窗(static-site/app.js:1072)拉全量只为取 extras/extras_signals/extras_stats。新导出 global-extras-all.json 只含4字段不含 indices(~1.0MB)，省 2.1MB(68%)。web/app.js:1023 已按 range 拉不需改（动态版无此问题）。export.py+5行 + app.js改1URL。**收益/改动比最高**。
+- **B5 lab.js 懒加载**：完全独立纯前端。index.html:130 删 `<script defer lab.min.js>`，app.js renderTab(state.tab==="lab") 时 dynamic import loadScriptOnce()。省 88KB 首屏。需测 hash 直链 #lab 恢复（lab.js 末尾 IIFE 读 hash）。改动小2index.html删1行+2app.js加~15行。
+- **B2 行业瘦身**：部分独立。industry-all 31文件24MB，每个 data 字段7 OHLC 只用3(close/pct_change/date)，width 8字段只用3。瘦身 24MB->10.4MB(57%)。但 tooltip 信息损失（宽度tooltip不显示涨停/跌停/炸板率/封板率/成交额），**需用户确认接受 UX 代价**。服务端预合并方案不可行（超 Cloudflare 25MB 限制，当初拆分正是为此）。gzip 能降到3.6MB(85%)，B1 搁置则 B2 独立收益57%仍可观但需确认 UX。
+- **B4 trade_sim**：强依赖 B1，搁置合理。84文件46MB 已 iframe 按需，HTML 表格高度重复 gzip 压缩率80%(46MB->10MB)。独立方案A(class替inline style)省9.2MB(20%)但 gzip 后差异消失。方案B(JSON+客户端渲染)重构改动大。
+- **实施排队**：B3/B5/文案瑕疵都碰 app.js 需串行。B3 先(a26f130aecd4f338c) -> B5 -> 文案瑕疵。B2 待用户确认 UX 代价再派。B4 随 B1 搁置。
