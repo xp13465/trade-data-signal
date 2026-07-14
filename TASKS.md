@@ -716,7 +716,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 **A. 本轮新增/遗留（小改，可立即派）**
 - **行业tab热力榜补挂角标**：web/app.js:4448 / static-site/app.js:4533 调 `renderIndustryHeatmap` 后无 `addCardTimeBadge`（概览tab L2547 有挂，行业tab漏挂）。本轮 098c287 只移位（右上->右下）没补挂。改动小（2处JS双版加 addCardTimeBadge 调用 + build_min + bump）。
-- **百度推送效果验证**：maozi.io 在百度资源平台能否 HTML 标签/DNS 验证绑定（不需备案），能绑则推送可能生效；否则考虑 .com/.cn 备案域名做主站。f22018d 代码已注入，待实测收录。
+- **百度推送效果验证**：⏸️ 搁置（用户 2026-07-14 决定）。maozi.io 在百度资源平台能否 HTML 标签/DNS 验证绑定（不需备案），能绑则推送可能生效；否则考虑 .com/.cn 备案域名做主站。f22018d 推送代码已注入全站，待用户后续实测收录再启动。
 - **合计层共振信号阈值密度调整**：当前 THR={surge:2,outflow:2,volume:3}（进/出≥2只，量≥3只），上线观察后按实际信号频率调参（参考 memory `param-opt-test-driven`：多方案+数据报告让用户选）。
 
 **B. 性能优化剩余（需用户决策，本轮不做）**
