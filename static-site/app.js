@@ -1760,6 +1760,7 @@ async function renderMarket() {
     if (state.subtab === key) btn.classList.add("active");
     btn.onclick = () => {
       state.subtab = key;
+      _setTabHash(state.tab); // 写 #market/{subtab}，F5 刷新恢复二级 tab
       renderMarket(); // 重新渲染大盘 tab
     };
     subtabBar.appendChild(btn);
@@ -4284,9 +4285,13 @@ initUpdateRules();
 // === 主 tab hash 记忆 + 滚动位置恢复 ===
 // 切 tab 写 hash（replaceState 不入历史、不触发 hashchange），F5 读 hash 恢复 tab + 滚动位置。
 // #lab 开头归 lab.js 的 lab 恢复逻辑（含 #lab/策略key），此模块只管 4 个非 lab 主 tab。
+// 大盘 tab 的二级 tab 也写进 hash：#market/{subtab}（如 #market/national-team=汪汪队），
+// F5 刷新解析恢复二级 tab，避免刷新回退到默认 a 股。
 const _MAIN_TABS = ["overview", "market", "sentiment", "industry"];
+const _MARKET_SUBTABS = ["a-stock", "hk", "global", "national-team"];
 function _setTabHash(tab) {
-  const h = "#" + tab;
+  let h = "#" + tab;
+  if (tab === "market" && state.subtab) h = "#market/" + state.subtab;
   if (location.hash === h) return;
   try { history.replaceState(null, "", location.pathname + location.search + h); } catch (e) {}
 }
@@ -4307,14 +4312,19 @@ window.addEventListener("scroll", () => {
   }, 200);
 }, { passive: true });
 
-// F5 刷新：读 URL hash 恢复主 tab（#lab 开头归 lab.js 处理）
+// F5 刷新：读 URL hash 恢复主 tab + 大盘二级 tab（#lab 开头归 lab.js 处理）
 (function _initMainTabHashRestore() {
   const h = location.hash;
   if (!h || h.startsWith("#lab")) return;
-  const tab = h.slice(1).split("/")[0];
+  const parts = h.slice(1).split("/"); // "market/national-team" -> ["market", "national-team"]
+  const tab = parts[0];
   if (!_MAIN_TABS.includes(tab)) return;
   state.tab = tab;
-  if (tab === "market" && !state.subtab) state.subtab = "a-stock";
+  if (tab === "market") {
+    // 解析二级 tab，非法/缺失回退 a 股
+    const sub = parts[1];
+    state.subtab = _MARKET_SUBTABS.includes(sub) ? sub : "a-stock";
+  }
   document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
   const btn = document.querySelector(`button[data-tab="${tab}"]`);
   if (btn) btn.classList.add("active");
