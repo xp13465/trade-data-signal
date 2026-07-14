@@ -2206,7 +2206,7 @@ async function renderOverview() {
         const titleText = `📊 ${datePrefix} ${s.sentiment_label || ""}`.replace(/\s+/g, " ").trim();
         // 标签跟在标题后面同一行(对齐历史弹窗布局)
         const titleTags = (fgBadge || freezeBadge) ? `${fgBadge}${freezeBadge}` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText} ${titleTags}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span>${titleTags ? `<span class="summary-title-tags">${titleTags}</span>` : ""}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);

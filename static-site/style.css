@@ -1417,7 +1417,10 @@ main { padding: 16px 24px; }
   font-size: 15px;
   font-weight: 600;
   color: var(--text-1);
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
 }
+.summary-title-text { flex: 0 1 auto; min-width: 0; }
+.summary-title-tags { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .summary-meta {
   display: flex;
   align-items: center;
@@ -1824,8 +1827,9 @@ main { padding: 16px 24px; }
   /* 收盘分析横幅：H5 精简--去"收盘分析"时效文字，只留 snapBadge + 📜按钮；chips 自动 flex-wrap */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
   .summary-top { flex-wrap: wrap; }
-  .summary-meta { flex-wrap: wrap; }
+  .summary-meta { flex-wrap: nowrap; }
   .summary-title { font-size: 14px; }
+  .summary-title-tags { flex-basis: 100%; margin-top: 2px; }
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
