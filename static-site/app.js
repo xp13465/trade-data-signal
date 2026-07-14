@@ -4272,6 +4272,40 @@ function _bindEtfPopup(cell, etfs) {
   tag.addEventListener("mouseleave", () => { popup.style.display = "none"; });
 }
 
+// B2 折中：行业 tooltip detail 按需加载（静态版瘦身主文件，detail 存 tooltip 专属字段）
+const _indDetail = new Map();
+function _indHasDetail(idx) {
+  return idx.width && idx.width.length && idx.width[0] && "zt_count" in idx.width[0];
+}
+async function _preloadIndDetail(id, idx) {
+  if (_indDetail.has(id)) return;
+  if (_indHasDetail(idx)) {
+    _indDetail.set(id, {
+      ohlc: (idx.data || []).map((d) => ({ open: d.open, high: d.high, low: d.low })),
+      width: (idx.width || []).map((w) => ({ zt_count: w.zt_count, dt_count: w.dt_count, zb_count: w.zb_count, seal_rate: w.seal_rate, amount: w.amount })),
+    });
+    return;
+  }
+  try {
+    const det = await fetchJSON("./data/industry-all-indices/" + id + "-detail.json");
+    if (det.ohlc && idx.data && det.ohlc.length === idx.data.length && det.width && idx.width && det.width.length === idx.width.length) {
+      _indDetail.set(id, det);
+    } else {
+      console.warn("industry detail " + id + " 长度不匹配，已丢弃");
+    }
+  } catch (e) { /* 静默失败，tooltip 降级 */ }
+}
+function _indOHL(id, idx, i) {
+  const det = _indDetail.get(id);
+  if (det && det.ohlc && det.ohlc[i]) return det.ohlc[i];
+  return idx.data[i] || {};
+}
+function _indWidthExtra(id, idx, i) {
+  const det = _indDetail.get(id);
+  if (det && det.width && det.width[i]) return det.width[i];
+  return (idx.width || [])[i] || {};
+}
+
 function renderIndustryGrid(indices, containerOverride) {
   const entries = Object.entries(indices).filter(([, idx]) => idx.data && idx.data.length);
   const ctn = containerOverride || content;
@@ -4311,6 +4345,13 @@ function renderIndustryGrid(indices, containerOverride) {
     _bindFreqPopupToHintRows(cell, idx.stats);
     // ETF：top1 标签可点复制，悬浮弹全部候选（按成交额降序，每行可复制）
     _bindEtfPopup(cell, idx.etfs);
+    // B2：视口懒加载行业 detail（tooltip 专属字段），进视口即预取
+    const _io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) { _preloadIndDetail(id, idx); _io.unobserve(e.target); }
+      }
+    }, { rootMargin: "300px" });
+    _io.observe(cell);
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
@@ -4333,7 +4374,8 @@ function renderIndustryGrid(indices, containerOverride) {
         if (!d || d.close == null) return `${p[0].axisValue}<br/>-`;
         const lines = [p[0].axisValue, `收盘 ${d.close.toFixed(2)}`];
         if (d.pct_change != null) lines.push(`涨跌 ${d.pct_change >= 0 ? "+" : ""}${d.pct_change.toFixed(2)}%`);
-        if (d.open != null && d.high != null && d.low != null) lines.push(`开 ${d.open.toFixed(2)} 高 ${d.high.toFixed(2)} 低 ${d.low.toFixed(2)}`);
+        const od = _indOHL(id, idx, p[0].dataIndex);
+        if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
         return lines.join("<br/>");
       } },
       series: [{
@@ -4415,7 +4457,8 @@ function renderIndustryGrid(indices, containerOverride) {
         tooltip: { trigger: "axis", formatter: (p) => {
           const d = widthData[p[0].dataIndex];
           if (!d) return `${p[0].axisValue}<br/>-`;
-          return `${p[0].axisValue}<br/>涨${d.up_count} 跌${d.down_count} | 涨停${d.zt_count} 跌停${d.dt_count} 炸板${d.zb_count}<br/>封板率${d.seal_rate != null ? (d.seal_rate * 100).toFixed(0) + "%" : "-"} | 成交额${d.amount != null ? d.amount.toFixed(0) + "亿" : "-"}`;
+          const wd = _indWidthExtra(id, idx, p[0].dataIndex);
+          return `${p[0].axisValue}<br/>涨${d.up_count} 跌${d.down_count} | 涨停${wd.zt_count != null ? wd.zt_count : "-"} 跌停${wd.dt_count != null ? wd.dt_count : "-"} 炸板${wd.zb_count != null ? wd.zb_count : "-"}<br/>封板率${wd.seal_rate != null ? (wd.seal_rate * 100).toFixed(0) + "%" : "-"} | 成交额${wd.amount != null ? wd.amount.toFixed(0) + "亿" : "-"}`;
         } },
         series: [
           { name: "上涨", type: "line", stack: "wd", symbol: "none", smooth: true,

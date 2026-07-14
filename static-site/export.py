@@ -1147,8 +1147,22 @@ def main():
     ind_all = export_industry(conn, cfg, "all")
     ind_split_dir = DATA_DIR / "industry-all-indices"
     ind_split_dir.mkdir(parents=True, exist_ok=True)
+    # B2 折中瘦身：主文件只保留渲染必需字段，tooltip 专属字段拆到 {iid}-detail.json 按需加载
+    _KEEP_DATA = ("date", "close", "pct_change", "amount")
+    _KEEP_WIDTH = ("date", "up_count", "down_count")
+    _DET_OHLC = ("open", "high", "low")
+    _DET_WIDTH = ("zt_count", "dt_count", "zb_count", "seal_rate", "amount")
     for iid, ind in ind_all["indices"].items():
-        counts[f"industry-all-indices/{iid}.json"] = write_json(ind_split_dir / f"{iid}.json", ind)
+        slim = {k: v for k, v in ind.items() if k not in ("data", "width")}
+        slim["data"] = [{k: x.get(k) for k in _KEEP_DATA} for x in ind["data"]]
+        slim["width"] = [{k: x.get(k) for k in _KEEP_WIDTH} for x in ind["width"]]
+        counts[f"industry-all-indices/{iid}.json"] = write_json(ind_split_dir / f"{iid}.json", slim)
+        detail = {
+            "ohlc": [{k: x.get(k) for k in _DET_OHLC} for x in ind["data"]],
+            "width": [{k: x.get(k) for k in _DET_WIDTH} for x in ind["width"]],
+        }
+        counts[f"industry-all-indices/{iid}-detail.json"] = write_json(
+            ind_split_dir / f"{iid}-detail.json", detail)
     counts["industry-all-concepts.json"] = write_json(
         DATA_DIR / "industry-all-concepts.json", {"concepts": ind_all["concepts"]})
     counts["industry-all-meta.json"] = write_json(
