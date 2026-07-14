@@ -39,6 +39,25 @@ window.addEventListener("resize", () => {
   _resizeTimer = setTimeout(() => charts.forEach((c) => c && c.resize()), 150);
 });
 
+// B5: lab.js 按 tab 懒加载（不访问 lab 的用户不下载 88KB lab.min.js）
+// index.html 不再预加载 lab.min.js，切到 lab tab 或 #lab 直链时才 dynamic 注入。
+// 版本号 URL 由 <meta name="lab-asset-url"> 持有（bump / main.py 同 script 标签机制注入 ?v= 破缓存）。
+let _labScriptPromise = null;
+function loadLabScript() {
+  if (_labScriptPromise) return _labScriptPromise;
+  _labScriptPromise = new Promise((resolve, reject) => {
+    if (typeof renderSignalLab === "function") { resolve(); return; }  // 已加载
+    const meta = document.querySelector('meta[name="lab-asset-url"]');
+    const src = meta ? meta.content : "./lab.min.js";
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => { _labScriptPromise = null; reject(new Error("lab.js load failed")); };
+    document.head.appendChild(s);
+  });
+  return _labScriptPromise;
+}
+
 document.querySelectorAll('button[data-rng]').forEach((b) => {
   b.onclick = () => {
     state.range = b.dataset.rng;
@@ -55,6 +74,9 @@ document.querySelectorAll('button[data-rng]').forEach((b) => {
 });
 document.querySelectorAll("button[data-tab]").forEach((b) => {
   b.onclick = () => {
+    // B5: lab.js 动态加载后其末尾 IIFE 会 click labBtn 恢复 #lab 直链；
+    // tab 切换到 lab 时按钮已 active，IIFE 的 click 会导致重复渲染竞态，跳过。
+    if (b.dataset.tab === "lab" && b.classList.contains("active")) return;
     state.tab = b.dataset.tab;
     if (state.tab === "market" && !state.subtab) state.subtab = "a-stock";
     document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
@@ -1141,7 +1163,10 @@ async function renderTab() {
     else if (state.tab === "market") await renderMarket();
     else if (state.tab === "sentiment") await renderSentiment();
     else if (state.tab === "industry") await renderIndustry();
-    else if (state.tab === "lab") await renderSignalLab();
+    else if (state.tab === "lab") {
+      await loadLabScript();   // B5: 懒加载 lab.js
+      await renderSignalLab();
+    }
   } catch (e) {
     renderErrorState(content, e, () => renderTab());
   }
@@ -5359,6 +5384,8 @@ fetchIntradaySnapshot();
 // 此处跳过 bootstrap renderTab，避免与 lab 渲染竞态导致概览内容（含行业热力图）串入实验室页 / 高亮与内容不一致。
 if (location.hash.startsWith("#lab")) {
   renderLoadingState(content);
+  // B5: 懒加载 lab.js，加载后其末尾 IIFE 读 #lab 自动 click labBtn -> renderTab
+  loadLabScript().catch((e) => renderErrorState(content, e, () => location.reload()));
 } else {
   renderTab().then(() => {
     if (_tabInitialRestore) { _tabInitialRestore = false; _restoreMainTabScroll(); }
