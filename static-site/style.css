@@ -220,30 +220,31 @@ main { padding: 16px 24px; }
   position: relative;
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); padding-right: 4px; }
-/* 盘中标注角标：右上角药丸，区分 714 实时(绿) / 713 待收盘(灰) / 收盘(主题色) */
+/* 盘中标注角标：右下角浮动药丸(absolute 不占位)，半透明毛玻璃背景像贴纸浮于内容之上，区分盘中(绿)/午休(黄)/待收盘(灰)/收盘(主题色) */
 .card-time-badge {
   position: absolute;
-  top: 6px;
+  bottom: 6px;
   right: 8px;
   font-size: 11px;
   line-height: 1.5;
   padding: 1px 7px;
   border-radius: 10px;
   white-space: nowrap;
-  z-index: 3;
+  z-index: 5;
   pointer-events: none;
-  background: var(--bg-card);
+  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
   border: 1px solid var(--border);
   max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
-.card-time-badge.intraday { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.1); }
-.card-time-badge.lunch { color: #e6a23c; border-color: rgba(230,162,60,0.5); background: rgba(230,162,60,0.12); }
+.card-time-badge.intraday { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.2); }
+.card-time-badge.lunch { color: #e6a23c; border-color: rgba(230,162,60,0.5); background: rgba(230,162,60,0.2); }
 .card-time-badge.pending { color: var(--text-3); border-color: var(--border-strong); }
-.card-time-badge.closed { color: var(--primary); border-color: var(--primary); background: var(--primary-bg); }
-/* 盘中标注角标防压文字：有角标的卡片给标题预留右侧空间，避免角标叠在标题文字上（移动端优先已缩小角标） */
-.chart-card.has-time-badge h3, .card.has-time-badge .card-title { padding-right: 88px; }
+.card-time-badge.closed { color: var(--primary); border-color: var(--primary); background: color-mix(in srgb, var(--primary-bg) 82%, transparent); }
 /* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
 .chart-latest { color: var(--primary); font-weight: 600; background: var(--primary-bg); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 港股盘中实时标注（快照注入 _snap_intraday=true 时显示在图表标题旁） */
@@ -498,7 +499,7 @@ main { padding: 16px 24px; }
 .cards.kpi-row { gap: 12px; }
 .card.kpi { min-width: 150px; padding: 12px 16px; flex: 1 1 150px; }
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; }
-.card.kpi .card-time-badge { font-size: 10px; padding: 1px 5px; top: 4px; right: 6px; max-width: 70%; }
+.card.kpi .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 4px; right: 6px; max-width: 70%; }
 .card-sub { font-size: 12px; color: var(--text-4); }
 .tag.stale { background: #faad14; }
 
@@ -1680,10 +1681,8 @@ main { padding: 16px 24px; }
   .card.kpi { min-width: 0; padding: 10px 12px; }
   .card.kpi .card-value { font-size: 20px; }
   /* 盘中标注角标移动端更小，避免遮住 KPI 数值 */
-  .card-time-badge { font-size: 10px; padding: 1px 5px; top: 5px; right: 6px; }
-  .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; top: 3px; right: 4px; }
-  /* 移动端角标防压：缩小预留宽度，配合更小角标 */
-  .chart-card.has-time-badge h3, .card.has-time-badge .card-title { padding-right: 56px; }
+  .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 5px; right: 6px; }
+  .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
   .ov-2col { grid-template-columns: 1fr; gap: 12px; }
   .ov-2col .chart-card { min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
