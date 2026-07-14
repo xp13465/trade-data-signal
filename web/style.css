@@ -1824,12 +1824,13 @@ main { padding: 16px 24px; }
   /* H5：tab 按钮+搜索框一行放不下时，搜索框换行占满整行 */
   .industry-anchor-bar .anchor-search { flex-basis: 100%; max-width: none; margin-left: 0; }
 
-  /* 收盘分析横幅：H5 精简--去"收盘分析"时效文字，只留 snapBadge + 📜按钮；chips 自动 flex-wrap */
+  /* 收盘分析横幅 H5:首行 text(左)+meta(右),tags 第二行占满 */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
-  .summary-top { flex-wrap: wrap; }
-  .summary-meta { flex-wrap: nowrap; }
-  .summary-title { font-size: 14px; }
-  .summary-title-tags { flex-basis: 100%; margin-top: 2px; }
+  .summary-top { flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 4px 10px; }
+  .summary-title { display: contents; }   /* 不生成盒子,子元素提升为 summary-top 的 flex item */
+  .summary-title-text { font-size: 14px; font-weight: 600; }
+  .summary-meta { flex-wrap: nowrap; align-self: flex-start; }
+  .summary-title-tags { flex: 0 0 100%; margin-top: 2px; }
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
