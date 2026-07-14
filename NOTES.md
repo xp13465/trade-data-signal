@@ -1080,3 +1080,17 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - **B2 行业瘦身**：部分独立。industry-all 31文件24MB，每个 data 字段7 OHLC 只用3(close/pct_change/date)，width 8字段只用3。瘦身 24MB->10.4MB(57%)。但 tooltip 信息损失（宽度tooltip不显示涨停/跌停/炸板率/封板率/成交额），**需用户确认接受 UX 代价**。服务端预合并方案不可行（超 Cloudflare 25MB 限制，当初拆分正是为此）。gzip 能降到3.6MB(85%)，B1 搁置则 B2 独立收益57%仍可观但需确认 UX。
 - **B4 trade_sim**：强依赖 B1，搁置合理。84文件46MB 已 iframe 按需，HTML 表格高度重复 gzip 压缩率80%(46MB->10MB)。独立方案A(class替inline style)省9.2MB(20%)但 gzip 后差异消失。方案B(JSON+客户端渲染)重构改动大。
 - **实施排队**：B3/B5/文案瑕疵都碰 app.js 需串行。B3 先(a26f130aecd4f338c) -> B5 -> 文案瑕疵。B2 待用户确认 UX 代价再派。B4 随 B1 搁置。
+
+### B3/B5/文案瑕疵 已完成（2026-07-14）
+- **B3 全球轻量 JSON**（commit c556ae3）：信号弹窗 fetch global-all(3.1MB)改 global-extras-all(0.9MB)，省70%。export.py 复用循环内 data 变量导出4字段(extras/extras_signals/extras_stats/extras_strategy)不含 indices。web 动态版已按 range 拉无需改。
+- **B5 lab.js 懒加载**（commit 4642735）：index.html 删 `<script defer lab.min.js>` 改 `<meta name="lab-asset-url" content="...?v=...">`，bump/main.py 既有正则自动注入版本号(零 Python 改)。app.js 加 loadLabScript() Promise 缓存，renderTab lab 分支 await loadLabScript()+renderSignalLab()。hash #lab 直链靠 lab.js 末尾 IIFE + onclick 守卫(lab 已 active 跳过 spurious click)协调。省 88KB 首屏。
+- **pin 文案瑕疵**（commit 97c3585）：图1/图2 termTip 改 `进/出≥THR.surge只、量≥THR.volume只`(原用 THR.surge=2 统一描述,量实际≥3文案错)。
+- **教训**：pin commit 误混入 static-site/data/etf_national_team*.json + signal_freq.json(export/build 重生成的站点数据)。内容有效(数据更新到7-14+signal_freq 仍4字段),但应单独 commit。**export 重生成的 static-site/data/ JSON 要单独 commit,别和功能改动混**。已 push 不 amend(force push 风险)。
+
+### B2 折中方案调研 + 实施（agent a3091f39 调研 / a8b86fd7 实施，2026-07-14）
+- **方案**：主文件瘦身保留 data 的 date/close/pct_change/**amount**(amount是成交额mini chart series数据非tooltip,前序a4c370e8漏这点)+ width 的 date/up_count/down_count。detail.json 只含 tooltip 字段:data 的 open/high/low + width 的 zt_count/dt_count/zb_count/seal_rate/amount。detail 不含 date(靠 index 对齐+length guard,省3MB)。
+- **echarts tooltip 同步性约束**：formatter 同步函数不能 await fetch -> 用 IntersectionObserver 视口懒加载(rootMargin:300px 卡片进入视口即预取)。模块级 _indDetail Map 缓存。_indHasDetail(idx) 检测:动态版 idx 已含完整 width[0].zt_count -> 从 idx 填充缓存(无 fetch);静态版 fetch {iid}-detail.json。
+- **改动量**：export.py ~15行(循环内同时导出瘦身主+detail) + 双版 app.js ~45行新增(缓存+3helper+IO)+~10行改(2 formatter)。
+- **收益**：初始加载 24MB->13.86MB(省43%)，detail 按视口懒加载。tooltip 首次显示可能降级(显示"-")，rootMargin 提前预取缓解，动态版无此问题。
+- **不碰**：app/main.py(动态版 /api/industry 单次返回完整无25MB限制)/concepts(无width)/采集。
+- 实施 agent a8b86fd747be0089d 跑中。
