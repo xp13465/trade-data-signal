@@ -1130,7 +1130,11 @@ function fetchIntradaySnapshot() {
 // 盘中标注角标：根据卡片数据日期 vs 快照判断时效，让用户一眼区分 714 实时 / 713 待收盘 / 收盘
 // - 盘中(snap.is_closed===false) 且 dataDate==snapDate(当日) -> "⏰ 盘中·HH:MM"(绿)
 // - 午休(snap.label 含"午休"，is_closed 仍 false) -> "⏰ 午休·HH:MM"(黄)，后端 label 区分盘中暂停
-// - 盘中但 dataDate 早于 snapDate(T-1或更早) -> "📍 待收盘·MM-DD"(灰)
+// - 盘中但 dataDate 早于 snapDate(非当日) -> 按是否滞后分级：
+//   · dataDate == prev_trading_day(上一交易日) -> "📍 待收盘·MM-DD"(灰，正常T+1)
+//   · dataDate < prev_trading_day -> "⚠ 数据滞后·MM-DD"(采集断了，非周末/节假日正常延迟)
+//   · 日历日差>15天(覆盖国庆7天+周末不误判) -> "⚠ 数据异常·MM-DD"
+//   · prev_trading_day 缺失 -> 兜底"待收盘"(不误报)
 // - 收盘后/无快照 -> "📍 收盘·MM-DD"(主题色)
 function getCardTimeBadge(dataDate, snap) {
   if (!dataDate) return "";
@@ -1148,6 +1152,19 @@ function getCardTimeBadge(dataDate, snap) {
       return `<span class="card-time-badge lunch">⏰ 午休·${hh}:${mm}</span>`;
     }
     return `<span class="card-time-badge intraday">⏰ 盘中·${hh}:${mm}</span>`;
+  }
+  // pending 分支：盘中但卡片数据非当日。用后端预算的 prev_trading_day 判断是否真滞后
+  const ptd = snap.prev_trading_day || "";
+  if (ptd && dataDate < ptd) {
+    // 严重滞后：日历日差>15天(覆盖国庆7天长假+周末，不误判节假日)
+    let severe = false;
+    if (dataDate.length === 8 && ptd.length === 8) {
+      const d1 = new Date(+dataDate.slice(0, 4), +dataDate.slice(4, 6) - 1, +dataDate.slice(6, 8));
+      const d2 = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
+      severe = (d2 - d1) / 86400000 > 15;
+    }
+    const txt = severe ? "⚠ 数据异常" : "⚠ 数据滞后";
+    return `<span class="card-time-badge pending">${txt}·${mmdd}</span>`;
   }
   return `<span class="card-time-badge pending">📍 待收盘·${mmdd}</span>`;
 }

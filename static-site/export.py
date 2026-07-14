@@ -1018,7 +1018,7 @@ def export_intraday_snapshot():
     snap = load_latest_snapshot()
     if snap is None:
         return {"collected_at": None, "is_closed": True, "label": "暂无快照",
-                "indices": [], "industries": []}
+                "prev_trading_day": "", "indices": [], "industries": []}
     return snap
 
 
