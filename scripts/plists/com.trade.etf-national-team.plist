@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.trade.etf-national-team</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/linhuichen/code/trade/.venv/bin/python</string>
+		<string>-m</string>
+		<string>app.collector.etf_national_team</string>
+		<string>daily</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<!-- 每日 20:07 跑：SSE/SZSE ETF 每日份额当日晚间 ~18:00-20:00 才发布，
+	     20:07 错开 backfill-evening 的 20:00 槽，且确保份额已出。
+	     采集器内置 6 天回填窗口，即使当日份额滞后，次日跑也会补上。 -->
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>20</integer>
+		<key>Minute</key>
+		<integer>7</integer>
+	</dict>
+	<key>StandardErrorPath</key>
+	<string>/Users/linhuichen/code/trade/data/logs/etf_national_team_launchd.err</string>
+	<key>StandardOutPath</key>
+	<string>/Users/linhuichen/code/trade/data/logs/etf_national_team_launchd.log</string>
+	<key>WorkingDirectory</key>
+	<string>/Users/linhuichen/code/trade</string>
+</dict>
+</plist>

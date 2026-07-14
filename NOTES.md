@@ -938,5 +938,159 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - **角标 4 态**：盘中绿.intraday/午休黄.lunch/待收盘灰.pending/收盘主题色.closed。
 - **prev_trading_day**：基于 akshare 交易日历，判断数据真滞后（正常 T+1 vs 异常滞后）。
 - **数据 push worktree 方案**：detached HEAD @ origin/main，采集在主仓库（DB 持久化），commit+push 在 worktree。
-- **build_min 验证**：改 app.js 后必须 `grep -c` min.js 字面量计数确认同步，否则前端不显示。
+- **build_min 验证**：改 app.js 后必须 `grep -c` min.js 字面量计数确认同步，否则前端不显示。**注意 min.js 是单行文件，`grep -c` 按行算永远≤1 误导，改用 `grep -o '关键词' file | wc -l`**。
 - **app.js 是热点文件**：多 agent 并行改 app.js 会撞 build_min/push，需串行或合并派。
+
+## §17 工作模式强化 + 本轮（2026-07-14 新会话）状态（2026-07-14）
+
+### 工作模式再强化（用户明确要求，2026-07-14）
+- **调研/代码定位/分析问题也派子 agent**，不只派"实施"。主上下文不做 grep/Read/方案分析这些"调研活"——把"调研需求+定位代码+给方案"作为 agent 任务派出去，收结论后再派实施 agent。
+- 主控只做三件事：①派发（含目标+约束+验收口径）②收总结 ③验证关键结论（逐字 grep 报告，**不信 agent 报告**，dot is not defined / min.js grep -c 教训）。
+- **不问 yes/no**（"要我跑吗""要不要更新文档""要不要验"类自决），自行验收连轴转；只在真·方向分叉给选项。
+- **不冲突就并行**派发，不串行等。app.js 改动串行（撞 build_min/push）；.py / 独立 HTML / 只读调研可并行。
+- **重要状态/决策/方案落 NOTES.md/TASKS.md commit 进 git，不进 memory**（memory 只暂存会丢）。
+- 核对 agent 看完成通知会丢，查 jsonl mtime（`stat -f "%Sm" .../tasks/<id>.output`）确认真实状态。
+
+### §16 状态修正（D/B/A/C/E 实际全完成，§16 进行中/排队段已过时）
+- **D 收盘分析加领跌** ✅ commit c28e466（market_summary.py 加 bottom_industries + 双版 app.js renderSummaryChips/renderIntradayChips 加❄领跌）
+- **B collect_health 误报** ✅ commit 41c42df（复核 index_daily 当日 close，移除 backfill 陈旧误报，items 19->10）
+- **A 数据时效** ✅ commit 1eef457（移除红点 _healthDotHtml + 健康横幅 renderDataHealthBanner 替代 + 北向停更30天规则 + CSS）
+- **C 卡片文案对齐** ✅ commit 4c73aca（.card.kpi .card-value flex + cv-val/cv-tags span）
+- **E spark 角标** ✅ commit 4c73aca（删 spark-date + addCardTimeBadge 复用 4 态 + .spark-cell position:relative）
+- **hotfix dot is not defined** ✅ commit 2fafe2e（A 删 _healthDotHtml 漏删 _renderCollectTime 两处 ${dot}）
+
+### 本轮（2026-07-14 新会话）已完成
+| commit | 内容 |
+|---|---|
+| 81e6997 | 收盘小结+历史弹窗领涨领跌带💰资金净流入+name去SW前缀（B1：index_daily 加 net_inflow 字段 db.py migration ALTER + intraday_snapshot _backfill_industry_daily 反哺 net_inflow + market_summary top/bottom 带 net_inflow + name .replace("SW ","")。当日有💰；B1 前历史 net_inflow NULL 只显示涨跌幅）|
+| f22018d | 全站 170 个 HTML 注入百度自动推送 JS（SEO 收录）+ 修 2 bug（split(':')[0] / getElementsByTagName("script")[0]，markdown 吞 [0]）+ simulate_trade.py 生成器模板同步（future 自带）。注意：.io 域名无法工信部备案，百度收录效果存疑，代码无害保留 |
+| 9f38fa4 | spark 卡左下角补点位+涨跌点数（spark-foot `${_lastClose.toFixed(2)}` + `${_chgText}` 带色）。接手 spark agent 收尾：补 static-site/style.css 双版同步 + build_min + bump（agent 漏 commit/漏双版 style.css/通知丢了，查 jsonl mtime 发现）|
+
+### 本轮续（2026-07-14）已完成
+5 个进行中 agent 全部收口，3 commit + 3 诊断结论。
+
+| commit | 内容 |
+|---|---|
+| 9346451 | 汪汪队ETF数据自动更新-新增20:07 launchd调度（scripts/plists/com.trade.etf-national-team.plist，复用现有plist模板，StartCalendarInterval 20:07，独立锁 data/etf_national_team.lock 不撞 update_all。SSE/SZSE ETF份额18:00-20:00发布，20:07跑当晚出信号不再滞后。launchctl已加载exit 0。根治 etf_nt 采集不在任何调度致停7-13问题） |
+| f316153 | 国家队合计层图1（合计持仓市值趋势）+图2（份额合计趋势）加共振信号 markPoint pin（进N/出N/量N）。方案A聚合单只信号：遍历 data.etfs[].daily[].signals，某日≥N只ETF同出信号即合计层标pin。阈值 THR={surge:2,outflow:2,volume:3}（进/出≥2只，量≥3只放量更常见故更严）。share_surge->"进N"红#e6492e / share_outflow->"出N"绿#2e8b57 / volume_surge->"量N"橙#ff9800。不改 lineChart 签名（10+处调用回归风险），图1/图2改用 mkCard+setOption 直接画+markPoint pin。value含共振只数N不依赖hover。双版 app.js renderNationalTeamTotalPanel 逐字同步。无数据缺口（signals字段链路完整，不改export.py/采集/DB） |
+| 2a29984 | sim页（模拟回测 trade_sim_*.html）主题初始化对齐主看板。根因：sim页主题JS只读 location.hash 不读 localStorage，直接访问（非iframe，如行业图表按钮弹窗）时无hash回退 :root 浅色，浅色下 --bg-best=#fff8e1 正好等于旧硬编码值致背景色看不出变化。修复：simulate_trade.py L1183-1194 主题JS改三级优先级（hash优先->localStorage->首次默认redgold），与 web/index.html L42-49 对齐。重生成 83+83=166 个 trade_sim HTML（28个 sw_801* 数据None失败 + 6个 g.* 不在 name_map，用Python原地补丁：56个 sw_801* 替换旧JS块 + 12个 g.* 注入新主题JS块，g.* 原完全无主题支持）。验证：trade-theme 83+83，redgold 83+83，旧块残留0，花括号无残留，push.js仍170。这同时修复了之前 13dee00 的策略表格背景色未生效问题（根因是子页主题不应用，非背景色代码问题） |
+
+#### 诊断结论（无 commit，报告型）
+- **汪汪队7-13停更根因**：etf_nt 采集不在任何调度（update_all 4 pipeline / runner.py steps / launchd / crontab 都没有），只能手动CLI跑。已由 9346451 根治（新增20:07 launchd）。
+- **两融7-13**：已由之前 0f86acc 加 backfill 20:00 补采步骤（series 补采覆盖两融等晚发布指标，不再漏采）。
+- **合计信号调研（a5530b32）**：方案A聚合单只信号推荐，不改 lineChart 改用 mkCard+setOption，无数据缺口。已由 f316153 实施。
+
+#### 进行中 agent 状态收口
+| agent | 任务 | 结果 |
+|---|---|---|
+| afe0e4196 | 数据时效栏手机端默认折叠+修跳动 | ✅ 代码已在 321c467 落地（dhb-collapsed localStorage + matchMedia ≤768px 默认折叠 + .dhb-chips max-height 过渡修跳动） |
+| a21b4f8c | 策略表格背景色跟主题 | ✅ 13dee00 初版（cmp_cell 改 var(--bg-best/worst)+4套主题变量）+ 2a29984 根因修复（sim页主题JS三级优先级，子页主题不应用致背景色不生效） |
+| a0545d65 | 汪汪队7-13未更新诊断+补采 | ✅ 诊断：etf_nt 不在任何调度 -> 9346451 根治（20:07 launchd） |
+| a7fed704 | 两融7-13诊断 | ✅ 诊断：akshare 两融晚发布 -> 0f86acc 已修（backfill 20:00 加 series 补采） |
+| a5530b32 | 合计层加进/出/量信号方案调研 | ✅ 方案A推荐 -> f316153 实施（共振信号 markPoint pin） |
+
+### 关键技术点（本轮续补充）
+- **sim页主题JS三级优先级**：hash（iframe传入）-> localStorage -> 首次默认 redgold，与主看板 web/index.html L42-49 对齐。原 sim 页只读 hash 不读 localStorage，直接访问（非 iframe）时无 hash 回退浅色。
+- **g.* trade_sim 页原完全无主题支持**：本次 2a29984 用 Python 原地补丁注入新主题 JS 块（12个 g.* 文件），sw_801* 系列 56 个文件替换旧 JS 块。
+- **合计层共振信号**：方案A聚合单只 signals，THR={surge:2,outflow:2,volume:3}（进/出≥2只，量≥3只放量更常见故更严）。不改 lineChart 签名（10+处调用回归风险），图1/图2改用 mkCard+setOption 直接画+markPoint pin。value 含共振只数N不依赖 hover。
+- **etf_nt launchd 20:07**：复用 scripts/plists/ 模板，独立锁 data/etf_national_team.lock 不撞 update_all。SSE/SZSE ETF份额18:00-20:00发布，20:07跑当晚出信号不再滞后。
+
+### 关键约束补充
+- **百度推送代码 bug**：官方原版带 `[0]`（`split(':')[0]` + `getElementsByTagName("script")[0]`），markdown 渲染吞 `[0]` 致看起来漏。push.js 源码是 1×1 img 打 sp0.baidu.com 上报 URL。
+- **index_daily.net_inflow**：db.py `_migrate` 用 PRAGMA table_info 检查列存在性+ALTER TABLE ADD COLUMN 兼容旧 DB。
+- **数据时效栏折叠**：localStorage `dhb-collapsed` 记忆，首次手机端默认折叠 PC 默认展开。
+
+## §18 排队4/5 + 性能优化收口（2026-07-14 续，2 commit）
+
+> 排队-4/5 共 12 项 + 性能优化可独立做项，逐字 grep 验收 + 收尾。2 commit + TASKS.md 回填。已推 feat/iframe-theme-follow。
+
+### 排队-4/5 调研结论（关键发现）
+- **12 项中 11 项前序会话已完成**（6 commit：4183fa3/5de17b3/669b003/ad88fb3/af46512/11c526d，2026-07-13 21:54-22:09 闭环）。`EVAL_REPORT_2026-07-13.md` 是修复前基线快照，TASKS.md L40 未回填状态仍标"待办"致重复调研。
+- **教训**：开工先 `git log --oneline --since=2026-07-13 -- web/lab.js web/app.js app/compute/signal_stats.py` 看最近 commit，不只读 TASKS.md/EVAL_REPORT。
+- **X6 是唯一未收尾项**：前端已 100% 迁移新字段（`f.year_count`/`f.total_count`/`f.monthly_avg`/`f.active_months`），后端 `compute_global_freq` 仍双发 year/total + year_count/total_count。
+
+### 已完成验收（11 项，逐字 grep）
+| 项 | 证据 |
+|---|---|
+| L1 买卖信号弹窗下全历史 | `web/lab.js:2345` apiRange 映射 y1->3y/y3->5y/y5->5y/y10/all->all |
+| L2 实验图表窗口联动 | `web/lab.js:1460` state.labWinSync + 🔗同步按钮 |
+| L3 规则弹窗频率刷新 | `dataset.loaded` grep=0（注：EVAL_REPORT 称"lab.js:726"是旧行号，实际在 `app.js:907` initRuleButton）|
+| L4 推荐榜超时取消+重试 | `web/lab.js:2166` AbortController 15s + lab-full-retry 按钮 |
+| O3 分享图overview缓存 | `web/app.js:4986` _OVERVIEW_TTL=5min + _overviewCache |
+| M2 renderGlobal null守卫 | `web/app.js:314` empty-note + r.indices\|\|{} 兜底 |
+| S2 月均年初虚高 | `signal_stats.py:127` active_months 除数（今年实际有信号月数并集）|
+| I2 概念搜索 | `web/app.js:774` industrySearchBar 共用搜索条过滤 indices+concepts |
+| I3 锚点scrollspy | `web/app.js:4529` IntersectionObserver rootMargin -15%/-70% |
+| X2 _headers qr.js | `static-site/_headers:25` immutable，与 bump_asset_version.py ASSETS 对齐 |
+| X3 版本号md5非mtime | `scripts/bump_asset_version.py:31` hashlib.md5 前8位（内容变则版本变）|
+
+### X6 收尾（commit 368cd31）
+- `app/compute/signal_stats.py`：init dict year/total -> year_count/total_count；累加 `freq[sig]["year_count"]`/`["total_count"]`；返回 dict 删 year/total 两行；docstring 删兼容期说明。共 5 处 Edit。
+- 重生成 `static-site/data/signal_freq.json`：4 字段（monthly_avg/year_count/total_count/active_months），旧字段 grep=0。样例 buy{monthly_avg:23.33,year_count:140,total_count:4184,active_months:6}。
+- 双版一致：动态 compute_global_freq() 输出与静态 JSON diff IDENTICAL（main.py/export.py 都委托该函数，改一处双版同步）。
+- 前端无需改（已迁移）。
+
+### 性能优化可独立做项（6 项，5 已完成 + P2-3 实施）
+| 项 | 状态 | 证据 |
+|---|---|---|
+| P1-1 echarts defer | ✅ 前序完成 | `index.html:29` 双版均带 defer，app.min.js/lab.min.js 也 defer（顺序 echarts->app->lab 安全）|
+| P1-2 resize debounce | ✅ 前序完成 | `app.js:29-32` clearTimeout+setTimeout(150) 遍历 charts.resize() |
+| P1-4 app.js/lab.js minify | ✅ 前序完成 | `build_min.py` 用 `npx terser --compress --mangle`（真 minify 非合并）|
+| P2-1 renderOverview并行 | ✅ 前序完成 | `app.js:2403` Promise.allSettled([ad_line,volume_ratio,new_high_low]) 失败各自降级 |
+| P2-3 FastAPI缓存头 | ✅ 本轮实施 | commit 22da604，中间件版本化资源 immutable 其余 no-cache |
+| P2-4 lab输入debounce | ✅ 前序完成 | `lab.js:2097-2102` clearTimeout+setTimeout(100) 只刷结果区不重建面板 |
+
+### P2-3 FastAPI Cache-Control 中间件（commit 22da604）
+- `app/main.py:30-50` `@app.middleware("http")`，位置 `app=FastAPI()` 之后、路由之前。
+- `_VERSIONED_ASSETS` 6 项（style.css/app.min.js/lab.min.js/lab.css/qr.js/vendor/echarts.min.js）带 `?v=` -> `public,max-age=31536000,immutable`；其余 /static/ -> no-cache；/api/、/、/trade_sim、/og.png -> no-cache。
+- 守卫 `if resp.headers.get("cache-control"): return resp` 不覆盖 / 路由自设头（line 1219）。
+- 对齐 static-site/_headers（动态站 /api/* 对应静态站 /data/*）。TestClient 冒烟全过。
+- 只改 app/main.py（23 insertions），不需 build_min/bump，不碰 static-site（走 _headers）。
+
+### 性能优化剩余（需用户决策，本轮不做）
+- **P0-1/P0-2（gzip/缓存头部署层）**：MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传。需确认服务器可改性或接 Cloudflare。**单项最高收益**（弱网提速 3-5 倍）。
+- P1-3/P1-5/P2-2/P2-5：靠 P0 或改动大，本轮不做。
+
+### 两融 7-14 滞后补充诊断（前序 agent a7fed704，2026-07-14）
+- **根因不是调度**（调度已由 0f86acc 根治，backfill_series_metrics 在 index_backfill.py:363，20:00/02:00 兜底补采 series 指标），而是 **SSE 源一次性异常延迟**：7-14 盘后 5.5 小时（到 20:35）仍未发布，轮询 24 次全返 max=7-13。stock_margin_sse + macro_china_market_margin_sh 双源均无 7-14。
+- **实测 DB**（07-14）：a_fund_margin=20260713，但 a_qvix_300/a_div_yield/hk_south 均已补 20260714（同 20:00 backfill 采到，证 backfill_series_metrics 生效，仅 SSE 源没出）。
+- **兜底**：02:00 backfill（index_backfill.py:434 main 调用）会重跑，SSE 一旦发布即采到+重算+推送。未来交易日 20:00/02:00 都兜底，不再系统性漏采。
+- **区分**：两融是 SERIES_FUNCS（依赖 SSE 盘后发布，17:50 update_all 赶不上）；涨停/成交额是 intraday_snapshot（15:35 收盘后即有）。前者滞后是源发布晚非采集 bug。
+
+### TASKS.md 回填
+- L39 排队-4 标 ✅（commit ad88fb3 + apiRange 映射说明）。
+- L40 排队-5 标 ✅ 全部完成（11 项 + 6 commit 清单 + 逐项证据，注明 EVAL_REPORT 是修复前基线快照）。
+
+### A3 合计层共振信号阈值密度回算（agent a1906bea1，2026-07-14，只读分析）
+- **结论：保持当前 {surge:2, outflow:2, volume:3} 不变**（数据支持，无需调参）。
+- **频率**：当前阈值近1年 39 信号天 / 占16% / 周均0.80 / 月均3.37（理想一周1-3次的下沿，不密不疏）。
+- **备选对比**（近1年243交易日）：{1,1,2}敏感=77天但单只不算共振语义错❌ / {2,2,2}量降=46天但volume_surge宽松信息量不足❌ / **{2,2,3}当前=39天✅** / {2,2,4}=39天与{2,2,3}无差异(volume≥3时通常已≥4) / {3,3,4}=19天砍一半漏小规模协同 / {4,4,5}=11天太疏。
+- **关键发现**：volume 阈值 3→4 无差别（volume_surge 单条件宽松，触发时往往≥4只），量阈值不是瓶颈。surge/outflow 是三重条件(方向+z>2+vol_ratio>1.5)已很严格,2只共振是有效信号。
+- **信号扎堆是特性非缺陷**：2026-01 连续8天出信号精确捕捉1月暴跌国家队流出,这是信号价值所在。
+- **单只信号触发**：etf_national_team.py:681-768 compute_signals。surge(进)=share_change>0 AND z>2 AND vol_ratio>1.5；outflow(出)=share_change<0 AND z<-2 AND vol_ratio>1.5；volume(量)=vol_ratio>2。折算排除|share_change_pct|>30% AND vol_ratio<1.0。
+
+### A3 衍生文案瑕疵（待修，排队）
+- **bug**：web/app.js:2778,2793（图1 c1/图2 c2 termTip）写 `pin=≥" + THR.surge + "只宽基同步异动...进红/出绿/量橙`，用 THR.surge(=2)统一描述三种pin，但量pin实际阈值=THR.volume(=3)。当前阈值下量阈值文案错（说≥2实际≥3）。
+- **修法**：termTip 文案改为分别说明 `进/出≥${THR.surge}只、量≥${THR.volume}只`。双版 app.js 同改 + build_min + bump。
+- **排队**：A1 已完成(369f036)。串行在 B3/B5 之后（都改 app.js，避免 merge 冲突）。
+
+### B2-B5 独立性调研（agent a4c370e8，2026-07-14，只读分析）
+- **B3 全球轻量 JSON**：完全独立可立即做。static-site/data/global-all.json 3.1MB（indices 2.31MB + extras 0.87MB + extras_signals 0.1MB），信号弹窗(static-site/app.js:1072)拉全量只为取 extras/extras_signals/extras_stats。新导出 global-extras-all.json 只含4字段不含 indices(~1.0MB)，省 2.1MB(68%)。web/app.js:1023 已按 range 拉不需改（动态版无此问题）。export.py+5行 + app.js改1URL。**收益/改动比最高**。
+- **B5 lab.js 懒加载**：完全独立纯前端。index.html:130 删 `<script defer lab.min.js>`，app.js renderTab(state.tab==="lab") 时 dynamic import loadScriptOnce()。省 88KB 首屏。需测 hash 直链 #lab 恢复（lab.js 末尾 IIFE 读 hash）。改动小2index.html删1行+2app.js加~15行。
+- **B2 行业瘦身**：部分独立。industry-all 31文件24MB，每个 data 字段7 OHLC 只用3(close/pct_change/date)，width 8字段只用3。瘦身 24MB->10.4MB(57%)。但 tooltip 信息损失（宽度tooltip不显示涨停/跌停/炸板率/封板率/成交额），**需用户确认接受 UX 代价**。服务端预合并方案不可行（超 Cloudflare 25MB 限制，当初拆分正是为此）。gzip 能降到3.6MB(85%)，B1 搁置则 B2 独立收益57%仍可观但需确认 UX。
+- **B4 trade_sim**：强依赖 B1，搁置合理。84文件46MB 已 iframe 按需，HTML 表格高度重复 gzip 压缩率80%(46MB->10MB)。独立方案A(class替inline style)省9.2MB(20%)但 gzip 后差异消失。方案B(JSON+客户端渲染)重构改动大。
+- **实施排队**：B3/B5/文案瑕疵都碰 app.js 需串行。B3 先(a26f130aecd4f338c) -> B5 -> 文案瑕疵。B2 待用户确认 UX 代价再派。B4 随 B1 搁置。
+
+### B3/B5/文案瑕疵 已完成（2026-07-14）
+- **B3 全球轻量 JSON**（commit c556ae3）：信号弹窗 fetch global-all(3.1MB)改 global-extras-all(0.9MB)，省70%。export.py 复用循环内 data 变量导出4字段(extras/extras_signals/extras_stats/extras_strategy)不含 indices。web 动态版已按 range 拉无需改。
+- **B5 lab.js 懒加载**（commit 4642735）：index.html 删 `<script defer lab.min.js>` 改 `<meta name="lab-asset-url" content="...?v=...">`，bump/main.py 既有正则自动注入版本号(零 Python 改)。app.js 加 loadLabScript() Promise 缓存，renderTab lab 分支 await loadLabScript()+renderSignalLab()。hash #lab 直链靠 lab.js 末尾 IIFE + onclick 守卫(lab 已 active 跳过 spurious click)协调。省 88KB 首屏。
+- **pin 文案瑕疵**（commit 97c3585）：图1/图2 termTip 改 `进/出≥THR.surge只、量≥THR.volume只`(原用 THR.surge=2 统一描述,量实际≥3文案错)。
+- **教训**：pin commit 误混入 static-site/data/etf_national_team*.json + signal_freq.json(export/build 重生成的站点数据)。内容有效(数据更新到7-14+signal_freq 仍4字段),但应单独 commit。**export 重生成的 static-site/data/ JSON 要单独 commit,别和功能改动混**。已 push 不 amend(force push 风险)。
+
+### B2 折中方案调研 + 实施（agent a3091f39 调研 / a8b86fd7 实施，2026-07-14）
+- **方案**：主文件瘦身保留 data 的 date/close/pct_change/**amount**(amount是成交额mini chart series数据非tooltip,前序a4c370e8漏这点)+ width 的 date/up_count/down_count。detail.json 只含 tooltip 字段:data 的 open/high/low + width 的 zt_count/dt_count/zb_count/seal_rate/amount。detail 不含 date(靠 index 对齐+length guard,省3MB)。
+- **echarts tooltip 同步性约束**：formatter 同步函数不能 await fetch -> 用 IntersectionObserver 视口懒加载(rootMargin:300px 卡片进入视口即预取)。模块级 _indDetail Map 缓存。_indHasDetail(idx) 检测:动态版 idx 已含完整 width[0].zt_count -> 从 idx 填充缓存(无 fetch);静态版 fetch {iid}-detail.json。
+- **改动量**：export.py ~15行(循环内同时导出瘦身主+detail) + 双版 app.js ~45行新增(缓存+3helper+IO)+~10行改(2 formatter)。
+- **收益**：初始加载 24MB->13.86MB(省43%)，detail 按视口懒加载。tooltip 首次显示可能降级(显示"-")，rootMargin 提前预取缓解，动态版无此问题。
+- **不碰**：app/main.py(动态版 /api/industry 单次返回完整无25MB限制)/concepts(无width)/采集。
+- 实施 agent a8b86fd747be0089d 跑中。

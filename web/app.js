@@ -32,6 +32,25 @@ window.addEventListener("resize", () => {
   _resizeTimer = setTimeout(() => charts.forEach((c) => c && c.resize()), 150);
 });
 
+// B5: lab.js 按 tab 懒加载（不访问 lab 的用户不下载 88KB lab.min.js）
+// index.html 不再预加载 lab.min.js，切到 lab tab 或 #lab 直链时才 dynamic 注入。
+// 版本号 URL 由 <meta name="lab-asset-url"> 持有（bump / main.py 同 script 标签机制注入 ?v= 破缓存）。
+let _labScriptPromise = null;
+function loadLabScript() {
+  if (_labScriptPromise) return _labScriptPromise;
+  _labScriptPromise = new Promise((resolve, reject) => {
+    if (typeof renderSignalLab === "function") { resolve(); return; }  // 已加载
+    const meta = document.querySelector('meta[name="lab-asset-url"]');
+    const src = meta ? meta.content : "/static/lab.min.js";
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => { _labScriptPromise = null; reject(new Error("lab.js load failed")); };
+    document.head.appendChild(s);
+  });
+  return _labScriptPromise;
+}
+
 document.querySelectorAll('button[data-rng]').forEach((b) => {
   b.onclick = () => {
     state.range = b.dataset.rng;
@@ -48,6 +67,9 @@ document.querySelectorAll('button[data-rng]').forEach((b) => {
 });
 document.querySelectorAll("button[data-tab]").forEach((b) => {
   b.onclick = () => {
+    // B5: lab.js 动态加载后其末尾 IIFE 会 click labBtn 恢复 #lab 直链；
+    // tab 切换到 lab 时按钮已 active，IIFE 的 click 会导致重复渲染竞态，跳过。
+    if (b.dataset.tab === "lab" && b.classList.contains("active")) return;
     state.tab = b.dataset.tab;
     if (state.tab === "market" && !state.subtab) state.subtab = "a-stock";
     document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
@@ -1076,7 +1098,10 @@ async function renderTab() {
     else if (state.tab === "market") await renderMarket();
     else if (state.tab === "sentiment") await renderSentiment();
     else if (state.tab === "industry") await renderIndustry();
-    else if (state.tab === "lab") await renderSignalLab();
+    else if (state.tab === "lab") {
+      await loadLabScript();   // B5: 懒加载 lab.js
+      await renderSignalLab();
+    }
   } catch (e) {
     renderErrorState(content, e, () => renderTab());
   }
@@ -1268,7 +1293,10 @@ function renderDataHealthBanner(r, snap) {
     if (s.cls === "t1-stale" || s.cls === "t1-severe") { hasStale = true; staleCount++; }
     if (s.cls === "t1-severe") hasSevere = true;
   });
-  const collapsed = localStorage.getItem("dhb-collapsed") === "1";
+  const _saved = localStorage.getItem("dhb-collapsed");
+  const collapsed = _saved === null
+    ? window.matchMedia("(max-width: 768px)").matches
+    : _saved === "1";
   const wrapCls = ["data-health-banner"];
   if (hasSevere) wrapCls.push("severe");
   else if (hasStale) wrapCls.push("warn");
@@ -2065,9 +2093,10 @@ async function renderOverview() {
         if (!datePrefix && s.date && s.date.length === 8) {
           datePrefix = `${parseInt(s.date.substring(4, 6), 10)}月${parseInt(s.date.substring(6, 8), 10)}日`;
         }
-        const titleText = `📊 ${datePrefix} A股${s.sentiment_label || ""}`.replace(/\s+/g, " ").trim();
-        const tagRow = (fgBadge || freezeBadge) ? `<div class="summary-tags">${fgBadge}${freezeBadge}</div>` : "";
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div>${tagRow}<div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
+        const titleText = `📊 ${datePrefix} ${s.sentiment_label || ""}`.replace(/\s+/g, " ").trim();
+        // 标签跟在标题后面同一行(对齐历史弹窗布局)
+        const titleTags = (fgBadge || freezeBadge) ? `${fgBadge}${freezeBadge}` : "";
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText} ${titleTags}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel2}</span>${_pulse2}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderSummaryChips(s, snap)}</div>`;
         _bannerRenderCtx = { el: banner, s, snap, type: "summary" };
       }
       content.insertBefore(banner, content.firstChild);
@@ -2172,13 +2201,21 @@ async function renderOverview() {
     const cell = document.createElement("div");
     cell.className = "spark-cell";
     const sign = up ? "+" : "";
+    // 左下角撑高度：最新点位 + 涨跌点数（closes 末两个差值，避免右下角角标覆盖走势图）
+    const _lastClose = Number(idx.closes[idx.closes.length - 1]);
+    const _prevClose = idx.closes.length >= 2 ? Number(idx.closes[idx.closes.length - 2]) : null;
+    const _chgPts = _prevClose != null ? (_lastClose - _prevClose) : null;
+    const _chgUp = _chgPts != null && _chgPts >= 0;
+    const _chgColor = _chgPts == null ? "var(--text-3)" : (_chgUp ? "#e6492e" : "#2e8b57");
+    const _chgText = _chgPts == null ? "- " : ((_chgUp ? "+" : "") + _chgPts.toFixed(2));
     cell.innerHTML = `
       <div class="spark-head">
         <span class="spark-name">${idx.name}</span>
         <span class="pct-badge" data-spark-id="${sparkId}" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
       </div>
       <div class="spark-chart"></div>
-      ${_INDEX_TO_TENCENT_MINUTE[sparkId] ? '<div class="spark-intraday" data-intraday-code="' + sparkId + '"></div>' : ''}`;
+      ${_INDEX_TO_TENCENT_MINUTE[sparkId] ? '<div class="spark-intraday" data-intraday-code="' + sparkId + '"></div>' : ''}
+      <div class="spark-foot">${_lastClose.toFixed(2)} <span style="color:${_chgColor}">${_chgText}</span></div>`;
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
@@ -2697,18 +2734,27 @@ function ntBuildSummary(data, qData) {
 
 // ── 总盘汇总层：12只ETF合计持仓市值+净增持额+份额趋势（看"国家队整体持仓"而非单只）──
 function renderNationalTeamTotalPanel(container, data) {
-  // 聚合12只ETF的daily，按日期合并：合计市值/合计份额/当日净增持
+  // 合计层共振信号阈值：≥N只宽基ETF同日同步异动=国家队共振
+  // 进/出=份额激增/流出(≥2只)，量=放量(≥3只，放量标准更严因更常见)
+  var THR = { surge: 2, outflow: 2, volume: 3 };
+  // 聚合12只ETF的daily，按日期合并：合计市值/合计份额/当日净增持 + 信号计数
   var dateMap = {};
   data.etfs.forEach(function (e) {
     (e.daily || []).forEach(function (d) {
       var dt = d.date;
-      if (!dateMap[dt]) dateMap[dt] = { date: dt, mktCap: 0, share: 0, netAdd: 0 };
+      if (!dateMap[dt]) dateMap[dt] = { date: dt, mktCap: 0, share: 0, netAdd: 0, nSurge: 0, nOutflow: 0, nVolume: 0 };
       var share = d.fund_share_yi || 0;   // 亿份
       var chg = d.share_change_yi || 0;  // 亿份变动
       var close = d.close || 0;          // 元
       dateMap[dt].mktCap += share * close;  // 亿元（亿份×元）
       dateMap[dt].share += share;            // 亿份
       dateMap[dt].netAdd += chg * close;     // 亿元
+      // 聚合单只信号：当日有多少只ETF出 share_surge/share_outflow/volume_surge
+      (d.signals || []).forEach(function (sig) {
+        if (sig.type === "share_surge") dateMap[dt].nSurge++;
+        else if (sig.type === "share_outflow") dateMap[dt].nOutflow++;
+        else if (sig.type === "volume_surge") dateMap[dt].nVolume++;
+      });
     });
   });
   var dates = Object.keys(dateMap).sort();
@@ -2734,15 +2780,55 @@ function renderNationalTeamTotalPanel(container, data) {
   var shareData = series.map(function (d) { return { date: d.date, value: +d.share.toFixed(2) }; });
   var netData = series.map(function (d) { return { date: d.date, value: +d.netAdd.toFixed(2) }; });
 
-  // 图1：合计持仓市值趋势（份额×价合计）
-  lineChart("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。") + latestSuffix(mktData), mktData, {
-    yAxis: { type: "value", name: "亿元", scale: true },
-  }, null, container);
+  // 合计层共振信号 markPoint：≥THR 只宽基同步异动（语义：国家队共振）
+  // value 含共振只数，不依赖 hover 即可读出强度
+  var mktMarks = [], shareMarks = [];
+  series.forEach(function (d) {
+    var mktY = +d.mktCap.toFixed(2);
+    var shareY = +d.share.toFixed(2);
+    if (d.nSurge >= THR.surge) {
+      mktMarks.push({ coord: [d.date, mktY], value: "进" + d.nSurge, itemStyle: { color: "#e6492e" } });
+      shareMarks.push({ coord: [d.date, shareY], value: "进" + d.nSurge, itemStyle: { color: "#e6492e" } });
+    }
+    if (d.nOutflow >= THR.outflow) {
+      mktMarks.push({ coord: [d.date, mktY], value: "出" + d.nOutflow, itemStyle: { color: "#2e8b57" } });
+      shareMarks.push({ coord: [d.date, shareY], value: "出" + d.nOutflow, itemStyle: { color: "#2e8b57" } });
+    }
+    if (d.nVolume >= THR.volume) {
+      mktMarks.push({ coord: [d.date, mktY], value: "量" + d.nVolume, itemStyle: { color: "#ff9800" } });
+      shareMarks.push({ coord: [d.date, shareY], value: "量" + d.nVolume, itemStyle: { color: "#ff9800" } });
+    }
+  });
 
-  // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）
-  lineChart("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。") + latestSuffix(shareData), shareData, {
+  // 图1：合计持仓市值趋势（份额×价合计）+ 共振信号 pin 标注
+  var c1 = mkCard("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(mktData), 320, null, container);
+  c1.setOption(withTheme({
+    tooltip: { trigger: "axis" },
+    grid: { left: 55, right: 20, top: 30, bottom: 50 },
+    xAxis: { type: "category", data: dates },
+    yAxis: { type: "value", name: "亿元", scale: true },
+    dataZoom: dzOpts(),
+    series: [{
+      name: "合计市值", type: "line", smooth: true, symbol: "none", connectNulls: true,
+      data: mktData.map(function (d) { return d.value; }), lineStyle: { width: 1.8 },
+      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#fff" }, data: mktMarks },
+    }],
+  }));
+
+  // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）+ 共振信号 pin 标注
+  var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。pin=进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(shareData), 320, null, container);
+  c2.setOption(withTheme({
+    tooltip: { trigger: "axis" },
+    grid: { left: 55, right: 20, top: 30, bottom: 50 },
+    xAxis: { type: "category", data: dates },
     yAxis: { type: "value", name: "亿份", scale: true },
-  }, null, container);
+    dataZoom: dzOpts(),
+    series: [{
+      name: "份额合计", type: "line", smooth: true, symbol: "none", connectNulls: true,
+      data: shareData.map(function (d) { return d.value; }), lineStyle: { width: 1.8 },
+      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#fff" }, data: shareMarks },
+    }],
+  }));
 
   // 图3：每日净增持额柱状（红流入绿流出）
   var c3 = mkCard("📉 每日净增持额（近" + dates.length + "日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(国家队买入)，绿柱=净流出(卖出)。"), 300, null, container);
@@ -3922,7 +4008,7 @@ function renderIndustryHeatmap(heatmap, title, containerOverride) {
   // BUG-E：自建卡片（含切换按钮在标题右侧），不复用 mkCard（其标题不支持嵌入控件）
   const ctn = containerOverride || content;
   const div = document.createElement("div");
-  div.className = "chart-card";
+  div.className = "chart-card hm-badge-bottom";
   const toggleBtns = [["1d", "近1日"], ["5d", "近5日"], ["all", "全部"]]
     .map(([k, label]) => `<button type="button" data-hr="${k}">${label}</button>`).join("");
   div.innerHTML = `<h3 class="with-toggle"><span>${title || "申万一级行业涨跌幅热力图"}</span><span class="heatmap-toggle">${toggleBtns}</span></h3><div class="chart" style="height:280px"></div>`;
@@ -4114,6 +4200,40 @@ function _bindEtfPopup(cell, etfs) {
   tag.addEventListener("mouseleave", () => { popup.style.display = "none"; });
 }
 
+// B2 折中：行业 tooltip detail 按需加载（静态版瘦身主文件，detail 存 tooltip 专属字段）
+const _indDetail = new Map();
+function _indHasDetail(idx) {
+  return idx.width && idx.width.length && idx.width[0] && "zt_count" in idx.width[0];
+}
+async function _preloadIndDetail(id, idx) {
+  if (_indDetail.has(id)) return;
+  if (_indHasDetail(idx)) {
+    _indDetail.set(id, {
+      ohlc: (idx.data || []).map((d) => ({ open: d.open, high: d.high, low: d.low })),
+      width: (idx.width || []).map((w) => ({ zt_count: w.zt_count, dt_count: w.dt_count, zb_count: w.zb_count, seal_rate: w.seal_rate, amount: w.amount })),
+    });
+    return;
+  }
+  try {
+    const det = await fetchJSON("./data/industry-all-indices/" + id + "-detail.json");
+    if (det.ohlc && idx.data && det.ohlc.length === idx.data.length && det.width && idx.width && det.width.length === idx.width.length) {
+      _indDetail.set(id, det);
+    } else {
+      console.warn("industry detail " + id + " 长度不匹配，已丢弃");
+    }
+  } catch (e) { /* 静默失败，tooltip 降级 */ }
+}
+function _indOHL(id, idx, i) {
+  const det = _indDetail.get(id);
+  if (det && det.ohlc && det.ohlc[i]) return det.ohlc[i];
+  return idx.data[i] || {};
+}
+function _indWidthExtra(id, idx, i) {
+  const det = _indDetail.get(id);
+  if (det && det.width && det.width[i]) return det.width[i];
+  return (idx.width || [])[i] || {};
+}
+
 function renderIndustryGrid(indices, containerOverride) {
   const entries = Object.entries(indices).filter(([, idx]) => idx.data && idx.data.length);
   const ctn = containerOverride || content;
@@ -4153,6 +4273,13 @@ function renderIndustryGrid(indices, containerOverride) {
     _bindFreqPopupToHintRows(cell, idx.stats);
     // ETF：top1 标签可点复制，悬浮弹全部候选（按成交额降序，每行可复制）
     _bindEtfPopup(cell, idx.etfs);
+    // B2：视口懒加载行业 detail（tooltip 专属字段），进视口即预取
+    const _io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) { _preloadIndDetail(id, idx); _io.unobserve(e.target); }
+      }
+    }, { rootMargin: "300px" });
+    _io.observe(cell);
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
@@ -4175,7 +4302,8 @@ function renderIndustryGrid(indices, containerOverride) {
         if (!d || d.close == null) return `${p[0].axisValue}<br/>-`;
         const lines = [p[0].axisValue, `收盘 ${d.close.toFixed(2)}`];
         if (d.pct_change != null) lines.push(`涨跌 ${d.pct_change >= 0 ? "+" : ""}${d.pct_change.toFixed(2)}%`);
-        if (d.open != null && d.high != null && d.low != null) lines.push(`开 ${d.open.toFixed(2)} 高 ${d.high.toFixed(2)} 低 ${d.low.toFixed(2)}`);
+        const od = _indOHL(id, idx, p[0].dataIndex);
+        if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
         return lines.join("<br/>");
       } },
       series: [{
@@ -4257,7 +4385,8 @@ function renderIndustryGrid(indices, containerOverride) {
         tooltip: { trigger: "axis", formatter: (p) => {
           const d = widthData[p[0].dataIndex];
           if (!d) return `${p[0].axisValue}<br/>-`;
-          return `${p[0].axisValue}<br/>涨${d.up_count} 跌${d.down_count} | 涨停${d.zt_count} 跌停${d.dt_count} 炸板${d.zb_count}<br/>封板率${d.seal_rate != null ? (d.seal_rate * 100).toFixed(0) + "%" : "-"} | 成交额${d.amount != null ? d.amount.toFixed(0) + "亿" : "-"}`;
+          const wd = _indWidthExtra(id, idx, p[0].dataIndex);
+          return `${p[0].axisValue}<br/>涨${d.up_count} 跌${d.down_count} | 涨停${wd.zt_count != null ? wd.zt_count : "-"} 跌停${wd.dt_count != null ? wd.dt_count : "-"} 炸板${wd.zb_count != null ? wd.zb_count : "-"}<br/>封板率${wd.seal_rate != null ? (wd.seal_rate * 100).toFixed(0) + "%" : "-"} | 成交额${wd.amount != null ? wd.amount.toFixed(0) + "亿" : "-"}`;
         } },
         series: [
           { name: "上涨", type: "line", stack: "wd", symbol: "none", smooth: true,
@@ -4371,6 +4500,7 @@ async function renderIndustry() {
     _industryCache = { range: state.range, r };
   }
   content.innerHTML = "";
+  const snap = state.intradaySnapshot;
 
   // 板块轮动速度卡片（最先展示，判断行情性质）
   await renderRotationCard(content);
@@ -4385,7 +4515,8 @@ async function renderIndustry() {
 
   const indHmDates = (r.heatmap || []).map(h => h.last_date).filter(Boolean).sort();
   const indHmSuffix = indHmDates.length ? `<span class="chart-latest"> · ${fmtDate(indHmDates[indHmDates.length - 1])}</span>` : "";
-  renderIndustryHeatmap(r.heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）" + indHmSuffix, swSection);
+  const indHmChart = renderIndustryHeatmap(r.heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）" + indHmSuffix, swSection);
+  if (indHmChart) addCardTimeBadge(indHmChart.getDom().parentElement, indHmDates.length ? indHmDates[indHmDates.length - 1] : "", snap);
 
   // 锚点 + 搜索条：热力图下方，sticky 吸顶（申万/概念 tab 按钮 + 搜索框同一行）
   // 吸顶时锚点跳转与搜索筛选均可用；搜索共用 state.industrySearch（I2 概念区同筛）
@@ -5205,6 +5336,8 @@ fetchIntradaySnapshot();
 // 此处跳过 bootstrap renderTab，避免与 lab 渲染竞态导致概览内容（含行业热力图）串入实验室页 / 高亮与内容不一致。
 if (location.hash.startsWith("#lab")) {
   renderLoadingState(content);
+  // B5: 懒加载 lab.js，加载后其末尾 IIFE 读 #lab 自动 click labBtn -> renderTab
+  loadLabScript().catch((e) => renderErrorState(content, e, () => location.reload()));
 } else {
   renderTab().then(() => {
     if (_tabInitialRestore) { _tabInitialRestore = false; _restoreMainTabScroll(); }

@@ -191,20 +191,15 @@ def compute_global_freq() -> dict:
     每品种 frequency 已带 `months` dict（最近 12 个月 YYYYMM->count），
     取其中今年的月份求并集，即"今年有信号的月份数"。
 
-    字段命名（X6 兼容期）：同时返回两套字段名指同一概念--
-      - 旧：year / total        （前端 app.js 全局频率块 f.year / f.total）
-      - 新：year_count / total_count （与 per-index stats 字段一致）
-    待前端统一为 year_count/total_count 后可移除旧字段。
-
     返回：
-      {sig: {year, total, monthly_avg, year_count, total_count, active_months}}
+      {sig: {monthly_avg, year_count, total_count, active_months}}
     """
     from datetime import datetime
     all_stats = load()
     this_year = str(datetime.now().year)
     cur_month = datetime.now().month
     freq: dict = {
-        sig: {"year": 0, "total": 0, "year_months": set()}
+        sig: {"year_count": 0, "total_count": 0, "year_months": set()}
         for sig in ("buy", "buy_aux", "sell")
     }
     for iid, sigs in all_stats.items():
@@ -214,25 +209,23 @@ def compute_global_freq() -> dict:
             f = sigs.get(sig, {}).get("frequency")
             if not f:
                 continue
-            freq[sig]["year"] += f.get("year_count", 0)
-            freq[sig]["total"] += f.get("total_count", 0)
+            freq[sig]["year_count"] += f.get("year_count", 0)
+            freq[sig]["total_count"] += f.get("total_count", 0)
             # 收集今年实际有信号的月份（YYYYMM 前缀匹配当前年）
             for ym in f.get("months", {}):
                 if isinstance(ym, str) and ym.startswith(this_year):
                     freq[sig]["year_months"].add(ym)
     out: dict = {}
     for sig, d in freq.items():
-        y = d["year"]
+        y = d["year_count"]
         active = len(d["year_months"])
         # 有效月数 > 0 用之；否则退回 cur_month（旧数据 months 缺失的兜底，避免 0 除）
         divisor = active if active > 0 else max(cur_month, 1)
         monthly_avg = round(y / divisor, 2) if y > 0 else 0
         out[sig] = {
-            "year": y,
-            "total": d["total"],
             "monthly_avg": monthly_avg,
             "year_count": y,
-            "total_count": d["total"],
+            "total_count": d["total_count"],
             "active_months": active,
         }
     return out

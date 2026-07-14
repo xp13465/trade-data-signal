@@ -360,11 +360,60 @@ def verify_and_backfill_indices(date, verbose=True):
     return ok, fail, details
 
 
-def main():
-    """晚间轻量补采兜底入口（供 backfill_indices.sh / launchd 18:00 调用）。
+def backfill_series_metrics(date):
+    """重跑 collect_series 补采晚发布的序列指标。
 
-    交易日才跑：校验补采 -> 补到新数据则重算情绪分 + 推送；齐全或三源都缺则跳过。
-    与 update_all.sh 区别：不全量采集，只补缺失指数 + 重算 + 推送（几十秒）。
+    SSE 两融余额(stock_margin_sse)盘后 ~18:00-19:00 才发布当日数据，
+    17:50 update_all 跑时源还没出 -> 两融停在 T-1。20:00/02:00 backfill
+    时重跑这些 SERIES_FUNCS 指标，兜底补采当日数据。
+
+    返回 (ok_count, has_today_new)：has_today_new=True 表示至少一个指标
+    采到了 date 当日的新数据（需要重算+推送）。
+    """
+    import yaml
+    from pathlib import Path
+    from . import fetchers, runner
+    from .base import log_collect
+
+    config_path = Path(__file__).resolve().parent.parent.parent / "config" / "indicators.yaml"
+    with open(config_path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    ok = 0
+    has_today_new = False
+    for m in cfg.get("metrics", []):
+        if not m.get("enabled") or m.get("type") == "derived":
+            continue
+        if m.get("func") not in fetchers.SERIES_FUNCS:
+            continue
+        mid = m["id"]
+        try:
+            rows, msg = fetchers.collect_series(m)
+            if rows:
+                runner.upsert_metrics_many(mid, rows)
+                log_collect(date, mid, "ok", f"{len(rows)} rows (series backfill)")
+                ok += 1
+                if any(d == date for d, _ in rows):
+                    has_today_new = True
+                    print(f"  [series] {mid:25s} ok ({len(rows)} rows, has {date})")
+                else:
+                    print(f"  [series] {mid:25s} ok ({len(rows)} rows, latest={rows[0][0]})")
+            else:
+                print(f"  [series] {mid:25s} skip ({msg})")
+        except Exception as e:  # noqa: BLE001
+            print(f"  [series] {mid:25s} error: {e}")
+            log_collect(date, mid, "error", f"series backfill error: {e}")
+    return ok, has_today_new
+
+
+def main():
+    """晚间轻量补采兜底入口（供 backfill_indices.sh / launchd 16:35/20:00/02:00 调用）。
+
+    交易日才跑：
+      1) 重跑 collect_series 补采晚发布序列指标（两融/QVIX/国债收益率等）
+      2) 校验补采缺失指数（baostock/腾讯兜底）
+      补到新数据则重算情绪分 + 推送；齐全或三源都缺则跳过。
+    与 update_all.sh 区别：不全量采集，只补缺失 + 重算 + 推送（几十秒）。
     """
     import subprocess
     import sys
@@ -379,22 +428,30 @@ def main():
     if hasattr(today, "strftime"):
         today = today.strftime("%Y%m%d")
     print(f"[backfill] 目标日期 {today}")
+
+    # 1) 序列指标补采（两融等晚发布指标，17:50 update_all 赶不上的兜底）
+    print("[backfill] -> 序列指标补采 (stock_margin_sse 等)...")
+    s_ok, s_has_today = backfill_series_metrics(today)
+    print(f"[backfill] 序列补采: {s_ok} 个指标成功, 当日新数据={'是' if s_has_today else '否'}")
+
+    # 2) 指数补采
     ok, fail, _ = verify_and_backfill_indices(today, verbose=True)
-    print(f"[backfill] 补采结果 ok={ok} fail={fail}")
+    print(f"[backfill] 指数补采结果 ok={ok} fail={fail}")
 
     if fail > 0:
         print(f"[backfill] ⚠ {fail} 个指数三源都缺今日(已写 collect_log 告警)")
 
-    if ok > 0:
+    # 3) 任一补采拿到当日新数据 -> 重算 + 推送
+    if ok > 0 or s_has_today:
         print("[backfill] 补到新数据 -> 重算情绪分 + 推送公网")
         # 写 collect_log 让 overview.json 的 collected_at 更新为本次 backfill 时间
         # (export.py collected_at 读 collect_log 最新 run_at; compute.runner 不写它,
         #  不写则前端采集时间卡在上次 update_all 时间,用户以为没更新)
         from .base import log_collect
-        log_collect(today, "backfill", "ok", f"backfill补采{ok}项->重算+推送")
+        log_collect(today, "backfill", "ok", f"backfill补采(指数{ok}+序列{s_ok})->重算+推送")
         repo = Path(__file__).resolve().parent.parent.parent
         subprocess.run([sys.executable, "-m", "app.compute.runner"], check=False)
         subprocess.run(["bash", "scripts/deploy.sh", "backfill"], cwd=repo, check=False)
         print("[backfill] ✓ 补采+重算+推送完成")
     else:
-        print("[backfill] 无新数据(15:33 已采全或三源都缺),跳过重算+推送")
+        print("[backfill] 无新数据(已采全或源未发布),跳过重算+推送")

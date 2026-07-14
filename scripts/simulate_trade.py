@@ -986,16 +986,16 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
 
     def cmp_cell(val, best, worst, fmt=".2f", is_pct=False, suffix="", signed=False):
         """渲染策略对比单元格。
-        最好=浅金底加粗(#fff8e1)，最坏=浅灰底加粗(#f5f5f5)，最好优先(列内全同标金底)。
+        最好=金底加粗(var(--bg-best)跟主题)，最坏=灰底加粗(var(--bg-worst)跟主题)，最好优先(列内全同标金底)。
         signed=True 时字色按正红负绿0灰(正=#e6492e 负=#2e8b57 0=#9e9e9e)；signed=False 黑字。
         底色与字色不冲突：底色高亮最好/最坏，字色留给正负。"""
         is_best = abs(val - best) < 0.001
         is_worst = abs(val - worst) < 0.001
         style_parts = []
         if is_best:
-            style_parts.append("background:#fff8e1;font-weight:700")
+            style_parts.append("background:var(--bg-best);font-weight:700")
         elif is_worst:
-            style_parts.append("background:#f5f5f5;font-weight:700")
+            style_parts.append("background:var(--bg-worst);font-weight:700")
         if signed:
             if val > 0:
                 style_parts.append("color:#e6492e")
@@ -1074,6 +1074,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
   --text-1: #1f2329; --text-2: #4e5969; --text-3: #86909c; --text-4: #c9cdd4;
   --primary: #165dff; --primary-hover: #0e42d2; --primary-bg: #f0f5ff;
   --shadow: rgba(0,0,0,0.04); --shadow-strong: rgba(0,0,0,0.12);
+  --bg-best: #fff8e1; --bg-worst: #f5f5f5;
 }
 [data-theme="dark"] {
   --bg-page: #0d1117; --bg-card: #161b22; --bg-hover: #21262d; --bg-active: #1c2333;
@@ -1081,6 +1082,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
   --text-1: #e6edf3; --text-2: #b1bac4; --text-3: #7d8590; --text-4: #484f58;
   --primary: #58a6ff; --primary-hover: #79b8ff; --primary-bg: #1c2536;
   --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+  --bg-best: rgba(240,185,11,0.16); --bg-worst: rgba(255,255,255,0.06);
 }
 [data-theme="redgold"] {
   --bg-page: #1a1d29; --bg-card: #252836; --bg-hover: #2d3142; --bg-active: #3a2e1a;
@@ -1088,6 +1090,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
   --text-1: #f0e6c4; --text-2: #c4b896; --text-3: #8a7f5e; --text-4: #5c5444;
   --primary: #f0b90b; --primary-hover: #ffc933; --primary-bg: #2a2410;
   --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+  --bg-best: rgba(240,185,11,0.22); --bg-worst: rgba(0,0,0,0.20);
 }
 [data-theme="morandi"] {
   --bg-page: #f5f1ec; --bg-card: #fffaf3; --bg-hover: #ede7df; --bg-active: #e6e9ed;
@@ -1095,6 +1098,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
   --text-1: #3d3a35; --text-2: #6b665e; --text-3: #9a948a; --text-4: #b8b2a6;
   --primary: #6b7c93; --primary-hover: #5a6b82; --primary-bg: #e6e9ed;
   --shadow: rgba(120,110,90,0.06); --shadow-strong: rgba(120,110,90,0.14);
+  --bg-best: #e8dcc4; --bg-worst: #e0dad0;
 }
 """
 
@@ -1176,10 +1180,18 @@ tr:hover td {{ background: var(--bg-hover); }}
 }}
 </style>
 <script>
-// 主题跟随父页面：URL hash 传初始主题 + postMessage 动态切换（双保险）
+// 主题跟随父页面：URL hash 优先(iframe 传入) + localStorage + 首次默认redgold + postMessage 动态切换
 (function(){{
-  var t = location.hash.replace(/^#/,'');
-  try {{ t = decodeURIComponent(t); }} catch(e) {{}}
+  var t = '';
+  var h = location.hash.replace(/^#/,'');
+  try {{ h = decodeURIComponent(h); }} catch(e) {{}}
+  if (h) t = h;
+  else {{
+    try {{
+      var v = localStorage.getItem('trade-theme');
+      t = (v === null) ? 'redgold' : (v || '');
+    }} catch(e) {{ t = 'redgold'; }}
+  }}
   if (t) document.documentElement.setAttribute('data-theme', t);
   window.addEventListener('message', function(e){{
     if (e.data && e.data.type === 'set-theme'){{
@@ -1233,6 +1245,19 @@ tr:hover td {{ background: var(--bg-hover); }}
       show();
     }};
   }});
+}})();
+</script>
+<script>
+(function(){{
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https'){{
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';
+    }} else {{
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }}
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
 }})();
 </script>
 </body>

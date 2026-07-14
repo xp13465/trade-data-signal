@@ -36,8 +36,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **[排队-1] iframe 模拟回测弹窗跟随主题** ✅ 已完成（commit 7485005，URL hash+postMessage 双保险）。
 - **[排队-2] ECharts canvas 线色跟随主题** ✅ 部分完成（commit 2cb2aab，轴线/网格/tooltip/布林轨道改读 CSS 变量）。**补漏已完成**（commit 581f40d）：卡片标注 `.chart-latest` 改反转实心徽章（color:var(--bg-card) + background:var(--primary)），解决红金主题下金色字与标题浅金撞色看不清（字色 vs 标题对比 1.36:1 -> 10:1，各皮肤字底对比 >4.3:1）；`.periods button` 未选中态显式加 color:var(--text-2)（解决 button UA 默认色不继承导致深底看不清，各皮肤对比 >7:1）。双版同步 + bump 版本号。
 - **[排队-3] Vol_breakout 图表** ✅ 已完成（commit 81b10ed，成交额代理成交量，量比副图 osc 轴+阈值 2.0 线+信号标注，复用 renderLabChartEx 模式）。
-- **[排队-4] P2 剩 L1**：买卖信号弹窗下全历史（lab.js 专项，评估报告 P2 级遗留）。
-- **[排队-5] P3 剩余 11 条**：评估报告 P3 级遗留项。清单见 `EVAL_REPORT_2026-07-13.md`，已确认 11 条（O3 分享图重复请求/M2 renderGlobal null守卫/S2 月均年初虚高/I2 概念无搜索/I3 锚点无scrollspy/L2 实验图表窗口不联动/L3 规则弹窗频率缓存不刷新/L4 推荐榜超时只提示不取消/X2 _headers漏qr.js/X3 版本号用mtime非hash/X6 信号频率字段双轨）。
+- **[排队-4] P2 剩 L1**：买卖信号弹窗下全历史 ✅ 已完成（commit ad88fb3，`_labSignalModalRender` 按窗口传 apiRange 映射 y1->3y/y3->5y/y5->5y/y10/all->all，取比窗口大一档作指标预热缓冲）。
+- **[排队-5] P3 剩余 11 条** ✅ 全部完成。前序 6 commit 闭环（4183fa3/5de17b3/669b003/ad88fb3/af46512/11c526d），2026-07-14 调研逐字 grep 验收 11 项全过：O3 overview缓存(_OVERVIEW_TTL 5min)/M2 empty-note守卫/S2 active_months除数/I2 概念共用搜索条/I3 IntersectionObserver scrollspy/L2 labWinSync联动/L3 删dataset.loaded每次fetch/L4 AbortController 15s超时取消+重试/X2 _headers加qr.js immutable/X3 bump改md5 content hash/X6 删旧year/total字段(368cd31收尾)。清单见 `EVAL_REPORT_2026-07-13.md`（注：该报告是修复前基线快照，当晚已全部修复）。
 
 ### 🚀 性能优化排队（2026-07-13 评估）
 > 评估共 P0×2 + P1×5 + P2×5 = 12 条。最大杠杆是 P0 两项（服务器压缩+缓存头），属部署层配置非纯代码。
@@ -682,9 +682,55 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 | c28e466 | D 收盘分析横幅加领跌板块（market_summary.py加bottom_industries ORDER BY pct_change ASC LIMIT 3 + 双版app.js renderSummaryChips/renderIntradayChips加❄领跌行,历史弹窗复用renderSummaryChips自动同步） |
 | 1eef457 | A 数据时效完整化（移除采集时间红点_healthDotHtml,健康横幅renderDataHealthBanner已替代;北向停更30天规则 stoppedDays>30不提示,北向2024-08停更快2年不再显示;commit健康横幅CSS 54增13删 .health-dot清掉;renderDataHealthBanner验证通过） |
 | 4c73aca | C+E 卡片文案对齐+spark角标统一（C:.card.kpi .card-value flex布局+cv-val/cv-tags span数值左对齐tag右侧避让角标,解决0.94x/缩量上涨·66.1/偏热未对齐;E:删spark-cell左下角spark-date,addCardTimeBadge(cell,idx.last_date,snap)复用KPI卡4态规则,.spark-cell加position:relative+删.spark-date+加.spark-cell .card-time-badge右下角定位） |
+| 2fafe2e | hotfix: 删applyCollectTime残留${dot}致概览页"dot is not defined"加载失败（A任务移除_healthDotHtml时删了const dot但漏删_renderCollectTime模板L1108/1111两处${dot},ReferenceError。双版删+重build min+bump。教训:agent报告"去掉两处${dot}"需逐字grep验证不能信报告） |
 
 ### 进行中
 无。本轮 D/B/A/C/E 全部完成，已 merge main 公网部署。
 
+---
+
+## 交接状态（2026-07-14 新会话，领涨领跌带💰 + 百度推送 + spark-foot + 策略表格背景色 + 数据时效折叠 + 汪汪队/两融诊断 + 合计层共振信号 + sim页主题对齐）
+
+> 详见 NOTES.md §17。工作模式再强化：**调研/定位/分析也派子 agent**，主控只派发+收总结+验关键结论（不信报告逐字 grep），不亲自 grep/Read/分析。重要状态落 NOTES/TASKS 不进 memory。本轮全部收口（3+3 commit + 3 诊断），已推 main。
+
+### 已完成（已 commit）
+| commit | 内容 |
+|---|---|
+| 81e6997 | 收盘小结+历史弹窗领涨领跌带💰资金净流入+name去SW（B1：index_daily加net_inflow字段db.py migration ALTER + intraday_snapshot _backfill_industry_daily反哺net_inflow + market_summary top/bottom带net_inflow+name.replace("SW ","")。当日有💰;B1前历史net_inflow NULL只涨跌幅。改.py不碰app.js与spark并行）|
+| f22018d | 全站170个HTML注入百度自动推送JS(SEO收录)+修2bug(split(':')[0]/getElementsByTagName("script")[0],markdown吞[0])+simulate_trade.py生成器模板同步。注意.io无法工信部备案,百度收录存疑,代码无害保留 |
+| 9f38fa4 | spark卡左下角补点位+涨跌点数(spark-foot _lastClose.toFixed(2)+_chgText带色)。接手spark agent收尾:补static-site/style.css双版同步+build_min+bump(agent漏commit/漏双版style.css/通知丢,查jsonl mtime发现)|
+
+### 进行中
+无。5 个 agent 全部收口，详见 NOTES.md §17「本轮续（2026-07-14）已完成」。
+
+### 本轮续已完成（3 commit + 3 诊断）
+| commit | 内容 |
+|---|---|
+| 9346451 | 汪汪队ETF数据自动更新-新增20:07 launchd调度（scripts/plists/com.trade.etf-national-team.plist，独立锁不撞 update_all。SSE/SZSE ETF份额18:00-20:00发布，20:07跑当晚出信号。根治 etf_nt 不在任何调度致停7-13） |
+| f316153 | 国家队合计层图1/图2加共振信号 markPoint pin（进N/出N/量N）。方案A聚合单只 signals，THR={surge:2,outflow:2,volume:3}。不改 lineChart 用 mkCard+setOption。双版 renderNationalTeamTotalPanel 同步 |
+| 2a29984 | sim页主题初始化对齐主看板（hash->localStorage->默认redgold 三级优先级）。重生成166个 trade_sim HTML。同时修复 13dee00 策略表格背景色未生效问题（根因是子页主题不应用） |
+
+诊断结论（无 commit）：① 汪汪队7-13停更根因=etf_nt不在任何调度，已由 9346451 根治；② 两融7-13已由 0f86acc backfill 20:00 series 补采修复；③ 合计信号调研(a5530b32)推荐方案A，已由 f316153 实施。
+
+### 排队（2026-07-14 续更新，全量待办汇总）
+
+**A. 本轮新增/遗留**
+- **行业tab热力榜补挂角标** ✅ 已完成（commit 369f036，照搬概览tab addCardTimeBadge，hm-badge-bottom落右下）。
+- **百度推送效果验证**：⏸️ 搁置（用户 2026-07-14 决定）。maozi.io 在百度资源平台能否 HTML 标签/DNS 验证绑定（不需备案），能绑则推送可能生效；否则考虑 .com/.cn 备案域名做主站。f22018d 推送代码已注入全站，待用户后续实测收录再启动。
+- **合计层共振信号阈值密度调整** ✅ 已回算（agent a1906bea1，详见 NOTES §18）。结论 **保持当前 THR={surge:2,outflow:2,volume:3} 不变**：近1年39信号天/周均0.80/月均3.37（理想区间下沿不密不疏），volume阈值3->4无差异(触发时往往≥4只)，{1,1,2}单只不算共振语义错，{3,3,4}砍一半漏小规模协同。无需调参。
+- **合计层pin文案瑕疵** ✅ 已完成（commit 97c3585，图1/图2 termTip 改 `进/出≥THR.surge只、量≥THR.volume只`，原用 THR.surge=2 统一描述量实际≥3文案错）。
+- **收盘横幅标签换行+去A股前缀** ✅ 已完成（commit 6116da8 标签并入summary-title同行 + 9ee2de4 去横幅"A股"前缀对齐历史弹窗。最终横幅一行：📊 7月14日 情绪回暖 😐 贪婪 62 ❄️冰点）。
+
+**B. 性能优化剩余（需用户决策）**
+- **P0-1/P0-2 部署层 gzip/缓存头**：⏸️ 搁置（用户 2026-07-14 决定）。MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。用户后续给服务器/Cloudflare 方向再启动。
+- P2-2 trade_sim 45MB：⏸️ 强依赖 B1，随 B1 搁置（HTML 表格高度重复 gzip 压缩率80%，独立方案收益被 gzip 抹平）。
+- ✅ 已完成：P1-1 defer / P1-2 resize debounce / P1-4 minify / P2-1 并行fetch / P2-3 FastAPI缓存头(22da604) / P2-4 lab debounce / **B3 全球轻量JSON(c556ae3省70%)** / **B5 lab.js懒加载(4642735省88KB)** / **B2 行业瘦身折中(d114508 24MB->14MB省42%+detail按视口懒加载)**（详见 NOTES §18）。
+
+**C. 策略实验室**
+- 其他策略图表融入实验室：BB_lower_revert / Supertrend / MA_death 等（BB_upper_revert 已决策不融生产仅留实验室，见 §15）。
+
+**D. memory 侧待办（非项目代码）**
+- 装 superpowers 插件试 /write-plan+/execute-plan 工作流（当前活告一段落后）。
+
 ### review gate
-本轮均为 UI/数据展示迭代，用户视觉验收驱动，不走 review gate。
+本轮均为 UI/数据展示/SEO/性能迭代，用户视觉验收驱动，不走 review gate。

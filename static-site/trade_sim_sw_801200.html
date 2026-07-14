@@ -12,6 +12,7 @@
   --text-1: #1f2329; --text-2: #4e5969; --text-3: #86909c; --text-4: #c9cdd4;
   --primary: #165dff; --primary-hover: #0e42d2; --primary-bg: #f0f5ff;
   --shadow: rgba(0,0,0,0.04); --shadow-strong: rgba(0,0,0,0.12);
+  --bg-best: #fff8e1; --bg-worst: #f5f5f5;
 }
 [data-theme="dark"] {
   --bg-page: #0d1117; --bg-card: #161b22; --bg-hover: #21262d; --bg-active: #1c2333;
@@ -19,6 +20,7 @@
   --text-1: #e6edf3; --text-2: #b1bac4; --text-3: #7d8590; --text-4: #484f58;
   --primary: #58a6ff; --primary-hover: #79b8ff; --primary-bg: #1c2536;
   --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+  --bg-best: rgba(240,185,11,0.16); --bg-worst: rgba(255,255,255,0.06);
 }
 [data-theme="redgold"] {
   --bg-page: #1a1d29; --bg-card: #252836; --bg-hover: #2d3142; --bg-active: #3a2e1a;
@@ -26,6 +28,7 @@
   --text-1: #f0e6c4; --text-2: #c4b896; --text-3: #8a7f5e; --text-4: #5c5444;
   --primary: #f0b90b; --primary-hover: #ffc933; --primary-bg: #2a2410;
   --shadow: rgba(0,0,0,0.3); --shadow-strong: rgba(0,0,0,0.5);
+  --bg-best: rgba(240,185,11,0.22); --bg-worst: rgba(0,0,0,0.20);
 }
 [data-theme="morandi"] {
   --bg-page: #f5f1ec; --bg-card: #fffaf3; --bg-hover: #ede7df; --bg-active: #e6e9ed;
@@ -33,6 +36,7 @@
   --text-1: #3d3a35; --text-2: #6b665e; --text-3: #9a948a; --text-4: #b8b2a6;
   --primary: #6b7c93; --primary-hover: #5a6b82; --primary-bg: #e6e9ed;
   --shadow: rgba(120,110,90,0.06); --shadow-strong: rgba(120,110,90,0.14);
+  --bg-best: #e8dcc4; --bg-worst: #e0dad0;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -105,10 +109,18 @@ tr:hover td { background: var(--bg-hover); }
 }
 </style>
 <script>
-// 主题跟随父页面：URL hash 传初始主题 + postMessage 动态切换（双保险）
+// 主题跟随父页面：URL hash 优先(iframe 传入) + localStorage + 首次默认redgold + postMessage 动态切换
 (function(){
-  var t = location.hash.replace(/^#/,'');
-  try { t = decodeURIComponent(t); } catch(e) {}
+  var t = '';
+  var h = location.hash.replace(/^#/,'');
+  try { h = decodeURIComponent(h); } catch(e) {}
+  if (h) t = h;
+  else {
+    try {
+      var v = localStorage.getItem('trade-theme');
+      t = (v === null) ? 'redgold' : (v || '');
+    } catch(e) { t = 'redgold'; }
+  }
   if (t) document.documentElement.setAttribute('data-theme', t);
   window.addEventListener('message', function(e){
     if (e.data && e.data.type === 'set-theme'){
@@ -135,8 +147,8 @@ tr:hover td { background: var(--bg-hover); }
           <td><span>104,212 元</span></td>
           <td><span style="color:#e6492e">+4.21%</span></td>
           <td><span style="color:#e6492e">+0.20%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">+35.53%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">+10.52%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">+35.53%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">+10.52%</span></td>
           <td><span>+13.26%</span></td>
           <td><span>+58.30%</span></td>
           <td><span>140 次</span></td>
@@ -150,7 +162,7 @@ tr:hover td { background: var(--bg-hover); }
           <td><span>+42.16%</span></td>
           <td><span>+10.77%</span></td>
           <td><span>+12.00%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">+66.70%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">+66.70%</span></td>
           <td><span>174 次</span></td>
         </tr>
         <tr>
@@ -161,21 +173,21 @@ tr:hover td { background: var(--bg-hover); }
           <td><span style="color:#2e8b57">-1.30%</span></td>
           <td><span>+52.87%</span></td>
           <td><span>+10.74%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">+11.40%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">+11.40%</span></td>
           <td><span>+62.90%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700">212 次</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">212 次</span></td>
         </tr>
         <tr>
           <td>全仓进出</td>
           <td>主买+卖</td>
-          <td><span style="background:#f5f5f5;font-weight:700">59,949 元</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700;color:#2e8b57">-40.05%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700;color:#2e8b57">-2.00%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">59,949 元</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700;color:#2e8b57">-40.05%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700;color:#2e8b57">-2.00%</span></td>
           <td><span>+62.94%</span></td>
           <td><span>+15.28%</span></td>
           <td><span>+16.28%</span></td>
           <td><span>+45.80%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">49 次</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">49 次</span></td>
         </tr>
         <tr>
           <td>全仓进出</td>
@@ -183,7 +195,7 @@ tr:hover td { background: var(--bg-hover); }
           <td><span>67,816 元</span></td>
           <td><span style="color:#2e8b57">-32.18%</span></td>
           <td><span style="color:#2e8b57">-1.50%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+76.48%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+76.48%</span></td>
           <td><span>+12.41%</span></td>
           <td><span>+13.70%</span></td>
           <td><span>+57.60%</span></td>
@@ -204,9 +216,9 @@ tr:hover td { background: var(--bg-hover); }
         <tr>
           <td>固定1万进出（FIFO）</td>
           <td>主买+卖</td>
-          <td><span style="background:#fff8e1;font-weight:700">169,883 元</span></td>
-          <td><span style="background:#fff8e1;font-weight:700;color:#e6492e">+69.88%</span></td>
-          <td><span style="background:#fff8e1;font-weight:700;color:#e6492e">+2.10%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700">169,883 元</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700;color:#e6492e">+69.88%</span></td>
+          <td><span style="background:var(--bg-best);font-weight:700;color:#e6492e">+2.10%</span></td>
           <td><span>+48.81%</span></td>
           <td><span>+42.60%</span></td>
           <td><span>+39.64%</span></td>
@@ -232,9 +244,9 @@ tr:hover td { background: var(--bg-hover); }
           <td><span style="color:#2e8b57">-19.52%</span></td>
           <td><span style="color:#2e8b57">-0.80%</span></td>
           <td><span>+63.02%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+48.78%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+45.11%</span></td>
-          <td><span style="background:#f5f5f5;font-weight:700">+38.50%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+48.78%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+45.11%</span></td>
+          <td><span style="background:var(--bg-worst);font-weight:700">+38.50%</span></td>
           <td><span>140 次</span></td>
         </tr></tbody>
       </table>
@@ -24347,6 +24359,19 @@ tr:hover td { background: var(--bg-hover); }
       show();
     };
   });
+})();
+</script>
+<script>
+(function(){
+    var bp = document.createElement('script');
+    var curProtocol = window.location.protocol.split(':')[0];
+    if (curProtocol === 'https'){
+        bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';
+    } else {
+        bp.src = 'http://push.zhanzhang.baidu.com/push.js';
+    }
+    var s = document.getElementsByTagName("script")[0];
+    s.parentNode.insertBefore(bp, s);
 })();
 </script>
 </body>

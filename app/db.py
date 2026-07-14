@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS index_daily (
   date TEXT NOT NULL,
   index_id TEXT NOT NULL,
   open REAL, high REAL, low REAL, close REAL,
-  pct_change REAL, amount REAL,
+  pct_change REAL, amount REAL, net_inflow REAL,
   PRIMARY KEY (date, index_id)
 );
 CREATE INDEX IF NOT EXISTS idx_index_daily_id ON index_daily(index_id);
@@ -147,9 +147,17 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """增量迁移：对已存在的旧 DB 补字段（CREATE TABLE IF NOT EXISTS 不会加列）。"""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(index_daily)")}
+    if "net_inflow" not in cols:
+        conn.execute("ALTER TABLE index_daily ADD COLUMN net_inflow REAL")
+
+
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
     conn.close()
 

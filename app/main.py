@@ -27,6 +27,29 @@ VALID_RANGES = set(RANGES) | {"all"}
 _DATE_RE = re.compile(r"^\d{8}$")
 
 
+# ---- 缓存策略中间件：对齐 static-site/_headers ----
+# 版本化静态资源（index.html 引用均带 ?v=，内容变则 ?v= 变，可长缓存 immutable）
+_VERSIONED_ASSETS = {"style.css", "app.min.js", "lab.min.js", "lab.css", "qr.js", "vendor/echarts.min.js"}
+
+@app.middleware("http")
+async def cache_control_middleware(request, call_next):
+    resp = await call_next(request)
+    # 路由已显式设置 Cache-Control（如 / index 路由）则不覆盖
+    if resp.headers.get("cache-control"):
+        return resp
+    path = request.url.path
+    if path.startswith("/static/"):
+        rel = path[len("/static/"):]          # 去掉 /static/ 前缀
+        has_v = "v=" in (request.url.query or "")
+        if rel in _VERSIONED_ASSETS and has_v:
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    elif path.startswith("/api/") or path == "/" or path.startswith("/trade_sim") or path == "/og.png":
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
+
+
 def range_dep(range: str = "1y"):
     """range 参数校验：非法值返回 400 而非静默回退。"""
     if range not in VALID_RANGES:
