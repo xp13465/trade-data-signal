@@ -1060,3 +1060,16 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 ### TASKS.md 回填
 - L39 排队-4 标 ✅（commit ad88fb3 + apiRange 映射说明）。
 - L40 排队-5 标 ✅ 全部完成（11 项 + 6 commit 清单 + 逐项证据，注明 EVAL_REPORT 是修复前基线快照）。
+
+### A3 合计层共振信号阈值密度回算（agent a1906bea1，2026-07-14，只读分析）
+- **结论：保持当前 {surge:2, outflow:2, volume:3} 不变**（数据支持，无需调参）。
+- **频率**：当前阈值近1年 39 信号天 / 占16% / 周均0.80 / 月均3.37（理想一周1-3次的下沿，不密不疏）。
+- **备选对比**（近1年243交易日）：{1,1,2}敏感=77天但单只不算共振语义错❌ / {2,2,2}量降=46天但volume_surge宽松信息量不足❌ / **{2,2,3}当前=39天✅** / {2,2,4}=39天与{2,2,3}无差异(volume≥3时通常已≥4) / {3,3,4}=19天砍一半漏小规模协同 / {4,4,5}=11天太疏。
+- **关键发现**：volume 阈值 3→4 无差别（volume_surge 单条件宽松，触发时往往≥4只），量阈值不是瓶颈。surge/outflow 是三重条件(方向+z>2+vol_ratio>1.5)已很严格,2只共振是有效信号。
+- **信号扎堆是特性非缺陷**：2026-01 连续8天出信号精确捕捉1月暴跌国家队流出,这是信号价值所在。
+- **单只信号触发**：etf_national_team.py:681-768 compute_signals。surge(进)=share_change>0 AND z>2 AND vol_ratio>1.5；outflow(出)=share_change<0 AND z<-2 AND vol_ratio>1.5；volume(量)=vol_ratio>2。折算排除|share_change_pct|>30% AND vol_ratio<1.0。
+
+### A3 衍生文案瑕疵（待修，排队）
+- **bug**：web/app.js:2778,2793（图1 c1/图2 c2 termTip）写 `pin=≥" + THR.surge + "只宽基同步异动...进红/出绿/量橙`，用 THR.surge(=2)统一描述三种pin，但量pin实际阈值=THR.volume(=3)。当前阈值下量阈值文案错（说≥2实际≥3）。
+- **修法**：termTip 文案改为分别说明 `进/出≥${THR.surge}只、量≥${THR.volume}只`。双版 app.js 同改 + build_min + bump。
+- **排队**：等 A1（a6561ba1cae28f635 补挂角标，也改 app.js）完成后串行派，避免撞 app.js。
