@@ -245,6 +245,60 @@ main { padding: 16px 24px; }
 .card-time-badge.lunch { color: #e6a23c; border-color: rgba(230,162,60,0.5); background: rgba(230,162,60,0.2); }
 .card-time-badge.pending { color: var(--text-3); border-color: var(--border-strong); }
 .card-time-badge.closed { color: var(--primary); border-color: var(--primary); background: color-mix(in srgb, var(--primary-bg) 82%, transparent); }
+/* pending 三档分级：T+1正常(灰) / 滞后(黄) / 异常(红)。.pending 保留兼容旧调色 */
+.card-time-badge.t1 { color: var(--text-3); border-color: var(--border-strong); }
+.card-time-badge.t1-stale { color: #e6a23c; border-color: rgba(230,162,60,0.5); background: rgba(230,162,60,0.2); }
+.card-time-badge.t1-severe { color: #c62828; border-color: rgba(198,40,40,0.6); background: rgba(198,40,40,0.2); }
+/* === 顶部数据时效健康横幅：汇总各数据源最新状态，有滞后整体加黄边，严重滞后加红边，可折叠 === */
+.data-health-banner {
+  margin: 0 0 10px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  transition: border-color .2s, background .2s;
+}
+.data-health-banner.warn { border-color: rgba(230,162,60,0.7); background: rgba(230,162,60,0.08); }
+.data-health-banner.severe { border-color: rgba(198,40,40,0.8); background: rgba(198,40,40,0.1); }
+.dhb-title { font-weight: 600; color: var(--text-1); white-space: nowrap; cursor: pointer; user-select: none; }
+.dhb-summary { font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.data-health-banner.warn .dhb-summary { color: #e6a23c; }
+.data-health-banner.severe .dhb-summary { color: #c62828; }
+.dhb-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.data-health-banner.collapsed .dhb-chips { display: none; }
+.dhb-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 7px; border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+  white-space: nowrap; line-height: 1.5;
+}
+.dhb-chip .dhb-val { font-size: 11px; }
+.dhb-chip.intraday { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.15); }
+.dhb-chip.closed { color: var(--primary); border-color: var(--primary); }
+.dhb-chip.t1 { color: var(--text-3); border-color: var(--border-strong); }
+.dhb-chip.t1-stale { color: #e6a23c; border-color: rgba(230,162,60,0.6); background: rgba(230,162,60,0.18); }
+.dhb-chip.t1-severe { color: #c62828; border-color: rgba(198,40,40,0.7); background: rgba(198,40,40,0.18); }
+.dhb-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.dhb-detail, .dhb-toggle-btn {
+  font-size: 11px; padding: 1px 8px; border-radius: 8px;
+  border: 1px solid var(--border); background: transparent; color: var(--text-2);
+  cursor: pointer; line-height: 1.5; font-family: inherit;
+}
+.dhb-detail:hover, .dhb-toggle-btn:hover { border-color: var(--border-strong); color: var(--text-1); }
+@media (max-width: 768px) {
+  .data-health-banner { padding: 6px 10px; font-size: 11px; gap: 6px; }
+  .dhb-chip { padding: 1px 5px; }
+  .dhb-chip .dhb-val { font-size: 10px; }
+  .dhb-actions { margin-left: 0; }
+}
 /* 走势图大卡(.chart-card)右上角空旷，角标放回右上角；基础数据小卡(.card.kpi)保持右下角(右上更盖标题，右下是两害取其轻) */
 .chart-card .card-time-badge { top: 6px; right: 8px; bottom: auto; }
 /* 图表标题"最新数据摘要"高亮（· MM-DD 数值），与标题文字区分便于一眼看到最新值 */
@@ -851,19 +905,6 @@ main { padding: 16px 24px; }
 .rule-modal-content .rule-detail div { margin: 3px 0; }
 
 /* === 数据更新规则 modal（采集时间旁 ℹ️ 入口）=== */
-/* 数据健康度圆点：采集时间旁绿(全ok)/黄(有warn)/红(有error)，hover 弹具体告警（复用 .term-pop 事件委托） */
-.health-dot {
-  display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  margin-left: 4px;
-  vertical-align: middle;
-  cursor: help;
-  box-shadow: 0 0 0 1px var(--border);
-}
-.health-dot.health-ok { background: #2e8b57; }
-.health-dot.health-warn { background: #e6a23c; }
-.health-dot.health-error { background: #e6492e; }
 /* ℹ️ 图标：浅色小号，hover/聚焦变主色；随采集时间文字一起渲染 */
 .update-rules-btn {
   display: inline-block;

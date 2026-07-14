@@ -678,18 +678,19 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 | 7485005 | 模拟回测iframe跟随父页面皮肤主题（URL hash+postMessage双保险） |
 | eadcf20 | 采集时间ℹ️图标+数据更新规则modal |
 | - | 去省略号改截取（card-value不要ellipsis，能显示多少显示多少） |
+| 41c42df | B collect_health误报修复（复核index_daily当日close,移除backfill陈旧误报,items 19->10,仅剩真实error如宽度指标disabled/资金流向连接失败） |
+| c28e466 | D 收盘分析横幅加领跌板块（market_summary.py加bottom_industries ORDER BY pct_change ASC LIMIT 3 + 双版app.js renderSummaryChips/renderIntradayChips加❄领跌行,历史弹窗复用renderSummaryChips自动同步） |
 
 ### 进行中（已派 agent，后台跑）
 | 任务 | agent | 内容 | 碰的文件 |
 |---|---|---|---|
-| D 收盘分析加领跌 | a79b60f141ff47ea6 | market_summary.py加bottom_industries(ORDER BY pct_change ASC LIMIT 3) + 双版app.js renderSummaryChips/renderIntradayChips加❄领跌行(对称🔥领涨) + build_min + push feat + merge main。历史弹窗复用renderSummaryChips自动同步 | market_summary.py, app.js×2, app.min.js×2, index.html×2 |
-| B collect_health误报修复 | a6f9242b59516e40b | collect_health对指数缺失类item复核snap.indices/index_daily实际数据再定level，不再用陈旧backfill日志(_hrows) | app/main.py, static-site/export.py |
+| A 数据时效完整化 | a5782f89372a9ab60 | ①红点清理:applyCollectTime移除_healthDotHtml(健康横幅renderDataHealthBanner已替代,collect_health报错留后端日志不展示) ②停更30天规则:_buildHealthSources北向硬编码always显示"⚠停更"改30天规则(停≤30天显示,>30天不显示,通用化所有停更数据源,北向2024-08停更快2年不再提示) ③commit健康横幅CSS(54行已就绪未提交) ④验证renderDataHealthBanner渲染。注:getCardTimeBadge三档分级JS+renderDataHealthBanner JS此前已完成,本次收尾 | app.js×2, style.css×2, app.min.js×2, index.html×2 |
 
-### 排队（等 D 完成 app.js 空闲后合并派，避免 build_min/push 撞车）
+### 排队（等 A 完成 app.js 空闲后派，避免 build_min/push 撞车）
 | 任务 | 内容 | 备注 |
 |---|---|---|
-| A 数据时效提示app.js JS | getCardTimeBadge三档分级(📅T+1灰/⚠滞后黄/🚨异常红,基于prev_trading_day)+顶部健康横幅渲染(汇总各数据源状态,可折叠) | style.css CSS已就绪未提交(t1/t1-stale/t1-severe+.data-health-banner)，JS待做 |
 | C 卡片文案对齐 | .card.kpi .card-value改flex布局,数值左对齐+tag固定右侧,避让右下角角标 | 解决0.94x和缩量上涨/66.1和偏热未对齐 |
+| E spark卡角标统一 | 删spark-cell左下角spark-date(font-size:11px;color:var(--text-4)最弱色致不清晰),cell创建后调addCardTimeBadge(cell,idx.last_date,snap)复用getCardTimeBadge(和涨停数KPI卡同规则4态动态)。style.css:.spark-cell加position:relative,删.spark-date规则,加.spark-cell .card-time-badge复用.card.kpi右下角定位(bottom:4px;right:6px) | 解决左下角日期字体不清晰+统一角标格式+4态高亮动态规则 |
 
 ### review gate
-D/B/A/C 均为 UI/数据展示迭代，用户视觉验收驱动，不走 review gate。
+A/C/E 均为 UI/数据展示迭代，用户视觉验收驱动，不走 review gate。
