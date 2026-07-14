@@ -7,7 +7,7 @@
 
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview" };
+const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1803,6 +1803,8 @@ async function renderNationalTeam(container = content) {
   }
   container.innerHTML = "";
 
+  // 保留原始全量数据引用，供弹窗内独立周期(ntDetailRange)切片，不受外层 state.range 影响
+  var rawData = data;
   // 按 state.range 时间窗口切片 daily（数据全量在 JSON，前端切片不 refetch）
   data = ntSliceDataByRange(data);
 
@@ -1822,9 +1824,12 @@ async function renderNationalTeam(container = content) {
 }
 
 // 按 state.range 时间窗口切片 daily（数据全量在 JSON，前端切片不 refetch）
-function ntSliceDataByRange(data) {
+// 按 range 时间窗口切片 daily（数据全量在 JSON，前端切片不 refetch）
+// range 缺省时用 state.range（外层概览切片）；弹窗内传 ntDetailRange 独立切片
+function ntSliceDataByRange(data, range) {
+  var rng = range || state.range;
   var rangeDays = { "1m": 30, "3m": 90, "6m": 180, "1y": 365 };
-  var days = rangeDays[state.range];
+  var days = rangeDays[rng];
   if (!days) return data; // all 或未知 -> 全量
   var dd = new Date();
   dd.setDate(dd.getDate() - days);
@@ -1995,7 +2000,7 @@ function renderNationalTeamOverview(container, data, qData, hData) {
   summary.forEach(function (s) {
     var tr = document.createElement("tr");
     tr.className = "nt-heat-row";
-    tr.onclick = function () { openNtDetailOverlay(s.code, data, qData, hData); };
+    tr.onclick = function () { openNtDetailOverlay(s.code, rawData, qData, hData); };
     var scp = s.shareChangePct;
     var scpColor = scp > 0 ? "rgba(230,73,46," + Math.min(Math.abs(scp) / 5, 0.45).toFixed(2) + ")"
       : scp < 0 ? "rgba(46,139,87," + Math.min(Math.abs(scp) / 5, 0.45).toFixed(2) + ")" : "transparent";
@@ -2036,7 +2041,7 @@ function renderNationalTeamOverview(container, data, qData, hData) {
   summary.forEach(function (s) {
     var card = document.createElement("div");
     card.className = "nt-mini-card";
-    card.onclick = function () { openNtDetailOverlay(s.code, data, qData, hData); };
+    card.onclick = function () { openNtDetailOverlay(s.code, rawData, qData, hData); };
     var spark = ntSparkline(s.daily, 120, 30);
     var scp = s.shareChangePct;
     var scpCls = scp > 0 ? "nt-up" : scp < 0 ? "nt-down" : "";
@@ -3832,14 +3837,14 @@ function initSimOverlay() {
   });
 }
 
-// === 汪汪队单只详情 iframe 式满屏弹窗（复用 sim-overlay 结构，留边框 90vw/90vh，关闭后停留原位置）===
+// === 汪汪队单只详情 接近全屏弹窗（对齐 sim-window：width/height 100%，overlay padding 留边框；顶部含独立周期切换）===
 // 点矩阵行/卡片墙卡片弹出，渲染 renderNationalTeamDetail 内容到弹窗内；关闭不重渲染 overview，保留滚动位置
 var _ntDetailOverlay = null;
 function _ntDetailOverlayEl() {
   if (_ntDetailOverlay) return _ntDetailOverlay;
   var ov = document.createElement('div');
   ov.className = 'nt-detail-overlay';  // CSS 默认 opacity:0/visibility:hidden 隐藏
-  ov.innerHTML = '<div class="nt-detail-window"><button class="nt-detail-close" aria-label="关闭" title="关闭">✕</button><div class="nt-detail-body"></div></div>';
+  ov.innerHTML = '<div class="nt-detail-window"><button class="nt-detail-close" aria-label="关闭" title="关闭">✕</button><div class="nt-detail-toolbar"></div><div class="nt-detail-body"></div></div>';
   document.body.appendChild(ov);
   _ntDetailOverlay = ov;
   var close = function () {
@@ -3865,16 +3870,56 @@ function closeNtDetailOverlay() {
 }
 
 function openNtDetailOverlay(code, data, qData, hData) {
+  // 弹窗内独立周期：默认继承点击弹窗前外部 state.range（用户在矩阵页设的周期）
+  state.ntDetailRange = state.range;
   var ov = _ntDetailOverlayEl();
   var body = ov.querySelector('.nt-detail-body');
   // 清空旧内容（dispose 旧 ECharts）
   _disposeContainerCharts(body);
   body.innerHTML = '';
   state.ntEtf = code;
+  // 弹窗内按 ntDetailRange 独立切片（不影响外层 state.range，data 此处为全量 rawData）
+  var sliced = ntSliceDataByRange(data, state.ntDetailRange);
   // 渲染单只详情到弹窗 body（opts.overlay 让返回按钮=关闭、选择器=重渲染弹窗）
-  renderNationalTeamDetail(body, data, qData, hData, { overlay: true });
+  renderNationalTeamDetail(body, sliced, qData, hData, { overlay: true });
+  // 渲染弹窗顶部周期切换按钮（闭包持有全量 data，切换时只重渲染 detail 不重开弹窗）
+  _renderNtDetailToolbar(ov, data, qData, hData);
   ov.classList.add('show');
   document.body.style.overflow = 'hidden';
+}
+
+// 弹窗顶部时间周期切换按钮（独立 ntDetailRange，只影响弹窗内数据切片，不影响外层 state.range）
+// 切换时复用闭包内的全量 rawData 重新切片，只重渲染弹窗内 detail，不重开弹窗、保留弹窗状态
+function _renderNtDetailToolbar(ov, rawData, qData, hData) {
+  var tb = ov.querySelector('.nt-detail-toolbar');
+  if (!tb) return;
+  tb.innerHTML = '';
+  var rngWrap = document.createElement('div');
+  rngWrap.className = 'nt-detail-rng';
+  rngWrap.innerHTML = '<span class="nt-detail-rng-label">周期' + termTip('弹窗内时间窗口切换，只影响本弹窗数据，不影响外层页面。默认继承点击前外部周期。1月=近30日/3月=近90日/6月=近180日/1年=近365日/全部=全历史') + '</span>';
+  var ranges = [['1m', '1月'], ['3m', '3月'], ['6m', '6月'], ['1y', '1年'], ['all', '全部']];
+  ranges.forEach(function (r) {
+    var btn = document.createElement('button');
+    btn.textContent = r[1];
+    btn.dataset.ntrng = r[0];
+    if (state.ntDetailRange === r[0]) btn.classList.add('active');
+    btn.onclick = function () {
+      if (state.ntDetailRange === r[0]) return;
+      state.ntDetailRange = r[0];
+      // 只重渲染弹窗内 detail：按新周期重切全量 rawData，不重开弹窗
+      var body = ov.querySelector('.nt-detail-body');
+      _disposeContainerCharts(body);
+      body.innerHTML = '';
+      var sliced = ntSliceDataByRange(rawData, state.ntDetailRange);
+      renderNationalTeamDetail(body, sliced, qData, hData, { overlay: true });
+      // 更新按钮 active 态
+      tb.querySelectorAll('button[data-ntrng]').forEach(function (b) {
+        b.classList.toggle('active', b.dataset.ntrng === r[0]);
+      });
+    };
+    rngWrap.appendChild(btn);
+  });
+  tb.appendChild(rngWrap);
 }
 
 // === 分享图：canvas 自绘品牌分享卡片（含当日关键数据 + 上证迷你走势 + 域名）===
