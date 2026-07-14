@@ -2042,7 +2042,7 @@ async function renderOverview() {
     const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
     const sentTag = k.id === "a_sentiment" || k.id === "cross_market" ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
     const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
-    let sub = k.sub ? `${k.sub} · ${k.date}` : (k.date || "");
+    let sub = k.sub || "";
     let valueHtml = k.value;
     if (k.id === "a_volume_ratio") {
       const sig = k.signal || "";
@@ -2053,7 +2053,7 @@ async function renderOverview() {
       else if (isSuoliang) sigCls = "suoliang";
       const sigHtml = sig ? ` <span class="tag ${sigCls}" title="${sig}">${sig}</span>` : "";
       valueHtml = k.value + sigHtml;
-      sub = sig + " · " + (k.date || "");
+      sub = sig || "";
     }
     const _badge = getCardTimeBadge(k.date, snap);
     cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub" title="${sub}">${sub}</div></div>`;
