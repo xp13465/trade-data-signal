@@ -2845,11 +2845,19 @@ function ntBuildSummary(data, qData) {
 }
 
 // 多信号拼色 pin 渐变：硬切割线性渐变(进红->出绿->量橙)，同 offset 两 stop 实现段间锐利分界
+// 比例：每段均分 (100-20)/N，末段(底部,量橙)再叠加固定 20%(气泡底部尖端窄,均分会被挤没看不见)
+//   2段: 40:60   3段: 26.6:26.6:46.6
 function _ntMultiColor(segColors) {
   var n = segColors.length, stops = [];
+  var base = (1 - 0.2) / n;          // 每段均分基量 80%/N
+  var cum = 0;                        // 已累计 offset
   for (var i = 0; i < n; i++) {
-    stops.push({ offset: i / n, color: segColors[i] });
-    stops.push({ offset: (i + 1) / n, color: segColors[i] });
+    var isLast = i === n - 1;
+    var w = isLast ? base + 0.2 : base;  // 末段叠加 20%
+    var start = cum, end = cum + w;
+    stops.push({ offset: start, color: segColors[i] });
+    stops.push({ offset: end, color: segColors[i] });
+    cum = end;
   }
   return { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: stops };
 }
