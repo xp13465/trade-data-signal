@@ -2172,13 +2172,21 @@ async function renderOverview() {
     const cell = document.createElement("div");
     cell.className = "spark-cell";
     const sign = up ? "+" : "";
+    // 左下角撑高度：最新点位 + 涨跌点数（closes 末两个差值，避免右下角角标覆盖走势图）
+    const _lastClose = Number(idx.closes[idx.closes.length - 1]);
+    const _prevClose = idx.closes.length >= 2 ? Number(idx.closes[idx.closes.length - 2]) : null;
+    const _chgPts = _prevClose != null ? (_lastClose - _prevClose) : null;
+    const _chgUp = _chgPts != null && _chgPts >= 0;
+    const _chgColor = _chgPts == null ? "var(--text-3)" : (_chgUp ? "#e6492e" : "#2e8b57");
+    const _chgText = _chgPts == null ? "- " : ((_chgUp ? "+" : "") + _chgPts.toFixed(2));
     cell.innerHTML = `
       <div class="spark-head">
         <span class="spark-name">${idx.name}</span>
         <span class="pct-badge" data-spark-id="${sparkId}" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
       </div>
       <div class="spark-chart"></div>
-      ${_INDEX_TO_TENCENT_MINUTE[sparkId] ? '<div class="spark-intraday" data-intraday-code="' + sparkId + '"></div>' : ''}`;
+      ${_INDEX_TO_TENCENT_MINUTE[sparkId] ? '<div class="spark-intraday" data-intraday-code="' + sparkId + '"></div>' : ''}
+      <div class="spark-foot">${_lastClose.toFixed(2)} <span style="color:${_chgColor}">${_chgText}</span></div>`;
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
