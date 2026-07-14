@@ -471,6 +471,140 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
     return n
 
 
+def _collect_intraday_width_metrics() -> dict:
+    """盘中采集宽度/成交额指标，写入 daily_metric（source='intraday'）。
+
+    解决 KPI metrics 行(涨停/跌停/炸板率/成交额/量比)+width_1m(涨跌家数)+
+    a_sentiment/cross_market 停在 T-1 的问题：盘中 30 分钟快照此前只采指数/行业，
+    不采这些 width/fund 指标，致 metrics 行/width/a_sentiment 缺当日值。
+
+    数据源（akshare，各 try/except 不互相阻断）：
+    - stock_zh_a_spot（全市场实时快照，~20s）-> a_width_up_count/a_width_down_count/a_amount
+    - stock_zt_pool_em（涨停池，盘中实时）-> a_width_zt_count + a_width_max_lianban
+    - stock_zt_pool_dtgc_em（跌停池）-> a_width_dt_count
+    - stock_zt_pool_zbgc_em（炸板池）-> a_width_zhaban_rate = 炸板数/(涨停数+炸板数)
+
+    采完后调 volume_ratio.compute() 算 a_volume_ratio/a_amount_ma5/ma20/a_volume_signal
+    （基于 a_amount，需 index_daily 已有当日 sh pct_change，故在 _backfill_index_daily 之后调）。
+    source='intraday'：收盘 pipeline（akshare/mootdx source）会覆盖为最终收盘值。
+    非交易日跳过。返回采集到的指标 dict（空=未采到任何指标）。
+    """
+    from ..calendar import is_trading_day
+    import akshare as ak
+    from .base import safe_call
+    from .runner import upsert_metric
+    from ..compute import volume_ratio
+
+    today = datetime.now().strftime("%Y%m%d")
+    if not is_trading_day(today):
+        print(f"  [intraday] 非交易日({today})，跳过 width 指标采集", flush=True)
+        return {}
+
+    results: dict = {}
+    conn = get_conn()
+
+    # 1) stock_zh_a_spot -> up_count / down_count / amount（一次调用拿 3 个，~20s）
+    t0 = time.time()
+    try:
+        df = safe_call(ak.stock_zh_a_spot)
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            print(f"  [intraday] stock_zh_a_spot 失败/空: "
+                  f"{df if isinstance(df, Exception) else 'empty'} ({time.time()-t0:.1f}s)", flush=True)
+        else:
+            up = int((df["涨跌幅"] > 0).sum())
+            down = int((df["涨跌幅"] < 0).sum())
+            amount = float(df["成交额"].sum()) / 1.0e8  # 元 -> 亿元
+            upsert_metric(today, "a_width_up_count", up, source="intraday")
+            upsert_metric(today, "a_width_down_count", down, source="intraday")
+            upsert_metric(today, "a_amount", amount, source="intraday")
+            results.update(up_count=up, down_count=down, amount=round(amount, 2))
+            print(f"  [intraday] spot: up={up} down={down} amount={amount:.0f}亿 "
+                  f"({time.time()-t0:.1f}s)", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] stock_zh_a_spot 异常（不阻断）: {type(e).__name__} {e} "
+              f"({time.time()-t0:.1f}s)", flush=True)
+
+    # 2) stock_zt_pool_em -> zt_count + max_lianban（涨停池，盘中实时封板口径）
+    t0 = time.time()
+    try:
+        df = safe_call(ak.stock_zt_pool_em, date=today)
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            print(f"  [intraday] stock_zt_pool_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
+        else:
+            zt = int(len(df))
+            lianban = None
+            if "连板数" in df.columns and len(df):
+                lianban = int(df["连板数"].max())
+            upsert_metric(today, "a_width_zt_count", zt, source="intraday")
+            if lianban is not None:
+                upsert_metric(today, "a_width_max_lianban", lianban, source="intraday")
+            results.update(zt_count=zt, max_lianban=lianban)
+            print(f"  [intraday] zt_pool: zt={zt} max_lianban={lianban} "
+                  f"({time.time()-t0:.1f}s)", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] stock_zt_pool_em 异常（不阻断）: {type(e).__name__} {e} "
+              f"({time.time()-t0:.1f}s)", flush=True)
+
+    # 3) stock_zt_pool_dtgc_em -> dt_count（跌停池）
+    t0 = time.time()
+    try:
+        df = safe_call(ak.stock_zt_pool_dtgc_em, date=today)
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            print(f"  [intraday] stock_zt_pool_dtgc_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
+        else:
+            dt = int(len(df))
+            upsert_metric(today, "a_width_dt_count", dt, source="intraday")
+            results["dt_count"] = dt
+            print(f"  [intraday] dt_pool: dt={dt} ({time.time()-t0:.1f}s)", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] stock_zt_pool_dtgc_em 异常（不阻断）: {type(e).__name__} {e} "
+              f"({time.time()-t0:.1f}s)", flush=True)
+
+    # 4) stock_zt_pool_zbgc_em -> zhaban_rate = 炸板数/(涨停数+炸板数)（ratio 0-1，与收盘口径一致）
+    t0 = time.time()
+    try:
+        df = safe_call(ak.stock_zt_pool_zbgc_em, date=today)
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            print(f"  [intraday] stock_zt_pool_zbgc_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
+        else:
+            zhaban_n = int(len(df))
+            zt_n = results.get("zt_count")
+            # zt_count 可能本函数采到也可能失败（fallback 查 DB 当日值）
+            if zt_n is None:
+                row = conn.execute(
+                    "SELECT value FROM daily_metric WHERE metric_id='a_width_zt_count' "
+                    "AND date=? AND value IS NOT NULL",
+                    (today,),
+                ).fetchone()
+                zt_n = int(row["value"]) if row else None
+            denom = (zt_n + zhaban_n) if zt_n is not None else None
+            zhaban_rate = (zhaban_n / denom) if denom and denom > 0 else None
+            if zhaban_rate is not None:
+                upsert_metric(today, "a_width_zhaban_rate", zhaban_rate, source="intraday")
+            results.update(zhaban_count=zhaban_n,
+                          zhaban_rate=round(zhaban_rate, 4) if zhaban_rate is not None else None)
+            rate_str = f"{zhaban_rate:.4f}" if zhaban_rate is not None else "n/a"
+            print(f"  [intraday] zhaban_pool: zhaban={zhaban_n} zt={zt_n} "
+                  f"rate={rate_str} ({time.time()-t0:.1f}s)", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] stock_zt_pool_zbgc_em 异常（不阻断）: {type(e).__name__} {e} "
+              f"({time.time()-t0:.1f}s)", flush=True)
+
+    conn.close()
+
+    # 5) volume_ratio 重算（基于 a_amount -> a_volume_ratio/ma5/ma20/signal）
+    #    需 index_daily 当日 sh pct_change（_backfill_index_daily 已先执行）
+    if results.get("amount") is not None:
+        try:
+            volume_ratio.compute_volume_ratio(verbose=False)
+            print("  [intraday] volume_ratio 重算完成（基于盘中 a_amount）", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] volume_ratio 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+    print(f"  [intraday] width 指标采集完成：{len(results)} 项", flush=True)
+    return results
+
+
 def _recompute_scores() -> None:
     """反哺后重算 6 个 per-index 情绪分 + 恐贪指数 + a_sentiment + cross_market。
 
@@ -478,10 +612,10 @@ def _recompute_scores() -> None:
     反哺当日数据后重算即可得到当日值。恐贪 = 8 子情绪分等权平均，6 个 per-index 更新后
     连同已有的 a_sentiment + cross_market 合成恐贪当日值。
 
-    a_sentiment 依赖 width/fund 指标（涨跌家数/涨停/成交额/北向等），盘中采集不反哺这些
-    daily_metric，重算不会产生当日值（不足 3 分项不出分），但保持与 per-index 同步调用，
-    确保收盘 pipeline 更新 width/fund 后若再跑 snap 能补到当日。cross_market 同理（依赖
-    全部 simple 指标）。重算失败不阻断（已有历史值不受影响，UPSERT 幂等）。
+    a_sentiment 依赖 width/fund 指标（涨跌家数/涨停/成交额/北向等）。P3-D 起盘中
+    _collect_intraday_width_metrics 已采这些 daily_metric 并 source='intraday'，故重算能
+    产生当日值（ratio/zt/zhaban/amount 4+ 分项 >= 3 出分）。cross_market 同理（依赖全部
+    simple 指标，trim_mean 去 max/min）。重算失败不阻断（已有历史值不受影响，UPSERT 幂等）。
     """
     from ..compute import sentiment, fear_greed, cross
 
@@ -619,16 +753,26 @@ def collect_and_save() -> dict:
     print(f"[intraday] 快照完成：{len(snap['indices'])} 指数（9 A 股 + 3 港股） / {len(snap['industries'])} 行业 "
           f"({snap['label']})，{dt:.1f}s -> {out_path.name}", flush=True)
 
-    # 反哺 index_daily + 重算情绪分/恐贪 + dump 静态 JSON
+    # 反哺 index_daily + 盘中采 width 指标 + 重算情绪分/恐贪 + dump 静态 JSON
     # 失败不阻断快照本身（快照已落库落盘，反哺是增强）
     try:
         n_backfill = _backfill_index_daily(snap["indices"])
+        # 盘中采 width/fund 指标（涨停/跌停/炸板率/成交额/涨跌家数）+ volume_ratio 重算
+        # 需在 _backfill_index_daily 之后（volume_ratio 依赖当日 sh pct_change）
+        width_res: dict = {}
+        try:
+            width_res = _collect_intraday_width_metrics()
+        except Exception as e:  # noqa: BLE001
+            print(f"[intraday] width 指标采集失败（不阻断）: {type(e).__name__} {e}", flush=True)
+        width_n = len(width_res)
         n_ind = _backfill_industry_daily(snap["industries"])
-        if n_backfill > 0:
+        # 重算：指数反哺 或 width 指标采集 都触发（width 有当日值后 a_sentiment/cross_market 能出分）
+        if n_backfill > 0 or width_n > 0:
             _recompute_scores()
-        if n_backfill > 0 or n_ind > 0:
+        if n_backfill > 0 or n_ind > 0 or width_n > 0:
             _export_affected_json()
-            print(f"[intraday] 反哺+重算+export 完成（{n_backfill} 指数 + {n_ind} 行业反哺）", flush=True)
+            print(f"[intraday] 反哺+width+重算+export 完成"
+                  f"（{n_backfill} 指数 + {n_ind} 行业反哺 + {width_n} width 指标）", flush=True)
         else:
             print(f"[intraday] 无反哺（非交易日或快照非当日），跳过重算", flush=True)
     except Exception as e:  # noqa: BLE001
