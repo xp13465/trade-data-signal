@@ -2288,7 +2288,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
       const sc = r.share_change != null ? (r.share_change / 1e8).toFixed(2) : "-";
       const ar = r.amount_ratio != null ? r.amount_ratio.toFixed(2) + "倍" : "-";
       const zi = r.intensity != null ? r.intensity.toFixed(2) : "-";
-      sigHtml += `<tr><td>${fmtDate(r.date)}</td><td>${sigTypeText[r.type] || r.type}</td><td>${sc}</td><td>${ar}</td><td>${zi}</td><td>${r.note || ""}</td></tr>`;
+      sigHtml += `<tr><td>${fmtDate(r.date)}</td><td>${sigTypeText[r.type] || r.type}</td><td>${sc}</td><td>${ar}</td><td>${zi}</td><td><span class="nt-note" title="${(r.note || "").replace(/"/g, "&quot;")}">${r.note || ""}</span></td></tr>`;
     });
     sigHtml += `</tbody></table></div>`;
   } else {

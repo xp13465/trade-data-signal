@@ -1868,7 +1868,8 @@ main { padding: 16px 24px; }
   color: var(--text-2); white-space: nowrap;
 }
 .nt-sig-table th { color: var(--text-1); font-weight: 600; }
-.nt-sig-table td:last-child { white-space: normal; }
+/* 备注列：限宽+省略号+title 显示完整内容，避免换行撑高行高 */
+.nt-sig-table .nt-note { display: inline-block; max-width: 200px; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 第0层：国家队总盘 KPI 大字（合计市值/今日净增持/近20日累计，3个大字一屏）*/
 .nt-total-kpi {
@@ -2022,5 +2023,6 @@ main { padding: 16px 24px; }
   .nt-detail-body { padding: 10px; }
   .nt-detail-toolbar { padding: 6px 44px 6px 8px; }
   .nt-detail-rng button { padding: 4px 9px; font-size: 11px; }
+  .nt-sig-table .nt-note { max-width: 120px; }
 }
 
