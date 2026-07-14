@@ -1,1 +1,20 @@
-{"buy":{"year":140,"total":4184,"monthly_avg":23.33,"year_count":140,"total_count":4184,"active_months":6},"buy_aux":{"year":266,"total":5239,"monthly_avg":38.0,"year_count":266,"total_count":5239,"active_months":7},"sell":{"year":271,"total":5229,"monthly_avg":38.71,"year_count":271,"total_count":5229,"active_months":7}}
+{
+  "buy": {
+    "monthly_avg": 23.33,
+    "year_count": 140,
+    "total_count": 4184,
+    "active_months": 6
+  },
+  "buy_aux": {
+    "monthly_avg": 38.0,
+    "year_count": 266,
+    "total_count": 5239,
+    "active_months": 7
+  },
+  "sell": {
+    "monthly_avg": 38.71,
+    "year_count": 271,
+    "total_count": 5229,
+    "active_months": 7
+  }
+}
