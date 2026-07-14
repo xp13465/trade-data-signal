@@ -144,7 +144,7 @@ def _industry_heatmap(conn, cfg):
         iid = idx["id"]
         rows = conn.execute(
             "SELECT date, close, pct_change FROM index_daily "
-            "WHERE index_id=? AND close IS NOT NULL ORDER BY date DESC LIMIT 6",
+            "WHERE index_id=? AND pct_change IS NOT NULL ORDER BY date DESC LIMIT 6",
             (iid,),
         ).fetchall()
         if len(rows) < 2:
@@ -152,10 +152,12 @@ def _industry_heatmap(conn, cfg):
         latest = rows[0]
         pct_1d = latest["pct_change"]
         pct_5d = None
-        if len(rows) >= 6 and rows[5]["close"]:
-            pct_5d = (latest["close"] / rows[5]["close"] - 1) * 100
-        elif len(rows) >= 2 and rows[-1]["close"]:
-            pct_5d = (latest["close"] / rows[-1]["close"] - 1) * 100
+        # 行业盘中反哺只写 pct_change（close=NULL），close 缺时不算 pct_5d，前端兼容只显 pct_1d
+        if latest["close"]:
+            if len(rows) >= 6 and rows[5]["close"]:
+                pct_5d = (latest["close"] / rows[5]["close"] - 1) * 100
+            elif len(rows) >= 2 and rows[-1]["close"]:
+                pct_5d = (latest["close"] / rows[-1]["close"] - 1) * 100
         out.append({
             "id": iid,
             "name": idx["name"],
@@ -321,6 +323,14 @@ def export_overview(conn, cfg):
                 for r in _hrows
             ]
 
+    # 行业热力图：盘中时用快照行业覆盖（P2-B，含 net_inflow/lead_stock），收盘后用 DB（P0-A 已修 SQL）
+    heatmap = _industry_heatmap(conn, cfg)
+    try:
+        from app.collector.intraday_snapshot import maybe_override_heatmap
+        heatmap = maybe_override_heatmap(heatmap)
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "date": score_date,
         "collected_at": collected_at,
@@ -337,7 +347,7 @@ def export_overview(conn, cfg):
         "cross_market_6m": cross_6m,
         "a_sentiment_6m": asent_6m,
         "fear_greed_6m": fg_6m,
-        "industry_heatmap": _industry_heatmap(conn, cfg),
+        "industry_heatmap": heatmap,
     }
 
 

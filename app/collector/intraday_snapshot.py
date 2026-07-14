@@ -472,13 +472,18 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
 
 
 def _recompute_scores() -> None:
-    """反哺后重算 6 个 per-index 情绪分 + 恐贪指数。
+    """反哺后重算 6 个 per-index 情绪分 + 恐贪指数 + a_sentiment + cross_market。
 
     per-index 情绪分（sentiment_sz50/hs300/csi500/csi1000/cyb/kc50）依赖 index_daily OHLC，
     反哺当日数据后重算即可得到当日值。恐贪 = 8 子情绪分等权平均，6 个 per-index 更新后
-    连同已有的 a_sentiment + cross_market（均到当日）合成恐贪当日值。
+    连同已有的 a_sentiment + cross_market 合成恐贪当日值。
+
+    a_sentiment 依赖 width/fund 指标（涨跌家数/涨停/成交额/北向等），盘中采集不反哺这些
+    daily_metric，重算不会产生当日值（不足 3 分项不出分），但保持与 per-index 同步调用，
+    确保收盘 pipeline 更新 width/fund 后若再跑 snap 能补到当日。cross_market 同理（依赖
+    全部 simple 指标）。重算失败不阻断（已有历史值不受影响，UPSERT 幂等）。
     """
-    from ..compute import sentiment, fear_greed
+    from ..compute import sentiment, fear_greed, cross
 
     index_ids = ["sz50", "hs300", "csi500", "csi1000", "cyb", "kc50"]
     for idx_id in index_ids:
@@ -497,6 +502,26 @@ def _recompute_scores() -> None:
     conn.close()
     fg_str = f"{fg_last['date']}={fg_last['value']}" if fg_last else "?"
     print(f"  [intraday] fear_greed 重算: {n_fg}天, 末日={fg_str}", flush=True)
+
+    # 重算 a_sentiment + cross_market（保持与 per-index 同步；盘中 width/fund 数据可能不全，
+    # 不足分项则不出当日值，但不影响已有历史，UPSERT 幂等）
+    try:
+        asent_score, asent_comps = sentiment.compute()
+        n_asent = sentiment.store(asent_score, asent_comps, score_id="a_sentiment")
+        last_val = round(float(asent_score.dropna().iloc[-1]), 2) if not asent_score.dropna().empty else None
+        last_date = asent_score.dropna().index[-1] if not asent_score.dropna().empty else "?"
+        print(f"  [intraday] a_sentiment: {n_asent}天, 末日={last_date}={last_val}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] a_sentiment 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+    try:
+        cross_score = cross.compute()
+        n_cross = cross.store(cross_score)
+        last_val = round(float(cross_score.dropna().iloc[-1]), 2) if not cross_score.dropna().empty else None
+        last_date = cross_score.dropna().index[-1] if not cross_score.dropna().empty else "?"
+        print(f"  [intraday] cross_market: {n_cross}天, 末日={last_date}={last_val}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] cross_market 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
 
 def _export_affected_json() -> None:
@@ -638,6 +663,59 @@ def load_latest_snapshot() -> dict | None:
         "indices": indices,
         "industries": industries,
     }
+
+
+def snapshot_industry_heatmap(snap: dict) -> list[dict]:
+    """把盘中快照的行业数据转为 heatmap 结构（用于覆盖 DB 的盘中行业，P2-B）。
+
+    snap.industries 有 {sw_code, sw_name, pct_change, net_inflow, lead_stock}，
+    转为 {id, name, pct_1d, pct_5d(NULL), net_inflow, lead_stock, last_date}。
+    pct_5d 盘中无法计算（snap 无 OHLC 历史），置 NULL，前端 renderIndustryHeatmap
+    已兼容 pct_5d=null（只显 pct_1d，格子显"-"）。
+    net_inflow/lead_stock 是 heatmap 原本没有的增强字段（盘中实时），前端 tooltip按需展示。
+    """
+    if not snap:
+        return []
+    collected_at = snap.get("collected_at", "")
+    # ISO "2026-07-14T11:30..." -> "20260714"
+    last_date = collected_at[:10].replace("-", "") if len(collected_at) >= 10 else ""
+    out = []
+    for ind in snap.get("industries", []):
+        out.append({
+            "id": ind.get("sw_code"),
+            "name": ind.get("sw_name"),
+            "pct_1d": ind.get("pct_change"),
+            "pct_5d": None,
+            "net_inflow": ind.get("net_inflow"),
+            "lead_stock": ind.get("lead_stock"),
+            "last_date": last_date,
+        })
+    return out
+
+
+def maybe_override_heatmap(heatmap: list[dict]) -> list[dict]:
+    """盘中时用快照行业覆盖 heatmap（P2-B）；收盘或无今日快照时返回原 heatmap。
+
+    判断当前是否盘中（is_market_closed 返回 False）且快照是今天的，才用 snap.industries
+    覆盖；否则用 DB heatmap（P0-A 已修 SQL 让盘中行业 close=NULL 也能取到 pct_change）。
+    snap 缺 pct_5d 但多 net_inflow + lead_stock，前端 tooltip 兼容。
+    """
+    try:
+        is_closed, _ = is_market_closed()
+        if is_closed:
+            return heatmap
+        snap = load_latest_snapshot()
+        if not snap:
+            return heatmap
+        collected_at = snap.get("collected_at", "")
+        today = datetime.now().strftime("%Y-%m-%d")
+        if not collected_at.startswith(today):
+            return heatmap
+        snap_hm = snapshot_industry_heatmap(snap)
+        return snap_hm if snap_hm else heatmap
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] maybe_override_heatmap 失败（回退 DB heatmap）: {type(e).__name__} {e}", flush=True)
+        return heatmap
 
 
 if __name__ == "__main__":

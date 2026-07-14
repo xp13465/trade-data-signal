@@ -1175,6 +1175,32 @@ function fetchIntradaySnapshot() {
   return _intradaySnapPromise;
 }
 
+// 盘中标注角标：根据卡片数据日期 vs 快照判断时效，让用户一眼区分 714 实时 / 713 待收盘 / 收盘
+// - 盘中(snap.is_closed===false) 且 dataDate==snapDate(当日) -> "⏰ 盘中·HH:MM"(绿)
+// - 盘中但 dataDate 早于 snapDate(T-1或更早) -> "📍 待收盘·MM-DD"(灰)
+// - 收盘后/无快照 -> "📍 收盘·MM-DD"(主题色)
+function getCardTimeBadge(dataDate, snap) {
+  if (!dataDate) return "";
+  const mmdd = dataDate.length === 8 ? `${dataDate.slice(4, 6)}-${dataDate.slice(6, 8)}` : dataDate;
+  if (!snap || snap.is_closed !== false) {
+    return `<span class="card-time-badge closed">📍 收盘·${mmdd}</span>`;
+  }
+  const shIdx = snap.indices && snap.indices.find((i) => i.code === "sh000001");
+  const snapDate = shIdx ? (shIdx.datetime || "").slice(0, 8) : "";
+  if (snapDate && dataDate === snapDate) {
+    const hh = shIdx.datetime.slice(8, 10);
+    const mm = shIdx.datetime.slice(10, 12);
+    return `<span class="card-time-badge intraday">⏰ 盘中·${hh}:${mm}</span>`;
+  }
+  return `<span class="card-time-badge pending">📍 待收盘·${mmdd}</span>`;
+}
+// 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
+function addCardTimeBadge(cardEl, dataDate, snap) {
+  if (!cardEl) return;
+  const html = getCardTimeBadge(dataDate, snap);
+  if (html) cardEl.insertAdjacentHTML("beforeend", html);
+}
+
 // 盘中实时快照覆盖一句话总结文本：T+1 指数源缺当日数据（sh_pct=null / top_industries=空）时，
 // 用快照的实时 pct_change 和领涨行业替换，保证收盘后立即看到当日真实涨跌与热点板块。
 function injectSnapshotToSummary(text, s, snap) {
@@ -1350,6 +1376,9 @@ async function renderOverview() {
   _setCachedOverview(r);
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
   applyCollectTime(r.collected_at, r.collect_health);
+  // 盘中标注：等快照就绪（最多 1.5s），让每张卡片角标判断 714 实时 vs 713 待收盘
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((res) => setTimeout(res, 1500))]); } catch {}
+  const snap = state.intradaySnapshot;
   content.innerHTML = "";
 
   // ---- 0. 一句话总结横幅 ----
@@ -1479,7 +1508,7 @@ async function renderOverview() {
       valueHtml = k.value + sigHtml;
       sub = sig + " · " + (k.date || "");
     }
-    cards.innerHTML += `<div class="card kpi"><div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
+    cards.innerHTML += `<div class="card kpi">${getCardTimeBadge(k.date, snap)}<div class="card-title">${k.title}</div><div class="card-value">${valueHtml}${tagHtml}${sentTag}${fgTag}</div><div class="card-sub">${sub}</div></div>`;
   }
   content.appendChild(cards);
 
@@ -1531,7 +1560,7 @@ async function renderOverview() {
   // 左列：恐贪指数折线（近 6 月，visualMap 分段着色）
   if (r.fear_greed_6m && r.fear_greed_6m.length) {
     const fg6 = r.fear_greed_6m.map((d) => ({ date: d.date, value: d.value }));
-    lineChart("😐 恐贪指数（近 6 月）" + termTip("综合5类市场情绪算的0-100温度计，越低越恐惧越高越贪婪") + latestSuffix(fg6), fg6, {
+    const fgChart = lineChart("😐 恐贪指数（近 6 月）" + termTip("综合5类市场情绪算的0-100温度计，越低越恐惧越高越贪婪") + latestSuffix(fg6), fg6, {
       visualMap: {
         show: false,
         pieces: [
@@ -1544,18 +1573,21 @@ async function renderOverview() {
         dimension: 1,
       },
     }, null, colA1);
+    if (fgChart) addCardTimeBadge(fgChart.getDom().parentElement, fg6.length ? fg6[fg6.length - 1].date : "", snap);
   }
 
   // 左列：A股综合情绪分折线（近 6 月）
   if (r.a_sentiment_6m && r.a_sentiment_6m.length) {
     const as6 = r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value }));
-    lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的情绪温度计0-100，≤20冰点≥80过热") + latestSuffix(as6), as6, {}, null, colA1);
+    const asChart = lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的情绪温度计0-100，≤20冰点≥80过热") + latestSuffix(as6), as6, {}, null, colA1);
+    if (asChart) addCardTimeBadge(asChart.getDom().parentElement, as6.length ? as6[as6.length - 1].date : "", snap);
   }
 
   // 右列：冰点日卡片（近120日，按日分组4个/行）
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";
   freezeCard.innerHTML = _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）", "freeze", "无近期冰点日");
+  addCardTimeBadge(freezeCard, r.date, snap);
   // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
   freezeCard.addEventListener("click", (e) => {
     const item = e.target.closest(".sig-clickable");
@@ -1569,6 +1601,7 @@ async function renderOverview() {
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card";
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期买卖点（近 15 交易日 · 今日高亮）", "signal", "近期无买卖点信号");
+  addCardTimeBadge(sigCard, r.date, snap);
   // 点击买卖点卡片弹窗：展示对应指数/品类走势图+买卖信号标注
   sigCard.addEventListener("click", (e) => {
     const item = e.target.closest(".sig-clickable");
@@ -1598,6 +1631,7 @@ async function renderOverview() {
     const wSuffix = wLast ? `<span class="chart-latest"> · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}</span>` : "";
     const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix, 260, null, colB1);
     appendPlainTip(wc, "上涨家数远多于下跌=普涨行情；两者接近=市场分化");
+    addCardTimeBadge(wc.getDom().parentElement, wLast, snap);
     wc.setOption(withTheme({
       tooltip: { trigger: "axis" },
       legend: { top: 0, data: ["上涨家数", "下跌家数"] },
@@ -1616,13 +1650,14 @@ async function renderOverview() {
   // 左列：跨市场综合评分折线（近 6 月）
   if (r.cross_market_6m && r.cross_market_6m.length) {
     const cm6 = r.cross_market_6m.map((d) => ({ date: d.date, value: d.value }));
-    lineChart("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
+    const cmChart = lineChart("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
       visualMap: {
         show: false,
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
         dimension: 1,
       },
     }, null, colB1);
+    if (cmChart) addCardTimeBadge(cmChart.getDom().parentElement, cm6.length ? cm6[cm6.length - 1].date : "", snap);
   }
 
   // 右列：均线排列卡片（独立 fetch，失败不影响位置感卡片 O1）
@@ -1653,6 +1688,7 @@ async function renderOverview() {
       maCard.innerHTML = maHtml;
       colB2.appendChild(maCard);
       appendPlainTip(maCard, "多头排列=短期均线在长期之上，趋势向上；反之趋势向下");
+      addCardTimeBadge(maCard, d.date, snap);
     }
   }).catch((e) => { renderFailCard(colB2, "&#x1F4C8; 均线排列", e); });
 
@@ -1683,6 +1719,7 @@ async function renderOverview() {
       posHtml += `</div>`;
       posCard.innerHTML = posHtml;
       colB2.appendChild(posCard);
+      addCardTimeBadge(posCard, posDates.length ? posDates[posDates.length - 1] : "", snap);
     }
   }).catch((e) => { renderFailCard(colB2, "&#x1F4CD; 大盘位置感", e); });
 
@@ -1721,6 +1758,7 @@ async function renderOverview() {
       ];
       const adc = mkCard("📊 腾落线（AD Line）" + termTip("上涨家数减下跌家数的累计值，反映多数股在涨还是跌") + latestSuffixMulti(adSeries), 300, null, colC1);
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
+      addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap);
       adc.setOption(withTheme({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["涨跌家数比", "AD Line", "AD Line MA20"] },
@@ -1761,6 +1799,7 @@ async function renderOverview() {
       ];
       const vrc = mkCard("📈 成交额与量比（近 120 日）" + termTip("今日成交 vs 近期平均成交，>1放量<1缩量") + latestSuffixMulti(vrSeries), 300, null, colC2);
       appendPlainTip(vrc, "量比>1.5为明显放量，<0.5为明显缩量");
+      addCardTimeBadge(vrc.getDom().parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap);
       vrc.setOption(withTheme({
         tooltip: { trigger: "axis", formatter: function(params) {
           const d = vrData[params[0].dataIndex];
@@ -1796,6 +1835,7 @@ async function renderOverview() {
       ];
       const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 280, null, colC1);
       appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
+      addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap);
       nhlCard.setOption(withTheme({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["52周新高", "52周新低", "NH-NL"] },
@@ -1827,6 +1867,7 @@ async function renderOverview() {
         detHtml += `</tbody></table>`;
         detCard.innerHTML = detHtml;
         colC2.appendChild(detCard);
+        addCardTimeBadge(detCard, latest.date, snap);
       }
     }
   } catch (e) { /* new_high_low 失败不影响主流程，静默降级 */ }
@@ -1835,7 +1876,8 @@ async function renderOverview() {
   if (r.industry_heatmap && r.industry_heatmap.length) {
     const hmDates = r.industry_heatmap.map(h => h.last_date).filter(Boolean).sort();
     const hmSuffix = hmDates.length ? `<span class="chart-latest"> · ${fmtDate(hmDates[hmDates.length - 1])}</span>` : "";
-    renderIndustryHeatmap(r.industry_heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）" + hmSuffix);
+    const hmChart = renderIndustryHeatmap(r.industry_heatmap, "申万一级行业涨跌幅热力图（近 1 日 / 近 5 日）" + hmSuffix);
+    if (hmChart) addCardTimeBadge(hmChart.getDom().parentElement, hmDates.length ? hmDates[hmDates.length - 1] : "", snap);
   } else {
     const ph = document.createElement("div");
     ph.className = "chart-card placeholder";
@@ -3240,7 +3282,17 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
   c.setOption(withTheme({
     tooltip: {
       trigger: "item",
-      formatter: (p) => `${names[p.value[0]]}<br/>${yCats[p.value[1]]}：${p.value[2] == null ? "-" : p.value[2] + "%"}`,
+      formatter: (p) => {
+        const h = sorted[p.value[0]];
+        let s = `${names[p.value[0]]}<br/>${yCats[p.value[1]]}：${p.value[2] == null ? "-" : p.value[2] + "%"}`;
+        if (h && h.net_inflow != null) {
+          const fc = h.net_inflow >= 0 ? "#e6492e" : "#2e8b57";
+          const fs = h.net_inflow >= 0 ? "+" : "";
+          s += `<br/>净流入：<span style="color:${fc}">${fs}${h.net_inflow.toFixed(1)}亿</span>`;
+        }
+        if (h && h.lead_stock) s += `<br/>领涨：${h.lead_stock}`;
+        return s;
+      },
     },
     grid: { left: 56, right: 16, top: 24, bottom: 90 },
     xAxis: { type: "category", data: names, axisLabel: { color: cssVar("--text-1"), rotate: 50, fontSize: 10, interval: 0 }, splitArea: { show: false } },

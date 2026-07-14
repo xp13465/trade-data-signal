@@ -313,6 +313,14 @@ def overview():
             ]
 
     conn.close()
+    # 行业热力图：盘中时用快照行业覆盖（P2-B，含 net_inflow/lead_stock），收盘后用 DB（P0-A 已修 SQL）
+    heatmap = _industry_heatmap()
+    try:
+        from .collector.intraday_snapshot import maybe_override_heatmap
+        heatmap = maybe_override_heatmap(heatmap)
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "date": score_date,
         "collected_at": collected_at,
@@ -332,7 +340,7 @@ def overview():
         "a_sentiment_6m": asent_6m,
         "fear_greed_6m": fg_6m,
         # F1：申万行业涨跌幅热力图（接 G1 概览第 7 区块）
-        "industry_heatmap": _industry_heatmap(),
+        "industry_heatmap": heatmap,
     }
 
 
@@ -436,7 +444,7 @@ def _industry_heatmap():
         iid = idx["id"]
         rows = conn.execute(
             "SELECT date, close, pct_change FROM index_daily "
-            "WHERE index_id=? AND close IS NOT NULL ORDER BY date DESC LIMIT 6",
+            "WHERE index_id=? AND pct_change IS NOT NULL ORDER BY date DESC LIMIT 6",
             (iid,),
         ).fetchall()
         if len(rows) < 2:
@@ -445,11 +453,13 @@ def _industry_heatmap():
         pct_1d = latest["pct_change"]
         # 近 5 日累计：用 close 算 (latest / close_5d_ago - 1) * 100
         pct_5d = None
-        if len(rows) >= 6 and rows[5]["close"]:
-            pct_5d = (latest["close"] / rows[5]["close"] - 1) * 100
-        elif len(rows) >= 2 and rows[-1]["close"]:
-            # 不足 6 个交易日，用最早可用的算（标注实际天数）
-            pct_5d = (latest["close"] / rows[-1]["close"] - 1) * 100
+        # 行业盘中反哺只写 pct_change（close=NULL），close 缺时不算 pct_5d，前端兼容只显 pct_1d
+        if latest["close"]:
+            if len(rows) >= 6 and rows[5]["close"]:
+                pct_5d = (latest["close"] / rows[5]["close"] - 1) * 100
+            elif len(rows) >= 2 and rows[-1]["close"]:
+                # 不足 6 个交易日，用最早可用的算（标注实际天数）
+                pct_5d = (latest["close"] / rows[-1]["close"] - 1) * 100
         out.append({
             "id": iid,
             "name": idx["name"],
