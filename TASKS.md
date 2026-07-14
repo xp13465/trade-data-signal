@@ -36,8 +36,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **[排队-1] iframe 模拟回测弹窗跟随主题** ✅ 已完成（commit 7485005，URL hash+postMessage 双保险）。
 - **[排队-2] ECharts canvas 线色跟随主题** ✅ 部分完成（commit 2cb2aab，轴线/网格/tooltip/布林轨道改读 CSS 变量）。**补漏已完成**（commit 581f40d）：卡片标注 `.chart-latest` 改反转实心徽章（color:var(--bg-card) + background:var(--primary)），解决红金主题下金色字与标题浅金撞色看不清（字色 vs 标题对比 1.36:1 -> 10:1，各皮肤字底对比 >4.3:1）；`.periods button` 未选中态显式加 color:var(--text-2)（解决 button UA 默认色不继承导致深底看不清，各皮肤对比 >7:1）。双版同步 + bump 版本号。
 - **[排队-3] Vol_breakout 图表** ✅ 已完成（commit 81b10ed，成交额代理成交量，量比副图 osc 轴+阈值 2.0 线+信号标注，复用 renderLabChartEx 模式）。
-- **[排队-4] P2 剩 L1**：买卖信号弹窗下全历史（lab.js 专项，评估报告 P2 级遗留）。
-- **[排队-5] P3 剩余 11 条**：评估报告 P3 级遗留项。清单见 `EVAL_REPORT_2026-07-13.md`，已确认 11 条（O3 分享图重复请求/M2 renderGlobal null守卫/S2 月均年初虚高/I2 概念无搜索/I3 锚点无scrollspy/L2 实验图表窗口不联动/L3 规则弹窗频率缓存不刷新/L4 推荐榜超时只提示不取消/X2 _headers漏qr.js/X3 版本号用mtime非hash/X6 信号频率字段双轨）。
+- **[排队-4] P2 剩 L1**：买卖信号弹窗下全历史 ✅ 已完成（commit ad88fb3，`_labSignalModalRender` 按窗口传 apiRange 映射 y1->3y/y3->5y/y5->5y/y10/all->all，取比窗口大一档作指标预热缓冲）。
+- **[排队-5] P3 剩余 11 条** ✅ 全部完成。前序 6 commit 闭环（4183fa3/5de17b3/669b003/ad88fb3/af46512/11c526d），2026-07-14 调研逐字 grep 验收 11 项全过：O3 overview缓存(_OVERVIEW_TTL 5min)/M2 empty-note守卫/S2 active_months除数/I2 概念共用搜索条/I3 IntersectionObserver scrollspy/L2 labWinSync联动/L3 删dataset.loaded每次fetch/L4 AbortController 15s超时取消+重试/X2 _headers加qr.js immutable/X3 bump改md5 content hash/X6 删旧year/total字段(368cd31收尾)。清单见 `EVAL_REPORT_2026-07-13.md`（注：该报告是修复前基线快照，当晚已全部修复）。
 
 ### 🚀 性能优化排队（2026-07-13 评估）
 > 评估共 P0×2 + P1×5 + P2×5 = 12 条。最大杠杆是 P0 两项（服务器压缩+缓存头），属部署层配置非纯代码。

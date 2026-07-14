@@ -999,3 +999,58 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - **百度推送代码 bug**：官方原版带 `[0]`（`split(':')[0]` + `getElementsByTagName("script")[0]`），markdown 渲染吞 `[0]` 致看起来漏。push.js 源码是 1×1 img 打 sp0.baidu.com 上报 URL。
 - **index_daily.net_inflow**：db.py `_migrate` 用 PRAGMA table_info 检查列存在性+ALTER TABLE ADD COLUMN 兼容旧 DB。
 - **数据时效栏折叠**：localStorage `dhb-collapsed` 记忆，首次手机端默认折叠 PC 默认展开。
+
+## §18 排队4/5 + 性能优化收口（2026-07-14 续，2 commit）
+
+> 排队-4/5 共 12 项 + 性能优化可独立做项，逐字 grep 验收 + 收尾。2 commit + TASKS.md 回填。已推 feat/iframe-theme-follow。
+
+### 排队-4/5 调研结论（关键发现）
+- **12 项中 11 项前序会话已完成**（6 commit：4183fa3/5de17b3/669b003/ad88fb3/af46512/11c526d，2026-07-13 21:54-22:09 闭环）。`EVAL_REPORT_2026-07-13.md` 是修复前基线快照，TASKS.md L40 未回填状态仍标"待办"致重复调研。
+- **教训**：开工先 `git log --oneline --since=2026-07-13 -- web/lab.js web/app.js app/compute/signal_stats.py` 看最近 commit，不只读 TASKS.md/EVAL_REPORT。
+- **X6 是唯一未收尾项**：前端已 100% 迁移新字段（`f.year_count`/`f.total_count`/`f.monthly_avg`/`f.active_months`），后端 `compute_global_freq` 仍双发 year/total + year_count/total_count。
+
+### 已完成验收（11 项，逐字 grep）
+| 项 | 证据 |
+|---|---|
+| L1 买卖信号弹窗下全历史 | `web/lab.js:2345` apiRange 映射 y1->3y/y3->5y/y5->5y/y10/all->all |
+| L2 实验图表窗口联动 | `web/lab.js:1460` state.labWinSync + 🔗同步按钮 |
+| L3 规则弹窗频率刷新 | `dataset.loaded` grep=0（注：EVAL_REPORT 称"lab.js:726"是旧行号，实际在 `app.js:907` initRuleButton）|
+| L4 推荐榜超时取消+重试 | `web/lab.js:2166` AbortController 15s + lab-full-retry 按钮 |
+| O3 分享图overview缓存 | `web/app.js:4986` _OVERVIEW_TTL=5min + _overviewCache |
+| M2 renderGlobal null守卫 | `web/app.js:314` empty-note + r.indices\|\|{} 兜底 |
+| S2 月均年初虚高 | `signal_stats.py:127` active_months 除数（今年实际有信号月数并集）|
+| I2 概念搜索 | `web/app.js:774` industrySearchBar 共用搜索条过滤 indices+concepts |
+| I3 锚点scrollspy | `web/app.js:4529` IntersectionObserver rootMargin -15%/-70% |
+| X2 _headers qr.js | `static-site/_headers:25` immutable，与 bump_asset_version.py ASSETS 对齐 |
+| X3 版本号md5非mtime | `scripts/bump_asset_version.py:31` hashlib.md5 前8位（内容变则版本变）|
+
+### X6 收尾（commit 368cd31）
+- `app/compute/signal_stats.py`：init dict year/total -> year_count/total_count；累加 `freq[sig]["year_count"]`/`["total_count"]`；返回 dict 删 year/total 两行；docstring 删兼容期说明。共 5 处 Edit。
+- 重生成 `static-site/data/signal_freq.json`：4 字段（monthly_avg/year_count/total_count/active_months），旧字段 grep=0。样例 buy{monthly_avg:23.33,year_count:140,total_count:4184,active_months:6}。
+- 双版一致：动态 compute_global_freq() 输出与静态 JSON diff IDENTICAL（main.py/export.py 都委托该函数，改一处双版同步）。
+- 前端无需改（已迁移）。
+
+### 性能优化可独立做项（6 项，5 已完成 + P2-3 实施）
+| 项 | 状态 | 证据 |
+|---|---|---|
+| P1-1 echarts defer | ✅ 前序完成 | `index.html:29` 双版均带 defer，app.min.js/lab.min.js 也 defer（顺序 echarts->app->lab 安全）|
+| P1-2 resize debounce | ✅ 前序完成 | `app.js:29-32` clearTimeout+setTimeout(150) 遍历 charts.resize() |
+| P1-4 app.js/lab.js minify | ✅ 前序完成 | `build_min.py` 用 `npx terser --compress --mangle`（真 minify 非合并）|
+| P2-1 renderOverview并行 | ✅ 前序完成 | `app.js:2403` Promise.allSettled([ad_line,volume_ratio,new_high_low]) 失败各自降级 |
+| P2-3 FastAPI缓存头 | ✅ 本轮实施 | commit 22da604，中间件版本化资源 immutable 其余 no-cache |
+| P2-4 lab输入debounce | ✅ 前序完成 | `lab.js:2097-2102` clearTimeout+setTimeout(100) 只刷结果区不重建面板 |
+
+### P2-3 FastAPI Cache-Control 中间件（commit 22da604）
+- `app/main.py:30-50` `@app.middleware("http")`，位置 `app=FastAPI()` 之后、路由之前。
+- `_VERSIONED_ASSETS` 6 项（style.css/app.min.js/lab.min.js/lab.css/qr.js/vendor/echarts.min.js）带 `?v=` -> `public,max-age=31536000,immutable`；其余 /static/ -> no-cache；/api/、/、/trade_sim、/og.png -> no-cache。
+- 守卫 `if resp.headers.get("cache-control"): return resp` 不覆盖 / 路由自设头（line 1219）。
+- 对齐 static-site/_headers（动态站 /api/* 对应静态站 /data/*）。TestClient 冒烟全过。
+- 只改 app/main.py（23 insertions），不需 build_min/bump，不碰 static-site（走 _headers）。
+
+### 性能优化剩余（需用户决策，本轮不做）
+- **P0-1/P0-2（gzip/缓存头部署层）**：MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传。需确认服务器可改性或接 Cloudflare。**单项最高收益**（弱网提速 3-5 倍）。
+- P1-3/P1-5/P2-2/P2-5：靠 P0 或改动大，本轮不做。
+
+### TASKS.md 回填
+- L39 排队-4 标 ✅（commit ad88fb3 + apiRange 映射说明）。
+- L40 排队-5 标 ✅ 全部完成（11 项 + 6 commit 清单 + 逐项证据，注明 EVAL_REPORT 是修复前基线快照）。
