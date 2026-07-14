@@ -2757,14 +2757,38 @@ function ntBuildSummary(data, qData) {
   });
 }
 
+// 多信号拼色 pin 渐变：硬切割线性渐变(进红->出绿->量橙)，同 offset 两 stop 实现段间锐利分界
+function _ntMultiColor(segColors) {
+  var n = segColors.length, stops = [];
+  for (var i = 0; i < n; i++) {
+    stops.push({ offset: i / n, color: segColors[i] });
+    stops.push({ offset: (i + 1) / n, color: segColors[i] });
+  }
+  return { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: stops };
+}
+
 // 共振信号 pin 文案：进N/出N/量N -> 通俗描述（hover pin 时 tooltip 显示，解释信号含义）
+// 支持多信号组合串 "进8+量5"：按 + 拆分逐段描述，返回多行 HTML
 function _ntPinTip(v) {
-  var m = /^([进出量])(\d+)$/.exec(String(v));
-  if (!m) return String(v);
-  var type = m[1], n = m[2];
-  if (type === "进") return v + ":当日" + n + "只宽基ETF同步出现进场信号(份额增+异常度z>2+放量)";
-  if (type === "出") return v + ":当日" + n + "只宽基ETF同步出现离场信号(份额减+异常度z<-2+放量)";
-  return v + ":当日" + n + "只宽基ETF同步放量(成交额>近5日均2倍)";
+  var s = String(v), parts = s.split("+");
+  if (parts.length === 1) {
+    var m = /^([进出量])(\d+)$/.exec(s);
+    if (!m) return s;
+    var type = m[1], n = m[2];
+    if (type === "进") return v + ":当日" + n + "只宽基ETF同步进场信号(份额增+异常度z>2+放量)";
+    if (type === "出") return v + ":当日" + n + "只宽基ETF同步离场信号(份额减+异常度z<-2+放量)";
+    return v + ":当日" + n + "只宽基ETF同步放量(成交额>近5日均2倍)";
+  }
+  var descs = [];
+  for (var i = 0; i < parts.length; i++) {
+    var m = /^([进出量])(\d+)$/.exec(parts[i]);
+    if (!m) continue;
+    var type = m[1], n = m[2];
+    if (type === "进") descs.push("进" + n + ":" + n + "只宽基同步进场(份额增+z>2+放量)");
+    else if (type === "出") descs.push("出" + n + ":" + n + "只宽基同步离场(份额减+z<-2+放量)");
+    else descs.push("量" + n + ":" + n + "只宽基同步放量(额>近5日均2倍)");
+  }
+  return s + " 多信号共振<br/>" + descs.join("<br/>");
 }
 
 // ── 总盘汇总层：12只ETF合计持仓市值+净增持额+份额趋势（看"国家队整体持仓"而非单只）──
@@ -2823,21 +2847,37 @@ function renderNationalTeamTotalPanel(container, data) {
 
   // 合计层共振信号 markPoint：≥THR 只宽基同步异动（语义：国家队共振）
   // value 含共振只数，不依赖 hover 即可读出强度
+  // 同日多信号(≥2类)合并成1个拼色pin(分段渐变+金描边+光晕)，不再重叠遮挡
   var mktMarks = [], shareMarks = [];
+  var NT_SIG_COLORS = { "进": "#e6492e", "出": "#2e8b57", "量": "#ff9800" };
   series.forEach(function (d) {
     var mktY = +d.mktCap.toFixed(2);
     var shareY = +d.share.toFixed(2);
-    if (d.nSurge >= THR.surge) {
-      mktMarks.push({ coord: [d.date, mktY], value: "进" + d.nSurge, itemStyle: { color: "#e6492e" } });
-      shareMarks.push({ coord: [d.date, shareY], value: "进" + d.nSurge, itemStyle: { color: "#e6492e" } });
-    }
-    if (d.nOutflow >= THR.outflow) {
-      mktMarks.push({ coord: [d.date, mktY], value: "出" + d.nOutflow, itemStyle: { color: "#2e8b57" } });
-      shareMarks.push({ coord: [d.date, shareY], value: "出" + d.nOutflow, itemStyle: { color: "#2e8b57" } });
-    }
-    if (d.nVolume >= THR.volume) {
-      mktMarks.push({ coord: [d.date, mktY], value: "量" + d.nVolume, itemStyle: { color: "#ff9800" } });
-      shareMarks.push({ coord: [d.date, shareY], value: "量" + d.nVolume, itemStyle: { color: "#ff9800" } });
+    // 按固定顺序收集当日达标信号：进->出->量
+    var daySigs = [];
+    if (d.nSurge >= THR.surge) daySigs.push({ label: "进" + d.nSurge, color: NT_SIG_COLORS["进"] });
+    if (d.nOutflow >= THR.outflow) daySigs.push({ label: "出" + d.nOutflow, color: NT_SIG_COLORS["出"] });
+    if (d.nVolume >= THR.volume) daySigs.push({ label: "量" + d.nVolume, color: NT_SIG_COLORS["量"] });
+    if (!daySigs.length) return;
+    if (daySigs.length === 1) {
+      // 单信号：保持原样(内置pin、单色、size40)
+      var sig = daySigs[0];
+      mktMarks.push({ coord: [d.date, mktY], value: sig.label, itemStyle: { color: sig.color } });
+      shareMarks.push({ coord: [d.date, shareY], value: sig.label, itemStyle: { color: sig.color } });
+    } else {
+      // 多信号：合并成1个拼色pin(分段渐变+金描边+光晕,size52)
+      var valStr = daySigs.map(function (s) { return s.label; }).join("+");
+      var segColors = daySigs.map(function (s) { return s.color; });
+      var multiStyle = {
+        color: _ntMultiColor(segColors),
+        borderColor: "#ffd700",
+        borderWidth: 3,
+        shadowBlur: 8,
+        shadowColor: "rgba(255,215,0,0.6)"
+      };
+      var lblFmt = valStr.replace(/\+/g, "\n");
+      mktMarks.push({ coord: [d.date, mktY], value: valStr, symbolSize: 52, label: { fontSize: 9, color: "#fff", formatter: lblFmt }, itemStyle: multiStyle });
+      shareMarks.push({ coord: [d.date, shareY], value: valStr, symbolSize: 52, label: { fontSize: 9, color: "#fff", formatter: lblFmt }, itemStyle: multiStyle });
     }
   });
 
