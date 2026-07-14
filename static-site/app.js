@@ -1333,7 +1333,10 @@ function renderDataHealthBanner(r, snap) {
     if (s.cls === "t1-stale" || s.cls === "t1-severe") { hasStale = true; staleCount++; }
     if (s.cls === "t1-severe") hasSevere = true;
   });
-  const collapsed = localStorage.getItem("dhb-collapsed") === "1";
+  const _saved = localStorage.getItem("dhb-collapsed");
+  const collapsed = _saved === null
+    ? window.matchMedia("(max-width: 768px)").matches
+    : _saved === "1";
   const wrapCls = ["data-health-banner"];
   if (hasSevere) wrapCls.push("severe");
   else if (hasStale) wrapCls.push("warn");

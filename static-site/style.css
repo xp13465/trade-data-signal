@@ -271,8 +271,8 @@ main { padding: 16px 24px; }
 .dhb-summary { font-weight: 600; color: var(--text-2); white-space: nowrap; }
 .data-health-banner.warn .dhb-summary { color: #e6a23c; }
 .data-health-banner.severe .dhb-summary { color: #c62828; }
-.dhb-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
-.data-health-banner.collapsed .dhb-chips { display: none; }
+.dhb-chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; max-height: 800px; overflow: hidden; transition: max-height 0.25s ease, opacity 0.2s ease, margin 0.2s ease; }
+.data-health-banner.collapsed .dhb-chips { max-height: 0; opacity: 0; margin: 0; }
 .dhb-chip {
   display: inline-flex; align-items: center; gap: 3px;
   padding: 1px 7px; border-radius: 10px;
