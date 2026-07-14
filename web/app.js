@@ -2904,8 +2904,9 @@ function renderNationalTeamTotalPanel(container, data) {
         shadowColor: "rgba(255,215,0,0.6)"
       };
       var lblFmt = valStr.replace(/\+/g, "\n");
-      mktMarks.push({ coord: [d.date, mktY], value: valStr, symbolSize: 52, label: { fontSize: 9, color: "#fff", formatter: lblFmt }, itemStyle: multiStyle });
-      shareMarks.push({ coord: [d.date, shareY], value: valStr, symbolSize: 52, label: { fontSize: 9, color: "#fff", formatter: lblFmt }, itemStyle: multiStyle });
+      var multiLabel = { fontSize: 11, color: "#fff", formatter: lblFmt, lineHeight: 13 };
+      mktMarks.push({ coord: [d.date, mktY], value: valStr, symbolSize: 64, label: multiLabel, itemStyle: multiStyle });
+      shareMarks.push({ coord: [d.date, shareY], value: valStr, symbolSize: 64, label: multiLabel, itemStyle: multiStyle });
     }
   });
 
