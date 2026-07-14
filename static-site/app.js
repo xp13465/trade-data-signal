@@ -2867,7 +2867,7 @@ function renderNationalTeamTotalPanel(container, data) {
   });
 
   // 图1：合计持仓市值趋势（份额×价合计）+ 共振信号 pin 标注
-  var c1 = mkCard("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=≥" + THR.surge + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(mktData), 320, null, container);
+  var c1 = mkCard("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(mktData), 320, null, container);
   c1.setOption(withTheme({
     tooltip: { trigger: "axis" },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
@@ -2882,7 +2882,7 @@ function renderNationalTeamTotalPanel(container, data) {
   }));
 
   // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）+ 共振信号 pin 标注
-  var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。pin=≥" + THR.surge + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(shareData), 320, null, container);
+  var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。pin=进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(shareData), 320, null, container);
   c2.setOption(withTheme({
     tooltip: { trigger: "axis" },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
