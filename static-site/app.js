@@ -2799,6 +2799,16 @@ function ntBuildSummary(data, qData) {
   });
 }
 
+// 共振信号 pin 文案：进N/出N/量N -> 通俗描述（hover pin 时 tooltip 显示，解释信号含义）
+function _ntPinTip(v) {
+  var m = /^([进出量])(\d+)$/.exec(String(v));
+  if (!m) return String(v);
+  var type = m[1], n = m[2];
+  if (type === "进") return v + ":当日" + n + "只宽基ETF同步出现进场信号(份额增+异常度z>2+放量)";
+  if (type === "出") return v + ":当日" + n + "只宽基ETF同步出现离场信号(份额减+异常度z<-2+放量)";
+  return v + ":当日" + n + "只宽基ETF同步放量(成交额>近5日均2倍)";
+}
+
 // ── 总盘汇总层：12只ETF合计持仓市值+净增持额+份额趋势（看"国家队整体持仓"而非单只）──
 function renderNationalTeamTotalPanel(container, data) {
   // 合计层共振信号阈值：≥N只宽基ETF同日同步异动=国家队共振
@@ -2870,7 +2880,22 @@ function renderNationalTeamTotalPanel(container, data) {
   // 图1：合计持仓市值趋势（份额×价合计）+ 共振信号 pin 标注
   var c1 = mkCard("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(mktData), 320, null, container);
   c1.setOption(withTheme({
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      formatter: function (params) {
+        var d = params[0], dt = d.axisValue;
+        var pins = [];
+        for (var i = 0; i < mktMarks.length; i++) {
+          if (mktMarks[i].coord[0] === dt) pins.push(_ntPinTip(mktMarks[i].value));
+        }
+        for (var k = 0; k < params.length; k++) {
+          if (params[k].componentType === "markPoint") return pins.join("<br/>");
+        }
+        var tip = fmtDate(dt) + "<br/>" + (d.value == null ? "-" : Number(d.value).toFixed(2)) + " 亿元";
+        if (pins.length) tip += "<br/>" + pins.join("<br/>");
+        return tip;
+      }
+    },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: dates },
     yAxis: { type: "value", name: "亿元", scale: true },
@@ -2885,7 +2910,22 @@ function renderNationalTeamTotalPanel(container, data) {
   // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）+ 共振信号 pin 标注
   var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。pin=进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(shareData), 320, null, container);
   c2.setOption(withTheme({
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      formatter: function (params) {
+        var d = params[0], dt = d.axisValue;
+        var pins = [];
+        for (var i = 0; i < shareMarks.length; i++) {
+          if (shareMarks[i].coord[0] === dt) pins.push(_ntPinTip(shareMarks[i].value));
+        }
+        for (var k = 0; k < params.length; k++) {
+          if (params[k].componentType === "markPoint") return pins.join("<br/>");
+        }
+        var tip = fmtDate(dt) + "<br/>" + (d.value == null ? "-" : Number(d.value).toFixed(2)) + " 亿份";
+        if (pins.length) tip += "<br/>" + pins.join("<br/>");
+        return tip;
+      }
+    },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: dates },
     yAxis: { type: "value", name: "亿份", scale: true },
