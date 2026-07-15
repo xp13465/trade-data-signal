@@ -203,32 +203,53 @@ def _load_buy_filters(cfg) -> dict:
     return out
 
 
+def _load_sell_no_trend_filters(cfg) -> dict:
+    """从 indicators.yaml 读 per-index 卖点去趋势过滤配置。
+
+    返回 {signal_daily_index_id: True}。仅配置了 ``sell_no_trend_filter: true`` 的品类
+    出现，其他走基线（S1 MA60 多头 + MACD 死叉双重过滤）。
+
+    当前取值：
+    - usdcnh（离岸人民币）：干预市单边上行，MA60 多头过滤把卖点砍到 n=7（几乎全程在上方）。
+      去过滤后卖点数量恢复，kelly=0.34-0.47 胜率 60-66% 优秀（回测验证）。
+    """
+    out = {}
+    for m in cfg.get("metrics", []):
+        if not m.get("enabled", True):
+            continue
+        f = m.get("sell_no_trend_filter")
+        if f:
+            out[f"g.{m['id']}"] = True
+    return out
+
+
 def strategy_desc(index_id: str, cfg: dict) -> dict:
     """返回 {buy, buy_aux, sell} 策略描述字符串，供前端 hint-strategy 蓝色标注行。
 
     纯描述函数，不改买卖点计算逻辑。读 indicators.yaml 的 buy_filter / buy_aux_filter + 本模块的
-    SKIP_IDS / s.* 前缀规则，与 _compute_value_signals / compute 的实际触发逻辑一致：
+    _SKIP_BUY_IDS / _SKIP_SELL_IDS / s.* 前缀规则，与 _compute_value_signals / compute 的实际触发逻辑一致：
     - buy: "RSI(14)上穿30"（C1 主买，基线）；per-index buy_filter=rsi_cross_25 → "RSI(14)上穿25"
-      SKIP_IDS / s.a_sentiment → "skip"
+      _SKIP_BUY_IDS / s.a_sentiment → "skip"
     - buy_aux:
         基线（无 buy_aux_filter）"BB下轨回归"
         rsi_cross_40 → "BB下轨回归+RSI上穿40"
         close_above_bl_2pct → "BB下轨回归+反弹2%"
-        SKIP_IDS / s.a_sentiment → "skip"
+        _SKIP_BUY_IDS / s.a_sentiment → "skip"
     - sell:
         基线（g.* 指标 + 指数）"20日高回落5%+MA60多头+MACD死叉"
         s.* 情绪分 → "20日高回落5%+MA60多头（豁免MACD）"（a_sentiment 加 MACD 后 n=106→7 故豁免）
-        SKIP_IDS → "skip"
+        _SKIP_SELL_IDS → "skip"
 
     index_id: signal_daily 的 index_id（指数裸 id 如 'sh'/'sw_801110'，或 'g.cn10y'/'s.a_sentiment'）
     cfg: indicators.yaml 解析后的 dict（load_config() 返回）
     """
     raw = index_id.split(".", 1)[1] if "." in index_id else index_id
     is_score = index_id.startswith("s.")
-    is_skip = raw in SKIP_IDS  # oil/usdcnh/cn_us_spread 结构性异常，skip 买卖点
+    is_skip_buy = raw in _SKIP_BUY_IDS  # usdcnh 干预市买点失效
+    is_skip_sell = raw in _SKIP_SELL_IDS  # cn_us_spread 卖点完全反向
     is_a_sentiment = index_id == "s.a_sentiment"  # RSI 结构性≥40 → skip_buy（买/辅买都 skip）
 
-    if is_skip or is_a_sentiment:
+    if is_skip_buy or is_a_sentiment:
         buy = "skip"
         buy_aux = "skip"
     else:
@@ -245,8 +266,11 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
         else:
             buy_aux = "BB下轨回归"
 
-    if is_skip:
+    sell_no_trend = _load_sell_no_trend_filters(cfg).get(index_id, False)
+    if is_skip_sell:
         sell = "skip"
+    elif sell_no_trend:
+        sell = "20日高回落2σ（去趋势过滤）"
     elif is_score:
         sell = "20日高回落5%+MA60多头（豁免MACD）"
     else:
@@ -273,11 +297,17 @@ SCORE_IDS = ("cross_market", "a_sentiment", "sentiment_sz50", "sentiment_hs300",
 # 窄幅序列（虽恒正但 %回落 0 信号，回测验证）+ 含负数序列 → 强制走 std 卖规则
 _STD_SELL_IDS = {"usdcnh", "cn_us_spread"}
 # #5 结构性异常品类（汇率干预市/均值回归 sell 反向/地缘驱动）——调参救不了，skip 买卖点
-SKIP_IDS = {"oil", "usdcnh", "cn_us_spread"}
+# 拆分自原 SKIP_IDS（oil/usdcnh/cn_us_spread），按回测结论分别处理：
+# - _SKIP_BUY_IDS: 买点失效（干预市 RSI 超卖后继续跌），保持 skip_buy
+# - _SKIP_SELL_IDS: 卖点完全反向（卖后涨 15-25%），保持 skip_sell
+# oil 买点（kelly=0.18 胜率 59.3%, ≥wti_oil）+卖点（20d 勉强建议）都开，不在任何 skip 集。
+_SKIP_BUY_IDS = {"usdcnh"}
+_SKIP_SELL_IDS = {"cn_us_spread"}
 
 
 def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, kind: str = "指标",
-                           buy_aux_filter: str = None, skip_sell: bool = False):
+                           buy_aux_filter: str = None, skip_sell: bool = False,
+                           sell_no_trend_filter: bool = False):
     """value 序列 → 买卖点 signals（sid 已含 g./s. 前缀）。
 
     B1+S1（2026-07-05）：买加 BB 下轨回归辅买点（buy_aux），卖叠加 MA60 多头过滤。
@@ -289,6 +319,8 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
     skip_buy: True 时跳过买信号（buy + buy_aux，a_sentiment 用，RSI 失效）
     kind: reason 标签（"指标"/"情绪分"），区分指数 signals
     buy_aux_filter: per-index 增强过滤名（None=基线 B1；'rsi_cross_40'=RSI 上穿40 确认）
+    sell_no_trend_filter: True 时跳过卖点 MA60 多头过滤 + MACD 死叉确认（usdcnh 干预市用，
+        单边上行 MA60 把卖点砍到 n=7；去过滤后 kelly=0.34-0.47 胜率 60-66%）
     """
     if len(value) < 60:  # MA60 需要 60 日，不足则卖点过滤全砍，无意义
         return []
@@ -331,20 +363,22 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
     sell = ((value.shift(1) >= thresh.shift(1)) & (value < thresh)).fillna(False)
 
     # S1 卖点降噪：仅当 value > MA60（多头趋势）才放卖——砍下跌趋势假卖点
+    # sell_no_trend_filter=True 时跳过（usdcnh 干预市单边上行 MA60 把卖点砍光）
     ma60 = value.rolling(60, min_periods=60).mean()
-    sell = sell & (value > ma60).fillna(False)
+    if not sell_no_trend_filter:
+        sell = sell & (value > ma60).fillna(False)
 
     # 方案 B（MACD 死叉确认，2026-07-05）：D1+S1 基础上加 DIF<DEA（动量转弱确认）。
     # s.* 情绪分序列豁免（a_sentiment 加 MACD 后 n=106→7 样本不足，cross_market 同理），
     # 保留原 D1+S1 逻辑。g.* 指标与非前缀指数一样应用 MACD 过滤。
-    use_macd = not sid.startswith("s.")
+    use_macd = not sid.startswith("s.") and not sell_no_trend_filter
     if use_macd:
         dif, dea = _macd(value)
         sell = sell & (dif < dea).fillna(False)
     else:
         dif = dea = None
 
-    # #5 结构性异常品类 skip 卖点（oil/usdcnh/cn_us_spread）
+    # skip_sell override（cn_us_spread 卖点完全反向）
     if skip_sell:
         sell = pd.Series(False, index=value.index)
 
@@ -395,7 +429,8 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
                 parts.append(f"RSI={rv:.0f}")
             # S1 趋势过滤标签
             if pd.notna(m):
-                parts.append(f"MA60={m:.4g}[趋势过滤]")
+                tag = "去趋势过滤" if sell_no_trend_filter else "趋势过滤"
+                parts.append(f"MA60={m:.4g}[{tag}]")
             # MACD 死叉确认标签（方案 B，2026-07-05）：s.* 豁免不加
             if use_macd and dif is not None:
                 dv = dif.get(date)
@@ -424,6 +459,7 @@ def compute():
     cross = _load_cross_score()
     buy_aux_filters = _load_buy_aux_filters(cfg)  # per-index buy_aux 增强（如 sw_801110 RSI上穿40）
     buy_filters = _load_buy_filters(cfg)  # per-index buy 主买点 RSI 阈值收紧（如 kc50 RSI上穿25）
+    sell_no_trend_filters = _load_sell_no_trend_filters(cfg)  # per-index 卖点去趋势过滤（如 usdcnh 干预市）
     signals = []
     for idx in cfg.get("indices", []):
         if not idx.get("enabled", True):
@@ -570,9 +606,12 @@ def compute():
         value = load_metric_value(mid)
         if value.empty:
             continue
-        sk = mid in SKIP_IDS  # #5 oil/usdcnh/cn_us_spread 结构性异常 skip 买卖点
-        signals.extend(_compute_value_signals(value, f"g.{mid}", skip_buy=sk, skip_sell=sk, kind="指标",
-                                              buy_aux_filter=buy_aux_filters.get(f"g.{mid}")))
+        skip_buy = mid in _SKIP_BUY_IDS  # usdcnh 买点失效（干预市）
+        skip_sell = mid in _SKIP_SELL_IDS  # cn_us_spread 卖点反向
+        sell_ntf = sell_no_trend_filters.get(f"g.{mid}", False)  # usdcnh 去趋势过滤
+        signals.extend(_compute_value_signals(value, f"g.{mid}", skip_buy=skip_buy, skip_sell=skip_sell, kind="指标",
+                                              buy_aux_filter=buy_aux_filters.get(f"g.{mid}"),
+                                              sell_no_trend_filter=sell_ntf))
     for scid in SCORE_IDS:
         value = load_score_value(scid)
         if value.empty:
