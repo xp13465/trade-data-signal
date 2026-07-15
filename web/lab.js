@@ -2526,6 +2526,12 @@ async function renderSignalLab() {
   // 预加载回测数据（用于卡片摘要）
   const data = await fetchLabData();
 
+  // 左右2栏布局：策略卡左 + 回测推荐榜右
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-list-2col";
+  const leftCol = document.createElement("div");
+  const rightCol = document.createElement("div");
+
   // 分区 tab
   const zoneTabs = document.createElement("div");
   zoneTabs.className = "lab-zone-tabs";
@@ -2536,14 +2542,14 @@ async function renderSignalLab() {
     btn.onclick = () => { state.labZone = z.key; renderSignalLab(); };
     zoneTabs.appendChild(btn);
   });
-  content.appendChild(zoneTabs);
+  leftCol.appendChild(zoneTabs);
 
   // 分区描述
   const curZone = LAB_ZONES.find((z) => z.key === state.labZone) || LAB_ZONES[1];
   const zoneDesc = document.createElement("div");
   zoneDesc.className = "lab-zone-desc";
   zoneDesc.textContent = curZone.desc;
-  content.appendChild(zoneDesc);
+  leftCol.appendChild(zoneDesc);
 
   // 策略卡片列表
   const list = document.createElement("div");
@@ -2573,7 +2579,7 @@ async function renderSignalLab() {
     card.onclick = () => { state.labStrategy = key; renderSignalLab(); };
     list.appendChild(card);
   });
-  content.appendChild(list);
+  leftCol.appendChild(list);
 
   // 回测推荐榜（列表页底部空白区，按指数加载 lab_simulate_{index}.json，不阻塞上方骨架）
   const rankSection = document.createElement("div");
@@ -2586,7 +2592,11 @@ async function renderSignalLab() {
   rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…</div></div>';
-  content.appendChild(rankSection);
+  rightCol.appendChild(rankSection);
+  // 组装2栏
+  wrapper.appendChild(leftCol);
+  wrapper.appendChild(rightCol);
+  content.appendChild(wrapper);
   const _loadRank = async () => {
     const idx = state.labSimIndex || "sh";
     const simData = await fetchLabSimData(idx);
