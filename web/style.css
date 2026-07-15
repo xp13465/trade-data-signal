@@ -1810,8 +1810,8 @@ main { padding: 16px 24px; }
   .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
   .spark-cell .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
   .card.kpi.has-time-badge .card-sub { padding-right: 58px; }
-  .ov-2col { grid-template-columns: 1fr; gap: 12px; }
-  .ov-2col .chart-card { min-height: 280px; }
+  .ov-2col, .astock-top-grid { grid-template-columns: 1fr; gap: 12px; }
+  .ov-2col .chart-card, .astock-top-grid .chart-card { min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
   .sig-day-date { flex: 0 0 56px; font-size: 11px; }
 
