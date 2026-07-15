@@ -3839,11 +3839,14 @@ async function renderGlobal(container = content) {
 const _COMP_NAMES = {
   rsi: "RSI", pct_change: "涨跌幅", qvix: "恐慌波动",
   ratio: "涨跌比", zt: "涨停热度", zhaban: "炸板率", lianban: "连板", amount: "成交活跃",
+  label: "恐贪标签", available_scores: "可用分项",
 };
 function _fmtComp(k, v) {
+  if (k === "label") return String(v); // 恐贪标签为中文（极度恐惧/恐惧/中性/贪婪/极度贪婪），原样返回不走数字格式
   if (v == null || isNaN(v)) return "-";
   const n = Number(v);
   if (k === "pct_change" || k === "zhaban") return n.toFixed(1) + "%";
+  if (k === "available_scores") return n + " 项"; // 恐贪等权 8 分项中当日有值数量
   return n.toFixed(1);
 }
 function appendComponentsBlock(data, tipText) {
