@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.lhb-backfill</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/linhuichen/code/trade/scripts/lhb_backfill.sh</string>
+    </array>
+    <!-- 每日 18:30 跑：龙虎榜（lhb_count/lhb_inst_net）东财约 18:00 后发布完整当日数据，
+         17:50 update_all 采不到（<18:00 或部分值），18:30 单采当日根治 46h 滞后。
+         采集轻量（几秒）+ compute + 持 deploy 锁推送（20:00 backfill 释放后排队）。 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>18</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/linhuichen/code/trade</string>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade/data/logs/lhb_backfill_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade/data/logs/lhb_backfill_launchd.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- 超时 3600s：deploy.lock 可能排队等 20:00 backfill / 20:05 期货，给足等待。 -->
+    <key>ExitTimeOut</key>
+    <integer>3600</integer>
+</dict>
+</plist>

@@ -451,7 +451,13 @@ def main():
         log_collect(today, "backfill", "ok", f"backfill补采(指数{ok}+序列{s_ok})->重算+推送")
         repo = Path(__file__).resolve().parent.parent.parent
         subprocess.run([sys.executable, "-m", "app.compute.runner"], check=False)
-        subprocess.run(["bash", "scripts/deploy.sh", "backfill"], cwd=repo, check=False)
+        # deploy 持 /tmp/trade_deploy.lock 串行化 git（阻塞排队），与 pipeline.sh /
+        # intraday_snapshot.sh 共享 deploy 锁，避免 20:00 前后撞 update_all pipeline
+        # 的 git add/commit/push 致 .git/index.lock 冲突（原裸调 deploy 无锁=隐患）。
+        subprocess.run(
+            [sys.executable, str(repo / "scripts" / "with_lock.py"),
+             "/tmp/trade_deploy.lock", "bash", "scripts/deploy.sh", "backfill"],
+            cwd=repo, check=False)
         print("[backfill] ✓ 补采+重算+推送完成")
     else:
         print("[backfill] 无新数据(已采全或源未发布),跳过重算+推送")

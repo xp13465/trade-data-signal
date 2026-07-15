@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.futures-backfill</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/linhuichen/code/trade/scripts/futures_backfill.sh</string>
+    </array>
+    <!-- 每日 20:05 跑：CFFEX 股指期货前20名会员持仓次日约 20:00 后发布当日数据，
+         17:50 update_all 采不到，20:05 单采当日根治 46h 滞后。
+         采集几秒 + 持 deploy 锁推送；20:00 backfill / 20:07 etf 密集时段 deploy.lock 排队。 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>20</integer>
+        <key>Minute</key>
+        <integer>5</integer>
+    </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/linhuichen/code/trade</string>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade/data/logs/futures_backfill_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade/data/logs/futures_backfill_launchd.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- 超时 3600s：deploy.lock 可能排队等 20:00 backfill，给足等待。 -->
+    <key>ExitTimeOut</key>
+    <integer>3600</integer>
+</dict>
+</plist>
