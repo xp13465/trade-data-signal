@@ -1186,3 +1186,61 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 ### 注意
 - baostock 增量 update 5072 codes × 0.1s throttle ≈ 10-25min（远小于 10 年全量 9h）。`RUN_BAOSTOCK=1` 只 turnover pipeline 设，collect.sh（scheduler 全 steps）跑 turnover 时 baostock 子步仍跳过（cleanup 照跑，快）。
 - 部分采集日（< 4000 只）自动跳过，待 baostock 补全后下次重跑补回（增量起点 = daily_metric 末尾，未入库的部分日始终在重算范围内）。
+
+## §23 情绪温度布局统一 + 跨市场综合评分组成因子 + 计划任务加固（2026-07-15）
+
+### 今日上线功能（commit 清单）
+| commit | 功能 |
+|--------|------|
+| 15fe67f | qvix(1000)停采方案C（修日志标签bug+保持采集+前端⏸停更）+中文名中国波指300/1000 |
+| 283d2d5/ae8c291 | 策略实验室左右2栏（3:7）+自白移左栏 |
+| 705c91f | 图表角标收盘后滞后警示（📍收盘->3档判定⚠/🚨） |
+| d1038e7 | 实验室自白黄块移左栏 |
+| f358851 | 国家队3图动态1行折叠+角标+末日份额NULL处理 |
+| 3684013/ad490eb/9df23c5 | ETF弹窗5图折叠+弹窗KPI末日NULL+默认展开 |
+| b4d059b | 份额估算文案加时点"明晚20:07后" |
+| a7ac797 | 情绪温度期货4图套indices-grid+角标 |
+| 7aea569 | 期货表格卡样式统一（药丸/角标/12px间距font-size） |
+| c3e235f+022b317 | **情绪温度布局统一+跨市场综合评分组成因子** |
+| 67c94d7 | ETF弹窗3图角标+持有人结构半年报标注 |
+| d480f70 | P1/P2/P3计划任务加固 |
+
+### 跨市场综合评分组成因子（重点，commit c3e235f+022b317）
+- **根因**：cross.py store() 硬编码 components=None；前端 appendComponentsBlock 检查 `if(!last.components)return` 提前退出，故跨市场综合评分卡不显示组成因子
+- **后端**：cross.py compute() 改返回 (score, components_df)，components_df 按指标 config group 分9组（a_width/a_fund/a_sentiment/hk/global/lhb/unlock/ipo/cov）算归一化滚动百分位均值；store() 写每日期 components JSON 到 score_daily.components 列。更新 runner.py:17 + intraday_snapshot.py:779 两处调用方
+- **前端**：_COMP_NAMES 加9组中文标签；renderSentiment 的 cardGrid cross_market 卡(@4070)调 appendComponentsBlock 展示"组成因子"chips
+- **全自动链路**（已验证）：runner.py:17 `cross.compute()+store(components)` ← 被5路径调用（update_all/intraday/backfill/lhb/rzhb）-> export.py:105 `SELECT components` 导出 sentiment-*.json -> intraday:813 `_export_affected_json()` dump -> deploy.sh/各backfill `git add static-site/data/` push。**下次定时采集后 components 自动更新上线，不依赖手动 deploy**
+- **踩坑**：agent 改代码+重算DB+重导本地JSON+commit代码push，但**没跑deploy.sh推数据上线**，线上 sentiment-all.json 仍 `components:None`。逐字验收 curl 线上才发现，补跑 deploy.sh（commit 022b317）才生效。教训见下「踩坑1」
+
+### ETF弹窗3图角标 + 持有人结构半年报标注（commit 67c94d7）
+- 份额趋势/收盘价成交额：addCardTimeBadge（daily T+1 规则）
+- 持有人结构：自定义📅半年报角标（**不走 getCardTimeBadge**，因>30天会误判⏸停更）+ termTip"每半年披露一次（报告期6/30、12/31），基金年报/半年报发布后2-3月更新。最新至YYYY-MM-DD"
+- **根因**：数据源东财 FundArchives（type=cyrjg），半年报+年报披露，滞后2-3月。停 2025-12-31 **正常**（下一期2026半年报6/30，预计8-9月发布），非停更
+
+### 计划任务自动化检查结论（2026-07-15）
+7个 launchd 任务（无 crontab），全 LastExitStatus=0，时序错开无硬冲突，互斥完善：
+
+| 任务 | 触发 | 耗时 | 自身锁 | deploy锁 | caffeinate |
+|------|------|------|--------|----------|------------|
+| intraday-snapshot | 9:35-15:35×11 | ~12s | ✅ | ✅ | ❌->P2修 |
+| backfill-evening | 16:35/02:00/20:00 | ~3min | ❌ | ✅ | ✅ |
+| update-all | 17:50 | ~16min | ✅ | ✅ | ✅ |
+| lhb-backfill | 18:30 | 秒级 | ✅ | ✅ | ✅ |
+| futures-backfill | 20:05 | 秒级 | ✅ | ✅ | ✅ |
+| etf-national-team | 20:07 | 秒级 | ✅ | ❌->P1修 | ❌->P1修 |
+| rzhb-backfill | 22:10 | 秒级 | ✅ | ✅ | ✅ |
+
+- 互斥：update_all 用 `/tmp/trade_update_all.lock`(--nb)；各backfill 自身锁 + 持 deploy.lock(`/tmp/trade_deploy.lock` 阻塞)串行化git；futures等锁有3600s超时兜底
+- 时序：16:35backfill(3min)->17:50update_all(16min,18:06完)->18:30lhb；20:00backfill(3min)->20:05futures->20:07etf，间隔充足无硬冲突
+- cross_market components 全自动链路已确认（见上），不依赖手动 deploy
+
+### P1/P2/P3 修复（commit d480f70）
+- **P1**：etf_national_team daily 不push -> 新建 `scripts/etf_national_team_backfill.sh`（仿futures/lhb：caffeinate+`/tmp/trade_etf_nt.lock`--nb+交易日闸门+持deploy.lock调deploy.sh）。plist改指新shell已reload（LOADED）。**ETF数据当日采集当日上线，不再等次日17:50**
+- **P2**：intraday_snapshot.sh 缺caffeinate -> 加 `caffeinate -i -w $$` @23行（与5脚本一致，防盘中Mac休眠漏快照）
+- **P3**：无早盘pmset唤醒 -> `sudo pmset repeat wake MTWRF 9:25:00 wakepoweron MTWRF 17:48:00`（9:25开盘前5分唤醒防前夜休眠后9:35首条快照漏跑，17:48保留给update_all）。**注意pmset repeat每个type只能一个repeating event**，9:25和17:48必须用不同type（wake/wakepoweron），同type两个时间后者覆盖前者
+
+### 踩坑教训（4条）
+1. **数据结构变更必须重新部署数据上线**：cross.py 加 components 字段，agent 改代码+重导本地JSON+commit代码push，但没跑 deploy.sh，线上 `components:None` 前端不显示。**涉及JSON字段结构变更的后端改动，代码commit后必须跑 deploy.sh（git add static-site/data/ + commit + push）让新数据上线；验收要 curl 线上数据确认字段值，不只看代码**。已记 memory data-schema-change-needs-deploy
+2. **pmset repeat 每 type 一个事件**：`sudo pmset repeat wakepoweron MTWRF 9:25:00 17:48:00` 同type两时间，pmset只保留17:48覆盖9:25。多唤醒时间用不同type。已更新 memory mac-sleep-wake-fix
+3. **jsonl mtime 误判卡死**：长工具调用不更新jsonl时间戳，判卡死优先看进度文件 mtime+tail（已记 memory check-progress-file-over-jsonl）
+4. **agent遗漏多改点**：复杂任务多改点，prompt 要逐项列明+要求逐项确认（ETF弹窗KPI NULL 遗漏，单独派补丁 agent）
