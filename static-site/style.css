@@ -682,6 +682,8 @@ main { padding: 16px 24px; }
 @media (min-width: 769px) {
   .astock-top-grid { grid-template-columns: repeat(auto-fill, minmax(700px, 1fr)); }
   .indices-grid { grid-template-columns: repeat(auto-fill, minmax(700px, 1fr)); }
+  /* 板块轮动行业指数折线图：PC 自适应(minmax700px auto-fill)，宽屏每行2图，窄屏PC(如1024)降为1列；移动端1列 */
+  .industry-grid { grid-template-columns: repeat(auto-fill, minmax(700px, 1fr)); }
 }
 .empty-note { color: var(--text-3); padding: 14px 0; font-size: 13px; }
 
@@ -696,8 +698,8 @@ main { padding: 16px 24px; }
 
 /* === 行业看板（F1）=== */
 .industry-grid {
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800；PC 由 @media(min-width:769px) 切 minmax */
+  gap: 12px;
   margin-bottom: 16px;
 }
 .industry-grid .spark-cell .spark-chart { min-height: 120px; }
