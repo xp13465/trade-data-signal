@@ -3777,10 +3777,14 @@ async function renderGlobal(container = content) {
     const sigResults = await Promise.all(
       idxEntries.map(([id]) => fetchJSON(`/api/index/${id}?range=${state.range}`).catch(() => null))
     );
+    // 全球指数折线区套 .indices-grid 3列网格(与A股/港股同布局)，PC 宽屏多图一行排开
+    const cardGrid = document.createElement("div");
+    cardGrid.className = "indices-grid";
+    container.appendChild(cardGrid);
     idxEntries.forEach(([id, idx], i) => {
       const sig = sigResults[i] || { signals: [], stats: {} };
       if (idx.data && idx.data.length) {
-        const chart = indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
+        const chart = indexChart(idx.name, idx.data, sig.signals, sig.stats, idx.strategy, cardGrid, charts, id);
         if (chart) addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap);
       }
     });
