@@ -1237,7 +1237,7 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 ### P1/P2/P3 修复（commit d480f70）
 - **P1**：etf_national_team daily 不push -> 新建 `scripts/etf_national_team_backfill.sh`（仿futures/lhb：caffeinate+`/tmp/trade_etf_nt.lock`--nb+交易日闸门+持deploy.lock调deploy.sh）。plist改指新shell已reload（LOADED）。**ETF数据当日采集当日上线，不再等次日17:50**
 - **P2**：intraday_snapshot.sh 缺caffeinate -> 加 `caffeinate -i -w $$` @23行（与5脚本一致，防盘中Mac休眠漏快照）
-- **P3**：无早盘pmset唤醒 -> `sudo pmset repeat wake MTWRF 9:25:00 wakepoweron MTWRF 17:48:00`（9:25开盘前5分唤醒防前夜休眠后9:35首条快照漏跑，17:48保留给update_all）。**注意pmset repeat每个type只能一个repeating event**，9:25和17:48必须用不同type（wake/wakepoweron），同type两个时间后者覆盖前者
+- **P3**：无早盘pmset唤醒 -> 根因 AC sleep=1（插电1分钟就睡）太激进。最终方案：`sudo pmset -c sleep 0`（插电永不睡，盘中9:35快照+17:50 update_all 插电时都跑，不需早盘唤醒）+ `sudo pmset repeat wakeorpoweron MTWRF 17:48:00`（17:48兜底防手动合盖/拔电后睡过头）。**两个坑**：①pmset repeat type 名是 `wakeorpoweron`（带"or"），写成 `wakepoweron` 报 "Unspecified scheduled event type"；②pmset repeat 每个唤醒类(wake/wakeorpoweron)只能存一个时间，9:25和17:48二选一不可兼得，故改用插电sleep=0绕开（不需要两个唤醒）。intraday_snapshot.sh 也补了 caffeinate（P2）双保险
 
 ### 踩坑教训（4条）
 1. **数据结构变更必须重新部署数据上线**：cross.py 加 components 字段，agent 改代码+重导本地JSON+commit代码push，但没跑 deploy.sh，线上 `components:None` 前端不显示。**涉及JSON字段结构变更的后端改动，代码commit后必须跑 deploy.sh（git add static-site/data/ + commit + push）让新数据上线；验收要 curl 线上数据确认字段值，不只看代码**。已记 memory data-schema-change-needs-deploy
