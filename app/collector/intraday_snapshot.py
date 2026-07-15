@@ -776,8 +776,8 @@ def _recompute_scores() -> None:
         print(f"  [intraday] a_sentiment 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     try:
-        cross_score = cross.compute()
-        n_cross = cross.store(cross_score)
+        cross_score, cross_comps = cross.compute()
+        n_cross = cross.store(cross_score, cross_comps)
         last_val = round(float(cross_score.dropna().iloc[-1]), 2) if not cross_score.dropna().empty else None
         last_date = cross_score.dropna().index[-1] if not cross_score.dropna().empty else "?"
         print(f"  [intraday] cross_market: {n_cross}天, 末日={last_date}={last_val}", flush=True)

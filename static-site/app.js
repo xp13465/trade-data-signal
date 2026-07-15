@@ -4012,6 +4012,9 @@ const _COMP_NAMES = {
   rsi: "RSI", pct_change: "涨跌幅", qvix: "恐慌波动",
   ratio: "涨跌比", zt: "涨停热度", zhaban: "炸板率", lianban: "连板", amount: "成交活跃",
   label: "恐贪标签", available_scores: "可用分项",
+  // 跨市场综合评分组成维度（按指标分组归一化均值 0-100）
+  a_width: "A股宽度", a_fund: "资金面", a_sentiment: "A股情绪",
+  hk: "港股", global: "全球", lhb: "龙虎榜", unlock: "解禁", ipo: "IPO", cov: "可转债",
 };
 function _fmtComp(k, v) {
   if (k === "label") return String(v); // 恐贪标签为中文（极度恐惧/恐惧/中性/贪婪/极度贪婪），原样返回不走数字格式
@@ -4259,7 +4262,11 @@ function renderFuturesSection(data, snap) {
   const roles = ["机构(前20)", "中信期货", "国泰君安"];
   const products = ["沪深300期货", "中证500期货", "上证50期货", "中证1000期货", "综合"];
 
-  
+  // 期货区统一套 .indices-grid 3列网格(最小宽度700)：表格卡+折线图+说明卡同网格，视觉统一
+  const fgGrid = document.createElement("div");
+  fgGrid.className = "indices-grid";
+  content.appendChild(fgGrid);
+
   // 1. 昨日净多空概览卡片
   if (data.summary && data.summary.roles) {
     const div = document.createElement("div");
@@ -4283,7 +4290,7 @@ function renderFuturesSection(data, snap) {
     html += '</tbody></table>';
     html += '<div class="term-plain">正数=净多（绿），负数=净空（红）。数据来源：中金所前20会员持仓。</div>';
     div.innerHTML = html;
-    content.appendChild(div);
+    fgGrid.appendChild(div);
     addCardTimeBadge(div, dateStr, snap);
   }
 
@@ -4351,16 +4358,11 @@ function renderFuturesSection(data, snap) {
     html += '</tbody></table>';
     html += '<div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     div.innerHTML = html;
-    content.appendChild(div);
+    fgGrid.appendChild(div);
     addCardTimeBadge(div, accDates.length ? accDates[accDates.length - 1] : "", snap);
   }
 
-  // 期货折线图区套 .indices-grid 3列网格(与情绪图表区一致)，4张图并排
-  const fgGrid = document.createElement("div");
-  fgGrid.className = "indices-grid";
-  content.appendChild(fgGrid);
-
-  // 3. 四张折线图：net_position 手数趋势（默认展开，直接渲染到 content）
+  // 3. 四张折线图：net_position 手数趋势
 
 // 图1：综合净多空手数 — 3 条线（机构/中信/国君的综合品种）
   const chart1Series = roles.map((role) => ({
@@ -4473,7 +4475,7 @@ function renderFuturesSection(data, snap) {
     const div = document.createElement("div");
     div.className = "chart-card futures-table-card";
     div.innerHTML = '<h3>说明</h3><div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。折线图为净多空手数（正=净多，负=净空），hover 可查看比例。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
-    content.appendChild(div);
+    fgGrid.appendChild(div);
   }
 }
 

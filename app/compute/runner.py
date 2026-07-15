@@ -14,8 +14,8 @@ def run(verbose=True):
         score_id = f"sentiment_{idx_id}"
         n_idx[idx_id] = sentiment.store(idx_score, idx_comps, score_id=score_id)
 
-    c_score = cross.compute()
-    n_c = cross.store(c_score)
+    c_score, c_comps = cross.compute()
+    n_c = cross.store(c_score, c_comps)
 
     sigs = signals.compute()
     n_sig = signals.store(sigs)
