@@ -3454,6 +3454,8 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData, snap
 function renderNationalTeamDetail(container, data, qData, hData, opts) {
   opts = opts || {};
   var isOverlay = !!opts.overlay;
+  // 盘中快照(已在 renderNationalTeam @2883 / 页面加载 @5762 fetch,此处直接取 state 缓存供3图角标)
+  var snap = state.intradaySnapshot;
   // 返回概览按钮（弹窗模式=关闭弹窗，保留滚动位置）
   var backBtn = document.createElement("button");
   backBtn.className = "nt-back-btn";
@@ -3568,6 +3570,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     }],
   }));
   topCards.push(c1.getDom().parentElement);
+  addCardTimeBadge(c1.getDom().parentElement, latest.date, snap);
 
   // ── 图2: 收盘价(元) + 成交额(亿元) 双轴，volume_surge 标注 ──
   // volume_surge=橙"量"（成交额/5日均量>2倍，独立放量信号）
@@ -3598,6 +3601,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     ],
   }));
   topCards.push(c2.getDom().parentElement);
+  addCardTimeBadge(c2.getDom().parentElement, latest.date, snap);
 
   // ── 图3: 季度持有人结构变化（机构/个人占比%）──
   if (curQ && curQ.history && curQ.history.length) {
@@ -3606,7 +3610,12 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     const hist = curQ.history.filter((h) => parseInt(h.report_date.slice(0, 4), 10) >= endYr - 5);
     const instData = hist.map((h) => [h.report_date, h.inst_hold_pct]);
     const retailData = hist.filter((h) => h.retail_hold_pct != null).map((h) => [h.report_date, h.retail_hold_pct]);
-    const qTitle = `${cur.code} ${cur.name} 持有人结构变化（%）`;
+    // 持有人结构=半年报披露(报告期6/30、12/31)，滞后2-3月发布；不自走T+1滞后判定(>30天会误判⏸停更)
+    var qLastRep = hist.length ? hist[hist.length - 1].report_date : "";
+    var qLastFmt = qLastRep.length === 8 ? qLastRep.slice(0, 4) + "-" + qLastRep.slice(4, 6) + "-" + qLastRep.slice(6, 8) : qLastRep;
+    var qBadgeMmdd = qLastRep.length === 8 ? qLastRep.slice(4, 6) + "-" + qLastRep.slice(6, 8) : qLastRep;
+    var qFreqTip = "持有人结构数据每半年披露一次（报告期6/30、12/31），基金年报/半年报发布后2-3月更新。最新至" + qLastFmt;
+    const qTitle = `${cur.code} ${cur.name} 持有人结构变化（%）` + termTip(qFreqTip);
     const c3 = mkCard(qTitle, 300, null, grid);
     c3.setOption(withTheme({
       tooltip: { trigger: "axis" },
@@ -3621,6 +3630,13 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
       ],
     }));
     topCards.push(c3.getDom().parentElement);
+    // 持有人结构角标: 📅半年报(灰)，tip 注明半年披露频次（不走 addCardTimeBadge 的 T+1 滞后判定）
+    var _qCard = c3.getDom().parentElement;
+    if (_qCard && qBadgeMmdd) {
+      _qCard.insertAdjacentHTML("beforeend",
+        '<span class="card-time-badge t1" data-tip="' + qFreqTip + '">📅 半年报·' + qBadgeMmdd + '</span>');
+      _qCard.classList.add("has-time-badge");
+    }
   }
 
   // ── 信号趋势：按月信号数堆叠柱状 + 强度散点（散户看大资金活跃度月度变化）──
