@@ -98,10 +98,6 @@ body {
   background: var(--bg-page);
   color: var(--text-1);
 }
-/* PC(>768px)：看板最小宽度 900px，窄于该宽度的视口横向滚动；移动端(≤768px)沿用自适应布局不受影响 */
-@media (min-width: 769px) {
-  body { min-width: 900px; }
-}
 header {
   display: flex;
   justify-content: space-between;
@@ -683,9 +679,10 @@ main { padding: 16px 24px; }
   align-items: stretch;
 }
 /* PC(>768px)：加宽指数/指标折线图列宽，减少列数使每图更宽(窄的根因=auto-fill 在宽屏生成过多 320/280px 窄列)；移动端维持原列宽自适应 */
+/* 大盘信号 A股卡片网格自身最小宽度 900px：窄于 900 的视口(如 iframe 嵌入)不挤压成单列窄卡，保持多列可读宽度，溢出由页面横向滚动；移动端(≤768px)豁免维持自适应 */
 @media (min-width: 769px) {
-  .astock-top-grid { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
-  .indices-grid { grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); }
+  .astock-top-grid { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); min-width: 900px; }
+  .indices-grid { grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); min-width: 900px; }
 }
 .empty-note { color: var(--text-3); padding: 14px 0; font-size: 13px; }
 
