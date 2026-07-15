@@ -4274,7 +4274,7 @@ function renderSentimentHeatmap(r, snap) {
     grid: { left: 80, right: 20, top: 20, bottom: 50 },
     xAxis: {
       type: "category", data: dates,
-      axisLabel: { color: cssVar("--text-1"), rotate: 45, fontSize: 10, interval: (i) => i % labelStep === 0 },
+      axisLabel: { color: cssVar("--text-1"), rotate: 0, fontSize: 10, interval: (i) => i % labelStep === 0, formatter: (v) => v.slice(4, 6) + "-" + v.slice(6, 8) },
       splitArea: { show: false },
     },
     yAxis: {
