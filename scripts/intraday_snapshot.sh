@@ -19,6 +19,8 @@
 # 日志：data/logs/intraday_snapshot_YYYYMMDD_HHMM.log
 # 退出码：快照采集退出码（git push 失败也计入）。
 set -uo pipefail
+# 防脚本运行期间 mac 休眠（caffeinate 跟随脚本 PID，退出自动结束）
+caffeinate -i -w $$ >/dev/null 2>&1 &
 
 REPO="/Users/linhuichen/code/trade"
 PY="$REPO/.venv/bin/python"
