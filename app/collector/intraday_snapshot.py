@@ -122,6 +122,12 @@ def _parse_tencent(text: str) -> list[dict]:
             dtstr = dtstr_raw.replace("/", "").replace(" ", "").replace(":", "")
         else:
             dtstr = dtstr_raw
+        # 港股 field[6]=成交额(万港元)；A 股 field[6] 非 amount（是成交笔数等），不提取。
+        # 收盘后腾讯返收盘价 + 当日完整成交额；盘中返实时累计额。
+        amount = None
+        if key.startswith("hk"):
+            amt_wan = f(6)
+            amount = amt_wan * 10000 if amt_wan is not None else None
         out.append({
             "code": key,
             "name": name,
@@ -133,6 +139,7 @@ def _parse_tencent(text: str) -> list[dict]:
             "high": f(33),
             "low": f(34),
             "datetime": dtstr,
+            "amount": amount,
         })
     return out
 
@@ -403,8 +410,10 @@ def _backfill_index_daily(indices: list[dict]) -> int:
 
     解决 T+1 数据源（baostock/东财 trend）收盘后未出当日数据致指数卡片/恐贪停在 T-2 的问题。
     A 股 15:00 收盘 -> 快照 price 即收盘价；港股 16:00 收盘 -> 15:35 快照时 price 是盘中
-    实时价（非最终收盘价），但写入 close 让港股卡片显示当日实时涨跌；16:35 update_all
-    新浪全量会覆盖为真正收盘价。快照无成交额，amount 留 NULL。
+    实时价（非最终收盘价），但写入 close 让港股卡片显示当日实时涨跌；17:50 update_all
+    再跑 intraday_snapshot 时港股已收盘，腾讯返收盘价 + 成交额，覆盖盘中价。
+    港股成交额从腾讯 field[6]（万港元）提取（_parse_tencent），A 股 amount 留 NULL
+    （新浪全量源有成交额）。
     非交易日不写；快照 datetime 非当日不写（避免旧快照污染）。
     返回写入的指数条数。
     """
@@ -439,12 +448,12 @@ def _backfill_index_daily(indices: list[dict]) -> int:
             "open=excluded.open, high=excluded.high, low=excluded.low, "
             "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
             (today, index_id, idx.get("open"), idx.get("high"), idx.get("low"),
-             price, idx.get("pct_change"), None),
+             price, idx.get("pct_change"), idx.get("amount")),
         )
         n += 1
     conn.commit()
     conn.close()
-    print(f"  [intraday] index_daily 反哺完成：{n} 条（来源：实时快照，amount=NULL）", flush=True)
+    print(f"  [intraday] index_daily 反哺完成：{n} 条（来源：实时快照，港股含成交额）", flush=True)
     return n
 
 

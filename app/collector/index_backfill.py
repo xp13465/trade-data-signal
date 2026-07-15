@@ -312,7 +312,7 @@ def verify_and_backfill_indices(date, verbose=True):
         if idx_cfg is None:
             continue
         r = conn.execute(
-            "SELECT date, close FROM index_daily WHERE index_id=? ORDER BY date DESC LIMIT 1",
+            "SELECT date, close, amount FROM index_daily WHERE index_id=? ORDER BY date DESC LIMIT 1",
             (idx_id,)
         ).fetchone()
         need_backfill = False
@@ -320,6 +320,10 @@ def verify_and_backfill_indices(date, verbose=True):
             need_backfill = True
         elif require_today:
             if r["date"] != date:
+                need_backfill = True
+            # 港股盘中快照写入 amount=NULL（收盘前价格），需补采收盘数据。
+            # 新浪源收盘后延迟发布当日数据，用腾讯实时源兜底拿收盘价+成交额。
+            elif r["amount"] is None and idx_id in ("hsi", "hstech", "hscei"):
                 need_backfill = True
         else:
             # 美股: 覆盖跨周末即可(周五收盘->周一采集=3天),T+1第二天就该采到昨日。
@@ -335,7 +339,8 @@ def verify_and_backfill_indices(date, verbose=True):
             continue
         # 新浪全量拉取 UPSERT(collect_index 拉全量,有当日就入没就跳)
         rows, msg = _fetchers_mod.collect_index(idx_cfg, "20200101", date)
-        if rows:
+        has_today = rows and any(r[0] == date for r in rows)
+        if has_today:
             upsert_index_rows(rows)
             # 取最新行确认
             latest = conn.execute(
@@ -346,6 +351,19 @@ def verify_and_backfill_indices(date, verbose=True):
             details.append((idx_id, "ok", f"backfill 新浪 close={latest['close']} date={latest['date']}"))
             if verbose:
                 print(f"    ✓ {idx_id} <- 新浪 close={latest['close']} date={latest['date']}")
+        elif idx_id in ("hsi", "hstech", "hscei"):
+            # 新浪无当日数据（收盘后延迟发布）-> 腾讯实时源兜底
+            if rows:
+                upsert_index_rows(rows)  # 仍 UPSERT 历史数据
+            fixed = _tencent_hk_fallback(idx_id, date, conn, verbose)
+            if fixed:
+                ok += 1
+                details.append((idx_id, "ok", f"backfill 腾讯兜底 date={date}"))
+            else:
+                fail += 1
+                details.append((idx_id, "fail", f"新浪无当日+腾讯兜底失败: {msg}"))
+                if verbose:
+                    print(f"    ✗ {idx_id} 新浪无当日({msg}), 腾讯兜底也失败")
         else:
             fail += 1
             details.append((idx_id, "fail", f"新浪源空: {msg}"))
@@ -358,6 +376,72 @@ def verify_and_backfill_indices(date, verbose=True):
 
     conn.close()
     return ok, fail, details
+
+
+def _tencent_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) -> bool:
+    """腾讯实时源港股兜底：新浪无当日数据时，用腾讯拿收盘价+成交额写入 index_daily。
+
+    港股 16:00 收盘后腾讯返收盘价（price=收盘, pct=当日涨跌幅, field[6]=成交额万港元）。
+    盘中（<16:00）返实时价，不写（避免盘中价覆盖）。
+    返回 True=写入成功, False=未写入（盘中/数据异常）。
+    """
+    import requests
+    _HK_CODE_MAP = {"hsi": "r_hkHSI", "hstech": "r_hkHSTECH", "hscei": "r_hkHSCEI"}
+    tencent_code = _HK_CODE_MAP.get(idx_id)
+    if not tencent_code:
+        return False
+    try:
+        resp = requests.get(f"https://qt.gtimg.cn/q={tencent_code}", timeout=10)
+        vals = resp.text.split('"', 2)[1].split("~")
+        if len(vals) < 35:
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+
+    def f(i):
+        try:
+            return float(vals[i])
+        except (IndexError, ValueError):
+            return None
+
+    # datetime 校验：必须是当日（腾讯港股格式 YYYY/MM/DD HH:MM:SS）
+    dtstr_raw = vals[30].strip() if len(vals) > 30 else ""
+    snap_date = dtstr_raw[:10].replace("/", "") if "/" in dtstr_raw else dtstr_raw[:8]
+    if snap_date != date:
+        if verbose:
+            print(f"    ~ {idx_id} 腾讯兜底: 日期 {snap_date} != {date}，跳过")
+        return False
+
+    price = f(3)
+    if price is None:
+        return False
+    open_ = f(5)
+    amt_wan = f(6)  # 成交额(万港元)
+    amount = amt_wan * 10000 if amt_wan is not None else None
+    change = f(31)
+    pct = f(32)
+    pre_close = f(4)
+    # pct 符号兜底
+    if price and pre_close and pre_close != 0:
+        if pct is None or (change is not None and abs(pct) < 1e-6 and abs(change) > 1e-6):
+            pct = (price - pre_close) / pre_close * 100
+        if change is not None and abs(pct) > 1e-6 and (change > 0) != (pct > 0):
+            pct = -abs(pct) if change < 0 else abs(pct)
+    high = f(33)
+    low = f(34)
+
+    conn.execute(
+        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
+        "VALUES (?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(date, index_id) DO UPDATE SET "
+        "open=excluded.open, high=excluded.high, low=excluded.low, "
+        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+        (date, idx_id, open_, high, low, price, pct, amount),
+    )
+    conn.commit()
+    if verbose:
+        print(f"    ✓ {idx_id} <- 腾讯兜底 close={price} pct={pct} amount={amount} date={date}")
+    return True
 
 
 def backfill_series_metrics(date):
