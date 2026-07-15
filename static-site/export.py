@@ -1073,7 +1073,7 @@ def export_intraday_snapshot():
     snap = load_latest_snapshot()
     if snap is None:
         return {"collected_at": None, "is_closed": True, "label": "暂无快照",
-                "prev_trading_day": "", "indices": [], "industries": []}
+                "prev_trading_day": "", "indices": [], "industries": [], "concepts": []}
     return snap
 
 
@@ -1141,6 +1141,52 @@ def write_json(path: Path, data):
     return len(text)
 
 
+def write_industry_all_split(conn, cfg) -> tuple[dict, int, int]:
+    """导出 industry-all 拆分文件并返回 (counts, n_indices, n_concepts)。
+
+    生成：
+    - industry-all-indices/{iid}.json × 31 行业（瘦身主文件，渲染必需字段）
+    - industry-all-indices/{iid}-detail.json × 31（tooltip 专属字段，按需加载）
+    - industry-all-concepts.json（27 概念全历史 + 当日实时行）
+    - industry-all-meta.json（热力图 + index_ids + concept_ids）
+
+    供 main() 收盘全量导出 与 intraday_snapshot._export_affected_json 盘中导出共用，
+    避免 29MB 单文件超 Cloudflare Pages 25MB 限制。盘中调用时 index_daily 已含当日
+    行业/概念实时行（_backfill_industry_daily / _backfill_concept_daily），故导出的
+    JSON 含当日 -> 前端读 JSON 即可盘中可见当日。
+    """
+    ind_all = export_industry(conn, cfg, "all")
+    ind_split_dir = DATA_DIR / "industry-all-indices"
+    ind_split_dir.mkdir(parents=True, exist_ok=True)
+    # B2 折中瘦身：主文件只保留渲染必需字段，tooltip 专属字段拆到 {iid}-detail.json 按需加载
+    _KEEP_DATA = ("date", "close", "pct_change", "amount")
+    _KEEP_WIDTH = ("date", "up_count", "down_count")
+    _DET_OHLC = ("open", "high", "low")
+    _DET_WIDTH = ("zt_count", "dt_count", "zb_count", "seal_rate", "amount")
+    counts: dict = {}
+    for iid, ind in ind_all["indices"].items():
+        slim = {k: v for k, v in ind.items() if k not in ("data", "width")}
+        slim["data"] = [{k: x.get(k) for k in _KEEP_DATA} for x in ind["data"]]
+        slim["width"] = [{k: x.get(k) for k in _KEEP_WIDTH} for x in ind["width"]]
+        counts[f"industry-all-indices/{iid}.json"] = write_json(ind_split_dir / f"{iid}.json", slim)
+        detail = {
+            "ohlc": [{k: x.get(k) for k in _DET_OHLC} for x in ind["data"]],
+            "width": [{k: x.get(k) for k in _DET_WIDTH} for x in ind["width"]],
+        }
+        counts[f"industry-all-indices/{iid}-detail.json"] = write_json(
+            ind_split_dir / f"{iid}-detail.json", detail)
+    counts["industry-all-concepts.json"] = write_json(
+        DATA_DIR / "industry-all-concepts.json", {"concepts": ind_all["concepts"]})
+    counts["industry-all-meta.json"] = write_json(
+        DATA_DIR / "industry-all-meta.json",
+        {"heatmap": ind_all["heatmap"], "index_ids": list(ind_all["indices"].keys()),
+         "concept_ids": list(ind_all["concepts"].keys())})
+    n_indices = len(ind_all["indices"])
+    n_concepts = len(ind_all["concepts"])
+    print(f"  industry-all 拆分: {n_indices} 行业 + {n_concepts} 概念 + meta")
+    return counts, n_indices, n_concepts
+
+
 def main():
     cfg = load_config()
     conn = get_conn()
@@ -1176,32 +1222,8 @@ def main():
     # industry-all 拆分：31 行业各一个文件（各~1MB）+ concepts + meta，
     # 避免 industry-all.json 全历史 29MB 超 Cloudflare Pages 25MB 单文件限制。
     # 前端 all range 并发 fetch 31 文件组装（见 app.js _loadIndustryData）。
-    ind_all = export_industry(conn, cfg, "all")
-    ind_split_dir = DATA_DIR / "industry-all-indices"
-    ind_split_dir.mkdir(parents=True, exist_ok=True)
-    # B2 折中瘦身：主文件只保留渲染必需字段，tooltip 专属字段拆到 {iid}-detail.json 按需加载
-    _KEEP_DATA = ("date", "close", "pct_change", "amount")
-    _KEEP_WIDTH = ("date", "up_count", "down_count")
-    _DET_OHLC = ("open", "high", "low")
-    _DET_WIDTH = ("zt_count", "dt_count", "zb_count", "seal_rate", "amount")
-    for iid, ind in ind_all["indices"].items():
-        slim = {k: v for k, v in ind.items() if k not in ("data", "width")}
-        slim["data"] = [{k: x.get(k) for k in _KEEP_DATA} for x in ind["data"]]
-        slim["width"] = [{k: x.get(k) for k in _KEEP_WIDTH} for x in ind["width"]]
-        counts[f"industry-all-indices/{iid}.json"] = write_json(ind_split_dir / f"{iid}.json", slim)
-        detail = {
-            "ohlc": [{k: x.get(k) for k in _DET_OHLC} for x in ind["data"]],
-            "width": [{k: x.get(k) for k in _DET_WIDTH} for x in ind["width"]],
-        }
-        counts[f"industry-all-indices/{iid}-detail.json"] = write_json(
-            ind_split_dir / f"{iid}-detail.json", detail)
-    counts["industry-all-concepts.json"] = write_json(
-        DATA_DIR / "industry-all-concepts.json", {"concepts": ind_all["concepts"]})
-    counts["industry-all-meta.json"] = write_json(
-        DATA_DIR / "industry-all-meta.json",
-        {"heatmap": ind_all["heatmap"], "index_ids": list(ind_all["indices"].keys()),
-         "concept_ids": list(ind_all["concepts"].keys())})
-    print(f"  industry-all 拆分: {len(ind_all['indices'])} 行业 + concepts + meta")
+    ind_counts, _n_ind, _n_concept = write_industry_all_split(conn, cfg)
+    counts.update(ind_counts)
 
     # 7. metrics
     counts["metrics.json"] = write_json(DATA_DIR / "metrics.json", export_metrics(cfg))

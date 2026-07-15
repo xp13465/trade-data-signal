@@ -328,6 +328,60 @@ def fetch_industry_realtime() -> list[dict]:
     return out
 
 
+def fetch_concept_realtime() -> list[dict]:
+    """27 同花顺概念板块实时涨跌幅 + OHLC + 成交额。
+
+    复用 index_backfill._ths_concept_info_fetch 的拉取逻辑：
+    ak.stock_board_concept_info_ths(symbol=概念名) 拿当日快照（项目/值两列），
+    合成 open=今开 / high=最高 / low=最低 / close=昨收×(1+板块涨幅/100) /
+    pct=板块涨幅 / amount=成交额(亿)×1e8(转元，对齐历史序列入库单位)。
+
+    与 fetch_industry_realtime 的差异：
+    - 行业 summary 一次返 90 子行业（聚合 31 申万），概念需逐个调（27 次）；
+    - 概念快照含完整 OHLC（今开/最高/最低），行业 summary 只有涨跌幅（close 需计算法）。
+
+    概念配置从 indicators.yaml 读 enabled thsc_ 项。返回 27 条 dict（失败的跳过），
+    按 pct_change 降序，结构与 industries 对齐便于前端复用渲染逻辑。
+    """
+    from .fetchers import load_config
+    from .index_backfill import _ths_concept_info_fetch
+
+    cfg = load_config()
+    concepts_cfg = [i for i in cfg.get("indices", [])
+                    if i.get("id", "").startswith("thsc_") and i.get("enabled", True)]
+    today = datetime.now().strftime("%Y%m%d")
+
+    out = []
+    fail = 0
+    for tc in concepts_cfg:
+        thsc_id = tc["id"]
+        # symbol 是 akshare 接口参数（概念名），name 是展示名
+        symbol = tc.get("symbol") or tc.get("name", thsc_id)
+        # throttle 限流：27 个概念逐个调，避免触发同花顺反爬
+        throttle()
+        # _ths_concept_info_fetch 返回 [(date, thsc_id, open, high, low, close, pct, amount)]
+        rows = _ths_concept_info_fetch(thsc_id, symbol, today)
+        if rows:
+            r = rows[0]
+            out.append({
+                "id": thsc_id,
+                "name": tc.get("name", thsc_id),
+                "pct_change": r[6],
+                "close": r[5],
+                "open": r[2],
+                "high": r[3],
+                "low": r[4],
+                "amount": r[7],
+            })
+        else:
+            fail += 1
+    # 按 pct_change 降序（None 兜底排末尾）
+    out.sort(key=lambda x: (x.get("pct_change") is None, x.get("pct_change") or -999), reverse=True)
+    print(f"  [intraday] 概念实时采集完成：{len(out)}/{len(concepts_cfg)} 条"
+          f"（失败 {fail}）", flush=True)
+    return out
+
+
 def is_market_closed(at: datetime | None = None) -> tuple[bool, str]:
     """判断 A 股是否收盘。返回 (is_closed, label)。
 
@@ -391,18 +445,21 @@ def is_hk_market_closed(at: datetime | None = None) -> tuple[bool, str]:
 
 
 def _save_db(collected_at: str, is_closed: bool,
-             indices: list, industries: list) -> None:
-    """存 DB（单行覆盖，id=1）。"""
+             indices: list, industries: list, concepts: list = None) -> None:
+    """存 DB（单行覆盖，id=1）。concepts 可选（向后兼容旧调用）。"""
     conn = get_conn()
+    if concepts is None:
+        concepts = []
     conn.execute(
-        "INSERT INTO intraday_snapshot (id, collected_at, is_closed, indices, industries) "
-        "VALUES (1, ?, ?, ?, ?) "
+        "INSERT INTO intraday_snapshot (id, collected_at, is_closed, indices, industries, concepts) "
+        "VALUES (1, ?, ?, ?, ?, ?) "
         "ON CONFLICT(id) DO UPDATE SET "
         "collected_at=excluded.collected_at, is_closed=excluded.is_closed, "
-        "indices=excluded.indices, industries=excluded.industries",
+        "indices=excluded.indices, industries=excluded.industries, concepts=excluded.concepts",
         (collected_at, 1 if is_closed else 0,
          json.dumps(indices, ensure_ascii=False),
-         json.dumps(industries, ensure_ascii=False)),
+         json.dumps(industries, ensure_ascii=False),
+         json.dumps(concepts, ensure_ascii=False)),
     )
     conn.commit()
     conn.close()
@@ -598,6 +655,51 @@ def _backfill_industry_daily_historical(target_date: str) -> int:
     return n
 
 
+def _backfill_concept_daily(concepts: list[dict]) -> int:
+    """把盘中快照的 27 概念 OHLC 反哺 index_daily 表（UPSERT，幂等）。
+
+    与 _backfill_industry_daily 对称：行业 summary 只有涨跌幅（close 需计算法、
+    open/high/low 留 NULL），而概念快照（stock_board_concept_info_ths）含完整
+    今开/最高/最低，故概念反哺写完整 OHLC（比行业更准）。
+
+    close 仍由昨收×(1+涨幅/100) 合成（快照无收盘价字段，_ths_concept_info_fetch
+    已反推）。amount 来自快照成交额(亿)×1e8 转元。ON CONFLICT 更新全部 OHLC +
+    pct_change + amount（盘中多次快照持续刷新实时值）；收盘 pipeline（T+1 历史序列）
+    次日覆盖为最终收盘值。非交易日不写；pct_change 为 None 跳过该条。
+    返回写入的概念条数。
+    """
+    from ..calendar import is_trading_day
+
+    today = datetime.now().strftime("%Y%m%d")
+    if not is_trading_day(today):
+        print(f"  [intraday] 非交易日({today})，跳过 index_daily 概念反哺", flush=True)
+        return 0
+
+    conn = get_conn()
+    n = 0
+    for c in concepts:
+        cid = c.get("id", "")
+        if not cid:
+            continue
+        pct = c.get("pct_change")
+        if pct is None:
+            continue
+        conn.execute(
+            "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
+            "VALUES (?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(date, index_id) DO UPDATE SET "
+            "open=excluded.open, high=excluded.high, low=excluded.low, "
+            "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+            (today, cid, c.get("open"), c.get("high"), c.get("low"),
+             c.get("close"), pct, c.get("amount")),
+        )
+        n += 1
+    conn.commit()
+    conn.close()
+    print(f"  [intraday] index_daily 概念反哺完成：{n} 条（含完整 OHLC + amount）", flush=True)
+    return n
+
+
 def _collect_intraday_width_metrics() -> dict:
     """盘中采集宽度/成交额指标，写入 daily_metric（source='intraday'）。
 
@@ -785,12 +887,40 @@ def _recompute_scores() -> None:
         print(f"  [intraday] cross_market 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
 
+def _recompute_rotation() -> None:
+    """重算板块轮动速度（sw_ 行业 + thsc_ 概念），写入 daily_metric。
+
+    依赖 index_daily 的 sw_/thsc_ 当日 pct_change（_backfill_industry_daily +
+    _backfill_concept_daily 已写入）。显式传 date=today：即使某类板块反哺部分
+    失败（如行业 summary 挂但概念成功），也能算出已就绪类别的当日轮动速度，
+    不依赖 compute_rotation 默认从 sw_df 推断日期（推断取 sw_ 末日，行业未反哺
+    时会停在 T-1）。盘中算出当日速度后，export_rotation 导出的 rotation.json
+    才含当日行 + 当日领涨 top3。compute_rotation 读 index_daily 全量算 leader
+    变化，store_rotation 写当日 6 个指标（source='derived'，收盘 pipeline 覆盖）。
+    失败不阻断。仅交易日调用（由 collect_and_save 的 n_ind/n_concept>0 门控）。
+    """
+    from ..compute.rotation import compute_rotation, store_rotation
+
+    try:
+        today = datetime.now().strftime("%Y%m%d")
+        result = compute_rotation(date=today)
+        n = store_rotation(result)
+        print(f"  [intraday] rotation 重算: {n} 指标, date={result.get('date')} "
+              f"sw_leader={result.get('sw_leader')} concept_leader={result.get('concept_leader')}",
+              flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] rotation 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+
 def _export_affected_json() -> None:
     """重算后 dump 受影响的静态 JSON（双版同步：static-site/data/）。
 
-    导出：overview + sentiment(5 ranges) + 9 指数 detail + hk + a-stock + global，
-    让 static-site 的恐贪/情绪分/指数 sparkline/大盘 tab 都到当日。
+    导出：overview + sentiment(5 ranges) + 9 指数 detail + hk + a-stock + global
+    + industry-all 拆分（31 行业折线 + 27 概念 + meta 热力图）+ rotation，
+    让 static-site 的恐贪/情绪分/指数 sparkline/大盘 tab/行业概念轮动都到当日盘中。
     a-stock 重导后指数图和 width 指标反映盘中最新值（解决大盘 A 股 tab 冻结在早盘）。
+    industry-all / rotation 盘中导出含当日实时行：行业/概念已反哺 index_daily，
+    前端读这些 JSON 即可盘中可见当日（无需改前端读快照）。
     """
     import importlib.util
     from .fetchers import load_config
@@ -847,10 +977,25 @@ def _export_affected_json() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"  [intraday] global-{rng} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
+    # industry-all 拆分（31 行业折线图 + 27 概念 + meta 热力图）
+    # 行业/概念已反哺 index_daily 当日行，重导后 industry-all-indices/* 和
+    # industry-all-concepts.json 含当日实时行 -> 前端行业折线/概念列表盘中可见。
+    try:
+        export_mod.write_industry_all_split(conn, cfg)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] industry-all 拆分导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+    # rotation（轮动速度 + 当日领涨 top3；_recompute_rotation 已写当日 daily_metric）
+    try:
+        export_mod.write_json(export_mod.DATA_DIR / "rotation.json",
+                              export_mod.export_rotation(conn))
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] rotation 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
     conn.close()
     print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)} "
           f"+ hk×{len(export_mod.ALL_RANGES)} + a-stock×{len(export_mod.ALL_RANGES)} "
-          f"+ global×{len(export_mod.ALL_RANGES)}",
+          f"+ global×{len(export_mod.ALL_RANGES)} + industry-all 拆分 + rotation",
           flush=True)
 
 
@@ -864,6 +1009,7 @@ def build_snapshot() -> dict:
     collected_dt = datetime.now()  # 采集起始时刻 = 数据时间
     indices = fetch_index_realtime()
     industries = fetch_industry_realtime()
+    concepts = fetch_concept_realtime()
     is_closed, label = is_market_closed(at=collected_dt)
     is_hk_closed, _ = is_hk_market_closed(at=collected_dt)
     # 给每条指数加 is_closed（A 股按 15:00 判断，港股按 16:00 判断）
@@ -882,6 +1028,7 @@ def build_snapshot() -> dict:
         "prev_trading_day": prev_td,
         "indices": indices,
         "industries": industries,
+        "concepts": concepts,
     }
 
 
@@ -901,7 +1048,7 @@ def collect_and_save() -> dict:
 
     # 存 DB
     _save_db(snap["collected_at"], snap["is_closed"],
-             snap["indices"], snap["industries"])
+             snap["indices"], snap["industries"], snap["concepts"])
 
     # dump 静态 JSON（双版同步：static-site/data/intraday_snapshot.json）
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -910,10 +1057,11 @@ def collect_and_save() -> dict:
     out_path.write_text(text, encoding="utf-8")
 
     dt = time.time() - t0
-    print(f"[intraday] 快照完成：{len(snap['indices'])} 指数（9 A 股 + 3 港股） / {len(snap['industries'])} 行业 "
+    print(f"[intraday] 快照完成：{len(snap['indices'])} 指数（9 A 股 + 3 港股） / "
+          f"{len(snap['industries'])} 行业 / {len(snap['concepts'])} 概念 "
           f"({snap['label']})，{dt:.1f}s -> {out_path.name}", flush=True)
 
-    # 反哺 index_daily + 盘中采 width 指标 + 重算情绪分/恐贪 + dump 静态 JSON
+    # 反哺 index_daily + 盘中采 width 指标 + 重算情绪分/恐贪/轮动 + dump 静态 JSON
     # 失败不阻断快照本身（快照已落库落盘，反哺是增强）
     try:
         n_backfill = _backfill_index_daily(snap["indices"])
@@ -926,13 +1074,18 @@ def collect_and_save() -> dict:
             print(f"[intraday] width 指标采集失败（不阻断）: {type(e).__name__} {e}", flush=True)
         width_n = len(width_res)
         n_ind = _backfill_industry_daily(snap["industries"])
+        n_concept = _backfill_concept_daily(snap["concepts"])
         # 重算：指数反哺 或 width 指标采集 都触发（width 有当日值后 a_sentiment/cross_market 能出分）
         if n_backfill > 0 or width_n > 0:
             _recompute_scores()
-        if n_backfill > 0 or n_ind > 0 or width_n > 0:
+        # 行业/概念反哺后重算轮动速度（rotation.json 才有当日行 + 当日领涨 top3）
+        if n_ind > 0 or n_concept > 0:
+            _recompute_rotation()
+        if n_backfill > 0 or n_ind > 0 or n_concept > 0 or width_n > 0:
             _export_affected_json()
             print(f"[intraday] 反哺+width+重算+export 完成"
-                  f"（{n_backfill} 指数 + {n_ind} 行业反哺 + {width_n} width 指标）", flush=True)
+                  f"（{n_backfill} 指数 + {n_ind} 行业 + {n_concept} 概念反哺 + {width_n} width 指标）",
+                  flush=True)
         else:
             print(f"[intraday] 无反哺（非交易日或快照非当日），跳过重算", flush=True)
     except Exception as e:  # noqa: BLE001
@@ -950,7 +1103,7 @@ def load_latest_snapshot() -> dict | None:
     """
     conn = get_conn()
     row = conn.execute(
-        "SELECT collected_at, is_closed, indices, industries "
+        "SELECT collected_at, is_closed, indices, industries, concepts "
         "FROM intraday_snapshot WHERE id=1"
     ).fetchone()
     conn.close()
@@ -975,6 +1128,11 @@ def load_latest_snapshot() -> dict | None:
         industries = json.loads(row["industries"])
     except Exception:  # noqa: BLE001
         industries = []
+    # concepts 列可能不存在于旧 DB（迁移前），用 keys 兜底
+    try:
+        concepts = json.loads(row["concepts"]) if row["concepts"] else []
+    except Exception:  # noqa: BLE001
+        concepts = []
     return {
         "collected_at": row["collected_at"],
         "is_closed": is_closed,
@@ -982,6 +1140,7 @@ def load_latest_snapshot() -> dict | None:
         "prev_trading_day": prev_td,
         "indices": indices,
         "industries": industries,
+        "concepts": concepts,
     }
 
 
