@@ -3077,12 +3077,12 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   var netCls = (last.netAdd == null) ? "" : (last.netAdd >= 0 ? "nt-up" : "nt-down");
   var netSign = (last.netAdd == null) ? "" : (last.netAdd >= 0 ? "+" : "");
   var netValHtml = (last.netAdd == null)
-    ? '<div class="nt-tk-val" style="color:var(--text-3)">份额待公布</div>'
+    ? '<div class="nt-tk-val" style="color:var(--text-3)">份额待公布·明晚20:07后补全</div>'
     : '<div class="nt-tk-val ' + netCls + '">' + netSign + last.netAdd.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div>';
   var cumCls = cum20 >= 0 ? "nt-up" : "nt-down";
   var cumSign = cum20 >= 0 ? "+" : "";
   kpi.innerHTML =
-    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div><div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·用上日估算</span>' : '') + '</div></div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div><div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·用上日估算(明晚20:07后补全)</span>' : '') + '</div></div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">今日净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=国家队今日净买入，负值=净卖出。份额变动是硬数据不受价格波动干扰。") + '</div>' + netValHtml + '</div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看国家队近一个月持续买入还是卖出。") + '</div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>';
   container.appendChild(kpi);
@@ -3091,7 +3091,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   var shareData = series.map(function (d) { return { date: d.date, value: +d.share.toFixed(2) }; });
   var netData = series.map(function (d) { return { date: d.date, value: d.netAdd == null ? null : +d.netAdd.toFixed(2) }; });
   // 末日份额待公布标记(图1/图2标题追加,提示末日值为上一日估算)；lastDate 3图共享(8位YYYYMMDD)
-  var missingSuffix = lastShareMissing ? '<span class="chart-latest" style="color:#ff9800">· 末日份额待公布</span>' : '';
+  var missingSuffix = lastShareMissing ? '<span class="chart-latest" style="color:#ff9800">· 末日份额待公布(明晚补)</span>' : '';
   var lastDate = last.date;
 
   // 合计层共振信号 markPoint：≥THR 只宽基同步异动（语义：国家队共振）
@@ -3451,13 +3451,13 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     ? (shareEst ? prev.fund_share_yi.toFixed(1) + " 亿份" : "份额待公布")
     : latest.fund_share_yi.toFixed(1) + " 亿份";
   const shareHint = shareMissing
-    ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布' + (shareEst ? "·用上日估算" : "") + "</span>"
+    ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布(明晚20:07后补全)' + (shareEst ? "·用上日估算" : "") + "</span>"
     : "";
   const chgDisp = chgMissing
     ? "待公布"
     : (latest.share_change_yi >= 0 ? "+" : "") + latest.share_change_yi.toFixed(2) + " 亿份";
   const chgCls = chgMissing ? "" : (latest.share_change_yi >= 0 ? "nt-up" : "nt-down");
-  const chgHint = chgMissing ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布</span>' : "";
+  const chgHint = chgMissing ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布(明晚20:07后补全)</span>' : "";
   const closeDisp = latest.close != null ? latest.close.toFixed(3) + " 元" : "-";
   const qDateTxt = qLatest ? qLatest.report_date.slice(0, 4) + "-" + qLatest.report_date.slice(4, 6) + "-" + qLatest.report_date.slice(6, 8) : "";
   const instDisp = qLatest && qLatest.inst_hold_pct != null ? qLatest.inst_hold_pct.toFixed(1) + "%" : "-";
