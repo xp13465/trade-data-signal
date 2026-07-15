@@ -3505,19 +3505,32 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
 
   // ── 顶部摘要 KPI ──
   const latest = cur.latest || daily[daily.length - 1] || {};
+  const prev = daily.length >= 2 ? daily[daily.length - 2] : null;
   const qLatest = curQ && curQ.history && curQ.history.length ? curQ.history[curQ.history.length - 1] : null;
   const sigCount = daily.reduce((n, d) => n + (d.signals ? d.signals.length : 0), 0);
   const kpi = document.createElement("div");
   kpi.className = "nt-kpi";
-  const shareDisp = latest.fund_share_yi != null ? latest.fund_share_yi.toFixed(1) + " 亿份" : "-";
-  const chgDisp = latest.share_change_yi != null
-    ? (latest.share_change_yi >= 0 ? "+" : "") + latest.share_change_yi.toFixed(2) + " 亿份" : "-";
+  // 末日份额未发布(T+1时滞,交易所盘后次日才发)：最新份额用上一日估算+橙色标注,当日份额变动显示"待公布",避免"-"像坏了
+  const shareMissing = latest.fund_share_yi == null;
+  const chgMissing = latest.share_change_yi == null;
+  const shareEst = prev && prev.fund_share_yi != null;
+  const shareDisp = shareMissing
+    ? (shareEst ? prev.fund_share_yi.toFixed(1) + " 亿份" : "份额待公布")
+    : latest.fund_share_yi.toFixed(1) + " 亿份";
+  const shareHint = shareMissing
+    ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布' + (shareEst ? "·用上日估算" : "") + "</span>"
+    : "";
+  const chgDisp = chgMissing
+    ? "待公布"
+    : (latest.share_change_yi >= 0 ? "+" : "") + latest.share_change_yi.toFixed(2) + " 亿份";
+  const chgCls = chgMissing ? "" : (latest.share_change_yi >= 0 ? "nt-up" : "nt-down");
+  const chgHint = chgMissing ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布</span>' : "";
   const closeDisp = latest.close != null ? latest.close.toFixed(3) + " 元" : "-";
   const qDateTxt = qLatest ? qLatest.report_date.slice(0, 4) + "-" + qLatest.report_date.slice(4, 6) + "-" + qLatest.report_date.slice(6, 8) : "";
   const instDisp = qLatest && qLatest.inst_hold_pct != null ? qLatest.inst_hold_pct.toFixed(1) + "%" : "-";
   kpi.innerHTML =
-    `<div class="nt-kpi-item"><div class="nt-kpi-label">最新份额</div><div class="nt-kpi-val">${shareDisp}</div></div>` +
-    `<div class="nt-kpi-item"><div class="nt-kpi-label">当日份额变动</div><div class="nt-kpi-val ${latest.share_change_yi >= 0 ? "nt-up" : "nt-down"}">${chgDisp}</div></div>` +
+    `<div class="nt-kpi-item"><div class="nt-kpi-label">最新份额</div><div class="nt-kpi-val">${shareDisp}${shareHint}</div></div>` +
+    `<div class="nt-kpi-item"><div class="nt-kpi-label">当日份额变动</div><div class="nt-kpi-val ${chgCls}">${chgDisp}${chgHint}</div></div>` +
     `<div class="nt-kpi-item"><div class="nt-kpi-label">最新收盘价</div><div class="nt-kpi-val">${closeDisp}</div></div>` +
     `<div class="nt-kpi-item"><div class="nt-kpi-label">机构占比${qDateTxt ? "（" + qDateTxt + "）" : ""}</div><div class="nt-kpi-val">${instDisp}</div></div>` +
     `<div class="nt-kpi-item"><div class="nt-kpi-label">区间信号数</div><div class="nt-kpi-val">${sigCount}</div></div>`;
