@@ -2389,7 +2389,6 @@ async function renderOverview() {
 
   // ---- 1. 基础数据区（置顶）：KPI 卡片行 + 指数 sparkline 网格 ----
   // 散户最先看的行情速览：涨停/跌停/成交额/情绪分 等 KPI + 10 大指数迷你走势
-  sectionTitle("基础数据");
   const scoreNames = { a_sentiment: "A股综合情绪分", cross_market: "跨市场综合评分", fear_greed: "恐贪指数" };
   const kpiCards = [];
   for (const [id, s] of Object.entries(r.today.scores || {})) {
