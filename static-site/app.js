@@ -769,7 +769,7 @@ function renderErrorState(container, err, retryFn) {
 // 只重渲染指数区（filter bar + 指数折线），不调 renderTab、不 refetch（signals 缓存在闭包内）。
 // sectionCharts 同步 push 全局 charts（供 window resize），dispose 时从 charts 移除，避免悬空引用。
 // fetcher(id, idx) 返回 { signals, stats }；动态版按 range 走 API，静态版读 all.json 前端过滤。
-function renderIndicesSection(container, indices, fetcher) {
+function renderIndicesSection(container, indices, fetcher, visibleCount) {
   const entries = Object.entries(indices || {});
   if (!entries.length) return Promise.resolve();
 
@@ -803,18 +803,60 @@ function renderIndicesSection(container, indices, fetcher) {
     };
     bar.appendChild(sel);
     container.appendChild(bar);
-    for (const [id, idx] of entries) {
-      if (filterId !== "all" && id !== filterId) continue; // 未选指数跳过渲染
+    // 渲染单个指数到 parent（chart 入全局 charts 供 resize + sectionCharts 供本区 dispose）
+    async function renderOne(id, idx, parent) {
       if (!signalsCache[id]) signalsCache[id] = await fetcher(id, idx);
       const sig = signalsCache[id];
       if (idx.data && idx.data.length) {
         // 港股盘中实时标注（快照注入 _snap_intraday=true 时显示）
         const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
-        // chart 入全局 charts（供 resize）+ sectionCharts（供本区 dispose）
-        const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, container, charts, id);
+        const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
         addCardTimeBadge(c.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot);
       }
+    }
+    // 选了单个指数：只渲染该指数，不折叠
+    if (filterId !== "all") {
+      for (const [id, idx] of entries) {
+        if (id !== filterId) continue; // 未选指数跳过渲染
+        await renderOne(id, idx, container);
+      }
+      return;
+    }
+    // "全部"模式：visibleCount 限定首屏默认展示个数，其余折叠（H5=1 首屏直达上证指数，PC=4；未传=展全部）
+    const showCount = visibleCount != null ? visibleCount : entries.length;
+    const visibleEntries = entries.slice(0, showCount);
+    const restEntries = entries.slice(showCount);
+    for (const [id, idx] of visibleEntries) {
+      await renderOne(id, idx, container);
+    }
+    if (restEntries.length) {
+      const extraWrap = document.createElement("div");
+      extraWrap.style.marginTop = "8px";
+      container.appendChild(extraWrap);
+      const moreBtn = document.createElement("button");
+      moreBtn.textContent = `更多指数（${restEntries.length}）▼`;
+      moreBtn.className = "more-toggle";
+      moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed var(--border-strong);border-radius:6px;background:var(--bg-hover);color:var(--text-3);cursor:pointer;font-size:13px;";
+      extraWrap.appendChild(moreBtn);
+      const extraGrid = document.createElement("div");
+      extraGrid.style.display = "none";
+      extraWrap.appendChild(extraGrid);
+      moreBtn.onclick = async () => {
+        if (extraGrid.style.display === "none") {
+          extraGrid.style.display = "block";
+          moreBtn.textContent = "收起 ▲";
+          if (!extraGrid.dataset.rendered) {
+            for (const [id, idx] of restEntries) {
+              await renderOne(id, idx, extraGrid);
+            }
+            extraGrid.dataset.rendered = "1";
+          }
+        } else {
+          extraGrid.style.display = "none";
+          moreBtn.textContent = `更多指数（${restEntries.length}）▼`;
+        }
+      };
     }
   }
 
@@ -3653,6 +3695,8 @@ async function renderAStock(container = content) {
     }
   };
   // 指数折线区：筛选条移到本区前（紧挨指数折线），筛选时局部刷新（不 refetch、不动上方 KPI/宽度/资金面）
+  // H5 首屏默认展 1 个（上证指数=首个），PC 默认展 4 个，其余折叠
+  const idxVisible = document.body.classList.contains("h5") ? 1 : 4;
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
   container.appendChild(indicesSection);
@@ -3660,7 +3704,7 @@ async function renderAStock(container = content) {
   await renderIndicesSection(indicesSection, r.indices, async (id, idx) => {
     const raw = await fetchJSON(`./data/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
-  });
+  }, idxVisible);
 }
 
 // 港股快照 code -> index_id 映射（与 intraday_snapshot.py 的 _SNAPSHOT_TO_INDEX_ID 一致）。
