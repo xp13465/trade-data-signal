@@ -1860,8 +1860,8 @@ main { padding: 16px 24px; }
   .summary-top { flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; gap: 4px 10px; }
   .summary-title { display: contents; }   /* 不生成盒子,子元素提升为 summary-top 的 flex item */
   .summary-title-text { font-size: 14px; font-weight: 600; order: 1; }
-  .summary-meta { flex-wrap: nowrap; align-self: flex-start; order: 2; }   /* margin-left:auto 承自 base,靠右;装不下时换行到第二行 */
-  .summary-title-tags { flex: 0 0 auto; order: 1; }   /* 与 text 同序,紧随其后同行(不再强制 100% 独占新行) */
+  .summary-title-tags { flex: 0 0 auto; order: 2; }   /* 情绪+恐贪标签移到第二行,与 meta 同行靠左 */
+  .summary-meta { flex-wrap: nowrap; align-self: flex-start; order: 2; }   /* margin-left:auto 承自 base,靠右;更多按钮落第二行右上角 */
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
