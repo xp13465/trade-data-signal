@@ -1160,3 +1160,29 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 1. **切主流量到 GitHub Pages**：零成本立即享受 gzip，但 Pages 域名不如 maozi.io 专业，max-age=600 短
 2. **提帽子云工单开 nginx gzip**：免费版可能拒，给话术：申请服务端动态 gzip，html/css/js/json/svg，等级6，>1KB
 3. **maozi 子域接入用户自己 CF 账号(sugas13465)开 Brotli**：需 CF 后台加自定义域名+压缩规则，最彻底，国内可达性优于 workers.dev
+
+## §22 换手率分布图表数据停滞修复（2026-07-15）
+
+### 问题
+大盘信号→A股「换手率分布分位数」「换手率>5%家数占比」图表角标滞留在 7/6（滞后 9 天）。
+
+### 根因
+- `a_turnover_mean/median/p90/p10/gt5_pct`（daily_metric，BaoStock 全市场换手率分布）从未被任何 pipeline 自动调用——`cleanup_d3d2 turnover` 只手动跑过（末次 7/6）。
+- `baostock_daily`（填 baostock_daily_raw）runner.py:235 默认跳过（需 `RUN_BAOSTOCK=1`），stock_daily pipeline 只跑东财 stock_daily 不跑 baostock。
+- `cleanup_d3d2.py` `END_DATE` 硬编码 `20260706`——即使跑了也不采新数据。
+- 采集链：`baostock_daily`（baostock→baostock_daily_raw）→ `cleanup_d3d2 turnover`（算分布→daily_metric）→ `/api/a-stock` & export.py（读 daily_metric→a-stock-*.json）。两步都没每日跑。
+
+### 修复（commit b810861）
+- `cleanup_d3d2.py`：`END_DATE` 改动态（今天）；`compute_turnover_dist` 增量模式（从 daily_metric 末尾+1，避免每次重算 1500 万行）；`MIN_STOCKS_PER_DAY=4000` 跳部分采集日（如 7/9 仅 2281 只，分布失真）；`--full` 标志强制全量。
+- `runner.py`：+step 12 `turnover`（baostock 增量[仅 `RUN_BAOSTOCK=1`]+cleanup_d3d2）。
+- `pipeline.sh`：+`turnover` pipeline（STEPS=turnover, DO_EXPORT=1, DO_PUSH=1, 设 `RUN_BAOSTOCK=1`）。
+- `update_all.sh`：+turnover 前台 pipeline（wait，caffeinate 覆盖防休眠，通知含 RC_TURNOVER）。不阻塞 core——core 先抢 deploy 锁上线，turnover 采完排号 deploy。
+
+### 数据修复（commit b27287e）
+- 快赢：cleanup 从现有 baostock_daily_raw(7/9) 算 7/7-7/8（7/9 部分采集跳过）。
+- backfill：`baostock_daily update` 增量补 7/9-7/15（5071 ok/1 fail，+23071 行，~25min）。
+- 再 cleanup：5 天全部入库，a_turnover 5 指标 MAX=20260715。deploy regen a-stock-*.json 上线。
+
+### 注意
+- baostock 增量 update 5072 codes × 0.1s throttle ≈ 10-25min（远小于 10 年全量 9h）。`RUN_BAOSTOCK=1` 只 turnover pipeline 设，collect.sh（scheduler 全 steps）跑 turnover 时 baostock 子步仍跳过（cleanup 照跑，快）。
+- 部分采集日（< 4000 只）自动跳过，待 baostock 补全后下次重跑补回（增量起点 = daily_metric 末尾，未入库的部分日始终在重算范围内）。
