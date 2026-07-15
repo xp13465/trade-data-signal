@@ -127,6 +127,8 @@ function chartThemeOpts() {
       backgroundColor: cssVar("--bg-card"),
       borderColor: cssVar("--border-strong"),
       textStyle: { color: cssVar("--text-1") },
+      confine: true,                                  // tooltip 限制在 chart 容器内,防手机端 markPoint 贴边超屏
+      extraCssText: "max-width: 80vw; white-space: normal; word-break: break-word;",  // 防多信号长文案撑宽,窄屏自动换行
     },
   };
 }
