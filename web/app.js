@@ -876,8 +876,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
       }
       return;
     }
-    // "全部"模式：A股(foldOneRow=true)9个指数全部直接铺入 .indices-grid 网格(不折叠，无"更多指数"按钮)；
-    // 港股(未传 foldOneRow)全部铺入 container(保持原行为)。
+    // "全部"模式：A股/港股(foldOneRow=true)全部指数直接铺入 .indices-grid 网格(不折叠，无"更多指数"按钮)。
     let parent = container;
     if (foldOneRow) {
       const cardGrid = document.createElement("div");
@@ -3757,7 +3756,7 @@ async function renderHK(container = content) {
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
   container.appendChild(indicesSection);
-  await renderIndicesSection(indicesSection, indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`));
+  await renderIndicesSection(indicesSection, indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`), true);
 }
 
 async function renderGlobal(container = content) {
