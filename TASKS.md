@@ -42,8 +42,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 🚀 性能优化排队（2026-07-13 评估）
 > 评估共 P0×2 + P1×5 + P2×5 = 12 条。最大杠杆是 P0 两项（服务器压缩+缓存头），属部署层配置非纯代码。
 
-- **[性能-P0-1] 服务器开 gzip/br 压缩**：线上 MaoziYun/3.17.0 零压缩，JS/CSS/JSON 全裸传。echarts 1MB、app.js 162KB、大盘"全部"tab 4MB、行业"全部"24MB。开 gzip 后首屏 296KB->83KB，弱网提速 3-5 倍。**单项最高收益**。需 MaoziYun 改 nginx `gzip on; gzip_types application/json text/javascript text/css;` 或接 Cloudflare 代理。**待用户确认服务器可改性**。
-- **[性能-P0-2] 修缓存头**：`_headers` 是 Cloudflare Pages 专属，线上 MaoziYun 不解析，所有文件统一 `max-age=1200`（20分钟）。版本化资源（app.js?v=xxx）本该 1 年 immutable，index.html/data 本该 no-cache。回访用户每天重复下载 1.4MB JS+1MB echarts。需服务器配 Cache-Control 或接 Cloudflare。**与 P0-1 同属部署层，一起做**。
+- **[性能-P0-1] 服务器开 gzip/br 压缩**：线上 MaoziYun/3.17.0 零压缩，JS/CSS/JSON 全裸传。echarts 1MB、app.js 162KB、大盘"全部"tab 4MB、行业"全部"24MB。开 gzip 后首屏 296KB->83KB，弱网提速 3-5 倍。**单项最高收益**。需 MaoziYun 改 nginx `gzip on; gzip_types application/json text/javascript text/css;` 或接 Cloudflare 代理。**待用户确认服务器可改性**。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：实测 maozi.io 走帽子云(非用户CF账号)无法后台开压缩，3 条可行路(切Pages/提工单/子域接入自己CF)待定。
+- **[性能-P0-2] 修缓存头**：`_headers` 是 Cloudflare Pages 专属，线上 MaoziYun 不解析，所有文件统一 `max-age=1200`（20分钟）。版本化资源（app.js?v=xxx）本该 1 年 immutable，index.html/data 本该 no-cache。回访用户每天重复下载 1.4MB JS+1MB echarts。需服务器配 Cache-Control 或接 Cloudflare。**与 P0-1 同属部署层，一起做**。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：帽子云不解析 _headers 已实测确认，缓存头修复随 P0-1 一起待定。
 - **[性能-P1-1] echarts.min.js 加 defer**：1MB 在 `<head>` 同步阻塞渲染（index.html:29），加 defer 首屏提前 200-800ms。或按需引入（echarts/core+charts，tree-shake 后 1MB->300KB）。
 - **[性能-P1-2] window.resize 加 debounce**：app.js:36 拖拽时高频触发全量图表 resize，加 150ms debounce，CPU 降 90%+。
 - **[性能-P1-3] 行业"全部"范围 31 文件 24MB**：并发拉 31 个 industry-all-indices/*.json。短期靠 P0-1 gzip 降到 3.6MB；中期服务端预合并单文件或 HTTP/2 server-push。
@@ -722,7 +722,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **收盘横幅标签换行+去A股前缀** ✅ 已完成（commit 6116da8 标签并入summary-title同行 + 9ee2de4 去横幅"A股"前缀对齐历史弹窗。最终横幅一行：📊 7月14日 情绪回暖 😐 贪婪 62 ❄️冰点）。
 
 **B. 性能优化剩余（需用户决策）**
-- **P0-1/P0-2 部署层 gzip/缓存头**：⏸️ 搁置（用户 2026-07-14 决定）。MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。用户后续给服务器/Cloudflare 方向再启动。
+- **P0-1/P0-2 部署层 gzip/缓存头**：⏸️ 搁置（用户 2026-07-14 决定）。MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。用户后续给服务器/Cloudflare 方向再启动。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：实测 maozi.io 走帽子云(非用户CF账号)无法后台开压缩，3 条可行路(切Pages/提工单/子域接入自己CF)待定。
 - P2-2 trade_sim 45MB：⏸️ 强依赖 B1，随 B1 搁置（HTML 表格高度重复 gzip 压缩率80%，独立方案收益被 gzip 抹平）。
 - ✅ 已完成：P1-1 defer / P1-2 resize debounce / P1-4 minify / P2-1 并行fetch / P2-3 FastAPI缓存头(22da604) / P2-4 lab debounce / **B3 全球轻量JSON(c556ae3省70%)** / **B5 lab.js懒加载(4642735省88KB)** / **B2 行业瘦身折中(d114508 24MB->14MB省42%+detail按视口懒加载)**（详见 NOTES §18）。
 

@@ -1135,3 +1135,28 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - 现状：策略实验室「候选买点」区 F_B1_RSI40 / F_B1_rebound2pct 标 `status:"live"`（已上线生产），但实际是 per-index 的 buy_aux 辅买点增强（signals.py:449-468，18个指数配置），非全局融合信号生产实现。zone/status 矛盾 + note 过时。
 - 方案（用户已确认）：新增 `partial`（部分上线，琥珀色标签）状态，两卡 live->partial；note 更新实际指数名单（rsi_cross_40 10个 / close_above_bl_2pct 8个，从 indicators.yaml grep）；融合卡加 hover 提示「阶段一仅展示，详情页待阶段二」。双版 lab.js + style.css。
 - F_D1_MA_death（候选卖点 experimental）标对——后端无 MA5/20 死叉过滤，确实没上线。
+
+## §21 HTTP 压缩调研结论（2026-07-15）
+
+### 背景
+「市场温度看板」3 站点压缩现状实测（curl 验证，2026-07-15），推翻 §18 的盲点（原以为 maozi.io 走用户 Cloudflare 账号可后台开 Brotli）。
+
+### 实测三站点压缩现状
+| 站点 | 压缩 | 缓存头 | 国内可达 | 备注 |
+|---|---|---|---|---|
+| maozi.io (tdsignal-ujpzw01zm.maozi.io) | ❌ 零压缩 | 全 max-age=1200 | ✅ | 走 Cloudflare CDN 但回源帽子云(MaoziYun/3.17.0)，_headers 不解析 |
+| GitHub Pages (xp13465.github.io/trade-data-signal) | ✅ gzip 全类型(含 JSON，省 67-83%) | 固定 max-age=600 | ✅ | 不支持 br，不支持 _headers |
+| Cloudflare Workers (trade-data-signal.sugas13465.workers.dev) | ✅ gzip+br，支持 _headers | 可自定义 | ❌ 国内墙 | workers.dev DNS 污染+IP 墙，不可达 |
+
+### 关键发现（推翻 §18 盲点）
+- maozi.io 响应头有 cf-ray/cf-cache-status，看似走 Cloudflare，但实测 DNS：子域 CNAME cname.maozi-dns.com -> 帽子云 IP 82.40.32.125，主域 NS 在华为云(huaweicloud-dns)
+- 响应头的 cf-ray 是**帽子云后端自带的 Cloudflare**（帽子云自己用 CF 做 CDN 回源），**不是用户 CF 账号**——用户无权在那个 CF 后台开压缩规则
+- 所以「在 Cloudflare 后台给 maozi.io 开 Brotli」不成立
+- GitHub Pages 已自动 gzip 现成，但用户主访 maozi.io（零压缩），要享受 Pages 压缩得切流量
+- 豆包建议的「方案 A 预压缩 .gz + _headers 配 Content-Encoding」在帽子云不可行（帽子云不解析 _headers，免费版无 gzip_static）
+
+### 待定方案（用户 2026-07-15 决策：暂不动压缩，先上 UI，压缩搁置后续定）
+3 条可行路：
+1. **切主流量到 GitHub Pages**：零成本立即享受 gzip，但 Pages 域名不如 maozi.io 专业，max-age=600 短
+2. **提帽子云工单开 nginx gzip**：免费版可能拒，给话术：申请服务端动态 gzip，html/css/js/json/svg，等级6，>1KB
+3. **maozi 子域接入用户自己 CF 账号(sugas13465)开 Brotli**：需 CF 后台加自定义域名+压缩规则，最彻底，国内可达性优于 workers.dev
