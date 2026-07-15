@@ -3548,8 +3548,8 @@ async function renderAStock(container = content) {
     "涨停/跌停/连板/炸板数": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban", "a_width_zb_count"],
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
     "资金面": ["a_fund_north", "a_fund_margin", "a_fund_main", "a_amount"],
-    "炸板率/封板率/打板溢价": ["a_width_zhaban_rate", "a_width_fengban_rate", "a_width_daban_premium"],
     "情绪指数（QVIX/换手率）": ["a_qvix_300", "a_qvix_1000", "a_turnover_rate"],
+    "炸板率/封板率/打板溢价": ["a_width_zhaban_rate", "a_width_fengban_rate", "a_width_daban_premium"],
     "换手率分布分位数（%，BaoStock 全市场）": ["a_turnover_mean", "a_turnover_median", "a_turnover_p90", "a_turnover_p10"],
     "换手率>5%家数占比（0-1，活跃度分化）": ["a_turnover_gt5_pct"],
     "股息率": ["a_div_yield"],
@@ -3581,11 +3581,11 @@ async function renderAStock(container = content) {
     }).filter(Boolean);
   }
   const entries = Object.entries(groups);
-  const mainEntries = entries.slice(0, 8);
-  const extraEntries = entries.slice(8);
-  // 前8张卡片：4行2列网格
+  const mainEntries = entries.slice(0, 4);
+  const restEntries = entries.slice(4);
+  // 前4张卡片：1行4列网格（首屏精选指标）
   const grid2col = document.createElement("div");
-  grid2col.className = "ov-2col";
+  grid2col.className = "astock-top-grid";
   container.appendChild(grid2col);
   for (const [g, ids] of mainEntries) {
     const series = buildSeries(g, ids);
@@ -3598,17 +3598,17 @@ async function renderAStock(container = content) {
       }
     }
   }
-  // 龙虎榜 + 解禁/IPO/可转债：默认隐藏，点击「更多」展开
+  // 其余6组指标：默认隐藏，点击「更多指标」展开
   const extraWrap = document.createElement("div");
   extraWrap.style.marginBottom = "16px";
   container.appendChild(extraWrap);
   const moreBtn = document.createElement("button");
-  moreBtn.textContent = "更多 ▼";
+  moreBtn.textContent = "更多指标 ▼";
   moreBtn.className = "more-toggle";
   moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed var(--border-strong);border-radius:6px;background:var(--bg-hover);color:var(--text-3);cursor:pointer;font-size:13px;";
   extraWrap.appendChild(moreBtn);
   const extraGrid = document.createElement("div");
-  extraGrid.className = "ov-2col";
+  extraGrid.className = "astock-top-grid";
   extraGrid.style.display = "none";
   extraWrap.appendChild(extraGrid);
   moreBtn.onclick = () => {
@@ -3616,7 +3616,7 @@ async function renderAStock(container = content) {
       extraGrid.style.display = "grid";
       moreBtn.textContent = "收起 ▲";
       if (!extraGrid.dataset.rendered) {
-        for (const [g, ids] of extraEntries) {
+        for (const [g, ids] of restEntries) {
           const series = buildSeries(g, ids);
           if (series.length && series.some((s) => s.data.length)) {
             const chart = lineChart(g + latestSuffixMulti(series), series, {}, groupHints[g] || null, extraGrid);
@@ -3631,7 +3631,7 @@ async function renderAStock(container = content) {
       }
     } else {
       extraGrid.style.display = "none";
-      moreBtn.textContent = "更多 ▼";
+      moreBtn.textContent = "更多指标 ▼";
     }
   };
   // 指数折线区：筛选条移到本区前（紧挨指数折线），筛选时局部刷新（不 refetch、不动上方 KPI/宽度/资金面）

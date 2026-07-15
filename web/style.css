@@ -657,6 +657,25 @@ main { padding: 16px 24px; }
 @media (max-width: 720px) {
   .ov-2col { grid-template-columns: 1fr; }
 }
+.astock-top-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: stretch;
+}
+.astock-top-grid > * {
+  display: flex;
+  flex-direction: column;
+}
+.astock-top-grid .chart-card { min-height: 200px; margin-bottom: 12px; }
+.astock-top-grid .chart-card:last-child { margin-bottom: 0; }
+@media (max-width: 1000px) {
+  .astock-top-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 720px) {
+  .astock-top-grid { grid-template-columns: 1fr; }
+}
 .empty-note { color: var(--text-3); padding: 14px 0; font-size: 13px; }
 
 .placeholder .placeholder-body {
@@ -1871,7 +1890,7 @@ main { padding: 16px 24px; }
   }
   .h5-bottomnav button.active { color: var(--primary); }
   .h5-bottomnav .bn-icon { font-size: 20px; line-height: 1; }
-  .h5-bottomnav .bn-label { font-size: 11px; }
+  .h5-bottomnav .bn-label { font-size: 11px; white-space: nowrap; }
 }
 
 /* === 模拟回测 iframe 浮层（遮罩+圆角边框+缩放展开动画，明确是浮层非跳转；关闭后停留原位置）=== */
