@@ -71,5 +71,11 @@
 - **大型功能开发(策略实验室级)可按需用全套**:brainstorming→writing-plans(拆2-5分钟bite-sized task)→subagent-driven-development(implementer+reviewer+fixer循环)→TDD→finishing-a-development-branch
 - **可借鉴技艺补强监工 loop**:①独立 task-reviewer 子agent 两阶段验收(spec合规+代码质量),作"逐字验证"之外第二双眼 ②大 diff 走文件交接(`.superpowers/sdd/review-*.diff`)不进主控上下文 ③progress ledger 落 `.superpowers/sdd/progress.md` 进 git 跨 compaction 可恢复,比 `/tmp/agent-progress-*` 耐久(长任务用)④using-git-worktrees 隔离并行改同区域
 
+## 13. 模型能力约束(2026-07-16 计入)
+- 当前模型(glm-5.2)**只支持文本输入,不支持图片**。Read 图片/截图/视觉对比会触发 API Error 400 "Model only support text input",终止 agent
+- 派子 agent 时**禁止图片操作**(截图对比/UI 视觉看图/Read 图片验证效果)。需视觉验证的用文字描述+ASCII 示意图,或让用户自己看
+- 子 agent 撞 400 "Model only support text input" = 尝试了图片输入。若其调研已基本完成,读进度文件 + 主控补完剩余即可,无需重派从头
+- **2026-07-16 教训**:P2-4 og.png 压缩 agent 在"开始写报告"时疑似 Read og.png 验证压缩效果,撞 400 终止。但 P0-1 压缩调研已完成(坐实不可行),og.png 主控手动 magick 256色压缩补完(67KB->36KB),无损失
+
 ## 验收铁律
 逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报"完成"不等于真完成。
