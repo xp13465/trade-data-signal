@@ -1954,7 +1954,21 @@ function _renderIntradayChart(container, code, preClose, snapTime) {
       },
       tooltip: {
         trigger: "axis",
-        formatter: (p) => p[0] ? p[0].axisValue + "<br/>" + (p[0].value != null ? Number(p[0].value).toFixed(2) : "-") : "",
+        formatter: (p) => {
+          if (!p[0]) return "";
+          const price = p[0].value != null ? Number(p[0].value) : NaN;
+          let line = p[0].axisValue + "<br/>" + (isNaN(price) ? "-" : price.toFixed(2));
+          if (pc != null && !isNaN(price)) {
+            const diff = price - pc;
+            const pct = (diff / pc) * 100;
+            const up = diff >= 0;
+            const color = up ? "#e6492e" : "#2e8b57";
+            const sign = up ? "+" : "";
+            line += `<br/><span style="color:${color}">涨跌 ${sign}${diff.toFixed(2)}</span>`;
+            line += `<br/><span style="color:${color}">幅度 ${sign}${pct.toFixed(2)}%</span>`;
+          }
+          return line;
+        },
       },
       series: [{
         type: "line", data: prices, symbol: "none", connectNulls: false,
