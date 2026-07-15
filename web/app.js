@@ -1410,10 +1410,46 @@ function addCardTimeBadge(cardEl, dataDate, snap) {
 // "异常滞后(公开平台有更新我们没采到)"。从 overview + intraday_snapshot 提取各源最新日期分级显示。
 // 横幅可折叠（localStorage 记忆），有任何滞后整体加黄色警示边框，严重滞后加红色。
 // 复用 getCardTimeBadge 的三档分级口径，保证角标与横幅文案一致。
-function _dataFreshness(dateStr, ptd) {
+//
+// 逐源采集时点配置(北京时间 HH:MM)：盘中(snap.is_closed===false)且当前时间未到该源采集时点 ->
+// 数据源尚未发布/采集调度未跑，显示前一交易日(ptd-1)算正常等待，放宽 stale 基准到 ptd-1 交易日
+// (消除盘中误报)。过了该时点该采的还没采到 = 真滞后，恢复原口径(dateStr < ptd 即 stale)。
+// "next_day"=源端次日才发当日数据(今天的采集根本采不到 ptd 的当日值)，盘中恒放宽基准-1。
+// 收盘后(is_closed===true)一律恢复原口径。商品/国债/QVIX/红利等当天盘后已采到 ptd，无需放宽(默认行为)。
+const T1_COLLECT_DEADLINE = {
+  a_fund_margin: "17:50",   // 两融: 上交所盘后22:00发布，update_all core 次日17:50采集；盘中<17:50 显示 ptd-1 正常
+  us_dji_date:   "16:35",   // 美股道指: 美股收盘=北京次日04:00，backfill-evening 16:35采集；<16:35 放宽，>=16:35 严格
+  lhb_count:     "next_day",// 龙虎榜: 东财次日18:00才发当日，今天采不到 -> 盘中恒放宽基准-1
+  futures_date:  "next_day",// 期货机构持仓: CFFEX次日20:00才发当日，今天采不到 -> 盘中恒放宽基准-1
+};
+// 是否对该 T+1 源放宽盘中 stale 判定(基准 ptd -> ptd-1 交易日)。intraday=false 一律不放宽。
+function _t1Relax(key, intraday) {
+  if (!intraday || !key) return false;
+  const t = T1_COLLECT_DEADLINE[key];
+  if (!t) return false;
+  if (t === "next_day") return true; // 盘中恒放宽(今天根本采不到 ptd 当日值)
+  // 当前北京时间(UTC+8) vs 采集调度时点
+  const now = new Date();
+  const bjMin = ((now.getUTCHours() + 8) % 24) * 60 + now.getUTCMinutes();
+  const [hh, mm] = t.split(":").map(Number);
+  return bjMin < hh * 60 + mm; // 未到采集时点 -> 放宽
+}
+// 近似上一交易日(仅处理周末，忽略节假日)。后端 prev_trading_day 已用真实日历跳过假期，
+// 此处算其前一交易日：遇假期相邻会偏近一天(罕见，且仅影响盘中数小时放宽窗口，过采集时点即恢复严格口径)。
+function _prevTradingDay(ptd) {
+  if (!ptd || ptd.length !== 8) return "";
+  const d = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
+  const w = d.getDay(); // 0=周日 6=周六
+  d.setDate(d.getDate() - (w === 1 ? 3 : 1)); // 周一->上周五(+3)，其余->前一日(+1)
+  const y = d.getFullYear(), m = d.getMonth() + 1, dd = d.getDate();
+  return `${y}${String(m).padStart(2, "0")}${String(dd).padStart(2, "0")}`;
+}
+function _dataFreshness(dateStr, ptd, relax) {
   if (!dateStr) return { cls: "", text: "无数据" };
   const mmdd = dateStr.length === 8 ? `${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}` : dateStr;
-  if (!ptd || dateStr >= ptd) return { cls: "t1", text: `📅 T+1·${mmdd}` };
+  // 盘中未到采集时点：基准放宽到 ptd-1 交易日(显示前一交易日算正常等待)
+  const baseline = (relax && ptd) ? _prevTradingDay(ptd) : ptd;
+  if (!baseline || dateStr >= baseline) return { cls: "t1", text: `📅 T+1·${mmdd}` };
   let severe = false;
   if (dateStr.length === 8 && ptd.length === 8) {
     const d1 = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8));
@@ -1450,7 +1486,7 @@ function _buildHealthSources(r, snap) {
   const findM = (id) => metrics.find((m) => m.id === id);
   const margin = findM("a_fund_margin");
   if (margin && margin.date) {
-    const f = _dataFreshness(margin.date, ptd);
+    const f = _dataFreshness(margin.date, ptd, _t1Relax("a_fund_margin", intraday));
     sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布,次日开盘前更新当日" });
   }
   // 北向资金 2024-08 起源端停更。停≤30天提示用户，>30天长期停更不再提醒（避免长期挂红条烦扰）。
@@ -1496,8 +1532,10 @@ function _buildHealthSources(r, snap) {
     else if (cfg.iid) { const sp = spark[cfg.iid]; if (sp && sp.last_date) dateStr = sp.last_date; }
     // mid/iid 都取不到时，从 overview 顶层 extra_dates(futures_date/etf_date/us_dji_date) 兜底取停留日期
     if (!dateStr && cfg.dateKey) { dateStr = (r && r[cfg.dateKey]) || ""; }
+    // T+1 源盘中放宽：用 mid 或 dateKey 作源标识查采集时点(龙虎榜=lhb_count/期货=futures_date/美股=us_dji_date)
+    const relax = _t1Relax(cfg.mid || cfg.dateKey, intraday);
     let cls, text;
-    if (dateStr) { const f = _dataFreshness(dateStr, ptd); cls = f.cls; text = f.text; }
+    if (dateStr) { const f = _dataFreshness(dateStr, ptd, relax); cls = f.cls; text = f.text; }
     else { cls = "t1"; text = cfg.def; }
     sources.push({ name: cfg.name, cls, text, hint: cfg.hint });
   });
