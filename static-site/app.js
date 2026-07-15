@@ -3882,10 +3882,14 @@ async function renderGlobal(container = content) {
   const extrasSignals = r.extras_signals || {};
   const extrasStats = r.extras_stats || {};
   const extrasStrategy = r.extras_strategy || {};
+  // extras(黄金/原油/QVIX/国债等)也套 .indices-grid 3列网格(与指数区一致)
+  const extrasGrid = document.createElement("div");
+  extrasGrid.className = "indices-grid";
+  container.appendChild(extrasGrid);
   for (const [id, name] of Object.entries(extras)) {
     const data = r.extras[id] || [];
     if (data.length) {
-      const chart = valueChartWithSignals(name + latestSuffix(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id);
+      const chart = valueChartWithSignals(name + latestSuffix(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, extrasGrid);
       if (chart) addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
     }
   }
@@ -3906,7 +3910,7 @@ function _fmtComp(k, v) {
   if (k === "available_scores") return n + " 项"; // 恐贪等权 8 分项中当日有值数量
   return n.toFixed(1);
 }
-function appendComponentsBlock(data, tipText) {
+function appendComponentsBlock(data, tipText, container = content) {
   const last = data[data.length - 1];
   if (!last || !last.components) return;
   let comp;
@@ -3920,7 +3924,7 @@ function appendComponentsBlock(data, tipText) {
   const div = document.createElement("div");
   div.className = "comp-block";
   div.innerHTML = `<details><summary>组成因子${termTip(tipText || "情绪分由这些因子综合计算")}<span class="comp-date"> · ${fmtDate(last.date)}</span></summary><div class="comp-list">${chips}</div></details>`;
-  content.appendChild(div);
+  container.appendChild(div);
 }
 
 async function renderSentiment() {
@@ -3941,11 +3945,18 @@ async function renderSentiment() {
   // 冰点/过热热力图（一眼全局，放最前面）
   renderSentimentHeatmap(r, snap);
 
+  // 情绪图表区套 .indices-grid 3列网格(与A股/港股/全球同布局)，每张图+组成因子配对一个 grid cell
+  const cardGrid = document.createElement("div");
+  cardGrid.className = "indices-grid";
+  content.appendChild(cardGrid);
+
   // 恐贪指数（市场温度计）
   if (r.fear_greed && r.fear_greed.length) {
     const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) + latestSuffix(data) : ""}`;
+    const cell = document.createElement("div");
+    cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, [], {
       visualMap: {
         show: false,
@@ -3958,18 +3969,20 @@ async function renderSentiment() {
         ],
         dimension: 1,
       },
-    });
+    }, undefined, undefined, undefined, cell);
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
-    appendComponentsBlock(data);
+    appendComponentsBlock(data, undefined, cell);
   }
 
   if (r.a_sentiment.length) {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
-    const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment);
+    const cell = document.createElement("div");
+    cardGrid.appendChild(cell);
+    const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment, undefined, cell);
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
-    appendComponentsBlock(data);
+    appendComponentsBlock(data, undefined, cell);
   }
   // 细分指数：散户关注度排序（小盘/成长优先）
   const idxNames = {
@@ -3985,6 +3998,8 @@ async function renderSentiment() {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
       const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
+      const cell = document.createElement("div");
+      cardGrid.appendChild(cell);
       const chart = valueChartWithSignals(title, data,
         sig[key] || [], {
           visualMap: {
@@ -3992,24 +4007,26 @@ async function renderSentiment() {
             pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
             dimension: 1,
           },
-        }, stats[key], strat[key]);
+        }, stats[key], strat[key], undefined, cell);
       addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
-      appendComponentsBlock(data);
+      appendComponentsBlock(data, undefined, cell);
     }
   }
   if (r.cross_market.length) {
     const data = r.cross_market.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
+    const cell = document.createElement("div");
+    cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, sig.cross_market || [], {
       visualMap: {
         show: false,
         pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
         dimension: 1,
       },
-    }, stats.cross_market, strat.cross_market);
+    }, stats.cross_market, strat.cross_market, undefined, cell);
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
-    appendComponentsBlock(data);
+    appendComponentsBlock(data, undefined, cell);
   }
   // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
   if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures);
