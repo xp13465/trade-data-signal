@@ -258,13 +258,14 @@ def _load_sw_names() -> dict[str, str]:
 
 
 def fetch_industry_realtime() -> list[dict]:
-    """31 申万一级行业实时涨跌幅 + 净流入 + 领涨股。
+    """31 申万一级行业实时涨跌幅 + 净流入 + 成交额 + 领涨股。
 
     调同花顺 stock_board_industry_summary_ths() 拿 90 二级行业，通过 THS_TO_SW 聚合：
     - pct_change：子行业涨跌幅按成交额加权平均
     - net_inflow：子行业净流入求和（亿元）
+    - amount：子行业成交额求和，元->亿元（与申万 DB amount 单位一致）
     - lead_stock：取该申万行业下涨跌幅最高子行业的领涨股
-    返回 31 条 {sw_code, sw_name, pct_change, net_inflow, lead_stock}。
+    返回 31 条 {sw_code, sw_name, pct_change, net_inflow, amount, lead_stock}。
     """
     import akshare as ak
 
@@ -310,6 +311,7 @@ def fetch_industry_realtime() -> list[dict]:
         tot = sum(s[2] for s in subs) or 1.0
         wpct = sum(s[1] * s[2] for s in subs) / tot
         net = sum(s[3] for s in subs)
+        amt = sum(s[2] for s in subs)  # 子行业成交额求和（元）
         # 领涨股：取涨幅最高子行业
         best = max(subs, key=lambda s: s[1]) if subs else None
         lead_stock = best[4] if best else ""
@@ -318,6 +320,7 @@ def fetch_industry_realtime() -> list[dict]:
             "sw_name": sw_names.get(sw_id, sw_id),
             "pct_change": round(wpct, 2),
             "net_inflow": round(net, 2),
+            "amount": round(amt / 1e8, 2),  # 元->亿元，与申万 DB amount 单位一致
             "lead_stock": lead_stock,
         })
     # 按 pct_change 降序
@@ -463,9 +466,12 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
     解决收盘分析历史弹窗领涨空的问题：market_summary 的 top_industries 查
     index_daily WHERE index_id LIKE 'sw_%' AND pct_change IS NOT NULL，
     盘中快照此前只反哺 9 指数没反哺行业，致当日申万行业行不存在 -> 领涨空。
-    同花顺行业 summary 只给涨跌幅无 OHLC，open/high/low/close/amount 留 NULL；
-    ON CONFLICT 只更新 pct_change + net_inflow，不覆盖已有 OHLC（防申万晚间 OHLC 被快照 NULL 覆盖）。
-    net_inflow 来自同花顺实时净流入求和（亿元），反哺使收盘小结/历史弹窗领涨领跌带💰。
+    同花顺行业 summary 只给涨跌幅无 OHLC，盘中用 close 计算法补 close：
+      close = prev_close * (1 + pct_change/100)   (prev_close=DB 该 index_id 最后有 close 的行)
+    无 prev_close 时（首次/新行业）close 留 NULL（不硬算），保持原行为。
+    amount 来自 fetch_industry_realtime 聚合的子行业成交额（亿元）。
+    ON CONFLICT 更新 pct_change + net_inflow + close + amount（盘中实时刷新）；
+    open/high/low 仍留 NULL（无盘中 OHLC 源），申万晚间 OHLC pipeline 会覆盖。
     非交易日不写；pct_change 为 None 跳过该条。
     返回写入的行业条数。
     """
@@ -478,6 +484,7 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
 
     conn = get_conn()
     n = 0
+    calc_n = 0  # close 计算法命中数
     for ind in industries:
         sw_code = ind.get("sw_code", "")
         if not sw_code:
@@ -486,17 +493,30 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
         if pct is None:
             continue
         net = ind.get("net_inflow")
+        amt = ind.get("amount")
+        # close 计算法：查 DB 该 index_id 最后有 close 的行作 prev_close
+        # 排除当日(date < today)：pct_change 是相对昨收的日涨幅，多次盘中快照
+        # 必须锚定同一 prev_close（昨收），否则 close 会累乘偏移
+        prev = conn.execute(
+            "SELECT close FROM index_daily WHERE index_id=? AND close IS NOT NULL "
+            "AND date < ? ORDER BY date DESC LIMIT 1", (sw_code, today)
+        ).fetchone()
+        close_val = None
+        if prev and prev["close"] is not None:
+            close_val = round(float(prev["close"]) * (1 + float(pct) / 100.0), 4)
+            calc_n += 1
         conn.execute(
             "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount, net_inflow) "
-            "VALUES (?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?) "
+            "VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?) "
             "ON CONFLICT(date, index_id) DO UPDATE SET "
-            "pct_change=excluded.pct_change, net_inflow=excluded.net_inflow",
-            (today, sw_code, pct, net),
+            "pct_change=excluded.pct_change, net_inflow=excluded.net_inflow, "
+            "close=excluded.close, amount=excluded.amount",
+            (today, sw_code, close_val, pct, amt, net),
         )
         n += 1
     conn.commit()
     conn.close()
-    print(f"  [intraday] index_daily 行业反哺完成：{n} 条（含 net_inflow）", flush=True)
+    print(f"  [intraday] index_daily 行业反哺完成：{n} 条（close 计算法 {calc_n} 条，含 net_inflow/amount）", flush=True)
     return n
 
 

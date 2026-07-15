@@ -175,14 +175,15 @@ def _fetch_sw_ohlc_ths(sw_id, start_date, end_date, verbose=False):
     if not subs:
         return [], f"no THS sub mapped to {sw_id}"
 
-    # 申万末日 + close 作锚
+    # 申万末日 + close 作锚（加 close IS NOT NULL：盘中快照先插 close=NULL 行时
+    # 不再误锚定到该 NULL 行导致 bail out，锚定到最后有真实 close 的日期）
     conn = get_conn()
     r = conn.execute(
         "SELECT date, close FROM index_daily WHERE index_id=? "
-        "ORDER BY date DESC LIMIT 1", (sw_id,)
+        "AND close IS NOT NULL ORDER BY date DESC LIMIT 1", (sw_id,)
     ).fetchone()
     conn.close()
-    if not r or r["close"] is None:
+    if not r:
         return [], f"no SW history to anchor {sw_id}"
     junction = r["date"]
     sw_close_junction = float(r["close"])
