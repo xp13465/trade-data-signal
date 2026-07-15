@@ -231,7 +231,7 @@ main { padding: 16px 24px; }
   border-radius: 10px;
   white-space: nowrap;
   z-index: 5;
-  pointer-events: none;
+  pointer-events: auto;
   background: color-mix(in srgb, var(--bg-card) 82%, transparent);
   border: 1px solid var(--border);
   max-width: 60%;
