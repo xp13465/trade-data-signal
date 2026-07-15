@@ -619,7 +619,11 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const hint = statsHint(stats, strategy, indexId);
   // 标题追加最新日期+收盘价（OHLC 图，取最后一条 close）
   const _last = ohlc && ohlc.length ? ohlc[ohlc.length - 1] : null;
-  const _suffix = _last && _last.close != null ? `<span class="chart-latest"> · ${fmtDate(_last.date)} ${_last.close.toFixed(2)}</span>` : "";
+  const _pct = _last && _last.pct_change != null ? _last.pct_change : null;
+  const _up = (_pct || 0) >= 0;
+  const _closeSuffix = _last && _last.close != null ? `<span class="chart-latest"> · ${fmtDate(_last.date)} ${_last.close.toFixed(2)}</span>` : "";
+  const _pctSuffix = (_pct != null) ? ` <span class="pct-badge" style="color:${_up ? "#e6492e" : "#2e8b57"}">${_up ? "+" : ""}${_pct.toFixed(2)}%</span>` : "";
+  const _suffix = _closeSuffix + _pctSuffix;
   const c = mkCard(title + _suffix, 360, hint, container, chartArr);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
