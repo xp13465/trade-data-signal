@@ -1357,9 +1357,9 @@ function getCardTimeBadge(dataDate, snap) {
     const mm = shIdx.datetime.slice(10, 12);
     // 午休：后端 label 含"午休"时显午休态(黄)，区分盘中交易时段(绿)
     if (snap.label && /午休/.test(snap.label)) {
-      return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复实时">⏰ 午休·${hh}:${mm}</span>`;
+      return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复T+0实时">⏰ 午休·${hh}:${mm}</span>`;
     }
-    return `<span class="card-time-badge intraday" data-tip="盘中实时刷新,约30秒一次">⏰ 盘中·${hh}:${mm}</span>`;
+    return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${hh}:${mm}</span>`;
   }
   // pending 分支：盘中但卡片数据非当日。用后端预算的 prev_trading_day 三档分级，
   // 让用户一眼区分"正常T+1(数据源盘后公布，公开平台也才到这个日期)" vs "异常滞后(我们没采到)"。
@@ -1409,6 +1409,7 @@ const T1_COLLECT_DEADLINE = {
   us_dji_date:   "16:35",   // 美股道指: 美股收盘=北京次日04:00，backfill-evening 16:35采集；<16:35 放宽，>=16:35 严格
   lhb_count:     "next_day",// 龙虎榜: 东财次日18:00才发当日，今天采不到 -> 盘中恒放宽基准-1
   futures_date:  "next_day",// 期货机构持仓: CFFEX次日20:00才发当日，今天采不到 -> 盘中恒放宽基准-1
+  csi_div_date:  "next_day",// 中证红利: 中证指数公司盘后次日发布,今天采不到ptd当日
 };
 // 是否对该 T+1 源放宽盘中 stale 判定(基准 ptd -> ptd-1 交易日)。intraday=false 一律不放宽。
 function _t1Relax(key, intraday) {
@@ -1511,7 +1512,7 @@ function _buildHealthSources(r, snap) {
     { name: "期货持仓", mid: null, dateKey: "futures_date", hint: "CFFEX期货机构持仓T+1,次日盘后发布,次日20:00后更新当日", def: "📅 次日20点后" },
     { name: "ETF国家队", mid: null, dateKey: "etf_date", hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日", def: "📅 次日22点+" },
     { name: "QVIX", mid: "a_qvix_300", hint: "QVIX期权波动率指数T+1,源端盘后次日发布", def: "📅 次日盘后" },
-    { name: "红利指数", iid: "csi_div", hint: "红利指数T+1,中证指数公司盘后次日发布", def: "📅 次日盘后" },
+    { name: "红利指数", iid: "csi_div", dateKey: "csi_div_date", hint: "红利指数T+1,中证指数公司盘后次日发布", def: "📅 次日盘后" },
     { name: "美股", iid: "us_dji", dateKey: "us_dji_date", hint: "美股指数时区滞后,美东21:30开盘(北京),次日晨才出当日收盘,当前显示T-1属正常", def: "📅 次日晨(T-1)" },
   ];
   EXTRA.forEach((cfg) => {
@@ -4595,12 +4596,19 @@ function renderIndustryGrid(indices, containerOverride) {
     const sign = up ? "+" : "";
     const hint = statsHint(idx.stats, idx.strategy, id);
     const etfTag = _renderEtfTag(idx.etfs);
-    // 行业卡片标题加最新收盘值（与全站图表 latestSuffix 一致：· MM-DD 收盘价）
-    const closeSuffix = (last && last.close != null) ? `<span class="chart-latest"> · ${fmtDate(last.date)} ${last.close.toFixed(2)}</span>` : "";
+    // 行业卡片标题加最新收盘值（与大盘信号 latestSuffix 一致：· MM-DD 收盘价 +涨跌幅）
+    // closeSuffix 兜底：last.close==null(T+1源当日未发布)时向前找最后 close!=null 的点显收盘价
+    let _csDate = last.date, _csClose = last.close;
+    if (_csClose == null) {
+      for (let k = ohlc.length - 1; k >= 0; k--) {
+        if (ohlc[k].close != null) { _csDate = ohlc[k].date; _csClose = ohlc[k].close; break; }
+      }
+    }
+    const closeSuffix = (_csClose != null) ? `<span class="chart-latest"> · ${fmtDate(_csDate)} ${_csClose.toFixed(2)}</span>` : "";
+    const pctSuffix = (pct != null) ? ` <span class="pct-badge" style="color:${color}">${sign}${pct.toFixed(2)}%</span>` : "";
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${idx.name}${etfTag}${closeSuffix}</span>
-        <span class="pct-badge" style="color:${color}">${pct == null ? "-" : sign + pct.toFixed(2) + "%"}</span>
+        <span class="spark-name">${idx.name}${etfTag}${closeSuffix}${pctSuffix}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
@@ -4617,6 +4625,12 @@ function renderIndustryGrid(indices, containerOverride) {
     }, { rootMargin: "300px" });
     _io.observe(cell);
     grid.appendChild(cell);
+    // 行业角标：dataDate 用 idx.data 末条 date(=07-14 T+1源已到日期)，
+    // 非 last_valid_close(=07-13)，避免盘中误判滞后(预期显 📅 T+1·07-14 灰正常)
+    addCardTimeBadge(cell, last.date, state.intradaySnapshot);
+    // 行业 t1 正常档专属 tip（补充申万/baostock 源说明）；滞后/异常档保留通用 tip
+    const _indBdg = cell.querySelector(".card-time-badge.t1");
+    if (_indBdg) _indBdg.setAttribute("data-tip", "行业指数T+1(申万/baostock收盘后次日补全),盘中显示昨日属正常,次日采集后更新当日");
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
     if (exist) exist.dispose();

@@ -394,6 +394,10 @@ def overview():
             _ud = _glob.get("indices", {}).get("us_dji", {}).get("data", [])
             if _ud:
                 extra_dates["us_dji_date"] = _ud[-1]["date"]
+        # 中证红利: 中证指数公司盘后次日发布，从 DB 取最新日期(不在 SPARKLINE_INDEX_IDS 中)
+        _cd = conn.execute("SELECT date FROM index_daily WHERE index_id='csi_div' ORDER BY date DESC LIMIT 1").fetchall()
+        if _cd:
+            extra_dates["csi_div_date"] = _cd[0]["date"]
     except Exception:  # noqa: BLE001
         pass
 
@@ -420,6 +424,7 @@ def overview():
         "futures_date": extra_dates.get("futures_date", ""),
         "etf_date": extra_dates.get("etf_date", ""),
         "us_dji_date": extra_dates.get("us_dji_date", ""),
+        "csi_div_date": extra_dates.get("csi_div_date", ""),
     }
 
 
