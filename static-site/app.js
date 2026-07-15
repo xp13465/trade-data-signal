@@ -3845,14 +3845,21 @@ async function renderGlobal(container = content) {
   const snap = state.intradaySnapshot;
   // M2：r.indices 已有 || {} 兜底；为空时显示空数据提示而非静默空白
   const idxEntries = Object.entries(r.indices || {});
+  if (!idxEntries.length) {
+    const note = document.createElement("div");
+    note.className = "empty-note";
+    note.textContent = "暂无全球指数数据";
+    container.appendChild(note);
+  }
+  // 全球指数 + extras(黄金/原油/QVIX/国债等)统一套一个 .indices-grid 3列网格流式排开，
+  // 纳斯达克/黄金等同处一个 grid 流，PC 宽屏按 3 列顺序排列(避免指数区与 extras 区分两个 grid 致不在一行)
+  const cardGrid = document.createElement("div");
+  cardGrid.className = "indices-grid";
+  container.appendChild(cardGrid);
   if (idxEntries.length) {
     const sigResults = await Promise.all(
       idxEntries.map(([id]) => fetchJSON(`./data/index/${id}-all.json`).catch(() => null))
     );
-    // 全球指数折线区套 .indices-grid 3列网格(与A股/港股同布局)，PC 宽屏多图一行排开
-    const cardGrid = document.createElement("div");
-    cardGrid.className = "indices-grid";
-    container.appendChild(cardGrid);
     idxEntries.forEach(([id, idx], i) => {
       const sig = sigResults[i] || { signals: [], stats: {} };
       const sigs = filterSignalsByRange(sig.signals, idx.data);
@@ -3861,11 +3868,6 @@ async function renderGlobal(container = content) {
         if (chart) addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap);
       }
     });
-  } else {
-    const note = document.createElement("div");
-    note.className = "empty-note";
-    note.textContent = "暂无全球指数数据";
-    container.appendChild(note);
   }
   const extras = {
     gold: "黄金（元/克）",
@@ -3882,14 +3884,10 @@ async function renderGlobal(container = content) {
   const extrasSignals = r.extras_signals || {};
   const extrasStats = r.extras_stats || {};
   const extrasStrategy = r.extras_strategy || {};
-  // extras(黄金/原油/QVIX/国债等)也套 .indices-grid 3列网格(与指数区一致)
-  const extrasGrid = document.createElement("div");
-  extrasGrid.className = "indices-grid";
-  container.appendChild(extrasGrid);
   for (const [id, name] of Object.entries(extras)) {
     const data = r.extras[id] || [];
     if (data.length) {
-      const chart = valueChartWithSignals(name + latestSuffix(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, extrasGrid);
+      const chart = valueChartWithSignals(name + latestSuffix(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, cardGrid);
       if (chart) addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
     }
   }
