@@ -296,7 +296,7 @@ const _INDEX_NAME_MAP = {
   // 全球指标
   cn10y: '中国10年国债', us10y: '美国10年国债', wti_oil: 'WTI原油',
   comex_silver: 'COMEX白银', gold: '伦敦金', oil: '原油', usdcnh: '美元/离岸人民币',
-  a_qvix_300: '300波动率', a_qvix_1000: '1000波动率', cn_us_spread: '中美利差',
+  a_qvix_300: '中国波指300', a_qvix_1000: '中国波指1000', cn_us_spread: '中美利差',
   // 综合情绪
   cross_market: '跨市场综合分', a_sentiment: 'A股综合情绪分',
   sentiment_sz50: '上证50情绪分', sentiment_hs300: '沪深300情绪分',
@@ -1325,6 +1325,22 @@ function addCardTimeBadge(cardEl, dataDate, snap) {
     cardEl.insertAdjacentHTML("beforeend", html);
     cardEl.classList.add("has-time-badge");
   }
+}
+
+// 数据停更标记：指标末日距今>STALE_DAYS 天，判为源端长期停更（非我们采集故障），灰色提示区别于滞后(黄)/异常(红)
+// 适用源端停更/计算公式损坏等无法修复的长期停滞（如 QVIX(1000) 源端 optbbs 公式损坏，数据停在历史日期）
+const STALE_DAYS = 30;
+function dataStaleDays(dataDate) {
+  if (!dataDate || dataDate.length !== 8) return Infinity;
+  const d = new Date(+dataDate.slice(0, 4), +dataDate.slice(4, 6) - 1, +dataDate.slice(6, 8));
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+function addStaleMark(cardEl, dataDate) {
+  if (!cardEl) return;
+  const mmdd = dataDate.length === 8 ? `${dataDate.slice(4, 6)}-${dataDate.slice(6, 8)}` : dataDate;
+  cardEl.insertAdjacentHTML("beforeend",
+    `<span class="card-time-badge stale-mark" data-tip="源端长期停更（末日 ${mmdd}，距今>30天），非采集故障">⏸ 停更·${mmdd}</span>`);
+  cardEl.classList.add("has-time-badge");
 }
 
 // === 顶部全局数据时效健康横幅 ===
@@ -3801,8 +3817,8 @@ async function renderGlobal(container = content) {
     wti_oil: "WTI原油（美元/桶）",
     comex_silver: "COMEX白银（美元/盎司）",
     usdcnh: "离岸人民币",
-    a_qvix_300: "QVIX(300ETF)",
-    a_qvix_1000: "QVIX(1000ETF)",
+    a_qvix_300: "中国波指300 QVIX(300ETF)",
+    a_qvix_1000: "中国波指1000 QVIX(1000ETF)",
     cn10y: "中国10年国债收益率（%）",
     us10y: "美国10年国债收益率（%）",
     cn_us_spread: "中美利差(10Y)（%）",
@@ -3814,7 +3830,11 @@ async function renderGlobal(container = content) {
     const data = r.extras[id] || [];
     if (data.length) {
       const chart = valueChartWithSignals(name + latestSuffix(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, cardGrid);
-      if (chart) addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap);
+      if (chart) {
+        const lastDate = data.length ? data[data.length - 1].date : "";
+        if (dataStaleDays(lastDate) > STALE_DAYS) addStaleMark(chart.getDom().parentElement, lastDate);
+        else addCardTimeBadge(chart.getDom().parentElement, lastDate, snap);
+      }
     }
   }
 }

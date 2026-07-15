@@ -484,7 +484,7 @@ def backfill_series_metrics(date):
                     has_today_new = True
                     print(f"  [series] {mid:25s} ok ({len(rows)} rows, has {date})")
                 else:
-                    print(f"  [series] {mid:25s} ok ({len(rows)} rows, latest={rows[0][0]})")
+                    print(f"  [series] {mid:25s} ok ({len(rows)} rows, latest={rows[-1][0]})")
             else:
                 print(f"  [series] {mid:25s} skip ({msg})")
         except Exception as e:  # noqa: BLE001
