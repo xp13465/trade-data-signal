@@ -98,6 +98,10 @@ body {
   background: var(--bg-page);
   color: var(--text-1);
 }
+/* PC(>768px)：看板最小宽度 900px，窄于该宽度的视口横向滚动；移动端(≤768px)沿用自适应布局不受影响 */
+@media (min-width: 769px) {
+  body { min-width: 900px; }
+}
 header {
   display: flex;
   justify-content: space-between;
@@ -677,6 +681,11 @@ main { padding: 16px 24px; }
   gap: 12px;
   margin-bottom: 12px;
   align-items: stretch;
+}
+/* PC(>768px)：加宽指数/指标折线图列宽，减少列数使每图更宽(窄的根因=auto-fill 在宽屏生成过多 320/280px 窄列)；移动端维持原列宽自适应 */
+@media (min-width: 769px) {
+  .astock-top-grid { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+  .indices-grid { grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); }
 }
 .empty-note { color: var(--text-3); padding: 14px 0; font-size: 13px; }
 
@@ -1450,6 +1459,7 @@ main { padding: 16px 24px; }
   font-size: 12px;
   color: var(--text-3);
   padding-left: 0;
+  margin-left: auto;   /* 始终靠右(含换行时)，使"更多"按钮落在该区域右上角 */
 }
 .summary-snap-tag { flex-shrink: 0; font-size: 12px; }
 .summary-time-label { font-size: 11px; color: var(--text-4); flex-shrink: 0; }

@@ -800,8 +800,8 @@ function setupOneRowToggle(grid, items, moreTextFn) {
       }
     });
     const hidden = Math.max(0, items.length - showCount);
-    moreBtn.style.display = hidden > 0 ? "block" : "none";
-    moreBtn.textContent = moreTextFn(hidden);
+    moreBtn.style.display = (hidden > 0 || expanded) ? "block" : "none";
+    moreBtn.textContent = expanded ? "收起 ▲" : moreTextFn(hidden);
     if (shownNew) resizeSoon();
   }
   moreBtn.onclick = () => { expanded = !expanded; apply(); };
