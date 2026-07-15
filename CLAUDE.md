@@ -55,5 +55,12 @@
 - **教训(派 agent 同步分支时注意)**:DB 仍 tracked 时,checkout 切到另一分支会触发 git 用该分支版本覆盖本地 DB。正确同步 main 的方式 = 避免本地 checkout,用 `git fetch origin && git push origin feat/xxx:main` 或 reset,而非 `git checkout main && merge --ff-only`(中间态 checkout 仍 track DB 的分支会复现事故)
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
+## 11. 子agent卡死/429处理(主动轮询+唤醒+重派读遗留)
+- 主动轮询:派agent后用CronCreate设recurring每3分钟查jsonl mtime,不干等通知(通知会丢;agent卡死时通知永远不来,因agent没正常退出)
+- 派agent的prompt要求写进度文件:每步echo到 `/tmp/agent-progress-<名>.md`,主控Bash查(轻量不overflow),不依赖jsonl(大)/通知(会丢)/返回(可能429空)任一渠道
+- **卡死**(jsonl mtime>480秒没动):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(3分钟)仍卡死=进程已死,重派新会话
+- **429配额失败**:原会话已终止无法SendMessage继续,等配额恢复(如reset日)重派新会话
+- 重派新会话:让新agent读原agent遗留接着做(`/tmp/agent-progress-*.md`进度文件 + 工作区半成品,如数据时效a2ce接a06704b半成品),避免从头返工
+
 ## 验收铁律
 逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报"完成"不等于真完成。
