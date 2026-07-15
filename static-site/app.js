@@ -1342,12 +1342,39 @@ function fetchIntradaySnapshot() {
 //   · dataDate < prev_trading_day 且日历日差<=15天 -> "⚠ 滞后·MM-DD"(黄，公开平台有更新我们没采到)
 //   · 日历日差>15天(覆盖国庆7天+周末不误判) -> "🚨 异常·MM-DD"(红，严重滞后)
 //   · prev_trading_day 缺失 -> 兜底"T+1"(不误报)
-// - 收盘后/无快照 -> "📍 收盘·MM-DD"(主题色)
+// - 收盘后/无快照 -> 也判滞后(不再无脑返回📍收盘)，与盘中同口径：
+//   · 源端长期停更(距今>30天) -> "⏸ 停更·MM-DD"(灰，源端死非采集故障，与 addStaleMark 同口径)
+//   · dataDate >= prev_trading_day -> "📍 收盘·MM-DD"(主题色，今日已归档正常)
+//   · dataDate < prev_trading_day 且日历日差<=15天 -> "⚠ 滞后·MM-DD"(黄，应T+1更新但未采到)
+//   · 日历日差>15天 -> "🚨 异常·MM-DD"(红，严重滞后)
 function getCardTimeBadge(dataDate, snap) {
   if (!dataDate) return "";
   const mmdd = dataDate.length === 8 ? `${dataDate.slice(4, 6)}-${dataDate.slice(6, 8)}` : dataDate;
+  // 收盘后/无快照：也判滞后(不再无脑返回📍收盘)，与盘中同口径(15天阈值)，基准=ptd(不放宽)
   if (!snap || snap.is_closed !== false) {
-    return `<span class="card-time-badge closed" data-tip="收盘后定格,盘中实时源关闭,显示当日收盘数据">📍 收盘·${mmdd}</span>`;
+    const ptd = (snap && snap.prev_trading_day) || "";
+    // 源端长期停更(距今>30天)：优先⏸停更，不走⚠滞后（与 addStaleMark 同口径）
+    if (dataStaleDays(dataDate) > STALE_DAYS) {
+      return `<span class="card-time-badge stale-mark" data-tip="源端长期停更（末日 ${mmdd}，距今>30天），非采集故障">⏸ 停更·${mmdd}</span>`;
+    }
+    // 正常归档：dataDate >= ptd（今日已归档/当日数据），保留📍收盘语义
+    if (!ptd || dataDate >= ptd) {
+      return `<span class="card-time-badge closed" data-tip="收盘后定格,盘中实时源关闭,显示当日收盘数据">📍 收盘·${mmdd}</span>`;
+    }
+    // 收盘后滞后：dataDate < ptd，复用盘中同口径(15天阈值)
+    let severe = false, lagDays = 0;
+    if (dataDate.length === 8 && ptd.length === 8) {
+      const d1 = new Date(+dataDate.slice(0, 4), +dataDate.slice(4, 6) - 1, +dataDate.slice(6, 8));
+      const d2 = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
+      lagDays = Math.floor((d2 - d1) / 86400000);
+      severe = lagDays > 15;
+    }
+    const cls = severe ? "t1-severe" : "t1-stale";
+    const txt = severe ? "🚨 异常" : "⚠ 滞后";
+    const ttl = severe
+      ? `严重滞后(>15天)，该数据应T+1更新，末日 ${mmdd}，已滞后约${lagDays}天，可能采集异常，请反馈`
+      : `该数据应T+1更新，末日 ${mmdd}，已滞后约${lagDays}天，公开平台已更新但我们未采到，请反馈`;
+    return `<span class="card-time-badge ${cls}" data-tip="${ttl}">${txt}·${mmdd}</span>`;
   }
   const shIdx = snap.indices && snap.indices.find((i) => i.code === "sh000001");
   const snapDate = shIdx ? (shIdx.datetime || "").slice(0, 8) : "";
@@ -1365,17 +1392,18 @@ function getCardTimeBadge(dataDate, snap) {
   const ptd = snap.prev_trading_day || "";
   if (ptd && dataDate < ptd) {
     // 滞后：日历日差>15天判为严重(覆盖国庆7天长假+周末，不误判节假日)
-    let severe = false;
+    let severe = false, lagDays = 0;
     if (dataDate.length === 8 && ptd.length === 8) {
       const d1 = new Date(+dataDate.slice(0, 4), +dataDate.slice(4, 6) - 1, +dataDate.slice(6, 8));
       const d2 = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
-      severe = (d2 - d1) / 86400000 > 15;
+      lagDays = Math.floor((d2 - d1) / 86400000);
+      severe = lagDays > 15;
     }
     const cls = severe ? "t1-severe" : "t1-stale";
     const txt = severe ? "🚨 异常" : "⚠ 滞后";
     const ttl = severe
-      ? "严重滞后(>15天),可能采集异常,请反馈"
-      : "该指标公开平台已更新但我们未采到,属异常滞后,请反馈";
+      ? `严重滞后(>15天)，该数据应T+1更新，末日 ${mmdd}，已滞后约${lagDays}天，可能采集异常，请反馈`
+      : `该数据应T+1更新，末日 ${mmdd}，已滞后约${lagDays}天，公开平台已更新但我们未采到，请反馈`;
     return `<span class="card-time-badge ${cls}" data-tip="${ttl}">${txt}·${mmdd}</span>`;
   }
   // 正常T+1：dataDate==prev_trading_day（数据源盘后T+1公布，公开平台也才到这个日期）
@@ -5623,8 +5651,8 @@ function updateRulesContentHtml() {
       '<ul class="ur-list">' +
         '<li>📅 <b>T+1·MM-DD（灰）</b>：正常。数据源盘后T+1公布，公开平台（行情软件）也才到这个日期，次日才更新</li>' +
         '<li>⏰ <b>盘中·HH:MM（绿）/ 午休（黄）</b>：实时。A股/港股指数盘中动态拉取，约3分钟刷新</li>' +
-        '<li>📍 <b>收盘·MM-DD（主题色）</b>：收盘后切换为收盘快照归档</li>' +
-        '<li>⚠ <b>滞后·MM-DD（黄）</b>：异常。公开平台已有更新但我们没采到，采集可能中断，正在修复</li>' +
+        '<li>📍 <b>收盘·MM-DD（主题色）</b>：收盘后归档，数据正常时显示；若滞后则切换为⚠/🚨</li>' +
+        '<li>⚠ <b>滞后·MM-DD（黄）</b>：异常。该数据应T+1更新但已滞后（hover 可见天数），公开平台已有更新但我们没采到</li>' +
         '<li>🚨 <b>异常·MM-DD（红）</b>：严重滞后（>15天），请反馈</li>' +
         '<li>顶部"📊 数据时效"横幅汇总各数据源最新状态，可一眼区分正常T+1 vs 异常滞后</li>' +
       '</ul>' +
