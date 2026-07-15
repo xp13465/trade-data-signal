@@ -3523,6 +3523,12 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     `<div class="nt-kpi-item"><div class="nt-kpi-label">区间信号数</div><div class="nt-kpi-val">${sigCount}</div></div>`;
   container.appendChild(kpi);
 
+  // 5图+信号明细表：动态1行折叠(700px最小宽度，视口自适应，resize重算)
+  const grid = document.createElement("div");
+  grid.className = "astock-top-grid";
+  container.appendChild(grid);
+  const topCards = [];
+
   // ── 图1: 份额变化趋势（亿份）+ 信号标注 ──
   // share_surge=红"进"（疑似大资金进场）/ share_outflow=绿"出"（疑似大资金离场）
   const shareData = daily.map((d) => [d.date, d.fund_share_yi]);
@@ -3535,7 +3541,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
       shareMarks.push({ coord: [d.date, d.fund_share_yi], value: "出", itemStyle: { color: "#2e8b57" } });
   });
   const shareTitle = `${cur.code} ${cur.name} 份额趋势（亿份）${latest.fund_share_yi != null ? `<span class="chart-latest"> · ${fmtDate(latest.date)} ${latest.fund_share_yi.toFixed(1)}亿份</span>` : ""}`;
-  const c1 = mkCard(shareTitle, 320, null, container);
+  const c1 = mkCard(shareTitle, 320, null, grid);
   c1.setOption(withTheme({
     tooltip: { trigger: "axis" },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
@@ -3548,6 +3554,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
       markPoint: { symbol: "pin", symbolSize: 36, label: { fontSize: 11, color: "#fff" }, data: shareMarks },
     }],
   }));
+  topCards.push(c1.getDom().parentElement);
 
   // ── 图2: 收盘价(元) + 成交额(亿元) 双轴，volume_surge 标注 ──
   // volume_surge=橙"量"（成交额/5日均量>2倍，独立放量信号）
@@ -3560,7 +3567,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
       volMarks.push({ coord: [d.date, d.close], value: "量", itemStyle: { color: "#ff9800" } });
   });
   const priceTitle = `${cur.code} ${cur.name} 收盘价 / 成交额`;
-  const c2 = mkCard(priceTitle, 320, null, container);
+  const c2 = mkCard(priceTitle, 320, null, grid);
   c2.setOption(withTheme({
     tooltip: { trigger: "axis" },
     legend: { top: 0, data: ["收盘价", "成交额"] },
@@ -3577,6 +3584,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
       { name: "成交额", type: "bar", yAxisIndex: 1, data: amtData, itemStyle: { opacity: 0.4 } },
     ],
   }));
+  topCards.push(c2.getDom().parentElement);
 
   // ── 图3: 季度持有人结构变化（机构/个人占比%）──
   if (curQ && curQ.history && curQ.history.length) {
@@ -3586,7 +3594,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     const instData = hist.map((h) => [h.report_date, h.inst_hold_pct]);
     const retailData = hist.filter((h) => h.retail_hold_pct != null).map((h) => [h.report_date, h.retail_hold_pct]);
     const qTitle = `${cur.code} ${cur.name} 持有人结构变化（%）`;
-    const c3 = mkCard(qTitle, 300, null, container);
+    const c3 = mkCard(qTitle, 300, null, grid);
     c3.setOption(withTheme({
       tooltip: { trigger: "axis" },
       legend: { top: 0, data: ["机构占比", "个人占比"] },
@@ -3599,6 +3607,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
         { name: "个人占比", type: "line", smooth: true, symbol: "circle", symbolSize: 5, data: retailData, lineStyle: { width: 1.5 } },
       ],
     }));
+    topCards.push(c3.getDom().parentElement);
   }
 
   // ── 信号趋势：按月信号数堆叠柱状 + 强度散点（散户看大资金活跃度月度变化）──
@@ -3617,7 +3626,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     const monthLabels = months.map((m) => m.slice(0, 4) + "-" + m.slice(4));
     const sigTrendTitle = `${cur.code} ${cur.name} 信号趋势（按月汇总）` +
       termTip("每月大资金进场(红)/离场(绿)/放量(橙)信号次数堆叠，柱子越高当月越活跃");
-    const c4 = mkCard(sigTrendTitle, 280, null, container);
+    const c4 = mkCard(sigTrendTitle, 280, null, grid);
     c4.setOption(withTheme({
       tooltip: { trigger: "axis" },
       legend: { top: 0, data: ["疑似进场", "疑似离场", "放量"] },
@@ -3630,6 +3639,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
         { name: "放量", type: "bar", stack: "sig", data: months.map((m) => monthMap[m].volume_surge), itemStyle: { color: "#ff9800" } },
       ],
     }));
+    topCards.push(c4.getDom().parentElement);
     // 信号强度散点：x=日期, y=z强度, 颜色按类型（z>=5极端/>=3显著/>=2轻度）
     const scatterByType = { share_surge: [], share_outflow: [], volume_surge: [] };
     allSigs.forEach((s) => {
@@ -3639,7 +3649,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     });
     const intTitle = `${cur.code} ${cur.name} 信号强度分布（z-score）` +
       termTip("每条信号的z强度散点，z>=5极端>=3显著>=2轻度，越高越异常");
-    const c5 = mkCard(intTitle, 260, null, container);
+    const c5 = mkCard(intTitle, 260, null, grid);
     c5.setOption(withTheme({
       tooltip: { trigger: "item", formatter: (p) => `${p.data[0]}<br/>z = ${p.data[1]}` },
       legend: { top: 0, data: ["疑似进场", "疑似离场", "放量"] },
@@ -3653,6 +3663,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
         { name: "放量", type: "scatter", data: scatterByType.volume_surge, symbolSize: 8, itemStyle: { color: "#ff9800" } },
       ],
     }));
+    topCards.push(c5.getDom().parentElement);
   }
 
   // ── 信号明细表（近60日，按日期倒序）──
@@ -3678,7 +3689,10 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     sigHtml += `<div class="placeholder-body">近60日无信号</div>`;
   }
   sigCard.innerHTML = sigHtml;
-  container.appendChild(sigCard);
+  grid.appendChild(sigCard);
+  topCards.push(sigCard);
+  // 动态1行折叠：1行容量按视口宽度自适应，超出进折叠，resize重算
+  setupOneRowToggle(grid, topCards, (n) => `更多（${n}）▼`);
 
   // ── 关键事件与口径说明（含2023汇金增持期历史验证）──
   const evt = document.createElement("div");
