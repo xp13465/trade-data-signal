@@ -4067,7 +4067,7 @@ async function renderSentiment() {
     appendComponentsBlock(data, undefined, cell);
   }
   // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
-  if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures);
+  if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures, snap);
 }
 
 // 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=红(冰点≤20)/绿(过热>80)/灰(中性)
@@ -4180,7 +4180,7 @@ function renderSentimentHeatmap(r, snap) {
 }
 
 // 期货机构持仓：净持仓比例折线图 + 方向准确率表格
-function renderFuturesSection(data) {
+function renderFuturesSection(data, snap) {
   if (!data || !data.positions || !data.positions.length) return;
 
   const roles = ["机构(前20)", "中信期货", "国泰君安"];
@@ -4279,6 +4279,11 @@ function renderFuturesSection(data) {
     content.appendChild(div);
   }
 
+  // 期货折线图区套 .indices-grid 3列网格(与情绪图表区一致)，4张图并排
+  const fgGrid = document.createElement("div");
+  fgGrid.className = "indices-grid";
+  content.appendChild(fgGrid);
+
   // 3. 四张折线图：net_position 手数趋势（默认展开，直接渲染到 content）
 
 // 图1：综合净多空手数 — 3 条线（机构/中信/国君的综合品种）
@@ -4293,8 +4298,9 @@ function renderFuturesSection(data) {
     const dates1 = [...new Set(chart1Series.flatMap((s) => s.data.map((d) => d.date)))].sort();
     const roleLabels = { "机构(前20)": "机构", "中信期货": "中信", "国泰君安": "国君" };
     const c1Series = chart1Series.map((s) => ({ ...s, label: roleLabels[s.name] || s.name }));
-    const c1 = mkCard("综合净多空手数" + termTip("机构多头仓位减空头仓位，正数=机构偏看多") + latestSuffixMulti(c1Series), 300);
+    const c1 = mkCard("综合净多空手数" + termTip("机构多头仓位减空头仓位，正数=机构偏看多") + latestSuffixMulti(c1Series), 300, null, fgGrid);
     appendPlainTip(c1, "净多空为正且持续增加，机构看多情绪增强");
+    addCardTimeBadge(c1.getDom().parentElement, dates1.length ? dates1[dates1.length - 1] : "", snap);
     c1.setOption(withTheme({
       tooltip: {
         trigger: "axis",
@@ -4355,7 +4361,8 @@ function renderFuturesSection(data) {
       const datesP = [...new Set(prodSeries.flatMap((s) => s.data.map((d) => d.date)))].sort();
       const prodLabels = { "沪深300期货": "300", "中证500期货": "500", "上证50期货": "50", "中证1000期货": "1000", "综合": "综合" };
       const cPSeries = prodSeries.map((s) => ({ ...s, label: prodLabels[s.name] || s.name }));
-      const cP = mkCard(`${role} 各品种净多空手数` + termTip("该角色在各期货品种上的净多空手数，正数看多负数看空") + latestSuffixMulti(cPSeries), 300);
+      const cP = mkCard(`${role} 各品种净多空手数` + termTip("该角色在各期货品种上的净多空手数，正数看多负数看空") + latestSuffixMulti(cPSeries), 300, null, fgGrid);
+      addCardTimeBadge(cP.getDom().parentElement, datesP.length ? datesP[datesP.length - 1] : "", snap);
       cP.setOption(withTheme({
         tooltip: {
           trigger: "axis",
