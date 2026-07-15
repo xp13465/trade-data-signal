@@ -2160,6 +2160,7 @@ async function renderOverview() {
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
+  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">全市场情绪·宽度·位置·信号 一屏总览</div>');
   // 顶部数据时效健康横幅：汇总各数据源最新状态，一眼区分正常T+1 vs 异常滞后（插在 summary 横幅下）
   content.insertAdjacentHTML("afterbegin", renderDataHealthBanner(r, snap));
 
@@ -2711,6 +2712,7 @@ async function renderOverview() {
 // 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
 async function renderMarket() {
   content.innerHTML = "";
+  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">A股/港股/全球指数 + 买卖点信号</div>');
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
   subtabBar.className = "subtab-bar";
@@ -3824,6 +3826,7 @@ async function renderSentiment() {
     fetchJSON("./data/futures.json").catch(() => null),
   ]);
   content.innerHTML = "";
+  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">0-100情绪温度计 ≤20冰点≥80过热</div>');
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
@@ -4745,6 +4748,7 @@ async function renderIndustry() {
     _industryCache = { range: state.range, r };
   }
   content.innerHTML = "";
+  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">轮动判断主线 + 行业/概念买卖点</div>');
   const snap = state.intradaySnapshot;
 
   // 板块轮动速度卡片（最先展示，判断行情性质）
@@ -5006,7 +5010,7 @@ function closeSummaryHistoryModal() {
 // === H5 移动端适配（方案B：底部导航 + 顶部精简条 + 1/2列切换）===
 // matchMedia 驱动 body.h5，@media(max-width:768px) 自动切换布局，PC(>768) 零影响。
 const SUMMARY_URL = "./data/summary.json";
-const _H5_TAB_NAMES = { overview: "📊 概览", market: "📈 大盘", sentiment: "😊 综合情绪", industry: "🏭 行业概念", lab: "🧪 策略实验室" };
+const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 大盘信号", sentiment: "😊 情绪温度", industry: "🏭 板块轮动", lab: "🧪 策略实验室" };
 
 function updateH5Topbar() {
   if (!document.body.classList.contains("h5")) return;

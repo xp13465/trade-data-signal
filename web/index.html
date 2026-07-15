@@ -24,7 +24,7 @@
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"WebApplication","name":"tdsignal 情绪数据复盘看板","alternateName":"trade-data-signal","url":"http://tdsignal-ujpzw01zm.maozi.io/","description":"A股/港股/全球盘后复盘情绪数据看板：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, A股情绪, 买卖点, 行业热力图, 模拟回测"}
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=d150aa2f">
+  <link rel="stylesheet" href="/static/style.css?v=151a26b4">
   <link rel="stylesheet" href="/static/lab.css?v=131bebb5">
   <script defer src="/static/vendor/echarts.min.js?v=ef12c5c6"></script>
 <script>
@@ -86,10 +86,10 @@ var _hmt = _hmt || [];
     </div>
   </header>
   <nav class="tabs">
-    <button data-tab="overview" class="active">概览</button>
+    <button data-tab="overview" class="active">市场全景</button>
     <button data-tab="market">大盘信号</button>
-    <button data-tab="sentiment">综合情绪</button>
-    <button data-tab="industry">行业概念</button>
+    <button data-tab="sentiment">情绪温度</button>
+    <button data-tab="industry">板块轮动</button>
     <button data-tab="lab">🧪 策略实验室</button>
     <!-- UX：周期选择器移入 tab 栏右端，随 sticky tab 栏一起悬浮顶部，下滚始终可见可操作 -->
     <!-- 默认隐藏防闪烁：概览/实验室 tab 无需周期切换，renderTab 按 tab 控制显隐 -->
@@ -118,15 +118,15 @@ var _hmt = _hmt || [];
   <main id="content"><div class="loading">加载中…</div></main>
   <!-- H5 底部固定导航：5 主 tab，复用 data-tab 切换逻辑（PC 隐藏）-->
   <nav class="h5-bottomnav">
-    <button data-tab="overview" class="active"><span class="bn-icon">📊</span><span class="bn-label">概览</span></button>
+    <button data-tab="overview" class="active"><span class="bn-icon">📊</span><span class="bn-label">全景</span></button>
     <button data-tab="market"><span class="bn-icon">📈</span><span class="bn-label">大盘信号</span></button>
     <button data-tab="sentiment"><span class="bn-icon">😊</span><span class="bn-label">情绪</span></button>
-    <button data-tab="industry"><span class="bn-icon">🏭</span><span class="bn-label">行业</span></button>
+    <button data-tab="industry"><span class="bn-icon">🏭</span><span class="bn-label">板块</span></button>
     <button data-tab="lab"><span class="bn-icon">🧪</span><span class="bn-label">实验室</span></button>
   </nav>
 
   <script src="/static/qr.js?v=6577e491"></script>
-  <script defer src="/static/app.min.js?v=88cbb2ca"></script>
+  <script defer src="/static/app.min.js?v=c69d9d21"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
   <meta name="lab-asset-url" content="/static/lab.min.js?v=03b127de">
 <script>
