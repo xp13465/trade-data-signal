@@ -1789,7 +1789,7 @@ main { padding: 16px 24px; }
   main { padding: 12px; padding-bottom: 76px; }
   .chart-card { padding: 10px 12px; margin-bottom: 12px; }
   .chart-card h3 { font-size: 13px; }
-  .chart-latest { padding: 1px 4px; font-size: 12px; }
+  .chart-latest { padding: 1px 4px; }
   .card { padding: 12px 14px; }
 
   /* 概览 sparkline 默认 2 列（移动端信息密度合适）；行业卡片内容多，强制 1 列 */
