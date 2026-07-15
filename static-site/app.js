@@ -767,6 +767,8 @@ function renderErrorState(container, err, retryFn) {
 // ============ 动态1行折叠：1行容量按视口宽度自适应，超出1行进折叠，resize 重算 ============
 // 读 getComputedStyle(grid).gridTemplateColumns 的实际轨道数(适配 auto-fill / 媒体查询任一布局)，
 // 比 Math.floor(width/minW) 更准(与浏览器实际排布一致)。
+// _prevIndicesFoldRO：跨 renderAStock 重建时断开上一个 indicesSection 的 ResizeObserver，防泄漏。
+let _prevIndicesFoldRO = null;
 function gridColsOf(el) {
   if (!el) return 1;
   const tpl = getComputedStyle(el).gridTemplateColumns;
@@ -967,7 +969,9 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
 
   // foldOneRow 模式：ResizeObserver 监听容器宽度变化(只认宽度，高度变化如展开/折叠不触发重渲染)，
   // 宽度变化致1行容量(cols)改变时重渲染。signalsCache 缓存使重渲染不 refetch。
+  // 切 tab/renderAStock 重建会新建 observer，先断开上一个(_prevIndicesFoldRO)防泄漏。
   if (foldOneRow && typeof ResizeObserver !== "undefined") {
+    if (_prevIndicesFoldRO) { _prevIndicesFoldRO.disconnect(); _prevIndicesFoldRO = null; }
     ro = new ResizeObserver((ents) => {
       const w = ents && ents[0] ? ents[0].contentRect.width : 0;
       if (w === lastWidth) return; // 只关心宽度变化(展开/折叠致高度变不重渲染)
@@ -979,6 +983,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
       }, 250);
     });
     ro.observe(container);
+    _prevIndicesFoldRO = ro;
   }
 
   return doRender();
