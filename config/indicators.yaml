@@ -65,6 +65,7 @@ metrics:
   - {id: cn10y,        name: 中国10年国债收益率, group: global, type: simple, func: bond_china_yield, column: '10年', filter: {曲线名称: 中债国债收益率曲线}, unit: "%", direction: neutral, enabled: true}
   - {id: us10y,        name: 美国10年国债收益率, group: global, type: simple, func: bond_zh_us_rate, params: {start_date: '20160101'}, column: 美国国债收益率10年, unit: "%", direction: neutral, enabled: true}
   - {id: cn_us_spread, name: 中美利差(10Y),      group: global, type: derived, formula: "cn10y - us10y", unit: "%", direction: neutral, enabled: true}
+  - {id: brent, name: 布伦特原油, group: global, type: simple, func: futures_foreign_hist, params: {symbol: OIL}, column: close, unit: 美元/桶, direction: neutral, enabled: true}
 
   # ============ 试采 · 龙虎榜 / 解禁 / IPO / 可转债 ============
   - {id: lhb_count,           name: 龙虎榜上榜家数,   group: lhb,    type: simple, func: stock_lhb_detail_em,                transform: count_rows, unit: 只, direction: positive, enabled: true}
@@ -193,6 +194,11 @@ indices:
   - {id: thsc_308870, name: "数字经济", market: concept, func: index_hist_ths_concept, symbol: "数字经济", enabled: true}
   - {id: thsc_308752, name: "元宇宙", market: concept, func: index_hist_ths_concept, symbol: "元宇宙", enabled: true}
   - {id: thsc_309128, name: "军工信息化", market: concept, func: index_hist_ths_concept, symbol: "军工信息化", enabled: true}
+  - {id: nikkei225, name: 日经225, market: global, func: index_global_hist_sina, symbol: "日经225指数", enabled: true}
+  - {id: kospi, name: KOSPI, market: global, func: index_global_hist_sina, symbol: "首尔综合指数", enabled: true}
+  - {id: ftse100, name: 富时100, market: global, func: index_global_hist_sina, symbol: "英国富时100指数", enabled: true}
+  - {id: dax, name: 德国DAX, market: global, func: index_global_hist_sina, symbol: "德国DAX 30种股价指数", enabled: true}
+  - {id: cac40, name: 法国CAC40, market: global, func: index_global_hist_sina, symbol: "法CAC40指数", enabled: true}
 
 # ============ 板块（入 board_daily）—— 东财端点反爬封，待直爬实现 ============
 boards:

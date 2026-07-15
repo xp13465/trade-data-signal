@@ -405,6 +405,15 @@ function latestSuffix(data) {
   return `<span class="chart-latest"> · ${fmtDate(last.date)} ${last.value.toFixed(2)}</span>`;
 }
 
+function latestSuffixPct(data) {
+  const _last = data[data.length - 1];
+  const _prev = data.length > 1 ? data[data.length - 2] : null;
+  const _pct = (_last && _last.value != null && _prev && _prev.value) ? (_last.value / _prev.value - 1) * 100 : null;
+  const _up = (_pct || 0) >= 0;
+  const _pctSuffix = (_pct != null && isFinite(_pct)) ? ` <span class="pct-badge" style="color:${_up ? "#e6492e" : "#2e8b57"}">${_up ? "+" : ""}${_pct.toFixed(2)}%</span>` : "";
+  return latestSuffix(data) + _pctSuffix;
+}
+
 // series.name 去 HTML：latestSuffix 的 <span> 高亮只供卡片标题（HTML 容器），
 // 进 ECharts series.name 会被 tooltip 默认 formatter HTML 转义成字面量 <span>，故 tooltip 用纯文本
 // 最后 collapse 连续空格并 trim：termTip 返回的前导空格在剥离 span 后会残留，避免 legend 多空格
@@ -3965,6 +3974,7 @@ async function renderGlobal(container = content) {
     cn10y: "中国10年国债收益率（%）",
     us10y: "美国10年国债收益率（%）",
     cn_us_spread: "中美利差(10Y)（%）",
+    brent: "布伦特原油（美元/桶）",
   };
   const extrasSignals = r.extras_signals || {};
   const extrasStats = r.extras_stats || {};
@@ -3972,7 +3982,7 @@ async function renderGlobal(container = content) {
   for (const [id, name] of Object.entries(extras)) {
     const data = r.extras[id] || [];
     if (data.length) {
-      const chart = valueChartWithSignals(name + latestSuffix(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, cardGrid);
+      const chart = valueChartWithSignals(name + latestSuffixPct(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, cardGrid);
       if (chart) {
         const lastDate = data.length ? data[data.length - 1].date : "";
         if (dataStaleDays(lastDate) > STALE_DAYS) addStaleMark(chart.getDom().parentElement, lastDate);

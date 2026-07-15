@@ -451,7 +451,7 @@ def export_global(conn, cfg, rng):
     extras_signals = {}
     extras_stats = {}
     extras_strategy = {}
-    for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread"):
+    for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread", "brent"):
         extras[mid] = _metric_series(conn, mid, start, end)
         extras_signals[mid] = _signals(conn, f"g.{mid}", start, end)
         extras_stats[mid] = _stats_for(stats_all, f"g.{mid}")
