@@ -176,6 +176,10 @@ KPI_METRIC_IDS = [
     "a_volume_ratio",       # 量比（放量/缩量）
     "a_fund_north",         # 北向资金（停更，最新非空 20240816）
     "a_fund_margin",        # 两融余额
+    "gold",                 # 商品(沪金) - 供数据时效横幅EXTRA取日期
+    "cn10y",                # 10年国债收益率
+    "a_qvix_300",           # QVIX波动率
+    "lhb_count",            # 龙虎榜数量
 ]
 # sparkline 网格所需指数（按展示顺序）
 SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech"]
@@ -372,6 +376,27 @@ def overview():
     except Exception:  # noqa: BLE001
         pass
 
+    # 数据时效横幅补充源日期：期货/ETF国家队/美股从静态导出 JSON 取末日期
+    extra_dates = {}
+    try:
+        _sd = Path(__file__).resolve().parent.parent / "static-site" / "data"
+        def _jload(name):
+            p = _sd / name
+            return json.load(open(p, encoding="utf-8")) if p.exists() else None
+        _fut = _jload("futures.json")
+        if _fut and _fut.get("summary", {}).get("date"):
+            extra_dates["futures_date"] = _fut["summary"]["date"]
+        _etf = _jload("etf_national_team-all.json")
+        if _etf and _etf.get("updated_at"):
+            extra_dates["etf_date"] = _etf["updated_at"][:10].replace("-", "")
+        _glob = _jload("global-all.json")
+        if _glob:
+            _ud = _glob.get("indices", {}).get("us_dji", {}).get("data", [])
+            if _ud:
+                extra_dates["us_dji_date"] = _ud[-1]["date"]
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "date": score_date,
         "collected_at": collected_at,
@@ -392,6 +417,9 @@ def overview():
         "fear_greed_6m": fg_6m,
         # F1：申万行业涨跌幅热力图（接 G1 概览第 7 区块）
         "industry_heatmap": heatmap,
+        "futures_date": extra_dates.get("futures_date", ""),
+        "etf_date": extra_dates.get("etf_date", ""),
+        "us_dji_date": extra_dates.get("us_dji_date", ""),
     }
 
 

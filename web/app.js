@@ -1192,7 +1192,7 @@ function getCardTimeBadge(dataDate, snap) {
   if (!dataDate) return "";
   const mmdd = dataDate.length === 8 ? `${dataDate.slice(4, 6)}-${dataDate.slice(6, 8)}` : dataDate;
   if (!snap || snap.is_closed !== false) {
-    return `<span class="card-time-badge closed">📍 收盘·${mmdd}</span>`;
+    return `<span class="card-time-badge closed" data-tip="收盘后定格,盘中实时源关闭,显示当日收盘数据">📍 收盘·${mmdd}</span>`;
   }
   const shIdx = snap.indices && snap.indices.find((i) => i.code === "sh000001");
   const snapDate = shIdx ? (shIdx.datetime || "").slice(0, 8) : "";
@@ -1201,9 +1201,9 @@ function getCardTimeBadge(dataDate, snap) {
     const mm = shIdx.datetime.slice(10, 12);
     // 午休：后端 label 含"午休"时显午休态(黄)，区分盘中交易时段(绿)
     if (snap.label && /午休/.test(snap.label)) {
-      return `<span class="card-time-badge lunch">⏰ 午休·${hh}:${mm}</span>`;
+      return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复实时">⏰ 午休·${hh}:${mm}</span>`;
     }
-    return `<span class="card-time-badge intraday">⏰ 盘中·${hh}:${mm}</span>`;
+    return `<span class="card-time-badge intraday" data-tip="盘中实时刷新,约30秒一次">⏰ 盘中·${hh}:${mm}</span>`;
   }
   // pending 分支：盘中但卡片数据非当日。用后端预算的 prev_trading_day 三档分级，
   // 让用户一眼区分"正常T+1(数据源盘后公布，公开平台也才到这个日期)" vs "异常滞后(我们没采到)"。
@@ -1221,10 +1221,10 @@ function getCardTimeBadge(dataDate, snap) {
     const ttl = severe
       ? "严重滞后(>15天),可能采集异常,请反馈"
       : "该指标公开平台已更新但我们未采到,属异常滞后,请反馈";
-    return `<span class="card-time-badge ${cls}" title="${ttl}">${txt}·${mmdd}</span>`;
+    return `<span class="card-time-badge ${cls}" data-tip="${ttl}">${txt}·${mmdd}</span>`;
   }
   // 正常T+1：dataDate==prev_trading_day（数据源盘后T+1公布，公开平台也才到这个日期）
-  return `<span class="card-time-badge t1" title="T+1数据源盘后次日公布,15:30收盘后显示昨日属正常,次日采集后更新当日。详情见顶部数据时效栏">📅 T+1·${mmdd}</span>`;
+  return `<span class="card-time-badge t1" data-tip="T+1数据源盘后次日公布,15:30收盘后显示昨日属正常,次日采集后更新当日。详情见顶部数据时效栏">📅 T+1·${mmdd}</span>`;
 }
 // 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
 // 同时加 has-time-badge 类，CSS 据此给标题预留 padding-right 防角标压文字
@@ -1316,16 +1316,18 @@ function _buildHealthSources(r, snap) {
     { name: "商品", mid: "gold", hint: "黄金/原油等商品期货T+1,源端(新浪期货)次日盘后发布,15:30收盘后显示昨日属正常,次日盘后更新当日", def: "📅 次日盘后" },
     { name: "国债", mid: "cn10y", hint: "国债收益率T+1,中债/美债盘后次日发布,美债更滞后(常停T-3)", def: "📅 次日盘后" },
     { name: "龙虎榜", mid: "lhb_count", hint: "龙虎榜T+1,东财盘后次日发布,当日18点后更新当日", def: "📅 当日18点后" },
-    { name: "期货持仓", mid: null, hint: "CFFEX期货机构持仓T+1,次日盘后发布,次日20:00后更新当日", def: "📅 次日20点后" },
-    { name: "ETF国家队", mid: null, hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日", def: "📅 次日22点+" },
+    { name: "期货持仓", mid: null, dateKey: "futures_date", hint: "CFFEX期货机构持仓T+1,次日盘后发布,次日20:00后更新当日", def: "📅 次日20点后" },
+    { name: "ETF国家队", mid: null, dateKey: "etf_date", hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日", def: "📅 次日22点+" },
     { name: "QVIX", mid: "a_qvix_300", hint: "QVIX期权波动率指数T+1,源端盘后次日发布", def: "📅 次日盘后" },
     { name: "红利指数", iid: "csi_div", hint: "红利指数T+1,中证指数公司盘后次日发布", def: "📅 次日盘后" },
-    { name: "美股", iid: "us_dji", hint: "美股指数时区滞后,美东21:30开盘(北京),次日晨才出当日收盘,当前显示T-1属正常", def: "📅 次日晨(T-1)" },
+    { name: "美股", iid: "us_dji", dateKey: "us_dji_date", hint: "美股指数时区滞后,美东21:30开盘(北京),次日晨才出当日收盘,当前显示T-1属正常", def: "📅 次日晨(T-1)" },
   ];
   EXTRA.forEach((cfg) => {
     let dateStr = "";
     if (cfg.mid) { const m = findM(cfg.mid); if (m && m.date) dateStr = m.date; }
     else if (cfg.iid) { const sp = spark[cfg.iid]; if (sp && sp.last_date) dateStr = sp.last_date; }
+    // mid/iid 都取不到时，从 overview 顶层 extra_dates(futures_date/etf_date/us_dji_date) 兜底取停留日期
+    if (!dateStr && cfg.dateKey) { dateStr = (r && r[cfg.dateKey]) || ""; }
     let cls, text;
     if (dateStr) { const f = _dataFreshness(dateStr, ptd); cls = f.cls; text = f.text; }
     else { cls = "t1"; text = cfg.def; }

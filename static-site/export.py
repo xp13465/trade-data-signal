@@ -64,6 +64,10 @@ KPI_METRIC_IDS = [
     "a_volume_ratio",
     "a_fund_north",
     "a_fund_margin",
+    "gold",
+    "cn10y",
+    "a_qvix_300",
+    "lhb_count",
 ]
 SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech"]
 
@@ -365,6 +369,26 @@ def export_overview(conn, cfg):
     except Exception:  # noqa: BLE001
         pass
 
+    # 数据时效横幅补充源日期：期货/ETF国家队/美股从静态导出 JSON 取末日期
+    extra_dates = {}
+    try:
+        def _jload(name):
+            p = DATA_DIR / name
+            return json.load(open(p, encoding="utf-8")) if p.exists() else None
+        _fut = _jload("futures.json")
+        if _fut and _fut.get("summary", {}).get("date"):
+            extra_dates["futures_date"] = _fut["summary"]["date"]
+        _etf = _jload("etf_national_team-all.json")
+        if _etf and _etf.get("updated_at"):
+            extra_dates["etf_date"] = _etf["updated_at"][:10].replace("-", "")
+        _glob = _jload("global-all.json")
+        if _glob:
+            _ud = _glob.get("indices", {}).get("us_dji", {}).get("data", [])
+            if _ud:
+                extra_dates["us_dji_date"] = _ud[-1]["date"]
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "date": score_date,
         "collected_at": collected_at,
@@ -382,6 +406,9 @@ def export_overview(conn, cfg):
         "a_sentiment_6m": asent_6m,
         "fear_greed_6m": fg_6m,
         "industry_heatmap": heatmap,
+        "futures_date": extra_dates.get("futures_date", ""),
+        "etf_date": extra_dates.get("etf_date", ""),
+        "us_dji_date": extra_dates.get("us_dji_date", ""),
     }
 
 
