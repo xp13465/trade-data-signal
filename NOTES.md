@@ -1112,3 +1112,26 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - 临时修复（2026-07-14 已做）：跑 `.venv/bin/python -c "from app.db import init_db; init_db()"` 执行 ALTER TABLE 加 net_inflow 列，本地 DB schema 修复。修复后 export 198 个 JSON 完整生成（125.5MB）
 - 待办：排查哪个采集流程直接 sqlite3.connect 绕过了 init_db._migrate()，统一改为走 init_db() 入口确保 migrate 执行。这样别人 clone 仓库后首次跑也不会缺列
 - 关联文件：app/db.py（_migrate 逻辑已有，只需确保被调用）、app/compute/market_summary.py（读 net_inflow）、static-site/export.py（被中断处）
+
+## §20 拼色pin放大 + 收盘分析H5布局重构 + 工作模式教训（2026-07-15）
+
+### 拼色pin气泡放大+比例修正
+- 比例：`_ntMultiColor` 末段固定 20%（底部尖端窄，均分会被挤没看不见）。2段 40:60 / 3段 26.6:26.6:46.6。commit bad8b94
+- 气泡放大：多信号 markPoint `symbolSize` 52->64、`fontSize` 9->11（和单信号一致）、新增 `lineHeight:13`。提取 `multiLabel` 变量复用。commit 2d4737b
+
+### 收盘分析 H5 布局重构（返工3次，复盘教训）
+- 需求：首行「日期+情绪」左、「收盘小结/更多」右；tags 第二行；chips 第三行。PC 保持内联不变。
+- b2e9645：`summary-title` 内层拆 `summary-title-text`+`summary-title-tags`，@media 768 块加 `summary-title-tags{flex-basis:100%}`。但 `.summary-title{flex:1 1 auto}` 占满第一行把 meta 挤第三行。
+- 95b0c32：@media 内 `.summary-title{display:contents}` 让子元素提升为 summary-top 的 flex item + `space-between`。但 DOM 顺序 text->tags->meta，tags `flex:0 0 100%` 占第二行把 meta 顶到第三行（用户实测「贪婪61一行、收盘小结更多一行」）。
+- a4a48cc（最终修复）：加 `order:1/2/3` 把渲染顺序改 text->meta->tags。text+meta 首行左右分布，tags 第二行。
+- **教训**：第一次派 agent 前没想透 DOM 顺序与 flex item 提升后的渲染顺序，导致返工 3 次。派 agent 前主控应先在思考块把 CSS 布局原理跑通（display:contents 后谁是 flex item + order 需求），一次给对方案。
+
+### 工作模式教训（已落 CLAUDE.md 第2条 + memory）
+- 违规：派子 agent 修 H5 order 时用同步 `Agent` 调用（未加 `run_in_background:true`），主控卡 ing 状态 12分58秒，期间用户多次发消息不响应。
+- 根因：CLAUDE.md 第2条本就写「后台 run_in_background」，执行没遵守。
+- 修复：CLAUDE.md 第2条强化（commit e28e967）——必须 `run_in_background:true`，派完立即返回监工待命，同步调用=违规。memory 新增 `agent-dispatch-then-standby.md`。
+
+### 融合信号卡片状态修复（方案已定，待实施）
+- 现状：策略实验室「候选买点」区 F_B1_RSI40 / F_B1_rebound2pct 标 `status:"live"`（已上线生产），但实际是 per-index 的 buy_aux 辅买点增强（signals.py:449-468，18个指数配置），非全局融合信号生产实现。zone/status 矛盾 + note 过时。
+- 方案（用户已确认）：新增 `partial`（部分上线，琥珀色标签）状态，两卡 live->partial；note 更新实际指数名单（rsi_cross_40 10个 / close_above_bl_2pct 8个，从 indicators.yaml grep）；融合卡加 hover 提示「阶段一仅展示，详情页待阶段二」。双版 lab.js + style.css。
+- F_D1_MA_death（候选卖点 experimental）标对——后端无 MA5/20 死叉过滤，确实没上线。
