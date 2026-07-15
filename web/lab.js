@@ -586,6 +586,7 @@ const LAB_ZONES = [
 // 状态标签映射
 const LAB_STATUS_TAGS = {
   live: { label: "已上线生产", cls: "lab-tag-live" },
+  partial: { label: "部分上线", cls: "lab-tag-partial" },
   experimental: { label: "实验中", cls: "lab-tag-exp" },
   dev: { label: "开发中", cls: "lab-tag-dev" },
   excluded: { label: "已排除", cls: "lab-tag-excluded" },
@@ -617,24 +618,24 @@ const LAB_FUSION_STRATEGIES = {
   },
   // --- 候选买点区（3个） ---
   F_B1_RSI40: {
-    name: "BB下轨回归+RSI上穿40 融合买", side: "buy", zone: "candidate_buy", status: "live",
+    name: "BB下轨回归+RSI上穿40 融合买", side: "buy", zone: "candidate_buy", status: "partial",
     conditions: ["BB下轨回归", "RSI上穿40"],
     trigger: "同日AND：close从BB下轨下方回归上轨 且 RSI从≤40上穿>40",
-    conclusion: "主项目sw_801110家电/sw_801140轻工已配置。f -38.5%→+16.2%转正，胜率44.8%→54.5%，盈亏比0.66→1.19",
+    conclusion: "主项目10指数已配置 buy_aux rsi_cross_40。f -38.5%->+16.2%转正（家电/轻工回测），胜率44.8%->54.5%，盈亏比0.66->1.19",
     theory: "多信号融合买点。BB下轨回归捕捉超卖反弹拐点，叠加RSI上穿40确认动量转强。两条件同日AND，过滤单一BB下轨穿越的假信号。",
     scenario: "超卖反弹+动量确认共振入场；震荡市/下跌市效果好。",
-    note: "主项目sw_801110家电/sw_801140轻工已配置。f -38.5%→+16.2%转正，胜率44.8%→54.5%，盈亏比0.66→1.19。",
-    report: "回测：加RSI上穿40后f从-38.5%转正至+16.2%，胜率44.8%→54.5%，盈亏比0.66→1.19。sw_801110家电/sw_801140轻工已配置。",
+    note: "已作为 buy_aux 辅买点（per-index 增强）上线于 10 个指数：中证1000/创业板指/家电/轻工/医药/公用事业/房地产/社会服务/传媒/通信。非全局融合信号生产实现（B1基线+RSI上穿40过滤，signals.py:312-314）.",
+    report: "回测：加RSI上穿40后f从-38.5%转正至+16.2%（家电/轻工样本），胜率44.8%->54.5%，盈亏比0.66->1.19。已扩展至10指数配置。",
   },
   F_B1_rebound2pct: {
-    name: "BB下轨回归+反弹2% 融合买", side: "buy", zone: "candidate_buy", status: "live",
+    name: "BB下轨回归+反弹2% 融合买", side: "buy", zone: "candidate_buy", status: "partial",
     conditions: ["BB下轨回归", "反弹2%"],
     trigger: "同日AND：close从BB下轨回归 且 close>下轨*1.02（过滤barely-crossed假信号/dead cat bounce）",
-    conclusion: "主项目sw_801030基础化工已配置。f -21%→+20%转正，5d/10d/20d三horizon一致，n=19<30样本警示",
+    conclusion: "主项目8指数已配置 buy_aux close_above_bl_2pct。f -21%->+20%转正（基础化工回测），5d/10d/20d三horizon一致，n=19<30样本警示",
     theory: "多信号融合买点。BB下轨回归捕捉超卖反弹，叠加反弹2%过滤（close>下轨*1.02），过滤barely-crossed假信号和dead cat bounce。",
     scenario: "超卖反弹确认入场；过滤假突破/死猫反弹。",
-    note: "主项目sw_801030基础化工已配置。f -21%→+20%转正，5d/10d/20d三horizon一致，n=19<30样本警示。",
-    report: "回测：加反弹2%过滤后f从-21%转正至+20%，5d/10d/20d三horizon一致。样本n=19<30偏小，需持续观察。",
+    note: "已作为 buy_aux 辅买点（per-index 增强）上线于 8 个指数：农林牧渔/基础化工/电子/纺织服饰/交通运输/机械设备/国防军工/计算机。非全局融合信号生产实现（B1基线+反弹2%过滤，signals.py:315-318）.",
+    report: "回测：加反弹2%过滤后f从-21%转正至+20%（基础化工样本），5d/10d/20d三horizon一致。样本n=19<30偏小，需持续观察。已扩展至8指数配置。",
   },
   F_C1_MACD_golden: {
     name: "RSI上穿30+MACD金叉 融合买（实验性新组合）", side: "buy", zone: "candidate_buy", status: "experimental",
@@ -2480,6 +2481,7 @@ async function renderFusionLab() {
         condsHTML +
         `<div class="lab-card-trigger">${meta.trigger}</div>` +
         `<div class="lab-card-conclusion">${meta.conclusion}</div>`;
+      card.title = "阶段一仅展示条件与说明，详情页/回测待阶段二开放";
       card.onclick = () => {
         // 阶段一不进详情页，点击暂不响应（阶段二回测待开放）
       };
