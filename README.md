@@ -1,10 +1,10 @@
-# 📊 A股情绪看板 · tdsignal
+# 📊 市场温度看板 · tdsignal
 
-> A股 / 港股 / 全球 **盘后复盘情绪数据看板** —— 把散落各处的情绪值、涨跌家数、连板高度、买卖点信号汇总到一处，攒成历史序列，辅助判断市场情绪拐点与买卖时机。
+> A股 / 港股 / 全球 盘后复盘 **市场温度看板** —— 把散落各处的情绪值、涨跌家数、连板高度、买卖点信号汇总到一处，攒成历史序列，辅助判断市场情绪拐点与买卖时机。
 
 **在线体验**：http://tdsignal-ujpzw01zm.maozi.io/
 
-![tdsignal 情绪看板](static-site/og.png)
+![市场温度看板 · tdsignal](static-site/og.png)
 
 `trade-data-signal` / `tdsignal` / `tdsignal-ujpzw01zm`
 

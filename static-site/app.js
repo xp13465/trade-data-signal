@@ -5194,7 +5194,7 @@ function drawShareCard(r) {
   // 主标题
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#fff"; ctx.font = "bold 76px 'PingFang SC',sans-serif";
-  ctx.fillText("A股情绪看板", 60, 220);
+  ctx.fillText("市场温度看板", 60, 220);
   ctx.fillStyle = "#aab2bd"; ctx.font = "32px 'PingFang SC',sans-serif";
   ctx.fillText(`${fmtDate(r.date)} 收盘复盘`, 60, 272);
 
@@ -5291,7 +5291,7 @@ function drawShareCard(r) {
   ctx.fillStyle = "#165dff"; ctx.font = "bold 34px 'PingFang SC',sans-serif";
   ctx.fillText("tdsignal-ujpzw01zm.maozi.io", 60, H - 95);
   ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
-  ctx.fillText("盘后复盘 · 情绪数据 · 买卖点信号 · 行业热力图 · 模拟回测", 60, H - 55);
+  ctx.fillText("盘后复盘·多市场情绪·买卖点信号", 60, H - 55);
   // 右下角二维码（扫码访问公网看板；矩阵来自 qr.js，fillRect 同步绘制，无图片加载竞态）
   if (window.QR_MODULES && window.QR_MODULES.length) {
     const mods = window.QR_MODULES, nq = mods.length, quiet = 2;
@@ -5345,7 +5345,7 @@ async function openShareModal() {
   try {
     const canvas = drawShareCard(r);
     const dataUrl = canvas.toDataURL("image/png");
-    content.innerHTML = `<img class="share-img" src="${dataUrl}" alt="tdsignal 情绪看板分享图"><a class="share-download-btn" href="${dataUrl}" download="tdsignal-${r.date}.png">⬇ 下载图片</a>`;
+    content.innerHTML = `<img class="share-img" src="${dataUrl}" alt="市场温度看板分享图"><a class="share-download-btn" href="${dataUrl}" download="tdsignal-${r.date}.png">⬇ 下载图片</a>`;
   } catch (e) {
     content.innerHTML = `<div class="summary-history-empty">生成失败：${e}</div>`;
   }

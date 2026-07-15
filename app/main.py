@@ -19,7 +19,7 @@ from .compute.rotation import compute_rotation
 from .compute.signals import strategy_desc
 from .db import get_conn
 
-app = FastAPI(title="情绪数据复盘看板")
+app = FastAPI(title="市场温度看板")
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
