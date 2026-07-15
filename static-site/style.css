@@ -1711,6 +1711,20 @@ main { padding: 16px 24px; }
   margin-bottom: 16px;
   box-shadow: 0 1px 4px var(--shadow-strong);
 }
+/* 轮动卡 + 热力图 1:2 合并一行（左轮动卡 / 右热力图），4K 全宽下左≈1/3 右≈2/3 */
+.rotation-heatmap-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.rotation-heatmap-grid .rotation-card,
+.rotation-heatmap-grid .chart-card { margin-bottom: 0; }
+.rotation-heatmap-grid.single-col { grid-template-columns: 1fr; }
+@media (max-width: 768px) {
+  .rotation-heatmap-grid { grid-template-columns: 1fr; }
+}
 .rotation-card-header {
   font-size: 14px;
   font-weight: 600;

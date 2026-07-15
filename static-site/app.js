@@ -4883,8 +4883,15 @@ async function renderIndustry() {
   content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">轮动判断主线 + 行业/概念买卖点</div>');
   const snap = state.intradaySnapshot;
 
-  // 板块轮动速度卡片（最先展示，判断行情性质）
-  await renderRotationCard(content);
+  // 板块轮动速度卡片 + 申万行业热力图：1:2 grid 合并一行（左轮动卡 / 右热力图）
+  const rotHmGrid = document.createElement("div");
+  rotHmGrid.className = "rotation-heatmap-grid";
+  content.appendChild(rotHmGrid);
+  await renderRotationCard(rotHmGrid);
+  // 轮动卡 fetch 失败兜底：降级单列，热力图占满
+  if (!rotHmGrid.querySelector(".rotation-card")) {
+    rotHmGrid.classList.add("single-col");
+  }
 
   const swCount = Object.keys(r.indices || {}).length;
   const conceptCount = Object.keys(r.concepts || {}).length;
@@ -4892,7 +4899,7 @@ async function renderIndustry() {
   // 申万行业区域（热力图）；tab 按钮 + 搜索框移到热力图下方（anchorBar，sticky 吸顶）
   const swSection = document.createElement("div");
   swSection.id = "sw-industries";
-  content.appendChild(swSection);
+  rotHmGrid.appendChild(swSection);
 
   const indHmDates = (r.heatmap || []).map(h => h.last_date).filter(Boolean).sort();
   const indHmSuffix = indHmDates.length ? `<span class="chart-latest"> · ${fmtDate(indHmDates[indHmDates.length - 1])}</span>` : "";
