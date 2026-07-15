@@ -460,7 +460,7 @@ def _backfill_index_daily(indices: list[dict]) -> int:
     return n
 
 
-def _backfill_industry_daily(industries: list[dict]) -> int:
+def _backfill_industry_daily(industries: list[dict], target_date: str = None) -> int:
     """把盘中快照的 31 申万行业涨跌幅反哺 index_daily 表（UPSERT，幂等）。
 
     解决收盘分析历史弹窗领涨空的问题：market_summary 的 top_industries 查
@@ -474,13 +474,21 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
     open/high/low 仍留 NULL（无盘中 OHLC 源），申万晚间 OHLC pipeline 会覆盖。
     非交易日不写；pct_change 为 None 跳过该条。
     返回写入的行业条数。
+
+    target_date 指定时进入历史补采模式：不依赖 fetch_industry_realtime（只返今日），
+    改用 _fetch_sw_ohlc_ths 拿该日期真实 OHLC（含 close，比计算法准）；
+    THS 失败则回退计算法（DB 已有 pct_change × prev_close）。
     """
     from ..calendar import is_trading_day
 
-    today = datetime.now().strftime("%Y%m%d")
+    today = target_date or datetime.now().strftime("%Y%m%d")
     if not is_trading_day(today):
         print(f"  [intraday] 非交易日({today})，跳过 index_daily 行业反哺", flush=True)
         return 0
+
+    # 历史日期补采：用 _fetch_sw_ohlc_ths 拿真实 OHLC，失败回退计算法
+    if target_date is not None:
+        return _backfill_industry_daily_historical(today)
 
     conn = get_conn()
     n = 0
@@ -517,6 +525,76 @@ def _backfill_industry_daily(industries: list[dict]) -> int:
     conn.commit()
     conn.close()
     print(f"  [intraday] index_daily 行业反哺完成：{n} 条（close 计算法 {calc_n} 条，含 net_inflow/amount）", flush=True)
+    return n
+
+
+def _backfill_industry_daily_historical(target_date: str) -> int:
+    """历史日期 sw 行业 close 补采（_fetch_sw_ohlc_ths 优先，计算法兜底）。
+
+    补历史日期(如 7/14)时 fetch_industry_realtime 拿不到该日 pct（只返今日），
+    改用 _fetch_sw_ohlc_ths 拿该日期真实 OHLC（聚合 90 子行业 -> 31 申万一级，
+    锚定 DB 最后有 close 的行作 junction）。THS 返回真实 close/OHLC，比计算法准。
+    THS 失败（子行业数据未发布/网络故障）则回退计算法：
+      close = prev_close(DB 最后有 close 的行) × (1 + DB 已有 pct_change/100)
+    无 pct_change 或无 prev_close 则跳过（close 留 NULL）。
+    """
+    from .index_backfill import SW_INDICES
+    from .industry_extras import _fetch_sw_ohlc_ths
+    from .runner import upsert_index_rows
+
+    conn = get_conn()
+    n = 0
+    ths_n = 0
+    calc_n = 0
+    skip_n = 0
+    for sw_code in SW_INDICES:
+        # 已有 close 跳过（幂等）
+        r = conn.execute(
+            "SELECT close, pct_change FROM index_daily WHERE index_id=? AND date=?",
+            (sw_code, target_date)
+        ).fetchone()
+        if r and r["close"] is not None:
+            skip_n += 1
+            continue
+
+        # 优先 THS 拿真实 OHLC（含 open/high/low/close/amount）
+        rows, _msg = _fetch_sw_ohlc_ths(sw_code, target_date, target_date, verbose=False)
+        rows = [rw for rw in rows if rw[0] == target_date]
+        if rows:
+            upsert_index_rows(rows)
+            ths_n += 1
+            n += 1
+            db_pct = r["pct_change"] if r else None
+            print(f"    ✓ {sw_code} <- ths close={rows[0][5]} (db_pct={db_pct})", flush=True)
+            continue
+
+        # 回退计算法：prev_close(DB) × (1 + DB 已有 pct_change/100)
+        pct = r["pct_change"] if r else None
+        if pct is not None:
+            prev = conn.execute(
+                "SELECT close FROM index_daily WHERE index_id=? AND close IS NOT NULL "
+                "AND date < ? ORDER BY date DESC LIMIT 1", (sw_code, target_date)
+            ).fetchone()
+            if prev and prev["close"] is not None:
+                close_val = round(float(prev["close"]) * (1 + float(pct) / 100.0), 4)
+                conn.execute(
+                    "UPDATE index_daily SET close=? WHERE index_id=? AND date=?",
+                    (close_val, sw_code, target_date)
+                )
+                calc_n += 1
+                n += 1
+                print(f"    ~ {sw_code} <- calc close={close_val} "
+                      f"(prev={prev['close']}, pct={pct})", flush=True)
+                continue
+
+        skip_n += 1
+        reason = "无 pct_change" if (not r or r["pct_change"] is None) else "无 prev_close"
+        print(f"    ✗ {sw_code} 跳过（{reason}）", flush=True)
+
+    conn.commit()
+    conn.close()
+    print(f"  [intraday] 行业历史补采({target_date})：{n} 条"
+          f"（THS {ths_n} + 计算法 {calc_n} + 已有/跳过 {skip_n}）", flush=True)
     return n
 
 
@@ -973,4 +1051,15 @@ def maybe_override_heatmap(heatmap: list[dict]) -> list[dict]:
 
 
 if __name__ == "__main__":
-    collect_and_save()
+    import argparse
+    parser = argparse.ArgumentParser(description="盘中实时快照采集")
+    parser.add_argument("--date", type=str, default=None,
+                        help="补采指定日期(YYYYMMDD)的申万行业 close，不采集新快照")
+    args = parser.parse_args()
+
+    if args.date:
+        # 历史补采模式：只补 industry close，不覆盖今日 intraday_snapshot
+        n = _backfill_industry_daily([], target_date=args.date)
+        print(f"[intraday] 历史补采完成：{args.date} 共补 {n} 条行业 close", flush=True)
+    else:
+        collect_and_save()
