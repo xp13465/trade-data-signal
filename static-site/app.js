@@ -2712,7 +2712,7 @@ async function renderOverview() {
 // 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
 async function renderMarket() {
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">A股/港股/全球指数 + 买卖点信号</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">A股/港股/全球指数走势 + 买卖点信号;🐶 汪汪队=国家队宽基ETF资金动向</div>');
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
   subtabBar.className = "subtab-bar";
