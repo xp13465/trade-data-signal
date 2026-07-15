@@ -2517,11 +2517,10 @@ async function renderSignalLab() {
     return;
   }
 
-  // 实验室自白黄块（列表页也显示，通用介绍 + 抖音号）
+  // 实验室自白黄块（列表页也显示，通用介绍 + 抖音号；移入左栏与策略列表同栏）
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = _labWarningEssayHTML();
-  content.appendChild(essayWarn);
 
   // 预加载回测数据（用于卡片摘要）
   const data = await fetchLabData();
@@ -2542,6 +2541,7 @@ async function renderSignalLab() {
     btn.onclick = () => { state.labZone = z.key; renderSignalLab(); };
     zoneTabs.appendChild(btn);
   });
+  leftCol.appendChild(essayWarn);
   leftCol.appendChild(zoneTabs);
 
   // 分区描述
