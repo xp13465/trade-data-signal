@@ -56,6 +56,8 @@ document.querySelectorAll('button[data-rng]').forEach((b) => {
     state.range = b.dataset.rng;
     document.querySelectorAll('button[data-rng]').forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
+    // P2-3: overview/lab tab 周期无意义（图表固定范围），跳过重建避免图表闪烁重绘
+    if (state.tab === "overview" || state.tab === "lab") return;
     // 锁定内容区高度避免清空时塌陷跳顶，渲染后恢复滚动位置（周期切换不丢阅读位置）
     const savedScroll = window.scrollY;
     content.style.minHeight = content.offsetHeight + "px";
@@ -702,12 +704,28 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
 // in-flight fetch 去重：同 URL 并发请求只发一次，复用 Promise。
 // 解决重复点击二级 tab / 周期切换时启动多个并行 fetch 的重复劳动（首个 fetch 白等、总耗时被拉长）。
 // 不同 URL 各自独立缓存；fetch 完成后（resolve/reject）立即清 key，下次调用重新发请求。
+// P1-2: 结果缓存（带 TTL）。切 tab 再切回不重拉历史数据；时效敏感数据（overview/intraday_snapshot/metrics/summary/summary_history）跳过缓存。
 const _inflightFetch = new Map();
+const _resultCache = new Map(); // url -> { data, ts }
+// 兼容两种版本URL:静态 ./data/summary.json / summary_history.json；动态 /api/summary / /api/summary/history?...
+const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|summary(?:_history|\/history)?)(?:\.json)?(?:$|[?])/;
+const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 async function fetchJSON(url) {
-  const cached = _inflightFetch.get(url);
-  if (cached) return cached;
+  // 1. 结果缓存命中（时效敏感 URL 跳过，确保盘中快照实时性）
+  if (!_NO_CACHE_URLS.test(url)) {
+    const rc = _resultCache.get(url);
+    if (rc && (Date.now() - rc.ts) < _CACHE_TTL) return rc.data;
+  }
+  // 2. in-flight 去重（同 URL 并发只发一次）
+  const inflight = _inflightFetch.get(url);
+  if (inflight) return inflight;
   const p = fetch(url)
-    .then((r) => r.json())
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + url); return r.json(); })
+    .then((data) => {
+      // 成功才缓存（时效敏感 URL 跳过）；失败不缓存，下次重试
+      if (!_NO_CACHE_URLS.test(url)) _resultCache.set(url, { data, ts: Date.now() });
+      return data;
+    })
     .finally(() => _inflightFetch.delete(url));
   _inflightFetch.set(url, p);
   return p;
@@ -870,6 +888,10 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
     }
     // 选了单个指数：只渲染该指数，不折叠
     if (filterId !== "all") {
+      // P0-2: 并发预取选中指数填充 signalsCache，再按原顺序渲染（命中 cache 不再发请求）
+      await Promise.all(entries.map(([id, idx]) =>
+        id !== filterId || signalsCache[id] ? Promise.resolve() : fetcher(id, idx).then((s) => { signalsCache[id] = s; })
+      ));
       for (const [id, idx] of entries) {
         if (id !== filterId) continue; // 未选指数跳过渲染
         await renderOne(id, idx, container);
@@ -884,6 +906,10 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
       container.appendChild(cardGrid);
       parent = cardGrid;
     }
+    // P0-2: 并发预取所有指数数据填充 signalsCache，再按原顺序渲染（命中 cache 不再发请求，DOM 顺序不变）
+    await Promise.all(entries.map(([id, idx]) =>
+      signalsCache[id] ? Promise.resolve() : fetcher(id, idx).then((s) => { signalsCache[id] = s; })
+    ));
     for (const [id, idx] of entries) {
       await renderOne(id, idx, parent);
     }
@@ -2343,10 +2369,13 @@ async function renderOverview() {
     }
   }).catch(() => {});
 
+  let _secIdx = 0;
+  const _SEC_NUMS = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
   const sectionTitle = (text) => {
     const h = document.createElement("div");
     h.className = "section-title";
-    h.textContent = text;
+    h.textContent = (_SEC_NUMS[_secIdx] || (_secIdx + 1) + ".") + " " + text;
+    _secIdx++;
     content.appendChild(h);
   };
 
@@ -3539,7 +3568,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
   // ── 图3: 季度持有人结构变化（机构/个人占比%）──
   if (curQ && curQ.history && curQ.history.length) {
     // 近5年（基于数据末日年份回推）
-    const endYr = latest.date ? parseInt(latest.date.slice(0, 4), 10) : 2026;
+    const endYr = latest.date ? parseInt(latest.date.slice(0, 4), 10) : new Date().getFullYear();
     const hist = curQ.history.filter((h) => parseInt(h.report_date.slice(0, 4), 10) >= endYr - 5);
     const instData = hist.map((h) => [h.report_date, h.inst_hold_pct]);
     const retailData = hist.filter((h) => h.retail_hold_pct != null).map((h) => [h.report_date, h.retail_hold_pct]);
@@ -4031,7 +4060,7 @@ async function renderSentiment() {
     appendComponentsBlock(data, undefined, cell);
   }
 
-  if (r.a_sentiment.length) {
+  if (r.a_sentiment && r.a_sentiment.length) {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
@@ -4069,7 +4098,7 @@ async function renderSentiment() {
       appendComponentsBlock(data, undefined, cell);
     }
   }
-  if (r.cross_market.length) {
+  if (r.cross_market && r.cross_market.length) {
     const data = r.cross_market.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
     const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
@@ -4216,7 +4245,7 @@ function renderFuturesSection(data, snap) {
     div.className = "chart-card futures-table-card";
     const dateStr = data.summary.date || "";
     const dateSuffix = dateStr ? `<span class="chart-latest"> · ${fmtDate(dateStr)}</span>` : "";
-    let html = `<h3>昨日净多空（手）${dateSuffix}</h3>`;
+    let html = `<h3>昨日净多空（万手）${dateSuffix}</h3>`;
     html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
     for (const role of roles) html += `<th>${role}</th>`;
     html += '</tr></thead><tbody>';
@@ -4226,7 +4255,7 @@ function renderFuturesSection(data, snap) {
         const v = (data.summary.roles[role] || {})[prod];
         const cls = v > 0 ? "futures-long" : v < 0 ? "futures-short" : "";
         const sign = v > 0 ? "+" : "";
-        html += `<td class="${cls}">${v != null ? sign + v.toLocaleString() : "-"}</td>`;
+        html += `<td class="${cls}">${v != null ? sign + (v / 10000).toFixed(1) + "万手" : "-"}</td>`;
       }
       html += '</tr>';
     }
@@ -4557,7 +4586,8 @@ function _bindFreqPopupToHintRows(cell, stats) {
   }
   // 移除直显的频率区块
   freqNodes.forEach((n) => n.remove());
-  // 给每个信号的成功率 hint-row 绑 hover pop
+  // 给每个信号的成功率 hint-row 绑 hover pop（PC hover 显示）/ 点按 pop（移动端 hover:none 设备补 click 切换）
+  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
   const sigMap = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
   hintEl.querySelectorAll(".hint-row").forEach((row) => {
     const sigSpan = row.querySelector(".hint-sig");
@@ -4574,9 +4604,28 @@ function _bindFreqPopupToHintRows(cell, stats) {
     popup.innerHTML = `<div class="hint-header">📅 信号频率</div><div class="hint-row">${freqHtml}</div>`;
     row.style.position = "relative";
     row.appendChild(popup);
-    row.addEventListener("mouseenter", () => { popup.style.display = "block"; });
-    row.addEventListener("mouseleave", () => { popup.style.display = "none"; });
+    let openByClick = false;  // 移动端 click 触发时标记，此时 mouseleave 不立即关
+    row.addEventListener("mouseenter", () => { if (!openByClick) popup.style.display = "block"; });
+    row.addEventListener("mouseleave", () => { if (!openByClick) popup.style.display = "none"; });
+    if (isTouch) {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest && e.target.closest(".freq-popup")) return;  // 点 pop 内容不 toggle
+        e.stopPropagation();
+        // 关闭其他已打开的 freq-popup
+        hintEl.querySelectorAll(".freq-popup").forEach((p) => { if (p !== popup && p.style.display === "block") p.style.display = "none"; });
+        openByClick = popup.style.display !== "block";  // 基于 display 同步状态（document 委托关闭后仍正确）
+        popup.style.display = openByClick ? "block" : "none";
+      });
+    }
   });
+  // 移动端：点别处（非频率行/非 pop 内容）关闭所有 freq-popup（capture 阶段，先于 row 的 stopPropagation）
+  if (isTouch && !document._freqPopDocBound) {
+    document._freqPopDocBound = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest && (e.target.closest(".freq-hover-row") || e.target.closest(".freq-popup"))) return;
+      document.querySelectorAll(".freq-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
+    }, true);
+  }
 }
 
 // 行业/概念卡片：ETF 多候选展示（对齐用户诉求 -- 不替用户硬选1个）。
@@ -4608,19 +4657,35 @@ function _bindEtfPopup(cell, etfs) {
   popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` +
     etfs.map((e) => `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span></div>`).join("");
   tag.appendChild(popup);
+  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  let openByClick = false;  // 移动端 click 打开时标记，防合成 mouseenter 闪现 + mouseleave 立即关
   tag.addEventListener("click", (e) => {
-    if (e.target.closest(".etf-pop-row")) return;
+    if (e.target.closest(".etf-pop-row")) return;  // 点候选行复制，不 toggle
     e.stopPropagation();
-    _copyEtfCode(tag, etfs[0].code);
+    if (isTouch) {
+      openByClick = popup.style.display !== "block";  // 基于 display 同步状态
+      popup.style.display = openByClick ? "block" : "none";
+    } else {
+      _copyEtfCode(tag, etfs[0].code);  // PC：复制 top1（popup 已 hover 显示）
+    }
   });
   popup.querySelectorAll(".etf-pop-row").forEach((row) => {
     row.addEventListener("click", (e) => {
       e.stopPropagation();
       _copyEtfCode(row, row.dataset.code);
+      if (isTouch) { popup.style.display = "none"; openByClick = false; }  // 移动端复制后关闭
     });
   });
-  tag.addEventListener("mouseenter", () => { popup.style.display = "block"; });
-  tag.addEventListener("mouseleave", () => { popup.style.display = "none"; });
+  tag.addEventListener("mouseenter", () => { if (!openByClick) popup.style.display = "block"; });
+  tag.addEventListener("mouseleave", () => { if (!openByClick) popup.style.display = "none"; });
+  // 移动端：点别处（非 tag/非 pop 内容）关闭所有 etf-popup
+  if (isTouch && !document._etfPopDocBound) {
+    document._etfPopDocBound = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest && (e.target.closest(".etf-tag") || e.target.closest(".etf-popup"))) return;
+      document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
+    }, true);
+  }
 }
 
 // B2 折中：行业 tooltip detail 按需加载（静态版瘦身主文件，detail 存 tooltip 专属字段）

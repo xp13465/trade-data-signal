@@ -31,7 +31,7 @@
 .lab-zone-tab {
   padding: 7px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg-card);
   color: var(--text-2);
   font-size: 13px;

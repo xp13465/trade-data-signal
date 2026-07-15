@@ -672,7 +672,7 @@ const LAB_FUSION_ZONES = [
 const LAB_WINDOWS = ["全史", "近10年", "近5年", "近3年", "近1年"];
 const LAB_HORIZONS = ["5d", "10d", "20d", "60d"];
 
-// === 5窗口切换（lab_simulate.json 新结构：stats/trades切片/equity切片 均按窗口独立）===
+// === 5窗口切换（数据源 lab_sim_{index}_stats.json / _full.json：stats/trades切片/equity切片 均按窗口独立）===
 // win key -> 矩阵中文窗口名（用于行高亮）
 const LAB_WIN_CN = { all: "全史", y10: "近10年", y5: "近5年", y3: "近3年", y1: "近1年" };
 const LAB_WIN_DEFS = [
@@ -1903,7 +1903,7 @@ async function renderLabDetail(key) {
 }
 
 // === 回测推荐榜（列表页底部，128组配对多维度排序 + 点击弹窗细节）===
-// 数据源：lab_simulate.json。新结构 pairs 按 "buyKey|sellKey" 去重存储（只存一份），
+// 数据源：lab_sim_{index}_stats.json（_full 按需合并）。新结构 pairs 按 "buyKey|sellKey" 去重存储（只存一份），
 // 直接遍历 simData.pairs 即得 8买×8卖×2模式=128 组去重配对。窗口切换共用 state.labSimWindow。
 const LAB_RANK_TABS = [
   { key: "composite", label: "🏆 综合推荐" },
