@@ -1855,13 +1855,13 @@ main { padding: 16px 24px; }
   /* H5：tab 按钮+搜索框一行放不下时，搜索框换行占满整行 */
   .industry-anchor-bar .anchor-search { flex-basis: 100%; max-width: none; margin-left: 0; }
 
-  /* 收盘分析横幅 H5:首行 text(左)+meta(右),tags 第二行占满(DOM顺序text-tags-meta,用order把meta提前到tags前) */
+  /* 收盘分析横幅 H5:text+tags 同行靠左,meta 窄屏换到第二行靠右(time-label 隐藏后 meta 较短,一行容得下) */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
-  .summary-top { flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 4px 10px; }
+  .summary-top { flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; gap: 4px 10px; }
   .summary-title { display: contents; }   /* 不生成盒子,子元素提升为 summary-top 的 flex item */
   .summary-title-text { font-size: 14px; font-weight: 600; order: 1; }
-  .summary-meta { flex-wrap: nowrap; align-self: flex-start; order: 2; }
-  .summary-title-tags { flex: 0 0 100%; margin-top: 2px; order: 3; }
+  .summary-meta { flex-wrap: nowrap; align-self: flex-start; order: 2; }   /* margin-left:auto 承自 base,靠右;装不下时换行到第二行 */
+  .summary-title-tags { flex: 0 0 auto; order: 1; }   /* 与 text 同序,紧随其后同行(不再强制 100% 独占新行) */
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
