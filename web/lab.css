@@ -457,7 +457,7 @@
 /* === 列表页左右2栏布局（策略卡左 + 回测推荐榜右）=== */
 .lab-list-2col {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 3fr 7fr;
   gap: 16px;
   align-items: start;
 }
@@ -468,7 +468,6 @@
 }
 
 /* === 回测推荐榜（列表页底部）=== */
-.lab-rank-card { margin-top: 16px; }
 .lab-rank-card > h3 { margin-bottom: 8px; }
 .lab-rank-loading, .lab-rank-empty {
   font-size: 13px; color: var(--text-4); text-align: center; padding: 24px;
