@@ -4797,6 +4797,12 @@ function _indWidthExtra(id, idx, i) {
 
 function renderIndustryGrid(indices, containerOverride) {
   const entries = Object.entries(indices).filter(([, idx]) => idx.data && idx.data.length);
+  // 按当日涨幅降序排序(最高在前,最低在后);行业 grid 与概念 grid 共用此函数,改一处双生效
+  entries.sort(([, a], [, b]) => {
+    const pa = a.data && a.data.length ? a.data[a.data.length - 1].pct_change : -Infinity;
+    const pb = b.data && b.data.length ? b.data[b.data.length - 1].pct_change : -Infinity;
+    return (pb ?? -Infinity) - (pa ?? -Infinity);
+  });
   const ctn = containerOverride || content;
   if (!entries.length) {
     const note = document.createElement("div");
