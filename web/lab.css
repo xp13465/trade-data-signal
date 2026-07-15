@@ -499,7 +499,7 @@
   padding: 8px 10px; border-radius: 6px; margin-bottom: 10px; line-height: 1.6;
 }
 .lab-rank-list {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 6px; max-width: 760px;
   max-height: 640px; overflow-y: auto;
 }
 .lab-rank-item {
@@ -515,7 +515,7 @@
 }
 .lab-rank-name {
   font-size: 13px; font-weight: 600; color: var(--text-1);
-  flex: 1 1 220px; min-width: 0;
+  flex: 0 1 auto; min-width: 0;
 }
 .lab-rank-stats { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; font-weight: 600; }
 .lab-rank-stats .lab-rank-n { color: var(--text-4); font-weight: 400; }
