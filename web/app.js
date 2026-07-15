@@ -770,8 +770,8 @@ function gridColsOf(el) {
 // display-toggle 版动态1行折叠：所有卡片已渲染入 grid(直接子级)，按 grid 实际列数 cols 仅显示前 cols 个(1行)，
 // 其余 display:none；moreBtn 展开/收起全部；ResizeObserver 监听 grid 宽度变化重算 cols 更新显隐。
 // 适用于数据本地、可一次性渲染全部卡片的场景(如 A股市场指标走势图，r.metrics 已在内存)。
-function setupOneRowToggle(grid, items, moreTextFn) {
-  let expanded = false;
+function setupOneRowToggle(grid, items, moreTextFn, defaultExpanded = false) {
+  let expanded = defaultExpanded;
   let curCols = 0;
   let rsizeT = null;
   let roT = null;
@@ -3638,7 +3638,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
   grid.appendChild(sigCard);
   topCards.push(sigCard);
   // 动态1行折叠：1行容量按视口宽度自适应，超出进折叠，resize重算
-  setupOneRowToggle(grid, topCards, (n) => `更多（${n}）▼`);
+  setupOneRowToggle(grid, topCards, (n) => `更多（${n}）▼`, true);
 
   // ── 关键事件与口径说明（含2023汇金增持期历史验证）──
   const evt = document.createElement("div");
