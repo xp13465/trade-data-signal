@@ -3,7 +3,7 @@
 支持子集采集（pipeline 并行模式）：run(date, steps=[...]) 只跑指定 step，
 不传 steps 则全跑（向后兼容）。step 名：
   metrics / indices / boards / industry_extras / stock_daily / baostock /
-  mootdx / industry_width / width_history / futures / ad_line
+  mootdx / industry_width / width_history / futures / ad_line / turnover
 依赖由调用方保证（如 width pipeline 传 ["mootdx","industry_width","width_history"]）。
 """
 import sys
@@ -346,6 +346,48 @@ def run(date=None, verbose=True, steps=None):
         except Exception as e:  # noqa: BLE001
             fail += 1
             details.append(("ad_line", "fail", str(e)[:150]))
+
+    # 12) 换手率分布（BaoStock 增量 -> cleanup_d3d2 算 a_turnover_* 入 daily_metric）
+    # a_turnover_mean/median/p90/p10/gt5_pct 是大盘信号 A股「换手率分布分位数」「换手率>5%
+    # 家数占比」图表数据源。baostock_daily_raw 增量慢（5527 codes 串行 ~10-30min），
+    # 仅 RUN_BAOSTOCK=1 时跑（turnover pipeline 设此 env）；cleanup_d3d2 增量快（只算新
+    # 交易日），总是跑。历史根因：本步曾不自动跑 -> a_turnover 停滞 9 天（2026-07-15 修复）。
+    if _want(steps, "turnover"):
+        import os
+        if os.environ.get("RUN_BAOSTOCK"):
+            try:
+                from . import baostock_daily
+                prog = baostock_daily.load_progress()
+                todo = [c for c, v in prog.items() if v.get("r")]
+                if todo:
+                    res = baostock_daily.run_update(todo, verbose=verbose)
+                    ok += res["ok"]
+                    fail += res["fail"]
+                    details.append(("baostock_turnover", "ok" if res["fail"] == 0 else "fail",
+                                    f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
+                                    f"({len(todo)} codes)"))
+                else:
+                    details.append(("baostock_turnover", "ok", "skip (no progress)"))
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                details.append(("baostock_turnover", "fail", str(e)[:150]))
+        else:
+            details.append(("baostock_turnover", "ok",
+                            "skip (需 RUN_BAOSTOCK=1; turnover pipeline 已设)"))
+        # 算换手率分布（增量，快；部分采集日自动跳过待补全）
+        try:
+            from . import cleanup_d3d2
+            tres = cleanup_d3d2.run_turnover()
+            if "error" in tres:
+                details.append(("turnover_dist", "ok", f"skip ({tres['error']})"))
+            else:
+                details.append(("turnover_dist", "ok",
+                                f"+{tres.get('days', 0)} days, {tres.get('written', 0)} rows, "
+                                f"skipped_partial={tres.get('skipped_partial', 0)}"))
+                ok += 1
+        except Exception as e:  # noqa: BLE001
+            fail += 1
+            details.append(("turnover_dist", "fail", str(e)[:150]))
 
     if verbose:
         print(f"=== 采集 {date} 完成 (steps={steps or 'all'}): ok={ok} fail={fail} ===")

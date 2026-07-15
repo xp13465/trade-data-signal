@@ -64,23 +64,27 @@ fi
 [ "$FORCE" = "1" ] && [ "$IS_TRADING" != "1" ] && echo "⚠ force 模式：非交易日强制采集（补数据/校准）" | tee -a "$LOG"
 
 # 交易日：并发启动 pipeline
-# core/width/futures 前台并发（wait 等）；stock_daily 后台（死端不 wait，不阻塞）
-echo "-> 并发启动 pipeline: core / width / futures / stock_daily(后台)" | tee -a "$LOG"
+# core/width/futures/turnover 前台并发（wait 等，turnover 慢但需 export+push 上线，等其完成再发通知）；
+# stock_daily 后台（死端不 wait，不阻塞）
+echo "-> 并发启动 pipeline: core / width / futures / turnover / stock_daily(后台)" | tee -a "$LOG"
 bash "$REPO/scripts/pipeline.sh" core        >> "$LOG" 2>&1 &
 PID_CORE=$!
 bash "$REPO/scripts/pipeline.sh" width       >> "$LOG" 2>&1 &
 PID_WIDTH=$!
 bash "$REPO/scripts/pipeline.sh" futures     >> "$LOG" 2>&1 &
 PID_FUTURES=$!
+bash "$REPO/scripts/pipeline.sh" turnover    >> "$LOG" 2>&1 &
+PID_TURNOVER=$!
 bash "$REPO/scripts/pipeline.sh" stock_daily >> "$LOG" 2>&1 &
 PID_STOCK=$!
-echo "  PID: core=$PID_CORE width=$PID_WIDTH futures=$PID_FUTURES stock_daily=$PID_STOCK(后台不等)" | tee -a "$LOG"
+echo "  PID: core=$PID_CORE width=$PID_WIDTH futures=$PID_FUTURES turnover=$PID_TURNOVER stock_daily=$PID_STOCK(后台不等)" | tee -a "$LOG"
 
-# 等核心三线（stock_daily 后台不等）
-wait "$PID_CORE";    RC_CORE=$?
-wait "$PID_WIDTH";   RC_WIDTH=$?
-wait "$PID_FUTURES"; RC_FUTURES=$?
-echo "pipeline 退出码: core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES (stock_daily PID=$PID_STOCK 仍在后台)" | tee -a "$LOG"
+# 等核心四线（stock_daily 后台不等；turnover 慢但需上线，故 wait）
+wait "$PID_CORE";     RC_CORE=$?
+wait "$PID_WIDTH";    RC_WIDTH=$?
+wait "$PID_FUTURES";  RC_FUTURES=$?
+wait "$PID_TURNOVER"; RC_TURNOVER=$?
+echo "pipeline 退出码: core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER (stock_daily PID=$PID_STOCK 仍在后台)" | tee -a "$LOG"
 
 # 信号检测 + 邮件（失败不阻塞，保持原逻辑）
 echo "-> check_signals.sh ..." | tee -a "$LOG"
@@ -96,7 +100,7 @@ echo "-> intraday_snapshot 采集 ..." | tee -a "$LOG"
   echo "⚠ intraday_snapshot 采集失败（不阻塞主流程）" | tee -a "$LOG"
 
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
-echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES check_signals=$SIGNAL_RC" | tee -a "$LOG"
+echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
 
 # 监控通知：耗时 + 退出码 + 日志路径（发邮件 + 严重时写 alerts）
 END_TS=$(date +%s)
@@ -106,7 +110,7 @@ SEVERE=0
 [ "$ELAPSED" -gt 3600 ] && SEVERE=1
 [ "$RC_CORE" -ne 0 ] && SEVERE=1
 NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
-NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES check_signals=$SIGNAL_RC<br>日志：$LOG<br>结束时间：$NOW_STR"
+NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC<br>日志：$LOG<br>结束时间：$NOW_STR"
 if [ "$SEVERE" -eq 1 ]; then
   ISSUE="update_all 严重告警："
   [ "$ELAPSED" -gt 3600 ] && ISSUE="${ISSUE}耗时超1h(${ELAPSED_MIN}分钟) "

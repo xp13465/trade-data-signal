@@ -36,8 +36,12 @@ STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"
 SENTIMENT_DB_PATH = _DATA_DIR / "sentiment.db"
 REPORT_PATH = _DATA_DIR / "cleanup_d3d2_report.json"
 
-START_DATE = "20160101"  # 校验和回填起点（与 D2 一致）
-END_DATE = "20260706"
+START_DATE = "20160101"  # 校验和回填起点（与 D2 一致）；turnover 增量模式自动覆盖
+END_DATE = dt.date.today().strftime("%Y%m%d")  # 动态：始终算到今天（受 baostock_daily_raw 实际数据上限约束）
+
+# 单日最少股票数：低于此数视为部分采集（如 baostock 中断只采到 2281/5072），
+# 跳过该日避免换手率分布失真；待 baostock 补全后重跑自动补回。
+MIN_STOCKS_PER_DAY = 4000
 
 # 除权日检测阈值：两源 pct_change 差异 > 0.5%（绝对值）视为除权日/源差异，
 # 剔除后再算 pct_change 差异率（其他字段除权日通常仍一致，因为是同一日的真实价格）。
@@ -330,19 +334,44 @@ def _now():
     return dt.datetime.now().isoformat()
 
 
-def compute_turnover_dist() -> pd.DataFrame:
+def _last_turnover_date() -> str | None:
+    """daily_metric 中 a_turnover_mean 的最大日期（增量起点）。无数据返回 None。"""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT MAX(date) FROM daily_metric WHERE metric_id='a_turnover_mean'"
+    ).fetchone()
+    conn.close()
+    return row[0] if row and row[0] else None
+
+
+def compute_turnover_dist(*, start_date: str | None = None,
+                          end_date: str | None = None) -> pd.DataFrame:
     """从 baostock_daily_raw 算每日换手率分布。
 
     返回 DataFrame: date/mean/median/p90/p10/gt5_pct。
     每日所有股票 turnover 的分布统计（剔除 NULL/NaN）。
+
+    增量模式（默认）：start_date 不传时取 daily_metric 中 a_turnover_mean 的最大日期 +1 天，
+    只算新增交易日（快，避免每次重算 2016 至今 1500 万行）。end_date 默认今天。
     """
-    print(f"[turnover] loading baostock turnover {START_DATE}..{END_DATE} ...", flush=True)
+    if end_date is None:
+        end_date = END_DATE
+    if start_date is None:
+        last = _last_turnover_date()
+        if last:
+            d = dt.datetime.strptime(last, "%Y%m%d").date() + dt.timedelta(days=1)
+            start_date = d.strftime("%Y%m%d")
+            print(f"[turnover] 增量模式：从 daily_metric 末尾 {last} +1 -> {start_date}", flush=True)
+        else:
+            start_date = START_DATE
+            print(f"[turnover] 无历史数据，全量模式：{start_date}..{end_date}", flush=True)
+    print(f"[turnover] loading baostock turnover {start_date}..{end_date} ...", flush=True)
     t0 = time.time()
     conn = sqlite3.connect(f"file:{STOCK_DB_PATH}?mode=ro", uri=True, timeout=60.0)
     try:
         df = pd.read_sql_query(
             f"SELECT date, turnover FROM baostock_daily_raw "
-            f"WHERE date >= '{START_DATE}' AND date <= '{END_DATE}' "
+            f"WHERE date >= '{start_date}' AND date <= '{end_date}' "
             f"  AND turnover IS NOT NULL AND turnover != ''",
             conn,
         )
@@ -433,28 +462,50 @@ def run_validate() -> dict:
     return res
 
 
-def run_turnover() -> dict:
-    g = compute_turnover_dist()
+def run_turnover(*, full: bool = False) -> dict:
+    """算换手率分布并回填 daily_metric。
+
+    full=True 强制全量重算（2016 至今，慢）；默认增量（只算 daily_metric 末尾之后的新交易日）。
+    部分采集日（股票数 < MIN_STOCKS_PER_DAY）跳过，待 baostock 补全后重跑自动补回。
+    """
+    if full:
+        g = compute_turnover_dist(start_date=START_DATE)
+    else:
+        g = compute_turnover_dist()
     if len(g) == 0:
         print("[turnover] no data, abort", flush=True)
         return {"error": "no turnover data"}
+    # 剔除部分采集日（股票数过少 -> 分布失真）
+    before = len(g)
+    skipped_partial = g[g["count"] < MIN_STOCKS_PER_DAY]
+    g = g[g["count"] >= MIN_STOCKS_PER_DAY].reset_index(drop=True)
+    if len(skipped_partial):
+        for _, row in skipped_partial.iterrows():
+            print(f"[turnover] 跳过部分采集日 {row['date']}：仅 {int(row['count'])} 只 "
+                  f"< {MIN_STOCKS_PER_DAY}，待 baostock 补全后重跑补回", flush=True)
+    print(f"[turnover] 待回填 {len(g)} 天（剔除 {before - len(g)} 天部分采集）", flush=True)
+    if len(g) == 0:
+        print("[turnover] 全部为部分采集日，无新数据可回填", flush=True)
+        return {"written": 0, "skipped_partial": int(before), "days": 0}
     res = upsert_turnover(g)
+    res["skipped_partial"] = int(before - len(g))
     print(f"\n=== turnover done: {res} ===", flush=True)
     return res
 
 
 def _cli(argv: list[str]) -> int:
     cmd = argv[1] if len(argv) > 1 else "all"
+    full = "--full" in argv  # 强制全量重算（默认增量）
     if cmd == "validate":
         run_validate()
     elif cmd == "turnover":
-        run_turnover()
+        run_turnover(full=full)
     elif cmd == "all":
         run_validate()
-        run_turnover()
+        run_turnover(full=full)
     else:
         print(f"unknown command: {cmd}")
-        print("usage: python -m app.collector.cleanup_d3d2 <validate|turnover|all>")
+        print("usage: python -m app.collector.cleanup_d3d2 <validate|turnover|all> [--full]")
         return 2
     return 0
 

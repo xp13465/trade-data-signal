@@ -6,6 +6,9 @@
 #   width       step mootdx,industry_width,width_history + compute + 全量 export + push（慢宽度，后覆盖）
 #   futures     step futures                           + 全量 export + push（独立）
 #   stock_daily step stock_daily                       （死端，仅采集备用，不 export 不 push）
+#   turnover    step turnover (baostock增量 + cleanup_d3d2 算 a_turnover) + 全量 export + push
+#               （慢，baostock 5527 codes 串行 ~10-30min；设 RUN_BAOSTOCK=1 启用 baostock 子步；
+#                不阻塞 core——core 先抢 deploy 锁上线，turnover 采完后排号 deploy）
 #
 # 用法：bash scripts/pipeline.sh <name>
 # 交易日闸门由 update_all.sh 统一判断；本脚本不判断 -> 手动跑 = 强制采集（补数据场景）。
@@ -29,8 +32,15 @@ case "$NAME" in
   width)       STEPS="mootdx,industry_width,width_history";    DO_COMPUTE=1; DO_EXPORT=1; DO_PUSH=1 ;;
   futures)     STEPS="futures";                                DO_COMPUTE=0; DO_EXPORT=1; DO_PUSH=1 ;;
   stock_daily) STEPS="stock_daily";                            DO_COMPUTE=0; DO_EXPORT=0; DO_PUSH=0 ;;
-  *) echo "✗ 未知 pipeline: $NAME（可选: core|width|futures|stock_daily）" | tee -a "$LOG"; exit 2 ;;
+  turnover)    STEPS="turnover";                               DO_COMPUTE=0; DO_EXPORT=1; DO_PUSH=1 ;;
+  *) echo "✗ 未知 pipeline: $NAME（可选: core|width|futures|stock_daily|turnover）" | tee -a "$LOG"; exit 2 ;;
 esac
+
+# turnover pipeline 需跑 baostock（慢），设 RUN_BAOSTOCK=1 启用 runner turnover step 的 baostock 子步。
+# 其它 pipeline 不设 -> runner os.environ.get("RUN_BAOSTOCK") 为 None -> baostock 子步跳过（cleanup 仍跑）。
+if [ "$NAME" = "turnover" ]; then
+  export RUN_BAOSTOCK=1
+fi
 
 echo "=== pipeline[$NAME] 开始 $(date '+%Y-%m-%d %H:%M:%S') steps=$STEPS ===" | tee -a "$LOG"
 
