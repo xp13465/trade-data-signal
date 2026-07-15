@@ -23,6 +23,11 @@
   SW_OHLC_SOURCE=="ths" 时跳过申万 trend 直接走同花顺；=="sw" 时走申万（恢复
   后回切）。
 
+同花顺概念指数（thsc_* 27 个）：stock_board_concept_index_ths 历史序列 T+1，
+  次日才出当日点。盘后用 stock_board_concept_info_ths(symbol=概念名) 当日快照
+  合成 OHLC 补采当日行（open=今开/high=最高/low=最低/close=昨收×(1+涨幅/100)/
+  pct=板块涨幅/amount=成交额(亿)×1e8 转元对齐历史序列）。
+
 触发：runner.step2 indices 采完后调用 verify_and_backfill_indices(date)。
 """
 from .base import log_collect
@@ -172,6 +177,60 @@ def _sw_trend_fetch(sw_id, date):
              _tof(last.get("markup")), _tof(last.get("bargainsum")))]
 
 
+def _ths_concept_info_fetch(thsc_id, concept_name, date):
+    """同花顺概念板块当日快照合成 OHLC 补采。
+
+    stock_board_concept_index_ths 历史序列 T+1（次日才出当日点），盘后用
+    stock_board_concept_info_ths(symbol=概念名) 当日快照合成当日行。
+    快照返 项目/值 两列 DataFrame，取 今开/昨收/最低/最高/板块涨幅/成交额(亿)。
+
+    合成: open=今开 high=最高 low=最低
+          close=昨收×(1+板块涨幅/100) pct=板块涨幅
+          amount=成交额(亿)×1e8(转元,对齐 _collect_ths_concept 历史序列入库单位)
+
+    返回 [(date, thsc_id, open, high, low, close, pct, amount)] 或 []。
+    """
+    import akshare as ak
+    try:
+        df = ak.stock_board_concept_info_ths(symbol=concept_name)
+    except Exception as e:  # noqa: BLE001
+        log_collect(date, thsc_id, "warn", f"概念快照获取异常: {e}")
+        return []
+    if df is None or len(df) == 0:
+        return []
+    # 快照为 项目/值 两列，转 dict 便于按项目名取值
+    d = dict(zip(df["项目"].astype(str), df["值"]))
+
+    def _num(key, strip_pct=False):
+        v = d.get(key)
+        if v is None:
+            return None
+        s = str(v).strip()
+        if strip_pct:
+            s = s.rstrip("%").strip()
+        try:
+            f = float(s)
+            return f if f == f else None  # NaN -> None
+        except (TypeError, ValueError):
+            return None
+
+    open_ = _num("今开")
+    high = _num("最高")
+    low = _num("最低")
+    pre_close = _num("昨收")
+    pct = _num("板块涨幅", strip_pct=True)
+    amt_yi = _num("成交额(亿)")  # 单位亿元
+    # close 用昨收×(1+涨幅/100)（快照无收盘价字段，反推）
+    close = None
+    if pre_close is not None and pct is not None:
+        close = pre_close * (1 + pct / 100.0)
+    # amount 转元对齐历史序列单位
+    amount = amt_yi * 1e8 if amt_yi is not None else None
+    if close is None:
+        return []
+    return [(date, thsc_id, open_, high, low, close, pct, amount)]
+
+
 def verify_and_backfill_indices(date, verbose=True):
     """step2 采后校验：核心 A 股指数 + 申万行业指数今日缺失则多源补采。
 
@@ -289,7 +348,43 @@ def verify_and_backfill_indices(date, verbose=True):
                 if verbose:
                     print(f"    - {sw_id} 申万源故障/同花顺当日未发布，下次定时任务再补")
 
-    # ── 3. 港股+全球指数校验补采 ──────────────────────────────────────────
+    # ── 3. 同花顺概念指数（thsc_*）补采 ──────────────────────────────────
+    # stock_board_concept_index_ths 历史序列 T+1（次日才出当日点），盘后用
+    # stock_board_concept_info_ths 当日快照合成 OHLC 补采当日行（见上方
+    # _ths_concept_info_fetch）。概念配置从 indicators.yaml 读 enabled thsc_ 项。
+    from . import fetchers as _fetchers_mod
+    _concept_cfg = _fetchers_mod.load_config()
+    _thsc_cfgs = [i for i in _concept_cfg.get("indices", [])
+                  if i.get("id", "").startswith("thsc_") and i.get("enabled", True)]
+    thsc_missing = []
+    for tc in _thsc_cfgs:
+        r = conn.execute(
+            "SELECT close FROM index_daily WHERE index_id=? AND date=?", (tc["id"], date)
+        ).fetchone()
+        if r is None or r["close"] is None:
+            thsc_missing.append(tc)
+    if not thsc_missing:
+        if verbose:
+            print(f"  [校验] {len(_thsc_cfgs)} 个概念指数今日({date})齐全 ✓")
+    else:
+        if verbose:
+            print(f"  [校验] {len(thsc_missing)} 个概念指数缺今日 {date} -> 同花顺快照合成补采")
+        from .runner import upsert_index_rows
+        for tc in thsc_missing:
+            rows = _ths_concept_info_fetch(tc["id"], tc["symbol"], date)
+            if rows:
+                upsert_index_rows(rows)
+                ok += 1
+                details.append((tc["id"], "ok", f"backfill ths-snapshot close={rows[0][5]} pct={rows[0][6]}"))
+                if verbose:
+                    print(f"    ✓ {tc['id']} <- ths-snapshot close={rows[0][5]} pct={rows[0][6]}")
+            else:
+                fail += 1
+                details.append((tc["id"], "fail", "同花顺概念快照获取失败"))
+                if verbose:
+                    print(f"    - {tc['id']} 同花顺快照获取失败，下次定时任务再补")
+
+    # ── 4. 港股+全球指数校验补采 ──────────────────────────────────────────
     # 港股(hsi/hstech/hscei)走新浪全量源 stock_hk_index_daily_sina,16:00收盘后出当日。
     # 美股(us_dji/us_ixic/us_spx/us_ndx)走 index_us_stock_sina,北京时差晚21:30+才开盘,
     # A股交易日时美股最新通常是T-1或T-2(跨周末),不强求当日,校验"最新日期距今<=3天"(覆盖跨周末)即可。
