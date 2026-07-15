@@ -4747,7 +4747,7 @@ async function renderRotationCard(container) {
           <span class="rotation-item ${c20.cls}">20日: ${concept.speed_20d}% <span class="rit-full">${c20.text}</span><span class="rit-short">${c20.short}</span></span>
         </div>` : ""}
         <div class="rotation-hint">💡 ${swHint}</div>
-        <details class="rotation-explain"><summary>📊 这个百分比怎么看？</summary><div class="rotation-explain-body">
+        <details class="rotation-explain" open><summary>📊 这个百分比怎么看？</summary><div class="rotation-explain-body">
           <div>每天找出当天<b>涨幅最高</b>的板块（领涨板块），看过去 N 天领涨<b>换了几次</b>：换得越多百分比越高。</div>
           <div>举例（5 日窗口，最多换 4 次）：</div>
           <div class="rotation-explain-example">同一板块连涨 5 天 -> 换 0 次 -> <b>0%</b>（轮动缓慢）<br>5 天换 4 次领涨 -> <b>100%</b>（快速轮动，一天换一个）</div>
