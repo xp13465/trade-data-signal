@@ -4420,8 +4420,8 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
         return s;
       },
     },
-    grid: { left: 56, right: 16, top: 24, bottom: 90 },
-    xAxis: { type: "category", data: names, axisLabel: { color: cssVar("--text-1"), rotate: 50, fontSize: 10, interval: 0 }, splitArea: { show: false } },
+    grid: { left: 56, right: 16, top: 24, bottom: 60 },
+    xAxis: { type: "category", data: names, axisLabel: { color: cssVar("--text-1"), rotate: 0, fontSize: 10, interval: 0 }, splitArea: { show: false } },
     yAxis: { type: "category", data: yCats, axisLabel: { color: cssVar("--text-1"), fontSize: 11 } },
     visualMap: {
       min: -5, max: 5, calculable: true, orient: "horizontal", left: "center", bottom: 4,

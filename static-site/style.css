@@ -1716,11 +1716,13 @@ main { padding: 16px 24px; }
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
   margin-bottom: 16px;
 }
 .rotation-heatmap-grid .rotation-card,
 .rotation-heatmap-grid .chart-card { margin-bottom: 0; }
+.rotation-heatmap-grid .rotation-card { display: flex; flex-direction: column; }
+.rotation-heatmap-grid .rotation-card-body { flex: 1; }
 .rotation-heatmap-grid.single-col { grid-template-columns: 1fr; }
 @media (max-width: 768px) {
   .rotation-heatmap-grid { grid-template-columns: 1fr; }
