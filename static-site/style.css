@@ -1246,6 +1246,8 @@ main { padding: 16px 24px; }
 .heatmap-toggle button:hover:not(.active) { background: var(--bg-hover); }
 
 /* === 期货机构持仓 === */
+/* 表格卡/说明卡间距对齐 indices-grid gap 12px(图表卡在grid内由gap控制,表格卡全宽需显式设) */
+.futures-table-card { margin-bottom: 12px; }
 .futures-note {
   font-size: 12px;
   color: var(--text-3);
@@ -1292,12 +1294,12 @@ main { padding: 16px 24px; }
 .futures-summary-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 .futures-summary-table th,
 .futures-summary-table td {
-  padding: 8px 10px;
+  padding: 6px 8px;
   text-align: right;
   border-bottom: 1px solid var(--bg-hover);
 }
@@ -1305,7 +1307,7 @@ main { padding: 16px 24px; }
   background: var(--bg-hover);
   color: var(--text-2);
   font-weight: 500;
-  font-size: 12px;
+  font-size: 11px;
 }
 .futures-summary-table th:first-child,
 .futures-summary-table td:first-child {

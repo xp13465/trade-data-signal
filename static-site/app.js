@@ -4263,10 +4263,10 @@ function renderFuturesSection(data, snap) {
   // 1. 昨日净多空概览卡片
   if (data.summary && data.summary.roles) {
     const div = document.createElement("div");
-    div.className = "chart-card";
+    div.className = "chart-card futures-table-card";
     const dateStr = data.summary.date || "";
-    let html = `<h3>昨日净多空（手） ${dateStr}</h3>`;
-    html += '<div class="futures-note">正数=净多（绿），负数=净空（红）。数据来源：中金所前20会员持仓。</div>';
+    const dateSuffix = dateStr ? `<span class="chart-latest"> · ${fmtDate(dateStr)}</span>` : "";
+    let html = `<h3>昨日净多空（手）${dateSuffix}</h3>`;
     html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
     for (const role of roles) html += `<th>${role}</th>`;
     html += '</tr></thead><tbody>';
@@ -4281,14 +4281,16 @@ function renderFuturesSection(data, snap) {
       html += '</tr>';
     }
     html += '</tbody></table>';
+    html += '<div class="term-plain">正数=净多（绿），负数=净空（红）。数据来源：中金所前20会员持仓。</div>';
     div.innerHTML = html;
     content.appendChild(div);
+    addCardTimeBadge(div, dateStr, snap);
   }
 
   // 2. 历史准确率表格（移到综合图前面）
   if (data.accuracy) {
     const div = document.createElement("div");
-    div.className = "chart-card";
+    div.className = "chart-card futures-table-card";
     const windows = ["30d", "60d", "120d"];
     const accDates = (data.positions || []).map(p => p.date).filter(Boolean).sort();
     const accDateSuffix = accDates.length ? `<span class="chart-latest"> · ${fmtDate(accDates[accDates.length - 1])}</span>` : "";
@@ -4347,9 +4349,10 @@ function renderFuturesSection(data, snap) {
     }
     html += '</tr>';
     html += '</tbody></table>';
-    html += '<div class="futures-note" style="margin-top:10px;">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
+    html += '<div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     div.innerHTML = html;
     content.appendChild(div);
+    addCardTimeBadge(div, accDates.length ? accDates[accDates.length - 1] : "", snap);
   }
 
   // 期货折线图区套 .indices-grid 3列网格(与情绪图表区一致)，4张图并排
@@ -4468,8 +4471,8 @@ function renderFuturesSection(data, snap) {
   // 4. 说明文字
   {
     const div = document.createElement("div");
-    div.className = "chart-card";
-    div.innerHTML = '<div class="futures-note">机构=中金所前20会员汇总。中信/国君为单独席位。折线图为净多空手数（正=净多，负=净空），hover 可查看比例。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
+    div.className = "chart-card futures-table-card";
+    div.innerHTML = '<h3>说明</h3><div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。折线图为净多空手数（正=净多，负=净空），hover 可查看比例。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     content.appendChild(div);
   }
 }
