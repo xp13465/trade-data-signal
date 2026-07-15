@@ -391,8 +391,11 @@ def _tencent_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) ->
     if not tencent_code:
         return False
     try:
-        resp = requests.get(f"https://qt.gtimg.cn/q={tencent_code}", timeout=10)
-        vals = resp.text.split('"', 2)[1].split("~")
+        # 与 intraday_snapshot 一致：http + gbk 解码（requests 不会自动识别腾讯 GBK 编码，
+        # 默认 latin-1 会乱码；数字字段是 ASCII 不影响解析，但 gbk 才正确）
+        resp = requests.get(f"http://qt.gtimg.cn/q={tencent_code}",
+                            headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        vals = resp.content.decode("gbk", errors="replace").split('"', 2)[1].split("~")
         if len(vals) < 35:
             return False
     except Exception:  # noqa: BLE001
