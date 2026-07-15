@@ -1852,13 +1852,13 @@ main { padding: 16px 24px; }
   /* H5：tab 按钮+搜索框一行放不下时，搜索框换行占满整行 */
   .industry-anchor-bar .anchor-search { flex-basis: 100%; max-width: none; margin-left: 0; }
 
-  /* 收盘分析横幅 H5:text+tags 同行靠左,meta 窄屏换到第二行靠右(time-label 隐藏后 meta 较短,一行容得下) */
+  /* 收盘分析横幅 H5:行1=日期(text)+meta(收盘小结/更多,靠右),行2=tags(情绪+恐贪标签,靠左独占) */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
   .summary-top { flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; gap: 4px 10px; }
   .summary-title { display: contents; }   /* 不生成盒子,子元素提升为 summary-top 的 flex item */
   .summary-title-text { font-size: 14px; font-weight: 600; order: 1; }
-  .summary-title-tags { flex: 0 0 auto; order: 2; }   /* 情绪+恐贪标签移到第二行,与 meta 同行靠左 */
-  .summary-meta { flex-wrap: nowrap; align-self: flex-start; order: 2; }   /* margin-left:auto 承自 base,靠右;更多按钮落第二行右上角 */
+  .summary-meta { flex-wrap: nowrap; align-self: flex-start; order: 1; }   /* 与 text 同行(order1),margin-left:auto 承自 base 靠右;更多按钮落第一行右上角 */
+  .summary-title-tags { flex: 0 0 100%; order: 2; }   /* 情绪+恐贪标签独占第二行(flex-basis:100% 强制换行),靠左 */
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
