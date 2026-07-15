@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trade.rzhb-backfill</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/linhuichen/code/trade/scripts/rzhb_backfill.sh</string>
+    </array>
+    <!-- 每日 22:10 跑：两融余额（a_fund_margin，沪市融资余额）源 stock_margin_sse
+         盘后 ~18:00-19:00 发布当日数据，17:50 update_all 采不到（停在 T-1）。
+         22:10 单采当日（远晚于发布时点）根治滞后，独立于 20:00 backfill 的 SERIES_FUNCS 兜底。
+         采集几秒 + compute + 持 deploy 锁推送；22:10 时段 deploy.lock 通常空闲。 -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>22</integer>
+        <key>Minute</key>
+        <integer>10</integer>
+    </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>/Users/linhuichen/code/trade</string>
+    <key>StandardOutPath</key>
+    <string>/Users/linhuichen/code/trade/data/logs/rzhb_backfill_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linhuichen/code/trade/data/logs/rzhb_backfill_launchd.err</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <!-- 超时 3600s：deploy.lock 可能排队等晚跑任务，给足等待。 -->
+    <key>ExitTimeOut</key>
+    <integer>3600</integer>
+</dict>
+</plist>

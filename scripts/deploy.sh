@@ -75,10 +75,17 @@ fi
 # 5. 总是 git push（幂等：有未 push commit 就推，无则 "Everything up-to-date"）
 echo "→ git push ..." | tee -a "$LOG"
 git -C "$REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
-PUSH_RC=${PIPESTATUS[0]:-0}
+PUSH_RC=${PIPESTATUS[0]}
 if [ "$PUSH_RC" -ne 0 ]; then
-  echo "✗ git push 失败（退出码 $PUSH_RC）" | tee -a "$LOG"
-  exit "$PUSH_RC"
+  # 可能是并发竞争 non-fast-forward：fetch 后确认 HEAD 是否已被推到 origin/main
+  git -C "$REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
+  if git -C "$REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+    echo "⚠ push 返回 $PUSH_RC 但 HEAD 已在 origin/main（并发 deploy 已推送），视为幂等成功" | tee -a "$LOG"
+    PUSH_RC=0
+  else
+    echo "✗ git push 失败（退出码 $PUSH_RC）" | tee -a "$LOG"
+    exit "$PUSH_RC"
+  fi
 fi
 
 echo "✓ push 成功（Cloudflare wrangler deploy 将自动部署）" | tee -a "$LOG"

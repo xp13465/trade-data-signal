@@ -43,5 +43,8 @@
     <string>/Users/linhuichen/code/trade/data/logs/backfill_evening_launchd.err</string>
     <key>RunAtLoad</key>
     <false/>
+    <!-- 超时 7200s：20:00 槽位重跑序列指标补采 + 持 deploy 锁推送，deploy.lock 可能排队，给足等待。 -->
+    <key>ExitTimeOut</key>
+    <integer>7200</integer>
 </dict>
 </plist>

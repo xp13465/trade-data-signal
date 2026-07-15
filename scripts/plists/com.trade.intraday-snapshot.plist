@@ -94,7 +94,8 @@
     <string>/Users/linhuichen/code/trade/data/logs/intraday_snapshot_launchd.err</string>
     <key>RunAtLoad</key>
     <false/>
+    <!-- 超时 1800s：盘中轻量快照（几秒采集+持deploy锁推送），给 launchd 合理上限防僵死。 -->
+    <key>ExitTimeOut</key>
+    <integer>1800</integer>
 </dict>
 </plist>
-</content>
-</invoke>

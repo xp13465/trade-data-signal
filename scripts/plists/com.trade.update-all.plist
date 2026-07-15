@@ -29,5 +29,8 @@
 	</dict>
 	<key>WorkingDirectory</key>
 	<string>/Users/linhuichen/code/trade</string>
+	<!-- 超时 7200s：全量采集最重（多源 + 回填 + 推送），给足上限防僵死。 -->
+	<key>ExitTimeOut</key>
+	<integer>7200</integer>
 </dict>
 </plist>

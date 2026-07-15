@@ -33,5 +33,8 @@
 	<string>/Users/linhuichen/code/trade/data/logs/etf_national_team_launchd.log</string>
 	<key>WorkingDirectory</key>
 	<string>/Users/linhuichen/code/trade</string>
+	<!-- 超时 1800s：ETF 份额采集轻量，给 launchd 合理上限。 -->
+	<key>ExitTimeOut</key>
+	<integer>1800</integer>
 </dict>
 </plist>
