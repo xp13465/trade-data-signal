@@ -767,8 +767,6 @@ function renderErrorState(container, err, retryFn) {
 // ============ 动态1行折叠：1行容量按视口宽度自适应，超出1行进折叠，resize 重算 ============
 // 读 getComputedStyle(grid).gridTemplateColumns 的实际轨道数(适配 auto-fill / 媒体查询任一布局)，
 // 比 Math.floor(width/minW) 更准(与浏览器实际排布一致)。
-// _prevIndicesFoldRO：跨 renderAStock 重建时断开上一个 indicesSection 的 ResizeObserver，防泄漏。
-let _prevIndicesFoldRO = null;
 function gridColsOf(el) {
   if (!el) return 1;
   const tpl = getComputedStyle(el).gridTemplateColumns;
@@ -835,14 +833,9 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
 
   const signalsCache = {}; // 闭包级缓存：tab/range 切换时整个 renderAStock/renderHK 重建，缓存自然失效
   const sectionCharts = [];
-  // 动态1行折叠状态(foldOneRow 模式)：expanded=展开全部 / curCols=当前1行容量 / rendering+pendingRender 防 resize 重入
-  let expanded = false;
-  let curCols = 0;
+  // rendering+pendingRender 防 onchange 重入(快速切筛选时上一次 await 未完)
   let rendering = false;
   let pendingRender = false;
-  let ro = null;
-  let roTimer = null;
-  let lastWidth = 0;
 
   function disposeSectionCharts() {
     sectionCharts.forEach((c) => {
@@ -891,99 +884,29 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
       }
       return;
     }
-    // "全部"模式：foldOneRow 时按 grid 实际列数算1行容量，仅展示1行(上证指数首个上浮首屏)，其余折叠；
-    // 窗口 resize 重算1行容量并重渲染(signalsCache 缓存不 refetch)。未传 foldOneRow(港股)=展全部。
-    let cardGrid = null;
+    // "全部"模式：A股(foldOneRow=true)9个指数全部直接铺入 .indices-grid 网格(不折叠，无"更多指数"按钮)；
+    // 港股(未传 foldOneRow)全部铺入 container(保持原行为)。
     let parent = container;
     if (foldOneRow) {
-      cardGrid = document.createElement("div");
+      const cardGrid = document.createElement("div");
       cardGrid.className = "indices-grid";
       container.appendChild(cardGrid);
       parent = cardGrid;
-      curCols = gridColsOf(cardGrid);
     }
-    const showCount = foldOneRow ? curCols : entries.length;
-    const visibleEntries = entries.slice(0, showCount);
-    const restEntries = entries.slice(showCount);
-    for (const [id, idx] of visibleEntries) {
+    for (const [id, idx] of entries) {
       await renderOne(id, idx, parent);
-    }
-    if (restEntries.length) {
-      const extraWrap = document.createElement("div");
-      extraWrap.style.marginTop = "8px";
-      container.appendChild(extraWrap);
-      const moreBtn = document.createElement("button");
-      moreBtn.className = "more-toggle";
-      moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed var(--border-strong);border-radius:6px;background:var(--bg-hover);color:var(--text-3);cursor:pointer;font-size:13px;";
-      extraWrap.appendChild(moreBtn);
-      const extraGrid = document.createElement("div");
-      if (foldOneRow) extraGrid.className = "indices-grid";
-      extraGrid.style.display = "none";
-      extraWrap.appendChild(extraGrid);
-      const restCount = restEntries.length;
-      function syncMoreBtn() {
-        moreBtn.textContent = expanded ? "收起 ▲" : `更多指数（${restCount}）▼`;
-        moreBtn.style.display = restCount > 0 ? "block" : "none";
-      }
-      syncMoreBtn();
-      moreBtn.onclick = async () => {
-        if (extraGrid.style.display === "none") {
-          extraGrid.style.display = foldOneRow ? "grid" : "block";
-          expanded = true;
-          if (!extraGrid.dataset.rendered) {
-            for (const [id, idx] of restEntries) {
-              await renderOne(id, idx, extraGrid);
-            }
-            extraGrid.dataset.rendered = "1";
-          }
-        } else {
-          extraGrid.style.display = "none";
-          expanded = false;
-        }
-        syncMoreBtn();
-      };
-      // 保留展开态：resize 重渲染后若之前已展开，自动展开剩余(数据走 signalsCache 不 refetch)
-      if (expanded) {
-        extraGrid.style.display = foldOneRow ? "grid" : "block";
-        if (!extraGrid.dataset.rendered) {
-          for (const [id, idx] of restEntries) {
-            await renderOne(id, idx, extraGrid);
-          }
-          extraGrid.dataset.rendered = "1";
-        }
-      }
     }
   }
 
-  // doRender 包装：防 resize 重入(rendering 期间触发的重渲染延后到 pendingRender)，避免并发渲染撞 charts 数组
+  // doRender 包装：防 onchange 重入(快速切筛选时上一次 await 未完即触发下一次)，避免并发渲染撞 charts 数组
   async function doRender() {
     if (rendering) { pendingRender = true; return; }
     rendering = true;
-    clearTimeout(roTimer);
     try { await _doRender(); }
     finally {
       rendering = false;
       if (pendingRender) { pendingRender = false; doRender(); }
     }
-  }
-
-  // foldOneRow 模式：ResizeObserver 监听容器宽度变化(只认宽度，高度变化如展开/折叠不触发重渲染)，
-  // 宽度变化致1行容量(cols)改变时重渲染。signalsCache 缓存使重渲染不 refetch。
-  // 切 tab/renderAStock 重建会新建 observer，先断开上一个(_prevIndicesFoldRO)防泄漏。
-  if (foldOneRow && typeof ResizeObserver !== "undefined") {
-    if (_prevIndicesFoldRO) { _prevIndicesFoldRO.disconnect(); _prevIndicesFoldRO = null; }
-    ro = new ResizeObserver((ents) => {
-      const w = ents && ents[0] ? ents[0].contentRect.width : 0;
-      if (w === lastWidth) return; // 只关心宽度变化(展开/折叠致高度变不重渲染)
-      lastWidth = w;
-      clearTimeout(roTimer);
-      roTimer = setTimeout(() => {
-        const g = container.querySelector(".indices-grid");
-        if (g && gridColsOf(g) !== curCols) doRender();
-      }, 250);
-    });
-    ro.observe(container);
-    _prevIndicesFoldRO = ro;
   }
 
   return doRender();

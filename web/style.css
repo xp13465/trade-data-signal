@@ -659,7 +659,7 @@ main { padding: 16px 24px; }
 }
 .astock-top-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800 */
   gap: 12px;
   margin-bottom: 16px;
   align-items: stretch;
@@ -670,19 +670,18 @@ main { padding: 16px 24px; }
 }
 .astock-top-grid .chart-card { min-height: 200px; margin-bottom: 12px; }
 .astock-top-grid .chart-card:last-child { margin-bottom: 0; }
-/* 指数折线区动态1行折叠网格(A股)：1行容量随视口宽度自适应(窄屏1/宽屏4-6)，超出1行进折叠 */
+/* 指数折线区网格(A股)：9个指数全部铺开不折叠；移动端1列撑满，PC 每列最小800px */
 .indices-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800 */
   gap: 12px;
   margin-bottom: 12px;
   align-items: stretch;
 }
-/* PC(>768px)：加宽指数/指标折线图列宽，减少列数使每图更宽(窄的根因=auto-fill 在宽屏生成过多 320/280px 窄列)；移动端维持原列宽自适应 */
-/* 大盘信号 A股卡片网格自身最小宽度 900px：窄于 900 的视口(如 iframe 嵌入)不挤压成单列窄卡，保持多列可读宽度，溢出由页面横向滚动；移动端(≤768px)豁免维持自适应 */
+/* PC(>768px)：A股指标/指数折线图卡片最小宽度 800px，宽屏每行2图更宽更易读；移动端(≤768px)豁免800维持1列撑满 */
 @media (min-width: 769px) {
-  .astock-top-grid { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); min-width: 900px; }
-  .indices-grid { grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); min-width: 900px; }
+  .astock-top-grid { grid-template-columns: repeat(auto-fill, minmax(800px, 1fr)); }
+  .indices-grid { grid-template-columns: repeat(auto-fill, minmax(800px, 1fr)); }
 }
 .empty-note { color: var(--text-3); padding: 14px 0; font-size: 13px; }
 
