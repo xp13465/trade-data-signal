@@ -161,10 +161,18 @@ def get_conn() -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """增量迁移：对已存在的旧 DB 补字段（CREATE TABLE IF NOT EXISTS 不会加列）。"""
+    """增量迁移：对已存在的旧 DB 补字段（CREATE TABLE IF NOT EXISTS 不会加列）。
+    并发首跑容错：多进程同时首次 get_conn 都检测到缺列都跑 ALTER，第二个报
+    duplicate column name，忽略即可（另一进程已加列）。"""
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(index_daily)")}
     if "net_inflow" not in cols:
-        conn.execute("ALTER TABLE index_daily ADD COLUMN net_inflow REAL")
+        try:
+            conn.execute("ALTER TABLE index_daily ADD COLUMN net_inflow REAL")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e):
+                pass  # 并发首跑竞态，另一进程已加列，忽略
+            else:
+                raise
 
 
 def init_db() -> None:
