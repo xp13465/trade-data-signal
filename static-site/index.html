@@ -94,9 +94,9 @@ var _hmt = _hmt || [];
     <!-- UX：周期选择器移入 tab 栏右端，随 sticky tab 栏一起悬浮顶部，下滚始终可见可操作 -->
     <!-- 默认隐藏防闪烁：概览/实验室 tab 无需周期切换，renderTab 按 tab 控制显隐 -->
     <div class="periods" style="display:none">
-      <button data-rng="3m">3月</button>
+      <button data-rng="3m" class="active">3月</button>
       <button data-rng="6m">6月</button>
-      <button data-rng="1y" class="active">1年</button>
+      <button data-rng="1y">1年</button>
       <button data-rng="3y">3年</button>
       <button data-rng="5y">5年</button>
       <button data-rng="all">全部</button>
@@ -107,9 +107,9 @@ var _hmt = _hmt || [];
   <!-- 默认隐藏防闪烁：概览/实验室 tab 无需周期切换，renderTab 按 tab 控制显隐 -->
   <nav class="h5-period-bar" style="display:none">
     <div class="h5-periods">
-      <button data-rng="3m">3月</button>
+      <button data-rng="3m" class="active">3月</button>
       <button data-rng="6m">6月</button>
-      <button data-rng="1y" class="active">1年</button>
+      <button data-rng="1y">1年</button>
       <button data-rng="3y">3年</button>
       <button data-rng="5y">5年</button>
       <button data-rng="all">全部</button>
@@ -126,7 +126,7 @@ var _hmt = _hmt || [];
   </nav>
 
   <script src="./qr.js?v=6577e491"></script>
-  <script defer src="./app.min.js?v=53cc1e62"></script>
+  <script defer src="./app.min.js?v=20ce569f"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
   <meta name="lab-asset-url" content="./lab.min.js?v=e0794cc2">
 <script>

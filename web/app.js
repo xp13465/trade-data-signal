@@ -1,6 +1,6 @@
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "1y", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null };
+const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
