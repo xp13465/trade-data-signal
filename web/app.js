@@ -756,17 +756,83 @@ function renderErrorState(container, err, retryFn) {
   container.appendChild(el);
 }
 
+// ============ 动态1行折叠：1行容量按视口宽度自适应，超出1行进折叠，resize 重算 ============
+// 读 getComputedStyle(grid).gridTemplateColumns 的实际轨道数(适配 auto-fill / 媒体查询任一布局)，
+// 比 Math.floor(width/minW) 更准(与浏览器实际排布一致)。
+function gridColsOf(el) {
+  if (!el) return 1;
+  const tpl = getComputedStyle(el).gridTemplateColumns;
+  if (!tpl || tpl === "none") return 1;
+  const n = tpl.trim().split(/\s+/).filter(Boolean).length;
+  return n > 0 ? n : 1;
+}
+
+// display-toggle 版动态1行折叠：所有卡片已渲染入 grid(直接子级)，按 grid 实际列数 cols 仅显示前 cols 个(1行)，
+// 其余 display:none；moreBtn 展开/收起全部；ResizeObserver 监听 grid 宽度变化重算 cols 更新显隐。
+// 适用于数据本地、可一次性渲染全部卡片的场景(如 A股市场指标走势图，r.metrics 已在内存)。
+function setupOneRowToggle(grid, items, moreTextFn) {
+  let expanded = false;
+  let curCols = 0;
+  let rsizeT = null;
+  let roT = null;
+  const wrap = document.createElement("div");
+  wrap.style.marginBottom = "16px";
+  if (grid.parentNode) grid.parentNode.insertBefore(wrap, grid.nextSibling);
+  else grid.appendChild(wrap);
+  const moreBtn = document.createElement("button");
+  moreBtn.className = "more-toggle";
+  moreBtn.style.cssText = "display:none;width:100%;padding:8px;border:1px dashed var(--border-strong);border-radius:6px;background:var(--bg-hover);color:var(--text-3);cursor:pointer;font-size:13px;";
+  wrap.appendChild(moreBtn);
+  function resizeSoon() { clearTimeout(rsizeT); rsizeT = setTimeout(() => charts.forEach((c) => c && c.resize()), 60); }
+  function apply() {
+    const cols = gridColsOf(grid);
+    curCols = cols;
+    const showCount = expanded ? items.length : cols;
+    let shownNew = false;
+    items.forEach((it, i) => {
+      const show = i < showCount;
+      if (show) {
+        if (it.style.display === "none") { it.style.display = ""; shownNew = true; }
+      } else {
+        it.style.display = "none";
+      }
+    });
+    const hidden = Math.max(0, items.length - showCount);
+    moreBtn.style.display = hidden > 0 ? "block" : "none";
+    moreBtn.textContent = moreTextFn(hidden);
+    if (shownNew) resizeSoon();
+  }
+  moreBtn.onclick = () => { expanded = !expanded; apply(); };
+  if (typeof ResizeObserver !== "undefined") {
+    const ro = new ResizeObserver(() => {
+      clearTimeout(roT);
+      roT = setTimeout(() => { if (gridColsOf(grid) !== curCols) apply(); }, 120);
+    });
+    ro.observe(grid);
+  }
+  apply();
+  return { dispose: () => { clearTimeout(roT); clearTimeout(rsizeT); } };
+}
+
 // ============ BUG-E：交互增强（指数/行业筛选 + 热力图切换）============
 // 纯前端筛选，不影响后端数据。指数筛选条放指数折线区前（紧挨被筛选内容），筛选时局部刷新：
 // 只重渲染指数区（filter bar + 指数折线），不调 renderTab、不 refetch（signals 缓存在闭包内）。
 // sectionCharts 同步 push 全局 charts（供 window resize），dispose 时从 charts 移除，避免悬空引用。
 // fetcher(id, idx) 返回 { signals, stats }；动态版按 range 走 API，静态版读 all.json 前端过滤。
-function renderIndicesSection(container, indices, fetcher, visibleCount) {
+function renderIndicesSection(container, indices, fetcher, foldOneRow) {
   const entries = Object.entries(indices || {});
   if (!entries.length) return Promise.resolve();
 
   const signalsCache = {}; // 闭包级缓存：tab/range 切换时整个 renderAStock/renderHK 重建，缓存自然失效
   const sectionCharts = [];
+  // 动态1行折叠状态(foldOneRow 模式)：expanded=展开全部 / curCols=当前1行容量 / rendering+pendingRender 防 resize 重入
+  let expanded = false;
+  let curCols = 0;
+  let rendering = false;
+  let pendingRender = false;
+  let ro = null;
+  let roTimer = null;
+  let lastWidth = 0;
 
   function disposeSectionCharts() {
     sectionCharts.forEach((c) => {
@@ -778,7 +844,7 @@ function renderIndicesSection(container, indices, fetcher, visibleCount) {
     sectionCharts.length = 0;
   }
 
-  async function doRender() {
+  async function _doRender() {
     disposeSectionCharts();
     container.innerHTML = "";
     // 当前 tab 不含已选 id 时回退"全部"（防跨 tab 状态残留导致空渲染）
@@ -815,29 +881,45 @@ function renderIndicesSection(container, indices, fetcher, visibleCount) {
       }
       return;
     }
-    // "全部"模式：visibleCount 限定首屏默认展示个数，其余折叠（H5=1 首屏直达上证指数，PC=4；未传=展全部）
-    const showCount = visibleCount != null ? visibleCount : entries.length;
+    // "全部"模式：foldOneRow 时按 grid 实际列数算1行容量，仅展示1行(上证指数首个上浮首屏)，其余折叠；
+    // 窗口 resize 重算1行容量并重渲染(signalsCache 缓存不 refetch)。未传 foldOneRow(港股)=展全部。
+    let cardGrid = null;
+    let parent = container;
+    if (foldOneRow) {
+      cardGrid = document.createElement("div");
+      cardGrid.className = "indices-grid";
+      container.appendChild(cardGrid);
+      parent = cardGrid;
+      curCols = gridColsOf(cardGrid);
+    }
+    const showCount = foldOneRow ? curCols : entries.length;
     const visibleEntries = entries.slice(0, showCount);
     const restEntries = entries.slice(showCount);
     for (const [id, idx] of visibleEntries) {
-      await renderOne(id, idx, container);
+      await renderOne(id, idx, parent);
     }
     if (restEntries.length) {
       const extraWrap = document.createElement("div");
       extraWrap.style.marginTop = "8px";
       container.appendChild(extraWrap);
       const moreBtn = document.createElement("button");
-      moreBtn.textContent = `更多指数（${restEntries.length}）▼`;
       moreBtn.className = "more-toggle";
       moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed var(--border-strong);border-radius:6px;background:var(--bg-hover);color:var(--text-3);cursor:pointer;font-size:13px;";
       extraWrap.appendChild(moreBtn);
       const extraGrid = document.createElement("div");
+      if (foldOneRow) extraGrid.className = "indices-grid";
       extraGrid.style.display = "none";
       extraWrap.appendChild(extraGrid);
+      const restCount = restEntries.length;
+      function syncMoreBtn() {
+        moreBtn.textContent = expanded ? "收起 ▲" : `更多指数（${restCount}）▼`;
+        moreBtn.style.display = restCount > 0 ? "block" : "none";
+      }
+      syncMoreBtn();
       moreBtn.onclick = async () => {
         if (extraGrid.style.display === "none") {
-          extraGrid.style.display = "block";
-          moreBtn.textContent = "收起 ▲";
+          extraGrid.style.display = foldOneRow ? "grid" : "block";
+          expanded = true;
           if (!extraGrid.dataset.rendered) {
             for (const [id, idx] of restEntries) {
               await renderOne(id, idx, extraGrid);
@@ -846,10 +928,49 @@ function renderIndicesSection(container, indices, fetcher, visibleCount) {
           }
         } else {
           extraGrid.style.display = "none";
-          moreBtn.textContent = `更多指数（${restEntries.length}）▼`;
+          expanded = false;
         }
+        syncMoreBtn();
       };
+      // 保留展开态：resize 重渲染后若之前已展开，自动展开剩余(数据走 signalsCache 不 refetch)
+      if (expanded) {
+        extraGrid.style.display = foldOneRow ? "grid" : "block";
+        if (!extraGrid.dataset.rendered) {
+          for (const [id, idx] of restEntries) {
+            await renderOne(id, idx, extraGrid);
+          }
+          extraGrid.dataset.rendered = "1";
+        }
+      }
     }
+  }
+
+  // doRender 包装：防 resize 重入(rendering 期间触发的重渲染延后到 pendingRender)，避免并发渲染撞 charts 数组
+  async function doRender() {
+    if (rendering) { pendingRender = true; return; }
+    rendering = true;
+    clearTimeout(roTimer);
+    try { await _doRender(); }
+    finally {
+      rendering = false;
+      if (pendingRender) { pendingRender = false; doRender(); }
+    }
+  }
+
+  // foldOneRow 模式：ResizeObserver 监听容器宽度变化(只认宽度，高度变化如展开/折叠不触发重渲染)，
+  // 宽度变化致1行容量(cols)改变时重渲染。signalsCache 缓存使重渲染不 refetch。
+  if (foldOneRow && typeof ResizeObserver !== "undefined") {
+    ro = new ResizeObserver((ents) => {
+      const w = ents && ents[0] ? ents[0].contentRect.width : 0;
+      if (w === lastWidth) return; // 只关心宽度变化(展开/折叠致高度变不重渲染)
+      lastWidth = w;
+      clearTimeout(roTimer);
+      roTimer = setTimeout(() => {
+        const g = container.querySelector(".indices-grid");
+        if (g && gridColsOf(g) !== curCols) doRender();
+      }, 250);
+    });
+    ro.observe(container);
   }
 
   return doRender();
@@ -2168,7 +2289,7 @@ async function renderOverview() {
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
         const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>3min</span>';
-        banner.innerHTML = `<div class="summary-top"><span class="summary-title">${titleText}</span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
+        banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
         _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
         // 收盘后/同日：原逻辑（标题用 summary.generated_at，chips 用 summary+snap 同日覆盖）
@@ -3576,13 +3697,12 @@ async function renderAStock(container = content) {
     }).filter(Boolean);
   }
   const entries = Object.entries(groups);
-  const mainEntries = entries.slice(0, 4);
-  const restEntries = entries.slice(4);
-  // 前4张卡片：1行4列网格（首屏精选指标）
+  // 市场指标走势图：全部渲染入 astock-top-grid，再按视口宽度动态1行折叠(1行容量随宽度自适应，超出进折叠，resize 重算)
   const grid2col = document.createElement("div");
   grid2col.className = "astock-top-grid";
   container.appendChild(grid2col);
-  for (const [g, ids] of mainEntries) {
+  const topCards = [];
+  for (const [g, ids] of entries) {
     const series = buildSeries(g, ids);
     if (series.length && series.some((s) => s.data.length)) {
       const chart = lineChart(g + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col);
@@ -3590,52 +3710,18 @@ async function renderAStock(container = content) {
         let lastDate = "";
         for (const s of series) { if (s && s.data && s.data.length) { const d = s.data[s.data.length - 1]; if (d && d.date && d.date > lastDate) lastDate = d.date; } }
         addCardTimeBadge(chart.getDom().parentElement, lastDate, snap);
+        topCards.push(chart.getDom().parentElement);
       }
     }
   }
-  // 其余6组指标：默认隐藏，点击「更多指标」展开
-  const extraWrap = document.createElement("div");
-  extraWrap.style.marginBottom = "16px";
-  container.appendChild(extraWrap);
-  const moreBtn = document.createElement("button");
-  moreBtn.textContent = "更多指标 ▼";
-  moreBtn.className = "more-toggle";
-  moreBtn.style.cssText = "display:block;width:100%;padding:8px;border:1px dashed var(--border-strong);border-radius:6px;background:var(--bg-hover);color:var(--text-3);cursor:pointer;font-size:13px;";
-  extraWrap.appendChild(moreBtn);
-  const extraGrid = document.createElement("div");
-  extraGrid.className = "astock-top-grid";
-  extraGrid.style.display = "none";
-  extraWrap.appendChild(extraGrid);
-  moreBtn.onclick = () => {
-    if (extraGrid.style.display === "none") {
-      extraGrid.style.display = "grid";
-      moreBtn.textContent = "收起 ▲";
-      if (!extraGrid.dataset.rendered) {
-        for (const [g, ids] of restEntries) {
-          const series = buildSeries(g, ids);
-          if (series.length && series.some((s) => s.data.length)) {
-            const chart = lineChart(g + latestSuffixMulti(series), series, {}, groupHints[g] || null, extraGrid);
-            if (chart) {
-              let lastDate = "";
-              for (const s of series) { if (s && s.data && s.data.length) { const d = s.data[s.data.length - 1]; if (d && d.date && d.date > lastDate) lastDate = d.date; } }
-              addCardTimeBadge(chart.getDom().parentElement, lastDate, snap);
-            }
-          }
-        }
-        extraGrid.dataset.rendered = "1";
-      }
-    } else {
-      extraGrid.style.display = "none";
-      moreBtn.textContent = "更多指标 ▼";
-    }
-  };
+  // 动态1行折叠：1行容量按 grid 实际列数(随视口宽度自适应)，超出进折叠，resize 重算
+  setupOneRowToggle(grid2col, topCards, (n) => `更多指标（${n}）▼`);
   // 指数折线区：筛选条移到本区前（紧挨指数折线），筛选时局部刷新（不 refetch、不动上方 KPI/宽度/资金面）
-  // H5 首屏默认展 1 个（上证指数=首个），PC 默认展 4 个，其余折叠
-  const idxVisible = document.body.classList.contains("h5") ? 1 : 4;
+  // 动态1行折叠：1行容量按视口宽度自适应(窄屏1个/宽屏4-6个)，上证指数首个上浮首屏，resize 重算
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
   container.appendChild(indicesSection);
-  await renderIndicesSection(indicesSection, r.indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`), idxVisible);
+  await renderIndicesSection(indicesSection, r.indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`), true);
 }
 
 // 港股快照 code -> index_id 映射（与 intraday_snapshot.py 的 _SNAPSHOT_TO_INDEX_ID 一致）。

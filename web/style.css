@@ -659,7 +659,7 @@ main { padding: 16px 24px; }
 }
 .astock-top-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
   align-items: stretch;
@@ -670,11 +670,13 @@ main { padding: 16px 24px; }
 }
 .astock-top-grid .chart-card { min-height: 200px; margin-bottom: 12px; }
 .astock-top-grid .chart-card:last-child { margin-bottom: 0; }
-@media (max-width: 1000px) {
-  .astock-top-grid { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 720px) {
-  .astock-top-grid { grid-template-columns: 1fr; }
+/* 指数折线区动态1行折叠网格(A股)：1行容量随视口宽度自适应(窄屏1/宽屏4-6)，超出1行进折叠 */
+.indices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+  align-items: stretch;
 }
 .empty-note { color: var(--text-3); padding: 14px 0; font-size: 13px; }
 
@@ -1810,7 +1812,7 @@ main { padding: 16px 24px; }
   .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
   .spark-cell .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
   .card.kpi.has-time-badge .card-sub { padding-right: 58px; }
-  .ov-2col, .astock-top-grid { grid-template-columns: 1fr; gap: 12px; }
+  .ov-2col { grid-template-columns: 1fr; gap: 12px; }
   .ov-2col .chart-card, .astock-top-grid .chart-card { min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
   .sig-day-date { flex: 0 0 56px; font-size: 11px; }
