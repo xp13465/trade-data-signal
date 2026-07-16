@@ -598,6 +598,132 @@ def backfill_series_metrics(date):
     return ok, has_today_new
 
 
+def backfill_history_gaps(date, verbose=True):
+    """检查所有 enabled 指数/序列指标的历史缺口,latest 落后期望日期则补采。
+
+    根治 2026-07-15 事故:backfill 之前只查"今日"缺失,某天 T+1 源因时差/
+    源延迟没拿到(如 7-15 20:00 两融源 latest=20260714 还没出 7-15),后续
+    backfill 查新今日,不回头补 7-15 缺口,致数据永久停滞后(7-16 凌晨发现
+    美股 us_* 停 7-14、两融 a_fund_margin 停 7-14、深证红利 sz_div 停 7-14
+    仍不补)。本函数检查每个品种 series 的 latest date,若 latest < 期望最新
+    日期(有缺口),补采到期望日期。collect_index/collect_series 拉全量幂等
+    upsert,重复补采无害。
+
+    期望最新日期(避免误补 T+1 源正常延迟):
+      - A股/港股指数(market in a/hk): date(最近交易日),latest<date=缺口
+      - 全球/美股指数(market=global): 允许滞后1天(美股收盘晚于A股一个时差,
+        latest 距 date <=1天=正常 T+1;>1天=真缺口)
+      - 序列指标: date(T+1源次日应出;源没出则 collect_series 空跑跳过)
+
+    与 verify_and_backfill_indices 互补:后者只校验 CORE_A/SW/thsc/HK_GLOBAL
+    的"今日";本函数覆盖所有 enabled 指数(含 sz_div 等非核心)+ 序列指标,
+    且检查历史缺口(非仅今日)。与方案C(未收盘回退)互补:C 解决"非交易时段
+    幽灵当日",本函数解决"历史缺口"。返回补采到新数据的品种数。
+    """
+    import yaml
+    from pathlib import Path
+    from datetime import datetime as _dt
+    from . import fetchers as _fetchers_mod
+    from .runner import upsert_index_rows, upsert_metrics_many
+    from .base import log_collect
+
+    config_path = Path(__file__).resolve().parent.parent.parent / "config" / "indicators.yaml"
+    with open(config_path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    target_d = _dt.strptime(date, "%Y%m%d").date()
+    fixed = 0
+
+    conn = get_conn()
+    try:
+        # ── 指数缺口检测 ──
+        for idx in cfg.get("indices", []):
+            if not idx.get("enabled", True):
+                continue
+            idx_id = idx["id"]
+            r = conn.execute(
+                "SELECT MAX(date) FROM index_daily WHERE index_id=?", (idx_id,)
+            ).fetchone()
+            latest = r[0] if r else None
+            if latest is None:
+                continue  # 首次采集品种由主采集流程处理,非"历史缺口"
+            try:
+                last_d = _dt.strptime(latest, "%Y%m%d").date()
+            except ValueError:
+                continue
+            market = idx.get("market", "a")
+            if market == "global":
+                # 美股/全球:T+1源,允许滞后1天(美股收盘晚于A股一个时差)
+                is_gap = (target_d - last_d).days > 1
+            else:
+                is_gap = last_d < target_d
+            if not is_gap:
+                continue
+            # 有缺口,补采(collect_index 拉全量幂等 upsert)
+            try:
+                rows, msg = _fetchers_mod.collect_index(idx, "20100101", date)
+            except Exception as e:  # noqa: BLE001
+                if verbose:
+                    print(f"  [gap] {idx_id} 补采异常: {e}")
+                log_collect(date, idx_id, "warn", f"缺口补采异常: {e}")
+                continue
+            # 判断是否补到比 latest 更新的数据(rows 第0列=date "YYYYMMDD")
+            newer = [rw for rw in rows if rw[0] > latest] if rows else []
+            if newer:
+                upsert_index_rows(rows)
+                new_latest = max(rw[0] for rw in newer)
+                fixed += 1
+                if verbose:
+                    print(f"  [gap] ✓ {idx_id} latest {latest}->{new_latest} (+{len(newer)}行)")
+                log_collect(date, idx_id, "ok", f"缺口补采 {latest}->{new_latest}")
+            else:
+                if verbose:
+                    print(f"  [gap] - {idx_id} latest={latest} 缺口但源无新数据({msg})")
+
+        # ── 序列指标缺口检测(两融/美债/QVIX 等晚发布序列) ──
+        for m in cfg.get("metrics", []):
+            if not m.get("enabled") or m.get("type") == "derived":
+                continue
+            if m.get("func") not in _fetchers_mod.SERIES_FUNCS:
+                continue
+            mid = m["id"]
+            r = conn.execute(
+                "SELECT MAX(date) FROM daily_metric WHERE metric_id=?", (mid,)
+            ).fetchone()
+            latest = r[0] if r else None
+            if latest is None:
+                continue
+            try:
+                last_d = _dt.strptime(latest, "%Y%m%d").date()
+            except ValueError:
+                continue
+            # 序列指标统一用 date(最近交易日);T+1源没出则 collect_series 空跑跳过
+            if last_d >= target_d:
+                continue
+            try:
+                rows, msg = _fetchers_mod.collect_series(m)
+            except Exception as e:  # noqa: BLE001
+                if verbose:
+                    print(f"  [gap] {mid} 补采异常: {e}")
+                continue
+            newer = [rw for rw in rows if rw[0] > latest] if rows else []
+            if newer:
+                upsert_metrics_many(mid, rows)
+                new_latest = max(rw[0] for rw in newer)
+                fixed += 1
+                if verbose:
+                    print(f"  [gap] ✓ {mid} latest {latest}->{new_latest} (+{len(newer)}行)")
+            else:
+                if verbose:
+                    print(f"  [gap] - {mid} latest={latest} 缺口但源无新数据({msg})")
+    finally:
+        conn.close()
+
+    if verbose:
+        print(f"  [缺口检测] 检查完成,补采到新数据 {fixed} 个品种")
+    return fixed
+
+
 def main():
     """晚间轻量补采兜底入口（供 backfill_indices.sh / launchd 16:35/20:00/02:00 调用）。
 
@@ -646,8 +772,16 @@ def main():
     if fail > 0:
         print(f"[backfill] ⚠ {fail} 个指数三源都缺今日(已写 collect_log 告警)")
 
-    # 3) 任一补采拿到当日新数据 -> 重算 + 推送
-    if ok > 0 or s_has_today:
+    # 2.5) 历史缺口检测+补采(根治:不只查"今日",检查所有 enabled 品种 latest
+    # 是否滞后于最近交易日,有缺口则补采。解决"T+1源某天延迟漏采后永久停滞后"。
+    # 与 verify(查今日)互补:本函数覆盖所有 enabled 指数(含 sz_div 等非核心)
+    # + 序列指标,且检测历史缺口(非仅今日)。)
+    print("[backfill] -> 历史缺口检测+补采 ...")
+    gap_fixed = backfill_history_gaps(today, verbose=True)
+    print(f"[backfill] 历史缺口补采 {gap_fixed} 个品种")
+
+    # 3) 任一补采拿到新数据(当日 or 历史缺口) -> 重算 + 推送
+    if ok > 0 or s_has_today or gap_fixed > 0:
         print("[backfill] 补到新数据 -> 重算情绪分 + 推送公网")
         # 写 collect_log 让 overview.json 的 collected_at 更新为本次 backfill 时间
         # (export.py collected_at 读 collect_log 最新 run_at; compute.runner 不写它,
