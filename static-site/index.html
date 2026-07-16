@@ -24,7 +24,7 @@
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"WebApplication","name":"市场温度看板","alternateName":["trade-data-signal","tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"http://tdsignal-ujpzw01zm.maozi.io/","description":"市场温度看板 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, 市场温度看板, A股情绪看板, 情绪数据复盘看板, 市场情绪, 买卖点信号, 行业热力图, 模拟回测"}
   </script>
-  <link rel="stylesheet" href="./style.css?v=09d92543">
+  <link rel="stylesheet" href="./style.css?v=8a04c5b2">
   <link rel="stylesheet" href="./lab.css?v=82a3e06e">
   <script defer src="./vendor/echarts.min.js?v=ef12c5c6"></script>
 <script>
@@ -47,6 +47,19 @@ var _hmt = _hmt || [];
   } catch(e){
     document.documentElement.setAttribute('data-theme', 'redgold');
   }
+})();
+</script>
+<!-- 防闪烁：导航吸顶开关状态，body 渲染前读 localStorage 提前加 class 避免闪烁 -->
+<script>
+(function(){
+  try {
+    var ts = parseInt(localStorage.getItem('navStickyOff_ts'), 10);
+    if (ts && Date.now() - ts < 24*3600*1000) {
+      document.documentElement.classList.add('nav-no-sticky');
+    } else {
+      if (ts) localStorage.removeItem('navStickyOff_ts');
+    }
+  } catch(e){}
 })();
 </script>
 </head>
@@ -72,6 +85,7 @@ var _hmt = _hmt || [];
 </noscript>
   <header>
     <h1>📊 市场温度看板</h1>
+    <button class="nav-sticky-toggle pc-nav-sticky-toggle" title="切换导航吸顶(关闭后方便截图)">导航吸顶</button>
     <button class="share-btn pc-share-btn" title="生成分享图">📤 分享</button>
     <span class="collect-time pc-collect-time" title="数据采集时间"></span>
     <button class="theme-btn pc-theme-btn" title="切换皮肤">🎨</button>
@@ -126,7 +140,7 @@ var _hmt = _hmt || [];
   </nav>
 
   <script src="./qr.js?v=6577e491"></script>
-  <script defer src="./app.min.js?v=2e9f0c5f"></script>
+  <script defer src="./app.min.js?v=6c009b88"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
   <meta name="lab-asset-url" content="./lab.min.js?v=e098dd73">
 <script>

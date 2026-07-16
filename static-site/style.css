@@ -117,6 +117,14 @@ header h1 { font-size: 18px; margin: 0; }
   transition: opacity 0.15s;
 }
 .pc-share-btn:hover { opacity: 0.88; }
+/* 导航吸顶开关（分享按钮左侧，PC header 右上角） */
+.pc-nav-sticky-toggle {
+  margin-left: 8px; border:1px solid var(--border-strong); background:var(--bg-card);
+  color:var(--text-2); border-radius:16px; padding:5px 12px; font-size:13px;
+  cursor:pointer; transition:all .15s; user-select:none;
+}
+.pc-nav-sticky-toggle.off { border-color:var(--text-4); opacity:.6; }
+.pc-nav-sticky-toggle:hover { background:var(--bg-hover); }
 /* H5 隐藏 PC 分享按钮（H5 用顶部条内的图标按钮） */
 .h5-share-btn { display: none; }
 /* 采集时间（分享按钮旁）；PC 显示完整，H5 默认隐藏、@media 显示精简版 */
@@ -134,6 +142,7 @@ header h1 { font-size: 18px; margin: 0; }
 .share-download-btn:hover { opacity: 0.9; }
 @media (max-width: 768px) {
   .pc-share-btn { display: none; }
+  .pc-nav-sticky-toggle { display: none; }
   .h5-share-btn {
     display: inline-flex; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 12px;
     padding: 3px 10px; font-size: 16px; cursor: pointer; color: var(--text-2); line-height: 1;
@@ -187,6 +196,10 @@ header h1 { font-size: 18px; margin: 0; }
   z-index: 50;
   box-shadow: 0 1px 3px var(--shadow);
 }
+/* 关闭导航吸顶：tab 栏 / 规则条 / 行业锚点条回归文档流（方便截图） */
+.nav-no-sticky .tabs,
+.nav-no-sticky .rule-bar,
+.nav-no-sticky .industry-anchor-bar { position: static; }
 .tabs > button {   /* 仅直接子（tab 按钮），不影响 .periods 内的周期按钮 */
   padding: 10px 18px;
   border: none;

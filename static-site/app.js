@@ -5336,6 +5336,38 @@ function initStickyOffset() {
   window.addEventListener('load', set);
 }
 
+// === 导航吸顶开关：PC header 右上角，关闭后导航回归文档流方便截图（24h 过期，多窗 storage 同步）===
+function isNavStickyOff() {
+  try {
+    var ts = parseInt(localStorage.getItem('navStickyOff_ts'), 10);
+    return !!(ts && Date.now() - ts < 24*3600*1000);
+  } catch(e){ return false; }
+}
+function applyNavStickyState() {
+  var off = isNavStickyOff();
+  document.documentElement.classList.toggle('nav-no-sticky', off);
+  document.querySelectorAll('.nav-sticky-toggle').forEach(function(b){
+    b.classList.toggle('off', off);
+    b.textContent = off ? '导航吸顶 关' : '导航吸顶';
+  });
+}
+function initNavStickyToggle() {
+  document.querySelectorAll('.nav-sticky-toggle').forEach(function(b){
+    b.addEventListener('click', function(){
+      if (isNavStickyOff()) {
+        try { localStorage.removeItem('navStickyOff_ts'); } catch(e){}
+      } else {
+        try { localStorage.setItem('navStickyOff_ts', String(Date.now())); } catch(e){}
+      }
+      applyNavStickyState();
+    });
+  });
+  window.addEventListener('storage', function(e){
+    if (e.key === 'navStickyOff_ts') applyNavStickyState();
+  });
+  applyNavStickyState();
+}
+
 // 右下角浮动"回到顶部"箭头按钮：滚动 >300px 淡入，点击平滑回顶，顶部淡出。
 function initBackToTop() {
   const btn = document.createElement('button');
@@ -6014,6 +6046,7 @@ function initUpdateRules() {
 }
 
 
+initNavStickyToggle();
 initStickyOffset();
 initBackToTop();
 initRuleButton();
