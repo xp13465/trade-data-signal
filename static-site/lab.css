@@ -886,6 +886,16 @@
 .lab-retest-regime-name { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
 .lab-retest-regime-ret { font-size: 15px; font-weight: 700; }
 .lab-retest-regime-dd { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+/* 二次测试弹窗：上半(整体回测详情)+下半(三切片)分区块 */
+.lab-retest-modal-section {
+  padding-bottom: 16px; margin-bottom: 16px;
+  border-bottom: 1px dashed var(--border);
+}
+.lab-retest-modal-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.lab-retest-modal-section-title {
+  font-size: 14px; font-weight: 700; color: var(--text-1); margin-bottom: 4px;
+}
+.lab-retest-modal-hint { font-size: 12px; color: var(--text-3); margin-bottom: 10px; }
 @media (max-width: 600px) {
   .lab-retest-regimes { grid-template-columns: repeat(2, 1fr); }
   .lab-retest-pair-head { font-size: 12px; }

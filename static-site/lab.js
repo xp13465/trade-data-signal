@@ -3173,7 +3173,8 @@ async function renderRetestLab() {
   });
 }
 
-// === 二次测试配对弹窗（照抄融合配对弹窗，body 复用 _labRetestPairHTML 三切片）===
+// === 二次测试配对弹窗（上半=整体回测详情照抄单一信号实验，下半=三切片强化）===
+// 用户原话："单一测试里有的功能你都要带过来。你二次测试是优化，不是舍弃原有的判定标准，是在此之上的强化"
 function _labRetestPairOpenModal(rd, pk) {
   let overlay = document.getElementById("labRetestPairOverlay");
   if (!overlay) {
@@ -3182,7 +3183,15 @@ function _labRetestPairOpenModal(rd, pk) {
     overlay.className = "lab-signal-overlay";
     document.body.appendChild(overlay);
   }
-  state.labRetestPairModal = { rd, pk };
+  const pd = rd && rd.pairs ? rd.pairs[pk] : null;
+  const meta = (pd && pd.pair_meta) || {};
+  state.labRetestPairModal = {
+    rd, pk,
+    mode: "full_in",              // retest 后端用 full_in 跑二次测试（pair_meta 无 mode 字段）
+    win: meta.window || "y5",     // 默认 retest 窗口
+    page: 0,
+    open: true,
+  };
   _labRetestPairModalRender(overlay);
   overlay.classList.add("show");
   document.body.style.overflow = "hidden";
@@ -3196,7 +3205,45 @@ function _labRetestPairCloseModal() {
   state.labRetestPairModal = null;
 }
 
-function _labRetestPairModalRender(overlay) {
+// 弹窗内窗口切换 tabs（复用 LAB_WIN_DEFS，独立于排行榜窗口 state.labRetestRankWindow）
+function _labRetestModalWinTabsHTML(win) {
+  return '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
+    `<button type="button" class="lab-win-tab${w.k === win ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
+  ).join("") + "</div>";
+}
+
+// 弹窗内按需加载 full 数据（trades/equity_curve），照抄 _labRankEnsureFull
+async function _labRetestEnsureFull(overlay, idx) {
+  const setProg = (pct) => {
+    const el = overlay.querySelector(".lab-sim-full-loading");
+    if (!el) return;
+    if (pct < 0) { el.textContent = "⏳ 加载明细数据中…"; return; }
+    el.innerHTML = `⏳ 加载明细数据中… ${pct}%<div class="lab-full-prog"><div style="width:${pct}%"></div></div>`;
+  };
+  const controller = new AbortController();
+  let timedOut = false;
+  const slowTimer = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
+  try {
+    await fetchLabSimFullData(idx, (received, total) => {
+      setProg(total > 0 ? Math.round(received / total * 100) : -1);
+    }, controller.signal);
+  } finally {
+    clearTimeout(slowTimer);
+  }
+  if (_labSimFullLoaded(idx)) {
+    if (state.labRetestPairModal) _labRetestPairModalRender(overlay);
+  } else {
+    const el = overlay.querySelector(".lab-sim-full-loading");
+    if (el) {
+      el.innerHTML = `<span>${timedOut ? "⏳ 加载超时" : "⚠ 加载失败"}</span> ` +
+        `<button type="button" class="lab-full-retry" style="margin-left:8px;padding:3px 12px;border:1px solid var(--border-strong);border-radius:5px;background:var(--bg-card);color:var(--text-1);font-size:12px;cursor:pointer;">重试</button>`;
+      const retryBtn = el.querySelector(".lab-full-retry");
+      if (retryBtn) retryBtn.onclick = () => _labRetestEnsureFull(overlay, idx);
+    }
+  }
+}
+
+async function _labRetestPairModalRender(overlay) {
   const m = state.labRetestPairModal;
   if (!m) return;
   const pd = m.rd && m.rd.pairs ? m.rd.pairs[m.pk] : null;
@@ -3204,16 +3251,89 @@ function _labRetestPairModalRender(overlay) {
   const cn = _labRetestPairCN(meta.strategy || m.pk);
   const winCn = _labRetestWinCN(meta.window);
   const score = meta.score != null ? (meta.score * 100).toFixed(0) : "-";
-  // body = 现有 _labRetestPairHTML 三切片（分年表+样本外表+极端行情4卡）
-  const bodyHTML = pd ? _labRetestPairHTML(m.pk, pd) : '<div class="lab-rank-modal-empty">暂无二次测试数据</div>';
+  // loading 骨架
   overlay.innerHTML = `<div class="lab-signal-modal">` +
     `<div class="lab-signal-modal-head">` +
     `<span class="lab-signal-modal-title">🔬 ${cn} · ${winCn} · 评分 ${score}</span>` +
     `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
     `</div>` +
-    `<div class="lab-signal-modal-body">${bodyHTML}</div></div>`;
+    `<div class="lab-signal-modal-body"><div class="loading">加载回测数据…</div></div></div>`;
   overlay.querySelector(".lab-rank-modal-close").onclick = _labRetestPairCloseModal;
-  overlay.scrollTop = 0;
+
+  // 加载单信号 stats simData（含融合候选 91 组，per-index 缓存；retest 候选是其子集）
+  const idx = (m.rd && m.rd.index_id) || (state.labSimIndex || "sh");
+  const simData = await fetchLabSimData(idx);
+  const initCapital = (simData && simData.initial_capital) || 100000;
+  // 拆 strategy("buyKey|sellKey") -> 取整体回测配对数据
+  const parts = (meta.strategy || m.pk).split("|");
+  const buyKey = parts[0], sellKey = parts[1];
+  const buyName = (LAB_STRATEGIES[buyKey] || {}).name || buyKey;
+  const sellName = (LAB_STRATEGIES[sellKey] || {}).name || sellKey;
+  const pairData = simData ? _labGetPair(simData, buyKey, sellKey) : null;
+  const mode = m.mode || "full_in";
+  const win = m.win || meta.window || "y5";
+  const winData = pairData ? _labPairWinData(pairData, mode, win, simData) : null;
+  const modeName = mode === "full_in" ? "全仓" : "定额（10%）";
+  const winLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
+
+  // 上半部分：整体回测详情（4数字+净值曲线+交易记录），照抄单一信号实验弹窗 _labRankModalRender
+  let detailHTML;
+  if (!simData) {
+    detailHTML = '<div class="lab-rank-modal-empty">回测数据加载失败</div>';
+  } else if (!winData || !winData.stats) {
+    detailHTML = `<div class="lab-rank-modal-empty">配对 ${buyKey}|${sellKey} 在 ${idx} 无整体回测数据</div>`;
+  } else {
+    // 同步 page 到有效范围（_labSimModeBlock 内部也 clamp，此处保持 state 一致）
+    const trades = winData.trades || [];
+    const totalPages = Math.max(1, Math.ceil(trades.length / 20));
+    if (m.page > totalPages - 1) m.page = totalPages - 1;
+    if (m.page < 0) m.page = 0;
+    // 买卖模式切换 tabs（全仓 / 定额10%）
+    const modeBar = '<div class="lab-win-bar"><span class="lab-win-bar-label">买卖模式</span>' +
+      '<div class="lab-win-tabs">' +
+      `<button type="button" class="lab-win-tab${mode === "full_in" ? " active" : ""}" data-mode="full_in">全仓</button>` +
+      `<button type="button" class="lab-win-tab${mode === "fixed_10k" ? " active" : ""}" data-mode="fixed_10k">定额（10%）</button>` +
+      '</div></div>';
+    // 5窗口切换器（近1年/近3年/近5年/近10年/全史）
+    const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labRetestModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
+    detailHTML = modeBar + winBar + _labSimModeBlock(mode, winData, initCapital, m.page, m.open);
+  }
+
+  // 下半部分：二次测试三切片（保留原有判定强化：分年/样本外/极端行情）
+  const retestHTML = pd ? _labRetestPairHTML(m.pk, pd) : '<div class="lab-rank-modal-empty">暂无二次测试数据</div>';
+
+  const bodyHTML =
+    `<div class="lab-retest-modal-section">` +
+    `<div class="lab-retest-modal-section-title">📊 整体回测详情 · 买${buyName} × 卖${sellName} · ${modeName}（${winLabel}）</div>` +
+    `<div class="lab-retest-modal-hint">该配对的标准回测（4数字结论 + 净值曲线 + 交易记录），即原有判定标准。</div>` +
+    detailHTML +
+    `</div>` +
+    `<div class="lab-retest-modal-section">` +
+    `<div class="lab-retest-modal-section-title">🔬 二次测试（在此之上的强化：分年 / 样本外 / 极端行情）</div>` +
+    retestHTML +
+    `</div>`;
+
+  const body = overlay.querySelector(".lab-signal-modal-body");
+  if (body) body.innerHTML = bodyHTML;
+
+  // 绑定：买卖模式切换 / 窗口切换（切换重置分页）
+  overlay.querySelectorAll(".lab-win-tab[data-mode]").forEach((btn) => {
+    btn.onclick = () => { m.mode = btn.dataset.mode; m.page = 0; _labRetestPairModalRender(overlay); };
+  });
+  overlay.querySelectorAll(".lab-win-tab[data-win]").forEach((btn) => {
+    btn.onclick = () => { m.win = btn.dataset.win; m.page = 0; _labRetestPairModalRender(overlay); };
+  });
+  // 交易记录折叠/展开
+  const hdr = overlay.querySelector(".lab-sim-trades-header");
+  if (hdr) hdr.onclick = () => { m.open = !m.open; _labRetestPairModalRender(overlay); };
+  // 交易记录分页
+  const prev = overlay.querySelector(".lab-sim-prev");
+  if (prev) prev.onclick = () => { if (m.page > 0) { m.page--; _labRetestPairModalRender(overlay); } };
+  const next = overlay.querySelector(".lab-sim-next");
+  if (next && !next.disabled) next.onclick = () => { m.page++; _labRetestPairModalRender(overlay); };
+
+  // full 数据(trades/equity_curve)按需加载，加载完重渲染（净值曲线/交易记录显示 loading 占位直到加载完）
+  if (simData && !_labSimFullLoaded(idx)) _labRetestEnsureFull(overlay, idx);
 }
 
 // === 融合候选配对回测弹窗（A类买×卖查 lab_sim_{index}_stats.json；B类同向共振显示开发中）===
