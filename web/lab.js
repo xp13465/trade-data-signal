@@ -2145,7 +2145,7 @@ function _labRankItemHTML(row, rank, tab) {
   let extra = "";
   if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
   else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 998 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
-  if (row.retest) extra += '<span class="lab-rank-retest">⭐️进入二次测试</span>';
+  if (row.retest) extra += '<span class="lab-rank-retest" title="进入二次测试规则:综合评分≥0.6 且 交易≥30次 且 最大回撤≤50%,或 胜率≥55%,或 风险调整≥1.0">⭐️进入二次测试</span>';
   return `<button type="button" class="lab-rank-item clickable-card" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">买${row.buyName} × 卖${row.sellName} · ${row.modeName}</span>` +
@@ -2180,6 +2180,7 @@ function _labRankHTML(simData) {
   return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}</div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。</div>` +
+    `<div class="lab-rank-retest-rule">⭐️进入二次测试：综合评分≥0.6 且 交易≥30次 且 最大回撤≤50%，或 胜率≥55%，或 风险调整≥1.0</div>` +
     _labRankFilterHTML() +
     `<div class="lab-rank-results">${_labRankResultsHTML()}</div>`;
 }

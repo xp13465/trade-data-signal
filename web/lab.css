@@ -564,6 +564,11 @@
   padding: 2px 8px; border-radius: 4px; flex-shrink: 0;
   border: 1px solid #ffd54f; white-space: nowrap;
 }
+.lab-rank-retest-rule {
+  font-size: 11px; color: #b8860b; background: #fffdf5;
+  padding: 6px 10px; border-radius: 6px; margin-bottom: 10px;
+  border: 1px dashed #ffd54f; line-height: 1.6;
+}
 .lab-rank-more {
   display: block; margin: 10px auto 0; padding: 6px 18px;
   border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg-card);
