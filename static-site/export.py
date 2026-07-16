@@ -437,7 +437,10 @@ def export_hk(conn, cfg, rng):
                          "strategy": strategy_desc(i["id"], cfg)}
                for i in _indices_for_market(cfg, "hk")}
     south = _metric_series(conn, "hk_south", start, end)
-    return {"indices": indices, "hk_south": south}
+    hk_industries = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
+                               "strategy": strategy_desc(i["id"], cfg)}
+                     for i in _indices_for_market(cfg, "hk_industry")}
+    return {"indices": indices, "hk_south": south, "hk_industries": hk_industries}
 
 
 def export_global(conn, cfg, rng):

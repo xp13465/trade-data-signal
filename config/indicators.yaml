@@ -108,6 +108,18 @@ indices:
   - {id: hsi,      name: 恒生指数, market: hk, func: stock_hk_index_daily_sina, symbol: HSI}
   - {id: hstech,   name: 恒生科技, market: hk, func: stock_hk_index_daily_sina, symbol: HSTECH}
   - {id: hscei,    name: 恒生国企, market: hk, func: stock_hk_index_daily_sina, symbol: HSCEI}
+  # 港股板块指数（market: hk_industry，与宽基 hk 分离，避免混入 renderIndicesSection 大图）。
+  # 源 stock_hk_index_daily_sina（新浪全量历史，7列 date/open/high/low/close/volume/amount），
+  # collect_index 通用路径已兼容（英文列 close/open/high/low/amount + pct_change 自算）。
+  # 一次性回填全历史 + 每日17:50增量（HK_GLOBAL_INDICES），前端复用 renderIndustryGrid。
+  - {id: hk_cesg10,  name: 中华博彩业,   market: hk_industry, func: stock_hk_index_daily_sina, symbol: CESG10}
+  - {id: hk_hsmogi,  name: 恒生内地油气, market: hk_industry, func: stock_hk_index_daily_sina, symbol: HSMOGI}
+  - {id: hk_hsmbi,   name: 恒生内地银行, market: hk_industry, func: stock_hk_index_daily_sina, symbol: HSMBI}
+  - {id: hk_hsmpi,   name: 恒生内地地产, market: hk_industry, func: stock_hk_index_daily_sina, symbol: HSMPI}
+  - {id: hk_cshklre, name: 中证香港地产, market: hk_industry, func: stock_hk_index_daily_sina, symbol: CSHKLRE}
+  - {id: hk_cshklc,  name: 中证香港消费, market: hk_industry, func: stock_hk_index_daily_sina, symbol: CSHKLC}
+  - {id: hk_hscci,   name: 恒生中资企业, market: hk_industry, func: stock_hk_index_daily_sina, symbol: HSCCI}
+  - {id: hk_cshkdiv, name: 中证香港红利, market: hk_industry, func: stock_hk_index_daily_sina, symbol: CSHKDIV}
   # 美股指数：新浪 index_us_stock_sina（trust_env=False 直连可访问，无需代理）。
   # symbol 映射：.DJI=道琼斯 / .IXIC=纳斯达克 / .INX=标普500。
   # 返 2004 起 ~5600 行全量历史，列 date/open/high/low/close/volume/amount（英文小写，

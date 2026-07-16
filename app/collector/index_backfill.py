@@ -393,6 +393,15 @@ def verify_and_backfill_indices(date, verbose=True):
         ("hsi", "hsi", True),      # (id, symbol, require_today)
         ("hstech", "HSTECH", True),
         ("hscei", "HSCEI", True),
+        # 港股板块指数（market: hk_industry，新浪全量源，无腾讯兜底）
+        ("hk_cesg10", "CESG10", True),
+        ("hk_hsmogi", "HSMOGI", True),
+        ("hk_hsmbi", "HSMBI", True),
+        ("hk_hsmpi", "HSMPI", True),
+        ("hk_cshklre", "CSHKLRE", True),
+        ("hk_cshklc", "CSHKLC", True),
+        ("hk_hscci", "HSCCI", True),
+        ("hk_cshkdiv", "CSHKDIV", True),
         ("us_dji", ".DJI", False),
         ("us_ixic", ".IXIC", False),
         ("us_spx", ".INX", False),
@@ -446,8 +455,9 @@ def verify_and_backfill_indices(date, verbose=True):
             details.append((idx_id, "ok", f"backfill 新浪 close={latest['close']} date={latest['date']}"))
             if verbose:
                 print(f"    ✓ {idx_id} <- 新浪 close={latest['close']} date={latest['date']}")
-        elif idx_id in ("hsi", "hstech", "hscei"):
+        elif idx_id in ("hsi", "hstech", "hscei") or idx_id.startswith("hk_"):
             # 新浪无当日数据（收盘后延迟发布）-> 腾讯实时源兜底
+            # 港股板块指数(hk_前缀)无腾讯兜底代码，_tencent_hk_fallback 安全返回 False
             if rows:
                 upsert_index_rows(rows)  # 仍 UPSERT 历史数据
             fixed = _tencent_hk_fallback(idx_id, date, conn, verbose)

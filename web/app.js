@@ -3924,6 +3924,17 @@ async function renderHK(container = content) {
   indicesSection.className = "indices-section";
   container.appendChild(indicesSection);
   await renderIndicesSection(indicesSection, indices, (id) => fetchJSON(`/api/index/${id}?range=${state.range}`), true);
+  // 港股板块指数（复用 renderIndustryGrid，与 A 股行业网格一致）
+  if (r.hk_industries && Object.keys(r.hk_industries).length) {
+    const hkIndWrap = document.createElement("div");
+    hkIndWrap.className = "sw-grid-wrap";
+    container.appendChild(hkIndWrap);
+    const hdr = document.createElement("h3");
+    hdr.className = "section-title";
+    hdr.textContent = "港股板块指数";
+    hkIndWrap.appendChild(hdr);
+    renderIndustryGrid(r.hk_industries, hkIndWrap);
+  }
 }
 
 async function renderGlobal(container = content) {
