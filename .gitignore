@@ -16,9 +16,6 @@ data/stock_daily.db
 data/stock_daily.db-wal
 data/stock_daily.db-shm
 
-# 第三方项目（独立 git 仓库，单独 clone）
-a-stock-data/
-
 # 本地状态/日志/进度
 data/logs/
 data/alerts/
