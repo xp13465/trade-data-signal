@@ -576,6 +576,25 @@
 }
 .lab-rank-more:hover { background: var(--bg-hover); }
 
+/* 维度榜：tab 维度明细子行（综合/分年/样本外/极端 的分项展示，整行换行到下一行）*/
+.lab-rank-dim-sub {
+  flex: 1 1 100%;
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 400;
+  line-height: 1.5;
+  padding-top: 2px;
+}
+/* 小样本/无交易 灰色标注 */
+.lab-rank-small {
+  font-size: 10px;
+  color: var(--text-4);
+  background: var(--bg-hover);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 400;
+}
+
 /* 推荐榜弹窗（复用 _labSimModeBlock 渲染细节）*/
 .lab-rank-overlay {
   display: none; position: fixed; inset: 0; z-index: 1000;

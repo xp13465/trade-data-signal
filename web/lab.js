@@ -2839,35 +2839,124 @@ function _labRetestWinCN(win) {
   return cn || win || "-";
 }
 
-// retest 维度榜 tabs（5维，每配对只1个window，无时间窗口切换器；与 rank 的5窗口不同）
+// retest 维度榜 tabs（8维：综合1 + 整体4 + 二次测试3。每配对只1个window，无时间窗口切换器）
 const LAB_RETEST_RANK_TABS = [
-  { key: "score", label: "🏆 综合分" },
-  { key: "ret", label: "📈 收益率" },
-  { key: "win", label: "🎯 胜率" },
-  { key: "dd", label: "🛡 稳健(回撤小)" },
-  { key: "n", label: "📊 样本量" },
+  { key: "score", label: "🏆综合(二次)" },
+  { key: "ret", label: "📈收益率" },
+  { key: "win", label: "🎯胜率" },
+  { key: "dd", label: "🛡稳健" },
+  { key: "n", label: "📊样本量" },
+  { key: "yearly", label: "📅分年" },
+  { key: "oos", label: "🔬样本外" },
+  { key: "regimes", label: "⚡极端行情" },
 ];
 
-// 聚合 retest pairs -> 行（pair_meta 全小数，显示×100%）
+// min-max 归一化工厂：返回 fn(v)->0~1。null/NaN 返回 0.5（中性，不奖惩缺失数据）。
+// 调用方按方向使用：正向（越大越好）直接 norm；负向（越小越好，如回撤/波动/过拟合）用 1-norm。
+function _labRetestMinMax(rows, key) {
+  const vals = rows.map((r) => r[key]).filter((v) => v != null && !isNaN(v));
+  if (vals.length === 0) return () => 0.5;
+  const mn = Math.min.apply(null, vals);
+  const mx = Math.max.apply(null, vals);
+  const rng = mx - mn;
+  return (v) => (v == null || isNaN(v)) ? 0.5 : (rng === 0 ? 0.5 : (v - mn) / rng);
+}
+
+// 聚合 retest pairs -> 行：算8维指标（归一化 across 该指数所有 pair）+ 各综合分。
+// pair_meta 全小数（0.27=27%），显示时×100%。归一化在同一指数内所有 pair 一起算 min/max。
 function _labRetestRankRows(rd) {
   if (!rd || !rd.pairs) return [];
-  const rows = [];
-  for (const pk in rd.pairs) {
-    const meta = (rd.pairs[pk] && rd.pairs[pk].pair_meta) || {};
-    rows.push({
+  const pks = Object.keys(rd.pairs);
+  // Pass1：收集每对原始指标
+  const raw = pks.map((pk) => {
+    const pd = rd.pairs[pk] || {};
+    const meta = pd.pair_meta || {};
+    const yearly = pd.yearly || {};
+    const yKeys = Object.keys(yearly).sort();
+    const yearRets = yKeys.map((yr) => yearly[yr] && yearly[yr].ret).filter((v) => v != null);
+    const minYearRet = yearRets.length ? Math.min.apply(null, yearRets) : 0; // 最差年收益
+    const profitYears = yearRets.filter((v) => v > 0).length;
+    const profitYearRatio = yearRets.length ? profitYears / yearRets.length : 0; // 盈利年占比(0-1不归一)
+    let yearVol = 0; // 逐年收益标准差
+    if (yearRets.length > 1) {
+      const mean = yearRets.reduce((a, b) => a + b, 0) / yearRets.length;
+      yearVol = Math.sqrt(yearRets.reduce((a, b) => a + (b - mean) * (b - mean), 0) / yearRets.length);
+    }
+    const oos = pd.oos || {};
+    const tr = oos.train || {}, te = oos.test || {};
+    const testRet = te.ret != null ? te.ret : 0;
+    const overfit = (tr.ret != null && te.ret != null) ? Math.abs(tr.ret - te.ret) : 0; // 过拟合度
+    const testWin = te.win != null ? te.win : 0;
+    const regimes = pd.regimes || {};
+    const crash = regimes.crash2015 || null;
+    const bear = regimes.bear2018 || null;
+    const rally = regimes.rally2024 || null;
+    const covid = regimes.covid2020 || null; // null=无交易
+    // 小样本标注：某年 n<3 或 oos test n<10
+    const yearSmall = yKeys.some((yr) => yearly[yr] && yearly[yr].n != null && yearly[yr].n < 3);
+    const oosSmall = (te.n != null && te.n < 10);
+    return {
       pk,
       strategy: meta.strategy || pk,
       window: meta.window || "-",
       cn: _labRetestPairCN(meta.strategy || pk),
       winCn: _labRetestWinCN(meta.window),
-      score: meta.score != null ? meta.score : 0,
+      // 整体原始
       ret: meta.ret != null ? meta.ret : 0,
       win: meta.win != null ? meta.win : 0,
       dd: meta.dd != null ? meta.dd : 0,
       n: meta.n != null ? meta.n : 0,
-    });
-  }
-  return rows;
+      // 分年原始
+      minYearRet, profitYearRatio, yearVol, profitYears, yearCount: yearRets.length,
+      // 样本外原始
+      testRet, overfit, testWin,
+      // 极端原始（null=缺失）
+      crashDd: crash ? crash.dd : null,
+      bearDd: bear ? bear.dd : null,
+      rallyRet: rally ? rally.ret : null,
+      covidDd: covid ? covid.dd : null,
+      covidNull: !covid,
+      // 小样本
+      yearSmall, oosSmall,
+    };
+  });
+  // Pass2：各指标 min-max 归一（across 该指数所有 pair）
+  const retN = _labRetestMinMax(raw, "ret");
+  const winN = _labRetestMinMax(raw, "win");
+  const ddN = _labRetestMinMax(raw, "dd");
+  const nN = _labRetestMinMax(raw, "n");
+  const minYearRetN = _labRetestMinMax(raw, "minYearRet");
+  const yearVolN = _labRetestMinMax(raw, "yearVol");
+  const testRetN = _labRetestMinMax(raw, "testRet");
+  const overfitN = _labRetestMinMax(raw, "overfit");
+  const testWinN = _labRetestMinMax(raw, "testWin");
+  const crashDdN = _labRetestMinMax(raw, "crashDd");
+  const bearDdN = _labRetestMinMax(raw, "bearDd");
+  const rallyRetN = _labRetestMinMax(raw, "rallyRet");
+  const covidDdN = _labRetestMinMax(raw, "covidDd");
+  // Pass3：各综合分（归一化加权）
+  return raw.map((r) => {
+    // 整体归一 = 0.4*ret_norm + 0.3*win_norm + 0.2*(1-dd_norm) + 0.1*n_norm
+    const wholeScore = 0.4 * retN(r.ret) + 0.3 * winN(r.win) + 0.2 * (1 - ddN(r.dd)) + 0.1 * nN(r.n);
+    // 分年综合分 = 0.4*min年ret_norm + 0.4*盈利年占比 + 0.2*(1-波动norm)
+    const yearlyScore = 0.4 * minYearRetN(r.minYearRet) + 0.4 * r.profitYearRatio + 0.2 * (1 - yearVolN(r.yearVol));
+    // oos综合分 = 0.4*test_ret_norm + 0.4*(1-过拟合度norm) + 0.2*test_win_norm
+    const oosScore = 0.4 * testRetN(r.testRet) + 0.4 * (1 - overfitN(r.overfit)) + 0.2 * testWinN(r.testWin);
+    // regime综合分：covid有值4项各0.25；null则3项 crash0.3+bear0.3+rally0.4
+    const crashNorm = 1 - crashDdN(r.crashDd); // 抗跌
+    const bearNorm = 1 - bearDdN(r.bearDd);
+    const rallyNorm = rallyRetN(r.rallyRet); // 能涨
+    let regimeScore;
+    if (r.covidNull) {
+      regimeScore = 0.3 * crashNorm + 0.3 * bearNorm + 0.4 * rallyNorm;
+    } else {
+      const covidNorm = 1 - covidDdN(r.covidDd);
+      regimeScore = 0.25 * crashNorm + 0.25 * bearNorm + 0.25 * rallyNorm + 0.25 * covidNorm;
+    }
+    // 综合(二次测试) = 0.3*整体 + 0.25*分年 + 0.25*oos + 0.2*regime
+    const score = 0.3 * wholeScore + 0.25 * yearlyScore + 0.25 * oosScore + 0.2 * regimeScore;
+    return Object.assign({}, r, { wholeScore, yearlyScore, oosScore, regimeScore, score });
+  });
 }
 
 function _labRetestRankSort(rows, tab) {
@@ -2876,23 +2965,45 @@ function _labRetestRankSort(rows, tab) {
   else if (tab === "win") arr.sort((a, b) => b.win - a.win);
   else if (tab === "dd") arr.sort((a, b) => a.dd - b.dd); // 回撤小优先
   else if (tab === "n") arr.sort((a, b) => b.n - a.n);
-  else arr.sort((a, b) => b.score - a.score); // score
+  else if (tab === "yearly") arr.sort((a, b) => b.yearlyScore - a.yearlyScore);
+  else if (tab === "oos") arr.sort((a, b) => b.oosScore - a.oosScore);
+  else if (tab === "regimes") arr.sort((a, b) => b.regimeScore - a.regimeScore);
+  else arr.sort((a, b) => b.score - a.score); // 综合(新公式，含三切片)
   return arr;
+}
+
+// 小样本灰色标注 tag（某年n<3 或 oos test n<10）
+function _labRetestSmallTag(flag) {
+  return flag ? ' <span class="lab-rank-small">小样本</span>' : "";
 }
 
 function _labRetestRankItemHTML(row, rank, tab) {
   const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "";
+  // 基础 stats 行（所有 tab 共享上下文：收益/胜/回撤/n）
+  const baseStats =
+    `<span style="color:${_labRetestColor(row.ret)}">收益${_labRetestPct(row.ret)}</span>` +
+    `<span style="color:${_labRetestColor(row.win)}">胜${_labRetestPct(row.win)}</span>` +
+    `<span style="${_labDdColor(row.dd)}">回撤${_labRetestPct(row.dd)}</span>` +
+    `<span class="lab-rank-n">n=${row.n}</span>`;
   let extra = "";
-  if (tab === "score") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
+  if (tab === "score") {
+    extra = `<span class="lab-rank-dim-sub">综合 ${(row.score * 100).toFixed(1)} · 整体${(row.wholeScore * 100).toFixed(0)} 分年${(row.yearlyScore * 100).toFixed(0)} 样外${(row.oosScore * 100).toFixed(0)} 极端${(row.regimeScore * 100).toFixed(0)}</span>`;
+  } else if (tab === "yearly") {
+    extra = `<span class="lab-rank-dim-sub">最差年${_labRetestPct(row.minYearRet)} · 盈利${row.profitYears}/${row.yearCount}年 · 波动${_labRetestPct(row.yearVol)}${_labRetestSmallTag(row.yearSmall)}</span>`;
+  } else if (tab === "oos") {
+    extra = `<span class="lab-rank-dim-sub">test${_labRetestPct(row.testRet)} · 过拟合${_labRetestPct(row.overfit)} · test胜${_labRetestPct(row.testWin)}${_labRetestSmallTag(row.oosSmall)}</span>`;
+  } else if (tab === "regimes") {
+    const covidNote = row.covidNull
+      ? ' · <span class="lab-rank-small">疫情无交易</span>'
+      : ` · 疫情回撤${_labRetestPct(row.covidDd)}`;
+    extra = `<span class="lab-rank-dim-sub">股灾回撤${_labRetestPct(row.crashDd)} · 熊市回撤${_labRetestPct(row.bearDd)} · 反弹收益${_labRetestPct(row.rallyRet)}${covidNote}</span>`;
+  }
+  // ret/win/dd/n 维度的值已在 baseStats 中显示，排序即体现排名，不加冗余 extra
   return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">${row.cn} · ${row.winCn}</span>` +
-    `<span class="lab-rank-stats">` +
-      `<span style="color:${_labRetestColor(row.ret)}">收益${_labRetestPct(row.ret)}</span>` +
-      `<span style="color:${_labRetestColor(row.win)}">胜${_labRetestPct(row.win)}</span>` +
-      `<span style="${_labDdColor(row.dd)}">回撤${_labRetestPct(row.dd)}</span>` +
-      `<span class="lab-rank-n">n=${row.n}</span>` +
-    `</span>` + extra + `</button>`;
+    `<span class="lab-rank-stats">${baseStats}</span>` +
+    extra + `</button>`;
 }
 
 function _labRetestRankHTML(rd) {
@@ -2905,14 +3016,20 @@ function _labRetestRankHTML(rd) {
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
   const legend = tab === "score"
-    ? "综合分 = 候选筛选时的综合评分×100，越高越优。"
+    ? "综合分(二次测试)=0.3整体+0.25分年+0.25样本外+0.2极端，归一化加权，越高越稳健。"
     : tab === "dd"
       ? "稳健榜按最大回撤从小到大排序，回撤越小越稳。"
       : tab === "ret"
         ? "收益率榜按总收益率从高到低排序。"
         : tab === "win"
           ? "胜率榜按胜率从高到低排序。"
-          : "样本量榜按交易次数从多到少排序。";
+          : tab === "n"
+            ? "样本量榜按交易次数从多到少排序。"
+            : tab === "yearly"
+              ? "分年榜=0.4最差年收益+0.4盈利年占比+0.2低波动（防某年暴利拉高整体）。"
+              : tab === "oos"
+                ? "样本外榜=0.4test收益+0.4低过拟合+0.2test胜率（前70%训练后30%验证防过拟合）。"
+                : "极端行情榜=股灾/熊市抗跌+反弹能涨（疫情无交易则跳过不扣分）。";
   return `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看分年/样本外/极端行情。红=好，绿=差。</div>` +
     `<div class="lab-rank-results">${_labRetestRankResultsHTML()}</div>`;
