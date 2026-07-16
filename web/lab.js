@@ -2839,7 +2839,7 @@ function _labRetestWinCN(win) {
   return cn || win || "-";
 }
 
-// retest 维度榜 tabs（8维：综合1 + 整体4 + 二次测试3。每配对只1个window，无时间窗口切换器）
+// retest 维度榜 tabs（8维：综合1 + 整体4 + 二次测试3。整体4维支持5窗口切换，二次测试3维窗口无关）
 const LAB_RETEST_RANK_TABS = [
   { key: "score", label: "🏆综合(二次)" },
   { key: "ret", label: "📈收益率" },
@@ -2864,13 +2864,32 @@ function _labRetestMinMax(rows, key) {
 
 // 聚合 retest pairs -> 行：算8维指标（归一化 across 该指数所有 pair）+ 各综合分。
 // pair_meta 全小数（0.27=27%），显示时×100%。归一化在同一指数内所有 pair 一起算 min/max。
-function _labRetestRankRows(rd) {
+function _labRetestRankRows(rd, simData, winKey) {
   if (!rd || !rd.pairs) return [];
   const pks = Object.keys(rd.pairs);
+  const wk = winKey || "y5"; // 5窗口切换：默认 y5（与 retest 后端窗口一致）
   // Pass1：收集每对原始指标
   const raw = pks.map((pk) => {
     const pd = rd.pairs[pk] || {};
     const meta = pd.pair_meta || {};
+    // 整体4维(ret/win/dd/n)：优先用单信号 simData 该窗口 stats（支持5窗口切换）；
+    // simData 缺失或该窗口无数据时回退 pair_meta（后端 y5 full_in 值）。
+    // 单信号 stats 为百分数(10.87)，pair_meta 为小数(0.1087)，统一为小数。
+    let ret = meta.ret != null ? meta.ret : 0;
+    let winRate = meta.win != null ? meta.win : 0;
+    let dd = meta.dd != null ? meta.dd : 0;
+    let n = meta.n != null ? meta.n : 0;
+    if (simData && meta.strategy) {
+      const parts = meta.strategy.split("|");
+      const pd2 = _labGetPair(simData, parts[0], parts[1]);
+      const s = pd2 && pd2.full_in && pd2.full_in.stats && pd2.full_in.stats[wk];
+      if (s) {
+        ret = s.total_ret / 100;
+        winRate = s.win_rate / 100;
+        dd = s.max_drawdown / 100;
+        n = s.n_trades;
+      }
+    }
     const yearly = pd.yearly || {};
     const yKeys = Object.keys(yearly).sort();
     const yearRets = yKeys.map((yr) => yearly[yr] && yearly[yr].ret).filter((v) => v != null);
@@ -2901,11 +2920,12 @@ function _labRetestRankRows(rd) {
       window: meta.window || "-",
       cn: _labRetestPairCN(meta.strategy || pk),
       winCn: _labRetestWinCN(meta.window),
-      // 整体原始
-      ret: meta.ret != null ? meta.ret : 0,
-      win: meta.win != null ? meta.win : 0,
-      dd: meta.dd != null ? meta.dd : 0,
-      n: meta.n != null ? meta.n : 0,
+      modeCn: "全仓", // retest 后端用 full_in 跑二次测试（pair_meta 无 mode 字段）
+      // 整体原始（5窗口切换时取自单信号 simData stats[wk]，默认 y5 与 pair_meta 一致）
+      ret,
+      win: winRate,
+      dd,
+      n,
       // 分年原始
       minYearRet, profitYearRatio, yearVol, profitYears, yearCount: yearRets.length,
       // 样本外原始
@@ -3001,20 +3021,25 @@ function _labRetestRankItemHTML(row, rank, tab) {
   // ret/win/dd/n 维度的值已在 baseStats 中显示，排序即体现排名，不加冗余 extra
   return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
-    `<span class="lab-rank-name">${row.cn} · ${row.winCn}</span>` +
+    `<span class="lab-rank-name">${row.cn} · ${row.modeCn}</span>` +
     `<span class="lab-rank-stats">${baseStats}</span>` +
     extra + `</button>`;
 }
 
-function _labRetestRankHTML(rd) {
+function _labRetestRankHTML(rd, simData) {
   if (!rd) return '<div class="lab-rank-empty">二次测试数据加载失败，请稍后重试</div>';
-  const rows = _labRetestRankRows(rd);
+  const winKey = state.labRetestRankWindow || "y5"; // 5窗口切换：整体4维取自 simData stats[winKey]
+  const rows = _labRetestRankRows(rd, simData, winKey);
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无二次测试候选配对</div>';
   state.labRetestRankRows = rows;
   const tab = state.labRetestRankTab || "score";
   const tabsHTML = LAB_RETEST_RANK_TABS.map((t) =>
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
+  // 5窗口切换器（独立 state.labRetestRankWindow，不影响推荐榜 state.labSimWindow）
+  const winTabsHTML = '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
+    `<button type="button" class="lab-win-tab${w.k === winKey ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
+  ).join("") + "</div>";
   const legend = tab === "score"
     ? "综合分(二次测试)=0.3整体+0.25分年+0.25样本外+0.2极端，归一化加权，越高越稳健。"
     : tab === "dd"
@@ -3030,8 +3055,9 @@ function _labRetestRankHTML(rd) {
               : tab === "oos"
                 ? "样本外榜=0.4test收益+0.4低过拟合+0.2test胜率（前70%训练后30%验证防过拟合）。"
                 : "极端行情榜=股灾/熊市抗跌+反弹能涨（疫情无交易则跳过不扣分）。";
-  return `<div class="lab-rank-tabs">${tabsHTML}</div>` +
-    `<div class="lab-rank-legend">${legend} 点击任意配对查看分年/样本外/极端行情。红=好，绿=差。</div>` +
+  return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${winTabsHTML}<span class="lab-win-bar-cur">${(LAB_WIN_DEFS.find((w) => w.k === winKey) || {}).l || ""}</span></div>` +
+    `<div class="lab-rank-tabs">${tabsHTML}</div>` +
+    `<div class="lab-rank-legend">${legend} 点击任意配对查看整体回测详情+二次测试三切片。红=好，绿=差。</div>` +
     `<div class="lab-rank-results">${_labRetestRankResultsHTML()}</div>`;
 }
 
@@ -3051,18 +3077,22 @@ function _labRetestRankResultsHTML() {
   return countHTML + `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
 }
 
-function _labRetestRankAttachHandlers(section, rd) {
+function _labRetestRankAttachHandlers(section, rd, simData) {
   section.querySelectorAll(".lab-rank-tab").forEach((btn) => {
-    btn.onclick = () => { state.labRetestRankTab = btn.dataset.tab; state.labRetestRankShowAll = false; _labRetestRankRerender(section, rd); };
+    btn.onclick = () => { state.labRetestRankTab = btn.dataset.tab; state.labRetestRankShowAll = false; _labRetestRankRerender(section, rd, simData); };
+  });
+  // 5窗口切换（整体4维随窗口从 simData stats[win] 重算重排）
+  section.querySelectorAll(".lab-win-tab[data-win]").forEach((btn) => {
+    btn.onclick = () => { state.labRetestRankWindow = btn.dataset.win; state.labRetestRankShowAll = false; _labRetestRankRerender(section, rd, simData); };
   });
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
     item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk);
   });
   const more = section.querySelector(".lab-rank-more");
-  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd); };
+  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
 }
 
-function _labRetestRankRerenderResults(section, rd) {
+function _labRetestRankRerenderResults(section, rd, simData) {
   const res = section.querySelector(".lab-rank-results");
   if (!res) return;
   res.innerHTML = _labRetestRankResultsHTML();
@@ -3070,13 +3100,13 @@ function _labRetestRankRerenderResults(section, rd) {
     item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk);
   });
   const more = section.querySelector(".lab-rank-more");
-  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd); };
+  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
 }
 
-function _labRetestRankRerender(section, rd) {
+function _labRetestRankRerender(section, rd, simData) {
   const body = section.querySelector(".lab-rank-body");
-  if (body) body.innerHTML = _labRetestRankHTML(rd);
-  _labRetestRankAttachHandlers(section, rd);
+  if (body) body.innerHTML = _labRetestRankHTML(rd, simData);
+  _labRetestRankAttachHandlers(section, rd, simData);
 }
 
 // 左栏候选配对卡片：每配对1张紧凑卡（中文名+窗口+综合分+胜率/回撤/n），点击弹窗
@@ -3140,7 +3170,7 @@ async function renderRetestLab() {
   phaseNote.innerHTML = "📌 <b>二次测试(稳健性验证三件套)</b>：分年回测 / 样本外 / 极端行情。点击配对卡片或右侧维度榜查看完整细节。";
   leftCol.appendChild(phaseNote);
 
-  // 右栏：retest 维度排行榜（无时间窗口切换器，每配对只1个window）
+  // 右栏：retest 维度排行榜（5窗口切换器，整体4维随窗口从 simData stats 重算）
   const rankSection = document.createElement("div");
   rankSection.className = "chart-card lab-rank-card";
   rankSection.innerHTML = '<h3>🔬 二次测试维度榜</h3>' +
@@ -3155,8 +3185,10 @@ async function renderRetestLab() {
   const _load = async () => {
     const idx = state.labSimIndex || "sh";
     const rd = await fetchLabRetestData(idx);
+    // 加载单信号 stats simData（含融合候选，排行榜5窗口切换需读 stats[win]）
+    const simData = await fetchLabSimData(idx);
     _labRetestRenderCards(list, rd);
-    _labRetestRankRerender(rankSection, rd);
+    _labRetestRankRerender(rankSection, rd, simData);
   };
   _load();
 
