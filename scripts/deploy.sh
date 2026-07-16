@@ -84,7 +84,8 @@ fi
 # 5. 总是 git push（幂等：有未 push commit 就推，无则 "Everything up-to-date"）
 echo "→ git push ..." | tee -a "$LOG"
 git -C "$REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
-PUSH_RC=${PIPESTATUS[0]}
+# :-1 防御 set -u 未绑定（macOS bash 3.2 数组边界用例）；默认失败不掩盖真实 rc（区别于旧 :-0）
+PUSH_RC=${PIPESTATUS[0]:-1}
 if [ "$PUSH_RC" -ne 0 ]; then
   # 可能是并发竞争 non-fast-forward：fetch 后确认 HEAD 是否已被推到 origin/main
   git -C "$REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
@@ -92,8 +93,26 @@ if [ "$PUSH_RC" -ne 0 ]; then
     echo "⚠ push 返回 $PUSH_RC 但 HEAD 已在 origin/main（并发 deploy 已推送），视为幂等成功" | tee -a "$LOG"
     PUSH_RC=0
   else
-    echo "✗ git push 失败（退出码 $PUSH_RC）" | tee -a "$LOG"
-    exit "$PUSH_RC"
+    # 本地落后 origin/main（并发 deploy 已推新 commit）：rebase 到 origin/main 后重试 push 一次。
+    # 数据 JSON 提交通常不冲突；冲突则 abort 保持工作区干净，退出待人工 rebase 后重跑。
+    echo "-> 本地落后 origin/main，rebase 后重试 push ..." | tee -a "$LOG"
+    git -C "$REPO" rebase origin/main 2>&1 | tee -a "$LOG"
+    REBASE_RC=${PIPESTATUS[0]:-1}
+    if [ "$REBASE_RC" -eq 0 ]; then
+      git -C "$REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
+      PUSH_RC=${PIPESTATUS[0]:-1}
+      if [ "$PUSH_RC" -eq 0 ]; then
+        echo "✓ rebase + 重试 push 成功" | tee -a "$LOG"
+      else
+        echo "✗ rebase 后重试 push 仍失败（退出码 $PUSH_RC）" | tee -a "$LOG"
+        exit "$PUSH_RC"
+      fi
+    else
+      git -C "$REPO" rebase --abort 2>/dev/null || true
+      echo "✗ rebase origin/main 失败（可能数据 JSON 冲突），已 abort 保持工作区干净。" | tee -a "$LOG"
+      echo "  请手动：git -C $REPO fetch origin && git -C $REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
+      exit 1
+    fi
   fi
 fi
 
