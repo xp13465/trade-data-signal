@@ -577,7 +577,9 @@ main { padding: 16px 24px; }
 .cards.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .card.kpi { min-width: 150px; padding: 12px 16px; flex: 1 1 150px; }
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; display: flex; align-items: baseline; gap: 6px; }
-.card.kpi .card-value .cv-tags { margin-left: auto; }
+.card.kpi .card-value .cv-val { min-width: 0; }
+.card.kpi .card-value .cv-tags { margin-left: auto; flex-shrink: 0; }
+.card.kpi .card-value .cv-tags .tag { font-size: 11px; padding: 1px 6px; }
 .card.kpi .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 4px; right: 6px; max-width: 70%; }
 .card-sub { font-size: 12px; color: var(--text-4); white-space: nowrap; overflow: hidden; }
 /* 角标浮动在右下角，给 card-sub 预留右侧空间防止文字被角标遮挡 */
