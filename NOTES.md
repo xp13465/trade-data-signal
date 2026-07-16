@@ -1518,9 +1518,14 @@ function initNavStickyToggle() {
 - **导航吸顶实现是 CSS `position:sticky`（style.css:185 `.tabs`，非 JS scroll）；关闭吸顶改 `position:static`，通过给 `<html>` 加 `nav-no-sticky` class 覆盖 `.tabs`/`.rule-bar`/`.industry-anchor-bar` 三处（后两者 top 依赖 tab 栏，必须一并 static）**。
 - **双版结构一致（index.html header/tabs 逐字相同仅资源URL不同；style.css 均2363行行号对应；app.js 关键函数+末尾初始化顺序双版齐全，static-site 比 web 多66行属数据源差异）**。
 
-## §28 策略实验室二次测试调研（2026-07-16，只读调研未实施）
+## §28 策略实验室二次测试（2026-07-16，已实施3种切片+每日自动跑上线）
 
-> 任务来源：用户需求"策略实验室回测排行榜+融合信号测试线跑全+brainstorm二次测试方案"。本节为**只读调研结论**，未改任何代码。实施清单见本节§5，待用户定方向后派实施agent。
+> 任务来源：用户需求"策略实验室回测排行榜+融合信号测试线跑全+brainstorm二次测试方案"。
+
+> **实施落档（2026-07-16 晚，逐字验收通过）**：
+> - **二次测试3种切片已实施上线**：①分年回测(2016-2026逐年) ②样本外(前70%训练后30%holdout) ③极端行情(4 regime: crash2015/bear2018/covid2020/rally2024)。前端 lab.js 加"🔬 二次测试"tab + ⭐️候选规则公示(commit d6b2224)；lab_retest.py pair_meta 补全(strategy/window/score归一化0.4*ret+0.3*win+0.2*(-dd)+0.1*n)(commit 5d68c73)。
+> - **每日自动跑+上线**（用户需求"每天自动增量所有回测,不用手动补"）：调研确认 lab 数据源=DB `index_daily`(每日 update_all 17:50 新增当天日线,lab_simulate.py:104-105 读 DB)，产物(`lab_sim_*/lab_retest_*.json`)原手动跑、update_all.sh 不含 lab、不自动更新。方案：`scripts/update_lab.sh` 跑 `lab_simulate`(单信号128组×9指数) + `--fusion`(91候选×9) + `lab_retest`(切片)，跑完 `git add static-site/data/lab/ web/data/lab/` + commit + `push origin HEAD:main` 上线(§8 上线渠道,不碰根 data/)。launchd `com.trade.lab-auto` 每日 **19:00**(update_all 17:50→18:39 完后；脚本内 `pgrep update_all.sh` 等待完成防撞车+防读旧数据缺当天日线，最多等90min) + `caffeinate -i -w $$` 防睡 + 交易日闸门 + `with_lock.py --nb` 进程互斥 + 失败不阻塞。全量仅 ~30s(单信号10.3s+融合15s+retest2.5s,纯 pandas 读 DB)。(commit d9bcd78 feat + 6bad9cd data update [lab])
+> - 其余7方向(蒙特卡洛/参数敏感/信号消融/手续费/多空对称/标的泛化/融合P2回测)属优化/归因,靠后待办。
 
 ### 1. 回测排行榜（推荐榜）精确定位
 
