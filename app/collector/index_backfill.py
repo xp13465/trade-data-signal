@@ -780,8 +780,70 @@ def main():
     gap_fixed = backfill_history_gaps(today, verbose=True)
     print(f"[backfill] 历史缺口补采 {gap_fixed} 个品种")
 
-    # 3) 任一补采拿到新数据(当日 or 历史缺口) -> 重算 + 推送
-    if ok > 0 or s_has_today or gap_fixed > 0:
+    # 2.6) 凌晨兜底:补 futures/lhb/etf(02:00 backfill 原只补 SERIES_FUNCS+指数,
+    # 这三类不覆盖)。复用上方 today(now.hour<15 已回退前一交易日,凌晨跑补到昨天)。
+    _extra_new = False
+
+    # futures 持仓补采 + 准确率重算
+    try:
+        from .futures_position import collect_daily as _fp_collect
+        _fp_res = _fp_collect(today)
+        if _fp_res:
+            _extra_new = True
+            print(f"[backfill] futures 补采到 {today} 数据 ({sum(len(v) for v in _fp_res.values())} 组)")
+            try:
+                from ..compute.futures_position import compute_accuracy as _fp_acc
+                _fp_acc(date=today)
+            except Exception as _e:  # noqa: BLE001
+                print(f"[backfill] futures compute_accuracy 失败: {_e}")
+        else:
+            print(f"[backfill] futures 无新数据 ({today})")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[backfill] futures 补采失败: {_e}")
+
+    # etf 国家队宽基补采(pipeline_daily 内部补近5日幂等,凌晨跑补到昨天)
+    try:
+        from .etf_national_team import pipeline_daily as _etf_daily, export_json_files as _etf_export
+        _etf_stats = _etf_daily()
+        # pipeline_daily 采到新 OHLC/份额 -> 导出 static-site/data/etf_national_team-*.json
+        # (deploy.sh 不导出 etf,须显式调 export_json_files 写 JSON 供 deploy 提交)
+        _etf_export()
+        if _etf_stats and (_etf_stats.get("ohlc") or _etf_stats.get("sse") or _etf_stats.get("szse")):
+            _extra_new = True
+            print(f"[backfill] etf 补采到新数据: {_etf_stats}")
+        else:
+            print(f"[backfill] etf 无新数据: {_etf_stats}")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[backfill] etf 补采失败: {_e}")
+
+    # lhb 龙虎榜补采(遍历 group=lhb 指标调 collect_snapshot,DATE_RANGE_FUNCS 不在
+    # SERIES_FUNCS 需单独遍历;collect_snapshot 返回 (val, msg),val 非 None 则 upsert)
+    try:
+        import yaml as _yaml
+        from pathlib import Path as _P
+        from . import fetchers as _f
+        from .runner import upsert_metric as _upsert_metric
+        _cfg_path = _P(__file__).resolve().parent.parent.parent / "config" / "indicators.yaml"
+        with open(_cfg_path, encoding="utf-8") as _fh:
+            _lhb_cfg = _yaml.safe_load(_fh)
+        for m in (_lhb_cfg.get("metrics") or []):
+            if m.get("group") != "lhb" or not m.get("enabled"):
+                continue
+            try:
+                _val, _msg = _f.collect_snapshot(m, today)
+                if _val is not None:
+                    _upsert_metric(today, m["id"], _val)
+                    _extra_new = True
+                    print(f"[backfill] lhb {m['id']} = {_val:.4g}")
+                else:
+                    print(f"[backfill] lhb {m['id']} skip ({_msg})")
+            except Exception as _e:  # noqa: BLE001
+                print(f"[backfill] lhb {m.get('id')} 失败: {_e}")
+    except Exception as _e:  # noqa: BLE001
+        print(f"[backfill] lhb 遍历失败: {_e}")
+
+    # 3) 任一补采拿到新数据(当日 or 历史缺口 or futures/lhb/etf 兜底) -> 重算 + 推送
+    if ok > 0 or s_has_today or gap_fixed > 0 or _extra_new:
         print("[backfill] 补到新数据 -> 重算情绪分 + 推送公网")
         # 写 collect_log 让 overview.json 的 collected_at 更新为本次 backfill 时间
         # (export.py collected_at 读 collect_log 最新 run_at; compute.runner 不写它,

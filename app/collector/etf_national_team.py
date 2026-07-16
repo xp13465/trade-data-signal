@@ -43,7 +43,7 @@ from pathlib import Path
 from . import base  # noqa: F401
 import akshare as ak
 
-from .base import em_get, throttle
+from .base import em_get, safe_call, throttle
 
 # ── 路径与常量 ──────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
@@ -239,8 +239,8 @@ def fetch_sse_shares(date_yyyymmdd: str) -> dict[str, float]:
     周末/节假日 akshare 抛 KeyError，调用方 try/except 跳过。
     """
     throttle()
-    df = ak.fund_etf_scale_sse(date=date_yyyymmdd)
-    if df is None or len(df) == 0:
+    df = safe_call(ak.fund_etf_scale_sse, date=date_yyyymmdd)
+    if isinstance(df, Exception) or df is None or len(df) == 0:
         return {}
     out = {}
     for code in SH_CODES:
@@ -258,8 +258,8 @@ def fetch_szse_shares(start_yyyymmdd: str, end_yyyymmdd: str) -> dict[str, dict[
     """深交所区间 ETF 份额。返回 {date_yyyymmdd: {code: fund_share}}（仅本清单深市 ETF）。
     fund_scale_daily_szse 要求 start/end 为 YYYYMMDD 格式。"""
     throttle()
-    df = ak.fund_scale_daily_szse(start_date=start_yyyymmdd, end_date=end_yyyymmdd, symbol="ETF")
-    if df is None or len(df) == 0:
+    df = safe_call(ak.fund_scale_daily_szse, start_date=start_yyyymmdd, end_date=end_yyyymmdd, symbol="ETF")
+    if isinstance(df, Exception) or df is None or len(df) == 0:
         return {}
     out: dict[str, dict[str, float]] = {}
     for _, row in df.iterrows():
@@ -289,8 +289,8 @@ def fetch_etf_ohlc(code: str, start_yyyymmdd: str = DEFAULT_START, client=None) 
     start_off = 0
     out: list[dict] = []
     while True:
-        df = client.bars(symbol=code, frequency=9, offset=PAGE, start=start_off)
-        if df is None or len(df) == 0:
+        df = safe_call(client.bars, symbol=code, frequency=9, offset=PAGE, start=start_off)
+        if isinstance(df, Exception) or df is None or len(df) == 0:
             break
         for ts, row in df.iterrows():
             dstr = str(ts)[:10].replace("-", "")  # 2026-07-13 -> 20260713
