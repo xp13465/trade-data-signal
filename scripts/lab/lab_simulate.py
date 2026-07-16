@@ -52,7 +52,8 @@ import pandas as pd
 
 A_STOCK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "a-stock-data")
 sys.path.insert(0, A_STOCK_DIR)
-from backtest_strategies import gen_buy_signals, gen_sell_signals, gen_fusion_candidates
+from backtest_strategies import gen_buy_signals, gen_sell_signals
+from fusion_signals import gen_fusion_candidates
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, BASE)
