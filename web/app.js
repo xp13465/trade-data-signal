@@ -5905,12 +5905,24 @@ function _loadScheduleStats() {
 }
 // 渲染弹窗内"各数据源实时时效"区块（原首页数据时效横幅移入）。
 // 复用 _buildHealthSources(overview, snap) 计算各源动态时效，open() 时刷新。
-function _renderFreshnessInModal() {
+async function _renderFreshnessInModal() {
   const box = document.querySelector("#ur-freshness");
   if (!box) return;
-  const r = _getCachedOverview();
-  const snap = state.intradaySnapshot;
-  if (!r) { box.innerHTML = '<p class="ur-note">暂无数据，请先加载首页后重开</p>'; return; }
+  let r = _getCachedOverview();
+  let snap = state.intradaySnapshot;
+  // 缓存空（用户未访问首页）时主动 fetch 回填，避免"请先加载首页后重开"影响使用
+  if (!r || !snap) {
+    box.innerHTML = '<p class="ur-note">加载中…</p>';
+    if (!r) {
+      r = await fetchJSON("/api/overview").catch(() => null);
+      if (r) _setCachedOverview(r);
+    }
+    if (!snap) {
+      try { await Promise.race([fetchIntradaySnapshot(), new Promise((res) => setTimeout(res, 1500))]); } catch (e) {}
+      snap = state.intradaySnapshot;
+    }
+  }
+  if (!r) { box.innerHTML = '<p class="ur-note">时效数据加载失败，请稍后重试</p>'; return; }
   const sources = _buildHealthSources(r, snap);
   let staleCount = 0, hasSevere = false;
   sources.forEach((s) => {
