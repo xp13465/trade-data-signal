@@ -263,8 +263,8 @@ main { padding: 16px 24px; }
 .card-time-badge.pending { color: var(--text-3); border-color: var(--border-strong); }
 /* 三色语义：绿=最新 / 黄=滞后可接受 / 红=异常 / 灰=停更 */
 .card-time-badge.closed { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.2); }
-/* T+1正常(已采到最新可得)=绿, 滞后(未到时刻)=黄, 异常(过时刻)=红 */
-.card-time-badge.t1 { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.2); }
+/* T+1正常(已采到最新可得,数据到昨天等明天更新)=灰(待更新,区别于绿=今天最新), 滞后(未到时刻)=黄, 异常(过时刻)=红 */
+.card-time-badge.t1 { color: var(--text-3); border-color: var(--border-strong); }
 .card-time-badge.t1-stale { color: #e6a23c; border-color: rgba(230,162,60,0.5); background: rgba(230,162,60,0.2); }
 .card-time-badge.t1-severe { color: #c62828; border-color: rgba(198,40,40,0.6); background: rgba(198,40,40,0.2); }
 /* 数据停更(源端长期停更/公式损坏/半年报,非采集故障)：灰色,区别于滞后(黄)/异常(红) */

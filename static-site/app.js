@@ -1440,7 +1440,7 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
       return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${hh}:${mm}</span>`;
     }
     if (srcClass === "t1") {
-      return `<span class="card-time-badge intraday" data-tip="T+1数据源已采到最新可得日期(${mmdd}),属正常">📅 T+1·${mmdd}</span>`;
+      return `<span class="card-time-badge t1" data-tip="T+1数据源已采到最新可得日期(${mmdd}),属正常(数据到昨天,等明天更新)">📅 T+1·${mmdd}</span>`;
     }
     return `<span class="card-time-badge intraday" data-tip="收盘后定格,显示当日收盘数据(最新)">📍 收盘·${mmdd}</span>`;
   }
