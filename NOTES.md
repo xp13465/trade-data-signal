@@ -1244,3 +1244,39 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 2. **pmset repeat 每 type 一个事件**：`sudo pmset repeat wakepoweron MTWRF 9:25:00 17:48:00` 同type两时间，pmset只保留17:48覆盖9:25。多唤醒时间用不同type。已更新 memory mac-sleep-wake-fix
 3. **jsonl mtime 误判卡死**：长工具调用不更新jsonl时间戳，判卡死优先看进度文件 mtime+tail（已记 memory check-progress-file-over-jsonl）
 4. **agent遗漏多改点**：复杂任务多改点，prompt 要逐项列明+要求逐项确认（ETF弹窗KPI NULL 遗漏，单独派补丁 agent）
+
+## §24 全球数据补全 + 大盘涨跌幅 + 港股行业daily_sina翻盘（2026-07-16）
+
+### 背景
+其他工具要做"每日全球数据复盘日报"，检测报告指出现状：✅港股三大/美股四大/黄金/WTI/白银/离岸人民币/美债/跨市场综合评分；❌缺失日经/KOSPI/欧洲三大/布伦特/港股行业；⚠️港股滞后3天（截至7-10）。用户要求补全 + 大盘信号各数值图加涨跌幅 + 盘中可见（概念/行业轮动折线）。
+
+### 上线功能（commit 清单）
+- **大盘指数折线图加涨跌幅**（commit 6f583f3）：`indexChart` 的 `_suffix`（web:618/static:625）在 close 后追加 pct_change badge，正红 `#e6492e`+、负绿 `#2e8b57`，`_last.pct_change` 实测存在（07-15 上证 -0.29%）。一次改完12个A股指数全带。双版 IDENTICAL。
+- **阶段1 盘中可见**（commit 4fa01f0）：行业+概念轮动/折线盘中可见。intraday_snapshot 加 `fetch_concept_realtime`(27概念) + `_backfill_concept_daily` + `_recompute_rotation`(盘中显式date=today) + `snap["concepts"]`；export.py 抽 `write_industry_all_split` 供main+盘中共用；DB intraday_snapshot 表加 concepts TEXT 列。**关键：盘中导出JSON已含当日行，前端读JSON即盘中可见，无需改前端**。
+- **全球tab extras涨跌幅bug修复 + 6新品种**（commit daf06e7代码 + e421c71数据）：
+  - **bug根因**：全球tab里"黄金开始"的商品/汇率/国债走 `valueChartWithSignals`（extras metric series），数据 `{date,value}` 无 pct_change，所以没涨跌幅（刚加的 indexChart badge 只覆盖OHLC指数）。修法：新增 `latestSuffixPct(data)` helper（web:408/static:415）从末两条value算 `(last/prev-1)*100`，extras循环 `latestSuffix`→`latestSuffixPct`。**不改 valueChartWithSignals 本体**（被6处复用会波及情绪图）。
+  - **6新品种接入**：日经/KOSPI/富时100/DAX/CAC40（`index_global_hist_sina` 新浪，market:global 走 collect_index 通用路径，fetchers.py:341-343 自算pct_change → 自动有涨跌幅badge）+ 布伦特（`futures_foreign_hist` symbol=**OIL不是B**，B报ValueError）。4处硬编码extras列表加brent（main.py:464/export.py:454/双版app.js extras dict）。renderGlobal indices循环动态（`Object.entries(r.indices)`）→ 5新指数零前端改动自动出图。
+
+### 踩坑教训（2条，已落 CLAUDE.md §8 + memory）
+1. **static-site/data/ 误判为§8禁推对象**（本轮最关键踩坑）：实施agent把"不 add data/"理解成连 `static-site/data/` 也不推，导致代码上线（daf06e7）但线上数据没更新（线上global-3m.json仍旧4指数无新品种）。实际：§8 禁的是**根目录 data/**（sentiment.db/signal_stats.json 等 DB+本地M），`static-site/data/` 是**正常上线渠道**（deploy.sh 设计就是commit+push它，git历史有 `data update [all]` 为证，`.gitignore` 不ignore它）。后端新增JSON字段/品种后**必须跑 `bash scripts/deploy.sh`**（export重生成JSON→git add static-site/data/→commit→push→wrangler自动部署），deploy.sh 的git add只加static-site/data/+min JS不碰根data/，安全。已落 CLAUDE.md §8 补澄清 + memory data-schema-change-needs-deploy。**派agent时prompt措辞要精确区分根data/ vs static-site/data/，别让agent误判**。
+2. **布伦特symbol用OIL不是B**：`futures_foreign_hist(symbol='B')` 报 ValueError，正确是 `symbol='OIL'`（WTI用CL、白银用SI）。已记入indicators.yaml注释。
+
+### 港股行业分类数据源翻盘结论（重要，颠覆前次预期）
+- **前次全球调研结论（错）**：akshare 无港股行业 daily_hist 接口，`stock_hk_index_spot_sina` 只给当日spot，做历史趋势需**自建每日落库累积**，从启用日起逐日增长（短期历史是空的）。
+- **本次深挖翻盘（对）**：`stock_hk_index_daily_sina(symbol)` 实测支持**全38指数历史daily**（CESG10博彩业实测2523行 2016-04-18~至今，7列 date/open/high/low/close/volume/amount）。**历史可一次性回填，立即有完整趋势，无需逐日累积**！源码注释"大量采集会被封IP"，回填需分批（每只sleep 3s，8只约24s）。
+- **限制**：这38只是"港股相关指数大杂烩"非恒生11行业完整分类体系。真正"行业/板块"属性约8-10只：CESG10博彩/HSTECH科技/CSHKLRE地产/HSMPI地产/HSMOGI油气/HSMBI银行/CSCMC消费/HSCCI中资企业/CSHKDIV红利。建议展示命名"港股板块指数"非"港股行业分类"。
+- **落库方案**：复用现有 `index_daily` 表（无需新表），config 加 `market: hk_industry`（新market类型，避免混入三大指数大图），index_id 加 `hk_` 前缀；一次性回填脚本 + 每日增量并入17:50 update_all（不需新launchd）；前端复用 `renderIndustryGrid`（A股行业网格，支持涨幅排序/信号/角标），接入 renderHK 末尾（web:3926/static:3995）；CSS复用现有 `.industry-grid` 无需新样式。
+
+### 策略实验室融合信号差距确认（用户记忆正确）
+- 当初设计（TASKS.md:141-160 + lab.js:1621"阶段一仅展示...阶段二将开放回测"）：先展示候选融合信号卡片（阶段一），用户指定后抓数据做实验（阶段二）。
+- 现状差距：①候选只硬编码6个手工组合，无自动组合机制（7买×7卖=49配对+同向共振42=90+候选，符合"应该有很多"但没做）②用户指定入口完全缺失（card.onclick空函数lab.js:1471）③抓数据回测链路完全缺失（2个experimental卡note"暂无回测数据需阶段二"）。
+- **补全方案4步**：P0候选生成器（纯前端，从22单信号LAB_STRATEGIES两两AND组合生成80+ pending候选卡，lab.js:661后新增_generateFusionCandidates）→ P1用户指定入口（pending卡加"🔁回测此组合"按钮+modal+队列JSON fusion_queue.json）→ P2后端lab_simulate.py扩展 `--fusion`/`--queue` 跑任意配对回测 + 结果回填卡status流转 + 点击进详情页复用renderLabDetail。
+
+### 港股滞后3天根因（已恢复当日，坐实到代码行）
+- 线上实测 hk-1m.json 的 hsi/hstech/hscei 最新均 20260715（当日），"滞后3天"是历史快照。
+- 根因：新浪源收盘后发布时点不稳定 + 腾讯兜底窗口窄（`_tencent_hk_fallback` index_backfill.py:476-542 三限制：盘中<16:00不写/值<35跳过/快照日期≠当日跳过）。17:50新浪还没出当日+腾讯兜底也失败时累积，直到20:00/02:00 backfill补齐。商品/汇率能当日因源在17:50前已发布（期货15:00收盘、央行中间价9:15发布）。
+
+### 待办（已落 TASKS.md A区）
+- 🟡 P2 港股行业分类历史趋势：daily_sina翻盘后可一次性回填，待实施（8板块指数复用renderIndustryGrid接入renderHK）。
+- 策略实验室融合信号补全：P0候选生成器可立即做（纯前端），P1/P2看节奏。
+

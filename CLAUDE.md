@@ -40,7 +40,8 @@
 
 ## 8. 改完必须推送
 - 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收)
-- 不 add data/ 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json/JSON 采集产物保持本地 M)
+- 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推)
+- **`static-site/data/` 是正常上线渠道,不是§8禁推对象**:前端读的线上数据产物,`scripts/deploy.sh` 设计就是 commit+push 它(git 历史有 `data update [all]` commit 为证)。后端新增 JSON 字段/新品种后**必须跑 `bash scripts/deploy.sh` 推数据上线**,否则前端读旧数据(memory `data-schema-change-needs-deploy`)。deploy.sh 的 `git add` 只加 `static-site/data/` + min JS,不碰根 `data/`,安全
 - commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 
 ## 9. 双版同步铁律
