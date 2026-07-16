@@ -815,3 +815,59 @@
   .lab-subnav-tab { padding: 6px 12px; font-size: 13px; }
   .lab-fusion-cond { font-size: 10px; padding: 1px 5px; }
 }
+
+/* === 二次测试 tab 样式 === */
+.lab-retest-rule {
+  font-size: 11px; color: #b8860b; background: #fffdf5;
+  padding: 6px 10px; border-radius: 6px; margin-bottom: 10px;
+  border: 1px dashed #ffd54f; line-height: 1.6;
+}
+.lab-retest-meta {
+  font-size: 12px; color: var(--text-3); margin-bottom: 10px;
+}
+.lab-retest-pairs { display: flex; flex-direction: column; gap: 14px; }
+.lab-retest-pair {
+  border: 1px solid var(--border, rgba(0,0,0,0.1)); border-radius: 8px;
+  padding: 12px 14px; background: var(--bg-card);
+}
+.lab-retest-pair-head {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center;
+  font-size: 13px; color: var(--text-2); padding-bottom: 8px;
+  border-bottom: 1px solid var(--border); margin-bottom: 10px;
+}
+.lab-retest-pair-strat { font-size: 14px; font-weight: 700; color: var(--text-1); }
+.lab-retest-pair-win { color: var(--primary); font-weight: 600; }
+.lab-retest-section { margin-bottom: 12px; }
+.lab-retest-section:last-child { margin-bottom: 0; }
+.lab-retest-section-title {
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+  margin-bottom: 6px;
+}
+.lab-retest-yearly, .lab-retest-oos {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+}
+.lab-retest-yearly th, .lab-retest-yearly td,
+.lab-retest-oos th, .lab-retest-oos td {
+  padding: 4px 8px; text-align: center; border: 1px solid var(--border);
+}
+.lab-retest-yearly th, .lab-retest-oos th {
+  background: var(--bg-hover); font-weight: 600; color: var(--text-2);
+  font-size: 11px;
+}
+.lab-retest-yearly td:first-child, .lab-retest-oos td:first-child {
+  text-align: left; color: var(--text-3); font-weight: 500;
+}
+.lab-retest-regimes {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.lab-retest-regime-card {
+  padding: 8px 6px; border: 1px solid var(--border); border-radius: 6px;
+  text-align: center; background: var(--bg-hover);
+}
+.lab-retest-regime-name { font-size: 11px; color: var(--text-3); margin-bottom: 4px; }
+.lab-retest-regime-ret { font-size: 15px; font-weight: 700; }
+.lab-retest-regime-dd { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+@media (max-width: 600px) {
+  .lab-retest-regimes { grid-template-columns: repeat(2, 1fr); }
+  .lab-retest-pair-head { font-size: 12px; }
+}

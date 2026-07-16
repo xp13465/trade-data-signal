@@ -1173,6 +1173,19 @@ async function fetchLabSimData(index) {
   return state.labSimDataMap[index];
 }
 
+// 获取 lab_retest_{index}.json 数据（二次测试：分年/样本外/极端行情，per-index 缓存）
+async function fetchLabRetestData(index) {
+  index = index || "sh";
+  if (!state.labRetestDataMap) state.labRetestDataMap = {};
+  if (state.labRetestDataMap[index]) return state.labRetestDataMap[index];
+  try {
+    state.labRetestDataMap[index] = await fetchJSON("./data/lab/lab_retest_" + index + ".json");
+  } catch (e) {
+    state.labRetestDataMap[index] = null;
+  }
+  return state.labRetestDataMap[index];
+}
+
 // 检查某指数 full 数据是否已合并入缓存（用于判断详情是否需显示 loading）
 function _labSimFullLoaded(index) {
   index = index || "sh";
@@ -2020,6 +2033,7 @@ const LAB_RANK_TABS = [
   { key: "win", label: "🎯 胜率" },
   { key: "stable", label: "🛡 稳健(回撤小)" },
   { key: "risk_adj", label: "⚖ 风险调整" },
+  { key: "retest", label: "🔬 二次测试" },
 ];
 
 // 排行榜过滤维度（4维 min/max，留空=该边界不限制）。字段单位：均为百分比数值(如36.26=36.26%)，n_trades 为整数次数。
@@ -2168,6 +2182,10 @@ function _labRankHTML(simData) {
   const tabsHTML = LAB_RANK_TABS.map((t) =>
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
+  // retest tab：渲染二次测试内容（分年/样本外/极端行情），不走常规排行逻辑
+  if (tab === "retest") {
+    return `<div class="lab-rank-tabs">${tabsHTML}</div>` + _labRetestContentHTML(simData);
+  }
   const legend = tab === "composite"
     ? "综合评分 = 收益率(40%) + 胜率(30%) + 回撤倒数(20%) + 样本量(10%)，各项 min-max 归一化到[0,1]后加权再×100，越高越好。"
     : tab === "risk_adj"
@@ -2183,6 +2201,116 @@ function _labRankHTML(simData) {
     `<div class="lab-rank-retest-rule">⭐️进入二次测试：综合评分≥0.6 且 交易≥30次 且 最大回撤≤50%，或 胜率≥55%，或 风险调整≥1.0</div>` +
     _labRankFilterHTML() +
     `<div class="lab-rank-results">${_labRankResultsHTML()}</div>`;
+}
+
+// === 二次测试 tab 渲染（分年回测 / 样本外 / 极端行情三件套）===
+// 数据源 lab_retest_{index}.json，per-index 缓存到 state.labRetestDataMap
+// ret/dd/win 为小数(0.xxxx)，显示时 ×100 加 %；null 显示 "-"
+const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=综合分≥0.6且交易≥30且回撤≤50";
+
+function _labRetestPct(v) {
+  if (v == null) return "-";
+  return (v * 100).toFixed(2) + "%";
+}
+
+function _labRetestColor(v) {
+  if (v == null) return "";
+  return v >= 0 ? "#c92a2a" : "#2e7d32"; // 红正绿负（A股惯例）
+}
+
+// 二次测试内容区：检查缓存，未加载显示 loading，null 显示暂无
+function _labRetestContentHTML(simData) {
+  const idx = (simData && simData.index_id) || (state.labSimIndex || "sh");
+  const rd = state.labRetestDataMap && state.labRetestDataMap[idx];
+  if (rd === undefined) {
+    return `<div class="lab-retest-rule">${_LAB_RETEST_RULE}</div>` +
+      '<div class="lab-rank-loading">⏳ 加载二次测试数据中…</div>';
+  }
+  if (rd === null) {
+    return `<div class="lab-retest-rule">${_LAB_RETEST_RULE}</div>` +
+      '<div class="lab-rank-empty">暂无二次测试数据</div>';
+  }
+  const pks = rd.pairs ? Object.keys(rd.pairs) : [];
+  if (pks.length === 0) {
+    return `<div class="lab-retest-rule">${_LAB_RETEST_RULE}</div>` +
+      '<div class="lab-rank-empty">暂无二次测试候选配对</div>';
+  }
+  const pairsHTML = pks.map((pk) => _labRetestPairHTML(pk, rd.pairs[pk])).join("");
+  return `<div class="lab-retest-rule">${_LAB_RETEST_RULE}</div>` +
+    `<div class="lab-retest-meta">指数: ${rd.index_name || idx} · 生成: ${rd.generated_at || "-"} · 候选: ${pks.length} 个配对</div>` +
+    `<div class="lab-retest-pairs">${pairsHTML}</div>`;
+}
+
+// 单个候选配对的二次测试卡片：pair_meta + 分年 + 样本外 + 极端行情
+function _labRetestPairHTML(pk, pd) {
+  const meta = pd.pair_meta || {};
+  // 信息头
+  const headHTML = '<div class="lab-retest-pair-head">' +
+    `<span class="lab-retest-pair-strat">⭐️ ${meta.strategy || pk}</span>` +
+    `<span class="lab-retest-pair-win">窗口: ${meta.window || "-"}</span>` +
+    `<span>综合分: ${meta.score != null ? (meta.score * 100).toFixed(0) : "-"}</span>` +
+    `<span>交易: ${meta.n != null ? meta.n : "-"}</span>` +
+    `<span style="${_labDdColor(meta.dd)}">回撤: ${_labRetestPct(meta.dd)}</span>` +
+    `<span style="color:${_labRetestColor(meta.win)}">胜率: ${_labRetestPct(meta.win)}</span>` +
+    "</div>";
+
+  // ① 分年回测表
+  const yearly = pd.yearly || {};
+  const yKeys = Object.keys(yearly).sort();
+  const yRows = yKeys.length > 0 ? yKeys.map((yr) => {
+    const d = yearly[yr] || {};
+    return "<tr>" +
+      `<td>${yr}</td>` +
+      `<td style="color:${_labRetestColor(d.ret)}">${_labRetestPct(d.ret)}</td>` +
+      `<td>${_labRetestPct(d.win)}</td>` +
+      `<td style="${_labDdColor(d.dd)}">${_labRetestPct(d.dd)}</td>` +
+      `<td>${d.n != null ? d.n : "-"}</td>` +
+      "</tr>";
+  }).join("") : '<tr><td colspan="5">无数据</td></tr>';
+  const yearlyHTML = '<div class="lab-retest-section">' +
+    '<div class="lab-retest-section-title">① 分年回测（防某年暴利拉高整体）</div>' +
+    '<table class="lab-retest-yearly"><thead><tr><th>年份</th><th>收益率</th><th>胜率</th><th>回撤</th><th>交易数</th></tr></thead>' +
+    `<tbody>${yRows}</tbody></table></div>`;
+
+  // ② 样本外对比表
+  const oos = pd.oos || {};
+  const tr = oos.train || {}, te = oos.test || {};
+  const oosRow = (label, field) => {
+    const tv = tr[field], sv = te[field];
+    const fmt = (v) => field === "n" ? (v != null ? v : "-") : _labRetestPct(v);
+    return "<tr>" +
+      `<td>${label}</td>` +
+      `<td style="color:${field === "n" ? "" : _labRetestColor(tv)}">${fmt(tv)}</td>` +
+      `<td style="color:${field === "n" ? "" : _labRetestColor(sv)}">${fmt(sv)}</td>` +
+      "</tr>";
+  };
+  const oosHTML = '<div class="lab-retest-section">' +
+    '<div class="lab-retest-section-title">② 样本外测试（前70%训练 → 后30%验证，防过拟合）</div>' +
+    '<table class="lab-retest-oos"><thead><tr><th>指标</th><th>训练集 (train)</th><th>测试集 (test)</th></tr></thead>' +
+    "<tbody>" + oosRow("收益率", "ret") + oosRow("胜率", "win") + oosRow("回撤", "dd") + oosRow("交易数", "n") + "</tbody>" +
+    "</table></div>";
+
+  // ③ 极端行情 4 regime 卡片
+  const regimes = pd.regimes || {};
+  const regDefs = [
+    ["crash2015", "2015 股灾"],
+    ["bear2018", "2018 熊市"],
+    ["covid2020", "2020 疫情"],
+    ["rally2024", "2024 反弹"],
+  ];
+  const regCards = regDefs.map(([k, label]) => {
+    const r = regimes[k] || {};
+    return '<div class="lab-retest-regime-card">' +
+      `<div class="lab-retest-regime-name">${label}</div>` +
+      `<div class="lab-retest-regime-ret" style="color:${_labRetestColor(r.ret)}">${_labRetestPct(r.ret)}</div>` +
+      `<div class="lab-retest-regime-dd" style="${_labDdColor(r.dd)}">回撤 ${_labRetestPct(r.dd)}</div>` +
+      "</div>";
+  }).join("");
+  const regimesHTML = '<div class="lab-retest-section">' +
+    '<div class="lab-retest-section-title">③ 极端行情回撤（各 regime 表现）</div>' +
+    `<div class="lab-retest-regimes">${regCards}</div></div>`;
+
+  return `<div class="lab-retest-pair">${headHTML}${yearlyHTML}${oosHTML}${regimesHTML}</div>`;
 }
 
 // 结果区(数量提示+列表+更多按钮)：聚合后用 state.labRankRows，过滤->排序->分页。过滤输入时只刷新本区，不重建过滤面板(保焦点)。
@@ -2230,6 +2358,14 @@ function _labRankAttachHandlers(section, simData) {
   };
   // 列表项 + 更多按钮（结果区内部）
   _labRankAttachResultsHandlers(section, simData);
+  // retest tab：异步加载二次测试数据，加载完后重渲染
+  const _tab = state.labRankTab || "composite";
+  if (_tab === "retest") {
+    const _ridx = (simData && simData.index_id) || (state.labSimIndex || "sh");
+    if (!state.labRetestDataMap || state.labRetestDataMap[_ridx] === undefined) {
+      fetchLabRetestData(_ridx).then(() => _labRankRerender(section, simData));
+    }
+  }
 }
 
 // 结果区事件绑定（列表项点击+更多按钮）。全量重渲染和仅结果重渲染都调用本函数。
