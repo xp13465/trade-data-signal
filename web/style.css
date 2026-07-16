@@ -697,6 +697,7 @@ main { padding: 16px 24px; }
 
 /* 美股期货预期提示条（全球tab美股指数区上方，亚盘实时期货预估美股当晚方向） */
 .us-futures-expect {
+  position: relative;
   margin: 0 0 12px;
   padding: 10px 14px;
   border: 1px solid var(--border);
@@ -706,7 +707,7 @@ main { padding: 16px 24px; }
 .us-futures-expect .usf-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .us-futures-expect .usf-title { font-weight: 600; font-size: 14px; }
 .us-futures-expect .usf-sub { font-size: 11px; opacity: 0.7; }
-.us-futures-expect .usf-time { margin-left: auto; font-size: 11px; opacity: 0.7; }
+.us-futures-expect .card-time-badge { top: 8px; right: 10px; bottom: auto; }
 .us-futures-expect .usf-items { display: flex; gap: 18px; flex-wrap: wrap; }
 .us-futures-expect .usf-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .us-futures-expect .usf-name { font-weight: 600; }

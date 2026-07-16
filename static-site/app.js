@@ -4046,10 +4046,14 @@ function _renderUSFuturesExpect(snap, container) {
     `<div class="usf-head">
       <span class="usf-title">🇺🇸 美股预期</span>
       <span class="usf-sub">期货亚盘实时 · 预估美股当晚方向（ES↔标普500 / NQ↔纳指100，相关性≈0.95）</span>
-      ${time ? `<span class="usf-time">⏰ ${time}</span>` : ""}
     </div>
     <div class="usf-items">${items.join("")}</div>`;
   container.appendChild(div);
+  // 时间角标：ES/NQ 期货报价时间（亚盘实时），参考 addCardTimeBadge 机制用 card-time-badge 角标
+  if (time) {
+    div.insertAdjacentHTML("beforeend", `<span class="card-time-badge intraday" data-tip="美股期货亚盘实时报价时间">⏰ ${time}</span>`);
+    div.classList.add("has-time-badge");
+  }
 }
 
 async function renderGlobal(container = content) {
@@ -5879,7 +5883,9 @@ function updateRulesContentHtml() {
       '<ul class="ur-list">' +
         '<li>📈 <b>A股指数涨跌幅/热点板块/一句话总结</b>：盘中前端动态拉取腾讯分时数据（约3分钟刷新）；30分钟服务器快照仅用于收盘归档与情绪分计算</li>' +
         '<li>🇭🇰 <b>港股指数（恒生/恒生科技/国企）</b>：盘中实时快照（9:30-16:00），16:35 补完整收盘 OHLC</li>' +
+        '<li>🇭🇰 <b>港股板块指数</b>：腾讯备源兜底（cesg10/hsmogi/hsmbi/hsmpi/hscci 5个有腾讯兜底）；cshklre/cshklc/cshkdiv 3个仅新浪无备源</li>' +
         '<li>🇺🇸 <b>美股指数</b>：北京时差晚 21:30 开盘，A 股交易日看美股最新是 T-1 或 T-2（跨周末），属正常</li>' +
+        '<li>🇺🇸 <b>美股期货 ES/NQ（新浪 hf_ES/hf_NQ）</b>：盘中亚盘时段实时，预估美股当晚开盘方向（ES↔标普500 / NQ↔纳指100），不替代美股收盘价</li>' +
         '<li>📊 <b>指数历史走势 OHLC</b>：T+1（申万/baostock 收盘后次日补全）</li>' +
         '<li>😐 <b>恐贪指数 / per-index 情绪分</b>：快照反哺后当日可用，否则停 T-1</li>' +
         '<li>📋 <b>A股综合情绪分</b>：当日（mootdx 实时算）</li>' +
