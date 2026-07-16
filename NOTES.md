@@ -1280,3 +1280,22 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - 🟡 P2 港股行业分类历史趋势：daily_sina翻盘后可一次性回填，待实施（8板块指数复用renderIndustryGrid接入renderHK）。
 - 策略实验室融合信号补全：P0候选生成器可立即做（纯前端），P1/P2看节奏。
 
+## §25 港股板块/全球tab pin补全 + 帽子云purge决策维持（2026-07-16 续）
+
+### 三个pin/按钮缺失修复（同型：配置清单遗漏，非字段缺失数据有）
+1. **港股板块指数无pin**（commit 7eb64b1）：main.py `hk_industries` + export.py `export_hk` 生成时漏 signals/stats 字段（对比 A股行业 `export_industry` 有完整字段）。数据齐全（signal_daily 8指数各128-175条+signal_stats全命中），补字段即渲染。根因≠§24踩坑（那是static-site/data误判），是路由生成漏字段。
+2. **布伦特原油无pin**（commit 8a4bb4a）：`signals.py:292` GLOBAL_METRIC_IDS 漏 brent（10个无brent），信号脚本不给 g.brent 算信号（signal_daily 0条）。daily_metric brent 2585条行情一直在（§24已接入），只是没算买卖点。补 brent+重算 -> g.brent 117条信号+stats。
+3. **全球指数无模拟回测按钮**（commit 84c9b30）：app.js `SIM_INDICES` 白名单遗漏 ftse100/dax/bj50 + us10y/a_qvix_300/a_qvix_1000 裸id（只有g.前缀，extras传裸id致`has()`=false）+ trade_sim_ftse100/dax/g.brent.html 未生成。补白名单+生成3页面+SIM_HREF_MAP映射。deploy 9c6b677 推数据上线。
+
+### 帽子云purge调研结论 + 决策：维持现状
+- **缓存错位是 transient**：部署非原子（帽子云构建传播窗口）+ 长 TTL（max-age=1200=20分钟）叠加，新URL命中源站旧内容/404时 CF edge 缓存错位响应20分钟，过期自愈。非永久故障。
+- **缓存层定位**：`cf-cache-status: HIT`（Cloudflare缓存）+ `my-cache-status: BYPASS`（帽子云只回源不缓存）。缓存层是 Cloudflare 不是帽子云。
+- **根治方案（未采纳）**：maozi.io 子域接入用户自己CF账号（sugas13465），deploy.sh加 wrangler deploy + CF purge API，一次解决 purge秒级 + _headers生效 + Brotli压缩。需用户操作DNS子域CNAME。
+- **次选（未采纳）**：切主流量GitHub Pages（max-age=600缩短+现成gzip）。
+- **用户决策：维持现状**（不迁移CF/GH Pages）。CDN 20分钟缓存延迟靠等自愈。
+
+### 踩坑：线上静态资源在根路径非 /static/
+- 线上 static-site 部署：app.min.js/style.css/trade_sim_*.html 在**根路径**（`/app.min.js?v=xxx`、`/trade_sim_ftse100.html`），非 `/static/`。`/static/` 路径全404。
+- web/app.js（动态版）按钮 href 用 `/static/trade_sim_*.html`，static-site/app.js（线上）用 `./trade_sim_*.html`（根路径正确）。
+- **验证线上静态资源必须用根路径**，curl `/static/` 会误判404。本次逐字验证差点冤枉 agent 报告不准（agent 实际 curl 根路径报200是对的）。
+
