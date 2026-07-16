@@ -38,6 +38,15 @@ if [ "$EXPORT_RC" -ne 0 ]; then
 fi
 echo "✓ export.py 完成" | tee -a "$LOG"
 
+# 1.4 刷新计划任务执行统计（解析 data/logs/*_launchd.log 写 schedule_stats.json）
+# 每次部署刷新，前端"数据更新规则"弹窗展示预估耗时+最后执行时间。失败不阻断部署。
+echo "-> 运行 gen_schedule_stats.py 刷新任务执行统计 ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG"
+GENS_RC=${PIPESTATUS[0]}
+if [ "$GENS_RC" -ne 0 ]; then
+  echo "⚠ gen_schedule_stats.py 失败（退出码 $GENS_RC），schedule_stats.json 可能过期，继续部署" | tee -a "$LOG"
+fi
+
 # 1.5 重新生成 minified JS（确保 app.min.js/lab.min.js 与源 app.js/lab.js 同步）
 # 安全网：dev 改了 app.js 源码但忘跑 build_min.py 时，此处补生成。
 # build_min.py 失败不阻断数据部署（已有 min 文件仍可用），仅告警。

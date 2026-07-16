@@ -5866,8 +5866,33 @@ function updateRulesContentHtml() {
         '<li>收盘后约 2 小时（17:50 update_all）T+1 源出数据后会补全</li>' +
         '<li>晚 20:00 再兜底补一次，凌晨 02:00 也会兜底一次</li>' +
       '</ul>' +
+    '</div>' +
+    '<div class="rule-section">' +
+      '<h4>📊 近期执行统计</h4>' +
+      '<table class="ur-table" id="schedule-stats-table"><thead><tr><th>任务</th><th>调度时点</th><th>预估耗时</th><th>最后执行</th></tr></thead><tbody><tr><td colspan="4">加载中…</td></tr></tbody></table>' +
+      '<p class="ur-note">预估耗时＝近10次有效平均；最后执行＝最近一次开始时间，退出码非0标 ⚠️（数据部署时刷新）</p>' +
     '</div>'
   );
+}
+function _renderScheduleStats(rows) {
+  const tb = document.querySelector("#schedule-stats-table tbody");
+  if (!tb) return;
+  if (!Array.isArray(rows) || !rows.length) {
+    tb.innerHTML = '<tr><td colspan="4">暂无统计</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map((r) => {
+    const warn = (r.last_exit != null && r.last_exit !== 0) ? " ⚠️" : "";
+    return `<tr><td>${r.name || r.task || ""}</td><td>${r.schedule || ""}</td><td>${r.est_text || "-"}</td><td>${r.last_run || "-"}${warn}</td></tr>`;
+  }).join("");
+}
+function _loadScheduleStats() {
+  fetchJSON("./data/schedule_stats.json")
+    .then(_renderScheduleStats)
+    .catch(() => {
+      const tb = document.querySelector("#schedule-stats-table tbody");
+      if (tb) tb.innerHTML = '<tr><td colspan="4">暂无统计</td></tr>';
+    });
 }
 function initUpdateRules() {
   const modal = document.createElement("div");
@@ -5881,7 +5906,7 @@ function initUpdateRules() {
 
   const overlay = modal.querySelector(".rule-modal-overlay");
   const closeBtn = modal.querySelector(".rule-modal-close");
-  const open = () => { modal.classList.remove("hidden"); document.body.style.overflow = "hidden"; };
+  const open = () => { modal.classList.remove("hidden"); document.body.style.overflow = "hidden"; _loadScheduleStats(); };
   const close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
 
   // 事件委托：applyCollectTime 每次 innerHTML 重渲染后图标仍可点

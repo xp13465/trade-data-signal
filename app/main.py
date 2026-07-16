@@ -1080,6 +1080,18 @@ def signal_freq():
     return sigstats.compute_global_freq()
 
 
+@app.get("/api/schedule_stats")
+def schedule_stats():
+    """计划任务执行统计：各 launchd 任务的预估耗时 + 最后执行时间。
+    由 scripts/gen_schedule_stats.py 在部署时刷新写入 static-site/data/schedule_stats.json。
+    动态版直接读该静态文件返回（数据本身与动态/静态无关，都是日志解析结果）。
+    """
+    p = Path(__file__).resolve().parent.parent / "static-site" / "data" / "schedule_stats.json"
+    if not p.exists():
+        return []
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
 @app.get("/api/rotation")
 def rotation():
     """板块轮动速度：SW 行业 + 同花顺概念板块领涨变化频率，最近 250 日。"""
