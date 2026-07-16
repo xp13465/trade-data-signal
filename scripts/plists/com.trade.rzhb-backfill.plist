@@ -9,16 +9,17 @@
         <string>/bin/bash</string>
         <string>/Users/linhuichen/code/trade/scripts/rzhb_backfill.sh</string>
     </array>
-    <!-- 每日 22:10 跑：两融余额（a_fund_margin，沪市融资余额）源 stock_margin_sse
-         盘后 ~18:00-19:00 发布当日数据，17:50 update_all 采不到（停在 T-1）。
-         22:10 单采当日（远晚于发布时点）根治滞后，独立于 20:00 backfill 的 SERIES_FUNCS 兜底。
-         采集几秒 + compute + 持 deploy 锁推送；22:10 时段 deploy.lock 通常空闲。 -->
+    <!-- 每日 23:00 跑：两融余额（a_fund_margin，沪市融资余额）源 stock_margin_sse
+         盘后发布当日数据，实测 22:10 时 latest 仍=前一日（源发布晚于22:10）。
+         23:00 当晚单采（比22:10晚50分钟更可能采到当日），采到则当日上线；
+         配合凌晨 backfill 缺口检测兜底（commit 61567f0）治本——源晚出也能补。
+         独立于 20:00 backfill 的 SERIES_FUNCS 兜底；采集几秒 + compute + 持 deploy 锁推送。 -->
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
-        <integer>22</integer>
+        <integer>23</integer>
         <key>Minute</key>
-        <integer>10</integer>
+        <integer>0</integer>
     </dict>
     <key>EnvironmentVariables</key>
     <dict>

@@ -42,7 +42,7 @@ TASKS = [
     {"task": "lhb_backfill", "name": "龙虎榜", "script": "lhb_backfill.sh",
      "schedule": "18:30", "log": "lhb_backfill_launchd.log", "mode": "standard"},
     {"task": "rzhb_backfill", "name": "两融", "script": "rzhb_backfill.sh",
-     "schedule": "22:10", "log": "rzhb_backfill_launchd.log", "mode": "standard"},
+     "schedule": "23:00", "log": "rzhb_backfill_launchd.log", "mode": "standard"},
     {"task": "etf_national_team", "name": "ETF国家队", "script": "etf_nt",
      "schedule": "20:07", "log": "etf_national_team_launchd.log", "mode": "etf_nt"},
 ]

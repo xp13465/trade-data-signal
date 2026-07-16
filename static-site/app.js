@@ -1487,7 +1487,7 @@ function addStaleMark(cardEl, dataDate) {
 // "next_day"=源端次日才发当日数据(今天的采集根本采不到 ptd 的当日值)，盘中恒放宽基准-1。
 // 收盘后(is_closed===true)一律恢复原口径。商品/国债/QVIX/红利等当天盘后已采到 ptd，无需放宽(默认行为)。
 const T1_COLLECT_DEADLINE = {
-  a_fund_margin: "17:50",   // 两融: 上交所盘后22:00发布，update_all core 次日17:50采集；盘中<17:50 显示 ptd-1 正常
+  a_fund_margin: "23:00",   // 两融(沪市融资余额): 上交所盘后发布较晚(实测22:10仍未出当日),update_all 17:50采不到当日; rzhb 23:00当晚单采(采到则当日上线), 配合凌晨backfill缺口检测兜底补齐; 盘中<23:00 显示 ptd-1 正常
   us_dji_date:   "16:35",   // 美股道指: 美股收盘=北京次日04:00，backfill-evening 16:35采集；<16:35 放宽，>=16:35 严格
   lhb_count:     "next_day",// 龙虎榜: 东财次日18:00才发当日，今天采不到 -> 盘中恒放宽基准-1
   futures_date:  "next_day",// 期货机构持仓: CFFEX次日20:00才发当日，今天采不到 -> 盘中恒放宽基准-1
@@ -1558,7 +1558,7 @@ function _buildHealthSources(r, snap) {
   const margin = findM("a_fund_margin");
   if (margin && margin.date) {
     const f = _dataFreshness(margin.date, ptd, _t1Relax("a_fund_margin", intraday));
-    sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布,次日开盘前更新当日" });
+    sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布较晚(实测22:10仍未出当日),当晚23:00单采+凌晨backfill兜底补齐" });
   }
   // 北向资金 2024-08 起源端停更。停≤30天提示用户，>30天长期停更不再提醒（避免长期挂红条烦扰）。
   // 通用规则：任何源端停更的数据源均按此30天口径（与 isStaleMetric 同源日期差逻辑）。
@@ -5822,6 +5822,7 @@ function updateRulesContentHtml() {
         '<tr><td>16:35</td><td>港股补采</td><td>港股16:00收盘后补采当日恒生指数</td></tr>' +
         '<tr><td>17:50</td><td>收盘全量</td><td>baostock等T+1源出数据后全量采集</td></tr>' +
         '<tr><td>20:00</td><td>晚间兜底</td><td>补采晚出的申万/港股等数据</td></tr>' +
+        '<tr><td>23:00</td><td>两融单采</td><td>沪市融资余额源盘后发布较晚(实测22:10仍未出),当晚23:00单采当日(采到则当日上线),配合凌晨兜底补齐</td></tr>' +
         '<tr><td>02:00</td><td>凌晨兜底</td><td>补采遗漏确保次日数据齐全</td></tr>' +
       '</tbody></table>' +
     '</div>' +
