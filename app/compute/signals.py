@@ -290,7 +290,7 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
 # signal_daily index_id 前缀：g.<metric_id> / s.<score_id>（区分指数/指标/分数）。
 # 卖点 reason 附 vs前买 标注，分母用 |last_buy_value| 兼容负数序列（如 cn_us_spread）。
 GLOBAL_METRIC_IDS = (
-    "cn10y", "us10y", "wti_oil", "comex_silver", "gold", "oil",
+    "cn10y", "us10y", "wti_oil", "brent", "comex_silver", "gold", "oil",
     "usdcnh", "a_qvix_300", "a_qvix_1000", "cn_us_spread",
 )
 SCORE_IDS = ("cross_market", "a_sentiment", "sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50")
