@@ -83,6 +83,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 10px;
+  max-height: 640px; overflow-y: auto;
 }
 .lab-strategy-card {
   border: 1px solid var(--border);
@@ -571,8 +572,9 @@
 }
 .lab-rank-overlay.show { display: block; }
 .lab-rank-modal {
-  max-width: 920px; margin: 0 auto; background: var(--bg-card);
-  border-radius: 10px; box-shadow: 0 8px 32px var(--shadow-strong); overflow: hidden;
+  width: 96vw; max-width: 1400px; max-height: 94vh; margin: 3vh auto;
+  background: var(--bg-card); border: 1px solid var(--border, rgba(0,0,0,0.1));
+  border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.15); overflow-y: auto;
 }
 .lab-rank-modal-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -598,6 +600,7 @@
   .lab-rank-modal-head { padding: 10px 12px; }
   .lab-rank-modal-title { font-size: 13px; }
   .lab-rank-modal-body { padding: 10px 8px 16px; }
+  .lab-rank-modal { width: calc(100vw - 24px); max-width: calc(100vw - 24px); max-height: 90vh; margin: 2vh auto; }
 }
 
 /* === 买卖信号弹窗入口按钮 === */
@@ -616,8 +619,9 @@
 }
 .lab-signal-overlay.show { display: block; }
 .lab-signal-modal {
-  max-width: 920px; margin: 0 auto; background: var(--bg-card);
-  border-radius: 10px; box-shadow: 0 8px 32px var(--shadow-strong); overflow: hidden;
+  width: 96vw; max-width: 1400px; max-height: 94vh; margin: 3vh auto;
+  background: var(--bg-card); border: 1px solid var(--border, rgba(0,0,0,0.1));
+  border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.15); overflow-y: auto;
 }
 .lab-signal-modal-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -657,6 +661,7 @@
   .lab-signal-modal-head { padding: 10px 12px; }
   .lab-signal-modal-title { font-size: 13px; }
   .lab-signal-modal-body { padding: 10px 8px 16px; }
+  .lab-signal-modal { width: calc(100vw - 24px); max-width: calc(100vw - 24px); max-height: 90vh; margin: 2vh auto; }
   .lab-signal-tab { padding: 5px 10px; font-size: 12px; flex: 1; text-align: center; }
   .lab-signal-period-btn { padding: 4px 10px; font-size: 11px; }
   .lab-signal-legend { margin-left: 0; width: 100%; }

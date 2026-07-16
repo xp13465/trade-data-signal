@@ -1725,21 +1725,25 @@ function _labFusionEssayHTML() {
 }
 
 // 渲染策略详情页
-async function renderLabDetail(key) {
+async function renderLabDetail(key, container) {
   const meta = LAB_STRATEGIES[key];
-  if (!meta) { state.labStrategy = null; renderSignalLab(); return; }
+  if (!meta) { if (!container) { state.labStrategy = null; renderSignalLab(); } return; }
 
   const data = await fetchLabData();
   const tag = LAB_STATUS_TAGS[meta.status] || LAB_STATUS_TAGS.dev;
+  const isModal = !!container;
+  const target = container || content;
 
-  content.innerHTML = "";
+  target.innerHTML = "";
 
-  // 返回按钮
-  const backBtn = document.createElement("button");
-  backBtn.className = "lab-back-btn";
-  backBtn.innerHTML = "← 返回策略列表";
-  backBtn.onclick = () => { state.labStrategy = null; renderSignalLab(); };
-  content.appendChild(backBtn);
+  // 返回按钮（弹窗模式有关闭 X，不显示返回按钮）
+  if (!isModal) {
+    const backBtn = document.createElement("button");
+    backBtn.className = "lab-back-btn";
+    backBtn.innerHTML = "← 返回策略列表";
+    backBtn.onclick = () => { state.labStrategy = null; renderSignalLab(); };
+    target.appendChild(backBtn);
+  }
 
   // 标题 + 状态标签
   const header = document.createElement("div");
@@ -1747,13 +1751,13 @@ async function renderLabDetail(key) {
   header.innerHTML = `<h2 class="lab-detail-title">${meta.name}</h2>` +
     `<span class="lab-tag ${tag.cls}">${tag.label}</span>` +
     `<span class="lab-tag-side">${meta.side === "buy" ? "买点" : "卖点"}</span>`;
-  content.appendChild(header);
+  target.appendChild(header);
 
   // 实验室自白黄块（所有策略都显示，通用介绍 + 抖音号）
   const warn = document.createElement("div");
   warn.className = "lab-warning lab-warning-essay";
   warn.innerHTML = _labWarningEssayHTML(meta.status);
-  content.appendChild(warn);
+  target.appendChild(warn);
 
   // 文案区
   const docCard = document.createElement("div");
@@ -1776,12 +1780,12 @@ async function renderLabDetail(key) {
     `<p><b>注意事项：</b>${meta.note}</p>` +
     `<p><b>回测结论：</b>${meta.report}</p>` +
     '</div>' + indHtml;
-  content.appendChild(docCard);
+  target.appendChild(docCard);
 
   // 图表区
   const chartSection = document.createElement("div");
   chartSection.className = "lab-chart-section";
-  content.appendChild(chartSection);
+  target.appendChild(chartSection);
 
   // 图表区：实验中策略显示指标曲线+信号标注，开发中策略显示占位
   if (LAB_CHART_KEYS[key]) {
@@ -1821,7 +1825,7 @@ async function renderLabDetail(key) {
       });
       select.appendChild(og);
     });
-    select.onchange = () => { state.labIndex = select.value; renderLabDetail(key); };
+    select.onchange = () => { state.labIndex = select.value; renderLabDetail(key, container); };
     filterBar.appendChild(select);
     chartSection.appendChild(filterBar);
 
@@ -1925,7 +1929,7 @@ async function renderLabDetail(key) {
     '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价买入，持有 N 个交易日后按收盘价卖出，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>买点胜率</b>=信号后上涨占比；<b>卖点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见下方模拟回测。</div>' +
     '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">红=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">绿=差</span></div>' +
     '</div>';
-  content.appendChild(matrixCard);
+  target.appendChild(matrixCard);
   // 异步加载矩阵数据并渲染（指数切换时局部刷新）
   const matrixWrap = matrixCard.querySelector(".lab-matrix-wrap");
   const renderMatrix = async () => {
@@ -1962,7 +1966,7 @@ async function renderLabDetail(key) {
   if (!state.labSimIdx) state.labSimIdx = state.labIndex || "sh";
   const simCard = document.createElement("div");
   simCard.className = "chart-card lab-sim-card";
-  content.appendChild(simCard);
+  target.appendChild(simCard);
 
   const renderSimCard = async () => {
     const simIdxId = state.labSimIdx || "sh";
@@ -2000,9 +2004,11 @@ async function renderLabDetail(key) {
     }
   };
   await renderSimCard();
-  // F5 恢复：更新 hash + 恢复滚动位置
-  _labSetHash("#lab/" + key);
-  _labRestoreScroll();
+  // F5 恢复：更新 hash + 恢复滚动位置（弹窗模式跳过，弹窗本身不参与 URL 恢复）
+  if (!isModal) {
+    _labSetHash("#lab/" + key);
+    _labRestoreScroll();
+  }
 }
 
 // === 回测推荐榜（列表页底部，128组配对多维度排序 + 点击弹窗细节）===
@@ -2515,6 +2521,10 @@ document.addEventListener("keydown", (e) => {
     if (ov && ov.classList.contains("show")) _labRankCloseModal();
     const sv = document.getElementById("labSignalOverlay");
     if (sv && sv.classList.contains("show")) _labSignalCloseModal();
+    const fv = document.getElementById("labFusionPairOverlay");
+    if (fv && fv.classList.contains("show")) _labFusionPairCloseModal();
+    const dv = document.getElementById("labSignalDetailOverlay");
+    if (dv && dv.classList.contains("show")) _labSignalDetailCloseModal();
   }
 });
 
@@ -2708,6 +2718,59 @@ function _labFusionPairCloseModal() {
   state.labFusionPairModal = null;
 }
 
+// === 单一信号策略详情弹窗（全搬 renderLabDetail 整页内容进全屏 modal）===
+function _labSignalDetailOpenModal(key) {
+  let overlay = document.getElementById("labSignalDetailOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labSignalDetailOverlay";
+    overlay.className = "lab-signal-overlay";
+    document.body.appendChild(overlay);
+  }
+  const meta = LAB_STRATEGIES[key] || {};
+  const tag = LAB_STATUS_TAGS[meta.status] || LAB_STATUS_TAGS.dev;
+  const titleHTML = meta.name
+    ? `📊 ${meta.name} <span class="lab-tag ${tag.cls}">${tag.label}</span>`
+    : "📊 策略详情";
+  // 渲染 loading 骨架（标题在 sticky head，关闭 X）
+  overlay.innerHTML = `<div class="lab-signal-modal">` +
+    `<div class="lab-signal-modal-head">` +
+    `<span class="lab-signal-modal-title">${titleHTML}</span>` +
+    `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+    `</div>` +
+    `<div class="lab-signal-modal-body"><div class="loading">加载策略详情…</div></div></div>`;
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labSignalDetailCloseModal(); };
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labSignalDetailCloseModal;
+  // 异步渲染详情到 modal body（renderLabDetail 已支持 container 参数）
+  const body = overlay.querySelector(".lab-signal-modal-body");
+  renderLabDetail(key, body).catch((e) => {
+    if (body) body.innerHTML = `<div class="lab-rank-modal-empty">加载失败：${e}</div>`;
+  });
+  // 滚到顶部
+  overlay.scrollTop = 0;
+}
+
+function _labSignalDetailCloseModal() {
+  const overlay = document.getElementById("labSignalDetailOverlay");
+  if (overlay) {
+    // 释放弹窗内 echarts 实例（图表+净值曲线），避免内存泄漏
+    for (let i = charts.length - 1; i >= 0; i--) {
+      try {
+        const dom = charts[i].getDom && charts[i].getDom();
+        if (dom && overlay.contains(dom)) { charts[i].dispose(); charts.splice(i, 1); }
+      } catch (e) {}
+    }
+    overlay.classList.remove("show");
+    overlay.innerHTML = "";
+    overlay.onclick = null;
+  }
+  document.body.style.overflow = "";
+  state._labSimRerender = null;
+  state._labChartRerender = null;
+}
+
 async function _labFusionPairModalRender(overlay) {
   const m = state.labFusionPairModal;
   if (!m) return;
@@ -2847,6 +2910,12 @@ async function renderSignalLab() {
   leftCol.appendChild(essayWarn);
   leftCol.appendChild(zoneTabs);
 
+  // 搜索框（按策略名/条件模糊过滤卡片列表，大小写不敏感）
+  const searchWrap = document.createElement("div");
+  searchWrap.className = "lab-fusion-search-wrap";
+  searchWrap.innerHTML = '<input type="text" class="lab-fusion-search" placeholder="搜索策略名/条件…" autocomplete="off">';
+  leftCol.appendChild(searchWrap);
+
   // 分区描述
   const curZone = LAB_ZONES.find((z) => z.key === state.labZone) || LAB_ZONES[1];
   const zoneDesc = document.createElement("div");
@@ -2879,10 +2948,21 @@ async function renderSignalLab() {
       `<div class="lab-card-trigger">${meta.trigger}</div>` +
       (summary ? `<div class="lab-card-summary">${summary}</div>` : "") +
       `<div class="lab-card-conclusion">${meta.conclusion}</div>`;
-    card.onclick = () => { state.labStrategy = key; renderSignalLab(); };
+    card.onclick = () => { _labSignalDetailOpenModal(key); };
     list.appendChild(card);
   });
   leftCol.appendChild(list);
+
+  // 搜索框事件：按卡片可见文本模糊过滤（大小写不敏感）
+  const searchInput = searchWrap.querySelector(".lab-fusion-search");
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim().toLowerCase();
+    const cards = list.querySelectorAll(".lab-strategy-card");
+    cards.forEach((card) => {
+      if (!q) { card.style.display = ""; return; }
+      card.style.display = card.textContent.toLowerCase().includes(q) ? "" : "none";
+    });
+  });
 
   // 回测推荐榜（列表页底部空白区，按指数加载 lab_simulate_{index}.json，不阻塞上方骨架）
   const rankSection = document.createElement("div");
