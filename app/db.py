@@ -125,14 +125,15 @@ CREATE TABLE IF NOT EXISTS futures_accuracy (
 );
 
 -- 盘中实时快照：单行覆盖（id=1 CHECK 强制只保留最新一行）。
--- indices/industries/concepts 存 JSON 字符串。每次采集 UPSERT 覆盖，体现"最新快照"语义。
+-- indices/industries/concepts/us_futures 存 JSON 字符串。每次采集 UPSERT 覆盖，体现"最新快照"语义。
 CREATE TABLE IF NOT EXISTS intraday_snapshot (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   collected_at TEXT NOT NULL,
   is_closed INTEGER NOT NULL,
   indices TEXT NOT NULL,
   industries TEXT NOT NULL,
-  concepts TEXT
+  concepts TEXT,
+  us_futures TEXT
 );
 """
 
@@ -180,6 +181,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "concepts" not in snap_cols:
         try:
             conn.execute("ALTER TABLE intraday_snapshot ADD COLUMN concepts TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e):
+                pass  # 并发首跑竞态，忽略
+            else:
+                raise
+
+    # intraday_snapshot.us_futures 列（2026-07-15 加，美股期货 ES/NQ 预估美股方向入库）
+    if "us_futures" not in snap_cols:
+        try:
+            conn.execute("ALTER TABLE intraday_snapshot ADD COLUMN us_futures TEXT")
         except sqlite3.OperationalError as e:
             if "duplicate column name" in str(e):
                 pass  # 并发首跑竞态，忽略

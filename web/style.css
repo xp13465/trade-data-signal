@@ -695,6 +695,30 @@ main { padding: 16px 24px; }
 }
 .empty-note { color: var(--text-3); padding: 14px 0; font-size: 13px; }
 
+/* 美股期货预期提示条（全球tab美股指数区上方，亚盘实时期货预估美股当晚方向） */
+.us-futures-expect {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+.us-futures-expect .usf-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.us-futures-expect .usf-title { font-weight: 600; font-size: 14px; }
+.us-futures-expect .usf-sub { font-size: 11px; opacity: 0.7; }
+.us-futures-expect .usf-time { margin-left: auto; font-size: 11px; opacity: 0.7; }
+.us-futures-expect .usf-items { display: flex; gap: 18px; flex-wrap: wrap; }
+.us-futures-expect .usf-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.us-futures-expect .usf-name { font-weight: 600; }
+.us-futures-expect .usf-fname { font-size: 11px; opacity: 0.6; }
+.us-futures-expect .usf-price { font-variant-numeric: tabular-nums; }
+.us-futures-expect .usf-chg { font-weight: 600; font-variant-numeric: tabular-nums; }
+.us-futures-expect .usf-arrow { opacity: 0.5; }
+.us-futures-expect .usf-expect { font-weight: 600; padding: 1px 8px; border-radius: 8px; background: var(--bg-hover); }
+.us-futures-expect .up { color: #e6492e; }
+.us-futures-expect .down { color: #2e8b57; }
+.us-futures-expect .flat { color: #909399; }
+
 .placeholder .placeholder-body {
   color: var(--text-3);
   font-size: 13px;
