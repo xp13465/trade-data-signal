@@ -13,9 +13,9 @@
     "name": "指数补采兜底",
     "schedule": "16:35 / 20:00 / 02:00",
     "est_text": "约2分钟",
-    "last_run": "2026-07-16 02:00",
-    "last_exit": 0,
-    "last_duration_sec": 227
+    "last_run": "2026-07-16 16:35",
+    "last_exit": 1,
+    "last_duration_sec": 152
   },
   {
     "task": "intraday_snapshot",
