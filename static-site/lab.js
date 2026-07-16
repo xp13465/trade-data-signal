@@ -2069,12 +2069,16 @@ function _labRankFilterHTML() {
 
 // 聚合128组配对 + 算综合评分与风险调整
 // 新结构：simData.pairs 按 "buyKey|sellKey" 去重存储（配对只存一份），直接遍历即得 8买×8卖×2模式=128 组
-function _labRankAggregate(simData, win) {
+// opt.experimentalOnly=true 时仅保留实验中(experimental)策略的买×卖配对（融合模式用，7买×7卖=49配对），默认 false 保持单信号原行为
+function _labRankAggregate(simData, win, opt) {
+  opt = opt || {};
   if (!simData || !simData.pairs) return [];
   const rows = [];
   for (const pairKey in simData.pairs) {
     const parts = pairKey.split("|");
     const bk = parts[0], sk = parts[1];
+    // 融合模式：仅保留实验中(experimental)策略的买×卖配对，过滤掉已上线(live)生产策略配对
+    if (opt.experimentalOnly && ((LAB_STRATEGIES[bk] || {}).status !== "experimental" || (LAB_STRATEGIES[sk] || {}).status !== "experimental")) continue;
     const pairData = simData.pairs[pairKey];
     for (const mode of ["full_in", "fixed_10k"]) {
       const wd = _labPairWinData(pairData, mode, win, simData);
@@ -2146,7 +2150,8 @@ function _labRankItemHTML(row, rank, tab) {
 function _labRankHTML(simData) {
   if (!simData) return '<div class="lab-rank-empty">推荐榜数据加载失败，请稍后重试</div>';
   const win = state.labSimWindow || "y5";
-  const rows = _labRankAggregate(simData, win);
+  // 融合信号模式：推荐榜仅展示实验中策略的买×卖配对（7买×7卖=49配对），与左侧融合候选卡片范围一致
+  const rows = _labRankAggregate(simData, win, { experimentalOnly: state.labSubMode === "fusion" });
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无推荐榜数据</div>';
   state.labRankRows = rows;
   const tab = state.labRankTab || "composite";
@@ -2534,11 +2539,17 @@ function _renderLabSubNav() {
 
 // === 融合信号列表页（阶段一：仅展示元数据，不跑回测）===
 async function renderFusionLab() {
+  // 左右2栏布局：融合策略卡左 + 回测推荐榜右（照搬 renderSignalLab 列表页 .lab-list-2col 模式）
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-list-2col";
+  const leftCol = document.createElement("div");
+  const rightCol = document.createElement("div");
+
   // 实验室自白黄块
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = _labFusionEssayHTML();
-  content.appendChild(essayWarn);
+  leftCol.appendChild(essayWarn);
 
   // 分区 tab
   const curZone = state.labFusionZone || "prod";
@@ -2551,14 +2562,20 @@ async function renderFusionLab() {
     btn.onclick = () => { state.labFusionZone = z.key; renderSignalLab(); };
     zoneTabs.appendChild(btn);
   });
-  content.appendChild(zoneTabs);
+  leftCol.appendChild(zoneTabs);
+
+  // 搜索框（按策略名/条件/触发条件模糊过滤卡片列表，大小写不敏感）
+  const searchWrap = document.createElement("div");
+  searchWrap.className = "lab-fusion-search-wrap";
+  searchWrap.innerHTML = '<input type="text" class="lab-fusion-search" placeholder="搜索策略名/条件…" autocomplete="off">';
+  leftCol.appendChild(searchWrap);
 
   // 分区描述
   const zMeta = LAB_FUSION_ZONES.find((z) => z.key === curZone) || LAB_FUSION_ZONES[0];
   const zoneDesc = document.createElement("div");
   zoneDesc.className = "lab-zone-desc";
   zoneDesc.textContent = zMeta.desc;
-  content.appendChild(zoneDesc);
+  leftCol.appendChild(zoneDesc);
 
   // 策略卡片列表：硬编码在前，候选在后
   const list = document.createElement("div");
@@ -2599,13 +2616,58 @@ async function renderFusionLab() {
       list.appendChild(card);
     });
   }
-  content.appendChild(list);
+  leftCol.appendChild(list);
 
   // 阶段提示
   const phaseNote = document.createElement("div");
   phaseNote.className = "lab-fusion-phase-note";
   phaseNote.innerHTML = "📌 <b>买×卖配对</b>候选已接入回测数据（点击卡片查看胜率/收益/5窗口）。<b>同向共振</b>（买×买/卖×卖）回测开发中。";
-  content.appendChild(phaseNote);
+  leftCol.appendChild(phaseNote);
+
+  // 搜索框事件：按卡片可见文本模糊过滤（大小写不敏感，匹配 name/conditions/trigger/conclusion）
+  const searchInput = searchWrap.querySelector(".lab-fusion-search");
+  searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim().toLowerCase();
+    const cards = list.querySelectorAll(".lab-strategy-card");
+    cards.forEach((card) => {
+      if (!q) { card.style.display = ""; return; }
+      card.style.display = card.textContent.toLowerCase().includes(q) ? "" : "none";
+    });
+  });
+
+  // 回测推荐榜（右栏，照搬 renderSignalLab 列表页推荐榜结构：指数选择器+排序tab+过滤+body）
+  const rankSection = document.createElement("div");
+  rankSection.className = "chart-card lab-rank-card";
+  const _curIdx = state.labSimIndex || "sh";
+  const rankIdxBtns = LAB_SIM_INDEXES.map((x) =>
+    `<button type="button" class="lab-idx-tab${x.id === _curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
+  ).join("");
+  rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3>' +
+    `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
+    '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…</div></div>';
+  rightCol.appendChild(rankSection);
+  // 组装2栏
+  wrapper.appendChild(leftCol);
+  wrapper.appendChild(rightCol);
+  content.appendChild(wrapper);
+  // 加载推荐榜数据（融合模式：_labRankHTML 依 state.labSubMode==='fusion' 仅展示实验中策略买×卖配对）
+  const _loadRank = async () => {
+    const idx = state.labSimIndex || "sh";
+    const simData = await fetchLabSimData(idx);
+    _labRankRerender(rankSection, simData);
+  };
+  _loadRank();
+  // 指数切换：切换 active 按钮，重新加载该指数数据并重渲染 rank body
+  rankSection.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labSimIndex = btn.dataset.idx;
+      state.labRankShowAll = false;
+      rankSection.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      const body = rankSection.querySelector(".lab-rank-body");
+      if (body) body.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
+      _loadRank();
+    };
+  });
 }
 
 // === 融合候选配对回测弹窗（A类买×卖查 lab_sim_{index}_stats.json；B类同向共振显示开发中）===

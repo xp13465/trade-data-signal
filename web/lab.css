@@ -56,6 +56,28 @@
   padding: 0 2px;
 }
 
+/* 融合信号搜索框（按策略名/条件模糊过滤卡片列表） */
+.lab-fusion-search-wrap { margin-bottom: 10px; }
+.lab-fusion-search {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  background: var(--bg-card);
+  color: var(--text-1);
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.lab-fusion-search:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}
+.lab-fusion-search::placeholder { color: var(--text-4); }
+
 /* 策略卡片列表 */
 .lab-strategy-list {
   display: grid;
