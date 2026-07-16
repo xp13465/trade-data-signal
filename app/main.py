@@ -451,6 +451,8 @@ def hk(range: str = Depends(range_dep)):
                          "strategy": strategy_desc(i["id"], cfg)} for i in _indices_for_market("hk")}
     south = _metric_series("hk_south", start, end)
     hk_industries = {i["id"]: {"name": i["name"], "data": _index_series(i["id"], start, end),
+                               "signals": _signals(i["id"], start, end),
+                               "stats": _stats_for(i["id"]),
                                "strategy": strategy_desc(i["id"], cfg)} for i in _indices_for_market("hk_industry")}
     return {"indices": indices, "hk_south": south, "hk_industries": hk_industries}
 
