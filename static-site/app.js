@@ -3984,7 +3984,7 @@ async function renderHK(container = content) {
   const snap = state.intradaySnapshot;
   if (r.hk_south && r.hk_south.length) {
     const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
-    const chart = lineChart("港股通净买入（亿元）" + latestSuffix(hks), hks, {}, null, container);
+    const chart = lineChart("港股通净买入（亿元）" + latestSuffixPct(hks), hks, {}, null, container);
     if (chart) addCardTimeBadge(chart.getDom().parentElement, hks.length ? hks[hks.length - 1].date : "", snap);
   }
   const indices = _injectHkSnapshot(r.indices, snap);
@@ -4138,7 +4138,7 @@ async function renderSentiment() {
   if (r.fear_greed && r.fear_greed.length) {
     const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) + latestSuffix(data) : ""}`;
+    const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) + latestSuffixPct(data) : ""}`;
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, [], {
@@ -4161,7 +4161,7 @@ async function renderSentiment() {
   if (r.a_sentiment && r.a_sentiment.length) {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
+    const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : ""}`;
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment, undefined, cell);
@@ -4181,7 +4181,7 @@ async function renderSentiment() {
     if (r[key] && r[key].length) {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
-      const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
+      const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : ""}`;
       const cell = document.createElement("div");
       cardGrid.appendChild(cell);
       const chart = valueChartWithSignals(title, data,
@@ -4199,7 +4199,7 @@ async function renderSentiment() {
   if (r.cross_market && r.cross_market.length) {
     const data = r.cross_market.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffix(data) : ""}`;
+    const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : ""}`;
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, sig.cross_market || [], {
