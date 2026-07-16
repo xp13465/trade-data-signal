@@ -1518,3 +1518,129 @@ function initNavStickyToggle() {
 - **导航吸顶实现是 CSS `position:sticky`（style.css:185 `.tabs`，非 JS scroll）；关闭吸顶改 `position:static`，通过给 `<html>` 加 `nav-no-sticky` class 覆盖 `.tabs`/`.rule-bar`/`.industry-anchor-bar` 三处（后两者 top 依赖 tab 栏，必须一并 static）**。
 - **双版结构一致（index.html header/tabs 逐字相同仅资源URL不同；style.css 均2363行行号对应；app.js 关键函数+末尾初始化顺序双版齐全，static-site 比 web 多66行属数据源差异）**。
 
+## §28 策略实验室二次测试调研（2026-07-16，只读调研未实施）
+
+> 任务来源：用户需求"策略实验室回测排行榜+融合信号测试线跑全+brainstorm二次测试方案"。本节为**只读调研结论**，未改任何代码。实施清单见本节§5，待用户定方向后派实施agent。
+
+### 1. 回测排行榜（推荐榜）精确定位
+
+**文件**：`web/lab.js`（动态版）+ `static-site/lab.js`（静态版，双版逐字相同**仅数据源URL差异** `/static/data/lab/` vs `./data/lab/`，符合§9）；min版 `web/lab.min.js`/`static-site/lab.min.js` 由 `scripts/build_min.py` 生成。**本调研不碰主页 index.html/style.css/app.js，lab.js 是策略实验室专用文件。**
+
+**渲染函数链**（全在 lab.js）：
+- `_labRankHTML`（lab.js:2156）主入口 → 调 `_labRankAggregate` + `_labRankResultsHTML`
+- `_labRankAggregate`（lab.js:2079）聚合 `simData.pairs` → `rows[]`，算综合评分 `r.score`
+- `_labRankSort`（lab.js:2127）按 tab 排序；5 个 tab（`LAB_RANK_TABS` lab.js:2017）：`composite`🏆综合推荐(默认) / `ret`📈收益率 / `win`🎯胜率 / `stable`🛡稳健(回撤小) / `risk_adj`⚖风险调整
+- `_labRankItemHTML`（lab.js:2137）渲染单项 button
+
+**数据来源**：`lab_sim_{iid}_stats.json`（lab.js:1161 fetch），9 A股宽基指数齐全（sh/sz/cyb/kc50/bj50/sz50/hs300/csi500/csi1000）。`generated_at` 停在 **2026-07-10**（文件时间戳7-13），**距今3天非最新**。`lab_backtest_{iid}.json`（22策略×5窗口×4horizon矩阵）同样停在7-13。
+
+**stats.json 结构**（`lab_sim_{iid}_stats.json`）：
+```
+top keys: generated_at, index_id, index_name, initial_capital, windows, strategies, pairs
+pairs["buy_key|sell_key"][mode].stats[win] = {
+  total_ret, annual_ret, max_drawdown, win_rate, n_trades, final_total, years
+}  # mode=full_in|fixed_10k, win=all|y10|y5|y3|y1
+# 64 配对（8买×8卖），strategies 16个（8买+8卖，存 side+partners）
+```
+
+**评分字段**：`row.score`（0~1，lab.js:2123）= `0.4*nRet(total_ret) + 0.3*nWin(win_rate) + 0.2*nDd(-max_drawdown) + 0.1*nN(n_trades)`，各项 min-max 归一化到[0,1]加权。展示：lab.js:2142 `tab==="composite"` 时 `<span class="lab-rank-score">评分 ${(row.score*100).toFixed(0)}</span>`。另有 `row.risk_adj = annual_ret/max_drawdown`（类Calmar，lab.js:2117）。
+
+**单项 HTML 结构**（lab.js:2145-2153，`_labRankItemHTML` 返回）：
+```html
+<button class="lab-rank-item clickable-card" data-buy data-sell data-mode>
+  <span class="lab-rank-no">${medal || "#"+rank}</span>   <!-- 🥇🥈🥉 或 #4.. -->
+  <span class="lab-rank-name">买${buyName} × 卖${sellName} · ${modeName}</span>
+  <span class="lab-rank-stats">
+    <span>收益${total_ret}%</span><span>胜${win_rate}%</span>
+    <span>回撤${max_drawdown}%</span><span class="lab-rank-n">n=${n_trades}</span>
+  </span>
+  ${extra}   <!-- composite: 评分span / risk_adj: risk_adj span -->
+</button>
+```
+
+**⭐️"进入二次测试"精确插入点**：
+- **判定逻辑**插在 `_labRankAggregate`（lab.js:2123 附近，`r.score` 赋值后）：加 `r.retest = <二次测试候选条件>;`
+- **标注HTML**插在 `_labRankItemHTML`（**lab.js:2143 行尾**，`else if (tab === "risk_adj") extra = ...` 之后、lab.js:2145 `return` 之前）：
+  ```js
+  if (row.retest) extra += '<span class="lab-rank-retest">⭐️进入二次测试</span>';
+  ```
+- 配套 style.css 加 `.lab-rank-retest` 样式（金色⭐️徽章）。**注意 style.css 是吸顶 agent 也在改的文件，实施时需串行协调（见§5约束）**。
+
+### 2. "融合信号测试线"真意（坐实）
+
+**结论：融合信号（多信号同日AND共振）作为独立买卖信号的回测链路当前完全未实现/未跑。"跑全"= 实现 P2 + 跑91候选×9指数。这是开发新功能，非现成命令。**
+
+坐实证据：
+1. `scripts/lab/lab_simulate.py` 的 `BUY_KEYS`/`SELL_KEYS`（lab_simulate.py:84-93）**全是单信号**（BB_lower_revert/Supertrend_buy/.../D1_high20_drop5），8买×8卖=64配对×2模式×5窗口，**无任何 F_* 融合信号**。
+2. grep `--fusion`/`--queue`/`argparse` in lab_simulate.py = **0 命中** → NOTES §1270-1281 记的 **P2（lab_simulate.py 扩展 `--fusion`/`--queue` 跑任意配对回测）未实现**。
+3. `a-stock-data/backtest_strategies.py` 的 `gen_buy_signals`（:133）/`gen_sell_signals`（:175）只生成单信号（11买+11卖），**无融合信号生成函数**；`STRATEGY_DESC`（:290）也无 F_* 条目。
+4. 前端 `_generateFusionCandidates`（lab.js:667）运行时生成 **91 个 pending 候选**：49买×卖 + 21买×买 + 21卖×卖，`status:"pending"`，note"待回测"。
+5. 当前 fusion 模式推荐榜（lab.js:2160 `experimentalOnly: state.labSubMode==="fusion"`）**只是复用单信号配对 stats.json 过滤展示49个单信号买×卖配对**，**非真融合信号（多信号同日AND）回测**。
+6. 同向共振42个（买×买21+卖×卖21）标注"回测开发中"（lab.js:2634 phaseNote + lab.js:2791 `🚧 同向共振回测开发中`）。
+7. 融合信号列表页 lab.js:2550 注释"阶段一：仅展示元数据，不跑回测"。
+
+**已知风险**：融合信号"同日AND"样本可能极少——lab.js:615 已记"F_D1_S1（s.*情绪分序列）加MACD后样本从106降至7，不足统计"。多条件AND天然降样本，需设最小样本阈值（如 n≥30）否则统计无意义。
+
+### 3. 跑全方式（两种解读，方向性分叉——待用户选）
+
+#### 解读A（重）：真融合信号回测链路（P2 开发 + 跑全）
+- **需先开发 3 处**：
+  - `a-stock-data/backtest_strategies.py` 加 `gen_fusion_signals(df, fusion_def)`：把 lab.js `LAB_FUSION_STRATEGIES`（lab.js:596-663）+ `_generateFusionCandidates`（lab.js:667）的 conditions 映射到单信号 key，同日 AND 组合生成融合买卖信号 mask。
+  - `scripts/lab/lab_simulate.py` 扩展 `--fusion`（跑全部91候选）/`--queue fusion_queue.json`（跑 P1 用户指定队列）参数；复用 `build_pair_result`/`simulate_full_in`/`simulate_fixed_10k`。
+  - 输出 `lab_sim_{iid}_fusion_stats.json` / `_full.json`（或合并入现有 stats.json 加 `fusion` 段），前端 `_labRankAggregate` 加融合分支。
+- **跑全命令（开发后）**：`python scripts/lab/lab_simulate.py --fusion`
+- **产物**：`web/data/lab/` + `static-site/data/lab/` 各 `lab_sim_{iid}_fusion_*.json`，9指数×91候选×2模式×5窗口
+- **预估**：开发 0.5-1 天 + 跑全 <30min（单信号64配对×9指数量级相当）
+- **风险**：同日AND样本稀少（见§2），部分候选可能 n<30 无统计意义，需阈值过滤
+
+#### 解读B（轻）：刷新现有单信号64配对数据（立即可跑）
+- 现有 lab_simulate.py（无 --fusion）跑全9指数刷新 stats/full json（当前停在7-10/7-13）+ lab_matrix.py 刷新22策略矩阵
+- **跑全命令**：`python scripts/lab/lab_simulate.py && python scripts/lab/lab_matrix.py`（main 均跑全9指数）
+- **产物**：覆盖 `web/data/lab/` + `static-site/data/lab/` 的 `lab_sim_{iid}_stats/full.json` + `lab_backtest_{iid}.json`
+- **预估**：<15min
+- **局限**：仅刷新已有数据，不产生"融合信号"成绩
+
+#### 推荐
+**先做解读B**（立即可跑，刷新数据让排行榜基于最新7-16行情，可立即评测⭐️二次测试候选），**解读A（P2真融合回测）列入二次测试方案待办**（融合信号回测本身验证"多信号共振是否优于单信号"，是二次测试的核心一环）。理由：用户"跑全后评测建议二次测试"——B跑全后单信号排行榜基于最新数据可立即评测；A的融合回测作为二次测试的"信号叠加消融"方向推进，不阻塞⭐️标注。
+
+### 4. 二次测试方案 brainstorm（待用户选，记待办）
+
+基于回测排行榜成绩（`row.score` 综合评分 + total_ret/win_rate/max_drawdown/n_trades/risk_adj 各维度），10 个二次测试方向：
+
+1. **分年回测**：现5窗口（全史/10y/5y/3y/1y）粒度粗，按自然年切分看年度稳定性（防某年暴利拉高整体）
+2. **极端行情分段**：牛熊转换段（2015股灾/2018熊/2020疫情/2024反弹）单独回测，看 regime 切换表现
+3. **多空对称性**：现仅多头（买→卖），加空头（卖→买开空）测对称性，看卖点反向是否也有效
+4. **手续费/滑点敏感**：现回测零成本，加双边手续费0.03%+滑点0.1%重算，看高换手策略（MA金叉/MACD等密集信号）是否被成本吃掉
+5. **标的泛化**：现9 A股宽基，扩到31申万行业+海外指数+商品（trade_sim_* 覆盖标的），看泛化性
+6. **样本外检验**：前70%数据调参，后30%样本外验证，防过拟合
+7. **蒙特卡洛扰动**：信号日±1~2天扰动、价格±0.5%扰动，跑N次看收益分布稳定性（脆弱=轻微扰动即崩）
+8. **参数敏感扫描**：核心参数（RSI周期/MA周期/BB带宽/Donchian窗口）网格扫描，看收益对参数敏感度（平坦=鲁棒，尖锐=过拟合）
+9. **信号叠加消融**：融合信号91候选逐个消融（去某条件看变化），定位真正贡献来源——**依赖§3解读A的P2先跑出融合回测**
+10. **融合信号回测（P2本身）**：§3解读A，把91个pending融合候选真跑出来，比较多信号AND共振 vs 单信号的增益
+
+**⭐️二次测试候选筛选标准（建议，实施时可调）**：
+- 主条件：`score≥0.6 && n_trades≥30 && max_drawdown≤50`（综合评分top档+样本充分+回撤可控）
+- 或单项突出：`win_rate≥55 || risk_adj≥1.0 || total_ret 为 top10%`
+- 在 `_labRankAggregate`（lab.js:2123后）实现为 `r.retest = <上述条件>`
+
+### 5. 实施清单（后续实施 agent 照做，待用户定§3方向后启动）
+
+**前置协调**：当前分支 `feat/iframe-theme-follow` 有吸顶 agent 改主页 index.html/style.css/app.js。lab.js 是策略实验室专用文件**不冲突可并行**；但 **style.css 是同文件**（lab 徽章样式 vs 吸顶样式不同区域但同文件），实施⭐️标注的 style.css 改动需**等吸顶 agent 完成或串行**，避免撞车。
+
+1. **跑全融合信号测试线**（按用户选§3A或§3B）：
+   - B（推荐先做）：`python scripts/lab/lab_simulate.py && python scripts/lab/lab_matrix.py` 刷新9指数数据
+   - A（二次测试阶段做）：先开发 P2（`backtest_strategies.gen_fusion_signals` + `lab_simulate.py --fusion`），再 `python scripts/lab/lab_simulate.py --fusion`
+2. **评测+⭐️标注**：
+   - `_labRankAggregate`（web/lab.js:2123 + static-site/lab.js 同处）加 `r.retest = (r.score>=0.6 && r.n_trades>=30 && r.max_drawdown<=50) || r.win_rate>=55 || r.risk_adj>=1.0;`
+   - `_labRankItemHTML`（web/lab.js:2143 + static-site/lab.js 同处）`extra` 赋值后加 `if (row.retest) extra += '<span class="lab-rank-retest">⭐️进入二次测试</span>';`
+   - style.css 加 `.lab-rank-retest` 样式（金⭐️徽章，两版同改）
+3. **双版同步**（§9）：web/lab.js + static-site/lab.js（唯一差异数据源URL）+ web/style.css + static-site/style.css
+4. **build_min + 版本号**：`python scripts/build_min.py`（lab.js→lab.min.js）+ `python scripts/bump_asset_version.py`（md5前8位破缓存）
+5. **deploy 上线**（§8）：`bash scripts/deploy.sh`（推 static-site/data/lab/ + min JS；deploy.sh 的 git add 只加 static-site/data/ + min JS，不碰根 data/，安全）
+6. **验收**：curl 线上 `lab_sim_{iid}_stats.json` 确认 `generated_at` 更新到7-16；前端排行榜⭐️"进入二次测试"标注在候选配对显示；双版 lab.min.js cmp 仅数据源URL差异
+
+### 验收口径对照
+- **回测排行榜在 `web/lab.js`（双版 static-site/lab.js），渲染函数 `_labRankItemHTML`（lab.js:2137）；评分字段 `row.score`（0-1，lab.js:2123 算，=0.4收益率+0.3胜率+0.2回撤倒数+0.1样本量，min-max归一化加权）；⭐️插在 lab.js:2143（`_labRankItemHTML` 的 `extra` 赋值后，`return` 之前）+ 判定逻辑插在 lab.js:2123（`_labRankAggregate` 的 `r.score` 赋值后）**。
+- **"融合信号测试线"= 融合信号（多信号同日AND）回测链路，当前 P2 未实现（lab_simulate.py 无 --fusion/--queue，BUY_KEYS/SELL_KEYS 全单信号，backtest_strategies.py 无 gen_fusion_signals）；跑全命令解读B=`python scripts/lab/lab_simulate.py && python scripts/lab/lab_matrix.py`（刷新现有数据，<15min），解读A=先开发P2再 `python scripts/lab/lab_simulate.py --fusion`（<30min）；产物=web/data/lab/+static-site/data/lab/ 的 lab_sim_{iid}_stats/full.json[+_fusion_*.json]**。
+- **二次测试方案 brainstorm 10 方向已记本节§4（分年/极端行情/多空对称/手续费/标的泛化/样本外/蒙特卡洛/参数敏感/信号消融/融合P2），⭐️筛选标准建议 `score≥0.6&&n≥30&&dd≤50 || win≥55||risk_adj≥1.0`，待用户选方向**。
+
