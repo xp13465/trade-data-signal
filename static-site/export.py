@@ -47,9 +47,26 @@ RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
 ALL_RANGES = list(RANGES.keys()) + ["all"]
 
 
+_stats_cache = None
+
+
 def _stats_all() -> dict:
-    """读 data/signal_stats.json（与 main.py _stats_all 一致）。"""
-    return sigstats.load()
+    """现算 signal_stats（读 DB），进程内缓存。
+
+    根因（2026-07-16 修复）：原读 data/signal_stats.json 文件，但 pipeline core/width
+    并行跑 compute_runner 时 signal_stats.store 互相覆盖，偶发写出缺部分品种（全球指数
+    ftse100/dax/cac40 等 + 全球指标 oil/brent/usdcnh/cn_us_spread）的文件。export 读到
+    缺品种文件 -> global-*.json / index/*.json 缺这些品种 stats -> 前端全球tab有买卖点pin
+    但无回测口径/胜率/凯利/模拟回测（statsHint 收到空 stats 只显示策略文字）。
+
+    改为现算 sigstats.compute()：直接读 signal_daily + index_daily/daily_metric/score_daily，
+    SQLite WAL 事务隔离保证读到某个 commit 后的完整版本（不会读到 DELETE+INSERT 中间的
+    空表），不受并发 store 覆盖文件影响。进程内缓存（export 多次调 _stats_all）避免重复算。
+    """
+    global _stats_cache
+    if _stats_cache is None:
+        _stats_cache = sigstats.compute()
+    return _stats_cache
 
 
 def _stats_for(stats_all: dict, index_id: str) -> dict:
