@@ -2300,3 +2300,35 @@ main { padding: 16px 24px; }
 /* tab 级副标题：灰字小号 + 虚线下边框，跟随主题色 */
 .tab-subtitle { color: var(--text-2); font-size: 13px; padding: 6px 2px 10px; margin: 0 0 8px; border-bottom: 1px dashed var(--border); }
 
+/* === 策略实验室融合信号样式 === */
+.lab-tag { display: inline-block; padding: 2px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; line-height: 1.3; }
+.lab-tag-live { background: #52c41a; color: #fff; }
+.lab-tag-partial { background: #1890ff; color: #fff; }
+.lab-tag-exp { background: #faad14; color: #fff; }
+.lab-tag-dev { background: #8c8c8c; color: #fff; }
+.lab-tag-excluded { background: #d9d9d9; color: #8c8c8c; }
+.lab-tag-pending { background: #f0f0f0; color: #8c8c8c; border: 1px dashed #d9d9d9; }
+[data-theme="dark"] .lab-tag-pending,
+[data-theme="redgold"] .lab-tag-pending { background: #262626; color: #8c8c8c; border-color: #434343; }
+.lab-strategy-list { display: flex; flex-direction: column; gap: 10px; }
+.lab-strategy-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.lab-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.lab-card-name { font-size: 14px; font-weight: 700; color: var(--text-1); }
+.lab-fusion-conditions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.lab-fusion-cond-label { font-size: 11px; color: var(--text-3); }
+.lab-fusion-cond { font-size: 11px; padding: 2px 8px; background: var(--bg-hover); color: var(--text-2); border-radius: 999px; }
+.lab-card-trigger { font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
+.lab-card-conclusion { font-size: 12px; color: var(--text-2); }
+.lab-fusion-pending { opacity: 0.85; }
+.lab-fusion-empty { text-align: center; padding: 24px; color: var(--text-4); font-size: 13px; }
+.lab-fusion-phase-note { margin-top: 12px; padding: 10px 12px; background: var(--primary-bg); border-radius: 8px; font-size: 12px; color: var(--text-2); }
+.lab-zone-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.lab-zone-tab { padding: 6px 12px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--bg-card); color: var(--text-2); cursor: pointer; font-size: 12px; font-family: inherit; transition: all 0.15s; }
+.lab-zone-tab:hover { border-color: var(--primary); color: var(--primary); }
+.lab-zone-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.lab-zone-count { font-size: 11px; opacity: 0.8; margin-left: 4px; }
+.lab-zone-desc { font-size: 12px; color: var(--text-3); margin-bottom: 12px; }
+.lab-warning { background: #fff7e6; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 12px; color: #8a5f2a; }
+[data-theme="dark"] .lab-warning,
+[data-theme="redgold"] .lab-warning { background: #2b2111; border-color: #4a351a; color: #d4b88a; }
+

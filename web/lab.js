@@ -590,6 +590,7 @@ const LAB_STATUS_TAGS = {
   experimental: { label: "实验中", cls: "lab-tag-exp" },
   dev: { label: "开发中", cls: "lab-tag-dev" },
   excluded: { label: "已排除", cls: "lab-tag-excluded" },
+  pending: { label: "待回测", cls: "lab-tag-pending" },
 };
 
 // === 融合信号注册表（多信号同日AND共振）===
@@ -660,10 +661,103 @@ const LAB_FUSION_STRATEGIES = {
   },
 };
 
+// === 候选融合信号生成器（自动两两组合）===
+// 从 LAB_STRATEGIES 取候选买点7个 + 候选卖点7个，生成三类候选：
+// 1) 买×卖配对：7×7=49，zone=candidate_buy
+// 2) 买×买共振：C(7,2)=21，zone=candidate_buy
+// 3) 卖×卖共振：C(7,2)=21，zone=candidate_sell
+function _generateFusionCandidates() {
+  // 提取候选买点和卖点
+  const buyCandidates = Object.entries(LAB_STRATEGIES)
+    .filter(([k, v]) => v.zone === "buy" && v.status === "experimental")
+    .map(([k, v]) => ({ key: k, ...v }));
+  const sellCandidates = Object.entries(LAB_STRATEGIES)
+    .filter(([k, v]) => v.zone === "sell" && v.status === "experimental")
+    .map(([k, v]) => ({ key: k, ...v }));
+
+  // 短名映射：从 name 提取可读短名
+  const shortName = (s) => {
+    const n = s.name;
+    if (n.includes("布林下轨")) return "BB下轨";
+    if (n.includes("Supertrend")) return "Supertrend";
+    if (n.includes("唐奇安")) return "唐奇安" + (n.includes("55") ? "55" : "20");
+    if (n.includes("海龟")) return "海龟55";
+    if (n.includes("MA")) return "MA" + (n.includes("5/20") ? "5/20" : "10/60");
+    if (n.includes("MACD")) return "MACD";
+    if (n.includes("布林上轨")) return "BB上轨";
+    if (n.includes("跌破布林中轨")) return "BB中轨";
+    if (n.includes("跌破10日")) return "破10日低";
+    if (n.includes("跌破20日")) return "破20日低";
+    if (n.includes("ATR")) return "ATR止损";
+    return n.substring(0, 6);
+  };
+
+  const candidates = {};
+  let idx = 1;
+
+  // 1) 买×卖配对（49个）
+  buyCandidates.forEach((buy) => {
+    sellCandidates.forEach((sell) => {
+      const key = `F_pending_${idx++}`;
+      candidates[key] = {
+        name: `F_${shortName(buy)}_${shortName(sell)}`,
+        side: "buy",
+        zone: "candidate_buy",
+        status: "pending",
+        conditions: [buy.name, sell.name],
+        trigger: `同日AND：${buy.trigger && buy.trigger.substring(0, 30)}… && ${sell.trigger && sell.trigger.substring(0, 30)}…`,
+        conclusion: `配对候选：${buy.name} 作为买点 + ${sell.name} 作为卖点，待回测验证效果`,
+        _isPending: true,
+      };
+    });
+  });
+
+  // 2) 买×买共振（C(7,2)=21个）
+  for (let i = 0; i < buyCandidates.length; i++) {
+    for (let j = i + 1; j < buyCandidates.length; j++) {
+      const b1 = buyCandidates[i], b2 = buyCandidates[j];
+      const key = `F_pending_${idx++}`;
+      candidates[key] = {
+        name: `F_${shortName(b1)}_${shortName(b2)}`,
+        side: "buy",
+        zone: "candidate_buy",
+        status: "pending",
+        conditions: [b1.name, b2.name],
+        trigger: `同日AND共振：${b1.trigger && b1.trigger.substring(0, 30)}… && ${b2.trigger && b2.trigger.substring(0, 30)}…`,
+        conclusion: `双买共振候选：${b1.name} + ${b2.name} 双信号确认，待回测验证效果`,
+        _isPending: true,
+      };
+    }
+  }
+
+  // 3) 卖×卖共振（C(7,2)=21个）
+  for (let i = 0; i < sellCandidates.length; i++) {
+    for (let j = i + 1; j < sellCandidates.length; j++) {
+      const s1 = sellCandidates[i], s2 = sellCandidates[j];
+      const key = `F_pending_${idx++}`;
+      candidates[key] = {
+        name: `F_${shortName(s1)}_${shortName(s2)}`,
+        side: "sell",
+        zone: "candidate_sell",
+        status: "pending",
+        conditions: [s1.name, s2.name],
+        trigger: `同日AND共振：${s1.trigger && s1.trigger.substring(0, 30)}… && ${s2.trigger && s2.trigger.substring(0, 30)}…`,
+        conclusion: `双卖共振候选：${s1.name} + ${s2.name} 双信号确认，待回测验证效果`,
+        _isPending: true,
+      };
+    }
+  }
+
+  return candidates;
+}
+
+// 融合候选池：运行时生成一次
+const LAB_FUSION_PENDING = _generateFusionCandidates();
+
 // 融合信号4分区定义（zone key 与 LAB_FUSION_STRATEGIES 的 zone 字段对齐）
 const LAB_FUSION_ZONES = [
-  { key: "candidate_buy", label: "🧪 候选买点", count: 3, desc: "融合候选买点（多信号共振入场）" },
-  { key: "candidate_sell", label: "🧪 候选卖点", count: 1, desc: "融合候选卖点（多信号共振出场）" },
+  { key: "candidate_buy", label: "🧪 候选买点", count: "3+70", desc: "融合候选买点（多信号共振入场，含70+自动生成待回测）" },
+  { key: "candidate_sell", label: "🧪 候选卖点", count: "1+21", desc: "融合候选卖点（多信号共振出场，含21自动生成待回测）" },
   { key: "excluded", label: "📋 已排除", count: 0, desc: "回测不达标已弃用的融合信号" },
   { key: "prod", label: "✅ 生产参考", count: 2, desc: "已上线生产的融合信号" },
 ];
@@ -1128,7 +1222,7 @@ async function fetchLabSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("/static/data/lab/lab_sim_" + index + "_full.json", onProgress, signal);
+    const full = await fetchJSONProgress("./data/lab/lab_sim_" + index + "_full.json", onProgress, signal);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
@@ -1727,7 +1821,7 @@ async function renderLabDetail(key) {
     chartSection.appendChild(chartDiv);
 
     try {
-      const r = await fetchJSON(`/api/index/${state.labIndex}?range=all`);
+      const r = await fetchJSON(`./data/index/${state.labIndex}-all.json`);
       const ohlcFull = r.ohlc;
       if (!ohlcFull || !ohlcFull.length) {
         chartDiv.innerHTML = '<div class="empty-note">该指数暂无数据</div>';
@@ -2344,7 +2438,7 @@ async function _labSignalModalRender(overlay) {
     // 再由下方 cutoff 切到目标窗口。y10/all 无对应 range 用 all。
     // 静态版无 ranged JSON 固定取 -all.json 由 cutoff 前端切（全历史预热正确）。
     const apiRange = ({ y1: "3y", y3: "5y", y5: "5y", y10: "all", all: "all" }[win]) || "all";
-    const r = await fetchJSON(`/api/index/${m.index}?range=${apiRange}`);
+    const r = await fetchJSON(`./data/index/${m.index}-all.json`);
     const ohlcFull = r.ohlc;
     if (!ohlcFull || !ohlcFull.length) {
       chartArea.innerHTML = '<div class="lab-signal-no-chart">该指数暂无数据</div>';
@@ -2457,10 +2551,12 @@ async function renderFusionLab() {
   zoneDesc.textContent = zMeta.desc;
   content.appendChild(zoneDesc);
 
-  // 策略卡片列表
+  // 策略卡片列表：硬编码在前，候选在后
   const list = document.createElement("div");
   list.className = "lab-strategy-list";
-  const zoneStrategies = Object.entries(LAB_FUSION_STRATEGIES).filter(([k, v]) => v.zone === curZone);
+  const hardcodedStrategies = Object.entries(LAB_FUSION_STRATEGIES).filter(([k, v]) => v.zone === curZone);
+  const pendingStrategies = Object.entries(LAB_FUSION_PENDING).filter(([k, v]) => v.zone === curZone);
+  const zoneStrategies = [...hardcodedStrategies, ...pendingStrategies];
   if (zoneStrategies.length === 0) {
     list.innerHTML = '<div class="lab-fusion-empty">暂无融合信号</div>';
   } else {
@@ -2472,7 +2568,7 @@ async function renderFusionLab() {
           `</div>`
         : "";
       const card = document.createElement("div");
-      card.className = "lab-strategy-card lab-fusion-card";
+      card.className = "lab-strategy-card lab-fusion-card" + (meta._isPending ? " lab-fusion-pending" : "");
       card.innerHTML =
         `<div class="lab-card-top">` +
         `<span class="lab-card-name">${meta.name}</span>` +
