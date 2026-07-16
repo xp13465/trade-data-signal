@@ -1263,8 +1263,8 @@ async function renderTab() {
 // 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
 // 末尾追加 ℹ️ 图标，点击弹"数据更新规则"modal（事件委托在 initUpdateRules 绑定 document，重渲染不失效）。
 const _UPDATE_RULES_ICON = '<span class="update-rules-btn" title="数据更新规则" role="button" tabindex="0" aria-label="数据更新规则">ℹ️</span>';
-// 采集时间不再展示数据健康度圆点：采集层报错(如 HTTPSConnectionPool)用户看不懂且与数据时效横幅功能重叠，
-// collect_health 留给后端日志，前端只显示采集时间文本。数据时效以顶部健康横幅为准。
+// 采集时间不再展示数据健康度圆点：采集层报错(如 HTTPSConnectionPool)用户看不懂且与数据时效功能重叠，
+// collect_health 留给后端日志，前端只显示采集时间文本。数据时效以"数据更新规则"弹窗(ℹ️)为准。
 function applyCollectTime(ct) {
   _collectTimeBase = { ct: ct || "" };
   _renderCollectTime();
@@ -1403,11 +1403,11 @@ function addStaleMark(cardEl, dataDate) {
   cardEl.classList.add("has-time-badge");
 }
 
-// === 顶部全局数据时效健康横幅 ===
+// === 各数据源时效分级（供"数据更新规则"弹窗"各数据源实时时效"区块 + 卡片角标复用）===
 // 汇总各数据源最新日期，让用户一眼区分"正常T+1(数据源盘后公布，公开平台也才到这个日期)" vs
 // "异常滞后(公开平台有更新我们没采到)"。从 overview + intraday_snapshot 提取各源最新日期分级显示。
-// 横幅可折叠（localStorage 记忆），有任何滞后整体加黄色警示边框，严重滞后加红色。
-// 复用 getCardTimeBadge 的三档分级口径，保证角标与横幅文案一致。
+// 原首页"数据时效健康横幅"已移入弹窗（ℹ️ 图标入口），_buildHealthSources 计算结果在弹窗 open 时渲染。
+// 复用 getCardTimeBadge 的三档分级口径，保证角标与弹窗时效文案一致。
 //
 // 逐源采集时点配置(北京时间 HH:MM)：盘中(snap.is_closed===false)且当前时间未到该源采集时点 ->
 // 数据源尚未发布/采集调度未跑，显示前一交易日(ptd-1)算正常等待，放宽 stale 基准到 ptd-1 交易日
@@ -1567,51 +1567,6 @@ function _buildHealthSources(r, snap) {
     sources.push({ name: cfg.name, cls, text, hint: cfg.hint });
   });
   return sources;
-}
-function renderDataHealthBanner(r, snap) {
-  const sources = _buildHealthSources(r, snap);
-  let hasStale = false, hasSevere = false, staleCount = 0;
-  sources.forEach((s) => {
-    if (s.cls === "t1-stale" || s.cls === "t1-severe") { hasStale = true; staleCount++; }
-    if (s.cls === "t1-severe") hasSevere = true;
-  });
-  const _saved = localStorage.getItem("dhb-collapsed");
-  const collapsed = _saved === null
-    ? window.matchMedia("(max-width: 768px)").matches
-    : _saved === "1";
-  const wrapCls = ["data-health-banner"];
-  if (hasSevere) wrapCls.push("severe");
-  else if (hasStale) wrapCls.push("warn");
-  if (collapsed) wrapCls.push("collapsed");
-  const chips = sources.map((s) =>
-    `<span class="dhb-chip ${s.cls}" data-tip="${s.hint || ""}">${s.name}<span class="dhb-val">${s.text}</span></span>`
-  ).join("");
-  const summary = hasSevere ? `🚨 ${staleCount}项异常` : hasStale ? `⚠ ${staleCount}项滞后` : "✓ 全部正常";
-  return (
-    `<div class="${wrapCls.join(" ")}" id="data-health-banner">` +
-      `<span class="dhb-title" id="dhb-toggle" title="点击折叠/展开">📊 数据时效</span>` +
-      `<span class="dhb-summary">${summary}</span>` +
-      `<span class="dhb-chips">${chips}</span>` +
-      `<span class="dhb-actions">` +
-        `<button class="dhb-detail update-rules-btn" type="button" title="查看数据更新规则详情">详情</button>` +
-        `<button class="dhb-toggle-btn" type="button" aria-label="折叠/展开">${collapsed ? "▸" : "▾"}</button>` +
-      `</span>` +
-    `</div>`
-  );
-}
-// 横幅折叠/展开（事件委托 document，renderOverview 重建 DOM 后仍生效）
-function initDataHealthBanner() {
-  document.addEventListener("click", (e) => {
-    const banner = e.target.closest("#data-health-banner");
-    if (!banner) return;
-    if (e.target.closest(".dhb-toggle") || e.target.closest(".dhb-toggle-btn")) {
-      const collapsed = banner.classList.toggle("collapsed");
-      localStorage.setItem("dhb-collapsed", collapsed ? "1" : "0");
-      const btn = banner.querySelector(".dhb-toggle-btn");
-      if (btn) btn.textContent = collapsed ? "▸" : "▾";
-      e.preventDefault();
-    }
-  });
 }
 
 // 盘中实时快照覆盖一句话总结文本：T+1 指数源缺当日数据（sh_pct=null / top_industries=空）时，
@@ -2329,8 +2284,7 @@ async function renderOverview() {
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
   content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">全市场情绪·宽度·位置·信号 一屏总览</div>');
-  // 顶部数据时效健康横幅：汇总各数据源最新状态，一眼区分正常T+1 vs 异常滞后（插在 summary 横幅下）
-  content.insertAdjacentHTML("afterbegin", renderDataHealthBanner(r, snap));
+  // 数据时效栏已移入"数据更新规则"弹窗（ℹ️ 图标入口），首页不再展示健康横幅。
 
   // ---- 0. 一句话总结横幅 ----
   fetchJSON("/api/summary").then(async (s) => {
@@ -5838,6 +5792,11 @@ function initThemeSwitcher() {
 function updateRulesContentHtml() {
   return (
     '<div class="rule-section">' +
+      '<h4>📊 各数据源实时时效</h4>' +
+      '<div id="ur-freshness" class="ur-freshness"><p class="ur-note">打开弹窗时加载…</p></div>' +
+      '<p class="ur-note">绿=实时/收盘最新，灰=T+1正常待更新，黄=滞后，红=异常(>15天)。hover 单项查看源说明。</p>' +
+    '</div>' +
+    '<div class="rule-section">' +
       '<h4>📅 更新时间表</h4>' +
       '<table class="ur-table"><thead><tr><th>时间</th><th>更新内容</th><th>说明</th></tr></thead><tbody>' +
         '<tr><td>盘中每30分钟</td><td>实时快照</td><td>9:35-15:35，腾讯/同花顺实时数据（含港股盘中实时）</td></tr>' +
@@ -5873,7 +5832,7 @@ function updateRulesContentHtml() {
         '<li>📍 <b>收盘·MM-DD（主题色）</b>：收盘后归档，数据正常时显示；若滞后则切换为⚠/🚨</li>' +
         '<li>⚠ <b>滞后·MM-DD（黄）</b>：异常。该数据应T+1更新但已滞后（hover 可见天数），公开平台已有更新但我们没采到</li>' +
         '<li>🚨 <b>异常·MM-DD（红）</b>：严重滞后（>15天），请反馈</li>' +
-        '<li>顶部"📊 数据时效"横幅汇总各数据源最新状态，可一眼区分正常T+1 vs 异常滞后</li>' +
+        '<li>本弹窗顶部"📊 各数据源实时时效"区块汇总各数据源最新状态，可一眼区分正常T+1 vs 异常滞后</li>' +
       '</ul>' +
     '</div>' +
     '<div class="rule-section">' +
@@ -5925,6 +5884,26 @@ function _loadScheduleStats() {
       if (tb) tb.innerHTML = '<tr><td colspan="4">暂无统计</td></tr>';
     });
 }
+// 渲染弹窗内"各数据源实时时效"区块（原首页数据时效横幅移入）。
+// 复用 _buildHealthSources(overview, snap) 计算各源动态时效，open() 时刷新。
+function _renderFreshnessInModal() {
+  const box = document.querySelector("#ur-freshness");
+  if (!box) return;
+  const r = _getCachedOverview();
+  const snap = state.intradaySnapshot;
+  if (!r) { box.innerHTML = '<p class="ur-note">暂无数据，请先加载首页后重开</p>'; return; }
+  const sources = _buildHealthSources(r, snap);
+  let staleCount = 0, hasSevere = false;
+  sources.forEach((s) => {
+    if (s.cls === "t1-stale" || s.cls === "t1-severe") staleCount++;
+    if (s.cls === "t1-severe") hasSevere = true;
+  });
+  const summary = hasSevere ? `🚨 ${staleCount}项异常` : staleCount > 0 ? `⚠ ${staleCount}项滞后` : "✓ 全部正常";
+  const chips = sources.map((s) =>
+    `<span class="ur-fchip ${s.cls}" data-tip="${s.hint || ""}">${s.name}<span class="ur-fval">${s.text}</span></span>`
+  ).join("");
+  box.innerHTML = `<div class="ur-fsummary">${summary}</div><div class="ur-fchips">${chips}</div>`;
+}
 function initUpdateRules() {
   const modal = document.createElement("div");
   modal.className = "rule-modal hidden update-rules-modal";
@@ -5937,7 +5916,7 @@ function initUpdateRules() {
 
   const overlay = modal.querySelector(".rule-modal-overlay");
   const closeBtn = modal.querySelector(".rule-modal-close");
-  const open = () => { modal.classList.remove("hidden"); document.body.style.overflow = "hidden"; _loadScheduleStats(); };
+  const open = () => { modal.classList.remove("hidden"); document.body.style.overflow = "hidden"; _loadScheduleStats(); _renderFreshnessInModal(); };
   const close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
 
   // 事件委托：applyCollectTime 每次 innerHTML 重渲染后图标仍可点
@@ -5965,7 +5944,6 @@ initSimOverlay();
 initShareButton();
 initThemeSwitcher();
 initUpdateRules();
-initDataHealthBanner();
 
 // === 主 tab hash 记忆 + 滚动位置恢复 ===
 // 切 tab 写 hash（replaceState 不入历史、不触发 hashchange），F5 读 hash 恢复 tab + 滚动位置。
