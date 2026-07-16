@@ -5891,8 +5891,10 @@ function _renderScheduleStats(rows) {
     return;
   }
   tb.innerHTML = rows.map((r) => {
-    const warn = (r.last_exit != null && r.last_exit !== 0) ? " ⚠️" : "";
-    return `<tr><td>${r.name || r.task || ""}</td><td>${r.schedule || ""}</td><td>${r.est_text || "—"}</td><td>${r.last_run || "—"}${warn}</td></tr>`;
+    const warn = (r.last_exit != null && r.last_exit !== 0)
+      ? ` <span data-tip="⚠️ 上次执行异常: 退出码=${r.last_exit}（非0=脚本异常退出,可能部分采集失败）。详见日志 data/logs/${r.task || r.name}_launchd.log">⚠️</span>`
+      : "";
+    return `<tr><td>${r.name || r.task || ""}</td><td>${r.schedule || ""}</td><td>${r.est_text || "-"}</td><td>${r.last_run || "-"}${warn}</td></tr>`;
   }).join("");
 }
 function _loadScheduleStats() {
