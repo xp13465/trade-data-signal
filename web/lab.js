@@ -695,7 +695,7 @@ function _generateFusionCandidates() {
   const candidates = {};
   let idx = 1;
 
-  // 1) 买×卖配对（49个）
+  // 1) 买×卖配对（49个）— A类：可查 lab_sim_{index}_stats.json 回测
   buyCandidates.forEach((buy) => {
     sellCandidates.forEach((sell) => {
       const key = `F_pending_${idx++}`;
@@ -708,11 +708,14 @@ function _generateFusionCandidates() {
         trigger: `同日AND：${buy.trigger && buy.trigger.substring(0, 30)}… && ${sell.trigger && sell.trigger.substring(0, 30)}…`,
         conclusion: `配对候选：${buy.name} 作为买点 + ${sell.name} 作为卖点，待回测验证效果`,
         _isPending: true,
+        _pairType: "buy_sell",
+        _buyKey: buy.key,
+        _sellKey: sell.key,
       };
     });
   });
 
-  // 2) 买×买共振（C(7,2)=21个）
+  // 2) 买×买共振（C(7,2)=21个）— B类：同向共振，回测开发中
   for (let i = 0; i < buyCandidates.length; i++) {
     for (let j = i + 1; j < buyCandidates.length; j++) {
       const b1 = buyCandidates[i], b2 = buyCandidates[j];
@@ -726,11 +729,14 @@ function _generateFusionCandidates() {
         trigger: `同日AND共振：${b1.trigger && b1.trigger.substring(0, 30)}… && ${b2.trigger && b2.trigger.substring(0, 30)}…`,
         conclusion: `双买共振候选：${b1.name} + ${b2.name} 双信号确认，待回测验证效果`,
         _isPending: true,
+        _pairType: "buy_buy",
+        _buyKey: b1.key,
+        _sellKey: b2.key,
       };
     }
   }
 
-  // 3) 卖×卖共振（C(7,2)=21个）
+  // 3) 卖×卖共振（C(7,2)=21个）— B类：同向共振，回测开发中
   for (let i = 0; i < sellCandidates.length; i++) {
     for (let j = i + 1; j < sellCandidates.length; j++) {
       const s1 = sellCandidates[i], s2 = sellCandidates[j];
@@ -744,6 +750,9 @@ function _generateFusionCandidates() {
         trigger: `同日AND共振：${s1.trigger && s1.trigger.substring(0, 30)}… && ${s2.trigger && s2.trigger.substring(0, 30)}…`,
         conclusion: `双卖共振候选：${s1.name} + ${s2.name} 双信号确认，待回测验证效果`,
         _isPending: true,
+        _pairType: "sell_sell",
+        _buyKey: s1.key,
+        _sellKey: s2.key,
       };
     }
   }
@@ -2576,21 +2585,157 @@ async function renderFusionLab() {
         `</div>` +
         condsHTML +
         `<div class="lab-card-trigger">${meta.trigger}</div>` +
-        `<div class="lab-card-conclusion">${meta.conclusion}</div>`;
-      card.title = "阶段一仅展示条件与说明，详情页/回测待阶段二开放";
-      card.onclick = () => {
-        // 阶段一不进详情页，点击暂不响应（阶段二回测待开放）
-      };
+        `<div class="lab-card-conclusion">${meta.conclusion}</div>` +
+        (meta._pairType === "buy_sell"
+          ? `<div class="lab-fusion-pair-hint">📊 点击查看配对回测（胜率·收益·5窗口）▸</div>`
+          : "");
+      if (meta._pairType === "buy_sell") {
+        card.classList.add("lab-fusion-clickable");
+        card.title = "点击查看配对回测（胜率/收益/5窗口）";
+      } else {
+        card.title = "同向共振回测开发中，点击查看说明";
+      }
+      card.onclick = () => { _labFusionPairOpenModal(meta); };
       list.appendChild(card);
     });
   }
   content.appendChild(list);
 
-  // 阶段二提示
+  // 阶段提示
   const phaseNote = document.createElement("div");
   phaseNote.className = "lab-fusion-phase-note";
-  phaseNote.innerHTML = "📌 融合信号实验为<b>阶段一</b>（列表页展示条件与说明），<b>阶段二</b>将开放回测数据/图表/推荐榜。";
+  phaseNote.innerHTML = "📌 <b>买×卖配对</b>候选已接入回测数据（点击卡片查看胜率/收益/5窗口）。<b>同向共振</b>（买×买/卖×卖）回测开发中。";
   content.appendChild(phaseNote);
+}
+
+// === 融合候选配对回测弹窗（A类买×卖查 lab_sim_{index}_stats.json；B类同向共振显示开发中）===
+// 指数选择器分组（融合候选为A股策略，仅列A股宽基）
+const LAB_FUSION_PAIR_INDEX_GROUPS = [
+  ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50"]],
+];
+const LAB_FUSION_WIN_LABELS = [
+  { k: "all", label: "全史" },
+  { k: "y10", label: "近10年" },
+  { k: "y5", label: "近5年" },
+  { k: "y3", label: "近3年" },
+  { k: "y1", label: "近1年" },
+];
+
+function _labFusionPairOpenModal(meta) {
+  let overlay = document.getElementById("labFusionPairOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labFusionPairOverlay";
+    overlay.className = "lab-signal-overlay";
+    document.body.appendChild(overlay);
+  }
+  state.labFusionPairModal = {
+    meta: meta,
+    index: state.labSimIdx || state.labIndex || "sh",
+  };
+  _labFusionPairModalRender(overlay);
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labFusionPairCloseModal(); };
+}
+
+function _labFusionPairCloseModal() {
+  const overlay = document.getElementById("labFusionPairOverlay");
+  if (overlay) { overlay.classList.remove("show"); overlay.innerHTML = ""; overlay.onclick = null; }
+  document.body.style.overflow = "";
+  state.labFusionPairModal = null;
+}
+
+async function _labFusionPairModalRender(overlay) {
+  const m = state.labFusionPairModal;
+  if (!m) return;
+  const meta = m.meta;
+  const isAPair = meta._pairType === "buy_sell";
+  const buyName = (LAB_STRATEGIES[meta._buyKey] || {}).name || meta._buyKey;
+  const sellName = (LAB_STRATEGIES[meta._sellKey] || {}).name || meta._sellKey;
+
+  if (!isAPair) {
+    // B类：同向共振回测开发中
+    const resonanceType = meta._pairType === "buy_buy" ? "双买共振" : "双卖共振";
+    overlay.innerHTML = `<div class="lab-signal-modal">` +
+      `<div class="lab-signal-modal-head">` +
+      `<span class="lab-signal-modal-title">🔬 ${resonanceType} · ${buyName} + ${sellName}</span>` +
+      `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+      `</div>` +
+      `<div class="lab-signal-modal-body">` +
+      `<div class="lab-rank-modal-empty">🚧 同向共振回测开发中<br>` +
+      `<span style="font-size:12px">当前仅支持买×卖配对回测，同向（买×买 / 卖×卖）共振回测待后续开放。</span></div>` +
+      `</div></div>`;
+    overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
+    return;
+  }
+
+  // A类：先渲染 loading 骨架
+  overlay.innerHTML = `<div class="lab-signal-modal">` +
+    `<div class="lab-signal-modal-head">` +
+    `<span class="lab-signal-modal-title">📊 配对回测 · 买${buyName} × 卖${sellName}</span>` +
+    `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+    `</div>` +
+    `<div class="lab-signal-modal-body"><div class="loading">加载回测数据…</div></div></div>`;
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
+
+  // 加载 stats json（fetchLabSimData 带 per-index 缓存）
+  const simData = await fetchLabSimData(m.index);
+  const pairId = meta._buyKey + "|" + meta._sellKey;
+  const pair = simData && simData.pairs ? simData.pairs[pairId] : null;
+
+  // 指数选择器
+  const selectHTML = LAB_FUSION_PAIR_INDEX_GROUPS.map(([gname, ids]) =>
+    `<optgroup label="${gname}">` +
+    ids.map((id) => `<option value="${id}"${id === m.index ? " selected" : ""}>${_INDEX_NAME_MAP[id] || id}</option>`).join("") +
+    `</optgroup>`
+  ).join("");
+
+  let bodyHTML;
+  if (!pair) {
+    bodyHTML = `<div class="lab-fusion-pair-filter"><label>选择指数</label><select class="lab-fusion-pair-index">${selectHTML}</select></div>` +
+      `<div class="lab-rank-modal-empty">暂无回测数据<br>` +
+      `<span style="font-size:12px">配对 ${pairId} 在 ${_INDEX_NAME_MAP[m.index] || m.index} 未找到回测结果。</span></div>`;
+  } else {
+    bodyHTML = `<div class="lab-fusion-pair-filter"><label>选择指数</label><select class="lab-fusion-pair-index">${selectHTML}</select>` +
+      `<span class="lab-fusion-pair-legend">红=好，绿=差 · 回撤≤20%优</span></div>` +
+      _labFusionPairStatsHTML(pair, "full_in", "全仓投入") +
+      _labFusionPairStatsHTML(pair, "fixed_10k", "定额（10%）");
+  }
+
+  const body = overlay.querySelector(".lab-signal-modal-body");
+  if (body) {
+    body.innerHTML = bodyHTML;
+    const sel = body.querySelector(".lab-fusion-pair-index");
+    if (sel) sel.onchange = (e) => { m.index = e.target.value; _labFusionPairModalRender(overlay); };
+  }
+}
+
+// 配对回测统计表 HTML：2模式 × 5窗口（全史/近10年/近5年/近3年/近1年）
+function _labFusionPairStatsHTML(pair, mode, modeName) {
+  const md = pair[mode];
+  if (!md || !md.stats) return "";
+  const stats = md.stats;
+  const rows = LAB_FUSION_WIN_LABELS.map((w) => {
+    const s = stats[w.k];
+    if (!s) return "";
+    const retC = s.total_ret >= 0 ? "#c92a2a" : "#2e7d32";
+    const winC = s.win_rate >= 50 ? "#c92a2a" : "#2e7d32";
+    const ddC = s.max_drawdown <= 20 ? "#c92a2a" : (s.max_drawdown <= 50 ? "#e67e22" : "#2e7d32");
+    return `<tr>` +
+      `<td class="lab-fp-win">${w.label}</td>` +
+      `<td class="lab-fp-ret" style="color:${retC}">${s.total_ret > 0 ? "+" : ""}${s.total_ret.toFixed(1)}%</td>` +
+      `<td class="lab-fp-winrate" style="color:${winC}">${s.win_rate.toFixed(1)}%</td>` +
+      `<td class="lab-fp-ann">${s.annual_ret.toFixed(1)}%</td>` +
+      `<td class="lab-fp-dd" style="color:${ddC}">${s.max_drawdown.toFixed(1)}%</td>` +
+      `<td class="lab-fp-n">${s.n_trades}</td>` +
+      `</tr>`;
+  }).join("");
+  return `<div class="lab-fusion-pair-section">` +
+    `<div class="lab-fusion-pair-mode">${modeName}</div>` +
+    `<table class="lab-fusion-pair-table">` +
+    `<thead><tr><th>窗口</th><th>总收益</th><th>胜率</th><th>年化</th><th>最大回撤</th><th>笔数</th></tr></thead>` +
+    `<tbody>${rows}</tbody></table></div>`;
 }
 
 async function renderSignalLab() {
