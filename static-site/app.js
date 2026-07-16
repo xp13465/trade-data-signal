@@ -2464,7 +2464,9 @@ async function renderOverview() {
     switch (m.id) {
       case "a_width_zhaban_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
       case "a_width_zt_count":
-      case "a_width_dt_count": return v.toFixed(0);
+      case "a_width_dt_count":
+      case "a_width_up_count":
+      case "a_width_down_count": return v.toFixed(0);
       case "a_amount":
       case "a_fund_margin": return v.toFixed(0);
       case "a_fund_north": return (v >= 0 ? "+" : "") + v.toFixed(1);
@@ -2503,8 +2505,8 @@ async function renderOverview() {
     });
   }
   const kpiOrder = {
-    a_width_zt_count: 1, a_width_dt_count: 2, a_width_zhaban_rate: 3,
-    a_amount: 4, a_volume_ratio: 5, a_sentiment: 6, cross_market: 7, fear_greed: 8, a_fund_margin: 9, a_fund_north: 10,
+    a_width_up_count: 1, a_width_down_count: 2, a_width_zt_count: 3, a_width_dt_count: 4, a_width_zhaban_rate: 5,
+    a_amount: 6, a_volume_ratio: 7, a_sentiment: 8, cross_market: 9, fear_greed: 10, a_fund_margin: 11, a_fund_north: 12,
   };
   kpiCards.sort((a, b) => (kpiOrder[a.id] || 99) - (kpiOrder[b.id] || 99));
   const cards = document.createElement("div");

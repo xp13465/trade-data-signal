@@ -171,6 +171,8 @@ def _etf_for(index_id: str) -> dict:
 KPI_METRIC_IDS = [
     "a_width_zt_count",     # 涨停数
     "a_width_dt_count",     # 跌停数
+    "a_width_up_count",     # 上涨家数
+    "a_width_down_count",   # 下跌家数
     "a_width_zhaban_rate",  # 炸板率
     "a_amount",             # 成交额
     "a_volume_ratio",       # 量比（放量/缩量）

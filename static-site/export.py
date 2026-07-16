@@ -59,6 +59,8 @@ def _stats_for(stats_all: dict, index_id: str) -> dict:
 KPI_METRIC_IDS = [
     "a_width_zt_count",
     "a_width_dt_count",
+    "a_width_up_count",
+    "a_width_down_count",
     "a_width_zhaban_rate",
     "a_amount",
     "a_volume_ratio",
