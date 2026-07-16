@@ -52,7 +52,7 @@ import pandas as pd
 
 A_STOCK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "a-stock-data")
 sys.path.insert(0, A_STOCK_DIR)
-from backtest_strategies import gen_buy_signals, gen_sell_signals
+from backtest_strategies import gen_buy_signals, gen_sell_signals, gen_fusion_candidates
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, BASE)
@@ -510,14 +510,146 @@ def run_index(iid, iname):
     print(f"完成: {iid} ({iname}) - {n_pairs} 组配对, {len(all_keys)} 个策略, 5窗口")
 
 
+def run_fusion_index(iid, iname):
+    """融合信号回测：91 候选（49买×卖 + 21买×买共振 + 21卖×卖共振）×2模式×5窗口。
+
+    输出独立的 lab_sim_{iid}_fusion_stats.json / _fusion_full.json（不覆盖单信号 stats.json）。
+    pairs 结构与单信号 stats.json 一致（pair_id -> {full_in,fixed_10k}->{stats/equity_curve/trades/tw}），
+    额外 top-level fusion_meta 记录每个候选的类型/组件/参考侧。
+    pair_id 与前端 _generateFusionCandidates 的 _buyKey|_sellKey 对齐。
+    """
+    print(f"\n[fusion load] {iid} ({iname}) from {DB}")
+    df = load_index_data(iid)
+    if df is None:
+        print(f"  ERROR: 无法加载 {iid} 数据，跳过")
+        return
+    first_date = df.index[0]
+    last_date = df.index[-1]
+    print(f"  数据: {len(df)} 条, {first_date.date()} ~ {last_date.date()}")
+
+    windows = []
+    for wk, wl, wy in WINDOW_DEFS:
+        if wy is None:
+            ws = first_date
+        else:
+            ws = last_date - pd.DateOffset(years=wy)
+            if ws < first_date:
+                ws = first_date
+        windows.append({'k': wk, 'l': wl, 's': _fmt_date(ws), 'e': _fmt_date(last_date)})
+
+    candidates = gen_fusion_candidates(df)
+    print(f"[fusion] 生成 {len(candidates)} 个候选 "
+          f"(buy_sell/buy_buy/sell_sell)")
+
+    result = {
+        'generated_at': _fmt_date(last_date),
+        'index_id': iid,
+        'index_name': iname,
+        'initial_capital': INITIAL_CAPITAL,
+        'windows': windows,
+        'fusion': True,
+        'strategies': {},
+        'pairs': {},
+        'fusion_meta': {},
+    }
+    # strategies：收录出现的所有单信号 key（含生产基线 C1/D1）
+    all_keys = set()
+    for c in candidates:
+        all_keys.update(c['components'])
+        if c['ref_side']:
+            all_keys.add(c['ref_side'])
+    for key in all_keys:
+        result['strategies'][key] = {'side': 'buy' if key in BUY_KEYS else 'sell', 'partners': []}
+
+    n_pairs = 0
+    for c in candidates:
+        pair_id = c['pair_id']
+        buy_mask = c['buy_mask']
+        sell_mask = c['sell_mask']
+        if buy_mask is None or sell_mask is None:
+            continue
+        pair_data = build_pair_result(df, buy_mask, sell_mask, last_date, first_date)
+        result['pairs'][pair_id] = pair_data
+        result['fusion_meta'][pair_id] = {
+            'pair_type': c['pair_type'],
+            'components': c['components'],
+            'ref_side': c['ref_side'],
+        }
+        n_pairs += 1
+        fi = pair_data['full_in']['stats']['all']
+        n_buy = int(buy_mask.sum())
+        n_sell = int(sell_mask.sum())
+        print(f"  [{c['pair_type']:9s}] {pair_id:46s}  "
+              f"buyfires={n_buy:4d} sellfires={n_sell:4d}  "
+              f"full_in: {fi['n_trades']:3d}笔 ret={fi['total_ret']:+7.1f}%")
+
+    print(f"\n[融合配对] {n_pairs} 组 × 2模式 × 5窗口 = {n_pairs * 2 * 5} 组窗口回测")
+
+    # 拆分输出：fusion_stats（小）+ fusion_full（大）
+    stats_result = {
+        'generated_at': result['generated_at'],
+        'index_id': iid,
+        'index_name': iname,
+        'initial_capital': INITIAL_CAPITAL,
+        'windows': result['windows'],
+        'fusion': True,
+        'strategies': result['strategies'],
+        'pairs': {},
+        'fusion_meta': result['fusion_meta'],
+    }
+    full_result = {'index_id': iid, 'fusion': True, 'pairs': {}}
+    for pk, pv in result['pairs'].items():
+        stats_result['pairs'][pk] = {}
+        full_result['pairs'][pk] = {}
+        for mode in ('full_in', 'fixed_10k'):
+            mpv = pv[mode]
+            stats_result['pairs'][pk][mode] = {'stats': mpv['stats']}
+            full_result['pairs'][pk][mode] = {
+                'equity_curve': mpv['equity_curve'],
+                'trades': mpv['trades'],
+                'tw': mpv['tw'],
+            }
+
+    out_files = [
+        (f'lab_sim_{iid}_fusion_stats.json', stats_result),
+        (f'lab_sim_{iid}_fusion_full.json', full_result),
+    ]
+    for fname, data in out_files:
+        for base_dir in ('web', 'static-site'):
+            p = os.path.join(BASE, base_dir, 'data', 'lab', fname)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
+            size_kb = os.path.getsize(p) / 1024
+            print(f"[output] {p} ({size_kb:.1f} KB)")
+
+    print(f"完成: {iid} ({iname}) - {n_pairs} 组融合配对, 5窗口")
+
+
 def main():
-    print(f"=== 策略实验室多指数回测 ===")
-    print(f"指数: {[i[0] for i in SIM_INDEXES]}")
-    total_start = pd.Timestamp.now()
-    for iid, iname in SIM_INDEXES:
-        run_index(iid, iname)
-    elapsed = pd.Timestamp.now() - total_start
-    print(f"\n=== 全部完成: {len(SIM_INDEXES)} 个指数, 总耗时 {elapsed.total_seconds():.1f}s ===")
+    import argparse
+    parser = argparse.ArgumentParser(description='策略实验室多指数回测')
+    parser.add_argument('--fusion', action='store_true',
+                        help='跑融合信号 91 候选（多信号同日AND共振），'
+                             '输出 lab_sim_{iid}_fusion_stats/_full.json（不覆盖单信号 stats.json）')
+    args = parser.parse_args()
+
+    if args.fusion:
+        print(f"=== 策略实验室融合信号回测（91 候选 × 9 指数）===")
+        print(f"指数: {[i[0] for i in SIM_INDEXES]}")
+        total_start = pd.Timestamp.now()
+        for iid, iname in SIM_INDEXES:
+            run_fusion_index(iid, iname)
+        elapsed = pd.Timestamp.now() - total_start
+        print(f"\n=== 融合回测全部完成: {len(SIM_INDEXES)} 个指数, 总耗时 {elapsed.total_seconds():.1f}s ===")
+    else:
+        print(f"=== 策略实验室多指数回测 ===")
+        print(f"指数: {[i[0] for i in SIM_INDEXES]}")
+        total_start = pd.Timestamp.now()
+        for iid, iname in SIM_INDEXES:
+            run_index(iid, iname)
+        elapsed = pd.Timestamp.now() - total_start
+        print(f"\n=== 全部完成: {len(SIM_INDEXES)} 个指数, 总耗时 {elapsed.total_seconds():.1f}s ===")
 
 
 if __name__ == '__main__':

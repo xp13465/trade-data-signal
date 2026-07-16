@@ -2120,6 +2120,9 @@ function _labRankAggregate(simData, win, opt) {
   rows.forEach((r) => {
     r.score = 0.4 * nRet(r.total_ret) + 0.3 * nWin(r.win_rate) +
               0.2 * nDd(-r.max_drawdown) + 0.1 * nN(r.n_trades);
+    // ⭐️进入二次测试候选筛选：综合评分top档+样本充分+回撤可控，或单项突出（胜率/风险调整）
+    r.retest = (r.score >= 0.6 && r.n_trades >= 30 && r.max_drawdown <= 50) ||
+               r.win_rate >= 55 || r.risk_adj >= 1.0;
   });
   return rows;
 }
@@ -2142,6 +2145,7 @@ function _labRankItemHTML(row, rank, tab) {
   let extra = "";
   if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
   else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 998 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
+  if (row.retest) extra += '<span class="lab-rank-retest">⭐️进入二次测试</span>';
   return `<button type="button" class="lab-rank-item clickable-card" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">买${row.buyName} × 卖${row.sellName} · ${row.modeName}</span>` +

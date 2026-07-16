@@ -558,6 +558,12 @@
   font-size: 12px; font-weight: 700; color: #9c27b0;
   background: #f3e5f5; padding: 2px 8px; border-radius: 4px; flex-shrink: 0;
 }
+.lab-rank-retest {
+  font-size: 11px; font-weight: 700; color: #b8860b;
+  background: linear-gradient(135deg, #fff8e1, #ffe082);
+  padding: 2px 8px; border-radius: 4px; flex-shrink: 0;
+  border: 1px solid #ffd54f; white-space: nowrap;
+}
 .lab-rank-more {
   display: block; margin: 10px auto 0; padding: 6px 18px;
   border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg-card);
