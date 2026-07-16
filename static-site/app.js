@@ -4895,7 +4895,7 @@ function _indWidthExtra(id, idx, i) {
   return (idx.width || [])[i] || {};
 }
 
-function renderIndustryGrid(indices, containerOverride) {
+function renderIndustryGrid(indices, containerOverride, emptyText) {
   const entries = Object.entries(indices).filter(([, idx]) => idx.data && idx.data.length);
   // 按当日涨幅降序排序(最高在前,最低在后);行业 grid 与概念 grid 共用此函数,改一处双生效
   entries.sort(([, a], [, b]) => {
@@ -4907,7 +4907,8 @@ function renderIndustryGrid(indices, containerOverride) {
   if (!entries.length) {
     const note = document.createElement("div");
     note.className = "empty-note";
-    note.textContent = "暂无行业指数数据";
+    // 概念板块传 emptyText="暂无概念板块数据"，申万/港股行业默认"暂无行业指数数据"
+    note.textContent = emptyText || "暂无行业指数数据";
     ctn.appendChild(note);
     return;
   }
@@ -5247,14 +5248,15 @@ async function renderIndustry() {
 
   // I2：概念板块也加搜索筛选 -- 共用 state.industrySearch，一个搜索条同时过滤两区
   let conceptGridWrap = null;
+  let conceptTitle = null; // 提到 if 块外，供 _applyIndustryFilter 更新 shown/total 标题
   if (conceptCount > 0) {
     const thscSection = document.createElement("div");
     thscSection.id = "thsc-concepts";
     content.appendChild(thscSection);
 
-    const conceptTitle = document.createElement("div");
+    conceptTitle = document.createElement("div");
     conceptTitle.className = "section-title";
-    conceptTitle.textContent = `概念板块指数折线（${conceptCount} 个，含买卖点 + 回测统计）`;
+    conceptTitle.textContent = `概念板块指数折线（${conceptCount}/${conceptCount} 个，含买卖点 + 回测统计）`;
     thscSection.appendChild(conceptTitle);
 
     conceptGridWrap = document.createElement("div");
@@ -5278,7 +5280,12 @@ async function renderIndustry() {
       _disposeContainerCharts(conceptGridWrap);
       conceptGridWrap.innerHTML = "";
       const conceptFiltered = filterIndicesByName(r.concepts, state.industrySearch);
-      renderIndustryGrid(conceptFiltered, conceptGridWrap);
+      const conceptShown = Object.keys(conceptFiltered).length;
+      const conceptTotal = Object.keys(r.concepts || {}).length;
+      if (conceptTitle) {
+        conceptTitle.textContent = `概念板块指数折线（${conceptShown}/${conceptTotal} 个，含买卖点 + 回测统计）`;
+      }
+      renderIndustryGrid(conceptFiltered, conceptGridWrap, "暂无概念板块数据");
     }
   }
   // 搜索框（锚点条内）：防抖 + 局部筛选（I1 不 refetch/不重建热力图轮动卡）
