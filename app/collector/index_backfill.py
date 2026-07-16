@@ -610,6 +610,7 @@ def main():
     import subprocess
     import sys
     from pathlib import Path
+    from datetime import datetime, timedelta
     from ..calendar import is_trading_day, last_trading_day
 
     if not is_trading_day():
@@ -619,6 +620,18 @@ def main():
     today = last_trading_day()  # 已是 YYYYMMDD str
     if hasattr(today, "strftime"):
         today = today.strftime("%Y%m%d")
+    # 门控(2026-07-16):last_trading_day() 在交易日当天未收盘(<15:00)仍返回今日,
+    # 此时数据源(同花顺概念快照/行业聚合)在非交易时段返回 T-1 数据但被标今日日期
+    # 写入 index_daily,产生幽灵当日行 -> compute_rotation 算出幽灵 rotation。
+    # 未收盘时回退到前一真实交易日,只补历史(02:00 凌晨 backfill 走此分支);
+    # 20:00 backfill(已收盘 15:00+)不回退,补当日真实收盘数据。
+    now = datetime.now()
+    if today == now.strftime("%Y%m%d") and now.hour < 15:
+        prev = last_trading_day(now.date() - timedelta(days=1))
+        if hasattr(prev, "strftime"):
+            prev = prev.strftime("%Y%m%d")
+        print(f"[backfill] 未收盘(<15:00),回退到前一交易日 {prev}(避免非交易时段幽灵当日数据)")
+        today = prev
     print(f"[backfill] 目标日期 {today}")
 
     # 1) 序列指标补采（两融等晚发布指标，17:50 update_all 赶不上的兜底）

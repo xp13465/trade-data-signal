@@ -94,6 +94,20 @@ def compute_rotation(date: str | None = None) -> dict:
             date = concept_df["date"].iloc[-1]
         else:
             date = datetime.now().strftime("%Y%m%d")
+        # 门控(2026-07-16):若自动取到今日,且当前盘前(<09:30,未开盘)或周末,
+        # 数据源可能在非交易时段返回标今日的幽灵数据(backfill 凌晨 02:00 跑时,
+        # 同花顺概念快照/行业聚合 API 返回 T-1 数据但被标今日日期写入 index_daily)。
+        # 回退到前一真实交易日(sw_df/concept_df 倒数第二行),避免写出幽灵当日
+        # rotation 行。盘中(09:30-15:00)intraday 显式传 date=today 走另一路径,
+        # 不受此门控影响;收盘后(15:00+)backfill 再跑,now>=09:30 不回退,当日
+        # 真实数据保留。
+        today = datetime.now().strftime("%Y%m%d")
+        if date == today:
+            now = datetime.now()
+            if now.weekday() >= 5 or now.hour < 9 or (now.hour == 9 and now.minute < 30):
+                src_df = sw_df if not sw_df.empty else concept_df
+                if len(src_df) >= 2:
+                    date = src_df["date"].iloc[-2]
 
     result: dict = {"date": date}
 
