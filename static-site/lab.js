@@ -2033,7 +2033,6 @@ const LAB_RANK_TABS = [
   { key: "win", label: "🎯 胜率" },
   { key: "stable", label: "🛡 稳健(回撤小)" },
   { key: "risk_adj", label: "⚖ 风险调整" },
-  { key: "retest", label: "🔬 二次测试" },
 ];
 
 // 排行榜过滤维度（4维 min/max，留空=该边界不限制）。字段单位：均为百分比数值(如36.26=36.26%)，n_trades 为整数次数。
@@ -2182,10 +2181,6 @@ function _labRankHTML(simData) {
   const tabsHTML = LAB_RANK_TABS.map((t) =>
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
-  // retest tab：渲染二次测试内容（分年/样本外/极端行情），不走常规排行逻辑
-  if (tab === "retest") {
-    return `<div class="lab-rank-tabs">${tabsHTML}</div>` + _labRetestContentHTML(simData);
-  }
   const legend = tab === "composite"
     ? "综合评分 = 收益率(40%) + 胜率(30%) + 回撤倒数(20%) + 样本量(10%)，各项 min-max 归一化到[0,1]后加权再×100，越高越好。"
     : tab === "risk_adj"
@@ -2246,8 +2241,8 @@ function _labRetestPairHTML(pk, pd) {
   const meta = pd.pair_meta || {};
   // 信息头
   const headHTML = '<div class="lab-retest-pair-head">' +
-    `<span class="lab-retest-pair-strat">⭐️ ${meta.strategy || pk}</span>` +
-    `<span class="lab-retest-pair-win">窗口: ${meta.window || "-"}</span>` +
+    `<span class="lab-retest-pair-strat">⭐️ ${_labRetestPairCN(meta.strategy || pk)}</span>` +
+    `<span class="lab-retest-pair-win">窗口: ${_labRetestWinCN(meta.window)}</span>` +
     `<span>综合分: ${meta.score != null ? (meta.score * 100).toFixed(0) : "-"}</span>` +
     `<span>交易: ${meta.n != null ? meta.n : "-"}</span>` +
     `<span style="${_labDdColor(meta.dd)}">回撤: ${_labRetestPct(meta.dd)}</span>` +
@@ -2358,14 +2353,6 @@ function _labRankAttachHandlers(section, simData) {
   };
   // 列表项 + 更多按钮（结果区内部）
   _labRankAttachResultsHandlers(section, simData);
-  // retest tab：异步加载二次测试数据，加载完后重渲染
-  const _tab = state.labRankTab || "composite";
-  if (_tab === "retest") {
-    const _ridx = (simData && simData.index_id) || (state.labSimIndex || "sh");
-    if (!state.labRetestDataMap || state.labRetestDataMap[_ridx] === undefined) {
-      fetchLabRetestData(_ridx).then(() => _labRankRerender(section, simData));
-    }
-  }
 }
 
 // 结果区事件绑定（列表项点击+更多按钮）。全量重渲染和仅结果重渲染都调用本函数。
@@ -2664,6 +2651,8 @@ document.addEventListener("keydown", (e) => {
     if (sv && sv.classList.contains("show")) _labSignalCloseModal();
     const fv = document.getElementById("labFusionPairOverlay");
     if (fv && fv.classList.contains("show")) _labFusionPairCloseModal();
+    const rv = document.getElementById("labRetestPairOverlay");
+    if (rv && rv.classList.contains("show")) _labRetestPairCloseModal();
     const dv = document.getElementById("labSignalDetailOverlay");
     if (dv && dv.classList.contains("show")) _labSignalDetailCloseModal();
   }
@@ -2672,12 +2661,17 @@ document.addEventListener("keydown", (e) => {
 // 渲染策略实验室主入口（分区tab + 卡片列表 / 详情页）
 // === 二级导航（单一信号实验 / 融合信号实验）===
 function _renderLabSubNav() {
-  const isFusion = state.labSubMode === "fusion";
+  const cur = state.labSubMode || "single";
   const subNav = document.createElement("div");
   subNav.className = "lab-subnav";
-  subNav.innerHTML =
-    `<button type="button" class="lab-subnav-tab${!isFusion ? " active" : ""}" data-sub="single">单一信号实验</button>` +
-    `<button type="button" class="lab-subnav-tab${isFusion ? " active" : ""}" data-sub="fusion">融合信号实验</button>`;
+  const _LAB_SUB_TABS = [
+    { key: "single", label: "单一信号实验" },
+    { key: "fusion", label: "融合信号实验" },
+    { key: "retest", label: "🔬 二次测试实验" },
+  ];
+  subNav.innerHTML = _LAB_SUB_TABS.map((t) =>
+    `<button type="button" class="lab-subnav-tab${cur === t.key ? " active" : ""}" data-sub="${t.key}">${t.label}</button>`
+  ).join("");
   subNav.querySelectorAll(".lab-subnav-tab").forEach((btn) => {
     btn.onclick = () => {
       state.labSubMode = btn.dataset.sub;
@@ -2819,6 +2813,290 @@ async function renderFusionLab() {
       _loadRank();
     };
   });
+}
+
+// === 二次测试实验分区（照抄融合信号区布局：左配对卡片 + 右维度排行榜）===
+// 数据源 lab_retest_{index}.json，per-index 缓存到 state.labRetestDataMap（fetchLabRetestData）
+// pairs{"buyKey|sellKey":{pair_meta:{strategy(英文pk|pk),window,score,n,dd,win,ret 全小数×100%},yearly,oos,regimes}}
+
+// 英文名词中文化：meta.strategy("BB_lower_revert|BB_upper_revert") -> "买布林下轨回归买 × 卖布林上轨回落卖"
+// 复用 LAB_STRATEGIES[k].name（已含买/卖字样），映射不到保留原英文并 console.warn
+function _labRetestPairCN(strategy) {
+  if (!strategy) return "-";
+  const parts = strategy.split("|");
+  const bk = parts[0], sk = parts[1];
+  const bm = LAB_STRATEGIES[bk];
+  const sm = LAB_STRATEGIES[sk];
+  if (!bm) console.warn("retest 中文化:未知买策略 key", bk);
+  if (!sm) console.warn("retest 中文化:未知卖策略 key", sk);
+  return `买${(bm && bm.name) || bk} × 卖${(sm && sm.name) || sk}`;
+}
+
+// meta.window("y5"等) -> 中文窗口名（复用 LAB_WIN_CN）
+function _labRetestWinCN(win) {
+  const cn = LAB_WIN_CN[win];
+  if (!cn && win) console.warn("retest 中文化:未知窗口 key", win);
+  return cn || win || "-";
+}
+
+// retest 维度榜 tabs（5维，每配对只1个window，无时间窗口切换器；与 rank 的5窗口不同）
+const LAB_RETEST_RANK_TABS = [
+  { key: "score", label: "🏆 综合分" },
+  { key: "ret", label: "📈 收益率" },
+  { key: "win", label: "🎯 胜率" },
+  { key: "dd", label: "🛡 稳健(回撤小)" },
+  { key: "n", label: "📊 样本量" },
+];
+
+// 聚合 retest pairs -> 行（pair_meta 全小数，显示×100%）
+function _labRetestRankRows(rd) {
+  if (!rd || !rd.pairs) return [];
+  const rows = [];
+  for (const pk in rd.pairs) {
+    const meta = (rd.pairs[pk] && rd.pairs[pk].pair_meta) || {};
+    rows.push({
+      pk,
+      strategy: meta.strategy || pk,
+      window: meta.window || "-",
+      cn: _labRetestPairCN(meta.strategy || pk),
+      winCn: _labRetestWinCN(meta.window),
+      score: meta.score != null ? meta.score : 0,
+      ret: meta.ret != null ? meta.ret : 0,
+      win: meta.win != null ? meta.win : 0,
+      dd: meta.dd != null ? meta.dd : 0,
+      n: meta.n != null ? meta.n : 0,
+    });
+  }
+  return rows;
+}
+
+function _labRetestRankSort(rows, tab) {
+  const arr = rows.slice();
+  if (tab === "ret") arr.sort((a, b) => b.ret - a.ret);
+  else if (tab === "win") arr.sort((a, b) => b.win - a.win);
+  else if (tab === "dd") arr.sort((a, b) => a.dd - b.dd); // 回撤小优先
+  else if (tab === "n") arr.sort((a, b) => b.n - a.n);
+  else arr.sort((a, b) => b.score - a.score); // score
+  return arr;
+}
+
+function _labRetestRankItemHTML(row, rank, tab) {
+  const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "";
+  let extra = "";
+  if (tab === "score") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
+  return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}">` +
+    `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
+    `<span class="lab-rank-name">${row.cn} · ${row.winCn}</span>` +
+    `<span class="lab-rank-stats">` +
+      `<span style="color:${_labRetestColor(row.ret)}">收益${_labRetestPct(row.ret)}</span>` +
+      `<span style="color:${_labRetestColor(row.win)}">胜${_labRetestPct(row.win)}</span>` +
+      `<span style="${_labDdColor(row.dd)}">回撤${_labRetestPct(row.dd)}</span>` +
+      `<span class="lab-rank-n">n=${row.n}</span>` +
+    `</span>` + extra + `</button>`;
+}
+
+function _labRetestRankHTML(rd) {
+  if (!rd) return '<div class="lab-rank-empty">二次测试数据加载失败，请稍后重试</div>';
+  const rows = _labRetestRankRows(rd);
+  if (rows.length === 0) return '<div class="lab-rank-empty">暂无二次测试候选配对</div>';
+  state.labRetestRankRows = rows;
+  const tab = state.labRetestRankTab || "score";
+  const tabsHTML = LAB_RETEST_RANK_TABS.map((t) =>
+    `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
+  ).join("");
+  const legend = tab === "score"
+    ? "综合分 = 候选筛选时的综合评分×100，越高越优。"
+    : tab === "dd"
+      ? "稳健榜按最大回撤从小到大排序，回撤越小越稳。"
+      : tab === "ret"
+        ? "收益率榜按总收益率从高到低排序。"
+        : tab === "win"
+          ? "胜率榜按胜率从高到低排序。"
+          : "样本量榜按交易次数从多到少排序。";
+  return `<div class="lab-rank-tabs">${tabsHTML}</div>` +
+    `<div class="lab-rank-legend">${legend} 点击任意配对查看分年/样本外/极端行情。红=好，绿=差。</div>` +
+    `<div class="lab-rank-results">${_labRetestRankResultsHTML()}</div>`;
+}
+
+function _labRetestRankResultsHTML() {
+  const rows = state.labRetestRankRows || [];
+  const tab = state.labRetestRankTab || "score";
+  const sorted = _labRetestRankSort(rows, tab);
+  const showAll = !!state.labRetestRankShowAll;
+  const shown = showAll ? sorted : sorted.slice(0, 20);
+  const countHTML = `<div style="font-size:12px;color:var(--text-3);margin-bottom:6px;">共 <b style="color:#9c27b0;">${rows.length}</b> 个候选配对</div>`;
+  const itemsHTML = shown.length > 0
+    ? shown.map((r, i) => _labRetestRankItemHTML(r, i + 1, tab)).join("")
+    : '<div class="lab-rank-empty">暂无数据</div>';
+  const moreBtn = sorted.length > 20
+    ? `<button type="button" class="lab-rank-more">${showAll ? "收起 ▲" : `显示全部 ${sorted.length} 组 ▼`}</button>`
+    : "";
+  return countHTML + `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
+}
+
+function _labRetestRankAttachHandlers(section, rd) {
+  section.querySelectorAll(".lab-rank-tab").forEach((btn) => {
+    btn.onclick = () => { state.labRetestRankTab = btn.dataset.tab; state.labRetestRankShowAll = false; _labRetestRankRerender(section, rd); };
+  });
+  section.querySelectorAll(".lab-rank-item").forEach((item) => {
+    item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk);
+  });
+  const more = section.querySelector(".lab-rank-more");
+  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd); };
+}
+
+function _labRetestRankRerenderResults(section, rd) {
+  const res = section.querySelector(".lab-rank-results");
+  if (!res) return;
+  res.innerHTML = _labRetestRankResultsHTML();
+  section.querySelectorAll(".lab-rank-item").forEach((item) => {
+    item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk);
+  });
+  const more = section.querySelector(".lab-rank-more");
+  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd); };
+}
+
+function _labRetestRankRerender(section, rd) {
+  const body = section.querySelector(".lab-rank-body");
+  if (body) body.innerHTML = _labRetestRankHTML(rd);
+  _labRetestRankAttachHandlers(section, rd);
+}
+
+// 左栏候选配对卡片：每配对1张紧凑卡（中文名+窗口+综合分+胜率/回撤/n），点击弹窗
+function _labRetestRenderCards(list, rd) {
+  if (!rd) { list.innerHTML = '<div class="lab-rank-empty">二次测试数据加载失败</div>'; return; }
+  if (rd === null) { list.innerHTML = '<div class="lab-rank-empty">暂无二次测试数据</div>'; return; }
+  const pks = rd.pairs ? Object.keys(rd.pairs) : [];
+  if (pks.length === 0) { list.innerHTML = '<div class="lab-rank-empty">暂无二次测试候选配对</div>'; return; }
+  list.innerHTML = pks.map((pk) => {
+    const meta = (rd.pairs[pk] && rd.pairs[pk].pair_meta) || {};
+    const cn = _labRetestPairCN(meta.strategy || pk);
+    const winCn = _labRetestWinCN(meta.window);
+    const score = meta.score != null ? (meta.score * 100).toFixed(0) : "-";
+    return `<div class="lab-strategy-card lab-retest-card clickable-card" data-pk="${pk}">` +
+      `<div class="lab-card-top">` +
+      `<span class="lab-card-name">⭐️ ${cn}</span>` +
+      `<span class="lab-rank-score">评分 ${score}</span>` +
+      `</div>` +
+      `<div class="lab-card-trigger">窗口: ${winCn} · 样本: ${meta.n != null ? meta.n : "-"}</div>` +
+      `<div class="lab-card-conclusion">收益 ${_labRetestPct(meta.ret)} · 胜率 <span style="color:${_labRetestColor(meta.win)}">${_labRetestPct(meta.win)}</span> · 回撤 <span style="${_labDdColor(meta.dd)}">${_labRetestPct(meta.dd)}</span></div>` +
+      `<div class="lab-fusion-pair-hint">📊 点击查看分年/样本外/极端行情 ▸</div>` +
+      `</div>`;
+  }).join("");
+  list.querySelectorAll(".lab-retest-card").forEach((card) => {
+    card.onclick = () => _labRetestPairOpenModal(rd, card.dataset.pk);
+  });
+}
+
+// 二次测试实验分区主入口（照抄 renderFusionLab 结构：左自白+指数选择器+配对卡片 / 右维度榜）
+async function renderRetestLab() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-list-2col";
+  const leftCol = document.createElement("div");
+  const rightCol = document.createElement("div");
+
+  // 自白黄块（包二次测试规则文案）
+  const essayWarn = document.createElement("div");
+  essayWarn.className = "lab-warning lab-warning-essay";
+  essayWarn.innerHTML = `<p>${_LAB_RETEST_RULE}</p>`;
+  leftCol.appendChild(essayWarn);
+
+  // 指数选择器（复用 LAB_SIM_INDEXES，代替融合的 zone-tabs）
+  const curIdx = state.labSimIndex || "sh";
+  const idxBtns = LAB_SIM_INDEXES.map((x) =>
+    `<button type="button" class="lab-idx-tab${x.id === curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
+  ).join("");
+  const idxBar = document.createElement("div");
+  idxBar.className = "lab-win-bar";
+  idxBar.innerHTML = `<span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtns}</div>`;
+  leftCol.appendChild(idxBar);
+
+  // 候选配对卡片列表
+  const list = document.createElement("div");
+  list.className = "lab-strategy-list lab-retest-list";
+  list.innerHTML = '<div class="lab-rank-loading">⏳ 加载二次测试数据中…</div>';
+  leftCol.appendChild(list);
+
+  // 阶段提示
+  const phaseNote = document.createElement("div");
+  phaseNote.className = "lab-fusion-phase-note";
+  phaseNote.innerHTML = "📌 <b>二次测试(稳健性验证三件套)</b>：分年回测 / 样本外 / 极端行情。点击配对卡片或右侧维度榜查看完整细节。";
+  leftCol.appendChild(phaseNote);
+
+  // 右栏：retest 维度排行榜（无时间窗口切换器，每配对只1个window）
+  const rankSection = document.createElement("div");
+  rankSection.className = "chart-card lab-rank-card";
+  rankSection.innerHTML = '<h3>🔬 二次测试维度榜</h3>' +
+    '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载二次测试数据中…</div></div>';
+  rightCol.appendChild(rankSection);
+
+  wrapper.appendChild(leftCol);
+  wrapper.appendChild(rightCol);
+  content.appendChild(wrapper);
+
+  // 加载 + 渲染（左卡片 + 右榜）
+  const _load = async () => {
+    const idx = state.labSimIndex || "sh";
+    const rd = await fetchLabRetestData(idx);
+    _labRetestRenderCards(list, rd);
+    _labRetestRankRerender(rankSection, rd);
+  };
+  _load();
+
+  // 指数切换：重新加载该指数数据并重渲染
+  idxBar.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labSimIndex = btn.dataset.idx;
+      idxBar.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      list.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
+      const body = rankSection.querySelector(".lab-rank-body");
+      if (body) body.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
+      _load();
+    };
+  });
+}
+
+// === 二次测试配对弹窗（照抄融合配对弹窗，body 复用 _labRetestPairHTML 三切片）===
+function _labRetestPairOpenModal(rd, pk) {
+  let overlay = document.getElementById("labRetestPairOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labRetestPairOverlay";
+    overlay.className = "lab-signal-overlay";
+    document.body.appendChild(overlay);
+  }
+  state.labRetestPairModal = { rd, pk };
+  _labRetestPairModalRender(overlay);
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labRetestPairCloseModal(); };
+}
+
+function _labRetestPairCloseModal() {
+  const overlay = document.getElementById("labRetestPairOverlay");
+  if (overlay) { overlay.classList.remove("show"); overlay.innerHTML = ""; overlay.onclick = null; }
+  document.body.style.overflow = "";
+  state.labRetestPairModal = null;
+}
+
+function _labRetestPairModalRender(overlay) {
+  const m = state.labRetestPairModal;
+  if (!m) return;
+  const pd = m.rd && m.rd.pairs ? m.rd.pairs[m.pk] : null;
+  const meta = (pd && pd.pair_meta) || {};
+  const cn = _labRetestPairCN(meta.strategy || m.pk);
+  const winCn = _labRetestWinCN(meta.window);
+  const score = meta.score != null ? (meta.score * 100).toFixed(0) : "-";
+  // body = 现有 _labRetestPairHTML 三切片（分年表+样本外表+极端行情4卡）
+  const bodyHTML = pd ? _labRetestPairHTML(m.pk, pd) : '<div class="lab-rank-modal-empty">暂无二次测试数据</div>';
+  overlay.innerHTML = `<div class="lab-signal-modal">` +
+    `<div class="lab-signal-modal-head">` +
+    `<span class="lab-signal-modal-title">🔬 ${cn} · ${winCn} · 评分 ${score}</span>` +
+    `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+    `</div>` +
+    `<div class="lab-signal-modal-body">${bodyHTML}</div></div>`;
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labRetestPairCloseModal;
+  overlay.scrollTop = 0;
 }
 
 // === 融合候选配对回测弹窗（A类买×卖查 lab_sim_{index}_stats.json；B类同向共振显示开发中）===
@@ -3006,7 +3284,7 @@ function _labFusionPairStatsHTML(pair, mode, modeName) {
 
 async function renderSignalLab() {
   // 如果有选中的策略，进详情页（仅单一信号模式）
-  if (state.labStrategy && state.labSubMode !== "fusion") {
+  if (state.labStrategy && state.labSubMode !== "fusion" && state.labSubMode !== "retest") {
     await renderLabDetail(state.labStrategy);
     return;
   }
@@ -3019,6 +3297,14 @@ async function renderSignalLab() {
   // 融合信号模式 -> 渲染融合列表页（阶段一：仅元数据，不跑回测）
   if (state.labSubMode === "fusion") {
     await renderFusionLab();
+    _labSetHash("#lab");
+    _labRestoreScroll();
+    return;
+  }
+
+  // 二次测试模式 -> 渲染二次测试实验分区（照抄融合区布局：左配对卡片+右维度榜）
+  if (state.labSubMode === "retest") {
+    await renderRetestLab();
     _labSetHash("#lab");
     _labRestoreScroll();
     return;

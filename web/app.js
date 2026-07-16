@@ -434,12 +434,28 @@ function termTip(text) {
 (function _initTermPop() {
   var pop = document.createElement("div");
   pop.className = "term-pop";
+  pop.setAttribute("role", "tooltip");  // a11y：补偿被迁移走的原生 title
   pop.style.display = "none";
   document.body.appendChild(pop);
   var hideTimer = null;
   var popByClick = false;  // pop 由 click 触发(移动端)，此时 mouseout 不立即关
   var popEl = null;        // 当前触发元素，用于同元素再点 toggle 关
   var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  // 查找触发 pop 的元素：优先 [data-tip]，回退 [title]（排除 iframe a11y title + [data-no-pop]）。
+  // [title] 首次命中时一次性迁移到 data-tip 并移除原生 title，防浏览器原生 tooltip 闪现。
+  function findTipEl(target) {
+    if (!target || !target.closest) return null;
+    var el = target.closest("[data-tip]");
+    if (el) return el;
+    el = target.closest("[title]");
+    if (!el) return null;
+    if (el.tagName === "IFRAME") return null;         // iframe title 是 a11y 语义，不加 pop
+    if (el.hasAttribute("data-no-pop")) return null;  // 显式排除
+    el.setAttribute("data-tip", el.getAttribute("title"));
+    el.removeAttribute("title");
+    el.dataset.fromTitle = "1";  // 标记：该 data-tip 由 title 迁移而来（便于排查）
+    return el;
+  }
   function show(el, text) {
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
     pop.textContent = text;
@@ -450,23 +466,26 @@ function termTip(text) {
     var left = r.left + r.width / 2 - pw / 2;
     left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
     var top = r.bottom + 6;
-    if (top + ph > window.innerHeight - 8) top = r.top - ph - 6;
+    var above = false;
+    if (top + ph > window.innerHeight - 8) { top = r.top - ph - 6; above = true; }
     pop.style.left = left + "px";
     pop.style.top = top + "px";
+    // 方向 class：默认(下方)箭头朝上，翻到上方时箭头朝下，供 CSS ::before 翻转
+    if (above) pop.classList.add("term-pop--up"); else pop.classList.remove("term-pop--up");
   }
   function hide() { hideTimer = setTimeout(function () { pop.style.display = "none"; }, 80); }
   function hideNow() { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } pop.style.display = "none"; popByClick = false; }
   document.addEventListener("mouseover", function (e) {
-    var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+    var el = findTipEl(e.target);
     if (el && !popByClick) show(el, el.getAttribute("data-tip"));
   });
   document.addEventListener("mouseout", function (e) {
-    var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+    var el = findTipEl(e.target);
     if (el && !popByClick) hide();
   });
   if (isTouch) {
     document.addEventListener("click", function (e) {
-      var el = e.target.closest ? e.target.closest("[data-tip]") : null;
+      var el = findTipEl(e.target);
       if (el) {
         if (popByClick && popEl === el) { hideNow(); return; }  // 同元素再点 -> 关
         show(el, el.getAttribute("data-tip"));

@@ -315,6 +315,24 @@ main { padding: 16px 24px; }
   box-shadow: 0 4px 14px var(--shadow-strong);
   font-size: 12px; line-height: 1.6; max-width: 320px;
   white-space: pre-line; word-break: break-word;
+  animation: termPopIn .12s ease-out;
+}
+/* 小箭头：默认浮层在元素下方(show 下方优先)，箭头朝上指向元素；.term-pop--up 翻到上方时箭头朝下 */
+.term-pop::before {
+  content: ""; position: absolute; left: 50%; margin-left: -6px;
+  bottom: 100%;
+  border: 6px solid transparent;
+  border-bottom-color: var(--primary);
+  pointer-events: none;
+}
+.term-pop--up::before {
+  bottom: auto; top: 100%;
+  border-bottom-color: transparent;
+  border-top-color: var(--primary);
+}
+@keyframes termPopIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 /* B：卡片底部 muted 白话小字（最晦涩术语常驻解释，区别于橙色 chart-hint） */
 .term-plain {

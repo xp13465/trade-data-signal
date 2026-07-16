@@ -871,3 +871,7 @@
   .lab-retest-regimes { grid-template-columns: repeat(2, 1fr); }
   .lab-retest-pair-head { font-size: 12px; }
 }
+
+/* === 二次测试实验分区（第3实验分区，复用 .lab-strategy-card / .lab-rank 样式）=== */
+.lab-retest-card .lab-card-name { font-size: 13.5px; }
+.lab-retest-card .lab-rank-score { font-size: 12px; }
