@@ -1892,9 +1892,9 @@ main { padding: 16px 24px; }
   /* 收盘分析横幅 H5:行1=日期(text)+meta(收盘小结/更多,靠右),行2=tags(情绪+恐贪标签,靠左独占) */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
   .summary-top { flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; gap: 4px 10px; }
-  .summary-title { flex-wrap: wrap; }   /* 两层 flex：summary-title 内部换行（替代 display:contents，避免兼容/可访问性问题） */
+  .summary-title { flex-wrap: wrap; flex: 0 1 auto; min-width: 0; max-width: calc(100% - 120px); }   /* 可收缩给meta让位,避免"更多"被挤到第三行 */
   .summary-title-text { font-size: 14px; font-weight: 600; }
-  .summary-meta { flex-wrap: nowrap; align-self: flex-start; }   /* margin-left:auto 承自 base 靠右 */
+  .summary-meta { flex-wrap: nowrap; align-self: flex-start; flex-shrink: 0; }   /* margin-left:auto 承自 base 靠右,与title同处第一行 */
   .summary-title-tags { flex: 0 0 100%; }   /* 标签独占 summary-title 内第二行 */
   .summary-time-label { display: none; }
 
