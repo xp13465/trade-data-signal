@@ -18,15 +18,24 @@
 	</array>
 	<key>RunAtLoad</key>
 	<false/>
-	<!-- 每日 20:07 跑：SSE/SZSE ETF 每日份额为 T+1 发布，实测 22:06 仍无当日数据（源端常深夜或次日才出）。
-	     20:07 错开 backfill-evening 的 20:00 槽。采集器内置 6 天回填窗口，当日份额滞后时靠次日跑补上。 -->
+	<!-- 每日 20:07(主槽) + 21:30(兜底二次槽) 跑：SSE/SZSE ETF 每日份额为 T+1 发布，实测 22:06 仍无当日数据（源端常深夜或次日才出）。
+	     20:07 错开 backfill-evening 的 20:00 槽。采集器内置 6 天回填窗口，当日份额滞后时靠次日跑补上。
+	     21:30 二次槽：应对 20:07 网络抖动/服务器异常，当日兜底幂等覆盖重采。 -->
 	<key>StartCalendarInterval</key>
-	<dict>
-		<key>Hour</key>
-		<integer>20</integer>
-		<key>Minute</key>
-		<integer>7</integer>
-	</dict>
+	<array>
+		<dict>
+			<key>Hour</key>
+			<integer>20</integer>
+			<key>Minute</key>
+			<integer>7</integer>
+		</dict>
+		<dict>
+			<key>Hour</key>
+			<integer>21</integer>
+			<key>Minute</key>
+			<integer>30</integer>
+		</dict>
+	</array>
 	<key>StandardErrorPath</key>
 	<string>/Users/linhuichen/code/trade/data/logs/etf_national_team_launchd.err</string>
 	<key>StandardOutPath</key>

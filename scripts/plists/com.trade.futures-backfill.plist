@@ -9,16 +9,25 @@
         <string>/bin/bash</string>
         <string>/Users/linhuichen/code/trade/scripts/futures_backfill.sh</string>
     </array>
-    <!-- 每日 20:05 跑：CFFEX 股指期货前20名会员持仓次日约 20:00 后发布当日数据，
+    <!-- 每日 20:05(主槽) + 21:00(兜底二次槽) 跑：CFFEX 股指期货前20名会员持仓次日约 20:00 后发布当日数据，
          17:50 update_all 采不到，20:05 单采当日根治 46h 滞后。
-         采集几秒 + 持 deploy 锁推送；20:00 backfill / 20:07 etf 密集时段 deploy.lock 排队。 -->
+         采集几秒 + 持 deploy 锁推送；20:00 backfill / 20:07 etf 密集时段 deploy.lock 排队。
+         21:00 二次槽：应对 20:05 网络抖动/服务器异常(CFFEX~20:00出，21:00大概率采到)，幂等覆盖重采。 -->
     <key>StartCalendarInterval</key>
-    <dict>
+    <array>
+      <dict>
         <key>Hour</key>
         <integer>20</integer>
         <key>Minute</key>
         <integer>5</integer>
-    </dict>
+      </dict>
+      <dict>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+      </dict>
+    </array>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
