@@ -1329,3 +1329,192 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - **P4-P7 不建议**:ETF份额IOPV预估(IOPV是参考净值非份额,精度不足)/CFFEX持仓预估(盘中无源,外推精度极差)/持有人结构外推(半年频低收益)/美股ETF实时(新浪hf_QQQ返空+东财push2被封,用P1期货替代)。
 **结论**:免费版基本到顶,唯一增量 P1(美股期货预估)值得做;P2 可选;其余不建议。
 
+---
+
+## §27 导航吸顶开关调研（2026-07-16，只读调研未实施）
+
+PC端顶部分享按钮**左边**加"导航吸顶"开关，默认吸顶ON，关闭后导航回文档流原位（方便截图）；多窗口同源共享状态，localStorage 存关闭时间戳，24h 过期回默认吸顶。本节为调研结论，供后续实施 agent 照做。
+
+### 1. 顶部分享按钮位置（精确插入点）
+
+**文件行号（双版完全一致，除资源URL）**：
+- `web/index.html:73-87` `<header>` 块
+- `static-site/index.html:73-87` 同上（仅 script/link 的 href 用 `./` 而非 `/static/`）
+
+**header 结构**（web/index.html:73-87）：
+```html
+<header>
+  <h1>📊 市场温度看板</h1>
+  <button class="share-btn pc-share-btn" title="生成分享图">📤 分享</button>   <!-- line 75，PC分享按钮 -->
+  <span class="collect-time pc-collect-time" title="数据采集时间"></span>      <!-- line 76 -->
+  <button class="theme-btn pc-theme-btn" title="切换皮肤">🎨</button>           <!-- line 77 -->
+  <div class="h5-topbar">...</div>   <!-- line 79-86，H5顶部条，PC隐藏 -->
+</header>
+```
+
+**开关插入点**：在 **line 75 的 `<button class="share-btn pc-share-btn">` 之前**插入开关按钮（即 h1 与 pc-share-btn 之间）。header 是 `display:flex; justify-content:space-between`（style.css:103-110），`.pc-share-btn { margin-left:auto }`（style.css:114）把右侧按钮组推到最右；开关加在 share-btn 左边，会落在右侧按钮组最左位（分享按钮之左、采集时间/皮肤更右）。建议开关也用 `pc-` 前缀（如 `class="nav-sticky-toggle pc-nav-sticky-toggle"`），与 share/collect/theme 一组。
+
+**PC/H5 显隐机制**（style.css:112-143）：
+- `.pc-share-btn` PC 默认显示；`@media(max-width:768px){ .pc-share-btn{display:none} }`（style.css:135-136）移动端隐藏。
+- `.h5-share-btn` 默认 `display:none`（style.css:121），`@media` 内显示（style.css:137-141）。
+- 开关同理：`.pc-nav-sticky-toggle` PC 显示 + `@media` 隐藏。**移动端不需要此开关**——移动端 `nav.tabs{display:none}`（style.css:1845），用底部固定导航 `.h5-bottomnav` + 顶部 `.h5-period-bar` sticky，无 PC 式吸顶问题。
+
+### 2. 导航吸顶实现 + 连带元素（关闭吸顶的改动点）
+
+**主吸顶元素**：`web/style.css:179-189`（static-site 同行号）
+```css
+.tabs {
+  display: flex; gap:4px; padding:0 24px;
+  background: var(--bg-card); border-bottom:1px solid var(--border);
+  position: sticky;   /* UX：tab 栏滚动时悬浮顶部 */
+  top: 0; z-index: 50;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+```
+**纯 CSS `position:sticky`，非 JS 滚动监听**。关闭 = 改 `position:static`。
+
+**连带吸顶元素（必须一并处理，否则脱节）**：
+1. `style.css:843-855` `.rule-bar`（买卖点规则说明条）：`position:sticky; top:var(--tab-h,41px); z-index:40`——top 贴 tab 栏正下方，依赖 tab 栏吸顶。
+2. `style.css:1400-1411` `.industry-anchor-bar`（行业锚点条，含申万/概念 tab+搜索框）：`position:sticky; top:var(--tab-h,41px); z-index:39`——同样依赖 tab 栏。
+3. 若只把 `.tabs` 改 static，rule-bar / anchor-bar 仍 sticky 在视口顶 41px 处（因 `--tab-h` 仍=41px），会脱离 tab 栏单独悬空吸顶，视觉错乱。
+
+**`--tab-h` 来源**（web/app.js:5212-5219 / static-site/app.js:5297-5304）：
+```js
+function initStickyOffset() {
+  const tabs = document.querySelector('.tabs');
+  if (!tabs) return;
+  const set = () => document.documentElement.style.setProperty('--tab-h', tabs.offsetHeight + 'px');
+  set();
+  window.addEventListener('resize', set); window.addEventListener('load', set);
+}
+```
+测 tabs 高度写 `--tab-h`（兜底41px）。**关闭吸顶后此函数仍可运行**（static 元素也有 offsetHeight），无副作用，不需改。
+
+**关闭吸顶的推荐改法**：给 `<html>` 加 class `nav-no-sticky`，CSS 统一覆盖：
+```css
+.nav-no-sticky .tabs,
+.nav-no-sticky .rule-bar,
+.nav-no-sticky .industry-anchor-bar { position: static !important; }
+```
+（用 `!important` 或确保选择器特异性高于原 `.tabs`；原选择器是单 class，`.nav-no-sticky .tabs` 双 class 特异性更高，可不加 !important。）移动端 `.h5-period-bar`（style.css:1847）不在此 class 影响范围内，移动端不受影响。
+
+### 3. 多窗口共享逻辑确认（localStorage + storage 事件 + 24h，可行）
+
+现有 `trade-theme`（app.js:5734/5742）只用 localStorage 读写、**无 storage 事件监听**（主题不实时跨窗口同步，仅新窗口加载时读）。本需求要实时同步，需新增 `storage` 事件监听——标准 Web API，项目无障碍。
+
+**localStorage key**：`navStickyOff_ts`（关闭时存 `Date.now()` 数值串；默认吸顶=不存或已过期）。
+
+**加载时判定（防闪烁，放 head 内联脚本，仿 index.html:40-51 主题防闪烁）**：
+```js
+// <head> 内联，body 渲染前执行，避免吸顶渲染后再跳变
+(function(){
+  try {
+    var ts = parseInt(localStorage.getItem('navStickyOff_ts'), 10);
+    if (ts && Date.now() - ts < 24*3600*1000) {
+      document.documentElement.classList.add('nav-no-sticky');  // 24h内=关闭吸顶
+    } else {
+      if (ts) localStorage.removeItem('navStickyOff_ts');  // 过期清理
+      // 不加 class = 默认吸顶
+    }
+  } catch(e){}
+})();
+```
+
+**开关 toggle（app.js 新增 initNavStickyToggle）**：
+```js
+function isNavStickyOff() {
+  try { var ts = parseInt(localStorage.getItem('navStickyOff_ts'), 10);
+    return !!(ts && Date.now() - ts < 24*3600*1000);
+  } catch(e){ return false; }
+}
+function applyNavStickyState() {
+  var off = isNavStickyOff();
+  document.documentElement.classList.toggle('nav-no-sticky', off);
+  // 更新开关 UI（ON/OFF 两态）
+  document.querySelectorAll('.nav-sticky-toggle').forEach(function(b){
+    b.classList.toggle('off', off);
+    b.textContent = off ? '导航吸顶 ⏻' : '导航吸顶';  // 或用 data 属性切文案
+  });
+  if (!off) { try { localStorage.removeItem('navStickyOff_ts'); } catch(e){} }
+}
+function initNavStickyToggle() {
+  document.querySelectorAll('.nav-sticky-toggle').forEach(function(b){
+    b.addEventListener('click', function(){
+      if (isNavStickyOff()) {  // 当前关 -> 开：清 ts
+        try { localStorage.removeItem('navStickyOff_ts'); } catch(e){}
+      } else {                 // 当前开 -> 关：存 ts
+        try { localStorage.setItem('navStickyOff_ts', String(Date.now())); } catch(e){}
+      }
+      applyNavStickyState();   // 原窗口立即生效
+    });
+  });
+  // 多窗口实时同步：其他窗口改 localStorage 触发 storage 事件
+  window.addEventListener('storage', function(e){
+    if (e.key === 'navStickyOff_ts') applyNavStickyState();
+  });
+  applyNavStickyState();  // 初始渲染开关态
+}
+```
+**注意**：`storage` 事件不在原窗口触发（只在同源其他窗口），原窗口 toggle 后直接 `applyNavStickyState()` 即时生效；其他窗口靠 storage 事件实时同步。同浏览器同源多窗口共享，无需后端。
+
+### 4. 双版结构差异
+
+**结论：双版结构一致，仅资源 URL 不同（符合 §9 双版同步铁律）**。
+- `index.html`：web 与 static-site 的 header/tabs 结构逐字相同（行73-126），差异仅在 `<link href="/static/...">` vs `./...`、`<script src="/static/...">` vs `./...`、og/canonical URL。分享按钮、nav.tabs、header 布局完全一致。
+- `style.css`：双版均 2363 行，行号完全对应。`.tabs`/`.rule-bar`/`.industry-anchor-bar`/`.pc-share-btn`/`@media` 全部一致。
+- `app.js`：web 5991 行 / static-site 6057 行（static-site 多 66 行，因数据源 URL 等差异）。关键函数双版齐全：
+  | 函数 | web/app.js | static-site/app.js |
+  |---|---|---|
+  | initStickyOffset | 5212 | 5297 |
+  | openShareModal | 5657 | 5748 |
+  | initShareButton | 5694 | 5779 |
+  | initThemeSwitcher | 5701 | 5786 |
+- 末尾顶层初始化调用顺序双版一致：
+  - web: 5918-5926 `initStickyOffset();initBackToTop();initRuleButton();initH5();initSimOverlay();initShareButton();initThemeSwitcher();initUpdateRules();initDataHealthBanner();`
+  - static-site: 5984-5992 同序。
+- 分享按钮双版都有（PC `.pc-share-btn` + H5 `.h5-share-btn`），事件绑定 `document.querySelectorAll(".share-btn").forEach(b=>b.addEventListener("click",openShareModal))`（web:5695 / static-site:5780）。开关用独立 class `.nav-sticky-toggle`，不会误触分享。
+
+### 5. 实施清单（后续 agent 照做）
+
+**A. HTML（双版 index.html，各改2处）**：
+1. **line 75 前**插入开关按钮（PC版）：
+   ```html
+   <button class="nav-sticky-toggle pc-nav-sticky-toggle" title="切换导航吸顶（关闭后方便截图）">导航吸顶</button>
+   ```
+   （插在 `<h1>` 与 `<button class="share-btn pc-share-btn">` 之间。）
+2. **head 内联脚本**（line 40-51 主题防闪烁段之后）加 navStickyOff_ts 判定，documentElement 加 `nav-no-sticky` class（见 §3 加载时判定伪代码）。
+
+**B. CSS（双版 style.css，各改2处）**：
+1. **header 区域**（style.css:112-143 附近，`.pc-share-btn` 之后）加开关样式：
+   ```css
+   .pc-nav-sticky-toggle {
+     margin-left: 8px; border:1px solid var(--border-strong); background:var(--bg-card);
+     color:var(--text-2); border-radius:16px; padding:5px 12px; font-size:13px;
+     cursor:pointer; transition:all .15s; user-select:none;
+   }
+   .pc-nav-sticky-toggle.off { border-color:var(--text-4); opacity:.6; }   /* OFF 态 */
+   .pc-nav-sticky-toggle:hover { background:var(--bg-hover); }
+   ```
+   并在 `@media(max-width:768px)` 块（style.css:135）内加 `.pc-nav-sticky-toggle{display:none}`（移动端隐藏，移动端无 PC 吸顶）。
+2. **吸顶覆盖**（style.css:189 `.tabs` 规则之后或文件末尾）加：
+   ```css
+   .nav-no-sticky .tabs,
+   .nav-no-sticky .rule-bar,
+   .nav-no-sticky .industry-anchor-bar { position: static; }
+   ```
+   （`.nav-no-sticky .tabs` 双 class 特异性 > `.tabs`，无需 !important。）
+
+**C. JS（双版 app.js，各改2处）**：
+1. **新增 `initNavStickyToggle()` 函数**（含 isNavStickyOff/applyNavStickyState/toggle/storage 监听，见 §3 伪代码）。建议插在 `initStickyOffset`（web:5212 / static-site:5297）附近。
+2. **末尾初始化调用**（web:5918 / static-site:5984 的 `initStickyOffset()` **之前**）加 `initNavStickyToggle();`——确保 nav-no-sticky class 先定，再测 --tab-h（虽 static 也有 offsetHeight，但顺序上先定状态更稳）。
+
+**D. 双版同步 + 上线**：
+1. 改完跑 `python3 scripts/build_min.py`（terser minify app.js->app.min.js）+ `python3 scripts/bump_asset_version.py`（md5前8位破缓存，更新 index.html 的 ?v=）。
+2. 双版 diff 验证 IDENTICAL（除数据源 URL）：`diff <(sed 's#\./#/#g' static-site/index.html) web/index.html` 等比对应无业务差异。
+3. commit + push feat + merge main + push main（§8）。不 add 根目录 data/。
+
+### 验收口径对照
+- **分享按钮在 web/index.html:75（static-site:index.html:75），结构是 `<button class="share-btn pc-share-btn">📤 分享</button>`，在 `<header>` 内 h1 之后；开关插在 line 75 之前**。
+- **导航吸顶实现是 CSS `position:sticky`（style.css:185 `.tabs`，非 JS scroll）；关闭吸顶改 `position:static`，通过给 `<html>` 加 `nav-no-sticky` class 覆盖 `.tabs`/`.rule-bar`/`.industry-anchor-bar` 三处（后两者 top 依赖 tab 栏，必须一并 static）**。
+- **双版结构一致（index.html header/tabs 逐字相同仅资源URL不同；style.css 均2363行行号对应；app.js 关键函数+末尾初始化顺序双版齐全，static-site 比 web 多66行属数据源差异）**。
+
