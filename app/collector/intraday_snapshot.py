@@ -445,21 +445,26 @@ def is_hk_market_closed(at: datetime | None = None) -> tuple[bool, str]:
 
 
 def _save_db(collected_at: str, is_closed: bool,
-             indices: list, industries: list, concepts: list = None) -> None:
-    """存 DB（单行覆盖，id=1）。concepts 可选（向后兼容旧调用）。"""
+             indices: list, industries: list, concepts: list = None,
+             us_futures: dict = None) -> None:
+    """存 DB（单行覆盖，id=1）。concepts/us_futures 可选（向后兼容旧调用）。"""
     conn = get_conn()
     if concepts is None:
         concepts = []
+    if us_futures is None:
+        us_futures = {}
     conn.execute(
-        "INSERT INTO intraday_snapshot (id, collected_at, is_closed, indices, industries, concepts) "
-        "VALUES (1, ?, ?, ?, ?, ?) "
+        "INSERT INTO intraday_snapshot (id, collected_at, is_closed, indices, industries, concepts, us_futures) "
+        "VALUES (1, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(id) DO UPDATE SET "
         "collected_at=excluded.collected_at, is_closed=excluded.is_closed, "
-        "indices=excluded.indices, industries=excluded.industries, concepts=excluded.concepts",
+        "indices=excluded.indices, industries=excluded.industries, concepts=excluded.concepts, "
+        "us_futures=excluded.us_futures",
         (collected_at, 1 if is_closed else 0,
          json.dumps(indices, ensure_ascii=False),
          json.dumps(industries, ensure_ascii=False),
-         json.dumps(concepts, ensure_ascii=False)),
+         json.dumps(concepts, ensure_ascii=False),
+         json.dumps(us_futures, ensure_ascii=False)),
     )
     conn.commit()
     conn.close()
@@ -1021,6 +1026,18 @@ def build_snapshot() -> dict:
     # 用交易日历而非自然日差值，避免周末/节假日误判
     from ..calendar import last_trading_day
     prev_td = last_trading_day(collected_dt.date() - timedelta(days=1))
+    # 美股期货 ES/NQ（亚盘实时，预估美股当晚方向）。CME GLOBEX 电子盘北京白天仍交易，
+    # ES/NQ 实时价反映美股当晚预期。失败不阻断快照（快照核心是 A 股/港股/行业）。
+    us_futures = {}
+    try:
+        from .us_futures import fetch_us_futures
+        from ..compute.us_futures_expect import compute_expect
+        us_futures = compute_expect(fetch_us_futures())
+        if us_futures:
+            print(f"[intraday] 美股期货采集: ES={us_futures.get('hf_ES', {}).get('chg_pct'):.2f}% "
+                  f"NQ={us_futures.get('hf_NQ', {}).get('chg_pct'):.2f}%", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[intraday] 美股期货采集失败（不阻断）: {type(e).__name__} {e}", flush=True)
     return {
         "collected_at": collected_dt.isoformat(),
         "is_closed": is_closed,
@@ -1029,6 +1046,7 @@ def build_snapshot() -> dict:
         "indices": indices,
         "industries": industries,
         "concepts": concepts,
+        "us_futures": us_futures,
     }
 
 
@@ -1048,7 +1066,18 @@ def collect_and_save() -> dict:
 
     # 存 DB
     _save_db(snap["collected_at"], snap["is_closed"],
-             snap["indices"], snap["industries"], snap["concepts"])
+             snap["indices"], snap["industries"], snap["concepts"],
+             snap.get("us_futures"))
+
+    # 美股期货 ES/NQ 预期信号落地 daily_metric（供历史回测/统计）。失败不阻断。
+    if snap.get("us_futures"):
+        try:
+            from ..compute.us_futures_expect import save_to_db as _save_usf
+            n_usf = _save_usf(datetime.now().strftime("%Y%m%d"), snap["us_futures"])
+            if n_usf:
+                print(f"[intraday] 美股期货预期落地 daily_metric {n_usf} 条", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[intraday] 美股期货落地 DB 失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     # dump 静态 JSON（双版同步：static-site/data/intraday_snapshot.json）
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1103,7 +1132,7 @@ def load_latest_snapshot() -> dict | None:
     """
     conn = get_conn()
     row = conn.execute(
-        "SELECT collected_at, is_closed, indices, industries, concepts "
+        "SELECT collected_at, is_closed, indices, industries, concepts, us_futures "
         "FROM intraday_snapshot WHERE id=1"
     ).fetchone()
     conn.close()
@@ -1133,6 +1162,11 @@ def load_latest_snapshot() -> dict | None:
         concepts = json.loads(row["concepts"]) if row["concepts"] else []
     except Exception:  # noqa: BLE001
         concepts = []
+    # us_futures 列同理（2026-07-15 加，美股期货 ES/NQ 预估美股方向）
+    try:
+        us_futures = json.loads(row["us_futures"]) if row["us_futures"] else {}
+    except Exception:  # noqa: BLE001
+        us_futures = {}
     return {
         "collected_at": row["collected_at"],
         "is_closed": is_closed,
@@ -1141,6 +1175,7 @@ def load_latest_snapshot() -> dict | None:
         "indices": indices,
         "industries": industries,
         "concepts": concepts,
+        "us_futures": us_futures,
     }
 
 

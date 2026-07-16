@@ -4013,6 +4013,45 @@ async function renderHK(container = content) {
   }
 }
 
+// 美股期货 ES/NQ 预期提示条：亚盘实时期货价 + 涨跌幅 + 预估美股当晚方向。
+// 读 intraday_snapshot.us_futures（盘中快照采集时注入）。无数据不渲染。
+// ES↔标普500 / NQ↔纳指100，相关性≈0.95；阈值±0.3%判预涨/预跌/持平。
+function _renderUSFuturesExpect(snap, container) {
+  const usf = snap && snap.us_futures;
+  if (!usf || !Object.keys(usf).length) return;
+  const items = [];
+  for (const code of ["hf_ES", "hf_NQ"]) {
+    const d = usf[code];
+    if (!d || d.price == null) continue;
+    const chg = d.chg_pct;
+    const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "flat";
+    const chgTxt = (chg != null ? ((chg >= 0 ? "+" : "") + chg.toFixed(2) + "%") : "-");
+    const expect = d.expect || "持平";
+    const expectCls = expect === "预涨" ? "up" : expect === "预跌" ? "down" : "flat";
+    items.push(
+      `<div class="usf-item">
+        <span class="usf-name">${d.target_name || d.name}</span>
+        <span class="usf-fname">${d.name || ""}</span>
+        <span class="usf-price">${d.price.toFixed(2)}</span>
+        <span class="usf-chg ${chgCls}">${chgTxt}</span>
+        <span class="usf-arrow">-></span>
+        <span class="usf-expect ${expectCls}">${expect}</span>
+      </div>`);
+  }
+  if (!items.length) return;
+  const time = (usf.hf_ES && usf.hf_ES.time) || (usf.hf_NQ && usf.hf_NQ.time) || "";
+  const div = document.createElement("div");
+  div.className = "us-futures-expect";
+  div.innerHTML =
+    `<div class="usf-head">
+      <span class="usf-title">🇺🇸 美股预期</span>
+      <span class="usf-sub">期货亚盘实时 · 预估美股当晚方向（ES↔标普500 / NQ↔纳指100，相关性≈0.95）</span>
+      ${time ? `<span class="usf-time">⏰ ${time}</span>` : ""}
+    </div>
+    <div class="usf-items">${items.join("")}</div>`;
+  container.appendChild(div);
+}
+
 async function renderGlobal(container = content) {
   let r;
   try {
@@ -4035,6 +4074,8 @@ async function renderGlobal(container = content) {
   }
   // 全球指数 + extras(黄金/原油/QVIX/国债等)统一套一个 .indices-grid 3列网格流式排开，
   // 纳斯达克/黄金等同处一个 grid 流，PC 宽屏按 3 列顺序排列(避免指数区与 extras 区分两个 grid 致不在一行)
+  // 美股期货预期提示条（亚盘实时，放网格上方，美股指数区旁）
+  _renderUSFuturesExpect(snap, container);
   const cardGrid = document.createElement("div");
   cardGrid.className = "indices-grid";
   container.appendChild(cardGrid);
