@@ -99,8 +99,8 @@ for m in cfg.get('metrics', []):
 print(f'[rzhb] date={date} ok={ok} has_today={has_today}')
 sys.exit(0 if has_today else 1)
 " 2>&1 | tee -a "$LOG"
-COLLECT_RC=${PIPESTATUS[0]}
-echo "两融采集退出码=$COLLECT_RC（0=采到当日新数据，非0=源未发布/为空）" | tee -a "$LOG"
+COLLECT_RC=${PIPESTATUS[0]:-1}
+echo "两融采集退出码=${COLLECT_RC}(0=采到当日新数据,非0=源未发布/为空)" | tee -a "$LOG"
 
 if [ "$COLLECT_RC" -ne 0 ]; then
   echo "两融无当日新数据（源未发布或为空），跳过重算+推送" | tee -a "$LOG"

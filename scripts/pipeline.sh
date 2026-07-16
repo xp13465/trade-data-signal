@@ -51,7 +51,7 @@ from app.collector import runner
 runner.run(steps='$STEPS'.split(','))
 " 2>&1 | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]:-1}
-echo "[$NAME] 采集退出码=$COLLECT_RC（部分失败仍继续，非 0 不阻塞后续）" | tee -a "$LOG"
+echo "[$NAME] 采集退出码=${COLLECT_RC:-?}(部分失败仍继续,非0不阻塞后续)" | tee -a "$LOG"
 
 # 2) 计算（core/width 跑全量 compute；futures 的 accuracy 已在 step 内算；stock_daily 不算）
 if [ "$DO_COMPUTE" = "1" ]; then

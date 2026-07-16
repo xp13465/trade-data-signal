@@ -89,7 +89,7 @@ print(f'[lhb] date={date} ok={ok} fail={fail}')
 sys.exit(0 if ok > 0 else 1)
 " 2>&1 | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]}
-echo "龙虎榜采集退出码=$COLLECT_RC（0=有新数据，非0=源未发布/为空）" | tee -a "$LOG"
+echo "龙虎榜采集退出码=${COLLECT_RC:-?}(0=有新数据,非0=源未发布/为空)" | tee -a "$LOG"
 
 if [ "$COLLECT_RC" -ne 0 ]; then
   echo "龙虎榜无新数据（源未发布或为空），跳过重算+推送" | tee -a "$LOG"

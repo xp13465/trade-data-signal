@@ -27,7 +27,7 @@ echo "→ [1/3] 运行 collect.sh ..." | tee -a "$LOG"
 bash "$REPO/scripts/collect.sh" 2>&1 | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]}
 if [ "$COLLECT_RC" -ne 0 ]; then
-  echo "⚠ collect.sh 退出码 $COLLECT_RC（部分失败），仍继续 deploy 用现有数据推送" | tee -a "$LOG"
+  echo "⚠ collect.sh 退出码 ${COLLECT_RC:-?}(部分失败),仍继续 deploy 用现有数据推送" | tee -a "$LOG"
 else
   echo "✓ collect.sh 完成" | tee -a "$LOG"
 fi
@@ -46,7 +46,7 @@ echo "→ [3/3] 运行 check_signals.sh ..." | tee -a "$LOG"
 bash "$REPO/scripts/check_signals.sh" 2>&1 | tee -a "$LOG"
 SIGNAL_RC=${PIPESTATUS[0]}
 if [ "$SIGNAL_RC" -ne 0 ]; then
-  echo "⚠ check_signals.sh 退出码 $SIGNAL_RC（邮件发送失败或配置缺失），不影响公网部署" | tee -a "$LOG"
+  echo "⚠ check_signals.sh 退出码 ${SIGNAL_RC:-?}(邮件发送失败或配置缺失),不影响公网部署" | tee -a "$LOG"
 else
   echo "✓ check_signals.sh 完成" | tee -a "$LOG"
 fi

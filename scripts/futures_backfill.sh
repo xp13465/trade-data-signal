@@ -72,7 +72,8 @@ if not res:
     print(f'[futures] {date}: no data (源未发布/非交易日)')
     sys.exit(1)
 combos = sum(len(v) for v in res.values())
-print(f'[futures] {date}: collected {combos} variety-role combos ({", ".join(res.keys())})')
+vlist = ', '.join(sorted(res.keys()))
+print(f'[futures] {date}: collected {combos} variety-role combos ({vlist})')
 try:
     n = compute_accuracy(date=date)
     print(f'[futures] accuracy: {n} rows')
@@ -80,8 +81,8 @@ except Exception as e:
     print(f'[futures] accuracy fail: {e}')
 sys.exit(0)
 " 2>&1 | tee -a "$LOG"
-COLLECT_RC=${PIPESTATUS[0]}
-echo "期货采集退出码=$COLLECT_RC（0=有新数据，非0=源未发布/为空）" | tee -a "$LOG"
+COLLECT_RC=${PIPESTATUS[0]:-1}
+echo "期货采集退出码=${COLLECT_RC}(0=有新数据,非0=源未发布/为空)" | tee -a "$LOG"
 
 if [ "$COLLECT_RC" -ne 0 ]; then
   echo "期货无新数据（源未发布或为空），跳过推送" | tee -a "$LOG"

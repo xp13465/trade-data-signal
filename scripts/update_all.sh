@@ -90,7 +90,7 @@ echo "pipeline 退出码: core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turn
 echo "-> check_signals.sh ..." | tee -a "$LOG"
 bash "$REPO/scripts/check_signals.sh" 2>&1 | tee -a "$LOG"
 SIGNAL_RC=${PIPESTATUS[0]}
-[ "$SIGNAL_RC" -ne 0 ] && echo "⚠ check_signals 退出码 $SIGNAL_RC（邮件失败或配置缺失，不影响公网部署）" | tee -a "$LOG"
+[ "$SIGNAL_RC" -ne 0 ] && echo "⚠ check_signals 退出码 ${SIGNAL_RC:-?}(邮件失败或配置缺失,不影响公网部署)" | tee -a "$LOG"
 
 # 盘中实时快照：update_all 末尾顺便刷新（写 DB + dump static-site/data/intraday_snapshot.json）
 # 盘中跑会采实时行情；收盘后/非交易日也跑（采最近交易日值，label 自动判"收盘快照"）。
