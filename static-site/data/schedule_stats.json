@@ -3,10 +3,10 @@
     "task": "update_all",
     "name": "收盘全量",
     "schedule": "17:50",
-    "est_text": "约8分钟",
-    "last_run": "2026-07-15 17:50",
+    "est_text": "约15分钟",
+    "last_run": "2026-07-16 17:50",
     "last_exit": 0,
-    "last_duration_sec": 955
+    "last_duration_sec": 2940
   },
   {
     "task": "backfill_evening",
