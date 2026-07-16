@@ -1,18 +1,26 @@
 ---
 name: a-stock-data
-description: A股全栈数据工具包 — 覆盖行情(mootdx+腾讯+百度K线)、研报(东财+同花顺+iwencai)、信号(同花顺热点+北向+龙虎榜+解禁+行业)、资金面(融资融券+大宗交易+股东户数+分红+资金流分钟级+资金流120日)、新闻(东财个股+全球资讯)、基础数据(mootdx财务/F10+东财+新浪三表)、公告(巨潮)、打板(涨停池/连板梯队/炸板率/跌停)、ETF期权(T型报价/希腊字母/IV)、舆情互动(互动易问答/热榜/人气榜)十层数据源，内嵌全部调用代码，自包含零依赖外部文件。优先用通达信(mootdx)/腾讯(不封IP)，东财接口已内置限流防封。适用于个股估值、研报检索、题材归因、龙虎榜跟踪、解禁预警、行业轮动、融资融券跟踪、筹码分析、产业链调研、批量筛选、打板情绪跟踪、ETF期权策略、投资者互动问答、市场热度选题等场景。
+description: 当任务需要写代码实际获取A股数据时使用——拉取行情/K线(mootdx+腾讯+百度)、研报(东财+同花顺+iwencai)、信号(热点/北向/龙虎榜/解禁/行业)、资金面(融资融券/大宗/股东户数/分红/资金流)、新闻、财务三表/F10、公告(巨潮)、打板(涨停池/连板/炸板率)、ETF期权(T型报价/希腊字母/IV)、舆情互动(互动易/热榜/人气榜)等真实数据。十层数据源·43端点(含3官方备胎)·内嵌全部可运行代码，自包含零依赖外部文件；优先用通达信(mootdx)/腾讯(不封IP)，东财接口已内置限流防封，主源被封可查「备用源速查」降级。仅在需要调用数据接口取数时使用：A股概念解释、投资观点讨论、策略问答等无需取数的话题不要加载本skill。
 origin: custom
-version: 3.3.0
+version: 3.4.0
 ---
 
 > 📦 项目主页：https://github.com/simonlin1212/a-stock-data — 更新、反馈、支持作者
 > 
 > 作者：Simon 林 · 抖音「Simon林」· 公众号「硅基世纪」
 
-# A股全栈数据工具包 V3.3.0
+# A股全栈数据工具包 V3.4.0
 
-十层数据架构，40 个端点实测可用（2026-06 验证；财联社快讯已下线，详见 §5.2），覆盖主板/中小板/科创板/ST。
+十层数据架构，43 个端点实测可用（40 主端点 + 3 官方备胎，2026-07 验证），覆盖主板/中小板/科创板/ST。每类数据在「备用源速查」列有独立备胎，主源被封时可降级。
 
+> **V3.4.0（接口质量 + 备用源韧性，2026-07-11）：**
+> - **§5.2 财联社快讯复活**：旧 nodeapi 2026-05 下线后，改走官方 `v1/roll/get_roll_list` + 本地签名（`sign=md5(sha1(排序query))`，零 key），V3.2 移除的全市场电报能力恢复，与东财 7×24 互为独立备份。实测 errno=0。
+> - **新增「备用源速查 & 降级策略」章节**：十层主源→独立备胎速查表（不同域名/不同风控面）+ 3 个实测备胎函数——`dragon_tiger_backup()`（沪深交易所官方龙虎榜，含营业部席位）、`fund_flow_backup()`（新浪日度资金流）、`announcements_backup()`（深市深交所官方/沪市东财公告+PDF）。端点 40 → 43，数据源 13 → 15（新增沪深交易所官方）。
+> - **§3.6 解禁字段修复**：东财 `RPT_LIFT_STAGE` 改列名致 `type`/`shares` 恒空 → 改 `FREE_SHARES_TYPE`/`FREE_SHARES`，并新增 `able_shares`（实际可流通股数，更贴近真实抛压）。
+> - **§3.7 行业排名排序修复**：clist 请求补 `fid=f3`，`top`/`bottom` 现按涨跌幅真实排序（此前缺排序字段，切片结果非涨幅序）。
+> - **§3.2 深股通标注**：北向盘中披露收紧后 sgt 分钟序列不可靠（hgt 可用），权威北向用 HKEX 官方日统计（见备用源速查）。
+> - **体验**：顶部新增「端点路由速查」总表（§→函数→用途→源，可按需局部读取）；FAQ 新增东财被封对策 / 财联社复活 / mootdx 库烂尾说明。
+>
 > **V3.2.3（行业研报新增）：**
 > - **§2.1 东财行业研报 `eastmoney_industry_reports()`**：研报层补上行业研报端点（此前只有个股研报）。与个股研报**同端点** `reportapi.eastmoney.com/report/list`，仅 `qType=1`；`industry_code="*"` 拉全行业、传东财行业码（如 `1238`=IT服务Ⅱ）精确过滤，PDF 复用 `download_pdf()`，走 `em_get` 限流。端点数 27 → 28。
 > - 实测（2026-06-20）：全行业 `hits=47928`、按行业码 `1238` 过滤 `hits=1863`，首篇 PDF `H3_{infoCode}_1.pdf` 下载成功（2.5MB，`%PDF` 头）；行业码表端点（`bxpa` 等）404 不存在，用 `"*"` 拉取后从结果反查行业码。
@@ -69,8 +77,8 @@ version: 3.3.0
 
 新闻层
 ├── 东财个股新闻   → 个股相关新闻 (search-api-web JSONP)
-├── 财联社快讯     → ⚠️ 已下线 (cls.cn 迁 Next.js，旧API 404)
-└── 东财全球资讯   → 7×24 财经快讯 (np-weblist，财联社替代)
+├── 财联社快讯     → 全市场实时电报 (v1 API+本地签名零key，✅V3.4 复活)
+└── 东财全球资讯   → 7×24 财经快讯 (np-weblist，与财联社互备)
 
 基础数据层
 ├── mootdx finance → 季报快照 (37字段, EPS/ROE/净利)
@@ -100,6 +108,50 @@ ETF期权层 (V3.3 新增)
 ├── 东财人气榜     → 排名+排名变化+名称价格 (emappdata)
 └── 东财概念命中   → 个股被归到哪些概念在炒+热度 (emappdata)
 ```
+
+## 端点路由速查（按需定位，不必通读全文）
+
+只需一类数据时，按下表定位章节（§）局部读取。除 iwencai 需 API Key 外全部零 key。
+
+| § | 函数 | 拿什么 | 源 |
+|---|------|--------|----|
+| 1.1 | `tdx_client()` → `.bars()` / `.quotes()` / `.transaction()` | K线(多周期,不复权) / 五档盘口 / 逐笔成交 | 通达信 |
+| 1.2 | `tencent_quote(codes)` | 实时价/PE/PB/市值/换手/涨跌停/指数/ETF | 腾讯 |
+| 1.3 | `baidu_kline_with_ma(code)` | 日K线带 MA5/10/20 | 百度 |
+| 2.1 | `eastmoney_reports(code)` / `download_pdf(rec)` | 个股研报+评级+三年EPS / 研报PDF | 东财 |
+| 2.1 | `eastmoney_industry_reports(industry_code)` | 行业研报 | 东财 |
+| 2.2 | `ths_eps_forecast(code)` | 机构一致预期 EPS | 同花顺 |
+| 2.3 | `iwencai_search(query)` / `iwencai_query(query)` | NL 语义搜研报/选股（需 Key） | iwencai |
+| 3.1 | `ths_hot_reason()` | 当日强势股+题材归因 | 同花顺 |
+| 3.2 | `hsgt_realtime()` | 北向分钟流向（hgt 可用 / sgt 仅参考） | 同花顺 |
+| 3.3 | `eastmoney_concept_blocks(code)` | 个股所属板块/概念归属 | 东财 |
+| 3.4 | `eastmoney_fund_flow_minute(code)` | 个股资金流（分钟级） | 东财 |
+| 3.5 | `dragon_tiger_board(code, date)` | 个股龙虎榜+买卖席位 TOP5 | 东财 |
+| 3.6 | `lockup_expiry(code, date)` | 解禁历史+未来90天待解禁 | 东财 |
+| 3.7 | `industry_comparison()` | 行业板块涨跌排名 | 东财 |
+| 3.8 | `daily_dragon_tiger(date)` | 全市场龙虎榜+净买额排名 | 东财 |
+| 4.1 | `margin_trading(code)` | 融资融券明细 | 东财 |
+| 4.2 | `block_trade(code)` | 大宗交易+营业部 | 东财 |
+| 4.3 | `holder_num_change(code)` | 股东户数变化 | 东财 |
+| 4.4 | `dividend_history(code)` | 分红送转历史 | 东财 |
+| 4.5 | `stock_fund_flow_120d(code)` | 个股资金流（120日，日级） | 东财 |
+| 5.1 | `eastmoney_stock_news(code)` | 个股新闻 | 东财 |
+| 5.2 | `cls_telegraph()` | 财联社电报（7×24，本地签名零key） | 财联社 |
+| 5.3 | `eastmoney_global_news()` | 全球资讯（7×24） | 东财 |
+| 6.1 | `client.finance(symbol)` | 季报快照 37 字段 | 通达信 |
+| 6.2 | `client.F10(symbol, name)` | 公司资料 9 大类文本 | 通达信 |
+| 6.3 | `eastmoney_stock_info(code)` | 行业/股本/市值/上市日期 | 东财 |
+| 6.4 | `sina_financial_report(code, type)` | 财报三表 | 新浪 |
+| 7.1 | `cninfo_announcements(code)` | 公告检索+PDF 下载 | 巨潮 |
+| 7.2 | `client.F10(symbol, name='最新提示')` | 最新公告摘要 | 通达信 |
+| 8.1 | `em_zt_pool` / `em_zb_pool` / `em_dt_pool` / `em_yzt_pool` | 涨停/炸板/跌停/昨涨停四池 | 东财 |
+| 8.2 | `ths_limit_up_pool(date)` | 涨停原因题材+封板成功率+板型 | 同花顺 |
+| 8.3 | `limit_up_sentiment(date)` | 炸板率/连板高度/连板梯队 | 东财(四池组合) |
+| 9.1 | `sina_option_codes` / `sina_option_tquote` / `sina_option_greeks` | ETF期权合约清单 / T型报价 / 希腊字母+IV | 新浪 |
+| 10.1 | `cninfo_irm(code)` | 互动易问答（提问+公司回复） | 巨潮 |
+| 10.2 | `ths_hot_list()` / `em_hot_rank()` / `em_hot_concept(code)` | 热榜/人气榜/概念命中 | 同花顺+东财 |
+| 备用源速查 | `dragon_tiger_backup` / `fund_flow_backup` / `announcements_backup` | 龙虎榜/资金流/公告官方备胎（主源被封时降级） | 交易所官方+新浪+东财(沪市公告) |
+| 估值公式 | `forward_pe` / `pe_digestion` / `calc_peg` / `full_valuation(code)` | 前向PE / PE消化时间 / PEG / 单票估值全景 | 本地计算 |
 
 ## 数据源优先级 & 东财防封（重要，先读）
 
@@ -883,6 +935,11 @@ print(df[["代码", "名称", "涨幅%", "题材归因"]].head(10))
 
 ### 3.2 同花顺北向资金 — hsgtApi 实时分钟流向 + 本地自缓存历史
 
+> **⚠️ 深股通实时流向近期不可靠（2026-07 实测）：** 沪股通(hgt)分钟序列完整，但深股通(sgt)
+> 常只回传零星几个点、末值量级异常。根因是北向自 2024-08 起收紧盘中实时披露，非本代码问题。
+> 结论：**hgt 可用于当日情绪，sgt 仅供参考**；要权威北向数据用 HKEX 官方日统计
+> （`hkex.com.hk/chi/csm/DailyStat/data_tab_daily_YYYYMMDDc.js`，见文末「备用源速查」）。
+
 > **已知行业性问题：** eastmoney 全系北向数据自 2024-08 后净买额字段返回 NaN/0，属上游断供。已改为**本地 CSV 自缓存模式**——每次拉实时数据后自动写入本地 CSV，历史越跑越丰富。
 
 ```python
@@ -1198,9 +1255,10 @@ def lockup_expiry(code: str, trade_date: str, forward_days: int = 90) -> dict:
     for row in history_data:
         history.append({
             "date": str(row.get("FREE_DATE", ""))[:10],
-            "type": row.get("LIMITED_STOCK_TYPE", ""),
-            "shares": row.get("FREE_SHARES_NUM", 0),
-            "ratio": row.get("FREE_RATIO", 0),
+            "type": row.get("FREE_SHARES_TYPE", ""),        # 解禁类型(东财2026改列名, 旧LIMITED_STOCK_TYPE已废)
+            "shares": row.get("FREE_SHARES", 0),             # 本次解禁股数(万股)
+            "able_shares": row.get("ABLE_FREE_SHARES", 0),   # 实际可流通股数(万股, 更贴近真实抛压)
+            "ratio": row.get("FREE_RATIO", 0),               # 占总股本比(小数, ×100 得百分比)
         })
 
     # 2. 未来待解禁
@@ -1216,9 +1274,10 @@ def lockup_expiry(code: str, trade_date: str, forward_days: int = 90) -> dict:
     for row in upcoming_data:
         upcoming.append({
             "date": str(row.get("FREE_DATE", ""))[:10],
-            "type": row.get("LIMITED_STOCK_TYPE", ""),
-            "shares": row.get("FREE_SHARES_NUM", 0),
-            "ratio": row.get("FREE_RATIO", 0),
+            "type": row.get("FREE_SHARES_TYPE", ""),        # 解禁类型(东财2026改列名, 旧LIMITED_STOCK_TYPE已废)
+            "shares": row.get("FREE_SHARES", 0),             # 本次解禁股数(万股)
+            "able_shares": row.get("ABLE_FREE_SHARES", 0),   # 实际可流通股数(万股, 更贴近真实抛压)
+            "ratio": row.get("FREE_RATIO", 0),               # 占总股本比(小数, ×100 得百分比)
         })
 
     return {"history": history, "upcoming": upcoming}
@@ -1255,7 +1314,7 @@ def industry_comparison(top_n: int = 20) -> dict:
     url = "https://push2.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1", "pz": "100", "po": "1", "np": "1",
-        "fltt": "2", "invt": "2",
+        "fltt": "2", "invt": "2", "fid": "f3",   # fid=f3 + po=1：按涨跌幅降序（缺 fid 时 top/bottom 切片非按涨幅排）
         "fs": "m:90+t:2",
         "fields": "f2,f3,f4,f12,f13,f14,f104,f105,f128,f136,f140,f141,f207",
     }
@@ -1641,33 +1700,42 @@ for n in news[:5]:
 
 > **⚠️ 间歇性返回空（#18）：** 部分大陆住宅 IP 调本接口会只拿到 `passportWeb`（股民资料）而无 `cmsArticleWebOld`（文章列表）——这是东财对该 IP 的间歇风控，非代码问题。代码已对空结果安全返回 `[]`；遇到时隔几分钟或换网络重试即可。
 
-### 5.2 财联社快讯（直连 cls.cn）— ⚠️ 已下线，改用 §5.3
+### 5.2 财联社快讯（直连 cls.cn，v1 API + 本地签名）✅ 已复活（2026-07）
 
-> **⚠️ 2026-05 已失效（#14）：** 财联社网站迁移到 Next.js 架构，旧版公开接口
-> `cls.cn/nodeapi/telegraphList` 全面下线（返回 404），新版 API 需签名认证，无法
-> 公开 HTTP 调用。**全市场实时快讯请改用 §5.3「东财全球资讯」**（7×24 滚动，免费无 key）。
-> 下面代码仅作历史参考，已不可用。
+> **✅ 2026-07 复活：** 旧接口 `cls.cn/nodeapi/telegraphList` 2026-05 下线（站点改
+> Next.js，旧址返回 HTML 而非 JSON，#14）。现走新版 `cls.cn/v1/roll/get_roll_list`——它
+> 强制校验 `sign`，但签名**纯本地计算、无需任何 key**：`sign = md5(sha1(按 key 字典序
+> 拼接的 query 串))`。财联社快讯偏 A 股财经、时效强，与 §5.3 东财 7×24 **互为独立备份**
+> （两条不同源、不同风控面，一条被封另一条仍在）。2026-07-11 实测 errno=0 正常返回。
 
 ```python
 import requests
+import hashlib
+from datetime import datetime
 
 def cls_telegraph(page_size: int = 50) -> list[dict]:
     """
-    财联社电报（全市场实时快讯）。
-    返回: [{title, content, time}]
+    财联社电报（全市场实时快讯）。v1 API + 本地签名，零 key。
+    返回: [{title, content, time}]  time 已转为 'YYYY-MM-DD HH:MM:SS'
     """
-    url = "https://www.cls.cn/nodeapi/telegraphList"
-    params = {"rn": str(page_size), "page": "1"}
+    params = {"appName": "CailianpressWeb", "os": "web", "sv": "7.7.5",
+              "last_time": "", "refresh_type": "1", "rn": str(page_size)}
+    # 签名：md5(sha1(按 key 字典序拼接的 query 串))，纯本地算、无需 key
+    qs = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    sign = hashlib.md5(hashlib.sha1(qs.encode()).hexdigest().encode()).hexdigest()
+    url = f"https://www.cls.cn/v1/roll/get_roll_list?{qs}&sign={sign}"
     headers = {"User-Agent": UA, "Referer": "https://www.cls.cn/"}
-    r = requests.get(url, params=params, headers=headers, timeout=10)
+    r = requests.get(url, headers=headers, timeout=10)
     d = r.json()
 
     rows = []
-    for item in d.get("data", {}).get("roll_data", []):
+    for item in d.get("data", {}).get("roll_data", []) or []:
+        ts = item.get("ctime")
+        t = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else ""
         rows.append({
             "title": item.get("title", "") or item.get("brief", ""),
             "content": item.get("content", "") or item.get("brief", ""),
-            "time": item.get("ctime", ""),
+            "time": t,
         })
     return rows
 
@@ -2571,12 +2639,111 @@ if holders:
 | 11 | **同花顺 basic** (HTTP) | 一致预期EPS | 稳定(需UA) | 低 |
 | 12 | **财联社** (HTTP) | 全市场实时电报 | 稳定 | 低 |
 | 13 | **巨潮 cninfo** (HTTP) | 公告全文检索+下载 | 稳定 | 低 |
+| 14 | **上交所官方** (HTTP，备胎) | 龙虎榜全文/实时五档（主源被封时用） | 稳定（一手权威） | 极低（零鉴权） |
+| 15 | **深交所官方** (HTTP，备胎) | 龙虎榜/公告+PDF/实时五档（主源被封时用） | 稳定（一手权威） | 极低（零鉴权） |
 
 **原则：** 行情走 mootdx+腾讯（不封IP），研报走东财+iwencai，资金面走东财 datacenter+push2，**信号层走同花顺+百度+东财直连接口**。全部直连 HTTP，零第三方数据封装依赖。
+
+**降级：** 任一主源被封/失效时，先查下方「备用源速查 & 降级策略」——每类数据都备有一条**不同域名、不同风控面**的独立备胎（交易所官方/新浪/同花顺），东财被封时它们不受牵连。
+
+---
+
+## 备用源速查 & 降级策略（东财/主源被封时用）
+
+**何时用：** 主源报错 403/连接重置（东财 IP 级风控）、返回空、或需权威一手数据交叉验证时。**东财系接口共用同一风控面，某台住宅 IP 被封会成片失联**——下表给**十类核心数据**各一条独立备胎（不同域名、不同风控面；打板/期权/舆情三层暂无独立备胎）。表内端点均经 2026-07-11 实测存活、零鉴权可用，其中 3 个备胎函数另以真实数据完整跑通。
+
+| 数据类型 | 主源(本 skill) | 独立备胎 | 备胎端点 / 说明 |
+|---|---|---|---|
+| 实时行情+五档 | mootdx/腾讯 | 交易所官方 | 沪 `yunhq.sse.com.cn:32041/v1/sh1/snap/{code}`、深 `szse.cn/api/market/ssjjhq/getTimeData?marketId=1&code={code}`（一手五档） |
+| K线(全历史) | mootdx/百度/腾讯 | 同花顺 | `d.10jqka.com.cn/v6/line/hs_{code}/01/last.js`（01日/11周/21月/30/60分；2001至今；JSONP剥壳） |
+| 龙虎榜 | 东财 datacenter | 沪深交易所官方 | `dragon_tiger_backup()`（见下，含营业部席位） |
+| 个股资金流 | 东财 push2 | 新浪 | `fund_flow_backup()`（见下，日度四档单净额） |
+| 公告 | 巨潮 | 深交所官方/东财 | `announcements_backup()`（见下，深市深交所+PDF，沪市东财+PDF） |
+| 财务三表 | 新浪/mootdx | 同花顺 F10 | `basic.10jqka.com.cn/api/stock/finance/{code}_debt.json`（`_benefit`利润/`_cash`现金流；仅 UA，5连发不封） |
+| 个股新闻 | 东财 search | 新浪7x24 | `zhibo.sina.com.cn/api/zhibo/feed?zhibo_id=152&page_size=20&dire=f`（`ext.stocks` 带个股关联可过滤） |
+| 快讯 | 东财7x24(§5.3) | 财联社(§5.2) | 两条已互备；再加金十 `jin10.com/flash_newest.js` |
+| 券商评级+目标价 | 同花顺一致预期 | 巨潮 webapi | `p_sysapi1089?tdate=YYYY-MM-DD`，需头 `Accept-Enckey`=base64(AES-128-CBC(unix秒, key=iv=`1234567887654321`)) |
+| 北向(权威) | 同花顺 hexin | HKEX 官方 | `hkex.com.hk/chi/csm/DailyStat/data_tab_daily_{YYYYMMDD}c.js`（成交额/额度/十大活跃股） |
+
+> ⛔ **已死透别用**（2026-07 实测）：网易财经(126.net 整站下线)、和讯、凤凰行情、腾讯资金流(ff_ 已死)、雪球免登录深度数据(需 token)。mootdx **库**已烂尾(2024 停更)但**通达信 TCP 协议本身照常**——继续用，装不上就用 `tdx_client()`。
+
+```python
+import json, urllib.request, ssl
+_ctx = ssl.create_default_context(); _ctx.check_hostname = False; _ctx.verify_mode = ssl.CERT_NONE
+
+def dragon_tiger_backup(trade_date: str) -> dict:
+    """龙虎榜官方备用源（东财被封时用）：上交所+深交所官方，零鉴权权威一手，含营业部席位。"""
+    out = {"date": trade_date, "sse_raw": "", "szse": []}
+    su = (f"https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON"
+          f"&CATALOGID=1842_xxpl&TABKEY=tab1&txtStart={trade_date}&txtEnd={trade_date}&random=0.9")
+    req = urllib.request.Request(su, headers={"User-Agent": UA,
+          "Referer": "https://www.szse.cn/disclosure/supervision/dealinfo/index.html"})
+    with urllib.request.urlopen(req, timeout=15, context=_ctx) as r:
+        d = json.loads(r.read())
+    for row in d[0].get("data", []):
+        out["szse"].append({"code": row.get("zqdm"), "name": row.get("zqjc"),
+                            "amount": row.get("cjje"), "reason": row.get("plyy")})
+    eu = (f"https://query.sse.com.cn/infodisplay/showTradePublicFile.do?"
+          f"jsonCallBack=cb&isPagination=false&dateTx={trade_date}")
+    req = urllib.request.Request(eu, headers={"User-Agent": UA,
+          "Referer": "https://www.sse.com.cn/disclosure/diclosure/public/"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        t = r.read().decode("utf-8", "ignore")
+    out["sse_raw"] = "\n".join(json.loads(t[t.index("(")+1:t.rindex(")")]).get("fileContents", []))
+    return out
+
+def fund_flow_backup(code: str, days: int = 60) -> list:
+    """个股资金流备用源（东财被封时用）：新浪，日度四档单净额。"""
+    pre = ("sh" if code.startswith(("6", "9")) else "bj" if code.startswith("8") else "sz") + code
+    u = (f"https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+         f"MoneyFlow.ssl_qsfx_zjlrqs?page=1&num={days}&sort=opendate&asc=0&daima={pre}")
+    req = urllib.request.Request(u, headers={"User-Agent": UA, "Referer": "https://finance.sina.com.cn/"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        t = r.read().decode("utf-8", "ignore")
+    arr = json.loads(t[t.index("["):t.rindex("]")+1])
+    return [{"date": x.get("opendate"), "close": x.get("trade"),
+             "net_amount": x.get("netamount"), "turnover": x.get("turnover")} for x in arr]
+
+def announcements_backup(code: str, page_size: int = 20) -> list:
+    """公告备用源（巨潮被封时用）：深市走深交所官方，沪市走东财，均带 PDF 直链。"""
+    if code.startswith(("0", "3")):
+        body = json.dumps({"channelCode": ["listedNotice_disc"], "pageSize": page_size,
+                           "pageNum": 1, "stock": [code]}).encode()
+        req = urllib.request.Request("https://www.szse.cn/api/disc/announcement/annList", data=body,
+              headers={"User-Agent": UA, "Content-Type": "application/json",
+                       "Referer": "https://www.szse.cn/disclosure/listed/notice/index.html"})
+        with urllib.request.urlopen(req, timeout=15, context=_ctx) as r:
+            d = json.loads(r.read())
+        return [{"title": a.get("title"), "time": a.get("publishTime", "")[:10],
+                 "pdf": "https://disc.static.szse.cn/download" + a.get("attachPath", "")}
+                for a in d.get("data", [])]
+    u = (f"https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size={page_size}"
+         f"&page_index=1&ann_type=A&client_source=web&stock_list={code}&f_node=0&s_node=0")
+    req = urllib.request.Request(u, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        d = json.loads(r.read())
+    return [{"title": a.get("title"), "time": a.get("notice_date", "")[:10],
+             "pdf": f"https://pdf.dfcfw.com/pdf/H2_{a.get('art_code','')}_1.pdf"}
+            for a in d.get("data", {}).get("list", [])]
+
+# 用法（主源失败时降级）
+lhb = dragon_tiger_backup("2026-07-10")   # 深市结构化 + 沪市全文(含营业部)
+flow = fund_flow_backup("600519", 60)     # 近60日资金流
+anns = announcements_backup("000858")     # 深市走深交所, 沪市走东财
+```
 
 ---
 
 ## FAQ
+
+### Q: 东财接口 403 / 连接重置，是被封了吗，怎么办？
+A: 东财系接口（datacenter/push2/push2ex/reportapi/search/np-weblist）共用同一套风控，IP 被封会成片失联。三步处理：① 停止请求等 30-60 分钟（IP 级临时封通常自动解除），或换网络（手机热点）立刻恢复；② 长批任务确认全部走 `em_get()`，并调大 `EM_MIN_INTERVAL`；③ 数据不能等 → 用上方「备用源速查 & 降级策略」的独立备胎（交易所官方/新浪/同花顺，不同风控面，东财被封时不受牵连）。
+
+### Q: 财联社快讯不是 V3.2 标注下线了吗？
+A: 已复活（V3.4.0，见 §5.2）。2026-05 死的是旧 `nodeapi` 系接口；官方新版 `v1/roll/get_roll_list` 一直可用，只是强制 `sign` 校验——而 sign 纯本地可算（`md5(sha1(按 key 字典序拼接的 query 串))`），零 key。与 §5.3 东财 7×24 互为独立备份。
+
+### Q: mootdx 库听说停更了，还能用吗？
+A: 库确实烂尾（最后 commit 2024-07，官网下线，BESTIP bug 无官方修复），但**通达信 TCP 协议本身照常运行**——烂尾的是封装库，不是数据源。本 skill 的 `tdx_client()` 已内置 IP 探测绕开 BESTIP bug，继续用没问题。若未来 mootdx 装不上，社区活跃替代是 easy_tdx（同协议，日常维护中）。
 
 ### Q: mootdx 和腾讯有什么区别？
 A: 互补关系。mootdx = 交易层（价格+盘口+K线），腾讯 = 估值层（PE/PB/市值/换手率/涨跌停价）。两者都不封IP。
