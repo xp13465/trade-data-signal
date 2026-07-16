@@ -652,13 +652,14 @@ main { padding: 16px 24px; }
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-bottom: 16px;
-  align-items: flex-start;
+  align-items: stretch; /* 两列等高，消除矮列底部留白（原 flex-start 致左右列底部不齐） */
 }
 .ov-2col > * {
   display: flex;
   flex-direction: column;
+  gap: 12px; /* 卡片间距用 gap 统一，替代下方 margin-bottom */
 }
-.ov-2col .chart-card { margin-bottom: 12px; }
+.ov-2col .chart-card { margin-bottom: 0; flex: 1 0 auto; } /* 卡撑满列高，可拉伸不收缩，消除卡间/列底留白 */
 .ov-2col .chart-card:last-child { margin-bottom: 0; }
 @media (max-width: 768px) {
   .ov-2col { grid-template-columns: 1fr; }
