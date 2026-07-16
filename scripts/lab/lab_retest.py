@@ -31,7 +31,7 @@ from backtest_strategies import gen_buy_signals, gen_sell_signals
 from fusion_signals import gen_fusion_candidates
 from lab_simulate import (
     load_index_data, _fmt_date, _days_between,
-    simulate_full_in, _build_stats,
+    simulate_full_in, simulate_fixed_10k, _build_stats,
     INITIAL_CAPITAL, SIM_INDEXES
 )
 
@@ -52,12 +52,13 @@ def _calc_risk_adj(annual_ret: float, max_drawdown: float) -> float:
     return 999.0 if annual_ret > 0 else -999.0
 
 
-def _compute_y5_stats(df, buy_mask, sell_mask, first_date, last_date):
-    """计算y5窗口的full_in回测统计,返回stats dict(百分比单位)"""
+def _compute_y5_stats(df, buy_mask, sell_mask, first_date, last_date, sim_func=simulate_full_in):
+    """计算y5窗口的回测统计,返回stats dict(百分比单位)。
+    sim_func: simulate_full_in(全仓复利) 或 simulate_fixed_10k(定额1万)"""
     y5_start = last_date - pd.DateOffset(years=5)
     if y5_start < first_date:
         y5_start = first_date
-    y5_result = simulate_full_in(df, buy_mask, sell_mask, w_start=y5_start)
+    y5_result = sim_func(df, buy_mask, sell_mask, w_start=y5_start)
     y5_years = _days_between(y5_start, last_date) / 365.25
     return _build_stats(
         y5_result['trades'], y5_result['final_total'], last_date,
@@ -128,9 +129,10 @@ def _slice_buy_sell_masks(buy_mask, sell_mask, df_slice, original_df):
     return sliced_buy, sliced_sell
 
 
-def _calc_slice_stats(df, buy_mask, sell_mask):
-    """在切片范围内计算回测统计(复用simulate_full_in),返回stats dict或None"""
-    result = simulate_full_in(df, buy_mask, sell_mask)
+def _calc_slice_stats(df, buy_mask, sell_mask, sim_func=simulate_full_in):
+    """在切片范围内计算回测统计,返回stats dict或None。
+    sim_func: simulate_full_in 或 simulate_fixed_10k"""
+    result = sim_func(df, buy_mask, sell_mask)
     trades = result['trades']
     if not trades:
         return None
@@ -156,7 +158,7 @@ def _fmt_stats_decimal(stats):
     }
 
 
-def _run_yearly_retest(df, buy_mask, sell_mask):
+def _run_yearly_retest(df, buy_mask, sell_mask, sim_func=simulate_full_in):
     """分年回测:自然年(2016-2026)独立统计"""
     result = {}
     for year in range(2016, 2027):
@@ -165,12 +167,12 @@ def _run_yearly_retest(df, buy_mask, sell_mask):
             result[str(year)] = None
             continue
         sliced_buy, sliced_sell = _slice_buy_sell_masks(buy_mask, sell_mask, df_slice, df)
-        stats = _calc_slice_stats(df_slice, sliced_buy, sliced_sell)
+        stats = _calc_slice_stats(df_slice, sliced_buy, sliced_sell, sim_func)
         result[str(year)] = _fmt_stats_decimal(stats)
     return result
 
 
-def _run_oos_retest(df, buy_mask, sell_mask):
+def _run_oos_retest(df, buy_mask, sell_mask, sim_func=simulate_full_in):
     """样本外回测:前70%训练/后30%测试"""
     total_len = len(df)
     split_idx = int(total_len * 0.7)
@@ -178,17 +180,17 @@ def _run_oos_retest(df, buy_mask, sell_mask):
         return {'train': None, 'test': None}
     df_train = df.iloc[:split_idx].copy()
     train_buy, train_sell = _slice_buy_sell_masks(buy_mask, sell_mask, df_train, df)
-    stats_train = _calc_slice_stats(df_train, train_buy, train_sell)
+    stats_train = _calc_slice_stats(df_train, train_buy, train_sell, sim_func)
     df_test = df.iloc[split_idx:].copy()
     test_buy, test_sell = _slice_buy_sell_masks(buy_mask, sell_mask, df_test, df)
-    stats_test = _calc_slice_stats(df_test, test_buy, test_sell)
+    stats_test = _calc_slice_stats(df_test, test_buy, test_sell, sim_func)
     return {
         'train': _fmt_stats_decimal(stats_train),
         'test': _fmt_stats_decimal(stats_test)
     }
 
 
-def _run_regime_retest(df, buy_mask, sell_mask):
+def _run_regime_retest(df, buy_mask, sell_mask, sim_func=simulate_full_in):
     """极端行情回测:4个regime独立统计,仅输出ret和dd(小数)"""
     result = {}
     for start_str, end_str, key in REGIMES:
@@ -197,7 +199,7 @@ def _run_regime_retest(df, buy_mask, sell_mask):
             result[key] = None
             continue
         sliced_buy, sliced_sell = _slice_buy_sell_masks(buy_mask, sell_mask, df_slice, df)
-        stats = _calc_slice_stats(df_slice, sliced_buy, sliced_sell)
+        stats = _calc_slice_stats(df_slice, sliced_buy, sliced_sell, sim_func)
         if stats is None:
             result[key] = None
         else:
@@ -259,20 +261,43 @@ def run_retest_for_index(iid, iname):
         buy_mask = cand['buy_mask']
         sell_mask = cand['sell_mask']
 
-        # pair_meta: strategy=pk, window=y5, score=0.xx, n/dd/win 均为小数
+        # pair_meta: strategy=pk, window=y5, score=0.xx, n/dd/win/ret 均为小数
+        # top-level 保持 full_in (向后兼容:前端未改前读旧字段不报错)
         pair_data = {
             'pair_meta': {
                 'strategy': pair_id,
                 'window': 'y5',
+                'mode': 'full_in',
                 'score': round(score, 2),
                 'n': y5_stats.get('n_trades', 0),
                 'dd': round(y5_stats.get('max_drawdown', 0) / 100, 4),
                 'win': round(y5_stats.get('win_rate', 0) / 100, 4),
                 'ret': round(y5_stats.get('total_ret', 0) / 100, 4)
             },
-            'yearly': _run_yearly_retest(df, buy_mask, sell_mask),
-            'oos': _run_oos_retest(df, buy_mask, sell_mask),
-            'regimes': _run_regime_retest(df, buy_mask, sell_mask)
+            'yearly': _run_yearly_retest(df, buy_mask, sell_mask, simulate_full_in),
+            'oos': _run_oos_retest(df, buy_mask, sell_mask, simulate_full_in),
+            'regimes': _run_regime_retest(df, buy_mask, sell_mask, simulate_full_in)
+        }
+
+        # fixed_10k 模式:定额1万(每次买1万最多10笔,卖信号清仓)
+        # 与 full_in 同一对策略候选,仅仓位管理不同,用于横向对比
+        fk_y5_stats = _compute_y5_stats(
+            df, buy_mask, sell_mask, first_date, last_date, simulate_fixed_10k
+        )
+        pair_data['fixed_10k'] = {
+            'pair_meta': {
+                'strategy': pair_id,
+                'window': 'y5',
+                'mode': 'fixed_10k',
+                'score': round(score, 2),
+                'n': fk_y5_stats.get('n_trades', 0),
+                'dd': round(fk_y5_stats.get('max_drawdown', 0) / 100, 4),
+                'win': round(fk_y5_stats.get('win_rate', 0) / 100, 4),
+                'ret': round(fk_y5_stats.get('total_ret', 0) / 100, 4)
+            },
+            'yearly': _run_yearly_retest(df, buy_mask, sell_mask, simulate_fixed_10k),
+            'oos': _run_oos_retest(df, buy_mask, sell_mask, simulate_fixed_10k),
+            'regimes': _run_regime_retest(df, buy_mask, sell_mask, simulate_fixed_10k)
         }
         output['pairs'][pair_id] = pair_data
 
@@ -291,8 +316,18 @@ def run_retest_for_index(iid, iname):
 def main():
     print('=== 策略实验室二次测试(回测切片) ===')
     total_start = pd.Timestamp.now()
-    for iid, iname in SIM_INDEXES:
-        run_retest_for_index(iid, iname)
+    # 支持单指数测试: python3 lab_retest.py 0  (0=上证, 1=深证, ...)
+    if len(sys.argv) > 1:
+        idx = int(sys.argv[1])
+        if 0 <= idx < len(SIM_INDEXES):
+            iid, iname = SIM_INDEXES[idx]
+            run_retest_for_index(iid, iname)
+        else:
+            print(f'ERROR: 索引 {idx} 超出范围(0-{len(SIM_INDEXES)-1})')
+            sys.exit(1)
+    else:
+        for iid, iname in SIM_INDEXES:
+            run_retest_for_index(iid, iname)
     elapsed = pd.Timestamp.now() - total_start
     print(f'\n=== 全部完成,总耗时 {elapsed.total_seconds():.1f}s ===')
 
