@@ -15,8 +15,9 @@ const SIM_INDICES = new Set([
   'sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300',
   'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div',
   'us_ixic', 'us_spx', 'us_dji', 'us_ndx',
-  'g.gold', 'g.comex_silver', 'g.wti_oil', 'g.us10y', 'g.a_qvix_300', 'g.a_qvix_1000',
-  'gold', 'comex_silver', 'wti_oil',
+  'ftse100', 'dax', 'bj50',
+  'g.gold', 'g.comex_silver', 'g.wti_oil', 'g.us10y', 'g.a_qvix_300', 'g.a_qvix_1000', 'g.brent',
+  'gold', 'comex_silver', 'wti_oil', 'brent', 'us10y', 'a_qvix_300', 'a_qvix_1000',
   'sw_801010', 'sw_801030', 'sw_801040', 'sw_801050', 'sw_801080',
   'sw_801110', 'sw_801130', 'sw_801150', 'sw_801160', 'sw_801170',
   'sw_801180', 'sw_801210', 'sw_801230',
@@ -31,7 +32,7 @@ const SIM_INDICES = new Set([
   'thsc_308752', 'thsc_309128'
 ]);
 // 全球 tab extras 回的 id 无 g. 前缀（如 gold），需映射到实际文件名（如 g.gold）
-const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 'g.wti_oil' };
+const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 'g.wti_oil', brent: 'g.brent', us10y: 'g.us10y', a_qvix_300: 'g.a_qvix_300', a_qvix_1000: 'g.a_qvix_1000' };
 
 let _resizeTimer;
 window.addEventListener("resize", () => {
