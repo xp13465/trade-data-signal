@@ -1649,3 +1649,26 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **"融合信号测试线"= 融合信号（多信号同日AND）回测链路，当前 P2 未实现（lab_simulate.py 无 --fusion/--queue，BUY_KEYS/SELL_KEYS 全单信号，backtest_strategies.py 无 gen_fusion_signals）；跑全命令解读B=`python scripts/lab/lab_simulate.py && python scripts/lab/lab_matrix.py`（刷新现有数据，<15min），解读A=先开发P2再 `python scripts/lab/lab_simulate.py --fusion`（<30min）；产物=web/data/lab/+static-site/data/lab/ 的 lab_sim_{iid}_stats/full.json[+_fusion_*.json]**。
 - **二次测试方案 brainstorm 10 方向已记本节§4（分年/极端行情/多空对称/手续费/标的泛化/样本外/蒙特卡洛/参数敏感/信号消融/融合P2），⭐️筛选标准建议 `score≥0.6&&n≥30&&dd≤50 || win≥55||risk_adj≥1.0`，待用户选方向**。
 
+### 6. 二次测试对齐单一信号实验（2026-07-16，已实施，commits 05a5e6a/bb713d2/cdb5dff）
+
+**目标**：二次测试弹窗/排行榜此前是简化展示，与单一信号实验页（`_labSimModeBlock` 整体回测详情）观感割裂；本次把二次测试弹窗上半整体回测详情**照抄单一信号实验**，下半保留三切片，排行榜加 5 窗口切换器对齐单一信号页交互。双版 lab.js 同步。
+
+**弹窗 `_labRetestPairModalRender`（改 async，lab.js:3278）**：
+- 上半 = 整体回测详情，直接复用单一信号实验渲染 `_labSimModeBlock`（lab.js:1348）：
+  - 4 数字结论（总收益 / 年化 / 回撤 / 胜率）+ 净值曲线 SVG + 11 列交易记录表 + 分页
+  - 买卖模式切换器（全仓 `full_in` / 定额 10% `fixed_10k`）
+  - 5 窗口切换（近 1/3/5/10 年/全史，复用 `LAB_WIN_DEFS`，独立于排行榜窗口 `state.labRetestRankWindow`）
+  - full 按需加载 `_labRetestEnsureFull`（lab.js:3248，async，切到需 trades/equity_curve 的窗口时懒拉 full JSON 合并）
+- 下半 = 二次测试三切片（分年 / 样本外 / 极端行情）保留不变。
+
+**排行榜 `_labRetestRankHTML`（lab.js:3029）**：
+- 加 5 窗口切换器，独立 state `labRetestRankWindow`（默认 `y5`，不影响推荐榜 `state.labSimWindow`）。
+- 切窗口时从单信号 `simData.stats[winKey]` 重算整体 4 维（ret/win/dd/n），再按综合分（0.4·ret+0.3·win+0.2·(-dd)+0.1·n 归一化）重排。
+- 每行标注"全仓"（retest 后端 `full_in` 模式产出，区别于单一信号页可选定额）。
+
+**数据复用（不动后端）**：
+- retest 22 pair 全是融合候选，pair key 与单一信号 `simData.pairs` key 对齐，验证 ret `0.1087`（pair_meta 小数）= `10.87`（单信号 stats 百分数）一致（lab.js:2877 注释坐实统一为小数）。
+- 复用 `fetchLabSimData`（lab.js:1164，拉 stats）+ `fetchLabSimFullData`（lab.js:1229，拉 full）合并，**不动后端 `scripts/lab/lab_retest.py`，不动 fusion 相关文件**。
+
+**双版同步**：web/lab.js 与 static-site/lab.js IDENTICAL（除 4 处数据源 URL）；`lab.min.js` 已 `scripts/build_min.py` 重建；commit message 末尾 `Co-Authored-By: Claude <noreply@anthropic.com>`。
+
