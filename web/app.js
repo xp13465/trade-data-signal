@@ -7,6 +7,7 @@ const charts = [];
 const SIM_INDICES = new Set([
   'sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300',
   'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div',
+  'hk_cesg10', 'hk_hsmogi', 'hk_hsmbi', 'hk_hsmpi', 'hk_cshklre', 'hk_cshklc', 'hk_hscci', 'hk_cshkdiv',
   'us_ixic', 'us_spx', 'us_dji', 'us_ndx',
   'ftse100', 'dax', 'bj50',
   'g.gold', 'g.comex_silver', 'g.wti_oil', 'g.us10y', 'g.a_qvix_300', 'g.a_qvix_1000', 'g.brent',
