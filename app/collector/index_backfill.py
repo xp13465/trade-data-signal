@@ -457,7 +457,8 @@ def verify_and_backfill_indices(date, verbose=True):
                 print(f"    ✓ {idx_id} <- 新浪 close={latest['close']} date={latest['date']}")
         elif idx_id in ("hsi", "hstech", "hscei") or idx_id.startswith("hk_"):
             # 新浪无当日数据（收盘后延迟发布）-> 腾讯实时源兜底
-            # 港股板块指数(hk_前缀)无腾讯兜底代码，_tencent_hk_fallback 安全返回 False
+            # 港股板块5个(cesg10/hsmogi/hsmbi/hsmpi/hscci)已纳入 _HK_CODE_MAP 可兜底；
+            # 3个中证指数(cshklre/cshklc/cshkdiv)腾讯无代码，_tencent_hk_fallback 安全返回 False
             if rows:
                 upsert_index_rows(rows)  # 仍 UPSERT 历史数据
             fixed = _tencent_hk_fallback(idx_id, date, conn, verbose)
@@ -491,7 +492,18 @@ def _tencent_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) ->
     返回 True=写入成功, False=未写入（盘中/数据异常）。
     """
     import requests
-    _HK_CODE_MAP = {"hsi": "r_hkHSI", "hstech": "r_hkHSTECH", "hscei": "r_hkHSCEI"}
+    # 腾讯实时源支持的港股指数代码映射（r_hk + 新浪 symbol 大写）。
+    # 宽基3个 + 港股板块5个（恒生/中华系列，腾讯 qt.gtimg.cn 实测支持，字段结构与宽基一致）。
+    # 港股板块共8个，其中3个中证指数(cshklre/cshklc/cshkdiv)腾讯无对应代码(实测 r_hkCSHKLRE
+    # /r_hkCSHKLC/r_hkCSHKDIV 等多种格式均 v_pv_none_match)，不在此映射，保持新浪单点。
+    _HK_CODE_MAP = {
+        "hsi": "r_hkHSI", "hstech": "r_hkHSTECH", "hscei": "r_hkHSCEI",
+        "hk_cesg10": "r_hkCESG10",   # 中华博彩
+        "hk_hsmogi": "r_hkHSMOGI",   # 恒生内地油气
+        "hk_hsmbi":  "r_hkHSMBI",    # 恒生内地银行
+        "hk_hsmpi":  "r_hkHSMPI",    # 恒生内地房地产
+        "hk_hscci":  "r_hkHSCCI",    # 红筹指数
+    }
     tencent_code = _HK_CODE_MAP.get(idx_id)
     if not tencent_code:
         return False
