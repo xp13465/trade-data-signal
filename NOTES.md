@@ -1803,3 +1803,48 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **代理说明**：6 硬编码是多条件融合（如 D1+MA60+MACD 三条件），非 91 候选的简单买×卖配对，lab_sim_fusion_stats.json 无现成 pairKey。用核心单一策略回测作代理（弹窗已标注"核心策略回测供参考"），达信息量基标。真实融合回测需后端为这 6 个多条件融合单独算，属后续增强。
 - **剩余增强**：91 候选补指标图表 echarts（融合是双策略，需设计双策略图表展示方案）。
 - 双版 lab.js+lab.css 同步，build_min+bump_asset_version，已 push main，GitHub Pages lab.min.js?v=13ec0afd 已上线验证。
+
+## §31 6硬编码融合策略补跑真实回测：去 _coreKey 代理，多条件AND融合（2026-07-17，commits 2ff5082 + 5ccaa00）
+
+> 承接 §30：§30 的 4a3a5c5 用 `_coreKey` 让 6 硬编码融合策略拿核心单一策略回测作代理（弹窗标"核心策略回测供参考"），仅达信息量基标。用户质疑数据准确性——代理数据并非融合策略真实表现。本次补跑真实融合回测，彻底去代理。
+
+### 背景
+6 个硬编码融合策略（如 F_D1_MA_death"D1回落5%+MA5/20死叉 融合卖"）弹窗此前用 `_coreKey` 代理，拿核心单一策略（如 D1_high20_drop5）的回测数据冒充融合策略，且带"已上线生产"标签误导用户。本次为这 6 个多条件融合单独算真实回测。
+
+### 改动（不动 backtest_strategies.py）
+1. **scripts/lab/fusion_signals.py**（+86 行）：
+   - `_gen_filter_masks(df)`@137：4 个过滤 mask，语义照生产 `app/compute/signals.py`：
+     - `MA60_bull`（状态 close>MA60，signals.py:367-369）
+     - `MACD_below_signal`（状态 DIF<DEA，signals.py:377，非穿越）
+     - `RSI_cross_40`（穿越 rp≤40 & r>40，signals.py:345）
+     - `close_above_bl_2pct`（状态 close>下轨*1.02，signals.py:349）
+   - `HARDCODED_FUSIONS`@127：6 条定义（pair_id/side/fusion_keys/ref_side）：
+     - F_D1_S1_MACD(sell): D1_high20_drop5 & MA60_bull & MACD_below_signal | 基线 C1_RSI30
+     - F_D1_S1(sell): D1_high20_drop5 & MA60_bull | 基线 C1_RSI30
+     - F_B1_RSI40(buy): BB_lower_revert & RSI_cross_40 | 基线 D1_high20_drop5
+     - F_B1_rebound2pct(buy): BB_lower_revert & close_above_bl_2pct | 基线 D1_high20_drop5
+     - F_C1_MACD_golden(buy): C1_RSI30 & MACD_golden | 基线 D1_high20_drop5
+     - F_D1_MA_death(sell): D1_high20_drop5 & MA_death_5_20 | 基线 C1_RSI30
+   - `gen_hardcoded_fusion_candidates(df)`@164：主信号 & 过滤条件**同日 AND 取交集**（复用 buy_buy/sell_sell 的 m1&m2 机制扩展到多条件），pair_type=hardcoded_buy/hardcoded_sell。
+2. **scripts/lab/lab_simulate.py**：`candidates = gen_fusion_candidates(df) + gen_hardcoded_fusion_candidates(df)`（97 候选同跑：91 自动 + 6 硬编码）。
+3. **9 指数重跑**：生成 54 个真实 F_ pair 数据（9 指数 × 6），写入 `lab_sim_*_fusion_stats.json`/`_full.json`。
+4. **前端 web/lab.js + static-site/lab.js**：
+   - 删 `_coreKey` 代理分支（LAB_FUSION_STRATEGIES 6 条的 `_coreKey` 字段全删）。
+   - 卡片 onclick 传 `{...meta, _fusionKey: key}`。
+   - `_labFusionPairModalRender` 重构：6 硬编码走真实融合回测数据（复用 91 候选分支 B 渲染：指数选择器/模式切换/窗口切换/交易记录分页），头部保留完整组成条件/触发/回测结论/理论/场景/备注。
+   - 双版同步：diff 只剩 5 处 URL（/static/data/ vs ./data/）。
+
+### 数据预警（数据说话，不阻塞）
+- F_C1_MACD_golden 样本极小（0-8 笔）：两穿越事件同日罕见，kc50 无交易（n=0），前端显示"无交易数据"。
+- F_D1_MA_death 部分小样本（bj50 n=1）。
+- 这是多条件 AND 融合的固有特性（条件越严交易越少），非 bug；前端已能正确处理 n=0/小样本。
+
+### 上线
+- build_min.py（lab.min.js -38.5%）+ bump_asset_version.py（lab.min.js?v=850935c9）+ deploy.sh 推 main（afdafdf..5ccaa00）。
+- commit 2ff5082（代码+数据）+ 5ccaa00（data update [all]），origin/main=5ccaa00 push 成功。
+
+### 验收（主控逐字验证）
+- `fusion_signals.py`：HARDCODED_FUSIONS@127 + _gen_filter_masks@137（4 mask 齐）+ gen_hardcoded_fusion_candidates@164 ✓
+- 双版 lab.js `_coreKey` 残留 = 0 ✓
+- `_labRankAggregate`@2211 retest 行未碰（仍是 `r.buyKey + "|" + r.sellKey` 修复版）✓
+- 线上 csi500 fusion_stats：97 pairs（91+6），6 个 F_ pair 全在，generated_at 2026-07-17 ✓
