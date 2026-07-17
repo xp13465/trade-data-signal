@@ -2867,8 +2867,7 @@ async function renderOverview() {
 // 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
 async function renderMarket() {
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">A股/港股/全球指数走势 + 买卖点信号;🐶 汪汪队=国家队宽基ETF资金动向</div>');
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:综合技术面买卖点、资金动向、情绪指标给大盘择时信号。<b>怎么解读</b>:信号偏多=该加仓,偏空=该减仓;汪汪队ETF资金流入=国家队护盘,流出=撤退。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看A股、港股、全球指数走势,叠加技术面买卖点信号,综合判断大盘是该加仓还是减仓;另追踪🐶汪汪队=国家队宽基ETF资金动向。<b>怎么解读</b>:信号偏多可逐步加仓,偏空宜减仓防守;汪汪队大额净流入常对应政策底,流出=撤退信号。</div>');
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
   subtabBar.className = "subtab-bar";
@@ -4115,8 +4114,7 @@ async function renderSentiment() {
     fetchJSON("/api/futures").catch(() => null),
   ]);
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">0-100情绪温度计 ≤20冰点≥80过热</div>');
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:把多项情绪指标合成0-100的温度计,量化市场冷热。<b>怎么解读</b>:≤20冰点(人人恐慌)=逆向贪婪逐步买,≥80过热(人人贪婪)=逆向恐惧准备卖。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:把多项情绪指标合成0-100的温度计,量化市场冷热(≤20冰点、≥80过热),作逆向参考。<b>怎么解读</b>:≤20冰点(人人恐慌)=逆向贪婪逐步买,≥80过热(人人贪婪)=逆向恐惧准备卖;中间区域观望或顺势。</div>');
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
@@ -5104,8 +5102,7 @@ async function renderIndustry() {
     _industryCache = { range: state.range, r };
   }
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">轮动判断主线 + 行业/概念买卖点</div>');
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:跟踪申万一级行业和概念板块的资金流向与轮动速度。<b>怎么解读</b>:持续净流入+加速轮动=主线走强板块,可重点配置;净流出+减速=走弱该回避。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:追踪申万一级行业和概念板块的资金流向与轮动速度,辅助判断主线、定位走强板块。<b>怎么解读</b>:持续净流入+加速轮动=主线走强板块可重点配置;净流出+减速=走弱该回避;行业/概念买卖点辅助择时。</div>');
   const snap = state.intradaySnapshot;
 
   // 板块轮动速度卡片 + 申万行业热力图：1:2 grid 合并一行（左轮动卡 / 右热力图）
