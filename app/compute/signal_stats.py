@@ -37,7 +37,7 @@ from .normalize import load_index_close, load_metric_value, load_score_value
 HORIZONS = (5, 10, 20)
 MIN_SAMPLE = 10  # 样本数 < 10 前端标"样本不足"
 
-STATS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "signal_stats.json"
+STATS_PATH = Path(__file__).absolute().parent.parent.parent / "data" / "signal_stats.json"
 
 
 def _load_signal_dates() -> dict[str, dict[str, list[str]]]:

@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # 复用 app 包代码（与 API 完全一致的查询逻辑）
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 from app.calendar import last_trading_day  # noqa: E402
 from app.collector.fetchers import load_config  # noqa: E402
@@ -39,7 +39,7 @@ from app.compute.market_summary import generate_summary, summary_brief  # noqa: 
 from app.compute.signals import strategy_desc  # noqa: E402
 from app.db import get_conn  # noqa: E402
 
-STATIC_DIR = Path(__file__).resolve().parent
+STATIC_DIR = Path(__file__).absolute().parent
 DATA_DIR = STATIC_DIR / "data"
 INDEX_DIR = DATA_DIR / "index"
 

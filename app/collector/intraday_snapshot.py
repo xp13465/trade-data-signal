@@ -49,7 +49,7 @@ _SINA_URL = "http://hq.sinajs.cn/list=" + ",".join(_A_STOCK_CODES)
 _SINA_HEADERS = {"User-Agent": UA, "Referer": "https://finance.sina.com.cn"}
 
 # static-site 静态 JSON 输出路径（与 export.py 的 DATA_DIR 同源）
-STATIC_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "static-site" / "data"
+STATIC_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "static-site" / "data"
 
 # 快照 code -> index_daily.index_id 映射（9 核心 A 股 + 3 港股）
 # 注意：_parse_tencent 提取 key 时 strip "v_" 前缀 + split("_")[-1]，
@@ -930,7 +930,7 @@ def _export_affected_json() -> None:
     import importlib.util
     from .fetchers import load_config
 
-    ROOT = Path(__file__).resolve().parent.parent.parent
+    ROOT = Path(__file__).absolute().parent.parent.parent
     spec = importlib.util.spec_from_file_location("export", ROOT / "static-site" / "export.py")
     export_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(export_mod)

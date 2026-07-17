@@ -2,7 +2,7 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "sentiment.db"
+DB_PATH = Path(__file__).absolute().parent.parent / "data" / "sentiment.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS daily_metric (

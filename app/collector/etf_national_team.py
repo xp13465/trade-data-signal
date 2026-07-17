@@ -46,11 +46,11 @@ import akshare as ak
 from .base import em_get, safe_call, throttle
 
 # ── 路径与常量 ──────────────────────────────────────────────────────────────────
-_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
 DB_PATH = _DATA_DIR / "etf_national_team.db"
 LOCK_PATH = _DATA_DIR / "etf_national_team.lock"
-STATIC_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "static-site" / "data"
-WEB_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "web" / "data"
+STATIC_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "static-site" / "data"
+WEB_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "web" / "data"
 
 # 12 只宽基 ETF（code, 易记名, 跟踪指数, 市场 sh/sz）
 ETF_LIST = [

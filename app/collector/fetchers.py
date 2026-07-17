@@ -8,7 +8,7 @@ import yaml
 from .base import safe_call
 from ..calendar import last_trading_day
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "indicators.yaml"
+CONFIG_PATH = Path(__file__).absolute().parent.parent.parent / "config" / "indicators.yaml"
 
 
 def load_config():

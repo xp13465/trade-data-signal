@@ -57,7 +57,7 @@ from . import base  # noqa: F401
 import baostock as bs
 
 # ── 路径 ──────────────────────────────────────────────────────────────────────
-_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
 STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"          # 与 D1 同库不同表
 PROGRESS_PATH = _DATA_DIR / "baostock_progress.json"
 CODES_CACHE_PATH = _DATA_DIR / "stock_codes.json"     # 复用 D1 的 code 列表缓存

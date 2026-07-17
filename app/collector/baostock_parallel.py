@@ -14,10 +14,10 @@ import subprocess
 import datetime as dt
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
 PROGRESS_PATH = DATA_DIR / "baostock_progress.json"
 LOG_DIR = DATA_DIR / "baostock_logs"
-WORKER_SCRIPT = Path(__file__).resolve().parent / "baostock_worker.py"
+WORKER_SCRIPT = Path(__file__).absolute().parent / "baostock_worker.py"
 
 
 def load_progress():

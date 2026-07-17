@@ -584,7 +584,7 @@ def backfill_series_metrics(date):
     from . import fetchers, runner
     from .base import log_collect
 
-    config_path = Path(__file__).resolve().parent.parent.parent / "config" / "indicators.yaml"
+    config_path = Path(__file__).absolute().parent.parent.parent / "config" / "indicators.yaml"
     with open(config_path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
@@ -644,7 +644,7 @@ def backfill_history_gaps(date, verbose=True):
     from .runner import upsert_index_rows, upsert_metrics_many
     from .base import log_collect
 
-    config_path = Path(__file__).resolve().parent.parent.parent / "config" / "indicators.yaml"
+    config_path = Path(__file__).absolute().parent.parent.parent / "config" / "indicators.yaml"
     with open(config_path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
@@ -840,7 +840,7 @@ def main():
         from pathlib import Path as _P
         from . import fetchers as _f
         from .runner import upsert_metric as _upsert_metric
-        _cfg_path = _P(__file__).resolve().parent.parent.parent / "config" / "indicators.yaml"
+        _cfg_path = _P(__file__).absolute().parent.parent.parent / "config" / "indicators.yaml"
         with open(_cfg_path, encoding="utf-8") as _fh:
             _lhb_cfg = _yaml.safe_load(_fh)
         for m in (_lhb_cfg.get("metrics") or []):
@@ -867,7 +867,7 @@ def main():
         #  不写则前端采集时间卡在上次 update_all 时间,用户以为没更新)
         from .base import log_collect
         log_collect(today, "backfill", "ok", f"backfill补采(指数{ok}+序列{s_ok})->重算+推送")
-        repo = Path(__file__).resolve().parent.parent.parent
+        repo = Path(__file__).absolute().parent.parent.parent
         subprocess.run([sys.executable, "-m", "app.compute.runner"], check=False)
         # deploy 持 /tmp/trade_deploy.lock 串行化 git（阻塞排队），与 pipeline.sh /
         # intraday_snapshot.sh 共享 deploy 锁，避免 20:00 前后撞 update_all pipeline

@@ -20,7 +20,7 @@ from .compute.signals import strategy_desc
 from .db import get_conn
 
 app = FastAPI(title="市场温度看板")
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+WEB_DIR = Path(__file__).absolute().parent.parent / "web"
 
 RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
 VALID_RANGES = set(RANGES) | {"all"}
@@ -146,7 +146,7 @@ def _indices_for_market(market):
 
 # 行业/概念 -> 相关 ETF 候选列表映射（读 data/board_etf_map.json，由 scripts/build_board_etf_map.py 生成）。
 # {sw_801010: [{code, name, amount}, ...]} 按成交额降序；匹配不到为空列表；文件缺失返 {}。
-ETF_MAP_PATH = Path(__file__).resolve().parent.parent / "data" / "board_etf_map.json"
+ETF_MAP_PATH = Path(__file__).absolute().parent.parent / "data" / "board_etf_map.json"
 
 
 @lru_cache(maxsize=1)
@@ -381,7 +381,7 @@ def overview():
     # 数据时效横幅补充源日期：期货/ETF国家队/美股从静态导出 JSON 取末日期
     extra_dates = {}
     try:
-        _sd = Path(__file__).resolve().parent.parent / "static-site" / "data"
+        _sd = Path(__file__).absolute().parent.parent / "static-site" / "data"
         def _jload(name):
             p = _sd / name
             return json.load(open(p, encoding="utf-8")) if p.exists() else None
@@ -1090,7 +1090,7 @@ def schedule_stats():
     由 scripts/gen_schedule_stats.py 在部署时刷新写入 static-site/data/schedule_stats.json。
     动态版直接读该静态文件返回（数据本身与动态/静态无关，都是日志解析结果）。
     """
-    p = Path(__file__).resolve().parent.parent / "static-site" / "data" / "schedule_stats.json"
+    p = Path(__file__).absolute().parent.parent / "static-site" / "data" / "schedule_stats.json"
     if not p.exists():
         return []
     return json.loads(p.read_text(encoding="utf-8"))

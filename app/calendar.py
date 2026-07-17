@@ -8,7 +8,7 @@ try:
 except ImportError:  # akshare 未装时降级（仅用周末启发式）
     ak = None
 
-_CACHE_PATH = Path(__file__).resolve().parent.parent / "data" / "trade_dates.txt"
+_CACHE_PATH = Path(__file__).absolute().parent.parent / "data" / "trade_dates.txt"
 
 
 @lru_cache(maxsize=1)

@@ -43,7 +43,7 @@ import akshare as ak
 from .base import safe_call
 
 # ── 路径 ──────────────────────────────────────────────────────────────────────
-_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
 STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"
 PROGRESS_PATH = _DATA_DIR / "stock_daily_progress.json"
 CODES_CACHE_PATH = _DATA_DIR / "stock_codes.json"

@@ -31,7 +31,7 @@ import pandas as pd
 from app.db import get_conn
 
 # ── 路径 ──────────────────────────────────────────────────────────────────────
-_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
 STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"
 # sentiment.db 连接统一走 app.db.get_conn()（含 _migrate 补 net_inflow 列），勿直连
 REPORT_PATH = _DATA_DIR / "cleanup_d3d2_report.json"
