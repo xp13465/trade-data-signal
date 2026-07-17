@@ -153,7 +153,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - 仍零后端改动：不碰 signals.py/signal_daily/后端端点/现有4tab/indexChart。BB信号前端实时算不落库。
 
 **待办（用户暂缓，后续讨论）**：
-1. **逐步实现其他策略图表**（开发中->实验中）：BB_lower_revert辅买 / Supertrend买 / MA_death_5_20卖 等，复用 `computeBBLab` 模式逐个加图表+信号标注。优先级看08数据：BB_lower_revert(3/4达标并列第1)、Supertrend_buy(语义正交)、MA_death_5_20(20d胜率56.3%最高)。
+1. ✅ **已完成（commit 55525fa）**：~~逐步实现其他策略图表~~（开发中->实验中）：BB_lower_revert辅买 / Supertrend买 / MA_death_5_20卖 等，复用 `computeBBLab` 模式逐个加图表+信号标注。优先级看08数据：BB_lower_revert(3/4达标并列第1)、Supertrend_buy(语义正交)、MA_death_5_20(20d胜率56.3%最高)。
 2. ~~**BB_upper_revert 验证有效后融入生产**~~ -> **决策已定：不融生产**（2026-07-14，见 `## 交接状态（2026-07-14，策略实验室 C1 排查诊断 + BB_upper_revert 不融生产决策）`）。回测劣于现生产 D1 卖点（PL 0.64-0.90 vs D1 0.69-0.94，全仓配对亏更多 -70.5% vs -31.2%），仅留实验室展示。原触发条件「D1连续2季度10日胜率<45%则启用」作废（替代品更差，互补无意义）。
 3. ~~**策略实验室模拟回测展示（方案B/阶段二）**~~ ✅ 已完成（`b646765`，见上方续3节）。
 
@@ -186,9 +186,9 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 **关键决策**：QR 矩阵预生成写 qr.js（非运行时库）避跨域竞态；force 复用 update_all 一键入口加参数（不另建脚本）；互斥用 fcntl --nb 跳过（非排队，重复跑是误操作跳过比排队省时）。
 
 **遗留 / 待修**：
-1. mootdx_daily `progress.json` 单进程 `os.replace` tmp 残留待确认（互斥锁已根治并发撞，单进程 tmp 命名是否加 PID 后缀防残留待定）。
+1. ✅ 无问题（互斥锁 8839300 根治，原子写无残留）：~~mootdx_daily `progress.json` 单进程 `os.replace` tmp 残留待确认~~（单进程 tmp 命名是否加 PID 后缀防残留待定）。
 2. 端到端互斥验证（真跑两个 update_all 看第2个跳过）未做，30min×2 不划算，下次周末补数据顺便验。
-3. 老遗留：industry-all.json 体积 / g.cn10y buy_aux 回测 / GitHub topics+README截图+HelloGitHub 提交 / mootdx 8.2 py-mini-racer constraint。
+3. 老遗留：~~industry-all.json 体积~~ ✅已完成(d114508拆分) / g.cn10y buy_aux 回测 / GitHub topics+README截图+HelloGitHub 提交 / ~~mootdx 8.2 py-mini-racer constraint~~ ✅已完成(requirements.txt已锁 mootdx==0.11.7+mini-racer==0.14.1)。
 
 **工作模式反思**：用户指出我没参考 `supervisor-loop-mode` 记忆，全程自己上手没派子进程 + 问了 yes/no（"要我跑端到端验吗""要不要更新NOTES"等本可自决）。根因：把该模式误判为"仅 TASKS 批量循环"，没泛化到交互式任务。已更新该 memory 强化"所有任务都派子进程+不问yes/no+自行验收"。
 
@@ -209,8 +209,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - 旧串行版备份 `scripts/update_all_serial.sh` 可一键回退
 
 **遗留 / 待手动做**：
-1. **完整端到端验证**：手动 `bash scripts/update_all.sh`，看 `git log` 出现 `[core]`/`[width]`/`[futures]` 多个 data update commit（按完成顺序，core 先 push），公网核心数据先更新、宽度后更新。组件级验证已全通过（语法/steps守卫/with_lock串行/busy_timeout/原子写）。
-2. 之前 H5 轮遗留（GitHub topics / README 截图 / HelloGitHub / og.png 验证 / g.cn10y 回测）见下节。
+1. **完整端到端验证**（代码就绪，低优）：手动 `bash scripts/update_all.sh`，看 `git log` 出现 `[core]`/`[width]`/`[futures]` 多个 data update commit（按完成顺序，core 先 push），公网核心数据先更新、宽度后更新。组件级验证已全通过（语法/steps守卫/with_lock串行/busy_timeout/原子写）。
+2. 之前 H5 轮遗留：industry-all ✅已完成(d114508拆分)；其余（GitHub topics / README 截图 / HelloGitHub / og.png 验证 / g.cn10y 回测）用户手动，见下节。
 
 ## 交接状态（2026-07-10，H5打磨 + 获客SEO/分享图/README）
 
@@ -239,7 +239,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 2. **README 顶部配 1-2 张看板截图**（GIF 更佳，HelloGitHub 入选关键）
 3. **提交 HelloGitHub**：按 `HELLOGITHUB.md` 到 https://github.com/521xueweihan/HelloGitHub/issues 提交（审核周期~1 月）
 4. **验证 og.png 预览**：公网部署后用 https://www.opengraph.xyz 贴 URL 检查分享卡片效果
-5. **g.cn10y buy_aux 回测**（老遗留）：全球指标类（`_compute_value_signals` 路径）回测脚本需单独处理，`backtest_metrics.py` 只覆盖 C1 主买未覆盖 buy_aux
+5. **g.cn10y buy_aux 回测**：signal_stats 已有 buy_aux 前向统计（前端 tips 显示），backtest_metrics 规则优化回测未覆盖（P2 增强）
 
 **除 SEO 外的其他获客方法（未实施，供后续选择）**：
 - 内容营销：掘金/知乎/CSDN/少数派写"用 Python+ECharts 搭 A 股情绪看板"技术文带链接吃长尾
@@ -290,8 +290,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 15. [x] **均线排列状态** — `app/compute/ma_alignment.py`，概览均线卡片，多头/空头/震荡统计
 
 ### 遗留
-1. **industry-all.json 体积** — 23.74 MiB < 25 MiB，余量 1.26 MiB，2026 年底前需拆分
-2. **g.cn10y buy_aux 回测** — 全球指标类（`_compute_value_signals` 路径），回测脚本需单独处理
+1. ✅ **industry-all.json 体积** — 已完成（d114508 拆分，24MB->14MB省42%）
+2. **g.cn10y buy_aux 回测** — signal_stats 已有 buy_aux 前向统计（前端 tips 显示），backtest_metrics 规则优化回测未覆盖（P2 增强）
 
 ### 下轮起点
 体验优化阶段已完成（15/15 条建议全部实施）。下轮关注：前端样式微调 + 数据质量持续监控 + industry-all.json 体积优化。
@@ -322,10 +322,10 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **git 仓库**：xp13465/trade-data-signal（SSH 已配，偶发网络抖动 push 失败重试成功）。
 
 **遗留**：
-- dev server（uvicorn --reload）watchfiles 偶发 stale（改代码后不 reload），重启解决：kill PID + nohup .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir /Users/linhuichen/code/trade。
-- 东财 push2his.eastmoney.com IP 封禁（industry_extras 行业资金流/换手率 fail，老问题，代码就绪待 IP 解封）。
-- mootdx 依赖 py-mini-racer（pip 元数据），未来 pip install mootdx 可能再拉 sqreen 坏包，需加 constraint。
-- GitHub Pages 需用户配 Settings → Pages → Source = GitHub Actions（否则 workflow 不部署）。
+- dev server（uvicorn --reload）watchfiles 偶发 stale（macOS 已知问题不修，重启解决：kill PID + nohup .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir /Users/linhuichen/code/trade）。
+- 东财 push2his.eastmoney.com IP 封禁（industry_extras 行业资金流/换手率 fail，历史性待解封，代码就绪）。
+- ✅ mootdx py-mini-racer constraint 已完成（requirements.txt 已锁 mootdx==0.11.7+mini-racer==0.14.1）。
+- GitHub Pages：workflow 已建，待用户配 Settings → Pages → Source = GitHub Actions。
 - 静态版 industry-all.json 23.86MB，余量 1.14MB（约容 150 交易日增长，2026 年底前需考虑拆分）。
 
 **下轮起点**：用户反馈 → 派子进程修。开工先读 TASKS.md 交接状态节 + REQUIREMENTS.md + NOTES.md。
@@ -728,8 +728,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - ✅ 已完成：P1-1 defer / P1-2 resize debounce / P1-4 minify / P2-1 并行fetch / P2-3 FastAPI缓存头(22da604) / P2-4 lab debounce / **B3 全球轻量JSON(c556ae3省70%)** / **B5 lab.js懒加载(4642735省88KB)** / **B2 行业瘦身折中(d114508 24MB->14MB省42%+detail按视口懒加载)**（详见 NOTES §18）。
 
 **C. 策略实验室**
-- 其他策略图表融入实验室：BB_lower_revert / Supertrend / MA_death 等（BB_upper_revert 已决策不融生产仅留实验室，见 §15）。
-- **【✅step1+2已完成 2026-07-17 commit 4a3a5c5】融合信号实验卡片信息对齐单一信号基标**（用户定基标：融合 ≥ 单一信号，至少持平不得更少）。根因：`_labFusionPairModalRender`@3655 两分支各有缺失——6 硬编码融合策略（LAB_FUSION_STRATEGIES@598，无 `_pairType`，覆盖 live/partial/experimental 三状态）走 `_labFusionHardcodedHTML`@3635 **只有策略说明文案**，缺指标图表+模拟回测；91 自动候选（带 `_pairType`）有回测但**缺策略说明文案+指标图表**。单一信号 `renderLabDetail`@1816 基准含 5 块（①标题标签 ②自白 ③📖策略说明+指标释义 ④指标图表echarts ⑤💰模拟回测4数字+净值+交易记录+买卖信号弹窗）。**开发顺序**：1️⃣单一信号先固化作基准（✅已确认6块齐全）2️⃣融合后开发补齐到基标（✅commit 4a3a5c5 已上线：6硬编码加`_coreKey`映射核心单一策略(D1/BB_lower_revert/C1)，弹窗显示"融合文案+核心策略图表/矩阵/回测"；91候选补策略说明文案；_labFusionPairCloseModal增强清理echarts。**代理说明**：6硬编码是多条件融合无现成pair回测，用核心单一策略回测作代理达基标，真实融合回测待后端补算）3️⃣二次测试实验再开发。**剩余增强**：91候选补指标图表echarts（需设计双策略图表展示）。详见 NOTES §30。
+- ✅ 已完成（commit 55525fa）：~~其他策略图表融入实验室~~：BB_lower_revert / Supertrend / MA_death 等（BB_upper_revert 已决策不融生产仅留实验室，见 §15）。
+- **【✅ 已完成（§30-§33 闭环）】融合信号实验卡片信息对齐单一信号基标**（用户定基标：融合 ≥ 单一信号，至少持平不得更少）。根因：`_labFusionPairModalRender`@3655 两分支各有缺失——6 硬编码融合策略（LAB_FUSION_STRATEGIES@598，无 `_pairType`，覆盖 live/partial/experimental 三状态）走 `_labFusionHardcodedHTML`@3635 **只有策略说明文案**，缺指标图表+模拟回测；91 自动候选（带 `_pairType`）有回测但**缺策略说明文案+指标图表**。单一信号 `renderLabDetail`@1816 基准含 5 块（①标题标签 ②自白 ③📖策略说明+指标释义 ④指标图表echarts ⑤💰模拟回测4数字+净值+交易记录+买卖信号弹窗）。**开发顺序**：1️⃣单一信号先固化作基准（✅已确认6块齐全）2️⃣融合后开发补齐到基标（✅commit 4a3a5c5 已上线：6硬编码加`_coreKey`映射核心单一策略(D1/BB_lower_revert/C1)，弹窗显示"融合文案+核心策略图表/矩阵/回测"；91候选补策略说明文案；_labFusionPairCloseModal增强清理echarts。**代理说明**：6硬编码是多条件融合无现成pair回测，用核心单一策略回测作代理达基标，真实融合回测待后端补算）3️⃣二次测试实验再开发。**剩余增强**：91候选补指标图表echarts（需设计双策略图表展示）。详见 NOTES §30。
 
 **E. 架构优化：开发与数据脚本分离（2026-07-17 提出，待调研细化实施）**
 - 痛点：数据脚本（update_all 采集+写DB+deploy.sh git push static-site/data/）与 Claude 开发（改代码+deploy/git push）同目录同 git 工作区，撞 .git/index.lock / push rejected + 采集占资源影响开发构建，致数据没及时推送发布。
