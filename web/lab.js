@@ -3882,13 +3882,6 @@ function _labFusionHardcodedHTML(meta) {
 async function _labFusionPairModalRender(overlay) {
   const m = state.labFusionPairModal;
   if (!m) return;
-  // 释放上一次渲染的 echarts 实例（re-render 时避免内存泄漏）
-  for (let i = charts.length - 1; i >= 0; i--) {
-    try {
-      const dom = charts[i].getDom && charts[i].getDom();
-      if (dom && overlay.contains(dom)) { charts[i].dispose(); charts.splice(i, 1); }
-    } catch (e) {}
-  }
   const meta = m.meta;
 
   const mode = m.mode || "full_in";
@@ -3952,14 +3945,23 @@ async function _labFusionPairModalRender(overlay) {
     return;
   }
 
-  // loading 骨架
-  overlay.innerHTML = `<div class="lab-signal-modal">` +
-    `<div class="lab-signal-modal-head">` +
-    `<span class="lab-signal-modal-title">${titleText}</span>` +
-    `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
-    `</div>` +
-    `<div class="lab-signal-modal-body"><div class="loading">加载回测数据…</div></div></div>`;
-  overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
+  // 局部更新对齐单一信号弹窗：切换买卖模式/时间窗口/指数时不重建弹窗骨架，
+  // 仅更新标题+内容区，保留旧内容直到新数据就绪，保持滚动位置（modal 元素不重建=>scrollTop 不归零）
+  const existingModal = overlay.querySelector(".lab-signal-modal");
+  if (existingModal) {
+    // re-render：仅更新标题文本，body 旧内容保留到 await 后再替换（避免骨架闪烁+跳顶部）
+    const titleEl = overlay.querySelector(".lab-signal-modal-title");
+    if (titleEl) titleEl.innerHTML = titleText;
+  } else {
+    // 首次打开：渲染 loading 骨架（标题在 sticky head，关闭 X）
+    overlay.innerHTML = `<div class="lab-signal-modal">` +
+      `<div class="lab-signal-modal-head">` +
+      `<span class="lab-signal-modal-title">${titleText}</span>` +
+      `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+      `</div>` +
+      `<div class="lab-signal-modal-body"><div class="loading">加载回测数据…</div></div></div>`;
+    overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
+  }
 
   // 信号图/多周期矩阵的 base 策略 key（6硬编码用 FUSION_CHART_BASE 映射，91候选用 _buyKey）
   const chartBaseKey = isHardcoded
@@ -3983,12 +3985,10 @@ async function _labFusionPairModalRender(overlay) {
   const initCapital = (simData && simData.initial_capital) || 100000;
 
   // 指数选择器（融合候选为A股策略，可切指数查看同配对不同指数回测）
-  const selectHTML = LAB_FUSION_PAIR_INDEX_GROUPS.map(([gname, ids]) =>
-    `<optgroup label="${gname}">` +
-    ids.map((id) => `<option value="${id}"${id === m.index ? " selected" : ""}>${_INDEX_NAME_MAP[id] || id}</option>`).join("") +
-    `</optgroup>`
-  ).join("");
-  const filterHTML = `<div class="lab-fusion-pair-filter"><label>选择指数</label><select class="lab-fusion-pair-index">${selectHTML}</select></div>`;
+  // 对齐单一信号弹窗：用按钮组(.lab-idx-tab)而非下拉框，与时间窗口/买卖模式切换交互一致
+  const idxBtns = LAB_FUSION_PAIR_INDEX_GROUPS.flatMap(([gname, ids]) => ids)
+    .map((id) => `<button type="button" class="lab-idx-tab${id === m.index ? " active" : ""}" data-fidx="${id}">${_INDEX_NAME_MAP[id] || id}</button>`).join("");
+  const filterHTML = `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtns}</div></div>`;
 
   // 查看买卖信号按钮：buy/sell key 按 pair_type 推导（buy_buy/sell_sell 用 ref_side 补反面）
   const fmInfo = simData && simData.fusion_meta ? simData.fusion_meta[pairId] : null;
@@ -4144,6 +4144,13 @@ async function _labFusionPairModalRender(overlay) {
     bodyHTML = essayHTML + descHTML + filterHTML + chartSectionHTML + matrixSectionHTML + detailHTML;
   }
 
+  // 释放上一次渲染的 echarts 实例（re-render 时避免内存泄漏；放在 await 之后，旧图表在数据加载期间保持可见）
+  for (let i = charts.length - 1; i >= 0; i--) {
+    try {
+      const dom = charts[i].getDom && charts[i].getDom();
+      if (dom && overlay.contains(dom)) { charts[i].dispose(); charts.splice(i, 1); }
+    } catch (e) {}
+  }
   const body = overlay.querySelector(".lab-signal-modal-body");
   if (body) {
     body.innerHTML = bodyHTML;
@@ -4155,8 +4162,10 @@ async function _labFusionPairModalRender(overlay) {
     }
     // 矩阵行高亮
     _labUpdateMatrixRowHighlight();
-    const sel = body.querySelector(".lab-fusion-pair-index");
-    if (sel) sel.onchange = (e) => { m.index = e.target.value; m.page = 0; _labFusionPairModalRender(overlay); };
+    // 指数切换（按钮组，对齐单一信号弹窗）
+    body.querySelectorAll(".lab-idx-tab[data-fidx]").forEach((btn) => {
+      btn.onclick = () => { m.index = btn.dataset.fidx; m.page = 0; _labFusionPairModalRender(overlay); };
+    });
     // 三区一致：模式/窗口切换（切换重置分页）
     overlay.querySelectorAll(".lab-win-tab[data-mode]").forEach((btn) => {
       btn.onclick = () => { m.mode = btn.dataset.mode; m.page = 0; _labFusionPairModalRender(overlay); };
