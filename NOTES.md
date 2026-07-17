@@ -1331,9 +1331,11 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 
 ---
 
-## §27 导航吸顶开关调研（2026-07-16，只读调研未实施）
+## §27 导航吸顶开关（2026-07-16 已实施 commit 545618d）
 
-PC端顶部分享按钮**左边**加"导航吸顶"开关，默认吸顶ON，关闭后导航回文档流原位（方便截图）；多窗口同源共享状态，localStorage 存关闭时间戳，24h 过期回默认吸顶。本节为调研结论，供后续实施 agent 照做。
+PC端顶部分享按钮**左边**加"导航吸顶"开关，默认吸顶ON，关闭后导航回文档流原位（方便截图）；多窗口同源共享状态，localStorage 存关闭时间戳，24h 过期回默认吸顶。
+
+> ✅ 已实施上线（commit 545618d, 2026-07-16）：web/static-site 双版同步，`app.js` `applyNavStickyState`+`initNavStickyToggle`(web:5255)，`index.html` 按钮 HTML，`style.css` `.pc-nav-sticky-toggle`。下方调研清单保留作实施记录。
 
 ### 1. 顶部分享按钮位置（精确插入点）
 
