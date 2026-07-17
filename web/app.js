@@ -2311,7 +2311,7 @@ async function renderOverview() {
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">全市场情绪·宽度·位置·信号 一屏总览</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>一屏看懂全市场</b>:情绪温度计(冷热)+市场宽度(涨跌家数/新高新低)+估值位置(历史分位)+买卖信号,综合判断当前该贪婪加仓还是恐惧减仓。</div>');
   // 数据时效栏已移入"数据更新规则"弹窗（ℹ️ 图标入口），首页不再展示健康横幅。
 
   // ---- 0. 一句话总结横幅 ----
