@@ -180,10 +180,13 @@ def _build_stats(trades, final_total, last_date, equity_curve, years=None):
     }
 
 
-def simulate_full_in(df, buy_mask, sell_mask, w_start=None):
+def simulate_full_in(df, buy_mask, sell_mask, w_start=None, commission_rate=0.0, slippage=0.0):
     """全仓进出模式：买信号全仓买入，卖信号全仓卖出。
     w_start: 窗口起始(Timestamp)，None=全历史。指定时只处理 >= w_start 的事件，
-    equity 从 INITIAL_CAPITAL 起算。返回未采样 equity_curve + trades + final_total。"""
+    equity 从 INITIAL_CAPITAL 起算。返回未采样 equity_curve + trades + final_total。
+    commission_rate: 手续费率(单边,按成交金额计),默认0=无手续费。
+    slippage: 滑点率(单边),买入价=close*(1+slippage)升高,卖出价=close*(1-slippage)降低,默认0=无滑点。
+    两者均为0时行为与原实现逐字一致(除浮点误差),保证旧 JSON 不变。"""
     close = df['close']
     dates = df.index
 
@@ -212,16 +215,20 @@ def simulate_full_in(df, buy_mask, sell_mask, w_start=None):
         close_val = close.loc[date]
 
         if sig_type == 'buy' and holding is None:
-            shares = cash / close_val
-            holding = (date, close_val, shares)
+            # 实际买入价含滑点(升高);每股总成本 = buy_price*(1+commission_rate)
+            # shares = cash / (close*(1+slippage)*(1+commission_rate)); 成本参数=0时退化为 cash/close
+            buy_price = close_val * (1 + slippage)
+            shares = cash / (buy_price * (1 + commission_rate))
+            holding = (date, buy_price, shares)
             cash = 0.0
 
         elif sig_type == 'sell' and holding is not None:
             buy_date, buy_close, shares = holding
-            sell_amount = shares * close_val
-            ret_pct = (close_val - buy_close) / buy_close * 100
+            sell_price = close_val * (1 - slippage)  # 实际卖出价含滑点(降低)
+            sell_amount = shares * sell_price
+            ret_pct = (sell_price - buy_close) / buy_close * 100
             hold_days = _days_between(buy_date, date)
-            cash = sell_amount
+            cash = sell_amount * (1 - commission_rate)  # 扣手续费
             holding = None
             account_total = cash
             cum_profit = account_total - INITIAL_CAPITAL
@@ -229,7 +236,7 @@ def simulate_full_in(df, buy_mask, sell_mask, w_start=None):
                 'bd': _fmt_date(buy_date),
                 'bp': round(buy_close, 2),
                 'sd': _fmt_date(date),
-                'sp': round(close_val, 2),
+                'sp': round(sell_price, 2),
                 'ret': round(ret_pct, 2),
                 'hd': hold_days,
                 'at': round(account_total, 2),
@@ -256,10 +263,12 @@ def simulate_full_in(df, buy_mask, sell_mask, w_start=None):
     }
 
 
-def simulate_fixed_10k(df, buy_mask, sell_mask, w_start=None):
+def simulate_fixed_10k(df, buy_mask, sell_mask, w_start=None, commission_rate=0.0, slippage=0.0):
     """1万定额模式：每次买信号买入1万元（最多10笔），卖信号清仓全部。
     w_start: 窗口起始(Timestamp)，None=全历史。指定时只处理 >= w_start 的事件，
-    equity 从 INITIAL_CAPITAL 起算。返回未采样 equity_curve + trades + final_total。"""
+    equity 从 INITIAL_CAPITAL 起算。返回未采样 equity_curve + trades + final_total。
+    commission_rate: 手续费率(单边),默认0。slippage: 滑点率(单边),默认0。
+    成本参数=0时: shares=POSITION_SIZE/close(同原实现),avg_buy_price=close加权,sell_amount=shares*close,逐字一致。"""
     close = df['close']
     dates = df.index
 
@@ -287,19 +296,23 @@ def simulate_fixed_10k(df, buy_mask, sell_mask, w_start=None):
         close_val = close.loc[date]
 
         if sig_type == 'buy' and cash >= POSITION_SIZE and len(positions) < MAX_POSITIONS:
-            shares = POSITION_SIZE / close_val
-            positions.append((date, close_val, shares))
+            # 每次投入 POSITION_SIZE 元现金不变,但买到的股数因滑点+手续费变少
+            # shares = POSITION_SIZE / (close*(1+slippage)*(1+commission_rate)); 成本=0时退化为 POSITION_SIZE/close
+            buy_price = close_val * (1 + slippage)
+            shares = POSITION_SIZE / (buy_price * (1 + commission_rate))
+            positions.append((date, buy_price, shares))
             cash -= POSITION_SIZE
 
         elif sig_type == 'sell' and positions:
             total_cost = POSITION_SIZE * len(positions)
             total_shares = sum(s for _, _, s in positions)
-            sell_amount = total_shares * close_val
+            sell_price = close_val * (1 - slippage)  # 实际卖出价含滑点(降低)
+            sell_amount = total_shares * sell_price
             first_buy_date = positions[0][0]
-            avg_buy_price = total_cost / total_shares
-            ret_pct = (close_val - avg_buy_price) / avg_buy_price * 100
+            avg_buy_price = total_cost / total_shares  # 现金口径成本价(成本参数=0时=close加权,与原实现一致)
+            ret_pct = (sell_price - avg_buy_price) / avg_buy_price * 100
             hold_days = _days_between(first_buy_date, date)
-            cash += sell_amount
+            cash += sell_amount * (1 - commission_rate)  # 扣手续费
             positions = []
             account_total = cash
             cum_profit = account_total - INITIAL_CAPITAL
@@ -307,7 +320,7 @@ def simulate_fixed_10k(df, buy_mask, sell_mask, w_start=None):
                 'bd': _fmt_date(first_buy_date),
                 'bp': round(avg_buy_price, 2),
                 'sd': _fmt_date(date),
-                'sp': round(close_val, 2),
+                'sp': round(sell_price, 2),
                 'ret': round(ret_pct, 2),
                 'hd': hold_days,
                 'at': round(account_total, 2),

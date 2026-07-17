@@ -1727,6 +1727,55 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **前端双版 lab.js**（3e5125b）：3 处规则文案更新（title@2234/横幅@2269/_LAB_RETEST_RULE@2277）为三窗口 dd≤10%+n≥10+OR；⭐️徽章判定改方案 A（查 retest JSON 存在性，retestSet.has(buyKey|sellKey)），与后端必然一致，修旧「按选中窗口 state.labSimWindow 动态算」的不一致 bug；`_loadRank`@2894/3921 预加载 retest JSON（单信号+融合）。双版 diff=10（5URL×2）IDENTICAL。
 - **上线**：build_min（lab.min.js 130KB -38.5%）+bump_asset_version（版本号 f2cbefda）+deploy.sh（d11906a 推 data+min JS）。
 
+### 8. 二次测试二次推进：3 方向已实施 + 4 方向待办（2026-07-17）
+
+> 任务来源：§4 brainstorm 的 10 方向中，选 7 方向推进。3 方向（手续费滑点/蒙特卡洛扰动/标的泛化）已由实施 agent 跑出结论，4 方向列待办。引擎零侵入：成本/蒙特卡洛均为外层包装，`lab_simulate.py` 仅加 `commission_rate=0.0, slippage=0.0` 参数（默认 0 向后兼容），不动现有 64 配对/融合回测产物。
+
+#### 8.1 七方向评估表
+
+| 方向 | 状态 | 工作量 | 可行性 | 关键产物 |
+|---|---|---|---|---|
+| 手续费/滑点敏感 | ✅ 已实施 | 半天 | 高（引擎加参数即可） | `lab_cost_compare.py`/`.json` |
+| 蒙特卡洛扰动 | ✅ 已实施 | 半天 | 高（纯外层包装） | `lab_montecarlo.py`/`.json` |
+| 标的泛化 | ✅ 已实施 | 半天 | 高（扩标的池重跑） | `lab_generalize.py`/`.json` |
+| 参数敏感扫描 | ⏳ 待办 | 半天 | 中（需暴露底层指标参数） | 待开发 |
+| 信号叠加消融 | ⏳ 待办 | 小时级 | 中（依赖现有 stats+硬编码融合） | 待开发 |
+| 多空对称 | ⏳ 待办 | 半天 | 高（新增镜像 simulate 函数） | 待开发 |
+| 融合 P2 回测 | ⏳ 待办 | 全天 | 低（需从 signal_daily/HTML 解耦引擎，工作量最大，放最后） | 待开发 |
+
+#### 8.2 方向1：手续费滑点（已实施）
+
+- **改动**：`lab_simulate.py` 的 `simulate_full_in`(:183)/`simulate_fixed_10k`(:266) 加 `commission_rate=0.0, slippage=0.0`（默认 0 兼容）。买入 `shares=cash/(close*(1+slippage)*(1+commission_rate))`，卖出 `cash=shares*close*(1-slippage)*(1-commission_rate)`。
+- **产物**：`lab_cost_compare.py` + `lab_cost_compare.json`(205KB)，对 top10 策略跑 3 成本档（毛/万3+千1/万5+千2）。
+- **结论**：90 个盈利配对加成本后 **100% 仍盈利**。交易频率是成本敏感度决定因素：高频（MACD 金叉死叉 313 笔）衰减 **-55%** 收益腰斩；低频（C1_RSI30 仅 12-17 笔）衰减仅 **-5%**；趋势跟踪类（Donchian/Supertrend）衰减 -15~30%。分指数：上证/深证 -33% 最重，北证 -6%/创业板 -13% 最轻。
+
+#### 8.3 方向2：蒙特卡洛扰动（已实施）
+
+- **改动**：新建 `lab_montecarlo.py`（纯外层包装，不改引擎）+ `lab_montecarlo.json`(55KB)。
+- **两类扰动**：方式 A 信号翻转（5/10/20% 翻转 buy/sell_mask，M=200 次）；方式 B 价格噪声（close 加高斯噪声 sigma=0.5%/1% 后重算信号，M=100 次）。top8 配对 × 3 指数（sh/cyb/kc50），seed=42。
+- **结论**：24 个配对全部 **Moderate**。5% 翻转下全部 ≥95% 正收益（多数 100%），但 mean_ret 降到 baseline 的 **10-65%**，max_dd 从 18-31% 飙升到 **29-48%**。信号翻转影响 **远大于** 价格噪声（0.5% 噪声下收益保持 70-135%）。kc50 最稳定（cv 0.53-0.68），sh 最不稳定（cv 0.84-1.18，因 35 年复利放大）。Donchian20_up 系列信号时点容错性最好。
+- **要点**：策略不是靠少数 lucky 信号（翻转 5% 不变亏），但收益幅度对信号时点高度敏感（最优时点贡献大部分超额收益）。
+
+#### 8.4 方向3：标的泛化（已实施）
+
+- **改动**：新建 `lab_generalize.py` + `lab_generalize.json`(10.7KB)。top6 配对在 31 个申万行业指数 + 18 只抽样个股上跑。
+- **结论**：申万行业 = **强泛化**（正收益 87-97%，median +267%~+406%）；个股 = **弱泛化**（正收益 28-39%，median 全负，过拟合指数）。`MACD_golden|MACD_death` 是唯一中泛化配对（个股 profit 55.6%，median +22.2%）。`Vol_breakout` 在个股无效（profit 22-33%）。
+- **要点**：策略适用于指数/行业级标的，不适用于个股（除 MACD 金叉配死叉勉强可用）。caveat：个股 close 为未复权价，除权日跳水触发假卖出系统性压低个股收益，但 profitable_pct 差距远超除权能解释。
+
+#### 8.5 四方向待办（简述）
+
+1. **参数敏感扫描**（半天）：复刻 `gen_buy_signals` 暴露参数，调底层已参数化指标函数（rsi/bollinger/donchian/supertrend/macd），网格扫描出 ret/dd 热力图，验证不过拟合。
+2. **信号叠加消融**（小时级）：单信号基线已存，join 现有 stats + 6 硬编码生成 N-1 子集 mask，算各信号贡献。
+3. **多空对称**（半天）：新增 `simulate_short` 镜像函数（~50 行），对比做多（buy->sell）vs 做空（sell->buy），检验卖信号对称性。
+4. **融合 P2 回测**（全天）：把 `scripts/simulate_trade.py` 的 3 路径引擎从 signal_daily/HTML 解耦成接收 mask 的函数，工作量最大，建议放最后。
+
+#### 8.6 关键文件路径
+
+- 引擎：`scripts/lab/lab_simulate.py`（加 commission/slippage 参数）
+- 成本对比：`scripts/lab/lab_cost_compare.py` + `static-site/data/lab_cost_compare.json`
+- 蒙特卡洛：`scripts/lab/lab_montecarlo.py` + `static-site/data/lab_montecarlo.json`
+- 标的泛化：`scripts/lab/lab_generalize.py` + `static-site/data/lab_generalize.json`
+
 ## §29 QVIX 指标名中文化：中国波指300/1000（2026-07-17，commits 43d134a + 40e2da5 deploy）
 
 > 与 §23 的 15fe67f 区别：15fe67f（07-15）只是「qvix(1000)停采方案C + 前端⏸停更」顺便提到中文名，`INDEX_NAMES` 映射早有但多处硬编码英文没走映射。本次 43d134a（07-17）是用户反馈首页「QVIX(300ETF) 21.25 点」仍是英文后，彻底统一去英文后缀的中文化收口。
