@@ -4463,7 +4463,7 @@ function _labDimLabel(name) { return _LAB_DIM_NAME[name] || name; }
 // 涨跌色（红涨绿跌）：_UP/_DOWN 供内联 style 用 var()；_retEc 供 echarts canvas 用 cssVar() 解析
 const _UP = "var(--mx-good-fg)", _DOWN = "var(--mx-bad-fg)"; // 正=红 / 负=绿
 const _retFg = (v) => (v >= 0 ? _UP : _DOWN);               // 内联样式用
-const _retEc = (v) => (v >= 0 ? cssVar("--mx-good-fg") : cssVar("--mx-bad-fg)")); // echarts 用
+const _retEc = (v) => (v >= 0 ? cssVar("--mx-good-fg") : cssVar("--mx-bad-fg")); // echarts 用
 
 // === 🧩 信号叠加消融：6硬编码融合 N-1 子集贡献（定位核心贡献组件）===
 const _LAB_ABLATION_RULE = "🧩 信号拆解测试（消融分析）：对6硬编码融合策略逐一去掉一个组件(N-1子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。D1_high20_drop5 平均贡献+769%为绝对核心，BB_lower_revert/C1_RSI30 贡献为负(作为融合组件反而拖累)。";
@@ -4849,21 +4849,34 @@ function _labParamScanChart(container, data, stratKey, idx) {
     });
     if (!isFinite(mn)) { mn = -50; mx = 50; }
     if (mn === mx) { mn -= 1; mx += 1; }
-    const c = mkCard(`${_labDimLabel(xName)} × ${_labDimLabel(yName)} 参数网格收益率(%)`, 400, "○=默认参数  ★=最优参数", body, []);
+    const c = mkCard(`${_labDimLabel(xName)} × ${_labDimLabel(yName)} 参数网格收益率(%)`, 400, "○=默认参数  ◇=最优参数", body, []);
     const dxi = xVals.indexOf(dp[xName]), dyi = yVals.indexOf(dp[yName]);
     const bxi = xVals.indexOf(bp[xName]), byi = yVals.indexOf(bp[yName]);
     const markPoints = [];
-    if (dxi >= 0 && dyi >= 0) markPoints.push({ coord: [dxi, dyi], symbol: "circle", symbolSize: 22, itemStyle: { color: "transparent", borderColor: "#1f6feb", borderWidth: 2.5 }, label: { show: true, formatter: "○", color: "#1f6feb", fontSize: 13, fontWeight: "bold" } });
-    if (bxi >= 0 && byi >= 0 && !(bxi === dxi && byi === dyi)) markPoints.push({ coord: [bxi, byi], symbol: "circle", symbolSize: 22, itemStyle: { color: "transparent", borderColor: "#f0883e", borderWidth: 2.5 }, label: { show: true, formatter: "★", color: "#f0883e", fontSize: 15, fontWeight: "bold" } });
+    if (dxi >= 0 && dyi >= 0) markPoints.push({ coord: [dxi, dyi], symbol: "circle", symbolSize: 16, itemStyle: { color: "transparent", borderColor: cssVar("--primary"), borderWidth: 2.5 } });
+    if (bxi >= 0 && byi >= 0 && !(bxi === dxi && byi === dyi)) markPoints.push({ coord: [bxi, byi], symbol: "diamond", symbolSize: 16, itemStyle: { color: "transparent", borderColor: cssVar("--mx-warn-fg"), borderWidth: 2.5 } });
     c.setOption(withTheme({
-      tooltip: { formatter: (p) => `${_labDimLabel(xName)}=${xVals[p.data[0]]}, ${_labDimLabel(yName)}=${yVals[p.data[1]]}<br/>收益: ${p.data[2] != null ? p.data[2].toFixed(2) + "%" : "无信号"}` },
+      tooltip: { formatter: (p) => {
+        const d = p.data;
+        if (Array.isArray(d)) {
+          return `${_labDimLabel(xName)}=${xVals[d[0]] != null ? xVals[d[0]] : d[0]}, ${_labDimLabel(yName)}=${yVals[d[1]] != null ? yVals[d[1]] : d[1]}<br/>收益: ${d[2] != null ? d[2].toFixed(2) + "%" : "无信号"}`;
+        }
+        // markPoint hover: p.data = {coord:[xi,yi],...}
+        if (d && Array.isArray(d.coord)) {
+          const [xi, yi] = d.coord;
+          const cell = heatData.find((h) => h[0] === xi && h[1] === yi);
+          const v = cell ? cell[2] : null;
+          return `${_labDimLabel(xName)}=${xVals[xi] != null ? xVals[xi] : xi}, ${_labDimLabel(yName)}=${yVals[yi] != null ? yVals[yi] : yi}<br/>收益: ${v != null ? v.toFixed(2) + "%" : "无信号"}`;
+        }
+        return "无数据";
+      } },
       grid: { left: 70, right: 20, top: 30, bottom: 80 },
       xAxis: { type: "category", data: xVals.map(String), name: _labDimLabel(xName), nameLocation: "middle", nameGap: 32, splitArea: { show: true } },
       yAxis: { type: "category", data: yVals.map(String), name: _labDimLabel(yName), splitArea: { show: true } },
       visualMap: { min: mn, max: mx, calculable: true, orient: "horizontal", left: "center", bottom: 5,
-        inRange: { color: [cssVar("--mx-bad-fg"), cssVar("--bg-hover"), cssVar("--mx-good-fg")] }, textStyle: { color: cssVar("--text-1") } },
+        inRange: { color: [cssVar("--mx-bad-fg"), cssVar("--mx-warn-fg"), cssVar("--mx-good-fg")] }, textStyle: { color: cssVar("--text-1") } },
       series: [{ type: "heatmap", data: heatData,
-        label: { show: true, fontSize: 9, formatter: (p) => p.data[2] != null ? p.data[2].toFixed(0) : "—" },
+        label: { show: true, fontSize: 9, color: cssVar("--bg-card"), textBorderColor: "rgba(0,0,0,0.25)", textBorderWidth: 1.5, formatter: (p) => (Array.isArray(p.data) && p.data[2] != null) ? p.data[2].toFixed(0) : "—" },
         emphasis: { itemStyle: { shadowBlur: 10 } },
         markPoint: { data: markPoints, symbolKeepAspect: false } }],
     }));
@@ -4879,15 +4892,15 @@ function _labParamScanChart(container, data, stratKey, idx) {
     const di = xVals.indexOf(dp[xName]);
     const bi = xVals.indexOf(bp[xName]);
     const markPoints = [];
-    if (di >= 0) markPoints.push({ coord: [di, barData[di] || 0], symbol: "pin", symbolSize: 36, itemStyle: { color: "#1f6feb" }, label: { formatter: "默", color: "#fff", fontSize: 9 } });
-    if (bi >= 0 && bi !== di) markPoints.push({ coord: [bi, barData[bi] || 0], symbol: "pin", symbolSize: 36, itemStyle: { color: "#f0883e" }, label: { formatter: "优", color: "#fff", fontSize: 9 } });
+    if (di >= 0) markPoints.push({ coord: [di, barData[di] || 0], symbol: "pin", symbolSize: 36, itemStyle: { color: cssVar("--primary") }, label: { formatter: "默", color: "#fff", fontSize: 9 } });
+    if (bi >= 0 && bi !== di) markPoints.push({ coord: [bi, barData[bi] || 0], symbol: "pin", symbolSize: 36, itemStyle: { color: cssVar("--mx-warn-fg") }, label: { formatter: "优", color: "#fff", fontSize: 9 } });
     c.setOption(withTheme({
       tooltip: { trigger: "axis", formatter: (p) => `${_labDimLabel(xName)}=${xVals[p[0].dataIndex]}<br/>收益: ${p[0].value != null ? p[0].value.toFixed(2) + "%" : "无信号"}` },
       grid: { left: 60, right: 20, top: 30, bottom: 50 },
       xAxis: { type: "category", data: xVals.map(String), name: _labDimLabel(xName) },
       yAxis: { type: "value", name: "收益(%)" },
       series: [{ type: "bar", barMaxWidth: 54,
-        data: barData.map((v) => ({ value: v, itemStyle: { color: v == null ? "#cccccc" : _retEc(v) } })),
+        data: barData.map((v) => ({ value: v, itemStyle: { color: v == null ? cssVar("--text-4") : _retEc(v) } })),
         markPoint: { data: markPoints } }],
     }));
   } else {
