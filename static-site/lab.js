@@ -2208,7 +2208,7 @@ function _labRankAggregate(simData, win, opt) {
     r.score = 0.4 * nRet(r.total_ret) + 0.3 * nWin(r.win_rate) +
               0.2 * nDd(-r.max_drawdown) + 0.1 * nN(r.n_trades);
     // ⭐️进入二次测试：查 retest JSON 存在性(后端已按三窗口dd≤10%+n≥10+OR判定)，与后端一致，不按选中窗口动态算
-    r.retest = retestSet ? retestSet.has(bk + "|" + sk) : false;
+    r.retest = retestSet ? retestSet.has(r.buyKey + "|" + r.sellKey) : false;
   });
   return rows;
 }
