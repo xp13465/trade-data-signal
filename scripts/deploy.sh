@@ -17,6 +17,7 @@ set -u
 # 不 set -e：每步显式判退出码，出错给清晰错误信息。
 
 REPO="${REPO:-/Users/linhuichen/code/trade}"
+GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init,采集后 rsync 到 trade 上线)
 PY="$REPO/.venv/bin/python"
 EXPORT="$REPO/static-site/export.py"
 LOGDIR="$REPO/data/logs"
@@ -59,21 +60,35 @@ else
   echo "✓ build_min.py 完成" | tee -a "$LOG"
 fi
 
+# 1.6 rsync 静态 JSON 到 trade git 仓库（trade-data 架构：采集在 trade-data，git 上线在 trade）
+# trade 跑时 REPO=GIT_REPO=trade，rsync 同路径 no-op；trade-data 跑时 rsync trade-data->trade。
+# build_min.py 在 trade-data 可能失败（无 app.js 源），但 min JS 不影响数据上线（trade 已有 min JS）。
+if [ "$REPO" != "$GIT_REPO" ]; then
+  echo "-> rsync 静态 JSON: $REPO/static-site/data/ -> $GIT_REPO/static-site/data/ ..." | tee -a "$LOG"
+  rsync -a "$REPO/static-site/data/" "$GIT_REPO/static-site/data/" 2>&1 | tee -a "$LOG"
+  RSYNC_RC=${PIPESTATUS[0]}
+  if [ "$RSYNC_RC" -ne 0 ]; then
+    echo "✗ rsync 失败（退出码 $RSYNC_RC），终止部署" | tee -a "$LOG"
+    exit "$RSYNC_RC"
+  fi
+  echo "✓ rsync 完成（$REPO -> $GIT_REPO）" | tee -a "$LOG"
+fi
+
 # 2. git add 静态数据 + min JS（min 重新生成后若有变更一并提交）
 echo "→ git add static-site/data/ + min JS ..." | tee -a "$LOG"
-git -C "$REPO" add static-site/data/ \
+git -C "$GIT_REPO" add static-site/data/ \
   web/app.min.js web/app.min.js.map web/lab.min.js web/lab.min.js.map \
   static-site/app.min.js static-site/app.min.js.map static-site/lab.min.js static-site/lab.min.js.map \
   2>&1 | tee -a "$LOG"
 
 # 3. 检查有无变更（cached diff 非空才 commit；无变更跳过 commit 但仍 push）
-if git -C "$REPO" diff --cached --quiet; then
+if git -C "$GIT_REPO" diff --cached --quiet; then
   echo "✓ 无新数据变更，跳过 commit（仍 push 推未 push commit）" | tee -a "$LOG"
 else
   # 4. 有变更 → commit
   COMMIT_MSG="data update [$NAME] $(date +%Y-%m-%d_%H:%M)"
   echo "→ git commit: $COMMIT_MSG" | tee -a "$LOG"
-  git -C "$REPO" commit -m "$COMMIT_MSG" 2>&1 | tee -a "$LOG"
+  git -C "$GIT_REPO" commit -m "$COMMIT_MSG" 2>&1 | tee -a "$LOG"
   COMMIT_RC=${PIPESTATUS[0]}
   if [ "$COMMIT_RC" -ne 0 ]; then
     echo "✗ git commit 失败（退出码 $COMMIT_RC）" | tee -a "$LOG"
@@ -83,23 +98,23 @@ fi
 
 # 5. 总是 git push（幂等：有未 push commit 就推，无则 "Everything up-to-date"）
 echo "→ git push ..." | tee -a "$LOG"
-git -C "$REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
+git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
 # :-1 防御 set -u 未绑定（macOS bash 3.2 数组边界用例）；默认失败不掩盖真实 rc（区别于旧 :-0）
 PUSH_RC=${PIPESTATUS[0]:-1}
 if [ "$PUSH_RC" -ne 0 ]; then
   # 可能是并发竞争 non-fast-forward：fetch 后确认 HEAD 是否已被推到 origin/main
-  git -C "$REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
-  if git -C "$REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
+  git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
+  if git -C "$GIT_REPO" merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
     echo "⚠ push 返回 $PUSH_RC 但 HEAD 已在 origin/main（并发 deploy 已推送），视为幂等成功" | tee -a "$LOG"
     PUSH_RC=0
   else
     # 本地落后 origin/main（并发 deploy 已推新 commit）：rebase 到 origin/main 后重试 push 一次。
     # 数据 JSON 提交通常不冲突；冲突则 abort 保持工作区干净，退出待人工 rebase 后重跑。
     echo "-> 本地落后 origin/main，rebase 后重试 push ..." | tee -a "$LOG"
-    git -C "$REPO" rebase origin/main 2>&1 | tee -a "$LOG"
+    git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"
     REBASE_RC=${PIPESTATUS[0]:-1}
     if [ "$REBASE_RC" -eq 0 ]; then
-      git -C "$REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
+      git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
       PUSH_RC=${PIPESTATUS[0]:-1}
       if [ "$PUSH_RC" -eq 0 ]; then
         echo "✓ rebase + 重试 push 成功" | tee -a "$LOG"
@@ -108,9 +123,9 @@ if [ "$PUSH_RC" -ne 0 ]; then
         exit "$PUSH_RC"
       fi
     else
-      git -C "$REPO" rebase --abort 2>/dev/null || true
+      git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
       echo "✗ rebase origin/main 失败（可能数据 JSON 冲突），已 abort 保持工作区干净。" | tee -a "$LOG"
-      echo "  请手动：git -C $REPO fetch origin && git -C $REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
+      echo "  请手动：git -C $GIT_REPO fetch origin && git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
       exit 1
     fi
   fi
