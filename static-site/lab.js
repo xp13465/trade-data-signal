@@ -802,25 +802,37 @@ function _labGetPair(simData, buyKey, sellKey) {
   return simData.pairs && simData.pairs[buyKey + "|" + sellKey];
 }
 
-// 取某窗口的数据：stats(单窗口) + trades(按 tw 切片) + equity_curve(该窗口独立)
+// 取某窗口的数据：stats(单窗口) + trades(优先 win_trades 窗口独立 sim,回退 tw 切片) + equity_curve(该窗口独立)
 // equity_curve 为每窗口独立从 INITIAL_CAPITAL 起算的净值曲线 dict {all,y10,y5,y3,y1}
-// hasFull 标记 full 数据(trades/equity_curve)是否已加载，未加载时仅 stats 可用
+// hasFull 标记 full 数据(trades/equity_curve/win_trades)是否已加载，未加载时仅 stats 可用
 function _labPairWinData(pairData, mode, win, simData) {
   const md = pairData && pairData[mode];
   if (!md) return null;
   const stats = (md.stats && md.stats[win]) || null;
   const tw = md.tw && md.tw[win];
-  const trades = (tw && md.trades) ? md.trades.slice(tw[0], tw[1]) : (md.trades || []);
-  // winBaseCp: 窗口起点"前一笔"的累计盈亏(全历史值)。交易记录里每笔 t.cp 是全历史累计，
-  // 渲染时用 (t.cp - winBaseCp) 把窗口内累计从0重算，并与上方总收益率卡片对齐。
+  // 优先读 win_trades(每窗口独立 sim 的 trades,at/cp 均从 INITIAL_CAPITAL 起算,与该窗口
+  // stats final_total/total_ret 同源同口径)。回退旧 JSON:trades 按 tw 切片 + win_base_cp 调整。
+  const wtd = md.win_trades && md.win_trades[win];
+  let trades, fromWinSim;
+  if (wtd) {
+    trades = wtd;
+    fromWinSim = true;
+  } else {
+    trades = (tw && md.trades) ? md.trades.slice(tw[0], tw[1]) : (md.trades || []);
+    fromWinSim = false;
+  }
+  // winBaseCp: 窗口起点"前一笔"的累计盈亏(全历史值)。仅旧路径(fromWinSim=false)需要:
+  // 渲染时用 (t.cp - winBaseCp) 把窗口内累计从0重算,与上方总收益率卡片对齐。
   // 优先读后端预计算的精确值(横跨交易已补 pre-window P&L，消除首条 cpVal 偏移/符号翻转)；
   // 回退现逻辑(旧 JSON 兼容)：tw[0]=0 时无前一笔 winBaseCp=0，否则取前一笔全史累计盈亏。
   let winBaseCp = 0;
-  if (md.win_base_cp && md.win_base_cp[win] != null) {
-    winBaseCp = md.win_base_cp[win];
-  } else if (tw && md.trades && tw[0] > 0) {
-    const prevTrade = md.trades[tw[0] - 1];
-    if (prevTrade && prevTrade.cp != null) winBaseCp = prevTrade.cp;
+  if (!fromWinSim) {
+    if (md.win_base_cp && md.win_base_cp[win] != null) {
+      winBaseCp = md.win_base_cp[win];
+    } else if (tw && md.trades && tw[0] > 0) {
+      const prevTrade = md.trades[tw[0] - 1];
+      if (prevTrade && prevTrade.cp != null) winBaseCp = prevTrade.cp;
+    }
   }
   // equity_curve: 新结构为 dict {all,y10,...}，旧结构为数组(全史)兼容
   const ec = md.equity_curve;
@@ -832,8 +844,8 @@ function _labPairWinData(pairData, mode, win, simData) {
   } else {
     equity_curve = [];
   }
-  const hasFull = !!md.trades || !!ec;
-  return { stats, trades, equity_curve, hasFull, winBaseCp };
+  const hasFull = !!md.trades || !!ec || !!md.win_trades;
+  return { stats, trades, equity_curve, hasFull, winBaseCp, fromWinSim };
 }
 
 // 窗口切换 tabs HTML（默认近1年：全史太密）
@@ -1610,12 +1622,15 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
   const gradId = "labSimGrad_" + mode;
   const svgHTML = _labSimSVG(winData.equity_curve, initCapital, gradId);
   const trades = winData.trades || [];
-  // winBaseCp: 窗口起点前一笔的全历史累计盈亏。把每笔 t.cp(全历史累计)减去它，
-  // 得到窗口内从0起算的累计盈亏，使交易记录与上方总收益率卡片(按窗口算)对齐。
-  // full_in 模式累计收益率分母=窗口起点账户资金(initCapital+winBaseCp)，与卡片 total_ret 一致；
-  // fixed_10k 模式每笔固定金额，分母=initCapital，与卡片一致。全历史窗口 winBaseCp=0 行为不变。
+  // 口径分两路:
+  //  fromWinSim=true(新 JSON win_trades): trades 来自窗口独立 sim,cp 已从 0 起、at 已是窗口相对
+  //   (~100k-140k 量级,与卡片 final_total 对齐)。直接用 t.cp/t.at,分母恒为 initCapital(=100k,
+  //   与卡片 total_ret=(final_total-INITIAL_CAPITAL)/INITIAL_CAPITAL 同口径)。
+  //  fromWinSim=false(旧 JSON): 走 win_base_cp 调整,cpVal=t.cp-winBaseCp(窗口内从0起算),
+  //   full_in 分母=initCapital+winBaseCp,fixed_10k 分母=initCapital。全历史窗口 winBaseCp=0 不变。
   const winBaseCp = winData.winBaseCp || 0;
-  const crDenom = mode === "full_in" ? (initCapital + winBaseCp) : initCapital;
+  const fromWinSim = !!winData.fromWinSim;
+  const crDenom = fromWinSim ? initCapital : (mode === "full_in" ? (initCapital + winBaseCp) : initCapital);
 
   // 分页
   const perPage = 20;
@@ -1634,7 +1649,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     const prev = gi > 0 ? trades[gi - 1] : null;
     const tc = t.ret > 0 ? "#c92a2a" : (t.ret < 0 ? "#2e7d32" : "#86909c");
     const hasCp = t.cp != null;
-    const cpVal = hasCp ? (t.cp - winBaseCp) : 0;         // 窗口内累计盈亏(从0起算)
+    const cpVal = hasCp ? (fromWinSim ? t.cp : (t.cp - winBaseCp)) : 0;         // 窗口内累计盈亏(从0起算)
     const crVal = crDenom > 0 ? cpVal / crDenom * 100 : 0; // 窗口内累计收益率(与卡片同口径)
     const pc = crVal >= 0 ? "#c92a2a" : "#2e7d32";
     const at = t.at != null ? Math.round(t.at).toLocaleString() : "-";
@@ -1643,7 +1658,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     // "较上次"列：本笔累计收益率/累计盈亏 - 上一笔的差值（本笔赚还是亏）。首笔显示"-"
     let deltaHTML = '<span style="color:var(--text-4)">-</span>';
     if (prev && hasCp && prev.cp != null) {
-      const prevCpVal = prev.cp - winBaseCp;
+      const prevCpVal = fromWinSim ? prev.cp : (prev.cp - winBaseCp);
       const prevCrVal = crDenom > 0 ? prevCpVal / crDenom * 100 : 0;
       const dr = crVal - prevCrVal;                         // 累计收益率差（百分点）
       const dp = cpVal - prevCpVal;                         // 累计盈亏差=本笔盈亏金额

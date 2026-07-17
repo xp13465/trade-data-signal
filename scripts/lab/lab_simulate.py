@@ -30,13 +30,17 @@
   2) lab_sim_{iid}_full.json（大，原大小）：详情/配对卡片用，按需加载
   {
     pairs: {"buy_key|sell_key": {
-      full_in:   {equity_curve:{all,y10,y5,y3,y1}, trades, tw},
-      fixed_10k: {equity_curve:{all,y10,y5,y3,y1}, trades, tw}
+      full_in:   {equity_curve:{all,y10,y5,y3,y1}, trades, tw, win_base_cp, win_trades:{all,y10,y5,y3,y1}},
+      fixed_10k: {equity_curve:{all,y10,y5,y3,y1}, trades, tw, win_base_cp, win_trades:{all,y10,y5,y3,y1}}
     }}
   }
 
   - tw: {window_key: [start_idx, end_exclusive_idx]}，指向同组 trades 数组。
   - equity_curve: {window_key: [{date,value},...]}，每窗口从 INITIAL_CAPITAL 独立起算，采样后存储。
+  - win_trades: {window_key: [{...trade},...]}，每窗口独立 sim 的 trades，at/cp 均从 INITIAL_CAPITAL
+    起算，与该窗口 stats(final_total/total_ret)同源同口径。前端详情优先读它(彻底一致)，
+    缺失时回退 trades+tw 切片+win_base_cp 调整(旧 JSON 兼容)。
+  - trades/tw/win_base_cp: 旧路径(全史 trades + 窗口切片 + 基准盈亏调整)，保留供旧前端回退。
   - 前端双向查找：给定策略A+伙伴B，若A.side=="buy"则pair_id=A+"|"+B，否则pair_id=B+"|"+A。
   - 前端先 fetch stats（秒开推荐榜+矩阵+配对卡片），点详情/弹窗时再 fetch full 合并入已缓存 stats。
 
@@ -340,6 +344,7 @@ def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
     for mode, sim_func in (('full_in', simulate_full_in), ('fixed_10k', simulate_fixed_10k)):
         win_eq = {}      # {window_key: sampled equity_curve}
         win_stats = {}
+        win_trades = {}  # {window_key: 该窗口独立 sim 的 trades(at/cp 均窗口相对,从 100k 起算)
         all_trades = None
 
         for wk, _wl, wy in WINDOW_DEFS:
@@ -364,6 +369,10 @@ def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
 
             win_eq[wk] = eq_sampled
             win_stats[wk] = stats
+            # win_trades: 每窗口独立 sim 的 trades,at/cp 均从 INITIAL_CAPITAL 起算,
+            # 与该窗口 stats(final_total/total_ret)同源同口径。前端优先读它,彻底消除
+            # "卡片=窗口独立 sim vs 交易记录=全历史切片"的口径不一致。
+            win_trades[wk] = raw['trades']
             if wk == 'all':
                 all_trades = raw['trades']
 
@@ -417,6 +426,7 @@ def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
             'trades': trades,
             'tw': tw,
             'win_base_cp': win_base_cp,
+            'win_trades': win_trades,
         }
     return out
 
@@ -521,6 +531,7 @@ def run_index(iid, iname):
                 'trades': mpv['trades'],
                 'tw': mpv['tw'],
                 'win_base_cp': mpv['win_base_cp'],
+                'win_trades': mpv['win_trades'],
             }
 
     # 写入双版（per-index 拆两文件：stats 小秒开，full 大按需）
@@ -688,6 +699,7 @@ def run_fusion_index(iid, iname):
                 'trades': mpv['trades'],
                 'tw': mpv['tw'],
                 'win_base_cp': mpv['win_base_cp'],
+                'win_trades': mpv['win_trades'],
             }
 
     out_files = [
