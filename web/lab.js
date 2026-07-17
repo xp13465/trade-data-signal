@@ -4948,7 +4948,7 @@ async function renderSignalLab() {
   // 融合信号模式 -> 渲染融合列表页（阶段一：仅元数据，不跑回测）
   if (state.labSubMode === "fusion") {
     await renderFusionLab();
-    _labSetHash("#lab");
+    _labSetHash("#lab?sub=fusion");
     _labRestoreScroll();
     return;
   }
@@ -4956,7 +4956,7 @@ async function renderSignalLab() {
   // 二次测试模式 -> 渲染二次测试实验分区（照抄融合区布局：左配对卡片+右维度榜）
   if (state.labSubMode === "retest") {
     await renderRetestLab();
-    _labSetHash("#lab");
+    _labSetHash("#lab?sub=retest");
     _labRestoreScroll();
     return;
   }
@@ -4964,7 +4964,7 @@ async function renderSignalLab() {
   // 信号叠加消融 -> 渲染消融分区（左6融合N-1子集卡片+右组件贡献柱状图）
   if (state.labSubMode === "ablation") {
     await renderAblationLab();
-    _labSetHash("#lab");
+    _labSetHash("#lab?sub=ablation");
     _labRestoreScroll();
     return;
   }
@@ -4972,7 +4972,7 @@ async function renderSignalLab() {
   // 多空对称 -> 渲染对称分区（左top8配对做多/做空卡片+右各指数对比柱状图）
   if (state.labSubMode === "symmetry") {
     await renderSymmetryLab();
-    _labSetHash("#lab");
+    _labSetHash("#lab?sub=symmetry");
     _labRestoreScroll();
     return;
   }
@@ -4980,7 +4980,7 @@ async function renderSignalLab() {
   // 参数敏感扫描 -> 渲染扫描分区（左7策略概览表+右参数网格热力图/柱状图）
   if (state.labSubMode === "paramscan") {
     await renderParamScanLab();
-    _labSetHash("#lab");
+    _labSetHash("#lab?sub=paramscan");
     _labRestoreScroll();
     return;
   }
@@ -5104,8 +5104,8 @@ async function renderSignalLab() {
     };
   });
 
-  // F5 恢复：更新 hash + 恢复滚动位置
-  _labSetHash("#lab");
+  // F5 恢复：更新 hash（含 labSubMode 保位）+ 恢复滚动位置
+  _labSetHash("#lab?sub=single");
   _labRestoreScroll();
 }
 
@@ -5148,15 +5148,28 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
   }
 });
 
-// 初始加载：读 hash 恢复 tab + 策略（lab.js 在 app.js 之后加载，renderTab 已启动）
+// 初始加载：读 hash 恢复 tab + 策略 + labSubMode（lab.js 在 app.js 之后加载，renderTab 已启动）
+// hash 格式：#lab?sub={labSubMode}（列表页保位）或 #lab/{strategyKey}（详情页）或 #lab（旧版默认 single）
 (function _labInitHashRestore() {
   const h = location.hash;
   if (!h || !h.startsWith("#lab")) return;
   _labInitialRestore = true;
   state.tab = "lab";
-  const parts = h.slice(1).split("/"); // "lab/key" -> ["lab", "key"]
+  // 分离 path 与 query：#lab?sub=fusion -> path="lab", query="sub=fusion"
+  //                     #lab/Supertrend_buy -> path="lab/Supertrend_buy", query=""
+  const qIdx = h.indexOf("?");
+  const pathPart = qIdx >= 0 ? h.slice(1, qIdx) : h.slice(1);
+  const queryPart = qIdx >= 0 ? h.slice(qIdx + 1) : "";
+  const parts = pathPart.split("/"); // "lab/key" -> ["lab", "key"]
   if (parts[1] && LAB_STRATEGIES[parts[1]]) {
     state.labStrategy = parts[1];
+  }
+  // 解析 ?sub= 恢复 labSubMode（列表页保位，避免 F5 回 single）
+  if (queryPart) {
+    const sub = new URLSearchParams(queryPart).get("sub");
+    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan"].includes(sub)) {
+      state.labSubMode = sub;
+    }
   }
   // 激活 lab tab 按钮 -> 触发 renderTab -> renderSignalLab/renderLabDetail
   setTimeout(() => {
