@@ -2934,6 +2934,7 @@ async function renderOverview() {
 async function renderMarket() {
   content.innerHTML = "";
   content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">A股/港股/全球指数走势 + 买卖点信号;🐶 汪汪队=国家队宽基ETF资金动向</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:综合技术面买卖点、资金动向、情绪指标给大盘择时信号。<b>怎么解读</b>:信号偏多=该加仓,偏空=该减仓;汪汪队ETF资金流入=国家队护盘,流出=撤退。</div>');
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
   subtabBar.className = "subtab-bar";
@@ -4188,6 +4189,7 @@ async function renderSentiment() {
   ]);
   content.innerHTML = "";
   content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">0-100情绪温度计 ≤20冰点≥80过热</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:把多项情绪指标合成0-100的温度计,量化市场冷热。<b>怎么解读</b>:≤20冰点(人人恐慌)=逆向贪婪逐步买,≥80过热(人人贪婪)=逆向恐惧准备卖。</div>');
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
@@ -5188,6 +5190,7 @@ async function renderIndustry() {
   }
   content.innerHTML = "";
   content.insertAdjacentHTML("beforeend", '<div class="tab-subtitle">轮动判断主线 + 行业/概念买卖点</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:跟踪申万一级行业和概念板块的资金流向与轮动速度。<b>怎么解读</b>:持续净流入+加速轮动=主线走强板块,可重点配置;净流出+减速=走弱该回避。</div>');
   const snap = state.intradaySnapshot;
 
   // 板块轮动速度卡片 + 申万行业热力图：1:2 grid 合并一行（左轮动卡 / 右热力图）
