@@ -3345,11 +3345,29 @@ async function renderRetestLab() {
   idxBar.innerHTML = `<span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtns}</div>`;
   leftCol.appendChild(idxBar);
 
+  // 搜索框（按策略名/条件模糊过滤配对卡片列表，大小写不敏感，照搬单一信号/融合实验左侧搜索）
+  const searchWrap = document.createElement("div");
+  searchWrap.className = "lab-fusion-search-wrap";
+  searchWrap.innerHTML = '<input type="text" class="lab-fusion-search" placeholder="搜索策略名/条件…" autocomplete="off">';
+  leftCol.appendChild(searchWrap);
+
   // 候选配对卡片列表
   const list = document.createElement("div");
   list.className = "lab-strategy-list lab-retest-list";
   list.innerHTML = '<div class="lab-rank-loading">⏳ 加载二次测试数据中…</div>';
   leftCol.appendChild(list);
+
+  // 搜索框事件：按卡片可见文本模糊过滤（大小写不敏感，匹配策略名/窗口/收益胜率回撤等条件）
+  const searchInput = searchWrap.querySelector(".lab-fusion-search");
+  const _applyRetestSearch = () => {
+    const q = searchInput.value.trim().toLowerCase();
+    const cards = list.querySelectorAll(".lab-strategy-card");
+    cards.forEach((card) => {
+      if (!q) { card.style.display = ""; return; }
+      card.style.display = card.textContent.toLowerCase().includes(q) ? "" : "none";
+    });
+  };
+  searchInput.addEventListener("input", _applyRetestSearch);
 
   // 阶段提示
   const phaseNote = document.createElement("div");
@@ -3376,6 +3394,7 @@ async function renderRetestLab() {
     const simData = await fetchLabSimData(idx);
     _labRetestRenderCards(list, rd);
     _labRetestRankRerender(rankSection, rd, simData);
+    _applyRetestSearch(); // 切指数重渲染卡片后，重新应用搜索过滤（保留搜索状态）
   };
   _load();
 
