@@ -1345,7 +1345,7 @@ function _labTriggerBrief(trigger) {
 // 渲染单个交易模式区块详情（4数字 + 净值曲线 + 折叠交易记录）
 // 区块标题由外层 _labSimSectionHTML 的 .lab-sim-strat-head 提供，此处不含 head
 // winData = {stats, trades, equity_curve}，已按当前窗口切片（_labPairWinData 产出）
-function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel) {
+function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel, midHTML) {
   const s = winData && winData.stats;
   if (!s) {
     return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
@@ -1415,6 +1415,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
   // full 数据未加载时，stats 数字可见（来自小 stats 文件），净值曲线/交易记录显示加载占位
   const detailHTML = winData.hasFull
     ? `<div class="lab-sim-equity"><div class="lab-sim-equity-label">📈 净值曲线（虚线=初始本金）</div>${svgHTML}</div>` +
+      (midHTML || "") +
       `<div class="lab-sim-trades">` +
       `<div class="lab-sim-trades-header" data-mode="${mode}">` +
       `<span class="lab-sim-trades-label">📋 交易记录 共 ${totalReal} 笔${truncNote}</span>` +
@@ -2237,18 +2238,8 @@ function _labRetestContentHTML(simData) {
 }
 
 // 单个候选配对的二次测试卡片：pair_meta + 分年 + 样本外 + 极端行情
-function _labRetestPairHTML(pk, pd) {
-  const meta = pd.pair_meta || {};
-  // 信息头
-  const headHTML = '<div class="lab-retest-pair-head">' +
-    `<span class="lab-retest-pair-strat">⭐️ ${_labRetestPairCN(meta.strategy || pk)}</span>` +
-    `<span class="lab-retest-pair-win">窗口: ${_labRetestWinCN(meta.window)}</span>` +
-    `<span>综合分: ${meta.score != null ? (meta.score * 100).toFixed(0) : "-"}</span>` +
-    `<span>交易: ${meta.n != null ? meta.n : "-"}</span>` +
-    `<span style="${_labDdColor(meta.dd)}">回撤: ${_labRetestPct(meta.dd)}</span>` +
-    `<span style="color:${_labRetestColor(meta.win)}">胜率: ${_labRetestPct(meta.win)}</span>` +
-    "</div>";
-
+// 二次测试三切片 HTML（分年 + 样本外 + 极端行情），可独立用作弹窗 midHTML 注入净值曲线与交易记录之间
+function _labRetestPairSlicesHTML(pd) {
   // ① 分年回测表
   const yearly = pd.yearly || {};
   const yKeys = Object.keys(yearly).sort();
@@ -2280,7 +2271,7 @@ function _labRetestPairHTML(pk, pd) {
       "</tr>";
   };
   const oosHTML = '<div class="lab-retest-section">' +
-    '<div class="lab-retest-section-title">② 样本外测试（前70%训练 → 后30%验证，防过拟合）</div>' +
+    '<div class="lab-retest-section-title">② 样本外测试（前70%训练 -> 后30%验证，防过拟合）</div>' +
     '<table class="lab-retest-oos"><thead><tr><th>指标</th><th>训练集 (train)</th><th>测试集 (test)</th></tr></thead>' +
     "<tbody>" + oosRow("收益率", "ret") + oosRow("胜率", "win") + oosRow("回撤", "dd") + oosRow("交易数", "n") + "</tbody>" +
     "</table></div>";
@@ -2305,7 +2296,23 @@ function _labRetestPairHTML(pk, pd) {
     '<div class="lab-retest-section-title">③ 极端行情回撤（各 regime 表现）</div>' +
     `<div class="lab-retest-regimes">${regCards}</div></div>`;
 
-  return `<div class="lab-retest-pair">${headHTML}${yearlyHTML}${oosHTML}${regimesHTML}</div>`;
+  return yearlyHTML + oosHTML + regimesHTML;
+}
+
+function _labRetestPairHTML(pk, pd) {
+  const meta = pd.pair_meta || {};
+  // 信息头
+  const headHTML = '<div class="lab-retest-pair-head">' +
+    `<span class="lab-retest-pair-strat">⭐️ ${_labRetestPairCN(meta.strategy || pk)}</span>` +
+    `<span class="lab-retest-pair-win">窗口: ${_labRetestWinCN(meta.window)}</span>` +
+    `<span>综合分: ${meta.score != null ? (meta.score * 100).toFixed(0) : "-"}</span>` +
+    `<span>交易: ${meta.n != null ? meta.n : "-"}</span>` +
+    `<span style="${_labDdColor(meta.dd)}">回撤: ${_labRetestPct(meta.dd)}</span>` +
+    `<span style="color:${_labRetestColor(meta.win)}">胜率: ${_labRetestPct(meta.win)}</span>` +
+    "</div>";
+
+
+  return `<div class="lab-retest-pair">${headHTML}${_labRetestPairSlicesHTML(pd)}</div>`;
 }
 
 // 结果区(数量提示+列表+更多按钮)：聚合后用 state.labRankRows，过滤->排序->分页。过滤输入时只刷新本区，不重建过滤面板(保焦点)。
@@ -3328,21 +3335,19 @@ async function _labRetestPairModalRender(overlay) {
       '</div></div>';
     // 5窗口切换器（近1年/近3年/近5年/近10年/全史）
     const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labRetestModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
-    detailHTML = modeBar + winBar + _labSimModeBlock(mode, winData, initCapital, m.page, m.open);
+    // 用法说明（点4）：提示用户可切换窗口与模式查看不同条件战绩
+    const switchHint = '<div class="lab-retest-modal-switch-hint">💡 可切换时间窗口和买卖模式，查看该策略在不同条件下的战绩</div>';
+    // 二次测试三切片（点5）：按当前买卖模式选数据源(full_in=top-level, fixed_10k=pd.fixed_10k)，注入净值曲线与交易记录之间
+    const sliceData = mode === "fixed_10k" ? (pd && pd.fixed_10k ? pd.fixed_10k : pd) : pd;
+    const slicesHTML = sliceData ? _labRetestPairSlicesHTML(sliceData) : "";
+    detailHTML = modeBar + winBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, null, null, slicesHTML);
   }
-
-  // 下半部分：二次测试三切片（保留原有判定强化：分年/样本外/极端行情）
-  const retestHTML = pd ? _labRetestPairHTML(m.pk, pd) : '<div class="lab-rank-modal-empty">暂无二次测试数据</div>';
 
   const bodyHTML =
     `<div class="lab-retest-modal-section">` +
     `<div class="lab-retest-modal-section-title">📊 整体回测详情 · 买${buyName} × 卖${sellName} · ${modeName}（${winLabel}）</div>` +
-    `<div class="lab-retest-modal-hint">该配对的标准回测（4数字结论 + 净值曲线 + 交易记录），即原有判定标准。</div>` +
+    `<div class="lab-retest-modal-hint">4数字结论 + 净值曲线 + 二次测试三切片（分年/样本外/极端行情）+ 交易记录，原有判定标准与稳健性强化一并展示。</div>` +
     detailHTML +
-    `</div>` +
-    `<div class="lab-retest-modal-section">` +
-    `<div class="lab-retest-modal-section-title">🔬 二次测试（在此之上的强化：分年 / 样本外 / 极端行情）</div>` +
-    retestHTML +
     `</div>`;
 
   const body = overlay.querySelector(".lab-signal-modal-body");
