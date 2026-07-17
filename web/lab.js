@@ -3019,6 +3019,10 @@ async function renderFusionLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = _labFusionEssayHTML();
+  const purposeNote = document.createElement("div");
+  purposeNote.className = "lab-purpose-note";
+  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：把多个信号同日共振组合成融合策略回测--看组合共振是否比单信号更准、更能过滤假信号。<b>怎么解读</b>：融合卡显示组成条件和触发逻辑；点击看配对回测（买×卖）或同向共振回测的胜率/收益/5窗口。融合优于单一=共振有效，否则多信号没带来增量。";
+  leftCol.appendChild(purposeNote);
   leftCol.appendChild(essayWarn);
 
   // 分区 tab
@@ -3642,6 +3646,10 @@ async function renderRetestLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = `<p>${_LAB_RETEST_RULE}</p>`;
+  const purposeNote = document.createElement("div");
+  purposeNote.className = "lab-purpose-note";
+  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：对配对策略做分年/样本外/极端行情三套稳健性检验--防止策略只在某段行情碰巧赚钱(过拟合)，换个时段就失效。<b>怎么解读</b>：分年回测看各年是否都盈利；样本外看未参与调参的区间表现；极端行情看暴跌暴涨时是否扛得住。三套都稳定=策略稳健，某套崩=过拟合风险。";
+  leftCol.appendChild(purposeNote);
   leftCol.appendChild(essayWarn);
 
   // 指数选择器（复用 LAB_SIM_INDEXES，代替融合的 zone-tabs）
@@ -4787,16 +4795,15 @@ function _labParamScanOverviewHTML(data, idx) {
   const rows = scans.map((s) => {
     const pi = s.per_index.find((x) => x.index_id === idx);
     if (!pi) return "";
-    const vColor = pi.verdict === "robust_profitable" ? _UP : _DOWN;
     const vLabel = pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰";
-    const vCls = pi.verdict === "robust_profitable" ? "lab-tag-live" : "lab-tag-excluded";
+    const vCls = pi.verdict === "robust_profitable" ? "lab-tag-verdict-good" : "lab-tag-verdict-bad";
     const name = ((LAB_STRATEGIES[s.strategy_key] || {}).name) || s.strategy_key;
     return `<tr><td style="font-weight:600">${name}</td>` +
       `<td style="color:${_retFg(pi.default_ret)}">${fmt(pi.default_ret)}</td>` +
       `<td style="color:${_retFg(pi.best_ret)}">${fmt(pi.best_ret)}</td>` +
       `<td>${pi.neighbor_avg_ret != null ? pi.neighbor_avg_ret.toFixed(1) + "%" : "-"}</td>` +
       `<td>${(pi.profitable_frac * 100).toFixed(0)}%</td>` +
-      `<td><span class="lab-tag ${vCls}" style="color:${vColor}">${vLabel}</span></td></tr>`;
+      `<td><span class="lab-tag ${vCls}">${vLabel}</span></td></tr>`;
   }).join("");
   return `<div class="lab-retest-pair lab-paramscan-overview"><div class="lab-retest-section">` +
     `<div class="lab-retest-section-title">7策略参数扫描概览（指数 ${idx}）</div>` +
@@ -4948,6 +4955,9 @@ async function renderSignalLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = _labWarningEssayHTML();
+  const purposeNote = document.createElement("div");
+  purposeNote.className = "lab-purpose-note";
+  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：逐个测试每条买卖信号单独触发的效果--看哪个信号真有用、胜率收益如何，点进卡片还能看配对回测的净值曲线和交易记录。<b>怎么解读</b>：卡片摘要的10d胜率/PL是单边统计（信号触发后10日涨跌占比）；点进详情的模拟回测才是真实配对交易（买×卖配对算净值）。胜率高+PL为正=信号有效。";
 
   // 预加载回测数据（用于卡片摘要）
   const data = await fetchLabData();
@@ -4968,6 +4978,7 @@ async function renderSignalLab() {
     btn.onclick = () => { state.labZone = z.key; renderSignalLab(); };
     zoneTabs.appendChild(btn);
   });
+  leftCol.appendChild(purposeNote);
   leftCol.appendChild(essayWarn);
   leftCol.appendChild(zoneTabs);
 

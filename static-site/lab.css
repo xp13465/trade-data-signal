@@ -142,6 +142,9 @@
 .lab-tag-exp { background: #f3e5f5; color: #9c27b0; border: 1px solid #e1bee7; }
 .lab-tag-dev { background: var(--bg-hover); color: var(--text-3); border: 1px solid var(--border-strong); }
 .lab-tag-excluded { background: #fbe9e7; color: #bf360c; border: 1px solid #ffccbc; }
+/* 参数扫描判定栏 verdict 标签（3皮肤适配，复用 mx- 变量替代硬编码底色）*/
+.lab-tag-verdict-good { background: var(--mx-good-bg); color: var(--mx-good-fg); border: 1px solid var(--mx-good-bg); }
+.lab-tag-verdict-bad  { background: var(--mx-bad-bg);  color: var(--mx-bad-fg);  border: 1px solid var(--mx-bad-bg); }
 .lab-tag-side {
   display: inline-block;
   padding: 2px 8px;
