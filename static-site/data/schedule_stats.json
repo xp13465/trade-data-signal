@@ -30,10 +30,10 @@
     "task": "futures_backfill",
     "name": "期货机构持仓",
     "schedule": "20:05 + 21:00(兜底)",
-    "est_text": "约22秒",
-    "last_run": "2026-07-17 20:05",
+    "est_text": "约23秒",
+    "last_run": "2026-07-17 21:00",
     "last_exit": 0,
-    "last_duration_sec": 25
+    "last_duration_sec": 26
   },
   {
     "task": "lhb_backfill",
@@ -58,7 +58,7 @@
     "name": "ETF国家队",
     "schedule": "20:07 + 21:30(兜底)",
     "est_text": "约2分钟",
-    "last_run": "2026-07-17 20:07",
+    "last_run": "2026-07-17 21:30",
     "last_exit": 0,
     "last_duration_sec": 191
   }
