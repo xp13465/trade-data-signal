@@ -699,6 +699,8 @@
 .lab-signal-period-btn.active { background: #9c27b0; color: #fff; border-color: #9c27b0; }
 .lab-signal-legend { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
 .lab-signal-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 2px 0 6px; }
+.lab-fusion-chart-legend { font-size: 12px; color: var(--text-2); display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 2px 0 8px; }
+.lab-fusion-chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
 .lab-signal-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
 .lab-signal-tab {
   padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px;

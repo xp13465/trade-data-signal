@@ -1198,49 +1198,82 @@ function _labComponentDateSet(key, ohlc) {
   return LAB_CHART_KEYS[key] ? _labSignalDateSet(key, ohlc) : _labFusionFilterDateSet(key, ohlc);
 }
 
-// 构建融合 AND 信号图配置：取各成分条件触发日期的交集 = 融合信号点，指标线复用主信号(baseKey)
-// components: 成分条件英文 key 数组（6硬编码从 fusion_meta.components 取，buy_buy/sell_sell 候选为 [_buyKey,_sellKey]）
-// buy_sell 候选无AND融合语义，返回 null（前端回退 chartBaseKey 代理）
+// 构建融合信号图配置（91候选 A/A/A 方案：合并双策略指标 indMap 去重 + 双色信号点）
+// - 91候选(buy_sell/buy_buy/sell_sell)：复用 _labSignalOpenModal 的 indMap 去重 + 双色信号逻辑，
+//   两成分策略指标按 name 去重合并、信号按 side 着色（买红/卖绿，同侧第二成分用区分色），不再 buy_sell return null
+// - 6硬编码：保留 AND 共振（主信号 baseKey 指标 + 交集信号单色），有独立融合语义
+// components: 成分条件英文 key 数组（6硬编码从 fusion_meta.components 取）
 function _labBuildFusionChartConfig(meta, ohlc, idxName, isHardcoded, components) {
-  let compKeys, baseKey, fmeta, side;
   if (isHardcoded) {
-    compKeys = components || FUSION_HARDCODED_COMPONENTS[meta._fusionKey];
-    baseKey = FUSION_CHART_BASE[meta._fusionKey];
-    fmeta = LAB_FUSION_STRATEGIES[meta._fusionKey] || meta;
-    side = fmeta.side;
-  } else {
-    const pt = meta._pairType;
-    if (pt === 'buy_sell') return null; // 无AND融合，回退 chartBaseKey
-    compKeys = components || [meta._buyKey, meta._sellKey];
-    baseKey = meta._buyKey;
-    fmeta = meta;
-    side = meta.side;
+    const compKeys = components || FUSION_HARDCODED_COMPONENTS[meta._fusionKey];
+    const baseKey = FUSION_CHART_BASE[meta._fusionKey];
+    const fmeta = LAB_FUSION_STRATEGIES[meta._fusionKey] || meta;
+    const side = fmeta.side;
+    if (!compKeys || !baseKey || !LAB_CHART_KEYS[baseKey]) return null;
+    const baseCfg = _labBuildChartConfig(baseKey, ohlc, idxName);
+    if (!baseCfg) return null;
+    // 各成分触发日期 Set，取 AND 交集
+    const sets = [];
+    for (const k of compKeys) {
+      const s = _labComponentDateSet(k, ohlc);
+      if (!s) return null;
+      sets.push(s);
+    }
+    let fusion = sets[0];
+    for (let i = 1; i < sets.length; i++) {
+      const next = new Set();
+      fusion.forEach((d) => { if (sets[i].has(d)) next.add(d); });
+      fusion = next;
+    }
+    const signals = ohlc.filter((d) => fusion.has(d.date)).map((d) => ({ date: d.date, close: d.close }));
+    const isBuy = side === 'buy';
+    return {
+      indicators: baseCfg.indicators,
+      signals,
+      signalLabel: fmeta.name || '融合信号',
+      signalColor: isBuy ? '#2e7d32' : '#9c27b0',
+      chartTitle: `${idxName} · ${fmeta.name || '融合信号'}（AND共振）`,
+      statLabel: isBuy ? '融合买点' : '融合卖点',
+    };
   }
-  if (!compKeys || !baseKey || !LAB_CHART_KEYS[baseKey]) return null;
-  const baseCfg = _labBuildChartConfig(baseKey, ohlc, idxName);
-  if (!baseCfg) return null;
-  // 各成分触发日期 Set，取 AND 交集
-  const sets = [];
-  for (const k of compKeys) {
-    const s = _labComponentDateSet(k, ohlc);
-    if (!s) return null;
-    sets.push(s);
-  }
-  let fusion = sets[0];
-  for (let i = 1; i < sets.length; i++) {
-    const next = new Set();
-    fusion.forEach((d) => { if (sets[i].has(d)) next.add(d); });
-    fusion = next;
-  }
-  const signals = ohlc.filter((d) => fusion.has(d.date)).map((d) => ({ date: d.date, close: d.close }));
-  const isBuy = side === 'buy';
+  // 91候选：合并双策略指标(indMap 去重) + 双色信号（复用 _labSignalOpenModal 合并逻辑）
+  const pt = meta._pairType;
+  const k1 = meta._buyKey, k2 = meta._sellKey;
+  if (!k1 || !k2) return null;
+  const cfg1 = LAB_CHART_KEYS[k1] ? _labBuildChartConfig(k1, ohlc, idxName) : null;
+  const cfg2 = LAB_CHART_KEYS[k2] ? _labBuildChartConfig(k2, ohlc, idxName) : null;
+  if (!cfg1 && !cfg2) return null;
+  // 合并指标线（按 name 去重，避免 BB 双轨/MA 重复绘制）
+  const indMap = new Map();
+  [cfg1, cfg2].forEach((cfg) => {
+    if (!cfg) return;
+    cfg.indicators.forEach((it) => { if (!indMap.has(it.name)) indMap.set(it.name, it); });
+  });
+  const indicators = Array.from(indMap.values());
+  // 双色信号：按成分策略 side 着色，同侧第二成分用区分色（买红/卖绿，第二买橙/第二卖紫）
+  const s1Meta = LAB_STRATEGIES[k1] || {}, s2Meta = LAB_STRATEGIES[k2] || {};
+  const side1 = s1Meta.side, side2 = s2Meta.side;
+  const name1 = s1Meta.name || k1, name2 = s2Meta.name || k2;
+  const BUY_C = '#c92a2a', SELL_C = '#2e7d32', BUY_C2 = '#f0883e', SELL_C2 = '#9c27b0';
+  const color1 = side1 === 'sell' ? SELL_C : BUY_C;
+  const color2 = (side2 !== side1)
+    ? (side2 === 'sell' ? SELL_C : BUY_C)
+    : (side2 === 'sell' ? SELL_C2 : BUY_C2);
+  const sigs1 = ((cfg1 && cfg1.signals) || []).map((s) => ({ date: s.date, close: s.close, color: color1, label: name1 }));
+  const sigs2 = ((cfg2 && cfg2.signals) || []).map((s) => ({ date: s.date, close: s.close, color: color2, label: name2 }));
+  const signals = sigs1.concat(sigs2).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const typeLabel = pt === 'buy_sell' ? '配对' : (pt === 'buy_buy' ? '双买共振' : '双卖共振');
   return {
-    indicators: baseCfg.indicators,
+    indicators,
     signals,
-    signalLabel: fmeta.name || '融合信号',
-    signalColor: isBuy ? '#2e7d32' : '#9c27b0',
-    chartTitle: `${idxName} · ${fmeta.name || '融合信号'}（AND共振）`,
-    statLabel: isBuy ? '融合买点' : '融合卖点',
+    signalLabel: '成分信号',
+    signalColor: color1,
+    chartTitle: `${idxName} · ${name1} × ${name2}（${typeLabel}·成分策略合并）`,
+    statLabel: '成分策略信号',
+    signalParts: [
+      { label: name1, color: color1 },
+      { label: name2, color: color2 },
+    ],
   };
 }
 
@@ -4059,14 +4092,14 @@ async function _labFusionPairModalRender(overlay) {
     ? `<div class="lab-sim-signal-btn-wrap"><button type="button" class="lab-sim-signal-btn" data-buy="${sigBuyKey}" data-sell="${sigSellKey}">📊 查看买卖信号</button></div>`
     : "";
 
-  // 信号图（方向B：融合AND信号图，取各成分条件触发日期交集=融合信号点；buy_sell候选无AND语义回退chartBaseKey代理）
+  // 信号图（91候选 A/A/A：合并双策略指标 + 双色信号点；6硬编码 AND共振；失败回退 chartBaseKey 代理）
   let chartSectionHTML = "";
   let chartCfg = null, chartSliced = null;
   if (chartData && chartData.ohlc && chartData.ohlc.length) {
     const idxName = _INDEX_NAME_MAP[m.index] || m.index;
     const components = fmInfo ? fmInfo.components : null;
     chartCfg = _labBuildFusionChartConfig(meta, chartData.ohlc, idxName, isHardcoded, components);
-    let chartTitleSuffix = "（AND共振）";
+    let chartTitleSuffix = isHardcoded ? "（AND共振）" : "（成分策略合并）";
     if (!chartCfg && chartBaseKey && LAB_CHART_KEYS[chartBaseKey]) {
       chartCfg = _labBuildChartConfig(chartBaseKey, chartData.ohlc, idxName);
       chartTitleSuffix = "（基础策略「" + chartBaseName + "」代理）";
@@ -4074,16 +4107,47 @@ async function _labFusionPairModalRender(overlay) {
     if (chartCfg) {
       chartSliced = _labChartSlice(chartData.ohlc, chartCfg.indicators, chartCfg.signals, win);
       const cWinLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
+      // 触发统计：双色信号按成分分色计数，单色(6硬编码/代理)回退总数
+      let statHTML;
+      if (chartCfg.signalParts) {
+        const parts = chartCfg.signalParts.map((p) => {
+          const cnt = chartSliced.signals.filter((s) => s.color === p.color).length;
+          return `<b style="color:${p.color}">${p.label} ${cnt}</b>`;
+        });
+        statHTML = '<div class="lab-signal-stat">' + parts.join(' · ') + `（${cWinLabel}）</div>`;
+      } else {
+        statHTML = '<div class="lab-signal-stat">共触发 <b>' + chartSliced.signals.length + '</b> 个' + chartCfg.statLabel + '（' + cWinLabel + '）</div>';
+      }
+      // 双色图例（仅成分合并图）
+      const legendHTML = chartCfg.signalParts
+        ? '<div class="lab-fusion-chart-legend">' + chartCfg.signalParts.map((p) => `<span><i style="background:${p.color}"></i>${p.label}</span>`).join('') + '</div>'
+        : '';
       chartSectionHTML = '<div class="chart-card lab-chart-section">' +
         '<h3>📈 信号图' + chartTitleSuffix + '</h3>' +
+        legendHTML +
         '<div class="lab-fusion-chart-ph"><div class="loading">加载中…</div></div>' +
-        '<div class="lab-signal-stat">共触发 <b>' + chartSliced.signals.length + '</b> 个' + chartCfg.statLabel + '（' + cWinLabel + '）</div>' +
+        statHTML +
         '</div>';
     } else {
       chartSectionHTML = '<div class="chart-card lab-chart-section"><h3>📈 信号图</h3><div class="empty-note">该融合策略暂不支持信号图</div></div>';
     }
   } else {
     chartSectionHTML = '<div class="chart-card lab-chart-section"><h3>📈 信号图</h3><div class="empty-note">该指数暂无数据</div></div>';
+  }
+  // 指标释义折叠（对齐单一信号 renderLabDetail @2007：合并两成分策略的指标白话释义，点击展开）
+  let indExplainHTML = "";
+  if (!isHardcoded && meta._pairType) {
+    const _ik1 = LAB_STRATEGY_INDICATORS[meta._buyKey] || [];
+    const _ik2 = LAB_STRATEGY_INDICATORS[meta._sellKey] || [];
+    const _mergedKeys = [];
+    _ik1.concat(_ik2).forEach((k) => { if (_mergedKeys.indexOf(k) < 0) _mergedKeys.push(k); });
+    const _indItems = _mergedKeys.map((k) => LAB_INDICATOR_PLAIN[k]).filter(Boolean);
+    if (_indItems.length) {
+      indExplainHTML = '<div class="chart-card"><details class="indicator-explain"><summary>📖 指标释义（这些指标怎么看？）</summary>' +
+        '<div class="indicator-explain-body">' +
+        _indItems.map((it) => `<div><b>${it.name}</b>：${it.plain}</div>`).join("") +
+        '</div></details></div>';
+    }
   }
 
   // 多周期回测矩阵（融合策略自己的矩阵，lab_backtest_fusion_{idx}.json，97候选5窗口×4horizon）
@@ -4112,7 +4176,7 @@ async function _labFusionPairModalRender(overlay) {
 
   let bodyHTML;
   if (!pair) {
-    bodyHTML = essayHTML + descHTML + winBar + filterHTML + chartSectionHTML + matrixSectionHTML +
+    bodyHTML = essayHTML + descHTML + winBar + filterHTML + chartSectionHTML + indExplainHTML + matrixSectionHTML +
       `<div class="lab-rank-modal-empty">暂无回测数据<br>` +
       `<span style="font-size:12px">融合策略 ${pairId} 在 ${_INDEX_NAME_MAP[m.index] || m.index} 未找到回测结果。</span></div>`;
   } else {
@@ -4191,7 +4255,7 @@ async function _labFusionPairModalRender(overlay) {
         detailHTML = modeBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, signalBtnHTML);
       }
     }
-    bodyHTML = essayHTML + descHTML + winBar + filterHTML + chartSectionHTML + matrixSectionHTML + detailHTML;
+    bodyHTML = essayHTML + descHTML + winBar + filterHTML + chartSectionHTML + indExplainHTML + matrixSectionHTML + detailHTML;
   }
 
   // 释放上一次渲染的 echarts 实例（re-render 时避免内存泄漏；放在 await 之后，旧图表在数据加载期间保持可见）
