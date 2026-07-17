@@ -2021,33 +2021,22 @@ async function renderLabDetail(key, container) {
       `<button type="button" class="lab-win-sync-btn" data-tip="开启后实验图表窗口跟随模拟回测窗口联动" style="margin-left:6px;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:${state.labWinSync ? "var(--bg-hover)" : "var(--bg-card)"};color:${state.labWinSync ? "var(--text-1)" : "var(--text-3)"};font-size:12px;cursor:pointer;white-space:nowrap;${state.labWinSync ? "font-weight:600;" : ""}">🔗 同步${state.labWinSync ? "✓" : ""}</button>`;
     chartSection.appendChild(winBar);
 
-    // 指数选择器（实验策略共用）
-    const filterBar = document.createElement("div");
-    filterBar.className = "filter-bar";
-    const label = document.createElement("label");
-    label.textContent = "选择指数";
-    filterBar.appendChild(label);
-    const select = document.createElement("select");
-    const groups = [
+    // 指数选择器（实验策略共用，按钮组对齐时间窗口样式，与融合弹窗一致）
+    const idxGroups = [
       ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50"]],
       ["港股", ["hsi", "hscei", "hstech"]],
       ["美股", ["us_dji", "us_ixic", "us_spx", "us_ndx"]],
       ["红利/低波", ["div_lowvol", "csi_div", "sz_div"]],
     ];
-    groups.forEach(([gname, ids]) => {
-      const og = document.createElement("optgroup");
-      og.label = gname;
-      ids.forEach((id) => {
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = _INDEX_NAME_MAP[id] || id;
-        if (id === state.labIndex) opt.selected = true;
-        og.appendChild(opt);
-      });
-      select.appendChild(og);
+    const idxBtnsHTML = idxGroups.map(([gname, ids]) =>
+      ids.map((id) => `<button type="button" class="lab-idx-tab${id === state.labIndex ? " active" : ""}" data-lidx="${id}">${_INDEX_NAME_MAP[id] || id}</button>`).join("")
+    ).join("");
+    const filterBar = document.createElement("div");
+    filterBar.className = "lab-win-bar";
+    filterBar.innerHTML = `<span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtnsHTML}</div>`;
+    filterBar.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+      btn.onclick = () => { state.labIndex = btn.dataset.lidx; renderLabDetail(key, container); };
     });
-    select.onchange = () => { state.labIndex = select.value; renderLabDetail(key, container); };
-    filterBar.appendChild(select);
     chartSection.appendChild(filterBar);
 
     const chartDiv = document.createElement("div");
@@ -2686,7 +2675,7 @@ function _labRankModalRender(overlay, simData) {
       '</div></div>';
     const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
     const switchHint = '<div class="lab-retest-modal-switch-hint">💡 可切换时间窗口和买卖模式，查看该策略在不同条件下的战绩</div>';
-    bodyHTML = modeBar + winBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open);
+    bodyHTML = modeBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open);
   }
   overlay.innerHTML = `<div class="lab-rank-modal">` +
     `<div class="lab-rank-modal-head">` +
@@ -3724,7 +3713,7 @@ async function _labRetestPairModalRender(overlay) {
     // 二次测试三切片（点5）：按当前买卖模式选数据源(full_in=top-level, fixed_10k=pd.fixed_10k)，注入净值曲线与交易记录之间
     const sliceData = mode === "fixed_10k" ? (pd && pd.fixed_10k ? pd.fixed_10k : pd) : pd;
     const slicesHTML = sliceData ? _labRetestPairSlicesHTML(sliceData) : "";
-    detailHTML = modeBar + winBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, null, null, slicesHTML);
+    detailHTML = modeBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, null, null, slicesHTML);
   }
 
   const bodyHTML =
@@ -3980,9 +3969,20 @@ async function _labFusionPairModalRender(overlay) {
   const [simData, chartData, fusionMatrixData] = await Promise.all([simDataP, chartDataP, fusionMatrixP]);
   if (m._gen !== myGen) return; // stale render
 
+  // 异步加载 full 数据（trades/equity_curve），加载完成后重渲染显示交易记录
+  // 对齐单一弹窗 renderSimCard 的分阶段加载：stats 秒开（显收益率）→ full 到账后补净值曲线/交易记录
+  if (!_labSimFusionFullLoaded(m.index)) {
+    fetchLabFusionSimFullData(m.index).then(() => {
+      if (m._gen === myGen) _labFusionPairModalRender(overlay);
+    }).catch(() => {});
+  }
+
   // Bug-C：加载 fusion_stats（91对 + 6硬编码），非单信号 stats（64对）
   const pair = simData && simData.pairs ? simData.pairs[pairId] : null;
   const initCapital = (simData && simData.initial_capital) || 100000;
+
+  // 时间窗口（对齐单一信号弹窗：指数选择上方显示时间窗口切换条，切换重渲染）
+  const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
 
   // 指数选择器（融合候选为A股策略，可切指数查看同配对不同指数回测）
   // 对齐单一信号弹窗：用按钮组(.lab-idx-tab)而非下拉框，与时间窗口/买卖模式切换交互一致
@@ -4061,17 +4061,16 @@ async function _labFusionPairModalRender(overlay) {
 
   let bodyHTML;
   if (!pair) {
-    bodyHTML = essayHTML + descHTML + filterHTML + chartSectionHTML + matrixSectionHTML +
+    bodyHTML = essayHTML + descHTML + winBar + filterHTML + chartSectionHTML + matrixSectionHTML +
       `<div class="lab-rank-modal-empty">暂无回测数据<br>` +
       `<span style="font-size:12px">融合策略 ${pairId} 在 ${_INDEX_NAME_MAP[m.index] || m.index} 未找到回测结果。</span></div>`;
   } else {
-    // modeBar/winBar/switchHint（三区一致）
+    // modeBar/switchHint（winBar 已提到指数选择上方，对齐单一信号弹窗）
     const modeBar = '<div class="lab-win-bar"><span class="lab-win-bar-label">买卖模式</span>' +
       '<div class="lab-win-tabs">' +
       `<button type="button" class="lab-win-tab${mode === "full_in" ? " active" : ""}" data-mode="full_in">全仓</button>` +
       `<button type="button" class="lab-win-tab${mode === "fixed_10k" ? " active" : ""}" data-mode="fixed_10k">定额（10%）</button>` +
       '</div></div>';
-    const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
     const switchHint = '<div class="lab-retest-modal-switch-hint">💡 可切换时间窗口和买卖模式，查看该策略在不同条件下的战绩</div>';
 
     // 6硬编码：F_xxx × 8 partner 配对卡片列表 + 点卡片切换（m.pair 局部管理，防与单一弹窗全局state冲突）
@@ -4120,28 +4119,28 @@ async function _labFusionPairModalRender(overlay) {
       const winData = _labPairWinData(curPairData, mode, win, simData);
       const curPairLabel = ((LAB_STRATEGIES[curBuyKey] || {}).name || curBuyKey) + " × " + ((LAB_STRATEGIES[curSellKey] || {}).name || curSellKey);
       if (!winData || !winData.stats) {
-        detailHTML = modeBar + winBar + switchHint + pairListHTML + '<div class="lab-sim-empty">该配对无交易数据</div>';
+        detailHTML = modeBar + switchHint + pairListHTML + '<div class="lab-sim-empty">该配对无交易数据</div>';
       } else {
         const trades = winData.trades || [];
         const totalPages = Math.max(1, Math.ceil(trades.length / 20));
         if (m.page > totalPages - 1) m.page = totalPages - 1;
         if (m.page < 0) m.page = 0;
-        detailHTML = modeBar + winBar + switchHint + pairListHTML + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, signalBtnHTML, curPairLabel);
+        detailHTML = modeBar + switchHint + pairListHTML + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, signalBtnHTML, curPairLabel);
       }
     } else {
       // 91候选：本身是配对结果，无配对切换
       const winData = _labPairWinData(pair, mode, win, simData);
       if (!winData || !winData.stats) {
-        detailHTML = modeBar + winBar + switchHint + `<div class="lab-rank-modal-empty">该融合策略在 ${_INDEX_NAME_MAP[m.index] || m.index} 无交易数据</div>`;
+        detailHTML = modeBar + switchHint + `<div class="lab-rank-modal-empty">该融合策略在 ${_INDEX_NAME_MAP[m.index] || m.index} 无交易数据</div>`;
       } else {
         const trades = winData.trades || [];
         const totalPages = Math.max(1, Math.ceil(trades.length / 20));
         if (m.page > totalPages - 1) m.page = totalPages - 1;
         if (m.page < 0) m.page = 0;
-        detailHTML = modeBar + winBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, signalBtnHTML);
+        detailHTML = modeBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, signalBtnHTML);
       }
     }
-    bodyHTML = essayHTML + descHTML + filterHTML + chartSectionHTML + matrixSectionHTML + detailHTML;
+    bodyHTML = essayHTML + descHTML + winBar + filterHTML + chartSectionHTML + matrixSectionHTML + detailHTML;
   }
 
   // 释放上一次渲染的 echarts 实例（re-render 时避免内存泄漏；放在 await 之后，旧图表在数据加载期间保持可见）
