@@ -409,6 +409,11 @@ def verify_and_backfill_indices(date, verbose=True):
     ]
     from . import fetchers as _fetchers_mod
     from datetime import datetime as _dt, timedelta as _td
+    # 港股段 backfill 用：upsert_index_rows 在上方核心A股/申万/概念三段的 else
+    # 分支内延迟 import，当前三段全齐全(走 if not missing 不进 else)时那些
+    # import 不执行，upsert_index_rows 作为本函数局部变量从未绑定，448 行调用
+    # 会 UnboundLocalError。这里补一次 import 保证无论前三段是否齐全都已绑定。
+    from .runner import upsert_index_rows
     cfg = _fetchers_mod.load_config()
     idx_cfg_map = {i["id"]: i for i in cfg.get("indices", []) if i.get("enabled", True)}
     for idx_id, _sym, require_today in HK_GLOBAL_INDICES:
