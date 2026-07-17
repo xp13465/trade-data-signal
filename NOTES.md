@@ -1713,3 +1713,15 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **修复**：港股段补一处 `import` 保证名字绑定；backfill 退出码 1 -> 0，执行统计 ⚠️ 自动消失。
 - **教训**：函数内条件分支里的延迟 import + 同名函数调用 = UnboundLocalError 陷阱；后续补采逻辑改动需保持 import 在每个调用路径前都已执行。
 
+### 8. retest 进入判定收紧（2026-07-17，全仓三窗口 dd≤10%+n≥10+OR，已上线）
+
+**retest 进入判定收紧：全仓三窗口 dd≤10%+n≥10+保留OR收益**（commits d07809b 后端 + 3e5125b 前端 + d11906a deploy）
+
+- **背景**：用户质疑原判定 dd≤50%（腰斩都进）+OR 结构松+后端只看 y5 单窗口。数据验证：全仓 dd≤10% 筛 39% 激进策略（81/210），定额模式 dd 几乎都 ≤10%（206/210 门槛失效），yearly 无 y3/y1 滚动切片需后端改造。
+- **用户决策**（AskUserQuestion 全选推荐）：全仓 dd≤10% + 后端加 y3/y1 切片（多窗口最严）+ n≥10 + 保留 OR 收益结构。
+- **新判定规则**：`y5_dd≤10% && y3_dd≤10% && y1_dd≤10% && n≥10 && [(score≥0.6&&n≥30) || win≥55 || risk_adj≥1.0]`。近 5/3/1 年三窗口最大回撤均 ≤10%（多窗口最严）+样本量 n≥10+收益 OR 三分支任一。score/win/dd/n/ret 取 y5 全仓 pair_meta。risk_adj=ret/dd。
+- **后端 lab_retest.py**（d07809b）：`_compute_y5_stats` -> 通用 `_compute_window_stats(df,...,window_years,sim_func)` 用 w_start=last_date-N 年重跑 simulate（非截取 equity_curve，保证 trades/equity_curve/stats 自洽）；新增 `_fmt_window_stats`；`_is_star_candidate(score,windows)` 改三窗口 dd 判定+n≥10+保留 OR；`run_retest_for_index` 第一趟算 y5/y3/y1 三窗口，pair_meta 新增 `windows:{y5,y3,y1}` 字段（向后兼容，top-level y5 的 score/n/dd/win/ret 保留不变）。
+- **重跑结果**：9 指数 41 pairs（原 210，收紧 80.5%），规则违规 0，耗时 2.4s。3 指数 <3：cyb=1/bj50=2/sz50=2（这些指数波动大/历史短，多窗口 ≤10% 极严的自然结果；若上线后觉得 cyb 太少可调「三窗口」放宽为「两窗口」或「最差 ≤15%」）。各指数：sh=4/sz=4/cyb=1/kc50=10/bj50=2/sz50=2/hs300=3/csi500=8/csi1000=7。
+- **前端双版 lab.js**（3e5125b）：3 处规则文案更新（title@2234/横幅@2269/_LAB_RETEST_RULE@2277）为三窗口 dd≤10%+n≥10+OR；⭐️徽章判定改方案 A（查 retest JSON 存在性，retestSet.has(buyKey|sellKey)），与后端必然一致，修旧「按选中窗口 state.labSimWindow 动态算」的不一致 bug；`_loadRank`@2894/3921 预加载 retest JSON（单信号+融合）。双版 diff=10（5URL×2）IDENTICAL。
+- **上线**：build_min（lab.min.js 130KB -38.5%）+bump_asset_version（版本号 f2cbefda）+deploy.sh（d11906a 推 data+min JS）。
+
