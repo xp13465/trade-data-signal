@@ -822,6 +822,13 @@ function _labWinTabsHTML() {
   ).join("") + "</div>";
 }
 
+// 弹窗内窗口切换 tabs（接收当前 win 参数，独立于全局 state.labSimWindow；单一信号/融合弹窗三区一致复用）
+function _labModalWinTabsHTML(win) {
+  return '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
+    `<button type="button" class="lab-win-tab${w.k === win ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
+  ).join("") + "</div>";
+}
+
 // 有图表实现的策略 key（仅这4个有指标+信号图表）
 const LAB_CHART_KEYS = {
   // 候选买点
@@ -2408,7 +2415,7 @@ function _labRankOpenModal(simData, buyKey, sellKey, mode) {
     overlay.className = "lab-rank-overlay";
     document.body.appendChild(overlay);
   }
-  state.labRankModal = { buyKey, sellKey, mode, page: 0, open: true };
+  state.labRankModal = { buyKey, sellKey, mode: mode || "full_in", win: state.labSimWindow || "y5", page: 0, open: true };
   _labRankModalRender(overlay, simData);
   overlay.classList.add("show");
   document.body.style.overflow = "hidden";
@@ -2464,14 +2471,15 @@ function _labRankCloseModal() {
 function _labRankModalRender(overlay, simData) {
   const m = state.labRankModal;
   if (!m) return;
-  const win = state.labSimWindow || "y5";
+  const mode = m.mode || "full_in";
+  const win = m.win || "y5";
   const pairData = _labGetPair(simData, m.buyKey, m.sellKey);
-  const winData = _labPairWinData(pairData, m.mode, win, simData);
+  const winData = _labPairWinData(pairData, mode, win, simData);
   const buyName = (LAB_STRATEGIES[m.buyKey] || {}).name || m.buyKey;
   const sellName = (LAB_STRATEGIES[m.sellKey] || {}).name || m.sellKey;
-  const modeName = m.mode === "full_in" ? "全仓" : "定额（10%）";
+  const modeName = mode === "full_in" ? "全仓" : "定额（10%）";
   const winLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
-  const initCapital = simData.initial_capital || 100000;
+  const initCapital = (simData && simData.initial_capital) || 100000;
   let bodyHTML;
   if (!winData || !winData.stats) {
     bodyHTML = '<div class="lab-rank-modal-empty">该配对无交易数据</div>';
@@ -2481,7 +2489,15 @@ function _labRankModalRender(overlay, simData) {
     const totalPages = Math.max(1, Math.ceil(trades.length / 20));
     if (m.page > totalPages - 1) m.page = totalPages - 1;
     if (m.page < 0) m.page = 0;
-    bodyHTML = _labSimModeBlock(m.mode, winData, initCapital, m.page, m.open);
+    // 三区一致：买卖模式切换 + 时间窗口切换 + 用法说明（照抄 retest 弹窗）
+    const modeBar = '<div class="lab-win-bar"><span class="lab-win-bar-label">买卖模式</span>' +
+      '<div class="lab-win-tabs">' +
+      `<button type="button" class="lab-win-tab${mode === "full_in" ? " active" : ""}" data-mode="full_in">全仓</button>` +
+      `<button type="button" class="lab-win-tab${mode === "fixed_10k" ? " active" : ""}" data-mode="fixed_10k">定额（10%）</button>` +
+      '</div></div>';
+    const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
+    const switchHint = '<div class="lab-retest-modal-switch-hint">💡 可切换时间窗口和买卖模式，查看该策略在不同条件下的战绩</div>';
+    bodyHTML = modeBar + winBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open);
   }
   overlay.innerHTML = `<div class="lab-rank-modal">` +
     `<div class="lab-rank-modal-head">` +
@@ -2491,6 +2507,13 @@ function _labRankModalRender(overlay, simData) {
     `<div class="lab-rank-modal-body">${bodyHTML}</div>` +
     `</div>`;
   overlay.querySelector(".lab-rank-modal-close").onclick = _labRankCloseModal;
+  // 三区一致：模式/窗口切换（切换重置分页）
+  overlay.querySelectorAll(".lab-win-tab[data-mode]").forEach((btn) => {
+    btn.onclick = () => { m.mode = btn.dataset.mode; m.page = 0; _labRankModalRender(overlay, simData); };
+  });
+  overlay.querySelectorAll(".lab-win-tab[data-win]").forEach((btn) => {
+    btn.onclick = () => { m.win = btn.dataset.win; m.page = 0; _labRankModalRender(overlay, simData); };
+  });
   const hdr = overlay.querySelector(".lab-sim-trades-header");
   if (hdr) hdr.onclick = () => { m.open = !m.open; _labRankModalRender(overlay, simData); };
   const prev = overlay.querySelector(".lab-sim-prev");
