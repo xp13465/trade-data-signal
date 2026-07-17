@@ -1848,3 +1848,38 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - 双版 lab.js `_coreKey` 残留 = 0 ✓
 - `_labRankAggregate`@2211 retest 行未碰（仍是 `r.buyKey + "|" + r.sellKey` 修复版）✓
 - 线上 csi500 fusion_stats：97 pairs（91+6），6 个 F_ pair 全在，generated_at 2026-07-17 ✓
+
+## §32 融合实验策略弹窗 3 缺失块回归修复（2026-07-17，commit 8c49292）
+
+> 承接 §31：§31 的 2ff5082 在重构 `_labFusionPairModalRender` 去 `_coreKey` 代理时，把 6 硬编码分支从 `renderLabDetail(coreKey)` 全量渲染（信号图 / 多周期回测矩阵 / 模拟回测 / 查看买卖信号 4 块）改为只调 `_labSimModeBlock`（5 参），结果丢了 3 块。用户反馈融合弹窗里信号图 / 矩阵 / 买卖信号按钮不见了。8c49292 把这 3 块接回，对齐单一信号弹窗的渲染基准。
+
+### 根因（回归引入点）
+`_labFusionPairModalRender` 重构后 6 硬编码分支只保留"模拟回测配对块"（`_labSimModeBlock` 前 5 参），但：
+- 信号图（echarts 信号图）整段未渲染；
+- 多周期回测矩阵（`renderLabMatrix`）未渲染；
+- 查看买卖信号按钮本应由 `_labSimModeBlock` 第 6 参 `signalBtnHTML` 注入，但该参未传（实参只到第 5 参 `isOpen`）。
+
+即弹窗从 4 块退化成 1 块，属功能回归，非数据问题。
+
+### 修复要点（web/lab.js + static-site/lab.js 双版同步）
+1. **函数顶部 echarts dispose + generation counter**：re-render 时先 dispose 旧 echarts 实例防内存泄漏；用 generation 计数防止 stale async（旧请求返回晚）覆盖新渲染结果。
+2. **chartBaseKey 取值**：6 硬编码用 `FUSION_CHART_BASE[F_key]`，91 候选用 `_buyKey`（与单一信号弹窗基准一致）。
+3. **Promise.all 并行加载**：`fetchLabFusionSimData` + 指数 OHLC + `fetchLabMatrixData` 三路并行，避免串行等待。
+4. **信号图**：`_labBuildChartConfig` + `_labChartSlice` + `renderLabChartEx` 渲染进占位 div（`chartSectionHTML`）。
+5. **多周期矩阵**：`renderLabMatrix` + `_labUpdateMatrixRowHighlight`（`matrixSectionHTML`）。
+6. **查看买卖信号**：按 `pair_type` 推导 buy/sell key——
+   - `buy_buy` / `sell_sell` 用 `fusion_meta.ref_side` 补反面；
+   - `hardcoded_buy` / `hardcoded_sell` 用 `FUSION_CHART_BASE` + `ref_side`；
+   - 构建 `signalBtnHTML` 传 `_labSimModeBlock` 第 6 参（此前漏传的第 6 参补回）。
+7. **bodyHTML 组装**：`chartSectionHTML` + `matrixSectionHTML` 在 6 硬编码、91 候选两个分支都加进去。
+8. **不重新引入 `_coreKey` 代理**：模拟回测仍走真实 `F_pair` 融合回测数据，`FUSION_CHART_BASE` 仅用于图表 / 矩阵 / 按钮的 baseKey 取值。
+
+### 上线
+- commit 8c49292（代码改动，双版 lab.js 同步），origin/main = 8c49292 push 成功。
+
+### 验收（主控逐字验证）
+- origin/main = 8c49292 push ✓
+- `_labFusionPairModalRender` 函数体内 3 块接回：信号图（`chartSectionHTML`）+ 矩阵（`matrixSectionHTML` + `renderLabMatrix`）+ `signalBtnHTML` 传 `_labSimModeBlock` 第 6 参 ✓
+- `_coreKey` 未重新引入（全仓仅 665 行注释一句"非 `_coreKey` 代理"提及，无实参 / 字段）✓
+- `_labRankAggregate` 未碰（仍 `r.buyKey + "|" + r.sellKey`）✓
+- 双版 lab.js diff 只剩 5 处 URL（`/static/data/lab/` vs `./data/lab/`：lab_backtest / lab_backtest_idx / lab_sim_idx_stats / lab_sim_idx_fusion_stats / lab_retest_idx）✓
