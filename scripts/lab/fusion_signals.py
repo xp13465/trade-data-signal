@@ -6,6 +6,7 @@
 """
 
 from backtest_strategies import gen_buy_signals, gen_sell_signals
+from backtest_strategies import rsi, ma, macd, bollinger
 
 # 对应前端 web/lab.js _generateFusionCandidates（lab.js:669）的 91 候选：
 #   - buy_sell 49：7 实验买 × 7 实验卖（与单信号配对同，buy_mask=买信号, sell_mask=卖信号）
@@ -114,4 +115,89 @@ def gen_fusion_candidates(df):
                 'ref_side': REF_BUY,
             })
 
+    return candidates
+
+
+# === 6 硬编码融合策略（与前端 web/lab.js LAB_FUSION_STRATEGIES 逐条对齐）===
+# 本质 = 主信号 & 过滤条件 同日 AND（与 buy_buy/sell_sell 的 m1 & m2 取交集同构，是其扩展）。
+# 过滤条件语义来自 app/compute/signals.py 生产实现（已验证对齐）。
+# pair_id 用 F_ 前缀，不与 91 候选的 "a|b" 格式冲突。
+#
+# (pair_id, side, fusion_keys[主+过滤同日AND], ref_side另一侧固定基线)
+HARDCODED_FUSIONS = [
+    ('F_D1_S1_MACD',     'sell', ['D1_high20_drop5', 'MA60_bull', 'MACD_below_signal'], REF_BUY),
+    ('F_D1_S1',          'sell', ['D1_high20_drop5', 'MA60_bull'],                     REF_BUY),
+    ('F_B1_RSI40',       'buy',  ['BB_lower_revert', 'RSI_cross_40'],                  REF_SELL),
+    ('F_B1_rebound2pct', 'buy',  ['BB_lower_revert', 'close_above_bl_2pct'],           REF_SELL),
+    ('F_C1_MACD_golden', 'buy',  ['C1_RSI30', 'MACD_golden'],                          REF_SELL),
+    ('F_D1_MA_death',    'sell', ['D1_high20_drop5', 'MA_death_5_20'],                 REF_BUY),
+]
+
+
+def _gen_filter_masks(df):
+    """6 硬编码需要的 4 个过滤 mask（权威语义来自 app/compute/signals.py 生产实现）。
+
+    - MA60_bull（状态）: close > MA60  [signals.py:367-369]
+    - MACD_below_signal（状态，非穿越）: DIF < DEA  [signals.py:377]
+      注: backtest 的 MACD_death@205 是穿越事件，语义不同，不能复用。
+    - RSI_cross_40（穿越事件）: rp<=40 & r>40  [signals.py:345]
+    - close_above_bl_2pct（状态）: close > 下轨*1.02  [signals.py:349]
+      bl 与 BB_lower_revert 同源（bollinger close 20 2.0）。
+    """
+    close = df['close']
+    out = {}
+    r = rsi(close, 14)
+    rp = r.shift(1)
+    # MA60 多头（状态）：close > MA60  [signals.py:367-369]  ma()@90 用 min_periods=60 与生产一致
+    out['MA60_bull'] = (close > ma(close, 60)).fillna(False)
+    # MACD 死叉确认（状态，非穿越）：DIF < DEA  [signals.py:377]
+    dif, dea = macd(close)
+    out['MACD_below_signal'] = (dif < dea).fillna(False)
+    # RSI 上穿 40（穿越事件）：rp<=40 & r>40  [signals.py:345]
+    out['RSI_cross_40'] = ((rp <= 40) & (r > 40)).fillna(False)
+    # 反弹 2%（状态）：close > 下轨*1.02  [signals.py:349]  bl 与 BB_lower_revert 同源
+    _, _, bl = bollinger(close, 20, 2.0)
+    out['close_above_bl_2pct'] = (close > bl * 1.02).fillna(False)
+    return out
+
+
+def gen_hardcoded_fusion_candidates(df):
+    """6 硬编码融合候选（主信号 + 过滤条件同日 AND 取交集）。
+
+    与 gen_fusion_candidates 同结构返回 list[dict]：
+      {pair_id, pair_type, buy_mask, sell_mask, components, ref_side}
+    pair_type 为 'hardcoded_buy' / 'hardcoded_sell'，pair_id 用 F_ 前缀。
+    """
+    buy_signals = gen_buy_signals(df)
+    sell_signals = gen_sell_signals(df)
+    filter_masks = _gen_filter_masks(df)
+    all_masks = {**buy_signals, **sell_signals, **filter_masks}
+
+    def _mask(k):
+        m = all_masks.get(k)
+        return m.fillna(False).astype(bool) if m is not None else None
+
+    candidates = []
+    for pair_id, side, fusion_keys, ref_side in HARDCODED_FUSIONS:
+        masks = [_mask(k) for k in fusion_keys]
+        if any(m is None for m in masks):
+            continue
+        # 同日 AND 取交集（复用 buy_buy/sell_sell 的 m1 & m2 机制，扩展到多条件）
+        fusion_mask = masks[0]
+        for m in masks[1:]:
+            fusion_mask = fusion_mask & m
+        if side == 'buy':
+            buy_mask, sell_mask = fusion_mask, _mask(ref_side)
+        else:
+            buy_mask, sell_mask = _mask(ref_side), fusion_mask
+        if buy_mask is None or sell_mask is None:
+            continue
+        candidates.append({
+            'pair_id': pair_id,
+            'pair_type': f'hardcoded_{side}',
+            'buy_mask': buy_mask,
+            'sell_mask': sell_mask,
+            'components': fusion_keys,
+            'ref_side': ref_side,
+        })
     return candidates

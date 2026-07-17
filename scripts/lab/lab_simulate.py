@@ -53,7 +53,7 @@ import pandas as pd
 A_STOCK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "a-stock-data")
 sys.path.insert(0, A_STOCK_DIR)
 from backtest_strategies import gen_buy_signals, gen_sell_signals
-from fusion_signals import gen_fusion_candidates
+from fusion_signals import gen_fusion_candidates, gen_hardcoded_fusion_candidates
 
 BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, BASE)
@@ -538,9 +538,9 @@ def run_fusion_index(iid, iname):
                 ws = first_date
         windows.append({'k': wk, 'l': wl, 's': _fmt_date(ws), 'e': _fmt_date(last_date)})
 
-    candidates = gen_fusion_candidates(df)
+    candidates = gen_fusion_candidates(df) + gen_hardcoded_fusion_candidates(df)
     print(f"[fusion] 生成 {len(candidates)} 个候选 "
-          f"(buy_sell/buy_buy/sell_sell)")
+          f"(buy_sell/buy_buy/sell_sell + 6 hardcoded)")
 
     result = {
         'generated_at': _fmt_date(last_date),

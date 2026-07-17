@@ -606,7 +606,6 @@ const LAB_FUSION_STRATEGIES = {
     scenario: "上升趋势中回落止盈/减仓；三条件共振过滤假信号。非做空指令。",
     note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），凯利建议率18.3%→43.3%。已上线signal_daily。",
     report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），凯利建议率从18.3%升至43.3%，信号质量显著提升。主项目生产卖点D1_high20_drop5的融合形态。",
-    _coreKey: "D1_high20_drop5",
   },
   F_D1_S1: {
     name: "D1回落5%+MA60多头（豁免MACD） 融合卖", side: "sell", zone: "prod", status: "live",
@@ -617,7 +616,6 @@ const LAB_FUSION_STRATEGIES = {
     scenario: "s.*情绪分变体的融合卖点；与F_D1_S1_MACD对比MACD过滤增益。",
     note: "主项目s.*情绪分变体。加MACD后样本n=106→7不足，故豁免MACD。",
     report: "回测：s.*情绪分变体的基础形态（不含MACD）。对比F_D1_S1_MACD可看MACD过滤的增益效果。",
-    _coreKey: "D1_high20_drop5",
   },
   // --- 候选买点区（3个） ---
   F_B1_RSI40: {
@@ -629,7 +627,6 @@ const LAB_FUSION_STRATEGIES = {
     scenario: "超卖反弹+动量确认共振入场；震荡市/下跌市效果好。",
     note: "已作为 buy_aux 辅买点（per-index 增强）上线于 10 个指数：中证1000/创业板指/家电/轻工/医药/公用事业/房地产/社会服务/传媒/通信。非全局融合信号生产实现（B1基线+RSI上穿40过滤，signals.py:312-314）.",
     report: "回测：加RSI上穿40后f从-38.5%转正至+16.2%（家电/轻工样本），胜率44.8%->54.5%，盈亏比0.66->1.19。已扩展至10指数配置。",
-    _coreKey: "BB_lower_revert",
   },
   F_B1_rebound2pct: {
     name: "BB下轨回归+反弹2% 融合买", side: "buy", zone: "candidate_buy", status: "partial",
@@ -640,7 +637,6 @@ const LAB_FUSION_STRATEGIES = {
     scenario: "超卖反弹确认入场；过滤假突破/死猫反弹。",
     note: "已作为 buy_aux 辅买点（per-index 增强）上线于 8 个指数：农林牧渔/基础化工/电子/纺织服饰/交通运输/机械设备/国防军工/计算机。非全局融合信号生产实现（B1基线+反弹2%过滤，signals.py:315-318）.",
     report: "回测：加反弹2%过滤后f从-21%转正至+20%（基础化工样本），5d/10d/20d三horizon一致。样本n=19<30偏小，需持续观察。已扩展至8指数配置。",
-    _coreKey: "BB_lower_revert",
   },
   F_C1_MACD_golden: {
     name: "RSI上穿30+MACD金叉 融合买（实验性新组合）", side: "buy", zone: "candidate_buy", status: "experimental",
@@ -651,7 +647,6 @@ const LAB_FUSION_STRATEGIES = {
     scenario: "超卖反弹+动量确认共振入场；实验性，待回测验证。",
     note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
     report: "实验性新组合，暂无回测数据。阶段二将验证超卖反弹+动量确认共振的有效性。",
-    _coreKey: "C1_RSI30",
   },
   // --- 候选卖点区（1个） ---
   F_D1_MA_death: {
@@ -663,7 +658,6 @@ const LAB_FUSION_STRATEGIES = {
     scenario: "趋势转弱+均线死叉共振减仓；实验性，待回测验证。",
     note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
     report: "实验性新组合，暂无回测数据。阶段二将验证回落+均线死叉共振的有效性。",
-    _coreKey: "D1_high20_drop5",
   },
 };
 
@@ -2851,12 +2845,12 @@ async function renderFusionLab() {
         `<div class="lab-card-conclusion">${meta.conclusion}</div>` +
         (meta._pairType
           ? `<div class="lab-fusion-pair-hint">${meta._pairType === "buy_sell" ? "📊 点击查看配对回测" : "🔬 点击查看同向共振回测"}（胜率·收益·5窗口）▸</div>`
-          : `<div class="lab-fusion-pair-hint">🔬 点击查看策略详情▸</div>`);
+          : `<div class="lab-fusion-pair-hint">🔬 点击查看融合回测（胜率·收益·5窗口）▸</div>`);
       card.classList.add("lab-fusion-clickable");
       card.title = meta._pairType
         ? `点击查看${meta._pairType === "buy_sell" ? "配对" : "同向共振"}回测（胜率/收益/5窗口）`
-        : "点击查看策略详情";
-      card.onclick = () => { _labFusionPairOpenModal(meta); };
+        : "点击查看融合回测（胜率/收益/5窗口）";
+      card.onclick = () => { _labFusionPairOpenModal({ ...meta, _fusionKey: key }); };
       list.appendChild(card);
     });
   }
@@ -3676,63 +3670,64 @@ async function _labFusionPairModalRender(overlay) {
   if (!m) return;
   const meta = m.meta;
 
-  // 硬编码独立融合策略（无 _pairType）：融合策略说明文案 + 核心单一策略的图表/矩阵/回测（代理，达单一信号基标）
-  if (!meta._pairType) {
-    const coreKey = meta._coreKey;
-    const coreMeta = coreKey && LAB_STRATEGIES[coreKey];
-    const headHTML = `<div class="lab-signal-modal-head">` +
-      `<span class="lab-signal-modal-title">🔬 ${meta.name || "融合策略"}</span>` +
-      `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
-      `</div>`;
-    if (coreMeta) {
-      // 有核心策略映射：融合文案 + 核心策略图表/回测（renderLabDetail 渲染到子容器，复用单一信号全量详情）
-      overlay.innerHTML = `<div class="lab-signal-modal">` + headHTML +
-        `<div class="lab-signal-modal-body">` +
-        _labFusionHardcodedHTML(meta) +
-        `<div class="lab-fusion-core-divider">📊 下方为核心策略「${coreMeta.name}」的图表与回测数据（融合=核心策略+过滤条件，核心策略回测供参考）</div>` +
-        `<div class="lab-fusion-core-detail"><div class="loading">加载核心策略详情…</div></div>` +
-        `</div></div>`;
-      overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
-      // 异步渲染核心策略详情（图表+矩阵+模拟回测），复用 renderLabDetail（已支持 container 参数）
-      const coreBody = overlay.querySelector(".lab-fusion-core-detail");
-      renderLabDetail(coreKey, coreBody).catch((e) => {
-        if (coreBody) coreBody.innerHTML = `<div class="lab-rank-modal-empty">核心策略详情加载失败：${e}</div>`;
-      });
-      overlay.scrollTop = 0;
-    } else {
-      // 无核心策略映射：仅展示融合策略说明文案（兜底）
-      overlay.innerHTML = `<div class="lab-signal-modal">` + headHTML +
-        `<div class="lab-signal-modal-body">${_labFusionHardcodedHTML(meta)}</div></div>`;
-      overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
-    }
-    return;
-  }
-
-  // 配对候选（buy_sell / buy_buy / sell_sell）：标题按 pair_type 区分
-  const pairType = meta._pairType;
-  const name1 = (LAB_STRATEGIES[meta._buyKey] || {}).name || meta._buyKey;
-  const name2 = (LAB_STRATEGIES[meta._sellKey] || {}).name || meta._sellKey;
-  const isBuySell = pairType === "buy_sell";
-  const typeLabel = isBuySell ? "配对回测" : (pairType === "buy_buy" ? "双买共振" : "双卖共振");
-  const titlePair = isBuySell ? `买${name1} × 卖${name2}` : `${name1} + ${name2}`;
-  const titleIcon = isBuySell ? "📊" : "🔬";
   const mode = m.mode || "full_in";
   const win = m.win || "y5";
   const modeName = mode === "full_in" ? "全仓" : "定额（10%）";
   const winLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
 
+  // 确定 pairId / 标题 / 说明文案
+  // - 6硬编码（无 _pairType，有 _fusionKey）：pairId=F_key，走真实融合回测数据
+  // - 配对候选（有 _pairType）：pairId=_buyKey|_sellKey
+  // - 兜底（无 _pairType 无 _fusionKey）：仅展示文案
+  let pairId, titleText, descHTML;
+  const isHardcoded = !meta._pairType && meta._fusionKey;
+  if (isHardcoded) {
+    pairId = meta._fusionKey;
+    titleText = `🔬 ${meta.name || "融合策略"} · ${modeName}（${winLabel}）`;
+    descHTML = _labFusionHardcodedHTML(meta);
+  } else if (meta._pairType) {
+    // 配对候选（buy_sell / buy_buy / sell_sell）：标题按 pair_type 区分
+    const pairType = meta._pairType;
+    const name1 = (LAB_STRATEGIES[meta._buyKey] || {}).name || meta._buyKey;
+    const name2 = (LAB_STRATEGIES[meta._sellKey] || {}).name || meta._sellKey;
+    const isBuySell = pairType === "buy_sell";
+    const typeLabel = isBuySell ? "配对回测" : (pairType === "buy_buy" ? "双买共振" : "双卖共振");
+    const titlePair = isBuySell ? `买${name1} × 卖${name2}` : `${name1} + ${name2}`;
+    const titleIcon = isBuySell ? "📊" : "🔬";
+    pairId = meta._buyKey + "|" + meta._sellKey;
+    titleText = `${titleIcon} ${typeLabel} · ${titlePair} · ${modeName}（${winLabel}）`;
+    // 融合策略说明（组成条件/触发/结论），补齐单一信号基标的策略说明块
+    const condHTML = (meta.conditions && meta.conditions.length)
+      ? `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">组成条件</span><span class="lab-fusion-detail-value">${meta.conditions.join("、")}</span></div>`
+      : "";
+    descHTML = `<div class="lab-fusion-hardcoded">` +
+      (meta.conclusion ? `<div class="lab-fusion-detail-conclusion">${meta.conclusion}</div>` : "") +
+      condHTML +
+      (meta.trigger ? `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">触发条件</span><span class="lab-fusion-detail-value">${meta.trigger}</span></div>` : "") +
+      `</div>`;
+  } else {
+    // 兜底：无 _pairType 无 _fusionKey，仅展示融合策略说明文案
+    const headHTML = `<div class="lab-signal-modal-head">` +
+      `<span class="lab-signal-modal-title">🔬 ${meta.name || "融合策略"}</span>` +
+      `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+      `</div>`;
+    overlay.innerHTML = `<div class="lab-signal-modal">` + headHTML +
+      `<div class="lab-signal-modal-body">${_labFusionHardcodedHTML(meta)}</div></div>`;
+    overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
+    return;
+  }
+
   // loading 骨架
   overlay.innerHTML = `<div class="lab-signal-modal">` +
     `<div class="lab-signal-modal-head">` +
-    `<span class="lab-signal-modal-title">${titleIcon} ${typeLabel} · ${titlePair} · ${modeName}（${winLabel}）</span>` +
+    `<span class="lab-signal-modal-title">${titleText}</span>` +
     `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
     `</div>` +
     `<div class="lab-signal-modal-body"><div class="loading">加载回测数据…</div></div></div>`;
   overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
 
-  // Bug-C：加载 fusion_stats（91对，含同向共振），非单信号 stats（64对）
+  // Bug-C：加载 fusion_stats（91对 + 6硬编码），非单信号 stats（64对）
   const simData = await fetchLabFusionSimData(m.index);
-  const pairId = meta._buyKey + "|" + meta._sellKey;
   const pair = simData && simData.pairs ? simData.pairs[pairId] : null;
   const initCapital = (simData && simData.initial_capital) || 100000;
 
@@ -3744,27 +3739,17 @@ async function _labFusionPairModalRender(overlay) {
   ).join("");
   const filterHTML = `<div class="lab-fusion-pair-filter"><label>选择指数</label><select class="lab-fusion-pair-index">${selectHTML}</select></div>`;
 
-  // 融合策略说明（组成条件/触发/结论），补齐单一信号基标的策略说明块
-  const condHTML = (meta.conditions && meta.conditions.length)
-    ? `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">组成条件</span><span class="lab-fusion-detail-value">${meta.conditions.join("、")}</span></div>`
-    : "";
-  const descHTML = `<div class="lab-fusion-hardcoded">` +
-    (meta.conclusion ? `<div class="lab-fusion-detail-conclusion">${meta.conclusion}</div>` : "") +
-    condHTML +
-    (meta.trigger ? `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">触发条件</span><span class="lab-fusion-detail-value">${meta.trigger}</span></div>` : "") +
-    `</div>`;
-
   let bodyHTML;
   if (!pair) {
     bodyHTML = descHTML + filterHTML +
       `<div class="lab-rank-modal-empty">暂无回测数据<br>` +
-      `<span style="font-size:12px">配对 ${pairId} 在 ${_INDEX_NAME_MAP[m.index] || m.index} 未找到回测结果。</span></div>`;
+      `<span style="font-size:12px">融合策略 ${pairId} 在 ${_INDEX_NAME_MAP[m.index] || m.index} 未找到回测结果。</span></div>`;
   } else {
     // Step4：改 modeBar/winBar 切换 + switchHint + _labSimModeBlock（4数字+净值曲线+交易记录），三区一致
     const winData = _labPairWinData(pair, mode, win, simData);
     let detailHTML;
     if (!winData || !winData.stats) {
-      detailHTML = `<div class="lab-rank-modal-empty">该配对在 ${_INDEX_NAME_MAP[m.index] || m.index} 无交易数据</div>`;
+      detailHTML = `<div class="lab-rank-modal-empty">该融合策略在 ${_INDEX_NAME_MAP[m.index] || m.index} 无交易数据</div>`;
     } else {
       // 同步 page 到有效范围（_labSimModeBlock 内部也 clamp，此处保持 state 一致）
       const trades = winData.trades || [];
