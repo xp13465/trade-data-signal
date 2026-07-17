@@ -2958,6 +2958,9 @@ function _renderLabSubNav() {
     { key: "single", label: "单一信号实验" },
     { key: "fusion", label: "融合信号实验" },
     { key: "retest", label: "🔬 二次测试实验" },
+    { key: "ablation", label: "🧩 信号消融" },
+    { key: "symmetry", label: "⚖️ 多空对称" },
+    { key: "paramscan", label: "🎛 参数扫描" },
   ];
   subNav.innerHTML = _LAB_SUB_TABS.map((t) =>
     `<button type="button" class="lab-subnav-tab${cur === t.key ? " active" : ""}" data-sub="${t.key}">${t.label}</button>`
@@ -4357,9 +4360,462 @@ async function _labFusionEnsureFull(overlay, idx) {
   }
 }
 
+// === 二次测试扩展方向：信号叠加消融 / 多空对称 / 参数敏感扫描（3方向，全局单文件JSON）===
+// 数据源 lab_ablation.json / lab_short_symmetry.json / lab_param_scan.json（static-site/data/ 顶层）
+// 与 retest 三件套(分年/样本外/极端行情)互补，属"其余7方向"中的归因/优化类。
+// 3 方向数据获取（全局单文件，缓存到 state；web 版 /static/data/，static 版 ./data/）
+async function fetchLabAblationData() {
+  if (state.labAblationData !== undefined) return state.labAblationData;
+  try { state.labAblationData = await fetchJSON("./data/lab_ablation.json"); }
+  catch (e) { state.labAblationData = null; }
+  return state.labAblationData;
+}
+async function fetchLabSymmetryData() {
+  if (state.labSymmetryData !== undefined) return state.labSymmetryData;
+  try { state.labSymmetryData = await fetchJSON("./data/lab_short_symmetry.json"); }
+  catch (e) { state.labSymmetryData = null; }
+  return state.labSymmetryData;
+}
+async function fetchLabParamScanData() {
+  if (state.labParamScanData !== undefined) return state.labParamScanData;
+  try { state.labParamScanData = await fetchJSON("./data/lab_param_scan.json"); }
+  catch (e) { state.labParamScanData = null; }
+  return state.labParamScanData;
+}
+
+// 通用指数选择器 bar HTML（接收 index 列表 + 当前选中）
+function _labExtIdxBarHTML(idxList, curIdx) {
+  return idxList.map((x) =>
+    `<button type="button" class="lab-idx-tab${x.id === curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
+  ).join("");
+}
+
+// === 🧩 信号叠加消融：6硬编码融合 N-1 子集贡献（定位核心贡献组件）===
+const _LAB_ABLATION_RULE = "🧩 信号叠加消融：对6硬编码融合策略逐一去掉一个组件(N-1子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。D1_high20_drop5 平均贡献+769%为绝对核心，BB_lower_revert/C1_RSI30 贡献为负(作为融合组件反而拖累)。";
+
+async function renderAblationLab() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-list-2col";
+  const leftCol = document.createElement("div");
+  const rightCol = document.createElement("div");
+
+  const essayWarn = document.createElement("div");
+  essayWarn.className = "lab-warning lab-warning-essay";
+  essayWarn.innerHTML = `<p>${_LAB_ABLATION_RULE}</p>`;
+  leftCol.appendChild(essayWarn);
+
+  const data = await fetchLabAblationData();
+  const idxList = (data && data.indexes) ? data.indexes.map((x) => ({ id: x.index_id, name: x.index_name })) : [];
+  const curIdx = state.labAblationIdx || (idxList[0] && idxList[0].id) || "sh";
+  state.labAblationIdx = curIdx;
+  const idxBar = document.createElement("div");
+  idxBar.className = "lab-win-bar";
+  idxBar.innerHTML = `<span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${_labExtIdxBarHTML(idxList, curIdx)}</div>`;
+  leftCol.appendChild(idxBar);
+
+  const list = document.createElement("div");
+  list.className = "lab-strategy-list lab-retest-list";
+  list.innerHTML = '<div class="lab-rank-loading">⏳ 加载消融数据中…</div>';
+  leftCol.appendChild(list);
+
+  const phaseNote = document.createElement("div");
+  phaseNote.className = "lab-fusion-phase-note";
+  phaseNote.innerHTML = "📌 <b>信号叠加消融</b>：6硬编码融合策略 × 3指数。右侧为全局组件平均贡献图。";
+  leftCol.appendChild(phaseNote);
+
+  const rankSection = document.createElement("div");
+  rankSection.className = "chart-card lab-rank-card";
+  rankSection.innerHTML = '<h3>🧩 组件平均贡献率</h3><div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载中…</div></div>';
+  rightCol.appendChild(rankSection);
+
+  wrapper.appendChild(leftCol);
+  wrapper.appendChild(rightCol);
+  content.appendChild(wrapper);
+
+  const _render = () => {
+    const idx = state.labAblationIdx;
+    const idxData = data && data.indexes ? data.indexes.find((x) => x.index_id === idx) : null;
+    if (!idxData || !idxData.fusions) {
+      list.innerHTML = '<div class="lab-rank-empty">暂无消融数据</div>';
+    } else {
+      list.innerHTML = idxData.fusions.map((f) => _labAblationCardHTML(f)).join("");
+    }
+    _labAblationChart(rankSection, data);
+  };
+  _render();
+  idxBar.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labAblationIdx = btn.dataset.idx;
+      idxBar.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      _render();
+    };
+  });
+}
+
+function _labAblationCardHTML(f) {
+  const fs = f.full_stats || {};
+  const sideLabel = f.side === "buy" ? "买" : "卖";
+  const sideCls = f.side === "buy" ? "lab-tag-live" : "lab-tag-exp";
+  const fmtPct = (v) => (v != null && !isNaN(v)) ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2)) + "%" : "-";
+  const ablationRows = (f.ablations || []).map((a) => {
+    const contrib = a.ret_contribution;
+    const color = contrib > 0 ? "#2e7d32" : (contrib < 0 ? "#c92a2a" : "var(--text-3)");
+    const sign = contrib > 0 ? "+" : "";
+    return `<tr><td style="color:#c92a2a">-${a.dropped}</td><td>${a.kept.join(" + ")}</td><td>${a.n_signals}</td>` +
+      `<td style="color:${color};font-weight:600">${sign}${contrib.toFixed(2)}%</td></tr>`;
+  }).join("");
+  return `<div class="lab-strategy-card lab-retest-pair">` +
+    `<div class="lab-retest-pair-head">` +
+    `<span class="lab-retest-pair-strat">${f.pair_id}</span>` +
+    `<span class="lab-tag ${sideCls}">${sideLabel}点融合</span>` +
+    `<span style="color:${fs.total_ret >= 0 ? "#2e7d32" : "#c92a2a"};font-weight:600">完整收益: ${fmtPct(fs.total_ret)}</span>` +
+    `<span style="color:var(--text-3)">胜率: ${fmtPct(fs.win_rate)}</span>` +
+    `<span style="color:var(--text-3)">交易: ${fs.n_trades != null ? fs.n_trades : "-"}</span>` +
+    `</div>` +
+    `<div class="lab-retest-section">` +
+    `<div class="lab-retest-section-title">N-1 子集消融（去掉一个组件后的收益贡献率）</div>` +
+    `<table class="lab-retest-yearly"><thead><tr><th>去掉组件</th><th>保留</th><th>信号数</th><th>收益贡献</th></tr></thead>` +
+    `<tbody>${ablationRows}</tbody></table></div></div>`;
+}
+
+function _labAblationChart(container, data) {
+  const body = container.querySelector(".lab-rank-body");
+  if (!body) return;
+  const summary = data && data.summary;
+  if (!summary || !summary.component_contributions) {
+    body.innerHTML = '<div class="lab-rank-empty">暂无组件贡献数据</div>';
+    return;
+  }
+  body.innerHTML = "";
+  const items = summary.component_contributions.slice().sort((a, b) => b.avg_contribution - a.avg_contribution);
+  const gainPct = summary.fusion_gain_positive_pct != null ? summary.fusion_gain_positive_pct : "-";
+  const hint = document.createElement("div");
+  hint.className = "lab-zone-desc";
+  hint.innerHTML = `融合增益为正占比: <b style="color:${gainPct >= 50 ? "#2e7d32" : "#c92a2a"}">${gainPct}%</b> · 共 ${summary.n_fusion_index_pairs || "-"} 个融合×指数组合`;
+  body.appendChild(hint);
+  const c = mkCard("各组件平均收益贡献（%, 正=提升 / 负=拖累）", 340, null, body, []);
+  c.setOption(withTheme({
+    tooltip: { trigger: "axis", formatter: (p) => {
+      const it = items[p[0].dataIndex];
+      return `${it.component}<br/>平均贡献: ${it.avg_contribution.toFixed(2)}%<br/>正贡献占比: ${it.positive_pct}%<br/>样本数: ${it.n_samples}`;
+    }},
+    grid: { left: 60, right: 20, top: 20, bottom: 70 },
+    xAxis: { type: "category", data: items.map((x) => x.component), axisLabel: { rotate: 35, fontSize: 10 } },
+    yAxis: { type: "value", name: "贡献率(%)" },
+    series: [{
+      type: "bar", barMaxWidth: 42,
+      data: items.map((x) => ({ value: x.avg_contribution, itemStyle: { color: x.avg_contribution >= 0 ? "#2e7d32" : "#c92a2a" } })),
+      label: { show: true, position: "top", fontSize: 10, formatter: (p) => (p.value >= 0 ? "+" : "") + p.value.toFixed(1) },
+    }],
+  }));
+}
+
+// === ⚖️ 多空对称：做多(buy->sell) vs 做空(sell->buy)镜像对比 ===
+const _LAB_SYMMETRY_RULE = "⚖️ 多空对称：做多(先买后卖) vs 做空(先卖后买)镜像对比。A股长期向上漂移，做多盈利/做空亏损属正常不对称；symmetry_ratio 越接近0越对称(可做空)，越负越偏向做多。做空盈利占比仅9.7%(72配对中7个)，印证A股不适合裸做空。";
+
+async function renderSymmetryLab() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-list-2col";
+  const leftCol = document.createElement("div");
+  const rightCol = document.createElement("div");
+
+  const essayWarn = document.createElement("div");
+  essayWarn.className = "lab-warning lab-warning-essay";
+  essayWarn.innerHTML = `<p>${_LAB_SYMMETRY_RULE}</p>`;
+  leftCol.appendChild(essayWarn);
+
+  const data = await fetchLabSymmetryData();
+  const idxList = (data && data.indexes) ? data.indexes.map((x) => ({ id: x.index_id, name: x.index_name })) : LAB_SIM_INDEXES;
+  const curIdx = state.labSymmetryIdx || (idxList[0] && idxList[0].id) || "sh";
+  state.labSymmetryIdx = curIdx;
+  const idxBar = document.createElement("div");
+  idxBar.className = "lab-win-bar";
+  idxBar.innerHTML = `<span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${_labExtIdxBarHTML(idxList, curIdx)}</div>`;
+  leftCol.appendChild(idxBar);
+
+  const list = document.createElement("div");
+  list.className = "lab-strategy-list lab-retest-list";
+  list.innerHTML = '<div class="lab-rank-loading">⏳ 加载对称数据中…</div>';
+  leftCol.appendChild(list);
+
+  const phaseNote = document.createElement("div");
+  phaseNote.className = "lab-fusion-phase-note";
+  phaseNote.innerHTML = "📌 <b>多空对称测试</b>：top8配对做多/做空对比。A股向上漂移致做多盈利、做空亏损属正常不对称。";
+  leftCol.appendChild(phaseNote);
+
+  const rankSection = document.createElement("div");
+  rankSection.className = "chart-card lab-rank-card";
+  rankSection.innerHTML = '<h3>⚖️ 各指数做多 vs 做空平均收益</h3><div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载中…</div></div>';
+  rightCol.appendChild(rankSection);
+
+  wrapper.appendChild(leftCol);
+  wrapper.appendChild(rightCol);
+  content.appendChild(wrapper);
+
+  const _render = () => {
+    const idx = state.labSymmetryIdx;
+    const idxData = data && data.indexes ? data.indexes.find((x) => x.index_id === idx) : null;
+    if (!idxData || !idxData.pairs) {
+      list.innerHTML = '<div class="lab-rank-empty">暂无对称数据</div>';
+    } else {
+      list.innerHTML = idxData.pairs.map((p) => _labSymmetryCardHTML(p)).join("");
+    }
+    _labSymmetryChart(rankSection, data);
+  };
+  _render();
+  idxBar.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labSymmetryIdx = btn.dataset.idx;
+      idxBar.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      _render();
+    };
+  });
+}
+
+function _labSymmetryCardHTML(p) {
+  const longRet = p.long && p.long.total_ret;
+  const shortRet = p.short && p.short.total_ret;
+  const fmt = (v) => (v != null && !isNaN(v)) ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2)) + "%" : "-";
+  const symColor = p.symmetry_ratio >= 0 ? "#2e7d32" : (p.symmetry_ratio <= -0.3 ? "#c92a2a" : "#f0883e");
+  const badge = p.both_positive ? '<span class="lab-tag lab-tag-live">双向盈利</span>'
+    : (p.long_pos_short_neg ? '<span class="lab-tag lab-tag-exp">多盈空亏</span>' : "");
+  return `<div class="lab-strategy-card lab-retest-pair">` +
+    `<div class="lab-retest-pair-head">` +
+    `<span class="lab-retest-pair-strat">#${p.rank} ${p.pair_id}</span>` +
+    `<span class="lab-retest-pair-win">对称比: <span style="color:${symColor};font-weight:700">${p.symmetry_ratio.toFixed(3)}</span></span>` +
+    badge + `</div>` +
+    `<div class="lab-retest-section"><div class="lab-retest-regimes">` +
+    `<div class="lab-retest-regime-card"><div class="lab-retest-regime-name">📈 做多 (买→卖)</div>` +
+    `<div class="lab-retest-regime-ret" style="color:${longRet >= 0 ? "#2e7d32" : "#c92a2a"}">${fmt(longRet)}</div>` +
+    `<div class="lab-retest-regime-dd">胜率 ${(p.long && p.long.win_rate != null) ? p.long.win_rate.toFixed(1) + "%" : "-"} · ${(p.long && p.long.n_trades) || 0}笔</div></div>` +
+    `<div class="lab-retest-regime-card"><div class="lab-retest-regime-name">📉 做空 (卖→买)</div>` +
+    `<div class="lab-retest-regime-ret" style="color:${shortRet >= 0 ? "#2e7d32" : "#c92a2a"}">${fmt(shortRet)}</div>` +
+    `<div class="lab-retest-regime-dd">胜率 ${(p.short && p.short.win_rate != null) ? p.short.win_rate.toFixed(1) + "%" : "-"} · ${(p.short && p.short.n_trades) || 0}笔</div></div>` +
+    `</div></div></div>`;
+}
+
+function _labSymmetryChart(container, data) {
+  const body = container.querySelector(".lab-rank-body");
+  if (!body) return;
+  const summary = data && data.summary;
+  if (!summary || !summary.by_index) {
+    body.innerHTML = '<div class="lab-rank-empty">暂无对称汇总数据</div>';
+    return;
+  }
+  body.innerHTML = "";
+  const lp = summary.long_positive_pct != null ? summary.long_positive_pct : "-";
+  const sp = summary.short_positive_pct != null ? summary.short_positive_pct : "-";
+  const hint = document.createElement("div");
+  hint.className = "lab-zone-desc";
+  hint.innerHTML = `做多盈利占比: <b style="color:#2e7d32">${lp}%</b> · 做空盈利占比: <b style="color:${sp >= 50 ? "#2e7d32" : "#c92a2a"}">${sp}%</b> · 平均对称比: <b>${summary.avg_symmetry_ratio != null ? summary.avg_symmetry_ratio.toFixed(3) : "-"}</b>`;
+  body.appendChild(hint);
+  const items = summary.by_index.slice().sort((a, b) => b.avg_long_ret - a.avg_long_ret);
+  const c = mkCard("各指数做多/做空平均收益（%）", 360, null, body, []);
+  c.setOption(withTheme({
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    legend: { top: 0, data: ["做多平均收益", "做空平均收益"] },
+    grid: { left: 60, right: 20, top: 40, bottom: 70 },
+    xAxis: { type: "category", data: items.map((x) => x.index_name), axisLabel: { rotate: 30, fontSize: 10 } },
+    yAxis: { type: "value", name: "收益(%)" },
+    series: [
+      { name: "做多平均收益", type: "bar", barMaxWidth: 26, data: items.map((x) => x.avg_long_ret), itemStyle: { color: "#2e7d32" } },
+      { name: "做空平均收益", type: "bar", barMaxWidth: 26, data: items.map((x) => x.avg_short_ret), itemStyle: { color: "#c92a2a" } },
+    ],
+  }));
+}
+
+// === 🎛 参数敏感扫描：7策略参数网格（验证默认参数处于稳定高原而非过拟合尖峰）===
+const _LAB_PARAMSCAN_RULE = "🎛 参数敏感扫描：对7策略做参数网格扫描，验证默认参数处于稳定高原而非孤立尖峰(过拟合)。verdict：robust_profitable=稳健高原(默认参数附近都盈利)，sharp_peak=尖锐尖峰(仅个别参数盈利，过拟合风险)。Donchian20_up/Supertrend_buy=稳健高原；C1_RSI30/BB族/D1=尖锐尖峰，默认参数非最优。";
+
+async function renderParamScanLab() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-list-2col";
+  const leftCol = document.createElement("div");
+  const rightCol = document.createElement("div");
+
+  const essayWarn = document.createElement("div");
+  essayWarn.className = "lab-warning lab-warning-essay";
+  essayWarn.innerHTML = `<p>${_LAB_PARAMSCAN_RULE}</p>`;
+  leftCol.appendChild(essayWarn);
+
+  const data = await fetchLabParamScanData();
+  const scans = (data && data.scans) || [];
+  // 策略选择器
+  const stratList = scans.map((s) => ({ id: s.strategy_key, name: ((LAB_STRATEGIES[s.strategy_key] || {}).name) || s.strategy_key }));
+  const curStrat = state.labParamScanStrat || (stratList[0] && stratList[0].id) || "";
+  state.labParamScanStrat = curStrat;
+  const stratBar = document.createElement("div");
+  stratBar.className = "lab-win-bar";
+  stratBar.innerHTML = `<span class="lab-win-bar-label">选择策略</span><div class="lab-win-tabs" style="flex-wrap:wrap">${stratList.map((x) =>
+    `<button type="button" class="lab-idx-tab${x.id === curStrat ? " active" : ""}" data-strat="${x.id}">${x.name}</button>`
+  ).join("")}</div>`;
+  leftCol.appendChild(stratBar);
+
+  // 指数选择器（sh/hs300/cyb，从首个 scan 的 per_index 派生）
+  const firstScan = scans[0];
+  const idxList = firstScan ? firstScan.per_index.map((x) => ({ id: x.index_id, name: x.index_name })) : [];
+  const curIdx = state.labParamScanIdx || (idxList[0] && idxList[0].id) || "sh";
+  state.labParamScanIdx = curIdx;
+  const idxBar = document.createElement("div");
+  idxBar.className = "lab-win-bar";
+  idxBar.innerHTML = `<span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${_labExtIdxBarHTML(idxList, curIdx)}</div>`;
+  leftCol.appendChild(idxBar);
+
+  const list = document.createElement("div");
+  list.className = "lab-strategy-list lab-retest-list";
+  list.innerHTML = '<div class="lab-rank-loading">⏳ 加载扫描数据中…</div>';
+  leftCol.appendChild(list);
+
+  const phaseNote = document.createElement("div");
+  phaseNote.className = "lab-fusion-phase-note";
+  phaseNote.innerHTML = "📌 <b>参数敏感扫描</b>：7策略参数网格。右侧为所选策略+指数的参数热力图/柱状图，标记默认(○)与最优(★)参数。";
+  leftCol.appendChild(phaseNote);
+
+  const rankSection = document.createElement("div");
+  rankSection.className = "chart-card lab-rank-card";
+  rankSection.innerHTML = '<h3>🎛 参数网格收益</h3><div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载中…</div></div>';
+  rightCol.appendChild(rankSection);
+
+  wrapper.appendChild(leftCol);
+  wrapper.appendChild(rightCol);
+  content.appendChild(wrapper);
+
+  const _render = () => {
+    list.innerHTML = _labParamScanOverviewHTML(data, state.labParamScanIdx);
+    _labParamScanChart(rankSection, data, state.labParamScanStrat, state.labParamScanIdx);
+  };
+  _render();
+  stratBar.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labParamScanStrat = btn.dataset.strat;
+      stratBar.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      _render();
+    };
+  });
+  idxBar.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = () => {
+      state.labParamScanIdx = btn.dataset.idx;
+      idxBar.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      _render();
+    };
+  });
+}
+
+function _labParamScanOverviewHTML(data, idx) {
+  const scans = (data && data.scans) || [];
+  if (!scans.length) return '<div class="lab-rank-empty">暂无扫描数据</div>';
+  const fmt = (v) => (v != null && !isNaN(v)) ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(1)) + "%" : "-";
+  const rows = scans.map((s) => {
+    const pi = s.per_index.find((x) => x.index_id === idx);
+    if (!pi) return "";
+    const vColor = pi.verdict === "robust_profitable" ? "#2e7d32" : "#c92a2a";
+    const vLabel = pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰";
+    const vCls = pi.verdict === "robust_profitable" ? "lab-tag-live" : "lab-tag-excluded";
+    const name = ((LAB_STRATEGIES[s.strategy_key] || {}).name) || s.strategy_key;
+    return `<tr><td style="font-weight:600">${name}</td>` +
+      `<td style="color:${pi.default_ret >= 0 ? "#2e7d32" : "#c92a2a"}">${fmt(pi.default_ret)}</td>` +
+      `<td style="color:${pi.best_ret >= 0 ? "#2e7d32" : "#c92a2a"}">${fmt(pi.best_ret)}</td>` +
+      `<td>${pi.neighbor_avg_ret != null ? pi.neighbor_avg_ret.toFixed(1) + "%" : "-"}</td>` +
+      `<td>${(pi.profitable_frac * 100).toFixed(0)}%</td>` +
+      `<td><span class="lab-tag ${vCls}" style="color:${vColor}">${vLabel}</span></td></tr>`;
+  }).join("");
+  return `<div class="lab-retest-pair"><div class="lab-retest-section">` +
+    `<div class="lab-retest-section-title">7策略参数扫描概览（指数 ${idx}）</div>` +
+    `<table class="lab-retest-yearly"><thead><tr><th>策略</th><th>默认收益</th><th>最优收益</th><th>邻域均值</th><th>盈利占比</th><th>判定</th></tr></thead>` +
+    `<tbody>${rows}</tbody></table></div></div>`;
+}
+
+function _labParamScanChart(container, data, stratKey, idx) {
+  const body = container.querySelector(".lab-rank-body");
+  if (!body) return;
+  const scan = (data && data.scans) ? data.scans.find((s) => s.strategy_key === stratKey) : null;
+  const pi = scan ? scan.per_index.find((x) => x.index_id === idx) : null;
+  if (!scan || !pi) {
+    body.innerHTML = '<div class="lab-rank-empty">暂无该策略/指数的参数扫描数据</div>';
+    return;
+  }
+  body.innerHTML = "";
+  const stratName = ((LAB_STRATEGIES[stratKey] || {}).name) || stratKey;
+  const vColor = pi.verdict === "robust_profitable" ? "#2e7d32" : "#c92a2a";
+  const hint = document.createElement("div");
+  hint.className = "lab-zone-desc";
+  hint.innerHTML = `${stratName} · ${pi.index_name} · 默认收益 <b style="color:${pi.default_ret >= 0 ? "#2e7d32" : "#c92a2a"}">${pi.default_ret.toFixed(1)}%</b> · 最优 <b style="color:${pi.best_ret >= 0 ? "#2e7d32" : "#c92a2a"}">${pi.best_ret.toFixed(1)}%</b> · <span style="color:${vColor};font-weight:600">${pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰(过拟合风险)"}</span>${pi.best_is_default ? " · 默认即最优✓" : ""}`;
+  body.appendChild(hint);
+
+  const dims = scan.param_dims || [];
+  const combos = pi.combos || [];
+  const dp = pi.default_params || scan.default_params || {};
+  const bp = pi.best_params || {};
+  if (dims.length >= 2) {
+    // 热力图（2维参数网格）
+    const xName = dims[0].name, yName = dims[1].name;
+    const xVals = dims[0].values, yVals = dims[1].values;
+    const heatData = [];
+    let mn = Infinity, mx = -Infinity;
+    combos.forEach((cb) => {
+      const xi = xVals.indexOf(cb.params[xName]), yi = yVals.indexOf(cb.params[yName]);
+      if (xi < 0 || yi < 0) return;
+      const v = cb.total_ret;
+      if (v == null || isNaN(v)) { heatData.push([xi, yi, null]); return; }
+      heatData.push([xi, yi, v]);
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    });
+    if (!isFinite(mn)) { mn = -50; mx = 50; }
+    if (mn === mx) { mn -= 1; mx += 1; }
+    const c = mkCard(`${xName} × ${yName} 参数网格收益率(%)`, 400, "○=默认参数  ★=最优参数", body, []);
+    const dxi = xVals.indexOf(dp[xName]), dyi = yVals.indexOf(dp[yName]);
+    const bxi = xVals.indexOf(bp[xName]), byi = yVals.indexOf(bp[yName]);
+    const markPoints = [];
+    if (dxi >= 0 && dyi >= 0) markPoints.push({ coord: [dxi, dyi], symbol: "circle", symbolSize: 22, itemStyle: { color: "transparent", borderColor: "#1f6feb", borderWidth: 2.5 }, label: { show: true, formatter: "○", color: "#1f6feb", fontSize: 13, fontWeight: "bold" } });
+    if (bxi >= 0 && byi >= 0 && !(bxi === dxi && byi === dyi)) markPoints.push({ coord: [bxi, byi], symbol: "circle", symbolSize: 22, itemStyle: { color: "transparent", borderColor: "#f0883e", borderWidth: 2.5 }, label: { show: true, formatter: "★", color: "#f0883e", fontSize: 15, fontWeight: "bold" } });
+    c.setOption(withTheme({
+      tooltip: { formatter: (p) => `${xName}=${xVals[p.data[0]]}, ${yName}=${yVals[p.data[1]]}<br/>收益: ${p.data[2] != null ? p.data[2].toFixed(2) + "%" : "无信号"}` },
+      grid: { left: 70, right: 20, top: 30, bottom: 80 },
+      xAxis: { type: "category", data: xVals.map(String), name: xName, nameLocation: "middle", nameGap: 32, splitArea: { show: true } },
+      yAxis: { type: "category", data: yVals.map(String), name: yName, splitArea: { show: true } },
+      visualMap: { min: mn, max: mx, calculable: true, orient: "horizontal", left: "center", bottom: 5,
+        inRange: { color: ["#c92a2a", "#f5f5f5", "#2e7d32"] }, textStyle: { color: cssVar("--text-1") } },
+      series: [{ type: "heatmap", data: heatData,
+        label: { show: true, fontSize: 9, formatter: (p) => p.data[2] != null ? p.data[2].toFixed(0) : "—" },
+        emphasis: { itemStyle: { shadowBlur: 10 } },
+        markPoint: { data: markPoints, symbolKeepAspect: false } }],
+    }));
+  } else if (dims.length === 1) {
+    // 柱状图（1维参数）
+    const xName = dims[0].name, xVals = dims[0].values;
+    const barData = xVals.map((v) => {
+      const cb = combos.find((x) => x.params[xName] === v);
+      const ret = cb ? cb.total_ret : null;
+      return (ret != null && !isNaN(ret)) ? ret : null;
+    });
+    const c = mkCard(`${xName} 参数扫描收益率(%)`, 360, "📌=默认参数  ★=最优参数", body, []);
+    const di = xVals.indexOf(dp[xName]);
+    const bi = xVals.indexOf(bp[xName]);
+    const markPoints = [];
+    if (di >= 0) markPoints.push({ coord: [di, barData[di] || 0], symbol: "pin", symbolSize: 36, itemStyle: { color: "#1f6feb" }, label: { formatter: "默", color: "#fff", fontSize: 9 } });
+    if (bi >= 0 && bi !== di) markPoints.push({ coord: [bi, barData[bi] || 0], symbol: "pin", symbolSize: 36, itemStyle: { color: "#f0883e" }, label: { formatter: "优", color: "#fff", fontSize: 9 } });
+    c.setOption(withTheme({
+      tooltip: { trigger: "axis", formatter: (p) => `${xName}=${xVals[p[0].dataIndex]}<br/>收益: ${p[0].value != null ? p[0].value.toFixed(2) + "%" : "无信号"}` },
+      grid: { left: 60, right: 20, top: 30, bottom: 50 },
+      xAxis: { type: "category", data: xVals.map(String), name: xName },
+      yAxis: { type: "value", name: "收益(%)" },
+      series: [{ type: "bar", barMaxWidth: 54,
+        data: barData.map((v) => ({ value: v, itemStyle: { color: v == null ? "#cccccc" : (v >= 0 ? "#2e7d32" : "#c92a2a") } })),
+        markPoint: { data: markPoints } }],
+    }));
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "lab-rank-empty";
+    empty.textContent = "该策略无参数维度";
+    body.appendChild(empty);
+  }
+}
+
 async function renderSignalLab() {
   // 如果有选中的策略，进详情页（仅单一信号模式）
-  if (state.labStrategy && state.labSubMode !== "fusion" && state.labSubMode !== "retest") {
+  if (state.labStrategy && state.labSubMode !== "fusion" && state.labSubMode !== "retest"
+      && state.labSubMode !== "ablation" && state.labSubMode !== "symmetry" && state.labSubMode !== "paramscan") {
     await renderLabDetail(state.labStrategy);
     return;
   }
@@ -4380,6 +4836,30 @@ async function renderSignalLab() {
   // 二次测试模式 -> 渲染二次测试实验分区（照抄融合区布局：左配对卡片+右维度榜）
   if (state.labSubMode === "retest") {
     await renderRetestLab();
+    _labSetHash("#lab");
+    _labRestoreScroll();
+    return;
+  }
+
+  // 信号叠加消融 -> 渲染消融分区（左6融合N-1子集卡片+右组件贡献柱状图）
+  if (state.labSubMode === "ablation") {
+    await renderAblationLab();
+    _labSetHash("#lab");
+    _labRestoreScroll();
+    return;
+  }
+
+  // 多空对称 -> 渲染对称分区（左top8配对做多/做空卡片+右各指数对比柱状图）
+  if (state.labSubMode === "symmetry") {
+    await renderSymmetryLab();
+    _labSetHash("#lab");
+    _labRestoreScroll();
+    return;
+  }
+
+  // 参数敏感扫描 -> 渲染扫描分区（左7策略概览表+右参数网格热力图/柱状图）
+  if (state.labSubMode === "paramscan") {
+    await renderParamScanLab();
     _labSetHash("#lab");
     _labRestoreScroll();
     return;
