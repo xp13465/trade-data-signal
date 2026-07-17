@@ -729,6 +729,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 **C. 策略实验室**
 - 其他策略图表融入实验室：BB_lower_revert / Supertrend / MA_death 等（BB_upper_revert 已决策不融生产仅留实验室，见 §15）。
+- **【进行中 2026-07-17】融合信号实验卡片信息对齐单一信号基标**（用户定基标：融合 ≥ 单一信号，至少持平不得更少）。根因：`_labFusionPairModalRender`@3655 两分支各有缺失——6 硬编码融合策略（LAB_FUSION_STRATEGIES@598，无 `_pairType`，覆盖 live/partial/experimental 三状态）走 `_labFusionHardcodedHTML`@3635 **只有策略说明文案**，缺指标图表+模拟回测；91 自动候选（带 `_pairType`）有回测但**缺策略说明文案+指标图表**。单一信号 `renderLabDetail`@1816 基准含 5 块（①标题标签 ②自白 ③📖策略说明+指标释义 ④指标图表echarts ⑤💰模拟回测4数字+净值+交易记录+买卖信号弹窗）。**开发顺序**：1️⃣单一信号先固化作基准（确认5块无遗漏）2️⃣融合后开发补齐到基标（6硬编码补回测+图表；91候选补策略说明+图表；统一补自白+买卖信号弹窗）3️⃣二次测试实验再开发。详见 NOTES §29。
 
 **D. memory 侧待办（非项目代码）**
 - 装 superpowers 插件试 /write-plan+/execute-plan 工作流（当前活告一段落后）。
