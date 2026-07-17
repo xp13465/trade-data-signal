@@ -4432,11 +4432,13 @@ const _LAB_COMP_NAME = {
   close_above_bl_2pct: "收盘高于下轨2%",
 };
 function _labCompLabel(key) {
+  if (LAB_FUSION_STRATEGIES[key] && LAB_FUSION_STRATEGIES[key].name) return LAB_FUSION_STRATEGIES[key].name;
   if (LAB_STRATEGIES[key] && LAB_STRATEGIES[key].name) return LAB_STRATEGIES[key].name;
   return _LAB_COMP_NAME[key] || key;
 }
-// pair_id -> 中文：融合ID直接取name；a|b 拆分分别取name
+// pair_id -> 中文：融合ID优先查LAB_FUSION_STRATEGIES取name（F_D1_S1_MACD等6融合策略）；单一策略查LAB_STRATEGIES；a|b 拆分分别取name
 function _labPairLabel(pairId) {
+  if (LAB_FUSION_STRATEGIES[pairId] && LAB_FUSION_STRATEGIES[pairId].name) return LAB_FUSION_STRATEGIES[pairId].name;
   if (LAB_STRATEGIES[pairId] && LAB_STRATEGIES[pairId].name) return LAB_STRATEGIES[pairId].name;
   if (pairId && pairId.indexOf("|") >= 0) return pairId.split("|").map(_labCompLabel).join(" ｜ ");
   return _labCompLabel(pairId);
