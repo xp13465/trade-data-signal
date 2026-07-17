@@ -382,13 +382,13 @@ const LAB_STRATEGIES = {
     report: "回测报告：布林下轨回归买达标数3/4（近10年/近3年/近1年），与C1并列第1。近3年60d盈亏比1.79、均值+4.7%为买点最高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs 相对强弱阈值），适合做互补买点。",
   },
   Supertrend_buy: {
-    name: "Supertrend翻多买", side: "buy", zone: "buy", status: "experimental",
+    name: "超级趋势翻多买", side: "buy", zone: "buy", status: "experimental",
     trigger: "真实波幅ATR(10)×3 趋势线从翻空转为翻多（趋势跟踪买点）",
     conclusion: "2/4达标，语义与C1正交（趋势启动 vs 超卖反弹），最佳互补候选",
     theory: "超级趋势(Supertrend)指标基于真实波幅(ATR)的动态趋势线。翻多意味趋势已确认启动，与C1的「超卖反弹」正交，捕捉的是趋势延续而非拐点。",
     scenario: "趋势启动确认；与C1互补覆盖不同市场状态。",
     note: "近3年全持有期胜率≥48.8%，盈亏比1.40-1.61。信号较C1稀疏。实验中：已实现图表（收盘价+超级趋势线+绿色实验买标注），未写入signal_daily。",
-    report: "回测报告：Supertrend翻多买全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是最佳互补候选。近3年10d均值+1.0%，60d均值+3.8%。",
+    report: "回测报告：超级趋势翻多买全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是最佳互补候选。近3年10d均值+1.0%，60d均值+3.8%。",
   },
   Donchian20_up: {
     name: "唐奇安20日突破买", side: "buy", zone: "buy", status: "experimental",
@@ -409,22 +409,22 @@ const LAB_STRATEGIES = {
     report: "回测报告：海龟55日突破买全史+近1年达标（2/4），近3年胜率47.1%低于50%。全史样本20895，60d均值+3.4%。海龟系统长周期突破信号滞后但盈亏比尚可。",
   },
   MA_golden_5_20: {
-    name: "MA5/MA20金叉买", side: "buy", zone: "buy", status: "experimental",
+    name: "均线5/20金叉买", side: "buy", zone: "buy", status: "experimental",
     trigger: "5日均线上穿20日均线（短期金叉买点）",
     conclusion: "1/4达标，信号密集胜率平庸",
     theory: "双均线金叉。短期均线上穿长期均线意味短期动量转强，经典趋势确认信号。",
     scenario: "趋势确认入场；震荡市频繁假金叉。",
     note: "信号最多（全史30754），但近3年胜率49.8%接近随机。60d盈亏比1.75较高。",
-    report: "回测报告：MA5/MA20金叉买仅全史达标（1/4），近3年10d胜率49.8%接近随机。信号密集（全史30754个），胜率平庸。近3年60d盈亏比1.75、均值+4.9%是唯一亮点。",
+    report: "回测报告：均线5/20金叉买仅全史达标（1/4），近3年10d胜率49.8%接近随机。信号密集（全史30754个），胜率平庸。近3年60d盈亏比1.75、均值+4.9%是唯一亮点。",
   },
   MA_golden_10_60: {
-    name: "MA10/MA60金叉买", side: "buy", zone: "buy", status: "experimental",
+    name: "均线10/60金叉买", side: "buy", zone: "buy", status: "experimental",
     trigger: "10日均线上穿60日均线（中长期金叉买点）",
     conclusion: "2/4达标，滞后严重",
     theory: "中长期双均线金叉。10日均线上穿60日均线确认中长期趋势转多，但60日均线滞后严重。",
     scenario: "中长期趋势确认；信号滞后，入场点偏晚。",
     note: "近3年胜率47.1%低于50%。全史样本11809较少。",
-    report: "回测报告：MA10/MA60金叉买全史+近1年达标（2/4），近3年胜率47.1%低于50%。60日均线滞后严重，信号少且入场偏晚。全史60d均值+2.1%。",
+    report: "回测报告：均线10/60金叉买全史+近1年达标（2/4），近3年胜率47.1%低于50%。60日均线滞后严重，信号少且入场偏晚。全史60d均值+2.1%。",
   },
   MACD_golden: {
     name: "MACD金叉买", side: "buy", zone: "buy", status: "experimental",
@@ -446,13 +446,13 @@ const LAB_STRATEGIES = {
     report: "回测报告：布林上轨回落卖近3年5d胜率56.8%/10d胜率54.1%为卖点最高，短周期止盈最强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（卖点结构性问题），但方向胜率top1。",
   },
   MA_death_5_20: {
-    name: "MA5/MA20死叉卖", side: "sell", zone: "sell", status: "experimental",
+    name: "均线5/20死叉卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "5日均线下穿20日均线（短期死叉卖点）",
     conclusion: "近3年20d胜率56.3%最高，短周期偏弱但中周期强",
     theory: "双均线死叉。短期均线下穿长期均线意味短期动量转弱，经典趋势转弱确认。",
     scenario: "趋势转弱减仓；震荡市频繁假死叉。",
     note: "近3年20d胜率54.8%较高，但5d/10d偏弱。PL0.90<1。实验中：已实现图表（收盘价+5日/20日均线+紫色实验卖标注），未写入signal_daily。",
-    report: "回测报告：MA5/MA20死叉卖近3年20d胜率54.8%为卖点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（卖点结构性问题）。",
+    report: "回测报告：均线5/20死叉卖近3年20d胜率54.8%为卖点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（卖点结构性问题）。",
   },
   BB_middle_break: {
     name: "跌破布林中轨卖", side: "sell", zone: "sell", status: "experimental",
@@ -491,13 +491,13 @@ const LAB_STRATEGIES = {
     report: "回测报告：MACD死叉卖近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，卖点结构性问题突出。",
   },
   ATR_trail_stop: {
-    name: "ATR追踪止损卖", side: "sell", zone: "sell", status: "experimental",
+    name: "真实波幅追踪止损卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "收盘价 < 近20日最高收盘价 − 3×真实波幅ATR(14)（追踪止损）",
     conclusion: "胜率刚过50%",
     theory: "真实波幅(ATR)追踪止损。基于波动率的动态止损线，价格跌破意味趋势已反转。真实波幅(ATR)自适应波动率。",
     scenario: "趋势跟踪止损；波动率大时止损线更宽。",
     note: "近3年10d胜率51.1%，PL0.86。全史PL0.96相对高。",
-    report: "回测报告：ATR追踪止损卖近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点最高之一。追踪止损型信号，胜率刚过50%。",
+    report: "回测报告：真实波幅追踪止损卖近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点最高之一。追踪止损型信号，胜率刚过50%。",
   },
   // --- 已排除反面教材区（6个） ---
   BB_upper_break: {
@@ -528,13 +528,13 @@ const LAB_STRATEGIES = {
     report: "回测报告：放量突破买 0/4达标，近3年10d胜率43.0%为所有策略最低。放量突破在A股个股上反而是反向指标（追高被套），明确排除。",
   },
   B0_RSI70: {
-    name: "RSI下穿70卖", side: "sell", zone: "excluded", status: "excluded",
+    name: "相对强弱下穿70卖", side: "sell", zone: "excluded", status: "excluded",
     trigger: "RSI(14) 前日≥70 且 当日<70（超买结束卖）",
     conclusion: "PL0.81最差，旧基线已弃",
     theory: "相对强弱指标(RSI)超买结束。相对强弱指标(RSI)从≥70回落意味超买结束，但回测显示方向相反（信号后价格仍涨）。",
     scenario: "不推荐使用。已弃用，改用D1。",
     note: "已排除。全史PL0.84最差，旧基线。已被D1_high20_drop5替代。",
-    report: "回测报告：RSI下穿70卖 0/4达标，全史10d胜率48.7%/PL0.84/均值+0.9%（方向相反，信号后价格仍涨）。是所有卖点中最差的，旧基线已弃，改用D1。",
+    report: "回测报告：相对强弱下穿70卖 0/4达标，全史10d胜率48.7%/PL0.84/均值+0.9%（方向相反，信号后价格仍涨）。是所有卖点中最差的，旧基线已弃，改用D1。",
   },
   KDJ_death_overbought: {
     name: "KDJ超买死叉卖", side: "sell", zone: "excluded", status: "excluded",
@@ -546,23 +546,23 @@ const LAB_STRATEGIES = {
     report: "回测报告：KDJ超买死叉卖 0/4达标，近3年10d胜率47.8%<50%。近年失效，明确排除。全史10d胜率45.4%也低。",
   },
   Supertrend_sell: {
-    name: "Supertrend翻空卖", side: "sell", zone: "excluded", status: "excluded",
+    name: "超级趋势翻空卖", side: "sell", zone: "excluded", status: "excluded",
     trigger: "真实波幅ATR(10)×3 趋势线从翻多转为翻空（趋势跟踪卖）",
     conclusion: "全史唯一PL≥1但近3年48.9%失效",
     theory: "超级趋势(Supertrend)翻空。趋势线翻空意味趋势已反转，但近年A股向上漂移致失效。",
     scenario: "不推荐使用。近年失效。",
     note: "已排除。全史PL0.95（接近1），但近3年胜率48.9%<50%失效。",
-    report: "回测报告：Supertrend翻空卖 全史唯一PL≥1（0.95接近1，胜率51.9%），但近3年10d胜率48.9%/PL0.85失效。近年A股向上漂移致趋势跟踪卖点失效，明确排除。",
+    report: "回测报告：超级趋势翻空卖 全史唯一PL≥1（0.95接近1，胜率51.9%），但近3年10d胜率48.9%/PL0.85失效。近年A股向上漂移致趋势跟踪卖点失效，明确排除。",
   },
   // --- 生产参考区（2个） ---
   C1_RSI30: {
-    name: "RSI上穿30买", side: "buy", zone: "prod", status: "live",
+    name: "相对强弱上穿30买", side: "buy", zone: "prod", status: "live",
     trigger: "RSI(14) 从 ≤30 升回 >30 那天（超卖结束、价格有望反弹）",
     conclusion: "3/4达标，结构最稳健，当前主买点",
     theory: "相对强弱指标(RSI)经典超卖回归。相对强弱指标(RSI)≤30表示超卖，升回30之上意味空头力量衰竭、反弹拐点出现。事件化（仅穿越当日标）。",
     scenario: "震荡市/下跌市超卖反弹；通用主买点。按指数可收紧阈值至相对强弱指标上穿25（kc50/电力设备/传媒已配）。",
     note: "已上线生产。signal='buy'。近3年全持有期胜率>50%，盈亏比随持有期单调上升。",
-    report: "回测报告：RSI上穿30买 达标数3/4（全史/近10年/近3年）并列第1。近3年全持有期胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随持有期单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构最稳健，当前主买点，无需改买点。",
+    report: "回测报告：相对强弱上穿30买 达标数3/4（全史/近10年/近3年）并列第1。近3年全持有期胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随持有期单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构最稳健，当前主买点，无需改买点。",
   },
   D1_high20_drop5: {
     name: "20日高回落5%卖", side: "sell", zone: "prod", status: "live",
@@ -575,10 +575,33 @@ const LAB_STRATEGIES = {
   },
 };
 
+// 策略英文原名映射（tooltip 悬停显示英文提高专业性，仅展示用不改后端key）
+const _LAB_STRAT_EN = {
+  Supertrend_buy: "Supertrend Buy", Supertrend_sell: "Supertrend Sell",
+  B0_RSI70: "RSI Cross Below 70", C1_RSI30: "RSI Cross Above 30",
+  MA_golden_5_20: "MA 5/20 Golden Cross", MA_golden_10_60: "MA 10/60 Golden Cross",
+  MA_death_5_20: "MA 5/20 Death Cross", ATR_trail_stop: "ATR Trailing Stop",
+  BB_lower_revert: "BB Lower Band Revert", BB_upper_revert: "BB Upper Band Revert",
+  BB_middle_break: "BB Middle Break", BB_upper_break: "BB Upper Break",
+  Donchian20_up: "Donchian 20-day Breakout", Donchian55_up: "Donchian 55-day Breakout (Turtle)",
+  Donchian10_down: "Donchian 10-day Breakdown", Donchian20_down: "Donchian 20-day Breakdown",
+  MACD_golden: "MACD Golden Cross", MACD_death: "MACD Death Cross",
+  KDJ_golden_oversold: "KDJ Oversold Golden Cross", KDJ_death_overbought: "KDJ Overbought Death Cross",
+  Vol_breakout: "Volume Breakout", D1_high20_drop5: "20-day High Drop 5%",
+  F_D1_S1_MACD: "D1 Drop5% + MA60 Bull + MACD Death", F_D1_S1: "D1 Drop5% + MA60 Bull (no MACD)",
+  F_B1_RSI40: "BB Lower Revert + RSI Cross 40", F_B1_rebound2pct: "BB Lower Revert + Rebound 2%",
+  F_C1_MACD_golden: "RSI Cross 30 + MACD Golden", F_D1_MA_death: "D1 Drop5% + MA 5/20 Death Cross",
+};
+// 策略名带英文 tooltip：<span title="英文原名">中文名</span>（echarts/纯文本场景请直接用 meta.name）
+function _labStratNameHTML(key, name) {
+  const en = _LAB_STRAT_EN[key];
+  return en ? `<span title="${en}">${name}</span>` : (name || "");
+}
+
 // 4分区定义
 const LAB_ZONES = [
-  { key: "buy", label: "🧪 候选买点", count: 7, desc: "候选买点策略（含BB下轨/Supertrend实验中）" },
-  { key: "sell", label: "🧪 候选卖点", count: 7, desc: "候选卖点策略（含BB上轨/MA死叉实验中）" },
+  { key: "buy", label: "🧪 候选买点", count: 7, desc: "候选买点策略（含布林下轨/超级趋势实验中）" },
+  { key: "sell", label: "🧪 候选卖点", count: 7, desc: "候选卖点策略（含布林上轨/均线死叉实验中）" },
   { key: "excluded", label: "📋 已排除", count: 6, desc: "反面教材（回测不达标已弃用）" },
   { key: "prod", label: "✅ 生产参考", count: 2, desc: "已上线生产策略" },
 ];
@@ -598,63 +621,63 @@ const LAB_STATUS_TAGS = {
 const LAB_FUSION_STRATEGIES = {
   // --- 生产参考区（2个，主项目提取） ---
   F_D1_S1_MACD: {
-    name: "D1回落5%+MA60多头+MACD死叉 融合卖", side: "sell", zone: "prod", status: "live",
-    conditions: ["20日高回落5%", "MA60多头", "MACD死叉"],
+    name: "D1回落5%+60日均线多头+MACD死叉 融合卖", side: "sell", zone: "prod", status: "live",
+    conditions: ["20日高回落5%", "60日均线多头", "MACD死叉"],
     trigger: "同日AND：close从20日最高价回落5% 且 close>MA60 且 DIF<DEA",
     conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后凯利建议率18.3%→43.3%",
-    theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加MA60多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日AND，大幅降噪。",
+    theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加60日均线多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日AND，大幅降噪。",
     scenario: "上升趋势中回落止盈/减仓；三条件共振过滤假信号。非做空指令。",
     note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），凯利建议率18.3%→43.3%。已上线signal_daily。",
     report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），凯利建议率从18.3%升至43.3%，信号质量显著提升。主项目生产卖点D1_high20_drop5的融合形态。",
   },
   F_D1_S1: {
-    name: "D1回落5%+MA60多头（豁免MACD） 融合卖", side: "sell", zone: "prod", status: "live",
-    conditions: ["20日高回落5%", "MA60多头"],
+    name: "D1回落5%+60日均线多头（豁免MACD） 融合卖", side: "sell", zone: "prod", status: "live",
+    conditions: ["20日高回落5%", "60日均线多头"],
     trigger: "同日AND：close从20日最高价回落5% 且 close>MA60（s.*情绪分序列豁免MACD，因加MACD后样本n=106→7不足）",
     conclusion: "主项目s.*情绪分变体。对比F_D1_S1_MACD可看MACD过滤的增益",
-    theory: "D1回落5%+MA60多头双条件融合。豁免MACD条件，因s.*情绪分序列加MACD后样本从106降至7，不足统计。用于对比F_D1_S1_MACD可单独看MACD过滤的增益。",
+    theory: "D1回落5%+60日均线多头双条件融合。豁免MACD条件，因s.*情绪分序列加MACD后样本从106降至7，不足统计。用于对比F_D1_S1_MACD可单独看MACD过滤的增益。",
     scenario: "s.*情绪分变体的融合卖点；与F_D1_S1_MACD对比MACD过滤增益。",
     note: "主项目s.*情绪分变体。加MACD后样本n=106→7不足，故豁免MACD。",
     report: "回测：s.*情绪分变体的基础形态（不含MACD）。对比F_D1_S1_MACD可看MACD过滤的增益效果。",
   },
   // --- 候选买点区（3个） ---
   F_B1_RSI40: {
-    name: "BB下轨回归+RSI上穿40 融合买", side: "buy", zone: "candidate_buy", status: "partial",
-    conditions: ["BB下轨回归", "RSI上穿40"],
-    trigger: "同日AND：close从BB下轨下方回归上轨 且 RSI从≤40上穿>40",
+    name: "布林下轨回归+相对强弱上穿40 融合买", side: "buy", zone: "candidate_buy", status: "partial",
+    conditions: ["布林下轨回归", "相对强弱上穿40"],
+    trigger: "同日AND：close从布林下轨下方回归上轨 且 相对强弱从≤40上穿>40",
     conclusion: "主项目10指数已配置 buy_aux rsi_cross_40。f -38.5%->+16.2%转正（家电/轻工回测），胜率44.8%->54.5%，盈亏比0.66->1.19",
-    theory: "多信号融合买点。BB下轨回归捕捉超卖反弹拐点，叠加RSI上穿40确认动量转强。两条件同日AND，过滤单一BB下轨穿越的假信号。",
+    theory: "多信号融合买点。布林下轨回归捕捉超卖反弹拐点，叠加相对强弱上穿40确认动量转强。两条件同日AND，过滤单一布林下轨穿越的假信号。",
     scenario: "超卖反弹+动量确认共振入场；震荡市/下跌市效果好。",
-    note: "已作为 buy_aux 辅买点（per-index 增强）上线于 10 个指数：中证1000/创业板指/家电/轻工/医药/公用事业/房地产/社会服务/传媒/通信。非全局融合信号生产实现（B1基线+RSI上穿40过滤，signals.py:312-314）.",
-    report: "回测：加RSI上穿40后f从-38.5%转正至+16.2%（家电/轻工样本），胜率44.8%->54.5%，盈亏比0.66->1.19。已扩展至10指数配置。",
+    note: "已作为 buy_aux 辅买点（per-index 增强）上线于 10 个指数：中证1000/创业板指/家电/轻工/医药/公用事业/房地产/社会服务/传媒/通信。非全局融合信号生产实现（B1基线+相对强弱上穿40过滤，signals.py:312-314）.",
+    report: "回测：加相对强弱上穿40后f从-38.5%转正至+16.2%（家电/轻工样本），胜率44.8%->54.5%，盈亏比0.66->1.19。已扩展至10指数配置。",
   },
   F_B1_rebound2pct: {
-    name: "BB下轨回归+反弹2% 融合买", side: "buy", zone: "candidate_buy", status: "partial",
-    conditions: ["BB下轨回归", "反弹2%"],
-    trigger: "同日AND：close从BB下轨回归 且 close>下轨*1.02（过滤barely-crossed假信号/dead cat bounce）",
+    name: "布林下轨回归+反弹2% 融合买", side: "buy", zone: "candidate_buy", status: "partial",
+    conditions: ["布林下轨回归", "反弹2%"],
+    trigger: "同日AND：close从布林下轨回归 且 close>下轨*1.02（过滤勉强穿越假信号/死猫反弹）",
     conclusion: "主项目8指数已配置 buy_aux close_above_bl_2pct。f -21%->+20%转正（基础化工回测），5d/10d/20d三horizon一致，n=19<30样本警示",
-    theory: "多信号融合买点。BB下轨回归捕捉超卖反弹，叠加反弹2%过滤（close>下轨*1.02），过滤barely-crossed假信号和dead cat bounce。",
+    theory: "多信号融合买点。布林下轨回归捕捉超卖反弹，叠加反弹2%过滤（close>下轨*1.02），过滤勉强穿越假信号和死猫反弹。",
     scenario: "超卖反弹确认入场；过滤假突破/死猫反弹。",
     note: "已作为 buy_aux 辅买点（per-index 增强）上线于 8 个指数：农林牧渔/基础化工/电子/纺织服饰/交通运输/机械设备/国防军工/计算机。非全局融合信号生产实现（B1基线+反弹2%过滤，signals.py:315-318）.",
     report: "回测：加反弹2%过滤后f从-21%转正至+20%（基础化工样本），5d/10d/20d三horizon一致。样本n=19<30偏小，需持续观察。已扩展至8指数配置。",
   },
   F_C1_MACD_golden: {
-    name: "RSI上穿30+MACD金叉 融合买（实验性新组合）", side: "buy", zone: "candidate_buy", status: "experimental",
-    conditions: ["RSI上穿30", "MACD金叉"],
-    trigger: "同日AND：RSI从≤30上穿>30（超卖反弹） 且 DIF上穿DEA（动量确认）",
+    name: "相对强弱上穿30+MACD金叉 融合买（实验性新组合）", side: "buy", zone: "candidate_buy", status: "experimental",
+    conditions: ["相对强弱上穿30", "MACD金叉"],
+    trigger: "同日AND：相对强弱从≤30上穿>30（超卖反弹） 且 DIF上穿DEA（动量确认）",
     conclusion: "实验性新组合。超卖反弹+动量确认共振，待回测验证",
-    theory: "实验性新组合。RSI上穿30捕捉超卖反弹拐点，叠加MACD金叉确认动量转强。两条件同日AND共振。",
+    theory: "实验性新组合。相对强弱上穿30捕捉超卖反弹拐点，叠加MACD金叉确认动量转强。两条件同日AND共振。",
     scenario: "超卖反弹+动量确认共振入场；实验性，待回测验证。",
     note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
     report: "实验性新组合，暂无回测数据。阶段二将验证超卖反弹+动量确认共振的有效性。",
   },
   // --- 候选卖点区（1个） ---
   F_D1_MA_death: {
-    name: "D1回落5%+MA5/20死叉 融合卖（实验性新组合）", side: "sell", zone: "candidate_sell", status: "experimental",
-    conditions: ["20日高回落5%", "MA5/20死叉"],
-    trigger: "同日AND：close从20日最高价回落5% 且 MA5下穿MA20（均线死叉共振）",
+    name: "D1回落5%+均线5/20死叉 融合卖（实验性新组合）", side: "sell", zone: "candidate_sell", status: "experimental",
+    conditions: ["20日高回落5%", "均线5/20死叉"],
+    trigger: "同日AND：close从20日最高价回落5% 且 5日均线下穿20日均线（均线死叉共振）",
     conclusion: "实验性新组合。回落+均线死叉共振，待回测验证",
-    theory: "实验性新组合。20日高回落5%捕捉趋势转弱，叠加MA5/20死叉确认均线转弱。两条件同日AND共振。",
+    theory: "实验性新组合。20日高回落5%捕捉趋势转弱，叠加均线5/20死叉确认均线转弱。两条件同日AND共振。",
     scenario: "趋势转弱+均线死叉共振减仓；实验性，待回测验证。",
     note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
     report: "实验性新组合，暂无回测数据。阶段二将验证回落+均线死叉共振的有效性。",
@@ -689,17 +712,17 @@ function _generateFusionCandidates() {
   // 短名映射：从 name 提取可读短名
   const shortName = (s) => {
     const n = s.name;
-    if (n.includes("布林下轨")) return "BB下轨";
-    if (n.includes("Supertrend")) return "Supertrend";
+    if (n.includes("布林下轨")) return "布林下轨";
+    if (n.includes("超级趋势")) return "超级趋势";
     if (n.includes("唐奇安")) return "唐奇安" + (n.includes("55") ? "55" : "20");
     if (n.includes("海龟")) return "海龟55";
-    if (n.includes("MA")) return "MA" + (n.includes("5/20") ? "5/20" : "10/60");
+    if (n.includes("均线")) return "均线" + (n.includes("5/20") ? "5/20" : "10/60");
     if (n.includes("MACD")) return "MACD";
-    if (n.includes("布林上轨")) return "BB上轨";
-    if (n.includes("跌破布林中轨")) return "BB中轨";
+    if (n.includes("布林上轨")) return "布林上轨";
+    if (n.includes("跌破布林中轨")) return "布林中轨";
     if (n.includes("跌破10日")) return "破10日低";
     if (n.includes("跌破20日")) return "破20日低";
-    if (n.includes("ATR")) return "ATR止损";
+    if (n.includes("真实波幅")) return "真实波幅止损";
     return n.substring(0, 6);
   };
 
@@ -893,14 +916,14 @@ const LAB_STRATEGY_INDICATORS = {
 
 // 技术指标散户白话释义（初中生能懂）
 const LAB_INDICATOR_PLAIN = {
-  BB: { name: "BB 布林带", plain: "用近20日均价和波动幅度画的价格通道。触及上轨=近期偏贵可能回落，触及下轨=偏便宜可能反弹，中轨=20日均线。" },
-  Supertrend: { name: "Supertrend 超级趋势", plain: "基于波动率(ATR)画的趋势跟踪线。翻红=转多(买)，翻绿=转空(卖)。" },
-  MA: { name: "MA 均线", plain: "近N个交易日的平均价。短期均线在长期均线之上=多头排列、趋势向上，反之=空头、趋势向下。" },
-  Donchian: { name: "Donchian 通道", plain: "近N日最高价和最低价画的通道。价格突破上轨=创新高看多，跌破下轨=创新低看空。" },
-  MACD: { name: "MACD", plain: "动量指标。DIF上穿DEA=金叉看多，DIF下穿DEA=死叉看空。" },
-  KDJ: { name: "KDJ", plain: "超买超卖指标。K线上穿D线=金叉(低位更准)，K线下穿D线=死叉(高位更准)。" },
-  RSI: { name: "RSI 相对强弱", plain: "0-100的强弱指标。<30超卖(跌多了可能反弹)，>70超买(涨多了可能回落)。" },
-  ATR: { name: "ATR 真实波幅", plain: "衡量波动剧烈程度，数值越大波动越猛。追踪止损线=近期高点-3倍ATR，跌破即止损。" },
+  BB: { name: "布林带", en: "Bollinger Bands", plain: "用近20日均价和波动幅度画的价格通道。触及上轨=近期偏贵可能回落，触及下轨=偏便宜可能反弹，中轨=20日均线。" },
+  Supertrend: { name: "超级趋势", en: "Supertrend", plain: "基于波动率(ATR)画的趋势跟踪线。翻红=转多(买)，翻绿=转空(卖)。" },
+  MA: { name: "均线", en: "Moving Average", plain: "近N个交易日的平均价。短期均线在长期均线之上=多头排列、趋势向上，反之=空头、趋势向下。" },
+  Donchian: { name: "唐奇安通道", en: "Donchian Channel", plain: "近N日最高价和最低价画的通道。价格突破上轨=创新高看多，跌破下轨=创新低看空。" },
+  MACD: { name: "MACD", en: "MACD", plain: "动量指标。DIF上穿DEA=金叉看多，DIF下穿DEA=死叉看空。" },
+  KDJ: { name: "KDJ", en: "KDJ", plain: "超买超卖指标。K线上穿D线=金叉(低位更准)，K线下穿D线=死叉(高位更准)。" },
+  RSI: { name: "相对强弱", en: "Relative Strength Index", plain: "0-100的强弱指标。<30超卖(跌多了可能反弹)，>70超买(涨多了可能回落)。" },
+  ATR: { name: "真实波幅", en: "Average True Range", plain: "衡量波动剧烈程度，数值越大波动越猛。追踪止损线=近期高点-3倍ATR，跌破即止损。" },
   Drop5: { name: "20日高回落5%", plain: "近20日最高价下跌5%触发止盈。回落阈值线会随创新高而上移。" },
   Vol: { name: "量比 成交额比值", plain: "今日成交额除以近20日平均成交额。>2=放量（资金涌入），<1=缩量。指数无成交量字段，用成交额代理。" },
 };
@@ -945,17 +968,17 @@ function _labBuildChartConfig(key, ohlc, indexName) {
         { name: "趋势线(空)", data: r2.stBear, color: "#c92a2a", dash: false },
       ],
       signals: r2.signals, signalLabel, signalColor: "#2e7d32",
-      chartTitle: `${name} · Supertrend翻多实验`, statLabel: "实验买点",
+      chartTitle: `${name} · 超级趋势翻多实验`, statLabel: "实验买点",
     };
   } else if (key === "MA_death_5_20") {
     const r2 = computeMADeathCrossLab(ohlc);
     return {
       indicators: [
-        { name: "MA5", data: r2.ma5, color: "#1f6feb", dash: false },
-        { name: "MA20", data: r2.ma20, color: "#f0883e", dash: false },
+        { name: "5日均线", data: r2.ma5, color: "#1f6feb", dash: false },
+        { name: "20日均线", data: r2.ma20, color: "#f0883e", dash: false },
       ],
       signals: r2.signals, signalLabel, signalColor: "#9c27b0",
-      chartTitle: `${name} · MA5/20死叉实验`, statLabel: "实验卖点",
+      chartTitle: `${name} · 均线5/20死叉实验`, statLabel: "实验卖点",
     };
   }
 
@@ -971,7 +994,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
     return {
       indicators: [
         { name: "布林上轨", data: bb.bu, color: cssVar('--text-4'), dash: true },
-        { name: "布林中轨MA20", data: bb.mid, color: cssVar('--text-3'), dash: false },
+        { name: "布林中轨(20日均线)", data: bb.mid, color: cssVar('--text-3'), dash: false },
         { name: "布林下轨", data: bb.bl, color: cssVar('--text-4'), dash: true },
       ],
       signals, signalLabel, signalColor: sigColor,
@@ -1009,7 +1032,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
         { name: "趋势线(空)", data: r2.stBear, color: "#c92a2a", dash: false },
       ],
       signals, signalLabel, signalColor: sigColor,
-      chartTitle: `${name} · Supertrend翻空`, statLabel,
+      chartTitle: `${name} · 超级趋势翻空`, statLabel,
     };
   }
 
@@ -1125,9 +1148,9 @@ function _labBuildChartConfig(key, ohlc, indexName) {
   if (key === "ATR_trail_stop") {
     const r = computeATRTrailLab(ohlc);
     return {
-      indicators: [{ name: "ATR追踪止损线", data: r.trail, color: "#c92a2a", dash: true }],
+      indicators: [{ name: "真实波幅追踪止损线", data: r.trail, color: "#c92a2a", dash: true }],
       signals: r.signals, signalLabel, signalColor: sigColor,
-      chartTitle: `${name} · ATR追踪止损`, statLabel,
+      chartTitle: `${name} · 真实波幅追踪止损`, statLabel,
     };
   }
 
@@ -2041,7 +2064,7 @@ async function renderLabDetail(key, container) {
   // 标题 + 状态标签
   const header = document.createElement("div");
   header.className = "lab-detail-header";
-  header.innerHTML = `<h2 class="lab-detail-title">${meta.name}</h2>` +
+  header.innerHTML = `<h2 class="lab-detail-title">${_labStratNameHTML(key, meta.name)}</h2>` +
     `<span class="lab-tag ${tag.cls}">${tag.label}</span>` +
     `<span class="lab-tag-side">${meta.side === "buy" ? "买点" : "卖点"}</span>`;
   target.appendChild(header);
@@ -2061,7 +2084,7 @@ async function renderLabDetail(key, container) {
   const indHtml = indItems.length
     ? '<details class="indicator-explain"><summary>📖 指标释义（这些指标怎么看？）</summary>' +
       '<div class="indicator-explain-body">' +
-      indItems.map((it) => `<div><b>${it.name}</b>：${it.plain}</div>`).join("") +
+      indItems.map((it) => `<div><b title="${it.en || ''}">${it.name}</b>：${it.plain}</div>`).join("") +
       '</div></details>'
     : "";
   docCard.innerHTML =
@@ -3044,7 +3067,7 @@ async function renderFusionLab() {
       card.className = "lab-strategy-card lab-fusion-card" + (meta._isPending ? " lab-fusion-pending" : "");
       card.innerHTML =
         `<div class="lab-card-top">` +
-        `<span class="lab-card-name">${meta.name}</span>` +
+        `<span class="lab-card-name">${_labStratNameHTML(key, meta.name)}</span>` +
         `<span class="lab-tag ${tag.cls}">${tag.label}</span>` +
         `</div>` +
         condsHTML +
@@ -3921,7 +3944,7 @@ function _labSignalDetailOpenModal(key) {
   const meta = LAB_STRATEGIES[key] || {};
   const tag = LAB_STATUS_TAGS[meta.status] || LAB_STATUS_TAGS.dev;
   const titleHTML = meta.name
-    ? `📊 ${meta.name} <span class="lab-tag ${tag.cls}">${tag.label}</span>`
+    ? `📊 ${_labStratNameHTML(key, meta.name)} <span class="lab-tag ${tag.cls}">${tag.label}</span>`
     : "📊 策略详情";
   // 渲染 loading 骨架（标题在 sticky head，关闭 X）
   overlay.innerHTML = `<div class="lab-signal-modal">` +
@@ -4176,7 +4199,7 @@ async function _labFusionPairModalRender(overlay) {
     if (_indItems.length) {
       indExplainHTML = '<div class="chart-card"><details class="indicator-explain"><summary>📖 指标释义（这些指标怎么看？）</summary>' +
         '<div class="indicator-explain-body">' +
-        _indItems.map((it) => `<div><b>${it.name}</b>：${it.plain}</div>`).join("") +
+        _indItems.map((it) => `<div><b title="${it.en || ''}">${it.name}</b>：${it.plain}</div>`).join("") +
         '</div></details></div>';
     }
   }
@@ -4403,9 +4426,9 @@ function _labExtIdxBarHTML(idxList, curIdx) {
 // === 新方向实验通用工具：组件/参数中文名 + 涨跌色（红涨绿跌，复用 --mx-good-fg/--mx-bad-fg 适配3套皮肤）===
 // 子组件中文名（策略 key 复用 LAB_STRATEGIES[].name，此处仅补非策略子信号）
 const _LAB_COMP_NAME = {
-  MA60_bull: "MA60多头",
+  MA60_bull: "60日均线多头",
   MACD_below_signal: "MACD低于信号线",
-  RSI_cross_40: "RSI上穿40",
+  RSI_cross_40: "相对强弱上穿40",
   close_above_bl_2pct: "收盘高于下轨2%",
 };
 function _labCompLabel(key) {
