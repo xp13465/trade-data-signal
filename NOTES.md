@@ -1961,3 +1961,44 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 
 ### 验收（5 项通过）
 - 荣誉表双版生成 + push a27ebba ✓；双版 diff 只剩 URL ✓；徽章函数双版 ✓；未碰 `_labRankAggregate` ✓。
+
+## §35 buy_aux（BB 下轨回归辅买点）回测覆盖（2026-07-17）
+
+> 背景：signal_stats.json 已含 g.cn10y buy_aux 前向统计（app/compute/signal_stats.py 基于生产 signal_daily 信号算，前端 tips 显示）。但 a-stock-data/backtest_metrics.py（公开项目 simonlin1212/a-stock-data，不可改）只覆盖 C1 主买（RSI 上穿）+ 卖点参数网格，未覆盖 buy_aux（BB 下轨回归辅买点）。本节补齐 buy_aux 回测。
+
+### 实施
+1. **新写 `scripts/backtest_buy_aux.py`**（不动 a-stock-data/、不改 backtest_strategies.py）：自复刻 signals.py 的 RSI(14) + Bollinger(ddof=0) + buy_aux 生成（BB 下轨回归：前一日 value<下轨 且当日 value>下轨）+ C1 去重（与 C1 同日保留 C1 主买，与生产一致）+ per-index filter（rsi_cross_40 / close_above_bl_2pct）。
+2. **参数网格**：n_std ∈ {1.5, 2.0, 2.5} × filter ∈ {none, rsi_cross_40, close_above_bl_2pct} × horizon ∈ {5, 10, 20}，覆盖 11 个 global 指标 + 2 个情绪分。
+3. **收益双口径**：百分比（(shift(-h)/s-1)×100，与 signal_stats 一致）+ 绝对值（shift(-h)-s，与 backtest_metrics 一致）。
+
+### 关键验证：cn10y buy_aux 完美复现生产统计
+本脚本自生成 buy_aux 信号（σ2.0+none 基线）与生产 signal_stats.json **完全一致**：
+- buy_aux 10d：n=67，胜率=0.5373，盈亏比=0.8083（生产同值）
+- buy_aux 5d：n=67，胜率=0.4925，盈亏比=0.6561（生产同值）
+- buy_aux 20d：n=67，胜率=0.4179，盈亏比=0.7316（生产同值）
+- C1 主买 10d：n=56，胜率=0.4821，盈亏比=0.7392（生产 buy 同值）
+
+证明 buy_aux 复刻逻辑（BB 下轨回归 + C1 去重）与生产 signals.py 完全对齐，回测可信。
+
+### cn10y 结论：buy_aux 10d 优于 C1 主买
+| 信号 | n | 10d胜率 | 10d盈亏比 | 10d均值% |
+|---|---|---|---|---|
+| C1 主买(RSI上穿30) | 56 | 48.21% | 0.74 | -0.3547 |
+| buy_aux 基线(σ2.0) | 67 | 53.73% | 0.81 | -0.0559 |
+| buy_aux σ1.5 | 93 | 39.78% | 1.02 | - |
+| buy_aux σ2.5 | 34 | 50.00% | 0.93 | - |
+
+- buy_aux 基线 10d 胜率(53.73%)/盈亏比(0.81)双优于 C1(48.21%/0.74)，均值亏损更小(-0.056 vs -0.355)。
+- 基线 σ2.0+none 已是最佳：rsi_cross_40 样本不足(n=11)，close_above_bl_2pct 在 cn10y 无信号(反弹2%门槛对收益率序列太严)。
+- 20d 维度 buy_aux 胜率(41.79%)优于 C1(35.71%)，但盈亏比(0.73)略低于 C1(0.86)。
+
+### 其他序列亮点（样本>=10 且胜率>60% 或盈亏比>2）
+- g.us10y σ2.0+close_above_bl_2pct：n=16，10d 胜率 75%，盈亏比 4.52（强）
+- g.comex_silver σ1.5+close_above_bl_2pct：n=12，10d 胜率 83.3%，盈亏比 2.99（样本少）
+- g.a_qvix_1000 σ2.0+close_above_bl_2pct：n=14，10d 胜率 71.4%
+- s.cross_market σ2.5+rsi_cross_40：n=10，10d 胜率 80%（样本少）
+
+### 落档
+- 脚本：`scripts/backtest_buy_aux.py`
+- JSON：`static-site/data/buy_aux_backtest.json`（可推上线，含每序列 buy_aux 最佳参数 + C1 对比 + 全网格）
+- 本节 NOTES §35
