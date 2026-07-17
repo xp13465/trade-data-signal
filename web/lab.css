@@ -493,6 +493,10 @@
   gap: 16px;
   align-items: start;
 }
+/* 单列堆叠：信号扫描3子tab(拆解/对称/参数扫描)布局改上下，leftCol上rightCol下 */
+.lab-list-1col {
+  grid-template-columns: 1fr;
+}
 .lab-list-2col > * {
   display: flex;
   flex-direction: column;
@@ -806,6 +810,20 @@
   color: var(--primary);
   border-bottom-color: var(--primary);
   font-weight: 600;
+}
+
+/* 三级子nav（信号扫描父tab下：信号拆解/多空对称/参数扫描）-- 缩进+小一号字+细边框做视觉区分 */
+.lab-subnav-child {
+  margin-top: -6px;
+  padding-left: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.lab-subnav-child .lab-subnav-tab {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.lab-subnav-child .lab-subnav-tab.active {
+  border-bottom-color: var(--accent, var(--primary));
 }
 
 /* === 融合信号卡片 === */
