@@ -245,9 +245,9 @@
 .lab-mp { font-size: 11px; color: var(--text-3); }
 .lab-mn { font-size: 10px; color: var(--text-4); }
 .lab-matrix-pass {
-  border: 2px solid #c92a2a;
+  border: 2px solid var(--mx-good-fg);
 }
-.lab-matrix-pass .lab-mw { color: #c92a2a; }
+.lab-matrix-pass .lab-mw { color: var(--mx-good-fg); }
 .lab-matrix-na { color: var(--text-4); }
 .lab-matrix-foot { padding-top: 8px; border-top: 1px dashed var(--border); }
 .lab-matrix-source { font-size: 11px; color: var(--text-3); margin-bottom: 2px; }
@@ -261,12 +261,12 @@
 .lab-warning-essay p { margin: 4px 0; font-weight: 400; font-size: 12.5px; color: #874d00; }
 .lab-warning-essay strong { color: #d4380d; font-weight: 700; }
 
-/* 矩阵三色分级 */
-.lab-matrix-good { background: #fff1f0; }
-.lab-matrix-warn { background: #fffbe6; }
-.lab-matrix-bad { background: #f0f9eb; }
-.lab-matrix-bad .lab-mw { color: #2e7d32; }
-.lab-matrix-good .lab-mw { color: #c92a2a; }
+/* 矩阵三色分级（背景+数值色均随皮肤切换，深色/红金底用深底亮字）*/
+.lab-matrix-good { background: var(--mx-good-bg); }
+.lab-matrix-warn { background: var(--mx-warn-bg); }
+.lab-matrix-bad { background: var(--mx-bad-bg); }
+.lab-matrix-bad .lab-mw { color: var(--mx-bad-fg); }
+.lab-matrix-good .lab-mw { color: var(--mx-good-fg); }
 
 /* 矩阵格内：平均收益 + 100元换算 */
 .lab-mm { font-size: 11px; color: var(--text-2); }
@@ -281,13 +281,17 @@
 .lab-matrix-legend b { color: var(--text-1); }
 .lab-matrix-legend span { white-space: nowrap; }
 .lab-matrix-tip {
-  font-size: 11px; color: #ad6800; background: #fff9e6;
+  font-size: 11px; color: var(--mx-warn-fg); background: var(--mx-warn-bg);
   padding: 6px 10px; border-radius: 4px; margin-bottom: 8px;
 }
 .lab-matrix-legend-color {
   display: flex; gap: 10px; margin-top: 6px; font-size: 11px;
 }
 .lab-matrix-legend-color span { padding: 2px 8px; border-radius: 3px; font-weight: 500; }
+/* 图例色块文字色（无 .lab-mw，显式上色保证背景与文字双适配）*/
+.lab-matrix-legend-color .lab-matrix-good { color: var(--mx-good-fg); }
+.lab-matrix-legend-color .lab-matrix-warn { color: var(--mx-warn-fg); }
+.lab-matrix-legend-color .lab-matrix-bad { color: var(--mx-bad-fg); }
 
 /* 模拟回测卡片（配对交易） */
 .lab-sim-card { margin-top: 16px; }
@@ -334,10 +338,10 @@
 .lab-sim-pair-card .pc-meta { font-size: 10px; color: var(--text-3); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .lab-sim-pair-card .pc-win { font-weight: 600; }
 .lab-sim-pair-card .pc-n { color: var(--text-4); }
-/* 三色分级：背景复用 .lab-matrix-good/warn/bad，数值色红好/绿差（国人风格） */
-.lab-sim-pair-card .pc-lvl-good { color: #c92a2a; }
-.lab-sim-pair-card .pc-lvl-warn { color: #ad6800; }
-.lab-sim-pair-card .pc-lvl-bad { color: #2e7d32; }
+/* 三色分级：背景复用 .lab-matrix-good/warn/bad，数值色红好/绿差（国人风格，随皮肤切换）*/
+.lab-sim-pair-card .pc-lvl-good { color: var(--mx-good-fg); }
+.lab-sim-pair-card .pc-lvl-warn { color: var(--mx-warn-fg); }
+.lab-sim-pair-card .pc-lvl-bad { color: var(--mx-bad-fg); }
 .lab-sim-mode-toggle { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border-strong); }
 .lab-sim-mode-toggle button { padding: 4px 12px; border: none; background: var(--bg-card); font-size: 12px; cursor: pointer; color: var(--text-2); transition: all 0.15s; }
 .lab-sim-mode-toggle button.active { background: var(--primary); color: #fff; font-weight: 600; }

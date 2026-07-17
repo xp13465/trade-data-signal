@@ -17,6 +17,10 @@
   --shadow-strong: rgba(0,0,0,0.12); /* 强阴影 */
   --radius-sm: 6px;             /* 方角切换组圆角 */
   --radius-pill: 999px;         /* 药丸标签圆角 */
+  /* 矩阵三色分级语义色（随皮肤切换，保证深色/红金底下背景与文字双适配）*/
+  --mx-good-bg: #fff1f0; --mx-good-fg: #c92a2a;  /* 红=好 */
+  --mx-warn-bg: #fffbe6; --mx-warn-fg: #ad6800;  /* 黄=一般 */
+  --mx-bad-bg:  #f0f9eb; --mx-bad-fg:  #2e7d32;  /* 绿=差 */
 }
 /* 深色专业（金融终端风）*/
 [data-theme="dark"] {
@@ -35,6 +39,10 @@
   --primary-bg: #1c2536;
   --shadow: rgba(0,0,0,0.3);
   --shadow-strong: rgba(0,0,0,0.5);
+  /* 矩阵三色：深底亮字，避免浅色背景在深色卡上变白块+浅字撞色 */
+  --mx-good-bg: #3a1d1d; --mx-good-fg: #ff6b6b;
+  --mx-warn-bg: #3a321a; --mx-warn-fg: #ffd43b;
+  --mx-bad-bg:  #1d3a26; --mx-bad-fg:  #51cf66;
 }
 /* 红金中国风 */
 [data-theme="redgold"] {
@@ -53,6 +61,10 @@
   --primary-bg: #2a2410;
   --shadow: rgba(0,0,0,0.3);
   --shadow-strong: rgba(0,0,0,0.5);
+  /* 矩阵三色：深底亮字，与红金风协调 */
+  --mx-good-bg: #3d2424; --mx-good-fg: #ff8a8a;
+  --mx-warn-bg: #3d3318; --mx-warn-fg: #f0d960;
+  --mx-bad-bg:  #243d2c; --mx-bad-fg:  #6ee0a0;
 }
 /* 莫兰迪柔和 */
 [data-theme="morandi"] {
@@ -71,6 +83,10 @@
   --primary-bg: #e6e9ed;
   --shadow: rgba(120,110,90,0.06);
   --shadow-strong: rgba(120,110,90,0.14);
+  /* 矩阵三色：莫兰迪柔和浅底+中深字 */
+  --mx-good-bg: #f0e0db; --mx-good-fg: #9c5340;
+  --mx-warn-bg: #f0e9d8; --mx-warn-fg: #856928;
+  --mx-bad-bg:  #e0ece0; --mx-bad-fg:  #467455;
 }
 /* 深色/红金主题：浮动按钮（深灰半透明 bg 在深底不可见，改浅色半透明）*/
 [data-theme="dark"] .back-to-top,
