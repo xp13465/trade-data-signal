@@ -4466,7 +4466,7 @@ const _retFg = (v) => (v >= 0 ? _UP : _DOWN);               // 内联样式用
 const _retEc = (v) => (v >= 0 ? cssVar("--mx-good-fg") : cssVar("--mx-bad-fg")); // echarts 用
 
 // === 🧩 信号叠加消融：6硬编码融合 N-1 子集贡献（定位核心贡献组件）===
-const _LAB_ABLATION_RULE = "🧩 信号拆解测试（消融分析）：对6硬编码融合策略逐一去掉一个组件(N-1子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。D1_high20_drop5 平均贡献+769%为绝对核心，BB_lower_revert/C1_RSI30 贡献为负(作为融合组件反而拖累)。";
+const _LAB_ABLATION_RULE = "🧩 信号拆解测试（消融分析）：对6硬编码融合策略逐一去掉一个组件(去一组件子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。20日高回落5%卖 平均贡献+769%为绝对核心，布林下轨回归买/相对强弱上穿30买 贡献为负(作为融合组件反而拖累)。";
 
 async function renderAblationLab() {
   const wrapper = document.createElement("div");
@@ -4590,7 +4590,7 @@ function _labAblationChart(container, data) {
 }
 
 // === ⚖️ 多空对称：做多(buy->sell) vs 做空(sell->buy)镜像对比 ===
-const _LAB_SYMMETRY_RULE = "⚖️ 多空对称：做多(先买后卖) vs 做空(先卖后买)镜像对比。A股长期向上漂移，做多盈利/做空亏损属正常不对称；symmetry_ratio 越接近0越对称(可做空)，越负越偏向做多。做空盈利占比仅9.7%(72配对中7个)，印证A股不适合裸做空。";
+const _LAB_SYMMETRY_RULE = "⚖️ 多空对称：做多(先买后卖) vs 做空(先卖后买)镜像对比。A股长期向上漂移，做多盈利/做空亏损属正常不对称；对称比 越接近0越对称(可做空)，越负越偏向做多。做空盈利占比仅9.7%(72配对中7个)，印证A股不适合裸做空。";
 
 async function renderSymmetryLab() {
   const wrapper = document.createElement("div");
@@ -4708,7 +4708,7 @@ function _labSymmetryChart(container, data) {
 }
 
 // === 🎛 参数敏感扫描：7策略参数网格（验证默认参数处于稳定高原而非过拟合尖峰）===
-const _LAB_PARAMSCAN_RULE = "🎛 参数敏感扫描：对7策略做参数网格扫描，验证默认参数处于稳定高原而非孤立尖峰(过拟合)。verdict：robust_profitable=稳健高原(默认参数附近都盈利)，sharp_peak=尖锐尖峰(仅个别参数盈利，过拟合风险)。Donchian20_up/Supertrend_buy=稳健高原；C1_RSI30/BB族/D1=尖锐尖峰，默认参数非最优。";
+const _LAB_PARAMSCAN_RULE = "🎛 参数敏感扫描：对7策略做参数网格扫描，验证默认参数处于稳定高原而非孤立尖峰(过拟合)。判定:稳健高原=默认参数附近都盈利,尖锐尖峰=仅个别参数盈利(过拟合风险)。唐奇安20日突破买/超级趋势翻多买=稳健高原;相对强弱上穿30买/布林带族/20日高回落5%卖=尖锐尖峰,默认参数非最优。";
 
 async function renderParamScanLab() {
   const wrapper = document.createElement("div");
