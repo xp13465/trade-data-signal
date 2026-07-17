@@ -4394,6 +4394,38 @@ function _labExtIdxBarHTML(idxList, curIdx) {
   ).join("");
 }
 
+// === 新方向实验通用工具：组件/参数中文名 + 涨跌色（红涨绿跌，复用 --mx-good-fg/--mx-bad-fg 适配3套皮肤）===
+// 子组件中文名（策略 key 复用 LAB_STRATEGIES[].name，此处仅补非策略子信号）
+const _LAB_COMP_NAME = {
+  MA60_bull: "MA60多头",
+  MACD_below_signal: "MACD低于信号线",
+  RSI_cross_40: "RSI上穿40",
+  close_above_bl_2pct: "收盘高于下轨2%",
+};
+function _labCompLabel(key) {
+  if (LAB_STRATEGIES[key] && LAB_STRATEGIES[key].name) return LAB_STRATEGIES[key].name;
+  return _LAB_COMP_NAME[key] || key;
+}
+// pair_id -> 中文：融合ID直接取name；a|b 拆分分别取name
+function _labPairLabel(pairId) {
+  if (LAB_STRATEGIES[pairId] && LAB_STRATEGIES[pairId].name) return LAB_STRATEGIES[pairId].name;
+  if (pairId && pairId.indexOf("|") >= 0) return pairId.split("|").map(_labCompLabel).join(" ｜ ");
+  return _labCompLabel(pairId);
+}
+// 参数维度名 -> 中文（维度 key 仍用于索引 params，仅展示用中文）
+const _LAB_DIM_NAME = {
+  rsi_period: "RSI周期",
+  threshold: "RSI阈值",
+  n: "周期N",
+  k: "标准差倍数",
+  period: "周期",
+};
+function _labDimLabel(name) { return _LAB_DIM_NAME[name] || name; }
+// 涨跌色（红涨绿跌）：_UP/_DOWN 供内联 style 用 var()；_retEc 供 echarts canvas 用 cssVar() 解析
+const _UP = "var(--mx-good-fg)", _DOWN = "var(--mx-bad-fg)"; // 正=红 / 负=绿
+const _retFg = (v) => (v >= 0 ? _UP : _DOWN);               // 内联样式用
+const _retEc = (v) => (v >= 0 ? cssVar("--mx-good-fg") : cssVar("--mx-bad-fg)")); // echarts 用
+
 // === 🧩 信号叠加消融：6硬编码融合 N-1 子集贡献（定位核心贡献组件）===
 const _LAB_ABLATION_RULE = "🧩 信号叠加消融：对6硬编码融合策略逐一去掉一个组件(N-1子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。D1_high20_drop5 平均贡献+769%为绝对核心，BB_lower_revert/C1_RSI30 贡献为负(作为融合组件反而拖累)。";
 
@@ -4463,16 +4495,16 @@ function _labAblationCardHTML(f) {
   const fmtPct = (v) => (v != null && !isNaN(v)) ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2)) + "%" : "-";
   const ablationRows = (f.ablations || []).map((a) => {
     const contrib = a.ret_contribution;
-    const color = contrib > 0 ? "#2e7d32" : (contrib < 0 ? "#c92a2a" : "var(--text-3)");
+    const color = contrib > 0 ? _UP : (contrib < 0 ? _DOWN : "var(--text-3)");
     const sign = contrib > 0 ? "+" : "";
-    return `<tr><td style="color:#c92a2a">-${a.dropped}</td><td>${a.kept.join(" + ")}</td><td>${a.n_signals}</td>` +
+    return `<tr><td style="color:var(--text-3)">-${_labCompLabel(a.dropped)}</td><td>${a.kept.map(_labCompLabel).join(" + ")}</td><td>${a.n_signals}</td>` +
       `<td style="color:${color};font-weight:600">${sign}${contrib.toFixed(2)}%</td></tr>`;
   }).join("");
   return `<div class="lab-strategy-card lab-retest-pair">` +
     `<div class="lab-retest-pair-head">` +
-    `<span class="lab-retest-pair-strat">${f.pair_id}</span>` +
+    `<span class="lab-retest-pair-strat">${_labPairLabel(f.pair_id)}</span>` +
     `<span class="lab-tag ${sideCls}">${sideLabel}点融合</span>` +
-    `<span style="color:${fs.total_ret >= 0 ? "#2e7d32" : "#c92a2a"};font-weight:600">完整收益: ${fmtPct(fs.total_ret)}</span>` +
+    `<span style="color:${_retFg(fs.total_ret)};font-weight:600">完整收益: ${fmtPct(fs.total_ret)}</span>` +
     `<span style="color:var(--text-3)">胜率: ${fmtPct(fs.win_rate)}</span>` +
     `<span style="color:var(--text-3)">交易: ${fs.n_trades != null ? fs.n_trades : "-"}</span>` +
     `</div>` +
@@ -4495,20 +4527,20 @@ function _labAblationChart(container, data) {
   const gainPct = summary.fusion_gain_positive_pct != null ? summary.fusion_gain_positive_pct : "-";
   const hint = document.createElement("div");
   hint.className = "lab-zone-desc";
-  hint.innerHTML = `融合增益为正占比: <b style="color:${gainPct >= 50 ? "#2e7d32" : "#c92a2a"}">${gainPct}%</b> · 共 ${summary.n_fusion_index_pairs || "-"} 个融合×指数组合`;
+  hint.innerHTML = `融合增益为正占比: <b style="color:${gainPct >= 50 ? _UP : _DOWN}">${gainPct}%</b> · 共 ${summary.n_fusion_index_pairs || "-"} 个融合×指数组合`;
   body.appendChild(hint);
   const c = mkCard("各组件平均收益贡献（%, 正=提升 / 负=拖累）", 340, null, body, []);
   c.setOption(withTheme({
     tooltip: { trigger: "axis", formatter: (p) => {
       const it = items[p[0].dataIndex];
-      return `${it.component}<br/>平均贡献: ${it.avg_contribution.toFixed(2)}%<br/>正贡献占比: ${it.positive_pct}%<br/>样本数: ${it.n_samples}`;
+      return `${_labCompLabel(it.component)}<br/>平均贡献: ${it.avg_contribution.toFixed(2)}%<br/>正贡献占比: ${it.positive_pct}%<br/>样本数: ${it.n_samples}`;
     }},
     grid: { left: 60, right: 20, top: 20, bottom: 70 },
-    xAxis: { type: "category", data: items.map((x) => x.component), axisLabel: { rotate: 35, fontSize: 10 } },
+    xAxis: { type: "category", data: items.map((x) => _labCompLabel(x.component)), axisLabel: { rotate: 35, fontSize: 10 } },
     yAxis: { type: "value", name: "贡献率(%)" },
     series: [{
       type: "bar", barMaxWidth: 42,
-      data: items.map((x) => ({ value: x.avg_contribution, itemStyle: { color: x.avg_contribution >= 0 ? "#2e7d32" : "#c92a2a" } })),
+      data: items.map((x) => ({ value: x.avg_contribution, itemStyle: { color: _retEc(x.avg_contribution) } })),
       label: { show: true, position: "top", fontSize: 10, formatter: (p) => (p.value >= 0 ? "+" : "") + p.value.toFixed(1) },
     }],
   }));
@@ -4580,20 +4612,20 @@ function _labSymmetryCardHTML(p) {
   const longRet = p.long && p.long.total_ret;
   const shortRet = p.short && p.short.total_ret;
   const fmt = (v) => (v != null && !isNaN(v)) ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2)) + "%" : "-";
-  const symColor = p.symmetry_ratio >= 0 ? "#2e7d32" : (p.symmetry_ratio <= -0.3 ? "#c92a2a" : "#f0883e");
+  const symColor = p.symmetry_ratio >= 0 ? _UP : (p.symmetry_ratio <= -0.3 ? _DOWN : "#f0883e");
   const badge = p.both_positive ? '<span class="lab-tag lab-tag-live">双向盈利</span>'
     : (p.long_pos_short_neg ? '<span class="lab-tag lab-tag-exp">多盈空亏</span>' : "");
   return `<div class="lab-strategy-card lab-retest-pair">` +
     `<div class="lab-retest-pair-head">` +
-    `<span class="lab-retest-pair-strat">#${p.rank} ${p.pair_id}</span>` +
+    `<span class="lab-retest-pair-strat">#${p.rank} ${_labPairLabel(p.pair_id)}</span>` +
     `<span class="lab-retest-pair-win">对称比: <span style="color:${symColor};font-weight:700">${p.symmetry_ratio.toFixed(3)}</span></span>` +
     badge + `</div>` +
     `<div class="lab-retest-section"><div class="lab-retest-regimes">` +
     `<div class="lab-retest-regime-card"><div class="lab-retest-regime-name">📈 做多 (买→卖)</div>` +
-    `<div class="lab-retest-regime-ret" style="color:${longRet >= 0 ? "#2e7d32" : "#c92a2a"}">${fmt(longRet)}</div>` +
+    `<div class="lab-retest-regime-ret" style="color:${_retFg(longRet)}">${fmt(longRet)}</div>` +
     `<div class="lab-retest-regime-dd">胜率 ${(p.long && p.long.win_rate != null) ? p.long.win_rate.toFixed(1) + "%" : "-"} · ${(p.long && p.long.n_trades) || 0}笔</div></div>` +
     `<div class="lab-retest-regime-card"><div class="lab-retest-regime-name">📉 做空 (卖→买)</div>` +
-    `<div class="lab-retest-regime-ret" style="color:${shortRet >= 0 ? "#2e7d32" : "#c92a2a"}">${fmt(shortRet)}</div>` +
+    `<div class="lab-retest-regime-ret" style="color:${_retFg(shortRet)}">${fmt(shortRet)}</div>` +
     `<div class="lab-retest-regime-dd">胜率 ${(p.short && p.short.win_rate != null) ? p.short.win_rate.toFixed(1) + "%" : "-"} · ${(p.short && p.short.n_trades) || 0}笔</div></div>` +
     `</div></div></div>`;
 }
@@ -4611,7 +4643,7 @@ function _labSymmetryChart(container, data) {
   const sp = summary.short_positive_pct != null ? summary.short_positive_pct : "-";
   const hint = document.createElement("div");
   hint.className = "lab-zone-desc";
-  hint.innerHTML = `做多盈利占比: <b style="color:#2e7d32">${lp}%</b> · 做空盈利占比: <b style="color:${sp >= 50 ? "#2e7d32" : "#c92a2a"}">${sp}%</b> · 平均对称比: <b>${summary.avg_symmetry_ratio != null ? summary.avg_symmetry_ratio.toFixed(3) : "-"}</b>`;
+  hint.innerHTML = `做多盈利占比: <b style="color:${_UP}">${lp}%</b> · 做空盈利占比: <b style="color:${sp >= 50 ? _UP : _DOWN}">${sp}%</b> · 平均对称比: <b>${summary.avg_symmetry_ratio != null ? summary.avg_symmetry_ratio.toFixed(3) : "-"}</b>`;
   body.appendChild(hint);
   const items = summary.by_index.slice().sort((a, b) => b.avg_long_ret - a.avg_long_ret);
   const c = mkCard("各指数做多/做空平均收益（%）", 360, null, body, []);
@@ -4622,8 +4654,8 @@ function _labSymmetryChart(container, data) {
     xAxis: { type: "category", data: items.map((x) => x.index_name), axisLabel: { rotate: 30, fontSize: 10 } },
     yAxis: { type: "value", name: "收益(%)" },
     series: [
-      { name: "做多平均收益", type: "bar", barMaxWidth: 26, data: items.map((x) => x.avg_long_ret), itemStyle: { color: "#2e7d32" } },
-      { name: "做空平均收益", type: "bar", barMaxWidth: 26, data: items.map((x) => x.avg_short_ret), itemStyle: { color: "#c92a2a" } },
+      { name: "做多平均收益", type: "bar", barMaxWidth: 26, data: items.map((x) => x.avg_long_ret), itemStyle: { color: cssVar("--mx-good-fg") } },
+      { name: "做空平均收益", type: "bar", barMaxWidth: 26, data: items.map((x) => x.avg_short_ret), itemStyle: { color: cssVar("--mx-bad-fg") } },
     ],
   }));
 }
@@ -4712,13 +4744,13 @@ function _labParamScanOverviewHTML(data, idx) {
   const rows = scans.map((s) => {
     const pi = s.per_index.find((x) => x.index_id === idx);
     if (!pi) return "";
-    const vColor = pi.verdict === "robust_profitable" ? "#2e7d32" : "#c92a2a";
+    const vColor = pi.verdict === "robust_profitable" ? _UP : _DOWN;
     const vLabel = pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰";
     const vCls = pi.verdict === "robust_profitable" ? "lab-tag-live" : "lab-tag-excluded";
     const name = ((LAB_STRATEGIES[s.strategy_key] || {}).name) || s.strategy_key;
     return `<tr><td style="font-weight:600">${name}</td>` +
-      `<td style="color:${pi.default_ret >= 0 ? "#2e7d32" : "#c92a2a"}">${fmt(pi.default_ret)}</td>` +
-      `<td style="color:${pi.best_ret >= 0 ? "#2e7d32" : "#c92a2a"}">${fmt(pi.best_ret)}</td>` +
+      `<td style="color:${_retFg(pi.default_ret)}">${fmt(pi.default_ret)}</td>` +
+      `<td style="color:${_retFg(pi.best_ret)}">${fmt(pi.best_ret)}</td>` +
       `<td>${pi.neighbor_avg_ret != null ? pi.neighbor_avg_ret.toFixed(1) + "%" : "-"}</td>` +
       `<td>${(pi.profitable_frac * 100).toFixed(0)}%</td>` +
       `<td><span class="lab-tag ${vCls}" style="color:${vColor}">${vLabel}</span></td></tr>`;
@@ -4740,10 +4772,10 @@ function _labParamScanChart(container, data, stratKey, idx) {
   }
   body.innerHTML = "";
   const stratName = ((LAB_STRATEGIES[stratKey] || {}).name) || stratKey;
-  const vColor = pi.verdict === "robust_profitable" ? "#2e7d32" : "#c92a2a";
+  const vColor = pi.verdict === "robust_profitable" ? _UP : _DOWN;
   const hint = document.createElement("div");
   hint.className = "lab-zone-desc";
-  hint.innerHTML = `${stratName} · ${pi.index_name} · 默认收益 <b style="color:${pi.default_ret >= 0 ? "#2e7d32" : "#c92a2a"}">${pi.default_ret.toFixed(1)}%</b> · 最优 <b style="color:${pi.best_ret >= 0 ? "#2e7d32" : "#c92a2a"}">${pi.best_ret.toFixed(1)}%</b> · <span style="color:${vColor};font-weight:600">${pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰(过拟合风险)"}</span>${pi.best_is_default ? " · 默认即最优✓" : ""}`;
+  hint.innerHTML = `${stratName} · ${pi.index_name} · 默认收益 <b style="color:${_retFg(pi.default_ret)}">${pi.default_ret.toFixed(1)}%</b> · 最优 <b style="color:${_retFg(pi.best_ret)}">${pi.best_ret.toFixed(1)}%</b> · <span style="color:${vColor};font-weight:600">${pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰(过拟合风险)"}</span>${pi.best_is_default ? " · 默认即最优✓" : ""}`;
   body.appendChild(hint);
 
   const dims = scan.param_dims || [];
@@ -4767,19 +4799,19 @@ function _labParamScanChart(container, data, stratKey, idx) {
     });
     if (!isFinite(mn)) { mn = -50; mx = 50; }
     if (mn === mx) { mn -= 1; mx += 1; }
-    const c = mkCard(`${xName} × ${yName} 参数网格收益率(%)`, 400, "○=默认参数  ★=最优参数", body, []);
+    const c = mkCard(`${_labDimLabel(xName)} × ${_labDimLabel(yName)} 参数网格收益率(%)`, 400, "○=默认参数  ★=最优参数", body, []);
     const dxi = xVals.indexOf(dp[xName]), dyi = yVals.indexOf(dp[yName]);
     const bxi = xVals.indexOf(bp[xName]), byi = yVals.indexOf(bp[yName]);
     const markPoints = [];
     if (dxi >= 0 && dyi >= 0) markPoints.push({ coord: [dxi, dyi], symbol: "circle", symbolSize: 22, itemStyle: { color: "transparent", borderColor: "#1f6feb", borderWidth: 2.5 }, label: { show: true, formatter: "○", color: "#1f6feb", fontSize: 13, fontWeight: "bold" } });
     if (bxi >= 0 && byi >= 0 && !(bxi === dxi && byi === dyi)) markPoints.push({ coord: [bxi, byi], symbol: "circle", symbolSize: 22, itemStyle: { color: "transparent", borderColor: "#f0883e", borderWidth: 2.5 }, label: { show: true, formatter: "★", color: "#f0883e", fontSize: 15, fontWeight: "bold" } });
     c.setOption(withTheme({
-      tooltip: { formatter: (p) => `${xName}=${xVals[p.data[0]]}, ${yName}=${yVals[p.data[1]]}<br/>收益: ${p.data[2] != null ? p.data[2].toFixed(2) + "%" : "无信号"}` },
+      tooltip: { formatter: (p) => `${_labDimLabel(xName)}=${xVals[p.data[0]]}, ${_labDimLabel(yName)}=${yVals[p.data[1]]}<br/>收益: ${p.data[2] != null ? p.data[2].toFixed(2) + "%" : "无信号"}` },
       grid: { left: 70, right: 20, top: 30, bottom: 80 },
-      xAxis: { type: "category", data: xVals.map(String), name: xName, nameLocation: "middle", nameGap: 32, splitArea: { show: true } },
-      yAxis: { type: "category", data: yVals.map(String), name: yName, splitArea: { show: true } },
+      xAxis: { type: "category", data: xVals.map(String), name: _labDimLabel(xName), nameLocation: "middle", nameGap: 32, splitArea: { show: true } },
+      yAxis: { type: "category", data: yVals.map(String), name: _labDimLabel(yName), splitArea: { show: true } },
       visualMap: { min: mn, max: mx, calculable: true, orient: "horizontal", left: "center", bottom: 5,
-        inRange: { color: ["#c92a2a", "#f5f5f5", "#2e7d32"] }, textStyle: { color: cssVar("--text-1") } },
+        inRange: { color: [cssVar("--mx-bad-fg"), cssVar("--bg-hover"), cssVar("--mx-good-fg")] }, textStyle: { color: cssVar("--text-1") } },
       series: [{ type: "heatmap", data: heatData,
         label: { show: true, fontSize: 9, formatter: (p) => p.data[2] != null ? p.data[2].toFixed(0) : "—" },
         emphasis: { itemStyle: { shadowBlur: 10 } },
@@ -4793,19 +4825,19 @@ function _labParamScanChart(container, data, stratKey, idx) {
       const ret = cb ? cb.total_ret : null;
       return (ret != null && !isNaN(ret)) ? ret : null;
     });
-    const c = mkCard(`${xName} 参数扫描收益率(%)`, 360, "📌=默认参数  ★=最优参数", body, []);
+    const c = mkCard(`${_labDimLabel(xName)} 参数扫描收益率(%)`, 360, "📌=默认参数  ★=最优参数", body, []);
     const di = xVals.indexOf(dp[xName]);
     const bi = xVals.indexOf(bp[xName]);
     const markPoints = [];
     if (di >= 0) markPoints.push({ coord: [di, barData[di] || 0], symbol: "pin", symbolSize: 36, itemStyle: { color: "#1f6feb" }, label: { formatter: "默", color: "#fff", fontSize: 9 } });
     if (bi >= 0 && bi !== di) markPoints.push({ coord: [bi, barData[bi] || 0], symbol: "pin", symbolSize: 36, itemStyle: { color: "#f0883e" }, label: { formatter: "优", color: "#fff", fontSize: 9 } });
     c.setOption(withTheme({
-      tooltip: { trigger: "axis", formatter: (p) => `${xName}=${xVals[p[0].dataIndex]}<br/>收益: ${p[0].value != null ? p[0].value.toFixed(2) + "%" : "无信号"}` },
+      tooltip: { trigger: "axis", formatter: (p) => `${_labDimLabel(xName)}=${xVals[p[0].dataIndex]}<br/>收益: ${p[0].value != null ? p[0].value.toFixed(2) + "%" : "无信号"}` },
       grid: { left: 60, right: 20, top: 30, bottom: 50 },
-      xAxis: { type: "category", data: xVals.map(String), name: xName },
+      xAxis: { type: "category", data: xVals.map(String), name: _labDimLabel(xName) },
       yAxis: { type: "value", name: "收益(%)" },
       series: [{ type: "bar", barMaxWidth: 54,
-        data: barData.map((v) => ({ value: v, itemStyle: { color: v == null ? "#cccccc" : (v >= 0 ? "#2e7d32" : "#c92a2a") } })),
+        data: barData.map((v) => ({ value: v, itemStyle: { color: v == null ? "#cccccc" : _retEc(v) } })),
         markPoint: { data: markPoints } }],
     }));
   } else {

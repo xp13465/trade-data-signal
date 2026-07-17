@@ -484,7 +484,7 @@
 /* === 列表页左右2栏布局（策略卡左 + 回测推荐榜右）=== */
 .lab-list-2col {
   display: grid;
-  grid-template-columns: 3fr 7fr;
+  grid-template-columns: 4fr 6fr;
   gap: 16px;
   align-items: start;
 }
@@ -912,11 +912,12 @@
   margin-bottom: 6px;
 }
 .lab-retest-yearly, .lab-retest-oos {
-  width: 100%; border-collapse: collapse; font-size: 12px;
+  width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;
 }
 .lab-retest-yearly th, .lab-retest-yearly td,
 .lab-retest-oos th, .lab-retest-oos td {
   padding: 4px 8px; text-align: center; border: 1px solid var(--border);
+  overflow-wrap: anywhere; word-break: break-word;
 }
 .lab-retest-yearly th, .lab-retest-oos th {
   background: var(--bg-hover); font-weight: 600; color: var(--text-2);
