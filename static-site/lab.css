@@ -738,6 +738,13 @@
   flex-shrink: 0; width: 64px; color: var(--text-3); font-weight: 600;
 }
 .lab-fusion-detail-value { color: var(--text-2); flex: 1; word-break: break-word; }
+/* 融合策略弹窗内"核心策略详情"分隔提示（融合文案与核心策略图表/回测之间） */
+.lab-fusion-core-divider {
+  margin: 16px 0 8px; padding: 8px 12px; font-size: 12px; line-height: 1.6;
+  color: var(--text-2); background: var(--bg-hover); border-radius: 6px;
+  border-left: 3px solid var(--border-strong);
+}
+.lab-fusion-core-detail { margin-top: 4px; }
 
 /* === 二级导航（单一信号 / 融合信号）=== */
 .lab-subnav {
