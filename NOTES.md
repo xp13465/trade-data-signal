@@ -1110,7 +1110,7 @@ BB_upper_revert 比 D1 更差（PL 更低 + 全仓亏更多 2.3×）。作卖点
 - 根因：commit 81e6997 引入 app/compute/market_summary.py 读取 index_daily.net_inflow 列，但旧 DB 用旧 schema 建表缺该列，且 app/db.py 的 init_db._migrate() 从未被某些采集流程调用（直接 sqlite3.connect 绕过 migrate）
 - 影响：export 中断 = static-site/data 下 summary.json / summary_history.json / signal_freq.json / rotation.json / new_high_low.json / ma_alignment.json 等多个 JSON 不生成 = 线上对应模块无数据/旧数据
 - 临时修复（2026-07-14 已做）：跑 `.venv/bin/python -c "from app.db import init_db; init_db()"` 执行 ALTER TABLE 加 net_inflow 列，本地 DB schema 修复。修复后 export 198 个 JSON 完整生成（125.5MB）
-- 待办：排查哪个采集流程直接 sqlite3.connect 绕过了 init_db._migrate()，统一改为走 init_db() 入口确保 migrate 执行。这样别人 clone 仓库后首次跑也不会缺列
+- **已根治**（commit 782d4d5 + 2026-07-17 清理）：782d4d5 将所有 `sqlite3.connect(SENTIMENT_DB_PATH/DB)` 直连改为 `app.db.get_conn()`（含 _migrate），涉及 7 处：industry_width._get_sentiment_conn、width_history(3处)、cleanup_d3d2(1处)、scripts/check_signals、scripts/simulate_trade、scripts/lab/lab_matrix、scripts/lab/lab_simulate。2026-07-17 复核确认：全项目无剩余 sentiment.db 直连（剩余 sqlite3.connect 均连 stock_daily.db/etf_national_team.db 不同库），并清理 3 文件遗留死代码 SENTIMENT_DB_PATH 变量+加注释防复用。net_inflow 列在 index_daily/board_daily schema 中确认存在
 - 关联文件：app/db.py（_migrate 逻辑已有，只需确保被调用）、app/compute/market_summary.py（读 net_inflow）、static-site/export.py（被中断处）
 
 ## §20 拼色pin放大 + 收盘分析H5布局重构 + 工作模式教训（2026-07-15）

@@ -48,7 +48,7 @@ import pandas as pd
 # ── 路径 ──────────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 STOCK_DB_PATH = _DATA_DIR / "stock_daily.db"
-SENTIMENT_DB_PATH = _DATA_DIR / "sentiment.db"
+# sentiment.db 连接统一走 app.db.get_conn()（含 _migrate 补 net_inflow 列），勿直连
 COMPONENTS_PATH = _DATA_DIR / "sw_components.json"
 
 START_DATE = "20160101"
