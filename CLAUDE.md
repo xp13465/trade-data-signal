@@ -50,6 +50,7 @@
 - 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推)
 - **`static-site/data/` 是正常上线渠道,不是§8禁推对象**:前端读的线上数据产物,`scripts/deploy.sh` 设计就是 commit+push 它(git 历史有 `data update [all]` commit 为证)。后端新增 JSON 字段/新品种后**必须跑 `bash scripts/deploy.sh` 推数据上线**,否则前端读旧数据(memory `data-schema-change-needs-deploy`)。deploy.sh 的 `git add` 只加 `static-site/data/` + min JS,不碰根 `data/`,安全
 - commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- 线上 curl 验证/测试优先用 `https://s.aisusu.cn/`(用户自有域名,比免费 `tdsignal-ujpzw01zm.maozi.io` 稳,2026-07-17 测试通过 HTTP200+数据正常+版本号最新),旧 maozi.io 兜底
 
 ## 9. 双版同步铁律
 - web/app.js(动态版 /api/) 和 static-site/app.js(静态版 ./data/) 必须逐字相同(除数据源 URL)
