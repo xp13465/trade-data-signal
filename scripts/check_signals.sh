@@ -13,7 +13,7 @@
 set -u
 # 不 set -e：邮件发送失败应记日志继续，不中断 update_all.sh。
 
-REPO=/Users/linhuichen/code/trade
+REPO="${REPO:-/Users/linhuichen/code/trade}"
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)

@@ -13,7 +13,7 @@
 # 退出码：deploy.sh 退出码（最终公网状态）；collect / check_signals 失败仅记日志不改变退出码。
 set -u
 
-REPO=/Users/linhuichen/code/trade
+REPO="${REPO:-/Users/linhuichen/code/trade}"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
 LOG="$LOGDIR/update_all_${STAMP}.log"

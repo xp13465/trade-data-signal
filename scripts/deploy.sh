@@ -16,7 +16,7 @@
 set -u
 # 不 set -e：每步显式判退出码，出错给清晰错误信息。
 
-REPO=/Users/linhuichen/code/trade
+REPO="${REPO:-/Users/linhuichen/code/trade}"
 PY="$REPO/.venv/bin/python"
 EXPORT="$REPO/static-site/export.py"
 LOGDIR="$REPO/data/logs"

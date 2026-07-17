@@ -22,7 +22,8 @@ set -uo pipefail
 # 防脚本运行期间 mac 休眠（caffeinate 跟随脚本 PID，退出自动结束）
 caffeinate -i -w $$ >/dev/null 2>&1 &
 
-REPO="/Users/linhuichen/code/trade"
+REPO="${REPO:-/Users/linhuichen/code/trade}"
+export REPO   # 让子 bash -c (commit+push 段) 继承 REPO，trade-data 跑时 git 操作用同一 REPO
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
@@ -76,7 +77,7 @@ export INTRADAY_COMMIT_MSG="$COMMIT_MSG"
 echo "-> commit + push 数据 JSON 到 main（独立 work tree，持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "${LOG}"
 "$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash -c '
   set -euo pipefail
-  REPO="/Users/linhuichen/code/trade"
+  REPO="${REPO:-/Users/linhuichen/code/trade}"
   # 主脚本 PY 未 export，子 bash -c 不继承非导出变量；此处必须重新定义，
   # 否则 set -u 下 "$PY" 触发 unbound variable 致整个 commit+push 失败（2026-07-17 15:35 事故根因）。
   PY="$REPO/.venv/bin/python"

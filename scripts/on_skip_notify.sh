@@ -5,7 +5,7 @@
 # 环境变量 ON_SKIP_DRY_RUN=1 时 notify.py 用 --dry-run（验证用，不真发邮件）。
 set -u
 
-REPO=/Users/linhuichen/code/trade
+REPO="${REPO:-/Users/linhuichen/code/trade}"
 PY="$REPO/.venv/bin/python"
 LOCKPATH="${1:-/tmp/trade_update_all.lock}"
 DRY_FLAG=""

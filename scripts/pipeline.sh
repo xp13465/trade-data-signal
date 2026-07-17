@@ -16,7 +16,7 @@
 # 退出码：有 push 的以 deploy 为准（公网状态）；stock_daily 以 collect 为准。
 set -u
 
-REPO=/Users/linhuichen/code/trade
+REPO="${REPO:-/Users/linhuichen/code/trade}"
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)

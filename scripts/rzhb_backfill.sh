@@ -26,7 +26,7 @@ set -uo pipefail
 # 防脚本运行期间 mac 休眠（caffeinate 跟随脚本 PID，退出自动结束）
 caffeinate -i -w $$ >/dev/null 2>&1 &
 
-REPO="/Users/linhuichen/code/trade"
+REPO="${REPO:-/Users/linhuichen/code/trade}"
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)

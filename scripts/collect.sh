@@ -14,7 +14,7 @@
 set -u  # 未定义变量报错
 # 注意：故意不 set -e —— scheduler 内部 try/except 已兜底，部分失败应继续不中断脚本。
 
-REPO=/Users/linhuichen/code/trade
+REPO="${REPO:-/Users/linhuichen/code/trade}"
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
 STAMP=$(date +%Y%m%d_%H%M)
