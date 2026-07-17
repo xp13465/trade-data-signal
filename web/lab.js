@@ -2162,6 +2162,10 @@ function _labRankFilterHTML() {
 function _labRankAggregate(simData, win, opt) {
   opt = opt || {};
   if (!simData || !simData.pairs) return [];
+  // ⭐️二次测试候选集：后端 lab_retest_{index}.json 已按三窗口dd≤10%+n≥10+OR判定通过，前端查 pair 存在性，与后端一致（不按选中窗口动态算）
+  const _reIdx = (simData.index_id) || (state.labSimIndex || "sh");
+  const _reRd = state.labRetestDataMap && state.labRetestDataMap[_reIdx];
+  const retestSet = _reRd && _reRd.pairs ? new Set(Object.keys(_reRd.pairs)) : null;
   const rows = [];
   for (const pairKey in simData.pairs) {
     const parts = pairKey.split("|");
@@ -2203,9 +2207,8 @@ function _labRankAggregate(simData, win, opt) {
   rows.forEach((r) => {
     r.score = 0.4 * nRet(r.total_ret) + 0.3 * nWin(r.win_rate) +
               0.2 * nDd(-r.max_drawdown) + 0.1 * nN(r.n_trades);
-    // ⭐️进入二次测试候选筛选：综合评分top档+样本充分+回撤可控，或单项突出（胜率/风险调整）
-    r.retest = (r.score >= 0.6 && r.n_trades >= 30 && r.max_drawdown <= 50) ||
-               r.win_rate >= 55 || r.risk_adj >= 1.0;
+    // ⭐️进入二次测试：查 retest JSON 存在性(后端已按三窗口dd≤10%+n≥10+OR判定)，与后端一致，不按选中窗口动态算
+    r.retest = retestSet ? retestSet.has(bk + "|" + sk) : false;
   });
   return rows;
 }
@@ -2228,7 +2231,7 @@ function _labRankItemHTML(row, rank, tab) {
   let extra = "";
   if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
   else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 998 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
-  if (row.retest) extra += '<span class="lab-rank-retest" title="进入二次测试规则:综合评分≥0.6 且 交易≥30次 且 最大回撤≤50%,或 胜率≥55%,或 风险调整≥1.0">⭐️进入二次测试</span>';
+  if (row.retest) extra += '<span class="lab-rank-retest" title="进入二次测试规则:近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次,且(综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0)">⭐️进入二次测试</span>';
   return `<button type="button" class="lab-rank-item clickable-card" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">买${row.buyName} × 卖${row.sellName} · ${row.modeName}</span>` +
@@ -2263,7 +2266,7 @@ function _labRankHTML(simData) {
   return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}</div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。</div>` +
-    `<div class="lab-rank-retest-rule">⭐️进入二次测试：综合评分≥0.6 且 交易≥30次 且 最大回撤≤50%，或 胜率≥55%，或 风险调整≥1.0</div>` +
+    `<div class="lab-rank-retest-rule">⭐️进入二次测试：近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次，且（综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0）</div>` +
     _labRankFilterHTML() +
     `<div class="lab-rank-results">${_labRankResultsHTML()}</div>`;
 }
@@ -2271,7 +2274,7 @@ function _labRankHTML(simData) {
 // === 二次测试 tab 渲染（分年回测 / 样本外 / 极端行情三件套）===
 // 数据源 lab_retest_{index}.json，per-index 缓存到 state.labRetestDataMap
 // ret/dd/win 为小数(0.xxxx)，显示时 ×100 加 %；null 显示 "-"
-const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=综合分≥0.6且交易≥30且回撤≤50";
+const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=近5/3/1年三窗口回撤均≤10%且交易≥10,且(综合分≥0.6且交易≥30或胜率≥55%或风险调整≥1.0)";
 
 function _labRetestPct(v) {
   if (v == null) return "-";
@@ -2888,7 +2891,7 @@ async function renderFusionLab() {
   // 加载推荐榜数据（融合模式：_labRankHTML 依 state.labSubMode==='fusion' 仅展示实验中策略买×卖配对）
   const _loadRank = async () => {
     const idx = state.labSimIndex || "sh";
-    const simData = await fetchLabSimData(idx);
+    const [simData] = await Promise.all([fetchLabSimData(idx), fetchLabRetestData(idx)]);
     _labRankRerender(rankSection, simData);
   };
   _loadRank();
@@ -3915,7 +3918,7 @@ async function renderSignalLab() {
   content.appendChild(wrapper);
   const _loadRank = async () => {
     const idx = state.labSimIndex || "sh";
-    const simData = await fetchLabSimData(idx);
+    const [simData] = await Promise.all([fetchLabSimData(idx), fetchLabRetestData(idx)]);
     _labRankRerender(rankSection, simData);
   };
   _loadRank();
