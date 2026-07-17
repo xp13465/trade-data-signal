@@ -426,6 +426,9 @@ function termTip(text) {
   return ` <span class="term-tip" data-tip="${text}">❓</span>`;
 }
 
+// 涨跌家数数据口径（akshare sina 源全市场快照，与东财等 APP 覆盖范围略有差异，非数据错误）
+const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare sina 源全市场快照，涨跌幅为负计为跌、平盘不计入。不同数据源覆盖范围略有差异（如东财多1只），非数据错误。";
+
 // ❓ 问号 hover pop 浮层（替代浏览器原生 title，pop 风格：圆角/阴影/主题色/小箭头）
 // 事件委托：document mouseover/mouseout 检查 target.closest('[data-tip]')，
 // 覆盖 termTip 生成的 .term-tip + lab.js 的 data-tip 元素，一次绑定全局生效。
@@ -1669,7 +1672,7 @@ function renderSummaryChips(s, snap) {
   }
   // 涨跌家数
   if (s.up_count != null || s.down_count != null) {
-    chips.push(`<span class="summary-chip">${s.up_count || 0}涨 ${s.down_count || 0}跌</span>`);
+    chips.push(`<span class="summary-chip">${s.up_count || 0}涨 ${s.down_count || 0}跌${termTip(_WIDTH_CALIBER_TIP)}</span>`);
   }
   // 成交额
   if (s.volume_amount != null) {
@@ -2607,7 +2610,7 @@ async function renderOverview() {
     const wUpV = (w.up.find((x) => x.date === wLast) || {}).value;
     const wDnV = (w.down.find((x) => x.date === wLast) || {}).value;
     const wSuffix = wLast ? `<span class="chart-latest"> · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}</span>` : "";
-    const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix, 260, null, colB1);
+    const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix + termTip(_WIDTH_CALIBER_TIP), 260, null, colB1);
     appendPlainTip(wc, "上涨家数远多于下跌=普涨行情；两者接近=市场分化");
     addCardTimeBadge(wc.getDom().parentElement, wLast, snap, "t0");
     wc.setOption(withTheme({
