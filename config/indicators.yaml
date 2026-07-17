@@ -37,8 +37,8 @@ metrics:
   - {id: a_fund_main,    name: 主力净流入,     group: a_fund, type: simple, func: direct:market_fund_flow, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
 
   # ============ A股 · 情绪指数 ============
-  - {id: a_qvix_300,        name: QVIX(300ETF),   group: a_sentiment, type: simple, func: index_option_300etf_qvix,    column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
-  - {id: a_qvix_1000,       name: QVIX(1000ETF),  group: a_sentiment, type: simple, func: index_option_1000index_qvix, column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
+  - {id: a_qvix_300,        name: 中国波指300,   group: a_sentiment, type: simple, func: index_option_300etf_qvix,    column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
+  - {id: a_qvix_1000,       name: 中国波指1000,  group: a_sentiment, type: simple, func: index_option_1000index_qvix, column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
   - {id: a_amount,          name: 成交额(沪深京),   group: a_sentiment, type: simple, func: stock_zh_a_spot,            column: 成交额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
   # a_sentiment_score / cross_market_score 是综合分，写入 score_daily，经 /api/sentiment 出，不在此处登记
   # 以下待源：sina 无换手率；legulegu.com 不稳定；东财情绪接口待验
