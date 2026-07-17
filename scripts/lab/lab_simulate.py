@@ -541,6 +541,9 @@ def run_fusion_index(iid, iname):
     candidates = gen_fusion_candidates(df) + gen_hardcoded_fusion_candidates(df)
     print(f"[fusion] 生成 {len(candidates)} 个候选 "
           f"(buy_sell/buy_buy/sell_sell + 6 hardcoded)")
+    # 保留单信号 mask 供 6 硬编码 F_xxx × 8 反向 partner 配对回测
+    buy_signals = gen_buy_signals(df)
+    sell_signals = gen_sell_signals(df)
 
     result = {
         'generated_at': _fmt_date(last_date),
@@ -583,6 +586,52 @@ def run_fusion_index(iid, iname):
         print(f"  [{c['pair_type']:9s}] {pair_id:46s}  "
               f"buyfires={n_buy:4d} sellfires={n_sell:4d}  "
               f"full_in: {fi['n_trades']:3d}笔 ret={fi['total_ret']:+7.1f}%")
+
+    # 6 硬编码 F_xxx × 8 反向 partner（48 组）：F_xxx 融合信号当主策略，配 8 个反向单信号 partner
+    # pair_id: 买侧 F_xxx -> "F_xxx|sell_partner"；卖侧 F_xxx -> "buy_partner|F_xxx"
+    # 写入 fusion_stats.pairs + fusion_stats.strategies[F_xxx].partners，供融合弹窗配对卡片切换
+    hardcoded = [c for c in candidates if c['pair_type'].startswith('hardcoded')]
+    for c in hardcoded:
+        fkey = c['pair_id']  # F_xxx
+        side = 'buy' if c['pair_type'] == 'hardcoded_buy' else 'sell'
+        if side == 'buy':
+            fusion_mask = c['buy_mask']
+            partners = SELL_KEYS
+        else:
+            fusion_mask = c['sell_mask']
+            partners = BUY_KEYS
+        if fusion_mask is None or fusion_mask.sum() == 0:
+            continue
+        result['strategies'][fkey] = {'side': side, 'partners': []}
+        for pkey in partners:
+            if side == 'buy':
+                bm = fusion_mask.fillna(False).astype(bool)
+                sm_raw = sell_signals.get(pkey)
+                if sm_raw is None:
+                    continue
+                sm = sm_raw.fillna(False).astype(bool)
+                pid = f"{fkey}|{pkey}"
+            else:
+                bm_raw = buy_signals.get(pkey)
+                if bm_raw is None:
+                    continue
+                bm = bm_raw.fillna(False).astype(bool)
+                sm = fusion_mask.fillna(False).astype(bool)
+                pid = f"{pkey}|{fkey}"
+            if bm.sum() == 0 or sm.sum() == 0:
+                continue
+            pair_data = build_pair_result(df, bm, sm, last_date, first_date)
+            result['pairs'][pid] = pair_data
+            result['fusion_meta'][pid] = {
+                'pair_type': c['pair_type'],
+                'components': c['components'],
+                'ref_side': c['ref_side'],
+                'fusion_main': fkey,
+            }
+            result['strategies'][fkey]['partners'].append(pkey)
+            n_pairs += 1
+            fi = pair_data['full_in']['stats']['all']
+            print(f"  [partner  ] {pid:46s}  full_in: {fi['n_trades']:3d}笔 ret={fi['total_ret']:+7.1f}%")
 
     print(f"\n[融合配对] {n_pairs} 组 × 2模式 × 5窗口 = {n_pairs * 2 * 5} 组窗口回测")
 

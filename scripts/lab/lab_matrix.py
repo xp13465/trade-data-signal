@@ -22,6 +22,7 @@ from backtest_strategies import (
     gen_buy_signals, gen_sell_signals, stats_block, load_index_series,
     STRATEGY_DESC,
 )
+from fusion_signals import gen_fusion_candidates, gen_hardcoded_fusion_candidates
 
 BUY_ORDER = ['C1_RSI30', 'Donchian20_up', 'Donchian55_up', 'BB_lower_revert',
              'BB_upper_break', 'Supertrend_buy', 'MA_golden_5_20',
@@ -135,12 +136,126 @@ def run_index(iid, iname):
         print(f"[output] {p} ({size_kb:.1f} KB)")
 
 
+def run_fusion_matrix(iid, iname):
+    """融合策略多周期矩阵 -- 生成 lab_backtest_fusion_{iid}.json
+
+    对 97 融合候选(91候选 + 6硬编码),按 side 取信号 mask,统计 5窗口×4horizon
+    forward return(单次操作统计,非配对交易)。side 由 pair_type 决定:
+      buy_sell/buy_buy/hardcoded_buy -> buy(用 buy_mask);
+      sell_sell/hardcoded_sell -> sell(用 sell_mask)。
+    strategies 以 pair_id 为 key,前端融合弹窗矩阵按 pair_id 取值(不再 chartBaseKey 代理)。
+    """
+    print(f"\n[fusion-matrix load] {iid} ({iname})")
+    con = get_conn()
+    df = load_index_series(con, iid)
+    con.close()
+    if df is None or len(df) < 60:
+        print(f"  ERROR: 无法加载 {iid} 数据，跳过")
+        return
+
+    max_date = df.index.max()
+    cutoffs = {
+        'y10': max_date - pd.Timedelta(days=365 * 10),
+        'y5':  max_date - pd.Timedelta(days=365 * 5),
+        'y3':  max_date - pd.Timedelta(days=365 * 3),
+        'y1':  max_date - pd.Timedelta(days=365),
+    }
+
+    close = df['close']
+    idx = close.index
+    fwd = {h: (close.shift(-h) / close - 1.0) * 100.0 for h in HORIZONS}
+
+    candidates = gen_fusion_candidates(df) + gen_hardcoded_fusion_candidates(df)
+    print(f"[fusion-matrix] {len(candidates)} 个候选")
+
+    def _side_of(pt):
+        return 'sell' if pt in ('sell_sell', 'hardcoded_sell') else 'buy'
+
+    from collections import defaultdict
+    qual = defaultdict(list)
+    for c in candidates:
+        side = _side_of(c['pair_type'])
+        mask = c['buy_mask'] if side == 'buy' else c['sell_mask']
+        if mask is None or mask.sum() == 0:
+            continue
+        pair_id = c['pair_id']
+        sig_dates = idx[mask]
+        for pname, pkey in PERIODS_JSON:
+            if pkey is not None:
+                sd = sig_dates[sig_dates > cutoffs[pkey]]
+            else:
+                sd = sig_dates
+            if len(sd) == 0:
+                continue
+            for h in HORIZONS:
+                r = fwd[h].reindex(sd).dropna().values
+                if len(r):
+                    qual[(pair_id, side, h, pname)].extend(r.tolist())
+
+    lab = {
+        "generated_at": str(max_date.date()),
+        "data_cutoff": str(max_date.date()),
+        "index_id": iid,
+        "index_name": iname,
+        "periods": [p[0] for p in PERIODS_JSON],
+        "horizons": [f"{h}d" for h in HORIZONS],
+        "strategies": {},
+    }
+    for c in candidates:
+        pair_id = c['pair_id']
+        side = _side_of(c['pair_type'])
+        is_sell = (side == 'sell')
+        strat_obj = {
+            "side": side,
+            "desc": c['pair_type'],
+            "pair_type": c['pair_type'],
+            "components": c['components'],
+            "ref_side": c['ref_side'],
+            "periods": {},
+        }
+        for pname, _ in PERIODS_JSON:
+            strat_obj["periods"][pname] = {}
+            for h in HORIZONS:
+                n, m, _med, wr, pl = stats_block(
+                    qual.get((pair_id, side, h, pname), []), is_sell)
+                strat_obj["periods"][pname][f"{h}d"] = {
+                    "win": round(float(wr), 4) if not np.isnan(wr) else None,
+                    "pl": round(float(pl), 3) if not np.isnan(pl) else None,
+                    "n": int(n),
+                    "mean": round(float(m) / 100.0, 5) if not np.isnan(m) else None,
+                }
+        lab["strategies"][pair_id] = strat_obj
+
+    fname = f"lab_backtest_fusion_{iid}.json"
+    for base_dir in ('web', 'static-site'):
+        p = os.path.join(BASE, base_dir, 'data', 'lab', fname)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'w', encoding='utf-8') as f:
+            json.dump(lab, f, ensure_ascii=False, separators=(',', ':'))
+        size_kb = os.path.getsize(p) / 1024
+        print(f"[output] {p} ({size_kb:.1f} KB)")
+
+
 def main():
-    print(f"=== 策略实验室多周期矩阵（按指数拆分）===")
-    t0 = time.time()
-    for iid, iname in SIM_INDEXES:
-        run_index(iid, iname)
-    print(f"\n=== 全部完成: {len(SIM_INDEXES)} 个指数, 总耗时 {time.time()-t0:.1f}s ===")
+    import argparse
+    parser = argparse.ArgumentParser(description='策略实验室多周期矩阵（按指数拆分）')
+    parser.add_argument('--fusion', action='store_true',
+                        help='跑融合策略矩阵（97候选 × 9指数），'
+                             '输出 lab_backtest_fusion_{iid}.json')
+    args = parser.parse_args()
+
+    if args.fusion:
+        print(f"=== 策略实验室融合策略多周期矩阵（按指数拆分）===")
+        t0 = time.time()
+        for iid, iname in SIM_INDEXES:
+            run_fusion_matrix(iid, iname)
+        print(f"\n=== 融合矩阵全部完成: {len(SIM_INDEXES)} 个指数, 总耗时 {time.time()-t0:.1f}s ===")
+    else:
+        print(f"=== 策略实验室多周期矩阵（按指数拆分）===")
+        t0 = time.time()
+        for iid, iname in SIM_INDEXES:
+            run_index(iid, iname)
+        print(f"\n=== 全部完成: {len(SIM_INDEXES)} 个指数, 总耗时 {time.time()-t0:.1f}s ===")
 
 
 if __name__ == '__main__':

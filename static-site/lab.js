@@ -1135,6 +1135,120 @@ function _labBuildChartConfig(key, ohlc, indexName) {
   return null;
 }
 
+// === 融合信号 AND 图表配置（方向B：前端实现多条件同日AND交集，画融合信号点，非基础策略代理）===
+// 6硬编码融合策略的英文成分条件兜底（优先用 fusion_meta.components，对齐 fusion_signals.py HARDCODED_FUSIONS）
+const FUSION_HARDCODED_COMPONENTS = {
+  F_D1_S1_MACD: ['D1_high20_drop5', 'MA60_bull', 'MACD_below_signal'],
+  F_D1_S1: ['D1_high20_drop5', 'MA60_bull'],
+  F_B1_RSI40: ['BB_lower_revert', 'RSI_cross_40'],
+  F_B1_rebound2pct: ['BB_lower_revert', 'close_above_bl_2pct'],
+  F_C1_MACD_golden: ['C1_RSI30', 'MACD_golden'],
+  F_D1_MA_death: ['D1_high20_drop5', 'MA_death_5_20'],
+};
+
+// 过滤条件（状态/穿越，非单信号策略）触发日期 Set，对齐 fusion_signals._gen_filter_masks
+// MA60_bull: close>MA60；MACD_below_signal: DIF<DEA；RSI_cross_40: rp<=40 & r>40；close_above_bl_2pct: close>bl*1.02
+function _labFusionFilterDateSet(key, ohlc) {
+  const closes = ohlc.map((d) => d.close);
+  const len = ohlc.length;
+  const s = new Set();
+  if (key === 'MA60_bull') {
+    const ma60 = _smaLab(closes, 60);
+    for (let i = 0; i < len; i++) if (ma60[i] != null && closes[i] > ma60[i]) s.add(ohlc[i].date);
+    return s;
+  }
+  if (key === 'MACD_below_signal') {
+    const m = computeMACDLab(ohlc);
+    for (let i = 0; i < len; i++) if (m.dif[i] != null && m.dea[i] != null && m.dif[i] < m.dea[i]) s.add(ohlc[i].date);
+    return s;
+  }
+  if (key === 'RSI_cross_40') {
+    const r = computeRSILab(ohlc, 14);
+    for (let i = 1; i < len; i++) if (r[i] != null && r[i - 1] != null && r[i - 1] <= 40 && r[i] > 40) s.add(ohlc[i].date);
+    return s;
+  }
+  if (key === 'close_above_bl_2pct') {
+    const bb = computeBBLab(ohlc);
+    for (let i = 0; i < len; i++) if (bb.bl[i] != null && closes[i] > bb.bl[i] * 1.02) s.add(ohlc[i].date);
+    return s;
+  }
+  return null;
+}
+
+// 单信号策略触发日期 Set（复用 _labBuildChartConfig 的 signals）
+function _labSignalDateSet(key, ohlc) {
+  if (!LAB_CHART_KEYS[key]) return null;
+  const cfg = _labBuildChartConfig(key, ohlc, '');
+  if (!cfg || !cfg.signals) return null;
+  const s = new Set();
+  cfg.signals.forEach((sig) => s.add(sig.date));
+  return s;
+}
+
+// 成分条件触发日期 Set（单信号策略走 _labSignalDateSet，过滤条件走 _labFusionFilterDateSet）
+function _labComponentDateSet(key, ohlc) {
+  return LAB_CHART_KEYS[key] ? _labSignalDateSet(key, ohlc) : _labFusionFilterDateSet(key, ohlc);
+}
+
+// 构建融合 AND 信号图配置：取各成分条件触发日期的交集 = 融合信号点，指标线复用主信号(baseKey)
+// components: 成分条件英文 key 数组（6硬编码从 fusion_meta.components 取，buy_buy/sell_sell 候选为 [_buyKey,_sellKey]）
+// buy_sell 候选无AND融合语义，返回 null（前端回退 chartBaseKey 代理）
+function _labBuildFusionChartConfig(meta, ohlc, idxName, isHardcoded, components) {
+  let compKeys, baseKey, fmeta, side;
+  if (isHardcoded) {
+    compKeys = components || FUSION_HARDCODED_COMPONENTS[meta._fusionKey];
+    baseKey = FUSION_CHART_BASE[meta._fusionKey];
+    fmeta = LAB_FUSION_STRATEGIES[meta._fusionKey] || meta;
+    side = fmeta.side;
+  } else {
+    const pt = meta._pairType;
+    if (pt === 'buy_sell') return null; // 无AND融合，回退 chartBaseKey
+    compKeys = components || [meta._buyKey, meta._sellKey];
+    baseKey = meta._buyKey;
+    fmeta = meta;
+    side = meta.side;
+  }
+  if (!compKeys || !baseKey || !LAB_CHART_KEYS[baseKey]) return null;
+  const baseCfg = _labBuildChartConfig(baseKey, ohlc, idxName);
+  if (!baseCfg) return null;
+  // 各成分触发日期 Set，取 AND 交集
+  const sets = [];
+  for (const k of compKeys) {
+    const s = _labComponentDateSet(k, ohlc);
+    if (!s) return null;
+    sets.push(s);
+  }
+  let fusion = sets[0];
+  for (let i = 1; i < sets.length; i++) {
+    const next = new Set();
+    fusion.forEach((d) => { if (sets[i].has(d)) next.add(d); });
+    fusion = next;
+  }
+  const signals = ohlc.filter((d) => fusion.has(d.date)).map((d) => ({ date: d.date, close: d.close }));
+  const isBuy = side === 'buy';
+  return {
+    indicators: baseCfg.indicators,
+    signals,
+    signalLabel: fmeta.name || '融合信号',
+    signalColor: isBuy ? '#2e7d32' : '#9c27b0',
+    chartTitle: `${idxName} · ${fmeta.name || '融合信号'}（AND共振）`,
+    statLabel: isBuy ? '融合买点' : '融合卖点',
+  };
+}
+
+// 获取按指数拆分的融合矩阵数据（lab_backtest_fusion_{index}.json，97候选 5窗口×4horizon）
+async function fetchLabFusionMatrixData(idx) {
+  idx = idx || "sh";
+  if (!state.labFusionMatrixDataMap) state.labFusionMatrixDataMap = {};
+  if (state.labFusionMatrixDataMap[idx]) return state.labFusionMatrixDataMap[idx];
+  try {
+    state.labFusionMatrixDataMap[idx] = await fetchJSON("./data/lab/lab_backtest_fusion_" + idx + ".json");
+  } catch (e) {
+    state.labFusionMatrixDataMap[idx] = null;
+  }
+  return state.labFusionMatrixDataMap[idx];
+}
+
 // 获取 lab_backtest.json 数据（缓存到 state.labData）
 // web 版走 /static/ 挂载点（main.py 的 StaticFiles(directory=web)），static 版走 ./data/
 async function fetchLabData() {
@@ -3802,14 +3916,28 @@ async function _labFusionPairModalRender(overlay) {
     const titleIcon = isBuySell ? "📊" : "🔬";
     pairId = meta._buyKey + "|" + meta._sellKey;
     titleText = `${titleIcon} ${typeLabel} · ${titlePair} · ${modeName}（${winLabel}）`;
-    // 融合策略说明（组成条件/触发/结论），补齐单一信号基标的策略说明块
+    // 融合策略说明（组成条件/触发/结论），补齐成分策略 theory/scenario/note/report（折叠）
     const condHTML = (meta.conditions && meta.conditions.length)
       ? `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">组成条件</span><span class="lab-fusion-detail-value">${meta.conditions.join("、")}</span></div>`
       : "";
+    // 从成分策略 LAB_STRATEGIES 补 theory/scenario/note/report（91候选自身无这些字段）
+    const _comp1 = LAB_STRATEGIES[meta._buyKey] || {};
+    const _comp2 = LAB_STRATEGIES[meta._sellKey] || {};
+    const _compFields = [
+      ["理论依据", [_comp1.theory, _comp2.theory].filter(Boolean).join(" / ")],
+      ["适用场景", [_comp1.scenario, _comp2.scenario].filter(Boolean).join(" / ")],
+      ["注意事项", [_comp1.note, _comp2.note].filter(Boolean).join(" / ")],
+      ["回测结论", [_comp1.report, _comp2.report].filter(Boolean).join(" / ")],
+    ];
+    const _compRows = _compFields.filter(([, v]) => v).map(([k, v]) =>
+      `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">${k}</span><span class="lab-fusion-detail-value">${v}</span></div>`
+    ).join("");
+    const compDetailHTML = _compRows ? `<details class="lab-fusion-comp-details"><summary>📋 成分策略详细说明</summary>${_compRows}</details>` : "";
     descHTML = `<div class="lab-fusion-hardcoded">` +
       (meta.conclusion ? `<div class="lab-fusion-detail-conclusion">${meta.conclusion}</div>` : "") +
       condHTML +
       (meta.trigger ? `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">触发条件</span><span class="lab-fusion-detail-value">${meta.trigger}</span></div>` : "") +
+      compDetailHTML +
       `</div>`;
   } else {
     // 兜底：无 _pairType 无 _fusionKey，仅展示融合策略说明文案
@@ -3842,15 +3970,11 @@ async function _labFusionPairModalRender(overlay) {
   m._gen = (m._gen || 0) + 1;
   const myGen = m._gen;
 
-  // 并行加载：融合回测数据 + 信号图指数数据 + 多周期矩阵数据
+  // 并行加载：融合回测数据 + 信号图指数数据 + 融合矩阵数据
   const simDataP = fetchLabFusionSimData(m.index);
-  const chartDataP = (chartBaseKey && LAB_CHART_KEYS[chartBaseKey])
-    ? fetchJSON(`./data/index/${m.index}-all.json`).catch(() => null)
-    : Promise.resolve(null);
-  const matrixDataP = chartBaseKey
-    ? fetchLabMatrixData(m.index).catch(() => null)
-    : Promise.resolve(null);
-  const [simData, chartData, matrixData] = await Promise.all([simDataP, chartDataP, matrixDataP]);
+  const chartDataP = fetchJSON(`./data/index/${m.index}-all.json`).catch(() => null);
+  const fusionMatrixP = fetchLabFusionMatrixData(m.index).catch(() => null);
+  const [simData, chartData, fusionMatrixData] = await Promise.all([simDataP, chartDataP, fusionMatrixP]);
   if (m._gen !== myGen) return; // stale render
 
   // Bug-C：加载 fusion_stats（91对 + 6硬编码），非单信号 stats（64对）
@@ -3883,33 +4007,42 @@ async function _labFusionPairModalRender(overlay) {
     ? `<div class="lab-sim-signal-btn-wrap"><button type="button" class="lab-sim-signal-btn" data-buy="${sigBuyKey}" data-sell="${sigSellKey}">📊 查看买卖信号</button></div>`
     : "";
 
-  // 信号图（base 策略指标+信号 echarts，对齐单一信号弹窗）
+  // 信号图（方向B：融合AND信号图，取各成分条件触发日期交集=融合信号点；buy_sell候选无AND语义回退chartBaseKey代理）
   let chartSectionHTML = "";
   let chartCfg = null, chartSliced = null;
-  if (chartBaseKey && LAB_CHART_KEYS[chartBaseKey]) {
-    if (chartData && chartData.ohlc && chartData.ohlc.length) {
-      const idxName = _INDEX_NAME_MAP[m.index] || m.index;
+  if (chartData && chartData.ohlc && chartData.ohlc.length) {
+    const idxName = _INDEX_NAME_MAP[m.index] || m.index;
+    const components = fmInfo ? fmInfo.components : null;
+    chartCfg = _labBuildFusionChartConfig(meta, chartData.ohlc, idxName, isHardcoded, components);
+    let chartTitleSuffix = "（AND共振）";
+    if (!chartCfg && chartBaseKey && LAB_CHART_KEYS[chartBaseKey]) {
       chartCfg = _labBuildChartConfig(chartBaseKey, chartData.ohlc, idxName);
+      chartTitleSuffix = "（基础策略「" + chartBaseName + "」代理）";
+    }
+    if (chartCfg) {
       chartSliced = _labChartSlice(chartData.ohlc, chartCfg.indicators, chartCfg.signals, win);
       const cWinLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
       chartSectionHTML = '<div class="chart-card lab-chart-section">' +
-        '<h3>📈 信号图（基础策略「' + chartBaseName + '」指标+信号，供参考）</h3>' +
+        '<h3>📈 信号图' + chartTitleSuffix + '</h3>' +
         '<div class="lab-fusion-chart-ph"><div class="loading">加载中…</div></div>' +
         '<div class="lab-signal-stat">共触发 <b>' + chartSliced.signals.length + '</b> 个' + chartCfg.statLabel + '（' + cWinLabel + '）</div>' +
         '</div>';
     } else {
-      chartSectionHTML = '<div class="chart-card lab-chart-section"><h3>📈 信号图（基础策略「' + chartBaseName + '」）</h3><div class="empty-note">该指数暂无数据</div></div>';
+      chartSectionHTML = '<div class="chart-card lab-chart-section"><h3>📈 信号图</h3><div class="empty-note">该融合策略暂不支持信号图</div></div>';
     }
+  } else {
+    chartSectionHTML = '<div class="chart-card lab-chart-section"><h3>📈 信号图</h3><div class="empty-note">该指数暂无数据</div></div>';
   }
 
-  // 多周期回测矩阵（base 策略，对齐单一信号弹窗）
+  // 多周期回测矩阵（融合策略自己的矩阵，lab_backtest_fusion_{idx}.json，97候选5窗口×4horizon）
   let matrixSectionHTML = "";
-  if (chartBaseKey && matrixData) {
-    const mStratData = matrixData.strategies ? matrixData.strategies[chartBaseKey] : null;
-    const mGenAt = matrixData.generated_at || "";
+  if (fusionMatrixData) {
+    const mStratData = fusionMatrixData.strategies ? fusionMatrixData.strategies[pairId] : null;
+    const mGenAt = fusionMatrixData.generated_at || "";
     state.labSimWindow = win; // 矩阵行高亮用
+    const mTitleName = meta.name || pairId;
     matrixSectionHTML = '<div class="chart-card lab-matrix-card">' +
-      '<h3>📊 多周期回测矩阵（基础策略「' + chartBaseName + '」）</h3>' +
+      '<h3>📊 多周期回测矩阵（融合策略）</h3>' +
       '<div class="lab-matrix-legend"><b>怎么看这张表：</b>' +
       '<span><b>胜率</b>=信号后上涨(买)/下跌(卖)概率</span>' +
       '<span><b>平均收益</b>=每次操作平均赚多少(含亏的)</span>' +
@@ -3917,39 +4050,97 @@ async function _labFusionPairModalRender(overlay) {
       '<span><b>样本</b>=测试了多少次信号</span></div>' +
       '<div class="lab-matrix-tip">⚠ 以上为单次操作平均收益，非连续复利；信号触发不定期，不可直接相乘。</div>' +
       '<div class="lab-matrix-wrap">' + renderLabMatrix(mStratData) + '</div>' +
-      '<div class="lab-matrix-foot"><div class="lab-matrix-source">数据来源：买卖点策略深度回测（' + chartBaseName + '，基于历史数据验证' + (mGenAt ? '，重跑于 ' + mGenAt : '') + '）</div>' +
+      '<div class="lab-matrix-foot"><div class="lab-matrix-source">数据来源：融合策略深度回测（' + mTitleName + '，基于历史数据验证' + (mGenAt ? '，重跑于 ' + mGenAt : '') + '）</div>' +
       '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">红=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">绿=差</span></div></div>' +
       '</div>';
   }
 
+  // 自白黄块（对齐单一信号弹窗）
+  const essayHTML = '<div class="lab-warning-essay">' + _labWarningEssayHTML(meta.status) + '</div>';
+
   let bodyHTML;
   if (!pair) {
-    bodyHTML = descHTML + filterHTML + chartSectionHTML + matrixSectionHTML +
+    bodyHTML = essayHTML + descHTML + filterHTML + chartSectionHTML + matrixSectionHTML +
       `<div class="lab-rank-modal-empty">暂无回测数据<br>` +
       `<span style="font-size:12px">融合策略 ${pairId} 在 ${_INDEX_NAME_MAP[m.index] || m.index} 未找到回测结果。</span></div>`;
   } else {
-    // Step4：改 modeBar/winBar 切换 + switchHint + _labSimModeBlock（4数字+净值曲线+交易记录），三区一致
-    const winData = _labPairWinData(pair, mode, win, simData);
+    // modeBar/winBar/switchHint（三区一致）
+    const modeBar = '<div class="lab-win-bar"><span class="lab-win-bar-label">买卖模式</span>' +
+      '<div class="lab-win-tabs">' +
+      `<button type="button" class="lab-win-tab${mode === "full_in" ? " active" : ""}" data-mode="full_in">全仓</button>` +
+      `<button type="button" class="lab-win-tab${mode === "fixed_10k" ? " active" : ""}" data-mode="fixed_10k">定额（10%）</button>` +
+      '</div></div>';
+    const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
+    const switchHint = '<div class="lab-retest-modal-switch-hint">💡 可切换时间窗口和买卖模式，查看该策略在不同条件下的战绩</div>';
+
+    // 6硬编码：F_xxx × 8 partner 配对卡片列表 + 点卡片切换（m.pair 局部管理，防与单一弹窗全局state冲突）
+    // 91候选：本身是配对结果，无配对切换，直接用 _labSimModeBlock
     let detailHTML;
-    if (!winData || !winData.stats) {
-      detailHTML = `<div class="lab-rank-modal-empty">该融合策略在 ${_INDEX_NAME_MAP[m.index] || m.index} 无交易数据</div>`;
+    const fStrat = simData.strategies && simData.strategies[pairId] ? simData.strategies[pairId] : null;
+    const partners = (fStrat && fStrat.partners) || [];
+    const fSide = fStrat ? fStrat.side : (isHardcoded ? meta.side : (meta._pairType === "sell_sell" ? "sell" : "buy"));
+
+    if (isHardcoded && partners.length > 1) {
+      // 配对卡片列表
+      if (!m.pair || partners.indexOf(m.pair) < 0) m.pair = partners[0];
+      const pairSideLabel = fSide === "buy" ? "卖点" : "买点";
+      const pairCards = partners.map((pk) => {
+        const buyKey = fSide === "buy" ? pairId : pk;
+        const sellKey = fSide === "buy" ? pk : pairId;
+        const pData = _labGetPair(simData, buyKey, sellKey);
+        const wd = _labPairWinData(pData, mode, win, simData);
+        const st = wd && wd.stats;
+        let lvl = "warn";
+        if (st) {
+          const retLv = _labLvl(st.total_ret, { good: 5, bad: -5 });
+          const winLv = _labLvl(st.win_rate, { good: 55, bad: 45 });
+          const goods = [retLv, winLv].filter((x) => x === "good").length;
+          const bads = [retLv, winLv].filter((x) => x === "bad").length;
+          lvl = goods >= 2 ? "good" : bads >= 2 ? "bad" : "warn";
+        }
+        const activeCls = pk === m.pair ? " active" : "";
+        const pName = (LAB_STRATEGIES[pk] && LAB_STRATEGIES[pk].name) || pk;
+        const retStr = st ? `${st.total_ret > 0 ? "+" : ""}${st.total_ret}%` : "-";
+        const retCls = st ? `pc-lvl-${_labLvl(st.total_ret, { good: 5, bad: -5 })}` : "";
+        const winStr = st ? `胜${st.win_rate}%` : "";
+        const winCls = st ? `pc-lvl-${_labLvl(st.win_rate, { good: 55, bad: 45 })}` : "";
+        const nStr = st ? `n=${st.n_trades}` : "";
+        return `<button type="button" class="lab-sim-pair-card lab-matrix-${lvl}${activeCls}" data-fpair="${pk}" data-mode="${mode}">` +
+          `<span class="pc-name" data-tip="${pName}">${pName}</span>` +
+          (st ? `<span class="pc-ret ${retCls}">${retStr}</span>` +
+           `<span class="pc-meta"><span class="pc-win ${winCls}">${winStr}</span><span class="pc-n">${nStr}</span></span>` : "") +
+          `</button>`;
+      }).join("");
+      const pairListHTML = `<div class="lab-sim-pair-section"><div class="lab-sim-pair-label">配对${pairSideLabel}（点卡片切换 · 红好/绿差）</div><div class="lab-sim-pair-list">${pairCards}</div></div>`;
+      // 当前配对详情
+      const curBuyKey = fSide === "buy" ? pairId : m.pair;
+      const curSellKey = fSide === "buy" ? m.pair : pairId;
+      const curPairData = _labGetPair(simData, curBuyKey, curSellKey);
+      const winData = _labPairWinData(curPairData, mode, win, simData);
+      const curPairLabel = ((LAB_STRATEGIES[curBuyKey] || {}).name || curBuyKey) + " × " + ((LAB_STRATEGIES[curSellKey] || {}).name || curSellKey);
+      if (!winData || !winData.stats) {
+        detailHTML = modeBar + winBar + switchHint + pairListHTML + '<div class="lab-sim-empty">该配对无交易数据</div>';
+      } else {
+        const trades = winData.trades || [];
+        const totalPages = Math.max(1, Math.ceil(trades.length / 20));
+        if (m.page > totalPages - 1) m.page = totalPages - 1;
+        if (m.page < 0) m.page = 0;
+        detailHTML = modeBar + winBar + switchHint + pairListHTML + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, signalBtnHTML, curPairLabel);
+      }
     } else {
-      // 同步 page 到有效范围（_labSimModeBlock 内部也 clamp，此处保持 state 一致）
-      const trades = winData.trades || [];
-      const totalPages = Math.max(1, Math.ceil(trades.length / 20));
-      if (m.page > totalPages - 1) m.page = totalPages - 1;
-      if (m.page < 0) m.page = 0;
-      // 三区一致：买卖模式切换 + 时间窗口切换 + 用法说明（照抄 retest/单一信号弹窗）
-      const modeBar = '<div class="lab-win-bar"><span class="lab-win-bar-label">买卖模式</span>' +
-        '<div class="lab-win-tabs">' +
-        `<button type="button" class="lab-win-tab${mode === "full_in" ? " active" : ""}" data-mode="full_in">全仓</button>` +
-        `<button type="button" class="lab-win-tab${mode === "fixed_10k" ? " active" : ""}" data-mode="fixed_10k">定额（10%）</button>` +
-        '</div></div>';
-      const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
-      const switchHint = '<div class="lab-retest-modal-switch-hint">💡 可切换时间窗口和买卖模式，查看该策略在不同条件下的战绩</div>';
-      detailHTML = modeBar + winBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, signalBtnHTML);
+      // 91候选：本身是配对结果，无配对切换
+      const winData = _labPairWinData(pair, mode, win, simData);
+      if (!winData || !winData.stats) {
+        detailHTML = modeBar + winBar + switchHint + `<div class="lab-rank-modal-empty">该融合策略在 ${_INDEX_NAME_MAP[m.index] || m.index} 无交易数据</div>`;
+      } else {
+        const trades = winData.trades || [];
+        const totalPages = Math.max(1, Math.ceil(trades.length / 20));
+        if (m.page > totalPages - 1) m.page = totalPages - 1;
+        if (m.page < 0) m.page = 0;
+        detailHTML = modeBar + winBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open, signalBtnHTML);
+      }
     }
-    bodyHTML = descHTML + filterHTML + chartSectionHTML + matrixSectionHTML + detailHTML;
+    bodyHTML = essayHTML + descHTML + filterHTML + chartSectionHTML + matrixSectionHTML + detailHTML;
   }
 
   const body = overlay.querySelector(".lab-signal-modal-body");
@@ -3971,6 +4162,10 @@ async function _labFusionPairModalRender(overlay) {
     });
     overlay.querySelectorAll(".lab-win-tab[data-win]").forEach((btn) => {
       btn.onclick = () => { m.win = btn.dataset.win; m.page = 0; _labFusionPairModalRender(overlay); };
+    });
+    // 6硬编码配对卡片切换（m.pair 局部管理，防与单一弹窗全局state冲突）
+    overlay.querySelectorAll(".lab-sim-pair-card[data-fpair]").forEach((btn) => {
+      btn.onclick = () => { m.pair = btn.dataset.fpair; m.page = 0; _labFusionPairModalRender(overlay); };
     });
     // 交易记录折叠/展开 + 分页
     const hdr = overlay.querySelector(".lab-sim-trades-header");
