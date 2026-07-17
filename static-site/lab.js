@@ -1266,6 +1266,18 @@ async function fetchLabRetestData(index) {
   return state.labRetestDataMap[index];
 }
 
+// 荣誉共享标注表(全局单文件，9指数×5窗口 Top3 荣誉，由 scripts/lab/lab_retest_honors.py 预计算)
+// 缓存到 state.labRetestHonors，retest 维度榜每行查本 pair 的"其他条件"Top3 排名徽章
+async function fetchLabRetestHonors() {
+  if (state.labRetestHonors !== undefined) return state.labRetestHonors;
+  try {
+    state.labRetestHonors = await fetchJSON("./data/lab/lab_retest_honors.json");
+  } catch (e) {
+    state.labRetestHonors = null;
+  }
+  return state.labRetestHonors;
+}
+
 // 检查某指数 full 数据是否已合并入缓存（用于判断详情是否需显示 loading）
 function _labSimFullLoaded(index) {
   index = index || "sh";
@@ -3109,6 +3121,59 @@ function _labRetestSmallTag(flag) {
   return flag ? ' <span class="lab-rank-small">小样本</span>' : "";
 }
 
+// 荣誉共享标注：返回 row.pk 在"其他(指数×窗口)"下的 Top3 排名徽章 HTML。
+// 当前选中(idx,win)的荣誉不标(只标其他条件)；最多显示 4 枚避免拥挤。
+// 徽章 = 奖牌emoji + 短标签(同指数显窗口名/异指数显指数名+窗口名)，点击跳转对应条件。
+function _labRetestHonorsHTML(pk) {
+  const honors = state.labRetestHonors;
+  if (!honors || !pk) return "";
+  const list = honors[pk];
+  if (!list || !list.length) return "";
+  const curIdx = state.labSimIndex || "sh";
+  const curWin = state.labRetestRankWindow || "y5";
+  // 排除当前(idx,win)；荣誉已按 rank 升序存，取前 4 条
+  const shown = list.filter((h) => !(h.idx === curIdx && h.win === curWin)).slice(0, 4);
+  if (!shown.length) return "";
+  const idxName = (id) => ((LAB_SIM_INDEXES.find((x) => x.id === id) || {}).name) || id;
+  const winLabel = (w) => ((LAB_WIN_DEFS.find((x) => x.k === w) || {}).l) || w;
+  const medal = (r) => (r === 1 ? "🥇" : r === 2 ? "🥈" : r === 3 ? "🥉" : "");
+  const badges = shown.map((h) => {
+    const label = h.idx === curIdx ? winLabel(h.win) : (idxName(h.idx) + " " + winLabel(h.win));
+    return `<span class="lab-rank-honor-badge" data-rank="${h.rank}" data-hidx="${h.idx}" data-hwin="${h.win}" ` +
+      `title="该策略在 ${idxName(h.idx)}·${winLabel(h.win)} 排第${h.rank}，点击跳转">` +
+      `${medal(h.rank)}${label}</span>`;
+  }).join("");
+  return `<span class="lab-rank-honors">🏆其他条件排名 ${badges}</span>`;
+}
+
+// 荣誉徽章点击：跳转到对应(指数,窗口)。同指数仅切窗口直接重渲染右榜；跨指数触发整页重载。
+function _labRetestHonorJump(hidx, hwin) {
+  state.labRetestRankWindow = hwin;
+  state.labRetestRankShowAll = false;
+  const curIdx = state.labSimIndex || "sh";
+  if (hidx !== curIdx) {
+    if (state._labRetestReload) state._labRetestReload(hidx);
+  } else {
+    const sec = state._labRetestRankSection;
+    if (sec) {
+      const rd = (state.labRetestDataMap && state.labRetestDataMap[curIdx]) || null;
+      const simData = (state.labSimDataMap && state.labSimDataMap[curIdx]) || null;
+      _labRetestRankRerender(sec, rd, simData);
+    }
+  }
+}
+
+// 绑定荣誉徽章点击(阻止冒泡到行按钮触发弹窗)
+function _labRetestRankAttachBadges(section) {
+  section.querySelectorAll(".lab-rank-honor-badge").forEach((b) => {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      _labRetestHonorJump(b.dataset.hidx, b.dataset.hwin);
+    };
+  });
+}
+
 function _labRetestRankItemHTML(row, rank, tab) {
   const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "";
   // 基础 stats 行（所有 tab 共享上下文：收益/胜/回撤/n）
@@ -3135,7 +3200,7 @@ function _labRetestRankItemHTML(row, rank, tab) {
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">${row.cn} · ${row.modeCn}</span>` +
     `<span class="lab-rank-stats">${baseStats}</span>` +
-    extra + `</button>`;
+    extra + _labRetestHonorsHTML(row.pk) + `</button>`;
 }
 
 // retest 排行榜过滤维度（值是小数 0.1=10%，isPct 字段过滤时×100 与输入百分数比较）
@@ -3275,6 +3340,7 @@ function _labRetestRankAttachHandlers(section, rd, simData) {
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
     item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
   });
+  _labRetestRankAttachBadges(section); // 荣誉徽章点击(跳转其他条件，stopPropagation 不触发行弹窗)
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
 }
@@ -3286,6 +3352,7 @@ function _labRetestRankRerenderResults(section, rd, simData) {
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
     item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
   });
+  _labRetestRankAttachBadges(section); // 局部刷新结果区后重绑徽章
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
 }
@@ -3381,6 +3448,7 @@ async function renderRetestLab() {
   rankSection.innerHTML = '<h3>🔬 二次测试维度榜</h3>' +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载二次测试数据中…</div></div>';
   rightCol.appendChild(rankSection);
+  state._labRetestRankSection = rankSection; // 供荣誉徽章同指数切窗口时直接重渲染右榜
 
   wrapper.appendChild(leftCol);
   wrapper.appendChild(rightCol);
@@ -3392,6 +3460,7 @@ async function renderRetestLab() {
     const rd = await fetchLabRetestData(idx);
     // 加载单信号 stats simData（含融合候选，排行榜5窗口切换需读 stats[win]）
     const simData = await fetchLabSimData(idx);
+    await fetchLabRetestHonors(); // 荣誉共享标注表(全局单文件，首次加载后缓存)
     _labRetestRenderCards(list, rd);
     _labRetestRankRerender(rankSection, rd, simData);
     _applyRetestSearch(); // 切指数重渲染卡片后，重新应用搜索过滤（保留搜索状态）
