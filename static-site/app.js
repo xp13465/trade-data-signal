@@ -1440,6 +1440,11 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
       return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${hh}:${mm}</span>`;
     }
     if (srcClass === "t1") {
+      // T+1数据已追平今日(snapDate)=今天最新,显绿(与T+0收盘同色,数据确为今日已采到);
+      // 仍停在前一交易日(ptd,等盘后补全)=灰(T+1待更新),与T+0今天区分(0541e21初衷仅适用"到昨日等明日")
+      if (snapDate && dataDate === snapDate) {
+        return `<span class="card-time-badge t1-latest" data-tip="T+1数据源已采到今日(${mmdd}),属今天最新(已追平收盘日,非待更新)">📅 T+1·${mmdd}</span>`;
+      }
       return `<span class="card-time-badge t1" data-tip="T+1数据源已采到最新可得日期(${mmdd}),属正常(数据最新可得${mmdd},T+1源次日盘后补全)">📅 T+1·${mmdd}</span>`;
     }
     return `<span class="card-time-badge intraday" data-tip="收盘后定格,显示当日收盘数据(最新)">📍 收盘·${mmdd}</span>`;
@@ -1555,12 +1560,16 @@ function _pastCollectDeadline(key) {
   const [hh, mm] = t.split(":").map(Number);
   return _bjTimeMin() >= hh * 60 + mm;
 }
-function _dataFreshness(dateStr, ptd, relax) {
+function _dataFreshness(dateStr, ptd, relax, snapDate) {
   if (!dateStr) return { cls: "", text: "无数据" };
   const mmdd = dateStr.length === 8 ? `${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}` : dateStr;
   // 盘中未到采集时点：基准放宽到 ptd-1 交易日(显示前一交易日算正常等待)
   const baseline = (relax && ptd) ? _prevTradingDay(ptd) : ptd;
-  if (!baseline || dateStr >= baseline) return { cls: "t1", text: `📅 T+1·${mmdd}` };
+  if (!baseline || dateStr >= baseline) {
+    // T+1已追平今日(snapDate)=今天最新显绿;否则(停在前一交易日)显灰待更新(与 getCardTimeBadge 同口径)
+    const cls = (snapDate && dateStr === snapDate) ? "t1-latest" : "t1";
+    return { cls, text: `📅 T+1·${mmdd}` };
+  }
   let severe = false;
   if (dateStr.length === 8 && ptd.length === 8) {
     const d1 = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8));
@@ -1597,7 +1606,7 @@ function _buildHealthSources(r, snap) {
   const findM = (id) => metrics.find((m) => m.id === id);
   const margin = findM("a_fund_margin");
   if (margin && margin.date) {
-    const f = _dataFreshness(margin.date, ptd, _t1Relax("a_fund_margin", intraday));
+    const f = _dataFreshness(margin.date, ptd, _t1Relax("a_fund_margin", intraday), shDate);
     sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布较晚(实测22:10仍未出当日),当晚23:00单采+凌晨backfill兜底补齐" });
   }
   // 北向资金 2024-08 起源端停更。停≤30天提示用户，>30天长期停更不再提醒（避免长期挂红条烦扰）。
@@ -1615,13 +1624,13 @@ function _buildHealthSources(r, snap) {
   const amt = findM("a_amount");
   if (amt && amt.date) {
     if (intraday) sources.push({ name: "成交/涨停", cls: "intraday", text: "✓ 实时", hint: "成交额/涨停数盘中实时(东财板池),收盘后定格" });
-    else { const f = _dataFreshness(amt.date, ptd); sources.push({ name: "成交/涨停", cls: f.cls, text: f.text, hint: "成交额/涨停数,收盘后定格" }); }
+    else { const f = _dataFreshness(amt.date, ptd, undefined, shDate); sources.push({ name: "成交/涨停", cls: f.cls, text: f.text, hint: "成交额/涨停数,收盘后定格" }); }
   }
   // 综合情绪分
   const scores = (r && r.today && r.today.scores) || {};
   const aSent = scores.a_sentiment;
   if (aSent && aSent.date) {
-    const f = _dataFreshness(aSent.date, ptd);
+    const f = _dataFreshness(aSent.date, ptd, undefined, shDate);
     sources.push({ name: "情绪分", cls: f.cls, text: f.text, hint: "综合情绪分基于各指标计算,随依赖指标更新而更新" });
   }
   // === T+1 补充源：多为盘后次日发布。优先从 today.metrics / indices_sparkline 取最新日期分级；
@@ -1646,7 +1655,7 @@ function _buildHealthSources(r, snap) {
     // T+1 源盘中放宽：用 mid 或 dateKey 作源标识查采集时点(龙虎榜=lhb_count/期货=futures_date/美股=us_dji_date)
     const relax = _t1Relax(cfg.mid || cfg.dateKey, intraday);
     let cls, text;
-    if (dateStr) { const f = _dataFreshness(dateStr, ptd, relax); cls = f.cls; text = f.text; }
+    if (dateStr) { const f = _dataFreshness(dateStr, ptd, relax, shDate); cls = f.cls; text = f.text; }
     else { cls = "t1"; text = cfg.def; }
     sources.push({ name: cfg.name, cls, text, hint: cfg.hint });
   });
