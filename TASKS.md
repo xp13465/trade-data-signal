@@ -731,6 +731,14 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - 其他策略图表融入实验室：BB_lower_revert / Supertrend / MA_death 等（BB_upper_revert 已决策不融生产仅留实验室，见 §15）。
 - **【✅step1+2已完成 2026-07-17 commit 4a3a5c5】融合信号实验卡片信息对齐单一信号基标**（用户定基标：融合 ≥ 单一信号，至少持平不得更少）。根因：`_labFusionPairModalRender`@3655 两分支各有缺失——6 硬编码融合策略（LAB_FUSION_STRATEGIES@598，无 `_pairType`，覆盖 live/partial/experimental 三状态）走 `_labFusionHardcodedHTML`@3635 **只有策略说明文案**，缺指标图表+模拟回测；91 自动候选（带 `_pairType`）有回测但**缺策略说明文案+指标图表**。单一信号 `renderLabDetail`@1816 基准含 5 块（①标题标签 ②自白 ③📖策略说明+指标释义 ④指标图表echarts ⑤💰模拟回测4数字+净值+交易记录+买卖信号弹窗）。**开发顺序**：1️⃣单一信号先固化作基准（✅已确认6块齐全）2️⃣融合后开发补齐到基标（✅commit 4a3a5c5 已上线：6硬编码加`_coreKey`映射核心单一策略(D1/BB_lower_revert/C1)，弹窗显示"融合文案+核心策略图表/矩阵/回测"；91候选补策略说明文案；_labFusionPairCloseModal增强清理echarts。**代理说明**：6硬编码是多条件融合无现成pair回测，用核心单一策略回测作代理达基标，真实融合回测待后端补算）3️⃣二次测试实验再开发。**剩余增强**：91候选补指标图表echarts（需设计双策略图表展示）。详见 NOTES §30。
 
+**E. 架构优化：开发与数据脚本分离（2026-07-17 提出，待调研细化实施）**
+- 痛点：数据脚本（update_all 采集+写DB+deploy.sh git push static-site/data/）与 Claude 开发（改代码+deploy/git push）同目录同 git 工作区，撞 .git/index.lock / push rejected + 采集占资源影响开发构建，致数据没及时推送发布。
+- 推荐方案A（分离数据脚本到独立目录 `~/code/trade-data/`）：采集+DB 独立跑 git 物理隔离；数据产物 JSON rsync 到 `trade/static-site/data/`；trade 发布 cron + 开发 deploy 共用 flock 串行。备选 B（同目录 deploy.sh 加 flock 串行）/ C（数据脚本不 deploy，统一发布 cron）。
+- 调研完成（2026-07-17，报告 /tmp/agent-progress-arch-split.md）：撞点根因=update_all 直接在当前 git worktree 操作（与开发同分支），deploy.sh rebase 可能带开发半成品 push + index.lock/push rejected（开发侧未接入现有 /tmp/trade_deploy.lock）+ git status 被数据文件污染。
+- **软链方案已定（用户 2026-07-17 定）**：app/config/static-site 软链指向 trade（代码单一源，开发加新指标采集自动同步）；data/+.venv 独立。**关键细节：scripts/*.sh 的 REPO 硬编码改环境变量**（默认 trade，trade-data 跑时设 REPO=trade-data，向后兼容，scripts 可软链不污染 trade）。
+- 5阶段：①建 trade-data 骨架+软链 app/config/static-site+venv ②scripts REPO env 化+改路径 ③rsync 同步 JSON 到 trade/static-site/data/ ④改 launchd plists 指向 trade-data ⑤trade 开发侧不再跑采集。风险：路径改漏/rsync不及时/venv依赖/launchd漏跑。回滚：改回 plist 指向 trade+launchctl unload/load 旧 plist。
+- **实施时机：收盘后（15:00+）整体启动**（盘中 intraday_snapshot 每30分钟+DB 冷备份需一致，15:00-17:50 窗口够迁移+测试）。
+
 **D. memory 侧待办（非项目代码）**
 - 装 superpowers 插件试 /write-plan+/execute-plan 工作流（当前活告一段落后）。
 
