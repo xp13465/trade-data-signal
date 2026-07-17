@@ -1860,20 +1860,21 @@ function renderLabMatrix(strategyData) {
       if (!cell) {
         html += '<td class="lab-matrix-cell lab-matrix-na">-</td>';
       } else {
-        const winPct = (cell.win * 100).toFixed(1) + "%";
-        const pl = cell.pl.toFixed(2);
-        const n = cell.n;
-        const meanStr = (cell.mean > 0 ? "+" : "") + (cell.mean * 100).toFixed(1) + "%";
-        const yuan100 = (100 * (1 + cell.mean)).toFixed(1);
+        const winPct = (cell.win != null ? (cell.win * 100).toFixed(1) + "%" : "-");
+        const pl = (cell.pl != null ? cell.pl.toFixed(2) : "-");
+        const n = (cell.n != null ? cell.n : "-");
+        const meanStr = (cell.mean != null ? (cell.mean > 0 ? "+" : "") + (cell.mean * 100).toFixed(1) + "%" : "-");
+        const yuan100 = (cell.mean != null ? (100 * (1 + cell.mean)).toFixed(1) : "-");
         // 三色分级：综合 win/pl/mean
-        const winLv = cell.win > 0.55 ? "good" : cell.win >= 0.45 ? "warn" : "bad";
-        const plLv = cell.pl > 1.3 ? "good" : cell.pl >= 1.0 ? "warn" : "bad";
-        const meanLv = cell.mean > 0 ? "good" : "bad";
-        const goods = [winLv, plLv, meanLv].filter(x => x === "good").length;
-        const bads = [winLv, plLv, meanLv].filter(x => x === "bad").length;
-        const lvl = goods >= 2 ? "good" : bads >= 2 ? "bad" : "warn";
+        const winLv = cell.win != null ? (cell.win > 0.55 ? "good" : cell.win >= 0.45 ? "warn" : "bad") : null;
+        const plLv = cell.pl != null ? (cell.pl > 1.3 ? "good" : cell.pl >= 1.0 ? "warn" : "bad") : null;
+        const meanLv = cell.mean != null ? (cell.mean > 0 ? "good" : "bad") : null;
+        const lvls = [winLv, plLv, meanLv].filter(x => x !== null);
+        const goods = lvls.filter(x => x === "good").length;
+        const bads = lvls.filter(x => x === "bad").length;
+        const lvl = lvls.length === 0 ? "warn" : (goods >= 2 ? "good" : bads >= 2 ? "bad" : "warn");
         // 达标边框（保留原逻辑）
-        const pass = cell.win > 0.5 && cell.pl > 1;
+        const pass = (cell.win != null && cell.pl != null) ? (cell.win > 0.5 && cell.pl > 1) : false;
         const cls = `lab-matrix-cell lab-matrix-${lvl}` + (pass ? " lab-matrix-pass" : "");
         html += `<td class="${cls}">` +
           `<span class="lab-mw">胜率 ${winPct}</span>` +
