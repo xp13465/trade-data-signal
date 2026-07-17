@@ -371,9 +371,15 @@ def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
         trades = all_trades
         trade_sds = [t['sd'] for t in trades]
         tw = {}
+        # win_base_cp: 窗口起点"前一笔"累计盈亏的精确基准值。
+        # 前端用 (t.cp - win_base_cp) 把窗口内累计盈亏从 0 重算，与上方总收益率卡片对齐。
+        # 横跨交易(窗口首笔买入日早于窗口起点)时，补 pre-window P&L(价格比例法，单笔持仓精确)，
+        # 否则整列累计盈亏会包含窗口外的盈亏，致首条 cpVal 偏移甚至符号翻转。
+        win_base_cp = {}
         for wk, _wl, wy in WINDOW_DEFS:
             if wk == 'all':
                 tw[wk] = [0, len(trades)]
+                win_base_cp[wk] = 0
                 continue
             w_start = last_date - pd.DateOffset(years=wy)
             if w_start < first_date:
@@ -383,12 +389,34 @@ def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
             ts = bisect.bisect_left(trade_sds, w_start_str)
             te = bisect.bisect_right(trade_sds, w_end_str)
             tw[wk] = [ts, te]
+            if ts <= 0:
+                win_base_cp[wk] = 0
+            elif ts >= len(trades):
+                # 窗口起点晚于所有交易卖出日(窗口内无交易): 基准=最后一笔累计盈亏
+                win_base_cp[wk] = trades[ts - 1]['cp'] if trades else 0
+            else:
+                ft = trades[ts]
+                prev_cp = trades[ts - 1]['cp']
+                if ft['bd'] >= w_start_str:
+                    # 无横跨：前一笔全史累计盈亏(现逻辑，正确)
+                    win_base_cp[wk] = prev_cp
+                else:
+                    # 横跨交易：补 pre-window P&L = full_pnl × (close_wstart - bp)/(sp - bp)
+                    full_pnl = ft['cp'] - prev_cp
+                    bp, sp = ft['bp'], ft['sp']
+                    if sp != bp:
+                        close_ws = float(df.loc[:w_start]['close'].iloc[-1])
+                        pre_pnl = full_pnl * (close_ws - bp) / (sp - bp)
+                        win_base_cp[wk] = round(prev_cp + pre_pnl, 2)
+                    else:
+                        win_base_cp[wk] = prev_cp   # sp==bp 无法用比例法，回退现逻辑
 
         out[mode] = {
             'stats': win_stats,
             'equity_curve': win_eq,
             'trades': trades,
             'tw': tw,
+            'win_base_cp': win_base_cp,
         }
     return out
 
@@ -492,6 +520,7 @@ def run_index(iid, iname):
                 'equity_curve': mpv['equity_curve'],
                 'trades': mpv['trades'],
                 'tw': mpv['tw'],
+                'win_base_cp': mpv['win_base_cp'],
             }
 
     # 写入双版（per-index 拆两文件：stats 小秒开，full 大按需）
@@ -658,6 +687,7 @@ def run_fusion_index(iid, iname):
                 'equity_curve': mpv['equity_curve'],
                 'trades': mpv['trades'],
                 'tw': mpv['tw'],
+                'win_base_cp': mpv['win_base_cp'],
             }
 
     out_files = [

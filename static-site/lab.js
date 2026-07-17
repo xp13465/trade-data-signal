@@ -813,9 +813,12 @@ function _labPairWinData(pairData, mode, win, simData) {
   const trades = (tw && md.trades) ? md.trades.slice(tw[0], tw[1]) : (md.trades || []);
   // winBaseCp: 窗口起点"前一笔"的累计盈亏(全历史值)。交易记录里每笔 t.cp 是全历史累计，
   // 渲染时用 (t.cp - winBaseCp) 把窗口内累计从0重算，并与上方总收益率卡片对齐。
-  // tw[0]=0(全历史/近10年从头起)时无前一笔，winBaseCp=0(即从 initCapital 起算，行为不变)。
+  // 优先读后端预计算的精确值(横跨交易已补 pre-window P&L，消除首条 cpVal 偏移/符号翻转)；
+  // 回退现逻辑(旧 JSON 兼容)：tw[0]=0 时无前一笔 winBaseCp=0，否则取前一笔全史累计盈亏。
   let winBaseCp = 0;
-  if (tw && md.trades && tw[0] > 0) {
+  if (md.win_base_cp && md.win_base_cp[win] != null) {
+    winBaseCp = md.win_base_cp[win];
+  } else if (tw && md.trades && tw[0] > 0) {
     const prevTrade = md.trades[tw[0] - 1];
     if (prevTrade && prevTrade.cp != null) winBaseCp = prevTrade.cp;
   }
