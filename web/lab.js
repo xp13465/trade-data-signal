@@ -1344,7 +1344,7 @@ async function fetchLabFusionSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFusionFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("./data/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal);
+    const full = await fetchJSONProgress("/static/data/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
@@ -1450,7 +1450,7 @@ async function fetchLabSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("./data/lab/lab_sim_" + index + "_full.json", onProgress, signal);
+    const full = await fetchJSONProgress("/static/data/lab/lab_sim_" + index + "_full.json", onProgress, signal);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
