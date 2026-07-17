@@ -914,6 +914,8 @@
 .lab-retest-yearly, .lab-retest-oos {
   width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed;
 }
+/* 参数扫描概览表格：跨满 .lab-strategy-list 网格所有列，消除右侧留白 */
+.lab-paramscan-overview { grid-column: 1 / -1; }
 .lab-retest-yearly th, .lab-retest-yearly td,
 .lab-retest-oos th, .lab-retest-oos td {
   padding: 4px 8px; text-align: center; border: 1px solid var(--border);

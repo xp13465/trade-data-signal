@@ -2990,7 +2990,7 @@ function _renderLabSubNav() {
     { key: "single", label: "单一信号实验" },
     { key: "fusion", label: "融合信号实验" },
     { key: "retest", label: "🔬 二次测试实验" },
-    { key: "ablation", label: "🧩 信号消融" },
+    { key: "ablation", label: "🧩 信号拆解" },
     { key: "symmetry", label: "⚖️ 多空对称" },
     { key: "paramscan", label: "🎛 参数扫描" },
   ];
@@ -4456,7 +4456,7 @@ const _retFg = (v) => (v >= 0 ? _UP : _DOWN);               // 内联样式用
 const _retEc = (v) => (v >= 0 ? cssVar("--mx-good-fg") : cssVar("--mx-bad-fg)")); // echarts 用
 
 // === 🧩 信号叠加消融：6硬编码融合 N-1 子集贡献（定位核心贡献组件）===
-const _LAB_ABLATION_RULE = "🧩 信号叠加消融：对6硬编码融合策略逐一去掉一个组件(N-1子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。D1_high20_drop5 平均贡献+769%为绝对核心，BB_lower_revert/C1_RSI30 贡献为负(作为融合组件反而拖累)。";
+const _LAB_ABLATION_RULE = "🧩 信号拆解测试（消融分析）：对6硬编码融合策略逐一去掉一个组件(N-1子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。D1_high20_drop5 平均贡献+769%为绝对核心，BB_lower_revert/C1_RSI30 贡献为负(作为融合组件反而拖累)。";
 
 async function renderAblationLab() {
   const wrapper = document.createElement("div");
@@ -4480,12 +4480,12 @@ async function renderAblationLab() {
 
   const list = document.createElement("div");
   list.className = "lab-strategy-list lab-retest-list";
-  list.innerHTML = '<div class="lab-rank-loading">⏳ 加载消融数据中…</div>';
+  list.innerHTML = '<div class="lab-rank-loading">⏳ 加载拆解数据中…</div>';
   leftCol.appendChild(list);
 
   const phaseNote = document.createElement("div");
   phaseNote.className = "lab-fusion-phase-note";
-  phaseNote.innerHTML = "📌 <b>信号叠加消融</b>：6硬编码融合策略 × 3指数。右侧为全局组件平均贡献图。";
+  phaseNote.innerHTML = "📌 <b>信号拆解测试</b>（消融分析）：6硬编码融合策略 × 3指数。右侧为全局组件平均贡献图。";
   leftCol.appendChild(phaseNote);
 
   const rankSection = document.createElement("div");
@@ -4501,7 +4501,7 @@ async function renderAblationLab() {
     const idx = state.labAblationIdx;
     const idxData = data && data.indexes ? data.indexes.find((x) => x.index_id === idx) : null;
     if (!idxData || !idxData.fusions) {
-      list.innerHTML = '<div class="lab-rank-empty">暂无消融数据</div>';
+      list.innerHTML = '<div class="lab-rank-empty">暂无拆解数据</div>';
     } else {
       list.innerHTML = idxData.fusions.map((f) => _labAblationCardHTML(f)).join("");
     }
@@ -4538,7 +4538,7 @@ function _labAblationCardHTML(f) {
     `<span style="color:var(--text-3)">交易: ${fs.n_trades != null ? fs.n_trades : "-"}</span>` +
     `</div>` +
     `<div class="lab-retest-section">` +
-    `<div class="lab-retest-section-title">N-1 子集消融（去掉一个组件后的收益贡献率）</div>` +
+    `<div class="lab-retest-section-title">N-1 子集拆解（消融：去掉一个组件后的收益贡献率）</div>` +
     `<table class="lab-retest-yearly"><thead><tr><th>去掉组件</th><th>保留</th><th>信号数</th><th>收益贡献</th></tr></thead>` +
     `<tbody>${ablationRows}</tbody></table></div></div>`;
 }
@@ -4784,7 +4784,7 @@ function _labParamScanOverviewHTML(data, idx) {
       `<td>${(pi.profitable_frac * 100).toFixed(0)}%</td>` +
       `<td><span class="lab-tag ${vCls}" style="color:${vColor}">${vLabel}</span></td></tr>`;
   }).join("");
-  return `<div class="lab-retest-pair"><div class="lab-retest-section">` +
+  return `<div class="lab-retest-pair lab-paramscan-overview"><div class="lab-retest-section">` +
     `<div class="lab-retest-section-title">7策略参数扫描概览（指数 ${idx}）</div>` +
     `<table class="lab-retest-yearly"><thead><tr><th>策略</th><th>默认收益</th><th>最优收益</th><th>邻域均值</th><th>盈利占比</th><th>判定</th></tr></thead>` +
     `<tbody>${rows}</tbody></table></div></div>`;
