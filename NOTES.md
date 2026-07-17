@@ -1883,3 +1883,30 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - `_coreKey` 未重新引入（全仓仅 665 行注释一句"非 `_coreKey` 代理"提及，无实参 / 字段）✓
 - `_labRankAggregate` 未碰（仍 `r.buyKey + "|" + r.sellKey`）✓
 - 双版 lab.js diff 只剩 5 处 URL（`/static/data/lab/` vs `./data/lab/`：lab_backtest / lab_backtest_idx / lab_sim_idx_stats / lab_sim_idx_fusion_stats / lab_retest_idx）✓
+
+## §33 融合弹窗对齐单一信号弹窗（2026-07-17，commit 854e6cc + deploy 6efd745）
+
+> 承接 §32：§32 的 8c49292 只接回 3 块，但矩阵用 `chartBaseKey` 基础策略代理 + 缺配对买点 / 卡片切换，没完全对齐单一弹窗。用户预期：融合实验 = 单一实验进阶版，单一弹窗有的融合都要有，仅策略信号从单一变融合信号。
+
+### 实施要点
+1. **信号图方向 B**（用户选）：前端 `_labBuildFusionChartConfig` 实现融合 AND 信号计算画融合信号点，非基础策略代理（LAB_CHART_KEYS 只含 22 单一策略无融合 AND，故需前端实现；失败回退 `chartBaseKey` 代理）。
+2. **后端** `lab_matrix.py` 新增 `run_fusion_matrix()` 生成 `lab_backtest_fusion_{idx}.json`（97 候选 ×5 窗口 ×4 horizon，F_ 策略有数据）；`lab_simulate.py` 补 6 硬编码 `F_xxx` ×8 反向 partner（48 组，fusion_stats pairs 总数 145 = 97+48）。
+3. **前端双版 lab.js 6 处改造**：矩阵 `fusionMatrixData.strategies[pairId]` 非代理 @4040 + 信号图 `_labBuildFusionChartConfig` 融合 AND 方向 B @4016 + 6 硬编码配对卡片 `m.pair` 局部管理（防与单一弹窗全局 state 冲突）+ 自白黄块 `_labWarningEssayHTML` + 91 候选补成分策略 theory/scenario/note/report（details 折叠）。
+4. **上线**：build_min + bump（版本 ecdd1c6f）+ 双版 diff 只剩 URL + commit 854e6cc + ff main + deploy 6efd745 + 线上 s.aisusu.cn 验证 200。
+
+### 验收（6 项全通过）
+- 融合矩阵双版 97 策略 6 F_ ✓；前端矩阵 `strategies[pairId]` 非代理 ✓；信号图 `_labBuildFusionChartConfig` ✓；双版 diff 只剩 URL ✓；git push 854e6cc + 6efd745 ✓；线上 200 ✓。
+- 原 agent ad09ea81 卡死（没 echo 致 10 分钟盲区），重派 aea32ba4 读遗留接手完成（后端原 agent 已做完，前端 6 处改造 + 上线重派完成）。
+
+## §34 retest 维度榜荣誉共享标注（2026-07-17，commit a27ebba）
+
+> 用户需求：二次测试维度榜排行榜每行标注策略在其他（指数 × 窗口）下的排名荣誉（近 10 年第 1 / 近 5 年第 2 / 科创 50 第 1 等），多层次定位好排名策略（一次好不代表什么，多层次好才更好）。
+
+### 实施要点
+1. **后端** `scripts/lab/lab_retest_honors.py` 精确复刻 `_labRetestRankRows` 排名逻辑（双模式 + min-max 同群），9 指数 ×5 窗口（all/y10/y5/y3/y1）Top3，`pairKey -> [{idx,win,rank}]`，输出 `lab_retest_honors.json`（18 pairs / 115 荣誉，双版一致 4698 字节）。
+2. **前端** `_labRetestHonorsHTML` 徽章（🥇🥈🥉 + 标签，排除当前 idx/win，最多 4 枚）+ `_labRetestHonorJump` 点击跳转（同 idx 切窗口 / 跨 idx reload）+ `lab.css` 金银铜配色 + `stopPropagation` 防触发行弹窗。
+3. **窗口用全 5 窗口**（`LAB_WIN_DEFS`，与榜单一致），非 retest pair_meta.windows（y5/y3/y1 候选门槛子集）。
+4. **上线**：双版同步 + commit a27ebba + ff main + 线上 s.aisusu.cn 200。
+
+### 验收（5 项通过）
+- 荣誉表双版生成 + push a27ebba ✓；双版 diff 只剩 URL ✓；徽章函数双版 ✓；未碰 `_labRankAggregate` ✓。
