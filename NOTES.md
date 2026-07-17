@@ -1672,3 +1672,44 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 
 **双版同步**：web/lab.js 与 static-site/lab.js IDENTICAL（除 4 处数据源 URL）；`lab.min.js` 已 `scripts/build_min.py` 重建；commit message 末尾 `Co-Authored-By: Claude <noreply@anthropic.com>`。
 
+### 7. 本轮 lab + freshness 改动落档（2026-07-17，6 项已上线）
+
+> 任务来源：retest 区 5 点对齐 + 后端 fixed_10k + 融合弹窗 3 Bug 修复 + 三区弹窗交互一致 + 执行统计 ⚠️ pop + index_backfill 退出码 bug 修复。全部双版 lab.js 同步、`build_min.py` 重建、commit 末尾 `Co-Authored-By`。
+
+**a. retest 区 5 点对齐**（commits 9c84896 / fbbd6c1 / e7b512c / d85b7f1，web/lab.js + static-site/lab.js 双版）：
+
+- **点 1 指数选择器**：retest 排行榜 `_labRetestRankHTML` 顶部加指数选择条；左栏（排行榜）与右栏（详情）共用 `idxBar`，切指数时两栏一起重载。
+- **点 2 过滤**：新增 `LAB_RETEST_RANK_FILTERS` 常量 + `_labRetestRankApplyFilter` + `_labRetestRankFilterHTML`；支持收益 / 胜率 / 回撤 三类过滤，过滤值×100 与 stats 小数比较（统一小数口径）。
+- **点 3 定额 10% 双行**：`_labRetestRankRows` 每对产出 2 行（`full_in` + `fixed_10k`），综合分各自用对应 mode 的三切片重算；弹窗接 `mode` 参数读 `fixed_10k` 对应切片。
+- **点 4 弹窗说明**：modeBar + winBar 旁加 `switchHint`（💡可切换时间窗口和买卖模式），降低用户找不到切换入口的困惑。
+- **点 5 三切片注入位置**：`_labSimModeBlock` 加 `midHTML` 参数，三切片注入「净值曲线」与「交易记录」之间；弹窗内顺序固定为 4 数字 → 净值曲线 → 三切片 → 交易记录。
+
+**b. 后端 fixed_10k 模式**（commits cbd2756 / 06f04ed / bd2f58d，scripts/lab/lab_retest.py）：
+
+- 5 个函数加 `sim_func` 参数 + `simulate_fixed_10k`（定额 1 万本金，按信号逐笔投入 / 平仓，不按比例加仓）；9 指数全量重跑约 4s。
+- **数据结构（向后兼容）**：每个 pair = `{pair_meta{mode:full_in}, yearly, oos, regimes, fixed_10k{pair_meta{mode:fixed_10k}, yearly, oos, regimes}}`；旧前端读 top-level 字段不受影响，新前端按 mode 读 `fixed_10k.*`。
+- 跑完 `scripts/deploy.sh` 推 `static-site/data/lab/` 上线（§8 正常上线渠道，非禁推对象）。
+
+**c. 融合弹窗 3 Bug 修复**（commit e89b8d8，web/lab.js + static-site/lab.js）：
+
+- **Bug-A（6 个硬编码策略缺 `_pairType`）**：`LAB_FUSION_STRATEGIES`（标签 live/partial/experimental）未设 `_pairType`，弹窗按类型分发时走「同向共振开发中」分支且标题 undefined。修：对这类硬编码策略独立渲染，直接显示其 stats，不进 buy_buy/sell_sell 分支。
+- **Bug-B（42 个同向共振显示「开发中」）**：buy_buy / sell_sell 共 42 个 pair 有真实 stats（后端已跑），弹窗却判为未实现。修：弹窗三类分支（buy_sell / buy_buy / sell_sell）都支持显示，不再误判。
+- **Bug-C（加载错文件）**：弹窗误加载单信号 `stats`（64 pairs），应加载融合 `fusion_stats`（91 pairs）。修：弹窗改加载 `fusion_stats`。
+- **结论**：融合实验已 100% 跑完（91 候选 = 49 buy_sell + 21 buy_buy + 21 sell_sell，9 指数齐备）；此前前端显示「回测开发中」是前端 bug，非真没跑。
+
+**d. 三区弹窗交互一致**（commits a953cb7 / af35aea，web/lab.js + static-site/lab.js）：
+
+- **单一信号弹窗 `_labRankModalRender`**：加 modeBar（全仓 / 定额 10%）+ winBar（5 窗口）+ switchHint，与 retest 弹窗对齐。
+- **融合弹窗**：从静态 2×5 表改为交互（modeBar / winBar 切换 + 复用 `_labSimModeBlock` + `fusion_full` 按需懒加载）。
+- **通用 `_labModalWinTabsHTML`**：三区（retest / 单一 / 融合）弹窗交互完全一致，用户切窗口 / 切 mode 体验统一。
+
+**e. 执行统计 ⚠️ pop**（commit eeafbfe，web/app.js + static-site/app.js）：
+
+- 执行统计行的 ⚠️ 标记加 `data-tip`（tooltip）：退出码非 0 = 脚本异常退出，tooltip 显示具体退出码 + 指明日志路径 `data/logs/${task}_launchd.log`，方便一键定位。
+
+**f. index_backfill 退出码 bug 修复**（commit ac93c50，app/collector/index_backfill.py）：
+
+- **根因**：`verify_and_backfill_indices` 函数内 `upsert_index_rows` 经 3 处 `else` 分支（核心 A 股 / 申万 / 概念「有缺失才补采」段）延迟 `import`；Python 编译期把该 import 标记为函数局部变量。当前三段全齐（无需补采）时 import 语句不执行，到第 448 港股段调用 `upsert_index_rows` -> `UnboundLocalError`。数据其实采到 ✓，但异常致退出码 1 -> ⚠️。
+- **修复**：港股段补一处 `import` 保证名字绑定；backfill 退出码 1 -> 0，执行统计 ⚠️ 自动消失。
+- **教训**：函数内条件分支里的延迟 import + 同名函数调用 = UnboundLocalError 陷阱；后续补采逻辑改动需保持 import 在每个调用路径前都已执行。
+
