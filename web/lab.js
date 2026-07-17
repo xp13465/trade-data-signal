@@ -3268,7 +3268,8 @@ function _labRetestHonorsHTML(pk) {
 }
 
 // 荣誉徽章点击：跳转到对应(指数,窗口)。同指数仅切窗口直接重渲染右榜；跨指数触发整页重载。
-function _labRetestHonorJump(hidx, hwin) {
+function _labRetestHonorJump(hidx, hwin, focusPk) {
+  state._labRetestRankFocusPk = focusPk || null; // 跳转后高亮焦点行(消费于 rerender/rerenderResults 末尾)
   state.labRetestRankWindow = hwin;
   state.labRetestRankShowAll = false;
   const curIdx = state.labSimIndex || "sh";
@@ -3284,13 +3285,44 @@ function _labRetestHonorJump(hidx, hwin) {
   }
 }
 
+// 跳转后高亮焦点行:滚动到视图中央 + 金色高亮边框 + 短暂闪烁,让用户一眼看到跳转到哪了。
+// 消费 state._labRetestRankFocusPk(一次性)。目标行若被"前20"截断则自动展开全部重渲再定位;仍找不到(被过滤)则静默放弃。
+function _labRetestRankFindItem(section, pk) {
+  let found = null;
+  section.querySelectorAll(".lab-rank-item").forEach((n) => { if (n.dataset.pk === pk) found = n; });
+  return found;
+}
+function _labRetestRankFocusHighlight(section, rd, simData) {
+  const pk = state._labRetestRankFocusPk;
+  if (!pk) return;
+  state._labRetestRankFocusPk = null; // 先消费,避免下方展开重渲时 rerenderResults 递归重复高亮
+  let el = _labRetestRankFindItem(section, pk);
+  if (!el && !state.labRetestRankShowAll) {
+    state.labRetestRankShowAll = true; // 目标在前20之外,展开全部
+    _labRetestRankRerenderResults(section, rd, simData); // 内部再调本函数时 pk 已空,直接 return
+    el = _labRetestRankFindItem(section, pk);
+  }
+  if (!el) return; // 被过滤面板挡掉,放弃
+  // 清除上一焦点的残留 class
+  section.querySelectorAll(".lab-rank-focus").forEach((n) => n.classList.remove("lab-rank-focus", "lab-rank-focus-flash"));
+  try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
+  el.classList.add("lab-rank-focus", "lab-rank-focus-flash");
+  clearTimeout(state._labRetestFocusTimer);
+  state._labRetestFocusTimer = setTimeout(() => {
+    el.classList.remove("lab-rank-focus-flash"); // 停止闪烁
+    setTimeout(() => el.classList.remove("lab-rank-focus"), 3500); // 再持续高亮几秒后恢复
+  }, 2400);
+}
+
 // 绑定荣誉徽章点击(阻止冒泡到行按钮触发弹窗)
 function _labRetestRankAttachBadges(section) {
   section.querySelectorAll(".lab-rank-honor-badge").forEach((b) => {
     b.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();
-      _labRetestHonorJump(b.dataset.hidx, b.dataset.hwin);
+      const item = b.closest(".lab-rank-item");
+      const pk = item ? item.dataset.pk : ""; // 跳转后高亮该 pk 行
+      _labRetestHonorJump(b.dataset.hidx, b.dataset.hwin, pk);
     };
   });
 }
@@ -3476,12 +3508,14 @@ function _labRetestRankRerenderResults(section, rd, simData) {
   _labRetestRankAttachBadges(section); // 局部刷新结果区后重绑徽章
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
+  _labRetestRankFocusHighlight(section, rd, simData); // 跳转高亮(无 focusPk 时直接 return)
 }
 
 function _labRetestRankRerender(section, rd, simData) {
   const body = section.querySelector(".lab-rank-body");
   if (body) body.innerHTML = _labRetestRankHTML(rd, simData);
   _labRetestRankAttachHandlers(section, rd, simData);
+  _labRetestRankFocusHighlight(section, rd, simData); // 跳转高亮(同指数切窗口/跨指数 reload 均经此)
 }
 
 // 左栏候选配对卡片：每配对1张紧凑卡（中文名+窗口+综合分+胜率/回撤/n），点击弹窗

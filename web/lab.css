@@ -544,6 +544,18 @@
   text-align: left; font-family: inherit; width: 100%;
 }
 .lab-rank-item:hover { border-color: #9c27b0; box-shadow: 0 2px 8px rgba(156, 39, 176, 0.1); transform: translateY(-1px); }
+/* 跳转高亮焦点行:荣誉徽章"其他条件排名"点击跳转后,金色边框+背景+闪烁,让用户一眼定位跳转目标 */
+.lab-rank-item.lab-rank-focus {
+  border-color: #ff9800;
+  background: linear-gradient(90deg, rgba(255,152,0,0.18), rgba(255,152,0,0.04));
+  box-shadow: 0 0 0 2px rgba(255,152,0,0.5), 0 2px 12px rgba(255,152,0,0.28);
+  z-index: 1;
+}
+.lab-rank-item.lab-rank-focus-flash { animation: lab-rank-focus-blink 0.5s ease-in-out 3; }
+@keyframes lab-rank-focus-blink {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255,152,0,0.5), 0 2px 12px rgba(255,152,0,0.28); }
+  50% { box-shadow: 0 0 0 4px rgba(255,152,0,0.8), 0 2px 18px rgba(255,152,0,0.55); }
+}
 .lab-rank-no {
   font-size: 13px; font-weight: 700; color: var(--text-3);
   min-width: 36px; text-align: center; flex-shrink: 0;
