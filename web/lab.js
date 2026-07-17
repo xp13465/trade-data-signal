@@ -1173,6 +1173,20 @@ async function fetchLabSimData(index) {
   return state.labSimDataMap[index];
 }
 
+// 获取 lab_sim_{index}_fusion_stats.json 数据（融合91对：49买×卖 + 21买×买 + 21卖×卖共振）
+// per-index 缓存到 state.labSimFusionDataMap（独立于单信号 stats 缓存，避免互相覆盖）
+async function fetchLabFusionSimData(index) {
+  index = index || "sh";
+  if (!state.labSimFusionDataMap) state.labSimFusionDataMap = {};
+  if (state.labSimFusionDataMap[index]) return state.labSimFusionDataMap[index];
+  try {
+    state.labSimFusionDataMap[index] = await fetchJSON("/static/data/lab/lab_sim_" + index + "_fusion_stats.json");
+  } catch (e) {
+    state.labSimFusionDataMap[index] = null;
+  }
+  return state.labSimFusionDataMap[index];
+}
+
 // 获取 lab_retest_{index}.json 数据（二次测试：分年/样本外/极端行情，per-index 缓存）
 async function fetchLabRetestData(index) {
   index = index || "sh";
@@ -2755,15 +2769,13 @@ async function renderFusionLab() {
         condsHTML +
         `<div class="lab-card-trigger">${meta.trigger}</div>` +
         `<div class="lab-card-conclusion">${meta.conclusion}</div>` +
-        (meta._pairType === "buy_sell"
-          ? `<div class="lab-fusion-pair-hint">📊 点击查看配对回测（胜率·收益·5窗口）▸</div>`
-          : "");
-      if (meta._pairType === "buy_sell") {
-        card.classList.add("lab-fusion-clickable");
-        card.title = "点击查看配对回测（胜率/收益/5窗口）";
-      } else {
-        card.title = "同向共振回测开发中，点击查看说明";
-      }
+        (meta._pairType
+          ? `<div class="lab-fusion-pair-hint">${meta._pairType === "buy_sell" ? "📊 点击查看配对回测" : "🔬 点击查看同向共振回测"}（胜率·收益·5窗口）▸</div>`
+          : `<div class="lab-fusion-pair-hint">🔬 点击查看策略详情▸</div>`);
+      card.classList.add("lab-fusion-clickable");
+      card.title = meta._pairType
+        ? `点击查看${meta._pairType === "buy_sell" ? "配对" : "同向共振"}回测（胜率/收益/5窗口）`
+        : "点击查看策略详情";
       card.onclick = () => { _labFusionPairOpenModal(meta); };
       list.appendChild(card);
     });
@@ -2773,7 +2785,7 @@ async function renderFusionLab() {
   // 阶段提示
   const phaseNote = document.createElement("div");
   phaseNote.className = "lab-fusion-phase-note";
-  phaseNote.innerHTML = "📌 <b>买×卖配对</b>候选已接入回测数据（点击卡片查看胜率/收益/5窗口）。<b>同向共振</b>（买×买/卖×卖）回测开发中。";
+  phaseNote.innerHTML = "📌 <b>买×卖配对</b>（49对）+ <b>同向共振</b>（买×买/卖×卖各21对）均已接入回测数据，点击卡片查看胜率/收益/5窗口。";
   leftCol.appendChild(phaseNote);
 
   // 搜索框事件：按卡片可见文本模糊过滤（大小写不敏感，匹配 name/conditions/trigger/conclusion）
@@ -3548,41 +3560,64 @@ function _labSignalDetailCloseModal() {
   state._labChartRerender = null;
 }
 
+// 硬编码独立融合策略详情（Bug-A：6个无 _pairType 的策略，展示其回测结论文本，不走配对回测）
+function _labFusionHardcodedHTML(meta) {
+  const tag = LAB_STATUS_TAGS[meta.status] || LAB_STATUS_TAGS.dev;
+  const fields = [
+    ["组成条件", meta.conditions && meta.conditions.join("、")],
+    ["触发条件", meta.trigger],
+    ["回测结论", meta.report],
+    ["理论依据", meta.theory],
+    ["适用场景", meta.scenario],
+    ["备注", meta.note],
+  ];
+  const rows = fields.filter(([, v]) => v).map(([k, v]) =>
+    `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">${k}</span><span class="lab-fusion-detail-value">${v}</span></div>`
+  ).join("");
+  return `<div class="lab-fusion-hardcoded">` +
+    `<div class="lab-fusion-detail-tag"><span class="lab-tag ${tag.cls}">${tag.label}</span></div>` +
+    (meta.conclusion ? `<div class="lab-fusion-detail-conclusion">${meta.conclusion}</div>` : "") +
+    rows +
+    `</div>`;
+}
+
 async function _labFusionPairModalRender(overlay) {
   const m = state.labFusionPairModal;
   if (!m) return;
   const meta = m.meta;
-  const isAPair = meta._pairType === "buy_sell";
-  const buyName = (LAB_STRATEGIES[meta._buyKey] || {}).name || meta._buyKey;
-  const sellName = (LAB_STRATEGIES[meta._sellKey] || {}).name || meta._sellKey;
 
-  if (!isAPair) {
-    // B类：同向共振回测开发中
-    const resonanceType = meta._pairType === "buy_buy" ? "双买共振" : "双卖共振";
+  // Bug-A：硬编码独立融合策略（无 _pairType），展示其回测结论文本，不走配对回测
+  if (!meta._pairType) {
     overlay.innerHTML = `<div class="lab-signal-modal">` +
       `<div class="lab-signal-modal-head">` +
-      `<span class="lab-signal-modal-title">🔬 ${resonanceType} · ${buyName} + ${sellName}</span>` +
+      `<span class="lab-signal-modal-title">🔬 ${meta.name || "融合策略"}</span>` +
       `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
       `</div>` +
-      `<div class="lab-signal-modal-body">` +
-      `<div class="lab-rank-modal-empty">🚧 同向共振回测开发中<br>` +
-      `<span style="font-size:12px">当前仅支持买×卖配对回测，同向（买×买 / 卖×卖）共振回测待后续开放。</span></div>` +
-      `</div></div>`;
+      `<div class="lab-signal-modal-body">${_labFusionHardcodedHTML(meta)}</div></div>`;
     overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
     return;
   }
 
-  // A类：先渲染 loading 骨架
+  // 配对候选（buy_sell / buy_buy / sell_sell）：标题按 pair_type 区分
+  const pairType = meta._pairType;
+  const name1 = (LAB_STRATEGIES[meta._buyKey] || {}).name || meta._buyKey;
+  const name2 = (LAB_STRATEGIES[meta._sellKey] || {}).name || meta._sellKey;
+  const isBuySell = pairType === "buy_sell";
+  const typeLabel = isBuySell ? "配对回测" : (pairType === "buy_buy" ? "双买共振" : "双卖共振");
+  const titlePair = isBuySell ? `买${name1} × 卖${name2}` : `${name1} + ${name2}`;
+  const titleIcon = isBuySell ? "📊" : "🔬";
+
+  // loading 骨架
   overlay.innerHTML = `<div class="lab-signal-modal">` +
     `<div class="lab-signal-modal-head">` +
-    `<span class="lab-signal-modal-title">📊 配对回测 · 买${buyName} × 卖${sellName}</span>` +
+    `<span class="lab-signal-modal-title">${titleIcon} ${typeLabel} · ${titlePair}</span>` +
     `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
     `</div>` +
     `<div class="lab-signal-modal-body"><div class="loading">加载回测数据…</div></div></div>`;
   overlay.querySelector(".lab-rank-modal-close").onclick = _labFusionPairCloseModal;
 
-  // 加载 stats json（fetchLabSimData 带 per-index 缓存）
-  const simData = await fetchLabSimData(m.index);
+  // Bug-C：加载 fusion_stats（91对，含同向共振），非单信号 stats（64对）
+  const simData = await fetchLabFusionSimData(m.index);
   const pairId = meta._buyKey + "|" + meta._sellKey;
   const pair = simData && simData.pairs ? simData.pairs[pairId] : null;
 
@@ -3599,6 +3634,7 @@ async function _labFusionPairModalRender(overlay) {
       `<div class="lab-rank-modal-empty">暂无回测数据<br>` +
       `<span style="font-size:12px">配对 ${pairId} 在 ${_INDEX_NAME_MAP[m.index] || m.index} 未找到回测结果。</span></div>`;
   } else {
+    // Bug-B：buy_sell / buy_buy / sell_sell 三类配对均展示 2×5 统计表（全仓 + 定额10%）
     bodyHTML = `<div class="lab-fusion-pair-filter"><label>选择指数</label><select class="lab-fusion-pair-index">${selectHTML}</select>` +
       `<span class="lab-fusion-pair-legend">红=好，绿=差 · 回撤≤20%优</span></div>` +
       _labFusionPairStatsHTML(pair, "full_in", "全仓投入") +

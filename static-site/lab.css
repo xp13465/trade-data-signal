@@ -726,6 +726,19 @@
   .lab-fusion-pair-legend { margin-left: 0; width: 100%; }
 }
 
+/* 硬编码独立融合策略详情（Bug-A：6个无 _pairType 策略的回测结论文本） */
+.lab-fusion-hardcoded { display: flex; flex-direction: column; gap: 12px; }
+.lab-fusion-detail-tag { margin-bottom: -4px; }
+.lab-fusion-detail-conclusion {
+  font-size: 14px; font-weight: 600; color: var(--text-1);
+  background: var(--bg-hover); padding: 10px 12px; border-radius: 6px; line-height: 1.6;
+}
+.lab-fusion-detail-row { display: flex; gap: 10px; font-size: 13px; line-height: 1.7; }
+.lab-fusion-detail-label {
+  flex-shrink: 0; width: 64px; color: var(--text-3); font-weight: 600;
+}
+.lab-fusion-detail-value { color: var(--text-2); flex: 1; word-break: break-word; }
+
 /* === 二级导航（单一信号 / 融合信号）=== */
 .lab-subnav {
   display: flex;
