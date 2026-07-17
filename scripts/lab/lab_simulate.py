@@ -344,6 +344,92 @@ def simulate_fixed_10k(df, buy_mask, sell_mask, w_start=None, commission_rate=0.
     }
 
 
+def simulate_short(df, buy_mask, sell_mask, w_start=None, commission_rate=0.0, slippage=0.0):
+    """做空镜像模式：卖信号开空(enter short)，买信号平仓(cover)。
+
+    镜像 simulate_full_in：角色互换(sell->开仓 entry，buy->平仓 exit)，
+    收益 ret = (short_price - cover_price)/short_price（价格跌=盈利）。
+    会计模型：开空时 shares = cash/short_price，cash 置 0(全部资本锁入空头)；
+    平仓时 cash = shares*(2*short_price - cover_price)，即 cash*(1+ret_short)，
+    与做多 shares*sell_price = cash*(1+ret_long) 对称。
+    持仓空头期末估值 = shares*(2*short_price - last_close)。
+    commission_rate/slippage 默认 0（与 simulate_full_in 对称：开空卖价*(1-slippage)，
+    平仓买价*(1+slippage)，均使成交价对己不利）。
+    涨市中长期做空可能 equity 转负(A股长牛漂移)，反映做空的结构性劣势，即待测的不对称性。
+    """
+    close = df['close']
+    dates = df.index
+
+    buy_dates = dates[buy_mask]
+    sell_dates = dates[sell_mask]
+    if w_start is not None:
+        buy_dates = buy_dates[buy_dates >= w_start]
+        sell_dates = sell_dates[sell_dates >= w_start]
+
+    events = [(d, 'cover') for d in buy_dates.tolist()] + \
+             [(d, 'short') for d in sell_dates.tolist()]
+    events.sort(key=lambda x: x[0])
+
+    cash = float(INITIAL_CAPITAL)
+    holding = None  # (short_date, short_price, shares)
+    trades = []
+    if w_start is not None:
+        si = dates.searchsorted(w_start)
+        start_dt = dates[si] if si < len(dates) else dates[-1]
+    else:
+        start_dt = dates[0]
+    equity_curve = [{'date': _fmt_date(start_dt), 'value': round(cash, 2)}]
+
+    for date, sig_type in events:
+        close_val = close.loc[date]
+
+        if sig_type == 'short' and holding is None:
+            # 开空=卖出，滑点使成交价降低(不利)；手续费使开仓成本升高
+            short_price = close_val * (1 - slippage)
+            shares = cash / (short_price * (1 + commission_rate))
+            holding = (date, short_price, shares)
+            cash = 0.0
+
+        elif sig_type == 'cover' and holding is not None:
+            short_date, short_close, shares = holding
+            # 平仓=买入，滑点使成交价升高(不利)
+            cover_price = close_val * (1 + slippage)
+            cash = shares * (2 * short_close - cover_price) * (1 - commission_rate)
+            ret_pct = (short_close - cover_price) / short_close * 100
+            hold_days = _days_between(short_date, date)
+            account_total = cash
+            cum_profit = account_total - INITIAL_CAPITAL
+            trades.append({
+                'bd': _fmt_date(short_date),
+                'bp': round(short_close, 2),
+                'sd': _fmt_date(date),
+                'sp': round(cover_price, 2),
+                'ret': round(ret_pct, 2),
+                'hd': hold_days,
+                'at': round(account_total, 2),
+                'cp': round(cum_profit, 2),
+            })
+            equity_curve.append({'date': _fmt_date(date), 'value': round(cash, 2)})
+
+    # 期末估值：持仓空头按市价（可能为负=做空亏损）
+    last_date = dates[-1]
+    last_close = close.iloc[-1]
+    if holding is not None:
+        final_total = holding[2] * (2 * holding[1] - last_close)
+        equity_curve.append({'date': _fmt_date(last_date), 'value': round(final_total, 2)})
+    else:
+        final_total = cash
+        if equity_curve[-1]['date'] != _fmt_date(last_date):
+            equity_curve.append({'date': _fmt_date(last_date), 'value': round(final_total, 2)})
+
+    return {
+        'equity_curve': equity_curve,
+        'trades': trades,
+        'final_total': final_total,
+        'last_date': last_date,
+    }
+
+
 def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
     """每窗口独立模拟：从 INITIAL_CAPITAL 起算该窗口的净值曲线。
 

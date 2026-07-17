@@ -1738,9 +1738,9 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 | 手续费/滑点敏感 | ✅ 已实施 | 半天 | 高（引擎加参数即可） | `lab_cost_compare.py`/`.json` |
 | 蒙特卡洛扰动 | ✅ 已实施 | 半天 | 高（纯外层包装） | `lab_montecarlo.py`/`.json` |
 | 标的泛化 | ✅ 已实施 | 半天 | 高（扩标的池重跑） | `lab_generalize.py`/`.json` |
-| 参数敏感扫描 | ⏳ 待办 | 半天 | 中（需暴露底层指标参数） | 待开发 |
-| 信号叠加消融 | ⏳ 待办 | 小时级 | 中（依赖现有 stats+硬编码融合） | 待开发 |
-| 多空对称 | ⏳ 待办 | 半天 | 高（新增镜像 simulate 函数） | 待开发 |
+| 参数敏感扫描 | ✅ 已实施 | 半天 | 中（复刻指标参数化网格扫描） | `lab_param_scan.py`/`.json` |
+| 信号叠加消融 | ✅ 已实施 | 小时级 | 高（6硬编码融合N-1子集） | `lab_ablation.py`/`.json` |
+| 多空对称 | ✅ 已实施 | 半天 | 高（新增镜像 simulate_short） | `lab_short_symmetry.py`/`.json` |
 | 融合 P2 回测 | ⏳ 待办 | 全天 | 低（需从 signal_daily/HTML 解耦引擎，工作量最大，放最后） | 待开发 |
 
 #### 8.2 方向1：手续费滑点（已实施）
@@ -1762,19 +1762,42 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **结论**：申万行业 = **强泛化**（正收益 87-97%，median +267%~+406%）；个股 = **弱泛化**（正收益 28-39%，median 全负，过拟合指数）。`MACD_golden|MACD_death` 是唯一中泛化配对（个股 profit 55.6%，median +22.2%）。`Vol_breakout` 在个股无效（profit 22-33%）。
 - **要点**：策略适用于指数/行业级标的，不适用于个股（除 MACD 金叉配死叉勉强可用）。caveat：个股 close 为未复权价，除权日跳水触发假卖出系统性压低个股收益，但 profitable_pct 差距远超除权能解释。
 
-#### 8.5 四方向待办（简述）
+#### 8.5 方向4：信号叠加消融（已实施）
 
-1. **参数敏感扫描**（半天）：复刻 `gen_buy_signals` 暴露参数，调底层已参数化指标函数（rsi/bollinger/donchian/supertrend/macd），网格扫描出 ret/dd 热力图，验证不过拟合。
-2. **信号叠加消融**（小时级）：单信号基线已存，join 现有 stats + 6 硬编码生成 N-1 子集 mask，算各信号贡献。
-3. **多空对称**（半天）：新增 `simulate_short` 镜像函数（~50 行），对比做多（buy->sell）vs 做空（sell->buy），检验卖信号对称性。
-4. **融合 P2 回测**（全天）：把 `scripts/simulate_trade.py` 的 3 路径引擎从 signal_daily/HTML 解耦成接收 mask 的函数，工作量最大，建议放最后。
+- **改动**：新建 `lab_ablation.py`（不动 backtest_strategies.py，import 公开 helper + fusion_signals 的 `_gen_filter_masks`/`HARDCODED_FUSIONS`）+ `lab_ablation.json`(17KB)。对 6 硬编码融合做 N-1 子集消融（逐一去组件，3 指数 sh/hs300/cyb）。
+- **方法**：每个融合 F 组件 [c1..cN]，full=AND全部，ablated_i=AND去ci；contribution_i=stats(full)-stats(ablated_i)，正值=该组件增益。2组件融合去一个=单信号基线，直接对比融合 vs 最佳单信号增益。
+- **结论**：`D1_high20_drop5` 是核心驱动组件（avg_contrib +769%，88.9% 正贡献）--它作主信号时融合普遍增益。`MACD_below_signal`/`close_above_bl_2pct`/`MA60_bull` 作过滤条件 100%/67% 正贡献（过滤有效）。`BB_lower_revert`/`C1_RSI30` 作过滤组件时 0% 正贡献（avg_contrib -479/-278，过滤过严漏信号拖累）。`F_D1_MA_death` 在上证 full=+6482%（异常高，24 笔低频复利放大）。
+- **要点**：卖侧融合（D1 系）增益明确，买侧融合（BB/C1 系）过滤反而拖累--买信号本就稀少，再 AND 过滤会漏掉关键反弹时点。
 
-#### 8.6 关键文件路径
+#### 8.6 方向5：多空对称（已实施）
 
-- 引擎：`scripts/lab/lab_simulate.py`（加 commission/slippage 参数）
+- **改动**：`lab_simulate.py` 新增 `simulate_short`（~50 行做空镜像函数）+ 新建 `lab_short_symmetry.py` + `lab_short_symmetry.json`(37KB)。9 指数 × top8 配对，full_in 全历史窗口。
+- **simulate_short 会计**：卖信号开空 shares=cash/short_price，cash=0；买信号平仓 cash=shares*(2*short_price-cover_price)，即 cash*(1+ret_short)，与做多 shares*sell_price=cash*(1+ret_long) 对称。持仓空头期末估值=shares*(2*short_price-last_close)（涨市可能转负）。
+- **结论**：72 配对 **做多 100% 盈利，做空仅 9.7% 盈利**。65 个"做多盈做空亏"（典型长牛漂移），仅 7 个两端皆盈（趋势型）。平均 symmetry_ratio=-0.19（理想=-1，差距大）。仅北证50 做空 87.5% 盈利（历史短+曾大跌）。上证/深证做空亏损最惨（-2742%/-1461%，35 年长牛复利反噬）。
+- **要点**：**卖信号只适合止盈多头，不适合反手做空**。A股长期向上漂移使做空结构性劣势，卖信号的"方向正确性"（forward-return 下跌概率）无法转化为做空盈利--因为做空需承受无限上行风险且长牛漂移吃掉所有做空收益。
+
+#### 8.7 方向6：参数敏感扫描（已实施）
+
+- **改动**：新建 `lab_param_scan.py`（不动 backtest_strategies.py，import 公开指标函数 rsi/ma/macd/bollinger/donchian/supertrend/_cross_up/_cross_down，脚本内参数化复刻信号生成）+ `lab_param_scan.json`(49KB)。7 策略 × 3 指数（sh/hs300/cyb），买侧扫描配固定 D1 卖，卖侧扫描配固定 C1 买。
+- **网格**：C1_RSI30(5周期×5阈值=25)、BB_lower_revert(4n×4k=16)、Donchian20_up(7周期)、Supertrend_buy(4周期×5mult=20)、D1_high20_drop5(4周期×4回落=16)、BB_upper_revert(4n×4k=16)、Donchian10_down(4周期)。共 104 组合 × 3 指数 = 312 次回测。
+- **稳定性判定**：neighbors=与默认参数某维相差1步的组合；stable_plateau=默认ret>0且neighbor_avg≥0.7×default；sharp_peak=best>1.5×neighbor_avg且best≠default（孤立尖峰=过拟合风险）；robust_profitable=>50%组合盈利。
+- **结论**：`Donchian20_up`/`Supertrend_buy` = **robust_profitable**（3 指数全稳定高原，所有组合盈利，默认参数非孤峰，不过拟合）。`C1_RSI30`/`BB_lower_revert`/`BB_upper_revert` = **sharp_peak**（默认参数 ret 低甚至负，最佳参数是远离默认的孤立尖峰，过拟合风险高--生产用的默认参数并非最优，但换成"最优"参数又是过拟合）。`D1_high20_drop5`/`Donchian10_down` = 混合（cyb 稳健，sh/hs300 尖峰）。
+- **要点**：趋势跟踪类（Donchian/Supertrend）参数鲁棒（平坦高原），适合生产；均值回归类（RSI/BB）参数敏感（尖峰），默认参数保守但非最优，调参易过拟合，维持默认最安全。
+
+#### 8.8 方向7：融合 P2 回测（待办）
+
+- **工作量**：全天（最大）。需把 `scripts/simulate_trade.py` 的 3 路径引擎从 signal_daily/HTML 解耦成接收 mask 的函数，再对 91 融合候选跑真实配对回测（买入->持有->卖出）。
+- **现状**：现有 `lab_simulate.py --fusion` 已对 91 候选跑了 mask 级配对回测（gen_fusion_candidates 直接生成 buy_mask/sell_mask），P2 的增量在于"从 signal_daily 表读生产信号"对比"回测独立算的信号"，验证生产链路与回测一致。优先级最低，建议放最后。
+
+#### 8.9 关键文件路径
+
+- 引擎：`scripts/lab/lab_simulate.py`（加 commission/slippage 参数 + simulate_short 做空镜像）
 - 成本对比：`scripts/lab/lab_cost_compare.py` + `static-site/data/lab_cost_compare.json`
 - 蒙特卡洛：`scripts/lab/lab_montecarlo.py` + `static-site/data/lab_montecarlo.json`
 - 标的泛化：`scripts/lab/lab_generalize.py` + `static-site/data/lab_generalize.json`
+- 信号消融：`scripts/lab/lab_ablation.py` + `static-site/data/lab_ablation.json`
+- 多空对称：`scripts/lab/lab_short_symmetry.py` + `static-site/data/lab_short_symmetry.json`
+- 参数扫描：`scripts/lab/lab_param_scan.py` + `static-site/data/lab_param_scan.json`
 
 ## §29 QVIX 指标名中文化：中国波指300/1000（2026-07-17，commits 43d134a + 40e2da5 deploy）
 
