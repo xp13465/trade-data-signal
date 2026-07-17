@@ -1412,6 +1412,8 @@ async function fetchLabFusionSimFullData(index, onProgress, signal) {
             sp[mode].equity_curve = fp[mode].equity_curve;
             sp[mode].trades = fp[mode].trades;
             sp[mode].tw = fp[mode].tw;
+            sp[mode].win_trades = fp[mode].win_trades;
+            sp[mode].win_base_cp = fp[mode].win_base_cp;
           }
         }
       }
@@ -1518,6 +1520,8 @@ async function fetchLabSimFullData(index, onProgress, signal) {
             sp[mode].equity_curve = fp[mode].equity_curve;
             sp[mode].trades = fp[mode].trades;
             sp[mode].tw = fp[mode].tw;
+            sp[mode].win_trades = fp[mode].win_trades;
+            sp[mode].win_base_cp = fp[mode].win_base_cp;
           }
         }
       }
