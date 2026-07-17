@@ -1791,3 +1791,15 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
    - 6 硬编码：补 ⑤回测（映射 pairKey 或后端补算）+ ④图表 + ②自白 + 买卖信号弹窗
    - 91 候选：补 ③策略说明文案 + ④图表 + ②自白 + 买卖信号弹窗
 3. **二次测试实验**：融合达标后再开发
+
+### 实施记录（2026-07-17 commit 4a3a5c5 已上线）
+- **step1 单一信号基准**：确认 `renderLabDetail`@1816 实含 6 块（①标题标签 ②自白 ③📖策略说明+指标释义 ④指标图表echarts ⑤📊多周期回测矩阵 ⑥💰模拟回测配对交易），作基准标尺无遗漏。
+- **step2 融合补齐**：
+  - 6 硬编码（LAB_FUSION_STRATEGIES@598）加 `_coreKey` 字段映射核心单一策略：F_D1_S1_MACD/F_D1_S1/F_D1_MA_death→D1_high20_drop5，F_B1_RSI40/F_B1_rebound2pct→BB_lower_revert，F_C1_MACD_golden→C1_RSI30。三者均在 sim stats（8 partners）+ LAB_CHART_KEYS（有图表）。
+  - `_labFusionPairModalRender`@3667 `!meta._pairType` 分支：有 `_coreKey` 时渲染"融合策略说明文案(_labFusionHardcodedHTML) + 分隔提示 + 核心策略全量详情(renderLabDetail 渲染到 .lab-fusion-core-detail 子容器)"，达单一信号基标（策略说明+图表+矩阵+回测）。
+  - 91 候选（_pairType 分支）：回测数据前补策略说明文案（组成条件/触发/结论，复用 .lab-fusion-hardcoded 样式）。
+  - `_labFusionPairCloseModal` 增强：关闭时释放 echarts 实例 + 清 state._labSimRerender/_labChartRerender（照搬 _labSignalDetailCloseModal，防内存泄漏）。
+  - 新增 .lab-fusion-core-divider/.lab-fusion-core-detail CSS。
+- **代理说明**：6 硬编码是多条件融合（如 D1+MA60+MACD 三条件），非 91 候选的简单买×卖配对，lab_sim_fusion_stats.json 无现成 pairKey。用核心单一策略回测作代理（弹窗已标注"核心策略回测供参考"），达信息量基标。真实融合回测需后端为这 6 个多条件融合单独算，属后续增强。
+- **剩余增强**：91 候选补指标图表 echarts（融合是双策略，需设计双策略图表展示方案）。
+- 双版 lab.js+lab.css 同步，build_min+bump_asset_version，已 push main，GitHub Pages lab.min.js?v=13ec0afd 已上线验证。
