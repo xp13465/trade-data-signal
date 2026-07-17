@@ -52,17 +52,20 @@ def _calc_risk_adj(annual_ret: float, max_drawdown: float) -> float:
     return 999.0 if annual_ret > 0 else -999.0
 
 
-def _compute_y5_stats(df, buy_mask, sell_mask, first_date, last_date, sim_func=simulate_full_in):
-    """计算y5窗口的回测统计,返回stats dict(百分比单位)。
-    sim_func: simulate_full_in(全仓复利) 或 simulate_fixed_10k(定额1万)"""
-    y5_start = last_date - pd.DateOffset(years=5)
-    if y5_start < first_date:
-        y5_start = first_date
-    y5_result = sim_func(df, buy_mask, sell_mask, w_start=y5_start)
-    y5_years = _days_between(y5_start, last_date) / 365.25
+def _compute_window_stats(df, buy_mask, sell_mask, first_date, last_date, window_years, sim_func=simulate_full_in):
+    """计算滚动窗口的回测统计,返回stats dict(百分比单位)。
+    window_years: 窗口年数(5=y5, 3=y3, 1=y1),从last_date往前截取
+    sim_func: simulate_full_in(全仓复利) 或 simulate_fixed_10k(定额1万)
+    实现:用w_start参数让simulate仅在该窗口内跑(非截取equity_curve),
+    保证trades/equity_curve/stats三者在同一窗口内自洽"""
+    w_start = last_date - pd.DateOffset(years=window_years)
+    if w_start < first_date:
+        w_start = first_date
+    result = sim_func(df, buy_mask, sell_mask, w_start=w_start)
+    years = _days_between(w_start, last_date) / 365.25
     return _build_stats(
-        y5_result['trades'], y5_result['final_total'], last_date,
-        y5_result['equity_curve'], years=y5_years
+        result['trades'], result['final_total'], last_date,
+        result['equity_curve'], years=years
     )
 
 
@@ -99,17 +102,26 @@ def _normalize_and_score(all_stats: List[Dict[str, Any]]) -> List[float]:
     return scores
 
 
-def _is_star_candidate(score, stats_y5):
-    """判断是否为⭐️综合分候选(与 lab.js:2138 一致):
-    (score>=0.6 && n>=30 && dd<=50) || win>=55 || risk_adj>=1.0
-    此处 score/n/dd/win/risk_adj 均用百分比单位(stats原始值)
+def _is_star_candidate(score, windows):
+    """判断是否为⭐️综合分候选(收紧:多窗口dd最严):
+    y5_dd<=10% && y3_dd<=10% && y1_dd<=10% && n>=10 && [(score>=0.6 && n>=30) || win>=55 || risk_adj>=1.0]
+    score/n/dd/win/risk_adj 取 y5 全仓(百分比单位:dd=10表10%)
+    windows: {y5:stats, y3:stats, y1:stats} 各为_build_stats返回的dict
     """
-    n = stats_y5.get('n_trades', 0)
-    dd = stats_y5.get('max_drawdown', 999)
-    win = stats_y5.get('win_rate', 0)
-    annual_ret = stats_y5.get('annual_ret', 0)
+    y5 = windows.get('y5') or {}
+    n = y5.get('n_trades', 0)
+    dd = y5.get('max_drawdown', 999)
+    win = y5.get('win_rate', 0)
+    annual_ret = y5.get('annual_ret', 0)
     risk_adj = _calc_risk_adj(annual_ret, dd)
-    return (score >= 0.6 and n >= 30 and dd <= 50) or (win >= 55) or (risk_adj >= 1.0)
+    y3 = windows.get('y3') or {}
+    y1 = windows.get('y1') or {}
+    y3_dd = y3.get('max_drawdown', 999)
+    y1_dd = y1.get('max_drawdown', 999)
+    dd_ok = dd <= 10 and y3_dd <= 10 and y1_dd <= 10
+    n_ok = n >= 10
+    or_branch = (score >= 0.6 and n >= 30) or (win >= 55) or (risk_adj >= 1.0)
+    return dd_ok and n_ok and or_branch
 
 
 def _slice_by_date_range(df, start_str, end_str):
@@ -155,6 +167,20 @@ def _fmt_stats_decimal(stats):
         'win': round(stats.get('win_rate', 0) / 100, 4),
         'dd': round(stats.get('max_drawdown', 0) / 100, 4),
         'n': stats.get('n_trades', 0)
+    }
+
+
+def _fmt_window_stats(stats, score):
+    """格式化窗口统计为输出格式(与pair_meta top-level一致:小数单位)。
+    用于 pair_meta.windows.{y5,y3,y1},含score(归一化综合分,基于y5)。"""
+    if stats is None or not stats:
+        return {'ret': None, 'win': None, 'dd': None, 'n': 0, 'score': round(score, 2)}
+    return {
+        'ret': round(stats.get('total_ret', 0) / 100, 4),
+        'win': round(stats.get('win_rate', 0) / 100, 4),
+        'dd': round(stats.get('max_drawdown', 0) / 100, 4),
+        'n': stats.get('n_trades', 0),
+        'score': round(score, 2)
     }
 
 
@@ -227,16 +253,18 @@ def run_retest_for_index(iid, iname):
     print(f'  融合候选: {len(candidates)}个')
 
     # 两趟计算:
-    # 第一趟:计算全部候选的y5统计 + score(归一化)
-    all_y5_stats = []
+    # 第一趟:计算全部候选的y5/y3/y1三窗口统计 + score(归一化,score仍基于y5)
+    all_windows = []
     for cand in candidates:
         if cand['buy_mask'] is None or cand['sell_mask'] is None:
-            all_y5_stats.append({})
+            all_windows.append({})
             continue
-        stats = _compute_y5_stats(df, cand['buy_mask'], cand['sell_mask'], first_date, last_date)
-        all_y5_stats.append(stats)
+        y5_stats = _compute_window_stats(df, cand['buy_mask'], cand['sell_mask'], first_date, last_date, 5)
+        y3_stats = _compute_window_stats(df, cand['buy_mask'], cand['sell_mask'], first_date, last_date, 3)
+        y1_stats = _compute_window_stats(df, cand['buy_mask'], cand['sell_mask'], first_date, last_date, 1)
+        all_windows.append({'y5': y5_stats, 'y3': y3_stats, 'y1': y1_stats})
 
-    scores = _normalize_and_score(all_y5_stats)
+    scores = _normalize_and_score([w.get('y5', {}) for w in all_windows])
 
     # 第二趟:筛选⭐️候选,运行3种切片回测
     output = {
@@ -249,20 +277,22 @@ def run_retest_for_index(iid, iname):
     star_count = 0
     for i, cand in enumerate(candidates):
         pair_id = cand['pair_id']
-        y5_stats = all_y5_stats[i]
+        windows = all_windows[i]
         score = scores[i] if i < len(scores) else 0.0
 
-        if not y5_stats:
+        if not windows:
             continue
-        if not _is_star_candidate(score, y5_stats):
+        if not _is_star_candidate(score, windows):
             continue
 
         star_count += 1
         buy_mask = cand['buy_mask']
         sell_mask = cand['sell_mask']
+        y5_stats = windows['y5']
 
         # pair_meta: strategy=pk, window=y5, score=0.xx, n/dd/win/ret 均为小数
-        # top-level 保持 full_in (向后兼容:前端未改前读旧字段不报错)
+        # top-level 保持 full_in y5 (向后兼容:前端未改前读旧字段不报错)
+        # windows: y5/y3/y1 三窗口统计(收紧进入判定用)
         pair_data = {
             'pair_meta': {
                 'strategy': pair_id,
@@ -272,7 +302,12 @@ def run_retest_for_index(iid, iname):
                 'n': y5_stats.get('n_trades', 0),
                 'dd': round(y5_stats.get('max_drawdown', 0) / 100, 4),
                 'win': round(y5_stats.get('win_rate', 0) / 100, 4),
-                'ret': round(y5_stats.get('total_ret', 0) / 100, 4)
+                'ret': round(y5_stats.get('total_ret', 0) / 100, 4),
+                'windows': {
+                    'y5': _fmt_window_stats(windows.get('y5'), score),
+                    'y3': _fmt_window_stats(windows.get('y3'), score),
+                    'y1': _fmt_window_stats(windows.get('y1'), score),
+                }
             },
             'yearly': _run_yearly_retest(df, buy_mask, sell_mask, simulate_full_in),
             'oos': _run_oos_retest(df, buy_mask, sell_mask, simulate_full_in),
@@ -281,8 +316,8 @@ def run_retest_for_index(iid, iname):
 
         # fixed_10k 模式:定额1万(每次买1万最多10笔,卖信号清仓)
         # 与 full_in 同一对策略候选,仅仓位管理不同,用于横向对比
-        fk_y5_stats = _compute_y5_stats(
-            df, buy_mask, sell_mask, first_date, last_date, simulate_fixed_10k
+        fk_y5_stats = _compute_window_stats(
+            df, buy_mask, sell_mask, first_date, last_date, 5, simulate_fixed_10k
         )
         pair_data['fixed_10k'] = {
             'pair_meta': {
