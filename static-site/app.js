@@ -1440,7 +1440,7 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
       return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${hh}:${mm}</span>`;
     }
     if (srcClass === "t1") {
-      return `<span class="card-time-badge t1" data-tip="T+1数据源已采到最新可得日期(${mmdd}),属正常(数据到昨天,等明天更新)">📅 T+1·${mmdd}</span>`;
+      return `<span class="card-time-badge t1" data-tip="T+1数据源已采到最新可得日期(${mmdd}),属正常(数据最新可得${mmdd},T+1源次日盘后补全)">📅 T+1·${mmdd}</span>`;
     }
     return `<span class="card-time-badge intraday" data-tip="收盘后定格,显示当日收盘数据(最新)">📍 收盘·${mmdd}</span>`;
   }
@@ -3122,6 +3122,14 @@ function _ntPinTip(v) {
   return s + " 多信号共振<br/>" + descs.join("<br/>");
 }
 
+// ETF份额T+1补全时点：交易所次日盘后发布,20:07采集补全。显示明确日期避免"明晚"模糊表述
+function _ntShareReplenishTxt(dataDate) {
+  if (!dataDate || dataDate.length < 8) return "次日 20:07 后";
+  var d = new Date(+dataDate.slice(0, 4), +dataDate.slice(4, 6) - 1, +dataDate.slice(6, 8));
+  d.setDate(d.getDate() + 1);
+  return (d.getMonth() + 1) + "月" + d.getDate() + "日 20:07 后";
+}
+
 // ── 总盘汇总层：12只ETF合计持仓市值+净增持额+份额趋势（看"国家队整体持仓"而非单只）──
 function renderNationalTeamTotalPanel(container, data, snap) {
   // 合计层共振信号阈值：≥N只宽基ETF同日同步异动=国家队共振
@@ -3183,12 +3191,12 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   var netCls = (last.netAdd == null) ? "" : (last.netAdd >= 0 ? "nt-up" : "nt-down");
   var netSign = (last.netAdd == null) ? "" : (last.netAdd >= 0 ? "+" : "");
   var netValHtml = (last.netAdd == null)
-    ? '<div class="nt-tk-val" style="color:var(--text-3)">份额待公布·明晚20:07后补全</div>'
+    ? '<div class="nt-tk-val" style="color:var(--text-3)">份额待公布·' + _ntShareReplenishTxt(last.date) + '补全</div>'
     : '<div class="nt-tk-val ' + netCls + '">' + netSign + last.netAdd.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div>';
   var cumCls = cum20 >= 0 ? "nt-up" : "nt-down";
   var cumSign = cum20 >= 0 ? "+" : "";
   kpi.innerHTML =
-    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div><div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·用上日估算(明晚20:07后补全)</span>' : '') + '</div></div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div><div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·用上日估算(' + _ntShareReplenishTxt(last.date) + '补全)</span>' : '') + '</div></div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">今日净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=国家队今日净买入，负值=净卖出。份额变动是硬数据不受价格波动干扰。") + '</div>' + netValHtml + '</div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看国家队近一个月持续买入还是卖出。") + '</div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>';
   container.appendChild(kpi);
@@ -3197,7 +3205,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   var shareData = series.map(function (d) { return { date: d.date, value: +d.share.toFixed(2) }; });
   var netData = series.map(function (d) { return { date: d.date, value: d.netAdd == null ? null : +d.netAdd.toFixed(2) }; });
   // 末日份额待公布标记(图1/图2标题追加,提示末日值为上一日估算)；lastDate 3图共享(8位YYYYMMDD)
-  var missingSuffix = lastShareMissing ? '<span class="chart-latest" style="color:#ff9800">· 末日份额待公布(明晚补)</span>' : '';
+  var missingSuffix = lastShareMissing ? '<span class="chart-latest" style="color:#ff9800">· 末日份额待公布(' + _ntShareReplenishTxt(last.date) + '补)</span>' : '';
   var lastDate = last.date;
 
   // 合计层共振信号 markPoint：≥THR 只宽基同步异动（语义：国家队共振）
@@ -3559,13 +3567,13 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     ? (shareEst ? prev.fund_share_yi.toFixed(1) + " 亿份" : "份额待公布")
     : latest.fund_share_yi.toFixed(1) + " 亿份";
   const shareHint = shareMissing
-    ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布(明晚20:07后补全)' + (shareEst ? "·用上日估算" : "") + "</span>"
+    ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布(' + _ntShareReplenishTxt(latest.date) + '补全)' + (shareEst ? "·用上日估算" : "") + "</span>"
     : "";
   const chgDisp = chgMissing
     ? "待公布"
     : (latest.share_change_yi >= 0 ? "+" : "") + latest.share_change_yi.toFixed(2) + " 亿份";
   const chgCls = chgMissing ? "" : (latest.share_change_yi >= 0 ? "nt-up" : "nt-down");
-  const chgHint = chgMissing ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布(明晚20:07后补全)</span>' : "";
+  const chgHint = chgMissing ? ' <span style="font-size:12px;color:#ff9800">份额待次日公布(' + _ntShareReplenishTxt(latest.date) + '补全)</span>' : "";
   const closeDisp = latest.close != null ? latest.close.toFixed(3) + " 元" : "-";
   const qDateTxt = qLatest ? qLatest.report_date.slice(0, 4) + "-" + qLatest.report_date.slice(4, 6) + "-" + qLatest.report_date.slice(6, 8) : "";
   const instDisp = qLatest && qLatest.inst_hold_pct != null ? qLatest.inst_hold_pct.toFixed(1) + "%" : "-";
