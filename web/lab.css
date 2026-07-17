@@ -468,6 +468,8 @@
 /* H5 适配 */
 @media (max-width: 600px) {
   .lab-strategy-list { grid-template-columns: 1fr; }
+  /* 信号拆解2列在窄屏过挤(4列表格),回退1列 */
+  .lab-ablation-list { grid-template-columns: 1fr; }
   .lab-detail-title { font-size: 16px; }
   .lab-zone-tab { padding: 6px 10px; font-size: 12px; }
   .lab-sim-controls { flex-direction: column; align-items: stretch; gap: 6px; }
@@ -943,6 +945,8 @@
 }
 /* 多空对称卡片仅2小卡(做多/做空),2列平铺用满宽度(避免4列右侧留白) */
 .lab-symmetry-regimes { grid-template-columns: repeat(2, 1fr); }
+/* 信号拆解(消融)左侧6融合策略卡片:1行2列(移动端见下方媒体查询回退1列) */
+.lab-ablation-list { grid-template-columns: repeat(2, 1fr); }
 .lab-retest-regime-card {
   padding: 8px 6px; border: 1px solid var(--border); border-radius: 6px;
   text-align: center; background: var(--bg-hover);

@@ -4493,7 +4493,7 @@ async function renderAblationLab() {
   leftCol.appendChild(idxBar);
 
   const list = document.createElement("div");
-  list.className = "lab-strategy-list lab-retest-list";
+  list.className = "lab-strategy-list lab-retest-list lab-ablation-list";
   list.innerHTML = '<div class="lab-rank-loading">⏳ 加载拆解数据中…</div>';
   leftCol.appendChild(list);
 
