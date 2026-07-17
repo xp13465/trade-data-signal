@@ -811,6 +811,14 @@ function _labPairWinData(pairData, mode, win, simData) {
   const stats = (md.stats && md.stats[win]) || null;
   const tw = md.tw && md.tw[win];
   const trades = (tw && md.trades) ? md.trades.slice(tw[0], tw[1]) : (md.trades || []);
+  // winBaseCp: 窗口起点"前一笔"的累计盈亏(全历史值)。交易记录里每笔 t.cp 是全历史累计，
+  // 渲染时用 (t.cp - winBaseCp) 把窗口内累计从0重算，并与上方总收益率卡片对齐。
+  // tw[0]=0(全历史/近10年从头起)时无前一笔，winBaseCp=0(即从 initCapital 起算，行为不变)。
+  let winBaseCp = 0;
+  if (tw && md.trades && tw[0] > 0) {
+    const prevTrade = md.trades[tw[0] - 1];
+    if (prevTrade && prevTrade.cp != null) winBaseCp = prevTrade.cp;
+  }
   // equity_curve: 新结构为 dict {all,y10,...}，旧结构为数组(全史)兼容
   const ec = md.equity_curve;
   let equity_curve;
@@ -822,7 +830,7 @@ function _labPairWinData(pairData, mode, win, simData) {
     equity_curve = [];
   }
   const hasFull = !!md.trades || !!ec;
-  return { stats, trades, equity_curve, hasFull };
+  return { stats, trades, equity_curve, hasFull, winBaseCp };
 }
 
 // 窗口切换 tabs HTML（默认近1年：全史太密）
@@ -1566,6 +1574,12 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
   const gradId = "labSimGrad_" + mode;
   const svgHTML = _labSimSVG(winData.equity_curve, initCapital, gradId);
   const trades = winData.trades || [];
+  // winBaseCp: 窗口起点前一笔的全历史累计盈亏。把每笔 t.cp(全历史累计)减去它，
+  // 得到窗口内从0起算的累计盈亏，使交易记录与上方总收益率卡片(按窗口算)对齐。
+  // full_in 模式累计收益率分母=窗口起点账户资金(initCapital+winBaseCp)，与卡片 total_ret 一致；
+  // fixed_10k 模式每笔固定金额，分母=initCapital，与卡片一致。全历史窗口 winBaseCp=0 行为不变。
+  const winBaseCp = winData.winBaseCp || 0;
+  const crDenom = mode === "full_in" ? (initCapital + winBaseCp) : initCapital;
 
   // 分页
   const perPage = 20;
@@ -1583,18 +1597,21 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     const gi = startIdx + i;  // 全局索引（用于取上一笔算"较上次"差值）
     const prev = gi > 0 ? trades[gi - 1] : null;
     const tc = t.ret > 0 ? "#c92a2a" : (t.ret < 0 ? "#2e7d32" : "#86909c");
-    const cpVal = t.cp != null ? t.cp : 0;                // 累计盈亏金额
-    const crVal = cpVal / initCapital * 100;              // 累计收益率（前端由 cp 算，省 JSON 体积）
+    const hasCp = t.cp != null;
+    const cpVal = hasCp ? (t.cp - winBaseCp) : 0;         // 窗口内累计盈亏(从0起算)
+    const crVal = crDenom > 0 ? cpVal / crDenom * 100 : 0; // 窗口内累计收益率(与卡片同口径)
     const pc = crVal >= 0 ? "#c92a2a" : "#2e7d32";
     const at = t.at != null ? Math.round(t.at).toLocaleString() : "-";
-    const cpStr = t.cp != null ? (cpVal >= 0 ? "+" : "") + Math.round(cpVal).toLocaleString() : "-";
-    const crStr = t.cp != null ? (crVal >= 0 ? "+" : "") + crVal.toFixed(2) + "%" : "-";
+    const cpStr = hasCp ? (cpVal >= 0 ? "+" : "") + Math.round(cpVal).toLocaleString() : "-";
+    const crStr = hasCp ? (crVal >= 0 ? "+" : "") + crVal.toFixed(2) + "%" : "-";
     // "较上次"列：本笔累计收益率/累计盈亏 - 上一笔的差值（本笔赚还是亏）。首笔显示"-"
     let deltaHTML = '<span style="color:var(--text-4)">-</span>';
-    if (prev && t.cp != null && prev.cp != null) {
-      const dr = crVal - (prev.cp / initCapital * 100);   // 累计收益率差（百分点）
-      const dp = cpVal - prev.cp;                         // 累计盈亏差=本笔盈亏金额
-      const dc = dp >= 0 ? "#c92a2a" : "#2e7d32";         // 国人配色 红赚绿亏
+    if (prev && hasCp && prev.cp != null) {
+      const prevCpVal = prev.cp - winBaseCp;
+      const prevCrVal = crDenom > 0 ? prevCpVal / crDenom * 100 : 0;
+      const dr = crVal - prevCrVal;                         // 累计收益率差（百分点）
+      const dp = cpVal - prevCpVal;                         // 累计盈亏差=本笔盈亏金额
+      const dc = dp >= 0 ? "#c92a2a" : "#2e7d32";           // 国人配色 红赚绿亏
       deltaHTML = `<span style="color:${dc};font-weight:600">${dr >= 0 ? "+" : ""}${dr.toFixed(2)}%</span>` +
         `<br><span style="color:${dc};font-size:11px">${dp >= 0 ? "+" : ""}${Math.round(dp).toLocaleString()}</span>`;
     }
