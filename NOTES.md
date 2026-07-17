@@ -1725,3 +1725,34 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **前端双版 lab.js**（3e5125b）：3 处规则文案更新（title@2234/横幅@2269/_LAB_RETEST_RULE@2277）为三窗口 dd≤10%+n≥10+OR；⭐️徽章判定改方案 A（查 retest JSON 存在性，retestSet.has(buyKey|sellKey)），与后端必然一致，修旧「按选中窗口 state.labSimWindow 动态算」的不一致 bug；`_loadRank`@2894/3921 预加载 retest JSON（单信号+融合）。双版 diff=10（5URL×2）IDENTICAL。
 - **上线**：build_min（lab.min.js 130KB -38.5%）+bump_asset_version（版本号 f2cbefda）+deploy.sh（d11906a 推 data+min JS）。
 
+## §29 QVIX 指标名中文化：中国波指300/1000（2026-07-17，commits 43d134a + 40e2da5 deploy）
+
+> 与 §23 的 15fe67f 区别：15fe67f（07-15）只是「qvix(1000)停采方案C + 前端⏸停更」顺便提到中文名，`INDEX_NAMES` 映射早有但多处硬编码英文没走映射。本次 43d134a（07-17）是用户反馈首页「QVIX(300ETF) 21.25 点」仍是英文后，彻底统一去英文后缀的中文化收口。
+
+### 背景
+- 用户反馈首页「QVIX(300ETF) 21.25 点」不是中文。
+- QVIX = 300ETF 期权隐含波动率指数（对标美国 VIX；中证官方 iVIX 2018 停发后，期权论坛 optbbs 等民间按 VIX 方法论用 300ETF 期权 IV 算的替代），direction: negative（越高越恐慌）。
+- `a_qvix_300` = 300ETF 期权；`a_qvix_1000` = 中证1000期权。
+
+### 根因
+- `app.js:303` `INDEX_NAMES` 已有「中国波指300」映射，但 4025 等处硬编码英文「QVIX(300ETF)」没用映射。
+- `config/indicators.yaml:40-41` 的 `name` 也是英文。
+
+### 改动
+- **config/indicators.yaml:40-41 + static-site/data/metrics.json**：`name` `QVIX(300ETF)`->`中国波指300`，`QVIX(1000ETF)`->`中国波指1000`（`export.py` 从 yaml 读 name，deploy 后产物同步）。
+- **双版 app.js**（web + static-site 逐字相同，行号因静态版特有函数偏移）：
+  - 4025/4098 extras 去英文后缀：「中国波指300 QVIX(300ETF)」->「中国波指300」
+  - 1571/1636 数据源栏 `name`「QVIX」->「中国波指」+ hint 改「中国波指（期权隐含波动率）」
+  - 3796/3861 分组名「情绪指数(QVIX/换手率)」->「情绪指数(波指/换手率)」
+  - 3815/3880 短标签「QVIX300」->「波指300」
+  - 303/310 `INDEX_NAMES` 验证已中文，无需改
+- **双版 index.html** 版本号刷新（bump_asset_version）
+
+### 验证
+- `grep "QVIX(300ETF)"/"QVIX(1000ETF)"/"QVIX300"/name:"QVIX"` 全 0 残留。
+- 双版波指相关行内容一致（行号因静态版特有函数偏移）。
+- build_min（app.min.js -42%）+ bump_asset_version + deploy 上线。
+
+### 效果
+首页「QVIX(300ETF) 21.25 点」->「中国波指300 21.25 点」。
+
