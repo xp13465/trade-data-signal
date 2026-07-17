@@ -4467,6 +4467,10 @@ async function renderAblationLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = `<p>${_LAB_ABLATION_RULE}</p>`;
+  const purposeNote = document.createElement("div");
+  purposeNote.className = "lab-purpose-note";
+  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：把融合信号拆开，单独看每个子信号对收益贡献多少--判断哪个是真本领、哪个是蹭车的，防止被无用信号拖累。<b>怎么解读</b>：贡献率为正=该子信号提升收益（有用）；为负=去掉反而更好（拖累，可考虑剔除）。";
+  leftCol.appendChild(purposeNote);
   leftCol.appendChild(essayWarn);
 
   const data = await fetchLabAblationData();
@@ -4587,6 +4591,10 @@ async function renderSymmetryLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = `<p>${_LAB_SYMMETRY_RULE}</p>`;
+  const purposeNote = document.createElement("div");
+  purposeNote.className = "lab-purpose-note";
+  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：测同一策略做多和做空是否对称--有的策略只适合做多、做空就亏，看这个能判断策略方向适用性。<b>怎么解读</b>：对称比越接近0越对称（可双向做）；越负越偏做多。A股长期向上，做多盈利、做空亏损属正常，不代表策略失效。";
+  leftCol.appendChild(purposeNote);
   leftCol.appendChild(essayWarn);
 
   const data = await fetchLabSymmetryData();
@@ -4701,6 +4709,10 @@ async function renderParamScanLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = `<p>${_LAB_PARAMSCAN_RULE}</p>`;
+  const purposeNote = document.createElement("div");
+  purposeNote.className = "lab-purpose-note";
+  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：调参数看结果怎么变--判断策略对参数敏不敏感，太敏感=过拟合风险（实盘换组参数就失效）。<b>怎么解读</b>：稳健高原=默认参数附近都盈利（靠谱）；尖锐尖峰=仅个别参数盈利（过拟合，慎用）。";
+  leftCol.appendChild(purposeNote);
   leftCol.appendChild(essayWarn);
 
   const data = await fetchLabParamScanData();

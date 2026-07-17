@@ -848,6 +848,13 @@
   line-height: 1.6;
 }
 .lab-fusion-phase-note b { color: #d4380d; }
+/* 板块作用白话说明（规则描述前的"这板块有什么用"区块，3皮肤适配用主色变量） */
+.lab-purpose-note {
+  padding: 10px 14px; margin-bottom: 10px;
+  background: var(--primary-bg); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 12.5px; color: var(--text-1); line-height: 1.6;
+}
+.lab-purpose-note b { color: var(--primary); font-weight: 700; }
 
 /* 实验室策略详情：指标释义折叠块（散户白话，复用凯利折叠风格） */
 .indicator-explain {
