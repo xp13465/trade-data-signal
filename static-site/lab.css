@@ -961,10 +961,10 @@
 }
 /* 多空对称卡片仅2小卡(做多/做空),2列平铺用满宽度(避免4列右侧留白) */
 .lab-symmetry-regimes { grid-template-columns: repeat(2, 1fr); }
-/* 信号拆解(消融)左侧6融合策略卡片:自适应平铺,容器≥700px 2列、<700px回退1列 */
-.lab-ablation-list { grid-template-columns: repeat(2, 1fr); }
-@media (max-width: 700px) {
-  .lab-ablation-list { grid-template-columns: 1fr; }
+/* 信号拆解(消融)左侧6融合策略卡片:自适应平铺对齐情绪温度(indices-grid),宽屏minmax700 auto-fill出3列(≥2100px),PC窄屏2列,移动端1列 */
+.lab-ablation-list { grid-template-columns: 1fr; }
+@media (min-width: 769px) {
+  .lab-ablation-list { grid-template-columns: repeat(auto-fill, minmax(700px, 1fr)); }
 }
 /* 信号拆解卡片表格列宽:去掉组件160/信号数100/收益贡献130(保留列自适应) */
 .lab-ablation-list .lab-retest-yearly th:nth-child(1) { width: 160px; }
