@@ -3041,9 +3041,60 @@ function _labRetestRankItemHTML(row, rank, tab) {
     extra + `</button>`;
 }
 
+// retest 排行榜过滤维度（值是小数 0.1=10%，isPct 字段过滤时×100 与输入百分数比较）
+const LAB_RETEST_RANK_FILTERS = [
+  { label: "收益(%)", minKey: "retMin", maxKey: "retMax", field: "ret", isPct: true },
+  { label: "胜率(%)", minKey: "winMin", maxKey: "winMax", field: "win", isPct: true },
+  { label: "回撤(%)", minKey: "ddMin", maxKey: "ddMax", field: "dd", isPct: true },
+  { label: "样本数", minKey: "nMin", maxKey: "nMax", field: "n", isPct: false },
+];
+
+function _labRetestRankDefaultFilter() {
+  return { retMin: "", retMax: "", winMin: "", winMax: "", ddMin: "", ddMax: "", nMin: "", nMax: "" };
+}
+
+// 过滤：AND 组合，min/max 闭区间。isPct 字段把 row 小数×100 与输入百分数比较。
+function _labRetestRankApplyFilter(rows) {
+  const f = state.labRetestRankFilter;
+  if (!f) return rows;
+  const has = LAB_RETEST_RANK_FILTERS.some((d) => f[d.minKey] !== "" || f[d.maxKey] !== "");
+  if (!has) return rows;
+  return rows.filter((r) => {
+    for (const d of LAB_RETEST_RANK_FILTERS) {
+      const mn = f[d.minKey], mx = f[d.maxKey];
+      const val = d.isPct ? r[d.field] * 100 : r[d.field];
+      if (mn !== "" && mn != null && val < +mn) return false;
+      if (mx !== "" && mx != null && val > +mx) return false;
+    }
+    return true;
+  });
+}
+
+// 过滤面板 HTML（复用 _LAB_FSTYLE，绑 state.labRetestRankFilter）。实时过滤只刷新结果区、不重建本面板，保留输入焦点。
+function _labRetestRankFilterHTML() {
+  if (!state.labRetestRankFilter) state.labRetestRankFilter = _labRetestRankDefaultFilter();
+  const f = state.labRetestRankFilter;
+  const items = LAB_RETEST_RANK_FILTERS.map((d) =>
+    `<label style="${_LAB_FSTYLE.lbl}">${d.label}` +
+    `<input type="number" class="lab-rank-finput" data-fk="${d.minKey}" placeholder="最小" value="${f[d.minKey] != null ? f[d.minKey] : ""}" style="${_LAB_FSTYLE.input}">` +
+    `<span style="${_LAB_FSTYLE.dash}">~</span>` +
+    `<input type="number" class="lab-rank-finput" data-fk="${d.maxKey}" placeholder="最大" value="${f[d.maxKey] != null ? f[d.maxKey] : ""}" style="${_LAB_FSTYLE.input}">` +
+    `</label>`
+  ).join("");
+  return `<div class="lab-rank-filter" style="${_LAB_FSTYLE.panel}">` +
+    `<span style="font-size:12px;color:#9c27b0;font-weight:600;white-space:nowrap;">🔍 过滤</span>` + items +
+    `<button type="button" class="lab-rank-freset" style="${_LAB_FSTYLE.reset}">重置</button></div>`;
+}
+
 function _labRetestRankHTML(rd, simData) {
   if (!rd) return '<div class="lab-rank-empty">二次测试数据加载失败，请稍后重试</div>';
   const winKey = state.labRetestRankWindow || "y5"; // 5窗口切换：整体4维取自 simData stats[winKey]
+  // 指数选择器（与左栏联动，切指数触发 state._labRetestReload 重载该指数数据）
+  const curIdx = (simData && simData.index_id) || state.labSimIndex || "sh";
+  const idxBtns = LAB_SIM_INDEXES.map((x) =>
+    `<button type="button" class="lab-idx-tab${x.id === curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
+  ).join("");
+  const idxBarHTML = `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtns}</div></div>`;
   const rows = _labRetestRankRows(rd, simData, winKey);
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无二次测试候选配对</div>';
   state.labRetestRankRows = rows;
@@ -3070,19 +3121,22 @@ function _labRetestRankHTML(rd, simData) {
               : tab === "oos"
                 ? "样本外榜=0.4test收益+0.4低过拟合+0.2test胜率（前70%训练后30%验证防过拟合）。"
                 : "极端行情榜=股灾/熊市抗跌+反弹能涨（疫情无交易则跳过不扣分）。";
-  return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${winTabsHTML}<span class="lab-win-bar-cur">${(LAB_WIN_DEFS.find((w) => w.k === winKey) || {}).l || ""}</span></div>` +
+  return idxBarHTML +
+    `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${winTabsHTML}<span class="lab-win-bar-cur">${(LAB_WIN_DEFS.find((w) => w.k === winKey) || {}).l || ""}</span></div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看整体回测详情+二次测试三切片。红=好，绿=差。</div>` +
+    _labRetestRankFilterHTML() +
     `<div class="lab-rank-results">${_labRetestRankResultsHTML()}</div>`;
 }
 
 function _labRetestRankResultsHTML() {
   const rows = state.labRetestRankRows || [];
   const tab = state.labRetestRankTab || "score";
-  const sorted = _labRetestRankSort(rows, tab);
+  const filtered = _labRetestRankApplyFilter(rows);
+  const sorted = _labRetestRankSort(filtered, tab);
   const showAll = !!state.labRetestRankShowAll;
   const shown = showAll ? sorted : sorted.slice(0, 20);
-  const countHTML = `<div style="font-size:12px;color:var(--text-3);margin-bottom:6px;">共 <b style="color:#9c27b0;">${rows.length}</b> 个候选配对</div>`;
+  const countHTML = `<div style="font-size:12px;color:var(--text-3);margin-bottom:6px;">符合 <b style="color:#9c27b0;">${filtered.length}</b> / 共 ${rows.length} 个候选配对</div>`;
   const itemsHTML = shown.length > 0
     ? shown.map((r, i) => _labRetestRankItemHTML(r, i + 1, tab)).join("")
     : '<div class="lab-rank-empty">暂无数据</div>';
@@ -3093,6 +3147,27 @@ function _labRetestRankResultsHTML() {
 }
 
 function _labRetestRankAttachHandlers(section, rd, simData) {
+  // 指数切换：与左栏联动，触发 state._labRetestReload 重载该指数数据
+  section.querySelectorAll(".lab-idx-tab").forEach((btn) => {
+    btn.onclick = () => { if (state._labRetestReload) state._labRetestReload(btn.dataset.idx); };
+  });
+  // 过滤输入：实时过滤（只刷新结果区，保留输入焦点不重建面板）
+  section.querySelectorAll(".lab-rank-finput").forEach((inp) => {
+    let _labRetestFilterTimer;
+    inp.addEventListener("input", () => {
+      if (!state.labRetestRankFilter) state.labRetestRankFilter = _labRetestRankDefaultFilter();
+      state.labRetestRankFilter[inp.dataset.fk] = inp.value;
+      state.labRetestRankShowAll = false;
+      clearTimeout(_labRetestFilterTimer);
+      _labRetestFilterTimer = setTimeout(() => _labRetestRankRerenderResults(section, rd, simData), 100);
+    });
+  });
+  const freset = section.querySelector(".lab-rank-freset");
+  if (freset) freset.onclick = () => {
+    state.labRetestRankFilter = _labRetestRankDefaultFilter();
+    state.labRetestRankShowAll = false;
+    _labRetestRankRerender(section, rd, simData); // 重置需重建面板清空输入框
+  };
   section.querySelectorAll(".lab-rank-tab").forEach((btn) => {
     btn.onclick = () => { state.labRetestRankTab = btn.dataset.tab; state.labRetestRankShowAll = false; _labRetestRankRerender(section, rd, simData); };
   });
@@ -3207,16 +3282,17 @@ async function renderRetestLab() {
   };
   _load();
 
-  // 指数切换：重新加载该指数数据并重渲染
+  // 指数切换（左栏 + 右栏排行榜共用）：注册到 state._labRetestReload，右栏 idxBar 切换也调用同一重载
+  state._labRetestReload = async (newIdx) => {
+    state.labSimIndex = newIdx;
+    idxBar.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b.dataset.idx === newIdx));
+    list.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
+    const body = rankSection.querySelector(".lab-rank-body");
+    if (body) body.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
+    await _load();
+  };
   idxBar.querySelectorAll(".lab-idx-tab").forEach((btn) => {
-    btn.onclick = () => {
-      state.labSimIndex = btn.dataset.idx;
-      idxBar.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b === btn));
-      list.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
-      const body = rankSection.querySelector(".lab-rank-body");
-      if (body) body.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
-      _load();
-    };
+    btn.onclick = () => state._labRetestReload(btn.dataset.idx);
   });
 }
 
