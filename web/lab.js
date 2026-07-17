@@ -2875,12 +2875,12 @@ function _labRetestRankRows(rd, simData, winKey) {
   if (!rd || !rd.pairs) return [];
   const pks = Object.keys(rd.pairs);
   const wk = winKey || "y5"; // 5窗口切换：默认 y5（与 retest 后端窗口一致）
-  // Pass1：收集每对原始指标
-  const raw = pks.map((pk) => {
-    const pd = rd.pairs[pk] || {};
-    const meta = pd.pair_meta || {};
-    // 整体4维(ret/win/dd/n)：优先用单信号 simData 该窗口 stats（支持5窗口切换）；
-    // simData 缺失或该窗口无数据时回退 pair_meta（后端 y5 full_in 值）。
+  // 从单个 data( top-level=full_in 或 pd.fixed_10k )提取一行原始指标
+  // mode 决定整体4维从 simData pd2[mode].stats[wk] 取，以及 modeCn 标注
+  const extract = (pk, data, mode) => {
+    const meta = data.pair_meta || {};
+    // 整体4维(ret/win/dd/n)：优先用单信号 simData 该窗口该模式 stats（支持5窗口切换）；
+    // simData 缺失或该窗口无数据时回退 pair_meta（后端 y5 值）。
     // 单信号 stats 为百分数(10.87)，pair_meta 为小数(0.1087)，统一为小数。
     let ret = meta.ret != null ? meta.ret : 0;
     let winRate = meta.win != null ? meta.win : 0;
@@ -2889,7 +2889,7 @@ function _labRetestRankRows(rd, simData, winKey) {
     if (simData && meta.strategy) {
       const parts = meta.strategy.split("|");
       const pd2 = _labGetPair(simData, parts[0], parts[1]);
-      const s = pd2 && pd2.full_in && pd2.full_in.stats && pd2.full_in.stats[wk];
+      const s = pd2 && pd2[mode] && pd2[mode].stats && pd2[mode].stats[wk];
       if (s) {
         ret = s.total_ret / 100;
         winRate = s.win_rate / 100;
@@ -2897,7 +2897,7 @@ function _labRetestRankRows(rd, simData, winKey) {
         n = s.n_trades;
       }
     }
-    const yearly = pd.yearly || {};
+    const yearly = data.yearly || {};
     const yKeys = Object.keys(yearly).sort();
     const yearRets = yKeys.map((yr) => yearly[yr] && yearly[yr].ret).filter((v) => v != null);
     const minYearRet = yearRets.length ? Math.min.apply(null, yearRets) : 0; // 最差年收益
@@ -2908,12 +2908,12 @@ function _labRetestRankRows(rd, simData, winKey) {
       const mean = yearRets.reduce((a, b) => a + b, 0) / yearRets.length;
       yearVol = Math.sqrt(yearRets.reduce((a, b) => a + (b - mean) * (b - mean), 0) / yearRets.length);
     }
-    const oos = pd.oos || {};
+    const oos = data.oos || {};
     const tr = oos.train || {}, te = oos.test || {};
     const testRet = te.ret != null ? te.ret : 0;
     const overfit = (tr.ret != null && te.ret != null) ? Math.abs(tr.ret - te.ret) : 0; // 过拟合度
     const testWin = te.win != null ? te.win : 0;
-    const regimes = pd.regimes || {};
+    const regimes = data.regimes || {};
     const crash = regimes.crash2015 || null;
     const bear = regimes.bear2018 || null;
     const rally = regimes.rally2024 || null;
@@ -2923,11 +2923,12 @@ function _labRetestRankRows(rd, simData, winKey) {
     const oosSmall = (te.n != null && te.n < 10);
     return {
       pk,
+      mode,
       strategy: meta.strategy || pk,
       window: meta.window || "-",
       cn: _labRetestPairCN(meta.strategy || pk),
       winCn: _labRetestWinCN(meta.window),
-      modeCn: "全仓", // retest 后端用 full_in 跑二次测试（pair_meta 无 mode 字段）
+      modeCn: mode === "full_in" ? "全仓" : "定额10%",
       // 整体原始（5窗口切换时取自单信号 simData stats[wk]，默认 y5 与 pair_meta 一致）
       ret,
       win: winRate,
@@ -2946,8 +2947,15 @@ function _labRetestRankRows(rd, simData, winKey) {
       // 小样本
       yearSmall, oosSmall,
     };
+  };
+  // Pass1：每对出2行(全仓 full_in + 定额10% fixed_10k)，fixed_10k 缺失则只出 full_in
+  const raw = [];
+  pks.forEach((pk) => {
+    const pd = rd.pairs[pk] || {};
+    raw.push(extract(pk, pd, "full_in"));
+    if (pd.fixed_10k) raw.push(extract(pk, pd.fixed_10k, "fixed_10k"));
   });
-  // Pass2：各指标 min-max 归一（across 该指数所有 pair）
+  // Pass2：各指标 min-max 归一（across 该指数所有 pair 的全仓+定额行）
   const retN = _labRetestMinMax(raw, "ret");
   const winN = _labRetestMinMax(raw, "win");
   const ddN = _labRetestMinMax(raw, "dd");
@@ -2961,7 +2969,7 @@ function _labRetestRankRows(rd, simData, winKey) {
   const bearDdN = _labRetestMinMax(raw, "bearDd");
   const rallyRetN = _labRetestMinMax(raw, "rallyRet");
   const covidDdN = _labRetestMinMax(raw, "covidDd");
-  // Pass3：各综合分（归一化加权）
+  // Pass3：各综合分（归一化加权，across 所有模式行；full_in 与定额10%各自三切片独立算分）
   return raw.map((r) => {
     // 整体归一 = 0.4*ret_norm + 0.3*win_norm + 0.2*(1-dd_norm) + 0.1*n_norm
     const wholeScore = 0.4 * retN(r.ret) + 0.3 * winN(r.win) + 0.2 * (1 - ddN(r.dd)) + 0.1 * nN(r.n);
@@ -3026,7 +3034,7 @@ function _labRetestRankItemHTML(row, rank, tab) {
     extra = `<span class="lab-rank-dim-sub">股灾回撤${_labRetestPct(row.crashDd)} · 熊市回撤${_labRetestPct(row.bearDd)} · 反弹收益${_labRetestPct(row.rallyRet)}${covidNote}</span>`;
   }
   // ret/win/dd/n 维度的值已在 baseStats 中显示，排序即体现排名，不加冗余 extra
-  return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}">` +
+  return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">${row.cn} · ${row.modeCn}</span>` +
     `<span class="lab-rank-stats">${baseStats}</span>` +
@@ -3093,7 +3101,7 @@ function _labRetestRankAttachHandlers(section, rd, simData) {
     btn.onclick = () => { state.labRetestRankWindow = btn.dataset.win; state.labRetestRankShowAll = false; _labRetestRankRerender(section, rd, simData); };
   });
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
-    item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk);
+    item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
   });
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
@@ -3104,7 +3112,7 @@ function _labRetestRankRerenderResults(section, rd, simData) {
   if (!res) return;
   res.innerHTML = _labRetestRankResultsHTML();
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
-    item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk);
+    item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
   });
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
@@ -3214,7 +3222,7 @@ async function renderRetestLab() {
 
 // === 二次测试配对弹窗（上半=整体回测详情照抄单一信号实验，下半=三切片强化）===
 // 用户原话："单一测试里有的功能你都要带过来。你二次测试是优化，不是舍弃原有的判定标准，是在此之上的强化"
-function _labRetestPairOpenModal(rd, pk) {
+function _labRetestPairOpenModal(rd, pk, mode) {
   let overlay = document.getElementById("labRetestPairOverlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -3226,7 +3234,7 @@ function _labRetestPairOpenModal(rd, pk) {
   const meta = (pd && pd.pair_meta) || {};
   state.labRetestPairModal = {
     rd, pk,
-    mode: "full_in",              // retest 后端用 full_in 跑二次测试（pair_meta 无 mode 字段）
+    mode: mode || "full_in",      // 排行榜定额10%行点击默认定额，卡片/缺省默认全仓
     win: meta.window || "y5",     // 默认 retest 窗口
     page: 0,
     open: true,
