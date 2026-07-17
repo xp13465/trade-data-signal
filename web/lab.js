@@ -4667,7 +4667,7 @@ function _labSymmetryCardHTML(p) {
     `<span class="lab-retest-pair-strat">#${p.rank} ${_labPairLabel(p.pair_id)}</span>` +
     `<span class="lab-retest-pair-win">对称比: <span style="color:${symColor};font-weight:700">${p.symmetry_ratio.toFixed(3)}</span></span>` +
     badge + `</div>` +
-    `<div class="lab-retest-section"><div class="lab-retest-regimes">` +
+    `<div class="lab-retest-section"><div class="lab-retest-regimes lab-symmetry-regimes">` +
     `<div class="lab-retest-regime-card"><div class="lab-retest-regime-name">📈 做多 (买→卖)</div>` +
     `<div class="lab-retest-regime-ret" style="color:${_retFg(longRet)}">${fmt(longRet)}</div>` +
     `<div class="lab-retest-regime-dd">胜率 ${(p.long && p.long.win_rate != null) ? p.long.win_rate.toFixed(1) + "%" : "-"} · ${(p.long && p.long.n_trades) || 0}笔</div></div>` +

@@ -941,6 +941,8 @@
 .lab-retest-regimes {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
 }
+/* 多空对称卡片仅2小卡(做多/做空),2列平铺用满宽度(避免4列右侧留白) */
+.lab-symmetry-regimes { grid-template-columns: repeat(2, 1fr); }
 .lab-retest-regime-card {
   padding: 8px 6px; border: 1px solid var(--border); border-radius: 6px;
   text-align: center; background: var(--bg-hover);
