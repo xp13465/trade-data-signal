@@ -1194,6 +1194,54 @@ async function fetchLabFusionSimData(index) {
   return state.labSimFusionDataMap[index];
 }
 
+// 检查某指数 fusion full 数据是否已合并入 fusion 缓存
+function _labSimFusionFullLoaded(index) {
+  index = index || "sh";
+  return !!(state.labSimFusionFullMap && state.labSimFusionFullMap[index] === true);
+}
+
+// 获取 lab_sim_{index}_fusion_full.json（trades/equity_curve），合并入 fusion stats 缓存
+// 照抄 fetchLabSimFullData，独立缓存 labSimFusionFullMap，避免与单信号 full 互相覆盖
+async function fetchLabFusionSimFullData(index, onProgress, signal) {
+  index = index || "sh";
+  if (!state.labSimFusionFullMap) state.labSimFusionFullMap = {};
+  if (state.labSimFusionFullMap[index] === true) return state.labSimFusionDataMap[index];
+  if (state.labSimFusionFullMap[index] === "loading") {
+    for (let i = 0; i < 600; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (state.labSimFusionFullMap[index] === true) return state.labSimFusionDataMap[index];
+      if (state.labSimFusionFullMap[index] === null) break;
+      if (signal && signal.aborted) return state.labSimFusionDataMap[index];
+    }
+    return state.labSimFusionDataMap[index];
+  }
+  const stats = state.labSimFusionDataMap && state.labSimFusionDataMap[index];
+  if (!stats) return null;
+  state.labSimFusionFullMap[index] = "loading";
+  try {
+    const full = await fetchJSONProgress("./data/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal);
+    if (full && full.pairs && stats.pairs) {
+      for (const pk in full.pairs) {
+        const fp = full.pairs[pk];
+        const sp = stats.pairs[pk];
+        if (!sp) continue;
+        for (const mode of ["full_in", "fixed_10k"]) {
+          if (fp[mode]) {
+            if (!sp[mode]) sp[mode] = {};
+            sp[mode].equity_curve = fp[mode].equity_curve;
+            sp[mode].trades = fp[mode].trades;
+            sp[mode].tw = fp[mode].tw;
+          }
+        }
+      }
+    }
+    state.labSimFusionFullMap[index] = true;
+  } catch (e) {
+    state.labSimFusionFullMap[index] = null;
+  }
+  return state.labSimFusionDataMap[index];
+}
+
 // 获取 lab_retest_{index}.json 数据（二次测试：分年/样本外/极端行情，per-index 缓存）
 async function fetchLabRetestData(index) {
   index = index || "sh";
@@ -3492,17 +3540,10 @@ async function _labRetestPairModalRender(overlay) {
   if (simData && !_labSimFullLoaded(idx)) _labRetestEnsureFull(overlay, idx);
 }
 
-// === 融合候选配对回测弹窗（A类买×卖查 lab_sim_{index}_stats.json；B类同向共振显示开发中）===
+// === 融合候选配对回测弹窗（buy_sell/buy_buy/sell_sell 三类查 lab_sim_{index}_fusion_stats.json；硬编码独立策略展示文本）===
 // 指数选择器分组（融合候选为A股策略，仅列A股宽基）
 const LAB_FUSION_PAIR_INDEX_GROUPS = [
   ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50"]],
-];
-const LAB_FUSION_WIN_LABELS = [
-  { k: "all", label: "全史" },
-  { k: "y10", label: "近10年" },
-  { k: "y5", label: "近5年" },
-  { k: "y3", label: "近3年" },
-  { k: "y1", label: "近1年" },
 ];
 
 function _labFusionPairOpenModal(meta) {
@@ -3516,6 +3557,10 @@ function _labFusionPairOpenModal(meta) {
   state.labFusionPairModal = {
     meta: meta,
     index: state.labSimIdx || state.labIndex || "sh",
+    mode: "full_in",
+    win: "y5",
+    page: 0,
+    open: true,
   };
   _labFusionPairModalRender(overlay);
   overlay.classList.add("show");
@@ -3629,11 +3674,15 @@ async function _labFusionPairModalRender(overlay) {
   const typeLabel = isBuySell ? "配对回测" : (pairType === "buy_buy" ? "双买共振" : "双卖共振");
   const titlePair = isBuySell ? `买${name1} × 卖${name2}` : `${name1} + ${name2}`;
   const titleIcon = isBuySell ? "📊" : "🔬";
+  const mode = m.mode || "full_in";
+  const win = m.win || "y5";
+  const modeName = mode === "full_in" ? "全仓" : "定额（10%）";
+  const winLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
 
   // loading 骨架
   overlay.innerHTML = `<div class="lab-signal-modal">` +
     `<div class="lab-signal-modal-head">` +
-    `<span class="lab-signal-modal-title">${titleIcon} ${typeLabel} · ${titlePair}</span>` +
+    `<span class="lab-signal-modal-title">${titleIcon} ${typeLabel} · ${titlePair} · ${modeName}（${winLabel}）</span>` +
     `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
     `</div>` +
     `<div class="lab-signal-modal-body"><div class="loading">加载回测数据…</div></div></div>`;
@@ -3643,60 +3692,100 @@ async function _labFusionPairModalRender(overlay) {
   const simData = await fetchLabFusionSimData(m.index);
   const pairId = meta._buyKey + "|" + meta._sellKey;
   const pair = simData && simData.pairs ? simData.pairs[pairId] : null;
+  const initCapital = (simData && simData.initial_capital) || 100000;
 
-  // 指数选择器
+  // 指数选择器（融合候选为A股策略，可切指数查看同配对不同指数回测）
   const selectHTML = LAB_FUSION_PAIR_INDEX_GROUPS.map(([gname, ids]) =>
     `<optgroup label="${gname}">` +
     ids.map((id) => `<option value="${id}"${id === m.index ? " selected" : ""}>${_INDEX_NAME_MAP[id] || id}</option>`).join("") +
     `</optgroup>`
   ).join("");
+  const filterHTML = `<div class="lab-fusion-pair-filter"><label>选择指数</label><select class="lab-fusion-pair-index">${selectHTML}</select></div>`;
 
   let bodyHTML;
   if (!pair) {
-    bodyHTML = `<div class="lab-fusion-pair-filter"><label>选择指数</label><select class="lab-fusion-pair-index">${selectHTML}</select></div>` +
+    bodyHTML = filterHTML +
       `<div class="lab-rank-modal-empty">暂无回测数据<br>` +
       `<span style="font-size:12px">配对 ${pairId} 在 ${_INDEX_NAME_MAP[m.index] || m.index} 未找到回测结果。</span></div>`;
   } else {
-    // Bug-B：buy_sell / buy_buy / sell_sell 三类配对均展示 2×5 统计表（全仓 + 定额10%）
-    bodyHTML = `<div class="lab-fusion-pair-filter"><label>选择指数</label><select class="lab-fusion-pair-index">${selectHTML}</select>` +
-      `<span class="lab-fusion-pair-legend">红=好，绿=差 · 回撤≤20%优</span></div>` +
-      _labFusionPairStatsHTML(pair, "full_in", "全仓投入") +
-      _labFusionPairStatsHTML(pair, "fixed_10k", "定额（10%）");
+    // Step4：改 modeBar/winBar 切换 + switchHint + _labSimModeBlock（4数字+净值曲线+交易记录），三区一致
+    const winData = _labPairWinData(pair, mode, win, simData);
+    let detailHTML;
+    if (!winData || !winData.stats) {
+      detailHTML = `<div class="lab-rank-modal-empty">该配对在 ${_INDEX_NAME_MAP[m.index] || m.index} 无交易数据</div>`;
+    } else {
+      // 同步 page 到有效范围（_labSimModeBlock 内部也 clamp，此处保持 state 一致）
+      const trades = winData.trades || [];
+      const totalPages = Math.max(1, Math.ceil(trades.length / 20));
+      if (m.page > totalPages - 1) m.page = totalPages - 1;
+      if (m.page < 0) m.page = 0;
+      // 三区一致：买卖模式切换 + 时间窗口切换 + 用法说明（照抄 retest/单一信号弹窗）
+      const modeBar = '<div class="lab-win-bar"><span class="lab-win-bar-label">买卖模式</span>' +
+        '<div class="lab-win-tabs">' +
+        `<button type="button" class="lab-win-tab${mode === "full_in" ? " active" : ""}" data-mode="full_in">全仓</button>` +
+        `<button type="button" class="lab-win-tab${mode === "fixed_10k" ? " active" : ""}" data-mode="fixed_10k">定额（10%）</button>` +
+        '</div></div>';
+      const winBar = `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labModalWinTabsHTML(win)}<span class="lab-win-bar-cur">${winLabel}</span></div>`;
+      const switchHint = '<div class="lab-retest-modal-switch-hint">💡 可切换时间窗口和买卖模式，查看该策略在不同条件下的战绩</div>';
+      detailHTML = modeBar + winBar + switchHint + _labSimModeBlock(mode, winData, initCapital, m.page, m.open);
+    }
+    bodyHTML = filterHTML + detailHTML;
   }
 
   const body = overlay.querySelector(".lab-signal-modal-body");
   if (body) {
     body.innerHTML = bodyHTML;
     const sel = body.querySelector(".lab-fusion-pair-index");
-    if (sel) sel.onchange = (e) => { m.index = e.target.value; _labFusionPairModalRender(overlay); };
+    if (sel) sel.onchange = (e) => { m.index = e.target.value; m.page = 0; _labFusionPairModalRender(overlay); };
+    // 三区一致：模式/窗口切换（切换重置分页）
+    overlay.querySelectorAll(".lab-win-tab[data-mode]").forEach((btn) => {
+      btn.onclick = () => { m.mode = btn.dataset.mode; m.page = 0; _labFusionPairModalRender(overlay); };
+    });
+    overlay.querySelectorAll(".lab-win-tab[data-win]").forEach((btn) => {
+      btn.onclick = () => { m.win = btn.dataset.win; m.page = 0; _labFusionPairModalRender(overlay); };
+    });
+    // 交易记录折叠/展开 + 分页
+    const hdr = overlay.querySelector(".lab-sim-trades-header");
+    if (hdr) hdr.onclick = () => { m.open = !m.open; _labFusionPairModalRender(overlay); };
+    const prev = overlay.querySelector(".lab-sim-prev");
+    if (prev) prev.onclick = () => { if (m.page > 0) { m.page--; _labFusionPairModalRender(overlay); } };
+    const next = overlay.querySelector(".lab-sim-next");
+    if (next && !next.disabled) next.onclick = () => { m.page++; _labFusionPairModalRender(overlay); };
   }
+
+  // full 数据(trades/equity_curve)按需加载，加载完重渲染（净值曲线/交易记录显示 loading 占位直到加载完）
+  if (simData && pair && !_labSimFusionFullLoaded(m.index)) _labFusionEnsureFull(overlay, m.index);
 }
 
-// 配对回测统计表 HTML：2模式 × 5窗口（全史/近10年/近5年/近3年/近1年）
-function _labFusionPairStatsHTML(pair, mode, modeName) {
-  const md = pair[mode];
-  if (!md || !md.stats) return "";
-  const stats = md.stats;
-  const rows = LAB_FUSION_WIN_LABELS.map((w) => {
-    const s = stats[w.k];
-    if (!s) return "";
-    const retC = s.total_ret >= 0 ? "#c92a2a" : "#2e7d32";
-    const winC = s.win_rate >= 50 ? "#c92a2a" : "#2e7d32";
-    const ddC = s.max_drawdown <= 20 ? "#c92a2a" : (s.max_drawdown <= 50 ? "#e67e22" : "#2e7d32");
-    return `<tr>` +
-      `<td class="lab-fp-win">${w.label}</td>` +
-      `<td class="lab-fp-ret" style="color:${retC}">${s.total_ret > 0 ? "+" : ""}${s.total_ret.toFixed(1)}%</td>` +
-      `<td class="lab-fp-winrate" style="color:${winC}">${s.win_rate.toFixed(1)}%</td>` +
-      `<td class="lab-fp-ann">${s.annual_ret.toFixed(1)}%</td>` +
-      `<td class="lab-fp-dd" style="color:${ddC}">${s.max_drawdown.toFixed(1)}%</td>` +
-      `<td class="lab-fp-n">${s.n_trades}</td>` +
-      `</tr>`;
-  }).join("");
-  return `<div class="lab-fusion-pair-section">` +
-    `<div class="lab-fusion-pair-mode">${modeName}</div>` +
-    `<table class="lab-fusion-pair-table">` +
-    `<thead><tr><th>窗口</th><th>总收益</th><th>胜率</th><th>年化</th><th>最大回撤</th><th>笔数</th></tr></thead>` +
-    `<tbody>${rows}</tbody></table></div>`;
+// 弹窗内按需加载 fusion full 数据（trades/equity_curve），照抄 _labRetestEnsureFull
+async function _labFusionEnsureFull(overlay, idx) {
+  const setProg = (pct) => {
+    const el = overlay.querySelector(".lab-sim-full-loading");
+    if (!el) return;
+    if (pct < 0) { el.textContent = "⏳ 加载明细数据中…"; return; }
+    el.innerHTML = `⏳ 加载明细数据中… ${pct}%<div class="lab-full-prog"><div style="width:${pct}%"></div></div>`;
+  };
+  const controller = new AbortController();
+  let timedOut = false;
+  const slowTimer = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
+  try {
+    await fetchLabFusionSimFullData(idx, (received, total) => {
+      setProg(total > 0 ? Math.round(received / total * 100) : -1);
+    }, controller.signal);
+  } finally {
+    clearTimeout(slowTimer);
+  }
+  if (_labSimFusionFullLoaded(idx)) {
+    if (state.labFusionPairModal) _labFusionPairModalRender(overlay);
+  } else {
+    const el = overlay.querySelector(".lab-sim-full-loading");
+    if (el) {
+      el.innerHTML = `<span>${timedOut ? "⏳ 加载超时" : "⚠ 加载失败"}</span> ` +
+        `<button type="button" class="lab-full-retry" style="margin-left:8px;padding:3px 12px;border:1px solid var(--border-strong);border-radius:5px;background:var(--bg-card);color:var(--text-1);font-size:12px;cursor:pointer;">重试</button>`;
+      const retryBtn = el.querySelector(".lab-full-retry");
+      if (retryBtn) retryBtn.onclick = () => _labFusionEnsureFull(overlay, idx);
+    }
+  }
 }
 
 async function renderSignalLab() {
