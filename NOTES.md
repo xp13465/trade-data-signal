@@ -2025,3 +2025,25 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - 脚本：`scripts/backtest_buy_aux.py`
 - JSON：`static-site/data/buy_aux_backtest.json`（可推上线，含每序列 buy_aux 最佳参数 + C1 对比 + 全网格）
 - 本节 NOTES §35
+
+## §36 交易记录不从 10w 起步修复（2026-07-17，commit f0e5182）
+
+> 背景：用户报推荐榜排名详情「总收益率/交易纪律末条、期末金额/末笔记录」对不上，交易记录不从 10w 起。根因：commit 7b68bf0 修了 `_labPairWinData`（web lab.js:815 `const wtd = md.win_trades && md.win_trades[win]`）优先读 win_trades（每窗口独立 sim 的 trades，at/cp 从 INITIAL_CAPITAL=10w 起算，与该窗口 final_total/total_ret 同源同口径），后端 full JSON 也已含 win_trades/win_base_cp（已验收 sh full 128/64 pairs 全有、fusion full 290/145 全有）。但 **4 处 fetch 合并块漏搬 win_trades/win_base_cp**，导致 `_labPairWinData` 读不到回退旧 trades（全史切片 + win_base_cp 调分母，at 不调、分母错），三处全对不上。
+
+### 漏搬点（双版各 2 处，共 4 处）
+- `fetchLabFusionSimFullData`：web lab.js:1415 / static-site lab.js:1415
+- `fetchLabSimFullData`：web lab.js:1523 / static-site lab.js:1523
+- 4 处合并块原只搬 `equity_curve/trades/tw`，各补加 `sp[mode].win_trades = fp[mode].win_trades;` + `sp[mode].win_base_cp = fp[mode].win_base_cp;`（共 8 行，双版同步）
+
+### 受影响 5 入口（共用 `_labPairWinData`，无一在运行时用上 win_trades）
+1. 模拟回测左侧卡片交易记录（`_labSimModeBlock`）
+2. 推荐榜弹窗排名详情
+3. 二次测试弹窗
+4. 融合排行榜弹窗
+5. 91 候选弹窗
+
+### 教训
+- **改数据读取层要同步改所有合并/搬运点**：7b68bf0 改了 `_labPairWinData`（读取层）读 win_trades，但没同步改 fetch 合并块（搬运层）搬 win_trades，致读取层改了数据层没跟上。以后改读取字段，要 grep 所有 fetch/合并/EnsureFull 路径确认字段贯通后端→搬运→读取三段。
+- 纯前端修复（8 行），无需重跑后端/JSON（full JSON 已含 win_trades）。改完 `build_min.py` + `bump_asset_version.py` + 双版 diff 归一化（=0）+ `deploy.sh` 上线。
+- 验收：线上 `lab.min.js?v=9f0c7a67` 含 win_trades 搬运代码；根 `data/signal_stats.json` 保持 M 未推（§8）。
+- 本节 NOTES §36
