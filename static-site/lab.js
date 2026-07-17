@@ -2671,12 +2671,15 @@ function _labRankOpenModal(simData, buyKey, sellKey, mode) {
   document.body.style.overflow = "hidden";
   overlay.onclick = (e) => { if (e.target === overlay) _labRankCloseModal(); };
   // 详情需 full 数据(trades/equity_curve)，未加载则按需加载（带进度条）并重渲染
+  // 融合tab的simData来自融合缓存，full也必须合并入融合缓存，故按 isFusion 分流
   const idx = (simData && simData.index_id) || (state.labSimIndex || "sh");
-  if (!_labSimFullLoaded(idx)) _labRankEnsureFull(overlay, simData, idx);
+  const isFusion = state.labSubMode === "fusion";
+  if (isFusion ? !_labSimFusionFullLoaded(idx) : !_labSimFullLoaded(idx)) _labRankEnsureFull(overlay, simData, idx);
 }
 
 // 弹窗内按需加载 full 数据：更新 loading 占位为进度条，加载完重渲染
 async function _labRankEnsureFull(overlay, simData, idx) {
+  const isFusion = state.labSubMode === "fusion";
   const setProg = (pct) => {
     const el = overlay.querySelector(".lab-sim-full-loading");
     if (!el) return;
@@ -2690,15 +2693,17 @@ async function _labRankEnsureFull(overlay, simData, idx) {
     timedOut = true;
     controller.abort();
   }, 15000);
+  // 融合tab用融合full源(独立缓存labSimFusionFullMap)，单信号tab用单信号full源
+  const fullLoader = isFusion ? fetchLabFusionSimFullData : fetchLabSimFullData;
   try {
-    await fetchLabSimFullData(idx, (received, total) => {
+    await fullLoader(idx, (received, total) => {
       setProg(total > 0 ? Math.round(received / total * 100) : -1);
     }, controller.signal);
   } finally {
     clearTimeout(slowTimer);
   }
   // 加载成功则重渲染弹窗；失败/超时则显示重试按钮
-  if (_labSimFullLoaded(idx)) {
+  if (isFusion ? _labSimFusionFullLoaded(idx) : _labSimFullLoaded(idx)) {
     if (state.labRankModal) _labRankModalRender(overlay, simData);
   } else {
     const el = overlay.querySelector(".lab-sim-full-loading");
@@ -3091,9 +3096,10 @@ async function renderFusionLab() {
   wrapper.appendChild(rightCol);
   content.appendChild(wrapper);
   // 加载推荐榜数据（融合模式：_labRankHTML 依 state.labSubMode==='fusion' 仅展示实验中策略买×卖配对）
+  // 注意：融合tab必须读融合源 lab_sim_{index}_fusion_stats.json（145配对），单信号源只有64配对会漏显示
   const _loadRank = async () => {
     const idx = state.labSimIndex || "sh";
-    const [simData] = await Promise.all([fetchLabSimData(idx), fetchLabRetestData(idx)]);
+    const [simData] = await Promise.all([fetchLabFusionSimData(idx), fetchLabRetestData(idx)]);
     _labRankRerender(rankSection, simData);
   };
   _loadRank();
