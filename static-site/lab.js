@@ -533,7 +533,7 @@ const LAB_STRATEGIES = {
     conclusion: "PL0.81最差，旧基线已弃",
     theory: "相对强弱指标(RSI)超买结束。相对强弱指标(RSI)从≥70回落意味超买结束，但回测显示方向相反（信号后价格仍涨）。",
     scenario: "不推荐使用。已弃用，改用D1。",
-    note: "已排除。全史PL0.84最差，旧基线。已被D1_high20_drop5替代。",
+    note: "已排除。全史PL0.84最差，旧基线。已被“20日高回落5%卖”替代。",
     report: "回测报告：相对强弱下穿70卖 0/4达标，全史10d胜率48.7%/PL0.84/均值+0.9%（方向相反，信号后价格仍涨）。是所有卖点中最差的，旧基线已弃，改用D1。",
   },
   KDJ_death_overbought: {
@@ -575,24 +575,24 @@ const LAB_STRATEGIES = {
   },
 };
 
-// 策略英文原名映射（tooltip 悬停显示英文提高专业性，仅展示用不改后端key）
+// 策略释义映射（tooltip 悬停显示中文释义，仅展示用不改后端key）
 const _LAB_STRAT_EN = {
-  Supertrend_buy: "Supertrend Buy", Supertrend_sell: "Supertrend Sell",
-  B0_RSI70: "RSI Cross Below 70", C1_RSI30: "RSI Cross Above 30",
-  MA_golden_5_20: "MA 5/20 Golden Cross", MA_golden_10_60: "MA 10/60 Golden Cross",
-  MA_death_5_20: "MA 5/20 Death Cross", ATR_trail_stop: "ATR Trailing Stop",
-  BB_lower_revert: "BB Lower Band Revert", BB_upper_revert: "BB Upper Band Revert",
-  BB_middle_break: "BB Middle Break", BB_upper_break: "BB Upper Break",
-  Donchian20_up: "Donchian 20-day Breakout", Donchian55_up: "Donchian 55-day Breakout (Turtle)",
-  Donchian10_down: "Donchian 10-day Breakdown", Donchian20_down: "Donchian 20-day Breakdown",
-  MACD_golden: "MACD Golden Cross", MACD_death: "MACD Death Cross",
-  KDJ_golden_oversold: "KDJ Oversold Golden Cross", KDJ_death_overbought: "KDJ Overbought Death Cross",
-  Vol_breakout: "Volume Breakout", D1_high20_drop5: "20-day High Drop 5%",
-  F_D1_S1_MACD: "D1 Drop5% + MA60 Bull + MACD Death", F_D1_S1: "D1 Drop5% + MA60 Bull (no MACD)",
-  F_B1_RSI40: "BB Lower Revert + RSI Cross 40", F_B1_rebound2pct: "BB Lower Revert + Rebound 2%",
-  F_C1_MACD_golden: "RSI Cross 30 + MACD Golden", F_D1_MA_death: "D1 Drop5% + MA 5/20 Death Cross",
+  Supertrend_buy: "超级趋势翻多买", Supertrend_sell: "超级趋势翻空卖",
+  B0_RSI70: "相对强弱下穿70卖", C1_RSI30: "相对强弱上穿30买",
+  MA_golden_5_20: "均线5/20金叉买", MA_golden_10_60: "均线10/60金叉买",
+  MA_death_5_20: "均线5/20死叉卖", ATR_trail_stop: "真实波幅追踪止损卖",
+  BB_lower_revert: "布林下轨回归买", BB_upper_revert: "布林上轨回落卖",
+  BB_middle_break: "跌破布林中轨卖", BB_upper_break: "突破布林上轨买",
+  Donchian20_up: "唐奇安20日突破买", Donchian55_up: "海龟55日突破买",
+  Donchian10_down: "跌破10日最低卖", Donchian20_down: "跌破20日最低卖",
+  MACD_golden: "MACD金叉买", MACD_death: "MACD死叉卖",
+  KDJ_golden_oversold: "KDJ超卖金叉买", KDJ_death_overbought: "KDJ超买死叉卖",
+  Vol_breakout: "放量突破买", D1_high20_drop5: "20日高回落5%卖",
+  F_D1_S1_MACD: "D1回落5%+60日均线多头+MACD死叉 融合卖", F_D1_S1: "D1回落5%+60日均线多头(豁免MACD) 融合卖",
+  F_B1_RSI40: "布林下轨回归+相对强弱上穿40 融合买", F_B1_rebound2pct: "布林下轨回归+反弹2% 融合买",
+  F_C1_MACD_golden: "相对强弱上穿30+MACD金叉 融合买", F_D1_MA_death: "D1回落5%+均线5/20死叉 融合卖",
 };
-// 策略名带英文 tooltip：<span title="英文原名">中文名</span>（echarts/纯文本场景请直接用 meta.name）
+// 策略名带释义 tooltip：<span title="中文释义">中文名</span>（echarts/纯文本场景请直接用 meta.name）
 function _labStratNameHTML(key, name) {
   const en = _LAB_STRAT_EN[key];
   return en ? `<span title="${en}">${name}</span>` : (name || "");
@@ -623,28 +623,28 @@ const LAB_FUSION_STRATEGIES = {
   F_D1_S1_MACD: {
     name: "D1回落5%+60日均线多头+MACD死叉 融合卖", side: "sell", zone: "prod", status: "live",
     conditions: ["20日高回落5%", "60日均线多头", "MACD死叉"],
-    trigger: "同日AND：close从20日最高价回落5% 且 close>MA60 且 DIF<DEA",
+    trigger: "同日同时满足：20日高回落5% + 60日均线多头 + MACD死叉",
     conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后凯利" + _labHelpIcon("kelly") + "计算率18.3%→43.3%",
     theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加60日均线多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日AND，大幅降噪。",
     scenario: "上升趋势中回落止盈/减仓；三条件共振过滤假信号。非做空指令。",
     note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），凯利计算率18.3%→43.3%。已上线signal_daily。",
-    report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），凯利计算率从18.3%升至43.3%，信号质量显著提升。主项目生产卖点D1_high20_drop5的融合形态。",
+    report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），凯利计算率从18.3%升至43.3%，信号质量显著提升。主项目生产卖点“20日高回落5%卖”的融合形态。",
   },
   F_D1_S1: {
     name: "D1回落5%+60日均线多头（豁免MACD） 融合卖", side: "sell", zone: "prod", status: "live",
     conditions: ["20日高回落5%", "60日均线多头"],
-    trigger: "同日AND：close从20日最高价回落5% 且 close>MA60（s.*情绪分序列豁免MACD，因加MACD后样本n=106→7不足）",
-    conclusion: "主项目s.*情绪分变体。对比F_D1_S1_MACD可看MACD过滤的增益",
-    theory: "D1回落5%+60日均线多头双条件融合。豁免MACD条件，因s.*情绪分序列加MACD后样本从106降至7，不足统计。用于对比F_D1_S1_MACD可单独看MACD过滤的增益。",
-    scenario: "s.*情绪分变体的融合卖点；与F_D1_S1_MACD对比MACD过滤增益。",
+    trigger: "同日同时满足：20日高回落5% + 60日均线多头（豁免MACD）",
+    conclusion: "主项目s.*情绪分变体。对比“D1回落5%+60日均线多头+MACD死叉融合卖”可看MACD过滤的增益",
+    theory: "D1回落5%+60日均线多头双条件融合。豁免MACD条件，因s.*情绪分序列加MACD后样本从106降至7，不足统计。用于对比“D1回落5%+60日均线多头+MACD死叉融合卖”可单独看MACD过滤的增益。",
+    scenario: "s.*情绪分变体的融合卖点；与“D1回落5%+60日均线多头+MACD死叉融合卖”对比MACD过滤增益。",
     note: "主项目s.*情绪分变体。加MACD后样本n=106→7不足，故豁免MACD。",
-    report: "回测：s.*情绪分变体的基础形态（不含MACD）。对比F_D1_S1_MACD可看MACD过滤的增益效果。",
+    report: "回测：s.*情绪分变体的基础形态（不含MACD）。对比“D1回落5%+60日均线多头+MACD死叉融合卖”可看MACD过滤的增益效果。",
   },
   // --- 候选买点区（3个） ---
   F_B1_RSI40: {
     name: "布林下轨回归+相对强弱上穿40 融合买", side: "buy", zone: "candidate_buy", status: "partial",
     conditions: ["布林下轨回归", "相对强弱上穿40"],
-    trigger: "同日AND：close从布林下轨下方回归上轨 且 相对强弱从≤40上穿>40",
+    trigger: "同日同时满足：布林下轨回归 + 相对强弱上穿40",
     conclusion: "主项目10指数已配置 buy_aux rsi_cross_40。f -38.5%->+16.2%转正（家电/轻工回测），胜率44.8%->54.5%，盈亏比0.66->1.19",
     theory: "多信号融合买点。布林下轨回归捕捉超卖反弹拐点，叠加相对强弱上穿40确认动量转强。两条件同日AND，过滤单一布林下轨穿越的假信号。",
     scenario: "超卖反弹+动量确认共振入场；震荡市/下跌市效果好。",
@@ -654,7 +654,7 @@ const LAB_FUSION_STRATEGIES = {
   F_B1_rebound2pct: {
     name: "布林下轨回归+反弹2% 融合买", side: "buy", zone: "candidate_buy", status: "partial",
     conditions: ["布林下轨回归", "反弹2%"],
-    trigger: "同日AND：close从布林下轨回归 且 close>下轨*1.02（过滤勉强穿越假信号/死猫反弹）",
+    trigger: "同日同时满足：布林下轨回归 + 反弹2%（收盘价高于下轨2%）",
     conclusion: "主项目8指数已配置 buy_aux close_above_bl_2pct。f -21%->+20%转正（基础化工回测），5d/10d/20d三horizon一致，n=19<30样本警示",
     theory: "多信号融合买点。布林下轨回归捕捉超卖反弹，叠加反弹2%过滤（close>下轨*1.02），过滤勉强穿越假信号和死猫反弹。",
     scenario: "超卖反弹确认入场；过滤假突破/死猫反弹。",
@@ -664,7 +664,7 @@ const LAB_FUSION_STRATEGIES = {
   F_C1_MACD_golden: {
     name: "相对强弱上穿30+MACD金叉 融合买（实验性新组合）", side: "buy", zone: "candidate_buy", status: "experimental",
     conditions: ["相对强弱上穿30", "MACD金叉"],
-    trigger: "同日AND：相对强弱从≤30上穿>30（超卖反弹） 且 DIF上穿DEA（动量确认）",
+    trigger: "同日同时满足：相对强弱上穿30 + MACD金叉",
     conclusion: "实验性新组合。超卖反弹+动量确认共振，待回测验证",
     theory: "实验性新组合。相对强弱上穿30捕捉超卖反弹拐点，叠加MACD金叉确认动量转强。两条件同日AND共振。",
     scenario: "超卖反弹+动量确认共振入场；实验性，待回测验证。",
@@ -675,7 +675,7 @@ const LAB_FUSION_STRATEGIES = {
   F_D1_MA_death: {
     name: "D1回落5%+均线5/20死叉 融合卖（实验性新组合）", side: "sell", zone: "candidate_sell", status: "experimental",
     conditions: ["20日高回落5%", "均线5/20死叉"],
-    trigger: "同日AND：close从20日最高价回落5% 且 5日均线下穿20日均线（均线死叉共振）",
+    trigger: "同日同时满足：20日高回落5% + 均线5/20死叉",
     conclusion: "实验性新组合。回落+均线死叉共振，待回测验证",
     theory: "实验性新组合。20日高回落5%捕捉趋势转弱，叠加均线5/20死叉确认均线转弱。两条件同日AND共振。",
     scenario: "趋势转弱+均线死叉共振减仓；实验性，待回测验证。",
@@ -900,7 +900,7 @@ function _generateFusionCandidates() {
         zone: "candidate_buy",
         status: "pending",
         conditions: [buy.name, sell.name],
-        trigger: `同日AND：${buy.trigger && buy.trigger.substring(0, 30)}… && ${sell.trigger && sell.trigger.substring(0, 30)}…`,
+        trigger: `同日同时满足：${buy.trigger} 且 ${sell.trigger}`,
         conclusion: `配对候选：${buy.name} 作为买点 + ${sell.name} 作为卖点，待回测验证效果`,
         _isPending: true,
         _pairType: "buy_sell",
@@ -921,7 +921,7 @@ function _generateFusionCandidates() {
         zone: "candidate_buy",
         status: "pending",
         conditions: [b1.name, b2.name],
-        trigger: `同日AND共振：${b1.trigger && b1.trigger.substring(0, 30)}… && ${b2.trigger && b2.trigger.substring(0, 30)}…`,
+        trigger: `同日同时满足：${b1.trigger} 且 ${b2.trigger}`,
         conclusion: `双买共振候选：${b1.name} + ${b2.name} 双信号确认，待回测验证效果`,
         _isPending: true,
         _pairType: "buy_buy",
@@ -942,7 +942,7 @@ function _generateFusionCandidates() {
         zone: "candidate_sell",
         status: "pending",
         conditions: [s1.name, s2.name],
-        trigger: `同日AND共振：${s1.trigger && s1.trigger.substring(0, 30)}… && ${s2.trigger && s2.trigger.substring(0, 30)}…`,
+        trigger: `同日同时满足：${s1.trigger} 且 ${s2.trigger}`,
         conclusion: `双卖共振候选：${s1.name} + ${s2.name} 双信号确认，待回测验证效果`,
         _isPending: true,
         _pairType: "sell_sell",
