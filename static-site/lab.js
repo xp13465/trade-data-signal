@@ -868,7 +868,9 @@ function _labPairWinData(pairData, mode, win, simData) {
     equity_curve = [];
   }
   const hasFull = !!md.trades || !!ec || !!md.win_trades;
-  return { stats, trades, equity_curve, hasFull, winBaseCp, fromWinSim };
+  // open_positions: 未平仓持仓(按收盘价重估浮盈亏),每窗口独立 {all,y10,y5,y3,y1}
+  const openPositions = (md.open_positions && md.open_positions[win]) || [];
+  return { stats, trades, equity_curve, hasFull, winBaseCp, fromWinSim, openPositions };
 }
 
 // 窗口切换 tabs HTML（默认近1年：全史太密）
@@ -1696,20 +1698,43 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     return `<tr><td>${gi + 1}</td><td>${t.bd}</td><td>${t.bp}</td><td>${t.sd}</td><td>${t.sp}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hd}天</td><td>${at}</td><td style="color:${pc}">${cpStr}</td><td style="color:${pc};font-weight:600">${crStr}</td><td>${deltaHTML}</td></tr>`;
   }).join("");
 
+  // A方案:未平仓持仓行 -- 读 open_positions,展示当前仍持有的仓位(浮盈亏按收盘价重估)
+  // 字段对齐已成交行11列:#/买入日/买入价/卖出日/卖出价/收益率/持有/账户资金/累计盈亏/累计收益率/较上次
+  const openPositions = winData.openPositions || [];
+  const holdingRows = openPositions.map((p) => {
+    const isProfit = p.unrealized_pnl >= 0;
+    const pc = isProfit ? "var(--mx-good-fg)" : "var(--mx-bad-fg)";
+    const pnlStr = (isProfit ? "+" : "") + Math.round(p.unrealized_pnl).toLocaleString();
+    const pnlPctStr = (isProfit ? "+" : "") + p.unrealized_pnl_pct + "%";
+    return `<tr class="lab-sim-holding-row">` +
+      `<td><span class="lab-sim-holding-tag">持仓中</span></td>` +
+      `<td>${p.buy_date}</td><td>${p.buy_price}</td>` +
+      `<td style="color:var(--text-4)">持仓中</td><td>${p.last_close}</td>` +
+      `<td style="color:${pc};font-weight:600">${pnlPctStr}</td>` +
+      `<td>${p.hold_days}天</td>` +
+      `<td style="color:var(--text-4)">-</td>` +
+      `<td style="color:${pc}">${pnlStr}</td>` +
+      `<td style="color:var(--text-4)">-</td>` +
+      `<td style="color:var(--text-4)">-</td>` +
+      `</tr>`;
+  }).join("");
+  const holdingNote = openPositions.length ? ` · ${openPositions.length}笔持仓中` : "";
+
   const pagerHTML = totalPages > 1
     ? `<div class="lab-sim-pager">` +
       `<button class="lab-sim-prev" data-mode="${mode}"${currentPage === 0 ? " disabled" : ""}>上一页</button>` +
-      `<span class="lab-sim-page-info">第 ${currentPage + 1}/${totalPages} 页（共 ${totalReal} 笔${truncNote}）</span>` +
+      `<span class="lab-sim-page-info">第 ${currentPage + 1}/${totalPages} 页（共 ${totalReal} 笔${truncNote}${holdingNote}）</span>` +
       `<button class="lab-sim-next" data-mode="${mode}"${currentPage >= totalPages - 1 ? " disabled" : ""}>下一页</button>` +
       `</div>`
     : trades.length > 0
-      ? `<div class="lab-sim-pager"><span class="lab-sim-page-info">共 ${totalReal} 笔交易${truncNote}</span></div>`
+      ? `<div class="lab-sim-pager"><span class="lab-sim-page-info">共 ${totalReal} 笔交易${truncNote}${holdingNote}</span></div>`
       : "";
 
   const tradesBody = isOpen
     ? `<div class="lab-sim-trades-body">` +
       `<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
       (tradeRows || '<tr><td colspan="11" style="text-align:center;color:var(--text-4)">无交易记录</td></tr>') +
+      holdingRows +
       `</tbody></table></div>${pagerHTML}</div>`
     : "";
 
@@ -1719,7 +1744,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
       (midHTML || "") +
       `<div class="lab-sim-trades">` +
       `<div class="lab-sim-trades-header" data-mode="${mode}">` +
-      `<span class="lab-sim-trades-label">📋 交易记录 共 ${totalReal} 笔${truncNote}</span>` +
+      `<span class="lab-sim-trades-label">📋 交易记录 共 ${totalReal} 笔${truncNote}${holdingNote}</span>` +
       `<span class="lab-sim-trades-toggle">${isOpen ? "收起 ▲" : "展开 ▼"}</span>` +
       `</div>` +
       tradesBody +
@@ -1729,7 +1754,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
   return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
     (pairLabel ? `<div class="lab-sim-cur-pair">当前配对：${pairLabel}</div>` : "") +
     `<div class="lab-sim-stats">` +
-    `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元${openPositions.length ? '<br><span style="color:var(--text-3);font-size:11px">含未平仓持仓按收盘价重估</span>' : ""}</span></div>` +
     `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">${s.years} 年</span></div>` +
     `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
     `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
@@ -4425,7 +4450,7 @@ async function _labFusionEnsureFull(overlay, idx) {
 // === 二次测试扩展方向：信号叠加消融 / 多空对称 / 参数敏感扫描（3方向，全局单文件JSON）===
 // 数据源 lab_ablation.json / lab_short_symmetry.json / lab_param_scan.json（static-site/data/ 顶层）
 // 与 retest 三件套(分年/样本外/极端行情)互补，属"其余7方向"中的归因/优化类。
-// 3 方向数据获取（全局单文件，缓存到 state；web 版 /static/data/，static 版 ./data/）
+// 3 方向数据获取（全局单文件，缓存到 state；web 版 ./data/，static 版 ./data/）
 async function fetchLabAblationData() {
   if (state.labAblationData !== undefined) return state.labAblationData;
   try { state.labAblationData = await fetchJSON("./data/lab_ablation.json"); }

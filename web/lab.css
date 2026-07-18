@@ -369,6 +369,9 @@
 .lab-sim-table-wrap td { padding: 5px 10px; border-bottom: 1px solid var(--bg-hover); white-space: nowrap; }
 .lab-sim-table-wrap tr:nth-child(even) td { background: var(--bg-hover); }
 .lab-sim-table-wrap tr:hover td { background: var(--bg-hover); }
+.lab-sim-holding-row td { background: var(--mx-bad-bg) !important; }
+.lab-sim-holding-row:hover td { background: var(--mx-bad-bg) !important; }
+.lab-sim-holding-tag { display: inline-block; background: var(--mx-good-bg); color: var(--mx-good-fg); font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
 .lab-sim-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
 .lab-sim-pager button { padding: 4px 12px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-card); font-size: 12px; cursor: pointer; color: var(--text-2); transition: all 0.15s; }
 .lab-sim-pager button:hover:not(:disabled) { background: var(--bg-hover); }
