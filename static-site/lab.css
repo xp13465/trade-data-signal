@@ -609,6 +609,13 @@
   font-size: 12px; font-weight: 700; color: #9c27b0;
   background: #f3e5f5; padding: 2px 8px; border-radius: 4px; flex-shrink: 0;
 }
+/* 融合/同向共振配对视觉标识：紫色左边框 + 紫色标签（与皮肤紫色 #9c27b0 对齐） */
+.lab-rank-item.lab-rank-fusion { border-left: 3px solid #9c27b0; }
+.lab-rank-tag {
+  font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+  flex-shrink: 0; white-space: nowrap; line-height: 1.5;
+}
+.lab-rank-tag-fusion { color: #9c27b0; background: #f3e5f5; border: 1px solid #ce93d8; }
 .lab-rank-retest {
   font-size: 11px; font-weight: 700; color: #b8860b;
   background: linear-gradient(135deg, #fff8e1, #ffe082);
@@ -1052,6 +1059,8 @@
 /* C2: 排行榜分数/复测/荣誉徽章浅底硬编码 */
 [data-theme="dark"] .lab-rank-score,
 [data-theme="redgold"] .lab-rank-score { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .lab-rank-tag-fusion,
+[data-theme="redgold"] .lab-rank-tag-fusion { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
 [data-theme="dark"] .lab-rank-retest,
 [data-theme="redgold"] .lab-rank-retest { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
 [data-theme="dark"] .lab-rank-retest-rule,

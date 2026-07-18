@@ -2505,12 +2505,13 @@ function _labRankFilterHTML() {
     `<button type="button" class="lab-rank-freset" style="${_LAB_FSTYLE.reset}">重置</button></div>`;
 }
 
-// 聚合128组配对 + 算综合评分与风险调整
-// 新结构：simData.pairs 按 "buyKey|sellKey" 去重存储（配对只存一份），直接遍历即得 8买×8卖×2模式=128 组
-// opt.experimentalOnly=true 时仅保留实验中(experimental)策略的买×卖配对（融合模式用，7买×7卖=49配对），默认 false 保持单信号原行为
+// 聚合配对 + 算综合评分与风险调整（三榜隔离：single 只显买×卖；fusion 只显 F_融合+同向共振）
+// 新结构：simData.pairs 按 "buyKey|sellKey" 去重存储（配对只存一份），直接遍历即得配对组
+// opt.subMode: "single"=单一实验榜(只 buy_sell) / "fusion"=融合实验榜(F_融合+buy_buy/sell_sell共振，砍 plain buy_sell)
 function _labRankAggregate(simData, win, opt) {
   opt = opt || {};
   if (!simData || !simData.pairs) return [];
+  const subMode = opt.subMode || "single";
   // ⭐️二次测试候选集：后端 lab_retest_{index}.json 已按三窗口dd≤10%+n≥10+OR判定通过，前端查 pair 存在性，与后端一致（不按选中窗口动态算）
   const _reIdx = (simData.index_id) || (state.labSimIndex || "sh");
   const _reRd = state.labRetestDataMap && state.labRetestDataMap[_reIdx];
@@ -2518,18 +2519,39 @@ function _labRankAggregate(simData, win, opt) {
   const rows = [];
   for (const pairKey in simData.pairs) {
     const parts = pairKey.split("|");
-    const bk = parts[0], sk = parts[1];
-    // 融合模式：仅保留实验中(experimental)策略的买×卖配对，过滤掉已上线(live)生产策略配对
-    if (opt.experimentalOnly && ((LAB_STRATEGIES[bk] || {}).status !== "experimental" || (LAB_STRATEGIES[sk] || {}).status !== "experimental")) continue;
+    const bk = parts[0], sk = parts[1]; // sk=undefined 表示 F_ 独立融合策略(无|)
+    // 配对类型判定：is_fusion(任一方 F_) / buy_buy / sell_sell / buy_sell(按 LAB_STRATEGIES zone)
+    const isFusion = bk.indexOf("F_") === 0 || (sk && sk.indexOf("F_") === 0);
+    const bz = (LAB_STRATEGIES[bk] || {}).zone;
+    const sz = sk ? (LAB_STRATEGIES[sk] || {}).zone : null;
+    let pair_type;
+    if (isFusion) pair_type = "fusion";
+    else if (bz === "buy" && sz === "buy") pair_type = "buy_buy";
+    else if (bz === "sell" && sz === "sell") pair_type = "sell_sell";
+    else pair_type = "buy_sell";
+    // 三榜隔离：fusion 榜只显 融合(F_)+同向共振(buy_buy/sell_sell)，单一榜只显 buy_sell
+    if (subMode === "fusion") {
+      if (pair_type === "buy_sell") continue; // 砍掉纯单一买×卖(归单一实验)
+    } else {
+      if (pair_type !== "buy_sell") continue; // 砍掉融合/共振(归融合实验)
+    }
     const pairData = simData.pairs[pairKey];
+    // 名称：F_ 融合策略用 LAB_FUSION_STRATEGIES 名，单一策略用 LAB_STRATEGIES 名
+    const buyName = (isFusion && bk.indexOf("F_") === 0)
+      ? ((LAB_FUSION_STRATEGIES[bk] || {}).name || bk)
+      : ((LAB_STRATEGIES[bk] || {}).name || bk);
+    const sellName = !sk ? "" // F_ 独立融合策略无卖方
+      : ((isFusion && sk.indexOf("F_") === 0)
+        ? ((LAB_FUSION_STRATEGIES[sk] || {}).name || sk)
+        : ((LAB_STRATEGIES[sk] || {}).name || sk));
     for (const mode of ["full_in", "fixed_10k"]) {
       const wd = _labPairWinData(pairData, mode, win, simData);
       if (!wd || !wd.stats) continue;
       const s = wd.stats;
       rows.push({
-        buyKey: bk, sellKey: sk, mode,
-        buyName: (LAB_STRATEGIES[bk] || {}).name || bk,
-        sellName: (LAB_STRATEGIES[sk] || {}).name || sk,
+        buyKey: bk, sellKey: sk || "", mode,
+        buyName, sellName,
+        pair_type, is_fusion: pair_type === "fusion", is_standalone: !sk,
         modeName: mode === "full_in" ? "全仓" : "定额（10%）",
         total_ret: s.total_ret, annual_ret: s.annual_ret,
         max_drawdown: s.max_drawdown, win_rate: s.win_rate,
@@ -2581,9 +2603,28 @@ function _labRankItemHTML(row, rank, tab) {
   if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
   else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 998 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
   if (row.retest) extra += '<span class="lab-rank-retest" title="进入二次测试规则:近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次,且(综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0)">⭐️进入二次测试</span>';
-  return `<button type="button" class="lab-rank-item clickable-card" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
+  // 配对类型 -> 名称格式 + 视觉标识（紫色 #9c27b0）
+  const pt = row.pair_type || "buy_sell";
+  let nameHTML, tagHTML, itemCls = "lab-rank-item clickable-card";
+  if (pt === "fusion") {
+    itemCls += " lab-rank-fusion";
+    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀融合</span>';
+    nameHTML = row.is_standalone ? `${row.buyName}（独立回测）` : `买${row.buyName} × 卖${row.sellName}`;
+  } else if (pt === "buy_buy") {
+    itemCls += " lab-rank-fusion";
+    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀双买共振</span>';
+    nameHTML = `双买共振 ${row.buyName} × ${row.sellName}`;
+  } else if (pt === "sell_sell") {
+    itemCls += " lab-rank-fusion";
+    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀双卖共振</span>';
+    nameHTML = `双卖共振 ${row.buyName} × ${row.sellName}`;
+  } else {
+    tagHTML = "";
+    nameHTML = `买${row.buyName} × 卖${row.sellName}`;
+  }
+  return `<button type="button" class="${itemCls}" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
-    `<span class="lab-rank-name">买${row.buyName} × 卖${row.sellName} · ${row.modeName}</span>` +
+    `<span class="lab-rank-name">${nameHTML} · ${row.modeName}</span>${tagHTML}` +
     `<span class="lab-rank-stats">` +
       `<span style="color:${retC}">收益${row.total_ret > 0 ? "+" : ""}${row.total_ret}%</span>` +
       `<span style="color:${winC}">胜${row.win_rate}%</span>` +
@@ -2595,8 +2636,8 @@ function _labRankItemHTML(row, rank, tab) {
 function _labRankHTML(simData) {
   if (!simData) return '<div class="lab-rank-empty">配对排行数据加载失败，请稍后重试</div>';
   const win = state.labSimWindow || "y5";
-  // 融合信号模式：配对排行仅展示实验中策略的买×卖配对（7买×7卖=49配对），与左侧融合候选卡片范围一致
-  const rows = _labRankAggregate(simData, win, { experimentalOnly: state.labSubMode === "fusion" });
+  // 三榜隔离：single 只显买×卖；fusion 只显 F_融合+同向共振(buy_buy/sell_sell)
+  const rows = _labRankAggregate(simData, win, { subMode: state.labSubMode });
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无配对排行数据</div>';
   state.labRankRows = rows;
   const tab = state.labRankTab || "composite";
@@ -3322,11 +3363,21 @@ function _labRetestPairCN(strategy) {
   if (!strategy) return "-";
   const parts = strategy.split("|");
   const bk = parts[0], sk = parts[1];
-  const bm = LAB_STRATEGIES[bk];
-  const sm = LAB_STRATEGIES[sk];
-  if (!bm) console.warn("retest 中文化:未知买策略 key", bk);
-  if (!sm) console.warn("retest 中文化:未知卖策略 key", sk);
-  return `买${(bm && bm.name) || bk} × 卖${(sm && sm.name) || sk}`;
+  if (!sk) {
+    // F_ 独立融合策略(无|)
+    const fm = LAB_FUSION_STRATEGIES[bk];
+    return fm ? `${fm.name}（独立）` : bk;
+  }
+  const isFusion = bk.indexOf("F_") === 0 || sk.indexOf("F_") === 0;
+  const bm = LAB_STRATEGIES[bk], sm = LAB_STRATEGIES[sk];
+  const bn = (bm && bm.name) || bk, sn = (sm && sm.name) || sk;
+  if (!bm && !isFusion) console.warn("retest 中文化:未知买策略 key", bk);
+  if (!sm && !isFusion) console.warn("retest 中文化:未知卖策略 key", sk);
+  // 同向共振(buy_buy/sell_sell)按共振格式，不再硬编码"买X×卖Y"
+  const bz = bm && bm.zone, sz = sm && sm.zone;
+  if (!isFusion && bz === "buy" && sz === "buy") return `双买共振 ${bn} × ${sn}`;
+  if (!isFusion && bz === "sell" && sz === "sell") return `双卖共振 ${bn} × ${sn}`;
+  return `买${bn} × 卖${sn}`;
 }
 
 // meta.window("y5"等) -> 中文窗口名（复用 LAB_WIN_CN）
