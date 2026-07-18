@@ -1040,6 +1040,12 @@
   z-index: 1;
 }
 .lab-retest-card.lab-retest-focus-flash { animation: lab-rank-focus-blink 0.5s ease-in-out 3; }
+/* retest 右榜 hover 关联高亮：hover 右榜行时，左卡片同 pk 配对弱化高亮提示关联（蓝色，区别于跳转强高亮金色 lab-retest-focus；已有 focus 时不覆盖） */
+.lab-retest-card.lab-retest-hover-link:not(.lab-retest-focus) {
+  border-color: #4fc3f7;
+  background: linear-gradient(90deg, rgba(79,195,247,0.14), rgba(79,195,247,0.03));
+  box-shadow: 0 0 0 2px rgba(79,195,247,0.4);
+}
 
 /* === 深色/红金皮肤覆盖：浅底硬编码块在深色卡上变白块+浅字撞色，统一改 bg-hover 底 + text-2 字 === */
 /* C1: 状态标签(live/partial/exp/excluded 原浅底硬编码) */

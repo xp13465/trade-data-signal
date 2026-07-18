@@ -809,6 +809,9 @@ function _labGlossaryCloseModal() {
 }
 
 // 全局事件委托：点 [data-glossary] 或键盘 Enter/Space 触发 -> 打开词典并定位
+// ⚠️ click 用 capture 阶段：❓常嵌在排行榜行(.lab-rank-item)内，冒泡委托的 stopPropagation 来不及
+// 阻止行 onclick(冒泡更早在 item 层已触发配对详情弹窗，致双弹窗)。capture 在 document 层先于
+// item 冒泡触发，stopPropagation 阻止事件继续到 target/冒泡，行 onclick 不触发，只弹词典 modal。
 (function _initLabGlossaryDelegation() {
   document.addEventListener("click", (e) => {
     const el = e.target.closest("[data-glossary]");
@@ -816,13 +819,30 @@ function _labGlossaryCloseModal() {
     e.preventDefault();
     e.stopPropagation();
     _labGlossaryOpenModal(el.getAttribute("data-glossary"));
-  });
+  }, true); // capture：先于排行榜行 onclick(冒泡)，stopPropagation 才能生效
   document.addEventListener("keydown", (e) => {
     if ((e.key === "Enter" || e.key === " ") && e.target && e.target.closest && e.target.closest("[data-glossary]")) {
       e.preventDefault();
       _labGlossaryOpenModal(e.target.getAttribute("data-glossary"));
     }
   });
+})();
+
+// lab❓ hover pop 预览（"全要"：hover 简短释义 + 点击完整词典 modal）。
+// _labHelpIcon 因 TDZ 不能在生成时读 _LAB_GLOSSARY，故用 capture 阶段 mouseover 懒填充 data-tip：
+// hover 时（_LAB_GLOSSARY 已定义）取 desc 截断填入 data-tip，交由 app.js termTip 冒泡委托显示 .term-pop 浮层。
+// 点击仍走上方 [data-glossary] click capture -> _labGlossaryOpenModal。
+(function _initLabGlossaryHoverPop() {
+  document.addEventListener("mouseover", function (e) {
+    var el = e.target.closest && e.target.closest("[data-glossary]");
+    if (!el || el.hasAttribute("data-tip")) return; // 已有 data-tip 不重复填（避免覆盖 termTip/原生 title 迁移值）
+    var key = el.getAttribute("data-glossary");
+    var entry = typeof _LAB_GLOSSARY !== "undefined" && _LAB_GLOSSARY[key];
+    if (!entry) return;
+    var desc = String(entry.desc || "").replace(/\s+/g, " ").trim();
+    if (desc.length > 140) desc = desc.slice(0, 140) + "…";
+    el.setAttribute("data-tip", (entry.name ? entry.name + "：" : "") + desc + "（点击❓查看完整词典）");
+  }, true); // capture：先于 app.js 冒泡 mouseover 填充，让其接管显示
 })();
 
 // 6硬编码融合策略 -> base单一策略key映射（仅用于信号图/多周期矩阵/查看买卖信号按钮，
@@ -3728,7 +3748,8 @@ function _labRetestHonorsHTML(pk) {
 
 // 荣誉徽章点击：跳转到对应(指数,窗口)。同指数仅切窗口直接重渲染右榜；跨指数触发整页重载。
 function _labRetestHonorJump(hidx, hwin, focusPk) {
-  state._labRetestRankFocusPk = focusPk || null; // 跳转后高亮焦点行(消费于 rerender/rerenderResults 末尾)
+  state._labRetestRankFocusPk = focusPk || null; // 右榜行高亮(消费于 rerender/rerenderResults 末尾)
+  state.labRetestHighlight = focusPk || null; // 左卡片高亮(跨指数 reload 时由 _labRetestRenderCards 末尾消费)
   state.labRetestRankWindow = hwin;
   state.labRetestRankShowAll = false;
   const curIdx = state.labSimIndex || "sh";
@@ -3741,6 +3762,8 @@ function _labRetestHonorJump(hidx, hwin, focusPk) {
       const simData = (state.labSimDataMap && state.labSimDataMap[curIdx]) || null;
       _labRetestRankRerender(sec, rd, simData);
     }
+    // 同指数:左卡片不重渲,手动高亮匹配 pk 的左卡片(跨指数由 reload 内 _labRetestRenderCards 消费 labRetestHighlight)
+    if (focusPk) _labRetestHighlightCard(document.querySelector(".lab-retest-list"), focusPk);
   }
 }
 
@@ -3920,6 +3943,25 @@ function _labRetestRankResultsHTML() {
   return countHTML + `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
 }
 
+// retest 右榜行 hover：hover 某行时，若左侧卡片有同 pk 配对，加 lab-retest-hover-link 弱化高亮提示关联（区别于跳转强高亮 lab-retest-focus）。离开移除。
+// 遍历比较 dataset.pk（pk 含 | 等字符，避免属性选择器转义问题）。
+function _labRetestRankAttachItemHover(section) {
+  section.querySelectorAll(".lab-rank-item").forEach((item) => {
+    item.addEventListener("mouseenter", () => {
+      const pk = item.dataset.pk;
+      if (!pk) return;
+      const list = document.querySelector(".lab-retest-list");
+      if (!list) return;
+      list.querySelectorAll(".lab-retest-card").forEach((c) => {
+        if (c.dataset.pk === pk) c.classList.add("lab-retest-hover-link");
+      });
+    });
+    item.addEventListener("mouseleave", () => {
+      document.querySelectorAll(".lab-retest-hover-link").forEach((c) => c.classList.remove("lab-retest-hover-link"));
+    });
+  });
+}
+
 function _labRetestRankAttachHandlers(section, rd, simData) {
   // 指数切换：与左栏联动，触发 state._labRetestReload 重载该指数数据
   section.querySelectorAll(".lab-idx-tab").forEach((btn) => {
@@ -3952,6 +3994,7 @@ function _labRetestRankAttachHandlers(section, rd, simData) {
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
     item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
   });
+  _labRetestRankAttachItemHover(section); // hover 行高亮左卡片同 pk 配对（关联提示）
   _labRetestRankAttachBadges(section); // 荣誉徽章点击(跳转其他条件，stopPropagation 不触发行弹窗)
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
@@ -3964,6 +4007,7 @@ function _labRetestRankRerenderResults(section, rd, simData) {
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
     item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
   });
+  _labRetestRankAttachItemHover(section); // 局部刷新后重绑 hover
   _labRetestRankAttachBadges(section); // 局部刷新结果区后重绑徽章
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
@@ -3975,6 +4019,25 @@ function _labRetestRankRerender(section, rd, simData) {
   if (body) body.innerHTML = _labRetestRankHTML(rd, simData);
   _labRetestRankAttachHandlers(section, rd, simData);
   _labRetestRankFocusHighlight(section, rd, simData); // 跳转高亮(同指数切窗口/跨指数 reload 均经此)
+}
+
+// 左卡片高亮（共用）：定位+滚动+金色边框 lab-retest-focus + 短暂闪烁。返回是否找到并高亮。
+// 用于：①推荐榜"⭐️进入二次测试"跳转 ②荣誉徽章(🥇近10年等)跳转后高亮左卡片。
+// 纯高亮，不设右榜焦点（右榜焦点由调用方通过 _labRetestRankFocusPk 单独设）。
+function _labRetestHighlightCard(list, pk) {
+  if (!list || !pk) return false;
+  let card = null;
+  list.querySelectorAll(".lab-retest-card").forEach((c) => { if (c.dataset.pk === pk) card = c; });
+  if (!card) return false;
+  list.querySelectorAll(".lab-retest-focus").forEach((n) => n.classList.remove("lab-retest-focus", "lab-retest-focus-flash"));
+  try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
+  card.classList.add("lab-retest-focus", "lab-retest-focus-flash");
+  clearTimeout(state._labRetestCardFocusTimer);
+  state._labRetestCardFocusTimer = setTimeout(() => {
+    card.classList.remove("lab-retest-focus-flash"); // 停止闪烁
+    setTimeout(() => card.classList.remove("lab-retest-focus"), 3500); // 再持续高亮几秒后恢复
+  }, 2400);
+  return true;
 }
 
 // 左栏候选配对卡片：每配对1张紧凑卡（中文名+窗口+综合分+胜率/回撤/n），点击弹窗
@@ -4001,22 +4064,16 @@ function _labRetestRenderCards(list, rd) {
   list.querySelectorAll(".lab-retest-card").forEach((card) => {
     card.onclick = () => _labRetestPairOpenModal(rd, card.dataset.pk);
   });
-  // 跳转高亮：从推荐榜"⭐️进入二次测试"点击跳转来时，定位+高亮该配对卡片
+  // 跳转高亮：从推荐榜"⭐️进入二次测试"/荣誉徽章跨指数跳转来时，定位+高亮该配对卡片
   // 消费 state.labRetestHighlight（一次性）。key 找不到则静默放弃（不报错）。
   if (state.labRetestHighlight) {
     const pk = state.labRetestHighlight;
     state.labRetestHighlight = null;
-    let card = null;
-    list.querySelectorAll(".lab-retest-card").forEach((c) => { if (c.dataset.pk === pk) card = c; });
-    if (card) {
-      list.querySelectorAll(".lab-retest-focus").forEach((n) => n.classList.remove("lab-retest-focus", "lab-retest-focus-flash"));
-      try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
-      card.classList.add("lab-retest-focus", "lab-retest-focus-flash");
-      clearTimeout(state._labRetestCardFocusTimer);
-      state._labRetestCardFocusTimer = setTimeout(() => {
-        card.classList.remove("lab-retest-focus-flash"); // 停止闪烁
-        setTimeout(() => card.classList.remove("lab-retest-focus"), 3500); // 再持续高亮几秒后恢复
-      }, 2400);
+    if (_labRetestHighlightCard(list, pk)) {
+      // 转写给右排行榜:右榜随后渲染(_labRetestRankRerender 在本函数之后调用),
+      // 其末尾 _labRetestRankFocusHighlight 会消费 _labRetestRankFocusPk,
+      // 自动 scrollIntoView + lab-rank-focus 金色高亮(含前20外自动展开),复用现成机制。
+      state._labRetestRankFocusPk = pk;
     }
   }
 }
