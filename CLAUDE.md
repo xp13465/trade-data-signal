@@ -50,7 +50,8 @@
 - 不 add **根目录 data/** 下任何文件(sentiment.db/etf_national_team.db/signal_stats.json 保持本地 M / untracked 不推)
 - **`static-site/data/` 是正常上线渠道,不是§8禁推对象**:前端读的线上数据产物,`scripts/deploy.sh` 设计就是 commit+push 它(git 历史有 `data update [all]` commit 为证)。后端新增 JSON 字段/新品种后**必须跑 `bash scripts/deploy.sh` 推数据上线**,否则前端读旧数据(memory `data-schema-change-needs-deploy`)。deploy.sh 的 `git add` 只加 `static-site/data/` + min JS,不碰根 `data/`,安全
 - commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
-- 线上 curl 验证/测试优先用 `https://s.aisusu.cn/`(用户自有域名,比免费 `tdsignal-ujpzw01zm.maozi.io` 稳,2026-07-17 测试通过 HTTP200+数据正常+版本号最新),旧 maozi.io 兜底
+- 线上 curl 验证/测试优先用 `https://s.sugas.site/`(用户个人域名,2026-07-18 上线,MaoziYun 托管自动拉 git main 部署,有拉取延迟+max-age=1200缓存,验线上若 404/旧版等几分钟再 curl),`https://s.aisusu.cn/` 同站点仍可达作兜底(s.aisusu.cn 用户已弃用但 DNS 未撤),旧 maozi.io 最后兜底
+- ⚠️ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0(非 Cloudflare),`_headers` 不生效(CSP/HSTS preload/nosniff/X-Frame/Permissions-Policy 无法落地),MaoziYun 自带 HSTS + meta referrer 兜底;`_headers` 配置保留,未来迁移 CF Workers(wrangler.jsonc 已存在)即生效(2026-07-18 用户接受现状)
 
 ## 9. 单版前端铁律(2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变

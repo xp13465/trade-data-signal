@@ -2047,3 +2047,37 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - 纯前端修复（8 行），无需重跑后端/JSON（full JSON 已含 win_trades）。改完 `build_min.py` + `bump_asset_version.py` + 双版 diff 归一化（=0）+ `deploy.sh` 上线。
 - 验收：线上 `lab.min.js?v=9f0c7a67` 含 win_trades 搬运代码；根 `data/signal_stats.json` 保持 M 未推（§8）。
 - 本节 NOTES §36
+
+---
+
+## §37 网安合规审计与修复（2026-07-18）
+
+### 审计背景
+用户要求网安合规审计视角检查站点，完成 P0-P3 分级风险修复 + 品牌更名 + 域名变更。本节落档全量修复项、品牌更名、域名变更及 MaoziYun 托管 limitation。
+
+### P0-P3 修复落地
+- **P0-1 ICP 备案**：s.sugas.site（.site 国际域名）走 MaoziYun 境外托管不需 ICP；footer ICP 占位隐藏（HTML 注释保留待国内备案启用）；原 s.aisusu.cn（.cn 未备案）风险随弃用消除
+- **P0-2 证券投资咨询资质**：强化教育/研究工具定位，弱化推荐语义 12 项--凯利"建议仓位"->"公式计算（研究参考）"；推荐榜->配对对比榜/综合评分；绝对化"并列第1/最高/最强/最佳互补"->"并列靠前/较高"；首页 risk-banner 非持牌声明；实验室自白置顶；分享图 canvas 水印免责；trade_sim 批量页 title 买卖点->技术信号+免责常驻
+- **P1-1 百度统计**：保留 + 新建隐私政策页 privacy.html（站点性质/采集/Cookie/第三方服务/未成年保护/免责）
+- **P1-4 manual API**：本地调试不公网，暂缓（未来公网加 token）
+- **P2-1 CSP**：_headers 加 CSP-Report-Only（MaoziYun 不处理 _headers，未来迁移 CF 生效）
+- **P2-2 .map 下线**：build_min.py 移除 source-map + git rm app/lab.min.js.map + .gitignore 加 *.map
+- **P2-3 postMessage**：'*' -> window.location.origin（同源 iframe，dev/prod 通用）
+- **P2-4 SRI**：跳过（同源自托管无安全增益 + hm.js/push.js 动态注入 hash 不稳定）
+- **P2-5 数据来源**：footer 加「东方财富/腾讯财经/baostock/同花顺等公开来源」
+- **P2-6 og域名**：canonical/og:url/og:image 改 s.sugas.site
+- **P3-1 HSTS**：_headers 加 preload（MaoziYun 不生效，自带 max-age=63072000）
+- **P3-2 安全头**：_headers 加 nosniff/X-Frame-Options/Referrer-Policy/Permissions-Policy（MaoziYun 不生效，Referrer-Policy 经 meta referrer 兜底）
+- **P3-3 绝对化用语**：改（含 P0-2）
+- **P3-4 腾讯API**：privacy.html 第三方服务节声明（线上无后端不代理，前端直拉保留+声明）
+
+### 品牌更名
+市场温度看板 -> 信号实验室（中文展示位），tdsignal/trade-data-signal 保留作英文副标识（中英并行）；策略实验室 tab -> 策略实验（避免与品牌名重叠）；域名 s.aisusu.cn -> sugas.site -> s.sugas.site（加 s 子域），s.aisusu.cn 弃用（DNS 未撤仍可达）；关于页 about.html 定位展示（策略实验核心+其他佐证+非咨询+数据来源+免责）
+
+### limitation（重要）
+s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`_headers` 不生效（CSP/HSTS preload/nosniff/X-Frame/Permissions-Policy 无法落地），MaoziYun 自带 HSTS max-age=63072000 + meta referrer 兜底；wrangler.jsonc 已存在，未来迁移 CF Workers Static Assets 即生效；用户 2026-07-18 决策接受现状
+
+### commits
+9ea8532（footer ICP+隐私）/1006b15（弱化12项）/310c587（信号实验室）/1d0fa8e（sugas.site）/2768678（P2/P3 8项）/02e702c（meta referrer兜底）/2017906（s.sugas.site+策略实验+关于页）
+
+- 本节 NOTES §37
