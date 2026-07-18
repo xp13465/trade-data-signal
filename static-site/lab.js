@@ -4304,44 +4304,71 @@ async function _labFusionPairModalRender(overlay) {
     ? `<div class="lab-sim-signal-btn-wrap"><button type="button" class="lab-sim-signal-btn" data-buy="${sigBuyKey}" data-sell="${sigSellKey}">📊 查看买卖信号</button></div>`
     : "";
 
-  // 信号图（91候选 A/A/A：合并双策略指标 + 双色信号点；6硬编码 AND共振；失败回退 chartBaseKey 代理）
+  // 信号图：91候选=双图上下排列(策略A上图+策略B下图，各自独立 echarts)；6硬编码=AND共振单图；失败回退 chartBaseKey 代理
   let chartSectionHTML = "";
-  let chartCfg = null, chartSliced = null;
+  let chartCfg = null, chartSliced = null;             // 单图（6硬编码/代理）
+  let chartCfgA = null, chartCfgB = null;               // 双图（91候选 策略A/B）
+  let chartSlicedA = null, chartSlicedB = null;
+  let isDualChart = false;
   if (chartData && chartData.ohlc && chartData.ohlc.length) {
     const idxName = _INDEX_NAME_MAP[m.index] || m.index;
-    const components = fmInfo ? fmInfo.components : null;
-    chartCfg = _labBuildFusionChartConfig(meta, chartData.ohlc, idxName, isHardcoded, components);
-    let chartTitleSuffix = isHardcoded ? "（AND共振）" : "（成分策略合并）";
-    if (!chartCfg && chartBaseKey && LAB_CHART_KEYS[chartBaseKey]) {
-      chartCfg = _labBuildChartConfig(chartBaseKey, chartData.ohlc, idxName);
-      chartTitleSuffix = "（基础策略「" + chartBaseName + "」代理）";
-    }
-    if (chartCfg) {
-      chartSliced = _labChartSlice(chartData.ohlc, chartCfg.indicators, chartCfg.signals, win);
-      const cWinLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
-      // 触发统计：双色信号按成分分色计数，单色(6硬编码/代理)回退总数
-      let statHTML;
-      if (chartCfg.signalParts) {
-        const parts = chartCfg.signalParts.map((p) => {
-          const cnt = chartSliced.signals.filter((s) => s.color === p.color).length;
-          return `<b style="color:${p.color}">${p.label} ${cnt}</b>`;
-        });
-        statHTML = '<div class="lab-signal-stat">' + parts.join(' · ') + `（${cWinLabel}）</div>`;
-      } else {
-        statHTML = '<div class="lab-signal-stat">共触发 <b>' + chartSliced.signals.length + '</b> 个' + chartCfg.statLabel + '（' + cWinLabel + '）</div>';
-      }
-      // 双色图例（仅成分合并图）
-      const legendHTML = chartCfg.signalParts
-        ? '<div class="lab-fusion-chart-legend">' + chartCfg.signalParts.map((p) => `<span><i style="background:${p.color}"></i>${p.label}</span>`).join('') + '</div>'
-        : '';
+    const cWinLabel = (LAB_WIN_DEFS.find((w) => w.k === win) || {}).l || "";
+    if (!isHardcoded && meta._pairType) {
+      // 91候选：双图上下排列，各自独立 echarts 实例，共享当前指数+窗口时间范围
+      // 复用 _labBuildChartConfig/_labChartSlice/renderLabChartEx（均纯函数，双图各调一次传不同 key+容器）
+      const k1 = meta._buyKey, k2 = meta._sellKey;
+      const s1Meta = LAB_STRATEGIES[k1] || {}, s2Meta = LAB_STRATEGIES[k2] || {};
+      const name1 = s1Meta.name || k1, name2 = s2Meta.name || k2;
+      const side1 = s1Meta.side, side2 = s2Meta.side;
+      // 买红卖绿（对齐 A 股习惯 + 现有融合合并图配色 BUY_C/SELL_C）
+      const color1 = side1 === 'sell' ? '#2e7d32' : '#c92a2a';
+      const color2 = side2 === 'sell' ? '#2e7d32' : '#c92a2a';
+      const statLabel1 = side1 === 'buy' ? '买点' : '卖点';
+      const statLabel2 = side2 === 'buy' ? '买点' : '卖点';
+      chartCfgA = LAB_CHART_KEYS[k1] ? _labBuildChartConfig(k1, chartData.ohlc, idxName) : null;
+      chartCfgB = LAB_CHART_KEYS[k2] ? _labBuildChartConfig(k2, chartData.ohlc, idxName) : null;
+      if (chartCfgA) chartSlicedA = _labChartSlice(chartData.ohlc, chartCfgA.indicators, chartCfgA.signals, win);
+      if (chartCfgB) chartSlicedB = _labChartSlice(chartData.ohlc, chartCfgB.indicators, chartCfgB.signals, win);
+      isDualChart = true;
+      const cnt1 = chartSlicedA ? chartSlicedA.signals.length : 0;
+      const cnt2 = chartSlicedB ? chartSlicedB.signals.length : 0;
+      // 单子图 HTML（内联 style，不新增 CSS class；占位复用现有 .lab-fusion-chart-ph 样式）
+      const subHTML = (nm, side, color, cnt, statLabel, phCls, hasChart) =>
+        '<div style="margin-top:14px;">' +
+        '<div style="font-size:13px;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px;color:var(--text-1);">' +
+        '<i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + color + '"></i>' +
+        nm + '（' + (side === 'buy' ? '买' : '卖') + '）</div>' +
+        (hasChart
+          ? '<div class="lab-fusion-chart-ph ' + phCls + '"><div class="loading">加载中…</div></div>' +
+            '<div class="lab-signal-stat">共触发 <b style="color:' + color + '">' + cnt + '</b> 个' + statLabel + '（' + cWinLabel + '）</div>'
+          : '<div class="empty-note">该策略暂无图表实现</div>') +
+        '</div>';
       chartSectionHTML = '<div class="chart-card lab-chart-section">' +
-        '<h3>📈 信号图' + chartTitleSuffix + '</h3>' +
-        legendHTML +
-        '<div class="lab-fusion-chart-ph"><div class="loading">加载中…</div></div>' +
-        statHTML +
+        '<h3>📈 信号图（成分策略分图）</h3>' +
+        '<div class="lab-fusion-chart-legend"><span><i style="background:#c92a2a"></i>买</span><span><i style="background:#2e7d32"></i>卖</span></div>' +
+        subHTML(name1, side1, color1, cnt1, statLabel1, 'lab-fusion-chart-ph-a', !!chartCfgA) +
+        subHTML(name2, side2, color2, cnt2, statLabel2, 'lab-fusion-chart-ph-b', !!chartCfgB) +
         '</div>';
     } else {
-      chartSectionHTML = '<div class="chart-card lab-chart-section"><h3>📈 信号图</h3><div class="empty-note">该融合策略暂不支持信号图</div></div>';
+      // 6硬编码：AND共振单图 / chartBaseKey 代理（保持原逻辑不回归）
+      const components = fmInfo ? fmInfo.components : null;
+      chartCfg = _labBuildFusionChartConfig(meta, chartData.ohlc, idxName, isHardcoded, components);
+      let chartTitleSuffix = "（AND共振）";
+      if (!chartCfg && chartBaseKey && LAB_CHART_KEYS[chartBaseKey]) {
+        chartCfg = _labBuildChartConfig(chartBaseKey, chartData.ohlc, idxName);
+        chartTitleSuffix = "（基础策略「" + chartBaseName + "」代理）";
+      }
+      if (chartCfg) {
+        chartSliced = _labChartSlice(chartData.ohlc, chartCfg.indicators, chartCfg.signals, win);
+        const statHTML = '<div class="lab-signal-stat">共触发 <b>' + chartSliced.signals.length + '</b> 个' + chartCfg.statLabel + '（' + cWinLabel + '）</div>';
+        chartSectionHTML = '<div class="chart-card lab-chart-section">' +
+          '<h3>📈 信号图' + chartTitleSuffix + '</h3>' +
+          '<div class="lab-fusion-chart-ph"><div class="loading">加载中…</div></div>' +
+          statHTML +
+          '</div>';
+      } else {
+        chartSectionHTML = '<div class="chart-card lab-chart-section"><h3>📈 信号图</h3><div class="empty-note">该融合策略暂不支持信号图</div></div>';
+      }
     }
   } else {
     chartSectionHTML = '<div class="chart-card lab-chart-section"><h3>📈 信号图</h3><div class="empty-note">该指数暂无数据</div></div>';
@@ -4485,6 +4512,24 @@ async function _labFusionPairModalRender(overlay) {
     if (chartPh && chartCfg && chartSliced) {
       chartPh.innerHTML = "";
       renderLabChartEx(chartCfg.chartTitle, chartSliced.ohlc, chartSliced.indicators, chartSliced.signals, chartPh, charts, chartCfg.signalLabel, chartCfg.signalColor);
+    }
+    // 91候选双图：上下两图各自独立 echarts 实例（策略A + 策略B），signalColor 按 side 买红卖绿
+    // 实例 push 进全局 charts 数组，re-render 时由上方 dispose 循环自动释放（防泄漏）
+    if (isDualChart) {
+      const _k1 = meta._buyKey, _k2 = meta._sellKey;
+      const _s1 = LAB_STRATEGIES[_k1] || {}, _s2 = LAB_STRATEGIES[_k2] || {};
+      const _c1 = _s1.side === 'sell' ? '#2e7d32' : '#c92a2a';
+      const _c2 = _s2.side === 'sell' ? '#2e7d32' : '#c92a2a';
+      const phA = body.querySelector(".lab-fusion-chart-ph-a");
+      const phB = body.querySelector(".lab-fusion-chart-ph-b");
+      if (phA && chartCfgA && chartSlicedA) {
+        phA.innerHTML = "";
+        renderLabChartEx(chartCfgA.chartTitle, chartSlicedA.ohlc, chartSlicedA.indicators, chartSlicedA.signals, phA, charts, chartCfgA.signalLabel, _c1);
+      }
+      if (phB && chartCfgB && chartSlicedB) {
+        phB.innerHTML = "";
+        renderLabChartEx(chartCfgB.chartTitle, chartSlicedB.ohlc, chartSlicedB.indicators, chartSlicedB.signals, phB, charts, chartCfgB.signalLabel, _c2);
+      }
     }
     // 矩阵行高亮
     _labUpdateMatrixRowHighlight();
