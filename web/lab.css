@@ -555,7 +555,7 @@
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-card); cursor: pointer; transition: all 0.15s;
-  text-align: left; font-family: inherit; width: 100%;
+  text-align: left; font-family: inherit; width: 100%; color: var(--text-2);
 }
 .lab-rank-item:hover { border-color: #9c27b0; box-shadow: 0 2px 8px rgba(156, 39, 176, 0.1); transform: translateY(-1px); }
 /* 跳转高亮焦点行:荣誉徽章"其他条件排名"点击跳转后,金色边框+背景+闪烁,让用户一眼定位跳转目标 */
@@ -621,7 +621,7 @@
   font-weight: 400;
 }
 /* 荣誉共享标注：策略在其他(指数×窗口)下的 Top3 排名徽章，点击跳转对应条件 */
-.lab-rank-honors { display: flex; gap: 4px; flex-wrap: wrap; flex: 1 1 100%; padding-top: 2px; }
+.lab-rank-honors { display: flex; gap: 4px; flex-wrap: wrap; flex: 1 1 100%; padding-top: 2px; color: var(--text-3); }
 .lab-rank-honor-badge {
   font-size: 10.5px; font-weight: 600; cursor: pointer;
   padding: 1px 6px; border-radius: 4px; white-space: nowrap;
