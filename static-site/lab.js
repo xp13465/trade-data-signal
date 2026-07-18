@@ -2747,11 +2747,17 @@ function _labRankAggregate(simData, win, opt) {
 
 function _labRankSort(rows, tab) {
   const arr = rows.slice();
-  if (tab === "ret") arr.sort((a, b) => b.total_ret - a.total_ret);
-  else if (tab === "win") arr.sort((a, b) => b.win_rate - a.win_rate);
-  else if (tab === "stable") arr.sort((a, b) => a.max_drawdown - b.max_drawdown);
-  else if (tab === "risk_adj") arr.sort((a, b) => b.risk_adj - a.risk_adj);
-  else arr.sort((a, b) => b.score - a.score); // composite
+  // 无交易(n_trades<=0/null/NaN)的配对所有维度排末尾：避免回撤0被当最小排第一(用户反馈"稳健榜样本数0排第一无意义")。
+  // 区分"无交易n=0"与"有交易但回撤0"——后者 n_trades>0 正常参与排序,不会被压到末尾。
+  arr.sort((a, b) => {
+    const an = a.n_trades > 0, bn = b.n_trades > 0;
+    if (an !== bn) return an ? -1 : 1; // 有交易优先，无交易沉底
+    if (tab === "ret") return b.total_ret - a.total_ret;
+    if (tab === "win") return b.win_rate - a.win_rate;
+    if (tab === "stable") return a.max_drawdown - b.max_drawdown; // 回撤小优先
+    if (tab === "risk_adj") return b.risk_adj - a.risk_adj;
+    return b.score - a.score; // composite
+  });
   return arr;
 }
 
@@ -3767,14 +3773,19 @@ function _labRetestRankRows(rd, simData, winKey) {
 
 function _labRetestRankSort(rows, tab) {
   const arr = rows.slice();
-  if (tab === "ret") arr.sort((a, b) => b.ret - a.ret);
-  else if (tab === "win") arr.sort((a, b) => b.win - a.win);
-  else if (tab === "dd") arr.sort((a, b) => a.dd - b.dd); // 回撤小优先
-  else if (tab === "n") arr.sort((a, b) => b.n - a.n);
-  else if (tab === "yearly") arr.sort((a, b) => b.yearlyScore - a.yearlyScore);
-  else if (tab === "oos") arr.sort((a, b) => b.oosScore - a.oosScore);
-  else if (tab === "regimes") arr.sort((a, b) => b.regimeScore - a.regimeScore);
-  else arr.sort((a, b) => b.score - a.score); // 综合(新公式，含三切片)
+  // 无交易(n<=0/null/NaN)的配对所有维度排末尾：避免回撤0被当最小排第一(与_labRankSort同因)。
+  arr.sort((a, b) => {
+    const an = a.n > 0, bn = b.n > 0;
+    if (an !== bn) return an ? -1 : 1; // 有交易优先，无交易沉底
+    if (tab === "ret") return b.ret - a.ret;
+    if (tab === "win") return b.win - a.win;
+    if (tab === "dd") return a.dd - b.dd; // 回撤小优先
+    if (tab === "n") return b.n - a.n;
+    if (tab === "yearly") return b.yearlyScore - a.yearlyScore;
+    if (tab === "oos") return b.oosScore - a.oosScore;
+    if (tab === "regimes") return b.regimeScore - a.regimeScore;
+    return b.score - a.score; // 综合(新公式，含三切片)
+  });
   return arr;
 }
 
