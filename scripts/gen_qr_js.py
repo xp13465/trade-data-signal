@@ -7,7 +7,7 @@
 """
 import qrcode
 
-URL = "https://s.aisusu.cn/"
+URL = "https://sugas.site/"
 
 
 def main():

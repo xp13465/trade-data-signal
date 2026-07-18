@@ -5807,7 +5807,7 @@ function drawShareCard(r) {
   ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(60, H - 150); ctx.lineTo(870, H - 150); ctx.stroke();
   ctx.fillStyle = "#165dff"; ctx.font = "bold 34px 'PingFang SC',sans-serif";
-  ctx.fillText("s.aisusu.cn", 60, H - 95);
+  ctx.fillText("sugas.site", 60, H - 95);
   ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
   ctx.fillText("盘后复盘·多市场情绪·买卖点信号", 60, H - 55);
   // 底部免责水印（合规：教育研究定位，非投资建议）
