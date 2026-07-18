@@ -1703,21 +1703,41 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
   // A方案:未平仓持仓行 -- 读 open_positions,展示当前仍持有的仓位(浮盈亏按收盘价重估)
   // 字段对齐已成交行11列:#/买入日/买入价/卖出日/卖出价/收益率/持有/账户资金/累计盈亏/累计收益率/较上次
   const openPositions = winData.openPositions || [];
+  // 持仓中行账户资金/累计收益率/较上次: 以末次已成交 at 为 baseAt, 逐笔累加 unrealized_pnl。
+  // 末笔账户资金 = baseAt + sum(unrealized_pnl) ≈ stats.final_total(顶部期末资金, 含未平仓重估),
+  // 末笔累计收益率 ≈ total_ret(顶部总收益率), 与顶部卡片直观对齐。
+  // 注意 baseAt 取全 trades 末笔(该窗口全量, 非分页切片 showTrades 末笔)。
+  const lastTrade = trades.length ? trades[trades.length - 1] : null;
+  const baseAt = (lastTrade && lastTrade.at != null) ? lastTrade.at : initCapital;
+  let cumAt = baseAt;  // 逐笔累加账户资金, 初始=末次已成交 at; 每行 += 本笔 unrealized_pnl
   const holdingRows = openPositions.map((p) => {
     const isProfit = p.unrealized_pnl >= 0;
     const pc = isProfit ? "var(--mx-good-fg)" : "var(--mx-bad-fg)";
     const pnlStr = (isProfit ? "+" : "") + Math.round(p.unrealized_pnl).toLocaleString();
     const pnlPctStr = (isProfit ? "+" : "") + p.unrealized_pnl_pct + "%";
+    // 账户资金 = 上一行账户资金 + 本笔浮盈(第1笔上一行=baseAt=末次已成交 at)
+    cumAt = cumAt + p.unrealized_pnl;
+    const atStr = Math.round(cumAt).toLocaleString();
+    // 累计收益率 = (账户资金 - initCapital)/initCapital*100, 与顶部 total_ret 同口径(分母恒 initCapital)
+    const crVal = initCapital > 0 ? (cumAt - initCapital) / initCapital * 100 : 0;
+    const crPC = crVal >= 0 ? "#c92a2a" : "#2e7d32";
+    const crStr = (crVal >= 0 ? "+" : "") + crVal.toFixed(2) + "%";
+    // 较上次: 本笔账户资金 - 上一行账户资金 = 本笔 unrealized_pnl; 收益率差 = dp/initCapital*100
+    const dp = p.unrealized_pnl;
+    const dr = initCapital > 0 ? dp / initCapital * 100 : 0;
+    const dc = dp >= 0 ? "#c92a2a" : "#2e7d32";
+    const deltaHTML = `<span style="color:${dc};font-weight:600">${dr >= 0 ? "+" : ""}${dr.toFixed(2)}%</span>` +
+      `<br><span style="color:${dc};font-size:11px">${dp >= 0 ? "+" : ""}${Math.round(dp).toLocaleString()}</span>`;
     return `<tr class="lab-sim-holding-row">` +
       `<td><span class="lab-sim-holding-tag">持仓中</span></td>` +
       `<td>${p.buy_date}</td><td>${p.buy_price}</td>` +
       `<td style="color:var(--text-4)">持仓中</td><td>${p.last_close}</td>` +
       `<td style="color:${pc};font-weight:600">${pnlPctStr}</td>` +
       `<td>${p.hold_days}天</td>` +
-      `<td style="color:var(--text-4)">-</td>` +
+      `<td>${atStr}</td>` +
       `<td style="color:${pc}">${pnlStr}</td>` +
-      `<td style="color:var(--text-4)">-</td>` +
-      `<td style="color:var(--text-4)">-</td>` +
+      `<td style="color:${crPC};font-weight:600">${crStr}</td>` +
+      `<td>${deltaHTML}</td>` +
       `</tr>`;
   }).join("");
   const holdingNote = openPositions.length ? ` · ${openPositions.length}笔持仓中` : "";
