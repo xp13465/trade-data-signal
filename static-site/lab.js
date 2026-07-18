@@ -1646,6 +1646,7 @@ function _labTriggerBrief(trigger) {
 // winData = {stats, trades, equity_curve}，已按当前窗口切片（_labPairWinData 产出）
 function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel, midHTML, idx) {
   const s = winData && winData.stats;
+  const idxName = idx ? _labIdxName(idx) : "";  // 交易品种名（每行直接标注，不只靠区块/弹窗标题）
   if (!s) {
     return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
       (pairLabel ? `<div class="lab-sim-cur-pair">当前配对：${pairLabel}</div>` : "") +
@@ -1703,11 +1704,11 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
       deltaHTML = `<span style="color:${dc};font-weight:600">${dr >= 0 ? "+" : ""}${dr.toFixed(2)}%</span>` +
         `<br><span style="color:${dc};font-size:11px">${dp >= 0 ? "+" : ""}${Math.round(dp).toLocaleString()}</span>`;
     }
-    return `<tr><td>${gi + 1}</td><td>${t.bd}</td><td>${t.bp}</td><td>${t.sd}</td><td>${t.sp}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hd}天</td><td>${at}</td><td style="color:${pc}">${cpStr}</td><td style="color:${pc};font-weight:600">${crStr}</td><td>${deltaHTML}</td></tr>`;
+    return `<tr><td style="white-space:nowrap"><span style="color:var(--text-2);font-size:12px;font-weight:500">${idxName || "-"}</span></td><td>${gi + 1}</td><td>${t.bd}</td><td>${t.bp}</td><td>${t.sd}</td><td>${t.sp}</td><td style="color:${tc};font-weight:600">${t.ret > 0 ? "+" : ""}${t.ret}%</td><td>${t.hd}天</td><td>${at}</td><td style="color:${pc}">${cpStr}</td><td style="color:${pc};font-weight:600">${crStr}</td><td>${deltaHTML}</td></tr>`;
   }).join("");
 
   // A方案:未平仓持仓行 -- 读 open_positions,展示当前仍持有的仓位(浮盈亏按收盘价重估)
-  // 字段对齐已成交行11列:#/买入日/买入价/卖出日/卖出价/收益率/持有/账户资金/累计盈亏/累计收益率/较上次
+  // 字段对齐已成交行12列:品种/#/买入日/买入价/卖出日/卖出价/收益率/持有/账户资金/累计盈亏/累计收益率/较上次
   const openPositions = winData.openPositions || [];
   // 持仓中行账户资金/累计收益率/较上次: 以末次已成交 at 为 baseAt, 逐笔累加 unrealized_pnl。
   // 末笔账户资金 = baseAt + sum(unrealized_pnl) ≈ stats.final_total(顶部期末资金, 含未平仓重估),
@@ -1735,6 +1736,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     const deltaHTML = `<span style="color:${dc};font-weight:600">${dr >= 0 ? "+" : ""}${dr.toFixed(2)}%</span>` +
       `<br><span style="color:${dc};font-size:11px">${dp >= 0 ? "+" : ""}${Math.round(dp).toLocaleString()}</span>`;
     return `<tr class="lab-sim-holding-row">` +
+      `<td style="white-space:nowrap"><span style="color:var(--text-2);font-size:12px;font-weight:500">${idxName || "-"}</span></td>` +
       `<td><span class="lab-sim-holding-tag">持仓中</span></td>` +
       `<td>${p.buy_date}</td><td>${p.buy_price}</td>` +
       `<td style="color:var(--text-4)">持仓中</td><td>${p.last_close}</td>` +
@@ -1760,8 +1762,8 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
 
   const tradesBody = isOpen
     ? `<div class="lab-sim-trades-body">` +
-      `<div class="lab-sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
-      (tradeRows || '<tr><td colspan="11" style="text-align:center;color:var(--text-4)">无交易记录</td></tr>') +
+      `<div class="lab-sim-table-wrap"><table><thead><tr><th>品种</th><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
+      (tradeRows || '<tr><td colspan="12" style="text-align:center;color:var(--text-4)">无交易记录</td></tr>') +
       holdingRows +
       `</tbody></table></div>${pagerHTML}</div>`
     : "";
