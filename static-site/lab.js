@@ -1547,6 +1547,7 @@ async function fetchLabSimFullData(index, onProgress, signal) {
             sp[mode].tw = fp[mode].tw;
             sp[mode].win_trades = fp[mode].win_trades;
             sp[mode].win_base_cp = fp[mode].win_base_cp;
+            sp[mode].open_positions = fp[mode].open_positions;
           }
         }
       }
