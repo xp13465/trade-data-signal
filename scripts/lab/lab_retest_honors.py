@@ -204,8 +204,8 @@ def main():
     n_pairs = len(honors)
     n_honors = sum(len(v) for v in honors.values())
     print(f'\n荣誉表: {n_pairs} 个 pair, 共 {n_honors} 条 Top3 荣誉')
-    # 双版同步写入(与 lab_retest.py 一致)
-    for base_dir in ('web', 'static-site'):
+    # 写入 static-site(与 lab_retest.py 一致)
+    for base_dir in ('static-site',):
         out_path = os.path.join(BASE, base_dir, 'data', 'lab', 'lab_retest_honors.json')
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         with open(out_path, 'w', encoding='utf-8') as f:

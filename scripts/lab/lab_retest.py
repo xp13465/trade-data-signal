@@ -338,8 +338,8 @@ def run_retest_for_index(iid, iname):
 
     print(f'  ⭐️候选数: {star_count}')
 
-    # 写入双版
-    for base_dir in ('web', 'static-site'):
+    # 写入 static-site
+    for base_dir in ('static-site',):
         out_path = os.path.join(BASE, base_dir, 'data', 'lab', f'lab_retest_{iid}.json')
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         with open(out_path, 'w', encoding='utf-8') as f:

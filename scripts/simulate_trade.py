@@ -1068,7 +1068,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
           {sub_panels}
         </div>"""
 
-    # 主题变量 CSS（与父页面 web/style.css 一致；iframe 是独立文档，需自带变量定义）
+    # 主题变量 CSS（与父页面 static-site/style.css 一致；iframe 是独立文档，需自带变量定义）
     THEME_CSS = """
 :root {
   --bg-page: #f5f6f8; --bg-card: #fff; --bg-hover: #f7f8fa; --bg-active: #f0f5ff;
@@ -1266,10 +1266,10 @@ tr:hover td {{ background: var(--bg-hover); }}
 </html>"""
 
 
-def _generate_one(index_id, name_map, out_dir_static, out_dir_web, output=None):
+def _generate_one(index_id, name_map, out_dir_static, output=None):
     """生成单个品种的回测 HTML。
 
-    output 非 None 时只写该路径；否则同时写 static-site/ 和 web/ 两份。
+    output 非 None 时只写该路径；否则写 static-site/ 一份。
     返回 True 成功；无数据（signals 为空或 last 为 None）时返回 False 不写文件。
     """
     index_name = name_map.get(index_id, index_id)
@@ -1304,7 +1304,6 @@ def _generate_one(index_id, name_map, out_dir_static, out_dir_web, output=None):
     else:
         outputs = [
             os.path.join(out_dir_static, f"trade_sim_{index_id}.html"),
-            os.path.join(out_dir_web, f"trade_sim_{index_id}.html"),
         ]
     for out in outputs:
         os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -1316,13 +1315,12 @@ def _generate_one(index_id, name_map, out_dir_static, out_dir_web, output=None):
 def main():
     parser = argparse.ArgumentParser(description="买卖点模拟回测")
     parser.add_argument("--index", help="品种 index_id（默认 sh）")
-    parser.add_argument("--all", action="store_true", help="批量生成所有品种（同时写 static-site + web）")
+    parser.add_argument("--all", action="store_true", help="批量生成所有品种（写 static-site）")
     parser.add_argument("--output", help="自定义输出路径（仅单品种，只写该路径）")
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.dirname(__file__))
     out_dir_static = os.path.join(base_dir, "static-site")
-    out_dir_web = os.path.join(base_dir, "web")
     name_map = load_name_map()
 
     if args.all:
@@ -1330,7 +1328,7 @@ def main():
         ok = 0; skip = 0; fail = 0
         for index_id in ids:
             try:
-                if _generate_one(index_id, name_map, out_dir_static, out_dir_web):
+                if _generate_one(index_id, name_map, out_dir_static):
                     ok += 1
                 else:
                     skip += 1
@@ -1343,8 +1341,8 @@ def main():
 
     index_id = args.index or "sh"
     index_name = name_map.get(index_id, index_id)
-    if _generate_one(index_id, name_map, out_dir_static, out_dir_web, output=args.output):
-        target = args.output if args.output else "static-site + web"
+    if _generate_one(index_id, name_map, out_dir_static, output=args.output):
+        target = args.output if args.output else "static-site"
         print(f"Generated: {index_name} -> {target}")
     else:
         print(f"无数据: {index_id}", file=sys.stderr)

@@ -127,7 +127,7 @@ def run_index(iid, iname):
         lab["strategies"][sname] = strat_obj
 
     fname = f"lab_backtest_{iid}.json"
-    for base_dir in ('web', 'static-site'):
+    for base_dir in ('static-site',):
         p = os.path.join(BASE, base_dir, 'data', 'lab', fname)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, 'w', encoding='utf-8') as f:
@@ -227,7 +227,7 @@ def run_fusion_matrix(iid, iname):
         lab["strategies"][pair_id] = strat_obj
 
     fname = f"lab_backtest_fusion_{iid}.json"
-    for base_dir in ('web', 'static-site'):
+    for base_dir in ('static-site',):
         p = os.path.join(BASE, base_dir, 'data', 'lab', fname)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, 'w', encoding='utf-8') as f:
