@@ -2472,7 +2472,8 @@ async function renderOverview() {
     }
     const _kpiT1 = k.id === "a_fund_margin" || k.id === "a_fund_north";
     const _badge = getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
+    const _widthTip = (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}${_widthTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   content.appendChild(cards);
 
