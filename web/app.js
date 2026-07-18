@@ -364,9 +364,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
     const cellHtml = (it) => kind === "signal"
       ? `<span class="sig-item sig-clickable" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
       : `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
-    const cellsHtml = dayItems.map(cellHtml).join("");
     const dateLabel = fmtDate(dt);
-    rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cellsHtml}</div></div>`;
+    // 同日数据超过 4 个时按 4 个/行分块换行，每行重复日期（不做合并单元格效果）。
+    // COLS 与 CSS .sig-items grid-template-columns:repeat(4,1fr) 一致；
+    // 移动端(≤768px) CSS 改 2 列，同日仍按 4 分组，日期会在每 2 个移动行重复一次（分块数不依赖断点，无 resize 回归）。
+    const COLS = 4;
+    for (let i = 0; i < dayItems.length; i += COLS) {
+      const cellsHtml = dayItems.slice(i, i + COLS).map(cellHtml).join("");
+      rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cellsHtml}</div></div>`;
+    }
   }
   return `<h3>${title}</h3><div class="signal-grid">${rows}</div>`;
 }
