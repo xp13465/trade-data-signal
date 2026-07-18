@@ -56,7 +56,10 @@ def bump(html_path, prefix, asset_dir):
 def main():
     print("注入 CSS/JS 版本号：")
     ss_dir = os.path.join(BASE, "static-site")
-    bump(os.path.join(ss_dir, "index.html"), "", ss_dir)
+    # 扫描 static-site/ 下所有引用 ./<asset> 的 HTML 页面（index/privacy/about 等）
+    import glob
+    for html_path in sorted(glob.glob(os.path.join(ss_dir, "*.html"))):
+        bump(html_path, "", ss_dir)
     print("完成。记得 commit + push。")
 
 

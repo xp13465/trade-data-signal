@@ -9,24 +9,24 @@
   <meta name="author" content="tdsignal">
   <meta name="robots" content="index,follow">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <link rel="canonical" href="https://sugas.site/">
+  <link rel="canonical" href="https://s.sugas.site/">
   <link rel="icon" href="data:,">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="信号实验室">
   <meta property="og:title" content="信号实验室">
   <meta property="og:description" content="信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、买卖点信号、行业热力图、模拟回测。tdsignal。">
-  <meta property="og:url" content="https://sugas.site/">
-  <meta property="og:image" content="https://sugas.site/og.png">
+  <meta property="og:url" content="https://s.sugas.site/">
+  <meta property="og:image" content="https://s.sugas.site/og.png">
   <meta property="og:locale" content="zh_CN">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="信号实验室 | 盘后复盘·多市场情绪·买卖点信号">
   <meta name="twitter:description" content="信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、买卖点信号、行业热力图、模拟回测。">
-  <meta name="twitter:image" content="https://sugas.site/og.png">
+  <meta name="twitter:image" content="https://s.sugas.site/og.png">
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"WebApplication","name":"信号实验室","alternateName":["trade-data-signal","tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"https://sugas.site/","description":"信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, 信号实验室, A股情绪看板, 情绪数据复盘看板, 市场情绪, 买卖点信号, 行业热力图, 模拟回测"}
+  {"@context":"https://schema.org","@type":"WebApplication","name":"信号实验室","alternateName":["trade-data-signal","tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"https://s.sugas.site/","description":"信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, 信号实验室, A股情绪看板, 情绪数据复盘看板, 市场情绪, 买卖点信号, 行业热力图, 模拟回测"}
   </script>
-  <link rel="stylesheet" href="./style.css?v=52184d4d">
-  <link rel="stylesheet" href="./lab.css?v=d9e4d8f2">
+  <link rel="stylesheet" href="./style.css?v=fa909fc7">
+  <link rel="stylesheet" href="./lab.css?v=59d34eab">
   <script defer src="./vendor/echarts.min.js?v=12173341"></script>
 <script>
 var _hmt = _hmt || [];
@@ -81,7 +81,7 @@ var _hmt = _hmt || [];
       <li>宽基指数情绪分：上证50/沪深300/中证500/中证1000/创业板/科创50</li>
     </ul>
     <p>关键字：trade-data-signal、tdsignal、tdsignal-ujpzw01zm、市场情绪、买卖点、行业热力图、模拟回测。</p>
-    <p>访问 <a href="https://sugas.site/">sugas.site</a> 体验完整看板（需启用 JavaScript）。</p>
+    <p>访问 <a href="https://s.sugas.site/">s.sugas.site</a> 体验完整看板（需启用 JavaScript）。</p>
   </div>
 </noscript>
   <header>
@@ -105,7 +105,7 @@ var _hmt = _hmt || [];
     <button data-tab="market">大盘信号</button>
     <button data-tab="sentiment">情绪温度</button>
     <button data-tab="industry">板块轮动</button>
-    <button data-tab="lab">🧪 策略实验室</button>
+    <button data-tab="lab">🧪 策略实验</button>
     <!-- UX：周期选择器移入 tab 栏右端，随 sticky tab 栏一起悬浮顶部，下滚始终可见可操作 -->
     <!-- 默认隐藏防闪烁：概览/实验室 tab 无需周期切换，renderTab 按 tab 控制显隐 -->
     <div class="periods" style="display:none">
@@ -139,7 +139,7 @@ var _hmt = _hmt || [];
     <button data-tab="market"><span class="bn-icon">📈</span><span class="bn-label">大盘信号</span></button>
     <button data-tab="sentiment"><span class="bn-icon">😊</span><span class="bn-label">情绪温度</span></button>
     <button data-tab="industry"><span class="bn-icon">🏭</span><span class="bn-label">板块轮动</span></button>
-    <button data-tab="lab"><span class="bn-icon">🧪</span><span class="bn-label">策略实验室</span></button>
+    <button data-tab="lab"><span class="bn-icon">🧪</span><span class="bn-label">策略实验</span></button>
   </nav>
 
   <footer class="site-disclaimer">
@@ -148,14 +148,15 @@ var _hmt = _hmt || [];
     <!-- 合规增强:隐私政策链接 + ICP备案号占位 -->
     <p>
       <a href="/privacy.html" style="color:var(--text-3);text-decoration:underline;">隐私政策</a>
-      <!-- ICP备案号占位:sugas.site 为未备案国际域名,暂隐藏;待国内备案后启用
+      <a href="/about.html" style="color:var(--text-3);text-decoration:underline;margin-left:12px;">关于</a>
+      <!-- ICP备案号占位:s.sugas.site 为未备案国际域名,暂隐藏;待国内备案后启用
       <span style="margin-left:12px;">ICP备案号:沪ICP备XXXXXXXX号</span>
       -->
     </p>
   </footer>
 
-  <script src="./qr.js?v=15cf90b9"></script>
-  <script defer src="./app.min.js?v=578537b3"></script>
+  <script src="./qr.js?v=b5b5f60b"></script>
+  <script defer src="./app.min.js?v=5833e876"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
   <meta name="lab-asset-url" content="./lab.min.js?v=c32067dc">
 <script>

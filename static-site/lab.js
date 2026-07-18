@@ -1,4 +1,4 @@
-// === 策略实验室 tab：22策略多周期回测矩阵 + BB_upper_revert 实验图表 ===
+// === 策略实验 tab：22策略多周期回测矩阵 + BB_upper_revert 实验图表 ===
 // 纯前端 JS 实时算，不碰后端 signals.py / signal_daily。
 // BB: mid=MA20(close), sd=std(close,ddof=0), bu=mid+2σ, bl=mid-2σ（与 _bollinger() 一致）
 // 触发: close[i-1] > bu[i-1] && close[i] < bu[i]（参考 a-stock-data/backtest_strategies.py:193）
@@ -3109,7 +3109,7 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// 渲染策略实验室主入口（分区tab + 卡片列表 / 详情页）
+// 渲染策略实验主入口（分区tab + 卡片列表 / 详情页）
 // === 二级导航（单一信号实验 / 融合信号实验）===
 function _renderLabSubNav() {
   const cur = state.labSubMode || "single";

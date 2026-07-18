@@ -5528,7 +5528,7 @@ function closeSummaryHistoryModal() {
 // === H5 移动端适配（方案B：底部导航 + 顶部精简条 + 1/2列切换）===
 // matchMedia 驱动 body.h5，@media(max-width:768px) 自动切换布局，PC(>768) 零影响。
 const SUMMARY_URL = "./data/summary.json";
-const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 大盘信号", sentiment: "😊 情绪温度", industry: "🏭 板块轮动", lab: "🧪 策略实验室" };
+const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 大盘信号", sentiment: "😊 情绪温度", industry: "🏭 板块轮动", lab: "🧪 策略实验" };
 
 function updateH5Topbar() {
   if (!document.body.classList.contains("h5")) return;
@@ -5807,7 +5807,7 @@ function drawShareCard(r) {
   ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(60, H - 150); ctx.lineTo(870, H - 150); ctx.stroke();
   ctx.fillStyle = "#165dff"; ctx.font = "bold 34px 'PingFang SC',sans-serif";
-  ctx.fillText("sugas.site", 60, H - 95);
+  ctx.fillText("s.sugas.site", 60, H - 95);
   ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
   ctx.fillText("盘后复盘·多市场情绪·买卖点信号", 60, H - 55);
   // 底部免责水印（合规：教育研究定位，非投资建议）

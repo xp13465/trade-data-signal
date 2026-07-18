@@ -6,7 +6,7 @@
 #   2. 数据时效：overview.date == 最近交易日（过期 -> 严重告警，防"站活着但数据停在几天前"）
 #
 # 用法：bash scripts/uptime_check.sh
-#   SITE_URL=https://sugas.site/data/overview.json bash scripts/uptime_check.sh  # 自定义 URL
+#   SITE_URL=https://s.sugas.site/data/overview.json bash scripts/uptime_check.sh  # 自定义 URL
 # 退出码：0=正常；1=异常（已发严重通知）。
 # 日志：data/logs/uptime_YYYYMMDD_HHMM.log
 #
@@ -16,14 +16,14 @@
 #   缺点：只能 HTTP 状态码，不能查"数据时效"（站活着但数据陈旧它发现不了）；
 #         依赖第三方服务 + 仅邮件/webhook 通知。
 # 建议：本脚本（数据时效 + 自托管通知）+ UptimeRobot（外部纯可用性）互补。
-#       接 UptimeRobot：dashboard 加 HTTP(s) 监控 -> https://sugas.site/data/overview.json，
+#       接 UptimeRobot：dashboard 加 HTTP(s) 监控 -> https://s.sugas.site/data/overview.json，
 #       通知渠道配 email/Telegram。无需改本仓库代码。
 # ──────────────────────────────────────────────────────────────────────────────
 set -u
 
 REPO="${REPO:-/Users/linhuichen/code/trade}"
 PY="$REPO/.venv/bin/python"
-URL="${SITE_URL:-https://sugas.site/data/overview.json}"
+URL="${SITE_URL:-https://s.sugas.site/data/overview.json}"
 DRY_FLAG=""
 [ "${UPTIME_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"   # 验证用：不真发邮件（仍写 alerts/latest.md）
 STAMP=$(date +%Y%m%d_%H%M)
