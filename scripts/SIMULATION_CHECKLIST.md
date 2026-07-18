@@ -3,7 +3,7 @@
 > 生成日期：2026-07-08
 > 参考案例：上证指数 `sh`（已完成，见 §参考案例）
 > 执行脚本：`python3 scripts/simulate_trade.py`
-> 输出文件：`static-site/trade_sim_{index_id}.html` + `web/trade_sim_{index_id}.html`
+> 输出文件：`static-site/trade_sim_{index_id}.html`
 
 ---
 
@@ -78,7 +78,7 @@
 - **主脚本**：`scripts/simulate_trade.py`（~800行，三路径 + HTML生成）
 - **数据源**：`data/sentiment.db`（signal_daily + index_daily）
 - **统计参考**：`data/signal_stats.json`（凯利/胜率/盈亏比）
-- **输出**：`static-site/trade_sim.html` + `web/trade_sim.html`
+- **输出**：`static-site/trade_sim.html`
 
 ### 1.8 改造为多品种的注意事项
 
@@ -235,9 +235,8 @@
 1. 修改 `scripts/simulate_trade.py` 中的 `get_signals()` 调用，传入目标 `index_id`
 2. 调整输出文件名 `trade_sim_{index_id}.html`
 3. 运行 `python3 scripts/simulate_trade.py` 生成 HTML
-4. 复制到 `web/` 目录
-5. 在 `web/app.js` 和 `static-site/app.js` 中添加回测入口链接（可选，后续统一处理）
-6. 汇报回测结果摘要（9场景控制台输出）
+4. 在 `static-site/app.js` 中添加回测入口链接（可选，后续统一处理）
+5. 汇报回测结果摘要（9场景控制台输出）
 
 ### 4.2 改造方案
 
