@@ -123,6 +123,7 @@ tr:hover td { background: var(--bg-hover); }
   }
   if (t) document.documentElement.setAttribute('data-theme', t);
   window.addEventListener('message', function(e){
+    if (e.origin !== location.origin) return;
     if (e.data && e.data.type === 'set-theme'){
       if (e.data.theme) document.documentElement.setAttribute('data-theme', e.data.theme);
       else document.documentElement.removeAttribute('data-theme');
