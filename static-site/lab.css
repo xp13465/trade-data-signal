@@ -614,7 +614,9 @@
   background: linear-gradient(135deg, #fff8e1, #ffe082);
   padding: 2px 8px; border-radius: 4px; flex-shrink: 0;
   border: 1px solid #ffd54f; white-space: nowrap;
+  cursor: pointer; transition: all 0.15s;
 }
+.lab-rank-retest:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(184, 134, 11, 0.35); border-color: #ffb300; }
 .lab-rank-retest-rule {
   font-size: 11px; color: #b8860b; background: #fffdf5;
   padding: 6px 10px; border-radius: 6px; margin-bottom: 10px;
@@ -1023,6 +1025,14 @@
 /* === 二次测试实验分区（第3实验分区，复用 .lab-strategy-card / .lab-rank 样式）=== */
 .lab-retest-card .lab-card-name { font-size: 13.5px; }
 .lab-retest-card .lab-rank-score { font-size: 12px; }
+/* 跳转高亮：从推荐榜"⭐️进入二次测试"点击跳转到二次测试tab后，金色边框+背景+闪烁定位该配对卡片 */
+.lab-retest-card.lab-retest-focus {
+  border-color: #ff9800;
+  background: linear-gradient(90deg, rgba(255,152,0,0.18), rgba(255,152,0,0.04));
+  box-shadow: 0 0 0 2px rgba(255,152,0,0.5), 0 2px 12px rgba(255,152,0,0.28);
+  z-index: 1;
+}
+.lab-retest-card.lab-retest-focus-flash { animation: lab-rank-focus-blink 0.5s ease-in-out 3; }
 
 /* === 深色/红金皮肤覆盖：浅底硬编码块在深色卡上变白块+浅字撞色，统一改 bg-hover 底 + text-2 字 === */
 /* C1: 状态标签(live/partial/exp/excluded 原浅底硬编码) */

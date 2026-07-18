@@ -2788,8 +2788,27 @@ function _labRankAttachResultsHandlers(section, simData) {
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
     item.onclick = () => _labRankOpenModal(simData, item.dataset.buy, item.dataset.sell, item.dataset.mode);
   });
+  // ⭐️进入二次测试 标记点击：阻止冒泡到行按钮(不弹配对详情)，跳转到二次测试tab并高亮该配对
+  section.querySelectorAll(".lab-rank-retest").forEach((span) => {
+    span.onclick = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const item = span.closest(".lab-rank-item");
+      const bk = item ? item.dataset.buy : "";
+      const sk = item ? item.dataset.sell : "";
+      if (bk && sk) _labRankRetestJump(bk, sk);
+    };
+  });
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRankShowAll = !state.labRankShowAll; _labRankRerenderResults(section, simData); };
+}
+
+// 推荐榜"⭐️进入二次测试"点击跳转：切到二次测试tab，传高亮key，渲染后定位+高亮该配对卡片
+function _labRankRetestJump(buyKey, sellKey) {
+  state.labRetestHighlight = buyKey + "|" + sellKey; // 一次性高亮key，消费于 _labRetestRenderCards 末尾
+  state.labSubMode = "retest";
+  state.labStrategy = null; // 切模式清空策略选择，避免串模式
+  renderSignalLab();
 }
 
 // 仅刷新结果区(过滤输入/更多按钮)：不重建过滤面板，输入焦点不丢失
@@ -3783,6 +3802,24 @@ function _labRetestRenderCards(list, rd) {
   list.querySelectorAll(".lab-retest-card").forEach((card) => {
     card.onclick = () => _labRetestPairOpenModal(rd, card.dataset.pk);
   });
+  // 跳转高亮：从推荐榜"⭐️进入二次测试"点击跳转来时，定位+高亮该配对卡片
+  // 消费 state.labRetestHighlight（一次性）。key 找不到则静默放弃（不报错）。
+  if (state.labRetestHighlight) {
+    const pk = state.labRetestHighlight;
+    state.labRetestHighlight = null;
+    let card = null;
+    list.querySelectorAll(".lab-retest-card").forEach((c) => { if (c.dataset.pk === pk) card = c; });
+    if (card) {
+      list.querySelectorAll(".lab-retest-focus").forEach((n) => n.classList.remove("lab-retest-focus", "lab-retest-focus-flash"));
+      try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
+      card.classList.add("lab-retest-focus", "lab-retest-focus-flash");
+      clearTimeout(state._labRetestCardFocusTimer);
+      state._labRetestCardFocusTimer = setTimeout(() => {
+        card.classList.remove("lab-retest-focus-flash"); // 停止闪烁
+        setTimeout(() => card.classList.remove("lab-retest-focus"), 3500); // 再持续高亮几秒后恢复
+      }, 2400);
+    }
+  }
 }
 
 // 二次测试实验分区主入口（照抄 renderFusionLab 结构：左自白+指数选择器+配对卡片 / 右维度榜）
