@@ -102,19 +102,71 @@ echo "-> intraday_snapshot 采集 ..." | tee -a "$LOG"
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
 
-# 监控通知：耗时 + 退出码 + 日志路径（发邮件 + 严重时写 alerts）
+# 数据时效断言：校验刚 deploy 的 overview.json/intraday_snapshot.json 是否新鲜。
+# overview.date 应 == 最近交易日；intraday_snapshot.collected_at 应在 3h 内（本流程刚采集）。
+# 不符 -> SEVERE + 并入通知正文（防"采集/部署静默失败致线上数据陈旧"）。
+FRESH_RESULT=$("$PY" - 2>>"$LOG" <<'PYEOF'
+import json
+from datetime import datetime
+from app.calendar import last_trading_day
+msgs = []
+ltd = last_trading_day()
+ov_ok = False
+try:
+    ov = json.load(open('static-site/data/overview.json'))
+    ov_date = ov.get('date')
+    ov_ok = (ov_date == ltd)
+    msgs.append("overview.date=%s%s" % (ov_date, "(OK)" if ov_ok else "(≠最近交易日%s)" % ltd))
+except Exception as e:
+    msgs.append("overview.json 解析失败:%s" % e)
+snap_ok = False
+try:
+    snap = json.load(open('static-site/data/intraday_snapshot.json'))
+    ca = snap.get('collected_at', '')
+    # collected_at 多为 ISO '2026-07-17T15:35:06.171800'，取其日期 == 最近交易日
+    try:
+        ca_date = datetime.fromisoformat(ca).strftime('%Y%m%d')
+    except ValueError:
+        ca_date = ca.split(' ')[0]  # 兜 'YYYYMMDD HH:MM:SS' 格式
+    snap_ok = (ca_date == ltd)
+    msgs.append("intraday_snapshot.collected_at=%s%s" % (ca, "(OK)" if snap_ok else "(日期%s≠最近交易日%s)" % (ca_date, ltd)))
+except Exception as e:
+    msgs.append("intraday_snapshot 解析失败:%s" % e)
+print("FRESH_OK=%d" % (1 if (ov_ok and snap_ok) else 0))
+print(" | ".join(msgs))
+PYEOF
+)
+FRESH_OK=$(printf '%s\n' "$FRESH_RESULT" | head -1 | sed 's/^FRESH_OK=//')
+FRESH_MSG=$(printf '%s\n' "$FRESH_RESULT" | tail -n +2 | head -1)
+
+# 监控通知：耗时 + 退出码 + 失败 pipeline 明细 + 数据时效 + 日志路径（发邮件 + 严重时写 alerts）
 END_TS=$(date +%s)
 ELAPSED=$((END_TS - START_TS))
 ELAPSED_MIN=$((ELAPSED / 60))
 SEVERE=0
 [ "$ELAPSED" -gt 3600 ] && SEVERE=1
 [ "$RC_CORE" -ne 0 ] && SEVERE=1
+[ "$FRESH_OK" != "1" ] && SEVERE=1
 NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
-NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC<br>日志：$LOG<br>结束时间：$NOW_STR"
+
+# 失败 pipeline 明细（退出码非 0）：名 + rc + 最近一份 pipeline 日志名，并入通知正文
+FAILED_DETAILS=""
+for _name in core width futures turnover; do
+  _rcvar="RC_$(printf '%s' "$_name" | tr '[:lower:]' '[:upper:]')"
+  _rc="${!_rcvar:-0}"
+  if [ "$_rc" != "0" ]; then
+    _plog=$(ls -t "$LOGDIR"/pipeline_${_name}_*.log 2>/dev/null | head -1)
+    FAILED_DETAILS="${FAILED_DETAILS}<br>  ✗ ${_name} 失败(rc=${_rc}) 日志:$(basename "${_plog:-无}")"
+  fi
+done
+[ -n "$FAILED_DETAILS" ] && FAILED_DETAILS="<br>失败明细:${FAILED_DETAILS}"
+
+NOTIFY_BODY="update_all 完成<br>耗时：${ELAPSED_MIN} 分钟（${ELAPSED}秒）<br>退出码：core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC${FAILED_DETAILS}<br>数据时效：$FRESH_MSG<br>日志：$LOG<br>结束时间：$NOW_STR"
 if [ "$SEVERE" -eq 1 ]; then
   ISSUE="update_all 严重告警："
   [ "$ELAPSED" -gt 3600 ] && ISSUE="${ISSUE}耗时超1h(${ELAPSED_MIN}分钟) "
-  [ "$RC_CORE" -ne 0 ] && ISSUE="${ISSUE}core退出码非0($RC_CORE)"
+  [ "$RC_CORE" -ne 0 ] && ISSUE="${ISSUE}core退出码非0($RC_CORE) "
+  [ "$FRESH_OK" != "1" ] && ISSUE="${ISSUE}数据时效异常($FRESH_MSG)"
   "$PY" "$REPO/scripts/notify.py" "[严重]update_all告警" "$NOTIFY_BODY" --severe --alert-issue "$ISSUE" --alert-log "$LOG" || true
 else
   "$PY" "$REPO/scripts/notify.py" "[完成]update_all" "$NOTIFY_BODY" || true

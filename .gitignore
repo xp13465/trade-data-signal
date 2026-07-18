@@ -19,6 +19,7 @@ data/stock_daily.db-shm
 # 本地状态/日志/进度
 data/logs/
 data/alerts/
+data/backups/
 data/baostock_logs/
 data/*.log
 data/*_progress.json
