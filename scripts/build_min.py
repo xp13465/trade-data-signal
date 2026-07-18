@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """用 terser minify app.js / lab.js，生成 .min.js + source map。
 
-对 web/ 和 static-site/ 双版各生成 app.min.js / lab.min.js + 对应 .map。
+对 static-site/ 生成 app.min.js / lab.min.js + 对应 .map。
 保留原文件供开发，min 版上线引用（index.html 引用 .min.js）。
 可重复运行覆盖。幂等。
 
@@ -21,8 +21,6 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (源相对路径, 目标相对路径) —— 顺序：web 先于 static-site，app 先于 lab
 PAIRS = [
-    ("web/app.js", "web/app.min.js"),
-    ("web/lab.js", "web/lab.min.js"),
     ("static-site/app.js", "static-site/app.min.js"),
     ("static-site/lab.js", "static-site/lab.min.js"),
 ]
@@ -53,7 +51,7 @@ def minify(src_rel, dst_rel):
         # 但跳过可消除噪音 + 退出码 0 便于脚本判断）。返回 None 区别于 terser 真失败（False）。
         print(f"  · 跳过（源不存在）：{src_rel}")
         return None
-    src_dir = os.path.dirname(src)          # /abs/web  或 /abs/static-site
+    src_dir = os.path.dirname(src)          # /abs/static-site
     src_name = os.path.basename(src)        # app.js / lab.js
     dst_name = os.path.basename(dst)        # app.min.js / lab.min.js
     map_name = dst_name + ".map"            # app.min.js.map / lab.min.js.map

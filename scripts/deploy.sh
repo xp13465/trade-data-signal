@@ -91,7 +91,6 @@ fi
 # 2. git add 静态数据 + min JS（min 重新生成后若有变更一并提交）
 echo "→ git add static-site/data/ + min JS ..." | tee -a "$LOG"
 git -C "$GIT_REPO" add static-site/data/ \
-  web/app.min.js web/app.min.js.map web/lab.min.js web/lab.min.js.map \
   static-site/app.min.js static-site/app.min.js.map static-site/lab.min.js static-site/lab.min.js.map \
   2>&1 | tee -a "$LOG"
 

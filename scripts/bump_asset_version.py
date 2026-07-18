@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """给 index.html 的 CSS/JS 引用注入 ?v=<content hash> 版本号，破浏览器/CDN 缓存。
 
-每次改动 web/style.css 或 web/app.js（源码）后：
+每次改动 static-site/style.css 或 static-site/app.js（源码）后：
   1. python scripts/build_min.py        # 重新生成 app.min.js / lab.min.js + source map
   2. python scripts/bump_asset_version.py  # 刷新 ?v= 版本号
   3. commit + push
 
-- web/index.html:        /static/<asset>  -> /static/<asset>?v=<ver>   (ver = web/<asset> 的 md5 前 8 位)
 - static-site/index.html: ./<asset>       -> ./<asset>?v=<ver>          (ver = static-site/<asset> 的 md5 前 8 位)
 - 幂等：已有 ?v= 会被替换为最新内容哈希。
-- 内容一致性：同一文件 web/ 与 static-site/ 内容相同时，版本号相同，
-  便于双版同步校验（若两版版本号不同，说明内容已漂移）。
 
 注意：app.js/lab.js 是开发源码（保留供开发），index.html 上线引用 app.min.js/lab.min.js。
 版本号基于 .min.js 的内容哈希，build_min.py 重新生成后内容变化 -> bump 自动刷新版本。
@@ -58,9 +55,7 @@ def bump(html_path, prefix, asset_dir):
 
 def main():
     print("注入 CSS/JS 版本号：")
-    web_dir = os.path.join(BASE, "web")
     ss_dir = os.path.join(BASE, "static-site")
-    bump(os.path.join(web_dir, "index.html"), "/static", web_dir)
     bump(os.path.join(ss_dir, "index.html"), "", ss_dir)
     print("完成。记得 commit + push。")
 
