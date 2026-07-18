@@ -139,7 +139,7 @@ tr:hover td { background: var(--bg-hover); }
     <div class="sim-cmp-table">
       <table>
         <thead><tr>
-          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th>年化</th><th>最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th>胜率</th><th>交易笔数</th>
+          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>
         </tr></thead>
         <tbody>
         <tr>
@@ -268,14 +268,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 158,197.40 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 99,115.27 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">100,675.58 元（100.0%）<div class="sub">2008-07-08</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">58,197.40 元（+58.20%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+2.1%<div class="sub">首笔买入至今 21.9 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+2.1%<div class="sub">首笔买入至今 21.9 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">156,601.07 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">51.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">51.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">15.8% / 15.0%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">40买/6卖（46次）<div class="sub">共 62 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 16 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 10 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">3 轮 / 1 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">1.16（均盈22.41% / 均亏-19.33%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">1.16（均盈22.41% / 均亏-19.33%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">6笔成对 · 7笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
@@ -1379,14 +1379,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 223,244.75 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 160,170.27 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">126,400.92 元（66.7%）<div class="sub">2024-12-20</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">123,244.75 元（+123.24%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+3.7%<div class="sub">首笔买入至今 22.3 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+3.7%<div class="sub">首笔买入至今 22.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">220,665.10 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">16.4% / 16.0%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">54买/6卖（60次）<div class="sub">共 147 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 87 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 10 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">3 轮 / 1 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">2.42（均盈27.86% / 均亏-11.50%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">2.42（均盈27.86% / 均亏-11.50%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">6笔成对 · 10笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
@@ -2819,14 +2819,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 250,887.00 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 170,042.42 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">117,644.12 元（59.3%）<div class="sub">2024-08-07</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">150,887.00 元（+150.89%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+4.2%<div class="sub">首笔买入至今 22.3 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+4.2%<div class="sub">首笔买入至今 22.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">248,148.34 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">16.4% / 16.0%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">59买/6卖（65次）<div class="sub">共 197 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 132 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 10 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">3 轮 / 1 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">2.88（均盈32.40% / 均亏-11.25%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">2.88（均盈32.40% / 均亏-11.25%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">6笔成对 · 10笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
@@ -4381,14 +4381,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 360,450.66 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 360,450.66 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">213,225.00 元（100.0%）<div class="sub">2022-01-28</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">260,450.66 元（+260.45%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.0%<div class="sub">首笔买入至今 21.9 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+6.0%<div class="sub">首笔买入至今 21.9 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">354,645.34 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">15.8% / 15.0%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">7买/6卖（13次）<div class="sub">共 19 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 6 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 1 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">3 轮 / 1 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">2.55（均盈33.97% / 均亏-13.31%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">2.55（均盈33.97% / 均亏-13.31%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">6笔成对 · 1笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
@@ -4689,14 +4689,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 520,305.44 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 520,305.44 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">269,408.92 元（100.0%）<div class="sub">2022-09-01</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">420,305.44 元（+420.31%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+7.7%<div class="sub">首笔买入至今 22.3 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+7.7%<div class="sub">首笔买入至今 22.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">511,925.54 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">16.4% / 16.0%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">7买/6卖（13次）<div class="sub">共 19 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 6 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 1 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">4 轮 / 1 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">3.73（均盈42.92% / 均亏-11.50%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">3.73（均盈42.92% / 均亏-11.50%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">6笔成对 · 1笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
@@ -4997,14 +4997,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 531,609.68 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 531,609.68 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">275,262.14 元（100.0%）<div class="sub">2022-09-01</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">431,609.68 元（+431.61%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+7.8%<div class="sub">首笔买入至今 22.3 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+7.8%<div class="sub">首笔买入至今 22.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">523,047.72 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">16.4% / 16.0%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">7买/6卖（13次）<div class="sub">共 19 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 6 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 1 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">66.7%（4胜/2负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">4 轮 / 1 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">3.78（均盈43.52% / 均亏-11.50%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">3.78（均盈43.52% / 均亏-11.50%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">6笔成对 · 1笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
@@ -5312,14 +5312,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 388,579.49 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 282,891.60 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">210,768.23 元（66.6%）<div class="sub">2025-03-12</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">288,579.49 元（+288.58%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.4%<div class="sub">首笔买入至今 21.9 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+6.4%<div class="sub">首笔买入至今 21.9 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">384,023.31 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">51.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">51.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">53.8% / 48.4%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">22买/12卖（34次）<div class="sub">共 62 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 28 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 10 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">58.3%（7胜/5负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">58.3%（7胜/5负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">7 轮 / 5 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">10.12（均盈162.45% / 均亏-16.06%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">10.12（均盈162.45% / 均亏-16.06%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">12笔成对 · 10笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
@@ -6046,14 +6046,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 433,163.39 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 306,859.29 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">222,018.37 元（75.1%）<div class="sub">2021-05-13</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">333,163.39 元（+333.16%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.8%<div class="sub">首笔买入至今 22.3 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+6.8%<div class="sub">首笔买入至今 22.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">428,221.20 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">53.8% / 50.6%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">22买/12卖（34次）<div class="sub">共 147 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 113 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 10 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">66.7%（8胜/4负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">66.7%（8胜/4负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">8 轮 / 4 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">12.22（均盈164.62% / 均亏-13.47%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">12.22（均盈164.62% / 均亏-13.47%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">12笔成对 · 10笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">
@@ -6780,14 +6780,14 @@ tr:hover td { background: var(--bg-hover); }
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">100,000.00 → 434,373.61 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 305,611.48 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">221,335.55 元（74.4%）<div class="sub">2021-05-13</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:#e6492e">334,373.61 元（+334.37%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:#e6492e">+6.8%<div class="sub">首笔买入至今 22.3 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:#e6492e">+6.8%<div class="sub">首笔买入至今 22.3 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">429,451.51 元<div class="sub">2026-06-11</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:#2e8b57">53.8%<div class="sub">2009-03-03</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:#2e8b57">53.8% / 50.6%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">22买/12卖（34次）<div class="sub">共 197 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 163 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 10 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">66.7%（8胜/4负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">66.7%（8胜/4负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">8 轮 / 4 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">12.45（均盈167.69% / 均亏-13.47%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">12.45（均盈167.69% / 均亏-13.47%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">12笔成对 · 10笔未平仓</span></div>
     </div><h3 style="margin: 20px 0 2px; font-size: 15px;">📈 资产变化曲线</h3><p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 100,000 元 · 蓝色 = 期末 · 绿色 = 峰值 · 红色 = 最低</p>
     <svg width="100%" height="150" viewBox="0 0 800 160" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">

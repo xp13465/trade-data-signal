@@ -624,7 +624,7 @@ const LAB_FUSION_STRATEGIES = {
     name: "D1回落5%+60日均线多头+MACD死叉 融合卖", side: "sell", zone: "prod", status: "live",
     conditions: ["20日高回落5%", "60日均线多头", "MACD死叉"],
     trigger: "同日AND：close从20日最高价回落5% 且 close>MA60 且 DIF<DEA",
-    conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后凯利计算率18.3%→43.3%",
+    conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后凯利" + _labHelpIcon("kelly") + "计算率18.3%→43.3%",
     theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加60日均线多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日AND，大幅降噪。",
     scenario: "上升趋势中回落止盈/减仓；三条件共振过滤假信号。非做空指令。",
     note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），凯利计算率18.3%→43.3%。已上线signal_daily。",
@@ -683,6 +683,147 @@ const LAB_FUSION_STRATEGIES = {
     report: "实验性新组合，暂无回测数据。阶段二将验证回落+均线死叉共振的有效性。",
   },
 };
+
+// === 策略实验室术语词典（白话解释，统一入口）===
+// key -> { name: 术语名, desc: 白话释义 }。_labHelpIcon(termKey) 与 ❓词典modal 共用此表。
+const _LAB_GLOSSARY = {
+  co_resonance: {
+    name: "同向共振（双买/双卖共振）",
+    desc: "两个同方向（都买或都卖）的信号在同一天同时触发才算有效。双买共振=两个买点同日触发，买点更可靠；双卖共振=两个卖点同日触发，卖点更确认。与“配对”（一买一卖组完整交易）不同，共振是同向叠加增强。本实验室把7个候选买点两两组合（C(7,2)=21对）、7个候选卖点两两组合（21对）自动回测。",
+  },
+  fusion_signal: {
+    name: "融合信号（F_ 前缀）",
+    desc: "把多个单一信号用“同日AND”组合成一个新信号——所有条件同日都满足才触发，用多条件共振过滤假信号。分两类：①6个预定义（F_开头，主项目提取已验证）；②运行时自动两两组合的候选（待回测）。与同向共振区别：融合是异向多条件AND成新策略，同向共振是同向两信号叠加。",
+  },
+  kelly: {
+    name: "凯利公式 / 凯利计算率",
+    desc: "根据历史胜率和盈亏比计算“每次该投多少比例资金”的数学公式。凯利计算率=能算出合理仓位的信号占比（胜率/盈亏比不达标时算不出）。融合加MACD后凯利计算率18.3%→43.3%，意味着更多信号能给出合理仓位建议，信号质量提升。",
+  },
+  pair: {
+    name: "配对（买点+卖点）",
+    desc: "一个买点信号+一个卖点信号组成一对完整交易（买入→卖出算一笔）。7买×7卖=49对。配对回测=按这对信号模拟历史交易，算净值曲线/胜率/回撤。",
+  },
+  score: {
+    name: "综合评分（0-100）",
+    desc: "0-100分=收益率(40%)+胜率(30%)+回撤倒数(20%)+样本量(10%)，各项先min-max归一化到[0,1]再加权×100，越高越综合优秀。",
+  },
+  windows: {
+    name: "5窗口（时间窗口）",
+    desc: "分全史/近10/5/3/1年5档，看策略在不同时段是否都稳定（防只在某段行情碰巧赚钱）。默认近5年兼顾样本量与时效；全历史样本最大但含远古行情可能失真；近1年看当前市场适配度。",
+  },
+  status: {
+    name: "状态：生产参考 / 实验中 / 开发中 / 已排除",
+    desc: "生产参考=已上线主功能图表的策略，可信度最高；实验中=回测达标但未上线，仅供参考验证；开发中=待回测；已排除=回测不达标弃用，作反面教材。实验中策略不可直接实盘。",
+  },
+  count: {
+    name: "候选数量（91/128/182）",
+    desc: "候选池：7买×7卖=49配对 + 买×买C(7,2)=21 + 卖×卖C(7,2)=21，共91候选；配对对比榜按2回测模式（全仓/定额）展开为多组排序。",
+  },
+  risk_adjust: {
+    name: "风险调整（类 Calmar）",
+    desc: "Calmar比率=年化收益率÷最大回撤。衡量“每承受1%回撤能换多少收益”，越高越好，比单看收益更能反映风险性价比。",
+  },
+  win_rate: {
+    name: "胜率",
+    desc: "盈利交易笔数÷总交易笔数。70%=10笔里约7笔赚。需结合盈亏比看，高胜率低盈亏比未必赚钱。",
+  },
+  max_drawdown: {
+    name: "最大回撤",
+    desc: "历史从最高点到最低点的最大跌幅。27.4%=曾经最多亏27.4%，衡量最坏情况下的亏损幅度。",
+  },
+  retest: {
+    name: "二次测试（稳健性三件套）",
+    desc: "稳健性验证三件套：①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心，成本低结论明确。",
+  },
+};
+
+// === 术语词典 modal + ❓图标（解释层，不碰任何业务逻辑）===
+// _labHelpIcon(termKey)：返回小❓图标HTML，点击打开词典modal并定位高亮该词。
+// 全局事件委托绑定 [data-glossary] click（参考 app.js [data-tip] 委托模式，但在 lab.js 自建）。
+// 注意：此函数不得依赖 _LAB_GLOSSARY（该 const 定义在后），因 F_D1_S1_MACD.conclusion 在
+// 模块加载期即调用本函数（对象字面量求值），此时 _LAB_GLOSSARY 尚处 TDZ。故此处不读取它，
+// 仅生成 data-glossary 锚点；术语名校验/释义展示由 modal 端（_labGlossaryModalHTML，点击时才跑）负责。
+function _labHelpIcon(termKey) {
+  return `<span class="lab-help-icon" data-glossary="${termKey}" role="button" tabindex="0" aria-label="查看术语解释">❓</span>`;
+}
+
+// 词典 modal HTML（复用 lab-signal-modal 容器样式）
+function _labGlossaryModalHTML(termKey) {
+  const items = Object.entries(_LAB_GLOSSARY).map(([k, v]) =>
+    `<div class="lab-glossary-item${k === termKey ? " lab-glossary-highlight" : ""}" data-gkey="${k}">` +
+    `<div class="lab-glossary-name">${v.name}</div>` +
+    `<div class="lab-glossary-desc">${v.desc}</div>` +
+    `</div>`
+  ).join("");
+  return `<div class="lab-signal-modal lab-glossary-modal">` +
+    `<div class="lab-signal-modal-head">` +
+    `<span class="lab-signal-modal-title">📖 策略实验室 · 术语词典</span>` +
+    `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+    `</div>` +
+    `<div class="lab-signal-modal-body">` +
+    `<div class="lab-glossary-search-wrap"><input type="text" class="lab-glossary-search" placeholder="搜索术语名/释义…" autocomplete="off"></div>` +
+    `<div class="lab-glossary-list">${items}</div>` +
+    `<div class="lab-glossary-foot">共 ${Object.keys(_LAB_GLOSSARY).length} 个术语 · 点❓图标可定位到对应解释</div>` +
+    `</div></div>`;
+}
+
+function _labGlossaryOpenModal(termKey) {
+  let overlay = document.getElementById("labGlossaryOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labGlossaryOverlay";
+    overlay.className = "lab-signal-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = _labGlossaryModalHTML(termKey);
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labGlossaryCloseModal(); };
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labGlossaryCloseModal;
+  // 搜索过滤：按 name/desc 模糊匹配（大小写不敏感）
+  const search = overlay.querySelector(".lab-glossary-search");
+  if (search) {
+    search.addEventListener("input", () => {
+      const q = search.value.trim().toLowerCase();
+      overlay.querySelectorAll(".lab-glossary-item").forEach((it) => {
+        if (!q) { it.style.display = ""; return; }
+        it.style.display = it.textContent.toLowerCase().includes(q) ? "" : "none";
+      });
+    });
+  }
+  // 定位高亮：滚动到目标术语
+  if (termKey) {
+    const hi = overlay.querySelector(".lab-glossary-highlight");
+    if (hi) setTimeout(() => { try { hi.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {} }, 60);
+  }
+}
+
+function _labGlossaryCloseModal() {
+  const overlay = document.getElementById("labGlossaryOverlay");
+  if (overlay) {
+    overlay.classList.remove("show");
+    overlay.innerHTML = "";
+    overlay.onclick = null;
+  }
+  document.body.style.overflow = "";
+}
+
+// 全局事件委托：点 [data-glossary] 或键盘 Enter/Space 触发 -> 打开词典并定位
+(function _initLabGlossaryDelegation() {
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-glossary]");
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _labGlossaryOpenModal(el.getAttribute("data-glossary"));
+  });
+  document.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target && e.target.closest && e.target.closest("[data-glossary]")) {
+      e.preventDefault();
+      _labGlossaryOpenModal(e.target.getAttribute("data-glossary"));
+    }
+  });
+})();
 
 // 6硬编码融合策略 -> base单一策略key映射（仅用于信号图/多周期矩阵/查看买卖信号按钮，
 // 模拟回测仍走真实F_pair融合回测数据，非_coreKey代理）
@@ -1845,8 +1986,8 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     `<div class="lab-sim-stats">` +
     `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%${grossTag}</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元${openPositions.length ? '<br><span style="color:var(--text-3);font-size:11px">含未平仓持仓按收盘价重估</span>' : ""}</span></div>` +
     `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%${grossTag}${compoundTag}</span><span class="sub">${s.years} 年${mode === "full_in" ? '<br><span style="color:var(--text-3);font-size:11px">复利放大,非固定仓位收益</span>' : ""}</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">最大回撤${_labHelpIcon("max_drawdown")}</span><span class="v" style="${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">胜率${_labHelpIcon("win_rate")}</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
     `</div>` +
     costBlock +
     (signalBtnHTML || "") +
@@ -2162,7 +2303,7 @@ function _labTopDisclaimerHTML() {
 // 融合信号实验自白黄块
 function _labFusionEssayHTML() {
   return `<div class="lab-warning-head">⚠ 融合信号实验 · 多信号共振</div>` +
-    `<p>融合信号=多个单一信号同日AND触发，通过多条件共振过滤假信号、提升信号质量。本页展示从主项目提取的融合策略及实验性新组合。</p>` +
+    `<p>融合信号=多个单一信号同日AND触发，通过多条件共振过滤假信号、提升信号质量。${_labHelpIcon("fusion_signal")}注意：融合是异向多条件AND成新策略，与同向共振（同向两信号叠加增强）${_labHelpIcon("co_resonance")}不同。本页展示从主项目提取的融合策略及实验性新组合。</p>` +
     `<p>阶段一仅展示条件描述与说明，阶段二将开放回测数据/图表/配对排行。欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
 }
 
@@ -2235,7 +2376,7 @@ async function renderLabDetail(key, container) {
     if (!state.labChartWin) state.labChartWin = "y5";
     const winBar = document.createElement("div");
     winBar.className = "lab-win-bar";
-    winBar.innerHTML = '<span class="lab-win-bar-label">时间窗口</span>' +
+    winBar.innerHTML = '<span class="lab-win-bar-label">时间窗口' + _labHelpIcon("windows") + '</span>' +
       '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
         `<button type="button" class="lab-win-tab${w.k === state.labChartWin ? " active" : ""}" data-cwin="${w.k}">${w.l}</button>`
       ).join("") + "</div>" +
@@ -2612,11 +2753,11 @@ function _labRankItemHTML(row, rank, tab) {
     nameHTML = row.is_standalone ? `${row.buyName}（独立回测）` : `买${row.buyName} × 卖${row.sellName}`;
   } else if (pt === "buy_buy") {
     itemCls += " lab-rank-fusion";
-    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀双买共振</span>';
+    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀双买共振</span>' + _labHelpIcon("co_resonance");
     nameHTML = `双买共振 ${row.buyName} × ${row.sellName}`;
   } else if (pt === "sell_sell") {
     itemCls += " lab-rank-fusion";
-    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀双卖共振</span>';
+    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀双卖共振</span>' + _labHelpIcon("co_resonance");
     nameHTML = `双卖共振 ${row.buyName} × ${row.sellName}`;
   } else {
     tagHTML = "";
@@ -2645,15 +2786,15 @@ function _labRankHTML(simData) {
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
   const legend = tab === "composite"
-    ? "综合评分 = 收益率(40%) + 胜率(30%) + 回撤倒数(20%) + 样本量(10%)，各项 min-max 归一化到[0,1]后加权再×100，越高越好。"
+    ? "综合评分 = 收益率(40%) + 胜率(30%) + 回撤倒数(20%) + 样本量(10%)，各项 min-max 归一化到[0,1]后加权再×100，越高越好。" + _labHelpIcon("score")
     : tab === "risk_adj"
-      ? "风险调整 = 年化收益 ÷ 最大回撤（类 Calmar 比率），衡量每承担1%回撤换来多少年化收益，越高越好。"
+      ? "风险调整 = 年化收益 ÷ 最大回撤（类 Calmar 比率），衡量每承担1%回撤换来多少年化收益，越高越好。" + _labHelpIcon("risk_adjust")
       : tab === "stable"
         ? "稳健榜按最大回撤从小到大排序，回撤越小越稳。"
         : tab === "ret"
           ? "收益率榜按总收益率从高到低排序。"
           : "胜率榜按胜率从高到低排序。";
-  return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}</div>` +
+  return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口${_labHelpIcon("windows")}</span>${_labWinTabsHTML()}</div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。</div>` +
     `<div class="lab-rank-retest-rule">⭐️进入二次测试：近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次，且（综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0）</div>` +
@@ -2664,7 +2805,7 @@ function _labRankHTML(simData) {
 // === 二次测试 tab 渲染（分年回测 / 样本外 / 极端行情三件套）===
 // 数据源 lab_retest_{index}.json，per-index 缓存到 state.labRetestDataMap
 // ret/dd/win 为小数(0.xxxx)，显示时 ×100 加 %；null 显示 "-"
-const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=近5/3/1年三窗口回撤均≤10%且交易≥10,且(综合分≥0.6且交易≥30或胜率≥55%或风险调整≥1.0)";
+const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=近5/3/1年三窗口回撤均≤10%且交易≥10,且(综合分≥0.6且交易≥30或胜率≥55%或风险调整≥1.0)" + _labHelpIcon("retest");
 
 function _labRetestPct(v) {
   if (v == null) return "-";
@@ -3166,6 +3307,8 @@ document.addEventListener("keydown", (e) => {
     if (rv && rv.classList.contains("show")) _labRetestPairCloseModal();
     const dv = document.getElementById("labSignalDetailOverlay");
     if (dv && dv.classList.contains("show")) _labSignalDetailCloseModal();
+    const gv = document.getElementById("labGlossaryOverlay");
+    if (gv && gv.classList.contains("show")) _labGlossaryCloseModal();
   }
 });
 
@@ -3188,9 +3331,12 @@ function _renderLabSubNav() {
   subNav.innerHTML = _LAB_SUB_TABS.map((t) => {
     const active = t.key === "scan" ? isScanActive : cur === t.key;
     return `<button type="button" class="lab-subnav-tab${active ? " active" : ""}" data-sub="${t.key}">${t.label}</button>`;
-  }).join("");
+  }).join("") +
+  `<button type="button" class="lab-subnav-tab lab-subnav-glossary" data-glossary-btn="1">❓ 术语词典</button>`;
   subNav.querySelectorAll(".lab-subnav-tab").forEach((btn) => {
     btn.onclick = () => {
+      // 术语词典按钮：打开词典modal，不切模式
+      if (btn.dataset.glossaryBtn) { _labGlossaryOpenModal(); return; }
       // scan 父tab点击 -> 默认进第一个子tab(ablation)
       state.labSubMode = btn.dataset.sub === "scan" ? "ablation" : btn.dataset.sub;
       state.labStrategy = null; // 切换模式时清空策略选择，避免串模式
@@ -3246,6 +3392,7 @@ async function renderFusionLab() {
     btn.onclick = () => { state.labFusionZone = z.key; renderSignalLab(); };
     zoneTabs.appendChild(btn);
   });
+  zoneTabs.insertAdjacentHTML("beforeend", _labHelpIcon("status"));
   leftCol.appendChild(zoneTabs);
 
   // 搜索框（按策略名/条件/触发条件模糊过滤卡片列表，大小写不敏感）
@@ -3281,7 +3428,7 @@ async function renderFusionLab() {
       card.className = "lab-strategy-card lab-fusion-card" + (meta._isPending ? " lab-fusion-pending" : "");
       card.innerHTML =
         `<div class="lab-card-top">` +
-        `<span class="lab-card-name">${_labStratNameHTML(key, meta.name)}</span>` +
+        `<span class="lab-card-name">${_labStratNameHTML(key, meta.name)}${_labHelpIcon("fusion_signal")}</span>` +
         `<span class="lab-tag ${tag.cls}">${tag.label}</span>` +
         `</div>` +
         condsHTML +
@@ -3303,7 +3450,7 @@ async function renderFusionLab() {
   // 阶段提示
   const phaseNote = document.createElement("div");
   phaseNote.className = "lab-fusion-phase-note";
-  phaseNote.innerHTML = "📌 <b>买×卖配对</b>（49对）+ <b>同向共振</b>（买×买/卖×卖各21对）均已接入回测数据，点击卡片查看胜率/收益/5窗口。";
+  phaseNote.innerHTML = "📌 <b>买×卖配对</b>（49对）+ <b>同向共振</b>" + _labHelpIcon("co_resonance") + "（买×买/卖×卖各21对）均已接入回测数据，点击卡片查看胜率/收益/5窗口。" + _labHelpIcon("count");
   leftCol.appendChild(phaseNote);
 
   // 搜索框事件：按卡片可见文本模糊过滤（大小写不敏感，匹配 name/conditions/trigger/conclusion）
@@ -3324,7 +3471,8 @@ async function renderFusionLab() {
   const rankIdxBtns = LAB_SIM_INDEXES.map((x) =>
     `<button type="button" class="lab-idx-tab${x.id === _curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
   ).join("");
-  rankSection.innerHTML = '<h3>🏆 回测配对对比榜</h3>' +
+  rankSection.innerHTML = '<h3>🏆 回测配对对比榜' + _labHelpIcon("pair") + '</h3>' +
+    '<div class="lab-rank-sub-note">一个买点+一个卖点组成一对完整交易，7买×7卖=49对</div>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载配对排行数据中…</div></div>';
   rightCol.appendChild(rankSection);
@@ -4051,7 +4199,7 @@ async function _labRetestPairModalRender(overlay) {
   // loading 骨架
   overlay.innerHTML = `<div class="lab-signal-modal">` +
     `<div class="lab-signal-modal-head">` +
-    `<span class="lab-signal-modal-title">🔬 ${cn} · ${winCn} · 评分 ${score} · ${_labIdxName(idx)}</span>` +
+    `<span class="lab-signal-modal-title">🔬 ${cn} · ${winCn} · 评分 ${score}${_labHelpIcon("score")} · ${_labIdxName(idx)}</span>` +
     `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
     `</div>` +
     `<div class="lab-signal-modal-body"><div class="loading">加载回测数据…</div></div></div>`;
@@ -5279,6 +5427,7 @@ async function renderSignalLab() {
   });
   leftCol.appendChild(purposeNote);
   leftCol.appendChild(essayWarn);
+  zoneTabs.insertAdjacentHTML("beforeend", _labHelpIcon("status"));
   leftCol.appendChild(zoneTabs);
 
   // 搜索框（按策略名/条件模糊过滤卡片列表，大小写不敏感）
@@ -5343,7 +5492,8 @@ async function renderSignalLab() {
   const rankIdxBtns = LAB_SIM_INDEXES.map((x) =>
     `<button type="button" class="lab-idx-tab${x.id === _curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
   ).join("");
-  rankSection.innerHTML = '<h3>🏆 回测配对对比榜</h3>' +
+  rankSection.innerHTML = '<h3>🏆 回测配对对比榜' + _labHelpIcon("pair") + '</h3>' +
+    '<div class="lab-rank-sub-note">一个买点+一个卖点组成一对完整交易，7买×7卖=49对</div>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载配对排行数据中…</div></div>';
   rightCol.appendChild(rankSection);

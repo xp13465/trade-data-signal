@@ -1177,3 +1177,94 @@
 [data-theme="redgold"] .lab-cost-warn { color: var(--text-2); }
 [data-theme="dark"] .lab-cost-warn strong,
 [data-theme="redgold"] .lab-cost-warn strong { color: var(--text-1); }
+
+/* === 术语词典 modal + ❓图标（解释层）=== */
+/* ❓ 小问号图标：默认弱化(text-3)，hover/active 变紫(#9c27b0) 提示可点 */
+.lab-help-icon {
+  display: inline-block;
+  color: var(--text-3);
+  font-size: 0.85em;
+  cursor: pointer;
+  margin-left: 4px;
+  vertical-align: baseline;
+  transition: color 0.15s, background 0.15s;
+  border-radius: 50%;
+  padding: 0 1px;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.lab-help-icon:hover,
+.lab-help-icon:active,
+.lab-help-icon:focus-visible {
+  color: #9c27b0;
+  background: #f3e5f5;
+  outline: none;
+}
+/* 二级导航“❓ 术语词典”按钮：与普通模式 tab 区分（紫色描边，非 active 态不切模式） */
+.lab-subnav-glossary {
+  border: 1px dashed #9c27b0 !important;
+  color: #9c27b0 !important;
+  margin-left: auto;
+  background: #f3e5f5 !important;
+  font-weight: 600;
+}
+.lab-subnav-glossary:hover { background: #e1bee7 !important; }
+/* 配对对比榜 h3 下副标题（引导文案） */
+.lab-rank-sub-note {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: -4px 0 8px;
+  line-height: 1.5;
+}
+
+/* 词典 modal：复用 lab-signal-modal 容器，收窄到 680px 提升可读性 */
+.lab-glossary-modal { width: 96vw; max-width: 680px; }
+.lab-glossary-search-wrap { position: sticky; top: 0; background: var(--bg-card); padding: 4px 0 10px; z-index: 3; }
+.lab-glossary-search {
+  width: 100%;
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-1);
+  background: var(--bg-card);
+  box-sizing: border-box;
+}
+.lab-glossary-search:focus { outline: none; border-color: #9c27b0; }
+.lab-glossary-list { display: flex; flex-direction: column; gap: 2px; }
+.lab-glossary-item {
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lab-glossary-item:hover { background: var(--bg-hover); }
+.lab-glossary-name { font-size: 14px; font-weight: 700; color: var(--text-1); margin-bottom: 3px; }
+.lab-glossary-desc { font-size: 13px; color: var(--text-2); line-height: 1.6; }
+/* 定位高亮项：浅紫底 + 紫边框 */
+.lab-glossary-highlight {
+  background: #f3e5f5;
+  border-color: #9c27b0;
+  scroll-margin-top: 60px;
+}
+.lab-glossary-foot { font-size: 11px; color: var(--text-4); margin-top: 12px; text-align: center; }
+
+/* 暗色/红金皮肤适配：浅紫底在深色卡上撞色，改 bg-hover 底 + 保留紫边框点缀 */
+[data-theme="dark"] .lab-help-icon:hover,
+[data-theme="redgold"] .lab-help-icon:hover,
+[data-theme="dark"] .lab-help-icon:active,
+[data-theme="redgold"] .lab-help-icon:active { background: var(--bg-hover); }
+[data-theme="dark"] .lab-subnav-glossary,
+[data-theme="redgold"] .lab-subnav-glossary { background: var(--bg-hover) !important; color: var(--text-2) !important; border-color: #9c27b0 !important; }
+[data-theme="dark"] .lab-glossary-highlight,
+[data-theme="redgold"] .lab-glossary-highlight { background: var(--bg-hover); border-color: #9c27b0; }
+[data-theme="dark"] .lab-glossary-search,
+[data-theme="redgold"] .lab-glossary-search { background: var(--bg-card); color: var(--text-1); border-color: var(--border-strong); }
+
+@media (max-width: 600px) {
+  .lab-glossary-modal { width: calc(100vw - 24px); max-width: calc(100vw - 24px); }
+  .lab-glossary-name { font-size: 13px; }
+  .lab-glossary-desc { font-size: 12px; }
+  .lab-subnav-glossary { margin-left: 0; }
+}

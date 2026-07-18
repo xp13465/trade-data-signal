@@ -886,14 +886,14 @@ def _scenario_panel(data, index_name="上证指数"):
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 {format_num(s['final_holdings'])} 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">{format_num(s['max_holding'])} 元（{s['max_holding_pct']}%）<div class="sub">{s['max_holding_date']}</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
-      <div class="sim-card"><span class="k">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
+      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
-      <div class="sim-card"><span class="k">最大回撤</span><span class="v" style="color:{color_for_pct(-s['max_drawdown'])}">{dd_str}<div class="sub">{dd_date}</div></span></div>
+      <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:{color_for_pct(-s['max_drawdown'])}">{dd_str}<div class="sub">{dd_date}</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:{color_for_pct(-s['median_drawdown'])}">{s['median_drawdown']:.1f}% / {s['trimmed_mean_drawdown']:.1f}%</span></div>
       <div class="sim-card"><span class="k">总操作</span><span class="v">{s['buy_count']}买/{s['sell_count']}卖（{s['buy_count'] + s['sell_count']}次）<div class="sub">共 {s['total_ops'] + s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 {s['max_positions_ever']} 笔</span></div></span></div>
-      <div class="sim-card"><span class="k">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
+      <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">{s['max_win_streak']} 轮 / {s['max_lose_streak']} 轮</span></div>
-      <div class="sim-card"><span class="k">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
+      <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
       <div class="sim-card"><span class="k">配对情况</span><span class="v">{s['total_rounds']}笔成对 · {s['open_count']}笔未平仓</span></div>
     </div>"""
 
@@ -1030,7 +1030,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     <div class="sim-cmp-table">
       <table>
         <thead><tr>
-          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th>年化</th><th>最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th>胜率</th><th>交易笔数</th>
+          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>
         </tr></thead>
         <tbody>{cmp_table_rows}</tbody>
       </table>

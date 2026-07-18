@@ -2555,7 +2555,17 @@ async function renderOverview() {
     }
     const _kpiT1 = k.id === "a_fund_margin" || k.id === "a_fund_north";
     const _badge = getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
-    const _widthTip = (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
+    const _kpiTips = {
+      a_fund_north: "北向资金=借沪深股通买A股的外资。净流入=外资净买入。2024-08起停更,保留历史。",
+      a_fund_margin: "沪市融资余额=借钱买A股的杠杆资金。增加=杠杆做多情绪升。T+1。",
+      a_fund_main: "主力净流入=大单买入-卖出。正值=大资金净买入,负值=净卖出。",
+      a_amount: "沪深京A股成交额。放量=交投活跃,缩量=清淡。",
+      a_volume_ratio: "当日成交额/前5日均量。>1.5倍放量,<0.7倍缩量。",
+      fear_greed: "综合5类市场情绪等权算的0-100温度计。≤25极度恐惧、≥75极度贪婪。作逆向参考。",
+      a_sentiment: "6项A股指标加权算的0-100情绪分。≤20冰点、≥80过热。",
+      cross_market: "A股+港股+全球等多维度等权均值0-100。看跨市场整体冷热。",
+    };
+    const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}${_widthTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   content.appendChild(cards);
@@ -2736,7 +2746,7 @@ async function renderOverview() {
       const bearish = d.bearish || 0;
       const cross = d.cross || 0;
       const maSuffix = d.date ? `<span class="chart-latest"> · ${fmtDate(d.date)} 多头${bullish} 空头${bearish} 震荡${cross}</span>` : "";
-      let maHtml = `<h3>&#x1F4C8; 均线排列${termTip("MA5>MA10>MA20>MA60 为多头排列趋势向上，反之为空头")}${maSuffix}</h3>`;
+      let maHtml = `<h3>&#x1F4C8; 均线排列${termTip("MA=移动平均线,N日收盘价均值。MA5>MA10>MA20>MA60多头排列=短长期均线由高到低,趋势向上;反之为空头排列,趋势向下。")}${maSuffix}</h3>`;
       maHtml += `<div class="ma-summary">`;
       maHtml += `<span class="ma-count bullish">${bullish} 个多头</span> `;
       maHtml += `<span class="ma-count bearish">${bearish} 个空头</span> `;
@@ -2822,7 +2832,7 @@ async function renderOverview() {
         { name: "AD Line", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "AD" },
         { name: "AD Line MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
       ];
-      const adc = mkCard("📊 腾落线（AD Line）" + termTip("上涨家数减下跌家数的累计值，反映多数股在涨还是跌。累计值绝对值无意义，看趋势拐点") + latestSuffixMulti(adSeries), 300, null, colC1);
+      const adc = mkCard("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 300, null, colC1);
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
       addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       adc.setOption(withTheme({
@@ -2863,7 +2873,7 @@ async function renderOverview() {
         { name: "MA5", data: vrData.map(d => ({ date: d.date, value: d.ma5 })), label: "MA5" },
         { name: "MA20", data: vrData.map(d => ({ date: d.date, value: d.ma20 })), label: "MA20" },
       ];
-      const vrc = mkCard("📈 成交额与量比（近 120 日）" + termTip("今日成交 vs 近期平均成交，>1放量<1缩量") + latestSuffixMulti(vrSeries), 300, null, colC2);
+      const vrc = mkCard("📈 成交额与量比（近 120 日）" + termTip("量比=当日成交额/前5日均量。>1.5=放量(交投活跃),<0.7=缩量(清淡)。放量伴随涨跌更可信。") + latestSuffixMulti(vrSeries), 300, null, colC2);
       appendPlainTip(vrc, "量比>1.5为明显放量，<0.5为明显缩量");
       addCardTimeBadge(vrc.getDom().parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t0");
       vrc.setOption(withTheme({
@@ -3897,6 +3907,7 @@ async function renderAStock(container = content) {
   // 拉取盘中快照，供走势卡角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
+  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:A股全景指标:涨停连板(打板情绪)+涨跌家数(市场广度)+资金面(北向/融资/主力)+波动率/换手率(活跃度)。综合判断A股冷热。</div>');
   const groups = {
     "涨停/跌停/连板/炸板数": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban", "a_width_zb_count"],
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
@@ -3936,6 +3947,12 @@ async function renderAStock(container = content) {
     }).filter(Boolean);
   }
   const entries = Object.entries(groups);
+  // 分组级术语解释（多序列图无法给单个 series 加 termTip，故在分组标题统一解释组内黑话）
+  const groupTermTips = {
+    "炸板率/封板率/打板溢价": "炸板率=当日炸板数÷曾涨停数(高=封板失败多,打板情绪弱);封板率=涨停封住数÷曾涨停数(高=封板成功多,与炸板率互补);打板溢价=次日开盘相对前日涨停价的溢价(正=打板次日有肉,负=易亏)。",
+    "情绪指数（波指/换手率）": "波指=中国波指(期权隐含波动率),即A股'恐慌指数'。飙升=恐慌升,低位=平静。",
+    "换手率分布分位数（%，BaoStock 全市场）": "P90/P10=全市场换手率90/10分位数。P90高=90%的股票换手率低于此值,衡量活跃度极端值。",
+  };
   // 市场指标走势图：全部渲染入 astock-top-grid，再按视口宽度动态1行折叠(1行容量随宽度自适应，超出进折叠，resize 重算)
   const grid2col = document.createElement("div");
   grid2col.className = "astock-top-grid";
@@ -3944,7 +3961,7 @@ async function renderAStock(container = content) {
   for (const [g, ids] of entries) {
     const series = buildSeries(g, ids);
     if (series.length && series.some((s) => s.data.length)) {
-      const chart = lineChart(g + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col);
+      const chart = lineChart(g + (groupTermTips[g] ? termTip(groupTermTips[g]) : "") + latestSuffixMulti(series), series, {}, groupHints[g] || null, grid2col);
       if (chart) {
         let lastDate = "";
         for (const s of series) { if (s && s.data && s.data.length) { const d = s.data[s.data.length - 1]; if (d && d.date && d.date > lastDate) lastDate = d.date; } }
@@ -4022,9 +4039,10 @@ async function renderHK(container = content) {
   // 等快照就绪，注入港股实时数据 + 供走势卡角标判断盘中/收盘状态
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
+  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看港股(恒生/恒生科技/国企)走势+买卖点,叠加港股通南向资金(内地资金买港股的通道,净流入=看好港股)。另含港股板块指数。</div>');
   if (r.hk_south && r.hk_south.length) {
     const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
-    const chart = lineChart("港股通净买入（亿元）" + latestSuffixPct(hks), hks, {}, null, container);
+    const chart = lineChart("港股通净买入（亿元）" + termTip("港股通南向资金净买入。内地投资者借港股通通道买港股,净流入为正=内地资金净买入港股(看好)。T+1数据。") + latestSuffixPct(hks), hks, {}, null, container);
     if (chart) addCardTimeBadge(chart.getDom().parentElement, hks.length ? hks[hks.length - 1].date : "", snap, "t1", "hk_south");
   }
   const indices = _injectHkSnapshot(r.indices, snap);
@@ -4104,6 +4122,7 @@ async function renderGlobal(container = content) {
   // 拉取盘中快照，供走势卡角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
+  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看全球主要指数+商品/国债/汇率等风险资产。美股期货(ES/NQ)亚盘实时预估美股当晚开盘方向。商品/国债T+1。</div>');
   // M2：r.indices 已有 || {} 兜底；为空时显示空数据提示而非静默空白
   const idxEntries = Object.entries(r.indices || {});
   if (!idxEntries.length) {
@@ -4148,10 +4167,17 @@ async function renderGlobal(container = content) {
   const extrasSignals = r.extras_signals || {};
   const extrasStats = r.extras_stats || {};
   const extrasStrategy = r.extras_strategy || {};
+  // 全球 extras 黑话解释（QVIX/国债/利差等专业术语）
+  const extrasTermTips = {
+    a_qvix_300: "中国波指(50ETF期权隐含波动率),类似美股VIX恐慌指数。飙升=市场恐慌预期升,低位=情绪平稳。T+1。",
+    a_qvix_1000: "中国波指(300ETF/1000ETF期权隐含波动率),类似美股VIX恐慌指数。飙升=市场恐慌预期升,低位=情绪平稳。T+1。",
+    cn_us_spread: "中国10年国债收益率-美国10年国债收益率。为负=美债收益更高,资金倾向流向美国;走扩/收窄影响人民币汇率与跨境资金。",
+    us10y: "美国10年国债收益率,全球资产定价锚。上升常压制成长股/黄金,关注其拐点。T+1(常停T-3)。",
+  };
   for (const [id, name] of Object.entries(extras)) {
     const data = r.extras[id] || [];
     if (data.length) {
-      const chart = valueChartWithSignals(name + latestSuffixPct(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, cardGrid);
+      const chart = valueChartWithSignals(name + (extrasTermTips[id] ? termTip(extrasTermTips[id]) : "") + latestSuffixPct(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, cardGrid);
       if (chart) {
         const lastDate = data.length ? data[data.length - 1].date : "";
         if (dataStaleDays(lastDate) > STALE_DAYS) addStaleMark(chart.getDom().parentElement, lastDate);
@@ -4240,7 +4266,7 @@ async function renderSentiment() {
   if (r.fear_greed && r.fear_greed.length) {
     const data = r.fear_greed.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `😱😐😤 恐贪指数（0-100）${latest != null ? " · " + fearGreedLabel(latest) + latestSuffixPct(data) : ""}`;
+    const title = `😱😐😤 恐贪指数（0-100）` + termTip("综合5类市场情绪(波动率/动量/强度/广度/避险)等权算的0-100温度计。≤25极度恐惧(人人抛售,常近底)、≥75极度贪婪(人人追高,常近顶)。作逆向参考:恐惧时贪婪、贪婪时恐惧。") + (latest != null ? " · " + fearGreedLabel(latest) + latestSuffixPct(data) : "");
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, [], {
@@ -4263,7 +4289,7 @@ async function renderSentiment() {
   if (r.a_sentiment && r.a_sentiment.length) {
     const data = r.a_sentiment.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `A股综合情绪分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : ""}`;
+    const title = `A股综合情绪分（0-100）` + termTip("6项A股指标加权(涨跌比25%+涨停热度20%+炸板率15%+连板15%+成交10%+北向15%,缺项按可用重归一化)算的0-100。≤20冰点(恐慌极值)、≥80过热(亢奋极值)。点'组成因子'看各分项。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment, undefined, cell);
@@ -4283,7 +4309,7 @@ async function renderSentiment() {
     if (r[key] && r[key].length) {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
-      const title = `${baseTitle}（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : ""}`;
+      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
       const cell = document.createElement("div");
       cardGrid.appendChild(cell);
       const chart = valueChartWithSignals(title, data,
@@ -4301,7 +4327,7 @@ async function renderSentiment() {
   if (r.cross_market && r.cross_market.length) {
     const data = r.cross_market.map((d) => ({ date: d.date, value: d.value, components: d.components }));
     const latest = data[data.length - 1] && data[data.length - 1].value;
-    const title = `跨市场综合评分（0-100）${latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : ""}`;
+    const title = `跨市场综合评分（0-100）` + termTip("A股+港股+全球+龙虎榜+解禁+IPO+可转债等维度等权均值0-100。范围比A股情绪分更广,看跨市场整体冷热。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
     const chart = valueChartWithSignals(title, data, sig.cross_market || [], {
@@ -4378,7 +4404,7 @@ function renderSentimentHeatmap(r, snap) {
     hmSuffix = `<span class="chart-latest"> · ${fmtDate(latestDate)} 冰点${coldCount} 过热${hotCount}</span>`;
   }
 
-  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}</h3><div class="chart" style="height:220px"></div>`;
+  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}${termTip("6大宽基指数情绪分的冰点(≤20红)/过热(>80绿)日历。红色密集=多指数同时恐慌(常近底);绿色密集=同时亢奋(常近顶)。作逆向参考。")}</h3><div class="chart" style="height:220px"></div>`;
   content.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
