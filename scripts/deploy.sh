@@ -74,6 +74,20 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   echo "✓ rsync 完成（$REPO -> $GIT_REPO）" | tee -a "$LOG"
 fi
 
+# 1.7 rsync 采集 DB/数据到 trade 仓库（保持 trade/data/ 同步：诊断 + 手动从 trade 跑 deploy 能读最新 DB）
+# 仅 trade-data 跑时触发（REPO != GIT_REPO）；排除 logs/（日志各自独立不互相同步）。
+# 失败不阻断部署（static-site/data/ JSON 已上线，DB 同步仅兜底）。
+if [ "$REPO" != "$GIT_REPO" ]; then
+  echo "-> rsync 采集数据: $REPO/data/ -> $GIT_REPO/data/ (exclude logs) ..." | tee -a "$LOG"
+  rsync -a --exclude=logs/ "$REPO/data/" "$GIT_REPO/data/" 2>&1 | tee -a "$LOG"
+  RSYNC_DB_RC=${PIPESTATUS[0]}
+  if [ "$RSYNC_DB_RC" -ne 0 ]; then
+    echo "⚠ rsync data/ 失败（退出码 $RSYNC_DB_RC），不阻断部署（static-site/data/ JSON 已上线）" | tee -a "$LOG"
+  else
+    echo "✓ rsync data/ 完成（DB 同步到 $GIT_REPO/data/）" | tee -a "$LOG"
+  fi
+fi
+
 # 2. git add 静态数据 + min JS（min 重新生成后若有变更一并提交）
 echo "→ git add static-site/data/ + min JS ..." | tee -a "$LOG"
 git -C "$GIT_REPO" add static-site/data/ \
