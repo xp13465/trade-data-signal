@@ -27,11 +27,11 @@ sys.path.insert(0, os.path.join(BASE, 'a-stock-data'))
 sys.path.insert(0, os.path.join(BASE, 'scripts', 'lab'))
 
 from backtest_strategies import gen_buy_signals, gen_sell_signals
-from fusion_signals import gen_fusion_candidates
+from fusion_signals import gen_fusion_candidates, gen_hardcoded_fusion_candidates
 from lab_simulate import (
     load_index_data, _fmt_date, _days_between,
     simulate_full_in, simulate_fixed_10k, _build_stats,
-    INITIAL_CAPITAL, SIM_INDEXES
+    INITIAL_CAPITAL, SIM_INDEXES, BUY_KEYS, SELL_KEYS
 )
 
 # 极端行情regime定义 (start, end, key)
@@ -248,8 +248,51 @@ def run_retest_for_index(iid, iname):
     last_date = df.index[-1]
     print(f'  数据范围: {_fmt_date(first_date)} ~ {_fmt_date(last_date)} ({len(df)}天)')
 
-    candidates = gen_fusion_candidates(df)
-    print(f'  融合候选: {len(candidates)}个')
+    # 候选集与 lab_simulate 的 fusion_stats 完全对齐(145):91融合 + 6 F_硬编码 + 48 F_×partner
+    # 补 F_硬编码 + partner 后,融合榜(F_+同向共振)才有候选进⭐️二次测试(原仅91无F_,0融合过⭐️)
+    candidates = gen_fusion_candidates(df) + gen_hardcoded_fusion_candidates(df)
+    # 6 硬编码 F_ × 8 反向 partner(48组):F_融合信号当主策略配反向单信号partner
+    # pair_id: 买侧F_ -> "F_xxx|sell_partner"; 卖侧F_ -> "buy_partner|F_xxx"(与lab_simulate:780-828一致)
+    buy_signals = gen_buy_signals(df)
+    sell_signals = gen_sell_signals(df)
+    hardcoded = [c for c in candidates if c['pair_type'].startswith('hardcoded')]
+    for c in hardcoded:
+        fkey = c['pair_id']
+        side = 'buy' if c['pair_type'] == 'hardcoded_buy' else 'sell'
+        if side == 'buy':
+            fusion_mask = c['buy_mask']
+            partners = SELL_KEYS
+        else:
+            fusion_mask = c['sell_mask']
+            partners = BUY_KEYS
+        if fusion_mask is None or fusion_mask.sum() == 0:
+            continue
+        for pkey in partners:
+            if side == 'buy':
+                bm = fusion_mask.fillna(False).astype(bool)
+                sm_raw = sell_signals.get(pkey)
+                if sm_raw is None:
+                    continue
+                sm = sm_raw.fillna(False).astype(bool)
+                pid = f'{fkey}|{pkey}'
+            else:
+                bm_raw = buy_signals.get(pkey)
+                if bm_raw is None:
+                    continue
+                bm = bm_raw.fillna(False).astype(bool)
+                sm = fusion_mask.fillna(False).astype(bool)
+                pid = f'{pkey}|{fkey}'
+            if bm.sum() == 0 or sm.sum() == 0:
+                continue
+            candidates.append({
+                'pair_id': pid,
+                'pair_type': f'partner_{side}',
+                'buy_mask': bm,
+                'sell_mask': sm,
+                'components': c['components'],
+                'ref_side': c['ref_side'],
+            })
+    print(f'  融合候选: {len(candidates)}个(91融合+6 F_+{len(candidates)-97} partner)')
 
     # 两趟计算:
     # 第一趟:计算全部候选的y5/y3/y1三窗口统计 + score(归一化,score仍基于y5)
