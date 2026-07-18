@@ -770,14 +770,25 @@ async function fetchJSON(url) {
   // 2. in-flight 去重（同 URL 并发只发一次）
   const inflight = _inflightFetch.get(url);
   if (inflight) return inflight;
-  const p = fetch(url)
+  // A3: AbortController + 15s 超时，避免后端卡死时请求永久挂起；超时由调用方 catch + renderFailCard 兜底
+  const controller = new AbortController();
+  const slowTimer = setTimeout(() => controller.abort(), 15000);
+  const p = fetch(url, { signal: controller.signal })
     .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + url); return r.json(); })
     .then((data) => {
       // 成功才缓存（时效敏感 URL 跳过）；失败不缓存，下次重试
       if (!_NO_CACHE_URLS.test(url)) _resultCache.set(url, { data, ts: Date.now() });
       return data;
     })
-    .finally(() => _inflightFetch.delete(url));
+    .catch((e) => {
+      // 超时（abort）：renderFailCard 存在则向上抛由调用方兜底渲染，否则 console.error 并返回 null
+      if (e && e.name === "AbortError") {
+        console.error("fetchJSON timeout (15s): " + url);
+        if (typeof renderFailCard !== "function") return null;
+      }
+      throw e;
+    })
+    .finally(() => { clearTimeout(slowTimer); _inflightFetch.delete(url); });
   _inflightFetch.set(url, p);
   return p;
 }
@@ -2391,6 +2402,7 @@ async function renderOverview() {
   // ---- 0. 一句话总结横幅 ----
   fetchJSON("./data/summary.json").then(async (s) => {
     if (s && s.summary) {
+      if (state.tab !== 'overview') return; // A2: await 期间用户切了 tab，回调回来不再渲染 overview 横幅
       // 等快照就绪（已在 bootstrap 发起，最多等 1.5s 避免阻塞渲染），保证 T+1 缺数据时能覆盖
       try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
       const snap = state.intradaySnapshot;
@@ -3919,7 +3931,7 @@ async function renderAStock(container = content) {
   function buildSeries(g, ids) {
     const labels = groupLabels[g] || {};
     return ids.map((id) => {
-      const m = r.metrics[id];
+      const m = (r.metrics && r.metrics[id]) || null;
       return m ? { name: m.name, data: m.data, label: labels[id] } : null;
     }).filter(Boolean);
   }
@@ -4437,7 +4449,7 @@ function renderFuturesSection(data, snap) {
       html += '</tr>';
     }
     html += '</tbody></table>';
-    html += '<div class="term-plain">正数=净多（绿），负数=净空（红）。数据来源：中金所前20会员持仓。</div>';
+    html += '<div class="term-plain">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
     div.innerHTML = html;
     fgGrid.appendChild(div);
     addCardTimeBadge(div, dateStr, snap, "t1", "futures_date");

@@ -112,10 +112,16 @@ def _compute_accuracy_for_variety(
             return []
         idx = dates.index(target_date)
         start_idx = max(0, idx - max_window + 1)
-        work_dates = dates[start_idx : idx + 1]
-        if len(work_dates) < max_window // 4:  # 窗口内至少要有 1/4 的数据
+        window_check = dates[start_idx : idx + 1]
+        if len(window_check) < max_window // 4:  # 窗口内至少要有 1/4 的数据
             return []
-        work_dates = [target_date]  # 只输出 target_date 的准确率行
+        # 输出 target_date 及之前 BACKFILL_DAYS 日的准确率行。
+        # 关键：actual_return = 次日涨跌，target_date 当日因次日收盘未就绪必为 None；
+        # 但前一日的 actual_return 此时已可算（target_date 收盘已就绪）。
+        # 旧实现 work_dates=[target_date] 只算当日 -> actual_return 永远 None、latest_bet 滞后。
+        # 回算最近 BACKFILL_DAYS 日：既补 actual_return 滞后，又自愈偶发漏跑（mac 休眠等）多日空缺。
+        BACKFILL_DAYS = 10
+        work_dates = dates[max(0, idx - BACKFILL_DAYS + 1) : idx + 1]
     else:
         # 全量计算：从第 max_window 个日期开始
         work_dates = dates[max_window - 1:]

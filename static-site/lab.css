@@ -998,3 +998,42 @@
 /* === 二次测试实验分区（第3实验分区，复用 .lab-strategy-card / .lab-rank 样式）=== */
 .lab-retest-card .lab-card-name { font-size: 13.5px; }
 .lab-retest-card .lab-rank-score { font-size: 12px; }
+
+/* === 深色/红金皮肤覆盖：浅底硬编码块在深色卡上变白块+浅字撞色，统一改 bg-hover 底 + text-2 字 === */
+/* C1: 状态标签(live/partial/exp/excluded 原浅底硬编码) */
+[data-theme="dark"] .lab-tag-live,
+[data-theme="redgold"] .lab-tag-live { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+[data-theme="dark"] .lab-tag-partial,
+[data-theme="redgold"] .lab-tag-partial { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+[data-theme="dark"] .lab-tag-exp,
+[data-theme="redgold"] .lab-tag-exp { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+[data-theme="dark"] .lab-tag-excluded,
+[data-theme="redgold"] .lab-tag-excluded { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+/* C2: 自白黄块正文(底已由 .lab-warning 深色覆盖，但 p/strong 仍硬编码深棕/深红，深底不可见) */
+[data-theme="dark"] .lab-warning-essay p,
+[data-theme="redgold"] .lab-warning-essay p { color: var(--text-2); }
+[data-theme="dark"] .lab-warning-essay strong,
+[data-theme="redgold"] .lab-warning-essay strong { color: var(--text-1); }
+/* C2: 排行榜分数/复测/荣誉徽章浅底硬编码 */
+[data-theme="dark"] .lab-rank-score,
+[data-theme="redgold"] .lab-rank-score { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .lab-rank-retest,
+[data-theme="redgold"] .lab-rank-retest { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+[data-theme="dark"] .lab-rank-retest-rule,
+[data-theme="redgold"] .lab-rank-retest-rule { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+[data-theme="dark"] .lab-rank-honor-badge[data-rank="1"],
+[data-theme="redgold"] .lab-rank-honor-badge[data-rank="1"] { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+[data-theme="dark"] .lab-rank-honor-badge[data-rank="2"],
+[data-theme="redgold"] .lab-rank-honor-badge[data-rank="2"] { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+[data-theme="dark"] .lab-rank-honor-badge[data-rank="3"],
+[data-theme="redgold"] .lab-rank-honor-badge[data-rank="3"] { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+/* C2: 买卖信号弹窗入口按钮(浅紫底深紫字) */
+[data-theme="dark"] .lab-sim-signal-btn,
+[data-theme="redgold"] .lab-sim-signal-btn { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
+[data-theme="dark"] .lab-sim-signal-btn:hover,
+[data-theme="redgold"] .lab-sim-signal-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+/* C2: 融合阶段提示浅底黄块 */
+[data-theme="dark"] .lab-fusion-phase-note,
+[data-theme="redgold"] .lab-fusion-phase-note { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-2); }
+[data-theme="dark"] .lab-fusion-phase-note b,
+[data-theme="redgold"] .lab-fusion-phase-note b { color: var(--text-1); }

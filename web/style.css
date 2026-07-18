@@ -1356,11 +1356,11 @@ main { padding: 16px 24px; }
   color: var(--text-1);
 }
 .futures-long {
-  color: #16a34a;
+  color: #e6492e;
   font-weight: 600;
 }
 .futures-short {
-  color: #e6492e;
+  color: #2e8b57;
   font-weight: 600;
 }
 
@@ -2372,4 +2372,47 @@ main { padding: 16px 24px; }
 .lab-warning { background: #fff7e6; border: 1px solid #ffd591; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 12px; color: #8a5f2a; }
 [data-theme="dark"] .lab-warning,
 [data-theme="redgold"] .lab-warning { background: #2b2111; border-color: #4a351a; color: #d4b88a; }
+
+/* === 深色/红金皮肤覆盖：浅底硬编码块在深色卡上变白块，统一改 bg-hover 底 + text-2 字 === */
+/* C3: 买卖信号 badge(buy/aux/sell 原浅底硬编码) */
+[data-theme="dark"] .badge-buy,
+[data-theme="redgold"] .badge-buy { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .badge-aux,
+[data-theme="redgold"] .badge-aux { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .badge-sell,
+[data-theme="redgold"] .badge-sell { background: var(--bg-hover); color: var(--text-2); }
+/* C4: 规则注释黄底块 */
+[data-theme="dark"] .rule-note,
+[data-theme="redgold"] .rule-note { background: var(--bg-hover); color: var(--text-2); }
+/* C5: 冰点热力图 tag(freeze/cool/neutral/warm/hot 原浅底硬编码) */
+[data-theme="dark"] .tag-freeze,
+[data-theme="redgold"] .tag-freeze { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .tag-cool,
+[data-theme="redgold"] .tag-cool { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .tag-neutral,
+[data-theme="redgold"] .tag-neutral { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .tag-warm,
+[data-theme="redgold"] .tag-warm { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .tag-hot,
+[data-theme="redgold"] .tag-hot { background: var(--bg-hover); color: var(--text-2); }
+/* C6: 持有人结构冰点标签 */
+[data-theme="dark"] .sh-freeze,
+[data-theme="redgold"] .sh-freeze { background: var(--bg-hover); color: var(--text-2); }
+/* C7: 均线排列多空计数(bullish/bearish 原浅底硬编码) */
+[data-theme="dark"] .ma-count.bullish,
+[data-theme="redgold"] .ma-count.bullish { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .ma-count.bearish,
+[data-theme="redgold"] .ma-count.bearish { background: var(--bg-hover); color: var(--text-2); }
+/* C8: 轮动速度标签(fast/mid/slow 原浅底硬编码) */
+[data-theme="dark"] .rotation-item.fast,
+[data-theme="redgold"] .rotation-item.fast { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .rotation-item.mid,
+[data-theme="redgold"] .rotation-item.mid { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .rotation-item.slow,
+[data-theme="redgold"] .rotation-item.slow { background: var(--bg-hover); color: var(--text-2); }
+/* C9: ETF代码复制成功反馈浅底 */
+[data-theme="dark"] .etf-tag.copied,
+[data-theme="redgold"] .etf-tag.copied { background: var(--bg-hover); color: var(--text-2); }
+[data-theme="dark"] .etf-pop-row.copied,
+[data-theme="redgold"] .etf-pop-row.copied { background: var(--bg-hover); }
 

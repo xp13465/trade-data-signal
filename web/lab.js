@@ -1720,11 +1720,14 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
   const holdingRows = openPositions.map((p) => {
     const isProfit = p.unrealized_pnl >= 0;
     const pc = isProfit ? "var(--mx-good-fg)" : "var(--mx-bad-fg)";
-    const pnlStr = (isProfit ? "+" : "") + Math.round(p.unrealized_pnl).toLocaleString();
     const pnlPctStr = (isProfit ? "+" : "") + p.unrealized_pnl_pct + "%";
     // 账户资金 = 上一行账户资金 + 本笔浮盈(第1笔上一行=baseAt=末次已成交 at)
     cumAt = cumAt + p.unrealized_pnl;
     const atStr = Math.round(cumAt).toLocaleString();
+    // 累计盈亏 = 账户资金 - initCapital, 与同行账户资金/累计收益率同口径(累计, 非个体浮盈亏)
+    const cumPnl = cumAt - initCapital;
+    const cumPC = cumPnl >= 0 ? "var(--mx-good-fg)" : "var(--mx-bad-fg)";
+    const pnlStr = (cumPnl >= 0 ? "+" : "") + Math.round(cumPnl).toLocaleString();
     // 累计收益率 = (账户资金 - initCapital)/initCapital*100, 与顶部 total_ret 同口径(分母恒 initCapital)
     const crVal = initCapital > 0 ? (cumAt - initCapital) / initCapital * 100 : 0;
     const crPC = crVal >= 0 ? "#c92a2a" : "#2e7d32";
@@ -1743,7 +1746,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
       `<td style="color:${pc};font-weight:600">${pnlPctStr}</td>` +
       `<td>${p.hold_days}天</td>` +
       `<td>${atStr}</td>` +
-      `<td style="color:${pc}">${pnlStr}</td>` +
+      `<td style="color:${cumPC}">${pnlStr}</td>` +
       `<td style="color:${crPC};font-weight:600">${crStr}</td>` +
       `<td>${deltaHTML}</td>` +
       `</tr>`;
@@ -2858,7 +2861,7 @@ function _labRankModalRender(overlay, simData) {
 }
 
 // === 买卖信号弹窗：配对详情入口，显示买/卖策略图表+品类切换 ===
-function _labSignalOpenModal(buyKey, sellKey) {
+function _labSignalOpenModal(buyKey, sellKey, idxOverride) {
   let overlay = document.getElementById("labSignalOverlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -2867,9 +2870,10 @@ function _labSignalOpenModal(buyKey, sellKey) {
     document.body.appendChild(overlay);
   }
   // 同步外部选择：指数取模拟回测 labSimIdx（信号按钮在 sim 卡片内）+ 窗口取 labSimWindow
+  // 融合弹窗传 idxOverride=m.index 避免用旧 state.labSimIdx 串台（切指数后 state.labSimIdx 未同步）
   state.labSignalModal = {
     buyKey, sellKey,
-    index: state.labSimIdx || state.labIndex || "sh",
+    index: idxOverride || state.labSimIdx || state.labIndex || "sh",
     win: state.labSimWindow || "y5",
     charts: [],
   };
@@ -2916,7 +2920,7 @@ async function _labSignalModalRender(overlay) {
 
   // 指数选择器 options
   const groups = [
-    ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50"]],
+    ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50", "bj50"]],
     ["港股", ["hsi", "hscei", "hstech"]],
     ["美股", ["us_dji", "us_ixic", "us_spx", "us_ndx"]],
     ["红利/低波", ["div_lowvol", "csi_div", "sz_div"]],
@@ -3973,7 +3977,7 @@ async function _labRetestPairModalRender(overlay) {
 // === 融合候选配对回测弹窗（buy_sell/buy_buy/sell_sell 三类查 lab_sim_{index}_fusion_stats.json；硬编码独立策略展示文本）===
 // 指数选择器分组（融合候选为A股策略，仅列A股宽基）
 const LAB_FUSION_PAIR_INDEX_GROUPS = [
-  ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50"]],
+  ["A股宽基", ["sh", "sz", "cyb", "csi500", "csi1000", "kc50", "hs300", "sz50", "bj50"]],
 ];
 
 function _labFusionPairOpenModal(meta) {
@@ -4438,9 +4442,9 @@ async function _labFusionPairModalRender(overlay) {
     if (prev) prev.onclick = () => { if (m.page > 0) { m.page--; _labFusionPairModalRender(overlay); } };
     const next = overlay.querySelector(".lab-sim-next");
     if (next && !next.disabled) next.onclick = () => { m.page++; _labFusionPairModalRender(overlay); };
-    // 查看买卖信号按钮
+    // 查看买卖信号按钮（融合弹窗传当前 m.index，避免用旧 state.labSimIdx 串台）
     body.querySelectorAll(".lab-sim-signal-btn").forEach((btn) => {
-      btn.onclick = () => _labSignalOpenModal(btn.dataset.buy, btn.dataset.sell);
+      btn.onclick = () => _labSignalOpenModal(btn.dataset.buy, btn.dataset.sell, m.index);
     });
   }
 
