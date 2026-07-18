@@ -4,7 +4,7 @@ setOption(chartThemeOpts()) that precede business setOption.
 
 Skips setOption calls inside rethemeCharts() (those are second-update re-injections).
 Operates by brace/paren counting with string & comment awareness, so it is
-line-number independent and works on both web/app.js and static-site/app.js.
+line-number independent and works on static-site/app.js.
 """
 import sys
 

@@ -49,7 +49,7 @@
   - 前端双向查找：给定策略A+伙伴B，若A.side=="buy"则pair_id=A+"|"+B，否则pair_id=B+"|"+A。
   - 前端先 fetch stats（秒开推荐榜+矩阵+配对卡片），点详情/弹窗时再 fetch full 合并入已缓存 stats。
 
-输出: web/data/lab/ + static-site/data/lab/ 各两个文件 lab_sim_{iid}_stats.json / lab_sim_{iid}_full.json
+输出: static-site/data/lab/ 两个文件 lab_sim_{iid}_stats.json / lab_sim_{iid}_full.json
 """
 import bisect
 import json

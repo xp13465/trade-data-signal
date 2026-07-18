@@ -14,7 +14,6 @@
 
 输出:
   static-site/data/lab_short_symmetry.json (前端可读)
-  web/data/lab_short_symmetry.json (双版同步)
 
 结论预期：A股长期向上漂移，做多结构性占优，做空普遍亏损，卖信号不具备对称的做空能力
 (即卖信号只适合止盈多头，不适合反手开空)。

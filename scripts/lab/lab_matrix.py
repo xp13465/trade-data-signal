@@ -4,7 +4,7 @@
 按指数拆分生成 22策略 × 5窗口 × 4horizon 矩阵数据，供前端矩阵指数切换。
 复用 a-stock-data/backtest_strategies.py 的信号生成与统计函数。
 
-输出: web/data/lab/ + static-site/data/lab/ 各一份 lab_backtest_{iid}.json
+输出: static-site/data/lab/ 一份 lab_backtest_{iid}.json
 """
 import json
 import os

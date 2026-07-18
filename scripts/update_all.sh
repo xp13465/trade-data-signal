@@ -94,7 +94,7 @@ SIGNAL_RC=${PIPESTATUS[0]}
 
 # 盘中实时快照：update_all 末尾顺便刷新（写 DB + dump static-site/data/intraday_snapshot.json）
 # 盘中跑会采实时行情；收盘后/非交易日也跑（采最近交易日值，label 自动判"收盘快照"）。
-# 不额外 git push（static JSON 本地更新，下次 deploy 自动推送；web/ 走 /api/ 实时读 DB）。
+# 不额外 git push（static JSON 本地更新，下次 deploy 自动推送；动态版 /api/ 实时读 DB）。
 echo "-> intraday_snapshot 采集 ..." | tee -a "$LOG"
 "$PY" -m app.collector.intraday_snapshot >> "$LOG" 2>&1 || \
   echo "⚠ intraday_snapshot 采集失败（不阻塞主流程）" | tee -a "$LOG"

@@ -8,7 +8,7 @@
 from backtest_strategies import gen_buy_signals, gen_sell_signals
 from backtest_strategies import rsi, ma, macd, bollinger
 
-# 对应前端 web/lab.js _generateFusionCandidates（lab.js:669）的 91 候选：
+# 对应前端 static-site/lab.js _generateFusionCandidates（lab.js:669）的 91 候选：
 #   - buy_sell 49：7 实验买 × 7 实验卖（与单信号配对同，buy_mask=买信号, sell_mask=卖信号）
 #   - buy_buy  21：C(7,2) 双买同日 AND 共振（buy_mask = b1 & b2），卖侧用生产基线 D1_high20_drop5
 #   - sell_sell 21：C(7,2) 双卖同日 AND 共振（sell_mask = s1 & s2），买侧用生产基线 C1_RSI30
@@ -118,7 +118,7 @@ def gen_fusion_candidates(df):
     return candidates
 
 
-# === 6 硬编码融合策略（与前端 web/lab.js LAB_FUSION_STRATEGIES 逐条对齐）===
+# === 6 硬编码融合策略（与前端 static-site/lab.js LAB_FUSION_STRATEGIES 逐条对齐）===
 # 本质 = 主信号 & 过滤条件 同日 AND（与 buy_buy/sell_sell 的 m1 & m2 取交集同构，是其扩展）。
 # 过滤条件语义来自 app/compute/signals.py 生产实现（已验证对齐）。
 # pair_id 用 F_ 前缀，不与 91 候选的 "a|b" 格式冲突。

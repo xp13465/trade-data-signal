@@ -18,7 +18,6 @@ _cross_up/_cross_down），在本脚本内参数化复刻信号生成。
 
 输出:
   static-site/data/lab_param_scan.json
-  web/data/lab_param_scan.json (双版同步)
 """
 import json
 import os

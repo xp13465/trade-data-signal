@@ -12,7 +12,6 @@
   pair_meta 含 strategy/window/score/n/dd/win
 
 输出:
-  web/data/lab/lab_retest_{iid}.json
   static-site/data/lab/lab_retest_{iid}.json
 """
 import json

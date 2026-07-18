@@ -16,7 +16,6 @@
 
 输出:
   static-site/data/lab_cost_compare.json (前端可读)
-  web/data/lab_cost_compare.json (双版同步)
 """
 import json
 import os

@@ -6,7 +6,7 @@
 排进 Top3(第1/2/3) 的所有(指数,窗口)组合。前端在 retest 排行榜每行用小徽章
 标注该策略在"其他"条件下的排名荣誉(当前选中条件不重复标)，多层次定位好排名策略。
 
-排名口径与前端 _labRetestRankRows(web/lab.js) 逐字一致：
+排名口径与前端 _labRetestRankRows(static-site/lab.js) 逐字一致：
   score = 0.3*wholeScore + 0.25*yearlyScore + 0.25*oosScore + 0.2*regimeScore
   wholeScore = 0.4*retN + 0.3*winN + 0.2*(1-ddN) + 0.1*nN   (ret/win/dd/n 取自
               lab_sim_<idx>_stats.json 的 stats[win]，随窗口变，权重30%)
@@ -17,8 +17,7 @@
 输入(均已由 lab_retest.py / lab_simulate.py 生成，读 static-site/data/lab/):
   lab_retest_<idx>.json        9 个指数
   lab_sim_<idx>_stats.json     9 个指数(供 wholeScore 5窗口切换)
-输出(双版同步，与 lab_retest.py 一致):
-  web/data/lab/lab_retest_honors.json
+输出(与 lab_retest.py 一致):
   static-site/data/lab/lab_retest_honors.json
   结构: { pairKey: [ {idx, win, rank}, ... ], ... }   # rank<=3 的全部荣誉, 按 rank 升序
 """
@@ -31,7 +30,7 @@ sys.path.insert(0, os.path.join(BASE, 'scripts', 'lab'))
 
 from lab_simulate import SIM_INDEXES  # 9 指数 [(id,name),...]
 
-# 与前端 LAB_WIN_DEFS(web/lab.js:792) 一致的 5 窗口
+# 与前端 LAB_WIN_DEFS(static-site/lab.js:792) 一致的 5 窗口
 LAB_WIN_DEFS = ['all', 'y10', 'y5', 'y3', 'y1']
 
 
@@ -50,7 +49,7 @@ def _minmax(rows, key):
 
 def _extract(pk, data, mode, sim_data, win_key):
     """从单个 pair 的 data(top-level=full_in 或 fixed_10k)提取一行原始指标。
-    与前端 _labRetestRankRows.extract(web/lab.js:2977) 逐字一致。
+    与前端 _labRetestRankRows.extract(static-site/lab.js:2977) 逐字一致。
     simData stats 为百分数(10.87)，pair_meta 为小数(0.1087)，统一为小数。"""
     meta = data.get('pair_meta') or {}
     ret = meta.get('ret') if meta.get('ret') is not None else 0
@@ -108,7 +107,7 @@ def _extract(pk, data, mode, sim_data, win_key):
 
 def _compute_rows(rd, sim_data, win_key):
     """聚合 retest pairs -> 行(双模式)，算8维综合分 score。
-    与前端 _labRetestRankRows(web/lab.js:2971) 逐字一致。"""
+    与前端 _labRetestRankRows(static-site/lab.js:2971) 逐字一致。"""
     pks = list((rd.get('pairs') or {}).keys())
     raw = []
     for pk in pks:

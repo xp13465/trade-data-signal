@@ -21,7 +21,6 @@ fusion_signals 的 _gen_filter_masks / HARDCODED_FUSIONS。
 
 输出:
   static-site/data/lab_ablation.json
-  web/data/lab_ablation.json (双版同步)
 """
 import json
 import os

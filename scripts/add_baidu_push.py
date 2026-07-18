@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""一次性工具：给 web/ 与 static-site/ 下所有 HTML 注入百度自动推送 JS（SEO 收录）。
+"""一次性工具：给 static-site/ 下所有 HTML 注入百度自动推送 JS（SEO 收录）。
 
 修正用户原代码 2 个 bug：
 1. window.location.protocol.split(':') 漏 [0] -> curProtocol 是数组，=== 'https' 永远 false
