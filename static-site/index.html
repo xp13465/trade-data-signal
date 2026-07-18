@@ -24,8 +24,8 @@
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"WebApplication","name":"市场温度看板","alternateName":["trade-data-signal","tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"http://tdsignal-ujpzw01zm.maozi.io/","description":"市场温度看板 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, 市场温度看板, A股情绪看板, 情绪数据复盘看板, 市场情绪, 买卖点信号, 行业热力图, 模拟回测"}
   </script>
-  <link rel="stylesheet" href="./style.css?v=a1682fcf">
-  <link rel="stylesheet" href="./lab.css?v=a4d3f908">
+  <link rel="stylesheet" href="./style.css?v=52184d4d">
+  <link rel="stylesheet" href="./lab.css?v=d9e4d8f2">
   <script defer src="./vendor/echarts.min.js?v=12173341"></script>
 <script>
 var _hmt = _hmt || [];
@@ -129,6 +129,8 @@ var _hmt = _hmt || [];
       <button data-rng="all">全部</button>
     </div>
   </nav>
+  <!-- C: 首页顶部风险提示横幅（常驻，合规） -->
+  <div class="risk-banner">📚 本站为个人学习/研究工具，非持牌证券投资咨询机构。所有数据与信号均为历史统计与技术分析参考，不构成任何投资建议或交易指令。过往表现不代表未来收益，数据可能存在延迟。投资有风险，决策需谨慎。</div>
   <main id="content"><div class="loading">加载中…</div></main>
   <!-- H5 底部固定导航：5 主 tab，复用 data-tab 切换逻辑（PC 隐藏）-->
   <nav class="h5-bottomnav">
@@ -150,9 +152,9 @@ var _hmt = _hmt || [];
   </footer>
 
   <script src="./qr.js?v=6577e491"></script>
-  <script defer src="./app.min.js?v=219fa243"></script>
+  <script defer src="./app.min.js?v=5f3e6d8c"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
-  <meta name="lab-asset-url" content="./lab.min.js?v=ac538598">
+  <meta name="lab-asset-url" content="./lab.min.js?v=21105dd0">
 <script>
 (function(){
     var bp = document.createElement('script');

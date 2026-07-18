@@ -9,6 +9,31 @@
   color: #ad6800;
   font-weight: 500;
 }
+/* C: 实验室顶部合规声明（置顶显著，非折叠，全皮肤可见） */
+.lab-top-disclaimer {
+  background: linear-gradient(90deg, rgba(212,56,13,0.10), rgba(212,56,13,0.03));
+  border: 1px solid rgba(212,56,13,0.30);
+  border-left: 4px solid #d4380d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text-1);
+}
+.lab-top-disclaimer .lab-top-title { display: block; font-weight: 700; font-size: 14px; margin-bottom: 4px; color: #d4380d; }
+.lab-top-disclaimer b { color: #d4380d; font-weight: 700; }
+[data-theme="dark"] .lab-top-disclaimer,
+[data-theme="redgold"] .lab-top-disclaimer {
+  background: linear-gradient(90deg, rgba(255,120,117,0.16), rgba(255,120,117,0.05));
+  border-color: rgba(255,120,117,0.40);
+  border-left-color: #ff7875;
+}
+[data-theme="dark"] .lab-top-disclaimer .lab-top-title,
+[data-theme="redgold"] .lab-top-disclaimer .lab-top-title,
+[data-theme="dark"] .lab-top-disclaimer b,
+[data-theme="redgold"] .lab-top-disclaimer b { color: #ff9c9a; }
+
 .lab-title {
   font-size: 16px;
   color: var(--text-1);

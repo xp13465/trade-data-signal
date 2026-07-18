@@ -388,8 +388,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
 // stats = {buy:{10d:{win_rate,pl,mean,n}}, buy_aux:..., sell:...}
 // "10日"= 信号后 10 交易日 forward 收益窗口（非"只回测 10 日数据"）；全历史 signals 回测。
 // 凯利公式 f* = max(0, (b·p − (1−p)) / b)，b=盈亏比 pl，p=胜率 win_rate → 数学最优下注比例。
-//   买/辅买：f>0 标"凯利建议仓位 X%"；f≤0 标"凯利不建议入场（负期望）"。
-//   卖：f>0 标"凯利建议做空 X%"；f≤0 标"凯利不建议做空（负期望，长期会亏）"。
+//   买/辅买：f>0 标"凯利公式计算仓位 X%（研究参考）"；f≤0 标"凯利公式≤0（负期望，按公式不下注）"。
+//   卖：f>0 标"凯利公式计算做空比例 X%（研究参考）"；f≤0 标"凯利公式≤0（负期望，按公式不下注）"。
 //   样本 n<10 标"样本不足，仅供参考"，不计凯利。
 // 卖点语义诚实声明：D1 卖点是"止盈减仓提示"非高胜率反向信号，胜率≈50% 接近随机（见 REQUIREMENTS §7.2）。
 // 胜率配色梯度（winRateClass）：≥80 深绿加粗 / 70-79 中绿加粗 / 60-69 浅绿 / 50-59 中性灰 /
@@ -614,12 +614,12 @@ function statsHint(stats, strategy, indexId) {
       const kellyPct = Math.round(f * 100);
       if (sig === "sell") {
         kellyHtml = kellyPct > 0
-          ? `<span class="hint-kelly">→ 凯利建议做空 <b>${kellyPct}%</b></span>`
-          : `<span class="hint-kelly warn">→ 凯利不建议做空（负期望，长期会亏）</span>`;
+          ? `<span class="hint-kelly">→ 凯利公式计算做空比例 <b>${kellyPct}%</b>（研究参考）</span>`
+          : `<span class="hint-kelly warn">→ 凯利公式≤0（负期望，按公式不下注）</span>`;
       } else {
         kellyHtml = kellyPct > 0
-          ? `<span class="hint-kelly">→ 凯利建议仓位 <b>${kellyPct}%</b></span>`
-          : `<span class="hint-kelly warn">→ 凯利不建议入场（负期望）</span>`;
+          ? `<span class="hint-kelly">→ 凯利公式计算仓位 <b>${kellyPct}%</b>（研究参考）</span>`
+          : `<span class="hint-kelly warn">→ 凯利公式≤0（负期望，按公式不下注）</span>`;
       }
     }
     // 卖点诚实声明：止盈减仓提示，非高胜率反向信号（详见凯利说明 + 规则说明条）
@@ -652,8 +652,8 @@ function statsHint(stats, strategy, indexId) {
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
     `<div class="hint-kelly-body">` +
     `<div><b>公式</b>：f* = max(0, (盈亏比 × 胜率 − (1 − 胜率)) ÷ 盈亏比) —— 根据该信号的胜率与盈亏比，算出每次下注的最优资金比例。</div>` +
-    `<div><b>"凯利 X%"是什么</b>：理论上每次用总资金的 X% 买入（或做空）在数学上最优——长期复合增长最快、破产风险最低的下注比例。</div>` +
-    `<div><b>"凯利不建议做空/入场"</b>：公式算出 ≤0，说明这个信号<b>长期期望为负</b>（亏得多赢得少），按公式不应下注。卖点凯利为 0 通常因胜率接近 50% 且盈亏比&lt;1。</div>` +
+    `<div><b>"凯利 X%"是什么</b>：理论上每次用总资金的 X% 买入（或做空）是数学上的理论参考比例——长期复合增长较快、破产风险较低的资金配置模型。</div>` +
+    `<div><b>"凯利公式≤0"是什么意思</b>：公式算出 ≤0，说明这个信号<b>长期期望为负</b>（亏得多赢得少），按公式不应下注。卖点凯利为 0 通常因胜率接近 50% 且盈亏比&lt;1。</div>` +
     `<div><b>卖点语义</b>：D1 卖点是<b>止盈减仓提示</b>，不是高胜率反向交易指令——卖点后 10 日走弱概率≈50% 接近随机，不可作为独立卖出依据（详见规则说明条）。</div>` +
     `<div><b>重要提醒</b>：凯利公式假设胜率/盈亏比稳定已知，但回测统计本身有波动且含幸存者偏差；<b>请把凯利 X% 当参考上限，实战建议大幅打折</b>（如 1/2 凯利甚至 1/4 凯利）。</div>` +
     `</div></details>` +
@@ -1044,7 +1044,7 @@ function ruleContentHtml() {
 
       <div class="rule-card rule-card-buy">
         <div class="rule-card-head"><span class="rule-badge badge-buy">主买</span> 超卖反弹（RSI 指标）</div>
-        <p>当市场<b>短期跌过头了</b>，开始反弹时，提示买入机会。</p>
+        <p>当市场<b>短期跌过头了</b>，开始反弹时，作为技术信号参考（超卖反弹）。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>RSI 指标跌到 30 以下（超卖区），然后回升到 30 以上 —— 说明抛压衰竭、买方开始进场</td></tr>
           <tr><td class="rule-td-label">触发</td><td>前一日 RSI ≤ 30，当日回升到 30 以上</td></tr>
@@ -1072,7 +1072,7 @@ function ruleContentHtml() {
 
       <div class="rule-card rule-card-sell">
         <div class="rule-card-head"><span class="rule-badge badge-sell">卖点</span> 趋势转弱 · 止盈减仓提示</div>
-        <p>价格从<b>近期高点回落</b>，且动量转弱时，提示减仓或止盈。三个条件<b>同时满足</b>才触发：</p>
+        <p>价格从<b>近期高点回落</b>，且动量转弱时，作为技术信号参考（趋势转弱）。三个条件<b>同时满足</b>才触发：</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">① 价格回落</td><td>从近 20 个交易日的<b>最高价</b>回落超过 <b>5%</b>（用最高价而非收盘价，更能捕捉盘中真实高点）</td></tr>
           <tr><td class="rule-td-label">② 趋势过滤</td><td>收盘价仍在 <b>60 日均线</b> 之上（只在多头趋势中提示卖出，下跌趋势中不制造噪音）</td></tr>
@@ -1093,8 +1093,8 @@ function ruleContentHtml() {
           <td><span class="rule-dot-sm rule-dot-noref"></span> <b>橙色 = 无前买点</b></td>
         </tr>
         <tr>
-          <td>卖点价格 &gt; 前一个买点价格<br><span class="muted">→ 获利了结或减仓</span></td>
-          <td>卖点价格 &lt; 前一个买点价格<br><span class="muted">→ 已持仓建议止损，未持仓建议观望</span></td>
+          <td>卖点价格 &gt; 前一个买点价格<br><span class="muted">→ 历史多为止盈/减仓情形</span></td>
+          <td>卖点价格 &lt; 前一个买点价格<br><span class="muted">→ 历史多为止损/观望情形（非操作建议）</span></td>
           <td>附近窗口内没有买点参考<br><span class="muted">→ 单独看趋势判断，不属止盈也不属止损</span></td>
         </tr>
       </table>
@@ -2396,7 +2396,7 @@ async function renderOverview() {
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>一屏看懂全市场</b>:情绪温度计(冷热)+市场宽度(涨跌家数/新高新低)+估值位置(历史分位)+买卖信号,综合判断当前该贪婪加仓还是恐惧减仓。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>一屏看懂全市场</b>:情绪温度计(冷热)+市场宽度(涨跌家数/新高新低)+估值位置(历史分位)+买卖信号,综合判断当前情绪偏冷(贪婪区)还是偏热(恐惧区)。</div>');
   // 数据时效栏已移入"数据更新规则"弹窗（ℹ️ 图标入口），首页不再展示健康横幅。
 
   // ---- 0. 一句话总结横幅 ----
@@ -2955,7 +2955,7 @@ async function renderOverview() {
 // 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
 async function renderMarket() {
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看A股、港股、全球指数走势,叠加技术面买卖点信号,综合判断大盘是该加仓还是减仓;另追踪🐶汪汪队=国家队宽基ETF资金动向。<b>怎么解读</b>:信号偏多可逐步加仓,偏空宜减仓防守;汪汪队大额净流入常对应政策底,流出=撤退信号。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看A股、港股、全球指数走势,叠加技术面买卖点信号,综合判断大盘情绪偏冷还是偏热;另追踪🐶汪汪队=国家队宽基ETF资金动向。<b>怎么解读</b>:信号偏多通常反映情绪回暖,偏空反映转弱(历史统计参考,非操作建议);汪汪队大额净流入常对应政策底区域,流出对应资金撤离。</div>');
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
   subtabBar.className = "subtab-bar";
@@ -5221,7 +5221,7 @@ async function renderIndustry() {
     _industryCache = { range: state.range, r };
   }
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:追踪申万一级行业和概念板块的资金流向与轮动速度,辅助判断主线、定位走强板块。<b>怎么解读</b>:持续净流入+加速轮动=主线走强板块可重点配置;净流出+减速=走弱该回避;行业/概念买卖点辅助择时。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:追踪申万一级行业和概念板块的资金流向与轮动速度,辅助判断主线、定位走强板块。<b>怎么解读</b>:持续净流入+加速轮动=主线走强特征;净流出+减速=走弱特征(历史统计,非配置建议);行业/概念技术信号辅助观察。</div>');
   const snap = state.intradaySnapshot;
 
   // 板块轮动速度卡片 + 申万行业热力图：1:2 grid 合并一行（左轮动卡 / 右热力图）
@@ -5810,6 +5810,9 @@ function drawShareCard(r) {
   ctx.fillText("tdsignal-ujpzw01zm.maozi.io", 60, H - 95);
   ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
   ctx.fillText("盘后复盘·多市场情绪·买卖点信号", 60, H - 55);
+  // 底部免责水印（合规：教育研究定位，非投资建议）
+  ctx.fillStyle = "rgba(170,178,189,0.7)"; ctx.font = "20px 'PingFang SC',sans-serif";
+  ctx.fillText("本图仅供学习研究，不构成投资建议 · tdsignal", 60, H - 22);
   // 右下角二维码（扫码访问公网看板；矩阵来自 qr.js，fillRect 同步绘制，无图片加载竞态）
   if (window.QR_MODULES && window.QR_MODULES.length) {
     const mods = window.QR_MODULES, nq = mods.length, quiet = 2;

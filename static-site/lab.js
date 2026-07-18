@@ -375,20 +375,20 @@ const LAB_STRATEGIES = {
   BB_lower_revert: {
     name: "布林下轨回归买", side: "buy", zone: "buy", status: "experimental",
     trigger: "前一日收盘价跌破布林带下轨，当日收盘价收回下轨之上（超卖反弹）",
-    conclusion: "3/4窗口达标并列第1，近3年60d盈亏比1.84最高，与C1语义互补",
+    conclusion: "3/4窗口达标并列靠前，近3年60d盈亏比1.84较高，与C1语义互补",
     theory: "布林带下轨回归。价格跌破下轨后收回，意味超卖极端已过、反弹拐点出现。与C1同为「超卖反弹」语义，但用价格穿越布林带下轨而非相对强弱指标(RSI)阈值，强势市更敏感。",
     scenario: "震荡市/下跌市超卖反弹；强势市中相对强弱指标未到30但价格已破下轨时补C1盲区。",
-    note: "近1年是唯一达标买点（52.1%/1.23），与C1互补性最强。实验中：已实现图表（收盘价+布林带轨道+绿色实验买标注），未写入signal_daily。",
-    report: "回测报告：布林下轨回归买达标数3/4（近10年/近3年/近1年），与C1并列第1。近3年60d盈亏比1.79、均值+4.7%为买点最高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs 相对强弱阈值），适合做互补买点。",
+    note: "近1年是唯一达标买点（52.1%/1.23），与C1互补性较高。实验中：已实现图表（收盘价+布林带轨道+绿色实验买标注），未写入signal_daily。",
+    report: "回测报告：布林下轨回归买达标数3/4（近10年/近3年/近1年），与C1并列靠前。近3年60d盈亏比1.79、均值+4.7%为买点较高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs 相对强弱阈值），适合做互补买点。",
   },
   Supertrend_buy: {
     name: "超级趋势翻多买", side: "buy", zone: "buy", status: "experimental",
     trigger: "真实波幅ATR(10)×3 趋势线从翻空转为翻多（趋势跟踪买点）",
-    conclusion: "2/4达标，语义与C1正交（趋势启动 vs 超卖反弹），最佳互补候选",
+    conclusion: "2/4达标，语义与C1正交（趋势启动 vs 超卖反弹），互补性较高的候选",
     theory: "超级趋势(Supertrend)指标基于真实波幅(ATR)的动态趋势线。翻多意味趋势已确认启动，与C1的「超卖反弹」正交，捕捉的是趋势延续而非拐点。",
     scenario: "趋势启动确认；与C1互补覆盖不同市场状态。",
     note: "近3年全持有期胜率≥48.8%，盈亏比1.40-1.61。信号较C1稀疏。实验中：已实现图表（收盘价+超级趋势线+绿色实验买标注），未写入signal_daily。",
-    report: "回测报告：超级趋势翻多买全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是最佳互补候选。近3年10d均值+1.0%，60d均值+3.8%。",
+    report: "回测报告：超级趋势翻多买全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是互补性较高的候选。近3年10d均值+1.0%，60d均值+3.8%。",
   },
   Donchian20_up: {
     name: "唐奇安20日突破买", side: "buy", zone: "buy", status: "experimental",
@@ -439,16 +439,16 @@ const LAB_STRATEGIES = {
   BB_upper_revert: {
     name: "布林上轨回落卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "前一日收盘价突破布林带上轨，当日收盘价回落至上轨下方（短周期止盈）",
-    conclusion: "近3年5d/10d胜率第1(57%/54%)，与D1(20d最强)时间维度互补",
+    conclusion: "近3年5d/10d胜率居前(57%/54%)，与D1(20d较强)时间维度互补",
     theory: "布林带上轨回归。价格从上轨上方回落至下方，意味超买极端已过、短周期止盈拐点。与D1的「20日高回落5%」时间维度互补。",
-    scenario: "短周期止盈/减仓提示；与D1（20d最强）双重确认。",
+    scenario: "短周期止盈/减仓提示；与D1（20d较强）双重确认。",
     note: "实验中，已实现图表（收盘价折线+布林带轨道+紫色实验卖标注）。未写入signal_daily。",
-    report: "回测报告：布林上轨回落卖近3年5d胜率56.8%/10d胜率54.1%为卖点最高，短周期止盈最强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（卖点结构性问题），但方向胜率top1。",
+    report: "回测报告：布林上轨回落卖近3年5d胜率56.8%/10d胜率54.1%为卖点较高，短周期止盈较强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（卖点结构性问题），但方向胜率居前。",
   },
   MA_death_5_20: {
     name: "均线5/20死叉卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "5日均线下穿20日均线（短期死叉卖点）",
-    conclusion: "近3年20d胜率56.3%最高，短周期偏弱但中周期强",
+    conclusion: "近3年20d胜率56.3%较高，短周期偏弱但中周期强",
     theory: "双均线死叉。短期均线下穿长期均线意味短期动量转弱，经典趋势转弱确认。",
     scenario: "趋势转弱减仓；震荡市频繁假死叉。",
     note: "近3年20d胜率54.8%较高，但5d/10d偏弱。PL0.90<1。实验中：已实现图表（收盘价+5日/20日均线+紫色实验卖标注），未写入signal_daily。",
@@ -497,7 +497,7 @@ const LAB_STRATEGIES = {
     theory: "真实波幅(ATR)追踪止损。基于波动率的动态止损线，价格跌破意味趋势已反转。真实波幅(ATR)自适应波动率。",
     scenario: "趋势跟踪止损；波动率大时止损线更宽。",
     note: "近3年10d胜率51.1%，PL0.86。全史PL0.96相对高。",
-    report: "回测报告：真实波幅追踪止损卖近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点最高之一。追踪止损型信号，胜率刚过50%。",
+    report: "回测报告：真实波幅追踪止损卖近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点较高之一。追踪止损型信号，胜率刚过50%。",
   },
   // --- 已排除反面教材区（6个） ---
   BB_upper_break: {
@@ -558,11 +558,11 @@ const LAB_STRATEGIES = {
   C1_RSI30: {
     name: "相对强弱上穿30买", side: "buy", zone: "prod", status: "live",
     trigger: "RSI(14) 从 ≤30 升回 >30 那天（超卖结束、价格有望反弹）",
-    conclusion: "3/4达标，结构最稳健，当前主买点",
+    conclusion: "3/4达标，结构较稳健，当前主买点",
     theory: "相对强弱指标(RSI)经典超卖回归。相对强弱指标(RSI)≤30表示超卖，升回30之上意味空头力量衰竭、反弹拐点出现。事件化（仅穿越当日标）。",
     scenario: "震荡市/下跌市超卖反弹；通用主买点。按指数可收紧阈值至相对强弱指标上穿25（kc50/电力设备/传媒已配）。",
     note: "已上线生产。signal='buy'。近3年全持有期胜率>50%，盈亏比随持有期单调上升。",
-    report: "回测报告：相对强弱上穿30买 达标数3/4（全史/近10年/近3年）并列第1。近3年全持有期胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随持有期单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构最稳健，当前主买点，无需改买点。",
+    report: "回测报告：相对强弱上穿30买 达标数3/4（全史/近10年/近3年）并列靠前。近3年全持有期胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随持有期单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构较稳健，当前主用买点（回测表现较稳）。",
   },
   D1_high20_drop5: {
     name: "20日高回落5%卖", side: "sell", zone: "prod", status: "live",
@@ -571,7 +571,7 @@ const LAB_STRATEGIES = {
     theory: "基于最高价的回落止盈。从20日最高价回落5%意味趋势转弱，叠加60日均线多头过滤+MACD死叉确认。反应型信号（不预测顶部，反应已发生的弱势）。",
     scenario: "趋势转弱/止盈减仓提示；非做空/反向交易指令。胜率≈50%接近随机，不可作独立卖出指令。",
     note: "已上线生产。signal='sell'。卖点本质难预测（PL<1），D1是「最不坏」方案非「好」方案。",
-    report: "回测报告：20日高回落5%卖 近3年20d胜率55.9%为卖点最高，样本9873最大（统计最稳）。10d均值-0.1%（方向正确）。盈亏比0.86<1（卖点结构性问题：A股向上漂移），但在所有卖点中PL仍属前列。维持现状合理，是「最不坏」方案。",
+    report: "回测报告：20日高回落5%卖 近3年20d胜率55.9%为卖点较高，样本9873最大（统计最稳）。10d均值-0.1%（方向正确）。盈亏比0.86<1（卖点结构性问题：A股向上漂移），但在所有卖点中PL仍属前列。维持现状合理，是「最不坏」方案。",
   },
 };
 
@@ -624,11 +624,11 @@ const LAB_FUSION_STRATEGIES = {
     name: "D1回落5%+60日均线多头+MACD死叉 融合卖", side: "sell", zone: "prod", status: "live",
     conditions: ["20日高回落5%", "60日均线多头", "MACD死叉"],
     trigger: "同日AND：close从20日最高价回落5% 且 close>MA60 且 DIF<DEA",
-    conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后凯利建议率18.3%→43.3%",
+    conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后凯利计算率18.3%→43.3%",
     theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加60日均线多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日AND，大幅降噪。",
     scenario: "上升趋势中回落止盈/减仓；三条件共振过滤假信号。非做空指令。",
-    note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），凯利建议率18.3%→43.3%。已上线signal_daily。",
-    report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），凯利建议率从18.3%升至43.3%，信号质量显著提升。主项目生产卖点D1_high20_drop5的融合形态。",
+    note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），凯利计算率18.3%→43.3%。已上线signal_daily。",
+    report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），凯利计算率从18.3%升至43.3%，信号质量显著提升。主项目生产卖点D1_high20_drop5的融合形态。",
   },
   F_D1_S1: {
     name: "D1回落5%+60日均线多头（豁免MACD） 融合卖", side: "sell", zone: "prod", status: "live",
@@ -1403,7 +1403,7 @@ function _labIdxName(id) {
   return (LAB_SIM_INDEXES.find((x) => x.id === id) || {}).name || id;
 }
 
-// 获取 lab_sim_{index}_stats.json 数据（小文件，推荐榜/矩阵/配对卡片秒开）
+// 获取 lab_sim_{index}_stats.json 数据（小文件，配对排行/矩阵/配对卡片秒开）
 // per-index 缓存到 state.labSimDataMap。详情(trades/equity_curve)由 fetchLabSimFullData 按需加载并合并。
 // web 版走 /static/ 挂载点（main.py 的 StaticFiles(directory=web)），static 版走 ./data/
 async function fetchLabSimData(index) {
@@ -2151,11 +2151,19 @@ function _labWarningEssayHTML(status) {
     `<p class="lab-backtest-disclaimer">⚠ <strong>回测非投资建议；过往表现不代表未来收益。</strong>回测基于历史数据理想化模拟，未考虑实盘滑点、流动性冲击与极端行情，实盘收益通常低于回测。</p>`;
 }
 
+// C: 实验室顶部合规声明（置顶显著，非折叠，教育研究定位）
+function _labTopDisclaimerHTML() {
+  return `<div class="lab-top-disclaimer">` +
+    `<span class="lab-top-title">📚 教育研究工具声明</span>` +
+    `本实验室为个人学习/研究用途，<b>非持牌证券投资咨询机构</b>。所有策略与信号均为历史数据回测统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。过往表现不代表未来收益，实盘收益通常低于回测。投资有风险，决策需谨慎。` +
+    `</div>`;
+}
+
 // 融合信号实验自白黄块
 function _labFusionEssayHTML() {
   return `<div class="lab-warning-head">⚠ 融合信号实验 · 多信号共振</div>` +
     `<p>融合信号=多个单一信号同日AND触发，通过多条件共振过滤假信号、提升信号质量。本页展示从主项目提取的融合策略及实验性新组合。</p>` +
-    `<p>阶段一仅展示条件描述与说明，阶段二将开放回测数据/图表/推荐榜。欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
+    `<p>阶段一仅展示条件描述与说明，阶段二将开放回测数据/图表/配对排行。欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
 }
 
 // 渲染策略详情页
@@ -2435,11 +2443,11 @@ async function renderLabDetail(key, container) {
   }
 }
 
-// === 回测推荐榜（列表页底部，128组配对多维度排序 + 点击弹窗细节）===
+// === 回测配对对比榜（列表页底部，128组配对多维度排序 + 点击弹窗细节）===
 // 数据源：lab_sim_{index}_stats.json（_full 按需合并）。新结构 pairs 按 "buyKey|sellKey" 去重存储（只存一份），
 // 直接遍历 simData.pairs 即得 8买×8卖×2模式=128 组去重配对。窗口切换共用 state.labSimWindow。
 const LAB_RANK_TABS = [
-  { key: "composite", label: "🏆 综合推荐" },
+  { key: "composite", label: "🏆 综合评分" },
   { key: "ret", label: "📈 收益率" },
   { key: "win", label: "🎯 胜率" },
   { key: "stable", label: "🛡 稳健(回撤小)" },
@@ -2585,11 +2593,11 @@ function _labRankItemHTML(row, rank, tab) {
 }
 
 function _labRankHTML(simData) {
-  if (!simData) return '<div class="lab-rank-empty">推荐榜数据加载失败，请稍后重试</div>';
+  if (!simData) return '<div class="lab-rank-empty">配对排行数据加载失败，请稍后重试</div>';
   const win = state.labSimWindow || "y5";
-  // 融合信号模式：推荐榜仅展示实验中策略的买×卖配对（7买×7卖=49配对），与左侧融合候选卡片范围一致
+  // 融合信号模式：配对排行仅展示实验中策略的买×卖配对（7买×7卖=49配对），与左侧融合候选卡片范围一致
   const rows = _labRankAggregate(simData, win, { experimentalOnly: state.labSubMode === "fusion" });
-  if (rows.length === 0) return '<div class="lab-rank-empty">暂无推荐榜数据</div>';
+  if (rows.length === 0) return '<div class="lab-rank-empty">暂无配对排行数据</div>';
   state.labRankRows = rows;
   const tab = state.labRankTab || "composite";
   const tabsHTML = LAB_RANK_TABS.map((t) =>
@@ -2798,7 +2806,7 @@ function _labRankRerender(section, simData) {
   _labRankAttachHandlers(section, simData);
 }
 
-// 推荐榜弹窗：复用 _labSimModeBlock 渲染 4数字+净值曲线+交易记录
+// 配对排行弹窗：复用 _labSimModeBlock 渲染 4数字+净值曲线+交易记录
 function _labRankOpenModal(simData, buyKey, sellKey, mode) {
   let overlay = document.getElementById("labRankOverlay");
   if (!overlay) {
@@ -3151,7 +3159,7 @@ function _renderLabSubNav() {
 
 // === 融合信号列表页（阶段一：仅展示元数据，不跑回测）===
 async function renderFusionLab() {
-  // 左右2栏布局：融合策略卡左 + 回测推荐榜右（照搬 renderSignalLab 列表页 .lab-list-2col 模式）
+  // 左右2栏布局：融合策略卡左 + 回测配对对比榜右（照搬 renderSignalLab 列表页 .lab-list-2col 模式）
   const wrapper = document.createElement("div");
   wrapper.className = "lab-list-2col";
   const leftCol = document.createElement("div");
@@ -3249,22 +3257,22 @@ async function renderFusionLab() {
     });
   });
 
-  // 回测推荐榜（右栏，照搬 renderSignalLab 列表页推荐榜结构：指数选择器+排序tab+过滤+body）
+  // 回测配对对比榜（右栏，照搬 renderSignalLab 列表页配对排行结构：指数选择器+排序tab+过滤+body）
   const rankSection = document.createElement("div");
   rankSection.className = "chart-card lab-rank-card";
   const _curIdx = state.labSimIndex || "sh";
   const rankIdxBtns = LAB_SIM_INDEXES.map((x) =>
     `<button type="button" class="lab-idx-tab${x.id === _curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
   ).join("");
-  rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3>' +
+  rankSection.innerHTML = '<h3>🏆 回测配对对比榜</h3>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
-    '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…</div></div>';
+    '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载配对排行数据中…</div></div>';
   rightCol.appendChild(rankSection);
   // 组装2栏
   wrapper.appendChild(leftCol);
   wrapper.appendChild(rightCol);
   content.appendChild(wrapper);
-  // 加载推荐榜数据（融合模式：_labRankHTML 依 state.labSubMode==='fusion' 仅展示实验中策略买×卖配对）
+  // 加载配对排行数据（融合模式：_labRankHTML 依 state.labSubMode==='fusion' 仅展示实验中策略买×卖配对）
   // 注意：融合tab必须读融合源 lab_sim_{index}_fusion_stats.json（145配对），单信号源只有64配对会漏显示
   const _loadRank = async () => {
     const idx = state.labSimIndex || "sh";
@@ -3650,7 +3658,7 @@ function _labRetestRankHTML(rd, simData) {
   const tabsHTML = LAB_RETEST_RANK_TABS.map((t) =>
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
-  // 5窗口切换器（独立 state.labRetestRankWindow，不影响推荐榜 state.labSimWindow）
+  // 5窗口切换器（独立 state.labRetestRankWindow，不影响配对排行 state.labSimWindow）
   const winTabsHTML = '<div class="lab-win-tabs">' + LAB_WIN_DEFS.map((w) =>
     `<button type="button" class="lab-win-tab${w.k === winKey ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
   ).join("") + "</div>";
@@ -4608,7 +4616,7 @@ const _retFg = (v) => (v >= 0 ? _UP : _DOWN);               // 内联样式用
 const _retEc = (v) => (v >= 0 ? cssVar("--mx-good-fg") : cssVar("--mx-bad-fg")); // echarts 用
 
 // === 🧩 信号叠加消融：6硬编码融合 N-1 子集贡献（定位核心贡献组件）===
-const _LAB_ABLATION_RULE = "🧩 信号拆解测试（消融分析）：对6硬编码融合策略逐一去掉一个组件(去一组件子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。20日高回落5%卖 平均贡献+769%为绝对核心，布林下轨回归买/相对强弱上穿30买 贡献为负(作为融合组件反而拖累)。";
+const _LAB_ABLATION_RULE = "🧩 信号拆解测试（消融分析）：对6硬编码融合策略逐一去掉一个组件(去一组件子集)，对比收益变化定位核心贡献组件。贡献率=完整融合收益-去该组件后收益；正值=该组件提升收益，负值=去掉反而更好(该组件拖累)。20日高回落5%卖 平均贡献+769%为核心组件（贡献最大），布林下轨回归买/相对强弱上穿30买 贡献为负(作为融合组件反而拖累)。";
 
 async function renderAblationLab() {
   const wrapper = document.createElement("div");
@@ -4850,7 +4858,7 @@ function _labSymmetryChart(container, data) {
 }
 
 // === 🎛 参数敏感扫描：7策略参数网格（验证默认参数处于稳定高原而非过拟合尖峰）===
-const _LAB_PARAMSCAN_RULE = "🎛 参数敏感扫描：对7策略做参数网格扫描，验证默认参数处于稳定高原而非孤立尖峰(过拟合)。判定:稳健高原=默认参数附近都盈利,尖锐尖峰=仅个别参数盈利(过拟合风险)。唐奇安20日突破买/超级趋势翻多买=稳健高原;相对强弱上穿30买/布林带族/20日高回落5%卖=尖锐尖峰,默认参数非最优。";
+const _LAB_PARAMSCAN_RULE = "🎛 参数敏感扫描：对7策略做参数网格扫描，验证默认参数处于稳定高原而非孤立尖峰(过拟合)。判定:稳健高原=默认参数附近都盈利,尖锐尖峰=仅个别参数盈利(过拟合风险)。唐奇安20日突破买/超级趋势翻多买=稳健高原;相对强弱上穿30买/布林带族/20日高回落5%卖=尖锐尖峰,默认参数非回测最优点。";
 
 async function renderParamScanLab() {
   const wrapper = document.createElement("div");
@@ -4897,7 +4905,7 @@ async function renderParamScanLab() {
 
   const phaseNote = document.createElement("div");
   phaseNote.className = "lab-fusion-phase-note";
-  phaseNote.innerHTML = "📌 <b>参数敏感扫描</b>：7策略参数网格。右侧为所选策略+指数的参数热力图/柱状图，标记默认(○)与最优(★)参数。";
+  phaseNote.innerHTML = "📌 <b>参数敏感扫描</b>：7策略参数网格。右侧为所选策略+指数的参数热力图/柱状图，标记默认(○)与回测最优(★)参数。";
   leftCol.appendChild(phaseNote);
 
   const rankSection = document.createElement("div");
@@ -4949,7 +4957,7 @@ function _labParamScanOverviewHTML(data, idx) {
   }).join("");
   return `<div class="lab-retest-pair lab-paramscan-overview"><div class="lab-retest-section">` +
     `<div class="lab-retest-section-title">7策略参数扫描概览（指数 ${idx}）</div>` +
-    `<table class="lab-retest-yearly"><thead><tr><th>策略</th><th>默认收益</th><th>最优收益</th><th>邻域均值</th><th>盈利占比</th><th>判定</th></tr></thead>` +
+    `<table class="lab-retest-yearly"><thead><tr><th>策略</th><th>默认收益</th><th>回测最优收益</th><th>邻域均值</th><th>盈利占比</th><th>判定</th></tr></thead>` +
     `<tbody>${rows}</tbody></table></div></div>`;
 }
 
@@ -4967,7 +4975,7 @@ function _labParamScanChart(container, data, stratKey, idx) {
   const vColor = pi.verdict === "robust_profitable" ? _UP : _DOWN;
   const hint = document.createElement("div");
   hint.className = "lab-zone-desc";
-  hint.innerHTML = `${stratName} · ${pi.index_name} · 默认收益 <b style="color:${_retFg(pi.default_ret)}">${pi.default_ret.toFixed(1)}%</b> · 最优 <b style="color:${_retFg(pi.best_ret)}">${pi.best_ret.toFixed(1)}%</b> · <span style="color:${vColor};font-weight:600">${pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰(过拟合风险)"}</span>${pi.best_is_default ? " · 默认即最优✓" : ""}`;
+  hint.innerHTML = `${stratName} · ${pi.index_name} · 默认收益 <b style="color:${_retFg(pi.default_ret)}">${pi.default_ret.toFixed(1)}%</b> · 回测最优 <b style="color:${_retFg(pi.best_ret)}">${pi.best_ret.toFixed(1)}%</b> · <span style="color:${vColor};font-weight:600">${pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰(过拟合风险)"}</span>${pi.best_is_default ? " · 默认即回测最优✓" : ""}`;
   body.appendChild(hint);
 
   const dims = scan.param_dims || [];
@@ -4991,7 +4999,7 @@ function _labParamScanChart(container, data, stratKey, idx) {
     });
     if (!isFinite(mn)) { mn = -50; mx = 50; }
     if (mn === mx) { mn -= 1; mx += 1; }
-    const c = mkCard(`${_labDimLabel(xName)} × ${_labDimLabel(yName)} 参数网格收益率(%)`, 400, "○=默认参数  ◇=最优参数", body, []);
+    const c = mkCard(`${_labDimLabel(xName)} × ${_labDimLabel(yName)} 参数网格收益率(%)`, 400, "○=默认参数  ◇=回测最优参数", body, []);
     const dxi = xVals.indexOf(dp[xName]), dyi = yVals.indexOf(dp[yName]);
     const bxi = xVals.indexOf(bp[xName]), byi = yVals.indexOf(bp[yName]);
     const markPoints = [];
@@ -5030,7 +5038,7 @@ function _labParamScanChart(container, data, stratKey, idx) {
       const ret = cb ? cb.total_ret : null;
       return (ret != null && !isNaN(ret)) ? ret : null;
     });
-    const c = mkCard(`${_labDimLabel(xName)} 参数扫描收益率(%)`, 360, "📌=默认参数  ★=最优参数", body, []);
+    const c = mkCard(`${_labDimLabel(xName)} 参数扫描收益率(%)`, 360, "📌=默认参数  ★=回测最优参数", body, []);
     const di = xVals.indexOf(dp[xName]);
     const bi = xVals.indexOf(bp[xName]);
     const markPoints = [];
@@ -5062,6 +5070,9 @@ async function renderSignalLab() {
   }
 
   content.innerHTML = "";
+
+  // C: 顶部合规声明（置顶显著，全子模式可见，非折叠）
+  content.insertAdjacentHTML("beforeend", _labTopDisclaimerHTML());
 
   // === 二级导航（单一信号实验 / 融合信号实验）===
   _renderLabSubNav();
@@ -5117,7 +5128,7 @@ async function renderSignalLab() {
   // 预加载回测数据（用于卡片摘要）
   const data = await fetchLabData();
 
-  // 左右2栏布局：策略卡左 + 回测推荐榜右
+  // 左右2栏布局：策略卡左 + 回测配对对比榜右
   const wrapper = document.createElement("div");
   wrapper.className = "lab-list-2col";
   const leftCol = document.createElement("div");
@@ -5191,7 +5202,7 @@ async function renderSignalLab() {
     });
   });
 
-  // 回测推荐榜（列表页底部空白区，按指数加载 lab_simulate_{index}.json，不阻塞上方骨架）
+  // 回测配对对比榜（列表页底部空白区，按指数加载 lab_simulate_{index}.json，不阻塞上方骨架）
   const rankSection = document.createElement("div");
   rankSection.className = "chart-card lab-rank-card";
   // 指数选择器（持久，不随 rank body 重渲染消失）。按钮组样式与"时间窗口"一致。
@@ -5199,9 +5210,9 @@ async function renderSignalLab() {
   const rankIdxBtns = LAB_SIM_INDEXES.map((x) =>
     `<button type="button" class="lab-idx-tab${x.id === _curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
   ).join("");
-  rankSection.innerHTML = '<h3>🏆 回测推荐榜</h3>' +
+  rankSection.innerHTML = '<h3>🏆 回测配对对比榜</h3>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
-    '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载推荐榜数据中…</div></div>';
+    '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载配对排行数据中…</div></div>';
   rightCol.appendChild(rankSection);
   // 组装2栏
   wrapper.appendChild(leftCol);

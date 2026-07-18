@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>锂电池概念 · 买卖点模拟回测</title>
+<title>锂电池概念 · 技术信号模拟回测</title>
 <style>
 
 :root {
@@ -132,7 +132,7 @@ tr:hover td { background: var(--bg-hover); }
 </script>
 </head>
 <body>
-<h1>锂电池概念 · 买卖点模拟回测</h1>
+<h1>锂电池概念 · 技术信号模拟回测</h1>
 <p class="subtitle">总资金 10 万 · 按信号当日收盘价成交 · 回测区间：2020-02-05 ~ 2026-07-09（6.4 年） · 生成于 2026-07-14 19:41</p>
 
     <div class="sim-cmp-table">
@@ -7227,10 +7227,14 @@ tr:hover td { background: var(--bg-hover); }
         </div>
 <div class="footer">
   <p><a href="./">← 返回看板</a></p>
-  <details style="margin-top: 12px; font-size: 12px; color: var(--text-3);">
-    <summary style="cursor: pointer; margin-bottom: 8px;">📖 模拟说明</summary>
-    <p>模拟说明：三种策略路径 × 三种信号组合，共 9 个场景。总资金 10 万元。买固定 1 万 + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1 万进出（FIFO，最多同时 10 笔）。主买=红色，辅买=紫色，卖出=绿色。连续同向信号跳过（避免重复操作）。此为历史模拟，非未来收益保证。</p>
-  </details>
+  <div style="margin-top: 12px; padding: 10px 14px; background: rgba(212,56,13,0.08); border: 1px solid rgba(212,56,13,0.25); border-left: 4px solid #d4380d; border-radius: 8px; font-size: 12px; line-height: 1.7; color: var(--text-1);">
+    <b style="color:#d4380d;">⚠ 教育研究工具 · 非投资建议</b><br>
+    本页为个人学习/研究用途的技术信号模拟回测，非持牌证券投资咨询机构。所有信号与回测结果均为历史数据统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。模拟说明：三种策略路径 × 三种信号组合，共 9 个场景。总资金 10 万元。买固定 1 万 + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1 万进出（FIFO，最多同时 10 笔）。主买=红色，辅买=紫色，卖出=绿色。连续同向信号跳过（避免重复操作）。此为历史模拟，过往表现不代表未来收益，实盘收益通常低于回测。投资有风险，决策需谨慎。
+  </div>
+  <p style="margin-top: 12px; font-size: 12px; color: var(--text-3);">
+    <a href="/privacy.html" style="color: var(--primary);">隐私政策</a>
+    <span style="margin-left: 12px;">ICP备案号:沪ICP备XXXXXXXX号</span>
+  </p>
 </div>
 <script>
 (function() {

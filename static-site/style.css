@@ -233,6 +233,24 @@ header h1 { font-size: 18px; margin: 0; }
   align-items: center;
 }
 main { padding: 16px 24px; }
+/* C: 首页顶部风险提示横幅（常驻，全皮肤可见，复用 CSS 变量） */
+.risk-banner {
+  margin: 8px 24px 0;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, rgba(212,56,13,0.10), rgba(212,56,13,0.03));
+  border: 1px solid rgba(212,56,13,0.30);
+  border-left: 4px solid #d4380d;
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-1);
+}
+[data-theme="dark"] .risk-banner,
+[data-theme="redgold"] .risk-banner {
+  background: linear-gradient(90deg, rgba(255,120,117,0.16), rgba(255,120,117,0.05));
+  border-color: rgba(255,120,117,0.40);
+  border-left-color: #ff7875;
+}
 .loading { color: var(--text-3); padding: 40px 20px; text-align: center; }
 /* 加载中状态：spinner + 文字，让用户明确看到正在加载而非卡死 */
 .loading--active, .loading--error { display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -1872,6 +1890,7 @@ main { padding: 16px 24px; }
 
   /* 内容边距缩 + 底部留空避开底导航 */
   main { padding: 12px; padding-bottom: 76px; }
+  .risk-banner { margin: 8px 12px 0; font-size: 12px; }
   .chart-card { padding: 10px 12px; margin-bottom: 12px; }
   .chart-card h3 { font-size: 13px; }
   .chart-latest { padding: 1px 4px; }

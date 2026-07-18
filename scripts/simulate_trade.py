@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""买卖点模拟回测 — 生成静态 HTML 报告。
+"""技术信号模拟回测 — 生成静态 HTML 报告。
 
 三种推演路径：
   路径 A：固定 1 万进出（FIFO）— 每次买 1 万，卖 FIFO 卖最早一笔，最多同时 10 笔
@@ -1109,7 +1109,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{index_name} · 买卖点模拟回测</title>
+<title>{index_name} · 技术信号模拟回测</title>
 <style>
 {THEME_CSS}
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -1205,17 +1205,21 @@ tr:hover td {{ background: var(--bg-hover); }}
 </script>
 </head>
 <body>
-<h1>{index_name} · 买卖点模拟回测</h1>
+<h1>{index_name} · 技术信号模拟回测</h1>
 <p class="subtitle">总资金 10 万 · 按信号当日收盘价成交{backtest_info} · 生成于 {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>
 {comparison_table}
 <div class="sim-main-tabs">{main_tabs}</div>
 {groups_html}
 <div class="footer">
   <p><a href="./">← 返回看板</a></p>
-  <details style="margin-top: 12px; font-size: 12px; color: var(--text-3);">
-    <summary style="cursor: pointer; margin-bottom: 8px;">📖 模拟说明</summary>
-    <p>模拟说明：三种策略路径 × 三种信号组合，共 9 个场景。总资金 10 万元。买固定 1 万 + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1 万进出（FIFO，最多同时 10 笔）。主买=红色，辅买=紫色，卖出=绿色。连续同向信号跳过（避免重复操作）。此为历史模拟，非未来收益保证。</p>
-  </details>
+  <div style="margin-top: 12px; padding: 10px 14px; background: rgba(212,56,13,0.08); border: 1px solid rgba(212,56,13,0.25); border-left: 4px solid #d4380d; border-radius: 8px; font-size: 12px; line-height: 1.7; color: var(--text-1);">
+    <b style="color:#d4380d;">⚠ 教育研究工具 · 非投资建议</b><br>
+    本页为个人学习/研究用途的技术信号模拟回测，非持牌证券投资咨询机构。所有信号与回测结果均为历史数据统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。模拟说明：三种策略路径 × 三种信号组合，共 9 个场景。总资金 10 万元。买固定 1 万 + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1 万进出（FIFO，最多同时 10 笔）。主买=红色，辅买=紫色，卖出=绿色。连续同向信号跳过（避免重复操作）。此为历史模拟，过往表现不代表未来收益，实盘收益通常低于回测。投资有风险，决策需谨慎。
+  </div>
+  <p style="margin-top: 12px; font-size: 12px; color: var(--text-3);">
+    <a href="/privacy.html" style="color: var(--primary);">隐私政策</a>
+    <span style="margin-left: 12px;">ICP备案号:沪ICP备XXXXXXXX号</span>
+  </p>
 </div>
 <script>
 (function() {{
@@ -1313,7 +1317,7 @@ def _generate_one(index_id, name_map, out_dir_static, output=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="买卖点模拟回测")
+    parser = argparse.ArgumentParser(description="技术信号模拟回测")
     parser.add_argument("--index", help="品种 index_id（默认 sh）")
     parser.add_argument("--all", action="store_true", help="批量生成所有品种（写 static-site）")
     parser.add_argument("--output", help="自定义输出路径（仅单品种，只写该路径）")
