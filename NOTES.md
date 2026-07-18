@@ -2081,3 +2081,26 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 9ea8532（footer ICP+隐私）/1006b15（弱化12项）/310c587（信号实验室）/1d0fa8e（sugas.site）/2768678（P2/P3 8项）/02e702c（meta referrer兜底）/2017906（s.sugas.site+策略实验+关于页）
 
 - 本节 NOTES §37
+
+## §38 策略实验室 91候选融合弹窗补双策略指标图（2026-07-18，commit 4be9c84）
+
+承接 §30 剩余增强。91候选融合配对弹窗 `_labFusionPairModalRender`@4167 此前缺"指标图表 echarts"块（单一信号基标 5 块之④），§31 只做了 6 硬编码去代理真实回测（不同的事）。
+
+**改动**（static-site/lab.js，web/ 已删不双写）：
+- 91候选分支加双图：上下排列 `lab-fusion-chart-ph-a`（策略A）+ `lab-fusion-chart-ph-b`（策略B），各自独立 echarts 实例 `renderLabChartEx`
+- 双 key 取法：`_buyKey`（策略A）+ `_sellKey`（策略B），三类 _pairType 通用（buy_sell=买+卖 / buy_buy=买1+买2 / sell_sell=卖1+卖2）
+- 配色：买红 #c92a2a 卖绿 #2e7d32，对齐融合合并图 BUY_C/SELL_C（A股习惯）；signalColor 按 side 覆盖
+- rerender：指数/窗口/模式切换调 `_labFusionPairModalRender(overlay)` 整函数重跑（generation counter 防 stale），echarts 实例 push 全局 charts 数组，re-render 时自动释放（双图实例自动含在内，无需额外 dispose）
+- 6硬编码分支保持单图（`_labFusionHardcodedHTML`@4147 未碰）
+
+**上线**：build_min.py（lab.js 297KB->lab.min.js 179KB）+ bump_asset_version.py（index.html 版本号）+ commit 4be9c84 push main。
+
+**验收**（主控逐字）：
+- `_labFusionPairModalRender` 内 12 处图表调用（renderLabChartEx 双图各调 + 占位 ph-a/ph-b + 6硬编码单图分支）
+- 6硬编码 `_labFusionHardcodedHTML`@4147 完整（注释确认走真实 F_pair 融合回测非 _coreKey 代理）
+- node --check PASS
+- 线上 lab.min.js?v=6d41583b 含双图代码（lab-fusion-chart-ph-a + renderLabChartEx + 成分策略分图）
+
+策略实验室待办全闭环（4分区22策略+5窗口回测+9指数+128组配对+推荐榜+L1-L4 polish+§30信息对齐+§31去代理+§38双图）。
+
+- 本节 NOTES §38
