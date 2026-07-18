@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>市场温度看板 | 盘后复盘·多市场情绪·买卖点信号 · tdsignal</title>
-  <meta name="description" content="市场温度看板 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金、RSI买卖点信号、行业热力图、模拟回测。trade-data-signal / tdsignal。">
+  <meta name="description" content="市场温度看板 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、RSI买卖点信号、行业热力图、模拟回测。trade-data-signal / tdsignal。">
   <meta name="keywords" content="trade-data-signal, tdsignal, tdsignal-ujpzw01zm, 市场温度看板, A股情绪看板, 情绪数据复盘看板, 市场情绪, 盘后复盘, 买卖点信号, 综合情绪分, 跨市场评分, 涨跌家数, 涨停连板, 行业热力图, 恐贪指数, 模拟回测">
   <meta name="author" content="tdsignal">
   <meta name="robots" content="index,follow">
@@ -22,10 +22,10 @@
   <meta name="twitter:description" content="市场温度看板 - A股/港股/全球盘后复盘情绪数据：综合情绪分、买卖点信号、行业热力图、模拟回测。">
   <meta name="twitter:image" content="http://tdsignal-ujpzw01zm.maozi.io/og.png">
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"WebApplication","name":"市场温度看板","alternateName":["trade-data-signal","tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"http://tdsignal-ujpzw01zm.maozi.io/","description":"市场温度看板 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, 市场温度看板, A股情绪看板, 情绪数据复盘看板, 市场情绪, 买卖点信号, 行业热力图, 模拟回测"}
+  {"@context":"https://schema.org","@type":"WebApplication","name":"市场温度看板","alternateName":["trade-data-signal","tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"http://tdsignal-ujpzw01zm.maozi.io/","description":"市场温度看板 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, 市场温度看板, A股情绪看板, 情绪数据复盘看板, 市场情绪, 买卖点信号, 行业热力图, 模拟回测"}
   </script>
-  <link rel="stylesheet" href="./style.css?v=ececf04c">
-  <link rel="stylesheet" href="./lab.css?v=b0db261e">
+  <link rel="stylesheet" href="./style.css?v=a1682fcf">
+  <link rel="stylesheet" href="./lab.css?v=a4d3f908">
   <script defer src="./vendor/echarts.min.js?v=12173341"></script>
 <script>
 var _hmt = _hmt || [];
@@ -71,7 +71,7 @@ var _hmt = _hmt || [];
     <h2>核心功能</h2>
     <ul>
       <li>A股综合情绪分（0-100，6指标加权）+ 跨市场综合评分（去极值截尾均值）</li>
-      <li>市场宽度：涨跌家数、涨停连板、炸板率、封板率、成交额、北向资金、两融余额</li>
+      <li>市场宽度：涨跌家数、涨停连板、炸板率、封板率、成交额、北向资金(2024-08起停更,保留历史)、两融余额</li>
       <li>RSI 买卖点信号 + BB下轨辅买 + MA60多头过滤 + MACD死叉确认 + 回测统计</li>
       <li>申万31行业涨跌幅热力图 + 行业资金流 + 行业内宽度</li>
       <li>恐贪指数、大盘位置感（8指数分位）、新高新低、均线排列、板块轮动速度</li>
@@ -139,10 +139,14 @@ var _hmt = _hmt || [];
     <button data-tab="lab"><span class="bn-icon">🧪</span><span class="bn-label">策略实验室</span></button>
   </nav>
 
+  <footer class="site-disclaimer">
+    <p>本站数据仅供学习参考,不构成任何投资建议;投资有风险,决策需谨慎。</p>
+  </footer>
+
   <script src="./qr.js?v=6577e491"></script>
-  <script defer src="./app.min.js?v=35348f67"></script>
+  <script defer src="./app.min.js?v=219fa243"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
-  <meta name="lab-asset-url" content="./lab.min.js?v=2082d042">
+  <meta name="lab-asset-url" content="./lab.min.js?v=ac538598">
 <script>
 (function(){
     var bp = document.createElement('script');

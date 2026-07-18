@@ -2822,7 +2822,7 @@ async function renderOverview() {
         { name: "AD Line", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "AD" },
         { name: "AD Line MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
       ];
-      const adc = mkCard("📊 腾落线（AD Line）" + termTip("上涨家数减下跌家数的累计值，反映多数股在涨还是跌") + latestSuffixMulti(adSeries), 300, null, colC1);
+      const adc = mkCard("📊 腾落线（AD Line）" + termTip("上涨家数减下跌家数的累计值，反映多数股在涨还是跌。累计值绝对值无意义，看趋势拐点") + latestSuffixMulti(adSeries), 300, null, colC1);
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
       addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       adc.setOption(withTheme({
@@ -4170,12 +4170,17 @@ async function renderGlobal(container = content) {
 // 情绪分组成因子展开区：显示最新一天的 components（rsi/涨跌幅/炸板率等子因子），散户白话标签
 // per-index 多数只有 rsi/pct_change 两项，信息量有限，展开区简洁展示即可（默认折叠）
 const _COMP_NAMES = {
-  rsi: "RSI", pct_change: "涨跌幅", qvix: "恐慌波动",
+  rsi: "RSI", pct_change: "涨跌幅", qvix: "恐慌波动", volume: "量偏离",
   ratio: "涨跌比", zt: "涨停热度", zhaban: "炸板率", lianban: "连板", amount: "成交活跃",
   label: "恐贪标签", available_scores: "可用分项",
   // 跨市场综合评分组成维度（按指标分组归一化均值 0-100）
   a_width: "A股宽度", a_fund: "资金面", a_sentiment: "A股情绪",
   hk: "港股", global: "全球", lhb: "龙虎榜", unlock: "解禁", ipo: "IPO", cov: "可转债",
+};
+// 各分项权重（A股综合情绪分 a_sentiment 为固定加权,缺项按可用重归一化;
+//  per-index 情绪分/跨市场评分/恐贪指数为等权,未列入的 key 显示"等权"）
+const _COMP_WEIGHTS = {
+  ratio: "25%", zt: "20%", zhaban: "15%", lianban: "15%", amount: "10%", north: "15%",
 };
 function _fmtComp(k, v) {
   if (k === "label") return String(v); // 恐贪标签为中文（极度恐惧/恐惧/中性/贪婪/极度贪婪），原样返回不走数字格式
@@ -4192,13 +4197,19 @@ function appendComponentsBlock(data, tipText, container = content) {
   try { comp = typeof last.components === "string" ? JSON.parse(last.components) : last.components; } catch (e) { return; }
   const keys = Object.keys(comp);
   if (!keys.length) return;
+  // 判断是否有固定权重(a_sentiment 的6分项),决定是否展示权重说明
+  const hasFixedWeights = keys.some((k) => _COMP_WEIGHTS[k]);
   const chips = keys.map((k) => {
     const name = _COMP_NAMES[k] || k;
-    return `<span class="comp-item"><span class="comp-k">${name}</span><span class="comp-v">${_fmtComp(k, comp[k])}</span></span>`;
+    const wt = _COMP_WEIGHTS[k] || "等权";
+    return `<span class="comp-item"><span class="comp-k">${name}</span><span class="comp-v">${_fmtComp(k, comp[k])}</span><span class="comp-w" data-tip="${wt === "等权" ? "等权平均" : "固定权重(缺项按可用重归一化)"}">${wt}</span></span>`;
   }).join("");
+  const weightNote = hasFixedWeights
+    ? '<div class="comp-weight-note">权重为名义值；当日缺项时按可用分项重归一化。北向资金自2024-08起停更,保留历史权重。</div>'
+    : '<div class="comp-weight-note">各分项等权平均。</div>';
   const div = document.createElement("div");
   div.className = "comp-block";
-  div.innerHTML = `<details><summary>组成因子${termTip(tipText || "情绪分由这些因子综合计算")}<span class="comp-date"> · ${fmtDate(last.date)}</span></summary><div class="comp-list">${chips}</div></details>`;
+  div.innerHTML = `<details><summary>组成因子${termTip(tipText || "情绪分由这些因子综合计算")}<span class="comp-date"> · ${fmtDate(last.date)}</span></summary><div class="comp-list">${chips}</div>${weightNote}</details>`;
   container.appendChild(div);
 }
 
@@ -4450,6 +4461,7 @@ function renderFuturesSection(data, snap) {
     }
     html += '</tbody></table>';
     html += '<div class="term-plain">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
+    html += '<div class="futures-reverse-note">⚠ 机构持仓极端值常为<strong>反向参考</strong>（机构极度看多时可能见顶、极度看空时可能见底），需结合历史准确率与市场位置判断，不可单看净持仓方向顺势操作。</div>';
     div.innerHTML = html;
     fgGrid.appendChild(div);
     addCardTimeBadge(div, dateStr, snap, "t1", "futures_date");

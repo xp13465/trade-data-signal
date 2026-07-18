@@ -1037,3 +1037,99 @@
 [data-theme="redgold"] .lab-fusion-phase-note { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-2); }
 [data-theme="dark"] .lab-fusion-phase-note b,
 [data-theme="redgold"] .lab-fusion-phase-note b { color: var(--text-1); }
+
+/* === finance-retail 修复:回测成本披露 + 毛收益/复利角标 === */
+/* 毛收益角标(年化/总收益率旁) */
+.lab-gross-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #874d00;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+  line-height: 1.5;
+}
+/* 复利放大角标(仅 full_in 模式) */
+.lab-compound-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #d4380d;
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 4px;
+  vertical-align: middle;
+  line-height: 1.5;
+}
+/* 回测免责声明(实验室自白块内) */
+.lab-backtest-disclaimer {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #874d00;
+}
+/* 成本对比块 */
+.lab-cost-block {
+  margin: 8px 0 4px;
+  padding: 10px 14px;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 6px;
+}
+.lab-cost-block-generic { padding: 8px 14px; }
+.lab-cost-warn {
+  font-size: 12px;
+  color: #874d00;
+  line-height: 1.6;
+  margin-bottom: 6px;
+}
+.lab-cost-warn strong { color: #d4380d; }
+.lab-cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+  margin: 6px 0 4px;
+}
+.lab-cost-table th {
+  background: var(--bg-hover);
+  padding: 4px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.lab-cost-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.lab-cost-table tr:first-child td { color: var(--text-2); }
+.lab-cost-note {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
+  margin-top: 4px;
+}
+/* 暗色/红金皮肤适配 */
+[data-theme="dark"] .lab-gross-tag,
+[data-theme="redgold"] .lab-gross-tag { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-2); }
+[data-theme="dark"] .lab-compound-tag,
+[data-theme="redgold"] .lab-compound-tag { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-2); }
+[data-theme="dark"] .lab-backtest-disclaimer,
+[data-theme="redgold"] .lab-backtest-disclaimer,
+[data-theme="dark"] .lab-cost-block,
+[data-theme="redgold"] .lab-cost-block { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-2); }
+[data-theme="dark"] .lab-cost-warn,
+[data-theme="redgold"] .lab-cost-warn { color: var(--text-2); }
+[data-theme="dark"] .lab-cost-warn strong,
+[data-theme="redgold"] .lab-cost-warn strong { color: var(--text-1); }

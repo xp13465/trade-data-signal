@@ -1342,6 +1342,32 @@ async function fetchLabData() {
   return state.labData;
 }
 
+// 获取手续费/滑点成本对比数据（毛/净收益对比，缓存到 state.labCostCompare）
+// 口径：top10策略配对/指数 × 3成本档(gross/low/high) × 2窗口(all/y5)，与模拟回测同源同口径
+// 覆盖范围有限(仅top10配对+2窗口)，非覆盖时回退通用毛收益提示
+async function fetchLabCostCompare() {
+  if (state._labCostCompare !== undefined) return state._labCostCompare;
+  try {
+    state._labCostCompare = await fetchJSON("./data/lab_cost_compare.json");
+  } catch (e) {
+    state._labCostCompare = null;
+  }
+  return state._labCostCompare;
+}
+
+// 查某(index_id, pair_id, mode, window) 的成本对比数据
+// 返回 {gross_ret, low_ret, high_ret, low_decay_ratio, high_decay_ratio, detail} 或 null
+function _labLookupCost(cc, indexId, pairId, mode, win) {
+  if (!cc || !cc.indexes) return null;
+  const ix = cc.indexes.find((x) => x.index_id === indexId);
+  if (!ix || !ix.pairs) return null;
+  const p = ix.pairs.find((x) => x.pair_id === pairId);
+  if (!p) return null;
+  const md = p[mode];
+  if (!md) return null;
+  return md[win] || null;
+}
+
 // 获取按指数拆分的矩阵数据（lab_backtest_{index}.json）
 // idx="all" 时加载全市场聚合数据（lab_backtest.json），复用 fetchLabData 缓存
 async function fetchLabMatrixData(idx) {
@@ -1644,7 +1670,7 @@ function _labTriggerBrief(trigger) {
 // 渲染单个交易模式区块详情（4数字 + 净值曲线 + 折叠交易记录）
 // 区块标题由外层 _labSimSectionHTML 的 .lab-sim-strat-head 提供，此处不含 head
 // winData = {stats, trades, equity_curve}，已按当前窗口切片（_labPairWinData 产出）
-function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel, midHTML, idx) {
+function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel, midHTML, idx, pairId) {
   const s = winData && winData.stats;
   const idxName = idx ? _labIdxName(idx) : "";  // 交易品种名（每行直接标注，不只靠区块/弹窗标题）
   if (!s) {
@@ -1784,14 +1810,45 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
       `</div>`
     : `<div class="lab-sim-full-loading">⏳ 加载明细数据（净值曲线/交易记录）中…</div>`;
 
+  // 成本对比数据查找：口径与模拟回测同源(同 index/pair/mode/window 的 gross 值已校验一致)
+  // 覆盖范围=top10配对×2窗口(all/y5)，非覆盖时回退通用毛收益提示
+  const _ccWin = state.labSimWindow || "y5";
+  const _ccIdx = idx || state.labSimIdx || "sh";
+  const costData = pairId ? _labLookupCost(state._labCostCompare, _ccIdx, pairId, mode, _ccWin) : null;
+  // 毛收益角标 + 复利放大角标(full_in 模式)
+  const grossTag = '<span class="lab-gross-tag">毛</span>';
+  const compoundTag = mode === "full_in" ? '<span class="lab-compound-tag">复利放大</span>' : "";
+  // 成本披露块
+  let costBlock = "";
+  if (costData && costData.detail) {
+    const g = costData.detail.gross || {};
+    const lo = costData.detail.low || {};
+    const hi = costData.detail.high || {};
+    const fmtPct = (v) => (v == null ? "-" : (v > 0 ? "+" : "") + v + "%");
+    const loDecay = costData.low_decay_ratio != null ? Math.abs(costData.low_decay_ratio).toFixed(0) : null;
+    const hiDecay = costData.high_decay_ratio != null ? Math.abs(costData.high_decay_ratio).toFixed(0) : null;
+    costBlock = `<div class="lab-cost-block">` +
+      `<div class="lab-cost-warn">⚠ 以上为<strong>毛收益</strong>,未计手续费/滑点。计入成本后年化约降 ${loDecay || "?"}~${hiDecay || "?"}%</div>` +
+      `<table class="lab-cost-table"><thead><tr><th>成本档</th><th>手续费</th><th>滑点</th><th>年化</th><th>总收益</th><th>胜率</th></tr></thead><tbody>` +
+      `<tr><td>毛收益</td><td>-</td><td>-</td><td>${fmtPct(g.annual_ret)}</td><td>${fmtPct(g.total_ret)}</td><td>${g.win_rate != null ? g.win_rate + "%" : "-"}</td></tr>` +
+      `<tr><td>低档</td><td>万3</td><td>千1</td><td>${fmtPct(lo.annual_ret)}</td><td>${fmtPct(lo.total_ret)}</td><td>${lo.win_rate != null ? lo.win_rate + "%" : "-"}</td></tr>` +
+      `<tr><td>高档</td><td>万5</td><td>千2</td><td>${fmtPct(hi.annual_ret)}</td><td>${fmtPct(hi.total_ret)}</td><td>${hi.win_rate != null ? hi.win_rate + "%" : "-"}</td></tr>` +
+      `</tbody></table>` +
+      `<div class="lab-cost-note">成本档说明：低档=万3手续费+千1滑点(ETF/低费率)；高档=万5手续费+千2滑点(个股常规)。高频策略成本侵蚀更大。</div>` +
+      `</div>`;
+  } else {
+    costBlock = `<div class="lab-cost-block lab-cost-block-generic"><div class="lab-cost-warn">⚠ 以上为<strong>毛收益</strong>,未计手续费/滑点,实际收益约低 5%~30%(高频交易成本侵蚀更大)</div></div>`;
+  }
+
   return `<div class="lab-sim-mode-block" data-mode="${mode}">` +
     (pairLabel ? `<div class="lab-sim-cur-pair">当前配对：${pairLabel}</div>` : "") +
     `<div class="lab-sim-stats">` +
-    `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元${openPositions.length ? '<br><span style="color:var(--text-3);font-size:11px">含未平仓持仓按收盘价重估</span>' : ""}</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%</span><span class="sub">${s.years} 年</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%${grossTag}</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元${openPositions.length ? '<br><span style="color:var(--text-3);font-size:11px">含未平仓持仓按收盘价重估</span>' : ""}</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%${grossTag}${compoundTag}</span><span class="sub">${s.years} 年${mode === "full_in" ? '<br><span style="color:var(--text-3);font-size:11px">复利放大,非固定仓位收益</span>' : ""}</span></div>` +
     `<div class="lab-sim-stat"><span class="k">最大回撤</span><span class="v" style="${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
     `<div class="lab-sim-stat"><span class="k">胜率</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
     `</div>` +
+    costBlock +
     (signalBtnHTML || "") +
     detailHTML +
     `</div>`;
@@ -1881,7 +1938,8 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
 
   const page = mode === "full_in" ? (state.labSimPageFi || 0) : (state.labSimPageFk || 0);
   const isOpen = mode === "full_in" ? !!state.labSimFiOpen : !!state.labSimFkOpen;
-  const detailBlock = _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel, null, idx);
+  const pairId = buyKey + "|" + sellKey;  // 成本对比数据查找键
+  const detailBlock = _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTML, pairLabel, null, idx, pairId);
 
   return `<div class="lab-sim-strat-section" data-mode="${mode}">` +
     headHTML + pairListHTML + pairDescHTML + detailBlock + '</div>';
@@ -2089,7 +2147,8 @@ function _labWarningEssayHTML(status) {
     : "⚠ 候选/实验中策略非生产信号，仅供参考";
   return `<div class="lab-warning-head">${head}</div>` +
     `<p>本实验室用历史数据回测，校验网上流传的交易策略与买卖信号是否真的可靠，避免盲目跟风。我们会定期收录热门策略在此验证，表现稳健的将纳入主功能图表融合上线。</p>` +
-    `<p>有好的策略建议或测试想法，欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
+    `<p>有好的策略建议或测试想法，欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>` +
+    `<p class="lab-backtest-disclaimer">⚠ <strong>回测非投资建议；过往表现不代表未来收益。</strong>回测基于历史数据理想化模拟，未考虑实盘滑点、流动性冲击与极端行情，实盘收益通常低于回测。</p>`;
 }
 
 // 融合信号实验自白黄块
@@ -2336,7 +2395,8 @@ async function renderLabDetail(key, container) {
     const simIdxId = state.labSimIdx || "sh";
     const simIdxName = (LAB_SIM_INDEXES.find((x) => x.id === simIdxId) || {}).name || simIdxId;
     simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">⏳ 加载模拟回测数据中…</div>`;
-    const simData = await fetchLabSimData(simIdxId);
+    // 并行加载模拟回测数据 + 成本对比数据(成本数据加载失败不阻塞渲染)
+    const [simData] = await Promise.all([fetchLabSimData(simIdxId), fetchLabCostCompare()]);
     if (!simData) {
       simCard.innerHTML = `<h3>💰 模拟回测（${simIdxName} · 配对交易）</h3><div class="lab-sim-empty">模拟回测数据加载失败，请稍后重试</div>`;
       return;

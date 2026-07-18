@@ -370,6 +370,16 @@ main { padding: 16px 24px; }
 .comp-item { display: inline-flex; align-items: baseline; gap: 4px; }
 .comp-k { color: var(--text-3); font-size: 11px; }
 .comp-v { color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+.comp-w { color: #d46b08; font-size: 10px; font-weight: 600; background: #fff7e6; border: 1px solid #ffd591; border-radius: 3px; padding: 0 4px; cursor: help; }
+.comp-weight-note { font-size: 11px; color: var(--text-3); margin-top: 6px; line-height: 1.5; }
+.futures-reverse-note { font-size: 11.5px; color: #874d00; background: #fffbe6; border: 1px solid #ffe58f; border-radius: 4px; padding: 6px 10px; margin-top: 6px; line-height: 1.6; }
+.futures-reverse-note strong { color: #d4380d; }
+[data-theme="dark"] .comp-w,
+[data-theme="redgold"] .comp-w { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-2); }
+[data-theme="dark"] .futures-reverse-note,
+[data-theme="redgold"] .futures-reverse-note { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-2); }
+[data-theme="dark"] .futures-reverse-note strong,
+[data-theme="redgold"] .futures-reverse-note strong { color: var(--text-1); }
 .comp-date { color: var(--text-4); font-size: 11px; margin-left: 4px; }
 /* === 折线图回测 tips（.chart-hint）：散户化多块文案 + 胜率配色梯度 + 凯利折叠详解 === */
 .chart-hint {
@@ -2416,3 +2426,21 @@ main { padding: 16px 24px; }
 [data-theme="dark"] .etf-pop-row.copied,
 [data-theme="redgold"] .etf-pop-row.copied { background: var(--bg-hover); }
 
+
+
+/* 全站免责页脚(所有 tab 可见) */
+.site-disclaimer {
+  max-width: 1100px;
+  margin: 24px auto 8px;
+  padding: 12px 16px 16px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-3);
+  border-top: 1px solid var(--border);
+}
+.site-disclaimer p { margin: 0; }
+/* H5 底部固定导航占位,页脚不被遮挡留白 */
+@media (max-width: 768px) {
+  .site-disclaimer { margin-bottom: 72px; }
+}
