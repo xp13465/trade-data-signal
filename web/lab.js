@@ -4108,7 +4108,7 @@ async function _labFusionPairModalRender(overlay) {
   const isHardcoded = !meta._pairType && meta._fusionKey;
   if (isHardcoded) {
     pairId = meta._fusionKey;
-    titleText = `🔬 ${meta.name || "融合策略"} · ${modeName}（${winLabel}）`;
+    titleText = `🔬 ${meta.name || "融合策略"} · ${modeName}（${winLabel}） · ${_labIdxName(m.index)}`;
     descHTML = _labFusionHardcodedHTML(meta);
   } else if (meta._pairType) {
     // 配对候选（buy_sell / buy_buy / sell_sell）：标题按 pair_type 区分
@@ -4120,7 +4120,7 @@ async function _labFusionPairModalRender(overlay) {
     const titlePair = isBuySell ? `买${name1} × 卖${name2}` : `${name1} + ${name2}`;
     const titleIcon = isBuySell ? "📊" : "🔬";
     pairId = meta._buyKey + "|" + meta._sellKey;
-    titleText = `${titleIcon} ${typeLabel} · ${titlePair} · ${modeName}（${winLabel}）`;
+    titleText = `${titleIcon} ${typeLabel} · ${titlePair} · ${modeName}（${winLabel}） · ${_labIdxName(m.index)}`;
     // 融合策略说明（组成条件/触发/结论），补齐成分策略 theory/scenario/note/report（折叠）
     const condHTML = (meta.conditions && meta.conditions.length)
       ? `<div class="lab-fusion-detail-row"><span class="lab-fusion-detail-label">组成条件</span><span class="lab-fusion-detail-value">${meta.conditions.join("、")}</span></div>`
@@ -4147,7 +4147,7 @@ async function _labFusionPairModalRender(overlay) {
   } else {
     // 兜底：无 _pairType 无 _fusionKey，仅展示融合策略说明文案
     const headHTML = `<div class="lab-signal-modal-head">` +
-      `<span class="lab-signal-modal-title">🔬 ${meta.name || "融合策略"}</span>` +
+      `<span class="lab-signal-modal-title">🔬 ${meta.name || "融合策略"} · ${_labIdxName(m.index)}</span>` +
       `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
       `</div>`;
     overlay.innerHTML = `<div class="lab-signal-modal">` + headHTML +
