@@ -1046,6 +1046,25 @@
   background: linear-gradient(90deg, rgba(79,195,247,0.14), rgba(79,195,247,0.03));
   box-shadow: 0 0 0 2px rgba(79,195,247,0.4);
 }
+/* 通用 hover 双向关联高亮（单一/融合/二次测试三实验共用）：
+   右榜行 hover -> 左卡片同策略高亮；左卡片 hover -> 右榜可见范围内同策略行高亮。
+   蓝色弱化，区别于跳转强高亮金色 lab-retest-focus；已有 focus 时不覆盖。
+   适用于左卡 .lab-strategy-card 和右榜行 .lab-rank-item。 */
+.lab-strategy-card.lab-hover-link:not(.lab-retest-focus),
+.lab-rank-item.lab-hover-link:not(.lab-retest-focus) {
+  border-color: #4fc3f7;
+  background: linear-gradient(90deg, rgba(79,195,247,0.14), rgba(79,195,247,0.03));
+  box-shadow: 0 0 0 2px rgba(79,195,247,0.4);
+}
+/* 深色/红金皮肤：蓝色加深一档保证对比度 */
+[data-theme="dark"] .lab-strategy-card.lab-hover-link:not(.lab-retest-focus),
+[data-theme="dark"] .lab-rank-item.lab-hover-link:not(.lab-retest-focus),
+[data-theme="redgold"] .lab-strategy-card.lab-hover-link:not(.lab-retest-focus),
+[data-theme="redgold"] .lab-rank-item.lab-hover-link:not(.lab-retest-focus) {
+  border-color: #4fc3f7;
+  background: linear-gradient(90deg, rgba(79,195,247,0.22), rgba(79,195,247,0.06));
+  box-shadow: 0 0 0 2px rgba(79,195,247,0.55);
+}
 
 /* === 深色/红金皮肤覆盖：浅底硬编码块在深色卡上变白块+浅字撞色，统一改 bg-hover 底 + text-2 字 === */
 /* C1: 状态标签(live/partial/exp/excluded 原浅底硬编码) */

@@ -2985,6 +2985,57 @@ function _labRankAttachHandlers(section, simData) {
   _labRankAttachResultsHandlers(section, simData);
 }
 
+// 通用 hover 双向关联高亮（单一/融合/二次测试三实验共用）：
+// ① 右榜行 hover -> 全局匹配左卡片加 .lab-hover-link（不判可见，加 class 后滚动可见即可见高亮）
+// ② 左卡片 hover -> 右榜可见范围内匹配行加 .lab-hover-link（不可见不高亮，不自动滚动；用 getBoundingClientRect 判与视口/滚动容器交集）
+// 左卡用 data-lab-hover-bound 标记防重复绑定（右榜局部 rerender 时左卡不变，跳过重绑）。
+// opts: { rankScope, cardSelector, itemSelector, cardKey(card)->str, itemKey(item)->str, isRelated(cardKey,itemKey)->bool, itemContainer()->el|null }
+function _labHoverLinkVisible(el, container) {
+  var r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return false;
+  var vh = (typeof window !== "undefined" && window.innerHeight) || (document.documentElement && document.documentElement.clientHeight) || 0;
+  if (r.bottom <= 0 || r.top >= vh) return false; // 不在视口纵向
+  if (container) {
+    var cr = container.getBoundingClientRect();
+    if (r.bottom <= cr.top || r.top >= cr.bottom) return false; // 不在滚动容器纵向可见区
+  }
+  return true;
+}
+function _labHoverLinkAttach(opts) {
+  var rankScope = opts.rankScope;
+  if (!rankScope) return;
+  var cardSelector = opts.cardSelector, itemSelector = opts.itemSelector;
+  var cardKey = opts.cardKey, itemKey = opts.itemKey, isRelated = opts.isRelated;
+  // ① 右榜行 hover -> 左卡（每次 rerender 右榜行是新元素，直接绑无重复）
+  rankScope.querySelectorAll(itemSelector).forEach(function (item) {
+    item.addEventListener("mouseenter", function () {
+      var ik = itemKey(item); if (!ik) return;
+      document.querySelectorAll(cardSelector).forEach(function (c) {
+        if (isRelated(cardKey(c), ik)) c.classList.add("lab-hover-link");
+      });
+    });
+    item.addEventListener("mouseleave", function () {
+      document.querySelectorAll(".lab-hover-link").forEach(function (c) { c.classList.remove("lab-hover-link"); });
+    });
+  });
+  // ② 左卡 hover -> 右榜可见行（左卡用标记防重复；右榜行现场查，rerender 后自动指向新行）
+  document.querySelectorAll(cardSelector).forEach(function (card) {
+    if (card.getAttribute("data-lab-hover-bound") === "1") return;
+    card.setAttribute("data-lab-hover-bound", "1");
+    card.addEventListener("mouseenter", function () {
+      var ck = cardKey(card); if (!ck) return;
+      var container = opts.itemContainer ? opts.itemContainer() : null;
+      rankScope.querySelectorAll(itemSelector).forEach(function (it) {
+        if (!isRelated(ck, itemKey(it))) return;
+        if (_labHoverLinkVisible(it, container)) it.classList.add("lab-hover-link");
+      });
+    });
+    card.addEventListener("mouseleave", function () {
+      document.querySelectorAll(".lab-hover-link").forEach(function (c) { c.classList.remove("lab-hover-link"); });
+    });
+  });
+}
+
 // 结果区事件绑定（列表项点击+更多按钮）。全量重渲染和仅结果重渲染都调用本函数。
 function _labRankAttachResultsHandlers(section, simData) {
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
@@ -3003,6 +3054,16 @@ function _labRankAttachResultsHandlers(section, simData) {
   });
   const more = section.querySelector(".lab-rank-more");
   if (more) more.onclick = () => { state.labRankShowAll = !state.labRankShowAll; _labRankRerenderResults(section, simData); };
+  // 双向 hover 关联高亮：右榜行 <-> 左卡片同策略（单一/融合实验，成分匹配 buyKey|sellKey）
+  _labHoverLinkAttach({
+    rankScope: section,
+    cardSelector: ".lab-strategy-list .lab-strategy-card[data-key]",
+    itemSelector: ".lab-rank-item",
+    cardKey: function (c) { return c.getAttribute("data-key") || ""; },
+    itemKey: function (it) { return (it.dataset.buy || "") + "|" + (it.dataset.sell || ""); },
+    isRelated: function (ck, ik) { if (!ck || !ik) return false; var p = ik.split("|"); return ck === p[0] || ck === p[1]; },
+    itemContainer: function () { return section.querySelector(".lab-rank-list"); },
+  });
 }
 
 // 推荐榜"⭐️进入二次测试"点击跳转：切到二次测试tab，传高亮key，渲染后定位+高亮该配对卡片
@@ -3446,6 +3507,7 @@ async function renderFusionLab() {
         : "";
       const card = document.createElement("div");
       card.className = "lab-strategy-card lab-fusion-card" + (meta._isPending ? " lab-fusion-pending" : "");
+      card.dataset.key = key;
       card.innerHTML =
         `<div class="lab-card-top">` +
         `<span class="lab-card-name">${_labStratNameHTML(key, meta.name)}${_labHelpIcon("fusion_signal")}</span>` +
@@ -3943,22 +4005,18 @@ function _labRetestRankResultsHTML() {
   return countHTML + `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
 }
 
-// retest 右榜行 hover：hover 某行时，若左侧卡片有同 pk 配对，加 lab-retest-hover-link 弱化高亮提示关联（区别于跳转强高亮 lab-retest-focus）。离开移除。
+// retest 右榜行 hover：hover 某行时，若左侧卡片有同 pk 配对，加 lab-hover-link 弱化高亮提示关联（区别于跳转强高亮 lab-retest-focus）。离开移除。
+// 双向：左卡片 hover -> 右榜可见范围内同 pk 行高亮（不可见不高亮，不自动滚动）。
 // 遍历比较 dataset.pk（pk 含 | 等字符，避免属性选择器转义问题）。
 function _labRetestRankAttachItemHover(section) {
-  section.querySelectorAll(".lab-rank-item").forEach((item) => {
-    item.addEventListener("mouseenter", () => {
-      const pk = item.dataset.pk;
-      if (!pk) return;
-      const list = document.querySelector(".lab-retest-list");
-      if (!list) return;
-      list.querySelectorAll(".lab-retest-card").forEach((c) => {
-        if (c.dataset.pk === pk) c.classList.add("lab-retest-hover-link");
-      });
-    });
-    item.addEventListener("mouseleave", () => {
-      document.querySelectorAll(".lab-retest-hover-link").forEach((c) => c.classList.remove("lab-retest-hover-link"));
-    });
+  _labHoverLinkAttach({
+    rankScope: section,
+    cardSelector: ".lab-retest-card",
+    itemSelector: ".lab-rank-item",
+    cardKey: function (c) { return c.getAttribute("data-pk") || ""; },
+    itemKey: function (it) { return it.dataset.pk || ""; },
+    isRelated: function (a, b) { return !!a && a === b; },
+    itemContainer: function () { return section.querySelector(".lab-rank-list"); },
   });
 }
 
@@ -5517,6 +5575,7 @@ async function renderSignalLab() {
     }
     const card = document.createElement("div");
     card.className = "lab-strategy-card";
+    card.dataset.key = key;
     card.innerHTML =
       `<div class="lab-card-top">` +
       `<span class="lab-card-name">${meta.name}</span>` +
