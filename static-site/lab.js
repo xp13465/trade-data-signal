@@ -616,7 +616,7 @@ const LAB_STATUS_TAGS = {
   pending: { label: "待回测", cls: "lab-tag-pending" },
 };
 
-// === 融合信号注册表（多信号同日AND共振）===
+// === 融合信号注册表（多信号同日同时满足共振）===
 // 字段与 LAB_STRATEGIES 对齐，新增 conditions 数组（组成条件列表）
 const LAB_FUSION_STRATEGIES = {
   // --- 生产参考区（2个，主项目提取） ---
@@ -625,7 +625,7 @@ const LAB_FUSION_STRATEGIES = {
     conditions: ["20日高回落5%", "60日均线多头", "MACD死叉"],
     trigger: "同日同时满足：20日高回落5% + 60日均线多头 + MACD死叉",
     conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后凯利" + _labHelpIcon("kelly") + "计算率18.3%→43.3%",
-    theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加60日均线多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日AND，大幅降噪。",
+    theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加60日均线多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日同时满足，大幅降噪。",
     scenario: "上升趋势中回落止盈/减仓；三条件共振过滤假信号。非做空指令。",
     note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），凯利计算率18.3%→43.3%。已上线signal_daily。",
     report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），凯利计算率从18.3%升至43.3%，信号质量显著提升。主项目生产卖点“20日高回落5%卖”的融合形态。",
@@ -646,7 +646,7 @@ const LAB_FUSION_STRATEGIES = {
     conditions: ["布林下轨回归", "相对强弱上穿40"],
     trigger: "同日同时满足：布林下轨回归 + 相对强弱上穿40",
     conclusion: "主项目10指数已配置 buy_aux rsi_cross_40。f -38.5%->+16.2%转正（家电/轻工回测），胜率44.8%->54.5%，盈亏比0.66->1.19",
-    theory: "多信号融合买点。布林下轨回归捕捉超卖反弹拐点，叠加相对强弱上穿40确认动量转强。两条件同日AND，过滤单一布林下轨穿越的假信号。",
+    theory: "多信号融合买点。布林下轨回归捕捉超卖反弹拐点，叠加相对强弱上穿40确认动量转强。两条件同日同时满足，过滤单一布林下轨穿越的假信号。",
     scenario: "超卖反弹+动量确认共振入场；震荡市/下跌市效果好。",
     note: "已作为 buy_aux 辅买点（per-index 增强）上线于 10 个指数：中证1000/创业板指/家电/轻工/医药/公用事业/房地产/社会服务/传媒/通信。非全局融合信号生产实现（B1基线+相对强弱上穿40过滤，signals.py:312-314）.",
     report: "回测：加相对强弱上穿40后f从-38.5%转正至+16.2%（家电/轻工样本），胜率44.8%->54.5%，盈亏比0.66->1.19。已扩展至10指数配置。",
@@ -666,7 +666,7 @@ const LAB_FUSION_STRATEGIES = {
     conditions: ["相对强弱上穿30", "MACD金叉"],
     trigger: "同日同时满足：相对强弱上穿30 + MACD金叉",
     conclusion: "实验性新组合。超卖反弹+动量确认共振，待回测验证",
-    theory: "实验性新组合。相对强弱上穿30捕捉超卖反弹拐点，叠加MACD金叉确认动量转强。两条件同日AND共振。",
+    theory: "实验性新组合。相对强弱上穿30捕捉超卖反弹拐点，叠加MACD金叉确认动量转强。两条件同日同时满足共振。",
     scenario: "超卖反弹+动量确认共振入场；实验性，待回测验证。",
     note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
     report: "实验性新组合，暂无回测数据。阶段二将验证超卖反弹+动量确认共振的有效性。",
@@ -677,7 +677,7 @@ const LAB_FUSION_STRATEGIES = {
     conditions: ["20日高回落5%", "均线5/20死叉"],
     trigger: "同日同时满足：20日高回落5% + 均线5/20死叉",
     conclusion: "实验性新组合。回落+均线死叉共振，待回测验证",
-    theory: "实验性新组合。20日高回落5%捕捉趋势转弱，叠加均线5/20死叉确认均线转弱。两条件同日AND共振。",
+    theory: "实验性新组合。20日高回落5%捕捉趋势转弱，叠加均线5/20死叉确认均线转弱。两条件同日同时满足共振。",
     scenario: "趋势转弱+均线死叉共振减仓；实验性，待回测验证。",
     note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
     report: "实验性新组合，暂无回测数据。阶段二将验证回落+均线死叉共振的有效性。",
@@ -693,7 +693,7 @@ const _LAB_GLOSSARY = {
   },
   fusion_signal: {
     name: "融合信号（F_ 前缀）",
-    desc: "把多个单一信号用“同日AND”组合成一个新信号——所有条件同日都满足才触发，用多条件共振过滤假信号。分两类：①6个预定义（F_开头，主项目提取已验证）；②运行时自动两两组合的候选（待回测）。与同向共振区别：融合是异向多条件AND成新策略，同向共振是同向两信号叠加。",
+    desc: "把多个单一信号用“同日同时满足”组合成一个新信号——所有条件同日都满足才触发，用多条件共振过滤假信号。分两类：①6个预定义（F_开头，主项目提取已验证）；②运行时自动两两组合的候选（待回测）。与同向共振区别：融合是异向多条件同时满足成新策略，同向共振是同向两信号叠加。",
   },
   kelly: {
     name: "凯利公式 / 凯利计算率",
@@ -1344,7 +1344,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
   return null;
 }
 
-// === 融合信号 AND 图表配置（方向B：前端实现多条件同日AND交集，画融合信号点，非基础策略代理）===
+// === 融合信号与图表配置（方向B：前端实现多条件同日同时满足交集，画融合信号点，非基础策略代理）===
 // 6硬编码融合策略的英文成分条件兜底（优先用 fusion_meta.components，对齐 fusion_signals.py HARDCODED_FUSIONS）
 const FUSION_HARDCODED_COMPONENTS = {
   F_D1_S1_MACD: ['D1_high20_drop5', 'MA60_bull', 'MACD_below_signal'],
@@ -1402,7 +1402,7 @@ function _labComponentDateSet(key, ohlc) {
 // 构建融合信号图配置（91候选 A/A/A 方案：合并双策略指标 indMap 去重 + 双色信号点）
 // - 91候选(buy_sell/buy_buy/sell_sell)：复用 _labSignalOpenModal 的 indMap 去重 + 双色信号逻辑，
 //   两成分策略指标按 name 去重合并、信号按 side 着色（买红/卖绿，同侧第二成分用区分色），不再 buy_sell return null
-// - 6硬编码：保留 AND 共振（主信号 baseKey 指标 + 交集信号单色），有独立融合语义
+// - 6硬编码：保留同时满足共振（主信号 baseKey 指标 + 交集信号单色），有独立融合语义
 // components: 成分条件英文 key 数组（6硬编码从 fusion_meta.components 取）
 function _labBuildFusionChartConfig(meta, ohlc, idxName, isHardcoded, components) {
   if (isHardcoded) {
@@ -1413,7 +1413,7 @@ function _labBuildFusionChartConfig(meta, ohlc, idxName, isHardcoded, components
     if (!compKeys || !baseKey || !LAB_CHART_KEYS[baseKey]) return null;
     const baseCfg = _labBuildChartConfig(baseKey, ohlc, idxName);
     if (!baseCfg) return null;
-    // 各成分触发日期 Set，取 AND 交集
+    // 各成分触发日期 Set，取交集
     const sets = [];
     for (const k of compKeys) {
       const s = _labComponentDateSet(k, ohlc);
@@ -1433,7 +1433,7 @@ function _labBuildFusionChartConfig(meta, ohlc, idxName, isHardcoded, components
       signals,
       signalLabel: fmeta.name || '融合信号',
       signalColor: isBuy ? '#2e7d32' : '#9c27b0',
-      chartTitle: `${idxName} · ${fmeta.name || '融合信号'}（AND共振）`,
+      chartTitle: `${idxName} · ${fmeta.name || '融合信号'}（同时满足共振）`,
       statLabel: isBuy ? '融合买点' : '融合卖点',
     };
   }
@@ -2323,7 +2323,7 @@ function _labTopDisclaimerHTML() {
 // 融合信号实验自白黄块
 function _labFusionEssayHTML() {
   return `<div class="lab-warning-head">⚠ 融合信号实验 · 多信号共振</div>` +
-    `<p>融合信号=多个单一信号同日AND触发，通过多条件共振过滤假信号、提升信号质量。${_labHelpIcon("fusion_signal")}注意：融合是异向多条件AND成新策略，与同向共振（同向两信号叠加增强）${_labHelpIcon("co_resonance")}不同。本页展示从主项目提取的融合策略及实验性新组合。</p>` +
+    `<p>融合信号=多个单一信号同日同时满足才触发，通过多条件共振过滤假信号、提升信号质量。${_labHelpIcon("fusion_signal")}注意：融合是异向多条件同时满足成新策略，与同向共振（同向两信号叠加增强）${_labHelpIcon("co_resonance")}不同。本页展示从主项目提取的融合策略及实验性新组合。</p>` +
     `<p>阶段一仅展示条件描述与说明，阶段二将开放回测数据/图表/配对排行。欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>`;
 }
 
@@ -2634,7 +2634,7 @@ function _labRankDefaultFilter() {
   return { retMin: "", retMax: "", winMin: "", winMax: "", ddMin: "", ddMax: "", nMin: "", nMax: "" };
 }
 
-// 过滤：AND 组合，min/max 闭区间(>=min 且 <=max)。作用于当前窗口统计值（rows 已按 state.labSimWindow 聚合）。
+// 过滤：且组合，min/max 闭区间(>=min 且 <=max)。作用于当前窗口统计值（rows 已按 state.labSimWindow 聚合）。
 function _labRankApplyFilter(rows) {
   const f = state.labRankFilter;
   if (!f) return rows;
@@ -3912,7 +3912,7 @@ function _labRetestRankDefaultFilter() {
   return { retMin: "", retMax: "", winMin: "", winMax: "", ddMin: "", ddMax: "", nMin: "", nMax: "" };
 }
 
-// 过滤：AND 组合，min/max 闭区间。isPct 字段把 row 小数×100 与输入百分数比较。
+// 过滤：且组合，min/max 闭区间。isPct 字段把 row 小数×100 与输入百分数比较。
 function _labRetestRankApplyFilter(rows) {
   const f = state.labRetestRankFilter;
   if (!f) return rows;
@@ -4655,7 +4655,7 @@ async function _labFusionPairModalRender(overlay) {
     ? `<div class="lab-sim-signal-btn-wrap"><button type="button" class="lab-sim-signal-btn" data-buy="${sigBuyKey}" data-sell="${sigSellKey}">📊 查看买卖信号</button></div>`
     : "";
 
-  // 信号图：91候选=双图上下排列(策略A上图+策略B下图，各自独立 echarts)；6硬编码=AND共振单图；失败回退 chartBaseKey 代理
+  // 信号图：91候选=双图上下排列(策略A上图+策略B下图，各自独立 echarts)；6硬编码=同时满足共振单图；失败回退 chartBaseKey 代理
   let chartSectionHTML = "";
   let chartCfg = null, chartSliced = null;             // 单图（6硬编码/代理）
   let chartCfgA = null, chartCfgB = null;               // 双图（91候选 策略A/B）
@@ -4701,10 +4701,10 @@ async function _labFusionPairModalRender(overlay) {
         subHTML(name2, side2, color2, cnt2, statLabel2, 'lab-fusion-chart-ph-b', !!chartCfgB) +
         '</div>';
     } else {
-      // 6硬编码：AND共振单图 / chartBaseKey 代理（保持原逻辑不回归）
+      // 6硬编码：同时满足共振单图 / chartBaseKey 代理（保持原逻辑不回归）
       const components = fmInfo ? fmInfo.components : null;
       chartCfg = _labBuildFusionChartConfig(meta, chartData.ohlc, idxName, isHardcoded, components);
-      let chartTitleSuffix = "（AND共振）";
+      let chartTitleSuffix = "（同时满足共振）";
       if (!chartCfg && chartBaseKey && LAB_CHART_KEYS[chartBaseKey]) {
         chartCfg = _labBuildChartConfig(chartBaseKey, chartData.ohlc, idxName);
         chartTitleSuffix = "（基础策略「" + chartBaseName + "」代理）";
