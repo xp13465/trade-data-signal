@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成 OG 分享图 og.png（1200x630），放 web/ 和 static-site/ 根目录。
+"""生成 OG 分享图 og.png（1200x630），放 static-site/ 根目录。
 
 深色品牌卡片：品牌标题 + slogan + 当日关键数据 + 域名。
 中文字体用 macOS 自带 PingFang.ttc。
@@ -73,9 +73,8 @@ def main():
     draw.text((60, 548), "tdsignal-ujpzw01zm.maozi.io", font=font(26, bold=True), fill=ACCENT)
     draw.text((60, 584), "A股 / 港股 / 全球  ·  综合情绪分 / 跨市场评分 / 行业热力图 / 模拟回测", font=font(16), fill=GRAY)
 
-    img.save("web/og.png", "PNG")
     img.save("static-site/og.png", "PNG")
-    print("✓ web/og.png + static-site/og.png 生成 (1200x630)")
+    print("✓ static-site/og.png 生成 (1200x630)")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 
 矩阵为 0/1 二维数组（1=黑格），前端 drawShareCard 用 fillRect 同步绘制，
 无需加载外部图片（避免 toDataURL 跨域污染 + 异步竞态）。
-双版同步：写 static-site/qr.js + web/qr.js。
+写 static-site/qr.js。
 """
 import qrcode
 
@@ -31,7 +31,7 @@ def main():
         f"window.QR_SIZE = {n};\n"
         f"window.QR_MODULES = [\n" + ",\n".join(rows) + "\n];\n"
     )
-    for path in ["static-site/qr.js", "web/qr.js"]:
+    for path in ["static-site/qr.js"]:
         with open(path, "w") as f:
             f.write(js)
         print(f"✓ {path} ({n}x{n} 矩阵)")

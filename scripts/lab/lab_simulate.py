@@ -690,7 +690,7 @@ def run_index(iid, iname):
         (f'lab_sim_{iid}_full.json', full_result),
     ]
     for fname, data in out_files:
-        for base_dir in ('web', 'static-site'):
+        for base_dir in ('static-site',):
             p = os.path.join(BASE, base_dir, 'data', 'lab', fname)
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, 'w', encoding='utf-8') as f:
@@ -858,7 +858,7 @@ def run_fusion_index(iid, iname):
         (f'lab_sim_{iid}_fusion_full.json', full_result),
     ]
     for fname, data in out_files:
-        for base_dir in ('web', 'static-site'):
+        for base_dir in ('static-site',):
             p = os.path.join(BASE, base_dir, 'data', 'lab', fname)
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, 'w', encoding='utf-8') as f:

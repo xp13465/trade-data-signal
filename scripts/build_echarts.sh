@@ -7,7 +7,7 @@
 #   grid/tooltip/legend/dataZoom/visualMap/title/markLine/markPoint/markArea/axisPointer，
 #   API 仅用 echarts.init + echarts.getInstanceByDom。改前端图表类型后须重跑本脚本核对。
 #
-# 产出：覆盖 static-site/vendor/echarts.min.js + web/vendor/echarts.min.js（双版同步）。
+# 产出：覆盖 static-site/vendor/echarts.min.js。
 #   改完跑：python scripts/bump_asset_version.py  刷新 index.html 的 ?v= 破缓存。
 #
 # 依赖：node + npx esbuild + echarts（首次自动 npm install 到 $ECHARTS_BUILD_DIR）。
@@ -49,6 +49,5 @@ SZ=$(stat -f%z echarts.custom.min.js 2>/dev/null || stat -c%s echarts.custom.min
 echo "定制 echarts 构建完成：${SZ} bytes"
 
 cp echarts.custom.min.js "$REPO/static-site/vendor/echarts.min.js"
-cp echarts.custom.min.js "$REPO/web/vendor/echarts.min.js"
-echo "已覆盖：$REPO/static-site/vendor/echarts.min.js + $REPO/web/vendor/echarts.min.js"
+echo "已覆盖：$REPO/static-site/vendor/echarts.min.js"
 echo "下一步：python $REPO/scripts/bump_asset_version.py  （刷新 index.html 的 ?v= 破缓存）"

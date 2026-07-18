@@ -94,8 +94,8 @@ else
 fi
 
 # 上线：git add lab 产物（只 lab 目录，§8 不碰根 data/）
-echo "-> git add static-site/data/lab/ + web/data/lab/ ..." | tee -a "$LOG"
-git -C "$REPO" add static-site/data/lab/ web/data/lab/ 2>&1 | tee -a "$LOG"
+echo "-> git add static-site/data/lab/ ..." | tee -a "$LOG"
+git -C "$REPO" add static-site/data/lab/ 2>&1 | tee -a "$LOG"
 
 # 检查有无变更（cached diff 非空才 commit；无变更跳过 commit 但仍 push）
 if git -C "$REPO" diff --cached --quiet; then
