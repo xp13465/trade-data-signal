@@ -130,6 +130,33 @@ def _days_between(d1, d2):
     return abs((d2 - d1).days)
 
 
+def _push_eq(curve, date_str, value):
+    """向净值曲线追加一个点,按日期去重:同日则更新末点值(后事件覆盖),异日则追加。
+    用于买入日打点(C方案)及卖出/期末打点,避免同日买卖产生重复点。"""
+    v = round(value, 2)
+    if curve and curve[-1]['date'] == date_str:
+        curve[-1]['value'] = v
+    else:
+        curve.append({'date': date_str, 'value': v})
+
+
+def _open_pos_dict(buy_date, buy_price, shares, last_close, last_date):
+    """构造一笔期末未平仓持仓的透出结构。"""
+    hold_days = _days_between(buy_date, last_date)
+    unrealized_pnl = shares * (last_close - buy_price)
+    cost = shares * buy_price
+    unrealized_pnl_pct = unrealized_pnl / cost * 100 if cost > 0 else 0.0
+    return {
+        'buy_date': _fmt_date(buy_date),
+        'buy_price': round(buy_price, 2),
+        'last_close': round(last_close, 2),
+        'shares': round(shares, 4),
+        'hold_days': hold_days,
+        'unrealized_pnl': round(unrealized_pnl, 2),
+        'unrealized_pnl_pct': round(unrealized_pnl_pct, 2),
+    }
+
+
 def sample_curve(curve, max_points=MAX_CURVE_POINTS):
     """均匀采样净值曲线，保留首尾点。"""
     if len(curve) <= max_points:
@@ -221,6 +248,8 @@ def simulate_full_in(df, buy_mask, sell_mask, w_start=None, commission_rate=0.0,
             shares = cash / (buy_price * (1 + commission_rate))
             holding = (date, buy_price, shares)
             cash = 0.0
+            # C方案: 买入日打点,让曲线可见开仓(总市值=cash+持仓市值,买入只换形式不改变总市值)
+            _push_eq(equity_curve, _fmt_date(date), cash + shares * close_val)
 
         elif sig_type == 'sell' and holding is not None:
             buy_date, buy_close, shares = holding
@@ -242,24 +271,27 @@ def simulate_full_in(df, buy_mask, sell_mask, w_start=None, commission_rate=0.0,
                 'at': round(account_total, 2),
                 'cp': round(cum_profit, 2),
             })
-            equity_curve.append({'date': _fmt_date(date), 'value': round(cash, 2)})
+            _push_eq(equity_curve, _fmt_date(date), cash)
 
     # 期末估值
     last_date = dates[-1]
     last_close = close.iloc[-1]
+    open_positions = []
     if holding is not None:
         final_total = cash + holding[2] * last_close
-        equity_curve.append({'date': _fmt_date(last_date), 'value': round(final_total, 2)})
+        open_positions.append(
+            _open_pos_dict(holding[0], holding[1], holding[2], last_close, last_date))
+        _push_eq(equity_curve, _fmt_date(last_date), final_total)
     else:
         final_total = cash
-        if equity_curve[-1]['date'] != _fmt_date(last_date):
-            equity_curve.append({'date': _fmt_date(last_date), 'value': round(final_total, 2)})
+        _push_eq(equity_curve, _fmt_date(last_date), final_total)
 
     return {
         'equity_curve': equity_curve,
         'trades': trades,
         'final_total': final_total,
         'last_date': last_date,
+        'open_positions': open_positions,
     }
 
 
@@ -302,6 +334,9 @@ def simulate_fixed_10k(df, buy_mask, sell_mask, w_start=None, commission_rate=0.
             shares = POSITION_SIZE / (buy_price * (1 + commission_rate))
             positions.append((date, buy_price, shares))
             cash -= POSITION_SIZE
+            # C方案: 买入日打点,让曲线可见开仓(总市值=cash+全部持仓按当日收盘市值)
+            mv = sum(s * close_val for _, _, s in positions)
+            _push_eq(equity_curve, _fmt_date(date), cash + mv)
 
         elif sig_type == 'sell' and positions:
             total_cost = POSITION_SIZE * len(positions)
@@ -326,21 +361,26 @@ def simulate_fixed_10k(df, buy_mask, sell_mask, w_start=None, commission_rate=0.
                 'at': round(account_total, 2),
                 'cp': round(cum_profit, 2),
             })
-            equity_curve.append({'date': _fmt_date(date), 'value': round(cash, 2)})
+            _push_eq(equity_curve, _fmt_date(date), cash)
 
     # 期末估值
     last_date = dates[-1]
     last_close = close.iloc[-1]
     hv = sum(s * last_close for _, _, s in positions)
     final_total = cash + hv
-    if positions or equity_curve[-1]['date'] != _fmt_date(last_date):
-        equity_curve.append({'date': _fmt_date(last_date), 'value': round(final_total, 2)})
+    # open_positions: 期末未平仓持仓逐笔透出(买入后未遇卖出信号清仓的持仓),
+    # 解释 final_total(含未平仓重估)与交易表(仅已实现配对)的差额=未平仓浮亏/浮盈。
+    open_positions = [
+        _open_pos_dict(bd, bp, s, last_close, last_date) for bd, bp, s in positions
+    ]
+    _push_eq(equity_curve, _fmt_date(last_date), final_total)
 
     return {
         'equity_curve': equity_curve,
         'trades': trades,
         'final_total': final_total,
         'last_date': last_date,
+        'open_positions': open_positions,
     }
 
 
@@ -444,6 +484,7 @@ def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
         win_eq = {}      # {window_key: sampled equity_curve}
         win_stats = {}
         win_trades = {}  # {window_key: 该窗口独立 sim 的 trades(at/cp 均窗口相对,从 100k 起算)
+        win_open_positions = {}  # {window_key: 期末未平仓持仓列表}
         all_trades = None
 
         for wk, _wl, wy in WINDOW_DEFS:
@@ -472,6 +513,9 @@ def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
             # 与该窗口 stats(final_total/total_ret)同源同口径。前端优先读它,彻底消除
             # "卡片=窗口独立 sim vs 交易记录=全历史切片"的口径不一致。
             win_trades[wk] = raw['trades']
+            # win_open_positions: 该窗口期末未平仓持仓,前端据此在交易表渲染"持仓中"行,
+            # 解释 final_total(含未平仓重估)与已实现交易配对的差额。
+            win_open_positions[wk] = raw['open_positions']
             if wk == 'all':
                 all_trades = raw['trades']
 
@@ -526,6 +570,7 @@ def build_pair_result(df, buy_mask, sell_mask, last_date, first_date):
             'tw': tw,
             'win_base_cp': win_base_cp,
             'win_trades': win_trades,
+            'open_positions': win_open_positions,
         }
     return out
 
@@ -631,6 +676,7 @@ def run_index(iid, iname):
                 'tw': mpv['tw'],
                 'win_base_cp': mpv['win_base_cp'],
                 'win_trades': mpv['win_trades'],
+                'open_positions': mpv['open_positions'],
             }
 
     # 写入双版（per-index 拆两文件：stats 小秒开，full 大按需）
@@ -799,6 +845,7 @@ def run_fusion_index(iid, iname):
                 'tw': mpv['tw'],
                 'win_base_cp': mpv['win_base_cp'],
                 'win_trades': mpv['win_trades'],
+                'open_positions': mpv['open_positions'],
             }
 
     out_files = [
