@@ -48,8 +48,11 @@ def minify(src_rel, dst_rel):
     src = os.path.join(BASE, src_rel)
     dst = os.path.join(BASE, dst_rel)
     if not os.path.exists(src):
-        print(f"  ✗ 源文件不存在：{src_rel}")
-        return False
+        # 源缺失视为跳过（非失败）：trade-data 架构下 static-site/app.js 等源不在采集仓库，
+        # build_min 作为 deploy 的安全网，缺源不应致退出码 1（deploy.sh 已视 build_min 失败为非阻断，
+        # 但跳过可消除噪音 + 退出码 0 便于脚本判断）。返回 None 区别于 terser 真失败（False）。
+        print(f"  · 跳过（源不存在）：{src_rel}")
+        return None
     src_dir = os.path.dirname(src)          # /abs/web  或 /abs/static-site
     src_name = os.path.basename(src)        # app.js / lab.js
     dst_name = os.path.basename(dst)        # app.min.js / lab.min.js
@@ -88,15 +91,22 @@ def main():
     print(f"  terser {ver} 可用")
 
     ok = True
+    built = 0
+    skipped = 0
     for src_rel, dst_rel in PAIRS:
-        if not minify(src_rel, dst_rel):
+        res = minify(src_rel, dst_rel)
+        if res is None:        # 缺源跳过（非失败）
+            skipped += 1
+        elif res:              # 成功
+            built += 1
+        else:                  # terser 真失败
             ok = False
 
     if not ok:
         print("✗ 部分 minify 失败，请检查上方错误")
         return 1
 
-    print("完成。记得跑 bump_asset_version.py 刷新 ?v= 版本号。")
+    print(f"完成（built={built} skipped={skipped}）。记得跑 bump_asset_version.py 刷新 ?v= 版本号。")
     return 0
 
 
