@@ -30,16 +30,21 @@
   2) lab_sim_{iid}_full.json（大，原大小）：详情/配对卡片用，按需加载
   {
     pairs: {"buy_key|sell_key": {
-      full_in:   {equity_curve:{all,y10,y5,y3,y1}, trades, tw, win_base_cp, win_trades:{all,y10,y5,y3,y1}},
-      fixed_10k: {equity_curve:{all,y10,y5,y3,y1}, trades, tw, win_base_cp, win_trades:{all,y10,y5,y3,y1}}
+      full_in:   {equity_curve:{all,y10,y5,y3,y1}, trades, tw, win_base_cp, win_trades:{all,y10,y5,y3,y1}, open_positions:{all,y10,y5,y3,y1}},
+      fixed_10k: {equity_curve:{all,y10,y5,y3,y1}, trades, tw, win_base_cp, win_trades:{all,y10,y5,y3,y1}, open_positions:{all,y10,y5,y3,y1}}
     }}
   }
 
   - tw: {window_key: [start_idx, end_exclusive_idx]}，指向同组 trades 数组。
   - equity_curve: {window_key: [{date,value},...]}，每窗口从 INITIAL_CAPITAL 独立起算，采样后存储。
+    买入日也打点(C方案,value=cash+持仓市值),让曲线可见开仓现金回落;_push_eq 按日期去重。
   - win_trades: {window_key: [{...trade},...]}，每窗口独立 sim 的 trades，at/cp 均从 INITIAL_CAPITAL
     起算，与该窗口 stats(final_total/total_ret)同源同口径。前端详情优先读它(彻底一致)，
     缺失时回退 trades+tw 切片+win_base_cp 调整(旧 JSON 兼容)。
+  - open_positions: {window_key: [{buy_date,buy_price,last_close,shares,hold_days,
+    unrealized_pnl,unrealized_pnl_pct},...]}，该窗口期末未平仓持仓逐笔透出。解释 final_total
+    (含未平仓重估)与已实现交易配对的差额=未平仓浮亏/浮盈。前端据此在交易表渲染"持仓中"行。
+    final_total/total_ret 口径不变(仍含未平仓重估),仅新增透出明细。positions 为空时 open_positions[wk]=[]。
   - trades/tw/win_base_cp: 旧路径(全史 trades + 窗口切片 + 基准盈亏调整)，保留供旧前端回退。
   - 前端双向查找：给定策略A+伙伴B，若A.side=="buy"则pair_id=A+"|"+B，否则pair_id=B+"|"+A。
   - 前端先 fetch stats（秒开推荐榜+矩阵+配对卡片），点详情/弹窗时再 fetch full 合并入已缓存 stats。
