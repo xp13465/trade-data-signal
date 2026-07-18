@@ -2769,7 +2769,7 @@ function _labRankItemHTML(row, rank, tab) {
   let nameHTML, tagHTML, itemCls = "lab-rank-item clickable-card";
   if (pt === "fusion") {
     itemCls += " lab-rank-fusion";
-    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀融合</span>';
+    tagHTML = '<span class="lab-rank-tag lab-rank-tag-fusion">🔀融合</span>' + _labHelpIcon("fusion_signal");
     nameHTML = row.is_standalone ? `${row.buyName}（独立回测）` : `买${row.buyName} × 卖${row.sellName}`;
   } else if (pt === "buy_buy") {
     itemCls += " lab-rank-fusion";
