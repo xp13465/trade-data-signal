@@ -1,3 +1,13 @@
+# 安全头 + CSP（Report-Only 先观察不阻断，确认无误后再切 enforcing）
+# 适用所有响应；HSTS/nosniff/X-Frame-Options 等对非 HTML 响应浏览器自动忽略，无副作用
+/*
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), accelerometer=(), gyroscope=()
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' https://hm.baidu.com https://zz.bdstatic.com https://push.zhanzhang.baidu.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
+
 # HTML 入口与内联回测页：每次验证，确保拿到最新版本号 / 内容
 /index.html
   Cache-Control: no-cache, must-revalidate

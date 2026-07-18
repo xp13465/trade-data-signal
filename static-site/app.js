@@ -5923,7 +5923,7 @@ function initThemeSwitcher() {
     try { localStorage.setItem("trade-theme", t === "" ? "" : (t || DEFAULT_THEME)); } catch (e) {}
     // 通知模拟回测 iframe 跟随主题切换（URL hash 传初始主题，postMessage 传动态切换）
     document.querySelectorAll('.sim-frame').forEach(function (f) {
-      try { if (f.contentWindow) f.contentWindow.postMessage({ type: 'set-theme', theme: t || '' }, '*'); } catch (e) {}
+      try { if (f.contentWindow) f.contentWindow.postMessage({ type: 'set-theme', theme: t || '' }, window.location.origin); } catch (e) {}
     });
     // ECharts canvas 不响应 CSS 变量，切换主题后下一帧重注入 UI 语义色（等 data-theme 改完 CSS 重算再读色）
     requestAnimationFrame(rethemeCharts);
