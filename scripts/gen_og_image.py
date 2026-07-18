@@ -56,7 +56,7 @@ def main():
     draw.text([220, 64], "trade-data-signal", font=font(18), fill=GRAY)
 
     # 主标题
-    draw.text((60, 150), "A股情绪看板", font=font(82, bold=True), fill=WHITE)
+    draw.text((60, 150), "信号实验室", font=font(82, bold=True), fill=WHITE)
     draw.text((60, 252), "盘后复盘 · 情绪数据 · 买卖点信号", font=font(34), fill=LIGHT)
 
     # 分隔线
@@ -70,7 +70,7 @@ def main():
     card(draw, 60 + (cw + gap) * 2, cy, cw, ch, "成交额(亿)", "9,876", GREEN)
 
     # 底部域名
-    draw.text((60, 548), "tdsignal-ujpzw01zm.maozi.io", font=font(26, bold=True), fill=ACCENT)
+    draw.text((60, 548), "s.aisusu.cn", font=font(26, bold=True), fill=ACCENT)
     draw.text((60, 584), "A股 / 港股 / 全球  ·  综合情绪分 / 跨市场评分 / 行业热力图 / 模拟回测", font=font(16), fill=GRAY)
 
     img.save("static-site/og.png", "PNG")

@@ -7,7 +7,7 @@
 """
 import qrcode
 
-URL = "https://tdsignal-ujpzw01zm.maozi.io/"
+URL = "https://s.aisusu.cn/"
 
 
 def main():

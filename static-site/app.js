@@ -5712,7 +5712,7 @@ function drawShareCard(r) {
   // 主标题
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#fff"; ctx.font = "bold 76px 'PingFang SC',sans-serif";
-  ctx.fillText("市场温度看板", 60, 220);
+  ctx.fillText("信号实验室", 60, 220);
   ctx.fillStyle = "#aab2bd"; ctx.font = "32px 'PingFang SC',sans-serif";
   ctx.fillText(`${fmtDate(r.date)} 收盘复盘`, 60, 272);
 
@@ -5807,7 +5807,7 @@ function drawShareCard(r) {
   ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(60, H - 150); ctx.lineTo(870, H - 150); ctx.stroke();
   ctx.fillStyle = "#165dff"; ctx.font = "bold 34px 'PingFang SC',sans-serif";
-  ctx.fillText("tdsignal-ujpzw01zm.maozi.io", 60, H - 95);
+  ctx.fillText("s.aisusu.cn", 60, H - 95);
   ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
   ctx.fillText("盘后复盘·多市场情绪·买卖点信号", 60, H - 55);
   // 底部免责水印（合规：教育研究定位，非投资建议）
@@ -5866,7 +5866,7 @@ async function openShareModal() {
   try {
     const canvas = drawShareCard(r);
     const dataUrl = canvas.toDataURL("image/png");
-    content.innerHTML = `<img class="share-img" src="${dataUrl}" alt="市场温度看板分享图"><a class="share-download-btn" href="${dataUrl}" download="tdsignal-${r.date}.png">⬇ 下载图片</a>`;
+    content.innerHTML = `<img class="share-img" src="${dataUrl}" alt="信号实验室分享图"><a class="share-download-btn" href="${dataUrl}" download="tdsignal-${r.date}.png">⬇ 下载图片</a>`;
   } catch (e) {
     content.innerHTML = `<div class="summary-history-empty">生成失败：${e}</div>`;
   }
