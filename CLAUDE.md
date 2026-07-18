@@ -52,10 +52,10 @@
 - commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 - 线上 curl 验证/测试优先用 `https://s.aisusu.cn/`(用户自有域名,比免费 `tdsignal-ujpzw01zm.maozi.io` 稳,2026-07-17 测试通过 HTTP200+数据正常+版本号最新),旧 maozi.io 兜底
 
-## 9. 双版同步铁律
-- web/app.js(动态版 /api/) 和 static-site/app.js(静态版 ./data/) 必须逐字相同(除数据源 URL)
-- 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
-- 双版改完 diff 验证 IDENTICAL
+## 9. 单版前端铁律(2026-07-15 web/ 弃用)
+- 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变
+- 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify,仅 static-site/app.js+lab.js 2对)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
+- 本地开发:`.venv/bin/uvicorn app.main:app --port 8000`(看页面+调API)或 `python -m http.server -d static-site`
 
 ## 10. 切分支保护 DB(2026-07-14 已根治,作历史教训留存)
 - 历史隐患:data/sentiment.db(80MB)+ etf_national_team.db 曾进 git 跟踪,切分支时 git 用旧版覆盖污染 DB,致 2026-07-14 事故(收盘快照丢失)

@@ -81,8 +81,9 @@ python3 -m venv .venv
 # 3. 首次回填历史数据
 .venv/bin/python -m app.backfill
 
-# 4. 启动看板
-.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+# 4. 启动看板（二选一）
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000   # 动态版:看页面 + 调 /api/* 读 DB
+# 或纯静态:python -m http.server -d static-site --port 8000
 # 浏览器打开 http://localhost:8000
 ```
 
@@ -103,9 +104,8 @@ app/
 ├── collector/      # 采集层（akshare/mootdx/baostock + em_get 防封）
 ├── compute/        # 计算层（signals 买卖点 / sentiment 情绪分 / cross 跨市场分）
 ├── db.py           # SQLite schema
-└── main.py         # FastAPI 端点
-web/                # 动态版前端（FastAPI 服务）
-static-site/        # 静态版前端（Cloudflare Pages 部署）
+└── main.py         # FastAPI 端点（挂载 static-site/ 到根 /，/api/* 读 DB）
+static-site/        # 前端（Cloudflare Pages 部署；FastAPI 动态版挂载根 /）
 config/indicators.yaml  # 指标注册表（增删改这里）
 scripts/            # 采集/部署/一键更新脚本
 ```

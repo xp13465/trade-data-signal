@@ -20,7 +20,8 @@ from .compute.signals import strategy_desc
 from .db import get_conn
 
 app = FastAPI(title="市场温度看板")
-WEB_DIR = Path(__file__).absolute().parent.parent / "web"
+# 单版架构：前端统一在 static-site/，动态版挂载到根 /（/api/* 读 DB 不变）。
+WEB_DIR = Path(__file__).absolute().parent.parent / "static-site"
 
 RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
 VALID_RANGES = set(RANGES) | {"all"}
@@ -38,14 +39,12 @@ async def cache_control_middleware(request, call_next):
     if resp.headers.get("cache-control"):
         return resp
     path = request.url.path
-    if path.startswith("/static/"):
-        rel = path[len("/static/"):]          # 去掉 /static/ 前缀
-        has_v = "v=" in (request.url.query or "")
-        if rel in _VERSIONED_ASSETS and has_v:
-            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        else:
-            resp.headers["Cache-Control"] = "no-cache, must-revalidate"
-    elif path.startswith("/api/") or path == "/" or path.startswith("/trade_sim") or path == "/og.png":
+    has_v = "v=" in (request.url.query or "")
+    # 版本化静态资源（根路径挂载：/style.css?v=xxx 等，带 ?v= 可长缓存 immutable）
+    asset_name = path.lstrip("/")
+    if asset_name in _VERSIONED_ASSETS and has_v:
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith("/api/") or path == "/" or path.startswith("/data/") or path.startswith("/trade_sim") or path == "/og.png":
         resp.headers["Cache-Control"] = "no-cache, must-revalidate"
     return resp
 
@@ -1270,21 +1269,18 @@ def manual(entry: ManualEntry):
 
 
 # ============ 前端静态文件 ============
+# 单版架构：?v= 由 bump_asset_version.py 注入到 static-site/index.html，
+# 动态版直接返回该文件（不再动态注入版本号，与静态站完全一致）。
 _INDEX_CACHE = {"sig": None, "html": None}
-_INDEX_ASSETS = ("style.css", "app.min.js", "lab.css", "lab.min.js", "qr.js", "vendor/echarts.min.js")
 
 
 def _render_index():
-    """读 index.html，给 CSS/JS 引用注入 ?v=<mtime hex> 破缓存；sig 变化才重算。"""
+    """读 static-site/index.html 返回（?v= 已由 bump_asset_version.py 注入）；mtime 变化才重读。"""
     idx = WEB_DIR / "index.html"
-    sig = (idx.stat().st_mtime, tuple((WEB_DIR / a).stat().st_mtime for a in _INDEX_ASSETS))
+    sig = idx.stat().st_mtime
     if _INDEX_CACHE["sig"] != sig:
-        html = idx.read_text("utf-8")
-        for a in _INDEX_ASSETS:
-            ver = format(int((WEB_DIR / a).stat().st_mtime), "x")
-            html = re.sub(rf'(/static/{re.escape(a)})(\?v=[a-f0-9]+)?', rf'\1?v={ver}', html)
         _INDEX_CACHE["sig"] = sig
-        _INDEX_CACHE["html"] = html
+        _INDEX_CACHE["html"] = idx.read_text("utf-8")
     return _INDEX_CACHE["html"]
 
 
@@ -1308,4 +1304,4 @@ def og_image():
     return FileResponse(WEB_DIR / "og.png", media_type="image/png")
 
 
-app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="root")
