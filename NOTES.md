@@ -1727,7 +1727,7 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **前端双版 lab.js**（3e5125b）：3 处规则文案更新（title@2234/横幅@2269/_LAB_RETEST_RULE@2277）为三窗口 dd≤10%+n≥10+OR；⭐️徽章判定改方案 A（查 retest JSON 存在性，retestSet.has(buyKey|sellKey)），与后端必然一致，修旧「按选中窗口 state.labSimWindow 动态算」的不一致 bug；`_loadRank`@2894/3921 预加载 retest JSON（单信号+融合）。双版 diff=10（5URL×2）IDENTICAL。
 - **上线**：build_min（lab.min.js 130KB -38.5%）+bump_asset_version（版本号 f2cbefda）+deploy.sh（d11906a 推 data+min JS）。
 
-### 8. 二次测试二次推进：9 方向已实施 + 1 方向待办(融合P2)(2026-07-19)
+### 8. 二次测试二次推进：10 方向全闭环(2026-07-19)
 
 > 任务来源：§4 brainstorm 的 10 方向中，选 7 方向推进。3 方向（手续费滑点/蒙特卡洛扰动/标的泛化）已由实施 agent 跑出结论，4 方向列待办。引擎零侵入：成本/蒙特卡洛均为外层包装，`lab_simulate.py` 仅加 `commission_rate=0.0, slippage=0.0` 参数（默认 0 向后兼容），不动现有 64 配对/融合回测产物。
 
@@ -1784,10 +1784,26 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **结论**：`Donchian20_up`/`Supertrend_buy` = **robust_profitable**（3 指数全稳定高原，所有组合盈利，默认参数非孤峰，不过拟合）。`C1_RSI30`/`BB_lower_revert`/`BB_upper_revert` = **sharp_peak**（默认参数 ret 低甚至负，最佳参数是远离默认的孤立尖峰，过拟合风险高--生产用的默认参数并非最优，但换成"最优"参数又是过拟合）。`D1_high20_drop5`/`Donchian10_down` = 混合（cyb 稳健，sh/hs300 尖峰）。
 - **要点**：趋势跟踪类（Donchian/Supertrend）参数鲁棒（平坦高原），适合生产；均值回归类（RSI/BB）参数敏感（尖峰），默认参数保守但非最优，调参易过拟合，维持默认最安全。
 
-#### 8.8 方向7：融合 P2 回测（待办）
+#### 8.8 方向7：融合 P2 回测（已实施，2026-07-19）
 
-- **工作量**：全天（最大）。需把 `scripts/simulate_trade.py` 的 3 路径引擎从 signal_daily/HTML 解耦成接收 mask 的函数，再对 91 融合候选跑真实配对回测（买入->持有->卖出）。
-- **现状**：现有 `lab_simulate.py --fusion` 已对 91 候选跑了 mask 级配对回测（gen_fusion_candidates 直接生成 buy_mask/sell_mask），P2 的增量在于"从 signal_daily 表读生产信号"对比"回测独立算的信号"，验证生产链路与回测一致。优先级最低，建议放最后。
+- **目标重定义**：原 §28.8.8 旧表述"解耦 simulate_trade.py 3路径引擎对91融合候选跑回测"为过时理解（重复 §31 的 lab_simulate.py --fusion 已做的 mask 级回测，低价值且破坏 trade_sim.html 风险）。P2 真实增量 = **链路一致性验证**：从 signal_daily 表读生产环境实际触发的信号，对比回测引擎独立算的信号，验证生产链路 = 回测链路（回测可信）。
+- **认知纠正**：signal_daily 表 signal 字段实测只有 buy/buy_aux/sell 3 值，**不存融合信号**。但生产 sell 本身 = D1_high20_drop5 & MA60_bull & MACD_below_signal = **融合策略 F_D1_S1_MACD**（fusion_signals.py:128）；生产 buy = RSI 上穿30 = C1_RSI30；生产 buy_aux = BB 下轨回归 = BB_lower_revert。故一致性验证可行，映射：buy->C1_RSI30 / buy_aux->BB_lower_revert / sell->F_D1_S1_MACD。
+- **指标等价性**：生产 signals.py 与回测 backtest_strategies.py 各有一套 RSI/Bollinger/MACD/MA60，逐个核对数学等价（backtest 注释"复刻 signals._rsi"；MACD ewm(span=N) 与 ewm(alpha=2/(N+1)) 等价；Bollinger 两边 std ddof=0；MA60 两边 min_periods=60）。差异不来自算法实现。
+- **实现**：新建 `scripts/lab/lab_fusion_p2.py`（不碰 simulate_trade.py 3路径引擎，不碰 a-stock-data/backtest_strategies.py 公开项目）。对 9 指数从 signal_daily 读 buy/buy_aux/sell 日期集合，用 backtest_strategies+fusion_signals 同款实现算 C1_RSI30/BB_lower_revert/F_D1_S1_MACD mask 日期集合，对比一致率 + 差异归因。输出 `static-site/data/lab_fusion_p2.json`（21KB）。
+- **结果（9 指数 × 3 信号一致率）**：
+
+  | 生产信号 | 回测 mask | 一致率 | 生产覆盖 | 说明 |
+  |---|---|---|---|---|
+  | sell | F_D1_S1_MACD | **100%**（497/497） | 100% | 9 指数全 100%，生产 sell = 融合策略，链路一致性坐实 |
+  | buy | C1_RSI30 | **97.1%**（726/741） | 99.0% | 8 指数 100%，仅 kc50 21.4%（per-index rsi_cross_25） |
+  | buy_aux | BB_lower_revert | **68.8%**（890/890） | 100% | 生产 100% 覆盖；差异全是回测多算 |
+
+- **核心结论：生产覆盖 100%**。除 kc50 buy（per-index 阈值差异）外，所有生产信号 100% 被回测 mask 覆盖（prod_cover_pct=100%），回测未漏算任何生产信号。差异全部是回测多算（lab_only），来源明确，非算法 bug。**回测可信，生产链路 = 回测链路验证通过**。
+- **3 差异来源（已知，非 bug，全部量化）**：
+  1. **per-index filter**（indicators.yaml 配置）：kc50 buy=rsi_cross_25（生产上穿25 vs 回测上穿30，7 个穿25未穿30 + 15 个穿30未穿25）；csi1000/cyb buy_aux=rsi_cross_40（生产多一层 RSI 上穿40 过滤，cyb 72 + csi1000 52 = 124 个被过滤）。
+  2. **去重**（生产 C1 同日优先）：生产 buy_aux_set = buy_aux - buy_set（同日 C1 触发则不发 buy_aux），回测 BB_lower_revert 不去重 -> 277 个回测多算（sh64/sz56/cyb27/bj50 5/sz50 29/hs300 40/csi500 33/kc50 5/csi1000 20）。
+  3. **sell**：无 per-index 无去重，预期完全一致，**已验证 100%**（497/497）。
+- **上线**：commit + deploy.sh 推 `static-site/data/lab_fusion_p2.json`。
 
 #### 8.9 关键文件路径
 
