@@ -5406,7 +5406,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const sign = up ? "+" : "";
     const hint = statsHint(idx.stats, idx.strategy, id);
     const etfTag = _renderEtfTag(idx.etfs);
-    // 行业卡片标题加最新收盘值（与大盘信号 latestSuffix 一致：· MM-DD 收盘价 +涨跌幅）
+    // 行业卡片标题加最新收盘值（与指数表现 latestSuffix 一致：· MM-DD 收盘价 +涨跌幅）
     // closeSuffix 兜底：last.close==null(T+1源当日未发布)时向前找最后 close!=null 的点显收盘价
     let _csDate = last.date, _csClose = last.close;
     if (_csClose == null) {
@@ -5979,7 +5979,7 @@ function closeSummaryHistoryModal() {
 // === H5 移动端适配（方案B：底部导航 + 顶部精简条 + 1/2列切换）===
 // matchMedia 驱动 body.h5，@media(max-width:768px) 自动切换布局，PC(>768) 零影响。
 const SUMMARY_URL = "./data/summary.json";
-const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 大盘信号", sentiment: "😊 情绪温度", industry: "🏭 板块轮动", lab: "🧪 策略实验" };
+const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 指数表现", sentiment: "😊 情绪温度", industry: "🏭 板块分化", lab: "🧪 策略实验" };
 
 function updateH5Topbar() {
   if (!document.body.classList.contains("h5")) return;
