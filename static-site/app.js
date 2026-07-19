@@ -5192,6 +5192,9 @@ async function renderSentiment() {
         ],
       } }] });
     }
+    // 缩减恐贪图表高度(360->240),与A股综合/中证1000三卡图表统一高度,给8维度分项腾空间
+    chart.getDom().style.height = '240px';
+    chart.resize();
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
     appendComponentsBlock(data, undefined, cell);
     // 恐贪分项条（8 项情绪分等权 = 恐贪指数；合并进本卡片图表下方，不再独立成卡）
@@ -5237,9 +5240,9 @@ async function renderSentiment() {
     const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment, undefined, cell);
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
     appendComponentsBlock(data, undefined, cell);
-    // 图表高度减一点(360->300)，给下方历史位置3行腾空间
+    // 图表高度统一240(与恐贪/中证1000三卡一致)，给下方历史位置3行腾空间
     const _asChartDiv = cell.querySelector('.chart');
-    if (_asChartDiv) { _asChartDiv.style.height = '300px'; chart.resize(); }
+    if (_asChartDiv) { _asChartDiv.style.height = '240px'; chart.resize(); }
     // 历史位置3行(候选2/3/4)合并进本卡图表下方：注入 .chart-card(图表父容器)，使3行落在卡片边框内
     appendHistoryPos(chart.getDom().parentElement);
   }
@@ -5267,6 +5270,9 @@ async function renderSentiment() {
             dimension: 1,
           },
         }, stats[key], strat[key], undefined, cell);
+      // 图表高度统一240(与恐贪/A股综合三卡一致)
+      chart.getDom().style.height = '240px';
+      chart.resize();
       addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
       appendComponentsBlock(data, undefined, cell);
     }

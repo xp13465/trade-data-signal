@@ -791,7 +791,7 @@ main { padding: 16px 24px; }
   grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800 */
   gap: 12px;
   margin-bottom: 12px;
-  align-items: stretch;
+  align-items: start; /* 三卡图表已统一240，各卡按自然内容高度不拉伸(避免stretch撑高矮卡留白) */
 }
 /* PC(>768px)：A股指标/指数折线图卡片最小宽度 700px，宽屏每行2图更宽更易读；移动端(≤768px)豁免700维持1列撑满 */
 @media (min-width: 769px) {
