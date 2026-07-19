@@ -4822,7 +4822,7 @@ async function renderHK(container = content) {
   // 等快照就绪，注入港股实时数据 + 供走势卡角标判断盘中/收盘状态
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
-  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看港股(恒生/恒生科技/国企)走势+买卖点,叠加港股通南向资金(内地资金买港股的通道,净流入=看好港股)。另含港股板块指数。</div>');
+  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看港股(恒生/恒生科技/国企)走势+技术分析参考点,叠加港股通南向资金(内地资金买港股的通道,净流入=看好港股)。另含港股板块指数。</div>');
   if (r.hk_south && r.hk_south.length) {
     const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
     const chart = lineChart("港股通净买入（亿元）" + termTip("港股通南向资金净买入。内地投资者借港股通通道买港股,净流入为正=内地资金净买入港股(看好)。T+1数据。") + latestSuffixPct(hks), hks, {}, null, container);
@@ -5029,7 +5029,7 @@ async function renderSentiment() {
     fetchJSON("./data/futures.json").catch(() => null),
   ]);
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:把多项情绪指标合成0-100的温度计,量化市场冷热(≤20冰点、≥80过热),作逆向参考。<b>怎么解读</b>:≤20冰点(人人恐慌)=逆向贪婪逐步买,≥80过热(人人贪婪)=逆向恐惧准备卖;中间区域观望或顺势。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:把多项情绪指标合成0-100的温度计,量化市场冷热(≤20冰点、≥80过热),作逆向参考。<b>怎么解读</b>:≤20冰点(人人恐慌)=情绪极端偏冷区域(历史常对应阶段性低位),≥80过热(人人贪婪)=情绪极端偏热区域(历史常对应阶段性高位);中间区域为中性(历史统计参考,非操作建议)。</div>');
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
