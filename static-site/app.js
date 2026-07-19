@@ -5105,7 +5105,7 @@ async function renderSentiment() {
     chart.resize();
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
     appendComponentsBlock(data, undefined, cell);
-    // 恐贪分项条（8 项情绪分等权 = 恐贪指数；取各分项序列末值，解释总分构成）
+    // 恐贪分项条（8 项情绪分等权 = 恐贪指数；合并进本卡片图表下方，不再独立成卡）
     {
       const _FG_DIM_IDS = [
         "a_sentiment", "cross_market",
@@ -5119,11 +5119,10 @@ async function renderSentiment() {
         return { id, name: indexIdToName(id), value: v, freeze: v < 20, overheat: v > 80 };
       }).filter(Boolean).sort((a, b) => a.value - b.value); // 升序：最恐惧(低分)在上
       if (_rows.length) {
-        const fgDimCard = document.createElement("div");
-        fgDimCard.className = "chart-card fg-dim-card";
+        const fgCard = chart.getDom().parentElement; // 恐贪指数 .chart-card，分项并入同一张卡片
         const _fgTotal = _lastVal(r.fear_greed);
         const totalTxt = _fgTotal != null ? ` · 总分 ${_fgTotal.toFixed(1)}` : "";
-        let html = '<h3>🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(≤20)，🔥=过热(≥80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></h3>';
+        let html = '<div class="fg-dim-merged"><div class="fg-dim-subhead">🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(≤20)，🔥=过热(≥80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></div>';
         html += '<div class="fg-dim-rows">';
         for (const row of _rows) {
           const col = fearGreedColor(row.value);
@@ -5134,9 +5133,8 @@ async function renderSentiment() {
             '<span class="fg-dim-val" style="color:' + col + '">' + row.value.toFixed(1) + '</span>' +
             '</div>';
         }
-        html += '</div>';
-        fgDimCard.innerHTML = html;
-        cell.appendChild(fgDimCard);
+        html += '</div></div>';
+        fgCard.insertAdjacentHTML("beforeend", html);
       }
     }
   }
