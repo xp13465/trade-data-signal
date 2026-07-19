@@ -1381,7 +1381,7 @@ function _kpiDetailModalEl() {
   modal = document.createElement("div");
   modal.id = "kpiDetailModal";
   modal.className = "rule-modal hidden";
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body kpi-detail-modal-body"><div class="rule-modal-header"><h3 class="kpi-detail-title">KPI 走势</h3><div class="signal-chart-periods"><button class="lab-signal-period-btn" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn active" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content kpi-detail-content"></div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body kpi-detail-modal-body"><div class="rule-modal-header"><h3 class="kpi-detail-title">KPI 走势</h3><div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content kpi-detail-content"></div></div>';
   modal.querySelectorAll('.lab-signal-period-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       modal.querySelectorAll('.lab-signal-period-btn').forEach(b => b.classList.remove('active'));
@@ -1560,7 +1560,7 @@ async function _loadKpiHistory(kpiId, cfg, period) {
   return { series: [] };
 }
 
-async function openKpiDetailModal(kpiId, period = "1y") {
+async function openKpiDetailModal(kpiId, period = "3m") {
   const cfg = KPI_HISTORY_SOURCE[kpiId];
   if (!cfg) return;
   const modal = _kpiDetailModalEl();
