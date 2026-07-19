@@ -5212,7 +5212,7 @@ async function renderSentiment() {
               '<span class="hist-trig hist-trig-heat">🔥过热(≥80) <b>' + heats.length + '</b>次 最近 <b>' + (hLast ? fmtD(hLast) : '-') + '</b></span>' +
             '</div>' +
           '</div>';
-        addCardTimeBadge(hpCell, a1[a1.length - 1].date, snap, "t0");
+        // 历史位置卡为纯文字+进度条(无图表)，不加时间角标(避免右上角角标压住标题)
       } catch (e) {
         hpCell.innerHTML = '<h3>📊 A股情绪分历史位置</h3><div class="hist-pos-loading">数据加载失败</div>';
       }

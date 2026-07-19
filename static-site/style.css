@@ -744,7 +744,8 @@ main { padding: 16px 24px; }
 }
 
 /* A股情绪分历史位置卡（情绪温度tab，A股情绪分卡片之后；候选2/3/4合并3行） */
-.history-pos-card { display: flex; flex-direction: column; }
+/* align-self:start 覆盖 .indices-grid 的 align-items:stretch：纯文字3行卡不与并排图表卡等高拉伸，避免大片留白 */
+.history-pos-card { display: flex; flex-direction: column; align-self: start; height: auto; min-height: 0; }
 .history-pos-card .hist-pos-loading { font-size: 13px; color: var(--text-3); font-weight: normal; }
 .history-pos-card .hist-pos-headline { float: right; font-size: 12px; color: var(--text-3); font-weight: normal; margin-left: 8px; }
 .hist-pos-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 2px; }
