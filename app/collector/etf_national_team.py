@@ -1261,12 +1261,14 @@ def latest_signals_overview() -> dict | None:
 
 
 def recent_signals_overview(days: int = 7) -> dict | None:
-    """查询最近N个有数据日的汪汪队信号汇总，供首页🐶卡片7天总况展示。
+    """查询最近N个有数据日的汪汪队信号汇总+每日 per-ETF 明细，供首页🐶卡片展示。
 
     返回 {days, total, surge, outflow, volume, resonance_days, daily:[...]}。
-    daily 每项 {date, n_surge, n_outflow, n_volume, total, is_resonance}，按日期升序。
-    取最近N个有数据日（非自然日，避开周末空档），排除 split_suspect（折算日）。
-    n_surge/n_outflow/n_volume 为当日该类型信号条数（=不同ETF只数）。
+    daily 每项 {date, n_surge, n_outflow, n_volume, total, is_resonance,
+                signals:[{code,name,type,label,share_change_yi,amount_ratio,intensity,note}]}，
+    按日期升序。取最近N个有数据日（非自然日，避开周末空档），排除 split_suspect（折算日）。
+    n_surge/n_outflow/n_volume 为当日该类型信号条数（=不同ETF只数）；signals[] 为当日 per-ETF
+    明细（同 latest_signals_overview 的 signals 结构），供前端 chip hover pop + 点击弹 day modal。
     无数据返回 None。
     """
     if not DB_PATH.exists():
@@ -1283,30 +1285,43 @@ def recent_signals_overview(days: int = 7) -> dict | None:
             return None
         dates = [r["date"] for r in date_rows]
         placeholders = ",".join("?" * len(dates))
+        # 取这些日期的全量明细行（不再只 count），按日期/类型/ETF 排序便于前端分组
         rows = conn.execute(
-            "SELECT date, signal_type, count(*) AS cnt FROM etf_signal "
+            "SELECT date, etf_code, signal_type, share_change, amount_ratio, intensity, note "
+            "FROM etf_signal "
             "WHERE signal_type!='split_suspect' AND date IN (" + placeholders + ") "
-            "GROUP BY date, signal_type ORDER BY date",
+            "ORDER BY date, signal_type, etf_code",
             dates,
         ).fetchall()
     finally:
         conn.close()
     if not rows:
         return None
-    # 组装每日统计
+    # 组装每日统计 + per-ETF 明细
     daily_map: dict[str, dict] = {}
     for r in rows:
         d = r["date"]
         if d not in daily_map:
-            daily_map[d] = {"date": d, "n_surge": 0, "n_outflow": 0, "n_volume": 0}
+            daily_map[d] = {"date": d, "n_surge": 0, "n_outflow": 0, "n_volume": 0, "signals": []}
         st = r["signal_type"]
-        cnt = r["cnt"]
         if st == "share_surge":
-            daily_map[d]["n_surge"] = cnt
+            daily_map[d]["n_surge"] += 1
         elif st == "share_outflow":
-            daily_map[d]["n_outflow"] = cnt
+            daily_map[d]["n_outflow"] += 1
         elif st == "volume_surge":
-            daily_map[d]["n_volume"] = cnt
+            daily_map[d]["n_volume"] += 1
+        sc = r["share_change"]
+        info = ETF_BY_CODE.get(r["etf_code"])
+        daily_map[d]["signals"].append({
+            "code": r["etf_code"],
+            "name": info[0] if info else r["etf_code"],
+            "type": st,
+            "label": _NT_SIG_LABEL.get(st, st),
+            "share_change_yi": round(sc / 1e8, 2) if sc is not None else None,
+            "amount_ratio": r["amount_ratio"],
+            "intensity": r["intensity"],
+            "note": r["note"],
+        })
     # 按日期升序组装，补 total + is_resonance，累计汇总
     daily = []
     surge = outflow = volume = resonance_days = 0

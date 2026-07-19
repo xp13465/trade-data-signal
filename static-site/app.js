@@ -2688,6 +2688,138 @@ function _onIntradayVisChange() {
   }
 }
 
+// ============ 🐶 汪汪队首页卡片：近期信号列表 + 点击弹 day modal ============
+// 复用 _renderSignalGrid 骨架（按日分组·降序·今日高亮）+ 全局 _initTermPop hover pop（加 data-tip 即生效）。
+// 整卡不跳转：chip click 弹当日 per-ETF 信号明细 modal（openNtDayModal）。
+const NT_SIG_COLOR = { share_surge: "#e6492e", share_outflow: "#2e8b57", volume_surge: "#ff9800" };
+const NT_SIG_CLASS = { share_surge: "nt-surge", share_outflow: "nt-outflow", volume_surge: "nt-volume" };
+const NT_ORDER = ["share_surge", "share_outflow", "volume_surge"];
+const NT_LABEL = { share_surge: "进", share_outflow: "出", volume_surge: "量" };
+var _ntRecentDaily = null;  // 缓存首页 nt.recent.daily，供 openNtDayModal 取当日 signals[]
+
+// HTML 属性转义（data-tip 值含中文/括号/逗号，转义 " & < 防属性截断）
+function _escAttr(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+// 首页🐶卡片近期信号列表：每日一行=日期+共振🐾+chips（进/出/量 各一个 chip，显示当日该类型只数）。
+// chip 带 data-tip（当日该类型 ETF 明细，hover pop 全局 _initTermPop 自动生效）+
+// data-nt-date/data-nt-type（点击弹 openNtDayModal）。daily 升序传入，内部降序渲染，今日高亮。
+function _renderNtSignalList(daily, todayDate) {
+  if (!daily || !daily.length) return '<div class="empty-note">近期无汪汪队信号</div>';
+  const sorted = daily.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  if (todayDate) sorted.sort((a, b) => (a.date === todayDate ? -1 : b.date === todayDate ? 1 : 0));
+  let rows = "";
+  for (const d of sorted) {
+    const isToday = d.date === todayDate;
+    const resMark = d.is_resonance
+      ? '<span class="nt-day-resonance" data-tip="共振日：进/出≥2只或量≥3只宽基同日同步异动">🐾</span>'
+      : '';
+    const sigs = d.signals || [];
+    let chips = "";
+    for (const st of NT_ORDER) {
+      const cnt = st === "share_surge" ? d.n_surge : st === "share_outflow" ? d.n_outflow : d.n_volume;
+      if (!cnt) continue;
+      const grp = sigs.filter((s) => s.type === st);
+      // data-tip：当日该类型 ETF 明细（简称+份额变动亿+note），截断前3只+"等N只"
+      const tipParts = grp.slice(0, 3).map((s) => {
+        const sc = s.share_change_yi != null
+          ? (s.share_change_yi >= 0 ? "+" : "") + s.share_change_yi + "亿" : "";
+        const note = s.note ? "（" + s.note + "）" : "";
+        return s.name + sc + note;
+      });
+      if (grp.length > 3) tipParts.push("等" + grp.length + "只");
+      const tip = NT_LABEL[st] + cnt + "只：" + tipParts.join("、");
+      chips +=
+        '<span class="sig-item sig-clickable" data-nt-date="' + d.date + '" data-nt-type="' + st + '" ' +
+        'data-tip="' + _escAttr(tip) + '" title="点击查看当日明细">' +
+        '<b class="' + NT_SIG_CLASS[st] + '">' + NT_LABEL[st] + cnt + '</b></span>';
+    }
+    if (!chips) chips = '<span class="sig-item nt-day-empty">—</span>';
+    rows +=
+      '<div class="sig-day-row' + (isToday ? " today-row" : "") + '">' +
+        '<span class="sig-day-date">' + fmtDate(d.date) + resMark + '</span>' +
+        '<div class="sig-items">' + chips + '</div>' +
+      '</div>';
+  }
+  return rows;
+}
+
+// day modal 元素懒创建（复用 rule-modal 骨架，无 period 切换）
+var _ntDayModal = null;
+function _ntDayModalEl() {
+  if (_ntDayModal) return _ntDayModal;
+  const modal = document.createElement("div");
+  modal.id = "ntDayModal";
+  modal.className = "rule-modal hidden";
+  modal.innerHTML =
+    '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body nt-day-modal-body">' +
+      '<div class="rule-modal-header"><h3 class="nt-day-modal-title">🐶 汪汪队信号明细</h3>' +
+      '<button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+      '<div class="rule-modal-content nt-day-modal-content"></div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  const close = () => closeNtDayModal();
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", close);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
+  _ntDayModal = modal;
+  return modal;
+}
+
+function closeNtDayModal() {
+  const modal = document.getElementById("ntDayModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+// 弹当日 per-ETF 信号明细 modal：从 _ntRecentDaily 取该日 signals[]，分 进/出/量 三组展示。
+// 每条 ETF：简称+份额变动亿(着色)+放量倍数+intensity+note。单只ETF点击暂不进 openNtDetailOverlay
+// （需额外 fetch 3 个 JSON，复杂；day modal 已展示完整信号明细，满足查看需求）。
+function openNtDayModal(date) {
+  const modal = _ntDayModalEl();
+  const body = modal.querySelector(".nt-day-modal-content");
+  const titleEl = modal.querySelector(".nt-day-modal-title");
+  const day = _ntRecentDaily ? _ntRecentDaily.find((d) => d.date === date) : null;
+  if (!day) {
+    titleEl.textContent = "🐶 汪汪队信号明细";
+    body.innerHTML = '<div class="empty-note">暂无 ' + fmtDate(date) + ' 的信号明细</div>';
+  } else {
+    titleEl.innerHTML = '🐶 汪汪队信号明细 · ' + fmtDate(date) +
+      (day.is_resonance ? ' <span class="nt-resonance-badge">🐾 共振</span>' : '') +
+      ' <span class="nt-day-modal-count">共' + day.total + '信号</span>';
+    const sigs = day.signals || [];
+    let html = "";
+    for (const st of NT_ORDER) {
+      const grp = sigs.filter((s) => s.type === st);
+      if (!grp.length) continue;
+      const color = NT_SIG_COLOR[st];
+      html +=
+        '<div class="nt-day-group">' +
+          '<div class="nt-day-group-hd"><b style="color:' + color + '">' + NT_LABEL[st] + grp.length + '只</b> ' +
+          (st === "share_surge" ? "份额增+放量（疑似进场）" : st === "share_outflow" ? "份额减+放量（疑似离场）" : "成交额放量（>5日均2倍）") +
+          '</div>';
+      for (const s of grp) {
+        const sc = s.share_change_yi != null
+          ? ' <b style="color:' + color + '">' + (s.share_change_yi >= 0 ? "+" : "") + s.share_change_yi + "亿</b>" : "";
+        const ratio = s.amount_ratio != null
+          ? ' <span class="nt-day-etf-ratio">放量' + s.amount_ratio.toFixed(2) + "倍</span>" : "";
+        const inten = s.intensity != null
+          ? ' <span class="nt-day-etf-inten">z=' + s.intensity.toFixed(2) + "</span>" : "";
+        const note = s.note ? ' <span class="nt-day-etf-note">' + s.note + "</span>" : "";
+        html += '<div class="nt-day-etf"><span class="nt-day-etf-name">' + s.name + "</span>" + sc + ratio + inten + note + "</div>";
+      }
+      html += "</div>";
+    }
+    if (!html) html = '<div class="empty-note">该日无信号明细</div>';
+    body.innerHTML = html;
+  }
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
 async function renderOverview() {
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
   const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
@@ -3109,90 +3241,51 @@ async function renderOverview() {
   });
   colA2.appendChild(sigCard);
 
-  // 右列：🐶 汪汪队信号卡片（ETF国家队资金动向，点击跳专区）
+  // 右列：🐶 汪汪队信号卡片（ETF国家队资金动向，近期信号列表+hover pop+点击弹modal，不跳专区）
   const nt = r.nt_signals_today;
   const ntCard = document.createElement("div");
   ntCard.className = "chart-card nt-home-card";
-  const NT_SIG_COLOR = { share_surge: "#e6492e", share_outflow: "#2e8b57", volume_surge: "#ff9800" };
-  const NT_ORDER = ["share_surge", "share_outflow", "volume_surge"];
   if (nt && nt.date) {
     // 共振标记：进/出≥2只、量≥3只宽基同日同步异动=国家队共振
     const resBadge = nt.is_resonance
       ? '<span class="nt-resonance-badge">🐾 共振</span>' : '';
-    // 7天总况（常驻主区）：汇总数字 + 堆叠迷你柱状图
+    // 汇总小标题（一行小字，保留）：近N天共X信号·进X出Y量Z·共振M日
     const rc = nt.recent;
-    let recentHtml = "";
+    let summaryHtml = "";
     if (rc && rc.daily && rc.daily.length) {
-      recentHtml =
+      // 缓存 daily 供 openNtDayModal 取当日 signals[]
+      _ntRecentDaily = rc.daily;
+      summaryHtml =
         '<div class="nt-recent-summary">' +
           '<div class="nt-recent-stats">近' + rc.days + '天 共<b>' + rc.total + '</b>信号 · ' +
             '<span class="nt-c-surge">进<b>' + rc.surge + '</b></span> ' +
             '<span class="nt-c-outflow">出<b>' + rc.outflow + '</b></span> ' +
             '<span class="nt-c-volume">量<b>' + rc.volume + '</b></span> · 共振<b>' + rc.resonance_days + '</b>日</div>' +
-          '<div class="nt-mini-bars-wrap">' + ntMiniBars(rc.daily) + '</div>' +
         '</div>';
-    }
-    // 最新1天明细（默认展开，有空间收起）
-    let detailHtml = "";
-    if (nt.signals && nt.signals.length) {
-      const resTypes = [];
-      if (nt.resonance && nt.resonance.surge) resTypes.push("进" + nt.n_surge + "只");
-      if (nt.resonance && nt.resonance.outflow) resTypes.push("出" + nt.n_outflow + "只");
-      if (nt.resonance && nt.resonance.volume) resTypes.push("量" + nt.n_volume + "只");
-      const resBanner = nt.is_resonance
-        ? '<div class="nt-resonance-banner">国家队共振：' + resTypes.join(" ") + "只宽基同日同步异动</div>" : '';
-      let chipsHtml = "";
-      for (const st of NT_ORDER) {
-        const grp = nt.signals.filter((s) => s.type === st);
-        if (!grp.length) continue;
-        const color = NT_SIG_COLOR[st] || "#1d2129";
-        const cells = grp.map((s) => {
-          const sc = s.share_change_yi != null
-            ? ' <b style="color:' + color + '">' + (s.share_change_yi >= 0 ? "+" : "") + s.share_change_yi + "亿</b>" : "";
-          return '<span class="sig-item"><b style="color:' + color + '">' + s.label + "</b> " + s.name + sc + "</span>";
-        }).join("");
-        chipsHtml += '<div class="sig-items">' + cells + "</div>";
-      }
-      const detCount = (nt.n_surge || 0) + (nt.n_outflow || 0) + (nt.n_volume || 0);
-      detailHtml =
-        '<details class="nt-recent-detail" open>' +
-          '<summary>最新 ' + fmtDate(nt.date) + ' 明细（' + detCount + '只）</summary>' +
-          resBanner +
-          '<div class="signal-grid">' + chipsHtml + "</div>" +
-        "</details>";
+    } else {
+      _ntRecentDaily = null;
     }
     ntCard.innerHTML =
       '<h3>🐶 汪汪队信号 <span class="nt-date-tag">数据 ' + fmtDate(nt.date) + '</span>' + resBadge +
-      termTip("汪汪队=国家队。追踪12只宽基ETF份额变动+成交额放量，推断疑似大资金进场/离场。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。") + "</h3>" +
-      recentHtml +
-      detailHtml +
-      '<div class="nt-card-footer">点击查看详情 -></div>';
+      termTip("汪汪队=国家队。追踪12只宽基ETF份额变动+成交额放量，推断疑似大资金进场/离场。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。点击下方信号chip查看当日明细。") + "</h3>" +
+      summaryHtml +
+      '<div class="signal-grid nt-signal-grid">' + _renderNtSignalList(rc && rc.daily ? rc.daily : [], nt.date) + '</div>';
     addCardTimeBadge(ntCard, nt.date, snap, "etf");
-    // 阻止 details 展开/收起时冒泡触发整卡跳转
-    const dtl = ntCard.querySelector(".nt-recent-detail");
-    if (dtl) dtl.addEventListener("click", (e) => e.stopPropagation());
-
+    // chip 点击：弹当日明细 modal（事件委托，[data-nt-date] 触发；stopPropagation 防冒泡）
+    ntCard.addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-nt-date]");
+      if (!chip) return;
+      e.stopPropagation();
+      openNtDayModal(chip.dataset.ntDate);
+    });
   } else {
+    _ntRecentDaily = null;
     ntCard.innerHTML =
       '<h3>🐶 汪汪队信号' +
       termTip("汪汪队=国家队。追踪12只宽基ETF份额变动+成交额放量，推断疑似大资金进场/离场。ETF份额T+1发布。") + "</h3>" +
-      '<div class="empty-note">近期无汪汪队信号</div>' +
-      '<div class="nt-card-footer">点击查看详情 →</div>';
+      '<div class="empty-note">近期无汪汪队信号</div>';
     if (nt && nt.date) addCardTimeBadge(ntCard, nt.date, snap, "etf");
   }
-  // 整卡可点：跳转大盘->汪汪队专区
-  ntCard.style.cursor = "pointer";
-  ntCard.addEventListener("click", () => {
-    state.tab = "market";
-    state.subtab = "national-team";
-    document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
-    const mktBtn = document.querySelector('button[data-tab="market"]');
-    if (mktBtn) mktBtn.classList.add("active");
-    updateH5Topbar();
-    _setTabHash(state.tab);
-    renderTab();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
   colA2.appendChild(ntCard);
 
 
