@@ -3169,7 +3169,7 @@ async function renderOverview() {
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
     const _disabledTip = k.disabled ? termTip("该指标当前采集异常（数据源中断），暂无数据。恢复后自动显示。") : "";
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}" data-kpi-key="${k.id}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}<div class="card-title">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}" data-kpi-key="${k.id}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
   cards.addEventListener("click", (e) => {
