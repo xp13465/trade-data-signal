@@ -1727,7 +1727,7 @@ pairs["buy_key|sell_key"][mode].stats[win] = {
 - **前端双版 lab.js**（3e5125b）：3 处规则文案更新（title@2234/横幅@2269/_LAB_RETEST_RULE@2277）为三窗口 dd≤10%+n≥10+OR；⭐️徽章判定改方案 A（查 retest JSON 存在性，retestSet.has(buyKey|sellKey)），与后端必然一致，修旧「按选中窗口 state.labSimWindow 动态算」的不一致 bug；`_loadRank`@2894/3921 预加载 retest JSON（单信号+融合）。双版 diff=10（5URL×2）IDENTICAL。
 - **上线**：build_min（lab.min.js 130KB -38.5%）+bump_asset_version（版本号 f2cbefda）+deploy.sh（d11906a 推 data+min JS）。
 
-### 8. 二次测试二次推进：3 方向已实施 + 4 方向待办（2026-07-17）
+### 8. 二次测试二次推进：9 方向已实施 + 1 方向待办(融合P2)(2026-07-19)
 
 > 任务来源：§4 brainstorm 的 10 方向中，选 7 方向推进。3 方向（手续费滑点/蒙特卡洛扰动/标的泛化）已由实施 agent 跑出结论，4 方向列待办。引擎零侵入：成本/蒙特卡洛均为外层包装，`lab_simulate.py` 仅加 `commission_rate=0.0, slippage=0.0` 参数（默认 0 向后兼容），不动现有 64 配对/融合回测产物。
 
