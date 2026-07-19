@@ -5057,6 +5057,75 @@ function appendComponentsBlock(data, tipText, container = content) {
   container.appendChild(div);
 }
 
+// 历史位置3行(候选2/3/4)：独立 fetch 近1年+6月，append 到 container 图表下方，不受 state.range 切换影响
+function appendHistoryPos(container) {
+  const box = document.createElement("div");
+  box.className = "hist-pos-merged";
+  box.innerHTML = '<div class="hist-pos-loading">📊 历史位置加载中…</div>';
+  container.appendChild(box);
+  (async () => {
+    try {
+      const [r1, r6] = await Promise.all([
+        fetch('./data/sentiment-1y.json').then(r => r.json()),
+        fetch('./data/sentiment-6m.json').then(r => r.json()),
+      ]);
+      const a1 = (r1.a_sentiment || []).filter(x => x.value != null);
+      const a6 = (r6.a_sentiment || []).filter(x => x.value != null);
+      if (!a1.length) { box.innerHTML = '<div class="hist-pos-loading">暂无数据</div>'; return; }
+      const cur = a1[a1.length - 1].value;
+      // 候选2: 近1年分位 = (小于当前值的条数/总数)*100%
+      const less = a1.filter(x => x.value < cur).length;
+      const pct = less / a1.length * 100;
+      const tag = pct < 33.34 ? '偏冷' : pct > 66.66 ? '偏热' : '中性';
+      const tagColor = pct < 33.34 ? 'var(--freeze,#2e8b57)' : pct > 66.66 ? 'var(--overheat,#e6492e)' : 'var(--text-2)';
+      const ptrPos = Math.max(0, Math.min(100, cur)); // 当前值在0-100条上的位置
+      // 候选3: 近6月极值
+      const mn = a6.length ? a6.reduce((m, x) => x.value < m.value ? x : m, a6[0]) : null;
+      const mx = a6.length ? a6.reduce((m, x) => x.value > m.value ? x : m, a6[0]) : null;
+      const distFreeze = Math.max(0, cur - 20);   // 当前值向下到冰点20的距离(已在冰点区则为0)
+      const distHeat = Math.max(0, 80 - cur);      // 当前值向上到过热80的距离(已在过热区则为0)
+      // 候选4: 近1年极端触发统计
+      const freezes = a1.filter(x => x.is_freeze === 1);
+      const heats = a1.filter(x => x.is_overheat === 1);
+      const fmtD = s => s && s.length === 8 ? s.slice(4, 6) + '-' + s.slice(6, 8) : (s || '');
+      const fLast = freezes.length ? freezes[freezes.length - 1].date : '';
+      const hLast = heats.length ? heats[heats.length - 1].date : '';
+      box.innerHTML =
+        '<div class="hist-pos-headline">当前 <b>' + cur.toFixed(1) + '</b> · 近1年 <b style="color:' + tagColor + '">' + pct.toFixed(1) + '%分位(' + tag + ')</b></div>' +
+        '<div class="hist-pos-body">' +
+          '<div class="hist-pos-row hist-pos-row-bar">' +
+            '<div class="hist-row-label">历史位置(近1年' + a1.length + '日)</div>' +
+            '<div class="hist-pos-bar-wrap">' +
+              '<div class="hist-pos-track">' +
+                '<span class="hist-zone hist-zone-freeze" style="width:20%"></span>' +
+                '<span class="hist-zone hist-zone-heat" style="left:80%;width:20%"></span>' +
+                '<span class="hist-pos-fill" style="width:' + pct.toFixed(1) + '%"></span>' +
+                '<span class="hist-pos-pointer" style="left:' + ptrPos.toFixed(1) + '%">▼</span>' +
+              '</div>' +
+              '<div class="hist-pos-scale">' +
+                '<span>0</span><span class="hist-tick hist-tick-freeze">冰点20</span><span>40</span><span class="hist-tick hist-tick-heat">过热80</span><span>100</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="hist-pos-row hist-extremes">' +
+            '<span class="hist-row-label">近6月极值</span>' +
+            '<span class="hist-ext-item">最低 <b>' + (mn ? mn.value.toFixed(1) : '-') + '</b><span class="hist-ext-date">(' + (mn ? fmtD(mn.date) : '') + ')</span></span>' +
+            '<span class="hist-ext-item">最高 <b>' + (mx ? mx.value.toFixed(1) : '-') + '</b><span class="hist-ext-date">(' + (mx ? fmtD(mx.date) : '') + ')</span></span>' +
+            '<span class="hist-ext-item">距冰点 <b>' + distFreeze.toFixed(1) + '</b></span>' +
+            '<span class="hist-ext-item">距过热 <b>' + distHeat.toFixed(1) + '</b></span>' +
+          '</div>' +
+          '<div class="hist-pos-row hist-triggers">' +
+            '<span class="hist-row-label">极端触发(近1年)</span>' +
+            '<span class="hist-trig hist-trig-freeze">❄️冰点(≤20) <b>' + freezes.length + '</b>次 最近 <b>' + (fLast ? fmtD(fLast) : '-') + '</b></span>' +
+            '<span class="hist-trig hist-trig-heat">🔥过热(≥80) <b>' + heats.length + '</b>次 最近 <b>' + (hLast ? fmtD(hLast) : '-') + '</b></span>' +
+          '</div>' +
+        '</div>';
+    } catch (e) {
+      box.innerHTML = '<div class="hist-pos-loading">数据加载失败</div>';
+    }
+  })();
+}
+
 async function renderSentiment() {
   // 期货数据与情绪数据无依赖，用 Promise.all 并发请求；futures 失败不影响情绪图（独立 .catch）
   const [r, futures] = await Promise.all([
@@ -5148,75 +5217,11 @@ async function renderSentiment() {
     const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment, undefined, cell);
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
     appendComponentsBlock(data, undefined, cell);
-  }
-  // A股情绪分历史位置卡(候选2/3/4合并3行):独立 fetch 近1年+6月,不受 state.range 切换影响
-  {
-    const hpCell = document.createElement("div");
-    hpCell.className = "chart-card history-pos-card";
-    hpCell.innerHTML = '<h3>📊 A股情绪分历史位置 <span class="hist-pos-loading">加载中…</span></h3>';
-    cardGrid.appendChild(hpCell);
-    (async () => {
-      try {
-        const [r1, r6] = await Promise.all([
-          fetch('./data/sentiment-1y.json').then(r => r.json()),
-          fetch('./data/sentiment-6m.json').then(r => r.json()),
-        ]);
-        const a1 = (r1.a_sentiment || []).filter(x => x.value != null);
-        const a6 = (r6.a_sentiment || []).filter(x => x.value != null);
-        if (!a1.length) { hpCell.querySelector('.hist-pos-loading').textContent = '暂无数据'; return; }
-        const cur = a1[a1.length - 1].value;
-        // 候选2: 近1年分位 = (小于当前值的条数/总数)*100%
-        const less = a1.filter(x => x.value < cur).length;
-        const pct = less / a1.length * 100;
-        const tag = pct < 33.34 ? '偏冷' : pct > 66.66 ? '偏热' : '中性';
-        const tagColor = pct < 33.34 ? 'var(--freeze,#2e8b57)' : pct > 66.66 ? 'var(--overheat,#e6492e)' : 'var(--text-2)';
-        const ptrPos = Math.max(0, Math.min(100, cur)); // 当前值在0-100条上的位置
-        // 候选3: 近6月极值
-        const mn = a6.length ? a6.reduce((m, x) => x.value < m.value ? x : m, a6[0]) : null;
-        const mx = a6.length ? a6.reduce((m, x) => x.value > m.value ? x : m, a6[0]) : null;
-        const distFreeze = Math.max(0, cur - 20);   // 当前值向下到冰点20的距离(已在冰点区则为0)
-        const distHeat = Math.max(0, 80 - cur);      // 当前值向上到过热80的距离(已在过热区则为0)
-        // 候选4: 近1年极端触发统计
-        const freezes = a1.filter(x => x.is_freeze === 1);
-        const heats = a1.filter(x => x.is_overheat === 1);
-        const fmtD = s => s && s.length === 8 ? s.slice(4, 6) + '-' + s.slice(6, 8) : (s || '');
-        const fLast = freezes.length ? freezes[freezes.length - 1].date : '';
-        const hLast = heats.length ? heats[heats.length - 1].date : '';
-        hpCell.innerHTML =
-          '<h3>📊 A股情绪分历史位置 <span class="hist-pos-headline">当前 <b>' + cur.toFixed(1) + '</b> · 近1年 <b style="color:' + tagColor + '">' + pct.toFixed(1) + '%分位(' + tag + ')</b></span></h3>' +
-          '<div class="hist-pos-body">' +
-            '<div class="hist-pos-row hist-pos-row-bar">' +
-              '<div class="hist-row-label">历史位置(近1年' + a1.length + '日)</div>' +
-              '<div class="hist-pos-bar-wrap">' +
-                '<div class="hist-pos-track">' +
-                  '<span class="hist-zone hist-zone-freeze" style="width:20%"></span>' +
-                  '<span class="hist-zone hist-zone-heat" style="left:80%;width:20%"></span>' +
-                  '<span class="hist-pos-fill" style="width:' + pct.toFixed(1) + '%"></span>' +
-                  '<span class="hist-pos-pointer" style="left:' + ptrPos.toFixed(1) + '%">▼</span>' +
-                '</div>' +
-                '<div class="hist-pos-scale">' +
-                  '<span>0</span><span class="hist-tick hist-tick-freeze">冰点20</span><span>40</span><span class="hist-tick hist-tick-heat">过热80</span><span>100</span>' +
-                '</div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="hist-pos-row hist-extremes">' +
-              '<span class="hist-row-label">近6月极值</span>' +
-              '<span class="hist-ext-item">最低 <b>' + (mn ? mn.value.toFixed(1) : '-') + '</b><span class="hist-ext-date">(' + (mn ? fmtD(mn.date) : '') + ')</span></span>' +
-              '<span class="hist-ext-item">最高 <b>' + (mx ? mx.value.toFixed(1) : '-') + '</b><span class="hist-ext-date">(' + (mx ? fmtD(mx.date) : '') + ')</span></span>' +
-              '<span class="hist-ext-item">距冰点 <b>' + distFreeze.toFixed(1) + '</b></span>' +
-              '<span class="hist-ext-item">距过热 <b>' + distHeat.toFixed(1) + '</b></span>' +
-            '</div>' +
-            '<div class="hist-pos-row hist-triggers">' +
-              '<span class="hist-row-label">极端触发(近1年)</span>' +
-              '<span class="hist-trig hist-trig-freeze">❄️冰点(≤20) <b>' + freezes.length + '</b>次 最近 <b>' + (fLast ? fmtD(fLast) : '-') + '</b></span>' +
-              '<span class="hist-trig hist-trig-heat">🔥过热(≥80) <b>' + heats.length + '</b>次 最近 <b>' + (hLast ? fmtD(hLast) : '-') + '</b></span>' +
-            '</div>' +
-          '</div>';
-        // 历史位置卡为纯文字+进度条(无图表)，不加时间角标(避免右上角角标压住标题)
-      } catch (e) {
-        hpCell.innerHTML = '<h3>📊 A股情绪分历史位置</h3><div class="hist-pos-loading">数据加载失败</div>';
-      }
-    })();
+    // 图表高度减一点(360->300)，给下方历史位置3行腾空间
+    const _asChartDiv = cell.querySelector('.chart');
+    if (_asChartDiv) { _asChartDiv.style.height = '300px'; chart.resize(); }
+    // 历史位置3行(候选2/3/4)合并进本卡图表下方：独立 fetch 近1年+6月，不受 state.range 切换影响
+    appendHistoryPos(cell);
   }
   // 细分指数：散户关注度排序（小盘/成长优先）
   const idxNames = {

@@ -743,11 +743,11 @@ main { padding: 16px 24px; }
   .fg-dim-val { flex-basis: 34px; }
 }
 
-/* A股情绪分历史位置卡（情绪温度tab，A股情绪分卡片之后；候选2/3/4合并3行） */
-/* align-self:start 覆盖 .indices-grid 的 align-items:stretch：纯文字3行卡不与并排图表卡等高拉伸，避免大片留白 */
-.history-pos-card { display: flex; flex-direction: column; align-self: start; height: auto; min-height: 0; }
-.history-pos-card .hist-pos-loading { font-size: 13px; color: var(--text-3); font-weight: normal; }
-.history-pos-card .hist-pos-headline { float: right; font-size: 12px; color: var(--text-3); font-weight: normal; margin-left: 8px; }
+/* A股情绪分历史位置3行(候选2/3/4)：合并进 A股综合情绪分卡片图表下方 */
+/* 顶部分隔线区分图表区与历史位置区 */
+.hist-pos-merged { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.hist-pos-merged .hist-pos-loading { font-size: 13px; color: var(--text-3); font-weight: normal; }
+.hist-pos-merged .hist-pos-headline { font-size: 12px; color: var(--text-3); font-weight: normal; margin-bottom: 8px; }
 .hist-pos-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 2px; }
 .hist-pos-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .hist-row-label { flex: 0 0 110px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
