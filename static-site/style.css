@@ -777,7 +777,7 @@ main { padding: 16px 24px; }
   grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800 */
   gap: 12px;
   margin-bottom: 16px;
-  align-items: stretch;
+  align-items: start; /* 各卡按自然内容高度不拉伸(避免stretch撑高矮卡留白),与 .indices-grid 一致;图表已统一300px */
 }
 .astock-top-grid > * {
   display: flex;
