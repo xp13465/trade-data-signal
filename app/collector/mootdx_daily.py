@@ -343,16 +343,23 @@ def update_one(code: str, progress: dict[str, str] | None = None,
 
 # ── 批量 ──────────────────────────────────────────────────────────────────────
 def run_batch(codes: list[str], *, incremental: bool = False,
-              save_every: int = 5, verbose: bool = True) -> dict:
+              save_every: int = 5, verbose: bool = True,
+              consecutive_fail_limit: int = 50) -> dict:
     """批量拉取。incremental=True 走 update_one（拉 2 页+过滤），否则全量回填。
 
     串行（mootdx TCP 连接数安全；0.12s/只，5200 只 ~10min）。
     client 复用，遇错重建重试。进度每 save_every 只落盘。
+
+    consecutive_fail_limit: 连续 N 只失败(无 rows)提前终止，避免数据源异常
+        (服务端限流/封 IP/返回全 empty)时 5200 只空转数小时触发耗时告警。
+        正常时偶发 empty 不会连续达阈值；50 只连续失败 ≈ 数据源已坏。
     """
     init_db()
     progress = load_progress()
     today = dt.date.today().strftime("%Y%m%d")
     ok = fail = total_rows = 0
+    consecutive_fails = 0
+    aborted = False
     details: list[tuple] = []
     client = None
     t_start = time.time()
@@ -374,6 +381,7 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                 last = progress.get(code)
                 if last and last >= today:
                     ok += 1
+                    consecutive_fails = 0
                     if verbose and (i + 1) % 500 == 0:
                         print(f"  [{i+1}/{len(codes)}] {code}: skip (last={last})", flush=True)
                     continue
@@ -385,10 +393,12 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                     n = 0
             if n > 0 or "ok" in msg or "up-to-date" in msg:
                 ok += 1
+                consecutive_fails = 0
                 total_rows += n
                 details.append((code, "ok", msg))
             else:
                 fail += 1
+                consecutive_fails += 1
                 details.append((code, "fail", msg))
             if verbose and (i + 1) % 100 == 0:
                 elapsed = time.time() - t_start
@@ -398,6 +408,7 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                       f"elapsed {elapsed:.0f}s, {rate:.1f}/s, ETA {eta:.0f}s", flush=True)
         except Exception as e:  # noqa: BLE001  其它错误记 fail 不中断
             fail += 1
+            consecutive_fails += 1
             details.append((code, "fail", f"{type(e).__name__}: {str(e)[:150]}"))
             if verbose:
                 print(f"  [{i+1}/{len(codes)}] {code}: ERR {type(e).__name__}: "
@@ -409,14 +420,25 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                 pass
         if (i + 1) % save_every == 0:
             save_progress(progress)
+        # 连续失败提前终止：数据源异常(全 empty/封 IP/服务端故障)时避免
+        # 5200 只空转数小时触发耗时告警。正常偶发 empty 不会连续达阈值。
+        if consecutive_fail_limit > 0 and consecutive_fails >= consecutive_fail_limit:
+            aborted = True
+            remaining = len(codes) - i - 1
+            if verbose:
+                print(f"  ⚠ 连续{consecutive_fails}只失败(阈值{consecutive_fail_limit})，"
+                      f"提前终止剩余{remaining}只（疑似数据源异常，避免空转数小时）", flush=True)
+            break
 
     save_progress(progress)
     elapsed = time.time() - t_start
     if verbose:
+        abort_tag = " ABORTED(连续失败提前终止)" if aborted else ""
         print(f"=== batch done: ok={ok} fail={fail} rows={total_rows} "
-              f"processed={len(codes)} elapsed={elapsed:.0f}s ===", flush=True)
+              f"processed={ok + fail}/{len(codes)} elapsed={elapsed:.0f}s{abort_tag} ===", flush=True)
     return {"ok": ok, "fail": fail, "total_rows": total_rows,
-            "processed": len(codes), "details": details, "elapsed": elapsed}
+            "processed": ok + fail, "details": details, "elapsed": elapsed,
+            "aborted": aborted}
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
