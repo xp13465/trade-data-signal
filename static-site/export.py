@@ -519,6 +519,7 @@ def export_sentiment(conn, cfg, rng):
             "sentiment_csi1000": _signals(conn, "s.sentiment_csi1000", start, end),
             "sentiment_cyb": _signals(conn, "s.sentiment_cyb", start, end),
             "sentiment_kc50": _signals(conn, "s.sentiment_kc50", start, end),
+            "fear_greed": _signals(conn, "s.fear_greed", start, end),
         },
         "stats": {
             "a_sentiment": _stats_for(stats_all, "s.a_sentiment"),

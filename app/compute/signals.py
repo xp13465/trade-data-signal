@@ -293,7 +293,7 @@ GLOBAL_METRIC_IDS = (
     "cn10y", "us10y", "wti_oil", "brent", "comex_silver", "gold", "oil",
     "usdcnh", "a_qvix_300", "a_qvix_1000", "cn_us_spread",
 )
-SCORE_IDS = ("cross_market", "a_sentiment", "sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50")
+SCORE_IDS = ("cross_market", "a_sentiment", "sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50", "fear_greed")
 # 窄幅序列（虽恒正但 %回落 0 信号，回测验证）+ 含负数序列 → 强制走 std 卖规则
 _STD_SELL_IDS = {"usdcnh", "cn_us_spread"}
 # #5 结构性异常品类（汇率干预市/均值回归 sell 反向/地缘驱动）——调参救不了，skip 买卖点

@@ -509,6 +509,7 @@ def sentiment(range: str = Depends(range_dep)):
             "sentiment_csi1000": _signals("s.sentiment_csi1000", start, end),
             "sentiment_cyb": _signals("s.sentiment_cyb", start, end),
             "sentiment_kc50": _signals("s.sentiment_kc50", start, end),
+            "fear_greed": _signals("s.fear_greed", start, end),
         },
         "stats": {
             "a_sentiment": _stats_for("s.a_sentiment"),

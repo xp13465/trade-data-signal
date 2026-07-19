@@ -5163,7 +5163,7 @@ async function renderSentiment() {
     const title = `😱😐😤 恐贪指数（0-100）` + termTip("综合5类市场情绪(波动率/动量/强度/广度/避险)等权算的0-100温度计。≤25极度恐惧(人人抛售,常近底)、≥75极度贪婪(人人追高,常近顶)。作逆向参考:恐惧时贪婪、贪婪时恐惧。") + (latest != null ? " · " + fearGreedLabel(latest) + latestSuffixPct(data) : "");
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
-    const chart = valueChartWithSignals(title, data, [], {
+    const chart = valueChartWithSignals(title, data, sig.fear_greed || [], {
       visualMap: {
         show: false,
         pieces: [
@@ -5176,9 +5176,22 @@ async function renderSentiment() {
         dimension: 1,
       },
     }, undefined, undefined, undefined, cell);
-    // 减恐贪图表高度(360->240)给 8 维度腾空间
-    chart.getDom().style.height = '240px';
-    chart.resize();
+    // 冰点(≤25)/过热(≥75)阈值线 + 最新值标记（保留信号 pin）
+    {
+      const _fgOpt = chart.getOption();
+      const _fgMp = (_fgOpt.series && _fgOpt.series[0] && _fgOpt.series[0].markPoint && _fgOpt.series[0].markPoint.data) ? [..._fgOpt.series[0].markPoint.data] : [];
+      if (data.length && data[data.length - 1].value != null) {
+        const _l = data[data.length - 1];
+        _fgMp.push({ coord: [_l.date, _l.value], value: _l.value.toFixed(1), itemStyle: { color: "#409eff" }, symbol: "circle", symbolSize: 12, label: { fontSize: 11, color: "#fff" } });
+      }
+      chart.setOption({ series: [{ markPoint: { data: _fgMp }, markLine: {
+        silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
+        data: [
+          { yAxis: 25, lineStyle: { color: "#c62828" }, label: { formatter: "冰点", color: "#c62828", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 75, lineStyle: { color: "#2e8b57" }, label: { formatter: "过热", color: "#2e8b57", position: "insideStartTop", fontSize: 10 } },
+        ],
+      } }] });
+    }
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
     appendComponentsBlock(data, undefined, cell);
     // 恐贪分项条（8 项情绪分等权 = 恐贪指数；合并进本卡片图表下方，不再独立成卡）

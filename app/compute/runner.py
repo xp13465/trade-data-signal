@@ -17,6 +17,9 @@ def run(verbose=True):
     c_score, c_comps = cross.compute()
     n_c = cross.store(c_score, c_comps)
 
+    # step 11：恐贪指数（等权平均 8 个情绪分）--移到 signals 之前，使 s.fear_greed 买卖点可算
+    n_fg = fear_greed.compute_fear_greed()
+
     sigs = signals.compute()
     n_sig = signals.store(sigs)
 
@@ -31,9 +34,6 @@ def run(verbose=True):
     # step 9：大盘位置感（8 指数 × 3 窗口分位）
     pos_list = position.compute_position()
     n_pos = position.store_position(pos_list)
-
-    # step 11：恐贪指数（等权平均 8 个情绪分）
-    n_fg = fear_greed.compute_fear_greed()
 
     # step 12：买卖点 stats（forward 收益胜率/盈亏比/样本数，写 data/signal_stats.json）
     stats = signal_stats.compute()
