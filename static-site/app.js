@@ -1342,6 +1342,309 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
 }
 
 
+// ============ KPI 小卡弹窗：点击首页 KPI 卡展示历史走势+细节 ============
+// 复用 rule-modal 骨架 + signal-chart-periods period 切换 + echarts 走势图。
+// 独立于 signalChartModal（不污染信号语义）。数据按 period 分片拉取，避免拉 6.8MB a-stock-all。
+// KPI_HISTORY_SOURCE: 卡 id -> { src } 映射，key 默认=kpiId（sentiment/astock/global 的 JSON key 均与卡 id 同名）
+const KPI_HISTORY_SOURCE = {
+  // 情绪分 9 张 -> sentiment-{period}.json[kpiId]
+  a_sentiment:       { src: "sentiment" },
+  cross_market:      { src: "sentiment" },
+  fear_greed:        { src: "sentiment" },
+  sentiment_sz50:    { src: "sentiment" },
+  sentiment_hs300:   { src: "sentiment" },
+  sentiment_csi500:  { src: "sentiment" },
+  sentiment_csi1000: { src: "sentiment" },
+  sentiment_cyb:     { src: "sentiment" },
+  sentiment_kc50:    { src: "sentiment" },
+  // a-stock 指标 -> a-stock-{period}.json metrics[kpiId].data
+  a_width_up_count:    { src: "astock" },
+  a_width_down_count:  { src: "astock" },
+  a_width_zt_count:    { src: "astock" },
+  a_width_dt_count:    { src: "astock" },
+  a_width_zhaban_rate: { src: "astock" },
+  a_amount:            { src: "astock" },
+  a_fund_margin:       { src: "astock" },
+  lhb_count:           { src: "astock" },
+  // 量比 -> volume_ratio.json（单一文件，客户端按 period 过滤）
+  a_volume_ratio: { src: "volume_ratio" },
+  // 全球指标 -> global-extras-all.json extras[kpiId]
+  gold:       { src: "global" },
+  cn10y:      { src: "global" },
+  a_qvix_300: { src: "global" },
+};
+let _kpiDetailCharts = [];
+
+function _kpiDetailModalEl() {
+  let modal = document.getElementById("kpiDetailModal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "kpiDetailModal";
+  modal.className = "rule-modal hidden";
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body kpi-detail-modal-body"><div class="rule-modal-header"><h3 class="kpi-detail-title">KPI 走势</h3><div class="signal-chart-periods"><button class="lab-signal-period-btn" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn active" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content kpi-detail-content"></div></div>';
+  modal.querySelectorAll('.lab-signal-period-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      modal.querySelectorAll('.lab-signal-period-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      const period = e.target.dataset.period;
+      const ctx = modal._ctx || {};
+      if (ctx.kpiId) openKpiDetailModal(ctx.kpiId, period);
+    });
+  });
+  document.body.appendChild(modal);
+  const close = () => closeKpiDetailModal();
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", close);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
+  return modal;
+}
+
+function closeKpiDetailModal() {
+  const modal = document.getElementById("kpiDetailModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  document.body.style.overflow = "";
+  _kpiDetailCharts.forEach((c) => c && c.dispose());
+  _kpiDetailCharts = [];
+}
+
+// 加载 KPI 历史数据，返回 { series:[{name,data,color?,markLine?,areaStyle?}], visualMap?, yLabel?, hint?, note? }
+async function _loadKpiHistory(kpiId, cfg, period) {
+  const name = indexIdToName(kpiId);
+
+  // 情绪分 9 张：visualMap 5 段着色（冰点红/偏冷橙/中性灰/偏热绿/过热深绿）
+  if (cfg.src === "sentiment") {
+    const r = await fetchJSON(`./data/sentiment-${period}.json`);
+    const list = r[kpiId] || [];
+    return {
+      series: [{ name, data: list.map(d => ({ date: d.date, value: d.value })) }],
+      visualMap: {
+        show: false,
+        pieces: [
+          { lte: 20, color: "#c62828" },
+          { gt: 20, lte: 40, color: "#e6a23c" },
+          { gt: 40, lte: 60, color: "#86909c" },
+          { gt: 60, lte: 80, color: "#67c23a" },
+          { gt: 80, color: "#2e8b57" },
+        ],
+        dimension: 1,
+      },
+      hint: "≤20冰点(红) · 20-40偏冷(橙) · 40-60中性(灰) · 60-80偏热(绿) · >80过热(深绿)",
+    };
+  }
+
+  // a-stock 指标
+  if (cfg.src === "astock") {
+    const r = await fetchJSON(`./data/a-stock-${period}.json`);
+    const metrics = r.metrics || {};
+    const _get = (k) => (metrics[k] && metrics[k].data) ? metrics[k].data.map(d => ({ date: d.date, value: d.value })) : [];
+
+    // 涨跌家数：点上涨或下跌都显示双线
+    if (kpiId === "a_width_up_count" || kpiId === "a_width_down_count") {
+      return {
+        series: [
+          { name: "上涨家数", data: _get("a_width_up_count"), color: "#e6492e" },
+          { name: "下跌家数", data: _get("a_width_down_count"), color: "#2e8b57" },
+        ],
+        hint: "上涨家数远多于下跌=普涨行情；两者接近=市场分化。",
+      };
+    }
+    // 涨停跌停：点涨停或跌停都显示双线
+    if (kpiId === "a_width_zt_count" || kpiId === "a_width_dt_count") {
+      return {
+        series: [
+          { name: "涨停数", data: _get("a_width_zt_count"), color: "#e6492e" },
+          { name: "跌停数", data: _get("a_width_dt_count"), color: "#2e8b57" },
+        ],
+        hint: "涨停数反映做多情绪，跌停数反映恐慌情绪。",
+      };
+    }
+    // 炸板率（百分比，历史短）
+    if (kpiId === "a_width_zhaban_rate") {
+      const raw = (metrics.a_width_zhaban_rate && metrics.a_width_zhaban_rate.data) || [];
+      const data = raw.map(d => ({ date: d.date, value: d.value * 100 }));
+      return {
+        series: [{ name: "炸板率", data }],
+        yLabel: "{value}%",
+        note: data.length < 30 ? "历史较短（近期才有），更长周期可能为空" : "",
+        hint: "炸板率=当日炸板数/曾涨停数。高=封板资金弱、市场分歧大。",
+      };
+    }
+    // 成交额：主线 + 叠加 MA5/MA20（from volume_ratio.json，仅250条，长周期覆盖尾部）
+    if (kpiId === "a_amount") {
+      const series = [{ name: "成交额", data: _get("a_amount") }];
+      try {
+        const vr = await fetchJSON("./data/volume_ratio.json");
+        const vrData = vr.data || [];
+        const cutoff = _signalModalCutoff(vrData.map(d => ({ date: d.date, value: d.ratio })), period);
+        const filtered = cutoff ? vrData.filter(d => d.date >= cutoff) : vrData;
+        if (filtered.length) {
+          series.push({ name: "MA5", data: filtered.map(d => ({ date: d.date, value: d.ma5 })), color: "#e6a23c" });
+          series.push({ name: "MA20", data: filtered.map(d => ({ date: d.date, value: d.ma20 })), color: "#909399" });
+        }
+      } catch (e) {}
+      return {
+        series,
+        yLabel: "{value}亿",
+        hint: "沪深京A股成交额。放量=交投活跃，缩量=清淡。MA5/MA20为均量线。",
+      };
+    }
+    // 两融余额
+    if (kpiId === "a_fund_margin") {
+      return {
+        series: [{ name: "沪市融资余额", data: _get("a_fund_margin") }],
+        yLabel: "{value}亿",
+        hint: "沪市融资余额=借钱买A股的杠杆资金。增加=杠杆做多情绪升。T+1发布。",
+      };
+    }
+    // 龙虎榜（历史短）
+    if (kpiId === "lhb_count") {
+      const data = _get("lhb_count");
+      return {
+        series: [{ name: "龙虎榜上榜家数", data }],
+        note: data.length < 30 ? "历史较短（近期才有），更长周期可能为空" : "",
+        hint: "龙虎榜=当日涨跌幅前列或有异常波动的个股。上榜多=游资活跃。",
+      };
+    }
+    // 兜底
+    return { series: [{ name, data: _get(kpiId) }] };
+  }
+
+  // 量比：ratio + MA5 + 1.5/0.7 阈值 markLine
+  if (cfg.src === "volume_ratio") {
+    const r = await fetchJSON("./data/volume_ratio.json");
+    const all = r.data || [];
+    const cutoff = _signalModalCutoff(all.map(d => ({ date: d.date, value: d.ratio })), period);
+    const data = cutoff ? all.filter(d => d.date >= cutoff) : all;
+    return {
+      series: [
+        {
+          name: "量比",
+          data: data.map(d => ({ date: d.date, value: d.ratio })),
+          markLine: {
+            silent: true,
+            symbol: "none",
+            lineStyle: { type: "dashed" },
+            data: [
+              { yAxis: 1.5, name: "放量", lineStyle: { color: "#e6492e" }, label: { formatter: "放量1.5x", color: "#e6492e" } },
+              { yAxis: 0.7, name: "缩量", lineStyle: { color: "#2e8b57" }, label: { formatter: "缩量0.7x", color: "#2e8b57" } },
+            ],
+          },
+        },
+        { name: "MA5", data: data.map(d => ({ date: d.date, value: d.ma5 })), color: "#e6a23c" },
+      ],
+      yLabel: "{value}x",
+      hint: "量比=当日成交额/前5日均量。>1.5倍放量，<0.7倍缩量。",
+    };
+  }
+
+  // 全球指标：gold/cn10y/a_qvix_300（global-extras-all.json，按 period 客户端过滤）
+  if (cfg.src === "global") {
+    const r = await fetchJSON("./data/global-extras-all.json");
+    const all = (r.extras && r.extras[kpiId]) || [];
+    const cutoff = _signalModalCutoff(all, period);
+    const data = cutoff ? all.filter(d => d.date >= cutoff) : all;
+    const _hints = {
+      gold: "沪金主力合约收盘价。避险+抗通胀资产。",
+      cn10y: "中国10年期国债收益率。升=资金收紧/经济预期好，降=宽松/避险。",
+      a_qvix_300: "中国波指300（期权隐含波动率）。高=市场预期波动大=恐慌。",
+    };
+    const _yLabels = { gold: "{value}元/克", cn10y: "{value}%", a_qvix_300: "{value}点" };
+    return {
+      series: [{ name, data: data.map(d => ({ date: d.date, value: d.value })) }],
+      yLabel: _yLabels[kpiId],
+      hint: _hints[kpiId] || "",
+    };
+  }
+
+  return { series: [] };
+}
+
+async function openKpiDetailModal(kpiId, period = "1y") {
+  const cfg = KPI_HISTORY_SOURCE[kpiId];
+  if (!cfg) return;
+  const modal = _kpiDetailModalEl();
+  const body = modal.querySelector(".kpi-detail-content");
+  const titleEl = modal.querySelector(".kpi-detail-title");
+  _kpiDetailCharts.forEach((c) => c && c.dispose());
+  _kpiDetailCharts = [];
+
+  // 从 DOM 卡片读取标题+当前值+标签+sub（避免重新 fetch overview）
+  const card = document.querySelector(`.card.kpi[data-kpi-id="${kpiId}"]`);
+  const cardTitle = card ? ((card.querySelector(".card-title") || {}).textContent || "").trim() : indexIdToName(kpiId);
+  const cardVal = card ? ((card.querySelector(".cv-val") || {}).textContent || "").trim() : "";
+  const cardTags = card ? ((card.querySelector(".cv-tags") || {}).textContent || "").trim() : "";
+  const cardSub = card ? ((card.querySelector(".card-sub") || {}).textContent || "").trim() : "";
+
+  titleEl.textContent = cardTitle;
+  renderLoadingState(body);
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  modal._ctx = { kpiId };
+  modal.querySelectorAll('.lab-signal-period-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.period === period);
+  });
+
+  try {
+    const result = await _loadKpiHistory(kpiId, cfg, period);
+    body.innerHTML = "";
+    const hasData = result.series.length && result.series.some(s => s.data && s.data.length);
+    if (!hasData) {
+      body.innerHTML = `<div class="empty-note">暂无「${cardTitle}」历史走势数据${result.note ? "（" + result.note + "）" : ""}</div>`;
+      return;
+    }
+    // 当前值摘要行
+    const valHtml = cardVal ? `<span class="kdv-val">${cardVal}</span>` : "";
+    const tagHtml = cardTags ? ` <span class="kdv-tags">${cardTags}</span>` : "";
+    const subHtml = cardSub ? ` <span class="kdv-sub">${cardSub}</span>` : "";
+    if (valHtml) {
+      const cur = document.createElement("div");
+      cur.className = "kpi-detail-current";
+      cur.innerHTML = valHtml + tagHtml + subHtml;
+      body.appendChild(cur);
+    }
+    // 走势图
+    const mainSeries = result.series[0];
+    const last = mainSeries.data[mainSeries.data.length - 1];
+    const suffix = last ? ` <span class="chart-latest">· ${fmtDate(last.date)}</span>` : "";
+    const noteHtml = result.note ? ` <span class="chart-latest" style="color:var(--text-3)">（${result.note}）</span>` : "";
+    const chartCard = document.createElement("div");
+    chartCard.className = "chart-card";
+    const hintHtml = result.hint ? `<div class="chart-hint">${result.hint}</div>` : "";
+    chartCard.innerHTML = `<h3>${cardTitle}走势${suffix}${noteHtml}</h3>${hintHtml}<div class="chart" style="height:380px"></div>`;
+    body.appendChild(chartCard);
+    const chart = echarts.init(chartCard.querySelector(".chart"));
+    _kpiDetailCharts.push(chart);
+
+    const dates = [...new Set(result.series.flatMap(s => (s.data || []).map(d => d.date)))].sort();
+    const seriesOpt = result.series.map(s => ({
+      name: s.name,
+      type: "line",
+      smooth: true,
+      symbol: "none",
+      connectNulls: true,
+      data: dates.map(d => { const p = (s.data || []).find(x => x.date === d); return p ? p.value : null; }),
+      ...(s.color ? { color: s.color, lineStyle: { color: s.color } } : {}),
+      ...(s.areaStyle ? { areaStyle: s.areaStyle } : {}),
+      ...(s.markLine ? { markLine: s.markLine } : {}),
+    }));
+    chart.setOption(withTheme({
+      tooltip: { trigger: "axis" },
+      legend: { top: 0, type: "scroll" },
+      grid: { left: 65, right: 25, top: 35, bottom: 45 },
+      xAxis: { type: "category", data: dates },
+      yAxis: { type: "value", scale: true, axisLabel: result.yLabel ? { formatter: result.yLabel } : undefined },
+      dataZoom: dzOpts(),
+      series: seriesOpt,
+      ...(result.visualMap ? { visualMap: result.visualMap } : {}),
+    }));
+    requestAnimationFrame(() => chart.resize());
+  } catch (e) {
+    renderErrorState(body, e, () => openKpiDetailModal(kpiId, period));
+  }
+}
+
+
 async function renderTab() {
   clearCharts();
   // 概览 tab 图表固定近60日、策略实验 tab 全历史，周期切换均无意义，隐藏 .periods 和 .h5-period-bar；切走恢复
@@ -2566,8 +2869,16 @@ async function renderOverview() {
       cross_market: "A股+港股+全球等多维度等权均值0-100。看跨市场整体冷热。",
     };
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}">${_badge}<div class="card-title">${k.title}${_widthTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
+    const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}<div class="card-title">${k.title}${_widthTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
+  // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
+  cards.addEventListener("click", (e) => {
+    const c = e.target.closest(".card.kpi[data-kpi-id]");
+    if (!c) return;
+    e.preventDefault();
+    openKpiDetailModal(c.dataset.kpiId);
+  });
   content.appendChild(cards);
 
   // 指数 sparkline 网格
