@@ -625,6 +625,14 @@ main { padding: 16px 24px; }
 .card.kpi .card-title .term-tip { position: absolute; top: 1px; right: 0; margin-left: 0; }
 .tag.stale { background: #faad14; }
 
+/* KPI 拖拽排序视觉反馈 + 重置按钮 */
+.card.kpi[draggable="true"] { cursor: grab; }
+.card.kpi.dragging { opacity: 0.4; outline: 2px dashed var(--primary); outline-offset: -2px; }
+.card.kpi.drag-over { outline: 2px solid var(--primary); outline-offset: -2px; }
+.kpi-section-head { display: flex; justify-content: flex-end; margin: 0 0 2px 0; }
+.kpi-reset-btn { font-size: 12px; color: var(--text-3); background: none; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+.kpi-reset-btn:hover { color: var(--primary); border-color: var(--primary); }
+
 .spark-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

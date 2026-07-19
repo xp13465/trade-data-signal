@@ -2831,14 +2831,52 @@ async function renderOverview() {
       amount: m.amount,
     });
   }
-  const kpiOrder = {
+  // ---- A+B 组合默认排序 + 用户拖拽自定义 ----
+  // B(核心情绪前置): a_sentiment/cross_market/fear_greed 三张情绪温度计排最前
+  // A(异常度优先): 组内带异常 tag(冰点/过热) 或 signal(放量/缩量) 的卡排前
+  // 兜底: 原 kpiOrder 顺序
+  const _KPI_CORE_SENTIMENT = ["a_sentiment", "cross_market", "fear_greed"];
+  const _KPI_BASE_ORDER = {
     a_width_up_count: 1, a_width_down_count: 2, a_width_zt_count: 3, a_width_dt_count: 4, a_width_zhaban_rate: 5,
     a_amount: 6, a_volume_ratio: 7, a_sentiment: 8, cross_market: 9, fear_greed: 10, a_fund_margin: 11, a_fund_north: 12,
   };
-  kpiCards.sort((a, b) => (kpiOrder[a.id] || 99) - (kpiOrder[b.id] || 99));
+  const _kpiIsAbnormal = (k) => {
+    if (k.tag === "冰点" || k.tag === "过热") return true;          // 情绪温度计极值
+    const sig = k.signal || "";                                     // 量比 放量/缩量
+    return sig.startsWith("放量") || sig.startsWith("缩量");
+  };
+  // A+B 默认:核心情绪组前置(组内异常优先), 其余卡异常优先 + 原顺序兜底
+  const _kpiDefaultOrderIds = () => {
+    const sortByAb = (arr) => [...arr].sort((a, b) => {
+      const aAb = _kpiIsAbnormal(a) ? 0 : 1, bAb = _kpiIsAbnormal(b) ? 0 : 1;
+      if (aAb !== bAb) return aAb - bAb;
+      return (_KPI_BASE_ORDER[a.id] || 99) - (_KPI_BASE_ORDER[b.id] || 99);
+    });
+    const core = kpiCards.filter(k => _KPI_CORE_SENTIMENT.includes(k.id));
+    const rest = kpiCards.filter(k => !_KPI_CORE_SENTIMENT.includes(k.id));
+    return [...sortByAb(core), ...sortByAb(rest)].map(k => k.id);
+  };
+  // 渲染排序:localStorage 自定义优先(须覆盖所有当前卡 id), 否则 A+B 默认
+  const _kpiSortForRender = () => {
+    try {
+      const custom = JSON.parse(localStorage.getItem("kpiCustomOrder") || "null");
+      if (Array.isArray(custom) && custom.length) {
+        const idSet = new Set(kpiCards.map(k => k.id));
+        const valid = custom.filter(id => idSet.has(id));
+        if (valid.length === kpiCards.length) {
+          const orderMap = new Map(custom.map((id, i) => [id, i]));
+          return [...kpiCards].sort((a, b) => (orderMap.get(a.id) ?? 999) - (orderMap.get(b.id) ?? 999)).map(k => k.id);
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return _kpiDefaultOrderIds();
+  };
+  const _orderedIds = _kpiSortForRender();
+  const _idToCard = new Map(kpiCards.map(k => [k.id, k]));
+  const _orderedCards = _orderedIds.map(id => _idToCard.get(id)).filter(Boolean);
   const cards = document.createElement("div");
   cards.className = "cards kpi-row";
-  for (const k of kpiCards) {
+  for (const k of _orderedCards) {
     const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : "stale";
     const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
     const sentTag = k.id === "a_sentiment" || k.id === "cross_market" ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
@@ -2870,7 +2908,7 @@ async function renderOverview() {
     };
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}<div class="card-title">${k.title}${_widthTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}" data-kpi-key="${k.id}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}<div class="card-title">${k.title}${_widthTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
   cards.addEventListener("click", (e) => {
@@ -2879,6 +2917,79 @@ async function renderOverview() {
     e.preventDefault();
     openKpiDetailModal(c.dataset.kpiId);
   });
+
+  // ---- 重置排序按钮(仅在有自定义顺序时显示) ----
+  const kpiHead = document.createElement("div");
+  kpiHead.className = "kpi-section-head";
+  const resetBtn = document.createElement("button");
+  resetBtn.className = "kpi-reset-btn";
+  resetBtn.type = "button";
+  resetBtn.title = "恢复默认排序";
+  resetBtn.textContent = "↺ 重置排序";
+  // 按给定 id 顺序原地重排 DOM(appendChild 移动已有节点)
+  const _reorderKpiDom = (idOrder) => {
+    const map = new Map(idOrder.map((id, i) => [id, i]));
+    Array.from(cards.querySelectorAll(".card.kpi[data-kpi-key]"))
+      .sort((a, b) => (map.get(a.dataset.kpiKey) ?? 999) - (map.get(b.dataset.kpiKey) ?? 999))
+      .forEach(el => cards.appendChild(el));
+  };
+  const _syncKpiResetBtn = () => {
+    let has = false;
+    try { has = !!localStorage.getItem("kpiCustomOrder"); } catch (_) {}
+    resetBtn.style.display = has ? "" : "none";
+  };
+  resetBtn.addEventListener("click", () => {
+    try { localStorage.removeItem("kpiCustomOrder"); } catch (_) {}
+    _reorderKpiDom(_kpiDefaultOrderIds());
+    _syncKpiResetBtn();
+  });
+  kpiHead.appendChild(resetBtn);
+  _syncKpiResetBtn();
+  content.appendChild(kpiHead);
+
+  // ---- 拖拽自定义排序(桌面端;移动端触屏禁用保持 A+B 默认) ----
+  const _kpiCanDrag = !('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  let _draggedKpi = null;
+  if (_kpiCanDrag) {
+    cards.querySelectorAll(".card.kpi").forEach(c => { c.draggable = true; });
+    cards.addEventListener("dragstart", (e) => {
+      const c = e.target.closest(".card.kpi");
+      if (!c) return;
+      _draggedKpi = c;
+      c.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", c.dataset.kpiKey || ""); } catch (_) {}
+    });
+    cards.addEventListener("dragend", () => {
+      if (_draggedKpi) _draggedKpi.classList.remove("dragging");
+      cards.querySelectorAll(".card.kpi.drag-over").forEach(x => x.classList.remove("drag-over"));
+      _draggedKpi = null;
+    });
+    cards.addEventListener("dragover", (e) => {
+      if (!_draggedKpi) return;
+      const c = e.target.closest(".card.kpi");
+      if (!c) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      cards.querySelectorAll(".card.kpi.drag-over").forEach(x => x.classList.remove("drag-over"));
+      if (c !== _draggedKpi) c.classList.add("drag-over");
+    });
+    cards.addEventListener("drop", (e) => {
+      if (!_draggedKpi) return;
+      const c = e.target.closest(".card.kpi");
+      if (!c || c === _draggedKpi) return;
+      e.preventDefault();
+      // 鼠标落在目标卡左半=插前, 右半=插后
+      const rect = c.getBoundingClientRect();
+      const after = (e.clientX - rect.left) > rect.width / 2;
+      cards.insertBefore(_draggedKpi, after ? c.nextSibling : c);
+      // 持久化新顺序(含全部卡 key)
+      const ids = Array.from(cards.querySelectorAll(".card.kpi[data-kpi-key]")).map(x => x.dataset.kpiKey);
+      try { localStorage.setItem("kpiCustomOrder", JSON.stringify(ids)); } catch (_) {}
+      _syncKpiResetBtn();
+    });
+  }
+
   content.appendChild(cards);
 
   // 指数 sparkline 网格
