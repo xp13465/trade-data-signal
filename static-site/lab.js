@@ -600,8 +600,8 @@ function _labStratNameHTML(key, name) {
 
 // 4分区定义
 const LAB_ZONES = [
-  { key: "buy", label: "🧪 候选买点", count: 7, desc: "候选买点策略（含布林下轨/超级趋势实验中）" },
-  { key: "sell", label: "🧪 候选卖点", count: 7, desc: "候选卖点策略（含布林上轨/均线死叉实验中）" },
+  { key: "buy", label: "🧪 候选参考点(买)", count: 7, desc: "候选买方向参考点策略（含布林下轨/超级趋势实验中）" },
+  { key: "sell", label: "🧪 候选参考点(卖)", count: 7, desc: "候选卖方向参考点策略（含布林上轨/均线死叉实验中）" },
   { key: "excluded", label: "📋 已排除", count: 6, desc: "反面教材（回测不达标已弃用）" },
   { key: "prod", label: "✅ 生产参考", count: 2, desc: "已上线生产策略" },
 ];
@@ -980,8 +980,8 @@ const LAB_FUSION_PENDING = _generateFusionCandidates();
 
 // 融合信号4分区定义（zone key 与 LAB_FUSION_STRATEGIES 的 zone 字段对齐）
 const LAB_FUSION_ZONES = [
-  { key: "candidate_buy", label: "🧪 候选买点", count: "3+70", desc: "融合候选买点（多信号共振入场，含70+自动生成待回测）" },
-  { key: "candidate_sell", label: "🧪 候选卖点", count: "1+21", desc: "融合候选卖点（多信号共振出场，含21自动生成待回测）" },
+  { key: "candidate_buy", label: "🧪 候选参考点(买)", count: "3+70", desc: "融合候选买方向参考点（多信号共振入场，含70+自动生成待回测）" },
+  { key: "candidate_sell", label: "🧪 候选参考点(卖)", count: "1+21", desc: "融合候选卖方向参考点（多信号共振出场，含21自动生成待回测）" },
   { key: "excluded", label: "📋 已排除", count: 0, desc: "回测不达标已弃用的融合信号" },
   { key: "prod", label: "✅ 生产参考", count: 2, desc: "已上线生产的融合信号" },
 ];
@@ -2025,7 +2025,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
     (pairLabel ? `<div class="lab-sim-cur-pair">当前配对：${pairLabel}</div>` : "") +
     `<div class="lab-sim-stats">` +
     `<div class="lab-sim-stat"><span class="k">总收益率</span><span class="v" style="color:${retColor}">${s.total_ret > 0 ? "+" : ""}${s.total_ret}%${grossTag}</span><span class="sub">期末 ${Math.round(s.final_total).toLocaleString()} 元${openPositions.length ? '<br><span style="color:var(--text-3);font-size:11px">含未平仓持仓按收盘价重估</span>' : ""}</span></div>` +
-    `<div class="lab-sim-stat"><span class="k">年化收益</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%${grossTag}${compoundTag}</span><span class="sub">${s.years} 年${mode === "full_in" ? '<br><span style="color:var(--text-3);font-size:11px">复利放大,非固定仓位收益</span>' : ""}</span></div>` +
+    `<div class="lab-sim-stat"><span class="k">历史回测年化</span><span class="v" style="color:${retColor}">${s.annual_ret > 0 ? "+" : ""}${s.annual_ret}%${grossTag}${compoundTag}</span><span class="sub">${s.years} 年${mode === "full_in" ? '<br><span style="color:var(--text-3);font-size:11px">复利放大,非固定仓位收益</span>' : ""}</span></div>` +
     `<div class="lab-sim-stat"><span class="k">最大回撤${_labHelpIcon("max_drawdown")}</span><span class="v" style="${_labDdColor(s.max_drawdown)}">${s.max_drawdown}%</span><span class="sub">峰值最大跌幅</span></div>` +
     `<div class="lab-sim-stat"><span class="k">胜率${_labHelpIcon("win_rate")}</span><span class="v" style="color:${winColor}">${s.win_rate}%</span><span class="sub">${winTrades}胜/${loseTrades}负 · ${s.n_trades}笔</span></div>` +
     `</div>` +
@@ -2329,14 +2329,14 @@ function _labWarningEssayHTML(status) {
   return `<div class="lab-warning-head">${head}</div>` +
     `<p>本实验室用历史数据回测，校验网上流传的交易策略与买卖信号是否真的可靠，避免盲目跟风。我们会定期收录热门策略在此验证，表现稳健的将纳入主功能图表融合上线。</p>` +
     `<p>有好的策略建议或测试想法，欢迎抖音私信交流（抖音号：<strong>kant2218</strong>）。</p>` +
-    `<p class="lab-backtest-disclaimer">⚠ <strong>回测非投资建议；过往表现不代表未来收益。</strong>回测基于历史数据理想化模拟，未考虑实盘滑点、流动性冲击与极端行情，实盘收益通常低于回测。</p>`;
+    `<p class="lab-backtest-disclaimer">⚠ <strong>回测非投资建议；过往表现不代表未来收益。</strong>以下为历史回测统计，含幸存者偏差与过拟合风险，实盘收益通常低于回测。回测基于历史数据理想化模拟，未考虑实盘滑点、流动性冲击与极端行情。所有收益/胜率/年化均为历史回测结果，非投资建议或收益承诺。</p>`;
 }
 
 // C: 实验室顶部合规声明（置顶显著，非折叠，教育研究定位）
 function _labTopDisclaimerHTML() {
   return `<div class="lab-top-disclaimer">` +
     `<span class="lab-top-title">📚 教育研究工具声明</span>` +
-    `本实验室为个人学习/研究用途，<b>非持牌证券投资咨询机构</b>。所有策略与信号均为历史数据回测统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。过往表现不代表未来收益，实盘收益通常低于回测。投资有风险，决策需谨慎。` +
+    `本实验室为个人学习/研究用途，<b>非持牌证券投资咨询机构</b>。⚠ 以下为历史回测统计，含<b>幸存者偏差与过拟合风险</b>，实盘收益通常低于回测。所有策略与信号均为历史数据回测统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。所有收益/胜率/年化均为历史回测结果，<b>不代表未来收益，非投资建议或收益承诺</b>。投资有风险，决策需谨慎。` +
     `</div>`;
 }
 

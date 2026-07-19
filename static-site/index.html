@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>信号实验室 | 盘后复盘·多市场情绪·买卖点信号 · tdsignal</title>
-  <meta name="description" content="信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、RSI买卖点信号、行业热力图、模拟回测。trade-data-signal / tdsignal。">
-  <meta name="keywords" content="trade-data-signal, tdsignal, tdsignal-ujpzw01zm, 信号实验室, A股情绪看板, 情绪数据复盘看板, 市场情绪, 盘后复盘, 买卖点信号, 综合情绪分, 跨市场评分, 涨跌家数, 涨停连板, 行业热力图, 恐贪指数, 模拟回测">
+  <title>信号实验室 | 盘后复盘·多市场情绪·技术分析参考点 · tdsignal</title>
+  <meta name="description" content="信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、RSI拐点参考标注、行业热力图、模拟回测。trade-data-signal / tdsignal。">
+  <meta name="keywords" content="trade-data-signal, tdsignal, tdsignal-ujpzw01zm, 信号实验室, A股情绪看板, 情绪数据复盘看板, 市场情绪, 盘后复盘, 技术分析参考点, 综合情绪分, 跨市场评分, 涨跌家数, 涨停连板, 行业热力图, 恐贪指数, 模拟回测">
   <meta name="author" content="tdsignal">
   <meta name="robots" content="index,follow">
   <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -14,16 +14,16 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="信号实验室">
   <meta property="og:title" content="信号实验室">
-  <meta property="og:description" content="信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、买卖点信号、行业热力图、模拟回测。tdsignal。">
+  <meta property="og:description" content="信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、技术分析参考点、行业热力图、模拟回测。tdsignal。">
   <meta property="og:url" content="https://s.sugas.site/">
   <meta property="og:image" content="https://s.sugas.site/og.png">
   <meta property="og:locale" content="zh_CN">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="信号实验室 | 盘后复盘·多市场情绪·买卖点信号">
-  <meta name="twitter:description" content="信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、买卖点信号、行业热力图、模拟回测。">
+  <meta name="twitter:title" content="信号实验室 | 盘后复盘·多市场情绪·技术分析参考点">
+  <meta name="twitter:description" content="信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、技术分析参考点、行业热力图、模拟回测。">
   <meta name="twitter:image" content="https://s.sugas.site/og.png">
   <script type="application/ld+json">
-  {"@context":"https://schema.org","@type":"WebApplication","name":"信号实验室","alternateName":["trade-data-signal","tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"https://s.sugas.site/","description":"信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、买卖点信号、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, 信号实验室, A股情绪看板, 情绪数据复盘看板, 市场情绪, 买卖点信号, 行业热力图, 模拟回测"}
+  {"@context":"https://schema.org","@type":"WebApplication","name":"信号实验室","alternateName":["trade-data-signal","tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"https://s.sugas.site/","description":"信号实验室 - A股/港股/全球盘后复盘情绪数据：综合情绪分、跨市场评分、涨跌家数、涨停连板、北向资金(2024-08起停更,保留历史)、技术分析参考点、行业热力图、模拟回测。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"trade-data-signal, tdsignal, 信号实验室, A股情绪看板, 情绪数据复盘看板, 市场情绪, 技术分析参考点, 行业热力图, 模拟回测"}
   </script>
   <link rel="stylesheet" href="./style.css?v=1bdc2f99">
   <link rel="stylesheet" href="./lab.css?v=553c2229">
@@ -73,7 +73,7 @@ var _hmt = _hmt || [];
     <ul>
       <li>A股综合情绪分（0-100，6指标加权）+ 跨市场综合评分（去极值截尾均值）</li>
       <li>市场宽度：涨跌家数、涨停连板、炸板率、封板率、成交额、北向资金(2024-08起停更,保留历史)、两融余额</li>
-      <li>RSI 买卖点信号 + BB下轨辅买 + MA60多头过滤 + MACD死叉确认 + 回测统计</li>
+      <li>RSI拐点参考标注 + BB下轨辅买 + MA60多头过滤 + MACD死叉确认 + 回测统计</li>
       <li>申万31行业涨跌幅热力图 + 行业资金流 + 行业内宽度</li>
       <li>恐贪指数、大盘位置感（8指数分位）、新高新低、均线排列、板块轮动速度</li>
       <li>期货机构净多空持仓（中金所 IF/IC/IH/IM）+ 同向/逆向准确率</li>
@@ -131,7 +131,7 @@ var _hmt = _hmt || [];
     </div>
   </nav>
   <!-- C: 首页顶部风险提示横幅（常驻，合规） -->
-  <div class="risk-banner">📚 本站为个人学习/研究工具，非持牌证券投资咨询机构。所有数据与信号均为历史统计与技术分析参考，不构成任何投资建议或交易指令。过往表现不代表未来收益，数据可能存在延迟。投资有风险，决策需谨慎。</div>
+  <div class="risk-banner">📚 本站为个人学习/研究工具，非持牌证券投资咨询机构，不荐股。所有数据与信号均为历史统计与技术分析参考，不构成任何投资建议或交易指令。过往表现不代表未来收益，数据可能存在延迟。投资有风险，决策需谨慎。</div>
   <main id="content"><div class="loading">加载中…</div></main>
   <!-- H5 底部固定导航：5 主 tab，复用 data-tab 切换逻辑（PC 隐藏）-->
   <nav class="h5-bottomnav">
@@ -144,6 +144,7 @@ var _hmt = _hmt || [];
 
   <footer class="site-disclaimer">
     <p>本站数据仅供学习参考,不构成任何投资建议;投资有风险,决策需谨慎。</p>
+    <p>本站非持牌证券投资咨询机构,不荐股,内容仅供研究学习。</p>
     <p>数据来源:东方财富/腾讯财经/baostock/同花顺等公开来源,仅供学习参考。</p>
     <!-- 合规增强:隐私政策链接 + ICP备案号占位 -->
     <p>
@@ -156,9 +157,9 @@ var _hmt = _hmt || [];
   </footer>
 
   <script src="./qr.js?v=b5b5f60b"></script>
-  <script defer src="./app.min.js?v=5f293b87"></script>
+  <script defer src="./app.min.js?v=53035b30"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
-  <meta name="lab-asset-url" content="./lab.min.js?v=81cf4824">
+  <meta name="lab-asset-url" content="./lab.min.js?v=ea8423eb">
 <script>
 (function(){
     var bp = document.createElement('script');

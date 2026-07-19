@@ -1040,7 +1040,7 @@ function ruleContentHtml() {
   return `<div class="rule-detail">
 
     <div class="rule-section">
-      <h4><span class="rule-dot rule-dot-buy"></span>买点信号</h4>
+      <h4><span class="rule-dot rule-dot-buy"></span>超卖反弹参考点</h4>
 
       <div class="rule-card rule-card-buy">
         <div class="rule-card-head"><span class="rule-badge badge-buy">主买</span> 超卖反弹（RSI 指标）</div>
@@ -1068,10 +1068,10 @@ function ruleContentHtml() {
     </div>
 
     <div class="rule-section">
-      <h4><span class="rule-dot rule-dot-sell"></span>卖点信号</h4>
+      <h4><span class="rule-dot rule-dot-sell"></span>趋势转弱参考点</h4>
 
       <div class="rule-card rule-card-sell">
-        <div class="rule-card-head"><span class="rule-badge badge-sell">卖点</span> 趋势转弱 · 止盈减仓提示</div>
+        <div class="rule-card-head"><span class="rule-badge badge-sell">卖点</span> 趋势转弱参考 · 止盈减仓提示（非卖出指令）</div>
         <p>价格从<b>近期高点回落</b>，且动量转弱时，作为技术信号参考（趋势转弱）。三个条件<b>同时满足</b>才触发：</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">① 价格回落</td><td>从近 20 个交易日的<b>最高价</b>回落超过 <b>5%</b>（用最高价而非收盘价，更能捕捉盘中真实高点）</td></tr>
@@ -1094,13 +1094,13 @@ function ruleContentHtml() {
         </tr>
         <tr>
           <td>卖点价格 &gt; 前一个买点价格<br><span class="muted">→ 历史多为止盈/减仓情形</span></td>
-          <td>卖点价格 &lt; 前一个买点价格<br><span class="muted">→ 历史多为止损/观望情形（非操作建议）</span></td>
+          <td>卖点价格 &lt; 前一个买点价格<br><span class="muted">→ 历史多为回落情形（非操作建议）</span></td>
           <td>附近窗口内没有买点参考<br><span class="muted">→ 单独看趋势判断，不属止盈也不属止损</span></td>
         </tr>
       </table>
 
       <p class="rule-subtitle">情绪背景标签</p>
-      <p class="muted">卖点信号会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
+      <p class="muted">趋势转弱参考点会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
       <table class="rule-table rule-table-tags">
         <tr>
           <td><span class="rule-tag tag-freeze">冰点</span> ≤ 20</td>
@@ -1111,11 +1111,11 @@ function ruleContentHtml() {
         </tr>
       </table>
 
-      <p class="rule-subtitle">买点信号示例</p>
+      <p class="rule-subtitle">超卖反弹参考点示例</p>
       <div class="rule-example"><span class="muted">主买：</span>RSI上穿30(29→34), 情绪=8[冰点]</div>
       <div class="rule-example"><span class="muted">辅买：</span>布林下轨回归(下轨3852,收盘3870), RSI=41, 情绪=47[偏冷]</div>
 
-      <p class="rule-subtitle">卖点信号示例</p>
+      <p class="rule-subtitle">趋势转弱参考点示例</p>
       <div class="rule-example"><span class="muted">卖点：</span>20日高回落5%(高4259→阈4046,收盘4028), RSI=40, 情绪=53[中性], MA60=4000[趋势过滤], MACD=死叉确认, 较前买+2.30%[止盈]</div>
     </div>
 
@@ -3256,7 +3256,7 @@ async function renderOverview() {
   // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card";
-  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期买卖点（近 15 交易日 · 今日高亮）", "signal", "近期无买卖点信号");
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · 今日高亮）", "signal", "近期无技术分析参考点");
   addCardTimeBadge(sigCard, r.date, snap, "t0");
   // 点击买卖点卡片弹窗：展示对应指数/品类走势图+买卖信号标注
   sigCard.addEventListener("click", (e) => {
@@ -3293,7 +3293,7 @@ async function renderOverview() {
     }
     ntCard.innerHTML =
       '<h3>🐶 汪汪队信号 <span class="nt-date-tag">数据 ' + fmtDate(nt.date) + '</span>' + resBadge +
-      termTip("汪汪队=国家队。追踪12只宽基ETF份额变动+成交额放量，推断疑似大资金进场/离场。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。点击下方信号chip查看当日明细。") + "</h3>" +
+      termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。点击下方信号chip查看当日明细。") + "</h3>" +
       summaryHtml +
       '<div class="signal-grid nt-signal-grid">' + _renderNtSignalList(rc && rc.daily ? rc.daily : [], nt.date) + '</div>';
     addCardTimeBadge(ntCard, nt.date, snap, "etf");
@@ -3308,7 +3308,7 @@ async function renderOverview() {
     _ntRecentDaily = null;
     ntCard.innerHTML =
       '<h3>🐶 汪汪队信号' +
-      termTip("汪汪队=国家队。追踪12只宽基ETF份额变动+成交额放量，推断疑似大资金进场/离场。ETF份额T+1发布。") + "</h3>" +
+      termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。ETF份额T+1发布。") + "</h3>" +
       '<div class="empty-note">近期无汪汪队信号</div>';
     if (nt && nt.date) addCardTimeBadge(ntCard, nt.date, snap, "etf");
   }
@@ -3592,7 +3592,7 @@ async function renderOverview() {
 // 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
 async function renderMarket() {
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看A股、港股、全球指数走势,叠加技术面买卖点信号,综合判断大盘情绪偏冷还是偏热;另追踪🐶汪汪队=国家队宽基ETF资金动向。<b>怎么解读</b>:信号偏多通常反映情绪回暖,偏空反映转弱(历史统计参考,非操作建议);汪汪队大额净流入常对应政策底区域,流出对应资金撤离。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看A股、港股、全球指数走势,叠加技术分析参考点,综合判断大盘情绪偏冷还是偏热;另追踪🐶汪汪队宽基ETF份额变动(观察份额增减与成交放量)。<b>怎么解读</b>:信号偏多通常反映情绪回暖,偏空反映转弱(历史统计参考,非操作建议);汪汪队大额净流入历史上常伴随市场低位区域,流出对应份额收缩。</div>');
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
   subtabBar.className = "subtab-bar";
@@ -3665,8 +3665,8 @@ async function renderNationalTeam(container = content) {
   const banner = document.createElement("div");
   banner.className = "nt-banner";
   banner.innerHTML =
-    `<h3>🐶 汪汪队 - 国家队宽基 ETF 资金动向 <span class="term-tip" data-tip="汪汪队=国家队。追踪12只宽基ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动+成交额放量，推断疑似大资金进场/离场。份额异动z-score>2且放量1.5倍以上=疑似大资金进场(红)，反之为离场(绿)。注意：这是代理推断，无法100%确认是国家队，份额变动可能来自任何机构/大户申赎。">❓</span></h3>` +
-    `<div class="nt-banner-body">追踪 12 只宽基 ETF 的<span style="color:var(--primary)">份额变动+成交额放量</span>，推断疑似大资金（含国家队）进场/离场。<b>口径声明</b>：本指标为代理推断，非真实国家队席位数据，无法精确区分汇金/证金/社保/险资/公募。份额变动可能来自任何机构/大户申赎，不等于国家队操作。当季机构占比&gt;85% 时置信度×1.5（国家队主导品种）。</div>`;
+    `<h3>🐶 汪汪队 - 宽基 ETF 资金动向 <span class="term-tip" data-tip="宽基ETF份额变动跟踪;观察份额增减与成交放量。追踪12只宽基ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动+成交额放量。份额异动z-score>2且放量1.5倍以上=份额扩张(红)，反之为份额收缩(绿)。注意：这是份额变动统计，无法确认具体资金来源，份额变动可能来自任何机构/大户申赎。">❓</span></h3>` +
+    `<div class="nt-banner-body">追踪 12 只宽基 ETF 的<span style="color:var(--primary)">份额变动+成交额放量</span>，观察份额增减与成交放量。<b>口径声明</b>：本指标为份额变动代理统计，非真实资金席位数据，无法精确区分汇金/证金/社保/险资/公募等来源。份额变动可能来自任何机构/大户申赎，不等于特定机构操作。当季机构占比&gt;85% 时置信度×1.5（机构主导品种）。</div>`;
   container.appendChild(banner);
 
   if (state.ntView === "detail") {
@@ -3897,8 +3897,8 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   var cumSign = cum20 >= 0 ? "+" : "";
   kpi.innerHTML =
     '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div><div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·按上日份额预估(' + _ntShareReplenishTxt(last.date) + '补全)</span>' : '') + '</div></div>' +
-    '<div class="nt-tk-item"><div class="nt-tk-label">今日净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=国家队今日净买入，负值=净卖出。份额变动是硬数据不受价格波动干扰。") + '</div>' + netValHtml + '</div>' +
-    '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看国家队近一个月持续买入还是卖出。") + '</div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>';
+    '<div class="nt-tk-item"><div class="nt-tk-label">今日净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=今日净流入，负值=净流出。份额变动是硬数据不受价格波动干扰。") + '</div>' + netValHtml + '</div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看近一个月份额持续扩张还是收缩。") + '</div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>';
   container.appendChild(kpi);
 
   var mktData = series.map(function (d) { return { date: d.date, value: +d.mktCap.toFixed(2) }; });
@@ -4013,7 +4013,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   }));
 
   // 图3：每日净增持额柱状（红流入绿流出，末日份额待公布则末日柱不画）
-  var c3 = mkCard("📉 每日净增持额（近" + dates.length + "日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(国家队买入)，绿柱=净流出(卖出)。") + (lastChgMissing ? '<span class="chart-latest" style="color:#ff9800">· 末日待公布</span>' : ''), 300, null, ntGrid);
+  var c3 = mkCard("📉 每日净增持额（近" + dates.length + "日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(份额扩张)，绿柱=净流出(份额收缩)。") + (lastChgMissing ? '<span class="chart-latest" style="color:#ff9800">· 末日待公布</span>' : ''), 300, null, ntGrid);
   addCardTimeBadge(c3.getDom().parentElement, lastDate, snap, "t1", "etf_date");
   c3.setOption(withTheme({
     tooltip: { trigger: "axis", formatter: function (p) { var v = p[0]; if (v.value == null) return fmtDate(v.axisValue) + "<br/>份额待公布"; return fmtDate(v.axisValue) + "<br/>" + (v.value >= 0 ? "+" : "") + (+v.value).toFixed(2) + " 亿元"; } },
@@ -6490,7 +6490,7 @@ function drawShareCard(r) {
   ctx.fillStyle = "#165dff"; ctx.font = "bold 34px 'PingFang SC',sans-serif";
   ctx.fillText("s.sugas.site", 60, H - 95);
   ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
-  ctx.fillText("盘后复盘·多市场情绪·买卖点信号", 60, H - 55);
+  ctx.fillText("盘后复盘·多市场情绪·技术分析参考点", 60, H - 55);
   // 底部免责水印（合规：教育研究定位，非投资建议）
   ctx.fillStyle = "rgba(170,178,189,0.7)"; ctx.font = "20px 'PingFang SC',sans-serif";
   ctx.fillText("本图仅供学习研究，不构成投资建议 · tdsignal", 60, H - 22);
