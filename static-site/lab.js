@@ -2725,7 +2725,7 @@ function _labRankAggregate(simData, win, opt) {
   // ⭐️二次测试候选集：后端 lab_retest_{index}.json 已按三窗口dd≤10%+n≥10+OR判定通过，前端查 pair 存在性，与后端一致（不按选中窗口动态算）
   const _reIdx = (simData.index_id) || (state.labSimIndex || "sh");
   const _reRd = state.labRetestDataMap && state.labRetestDataMap[_reIdx];
-  const retestSet = _reRd && _reRd.pairs ? new Set(Object.keys(_reRd.pairs)) : null;
+  const retestSet = _reRd && _reRd.pairs ? new Set(Object.keys(_reRd.pairs).filter((pk) => !_reRd.pairs[pk].substitute)) : null;
   const rows = [];
   for (const pairKey in simData.pairs) {
     const parts = pairKey.split("|");
@@ -2916,9 +2916,14 @@ function _labRetestContentHTML(simData) {
     return `<div class="lab-retest-rule">${_LAB_RETEST_RULE}</div>` +
       '<div class="lab-rank-empty">暂无二次测试候选配对</div>';
   }
+  const starN = pks.filter((pk) => !rd.pairs[pk].substitute).length;
+  const subN = pks.length - starN;
+  const exhNote = rd.substitute_pool_exhausted
+    ? ' · <span class="lab-retest-exhausted">达标候选不足10，已展示全部可用</span>'
+    : "";
   const pairsHTML = pks.map((pk) => _labRetestPairHTML(pk, rd.pairs[pk])).join("");
   return `<div class="lab-retest-rule">${_LAB_RETEST_RULE}</div>` +
-    `<div class="lab-retest-meta">指数: ${rd.index_name || idx} · 生成: ${rd.generated_at || "-"} · 候选: ${pks.length} 个配对</div>` +
+    `<div class="lab-retest-meta">指数: ${rd.index_name || idx} · 生成: ${rd.generated_at || "-"} · ⭐️候选: ${starN} · 🔵替补: ${subN}${exhNote}</div>` +
     `<div class="lab-retest-pairs">${pairsHTML}</div>`;
 }
 
@@ -2986,9 +2991,15 @@ function _labRetestPairSlicesHTML(pd) {
 
 function _labRetestPairHTML(pk, pd) {
   const meta = pd.pair_meta || {};
+  // 替补候选：未达⭐️质量门(综合分≥0.6 且 胜率≥55% 且 风险调整≥1.5)，标🔵并展示未达标原因
+  const isSub = !!pd.substitute;
+  const subReason = pd.reason || "未达标";
+  const badge = isSub ? "🔵" : "⭐️";
+  const subTag = isSub ? ` <span class="lab-retest-sub-reason" title="${subReason}">替补·${subReason}</span>` : "";
   // 信息头
   const headHTML = '<div class="lab-retest-pair-head">' +
-    `<span class="lab-retest-pair-strat">⭐️ ${_labRetestPairCN(meta.strategy || pk)}</span>` +
+    `<span class="lab-retest-pair-strat">${badge} ${_labRetestPairCN(meta.strategy || pk)}</span>` +
+    subTag +
     `<span class="lab-retest-pair-win">窗口: ${_labRetestWinCN(meta.window)}</span>` +
     `<span>综合分: ${meta.score != null ? (meta.score * 100).toFixed(0) : "-"}</span>` +
     `<span>交易: ${meta.n != null ? meta.n : "-"}</span>` +
@@ -3796,8 +3807,16 @@ function _labRetestRankRows(rd, simData, winKey) {
   const raw = [];
   pks.forEach((pk) => {
     const pd = rd.pairs[pk] || {};
-    raw.push(extract(pk, pd, "full_in"));
-    if (pd.fixed_10k) raw.push(extract(pk, pd.fixed_10k, "fixed_10k"));
+    const isSub = !!pd.substitute;
+    const subReason = pd.reason || "";
+    const fr = extract(pk, pd, "full_in");
+    fr.substitute = isSub; fr.subReason = subReason;
+    raw.push(fr);
+    if (pd.fixed_10k) {
+      const fxr = extract(pk, pd.fixed_10k, "fixed_10k");
+      fxr.substitute = isSub; fxr.subReason = subReason;
+      raw.push(fxr);
+    }
   });
   // Pass2：各指标 min-max 归一（across 该指数所有 pair 的全仓+定额行）
   const retN = _labRetestMinMax(raw, "ret");
@@ -3972,9 +3991,13 @@ function _labRetestRankItemHTML(row, rank, tab) {
     extra = `<span class="lab-rank-dim-sub">股灾回撤${_labRetestPct(row.crashDd)} · 熊市回撤${_labRetestPct(row.bearDd)} · 反弹收益${_labRetestPct(row.rallyRet)}${covidNote}</span>`;
   }
   // ret/win/dd/n 维度的值已在 baseStats 中显示，排序即体现排名，不加冗余 extra
+  const subBadge = row.substitute
+    ? `<span class="lab-retest-rank-sub" title="${row.subReason || "未达标"}">🔵替补</span>`
+    : "";
   return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">${row.cn} · ${row.modeCn}</span>` +
+    subBadge +
     `<span class="lab-rank-stats">${baseStats}</span>` +
     _labQualityHTML(row) + extra + _labRetestHonorsHTML(row.pk) + `</button>`;
 }

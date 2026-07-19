@@ -122,17 +122,10 @@ def _normalize_and_score(all_stats: List[Dict[str, Any]]) -> List[float]:
     return scores
 
 
-def _is_star_candidate(score, windows):
-    """判断是否为⭐️综合分候选(P1-3 收紧:多窗口dd稳健门 + AND质量门):
-    y5_dd<=10% && y3_dd<=10% && y1_dd<=10% && n>=10  (基础稳健+样本下限门,不变)
-    且 score>=0.6 && win>=55 && risk_adj>=1.5          (AND质量门,原OR三分支收紧为AND)
-    说明:原 OR=(score>=0.6&&n>=30)||win>=55||risk_adj>=1.0 放入42个含大量弱候选
-    (低score仅靠win>=55单分支混入)。收紧为AND后仅保留score/win/risk三者皆强的候选。
-    n>=30 不纳入质量门(5年窗口交易数普遍10-27,n>=30仅2/42可达,数据不可行),
-    保留原 n>=10 作样本下限。risk_adj门槛 1.0->1.5(任务硬性要求)。
-    score/n/dd/win/risk_adj 取 y5 全仓(百分比单位:dd=10表10%)
-    windows: {y5:stats, y3:stats, y1:stats} 各为_build_stats返回的dict
-    """
+def _star_components(score, windows):
+    """计算⭐️/替补判定的各组件(复用避免重复)。
+    返回 dict 含 dd_ok/n_ok/quality(AND三质量门)及各质量门布尔+实际值(百分数)供 reason 拼接。
+    windows: {y5:stats, y3:stats, y1:stats} 各为 _build_stats 返回的dict(百分数单位)"""
     y5 = windows.get('y5') or {}
     n = y5.get('n_trades', 0)
     dd = y5.get('max_drawdown', 999)
@@ -145,8 +138,54 @@ def _is_star_candidate(score, windows):
     y1_dd = y1.get('max_drawdown', 999)
     dd_ok = dd <= 10 and y3_dd <= 10 and y1_dd <= 10
     n_ok = n >= 10
-    quality = (score >= 0.6) and (win >= 55) and (risk_adj >= 1.5)
-    return dd_ok and n_ok and quality
+    q_score_ok = score >= 0.6
+    q_win_ok = win >= 55
+    q_risk_ok = risk_adj >= 1.5
+    quality = q_score_ok and q_win_ok and q_risk_ok
+    return {
+        'dd_ok': dd_ok, 'n_ok': n_ok, 'quality': quality,
+        'q_score_ok': q_score_ok, 'q_win_ok': q_win_ok, 'q_risk_ok': q_risk_ok,
+        'score': score, 'win': win, 'risk_adj': risk_adj, 'n': n,
+    }
+
+
+def _is_star_candidate(score, windows):
+    """判断是否为⭐️综合分候选(P1-3 收紧:多窗口dd稳健门 + AND质量门):
+    y5_dd<=10% && y3_dd<=10% && y1_dd<=10% && n>=10  (基础稳健+样本下限门,不变)
+    且 score>=0.6 && win>=55 && risk_adj>=1.5          (AND质量门,原OR三分支收紧为AND)
+    说明:原 OR=(score>=0.6&&n>=30)||win>=55||risk_adj>=1.0 放入42个含大量弱候选
+    (低score仅靠win>=55单分支混入)。收紧为AND后仅保留score/win/risk三者皆强的候选。
+    n>=30 不纳入质量门(5年窗口交易数普遍10-27,n>=30仅2/42可达,数据不可行),
+    保留原 n>=10 作样本下限。risk_adj门槛 1.0->1.5(任务硬性要求)。
+    score/n/dd/win/risk_adj 取 y5 全仓(百分比单位:dd=10表10%)
+    windows: {y5:stats, y3:stats, y1:stats} 各为_build_stats返回的dict
+    """
+    c = _star_components(score, windows)
+    return c['dd_ok'] and c['n_ok'] and c['quality']
+
+
+def _is_substitute_candidate(score, windows):
+    """判断是否为替补候选:过 dd_ok+n_ok 但非⭐️(quality 未全过)。
+    返回 (is_sub: bool, reason: str)。
+    - dd_ok 且 n_ok 且 quality 全过 = ⭐️(is_sub=False, reason='')
+    - dd_ok 或 n_ok 未过 = 既非⭐️也非替补(is_sub=False, reason='')
+    - dd_ok 且 n_ok 且 quality 未全过 = 替补(is_sub=True)
+    reason 注明未达标项(实际值<门槛),如 'win=53<55, risk_adj=1.16<1.5'。
+    用于二次测试榜补足 per-index 至少10条(⭐️不足时用替补填充)。
+    """
+    c = _star_components(score, windows)
+    if not (c['dd_ok'] and c['n_ok']):
+        return (False, '')
+    if c['quality']:
+        return (False, '')  # 是⭐️,非替补
+    fails = []
+    if not c['q_score_ok']:
+        fails.append(f"score={c['score']:.2f}<0.6")
+    if not c['q_win_ok']:
+        fails.append(f"win={c['win']:.0f}<55")
+    if not c['q_risk_ok']:
+        fails.append(f"risk_adj={c['risk_adj']:.2f}<1.5")
+    return (True, ', '.join(fails))
 
 
 def _slice_by_date_range(df, start_str, end_str):
@@ -261,6 +300,53 @@ def _run_regime_retest(df, buy_mask, sell_mask, sim_func=simulate_full_in):
     return result
 
 
+def _build_pair_slices(df, pair_id, buy_mask, sell_mask, windows, score, first_date, last_date):
+    """构建单个候选配对的3件套切片数据(⭐️与替补共用,避免重复)。
+    返回 pair_data dict(full_in top-level + fixed_10k 子对象),不含 substitute/reason 字段。
+    结构与原 star 候选输出完全一致,向后兼容。"""
+    y5_stats = windows['y5']
+    pair_data = {
+        'pair_meta': {
+            'strategy': pair_id,
+            'window': 'y5',
+            'mode': 'full_in',
+            'score': round(score, 2),
+            'n': y5_stats.get('n_trades', 0),
+            'dd': round(y5_stats.get('max_drawdown', 0) / 100, 4),
+            'win': round(y5_stats.get('win_rate', 0) / 100, 4),
+            'ret': round(y5_stats.get('total_ret', 0) / 100, 4),
+            'windows': {
+                'y5': _fmt_window_stats(windows.get('y5'), score),
+                'y3': _fmt_window_stats(windows.get('y3'), score),
+                'y1': _fmt_window_stats(windows.get('y1'), score),
+            }
+        },
+        'yearly': _run_yearly_retest(df, buy_mask, sell_mask, simulate_full_in),
+        'oos': _run_oos_retest(df, buy_mask, sell_mask, simulate_full_in),
+        'regimes': _run_regime_retest(df, buy_mask, sell_mask, simulate_full_in)
+    }
+    # fixed_10k 模式:定额1万(每次买1万最多10笔,卖信号清仓)
+    fk_y5_stats = _compute_window_stats(
+        df, buy_mask, sell_mask, first_date, last_date, 5, simulate_fixed_10k
+    )
+    pair_data['fixed_10k'] = {
+        'pair_meta': {
+            'strategy': pair_id,
+            'window': 'y5',
+            'mode': 'fixed_10k',
+            'score': round(score, 2),
+            'n': fk_y5_stats.get('n_trades', 0),
+            'dd': round(fk_y5_stats.get('max_drawdown', 0) / 100, 4),
+            'win': round(fk_y5_stats.get('win_rate', 0) / 100, 4),
+            'ret': round(fk_y5_stats.get('total_ret', 0) / 100, 4)
+        },
+        'yearly': _run_yearly_retest(df, buy_mask, sell_mask, simulate_fixed_10k),
+        'oos': _run_oos_retest(df, buy_mask, sell_mask, simulate_fixed_10k),
+        'regimes': _run_regime_retest(df, buy_mask, sell_mask, simulate_fixed_10k)
+    }
+    return pair_data
+
+
 def run_retest_for_index(iid, iname):
     """单个指数的二次测试"""
     print(f'\n[retest] {iid} ({iname})')
@@ -334,7 +420,7 @@ def run_retest_for_index(iid, iname):
 
     scores = _normalize_and_score([w.get('y5', {}) for w in all_windows])
 
-    # 第二趟:筛选⭐️候选,运行3种切片回测
+    # 第二趟:筛选⭐️候选,运行3种切片回测;非⭐️判替补(过dd_ok+n_ok但quality未全过)暂存
     output = {
         'index_id': iid,
         'index_name': iname,
@@ -343,6 +429,7 @@ def run_retest_for_index(iid, iname):
     }
 
     star_count = 0
+    substitutes = []  # 替补候选: {score, cand, reason, windows}
     for i, cand in enumerate(candidates):
         pair_id = cand['pair_id']
         windows = all_windows[i]
@@ -350,61 +437,45 @@ def run_retest_for_index(iid, iname):
 
         if not windows:
             continue
-        if not _is_star_candidate(score, windows):
+        if _is_star_candidate(score, windows):
+            star_count += 1
+            pair_data = _build_pair_slices(
+                df, pair_id, cand['buy_mask'], cand['sell_mask'],
+                windows, score, first_date, last_date
+            )
+            output['pairs'][pair_id] = pair_data
             continue
+        # 非⭐️:判替补(过dd_ok+n_ok但quality未全过),暂存不跑切片(末尾按需补跑)
+        is_sub, sub_reason = _is_substitute_candidate(score, windows)
+        if is_sub:
+            substitutes.append({'score': score, 'cand': cand, 'reason': sub_reason, 'windows': windows})
 
-        star_count += 1
-        buy_mask = cand['buy_mask']
-        sell_mask = cand['sell_mask']
-        y5_stats = windows['y5']
+    print(f'  ⭐️候选数: {star_count} · 替补池: {len(substitutes)}')
 
-        # pair_meta: strategy=pk, window=y5, score=0.xx, n/dd/win/ret 均为小数
-        # top-level 保持 full_in y5 (向后兼容:前端未改前读旧字段不报错)
-        # windows: y5/y3/y1 三窗口统计(收紧进入判定用)
-        pair_data = {
-            'pair_meta': {
-                'strategy': pair_id,
-                'window': 'y5',
-                'mode': 'full_in',
-                'score': round(score, 2),
-                'n': y5_stats.get('n_trades', 0),
-                'dd': round(y5_stats.get('max_drawdown', 0) / 100, 4),
-                'win': round(y5_stats.get('win_rate', 0) / 100, 4),
-                'ret': round(y5_stats.get('total_ret', 0) / 100, 4),
-                'windows': {
-                    'y5': _fmt_window_stats(windows.get('y5'), score),
-                    'y3': _fmt_window_stats(windows.get('y3'), score),
-                    'y1': _fmt_window_stats(windows.get('y1'), score),
-                }
-            },
-            'yearly': _run_yearly_retest(df, buy_mask, sell_mask, simulate_full_in),
-            'oos': _run_oos_retest(df, buy_mask, sell_mask, simulate_full_in),
-            'regimes': _run_regime_retest(df, buy_mask, sell_mask, simulate_full_in)
-        }
-
-        # fixed_10k 模式:定额1万(每次买1万最多10笔,卖信号清仓)
-        # 与 full_in 同一对策略候选,仅仓位管理不同,用于横向对比
-        fk_y5_stats = _compute_window_stats(
-            df, buy_mask, sell_mask, first_date, last_date, 5, simulate_fixed_10k
+    # 替补补足:per-index 目标至少10条(⭐️+替补),替补按 score 降序取前 (10-star_count) 个
+    # ⭐️已先插入 output['pairs'],替补后插保持顺序;能补多少补多少(cyb/bj50 替补池本身不足10)
+    _SUB_TARGET = 10
+    sub_take = max(0, min(_SUB_TARGET - star_count, len(substitutes)))
+    substitutes.sort(key=lambda s: s['score'], reverse=True)
+    sub_count = 0
+    for s in substitutes[:sub_take]:
+        cand = s['cand']
+        windows = s['windows']
+        score = s['score']
+        pair_id = cand['pair_id']
+        pair_data = _build_pair_slices(
+            df, pair_id, cand['buy_mask'], cand['sell_mask'],
+            windows, score, first_date, last_date
         )
-        pair_data['fixed_10k'] = {
-            'pair_meta': {
-                'strategy': pair_id,
-                'window': 'y5',
-                'mode': 'fixed_10k',
-                'score': round(score, 2),
-                'n': fk_y5_stats.get('n_trades', 0),
-                'dd': round(fk_y5_stats.get('max_drawdown', 0) / 100, 4),
-                'win': round(fk_y5_stats.get('win_rate', 0) / 100, 4),
-                'ret': round(fk_y5_stats.get('total_ret', 0) / 100, 4)
-            },
-            'yearly': _run_yearly_retest(df, buy_mask, sell_mask, simulate_fixed_10k),
-            'oos': _run_oos_retest(df, buy_mask, sell_mask, simulate_fixed_10k),
-            'regimes': _run_regime_retest(df, buy_mask, sell_mask, simulate_fixed_10k)
-        }
+        pair_data['substitute'] = True
+        pair_data['reason'] = s['reason']
         output['pairs'][pair_id] = pair_data
-
-    print(f'  ⭐️候选数: {star_count}')
+        sub_count += 1
+    # 替补池耗尽:⭐️+替补仍不足10 且替补已取完(供前端标注"达标候选不足10,已展示全部可用")
+    output['substitute_pool_exhausted'] = (star_count + sub_count < _SUB_TARGET) and (sub_count >= len(substitutes))
+    if sub_count > 0:
+        print(f'  🔵替补补入: {sub_count}(⭐️{star_count}+替补{sub_count}={star_count + sub_count}, 目标{_SUB_TARGET}' +
+              (', 池耗尽' if output['substitute_pool_exhausted'] else '') + ')')
 
     # 写入 static-site
     for base_dir in ('static-site',):
