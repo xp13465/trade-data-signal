@@ -34,6 +34,53 @@
 [data-theme="dark"] .lab-top-disclaimer b,
 [data-theme="redgold"] .lab-top-disclaimer b { color: #ff9c9a; }
 
+/* P2-3: 新手引导卡（置顶常驻，<details> 原生折叠，默认展开） */
+.lab-newbie-guide {
+  background: linear-gradient(90deg, rgba(22,119,255,0.08), rgba(22,119,255,0.02));
+  border: 1px solid rgba(22,119,255,0.28);
+  border-left: 4px solid #1677ff;
+  border-radius: 8px;
+  padding: 0 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-1);
+}
+.lab-newbie-guide-summary {
+  cursor: pointer; list-style: none; font-weight: 700; font-size: 14px;
+  color: #0958d9; padding: 12px 0; display: flex; align-items: center; justify-content: space-between;
+}
+.lab-newbie-guide-summary::-webkit-details-marker { display: none; }
+.lab-newbie-toggle { font-size: 11px; font-weight: 500; color: var(--text-3); }
+.lab-newbie-guide[open] > summary .lab-newbie-toggle::before { content: "收起 ▴"; }
+.lab-newbie-guide:not([open]) > summary .lab-newbie-toggle::before { content: "展开 ▾"; }
+.lab-newbie-guide-body { padding-bottom: 12px; }
+.lab-newbie-step {
+  display: flex; gap: 10px; align-items: flex-start; padding: 6px 0;
+}
+.lab-newbie-step-no {
+  flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+  background: #1677ff; color: #fff; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.lab-newbie-step div { flex: 1; }
+.lab-newbie-tip {
+  margin-top: 8px; padding: 8px 10px; background: var(--bg-hover); border-radius: 6px;
+  font-size: 12px; color: var(--text-2);
+}
+.lab-newbie-tip b { color: #d4380d; }
+[data-theme="dark"] .lab-newbie-guide,
+[data-theme="redgold"] .lab-newbie-guide {
+  background: linear-gradient(90deg, rgba(89,169,255,0.14), rgba(89,169,255,0.04));
+  border-color: rgba(89,169,255,0.38); border-left-color: #59a9ff;
+}
+[data-theme="dark"] .lab-newbie-guide-summary,
+[data-theme="redgold"] .lab-newbie-guide-summary { color: #69b1ff; }
+[data-theme="dark"] .lab-newbie-step-no,
+[data-theme="redgold"] .lab-newbie-step-no { background: #59a9ff; }
+[data-theme="dark"] .lab-newbie-tip b,
+[data-theme="redgold"] .lab-newbie-tip b { color: #ff9c9a; }
+
 .lab-title {
   font-size: 16px;
   color: var(--text-1);
@@ -658,6 +705,21 @@
   padding: 1px 5px;
   border-radius: 3px;
   font-weight: 400;
+}
+/* P2-3: 融合候选 n<30 样本不足灰态（整行降透明度 + 标签橙底） */
+.lab-rank-item.lab-rank-low-n { opacity: 0.62; }
+.lab-rank-item.lab-rank-low-n:hover { opacity: 0.85; }
+.lab-rank-low-n-tag {
+  color: #874d00;
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  font-weight: 500;
+}
+[data-theme="dark"] .lab-rank-low-n-tag,
+[data-theme="redgold"] .lab-rank-low-n-tag {
+  color: #ffd591;
+  background: rgba(255,193,7,0.14);
+  border-color: rgba(255,193,7,0.32);
 }
 /* 荣誉共享标注：策略在其他(指数×窗口)下的 Top3 排名徽章，点击跳转对应条件 */
 .lab-rank-honors { display: flex; gap: 4px; flex-wrap: wrap; flex: 1 1 100%; padding-top: 2px; color: var(--text-3); }

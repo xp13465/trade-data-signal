@@ -2340,6 +2340,28 @@ function _labTopDisclaimerHTML() {
     `</div>`;
 }
 
+// P2-3: 新手引导卡（置顶常驻，可折叠，<details> 原生折叠免 JS）
+// 三步导览：①推荐榜(综合评分)起点 ②点开看净值曲线 ③二次测试三切片验稳健
+function _labNewbieGuideHTML() {
+  return `<details class="lab-newbie-guide" open>` +
+    `<summary class="lab-newbie-guide-summary">🧭 新手引导 · 不熟悉回测？先看这三步 <span class="lab-newbie-toggle"></span></summary>` +
+    `<div class="lab-newbie-guide-body">` +
+    `<div class="lab-newbie-step">` +
+    `<span class="lab-newbie-step-no">1</span>` +
+    `<div><b>先看「推荐榜（综合评分）」</b>：综合评分 = 收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，评分越高综合表现越好，从高到低看起。` +
+    `</div></div>` +
+    `<div class="lab-newbie-step">` +
+    `<span class="lab-newbie-step-no">2</span>` +
+    `<div><b>点开看回测净值曲线</b>：点击任意配对查看完整净值曲线与逐笔交易记录，确认收益曲线是否平滑向上、回撤是否可承受。` +
+    `</div></div>` +
+    `<div class="lab-newbie-step">` +
+    `<span class="lab-newbie-step-no">3</span>` +
+    `<div><b>看「二次测试」三切片是否稳健</b>：标⭐️的配对可进入二次测试，看①分年回测（防某年暴利拉高）②样本外（防过拟合）③极端行情（2015股灾/2018熊/2020疫情/2024反弹各regime回撤），三者都稳才是真稳健，非偶然。` +
+    `</div></div>` +
+    `<div class="lab-newbie-tip">💡 融合实验中 <b>n&lt;30</b> 的候选已标灰「样本不足，仅供参考」——样本量小统计意义弱，收益/胜率易被极端值拉偏，谨慎参考。</div>` +
+    `</div></details>`;
+}
+
 // 融合信号实验自白黄块
 function _labFusionEssayHTML() {
   return `<div class="lab-warning-head">⚠ 融合信号实验 · 多信号共振</div>` +
@@ -2845,6 +2867,15 @@ function _labRankItemHTML(row, rank, tab) {
     tagHTML = "";
     nameHTML = `买${row.buyName} × 卖${row.sellName}`;
   }
+  // P2-3: 融合候选(91对:fusion/buy_buy/sell_sell)样本量门槛 n<30 标灰「样本不足,仅供参考」
+  // 融合组合多、单配对交易次数偏少，n<30 统计意义弱（收益/胜率/回撤易被极端值拉偏），灰态+标注提示可信度存疑。
+  // 单一配对(buy_sell)沿用原 n<10「小样本」门槛不变。
+  const isFusionType = pt !== "buy_sell";
+  const fusionLowN = isFusionType && row.n_trades > 0 && row.n_trades < 30;
+  if (fusionLowN) itemCls += " lab-rank-low-n";
+  const nBadge = fusionLowN
+    ? ' <span class="lab-rank-small lab-rank-low-n-tag">样本不足,仅供参考</span>'
+    : (row.n_trades > 0 && row.n_trades < 10 ? ' <span class="lab-rank-small">小样本</span>' : "");
   return `<button type="button" class="${itemCls}" data-buy="${row.buyKey}" data-sell="${row.sellKey}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">${nameHTML} · ${row.modeName}</span>${tagHTML}` +
@@ -2852,7 +2883,7 @@ function _labRankItemHTML(row, rank, tab) {
       `<span style="color:${retC}">收益${row.total_ret > 0 ? "+" : ""}${row.total_ret}%</span>` +
       `<span style="color:${winC}">胜${row.win_rate}%</span>` +
       `<span style="${ddC}">回撤${row.max_drawdown}%</span>` +
-      `<span class="lab-rank-n">n=${row.n_trades}${row.n_trades > 0 && row.n_trades < 10 ? ' <span class="lab-rank-small">小样本</span>' : ""}</span>` +
+      `<span class="lab-rank-n">n=${row.n_trades}${nBadge}</span>` +
     `</span>` + _labQualityHTML(row) + extra + `</button>`;
 }
 
@@ -2876,9 +2907,13 @@ function _labRankHTML(simData) {
         : tab === "ret"
           ? "收益率榜按总收益率从高到低排序。"
           : "胜率榜按胜率从高到低排序。";
+  const _isFusionRank = state.labSubMode === "fusion";
+  const sampleNote = _isFusionRank
+    ? "融合候选样本量门槛更高：n<30 标灰「样本不足,仅供参考」（融合组合多、单配对交易少，统计意义弱），n=0(无交易)沉底。"
+    : "排序：n≥10 大样本优先，0<n<10 小样本配对居中并标\"小样本\"提示可信度存疑，n=0(无交易)沉底。";
   return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口${_labHelpIcon("windows")}</span>${_labWinTabsHTML()}</div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
-    `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。排序：n≥10 大样本优先，0<n<10 小样本配对居中并标"小样本"提示可信度存疑，n=0(无交易)沉底。</div>` +
+    `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。${sampleNote}</div>` +
     `<div class="lab-rank-retest-rule">⭐️进入二次测试：近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次，且（综合评分≥0.6 且 胜率≥55% 且 风险调整≥1.5 三者同时满足）</div>` +
     _labRankFilterHTML() +
     `<div class="lab-rank-results">${_labRankResultsHTML()}</div>`;
@@ -5648,6 +5683,9 @@ async function renderSignalLab() {
 
   // C: 顶部合规声明（置顶显著，全子模式可见，非折叠）
   content.insertAdjacentHTML("beforeend", _labTopDisclaimerHTML());
+
+  // P2-3: 新手引导卡（置顶常驻，可折叠，全子模式可见）
+  content.insertAdjacentHTML("beforeend", _labNewbieGuideHTML());
 
   // === 二级导航（单一信号实验 / 融合信号实验）===
   _renderLabSubNav();
