@@ -53,6 +53,7 @@
 """
 import bisect
 import json
+import math
 import os
 import sys
 import sqlite3
@@ -174,7 +175,22 @@ def sample_curve(curve, max_points=MAX_CURVE_POINTS):
 
 
 def _build_stats(trades, final_total, last_date, equity_curve, years=None):
-    """计算统计指标。years=None 时从首笔交易日算，指定时用窗口年限。"""
+    """计算统计指标。years=None 时从首笔交易日算，指定时用窗口年限。
+
+    7 基础字段(向后兼容) + 5 质量指标(P0-P2,2026-07-15 排行榜优化追加):
+      profit_factor: 总盈利笔收益和 / 总亏损笔收益和绝对值(百分比口径，与
+        win_rate/total_ret 同源)；无亏损给哨兵 999.0(同 lab_retest._calc_risk_adj
+        惯例，排序友好：全胜策略排首位)。
+      payoff_ratio: 平均盈利 / 平均亏损绝对值；无亏损哨兵 999.0。
+      sharpe: 年化夏普(无风险0)，从 equity_curve 相邻点收益率 r_i=(v_i-v_{i-1})/v_{i-1}
+        算 mean/std × sqrt(252)。equity_curve 为事件稀疏序列(买卖日+期末打点，
+        非完整日K)，故为基于事件点收益率的近似年化值(与 max_dd 同源同口径)。
+      sortino: 年化索提诺，下行波动(仅 r<0 偏离，target=0) × sqrt(252)。
+      expectancy: 单笔期望收益率% = win_rate×avg_win + loss_rate×avg_loss
+        (win/loss_rate 用小数，avg_loss 保留负号)；trades 空给 0.0。
+    trades 为空时：profit_factor/payoff_ratio=999.0(无亏损即全胜哨兵)，
+      sharpe/sortino/expectancy=0.0。
+    """
     total_ret = (final_total - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100
     if years is None:
         if trades:
@@ -188,6 +204,7 @@ def _build_stats(trades, final_total, last_date, equity_curve, years=None):
         annual_ret = 0.0
 
     win_trades = [t for t in trades if t['ret'] > 0]
+    loss_trades = [t for t in trades if t['ret'] < 0]
     win_rate = len(win_trades) / len(trades) * 100 if trades else 0.0
 
     vals = [e['value'] for e in equity_curve]
@@ -201,6 +218,56 @@ def _build_stats(trades, final_total, last_date, equity_curve, years=None):
             if dd > max_dd:
                 max_dd = dd
 
+    # --- 质量指标(P0-P2) ---
+    _SENTINEL = 999.0  # 无亏损哨兵(同 lab_retest._calc_risk_adj 惯例)
+
+    # profit_factor / payoff_ratio：单笔 ret 百分比口径(与 win_rate/total_ret 同源)。
+    # full_in 复利每笔仓位金额不同、fixed_10k 多笔同持难拆金额，百分比口径对两模式
+    # 可比且一致；绝对金额口径需追踪每笔仓位，复杂且收益不可比，故不采用。
+    win_rets = [t['ret'] for t in win_trades]
+    loss_rets = [t['ret'] for t in loss_trades]  # 负值
+    sum_win = sum(win_rets)
+    sum_loss = sum(loss_rets)  # 负值
+    avg_win = sum_win / len(win_trades) if win_trades else 0.0
+    avg_loss = sum(loss_rets) / len(loss_trades) if loss_trades else 0.0  # 负值
+
+    if not loss_trades or sum_loss == 0:
+        profit_factor = _SENTINEL
+        payoff_ratio = _SENTINEL
+    else:
+        profit_factor = sum_win / abs(sum_loss)
+        payoff_ratio = avg_win / abs(avg_loss)
+
+    # sharpe / sortino：equity_curve 相邻点收益率(事件稀疏，近似日收益)。
+    # r_i = (v_i - v_{i-1}) / v_{i-1}，需前值>0(避免初始0除)。
+    daily_rets = []
+    for i in range(1, len(vals)):
+        prev = vals[i - 1]
+        if prev > 0:
+            daily_rets.append((vals[i] - prev) / prev)
+    if len(daily_rets) >= 2:
+        mean_r = sum(daily_rets) / len(daily_rets)
+        var_r = sum((r - mean_r) ** 2 for r in daily_rets) / (len(daily_rets) - 1)
+        std_r = math.sqrt(var_r) if var_r > 0 else 0.0
+        # 下行波动：仅 r<0 的偏离(target=0)，用整体均值无偏估计口径(除以N)
+        downside = [min(0.0, r - mean_r) for r in daily_rets]
+        down_var = sum(d * d for d in downside) / len(downside)
+        down_std = math.sqrt(down_var) if down_var > 0 else 0.0
+        ann = math.sqrt(252)
+        sharpe = (mean_r / std_r * ann) if std_r > 0 else 0.0
+        sortino = (mean_r / down_std * ann) if down_std > 0 else 0.0
+    else:
+        sharpe = 0.0
+        sortino = 0.0
+
+    # expectancy：单笔期望收益率% = win_rate(小数)×avg_win + loss_rate(小数)×avg_loss
+    if trades:
+        wr = len(win_trades) / len(trades)
+        lr = len(loss_trades) / len(trades)
+        expectancy = wr * avg_win + lr * avg_loss
+    else:
+        expectancy = 0.0
+
     return {
         'total_ret': round(total_ret, 2),
         'annual_ret': round(annual_ret, 1),
@@ -209,6 +276,13 @@ def _build_stats(trades, final_total, last_date, equity_curve, years=None):
         'n_trades': len(trades),
         'final_total': round(final_total, 2),
         'years': round(years, 1),
+        # 质量指标(P0-P2)：profit_factor/payoff_ratio 无亏损哨兵999.0；
+        # sharpe/sortino/expectancy 无数据或零波动给0.0
+        'profit_factor': round(profit_factor, 2),
+        'payoff_ratio': round(payoff_ratio, 2),
+        'sharpe': round(sharpe, 2),
+        'sortino': round(sortino, 2),
+        'expectancy': round(expectancy, 2),
     }
 
 
