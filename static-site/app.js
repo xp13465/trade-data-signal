@@ -255,12 +255,22 @@ function signalColor(s) {
   return "#2e8b57";
 }
 
-// markPoint 标签文案：buy→"买"、buy_aux→"辅买"、sell→"卖"。
+// markPoint 标签文案（P0-4 去指令化 + P0-3 主标签精简）：
+// buy/sell/止盈/买点失败 → 中性研究标注描述（非交易指令）；完整 reason 收进 hover tooltip。
+// buy→超卖拐点、buy_aux→下轨拐点、freeze→冰点；
+// sell 按 reason 子串细分：止盈→盈亏+X%(从 reason 提取 vs前买 比例)、买点失败→前买失效、其余→趋势转弱。
 function signalLabel(s) {
-  if (s.signal === "buy") return "买";
-  if (s.signal === "buy_aux") return "辅买";
+  if (s.signal === "buy") return "超卖拐点";
+  if (s.signal === "buy_aux") return "下轨拐点";
   if (s.signal === "freeze") return "冰点";
-  return "卖";
+  const r = s.reason || "";
+  if (r.includes("止盈")) {
+    const m = r.match(/vs前买\s*([+-]?\d+(?:\.\d+)?)\s*%/);
+    if (m) return "盈亏" + m[1] + "%";
+    return "盈亏拐点";
+  }
+  if (r.includes("买点失败")) return "前买失效";
+  return "趋势转弱";
 }
 
 // 情绪分文字标签：散户秒懂，数值旁边加标签
@@ -369,7 +379,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
       dayItems.sort((a, b) => (a.value ?? 99) - (b.value ?? 99));
     }
     const cellHtml = (it) => kind === "signal"
-      ? `<span class="sig-item sig-clickable" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
+      ? `<span class="sig-item sig-clickable" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
       : `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     const dateLabel = fmtDate(dt);
     // 同日数据超过 4 个时按 4 个/行分块换行，每行重复日期（不做合并单元格效果）。
@@ -679,11 +689,27 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
     return {
       coord: [s.date, o ? o.close : null],
       value: signalLabel(s),
+      reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
       itemStyle: { color: signalColor(s) },
     };
   });
   c.setOption(withTheme({
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      // P0-3: hover 信号日时追加完整 reason（主标签已在 pin 上，技术细节进 tooltip）
+      formatter: function (params) {
+        const d = params[0], dt = d.axisValue;
+        const o = ohlc.find((x) => x.date === dt);
+        let tip = fmtDate(dt);
+        if (o && o.close != null) {
+          tip += "<br/>收盘 " + o.close.toFixed(2);
+          if (o.pct_change != null) tip += ' <span style="color:' + (o.pct_change >= 0 ? "#e6492e" : "#2e8b57") + '">' + (o.pct_change >= 0 ? "+" : "") + o.pct_change.toFixed(2) + "%</span>";
+        }
+        const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
+        for (const m of marks) tip += '<br/><b style="color:' + m.itemStyle.color + '">● ' + m.value + "</b> " + m.reason;
+        return tip;
+      }
+    },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: ohlc.map((d) => d.date) },
     yAxis: { type: "value", scale: true },
@@ -722,11 +748,24 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
     return {
       coord: [s.date, p ? p.value : null],
       value: signalLabel(s),
+      reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
       itemStyle: { color: signalColor(s) },
     };
   });
   c.setOption(withTheme({
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      // P0-3: hover 信号日时追加完整 reason
+      formatter: function (params) {
+        const d = params[0], dt = d.axisValue;
+        const p = data.find((x) => x.date === dt);
+        let tip = fmtDate(dt);
+        if (p && p.value != null) tip += "<br/>" + Number(p.value).toFixed(2);
+        const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
+        for (const m of marks) tip += '<br/><b style="color:' + m.itemStyle.color + '">● ' + m.value + "</b> " + m.reason;
+        return tip;
+      }
+    },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: data.map((d) => d.date) },
     yAxis: { type: "value", scale: true },
@@ -1273,7 +1312,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   renderLoadingState(body);
   const name = indexIdToName(indexId);
   const isFreeze = signal === "freeze";
-  const sigLabel = signal === "buy" ? "买" : signal === "buy_aux" ? "辅买" : signal === "sell" ? "卖" : isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signal;
+  const sigLabel = signal === "buy" ? "超卖拐点" : signal === "buy_aux" ? "下轨拐点" : signal === "sell" ? "趋势转弱" : isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signal;
   titleEl.textContent = `${name} · ${sigLabel} · ${fmtDate(date)}`;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -2916,6 +2955,45 @@ async function renderOverview() {
       content.insertBefore(banner, content.firstChild);
       const histBtn = banner.querySelector(".summary-history-btn");
       if (histBtn) histBtn.addEventListener("click", openSummaryHistoryModal);
+      // P0-2 多指数共振冰点：≥3 个宽基情绪分同时冰点(<20)时，横幅转红 + 共振聚合提示
+      // 数据来自 overview today.scores（6 宽基：上证50/沪深300/中证500/中证1000/创业板/科创50情绪分）
+      const _BROAD_SENT_IDS = ["sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50"];
+      const _ovScores = (r.today && r.today.scores) || {};
+      const _frozenList = [];
+      for (const sid of _BROAD_SENT_IDS) {
+        const sc = _ovScores[sid];
+        if (sc && (sc.is_freeze || (sc.value != null && sc.value < 20))) {
+          _frozenList.push({ id: sid, name: indexIdToName(sid), value: sc.value, date: sc.date });
+        }
+      }
+      if (_frozenList.length >= 3) {
+        let _firstSince = "";
+        try {
+          const sall = await fetchJSON("./data/sentiment-all.json");
+          if (state.tab !== 'overview') return;
+          // 扫描历史，找上一个 ≥3 宽基同日冰点的日期，算"近X月首次"
+          const _dfc = {};
+          for (const sid of _BROAD_SENT_IDS) {
+            for (const d of (sall[sid] || [])) {
+              if (d.is_freeze || (d.value != null && d.value < 20)) _dfc[d.date] = (_dfc[d.date] || 0) + 1;
+            }
+          }
+          const _curDate = _frozenList[0].date || r.date;
+          const _prevDates = Object.keys(_dfc).filter(d => d !== _curDate && _dfc[d] >= 3).sort();
+          if (_prevDates.length) {
+            const _prev = _prevDates[_prevDates.length - 1];
+            const _mo = (+_curDate.slice(0, 4) - +_prev.slice(0, 4)) * 12 + (+_curDate.slice(4, 6) - +_prev.slice(4, 6));
+            _firstSince = _mo >= 12 ? `近${Math.floor(_mo / 12)}年首次` : _mo >= 1 ? `近${_mo}月首次` : "近1月内首次";
+          } else {
+            _firstSince = "数据期内首次";
+          }
+        } catch (e) { /* best-effort，无历史数据则不显示"首次" */ }
+        const _names = _frozenList.map(f => `${f.name}=${f.value != null ? f.value.toFixed(1) : "-"}`).join("、");
+        const resBanner = document.createElement("div");
+        resBanner.className = "freeze-resonance-banner";
+        resBanner.innerHTML = `<span class="fr-icon">⚠️</span><span class="fr-text"><b>${_frozenList.length}/6 宽基情绪分进入冰点区</b>${_firstSince ? ` · ${_firstSince}` : ""}</span><span class="fr-detail">${_names}</span>`;
+        content.insertBefore(resBanner, banner);
+      }
     }
   }).catch(() => {});
 
@@ -2976,6 +3054,29 @@ async function renderOverview() {
       amount: m.amount,
     });
   }
+  // P0-1 数据诚信披露：collect_health 标记 error/disabled 但未在 KPI 展示的指标，显示灰态卡片而非静默隐藏。
+  // 研究工具立身之本——用户必须知道哪些指标当前采集异常（数据源中断），诚信 > 美观。
+  const _DISABLED_METRIC_NAMES = {
+    a_fund_main: "主力净流入", a_width_zb_count: "炸板数", a_width_seal_rate: "封板率",
+    a_turnover_mean: "换手率均值", a_turnover_median: "换手率中位数", a_turnover_p90: "换手率90分位",
+    a_turnover_p10: "换手率10分位", a_turnover_gt5_pct: "换手率>5%占比",
+  };
+  const _existingKpiIds = new Set(kpiCards.map(k => k.id));
+  const _chItems = (r.collect_health && r.collect_health.items) || [];
+  for (const it of _chItems) {
+    if (it.status !== "error" && it.status !== "disabled") continue;
+    if (_existingKpiIds.has(it.metric_id)) continue;  // 已正常展示的指标不重复加灰态卡
+    kpiCards.push({
+      id: it.metric_id,
+      title: _DISABLED_METRIC_NAMES[it.metric_id] || it.metric_id,
+      value: "采集异常",
+      valueNum: null,
+      sub: "数据源中断",
+      date: r.date,
+      tag: "异常",
+      disabled: true,
+    });
+  }
   // ---- A+B 组合默认排序 + 用户拖拽自定义 ----
   // B(核心情绪前置): a_sentiment/cross_market/fear_greed 三张情绪温度计排最前
   // A(异常度优先): 组内带异常 tag(冰点/过热) 或 signal(放量/缩量) 的卡排前
@@ -3022,7 +3123,7 @@ async function renderOverview() {
   const cards = document.createElement("div");
   cards.className = "cards kpi-row";
   for (const k of _orderedCards) {
-    const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : "stale";
+    const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : k.disabled ? "disabled" : "stale";
     const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
     const sentTag = k.id === "a_sentiment" || k.id === "cross_market" ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
     const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
@@ -3066,7 +3167,8 @@ async function renderOverview() {
     };
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}" data-kpi-key="${k.id}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}<div class="card-title">${k.title}${_widthTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
+    const _disabledTip = k.disabled ? termTip("该指标当前采集异常（数据源中断），暂无数据。恢复后自动显示。") : "";
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}" data-kpi-key="${k.id}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}<div class="card-title">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
   cards.addEventListener("click", (e) => {
@@ -3109,7 +3211,7 @@ async function renderOverview() {
   const _kpiCanDrag = !('ontouchstart' in window || navigator.maxTouchPoints > 0);
   let _draggedKpi = null;
   if (_kpiCanDrag) {
-    cards.querySelectorAll(".card.kpi").forEach(c => { c.draggable = true; });
+    cards.querySelectorAll(".card.kpi:not(.kpi-disabled)").forEach(c => { c.draggable = true; });
     cards.addEventListener("dragstart", (e) => {
       const c = e.target.closest(".card.kpi");
       if (!c) return;
@@ -3600,6 +3702,7 @@ async function renderMarket() {
     ["a-stock", "A股"],
     ["hk", "港股"],
     ["global", "全球"],
+    ["futures", "期货"],
     ["national-team", "🐶 汪汪队"],
   ];
   subtabs.forEach(([key, label]) => {
@@ -3626,7 +3729,31 @@ async function renderMarket() {
   if (state.subtab === "a-stock") await renderAStock(subContent);
   else if (state.subtab === "hk") await renderHK(subContent);
   else if (state.subtab === "global") await renderGlobal(subContent);
+  else if (state.subtab === "futures") await renderFutures(subContent);
   else if (state.subtab === "national-team") await renderNationalTeam(subContent);
+}
+
+// ============ 期货机构净多空持仓（P0-5 独立入口，原仅嵌在情绪 tab） ============
+// 渲染到传入容器（大盘 tab 的 subContent）；复用 renderFuturesSection 的全部图表/表格逻辑。
+async function renderFutures(container) {
+  _disposeContainerCharts(container);
+  renderLoadingState(container);
+  let futures;
+  try {
+    futures = await fetchJSON("./data/futures.json");
+  } catch (e) {
+    renderErrorState(container, e, () => renderFutures(container));
+    return;
+  }
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+  const snap = state.intradaySnapshot;
+  container.innerHTML = "";
+  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看中金所股指期货机构(前20会员/中信/国君)净多空持仓变化,作市场情绪参考。<b>怎么解读</b>:机构净多空为正=偏看多、为负=偏看空;但极端值常为<strong>反向参考</strong>(极度看多可能见顶)。历史同向/逆向准确率辅助判断,均不构成未来预测。</div>');
+  if (futures && futures.positions && futures.positions.length) {
+    renderFuturesSection(futures, snap, container);
+  } else {
+    container.insertAdjacentHTML("beforeend", '<div class="empty-note">暂无期货持仓数据</div>');
+  }
 }
 
 // ============ 🐶 汪汪队：国家队宽基 ETF 资金动向 ============
@@ -5109,8 +5236,10 @@ function renderSentimentHeatmap(r, snap) {
 }
 
 // 期货机构持仓：净持仓比例折线图 + 方向准确率表格
-function renderFuturesSection(data, snap) {
+function renderFuturesSection(data, snap, container) {
   if (!data || !data.positions || !data.positions.length) return;
+  // P0-5: container 可选，默认 content（兼容情绪 tab 内嵌调用）；期货独立 subtab 传入 subContent
+  const _fgHost = container || content;
 
   const roles = ["机构(前20)", "中信期货", "国泰君安"];
   const products = ["沪深300期货", "中证500期货", "上证50期货", "中证1000期货", "综合"];
@@ -5118,7 +5247,7 @@ function renderFuturesSection(data, snap) {
   // 期货区统一套 .indices-grid 3列网格(最小宽度700)：表格卡+折线图+说明卡同网格，视觉统一
   const fgGrid = document.createElement("div");
   fgGrid.className = "indices-grid";
-  content.appendChild(fgGrid);
+  _fgHost.appendChild(fgGrid);
 
   // 1. 昨日净多空概览卡片
   if (data.summary && data.summary.roles) {
@@ -5680,6 +5809,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
       return {
         coord: [s.date, o ? o.close : null],
         value: signalLabel(s),
+        reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
         itemStyle: { color: signalColor(s) },
       };
     });
@@ -5694,6 +5824,9 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         if (d.pct_change != null) lines.push(`涨跌 ${d.pct_change >= 0 ? "+" : ""}${d.pct_change.toFixed(2)}%`);
         const od = _indOHL(id, idx, p[0].dataIndex);
         if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
+        // P0-3: 信号日追加完整 reason
+        const marks = markData.filter((m) => m.coord[0] === p[0].axisValue && m.reason);
+        for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${m.reason}`);
         return lines.join("<br/>");
       } },
       series: [{
@@ -6813,7 +6946,7 @@ initUpdateRules();
 // 大盘 tab 的二级 tab 也写进 hash：#market/{subtab}（如 #market/national-team=汪汪队），
 // F5 刷新解析恢复二级 tab，避免刷新回退到默认 a 股。
 const _MAIN_TABS = ["overview", "market", "sentiment", "industry"];
-const _MARKET_SUBTABS = ["a-stock", "hk", "global", "national-team"];
+const _MARKET_SUBTABS = ["a-stock", "hk", "global", "futures", "national-team"];
 function _setTabHash(tab) {
   let h = "#" + tab;
   if (tab === "market" && state.subtab) h = "#market/" + state.subtab;

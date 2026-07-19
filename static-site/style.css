@@ -624,6 +624,17 @@ main { padding: 16px 24px; }
 .card.kpi .card-title { position: relative; padding-right: 18px; }
 .card.kpi .card-title .term-tip { position: absolute; top: 1px; right: 0; margin-left: 0; }
 .tag.stale { background: #faad14; }
+/* P0-1 数据诚信：采集异常指标灰态卡片（不静默隐藏，让用户明确知道该指标当前数据源中断） */
+.tag.disabled { background: #909399; }
+.card.kpi.kpi-disabled { opacity: 0.62; background: var(--bg-2, var(--bg)); border-style: dashed; }
+.card.kpi.kpi-disabled .cv-val { color: var(--text-3); font-size: 18px; }
+.card.kpi.kpi-disabled .card-sub { color: #e6a23c; }
+.card.kpi.kpi-disabled[draggable="true"] { cursor: not-allowed; }
+/* P0-2 多指数共振冰点横幅（≥3 宽基情绪分同时冰点时转红聚合提示） */
+.freeze-resonance-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; margin: 0 0 8px 0; border-radius: var(--radius-card, 10px); background: linear-gradient(90deg, #c62828, #e6492e); color: #fff; font-size: 14px; box-shadow: 0 2px 8px rgba(198, 40, 40, 0.3); }
+.freeze-resonance-banner .fr-icon { font-size: 18px; flex-shrink: 0; }
+.freeze-resonance-banner .fr-text b { font-size: 15px; }
+.freeze-resonance-banner .fr-detail { font-size: 12px; opacity: 0.92; width: 100%; }
 
 /* KPI 拖拽排序视觉反馈 + 重置按钮 */
 .card.kpi[draggable="true"] { cursor: grab; }
