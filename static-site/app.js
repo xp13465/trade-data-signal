@@ -3049,7 +3049,9 @@ async function renderOverview() {
     });
   }
   for (const m of r.today.metrics || []) {
-    if (isStaleMetric(m.date, r.date)) continue;  // 停更指标隐藏（如北向资金 2024-08 起停更），恢复更新后自动显示
+    // 北向资金等源端长期停更(2024-08 起)：不再隐藏,恢复显示末日值并叠加"数据停更"水印(见 KPI 卡渲染),
+    // 恢复更新后 isStaleMetric 自动转 false,水印消失。
+    const _stale = isStaleMetric(m.date, r.date);
     kpiCards.push({
       id: m.id,
       title: m.name,
@@ -3060,6 +3062,7 @@ async function renderOverview() {
       tag: "",
       signal: m.signal || "",
       amount: m.amount,
+      stale: _stale,
     });
   }
   // P0-1 数据诚信披露：collect_health 标记 error/disabled 但未在 KPI 展示的指标，显示灰态卡片而非静默隐藏。
@@ -3176,7 +3179,9 @@ async function renderOverview() {
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
     const _disabledTip = k.disabled ? termTip("该指标当前采集异常（数据源中断），暂无数据。恢复后自动显示。") : "";
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}" data-kpi-key="${k.id}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
+    // 源端停更水印：半透明"数据停更"叠在卡片中部,不遮蔽数值(pointer-events:none 点击穿透到卡片)
+    const _staleWm = k.stale ? '<span class="stale-watermark">数据停更</span>' : "";
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}" data-kpi-key="${k.id}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
   cards.addEventListener("click", (e) => {
@@ -3465,6 +3470,27 @@ async function renderOverview() {
     if (nt && nt.date) addCardTimeBadge(ntCard, nt.date, snap, "etf");
   }
   colA2.appendChild(ntCard);
+
+  // 汪汪队首次解释：复用 showIntroOnce 弹窗,localStorage[nt_intro_done] 标记后不再弹。
+  // 加 _ntIntroScheduled 守卫,确保整页生命周期只调度一次(避免 tab 反复切换重复 setTimeout)。
+  if (!window._ntIntroScheduled) {
+    window._ntIntroScheduled = true;
+    showIntroOnce({
+      key: 'nt_intro_done',
+      title: '🐶 汪汪队是什么',
+      delay: 2000,
+      steps: [
+        {
+          icon: '🐶', title: '汪汪队是什么',
+          body: '<b>汪汪队</b>=宽基 ETF 份额变动跟踪,观察份额增减与成交放量。追踪 12 只宽基 ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动 + 成交额放量。<b>ETF 份额 T+1 发布</b>,数据日期可能为 T-1。'
+        },
+        {
+          icon: '🎨', title: '信号怎么看',
+          body: '<b>进</b>=份额增+z>2+放量(<span style="color:#e6492e">红</span>) / <b>出</b>=份额减+z<-2+放量(<span style="color:#2e8b57">绿</span>) / <b>量</b>=成交额>5日均2倍(<span style="color:#ff9800">橙</span>)。<b>共振</b>=进/出≥2只、量≥3只宽基同日同步异动。点击下方信号 chip 查看当日明细。'
+        }
+      ]
+    });
+  }
 
 
   // ---- 3. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----
@@ -7114,92 +7140,110 @@ function initUpdateRules() {
 }
 
 
-// P2-1: 首次访问 onboarding 3 步引导（localStorage 标记后不再弹）
-function initOnboarding() {
-  try {
-    if (localStorage.getItem('onboarding_done')) return;
-  } catch (e) { return; }
+// 通用"首次解释"弹窗：复用 onboarding 的 rule-modal 多步引导,localStorage 标记后不再弹。
+// 参数：key(localStorage 键)/title(标题)/steps([{icon,title,body}])/delay(毫秒,首屏稳定后再弹)。
+// 已有引导弹窗打开时自动延后,避免与 onboarding 等重叠；关闭时清理 DOM 与键盘监听。
+function showIntroOnce(opts) {
+  try { if (localStorage.getItem(opts.key)) return; } catch (e) { return; }
+  const steps = opts.steps || [];
+  if (!steps.length) return;
 
-  const steps = [
-    {
-      icon: '🌡️', title: '看情绪分',
-      body: '综合情绪分 <b>0-100</b>,越低越恐慌。<b>≤20 是冰点</b>(人人恐慌,往往是历史低位),<b>≥80 是过热</b>(人人贪婪,常见于高位)。中间区域观望为主。'
-    },
-    {
-      icon: '❄️', title: '看冰点共振',
-      body: '多个宽基指数(上证50 / 沪深300 / 中证500 等)同时跌入冰点,称为<b>"冰点共振"</b>。历史上常对应市场低位区域,是逆向布局的参考信号(对应首页"共振冰点"卡片)。'
-    },
-    {
-      icon: '🧪', title: '看策略实验室(进阶)',
-      body: '想深入?策略实验室提供 <b>82 品种买卖点回测</b>、信号消融分析、蒙特卡洛模拟,帮你理解每个信号的历史表现与稳健性。'
-    }
-  ];
-  let cur = 0;
+  const fire = () => {
+    try { if (localStorage.getItem(opts.key)) return; } catch (e) { return; }
+    // 已有引导弹窗打开则延后再试,避免重叠
+    if (document.querySelector('.onboarding-modal:not(.hidden)')) { setTimeout(fire, 800); return; }
 
-  const modal = document.createElement('div');
-  modal.className = 'rule-modal hidden onboarding-modal';
-  modal.innerHTML =
-    '<div class="rule-modal-overlay"></div>' +
-    '<div class="rule-modal-body onboarding-body">' +
-      '<div class="rule-modal-header"><h3>👋 新朋友,3 步看懂本站</h3></div>' +
-      '<div class="onboarding-content"></div>' +
-      '<div class="onboarding-footer">' +
-        '<a class="onboarding-skip" href="javascript:void(0)">跳过,下次不再显示</a>' +
-        '<div class="onboarding-nav">' +
-          '<button class="onboarding-prev">上一步</button>' +
-          '<span class="onboarding-dots"></span>' +
-          '<button class="onboarding-next">下一步</button>' +
+    let cur = 0;
+    const modal = document.createElement('div');
+    modal.className = 'rule-modal hidden onboarding-modal';
+    modal.innerHTML =
+      '<div class="rule-modal-overlay"></div>' +
+      '<div class="rule-modal-body onboarding-body">' +
+        '<div class="rule-modal-header"><h3>' + opts.title + '</h3></div>' +
+        '<div class="onboarding-content"></div>' +
+        '<div class="onboarding-footer">' +
+          '<a class="onboarding-skip" href="javascript:void(0)">跳过,下次不再显示</a>' +
+          '<div class="onboarding-nav">' +
+            '<button class="onboarding-prev">上一步</button>' +
+            '<span class="onboarding-dots"></span>' +
+            '<button class="onboarding-next">下一步</button>' +
+          '</div>' +
         '</div>' +
-      '</div>' +
-    '</div>';
-  document.body.appendChild(modal);
-
-  const contentEl = modal.querySelector('.onboarding-content');
-  const dotsEl = modal.querySelector('.onboarding-dots');
-  const prevBtn = modal.querySelector('.onboarding-prev');
-  const nextBtn = modal.querySelector('.onboarding-next');
-  const skipLink = modal.querySelector('.onboarding-skip');
-  const overlay = modal.querySelector('.rule-modal-overlay');
-
-  function renderDots() {
-    dotsEl.innerHTML = steps.map(function (_, i) {
-      return '<span class="onboarding-dot' + (i === cur ? ' active' : '') + '"></span>';
-    }).join('');
-  }
-  function render() {
-    const s = steps[cur];
-    contentEl.innerHTML =
-      '<div class="onboarding-step">' +
-        '<div class="onboarding-icon">' + s.icon + '</div>' +
-        '<div class="onboarding-step-title">' + s.title + '</div>' +
-        '<div class="onboarding-step-body">' + s.body + '</div>' +
       '</div>';
-    prevBtn.style.visibility = cur === 0 ? 'hidden' : 'visible';
-    nextBtn.textContent = cur === steps.length - 1 ? '完成' : '下一步';
-    renderDots();
-  }
-  function done() {
-    try { localStorage.setItem('onboarding_done', '1'); } catch (e) {}
-    modal.classList.add('hidden');
-    document.body.style.overflow = '';
-  }
+    document.body.appendChild(modal);
 
-  prevBtn.addEventListener('click', function () { if (cur > 0) { cur--; render(); } });
-  nextBtn.addEventListener('click', function () {
-    if (cur < steps.length - 1) { cur++; render(); } else { done(); }
-  });
-  skipLink.addEventListener('click', done);
-  overlay.addEventListener('click', done);
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) done();
-  });
+    const contentEl = modal.querySelector('.onboarding-content');
+    const dotsEl = modal.querySelector('.onboarding-dots');
+    const prevBtn = modal.querySelector('.onboarding-prev');
+    const nextBtn = modal.querySelector('.onboarding-next');
+    const skipLink = modal.querySelector('.onboarding-skip');
+    const overlay = modal.querySelector('.rule-modal-overlay');
 
-  render();
-  // 首屏渲染稳定后再弹,避免与 loading 闪烁重叠
-  setTimeout(function () {
+    function renderDots() {
+      dotsEl.innerHTML = steps.map(function (_, i) {
+        return '<span class="onboarding-dot' + (i === cur ? ' active' : '') + '"></span>';
+      }).join('');
+    }
+    function render() {
+      const s = steps[cur];
+      contentEl.innerHTML =
+        '<div class="onboarding-step">' +
+          '<div class="onboarding-icon">' + s.icon + '</div>' +
+          '<div class="onboarding-step-title">' + s.title + '</div>' +
+          '<div class="onboarding-step-body">' + s.body + '</div>' +
+        '</div>';
+      prevBtn.style.visibility = cur === 0 ? 'hidden' : 'visible';
+      nextBtn.textContent = cur === steps.length - 1 ? '完成' : '下一步';
+      renderDots();
+    }
+    function done() {
+      try { localStorage.setItem(opts.key, '1'); } catch (e) {}
+      modal.classList.add('hidden');
+      document.body.style.overflow = '';
+      document.removeEventListener('keydown', onKey);
+      modal.remove();
+    }
+    function onKey(e) {
+      if (e.key === 'Escape' && !modal.classList.contains('hidden')) done();
+    }
+
+    prevBtn.addEventListener('click', function () { if (cur > 0) { cur--; render(); } });
+    nextBtn.addEventListener('click', function () {
+      if (cur < steps.length - 1) { cur++; render(); } else { done(); }
+    });
+    skipLink.addEventListener('click', done);
+    overlay.addEventListener('click', done);
+    document.addEventListener('keydown', onKey);
+
+    render();
     modal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
-  }, 900);
+  };
+
+  setTimeout(fire, opts.delay || 900);
+}
+
+// P2-1: 首次访问 onboarding 3 步引导（localStorage 标记后不再弹）
+function initOnboarding() {
+  showIntroOnce({
+    key: 'onboarding_done',
+    title: '👋 新朋友,3 步看懂本站',
+    delay: 900,
+    steps: [
+      {
+        icon: '🌡️', title: '看情绪分',
+        body: '综合情绪分 <b>0-100</b>,越低越恐慌。<b>≤20 是冰点</b>(人人恐慌,往往是历史低位),<b>≥80 是过热</b>(人人贪婪,常见于高位)。中间区域观望为主。'
+      },
+      {
+        icon: '❄️', title: '看冰点共振',
+        body: '多个宽基指数(上证50 / 沪深300 / 中证500 等)同时跌入冰点,称为<b>"冰点共振"</b>。历史上常对应市场低位区域,是逆向布局的参考信号(对应首页"共振冰点"卡片)。'
+      },
+      {
+        icon: '🧪', title: '看策略实验室(进阶)',
+        body: '想深入?策略实验室提供 <b>82 品种买卖点回测</b>、信号消融分析、蒙特卡洛模拟,帮你理解每个信号的历史表现与稳健性。'
+      }
+    ]
+  });
 }
 
 initNavStickyToggle();

@@ -309,6 +309,16 @@ main { padding: 16px 24px; }
 .card-time-badge.t1-severe { color: #c62828; border-color: rgba(198,40,40,0.6); background: rgba(198,40,40,0.2); }
 /* 数据停更(源端长期停更/公式损坏/半年报,非采集故障)：灰色,区别于滞后(黄)/异常(红) */
 .card-time-badge.stale-mark { color: var(--text-3); border-color: var(--border-strong); background: rgba(128,128,128,0.15); }
+/* 数据停更水印：北向资金等源端长期停更指标,半透明灰字斜叠卡片中部,叠加不遮蔽数值(点击穿透) */
+.stale-watermark {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%) rotate(-18deg);
+  font-size: 20px; font-weight: 700; letter-spacing: 2px; white-space: nowrap;
+  color: rgba(128,128,128,0.32);
+  border: 2px solid rgba(128,128,128,0.28); border-radius: 6px; padding: 1px 10px;
+  pointer-events: none; z-index: 1; user-select: none;
+}
+.card.kpi-stale .card-value { opacity: 0.92; }
 /* === 数据更新规则弹窗：各数据源实时时效区块（原首页数据时效横幅移入弹窗）=== */
 .ur-freshness { margin-top: 4px; }
 .ur-fsummary { font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
