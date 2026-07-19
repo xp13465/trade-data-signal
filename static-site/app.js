@@ -2883,7 +2883,7 @@ async function renderOverview() {
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>一屏看懂全市场</b>:情绪温度计(冷热)+市场宽度(涨跌家数/新高新低)+估值位置(历史分位)+买卖信号,综合判断当前情绪偏冷(贪婪区)还是偏热(恐惧区)。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>今天 A 股多冷多热?一眼看全</b>:情绪分(0-100,越低越恐慌)+涨跌家数+历史位置+拐点提示,综合判断当前偏冷还是偏热。</div>');
   // 数据时效栏已移入"数据更新规则"弹窗（ℹ️ 图标入口），首页不再展示健康横幅。
 
   // ---- 0. 一句话总结横幅 ----
@@ -6931,6 +6931,94 @@ function initUpdateRules() {
 }
 
 
+// P2-1: 首次访问 onboarding 3 步引导（localStorage 标记后不再弹）
+function initOnboarding() {
+  try {
+    if (localStorage.getItem('onboarding_done')) return;
+  } catch (e) { return; }
+
+  const steps = [
+    {
+      icon: '🌡️', title: '看情绪分',
+      body: '综合情绪分 <b>0-100</b>,越低越恐慌。<b>≤20 是冰点</b>(人人恐慌,往往是历史低位),<b>≥80 是过热</b>(人人贪婪,常见于高位)。中间区域观望为主。'
+    },
+    {
+      icon: '❄️', title: '看冰点共振',
+      body: '多个宽基指数(上证50 / 沪深300 / 中证500 等)同时跌入冰点,称为<b>"冰点共振"</b>。历史上常对应市场低位区域,是逆向布局的参考信号(对应首页"共振冰点"卡片)。'
+    },
+    {
+      icon: '🧪', title: '看策略实验室(进阶)',
+      body: '想深入?策略实验室提供 <b>82 品种买卖点回测</b>、信号消融分析、蒙特卡洛模拟,帮你理解每个信号的历史表现与稳健性。'
+    }
+  ];
+  let cur = 0;
+
+  const modal = document.createElement('div');
+  modal.className = 'rule-modal hidden onboarding-modal';
+  modal.innerHTML =
+    '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body onboarding-body">' +
+      '<div class="rule-modal-header"><h3>👋 新朋友,3 步看懂本站</h3></div>' +
+      '<div class="onboarding-content"></div>' +
+      '<div class="onboarding-footer">' +
+        '<a class="onboarding-skip" href="javascript:void(0)">跳过,下次不再显示</a>' +
+        '<div class="onboarding-nav">' +
+          '<button class="onboarding-prev">上一步</button>' +
+          '<span class="onboarding-dots"></span>' +
+          '<button class="onboarding-next">下一步</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+
+  const contentEl = modal.querySelector('.onboarding-content');
+  const dotsEl = modal.querySelector('.onboarding-dots');
+  const prevBtn = modal.querySelector('.onboarding-prev');
+  const nextBtn = modal.querySelector('.onboarding-next');
+  const skipLink = modal.querySelector('.onboarding-skip');
+  const overlay = modal.querySelector('.rule-modal-overlay');
+
+  function renderDots() {
+    dotsEl.innerHTML = steps.map(function (_, i) {
+      return '<span class="onboarding-dot' + (i === cur ? ' active' : '') + '"></span>';
+    }).join('');
+  }
+  function render() {
+    const s = steps[cur];
+    contentEl.innerHTML =
+      '<div class="onboarding-step">' +
+        '<div class="onboarding-icon">' + s.icon + '</div>' +
+        '<div class="onboarding-step-title">' + s.title + '</div>' +
+        '<div class="onboarding-step-body">' + s.body + '</div>' +
+      '</div>';
+    prevBtn.style.visibility = cur === 0 ? 'hidden' : 'visible';
+    nextBtn.textContent = cur === steps.length - 1 ? '完成' : '下一步';
+    renderDots();
+  }
+  function done() {
+    try { localStorage.setItem('onboarding_done', '1'); } catch (e) {}
+    modal.classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  prevBtn.addEventListener('click', function () { if (cur > 0) { cur--; render(); } });
+  nextBtn.addEventListener('click', function () {
+    if (cur < steps.length - 1) { cur++; render(); } else { done(); }
+  });
+  skipLink.addEventListener('click', done);
+  overlay.addEventListener('click', done);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) done();
+  });
+
+  render();
+  // 首屏渲染稳定后再弹,避免与 loading 闪烁重叠
+  setTimeout(function () {
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }, 900);
+}
+
 initNavStickyToggle();
 initStickyOffset();
 initBackToTop();
@@ -6939,6 +7027,7 @@ initH5();
 initSimOverlay();
 initShareButton();
 initThemeSwitcher();
+initOnboarding();
 initUpdateRules();
 
 // === 主 tab hash 记忆 + 滚动位置恢复 ===
