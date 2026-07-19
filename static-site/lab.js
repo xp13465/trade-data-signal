@@ -2773,7 +2773,7 @@ function _labRankItemHTML(row, rank, tab) {
   let extra = "";
   if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
   else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 998 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
-  if (row.retest) extra += '<span class="lab-rank-retest" title="进入二次测试规则:近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次,且(综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0)">⭐️进入二次测试</span>';
+  if (row.retest) extra += '<span class="lab-rank-retest" title="点击跳转到「🔬 二次测试实验」页，对该配对做独立回测验证（分年回测/样本外/极端行情三件套）并高亮定位。进入规则:近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次,且(综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0)">⭐️进入二次测试</span>';
   // 配对类型 -> 名称格式 + 视觉标识（紫色 #9c27b0）
   const pt = row.pair_type || "buy_sell";
   let nameHTML, tagHTML, itemCls = "lab-rank-item clickable-card";
