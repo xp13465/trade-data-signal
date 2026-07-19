@@ -987,6 +987,12 @@
   background: #e3f2fd; padding: 1px 6px; border-radius: 4px;
   border: 1px solid #90caf9; white-space: nowrap; flex-shrink: 0;
 }
+/* 融合9指数后卡片/排行行的所属指数标签(小号浅色圆角tag) */
+.lab-idx-tag {
+  font-size: 10.5px; font-weight: 600; color: var(--text-3);
+  background: var(--bg-hover); padding: 1px 6px; border-radius: 4px;
+  border: 1px solid var(--border); white-space: nowrap; flex-shrink: 0;
+}
 /* 替补池耗尽提示(达标候选不足10) */
 .lab-retest-exhausted { color: #c62828; font-weight: 600; }
 .lab-retest-pair-win { color: var(--primary); font-weight: 600; }
@@ -1114,6 +1120,8 @@
 [data-theme="redgold"] .lab-retest-sub-reason { background: var(--bg-hover); color: #64b5f6; border-color: var(--border-strong); }
 [data-theme="dark"] .lab-retest-rank-sub,
 [data-theme="redgold"] .lab-retest-rank-sub { background: var(--bg-hover); color: #64b5f6; border-color: var(--border-strong); }
+[data-theme="dark"] .lab-idx-tag,
+[data-theme="redgold"] .lab-idx-tag { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
 [data-theme="dark"] .lab-rank-honor-badge[data-rank="1"],
 [data-theme="redgold"] .lab-rank-honor-badge[data-rank="1"] { background: var(--bg-hover); color: var(--text-2); border-color: var(--border-strong); }
 [data-theme="dark"] .lab-rank-honor-badge[data-rank="2"],

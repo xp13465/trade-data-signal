@@ -3690,6 +3690,13 @@ function _labRetestWinCN(win) {
   return cn || win || "-";
 }
 
+// 二次测试分类按钮(融合9指数后,按候选类型过滤:主候选/替补/全部)
+const LAB_RETEST_ZONES = [
+  { key: "star", label: "⭐️ 主候选" },
+  { key: "sub", label: "🔵 替补" },
+  { key: "all", label: "全部" },
+];
+
 // retest 维度榜 tabs（8维：综合1 + 整体4 + 二次测试3。整体4维支持5窗口切换，二次测试3维窗口无关）
 const LAB_RETEST_RANK_TABS = [
   { key: "score", label: "🏆综合(二次)" },
@@ -3713,15 +3720,15 @@ function _labRetestMinMax(rows, key) {
   return (v) => (v == null || isNaN(v)) ? 0.5 : (rng === 0 ? 0.5 : (v - mn) / rng);
 }
 
-// 聚合 retest pairs -> 行：算8维指标（归一化 across 该指数所有 pair）+ 各综合分。
-// pair_meta 全小数（0.27=27%），显示时×100%。归一化在同一指数内所有 pair 一起算 min/max。
-function _labRetestRankRows(rd, simData, winKey) {
-  if (!rd || !rd.pairs) return [];
-  const pks = Object.keys(rd.pairs);
+// 聚合 retest pairs -> 行：算8维指标（归一化 across 全部9指数所有 pair）+ 各综合分。
+// pair_meta 全小数（0.27=27%），显示时×100%。融合9指数后归一化跨全部指数一起算 min/max。
+function _labRetestRankRows(allPairs, simMap, winKey) {
+  if (!allPairs || allPairs.length === 0) return [];
   const wk = winKey || "y5"; // 5窗口切换：默认 y5（与 retest 后端窗口一致）
   // 从单个 data( top-level=full_in 或 pd.fixed_10k )提取一行原始指标
   // mode 决定整体4维从 simData pd2[mode].stats[wk] 取，以及 modeCn 标注
-  const extract = (pk, data, mode) => {
+  // simData 按 pair 所属指数从 simMap 取(融合9指数,每 pair 对应各自指数的 simData)
+  const extract = (pk, data, mode, simData) => {
     const meta = data.pair_meta || {};
     // 整体4维(ret/win/dd/n)：优先用单信号 simData 该窗口该模式 stats（支持5窗口切换）；
     // simData 缺失或该窗口无数据时回退 pair_meta（后端 y5 值）。
@@ -3803,22 +3810,26 @@ function _labRetestRankRows(rd, simData, winKey) {
       profit_factor: pf, payoff_ratio: pr, sharpe: sh, sortino: so, expectancy: ex,
     };
   };
-  // Pass1：每对出2行(全仓 full_in + 定额10% fixed_10k)，fixed_10k 缺失则只出 full_in
+  // Pass1：每对出2行(全仓 full_in + 定额10% fixed_10k)，fixed_10k 缺失则只出 full_in。
+  // 融合9指数:遍历 allPairs,每 pair 按所属指数取 simData,行携带 index/index_name/cardid
   const raw = [];
-  pks.forEach((pk) => {
-    const pd = rd.pairs[pk] || {};
-    const isSub = !!pd.substitute;
-    const subReason = pd.reason || "";
-    const fr = extract(pk, pd, "full_in");
+  allPairs.forEach((item) => {
+    const pd = item.pd || {};
+    const isSub = !!item.substitute;
+    const subReason = item.reason || "";
+    const sd = simMap ? (simMap[item.index] || null) : null;
+    const fr = extract(item.pk, pd, "full_in", sd);
     fr.substitute = isSub; fr.subReason = subReason;
+    fr.index = item.index; fr.index_name = item.index_name; fr.cardid = item.cardid;
     raw.push(fr);
     if (pd.fixed_10k) {
-      const fxr = extract(pk, pd.fixed_10k, "fixed_10k");
+      const fxr = extract(item.pk, pd.fixed_10k, "fixed_10k", sd);
       fxr.substitute = isSub; fxr.subReason = subReason;
+      fxr.index = item.index; fxr.index_name = item.index_name; fxr.cardid = item.cardid;
       raw.push(fxr);
     }
   });
-  // Pass2：各指标 min-max 归一（across 该指数所有 pair 的全仓+定额行）
+  // Pass2：各指标 min-max 归一（across 全部9指数所有 pair 的全仓+定额行）
   const retN = _labRetestMinMax(raw, "ret");
   const winN = _labRetestMinMax(raw, "win");
   const ddN = _labRetestMinMax(raw, "dd");
@@ -3882,15 +3893,15 @@ function _labRetestSmallTag(flag) {
 }
 
 // 荣誉共享标注：返回 row.pk 在"其他(指数×窗口)"下的 Top3 排名徽章 HTML。
-// 当前选中(idx,win)的荣誉不标(只标其他条件)；最多显示 4 枚避免拥挤。
+// 融合9指数后每行有自己的 index,排除该行自身(idx,win)的荣誉(只标其他条件)；最多显示 4 枚避免拥挤。
 // 徽章 = 奖牌emoji + 短标签(同指数显窗口名/异指数显指数名+窗口名)，点击跳转对应条件。
-function _labRetestHonorsHTML(pk) {
+function _labRetestHonorsHTML(pk, rowIdx, rowWin) {
   const honors = state.labRetestHonors;
   if (!honors || !pk) return "";
   const list = honors[pk];
   if (!list || !list.length) return "";
-  const curIdx = state.labSimIndex || "sh";
-  const curWin = state.labRetestRankWindow || "y5";
+  const curIdx = rowIdx || state.labSimIndex || "sh";
+  const curWin = rowWin || state.labRetestRankWindow || "y5";
   // 排除当前(idx,win)；荣誉已按 rank 升序存，取前 4 条
   const shown = list.filter((h) => !(h.idx === curIdx && h.win === curWin)).slice(0, 4);
   if (!shown.length) return "";
@@ -3906,42 +3917,39 @@ function _labRetestHonorsHTML(pk) {
   return `<span class="lab-rank-honors">🏆其他条件排名 ${badges}</span>`;
 }
 
-// 荣誉徽章点击：跳转到对应(指数,窗口)。同指数仅切窗口直接重渲染右榜；跨指数触发整页重载。
+// 荣誉徽章点击：跳转到对应(指数,窗口)。融合9指数后无单指数切换,直接切窗口重渲染右榜+复合键高亮。
 function _labRetestHonorJump(hidx, hwin, focusPk) {
-  state._labRetestRankFocusPk = focusPk || null; // 右榜行高亮(消费于 rerender/rerenderResults 末尾)
-  state.labRetestHighlight = focusPk || null; // 左卡片高亮(跨指数 reload 时由 _labRetestRenderCards 末尾消费)
   state.labRetestRankWindow = hwin;
   state.labRetestRankShowAll = false;
-  const curIdx = state.labSimIndex || "sh";
-  if (hidx !== curIdx) {
-    if (state._labRetestReload) state._labRetestReload(hidx);
-  } else {
-    const sec = state._labRetestRankSection;
-    if (sec) {
-      const rd = (state.labRetestDataMap && state.labRetestDataMap[curIdx]) || null;
-      const simData = (state.labSimDataMap && state.labSimDataMap[curIdx]) || null;
-      _labRetestRankRerender(sec, rd, simData);
-    }
-    // 同指数:左卡片不重渲,手动高亮匹配 pk 的左卡片(跨指数由 reload 内 _labRetestRenderCards 消费 labRetestHighlight)
-    if (focusPk) _labRetestHighlightCard(document.querySelector(".lab-retest-list"), focusPk);
+  // 复合键高亮:融合后 pk 跨指数重复,用 hidx::pk 精确定位行/卡片
+  const focusKey = focusPk ? (hidx + "::" + focusPk) : null;
+  state._labRetestRankFocusPk = focusKey; // 右榜行高亮(消费于 rerender/rerenderResults 末尾)
+  const sec = state._labRetestRankSection;
+  if (sec) {
+    _labRetestRankRerender(sec, state.labRetestAllPairs || [], state.labRetestSimMap || {});
   }
+  // 左卡片高亮(卡片未重渲,直接定位;若被 zone 过滤不可见则静默放弃)
+  if (focusKey) _labRetestHighlightCard(document.querySelector(".lab-retest-list"), focusKey);
 }
 
 // 跳转后高亮焦点行:滚动到视图中央 + 金色高亮边框 + 短暂闪烁,让用户一眼看到跳转到哪了。
 // 消费 state._labRetestRankFocusPk(一次性)。目标行若被"前20"截断则自动展开全部重渲再定位;仍找不到(被过滤)则静默放弃。
-function _labRetestRankFindItem(section, pk) {
+function _labRetestRankFindItem(section, key) {
   let found = null;
-  section.querySelectorAll(".lab-rank-item").forEach((n) => { if (n.dataset.pk === pk) found = n; });
+  // 融合9指数后 pk 跨指数重复,优先按复合键 cardid 精确匹配,回退按 pk 匹配首个
+  section.querySelectorAll(".lab-rank-item").forEach((n) => {
+    if (n.dataset.cardid === key || (!found && n.dataset.pk === key)) found = n;
+  });
   return found;
 }
-function _labRetestRankFocusHighlight(section, rd, simData) {
+function _labRetestRankFocusHighlight(section, allPairs, simMap) {
   const pk = state._labRetestRankFocusPk;
   if (!pk) return;
   state._labRetestRankFocusPk = null; // 先消费,避免下方展开重渲时 rerenderResults 递归重复高亮
   let el = _labRetestRankFindItem(section, pk);
   if (!el && !state.labRetestRankShowAll) {
     state.labRetestRankShowAll = true; // 目标在前20之外,展开全部
-    _labRetestRankRerenderResults(section, rd, simData); // 内部再调本函数时 pk 已空,直接 return
+    _labRetestRankRerenderResults(section, allPairs, simMap); // 内部再调本函数时 pk 已空,直接 return
     el = _labRetestRankFindItem(section, pk);
   }
   if (!el) return; // 被过滤面板挡掉,放弃
@@ -3994,12 +4002,14 @@ function _labRetestRankItemHTML(row, rank, tab) {
   const subBadge = row.substitute
     ? `<span class="lab-retest-rank-sub" title="${row.subReason || "未达标"}">🔵替补</span>`
     : "";
-  return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}" data-mode="${row.mode}">` +
+  const idxTag = row.index_name ? `<span class="lab-idx-tag">${row.index_name}</span>` : "";
+  return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}" data-idx="${row.index || ""}" data-cardid="${row.cardid || ""}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">${row.cn} · ${row.modeCn}</span>` +
+    idxTag +
     subBadge +
     `<span class="lab-rank-stats">${baseStats}</span>` +
-    _labQualityHTML(row) + extra + _labRetestHonorsHTML(row.pk) + `</button>`;
+    _labQualityHTML(row) + extra + _labRetestHonorsHTML(row.pk, row.index, state.labRetestRankWindow || "y5") + `</button>`;
 }
 
 // retest 排行榜过滤维度（值是小数 0.1=10%，isPct 字段过滤时×100 与输入百分数比较）
@@ -4047,16 +4057,11 @@ function _labRetestRankFilterHTML() {
     `<button type="button" class="lab-rank-freset" style="${_LAB_FSTYLE.reset}">重置</button></div>`;
 }
 
-function _labRetestRankHTML(rd, simData) {
-  if (!rd) return '<div class="lab-rank-empty">二次测试数据加载失败，请稍后重试</div>';
+function _labRetestRankHTML(allPairs, simMap) {
+  if (!allPairs) return '<div class="lab-rank-empty">二次测试数据加载失败，请稍后重试</div>';
   const winKey = state.labRetestRankWindow || "y5"; // 5窗口切换：整体4维取自 simData stats[winKey]
-  // 指数选择器（与左栏联动，切指数触发 state._labRetestReload 重载该指数数据）
-  const curIdx = (simData && simData.index_id) || state.labSimIndex || "sh";
-  const idxBtns = LAB_SIM_INDEXES.map((x) =>
-    `<button type="button" class="lab-idx-tab${x.id === curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
-  ).join("");
-  const idxBarHTML = `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtns}</div></div>`;
-  const rows = _labRetestRankRows(rd, simData, winKey);
+  // 融合9指数:无指数选择器(已由左栏分类按钮 zone 替代),行跨全部指数归一化
+  const rows = _labRetestRankRows(allPairs, simMap, winKey);
   if (rows.length === 0) return '<div class="lab-rank-empty">暂无二次测试候选配对</div>';
   state.labRetestRankRows = rows;
   const tab = state.labRetestRankTab || "score";
@@ -4082,8 +4087,7 @@ function _labRetestRankHTML(rd, simData) {
               : tab === "oos"
                 ? "样本外榜=0.4test收益+0.4低过拟合+0.2test胜率（前70%训练后30%验证防过拟合）。"
                 : "极端行情榜=股灾/熊市抗跌+反弹能涨（疫情无交易则跳过不扣分）。";
-  return idxBarHTML +
-    `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${winTabsHTML}<span class="lab-win-bar-cur">${(LAB_WIN_DEFS.find((w) => w.k === winKey) || {}).l || ""}</span></div>` +
+  return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${winTabsHTML}<span class="lab-win-bar-cur">${(LAB_WIN_DEFS.find((w) => w.k === winKey) || {}).l || ""}</span></div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看整体回测详情+二次测试三切片。红=好，绿=差。</div>` +
     _labRetestRankFilterHTML() +
@@ -4093,7 +4097,11 @@ function _labRetestRankHTML(rd, simData) {
 function _labRetestRankResultsHTML() {
   const rows = state.labRetestRankRows || [];
   const tab = state.labRetestRankTab || "score";
-  const filtered = _labRetestRankApplyFilter(rows);
+  let filtered = _labRetestRankApplyFilter(rows);
+  // zone 过滤(与左卡片一致:star=主候选 !substitute / sub=替补 substitute / all=全部)
+  const zone = state.labRetestZone || "star";
+  if (zone === "star") filtered = filtered.filter((r) => !r.substitute);
+  else if (zone === "sub") filtered = filtered.filter((r) => r.substitute);
   const sorted = _labRetestRankSort(filtered, tab);
   const showAll = !!state.labRetestRankShowAll;
   const shown = showAll ? sorted : sorted.slice(0, 20);
@@ -4107,26 +4115,22 @@ function _labRetestRankResultsHTML() {
   return countHTML + `<div class="lab-rank-list">${itemsHTML}</div>` + moreBtn;
 }
 
-// retest 右榜行 hover：hover 某行时，若左侧卡片有同 pk 配对，加 lab-hover-link 弱化高亮提示关联（区别于跳转强高亮 lab-retest-focus）。离开移除。
-// 双向：左卡片 hover -> 右榜可见范围内同 pk 行高亮（不可见不高亮，不自动滚动）。
-// 遍历比较 dataset.pk（pk 含 | 等字符，避免属性选择器转义问题）。
+// retest 右榜行 hover：hover 某行时，若左侧卡片有同配对(指数+策略)，加 lab-hover-link 弱化高亮提示关联。
+// 双向：左卡片 hover -> 右榜可见范围内同配对行高亮（不可见不高亮，不自动滚动）。
+// 融合9指数后 pk 跨指数重复,改用复合键 cardid(index::pk) 精确匹配。
 function _labRetestRankAttachItemHover(section) {
   _labHoverLinkAttach({
     rankScope: section,
     cardSelector: ".lab-retest-card",
     itemSelector: ".lab-rank-item",
-    cardKey: function (c) { return c.getAttribute("data-pk") || ""; },
-    itemKey: function (it) { return it.dataset.pk || ""; },
+    cardKey: function (c) { return c.getAttribute("data-cardid") || c.getAttribute("data-pk") || ""; },
+    itemKey: function (it) { return it.dataset.cardid || it.dataset.pk || ""; },
     isRelated: function (a, b) { return !!a && a === b; },
     itemContainer: function () { return section.querySelector(".lab-rank-list"); },
   });
 }
 
-function _labRetestRankAttachHandlers(section, rd, simData) {
-  // 指数切换：与左栏联动，触发 state._labRetestReload 重载该指数数据
-  section.querySelectorAll(".lab-idx-tab").forEach((btn) => {
-    btn.onclick = () => { if (state._labRetestReload) state._labRetestReload(btn.dataset.idx); };
-  });
+function _labRetestRankAttachHandlers(section, allPairs, simMap) {
   // 过滤输入：实时过滤（只刷新结果区，保留输入焦点不重建面板）
   section.querySelectorAll(".lab-rank-finput").forEach((inp) => {
     let _labRetestFilterTimer;
@@ -4135,59 +4139,71 @@ function _labRetestRankAttachHandlers(section, rd, simData) {
       state.labRetestRankFilter[inp.dataset.fk] = inp.value;
       state.labRetestRankShowAll = false;
       clearTimeout(_labRetestFilterTimer);
-      _labRetestFilterTimer = setTimeout(() => _labRetestRankRerenderResults(section, rd, simData), 100);
+      _labRetestFilterTimer = setTimeout(() => _labRetestRankRerenderResults(section, allPairs, simMap), 100);
     });
   });
   const freset = section.querySelector(".lab-rank-freset");
   if (freset) freset.onclick = () => {
     state.labRetestRankFilter = _labRetestRankDefaultFilter();
     state.labRetestRankShowAll = false;
-    _labRetestRankRerender(section, rd, simData); // 重置需重建面板清空输入框
+    _labRetestRankRerender(section, allPairs, simMap); // 重置需重建面板清空输入框
   };
   section.querySelectorAll(".lab-rank-tab").forEach((btn) => {
-    btn.onclick = () => { state.labRetestRankTab = btn.dataset.tab; state.labRetestRankShowAll = false; _labRetestRankRerender(section, rd, simData); };
+    btn.onclick = () => { state.labRetestRankTab = btn.dataset.tab; state.labRetestRankShowAll = false; _labRetestRankRerender(section, allPairs, simMap); };
   });
-  // 5窗口切换（整体4维随窗口从 simData stats[win] 重算重排）
+  // 5窗口切换（整体4维随窗口从 simMap 对应指数 stats[win] 重算重排）
   section.querySelectorAll(".lab-win-tab[data-win]").forEach((btn) => {
-    btn.onclick = () => { state.labRetestRankWindow = btn.dataset.win; state.labRetestRankShowAll = false; _labRetestRankRerender(section, rd, simData); };
+    btn.onclick = () => { state.labRetestRankWindow = btn.dataset.win; state.labRetestRankShowAll = false; _labRetestRankRerender(section, allPairs, simMap); };
   });
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
-    item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
+    item.onclick = () => {
+      // 融合后同一 pk 可跨指数出现,按行的 data-idx 取对应指数的 rd 传给弹窗
+      const idx = item.dataset.idx;
+      const rd = (state.labRetestDataMap && state.labRetestDataMap[idx]) || null;
+      _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
+    };
   });
-  _labRetestRankAttachItemHover(section); // hover 行高亮左卡片同 pk 配对（关联提示）
+  _labRetestRankAttachItemHover(section); // hover 行高亮左卡片同配对(复合键匹配)
   _labRetestRankAttachBadges(section); // 荣誉徽章点击(跳转其他条件，stopPropagation 不触发行弹窗)
   const more = section.querySelector(".lab-rank-more");
-  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
+  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, allPairs, simMap); };
 }
 
-function _labRetestRankRerenderResults(section, rd, simData) {
+function _labRetestRankRerenderResults(section, allPairs, simMap) {
   const res = section.querySelector(".lab-rank-results");
   if (!res) return;
   res.innerHTML = _labRetestRankResultsHTML();
   section.querySelectorAll(".lab-rank-item").forEach((item) => {
-    item.onclick = () => _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
+    item.onclick = () => {
+      const idx = item.dataset.idx;
+      const rd = (state.labRetestDataMap && state.labRetestDataMap[idx]) || null;
+      _labRetestPairOpenModal(rd, item.dataset.pk, item.dataset.mode);
+    };
   });
   _labRetestRankAttachItemHover(section); // 局部刷新后重绑 hover
   _labRetestRankAttachBadges(section); // 局部刷新结果区后重绑徽章
   const more = section.querySelector(".lab-rank-more");
-  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, rd, simData); };
-  _labRetestRankFocusHighlight(section, rd, simData); // 跳转高亮(无 focusPk 时直接 return)
+  if (more) more.onclick = () => { state.labRetestRankShowAll = !state.labRetestRankShowAll; _labRetestRankRerenderResults(section, allPairs, simMap); };
+  _labRetestRankFocusHighlight(section, allPairs, simMap); // 跳转高亮(无 focusKey 时直接 return)
 }
 
-function _labRetestRankRerender(section, rd, simData) {
+function _labRetestRankRerender(section, allPairs, simMap) {
   const body = section.querySelector(".lab-rank-body");
-  if (body) body.innerHTML = _labRetestRankHTML(rd, simData);
-  _labRetestRankAttachHandlers(section, rd, simData);
-  _labRetestRankFocusHighlight(section, rd, simData); // 跳转高亮(同指数切窗口/跨指数 reload 均经此)
+  if (body) body.innerHTML = _labRetestRankHTML(allPairs, simMap);
+  _labRetestRankAttachHandlers(section, allPairs, simMap);
+  _labRetestRankFocusHighlight(section, allPairs, simMap); // 跳转高亮(切窗口/荣誉跳转均经此)
 }
 
 // 左卡片高亮（共用）：定位+滚动+金色边框 lab-retest-focus + 短暂闪烁。返回是否找到并高亮。
 // 用于：①推荐榜"⭐️进入二次测试"跳转 ②荣誉徽章(🥇近10年等)跳转后高亮左卡片。
 // 纯高亮，不设右榜焦点（右榜焦点由调用方通过 _labRetestRankFocusPk 单独设）。
-function _labRetestHighlightCard(list, pk) {
-  if (!list || !pk) return false;
+function _labRetestHighlightCard(list, key) {
+  if (!list || !key) return false;
   let card = null;
-  list.querySelectorAll(".lab-retest-card").forEach((c) => { if (c.dataset.pk === pk) card = c; });
+  // 融合9指数后 pk 跨指数重复,优先按复合键 cardid(index::pk)精确匹配,回退按 pk 匹配首个
+  list.querySelectorAll(".lab-retest-card").forEach((c) => {
+    if (c.dataset.cardid === key || (!card && c.dataset.pk === key)) card = c;
+  });
   if (!card) return false;
   list.querySelectorAll(".lab-retest-focus").forEach((n) => n.classList.remove("lab-retest-focus", "lab-retest-focus-flash"));
   try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (_) {}
@@ -4200,20 +4216,30 @@ function _labRetestHighlightCard(list, pk) {
   return true;
 }
 
-// 左栏候选配对卡片：每配对1张紧凑卡（中文名+窗口+综合分+胜率/回撤/n），点击弹窗
-function _labRetestRenderCards(list, rd) {
-  if (!rd) { list.innerHTML = '<div class="lab-rank-empty">二次测试数据加载失败</div>'; return; }
-  if (rd === null) { list.innerHTML = '<div class="lab-rank-empty">暂无二次测试数据</div>'; return; }
-  const pks = rd.pairs ? Object.keys(rd.pairs) : [];
-  if (pks.length === 0) { list.innerHTML = '<div class="lab-rank-empty">暂无二次测试候选配对</div>'; return; }
-  list.innerHTML = pks.map((pk) => {
-    const meta = (rd.pairs[pk] && rd.pairs[pk].pair_meta) || {};
-    const cn = _labRetestPairCN(meta.strategy || pk);
+// 左栏候选配对卡片：融合9指数后按 zone(主候选/替补/全部)过滤,每卡标所属指数+⭐️/🔵,点击弹窗
+function _labRetestRenderCards(list, allPairs) {
+  if (!allPairs || allPairs.length === 0) { list.innerHTML = '<div class="lab-rank-empty">暂无二次测试候选配对</div>'; return; }
+  // 按 zone 过滤 (star=主候选 !substitute / sub=替补 substitute / all=全部)
+  const zone = state.labRetestZone || "star";
+  let shown = allPairs;
+  if (zone === "star") shown = allPairs.filter((a) => !a.substitute);
+  else if (zone === "sub") shown = allPairs.filter((a) => a.substitute);
+  if (shown.length === 0) {
+    const tip = zone === "star" ? "主候选暂无达标配对(均未达 0.6 分/55% 胜率/1.5 风险调整阈值)，试试 🔵替补" :
+      zone === "sub" ? "替补暂无配对" : "暂无二次测试候选配对";
+    list.innerHTML = `<div class="lab-rank-empty">${tip}</div>`;
+    return;
+  }
+  list.innerHTML = shown.map((item) => {
+    const meta = (item.pd && item.pd.pair_meta) || {};
+    const cn = _labRetestPairCN(meta.strategy || item.pk);
     const winCn = _labRetestWinCN(meta.window);
     const score = meta.score != null ? (meta.score * 100).toFixed(0) : "-";
-    return `<div class="lab-strategy-card lab-retest-card clickable-card" data-pk="${pk}">` +
+    const starBadge = item.substitute ? "🔵" : "⭐️";
+    const idxTag = `<span class="lab-idx-tag">${item.index_name}</span>`;
+    return `<div class="lab-strategy-card lab-retest-card clickable-card" data-pk="${item.pk}" data-idx="${item.index}" data-cardid="${item.cardid}">` +
       `<div class="lab-card-top">` +
-      `<span class="lab-card-name">⭐️ ${cn}</span>` +
+      `<span class="lab-card-name">${starBadge} ${cn} ${idxTag}</span>` +
       `<span class="lab-rank-score">评分 ${score}</span>` +
       `</div>` +
       `<div class="lab-card-trigger">窗口: ${winCn} · 样本: ${meta.n != null ? meta.n : "-"}</div>` +
@@ -4222,18 +4248,23 @@ function _labRetestRenderCards(list, rd) {
       `</div>`;
   }).join("");
   list.querySelectorAll(".lab-retest-card").forEach((card) => {
-    card.onclick = () => _labRetestPairOpenModal(rd, card.dataset.pk);
+    card.onclick = () => {
+      // 融合后同一 pk 可跨指数出现,按 card 的 data-idx 取对应指数的 rd 传给弹窗
+      const idx = card.dataset.idx;
+      const rd = (state.labRetestDataMap && state.labRetestDataMap[idx]) || null;
+      _labRetestPairOpenModal(rd, card.dataset.pk);
+    };
   });
-  // 跳转高亮：从推荐榜"⭐️进入二次测试"/荣誉徽章跨指数跳转来时，定位+高亮该配对卡片
-  // 消费 state.labRetestHighlight（一次性）。key 找不到则静默放弃（不报错）。
+  // 跳转高亮：从推荐榜"⭐️进入二次测试"/荣誉徽章跳转来时，定位+高亮该配对卡片
+  // 消费 state.labRetestHighlight（一次性，可为 pk 或复合 cardid）。key 找不到则静默放弃（不报错）。
   if (state.labRetestHighlight) {
-    const pk = state.labRetestHighlight;
+    const key = state.labRetestHighlight;
     state.labRetestHighlight = null;
-    if (_labRetestHighlightCard(list, pk)) {
+    if (_labRetestHighlightCard(list, key)) {
       // 转写给右排行榜:右榜随后渲染(_labRetestRankRerender 在本函数之后调用),
       // 其末尾 _labRetestRankFocusHighlight 会消费 _labRetestRankFocusPk,
       // 自动 scrollIntoView + lab-rank-focus 金色高亮(含前20外自动展开),复用现成机制。
-      state._labRetestRankFocusPk = pk;
+      state._labRetestRankFocusPk = key;
     }
   }
 }
@@ -4255,15 +4286,26 @@ async function renderRetestLab() {
   leftCol.appendChild(purposeNote);
   leftCol.appendChild(essayWarn);
 
-  // 指数选择器（复用 LAB_SIM_INDEXES，代替融合的 zone-tabs）
-  const curIdx = state.labSimIndex || "sh";
-  const idxBtns = LAB_SIM_INDEXES.map((x) =>
-    `<button type="button" class="lab-idx-tab${x.id === curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
-  ).join("");
-  const idxBar = document.createElement("div");
-  idxBar.className = "lab-win-bar";
-  idxBar.innerHTML = `<span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtns}</div>`;
-  leftCol.appendChild(idxBar);
+  // 分类按钮(融合9指数:主候选/替补/全部,代替原9指数选择器。用户不再需要逐个指数点击找有数据的)
+  if (!state.labRetestZone) state.labRetestZone = "star";
+  const zoneBar = document.createElement("div");
+  zoneBar.className = "lab-zone-tabs";
+  LAB_RETEST_ZONES.forEach((z) => {
+    const btn = document.createElement("button");
+    btn.className = "lab-zone-tab" + (state.labRetestZone === z.key ? " active" : "");
+    btn.textContent = z.label;
+    btn.onclick = () => {
+      if (state.labRetestZone === z.key) return;
+      state.labRetestZone = z.key;
+      zoneBar.querySelectorAll(".lab-zone-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      state.labRetestRankShowAll = false;
+      _labRetestRenderCards(list, state.labRetestAllPairs || []);
+      _labRetestRankRerenderResults(rankSection, state.labRetestAllPairs || [], state.labRetestSimMap || {});
+      _applyRetestSearch();
+    };
+    zoneBar.appendChild(btn);
+  });
+  leftCol.appendChild(zoneBar);
 
   // 搜索框（按策略名/条件模糊过滤配对卡片列表，大小写不敏感，照搬单一信号/融合实验左侧搜索）
   const searchWrap = document.createElement("div");
@@ -4307,31 +4349,47 @@ async function renderRetestLab() {
   wrapper.appendChild(rightCol);
   content.appendChild(wrapper);
 
-  // 加载 + 渲染（左卡片 + 右榜）
+  // 加载 + 渲染（左卡片 + 右榜）：Promise.all 聚合9个 lab_retest_{index}.json + 9个 simData
   const _load = async () => {
-    const idx = state.labSimIndex || "sh";
-    const rd = await fetchLabRetestData(idx);
-    // 加载单信号 stats simData（含融合候选，排行榜5窗口切换需读 stats[win]）
-    const simData = await fetchLabSimData(idx);
+    const [retestList, simList] = await Promise.all([
+      Promise.all(LAB_SIM_INDEXES.map((x) => fetchLabRetestData(x.id))),
+      Promise.all(LAB_SIM_INDEXES.map((x) => fetchLabSimData(x.id))),
+    ]);
     await fetchLabRetestHonors(); // 荣誉共享标注表(全局单文件，首次加载后缓存)
-    _labRetestRenderCards(list, rd);
-    _labRetestRankRerender(rankSection, rd, simData);
-    _applyRetestSearch(); // 切指数重渲染卡片后，重新应用搜索过滤（保留搜索状态）
+    // simMap: { index_id -> simData }，8维整体4维按 pair 所属指数取对应 simData stats
+    const simMap = {};
+    LAB_SIM_INDEXES.forEach((x, i) => { simMap[x.id] = simList[i]; });
+    state.labRetestSimMap = simMap;
+    // 聚合 allPairs: 合并9个 rd.pairs，每个 pair 补 index/index_name(指数在 rd 顶层,pair 内无此字段)
+    // 复合键 cardid = index::pk (pk 跨指数重复,19/30 个策略对在多指数出现,须用复合键区分)
+    const allPairs = [];
+    retestList.forEach((rd) => {
+      if (!rd || !rd.pairs) return;
+      const index = rd.index_id;
+      const index_name = rd.index_name || _labIdxName(index);
+      Object.keys(rd.pairs).forEach((pk) => {
+        const pd = rd.pairs[pk];
+        allPairs.push({
+          pk, pd, index, index_name,
+          cardid: index + "::" + pk,
+          substitute: !!pd.substitute,
+          reason: pd.reason || "",
+        });
+      });
+    });
+    // 跨指数按 pair_meta.score 降序(主候选在前,替补在后;同分按 cardid 字母序稳定排序)
+    allPairs.sort((a, b) => {
+      const sa = (a.pd.pair_meta && a.pd.pair_meta.score != null) ? a.pd.pair_meta.score : -1;
+      const sb = (b.pd.pair_meta && b.pd.pair_meta.score != null) ? b.pd.pair_meta.score : -1;
+      if (sb !== sa) return sb - sa;
+      return a.cardid < b.cardid ? -1 : 1;
+    });
+    state.labRetestAllPairs = allPairs;
+    _labRetestRenderCards(list, allPairs);
+    _labRetestRankRerender(rankSection, allPairs, simMap);
+    _applyRetestSearch(); // 重渲染卡片后，重新应用搜索过滤（保留搜索状态）
   };
   _load();
-
-  // 指数切换（左栏 + 右栏排行榜共用）：注册到 state._labRetestReload，右栏 idxBar 切换也调用同一重载
-  state._labRetestReload = async (newIdx) => {
-    state.labSimIndex = newIdx;
-    idxBar.querySelectorAll(".lab-idx-tab").forEach((b) => b.classList.toggle("active", b.dataset.idx === newIdx));
-    list.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
-    const body = rankSection.querySelector(".lab-rank-body");
-    if (body) body.innerHTML = '<div class="lab-rank-loading">⏳ 加载中…</div>';
-    await _load();
-  };
-  idxBar.querySelectorAll(".lab-idx-tab").forEach((btn) => {
-    btn.onclick = () => state._labRetestReload(btn.dataset.idx);
-  });
 }
 
 // === 二次测试配对弹窗（上半=整体回测详情照抄单一信号实验，下半=三切片强化）===
