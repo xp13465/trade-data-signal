@@ -3475,15 +3475,17 @@ function _renderLabSubNav() {
   // 信号扫描(scan)为父tab，下挂3个三级子tab(信号拆解/多空对称/参数扫描)
   const _LAB_SUB_TABS = [
     { key: "scan", label: "信号扫描" },
-    { key: "single", label: "单一信号实验" },
-    { key: "fusion", label: "融合信号实验" },
+    { key: "experiment", label: "信号实验" },
     { key: "retest", label: "🔬 二次测试实验" },
   ];
   const _SCAN_CHILDREN = ["ablation", "symmetry", "paramscan"];
   const _SCAN_CHILD_LABELS = { ablation: "🧩 信号拆解", symmetry: "⚖️ 多空对称", paramscan: "🎛 参数扫描" };
+  const _EXPERIMENT_CHILDREN = ["single", "fusion"];
+  const _EXPERIMENT_CHILD_LABELS = { single: "单一信号实验", fusion: "融合信号实验" };
   const isScanActive = _SCAN_CHILDREN.includes(cur);
+  const isExperimentActive = _EXPERIMENT_CHILDREN.includes(cur);
   subNav.innerHTML = _LAB_SUB_TABS.map((t) => {
-    const active = t.key === "scan" ? isScanActive : cur === t.key;
+    const active = t.key === "scan" ? isScanActive : t.key === "experiment" ? isExperimentActive : cur === t.key;
     return `<button type="button" class="lab-subnav-tab${active ? " active" : ""}" data-sub="${t.key}">${t.label}</button>`;
   }).join("") +
   `<button type="button" class="lab-subnav-tab lab-subnav-glossary" data-glossary-btn="1">❓ 术语词典</button>`;
@@ -3492,7 +3494,7 @@ function _renderLabSubNav() {
       // 术语词典按钮：打开词典modal，不切模式
       if (btn.dataset.glossaryBtn) { _labGlossaryOpenModal(); return; }
       // scan 父tab点击 -> 默认进第一个子tab(ablation)
-      state.labSubMode = btn.dataset.sub === "scan" ? "ablation" : btn.dataset.sub;
+      state.labSubMode = btn.dataset.sub === "scan" ? "ablation" : btn.dataset.sub === "experiment" ? "single" : btn.dataset.sub;
       state.labStrategy = null; // 切换模式时清空策略选择，避免串模式
       renderSignalLab();
     };
@@ -3505,6 +3507,23 @@ function _renderLabSubNav() {
     childNav.className = "lab-subnav lab-subnav-child";
     childNav.innerHTML = _SCAN_CHILDREN.map((k) =>
       `<button type="button" class="lab-subnav-tab${cur === k ? " active" : ""}" data-sub="${k}">${_SCAN_CHILD_LABELS[k]}</button>`
+    ).join("");
+    childNav.querySelectorAll(".lab-subnav-tab").forEach((btn) => {
+      btn.onclick = () => {
+        state.labSubMode = btn.dataset.sub;
+        state.labStrategy = null;
+        renderSignalLab();
+      };
+    });
+    content.appendChild(childNav);
+  }
+
+  // 三级子nav：信号实验父tab active 时，在二级nav下方渲染一行子tab(单一信号实验/融合信号实验)
+  if (isExperimentActive) {
+    const childNav = document.createElement("div");
+    childNav.className = "lab-subnav lab-subnav-child";
+    childNav.innerHTML = _EXPERIMENT_CHILDREN.map((k) =>
+      `<button type="button" class="lab-subnav-tab${cur === k ? " active" : ""}" data-sub="${k}">${_EXPERIMENT_CHILD_LABELS[k]}</button>`
     ).join("");
     childNav.querySelectorAll(".lab-subnav-tab").forEach((btn) => {
       btn.onclick = () => {
