@@ -5227,8 +5227,8 @@ async function renderSentiment() {
     // 图表高度减一点(360->300)，给下方历史位置3行腾空间
     const _asChartDiv = cell.querySelector('.chart');
     if (_asChartDiv) { _asChartDiv.style.height = '300px'; chart.resize(); }
-    // 历史位置3行(候选2/3/4)合并进本卡图表下方：独立 fetch 近1年+6月，不受 state.range 切换影响
-    appendHistoryPos(cell);
+    // 历史位置3行(候选2/3/4)合并进本卡图表下方：注入 .chart-card(图表父容器)，使3行落在卡片边框内
+    appendHistoryPos(chart.getDom().parentElement);
   }
   // 细分指数：散户关注度排序（小盘/成长优先）
   const idxNames = {
