@@ -3050,6 +3050,19 @@ async function renderOverview() {
       fear_greed: "综合5类市场情绪等权算的0-100温度计。≤25极度恐惧、≥75极度贪婪。作逆向参考。",
       a_sentiment: "6项A股指标加权算的0-100情绪分。≤20冰点、≥80过热。",
       cross_market: "A股+港股+全球等多维度等权均值0-100。看跨市场整体冷热。",
+      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      a_width_zt_count: "收盘仍封死涨停的股票数,多=追涨情绪强。",
+      a_width_dt_count: "收盘仍封死跌停的股票数,多=恐慌抛售强。",
+      a_width_zhaban_rate: "当日曾涨停但收盘未封住的比例,高=封板资金不稳。",
+      gold: "沪金现货价,避险资产,恐慌时常涨。",
+      cn10y: "10年期国债收益率=无风险利率基准,上行=资金偏紧。",
+      a_qvix_300: "沪深300期权隐含波动率,类似美国VIX,高=预期大波动。",
+      lhb_count: "当日上龙虎榜的个股数,多=游资活跃。",
     };
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
