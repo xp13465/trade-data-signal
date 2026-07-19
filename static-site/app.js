@@ -132,7 +132,7 @@ function chartThemeOpts() {
       borderColor: cssVar("--border-strong"),
       textStyle: { color: cssVar("--text-1") },
       confine: true,                                  // tooltip 限制在 chart 容器内,防手机端 markPoint 贴边超屏
-      extraCssText: "max-width: 80vw; white-space: normal; word-break: break-word;",  // 防多信号长文案撑宽,窄屏自动换行
+      extraCssText: "max-width: min(340px, 80vw); white-space: normal; overflow-wrap: anywhere; word-break: break-word;",  // 防多信号长文案撑宽:宽屏封顶340px强制换行,窄屏80vw;overflow-wrap拆长串(如括号内无空格逗号段)
     },
   };
 }
@@ -271,6 +271,13 @@ function signalLabel(s) {
   }
   if (r.includes("买点失败")) return "前买失效";
   return "趋势转弱";
+}
+
+// markPoint reason 换行格式化：reason 是后端 ", ".join(parts) 拼的逗号分隔串
+// （如 "20日高回落5%(高78.74->阈74.8,close70.16), RSI=53, MA60=51.13[趋势过滤], vs前买+7.44%[止盈]"）。
+// 按 ", "（逗号+空格）断成多行——段内括号里的逗号无空格不会被拆，防 tooltip 单行过长超宽。
+function _fmtReason(r) {
+  return r ? String(r).replace(/, /g, "<br/>") : "";
 }
 
 // 情绪分文字标签：散户秒懂，数值旁边加标签
@@ -706,7 +713,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
           if (o.pct_change != null) tip += ' <span style="color:' + (o.pct_change >= 0 ? "#e6492e" : "#2e8b57") + '">' + (o.pct_change >= 0 ? "+" : "") + o.pct_change.toFixed(2) + "%</span>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
-        for (const m of marks) tip += '<br/><b style="color:' + m.itemStyle.color + '">● ' + m.value + "</b> " + m.reason;
+        for (const m of marks) tip += '<br/><b style="color:' + m.itemStyle.color + '">● ' + m.value + "</b> " + _fmtReason(m.reason);
         return tip;
       }
     },
@@ -762,7 +769,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
         let tip = fmtDate(dt);
         if (p && p.value != null) tip += "<br/>" + Number(p.value).toFixed(2);
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
-        for (const m of marks) tip += '<br/><b style="color:' + m.itemStyle.color + '">● ' + m.value + "</b> " + m.reason;
+        for (const m of marks) tip += '<br/><b style="color:' + m.itemStyle.color + '">● ' + m.value + "</b> " + _fmtReason(m.reason);
         return tip;
       }
     },
@@ -5065,7 +5072,9 @@ function appendComponentsBlock(data, tipText, container = content) {
 }
 
 // 历史位置3行(候选2/3/4)：独立 fetch 近1年+6月，append 到 container 图表下方，不受 state.range 切换影响
-function appendHistoryPos(container) {
+// indexId 指定取哪个序列(默认 a_sentiment)；细分指数(csi1000/cyb/...)也复用，使其与 a股情绪分卡片等高对齐。
+// 用 fetchJSON(in-flight 去重+5min 缓存)：多卡同时调用只发 2 个实际请求。
+function appendHistoryPos(container, indexId = "a_sentiment") {
   const box = document.createElement("div");
   box.className = "hist-pos-merged";
   box.innerHTML = '<div class="hist-pos-loading">📊 历史位置加载中…</div>';
@@ -5073,11 +5082,11 @@ function appendHistoryPos(container) {
   (async () => {
     try {
       const [r1, r6] = await Promise.all([
-        fetch('./data/sentiment-1y.json').then(r => r.json()),
-        fetch('./data/sentiment-6m.json').then(r => r.json()),
+        fetchJSON('./data/sentiment-1y.json'),
+        fetchJSON('./data/sentiment-6m.json'),
       ]);
-      const a1 = (r1.a_sentiment || []).filter(x => x.value != null);
-      const a6 = (r6.a_sentiment || []).filter(x => x.value != null);
+      const a1 = (r1[indexId] || []).filter(x => x.value != null);
+      const a6 = (r6[indexId] || []).filter(x => x.value != null);
       if (!a1.length) { box.innerHTML = '<div class="hist-pos-loading">暂无数据</div>'; return; }
       const cur = a1[a1.length - 1].value;
       // 候选2: 近1年分位 = (小于当前值的条数/总数)*100%
@@ -5275,6 +5284,8 @@ async function renderSentiment() {
       chart.resize();
       addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
       appendComponentsBlock(data, undefined, cell);
+      // 历史位置块(与 a股情绪分一致)：补齐卡片高度与恐贪/a股行对齐，同时给出该指数历史分位/近6月极值/极端触发
+      appendHistoryPos(chart.getDom().parentElement, key);
     }
   }
   if (r.cross_market && r.cross_market.length) {
@@ -5292,6 +5303,8 @@ async function renderSentiment() {
     }, stats.cross_market, strat.cross_market, undefined, cell);
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
     appendComponentsBlock(data, undefined, cell);
+    // 历史位置块：与细分指数/a股一致，补齐卡片高度对齐
+    appendHistoryPos(chart.getDom().parentElement, "cross_market");
   }
   // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
   if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures, snap);
@@ -5997,7 +6010,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
         // P0-3: 信号日追加完整 reason
         const marks = markData.filter((m) => m.coord[0] === p[0].axisValue && m.reason);
-        for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${m.reason}`);
+        for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${_fmtReason(m.reason)}`);
         return lines.join("<br/>");
       } },
       series: [{
