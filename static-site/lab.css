@@ -652,10 +652,12 @@
 }
 .lab-rank-stats { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; font-weight: 600; }
 .lab-rank-stats .lab-rank-n { color: var(--text-4); font-weight: 400; }
-/* 质量指标5字段(盈亏比/利润因子/夏普/索提诺/期望值): 灰字小号单行独占一行,弱化避免抢主stats视觉 */
+/* 质量指标5字段(盈亏比/利润因子/夏普/索提诺/期望值): 灰字小号,white-space:nowrap
+   保证5指标+评分badge在同一行不内部断行(空间不足时整块作为flex item换到下一行,仍与评分同行)。
+   原 flex-basis:100% 会把质量行强制独占整行,致评分badge被挤到下一行=“换行”,故移除。 */
 .lab-rank-quality {
-  flex-basis: 100%; font-size: 11px; font-weight: 400; color: var(--text-3);
-  line-height: 1.4; white-space: normal; word-break: keep-all;
+  font-size: 11px; font-weight: 400; color: var(--text-3);
+  line-height: 1.4; white-space: nowrap;
 }
 .lab-rank-score {
   font-size: 12px; font-weight: 700; color: #9c27b0;

@@ -110,6 +110,11 @@
 [data-theme="redgold"] .sig-day-row.today-row { background: var(--bg-active); }
 
 * { box-sizing: border-box; }
+/* 预留视口滚动条空间:弹窗(modal)打开时 body.overflow=hidden 会让页面滚动条消失,
+   致 auto-fill 网格(如 .lab-strategy-list minmax(320px))宽度突变跨列(2列<->3列抖动)。
+   scrollbar-gutter:stable 始终保留滚动条槽,开关弹窗视口宽度恒定,消除抖动。
+   (overlay 滚动条环境无可见槽,本声明为 no-op,不影响) */
+html { scrollbar-gutter: stable; }
 body {
   margin: 0;
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
