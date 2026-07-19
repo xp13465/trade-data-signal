@@ -2687,6 +2687,65 @@ async function renderOverview() {
   });
   colA2.appendChild(sigCard);
 
+  // 右列：🐶 汪汪队信号卡片（ETF国家队资金动向，点击跳专区）
+  const nt = r.nt_signals_today;
+  const ntCard = document.createElement("div");
+  ntCard.className = "chart-card nt-home-card";
+  if (nt && nt.signals && nt.signals.length) {
+    // 共振标记：进/出≥2只、量≥3只宽基同日同步异动=国家队共振
+    const resBadge = nt.is_resonance
+      ? '<span class="nt-resonance-badge">🐾 共振</span>' : '';
+    const resTypes = [];
+    if (nt.resonance && nt.resonance.surge) resTypes.push("进" + nt.n_surge + "只");
+    if (nt.resonance && nt.resonance.outflow) resTypes.push("出" + nt.n_outflow + "只");
+    if (nt.resonance && nt.resonance.volume) resTypes.push("量" + nt.n_volume + "只");
+    const resBanner = nt.is_resonance
+      ? '<div class="nt-resonance-banner">国家队共振：' + resTypes.join(" ") + "只宽基同日同步异动</div>" : '';
+    // 信号 chips：按 进->出->量 排序，每类一行，4个/行（复用 .sig-items grid）
+    const NT_SIG_COLOR = { share_surge: "#e6492e", share_outflow: "#2e8b57", volume_surge: "#ff9800" };
+    const NT_ORDER = ["share_surge", "share_outflow", "volume_surge"];
+    let chipsHtml = "";
+    for (const st of NT_ORDER) {
+      const grp = nt.signals.filter((s) => s.type === st);
+      if (!grp.length) continue;
+      const color = NT_SIG_COLOR[st] || "#1d2129";
+      const cells = grp.map((s) => {
+        const sc = s.share_change_yi != null
+          ? ' <b style="color:' + color + '">' + (s.share_change_yi >= 0 ? "+" : "") + s.share_change_yi + "亿</b>" : "";
+        return '<span class="sig-item"><b style="color:' + color + '">' + s.label + "</b> " + s.name + sc + "</span>";
+      }).join("");
+      chipsHtml += '<div class="sig-items">' + cells + "</div>";
+    }
+    ntCard.innerHTML =
+      '<h3>🐶 汪汪队信号 <span class="nt-date-tag">数据 ' + fmtDate(nt.date) + '</span>' + resBadge +
+      termTip("汪汪队=国家队。追踪12只宽基ETF份额变动+成交额放量，推断疑似大资金进场/离场。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。") + "</h3>" +
+      resBanner +
+      '<div class="signal-grid">' + chipsHtml + "</div>" +
+      '<div class="nt-card-footer">点击查看详情 →</div>';
+    addCardTimeBadge(ntCard, nt.date, snap, "etf");
+  } else {
+    ntCard.innerHTML =
+      '<h3>🐶 汪汪队信号' +
+      termTip("汪汪队=国家队。追踪12只宽基ETF份额变动+成交额放量，推断疑似大资金进场/离场。ETF份额T+1发布。") + "</h3>" +
+      '<div class="empty-note">近期无汪汪队信号</div>' +
+      '<div class="nt-card-footer">点击查看详情 →</div>';
+    if (nt && nt.date) addCardTimeBadge(ntCard, nt.date, snap, "etf");
+  }
+  // 整卡可点：跳转大盘->汪汪队专区
+  ntCard.style.cursor = "pointer";
+  ntCard.addEventListener("click", () => {
+    state.tab = "market";
+    state.subtab = "national-team";
+    document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
+    const mktBtn = document.querySelector('button[data-tab="market"]');
+    if (mktBtn) mktBtn.classList.add("active");
+    updateH5Topbar();
+    _setTabHash(state.tab);
+    renderTab();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  colA2.appendChild(ntCard);
+
 
   // ---- 3. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----
   const ov2ColB = document.createElement("div");

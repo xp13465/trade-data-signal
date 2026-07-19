@@ -60,6 +60,16 @@ echo "-> 采集 ETF 国家队当日 + 导出 JSON ..." | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]}
 echo "ETF国家队采集退出码=$COLLECT_RC" | tee -a "$LOG"
 
+# 1.5) 采集完第一时间发汪汪队信号通知（20:07采集通常到T-1，check_nt_signals 标题注明数据日期）
+#      放 deploy 前：deploy 持锁 git push 较慢，通知不依赖上线数据、只读 DB，先发最快。
+#      失败不阻塞（脚本内 try/except，exit 非 0 但不崩）。
+if [ "$COLLECT_RC" -eq 0 ]; then
+  echo "-> 检测汪汪队信号 + 发邮件通知 ..." | tee -a "$LOG"
+  "$PY" "$REPO/scripts/check_nt_signals.py" 2>&1 | tee -a "$LOG"
+  NT_NOTIFY_RC=${PIPESTATUS[0]}
+  echo "汪汪队通知退出码=$NT_NOTIFY_RC" | tee -a "$LOG"
+fi
+
 # 2) 持 deploy 锁推送（串行化 git，阻塞排队；deploy.sh 重新 export 全量 JSON + git push）
 #    deploy.sh 幂等：export 生成相同 JSON -> git add 无新变更 -> 跳过 commit -> push up-to-date。
 #    无新数据时也安全（仅多跑一次 export.py）。

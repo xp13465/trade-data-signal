@@ -1191,6 +1191,75 @@ def _nt_slice_by_range(daily_json, rng):
     return {"updated_at": daily_json.get("updated_at"), "etfs": out_etfs}
 
 
+# 共振阈值（与前端 app.js:3178 THR 一致）：≥N只宽基同日同步异动=国家队共振
+_NT_THR = {"surge": 2, "outflow": 2, "volume": 3}
+_NT_SIG_LABEL = {"share_surge": "进", "share_outflow": "出", "volume_surge": "量"}
+
+
+def latest_signals_overview() -> dict | None:
+    """查询最新数据日的汪汪队信号 + 共振聚合，供 overview.json 首页卡片展示。
+
+    返回 {date, signals:[{code,name,type,label,share_change_yi,amount_ratio,intensity,note}],
+          n_surge,n_outflow,n_volume,resonance:{surge,outflow,volume},is_resonance}。
+    无数据返回 None。signals 排除 split_suspect（折算日，非真实信号）。
+    """
+    if not DB_PATH.exists():
+        return None
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT max(date) AS d FROM etf_signal WHERE signal_type!='split_suspect'"
+        ).fetchone()
+        data_date = row["d"] if row and row["d"] else ""
+        if not data_date:
+            return None
+        rows = conn.execute(
+            "SELECT etf_code, signal_type, share_change, amount_ratio, intensity, note "
+            "FROM etf_signal WHERE date=? AND signal_type!='split_suspect' "
+            "ORDER BY signal_type, etf_code",
+            (data_date,),
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return None
+    signals = []
+    codes_by_type = {"share_surge": set(), "share_outflow": set(), "volume_surge": set()}
+    for r in rows:
+        st = r["signal_type"]
+        if st in codes_by_type:
+            codes_by_type[st].add(r["etf_code"])
+        sc = r["share_change"]
+        info = ETF_BY_CODE.get(r["etf_code"])
+        signals.append({
+            "code": r["etf_code"],
+            "name": info[0] if info else r["etf_code"],
+            "type": st,
+            "label": _NT_SIG_LABEL.get(st, st),
+            "share_change_yi": round(sc / 1e8, 2) if sc is not None else None,
+            "amount_ratio": r["amount_ratio"],
+            "intensity": r["intensity"],
+            "note": r["note"],
+        })
+    n_surge = len(codes_by_type["share_surge"])
+    n_outflow = len(codes_by_type["share_outflow"])
+    n_volume = len(codes_by_type["volume_surge"])
+    resonance = {
+        "surge": n_surge >= _NT_THR["surge"],
+        "outflow": n_outflow >= _NT_THR["outflow"],
+        "volume": n_volume >= _NT_THR["volume"],
+    }
+    return {
+        "date": data_date,
+        "signals": signals,
+        "n_surge": n_surge,
+        "n_outflow": n_outflow,
+        "n_volume": n_volume,
+        "resonance": resonance,
+        "is_resonance": any(resonance.values()),
+    }
+
+
 def export_json_files() -> None:
     """写 range 拆分 JSON 到 static-site/data/（static-site 前端读 ./data/*.json）。
     仿 sentiment 拆分：预生成 etf_national_team-{1m,3m,6m,1y,3y,5y,all}.json，

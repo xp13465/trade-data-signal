@@ -2107,6 +2107,21 @@ main { padding: 16px 24px; }
 .nt-banner h3 { margin: 0 0 6px; font-size: 14px; color: var(--text-1); }
 .nt-banner-body { font-size: 12px; color: var(--text-2); line-height: 1.7; }
 .nt-banner-body b { color: var(--text-1); }
+
+/* 首页🐶汪汪队信号卡片 */
+.nt-home-card { transition: border-color .2s, box-shadow .2s; }
+.nt-home-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.nt-date-tag { font-size: 11px; color: var(--text-3); font-weight: normal; margin-left: 4px; }
+.nt-resonance-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; font-size: 11px; font-weight: 600;
+  color: #b8860b; background: linear-gradient(90deg,#fff8e1,#fff3cd);
+  border: 1px solid #ffd700; border-radius: 10px; vertical-align: middle;
+}
+.nt-resonance-banner {
+  font-size: 12px; color: #b8860b; background: linear-gradient(90deg,#fff8e1,#fff3cd);
+  border: 1px solid #ffd700; border-radius: 6px; padding: 6px 10px; margin: 6px 0 8px; line-height: 1.6;
+}
+.nt-card-footer { font-size: 12px; color: var(--primary); margin-top: 8px; text-align: right; }
 .nt-selector {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
   margin-bottom: 14px; padding: 6px 0;
