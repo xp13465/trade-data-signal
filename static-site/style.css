@@ -2177,7 +2177,10 @@ main { padding: 16px 24px; }
 .nt-day-resonance { margin-left: 3px; cursor: help; }
 .nt-day-empty { color: var(--text-3); }
 .nt-signal-grid { margin-top: 4px; }
-.nt-home-card .sig-items { grid-template-columns: repeat(3, 1fr); }
+.nt-home-card .sig-items { display: flex; flex-wrap: wrap; gap: 5px 8px; }
+/* 首页🐶卡片 chip 按内容自然宽度排布（flex-wrap），窄屏自动换行不截断：
+   不再用 grid 3列等分 + ellipsis（会截断"进4 净流入49.7亿"丢金额）。
+   .sig-item 保留 white-space:nowrap，每个 chip 自身一行不内部换行。 */
 
 /* 🐶 汪汪队当日明细 modal（复用 rule-modal 骨架，无 period 切换） */
 .nt-day-modal-body { width: min(92vw, 560px); }

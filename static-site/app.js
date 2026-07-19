@@ -2730,10 +2730,23 @@ function _renderNtSignalList(daily, todayDate) {
       });
       if (grp.length > 3) tipParts.push("等" + grp.length + "只");
       const tip = NT_LABEL[st] + cnt + "只：" + tipParts.join("、");
+      // chip 内联加该类聚合指标：进/出→净流入/净流出(亿)，量→放量倍数
+      let suffix = "";
+      if (grp.length) {
+        if (st === "share_surge" || st === "share_outflow") {
+          let tot = 0, has = false;
+          for (const s of grp) { const v = s.share_change_yi; if (v != null && isFinite(v)) { tot += v; has = true; } }
+          if (has) suffix = st === "share_surge" ? " 净流入" + tot.toFixed(1) + "亿" : " 净流出" + Math.abs(tot).toFixed(1) + "亿";
+        } else if (st === "volume_surge") {
+          let sum = 0, n = 0;
+          for (const s of grp) { const v = s.amount_ratio; if (v != null && isFinite(v)) { sum += v; n++; } }
+          if (n) suffix = " 放量" + (sum / n).toFixed(1) + "倍";
+        }
+      }
       chips +=
         '<span class="sig-item sig-clickable" data-nt-date="' + d.date + '" data-nt-type="' + st + '" ' +
         'data-tip="' + _escAttr(tip) + '" title="点击查看当日明细">' +
-        '<b class="' + NT_SIG_CLASS[st] + '">' + NT_LABEL[st] + cnt + '</b></span>';
+        '<b class="' + NT_SIG_CLASS[st] + '">' + NT_LABEL[st] + cnt + suffix + '</b></span>';
     }
     if (!chips) chips = '<span class="sig-item nt-day-empty">—</span>';
     rows +=
