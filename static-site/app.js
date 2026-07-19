@@ -2983,7 +2983,8 @@ async function renderOverview() {
           if (_prevDates.length) {
             const _prev = _prevDates[_prevDates.length - 1];
             const _mo = (+_curDate.slice(0, 4) - +_prev.slice(0, 4)) * 12 + (+_curDate.slice(4, 6) - +_prev.slice(4, 6));
-            _firstSince = _mo >= 12 ? `近${Math.floor(_mo / 12)}年首次` : _mo >= 1 ? `近${_mo}月首次` : "近1月内首次";
+            // 诚信口径：距上次≥3冰点间隔≥1月才称"近X月首次"；<1月=近期持续冰点(不夸大稀缺性)
+            _firstSince = _mo >= 12 ? `近${Math.floor(_mo / 12)}年首次` : _mo >= 1 ? `近${_mo}月首次` : "近期持续冰点";
           } else {
             _firstSince = "数据期内首次";
           }
