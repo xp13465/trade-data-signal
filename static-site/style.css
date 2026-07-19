@@ -2154,6 +2154,27 @@ main { padding: 16px 24px; }
   border: 1px solid #ffd700; border-radius: 6px; padding: 6px 10px; margin: 6px 0 8px; line-height: 1.6;
 }
 .nt-card-footer { font-size: 12px; color: var(--primary); margin-top: 8px; text-align: right; }
+
+/* 首页🐶卡片7天总况（汇总数字 + 堆叠迷你柱 + 折叠明细） */
+.nt-recent-summary { margin: 8px 0; }
+.nt-recent-stats { font-size: 13px; color: var(--text-2); line-height: 1.7; }
+.nt-recent-stats > b { color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+.nt-c-surge b { color: #e6492e; }
+.nt-c-outflow b { color: #2e8b57; }
+.nt-c-volume b { color: #ff9800; }
+.nt-mini-bars-wrap { margin-top: 6px; }
+.nt-mini-bars { display: block; max-width: 210px; }
+.nt-bar-label { fill: var(--text-3); }
+.nt-recent-detail { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 4px; }
+.nt-recent-detail summary {
+  font-size: 12px; color: var(--text-3); cursor: pointer; list-style: none;
+  user-select: none; padding: 2px 0;
+}
+.nt-recent-detail summary::-webkit-details-marker { display: none; }
+.nt-recent-detail[open] summary { margin-bottom: 6px; color: var(--text-2); }
+.nt-recent-detail .nt-resonance-banner { margin: 4px 0 6px; }
+.nt-recent-detail .signal-grid { margin-top: 4px; }
+
 .nt-selector {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
   margin-bottom: 14px; padding: 6px 0;

@@ -415,8 +415,10 @@ def export_overview(conn, cfg):
     # 汪汪队(ETF国家队)最新信号 + 共振聚合：首页🐶卡片展示，点击跳专区
     nt_signals_today = None
     try:
-        from app.collector.etf_national_team import latest_signals_overview
+        from app.collector.etf_national_team import latest_signals_overview, recent_signals_overview
         nt_signals_today = latest_signals_overview()
+        if nt_signals_today:
+            nt_signals_today["recent"] = recent_signals_overview()
     except Exception:  # noqa: BLE001
         pass
 

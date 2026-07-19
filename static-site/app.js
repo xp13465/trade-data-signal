@@ -3002,38 +3002,65 @@ async function renderOverview() {
   const nt = r.nt_signals_today;
   const ntCard = document.createElement("div");
   ntCard.className = "chart-card nt-home-card";
-  if (nt && nt.signals && nt.signals.length) {
+  const NT_SIG_COLOR = { share_surge: "#e6492e", share_outflow: "#2e8b57", volume_surge: "#ff9800" };
+  const NT_ORDER = ["share_surge", "share_outflow", "volume_surge"];
+  if (nt && nt.date) {
     // 共振标记：进/出≥2只、量≥3只宽基同日同步异动=国家队共振
     const resBadge = nt.is_resonance
       ? '<span class="nt-resonance-badge">🐾 共振</span>' : '';
-    const resTypes = [];
-    if (nt.resonance && nt.resonance.surge) resTypes.push("进" + nt.n_surge + "只");
-    if (nt.resonance && nt.resonance.outflow) resTypes.push("出" + nt.n_outflow + "只");
-    if (nt.resonance && nt.resonance.volume) resTypes.push("量" + nt.n_volume + "只");
-    const resBanner = nt.is_resonance
-      ? '<div class="nt-resonance-banner">国家队共振：' + resTypes.join(" ") + "只宽基同日同步异动</div>" : '';
-    // 信号 chips：按 进->出->量 排序，每类一行，4个/行（复用 .sig-items grid）
-    const NT_SIG_COLOR = { share_surge: "#e6492e", share_outflow: "#2e8b57", volume_surge: "#ff9800" };
-    const NT_ORDER = ["share_surge", "share_outflow", "volume_surge"];
-    let chipsHtml = "";
-    for (const st of NT_ORDER) {
-      const grp = nt.signals.filter((s) => s.type === st);
-      if (!grp.length) continue;
-      const color = NT_SIG_COLOR[st] || "#1d2129";
-      const cells = grp.map((s) => {
-        const sc = s.share_change_yi != null
-          ? ' <b style="color:' + color + '">' + (s.share_change_yi >= 0 ? "+" : "") + s.share_change_yi + "亿</b>" : "";
-        return '<span class="sig-item"><b style="color:' + color + '">' + s.label + "</b> " + s.name + sc + "</span>";
-      }).join("");
-      chipsHtml += '<div class="sig-items">' + cells + "</div>";
+    // 7天总况（常驻主区）：汇总数字 + 堆叠迷你柱状图
+    const rc = nt.recent;
+    let recentHtml = "";
+    if (rc && rc.daily && rc.daily.length) {
+      recentHtml =
+        '<div class="nt-recent-summary">' +
+          '<div class="nt-recent-stats">近' + rc.days + '天 共<b>' + rc.total + '</b>信号 · ' +
+            '<span class="nt-c-surge">进<b>' + rc.surge + '</b></span> ' +
+            '<span class="nt-c-outflow">出<b>' + rc.outflow + '</b></span> ' +
+            '<span class="nt-c-volume">量<b>' + rc.volume + '</b></span> · 共振<b>' + rc.resonance_days + '</b>日</div>' +
+          '<div class="nt-mini-bars-wrap">' + ntMiniBars(rc.daily) + '</div>' +
+        '</div>';
+    }
+    // 最新1天明细（降权默认折叠，有空间展开无空间收起）
+    let detailHtml = "";
+    if (nt.signals && nt.signals.length) {
+      const resTypes = [];
+      if (nt.resonance && nt.resonance.surge) resTypes.push("进" + nt.n_surge + "只");
+      if (nt.resonance && nt.resonance.outflow) resTypes.push("出" + nt.n_outflow + "只");
+      if (nt.resonance && nt.resonance.volume) resTypes.push("量" + nt.n_volume + "只");
+      const resBanner = nt.is_resonance
+        ? '<div class="nt-resonance-banner">国家队共振：' + resTypes.join(" ") + "只宽基同日同步异动</div>" : '';
+      let chipsHtml = "";
+      for (const st of NT_ORDER) {
+        const grp = nt.signals.filter((s) => s.type === st);
+        if (!grp.length) continue;
+        const color = NT_SIG_COLOR[st] || "#1d2129";
+        const cells = grp.map((s) => {
+          const sc = s.share_change_yi != null
+            ? ' <b style="color:' + color + '">' + (s.share_change_yi >= 0 ? "+" : "") + s.share_change_yi + "亿</b>" : "";
+          return '<span class="sig-item"><b style="color:' + color + '">' + s.label + "</b> " + s.name + sc + "</span>";
+        }).join("");
+        chipsHtml += '<div class="sig-items">' + cells + "</div>";
+      }
+      const detCount = (nt.n_surge || 0) + (nt.n_outflow || 0) + (nt.n_volume || 0);
+      detailHtml =
+        '<details class="nt-recent-detail">' +
+          '<summary>最新 ' + fmtDate(nt.date) + ' 明细（' + detCount + '只） ▸</summary>' +
+          resBanner +
+          '<div class="signal-grid">' + chipsHtml + "</div>" +
+        "</details>";
     }
     ntCard.innerHTML =
       '<h3>🐶 汪汪队信号 <span class="nt-date-tag">数据 ' + fmtDate(nt.date) + '</span>' + resBadge +
       termTip("汪汪队=国家队。追踪12只宽基ETF份额变动+成交额放量，推断疑似大资金进场/离场。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。") + "</h3>" +
-      resBanner +
-      '<div class="signal-grid">' + chipsHtml + "</div>" +
-      '<div class="nt-card-footer">点击查看详情 →</div>';
+      recentHtml +
+      detailHtml +
+      '<div class="nt-card-footer">点击查看详情 -></div>';
     addCardTimeBadge(ntCard, nt.date, snap, "etf");
+    // 阻止 details 展开/收起时冒泡触发整卡跳转
+    const dtl = ntCard.querySelector(".nt-recent-detail");
+    if (dtl) dtl.addEventListener("click", (e) => e.stopPropagation());
+
   } else {
     ntCard.innerHTML =
       '<h3>🐶 汪汪队信号' +
@@ -3457,6 +3484,34 @@ function ntSparkline(daily, w, h) {
   return '<svg class="nt-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
     '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
     '<circle cx="' + w.toFixed(1) + '" cy="' + lastY.toFixed(1) + '" r="2.2" fill="currentColor"/></svg>';
+}
+
+// 首页🐶卡片7天总况：堆叠迷你柱状图（红进/绿出/橙量），柱底标MM-DD，金点=共振日
+function ntMiniBars(daily) {
+  if (!daily || !daily.length) return "";
+  var n = daily.length;
+  var barW = 14, gap = 6, padX = 4;
+  var w = padX * 2 + n * barW + (n - 1) * gap;
+  var chartH = 38, labelH = 16;
+  var h = chartH + labelH;
+  var maxTotal = Math.max.apply(null, daily.map(function (d) { return d.total; })) || 1;
+  var scale = (chartH - 4) / maxTotal;
+  var parts = ['<svg class="nt-mini-bars" width="100%" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">'];
+  daily.forEach(function (d, i) {
+    var x = padX + i * (barW + gap);
+    var y = chartH;
+    // 堆叠：进(红)底 -> 出(绿)中 -> 量(橙)顶
+    if (d.n_surge > 0) { var sh = d.n_surge * scale; y -= sh; parts.push('<rect x="' + x + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + sh.toFixed(1) + '" fill="#e6492e" rx="1"/>'); }
+    if (d.n_outflow > 0) { var oh = d.n_outflow * scale; y -= oh; parts.push('<rect x="' + x + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + oh.toFixed(1) + '" fill="#2e8b57" rx="1"/>'); }
+    if (d.n_volume > 0) { var vh = d.n_volume * scale; y -= vh; parts.push('<rect x="' + x + '" y="' + y.toFixed(1) + '" width="' + barW + '" height="' + vh.toFixed(1) + '" fill="#ff9800" rx="1"/>'); }
+    // 共振日柱底加金色圆点
+    if (d.is_resonance) { parts.push('<circle cx="' + (x + barW / 2) + '" cy="' + (chartH + 2.5) + '" r="1.8" fill="#ffd700"/>'); }
+    // 日期标签 MM-DD
+    var lbl = d.date.length === 8 ? d.date.slice(4, 6) + "-" + d.date.slice(6, 8) : d.date;
+    parts.push('<text class="nt-bar-label" x="' + (x + barW / 2) + '" y="' + (h - 3) + '" text-anchor="middle" font-size="8">' + lbl + '</text>');
+  });
+  parts.push('</svg>');
+  return parts.join("");
 }
 
 // 计算12只ETF的概览摘要（最新日份额变动/信号/机构占比/放量倍数）
