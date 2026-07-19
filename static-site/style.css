@@ -619,6 +619,10 @@ main { padding: 16px 24px; }
 .card-sub { font-size: 12px; color: var(--text-4); white-space: nowrap; overflow: hidden; }
 /* 角标浮动在右下角，给 card-sub 预留右侧空间防止文字被角标遮挡 */
 .card.kpi.has-time-badge .card-sub { padding-right: 70px; }
+/* KPI 标题❓绝对定位右上角,脱离文档流不撑高整行(❓emoji的inline-block盒高>标题13px行高,致flex align-items:stretch整行撑高);
+   padding-right:18px 覆盖通用.card-title的4px留❓位,所有KPI标题右边对齐更整齐;仅限KPI卡,不影响图表卡h3/summary-chips等 */
+.card.kpi .card-title { position: relative; padding-right: 18px; }
+.card.kpi .card-title .term-tip { position: absolute; top: 1px; right: 0; margin-left: 0; }
 .tag.stale { background: #faad14; }
 
 .spark-grid {
