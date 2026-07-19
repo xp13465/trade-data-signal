@@ -606,7 +606,9 @@ main { padding: 16px 24px; }
   padding-left: 8px;
   border-left: 3px solid var(--primary);
 }
-.cards.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+/* KPI 卡片行：flex+flex-wrap 让末尾行 flex-grow 拉伸填满(优于 grid auto-fit：auto-fit 的 1fr 只拉列宽不重分配末尾行 item，末尾行仍占前 K 列右边留白)。
+   .card.kpi 的 flex:1 1 150px(grow=1)使末尾行不足满列时 item 均分整行宽度填满，不留白；窄屏 flex-wrap 自动少列。 */
+.cards.kpi-row { display: flex; flex-wrap: wrap; gap: 12px; }
 .card.kpi { min-width: 150px; padding: 12px 16px; flex: 1 1 150px; }
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; display: flex; align-items: baseline; gap: 6px; }
 .card.kpi .card-value .cv-val { min-width: 0; }
@@ -1903,8 +1905,8 @@ main { padding: 16px 24px; }
   .industry-grid .spark-cell .spark-chart { min-height: 100px; }
   /* 分时图嵌入 spark-cell，移动端高度适配 */
   .spark-intraday { height: 80px; }
-  /* KPI 卡片 2 列（用 grid 避免 flex+calc 的 subpixel 换行问题）*/
-  .cards.kpi-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* KPI 卡片：flex+flex-grow 末尾行拉伸填满；flex:1 1 150px 继承 PC(grow=1)，窄屏 375px 每行 2 个(basis 150×2+gap<375)，末尾行 1 个拉伸占满整行 */
+  .cards.kpi-row { display: flex; flex-wrap: wrap; gap: 10px; }
   .card.kpi { min-width: 0; padding: 10px 12px; }
   .card.kpi .card-value { font-size: 20px; }
   /* 盘中标注角标移动端更小，避免遮住 KPI 数值；大卡(走势图)右上角，小卡(KPI)右下角 */
