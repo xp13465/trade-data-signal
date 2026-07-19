@@ -5297,7 +5297,7 @@ async function renderSentiment() {
   if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures, snap);
 }
 
-// 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=红(冰点≤20)/绿(过热>80)/灰(中性)
+// 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=蓝(冰点≤20)/红(过热>80)/灰(中性)
 function renderSentimentHeatmap(r, snap) {
   const idxNames = [
     { key: 'sentiment_sz50', label: '上证50' },
@@ -5357,7 +5357,7 @@ function renderSentimentHeatmap(r, snap) {
     hmSuffix = `<span class="chart-latest"> · ${fmtDate(latestDate)} 冰点${coldCount} 过热${hotCount}</span>`;
   }
 
-  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}${termTip("6大宽基指数情绪分的冰点(≤20红)/过热(>80绿)日历。红色密集=多指数同时恐慌(常近底);绿色密集=同时亢奋(常近顶)。作逆向参考。")}</h3><div class="chart" style="height:220px"></div>`;
+  div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}${termTip("6大宽基指数情绪分的冰点(≤20蓝)/过热(>80红)日历。蓝色密集=多指数同时恐慌(常近底);红色密集=同时亢奋(常近顶)。作逆向参考。")}</h3><div class="chart" style="height:220px"></div>`;
   content.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
@@ -5391,9 +5391,9 @@ function renderSentimentHeatmap(r, snap) {
     visualMap: {
       min: 0, max: 100,
       pieces: [
-        { lte: 20, color: "#e6492e", label: "冰点(≤20)" },
+        { lte: 20, color: "#42a5f5", label: "冰点(≤20)" },
         { gt: 20, lte: 80, color: "#d9d9d9", label: "中性(20-80)" },
-        { gt: 80, color: "#2e8b57", label: "过热(>80)" },
+        { gt: 80, color: "#e6492e", label: "过热(>80)" },
       ],
       orient: "horizontal", left: "center", bottom: 4,
       textStyle: { color: cssVar("--text-1") },
