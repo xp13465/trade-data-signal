@@ -25,9 +25,17 @@ schema/PK 不同避免冲突）。
   断点续传：跑前读它，跳过已采 code；增量：每 code 只拉 progress[code]
   之后到今天。
 - **不复权**：mootdx 默认（与 D1 akshare `adjust=""` 一致）。
+- **baostock fallback**：mootdx 通达信行情接口全 empty 停服时（2026-07-17+
+  回归，80 节点 0 可用），run_batch 连续 `consecutive_fail_limit`（默认 50）
+  只失败后自动切 baostock 采剩余 code，字段映射后写 **同一张 mootdx_daily_raw**
+  表（下游 run_recent 无感）。baostock 含 turn 换手率 -> 填补 mootdx 原本恒
+  NULL 的 turnover；pctChg(服务端算) -> 替代 mootdx 自算(不跨除权失真)；
+  preclose 丢弃(表无此字段)。进度写 mootdx_progress.json，mootdx 恢复后
+  这些 code 不重复采、自动回归 mootdx 主力。
 - **CLI**：`python -m app.collector.mootdx_daily <command>`
-    full [--limit N]                全量（断点续传，跳过已采）
-    update [--limit N]              增量所有 code（只拉最新 1-2 页 + 过滤）
+    full [--limit N] [--fail-limit N]   全量（断点续传，跳过已采）
+    update [--limit N] [--fail-limit N] 增量所有 code（只拉最新 1-2 页 + 过滤）
+        --fail-limit: 连续N只失败切baostock(默认50，验证可设小值如3)
     one CODE                        单只全量回填
     upone CODE                      单只增量
     stats                           库统计
@@ -306,6 +314,94 @@ def upsert_rows(rows: list[tuple]) -> int:
     return len(rows)
 
 
+# ── baostock fallback（mootdx 全停服兜底） ─────────────────────────────────────
+# 字段映射 baostock row -> mootdx_daily_raw row:
+#   baostock = (code, date, open, high, low, close, volume, amount,
+#               turnover, pct_change, preclose)
+#   mootdx   = (code, date, open, high, low, close, volume, amount,
+#               pct_change, turnover)
+# 即交换 turnover/pct_change 位置、丢弃 preclose。
+# baostock 含 turn(换手率) -> 填补 mootdx 原本恒 NULL 的 turnover；
+# baostock pctChg(服务端算) -> 比 mootdx 自算 close/prev_close-1 更准(不跨除权失真)。
+def _baostock_to_mootdx_rows(bs_rows: list[tuple]) -> list[tuple]:
+    """baostock fetch_one 返回的 rows -> mootdx_daily_raw 入库格式。"""
+    # baostock row: (code[0], date[1], open[2], high[3], low[4], close[5],
+    #                volume[6], amount[7], turnover[8], pct_change[9], preclose[10])
+    # mootdx row:   (code, date, open, high, low, close, volume, amount,
+    #                pct_change, turnover)
+    return [(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[9], r[8])
+            for r in bs_rows]
+
+
+def _run_baostock_fallback(codes: list[str], *, progress: dict[str, str],
+                           incremental: bool, today: str,
+                           verbose: bool = True) -> tuple[int, int, int]:
+    """mootdx 连续失败(疑似全停服)时用 baostock 兜底采剩余 codes，写
+    mootdx_daily_raw 表（下游 run_recent 读该表无感）。
+
+    增量模式: 从 progress[code]+1 到 today（无 progress 则从 2016-01-01）。
+    全量模式: 从 2016-01-01 到 today（覆盖下游近 10 年需求；1990-2015 老段
+              由 baostock old 命令单独补，fallback 不采老段避免耗时）。
+    今天已采(progress[code]>=today)的跳过。北交所 code 由 baostock 内部跳过。
+
+    进度写 mootdx_progress.json（非 baostock_progress.json），保证 mootdx
+    恢复后这些 code 不重复采、自动回归 mootdx 主力。
+
+    返回 (total_rows, ok_codes, skip_bj_codes)。
+    """
+    from . import baostock_daily  # 延迟 import，避免启动开销/循环依赖
+    baostock_daily._ensure_login()
+    recent_start = baostock_daily.RECENT_START.replace("-", "")  # '20160101'
+    total_rows = 0
+    ok = 0
+    skip_bj = 0
+    save_every = 5
+
+    for j, code in enumerate(codes):
+        last = progress.get(code)
+        # 今天已采跳过（full/incremental 通用）
+        if last and last >= today:
+            continue
+        # 起始日期
+        if incremental and last:
+            d = dt.datetime.strptime(last, "%Y%m%d").date() + dt.timedelta(days=1)
+            start = d.strftime("%Y%m%d")
+        else:
+            start = recent_start  # full 或无 progress -> 从 2016 起
+        end = today
+        if start.replace("-", "") > end.replace("-", ""):
+            continue
+
+        try:
+            bs_rows, msg = baostock_daily.fetch_one(code, start, end)
+        except Exception as e:  # noqa: BLE001
+            if verbose:
+                print(f"    [fallback {j+1}/{len(codes)}] {code}: ERR "
+                      f"{type(e).__name__}: {str(e)[:100]}", flush=True)
+            continue
+        if not bs_rows:
+            if "skip bj" in msg:
+                skip_bj += 1
+            elif verbose and (j + 1) % 100 == 0:
+                print(f"    [fallback {j+1}/{len(codes)}] {code}: {msg}", flush=True)
+            continue
+
+        mootdx_rows = _baostock_to_mootdx_rows(bs_rows)
+        n = upsert_rows(mootdx_rows)
+        total_rows += n
+        ok += 1
+        progress[code] = max(r[1] for r in mootdx_rows)
+        if verbose and (j + 1) % 50 == 0:
+            print(f"    [fallback {j+1}/{len(codes)}] {code}: +{n} rows "
+                  f"(baostock)", flush=True)
+        if (j + 1) % save_every == 0:
+            save_progress(progress)
+
+    # 不主动 logout：baostock login 进程级幂等，退出自然释放；避免影响可能
+    # 并行的 baostock pipeline 的全局 login 状态。
+    return total_rows, ok, skip_bj
+
+
 # ── 增量更新（单只） ──────────────────────────────────────────────────────────
 def update_one(code: str, progress: dict[str, str] | None = None,
                client=None, today: str | None = None
@@ -360,6 +456,9 @@ def run_batch(codes: list[str], *, incremental: bool = False,
     ok = fail = total_rows = 0
     consecutive_fails = 0
     aborted = False
+    fallback_used = False
+    fallback_rows = 0
+    fallback_ok = 0
     details: list[tuple] = []
     client = None
     t_start = time.time()
@@ -420,25 +519,43 @@ def run_batch(codes: list[str], *, incremental: bool = False,
                 pass
         if (i + 1) % save_every == 0:
             save_progress(progress)
-        # 连续失败提前终止：数据源异常(全 empty/封 IP/服务端故障)时避免
-        # 5200 只空转数小时触发耗时告警。正常偶发 empty 不会连续达阈值。
-        if consecutive_fail_limit > 0 and consecutive_fails >= consecutive_fail_limit:
+        # 连续失败提前终止：mootdx 全 empty/封 IP/停服时，切 baostock fallback
+        # 采剩余 code，写 mootdx_daily_raw（下游无感），避免 5200 只空转数小时。
+        if (consecutive_fail_limit > 0
+                and consecutive_fails >= consecutive_fail_limit
+                and not aborted):
             aborted = True
-            remaining = len(codes) - i - 1
+            remaining_codes = codes[i + 1:]
             if verbose:
                 print(f"  ⚠ 连续{consecutive_fails}只失败(阈值{consecutive_fail_limit})，"
-                      f"提前终止剩余{remaining}只（疑似数据源异常，避免空转数小时）", flush=True)
+                      f"mootdx 疑似全停服，剩余{len(remaining_codes)}只改用 baostock fallback",
+                      flush=True)
+            if remaining_codes:
+                fallback_used = True
+                fb_rows, fb_ok, _fb_skip = _run_baostock_fallback(
+                    remaining_codes, progress=progress, incremental=incremental,
+                    today=today, verbose=verbose)
+                fallback_rows = fb_rows
+                fallback_ok = fb_ok
+                total_rows += fb_rows
+                ok += fb_ok
             break
 
     save_progress(progress)
     elapsed = time.time() - t_start
     if verbose:
-        abort_tag = " ABORTED(连续失败提前终止)" if aborted else ""
+        abort_tag = ""
+        if aborted:
+            abort_tag = " ABORTED(mootdx停服" + (
+                f"+baostock fallback: +{fallback_rows}rows/{fallback_ok}codes)" if fallback_used
+                else ")")
         print(f"=== batch done: ok={ok} fail={fail} rows={total_rows} "
-              f"processed={ok + fail}/{len(codes)} elapsed={elapsed:.0f}s{abort_tag} ===", flush=True)
+              f"processed={ok + fail}/{len(codes)} elapsed={elapsed:.0f}s{abort_tag} ===",
+              flush=True)
     return {"ok": ok, "fail": fail, "total_rows": total_rows,
             "processed": ok + fail, "details": details, "elapsed": elapsed,
-            "aborted": aborted}
+            "aborted": aborted, "fallback_used": fallback_used,
+            "fallback_rows": fallback_rows, "fallback_ok": fallback_ok}
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -492,9 +609,12 @@ def _cli(argv: list[str]) -> int:
 
     if cmd == "full":
         limit = None
+        fail_limit = 50  # 默认50只连续失败才切baostock，避免偶发抖动误触发
         for a in argv[2:]:
             if a.startswith("--limit="):
                 limit = int(a.split("=", 1)[1])
+            elif a.startswith("--fail-limit="):
+                fail_limit = int(a.split("=", 1)[1])
         codes = load_codes()
         prog = load_progress()
         today = dt.date.today().strftime("%Y%m%d")
@@ -502,24 +622,33 @@ def _cli(argv: list[str]) -> int:
         if limit:
             todo = todo[:limit]
         print(f"full: {len(todo)}/{len(codes)} to fetch, "
-              f"{len(codes)-len(todo)} already up-to-date", flush=True)
-        res = run_batch(todo, incremental=False, verbose=True)
+              f"{len(codes)-len(todo)} already up-to-date "
+              f"(fail_limit={fail_limit})", flush=True)
+        res = run_batch(todo, incremental=False, verbose=True,
+                        consecutive_fail_limit=fail_limit)
+        fb = f" fallback=+{res.get('fallback_rows',0)}rows/{res.get('fallback_ok',0)}codes" if res.get('fallback_used') else ""
         print(f"\n=== full done: ok={res['ok']} fail={res['fail']} "
-              f"rows={res['total_rows']} elapsed={res.get('elapsed',0):.0f}s ===")
+              f"rows={res['total_rows']} elapsed={res.get('elapsed',0):.0f}s{fb} ===")
         return 0
 
     if cmd == "update":
         limit = None
+        fail_limit = 50
         for a in argv[2:]:
             if a.startswith("--limit="):
                 limit = int(a.split("=", 1)[1])
+            elif a.startswith("--fail-limit="):
+                fail_limit = int(a.split("=", 1)[1])
         codes = load_codes()
         if limit:
             codes = codes[:limit]
-        print(f"update: {len(codes)} codes incremental", flush=True)
-        res = run_batch(codes, incremental=True, verbose=True)
+        print(f"update: {len(codes)} codes incremental "
+              f"(fail_limit={fail_limit})", flush=True)
+        res = run_batch(codes, incremental=True, verbose=True,
+                        consecutive_fail_limit=fail_limit)
+        fb = f" fallback=+{res.get('fallback_rows',0)}rows/{res.get('fallback_ok',0)}codes" if res.get('fallback_used') else ""
         print(f"\n=== update done: ok={res['ok']} fail={res['fail']} "
-              f"rows={res['total_rows']} elapsed={res.get('elapsed',0):.0f}s ===")
+              f"rows={res['total_rows']} elapsed={res.get('elapsed',0):.0f}s{fb} ===")
         return 0
 
     print(f"unknown command: {cmd}\n{__doc__}")
