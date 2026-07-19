@@ -719,13 +719,15 @@ main { padding: 16px 24px; }
   flex-direction: column;
   gap: 12px; /* 卡片间距用 gap 统一，替代下方 margin-bottom */
 }
-.ov-2col .chart-card { margin-bottom: 0; flex: 1 0 auto; } /* 卡撑满列高，可拉伸不收缩，消除卡间/列底留白 */
+.ov-2col .chart-card { margin-bottom: 0; flex: 1 0 auto; display: flex; flex-direction: column; } /* 卡撑满列高，可拉伸不收缩，消除卡间/列底留白 */
 .ov-2col .chart-card:last-child { margin-bottom: 0; }
+/* 方案A：8 维度移至情绪温度 tab 后，左列仅 2 折线；chart 拉高填满列高消除留白（覆盖 inline 300px） */
+.ov-2col .chart-card > .chart { height: auto !important; flex: 1 1 auto; min-height: 260px; }
 @media (max-width: 768px) {
   .ov-2col { grid-template-columns: 1fr; }
 }
 
-/* 恐贪分项条卡片：8 项情绪分等权=恐贪指数，填左列底部留白；flex 撑满 + 横条均匀分布吸收 stretch 余高 */
+/* 恐贪分项条卡片：8 项情绪分等权=恐贪指数；移至情绪温度 tab 恐贪卡片内，flex 撑满 + 横条均匀分布 */
 .fg-dim-card { flex: 1 0 auto; display: flex; flex-direction: column; }
 .fg-dim-card h3 .fg-dim-total { float: right; font-size: 12px; color: var(--text-3); font-weight: normal; margin-left: 8px; }
 .fg-dim-rows { flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 6px 0 2px; }
