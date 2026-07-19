@@ -3351,6 +3351,7 @@ async function renderOverview() {
     if (_rows.length) {
       const fgDimCard = document.createElement("div");
       fgDimCard.className = "chart-card fg-dim-card";
+      fgDimCard.id = "fg-dim-ov";
       const totalTxt = _fgTotal != null ? ` · 总分 ${_fgTotal.toFixed(1)}` : "";
       let html = '<h3>🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值--哪几项拖累(冰点)/哪几项偏高。❄️=冰点(≤20)，🔥=过热(≥80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></h3>';
       html += '<div class="fg-dim-rows">';
