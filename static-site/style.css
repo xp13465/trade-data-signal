@@ -2565,6 +2565,17 @@ main { padding: 16px 24px; }
   border-radius: 6px; font-size: 13.5px; color: var(--text-1); line-height: 1.7;
 }
 .home-purpose-note b { color: var(--primary); font-weight: 700; }
+/* tab 互链引导:轻量灰字小注,置于 home-purpose-note 之下,不抢眼 */
+.tab-crosslink-note {
+  margin: 0 0 12px; padding: 0 16px;
+  font-size: 12.5px; color: var(--text-3); line-height: 1.6;
+}
+.tab-crosslink-note b { color: var(--text-2); font-weight: 600; }
+.tab-crosslink-note a {
+  color: var(--primary); font-weight: 600; cursor: pointer;
+  text-decoration: none; white-space: nowrap;
+}
+.tab-crosslink-note a:hover { text-decoration: underline; }
 
 /* === 策略实验融合信号样式 === */
 .lab-tag { display: inline-block; padding: 2px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600; line-height: 1.3; }

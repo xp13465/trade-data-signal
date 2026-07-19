@@ -1713,6 +1713,16 @@ async function renderTab() {
   }
 }
 
+// tab 互链引导:点击链接复用顶部 tab 按钮的 onclick 切换
+// (state/active class/hash/renderTab 全走原按钮路径,零重复逻辑;market/sentiment 不受 lab 跳过分支影响)
+function _bindTabCrosslink(scope, gotoTab) {
+  const a = scope.querySelector && scope.querySelector(`a[data-goto="${gotoTab}"]`);
+  if (!a) return;
+  const go = (e) => { if (e) e.preventDefault(); const b = document.querySelector(`button[data-tab="${gotoTab}"]`); if (b) b.click(); };
+  a.onclick = go;
+  a.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } };
+}
+
 // 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
 // 末尾追加 ℹ️ 图标，点击弹"数据更新规则"modal（事件委托在 initUpdateRules 绑定 document，重渲染不失效）。
 const _UPDATE_RULES_ICON = '<span class="update-rules-btn" title="数据更新规则" role="button" tabindex="0" aria-label="数据更新规则">ℹ️</span>';
@@ -3771,6 +3781,8 @@ async function renderOverview() {
 async function renderMarket() {
   content.innerHTML = "";
   content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看A股、港股、全球指数走势,叠加技术分析参考点,综合判断大盘情绪偏冷还是偏热;另追踪🐶汪汪队宽基ETF份额变动(观察份额增减与成交放量)。<b>怎么解读</b>:信号偏多通常反映情绪回暖,偏空反映转弱(历史统计参考,非操作建议);汪汪队大额净流入历史上常伴随市场低位区域,流出对应份额收缩。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看指数<b>价格走势</b>+买卖点信号;想看市场<b>情绪温度</b>(恐贪指数/冰点过热热力图)-> 去<a data-goto="sentiment" role="button" tabindex="0">【情绪温度】</a></div>');
+  _bindTabCrosslink(content, "sentiment");
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
   subtabBar.className = "subtab-bar";
@@ -5176,6 +5188,8 @@ async function renderSentiment() {
   ]);
   content.innerHTML = "";
   content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:把多项情绪指标合成0-100的温度计,量化市场冷热(≤20冰点、≥80过热),作逆向参考。<b>怎么解读</b>:≤20冰点(人人恐慌)=情绪极端偏冷区域(历史常对应阶段性低位),≥80过热(人人贪婪)=情绪极端偏热区域(历史常对应阶段性高位);中间区域为中性(历史统计参考,非操作建议)。</div>');
+  content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看<b>情绪温度计</b>+冰点/过热热力图;想看指数<b>价格走势</b>-> 去<a data-goto="market" role="button" tabindex="0">【指数表现】</a></div>');
+  _bindTabCrosslink(content, "market");
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
