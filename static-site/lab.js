@@ -2745,13 +2745,17 @@ function _labRankAggregate(simData, win, opt) {
   return rows;
 }
 
+// 主榜样本量分档：n≥10 大样本(优先) / 1≤n<10 小样本(居中) / n=0 无交易(沉底)。
+// 小样本交易次数少、统计意义弱，收益/胜率/回撤易被极端值拉偏，故不与大样本同档竞争，单独居中。
+function _rankTier(n){ return n >= 10 ? 0 : n > 0 ? 1 : 2; }
+
 function _labRankSort(rows, tab) {
   const arr = rows.slice();
-  // 无交易(n_trades<=0/null/NaN)的配对所有维度排末尾：避免回撤0被当最小排第一(用户反馈"稳健榜样本数0排第一无意义")。
-  // 区分"无交易n=0"与"有交易但回撤0"——后者 n_trades>0 正常参与排序,不会被压到末尾。
+  // 三档前置：大样本优先 > 小样本居中 > 无交易沉底(避免回撤0被当最小排第一)。
+  // 各档内按原维度排序；composite/risk_adj 同样走三档前置(小样本通胀同样影响这两维)。
   arr.sort((a, b) => {
-    const an = a.n_trades > 0, bn = b.n_trades > 0;
-    if (an !== bn) return an ? -1 : 1; // 有交易优先，无交易沉底
+    const t = _rankTier(a.n_trades) - _rankTier(b.n_trades);
+    if (t !== 0) return t; // 大样本优先，小样本居中，无交易沉底
     if (tab === "ret") return b.total_ret - a.total_ret;
     if (tab === "win") return b.win_rate - a.win_rate;
     if (tab === "stable") return a.max_drawdown - b.max_drawdown; // 回撤小优先
@@ -2796,7 +2800,7 @@ function _labRankItemHTML(row, rank, tab) {
       `<span style="color:${retC}">收益${row.total_ret > 0 ? "+" : ""}${row.total_ret}%</span>` +
       `<span style="color:${winC}">胜${row.win_rate}%</span>` +
       `<span style="${ddC}">回撤${row.max_drawdown}%</span>` +
-      `<span class="lab-rank-n">n=${row.n_trades}</span>` +
+      `<span class="lab-rank-n">n=${row.n_trades}${row.n_trades > 0 && row.n_trades < 10 ? ' <span class="lab-rank-small">小样本</span>' : ""}</span>` +
     `</span>` + extra + `</button>`;
 }
 
@@ -2822,7 +2826,7 @@ function _labRankHTML(simData) {
           : "胜率榜按胜率从高到低排序。";
   return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口${_labHelpIcon("windows")}</span>${_labWinTabsHTML()}</div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
-    `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。</div>` +
+    `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。排序：n≥10 大样本优先，0<n<10 小样本配对居中并标"小样本"提示可信度存疑，n=0(无交易)沉底。</div>` +
     `<div class="lab-rank-retest-rule">⭐️进入二次测试：近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次，且（综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0）</div>` +
     _labRankFilterHTML() +
     `<div class="lab-rank-results">${_labRankResultsHTML()}</div>`;
