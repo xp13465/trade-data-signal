@@ -742,6 +742,35 @@ main { padding: 16px 24px; }
   .fg-dim-name { flex-basis: 84px; font-size: 11px; }
   .fg-dim-val { flex-basis: 34px; }
 }
+
+/* A股情绪分历史位置卡（情绪温度tab，A股情绪分卡片之后；候选2/3/4合并3行） */
+.history-pos-card { display: flex; flex-direction: column; }
+.history-pos-card .hist-pos-loading { font-size: 13px; color: var(--text-3); font-weight: normal; }
+.history-pos-card .hist-pos-headline { float: right; font-size: 12px; color: var(--text-3); font-weight: normal; margin-left: 8px; }
+.hist-pos-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 2px; }
+.hist-pos-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hist-row-label { flex: 0 0 110px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.hist-pos-row-bar { align-items: flex-start; }
+.hist-pos-bar-wrap { flex: 1; min-width: 240px; }
+.hist-pos-track { position: relative; height: 12px; background: var(--bg-hover); border-radius: 6px; overflow: hidden; }
+.hist-zone { position: absolute; top: 0; bottom: 0; }
+.hist-zone-freeze { left: 0; background: rgba(230,73,46,0.16); }
+.hist-zone-heat { background: rgba(46,139,87,0.16); }
+.hist-pos-fill { position: absolute; top: 0; bottom: 0; left: 0; background: linear-gradient(90deg, rgba(91,143,249,0.35), rgba(91,143,249,0.6)); border-radius: 6px 0 0 6px; }
+.hist-pos-pointer { position: absolute; top: -3px; transform: translateX(-50%); font-size: 12px; line-height: 1; color: var(--text-1); text-shadow: 0 0 2px var(--bg-card); z-index: 2; }
+.hist-pos-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.hist-tick-freeze { color: #e6492e; }
+.hist-tick-heat { color: #2e8b57; }
+.hist-extremes .hist-ext-item, .hist-triggers .hist-trig { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: baseline; gap: 2px; font-variant-numeric: tabular-nums; }
+.hist-extremes .hist-ext-item b, .hist-triggers .hist-trig b { color: var(--text-1); font-weight: 600; }
+.hist-ext-date { color: var(--text-3); font-size: 11px; }
+.hist-trig-freeze b { color: #e6492e; }
+.hist-trig-heat b { color: #2e8b57; }
+@media (max-width: 768px) {
+  .hist-row-label { flex-basis: 92px; font-size: 11px; }
+  .hist-pos-bar-wrap { min-width: 180px; }
+  .hist-pos-scale { font-size: 9px; }
+}
 .astock-top-grid {
   display: grid;
   grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800 */
