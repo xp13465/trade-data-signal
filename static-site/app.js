@@ -293,14 +293,14 @@ function fearGreedLabel(value) {
   return "🤩 极度贪婪";
 }
 
-// 恐贪标签颜色：极度恐惧=深红，恐惧=橙，中性=灰，贪婪=浅绿，极度贪婪=深绿
+// 恐贪标签颜色：冰点=蓝，偏冷=浅蓝，中性=灰，偏热=橙，过热=红（与热力图一致：冰=冷色，过热=热色）
 function fearGreedColor(value) {
   if (value == null) return "#86909c";
-  if (value <= 25) return "#c62828";
-  if (value <= 40) return "#e6a23c";
+  if (value <= 25) return "#42a5f5";
+  if (value <= 40) return "#4fc3f7";
   if (value <= 60) return "#86909c";
-  if (value <= 75) return "#67c23a";
-  return "#2e8b57";
+  if (value <= 75) return "#e6a23c";
+  return "#e6492e";
 }
 
 // index_id → 中文名 转译（散户友好，去除代码前缀，查不到保留原值）
@@ -3322,11 +3322,11 @@ async function renderOverview() {
       visualMap: {
         show: false,
         pieces: [
-          { lte: 25, color: "#c62828" },
-          { gt: 25, lte: 40, color: "#e6a23c" },
-          { gt: 40, lte: 60, color: "#86909c" },
-          { gt: 60, lte: 75, color: "#67c23a" },
-          { gt: 75, color: "#2e8b57" },
+          { lte: 25, color: "#42a5f5" },        // 冰点 蓝(冰色,与热力图一致)
+          { gt: 25, lte: 40, color: "#4fc3f7" }, // 偏冷 浅蓝
+          { gt: 40, lte: 60, color: "#86909c" }, // 中性 灰
+          { gt: 60, lte: 75, color: "#e6a23c" }, // 偏热 橙
+          { gt: 75, color: "#e6492e" },          // 过热 红(热色,与热力图一致)
         ],
         dimension: 1,
       },
@@ -5167,11 +5167,11 @@ async function renderSentiment() {
       visualMap: {
         show: false,
         pieces: [
-          { lte: 25, color: "#c62828" },
-          { gt: 25, lte: 40, color: "#e6a23c" },
-          { gt: 40, lte: 60, color: "#86909c" },
-          { gt: 60, lte: 75, color: "#67c23a" },
-          { gt: 75, color: "#2e8b57" },
+          { lte: 25, color: "#42a5f5" },        // 冰点 蓝(冰色,与热力图一致)
+          { gt: 25, lte: 40, color: "#4fc3f7" }, // 偏冷 浅蓝
+          { gt: 40, lte: 60, color: "#86909c" }, // 中性 灰
+          { gt: 60, lte: 75, color: "#e6a23c" }, // 偏热 橙
+          { gt: 75, color: "#e6492e" },          // 过热 红(热色,与热力图一致)
         ],
         dimension: 1,
       },
@@ -5187,8 +5187,8 @@ async function renderSentiment() {
       chart.setOption({ series: [{ markPoint: { data: _fgMp }, markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
         data: [
-          { yAxis: 25, lineStyle: { color: "#c62828" }, label: { formatter: "冰点", color: "#c62828", position: "insideStartTop", fontSize: 10 } },
-          { yAxis: 75, lineStyle: { color: "#2e8b57" }, label: { formatter: "过热", color: "#2e8b57", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 25, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 75, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
         ],
       } }] });
     }
