@@ -3342,6 +3342,41 @@ async function renderOverview() {
     if (asChart) addCardTimeBadge(asChart.getDom().parentElement, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
   }
 
+  // 左列：恐贪分项条（8 项情绪分等权 = 恐贪指数；分项解释总分构成，填左列底部留白）
+  {
+    const _FG_DIM_IDS = [
+      "a_sentiment", "cross_market",
+      "sentiment_sz50", "sentiment_hs300", "sentiment_csi500",
+      "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50",
+    ];
+    const _sc = (r.today && r.today.scores) || {};
+    const _fgTotal = _sc.fear_greed && _sc.fear_greed.value != null ? _sc.fear_greed.value : null;
+    const _rows = _FG_DIM_IDS.map((id) => {
+      const s = _sc[id];
+      if (!s || s.value == null) return null;
+      return { id, name: indexIdToName(id), value: s.value, freeze: !!(s.is_freeze || s.value < 20), overheat: !!(s.is_overheat || s.value > 80) };
+    }).filter(Boolean).sort((a, b) => a.value - b.value); // 升序：最恐惧(低分)在上
+    if (_rows.length) {
+      const fgDimCard = document.createElement("div");
+      fgDimCard.className = "chart-card fg-dim-card";
+      const totalTxt = _fgTotal != null ? ` · 总分 ${_fgTotal.toFixed(1)}` : "";
+      let html = '<h3>🌡️ 恐贪分项' + termTip("恐贪指数由以下8项情绪分等权平均合成(2项综合+6项宽基)。分项条解释总分为何是当前值——哪几项拖累(冰点)/哪几项偏高。❄️=冰点(≤20)，🔥=过热(≥80)。") + '<span class="fg-dim-total">8 项等权' + totalTxt + '</span></h3>';
+      html += '<div class="fg-dim-rows">';
+      for (const row of _rows) {
+        const col = fearGreedColor(row.value);
+        const icon = row.freeze ? ' ❄️' : row.overheat ? ' 🔥' : '';
+        html += '<div class="fg-dim-row">' +
+          '<span class="fg-dim-name">' + row.name + icon + '</span>' +
+          '<span class="fg-dim-track"><span class="fg-dim-fill" style="width:' + row.value.toFixed(1) + '%;background:' + col + '"></span></span>' +
+          '<span class="fg-dim-val" style="color:' + col + '">' + row.value.toFixed(1) + '</span>' +
+          '</div>';
+      }
+      html += '</div>';
+      fgDimCard.innerHTML = html;
+      colA1.appendChild(fgDimCard);
+    }
+  }
+
   // 右列：冰点日卡片（近120日，按日分组4个/行）
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";

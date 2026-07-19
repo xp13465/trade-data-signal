@@ -724,6 +724,20 @@ main { padding: 16px 24px; }
 @media (max-width: 768px) {
   .ov-2col { grid-template-columns: 1fr; }
 }
+
+/* 恐贪分项条卡片：8 项情绪分等权=恐贪指数，填左列底部留白；flex 撑满 + 横条均匀分布吸收 stretch 余高 */
+.fg-dim-card { flex: 1 0 auto; display: flex; flex-direction: column; }
+.fg-dim-card h3 .fg-dim-total { float: right; font-size: 12px; color: var(--text-3); font-weight: normal; margin-left: 8px; }
+.fg-dim-rows { flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 6px 0 2px; }
+.fg-dim-row { display: flex; align-items: center; gap: 8px; }
+.fg-dim-name { flex: 0 0 100px; font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fg-dim-track { flex: 1; height: 10px; background: var(--bg-hover); border-radius: 5px; overflow: hidden; }
+.fg-dim-fill { display: block; height: 100%; border-radius: 5px; transition: width 0.4s ease; }
+.fg-dim-val { flex: 0 0 38px; text-align: right; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 768px) {
+  .fg-dim-name { flex-basis: 84px; font-size: 11px; }
+  .fg-dim-val { flex-basis: 34px; }
+}
 .astock-top-grid {
   display: grid;
   grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800 */
