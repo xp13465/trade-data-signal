@@ -3021,7 +3021,7 @@ async function renderOverview() {
           '<div class="nt-mini-bars-wrap">' + ntMiniBars(rc.daily) + '</div>' +
         '</div>';
     }
-    // 最新1天明细（降权默认折叠，有空间展开无空间收起）
+    // 最新1天明细（默认展开，有空间收起）
     let detailHtml = "";
     if (nt.signals && nt.signals.length) {
       const resTypes = [];
@@ -3044,8 +3044,8 @@ async function renderOverview() {
       }
       const detCount = (nt.n_surge || 0) + (nt.n_outflow || 0) + (nt.n_volume || 0);
       detailHtml =
-        '<details class="nt-recent-detail">' +
-          '<summary>最新 ' + fmtDate(nt.date) + ' 明细（' + detCount + '只） ▸</summary>' +
+        '<details class="nt-recent-detail" open>' +
+          '<summary>最新 ' + fmtDate(nt.date) + ' 明细（' + detCount + '只）</summary>' +
           resBanner +
           '<div class="signal-grid">' + chipsHtml + "</div>" +
         "</details>";

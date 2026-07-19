@@ -2172,6 +2172,8 @@ main { padding: 16px 24px; }
 }
 .nt-recent-detail summary::-webkit-details-marker { display: none; }
 .nt-recent-detail[open] summary { margin-bottom: 6px; color: var(--text-2); }
+.nt-recent-detail summary::after { content: " ▾"; color: var(--text-3); }
+.nt-recent-detail:not([open]) summary::after { content: " ▸"; }
 .nt-recent-detail .nt-resonance-banner { margin: 4px 0 6px; }
 .nt-recent-detail .signal-grid { margin-top: 4px; }
 
