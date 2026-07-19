@@ -2104,3 +2104,32 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 策略实验室待办全闭环（4分区22策略+5窗口回测+9指数+128组配对+推荐榜+L1-L4 polish+§30信息对齐+§31去代理+§38双图）。
 
 - 本节 NOTES §38
+
+## §39 首页汪汪队卡片 + lab 3级tab + KPI 排序 UI 优化 7 项（2026-07-19）
+
+7 项 UI 需求链全闭环上线 s.sugas.site。逐条记录改动点/关键文件函数/commit。
+
+### 7 项改动
+
+1. **汪汪队 7 天总况**（commit 5540625）：首页汪汪队卡片加近 7 天汇总（汇总数字 + 堆叠迷你柱 + 明细折叠）。后端 `recent_signals_overview(days: int = 7)`@`app/collector/etf_national_team.py:1263`（默认 7 天，返回 `{summary, daily:[{date, signals[], ...}]}`）。
+
+2. **首页 tab 更名**（commit 38a4c4e）：`_H5_TAB_NAMES`@`static-site/app.js:6199`，大盘信号 -> `📈 指数表现`、板块轮动 -> `🏭 板块分化`（弱化"信号"推荐语义，对齐 §37 P0-2 合规定位）。
+
+3. **lab 3 级 tab 重构**（commit 98779a9）：单一/融合信号实验降级为 3 级 tab，打包进「信号实验」父 tab。复用 scan 已有 3 级机制：`_SCAN_CHILDREN`@`static-site/lab.js:3481` = `["ablation","symmetry","paramscan"]` + `isScanActive`@`lab.js:3485`；hash 向后兼容（旧 hash 仍可直达）。
+
+4. **汪汪队明细默认展开**（commit 74efdd1）：卡片汇总明细 `<details open>`，进站即见不折叠。
+
+5. **KPI 卡片排序**（commit 283bc6b）：A+B 组合默认 + 用户拖拽自定义，存 `localStorage.kpiCustomOrder`@`app.js:3007/3133`；加重置按钮（`removeItem`@3087 清回默认）。
+
+6. **汪汪队卡片重构**（commit fb02246）：重构为「近期信号列表」（按日分组 + 今日高亮）+ hover pop 细节 + 点击 chip 弹当日 per-ETF 明细 modal（`openNtDayModal`@`app.js:2794`，`_ntRecentDaily`@`app.js:2698` 缓存 daily 供取当日 `signals[]`）；去整卡跳转、去右下角入口、汇总小标题保留。后端 `recent_signals_overview` 的 daily 项加 `signals[]` per-ETF 明细（~5KB，字段 code/name/type/share_change_yi/amount_ratio/intensity/note）。
+
+7. **chip 详情汇总**（commit 01a3630）：每日 chip 从「进4 量4」升级为「进4 净流入X亿 / 量4 放量X倍 / 出X 净流出X亿」——内联聚合从 `signals[]` 算 `sum(share_change_yi)`@`etf_national_team.py:1239` + `mean(amount_ratio)`@1240；CSS `.nt-home-card .sig-items`@`static-site/style.css` 改 flex-wrap 防窄屏截断。
+
+### commits
+5540625（7天总况）/ 38a4c4e（tab更名）/ 98779a9（lab 3级tab）/ 74efdd1（明细展开）/ 283bc6b（KPI排序）/ fb02246（卡片重构）/ 01a3630（chip汇总）；data update 1921dac / 3877c83 / 8bfedf7
+
+### 验收（主控逐字）
+- 7 个 feat commit 均 push 上线 s.sugas.site
+- 关键符号核对在位：`_H5_TAB_NAMES`@app.js:6199、`_SCAN_CHILDREN`@lab.js:3481、`openNtDayModal`@app.js:2794、`kpiCustomOrder`@app.js:3007、`recent_signals_overview(days=7)`@etf_national_team.py:1263、`share_change_yi`@1239、`.nt-home-card .sig-items`@style.css
+
+- 本节 NOTES §39
