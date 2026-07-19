@@ -15,6 +15,7 @@
   static-site/data/lab/lab_retest_{iid}.json
 """
 import json
+import math
 import os
 import sys
 from typing import Dict, List, Any, Optional, Tuple
@@ -44,11 +45,21 @@ REGIMES = [
 
 
 def _calc_risk_adj(annual_ret: float, max_drawdown: float) -> float:
-    """计算风险调整收益(类Calmar) = annual_ret / max_drawdown。
-    与 lab.js:2120 一致: dd>0.5% 时用比值,否则年化为正给999,为负给-999。"""
-    if max_drawdown > 0.5:
-        return annual_ret / max_drawdown
-    return 999.0 if annual_ret > 0 else -999.0
+    """计算风险调整收益(类Calmar) = annual_ret / max(max_drawdown, 2.0)。
+    与 lab.js risk_adj 一致:分母 floor 2.0%(回撤极小时保守视作2%),消除原 999/-999
+    哨兵(原哨兵使 min-max 归一化与 risk_adj≥门槛判定失真:微回撤+正年化恒给999必过门槛)。
+    annual_ret/max_drawdown 均为百分数(20.0=20%)。"""
+    return annual_ret / max(max_drawdown, 2.0)
+
+
+def _winsorize(vals: List[float], lo: float = 0.01, hi: float = 0.99) -> List[float]:
+    """截断前后1%极端值(P1-2抗离群点:实测SH有-88%收益/dd91%等极端拉偏min-max)。
+    返回与vals等长的clamped列表;<4个样本时quantile不稳,原样返回。"""
+    if len(vals) < 4:
+        return list(vals)
+    s = pd.Series(vals)
+    lo_v, hi_v = float(s.quantile(lo)), float(s.quantile(hi))
+    return [min(max(v, lo_v), hi_v) for v in vals]
 
 
 def _compute_window_stats(df, buy_mask, sell_mask, first_date, last_date, window_years, sim_func=simulate_full_in):
@@ -69,10 +80,14 @@ def _compute_window_stats(df, buy_mask, sell_mask, first_date, last_date, window
 
 
 def _normalize_and_score(all_stats: List[Dict[str, Any]]) -> List[float]:
-    """对全部候选的y5统计做min-max归一化后算综合分。
-    与 lab.js:2125-2136 一致:
-      score = 0.4*nRet + 0.3*nWin + 0.2*nDd + 0.1*nN
-      nDd 用 -max_drawdown 归一化(回撤越小分越高)
+    """对全部候选的y5统计做 winsorize+min-max 归一化后算综合分。
+    与 lab.js _labRankAggregate score 公式一致(P1-1/P1-2/P2-1):
+      score = 0.35*nRet + 0.25*nWin + 0.15*nDd + 0.15*nRisk + 0.1*nConcaveN
+    - nRet/nWin/nDd/nRisk: winsorize(前后1%截断)后 min-max 归一化到[0,1](P1-2抗极端值)
+    - nDd 用 -max_drawdown 归一化(回撤越小分越高)
+    - nRisk = risk_adj(annual_ret/max(dd,2.0)) 作第5因子(P1-1,原4因子无risk_adj)
+    - nConcaveN = 1-exp(-n/30) 凹函数替代线性(P2-1:边际递减,30笔0.63/60笔0.87,
+      抗大样本线性通胀;非cohort归一,绝对变换,权重0.1小故影响有限)
     返回与 all_stats 等长的 score 列表(0-1)。
     """
     if not all_stats:
@@ -82,28 +97,39 @@ def _normalize_and_score(all_stats: List[Dict[str, Any]]) -> List[float]:
     wins = [s.get('win_rate', 0) for s in all_stats]
     dds = [s.get('max_drawdown', 0) for s in all_stats]
     ns = [s.get('n_trades', 0) for s in all_stats]
+    annuals = [s.get('annual_ret', 0) for s in all_stats]
+    risks = [_calc_risk_adj(a, d) for a, d in zip(annuals, dds)]
 
     def mm(vals):
-        mn, mx = min(vals), max(vals)
+        wv = _winsorize(vals)  # winsorize 后取 min/max(P1-2)
+        mn, mx = min(wv), max(wv)
         if mx == mn:
             return [0.5] * len(vals)
-        return [(v - mn) / (mx - mn) for v in vals]
+        rng = mx - mn
+        return [max(0.0, min(1.0, (v - mn) / rng)) for v in vals]
 
     n_rets = mm(rets)
     n_wins = mm(wins)
     n_dds = mm([-d for d in dds])  # -dd: 回撤越小值越大
-    n_ns = mm(ns)
+    n_risks = mm(risks)
+    n_ns = [1 - math.exp(-n / 30) for n in ns]  # 凹函数(P2-1)
 
     scores = []
     for i in range(len(all_stats)):
-        s = 0.4 * n_rets[i] + 0.3 * n_wins[i] + 0.2 * n_dds[i] + 0.1 * n_ns[i]
+        s = (0.35 * n_rets[i] + 0.25 * n_wins[i] + 0.15 * n_dds[i]
+             + 0.15 * n_risks[i] + 0.1 * n_ns[i])
         scores.append(s)
     return scores
 
 
 def _is_star_candidate(score, windows):
-    """判断是否为⭐️综合分候选(收紧:多窗口dd最严):
-    y5_dd<=10% && y3_dd<=10% && y1_dd<=10% && n>=10 && [(score>=0.6 && n>=30) || win>=55 || risk_adj>=1.0]
+    """判断是否为⭐️综合分候选(P1-3 收紧:多窗口dd稳健门 + AND质量门):
+    y5_dd<=10% && y3_dd<=10% && y1_dd<=10% && n>=10  (基础稳健+样本下限门,不变)
+    且 score>=0.6 && win>=55 && risk_adj>=1.5          (AND质量门,原OR三分支收紧为AND)
+    说明:原 OR=(score>=0.6&&n>=30)||win>=55||risk_adj>=1.0 放入42个含大量弱候选
+    (低score仅靠win>=55单分支混入)。收紧为AND后仅保留score/win/risk三者皆强的候选。
+    n>=30 不纳入质量门(5年窗口交易数普遍10-27,n>=30仅2/42可达,数据不可行),
+    保留原 n>=10 作样本下限。risk_adj门槛 1.0->1.5(任务硬性要求)。
     score/n/dd/win/risk_adj 取 y5 全仓(百分比单位:dd=10表10%)
     windows: {y5:stats, y3:stats, y1:stats} 各为_build_stats返回的dict
     """
@@ -119,8 +145,8 @@ def _is_star_candidate(score, windows):
     y1_dd = y1.get('max_drawdown', 999)
     dd_ok = dd <= 10 and y3_dd <= 10 and y1_dd <= 10
     n_ok = n >= 10
-    or_branch = (score >= 0.6 and n >= 30) or (win >= 55) or (risk_adj >= 1.0)
-    return dd_ok and n_ok and or_branch
+    quality = (score >= 0.6) and (win >= 55) and (risk_adj >= 1.5)
+    return dd_ok and n_ok and quality
 
 
 def _slice_by_date_range(df, start_str, end_str):

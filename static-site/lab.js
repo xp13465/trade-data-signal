@@ -705,7 +705,7 @@ const _LAB_GLOSSARY = {
   },
   score: {
     name: "综合评分（0-100）",
-    desc: "0-100分=收益率(40%)+胜率(30%)+回撤倒数(20%)+样本量(10%)，各项先min-max归一化到[0,1]再加权×100，越高越综合优秀。",
+    desc: "0-100分=收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，收益/胜率/回撤/风险调整先winsorize(前后1%截断)抗极端值再min-max归一化到[0,1]，样本量用凹函数1-exp(-n/30)抗大样本线性通胀，加权后×100，越高越综合优秀。",
   },
   windows: {
     name: "5窗口（时间窗口）",
@@ -721,7 +721,27 @@ const _LAB_GLOSSARY = {
   },
   risk_adjust: {
     name: "风险调整（类 Calmar）",
-    desc: "Calmar比率=年化收益率÷最大回撤。衡量“每承受1%回撤能换多少收益”，越高越好，比单看收益更能反映风险性价比。",
+    desc: "Calmar比率=年化收益率÷最大回撤，分母下限2%（回撤极小时保守视作2%，避免微小回撤算出虚高分）。衡量“每承受1%回撤能换多少收益”，越高越好，比单看收益更能反映风险性价比。",
+  },
+  profit_factor: {
+    name: "利润因子（Profit Factor）",
+    desc: "总盈利笔收益和÷总亏损笔收益和绝对值。>1盈利系统，>2优秀。全胜（无亏损笔）时显示∞。百分比口径与胜率同源。",
+  },
+  payoff_ratio: {
+    name: "盈亏比（Payoff Ratio）",
+    desc: "平均盈利÷平均亏损绝对值。如1.5=每笔赚的是亏的1.5倍。高盈亏比可弥补低胜率。全胜时显示∞。",
+  },
+  sharpe: {
+    name: "夏普比率（Sharpe）",
+    desc: "年化夏普=收益率均值÷标准差×√252（无风险利率0）。衡量每承担1单位总波动换多少超额收益，>1尚可，>2优秀。基于事件点收益率近似（与回撤同源非完整日K）。",
+  },
+  sortino: {
+    name: "索提诺比率（Sortino）",
+    desc: "年化索提诺=收益率均值÷下行波动×√252。与夏普类似但只计下行风险（亏损方向波动），对“上涨波动”不惩罚，比夏普更贴合投资者真实感受，通常≥夏普。",
+  },
+  expectancy: {
+    name: "期望值（Expectancy）",
+    desc: "单笔期望收益率%=胜率×平均盈利+败率×平均亏损。正值=长期每笔期望赚钱，负值=亏钱。综合胜率与盈亏比，是策略可行性的核心指标。",
   },
   win_rate: {
     name: "胜率",
@@ -733,7 +753,7 @@ const _LAB_GLOSSARY = {
   },
   retest: {
     name: "二次测试（稳健性三件套）",
-    desc: "稳健性验证三件套：①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心，成本低结论明确。",
+    desc: "稳健性验证三件套：①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心，成本低结论明确。⭐️进入规则:近5/3/1年三窗口最大回撤均≤10%且交易≥10次，且(综合评分≥0.6 且 胜率≥55% 且 风险调整≥1.5)三者同时满足(AND收紧)。",
   },
 };
 
@@ -2666,6 +2686,35 @@ function _labRankFilterHTML() {
     `<button type="button" class="lab-rank-freset" style="${_LAB_FSTYLE.reset}">重置</button></div>`;
 }
 
+// winsorize 截断前后1%极端值(P1-2 抗离群点:实测有-88%收益/dd91%拉偏min-max)。
+// 返回与 vals 等长的 clamped 数组；<4个样本时 quantile 不稳，原样返回副本。
+// 与后端 lab_retest._winsorize 一致(线性插值分位数)。
+function _labWinsor(vals, lo, hi) {
+  lo = lo == null ? 0.01 : lo; hi = hi == null ? 0.99 : hi;
+  const n = vals.length;
+  if (n < 4) return vals.slice();
+  const vs = vals.slice().sort((a, b) => a - b);
+  const qi = (p) => { const i = p * (n - 1), f = Math.floor(i), c = Math.ceil(i); return f === c ? vs[f] : vs[f] + (vs[c] - vs[f]) * (i - f); };
+  const loV = qi(lo), hiV = qi(hi);
+  return vals.map((v) => Math.min(Math.max(v, loV), hiV));
+}
+
+// 格式化质量指标值(P0-1/P2-2 展示用):
+// kind="sentinel": profit_factor/payoff_ratio 无亏损笔时 999 哨兵显示 ∞;
+// kind="pct": expectancy 加 % 并带正负号; 默认: toFixed(2)。
+function _labFmtQuality(v, kind) {
+  if (v == null || isNaN(v)) return "-";
+  if (kind === "sentinel" && v >= 998) return "∞";
+  if (kind === "pct") return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+  return v.toFixed(2);
+}
+// 质量指标5字段 HTML(盈亏比/利润因子/夏普/索提诺/期望值),复用于主榜与retest榜行。
+// 紧凑灰字单行,hover title 给中文释义,详细解释见术语词典(_labHelpIcon)。
+function _labQualityHTML(row) {
+  return `<span class="lab-rank-quality" title="质量指标(点页内❓查词典): 盈亏比=平均盈利/平均亏损; 利润因子=总盈利/总亏损; 夏普/索提诺=年化风险调整收益(索提诺仅算下行波动); 期望值=单笔期望收益率%">` +
+    `盈亏比${_labFmtQuality(row.payoff_ratio, "sentinel")} · 利润因子${_labFmtQuality(row.profit_factor, "sentinel")} · 夏普${_labFmtQuality(row.sharpe)} · 索提诺${_labFmtQuality(row.sortino)} · 期望${_labFmtQuality(row.expectancy, "pct")}</span>`;
+}
+
 // 聚合配对 + 算综合评分与风险调整（三榜隔离：single 只显买×卖；fusion 只显 F_融合+同向共振）
 // 新结构：simData.pairs 按 "buyKey|sellKey" 去重存储（配对只存一份），直接遍历即得配对组
 // opt.subMode: "single"=单一实验榜(只 buy_sell) / "fusion"=融合实验榜(F_融合+buy_buy/sell_sell共振，砍 plain buy_sell)
@@ -2717,29 +2766,32 @@ function _labRankAggregate(simData, win, opt) {
         total_ret: s.total_ret, annual_ret: s.annual_ret,
         max_drawdown: s.max_drawdown, win_rate: s.win_rate,
         n_trades: s.n_trades, years: s.years, final_total: s.final_total,
+        // 5质量指标(P0-1展示,阶段1已上线)
+        profit_factor: s.profit_factor, payoff_ratio: s.payoff_ratio,
+        sharpe: s.sharpe, sortino: s.sortino, expectancy: s.expectancy,
       });
     }
   }
-  // 风险调整：年化/最大回撤（类 Calmar）。回撤极小且年化为正时给大值，避免除0。
+  // 风险调整：年化/最大回撤（类 Calmar），分母 floor 2.0% 消除 999 哨兵（与后端 _calc_risk_adj 一致）。
   rows.forEach((r) => {
-    if (r.max_drawdown > 0.5) r.risk_adj = r.annual_ret / r.max_drawdown;
-    else r.risk_adj = r.annual_ret > 0 ? 999 : -999;
+    r.risk_adj = r.annual_ret / Math.max(r.max_drawdown, 2.0);
   });
-  // 综合评分：各项 min-max 归一化到 [0,1] 后加权。norm(v)=(v-min)/(max-min)。
-  // 回撤用 -max_drawdown 归一化（回撤越小→值越大→分越高）。
+  // 综合评分（P1-1/P1-2/P2-1，与后端 _normalize_and_score 一致）：
+  //   0.35*ret + 0.25*win + 0.15*dd + 0.15*risk_adj + 0.1*(1-exp(-n/30))；ret/win/dd/risk_adj 先 winsorize(前后1%截断)抗极端值再 min-max 归一化；n 用凹函数 1-exp(-n/30) 替代线性(边际递减)。
   const mm = (acc) => {
-    const vs = rows.map(acc);
-    const mn = Math.min(...vs), mx = Math.max(...vs);
-    return (v) => (mx === mn ? 0.5 : (v - mn) / (mx - mn));
+    const wv = _labWinsor(rows.map(acc));
+    const mn = Math.min.apply(null, wv), mx = Math.max.apply(null, wv);
+    return (v) => { const x = mx === mn ? 0.5 : (v - mn) / (mx - mn); return Math.max(0, Math.min(1, x)); };
   };
   const nRet = mm((r) => r.total_ret);
   const nWin = mm((r) => r.win_rate);
   const nDd = mm((r) => -r.max_drawdown);
-  const nN = mm((r) => r.n_trades);
+  const nRisk = mm((r) => r.risk_adj);
   rows.forEach((r) => {
-    r.score = 0.4 * nRet(r.total_ret) + 0.3 * nWin(r.win_rate) +
-              0.2 * nDd(-r.max_drawdown) + 0.1 * nN(r.n_trades);
-    // ⭐️进入二次测试：查 retest JSON 存在性(后端已按三窗口dd≤10%+n≥10+OR判定)，与后端一致，不按选中窗口动态算
+    r.score = 0.35 * nRet(r.total_ret) + 0.25 * nWin(r.win_rate) +
+              0.15 * nDd(-r.max_drawdown) + 0.15 * nRisk(r.risk_adj) +
+              0.1 * (1 - Math.exp(-r.n_trades / 30));
+    // ⭐️进入二次测试：查 retest JSON 存在性(后端已按 AND质量门 判定)，与后端一致，不按选中窗口动态算
     r.retest = retestSet ? retestSet.has(r.buyKey + "|" + r.sellKey) : false;
   });
   return rows;
@@ -2772,8 +2824,8 @@ function _labRankItemHTML(row, rank, tab) {
   const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "";
   let extra = "";
   if (tab === "composite") extra = `<span class="lab-rank-score">评分 ${(row.score * 100).toFixed(0)}</span>`;
-  else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 998 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
-  if (row.retest) extra += '<span class="lab-rank-retest" title="点击跳转到「🔬 二次测试实验」页，对该配对做独立回测验证（分年回测/样本外/极端行情三件套）并高亮定位。进入规则:近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次,且(综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0)">⭐️进入二次测试</span>';
+  else if (tab === "risk_adj") extra = `<span class="lab-rank-score">${row.risk_adj >= 100 ? "∞" : row.risk_adj.toFixed(2)}</span>`;
+  if (row.retest) extra += '<span class="lab-rank-retest" title="点击跳转到「🔬 二次测试实验」页，对该配对做独立回测验证（分年回测/样本外/极端行情三件套）并高亮定位。进入规则:近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次,且(综合评分≥0.6 且 胜率≥55% 且 风险调整≥1.5 三者同时满足)">⭐️进入二次测试</span>';
   // 配对类型 -> 名称格式 + 视觉标识（紫色 #9c27b0）
   const pt = row.pair_type || "buy_sell";
   let nameHTML, tagHTML, itemCls = "lab-rank-item clickable-card";
@@ -2801,7 +2853,7 @@ function _labRankItemHTML(row, rank, tab) {
       `<span style="color:${winC}">胜${row.win_rate}%</span>` +
       `<span style="${ddC}">回撤${row.max_drawdown}%</span>` +
       `<span class="lab-rank-n">n=${row.n_trades}${row.n_trades > 0 && row.n_trades < 10 ? ' <span class="lab-rank-small">小样本</span>' : ""}</span>` +
-    `</span>` + extra + `</button>`;
+    `</span>` + _labQualityHTML(row) + extra + `</button>`;
 }
 
 function _labRankHTML(simData) {
@@ -2816,7 +2868,7 @@ function _labRankHTML(simData) {
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
   const legend = tab === "composite"
-    ? "综合评分 = 收益率(40%) + 胜率(30%) + 回撤倒数(20%) + 样本量(10%)，各项 min-max 归一化到[0,1]后加权再×100，越高越好。" + _labHelpIcon("score")
+    ? "综合评分 = 收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，收益/胜率/回撤/风险调整先winsorize(前后1%截断)抗极端值再min-max归一化，样本量用凹函数1-exp(-n/30)抗大样本通胀，加权×100越高越好。" + _labHelpIcon("score")
     : tab === "risk_adj"
       ? "风险调整 = 年化收益 ÷ 最大回撤（类 Calmar 比率），衡量每承担1%回撤换来多少年化收益，越高越好。" + _labHelpIcon("risk_adjust")
       : tab === "stable"
@@ -2827,7 +2879,7 @@ function _labRankHTML(simData) {
   return `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口${_labHelpIcon("windows")}</span>${_labWinTabsHTML()}</div>` +
     `<div class="lab-rank-tabs">${tabsHTML}</div>` +
     `<div class="lab-rank-legend">${legend} 点击任意配对查看完整净值曲线与交易记录。红=好，绿=差。排序：n≥10 大样本优先，0<n<10 小样本配对居中并标"小样本"提示可信度存疑，n=0(无交易)沉底。</div>` +
-    `<div class="lab-rank-retest-rule">⭐️进入二次测试：近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次，且（综合评分≥0.6且交易≥30 或 胜率≥55% 或 风险调整≥1.0）</div>` +
+    `<div class="lab-rank-retest-rule">⭐️进入二次测试：近5/3/1年三窗口最大回撤均≤10% 且 交易≥10次，且（综合评分≥0.6 且 胜率≥55% 且 风险调整≥1.5 三者同时满足）</div>` +
     _labRankFilterHTML() +
     `<div class="lab-rank-results">${_labRankResultsHTML()}</div>`;
 }
@@ -2835,7 +2887,7 @@ function _labRankHTML(simData) {
 // === 二次测试 tab 渲染（分年回测 / 样本外 / 极端行情三件套）===
 // 数据源 lab_retest_{index}.json，per-index 缓存到 state.labRetestDataMap
 // ret/dd/win 为小数(0.xxxx)，显示时 ×100 加 %；null 显示 "-"
-const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=近5/3/1年三窗口回撤均≤10%且交易≥10,且(综合分≥0.6且交易≥30或胜率≥55%或风险调整≥1.0)" + _labHelpIcon("retest");
+const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=近5/3/1年三窗口回撤均≤10%且交易≥10,且(综合分≥0.6 且 胜率≥55% 且 风险调整≥1.5 三者同时满足)" + _labHelpIcon("retest");
 
 function _labRetestPct(v) {
   if (v == null) return "-";
@@ -3667,6 +3719,9 @@ function _labRetestRankRows(rd, simData, winKey) {
     let winRate = meta.win != null ? meta.win : 0;
     let dd = meta.dd != null ? meta.dd : 0;
     let n = meta.n != null ? meta.n : 0;
+    // annual_ret + 5质量指标(P0-1展示/B2 wholeScore): 仅 simData stats 有,pair_meta 无,回退0。
+    let annualRet = 0;
+    let pf = 0, pr = 0, sh = 0, so = 0, ex = 0;
     if (simData && meta.strategy) {
       const parts = meta.strategy.split("|");
       const pd2 = _labGetPair(simData, parts[0], parts[1]);
@@ -3676,8 +3731,13 @@ function _labRetestRankRows(rd, simData, winKey) {
         winRate = s.win_rate / 100;
         dd = s.max_drawdown / 100;
         n = s.n_trades;
+        annualRet = s.annual_ret;
+        pf = s.profit_factor; pr = s.payoff_ratio;
+        sh = s.sharpe; so = s.sortino; ex = s.expectancy;
       }
     }
+    // risk_adj: 年化/回撤(类Calmar),分母floor 2.0%(dd为小数,×100与annualRet百分数对齐;与后端一致)
+    const risk_adj = annualRet / Math.max(dd * 100, 2.0);
     const yearly = data.yearly || {};
     const yKeys = Object.keys(yearly).sort();
     const yearRets = yKeys.map((yr) => yearly[yr] && yearly[yr].ret).filter((v) => v != null);
@@ -3727,6 +3787,9 @@ function _labRetestRankRows(rd, simData, winKey) {
       covidNull: !covid,
       // 小样本
       yearSmall, oosSmall,
+      // 风险调整 + 5质量指标(P0-1展示/B2 wholeScore)
+      risk_adj, annual_ret: annualRet,
+      profit_factor: pf, payoff_ratio: pr, sharpe: sh, sortino: so, expectancy: ex,
     };
   };
   // Pass1：每对出2行(全仓 full_in + 定额10% fixed_10k)，fixed_10k 缺失则只出 full_in
@@ -3740,7 +3803,7 @@ function _labRetestRankRows(rd, simData, winKey) {
   const retN = _labRetestMinMax(raw, "ret");
   const winN = _labRetestMinMax(raw, "win");
   const ddN = _labRetestMinMax(raw, "dd");
-  const nN = _labRetestMinMax(raw, "n");
+  const riskN = _labRetestMinMax(raw, "risk_adj");
   const minYearRetN = _labRetestMinMax(raw, "minYearRet");
   const yearVolN = _labRetestMinMax(raw, "yearVol");
   const testRetN = _labRetestMinMax(raw, "testRet");
@@ -3752,8 +3815,9 @@ function _labRetestRankRows(rd, simData, winKey) {
   const covidDdN = _labRetestMinMax(raw, "covidDd");
   // Pass3：各综合分（归一化加权，across 所有模式行；full_in 与定额10%各自三切片独立算分）
   return raw.map((r) => {
-    // 整体归一 = 0.4*ret_norm + 0.3*win_norm + 0.2*(1-dd_norm) + 0.1*n_norm
-    const wholeScore = 0.4 * retN(r.ret) + 0.3 * winN(r.win) + 0.2 * (1 - ddN(r.dd)) + 0.1 * nN(r.n);
+    // 整体归一 = 0.35*ret + 0.25*win + 0.15*(1-dd) + 0.15*risk_adj + 0.1*(1-exp(-n/30))
+    // (P1-1 与主榜/后端一致: risk_adj 第5因子 + 凹n; retest候选集小故不winsorize,用min-max)
+    const wholeScore = 0.35 * retN(r.ret) + 0.25 * winN(r.win) + 0.15 * (1 - ddN(r.dd)) + 0.15 * riskN(r.risk_adj) + 0.1 * (1 - Math.exp(-r.n / 30));
     // 分年综合分 = 0.4*min年ret_norm + 0.4*盈利年占比 + 0.2*(1-波动norm)
     const yearlyScore = 0.4 * minYearRetN(r.minYearRet) + 0.4 * r.profitYearRatio + 0.2 * (1 - yearVolN(r.yearVol));
     // oos综合分 = 0.4*test_ret_norm + 0.4*(1-过拟合度norm) + 0.2*test_win_norm
@@ -3912,7 +3976,7 @@ function _labRetestRankItemHTML(row, rank, tab) {
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">${row.cn} · ${row.modeCn}</span>` +
     `<span class="lab-rank-stats">${baseStats}</span>` +
-    extra + _labRetestHonorsHTML(row.pk) + `</button>`;
+    _labQualityHTML(row) + extra + _labRetestHonorsHTML(row.pk) + `</button>`;
 }
 
 // retest 排行榜过滤维度（值是小数 0.1=10%，isPct 字段过滤时×100 与输入百分数比较）
@@ -3981,7 +4045,7 @@ function _labRetestRankHTML(rd, simData) {
     `<button type="button" class="lab-win-tab${w.k === winKey ? " active" : ""}" data-win="${w.k}">${w.l}</button>`
   ).join("") + "</div>";
   const legend = tab === "score"
-    ? "综合分(二次测试)=0.3整体+0.25分年+0.25样本外+0.2极端，归一化加权，越高越稳健。"
+    ? "综合分(二次测试)=0.3整体+0.25分年+0.25样本外+0.2极端，归一化加权，越高越稳健。整体分=0.35收益+0.25胜率+0.15回撤+0.15风险调整+0.1样本量(凹函数)，含风险调整第5因子(与主榜一致)。" + _labHelpIcon("score")
     : tab === "dd"
       ? "稳健榜按最大回撤从小到大排序，回撤越小越稳。"
       : tab === "ret"

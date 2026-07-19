@@ -605,6 +605,11 @@
 }
 .lab-rank-stats { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; font-weight: 600; }
 .lab-rank-stats .lab-rank-n { color: var(--text-4); font-weight: 400; }
+/* 质量指标5字段(盈亏比/利润因子/夏普/索提诺/期望值): 灰字小号单行独占一行,弱化避免抢主stats视觉 */
+.lab-rank-quality {
+  flex-basis: 100%; font-size: 11px; font-weight: 400; color: var(--text-3);
+  line-height: 1.4; white-space: normal; word-break: keep-all;
+}
 .lab-rank-score {
   font-size: 12px; font-weight: 700; color: #9c27b0;
   background: #f3e5f5; padding: 2px 8px; border-radius: 4px; flex-shrink: 0;
