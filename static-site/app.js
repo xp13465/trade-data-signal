@@ -3374,7 +3374,14 @@ async function renderOverview() {
   if (r.a_sentiment_6m && r.a_sentiment_6m.length) {
     const as6 = r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value }));
     const asChart = lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的情绪温度计0-100，≤20冰点≥80过热") + latestSuffix(as6), as6, {}, null, colA1);
-    if (asChart) addCardTimeBadge(asChart.getDom().parentElement, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
+    if (asChart) {
+      addCardTimeBadge(asChart.getDom().parentElement, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
+      // 图表高度减一点(300->250)，给下方历史位置3行腾空间
+      const _ovChartDiv = asChart.getDom();
+      if (_ovChartDiv) { _ovChartDiv.style.height = '250px'; asChart.resize(); }
+      // 历史位置3行(候选2/3/4)合并进本卡图表下方：overview.json 无1年时序，独立 fetch 近1年+6月
+      appendHistoryPos(asChart.getDom().parentElement);
+    }
   }
 
   // 右列：冰点日卡片（近120日，按日分组4个/行）
