@@ -708,6 +708,7 @@ main { padding: 16px 24px; }
 .pct-badge { font-size: 13px; font-weight: 600; }
 .spark-cell .card-time-badge { font-size: 10px; padding: 1px 5px; bottom: 4px; right: 6px; max-width: 70%; }
 .spark-foot { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.spark-cell.has-time-badge .spark-foot { padding-right: 68px; }
 
 /* === 当日分时图（嵌入 spark-cell，腾讯API直拉，盘中3分钟动态刷新）=== */
 /* 盘中动态值脉冲标注（阶段2）：badge/横幅/toggle旁绿点呼吸 + 3min 小字 */
@@ -2083,6 +2084,7 @@ main { padding: 16px 24px; }
   .chart-card.hm-badge-bottom .card-time-badge { top: auto; bottom: 5px; right: 6px; }
   .card.kpi .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
   .spark-cell .card-time-badge { font-size: 9px; padding: 1px 4px; bottom: 3px; right: 4px; }
+  .spark-cell.has-time-badge .spark-foot { padding-right: 56px; }
   .industry-cell .card-time-badge { top: 4px; right: 5px; bottom: auto; }
   .card.kpi.has-time-badge .card-sub { padding-right: 58px; }
   .ov-2col { grid-template-columns: 1fr; gap: 12px; }

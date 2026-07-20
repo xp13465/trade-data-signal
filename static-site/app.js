@@ -3570,7 +3570,7 @@ async function renderOverview() {
       termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。点击下方信号chip查看当日明细。") + "</h3>" +
       summaryHtml +
       '<div class="signal-grid nt-signal-grid">' + _renderNtSignalList(rc && rc.daily ? rc.daily : [], nt.date) + '</div>';
-    addCardTimeBadge(ntCard, nt.date, snap, "etf");
+    addCardTimeBadge(ntCard, nt.date, snap, "t1", "etf_date");
     // chip 点击：弹当日明细 modal（事件委托，[data-nt-date] 触发；stopPropagation 防冒泡）
     ntCard.addEventListener("click", (e) => {
       const chip = e.target.closest("[data-nt-date]");
@@ -3584,7 +3584,7 @@ async function renderOverview() {
       '<h3>🐶 汪汪队信号' +
       termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。ETF份额T+1发布。") + "</h3>" +
       '<div class="empty-note">近期无汪汪队信号</div>';
-    if (nt && nt.date) addCardTimeBadge(ntCard, nt.date, snap, "etf");
+    if (nt && nt.date) addCardTimeBadge(ntCard, nt.date, snap, "t1", "etf_date");
   }
   colA2.appendChild(ntCard);
 
