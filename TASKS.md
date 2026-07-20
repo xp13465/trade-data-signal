@@ -802,3 +802,26 @@ P0 全 6 条已闭环（07-19 实施 + 07-20 核查线上生效）：grep 验收
 - 前端新 tab：输入框（模糊匹配联想下拉）+候选列表+结果卡片（等级标签+预警分+4 部分原因+合规底栏）
 - 静态化备选：9 宽基+31 行业预生成每日快照 JSON（alert_analyze_{iid}.json），非常规标的走 API 现算
 - 合规风控：固定底栏风险提示 + 用词中性白名单（禁买入/卖出/加仓/清仓/抄底/逃顶）+ 无数据诚信提示不硬编造 + 历史类比免责标注
+
+## 交接状态（2026-07-20 晚，缓存调优收口 + 分享图三修 + 全站域名同步 P0/P1）
+
+> §45 主站切 CF Workers 后收口三块，详见 `NOTES.md §46`。5 个 commit：adf8133（缓存调优）/ a752c29 + d733267 + d595500（分享图三修）/ 2445197（全站域名同步），已 push feat->main，CF 部署延迟 ~155s 后线上生效。
+
+### ✅ 已完成
+1. **缓存调优**（commit adf8133）：worker/headers.js 5 档 first-match-wins（版本化 JS/CSS 1 年 immutable / HTML 入口 no-cache / 实时 JSON 60s / 纯历史 1h / 兜底 no-cache）。关键修复：global-extras-all.json 从原 6h（`-all` 匹配规则4）提前到 60s 档，保证 usdcnh 分钟级刷新。
+2. **分享图三修**（commit a752c29 / d733267 / d595500）：
+   - C1 域名同步：app.js L7109 文字 URL + gen_qr_js.py URL + qr.js 重生成 + build_min + bump_asset_version -> ss.fx8.store
+   - C2 收盘复盘空行收紧：分隔线 320->296、drawConclusion 345->321，整链上移 24px
+   - C3 行业领涨行距：itemH 26->30（L7064，纵向行高<28px 才是过挤根因，横向加宽对 ≤4 字行业名无效）
+3. **全站域名同步 P0+P1**（commit 2445197）：index.html 6 处 + ICP 注释 / about.html 3 处 + ICP / privacy.html 去 maozi.io + ICP / gen_rss.py SITE->ss.fx8.store 重跑 feed.xml（30 items 61 处）/ uptime_check.sh 探活 URL / _headers L5 typo 修正。约束：未跑 build_min/deploy（JS 没变避 ?v= 撞）。
+4. **上线验证**：ss.fx8.store canonical/og:url ✓ / feed.xml 61 处 ✓ / app.min.js?v=2c4e779e 分享图域名 ✓ / qr.js?v=1b721750 二维码 ✓ / og.png 200 ✓
+
+### 🔴 P1 新增待办：usdcnh 采集滞后根因跟进
+- **现象**：2026-07-20 晚排查 usdcnh 不刷新，确认非缓存问题（worker/headers.js 已放 60s 档）。源数据 `extras.usdcnh` 当时只到 7-17=679.34（7-18/19 周末，7-20 周一未采集/未导出），三处（ss.fx8 / s.sugas / 本地 git）一致；后由 20:09 backfill（commit b25fcdb）刷新补入 7-20=679.48。
+- **待跟**：定位 `currency_boc_sina`（中国银行外汇牌价采集）周一采集/导出链路为何漏 7-20——是采集脚本本身没跑/失败，还是 `update_all` 导出 `global-extras-all.json` 时漏掉当日。确认后修采集或导出，避免每个周一 usdcnh 都要靠 backfill 兜底。
+- **验收**：下个周一（2026-07-27）收盘后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 `extras.usdcnh` 末值含当日，无需手动 backfill。
+
+### 下轮起点
+- usdcnh 采集滞后根因（P1，见上）。
+- 综合AI风险预警 P1 回测验证（见上节「综合AI风险预警功能待办」）。
+- 域名策略已稳定（§45/§46），后续只在新增静态资源时同步 ss.fx8.store 引用。

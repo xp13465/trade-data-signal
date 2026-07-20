@@ -2404,3 +2404,35 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 ### 4. 验证
 - `node --check` 通过;match 逻辑模拟:global-extras-all/summary/overview->60s,a-stock-all/global-3y/industry-all-indices/index-all/lab->3600,index/sh-1m->60s,app.min.js->immutable,/ + index.html + feed.xml + trade_sim->no-cache ✅
 - 部署后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 usdcnh 刷到 7-20(=679.48);CDN 若仍旧缓存等 60s 过期再 curl
+
+## §46 2026-07-20 晚：缓存调优收口 + 分享图三修 + 全站域名同步 P0/P1
+
+> §45 主站切 CF Workers 后，本轮收口三块：worker/headers.js 缓存分层调优（global-extras-all 提前到 60s 档）、分享图三处修复（域名同步/空行收紧/行距加宽）、全站静态资源域名同步 ss.fx8.store。5 个 commit：adf8133 / a752c29 / d733267 / d595500 / 2445197，已 push feat->main，CF 部署延迟 ~155s 后线上生效。
+
+### 1. 缓存调优（commit adf8133）
+- worker/headers.js 重构为 5 档 first-match-wins：
+  1. 版本化 JS/CSS（style.css/app.min.js/lab.min.js/lab.css/qr.js + /vendor/）：1 年 immutable
+  2. HTML 入口（/ + index.html + trade_sim_* + feed.xml）：no-cache, must-revalidate
+  3. 实时数据 JSON 60s：global-extras-all/summary/overview/intraday_snapshot/new_high_low/position/rotation/volume_ratio/ma_alignment/signal_freq/schedule_stats/summary_history/etf_national_team_*/futures/ad_line/*-1m.json
+  4. 纯历史 JSON 1h：lab/ + index/ + industry-*-indices/ 拆分目录 + -3m/6m/1y/3y/5y/all.json
+  5. 兜底：no-cache, must-revalidate
+- 关键修复：global-extras-all.json 原被规则4 的 `-all` 正则匹配走 6h（21600）缓存，致 usdcnh 滞后；现放规则3（60s）在规则4 之前，first-match-wins 保证分钟级刷新。
+- usdcnh 7-20 排查结论：非缓存问题。源数据 extras.usdcnh 当时只到 7-17=679.34（7-18/19 周末，7-20 周一未采集/未导出），三处（ss.fx8 / s.sugas / 本地 git）一致；后由 20:09 backfill（commit b25fcdb）刷新补入 7-20=679.48。根因待跟（见 TASKS P1）。
+- CF CDN：免费全开，cf-cache-status HIT + cf-ray 全球边缘节点，worker/headers.js 设 cache-control 即自动边缘缓存。
+
+### 2. 分享图三处修复（commit a752c29 / d733267 / d595500）
+- C1 a752c29 域名同步：app.js L7109 文字 URL s.sugas.site->ss.fx8.store + gen_qr_js.py URL + qr.js 重生成（25x25）+ build_min + bump_asset_version
+- C2 d733267 收盘复盘空行收紧：分隔线 320->296、drawConclusion 345->321，整链上移 24px
+- C3 d595500 行业领涨行距：考证 31 行业名均 ≤4 字（~84px）横向加宽无效，真正太挤是纵向 itemH=26 < 28px 舒适行高 -> itemH 26->30（L7064）
+
+### 3. 全站 CF 迁移 P0+P1 域名同步（commit 2445197）
+- index.html 6 处（canonical / og:url / og:image / twitter:image / JSON-LD url / noscript）+ ICP 注释 -> ss.fx8.store
+- about.html 3 处 + ICP 注释；privacy.html 站点声明（去 maozi.io）+ ICP 注释
+- gen_rss.py L18 SITE -> ss.fx8.store，重跑生成 feed.xml（30 items，61 处 ss.fx8.store）
+- uptime_check.sh L9/L19/L26 探活默认 URL + 注释 -> ss.fx8.store；_headers L5 typo ss.sugas.site->sss.sugas.site
+- 约束：未跑 build_min/deploy（JS 没变，避免和分享图 ?v= 撞）
+
+### 4. 上线验证（push feat->main adf8133..2445197，CF 部署延迟 ~155s）
+- 线上 ss.fx8.store：canonical/og:url=ss.fx8.store ✓ / feed.xml 61 处 ✓ / app.min.js?v=2c4e779e 分享图域名 ✓ / qr.js?v=1b721750 二维码 ✓ / og.png 200 ✓
+
+> 域名策略见 §45：ss.fx8.store 主站（CF Workers，br+CDN+GitHub push 自动部署）/ s.sugas.site 备用（MaoziYun+GitHub）/ sss.sugas.site 备用（GitHub Pages gzip）/ maozi.io 旧兜底弃用 / s.aisusu.cn 已撤 DNS。
