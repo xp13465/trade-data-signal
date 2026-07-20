@@ -6332,8 +6332,8 @@ async function renderRotationCard(container) {
 }
 
 async function _loadIndustryData(range) {
-  // all/5y 走拆分：31 行业小文件按需并发 fetch，避免 industry-all 29MB / industry-5y 14MB 大单文件拖慢首屏
-  if (range !== "all" && range !== "5y") return await fetchJSON(`./data/industry-${range}.json`);
+  // all/5y/3y 走拆分：31 行业小文件按需并发 fetch，避免 industry-all 29MB / industry-5y 14MB / industry-3y 9.2MB 大单文件拖慢首屏
+  if (range !== "all" && range !== "5y" && range !== "3y") return await fetchJSON(`./data/industry-${range}.json`);
   const meta = await fetchJSON(`./data/industry-${range}-meta.json`);
   const ids = meta.index_ids || [];
   const entries = await Promise.all(

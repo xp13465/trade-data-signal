@@ -1266,8 +1266,8 @@ def main():
     }
     for name, fn in tab_exporters.items():
         for rng in ALL_RANGES:
-            if name == "industry" and rng in ("all", "5y"):
-                continue  # industry-all/5y 拆分为多文件（见下方），避免大单文件拖慢首屏
+            if name == "industry" and rng in ("all", "5y", "3y"):
+                continue  # industry-all/5y/3y 拆分为多文件（见下方），避免大单文件拖慢首屏
             fname = f"{name}-{rng}.json"
             data = fn(conn, cfg, rng)
             counts[fname] = write_json(DATA_DIR / fname, data)
@@ -1279,10 +1279,10 @@ def main():
                     {k: data[k] for k in ("extras", "extras_signals", "extras_stats", "extras_strategy")})
                 print(f"  global-extras-all.json ({counts['global-extras-all.json']} bytes)")
 
-    # industry-all/5y 拆分：31 行业各一个文件 + concepts + meta。
-    # all 全历史 29MB 超 Cloudflare Pages 25MB 单文件限制须拆；5y 14MB 虽未超限，
-    # 但拆成 31 个小文件按需 fetch 提速首屏（前端 all/5y 并发组装，见 app.js _loadIndustryData）。
-    for rng in ("all", "5y"):
+    # industry-all/5y/3y 拆分：31 行业各一个文件 + concepts + meta。
+    # all 全历史 29MB 超 Cloudflare Pages 25MB 单文件限制须拆；5y 14MB / 3y 9.2MB 虽未超限，
+    # 但拆成 31 个小文件按需 fetch 提速首屏（前端 all/5y/3y 并发组装，见 app.js _loadIndustryData）。
+    for rng in ("all", "5y", "3y"):
         ind_counts, _n_ind, _n_concept = write_industry_split(conn, cfg, rng)
         counts.update(ind_counts)
 
