@@ -57,7 +57,7 @@ metrics:
 
   # ============ 港股 / 全球 ============
   - {id: hk_south, name: 港股通净买入, group: hk,     type: simple, func: stock_hsgt_hist_em, params: {symbol: 南向资金}, column: 当日成交净买额, unit: 亿元, direction: positive, enabled: true}
-  - {id: usdcnh,   name: 离岸人民币,   group: global, type: simple, func: forex_hist_em,  params: {symbol: USDCNH}, column: 最新价, unit: "-", direction: negative, sell_no_trend_filter: true, enabled: true}
+  - {id: usdcnh,   name: 离岸人民币,   group: global, type: simple, func: currency_boc_sina, params: {symbol: 美元}, column: 中行折算价, unit: "-", direction: negative, sell_no_trend_filter: true, enabled: true}
   - {id: gold,     name: 黄金(沪金),   group: global, type: simple, func: futures_main_sina,  params: {symbol: AU0}, column: 收盘价, unit: 元/克, direction: negative, enabled: true}
   - {id: oil,      name: 原油(INE主力连续), group: global, type: simple, func: futures_main_sina,  params: {symbol: sc0}, column: 收盘价, unit: 元/桶, direction: neutral, enabled: true}
   - {id: wti_oil,      name: WTI原油,   group: global, type: simple, func: futures_foreign_hist, params: {symbol: CL}, column: close, unit: 美元/桶,   direction: neutral, enabled: true}
