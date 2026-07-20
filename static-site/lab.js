@@ -5964,6 +5964,8 @@ async function renderCustomAnalyzeLab() {
   host.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
   wrapper.appendChild(host);
 
+  // C7 P4 fix: 切换 iid 重新渲染时，先移除旧 wrapper 避免内容累加（onchange 直接调本函数不经过 renderSignalLab 的 content 清空）
+  content.querySelectorAll(".lab-custom-wrap").forEach((el) => el.remove());
   content.appendChild(wrapper);
 
   // fetch 静态 JSON
