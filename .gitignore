@@ -40,3 +40,6 @@ data/.cninfo_pdf/
 
 # Source map 不入库（线上泄露源码，build_min.py 已不生成）
 static-site/*.map
+
+# R2 S3 凭证（敏感，不进 git）
+.env
