@@ -6893,7 +6893,7 @@ function drawShareCard(r, futures) {
 
   // 分隔线
   ctx.strokeStyle = rgba(t1rgb, 0.15); ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(60, 320); ctx.lineTo(1020, 320); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(60, 296); ctx.lineTo(1020, 296); ctx.stroke();
 
   // === ★ 一句话结论(情绪分 + 信号 + 涨停) ===
   const drawConclusion = (y) => {
@@ -7093,7 +7093,7 @@ function drawShareCard(r, futures) {
   };
 
   // === 排版链(各区块返回下一区块 y) ===
-  let y = drawConclusion(345);
+  let y = drawConclusion(321);
   const cardStartY = y;
   sentCards.forEach((c, i) => drawDataCard(c, 60 + i * (cardW + gap), cardStartY));
   widthCards.forEach((c, i) => drawDataCard(c, 60 + i * (cardW + gap), cardStartY + cardH + gap));
