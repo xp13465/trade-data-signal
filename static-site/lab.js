@@ -5893,6 +5893,20 @@ async function renderCustomAnalyzeLab() {
     host = wrapper.querySelector(".lab-custom-host");
     const sel = wrapper.querySelector(".lab-custom-select");
     if (sel && sel.value !== curIid) sel.value = curIid;
+    // C7 P4 select 检索:清空检索框+恢复全部 options 可见(避免上次筛选残留致 curIid 的 option 被隐藏)
+    const searchInput = wrapper.querySelector(".lab-custom-search");
+    if (searchInput && searchInput.value) {
+      searchInput.value = "";
+      if (sel) {
+        sel.querySelectorAll("option").forEach((o) => { o.style.display = ""; });
+        sel.querySelectorAll("optgroup").forEach((g) => { g.style.display = ""; });
+      }
+      const hint = wrapper.querySelector(".lab-custom-hint");
+      if (hint) {
+        hint.innerHTML = `共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）`;
+        hint.style.color = "";
+      }
+    }
     // 旧内容保留(半透明+禁用交互),顶部细条 spinner,不全屏清空
     host.classList.add("lab-custom-host--loading");
   } else {
@@ -5917,11 +5931,47 @@ async function renderCustomAnalyzeLab() {
       _LAB_CUSTOM_SW.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
       "</optgroup>"].join("");
     selector.innerHTML =
+      `<input class="lab-custom-search" type="search" placeholder="检索代码/名称筛选…" autocomplete="off" aria-label="检索标的">` +
       `<label class="lab-custom-selector-label">分析标的：</label>` +
       `<select class="lab-custom-select">${opts}</select>` +
       `<span class="lab-custom-hint">共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）</span>`;
+    // C7 P4 select 检索:oninput 实时筛选 select options(代码+名称,不区分大小写)
+    selector.querySelector(".lab-custom-search").oninput = (e) => {
+      const q = (e.target.value || "").trim().toLowerCase();
+      const sel = selector.querySelector(".lab-custom-select");
+      if (!sel) return;
+      let visible = 0;
+      sel.querySelectorAll("option").forEach((opt) => {
+        const txt = (opt.textContent || "").toLowerCase();
+        const val = (opt.value || "").toLowerCase();
+        const match = !q || txt.includes(q) || val.includes(q);
+        opt.style.display = match ? "" : "none";
+        if (match) visible++;
+      });
+      // optgroup 无可见子 option 时隐藏
+      sel.querySelectorAll("optgroup").forEach((grp) => {
+        const hasVis = Array.from(grp.querySelectorAll("option")).some((o) => o.style.display !== "none");
+        grp.style.display = hasVis ? "" : "none";
+      });
+      const hint = selector.querySelector(".lab-custom-hint");
+      if (hint) {
+        if (q && visible === 0) {
+          hint.textContent = `无匹配标的（关键词"${e.target.value}"）`;
+          hint.style.color = "#d4380d";
+        } else {
+          hint.innerHTML = `共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）`;
+          hint.style.color = "";
+        }
+      }
+    };
     selector.querySelector(".lab-custom-select").onchange = (e) => {
       state.labCustomIid = e.target.value;
+      // 切换标的时清空检索框+恢复全部 options 可见(避免筛选残留)
+      const searchInput = selector.querySelector(".lab-custom-search");
+      if (searchInput && searchInput.value) {
+        searchInput.value = "";
+        searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       renderCustomAnalyzeLab();
     };
     wrapper.appendChild(selector);
