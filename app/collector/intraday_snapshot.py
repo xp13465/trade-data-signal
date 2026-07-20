@@ -982,13 +982,14 @@ def _export_affected_json() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"  [intraday] global-{rng} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
-    # industry-all 拆分（31 行业折线图 + 27 概念 + meta 热力图）
-    # 行业/概念已反哺 index_daily 当日行，重导后 industry-all-indices/* 和
-    # industry-all-concepts.json 含当日实时行 -> 前端行业折线/概念列表盘中可见。
-    try:
-        export_mod.write_industry_all_split(conn, cfg)
-    except Exception as e:  # noqa: BLE001
-        print(f"  [intraday] industry-all 拆分导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
+    # industry-all/5y 拆分（31 行业折线图 + 27 概念 + meta 热力图）
+    # 行业/概念已反哺 index_daily 当日行，重导后 industry-{all,5y}-indices/* 和
+    # industry-{all,5y}-concepts.json 含当日实时行 -> 前端行业折线/概念列表盘中可见。
+    for rng in ("all", "5y"):
+        try:
+            export_mod.write_industry_split(conn, cfg, rng)
+        except Exception as e:  # noqa: BLE001
+            print(f"  [intraday] industry-{rng} 拆分导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     # rotation（轮动速度 + 当日领涨 top3；_recompute_rotation 已写当日 daily_metric）
     try:
@@ -1000,7 +1001,7 @@ def _export_affected_json() -> None:
     conn.close()
     print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)} "
           f"+ hk×{len(export_mod.ALL_RANGES)} + a-stock×{len(export_mod.ALL_RANGES)} "
-          f"+ global×{len(export_mod.ALL_RANGES)} + industry-all 拆分 + rotation",
+          f"+ global×{len(export_mod.ALL_RANGES)} + industry-all/5y 拆分 + rotation",
           flush=True)
 
 

@@ -34,7 +34,7 @@ echo "→ 运行 export.py 生成静态 JSON ..." | tee -a "$LOG"
 "$PY" "$EXPORT" 2>&1 | tee -a "$LOG"
 EXPORT_RC=${PIPESTATUS[0]}
 if [ "$EXPORT_RC" -ne 0 ]; then
-  echo "✗ export.py 失败（退出码 $EXPORT_RC），终止部署" | tee -a "$LOG"
+  echo "✗ export.py 失败(退出码 $EXPORT_RC)，终止部署" | tee -a "$LOG"
   exit "$EXPORT_RC"
 fi
 echo "✓ export.py 完成" | tee -a "$LOG"
@@ -45,7 +45,7 @@ echo "-> 运行 gen_schedule_stats.py 刷新任务执行统计 ..." | tee -a "$L
 "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG"
 GENS_RC=${PIPESTATUS[0]}
 if [ "$GENS_RC" -ne 0 ]; then
-  echo "⚠ gen_schedule_stats.py 失败（退出码 $GENS_RC），schedule_stats.json 可能过期，继续部署" | tee -a "$LOG"
+  echo "⚠ gen_schedule_stats.py 失败(退出码 $GENS_RC)，schedule_stats.json 可能过期，继续部署" | tee -a "$LOG"
 fi
 
 # 1.4b 生成 RSS feed.xml（读 summary_history.json，随 static-site/data/ 上线）
@@ -54,7 +54,7 @@ echo "-> 运行 gen_rss.py 生成 RSS feed.xml ..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/gen_rss.py" 2>&1 | tee -a "$LOG"
 GENRSS_RC=${PIPESTATUS[0]}
 if [ "$GENRSS_RC" -ne 0 ]; then
-  echo "⚠ gen_rss.py 失败（退出码 $GENRSS_RC），feed.xml 可能过期，继续部署" | tee -a "$LOG"
+  echo "⚠ gen_rss.py 失败(退出码 $GENRSS_RC)，feed.xml 可能过期，继续部署" | tee -a "$LOG"
 fi
 
 # 1.5 重新生成 minified JS（确保 app.min.js/lab.min.js 与源 app.js/lab.js 同步）
@@ -64,7 +64,7 @@ echo "→ 运行 build_min.py 重新生成 min JS ..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/build_min.py" 2>&1 | tee -a "$LOG"
 BUILD_RC=${PIPESTATUS[0]}
 if [ "$BUILD_RC" -ne 0 ]; then
-  echo "⚠ build_min.py 失败（退出码 $BUILD_RC），min JS 可能过期，继续数据部署" | tee -a "$LOG"
+  echo "⚠ build_min.py 失败(退出码 $BUILD_RC)，min JS 可能过期，继续数据部署" | tee -a "$LOG"
 else
   echo "✓ build_min.py 完成" | tee -a "$LOG"
 fi
@@ -77,10 +77,10 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   rsync -a "$REPO/static-site/data/" "$GIT_REPO/static-site/data/" 2>&1 | tee -a "$LOG"
   RSYNC_RC=${PIPESTATUS[0]}
   if [ "$RSYNC_RC" -ne 0 ]; then
-    echo "✗ rsync 失败（退出码 $RSYNC_RC），终止部署" | tee -a "$LOG"
+    echo "✗ rsync 失败(退出码 $RSYNC_RC)，终止部署" | tee -a "$LOG"
     exit "$RSYNC_RC"
   fi
-  echo "✓ rsync 完成（$REPO -> $GIT_REPO）" | tee -a "$LOG"
+  echo "✓ rsync 完成($REPO -> $GIT_REPO)" | tee -a "$LOG"
 fi
 
 # 1.7 rsync 采集 DB/数据到 trade 仓库（保持 trade/data/ 同步：诊断 + 手动从 trade 跑 deploy 能读最新 DB）
@@ -91,7 +91,7 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   rsync -a --exclude=logs/ "$REPO/data/" "$GIT_REPO/data/" 2>&1 | tee -a "$LOG"
   RSYNC_DB_RC=${PIPESTATUS[0]}
   if [ "$RSYNC_DB_RC" -ne 0 ]; then
-    echo "⚠ rsync data/ 失败（退出码 $RSYNC_DB_RC），不阻断部署（static-site/data/ JSON 已上线）" | tee -a "$LOG"
+    echo "⚠ rsync data/ 失败(退出码 $RSYNC_DB_RC)，不阻断部署(static-site/data/ JSON 已上线)" | tee -a "$LOG"
   else
     echo "✓ rsync data/ 完成（DB 同步到 $GIT_REPO/data/）" | tee -a "$LOG"
   fi
@@ -113,7 +113,7 @@ else
   git -C "$GIT_REPO" commit -m "$COMMIT_MSG" 2>&1 | tee -a "$LOG"
   COMMIT_RC=${PIPESTATUS[0]}
   if [ "$COMMIT_RC" -ne 0 ]; then
-    echo "✗ git commit 失败（退出码 $COMMIT_RC）" | tee -a "$LOG"
+    echo "✗ git commit 失败(退出码 $COMMIT_RC)" | tee -a "$LOG"
     exit "$COMMIT_RC"
   fi
 fi
@@ -141,7 +141,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
       if [ "$PUSH_RC" -eq 0 ]; then
         echo "✓ rebase + 重试 push 成功" | tee -a "$LOG"
       else
-        echo "✗ rebase 后重试 push 仍失败（退出码 $PUSH_RC）" | tee -a "$LOG"
+        echo "✗ rebase 后重试 push 仍失败(退出码 $PUSH_RC)" | tee -a "$LOG"
         exit "$PUSH_RC"
       fi
     else

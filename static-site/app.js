@@ -283,11 +283,11 @@ function _fmtReason(r) {
 // 情绪分文字标签：散户秒懂，数值旁边加标签
 function sentimentTag(value) {
   if (value == null) return "";
-  if (value <= 20) return "🔴 冰点";
-  if (value <= 40) return "🟠 偏冷";
+  if (value <= 20) return "🔵 冰点";
+  if (value <= 40) return "🟦 偏冷";
   if (value <= 60) return "⚪ 中性";
-  if (value <= 80) return "🟢 偏热";
-  return "🔥 过热";
+  if (value <= 80) return "🟠 偏热";
+  return "🔴 过热";
 }
 
 // 恐贪指数标签：0-25 极度恐惧，25-40 恐惧，40-60 中性，60-75 贪婪，75-100 极度贪婪
@@ -1458,7 +1458,7 @@ function closeKpiDetailModal() {
 async function _loadKpiHistory(kpiId, cfg, period) {
   const name = indexIdToName(kpiId);
 
-  // 情绪分 9 张：visualMap 5 段着色（冰点红/偏冷橙/中性灰/偏热绿/过热深绿）
+  // 情绪分 9 张：visualMap 5 段着色（冰点蓝/偏冷浅蓝/中性灰/偏热橙/过热红，与热力图+恐贪一致：冰=冷色，过热=热色）
   if (cfg.src === "sentiment") {
     const r = await fetchJSON(`./data/sentiment-${period}.json`);
     const list = r[kpiId] || [];
@@ -1467,15 +1467,15 @@ async function _loadKpiHistory(kpiId, cfg, period) {
       visualMap: {
         show: false,
         pieces: [
-          { lte: 20, color: "#c62828" },
-          { gt: 20, lte: 40, color: "#e6a23c" },
+          { lte: 20, color: "#42a5f5" },
+          { gt: 20, lte: 40, color: "#4fc3f7" },
           { gt: 40, lte: 60, color: "#86909c" },
-          { gt: 60, lte: 80, color: "#67c23a" },
-          { gt: 80, color: "#2e8b57" },
+          { gt: 60, lte: 80, color: "#e6a23c" },
+          { gt: 80, color: "#e6492e" },
         ],
         dimension: 1,
       },
-      hint: "≤20冰点(红) · 20-40偏冷(橙) · 40-60中性(灰) · 60-80偏热(绿) · >80过热(深绿)",
+      hint: "≤20冰点(蓝) · 20-40偏冷(浅蓝) · 40-60中性(灰) · 60-80偏热(橙) · >80过热(红)",
     };
   }
 
@@ -3544,7 +3544,7 @@ async function renderOverview() {
     const cmChart = lineChart("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
       visualMap: {
         show: false,
-        pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
+        pieces: [{ lte: 20, color: "#42a5f5" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#e6492e" }],
         dimension: 1,
       },
     }, null, colB1);
@@ -5315,7 +5315,7 @@ async function renderSentiment() {
         sig[key] || [], {
           visualMap: {
             show: false,
-            pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
+            pieces: [{ lte: 20, color: "#42a5f5" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#e6492e" }],
             dimension: 1,
           },
         }, stats[key], strat[key], undefined, cell);
@@ -5337,7 +5337,7 @@ async function renderSentiment() {
     const chart = valueChartWithSignals(title, data, sig.cross_market || [], {
       visualMap: {
         show: false,
-        pieces: [{ lte: 20, color: "#e6492e" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#2e8b57" }],
+        pieces: [{ lte: 20, color: "#42a5f5" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#e6492e" }],
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market, undefined, cell);
@@ -6215,14 +6215,14 @@ async function renderRotationCard(container) {
 }
 
 async function _loadIndustryData(range) {
-  if (range !== "all") return await fetchJSON(`./data/industry-${range}.json`);
-  // all range：Cloudflare 25MB 限制，industry-all 拆成 31 行业文件 + concepts + meta，并发加载
-  const meta = await fetchJSON("./data/industry-all-meta.json");
+  // all/5y 走拆分：31 行业小文件按需并发 fetch，避免 industry-all 29MB / industry-5y 14MB 大单文件拖慢首屏
+  if (range !== "all" && range !== "5y") return await fetchJSON(`./data/industry-${range}.json`);
+  const meta = await fetchJSON(`./data/industry-${range}-meta.json`);
   const ids = meta.index_ids || [];
   const entries = await Promise.all(
-    ids.map(async (iid) => [iid, await fetchJSON(`./data/industry-all-indices/${iid}.json`)])
+    ids.map(async (iid) => [iid, await fetchJSON(`./data/industry-${range}-indices/${iid}.json`)])
   );
-  const conceptsRes = await fetchJSON("./data/industry-all-concepts.json");
+  const conceptsRes = await fetchJSON(`./data/industry-${range}-concepts.json`);
   return {
     indices: Object.fromEntries(entries),
     heatmap: meta.heatmap,
