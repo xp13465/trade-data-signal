@@ -7,7 +7,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/linhuichen/code/trade/scripts/backfill_indices.sh</string>
+        <string>/Users/linhuichen/code/trade-data/scripts/backfill_metrics.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <array>
@@ -34,13 +34,17 @@
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>REPO</key>
+        <string>/Users/linhuichen/code/trade-data</string>
+        <key>GIT_REPO</key>
+        <string>/Users/linhuichen/code/trade</string>
     </dict>
     <key>WorkingDirectory</key>
-    <string>/Users/linhuichen/code/trade</string>
+    <string>/Users/linhuichen/code/trade-data</string>
     <key>StandardOutPath</key>
-    <string>/Users/linhuichen/code/trade/data/logs/backfill_evening_launchd.log</string>
+    <string>/Users/linhuichen/code/trade-data/data/logs/backfill_evening_launchd.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/linhuichen/code/trade/data/logs/backfill_evening_launchd.err</string>
+    <string>/Users/linhuichen/code/trade-data/data/logs/backfill_evening_launchd.err</string>
     <key>RunAtLoad</key>
     <false/>
     <!-- 超时 7200s：20:00 槽位重跑序列指标补采 + 持 deploy 锁推送，deploy.lock 可能排队，给足等待。 -->

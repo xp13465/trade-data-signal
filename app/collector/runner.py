@@ -96,6 +96,8 @@ def run(date=None, verbose=True, steps=None):
                 continue  # 综合分/衍生指标由 compute 模块产出
             mid = m["id"]
             func = m.get("func", "")
+            if not func or func == "TODO":
+                continue  # 派生/专属采集器指标(width_history/cleanup_d3d2 产出),主 pipeline 不采不记
             try:
                 if func.startswith("direct:"):
                     rows, msg = fetchers.collect_direct(m)
