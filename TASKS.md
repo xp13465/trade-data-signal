@@ -10,6 +10,47 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 > ⚠ 开工先看 `data/alerts/latest.md` 是否有未处理严重告警，有则优先排查。
 
+## 交接状态（2026-07-21 晚续4，deadcode 清理 + 端到端验锁闭环）
+
+> 收口小节H.3 两条遗留：① L3189/L3192 dead code 清理（远期->已完成）；② update_all 进程互斥锁端到端验证（此前只组件级，本次真跑闭环）。详见 `NOTES.md §48 小节I`。
+
+### ✅ 已完成（2 项闭环，commits 11c9e9e1 + 8839300 端到端验证）
+1. **#1 deadcode 清理**（commit `11c9e9e1` + deploy `d8c015ce`）：`app.js` `_KPI_BASE_ORDER` 删两条 dead key：
+   - L3189 `a_width_zhaban_rate: 5`（被 L3191 的 13 last-wins 覆盖，5cf9316b 占位 5 + 73848eed 切 13 留下的重复键）。
+   - L3191 `a_width_seal_rate: 14`（旧字段，卡片已切 `a_width_fengban_rate: 14`）。
+   - 保留活键 `a_width_zhaban_rate: 13` + `a_width_fengban_rate: 14`（第 13/14 位卡片正常显示）。
+   - build_min + bump 版本号 `be90399c -> b2a277c7`，deploy.sh 推 `static-site/data/` + `app.min.js`，feat+main 双同步到 `11c9e9e1`。
+   - 线上验证：`app.min.js?v=b2a277c7` 生效，grep `zhaban_rate:5`=0 / `seal_rate:14`=0 / `zhaban_rate:13`=1 / `fengban_rate:14`=1 ✅。
+2. **#2 端到端验锁闭环**（commit `8839300`，2026-07-20 23:54 真跑通过）：`with_lock.py --nb` fcntl 互斥锁此前只组件级验证，本次真跑 4 场景全通过：
+   - 第 1 次占锁（sleep 10）✅ / 第 2 次（`--nb`，锁被占）跳过 exit=0 ✅ / 第 2.5 次（`--nb --on-skip`）跳过+触发回调（打印锁路径）exit=0 ✅ / 第 3 次（锁释放后）成功执行 exit=0 ✅。
+   - 生产锁路径 `/tmp/trade_update_all.lock`（`update_all.sh` L39），锁路径是位置参数非 `--lockfile` 选项。
+   - `on_skip` 回调 `scripts/on_skip_notify.sh`（发 `notify.py` 邮件 + 写 `alerts/latest.md`，重复跑可见）。
+   - 结论：重复跑 update_all 会跳过+通知，无需担心并发撞 `progress.json` 或限流空转。
+
+### 🔄 进行中 / 待验证（承接晚续3）
+- **ETF 份额方案 A 零改动 6 天回填**（待 7-21 验证）：`pipeline_daily` 近 5 日幂等回填，7-21 20:07 槽自动补 7-20 数据。当日角标显真实 7-17（非源坏），7-21 后角标应显 7-20。验收：7-21 收盘后 curl `overview.json` 确认 `etf_date`>=20260720。
+- **usdcnh 7-27 周一 curl 验证**（承接 H.3 遗留）：`currency_boc_sina` 主源稳定后，2026-07-27 收盘后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 `extras.usdcnh` 末值含当日，无需手动 backfill（防复发）。
+
+### 🔴 近期
+- **ETF 方案 A 验证**（7-21 收盘后）：见上"待验证"。
+- **usdcnh 7-27 周一 curl 验证**：防复发，确认 `currency_boc_sina` 主源稳定。
+
+### 🟢 远期 / 搁置
+- ~~**L3189 `zhaban_rate:5` dead code 清理**~~：✅ 已清理（commit `11c9e9e1`，2026-07-21，详见 NOTES §48 小节I.1）。L3192 `a_width_seal_rate:14` 同类一并清理。
+- ~~**端到端互斥验证**~~：✅ 已验证（2026-07-20 23:54，`8839300` 真跑 4 场景全通过，详见 NOTES §48 小节I.2）。
+- **C7 P4 交互式自定义分析**：预警单标的分析（模糊匹配+4维度出分），远期。设计见 NOTES §43。
+- **P2-5 app.js/lab.js 拆 chunk**：远期性能，现 CF br 压缩+defer 后可接受。
+- **百度推送效果验证**：搁置（用户 2026-07-14 定），后续有需要再启。
+- **trade_sim 迁 R2**：✅ 评估结论=不迁（已关闭，见 NOTES §48 小节G）。
+- **data JSON 迁 R2**：暂缓（工作量大，现 CF 缓存分层已够用）。
+
+### 下轮起点
+- 7-21 收盘后验证 ETF 方案 A 6 天回填是否自动补 7-20 数据。
+- usdcnh 7-27 周一 curl 验证防复发。
+- R2 P0/P1 已全闭环，P2 按需（trade_sim 不迁 / data JSON 暂缓）。
+- C6 预警条已上线，下步观察线上预警准确性，P4 交互式分析远期。
+- deadcode + 验锁两条小节H.3 遗留已闭环（晚续4），无遗留。
+
 ## 交接状态（2026-07-20 晚续3，角标修复5项全闭环 + ETF份额停7-17调研纠正）
 
 > 小节E 角标修复 5 项全闭环（commits 5cf9316b + d78c9a82 + 73848eed）；小节D "ETF份额源疑似东财被封"判断纠正--份额主源是上交所+深交所官网，停7-17 是调度时点错配非源坏，方案A 零改动6天回填待 7-21 验证。详见 `NOTES.md §48 小节H`。
@@ -31,10 +72,10 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 🔴 近期
 - **ETF 方案 A 验证**（7-21 收盘后）：见上"待验证"。
 - **usdcnh 7-27 周一 curl 验证**：`currency_boc_sina` 主源稳定后，2026-07-27 收盘后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 `extras.usdcnh` 末值含当日，无需手动 backfill（防复发）。
-- **端到端互斥验证**：周末补数据顺便，真跑两个 update_all 看第 2 个 fcntl --nb 跳过（8839300 互斥锁未真跑验过）。
+- ~~**端到端互斥验证**~~：✅ 已验证（2026-07-20 23:54，`8839300` 真跑 4 场景全通过，详见晚续4 节 / NOTES §48 小节I.2）。
 
 ### 🟢 远期 / 搁置
-- **L3189 `zhaban_rate:5` dead code 清理**：被 L3191 `zhaban_rate:13` 覆盖（last wins=13，功能正常），同列 L3192 `a_width_seal_rate:14`（旧，已被 `a_width_fengban_rate:14` 替换）属同类 dead code。重复键 code smell，未来清理时一并删。见 NOTES §48 小节H.3。
+- ~~**L3189 `zhaban_rate:5` dead code 清理**~~：✅ 已清理（commit `11c9e9e1`，2026-07-21，详见晚续4 节 / NOTES §48 小节I.1）。L3192 `a_width_seal_rate:14` 同类一并清理。
 - **C7 P4 交互式自定义分析**：预警单标的分析（模糊匹配+4维度出分），远期。设计见 NOTES §43。
 - **P2-5 app.js/lab.js 拆 chunk**：远期性能，现 CF br 压缩+defer 后可接受。
 - **百度推送效果验证**：搁置（用户 2026-07-14 定），后续有需要再启。

@@ -2557,5 +2557,49 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 
 #### H.3 遗留（记档，不阻塞）
 
-- **L3189 `zhaban_rate:5` dead code**：被 L3191 `zhaban_rate:13` 覆盖（last wins=13，卡片第 13 位正确显示，功能正常）。前 agent（5cf9316b）加占位 5 + 这次（73848eed）切 13，重复键 code smell，未来清理时删 L3189。同列 L3192 `a_width_seal_rate: 14`（旧，已被 `a_width_fengban_rate: 14` 替换）属同类 dead code，一并清理。
+- **L3189 `zhaban_rate:5` dead code**：✅ 已清理（commit `11c9e9e1`，2026-07-21，详见小节 I）。被 L3191 `zhaban_rate:13` 覆盖（last wins=13，卡片第 13 位正确显示，功能正常）。前 agent（5cf9316b）加占位 5 + 73848eed 切 13，重复键 code smell 已根治。同列 L3192 `a_width_seal_rate: 14`（旧，已被 `a_width_fengban_rate: 14` 替换）属同类 dead code，一并已清理。
 - **usdcnh 7-27 周一 curl 验证**：防复发，确认 `currency_boc_sina` 主源稳定（2026-07-27 周一留意）。
+
+### 小节I：晚续4 deadcode 清理 + 端到端验锁闭环（2026-07-21，commits 11c9e9e1 + d8c015ce + 8839300 端到端验证）
+
+> 收口两条小节H.3 遗留：① L3189/L3192 dead code 清理（远期→已完成）；② update_all 进程互斥锁端到端验证（此前只组件级验证，本次真跑闭环）。
+
+#### I.1 deadcode 清理闭环（commit `11c9e9e1` + deploy `d8c015ce`）
+
+- **背景**：小节H.1 角标修复 #1 封板率全套（5cf9316b）+ 炸板数->炸板率（73848eed）双 commit 后，`app.js` 的 `_KPI_BASE_ORDER` 字典留下两条 dead code：
+  - L3189 `a_width_zhaban_rate: 5`（5cf9316b 占位 5）被 L3191 `a_width_zhaban_rate: 13`（73848eed 切 13）覆盖，JS 对象字面量 last-wins=13，第 5 位的 5 永不生效=dead。
+  - L3192 `a_width_seal_rate: 14`（旧字段，卡片已切 `a_width_fengban_rate`）保留不显示=dead。
+- **改动**（commit `11c9e9e1`，2 files：`static-site/app.js` + `static-site/index.html`）：
+  - `app.js` L3189 删 `a_width_zhaban_rate: 5`（被 L3191 的 13 last-wins 覆盖，重复键 dead code）。
+  - `app.js` L3191 删 `a_width_seal_rate: 14`（旧字段，卡片已切 fengban_rate，保留不显示=dead）。
+  - **保留** `a_width_fengban_rate: 14` 和 `a_width_zhaban_rate: 13`（这两条是活的，第 13/14 位卡片正常显示）。
+  - `build_min.py` 跑 minify（app.min.js=245640B）+ `bump_asset_version.py` 版本号 `be90399c -> b2a277c7`，`index.html` 同步更新。
+- **deploy**（commit `d8c015ce`，`scripts/deploy.sh` 自动 commit+push `static-site/data/` + `app.min.js`，并 push HEAD->main）。
+- **线上验证**（等 3 分钟 MaoziYun 拉取后）：
+  - 版本号 `app.min.js?v=b2a277c7` 生效（新版）。
+  - grep `zhaban_rate:5` = 0（dead key 已删）。
+  - grep `seal_rate:14` = 0（dead key 已删）。
+  - grep `zhaban_rate:13` = 1（保留，活）。
+  - grep `fengban_rate:14` = 1（保留，活）。
+- **feat + main 双同步到 `11c9e9e1`**（deploy.sh 已 push HEAD->main，再手动 `git push origin feat/iframe-theme-follow` + `git push origin 11c9e9e1:main` 确认一致）。
+- **结论**：dead code 根治，KPI 第 13 位炸板率/第 14 位封板率显示不受影响（last-wins 一直是 13/14，删 dead 5/14 只是清 code smell）。
+
+#### I.2 端到端验锁闭环（commit `8839300`，2026-07-20 23:54 真跑验证通过）
+
+- **背景**：`8839300`（2026-07-11）给 `update_all.sh` 加 `with_lock.py --nb` fcntl 互斥锁，根因是 mootdx/stock_daily `progress.json` 原子写不支持跨进程并发（撞坏->fallback全量5203只）+ 通达信/东财并发限流全 `empty` 空转（2026-07-11 两 force 并发卡 2h+ 即此）。此前只组件级验证（with_lock 串行/busy_timeout/原子写），未真跑两个 update_all 看第 2 个跳过。
+- **`with_lock.py` 锁机制**（位置参数 `<lockfile>`，非 `--lockfile` 选项）：
+  - `--nb` 非阻塞：锁被占则 exit 0 跳过（不排队，重复跑是误操作，跳过比排队省时）。
+  - `--on-skip <cmd>`：锁跳过时执行回调（传锁路径参数给回调）。
+  - 生产锁路径：`/tmp/trade_update_all.lock`（`update_all.sh` L39）。
+  - `on_skip` 回调：`scripts/on_skip_notify.sh`（发 `notify.py` 邮件 + 写 `alerts/latest.md`，运维可见重复跑被跳过）。
+- **行为验证**（4 场景真跑，全通过）：
+  - 第 1 次占锁（sleep 10 模拟 update_all 在跑）✅
+  - 第 2 次（`--nb`，锁被占）：跳过，exit=0 ✅
+  - 第 2.5 次（`--nb --on-skip echo`，锁被占）：跳过 + on_skip 触发（打印锁路径 `/tmp/trade_update_all.lock`），exit=0 ✅
+  - 第 3 次（`--nb`，锁释放后）：成功执行，exit=0 ✅
+- **结论**：互斥锁机制工作正常，重复跑 update_all 会跳过 + 触发 `on_skip_notify.sh` 通知（邮件+alerts/latest.md），无需担心并发撞 progress.json 或限流空转。`8839300` 端到端闭环。
+
+#### I.3 后续观察（不阻塞）
+
+- **usdcnh 7-27 周一 curl 验证**（承接小节H.3 遗留）：防复发，确认 `currency_boc_sina` 主源稳定（2026-07-27 周一留意）。
+- **ETF 方案 A 零改动 6 天回填**（承接小节H.2，待 7-21 验证）：7-21 20:07 槽自动补 7-20，当日角标显真实 7-17（已改 #5a etf_date 取 etf_daily MAX）。验收：7-21 收盘后 curl `overview.json` 确认 `etf_date`>=20260720。
