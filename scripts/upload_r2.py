@@ -207,20 +207,83 @@ def _list_keys(prefix, bucket=None):
     return re.findall(r"<Key>([^<]+)</Key>", text)
 
 
-def _prune_r2_backup(keep_days=30, bucket=None):
-    """删 backup/ 下日期 >keep_days 的 key（从 key 名解析 YYYYMMDD）。
-    默认清理 BACKUP_BUCKET(signal-backup);迁移后清理 signal-data 用 bucket=BUCKET。
+def _latest_dated_key(prefix, name, bucket=None):
+    """查 prefix/<name>_ 下最新带日期的 key,返回 (date_str, key) 或 None。
+    用于周/月备份的"本周/本月首次"判断:对比最新 key 的日期与今天。"""
+    import re
+    bkt = bucket or BACKUP_BUCKET
+    keys = _list_keys(f"{prefix}{name}_", bucket=bkt)
+    dated = []
+    for k in keys:
+        m = re.search(r"(\d{8})\.db(?:\.gz)?$", k)
+        if m:
+            dated.append((m.group(1), k))
+    if not dated:
+        return None
+    dated.sort(reverse=True)  # 日期降序,取最新
+    return dated[0]
 
-    keep_days=30：与 R2 桶 lifecycle 规则(backup/ prefix,30天过期)一致。
-    历史 key 为 backup/<name>_YYYYMMDD.db，2026-07-15 起改压缩上传
-    backup/<name>_YYYYMMDD.db.gz。正则同时匹配两者，避免旧 .db 残留堆积。"""
+
+def _maybe_upload_weekly(name, payload, today_str, bucket=None):
+    """若本周(ISO 周)尚未上传周备份,则上传一份(payload 复用日备份压缩内容)。
+
+    判断:查 weekly/<name>_ 最新 key 日期,若与今天不在同一 ISO 年+周则上传。
+    用 ISO week 而非自然周一,节假日跳过自动顺延到本周首个交易日上传。
+    周备份 = 当日日备份的副本(同 gz 内容,不同 prefix),不额外压缩。"""
+    import datetime as _dt
+    bkt = bucket or BACKUP_BUCKET
+    today = _dt.datetime.strptime(today_str, "%Y%m%d").date()
+    today_iso = today.isocalendar()  # (ISO year, ISO week, ISO weekday)
+    latest = _latest_dated_key("weekly/", name, bucket=bkt)
+    if latest is not None:
+        latest_date = _dt.datetime.strptime(latest[0], "%Y%m%d").date()
+        latest_iso = latest_date.isocalendar()
+        if latest_iso[:2] == today_iso[:2]:  # 同 ISO 年 + 周
+            print(f"  周备份: 本周已有 {latest[1]}, 跳过")
+            return False
+    key = f"weekly/{name}_{today_str}.db.gz"
+    status, data = s3_request("PUT", key, payload, bucket=bkt)
+    if status == 200:
+        print(f"  ✓ 周备份副本 -> {bkt}/{key} (本周首次)")
+        return True
+    print(f"  ⚠ 周备份上传失败 status={status} {data.decode('utf-8', errors='replace')[:200]}")
+    return False
+
+
+def _maybe_upload_monthly(name, payload, today_str, bucket=None):
+    """若本月尚未上传月备份,则上传一份(payload 复用日备份压缩内容)。
+
+    判断:查 monthly/<name>_ 最新 key 日期,若与今天不在同一年+月则上传。
+    月备份 = 当日日备份的副本,保留 365 天(12 月),防长期损坏/误删。"""
+    import datetime as _dt
+    bkt = bucket or BACKUP_BUCKET
+    today = _dt.datetime.strptime(today_str, "%Y%m%d").date()
+    latest = _latest_dated_key("monthly/", name, bucket=bkt)
+    if latest is not None:
+        latest_date = _dt.datetime.strptime(latest[0], "%Y%m%d").date()
+        if latest_date.year == today.year and latest_date.month == today.month:
+            print(f"  月备份: 本月已有 {latest[1]}, 跳过")
+            return False
+    key = f"monthly/{name}_{today_str}.db.gz"
+    status, data = s3_request("PUT", key, payload, bucket=bkt)
+    if status == 200:
+        print(f"  ✓ 月备份副本 -> {bkt}/{key} (本月首次)")
+        return True
+    print(f"  ⚠ 月备份上传失败 status={status} {data.decode('utf-8', errors='replace')[:200]}")
+    return False
+
+
+def _prune_layer(prefix, keep_days, bucket=None):
+    """删 prefix 下日期 >keep_days 的 key(从 key 名解析 YYYYMMDD)。
+
+    泛化版清理:backup/ weekly/ monthly/ 三层共用此函数。
+    正则兼容 .db(旧)与 .db.gz(新,压缩上传后),避免旧 .db 残留堆积。"""
     import re, datetime as _dt
     bkt = bucket or BACKUP_BUCKET
-    keys = _list_keys("backup/", bucket=bkt)
+    keys = _list_keys(prefix, bucket=bkt)
     cutoff = _dt.datetime.now() - _dt.timedelta(days=keep_days)
     deleted = 0
     for key in keys:
-        # 兼容 .db（旧）与 .db.gz（新,压缩上传后）
         m = re.search(r"(\d{8})\.db(?:\.gz)?$", key)
         if not m:
             continue
@@ -235,18 +298,43 @@ def _prune_r2_backup(keep_days=30, bucket=None):
                 print(f"  删除旧 {bkt}/{key}")
             else:
                 print(f"  ⚠ 删除失败 {bkt}/{key} status={st}")
-    if deleted:
-        print(f"{bkt} 清理 {deleted} 个 >{keep_days}天 旧备份")
+    return deleted
+
+
+def _prune_r2_backup(keep_days=30, bucket=None):
+    """分层清理 R2 备份(日/周/月三层独立清理):
+      - backup/  日备份: keep_days (默认 30 天)
+      - weekly/  周备份: 28 天 (4 周)
+      - monthly/ 月备份: 365 天 (12 月)
+
+    三层独立清理,防 7-30 天外及长期的损坏/误删。
+    R2 桶 lifecycle 规则也配了同样天数(双保险:代码清理 + R2 自动过期)。
+    历史 key 为 backup/<name>_YYYYMMDD.db,2026-07-15 起改压缩上传
+    backup/<name>_YYYYMMDD.db.gz;weekly/monthly 自 2026-07 起新增,均为 .db.gz。"""
+    bkt = bucket or BACKUP_BUCKET
+    total = 0
+    total += _prune_layer("backup/", keep_days, bucket=bkt)
+    total += _prune_layer("weekly/", 28, bucket=bkt)
+    total += _prune_layer("monthly/", 365, bucket=bkt)
+    if total:
+        print(f"{bkt} 分层清理共 {total} 个旧备份"
+              f" (backup/ {keep_days}天 + weekly/ 28天 + monthly/ 365天)")
 
 
 def cmd_upload_db():
-    """每日 DB 备份推 R2（异地防盘毁）+ 30天滚动清理。
-    sentiment.db -> backup/sentiment_YYYYMMDD.db.gz
-    etf_national_team.db -> backup/etf_national_team_YYYYMMDD.db.gz
+    """每日 DB 备份推 R2（异地防盘毁）+ 分层滚动清理(日/周/月)。
+
+    sentiment.db -> backup/sentiment_YYYYMMDD.db.gz (日备份,30天)
+                -> weekly/sentiment_YYYYMMDD.db.gz  (周备份,本周首次,28天/4周)
+                -> monthly/sentiment_YYYYMMDD.db.gz (月备份,本月首次,365天/12月)
+    etf_national_team.db 同上(<name>=etf_national_team)。
+
     上传前 gzip 压缩（实测 sentiment.db 82MB->24MB,29%），R2 key 带 .gz 后缀。
     本地 .db 备份不变（backup_db.sh 仍存 .db，方便直接恢复），仅 R2 侧压缩。
+    周月副本复用日备份已压缩的 payload(同 gz 内容,不同 prefix),不额外压缩。
+
     上传到 BACKUP_BUCKET(signal-backup 私有桶,不绑公开域名);
-    _prune_r2_backup 默认也清 signal-backup，keep_days=30 与 R2 lifecycle 一致。
+    _prune_r2_backup 分层清 signal-backup(backup/30 + weekly/28 + monthly/365)。
     DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
     import datetime as _dt, gzip
     repo = Path(os.environ.get("REPO", str(ROOT)))
@@ -270,6 +358,9 @@ def cmd_upload_db():
             ok += 1
             print(f"✓ {fname} ({len(raw) // 1024}KB -> {len(payload) // 1024}KB gzip) "
                   f"-> {BACKUP_BUCKET}/{key} (私有桶)")
+            # 日备份成功后,判断是否本周/本月首次,是则上传周/月副本(复用 payload)
+            _maybe_upload_weekly(name, payload, today)
+            _maybe_upload_monthly(name, payload, today)
         else:
             print(f"✗ {fname} status={status} {data.decode('utf-8', errors='replace')[:300]}")
     _prune_r2_backup(keep_days=30)

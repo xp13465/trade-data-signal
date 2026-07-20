@@ -5,6 +5,8 @@
 # 流程：
 #   1. 从 R2 signal-backup 桶下载最新 backup/<name>_YYYYMMDD.db[.gz]
 #      （sentiment + etf_national_team 两个 DB）到临时目录
+#      注:只校验 backup/ 日备份(最新可恢复点)。weekly/ monthly/ 是归档层
+#      (周/月备份副本,2026-07 新增),不参与每日恢复演练,仅作长期损坏兜底。
 #   2. gunzip 解压（若 .gz）
 #   3. sqlite3 PRAGMA integrity_check（完整性）
 #   4. 关键表 COUNT(*) 抽样，与本地 data/*.db 对比（只读 mode=ro）
