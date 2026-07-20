@@ -6845,38 +6845,87 @@ function _metricVal(metrics, id) {
   return m ? m.value : null;
 }
 
-function drawShareCard(r) {
-  const W = 1080, H = 1350;
+function drawShareCard(r, futures) {
+  const W = 1080, H = 1500;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d");
-  // 背景渐变
+  // === 主题色读取层:canvas 不读 CSS var,运行时 getComputedStyle 取当前皮肤配色 ===
+  // 涨红跌绿(#e6492e/#2e8b57)为数据语义色,二维码白底深码为扫码对比,均保持硬编码不随皮肤变
+  const C = {
+    bg: cssVar("--bg-card"),
+    text1: cssVar("--text-1"),
+    text2: cssVar("--text-2"),
+    primary: cssVar("--primary"),
+    border: cssVar("--border"),
+  };
+  const hexToRgb = (hex) => {
+    const h = (hex || "").replace("#", "").trim();
+    if (h.length === 6) { const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+    if (h.length === 3) { return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)]; }
+    return [255, 255, 255];
+  };
+  const t1rgb = hexToRgb(C.text1), t2rgb = hexToRgb(C.text2), prgb = hexToRgb(C.primary);
+  const rgba = (rgb, a) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`;
+  const UP = "#e6492e", DOWN = "#2e8b57"; // 涨红跌绿(数据语义色,4 套皮肤均不变)
+  const STRIP_EM = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu;
+
+  // 背景渐变(跟随皮肤)
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#1f2329"); g.addColorStop(1, "#2d3239");
+  g.addColorStop(0, C.bg); g.addColorStop(1, C.bg);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   ctx.textBaseline = "alphabetic";
 
   // 顶部品牌条
-  ctx.fillStyle = "#165dff";
+  ctx.fillStyle = C.primary;
   _roundRect(ctx, 60, 60, 240, 64, 18); ctx.fill();
-  ctx.fillStyle = "#fff"; ctx.font = "bold 30px 'PingFang SC',sans-serif"; ctx.textBaseline = "middle";
+  ctx.fillStyle = C.text1; ctx.font = "bold 30px 'PingFang SC',sans-serif"; ctx.textBaseline = "middle";
   ctx.fillText("📊 tdsignal", 84, 93);
-  ctx.fillStyle = "#aab2bd"; ctx.font = "26px 'PingFang SC',sans-serif";
+  ctx.fillStyle = C.text2; ctx.font = "26px 'PingFang SC',sans-serif";
   ctx.fillText("trade-data-signal", 320, 93);
 
   // 主标题
   ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = "#fff"; ctx.font = "bold 76px 'PingFang SC',sans-serif";
+  ctx.fillStyle = C.text1; ctx.font = "bold 76px 'PingFang SC',sans-serif";
   ctx.fillText("信号实验室", 60, 220);
-  ctx.fillStyle = "#aab2bd"; ctx.font = "32px 'PingFang SC',sans-serif";
+  ctx.fillStyle = C.text2; ctx.font = "32px 'PingFang SC',sans-serif";
   ctx.fillText(`${fmtDate(r.date)} 收盘复盘`, 60, 272);
 
   // 分隔线
-  ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
+  ctx.strokeStyle = rgba(t1rgb, 0.15); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(60, 320); ctx.lineTo(1020, 320); ctx.stroke();
 
-  // 情绪分卡片（3个）
-  const scores = r.today && r.today.scores || {};
+  // === ★ 一句话结论(情绪分 + 信号 + 涨停) ===
+  const drawConclusion = (y) => {
+    const sc = (r.today && r.today.scores) || {};
+    const sent = sc.a_sentiment ? sc.a_sentiment.value : null;
+    let sentTag = sent != null ? sentimentTag(sent) : "";
+    sentTag = sentTag.replace(STRIP_EM, "").trim();
+    const sigs = r.signals_today || [];
+    const buyN = sigs.filter((s) => /^buy/.test(s.signal)).length;
+    const sellN = sigs.filter((s) => /^sell/.test(s.signal)).length;
+    const mt = (r.today && r.today.metrics) || [];
+    const zt = _metricVal(mt, "a_width_zt_count");
+    const parts = [];
+    if (sent != null) parts.push(`情绪${sent.toFixed(0)}${sentTag ? "[" + sentTag + "]" : ""}`);
+    parts.push(`${sigs.length}信号(买${buyN}/卖${sellN})`);
+    if (zt != null) parts.push(`涨停${zt.toFixed(0)}`);
+    const text = "💡 " + parts.join(" · ");
+    const boxH = 52;
+    ctx.fillStyle = rgba(t1rgb, 0.05);
+    _roundRect(ctx, 60, y, W - 120, boxH, 12); ctx.fill();
+    ctx.strokeStyle = rgba(prgb, 0.4); ctx.lineWidth = 1.5;
+    _roundRect(ctx, 60, y, W - 120, boxH, 12); ctx.stroke();
+    ctx.fillStyle = C.primary;
+    _roundRect(ctx, 60, y, 6, boxH, 3); ctx.fill();
+    ctx.fillStyle = C.text1; ctx.font = "bold 28px 'PingFang SC',sans-serif"; ctx.textBaseline = "middle";
+    ctx.fillText(text, 84, y + boxH / 2 + 1);
+    ctx.textBaseline = "alphabetic";
+    return y + boxH + 16;
+  };
+
+  // === 数据卡(情绪分 + 涨跌停/成交额) ===
+  const scores = (r.today && r.today.scores) || {};
   const sentVal = scores.a_sentiment ? scores.a_sentiment.value : null;
   const crossVal = scores.cross_market ? scores.cross_market.value : null;
   const fgVal = scores.fear_greed ? scores.fear_greed.value : null;
@@ -6885,90 +6934,185 @@ function drawShareCard(r) {
     { label: "跨市场评分", val: crossVal, tag: crossVal != null ? sentimentTag(crossVal) : "" },
     { label: "恐贪指数", val: fgVal, tag: fgVal != null ? fearGreedLabel(fgVal) : "" },
   ];
-  const metrics = r.today && r.today.metrics || [];
+  const metrics = (r.today && r.today.metrics) || [];
   const zt = _metricVal(metrics, "a_width_zt_count");
   const dt = _metricVal(metrics, "a_width_dt_count");
   const amt = _metricVal(metrics, "a_amount");
   const widthCards = [
-    { label: "涨停", val: zt, color: "#e6492e" },
-    { label: "跌停", val: dt, color: "#2e8b57" },
-    { label: "成交额(亿)", val: amt, color: "#165dff" },
+    { label: "涨停", val: zt, color: UP },
+    { label: "跌停", val: dt, color: DOWN },
+    { label: "成交额(亿)", val: amt, color: C.primary },
   ];
-
-  const cardW = 290, cardH = 150, gap = 25, startX = 60, startY = 360;
-  const drawDataCard = (c, x, y, idx) => {
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
+  const cardW = 290, cardH = 124, gap = 18;
+  const drawDataCard = (c, x, y) => {
+    ctx.fillStyle = rgba(t1rgb, 0.06);
     _roundRect(ctx, x, y, cardW, cardH, 14); ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+    ctx.strokeStyle = rgba(t1rgb, 0.12); ctx.lineWidth = 1;
     _roundRect(ctx, x, y, cardW, cardH, 14); ctx.stroke();
-    ctx.fillStyle = "#aab2bd"; ctx.font = "26px 'PingFang SC',sans-serif";
-    ctx.fillText(c.label, x + 22, y + 44);
+    ctx.fillStyle = C.text2; ctx.font = "26px 'PingFang SC',sans-serif";
+    ctx.fillText(c.label, x + 22, y + 40);
     const v = c.val;
-    ctx.fillStyle = c.color || "#fff"; ctx.font = "bold 56px 'PingFang SC',sans-serif";
+    ctx.fillStyle = c.color || C.text1; ctx.font = "bold 50px 'PingFang SC',sans-serif";
     const vText = v == null ? "-" : (typeof v === "number" && Math.abs(v) >= 1000 ? v.toFixed(0) : (typeof v === "number" ? v.toFixed(1) : v));
-    ctx.fillText(vText, x + 22, y + 108);
+    ctx.fillText(vText, x + 22, y + 98);
     if (c.tag) {
-      // 用数值字体(56px)测量宽度——必须在切到tag字体前测,否则22px测56px的数值tw偏小,tag会叠到数值上
+      // 用数值字体(50px)测量宽度--切 tag 字体前测,否则 tag 叠到数值上
       const tw = ctx.measureText(vText).width;
-      // tag去emoji(emoji在canvas宽度不确定+跨平台渲染不一致+分享图更清爽),只留中文文字
-      const tagText = "[" + c.tag.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, "").trim() + "]";
-      ctx.fillStyle = c.color || "#aab2bd"; ctx.font = "22px 'PingFang SC',sans-serif";
-      ctx.fillText(tagText, x + 38 + tw, y + 108);
+      const tagText = "[" + c.tag.replace(STRIP_EM, "").trim() + "]";
+      ctx.fillStyle = c.color || C.text2; ctx.font = "22px 'PingFang SC',sans-serif";
+      ctx.fillText(tagText, x + 38 + tw, y + 98);
     }
   };
-  sentCards.forEach((c, i) => drawDataCard(c, startX + i * (cardW + gap), startY, i));
-  widthCards.forEach((c, i) => drawDataCard(c, startX + i * (cardW + gap), startY + cardH + gap, i));
 
-  // 上证迷你走势
-  const sparkY = startY + cardH * 2 + gap * 2 + 40;
-  const sps = r.indices_sparkline ? Object.values(r.indices_sparkline) : [];
-  const sh = sps.find((s) => /sh000001|上证/.test(s.id || s.name)) || sps[0];
-  if (sh && sh.closes && sh.closes.length > 1) {
-    ctx.fillStyle = "#aab2bd"; ctx.font = "26px 'PingFang SC',sans-serif";
-    ctx.fillText(`${sh.name} 近30日走势`, 60, sparkY - 16);
-    const up = (sh.pct_change || 0) >= 0;
-    const lineColor = up ? "#e6492e" : "#2e8b57";
-    const cx0 = 60, cy0 = sparkY, cw = W - 120, ch = 240;
-    ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1;
-    _roundRect(ctx, cx0, cy0, cw, ch, 12); ctx.stroke();
-    const closes = sh.closes;
-    const mn = Math.min(...closes), mx = Math.max(...closes);
-    const range = mx - mn || 1;
-    const pad = 20;
-    ctx.beginPath();
-    closes.forEach((v, i) => {
-      const x = cx0 + pad + (i / (closes.length - 1)) * (cw - pad * 2);
-      const y = cy0 + ch - pad - ((v - mn) / range) * (ch - pad * 2);
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  // === ★ 8 指数迷你走势 2×4 网格 ===
+  const drawIndicesSpark8 = (y) => {
+    const sps = r.indices_sparkline || {};
+    const keys = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500"];
+    ctx.fillStyle = C.text2; ctx.font = "26px 'PingFang SC',sans-serif";
+    ctx.fillText("8 指数近30日走势", 60, y);
+    y += 20;
+    const cols = 4, rows = 2, gap2 = 14;
+    const cellW = (W - 120 - (cols - 1) * gap2) / cols;
+    const cellH = 110;
+    keys.forEach((k, idx) => {
+      const col = idx % cols, row = Math.floor(idx / cols);
+      const x = 60 + col * (cellW + gap2);
+      const cy = y + row * (cellH + gap2);
+      ctx.fillStyle = rgba(t1rgb, 0.04);
+      _roundRect(ctx, x, cy, cellW, cellH, 10); ctx.fill();
+      const it = sps[k];
+      const nm = (it && it.name) || k;
+      const pct = it && it.pct_change != null ? it.pct_change : null;
+      const up = pct != null && pct >= 0;
+      const col0 = up ? UP : DOWN;
+      ctx.fillStyle = C.text1; ctx.font = "bold 23px 'PingFang SC',sans-serif";
+      ctx.fillText(nm, x + 12, cy + 26);
+      if (pct != null) {
+        const sign = pct >= 0 ? "+" : "";
+        const pctTxt = `${sign}${pct.toFixed(2)}%`;
+        ctx.fillStyle = col0; ctx.font = "bold 22px 'PingFang SC',sans-serif";
+        const tw = ctx.measureText(pctTxt).width;
+        ctx.fillText(pctTxt, x + cellW - 12 - tw, cy + 26);
+      }
+      if (it && it.closes && it.closes.length > 1) {
+        const sx = x + 12, sy = cy + 38, sw = cellW - 24, sh = cellH - 48;
+        const closes = it.closes;
+        const mn = Math.min(...closes), mx = Math.max(...closes);
+        const range = mx - mn || 1;
+        ctx.beginPath();
+        closes.forEach((v, i) => {
+          const px = sx + (i / (closes.length - 1)) * sw;
+          const py = sy + sh - ((v - mn) / range) * sh;
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        });
+        ctx.strokeStyle = col0; ctx.lineWidth = 2.5; ctx.stroke();
+      }
     });
-    ctx.lineTo(cx0 + cw - pad, cy0 + ch - pad);
-    ctx.lineTo(cx0 + pad, cy0 + ch - pad);
-    ctx.closePath();
-    ctx.fillStyle = lineColor; ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.beginPath();
-    closes.forEach((v, i) => {
-      const x = cx0 + pad + (i / (closes.length - 1)) * (cw - pad * 2);
-      const y = cy0 + ch - pad - ((v - mn) / range) * (ch - pad * 2);
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = lineColor; ctx.lineWidth = 3; ctx.stroke();
-    // 涨跌幅标注
-    const sign = up ? "+" : "";
-    ctx.fillStyle = lineColor; ctx.font = "bold 28px 'PingFang SC',sans-serif";
-    ctx.fillText(`${sign}${(sh.pct_change || 0).toFixed(2)}%`, cx0 + cw - 140, cy0 + 36);
-  }
+    return y + rows * cellH + (rows - 1) * gap2 + 16;
+  };
 
-  // 底部分隔 + 域名（分隔线让出右侧二维码区）
-  ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1;
+  // === ★ 期货机构净持仓迷你表(3 角色 × 5 列) ===
+  const drawFuturesMini = (y, fut) => {
+    ctx.fillStyle = C.text2; ctx.font = "26px 'PingFang SC',sans-serif";
+    const fdate = fut && fut.summary && fut.summary.date ? fut.summary.date : (r.futures_date || "");
+    ctx.fillText("期货机构净持仓" + (fdate ? `(${fdate})` : ""), 60, y);
+    y += 20;
+    const roles = (fut && fut.summary && fut.summary.roles) || {};
+    const roleNames = [["机构(前20)", "机构前20"], ["中信期货", "中信"], ["国泰君安", "国君"]];
+    const cols = [["沪深300期货", "沪深300"], ["中证500期货", "中证500"], ["上证50期货", "上证50"], ["中证1000期货", "中证1000"], ["综合", "综合"]];
+    const x0 = 60, tableW = W - 120;
+    const colW = tableW / (cols.length + 1);
+    const headerH = 32, rowH = 38;
+    const tableH = headerH + rowH * roleNames.length + 10;
+    ctx.fillStyle = rgba(t1rgb, 0.05);
+    _roundRect(ctx, x0, y, tableW, tableH, 10); ctx.fill();
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = C.text2; ctx.font = "21px 'PingFang SC',sans-serif";
+    ctx.fillText("角色", x0 + 12, y + headerH / 2 + 5);
+    cols.forEach((c, i) => {
+      ctx.fillText(c[1], x0 + colW * (i + 1) + 12, y + headerH / 2 + 5);
+    });
+    ctx.strokeStyle = rgba(t1rgb, 0.1); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0 + 10, y + headerH + 4); ctx.lineTo(x0 + tableW - 10, y + headerH + 4); ctx.stroke();
+    let ry = y + headerH + 8;
+    roleNames.forEach((rn) => {
+      const rd = roles[rn[0]] || {};
+      ctx.fillStyle = C.text1; ctx.font = "bold 21px 'PingFang SC',sans-serif";
+      ctx.fillText(rn[1], x0 + 12, ry + rowH / 2);
+      cols.forEach((c, i) => {
+        const v = rd[c[0]];
+        ctx.fillStyle = v == null ? C.text2 : (v >= 0 ? UP : DOWN);
+        ctx.font = "21px 'PingFang SC',sans-serif";
+        const txt = v == null ? "-" : (v >= 0 ? "+" : "") + v.toFixed(0);
+        ctx.fillText(txt, x0 + colW * (i + 1) + 12, ry + rowH / 2);
+      });
+      ry += rowH;
+    });
+    ctx.textBaseline = "alphabetic";
+    return ry + 12;
+  };
+
+  // === ★ 行业涨跌 Top5(领涨/领跌双列横条) ===
+  const drawIndustryBar = (y) => {
+    ctx.fillStyle = C.text2; ctx.font = "26px 'PingFang SC',sans-serif";
+    ctx.fillText("行业涨跌 Top5", 60, y);
+    y += 20;
+    const heat = (r.industry_heatmap || []).slice().sort((a, b) => (b.pct_1d || 0) - (a.pct_1d || 0));
+    const top5 = heat.slice(0, 5);
+    const bot5 = heat.slice(-5).reverse();
+    const colW = (W - 120 - 30) / 2;
+    const itemH = 26;
+    const drawCol = (items, cx, label, color) => {
+      ctx.fillStyle = color; ctx.font = "bold 22px 'PingFang SC',sans-serif";
+      ctx.fillText(label, cx, y);
+      let iy = y + 24;
+      const maxAbs = Math.max(...items.map((it) => Math.abs(it.pct_1d || 0)), 1);
+      const rgbC = hexToRgb(color);
+      items.forEach((it) => {
+        const nm = (it.name || "").replace(/^SW\s*/, "");
+        const pct = it.pct_1d || 0;
+        ctx.fillStyle = C.text1; ctx.font = "21px 'PingFang SC',sans-serif";
+        let nmDraw = nm;
+        while (ctx.measureText(nmDraw).width > 150 && nmDraw.length > 1) nmDraw = nmDraw.slice(0, -1);
+        if (nmDraw !== nm) nmDraw = nmDraw.slice(0, -1) + "…";
+        ctx.fillText(nmDraw, cx, iy);
+        const pctTxt = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%";
+        ctx.fillStyle = color; ctx.font = "bold 20px 'PingFang SC',sans-serif";
+        const tw = ctx.measureText(pctTxt).width;
+        ctx.fillText(pctTxt, cx + colW - tw, iy);
+        const barX0 = cx + 158, barX1 = cx + colW - tw - 10;
+        const bw = (Math.abs(pct) / maxAbs) * (barX1 - barX0);
+        ctx.fillStyle = rgba(rgbC, 0.85);
+        _roundRect(ctx, barX0, iy - 7, Math.max(bw, 2), 7, 3.5); ctx.fill();
+        iy += itemH;
+      });
+    };
+    drawCol(top5, 60, "领涨 Top5", UP);
+    drawCol(bot5, 60 + colW + 30, "领跌 Top5", DOWN);
+    return y + 24 + 5 * itemH + 12;
+  };
+
+  // === 排版链(各区块返回下一区块 y) ===
+  let y = drawConclusion(345);
+  const cardStartY = y;
+  sentCards.forEach((c, i) => drawDataCard(c, 60 + i * (cardW + gap), cardStartY));
+  widthCards.forEach((c, i) => drawDataCard(c, 60 + i * (cardW + gap), cardStartY + cardH + gap));
+  y = cardStartY + cardH * 2 + gap + 22;
+  y = drawIndicesSpark8(y);
+  y = drawFuturesMini(y, futures);
+  y = drawIndustryBar(y);
+
+  // 底部分隔 + 域名(分隔线让出右侧二维码区)
+  ctx.strokeStyle = rgba(t1rgb, 0.15); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(60, H - 150); ctx.lineTo(870, H - 150); ctx.stroke();
-  ctx.fillStyle = "#165dff"; ctx.font = "bold 34px 'PingFang SC',sans-serif";
+  ctx.fillStyle = C.primary; ctx.font = "bold 34px 'PingFang SC',sans-serif";
   ctx.fillText("s.sugas.site", 60, H - 95);
-  ctx.fillStyle = "#aab2bd"; ctx.font = "24px 'PingFang SC',sans-serif";
+  ctx.fillStyle = C.text2; ctx.font = "24px 'PingFang SC',sans-serif";
   ctx.fillText("盘后复盘·多市场情绪·技术分析参考点", 60, H - 55);
-  // 底部免责水印（合规：教育研究定位，非投资建议）
-  ctx.fillStyle = "rgba(170,178,189,0.7)"; ctx.font = "20px 'PingFang SC',sans-serif";
+  // 底部免责水印(合规:教育研究定位,非投资建议)
+  ctx.fillStyle = rgba(t2rgb, 0.7); ctx.font = "20px 'PingFang SC',sans-serif";
   ctx.fillText("本图仅供学习研究，不构成投资建议 · tdsignal", 60, H - 22);
-  // 右下角二维码（扫码访问公网看板；矩阵来自 qr.js，fillRect 同步绘制，无图片加载竞态）
+  // 右下角二维码(白底深码,扫码对比不随皮肤变;矩阵来自 qr.js,fillRect 同步绘制,无图片加载竞态)
   if (window.QR_MODULES && window.QR_MODULES.length) {
     const mods = window.QR_MODULES, nq = mods.length, quiet = 2;
     const qrSize = 130, cell = qrSize / (nq + quiet * 2);
@@ -7004,6 +7148,8 @@ async function openShareModal() {
     if (!r) { alert("数据加载失败，无法生成分享图"); return; }
     _setCachedOverview(r);
   }
+  // 期货机构净持仓(独立文件,失败不阻塞分享图,区块画占位)
+  const futures = await fetchJSON("./data/futures.json").catch(() => null);
   let modal = document.getElementById("share-modal");
   if (!modal) {
     modal = document.createElement("div");
@@ -7019,7 +7165,7 @@ async function openShareModal() {
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
   try {
-    const canvas = drawShareCard(r);
+    const canvas = drawShareCard(r, futures);
     const dataUrl = canvas.toDataURL("image/png");
     content.innerHTML = `<img class="share-img" src="${dataUrl}" alt="信号实验室分享图"><a class="share-download-btn" href="${dataUrl}" download="tdsignal-${r.date}.png">⬇ 下载图片</a>`;
   } catch (e) {
