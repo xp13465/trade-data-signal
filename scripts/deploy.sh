@@ -97,6 +97,14 @@ if [ "$REPO" != "$GIT_REPO" ]; then
   fi
 fi
 
+# 1.8 上传 lab/*.json 到 R2(lab移出git后R2是前端唯一来源;现双源过渡也刷R2保持最新)
+echo "-> 上传 lab 到 R2 ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/upload_r2.py" upload-lab 2>&1 | tee -a "$LOG"
+R2_RC=${PIPESTATUS[0]}
+if [ "$R2_RC" -ne 0 ]; then
+  echo "⚠ upload-lab失败(退出码$R2_RC),lab R2可能过期,继续部署" | tee -a "$LOG"
+fi
+
 # 2. git add 静态数据 + min JS（min 重新生成后若有变更一并提交）
 echo "→ git add static-site/data/ + min JS ..." | tee -a "$LOG"
 git -C "$GIT_REPO" add static-site/data/ \
