@@ -15,7 +15,7 @@ from datetime import datetime
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "static-site", "data", "summary_history.json")
 DST = os.path.join(REPO, "static-site", "data", "feed.xml")
-SITE = "https://s.sugas.site/"
+SITE = "https://ss.fx8.store/"
 
 # 英文星期/月份缩写（RFC 822 要求英文，避免依赖系统 locale）
 WDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
