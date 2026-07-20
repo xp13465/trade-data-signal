@@ -257,37 +257,109 @@ LOW_ALERT = Σ(w_i × L_i)   其中 L_i 为各维度0-100底部信号强度
 
 ## 六、前端展示建议
 
-### 6.1 首页顶部预警条(最高优先级)
+> **架构变更(2026-07-20)**:预警 + 自定义分析板块从"首页预警条+弹窗"改为 **策略实验室 -> 预发布(二级tab) -> 自定义分析(三级tab)** 的 tab 架构。首页仅保留轻量预警条作入口跳转。原因:8 维度雷达 / 原因 4 部分 / 历史回测属深度分析,放策略实验室预发布区与现有 scan/experiment/retest 回测 tab 并列更合理,避免首页过载;同时"预发布"语义契合"算法已设计(第一至九章)尚未上线生产、灰度验证"的定位。
 
-位置:overview 顶部(采集时间横幅下方),全宽醒目条。状态:
-- **无预警**:不显示(或浅灰"市场中性")
-- **高位预警**:黄/橙/红条,文案+等级,点击展开详情
-- **低位预警**:浅蓝/蓝/深蓝条,文案+等级
-- **双预警(罕见)**:高位+低位同时高分(市场分化),分两行显示
+### 6.1 tab 层级结构
 
-示例(高位高危):
 ```
-🔴 高危预警:多维度过热共振,风险显著  [展开详情 v]   HIGH_ALERT=89.2
+index.html 顶部一级 nav(app.js renderTab 路由)
+├─ overview 市场全景
+├─ market 指数表现
+├─ sentiment 情绪温度
+├─ industry 板块分化
+└─ lab 🧪 策略实验  ──┐
+                      │ lab.js 内部(state.labSubMode 路由)
+                      ├─ scan 信号扫描(父tab)         [现有]
+                      │   ├─ ablation 🧩 信号拆解      [现有]
+                      │   ├─ symmetry ⚖️ 多空对称      [现有]
+                      │   └─ paramscan 🎛 参数扫描     [现有]
+                      ├─ experiment 信号实验(父tab)   [现有]
+                      │   ├─ single 单一信号实验       [现有]
+                      │   └─ fusion 融合信号实验       [现有]
+                      ├─ retest 🔬 二次测试实验        [现有]
+                      └─ prerelease 🚧 预发布(父tab)   [新增]
+                          ├─ alert 🚨 综合预警         [新增]
+                          └─ custom 🔍 自定义分析      [新增]
 ```
 
-### 6.2 弹窗详情(各维度信号明细)
+- **一级 tab**:index.html `<nav class="tabs">` 的 `button[data-tab]`,app.js `renderTab()`(L1699)按 `state.tab` 路由,`lab` 调 `renderSignalLab()`。lab.js 按需动态注入(app.js L51 `typeof renderSignalLab === "function"` 判断)。
+- **二级 tab**:lab.js `_renderLabSubNav()`(L3502)渲染 `.lab-subnav`,配置在 `_LAB_SUB_TABS` 数组(L3507)。父tab(scan/experiment/prerelease)active 时下方再渲染一行 `.lab-subnav.lab-subnav-child` 三级子tab。
+- **三级 tab**:`_XXX_CHILDREN` 数组定义(L3512-3515),点击改 `state.labSubMode` 后调 `renderSignalLab()` 重渲。hash 路由 `#lab?sub=<mode>`,F5 保位(L5851 附近)。
+- **现有机制已原生支持三级 tab**,新增预发布只需扩配置 + 加路由分支,无需改 tab 框架本身。
 
-点击预警条弹窗,展示:
-- 预警分大数字 + 等级标签
-- 8维度雷达图/条形图(各维度当前强度0-100,高亮的为触发维度)
-- 每维度:当前值 + 历史百分位 + 触发状态(✓触发/○未触发)+ 一句话解读
-- 历史回测口径:该等级历史胜率/盈亏比/样本数(复用 signal_stats 展示风格)
-- "近X月首次"标注(复用 freeze-resonance 的首次逻辑)
+### 6.2 预发布二级tab 内容布局
 
-### 6.3 历史预警记录
+预发布父tab 下挂两个三级子tab,承载第一至九章已设计但未上线的预警/分析能力,与已上线的 scan/experiment/retest 回测区隔离灰度。
 
-- overview 新增"近期预警日"卡片(类似现有"近期冰点日"卡片),按日分组展示历史高位/低位预警触发日
-- sentiment tab 新增 HIGH_ALERT/LOW_ALERT 两条走势线(与 a_sentiment/cross_market/fear_greed 并列),带冰点/过热标注
-- 每条预警线支持点击查看历史触发统计(胜率/盈亏比,复用现有 signal_stats 前端)
+#### 6.2.1 🚨 综合预警(alert 子tab)
 
-### 6.4 与现有 freeze-resonance 整合
+全市场(上证为锚)高位/低位预警的完整展示,原 6.1 预警条 + 6.2 弹窗详情 + 6.3 历史记录合并到此 tab 内纵深展开:
 
-现有 freeze-resonance-banner(6宽基≥3冰点)降级为 LOW_ALERT 的一个**硬触发子条件**,不再单独展示横幅,统一进预警条。避免两个冰点提示重复。
+- **顶部预警状态条**:HIGH_ALERT / LOW_ALERT 两个大数字 + 等级色块(中性/警示/高危),复用原 6.1 配色(高位黄橙红、低位浅蓝蓝深蓝)。无预警时显示"市场中性";双预警(罕见,市场分化)分两行。
+- **8 维度条形图/雷达**:各维度当前强度 0-100,触发维度(≥60 关注线 / ≥75 强命中)高亮,每维度附当前值 + 历史百分位 + 触发状态(✓/○)+ 一句话解读(原 6.2 弹窗内容上移为常驻)。
+- **原因 4 部分**:命中维度清单① + 数据阈值对比② + 历史类比卡片③(top-3 相似日 + 聚合统计)+ 人话解读④(第八章),复用 `alert_reason.py` 产出。
+- **历史回测口径**:该等级历史胜率/盈亏比/样本数,复用 signal_stats 展示风格;"近 X 月首次"标注复用 freeze-resonance 首次逻辑。
+- **近期预警日列表**:按日分组展示历史高位/低位预警触发日(原 6.3 overview 卡片迁移至此)。
+- **sentiment tab 联动**:HIGH_ALERT/LOW_ALERT 两条走势线仍加在 sentiment tab(与 a_sentiment/cross_market/fear_greed 并列),点击跳本 tab 看详情。
+
+#### 6.2.2 🔍 自定义分析(custom 子tab)
+
+第九章交互式自定义分析的承载页:
+
+- **输入框**:带模糊匹配联想下拉,支持行业名/宽基名/指数代码/ETF 代码(9.2)。
+- **候选列表**:多候选按成交额降序(复用 board_etf_map.json + index_daily.amount),用户点击选定,不硬选(遵循 list-candidates-not-hardcode 规范)。
+- **分析结果卡片**:等级标签(色块)+ HIGH/LOW_ALERT 单标的版分 + 原因 4 部分(历史类比用该标的自身 signal_daily 收益)+ 维度适配提示(9.3 表,标出哪些维度适用/缺省)。
+- **合规底栏**:固定显示风险提示,用词中性白名单 / 禁用词过滤(9.5)。
+- **无数据诚信**:数据不足时显示提示不硬编造。
+- **数据来源**:后端 `/api/alert/analyze?target=&type=` 现算(9.6);9 宽基 + 31 行业可预生成 `alert_analyze_{iid}.json` 快照走静态化,非常规标的走 API。
+
+### 6.3 首页轻量预警条(入口跳转)
+
+首页 overview 顶部保留**轻量预警条**(采集时间横幅下方),仅作入口不展开详情:
+
+- **无预警**:浅灰"市场中性"或隐藏
+- **有预警**:单行色条 + 等级 + 一句话原因(第八章第④部分),如 `🔴 高危预警:情绪偏热+量价背离,历史类似后多承压 [查看详情 ->]`
+- **点击**:跳转 `#lab?sub=alert`(策略实验室预发布综合预警子tab),完整 8 维度/原因/回测在该 tab 展开
+- **freeze-resonance 整合**:现有 freeze-resonance-banner(6 宽基≥3 冰点)降级为 LOW_ALERT 的一个硬触发子条件,不再单独展示横幅,统一进预警条 + 预警 tab
+
+> 轻量条保留理由:首页需让用户一眼看到市场风险状态(即时提示价值),但完整深度分析放策略实验室预发布区,避免首页过载。条本身复用原 6.1 样式,仅把"展开详情"改为"跳转 tab"。
+
+### 6.4 实施步骤(改 index.html / app.js / lab.js)
+
+> 以下为落地步骤设计,本文档只做设计不改代码。现有 tab 框架已支持三级,改动集中在 lab.js 配置扩展 + 新增两个渲染函数。
+
+**lab.js(主改)**:
+1. `_LAB_SUB_TABS` 数组(L3507)加 `{ key: "prerelease", label: "🚧 预发布" }`
+2. 新增 `const _PRERELEASE_CHILDREN = ["alert", "custom"];` + `_PRERELEASE_CHILD_LABELS = { alert: "🚨 综合预警", custom: "🔍 自定义分析" }`(仿 L3512-3513)
+3. `_renderLabSubNav()`(L3502)加 `isPrereleaseActive = _PRERELEASE_CHILDREN.includes(cur)` 判断;父tab active 时渲染 child nav(仿 L3536-3550 scan 分支)
+4. 父tab 点击逻辑(L3528)加 `prerelease -> "alert"` 默认进第一个子tab
+5. `renderSignalLab()`(L5670)顶部 detail 跳过条件(L5672-5673)加 `!== "alert" && !== "custom"`
+6. `renderSignalLab()` 加路由分支(仿 L5690-5727):
+   - `if (state.labSubMode === "alert") { await renderAlertLab(); _labSetHash("#lab?sub=alert"); _labRestoreScroll(); return; }`
+   - `if (state.labSubMode === "custom") { await renderCustomAnalyzeLab(); _labSetHash("#lab?sub=custom"); _labRestoreScroll(); return; }`
+7. 新增 `async function renderAlertLab()`(综合预警展示,6.2.1 布局)
+8. 新增 `async function renderCustomAnalyzeLab()`(自定义分析,6.2.2 布局)
+9. hash 解析(L5851 附近 F5 恢复逻辑)加 alert/custom 保位
+
+**app.js**:
+10. `renderTab()`(L1699)的 overview 分支:加轻量预警条渲染(读 alert_score 产物 JSON,点击跳 `#lab?sub=alert`),复用原 6.1 样式
+
+**index.html**:
+11. 无需改 nav(预发布是 lab 内部二级tab,不进一级 nav);若需 overview 预警条占位容器可加空 div
+
+**CSS(lab.css)**:
+12. `.lab-subnav` / `.lab-subnav-child` 已有样式三级复用;新增 alert 等级色块(`.alert-level-high/.low` 等)+ 自定义分析输入框/候选/结果卡片样式(约 250 行,7.5 评估)
+
+**上线**:
+13. 后端 alert_score/alert_reason 计算模块 + `/api/alert/analyze` 端点就绪后,前端按上述步骤接入;`scripts/deploy.sh` 推 static-site/data/ 预警产物 JSON
+
+### 6.5 与现有策略实验室 tab 的并存关系
+
+- 预发布作为独立二级父tab,与 scan/experiment/retest **平级**,`state.labSubMode` 路由隔离,互不干扰
+- 预发布区只读展示预警算法结果(不跑回测),不与 scan/experiment 的回测数据流冲突
+- 术语词典按钮(lab-subnav-glossary)全 lab 可见,预发布区复用
+- 合规声明(`_labTopDisclaimerHTML`)+ 新手引导(`_labNewbieGuideHTML`)在 renderSignalLab 顶部全子模式可见,预发布区自动继承(无需额外加)
+- 灰度语义:预发布区功能验证成熟后,可提升为正式子tab(移出"预发布"父tab 或重命名),架构预留这个演进路径
 
 ---
 
@@ -458,7 +530,7 @@ LOW_ALERT = Σ(w_i × L_i)   其中 L_i 为各维度0-100底部信号强度
 - **后端 API**:新增 `/api/alert/analyze?target=<输入>&type=<指数/ETF>` 端点,现算(因需历史类比检索读 DB,不适合纯前端)
 - **计算**:复用 alert_score 维度算法 + alert_reason 原因生成,套用第九章适配表
 - **静态化备选**:对9宽基+31行业等常见标的,可预生成每日快照 JSON(alert_analyze_{iid}.json),用户输入直接读;非常规标的走 API 现算
-- **前端**:新 tab"预警分析"或实验室入口
+- **前端**:承载于策略实验室 -> 预发布(二级tab)-> 自定义分析(custom 三级tab),布局详见第六章 6.2.2
   - 输入框(带模糊匹配联想下拉)
   - 候选列表(多候选按成交额排序,点击选定)
   - 分析结果卡片:等级标签(色块)+ 预警分 + 原因明细(4部分,复用第八章弹窗组件)+ 合规底栏
