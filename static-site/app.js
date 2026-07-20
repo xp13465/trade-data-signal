@@ -1412,6 +1412,7 @@ const KPI_HISTORY_SOURCE = {
   lhb_count:           { src: "astock" },
   a_width_zb_count:    { src: "astock" },
   a_width_seal_rate:   { src: "astock" },
+  a_width_fengban_rate: { src: "astock" },
   a_fund_main:         { src: "astock" },
   a_turnover_mean:     { src: "astock" },
   a_turnover_median:   { src: "astock" },
@@ -1511,14 +1512,14 @@ async function _loadKpiHistory(kpiId, cfg, period) {
         hint: "涨停数反映做多情绪，跌停数反映恐慌情绪。",
       };
     }
-    // 封板率（百分比，mootdx 长历史 2016 至今，替代停更的 zhaban_rate）
-    if (kpiId === "a_width_seal_rate") {
-      const raw = (metrics.a_width_seal_rate && metrics.a_width_seal_rate.data) || [];
+    // 封板率（百分比，存 0-1 小数需 *100 显示；fengban_rate=1-炸板率 新源，seal_rate 旧源保留兼容）
+    if (kpiId === "a_width_seal_rate" || kpiId === "a_width_fengban_rate") {
+      const raw = (metrics[kpiId] && metrics[kpiId].data) || [];
       const data = raw.map(d => ({ date: d.date, value: d.value * 100 }));
       return {
         series: [{ name: "封板率", data }],
         yLabel: "{value}%",
-        hint: "封板率=涨停封住数/(涨停+炸板)。高=打板成功率高、封板资金强。",
+        hint: "封板率=1-炸板率（涨停封住/(涨停+炸板)）。高=打板成功率高、封板资金强。",
       };
     }
     // 成交额：主线 + 叠加 MA5/MA20（from volume_ratio.json，仅250条，长周期覆盖尾部）
@@ -1804,7 +1805,12 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
   let baseline, pastDeadline;
   if (srcClass === "t1") {
     // T+1源：基准=ptd(盘中未到时刻时_t1Relax放宽到ptd-1)；过时刻判定独立于intraday
-    const relax = _t1Relax(srcKey, intraday);
+    let relax = _t1Relax(srcKey, intraday);
+    // 美股跨市场时区滞后：美东21:30开盘(北京次日04:00收盘)，backfill 16:35才采。
+    // A股收盘(15:00)到美股采集(16:35)有间隙，且美股比A股晚约1天。未过16:35采集点
+    // -> baseline 放宽到 _prevTradingDay(ptd)(美股上一可得日)，避免A股已到新交易日
+    // (ptd)但美股数据尚未采集时误报滞后(周一美股晚开盘，ptd=周一时尤甚)。
+    if (srcKey === "us_dji_date") relax = !_pastCollectDeadline("us_dji_date");
     baseline = (relax && ptd) ? _prevTradingDay(ptd) : ptd;
     pastDeadline = _pastCollectDeadline(srcKey);
   } else {
@@ -1902,6 +1908,12 @@ const T1_COLLECT_DEADLINE = {
   a_qvix_300:    "18:00",   // QVIX期权波动率: 源端盘后发布,update_all 17:50采集
   industry:      "18:00",   // 申万行业指数: baostock/申万收盘后发布,update_all 17:50采集
   hk_south:      "18:00",   // 港股通净买入: 盘后发布,update_all 17:50采集
+  // 换手率5项: BaoStock stock_daily T+1,update_all 17:50采集,18:00后应已到
+  a_turnover_mean:    "18:00",
+  a_turnover_median:  "18:00",
+  a_turnover_p90:     "18:00",
+  a_turnover_p10:     "18:00",
+  a_turnover_gt5_pct: "18:00",
 };
 // 是否对该 T+1 源放宽盘中 stale 判定(基准 ptd -> ptd-1 交易日)。intraday=false 一律不放宽。
 function _t1Relax(key, intraday) {
@@ -2038,7 +2050,9 @@ function _buildHealthSources(r, snap) {
     // mid/iid 都取不到时，从 overview 顶层 extra_dates(futures_date/etf_date/us_dji_date) 兜底取停留日期
     if (!dateStr && cfg.dateKey) { dateStr = (r && r[cfg.dateKey]) || ""; }
     // T+1 源盘中放宽：用 mid 或 dateKey 作源标识查采集时点(龙虎榜=lhb_count/期货=futures_date/美股=us_dji_date)
-    const relax = _t1Relax(cfg.mid || cfg.dateKey, intraday);
+    let relax = _t1Relax(cfg.mid || cfg.dateKey, intraday);
+    // 美股跨市场时区滞后：未过16:35采集点放宽基准(同 getCardTimeBadge 美股特殊处理)
+    if ((cfg.mid || cfg.dateKey) === "us_dji_date") relax = !_pastCollectDeadline("us_dji_date");
     let cls, text;
     if (dateStr) { const f = _dataFreshness(dateStr, ptd, relax, shDate); cls = f.cls; text = f.text; }
     else { cls = "t1"; text = cfg.def; }
@@ -3090,7 +3104,8 @@ async function renderOverview() {
     const v = m.value;
     switch (m.id) {
       case "a_width_zhaban_rate":
-      case "a_width_seal_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
+      case "a_width_seal_rate":
+      case "a_width_fengban_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
       case "a_width_zt_count":
       case "a_width_dt_count":
       case "a_width_up_count":
@@ -3145,7 +3160,7 @@ async function renderOverview() {
   // P0-1 数据诚信披露：collect_health 标记 error/disabled 但未在 KPI 展示的指标，显示灰态卡片而非静默隐藏。
   // 研究工具立身之本——用户必须知道哪些指标当前采集异常（数据源中断），诚信 > 美观。
   const _DISABLED_METRIC_NAMES = {
-    a_fund_main: "主力净流入", a_width_zb_count: "炸板数", a_width_seal_rate: "封板率",
+    a_fund_main: "主力净流入", a_width_zb_count: "炸板数", a_width_seal_rate: "封板率", a_width_fengban_rate: "封板率",
     a_turnover_mean: "换手率均值", a_turnover_median: "换手率中位数", a_turnover_p90: "换手率90分位",
     a_turnover_p10: "换手率10分位", a_turnover_gt5_pct: "换手率>5%占比",
   };
@@ -3173,7 +3188,7 @@ async function renderOverview() {
   const _KPI_BASE_ORDER = {
     a_width_up_count: 1, a_width_down_count: 2, a_width_zt_count: 3, a_width_dt_count: 4, a_width_zhaban_rate: 5,
     a_amount: 6, a_volume_ratio: 7, a_sentiment: 8, cross_market: 9, fear_greed: 10, a_fund_margin: 11, a_fund_north: 12,
-    a_width_zb_count: 13, a_width_seal_rate: 14, a_fund_main: 15, a_turnover_mean: 16, a_turnover_median: 17,
+    a_width_zb_count: 13, a_width_seal_rate: 14, a_width_fengban_rate: 14, a_fund_main: 15, a_turnover_mean: 16, a_turnover_median: 17,
     a_turnover_p90: 18, a_turnover_p10: 19, a_turnover_gt5_pct: 20,
   };
   const _kpiIsAbnormal = (k) => {
@@ -3230,7 +3245,7 @@ async function renderOverview() {
       valueHtml = k.value + sigHtml;
       sub = sig || "";
     }
-    const _kpiT1 = k.id === "a_fund_margin" || k.id === "a_fund_north";
+    const _kpiT1 = k.id === "a_fund_margin" || k.id === "a_fund_north" || k.id.startsWith("a_turnover_");
     const _badge = k.disabled
       ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
       : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
@@ -3258,6 +3273,7 @@ async function renderOverview() {
       lhb_count: "当日上龙虎榜的个股数,多=游资活跃。",
       a_width_zb_count: "炸板数=收盘未封住的涨停数。高=打板情绪转弱。",
       a_width_seal_rate: "封板率=涨停/(涨停+炸板)。高=打板成功率高。",
+      a_width_fengban_rate: "封板率=1-炸板率。高=打板成功率高、封板资金强。",
       a_turnover_mean: "全市场换手率均值。高=交投活跃。",
       a_turnover_median: "换手率中位数。比均值抗极端值,反映典型活跃度。",
       a_turnover_p90: "换手率90分位。最活跃的10%个股换手水平。",

@@ -20,7 +20,7 @@ def load_config():
 SERIES_FUNCS = {
     "stock_hsgt_hist_em",
     "index_option_300etf_qvix", "index_option_1000index_qvix", "index_option_50etf_qvix",
-    "futures_main_sina", "futures_foreign_hist", "currency_boc_sina", "forex_hist_em",
+    "futures_main_sina", "futures_foreign_hist", "currency_boc_sina",
     "stock_margin_sse", "stock_margin_szse",
     "bond_china_yield", "bond_zh_us_rate",
     "stock_a_gxl_lg",
