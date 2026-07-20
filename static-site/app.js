@@ -467,7 +467,10 @@ function latestSuffixPct(data) {
 // series.name 去 HTML：latestSuffix 的 <span> 高亮只供卡片标题（HTML 容器），
 // 进 ECharts series.name 会被 tooltip 默认 formatter HTML 转义成字面量 <span>，故 tooltip 用纯文本
 // 最后 collapse 连续空格并 trim：termTip 返回的前导空格在剥离 span 后会残留，避免 legend 多空格
-function stripHtml(s) { return String(s == null ? "" : s).replace(/<span class="term-tip"[^>]*>[\s\S]*?<\/span>/g, "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(); }
+// fix: KPI弹窗标题>转义异常(a_turnover_gt5_pct 显示为 &gt;)。
+// innerHTML 序列化文本节点时按 HTML spec 把 > 转 &gt;,stripHtml 若不反转义,textContent 设置后显示字面量 &gt;。
+// 末尾反转义 HTML 实体,顺序:实体字符先转,&amp; 必须最后(否则会把 &gt; 里的 & 转成 & 再二次转义出错)。
+function stripHtml(s) { return String(s == null ? "" : s).replace(/<span class="term-tip"[^>]*>[\s\S]*?<\/span>/g, "").replace(/<[^>]+>/g, "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim(); }
 
 // A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip）
 function termTip(text) {
