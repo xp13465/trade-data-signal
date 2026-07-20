@@ -2661,3 +2661,32 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 - 线上版本号：`app.min.js?v=39377271`（旧 b2a277c7 已替换）。
 - 线上验收（s.sugas.site，CDN 缓存过期后 00:41+ 全 PASS）：① `curl / | grep echarts` 只见 `echarts-asset-url` meta，echarts script defer tag 已删除 ② `app.min.js?v=39377271` 新版号 ③ `curl app.min.js | grep -c loadEcharts` = 1 ④ echarts-asset-url meta `?v=12173341` = 实际 vendor/echarts.min.js md5 前 8 位。
 - 注：首次 curl（00:28）线上旧版，MaoziYun 已拉新码（app.min.js 含 loadEcharts）但 index.html CDN max-age=1200 缓存未过期，等 10 分钟到 00:41 缓存过期后验证全通过。
+
+### 小节L：C7 P4-β 交互式自定义分析闭环（2026-07-21，commit a241d1f1 后端 + 9a0648cb 前端）
+
+**背景**：§43 设计的 C7 P4 交互式自定义分析（8+8 维度预警单标的分析），本次实施 P4-β 完整版（含 alert_reason 历史类比），后端静态化 + 前端 lab.js 新 tab。线上静态无后端（/api/* 返回 302），必须静态化预生成 JSON。
+
+**后端 B1-B6**（commit a241d1f1，5 文件 +1076 行）：
+- `app/alert_score.py`：`compute_target_dims` L401 + `compute_alert_for_target` L510，8+8 维度（HIGH_WEIGHTS H1-H8 和=1.0 / LOW_WEIGHTS L1-L8），MIN_DIMS=5 全市场 / MIN_DIMS_TARGET=4 单标的（缺项重归一化）。
+- `app/alert_reason.py`：原因 4 部分（命中维度明细 dim_hits + 数据阈值 data_thresholds + 历史类比 Top3 Jaccard+余弦+forward_returns + 人话解读 human_text + 合规底栏 §9.5）。
+- `app/alert_match.py`：模糊匹配（半导体->sw_801080 已验证），PREGEN_TARGETS 40 个（9宽基 sh/sz/sz50/hs300/csi500/csi1000/cyb/kc50/bj50 + 31 申万 sw_801xxx）。
+- `app/main.py` L1323：`/api/alert/analyze` 端点（单匹配直返 result，多候选返 candidates 让前端选）。
+- `scripts/export_alert_analyze.py`：遍历 40 iid 生成 `static-site/data/alert_analyze_{iid}.json`（39 正常 + sh 异常容错，error JSON 含 traceback）。
+- B4 TestClient 验证 PASS：沪深300 status=200，high=46.87/low=68.33，dims 8+8，reason 完整。
+
+**前端 F1-F8**（commit 9a0648cb，改 lab.js+lab.css 不改 app.js，避免和 P2-5 撞）：
+- F1：`_renderLabSubNav` 加"🎯 自定义分析"tab（key=custom），`renderSignalLab` 加 custom 分支，hash 合法列表加 custom，`renderLabDetail` 判断排除 custom。
+- F2：`renderCustomAnalyzeLab` 主函数（L5929）- 40 iid 选择器（9宽基+31申万 optgroup，默认 hs300），fetch `/data/alert_analyze_{iid}.json?v=`，error JSON 容错（sh 显示"数据不足"），fetch 失败显示"加载失败"+重试。
+- F3-F7：`_labCustomScoreCardHTML`（high/low 双分数卡+等级配色 danger≥70/warn≥50/neutral+adapt 适配信息）/ `_labCustomDimsTableHTML`（8+8 维度表，命中整行高亮红/绿，null 显"无数据"）/ `_labCustomHistoryHTML`（历史类比 Top3 日期/相似度/5d10d20d 涨跌+stats 涨跌比+human_text）/ `_labCustomThresholdsHTML`（阈值表默认折叠）/ `_labCustomFooterHTML`（合规底栏 §9.5）。
+- F8：lab.css 追加 309 行（分数卡/维度表/历史类比/阈值表/合规底栏 + 响应式 768px/480px 单列堆叠 + 3 皮肤 light/dark/redgold）。
+- build_min + bump：`lab.min.js?v=ab95607a` `lab.css?v=197b4e3a`。
+
+**线上验证**（https://s.sugas.site/#lab?sub=custom，默认选 hs300）：
+- 线上 `lab.min.js?v=ab95607a` 含 `renderCustomAnalyzeLab`（count=1），index.html 已更新版本号。
+- `alert_analyze_hs300.json`：high=46.87/low=68.33/high_level=中性/low_level=关注，dims H1-H8+L1-L8，reason 6 keys（dim_hits/data_thresholds/history_analogy Top3 forward_returns/human_text/compliance_footer/no_data_hint）。
+- `alert_analyze_sw_801080.json`：SW 电子 high=38.78/low=59.17。
+- `alert_analyze_sh.json`：error JSON（前端容错显示"数据不足"）。
+
+**待办**（非阻塞）：sh 上证指数在 `compute_target_dims` 内 rolling 报 `DataError: No numeric types to aggregate`，B1-B5 代码层 NA/object dtype 未处理，建议 `pd.to_numeric(..., errors='coerce')` 兜底。当前 error JSON 已上线，前端容错显示"数据不足"。
+
+**git**：a241d1f1（后端 feat）+ cc3959da（后端 data deploy）+ 9a0648cb（前端 feat）+ 6cc800f5（前端 data deploy），feat/main 已同步 6cc800f5。根 data/ 未 add（signal_stats.json/sw_components.json 本地 M）。
