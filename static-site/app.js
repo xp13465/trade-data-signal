@@ -247,7 +247,6 @@ function lineChart(title, series, opts = {}, hint = null, container = content) {
 function signalColor(s) {
   if (s.signal === "buy") return "#e6492e";
   if (s.signal === "buy_aux") return "#d63384";
-  if (s.signal === "freeze") return "#2563eb"; // 冰点标注=蓝色
   const r = s.reason || "";
   if (r.includes("买点失败")) return "#9e9e9e";
   if (r.includes("止盈")) return "#2e8b57";
@@ -257,12 +256,11 @@ function signalColor(s) {
 
 // markPoint 标签文案（P0-4 去指令化 + P0-3 主标签精简）：
 // buy/sell/止盈/买点失败 → 中性研究标注描述（非交易指令）；完整 reason 收进 hover tooltip。
-// buy→超卖拐点、buy_aux→下轨拐点、freeze→冰点；
+// buy→超卖拐点、buy_aux→下轨拐点；
 // sell 按 reason 子串细分：止盈→盈亏+X%(从 reason 提取 vs前买 比例)、买点失败→前买失效、其余→趋势转弱。
 function signalLabel(s) {
   if (s.signal === "buy") return "超卖拐点";
   if (s.signal === "buy_aux") return "下轨拐点";
-  if (s.signal === "freeze") return "冰点";
   const r = s.reason || "";
   if (r.includes("止盈")) {
     const m = r.match(/vs前买\s*([+-]?\d+(?:\.\d+)?)\s*%/);
@@ -5346,8 +5344,8 @@ async function renderSentiment() {
     chart.setOption({ series: [{ markLine: {
       silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
       data: [
-        { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
-        { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+        { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "20", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+        { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "80", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
       ],
     } }] });
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
@@ -5392,8 +5390,8 @@ async function renderSentiment() {
       chart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
         data: [
-          { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
-          { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "20", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "80", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
         ],
       } }] });
       // 图表高度统一240(与恐贪/A股综合三卡一致)
@@ -5428,8 +5426,8 @@ async function renderSentiment() {
     chart.setOption({ series: [{ markLine: {
       silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
       data: [
-        { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
-        { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+        { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "20", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+        { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "80", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
       ],
     } }] });
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
