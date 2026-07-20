@@ -558,8 +558,8 @@ main { padding: 16px 24px; }
 .card-value { font-size: 32px; font-weight: 600; margin: 4px 0; }
 .card-date { font-size: 12px; color: var(--text-4); }
 .tag { display: inline-block; padding: 2px 8px; border-radius: var(--radius-pill); font-size: 12px; color: #fff; }
-.tag.freeze { background: #e6492e; }
-.tag.overheat { background: #2e8b57; }
+.tag.freeze { background: #42a5f5; }
+.tag.overheat { background: #e6492e; }
 .tag.fangliang { background: #e6492e; }
 .tag.suoliang { background: #2e8b57; }
 
@@ -645,8 +645,8 @@ main { padding: 16px 24px; }
 .card.kpi.kpi-disabled .cv-val { color: var(--text-3); font-size: 18px; }
 .card.kpi.kpi-disabled .card-sub { color: #e6a23c; }
 .card.kpi.kpi-disabled[draggable="true"] { cursor: not-allowed; }
-/* P0-2 多指数共振冰点横幅（≥3 宽基情绪分同时冰点时转红聚合提示） */
-.freeze-resonance-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; margin: 0 0 8px 0; border-radius: var(--radius-card, 10px); background: linear-gradient(90deg, #c62828, #e6492e); color: #fff; font-size: 14px; box-shadow: 0 2px 8px rgba(198, 40, 40, 0.3); }
+/* P0-2 多指数共振冰点横幅（≥3 宽基情绪分同时冰点时转蓝聚合提示；冰点=冷色蓝，与热力图/恐贪一致） */
+.freeze-resonance-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; margin: 0 0 8px 0; border-radius: var(--radius-card, 10px); background: linear-gradient(90deg, #1565c0, #42a5f5); color: #fff; font-size: 14px; box-shadow: 0 2px 8px rgba(21, 101, 192, 0.3); }
 .freeze-resonance-banner .fr-icon { font-size: 18px; flex-shrink: 0; }
 .freeze-resonance-banner .fr-text b { font-size: 15px; }
 .freeze-resonance-banner .fr-detail { font-size: 12px; opacity: 0.92; width: 100%; }
@@ -770,18 +770,18 @@ main { padding: 16px 24px; }
 .hist-pos-bar-wrap { flex: 1; min-width: 240px; }
 .hist-pos-track { position: relative; height: 12px; background: var(--bg-hover); border-radius: 6px; overflow: hidden; }
 .hist-zone { position: absolute; top: 0; bottom: 0; }
-.hist-zone-freeze { left: 0; background: rgba(230,73,46,0.16); }
-.hist-zone-heat { background: rgba(46,139,87,0.16); }
+.hist-zone-freeze { left: 0; background: rgba(66,165,245,0.16); }
+.hist-zone-heat { background: rgba(230,73,46,0.16); }
 .hist-pos-fill { position: absolute; top: 0; bottom: 0; left: 0; background: linear-gradient(90deg, rgba(91,143,249,0.35), rgba(91,143,249,0.6)); border-radius: 6px 0 0 6px; }
 .hist-pos-pointer { position: absolute; top: -3px; transform: translateX(-50%); font-size: 12px; line-height: 1; color: var(--text-1); text-shadow: 0 0 2px var(--bg-card); z-index: 2; }
 .hist-pos-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-top: 4px; font-variant-numeric: tabular-nums; }
-.hist-tick-freeze { color: #e6492e; }
-.hist-tick-heat { color: #2e8b57; }
+.hist-tick-freeze { color: #42a5f5; }
+.hist-tick-heat { color: #e6492e; }
 .hist-extremes .hist-ext-item, .hist-triggers .hist-trig { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: baseline; gap: 2px; font-variant-numeric: tabular-nums; }
 .hist-extremes .hist-ext-item b, .hist-triggers .hist-trig b { color: var(--text-1); font-weight: 600; }
 .hist-ext-date { color: var(--text-3); font-size: 11px; }
-.hist-trig-freeze b { color: #e6492e; }
-.hist-trig-heat b { color: #2e8b57; }
+.hist-trig-freeze b { color: #42a5f5; }
+.hist-trig-heat b { color: #e6492e; }
 @media (max-width: 768px) {
   .hist-row-label { flex-basis: 92px; font-size: 11px; }
   .hist-pos-bar-wrap { min-width: 180px; }
@@ -1367,11 +1367,11 @@ main { padding: 16px 24px; }
   font-size: 11px;
   font-weight: 600;
 }
-.tag-freeze { background: #ffebee; color: #c62828; }
-.tag-cool { background: #fff3e0; color: #e65100; }
+.tag-freeze { background: #e3f2fd; color: #1565c0; }
+.tag-cool { background: #e1f5fe; color: #0277bd; }
 .tag-neutral { background: #f5f5f5; color: #616161; }
-.tag-warm { background: #e8f5e9; color: #2e7d32; }
-.tag-hot { background: #c8e6c9; color: #1b5e20; }
+.tag-warm { background: #fff3e0; color: #e65100; }
+.tag-hot { background: #ffebee; color: #c62828; }
 
 .rule-example {
   background: var(--bg-hover);
@@ -1790,7 +1790,7 @@ main { padding: 16px 24px; }
   border-radius: 9px;
 }
 .sh-fg { background: var(--bg-hover); color: var(--text-2); }
-.sh-freeze { background: #ffebee; color: #c62828; font-weight: 600; }
+.sh-freeze { background: #e3f2fd; color: #1565c0; font-weight: 600; }
 .sh-text { font-size: 13px; color: var(--text-1); line-height: 1.7; margin-bottom: 6px; }
 .sh-stats {
   display: flex;
