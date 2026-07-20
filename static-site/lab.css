@@ -1414,6 +1414,27 @@
   padding: 24px 16px; text-align: center; font-size: 14px; color: var(--text-2);
   background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 8px;
 }
+/* C7 P4 fix: 切换标的轻量加载指示(不全屏清空,旧内容半透明保留+顶部细条 spinner) */
+.lab-custom-host { position: relative; }
+.lab-custom-host--loading { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease; }
+.lab-custom-host--loading::before {
+  content: ""; position: absolute; top: -2px; left: 0; right: 0; height: 2px; z-index: 5;
+  background: linear-gradient(90deg, transparent 0%, #d4380d 50%, transparent 100%);
+  background-size: 40% 100%; background-repeat: no-repeat;
+  animation: lab-custom-loader 1.1s linear infinite;
+}
+@keyframes lab-custom-loader {
+  0% { background-position: -40% 0; }
+  100% { background-position: 140% 0; }
+}
+[data-theme="dark"] .lab-custom-host--loading::before,
+[data-theme="redgold"] .lab-custom-host--loading::before {
+  background: linear-gradient(90deg, transparent 0%, #ff8a8a 50%, transparent 100%);
+  background-size: 40% 100%; background-repeat: no-repeat;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lab-custom-host--loading::before { animation: none; }
+}
 .lab-custom-error-title { font-weight: 700; color: #d4380d; font-size: 15px; margin-bottom: 8px; }
 [data-theme="dark"] .lab-custom-error-title,
 [data-theme="redgold"] .lab-custom-error-title { color: #ff9c9a; }

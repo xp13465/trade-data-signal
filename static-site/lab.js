@@ -5970,47 +5970,64 @@ function _labCustomScoreSummary(high, low) {
 }
 
 // F2: 主渲染函数
+// C7 P4 fix: 切换标的只局部更新 host(保留旧内容+顶部细条 spinner),fetch 完淡入替换,不重建整个 wrapper/不全屏 ⏳加载中
 async function renderCustomAnalyzeLab() {
   const curIid = state.labCustomIid || "hs300";
 
-  // 左右两栏：左侧=选择器+分数卡+维度表，右侧=历史类比+阈值表（移动端自动堆叠）
-  const wrapper = document.createElement("div");
-  wrapper.className = "lab-custom-wrap";
+  // 判断是首次加载还是切换标的:已有 wrapper 则复用,只更新 host
+  const existingWrap = content.querySelector(".lab-custom-wrap");
+  const isSwitch = !!existingWrap;
+  let wrapper, host;
 
-  // 顶部说明
-  const intro = document.createElement("div");
-  intro.className = "lab-purpose-note";
-  intro.innerHTML = "💡 <b>这板块有什么用</b>：对单个指数/行业做情绪告警分析--看高位风险分(过热?)和低位机会分(冰点?)，拆解 8+8 维度贡献，并找历史相似时段看后续涨跌。<b>怎么解读</b>：高位分>70=过热警惕，低位分>70=偏冷关注企稳；历史类比仅作统计参考，不代表未来必然走势。";
-  wrapper.appendChild(intro);
+  if (isSwitch) {
+    // 切换:复用 wrapper/intro/selector,只同步 select 选中值 + host 加轻量加载指示
+    wrapper = existingWrap;
+    host = wrapper.querySelector(".lab-custom-host");
+    const sel = wrapper.querySelector(".lab-custom-select");
+    if (sel && sel.value !== curIid) sel.value = curIid;
+    // 旧内容保留(半透明+禁用交互),顶部细条 spinner,不全屏清空
+    host.classList.add("lab-custom-host--loading");
+  } else {
+    // 首次:构建 wrapper + 顶部说明 + 选择器 + host(显示 ⏳加载中)
+    // 左右两栏：左侧=选择器+分数卡+维度表，右侧=历史类比+阈值表（移动端自动堆叠）
+    wrapper = document.createElement("div");
+    wrapper.className = "lab-custom-wrap";
 
-  // 标的选择器
-  const selector = document.createElement("div");
-  selector.className = "lab-custom-selector";
-  const opts = ['<optgroup label="宽基指数">' +
-    _LAB_CUSTOM_BROAD.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
-    "</optgroup>",
-    '<optgroup label="申万一级行业">' +
-    _LAB_CUSTOM_SW.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
-    "</optgroup>"].join("");
-  selector.innerHTML =
-    `<label class="lab-custom-selector-label">分析标的：</label>` +
-    `<select class="lab-custom-select">${opts}</select>` +
-    `<span class="lab-custom-hint">共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）</span>`;
-  selector.querySelector(".lab-custom-select").onchange = (e) => {
-    state.labCustomIid = e.target.value;
-    renderCustomAnalyzeLab();
-  };
-  wrapper.appendChild(selector);
+    // 顶部说明
+    const intro = document.createElement("div");
+    intro.className = "lab-purpose-note";
+    intro.innerHTML = "💡 <b>这板块有什么用</b>：对单个指数/行业做情绪告警分析--看高位风险分(过热?)和低位机会分(冰点?)，拆解 8+8 维度贡献，并找历史相似时段看后续涨跌。<b>怎么解读</b>：高位分>70=过热警惕，低位分>70=偏冷关注企稳；历史类比仅作统计参考，不代表未来必然走势。";
+    wrapper.appendChild(intro);
 
-  // 加载区
-  const host = document.createElement("div");
-  host.className = "lab-custom-host";
-  host.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
-  wrapper.appendChild(host);
+    // 标的选择器
+    const selector = document.createElement("div");
+    selector.className = "lab-custom-selector";
+    const opts = ['<optgroup label="宽基指数">' +
+      _LAB_CUSTOM_BROAD.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
+      "</optgroup>",
+      '<optgroup label="申万一级行业">' +
+      _LAB_CUSTOM_SW.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
+      "</optgroup>"].join("");
+    selector.innerHTML =
+      `<label class="lab-custom-selector-label">分析标的：</label>` +
+      `<select class="lab-custom-select">${opts}</select>` +
+      `<span class="lab-custom-hint">共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）</span>`;
+    selector.querySelector(".lab-custom-select").onchange = (e) => {
+      state.labCustomIid = e.target.value;
+      renderCustomAnalyzeLab();
+    };
+    wrapper.appendChild(selector);
 
-  // C7 P4 fix: 切换 iid 重新渲染时，先移除旧 wrapper 避免内容累加（onchange 直接调本函数不经过 renderSignalLab 的 content 清空）
-  content.querySelectorAll(".lab-custom-wrap").forEach((el) => el.remove());
-  content.appendChild(wrapper);
+    // 加载区(首次才显示全屏 ⏳加载中)
+    host = document.createElement("div");
+    host.className = "lab-custom-host";
+    host.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
+    wrapper.appendChild(host);
+
+    // 移除旧 wrapper(若有)避免内容累加
+    content.querySelectorAll(".lab-custom-wrap").forEach((el) => el.remove());
+    content.appendChild(wrapper);
+  }
 
   // fetch 静态 JSON
   const v = _labCustomCacheBust();
@@ -6019,12 +6036,14 @@ async function renderCustomAnalyzeLab() {
   try {
     const resp = await fetch(url, { cache: "no-store" });
     if (!resp.ok) {
+      host.classList.remove("lab-custom-host--loading");
       host.innerHTML = `<div class="lab-custom-error">⚠️ 加载失败（HTTP ${resp.status}）<br><span class="lab-custom-error-url">${url}</span><br><button type="button" class="lab-custom-retry">重试</button></div>`;
       host.querySelector(".lab-custom-retry").onclick = () => renderCustomAnalyzeLab();
       return;
     }
     data = await resp.json();
   } catch (e) {
+    host.classList.remove("lab-custom-host--loading");
     host.innerHTML = `<div class="lab-custom-error">⚠️ 加载失败：${e.message || e}<br><button type="button" class="lab-custom-retry">重试</button></div>`;
     host.querySelector(".lab-custom-retry").onclick = () => renderCustomAnalyzeLab();
     return;
@@ -6032,6 +6051,7 @@ async function renderCustomAnalyzeLab() {
 
   // error JSON 容错（如 sh=上证指数 数据不足）
   if (!data || data.error) {
+    host.classList.remove("lab-custom-host--loading");
     const errMsg = (data && data.error) ? data.error : "未知错误";
     host.innerHTML =
       `<div class="lab-custom-error">` +
@@ -6044,8 +6064,9 @@ async function renderCustomAnalyzeLab() {
     return;
   }
 
-  // 渲染各分区
+  // 渲染各分区(切换时新内容淡入过渡,避免硬替换闪烁)
   host.innerHTML = "";
+  host.classList.remove("lab-custom-host--loading");
   const alert = data.alert || {};
   const reason = data.reason || {};
 
@@ -6059,6 +6080,14 @@ async function renderCustomAnalyzeLab() {
   host.insertAdjacentHTML("beforeend", _labCustomThresholdsHTML(reason.data_thresholds));
   // F7: 合规底栏
   host.insertAdjacentHTML("beforeend", _labCustomFooterHTML(reason.compliance_footer, reason.no_data_hint));
+
+  // C7 P4 fix: 切换/首次加载完成后,新内容淡入(从轻微下移+透明 到 正常)
+  if (host.animate) {
+    host.animate(
+      [{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "translateY(0)" }],
+      { duration: 220, easing: "ease" }
+    );
+  }
 
   // 折叠阈值表交互
   const toggle = host.querySelector(".lab-custom-thresh-toggle");
