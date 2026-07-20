@@ -2436,3 +2436,25 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 - 线上 ss.fx8.store：canonical/og:url=ss.fx8.store ✓ / feed.xml 61 处 ✓ / app.min.js?v=2c4e779e 分享图域名 ✓ / qr.js?v=1b721750 二维码 ✓ / og.png 200 ✓
 
 > 域名策略见 §45：ss.fx8.store 主站（CF Workers，br+CDN+GitHub push 自动部署）/ s.sugas.site 备用（MaoziYun+GitHub）/ sss.sugas.site 备用（GitHub Pages gzip）/ maozi.io 旧兜底弃用 / s.aisusu.cn 已撤 DNS。
+
+## §47 2026-07-15 晚：综合AI风险预警 alert_score 8+8维度 + 回测框架 + R2优化调研
+
+### 小节A：预警回测闭环（commit 8e5c8f7）
+- **产出**：app/alert_score.py（327行，8+8维度加权）+ scripts/backtest_alert.py（160行，回测框架）
+- **高位8维 HIGH_WEIGHTS**：H1情绪过热0.26 / H2量价背离0.08 / H3卖点密集0.13 / H4位置偏高0.20 / H5动量衰退0.08 / H6均线转弱0.08 / H7汪汪队离场0.10 / H8全球走弱0.07（和=1.0）
+- **低位8维 LOW_WEIGHTS**：L1情绪冰点0.20 / L2买点密集0.18 / L3位置偏低0.15 / L4汪汪队入场0.15 / L5量能异动0.10 / L6新低极端0.08 / L7波指飙升0.07 / L8价值显现0.07（和=1.0）
+- **阈值**：高位72（96分位）/低位85（95分位），分位数定非逐参数微调
+- **数据源**：sentiment.db（score_daily/daily_metric/signal_daily/index_daily）+ etf_national_team.db（etf_signal）；position_1y 因 daily_metric 仅8天近端，用 index_daily close 现算252日滚动分位
+- **回测2016至今2744交易日**：高位阈值72触发39次（N10下跌56.4%/N20 61.5%达标>55%，盈亏比2.03-2.36达标>1.2），低位阈值85触发35次（N10上涨65.7%/N20 68.6%达标>60%，盈亏比1.25-2.01达标）。仅高位N5（48.7%）略低于55%（短期噪音）
+- **防过拟合**：样本外验证（高位N10降7.7pct<10pct可接受/低位不降反升）/参数稳定性（阈值±5）/分位数定阈/权重整数化仅1次诊断性调整/全市场统一公式120日滚动百分位自适应
+- **诚实披露**：高位N5未达标/2026高位触发15次偏高（目标3-8）/小样本（2024-07至今）低位0触发（弱市未到极端冰点，客观环境非算法缺陷）
+- **后续**：上线集成 compute_alert_for_date(date) 单日接口就绪，按设计文档4.2写入 score_daily 的 high_alert/low_alert；2026触发偏高待观察是否微调阈值
+- **复现命令**：`.venv/bin/python scripts/backtest_alert.py --start 20160101`，支持 --high-threshold/--low-threshold/--end 调参
+
+### 小节B：R2优化+备份方案调研结论（只读调研，本次未实施）
+- **现状**：R2两桶 signal-data（public，绑 ssd.fx8.store，存 lab/ 94MB）/ signal-backup（私有，每日全量~87MB，7天滚动 upload_r2.py:208 _prune_r2_backup keep_days=7）；本地14天（backup_db.sh:21 RETAIN_DAYS=14）；wrangler.jsonc 无 r2_buckets binding（lab.js 直 fetch ssd.fx8.store 走R2 CDN）；R2总量~700MB（免费10GB内）；.git 1.1GB（松散925MB未gc）
+- **DB压缩实测**：82MB->gzip二进制24MB（29%）->zstd23MB->.dump+gzip13.8MB（17%最优）
+- **P0（高收益低成本）**：①DB备份压缩改传.db.gz（87->24MB省72%）②R2 lifecycle规则backup/删>7天（Dashboard 5分钟）③backup失败邮件告警（复用notify.py，当前失败仅日志无告警）
+- **P1（中收益低成本）**：④恢复演练脚本verify_backup.sh ⑤R2多版本保留（7日+4周+12月分层）⑥git gc（.git 1.1G->200M）
+- **P2按需**：trade_sim HTML 52MB迁R2（git gc后再评估，大概率不用）/data JSON迁R2（暂缓工作量大）
+- **skip**：增量备份（压缩后全量仅24MB收益锐减）/WAL改造（已在线热备最佳）/R2扩容（700MB远在10GB内）

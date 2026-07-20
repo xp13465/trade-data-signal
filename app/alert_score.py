@@ -147,10 +147,10 @@ def compute_high_dims() -> pd.DataFrame:
     cm = load_score("cross_market")
     pos = compute_position_mean()
 
-    # H1 情绪过热 (0.20): max(fear_greed, a_sentiment, cross_market) — 任一过热
+    # H1 情绪过热 (0.26): max(fear_greed, a_sentiment, cross_market) — 任一过热
     h1 = pd.concat([fg, a_s, cm], axis=1).max(axis=1, skipna=True)
 
-    # H2 量价背离 (0.18): 0.6*缩量上涨强度 + 0.4*position均值
+    # H2 量价背离 (0.08): 0.6*缩量上涨强度 + 0.4*position均值
     vr = load_metric("a_volume_ratio")
     vs = load_metric("a_volume_signal")
     sh = load_index_close("sh")
@@ -161,27 +161,27 @@ def compute_high_dims() -> pd.DataFrame:
     shrink_up = shrink_up.where(~(vs == 3), 100)  # 显式缩量上涨信号置满
     h2 = 0.6 * shrink_up + 0.4 * pos
 
-    # H3 卖点密集 (0.15): 近10日 sell 信号总数滚动百分位
+    # H3 卖点密集 (0.13): 近10日 sell 信号总数滚动百分位
     sell_cnt = _signal_count_daily(["sell"]).reindex(_trade_days(), fill_value=0)
     h3 = _rolling_sum_pct(sell_cnt, 10)
 
-    # H4 位置偏高 (0.15): 8 指数 position_1y 均值 (已是 0-100)
+    # H4 位置偏高 (0.20): 8 指数 position_1y 均值 (已是 0-100)
     h4 = pos
 
-    # H5 动量衰退 (0.10): 100 - nhnl_52w 滚动百分位 (新高新低差从峰值回落=衰退)
+    # H5 动量衰退 (0.08): 100 - nhnl_52w 滚动百分位 (新高新低差从峰值回落=衰退)
     nhnl = load_metric("a_nhnl_52w")
     h5 = 100 - _rolling_pct(nhnl)
 
-    # H6 均线转弱 (0.10): 0.5*(100-ma_bullish百分位) + 0.5*ma_bearish百分位
+    # H6 均线转弱 (0.08): 0.5*(100-ma_bullish百分位) + 0.5*ma_bearish百分位
     mab = load_metric("a_ma_bullish")
     mae = load_metric("a_ma_bearish")
     h6 = 0.5 * (100 - _rolling_pct(mab)) + 0.5 * _rolling_pct(mae)
 
-    # H7 汪汪队离场 (0.07): 近30日 share_outflow 次数滚动百分位
+    # H7 汪汪队离场 (0.10): 近30日 share_outflow 次数滚动百分位
     outflow = _signal_count_daily(["share_outflow"], nt=True).reindex(_trade_days(), fill_value=0)
     h7 = _rolling_sum_pct(outflow, 30)
 
-    # H8 全球走弱 (0.05): 0.6*(100-us_spx 20日涨跌百分位) + 0.4*(100-cn_us_spread百分位)
+    # H8 全球走弱 (0.07): 0.6*(100-us_spx 20日涨跌百分位) + 0.4*(100-cn_us_spread百分位)
     spx = load_index_close("us_spx")
     spx20 = (spx.pct_change(20) * 100) if not spx.empty else pd.Series(dtype=float)
     cus = load_metric("cn_us_spread")
