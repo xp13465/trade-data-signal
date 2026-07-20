@@ -3186,9 +3186,9 @@ async function renderOverview() {
   // 兜底: 原 kpiOrder 顺序
   const _KPI_CORE_SENTIMENT = ["a_sentiment", "cross_market", "fear_greed"];
   const _KPI_BASE_ORDER = {
-    a_width_up_count: 1, a_width_down_count: 2, a_width_zt_count: 3, a_width_dt_count: 4, a_width_zhaban_rate: 5,
+    a_width_up_count: 1, a_width_down_count: 2, a_width_zt_count: 3, a_width_dt_count: 4,
     a_amount: 6, a_volume_ratio: 7, a_sentiment: 8, cross_market: 9, fear_greed: 10, a_fund_margin: 11, a_fund_north: 12,
-    a_width_zhaban_rate: 13, a_width_seal_rate: 14, a_width_fengban_rate: 14, a_fund_main: 15, a_turnover_mean: 16, a_turnover_median: 17,
+    a_width_zhaban_rate: 13, a_width_fengban_rate: 14, a_fund_main: 15, a_turnover_mean: 16, a_turnover_median: 17,
     a_turnover_p90: 18, a_turnover_p10: 19, a_turnover_gt5_pct: 20,
   };
   const _kpiIsAbnormal = (k) => {
