@@ -42,8 +42,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 🚀 性能优化排队（2026-07-13 评估）
 > 评估共 P0×2 + P1×5 + P2×5 = 12 条。最大杠杆是 P0 两项（服务器压缩+缓存头），属部署层配置非纯代码。
 
-- **[性能-P0-1] 服务器开 gzip/br 压缩** ⏸️ 搁置（用户 2026-07-14 决定，2026-07-15 调研确认帽子云不可改）：线上 MaoziYun/3.17.0 零压缩，JS/CSS/JSON 全裸传。echarts 1MB、app.js 162KB、大盘"全部"tab 4MB、行业"全部"24MB。开 gzip 后首屏 296KB->83KB，弱网提速 3-5 倍。**单项最高收益**。需 MaoziYun 改 nginx `gzip on; gzip_types application/json text/javascript text/css;` 或接 Cloudflare 代理。**待用户确认服务器可改性**。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：实测 maozi.io 走帽子云(非用户CF账号)无法后台开压缩，3 条可行路(切Pages/提工单/子域接入自己CF)待定。
-- **[性能-P0-2] 修缓存头** ⏸️ 搁置（随 P0-1 一起）：`_headers` 是 Cloudflare Pages 专属，线上 MaoziYun 不解析，所有文件统一 `max-age=1200`（20分钟）。版本化资源（app.js?v=xxx）本该 1 年 immutable，index.html/data 本该 no-cache。回访用户每天重复下载 1.4MB JS+1MB echarts。需服务器配 Cache-Control 或接 Cloudflare。**与 P0-1 同属部署层，一起做**。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：帽子云不解析 _headers 已实测确认，缓存头修复随 P0-1 一起待定。
+- **[性能-P0-1] 服务器开 gzip/br 压缩** ✅ 通过 ss.fx8.store 主站(CF Workers 方案4)解决(2026-07-20,见 NOTES §45):CF Workers 自带 br+gzip,echarts 1MB/行业全部 24MB 全压缩传输。原搁置（用户 2026-07-14 决定，2026-07-15 调研确认帽子云不可改）：线上 MaoziYun/3.17.0 零压缩，JS/CSS/JSON 全裸传。echarts 1MB、app.js 162KB、大盘"全部"tab 4MB、行业"全部"24MB。开 gzip 后首屏 296KB->83KB，弱网提速 3-5 倍。**单项最高收益**。需 MaoziYun 改 nginx `gzip on; gzip_types application/json text/javascript text/css;` 或接 Cloudflare 代理。**待用户确认服务器可改性**。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：实测 maozi.io 走帽子云(非用户CF账号)无法后台开压缩，3 条可行路(切Pages/提工单/子域接入自己CF)待定。
+- **[性能-P0-2] 修缓存头** ✅ 通过 ss.fx8.store worker/headers.js 缓存分层解决(2026-07-20,见 NOTES §45):版本化1年immutable/HTML no-cache/实时60s/历史1h/兜底no-cache,global-extras-all 不再被 -all 匹配到 6h。原搁置（随 P0-1 一起）：`_headers` 是 Cloudflare Pages 专属，线上 MaoziYun 不解析，所有文件统一 `max-age=1200`（20分钟）。版本化资源（app.js?v=xxx）本该 1 年 immutable，index.html/data 本该 no-cache。回访用户每天重复下载 1.4MB JS+1MB echarts。需服务器配 Cache-Control 或接 Cloudflare。**与 P0-1 同属部署层，一起做**。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：帽子云不解析 _headers 已实测确认，缓存头修复随 P0-1 一起待定。
 - **[性能-P1-1] echarts.min.js 加 defer** ✅ 已完成：1MB 在 `<head>` 同步阻塞渲染（index.html:29），加 defer 首屏提前 200-800ms。或按需引入（echarts/core+charts，tree-shake 后 1MB->300KB）。
 - **[性能-P1-2] window.resize 加 debounce** ✅ 已完成：app.js:36 拖拽时高频触发全量图表 resize，加 150ms debounce，CPU 降 90%+。
 - **[性能-P1-3] 行业"全部"范围 31 文件 24MB** ✅ 瘦身折中已完成（d114508 24MB->14MB 省 42% + detail 按视口懒加载）：并发拉 31 个 industry-all-indices/*.json。短期靠 P0-1 gzip 降到 3.6MB；中期服务端预合并单文件或 HTTP/2 server-push。
@@ -723,7 +723,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **港股板块指数历史趋势** ✅ 已完成（2026-07-16 翻盘调研 + 后续全落地）：`stock_hk_index_daily_sina(symbol)` 支持全 38 指数历史 daily（CESG10 博彩业 2523 行 2016~至今），一次性回填无需累积。38 只是"港股相关指数大杂烩"非恒生 11 行业完整体系，真正板块属性 8 只，命名"港股板块指数"。**已落地**：复用 `index_daily` 表（无需新表）+ config 加 `market: hk_industry`（8 指数：hk_cesg10 中华博彩业/hk_hsmogi 内地油气/hk_hsmbi 内地银行/hk_hsmpi 内地地产/hk_cshklre 中证香港地产/hk_cshklc 中证香港消费/hk_hscci 中资企业/hk_cshkdiv 香港红利，行 111-122）+ index_id 加 `hk_` 前缀 + 前端 renderHK 末尾接入 `renderIndustryGrid`（app.js:4039-4048 标题"港股板块指数"）+ CSS 复用 `.industry-grid` + 备源策略（cesg10/hsmogi/hsmbi/hsmpi/hscci 5 个腾讯兜底，cshklre/cshklc/cshkdiv 3 个仅新浪，app.js:5987）+ pin 字段漏渲染已修（commit 7eb64b1，main.py `hk_industries` + export.py `export_hk` 补 signals/stats 字段）。数据已上线 hk-all.json。详见 NOTES §24。
 
 **B. 性能优化剩余（需用户决策）**
-- **P0-1/P0-2 部署层 gzip/缓存头**：⏸️ 搁置（用户 2026-07-14 决定）。MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。用户后续给服务器/Cloudflare 方向再启动。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：实测 maozi.io 走帽子云(非用户CF账号)无法后台开压缩，3 条可行路(切Pages/提工单/子域接入自己CF)待定。
+- **P0-1/P0-2 部署层 gzip/缓存头**：✅ 通过 ss.fx8.store 主站(CF Workers)解决(2026-07-20,见 NOTES §45)。原搁置（用户 2026-07-14 决定）。MaoziYun 服务器零压缩，echarts 1MB/行业全部 24MB 全裸传，弱网提速 3-5 倍（单项最高收益）。需确认服务器可改性或接 Cloudflare。详见 `## 🚀 性能优化排队` 段 L45-46。用户后续给服务器/Cloudflare 方向再启动。> **2026-07-15 调研结论见 NOTES §21，方案搁置待用户定**：实测 maozi.io 走帽子云(非用户CF账号)无法后台开压缩，3 条可行路(切Pages/提工单/子域接入自己CF)待定。
 - P2-2 trade_sim 45MB：⏸️ 强依赖 B1，随 B1 搁置（HTML 表格高度重复 gzip 压缩率80%，独立方案收益被 gzip 抹平）。
 - ✅ 已完成：P1-1 defer / P1-2 resize debounce / P1-4 minify / P2-1 并行fetch / P2-3 FastAPI缓存头(22da604) / P2-4 lab debounce / **B3 全球轻量JSON(c556ae3省70%)** / **B5 lab.js懒加载(4642735省88KB)** / **B2 行业瘦身折中(d114508 24MB->14MB省42%+detail按视口懒加载)**（详见 NOTES §18）。
 
@@ -759,7 +759,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### P1（2026-07-19 核查实际状态：5✅ + 1⏸️搁置 + 1部分完成）
 1. ✅ 北向资金 2024-08 停更图加水印（commit 39a1e7e）- `app.js:3078` 恢复显示末日值 + `stale-watermark` 半透明「数据停更」叠卡片中部（pointer-events 穿透），`app.js:2007` 北向 chip 标「⚠ 停更·末日」。
 2. ✅ industry-5y.json 14.8MB 按行业拆分（commit 613b769）- 删 industry-5y.json 遗留 14M，5y 改用 industry-5y-indices/ 拆分目录（对齐 industry-all 31 行业方案）。
-3. ⏸️ 缓存分层（历史长 1-6h · overview 短 60s · JS immutable 1 年）- 搁置。MaoziYun 静态站 `_headers` 不生效（§21），全 max-age=1200 不可分层；本地 FastAPI 中间件（commit 22da604）已实现版本化资源 immutable 但线上静态部署不走 FastAPI 不生效。待迁移 CF Workers 可落地。
+3. ✅ 缓存分层（历史 1h · 实时数据 60s · JS immutable 1 年）- 通过 ss.fx8.store worker/headers.js 解决(2026-07-20,见 NOTES §45)。原搁置:MaoziYun 静态站 `_headers` 不生效（§21），全 max-age=1200 不可分层；本地 FastAPI 中间件（commit 22da604）已实现版本化资源 immutable 但线上静态部署不走 FastAPI 不生效。现主站 CF Workers 接管 headers,5 档分层落地。
 4. 🔶 邮件 RSS 每日收盘情绪速递 - 部分完成。RSS ✅ commit c736e80（`gen_rss.py` 读 summary_history 生成 `static-site/data/feed.xml`，deploy.sh 每次部署刷新，footer RSS 入口）；邮件每日推送 ❌ 未做（`check_signals.py` 只发买卖点信号邮件 / `notify.py` 发监控告警，无读 summary 发「每日收盘情绪速递」邮件脚本，待复用 config/email.json 实现）。
 5. ✅ 汪汪队 termTip 首次解释（commit 39a1e7e）- `app.js:3511` 复用 showIntroOnce 弹「🐶 汪汪队是什么」解释卡，localStorage[nt_intro_done] 标记后不再弹。
 6. ✅ 凯利 f 值 C 端隐藏改「历史回测正期望强度」（commit 0911319）- `lab.js` 凯利 f 值改称「历史回测正期望强度」（如 18.3%->43.3%）。注：`app.js` 主项目买卖点信号回测 tips 另保留凯利公式折叠教学（`<details>` 默认折叠 + 研究参考定位），非本条范围。

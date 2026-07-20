@@ -2376,3 +2376,31 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 - **综合 AI 预警 alert-design.md**(490 行 9 章)已覆盖:高位 8 维+低位 8 维+原因生成+自定义分析+合规。
 - **补"策略实验室->预发布二级 tab->自定义分析三级 tab"完整交互**:历史查看+自定义询问+自定义预警逻辑。
 - **首页预警条保留作展示层**。
+
+## §45 2026-07-20 ss.fx8.store 主站上线（CF Workers 方案4）+ data 缓存缩短保时效
+
+> 域名策略最终落定:ss.fx8.store 主站(Cloudflare Workers,方案4)/ s.sugas.site 备用1(MaoziYun+GitHub)/ sss.sugas.site 备用2(GitHub Pages)。P0-1 压缩 + P0-2 缓存分层两项长期搁置的性能优化通过主站切 CF Workers 一并解决。
+
+### 1. 域名策略
+- **ss.fx8.store = 主站**(CF Workers 方案4):br 压缩 + 缓存分层(worker/headers.js 接管 response headers)+ GitHub push 自动部署(Cloudflare Builds 跑 wrangler deploy)+ lab 读 R2(ssd.fx8.store)。`run_worker_first=true` 时 `_headers` 不生效,所有 headers 在 `worker/headers.js` 统一设置
+- **s.sugas.site = 备用1**(MaoziYun + GitHub,max-age=1200):用户个人域名,MaoziYun/3.17.0 托管自动拉 git main 部署,有拉取延迟+max-age=1200 缓存
+- **sss.sugas.site = 备用2**(GitHub Pages):兜底
+- 切主站动机:MaoziYun 构建超 300MB 限制(§42)+ 零压缩(_headers 不解析,§21),CF Workers 无 300MB 限制且自带 br/gzip 压缩
+
+### 2. P0-1 压缩 ✅ 解决
+- CF Workers 自带 Brotli + gzip,echarts 1MB / app.js / 行业全部 24MB 全压缩传输,弱网提速 3-5 倍(单项最高收益)
+- 不再依赖 MaoziYun 改 nginx(§21 实测帽子云不可改,非用户 CF 账号)
+
+### 3. P0-2 缓存分层 ✅ 解决（worker/headers.js）
+- 有序规则(first-match-wins)5 档:
+  1. 版本化 JS/CSS(style.css/app.min.js/lab.min.js/lab.css/qr.js + /vendor/):1 年 immutable(改动靠 ?v= 换 URL 破缓存)
+  2. HTML 入口(/ + index.html + trade_sim_* + feed.xml):no-cache, must-revalidate
+  3. **实时数据 JSON:60 秒**(global-extras-all/summary/overview/intraday_snapshot/new_high_low/position/rotation/volume_ratio/ma_alignment/signal_freq/schedule_stats/summary_history/etf_national_team_holders/etf_national_team_quarterly/futures/ad_line/*-1m.json)
+  4. **纯历史 JSON:1 小时**(lab/ + index/ + industry-*-indices/ 拆分目录 + -3m/6m/1y/3y/5y/all.json)
+  5. 兜底:no-cache, must-revalidate
+- 关键修复:**global-extras-all.json 原被规则4 的 `-all` 正则匹配走 6h(21600)缓存,致 usdcnh 滞后(停在 7-17 无 7-20,而 s.sugas.site MaoziYun max-age=1200 已刷 7-20)**。现放规则3(60s)在规则4 之前,first-match-wins 保证分钟级刷新
+- 历史长周期(5y/all)从 6h 缩短到 1h,统一历史档,保证当日数据最迟 1h 内刷到 CDN
+
+### 4. 验证
+- `node --check` 通过;match 逻辑模拟:global-extras-all/summary/overview->60s,a-stock-all/global-3y/industry-all-indices/index-all/lab->3600,index/sh-1m->60s,app.min.js->immutable,/ + index.html + feed.xml + trade_sim->no-cache ✅
+- 部署后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 usdcnh 刷到 7-20(=679.48);CDN 若仍旧缓存等 60s 过期再 curl
