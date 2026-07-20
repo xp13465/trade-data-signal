@@ -44,6 +44,10 @@ static-site/*.map
 # R2 S3 凭证（敏感，不进 git）
 .env
 
+# lab/*.json 移出 git（线上前端读 R2 为唯一来源，可从 sentiment.db 重建；
+# 2026-07-15 移出降仓库体积 ~98M，update_lab.sh 改为生成后 upload_r2.py 刷 R2）
+static-site/data/lab/
+
 # launchd plists 本地加载不 commit（含机器绝对路径，每台不同）
 # 注：历史 plist 已 tracked，此规则防新增 plist 误入库
 scripts/plists/

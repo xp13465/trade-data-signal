@@ -6,7 +6,7 @@
 # 等待 update_all 完成（防撞车 + 防读旧数据缺当天）。
 #
 # 步骤：lab_simulate（单信号 128 组 × 9 指数）→ lab_simulate --fusion（91 × 9）
-#       → lab_retest（二次测试切片）→ git add lab 产物 → commit → push 上线
+#       → lab_retest（二次测试切片）→ upload_r2.py upload-lab 刷 R2 上线
 #
 # 失败不阻塞：每步 || 记错误继续（单步失败不影响后续步骤 + 上线已成功的部分）。
 # 非交易日跳过（无新日线，跑了也是旧数据，省时间）。
@@ -93,35 +93,18 @@ else
   echo "✓ retest 完成" | tee -a "$LOG"
 fi
 
-# 上线：git add lab 产物（只 lab 目录，§8 不碰根 data/）
-echo "-> git add static-site/data/lab/ ..." | tee -a "$LOG"
-git -C "$REPO" add static-site/data/lab/ 2>&1 | tee -a "$LOG"
-
-# 检查有无变更（cached diff 非空才 commit；无变更跳过 commit 但仍 push）
-if git -C "$REPO" diff --cached --quiet; then
-  echo "✓ lab 无新变更，跳过 commit（仍 push 推未 push commit）" | tee -a "$LOG"
+# 上线：lab 移出 git 后改用 upload_r2.py 刷 R2（R2 是前端 lab 唯一来源）
+echo "-> upload_r2.py upload-lab（刷 R2）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/upload_r2.py" upload-lab 2>&1 | tee -a "$LOG"
+R2_RC=${PIPESTATUS[0]:-1}
+if [ "$R2_RC" -ne 0 ]; then
+  echo "⚠ upload-lab 失败（退出码 $R2_RC），lab R2 可能过期" | tee -a "$LOG"
 else
-  COMMIT_MSG="data update [lab] $(date +%Y-%m-%d_%H:%M)"
-  echo "-> git commit: $COMMIT_MSG" | tee -a "$LOG"
-  git -C "$REPO" commit -m "$COMMIT_MSG" -m "Co-Authored-By: Claude <noreply@anthropic.com>" 2>&1 | tee -a "$LOG"
-  COMMIT_RC=${PIPESTATUS[0]}
-  if [ "$COMMIT_RC" -ne 0 ]; then
-    echo "⚠ git commit 失败（退出码 $COMMIT_RC），仍尝试 push" | tee -a "$LOG"
-  fi
-fi
-
-# push（§10 不 checkout，直接当前分支 HEAD 推到 main；与 deploy.sh 一致）
-echo "-> git push origin HEAD:main ..." | tee -a "$LOG"
-git -C "$REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
-PUSH_RC=${PIPESTATUS[0]:-1}
-if [ "$PUSH_RC" -ne 0 ]; then
-  echo "⚠ git push 失败（退出码 $PUSH_RC）" | tee -a "$LOG"
-else
-  echo "✓ push 完成" | tee -a "$LOG"
+  echo "✓ R2 上传完成" | tee -a "$LOG"
 fi
 
 END_TS=$(date +%s)
 ELAPSED=$((END_TS - START_TS))
 ELAPSED_MIN=$((ELAPSED / 60))
 echo "=== update_lab.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 耗时 ${ELAPSED}s（${ELAPSED_MIN}min）===" | tee -a "$LOG"
-echo "退出码汇总: sim=$RC1 fusion=$RC2 retest=$RC3 push=$PUSH_RC" | tee -a "$LOG"
+echo "退出码汇总: sim=$RC1 fusion=$RC2 retest=$RC3 r2=$R2_RC" | tee -a "$LOG"
