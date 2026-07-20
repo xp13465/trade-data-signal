@@ -169,7 +169,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **[性能-P2-2] trade_sim 83个 45MB** ⏸️ 搁置（强依赖 P0-1 gzip）：按需 iframe 加载设计合理，靠 P0-1 gzip 即可（1.5MB->200KB）。
 - **[性能-P2-3] FastAPI StaticFiles 无 etag/cache-control** ✅ 已完成（22da604）：web/ 动态站静态资源无缓存头。加 CacheControlMiddleware。优先级低（公网主入口是 static-site/）。
 - **[性能-P2-4] lab 过滤输入无 debounce** ✅ 已完成：lab.js:2013 每次按键重建 DOM，82 项规模影响小，可加 100ms debounce。
-- **[性能-P2-5] H5 无轻量版** ✅ 部分完成（4642735 B5 lab.js 懒加载省 88KB）：移动端加载完整 app.js+lab.js+echarts。靠 P0-1 gzip + P1-1 defer 后可接受；远期按 tab 懒加载 lab.js。
+- **[性能-P2-5] H5 无轻量版** ✅ 部分完成（4642735 B5 lab.js 懒加载省 88KB + 6f93095b 方案D echarts 延迟加载省 615KB）：移动端首屏仅 app.min.js 246KB（echarts/lab.js 均 renderTab 触发时懒加载，首屏阻塞 JS 省 76%）。远期 app.js/lab.js 拆 chunk 仍待办（见 L44/L83/L118）。详见 NOTES §48 小节K。
 - **设计已良好（不动）**：ECharts 实例 dispose 干净、lab_sim 按需懒加载、intraday_snapshot 单例 Promise 防重复、行业搜索纯客户端不 refetch。
 
 ### ✅ 已完成：国家队宽基 ETF 资金动向后端（2026-07-13）

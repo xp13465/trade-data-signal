@@ -2640,3 +2640,24 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 
 - `d37c2c71`：ETF 方案 A 验证通过的数据更新 commit（2026-07-21 00:21 update_all，含 etf_daily MAX 推进到 20260720 + 角标数据），已 push origin/main。这是验收 5 项结论里"commit hash = d37c2c71"所指。
 - 本次落档 commit（NOTES §48 J + TASKS ETF 待办标闭环 + ohlc 隐患待办）：见 feat 分支最新 HEAD。
+
+### 小节K：P2-5 方案D echarts 延迟加载闭环（2026-07-21，commit 6f93095b）
+
+**背景**：§47 调研的 P2-5 性能方案，方案A（lab.js 懒加载）已闭环（4642735），本次实施方案D（echarts 延迟加载），仿 lab.js 懒加载机制。
+
+**改动（3 文件，bump_asset_version.py 未改）**：
+- `static-site/index.html`：删 L30 `<script defer src="./vendor/echarts.min.js?v=...">`（首屏阻塞），加 L163-164 `<meta name="echarts-asset-url" content="./vendor/echarts.min.js?v=12173341">`（仿 L162 lab-asset-url 机制，版本号由 bump 同步）。
+- `static-site/app.js`：
+  - L63-80 新增 `loadEcharts()` 单例 Promise（完全仿 `loadLabScript`：读 meta echarts-asset-url + 动态 script 注入 head + onload resolve + onerror reject 清空单例重试）。
+  - L1725 `renderTab()` 开头加 `await loadEcharts()`（renderTab 已 async，所有 tab 图表 + lab.js 依赖 echarts 覆盖）。
+  - L198 `rethemeCharts()` 开头加 `if (typeof echarts === "undefined") return;` 守卫（切皮肤时 echarts 未加载跳过防 ReferenceError）。
+- `scripts/bump_asset_version.py`：**未改**。现有 regex `re.escape(ref) + r"(\?v=[a-f0-9]+)?"` + `subn` 全局替换已天然匹配 meta content 中的 `./vendor/echarts.min.js?v=...`（subn 替换所有出现，不区分 script tag 还是 meta content）。验证：bump 后 echarts-asset-url meta `?v=12173341` = 实际 md5 前 8 位。
+
+**性能预期**：首屏阻塞 JS：echarts.min.js 615KB + app.min.js 246KB -> 仅 app.min.js 246KB（**省 76%**，br 压缩后 270KB -> 70KB）。echarts 改为 renderTab 触发时才下载（用户切 tab 才加载，不访问图表的用户永远不下载）。FCP 预期 ~1s -> ~300ms。
+
+**commit + 线上**：
+- `8da3b465`：deploy.sh 自动 commit（app.min.js + static-site/data/，data update [all] 2026-07-21_00:27），已推 main。
+- `6f93095b`：源码 commit（app.js + index.html），已推 feat + sync main（`8da3b465..6f93095b`）。
+- 线上版本号：`app.min.js?v=39377271`（旧 b2a277c7 已替换）。
+- 线上验收（s.sugas.site，CDN 缓存过期后 00:41+ 全 PASS）：① `curl / | grep echarts` 只见 `echarts-asset-url` meta，echarts script defer tag 已删除 ② `app.min.js?v=39377271` 新版号 ③ `curl app.min.js | grep -c loadEcharts` = 1 ④ echarts-asset-url meta `?v=12173341` = 实际 vendor/echarts.min.js md5 前 8 位。
+- 注：首次 curl（00:28）线上旧版，MaoziYun 已拉新码（app.min.js 含 loadEcharts）但 index.html CDN max-age=1200 缓存未过期，等 10 分钟到 00:41 缓存过期后验证全通过。
