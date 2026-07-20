@@ -41,6 +41,9 @@ def load_env():
 
 load_env()
 BUCKET = os.environ["R2_BUCKET"]
+# backup 用独立私有桶(不绑公开域名,解决 signal-data 公开可读隐患)。
+# .env 可配 R2_BACKUP_BUCKET 覆盖,默认 signal-backup(不 commit .env)。
+BACKUP_BUCKET = os.environ.get("R2_BACKUP_BUCKET", "signal-backup")
 ENDPOINT = os.environ["R2_S3_ENDPOINT"]
 AK = os.environ["R2_S3_ACCESS_KEY_ID"]
 SK = os.environ["R2_S3_SECRET_ACCESS_KEY"]
@@ -71,14 +74,15 @@ def signing_key(date_stamp):
     return k
 
 
-def s3_request(method, key, payload=b"", query=""):
-    """path-style: /BUCKET/key, host = endpoint host。"""
+def s3_request(method, key, payload=b"", query="", bucket=None):
+    """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。"""
+    bkt = bucket or BUCKET
     now = datetime.datetime.utcnow()
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     date_stamp = now.strftime("%Y%m%d")
     payload_hash = hashlib.sha256(payload).hexdigest()
 
-    path = f"/{BUCKET}"
+    path = f"/{bkt}"
     if key:
         path += "/" + quote(key, safe="/")
 
@@ -120,10 +124,46 @@ def s3_request(method, key, payload=b"", query=""):
     return resp.status, data
 
 
-def cmd_list():
-    status, data = s3_request("GET", "", query="list-type=2&max-keys=100")
-    print(f"list status={status}")
+def cmd_list(prefix="", bucket=None):
+    q = "list-type=2&max-keys=100"
+    if prefix:
+        q += f"&prefix={quote(prefix, safe='')}"
+    status, data = s3_request("GET", "", query=q, bucket=bucket)
+    bkt = bucket or BUCKET
+    print(f"list {bkt} prefix={prefix or '(root)'} status={status}")
     print(data.decode("utf-8", errors="replace")[:3000])
+
+
+def cmd_delete(key, bucket=None):
+    """SigV4 DELETE 单 key。bucket=None 用默认 BUCKET(signal-data)。
+    用于迁移后清理 signal-data/backup/ 旧 key。"""
+    bkt = bucket or BUCKET
+    status, data = s3_request("DELETE", key, bucket=bkt)
+    if status == 204:
+        print(f"✓ 删除 {bkt}/{key}")
+    else:
+        print(f"✗ 删除 {bkt}/{key} status={status} {data.decode('utf-8', errors='replace')[:300]}")
+
+
+def cmd_clean_data_backup():
+    """清理 signal-data/backup/ 全部旧 key（迁移到 signal-backup 后一次性清理）。
+    列 signal-data(BUCKET)/backup/ 下所有 key 并 DELETE。"""
+    keys = _list_keys("backup/", bucket=BUCKET)
+    if not keys:
+        print(f"{BUCKET}/backup/ 无 key,无需清理")
+        return
+    print(f"待清理 {BUCKET}/backup/ 共 {len(keys)} 个 key:")
+    for k in keys:
+        print(f"  - {k}")
+    deleted = 0
+    for key in keys:
+        st, _ = s3_request("DELETE", key, bucket=BUCKET)
+        if st == 204:
+            deleted += 1
+            print(f"  删除 {BUCKET}/{key}")
+        else:
+            print(f"  ⚠ 删除失败 {BUCKET}/{key} status={st}")
+    print(f"{BUCKET}/backup/ 清理 {deleted}/{len(keys)}")
 
 
 def cmd_upload(local, key):
@@ -153,22 +193,24 @@ def cmd_upload_lab():
     print(f"共上传 {ok}/{len(files)} -> {PUBLIC}/lab/")
 
 
-def _list_keys(prefix):
+def _list_keys(prefix, bucket=None):
     """list bucket 下 prefix 的对象 key 列表（list-type=2）。"""
     import re
     q = f"list-type=2&prefix={quote(prefix, safe='')}"
-    status, data = s3_request("GET", "", query=q)
+    status, data = s3_request("GET", "", query=q, bucket=bucket)
     if status != 200:
-        print(f"⚠ list prefix={prefix} 失败 status={status} {data[:200]}")
+        print(f"⚠ list prefix={prefix} bucket={bucket or BUCKET} 失败 status={status} {data[:200]}")
         return []
     text = data.decode("utf-8", errors="replace")
     return re.findall(r"<Key>([^<]+)</Key>", text)
 
 
-def _prune_r2_backup(keep_days=7):
-    """删 R2 backup/ 下日期 >keep_days 的 key（从 key 名解析 YYYYMMDD）。"""
+def _prune_r2_backup(keep_days=7, bucket=None):
+    """删 backup/ 下日期 >keep_days 的 key（从 key 名解析 YYYYMMDD）。
+    默认清理 BACKUP_BUCKET(signal-backup);迁移后清理 signal-data 用 bucket=BUCKET。"""
     import re, datetime as _dt
-    keys = _list_keys("backup/")
+    bkt = bucket or BACKUP_BUCKET
+    keys = _list_keys("backup/", bucket=bkt)
     cutoff = _dt.datetime.now() - _dt.timedelta(days=keep_days)
     deleted = 0
     for key in keys:
@@ -180,20 +222,22 @@ def _prune_r2_backup(keep_days=7):
         except ValueError:
             continue
         if kd < cutoff:
-            st, _ = s3_request("DELETE", key)
+            st, _ = s3_request("DELETE", key, bucket=bkt)
             if st == 204:
                 deleted += 1
-                print(f"  删除旧 {key}")
+                print(f"  删除旧 {bkt}/{key}")
             else:
-                print(f"  ⚠ 删除失败 {key} status={st}")
+                print(f"  ⚠ 删除失败 {bkt}/{key} status={st}")
     if deleted:
-        print(f"R2 清理 {deleted} 个 >{keep_days}天 旧备份")
+        print(f"{bkt} 清理 {deleted} 个 >{keep_days}天 旧备份")
 
 
 def cmd_upload_db():
     """每日 DB 备份推 R2（异地防盘毁）+ 7天滚动清理。
     sentiment.db -> backup/sentiment_YYYYMMDD.db
     etf_national_team.db -> backup/etf_national_team_YYYYMMDD.db
+    上传到 BACKUP_BUCKET(signal-backup 私有桶,不绑公开域名);
+    _prune_r2_backup 默认也清 signal-backup。signal-data 只留 lab/(公开)。
     DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
     import datetime as _dt
     repo = Path(os.environ.get("REPO", str(ROOT)))
@@ -211,14 +255,14 @@ def cmd_upload_db():
             continue
         key = f"backup/{name}_{today}.db"
         payload = src.read_bytes()
-        status, data = s3_request("PUT", key, payload)
+        status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET)
         if status == 200:
             ok += 1
-            print(f"✓ {fname} ({len(payload) // 1024}KB) -> {PUBLIC}/{key}")
+            print(f"✓ {fname} ({len(payload) // 1024}KB) -> {BACKUP_BUCKET}/{key} (私有桶)")
         else:
             print(f"✗ {fname} status={status} {data.decode('utf-8', errors='replace')[:300]}")
     _prune_r2_backup(keep_days=7)
-    print(f"DB 上传 {ok}/{len(targets)} -> R2 backup/ ({today})")
+    print(f"DB 上传 {ok}/{len(targets)} -> {BACKUP_BUCKET}/backup/ ({today})")
     if ok != len(targets):
         sys.exit(1)
 
@@ -226,12 +270,23 @@ def cmd_upload_db():
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "list":
-        cmd_list()
+        prefix = sys.argv[2] if len(sys.argv) > 2 else ""
+        cmd_list(prefix)
     elif cmd == "upload":
         cmd_upload(sys.argv[2], sys.argv[3])
     elif cmd == "upload-lab":
         cmd_upload_lab()
     elif cmd == "upload-db":
         cmd_upload_db()
+    elif cmd == "delete":
+        # delete <key> [bucket]  bucket 默认 signal-data
+        key = sys.argv[2]
+        bucket = sys.argv[3] if len(sys.argv) > 3 else None
+        cmd_delete(key, bucket)
+    elif cmd == "clean-data-backup":
+        cmd_clean_data_backup()
     else:
-        sys.exit("用法: upload_r2.py [list|upload-lab|upload-db|upload <local> <key>]")
+        sys.exit(
+            "用法: upload_r2.py [list [prefix]|upload-lab|upload-db|"
+            "upload <local> <key>|delete <key> [bucket]|clean-data-backup]"
+        )
