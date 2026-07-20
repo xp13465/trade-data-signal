@@ -48,6 +48,15 @@ if [ "$GENS_RC" -ne 0 ]; then
   echo "⚠ gen_schedule_stats.py 失败（退出码 $GENS_RC），schedule_stats.json 可能过期，继续部署" | tee -a "$LOG"
 fi
 
+# 1.4b 生成 RSS feed.xml（读 summary_history.json，随 static-site/data/ 上线）
+# 每次部署刷新，供 RSS 阅读器订阅当日收盘情绪。失败不阻断部署。
+echo "-> 运行 gen_rss.py 生成 RSS feed.xml ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/gen_rss.py" 2>&1 | tee -a "$LOG"
+GENRSS_RC=${PIPESTATUS[0]}
+if [ "$GENRSS_RC" -ne 0 ]; then
+  echo "⚠ gen_rss.py 失败（退出码 $GENRSS_RC），feed.xml 可能过期，继续部署" | tee -a "$LOG"
+fi
+
 # 1.5 重新生成 minified JS（确保 app.min.js/lab.min.js 与源 app.js/lab.js 同步）
 # 安全网：dev 改了 app.js 源码但忘跑 build_min.py 时，此处补生成。
 # build_min.py 失败不阻断数据部署（已有 min 文件仍可用），仅告警。
