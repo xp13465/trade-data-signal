@@ -28,11 +28,13 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
    - 结论：重复跑 update_all 会跳过+通知，无需担心并发撞 `progress.json` 或限流空转。
 
 ### 🔄 进行中 / 待验证（承接晚续3）
-- **ETF 份额方案 A 零改动 6 天回填**（待 7-21 验证）：`pipeline_daily` 近 5 日幂等回填，7-21 20:07 槽自动补 7-20 数据。当日角标显真实 7-17（非源坏），7-21 后角标应显 7-20。验收：7-21 收盘后 curl `overview.json` 确认 `etf_date`>=20260720。
+- ~~**ETF 份额方案 A 零改动 6 天回填**~~：✅ **2026-07-21 验收通过**（commit `d37c2c71`，详见 NOTES §48 小节J）。etf_daily MAX=20260720 / 近 5 日 7-15/16/17/20 各 12 行 / 线上 `overview.json` etf_date="20260720" / 根 `data/` 未 add。
+- **ETF ohlc 隐患**（待 7-21 20:07 槽补齐后复查）：凌晨触发 pipeline 时 mootdx OHLC 未采到，7-20 close/amount 为 NULL（ohlc=0）。7-17 数据完整证明正常时点能采到。需 20:07 槽（`scripts/etf_national_team_backfill.sh`）或 17:50 `update_all.sh` 补 OHLC。待办：7-21 20:07 槽跑完后复查 7-20 close/amount 是否补齐。
 - **usdcnh 7-27 周一 curl 验证**（承接 H.3 遗留）：`currency_boc_sina` 主源稳定后，2026-07-27 收盘后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 `extras.usdcnh` 末值含当日，无需手动 backfill（防复发）。
 
 ### 🔴 近期
-- **ETF 方案 A 验证**（7-21 收盘后）：见上"待验证"。
+- ~~**ETF 方案 A 验证**~~：✅ 2026-07-21 验收通过（commit `d37c2c71`，详见 NOTES §48 小节J）。
+- **ETF ohlc 隐患复查**：7-21 20:07 槽跑完后复查 7-20 close/amount 是否补齐。
 - **usdcnh 7-27 周一 curl 验证**：防复发，确认 `currency_boc_sina` 主源稳定。
 
 ### 🟢 远期 / 搁置
@@ -45,7 +47,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **data JSON 迁 R2**：暂缓（工作量大，现 CF 缓存分层已够用）。
 
 ### 下轮起点
-- 7-21 收盘后验证 ETF 方案 A 6 天回填是否自动补 7-20 数据。
+- ~~7-21 收盘后验证 ETF 方案 A 6 天回填是否自动补 7-20 数据。~~ ✅ 2026-07-21 验收通过（commit `d37c2c71`，etf_daily MAX=20260720，详见 NOTES §48 小节J）。
+- ETF ohlc 隐患复查：7-21 20:07 槽跑完后复查 7-20 close/amount 是否补齐（凌晨 mootdx OHLC=0，需 20:07 槽或 update_all 补）。
 - usdcnh 7-27 周一 curl 验证防复发。
 - R2 P0/P1 已全闭环，P2 按需（trade_sim 不迁 / data JSON 暂缓）。
 - C6 预警条已上线，下步观察线上预警准确性，P4 交互式分析远期。

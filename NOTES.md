@@ -2603,3 +2603,40 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 
 - **usdcnh 7-27 周一 curl 验证**（承接小节H.3 遗留）：防复发，确认 `currency_boc_sina` 主源稳定（2026-07-27 周一留意）。
 - **ETF 方案 A 零改动 6 天回填**（承接小节H.2，待 7-21 验证）：7-21 20:07 槽自动补 7-20，当日角标显真实 7-17（已改 #5a etf_date 取 etf_daily MAX）。验收：7-21 收盘后 curl `overview.json` 确认 `etf_date`>=20260720。
+
+### 小节J：ETF方案A验证闭环（2026-07-21，commit d37c2c71）
+
+> 承接小节H.2 / I.3 待办：ETF 份额停 7-17 调度错配，方案 A 零改动 6 天回填（pipeline_daily 近 5 日幂等回填，7-21 20:07 槽补 7-20）。本次 7-21 收盘后验收通过。
+
+#### J.1 验收 5 项结论（全通过）
+
+- **etf_daily MAX(date) = 20260720**：从 20260717（停 3 天 7-18/19 周末+7-20 槽错配）更新到 20260720，方案 A 回填生效。
+- **近 5 日回填行数对**：20260715 / 20260716 / 20260717 / 20260720 各 12 行（7-18 / 7-19 周末不采，7-20 由 7-21 20:07 槽补齐），12 只宽基 ETF 全到。
+- **线上 `overview.json` etf_date = "20260720"**：curl `https://s.sugas.site/data/overview.json` 确认（角标 #5a 已切 etf_daily MAX(date)，不再被 JSON `updated_at` 误导读假绿）。
+- **commit hash = d37c2c71**：已 push origin/main（feat 同步）。
+- **根 `data/` 未 add**：`signal_stats.json` / `sw_components.json` 保持本地 M 不推（§8 禁推规则），commit 只 add `NOTES.md` + `TASKS.md`。
+
+#### J.2 方案 A 核心目标验证通过
+
+- **零改动 6 天回填**：不动 pipeline_daily / 不动 20:07 槽调度，纯靠近 5 日幂等回填机制自动补齐 7-20 数据。
+- **份额补缺**：7-20 ETF 份额（SSE+SZSE）由 7-21 20:07 槽补采入库，etf_daily 当日 MAX 推进到 20260720。
+- **角标显真实日期**：`#5a etf_date 取 etf_daily MAX(date)`（5cf9316b + d78c9a82）落地后，角标不再显滞后假绿，etf_date 跟随真实采集推进。
+
+#### J.3 ohlc 隐患（待 20:07 槽补齐后复查）
+
+- **现象**：凌晨触发 pipeline 时 mootdx OHLC 未采到，7-20 的 close / amount 字段为 NULL（ohlc=0）。
+- **对比 7-17 数据完整**：7-17 的 close / amount 正常（非 NULL），证明 OHLC 在正常时点能采到，凌晨 NULL 是时点错配非源坏。
+- **补齐机制**：`scripts/etf_national_team_backfill.sh` 20:07 槽（launchd `com.trade.etf-national-team.plist`）或 17:50 `update_all.sh` 会补 OHLC。
+- **待办**：7-21 20:07 槽跑完后复查 7-20 close / amount 是否补齐（已落 TASKS.md ohlc 隐患待办）。
+
+#### J.4 采集统计
+
+- ohlc=0（凌晨未采到，见 J.3）
+- sse=35 / szse=25（份额主源正常）
+- signals=2550
+- 耗时 175.3s
+
+#### J.5 commit
+
+- `d37c2c71`：ETF 方案 A 验证通过的数据更新 commit（2026-07-21 00:21 update_all，含 etf_daily MAX 推进到 20260720 + 角标数据），已 push origin/main。这是验收 5 项结论里"commit hash = d37c2c71"所指。
+- 本次落档 commit（NOTES §48 J + TASKS ETF 待办标闭环 + ohlc 隐患待办）：见 feat 分支最新 HEAD。
