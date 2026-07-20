@@ -2194,3 +2194,77 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 6 条 P0 正在实施（p0-main agent 做 P0-1/2/3/4/5，p0-about agent 做 P0-6）。本节为评估落档，P0 实施细节（改动点 / 关键符号 / commit）待 agent 完成后回填对应章节。
 
 - 本节 NOTES §40
+
+## §41 2026-07-20 8指标首页KPI平铺上线
+
+### 背景
+首页 KPI 从 13 个扩到 21 个，新增 8 个宽度/换手指标平铺展示。
+
+### commit 链（已上线 origin/main）
+- 9abb062（feat:8指标 5 文件改动）
+- e3d9766（merge origin/main，干净无冲突）
+- 03b48e5（data update [all] 09:47，deploy.sh 重生成 243 个 JSON）
+- 8指标上线时 origin/main HEAD = 03b48e5
+
+### 8 个新 KPI id 及含义
+1. `a_width_zb_count` - 炸板数
+2. `a_width_seal_rate` - 封板率
+3. `a_fund_main` - 主力净流入
+4. `a_turnover_mean` - 换手率均值
+5. `a_turnover_median` - 换手率中位数
+6. `a_turnover_p90` - 换手率 90 分位
+7. `a_turnover_p10` - 换手率 10 分位
+8. `a_turnover_gt5_pct` - 换手>5% 占比
+
+### 前端改动（static-site/app.js）
+- `fmtMetric` 新增 8 个 case 格式化：zb_count 整数；seal_rate/gt5_pct 转%；fund_main 带正负号；turnover 4 分位 2 位%
+- `_KPI_BASE_ORDER` 权重 13-20
+- `KPI_HISTORY_SOURCE` 8 个 id 映射 astock 源
+- `_kpiTips` 8 条文案
+- app.min.js 经 build_min.py 压缩
+- index.html `?v=5f44dc7c` 破缓存
+
+### 后端改动
+- `app/export.py` `KPI_METRIC_IDS` +8 id
+- `app/main.py` `KPI_METRIC_IDS` +8 id（两处同步）
+
+### 验收结论
+- overview KPI 13->21
+- 21 个 KPI + 8 新 id 全在
+- `?v=md5` 与 index.html 一致
+- a-stock-all.json 含 8 字段（点击历史有数据）
+
+### 关联
+- 8 项指标此前为 `collect_health=error` 灰态（见 §40 P0-1），本次扩 KPI 后平铺上线；§42 记 MaoziYun 平台拉取故障致上线一度卡住。
+
+- 本节 NOTES §41
+
+## §42 2026-07-20 MaoziYun平台拉取故障教训
+
+### 症状
+- origin/main 已更新至 5c4312a（含灰卡修复 8ce7385），但 MaoziYun 平台 1hr20min+ 不拉取 git
+- 8指标 03b48e5 同样卡在 MaoziYun 未上线
+- 线上 curl 验证异常：
+  - `?v=d22c6e3b`（旧版，非当时的 df22776d/5f44dc7c）
+  - collect_health level=error items=8（8 灰卡仍在）
+  - industry-5y-indices 404
+
+### 诊断
+- 非正常 75s 拉取延迟 + max-age=1200 缓存可解释
+- 但 1hr20min+ 仍不更新 = 平台 git 拉取/webhook 故障，非缓存问题
+- git push 成功（origin 已有新 commit），问题在 MaoziYun 侧
+
+### 阻塞影响
+- 8ce7385 灰卡修复 + 8指标上线 都卡在 MaoziYun 未生效
+- GitHub Pages 等其他渠道不受影响（仅 MaoziYun 故障）
+
+### 解法
+- 用户登录 MaoziYun 手动重新部署 / 检查 webhook 配置
+- 操作后反馈，再 curl 验证（?v 是否更新为新 md5、collect_health 是否清零、industry-5y-indices 是否 200）
+
+### 教训
+- MaoziYun 拉取非自动可靠，长时不更新要主动怀疑平台故障而非缓存
+- 上线后 curl 验证以线上实际 ?v/数据为准，不能只信 git push 成功
+- 多部署渠道冗余（§8：MaoziYun/GitHub Pages）的价值再次印证
+
+- 本节 NOTES §42
