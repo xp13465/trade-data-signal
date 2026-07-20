@@ -84,9 +84,16 @@ def load_index_close(index_id: str) -> pd.Series:
 
 
 def _rolling_pct(s: pd.Series, window: int = _WINDOW, min_periods: int = _MIN_PERIODS) -> pd.Series:
-    """0-100 滚动百分位 (复用 normalize.rolling_percentile 逻辑: rolling.rank(pct=True)*100)。"""
+    """0-100 滚动百分位 (复用 normalize.rolling_percentile 逻辑: rolling.rank(pct=True)*100)。
+
+    入口 pd.to_numeric 兜底: 防御 object/字符串列(如 _compute_rsi 若上游 replace
+    误用 pd.NA 会导致 object dtype), 转 NaN 后 rolling 自动跳过, 避免抛
+    DataError: No numeric types to aggregate。
+    """
     if s.empty:
         return s
+    if s.dtype != float and s.dtype != int:
+        s = pd.to_numeric(s, errors="coerce")
     return s.rolling(window, min_periods=min_periods).rank(pct=True) * 100
 
 
@@ -114,9 +121,14 @@ def _signal_count_daily(sig_types: list[str], table: str = "signal_daily", nt: b
 
 
 def _rolling_sum_pct(s: pd.Series, sum_window: int, pct_window: int = _WINDOW) -> pd.Series:
-    """近 sum_window 日求和 -> 再做 pct_window 日滚动百分位。用于买卖点/汪汪队密集度。"""
+    """近 sum_window 日求和 -> 再做 pct_window 日滚动百分位。用于买卖点/汪汪队密集度。
+
+    入口 pd.to_numeric 兜底: 防御 object/字符串列(同 _rolling_pct)。
+    """
     if s.empty:
         return s
+    if s.dtype != float and s.dtype != int:
+        s = pd.to_numeric(s, errors="coerce")
     cum = s.rolling(sum_window, min_periods=1).sum()
     return _rolling_pct(cum, pct_window)
 
@@ -329,7 +341,12 @@ def _low_level(score) -> str:
 # 单标的交互式分析 (§9.3 适配表)
 # ---------------------------------------------------------------------------
 def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    """RSI(14) 经典算法 (Wilder 平滑)。"""
+    """RSI(14) 经典算法 (Wilder 平滑)。
+
+    注意: avg_loss 中的 0 必须用 np.nan 替换(而非 pd.NA), 否则 float64 会被
+    强转为 object dtype (pd.NA 非 float), 导致下游 rolling.rank 报
+    DataError: No numeric types to aggregate (sh 上证指数 8685 天数据曾触发)。
+    """
     if close.empty or len(close) < period + 1:
         return pd.Series(dtype=float)
     delta = close.diff()
@@ -337,7 +354,7 @@ def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
     loss = -delta.clip(upper=0)
     avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
     avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
-    rs = avg_gain / avg_loss.replace(0, pd.NA)
+    rs = avg_gain / avg_loss.replace(0, np.nan)  # 保持 float64, rolling 自动跳过 NaN
     return (100 - (100 / (1 + rs)))
 
 
