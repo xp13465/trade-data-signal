@@ -1,0 +1,214 @@
+{
+  "date": "20260720",
+  "generated_at": "2026-07-20 21:40:32",
+  "high": {
+    "score": 38.83,
+    "level": "中性",
+    "triggered": false,
+    "dims": [
+      {
+        "k": "H1",
+        "name": "情绪过热",
+        "score": 39.35,
+        "weight": 0.26,
+        "contribution": 10.23,
+        "hit": false
+      },
+      {
+        "k": "H4",
+        "name": "位置偏高",
+        "score": 43.8,
+        "weight": 0.2,
+        "contribution": 8.76,
+        "hit": false
+      },
+      {
+        "k": "H6",
+        "name": "均线转弱",
+        "score": 86.04,
+        "weight": 0.08,
+        "contribution": 6.88,
+        "hit": true
+      },
+      {
+        "k": "H5",
+        "name": "动量衰退",
+        "score": 65.83,
+        "weight": 0.08,
+        "contribution": 5.27,
+        "hit": true
+      },
+      {
+        "k": "H7",
+        "name": "汪汪队离场",
+        "score": 29.17,
+        "weight": 0.1,
+        "contribution": 2.92,
+        "hit": false
+      },
+      {
+        "k": "H2",
+        "name": "量价背离",
+        "score": 17.52,
+        "weight": 0.08,
+        "contribution": 1.4,
+        "hit": false
+      },
+      {
+        "k": "H3",
+        "name": "卖点密集",
+        "score": 5.0,
+        "weight": 0.13,
+        "contribution": 0.65,
+        "hit": false
+      }
+    ],
+    "reason": "高位风险指标处于中性区间"
+  },
+  "low": {
+    "score": 71.34,
+    "level": "关注",
+    "triggered": false,
+    "dims": [
+      {
+        "k": "L4",
+        "name": "汪汪队入场",
+        "score": 99.58,
+        "weight": 0.15,
+        "contribution": 14.94,
+        "hit": true
+      },
+      {
+        "k": "L1",
+        "name": "情绪冰点",
+        "score": 72.7,
+        "weight": 0.2,
+        "contribution": 14.54,
+        "hit": true
+      },
+      {
+        "k": "L2",
+        "name": "买点密集",
+        "score": 76.25,
+        "weight": 0.18,
+        "contribution": 13.72,
+        "hit": true
+      },
+      {
+        "k": "L3",
+        "name": "位置偏低",
+        "score": 56.2,
+        "weight": 0.15,
+        "contribution": 8.43,
+        "hit": false
+      },
+      {
+        "k": "L7",
+        "name": "波指飙升",
+        "score": 95.83,
+        "weight": 0.07,
+        "contribution": 6.71,
+        "hit": true
+      },
+      {
+        "k": "L8",
+        "name": "价值显现",
+        "score": 65.0,
+        "weight": 0.07,
+        "contribution": 4.55,
+        "hit": true
+      },
+      {
+        "k": "L5",
+        "name": "量能异动",
+        "score": 44.17,
+        "weight": 0.1,
+        "contribution": 4.42,
+        "hit": false
+      },
+      {
+        "k": "L6",
+        "name": "新低极端",
+        "score": 50.42,
+        "weight": 0.08,
+        "contribution": 4.03,
+        "hit": false
+      }
+    ],
+    "reason": "市场偏冷(汪汪队入场+情绪冰点),部分指标进入低位区,关注企稳信号"
+  },
+  "history": [
+    {
+      "date": "20260311",
+      "type": "high",
+      "score": 75.28,
+      "level": "警示"
+    },
+    {
+      "date": "20260306",
+      "type": "high",
+      "score": 76.33,
+      "level": "警示"
+    },
+    {
+      "date": "20260224",
+      "type": "high",
+      "score": 75.21,
+      "level": "警示"
+    },
+    {
+      "date": "20260209",
+      "type": "high",
+      "score": 82.69,
+      "level": "警示"
+    },
+    {
+      "date": "20260204",
+      "type": "high",
+      "score": 76.38,
+      "level": "警示"
+    },
+    {
+      "date": "20260203",
+      "type": "high",
+      "score": 80.21,
+      "level": "警示"
+    },
+    {
+      "date": "20250908",
+      "type": "high",
+      "score": 77.3,
+      "level": "警示"
+    },
+    {
+      "date": "20250905",
+      "type": "high",
+      "score": 75.56,
+      "level": "警示"
+    },
+    {
+      "date": "20250407",
+      "type": "low",
+      "score": 82.72,
+      "level": "机会"
+    },
+    {
+      "date": "20241105",
+      "type": "high",
+      "score": 77.37,
+      "level": "警示"
+    },
+    {
+      "date": "20241104",
+      "type": "high",
+      "score": 79.4,
+      "level": "警示"
+    },
+    {
+      "date": "20241014",
+      "type": "high",
+      "score": 76.33,
+      "level": "警示"
+    }
+  ]
+}
