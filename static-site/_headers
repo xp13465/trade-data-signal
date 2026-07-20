@@ -1,5 +1,10 @@
-# 安全头 + CSP（Report-Only 先观察不阻断，确认无误后再切 enforcing）
-# 适用所有响应；HSTS/nosniff/X-Frame-Options 等对非 HTML 响应浏览器自动忽略，无副作用
+# CF Pages _headers：安全头 + 缓存分层
+# 注意：CF Pages 对同一 header 取「最后定义的匹配规则」(last-wins)，
+# 故兜底规则(范围大)放前面，具体规则(范围小)放后面覆盖。
+# 安全头对非 HTML 响应浏览器自动忽略，无副作用。
+# MaoziYun 不解析本文件，仅对 CF Pages / ss.sugas.site 生效。
+
+# /* 安全头(保留全部现有安全头) + 默认 Cache-Control 兜底
 /*
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-Content-Type-Options: nosniff
@@ -7,33 +12,49 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), accelerometer=(), gyroscope=()
   Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' https://hm.baidu.com https://zz.bdstatic.com https://push.zhanzhang.baidu.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
+  Cache-Control: no-cache, must-revalidate
+
+# /data/* 兜底(未匹配具体规则的数据文件 -> 每次验证)
+/data/*
+  Cache-Control: no-cache, must-revalidate
 
 # HTML 入口与内联回测页：每次验证，确保拿到最新版本号 / 内容
 /index.html
-  Cache-Control: no-cache, must-revalidate
-
 /trade_sim_*
-  Cache-Control: no-cache, must-revalidate
-
-# 数据 JSON：每日更新，每次验证
-/data/*
   Cache-Control: no-cache, must-revalidate
 
 # 带版本号的静态资源：长缓存 immutable（改动后靠 ?v= 换 URL 破缓存）
 /style.css
-  Cache-Control: public, max-age=31536000, immutable
-
 /app.min.js
-  Cache-Control: public, max-age=31536000, immutable
-
 /lab.min.js
-  Cache-Control: public, max-age=31536000, immutable
-
 /lab.css
-  Cache-Control: public, max-age=31536000, immutable
-
 /qr.js
+/vendor/*
   Cache-Control: public, max-age=31536000, immutable
 
-/vendor/echarts.min.js
-  Cache-Control: public, max-age=31536000, immutable
+# 实时数据(每日更新 / 指数目录)：每次验证
+/data/*-1m.json
+/data/futures.json
+/data/ad_line.json
+/data/feed.xml
+/data/index/*
+  Cache-Control: no-cache, must-revalidate
+
+# 历史 K 线数据(3m/6m/1y/3y)：1 小时缓存
+/data/*-3m.json
+/data/*-6m.json
+/data/*-1y.json
+/data/*-3y.json
+  Cache-Control: public, max-age=3600
+
+# 全量 / 长周期数据(5y / all / all-* )：6 小时缓存
+/data/*-5y.json
+/data/*-all.json
+/data/*-all-*.json
+  Cache-Control: public, max-age=21600
+
+# 策略实验室 / 行业拆分目录数据：6 小时缓存
+/data/lab/*
+/data/industry-all-indices/*
+/data/industry-5y-indices/*
+  Cache-Control: public, max-age=21600
