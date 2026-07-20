@@ -5925,6 +5925,50 @@ function _labCustomLevelText(level) {
   return level || "中性";
 }
 
+// C7 P4: 等级 tooltip（悬浮显示分值区间含义）
+function _labCustomLevelTooltip(score, direction) {
+  if (score == null || isNaN(score)) return "无数据";
+  if (direction === "high") {
+    if (score >= 70) return "≥70 过热减仓";
+    if (score >= 50) return "50-70 偏热留意";
+    return "<50 暂无过热";
+  }
+  if (score >= 70) return "≥70 机会显现";
+  if (score >= 50) return "50-70 进入低位区";
+  return "<50 暂无低位信号";
+}
+
+// C7 P4: 默认大白话（human_text 为空时按等级生成）
+function _labCustomDefaultHuman(direction, score) {
+  if (score == null || isNaN(score)) return "数据不足，无法判断";
+  if (direction === "high") {
+    if (score >= 70) return "多处指标过热，注意减仓风险";
+    if (score >= 50) return "部分指标偏热，留意回调风险";
+    return "暂无明显过热信号";
+  }
+  if (score >= 70) return "多处指标低位，机会显现";
+  if (score >= 50) return "部分指标进入低位区，关注企稳信号";
+  return "暂无低位信号";
+}
+
+// C7 P4: 分数卡顶部总判断（基于 high+low 综合给一句话）
+function _labCustomScoreSummary(high, low) {
+  const hasH = high != null && !isNaN(high);
+  const hasL = low != null && !isNaN(low);
+  if (!hasH && !hasL) return { text: "➡️ 数据不足，暂无法判断", cls: "sum-neutral" };
+  const highHot = hasH && high >= 70;
+  const highWarm = hasH && high >= 50 && high < 70;
+  const lowOpp = hasL && low >= 70;
+  const lowWarm = hasL && low >= 50 && low < 70;
+  if (highHot && lowOpp) return { text: "⚠️ 高位过热+低位机会并存，分化严重，谨慎操作", cls: "sum-warn" };
+  if (highHot) return { text: "⚠️ 当前偏热，注意减仓风险", cls: "sum-danger" };
+  if (lowOpp) return { text: "💡 当前偏冷，关注企稳机会", cls: "sum-good" };
+  if (highWarm && lowWarm) return { text: "➡️ 当前分化，部分偏热部分偏冷，观望为主", cls: "sum-warn" };
+  if (highWarm) return { text: "➡️ 部分指标偏热，留意回调风险", cls: "sum-warn" };
+  if (lowWarm) return { text: "➡️ 部分指标进入低位区，关注企稳信号", cls: "sum-good" };
+  return { text: "➡️ 当前中性，观望为主", cls: "sum-neutral" };
+}
+
 // F2: 主渲染函数
 async function renderCustomAnalyzeLab() {
   const curIid = state.labCustomIid || "hs300";
@@ -6006,7 +6050,7 @@ async function renderCustomAnalyzeLab() {
   const reason = data.reason || {};
 
   // F3: 分数卡
-  host.insertAdjacentHTML("beforeend", _labCustomScoreCardHTML(data, alert));
+  host.insertAdjacentHTML("beforeend", _labCustomScoreCardHTML(data, alert, reason.human_text));
   // F4: 8+8 维度表
   host.insertAdjacentHTML("beforeend", _labCustomDimsTableHTML(reason.dim_hits, alert.dims, alert.adapt));
   // F5: 历史类比
@@ -6029,35 +6073,51 @@ async function renderCustomAnalyzeLab() {
 }
 
 // F3: 分数卡（high 高位风险分 + low 低位机会分 + adapt 适配信息）
-function _labCustomScoreCardHTML(data, alert) {
+// C7 P4: 加顶部总判断、副标题、等级 tooltip、大白话前置
+function _labCustomScoreCardHTML(data, alert, humanText) {
   const name = data.target_name || data.target_id || "";
   const date = alert.date || "";
   const dateStr = date && date.length === 8 ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : date;
   const high = alert.high, low = alert.low;
   const highLvlCls = _labCustomLevelClass(high, "high");
   const lowLvlCls = _labCustomLevelClass(low, "low");
+  const highLvlText = _labCustomLevelText(alert.high_level);
+  const lowLvlText = _labCustomLevelText(alert.low_level);
+  const highTooltip = _labCustomLevelTooltip(high, "high");
+  const lowTooltip = _labCustomLevelTooltip(low, "low");
   const adapt = alert.adapt || {};
   const missing = adapt.missing || [];
   const adaptTxt = `最小维度门槛 ${adapt.min_dims ?? "?"} · 可用 高位${adapt.available_high ?? "?"}/低位${adapt.available_low ?? "?"}` +
     (missing.length ? ` · 缺项 ${missing.length} 个（${missing.join(", ")}）` : " · 无缺项");
+
+  // C7 P4: 大白话前置（优先 human_text，空则按等级生成默认）
+  humanText = humanText || {};
+  const highHuman = humanText.high || _labCustomDefaultHuman("high", high);
+  const lowHuman = humanText.low || _labCustomDefaultHuman("low", low);
+
+  // C7 P4: 顶部总判断（基于 high+low 综合给一句话）
+  const summary = _labCustomScoreSummary(high, low);
 
   return `<div class="lab-custom-score-card">` +
     `<div class="lab-custom-score-head">` +
       `<div class="lab-custom-score-title">${name} <span class="lab-custom-score-date">📅 ${dateStr}</span></div>` +
       `<div class="lab-custom-adapt">${adaptTxt}</div>` +
     `</div>` +
+    `<div class="lab-custom-score-summary ${summary.cls}">${summary.text}</div>` +
     `<div class="lab-custom-score-grid">` +
       `<div class="lab-custom-score-cell ${highLvlCls}">` +
-        `<div class="lab-custom-cell-label">高位风险分</div>` +
-        `<div class="lab-custom-cell-score">${high != null ? high.toFixed(2) : "—"}</div>` +
-        `<div class="lab-custom-cell-level">${_labCustomLevelText(alert.high_level)}</div>` +
-        `<div class="lab-custom-cell-desc">分越高越接近过热</div>` +
+        `<div class="lab-custom-cell-label">高位风险分<span class="lab-custom-cell-sublabel">越高越热，≥70 过热注意减仓</span></div>` +
+        `<div class="lab-custom-cell-score">${high != null ? high.toFixed(2) : "-"}</div>` +
+        `<div class="lab-custom-cell-level" title="${highTooltip}">${highLvlText}</div>` +
+        `<div class="lab-custom-cell-desc">分越高越接近过热 · 悬浮看区间含义</div>` +
+        `<div class="lab-custom-cell-human">${highHuman}</div>` +
       `</div>` +
       `<div class="lab-custom-score-cell ${lowLvlCls}">` +
-        `<div class="lab-custom-cell-label">低位机会分</div>` +
-        `<div class="lab-custom-cell-score">${low != null ? low.toFixed(2) : "—"}</div>` +
-        `<div class="lab-custom-cell-level">${_labCustomLevelText(alert.low_level)}</div>` +
-        `<div class="lab-custom-cell-desc">分越高越偏冷有机会</div>` +
+        `<div class="lab-custom-cell-label">低位机会分<span class="lab-custom-cell-sublabel">越高机会越大，≥70 机会显现</span></div>` +
+        `<div class="lab-custom-cell-score">${low != null ? low.toFixed(2) : "-"}</div>` +
+        `<div class="lab-custom-cell-level" title="${lowTooltip}">${lowLvlText}</div>` +
+        `<div class="lab-custom-cell-desc">分越高越偏冷有机会 · 悬浮看区间含义</div>` +
+        `<div class="lab-custom-cell-human">${lowHuman}</div>` +
       `</div>` +
     `</div>` +
   `</div>`;
