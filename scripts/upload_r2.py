@@ -5,6 +5,8 @@
   python3 scripts/upload_r2.py list                       # 列 bucket 对象
   python3 scripts/upload_r2.py upload <本地> <r2key>      # 上传单文件
   python3 scripts/upload_r2.py upload-lab                 # 上传 lab/*.json
+  python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
+  python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
 import os, sys, hashlib, hmac, http.client, datetime, ssl
 from pathlib import Path
@@ -276,6 +278,47 @@ def cmd_upload_db():
         sys.exit(1)
 
 
+def cmd_download_latest_db(name, out_dir=None):
+    """从 BACKUP_BUCKET 下载 backup/<name>_YYYYMMDD.db[.gz] 最新一份，返回解压后 .db 路径。
+
+    用于 verify_backup.sh 恢复演练：列 backup/<name>_ 下所有 key，按 key 名日期降序
+    取最新，GET 下载；若 key 带 .gz 后缀则 gunzip 解压后返回 .db 路径。
+    兼容 .db（旧，2026-07-15 前）与 .db.gz（新，压缩上传后）两种格式（与
+    _prune_r2_backup 正则一致）。
+
+    进度信息 print 到 stderr，最终 .db 绝对路径 print 到 stdout（便于 bash 捕获）。
+    out_dir=None 用临时目录；指定则放指定目录（verify_backup.sh 传统一临时目录）。
+    """
+    import re, gzip, tempfile
+    keys = _list_keys(f"backup/{name}_", bucket=BACKUP_BUCKET)
+    dated = []
+    for k in keys:
+        m = re.search(r"(\d{8})\.db(?:\.gz)?$", k)
+        if m:
+            dated.append((m.group(1), k))
+    if not dated:
+        sys.exit(f"无 {name} 备份 key in {BACKUP_BUCKET}/backup/{name}_*")
+    dated.sort(reverse=True)  # 日期降序，取最新
+    date_str, latest_key = dated[0]
+    is_gz = latest_key.endswith(".gz")
+    print(f"最新 {name} 备份: {BACKUP_BUCKET}/{latest_key} (日期 {date_str})", file=sys.stderr)
+    status, data = s3_request("GET", latest_key, bucket=BACKUP_BUCKET)
+    if status != 200:
+        sys.exit(f"下载失败 {latest_key} status={status} {data.decode('utf-8', errors='replace')[:300]}")
+    out_dir = out_dir or tempfile.mkdtemp(prefix=f"verify-{name}-")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    db_path = out_dir / f"{name}_{date_str}.db"
+    if is_gz:
+        db_path.write_bytes(gzip.decompress(data))
+        print(f"✓ 下载 {len(data)}B(gz) -> gunzip -> {db_path} ({db_path.stat().st_size}B)", file=sys.stderr)
+    else:
+        db_path.write_bytes(data)
+        print(f"✓ 下载 {len(data)}B -> {db_path}", file=sys.stderr)
+    print(str(db_path))  # 路径到 stdout，供 bash 捕获
+    return str(db_path)
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "list":
@@ -287,6 +330,12 @@ if __name__ == "__main__":
         cmd_upload_lab()
     elif cmd == "upload-db":
         cmd_upload_db()
+    elif cmd == "download-db":
+        # download-db <name> [out_dir]  从 signal-backup 下载最新 backup/<name>_YYYYMMDD.db[.gz]
+        # 返回解压后 .db 路径(stdout)。用于 verify_backup.sh 恢复演练。
+        name = sys.argv[2]
+        out_dir = sys.argv[3] if len(sys.argv) > 3 else None
+        cmd_download_latest_db(name, out_dir)
     elif cmd == "delete":
         # delete <key> [bucket]  bucket 默认 signal-data
         key = sys.argv[2]

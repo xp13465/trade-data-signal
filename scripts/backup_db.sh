@@ -87,6 +87,19 @@ else
   echo "⚠ $REPO/scripts/upload_r2.py 不存在，跳过 R2 异地备份" | tee -a "$LOG"
 fi
 
+# R2 备份恢复演练（verify_backup.sh）：上传 R2 后立即校验可恢复性。
+# 只读零风险（下载到临时目录 + integrity_check + 行数对比，不动真实 data/*.db），
+# 失败软处理不改 RC（verify 内部自己 notify.py --severe 告警）。
+# VERIFY_BACKUP_SKIP=1 可跳过（调试/抢时间时）。2026-07-14 曾丢收盘快照，
+# verify 确保 R2 备份真能恢复，消除"备份不可用"隐患。
+if [ "${VERIFY_BACKUP_SKIP:-0}" != "1" ] && [ -f "$REPO/scripts/verify_backup.sh" ]; then
+  echo "-> R2 备份恢复演练(verify_backup.sh) ..." | tee -a "$LOG"
+  bash "$REPO/scripts/verify_backup.sh" >> "$LOG" 2>&1 \
+    || echo "⚠ verify_backup 失败(不影响本地备份,verify已发告警) rc=$?" | tee -a "$LOG"
+else
+  echo "跳过 verify_backup(VERIFY_BACKUP_SKIP=1 或脚本不存在)" | tee -a "$LOG"
+fi
+
 echo "=== backup_db.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$RC ===" | tee -a "$LOG"
 
 # 失败邮件告警(P0-3):本地 SQLite 热备失败(退出码非0)时 notify.py 发 severe 邮件
