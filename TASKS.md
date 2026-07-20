@@ -746,15 +746,15 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 ## 交接状态（2026-07-19，PM 评估 + P0/P1/P2 待办清单）
 
-> 2026-07-19 资深 PM 视角评估站点 s.sugas.site，8 维度报告（定位/信息架构/核心功能/内容可信度/UX/获客留存/商业化/技术性能）。详见 `NOTES.md §40`。用户定先做 P0，6 条 P0 正在实施（p0-main agent 做 P0-1/2/3/4/5，p0-about agent 做 P0-6），P1/P2 待办。本节为评估落档，非代码迭代。
+> 2026-07-19 资深 PM 视角评估站点 s.sugas.site，8 维度报告（定位/信息架构/核心功能/内容可信度/UX/获客留存/商业化/技术性能）。详见 `NOTES.md §40`。用户定先做 P0，6 条 P0 已全部 ✅ 完成（07-19 同批 commit 2a4dce5/e9b2cd6/e4f2be6/8ce7385，07-20 MaoziYun 瘦身构建成功后线上生效）。P1/P2 见下。本节为评估落档，非代码迭代。
 
-### P0（实施中，6 条；2026-07-19 核查实际状态）
+### P0（✅ 全 6 条已完成；2026-07-19 实施，2026-07-20 核查线上生效）
 1. ✅ **数据残缺静默隐藏**（commit 8ce7385）-> KPI 灰态显示「采集异常（数据源中断）」诚信披露。overview collect_health 全清（8->0），灰卡角标 min JS 上线。
-2. 🔄 **6 宽基共振冰点未首屏突出**（7-17 全 11-18 分）-> summary-banner 加聚合（≥3 宽基冰点转红 +「N/6 宽基进入冰点区，近 X 月首次」）。- P0 agent 实施中
-3. 🔄 **信号 reason 过长 markPoint 显示不全** -> 主标签（如「拐点·盈亏+2.3%」）+ 完整 reason 收 hover/弹窗。- P0 agent 实施中
-4. 🔄 **buy/sell/止盈/买点失败 标签指令语义** -> 中性「超卖拐点标注 / 趋势转弱标注 / 相对前拐点+2.3%」（对齐 §37 合规去荐股化）。- P0 agent 实施中
-5. 🔄 **期货持仓无主导航入口**（`renderFuturesSection` 存在 `app.js:5112` 但无独立 tab）-> 指数表现加期货二级 subtab。- P0 agent 实施中
-6. 🔄 **about.html「策略回测为核心」与首屏矛盾** -> 改「情绪复盘为核心 / 策略实验为进阶」。- 主体已 commit e4f2be6，P0-about agent 后续打磨中
+2. ✅ **6 宽基共振冰点未首屏突出**（7-17 全 11-18 分）-> summary-banner 加聚合（≥3 宽基冰点转红 +「N/6 宽基进入冰点区，近 X 月首次」）。（commit 2a4dce5 + e9b2cd6 口径优化：<1月改「近期持续冰点」不夸大稀缺性）
+3. ✅ **信号 reason 过长 markPoint 显示不全** -> 主标签（signalLabel 精简）+ 完整 reason 收 hover tooltip（indexChart/valueChartWithSignals/行业 mini 图三处 + 信号列表 title）。（commit 2a4dce5）
+4. ✅ **buy/sell/止盈/买点失败 标签指令语义** -> 中性「超卖拐点 / 下轨拐点 / 趋势转弱 / 盈亏+X% / 前买失效」（对齐 §37 合规去荐股化，仅改显示层不动触发逻辑）。（commit 2a4dce5）
+5. ✅ **期货持仓无主导航入口**（`renderFuturesSection` 原仅嵌情绪 tab）-> 指数表现加「期货」二级 subtab（与 A股/港股/全球并列），renderFuturesSection 支持 container 参数。（commit 2a4dce5）
+6. ✅ **about.html「策略回测为核心」与首屏矛盾** -> 改「情绪复盘为核心 / 策略实验为进阶」。（commit e4f2be6）
 
 ### P1（2026-07-19 核查实际状态：5✅ + 1⏸️搁置 + 1部分完成）
 1. ✅ 北向资金 2024-08 停更图加水印（commit 39a1e7e）- `app.js:3078` 恢复显示末日值 + `stale-watermark` 半透明「数据停更」叠卡片中部（pointer-events 穿透），`app.js:2007` 北向 chip 标「⚠ 停更·末日」。
@@ -765,12 +765,12 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 6. ✅ 凯利 f 值 C 端隐藏改「历史回测正期望强度」（commit 0911319）- `lab.js` 凯利 f 值改称「历史回测正期望强度」（如 18.3%->43.3%）。注：`app.js` 主项目买卖点信号回测 tips 另保留凯利公式折叠教学（`<details>` 默认折叠 + 研究参考定位），非本条范围。
 7. ✅ 指数表现 vs 情绪温度 tab 边界厘清（commit 2770086）- 两 tab 顶部加 purpose-note 互链引导（`app.js:1724` tab 互链引导复用顶部 tab 按钮 onclick 切换）。
 
-### P2（待办，5 条）
-1. 首次 onboarding 3 步（看情绪分 → 看冰点共振 → 看策略实验室）。
-2. SEO 关键词清理（删 tdsignal-ujpzw01zm 等无搜索量词，§37 遗留）。
-3. 策略实验室新手引导卡 + 91 融合候选 n<30 标灰（样本不足标灰提示）。
-4. purpose-note 改散户语言（对齐 §39 散户白话注释方向）。
-5. app.js · lab.js 按模块拆 chunk（按 tab 懒加载，远期配合 gzip）。
+### P2（4✅ + 1 远期待办，5 条）
+1. ✅ 首次 onboarding 3 步（看情绪分 -> 看冰点共振 -> 看策略实验室）。（commit 439e4fa）
+2. ✅ SEO 关键词清理（删 tdsignal-ujpzw01zm 等无搜索量词，§37 遗留）。（commit 439e4fa）
+3. ✅ 策略实验室新手引导卡 + 91 融合候选 n<30 标灰（样本不足标灰提示）。（commit 6e7b112）
+4. ✅ purpose-note 改散户语言（对齐 §39 散户白话注释方向）。（commit 439e4fa）
+5. ⏸️ app.js · lab.js 按模块拆 chunk（按 tab 懒加载，远期配合 gzip）- 远期待办。
 
 ### review gate
-P0 实施由 p0-main/p0-about agent 进行中，完成后逐字验收（grep 关键符号 / 线上 curl s.sugas.site）。本节为评估落档，非代码迭代。
+P0 全 6 条已闭环（07-19 实施 + 07-20 核查线上生效）：grep 验收 app.js 含 freeze-resonance×4 / renderFutures×7 / 超卖拐点+趋势转弱 / _fmtReason×4；app.min.js?v=5f44dc7c 线上 curl 含「超卖拐点 / 趋势转弱 / 进入冰点区」。本节为评估落档，非代码迭代。
