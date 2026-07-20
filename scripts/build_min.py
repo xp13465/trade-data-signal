@@ -19,8 +19,9 @@ import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# (源相对路径, 目标相对路径) -- 顺序：web 先于 static-site，app 先于 lab
+# (源相对路径, 目标相对路径) -- 顺序：common 先于 app/lab（common.js 是公共函数库，app.js/lab.js 依赖 window._labCustom*）
 PAIRS = [
+    ("static-site/common.js", "static-site/common.min.js"),
     ("static-site/app.js", "static-site/app.min.js"),
     ("static-site/lab.js", "static-site/lab.min.js"),
 ]

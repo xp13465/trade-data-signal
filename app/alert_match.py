@@ -34,8 +34,17 @@ SW_INDEX_IDS = [
     "sw_801750", "sw_801760", "sw_801770", "sw_801950", "sw_801960", "sw_801970",
     "sw_801980",
 ]
-# 预生成静态快照全集 (9 + 31 = 40)
-PREGEN_TARGETS = [(iid, "index") for iid in BROAD_INDEX_IDS + SW_INDEX_IDS]
+# C7 P4 market 融合: 3 红利 + 3 港股 + 9 全球 = 15 个补充标的(2026-07-20)
+DIV_INDEX_IDS = ["csi_div", "div_lowvol", "sz_div"]           # 红利(中证红利/红利低波/深证红利)
+HK_INDEX_IDS = ["hsi", "hstech", "hscei"]                     # 港股(恒生/恒生科技/恒生国企)
+GLOBAL_INDEX_IDS = [                                          # 全球(美股4+亚太2+欧洲3)
+    "us_dji", "us_ixic", "us_spx", "us_ndx",                  # 道琼斯/纳指/标普/纳指100
+    "nikkei225", "kospi",                                     # 日经/韩国综
+    "ftse100", "dax", "cac40",                                # 富时/DAX/CAC
+]
+# 预生成静态快照全集 (9 宽基 + 31 申万 + 3 红利 + 3 港股 + 9 全球 = 55)
+PREGEN_TARGETS = [(iid, "index") for iid in
+                  BROAD_INDEX_IDS + SW_INDEX_IDS + DIV_INDEX_IDS + HK_INDEX_IDS + GLOBAL_INDEX_IDS]
 
 
 def _load_index_name_map() -> dict[str, str]:

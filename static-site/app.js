@@ -966,6 +966,148 @@ function setupOneRowToggle(grid, items, moreTextFn, defaultExpanded = false) {
 // 只重渲染指数区（filter bar + 指数折线），不调 renderTab、不 refetch（signals 缓存在闭包内）。
 // sectionCharts 同步 push 全局 charts（供 window resize），dispose 时从 charts 移除，避免悬空引用。
 // fetcher(id, idx) 返回 { signals, stats }；动态版按 range 走 API，静态版读 all.json 前端过滤。
+// === C7 P4 market 融合:market tab 指数卡接入分数卡 + 深度拆解 modal ===
+// 55 个 iid 白名单(9宽基+3红利+3港股+9全球+31申万),与 static-site/data/alert_analyze_*.json 一一对应
+// 复用 common.js 的 _labCustom* 函数(window._labCustom*),lab-custom-* 样式已移到 style.css 全 tab 共享
+const _MARKET_ANALYZE_IIDS = new Set([
+  // 9 宽基
+  "sh","sz","sz50","hs300","csi500","csi1000","cyb","kc50","bj50",
+  // 3 红利
+  "csi_div","div_lowvol","sz_div",
+  // 3 港股
+  "hsi","hstech","hscei",
+  // 9 全球
+  "us_dji","us_ixic","us_spx","us_ndx","nikkei225","kospi","ftse100","dax","cac40",
+  // 31 申万一级行业
+  "sw_801010","sw_801030","sw_801040","sw_801050","sw_801080","sw_801880",
+  "sw_801110","sw_801120","sw_801130","sw_801140","sw_801150","sw_801160",
+  "sw_801170","sw_801180","sw_801200","sw_801210","sw_801780","sw_801790",
+  "sw_801230","sw_801710","sw_801720","sw_801730","sw_801890","sw_801740",
+  "sw_801750","sw_801760","sw_801770","sw_801950","sw_801960","sw_801970","sw_801980",
+]);
+
+// 紧凑版分数卡 HTML(图表下方用,深度内容进 modal 看)
+// 复用 common.js 的 _labCustomLevelClass/_labCustomLevelText/_labCustomLevelTooltip/_labCustomScoreSummary
+function _marketScoreCardHTML(data, alert, humanText) {
+  const high = alert.high, low = alert.low;
+  const highLvlCls = _labCustomLevelClass(high, "high");
+  const lowLvlCls = _labCustomLevelClass(low, "low");
+  const highLvlText = _labCustomLevelText(alert.high_level);
+  const lowLvlText = _labCustomLevelText(alert.low_level);
+  const highTooltip = _labCustomLevelTooltip(high, "high");
+  const lowTooltip = _labCustomLevelTooltip(low, "low");
+  const summary = _labCustomScoreSummary(high, low);
+  return `<div class="market-score-card" data-iid="${data.target_id || ""}">
+    <div class="market-score-summary ${summary.cls}">${summary.text}</div>
+    <div class="market-score-grid">
+      <div class="market-score-cell ${highLvlCls}">
+        <div class="market-cell-label">高位风险</div>
+        <div class="market-cell-score">${high != null ? high.toFixed(2) : "-"}</div>
+        <div class="market-cell-level" title="${highTooltip}">${highLvlText}</div>
+      </div>
+      <div class="market-score-cell ${lowLvlCls}">
+        <div class="market-cell-label">低位机会</div>
+        <div class="market-cell-score">${low != null ? low.toFixed(2) : "-"}</div>
+        <div class="market-cell-level" title="${lowTooltip}">${lowLvlText}</div>
+      </div>
+    </div>
+    <div class="market-score-cta">🔬 点击查看深度拆解</div>
+  </div>`;
+}
+
+// 异步 fetch alert_analyze + append 紧凑分数卡到 containerEl + 绑 onclick 弹 modal
+// try/catch 静默失败,不影响图表渲染
+async function _attachMarketScoreCard(iid, name, containerEl) {
+  if (!containerEl || !_MARKET_ANALYZE_IIDS.has(iid)) return;
+  try {
+    const v = _labCustomCacheBust();
+    const resp = await fetch(`./data/alert_analyze_${iid}.json?v=${v}`, { cache: "no-store" });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data || data.error) return;
+    const alert = data.alert || {};
+    const humanText = (data.reason || {}).human_text;
+    containerEl.insertAdjacentHTML("beforeend", _marketScoreCardHTML(data, alert, humanText));
+    const card = containerEl.querySelector(".market-score-card:last-child");
+    if (card) card.onclick = () => openIndexAnalyzeModal(iid, name);
+  } catch (e) { /* 静默失败 */ }
+}
+
+// 深度拆解 modal(复用 .rule-modal 骨架,5 分区用 common.js 的 _labCustom* 拼 HTML)
+function openIndexAnalyzeModal(iid, name) {
+  let modal = document.getElementById("indexAnalyzeModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "indexAnalyzeModal";
+    modal.className = "rule-modal hidden";
+    modal.innerHTML = `<div class="rule-modal-overlay"></div>
+      <div class="rule-modal-body signal-chart-modal-body">
+        <div class="rule-modal-header">
+          <h3 class="index-analyze-title">🔬 深度拆解</h3>
+          <button class="rule-modal-close" aria-label="关闭">&times;</button>
+        </div>
+        <div class="rule-modal-content index-analyze-content"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector(".rule-modal-overlay").onclick = closeIndexAnalyzeModal;
+    modal.querySelector(".rule-modal-close").onclick = closeIndexAnalyzeModal;
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !modal.classList.contains("hidden")) closeIndexAnalyzeModal();
+    });
+  }
+  modal.querySelector(".index-analyze-title").textContent = `🔬 深度拆解 - ${name}`;
+  const body = modal.querySelector(".index-analyze-content");
+  body.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+
+  (async () => {
+    try {
+      const v = _labCustomCacheBust();
+      const resp = await fetch(`./data/alert_analyze_${iid}.json?v=${v}`, { cache: "no-store" });
+      if (!resp.ok) {
+        body.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 加载失败（HTTP ${resp.status}）</div></div>`;
+        return;
+      }
+      const data = await resp.json();
+      if (!data || data.error) {
+        body.innerHTML = `<div class="lab-custom-error">` +
+          `<div class="lab-custom-error-title">⚠️ 数据不足，暂无法分析此标的</div>` +
+          `<div class="lab-custom-error-detail">${(data && data.error) || "未知"}</div>` +
+          `<div class="lab-custom-error-hint">该标的后端计算异常（如指数数据缺失/dtype 异常），待后端修复后自动恢复。</div>` +
+          `</div>`;
+        return;
+      }
+      const alert = data.alert || {};
+      const reason = data.reason || {};
+      body.innerHTML = "";
+      body.insertAdjacentHTML("beforeend", _labCustomScoreCardHTML(data, alert, reason.human_text));
+      body.insertAdjacentHTML("beforeend", _labCustomDimsTableHTML(reason.dim_hits, alert.dims, alert.adapt));
+      body.insertAdjacentHTML("beforeend", _labCustomHistoryHTML(reason.history_analogy, reason.human_text));
+      body.insertAdjacentHTML("beforeend", _labCustomThresholdsHTML(reason.data_thresholds));
+      body.insertAdjacentHTML("beforeend", _labCustomFooterHTML(reason.compliance_footer, reason.no_data_hint));
+      // 折叠阈值表交互(同 lab.js renderCustomAnalyzeLab)
+      const toggle = body.querySelector(".lab-custom-thresh-toggle");
+      if (toggle) {
+        toggle.onclick = () => {
+          const tBody = body.querySelector(".lab-custom-thresh-body");
+          const open = tBody && tBody.style.display !== "none";
+          if (tBody) tBody.style.display = open ? "none" : "block";
+          toggle.textContent = open ? "展开数据阈值表 ▾" : "收起数据阈值表 ▴";
+        };
+      }
+    } catch (e) {
+      body.innerHTML = `<div class="lab-custom-error">⚠️ 加载失败：${e.message || e}</div>`;
+    }
+  })();
+}
+
+function closeIndexAnalyzeModal() {
+  const modal = document.getElementById("indexAnalyzeModal");
+  if (modal) modal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
 function renderIndicesSection(container, indices, fetcher, foldOneRow) {
   const entries = Object.entries(indices || {});
   if (!entries.length) return Promise.resolve();
@@ -1013,6 +1155,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
         const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
         addCardTimeBadge(c.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot, "t0");
+        // C7 P4 market 融合:图表卡下 append 紧凑分数卡(白名单 iid 才显示)
+        _attachMarketScoreCard(id, idx.name, c.getDom().parentElement);
       }
     }
     // 选了单个指数：只渲染该指数，不折叠
@@ -5181,7 +5325,11 @@ async function renderGlobal(container = content) {
       const sigs = filterSignalsByRange(sig.signals, idx.data);
       if (idx.data && idx.data.length) {
         const chart = indexChart(idx.name, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
-        if (chart) addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, id && id.startsWith("us_") ? "t1" : "t0", id && id.startsWith("us_") ? "us_dji_date" : "");
+        if (chart) {
+          addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, id && id.startsWith("us_") ? "t1" : "t0", id && id.startsWith("us_") ? "us_dji_date" : "");
+          // C7 P4 market 融合:全球指数卡下 append 紧凑分数卡
+          _attachMarketScoreCard(id, idx.name, chart.getDom().parentElement);
+        }
       }
     });
   }
@@ -6232,6 +6380,8 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     // 行业角标：dataDate 用 idx.data 末条 date(=07-14 T+1源已到日期)，
     // 非 last_valid_close(=07-13)，避免盘中误判滞后(预期显 📅 T+1·07-14 绿色最新)
     addCardTimeBadge(cell, last.date, state.intradaySnapshot, "t1", "industry");
+    // C7 P4 market 融合:行业 spark 卡 append 紧凑分数卡(白名单 iid 才显示)
+    _attachMarketScoreCard(id, idx.name, cell);
     // 行业绿色(最新)档专属 tip（补充申万/baostock 源说明）；滞后/异常档保留通用 tip
     const _indBdg = cell.querySelector(".card-time-badge.intraday");
     if (_indBdg) _indBdg.setAttribute("data-tip", "行业指数T+1(申万/baostock收盘后次日补全),已更新到最新交易日");
