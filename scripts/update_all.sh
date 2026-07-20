@@ -178,6 +178,19 @@ else
   "$PY" "$REPO/scripts/notify.py" "[完成]update_all" "$NOTIFY_BODY" || true
 fi
 
+# D10 每日收盘情绪速递邮件（summary_history.json 已由 pipeline deploy 生成就绪）。
+# 失败不阻塞主流程：调 notify.py 告警，退出码仍以 RC_CORE 为准。
+# 非交易日已在上方 exit 0 不会走到这；脚本内部对无数据日期也优雅跳过。
+echo "-> daily_summary_email 收盘速递邮件 ..." | tee -a "$LOG"
+if "$PY" "$REPO/scripts/daily_summary_email.py" >> "$LOG" 2>&1; then
+  echo "  ✓ 收盘速递邮件已处理" | tee -a "$LOG"
+else
+  _DSE_RC=$?
+  echo "⚠ daily_summary_email 失败(不阻塞主流程) rc=$_DSE_RC" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[告警]收盘速递邮件失败" \
+    "daily_summary_email 退出码 $_DSE_RC<br>日志: $LOG" || true
+fi
+
 # 每日 DB 热备 + R2 异地备份（update_all 跑完后 DB 已是最新，此时备份最稳）。
 # 失败不影响 update_all 退出码（RC_CORE 保持看板状态）。
 bash "$REPO/scripts/backup_db.sh" || echo "⚠ backup_db 失败(不影响update_all) rc=$?"
