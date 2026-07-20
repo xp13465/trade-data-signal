@@ -270,7 +270,13 @@ def run(date=None, verbose=True, steps=None):
             prog = mootdx_daily.load_progress()
             todo = list(prog.keys())  # 已 backfill 的 code 子集
             if todo:
-                res = mootdx_daily.run_batch(todo, incremental=True, verbose=verbose)
+                # update_all 自动路径用更激进的熔断阈值(15 < 默认 50)：部分故障
+                # (批量全 empty)15 只×5s≈75s 即切 baostock fallback，比默认 250s
+                # 快 3 倍；整体故障(client init 失败)已在 run_batch 秒级切 fallback。
+                # 正常偶发 empty 不会连续 15 只，误触发风险低。CLI full/update 手动
+                # 跑仍用默认 50(容错优先，避免误切)。
+                res = mootdx_daily.run_batch(todo, incremental=True, verbose=verbose,
+                                             consecutive_fail_limit=15)
                 ok += res["ok"]
                 fail += res["fail"]
                 details.append(("mootdx_daily", "ok" if res["fail"] == 0 else "fail",

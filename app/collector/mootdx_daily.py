@@ -466,10 +466,36 @@ def run_batch(codes: list[str], *, incremental: bool = False,
     try:
         client = tdx_client()
     except Exception as e:
+        # mootdx 整体不可达(连 client 都建不起) -> 秒级切 baostock fallback 采
+        # 全部 code，避免逐只 5s 超时累计 7h（2026-07-17 事故根因：当时此分支
+        # 直接 return 全 fail 不 fallback，5203 只空转 7.28h）。baostock 是独立
+        # HTTP 源，不受 mootdx/通达信 TCP 7709 停服影响。
         if verbose:
             print(f"!! tdx_client init failed: {e}", flush=True)
-        return {"ok": 0, "fail": len(codes), "total_rows": 0,
-                "processed": 0, "details": [], "error": str(e)[:150]}
+            print(f"  ⚠ mootdx 完全不可达，全部 {len(codes)} 只改用 baostock fallback",
+                  flush=True)
+        fb_err = ""
+        try:
+            fb_rows, fb_ok, _fb_skip = _run_baostock_fallback(
+                codes, progress=progress, incremental=incremental,
+                today=today, verbose=verbose)
+        except Exception as fe:  # noqa: BLE001  baostock 也挂的极端情况
+            if verbose:
+                print(f"  ⚠ baostock fallback 也失败: "
+                      f"{type(fe).__name__}: {str(fe)[:120]}", flush=True)
+            fb_rows, fb_ok = 0, 0
+            fb_err = f"mootdx不可达+baostock fallback失败: {type(fe).__name__}: {str(fe)[:80]}"
+        save_progress(progress)
+        elapsed = time.time() - t_start
+        if verbose:
+            print(f"=== batch done (mootdx不可达+baostock fallback): "
+                  f"ok={fb_ok} fail={len(codes) - fb_ok} rows={fb_rows} "
+                  f"elapsed={elapsed:.0f}s ===", flush=True)
+        return {"ok": fb_ok, "fail": len(codes) - fb_ok, "total_rows": fb_rows,
+                "processed": len(codes), "details": [], "elapsed": elapsed,
+                "aborted": True, "fallback_used": True,
+                "fallback_rows": fb_rows, "fallback_ok": fb_ok,
+                "error": fb_err or str(e)[:150]}
 
     for i, code in enumerate(codes):
         try:
