@@ -2894,6 +2894,57 @@ function openNtDayModal(date) {
   document.body.style.overflow = "hidden";
 }
 
+// C6 综合风险预警条:读 data/alert.json,high_alert>=72(高位红)/low_alert>=85(低位蓝)时
+// 在首页 home-purpose-note 之前插入预警条(等级+原因+命中维度TopN),可折叠/关闭,移动端适配。
+async function renderAlertBar(host) {
+  let a;
+  try { a = await fetchJSON("./data/alert.json"); } catch { return; }
+  if (!a || !a.date) return;
+  const showHigh = a.high && a.high.triggered;
+  const showLow = a.low && a.low.triggered;
+  if (!showHigh && !showLow) return; // 市场中性时不打扰
+  const note = host.querySelector(".home-purpose-note");
+  const items = [];
+  if (showHigh) items.push({ type: "high", d: a.high });
+  if (showLow) items.push({ type: "low", d: a.low });
+  for (const it of items) {
+    const key = `alertbar_${a.date}_${it.type}`;
+    if (localStorage.getItem(key) === "1") continue; // 当日同等级已关闭
+    const bar = document.createElement("div");
+    bar.className = `alert-bar ${it.type}`;
+    const icon = it.type === "high" ? "🔴" : "🔵";
+    const dims = (it.d.dims || []).filter((x) => x.hit).slice(0, 4);
+    const dimsHTML = dims.length
+      ? `<div class="alert-bar-detail" style="display:none">
+           <div class="ab-dim-title">命中维度(强度≥60,≥75为强命中)</div>
+           ${dims.map((x) => `<div class="ab-dim"><span class="ab-dim-name">${x.name}</span>
+             <span class="ab-dim-bar"><i style="width:${Math.min(100, x.score)}%"></i></span>
+             <span class="ab-dim-val">${x.score.toFixed(0)}</span>
+             <span class="ab-dim-hit">${x.score >= 75 ? "强" : "✓"}</span></div>`).join("")}
+         </div>` : "";
+    bar.innerHTML = `<span class="ab-icon">${icon}</span>
+      <div class="ab-main"><span class="ab-level">${it.d.level}预警</span>
+        <span class="ab-score">分数 ${it.d.score != null ? it.d.score.toFixed(1) : "-"}</span>
+        <span class="ab-reason">${it.d.reason || ""}</span></div>
+      <div class="ab-actions">
+        ${dims.length ? `<button class="ab-btn ab-toggle" title="展开/收起命中维度">▾</button>` : ""}
+        <button class="ab-btn ab-close" title="关闭当日此预警">✕</button>
+      </div>${dimsHTML}`;
+    host.insertBefore(bar, note || host.firstChild);
+    const detail = bar.querySelector(".alert-bar-detail");
+    bar.querySelector(".ab-toggle")?.addEventListener("click", () => {
+      if (!detail) return;
+      const open = detail.style.display !== "none";
+      detail.style.display = open ? "none" : "flex";
+      bar.querySelector(".ab-toggle").textContent = open ? "▾" : "▴";
+    });
+    bar.querySelector(".ab-close")?.addEventListener("click", () => {
+      localStorage.setItem(key, "1");
+      bar.remove();
+    });
+  }
+}
+
 async function renderOverview() {
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
   const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
@@ -2906,6 +2957,8 @@ async function renderOverview() {
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
   content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>今天 A 股多冷多热?一眼看全</b>:情绪分(0-100,越低越恐慌)+涨跌家数+历史位置+拐点提示,综合判断当前偏冷还是偏热。</div>');
+  // C6 综合风险预警条:high_alert>=72(高位红)/low_alert>=85(低位蓝)时顶部提示(异步,不阻塞渲染)
+  renderAlertBar(content);
   // 数据时效栏已移入"数据更新规则"弹窗（ℹ️ 图标入口），首页不再展示健康横幅。
 
   // ---- 0. 一句话总结横幅 ----

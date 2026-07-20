@@ -651,6 +651,28 @@ main { padding: 16px 24px; }
 .freeze-resonance-banner .fr-text b { font-size: 15px; }
 .freeze-resonance-banner .fr-detail { font-size: 12px; opacity: 0.92; width: 100%; }
 
+/* C6 综合风险预警条（high_alert>=72 高位红 / low_alert>=85 低位蓝机会色；可折叠/关闭） */
+.alert-bar { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; padding: 10px 14px; margin: 0 0 8px 0; border-radius: var(--radius-card, 10px); color: #fff; font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.18); }
+.alert-bar.high { background: linear-gradient(90deg, #c62828, #ef5350); box-shadow: 0 2px 8px rgba(198,40,40,0.32); }
+.alert-bar.low { background: linear-gradient(90deg, #1565c0, #26a69a); box-shadow: 0 2px 8px rgba(21,101,192,0.30); }
+.alert-bar .ab-icon { font-size: 18px; flex-shrink: 0; line-height: 1.4; }
+.alert-bar .ab-main { flex: 1 1 240px; min-width: 0; }
+.alert-bar .ab-level { font-weight: 700; font-size: 15px; margin-right: 6px; }
+.alert-bar .ab-score { font-size: 12px; opacity: 0.9; margin-right: 8px; }
+.alert-bar .ab-reason { font-size: 13px; opacity: 0.96; word-break: break-word; }
+.alert-bar .ab-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.alert-bar .ab-btn { background: rgba(255,255,255,0.18); border: none; color: #fff; cursor: pointer; border-radius: 6px; padding: 2px 8px; font-size: 13px; line-height: 1.5; }
+.alert-bar .ab-btn:hover { background: rgba(255,255,255,0.32); }
+.alert-bar-detail { width: 100%; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.25); display: flex; flex-direction: column; gap: 4px; }
+.alert-bar-detail .ab-dim-title { font-size: 12px; opacity: 0.85; margin-bottom: 2px; }
+.alert-bar-detail .ab-dim { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.alert-bar-detail .ab-dim-name { width: 84px; flex-shrink: 0; opacity: 0.92; }
+.alert-bar-detail .ab-dim-bar { flex: 1; height: 8px; background: rgba(255,255,255,0.22); border-radius: 4px; overflow: hidden; }
+.alert-bar-detail .ab-dim-bar > i { display: block; height: 100%; background: rgba(255,255,255,0.85); }
+.alert-bar-detail .ab-dim-val { width: 40px; flex-shrink: 0; text-align: right; opacity: 0.92; }
+.alert-bar-detail .ab-dim-hit { font-size: 11px; opacity: 0.8; width: 18px; text-align: center; }
+@media (max-width: 640px) { .alert-bar { font-size: 13px; padding: 9px 12px; } .alert-bar .ab-level { font-size: 14px; } .alert-bar-detail .ab-dim-name { width: 72px; } }
+
 /* KPI 拖拽排序视觉反馈 + 重置按钮 */
 .card.kpi[draggable="true"] { cursor: grab; }
 .card.kpi.dragging { opacity: 0.4; outline: 2px dashed var(--primary); outline-offset: -2px; }

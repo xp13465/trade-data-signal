@@ -99,6 +99,12 @@ echo "-> intraday_snapshot 采集 ..." | tee -a "$LOG"
 "$PY" -m app.collector.intraday_snapshot >> "$LOG" 2>&1 || \
   echo "⚠ intraday_snapshot 采集失败（不阻塞主流程）" | tee -a "$LOG"
 
+# C6 预警条：算当日预警分入库 score_daily + 导出 static-site/data/alert.json
+# 读 DB 最新日算分（约5s），失败不阻塞；alert.json 本地更新，下次 pipeline deploy 推上线
+echo "-> 预警分计算（high_alert/low_alert）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_alert.py" >> "$LOG" 2>&1 || \
+  echo "⚠ export_alert 失败（不阻塞主流程）" | tee -a "$LOG"
+
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
 
