@@ -1622,7 +1622,8 @@ async function openKpiDetailModal(kpiId, period = "3m") {
 
   // 从 DOM 卡片读取标题+当前值+标签+sub（避免重新 fetch overview）
   const card = document.querySelector(`.card.kpi[data-kpi-id="${kpiId}"]`);
-  const cardTitle = card ? ((card.querySelector(".card-title") || {}).textContent || "").trim() : indexIdToName(kpiId);
+  const _titleEl = card ? card.querySelector(".card-title") : null;
+  const cardTitle = _titleEl ? (stripHtml(_titleEl.innerHTML) || indexIdToName(kpiId)) : indexIdToName(kpiId);
   const cardVal = card ? ((card.querySelector(".cv-val") || {}).textContent || "").trim() : "";
   const cardTags = card ? ((card.querySelector(".cv-tags") || {}).textContent || "").trim() : "";
   const cardSub = card ? ((card.querySelector(".card-sub") || {}).textContent || "").trim() : "";
