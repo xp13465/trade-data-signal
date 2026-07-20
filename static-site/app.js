@@ -3162,7 +3162,9 @@ async function renderOverview() {
       sub = sig || "";
     }
     const _kpiT1 = k.id === "a_fund_margin" || k.id === "a_fund_north";
-    const _badge = getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
+    const _badge = k.disabled
+      ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
+      : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
     const _kpiTips = {
       a_fund_north: "北向资金=借沪深股通买A股的外资。净流入=外资净买入。2024-08起停更,保留历史。",
       a_fund_margin: "沪市融资余额=借钱买A股的杠杆资金。增加=杠杆做多情绪升。T+1。",
