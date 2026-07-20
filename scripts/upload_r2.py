@@ -205,16 +205,21 @@ def _list_keys(prefix, bucket=None):
     return re.findall(r"<Key>([^<]+)</Key>", text)
 
 
-def _prune_r2_backup(keep_days=7, bucket=None):
+def _prune_r2_backup(keep_days=30, bucket=None):
     """删 backup/ 下日期 >keep_days 的 key（从 key 名解析 YYYYMMDD）。
-    默认清理 BACKUP_BUCKET(signal-backup);迁移后清理 signal-data 用 bucket=BUCKET。"""
+    默认清理 BACKUP_BUCKET(signal-backup);迁移后清理 signal-data 用 bucket=BUCKET。
+
+    keep_days=30：与 R2 桶 lifecycle 规则(backup/ prefix,30天过期)一致。
+    历史 key 为 backup/<name>_YYYYMMDD.db，2026-07-15 起改压缩上传
+    backup/<name>_YYYYMMDD.db.gz。正则同时匹配两者，避免旧 .db 残留堆积。"""
     import re, datetime as _dt
     bkt = bucket or BACKUP_BUCKET
     keys = _list_keys("backup/", bucket=bkt)
     cutoff = _dt.datetime.now() - _dt.timedelta(days=keep_days)
     deleted = 0
     for key in keys:
-        m = re.search(r"(\d{8})\.db$", key)
+        # 兼容 .db（旧）与 .db.gz（新,压缩上传后）
+        m = re.search(r"(\d{8})\.db(?:\.gz)?$", key)
         if not m:
             continue
         try:
@@ -233,13 +238,15 @@ def _prune_r2_backup(keep_days=7, bucket=None):
 
 
 def cmd_upload_db():
-    """每日 DB 备份推 R2（异地防盘毁）+ 7天滚动清理。
-    sentiment.db -> backup/sentiment_YYYYMMDD.db
-    etf_national_team.db -> backup/etf_national_team_YYYYMMDD.db
+    """每日 DB 备份推 R2（异地防盘毁）+ 30天滚动清理。
+    sentiment.db -> backup/sentiment_YYYYMMDD.db.gz
+    etf_national_team.db -> backup/etf_national_team_YYYYMMDD.db.gz
+    上传前 gzip 压缩（实测 sentiment.db 82MB->24MB,29%），R2 key 带 .gz 后缀。
+    本地 .db 备份不变（backup_db.sh 仍存 .db，方便直接恢复），仅 R2 侧压缩。
     上传到 BACKUP_BUCKET(signal-backup 私有桶,不绑公开域名);
-    _prune_r2_backup 默认也清 signal-backup。signal-data 只留 lab/(公开)。
+    _prune_r2_backup 默认也清 signal-backup，keep_days=30 与 R2 lifecycle 一致。
     DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
-    import datetime as _dt
+    import datetime as _dt, gzip
     repo = Path(os.environ.get("REPO", str(ROOT)))
     dbdir = repo / "data"
     today = _dt.datetime.now().strftime("%Y%m%d")
@@ -253,15 +260,17 @@ def cmd_upload_db():
         if not src.exists():
             print(f"⚠ {src} 不存在，跳过")
             continue
-        key = f"backup/{name}_{today}.db"
-        payload = src.read_bytes()
+        raw = src.read_bytes()
+        payload = gzip.compress(raw, compresslevel=6)  # gzip 压缩后上传(原 .db 本地不动)
+        key = f"backup/{name}_{today}.db.gz"
         status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET)
         if status == 200:
             ok += 1
-            print(f"✓ {fname} ({len(payload) // 1024}KB) -> {BACKUP_BUCKET}/{key} (私有桶)")
+            print(f"✓ {fname} ({len(raw) // 1024}KB -> {len(payload) // 1024}KB gzip) "
+                  f"-> {BACKUP_BUCKET}/{key} (私有桶)")
         else:
             print(f"✗ {fname} status={status} {data.decode('utf-8', errors='replace')[:300]}")
-    _prune_r2_backup(keep_days=7)
+    _prune_r2_backup(keep_days=30)
     print(f"DB 上传 {ok}/{len(targets)} -> {BACKUP_BUCKET}/backup/ ({today})")
     if ok != len(targets):
         sys.exit(1)

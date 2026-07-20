@@ -58,11 +58,13 @@ PYEOF
   else
     echo "✗ $name 备份失败" | tee -a "$LOG"
     rm -f "$out" 2>/dev/null
+    FAILED_DBS="${FAILED_DBS:-} $name"
     return 1
   fi
 }
 
 RC=0
+FAILED_DBS=""
 backup_one "$DBDIR/sentiment.db"        sentiment       || RC=1
 backup_one "$DBDIR/etf_national_team.db" etf_national_team || RC=1
 
@@ -86,4 +88,21 @@ else
 fi
 
 echo "=== backup_db.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$RC ===" | tee -a "$LOG"
+
+# 失败邮件告警(P0-3):本地 SQLite 热备失败(退出码非0)时 notify.py 发 severe 邮件
+# + 写 data/alerts/latest.md(供下轮 Claude 开工优先排查)。复用 on_skip_notify.sh 模式。
+# 环境变量 BACKUP_NOTIFY_DRY_RUN=1 时 --dry-run(验证用,不真发邮件)。
+# 注意:R2 上传失败不计入 RC(上方软处理),此处只告警本地备份失败。
+if [ "$RC" -ne 0 ] && [ -f "$REPO/scripts/notify.py" ]; then
+  NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
+  DRY_FLAG=""
+  [ "${BACKUP_NOTIFY_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"
+  BODY="SQLite 热备失败，退出码=${RC}。<br>时间：$NOW_STR<br>失败 DB：${FAILED_DBS}<br>日志：$LOG<br>本地备份目录：$BACKUP_DIR<br>请尽快排查（磁盘满 / DB 锁 / 文件损坏）。"
+  echo "-> 发送备份失败告警邮件 ..." | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[备份失败]backup_db退出码$RC" "$BODY" --severe \
+    --alert-issue "backup_db.sh 备份失败(rc=$RC,失败DB=${FAILED_DBS})" \
+    --alert-log "$LOG" \
+    $DRY_FLAG 2>>"$LOG" || true
+fi
+
 exit "$RC"
