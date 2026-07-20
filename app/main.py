@@ -1319,6 +1319,62 @@ def manual(entry: ManualEntry):
 _INDEX_CACHE = {"sig": None, "html": None}
 
 
+# ============ C7 P4-β 交互式自定义分析 (docs §9) ============
+@app.get("/api/alert/analyze")
+def alert_analyze(target: str, type: str | None = None, limit: int = 20):
+    """交互式自定义分析: 输入标的 -> 候选 + 预警分 + 原因 4 部分 + 合规底栏。
+
+    Args:
+        target: 用户输入 (指数代码/中文名/ETF代码/ETF名/行业名)
+        type:   'index' / 'etf' (None=自动判定)
+        limit:  候选列表最大条数
+
+    Returns:
+        {query, candidates: [...], result: {target_id, target_type, alert, reason} or None}
+        - 当唯一精确匹配(score=100)时直接返回 result
+        - 多候选时 candidates 非空, result 可能为 None(让前端让用户选定)
+        - 指定 type 且 target 能精确匹配某候选 code 时直接分析
+    """
+    from .alert_match import match_candidates
+    from .alert_reason import build_reason
+    from .alert_score import compute_alert_for_target
+
+    q = (target or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="target 参数不能为空")
+    cands = match_candidates(q, limit=limit)
+    if not cands:
+        return {"query": q, "candidates": [], "result": None,
+                "hint": "未找到匹配标的,请尝试行业名/宽基名/指数代码/ETF代码"}
+
+    # 判定是否直接分析:
+    # 1) 用户指定了 type 且某候选 code 精确等于 target(大小写不敏感)
+    # 2) 唯一 score=100 的候选
+    chosen = None
+    if type:
+        for c in cands:
+            if c["type"] == type and c["code"].lower() == q.lower():
+                chosen = c
+                break
+    if not chosen:
+        perfect = [c for c in cands if c["score"] == 100]
+        if len(perfect) == 1:
+            chosen = perfect[0]
+
+    result = None
+    if chosen:
+        alert = compute_alert_for_target(chosen["code"], chosen["type"])
+        reason = build_reason(chosen["code"], chosen["type"], alert_result=alert)
+        result = {
+            "target_id": chosen["code"],
+            "target_type": chosen["type"],
+            "target_name": chosen["name"],
+            "alert": alert,
+            "reason": reason,
+        }
+    return {"query": q, "candidates": cands, "result": result}
+
+
 def _render_index():
     """读 static-site/index.html 返回（?v= 已由 bump_asset_version.py 注入）；mtime 变化才重读。"""
     idx = WEB_DIR / "index.html"

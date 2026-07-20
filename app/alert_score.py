@@ -1,21 +1,24 @@
 """综合 AI 风险预警算法 (8+8 维度加权 0-100)。
 
-设计依据: docs/alert-design.md 第二章(高位预警 8 维)+第三章(低位预警 8 维)。
+设计依据: docs/alert-design.md 第二章(高位预警 8 维)+第三章(低位预警 8 维)
+        + 第九章(交互式自定义分析,单标的版)。
 - HIGH_ALERT: 顶部风险信号组合, 越高越危险 (0-100)
 - LOW_ALERT : 底部机会信号组合, 越高越接近底 (0-100)
 - 各维度强度均用 120 日滚动百分位归一化(自适应不同市场环境, 防过拟合)
-- 缺项按可用维度重归一化权重, 至少 5 维度出分才给结论
+- 缺项按可用维度重归一化权重, 至少 5 维度出分才给结论(单标的版放宽到 4, 见 §9.3)
 
 数据源:
 - sentiment.db: score_daily(情绪分) / daily_metric(宽度量能均线新高新低波指股息率)
                 signal_daily(买卖点) / index_daily(指数收盘价算 position)
 - etf_national_team.db: etf_signal(汪汪队 share_surge/share_outflow)
+                        etf_daily(ETF close/amount 行情)
 """
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 _REPO = Path(__file__).resolve().parent.parent
@@ -39,7 +42,11 @@ HIGH_WEIGHTS = {"H1": 0.26, "H2": 0.08, "H3": 0.13, "H4": 0.20,
 LOW_WEIGHTS = {"L1": 0.20, "L2": 0.18, "L3": 0.15, "L4": 0.15,
                "L5": 0.10, "L6": 0.08, "L7": 0.07, "L8": 0.07}
 
-MIN_DIMS = 5  # 至少 5 维度出分
+MIN_DIMS = 5  # 至少 5 维度出分(全市场版)
+MIN_DIMS_TARGET = 4  # 单标的版放宽到 4(§9.3,适配后缺项多)
+
+# 宽基中已有 sentiment_xxx 序列的指数(6 个);sh/sz/bj50 等无 sentiment 退化为 RSI
+_BROAD_WITH_SENTIMENT = {"sz50", "hs300", "csi500", "csi1000", "cyb", "kc50"}
 
 
 # ---------------------------------------------------------------------------
@@ -238,8 +245,8 @@ def compute_low_dims() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # 加权合成 + 缺项重归一化
 # ---------------------------------------------------------------------------
-def _weighted_score(dims: pd.DataFrame, weights: dict) -> pd.Series:
-    """各维度加权求和, NaN 维度按可用维度重归一化权重; <MIN_DIMS 维度出分则置 NaN。"""
+def _weighted_score(dims: pd.DataFrame, weights: dict, min_dims: int = MIN_DIMS) -> pd.Series:
+    """各维度加权求和, NaN 维度按可用维度重归一化权重; <min_dims 维度出分则置 NaN。"""
     cols = list(weights.keys())
     w = pd.Series(weights)
     d = dims[cols]
@@ -248,7 +255,7 @@ def _weighted_score(dims: pd.DataFrame, weights: dict) -> pd.Series:
     w_row = valid.mul(w, axis=1)
     w_sum = w_row.sum(axis=1)
     score = d.fillna(0).mul(w, axis=1).sum(axis=1) / w_sum.replace(0, pd.NA)
-    score[valid.sum(axis=1) < MIN_DIMS] = pd.NA
+    score[valid.sum(axis=1) < min_dims] = pd.NA
     return score.clip(0, 100)
 
 
@@ -316,6 +323,243 @@ def _low_level(score) -> str:
     if score > 60:
         return "关注"
     return "中性"
+
+
+# ---------------------------------------------------------------------------
+# 单标的交互式分析 (§9.3 适配表)
+# ---------------------------------------------------------------------------
+def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """RSI(14) 经典算法 (Wilder 平滑)。"""
+    if close.empty or len(close) < period + 1:
+        return pd.Series(dtype=float)
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0, pd.NA)
+    return (100 - (100 / (1 + rs)))
+
+
+def _load_target_close_amount(target_id: str, target_type: str):
+    """单标的 close/amount 序列 (ETF 用 etf_daily, 指数用 index_daily)。"""
+    if target_type == "etf":
+        with _conn_nt() as c:
+            rows = c.execute(
+                "SELECT date, close, amount FROM etf_daily WHERE etf_code=? "
+                "AND close IS NOT NULL ORDER BY date",
+                (target_id,),
+            ).fetchall()
+    else:
+        with _conn_sent() as c:
+            rows = c.execute(
+                "SELECT date, close, amount FROM index_daily WHERE index_id=? "
+                "AND close IS NOT NULL ORDER BY date",
+                (target_id,),
+            ).fetchall()
+    if not rows:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+    df = pd.DataFrame(rows, columns=["date", "close", "amount"]).set_index("date")
+    close = df["close"].astype(float)
+    amount = pd.to_numeric(df["amount"], errors="coerce")
+    amount = amount.where(amount > 0, pd.NA)  # 0 视为缺省
+    return close, amount
+
+
+def _target_signal_count(target_id: str, sig_types: list[str]) -> pd.Series:
+    """该标的在 signal_daily 中的按日信号计数(指数版,按 index_id 过滤)。"""
+    if not sig_types:
+        return pd.Series(dtype=float)
+    with _conn_sent() as c:
+        ph = ",".join("?" * len(sig_types))
+        rows = c.execute(
+            f"SELECT date, COUNT(*) AS n FROM signal_daily WHERE index_id=? "
+            f"AND signal IN ({ph}) GROUP BY date ORDER BY date",
+            [target_id] + list(sig_types),
+        ).fetchall()
+    if not rows:
+        return pd.Series(dtype=float)
+    return pd.Series({r[0]: r[1] for r in rows}).sort_index().astype(float)
+
+
+def _target_etf_signal_count(etf_code: str, sig_types: list[str]) -> pd.Series:
+    """ETF 在 etf_signal 中的按日信号计数(按 etf_code 过滤)。"""
+    if not sig_types:
+        return pd.Series(dtype=float)
+    with _conn_nt() as c:
+        ph = ",".join("?" * len(sig_types))
+        rows = c.execute(
+            f"SELECT date, COUNT(*) AS n FROM etf_signal WHERE etf_code=? "
+            f"AND signal_type IN ({ph}) GROUP BY date ORDER BY date",
+            [etf_code] + list(sig_types),
+        ).fetchall()
+    if not rows:
+        return pd.Series(dtype=float)
+    return pd.Series({r[0]: r[1] for r in rows}).sort_index().astype(float)
+
+
+def compute_target_dims(target_id: str, target_type: str = "index") -> pd.DataFrame:
+    """单标的 8+8 维度现算,套 §9.3 适配表。返回 DataFrame[date, H1..H8, L1..L8]。
+
+    适配要点:
+    - H1/L1: 宽基(6 个)用 sentiment_xxx,其他用 RSI(14) 120 日滚动百分位
+    - H2: 0.6*缩量上涨 + 0.4*position_1y(无 amount 时退化为 position_1y)
+    - H3/L2: signal_daily 按 index_id 查 sell/buy+buy_aux(ETF 无 signal_daily -> 缺省)
+    - H4/L3: close 1 年滚动分位 / 100-分位
+    - H5: 100 - 新高(close>=52w_high)120 日滚动百分位
+    - H6: 0.5*(100-ma_bullish百分位) + 0.5*ma_bearish百分位
+    - H7/L4: 仅 ETF 适用(share_outflow/share_surge 近 30 日计数滚动百分位)
+    - H8/L7/L8: 单标的缺省(外部宏观/全市场指标,单标的不适用)
+    - L5: 100 - amount 120 日滚动百分位(地量分高)
+    - L6: 新低(close<=52w_low)120 日滚动百分位
+    """
+    close, amount = _load_target_close_amount(target_id, target_type)
+    if close.empty or len(close) < 30:
+        return pd.DataFrame()
+    idx = close.index
+
+    # 1. 基础指标
+    position_1y = close.rolling(_POS_WINDOW, min_periods=_POS_MIN).rank(pct=True) * 100
+    rsi = _compute_rsi(close, 14)
+    rsi_pct = _rolling_pct(rsi)
+
+    ma5 = close.rolling(5, min_periods=5).mean()
+    ma10 = close.rolling(10, min_periods=10).mean()
+    ma20 = close.rolling(20, min_periods=20).mean()
+    ma60 = close.rolling(60, min_periods=60).mean()
+    ma_bullish = ((close > ma5) & (ma5 > ma10) & (ma10 > ma20) & (ma20 > ma60)).astype(float) * 100
+    ma_bearish = ((close < ma5) & (ma5 < ma10) & (ma10 < ma20) & (ma20 < ma60)).astype(float) * 100
+
+    high_52w = close.rolling(252, min_periods=120).max()
+    low_52w = close.rolling(252, min_periods=120).min()
+    nh = (close >= high_52w).astype(float) * 100
+    nl = (close <= low_52w).astype(float) * 100
+    close_ret = close.pct_change() * 100
+
+    # 2. H1/L1 情绪: 宽基用 sentiment_xxx(查不到退化为 RSI 百分位)
+    if target_type == "index" and target_id in _BROAD_WITH_SENTIMENT:
+        sent = load_score(f"sentiment_{target_id}")
+        if sent.empty:
+            sent = rsi_pct
+    else:
+        sent = rsi_pct
+    h1 = sent
+    l1 = 100 - sent
+
+    # 3. H2 量价背离 (0.6*缩量上涨 + 0.4*position)
+    if amount.notna().sum() >= _MIN_PERIODS:
+        amt_pct = _rolling_pct(amount)
+        shrink = 100 - amt_pct  # 量越低分越高
+        shrink_up = shrink.where(close_ret > 0, 0)
+        h2 = 0.6 * shrink_up + 0.4 * position_1y
+    else:
+        h2 = position_1y  # 无 amount 退化
+
+    # 4. H3/L2 买卖点密集 (signal_daily 按 index_id)
+    if target_type == "index":
+        sell_cnt = _target_signal_count(target_id, ["sell"]).reindex(idx, fill_value=0)
+        buy_cnt = _target_signal_count(target_id, ["buy", "buy_aux"]).reindex(idx, fill_value=0)
+        h3 = _rolling_sum_pct(sell_cnt, 10) if sell_cnt.sum() > 0 else pd.Series(pd.NA, index=idx)
+        l2 = _rolling_sum_pct(buy_cnt, 10) if buy_cnt.sum() > 0 else pd.Series(pd.NA, index=idx)
+    else:
+        h3 = pd.Series(pd.NA, index=idx)  # ETF 无 signal_daily
+        l2 = pd.Series(pd.NA, index=idx)
+
+    # 5. H4/L3 位置
+    h4 = position_1y
+    l3 = 100 - position_1y
+
+    # 6. H5 动量衰退 (100 - 新高百分位)
+    h5 = 100 - _rolling_pct(nh)
+
+    # 7. H6 均线转弱
+    h6 = 0.5 * (100 - _rolling_pct(ma_bullish)) + 0.5 * _rolling_pct(ma_bearish)
+
+    # 8. H7/L4 汪汪队 (仅 ETF)
+    if target_type == "etf":
+        outflow = _target_etf_signal_count(target_id, ["share_outflow"]).reindex(idx, fill_value=0)
+        surge = _target_etf_signal_count(target_id, ["share_surge"]).reindex(idx, fill_value=0)
+        h7 = _rolling_sum_pct(outflow, 30) if outflow.sum() > 0 else pd.Series(pd.NA, index=idx)
+        l4 = _rolling_sum_pct(surge, 30) if surge.sum() > 0 else pd.Series(pd.NA, index=idx)
+    else:
+        h7 = pd.Series(pd.NA, index=idx)
+        l4 = pd.Series(pd.NA, index=idx)
+
+    # 9. H8/L7/L8 单标的缺省
+    h8 = pd.Series(pd.NA, index=idx)
+    l7 = pd.Series(pd.NA, index=idx)
+    l8 = pd.Series(pd.NA, index=idx)
+
+    # 10. L5 量能异动 (地量分高)
+    if amount.notna().sum() >= _MIN_PERIODS:
+        l5 = 100 - _rolling_pct(amount)
+    else:
+        l5 = pd.Series(pd.NA, index=idx)
+
+    # 11. L6 新低极端
+    l6 = _rolling_pct(nl)
+
+    return pd.DataFrame({
+        "H1": h1, "H2": h2, "H3": h3, "H4": h4,
+        "H5": h5, "H6": h6, "H7": h7, "H8": h8,
+        "L1": l1, "L2": l2, "L3": l3, "L4": l4,
+        "L5": l5, "L6": l6, "L7": l7, "L8": l8,
+    }).sort_index()
+
+
+def compute_alert_for_target(target_id: str, target_type: str = "index",
+                             date: str | None = None) -> dict:
+    """单标的预警分(§9.4)。返回 {date, high, low, high_level, low_level, dims, adapt}。
+
+    Args:
+        target_id: 指数 id (hs300/sw_801080/thsc_301085/...) 或 ETF 代码 (510300/...)
+        target_type: 'index' 或 'etf'
+        date: 指定日 'YYYYMMDD' (None=最近交易日)
+    """
+    dims = compute_target_dims(target_id, target_type)
+    if dims.empty:
+        return {
+            "target_id": target_id, "target_type": target_type, "date": None,
+            "high": None, "low": None, "high_level": "数据不足", "low_level": "数据不足",
+            "dims": {}, "adapt": {"min_dims": MIN_DIMS_TARGET, "available_high": 0,
+                                  "available_low": 0, "missing": list(HIGH_WEIGHTS) + list(LOW_WEIGHTS)},
+        }
+    if date:
+        dims = dims[dims.index <= date]
+    if dims.empty:
+        return {
+            "target_id": target_id, "target_type": target_type, "date": date,
+            "high": None, "low": None, "high_level": "数据不足", "low_level": "数据不足",
+            "dims": {}, "adapt": {"min_dims": MIN_DIMS_TARGET, "available_high": 0,
+                                  "available_low": 0, "missing": list(HIGH_WEIGHTS) + list(LOW_WEIGHTS)},
+        }
+    row = dims.iloc[-1]
+    actual_date = str(dims.index[-1])
+    hd = dims[list(HIGH_WEIGHTS.keys())]
+    ld = dims[list(LOW_WEIGHTS.keys())]
+    ha = _weighted_score(hd, HIGH_WEIGHTS, min_dims=MIN_DIMS_TARGET).iloc[-1]
+    la = _weighted_score(ld, LOW_WEIGHTS, min_dims=MIN_DIMS_TARGET).iloc[-1]
+
+    avail_h = int(sum(1 for k in HIGH_WEIGHTS if not pd.isna(row[k])))
+    avail_l = int(sum(1 for k in LOW_WEIGHTS if not pd.isna(row[k])))
+    missing = [k for k in list(HIGH_WEIGHTS) + list(LOW_WEIGHTS) if pd.isna(row[k])]
+    adapt = {
+        "target_id": target_id, "target_type": target_type,
+        "min_dims": MIN_DIMS_TARGET,
+        "available_high": avail_h, "available_low": avail_l,
+        "missing": missing,
+    }
+    return {
+        "date": actual_date,
+        "target_id": target_id, "target_type": target_type,
+        "high": None if pd.isna(ha) else round(float(ha), 2),
+        "low": None if pd.isna(la) else round(float(la), 2),
+        "high_level": _high_level(ha),
+        "low_level": _low_level(la),
+        "dims": {k: (None if pd.isna(row[k]) else round(float(row[k]), 2))
+                 for k in list(HIGH_WEIGHTS) + list(LOW_WEIGHTS)},
+        "adapt": adapt,
+    }
 
 
 if __name__ == "__main__":
