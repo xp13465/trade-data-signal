@@ -3377,7 +3377,17 @@ async function renderOverview() {
         dimension: 1,
       },
     }, null, colA1);
-    if (fgChart) addCardTimeBadge(fgChart.getDom().parentElement, fg6.length ? fg6[fg6.length - 1].date : "", snap, "t0");
+    if (fgChart) {
+      // 冰点(≤25)/过热(≥75)阈值虚线（与情绪温度tab恐贪图一致）
+      fgChart.setOption({ series: [{ markLine: {
+        silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
+        data: [
+          { yAxis: 25, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 75, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+        ],
+      } }] });
+      addCardTimeBadge(fgChart.getDom().parentElement, fg6.length ? fg6[fg6.length - 1].date : "", snap, "t0");
+    }
   }
 
   // 左列：恐贪分项条（8 项情绪分等权 = 恐贪指数；分项解释总分构成，紧贴恐贪折线）
@@ -3433,6 +3443,14 @@ async function renderOverview() {
       },
     }, null, colA1);
     if (asChart) {
+      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与情绪温度tab一致）
+      asChart.setOption({ series: [{ markLine: {
+        silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
+        data: [
+          { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "20", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "80", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+        ],
+      } }] });
       addCardTimeBadge(asChart.getDom().parentElement, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
       // 图表高度减一点(300->250)，给下方历史位置3行腾空间
       const _ovChartDiv = asChart.getDom();
@@ -3590,7 +3608,17 @@ async function renderOverview() {
         dimension: 1,
       },
     }, null, colB1);
-    if (cmChart) addCardTimeBadge(cmChart.getDom().parentElement, cm6.length ? cm6[cm6.length - 1].date : "", snap, "t0");
+    if (cmChart) {
+      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与情绪温度tab一致）
+      cmChart.setOption({ series: [{ markLine: {
+        silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
+        data: [
+          { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "20", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "80", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+        ],
+      } }] });
+      addCardTimeBadge(cmChart.getDom().parentElement, cm6.length ? cm6[cm6.length - 1].date : "", snap, "t0");
+    }
   }
 
   // 右列：均线排列卡片（独立 fetch，失败不影响位置感卡片 O1）
