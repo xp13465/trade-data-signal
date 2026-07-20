@@ -2690,3 +2690,41 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 **sh 上证指数 DataError 已修复**（2026-07-21，commit aa454dad，根因+修复）：`_compute_rsi` L340 `avg_loss.replace(0, pd.NA)` 把 float64 转 object（pd.NA 混入 float 列致 dtype 变 object），sh 8685 天最长数据多触发 NA 混入，其他指数数据短没触发。修复：`_compute_rsi` 改 `np.nan`（不转 object）+ `_rolling_pct`/`_rolling_sum_pct` 加 `pd.to_numeric(..., errors='coerce')` 兜底（5 处）。TestClient 验证 sh high=26.54/low=86.4/high_level=中性/low_level=机会，export 40 ok 0 err（之前 39ok+1err），39 个回归 high/low 完全一致。线上 `alert_analyze_sh.json` 已上线（high=26.54/low=86.4/error=None）。
 
 **git**：a241d1f1（后端 feat）+ cc3959da（后端 data deploy）+ 9a0648cb（前端 feat）+ 6cc800f5（前端 data deploy），feat/main 已同步 6cc800f5。根 data/ 未 add（signal_stats.json/sw_components.json 本地 M）。
+
+### 小节M：C7 P4 market 融合全 55 闭环（2026-07-21，commit 75a67d03）
+
+> 承接小节L：lab.js 自定义分析 selector 只有 40 个（9 宽基+31 申万），market tab 指数卡也不显示分数卡。用户选方案 C 全 55（market tab 24 echarts 卡+31 申万 spark 卡都挂分数卡），并把 `_labCustom*` 10 函数+2 常量从 lab.js 抽到 common.js 供全 tab 共享。
+
+**改动要点**：
+- **common.js 348 行**：11 个 `_labCustom*` 函数（CacheBust/LevelClass/LevelText/LevelTooltip/DefaultHuman/ScoreSummary/ScoreCardHTML/DimsTableHTML/HistoryHTML/ThresholdsHTML/FooterHTML）+ 2 常量 `_LAB_CUSTOM_BROAD`/`_LAB_CUSTOM_SW` 末尾挂 `window.*` 导出（纯函数库无 DOM 依赖）。
+- **app.js L972-1055**（7845 行）：`_MARKET_ANALYZE_IIDS` L972 55 白名单 Set（9 宽基+3 红利+3 港股+9 全球+31 申万）+ `_marketScoreCardHTML` L991（紧凑版分数卡，复用 `_labCustomLevelClass/Text/Tooltip`）+ `_attachMarketScoreCard` L1020（按 iid∈白名单 fetch `alert_analyze_{iid}.json` 注入卡片）+ `openIndexAnalyzeModal` L1037 / `closeIndexAnalyzeModal`（点卡片弹全屏 modal 复用 lab.js 渲染）+ 3 调用点：`renderOne` L1159（宽基/红利/港股/全球 echarts 卡）/`renderGlobal` L5331（全球 echarts 卡）/`renderIndustryGrid` L6384（申万 spark 卡）。
+- **style.css L3076-3114** `.market-score-card`（3 皮肤 light/dark/redgold）+ `.lab-custom-*` 从 lab.css 移入 190 处（统一 style.css）。
+- **lab.js 6136 行**（-309 行）：删 `_labCustom*` 10 函数+2 常量定义，留 `var _labCustom* = window._labCustom*` 别名（L5871-5878）保持 lab.js 内调用点不变，`renderCustomAnalyzeLab` 保留。
+- **index.html L160**：`<script defer src="./common.min.js?v=0fc0d55a">`（defer 在 app.min.js+lab.min.js 前加载，执行时 `window._labCustom*` 已就绪）。
+- **后端 alert_match.py**：`PREGEN_TARGETS` 40->55，新增 `DIV_INDEX_IDS`（3 红利 csi_div/div_lowvol/sz_div）+ `HK_INDEX_IDS`（3 港股 hsi/hstech/hscei）+ `GLOBAL_INDEX_IDS`（9 全球 us_dji/us_ixic/us_spx/us_ndx/nikkei225/kospi/ftse100/dax/cac40）3 列表，`export_alert_analyze.py` 生成 15 个新 JSON。
+
+**线上验证**：common.min.js/app.min.js grep `_labCustom*`/`_MARKET_ANALYZE_IIDS` 通过；15 个新 JSON（alert_analyze_csi_div.json 等）全 HTTP 200；`alert_analyze_hsi.json` high=55.41（港股恒生正常出分）。
+
+**git**：commit 75a67d03，feat/main 已同步。根 data/ 未 add。
+
+### 小节N：C7 P4 自定义分析 select 检索（2026-07-21，commit 644009b7）
+
+> 承接小节M：lab.js 自定义分析 selector 40 个标的（9 宽基+31 申万），31 申万难找。加检索框实时筛选辅助切换。
+
+**改动要点**（2 文件 +69 行）：
+- **lab.js `renderCustomAnalyzeLab`**（L5882）selector 构建（L5934）：
+  - selector 内 label 前加 `<input class="lab-custom-search" type="search" placeholder="检索代码/名称筛选…" autocomplete="off">`（移动端 flex-direction:column 已会堆叠撑满）。
+  - `oninput`（L5939）：遍历 select 所有 option，`textContent`（名称）+ `value`（iid）转小写 `includes` 关键词（不区分大小写），不匹配 `style.display="none"`；optgroup 无可见子时隐藏；无匹配 hint 文案改"无匹配标的（关键词"xxx"）"+红色。
+  - `onchange`（L5967）：切换标的时清空检索框 + `dispatchEvent(new Event("input"))` 触发 oninput 重置 options（避免筛选残留）。
+- **lab.js isSwitch 路径**（L5890）：切换标的时若检索框有值，清空 input + 恢复所有 option/optgroup `display=""` + 重置 hint（避免上次筛选残留致 curIid 的 option 被隐藏）。**不破闪烁修复**：仍只更新 host（`--loading` 类+淡入动画 220ms），wrapper/intro/selector/input 复用。
+- **style.css L2718-2730** `.lab-custom-search`：`width:100%` 撑满 + `var(--bg-card)/var(--border-strong)/var(--text-1)` 3 皮肤 CSS 变量 + `:focus` 边框 `#d4380d`（redgold `#ff8a8a`）+ box-shadow + `::-webkit-search-cancel-button` cursor:pointer。
+- **拼音首字母匹配跳过**：无 JS 拼音库依赖 + 多音字风险，代码+名称匹配已覆盖 80%+ 场景（输入"hs"匹配 hs300 沪深300 / 输入"沪深"匹配名称 / 输入"sw"匹配所有 sw_ 申万）。若需拼音可后续引入 pinyin-pro 库或手动建 40 标的拼音首字母映射。
+
+**线上验证**（https://s.sugas.site/#lab?sub=custom）：
+- `lab.min.js?v=4f7ca298` 含 `lab-custom-search` 4 处（input class + oninput querySelector + isSwitch querySelector + onchange querySelector）。
+- `style.css?v=83bf98dc` 含 `lab-custom-search` 4 处（.lab-custom-search / :focus / [data-theme="redgold"] :focus / ::-webkit-search-cancel-button）。
+- `index.html` 引用 `lab.min.js?v=4f7ca298` + `style.css?v=83bf98dc`（新版本号）。
+
+**git**：commit 644009b7，feat+main 已同步（`git push origin feat/iframe-theme-follow` + `git push origin feat/iframe-theme-follow:main`，避免 checkout 切分支污染 DB）。根 data/ 未 add（signal_stats.json/sw_components.json 本地 M）。
+
+**注意（select 当前 40 个非 55）**：任务背景说"select 下拉有 55 个标的"，但实际 `_LAB_CUSTOM_BROAD`（common.js L11-21）只有 9 宽基，`_LAB_CUSTOM_SW`（L22-39）31 申万，共 40 个；alert_match.py 的 DIV/HK/GLOBAL 15 个未同步到 common.js 常量（market tab 的 55 白名单是 app.js `_MARKET_ANALYZE_IIDS` 独立定义，非复用 `_LAB_CUSTOM_BROAD`）。本次检索逻辑通用（select 有几个 option 就筛几个），未来若扩充 `_LAB_CUSTOM_BROAD` 到 24（加 DIV/HK/GLOBAL）检索自动适用，无需改检索代码。按约束"不动 common.js `_labCustom*`"未扩充。
