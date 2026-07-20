@@ -38,7 +38,7 @@ metrics:
 
   # ============ A股 · 情绪指数 ============
   - {id: a_qvix_300,        name: 中国波指300,   group: a_sentiment, type: simple, func: index_option_300etf_qvix,    column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
-  - {id: a_qvix_1000,       name: 中国波指1000,  group: a_sentiment, type: simple, func: index_option_1000index_qvix, column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
+  - {id: a_qvix_1000,       name: 中国波指1000,  group: a_sentiment, type: simple, func: index_option_50etf_qvix, column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
   - {id: a_amount,          name: 成交额(沪深京),   group: a_sentiment, type: simple, func: stock_zh_a_spot,            column: 成交额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
   # a_sentiment_score / cross_market_score 是综合分，写入 score_daily，经 /api/sentiment 出，不在此处登记
   # 以下待源：sina 无换手率；legulegu.com 不稳定；东财情绪接口待验
@@ -57,7 +57,7 @@ metrics:
 
   # ============ 港股 / 全球 ============
   - {id: hk_south, name: 港股通净买入, group: hk,     type: simple, func: stock_hsgt_hist_em, params: {symbol: 南向资金}, column: 当日成交净买额, unit: 亿元, direction: positive, enabled: true}
-  - {id: usdcnh,   name: 离岸人民币,   group: global, type: simple, func: currency_boc_sina,  params: {symbol: 美元}, column: 央行中间价, unit: "-", direction: negative, sell_no_trend_filter: true, enabled: true}
+  - {id: usdcnh,   name: 离岸人民币,   group: global, type: simple, func: forex_hist_em,  params: {symbol: USDCNH}, column: 最新价, unit: "-", direction: negative, sell_no_trend_filter: true, enabled: true}
   - {id: gold,     name: 黄金(沪金),   group: global, type: simple, func: futures_main_sina,  params: {symbol: AU0}, column: 收盘价, unit: 元/克, direction: negative, enabled: true}
   - {id: oil,      name: 原油(INE主力连续), group: global, type: simple, func: futures_main_sina,  params: {symbol: sc0}, column: 收盘价, unit: 元/桶, direction: neutral, enabled: true}
   - {id: wti_oil,      name: WTI原油,   group: global, type: simple, func: futures_foreign_hist, params: {symbol: CL}, column: close, unit: 美元/桶,   direction: neutral, enabled: true}

@@ -9,6 +9,7 @@
 """
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 
 from ..db import get_conn
@@ -126,3 +127,61 @@ def store_position(positions: list[dict]) -> int:
     conn.commit()
     conn.close()
     return n
+
+
+def compute_position_history(start_date: str = "20160104") -> int:
+    """从 start_date 起逐日重算各指数位置感分位，批量写入 daily_metric。返回写入行数。
+
+    对每个指数取 close 全序列，遍历 >= start_date 的每个交易日，用截止该日的
+    近 1y/3y/5y 窗口算百分位（与 _percentile_rank 同口径：窗口不足 20 日回退全量）。
+    批量 executemany 入库，source='derived'，ON CONFLICT 覆盖非 manual 旧值。
+    历史回填用（compute_position 只算今日，本函数补 2016 起全历史）。
+    """
+    now = datetime.now().isoformat()
+    all_rows = []
+    for iid in POSITION_INDICES:
+        close_series = load_index_close(iid)
+        if close_series.empty:
+            continue
+        vals = close_series.values.astype(float)
+        idx_arr = close_series.index.to_numpy()
+        # 定位 >= start_date 的起始位置（YYYYMMDD 字符串字典序 = 日期序）
+        start_pos = 0
+        found = False
+        for i in range(len(idx_arr)):
+            if idx_arr[i] >= start_date:
+                start_pos = i
+                found = True
+                break
+        if not found:
+            continue  # 全序列都早于 start_date
+        for pos in range(start_pos, len(vals)):
+            d = str(idx_arr[pos])
+            current_val = vals[pos]
+            sub = vals[: pos + 1]  # 截止该日（含）
+            for window_key, window_days in WINDOW_DAYS.items():
+                if len(sub) >= window_days:
+                    recent = sub[-window_days:]
+                else:
+                    recent = sub
+                if len(recent) < 20:
+                    recent = sub  # 不足 20 日回退全量
+                if len(recent) < 2:
+                    continue
+                rank = int((recent < current_val).sum())
+                pct = round((rank / len(recent)) * 100, 1)
+                all_rows.append((d, f"{iid}_position_{window_key}", float(pct), "derived", now))
+    if not all_rows:
+        return 0
+    conn = get_conn()
+    conn.executemany(
+        "INSERT INTO daily_metric (date, metric_id, value, source, updated_at) "
+        "VALUES (?,?,?,?,?) "
+        "ON CONFLICT(date, metric_id) DO UPDATE SET value=excluded.value, "
+        "source=excluded.source, updated_at=excluded.updated_at "
+        "WHERE daily_metric.source != 'manual'",
+        all_rows,
+    )
+    conn.commit()
+    conn.close()
+    return len(all_rows)
