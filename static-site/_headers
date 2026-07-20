@@ -3,6 +3,7 @@
 # 故兜底规则(范围大)放前面，具体规则(范围小)放后面覆盖。
 # 安全头对非 HTML 响应浏览器自动忽略，无副作用。
 # MaoziYun 不解析本文件，仅对 CF Pages / ss.sugas.site 生效。
+# 注意：run_worker_first=true 时本文件不生效(Worker 接管 headers)，仅作回退纯 assets 模式的兜底。见 worker/headers.js
 
 # /* 安全头(保留全部现有安全头) + 默认 Cache-Control 兜底
 /*
