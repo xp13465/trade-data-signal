@@ -60,6 +60,25 @@ function loadLabScript() {
   return _labScriptPromise;
 }
 
+// P2-5: echarts.min.js 按 tab 懒加载（首屏不下载 615KB echarts，省 76% 首屏 JS）
+// index.html 不再预加载 echarts.min.js，renderTab 触发时才 dynamic 注入。
+// 版本号 URL 由 <meta name="echarts-asset-url"> 持有（bump 同 script 标签机制注入 ?v= 破缓存）。
+let _echartsScriptPromise = null;
+function loadEcharts() {
+  if (_echartsScriptPromise) return _echartsScriptPromise;
+  _echartsScriptPromise = new Promise((resolve, reject) => {
+    if (typeof echarts !== "undefined") { resolve(); return; }  // 已加载
+    const meta = document.querySelector('meta[name="echarts-asset-url"]');
+    const src = meta ? meta.content : "./vendor/echarts.min.js";
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => { _echartsScriptPromise = null; reject(new Error("echarts load failed")); };
+    document.head.appendChild(s);
+  });
+  return _echartsScriptPromise;
+}
+
 document.querySelectorAll('button[data-rng]').forEach((b) => {
   b.onclick = () => {
     state.range = b.dataset.rng;
@@ -176,6 +195,7 @@ function dzOpts() {
 // visualMap，首帧着色即正确（治本，见 withTheme 注释）。切皮肤是运行时改 CSS 变量，已渲染的 canvas
 // 不会自动跟随，故仍需此处重注入。
 function rethemeCharts() {
+  if (typeof echarts === "undefined") return;  // P2-5: echarts 未加载时跳过（懒加载尚未触发）
   try {
     var dzColor = cssVar("--text-1");
     var vmColor = cssVar("--text-1");
@@ -1699,6 +1719,7 @@ async function openKpiDetailModal(kpiId, period = "3m") {
 
 
 async function renderTab() {
+  await loadEcharts();   // P2-5: 懒加载 echarts（所有 tab 图表 + lab.js 都依赖）
   clearCharts();
   // 概览 tab 图表固定近60日、策略实验 tab 全历史，周期切换均无意义，隐藏 .periods 和 .h5-period-bar；切走恢复
   const _hidePeriods = (state.tab === "lab" || state.tab === "overview");
