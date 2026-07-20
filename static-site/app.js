@@ -3160,7 +3160,7 @@ async function renderOverview() {
   // P0-1 数据诚信披露：collect_health 标记 error/disabled 但未在 KPI 展示的指标，显示灰态卡片而非静默隐藏。
   // 研究工具立身之本——用户必须知道哪些指标当前采集异常（数据源中断），诚信 > 美观。
   const _DISABLED_METRIC_NAMES = {
-    a_fund_main: "主力净流入", a_width_zb_count: "炸板数", a_width_seal_rate: "封板率", a_width_fengban_rate: "封板率",
+    a_fund_main: "主力净流入", a_width_zhaban_rate: "炸板率", a_width_zb_count: "炸板数", a_width_seal_rate: "封板率", a_width_fengban_rate: "封板率",
     a_turnover_mean: "换手率均值", a_turnover_median: "换手率中位数", a_turnover_p90: "换手率90分位",
     a_turnover_p10: "换手率10分位", a_turnover_gt5_pct: "换手率>5%占比",
   };
@@ -3188,7 +3188,7 @@ async function renderOverview() {
   const _KPI_BASE_ORDER = {
     a_width_up_count: 1, a_width_down_count: 2, a_width_zt_count: 3, a_width_dt_count: 4, a_width_zhaban_rate: 5,
     a_amount: 6, a_volume_ratio: 7, a_sentiment: 8, cross_market: 9, fear_greed: 10, a_fund_margin: 11, a_fund_north: 12,
-    a_width_zb_count: 13, a_width_seal_rate: 14, a_width_fengban_rate: 14, a_fund_main: 15, a_turnover_mean: 16, a_turnover_median: 17,
+    a_width_zhaban_rate: 13, a_width_seal_rate: 14, a_width_fengban_rate: 14, a_fund_main: 15, a_turnover_mean: 16, a_turnover_median: 17,
     a_turnover_p90: 18, a_turnover_p10: 19, a_turnover_gt5_pct: 20,
   };
   const _kpiIsAbnormal = (k) => {
@@ -4919,7 +4919,7 @@ async function renderAStock(container = content) {
   const snap = state.intradaySnapshot;
   container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:A股全景指标:涨停连板(打板情绪)+涨跌家数(市场广度)+资金面(北向/融资/主力)+波动率/换手率(活跃度)。综合判断A股冷热。</div>');
   const groups = {
-    "涨停/跌停/连板/炸板数": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban", "a_width_zb_count"],
+    "涨停/跌停/连板/炸板率": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban", "a_width_zhaban_rate"],
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
     "资金面": ["a_fund_north", "a_fund_margin", "a_fund_main", "a_amount"],
     "情绪指数（波指/换手率）": ["a_qvix_300", "a_qvix_1000", "a_turnover_rate"],
@@ -4937,7 +4937,7 @@ async function renderAStock(container = content) {
   };
   // 各分组序列短标签（标题后缀用，避免长名堆积）：id -> 短标签
   const groupLabels = {
-    "涨停/跌停/连板/炸板数": { a_width_zt_count: "涨停", a_width_dt_count: "跌停", a_width_max_lianban: "连板", a_width_zb_count: "炸板" },
+    "涨停/跌停/连板/炸板率": { a_width_zt_count: "涨停", a_width_dt_count: "跌停", a_width_max_lianban: "连板", a_width_zhaban_rate: "炸板率" },
     "市场宽度（涨跌家数）": { a_width_up_count: "涨", a_width_down_count: "跌" },
     "资金面": { a_fund_north: "北向", a_fund_margin: "融资", a_fund_main: "主力", a_amount: "成交" },
     "炸板率/封板率/打板溢价": { a_width_seal_rate: "封板率", a_width_fengban_rate: "封板", a_width_daban_premium: "打板" },

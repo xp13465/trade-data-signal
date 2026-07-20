@@ -180,7 +180,7 @@ KPI_METRIC_IDS = [
     "cn10y",                # 10年国债收益率
     "a_qvix_300",           # QVIX波动率
     "lhb_count",            # 龙虎榜数量
-    "a_width_zb_count",     # 炸板数（旧源 func=TODO 停7-16，待切 a_width_zhaban_rate，见#1）
+    "a_width_zhaban_rate",   # 炸板率（新源 mootdx derived，7-20有数据；旧 a_width_zb_count 数/旧源东财 stock_zt_pool_em 停7-16 已弃）
     "a_width_fengban_rate", # 封板率（新源 derived=1-炸板率，旧 a_width_seal_rate func=TODO 停7-16）
     "a_fund_main",          # 主力净流入
     "a_turnover_mean",      # 换手率均值
