@@ -6,11 +6,11 @@
 
 导出端点：
   - data/overview.json                 （今日快照 + 指数 sparkline + 宽度 + 分数 + 行业热力图 + 买卖点 + 冰点日）
-  - data/a-stock-{1m,3m,6m,1y,3y,5y,all}.json
-  - data/hk-{1m,3m,6m,1y,3y,5y,all}.json
-  - data/global-{1m,3m,6m,1y,3y,5y,all}.json
-  - data/sentiment-{1m,3m,6m,1y,3y,5y,all}.json
-  - data/industry-{1m,3m,6m,1y,3y,5y,all}.json
+  - data/a-stock-{3m,6m,1y,3y,5y,all}.json
+  - data/hk-{3m,6m,1y,3y,5y,all}.json
+  - data/global-{3m,6m,1y,3y,5y,all}.json
+  - data/sentiment-{3m,6m,1y,3y,5y,all}.json
+  - data/industry-{3m,6m,1y,3y,5y,all}.json
   - data/index/{index_id}-all.json     （44 个指数 ohlc + signals 全历史）
 
 range 处理方案（备注）：
@@ -42,7 +42,8 @@ STATIC_DIR = Path(__file__).absolute().parent
 DATA_DIR = STATIC_DIR / "data"
 INDEX_DIR = DATA_DIR / "index"
 
-RANGES = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
+# 1m 周期已废弃删除：前端 range 选项仅 3m/6m/1y/3y/5y/all（无 1m 按钮），1m JSON 无人 fetch（冗余）
+RANGES = {"3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
 ALL_RANGES = list(RANGES.keys()) + ["all"]
 
 
