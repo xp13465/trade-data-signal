@@ -1500,7 +1500,7 @@ async function fetchLabFusionMatrixData(idx) {
   if (!state.labFusionMatrixDataMap) state.labFusionMatrixDataMap = {};
   if (state.labFusionMatrixDataMap[idx]) return state.labFusionMatrixDataMap[idx];
   try {
-    state.labFusionMatrixDataMap[idx] = await fetchJSON("./data/lab/lab_backtest_fusion_" + idx + ".json");
+    state.labFusionMatrixDataMap[idx] = await fetchJSON("https://ssd.fx8.store/lab/lab_backtest_fusion_" + idx + ".json");
   } catch (e) {
     state.labFusionMatrixDataMap[idx] = null;
   }
@@ -1512,7 +1512,7 @@ async function fetchLabFusionMatrixData(idx) {
 async function fetchLabData() {
   if (state.labData) return state.labData;
   try {
-    state.labData = await fetchJSON("./data/lab/lab_backtest.json");
+    state.labData = await fetchJSON("https://ssd.fx8.store/lab/lab_backtest.json");
   } catch (e) {
     state.labData = null;
   }
@@ -1553,7 +1553,7 @@ async function fetchLabMatrixData(idx) {
   if (!state.labMatrixDataMap) state.labMatrixDataMap = {};
   if (state.labMatrixDataMap[idx]) return state.labMatrixDataMap[idx];
   try {
-    state.labMatrixDataMap[idx] = await fetchJSON("./data/lab/lab_backtest_" + idx + ".json");
+    state.labMatrixDataMap[idx] = await fetchJSON("https://ssd.fx8.store/lab/lab_backtest_" + idx + ".json");
   } catch (e) {
     state.labMatrixDataMap[idx] = null;
   }
@@ -1588,7 +1588,7 @@ async function fetchLabSimData(index) {
   if (!state.labSimDataMap) state.labSimDataMap = {};
   if (state.labSimDataMap[index]) return state.labSimDataMap[index];
   try {
-    state.labSimDataMap[index] = await fetchJSON("./data/lab/lab_sim_" + index + "_stats.json");
+    state.labSimDataMap[index] = await fetchJSON("https://ssd.fx8.store/lab/lab_sim_" + index + "_stats.json");
   } catch (e) {
     state.labSimDataMap[index] = null;
   }
@@ -1602,7 +1602,7 @@ async function fetchLabFusionSimData(index) {
   if (!state.labSimFusionDataMap) state.labSimFusionDataMap = {};
   if (state.labSimFusionDataMap[index]) return state.labSimFusionDataMap[index];
   try {
-    state.labSimFusionDataMap[index] = await fetchJSON("./data/lab/lab_sim_" + index + "_fusion_stats.json");
+    state.labSimFusionDataMap[index] = await fetchJSON("https://ssd.fx8.store/lab/lab_sim_" + index + "_fusion_stats.json");
   } catch (e) {
     state.labSimFusionDataMap[index] = null;
   }
@@ -1634,7 +1634,7 @@ async function fetchLabFusionSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFusionFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("./data/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal);
+    const full = await fetchJSONProgress("https://ssd.fx8.store/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
@@ -1666,7 +1666,7 @@ async function fetchLabRetestData(index) {
   if (!state.labRetestDataMap) state.labRetestDataMap = {};
   if (state.labRetestDataMap[index]) return state.labRetestDataMap[index];
   try {
-    state.labRetestDataMap[index] = await fetchJSON("./data/lab/lab_retest_" + index + ".json");
+    state.labRetestDataMap[index] = await fetchJSON("https://ssd.fx8.store/lab/lab_retest_" + index + ".json");
   } catch (e) {
     state.labRetestDataMap[index] = null;
   }
@@ -1678,7 +1678,7 @@ async function fetchLabRetestData(index) {
 async function fetchLabRetestHonors() {
   if (state.labRetestHonors !== undefined) return state.labRetestHonors;
   try {
-    state.labRetestHonors = await fetchJSON("./data/lab/lab_retest_honors.json");
+    state.labRetestHonors = await fetchJSON("https://ssd.fx8.store/lab/lab_retest_honors.json");
   } catch (e) {
     state.labRetestHonors = null;
   }
@@ -1743,7 +1743,7 @@ async function fetchLabSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("./data/lab/lab_sim_" + index + "_full.json", onProgress, signal);
+    const full = await fetchJSONProgress("https://ssd.fx8.store/lab/lab_sim_" + index + "_full.json", onProgress, signal);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
