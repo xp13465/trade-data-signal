@@ -2474,3 +2474,58 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 - **P1（中收益低成本）**：④恢复演练脚本verify_backup.sh ⑤R2多版本保留（7日+4周+12月分层）⑥git gc（.git 1.1G->200M）
 - **P2按需**：trade_sim HTML 52MB迁R2（git gc后再评估，大概率不用）/data JSON迁R2（暂缓工作量大）
 - **skip**：增量备份（压缩后全量仅24MB收益锐减）/WAL改造（已在线热备最佳）/R2扩容（700MB远在10GB内）
+
+## §48 2026-07-20 晚续2：R2备份P0/P1全闭环 + C6预警条上线 + 角标修复 + 角标滞后调研 + trade_sim迁R2评估
+
+> §47 调研的 R2 方案今日实施 P0+P1 全闭环；综合AI风险预警 C6 预警条上线（§43/§47 设计落地）；汪汪队角标误判红 + KPI弹窗重复❓两 bug 修；角标滞后 + usdcnh 根因调研；trade_sim 迁 R2 评估结论=不迁。
+
+### 小节A：R2 备份优化 P0+P1 全闭环（commits 1a573c00 + 500b7338 + 0c22524f + git gc）
+- **P0-1 DB 备份压缩改传 .db.gz**（1a573c00）：backup_db.sh 产 .db.gz，upload_r2.py 上传压缩二进制。87MB->24MB 省 72%。
+- **P0-2 R2 清理改脚本侧分层替代 Dashboard lifecycle**：未配 R2 Dashboard lifecycle 规则，改 upload_r2.py `_prune_r2_backup` 三层清理（更可控，不依赖 Dashboard 手配）：backup/ 日备份 30 天 + weekly/ 周备份 28 天（4周）+ monthly/ 月备份 365 天（12月）。本地 backup_db.sh `RETAIN_DAYS=14` 不变（本地14天，R2 30天）。
+- **P0-3 备份失败邮件告警**（1a573c00）：复用 notify.py，backup_db.sh 失败发邮件（原仅日志无告警，静默丢备份风险消除）。
+- **P1-4 恢复演练 verify_backup.sh**（500b7338）：从 R2 拉备份解压，integrity 校验 + 行数对比，只读不改生产 DB。weekly/monthly 是归档层不参与每日演练。
+- **P1-5 R2 多版本保留分层**（0c22524f）：日备份成功后调 `_maybe_upload_weekly`（本周首次 ISO week）+ `_maybe_upload_monthly`（本月首次 year+month）上传周月副本，复用日备份 payload 不重复传。周号用 isocalendar，月号用 year+month，节假日顺延到本周/月首次交易日。防长期损坏无历史回溯。
+- **P1-6 git gc**：.git 1.1G->136M（松散 925MB 未 gc 积压清理）。
+- **状态**：R2 P0×3 + P1×3 全闭环。P2 按需（见小节G trade_sim 评估=不迁 / data JSON 暂缓）。
+
+### 小节B：综合AI风险预警 C6 预警条上线（commit 64781e61）
+- **后端** `scripts/export_alert.py`（284行）：复用 alert_score.is_overheat/is_freeze/components 算每日 high_alert/low_alert 入库 score_daily；导出 `alert.json`（总分+等级+触发维度 TopN+原因文案+近期预警历史）；支持 `--backfill` 历史回填。
+- **挂载** update_all.sh 末尾（intraday 后），失败不阻塞主流程。
+- **前端** app.js `renderAlertBar` 首页预警条：high>=72 红/low>=85 蓝，可折叠命中维度，可关闭。style.css `.alert-bar` 渐变+移动端适配。
+- **历史回填** 2744 日（2016 至今）入库 5488 行。
+- **阈值** 72/85 保持不改（§47 小节A2 评估结论：调高过拟合 + 2026 高频是有效预警）。
+- **闭环**：§43 设计 + §47 回测 + 本节上线，P1->P2->P4 中 P2（预警条）完成，P4（交互式自定义分析）远期。
+
+### 小节C：角标修复两 bug（commits d85c0393 + d0daf021）
+- **汪汪队角标误判红**（d85c0393）：app.js L3574/3588 角标判断用 `etf` 字段（份额数据）误判，改读 `t1`/`etf_date`（真实采集日期）。spark-foot CSS L711/2087 加 `padding-right` 防角标压文字。
+- **KPI 弹窗删重复无 hover ❓**（d0daf021）：app.js:1625 `textContent` 改 `stripHtml` 去 `term-tip` span。原 2 个重复❓无 hover 提示（冗余），去 span 后干净。
+
+### 小节D：角标滞后 + usdcnh 根因调研（只读，未改代码）
+- **角标滞后主线**：东财多接口被封 IP（限流），致部分指标角标显滞后。
+- **usdcnh 误报**：数据实际好（7-20=679.48 已采集），collect_health 误报不健康。
+- **根因**：main.py:351 collect_health 聚合所有非 ok 行（含非致命的 usdcnh 源失败）误报整体不健康。usdcnh 源（currency_boc_sina 中行外汇牌价）周一偶发采集滞后，靠 20:09 backfill 兜底补当日。
+- **结论**：usdcnh 非数据缺失是 collect_health 误报 + 源偶发滞后；角标滞后是多源（东财封IP）综合问题。修复见小节E（进行中）。
+
+### 小节E：角标滞后修复 5 项（进行中，agent a510121e）
+- #1 炸板封板字段迁移（数->率语义）
+- #2 usdcnh 清源聚合（主源 currency_boc_sina 稳定 + 误报修）
+- #3 换手率 deadline（角标时效判断）
+- #4 美股道指跨市场（角标归属）
+- #5a etf_date 取真实日期（非 etf 字段）
+- #5b ETF 份额换源调研（进行中，东财封 IP 后备源）
+- 验收：5 项完成后各角标显当日真实采集状态，collect_health 不再误报。
+
+### 小节F：daily_summary_email.py 每日收盘情绪速递邮件（commit 9ce7e897）
+- 新增 `scripts/daily_summary_email.py`：每日收盘后发情绪速递邮件（收盘小结+情绪分+预警+关键指标）。复用 email.json 渠道。
+
+### 小节G：trade_sim 迁 R2 评估结论 = 不迁
+- **现状**：trade_sim 是 `static-site/trade_sim_*.html` 共 94 个散文件，总 51M（非单个 52MB 文件），最大 1.5M（trade_sim_sz.html），均 <1.5M。
+- **git gc 后**：.git 136M（已从 1.1G 瘦身），git 仓库本身不臃肿。
+- **static-site 构成**：总 298M，其中 data 244M（正常上线数据产物，已按需分文件）+ trade_sim 51M + 其余。瓶颈在 data 非 trade_sim。
+- **结论：不迁 R2**。理由：
+  1. .git gc 后已 136M，git 层面无需迁（原担忧是 .git 1.1G 臃肿，已根治）
+  2. trade_sim 是 94 个独立小 html（均 <1.5M），非单一大文件，git diff/版本管理友好
+  3. 是上线内容（static-site/ 前端直接访问），迁 R2 需改前端访问路径+增外部依赖，收益小复杂度增
+  4. 主站 CF Workers 已 br 压缩（§45），1.5M html 压后 ~200K，传输非瓶颈
+  5. 真要瘦身应优先评估 static-site/data 大 JSON（244M）迁 R2，非 trade_sim（51M）
+- **P2-7 关闭**（评估结论=不迁）。P2-8 data JSON 迁 R2 暂缓（工作量大，现 CF 缓存分层已够用）。

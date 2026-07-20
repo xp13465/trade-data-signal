@@ -10,6 +10,41 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 > ⚠ 开工先看 `data/alerts/latest.md` 是否有未处理严重告警，有则优先排查。
 
+## 交接状态（2026-07-20 晚续2，R2 P0/P1闭环 + C6预警条 + 角标修复 + trade_sim评估）
+
+> §47 R2 调研今日实施 P0+P1 全闭环；C6 预警条上线；角标两 bug 修；角标滞后+usdcnh 调研；trade_sim 迁R2 评估=不迁。详见 `NOTES.md §48`。
+
+### ✅ 已完成（6 commit）
+1. **R2 备份 P0+P1 全闭环**（1a573c00 + 500b7338 + 0c22524f + git gc）：P0-1 .db.gz 压缩 87->24M / P0-2 脚本侧分层清理替代 Dashboard lifecycle（backup/30+weekly/28+monthly/365）/ P0-3 备份失败邮件告警 / P1-4 verify_backup.sh 恢复演练 / P1-5 多版本分层 / P1-6 git gc（.git 1.1G->136M）。
+2. **C6 预警条上线**（64781e61）：export_alert.py 算每日预警分入库 score_daily + 导出 alert.json + app.js renderAlertBar 首页预警条（high>=72红/low>=85蓝）+ 历史回填 5488 行。阈值 72/85 保持（§47 小节A2）。
+3. **汪汪队角标误判红修复**（d85c0393）：app.js L3574/3588 etf->t1/etf_date + spark-foot CSS padding-right 防压文字。
+4. **KPI 弹窗删重复❓**（d0daf021）：app.js:1625 textContent->stripHtml 去 term-tip span。
+5. **daily_summary_email.py 收盘速递邮件**（9ce7e897）：复用 email.json 渠道。
+6. **trade_sim 迁 R2 评估**（结论=不迁，见 NOTES §48 小节G）：94 散文件共 51M，.git gc 后 136M 不臃肿，主站 CF Workers 已 br 压缩，无需迁。
+
+### 🔄 进行中
+- **角标滞后修复 5 项**（agent a510121e，见 NOTES §48 小节E）：#1 炸板封板字段迁移 / #2 usdcnh 清源聚合 / #3 换手率 deadline / #4 美股道指跨市场 / #5a etf_date 取真实日期。验收：各角标显当日真实采集状态，collect_health 不再误报。
+- **#5b ETF 份额换源调研**（进行中）：东财封 IP 后备源调研。
+- **D10 邮件速递接入**（进行中）：daily_summary_email.py 已建，接入定时/内容调优中。
+
+### 🔴 近期
+- **#1 炸板语义确认**（数->率）：角标修复 #1 配套，确认炸板字段从个数改率后语义一致。
+- **usdcnh 7-27 周一验证**：currency_boc_sina 主源稳定后，2026-07-27 收盘后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 `extras.usdcnh` 末值含当日，无需手动 backfill（防复发）。
+- **端到端互斥验证**：周末补数据顺便，真跑两个 update_all 看第 2 个 fcntl --nb 跳过（8839300 互斥锁未真跑验过）。
+
+### 🟢 远期 / 搁置
+- **C7 P4 交互式自定义分析**：预警单标的分析（模糊匹配+4维度出分），远期。设计见 NOTES §43 + 下方「综合AI风险预警功能待办」P4 节。
+- **P2-5 app.js/lab.js 拆 chunk**：远期性能，现 CF br 压缩+defer 后可接受。
+- **百度推送效果验证**：搁置（用户 2026-07-14 定），后续有需要再启。
+- **trade_sim 迁 R2**：✅ 评估结论=不迁（已关闭，见 NOTES §48 小节G）。
+- **data JSON 迁 R2**：暂缓（工作量大，现 CF 缓存分层已够用）。
+
+### 下轮起点
+- 角标滞后修复 5 项完成后验收（agent a510121e 在跑）。
+- usdcnh 7-27 周一 curl 验证防复发。
+- R2 P0/P1 已全闭环，P2 按需（trade_sim 不迁 / data JSON 暂缓）。
+- C6 预警条已上线，下步观察线上预警准确性，P4 交互式分析远期。
+
 ## 交接状态（2026-07-13，盘中实时快照 P0 + 配色皮肤切换）
 
 > 本轮解决用户 P0 核心需求「最早看到最多数据」+ 站点配色优化。20 commit 全推 main。
@@ -827,23 +862,23 @@ P0 全 6 条已闭环（07-19 实施 + 07-20 核查线上生效）：grep 验收
 - R2优化+备份方案：本次仅调研（结论见 NOTES §47 小节B），P0 三件待用户确认实施，清单见下方「## R2优化+备份方案待办」节。
 - 域名策略已稳定（§45/§46），后续只在新增静态资源时同步 ss.fx8.store 引用。
 
-## R2优化+备份方案待办（调研见 NOTES §47 小节B，本次未实施，等用户定）
+## R2优化+备份方案待办（P0+P1 已全闭环 2026-07-20，详见 NOTES §48 小节A）
 
-> 2026-07-15 晚只读调研，P0 等用户确认后再实施。现状：R2两桶~700MB(免费10GB内)/本地14天/.git 1.1GB松散925MB未gc。DB压缩实测最优 .dump+gzip 13.8MB(17%)。
+> 2026-07-15 晚调研，2026-07-20 实施 P0×3 + P1×3 全闭环。.git gc 后 136M（原 1.1G）。DB 压缩实测最优 .dump+gzip 13.8MB(17%)，线上用 .db.gz 24MB(29%)。
 
-### P0（高收益低成本，待用户确认实施）
-1. **DB备份压缩改传 .db.gz**：87MB->24MB 省72%（upload_r2.py 改 gzip 二进制上传+下载侧解压）
-2. **R2 lifecycle 规则 backup/ 桶删 >7天**：Dashboard 5分钟配（替代脚本 _prune_r2_backup keep_days=7，省每次上传后 API 调用）
-3. **backup 失败邮件告警**：复用 notify.py（当前 backup_db.sh 失败仅日志无告警，静默丢备份风险）
+### P0（✅ 全 3 条已完成 2026-07-20）
+1. ✅ **DB备份压缩改传 .db.gz**（1a573c00）：87MB->24MB 省72%（backup_db.sh 产 .db.gz + upload_r2.py 上传压缩二进制）
+2. ✅ **R2 清理改脚本侧分层替代 Dashboard lifecycle**：未配 Dashboard 规则，改 upload_r2.py `_prune_r2_backup` 三层清理 backup/30+weekly/28+monthly/365（更可控，不依赖手配）
+3. ✅ **backup 失败邮件告警**（1a573c00）：复用 notify.py（backup_db.sh 失败发邮件，原仅日志无告警风险消除）
 
-### P1（中收益低成本）
-4. **恢复演练脚本 verify_backup.sh**：定期从 R2 拉备份恢复到临时 DB 验证完整性（防备份能传不能恢复）
-5. **R2 多版本保留分层**：7日+4周+12月（现仅7天滚动，长历史回溯无备份）
-6. **git gc**：.git 1.1G->200M（松散925MB 未 gc，commit 多积压）
+### P1（✅ 全 3 条已完成 2026-07-20）
+4. ✅ **恢复演练 verify_backup.sh**（500b7338）：R2 拉备份解压 integrity 校验+行数对比，只读不改生产 DB
+5. ✅ **R2 多版本保留分层**（0c22524f）：日30天+周4周+月12月（_maybe_upload_weekly/monthly 复用日 payload，ISO week/year+month，节假日顺延）
+6. ✅ **git gc**：.git 1.1G->136M（松散925MB 未 gc 积压清理）
 
 ### P2（按需）
-7. **trade_sim HTML 52MB 迁 R2**：git gc 后再评估（大概率不用，主站 CF Workers 已 br 压缩）
-8. **data JSON 迁 R2**：暂缓（工作量大，现 CF 缓存分层已够用）
+7. ✅ **trade_sim HTML 52MB 迁 R2**：评估结论=**不迁**（2026-07-20，见 NOTES §48 小节G）。94 散文件共 51M，.git gc 后 136M 不臃肿，主站 CF Workers 已 br 压缩，无需迁。
+8. ⏸️ **data JSON 迁 R2**：暂缓（工作量大，现 CF 缓存分层已够用）
 
 ### skip（调研后排除）
 - 增量备份：压缩后全量仅24MB，收益锐减
