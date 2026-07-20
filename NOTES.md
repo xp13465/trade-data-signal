@@ -2687,6 +2687,6 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 - `alert_analyze_sw_801080.json`：SW 电子 high=38.78/low=59.17。
 - `alert_analyze_sh.json`：error JSON（前端容错显示"数据不足"）。
 
-**待办**（非阻塞）：sh 上证指数在 `compute_target_dims` 内 rolling 报 `DataError: No numeric types to aggregate`，B1-B5 代码层 NA/object dtype 未处理，建议 `pd.to_numeric(..., errors='coerce')` 兜底。当前 error JSON 已上线，前端容错显示"数据不足"。
+**sh 上证指数 DataError 已修复**（2026-07-21，commit aa454dad，根因+修复）：`_compute_rsi` L340 `avg_loss.replace(0, pd.NA)` 把 float64 转 object（pd.NA 混入 float 列致 dtype 变 object），sh 8685 天最长数据多触发 NA 混入，其他指数数据短没触发。修复：`_compute_rsi` 改 `np.nan`（不转 object）+ `_rolling_pct`/`_rolling_sum_pct` 加 `pd.to_numeric(..., errors='coerce')` 兜底（5 处）。TestClient 验证 sh high=26.54/low=86.4/high_level=中性/low_level=机会，export 40 ok 0 err（之前 39ok+1err），39 个回归 high/low 完全一致。线上 `alert_analyze_sh.json` 已上线（high=26.54/low=86.4/error=None）。
 
 **git**：a241d1f1（后端 feat）+ cc3959da（后端 data deploy）+ 9a0648cb（前端 feat）+ 6cc800f5（前端 data deploy），feat/main 已同步 6cc800f5。根 data/ 未 add（signal_stats.json/sw_components.json 本地 M）。
