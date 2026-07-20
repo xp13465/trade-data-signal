@@ -748,22 +748,22 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 > 2026-07-19 资深 PM 视角评估站点 s.sugas.site，8 维度报告（定位/信息架构/核心功能/内容可信度/UX/获客留存/商业化/技术性能）。详见 `NOTES.md §40`。用户定先做 P0，6 条 P0 正在实施（p0-main agent 做 P0-1/2/3/4/5，p0-about agent 做 P0-6），P1/P2 待办。本节为评估落档，非代码迭代。
 
-### P0（进行中，6 条）
-1. **数据残缺静默隐藏** → KPI 灰态显示「采集异常（数据源中断）」诚信披露。8 项指标采集异常 `collect_health=error`（主力净流入 / 换手率分布 5 项 / 炸板数 / 封板率），`app.js:1674` 隐藏 → 改灰态披露（最大风险项）。
-2. **6 宽基共振冰点未首屏突出**（7-17 全 11-18 分）→ summary-banner 加聚合（≥3 宽基冰点转红 +「N/6 宽基进入冰点区，近 X 月首次」）。
-3. **信号 reason 过长 markPoint 显示不全** → 主标签（如「拐点·盈亏+2.3%」）+ 完整 reason 收 hover/弹窗。
-4. **buy/sell/止盈/买点失败 标签指令语义** → 中性「超卖拐点标注 / 趋势转弱标注 / 相对前拐点+2.3%」（对齐 §37 合规去荐股化）。
-5. **期货持仓无主导航入口**（`renderFuturesSection` 存在 `app.js:5112` 但无独立 tab）→ 指数表现加期货二级 subtab。
-6. **about.html「策略回测为核心」与首屏矛盾** → 改「情绪复盘为核心 / 策略实验为进阶」。
+### P0（实施中，6 条；2026-07-19 核查实际状态）
+1. ✅ **数据残缺静默隐藏**（commit 8ce7385）-> KPI 灰态显示「采集异常（数据源中断）」诚信披露。overview collect_health 全清（8->0），灰卡角标 min JS 上线。
+2. 🔄 **6 宽基共振冰点未首屏突出**（7-17 全 11-18 分）-> summary-banner 加聚合（≥3 宽基冰点转红 +「N/6 宽基进入冰点区，近 X 月首次」）。- P0 agent 实施中
+3. 🔄 **信号 reason 过长 markPoint 显示不全** -> 主标签（如「拐点·盈亏+2.3%」）+ 完整 reason 收 hover/弹窗。- P0 agent 实施中
+4. 🔄 **buy/sell/止盈/买点失败 标签指令语义** -> 中性「超卖拐点标注 / 趋势转弱标注 / 相对前拐点+2.3%」（对齐 §37 合规去荐股化）。- P0 agent 实施中
+5. 🔄 **期货持仓无主导航入口**（`renderFuturesSection` 存在 `app.js:5112` 但无独立 tab）-> 指数表现加期货二级 subtab。- P0 agent 实施中
+6. 🔄 **about.html「策略回测为核心」与首屏矛盾** -> 改「情绪复盘为核心 / 策略实验为进阶」。- 主体已 commit e4f2be6，P0-about agent 后续打磨中
 
-### P1（待办，7 条）
-1. 北向资金 2024-08 停更图加水印（标注数据停更，避免误读为实时）。
-2. industry-5y.json 14.8MB 按行业拆分（对齐 industry-all 拆 31 行业既有方案）。
-3. 缓存分层（历史长 1-6h · overview 短 60s · JS immutable 1 年）—— 依赖服务器可改性（见 NOTES §21）。
-4. 邮件 RSS 每日收盘情绪速递（复用 `config/email.json` 通道）。
-5. 汪汪队 termTip 首次解释（国家队 ETF 术语首次出现弹解释卡）。
-6. 凯利 f 值 C 端隐藏改「历史回测正期望强度」（凯利公式过专业，改中性描述）。
-7. 指数表现 vs 情绪温度 tab 边界厘清（两 tab 内容重叠易混）。
+### P1（2026-07-19 核查实际状态：5✅ + 1⏸️搁置 + 1部分完成）
+1. ✅ 北向资金 2024-08 停更图加水印（commit 39a1e7e）- `app.js:3078` 恢复显示末日值 + `stale-watermark` 半透明「数据停更」叠卡片中部（pointer-events 穿透），`app.js:2007` 北向 chip 标「⚠ 停更·末日」。
+2. ✅ industry-5y.json 14.8MB 按行业拆分（commit 613b769）- 删 industry-5y.json 遗留 14M，5y 改用 industry-5y-indices/ 拆分目录（对齐 industry-all 31 行业方案）。
+3. ⏸️ 缓存分层（历史长 1-6h · overview 短 60s · JS immutable 1 年）- 搁置。MaoziYun 静态站 `_headers` 不生效（§21），全 max-age=1200 不可分层；本地 FastAPI 中间件（commit 22da604）已实现版本化资源 immutable 但线上静态部署不走 FastAPI 不生效。待迁移 CF Workers 可落地。
+4. 🔶 邮件 RSS 每日收盘情绪速递 - 部分完成。RSS ✅ commit c736e80（`gen_rss.py` 读 summary_history 生成 `static-site/data/feed.xml`，deploy.sh 每次部署刷新，footer RSS 入口）；邮件每日推送 ❌ 未做（`check_signals.py` 只发买卖点信号邮件 / `notify.py` 发监控告警，无读 summary 发「每日收盘情绪速递」邮件脚本，待复用 config/email.json 实现）。
+5. ✅ 汪汪队 termTip 首次解释（commit 39a1e7e）- `app.js:3511` 复用 showIntroOnce 弹「🐶 汪汪队是什么」解释卡，localStorage[nt_intro_done] 标记后不再弹。
+6. ✅ 凯利 f 值 C 端隐藏改「历史回测正期望强度」（commit 0911319）- `lab.js` 凯利 f 值改称「历史回测正期望强度」（如 18.3%->43.3%）。注：`app.js` 主项目买卖点信号回测 tips 另保留凯利公式折叠教学（`<details>` 默认折叠 + 研究参考定位），非本条范围。
+7. ✅ 指数表现 vs 情绪温度 tab 边界厘清（commit 2770086）- 两 tab 顶部加 purpose-note 互链引导（`app.js:1724` tab 互链引导复用顶部 tab 按钮 onclick 切换）。
 
 ### P2（待办，5 条）
 1. 首次 onboarding 3 步（看情绪分 → 看冰点共振 → 看策略实验室）。
