@@ -324,7 +324,7 @@ const _INDEX_NAME_MAP = {
   // 全球指标
   cn10y: '中国10年国债', us10y: '美国10年国债', wti_oil: 'WTI原油',
   comex_silver: 'COMEX白银', gold: '伦敦金', oil: '原油', usdcnh: '美元/离岸人民币',
-  a_qvix_300: '中国波指300', a_qvix_1000: '中国波指1000', cn_us_spread: '中美利差',
+  a_qvix_300: '中国波指300', a_qvix_1000: '中国波指(50ETF期权)', cn_us_spread: '中美利差',
   // 综合情绪
   cross_market: '跨市场综合分', a_sentiment: 'A股综合情绪分',
   sentiment_sz50: '上证50情绪分', sentiment_hs300: '沪深300情绪分',
@@ -4827,7 +4827,7 @@ async function renderAStock(container = content) {
     "市场宽度（涨跌家数）": { a_width_up_count: "涨", a_width_down_count: "跌" },
     "资金面": { a_fund_north: "北向", a_fund_margin: "融资", a_fund_main: "主力", a_amount: "成交" },
     "炸板率/封板率/打板溢价": { a_width_seal_rate: "封板率", a_width_fengban_rate: "封板", a_width_daban_premium: "打板" },
-    "情绪指数（波指/换手率）": { a_qvix_300: "波指300", a_qvix_1000: "波指1000", a_turnover_rate: "换手" },
+    "情绪指数（波指/换手率）": { a_qvix_300: "波指300", a_qvix_1000: "波指50ETF", a_turnover_rate: "换手" },
     "换手率分布分位数（%，BaoStock 全市场）": { a_turnover_mean: "均值", a_turnover_median: "中位", a_turnover_p90: "P90", a_turnover_p10: "P10" },
     "换手率>5%家数占比（0-1，活跃度分化）": { a_turnover_gt5_pct: ">5%占比" },
     "股息率": { a_div_yield: "股息率" },
@@ -5054,7 +5054,7 @@ async function renderGlobal(container = content) {
     comex_silver: "COMEX白银（美元/盎司）",
     usdcnh: "离岸人民币",
     a_qvix_300: "中国波指300",
-    a_qvix_1000: "中国波指1000",
+    a_qvix_1000: "中国波指(50ETF期权)",
     cn10y: "中国10年国债收益率（%）",
     us10y: "美国10年国债收益率（%）",
     cn_us_spread: "中美利差(10Y)（%）",
@@ -5065,8 +5065,8 @@ async function renderGlobal(container = content) {
   const extrasStrategy = r.extras_strategy || {};
   // 全球 extras 黑话解释（QVIX/国债/利差等专业术语）
   const extrasTermTips = {
-    a_qvix_300: "中国波指(50ETF期权隐含波动率),类似美股VIX恐慌指数。飙升=市场恐慌预期升,低位=情绪平稳。T+1。",
-    a_qvix_1000: "中国波指(300ETF/1000ETF期权隐含波动率),类似美股VIX恐慌指数。飙升=市场恐慌预期升,低位=情绪平稳。T+1。",
+    a_qvix_300: "中国波指(300ETF期权隐含波动率),类似美股VIX恐慌指数。飙升=市场恐慌预期升,低位=情绪平稳。T+1。",
+    a_qvix_1000: "中国波指(50ETF期权隐含波动率),类似美股VIX恐慌指数。飙升=市场恐慌预期升,低位=情绪平稳。T+1。",
     cn_us_spread: "中国10年国债收益率-美国10年国债收益率。为负=美债收益更高,资金倾向流向美国;走扩/收窄影响人民币汇率与跨境资金。",
     us10y: "美国10年国债收益率,全球资产定价锚。上升常压制成长股/黄金,关注其拐点。T+1(常停T-3)。",
   };
