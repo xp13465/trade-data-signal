@@ -7061,7 +7061,7 @@ function drawShareCard(r, futures) {
     const top5 = heat.slice(0, 5);
     const bot5 = heat.slice(-5).reverse();
     const colW = (W - 120 - 30) / 2;
-    const itemH = 26;
+    const itemH = 30;
     const drawCol = (items, cx, label, color) => {
       ctx.fillStyle = color; ctx.font = "bold 22px 'PingFang SC',sans-serif";
       ctx.fillText(label, cx, y);
