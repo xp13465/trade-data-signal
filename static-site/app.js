@@ -1412,6 +1412,14 @@ const KPI_HISTORY_SOURCE = {
   a_amount:            { src: "astock" },
   a_fund_margin:       { src: "astock" },
   lhb_count:           { src: "astock" },
+  a_width_zb_count:    { src: "astock" },
+  a_width_seal_rate:   { src: "astock" },
+  a_fund_main:         { src: "astock" },
+  a_turnover_mean:     { src: "astock" },
+  a_turnover_median:   { src: "astock" },
+  a_turnover_p90:      { src: "astock" },
+  a_turnover_p10:      { src: "astock" },
+  a_turnover_gt5_pct:  { src: "astock" },
   // 量比 -> volume_ratio.json（单一文件，客户端按 period 过滤）
   a_volume_ratio: { src: "volume_ratio" },
   // 全球指标 -> global-extras-all.json extras[kpiId]
@@ -3030,15 +3038,23 @@ async function renderOverview() {
     if (m.value == null) return "-";
     const v = m.value;
     switch (m.id) {
-      case "a_width_zhaban_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
+      case "a_width_zhaban_rate":
+      case "a_width_seal_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
       case "a_width_zt_count":
       case "a_width_dt_count":
       case "a_width_up_count":
-      case "a_width_down_count": return v.toFixed(0);
+      case "a_width_down_count":
+      case "a_width_zb_count": return v.toFixed(0);
       case "a_amount":
       case "a_fund_margin": return v.toFixed(0);
-      case "a_fund_north": return (v >= 0 ? "+" : "") + v.toFixed(1);
+      case "a_fund_north":
+      case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1);
       case "a_volume_ratio": return v.toFixed(2) + "x";
+      case "a_turnover_mean":
+      case "a_turnover_median":
+      case "a_turnover_p90":
+      case "a_turnover_p10": return v.toFixed(2) + "%";
+      case "a_turnover_gt5_pct": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
       default: return v.toFixed(2);
     }
   };
@@ -3106,6 +3122,8 @@ async function renderOverview() {
   const _KPI_BASE_ORDER = {
     a_width_up_count: 1, a_width_down_count: 2, a_width_zt_count: 3, a_width_dt_count: 4, a_width_zhaban_rate: 5,
     a_amount: 6, a_volume_ratio: 7, a_sentiment: 8, cross_market: 9, fear_greed: 10, a_fund_margin: 11, a_fund_north: 12,
+    a_width_zb_count: 13, a_width_seal_rate: 14, a_fund_main: 15, a_turnover_mean: 16, a_turnover_median: 17,
+    a_turnover_p90: 18, a_turnover_p10: 19, a_turnover_gt5_pct: 20,
   };
   const _kpiIsAbnormal = (k) => {
     if (k.tag === "冰点" || k.tag === "过热") return true;          // 情绪温度计极值
@@ -3168,7 +3186,7 @@ async function renderOverview() {
     const _kpiTips = {
       a_fund_north: "北向资金=借沪深股通买A股的外资。净流入=外资净买入。2024-08起停更,保留历史。",
       a_fund_margin: "沪市融资余额=借钱买A股的杠杆资金。增加=杠杆做多情绪升。T+1。",
-      a_fund_main: "主力净流入=大单买入-卖出。正值=大资金净买入,负值=净卖出。",
+      a_fund_main: "主力净流入=大单资金净买入。正值=主力流入做多。",
       a_amount: "沪深京A股成交额。放量=交投活跃,缩量=清淡。",
       a_volume_ratio: "当日成交额/前5日均量。>1.5倍放量,<0.7倍缩量。",
       fear_greed: "综合5类市场情绪等权算的0-100温度计。≤25极度恐惧、≥75极度贪婪。作逆向参考。",
@@ -3187,6 +3205,13 @@ async function renderOverview() {
       cn10y: "10年期国债收益率=无风险利率基准,上行=资金偏紧。",
       a_qvix_300: "沪深300期权隐含波动率,类似美国VIX,高=预期大波动。",
       lhb_count: "当日上龙虎榜的个股数,多=游资活跃。",
+      a_width_zb_count: "炸板数=收盘未封住的涨停数。高=打板情绪转弱。",
+      a_width_seal_rate: "封板率=涨停/(涨停+炸板)。高=打板成功率高。",
+      a_turnover_mean: "全市场换手率均值。高=交投活跃。",
+      a_turnover_median: "换手率中位数。比均值抗极端值,反映典型活跃度。",
+      a_turnover_p90: "换手率90分位。最活跃的10%个股换手水平。",
+      a_turnover_p10: "换手率10分位。最不活跃的10%个股换手水平。",
+      a_turnover_gt5_pct: "换手率>5%家数占比。高=市场活跃面广。",
     };
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];

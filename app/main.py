@@ -181,6 +181,14 @@ KPI_METRIC_IDS = [
     "cn10y",                # 10年国债收益率
     "a_qvix_300",           # QVIX波动率
     "lhb_count",            # 龙虎榜数量
+    "a_width_zb_count",     # 炸板数
+    "a_width_seal_rate",    # 封板率
+    "a_fund_main",          # 主力净流入
+    "a_turnover_mean",      # 换手率均值
+    "a_turnover_median",    # 换手率中位数
+    "a_turnover_p90",       # 换手率90分位
+    "a_turnover_p10",       # 换手率10分位
+    "a_turnover_gt5_pct",   # 换手率>5%占比
 ]
 # sparkline 网格所需指数（按展示顺序）
 SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech"]

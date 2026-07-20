@@ -87,6 +87,14 @@ KPI_METRIC_IDS = [
     "cn10y",
     "a_qvix_300",
     "lhb_count",
+    "a_width_zb_count",
+    "a_width_seal_rate",
+    "a_fund_main",
+    "a_turnover_mean",
+    "a_turnover_median",
+    "a_turnover_p90",
+    "a_turnover_p10",
+    "a_turnover_gt5_pct",
 ]
 SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech"]
 
