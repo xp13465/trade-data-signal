@@ -7054,9 +7054,10 @@ function drawShareCard(r, futures) {
 
   // === ★ 行业涨跌 Top5(领涨/领跌双列横条) ===
   const drawIndustryBar = (y) => {
+    y += 6; // 上填充:与上方期货表"国君"行拉开间距(原仅约5px,显挤)
     ctx.fillStyle = C.text2; ctx.font = "26px 'PingFang SC',sans-serif";
     ctx.fillText("行业涨跌 Top5", 60, y);
-    y += 20;
+    y += 30; // 下填充:与子标题"领涨/领跌 Top5"拉开,消除文字重叠(原20致标题底与子标题顶重叠约3px)
     const heat = (r.industry_heatmap || []).slice().sort((a, b) => (b.pct_1d || 0) - (a.pct_1d || 0));
     const top5 = heat.slice(0, 5);
     const bot5 = heat.slice(-5).reverse();
