@@ -172,5 +172,9 @@ else
   "$PY" "$REPO/scripts/notify.py" "[完成]update_all" "$NOTIFY_BODY" || true
 fi
 
+# 每日 DB 热备 + R2 异地备份（update_all 跑完后 DB 已是最新，此时备份最稳）。
+# 失败不影响 update_all 退出码（RC_CORE 保持看板状态）。
+bash "$REPO/scripts/backup_db.sh" || echo "⚠ backup_db 失败(不影响update_all) rc=$?"
+
 # 退出码以 core 为准（核心看板公网状态）
 exit "$RC_CORE"

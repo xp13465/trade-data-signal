@@ -74,5 +74,16 @@ find "$BACKUP_DIR" -maxdepth 1 -name '*_*.db' -mtime "+${RETAIN_DAYS}" -print -d
 # 汇总当前备份数
 N=$(find "$BACKUP_DIR" -maxdepth 1 -name '*_*.db' 2>/dev/null | wc -l | tr -d ' ')
 echo "当前备份数：${N}（${BACKUP_DIR}）" | tee -a "$LOG"
+
+# R2 异地备份（异地防盘毁：本地盘毁则 DB 与本地备份同失，R2 是底线）。
+# 失败不影响本地备份退出码（RC 保持本地备份结果）。
+if [ -f "$REPO/scripts/upload_r2.py" ]; then
+  echo "-> 推 R2 异地备份 ..." | tee -a "$LOG"
+  "$PY" "$REPO/scripts/upload_r2.py" upload-db >> "$LOG" 2>&1 \
+    || echo "⚠ R2 上传失败(不影响本地备份) rc=$?" | tee -a "$LOG"
+else
+  echo "⚠ $REPO/scripts/upload_r2.py 不存在，跳过 R2 异地备份" | tee -a "$LOG"
+fi
+
 echo "=== backup_db.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$RC ===" | tee -a "$LOG"
 exit "$RC"

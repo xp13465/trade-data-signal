@@ -13,10 +13,25 @@ from urllib.parse import urlparse, quote
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def _find_env():
+    """按优先级找 .env：脚本所在 ROOT/.env -> $GIT_REPO/.env -> 默认 trade 仓库。
+    背景：launchd 实际在 trade-data/（运行副本）下跑，trade-data/.env 不存在，
+    需回退到 trade/.env（git 仓库，凭证源头）。"""
+    candidates = [ROOT / ".env"]
+    git_repo = os.environ.get("GIT_REPO")
+    if git_repo:
+        candidates.append(Path(git_repo) / ".env")
+    candidates.append(Path("/Users/linhuichen/code/trade/.env"))
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
 def load_env():
-    envf = ROOT / ".env"
-    if not envf.exists():
-        sys.exit(f"无 .env: {envf}")
+    envf = _find_env()
+    if envf is None:
+        sys.exit(f"无 .env: 尝试过 {[str(c) for c in [ROOT/'.env', Path(os.environ.get('GIT_REPO',''))/'.env'] if c]}")
     for line in envf.read_text().splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
@@ -138,6 +153,76 @@ def cmd_upload_lab():
     print(f"共上传 {ok}/{len(files)} -> {PUBLIC}/lab/")
 
 
+def _list_keys(prefix):
+    """list bucket 下 prefix 的对象 key 列表（list-type=2）。"""
+    import re
+    q = f"list-type=2&prefix={quote(prefix, safe='')}"
+    status, data = s3_request("GET", "", query=q)
+    if status != 200:
+        print(f"⚠ list prefix={prefix} 失败 status={status} {data[:200]}")
+        return []
+    text = data.decode("utf-8", errors="replace")
+    return re.findall(r"<Key>([^<]+)</Key>", text)
+
+
+def _prune_r2_backup(keep_days=7):
+    """删 R2 backup/ 下日期 >keep_days 的 key（从 key 名解析 YYYYMMDD）。"""
+    import re, datetime as _dt
+    keys = _list_keys("backup/")
+    cutoff = _dt.datetime.now() - _dt.timedelta(days=keep_days)
+    deleted = 0
+    for key in keys:
+        m = re.search(r"(\d{8})\.db$", key)
+        if not m:
+            continue
+        try:
+            kd = _dt.datetime.strptime(m.group(1), "%Y%m%d")
+        except ValueError:
+            continue
+        if kd < cutoff:
+            st, _ = s3_request("DELETE", key)
+            if st == 204:
+                deleted += 1
+                print(f"  删除旧 {key}")
+            else:
+                print(f"  ⚠ 删除失败 {key} status={st}")
+    if deleted:
+        print(f"R2 清理 {deleted} 个 >{keep_days}天 旧备份")
+
+
+def cmd_upload_db():
+    """每日 DB 备份推 R2（异地防盘毁）+ 7天滚动清理。
+    sentiment.db -> backup/sentiment_YYYYMMDD.db
+    etf_national_team.db -> backup/etf_national_team_YYYYMMDD.db
+    DB 路径取 $REPO/data（与 backup_db.sh 一致，launchd 下 REPO=trade-data）。"""
+    import datetime as _dt
+    repo = Path(os.environ.get("REPO", str(ROOT)))
+    dbdir = repo / "data"
+    today = _dt.datetime.now().strftime("%Y%m%d")
+    targets = [
+        ("sentiment.db", "sentiment"),
+        ("etf_national_team.db", "etf_national_team"),
+    ]
+    ok = 0
+    for fname, name in targets:
+        src = dbdir / fname
+        if not src.exists():
+            print(f"⚠ {src} 不存在，跳过")
+            continue
+        key = f"backup/{name}_{today}.db"
+        payload = src.read_bytes()
+        status, data = s3_request("PUT", key, payload)
+        if status == 200:
+            ok += 1
+            print(f"✓ {fname} ({len(payload) // 1024}KB) -> {PUBLIC}/{key}")
+        else:
+            print(f"✗ {fname} status={status} {data.decode('utf-8', errors='replace')[:300]}")
+    _prune_r2_backup(keep_days=7)
+    print(f"DB 上传 {ok}/{len(targets)} -> R2 backup/ ({today})")
+    if ok != len(targets):
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "list":
@@ -146,5 +231,7 @@ if __name__ == "__main__":
         cmd_upload(sys.argv[2], sys.argv[3])
     elif cmd == "upload-lab":
         cmd_upload_lab()
+    elif cmd == "upload-db":
+        cmd_upload_db()
     else:
-        sys.exit("用法: upload_r2.py [list|upload-lab|upload <local> <key>]")
+        sys.exit("用法: upload_r2.py [list|upload-lab|upload-db|upload <local> <key>]")

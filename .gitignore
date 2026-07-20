@@ -43,3 +43,7 @@ static-site/*.map
 
 # R2 S3 凭证（敏感，不进 git）
 .env
+
+# launchd plists 本地加载不 commit（含机器绝对路径，每台不同）
+# 注：历史 plist 已 tracked，此规则防新增 plist 误入库
+scripts/plists/
