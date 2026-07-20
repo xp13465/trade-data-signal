@@ -2506,14 +2506,14 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 - **根因**：main.py:351 collect_health 聚合所有非 ok 行（含非致命的 usdcnh 源失败）误报整体不健康。usdcnh 源（currency_boc_sina 中行外汇牌价）周一偶发采集滞后，靠 20:09 backfill 兜底补当日。
 - **结论**：usdcnh 非数据缺失是 collect_health 误报 + 源偶发滞后；角标滞后是多源（东财封IP）综合问题。修复见小节E（进行中）。
 
-### 小节E：角标滞后修复 5 项（进行中，agent a510121e）
+### 小节E：角标滞后修复 5 项（✅ 已全闭环，详见小节H；commits 5cf9316b + d78c9a82 + 73848eed）
 - #1 炸板封板字段迁移（数->率语义）
 - #2 usdcnh 清源聚合（主源 currency_boc_sina 稳定 + 误报修）
 - #3 换手率 deadline（角标时效判断）
 - #4 美股道指跨市场（角标归属）
 - #5a etf_date 取真实日期（非 etf 字段）
-- #5b ETF 份额换源调研（进行中，东财封 IP 后备源）
-- 验收：5 项完成后各角标显当日真实采集状态，collect_health 不再误报。
+- #5b ETF 份额换源调研（✅ 已结论，纠正"东财被封"误判，真因=调度时点错配，详见小节H）
+- 验收：5 项已闭环，各角标显当日真实采集状态，collect_health 不再误报。
 
 ### 小节F：daily_summary_email.py 每日收盘情绪速递邮件（commit 9ce7e897）
 - 新增 `scripts/daily_summary_email.py`：每日收盘后发情绪速递邮件（收盘小结+情绪分+预警+关键指标）。复用 email.json 渠道。
@@ -2529,3 +2529,33 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
   4. 主站 CF Workers 已 br 压缩（§45），1.5M html 压后 ~200K，传输非瓶颈
   5. 真要瘦身应优先评估 static-site/data 大 JSON（244M）迁 R2，非 trade_sim（51M）
 - **P2-7 关闭**（评估结论=不迁）。P2-8 data JSON 迁 R2 暂缓（工作量大，现 CF 缓存分层已够用）。
+
+### 小节H：晚续3 角标修复 5 项全闭环 + ETF 份额停 7-17 调研纠正（2026-07-20，commits 5cf9316b + d78c9a82 + 73848eed）
+
+> 小节 E 5 项已全部闭环；小节 D "ETF 份额源疑似东财被封"判断纠正——份额主源是上交所+深交所官网，非东财，停 7-17 是调度时点错配非源坏。
+
+#### H.1 角标修复 5 项全闭环（小节 E 收尾）
+
+- **#1 封板率全套**（5cf9316b）：main.py:184 `a_width_seal_rate`->`a_width_fengban_rate` + app.js 卡片全套（L1414/1515/3107/3163/3191/3275）+ export.py 同步（d78c9a82）。
+- **#1 炸板数->炸板率**（73848eed）：main.py:183 `a_width_zb_count`->`a_width_zhaban_rate`（切新源 mootdx）+ app.js 卡片 4 处（L3163 名称 / L3191 序号 13 / L4922 分组 / L4940 简称）+ export.py:89 同步。KPI 卡第 13 位正确显示炸板率。
+- **#2 collect_health 取最新一条**（5cf9316b）：main.py:348-376 每个 metric_id 取最新状态，旧失败行不残留致误报（原 usdcnh 偶发失败行残留致整体显不健康）。
+- **#3 换手率 deadline/_kpiT1**（5cf9316b）：app.js L1912-1913 `T1_COLLECT_DEADLINE` 加换手率 5 项 + L3233 `_kpiT1` 加 `startsWith a_turnover_`（换手率 T+0 采，原走 T+1 误报滞后）。
+- **#4 美股 baseline 放宽**（5cf9316b）：app.js L1805 `getCardTimeBadge` 未过 16:35 放宽 baseline 到 `_prevTradingDay` + L2041 `_buildHealthSources` relax 同步（原 baseline=ptd 致美股 16:35 前误报滞后）。
+- **#5a etf_date 取 etf_daily MAX(date)**（5cf9316b + d78c9a82）：main.py:397-399 + export.py（`etf_national_team.db` 独立连接，main conn 连 sentiment.db 无此表）。角标显真实数据日 20260717，不再被 JSON `updated_at` 误导假绿。
+- **fetchers.py 移除 forex_hist_em**（5cf9316b）：usdcnh 已换源 `currency_boc_sina`（中行外汇牌价）完成，东财外汇接口断连残留清理。
+- **export.py 同步 overview**（d78c9a82）：export.py 独立复刻 overview（非 import main），同步 collect_health / etf_date / 封板率 3 处修复 + 重生 overview.json。
+- **角标滞后根因**：东财多接口被封 IP（`forex_hist_em`/`stock_zt_pool_em`）+ T+1 正常误报（deadline 配置缺口）+ 调度时点错配（见 H.2）。
+- **线上验证**：版本号 `app.min.js?v=be90399c` 生效；curl overview.json `a_width_zhaban_rate` value=0.4176 date=20260720 source=akshare，`zb_count` 已从 KPI 清除。
+
+#### H.2 ETF 份额停 7-17 调研结论（⚠️ 纠正"东财被封致 ETF 停"误判）
+
+- **之前误判**（小节 D/E）：ETF 份额源疑似东财 `fund_etf_fund_daily_em` 被封 IP。
+- **纠正**：份额主源是**上交所**（`query.sse.com.cn`，`ak.fund_etf_scale_sse`）+ **深交所**（`szse.cn`，`ak.fund_scale_daily_szse`）官网，**非东财**；东财该接口只取简称，未被封（HTTP 200）。被封的是 `push2his`（K 线，已 mootdx 替代）。
+- **真因**：调度时点错配——launchd `com.trade.etf-national-team.plist` 20:07 主槽 + 21:30 兜底槽，但上交所 7-20 发布晚于 21:30 槽 + 深交所 T+1，致 7-20 槽采不到 7-20 数据，角标显真实 7-17（非源坏）。
+- **方案 A 零改动 6 天回填**（用户选定）：`pipeline_daily` 近 5 日幂等回填，7-21 20:07 槽自动补 7-20，当日角标显真实 7-17（已改 #5a etf_date 取 etf_daily MAX，不再被 JSON `updated_at` 误导假绿）。
+- **换源不必要且无可靠替代源**：东财 `fund_etf_spot_em` 有"最新份额"但口径不一致（510300 东财 197 亿 vs 上交所 217 亿差 20 亿）不可替代；新浪 `hq.sinajs.cn` 只有行情无份额；基金公司官网连不上；mootdx 无份额。
+
+#### H.3 遗留（记档，不阻塞）
+
+- **L3189 `zhaban_rate:5` dead code**：被 L3191 `zhaban_rate:13` 覆盖（last wins=13，卡片第 13 位正确显示，功能正常）。前 agent（5cf9316b）加占位 5 + 这次（73848eed）切 13，重复键 code smell，未来清理时删 L3189。同列 L3192 `a_width_seal_rate: 14`（旧，已被 `a_width_fengban_rate: 14` 替换）属同类 dead code，一并清理。
+- **usdcnh 7-27 周一 curl 验证**：防复发，确认 `currency_boc_sina` 主源稳定（2026-07-27 周一留意）。

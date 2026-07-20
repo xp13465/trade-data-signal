@@ -10,6 +10,43 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 
 > ⚠ 开工先看 `data/alerts/latest.md` 是否有未处理严重告警，有则优先排查。
 
+## 交接状态（2026-07-20 晚续3，角标修复5项全闭环 + ETF份额停7-17调研纠正）
+
+> 小节E 角标修复 5 项全闭环（commits 5cf9316b + d78c9a82 + 73848eed）；小节D "ETF份额源疑似东财被封"判断纠正--份额主源是上交所+深交所官网，停7-17 是调度时点错配非源坏，方案A 零改动6天回填待 7-21 验证。详见 `NOTES.md §48 小节H`。
+
+### ✅ 已完成（3 commit，承接晚续2 角标修复 5 项闭环）
+1. **角标修复 #1 封板率全套**（5cf9316b）：main.py:184 `a_width_seal_rate`->`a_width_fengban_rate` + app.js 卡片全套（L1414/1515/3107/3163/3191/3275）+ export.py 同步（d78c9a82）。
+2. **角标修复 #1 炸板数->炸板率**（73848eed）：main.py:183 `a_width_zb_count`->`a_width_zhaban_rate`（切 mootdx 新源）+ app.js 卡片 4 处 + export.py:89。线上 `app.min.js?v=be90399c` 验证 `a_width_zhaban_rate`=0.4176 date=20260720，`zb_count` 已清除。
+3. **角标修复 #2 collect_health 取最新一条**（5cf9316b）：main.py:348-376 每个 metric_id 取最新状态，旧失败行不残留致误报。
+4. **角标修复 #3 换手率 deadline/_kpiT1**（5cf9316b）：app.js L1912-1913 `T1_COLLECT_DEADLINE` 加换手率 5 项 + L3233 `_kpiT1` 加 `startsWith a_turnover_`。
+5. **角标修复 #4 美股 baseline 放宽**（5cf9316b）：app.js L1805 `getCardTimeBadge` 未过 16:35 放宽 baseline 到 `_prevTradingDay` + L2041 `_buildHealthSources` relax 同步。
+6. **角标修复 #5a etf_date 取 etf_daily MAX(date)**（5cf9316b + d78c9a82）：main.py:397-399 + export.py 独立连接 `etf_national_team.db`。角标显真实 7-17，不再被 JSON `updated_at` 误导假绿。
+7. **fetchers.py 移除 forex_hist_em**（5cf9316b）：usdcnh 已换源 `currency_boc_sina`，东财外汇接口断连残留清理。
+8. **export.py 同步 overview**（d78c9a82）：export.py 独立复刻 overview，同步 collect_health/etf_date/封板率 3 处修复 + 重生 overview.json。
+9. **ETF 份额停 7-17 调研纠正**（只读调研）：份额主源=上交所 `query.sse.com.cn` + 深交所 `szse.cn`，**非东财**（东财该接口只取简称未被封）。真因=调度时点错配（上交所发布晚于 21:30 槽 + 深交所 T+1）。换源不必要且无可靠替代源。
+
+### 🔄 进行中 / 待验证
+- **ETF 份额方案 A 零改动 6 天回填**（待 7-21 验证）：`pipeline_daily` 近 5 日幂等回填，7-21 20:07 槽自动补 7-20 数据。当日角标显真实 7-17（非源坏），7-21 后角标应显 7-20。验收：7-21 收盘后 curl `overview.json` 确认 `etf_date`>=20260720。
+
+### 🔴 近期
+- **ETF 方案 A 验证**（7-21 收盘后）：见上"待验证"。
+- **usdcnh 7-27 周一 curl 验证**：`currency_boc_sina` 主源稳定后，2026-07-27 收盘后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 `extras.usdcnh` 末值含当日，无需手动 backfill（防复发）。
+- **端到端互斥验证**：周末补数据顺便，真跑两个 update_all 看第 2 个 fcntl --nb 跳过（8839300 互斥锁未真跑验过）。
+
+### 🟢 远期 / 搁置
+- **L3189 `zhaban_rate:5` dead code 清理**：被 L3191 `zhaban_rate:13` 覆盖（last wins=13，功能正常），同列 L3192 `a_width_seal_rate:14`（旧，已被 `a_width_fengban_rate:14` 替换）属同类 dead code。重复键 code smell，未来清理时一并删。见 NOTES §48 小节H.3。
+- **C7 P4 交互式自定义分析**：预警单标的分析（模糊匹配+4维度出分），远期。设计见 NOTES §43。
+- **P2-5 app.js/lab.js 拆 chunk**：远期性能，现 CF br 压缩+defer 后可接受。
+- **百度推送效果验证**：搁置（用户 2026-07-14 定），后续有需要再启。
+- **trade_sim 迁 R2**：✅ 评估结论=不迁（已关闭，见 NOTES §48 小节G）。
+- **data JSON 迁 R2**：暂缓（工作量大，现 CF 缓存分层已够用）。
+
+### 下轮起点
+- 7-21 收盘后验证 ETF 方案 A 6 天回填是否自动补 7-20 数据。
+- usdcnh 7-27 周一 curl 验证防复发。
+- R2 P0/P1 已全闭环，P2 按需（trade_sim 不迁 / data JSON 暂缓）。
+- C6 预警条已上线，下步观察线上预警准确性，P4 交互式分析远期。
+
 ## 交接状态（2026-07-20 晚续2，R2 P0/P1闭环 + C6预警条 + 角标修复 + trade_sim评估）
 
 > §47 R2 调研今日实施 P0+P1 全闭环；C6 预警条上线；角标两 bug 修；角标滞后+usdcnh 调研；trade_sim 迁R2 评估=不迁。详见 `NOTES.md §48`。
