@@ -3508,6 +3508,7 @@ function _renderLabSubNav() {
     { key: "scan", label: "信号扫描" },
     { key: "experiment", label: "信号实验" },
     { key: "retest", label: "🔬 二次测试实验" },
+    { key: "custom", label: "🎯 自定义分析" },
   ];
   const _SCAN_CHILDREN = ["ablation", "symmetry", "paramscan"];
   const _SCAN_CHILD_LABELS = { ablation: "🧩 信号拆解", symmetry: "⚖️ 多空对称", paramscan: "🎛 参数扫描" };
@@ -5670,7 +5671,8 @@ function _labParamScanChart(container, data, stratKey, idx) {
 async function renderSignalLab() {
   // 如果有选中的策略，进详情页（仅单一信号模式）
   if (state.labStrategy && state.labSubMode !== "fusion" && state.labSubMode !== "retest"
-      && state.labSubMode !== "ablation" && state.labSubMode !== "symmetry" && state.labSubMode !== "paramscan") {
+      && state.labSubMode !== "ablation" && state.labSubMode !== "symmetry" && state.labSubMode !== "paramscan"
+      && state.labSubMode !== "custom") {
     await renderLabDetail(state.labStrategy);
     return;
   }
@@ -5722,6 +5724,14 @@ async function renderSignalLab() {
   if (state.labSubMode === "paramscan") {
     await renderParamScanLab();
     _labSetHash("#lab?sub=paramscan");
+    _labRestoreScroll();
+    return;
+  }
+
+  // C7 P4-β: 自定义分析 -> 渲染情绪告警+维度拆解+历史类比分区
+  if (state.labSubMode === "custom") {
+    await renderCustomAnalyzeLab();
+    _labSetHash("#lab?sub=custom");
     _labRestoreScroll();
     return;
   }
@@ -5853,6 +5863,377 @@ async function renderSignalLab() {
   _labRestoreScroll();
 }
 
+// === C7 P4-β: 🎯 自定义分析 tab（情绪告警 + 8+8 维度拆解 + 历史类比 Top3 + 合规底栏）===
+// 数据源：static-site/data/alert_analyze_{iid}.json（40 个静态快照：9 宽基 + 31 申万行业）
+// 线上 MaoziYun 静态托管无后端，前端直接 fetch JSON；sh.json 是 error JSON，需容错显示"数据不足"
+
+// 40 个预生成 iid + 中文名（与 app/alert_match.py PREGEN_TARGETS 对齐）
+const _LAB_CUSTOM_BROAD = [
+  { iid: "sh", name: "上证指数" },
+  { iid: "sz", name: "深成指" },
+  { iid: "sz50", name: "上证50" },
+  { iid: "hs300", name: "沪深300" },
+  { iid: "csi500", name: "中证500" },
+  { iid: "csi1000", name: "中证1000" },
+  { iid: "cyb", name: "创业板指" },
+  { iid: "kc50", name: "科创50" },
+  { iid: "bj50", name: "北证50" },
+];
+const _LAB_CUSTOM_SW = [
+  { iid: "sw_801010", name: "SW 农林牧渔" }, { iid: "sw_801030", name: "SW 基础化工" },
+  { iid: "sw_801040", name: "SW 钢铁" }, { iid: "sw_801050", name: "SW 有色金属" },
+  { iid: "sw_801080", name: "SW 电子" }, { iid: "sw_801880", name: "SW 汽车" },
+  { iid: "sw_801110", name: "SW 家用电器" }, { iid: "sw_801120", name: "SW 食品饮料" },
+  { iid: "sw_801130", name: "SW 纺织服饰" }, { iid: "sw_801140", name: "SW 轻工制造" },
+  { iid: "sw_801150", name: "SW 医药生物" }, { iid: "sw_801160", name: "SW 公用事业" },
+  { iid: "sw_801170", name: "SW 交通运输" }, { iid: "sw_801180", name: "SW 房地产" },
+  { iid: "sw_801200", name: "SW 商贸零售" }, { iid: "sw_801210", name: "SW 社会服务" },
+  { iid: "sw_801780", name: "SW 银行" }, { iid: "sw_801790", name: "SW 非银金融" },
+  { iid: "sw_801230", name: "SW 综合" }, { iid: "sw_801710", name: "SW 建筑材料" },
+  { iid: "sw_801720", name: "SW 建筑装饰" }, { iid: "sw_801730", name: "SW 电力设备" },
+  { iid: "sw_801890", name: "SW 机械设备" }, { iid: "sw_801740", name: "SW 国防军工" },
+  { iid: "sw_801750", name: "SW 计算机" }, { iid: "sw_801760", name: "SW 传媒" },
+  { iid: "sw_801770", name: "SW 通信" }, { iid: "sw_801950", name: "SW 煤炭" },
+  { iid: "sw_801960", name: "SW 石油石化" }, { iid: "sw_801970", name: "SW 环保" },
+  { iid: "sw_801980", name: "SW 美容护理" },
+];
+
+// 取 lab.min.js 的 ?v= 版本号用于破 alert_analyze_*.json 缓存（与 lab-asset-url meta 同步）
+function _labCustomCacheBust() {
+  try {
+    const meta = document.querySelector('meta[name="lab-asset-url"]');
+    if (meta && meta.content) {
+      const m = String(meta.content).match(/[?&]v=([0-9a-f]+)/i);
+      if (m) return m[1];
+    }
+  } catch (e) {}
+  return Date.now().toString(36);
+}
+
+// 等级标签配色（按分值区间）
+function _labCustomLevelClass(score, direction) {
+  // direction: "high"=高位风险(分越高越危险) / "low"=低位机会(分越高越冷越有机会)
+  if (score == null || isNaN(score)) return "lvl-neutral";
+  if (direction === "high") {
+    return score >= 70 ? "lvl-danger" : score >= 50 ? "lvl-warn" : "lvl-neutral";
+  }
+  // low: 高分=机会大=绿(好),低分=中性
+  return score >= 70 ? "lvl-good" : score >= 50 ? "lvl-warn" : "lvl-neutral";
+}
+
+function _labCustomLevelText(level) {
+  return level || "中性";
+}
+
+// F2: 主渲染函数
+async function renderCustomAnalyzeLab() {
+  const curIid = state.labCustomIid || "hs300";
+
+  // 左右两栏：左侧=选择器+分数卡+维度表，右侧=历史类比+阈值表（移动端自动堆叠）
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-custom-wrap";
+
+  // 顶部说明
+  const intro = document.createElement("div");
+  intro.className = "lab-purpose-note";
+  intro.innerHTML = "💡 <b>这板块有什么用</b>：对单个指数/行业做情绪告警分析--看高位风险分(过热?)和低位机会分(冰点?)，拆解 8+8 维度贡献，并找历史相似时段看后续涨跌。<b>怎么解读</b>：高位分>70=过热警惕，低位分>70=偏冷关注企稳；历史类比仅作统计参考，不代表未来必然走势。";
+  wrapper.appendChild(intro);
+
+  // 标的选择器
+  const selector = document.createElement("div");
+  selector.className = "lab-custom-selector";
+  const opts = ['<optgroup label="宽基指数">' +
+    _LAB_CUSTOM_BROAD.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
+    "</optgroup>",
+    '<optgroup label="申万一级行业">' +
+    _LAB_CUSTOM_SW.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
+    "</optgroup>"].join("");
+  selector.innerHTML =
+    `<label class="lab-custom-selector-label">分析标的：</label>` +
+    `<select class="lab-custom-select">${opts}</select>` +
+    `<span class="lab-custom-hint">共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）</span>`;
+  selector.querySelector(".lab-custom-select").onchange = (e) => {
+    state.labCustomIid = e.target.value;
+    renderCustomAnalyzeLab();
+  };
+  wrapper.appendChild(selector);
+
+  // 加载区
+  const host = document.createElement("div");
+  host.className = "lab-custom-host";
+  host.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
+  wrapper.appendChild(host);
+
+  content.appendChild(wrapper);
+
+  // fetch 静态 JSON
+  const v = _labCustomCacheBust();
+  const url = `./data/alert_analyze_${curIid}.json?v=${v}`;
+  let data = null;
+  try {
+    const resp = await fetch(url, { cache: "no-store" });
+    if (!resp.ok) {
+      host.innerHTML = `<div class="lab-custom-error">⚠️ 加载失败（HTTP ${resp.status}）<br><span class="lab-custom-error-url">${url}</span><br><button type="button" class="lab-custom-retry">重试</button></div>`;
+      host.querySelector(".lab-custom-retry").onclick = () => renderCustomAnalyzeLab();
+      return;
+    }
+    data = await resp.json();
+  } catch (e) {
+    host.innerHTML = `<div class="lab-custom-error">⚠️ 加载失败：${e.message || e}<br><button type="button" class="lab-custom-retry">重试</button></div>`;
+    host.querySelector(".lab-custom-retry").onclick = () => renderCustomAnalyzeLab();
+    return;
+  }
+
+  // error JSON 容错（如 sh=上证指数 数据不足）
+  if (!data || data.error) {
+    const errMsg = (data && data.error) ? data.error : "未知错误";
+    host.innerHTML =
+      `<div class="lab-custom-error">` +
+      `<div class="lab-custom-error-title">⚠️ 数据不足，暂无法分析此标的</div>` +
+      `<div class="lab-custom-error-detail">${errMsg}</div>` +
+      `<div class="lab-custom-error-hint">该标的后端计算异常（如指数数据缺失/dtype 异常），待后端修复后自动恢复。</div>` +
+      `<button type="button" class="lab-custom-retry">重试</button>` +
+      `</div>`;
+    host.querySelector(".lab-custom-retry").onclick = () => renderCustomAnalyzeLab();
+    return;
+  }
+
+  // 渲染各分区
+  host.innerHTML = "";
+  const alert = data.alert || {};
+  const reason = data.reason || {};
+
+  // F3: 分数卡
+  host.insertAdjacentHTML("beforeend", _labCustomScoreCardHTML(data, alert));
+  // F4: 8+8 维度表
+  host.insertAdjacentHTML("beforeend", _labCustomDimsTableHTML(reason.dim_hits, alert.dims, alert.adapt));
+  // F5: 历史类比
+  host.insertAdjacentHTML("beforeend", _labCustomHistoryHTML(reason.history_analogy, reason.human_text));
+  // F6: 数据阈值表（折叠）
+  host.insertAdjacentHTML("beforeend", _labCustomThresholdsHTML(reason.data_thresholds));
+  // F7: 合规底栏
+  host.insertAdjacentHTML("beforeend", _labCustomFooterHTML(reason.compliance_footer, reason.no_data_hint));
+
+  // 折叠阈值表交互
+  const toggle = host.querySelector(".lab-custom-thresh-toggle");
+  if (toggle) {
+    toggle.onclick = () => {
+      const body = host.querySelector(".lab-custom-thresh-body");
+      const open = body && body.style.display !== "none";
+      if (body) body.style.display = open ? "none" : "block";
+      toggle.textContent = open ? "展开数据阈值表 ▾" : "收起数据阈值表 ▴";
+    };
+  }
+}
+
+// F3: 分数卡（high 高位风险分 + low 低位机会分 + adapt 适配信息）
+function _labCustomScoreCardHTML(data, alert) {
+  const name = data.target_name || data.target_id || "";
+  const date = alert.date || "";
+  const dateStr = date && date.length === 8 ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : date;
+  const high = alert.high, low = alert.low;
+  const highLvlCls = _labCustomLevelClass(high, "high");
+  const lowLvlCls = _labCustomLevelClass(low, "low");
+  const adapt = alert.adapt || {};
+  const missing = adapt.missing || [];
+  const adaptTxt = `最小维度门槛 ${adapt.min_dims ?? "?"} · 可用 高位${adapt.available_high ?? "?"}/低位${adapt.available_low ?? "?"}` +
+    (missing.length ? ` · 缺项 ${missing.length} 个（${missing.join(", ")}）` : " · 无缺项");
+
+  return `<div class="lab-custom-score-card">` +
+    `<div class="lab-custom-score-head">` +
+      `<div class="lab-custom-score-title">${name} <span class="lab-custom-score-date">📅 ${dateStr}</span></div>` +
+      `<div class="lab-custom-adapt">${adaptTxt}</div>` +
+    `</div>` +
+    `<div class="lab-custom-score-grid">` +
+      `<div class="lab-custom-score-cell ${highLvlCls}">` +
+        `<div class="lab-custom-cell-label">高位风险分</div>` +
+        `<div class="lab-custom-cell-score">${high != null ? high.toFixed(2) : "—"}</div>` +
+        `<div class="lab-custom-cell-level">${_labCustomLevelText(alert.high_level)}</div>` +
+        `<div class="lab-custom-cell-desc">分越高越接近过热</div>` +
+      `</div>` +
+      `<div class="lab-custom-score-cell ${lowLvlCls}">` +
+        `<div class="lab-custom-cell-label">低位机会分</div>` +
+        `<div class="lab-custom-cell-score">${low != null ? low.toFixed(2) : "—"}</div>` +
+        `<div class="lab-custom-cell-level">${_labCustomLevelText(alert.low_level)}</div>` +
+        `<div class="lab-custom-cell-desc">分越高越偏冷有机会</div>` +
+      `</div>` +
+    `</div>` +
+  `</div>`;
+}
+
+// F4: 8+8 维度表（H1-H8 高位风险 + L1-L8 低位机会）
+function _labCustomDimsTableHTML(dimHits, dims, adapt) {
+  dimHits = dimHits || {};
+  dims = dims || {};
+  const adaptMissing = (adapt && adapt.missing) || [];
+  // 构造 H1-H8 / L1-L8 顺序表，dim_hits 提供名称/权重/贡献/命中；dims 提供原始 score
+  const hitsHighMap = {};
+  (dimHits.high || []).forEach((h) => { hitsHighMap[h.k] = h; });
+  const hitsLowMap = {};
+  (dimHits.low || []).forEach((h) => { hitsLowMap[h.k] = h; });
+
+  function rowHTML(k, side) {
+    const hit = side === "high" ? hitsHighMap[k] : hitsLowMap[k];
+    const score = dims[k];
+    const isMissing = adaptMissing.includes(k) || score == null;
+    const name = hit ? hit.name : (isMissing ? "（无数据）" : k);
+    if (isMissing && !hit) {
+      return `<tr class="lab-custom-dim-row dim-na">` +
+        `<td class="dim-k">${k}</td>` +
+        `<td class="dim-name">${name}</td>` +
+        `<td class="dim-score">—</td>` +
+        `<td class="dim-weight">—</td>` +
+        `<td class="dim-contrib">—</td>` +
+        `<td class="dim-hit">无数据</td>` +
+      `</tr>`;
+    }
+    const hitFlag = hit && hit.hit;
+    const hitCls = hitFlag ? (side === "high" ? "hit-high" : "hit-low") : "";
+    return `<tr class="lab-custom-dim-row ${hitCls}">` +
+      `<td class="dim-k">${k}</td>` +
+      `<td class="dim-name">${name}</td>` +
+      `<td class="dim-score">${score != null ? Number(score).toFixed(2) : "—"}</td>` +
+      `<td class="dim-weight">${hit ? (hit.weight * 100).toFixed(0) + "%" : "—"}</td>` +
+      `<td class="dim-contrib">${hit ? hit.contribution.toFixed(2) : "—"}</td>` +
+      `<td class="dim-hit">${hitFlag ? "✓ 命中" : "未命中"}</td>` +
+    `</tr>`;
+  }
+
+  let highRows = "";
+  for (let i = 1; i <= 8; i++) highRows += rowHTML("H" + i, "high");
+  let lowRows = "";
+  for (let i = 1; i <= 8; i++) lowRows += rowHTML("L" + i, "low");
+
+  const head = `<tr><th>维度</th><th>名称</th><th>分值</th><th>权重</th><th>贡献</th><th>命中</th></tr>`;
+  return `<div class="lab-custom-dims">` +
+    `<div class="lab-custom-section-title">🔬 8+8 维度拆解（高位风险 H1-H8 + 低位机会 L1-L8）</div>` +
+    `<div class="lab-custom-dims-grid">` +
+      `<div class="lab-custom-dims-col">` +
+        `<div class="lab-custom-dims-col-title danger">高位风险维度（分高=危险）</div>` +
+        `<table class="lab-custom-dims-table"><thead>${head}</thead><tbody>${highRows}</tbody></table>` +
+      `</div>` +
+      `<div class="lab-custom-dims-col">` +
+        `<div class="lab-custom-dims-col-title good">低位机会维度（分高=机会）</div>` +
+        `<table class="lab-custom-dims-table"><thead>${head}</thead><tbody>${lowRows}</tbody></table>` +
+      `</div>` +
+    `</div>` +
+  `</div>`;
+}
+
+// F5: 历史类比 Top3 + 统计 + 人话解读
+function _labCustomHistoryHTML(historyAnalogy, humanText) {
+  historyAnalogy = historyAnalogy || {};
+  humanText = humanText || {};
+
+  function sideHTML(side, label) {
+    const ha = historyAnalogy[side];
+    if (!ha || !ha.matches || !ha.matches.length) {
+      return `<div class="lab-custom-hist-col">` +
+        `<div class="lab-custom-hist-col-title">${label}</div>` +
+        `<div class="lab-custom-hist-empty">无历史相似时段（样本不足）</div>` +
+      `</div>`;
+    }
+    const stats = ha.stats || {};
+    const curDate = ha.cur_date || "";
+    const curDateStr = curDate && curDate.length === 8 ? `${curDate.slice(0,4)}-${curDate.slice(4,6)}-${curDate.slice(6,8)}` : curDate;
+    const winN = stats.n_total_10d != null ? stats.n_total_10d : "";
+    const upN = stats.n_up_10d != null ? stats.n_up_10d : "";
+    const downN = stats.n_down_10d != null ? stats.n_down_10d : "";
+    const ratioTxt = (upN !== "" && winN !== "" && winN > 0) ? `涨${upN}/跌${downN}/共${winN}` : "";
+
+    const rows = ha.matches.map((m) => {
+      const md = m.date || "";
+      const mdStr = md && md.length === 8 ? `${md.slice(0,4)}-${md.slice(4,6)}-${md.slice(6,8)}` : md;
+      const ret5 = m.forward_returns && m.forward_returns.ret_5d != null ? m.forward_returns.ret_5d : null;
+      const ret10 = m.forward_returns && m.forward_returns.ret_10d != null ? m.forward_returns.ret_10d : null;
+      const ret20 = m.forward_returns && m.forward_returns.ret_20d != null ? m.forward_returns.ret_20d : null;
+      const retCls = (r) => r == null ? "ret-na" : (r >= 0 ? "ret-up" : "ret-down");
+      const retStr = (r) => r == null ? "—" : (r >= 0 ? "+" : "") + r.toFixed(2) + "%";
+      return `<tr>` +
+        `<td class="hist-date">${mdStr}</td>` +
+        `<td class="hist-sim">${(m.combined != null ? m.combined * 100 : 0).toFixed(1)}%</td>` +
+        `<td class="hist-ret ${retCls(ret5)}">${retStr(ret5)}</td>` +
+        `<td class="hist-ret ${retCls(ret10)}">${retStr(ret10)}</td>` +
+        `<td class="hist-ret ${retCls(ret20)}">${retStr(ret20)}</td>` +
+      `</tr>`;
+    }).join("");
+    const avg5 = stats.avg_ret_5d, avg10 = stats.avg_ret_10d, avg20 = stats.avg_ret_20d;
+    const avgCls = (r) => r == null ? "ret-na" : (r >= 0 ? "ret-up" : "ret-down");
+    const avgStr = (r) => r == null ? "—" : (r >= 0 ? "+" : "") + r.toFixed(2) + "%";
+
+    const human = humanText[side] || "";
+
+    return `<div class="lab-custom-hist-col">` +
+      `<div class="lab-custom-hist-col-title">${label} <span class="lab-custom-hist-cur">基准日 ${curDateStr} · 样本窗 ${ha.window_days || ""} 日</span></div>` +
+      `<div class="lab-custom-hist-stats">` +
+        `<span class="hist-stat">平均 <b>5d</b> <span class="${avgCls(avg5)}">${avgStr(avg5)}</span></span>` +
+        `<span class="hist-stat">平均 <b>10d</b> <span class="${avgCls(avg10)}">${avgStr(avg10)}</span></span>` +
+        `<span class="hist-stat">平均 <b>20d</b> <span class="${avgCls(avg20)}">${avgStr(avg20)}</span></span>` +
+        (ratioTxt ? `<span class="hist-stat hist-ratio">10d 涨跌比 ${ratioTxt}</span>` : "") +
+      `</div>` +
+      `<table class="lab-custom-hist-table">` +
+        `<thead><tr><th>历史日期</th><th>相似度</th><th>5日涨跌</th><th>10日涨跌</th><th>20日涨跌</th></tr></thead>` +
+        `<tbody>${rows}</tbody>` +
+      `</table>` +
+      (human ? `<div class="lab-custom-human-text">${human}</div>` : "") +
+    `</div>`;
+  }
+
+  return `<div class="lab-custom-hist">` +
+    `<div class="lab-custom-section-title">📜 历史类比 Top3（相似特征时段后续涨跌统计）</div>` +
+    `<div class="lab-custom-hist-grid">` +
+      sideHTML("high", "高位风险视角") +
+      sideHTML("low", "低位机会视角") +
+    `</div>` +
+  `</div>`;
+}
+
+// F6: 数据阈值表（默认折叠）
+function _labCustomThresholdsHTML(dataThresholds) {
+  dataThresholds = dataThresholds || {};
+  function sideRows(side) {
+    const arr = dataThresholds[side] || [];
+    return arr.map((t) => {
+      const valStr = t.value != null ? (Number(t.value).toFixed(2) + (t.unit || "")) : "—";
+      const thrStr = t.threshold != null ? (Number(t.threshold).toFixed(2) + (t.unit || "")) : "—";
+      const hitCls = t.hit ? (side === "high" ? "hit-high" : "hit-low") : (t.status === "无数据" ? "dim-na" : "");
+      return `<tr class="lab-custom-thresh-row ${hitCls}">` +
+        `<td class="th-k">${t.k}</td>` +
+        `<td class="th-name">${t.name}</td>` +
+        `<td class="th-val">${valStr}</td>` +
+        `<td class="th-thr">${thrStr}</td>` +
+        `<td class="th-status">${t.status || ""}</td>` +
+        `<td class="th-desc">${t.desc || ""}</td>` +
+      `</tr>`;
+    }).join("");
+  }
+  const head = `<tr><th>维度</th><th>名称</th><th>当前值</th><th>阈值</th><th>状态</th><th>说明</th></tr>`;
+  return `<div class="lab-custom-thresh">` +
+    `<button type="button" class="lab-custom-thresh-toggle">展开数据阈值表 ▾</button>` +
+    `<div class="lab-custom-thresh-body" style="display:none">` +
+      `<div class="lab-custom-thresh-grid">` +
+        `<div class="lab-custom-thresh-col">` +
+          `<div class="lab-custom-thresh-col-title danger">高位风险阈值</div>` +
+          `<table class="lab-custom-thresh-table"><thead>${head}</thead><tbody>${sideRows("high")}</tbody></table>` +
+        `</div>` +
+        `<div class="lab-custom-thresh-col">` +
+          `<div class="lab-custom-thresh-col-title good">低位机会阈值</div>` +
+          `<table class="lab-custom-thresh-table"><thead>${head}</thead><tbody>${sideRows("low")}</tbody></table>` +
+        `</div>` +
+      `</div>` +
+    `</div>` +
+  `</div>`;
+}
+
+// F7: 合规底栏
+function _labCustomFooterHTML(complianceFooter, noDataHint) {
+  const foot = complianceFooter || "⚠️ 本分析基于历史数据统计，仅供学习参考，不构成投资建议或交易指令，市场有风险，决策需谨慎。";
+  return `<div class="lab-custom-footer">` +
+    `<div class="lab-custom-footer-text">${foot}</div>` +
+    (noDataHint ? `<div class="lab-custom-footer-hint">${noDataHint}</div>` : "") +
+  `</div>`;
+}
+
 // === F5 刷新恢复：URL hash 记 tab+策略，sessionStorage 记滚动位置 ===
 // 不改 app.js 的 tab 逻辑，通过 lab.js 自身初始化钩子实现恢复
 let _labInitialRestore = false; // 仅首次加载时恢复滚动
@@ -5911,7 +6292,7 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
   // 解析 ?sub= 恢复 labSubMode（列表页保位，避免 F5 回 single）
   if (queryPart) {
     const sub = new URLSearchParams(queryPart).get("sub");
-    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan"].includes(sub)) {
+    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan", "custom"].includes(sub)) {
       state.labSubMode = sub;
     }
   }
