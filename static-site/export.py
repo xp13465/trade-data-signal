@@ -11,7 +11,6 @@
   - data/global-{1m,3m,6m,1y,3y,5y,all}.json
   - data/sentiment-{1m,3m,6m,1y,3y,5y,all}.json
   - data/industry-{1m,3m,6m,1y,3y,5y,all}.json
-  - data/metrics.json                  （指标注册表）
   - data/index/{index_id}-all.json     （44 个指数 ohlc + signals 全历史）
 
 range 处理方案（备注）：
@@ -1286,9 +1285,9 @@ def main():
         ind_counts, _n_ind, _n_concept = write_industry_split(conn, cfg, rng)
         counts.update(ind_counts)
 
-    # 7. metrics
-    counts["metrics.json"] = write_json(DATA_DIR / "metrics.json", export_metrics(cfg))
-    print(f"  metrics.json ({counts['metrics.json']} bytes)")
+    # 7. metrics（已废弃：前端无 fetch 引用，2026-07-15 删除上线产物，不再生成）
+    # counts["metrics.json"] = write_json(DATA_DIR / "metrics.json", export_metrics(cfg))
+    # print(f"  metrics.json ({counts['metrics.json']} bytes)")
 
     # 7.5. futures
     counts["futures.json"] = write_json(DATA_DIR / "futures.json", export_futures(conn))
