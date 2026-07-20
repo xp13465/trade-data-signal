@@ -7106,7 +7106,7 @@ function drawShareCard(r, futures) {
   ctx.strokeStyle = rgba(t1rgb, 0.15); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(60, H - 150); ctx.lineTo(870, H - 150); ctx.stroke();
   ctx.fillStyle = C.primary; ctx.font = "bold 34px 'PingFang SC',sans-serif";
-  ctx.fillText("s.sugas.site", 60, H - 95);
+  ctx.fillText("ss.fx8.store", 60, H - 95);
   ctx.fillStyle = C.text2; ctx.font = "24px 'PingFang SC',sans-serif";
   ctx.fillText("盘后复盘·多市场情绪·技术分析参考点", 60, H - 55);
   // 底部免责水印(合规:教育研究定位,非投资建议)
