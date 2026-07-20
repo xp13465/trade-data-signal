@@ -86,8 +86,8 @@ KPI_METRIC_IDS = [
     "cn10y",
     "a_qvix_300",
     "lhb_count",
-    "a_width_zb_count",
-    "a_width_seal_rate",
+    "a_width_zb_count",       # 炸板数（旧源 func=TODO 停7-16，待切 a_width_zhaban_rate）
+    "a_width_fengban_rate",   # 封板率（新源 derived=1-炸板率，旧 a_width_seal_rate func=TODO 停7-16）
     "a_fund_main",
     "a_turnover_mean",
     "a_turnover_median",
@@ -359,10 +359,21 @@ def export_overview(conn, cfg):
     # 采集时间旁圆点展示，hover pop 显示具体告警，管理用户预期（如某指数源未取到）
     collect_health = {"level": "ok", "items": []}
     if _last and _last["run_date"]:
-        _hrows = conn.execute(
-            "SELECT metric_id, status, message FROM collect_log WHERE run_date=? AND status!='ok' ORDER BY run_at",
+        # 取每个 metric_id 当天最新一条状态（20:00 ok 覆盖 17:50 瞬时 error），
+        # 避免后续成功采集被早先 error 永久误报（如 usdcnh 17:50 forex_hist_em 被封
+        # error，20:00 currency_boc_sina ok，只看最新即 ok 不报）
+        _all_rows = conn.execute(
+            "SELECT metric_id, status, message FROM collect_log WHERE run_date=? ORDER BY run_at DESC",
             (_last["run_date"],)
         ).fetchall()
+        _seen = set()
+        _hrows = []
+        for _r in _all_rows:
+            if _r["metric_id"] in _seen:
+                continue
+            _seen.add(_r["metric_id"])
+            if _r["status"] != "ok":
+                _hrows.append(_r)
         # 复核"指数今日数据缺失"类告警：backfill 凌晨跑时新浪主源未取到当日指数，
         # 但盘中 intraday_snapshot 反哺后 index_daily 已有当日 close，旧告警成陈旧误报，
         # 前端小红点因此常亮误导用户。对核心 A 股指数（index_backfill.CORE_A_INDICES）
@@ -405,7 +416,21 @@ def export_overview(conn, cfg):
         if _fut and _fut.get("summary", {}).get("date"):
             extra_dates["futures_date"] = _fut["summary"]["date"]
         _etf = _jload("etf_national_team-all.json")
-        if _etf and _etf.get("updated_at"):
+        # etf_date 优先取 etf_daily 表 MAX(date)（真实数据日期，如 20260717），
+        # JSON updated_at 是重建时间戳会误导角标假绿。etf_daily 在独立库 etf_national_team.db。
+        _etf_d = ""
+        try:
+            from app.collector.etf_national_team import get_conn as _etf_get_conn
+            _ec = _etf_get_conn()
+            _er = _ec.execute("SELECT MAX(date) FROM etf_daily").fetchone()
+            _ec.close()
+            if _er and _er[0]:
+                _etf_d = _er[0]
+        except Exception:  # noqa: BLE001
+            pass
+        if _etf_d:
+            extra_dates["etf_date"] = _etf_d
+        elif _etf and _etf.get("updated_at"):
             extra_dates["etf_date"] = _etf["updated_at"][:10].replace("-", "")
         _glob = _jload("global-all.json")
         if _glob:
