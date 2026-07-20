@@ -2235,36 +2235,55 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 - a-stock-all.json 含 8 字段（点击历史有数据）
 
 ### 关联
-- 8 项指标此前为 `collect_health=error` 灰态（见 §40 P0-1），本次扩 KPI 后平铺上线；§42 记 MaoziYun 平台拉取故障致上线一度卡住。
+- 8 项指标此前为 `collect_health=error` 灰态（见 §40 P0-1），本次扩 KPI 后平铺上线；§42 记 MaoziYun 构建超 300MB 限制致上线一度卡住。
 
 - 本节 NOTES §41
 
-## §42 2026-07-20 MaoziYun平台拉取故障教训
+## §42 2026-07-20 MaoziYun构建超300MB限制故障 + 瘦身方案
 
 ### 症状
-- origin/main 已更新至 5c4312a（含灰卡修复 8ce7385），但 MaoziYun 平台 1hr20min+ 不拉取 git
-- 8指标 03b48e5 同样卡在 MaoziYun 未上线
+- origin/main 已更新至 5c4312a（含灰卡修复 8ce7385），但 MaoziYun 平台 1hr20min+ 不上线新版本
+- 8指标 03b48e5 同样卡在 MaoziYun 未生效
 - 线上 curl 验证异常：
   - `?v=d22c6e3b`（旧版，非当时的 df22776d/5f44dc7c）
   - collect_health level=error items=8（8 灰卡仍在）
   - industry-5y-indices 404
 
-### 诊断
-- 非正常 75s 拉取延迟 + max-age=1200 缓存可解释
-- 但 1hr20min+ 仍不更新 = 平台 git 拉取/webhook 故障，非缓存问题
-- git push 成功（origin 已有新 commit），问题在 MaoziYun 侧
+### 真因（构建超限，非 webhook 故障）
+- **构建报错原文**：`ERROR: directory size exceeds 300MB: 301MB`（static-site/ 实际 312MB 超 MaoziYun 构建 300MB 上限）
+- 初判 ee93306 落档时误以为是 git 拉取/webhook 故障，实际是构建阶段因目录超限直接失败，git 已 push 成功（origin 有新 commit）
+- 超限根因文件：
+  - `industry-5y.json` 14M 历史遗留——前端 `_loadIndustryData`（app.js:6246）已让 5y 走拆分目录 `industry-5y-indices/`，全量 industry-5y.json **0 引用**
+  - `__pycache__/` 84K 被打包入构建上下文（原无 `.dockerignore`）
 
-### 阻塞影响
-- 8ce7385 灰卡修复 + 8指标上线 都卡在 MaoziYun 未生效
-- GitHub Pages 等其他渠道不受影响（仅 MaoziYun 故障）
+### 瘦身方案（commit 613b769）
+1. `git rm static-site/data/industry-5y.json`（-14M）
+2. 新建 `static-site/.dockerignore` 排除 `__pycache__/`、`*.pyc`、`*.pyo`、`.DS_Store`（减 build context）
+3. `export.py:1270-1271` 已跳过 all/5y 全量 `industry-{rng}.json` 生成（只生成拆分目录），无需再改
+4. `lab/` 102M 选择跳过：数据无冗余、已懒加载（lab.js:1746/1637 按选 index 按需 fetch）；降采样会破回测精度风险高，不动
 
-### 解法
-- 用户登录 MaoziYun 手动重新部署 / 检查 webhook 配置
-- 操作后反馈，再 curl 验证（?v 是否更新为新 md5、collect_health 是否清零、industry-5y-indices 是否 200）
+### 结果与线上复验
+- 最终体积 static-site/ 297M（< 300M 过限制，但 > 280M 目标未达，余量仅 2M 偏小）
+- 后续 commit dfbe978（data update 10:00）+ push HEAD->main ff 成功
+- 线上复验 4 项全通过：
+  - `?v=5f44dc7c`（8指标 JS 生效）
+  - collect_health ok items=0（灰卡消除）
+  - industry-5y-indices 200（5y 拆分目录正常）
+  - industry-5y.json 404（删除上线 = 构建成功）
+- 积压的 8ce7385（灰卡角标变红）+ 03b48e5（8指标首页 KPI 21个）全部线上生效
+
+### 余量 2M 隐患与未来超限解法候选
+- industry 数据仍在增长（如 3y 9.1M），若继续增长可能再超 300MB
+- 未来超限解法候选（按优先级）：
+  1. **industry-3y/1y 等也拆分**：生成 `industry-3y-indices/` 等拆分目录，改 `_loadIndustryData` 让 3y 走拆分——省 9M+，最稳
+  2. **lab equity_curve 降采样**：破精度，慎用
+  3. **启用 gzip 传输**（fetch + DecompressionStream）：减传输不减构建体积，治标
+- 短期监控点：再遇 MaoziYun 长时不更新，先查构建日志是否又报 `directory size exceeds 300MB`，而非怀疑 webhook
 
 ### 教训
-- MaoziYun 拉取非自动可靠，长时不更新要主动怀疑平台故障而非缓存
+- MaoziYun 构建有 300MB 目录大小硬限制，超限直接构建失败（非静默跳过），git push 成功 ≠ 上线成功
 - 上线后 curl 验证以线上实际 ?v/数据为准，不能只信 git push 成功
-- 多部署渠道冗余（§8：MaoziYun/GitHub Pages）的价值再次印证
+- 多部署渠道冗余（§8：MaoziYun/GitHub Pages）的价值再次印证（GitHub Pages 不受 MaoziYun 构建限制影响）
+- 历史遗留大文件（如 industry-5y.json）即便 0 引用也占构建体积，需定期清理
 
 - 本节 NOTES §42
