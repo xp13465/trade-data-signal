@@ -3421,7 +3421,19 @@ async function renderOverview() {
   // 左列：A股综合情绪分折线（近 6 月）
   if (r.a_sentiment_6m && r.a_sentiment_6m.length) {
     const as6 = r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value }));
-    const asChart = lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的情绪温度计0-100，≤20冰点≥80过热") + latestSuffix(as6), as6, {}, null, colA1);
+    const asChart = lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的情绪温度计0-100，≤20冰点≥80过热") + latestSuffix(as6), as6, {
+      visualMap: {
+        show: false,
+        pieces: [
+          { lte: 20, color: "#42a5f5" },
+          { gt: 20, lte: 40, color: "#4fc3f7" },
+          { gt: 40, lte: 60, color: "#86909c" },
+          { gt: 60, lte: 80, color: "#e6a23c" },
+          { gt: 80, color: "#e6492e" },
+        ],
+        dimension: 1,
+      },
+    }, null, colA1);
     if (asChart) {
       addCardTimeBadge(asChart.getDom().parentElement, as6.length ? as6[as6.length - 1].date : "", snap, "t0");
       // 图表高度减一点(300->250)，给下方历史位置3行腾空间
@@ -3570,7 +3582,13 @@ async function renderOverview() {
     const cmChart = lineChart("跨市场综合评分（近 6 月）" + termTip("综合A股/港股/美股等多市场算的0-100分，≤20偏冷≥80偏热") + latestSuffix(cm6), cm6, {
       visualMap: {
         show: false,
-        pieces: [{ lte: 20, color: "#42a5f5" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#e6492e" }],
+        pieces: [
+          { lte: 20, color: "#42a5f5" },
+          { gt: 20, lte: 40, color: "#4fc3f7" },
+          { gt: 40, lte: 60, color: "#86909c" },
+          { gt: 60, lte: 80, color: "#e6a23c" },
+          { gt: 80, color: "#e6492e" },
+        ],
         dimension: 1,
       },
     }, null, colB1);
@@ -5312,7 +5330,26 @@ async function renderSentiment() {
     const title = `A股综合情绪分（0-100）` + termTip("6项A股指标加权(涨跌比25%+涨停热度20%+炸板率15%+连板15%+成交10%+北向15%,缺项按可用重归一化)算的0-100。≤20冰点(恐慌极值)、≥80过热(亢奋极值)。点'组成因子'看各分项。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
     const cell = document.createElement("div");
     cardGrid.appendChild(cell);
-    const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {}, stats.a_sentiment, strat.a_sentiment, undefined, cell);
+    const chart = valueChartWithSignals(title, data, sig.a_sentiment || [], {
+      visualMap: {
+        show: false,
+        pieces: [
+          { lte: 20, color: "#42a5f5" },
+          { gt: 20, lte: 40, color: "#4fc3f7" },
+          { gt: 40, lte: 60, color: "#86909c" },
+          { gt: 60, lte: 80, color: "#e6a23c" },
+          { gt: 80, color: "#e6492e" },
+        ],
+        dimension: 1,
+      },
+    }, stats.a_sentiment, strat.a_sentiment, undefined, cell);
+    chart.setOption({ series: [{ markLine: {
+      silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
+      data: [
+        { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+        { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+      ],
+    } }] });
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
     appendComponentsBlock(data, undefined, cell);
     // 图表高度统一240(与恐贪/中证1000三卡一致)，给下方历史位置3行腾空间
@@ -5341,10 +5378,24 @@ async function renderSentiment() {
         sig[key] || [], {
           visualMap: {
             show: false,
-            pieces: [{ lte: 20, color: "#42a5f5" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#e6492e" }],
+            pieces: [
+              { lte: 20, color: "#42a5f5" },
+              { gt: 20, lte: 40, color: "#4fc3f7" },
+              { gt: 40, lte: 60, color: "#86909c" },
+              { gt: 60, lte: 80, color: "#e6a23c" },
+              { gt: 80, color: "#e6492e" },
+            ],
             dimension: 1,
           },
         }, stats[key], strat[key], undefined, cell);
+      // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
+      chart.setOption({ series: [{ markLine: {
+        silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
+        data: [
+          { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+          { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+        ],
+      } }] });
       // 图表高度统一240(与恐贪/A股综合三卡一致)
       chart.getDom().style.height = '240px';
       chart.resize();
@@ -5363,10 +5414,24 @@ async function renderSentiment() {
     const chart = valueChartWithSignals(title, data, sig.cross_market || [], {
       visualMap: {
         show: false,
-        pieces: [{ lte: 20, color: "#42a5f5" }, { gt: 20, lte: 80, color: "#5b8ff9" }, { gt: 80, color: "#e6492e" }],
+        pieces: [
+          { lte: 20, color: "#42a5f5" },
+          { gt: 20, lte: 40, color: "#4fc3f7" },
+          { gt: 40, lte: 60, color: "#86909c" },
+          { gt: 60, lte: 80, color: "#e6a23c" },
+          { gt: 80, color: "#e6492e" },
+        ],
         dimension: 1,
       },
     }, stats.cross_market, strat.cross_market, undefined, cell);
+    // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
+    chart.setOption({ series: [{ markLine: {
+      silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
+      data: [
+        { yAxis: 20, lineStyle: { color: "#42a5f5" }, label: { formatter: "冰点", color: "#42a5f5", position: "insideStartTop", fontSize: 10 } },
+        { yAxis: 80, lineStyle: { color: "#e6492e" }, label: { formatter: "过热", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+      ],
+    } }] });
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
     appendComponentsBlock(data, undefined, cell);
     // 历史位置块：与细分指数/a股一致，补齐卡片高度对齐
