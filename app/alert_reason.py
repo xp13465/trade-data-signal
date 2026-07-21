@@ -326,7 +326,15 @@ def build_human_text(level: str, hit_dims: list[dict], is_high: bool,
         analogy: build_history_analogy 返回的 dict (可选)
     """
     base = _HIGH_TEMPLATES.get(level, "") if is_high else _LOW_TEMPLATES.get(level, "")
-    if level in ("中性", "数据不足"):
+    if level == "数据不足":
+        return _filter_forbidden(base)
+    if level == "中性":
+        # 中性档(总分<=60): 若有单维度命中(>=60), 拼接说明
+        # 避免用户困惑"显示中性但维度表有命中"(单维度强但加权总分被弱维度拉低)
+        hit_labels = [f"{d['k']} {d['name']}" for d in hit_dims if d["hit"]][:2]
+        if hit_labels:
+            base = (f"{base},但 {'/'.join(hit_labels)} 有命中,"
+                    f"整体加权后未达关注线")
         return _filter_forbidden(base)
     parts = [base]
     # 命中维度前2
