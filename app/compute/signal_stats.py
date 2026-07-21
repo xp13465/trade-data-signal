@@ -1,6 +1,6 @@
 """每品种买卖点回测 stats：基于历史 signal_daily 信号算 forward 收益统计。
 
-为每个 index_id（指数/指标 g.*/分数 s.*）的 buy/buy_aux/sell 信号算
+为每个 index_id（指数/指标 g.*/分数 s.*）的 buy/buy_aux/buy_special/buy_backup/sell 信号算
 forward 收益（信号日 close/value → N 交易日后 close/value，N=5/10/20），
 输出胜率/盈亏比/均值收益/样本数，供前端折线图 tips 显示。
 
@@ -16,15 +16,23 @@ forward 收益（信号日 close/value → N 交易日后 close/value，N=5/10/2
   {
     "_updated_at": "20260706",
     "sh": {
-      "buy":     {"5d": {"win_rate": 0.523, "pl": 1.26, "mean": 0.75, "n": 156}, "10d": {...}, "20d": {...}},
-      "buy_aux": {...},
-      "sell":    {...}
+      "buy":         {"5d": {"win_rate": 0.523, "pl": 1.26, "mean": 0.75, "n": 156}, "10d": {...}, "20d": {...}},
+      "buy_aux":     {...},
+      "buy_special": {...},
+      "buy_backup":  {...},
+      "sell":        {...}
     },
     ...
   }
 
 独立跑：python -m app.compute.signal_stats
 集成 runner.py（step 10）定期重算。
+
+信号类型（2026-07-21 扩展，5 信号）：
+- buy（主买 C1_RSI30）/ buy_aux（辅买 B1_BB_lower_revert）：均值回归类，RSI 上穿 + BB 下轨回归。
+- buy_special（特买 Donchian20_up）/ buy_backup（备买 Supertrend_buy）：趋势跟踪类，仅在指数算
+  （需 high/low/close 三序列，g.*/s.* 序列无 high/low 不算）。buy_special=唐奇安20日上轨突破，
+  buy_backup=ATR(10)×3 Supertrend 翻多。is_sell=sig=='sell' 判定买/卖方向（4 买点默认买逻辑）。
 """
 import json
 from pathlib import Path
@@ -200,12 +208,12 @@ def compute_global_freq() -> dict:
     cur_month = datetime.now().month
     freq: dict = {
         sig: {"year_count": 0, "total_count": 0, "year_months": set()}
-        for sig in ("buy", "buy_aux", "sell")
+        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell")
     }
     for iid, sigs in all_stats.items():
         if iid.startswith("_"):
             continue
-        for sig in ("buy", "buy_aux", "sell"):
+        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell"):
             f = sigs.get(sig, {}).get("frequency")
             if not f:
                 continue
@@ -250,10 +258,10 @@ def main():
     # 抽样打印 sh
     if "sh" in stats:
         print("\n抽样 sh:")
-        for sig in ("buy", "buy_aux", "sell"):
+        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell"):
             if sig in stats["sh"]:
                 s = stats["sh"][sig]["10d"]
-                print(f"  {sig:8s} 10d: 胜率={s['win_rate']}, 盈亏比={s['pl']}, 均值={s['mean']}%, n={s['n']}")
+                print(f"  {sig:13s} 10d: 胜率={s['win_rate']}, 盈亏比={s['pl']}, 均值={s['mean']}%, n={s['n']}")
 
 
 if __name__ == "__main__":

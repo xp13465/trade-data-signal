@@ -67,6 +67,8 @@ _PREFIX_RE = re.compile(r"^(?:g|s)\.(.+)$")
 RULE_SUMMARY = """【买卖点规则说明】
 • 主买（buy）：RSI 上穿 30（超卖反弹启动）。
 • 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）。
+• 特买（buy_special）：唐奇安20日上轨突破（close 突破前20日最高价，激进战法高回撤高收益，趋势跟踪类）。
+• 备买（buy_backup）：Supertrend ATR(10)×3 翻多（趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）。
 • 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）。
   附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注。</div>"""
 
@@ -75,8 +77,14 @@ DISCLAIMER = """【免责声明】
 市场有风险，投资需谨慎。请结合自身判断与资金管理做出决策。</div>"""
 
 # 信号类型中文标签
-SIGNAL_LABELS = {"buy": "主买", "buy_aux": "辅买", "sell": "卖"}
-SIGNAL_ORDER = ["buy", "buy_aux", "sell"]
+SIGNAL_LABELS = {
+    "buy": "主买",
+    "buy_aux": "辅买",
+    "buy_special": "特买",
+    "buy_backup": "备买",
+    "sell": "卖",
+}
+SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell"]
 
 # email.json.example 中的占位密码，识别后跳过实际发送（仅打印内容）
 PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
@@ -219,6 +227,10 @@ def _signal_emoji(sig_type: str) -> str:
         return "🔴"
     if sig_type == "buy_aux":
         return "🟣"
+    if sig_type == "buy_special":
+        return "🟡"
+    if sig_type == "buy_backup":
+        return "🟪"
     if sig_type == "sell":
         return "🟢"
     return "⚪"
@@ -245,7 +257,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
     """构建邮件主题 + HTML 正文。返回 (subject, html_body)。"""
     stats = load_signal_stats()
 
-    # 按 signal 类型分组（buy / buy_aux / sell）
+    # 按 signal 类型分组（buy / buy_aux / buy_special / buy_backup / sell）
     groups: dict[str, list[dict]] = {k: [] for k in SIGNAL_ORDER}
     for s in signals:
         sig = s["signal"]
@@ -257,6 +269,8 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
     n_total = len(signals)
     n_buy = len(groups["buy"])
     n_aux = len(groups["buy_aux"])
+    n_special = len(groups["buy_special"])
+    n_backup = len(groups["buy_backup"])
     n_sell = len(groups["sell"])
 
     # === 标题：信号类型 + 品种摘要 ===
@@ -272,7 +286,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
     # === HTML 正文 ===
     html_parts = [f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
 <h2 style="margin:0 0 8px 0;color:#1d2129;">📊 买卖点信号日报</h2>
-<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 卖 {n_sell}）</p>"""]
+<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 特买 {n_special} / 备买 {n_backup} / 卖 {n_sell}）</p>"""]
 
     if n_total == 0:
         html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
@@ -329,6 +343,8 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
 <div style="font-weight:600;margin-bottom:4px;color:#1d2129;">📋 规则说明</div>
 • 主买（buy）：RSI 上穿 30（超卖反弹启动）<br>
 • 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）<br>
+• 特买（buy_special）：唐奇安20日上轨突破（close 突破前20日最高价，激进战法高回撤高收益，趋势跟踪类）<br>
+• 备买（buy_backup）：Supertrend ATR(10)×3 翻多（趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）<br>
 • 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
 • 附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注
 </div>
@@ -406,8 +422,13 @@ def main(argv: list[str] | None = None) -> int:
 
     n_buy = sum(1 for s in signals if s["signal"] == "buy")
     n_aux = sum(1 for s in signals if s["signal"] == "buy_aux")
+    n_special = sum(1 for s in signals if s["signal"] == "buy_special")
+    n_backup = sum(1 for s in signals if s["signal"] == "buy_backup")
     n_sell = sum(1 for s in signals if s["signal"] == "sell")
-    log.info("查询到 %d 个信号（主买=%d, 辅买=%d, 卖=%d）", len(signals), n_buy, n_aux, n_sell)
+    log.info(
+        "查询到 %d 个信号（主买=%d, 辅买=%d, 特买=%d, 备买=%d, 卖=%d）",
+        len(signals), n_buy, n_aux, n_special, n_backup, n_sell,
+    )
 
     name_map = load_name_map()
     # F 方案（2026-07-21）邮件去重：默认只发当日新 (index_id, signal)；

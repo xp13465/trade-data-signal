@@ -114,6 +114,111 @@ def _macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
     return dif, dea
 
 
+def _load_index_low(index_id: str) -> pd.Series:
+    """近 N 日最低价序列（Supertrend 备买用 ATR 需要 high/low/close 三序列）。
+
+    直接查 index_daily（与 normalize.load_index_high 对称），不污染 normalize.py
+    （本次任务约束仅改 signals.py + signal_stats.py + check_signals.py）。
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT date, low FROM index_daily WHERE index_id=? AND low IS NOT NULL ORDER BY date",
+        (index_id,),
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return pd.Series(dtype=float)
+    return pd.Series({r["date"]: r["low"] for r in rows}).sort_index().astype(float)
+
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 10) -> pd.Series:
+    """ATR(period) Wilder smoothing（ewm alpha=1/period, adjust=False）。
+
+    TR = max(high-low, abs(high-prev_close), abs(low-prev_close))；
+    ATR = TR.ewm(alpha=1/period, adjust=False).mean()（Wilder 平滑，业界标准）。
+    与 talib.ATR / TradingView Supertrend 口径一致。
+    """
+    prev_close = close.shift(1)
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / period, adjust=False).mean()
+
+
+def _supertrend(
+    high: pd.Series, low: pd.Series, close: pd.Series,
+    period: int = 10, multiplier: float = 3.0,
+):
+    """Supertrend 指标（ATR×multiplier），返回 (supertrend_line, direction)。
+
+    direction = 1 多头 / -1 空头。翻多 = direction 从 -1 转 1（备买 Supertrend_buy 触发）。
+
+    标准算法（TradingView/MetaTrader 口径）：
+    - hl2 = (high+low)/2，atr = ATR(period, Wilder smoothing)
+    - upper_basic = hl2 + multiplier*atr，lower_basic = hl2 - multiplier*atr
+    - final_upper: 若 upper_basic < prev_final_upper 或 prev_close > prev_final_upper -> 用 upper_basic，
+      否则继承 prev_final_upper（多头时上轨只下移不上移，直到被突破换边）
+    - final_lower: 若 lower_basic > prev_final_lower 或 prev_close < prev_final_lower -> 用 lower_basic，
+      否则继承 prev_final_lower（空头时下轨只上移不下移，直到被突破换边）
+    - direction: close > prev_final_upper -> 1（多头）；close < prev_final_lower -> -1（空头）；
+      否则继承 prev_direction
+    - supertrend line: 多头=final_lower（支撑线），空头=final_upper（压力线）
+
+    数据不足（前 period 日 ATR 为 NaN）安全跳过，direction 默认 1（多头），后续迭代会被覆盖。
+    """
+    import numpy as np
+
+    hl2 = (high + low) / 2.0
+    atr = _atr(high, low, close, period)
+    upper_basic = hl2 + multiplier * atr
+    lower_basic = hl2 - multiplier * atr
+
+    n = len(close)
+    final_upper = upper_basic.copy().astype(float)
+    final_lower = lower_basic.copy().astype(float)
+    direction = pd.Series(1, index=close.index, dtype=int)  # 默认多头
+
+    for i in range(1, n):
+        # ATR/upper_basic 为 NaN（前 period 日）跳过，保持默认值
+        if pd.isna(upper_basic.iloc[i]) or pd.isna(close.iloc[i - 1]):
+            continue
+        # final_upper 更新（多头时上轨只下移不上移）
+        prev_fu = final_upper.iloc[i - 1]
+        if pd.notna(prev_fu):
+            if upper_basic.iloc[i] < prev_fu or close.iloc[i - 1] > prev_fu:
+                final_upper.iloc[i] = upper_basic.iloc[i]
+            else:
+                final_upper.iloc[i] = prev_fu
+        # final_lower 更新（空头时下轨只上移不下移）
+        prev_fl = final_lower.iloc[i - 1]
+        if pd.notna(prev_fl):
+            if lower_basic.iloc[i] > prev_fl or close.iloc[i - 1] < prev_fl:
+                final_lower.iloc[i] = lower_basic.iloc[i]
+            else:
+                final_lower.iloc[i] = prev_fl
+        # direction 更新：close 突破 prev_final_upper -> 多头；跌破 prev_final_lower -> 空头；否则继承
+        prev_fu2 = final_upper.iloc[i - 1]
+        prev_fl2 = final_lower.iloc[i - 1]
+        cur_close = close.iloc[i]
+        if pd.notna(prev_fu2) and cur_close > prev_fu2:
+            direction.iloc[i] = 1
+        elif pd.notna(prev_fl2) and cur_close < prev_fl2:
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1] if i > 0 else 1
+
+    # supertrend line: 多头=final_lower（支撑），空头=final_upper（压力）
+    supertrend = pd.Series(np.nan, index=close.index, dtype=float)
+    for i in range(n):
+        if direction.iloc[i] == 1:
+            supertrend.iloc[i] = final_lower.iloc[i]
+        else:
+            supertrend.iloc[i] = final_upper.iloc[i]
+
+    return supertrend, direction
+
+
 def _cross_tag(cross_val) -> str:
     """cross 分级标签：<30 冰点 / 30-50 偏冷 / 50-70 中性 / 70-80 偏热 / >=80 狂热。
 
@@ -520,6 +625,24 @@ def compute():
         dif, dea = _macd(close)
         sell = sell & (dif < dea).fillna(False)
 
+        # 特买 Donchian20_up（2026-07-21）：close 突破前20日最高价（不含当日）= 唐奇安20日上轨突破。
+        # 激进战法高回撤高收益，趋势跟踪类（与 C1/B1 均值回归类互补）。独立计算不影响 buy/buy_aux/sell。
+        # don_upper = 前20日（不含当日）最高价 = high.rolling(20).max().shift(1)（含当日 20 日 max 再 shift）。
+        don_upper = high.rolling(20).max().shift(1)
+        donchian20_up = (close > don_upper).fillna(False)
+
+        # 备买 Supertrend_buy（2026-07-21）：ATR(10)×3 Supertrend 从翻空转翻多 = 趋势转向。
+        # 趋势跟踪类（与 C1/B1 均值回归类互补）。独立计算不影响 buy/buy_aux/sell。
+        # low 对齐 close（缺失前向无填充），low 全空则跳过 Supertrend（如部分指数无 low 数据）。
+        low = _load_index_low(iid).reindex(close.index)
+        if low.dropna().empty:
+            # 无 low 数据（极少见）-> 不发备买信号，st_line 全 NaN（reason 兜底省略 ST 值）
+            st_line = close.astype(float) * float("nan")
+            supertrend_buy = pd.Series(False, index=close.index)
+        else:
+            st_line, st_dir = _supertrend(high, low, close, period=10, multiplier=3.0)
+            supertrend_buy = ((st_dir.shift(1) == -1) & (st_dir == 1)).fillna(False)
+
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
         #   - 遇到 buy 信号：更新 last_buy_close = 该买点 close
@@ -600,6 +723,39 @@ def compute():
                 else:
                     parts.append("无前买点[趋势中]")
                 signals.append((date, iid, "sell", ", ".join(parts)))
+
+        # 特买 buy_special Donchian20_up + 备买 buy_backup Supertrend_buy 独立 append
+        # （不去重，叠加多色 pin，独立计算不影响 buy/buy_aux/sell）。趋势跟踪类，与 C1/B1 均值回归类互补。
+        buy_special_set = set(donchian20_up[donchian20_up].index)
+        buy_backup_set = set(supertrend_buy[supertrend_buy].index)
+        for date in sorted(buy_special_set):
+            # 特买：唐奇安20日上轨突破。reason 标注前高 + close + cross 软分级参考。
+            c = close.get(date)
+            du = don_upper.get(date)
+            parts = []
+            if pd.notna(du) and pd.notna(c):
+                parts.append(f"唐奇安20日上轨突破(前高{du:.0f},close{c:.0f})")
+            else:
+                parts.append("唐奇安20日上轨突破")
+            cv = cross_aligned.get(date)
+            if pd.notna(cv):
+                parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
+            parts.append("[指数]")
+            signals.append((date, iid, "buy_special", ", ".join(parts)))
+        for date in sorted(buy_backup_set):
+            # 备买：Supertrend ATR(10)×3 翻多。reason 标注 ST 支撑线 + close + cross 软分级参考。
+            c = close.get(date)
+            sv = st_line.get(date)
+            parts = []
+            if pd.notna(sv) and pd.notna(c):
+                parts.append(f"Supertrend ATR(10)×3 翻多(ST支撑{sv:.0f},close{c:.0f})")
+            else:
+                parts.append("Supertrend ATR(10)×3 翻多")
+            cv = cross_aligned.get(date)
+            if pd.notna(cv):
+                parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
+            parts.append("[指数]")
+            signals.append((date, iid, "buy_backup", ", ".join(parts)))
 
     # B 扩展：全球指标 + 情绪分数 signals（value 当 close，按 09 回测推荐规则 + B1+S1）
     for mid in GLOBAL_METRIC_IDS:
