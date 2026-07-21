@@ -198,6 +198,8 @@ def collect_direct(metric):
     res = safe_call(fn)
     if isinstance(res, Exception):
         return [], f"direct:{name} error: {res}"
+    if not res:  # 空列表/None = 两源皆败无数据
+        return [], f"direct:{name} 两源皆败无数据"
     sc = metric.get("scale", 1.0)
     return [(d, v * sc) for d, v in res], "ok"
 

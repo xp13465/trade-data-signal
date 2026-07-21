@@ -33,7 +33,7 @@ MAX_GAP_SEC = 3 * 3600  # >3h 视为错位，丢弃
 TASKS = [
     {"task": "update_all", "name": "收盘全量", "script": "update_all.sh",
      "schedule": "17:50", "log": "update_all_launchd.log", "mode": "standard"},
-    {"task": "backfill_evening", "name": "指数补采兜底", "script": "backfill_indices.sh",
+    {"task": "backfill_evening", "name": "指数补采兜底", "script": r"backfill_(indices|metrics)\.sh",
      "schedule": "16:35 / 20:00 / 02:00", "log": "backfill_evening_launchd.log", "mode": "standard"},
     {"task": "intraday_snapshot", "name": "盘中快照", "script": "intraday_snapshot.sh",
      "schedule": "盘中 09:35-15:35", "log": "intraday_snapshot_launchd.log", "mode": "standard"},
@@ -68,11 +68,11 @@ def parse_standard(path: Path, script: str):
     starts, ends = [], []
     for line in _iter_lines(path):
         m = START_RE.search(line)
-        if m and m.group(1) == script:
+        if m and re.fullmatch(script, m.group(1)):
             starts.append(datetime.strptime(m.group(2), "%Y-%m-%d %H:%M:%S"))
             continue
         m = END_RE.search(line)
-        if m and m.group(1) == script:
+        if m and re.fullmatch(script, m.group(1)):
             ts = datetime.strptime(m.group(2), "%Y-%m-%d %H:%M:%S")
             code = int(m.group(3)) if m.group(3) is not None else 0
             ends.append((ts, code))
