@@ -373,7 +373,7 @@ function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
 const LAB_STRATEGIES = {
   // --- 候选买点区（7个） ---
   BB_lower_revert: {
-    name: "布林下轨回归买", side: "buy", zone: "buy", status: "experimental",
+    name: "下轨拐点买", side: "buy", zone: "prod", status: "partial",
     trigger: "前一日收盘价跌破布林带下轨，当日收盘价收回下轨之上（超卖反弹）",
     conclusion: "3/4窗口达标并列靠前，近3年60d盈亏比1.84较高，与C1语义互补",
     theory: "布林带下轨回归。价格跌破下轨后收回，意味超卖极端已过、反弹拐点出现。与C1同为「超卖反弹」语义，但用价格穿越布林带下轨而非相对强弱指标(RSI)阈值，强势市更敏感。",
@@ -382,8 +382,8 @@ const LAB_STRATEGIES = {
     report: "回测报告：布林下轨回归买达标数3/4（近10年/近3年/近1年），与C1并列靠前。近3年60d盈亏比1.79、均值+4.7%为买点较高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs 相对强弱阈值），适合做互补买点。",
   },
   Supertrend_buy: {
-    name: "超级趋势翻多买", side: "buy", zone: "buy", status: "experimental",
-    trigger: "真实波幅ATR(10)×3 趋势线从翻空转为翻多（趋势跟踪买点）",
+    name: "趋势转向买", side: "buy", zone: "buy", status: "experimental",
+    trigger: "真实波幅ATR(10)×3 趋势线从翻空转为翻多（趋势转向买）",
     conclusion: "2/4达标，语义与C1正交（趋势启动 vs 超卖反弹），互补性较高的候选",
     theory: "超级趋势(Supertrend)指标基于真实波幅(ATR)的动态趋势线。翻多意味趋势已确认启动，与C1的「超卖反弹」正交，捕捉的是趋势延续而非拐点。",
     scenario: "趋势启动确认；与C1互补覆盖不同市场状态。",
@@ -391,8 +391,8 @@ const LAB_STRATEGIES = {
     report: "回测报告：超级趋势翻多买全史达标（51.4%/1.21），近3年20d/60d胜率≥49.7%盈亏比≥1.45。语义与C1正交（趋势启动 vs 超卖反弹），是互补性较高的候选。近3年10d均值+1.0%，60d均值+3.8%。",
   },
   Donchian20_up: {
-    name: "唐奇安20日突破买", side: "buy", zone: "buy", status: "experimental",
-    trigger: "收盘价突破近20日最高价（通道突破买）",
+    name: "上轨突破买", side: "buy", zone: "buy", status: "experimental",
+    trigger: "收盘价突破近20日最高价（上轨突破买）",
     conclusion: "2/4达标，近3年胜率<50%，趋势跟踪型信号",
     theory: "唐奇安通道突破。价格创新高意味多头力量突破，经典趋势跟踪系统。",
     scenario: "强趋势市突破入场；震荡市假信号多。",
@@ -556,7 +556,7 @@ const LAB_STRATEGIES = {
   },
   // --- 生产参考区（2个） ---
   C1_RSI30: {
-    name: "相对强弱上穿30买", side: "buy", zone: "prod", status: "live",
+    name: "超卖拐点买", side: "buy", zone: "prod", status: "live",
     trigger: "RSI(14) 从 ≤30 升回 >30 那天（超卖结束、价格有望反弹）",
     conclusion: "3/4达标，结构较稳健，当前主买点",
     theory: "相对强弱指标(RSI)经典超卖回归。相对强弱指标(RSI)≤30表示超卖，升回30之上意味空头力量衰竭、反弹拐点出现。事件化（仅穿越当日标）。",
@@ -565,7 +565,7 @@ const LAB_STRATEGIES = {
     report: "回测报告：相对强弱上穿30买 达标数3/4（全史/近10年/近3年）并列靠前。近3年全持有期胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随持有期单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构较稳健，当前主用买点（回测表现较稳）。",
   },
   D1_high20_drop5: {
-    name: "20日高回落5%卖", side: "sell", zone: "prod", status: "live",
+    name: "趋势转弱卖", side: "sell", zone: "prod", status: "live",
     trigger: "收盘价从近20日最高价回落 5%（前日≥阈 且 当日<阈），且收盘价>60日均线，且差离值<信号线",
     conclusion: "20d胜率55.7%样本最大，当前主卖点",
     theory: "基于最高价的回落止盈。从20日最高价回落5%意味趋势转弱，叠加60日均线多头过滤+MACD死叉确认。反应型信号（不预测顶部，反应已发生的弱势）。",
@@ -577,17 +577,17 @@ const LAB_STRATEGIES = {
 
 // 策略释义映射（tooltip 悬停显示中文释义，仅展示用不改后端key）
 const _LAB_STRAT_EN = {
-  Supertrend_buy: "超级趋势翻多买", Supertrend_sell: "超级趋势翻空卖",
-  B0_RSI70: "相对强弱下穿70卖", C1_RSI30: "相对强弱上穿30买",
+  Supertrend_buy: "趋势转向买", Supertrend_sell: "超级趋势翻空卖",
+  B0_RSI70: "相对强弱下穿70卖", C1_RSI30: "超卖拐点买",
   MA_golden_5_20: "均线5/20金叉买", MA_golden_10_60: "均线10/60金叉买",
   MA_death_5_20: "均线5/20死叉卖", ATR_trail_stop: "真实波幅追踪止损卖",
-  BB_lower_revert: "布林下轨回归买", BB_upper_revert: "布林上轨回落卖",
+  BB_lower_revert: "下轨拐点买", BB_upper_revert: "布林上轨回落卖",
   BB_middle_break: "跌破布林中轨卖", BB_upper_break: "突破布林上轨买",
-  Donchian20_up: "唐奇安20日突破买", Donchian55_up: "海龟55日突破买",
+  Donchian20_up: "上轨突破买", Donchian55_up: "海龟55日突破买",
   Donchian10_down: "跌破10日最低卖", Donchian20_down: "跌破20日最低卖",
   MACD_golden: "MACD金叉买", MACD_death: "MACD死叉卖",
   KDJ_golden_oversold: "KDJ超卖金叉买", KDJ_death_overbought: "KDJ超买死叉卖",
-  Vol_breakout: "放量突破买", D1_high20_drop5: "20日高回落5%卖",
+  Vol_breakout: "放量突破买", D1_high20_drop5: "趋势转弱卖",
   F_D1_S1_MACD: "D1回落5%+60日均线多头+MACD死叉 融合卖", F_D1_S1: "D1回落5%+60日均线多头(豁免MACD) 融合卖",
   F_B1_RSI40: "布林下轨回归+相对强弱上穿40 融合买", F_B1_rebound2pct: "布林下轨回归+反弹2% 融合买",
   F_C1_MACD_golden: "相对强弱上穿30+MACD金叉 融合买", F_D1_MA_death: "D1回落5%+均线5/20死叉 融合卖",
@@ -603,7 +603,7 @@ const LAB_ZONES = [
   { key: "buy", label: "🧪 候选参考点(买)", count: 7, desc: "候选买方向参考点策略（含布林下轨/超级趋势实验中）" },
   { key: "sell", label: "🧪 候选参考点(卖)", count: 7, desc: "候选卖方向参考点策略（含布林上轨/均线死叉实验中）" },
   { key: "excluded", label: "📋 已排除", count: 6, desc: "反面教材（回测不达标已弃用）" },
-  { key: "prod", label: "✅ 生产参考", count: 2, desc: "已上线生产策略" },
+  { key: "prod", label: "✅ 生产参考", count: 3, desc: "已上线生产策略" },
 ];
 
 // 状态标签映射
@@ -889,9 +889,14 @@ function _generateFusionCandidates() {
   // 短名映射：从 name 提取可读短名
   const shortName = (s) => {
     const n = s.name;
+    if (n.includes("下轨拐点")) return "下轨拐点";
+    if (n.includes("超卖拐点")) return "超卖拐点";
+    if (n.includes("趋势转弱")) return "趋势转弱";
     if (n.includes("布林下轨")) return "布林下轨";
     if (n.includes("超级趋势")) return "超级趋势";
+    if (n.includes("趋势转向")) return "趋势转向";
     if (n.includes("唐奇安")) return "唐奇安" + (n.includes("55") ? "55" : "20");
+    if (n.includes("上轨突破")) return "上轨突破";
     if (n.includes("海龟")) return "海龟55";
     if (n.includes("均线")) return "均线" + (n.includes("5/20") ? "5/20" : "10/60");
     if (n.includes("MACD")) return "MACD";
@@ -1147,7 +1152,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
         { name: "趋势线(空)", data: r2.stBear, color: "#c92a2a", dash: false },
       ],
       signals: r2.signals, signalLabel, signalColor: "#2e7d32",
-      chartTitle: `${name} · 超级趋势翻多实验`, statLabel: "实验买点",
+      chartTitle: `${name} · 趋势转向实验`, statLabel: "实验买点",
     };
   } else if (key === "MA_death_5_20") {
     const r2 = computeMADeathCrossLab(ohlc);
@@ -5497,7 +5502,7 @@ function _labSymmetryChart(container, data) {
 }
 
 // === 🎛 参数敏感扫描：7策略参数网格（验证默认参数处于稳定高原而非过拟合尖峰）===
-const _LAB_PARAMSCAN_RULE = "🎛 参数敏感扫描：对7策略做参数网格扫描，验证默认参数处于稳定高原而非孤立尖峰(过拟合)。判定:稳健高原=默认参数附近都盈利,尖锐尖峰=仅个别参数盈利(过拟合风险)。唐奇安20日突破买/超级趋势翻多买=稳健高原;相对强弱上穿30买/布林带族/20日高回落5%卖=尖锐尖峰,默认参数非回测最优点。";
+const _LAB_PARAMSCAN_RULE = "🎛 参数敏感扫描：对7策略做参数网格扫描，验证默认参数处于稳定高原而非孤立尖峰(过拟合)。判定:稳健高原=默认参数附近都盈利,尖锐尖峰=仅个别参数盈利(过拟合风险)。上轨突破买/趋势转向买=稳健高原;相对强弱上穿30买/布林带族/20日高回落5%卖=尖锐尖峰,默认参数非回测最优点。";
 
 async function renderParamScanLab() {
   const wrapper = document.createElement("div");
