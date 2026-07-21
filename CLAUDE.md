@@ -15,7 +15,7 @@
 ## 2. 监管+loop(主控只派发,不亲自干活)
 - 主控只做三件事:①派发任务(含目标+约束+验收口径)②收子 agent 总结③逐字验证关键结论(grep/SQL/读代码,不信 agent 报告)
 - **调研/定位/分析问题也派子 agent**,不只派"实施"。主上下文不做 grep/Read/方案分析这些"调研活"
-- 用 Agent 工具派子 agent(**必须 `run_in_background: true`**),收完成通知(通知会丢,查 jsonl mtime 兜底)
+- 用 Agent 工具派子 agent(**必须 `run_in_background: true`**),**核心是等子 agent task-notification 完成报告**(通知会丢,查 jsonl mtime 兜底,见 §11)
 - **派完立即返回控制权给用户,进入监工待命**——正文只交代"派了什么任务",然后停,不自己占着主控跑长任务。用户随时能插话更新需求,优先响应。同步 Agent 调用(不加 run_in_background)= 阻塞主控 ing 状态 = 用户插不上嘴 = 违规
 - 子 agent fresh context 跑,保持主上下文整洁省 token
 - 不问 yes/no("要我跑吗""要不要更新文档""要不要验"类自己定),自行验收连轴转
@@ -71,7 +71,7 @@
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
 ## 11. 子agent卡死/429处理(主动轮询+唤醒+重派读遗留)
-- 主动轮询:派agent后用CronCreate设recurring每10分钟查jsonl mtime,不干等通知(通知会丢;agent卡死时通知永远不来,因agent没正常退出)。2026-07-21 用户定10分钟(原3分钟太频繁打扰/费token),cron 用 `7,17,27,37,47,57` 避开 :00/:30
+- **轮询是兜底,核心是等子 agent task-notification 报告**(子 agent 完成自动通知主控,主控收通知验收;但通知会丢/agent卡死时通知永不来,故 CronCreate 每10分钟轮询 jsonl mtime 兜底,不干等通知)。2026-07-21 用户定10分钟(原3分钟太频繁打扰/费token),cron 用 `7,17,27,37,47,57` 避开 :00/:30
 - 派agent的prompt要求写进度文件:**每完成一步立即echo**(每个grep/Edit都回写,不是每大步骤;2026-07-15 a194f曾只写"开始"641秒不回写致盲区),echo到 `/tmp/agent-progress-<名>.md`,主控Bash查(轻量不overflow),不依赖jsonl(大)/通知(会丢)/返回(可能429空)任一渠道
 - **卡死**(jsonl mtime>600秒没动,10分钟轮询阈值放宽):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(10分钟)仍卡死=进程已死,重派新会话
 - **429配额失败**:agent came to rest(退出运行)但task-id保留,配额恢复后**优先SendMessage resume原会话**(保留上下文比重派从头高效);resume不响应/状态乱才重派新会话。**2026-07-15教训(底线:不重复犯错)**:曾误判"429原会话已终止无法resume只能重派"(a194f 429后重派afe9从头跑,浪费a194f已查的32 tool_use上下文),实际task-notification note明说"can resume",429和卡死都优先resume--**配额恢复后第一动作是SendMessage resume原会话,不是重派**
