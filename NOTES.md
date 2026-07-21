@@ -2738,3 +2738,81 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 - **跳过 deploy.sh**：纯代码改动（common.js/common.min.js/lab.js/lab.min.js/index.html 5 文件），deploy.sh 的 git add 只加 `static-site/data/` + `app.min.js` + `lab.min.js`（不含 common.js/common.min.js/index.html），且会跑 export.py 产生不必要数据 commit + 直接 `git push origin HEAD:main` 跳过 feat 分支，故自行 `git add` 5 文件 + commit + `git push origin feat/iframe-theme-follow` + `git push origin feat/iframe-theme-follow:main`（避免 checkout 切分支污染 DB）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
 - **线上验证**（https://s.sugas.site/#lab?sub=custom）：`index.html` 引用 `common.min.js?v=beb1bb88` + `lab.min.js?v=8b5c9dcc`（新版本号）；`common.min.js?v=beb1bb88` 含 15 个新 iid（csi_div/div_lowvol/sz_div/hsi/hstech/hscei/us_dji/us_ixic/us_spx/us_ndx/nikkei225/kospi/ftse100/dax/cac40 各 1 次）+ `_LAB_CUSTOM_DIV`；`lab.min.js?v=8b5c9dcc` 含 `_LAB_CUSTOM_DIV/HK/GLOBAL` 3 常量 + "红利指数/港股指数/全球指数"3 optgroup label。
 - **git**：commit 6106d556，feat+main 已同步。
+
+### 小节O：全站性能扫描报告（2026-07-21，只读扫描+落档，无 commit 改码）
+
+> 用户要求全方位性能扫描 s.sugas.site（MaoziYun/3.17.0 静态托管，非 CF，_headers 不生效，MaoziYun 自带 HSTS）。10 维度扫描（资源大小/缓存头/压缩/加载顺序/JSON体积/代码体积/TTFB/HTTP协议/图片/冗余），只 curl/grep/ls 不改码（§13 禁图片）。完整报告留底 `/tmp/perf-report-full.md`，扫描原始数据 `/tmp/agent-progress-perf-scan.md`。本次只落档 NOTES §48 小节O + TASKS 性能优化待办新区，不改代码不跑 deploy。
+
+**总体评估（4 维度评分 1-5）**：
+- 首屏阻塞 2/5：echarts 629KB（动态加载）+ app.min.js 251KB + style.css 133KB
+- 传输体积 1/5：**零压缩**，JS/CSS/JSON 全裸传，首屏 ~466KB 可压缩到 ~140KB 省 70%+
+- 缓存策略 2/5：统一 max-age=1200，版本化资源未 immutable，缺 ETag
+- 压缩 1/5：**完全无 Content-Encoding**，MaoziYun/3.17.0 不做 gzip/br
+
+**各资源扫描表**（2026-07-21 08:34 实测）：
+
+| URL | 大小 | 压缩 | Cache-Control | ETag | TTFB | 协议 |
+|-----|------|------|---------------|------|------|------|
+| / | 11KB | 无 | max-age=1200 | 无 | 168ms | h2 |
+| /app.min.js | 245KB | 无 | max-age=1200 | 无 | 163ms | h2 |
+| /lab.min.js | 202KB | 无 | max-age=1200 | 无 | 187ms | h2 |
+| /common.min.js | 12KB | 无 | max-age=1200 | 无 | 176ms | h2 |
+| /vendor/echarts.min.js | 615KB | 无 | max-age=1200 | 无 | 263ms(MISS) | h2 |
+| /style.css | 130KB | 无 | max-age=1200 | 无 | 165ms | h2 |
+| /lab.css | 57KB | 无 | max-age=1200 | 无 | 170ms | h2 |
+| /og.png | 60KB | 无 | max-age=1200 | 无 | 182ms | h2 |
+
+首屏关键路径裸传 ~466KB（HTML 11KB + style.css 133KB + lab.css 57KB render-blocking + qr.js 1.5KB sync + common.min.js 12KB + app.min.js 251KB defer），echarts 629KB 由 app.js 动态加载（P2-5 闭环见小节K）。压缩潜力：JS 60-70% / CSS 70-80% / JSON 80-90%。
+
+**数据 JSON 体积**（data/ 244MB / 117 文件全裸传）：
+- Top：industry-3y.json 9.6MB / etf_national_team-all.json 8.0MB / a-stock-all.json 6.9MB / industry-all-concepts.json 4.6MB / hk-all.json 4.6MB / sentiment-all.json 4.4MB / industry-5y-concepts.json 4.1MB / global-all.json 4.0MB / etf_national_team-5y.json 3.6MB / industry-1y.json 3.4MB。
+- 用户切 tab 拉 9.6MB JSON 等待 1s+，gzip 后可降到 ~1.5MB（省 85%）。
+
+**代码体积**（源码 vs min）：
+- app.js 433KB -> 251KB（terser 58.0%）/ lab.js 345KB -> 206KB（59.9%）/ common.js 19KB -> 12KB（64.3%）/ vendor/echarts.min.js 629KB（已 min，vendor）。
+- **style.css 133KB / lab.css 57KB 未 minify**（`scripts/build_min.py` 只处理 JS 不处理 CSS，index.html 直接引非 min 版 `<link href="./style.css?v=83bf98dc">`）。
+
+**加载顺序**（index.html）：
+- `<link rel="stylesheet" href="./style.css?v=83bf98dc">` render-blocking
+- `<link rel="stylesheet" href="./lab.css?v=0acaccbc">` render-blocking（首页不需要）
+- `<script src="./qr.js?v=1b721750">` sync 阻塞（1.5KB 影响小）
+- `<script defer src="./common.min.js?v=beb1bb88">` defer（common 在 app 前 ✓）
+- `<script defer src="./app.min.js?v=f0ae7fc7">` defer
+- echarts 由 app.js 动态加载（P2-5 闭环）
+
+**HTTP/安全**：HTTP/2 ✓ / HSTS max-age=63072000 ✓ / server MaoziYun/3.17.0 / cf-ray NRT 日本节点 TTFB <300ms / 无 CSP/X-Frame-Options/Permissions-Policy（_headers 不生效，迁 CF 后落地）。
+
+**图片**：og.png 60KB（2026-07-16 已优化 67->36KB 256色，现 60KB 可接受），无其他图片，favicon 用 `data:,` 内联。
+
+**冗余**：app.js fetch 4 次 / lab.js 2 次 / common.js 0 次，共 6 次无严重冗余；app.js 2 次 `fetch(alert_analyze_${iid}.json)` 按 iid 不同实际不重复（模式相同）。
+
+**问题清单**：
+- **P0**（最影响首屏）：
+  1. 零压缩 - 全站无 Content-Encoding（MaoziYun/3.17.0 不做 gzip/br，JS/CSS/JSON 全裸传，首屏 ~466KB gzip 可降到 ~140KB 省 70%+，echarts 629KB 可降到 ~180KB）
+  2. 大 JSON 无压缩传输（industry-3y 9.6MB / etf_all 8MB / a-stock-all 6.9MB，data 244MB/117 文件全裸传，切 tab 等待 1s+）
+- **P1**：
+  3. 缓存策略弱（统一 max-age=1200，版本化资源应 immutable max-age=31536000，20分钟 revalidate 增延迟）
+  4. style.css/lab.css 未 minify（133KB+57KB，build_min.py 不处理 CSS，minify 后可降到 ~100KB+40KB）
+  5. 缺 ETag（仅 Last-Modified，无精细化缓存验证）
+  6. echarts 629KB vendor（虽动态加载，单文件仍大，可按需 import 或换 echarts core）
+- **P2**：
+  7. lab.css 首页强加载（57KB render-blocking，仅 lab tab 用，可改 preload/懒加载）
+  8. HTML 内联 script 较多（3 个内联块，可外部化，影响小）
+  9. 无 CSP/X-Frame-Options/Permissions-Policy（_headers 不生效，迁 CF 后落地）
+
+**优化建议**：
+- **可做（S/M）**：
+  - [P0/M] 迁移 CF Workers 启用自动 br 压缩（wrangler.jsonc 已存在，MaoziYun 不压缩，迁 CF 后自动 br 压缩 JS/CSS/JSON，首屏省 70%+，工作量 M 迁移+测试+域名切流）
+  - [P0/M] data JSON 预压缩 .json.gz 部署（export.py 产 .json 同时产 .json.gz，deploy.sh 上传双份按 Accept-Encoding 选，工作量 M 改 export.py+deploy.sh+前端 fetch 路径）
+  - [P1/S] style.css/lab.css minify（扩 build_min.py 加 CSS minify 如 lightningcss/cssmin，产 style.min.css/lab.min.css，index.html 改引用+bump 版本号，工作量 S，立即可做无需迁站，**优先推荐**）
+  - [P1/S] 版本化资源 immutable 长缓存（迁 CF 后 _headers 加 `/*.min.js`/`/*.min.css` -> max-age=31536000 immutable，MaoziYun 不读 _headers 暂无效，工作量 S 迁 CF 后落地）
+  - [P1/M] echarts 按需加载（换 echarts core+按图表类型 import line/bar/pie/scatter/candlestick 等，629KB->~200KB，工作量 M 需测图表类型覆盖有回归风险）
+- **远期/暂缓**：
+  - [P2/L] data JSON 按需拆分（industry-all 已拆 31 行业 2026-07-11，其他大 JSON 类似拆，工作量大现 CF 缓存分层够用）
+  - [P2/M] HTML 内联 script 外部化（影响小低优）
+  - [P2/S] lab.css 首页懒加载（改 preload 或按 tab 切换加载，工作量 S 收益小 CSS 已 max-age=1200 缓存）
+- **不做（排除）**：HTTP/2 ✓ / HSTS ✓ / TTFB <300ms ✓ / og.png 已优化 / fetch 无严重冗余
+
+**结论**：最大痛点 = MaoziYun/3.17.0 零压缩 + 不读 _headers，全站 JS/CSS/JSON 全裸传。根治 = 迁 CF Workers（wrangler.jsonc 已存在）自动获 br 压缩 + _headers 全部能力（immutable 长缓存+CSP+ETag+X-Frame）。优先级：P1/S CSS minify（立即可做无需迁站）-> P0/M data JSON 预压缩（缓解大 JSON）-> P0/M 迁 CF Workers（根治零压缩+解锁 _headers）。
+
+**git**：本次只落档 NOTES §48 小节O + TASKS 性能优化待办新区，不改代码不跑 deploy。commit 后 push feat + main（避免 checkout 切分支污染 DB）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。

@@ -968,3 +968,35 @@ P0 全 6 条已闭环（07-19 实施 + 07-20 核查线上生效）：grep 验收
 - 增量备份：压缩后全量仅24MB，收益锐减
 - WAL 改造：已在线热备（backup_db.sh `.backup`），最佳方案无需改
 - R2 扩容：700MB 远在 10GB 免费额内
+
+## 全站性能优化待办（2026-07-21 扫描，详见 NOTES §48 小节O）
+
+> 10 维度扫描 s.sugas.site（MaoziYun/3.17.0 静态托管，非 CF，_headers 不生效）。最大痛点 = MaoziYun 零压缩 + 不读 _headers，全站 JS/CSS/JSON 全裸传。完整报告留底 `/tmp/perf-report-full.md`，扫描原始数据 `/tmp/agent-progress-perf-scan.md`。本次只扫描+落档不改码。
+
+### P0（最影响首屏）
+1. **零压缩 - 全站无 Content-Encoding**：MaoziYun/3.17.0 不做 gzip/br，JS/CSS/JSON 全裸传。首屏 ~466KB gzip 可降到 ~140KB（省 70%+），echarts 629KB 可降到 ~180KB。
+   - 根治方案：迁 CF Workers（wrangler.jsonc 已存在）自动 br 压缩，工作量 M（迁移+测试+域名切流）。
+2. **大 JSON 无压缩传输**：data/ 244MB / 117 文件全裸传。industry-3y.json 9.6MB / etf_national_team-all.json 8MB / a-stock-all.json 6.9MB，切 tab 等待 1s+。
+   - 缓解方案：export.py 产 .json 同时产 .json.gz + deploy.sh 上传双份按 Accept-Encoding 选，工作量 M（改 export.py+deploy.sh+前端 fetch 路径）。
+
+### P1
+3. **style.css/lab.css 未 minify**：133KB+57KB 未压缩（`scripts/build_min.py` 只处理 JS 不处理 CSS，index.html 直接引非 min 版）。
+   - 扩 build_min.py 加 CSS minify（lightningcss/cssmin），产 style.min.css/lab.min.css，index.html 改引用 + bump 版本号，工作量 S（立即可做无需迁站，优先推荐）。
+4. **缓存策略弱**：所有资源统一 max-age=1200，版本化资源（app.min.js?v=）应 max-age=31536000 immutable。迁 CF 后 _headers 加 `/*.min.js`/`/*.min.css` -> immutable，工作量 S（MaoziYun 不读 _headers 暂无效，迁 CF 后落地）。
+5. **缺 ETag**：仅 Last-Modified 无 ETag 精细化缓存验证（迁 CF 后自动补）。
+6. **echarts 629KB vendor**：虽已动态加载（P2-5 闭环见 NOTES §48 小节K），单文件仍大。换 echarts core + 按图表类型 import（line/bar/pie/scatter/candlestick 等）可降到 ~200KB，工作量 M（需测图表类型覆盖有回归风险）。
+
+### P2
+7. **lab.css 首页强加载**：57KB render-blocking，仅 lab tab 用。改 preload 或按 tab 切换加载，工作量 S 收益小（CSS 已 max-age=1200 缓存）。
+8. **HTML 内联 script 较多**：index.html 有 3 个内联 `<script>` 块，可外部化，影响小低优，工作量 M。
+9. **无 CSP/X-Frame-Options/Permissions-Policy**：_headers 不生效，迁 CF Workers 后落地（CLAUDE.md §8 已记）。
+
+### 优先级建议
+P1/S CSS minify（立即可做）-> P0/M data JSON 预压缩（缓解大 JSON）-> P0/M 迁 CF Workers（根治零压缩+解锁 _headers 全部能力：immutable 长缓存+CSP+ETag+X-Frame）。
+
+### skip（扫描后排除）
+- HTTP/2：已启用 ✓
+- HSTS：已启用 ✓（max-age=63072000）
+- TTFB：<300ms 可接受（日本节点 cf-ray NRT）
+- og.png：60KB 已优化（2026-07-16 67->36KB 256色压缩）
+- fetch 冗余：仅 6 次无严重冗余（app.js 4 + lab.js 2 + common.js 0）
