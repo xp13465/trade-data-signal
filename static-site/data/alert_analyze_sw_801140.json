@@ -3,11 +3,11 @@
   "target_type": "index",
   "target_name": "SW 轻工制造",
   "alert": {
-    "date": "20260720",
+    "date": "20260721",
     "target_id": "sw_801140",
     "target_type": "index",
-    "high": 20.09,
-    "low": 92.01,
+    "high": 20.05,
+    "low": 91.83,
     "high_level": "中性",
     "low_level": "机遇",
     "dims": {
@@ -16,15 +16,15 @@
       "H3": 44.58,
       "H4": 0.4,
       "H5": 51.67,
-      "H6": 72.29,
+      "H6": 71.88,
       "H7": null,
       "H8": null,
       "L1": 96.67,
-      "L2": 77.5,
+      "L2": 77.08,
       "L3": 99.6,
       "L4": null,
       "L5": null,
-      "L6": 98.75,
+      "L6": 98.33,
       "L7": null,
       "L8": null
     },
@@ -59,9 +59,9 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "score": 72.29,
+          "score": 71.88,
           "weight": 0.08,
-          "contribution": 5.78,
+          "contribution": 5.75,
           "hit": true,
           "direction": "high"
         },
@@ -124,18 +124,18 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 77.5,
+          "score": 77.08,
           "weight": 0.18,
-          "contribution": 13.95,
+          "contribution": 13.87,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L6",
           "name": "新低极端",
-          "score": 98.75,
+          "score": 98.33,
           "weight": 0.08,
-          "contribution": 7.9,
+          "contribution": 7.87,
           "hit": true,
           "direction": "low"
         }
@@ -196,7 +196,7 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 72.29,
+          "value": 71.88,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
@@ -238,7 +238,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 77.5,
+          "value": 77.08,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -278,7 +278,7 @@
         {
           "k": "L6",
           "name": "新低极端",
-          "value": 98.75,
+          "value": 98.33,
           "threshold": 60,
           "unit": "分",
           "desc": "新低极端(52周新低百分位)",
@@ -309,14 +309,32 @@
     },
     "history_analogy": {
       "high": {
-        "cur_date": "20260720",
+        "cur_date": "20260721",
         "top_n": 3,
         "matches": [
+          {
+            "date": "20260720",
+            "jaccard": 1.0,
+            "cosine": 1.0,
+            "combined": 1.0,
+            "hit_overlap": [
+              "H6",
+              "L1",
+              "L2",
+              "L3",
+              "L6"
+            ],
+            "forward_returns": {
+              "ret_5d": null,
+              "ret_10d": null,
+              "ret_20d": null
+            }
+          },
           {
             "date": "20260713",
             "jaccard": 1.0,
             "cosine": 0.9999,
-            "combined": 1.0,
+            "combined": 0.9999,
             "hit_overlap": [
               "H6",
               "L1",
@@ -333,7 +351,7 @@
           {
             "date": "20260708",
             "jaccard": 1.0,
-            "cosine": 0.9997,
+            "cosine": 0.9996,
             "combined": 0.9998,
             "hit_overlap": [
               "H6",
@@ -344,24 +362,6 @@
             ],
             "forward_returns": {
               "ret_5d": -0.52,
-              "ret_10d": null,
-              "ret_20d": null
-            }
-          },
-          {
-            "date": "20260717",
-            "jaccard": 1.0,
-            "cosine": 0.9988,
-            "combined": 0.9994,
-            "hit_overlap": [
-              "H6",
-              "L1",
-              "L2",
-              "L3",
-              "L6"
-            ],
-            "forward_returns": {
-              "ret_5d": null,
               "ret_10d": null,
               "ret_20d": null
             }
@@ -378,14 +378,32 @@
         }
       },
       "low": {
-        "cur_date": "20260720",
+        "cur_date": "20260721",
         "top_n": 3,
         "matches": [
+          {
+            "date": "20260720",
+            "jaccard": 1.0,
+            "cosine": 1.0,
+            "combined": 1.0,
+            "hit_overlap": [
+              "H6",
+              "L1",
+              "L2",
+              "L3",
+              "L6"
+            ],
+            "forward_returns": {
+              "ret_5d": null,
+              "ret_10d": null,
+              "ret_20d": null
+            }
+          },
           {
             "date": "20260713",
             "jaccard": 1.0,
             "cosine": 0.9999,
-            "combined": 1.0,
+            "combined": 0.9999,
             "hit_overlap": [
               "H6",
               "L1",
@@ -402,7 +420,7 @@
           {
             "date": "20260708",
             "jaccard": 1.0,
-            "cosine": 0.9997,
+            "cosine": 0.9996,
             "combined": 0.9998,
             "hit_overlap": [
               "H6",
@@ -413,24 +431,6 @@
             ],
             "forward_returns": {
               "ret_5d": -0.52,
-              "ret_10d": null,
-              "ret_20d": null
-            }
-          },
-          {
-            "date": "20260717",
-            "jaccard": 1.0,
-            "cosine": 0.9988,
-            "combined": 0.9994,
-            "hit_overlap": [
-              "H6",
-              "L1",
-              "L2",
-              "L3",
-              "L6"
-            ],
-            "forward_returns": {
-              "ret_5d": null,
               "ret_10d": null,
               "ret_20d": null
             }
