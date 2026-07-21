@@ -2816,3 +2816,39 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 **结论**：最大痛点 = MaoziYun/3.17.0 零压缩 + 不读 _headers，全站 JS/CSS/JSON 全裸传。根治 = 迁 CF Workers（wrangler.jsonc 已存在）自动获 br 压缩 + _headers 全部能力（immutable 长缓存+CSP+ETag+X-Frame）。优先级：P1/S CSS minify（立即可做无需迁站）-> P0/M data JSON 预压缩（缓解大 JSON）-> P0/M 迁 CF Workers（根治零压缩+解锁 _headers）。
 
 **git**：本次只落档 NOTES §48 小节O + TASKS 性能优化待办新区，不改代码不跑 deploy。commit 后 push feat + main（避免 checkout 切分支污染 DB）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
+
+### 小节P：CSS minify 上线（2026-07-21，style.css/lab.css -> .min.css，commit ada602e0）
+
+> 接小节O 性能扫描 P1/S 项「style.css/lab.css minify」。扩 `scripts/build_min.py` 加 CSS minify（rcssmin 1.2.2 纯 Python），PAIRS 加 style.css/lab.css，minify 按后缀分流（.css->rcssmin / .js->terser）。生成 style.min.css + lab.min.css，index/about/privacy.html 改引用 .min.css，bump_asset_version.py ASSETS 换 .min.css 刷新 ?v=。commit ada602e0 push feat + main，线上 s.sugas.site 验证通过。
+
+**方案**：rcssmin 1.2.2（`pip install rcssmin`，纯 Python 轻量 CSS 压缩器，只去 /* */ 注释/多余空白/合并，不改 CSS 规则保视觉一致）。未选 lightningcss（Rust 依赖装包风险）/纯正则（压缩率略低）。.venv 装包成功 `Successfully installed rcssmin-1.2.2`。
+
+**build_min.py 改动**：
+- PAIRS 加 ("static-site/style.css","static-site/style.min.css") + ("static-site/lab.css","static-site/lab.min.css")
+- minify() 按后缀分流：.css -> minify_css()（rcssmin.cssmin）/ .js -> minify_js()（terser subprocess）
+- main() 只在 PAIRS 含 .js 时 _check_terser（CSS 独立，terser 不可用时 CSS 仍能压缩）
+- 新增 _print_result() 统一打印压缩结果
+
+**bump_asset_version.py 改动**：ASSETS 移除 style.css/lab.css，加 style.min.css/lab.min.css（上线只管 min 版版本号）。
+
+**实测压缩率**（2026-07-21 08:43 本地，线上 content-length 一致）：
+
+| 文件 | 源 | min | 省 | 率 |
+|------|----|-----|----|----|
+| style.css | 133,633B | 99,581B | 34,052B | 25.5% |
+| lab.css | 57,985B | 44,595B | 13,390B | 23.1% |
+| 合计 | 191,618B | 144,176B | 47,442B | 24.8% |
+
+**压缩率说明（重要）**：CSS minify 实测省 23-26%，**非小节O 预估的 70-80%**。原因：style.css/lab.css 注释+空白仅占 20%（style 注释 7%+空白 13% / lab 注释 6%+空白 12%），无 data: URI（base64 图片无法压缩），剩余 80% 是 CSS 规则文本（选择器+属性+值），rcssmin 不改规则（保视觉一致约束）。70-80% 是 JS mangle（变量名缩短）水平，不适用于 CSS。若需更高压缩率：①迁 CF Workers 启 br 压缩（传输层省 80%+，根治零压缩 P0 项）②换 lightningcss（激进 minify 合并规则/缩短 hex，但改 CSS 规则有边缘回归风险，不推荐）。当前 25% 是不改规则前提下 CSS minify 的真实上限。
+
+**index/about/privacy.html 改动**：`<link href="./style.css?v=83bf98dc">` -> `./style.min.css?v=135c6c1a`，`./lab.css?v=0acaccbc` -> `./lab.min.css?v=79e873b7`（bump 刷新 ?v= 为 min 文件 md5 前 8 位）。
+
+**线上验证**（2026-07-21 08:48，push feat+main 后等 180s 拉取部署）：
+- `curl -sI https://s.sugas.site/style.min.css?v=135c6c1a` -> HTTP/2 200，content-length: 99581 ✓
+- `curl -sI https://s.sugas.site/lab.min.css?v=79e873b7` -> HTTP/2 200，content-length: 44595 ✓
+- 内容确认 min 版：`:root{--bg-page:#f5f6f8;...}` 单行紧凑无注释无换行 ✓
+- 首页 HTML 引用：`style.min.css?v=135c6c1a` + `lab.min.css?v=79e873b7`（HTML 缓存已刷新）✓
+
+**约束遵守**：不改 CSS 规则（rcssmin 只去注释/空白）保视觉一致 / 不 git add 根 data/（signal_stats.json/sw_components.json 保持本地 M）/ 不 checkout 切分支（push feat:main）/ 无图片操作（§13）。
+
+**git**：commit ada602e0 `perf: CSS minify (rcssmin) style.css/lab.css -> .min.css 省25%/23%`，push feat/iframe-theme-follow + feat:main（均 ee5b2001..ada602e0）。7 files changed（scripts/build_min.py + bump_asset_version.py + index/about/privacy.html + style.min.css + lab.min.css 新建）。根 data/ 未 add。
