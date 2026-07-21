@@ -1209,8 +1209,9 @@ def write_json(path: Path, data):
                       separators=(",", ":"))
     path.write_text(text, encoding="utf-8")
     # JSON gz 方案B(MaoziYun 不支持 Content-Encoding: gzip,前端 DecompressionStream 显式解压)
-    # 仅对>100KB 大文件生成 .json.gz(小文件 gzip 收益小且浪费 inode);原 .json 保留作 fallback
-    GZ_THRESHOLD = 100 * 1024
+    # 方案Y: GZ_THRESHOLD=0 全量生成 .json.gz(含小文件),原 .json 保留作 fallback
+    # 旧 100KB 阈值仅大文件生成 .gz,小文件不生成致 fetchJSON .gz 优先 404 fallback;全量后无 404
+    GZ_THRESHOLD = 0
     if len(text) >= GZ_THRESHOLD:
         gz_path = path.with_suffix(path.suffix + ".gz")
         with gzip.open(gz_path, "wb") as f:
