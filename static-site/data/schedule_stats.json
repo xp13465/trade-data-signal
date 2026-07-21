@@ -39,10 +39,10 @@
     "task": "lhb_backfill",
     "name": "龙虎榜",
     "schedule": "18:30 + 19:30(兜底)",
-    "est_text": "约57秒",
-    "last_run": "2026-07-21 18:30",
+    "est_text": "约1分钟",
+    "last_run": "2026-07-21 19:30",
     "last_exit": 0,
-    "last_duration_sec": 187
+    "last_duration_sec": 197
   },
   {
     "task": "rzhb_backfill",
