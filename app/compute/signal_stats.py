@@ -157,7 +157,8 @@ def compute() -> dict:
             fwd = {h: (series.shift(-h) / series - 1.0) * 100.0 for h in HORIZONS}
         iid_stats: dict = {}
         for sig, dates in sigs.items():
-            is_sell = sig == "sell"
+            # sell_stop_loss 也是卖信号（跌破止损），胜率按卖逻辑算（信号后下跌才算对）
+            is_sell = sig in ("sell", "sell_stop_loss")
             sig_stats: dict = {}
             if has_series:
                 for h in HORIZONS:
@@ -191,7 +192,7 @@ def store(stats: dict) -> int:
     return len(text)
 
 
-def compute_global_freq() -> dict:
+def compute_global_freq(stats=None) -> dict:
     """全局信号频率统计：聚合所有品种 buy/buy_aux/sell 的今年次数/总计/月均。
 
     月均算法（S2 修复）：用今年实际有信号的有效月份数做分母，而不是当前月份。
@@ -199,21 +200,25 @@ def compute_global_freq() -> dict:
     每品种 frequency 已带 `months` dict（最近 12 个月 YYYYMM->count），
     取其中今年的月份求并集，即"今年有信号的月份数"。
 
+    stats（2026-07-21 修复）：可选传入内存中的 stats dict（如 export.py 的
+    _stats_all() 进程内 cache），避免重复 load 文件 + 跨进程不一致。
+    不传则走 load() 读 data/signal_stats.json（API 等动态路径用）。
+
     返回：
       {sig: {monthly_avg, year_count, total_count, active_months}}
     """
     from datetime import datetime
-    all_stats = load()
+    all_stats = stats if stats is not None else load()
     this_year = str(datetime.now().year)
     cur_month = datetime.now().month
     freq: dict = {
         sig: {"year_count": 0, "total_count": 0, "year_months": set()}
-        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell")
+        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss")
     }
     for iid, sigs in all_stats.items():
         if iid.startswith("_"):
             continue
-        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell"):
+        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"):
             f = sigs.get(sig, {}).get("frequency")
             if not f:
                 continue

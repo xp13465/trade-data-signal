@@ -478,6 +478,7 @@ main { padding: 16px 24px; }
 .chart-hint .hint-sig.buy-special { background: #ffd700; color: #333; }
 .chart-hint .hint-sig.buy-backup { background: #9c27b0; }
 .chart-hint .hint-sig.sell { background: #2e8b57; }
+.chart-hint .hint-sig.sell-stop-loss { background: #3498db; color: #fff; }
 .chart-hint .hint-stat { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .chart-hint .hint-stat b { font-weight: 600; }
 .chart-hint .hint-kelly { color: var(--primary); }
@@ -583,6 +584,7 @@ main { padding: 16px 24px; }
 .sig-list b.buy_special { color: #ffd700; }
 .sig-list b.buy_backup { color: #9c27b0; }
 .sig-list b.sell { color: #2e8b57; }
+.sig-list b.sell_stop_loss { color: #3498db; }
 
 /* 首页冰点日/买卖点卡片：按日分组、同日4个/行、今日高亮 */
 .signal-grid { margin-top: 4px; max-height: 300px; overflow-y: auto; }
@@ -600,6 +602,7 @@ main { padding: 16px 24px; }
 .sig-item b.buy_special { color: #ffd700; }
 .sig-item b.buy_backup { color: #9c27b0; }
 .sig-item b.sell { color: #2e8b57; }
+.sig-item b.sell_stop_loss { color: #3498db; }
 .sig-freeze-name { color: var(--text-2); }
 .sig-item b.freeze-val { color: #2563eb; }
 .sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
@@ -1039,6 +1042,7 @@ main { padding: 16px 24px; }
 .rule-bar b.buy_special { color: #ffd700; }
 .rule-bar b.buy_backup { color: #9c27b0; }
 .rule-bar b.sell { color: #2e8b57; }
+.rule-bar b.sell_stop_loss { color: #3498db; }
 
 /* === UX：右下角回到顶部浮动按钮 === */
 .back-to-top {
@@ -1440,6 +1444,7 @@ main { padding: 16px 24px; }
 .rule-modal-content b.buy_special { color: #ffd700; }
 .rule-modal-content b.buy_backup { color: #9c27b0; }
 .rule-modal-content b.sell { color: #2e8b57; }
+.rule-modal-content b.sell_stop_loss { color: #3498db; }
 
 /* === BUG-E：筛选/切换控件 === */
 /* 指数筛选下拉 / 行业搜索框：看板顶部条，复用 .periods 按钮配色风格 */

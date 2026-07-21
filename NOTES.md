@@ -952,3 +952,40 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 - **R5（远期）**：误杀率高（53%）提示当前过滤本质是"非选择性删除"。可研究更选择性指标（如量价配合、cross 软分级、行业景气）替代简单位置过滤，提升选择性
 
 **git**：本小节AB 为纯调研落档，仅改 NOTES.md + TASKS.md，不 deploy 不 force push。回测脚本/结果留 `/tmp/` 供主控复算。
+
+### 小节AC：sell_stop_loss 改 ATR×3 Chandelier Exit + ⚠️口径错位问题（2026-07-21，待用户决策）
+
+**改造内容**（后端 agent a479b62f + 前端 agent a374e58b + B resume）：
+- `app/compute/signals.py` L649-657：sell_stop_loss 旧 Donchian20 下轨（`close < low.rolling(20).min().shift(1)`）改为 ATR×3 Chandelier Exit（`close < high.rolling(20).max().shift(1) - 3*ATR(14)`），事件化 `& ~prev` 去重连续触发
+- L826-832 reason 改"ATR×3止损(ATR=X.XX, 线=X, close=X)"
+- `app/compute/signal_stats.py` L160 `is_sell in ("sell","sell_stop_loss")`（sell_stop_loss 按卖逻辑算胜率，信号后下跌才算对）+ L195 `compute_global_freq(stats=None)` 加 stats 参数避免重复 load + 跨进程不一致
+- `static-site/export.py` L1354-1356 加导出 `signal_stats.json` = `_stats_all()` 结果（修复前端 fetch 404 降级"数据待补"根因）
+- DB `signal_daily` 全量回填 sell_stop_loss（旧"Donchian20下轨"reason 残留 0，全替换"ATR×3止损"）
+- 前端 `app.js`：signalLabel/图例改"ATR×3止损" + 弹窗 backtest 字段（追买持有期 5d/10d/30d/90d + sell_stop_loss ATR×3 vs Don20 对比）+ 策略说明加"追买与止损参考点"section + pin 盈亏来源说明 + CSS 蓝色（sell_stop_loss #3498db，`_renderSignalGrid` 用 it.signal 下划线 / statsHint 用 sigClass 连字符 sell-stop-loss，两个场景命名不同均生效）
+
+**⚠️ 口径错位重大问题**（后端 agent 验收发现，待用户决策）：
+
+| 口径 | win_rate | mean | n | 说明 |
+|---|---|---|---|---|
+| 回测 ATR×3（entry 配 ATR×3 出场策略收益） | 46.91% | +1.76% | ~12892 | **用户决策依据"全维度略优"** |
+| 旧 Don20（回测，entry 配 Don20 出场） | 44.33% | +1.56% | ~12892 | 基线（2008 股灾 -10.5% 最差） |
+| **生产 Chandelier（独立信号 forward）** | **49.58%** | **+0.047%** | **2138(hs300)** | **实际实现口径** |
+
+**核心问题**：用户当初决策"ATR×3 全维度略优 Don20"基于**回测口径**（entry 配 ATR×3 出场的策略收益），但生产 sell_stop_loss 是**独立信号 forward 收益口径**（信号触发后 N 日涨跌），两者根本不同。回测优势不适用于评估 Chandelier 独立信号实现。
+
+**生产 Chandelier 独立信号表现**（hs300 5d 实测验收）：
+- 触发频率过高：94689 条 vs 旧 17842 条（5.3 倍）-- 20日高点回撤 3*ATR（约 3-6%）易触发，Don20 下轨要深跌才触发
+- 预测力弱：胜率 49.58% 近随机 50%，均值 +0.047% 近 0，盈亏比 0.98<1
+- 但语义正确：Chandelier Exit 是趋势跟踪止损（从高点回撤 3*ATR 止损），forward 近随机可接受（止损信号本就不预测涨跌，是风险控制）
+
+**前端 backtest 字段矛盾**：弹窗 backtest 字段显示"ATR×3 46.91%/+1.76%"（回测口径），同时 stats 字段显示"5d 胜率 49.58%/均值+0.047%"（forward 口径），两数字不一致可能困惑用户。待用户醒来决策是否加注口径区分。
+
+**agent A/B/C/D 决策建议**：
+- A. 接受现状 -- Chandelier Exit 语义正确，forward 弱可接受（止损不预测涨跌）
+- B. **调参数降频（agent 推荐）** -- high 周期拉长(40/60日)或 ATR 倍数加大(4*/5*)，需重新回测验证
+- C. 改 entry-based 配对 -- 找最近 buy_special/buy_backup 作 entry 复现回测口径，实现复杂但口径一致
+- D. 回退保留 Don20 -- git checkout signals.py + 重回填旧数据
+
+**当前处理（主控决策）**：按用户原指令上线 ATR×3（已 commit + deploy），Chandelier Exit 语义正确 + forward 非负 + 可逆（用户醒来要回退 git checkout 即可）。记录口径错位 + backtest 矛盾 + 5.3 倍触发，等用户醒来决策是否调参(B)/回退(D)/接受(A)/加注 backtest 口径。
+
+**验收数据**：hs300 sell_stop_loss 5d win_rate 0.4958/pl 0.9805/mean 0.0471/n 2138；10d 0.514/0.9219/0.0433/2136；20d 0.5154/0.8492/0.2544/2136；frequency total 2141/月均 9.87/21 年。

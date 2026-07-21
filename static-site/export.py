@@ -645,8 +645,11 @@ def export_signal_freq():
     委托 signal_stats.compute_global_freq()，与动态版 /api/signal_freq 字段完全一致
     （含 year/year_count、total/total_count 两套字段，X6 兼容期；月均按今年实际有
     信号的有效月份数计算，S2 修复）。
+
+    传 _stats_all()（进程内 cache）避免重复 load 文件，与 export_signal_stats 等
+    其他 export_* 保持一致（2026-07-21 修复）。
     """
-    return sigstats.compute_global_freq()
+    return sigstats.compute_global_freq(_stats_all())
 
 
 def export_summary():
@@ -1348,6 +1351,10 @@ def main():
     print(f"  summary_history.json ({counts['summary_history.json']} bytes)")
     counts["signal_freq.json"] = write_json(DATA_DIR / "signal_freq.json", export_signal_freq())
     print(f"  signal_freq.json ({counts['signal_freq.json']} bytes)")
+    # 7.9.1 signal_stats（per-index 回测统计，6类信号含 sell_stop_loss；供前端❓弹窗分析概况聚合）
+    # 用 _stats_all() 现算内存结果（不读根 data/signal_stats.json 旧文件，避免缺品种/过期）
+    counts["signal_stats.json"] = write_json(DATA_DIR / "signal_stats.json", _stats_all())
+    print(f"  signal_stats.json ({counts['signal_stats.json']} bytes)")
 
     # 7.10. rotation
     counts["rotation.json"] = write_json(DATA_DIR / "rotation.json", export_rotation(conn))

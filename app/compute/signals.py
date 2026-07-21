@@ -636,12 +636,59 @@ def compute():
         # low 对齐 close（缺失前向无填充），low 全空则跳过 Supertrend（如部分指数无 low 数据）。
         low = _load_index_low(iid).reindex(close.index)
         if low.dropna().empty:
-            # 无 low 数据（极少见）-> 不发备买信号，st_line 全 NaN（reason 兜底省略 ST 值）
+            # 无 low 数据（极少见）-> 不发备买/止损信号，st_line 全 NaN（reason 兜底省略 ST 值）
             st_line = close.astype(float) * float("nan")
             supertrend_buy = pd.Series(False, index=close.index)
+            sell_stop_loss = pd.Series(False, index=close.index)
+            buy_special_filt = pd.Series(False, index=close.index)
+            buy_backup_filt = pd.Series(False, index=close.index)
         else:
             st_line, st_dir = _supertrend(high, low, close, period=10, multiplier=3.0)
             supertrend_buy = ((st_dir.shift(1) == -1) & (st_dir == 1)).fillna(False)
+
+            # sell_stop_loss（A1, 2026-07-21 初版 Don20；2026-07-21 改 ATR×3 Chandelier Exit）：
+            # atr3_line = 近20日（不含当日）最高价 - 3*ATR(14) = high.rolling(20).max().shift(1) - 3*atr14。
+            # 从高点回撤 3*ATR 触发止损（移动止损线，跟随高点更新），即 Chandelier Exit。
+            # 独立事件化（无配对 entry，区别于回测 /tmp/backtest_stoploss_compare.py atr_3 的
+            # entry_close - 3*ATR(entry_idx) 入场价固定线口径——本信号无 entry 概念，用高点移动线适配）。
+            # 事件化（前一日未跌破、当日跌破才标，避免连续标），当天跌破当天发。
+            atr14 = _atr(high, low, close, 14)
+            atr3_line = high.rolling(20).max().shift(1) - 3 * atr14
+            sell_stop_cond = (close < atr3_line).fillna(False)
+            sell_stop_prev = sell_stop_cond.shift(1).fillna(False)
+            sell_stop_loss = sell_stop_cond & (~sell_stop_prev)
+
+            # buy_special 加 B4_hold5d 过滤（2026-07-21，stateless 延后触发）：
+            # 当天 t 回看 t-5 是否 Donchian 上轨突破日（原 donchian20_up 触发条件），
+            # 若是检查 t-4..t 的 min(low) >= low[t-5]（突破后5日内最低价未跌破突破日最低价
+            # = 有效突破站稳）。确认则当天 t 发 buy_special 信号（信号日=t+5 即当天 t），
+            # reason 追加 "+5日站稳确认"；未确认则不发。
+            # 回测：胜率 43.4%->56.8%，盈亏比 5.42->7.89，均收 11.59%->19.14%，9组合无退化。
+            # 参考 /tmp/backtest_filter_b_v2.py::filter_B4_continuous_confirm(L73-94，用 low 作支撑)。
+            # stateless 实现：donchian20_up.shift(5) & (low.rolling(5).min() >= low.shift(5))
+            #   - low.rolling(5).min() at t = min(low[t-4..t])（5个值，不含 t-5，与 filter_B4
+            #     切片 [bd+1:bd+6] 即 [t-4..t] 一致）
+            #   - low.shift(5) at t = low[t-5]（突破日 low）
+            donchian20_up_shift5 = donchian20_up.shift(5)
+            min_low_5d = low.rolling(5).min()  # at t: min(low[t-4..t])
+            low_shift5 = low.shift(5)  # at t: low[t-5]（突破日 low）
+            b4_hold5d_confirm = (min_low_5d >= low_shift5).fillna(False)
+            buy_special_filt = donchian20_up_shift5 & b4_hold5d_confirm
+
+            # buy_backup 加二次确认过滤（2026-07-21，stateless 延后触发）：
+            # 当天 t 回看 t-3 是否 Supertrend 翻多日（原 supertrend_buy 触发条件），
+            # 若是检查 t-2..t 的 min(close) > close[t-3]（翻多后3日内收盘价未跌破翻多日
+            # 收盘 = 有效翻多非诱多）。确认则当天 t 发 buy_backup 信号（信号日=t+3 即当天 t），
+            # reason 追加 "+3日二次确认"；未确认则不发。
+            # 回测：诱多 22.3%->6.0%，胜率 57%->79%，t+20 收益 +2.22%->+7.73%，样本 358->117。
+            # 参考 /tmp/backtest_buy_backup_filter.py::still_above(L146-163，seg=pos+1..pos+1+days
+            # 即 [t-2..t]，min > close[t-3])。
+            # stateless 实现：supertrend_buy.shift(3) & (close.rolling(3).min() > close.shift(3))
+            supertrend_buy_shift3 = supertrend_buy.shift(3)
+            min_close_3d = close.rolling(3).min()  # at t: min(close[t-2..t])
+            close_shift3 = close.shift(3)  # at t: close[t-3]（翻多日 close）
+            confirm_above = (min_close_3d > close_shift3).fillna(False)
+            buy_backup_filt = supertrend_buy_shift3 & confirm_above
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
@@ -724,38 +771,70 @@ def compute():
                     parts.append("无前买点[趋势中]")
                 signals.append((date, iid, "sell", ", ".join(parts)))
 
-        # 特买 buy_special Donchian20_up + 备买 buy_backup Supertrend_buy 独立 append
-        # （不去重，叠加多色 pin，独立计算不影响 buy/buy_aux/sell）。趋势跟踪类，与 C1/B1 均值回归类互补。
-        buy_special_set = set(donchian20_up[donchian20_up].index)
-        buy_backup_set = set(supertrend_buy[supertrend_buy].index)
+        # 特买 buy_special Donchian20_up + B4_hold5d 过滤 + 备买 buy_backup Supertrend_buy +
+        # 二次确认过滤 + sell_stop_loss ATR×3 Chandelier Exit 止损 独立 append（不去重，叠加多色 pin，
+        # 独立计算不影响 buy/buy_aux/sell）。趋势跟踪类，与 C1/B1 均值回归类互补。
+        buy_special_set = set(buy_special_filt[buy_special_filt].index)
+        buy_backup_set = set(buy_backup_filt[buy_backup_filt].index)
+        sell_stop_set = set(sell_stop_loss[sell_stop_loss].index)
+        # 突破日/翻多日数据 vectorized 取（shift 后在信号日读取，对应 bd=t-5 / bd=t-3）
+        don_upper_shift5 = don_upper.shift(5)  # 突破日的前高
+        close_shift5 = close.shift(5)  # 突破日 close
+        st_line_shift3 = st_line.shift(3)  # 翻多日 ST 支撑线
+        close_shift3 = close.shift(3)  # 翻多日 close
         for date in sorted(buy_special_set):
-            # 特买：唐奇安20日上轨突破。reason 标注前高 + close + cross 软分级参考。
-            c = close.get(date)
-            du = don_upper.get(date)
+            # 特买：唐奇安20日上轨突破 + B4_hold5d 过滤（延后5日触发）。reason 标注突破日前高 +
+            # 突破日 close + 信号日 close + cross 软分级参考。
+            c_now = close.get(date)  # 信号日（=突破日+5）close
+            du = don_upper_shift5.get(date)  # 突破日的前高
+            c_break = close_shift5.get(date)  # 突破日 close
             parts = []
-            if pd.notna(du) and pd.notna(c):
-                parts.append(f"唐奇安20日上轨突破(前高{du:.0f},close{c:.0f})")
+            if pd.notna(du) and pd.notna(c_break):
+                parts.append(f"唐奇安20日上轨突破(前高{du:.0f},close{c_break:.0f})")
             else:
                 parts.append("唐奇安20日上轨突破")
+            parts.append("+5日站稳确认")  # B4_hold5d 过滤
+            if pd.notna(c_now):
+                parts.append(f"确认日close{c_now:.0f}")
             cv = cross_aligned.get(date)
             if pd.notna(cv):
                 parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
             signals.append((date, iid, "buy_special", ", ".join(parts)))
         for date in sorted(buy_backup_set):
-            # 备买：Supertrend ATR(10)×3 翻多。reason 标注 ST 支撑线 + close + cross 软分级参考。
-            c = close.get(date)
-            sv = st_line.get(date)
+            # 备买：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日触发）。reason 标注翻多日
+            # ST 支撑 + 翻多日 close + 信号日 close + cross 软分级参考。
+            c_now = close.get(date)  # 信号日（=翻多日+3）close
+            sv = st_line_shift3.get(date)  # 翻多日 ST 支撑线
+            c_flip = close_shift3.get(date)  # 翻多日 close
             parts = []
-            if pd.notna(sv) and pd.notna(c):
-                parts.append(f"Supertrend ATR(10)×3 翻多(ST支撑{sv:.0f},close{c:.0f})")
+            if pd.notna(sv) and pd.notna(c_flip):
+                parts.append(f"Supertrend ATR(10)×3 翻多(ST支撑{sv:.0f},close{c_flip:.0f})")
             else:
                 parts.append("Supertrend ATR(10)×3 翻多")
+            parts.append("+3日二次确认")  # 二次确认过滤
+            if pd.notna(c_now):
+                parts.append(f"确认日close{c_now:.0f}")
             cv = cross_aligned.get(date)
             if pd.notna(cv):
                 parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
             signals.append((date, iid, "buy_backup", ", ".join(parts)))
+        for date in sorted(sell_stop_set):
+            # 止损卖：ATR×3 Chandelier Exit 跌破（从近20日最高价回撤3*ATR）。reason 标注 ATR + 线 + close + cross。
+            c = close.get(date)
+            al = atr3_line.get(date)
+            av = atr14.get(date)
+            parts = []
+            if pd.notna(al) and pd.notna(c) and pd.notna(av):
+                parts.append(f"ATR×3止损(ATR={av:.2f}, 线={al:.0f}, close={c:.0f})")
+            else:
+                parts.append("ATR×3止损")
+            cv = cross_aligned.get(date)
+            if pd.notna(cv):
+                parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
+            parts.append("[指数]")
+            signals.append((date, iid, "sell_stop_loss", ", ".join(parts)))
 
     # B 扩展：全球指标 + 情绪分数 signals（value 当 close，按 09 回测推荐规则 + B1+S1）
     for mid in GLOBAL_METRIC_IDS:
