@@ -2,7 +2,7 @@
 
 > 本文件记录项目演进过程中的调研结论、未解决缺口、关键决策与修复历史，供后续迭代参考。
 > 状态/需求见 [REQUIREMENTS.md](REQUIREMENTS.md)，用法见 [HELP.md](HELP.md)。
-> 最近更新：2026-07-21（§48 小节W 批量 gz 修复闭环）
+> 最近更新：2026-07-21（§48 小节X 盘中 intraday 覆盖事故修复 + 国家队 mootdx 失效修复 + 归档拆分）
 
 > **历史章节（§1-§47，2026-07-06 ~ 2026-07-20）已归档到 [docs/archive/NOTES-history.md](docs/archive/NOTES-history.md)，需查历史在此。本文件只保留 §48 近期章节。**
 
@@ -691,3 +691,42 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 4. **push main 非 force 路径复用小节T/U/V 模式**：`push feat:main` fast-forward，intraday 定时任务 commit 保留无事故，是约束 5（force-with-lease 是最后手段）的正确实践，对比小节S force-with-lease 事故。
 
 **git**：commit `65617ec2` `fix: 批量 gzip 全量 JSON(8个非export.py导出alert.json等缺.gz)+export.py main末尾根治`（118 files：117 `.gz` + `export.py` 12 行，含 Co-Authored-By），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward `94c79041..65617ec2`）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节W 落档 commit 仅改 NOTES.md。
+
+### 小节X：2026-07-21 盘中 intraday 覆盖事故修复 + 国家队 mootdx 失效修复 + 归档拆分（commits 64d43f8d/a6d86178 + 65610d6b + 62ba37c4 + 0e75a9db + 84815d3d）
+
+> 本节落档今日盘中 4 项工作闭环 + 1 项待办落档：① 12:29 主控方案Y deploy 通配带入旧 intraday 覆盖 main 实时版事故修复 ② 国家队 mootdx 失效换源 akshare sina 修复 ③ 根目录 .md 归档减 token ④ NOTES/TASKS 拆分历史章节 ⑤ 今日新增根治待办落档 TASKS.md。
+
+**X.1 intraday 12:29 方案Y deploy 覆盖事故修复（commit 64d43f8d/a6d86178）**
+
+- **事故**：12:29 主控跑方案Y 全量 export + deploy（commit `94c79041`），违反 CLAUDE.md §8 盘中 09:30-15:30 禁跑全量 export+deploy（午休 11:30-13:00 也属盘中）。deploy.sh 的 `git add static-site/data/` 通配带入工作区里 7-20 17:55 旧版 `intraday_snapshot.json`，覆盖 main 的 11:30 实时版（`e017a3de` 等定时任务推的），线上 intraday 停在 7-20 17:55，用户看到"右上角时间停 0721 2点05分 + 上证指数不对"。
+- **修复**：agent a0257af8fab61aef0 在 trade 仓库跑 `intraday_snapshot.sh` 采 7-21 13:01:29 实时（上证 0.88%）+ worktree 补 push `.gz` + commit `a6d86178`/`64d43f8d` push origin feat/iframe-theme-follow:main（非 force，fast-forward）。线上 `collected_at` 恢复 `2026-07-21T13:01:29`。
+- **教训**：① §8 盘中禁跑全量 export+deploy 再现（`94c79041` 是**主控违规**，非 agent，比小节S agent 违规更不该）；② deploy.sh `git add static-site/data/` 通配带入工作区残留旧 `intraday_snapshot.json` 是事故根因（§8 警告再现）；③ 午休 11:30-13:00 也属盘中，不能跑全量 deploy；④ 0.88% vs 用户说的 0.62% 是盘中涨跌正常变化（12:57 午休前 0.62%，13:00 开盘后涨到 0.88%，agent 13:01:29 采到最新 0.88%，非 bug）。
+- **对比小节S**：小节S 是 09:43 agent `a1353eb0` force-with-lease 强推覆盖 09:36 `dbfa974d` 事故；本节是 12:29 主控方案Y deploy 通配带入旧版覆盖 11:30 实时版事故。均覆盖 intraday 实时版，根因不同（前者 force-with-lease，后者通配带入工作区残留旧版）。
+- **根治待办（已落档 TASKS.md）**：① `trade/data/sentiment.db` 改 symlink 指向 `trade-data` DB ② `deploy.sh` 跑前 `git checkout -- static-site/data/intraday_snapshot.json` 恢复 main 版 ③ `deploy.sh` 加时段闸门（09:30-15:30 拒跑，force 绕过）④ `intraday_snapshot.sh` git add 补加 `.gz`。
+
+**X.2 国家队 mootdx 失效换源修复（commit 65610d6b）**
+
+- **事故**：7/17 起 mootdx `bestip=True` 全返空（疑通达信协议升级/服务器停服），`fetch_etf_ohlc` 返空，DB `etf_daily` `close=NULL`，前端显示"国家队合计持仓市值 0 亿元 / 今日增持额 0"。用户问"怎么汪汪队的国家队合计持仓市值是0"。
+- **修复**：`app/collector/etf_national_team.py` L278-356 `fetch_etf_ohlc` 换源 `akshare.fund_etf_hist_sina`（新浪）主源 + mootdx fallback + 双源返空 WARNING 日志；backfill 7/17-7/20（510050 等 9 ETF，close=2.931/3.007 非 NULL）；前端 `static-site/app.js` L4403 close null 容错（`if (d.close == null) dateMap[dt].closeNull = true;` + `renderNationalTeamTotalPanel` 末日 close=null 显"行情待更新"）；补 9 个 `.gz`（`gzip -kf`）。
+- **教训**：① 换源/backfill 后须同步 `gzip -kf` 补 `.gz`（`fetchJSON` `.gz` 优先 + `DecompressionStream`，只生成 `.json` 不更新 `.gz` 致线上读旧 `.gz` 仍显 0，本次踩过）；② DB 查询字段名是 `etf_code` 非 `code`（主控首次查询用 `code='510050'` 返回空误判 backfill 失败，修正后确认 7/17-7/20 close 非 NULL）；③ agent "completed"通知会丢，需主动查 origin/main 确认 push 成功（`a09c3a8052b86e59d` 通知丢，主控 SendMessage resume 触发继续 push）。
+- **线上**：`etf_national_team-1m.json` 末日 7/20 close=3.007（不再 null），`updated_at` 2026-07-21T13:10:55。
+- **根治待办（已落档 TASKS.md）**：mootdx 失效影响范围评估（`runner.py`/`mootdx_daily.py`/`industry_width.py`/`width_history.py` 是否同受影响，A 股 tab 有 baostock 兜底待确认）。
+
+**X.3 归档独立 .md（commit 62ba37c4）**
+
+- **背景**：用户反馈"根目录下太多 .md 文档了，整理归档已做完的任务/问题/需求，避免检索大量历史文件浪费 token 影响反应时间，感觉反应没以前快"。
+- **做法**：根目录 .md 从 36 个减到 5 必读（REQUIREMENTS/NOTES/TASKS/CLAUDE/REVIEW_REPORT），30 个历史 .md（01-26 回测报告 + EVAL/REVIEW/H5_DESIGN/HELP/PLAN/HELLOGITHUB/交易信号验证）移到 `docs/archive/`。
+- **目的**：减检索历史文件 token，提升反应速度。
+
+**X.4 NOTES/TASKS 拆分历史章节（commit 0e75a9db）**
+
+- **NOTES.md** 3160->693 行：§1-§47 历史章节归档到 `docs/archive/NOTES-history.md`（2475 行），主文件保留 §48 小节A-W（23 个）+ 头部指针。
+- **TASKS.md** 1005->143 行：已完成项归档到 `docs/archive/TASKS-done.md`（886 行），主文件保留头部 + 总体大纲 + 晚续4 + 工作约定 + R2待办 + 全站性能待办。
+- **CLAUDE.md** §7 加归档指针（"历史章节查 `docs/archive/NOTES-history.md`，已完成项查 `docs/archive/TASKS-done.md`"）。
+- **效果**：根目录 .md 21208->约 1655 行（减 92%）。
+
+**X.5 今日新增待办落档（commit 84815d3d）**
+
+- **TASKS.md** 加"### 🆕 2026-07-21 盘中事故后续根治（intraday 覆盖 + 国家队 mootdx 失效）"小节：intraday 事故根治 4 条（DB symlink / `deploy.sh` 跑前恢复 intraday / `deploy.sh` 时段闸门 / `intraday_snapshot.sh` git add `.gz`）+ mootdx 影响范围评估 + 换源后补 `.gz` 教训 + a-stock 残留确认 + memory MEMORY.md 清理过时条目。
+
+**git**：本小节X 为落档 commit，仅改 NOTES.md。涉及今日 5 个已 push commit：`64d43f8d`/`a6d86178`（intraday 事故修复）+ `65610d6b`（国家队 mootdx 换源）+ `62ba37c4`（归档独立 .md）+ `0e75a9db`（NOTES/TASKS 拆分历史章节）+ `84815d3d`（新增待办落档），均已 push origin feat/iframe-theme-follow:main（非 force，fast-forward）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
