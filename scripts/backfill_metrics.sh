@@ -41,8 +41,8 @@ for m in cfg.get('metrics', []):
             # 补采成功=告警解除:清同 run_date 该 metric 旧非 ok 记录,
             # 让 collect_health 反映最新状态(同任务2清 disabled 误报同理)
             _c = get_conn()
-            _c.execute("DELETE FROM collect_log WHERE run_date=? AND metric_id=? AND status!='ok'",
-                       (date, mid))
+            _c.execute('DELETE FROM collect_log WHERE run_date=? AND metric_id=? AND status<>?',
+                       (date, mid, 'ok'))
             _c.commit(); _c.close()
             ok += 1
             print(f'[ok] {mid} +{len(rows)} rows', flush=True)

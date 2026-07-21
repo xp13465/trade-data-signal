@@ -66,7 +66,7 @@ echo "✓ update_all 已完成（或未运行），开始 lab 回测" | tee -a "
 # [1/3] lab_simulate 单信号
 echo "-> [1/3] lab_simulate 单信号（128 组 × 9 指数）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_simulate.py" 2>&1 | tee -a "$LOG"
-RC1=${PIPESTATUS[0]}
+RC1=${PIPESTATUS[0]:-1}
 if [ "$RC1" -ne 0 ]; then
   echo "⚠ lab_simulate 单信号失败（退出码 $RC1），继续后续步骤" | tee -a "$LOG"
 else
@@ -76,7 +76,7 @@ fi
 # [2/3] lab_simulate 融合
 echo "-> [2/3] lab_simulate 融合（91 候选 × 9 指数）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_simulate.py" --fusion 2>&1 | tee -a "$LOG"
-RC2=${PIPESTATUS[0]}
+RC2=${PIPESTATUS[0]:-1}
 if [ "$RC2" -ne 0 ]; then
   echo "⚠ lab_simulate 融合失败（退出码 $RC2），继续后续步骤" | tee -a "$LOG"
 else
@@ -86,7 +86,7 @@ fi
 # [3/3] lab_retest 二次测试
 echo "-> [3/3] lab_retest 二次测试（切片）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_retest.py" 2>&1 | tee -a "$LOG"
-RC3=${PIPESTATUS[0]}
+RC3=${PIPESTATUS[0]:-1}
 if [ "$RC3" -ne 0 ]; then
   echo "⚠ lab_retest 失败（退出码 $RC3），继续上线已生成产物" | tee -a "$LOG"
 else
