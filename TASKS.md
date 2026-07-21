@@ -59,6 +59,24 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
     - 阶段7 数据上线+验证：跑历史信号回填+deploy.sh推数据+收盘跑simulate_trade.py --all+线上验证
     - **并行规划**：阶段6（lab命名）独立先做和阶段1-3（后端）并行；阶段4+5依赖阶段1；阶段7依赖1-6
 
+### 🆕 2026-07-20 买点信号净化调研（待用户确认，纯调研未实施）
+
+> 详见 `NOTES.md §48 小节AB`。回测脚本 `/tmp/buy_purify_backtest.py`，结果 `/tmp/buy_purify_results.json`。基于 2016-2026（10.5 年）90 指数 13900 条买点信号回测。**核心结论**：净化能小幅拉高综合收益率（+14% 均值）但非稳态；趋势类高位过滤方向对但被 buy_special regime 依赖性拖累；均值回归类 pct 高位反而是最佳信号不应过滤。
+
+- **R1（推荐，低风险，待确认）**：对 **buy_backup** 加 `close/MA60 >= 1.15` 过滤（MA60 偏离 >=15% 不发信号）。年度稳定（5 个有样本年全正向），过滤率 5.7%，10d 均值 +4% / pf +7% / 无恶化年。实施点：`app/compute/signals.py` L691 `buy_backup_filt` 加 `& (close/ma60 < 1.15)`
+- **R2（中风险，需先研究 regime 识别，待确认）**：对 **buy_special** 加 `pct_rank_250 >= 0.85 OR close/MA60 >= 1.20` 过滤。聚合 ma60_only_cons +23% 均值（filter 7.4%）/ pct_only_bal +78% 均值（filter 73.9%）。**但 2025（最大样本年 1192 条）净化后均值 +0.62% vs 基线 +1.73%，反而拉低 -1.11%** - 趋势牛市高位突破是高质量信号，过滤反向。**需先建 regime 识别（牛市不过滤 / 震荡市过滤）再决定**。实施点 `signals.py` L676 `buy_special_filt`
+- **R3（不推荐，保持现状）**：对 **buy/buy_aux** 加 pct_rank 过滤。buy 的 pct high 桶 +2.31%/pf 3.47 是最佳（pullback in uptrend），过滤会误杀最佳信号使收益反向
+- **R4（远期研究）**：调查 2025 buy_special 高位反超根因 + regime 识别指标（趋势市/震荡市判断），赋能 R2 自适应过滤
+- **R5（远期研究）**：当前过滤误杀率 53%（删除组超半数是赢家），本质"非选择性删除"。研究更选择性指标（量价配合/cross 软分级/行业景气）替代简单位置过滤
+- **验收数据**（主控逐字复算口径）：
+  - 4 类买点 2016+ 总数：buy=2474 / buy_aux=3314 / buy_special=7095 / buy_backup=1017，合计 13900
+  - buy_special 占比 51.0%（最频繁，确认用户假设），年均 675 次
+  - 10d 基线：buy +1.11%/pf 1.57 / buy_aux +0.37%/1.18 / buy_special +0.61%/1.36 / buy_backup +1.60%/2.26
+  - MA60 high 桶 vs mid 桶 10d 均值：buy_special +0.23% vs +0.71%（high 差 68%）/ buy_backup +0.85% vs +1.53%（high 差 44%）
+  - buy pct high 桶 vs low 桶 10d 均值：+2.31% vs +0.94%（high 反而好 2.5x，pct 过滤反向）
+  - 趋势类 conservative 净化（仅 TF 过滤，MR 不动）：10d +0.72%->+0.82%（+14%），pf 1.40->1.45，filter 36.1%
+  - buy_special pct_only_bal 2025：基线 +1.73% -> 净化后 +0.62%（**-1.11%，最大样本年反向**）
+
 ### 🆕 2026-07-21 盘中事故后续根治（intraday 覆盖 + 国家队 mootdx 失效）
 > 今日盘中修复 3 事故（均已临时修复上线），根治待办防复发。详见 NOTES §48 小节X+Y（已落档，9 根治项 8 闭环 1 遗留 A1）。
 - **intraday 事故根治**（commit 94c79041 方案Y deploy 12:29 午休违规，deploy.sh 通配带入工作区 17:55 旧版覆盖 main 的 11:30 实时版；已 commit 64d43f8d/a6d86178 恢复 7-21 实时）：
