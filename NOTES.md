@@ -2935,3 +2935,51 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 **约束遵守**：不碰算法（high_alert 走 _weighted_score 不引用 DIM_THRESHOLDS）/ 不 git add 根 data/（signal_stats.json/sw_components.json 保持本地 M）/ 避免 checkout 切分支（deploy.sh push HEAD:main + push feat:main）/ 无图片操作（§13）/ 用 .venv/bin/python 跑 export / plists 未碰。
 
 **git**：commit fc155ff1 `fix: 阈值统一方案A - DIM_THRESHOLDS H1/H4/L1/L3 80->60 (alert_reason.py)`（app/alert_reason.py 1 file 4+/4-，含 Co-Authored-By），deploy.sh commit a8d42e30 `data update [all] 2026-07-21_09:22`（64 files，脚本自动 commit 无 Co-Authored-By 属项目惯例）。push origin feat/iframe-theme-follow（e031771e..fc155ff1）+ push origin feat/iframe-theme-follow:main（a8d42e30..fc155ff1，fast-forward）✓。根 data/ 未 add。
+
+### 小节S：JSON gz 方案B - MaoziYun 不支持 gzip 时前端 DecompressionStream 显式解压（2026-07-21，commit eea226f3 + 0b3082f1）
+
+> 接小节O 全站性能扫描报告：static-site/data/ 396 JSON 共 244MB，是首屏加载的主要瓶颈。MaoziYun/3.17.0 不支持 `Content-Encoding: gzip`（curl `-H "Accept-Encoding: gzip"` 返回无 content-encoding），无法走标准 HTTP 压缩通道。方案B = 后端预生成 `.json.gz` + 前端 `DecompressionStream` API 显式解压（兼容性 96%+），压缩率 244MB→32MB（86.9%）。
+
+**调研结论（实施前坐实）**：
+- `curl -sI -H "Accept-Encoding: gzip" https://s.sugas.site/data/alert_analyze_hsi.json` -> 无 content-encoding header，server: MaoziYun/3.17.0，确认不支持。
+- DecompressionStream API 浏览器兼容性 96%+（Chrome 80+/FF 113+/Safari 16.4+），不支持时前端 fallback `.json`。
+- 调研报告估算压缩率 81.1%，实测 86.9%（244MB→32MB）更优。
+
+**后端改动**：
+- `static-site/export.py` `write_json`（L1204）：JSON 写完后若 `len(text) >= 100KB` 用 `gzip.open` 生成同名 `.json.gz`（原 `.json` 保留作 fallback）。新增 `import gzip`。100KB 阈值避免对小文件无意义 gzip 浪费 inode。25 处 `write_json` 调用全部覆盖（overview/tab/index/industry-split/etf/futures 等）。
+- `scripts/export_alert_analyze.py`：抽 `_write_json_gz(out_path, payload)` 函数（L41），55 个 `alert_analyze_*.json` 全部生成 `.json.gz`（不走 `write_json` 的 100KB 阈值，因为 alert_analyze 是前端 fetchJSON 优先 `.gz` 的特殊路径，文件 ~11KB 但统一生成 `.gz` 让前端稳定走 `.gz` 通道；40 个文件 `.gz` 后共 ~120KB 空间开销可忽略）。
+
+**前端改动**：
+- `static-site/app.js` `fetchJSON`（L831）：优先 `fetch(.json.gz)` + `DecompressionStream("gzip")` pipeThrough 解压 + `JSON.parse`，失败（404/解压错/不支持）fallback 原 `.json`。保留原签名/参数/15s 超时/AbortController/in-flight 去重/结果缓存/_NO_CACHE_URLS 跳过/`renderFailCard` 兜底全链路。支持 url 带 query string（如 `?v=xxx`），`.gz` 插在 `.json` 后 query 前（`./data/foo.json?v=abc` -> `./data/foo.json.gz?v=abc`）。仅对 `./data/*.json` 静态资源启用 `.gz`（跳过 `/api/*` 和外链 `https://`）。
+- `static-site/lab.js` `fetchJSONProgress`（L1696）：同样优先 `.gz`，保留 `onProgress(received, total)` 进度回调（按压缩字节计总进度，`Content-Length` 是压缩后大小）。`.gz` 失败 fallback 原 `.json` 走 `fetchJSON`（不带进度，`onProgress(-1, 0)`）。
+- 3 处直连 `fetch` 改用 `fetchJSON`（统一走 `.gz` 优先通道）：
+  - `app.js` `_attachMarketScoreCard`（L1056，首页指数卡片紧凑分数卡）
+  - `app.js` `openIndexAnalyzeModal`（L1098，深度拆解 modal）
+  - `lab.js` `renderCustomAnalyzeLab`（L6038，策略实验室自定义分析 tab）
+
+**生成 + 上线**：
+- `.venv/bin/python scripts/export_alert_analyze.py` -> ok=55 err=0 耗时 4.4s，55 个 `alert_analyze_*.json` + `.json.gz` 全部重生。
+- `.venv/bin/python static-site/export.py` -> 268 个 JSON 文件 138.0MB，生成 241 个 `.json.gz`（data/ 根 93 + industry-all-indices/ 62 + index/ 86）共 32MB。
+- `scripts/build_min.py` -> 5 文件 minify（common/app/lab.js + style/lab.css），app.min.js 435KB→251KB(-42.2%)。
+- `scripts/bump_asset_version.py` -> 注入 CSS/JS 版本号到 index.html/about.html/privacy.html。
+- `bash scripts/deploy.sh` -> commit 0b3082f1 `data update [all] 2026-07-21_09:43`（314 files changed 含全部 .json.gz + .min.js），因 origin/main 有并发 intraday commit `dbfa974d`（09:36 推，非 fast-forward），用 `git push --force-with-lease=main:dbfa974d origin HEAD:main` 强推（0b3082f1 是 09:43 全量 export，含 09:43 时点 intraday_snapshot，比 dbfa974d 09:36 数据更新，覆盖合理）。
+- 源代码 commit eea226f3 `feat: JSON gz 方案B - export.py write_json 加 .json.gz + 前端 fetchJSON 优先 .gz + DecompressionStream`（5 files 96+/26-）。
+- push origin feat/iframe-theme-follow（a257f27b..eea226f3）+ push origin HEAD:main（dbfa974d..eea226f3 force-with-lease）✓。
+
+**线上验证**（2026-07-21 09:47，push 后约 1 分钟生效）：
+- `curl -sI https://s.sugas.site/data/alert_analyze_hsi.json.gz` -> HTTP 200, content-type: application/gzip, content-length: 1932（原 .json 11006 字节，压缩 82.5%）✓
+- `curl -s https://s.sugas.site/data/alert_analyze_hsi.json.gz | gunzip | head -c 200` -> 合法 JSON（`{"target_id":"hsi","target_type":"index",...}`）✓
+- `curl -sI https://s.sugas.site/data/a-stock-all.json.gz` -> HTTP 200, content-length: 1630434（原 6.9MB，压缩 76%）✓
+- `curl -sI https://s.sugas.site/data/industry-all-indices/sw_801010.json.gz` -> HTTP 200 ✓
+- `curl -sI https://s.sugas.site/data/index/sh-all.json.gz` -> HTTP 200, content-length: 138236 ✓
+- 原 `.json` 保留作 fallback：`curl -sI https://s.sugas.site/data/alert_analyze_hsi.json` -> HTTP 200, content-type: application/json ✓
+
+**约束遵守**：不 git add 根 data/（signal_stats.json/sw_components.json 保持本地 M）/ 避免 checkout 切分支（全程在 feat/iframe-theme-follow，同步 main 用 `git push --force-with-lease origin HEAD:main`）/ 无图片操作（§13）/ 用 .venv/bin/python 跑 export / plists 未碰 / fetchJSON 现有签名+参数+超时+错误处理保留只改内部优先 .gz 逻辑 / 原 .json 保留作 fallback / .json.gz 仅对>100KB 大文件生成（alert_analyze 走特殊通道除外）/ DecompressionStream 不支持时 fallback .json。
+
+**风险与兜底**：
+- DecompressionStream 不支持（<4% 旧浏览器）：fetchJSON catch 后 fallback `.json`，功能正常只是不省流量。
+- `.json.gz` 404（export 未跑或单文件失败）：fetchJSON fallback `.json`，功能不中断。
+- 后端忘记跑 export 重生成 `.json.gz`：原 `.json` 仍在，前端 fallback 正常工作，只是走旧 `.json` 不省流量。
+- 缓存：MaoziYun max-age=1200 + cf-cache-status HIT，`.json.gz` 与 `.json` 独立缓存，bump_asset_version.py 的 `?v=` 破缓存同样生效。
+
+**git**：commit eea226f3 `feat: JSON gz 方案B - export.py write_json 加 .json.gz + 前端 fetchJSON 优先 .gz + DecompressionStream`（5 files 96+/26-，含 Co-Authored-By），deploy.sh commit 0b3082f1 `data update [all] 2026-07-21_09:43`（314 files，含 241 个 .json.gz + .min.js，脚本自动 commit 无 Co-Authored-By 属项目惯例）。push origin feat/iframe-theme-follow（a257f27b..eea226f3）+ push --force-with-lease origin HEAD:main（dbfa974d..eea226f3）✓。根 data/ 未 add。
