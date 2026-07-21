@@ -40,7 +40,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 - **usdcnh 7-27 周一 curl 验证**：防复发，确认 `currency_boc_sina` 主源稳定。
 
 ### 🆕 2026-07-21 盘中事故后续根治（intraday 覆盖 + 国家队 mootdx 失效）
-> 今日盘中修复 3 事故（均已临时修复上线），根治待办防复发。详见 NOTES §48 小节X（待落档）。
+> 今日盘中修复 3 事故（均已临时修复上线），根治待办防复发。详见 NOTES §48 小节X+Y（已落档，9 根治项 8 闭环 1 遗留 A1）。
 - **intraday 事故根治**（commit 94c79041 方案Y deploy 12:29 午休违规，deploy.sh 通配带入工作区 17:55 旧版覆盖 main 的 11:30 实时版；已 commit 64d43f8d/a6d86178 恢复 7-21 实时）：
   1. trade/data/sentiment.db 改 symlink 指向 trade-data DB（解决 launchd 跑 trade-data 但 export.py 读 trade DB 不同步，trade DB 停凌晨全量值）
   2. deploy.sh 跑前 `git checkout -- static-site/data/intraday_snapshot.json` 恢复 main 版（防通配带入工作区旧版，§8 警告再现）
