@@ -71,9 +71,9 @@
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
 ## 11. 子agent卡死/429处理(主动轮询+唤醒+重派读遗留)
-- 主动轮询:派agent后用CronCreate设recurring每3分钟查jsonl mtime,不干等通知(通知会丢;agent卡死时通知永远不来,因agent没正常退出)
+- 主动轮询:派agent后用CronCreate设recurring每10分钟查jsonl mtime,不干等通知(通知会丢;agent卡死时通知永远不来,因agent没正常退出)。2026-07-21 用户定10分钟(原3分钟太频繁打扰/费token),cron 用 `7,17,27,37,47,57` 避开 :00/:30
 - 派agent的prompt要求写进度文件:**每完成一步立即echo**(每个grep/Edit都回写,不是每大步骤;2026-07-15 a194f曾只写"开始"641秒不回写致盲区),echo到 `/tmp/agent-progress-<名>.md`,主控Bash查(轻量不overflow),不依赖jsonl(大)/通知(会丢)/返回(可能429空)任一渠道
-- **卡死**(jsonl mtime>480秒没动):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(3分钟)仍卡死=进程已死,重派新会话
+- **卡死**(jsonl mtime>600秒没动,10分钟轮询阈值放宽):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(10分钟)仍卡死=进程已死,重派新会话
 - **429配额失败**:agent came to rest(退出运行)但task-id保留,配额恢复后**优先SendMessage resume原会话**(保留上下文比重派从头高效);resume不响应/状态乱才重派新会话。**2026-07-15教训(底线:不重复犯错)**:曾误判"429原会话已终止无法resume只能重派"(a194f 429后重派afe9从头跑,浪费a194f已查的32 tool_use上下文),实际task-notification note明说"can resume",429和卡死都优先resume--**配额恢复后第一动作是SendMessage resume原会话,不是重派**
 - **came to rest**(agent完成一阶段停了等指令,非卡死非429):可随时SendMessage推进,不严格等480秒(2026-07-15 a5c6改名反复came to rest,SendMessage推进3次才完成;阈值可降到240秒)
 - 重派新会话:让新agent读原agent遗留接着做(`/tmp/agent-progress-*.md`进度文件 + 工作区半成品,如数据时效a2ce接a06704b半成品),避免从头返工
