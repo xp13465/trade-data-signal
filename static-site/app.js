@@ -337,6 +337,8 @@ const _INDEX_NAME_MAP = {
   hsi: '恒生指数', hscei: '国企指数', hstech: '恒生科技',
   // 美股
   us_dji: '道琼斯', us_ixic: '纳斯达克', us_spx: '标普500', us_ndx: '纳斯达克100',
+  // 全球股指（2026-07-16 上线，中文名以后端 index_backfill.py HK_GLOBAL_INDICES 为准，前端简短化）
+  nikkei225: '日经225', kospi: '首尔综合', ftse100: '富时100', dax: '德国DAX', cac40: '法国CAC40',
   // 红利/低波
   div_lowvol: '红利低波', csi_div: '中证红利', sz_div: '深证红利',
   // 全球指标
