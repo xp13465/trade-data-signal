@@ -262,14 +262,19 @@ def run(date=None, verbose=True, steps=None):
                             "skip (日常不跑; 需时 RUN_BAOSTOCK=1 或手动 `baostock_daily recent`)"))
 
     # 7) mootdx 日线增量更新（D1 主力，TCP 7709 不封 IP，akshare 东财封锁后改用）
-    # 仅对已有 progress 的 code 增量（已 backfill 过的）；未 backfill 的由
-    # `python -m app.collector.mootdx_daily full` 手动跑（避免 scheduler 触发全量回填）。
+    # progress 非空：仅对已 backfill 的 code 增量（避免 scheduler 触发 mootdx 全量
+    #   回填——mootdx TCP 串行 5527 只~7h 会阻塞 update_all）。
+    # progress 为空（mootdx 从未跑过）：不再静默 skip，直接调 baostock fallback
+    #   采 all_codes（HTTP 源，不阻塞 scheduler；2016-至今近 10 年段，1990-2015 老段
+    #   由 `baostock_daily old` 单独补）。fallback 写 mootdx_progress.json，mootdx
+    #   恢复后自动回归主力。**不走 run_batch 全量**（mootdx 7h）以遵守"防 scheduler
+    #   全量回填"设计约束——换 baostock fallback 实现路径而非 mootdx 全量。
     if _want(steps, "mootdx"):
         try:
             from . import mootdx_daily
             prog = mootdx_daily.load_progress()
-            todo = list(prog.keys())  # 已 backfill 的 code 子集
-            if todo:
+            if prog:
+                todo = list(prog.keys())  # 已 backfill 的 code 子集
                 # update_all 自动路径用更激进的熔断阈值(15 < 默认 50)：部分故障
                 # (批量全 empty)15 只×5s≈75s 即切 baostock fallback，比默认 250s
                 # 快 3 倍；整体故障(client init 失败)已在 run_batch 秒级切 fallback。
@@ -283,8 +288,20 @@ def run(date=None, verbose=True, steps=None):
                                 f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
                                 f"({len(todo)} codes)"))
             else:
-                details.append(("mootdx_daily", "ok",
-                                "skip (no progress yet, run `mootdx_daily full` manually)"))
+                # progress 空：mootdx 从未跑过，直接 baostock fallback 采 all_codes
+                # （跳过 mootdx 尝试；不走 run_batch 全量避免 7h 阻塞 scheduler）。
+                all_codes = mootdx_daily.load_codes()
+                today = dt.date.today().strftime("%Y%m%d")
+                fb_rows, fb_ok, fb_skip = mootdx_daily._run_baostock_fallback(
+                    all_codes, progress=prog, incremental=True,
+                    today=today, verbose=verbose)
+                mootdx_daily.save_progress(prog)  # fallback 内部每 5 只存盘，补末尾
+                ok += fb_ok
+                fail += len(all_codes) - fb_ok - fb_skip
+                details.append(("mootdx_daily", "ok" if fb_ok else "fail",
+                                f"fallback(baostock): +{fb_rows} rows, {fb_ok} ok/"
+                                f"{len(all_codes) - fb_ok - fb_skip} fail/{fb_skip} skip_bj "
+                                f"({len(all_codes)} codes, progress was empty)"))
         except Exception as e:  # noqa: BLE001
             fail += 1
             details.append(("mootdx_daily", "fail", str(e)[:150]))
