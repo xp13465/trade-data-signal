@@ -153,3 +153,46 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - TTFB：<300ms 可接受（日本节点 cf-ray NRT）
 - og.png：60KB 已优化（2026-07-16 67->36KB 256色压缩）
 - fetch 冗余：仅 6 次无严重冗余（app.js 4 + lab.js 2 + common.js 0）
+
+---
+
+## 🆕 2026-07-21 全站深度审计（3 agent 报告综合，等用户看后安排修）
+
+> 用户要求"对全站功能全面深度重新检查，看异常/待验证/未发现/误报，改软链后计划任务是否正常"。派 3 background agent：性能+部署（ac225cfc5a50ad58c）/ 计划任务（a6e223adab14a5170）/ 功能（a93a577a3e79a695f）。3 报告全收齐，主控逐字验收关键结论（.gz 滞后 curl 属实）。**不擅自动修，等用户看后安排**。
+
+### P0（线上正在发生/高影响）
+1. **.gz 滞后致前端读旧数据（已 curl 验收属实）**：overview/summary/schedule_stats/hk-1y/sentiment-all 线上 .gz 滞后 1-12h 到 4 天，前端 fetchJSON .gz 优先（app.js L841-849 DecompressionStream 显式解压）读旧数据。
+   - 验收：线上 overview.json.gz collected_at **02:05:50** vs overview.json **14:35:06**（滞后 12.5h）；summary.json.gz **7/20** vs .json **7/21**；schedule_stats.json.gz **7/16** vs .json **7/20 17:50**（est 15分钟旧文案）
+   - 根因：intraday-snapshot 定时任务（trade-data 跑）更新 .json 不生成/推送 .gz；全量 deploy（02:06 export.py GZ_THRESHOLD=0）才生成 .gz。盘中 .json 更新到 14:35，.gz 停 02:05
+   - 修复：intraday-snapshot.sh 补生成 overview/summary/hk-1y/sentiment-all/schedule_stats 的 .gz 并 push（参照 3796ecf3 修 intraday_snapshot.json.gz 做法）。**盘中改定时任务脚本撞正在跑实例有风险，等收盘后修**
+2. **lab/ 65 JSON 缺 .gz**（94MB 未压缩）：lab 页面加载慢。export.py 批量 gzip lab/ 或 R2 上传时压缩
+
+### P1
+3. **全球指数滞后 4 天**：global-1y 最新 7/17，kospi 7/16，7/18-7/20 缺失。查 collect.sh / update_all 流水线采集源
+4. **两融滞后**：a_fund_margin（a-stock metrics 内）最新 7/17。查采集源
+5. **mootdx_daily.db 加 .gitignore**：类比 sentiment.db / etf_national_team.db（§10），防切分支污染
+6. **trade vs trade-data 不同步**：trade-data 缺 alert*.json / alert_analyze*.json ~80 个（trade 上 lhb_backfill 等生成未 rsync 回）。deploy.sh rsync 不带 --delete，trade 数据不丢，但 trade-data 采集端不完整
+7. **lab 数据滞后 11 天**：lab_backtest generated_at/data_cutoff 7/10。待确认是否应每日更新（离线回测可能按周/按需）
+
+### P2
+8. **deploy.sh L186 文案修正**："Cloudflare wrangler deploy 将自动部署"实际不会（wrangler 未安装），改实际描述
+9. **app.js/lab.js 拆 chunk**（P2-5 待办）：app.min.js 252KB / lab.min.js 206KB 单文件
+10. **futures actual_return null**：3 角色全 null，待确认字段是否应填充或废弃前端忽略
+
+### 误报/澄清（不需修）
+- **summary zt_count 0 非误报**：intraday_snapshot 无 zt 字段，summary zt_count=0 是盘中快照未填。实际涨停在 a-stock metrics a_width_zt_count=85（7/21）/跌停 19
+- **龙虎榜/两融无独立 tab**：项目无此功能（grep + ls 均无 lhb/rzhb/margin 文件），两融仅在 a-stock metrics a_fund_margin 内
+- **ETF 扩展到 12 个**：prompt 假设 9，实际 12（新增 510310/159919 等），非异常是扩展
+- **backfill-evening exit 1**：7-18 历史残留，8b76b6b4 已修 backfill_metrics.sh SyntaxError
+- **工作区 223 个 M 文件**：7-21 最新数据（HEAD 是 7-20 旧版），非旧版残留，**不需清理**（清理反丢 7-21 数据）
+- **性能审计"CF 缓存 20 分钟"误判**：s.sugas.site 走 MaoziYun 非 CF（CLAUDE.md §8），intraday 盘中被缓存 20 分钟是 MaoziYun max-age=1200 已知现状，非 CF
+- **worker/headers.js 未部署 = 安全头缺失**：已知现状（CLAUDE.md §8 已接受，MaoziYun 自带 HSTS + meta referrer 兜底，迁 CF Workers 后落地）
+
+### 计划任务审计 ✅ 无异常
+- 8 任务全正常运行（launchctl list 7 exit 0 + backfill-evening exit 1 历史残留已修）
+- 软链修复生效（gen_schedule_stats.py L27 去 resolve，schedule_stats.json intraday last_run 7-21 14:05）
+- 今日 7-21 日志正常（intraday 9 个 0935-1405 + backfill 0200 + deploy 0206）
+- 各 launchd 日志尾部正常（update_all 7-20 17:56 退出码 0，intraday 7-21 14:06 commit 6f700734）
+
+### 修复建议
+不擅自动修，等用户看后安排。**P0 .gz 滞后建议收盘后优先修**（盘中改 intraday-snapshot.sh 撞正在跑实例有风险），修复简单（补 .gz 生成+push，参照 3796ecf3）。
