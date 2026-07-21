@@ -3012,3 +3012,41 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 2. **deploy.sh `git add static-site/data/` 通配会带入工作区旧文件**：跑 deploy.sh 前需确认工作区无旧版 data 文件（尤其 intraday_snapshot.json 等实时数据文件），或 deploy.sh 应排除 intraday_snapshot.json 等实时数据文件（由 intraday-snapshot 独立 push，不被全量 deploy 带入）。
 3. **盘中不跑全量 export + deploy**：全量 export + deploy 限定在 15:35 后（收盘后），盘中只跑 intraday-snapshot 定时任务推 intraday_snapshot.json。agent 接到"跑全量 export"任务须先确认时点，盘中拒绝或等收盘。
 4. **agent 推理"X 文件在 Y commit 里"前先核对**：用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点的版本，不靠"X commit 是 Z 时点跑的所以含 Z 时点数据"推理。
+
+### 小节T：lab.min.js SyntaxError 修复 - common.js const+var 全局重复声明（2026-07-21，commit fbe167f2）
+
+> 用户报错 `lab.min.js?v=6c5008fa:1 Uncaught SyntaxError: Identifier '_LAB_CUSTOM_BROAD' has already been declared`，lab tab 功能失效。本节落档根因+修复+push main 闭环+线上验收+教训。
+
+**根因（concat min JS 触发跨文件 const+var 全局重复声明）**：
+- `static-site/common.js` L11/22/41/46/51 用 `const _LAB_CUSTOM_BROAD/SW/DIV/HK/GLOBAL`（5 个常量数组，全 tab 共享，挂 window）。
+- `static-site/lab.js` L5902-5906 用 `var _LAB_CUSTOM_BROAD = window._LAB_CUSTOM_BROAD`（5 个 var 别名，引用 common.js 挂在 window 上的常量，供 lab.js 内部直接用短名）。
+- 单文件加载时 common.js const 先执行、lab.js var 别名后执行，浏览器不报错（const 在前 var 在后不算重复声明？实际是两个独立 `<script>` 标签各跑一遍，scope 隔离没触发）。
+- **`scripts/build_min.py` 把 common.js + app.js + lab.js concat 成单文件 `lab.min.js`**（terser minify），两个声明进同一 script scope，`const _LAB_CUSTOM_BROAD` + `var _LAB_CUSTOM_BROAD` = 全局重复声明同一标识符，ES6+ 严格语法错误 `Identifier '_LAB_CUSTOM_BROAD' has already been declared`，**整个 lab.min.js 加载中断**，lab tab 全功能失效。
+- `var+var` 浏览器允许（后者静默覆盖前者），`const+var` / `let+var` / `const+let` 同名直接 SyntaxError（编译期语法错误，不进 runtime）。
+
+**修复（common.js const -> var，lab.js 不变）**：
+- `common.js` 5 个 `const _LAB_CUSTOM_*` -> `var _LAB_CUSTOM_*`（L11/22/41/46/51）。var 允许重复声明，`var+var` 不报错（lab.js var 别名静默覆盖 common.js var 声明，两者值相同都是数组引用，无副作用）。
+- `lab.js` L5902-5906 var 别名保留不变（改 lab.js 要 bump lab.min.js 版本号，且 common.js 改 var 更对称：common.js 全是 var 声明，lab.js 别名也是 var）。
+- `common.js` 内部 `window._LAB_CUSTOM_BROAD = _LAB_CUSTOM_BROAD`（L358-362）不受影响（赋值不声明）。
+- commit `fbe167f2`（原 `424ee46c` 经 rebase 改写，rebase 后 parent 是 `c48adaf2`）`fix: lab.min.js SyntaxError - common.js const _LAB_CUSTOM_* 改 var 避免与 lab.js var 别名全局重复声明`。
+
+**push main 闭环（非 force，对比小节S 事故）**：
+- 这次 push main 走 **非 force 路径**：`git pull origin main --rebase` + `git push origin feat/iframe-theme-follow:main`（feat 分支基于最新 origin/main rebase 后 fast-forward push 到 main）。
+- `4d10e221`（intraday 11:06）保留未被覆盖：origin/main 含 `4d10e221 -> c48adaf2 -> fbe167f2` 完整链，4d10e221 是 c48adaf2 的 parent，未被强推抹掉。
+- push main 后 origin/main 后续正常叠加 `e017a3de`（intraday 11:31）等定时任务 commit，**无回退事故**。
+- **对比小节S**：小节S 的 gz 方案B agent 用 `git push --force-with-lease` 强推 main 覆盖 intraday commit 致回退事故（见上节"事故记录"）；本节走非 force 路径，是约束 5（force-with-lease 是最后手段）的正确实践。
+
+**线上验收（主控逐字，2026-07-21）**：
+- `origin/main` 含 `fbe167f2` + `c48adaf2`（`git merge-base --is-ancestor` 确认 YES in origin/main）✓
+- 线上 `common.min.js?v=f01a2fa2`（新版本号，MaoziYun 已拉 main，bump_asset_version.py 注入 index.html）= `var _LAB_CUSTOM_BROAD`（非 const）✓
+- 线上 `lab.min.js?v=6c5008fa` = `var _LAB_CUSTOM_BROAD`（var 别名，lab.js 未改）✓
+- var+var 无 SyntaxError，lab tab 恢复 ✓
+- **`lab.min.js?v=6c5008fa` 不 bump 是正常的**：lab.js 没改不需 bump，问题在 common.min.js 的 const 已修；只 `common.min.js` bump 到 `f01a2fa2`（build_min.py 重生 common.min.js + bump_asset_version.py 注入新版本号到 index.html）。
+
+**教训（concat min JS 全局声明纪律）**：
+1. **concat min JS 时，跨文件同名全局声明用 var 不用 const/let**：`var+var` 浏览器允许静默覆盖，`const+var` / `let+var` 直接 SyntaxError 中断整个 min JS 加载。common.js / lab.js 这种被 build_min.py concat 的文件，全局声明统一用 var（或用 window.xxx 挂载避免裸声明）。
+2. **或 lab.js 别名用不同标识符**：如 `var _LAB_BROAD_ALIAS = window._LAB_CUSTOM_BROAD`，避免与 common.js 裸声明同名。本次选 const->var 方案因更对称（common.js 全 var + lab.js 全 var 别名）。
+3. **改 CSS/JS 后必跑 build_min.py + bump_asset_version.py + deploy.sh**（§9 单版前端铁律）：本次 common.js 改后跑 build_min.py 重生 common.min.js + bump_asset_version.py 注入 `?v=f01a2fa2` 破缓存 + deploy.sh 推上线，线上才能拉到 var 版本。
+4. **`?v=` 版本号是破缓存唯一信号**：MaoziYun max-age=1200 + cf-cache-status HIT，不改 `?v=` 浏览器/CDN 永远拿旧 common.min.js（const 版），改了才拉新 var 版。验收线上必须 curl 看 `?v=` 是否更新 + 内容是否 var，不只看 HTTP 200。
+
+**git**：commit `fbe167f2` `fix: lab.min.js SyntaxError - common.js const _LAB_CUSTOM_* 改 var 避免与 lab.js var 别名全局重复声明`（1 file 5+/5-，含 Co-Authored-By），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节T 落档 commit 仅改 NOTES.md。
