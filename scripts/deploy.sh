@@ -183,6 +183,6 @@ if [ "$PUSH_RC" -ne 0 ]; then
   fi
 fi
 
-echo "✓ push 成功（Cloudflare wrangler deploy 将自动部署）" | tee -a "$LOG"
+echo "✓ push 成功（MaoziYun 自动拉取 git main 部署，有拉取延迟 + max-age=1200 缓存；wrangler 未安装，worker/headers.js 待迁 CF Workers 后手动 wrangler deploy）" | tee -a "$LOG"
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
 exit 0
