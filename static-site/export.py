@@ -1404,13 +1404,15 @@ def main():
     # schedule_stats.json / etf_national_team-1m.json / industry-3y.json 等）。
     # write_json 已对 export.py 导出的 JSON 生成 .gz，但非本脚本导出的 JSON 不会有 .gz，
     # 致前端 fetchJSON .gz 优先命中 404（Console 红）。此处统一补齐，确保所有 .json 都有 .gz。
+    # rglob 递归扫描子目录：lab/*.json（scripts/lab/*.py 生成，不走 write_json，否则无 .gz）、
+    # index/ industry-*-indices/（write_json 已生成 .gz，此处幂等覆盖，无害）。
     _gz_count = 0
-    for _p in sorted(DATA_DIR.glob("*.json")):
+    for _p in sorted(DATA_DIR.rglob("*.json")):
         _gz_path = _p.with_suffix(".json.gz")
         with open(_p, "rb") as _src, gzip.open(_gz_path, "wb") as _dst:
             _dst.write(_src.read())
         _gz_count += 1
-    print(f"  批量 gzip: {_gz_count} 个 JSON -> .gz（含非本脚本导出的 alert.json/lab_*.json 等）")
+    print(f"  批量 gzip: {_gz_count} 个 JSON -> .gz（含子目录 lab/ 等，rglob 递归）")
 
 
 if __name__ == "__main__":
