@@ -770,3 +770,41 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 - **P1 update_lab git 路径**：`fatal: not a git repository`，`COMMIT_RC`/`PUSH_RC` unbound。
 
 **git**：本小节Y 为落档 commit，仅改 NOTES.md。涉及下午 4 个已 push commit：`c5e2b7ae`（deploy.sh 时段闸门+跑前恢复 intraday）+ `3796ecf3`（intraday_snapshot.sh 补 `.gz`）+ `134f211a`（gen_schedule_stats.py 去 `.resolve()`）+ `bbeb8042`（CLAUDE.md §2/§11 轮询原则落档），均已 push origin feat/iframe-theme-follow:main（非 force，fast-forward）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
+
+### 小节Z：全站深度审计 P0+P1+CSP 闭环 + 76f71935 事故教训（2026-07-21，commits d3e6bf8f + 4b9c1b7c + 50663a42 + a08025cb）
+
+> 本节落档全站深度审计 P0+P1+CSP+P1-C 修复全 push main 闭环 + P1-A 76f71935 agent 误跑事故教训。审计报告见 TASKS.md "## 🆕 2026-07-21 全站深度审计"（3 agent 报告综合）。
+
+**Z.1 P0 两条修复（commit d3e6bf8f，原 37d97985 rebase 后）**
+
+- **P0-1 intraday_snapshot.sh 补 5 .gz**：L117-131 补 `gzip -kf` 生成 overview/summary/schedule_stats/hk-1y/sentiment-all 共 5 个 .gz + git add 清单补 5 .gz。根因：intraday-snapshot 定时任务更新 .json 不生成 .gz，前端 fetchJSON .gz 优先读旧数据（overview.json.gz 02:05 vs .json 14:35 滞后 12.5h）。修复后明天 09:35 intraday 首次生成 5 .gz。
+- **P0-2 export.py glob -> rglob lab**：L1404 `glob("*.json")` -> `rglob("*.json")` 递归扫描子目录。根因：lab/*.json 由 scripts/lab/*.py 生成不走 write_json，批量补齐 glob 非递归扫不到。修复后明天 15:33 launchd 跑 export.py 生成新 manifest 含 lab/*.json。
+
+**Z.2 CSP 修复（commit 4b9c1b7c，原 9eb433f0 rebase 后）**
+
+- **worker/headers.js + static-site/_headers**：script-src 加 'unsafe-eval' + https://static.cloudflareinsights.com。根因：ss.fx8.store（R2/CF）console 报 CSP 违规（百度统计 unsafe-eval + cloudflareinsights），report-only 模式只记录不阻止但 console 刷屏。
+- **验收**：curl -I https://ss.fx8.store/ 确认 `content-security-policy-report-only` 含 `'unsafe-eval'` + `https://static.cloudflareinsights.com`，百度统计+cloudflareinsights CSP 违规消除。s.sugas.site（MaoziYun）无 CSP（_headers 不生效，§8 已知现状）。
+- **未改**：Permissions-Policy unload 不改（unload deprecated 现代浏览器忽略）。contentscript.js MaxListeners + ObjectMultiplex 是浏览器扩展警告非网站问题。
+
+**Z.3 P1 修复（commits 50663a42 + a08025cb + d3e6bf8f）**
+
+- **P1-3 index_backfill 5 全球指数**（50663a42，原 b04628db rebase 后）：HK_GLOBAL_INDICES 加 nikkei225/kospi/ftse100/dax/cac40，require_today=False 用 >3 天阈值覆盖源延迟+跨周末。今晚 18:00 launchd backfill 自愈。
+- **P1-5 .gitignore mootdx_daily.db**（d3e6bf8f）：L18-20 加 mootdx_daily.db + -wal + -shm，类比 sentiment.db / etf_national_team.db（§10）。
+- **P1-7 update_lab 补 3 步 + rsync**（a08025cb，原 05858399 rebase 后）：[1/3-3/3] -> [1/6-6/6]，新增 [3/6]lab_matrix 单信号矩阵 + [4/6]lab_matrix --fusion 融合矩阵 + [6/6]backtest_strategies 全市场聚合（lab_backtest.json 复制到 static-site/data/lab/）+ rsync 同步 trade-data->trade（修 launchd 环境 upload_r2 读 trade/ 旧数据）。a-stock-data/backtest_strategies.py 只调用未改。今晚 19:00 launchd 跑后上线 R2。
+- **P1-B update_all alert_analyze**（d3e6bf8f）：L106 后加 export_alert_analyze.py 调用（6 行，失败不阻塞），预生成 40 个 alert_analyze_*.json 供前端静态读。
+
+**Z.4 76f71935 事故教训（P1-A agent 误跑 main() 触发完整采集+deploy）**
+
+- **事故**：P1-A agent 调研 index_backfill.py 时误跑 `index_backfill.main()`，触发完整采集+export+deploy，生成 commit 76f71935 "data update [backfill] 2026-07-21_15:48"（589 files 7/20 数据）。git push HEAD->main REJECTED（non-ff，origin/main 有 15:36 intraday）。rebase origin/main FAILED（工作区 unstaged）。已 abort，**未 force push**（§8 安全机制生效，线上无影响，origin/main 仍 90acc73f）。
+- **处理**：主控 stash 2 禁推 + `git rebase --onto 37d97985 76f71935 feat/iframe-theme-follow` 跳过 76f71935（保留 37d97985 + 9eb433f0 + b04628db，丢弃 76f71935 589 files）+ stash pop。7/20 数据在 DB，收盘后 deploy 上线。
+- **教训**：① agent 调研脚本时**禁止跑 main()** 触发完整采集+export+deploy（违反"不跑全量 export+deploy"约束），只读代码/grep 调研；② 误跑生成 commit 后**绝不 force push**，用 rebase --onto 跳过事故 commit 保留有效修复；③ agent prompt 须明示"不跑 export.py/deploy.sh/upload_r2.py/intraday_snapshot.sh + 不跑脚本 main()"。已补入 P2 agent prompt 硬约束。
+
+**Z.5 push main 流程（rebase + force-with-lease feat + ff main）**
+
+- feat 比 origin/main 多 5 commit（f42e895a+d3e6bf8f+4b9c1b7c+50663a42+a08025cb），origin/main 多 3 intraday commit（14:36/15:06/15:36）。
+- 处理：stash 2 禁推（signal_stats.json+sw_components.json）+ `git rebase origin/main`（5/5 干净，feat 改脚本/配置 vs intraday 改 static-site/data/ 不冲突）+ `git push feat --force-with-lease`（rebase 改写历史，feat 分支非 main）+ `git push feat:main`（fast-forward 90acc73f->a08025cb）+ stash pop。
+- **force-with-lease 限 feat 分支**：§8"agent 不得擅自 force push 尤其推 main"，本次主控确认 + 限 feat（开发分支）非 main，main 走 fast-forward 不 force。
+
+**待验收（明天 launchd 跑后）**：P0-1 09:35 intraday 生成 5 .gz / P0-2 15:33 export.py rglob lab manifest / P1-3 18:00 backfill 5 全球指数 / P1-7 19:00 update_lab 3 步 + R2 / P1-B 15:33 alert_analyze 40 个。CSP 已验收通过。
+
+**git**：本小节Z 为落档 commit，仅改 NOTES.md。涉及 4 个已 push commit：`d3e6bf8f`（P0+P1-B+.gitignore）+ `4b9c1b7c`（CSP）+ `50663a42`（P1-3 5 全球指数）+ `a08025cb`（P1-7 update_lab），均已 push origin feat/iframe-theme-follow:main（feat force-with-lease rebase 改写 + main fast-forward）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
