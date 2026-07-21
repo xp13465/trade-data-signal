@@ -3,63 +3,63 @@
     "task": "update_all",
     "name": "收盘全量",
     "schedule": "17:50",
-    "est_text": "约5分钟",
-    "last_run": "2026-07-21 17:50",
+    "est_text": "约15分钟",
+    "last_run": "2026-07-16 17:50",
     "last_exit": 0,
-    "last_duration_sec": 735
+    "last_duration_sec": 2940
   },
   {
     "task": "backfill_evening",
     "name": "指数补采兜底",
     "schedule": "16:35 / 20:00 / 02:00",
-    "est_text": "约6分钟",
-    "last_run": "2026-07-21 20:00",
+    "est_text": "约3分钟",
+    "last_run": "2026-07-18 02:00",
     "last_exit": 0,
-    "last_duration_sec": 688
+    "last_duration_sec": 0
   },
   {
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
     "est_text": "约1分钟",
-    "last_run": "2026-07-21 15:35",
+    "last_run": "2026-07-16 15:35",
     "last_exit": 0,
-    "last_duration_sec": 74
+    "last_duration_sec": 73
   },
   {
     "task": "futures_backfill",
     "name": "期货机构持仓",
     "schedule": "20:05 + 21:00(兜底)",
-    "est_text": "约1分钟",
-    "last_run": "2026-07-21 21:00",
+    "est_text": "约23秒",
+    "last_run": "2026-07-17 21:00",
     "last_exit": 0,
-    "last_duration_sec": 177
+    "last_duration_sec": 26
   },
   {
     "task": "lhb_backfill",
     "name": "龙虎榜",
     "schedule": "18:30 + 19:30(兜底)",
-    "est_text": "约1分钟",
-    "last_run": "2026-07-21 19:30",
+    "est_text": "约43秒",
+    "last_run": "2026-07-17 19:30",
     "last_exit": 0,
-    "last_duration_sec": 197
+    "last_duration_sec": 52
   },
   {
     "task": "rzhb_backfill",
     "name": "两融",
     "schedule": "23:00",
     "est_text": "约1秒",
-    "last_run": "2026-07-20 23:00",
+    "last_run": "2026-07-17 23:00",
     "last_exit": 0,
-    "last_duration_sec": 2
+    "last_duration_sec": 1
   },
   {
     "task": "etf_national_team",
     "name": "ETF国家队",
     "schedule": "20:07 + 21:30(兜底)",
-    "est_text": "约3分钟",
-    "last_run": "2026-07-21 21:30",
+    "est_text": "约2分钟",
+    "last_run": "2026-07-17 21:30",
     "last_exit": 0,
-    "last_duration_sec": 141
+    "last_duration_sec": 191
   }
 ]
