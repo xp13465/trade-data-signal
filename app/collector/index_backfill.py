@@ -406,6 +406,15 @@ def verify_and_backfill_indices(date, verbose=True):
         ("us_ixic", ".IXIC", False),
         ("us_spx", ".INX", False),
         ("us_ndx", ".NDX", False),
+        # 5 全球指数(2026-07-16 daf06e77 上线, func=index_global_hist_sina)
+        # require_today=False: 源(sina)有时延T+1发布(如7-20数据7-21午后才出),
+        # 用 (today-last)>3 天阈值覆盖跨周末+源延迟, 避免误报fail。
+        # nikkei225: 7/20 日本海之日假期源无数据, 阈值检查不会误报。
+        ("nikkei225", "日经225指数", False),
+        ("kospi", "首尔综合指数", False),
+        ("ftse100", "英国富时100指数", False),
+        ("dax", "德国DAX 30种股价指数", False),
+        ("cac40", "法CAC40指数", False),
     ]
     from . import fetchers as _fetchers_mod
     from datetime import datetime as _dt, timedelta as _td
