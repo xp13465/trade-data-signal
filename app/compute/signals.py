@@ -646,14 +646,14 @@ def compute():
             st_line, st_dir = _supertrend(high, low, close, period=10, multiplier=3.0)
             supertrend_buy = ((st_dir.shift(1) == -1) & (st_dir == 1)).fillna(False)
 
-            # sell_stop_loss（A1, 2026-07-21 初版 Don20；2026-07-21 改 ATR×3 Chandelier Exit）：
-            # atr3_line = 近20日（不含当日）最高价 - 3*ATR(14) = high.rolling(20).max().shift(1) - 3*atr14。
-            # 从高点回撤 3*ATR 触发止损（移动止损线，跟随高点更新），即 Chandelier Exit。
+            # sell_stop_loss（A1, 2026-07-21 初版 Don20；2026-07-21 改 ATR×3 Chandelier Exit；2026-07-21 改 ATR×3.5 降频）：
+            # atr3_line = 近20日（不含当日）最高价 - 3.5*ATR(14) = high.rolling(20).max().shift(1) - 3.5*atr14。
+            # 从高点回撤 3.5*ATR 触发止损（移动止损线，跟随高点更新），即 Chandelier Exit。
             # 独立事件化（无配对 entry，区别于回测 /tmp/backtest_stoploss_compare.py atr_3 的
             # entry_close - 3*ATR(entry_idx) 入场价固定线口径——本信号无 entry 概念，用高点移动线适配）。
             # 事件化（前一日未跌破、当日跌破才标，避免连续标），当天跌破当天发。
             atr14 = _atr(high, low, close, 14)
-            atr3_line = high.rolling(20).max().shift(1) - 3 * atr14
+            atr3_line = high.rolling(20).max().shift(1) - 3.5 * atr14
             sell_stop_cond = (close < atr3_line).fillna(False)
             sell_stop_prev = sell_stop_cond.shift(1).fillna(False)
             sell_stop_loss = sell_stop_cond & (~sell_stop_prev)
@@ -772,7 +772,7 @@ def compute():
                 signals.append((date, iid, "sell", ", ".join(parts)))
 
         # 特买 buy_special Donchian20_up + B4_hold5d 过滤 + 备买 buy_backup Supertrend_buy +
-        # 二次确认过滤 + sell_stop_loss ATR×3 Chandelier Exit 止损 独立 append（不去重，叠加多色 pin，
+        # 二次确认过滤 + sell_stop_loss ATR×3.5 Chandelier Exit 止损 独立 append（不去重，叠加多色 pin，
         # 独立计算不影响 buy/buy_aux/sell）。趋势跟踪类，与 C1/B1 均值回归类互补。
         buy_special_set = set(buy_special_filt[buy_special_filt].index)
         buy_backup_set = set(buy_backup_filt[buy_backup_filt].index)
@@ -821,15 +821,15 @@ def compute():
             parts.append("[指数]")
             signals.append((date, iid, "buy_backup", ", ".join(parts)))
         for date in sorted(sell_stop_set):
-            # 止损卖：ATR×3 Chandelier Exit 跌破（从近20日最高价回撤3*ATR）。reason 标注 ATR + 线 + close + cross。
+            # 止损卖：ATR×3.5 Chandelier Exit 跌破（从近20日最高价回撤3.5*ATR）。reason 标注 ATR + 线 + close + cross。
             c = close.get(date)
             al = atr3_line.get(date)
             av = atr14.get(date)
             parts = []
             if pd.notna(al) and pd.notna(c) and pd.notna(av):
-                parts.append(f"ATR×3止损(ATR={av:.2f}, 线={al:.0f}, close={c:.0f})")
+                parts.append(f"ATR×3.5止损(ATR={av:.2f}, 线={al:.0f}, close={c:.0f})")
             else:
-                parts.append("ATR×3止损")
+                parts.append("ATR×3.5止损")
             cv = cross_aligned.get(date)
             if pd.notna(cv):
                 parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")

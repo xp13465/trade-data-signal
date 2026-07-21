@@ -269,7 +269,7 @@ function signalColor(s) {
   if (s.signal === "buy_aux") return "#d63384";
   if (s.signal === "buy_special") return "#ffd700";  // 追买 金（唐奇安20日上轨突破）
   if (s.signal === "buy_backup") return "#9c27b0";   // 备买 紫（Supertrend 趋势转向）
-  if (s.signal === "sell_stop_loss") return "#3498db";  // 追止损卖 蓝（ATR×3 止损，底层规则从 Donchian20 下轨改为 ATR×3）
+  if (s.signal === "sell_stop_loss") return "#3498db";  // 追止损卖 蓝（ATR×3.5 止损，底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）
   const r = s.reason || "";
   if (r.includes("买点失败")) return "#9e9e9e";
   if (r.includes("止盈")) return "#2e8b57";
@@ -286,7 +286,7 @@ function signalLabel(s) {
   if (s.signal === "buy_aux") return "下轨拐点";
   if (s.signal === "buy_special") return "上轨突破";  // 追买 唐奇安20日上轨突破
   if (s.signal === "buy_backup") return "趋势转向";   // 备买 Supertrend 翻多
-  if (s.signal === "sell_stop_loss") return "ATR×3止损";  // ATR×3 止损（底层规则从 Donchian20 下轨改为 ATR×3，趋势跟踪风控；动作描述对比 buy_special "上轨突破"）
+  if (s.signal === "sell_stop_loss") return "ATR×3.5止损";  // ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控；动作描述对比 buy_special "上轨突破"）
   const r = s.reason || "";
   if (r.includes("止盈")) {
     const m = r.match(/vs前买\s*([+-]?\d+(?:\.\d+)?)\s*%/);
@@ -384,7 +384,7 @@ function _signalLegendHtml() {
     + '<span class="signal-legend-item"><i style="background:#ffd700"></i>上轨突破(追买)</span>'
     + '<span class="signal-legend-item"><i style="background:#9c27b0"></i>趋势转向(备买)</span>'
     + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>趋势转弱(卖)</span>'
-    + '<span class="signal-legend-item"><i style="background:#3498db"></i>ATR×3止损(追止损|卖)</span>'
+    + '<span class="signal-legend-item"><i style="background:#3498db"></i>ATR×3.5止损(追止损|卖)</span>'
     + '<span class="signal-legend-note" data-tip="' + _BACKUP_CHIP_TIP + '">⚠ 备买风险提示</span>'
     + '</div>';
 }
@@ -584,10 +584,10 @@ function termTip(text) {
 const _SIGNAL_HELP_ITEMS = [
   { sig: "buy", color: "#e6492e", name: "主买 · 超卖拐点", desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
   { sig: "buy_aux", color: "#d63384", name: "辅买 · 下轨拐点", desc: "布林带下轨回归。价格跌穿 BB 下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
-  { sig: "buy_special", color: "#ffd700", name: "追买 · 上轨突破", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配追止损|卖(ATR×3止损)控制风险，0套牢。" },
+  { sig: "buy_special", color: "#ffd700", name: "追买 · 上轨突破", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配追止损|卖(ATR×3.5止损)控制风险，0套牢。" },
   { sig: "buy_backup", color: "#9c27b0", name: "备买 · 趋势转向", desc: "Supertrend ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
   { sig: "sell", color: "#2e8b57", name: "卖 · 趋势转弱", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈减仓提示。", note: "📌 pin 标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；hover tooltip 的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈减仓非反向信号。配套：走弱概率≈50%接近随机；与追止损|卖共振时减仓信号更强。" },
-  { sig: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR×3止损", desc: "ATR×3 止损（底层规则已从 Donchian20 下轨改为 ATR×3，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
+  { sig: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR×3.5止损", desc: "ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5d win 49.58%->50.23%），backtest 旧 ATR×3 数据保留作历史对比，新参数 stats 见下方 forward 字段。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
 ];
 
 // 聚合 signal_stats.json（per-index）-> per-sig 概况（10d 窗口，按样本数 n 加权平均）
@@ -1568,12 +1568,12 @@ function ruleContentHtml() {
       </div>
 
       <div class="rule-card" style="border-left:3px solid #3498db">
-        <div class="rule-card-head"><span class="rule-badge" style="background:#e8f4fd;color:#1c6dbf">追止损|卖</span> ATR×3 止损</div>
-        <p>价格跌破 <b>ATR×3 动态止损线</b>（底层规则已从 Donchian20 下轨改为 ATR×3）。趋势反转下行最后防线。</p>
+        <div class="rule-card-head"><span class="rule-badge" style="background:#e8f4fd;color:#1c6dbf">追止损|卖</span> ATR×3.5 止损</div>
+        <p>价格跌破 <b>ATR×3.5 动态止损线</b>（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）。趋势反转下行最后防线。</p>
         <table class="rule-table">
-          <tr><td class="rule-td-label">含义</td><td>ATR（平均真实波幅）×3 作为止损距离，波动大时止损宽、波动小时止损窄，自适应市场节奏</td></tr>
+          <tr><td class="rule-td-label">含义</td><td>ATR（平均真实波幅）×3.5 作为止损距离，波动大时止损宽、波动小时止损窄，自适应市场节奏</td></tr>
           <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#3498db;color:#fff">蓝色</span> 图表上标记为「追止损|卖」</td></tr>
-          <tr><td class="rule-td-label">回测对比</td><td>现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20（胜率44.33%/均值+1.56%，2008股灾-10.5%最差）</td></tr>
+          <tr><td class="rule-td-label">回测对比</td><td>现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20（胜率44.33%/均值+1.56%，2008股灾-10.5%最差）。2026-07-21 调 ATR×3.5 降频后 hs300 触发 -18%/5d win 49.58%->50.23%</td></tr>
         </table>
         <p class="rule-note">⚠️ <b>最后防线</b>：跌破即止损，趋势反转下行。与「卖」共振时减仓信号更强。蓝色与卖绿色区分。</p>
       </div>
