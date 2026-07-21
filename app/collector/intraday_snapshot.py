@@ -892,6 +892,36 @@ def _recompute_scores() -> None:
         print(f"  [intraday] cross_market 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
 
+def _recompute_signals() -> None:
+    """反哺+重算 scores 后，重算买卖点信号(signal_daily) + 回测 stats(signal_stats.json)。
+
+    盘中反哺当日 close 后 signals.compute() 能算出当日买卖点（依赖 index_daily close +
+    score_daily cross_market 标签）。signal_stats.compute() 依赖 signal_daily 表
+    （signals.store 之后）。B 方案（2026-07-21）：盘中也产出当日信号，不再只靠 17:50
+    update_all。
+
+    耗时：signals ~1.7s + signal_stats ~1.1s ≈ 2.8s（盘中 30 分钟一次可接受）。
+    失败不阻断：已有 update_all 17:50 的 signal_daily + signal_stats.json 不受影响
+    （DELETE+INSERT 幂等，重算覆盖；并发写撞锁时 try/except 兜底，下轮再算）。
+    """
+    from ..compute import signals, signal_stats
+
+    try:
+        sigs = signals.compute()
+        n_sig = signals.store(sigs)
+        print(f"  [intraday] signals 重算: {n_sig} 条", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] signals 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+        return  # signals 失败则 signal_stats 无意义（signal_daily 未更新）
+
+    try:
+        stats = signal_stats.compute()
+        n_bytes = signal_stats.store(stats)
+        print(f"  [intraday] signal_stats 重算: {n_bytes} 字节", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] signal_stats 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
+
 def _recompute_rotation() -> None:
     """重算板块轮动速度（sw_ 行业 + thsc_ 概念），写入 daily_metric。
 
@@ -1108,6 +1138,7 @@ def collect_and_save() -> dict:
         # 重算：指数反哺 或 width 指标采集 都触发（width 有当日值后 a_sentiment/cross_market 能出分）
         if n_backfill > 0 or width_n > 0:
             _recompute_scores()
+            _recompute_signals()  # B 方案：盘中也产出当日买卖点信号 + stats（依赖 _recompute_scores 的 cross_market）
         # 行业/概念反哺后重算轮动速度（rotation.json 才有当日行 + 当日领涨 top3）
         if n_ind > 0 or n_concept > 0:
             _recompute_rotation()

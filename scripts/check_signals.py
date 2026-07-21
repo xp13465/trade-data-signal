@@ -21,7 +21,7 @@ import re
 import smtplib
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
 from pathlib import Path
@@ -36,6 +36,10 @@ DB_PATH = REPO / "data" / "sentiment.db"
 EMAIL_CONFIG = REPO / "config" / "email.json"
 INDICATORS_CONFIG = REPO / "config" / "indicators.yaml"
 STATS_PATH = REPO / "data" / "signal_stats.json"
+# F 方案（2026-07-21）：邮件去重持久化，记录当日已通知的 (index_id, signal) 集合。
+# 格式 {date_str: [[index_id, signal], ...]}，7 天自动清理旧记录（save_signal_notified）。
+# 仅在去重模式（默认）下读写；--full 全量模式不读只写（发后全标记已通知）。
+NOTIFIED_PATH = REPO / "data" / "signal_notified.json"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -101,6 +105,40 @@ def load_signal_stats() -> dict:
     except Exception as e:  # noqa: BLE001
         log.warning("signal_stats.json 加载失败：%s", e)
         return {}
+
+
+def load_signal_notified() -> dict[str, list[list[str]]]:
+    """读 data/signal_notified.json（邮件去重持久化）。
+
+    格式 {date_str(YYYYMMDD): [[index_id, signal], ...]}。不存在/解析失败返回 {}。
+    文件位于 data/ 且已 gitignore（§8 禁推），仅本地持久化跨进程去重。
+    """
+    if not NOTIFIED_PATH.exists():
+        return {}
+    try:
+        data = json.loads(NOTIFIED_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            log.warning("signal_notified.json 格式异常（非 dict），忽略")
+            return {}
+        return data
+    except Exception as e:  # noqa: BLE001
+        log.warning("signal_notified.json 加载失败：%s（去重降级为全发）", e)
+        return {}
+
+
+def save_signal_notified(data: dict[str, list[list[str]]]) -> None:
+    """写 data/signal_notified.json（原子写）。清理 7 天前旧记录避免无限增长。
+
+    原子写（.tmp + replace）：防盘中 intraday_snapshot 30 分钟并发跑 check_signals
+    时读到半截 JSON。
+    """
+    cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
+    cleaned = {d: v for d, v in data.items() if d >= cutoff}
+    NOTIFIED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(cleaned, ensure_ascii=False, separators=(",", ":"))
+    tmp = NOTIFIED_PATH.parent / (NOTIFIED_PATH.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(NOTIFIED_PATH)
 
 
 def query_signals(date: str) -> list[dict]:
@@ -351,10 +389,15 @@ def main(argv: list[str] | None = None) -> int:
         description="检测当天 signal_daily 买卖点信号 + 发邮件通知"
     )
     parser.add_argument("--date", help="查询日期 YYYYMMDD（默认今天）")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="全量模式（跳过去重，发当日所有信号；收盘速递用）。默认去重只发当日新信号。",
+    )
     args = parser.parse_args(argv)
 
     date = args.date or datetime.now().strftime("%Y%m%d")
-    log.info("=== check_signals 开始，查询日期：%s ===", date)
+    log.info("=== check_signals 开始，查询日期：%s（%s模式）===", date, "全量" if args.full else "去重")
 
     signals = query_signals(date)
     if not signals:
@@ -367,7 +410,25 @@ def main(argv: list[str] | None = None) -> int:
     log.info("查询到 %d 个信号（主买=%d, 辅买=%d, 卖=%d）", len(signals), n_buy, n_aux, n_sell)
 
     name_map = load_name_map()
-    subject, body = build_email(date, signals, name_map)
+    # F 方案（2026-07-21）邮件去重：默认只发当日新 (index_id, signal)；
+    # --full 全量模式发当日全部（收盘速递用，不走去重）。
+    if args.full:
+        log.info("全量模式（--full）：发当日全部 %d 信号", len(signals))
+        signals_to_send = signals
+    else:
+        notified = load_signal_notified()
+        today_notified = {tuple(x) for x in notified.get(date, [])}
+        signals_to_send = [
+            s for s in signals if (s["index_id"], s["signal"]) not in today_notified
+        ]
+        n_dup = len(signals) - len(signals_to_send)
+        log.info(
+            "去重模式：当日 %d 信号，新 %d / 已通知 %d", len(signals), len(signals_to_send), n_dup
+        )
+        if not signals_to_send:
+            log.info("无新信号（已去重），不发邮件")
+            return 0
+    subject, body = build_email(date, signals_to_send, name_map)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
@@ -384,6 +445,20 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # noqa: BLE001
         log.error("✗ 邮件发送失败：%s（不阻塞流程）", e)
         return 2  # 非 0 但不崩
+
+    # 发送成功后更新 signal_notified.json（标记当日已通知，下次去重跳过）。
+    # --full 模式也更新：把当日全部信号标记已通知，防止之后去重模式重复发。
+    notified = load_signal_notified()
+    today_set = {tuple(x) for x in notified.get(date, [])}
+    for s in signals_to_send:
+        today_set.add((s["index_id"], s["signal"]))
+    notified[date] = sorted([list(x) for x in today_set])
+    save_signal_notified(notified)
+    log.info(
+        "已更新 signal_notified.json：当日已通知 %d 条（%s）",
+        len(notified[date]),
+        "全量" if args.full else "增量",
+    )
 
     return 0
 

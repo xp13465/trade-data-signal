@@ -33,6 +33,8 @@ data/etf_national_team.lock
 data/etf_national_team.db
 data/etf_national_team.db-wal
 data/etf_national_team.db-shm
+# F 方案（2026-07-21）：check_signals 邮件去重持久化，仅本地跨进程去重用
+data/signal_notified.json
 
 # 邮件配置（含 SMTP 授权码，敏感 —— 用 email.json.example 作模板）
 config/email.json
