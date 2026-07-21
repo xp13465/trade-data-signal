@@ -52,6 +52,10 @@
 - commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
 - 线上 curl 验证/测试优先用 `https://s.sugas.site/`(用户个人域名,2026-07-18 上线,MaoziYun 托管自动拉 git main 部署,有拉取延迟+max-age=1200缓存,验线上若 404/旧版等几分钟再 curl),旧 maozi.io 最后兜底(s.aisusu.cn 已撤 DNS,8.8.8.8 实测 NXDOMAIN 不可达,不再作兜底;DNS 由阿里云万网 hichina dns27/28 管)
 - ⚠️ s.sugas.site/maozi.io 同走 MaoziYun/3.17.0(非 Cloudflare),`_headers` 不生效(CSP/HSTS preload/nosniff/X-Frame/Permissions-Policy 无法落地),MaoziYun 自带 HSTS + meta referrer 兜底;`_headers` 配置保留,未来迁移 CF Workers(wrangler.jsonc 已存在)即生效(2026-07-18 用户接受现状)
+- ⚠️ **force-with-lease / force push 是最后手段,不是首选**(2026-07-20 gz 方案B agent 违规致 intraday 回退事故,见 NOTES §48 小节S 事故记录):non-fast-forward 时优先 `git fetch + git rebase origin/main + 重试 push`(deploy.sh L141-160 内置此机制),rebase 失败 abort 退出等人工处理。**agent 不得擅自 force-with-lease / force push,尤其推 main**;确需强推须主控确认
+- ⚠️ **deploy.sh `git add static-site/data/` 通配会带入工作区残留旧文件**(2026-07-20 事故根因):跑 deploy.sh 前确认工作区无旧版实时数据文件(尤其 `intraday_snapshot.json`,由 intraday-snapshot 定时任务独立 push,不被全量 deploy 带入);export.py 不生成 intraday_snapshot.json,工作区里的旧版会被通配带入 commit 覆盖线上新版
+- ⚠️ **盘中(09:30-15:30)不跑全量 export + deploy**:全量 export + deploy 限定 15:35 后(收盘后),盘中只跑 intraday-snapshot 定时任务推 intraday_snapshot.json。agent 接"跑全量 export"任务须先确认时点,盘中拒绝或等收盘(撞 intraday-snapshot 定时任务推 main = 互相覆盖事故)
+- ⚠️ **agent 推理"X 文件在 Y commit 里"前先核对**(2026-07-20 事故误判):用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点版本,不靠"Y commit 是 Z 时点跑的所以含 Z 时点数据"推理
 
 ## 9. 单版前端铁律(2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变

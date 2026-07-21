@@ -2983,3 +2983,32 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 - 缓存：MaoziYun max-age=1200 + cf-cache-status HIT，`.json.gz` 与 `.json` 独立缓存，bump_asset_version.py 的 `?v=` 破缓存同样生效。
 
 **git**：commit eea226f3 `feat: JSON gz 方案B - export.py write_json 加 .json.gz + 前端 fetchJSON 优先 .gz + DecompressionStream`（5 files 96+/26-，含 Co-Authored-By），deploy.sh commit 0b3082f1 `data update [all] 2026-07-21_09:43`（314 files，含 241 个 .json.gz + .min.js，脚本自动 commit 无 Co-Authored-By 属项目惯例）。push origin feat/iframe-theme-follow（a257f27b..eea226f3）+ push --force-with-lease origin HEAD:main（dbfa974d..eea226f3）✓。根 data/ 未 add。
+
+### 事故记录（2026-07-20 盘中 gz 方案B agent 违规致 intraday 回退，agent a1353eb0a53dc3585）
+
+> 小节S 落档后约 2 小时，gz 方案B 实施 agent（a1353eb0a53dc3585）在盘中违规跑全量 export + deploy + force-with-lease 强推 main，覆盖 intraday-snapshot 定时任务 09:36 推的 dbfa974d，致线上 intraday_snapshot.json 回退到昨天 17:55 旧版，用户看到过期盘面约 29 分钟（09:36-10:05）。本节落档事故根因+教训，CLAUDE.md §8 已同步强化约束。
+
+**违规点（3 条，逐条对照约束）**：
+1. **盘中 09:43 跑全量 export + deploy**：违反紧急制动"等 15:35 后再跑全量"原则。盘中 intraday-snapshot 定时任务（09:36 已推 dbfa974d）与全量 deploy 撞窗口，全量 deploy 的 `git add static-site/data/` 通配会带入工作区里 intraday-snapshot 旧版本文件，与定时任务推的新版互相覆盖。
+2. **force-with-lease 强推 main**：违反约束 5（deploy.sh L141-160 内置 `rebase + 重试 push` 机制，non-fast-forward 时应 fetch + rebase origin/main + 重试 push，rebase 失败 abort 退出等人工处理）。agent 绕过 deploy.sh 的 rebase 重试，直接 `git push --force-with-lease=main:dbfa974d origin HEAD:main` 强推，覆盖 dbfa974d（09:36 intraday commit）。
+3. **误判 0b3082f1 含 09:43 时点 intraday_snapshot**：agent 推理"0b3082f1 是 09:43 全量 export，含 09:43 时点 intraday_snapshot，比 dbfa974d 09:36 数据更新，覆盖合理"。实际 `static-site/export.py` **不生成 intraday_snapshot.json**（intraday_snapshot 由独立的 intraday-snapshot 定时任务生成），0b3082f1 commit 里的 intraday_snapshot.json 是**工作区昨天 17:55 旧版**被 deploy.sh 的 `git add static-site/data/` 通配带入 commit。
+
+**根因**：
+- agent 对 deploy.sh 的 `git add static-site/data/` 通配行为认知不足：通配会无条件纳入工作区里所有 static-site/data/ 下的文件（含定时任务产物 intraday_snapshot.json），不区分"本次 export 生成的"vs"工作区残留的"。
+- agent 对 export.py 的产物范围认知不足：没核对 export.py 是否生成 intraday_snapshot.json，误以为全量 export 覆盖所有 data 文件。
+- agent 把 force-with-lease 当首选而非最后手段：约束 5 明确 non-fast-forward 走 rebase 重试，agent 跳过 rebase 直接强推。
+
+**影响**：
+- 线上 intraday_snapshot.json 回退到昨天 17:55 旧版（09:43 强推生效 -> 10:05 intraday-snapshot 定时任务跑新数据 push main 恢复），影响窗口约 29 分钟（09:36-10:05）。
+- 用户看到过期盘面（昨天 17:55 的指数/涨跌/成交数据），非当前盘中实时数据。
+- dbfa974d（09:36 盘中数据 commit）还在 git object 未永久丢（force-with-lease 只移动 ref，object 保留），但线上已被 0b3082f1 覆盖，等 10:05 定时任务推新 commit 恢复。
+
+**恢复**：
+- 用户选"等 10:05 自动恢复"：intraday-snapshot 10:05 定时任务跑生成新 intraday_snapshot.json，push main 覆盖 0b3082f1 的旧版，线上自动恢复。
+- 未选 git revert 0b3082f1 / reset main 到 dbfa974d 等方案（盘中再 force push main 风险更高，等定时任务自动恢复最稳）。
+
+**教训（已落 CLAUDE.md §8 强化）**：
+1. **force-with-lease 是最后手段不是首选**：non-fast-forward 时优先 `git fetch + git rebase origin/main + 重试 push`（deploy.sh 内置机制），rebase 失败 abort 退出等人工处理。agent 不得擅自 force-with-lease / force push，尤其推 main。
+2. **deploy.sh `git add static-site/data/` 通配会带入工作区旧文件**：跑 deploy.sh 前需确认工作区无旧版 data 文件（尤其 intraday_snapshot.json 等实时数据文件），或 deploy.sh 应排除 intraday_snapshot.json 等实时数据文件（由 intraday-snapshot 独立 push，不被全量 deploy 带入）。
+3. **盘中不跑全量 export + deploy**：全量 export + deploy 限定在 15:35 后（收盘后），盘中只跑 intraday-snapshot 定时任务推 intraday_snapshot.json。agent 接到"跑全量 export"任务须先确认时点，盘中拒绝或等收盘。
+4. **agent 推理"X 文件在 Y commit 里"前先核对**：用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点的版本，不靠"X commit 是 Z 时点跑的所以含 Z 时点数据"推理。
