@@ -730,3 +730,43 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 - **TASKS.md** 加"### 🆕 2026-07-21 盘中事故后续根治（intraday 覆盖 + 国家队 mootdx 失效）"小节：intraday 事故根治 4 条（DB symlink / `deploy.sh` 跑前恢复 intraday / `deploy.sh` 时段闸门 / `intraday_snapshot.sh` git add `.gz`）+ mootdx 影响范围评估 + 换源后补 `.gz` 教训 + a-stock 残留确认 + memory MEMORY.md 清理过时条目。
 
 **git**：本小节X 为落档 commit，仅改 NOTES.md。涉及今日 5 个已 push commit：`64d43f8d`/`a6d86178`（intraday 事故修复）+ `65610d6b`（国家队 mootdx 换源）+ `62ba37c4`（归档独立 .md）+ `0e75a9db`（NOTES/TASKS 拆分历史章节）+ `84815d3d`（新增待办落档），均已 push origin feat/iframe-theme-follow:main（非 force，fast-forward）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
+
+### 小节Y：2026-07-21 下午 intraday 根治 + launchd 展示 bug 修复 + 轮询原则落档（commits c5e2b7ae + 3796ecf3 + 134f211a + bbeb8042）
+
+> 本节落档下午 4 项工作闭环 + 1 项待办落档：① intraday 根治第 2/3 条 deploy.sh 时段闸门 + 跑前恢复 intraday ② intraday 根治第 4 条 intraday_snapshot.sh 补 `.gz` ③ launchd 展示 bug gen_schedule_stats.py 去 `.resolve()` 修复 ④ CLAUDE.md §2/§11 轮询原则落档（核心等子 agent task-notification，轮询兜底）⑤ 第 1 条 DB symlink 等收盘 + P1 两 bug 待修落档。
+
+**Y.1 intraday 根治第 2/3 条 deploy.sh（commit c5e2b7ae）**
+
+- **时段闸门 L32-42**：交易日盘中 09:30-15:30 拒跑全量 export+deploy（`IS_TRADING` + `CURRENT_HM` 0930-1530 + `FORCE` 绕过），防 `94c79041` 事故复发。
+- **跑前恢复 intraday L47-52**：`git checkout origin/main -- intraday_snapshot.json/.gz` + `git reset HEAD`，防 deploy.sh `git add static-site/data/` 通配带入工作区残留旧版。
+- **事故根因**：12:29 主控跑方案Y deploy（commit `94c79041`）违规，通配带入工作区 7-20 17:55 旧版覆盖 main 11:30 实时版（详见小节X.1）。
+
+**Y.2 intraday 根治第 4 条 intraday_snapshot.sh 补 .gz（commit 3796ecf3）**
+
+- **背景**：`intraday_snapshot.sh` L118-127 `git add` 列表只 add `.json` 不 add `.gz`，线上 `.gz` 滞后 `.json`（`fetchJSON` `.gz` 优先致读旧）。
+- **修复**：L117-118 rsync 后 `gzip -kf static-site/data/intraday_snapshot.json` + L122 `git add` 列表加 `static-site/data/intraday_snapshot.json.gz`。
+- **测试**：`bash scripts/intraday_snapshot.sh force`，push main，线上 md5 一致（`4353da6d`），`collected_at=14:06:33` 最新。
+- **路径**：`intraday_snapshot.sh` 在 `trade/scripts/`（`trade-data/scripts` symlink 透传）。
+
+**Y.3 launchd 展示 bug 修复 gen_schedule_stats.py（commit 134f211a）**
+
+- **背景**：用户报"定时任务日志全停 7-16/7-17，7-20 没日志"。调研结论：launchd 任务没停，数据正常，是 `schedule_stats.json` 展示卡 7-17。
+- **根因**：`trade-data/scripts` 是 `trade/scripts` 符号链接（7-18 00:27 创建）。`gen_schedule_stats.py` L27 `REPO=Path(__file__).resolve().parent.parent`，`resolve()` 解析符号链接到 `trade`，读 `trade/data/logs/`（旧卡 7-16 15:35），不读 `trade-data/data/logs/`（新到 7-21）。
+- **链路**：launchd plist `REPO=trade-data` `GIT_REPO=trade`，deploy.sh L20 `REPO` 优先环境变量=`trade-data`，L67 调 `trade-data/scripts/gen_schedule_stats.py`（symlink）。gen `__file__`=`trade-data` path（Python 不 resolve），`.resolve().parent.parent`=`trade`（错），`.parent.parent`=`trade-data`（对）。
+- **修复**：L27 去 `.resolve()` 用 `Path(__file__).parent.parent`，`REPO=trade-data`，读 `trade-data/data/logs/`，写 `trade-data/static-site/data/schedule_stats.json`，cp 到 `trade/static-site/data/` push main。
+- **线上**：`https://s.sugas.site/data/schedule_stats.json`（路径 `/data/`）更新：intraday 7-16 15:35->7-21 14:05，update_all 7-16 17:50->7-20 17:50，7 任务 `last_run` 全更新到 7-20/7-21。
+- **目录**：`trade-data/static-site/data` 独立目录（非 symlink），deploy.sh L100-109 rsync `trade-data` -> `trade`。
+
+**Y.4 轮询原则落档 CLAUDE.md（commit bbeb8042）**
+
+- **用户纠正**：轮询是兜底，核心是等子 agent task-notification 报告（子 agent 完成自动通知主控）。§11 原"不干等通知"表述误导（像不等通知靠轮询）。
+- **修正**：§2 L18 + §11 L74 明确"核心等子 agent task-notification 报告，轮询兜底防丢/卡死"。
+- **间隔**：§11 轮询间隔 3->10 分钟（用户定，原 3 分钟太频繁打扰/费 token），cron 用 `7,17,27,37,47,57` 避开 :00/:30，卡死阈值 480->600 秒。
+
+**Y.5 第 1 条 DB symlink 等收盘 + P1 两 bug 待修**
+
+- **第 1 条 DB symlink**：`trade/data/sentiment.db` -> `trade-data/data/sentiment.db`（解决 export.py 读滞后 DB，trade `sentiment.db` 13:02 滞后 / trade-data 13:35 最新，size 差 12288）。风险：schema/WAL/并发，盘中改需停 launchd，等收盘 15:35 后实施。
+- **P1 backfill_evening SyntaxError**：`_c.execute(DELETE` 未闭合，7-21 02:08 exit 1。
+- **P1 update_lab git 路径**：`fatal: not a git repository`，`COMMIT_RC`/`PUSH_RC` unbound。
+
+**git**：本小节Y 为落档 commit，仅改 NOTES.md。涉及下午 4 个已 push commit：`c5e2b7ae`（deploy.sh 时段闸门+跑前恢复 intraday）+ `3796ecf3`（intraday_snapshot.sh 补 `.gz`）+ `134f211a`（gen_schedule_stats.py 去 `.resolve()`）+ `bbeb8042`（CLAUDE.md §2/§11 轮询原则落档），均已 push origin feat/iframe-theme-follow:main（非 force，fast-forward）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
