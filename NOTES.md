@@ -2852,3 +2852,38 @@ s.sugas.site/s.aisusu.cn/maozi.io 同走 MaoziYun/3.17.0（非 Cloudflare），`
 **约束遵守**：不改 CSS 规则（rcssmin 只去注释/空白）保视觉一致 / 不 git add 根 data/（signal_stats.json/sw_components.json 保持本地 M）/ 不 checkout 切分支（push feat:main）/ 无图片操作（§13）。
 
 **git**：commit ada602e0 `perf: CSS minify (rcssmin) style.css/lab.css -> .min.css 省25%/23%`，push feat/iframe-theme-follow + feat:main（均 ee5b2001..ada602e0）。7 files changed（scripts/build_min.py + bump_asset_version.py + index/about/privacy.html + style.min.css + lab.min.css 新建）。根 data/ 未 add。
+
+### 小节Q：human_text 中性档拼接命中维度（2026-07-21，commit b28aa6ac + be3bd749）
+
+> high 买点调研发现：`app/alert_reason.py` 的 `human_text.high` 在 high 中性档（总分<=60）时只说"高位风险指标处于中性区间,暂无明显过热信号"，但 `dim_hits` 可能 H1 情绪过热/H4 位置偏高 命中（单维度强度>=60 但加权总分被弱维度拉低<=60），用户困惑"显示中性但维度表有命中"。low 同理。
+
+**根因**：`build_human_text` line 329-330 原逻辑 `if level in ("中性", "数据不足"): return base` 直接返回模板文案不拼接命中维度。中性档总分<=60 但单维度可能>=60（HIT_THRESHOLD=60），因加权总分 = Σ(维度分×权重)，单维度强但其他维度弱时总分仍<=60 落入中性档。
+
+**改动**（`app/alert_reason.py` `build_human_text`）：中性档单独处理，若有命中维度（`hit_dims.hit=True` 取前2，格式 `H1 情绪过热/H4 位置偏高`）拼接说明。数据不足档保持原样直接返回。
+
+```python
+if level == "数据不足":
+    return _filter_forbidden(base)
+if level == "中性":
+    hit_labels = [f"{d['k']} {d['name']}" for d in hit_dims if d["hit"]][:2]
+    if hit_labels:
+        base = (f"{base},但 {'/'.join(hit_labels)} 有命中,"
+                f"整体加权后未达关注线")
+    return _filter_forbidden(base)
+```
+
+**措辞示例**（线上 hsi.json 实测，high=55.41 中性 + H1 score=96.67 命中）：
+- 改前：`高位风险指标处于中性区间,暂无明显过热信号`
+- 改后：`高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线`
+
+low 同理（low=35.78 中性 + L3 命中）：`低位机会指标处于中性区间,暂无明显冰点信号,但 L3 位置偏低 有命中,整体加权后未达关注线`
+
+**影响范围**：55 个 alert_analyze_*.json 重生成，HIGH 中性+命中 43 个 / HIGH 中性无命中 8 个 / LOW 中性+命中 27 个。关注/警示/高危/机遇/机会档逻辑不变（仍用 `主要风险来自A+B`）。
+
+**线上验证**（2026-07-21 09:00，push feat+main 后 curl s.sugas.site）：
+- `curl -s https://s.sugas.site/data/alert_analyze_hsi.json` -> human_text.high = "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线" ✓
+- human_text.low = "低位机会指标处于中性区间,暂无明显冰点信号,但 L3 位置偏低 有命中,整体加权后未达关注线" ✓
+
+**约束遵守**：不破现有逻辑（只中性档加命中维度，关注/过热档不变）/ 不 git add 根 data/（signal_stats.json/sw_components.json 保持本地 M）/ 避免 checkout 切分支（deploy.sh push HEAD:main + push feat:main）/ 无图片操作（§13）/ 用 .venv/bin/python 跑 export。
+
+**git**：commit b28aa6ac `fix(alert): human_text中性档拼接命中维度`（app/alert_reason.py 1 file 9+/1-），deploy.sh 再 commit be3bd749 `data update [all] 2026-07-21_08:56`（59 files changed 含 55 alert_analyze + 其他 export 产物），push origin HEAD:main（8ec39231..be3bd749）+ push feat/iframe-theme-follow。根 data/ 未 add。
