@@ -297,9 +297,10 @@ function signalLabel(s) {
   return "趋势转弱";
 }
 
-// 4色买点 pin 叠加（2026-07-21 阶段4）：同日多个买点信号(buy/buy_aux/buy_special/buy_backup)
-// 合并1个拼色 pin（参照汪汪队 _ntMultiColor 分段渐变+金描边+光晕），单信号保持单色 pin。
-// 卖绿(sell)独立 pin 不参与买点拼色（语义反向）。体现"叠加的特殊 pin 更有价值，覆盖无法体现"。
+// 多色拼色 pin（2026-07-22 方案A 重构）：同日全部信号（买/卖/止损，不分买卖语义）
+// 整体合并为 1 个 pin。单信号保持单色 pin（原行为）；多信号拼色 pin
+// （_ntMultiColor 分段渐变 + 金描边 + 光晕，参照汪汪队共振信号 L4486-4521）。
+// 修复"多 pin 同 coord 后画盖先画"问题：同日 N 信号只画 1 个拼色 pin，不互相盖住。
 // getValueFn(date) 返回该日 y 值（close 或 value），用于 pin coord 定位。
 function _buildSignalMarkData(signals, getValueFn) {
   const byDate = {};
@@ -308,28 +309,26 @@ function _buildSignalMarkData(signals, getValueFn) {
     byDate[s.date].push(s);
   }
   const markData = [];
-  const BUY_SET = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
   for (const date of Object.keys(byDate).sort()) {
     const daySigs = byDate[date];
-    const buys = daySigs.filter((s) => BUY_SET[s.signal]);
-    const sells = daySigs.filter((s) => s.signal === "sell" || s.signal === "sell_stop_loss");
     const y = getValueFn(date);
-    if (buys.length === 1) {
-      const s = buys[0];
+    if (daySigs.length === 1) {
+      // 单信号：保持单色 pin（原行为）
+      const s = daySigs[0];
       markData.push({
         coord: [date, y],
         value: signalLabel(s),
         reason: s.reason || "",
         itemStyle: { color: signalColor(s) },
       });
-    } else if (buys.length >= 2) {
-      // 多买点同日：拼色 pin（金描边+光晕，参照汪汪队共振信号 L4486-4521）
-      const labels = buys.map(signalLabel);
-      const segColors = buys.map(signalColor);
+    } else {
+      // 多信号同日：拼色 pin（金描边+光晕，买+卖/多买/多卖合一展示叠加价值）
+      const labels = daySigs.map(signalLabel);
+      const segColors = daySigs.map(signalColor);
       markData.push({
         coord: [date, y],
         value: labels.join("+"),
-        reason: buys.map((s) => s.reason || "").filter(Boolean).join("<br/>---<br/>"),
+        reason: daySigs.map((s) => s.reason || "").filter(Boolean).join("<br/>---<br/>"),
         symbolSize: 52,
         label: { fontSize: 11, color: "#fff", formatter: labels.join("\n"), lineHeight: 13 },
         itemStyle: {
@@ -341,14 +340,6 @@ function _buildSignalMarkData(signals, getValueFn) {
         },
         tipColors: segColors,   // 拼色各段颜色，供 tooltip 渲染多色●（方案3 修拼色 tooltip bug）
         tipLabels: labels,      // 拼色各段标签，供 tooltip 渲染多色●
-      });
-    }
-    for (const s of sells) {
-      markData.push({
-        coord: [date, y],
-        value: signalLabel(s),
-        reason: s.reason || "",
-        itemStyle: { color: signalColor(s) },
       });
     }
   }

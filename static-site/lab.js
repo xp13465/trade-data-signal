@@ -300,6 +300,55 @@ function computeVolBreakoutLab(ohlc) {
   return { vratio, signals };
 }
 
+// 同日多信号拼色 pin（2026-07-22 方案A）：参照 app.js _buildSignalMarkData + _ntMultiColor。
+// 单信号保持原单色 pin + label backgroundColor 彩色标签框样式；
+// 多信号同日合并 1 个拼色 pin（symbolSize:44 + _ntMultiColor 渐变 + 金描边 + 光晕），
+// 修复"每 signal 一个 pin -> 同日必重叠后画盖先画"问题。
+// 信号字段：s.date/s.close（coord）+ s.color/s.label（可选，未带回退 lblColor/signalLabel）。
+// _ntMultiColor 直接调 app.js 全局（lab.min.js 由 app.js L51 动态注入，加载顺序保证）。
+function _labBuildMarkData(signals, lblColor, signalLabel) {
+  const byDate = {};
+  for (const s of signals) {
+    if (!byDate[s.date]) byDate[s.date] = [];
+    byDate[s.date].push(s);
+  }
+  const markData = [];
+  for (const date of Object.keys(byDate).sort()) {
+    const daySigs = byDate[date];
+    const y = daySigs[0].close;
+    if (daySigs.length === 1) {
+      // 单信号：保持原样式（label backgroundColor 彩色标签框）
+      const s = daySigs[0];
+      const c0 = s.color || lblColor;
+      const lbl0 = s.label || signalLabel || "信号";
+      markData.push({
+        coord: [date, y],
+        value: lbl0,
+        itemStyle: { color: c0 },
+        label: { backgroundColor: c0 },
+      });
+    } else {
+      // 多信号同日：拼色 pin（金描边+光晕）
+      const labels = daySigs.map((s) => s.label || signalLabel || "信号");
+      const segColors = daySigs.map((s) => s.color || lblColor);
+      markData.push({
+        coord: [date, y],
+        value: labels.join("+"),
+        symbolSize: 44,
+        itemStyle: {
+          color: _ntMultiColor(segColors),
+          borderColor: "#ffd700",
+          borderWidth: 3,
+          shadowBlur: 8,
+          shadowColor: "rgba(255,215,0,0.6)",
+        },
+        label: { fontSize: 11, color: "#fff", formatter: labels.join("\n"), lineHeight: 13 },
+      });
+    }
+  }
+  return markData;
+}
+
 // 通用实验图表：收盘价折线 + 自定义指标线 + 信号 markPoint
 // indicators: [{name, data, color, dash}]  data 与 ohlc 等长（null=无值）
 // signalLabel 用策略中文名，label 以彩色标签框显示在 pin 上方，hideOverlap 防密集重叠
@@ -307,17 +356,8 @@ function renderLabChartEx(title, ohlc, indicators, signals, container, chartArr,
   const c = mkCard(title, 400, null, container, chartArr);
   const dates = ohlc.map((d) => d.date);
   const lblColor = signalColor || "#9c27b0";
-  // 每个信号可自带 color/label（买卖合一展示时买红卖绿），未带则回退全局 signalLabel/signalColor
-  const markData = signals.map((s) => {
-    const c0 = s.color || lblColor;
-    const lbl0 = s.label || signalLabel || "信号";
-    return {
-      coord: [s.date, s.close],
-      value: lbl0,
-      itemStyle: { color: c0 },
-      label: { backgroundColor: c0 },
-    };
-  });
+  // 同日多信号合并为 1 个拼色 pin（单信号保持单色 pin 原样式），避免重叠盖住
+  const markData = _labBuildMarkData(signals, lblColor, signalLabel);
   const legendData = ["收盘价"].concat(indicators.map((it) => it.name));
   // 含副图指标（RSI/MACD/KDJ，axis:'osc'）时启用双 y 轴：左轴价格、右轴指标(0-100量级)
   const hasOsc = indicators.some((it) => it.axis === "osc");
