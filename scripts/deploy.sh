@@ -29,6 +29,28 @@ mkdir -p "$LOGDIR"
 
 echo "=== deploy.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
+# 0. 时段闸门：交易日盘中 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版，事故 94c79041 根因）
+# intraday_snapshot.sh 定时任务盘中每 30 分钟推 intraday_snapshot.json 到 main，
+# 全量 deploy 会 export.py 重新生成 + git add 通配带入，易覆盖实时版。force 可绕过。
+FORCE=0
+case " $* " in *" force "*) FORCE=1;; esac
+CURRENT_HM=$(date +%H%M)
+IS_TRADING=$(cd "$REPO" && "$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null || echo 0)
+echo "时段闸门: IS_TRADING=${IS_TRADING} CURRENT_HM=$CURRENT_HM FORCE=$FORCE" | tee -a "$LOG"
+if [ "$IS_TRADING" = "1" ] && [ "$CURRENT_HM" -ge 0930 ] && [ "$CURRENT_HM" -le 1530 ] && [ "$FORCE" != "1" ]; then
+  echo "✗ 交易日盘中（09:30-15:30），拒跑全量 export+deploy（防覆盖 intraday 实时版；force 可绕过）" | tee -a "$LOG"
+  exit 1
+fi
+
+# 0.5 防通配带入工作区残留旧版 intraday 文件（事故 94c79041 直接根因）
+# deploy.sh git add static-site/data/ 通配会带入工作区任何残留文件。
+# 跑 export.py 前先恢复 intraday_snapshot.json/.gz 到 origin/main 版（清工作区残留），再 unstage 保持 index 干净。
+# export.py 随后重新生成覆盖；若 export.py 读滞后 DB 生成旧版（DB 不同步根因），此处无法防，需 symlink 方案。
+echo "-> 恢复 intraday_snapshot.json/.gz 到 origin/main 版（防工作区残留带入通配 add）..." | tee -a "$LOG"
+git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
+git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz 2>/dev/null && \
+  git -C "$GIT_REPO" reset HEAD -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz 2>/dev/null || true
+
 # 1. 导出 JSON
 echo "→ 运行 export.py 生成静态 JSON ..." | tee -a "$LOG"
 "$PY" "$EXPORT" 2>&1 | tee -a "$LOG"
