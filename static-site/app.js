@@ -515,7 +515,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
 }
 
 // 买卖点回测 stats tips（折线图上方）：散户化多块文案 + 胜率配色梯度 + 凯利公式折叠详解。
-// stats = {buy:{10d:{win_rate,pl,mean,n}}, buy_aux:..., sell:...}
+// stats = {buy:{10d:{win_rate,pl,mean,n}}, buy_aux:..., buy_special:..., buy_backup:..., sell:...}
+// buy=主买(超卖拐点) / buy_aux=辅买(下轨拐点) / buy_special=特买(上轨突破) / buy_backup=备买(趋势转向) / sell=卖点(趋势转弱)。
 // "10日"= 信号后 10 交易日 forward 收益窗口（非"只回测 10 日数据"）；全历史 signals 回测。
 // 凯利公式 f* = max(0, (b·p − (1−p)) / b)，b=盈亏比 pl，p=胜率 win_rate → 数学最优下注比例。
 //   买/辅买：f>0 标"凯利公式计算仓位 X%（研究参考）"；f≤0 标"凯利公式≤0（负期望，按公式不下注）"。
@@ -722,9 +723,9 @@ function statsHint(stats, strategy, indexId) {
   const stratHtml = strat ? `<div class="hint-strategy">📋 策略｜买: ${strat.buy} · 辅买: ${strat.buy_aux} · 卖: ${strat.sell}</div>` : "";
   if (!stats) return stratHtml || null;
   const blocks = [];
-  const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
+  const labels = { buy: "买点", buy_aux: "辅买", buy_special: "特买", buy_backup: "备买", sell: "卖点" };
   const sigClass = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_backup: "buy-backup", sell: "sell" };
-  for (const sig of ["buy", "buy_aux", "sell"]) {
+  for (const sig of ["buy", "buy_aux", "buy_special", "buy_backup", "sell"]) {
     const s = stats[sig];
     if (!s || !s["10d"]) continue;
     const d = s["10d"];
@@ -767,7 +768,7 @@ function statsHint(stats, strategy, indexId) {
   // 频率统计区块
   let freqHtml = "";
   const freqBlocks = [];
-  for (const sig of ["buy", "buy_aux", "sell"]) {
+  for (const sig of ["buy", "buy_aux", "buy_special", "buy_backup", "sell"]) {
     const s = stats[sig];
     if (!s || !s.frequency) continue;
     const f = s.frequency;
@@ -1488,10 +1489,10 @@ function initRuleButton() {
       freqDiv.innerHTML = '<div class="hint-loading">加载中…</div>';
       fetchJSON("./data/signal_freq.json").then((freq) => {
         if (freq) {
-          const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
+          const labels = { buy: "买点", buy_aux: "辅买", buy_special: "特买", buy_backup: "备买", sell: "卖点" };
           const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_backup: "buy-backup", sell: "sell" };
           let html = '<div class="hint-header">📅 全品种信号频率汇总</div><div class="hint-blocks">';
-          for (const sig of ["buy", "buy_aux", "sell"]) {
+          for (const sig of ["buy", "buy_aux", "buy_special", "buy_backup", "sell"]) {
             const f = freq[sig];
             if (!f || !f.total_count) continue;
             html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year_count}</b> 次</span><span class="hint-stat">总计 <b>${f.total_count}</b> 次</span><span class="hint-stat">月均 <b>${f.monthly_avg}</b> 次</span>${f.active_months ? `<span class="hint-stat muted">今年${f.active_months}月均</span>` : ""}</div>`;
@@ -6271,10 +6272,10 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
 // 从 stats 中提取频率信息，生成 hover popup HTML
 function _freqPopupHtml(stats) {
   if (!stats) return null;
-  const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
+  const labels = { buy: "买点", buy_aux: "辅买", buy_special: "特买", buy_backup: "备买", sell: "卖点" };
   const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_backup: "buy-backup", sell: "sell" };
   let parts = [];
-  for (const sig of ["buy", "buy_aux", "sell"]) {
+  for (const sig of ["buy", "buy_aux", "buy_special", "buy_backup", "sell"]) {
     const s = stats[sig];
     if (!s || !s.frequency) continue;
     const f = s.frequency;
@@ -6311,7 +6312,7 @@ function _bindFreqPopupToHintRows(cell, stats) {
       const sigSpan = row.querySelector(".hint-sig");
       if (!sigSpan) return;
       let cls = null;
-      for (const c of ["buy", "buy-aux", "sell"]) {
+      for (const c of ["buy", "buy-aux", "buy-special", "buy-backup", "sell"]) {
         if (sigSpan.classList.contains(c)) { cls = c; break; }
       }
       const sig = cls ? clsToSig[cls] : null;
