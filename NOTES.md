@@ -3087,3 +3087,40 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 3. **push main 非 force 路径复用小节T 模式**：`pull --rebase + push feat:main` fast-forward，intraday 定时任务 commit 保留无事故，是约束 5（force-with-lease 是最后手段）的正确实践，对比小节S force-with-lease 事故。
 
 **git**：commit `8a312efb` `fix: P0 全站 .json.gz 404 - fetchJSON 去 .gz 优先直接 .json`（含 Co-Authored-By），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节U 落档 commit 仅改 NOTES.md。
+
+### 小节V 方案Y 全量 .gz + .gz 优先恢复上线（2026-07-21，commit 94c79041+1caee641，取代小节U P0 临时修复）
+
+> 小节U P0 修复（commit 8a312efb）fetchJSON 去 .gz 优先是临时方案，消除 Console 红但丢 93 个大文件压缩省带宽优势。本节落档方案Y：export.py `GZ_THRESHOLD=0` 全量 .gz + fetchJSON 恢复 .gz 优先，统一消除 404 + 恢复大文件压缩。午休窗口（11:30-13:00 intraday 不跑）13:05 前完成发布。
+
+**背景（小节U P0 临时修复的代价）**：
+- 小节U（commit `8a312efb`）fetchJSON 去 .gz 优先直接 .json，临时消除 Console 404 红，但丢 gz 压缩省带宽优势（`a-stock-all.json` 6.9MB vs `.gz` 1.6MB 省 76%）。
+- **.gz 根因调研**：export.py `GZ_THRESHOLD=100KB`（L1213），仅 >=100KB 才生成 `.gz`，小文件（overview/intraday_snapshot/alert/summary 等 <100KB）不生成 `.gz`；origin/main 无小文件 `.gz`，fetchJSON .gz 优先 404 fallback .json（功能正常但 Console 红）。
+- **方案Y（用户选）**：`GZ_THRESHOLD=0` 全量 `.gz`（含小文件）+ 恢复 `fetchJSON` .gz 优先（无 Console 红 + 省大文件带宽）。
+
+**修复（export.py GZ_THRESHOLD=0 + fetchJSON .gz 优先恢复，commit 1caee641）**：
+- `export.py` `GZ_THRESHOLD=0`（原 100KB），全量生成 `.gz`（含小文件 overview/intraday_snapshot/alert/summary 等 <100KB）。
+- `static-site/app.js` `fetchJSON` 恢复 .gz 优先逻辑（回退小节U `8a312efb` 的"去 .gz 优先"改动，即恢复方案B commit `eea226f3` 的 tryGz/gzUrl/DecompressionStream 分支）。
+- `static-site/lab.js` `fetchJSONProgress` 同步恢复 .gz 优先。
+- rebuild min（app.min.js + lab.min.js）+ bump_asset_version.py 破缓存。
+- commit `1caee641`（feat 分支，代码层）。
+
+**上线（commit 94c79041 数据+.gz + 1caee641 代码层，push feat:main 非 force）**：
+- 跑 export 生成全量 `.gz`（含小文件 `overview.json.gz` 10043 bytes 等）+ `git add static-site/data/*.gz` + min JS + index.html。
+- commit `94c79041`（feat 分支，数据+.gz+min JS+index.html）。
+- push 走 `git pull origin feat/iframe-theme-follow --rebase` + `git push origin feat/iframe-theme-follow` + `git push origin feat/iframe-theme-follow:main`（非 force，fast-forward）。
+- `e017a3de`（intraday 11:31）保留未被覆盖，**无回退事故**（同小节U/T 非 force 路径，对比小节S force-with-lease 事故）。
+- **13:05 前完成**：午休窗口（11:30-13:00，intraday-snapshot 下次 13:05）发布，避免撞下午 intraday 定时任务推 main 互相覆盖。
+
+**线上验收（主控逐字，2026-07-21）**：
+- 小文件 `.gz` 200：`overview.json.gz` / `intraday_snapshot.json.gz` / `summary.json.gz` 全 200（`Content-Type: application/gzip`，小文件 <100KB 原无 .gz 现 GZ_THRESHOLD=0 生成）✓
+- 大文件 `.gz` 200：`a-stock-all.json.gz` 200（大文件 >=100KB 原有 .gz）✓
+- `app.min.js` grep `DecompressionStream` 命中（fetchJSON .gz 优先恢复）✓
+- `index.html` `app.min.js?v=cd68b334`（方案Y=方案B 内容回退，md5 相同版本号回退，正确）✓
+
+**教训（方案Y 统一全量 .gz）**：
+1. **P0 修复（小节U）是临时方案，方案Y 是最终方案**：小节U 去 .gz 优先为快速消除 Console 红的临时止血，方案Y 全量 .gz + .gz 优先是最终统一方案（无 Console 红 + 省大文件带宽）。
+2. **GZ_THRESHOLD=100KB 设计致小文件无 .gz，全量 .gz 统一消除 404**：原 100KB 阈值设计意图省小文件 .gz 数量，但 fetchJSON .gz 优先时小文件无 .gz 致 404 fallback .json（Console 红）；`GZ_THRESHOLD=0` 全量 .gz 统一，fetchJSON .gz 优先无 404。
+3. **午休窗口（11:30-13:00 intraday 不跑）可发布，13:05 前完成避免撞下午 intraday**：intraday-snapshot 定时任务 13:05 启动推 main，全量 deploy 须在 13:05 前完成避免互相覆盖事故（§8 盘中不跑全量 export+deploy 约束的细化：午休窗口属盘中但 intraday 不跑，可发布）。
+4. **方案Y=方案B 内容回退，app.min.js md5 相同版本号回退 cd68b334**：方案Y fetchJSON 恢复 .gz 优先 = 回退到方案B（小节S commit `eea226f3`）的 app.js 内容，bump_asset_version.py 跑了但内容回退致 md5 相同，版本号回退到 `cd68b334`（方案B 版本号），正确非异常。
+
+**git**：commit `1caee641`（代码层 export.py GZ_THRESHOLD=0 + app.js/lab.js fetchJSON 恢复 .gz 优先 + rebuild min + bump）+ `94c79041`（数据+.gz+min JS+index.html），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节V 落档 commit 仅改 NOTES.md。
