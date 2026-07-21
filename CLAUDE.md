@@ -44,6 +44,7 @@
 - 重要结论/决策/方案必须写项目文件(NOTES.md/TASKS.md/CLAUDE.md)commit 进 git
 - memory 会丢,只作临时暂存指针
 - 不要把规范/决策只放 memory
+- **NOTES.md/TASKS.md 已拆分历史章节**(2026-07-21):历史章节(§1-§47,2026-07-06~07-20)归档到 `docs/archive/NOTES-history.md`;已完成项(22任务全done+晚续3及更早交接状态+综合AI风险预警P1/P2/P4全闭环)归档到 `docs/archive/TASKS-done.md`。主文件只保留 §48 近期章节+晚续4活跃待办+工作约定+R2/全站性能待办。查历史在此二档
 
 ## 8. 改完必须推送
 - 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收)
