@@ -346,6 +346,17 @@ main { padding: 16px 24px; }
 .chart-latest { color: var(--primary); font-weight: 600; background: var(--primary-bg); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 港股盘中实时标注（快照注入 _snap_intraday=true 时显示在图表标题旁） */
 .snap-intraday-tag { color: #e6a23c; font-size: 12px; font-weight: normal; white-space: nowrap; }
+/* 备买信号合规性 chip（2026-07-21 阶段4）：9 核心A股指数走势图标题旁标注。
+   重点金 chip "备买优势区" / 弱提示灰 chip "备买弱势区"，hover pop 显示风险提示。
+   参照 .card-time-badge 的 color/border/background 半透明模式，内联 pill 样式。 */
+.signal-chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle; white-space: nowrap; cursor: help; }
+.signal-chip-strong { color: #ffd700; border: 1px solid rgba(255,215,0,0.5); background: rgba(255,215,0,0.18); }
+.signal-chip-weak { color: var(--text-3); border: 1px solid var(--border-strong); background: rgba(128,128,128,0.15); }
+/* 5色信号图例条（2026-07-21 阶段4）：指数走势图上方统一展示 4色买点+卖绿 + 备买风险提示 */
+.signal-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 10px; margin: 6px 0; font-size: 12px; color: var(--text-2); background: rgba(128,128,128,0.06); border: 1px solid var(--border); border-radius: 8px; }
+.signal-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.signal-legend-item i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.signal-legend-note { color: #e6a23c; cursor: help; white-space: nowrap; margin-left: auto; }
 /* A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip） */
 .term-tip {
   display: inline-block;
@@ -464,6 +475,8 @@ main { padding: 16px 24px; }
 }
 .chart-hint .hint-sig.buy { background: #e6492e; }
 .chart-hint .hint-sig.buy-aux { background: #d63384; }
+.chart-hint .hint-sig.buy-special { background: #ffd700; color: #333; }
+.chart-hint .hint-sig.buy-backup { background: #9c27b0; }
 .chart-hint .hint-sig.sell { background: #2e8b57; }
 .chart-hint .hint-stat { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .chart-hint .hint-stat b { font-weight: 600; }
@@ -567,6 +580,8 @@ main { padding: 16px 24px; }
 .sig-list li { padding: 6px 0; border-bottom: 1px solid var(--bg-hover); font-size: 13px; }
 .sig-list b.buy { color: #e6492e; }
 .sig-list b.buy_aux { color: #d63384; }
+.sig-list b.buy_special { color: #ffd700; }
+.sig-list b.buy_backup { color: #9c27b0; }
 .sig-list b.sell { color: #2e8b57; }
 
 /* 首页冰点日/买卖点卡片：按日分组、同日4个/行、今日高亮 */
@@ -582,6 +597,8 @@ main { padding: 16px 24px; }
 .sig-item b { font-weight: 600; margin-right: 2px; }
 .sig-item b.buy { color: #e6492e; }
 .sig-item b.buy_aux { color: #d63384; }
+.sig-item b.buy_special { color: #ffd700; }
+.sig-item b.buy_backup { color: #9c27b0; }
 .sig-item b.sell { color: #2e8b57; }
 .sig-freeze-name { color: var(--text-2); }
 .sig-item b.freeze-val { color: #2563eb; }
@@ -1019,6 +1036,8 @@ main { padding: 16px 24px; }
 .rule-bar .rule-detail div { margin: 2px 0; }
 .rule-bar b.buy { color: #e6492e; }
 .rule-bar b.buy_aux { color: #d63384; }
+.rule-bar b.buy_special { color: #ffd700; }
+.rule-bar b.buy_backup { color: #9c27b0; }
 .rule-bar b.sell { color: #2e8b57; }
 
 /* === UX：右下角回到顶部浮动按钮 === */
@@ -1418,6 +1437,8 @@ main { padding: 16px 24px; }
 /* keep old b color classes for backward compat */
 .rule-modal-content b.buy { color: #e6492e; }
 .rule-modal-content b.buy_aux { color: #d63384; }
+.rule-modal-content b.buy_special { color: #ffd700; }
+.rule-modal-content b.buy_backup { color: #9c27b0; }
 .rule-modal-content b.sell { color: #2e8b57; }
 
 /* === BUG-E：筛选/切换控件 === */

@@ -267,6 +267,8 @@ function lineChart(title, series, opts = {}, hint = null, container = content) {
 function signalColor(s) {
   if (s.signal === "buy") return "#e6492e";
   if (s.signal === "buy_aux") return "#d63384";
+  if (s.signal === "buy_special") return "#ffd700";  // 特买 金（唐奇安20日上轨突破）
+  if (s.signal === "buy_backup") return "#9c27b0";   // 备买 紫（Supertrend 趋势转向）
   const r = s.reason || "";
   if (r.includes("买点失败")) return "#9e9e9e";
   if (r.includes("止盈")) return "#2e8b57";
@@ -281,6 +283,8 @@ function signalColor(s) {
 function signalLabel(s) {
   if (s.signal === "buy") return "超卖拐点";
   if (s.signal === "buy_aux") return "下轨拐点";
+  if (s.signal === "buy_special") return "上轨突破";  // 特买 唐奇安20日上轨突破
+  if (s.signal === "buy_backup") return "趋势转向";   // 备买 Supertrend 翻多
   const r = s.reason || "";
   if (r.includes("止盈")) {
     const m = r.match(/vs前买\s*([+-]?\d+(?:\.\d+)?)\s*%/);
@@ -289,6 +293,95 @@ function signalLabel(s) {
   }
   if (r.includes("买点失败")) return "前买失效";
   return "趋势转弱";
+}
+
+// 4色买点 pin 叠加（2026-07-21 阶段4）：同日多个买点信号(buy/buy_aux/buy_special/buy_backup)
+// 合并1个拼色 pin（参照汪汪队 _ntMultiColor 分段渐变+金描边+光晕），单信号保持单色 pin。
+// 卖绿(sell)独立 pin 不参与买点拼色（语义反向）。体现"叠加的特殊 pin 更有价值，覆盖无法体现"。
+// getValueFn(date) 返回该日 y 值（close 或 value），用于 pin coord 定位。
+function _buildSignalMarkData(signals, getValueFn) {
+  const byDate = {};
+  for (const s of signals) {
+    if (!byDate[s.date]) byDate[s.date] = [];
+    byDate[s.date].push(s);
+  }
+  const markData = [];
+  const BUY_SET = { buy: 1, buy_aux: 1, buy_special: 1, buy_backup: 1 };
+  for (const date of Object.keys(byDate).sort()) {
+    const daySigs = byDate[date];
+    const buys = daySigs.filter((s) => BUY_SET[s.signal]);
+    const sells = daySigs.filter((s) => s.signal === "sell");
+    const y = getValueFn(date);
+    if (buys.length === 1) {
+      const s = buys[0];
+      markData.push({
+        coord: [date, y],
+        value: signalLabel(s),
+        reason: s.reason || "",
+        itemStyle: { color: signalColor(s) },
+      });
+    } else if (buys.length >= 2) {
+      // 多买点同日：拼色 pin（金描边+光晕，参照汪汪队共振信号 L4486-4521）
+      const labels = buys.map(signalLabel);
+      const segColors = buys.map(signalColor);
+      markData.push({
+        coord: [date, y],
+        value: labels.join("+"),
+        reason: buys.map((s) => s.reason || "").filter(Boolean).join("<br/>---<br/>"),
+        symbolSize: 52,
+        label: { fontSize: 11, color: "#fff", formatter: labels.join("\n"), lineHeight: 13 },
+        itemStyle: {
+          color: _ntMultiColor(segColors),
+          borderColor: "#ffd700",
+          borderWidth: 3,
+          shadowBlur: 8,
+          shadowColor: "rgba(255,215,0,0.6)",
+        },
+      });
+    }
+    for (const s of sells) {
+      markData.push({
+        coord: [date, y],
+        value: signalLabel(s),
+        reason: s.reason || "",
+        itemStyle: { color: signalColor(s) },
+      });
+    }
+  }
+  return markData;
+}
+
+// 备买信号合规性 chip（2026-07-21 阶段4）：9 核心A股指数走势图标题旁标注。
+// 4 重点金 chip "备买优势区"（bj50/csi1000/kc50/csi500 备买 Supertrend 回测表现较优），
+// 5 弱提示灰 chip "备买弱势区"（sz50/hs300/sh/sz/cyb 备买回测表现较弱）。
+// 合规性提示：透明告知备买在不同指数表现差异，不藏弱只标强。
+// 备买稳健性弱于特买仅供参考不单独决策（chip hover tooltip 显示风险提示）。
+const _BACKUP_SIGNAL_CHIP = {
+  bj50: "strong", csi1000: "strong", kc50: "strong", csi500: "strong",
+  sz50: "weak", hs300: "weak", sh: "weak", sz: "weak", cyb: "weak",
+};
+const _BACKUP_CHIP_TIP = "备买信号(Supertrend ATR×3 翻多,趋势转向)历史回测显示在不同指数表现差异较大。备买稳健性弱于特买(Donchian上轨突破),仅供参考不单独决策,需结合主买/辅买/特买综合判断。";
+function _backupSignalChipHtml(id) {
+  const kind = _BACKUP_SIGNAL_CHIP[id];
+  if (!kind) return "";
+  if (kind === "strong") {
+    return ' <span class="signal-chip signal-chip-strong" data-tip="' + _BACKUP_CHIP_TIP + '该指数属备买表现较优区域。">备买优势区</span>';
+  }
+  return ' <span class="signal-chip signal-chip-weak" data-tip="' + _BACKUP_CHIP_TIP + '该指数属备买表现较弱区域。">备买弱势区</span>';
+}
+
+// 5色信号图例（2026-07-21 阶段4）：4色买点(主买红/辅买玫红/特买金/备买紫) + 卖绿，
+// 指数走势图上方统一展示。备买风险提示附末尾（hover pop 显示"备买稳健性弱于特买仅供参考不单独决策"）。
+// 同日多买点信号合并拼色 pin（金描边+光晕），图例不单独列拼色（用户从 pin 视觉即可辨识）。
+function _signalLegendHtml() {
+  return '<div class="signal-legend">'
+    + '<span class="signal-legend-item"><i style="background:#e6492e"></i>超卖拐点(主买)</span>'
+    + '<span class="signal-legend-item"><i style="background:#d63384"></i>下轨拐点(辅买)</span>'
+    + '<span class="signal-legend-item"><i style="background:#ffd700"></i>上轨突破(特买)</span>'
+    + '<span class="signal-legend-item"><i style="background:#9c27b0"></i>趋势转向(备买)</span>'
+    + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>趋势转弱(卖)</span>'
+    + '<span class="signal-legend-note" data-tip="' + _BACKUP_CHIP_TIP + '">⚠ 备买风险提示</span>'
+    + '</div>';
 }
 
 // markPoint reason 换行格式化：reason 是后端 ", ".join(parts) 拼的逗号分隔串
@@ -630,7 +723,7 @@ function statsHint(stats, strategy, indexId) {
   if (!stats) return stratHtml || null;
   const blocks = [];
   const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
-  const sigClass = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
+  const sigClass = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_backup: "buy-backup", sell: "sell" };
   for (const sig of ["buy", "buy_aux", "sell"]) {
     const s = stats[sig];
     if (!s || !s["10d"]) continue;
@@ -714,14 +807,10 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   const close = ohlc.map((d) => [d.date, d.close]);
-  const markData = signals.map((s) => {
-    const o = ohlc.find((x) => x.date === s.date);
-    return {
-      coord: [s.date, o ? o.close : null],
-      value: signalLabel(s),
-      reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
-      itemStyle: { color: signalColor(s) },
-    };
+  // 4色买点拼色 pin（同日多买点合并1个拼色 pin，参照汪汪队），卖绿独立 pin
+  const _ohlcMap = {}; for (const o of ohlc) _ohlcMap[o.date] = o;
+  const markData = _buildSignalMarkData(signals, (date) => {
+    const o = _ohlcMap[date]; return o ? o.close : null;
   });
   c.setOption(withTheme({
     tooltip: {
@@ -736,7 +825,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
           if (o.pct_change != null) tip += ' <span style="color:' + (o.pct_change >= 0 ? "#e6492e" : "#2e8b57") + '">' + (o.pct_change >= 0 ? "+" : "") + o.pct_change.toFixed(2) + "%</span>";
         }
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
-        for (const m of marks) tip += '<br/><b style="color:' + m.itemStyle.color + '">● ' + m.value + "</b> " + _fmtReason(m.reason);
+        for (const m of marks) { const mc = typeof m.itemStyle.color === "string" ? m.itemStyle.color : "#ffd700"; tip += '<br/><b style="color:' + mc + '">● ' + m.value + "</b> " + _fmtReason(m.reason); }
         return tip;
       }
     },
@@ -773,14 +862,10 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
   const c = mkCard(title, 300, hint, container, chartArr);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
-  const markData = sigs.map((s) => {
-    const p = data.find((x) => x.date === s.date);
-    return {
-      coord: [s.date, p ? p.value : null],
-      value: signalLabel(s),
-      reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
-      itemStyle: { color: signalColor(s) },
-    };
+  // 4色买点拼色 pin（同日多买点合并1个拼色 pin，参照汪汪队），卖绿独立 pin
+  const _dataMap = {}; for (const p of data) _dataMap[p.date] = p;
+  const markData = _buildSignalMarkData(sigs, (date) => {
+    const p = _dataMap[date]; return p ? p.value : null;
   });
   c.setOption(withTheme({
     tooltip: {
@@ -792,7 +877,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
         let tip = fmtDate(dt);
         if (p && p.value != null) tip += "<br/>" + Number(p.value).toFixed(2);
         const marks = markData.filter((m) => m.coord[0] === dt && m.reason);
-        for (const m of marks) tip += '<br/><b style="color:' + m.itemStyle.color + '">● ' + m.value + "</b> " + _fmtReason(m.reason);
+        for (const m of marks) { const mc = typeof m.itemStyle.color === "string" ? m.itemStyle.color : "#ffd700"; tip += '<br/><b style="color:' + mc + '">● ' + m.value + "</b> " + _fmtReason(m.reason); }
         return tip;
       }
     },
@@ -1172,6 +1257,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
     };
     bar.appendChild(sel);
     container.appendChild(bar);
+    // 5色信号图例（4色买点+卖绿）+ 备买风险提示（2026-07-21 阶段4）
+    container.insertAdjacentHTML("beforeend", _signalLegendHtml());
     // 渲染单个指数到 parent（chart 入全局 charts 供 resize + sectionCharts 供本区 dispose）
     async function renderOne(id, idx, parent) {
       if (!signalsCache[id]) signalsCache[id] = await fetcher(id, idx);
@@ -1179,7 +1266,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
       if (idx.data && idx.data.length) {
         // 港股盘中实时标注（快照注入 _snap_intraday=true 时显示）
         const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
-        const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
+        const chipTag = _backupSignalChipHtml(id);
+        const c = indexChart(idx.name + intradayTag + chipTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
         addCardTimeBadge(c.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot, "t0");
         // C7 P4 market 融合:图表卡下 append 紧凑分数卡(白名单 iid 才显示)
@@ -1401,7 +1489,7 @@ function initRuleButton() {
       fetchJSON("./data/signal_freq.json").then((freq) => {
         if (freq) {
           const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
-          const cls = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
+          const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_backup: "buy-backup", sell: "sell" };
           let html = '<div class="hint-header">📅 全品种信号频率汇总</div><div class="hint-blocks">';
           for (const sig of ["buy", "buy_aux", "sell"]) {
             const f = freq[sig];
@@ -1511,7 +1599,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   renderLoadingState(body);
   const name = indexIdToName(indexId);
   const isFreeze = signal === "freeze";
-  const sigLabel = signal === "buy" ? "超卖拐点" : signal === "buy_aux" ? "下轨拐点" : signal === "sell" ? "趋势转弱" : isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signal;
+  const sigLabel = signal === "buy" ? "超卖拐点" : signal === "buy_aux" ? "下轨拐点" : signal === "buy_special" ? "上轨突破" : signal === "buy_backup" ? "趋势转向" : signal === "sell" ? "趋势转弱" : isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signal;
   titleEl.textContent = `${name} · ${sigLabel} · ${fmtDate(date)}`;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -6184,7 +6272,7 @@ function _heatmapSetOption(c, heatmap, toggleBtnsEl) {
 function _freqPopupHtml(stats) {
   if (!stats) return null;
   const labels = { buy: "买点", buy_aux: "辅买", sell: "卖点" };
-  const cls = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
+  const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_backup: "buy-backup", sell: "sell" };
   let parts = [];
   for (const sig of ["buy", "buy_aux", "sell"]) {
     const s = stats[sig];
@@ -6216,7 +6304,7 @@ function _bindFreqPopupToHintRows(cell, stats) {
   }
   // 从每个频率行提取该信号的频率文案，按 sig 名存映射
   // 注意：class 名是 buy-aux，sig 名是 buy_aux（买/卖两者相同，辅买不同），需统一存 sig 名
-  const clsToSig = { buy: "buy", "buy-aux": "buy_aux", sell: "sell" };
+  const clsToSig = { buy: "buy", "buy-aux": "buy_aux", "buy-special": "buy_special", "buy-backup": "buy_backup", sell: "sell" };
   const freqBySig = {};
   for (const node of freqNodes) {
     node.querySelectorAll(".hint-row").forEach((row) => {
@@ -6234,7 +6322,7 @@ function _bindFreqPopupToHintRows(cell, stats) {
   freqNodes.forEach((n) => n.remove());
   // 给每个信号的成功率 hint-row 绑 hover pop（PC hover 显示）/ 点按 pop（移动端 hover:none 设备补 click 切换）
   const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
-  const sigMap = { buy: "buy", buy_aux: "buy-aux", sell: "sell" };
+  const sigMap = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_backup: "buy-backup", sell: "sell" };
   hintEl.querySelectorAll(".hint-row").forEach((row) => {
     const sigSpan = row.querySelector(".hint-sig");
     if (!sigSpan) return;
