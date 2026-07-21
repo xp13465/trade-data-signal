@@ -4468,9 +4468,9 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     mktCapValHtml = '<div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·按上日份额预估(' + _ntShareReplenishTxt(last.date) + '补全)</span>' : '') + '</div>';
   }
   kpi.innerHTML =
-    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div>' + mktCapValHtml + '</div>' +
-    '<div class="nt-tk-item"><div class="nt-tk-label">今日净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=今日净流入，负值=净流出。份额变动是硬数据不受价格波动干扰。") + '</div>' + netValHtml + '</div>' +
-    '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看近一个月份额持续扩张还是收缩。") + '</div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>';
+    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '<span class="chart-latest"> · 截至 ' + fmtDate(last.date) + '</span></div>' + mktCapValHtml + '</div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=今日净流入，负值=净流出。份额变动是硬数据不受价格波动干扰。") + '<span class="chart-latest"> · ' + fmtDate(last.date) + '</span></div>' + netValHtml + '</div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看近一个月份额持续扩张还是收缩。") + '<span class="chart-latest"> · 截至 ' + fmtDate(last.date) + '</span></div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>';
   container.appendChild(kpi);
 
   var mktData = series.map(function (d) { return { date: d.date, value: d.mktCap == null ? null : +d.mktCap.toFixed(2) }; });
