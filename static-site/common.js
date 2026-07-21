@@ -8,7 +8,7 @@
 //   常量 _LAB_CUSTOM_BROAD / _LAB_CUSTOM_SW 同样挂 window
 
 // === 40 个预生成 iid + 中文名(与 app/alert_match.py PREGEN_TARGETS 对齐) ===
-const _LAB_CUSTOM_BROAD = [
+var _LAB_CUSTOM_BROAD = [
   { iid: "sh", name: "上证指数" },
   { iid: "sz", name: "深成指" },
   { iid: "sz50", name: "上证50" },
@@ -19,7 +19,7 @@ const _LAB_CUSTOM_BROAD = [
   { iid: "kc50", name: "科创50" },
   { iid: "bj50", name: "北证50" },
 ];
-const _LAB_CUSTOM_SW = [
+var _LAB_CUSTOM_SW = [
   { iid: "sw_801010", name: "SW 农林牧渔" }, { iid: "sw_801030", name: "SW 基础化工" },
   { iid: "sw_801040", name: "SW 钢铁" }, { iid: "sw_801050", name: "SW 有色金属" },
   { iid: "sw_801080", name: "SW 电子" }, { iid: "sw_801880", name: "SW 汽车" },
@@ -38,17 +38,17 @@ const _LAB_CUSTOM_SW = [
   { iid: "sw_801980", name: "SW 美容护理" },
 ];
 // C7 P4 select 扩55:新增红利3+港股3+全球9(与 app/alert_match.py DIV_INDEX_IDS/HK_INDEX_IDS/GLOBAL_INDEX_IDS + app.js _INDEX_NAME_MAP 对齐)
-const _LAB_CUSTOM_DIV = [
+var _LAB_CUSTOM_DIV = [
   { iid: "csi_div", name: "中证红利" },
   { iid: "div_lowvol", name: "红利低波" },
   { iid: "sz_div", name: "深证红利" },
 ];
-const _LAB_CUSTOM_HK = [
+var _LAB_CUSTOM_HK = [
   { iid: "hsi", name: "恒生指数" },
   { iid: "hstech", name: "恒生科技" },
   { iid: "hscei", name: "国企指数" },
 ];
-const _LAB_CUSTOM_GLOBAL = [
+var _LAB_CUSTOM_GLOBAL = [
   { iid: "us_dji", name: "道琼斯" },
   { iid: "us_ixic", name: "纳斯达克" },
   { iid: "us_spx", name: "标普500" },
