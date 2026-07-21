@@ -275,19 +275,50 @@ def fetch_szse_shares(start_yyyymmdd: str, end_yyyymmdd: str) -> dict[str, dict[
     return out
 
 
-# ── Fetcher C: ETF OHLC+成交额（mootdx，替代被封的 push2his）─────────────────────
+# ── Fetcher C: ETF OHLC+成交额（akshare fund_etf_hist_sina 主源，mootdx fallback）────
 def fetch_etf_ohlc(code: str, start_yyyymmdd: str = DEFAULT_START, client=None) -> list[dict]:
-    """mootdx 拉 ETF 日线 OHLC+成交额。从最新往历史拉，过滤 >= start。
-    返回 [{date, etf_code, open, close, high, low, amount}]。
-    mootdx bars 单次上限 800 根（约 3.2 年），2023 至今一次够。
-    client: 可选 tdx_client 复用（避免每只ETF重新选服务器，daily 增量提速 10×）。
+    """拉 ETF 日线 OHLC+成交额。主源 akshare.fund_etf_hist_sina（新浪；mootdx 7/17 起
+    bestip 全返空，东财 fund_etf_hist_em 也被封 ConnectionError），fallback mootdx
+    （新浪被封时兜底）。返回 [{date, etf_code, open, close, high, low, amount}]。
+    fund_etf_hist_sina 无起止日期参数，返回全历史（510050 上市2005≈5180行），本地过滤 >= start。
+    client: 可选 tdx_client 复用（fallback mootdx 用，避免每只ETF重新选服务器）。
     """
+    out: list[dict] = []
+    # ── 主源: akshare fund_etf_hist_sina（新浪）─────────────────────
+    # ETF_BY_CODE[code] = (name, idx, mkt)；fund_etf_hist_sina 需要前缀 sh/sz
+    mkt = ETF_BY_CODE.get(code, (None, None, ""))[2]
+    if mkt:
+        try:
+            throttle()
+            df = safe_call(ak.fund_etf_hist_sina, symbol=f"{mkt}{code}")
+            if not isinstance(df, Exception) and df is not None and len(df) > 0:
+                for _, row in df.iterrows():
+                    # date 可能是 datetime.date / Timestamp / str，统一转 YYYYMMDD
+                    dstr = str(row["date"]).replace("-", "")[:8]
+                    if dstr < start_yyyymmdd:
+                        continue
+                    try:
+                        out.append({
+                            "date": dstr,
+                            "etf_code": code,
+                            "open": float(row["open"]),
+                            "close": float(row["close"]),
+                            "high": float(row["high"]),
+                            "low": float(row["low"]),
+                            "amount": float(row["amount"]),  # 元
+                        })
+                    except (TypeError, ValueError):
+                        continue
+        except Exception as e:  # noqa: BLE001
+            print(f"  [ohlc-sina] {code} 失败: {type(e).__name__} {e}", flush=True)
+    if out:
+        return out
+    # ── fallback: mootdx（原逻辑，新浪返空/异常时兜底）─────────────
     if client is None:
         from .mootdx_daily import tdx_client
         client = tdx_client(market="std")
     PAGE = 800
     start_off = 0
-    out: list[dict] = []
     while True:
         df = safe_call(client.bars, symbol=code, frequency=9, offset=PAGE, start=start_off)
         if isinstance(df, Exception) or df is None or len(df) == 0:
@@ -313,6 +344,9 @@ def fetch_etf_ohlc(code: str, start_yyyymmdd: str = DEFAULT_START, client=None) 
         start_off += PAGE
         if start_off > MOOTDX_PAGE_LIMIT:  # 安全上限 ~24年(510050 2005上市≈5180根)
             break
+    if not out:
+        print(f"  [ohlc] WARNING {code} 主源sina+fallback mootdx 均返空，close/amount 将为 NULL",
+              flush=True)
     return out
 
 

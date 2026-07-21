@@ -4386,7 +4386,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     var prevShare = null;  // 跨日维护该ETF上一日份额：末日share null(T+1未发布)时用prevShare×当日close预估市值
     (e.daily || []).forEach(function (d) {
       var dt = d.date;
-      if (!dateMap[dt]) dateMap[dt] = { date: dt, mktCap: 0, share: 0, netAdd: 0, nSurge: 0, nOutflow: 0, nVolume: 0, shareNull: false, chgNull: false };
+      if (!dateMap[dt]) dateMap[dt] = { date: dt, mktCap: 0, share: 0, netAdd: 0, nSurge: 0, nOutflow: 0, nVolume: 0, shareNull: false, chgNull: false, closeNull: false };
       var rawShare = d.fund_share_yi;          // 原始份额(可能null)
       var share = rawShare || 0;               // 亿份（null兜底0用于份额合计,份额合计末日由下方复制prev.share修正）
       var chg = d.share_change_yi || 0;        // 亿份变动
@@ -4399,6 +4399,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
       if (rawShare != null) prevShare = rawShare;  // 更新prevShare供下一日预估
       if (d.fund_share_yi == null) dateMap[dt].shareNull = true;
       if (d.share_change_yi == null) dateMap[dt].chgNull = true;
+      if (d.close == null) dateMap[dt].closeNull = true;  // 末日close=null(T+1源行情缺)时mktCap/netAdd按0计会显"0亿元"误导,需KPI容错
       // 聚合单只信号：当日有多少只ETF出 share_surge/share_outflow/volume_surge
       (d.signals || []).forEach(function (sig) {
         if (sig.type === "share_surge") dateMap[dt].nSurge++;
@@ -4416,12 +4417,19 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   // 净增持标null(图3末日柱不画,KPI显"份额待公布"),避免||0兜底成"净增持0亿"误导
   var lastShareMissing = last.shareNull;
   var lastChgMissing = last.chgNull;
+  // 末日收盘价缺失(行情源延迟,close=null兜底0致mktCap/netAdd=0显"0亿元"误导)：KPI改显"行情待更新"
+  var lastCloseMissing = last.closeNull;
   if (lastShareMissing && prev) {
     last.share = prev.share;   // 份额T+1未发布,沿用上日份额(市值已在聚合时用prevShare×当日close预估,不再整体复制prev.mktCap)
   }
   if (lastChgMissing) {
     last.netAdd = null;
   }
+  if (lastCloseMissing) {
+    last.mktCap = null;   // 末日close=null时不显"0亿元",KPI改显"行情待更新"
+    if (last.netAdd != null) last.netAdd = null;  // close=null时netAdd按0算也错,同样标null
+  }
+  // cum20 求和用 (d.netAdd || 0),末日 close=null 时 last.netAdd 已置 null 不会误计0
   var cum20 = series.slice(-20).reduce(function (s, d) { return s + (d.netAdd || 0); }, 0);
 
   // ▼ T+1 提示行：让用户知道国家队份额为何停 T-1 ▼
@@ -4431,29 +4439,46 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   if (lastShareMissing) {
     t1Hint.textContent += "。⚠ 当日(" + fmtDate(last.date) + ")份额尚未发布,市值按上日份额×当日收盘价预估,份额沿用上日,净增持额待公布";
   }
+  if (lastCloseMissing) {
+    t1Hint.textContent += "。⚠ 当日(" + fmtDate(last.date) + ")收盘价缺失(行情源延迟),合计市值/净增持额暂显\"行情待更新\",下一采集时点补全";
+  }
   container.appendChild(t1Hint);
 
   // ▼ 第0层 KPI 大字：国家队总市值 + 今日净增持 + 近20日累计净增持 ▼
   var kpi = document.createElement("div");
   kpi.className = "nt-total-kpi";
+  // close=null 时 netAdd 已置 null,优先显"行情待更新"(行情源延迟),其次 lastChgMissing 显"份额待公布"(T+1份额延迟)
   var netCls = (last.netAdd == null) ? "" : (last.netAdd >= 0 ? "nt-up" : "nt-down");
   var netSign = (last.netAdd == null) ? "" : (last.netAdd >= 0 ? "+" : "");
-  var netValHtml = (last.netAdd == null)
-    ? '<div class="nt-tk-val" style="color:var(--text-3)">份额待公布·' + _ntShareReplenishTxt(last.date) + '补全</div>'
-    : '<div class="nt-tk-val ' + netCls + '">' + netSign + last.netAdd.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div>';
+  var netValHtml;
+  if (lastCloseMissing) {
+    netValHtml = '<div class="nt-tk-val" style="color:var(--text-3)">行情待更新</div>';
+  } else if (last.netAdd == null) {
+    netValHtml = '<div class="nt-tk-val" style="color:var(--text-3)">份额待公布·' + _ntShareReplenishTxt(last.date) + '补全</div>';
+  } else {
+    netValHtml = '<div class="nt-tk-val ' + netCls + '">' + netSign + last.netAdd.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div>';
+  }
   var cumCls = cum20 >= 0 ? "nt-up" : "nt-down";
   var cumSign = cum20 >= 0 ? "+" : "";
+  // 合计市值 KPI：close=null 时 last.mktCap 已置 null,显"行情待更新"避免"0亿元"误导
+  var mktCapValHtml;
+  if (lastCloseMissing) {
+    mktCapValHtml = '<div class="nt-tk-val" style="color:var(--text-3)">行情待更新</div>';
+  } else {
+    mktCapValHtml = '<div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·按上日份额预估(' + _ntShareReplenishTxt(last.date) + '补全)</span>' : '') + '</div>';
+  }
   kpi.innerHTML =
-    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div><div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·按上日份额预估(' + _ntShareReplenishTxt(last.date) + '补全)</span>' : '') + '</div></div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '</div>' + mktCapValHtml + '</div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">今日净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=今日净流入，负值=净流出。份额变动是硬数据不受价格波动干扰。") + '</div>' + netValHtml + '</div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看近一个月份额持续扩张还是收缩。") + '</div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div></div>';
   container.appendChild(kpi);
 
-  var mktData = series.map(function (d) { return { date: d.date, value: +d.mktCap.toFixed(2) }; });
+  var mktData = series.map(function (d) { return { date: d.date, value: d.mktCap == null ? null : +d.mktCap.toFixed(2) }; });
   var shareData = series.map(function (d) { return { date: d.date, value: +d.share.toFixed(2) }; });
   var netData = series.map(function (d) { return { date: d.date, value: d.netAdd == null ? null : +d.netAdd.toFixed(2) }; });
   // 末日份额待公布标记(图1/图2标题追加,提示末日值为上一日估算)；lastDate 3图共享(8位YYYYMMDD)
   var missingSuffix = lastShareMissing ? '<span class="chart-latest" style="color:#ff9800">· 末日份额待公布(市值按上日份额预估,' + _ntShareReplenishTxt(last.date) + '补)</span>' : '';
+  if (lastCloseMissing) missingSuffix += '<span class="chart-latest" style="color:#ff9800">· 末日收盘价待更新(行情源延迟)</span>';
   var lastDate = last.date;
 
   // 合计层共振信号 markPoint：≥THR 只宽基同步异动（语义：国家队共振）
