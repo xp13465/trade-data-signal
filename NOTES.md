@@ -989,3 +989,40 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 **当前处理（主控决策）**：按用户原指令上线 ATR×3（已 commit + deploy），Chandelier Exit 语义正确 + forward 非负 + 可逆（用户醒来要回退 git checkout 即可）。记录口径错位 + backtest 矛盾 + 5.3 倍触发，等用户醒来决策是否调参(B)/回退(D)/接受(A)/加注 backtest 口径。
 
 **验收数据**：hs300 sell_stop_loss 5d win_rate 0.4958/pl 0.9805/mean 0.0471/n 2138；10d 0.514/0.9219/0.0433/2136；20d 0.5154/0.8492/0.2544/2136；frequency total 2141/月均 9.87/21 年。
+
+### 小节AD：MaoziYun 拉取卡住 + schedule_stats 过期版事故 + 两融 T+1 + width 中断（2026-07-22 计划任务诊断，待用户处理）
+
+诊断 agent a6045f33（完整报告 /tmp/agent-progress-schedule-check.md，主控逐字验收通过）：
+
+**问题1：MaoziYun 2.5h+ 未拉取 main（阻塞上线，最关键）**
+- 21:35（821265ef etf-national-team）后 MaoziYun 未拉取 main，线上停 21:35 版本
+- 21:55（85d24741 all）/ 00:15（9aa34042 docs）/ 00:20（641e8ea5 ATR×3）/ 00:30（0d85d2f0 data）都没上线
+- curl 确认：线上 index.html `?v=a0aa4443/99a8be3d`（旧版，应为 d82f73c8/bbd8a86e），signal_stats.json 404
+- 影响：**ATR×3 改造 + 前端展示 + signal_stats.json 都没上线**（用户看不到 sell_stop_loss 胜率/凯利/蓝色 pin）
+- 待用户：登 MaoziYun 平台查部署日志/手动触发部署/确认 webhook 是否正常订阅 GitHub push
+
+**问题2：21:52 手动从 trade 跑 deploy.sh 致 schedule_stats 过期（根因，主控复现）**
+- launchd 都从 trade-data 跑（正确，读新日志 trade-data/data/logs/），21:52 有人手动从 trade 跑 deploy.sh（REPO=trade 读 trade/data/logs/ 旧日志 7/11-7/17，7/18 后不写新日志）
+- 生成过期版 schedule_stats（last_run 卡 7-16/7-17）push main（85d24741）
+- **0d85d2f0（00:30 主控 deploy.sh）同样从 trade 跑，也含过期 schedule_stats**（主控验收确认：本地 update_all 7-16/intraday 7-16 vs 线上 7-21）
+- 修复 agent aabb4b8f：从 trade-data 跑 gen_schedule_stats 生成 7-21 正确版 + commit + push
+- 根治建议：以后跑 deploy.sh 必须 `cd trade-data && bash scripts/deploy.sh`；或修 gen_schedule_stats.py 强制读 trade-data/data/logs/；或 trade/data/logs/ 建 symlink 指向 trade-data/data/logs/
+
+**问题3：两融 7-21 23:00 没更新 last_run（正常，非异常）**
+- 7-21 23:00 rzhb_backfill 跑了，但源 T+1 未发当日（latest=20260720，暂无 20260721）
+- 脚本设计"没采到新数据不更新 last_run"，退出码 1
+- 线上 schedule_stats rzhb last_run=2026-07-20 23:00（正确，非异常）
+- 历史：7-20 23:00 latest=20260717 -> 7-21 23:00 latest=20260720（源 T+1 发，7-22 23:00 应出 7-21 数据）
+- 待用户：可接受现状，或改 schedule_stats 逻辑（任务跑了就更新 last_run，单独标"无新数据"），或前端"数据更新规则"弹窗加注两融 T+1
+
+**问题4：width pipeline 7-21 18:03 被 Terminated:15**
+- update_all 18:03 width pipeline 被 Terminated:15 中断
+- 待用户：查 width 数据是否完整，必要时重跑 backfill_evening 补 width
+
+**问题5：collect_health level=error 但 message=ok**
+- 8420871a 已修 fetchers.py（空列表返"两源皆败无数据"），但 overview.json 仍矛盾
+- 可能 21:52 从 trade 跑 export 读 trade DB（未同步 8420871a 修复）
+- 待用户：从 trade-data 重跑 export 验证修复是否生效
+
+**launchd 8 任务最近执行时点**（诊断 agent 查 trade-data/data/logs/，全部正常）：
+update_all 7-21 17:50(width 中断) / intraday 7-21 15:36 / lhb 7-21 19:33 / backfill_evening 7-21 20:11 / futures 7-21 21:02 / etf_national_team 7-21 21:35 / rzhb 7-21 23:00(源T+1) / lab 7-21 19:03。注：任务清单原说有 index_backfill/ind_flow，实际 launchd 只有 8 个无此两任务。

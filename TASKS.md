@@ -234,3 +234,19 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 ### 修复建议
 不擅自动修，等用户看后安排。**P0 .gz 滞后建议收盘后优先修**（盘中改 intraday-snapshot.sh 撞正在跑实例有风险），修复简单（补 .gz 生成+push，参照 3796ecf3）。
+
+## 🆕 2026-07-22 待办（用户睡前列，醒来处理）
+
+### P0（阻塞上线）
+1. **MaoziYun 拉取卡住**：21:35（821265ef）后 MaoziYun 未拉取 main（2.5h+），**ATR×3 改造 + signal_stats.json + 前端展示都没上线**（curl 确认 index.html `?v=a0aa4443/99a8be3d` 旧版 + signal_stats.json 404）。登 MaoziYun 平台查部署日志/手动触发部署/确认 webhook 订阅 GitHub push。详见 NOTES §48 小节AD 问题1
+2. **schedule_stats 过期版**（agent aabb4b8f 修复中）：0d85d2f0 从 trade 跑 deploy.sh 读旧日志生成过期 schedule_stats（last_run 卡 7-16/7-17 vs 线上 7-21）。根治：以后 `cd trade-data && bash scripts/deploy.sh`，或修 gen_schedule_stats.py 强制读 trade-data/data/logs/，或 trade/data/logs/ 建 symlink。详见小节AD 问题2
+
+### P1（方向决策，待用户定）
+3. **ATR×3 口径错位**（已上线待决策）：回测 ATR×3 46.91%/+1.76%（entry 配 ATR×3 出场策略收益，用户决策依据）≠ 生产 Chandelier 独立信号 forward 49.58%/+0.047%（近随机）+ 触发 5.3 倍（94689 vs 17842）。A 接受/B 调参降频(agent 推荐,high 拉长 40/60 日或 ATR 倍数 4*/5*)/C 改 entry 配对/D 回退 Don20。详见 NOTES §48 小节AC
+4. **尖尖信号过滤**（回测完成待决策）：h5 平衡档(ATR>0.03 OR 量价背离)首推，10d 均 +1.66->+1.84/套牢 12.83->11.77，代价滤掉 29% 信号；保守档 h7(偏离>1.20 AND ATR>0.03) 5%滤率换 1pct 套牢下降。核心反直觉：套牢不是顶部追买而是高波动假突破，传统顶部过滤(偏离/RSI/距前高)误杀 49-81%。详见 /tmp/peak_filter_*.py + /tmp/peak_signals_enriched.pkl
+5. **买点净化**（调研完成待确认 R1-R5）：R1 buy_backup MA60+15% 过滤推荐(年度稳定,5.7%滤率,10d+4%);R2 buy_special pct 过滤需研究 regime(2025 拉低-1.11%);R3 buy/buy_aux 不推荐(误杀 pullback-in-uptrend 最佳信号)。详见 NOTES §48 小节AB
+
+### P2
+6. **width pipeline 7-21 18:03 被 Terminated:15**：查 width 数据完整性，必要时重跑 backfill_evening 补 width
+7. **collect_health level=error 但 message=ok**：8420871a 已修 fetchers.py（空列表返"两源皆败无数据"）但 overview.json 仍矛盾，从 trade-data 重跑 export 验证修复是否生效
+8. **两融 T+1 显示**（可接受现状）：7-21 23:00 跑了源 T+1 未发当日（latest=20260720），last_run 卡 7-20。可改 schedule_stats 逻辑(任务跑了就更新 last_run 标"无新数据")或前端"数据更新规则"加注两融 T+1
