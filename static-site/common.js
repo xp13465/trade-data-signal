@@ -37,6 +37,28 @@ const _LAB_CUSTOM_SW = [
   { iid: "sw_801960", name: "SW 石油石化" }, { iid: "sw_801970", name: "SW 环保" },
   { iid: "sw_801980", name: "SW 美容护理" },
 ];
+// C7 P4 select 扩55:新增红利3+港股3+全球9(与 app/alert_match.py DIV_INDEX_IDS/HK_INDEX_IDS/GLOBAL_INDEX_IDS + app.js _INDEX_NAME_MAP 对齐)
+const _LAB_CUSTOM_DIV = [
+  { iid: "csi_div", name: "中证红利" },
+  { iid: "div_lowvol", name: "红利低波" },
+  { iid: "sz_div", name: "深证红利" },
+];
+const _LAB_CUSTOM_HK = [
+  { iid: "hsi", name: "恒生指数" },
+  { iid: "hstech", name: "恒生科技" },
+  { iid: "hscei", name: "国企指数" },
+];
+const _LAB_CUSTOM_GLOBAL = [
+  { iid: "us_dji", name: "道琼斯" },
+  { iid: "us_ixic", name: "纳斯达克" },
+  { iid: "us_spx", name: "标普500" },
+  { iid: "us_ndx", name: "纳斯达克100" },
+  { iid: "nikkei225", name: "日经225" },
+  { iid: "kospi", name: "KOSPI" },
+  { iid: "ftse100", name: "富时100" },
+  { iid: "dax", name: "德国DAX" },
+  { iid: "cac40", name: "法国CAC40" },
+];
 
 // 取 lab.min.js 的 ?v= 版本号用于破 alert_analyze_*.json 缓存(与 lab-asset-url meta 同步)
 function _labCustomCacheBust() {
@@ -335,6 +357,9 @@ function _labCustomFooterHTML(complianceFooter, noDataHint) {
 // === 挂到 window,供 lab.js / app.js 跨文件引用 ===
 window._LAB_CUSTOM_BROAD = _LAB_CUSTOM_BROAD;
 window._LAB_CUSTOM_SW = _LAB_CUSTOM_SW;
+window._LAB_CUSTOM_DIV = _LAB_CUSTOM_DIV;
+window._LAB_CUSTOM_HK = _LAB_CUSTOM_HK;
+window._LAB_CUSTOM_GLOBAL = _LAB_CUSTOM_GLOBAL;
 window._labCustomCacheBust = _labCustomCacheBust;
 window._labCustomLevelClass = _labCustomLevelClass;
 window._labCustomLevelText = _labCustomLevelText;

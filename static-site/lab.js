@@ -5870,6 +5870,9 @@ async function renderSignalLab() {
 // 此处用 var 别名引用 window._labCustom*,保持 lab.js 内调用点不变
 var _LAB_CUSTOM_BROAD = window._LAB_CUSTOM_BROAD;
 var _LAB_CUSTOM_SW = window._LAB_CUSTOM_SW;
+var _LAB_CUSTOM_DIV = window._LAB_CUSTOM_DIV;
+var _LAB_CUSTOM_HK = window._LAB_CUSTOM_HK;
+var _LAB_CUSTOM_GLOBAL = window._LAB_CUSTOM_GLOBAL;
 var _labCustomCacheBust = window._labCustomCacheBust;
 var _labCustomLevelClass = window._labCustomLevelClass;
 var _labCustomLevelText = window._labCustomLevelText;
@@ -5903,7 +5906,7 @@ async function renderCustomAnalyzeLab() {
       }
       const hint = wrapper.querySelector(".lab-custom-hint");
       if (hint) {
-        hint.innerHTML = `共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）`;
+        hint.innerHTML = `共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length + _LAB_CUSTOM_DIV.length + _LAB_CUSTOM_HK.length + _LAB_CUSTOM_GLOBAL.length} 个预生成快照（每日收盘后更新）`;
         hint.style.color = "";
       }
     }
@@ -5929,12 +5932,21 @@ async function renderCustomAnalyzeLab() {
       "</optgroup>",
       '<optgroup label="申万一级行业">' +
       _LAB_CUSTOM_SW.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
+      "</optgroup>",
+      '<optgroup label="红利指数">' +
+      _LAB_CUSTOM_DIV.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
+      "</optgroup>",
+      '<optgroup label="港股指数">' +
+      _LAB_CUSTOM_HK.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
+      "</optgroup>",
+      '<optgroup label="全球指数">' +
+      _LAB_CUSTOM_GLOBAL.map((t) => `<option value="${t.iid}"${t.iid === curIid ? " selected" : ""}>${t.name}</option>`).join("") +
       "</optgroup>"].join("");
     selector.innerHTML =
       `<input class="lab-custom-search" type="search" placeholder="检索代码/名称筛选…" autocomplete="off" aria-label="检索标的">` +
       `<label class="lab-custom-selector-label">分析标的：</label>` +
       `<select class="lab-custom-select">${opts}</select>` +
-      `<span class="lab-custom-hint">共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）</span>`;
+      `<span class="lab-custom-hint">共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length + _LAB_CUSTOM_DIV.length + _LAB_CUSTOM_HK.length + _LAB_CUSTOM_GLOBAL.length} 个预生成快照（每日收盘后更新）</span>`;
     // C7 P4 select 检索:oninput 实时筛选 select options(代码+名称,不区分大小写)
     selector.querySelector(".lab-custom-search").oninput = (e) => {
       const q = (e.target.value || "").trim().toLowerCase();
@@ -5959,7 +5971,7 @@ async function renderCustomAnalyzeLab() {
           hint.textContent = `无匹配标的（关键词"${e.target.value}"）`;
           hint.style.color = "#d4380d";
         } else {
-          hint.innerHTML = `共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length} 个预生成快照（每日收盘后更新）`;
+          hint.innerHTML = `共 ${_LAB_CUSTOM_BROAD.length + _LAB_CUSTOM_SW.length + _LAB_CUSTOM_DIV.length + _LAB_CUSTOM_HK.length + _LAB_CUSTOM_GLOBAL.length} 个预生成快照（每日收盘后更新）`;
           hint.style.color = "";
         }
       }
