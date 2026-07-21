@@ -808,3 +808,14 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 **待验收（明天 launchd 跑后）**：P0-1 09:35 intraday 生成 5 .gz / P0-2 15:33 export.py rglob lab manifest / P1-3 18:00 backfill 5 全球指数 / P1-7 19:00 update_lab 3 步 + R2 / P1-B 15:33 alert_analyze 40 个。CSP 已验收通过。
 
 **git**：本小节Z 为落档 commit，仅改 NOTES.md。涉及 4 个已 push commit：`d3e6bf8f`（P0+P1-B+.gitignore）+ `4b9c1b7c`（CSP）+ `50663a42`（P1-3 5 全球指数）+ `a08025cb`（P1-7 update_lab），均已 push origin feat/iframe-theme-follow:main（feat force-with-lease rebase 改写 + main fast-forward）。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
+
+### 小节AA：ETF ohlc 7-20 槽复查 ✅ 全部补齐（2026-07-21，一次性复查无改码）
+
+> 7-21 20:07 槽 `etf_national_team_backfill.sh` 跑完后复查 7-20 ETF close/amount 是否补齐（此前 NULL/ohlc=0）。agent ac533a1 只读复查，主控验收。
+
+- **复查结论**：✅ 7-20 ETF close/amount 全部补齐，DB + 本地 JSON + 线上 JSON 三处一致。
+- **DB 实测**（`data/etf_national_team.db` etf_daily 表，7-20 共 12 行全非 NULL 非0）：510300 close=4.65/amount=185.6亿，510050 close=3.007/amount=45.6亿，588000 close=1.815/amount=234.5亿，510500 close=7.426/amount=87.2亿，159915 close=3.477/amount=194.6亿等。
+- **三处一致**：DB + 本地 `static-site/data/etf_national_team-1m.json`（updated_at 2026-07-21T20:09:26）+ 线上 `s.sugas.site/data/etf_national_team-1m.json` 7-20 close/amount 一致。
+- **主控验收**：sqlite3 查 510300 7-20 `close=4.65/amount=18562451759` + `COUNT(*)=12`，与 agent 报告逐字一致。
+- **ETF 数据位置纠正**：ETF 不在 sentiment.db（该库只有 index_daily/board_daily/daily_metric 等A股表），在 `etf_national_team.db` etf_daily 表（schema: date/etf_code/etf_name/close/amount/fund_share/share_change/share_change_pct）。
+- **结论**：backfill 脚本正常工作，mootdx OHLC 采集正常，无需排查。一次性复查任务完成。
