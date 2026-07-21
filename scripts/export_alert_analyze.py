@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import gzip
 import json
 import sys
 import time
@@ -35,6 +36,18 @@ from app.alert_reason import build_reason  # noqa: E402
 from app.alert_score import compute_alert_for_target  # noqa: E402
 
 DATA_DIR = ROOT / "static-site" / "data"
+
+
+def _write_json_gz(out_path: Path, payload: dict) -> None:
+    """写 JSON + 同名 .json.gz(alert_analyze 走前端 fetchJSON 优先 .gz 路径,数量固定40个均生成)。
+
+    alert_analyze 文件 ~11KB,虽小于 write_json 的 100KB 阈值,但作为前端 fetchJSON
+    优先 .gz 的特殊路径(独立于 export.py write_json),统一生成 .gz 让前端稳定走 .gz 通道。
+    """
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    out_path.write_text(text, encoding="utf-8")
+    with gzip.open(out_path.with_suffix(out_path.suffix + ".gz"), "wb") as f:
+        f.write(text.encode("utf-8"))
 
 
 def export_one(target_id: str, target_type: str, name_map: dict[str, str]) -> tuple[dict, float]:
@@ -63,8 +76,7 @@ def main():
         out_path = DATA_DIR / f"alert_analyze_{iid}.json"
         try:
             result, dt = export_one(iid, ttype, name_map)
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(result, f, ensure_ascii=False, indent=2)
+            _write_json_gz(out_path, result)
             alert = result.get("alert", {})
             high = alert.get("high")
             low = alert.get("low")
@@ -79,8 +91,7 @@ def main():
                 "error": f"{type(e).__name__}: {e}",
                 "traceback": tb,
             }
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(err_payload, f, ensure_ascii=False, indent=2)
+            _write_json_gz(out_path, err_payload)
             print(f"  [{i:2d}/{len(PREGEN_TARGETS)}] {iid:14s} FAILED: {type(e).__name__}: {e}")
             err += 1
     print(f"\n✓ 完成: ok={ok} err={err} 耗时={time.time() - t_start:.1f}s")

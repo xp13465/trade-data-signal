@@ -21,6 +21,7 @@ range 处理方案（备注）：
 
 数据源：仅读 data/sentiment.db（API 只用此库；stock_daily.db 仅供采集器用，API 不读）。
 """
+import gzip
 import json
 import sqlite3
 import sys
@@ -1207,6 +1208,13 @@ def write_json(path: Path, data):
     text = json.dumps(data, ensure_ascii=False, default=_json_default,
                       separators=(",", ":"))
     path.write_text(text, encoding="utf-8")
+    # JSON gz 方案B(MaoziYun 不支持 Content-Encoding: gzip,前端 DecompressionStream 显式解压)
+    # 仅对>100KB 大文件生成 .json.gz(小文件 gzip 收益小且浪费 inode);原 .json 保留作 fallback
+    GZ_THRESHOLD = 100 * 1024
+    if len(text) >= GZ_THRESHOLD:
+        gz_path = path.with_suffix(path.suffix + ".gz")
+        with gzip.open(gz_path, "wb") as f:
+            f.write(text.encode("utf-8"))
     return len(text)
 
 
