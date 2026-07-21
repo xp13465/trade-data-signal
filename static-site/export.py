@@ -1400,6 +1400,18 @@ def main():
     print(f"  - index detail: {len(all_indices)} (all range, full history)")
     print(f"输出目录: {DATA_DIR}")
 
+    # 批量 gzip DATA_DIR 下所有 *.json（含非本脚本导出的，如 alert.json / lab_*.json /
+    # schedule_stats.json / etf_national_team-1m.json / industry-3y.json 等）。
+    # write_json 已对 export.py 导出的 JSON 生成 .gz，但非本脚本导出的 JSON 不会有 .gz，
+    # 致前端 fetchJSON .gz 优先命中 404（Console 红）。此处统一补齐，确保所有 .json 都有 .gz。
+    _gz_count = 0
+    for _p in sorted(DATA_DIR.glob("*.json")):
+        _gz_path = _p.with_suffix(".json.gz")
+        with open(_p, "rb") as _src, gzip.open(_gz_path, "wb") as _dst:
+            _dst.write(_src.read())
+        _gz_count += 1
+    print(f"  批量 gzip: {_gz_count} 个 JSON -> .gz（含非本脚本导出的 alert.json/lab_*.json 等）")
+
 
 if __name__ == "__main__":
     main()
