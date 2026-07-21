@@ -24,7 +24,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).parent.parent  # 不用 .resolve()：trade-data/scripts 是 trade/scripts 的 symlink，resolve() 会跳回 trade 导致读旧日志。保留 symlink 路径让 REPO=实际调用方(trade-data)
 LOG_DIR = REPO / "data" / "logs"
 OUT = REPO / "static-site" / "data" / "schedule_stats.json"
 MAX_GAP_SEC = 3 * 3600  # >3h 视为错位，丢弃
