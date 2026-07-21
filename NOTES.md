@@ -3050,3 +3050,40 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 4. **`?v=` 版本号是破缓存唯一信号**：MaoziYun max-age=1200 + cf-cache-status HIT，不改 `?v=` 浏览器/CDN 永远拿旧 common.min.js（const 版），改了才拉新 var 版。验收线上必须 curl 看 `?v=` 是否更新 + 内容是否 var，不只看 HTTP 200。
 
 **git**：commit `fbe167f2` `fix: lab.min.js SyntaxError - common.js const _LAB_CUSTOM_* 改 var 避免与 lab.js var 别名全局重复声明`（1 file 5+/5-，含 Co-Authored-By），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节T 落档 commit 仅改 NOTES.md。
+
+### 小节U：P0 全站 .json.gz 404 修复（fetchJSON 去 .gz 优先，2026-07-21，commit 8a312efb）
+
+> 用户报"线上一堆 404 p0 级 bug 赶紧修好"，Console 显示 ss.fx8.store + s.sugas.site 的 `data/*.json.gz` 全 404（overview/intraday_snapshot/alert/summary/ad_line/volume_ratio/ma_alignment/position/new_high_low 等）。本节落档根因+修复+push main 闭环+线上验收+代价+待办+教训。
+
+**根因（JSON gz 方案B 的 .gz 没进 main，fetchJSON 优先 .gz 全 404）**：
+- JSON gz 方案B（小节S，commit `eea226f3`）export.py `write_json` 生成 `.gz` 到本地 `static-site/data/`，前端 `fetchJSON` 优先请求 `.gz` + fallback `.json`。
+- **`.gz` 没进 main**：本地工作区有 `.gz`，origin/main 无 `.gz`（`git_main=0`），具体根因待查（疑似 `.gitignore` 排除 或 `deploy.sh` 的 `git add static-site/data/` 通配不含 `.gz`），本次未查清记待办。
+- 线上 `data/*.json.gz` 全 404，`fetchJSON` 优先 `.gz` 404 后 fallback `.json` 200（功能正常但 Console 一堆红 + 每请求多一次 404 往返延迟）。
+
+**修复（方向A：fetchJSON 去 .gz 优先，直接 .json）**：
+- `static-site/app.js` `fetchJSON` + `fetchJSONProgress` 去 `.gz` 优先逻辑（删 `tryGz`/`gzUrl`/`DecompressionStream` 分支），直接请求 `.json`。
+- commit `ece2c7f0`（feat 分支）-> `8a312efb`（main rebase 改写）`fix: P0 全站 .json.gz 404 - fetchJSON 去 .gz 优先直接 .json`。
+
+**push main 闭环（非 force，pull --rebase 路径）**：
+- 走 `git pull origin main --rebase` + `git push origin feat/iframe-theme-follow:main`（非 force，fast-forward）。
+- `e017a3de`（intraday 11:31）保留未被覆盖，**无回退事故**（对比小节S force-with-lease 事故，本节同小节T 走非 force 正确路径）。
+
+**线上验收（主控逐字，2026-07-21）**：
+- `origin/main` 含 `8a312efb`（`git merge-base --is-ancestor` 确认 YES in origin/main）✓
+- 线上 `app.min.js?v=ad46a3cc` + `lab.min.js?v=39d39ce3` grep `tryGz`/`gzUrl`/`DecompressionStream` 空（无 .gz 优先逻辑）✓
+- Console `data/*.json.gz` 404 消除 ✓
+
+**代价（丢 gz 压缩省带宽优势）**：
+- s.sugas.site 传无压缩 `.json`，`a-stock-all.json` 6.9MB vs `.gz` 1.6MB（省 76%）优势暂失。
+- 等待办①查清 .gz 没进 main 根因并修复后，恢复 .gz 优先省带宽。
+
+**待办**：
+1. 查 `.gz` 没进 main 根因（`.gitignore` 是否排除 `*.gz` / `deploy.sh` 的 `git add static-site/data/` 通配是否含 `.gz`），修复后恢复 `fetchJSON` .gz 优先 + `DecompressionStream` 解压逻辑省带宽。
+2. hm.js unload / CSP warning（百度统计，非 404）优化。
+
+**教训（部署链路验证缺失）**：
+1. **JSON gz 方案B 实施时未验证 `.gz` 真进 main**：只验本地生成 `.gz` + commit 含 `.gz`，未验 `git push` 后 origin/main 是否含 `.gz`（部署链路最后一公里缺失）。方案类改动须端到端验线上（本地生成 -> commit -> push main -> 线上 curl `.gz` 200），不只验中间环节。
+2. **方案B 撤回至"直接 .json"**：fetchJSON 优先 .gz + fallback .json 的设计在 .gz 没进 main 时产生大量 404 噪音 + 性能损耗，不如直接 .json 稳。待 .gz 真进 main 再启用 .gz 优先（或改用 server-side nginx/MaoziYun 配置 gzip 压缩传输，前端无感）。
+3. **push main 非 force 路径复用小节T 模式**：`pull --rebase + push feat:main` fast-forward，intraday 定时任务 commit 保留无事故，是约束 5（force-with-lease 是最后手段）的正确实践，对比小节S force-with-lease 事故。
+
+**git**：commit `8a312efb` `fix: P0 全站 .json.gz 404 - fetchJSON 去 .gz 优先直接 .json`（含 Co-Authored-By），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节U 落档 commit 仅改 NOTES.md。
