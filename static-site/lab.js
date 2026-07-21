@@ -1694,36 +1694,12 @@ function _labSimFullLoaded(index) {
 // 带 HTTP 进度的 fetch JSON（读 ReadableStream 累计 received/Content-Length 算百分比）
 // 无 Content-Length 或不支持流时降级为普通 fetchJSON，onProgress(-1) 表示无法测算
 async function fetchJSONProgress(url, onProgress, signal) {
-  // JSON gz 方案B: 支持 url 带 query string, .gz 插在 .json 后 query 前
-  const _qIdx = url.indexOf("?");
-  const _base = _qIdx >= 0 ? url.slice(0, _qIdx) : url;
-  const _query = _qIdx >= 0 ? url.slice(_qIdx) : "";
-  const tryGz = _base.startsWith("./data/") && _base.endsWith(".json");
-  const gzUrl = tryGz ? _base + ".gz" + _query : null;
+  // 注: 原 .json.gz 优先 + DecompressionStream + fallback 逻辑已移除(main 无 .gz 致全站 Console 404),直接走 .json 流式
   try {
-    const fetchUrl = gzUrl || url;
-    const resp = await fetch(fetchUrl, signal ? { signal } : undefined);
+    const resp = await fetch(url, signal ? { signal } : undefined);
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     const total = parseInt(resp.headers.get("Content-Length") || "0", 10);
-    // .gz 路径: 先按压缩流累计进度,再 pipe DecompressionStream 解压
-    if (gzUrl && resp.body && resp.body.getReader && typeof DecompressionStream !== "undefined") {
-      const reader = resp.body.getReader();
-      let received = 0;
-      const chunks = [];
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) { chunks.push(value); received += value.length; if (onProgress) onProgress(received, total); }
-      }
-      if (onProgress) onProgress(total, total);
-      const blob = new Blob(chunks);
-      // Blob.stream() -> pipeThrough(DecompressionStream) -> Response.text()
-      const ds = new DecompressionStream("gzip");
-      const decStream = blob.stream().pipeThrough(ds);
-      const txt = await new Response(decStream).text();
-      return JSON.parse(txt);
-    }
-    // 非 .gz 路径(原逻辑): 流式累计 + text parse
+    // 流式累计 + text parse
     if (!total || !resp.body || !resp.body.getReader) {
       if (onProgress) onProgress(-1, 0);
       return resp.json();
@@ -1742,11 +1718,6 @@ async function fetchJSONProgress(url, onProgress, signal) {
     return JSON.parse(txt);
   } catch (e) {
     if (e && e.name === "AbortError") throw e; // 中止不降级，向上抛
-    // .gz 失败(404/解压错/不支持) -> fallback 原 .json 走 fetchJSON
-    if (gzUrl) {
-      if (onProgress) onProgress(-1, 0);
-      return fetchJSON(url);
-    }
     // 流式读取失败（如浏览器不支持），降级普通 fetch
     if (onProgress) onProgress(-1, 0);
     return fetchJSON(url);
@@ -6035,7 +6006,6 @@ async function renderCustomAnalyzeLab() {
   const url = `./data/alert_analyze_${curIid}.json?v=${v}`;
   let data = null;
   try {
-    // JSON gz 方案B: 改用 fetchJSON 优先 .json.gz + DecompressionStream 解压,失败 fallback .json
     data = await fetchJSON(url);
   } catch (e) {
     host.classList.remove("lab-custom-host--loading");

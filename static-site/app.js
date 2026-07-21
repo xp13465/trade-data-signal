@@ -838,40 +838,14 @@ async function fetchJSON(url) {
   const inflight = _inflightFetch.get(url);
   if (inflight) return inflight;
   // A3: AbortController + 15s 超时，避免后端卡死时请求永久挂起；超时由调用方 catch + renderFailCard 兜底
-  // JSON gz 方案B: 优先 .json.gz + DecompressionStream 解压(MaoziYun 不支持 Content-Encoding,前端显式解压)
-  // 失败(404/解压错/不支持)fallback 原 .json。仅对 ./data/*.json 静态资源启用(跳过 /api/* 和外链 https://)
-  // 支持 url 带 query string(如 ?v=xxx): .gz 插在 .json 后 query 前
-  const _qIdx = url.indexOf("?");
-  const _base = _qIdx >= 0 ? url.slice(0, _qIdx) : url;
-  const _query = _qIdx >= 0 ? url.slice(_qIdx) : "";
-  const tryGz = _base.startsWith("./data/") && _base.endsWith(".json");
-  const gzUrl = tryGz ? _base + ".gz" + _query : null;
+  // 注: 原 .json.gz 优先 + DecompressionStream + fallback 逻辑已移除(main 无 .gz 致全站 Console 404),直接 fetch .json
   const controller = new AbortController();
   const slowTimer = setTimeout(() => controller.abort(), 15000);
   const doFetch = (u) => fetch(u, { signal: controller.signal })
     .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + u); return r; });
   const p = (async () => {
-    let resp;
-    try {
-      if (gzUrl) {
-        resp = await doFetch(gzUrl);
-        // DecompressionStream 96%+ 兼容;不支持时抛错走 catch fallback
-        if (typeof DecompressionStream === "undefined") throw new Error("DecompressionStream unsupported");
-        const ds = new DecompressionStream("gzip");
-        const decompressed = resp.body.pipeThrough(ds);
-        const txt = await new Response(decompressed).text();
-        return JSON.parse(txt);
-      }
-      resp = await doFetch(url);
-      return await resp.json();
-    } catch (e) {
-      // .gz 失败(404/解压错/不支持) -> fallback 原 .json(只对原本就是 .gz 尝试的 URL)
-      if (gzUrl && !(e && e.name === "AbortError")) {
-        resp = await doFetch(url);
-        return await resp.json();
-      }
-      throw e;
-    }
+    const resp = await doFetch(url);
+    return await resp.json();
   })()
     .then((data) => {
       // 成功才缓存（时效敏感 URL 跳过）；失败不缓存，下次重试
@@ -1052,7 +1026,6 @@ async function _attachMarketScoreCard(iid, name, containerEl) {
   if (!containerEl || !_MARKET_ANALYZE_IIDS.has(iid)) return;
   try {
     const v = _labCustomCacheBust();
-    // JSON gz 方案B: 改用 fetchJSON 优先 .json.gz + DecompressionStream 解压,失败 fallback .json
     const data = await fetchJSON(`./data/alert_analyze_${iid}.json?v=${v}`);
     if (!data || data.error) return;
     const alert = data.alert || {};
@@ -1094,7 +1067,6 @@ function openIndexAnalyzeModal(iid, name) {
   (async () => {
     try {
       const v = _labCustomCacheBust();
-      // JSON gz 方案B: 改用 fetchJSON 优先 .json.gz + DecompressionStream 解压,失败 fallback .json
       const data = await fetchJSON(`./data/alert_analyze_${iid}.json?v=${v}`);
       if (!data || data.error) {
         body.innerHTML = `<div class="lab-custom-error">` +
