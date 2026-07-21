@@ -3124,3 +3124,37 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 4. **方案Y=方案B 内容回退，app.min.js md5 相同版本号回退 cd68b334**：方案Y fetchJSON 恢复 .gz 优先 = 回退到方案B（小节S commit `eea226f3`）的 app.js 内容，bump_asset_version.py 跑了但内容回退致 md5 相同，版本号回退到 `cd68b334`（方案B 版本号），正确非异常。
 
 **git**：commit `1caee641`（代码层 export.py GZ_THRESHOLD=0 + app.js/lab.js fetchJSON 恢复 .gz 优先 + rebuild min + bump）+ `94c79041`（数据+.gz+min JS+index.html），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节V 落档 commit 仅改 NOTES.md。
+
+### 小节W 批量 gz 修复闭环（2026-07-21，commit 65617ec2，补齐非 export.py 导出 JSON 的 .gz）
+
+> 方案Y（小节V commit `94c79041`/`1caee641`）`GZ_THRESHOLD=0` 让 export.py `write_json` 导出的 JSON 全量生成 `.gz`，但**非 export.py 导出的 8 个 JSON**（`alert.json` / `etf_national_team-1m.json` / `industry-3y.json` / `lab_ablation.json` / `lab_cost_compare.json` / `lab_param_scan.json` / `lab_short_symmetry.json` / `schedule_stats.json`）仍无 `.gz`，致前端 `fetchJSON` `.gz` 优先命中 404（Console 红，如 `alert.json.gz` 404）。本节落档批量 gzip 根治。
+
+**背景（方案Y 只覆盖 export.py 导出的 JSON）**：
+- 方案Y（小节V）`GZ_THRESHOLD=0` 只让 `export.py::write_json` 在导出每个 JSON 时同步生成 `.gz`，**覆盖范围 = export.py 导出的 JSON**。
+- **非 export.py 导出的 8 个 JSON**（由其它脚本生成，如 `export_alert.py` 生成 `alert.json`、`scripts/lab_*.py` 生成 `lab_*.json`、`intraday-snapshot` 生成 `etf_national_team-1m.json`、行业 3y 单独生成、`schedule_stats.json` 由 scheduler 写）不走 `write_json`，**不会生成 `.gz`**。
+- 前端 `fetchJSON` `.gz` 优先（小节V 恢复）请求这 8 个 JSON 的 `.gz` 全 404，fallback `.json` 200（功能正常但 Console 一堆红 + 每请求多一次 404 往返延迟，同小节U P0 症状但范围缩小到 8 个非 export.py 导出文件）。
+
+**修复（export.py main 末尾批量 gzip，line 1403-1413）**：
+- `export.py::main()` 末尾（`if __name__` 之前，line 1403-1413）加 12 行批量 gzip 逻辑：遍历 `DATA_DIR.glob("*.json")` 全量生成 `.json.gz`（含非本脚本导出的），`gzip.open` 写入。
+- 注释说明：`write_json` 已对 export.py 导出的 JSON 生成 `.gz`，但非本脚本导出的 JSON 不会有 `.gz`，致前端 `fetchJSON` `.gz` 优先命中 404（Console 红），此处统一补齐确保所有 `.json` 都有 `.gz`。
+- **设计选择**：放在 `main()` 末尾而非 `write_json` 内--因非 export.py 导出的 JSON 不走 `write_json`，只能在 main 末尾对 `DATA_DIR` 全量扫一次补齐；幂等覆盖（每次 export 重生所有 `.gz`，不会残留旧版）。
+- commit `65617ec2`（118 files：117 `.gz` + `export.py` 12 行新代码，无根 `data/` add）。
+
+**上线（push feat:main 非force，fast-forward 94c79041..65617ec2）**：
+- push 走 `git push origin feat/iframe-theme-follow:main`（非 force，fast-forward `94c79041..65617ec2`）。
+- **无回退事故**（同小节T/U/V 非 force 路径，对比小节S force-with-lease 事故）。
+- intraday 定时任务 commit 保留未被覆盖。
+
+**线上验收（主控逐字，2026-07-21）**：
+- `alert.json.gz` 200 ✓（非 export.py 导出，原无 `.gz`，现 main 末尾批量 gzip 补齐）
+- `lab_ablation.json.gz` 200 ✓（同上）
+- `schedule_stats.json.gz` 200 ✓（同上）
+- `origin/main` 含 `65617ec2`（fast-forward `94c79041..65617ec2`，非 force）✓
+
+**教训（方案类改动须覆盖所有产出路径，不只主路径）**：
+1. **方案Y 只覆盖 export.py `write_json` 导出路径，漏了非本脚本导出的 8 个 JSON**：方案Y 设计意图是"全量 `.gz`"但实施时只在 `write_json` 加 `GZ_THRESHOLD=0`，等同于"export.py 导出的 JSON 全量 `.gz`"，**非 export.py 导出的 JSON（alert/lab/schedule_stats/intraday 等）不走 `write_json` 仍无 `.gz`**。方案类改动须梳理所有产出路径（哪些脚本会往 `DATA_DIR` 写 JSON），不只主路径。
+2. **根治位置 = 消费侧统一补齐，而非每个生产者各自加**：8 个非 export.py 导出的 JSON 分散在 5+ 个脚本（`export_alert.py` / `lab_*.py` / `intraday-snapshot` / scheduler），逐个加 `.gz` 逻辑重复且易漏；在 `export.py main()` 末尾对 `DATA_DIR/*.json` 全量扫一次补齐，**一处覆盖所有生产者**（含未来新增的 JSON），是更优的根治位置。
+3. **`fetchJSON` `.gz` 优先 + fallback `.json` 设计在 `.gz` 不齐时产生 404 噪音**：方案B（小节S）设计的 `.gz` 优先 + fallback `.json` 在 `.gz` 不齐时每请求多一次 404 往返（Console 红 + 延迟），须确保 `.gz` 全齐才无副作用--main 末尾批量 gzip 是 `.gz` 全齐的兜底保障。
+4. **push main 非 force 路径复用小节T/U/V 模式**：`push feat:main` fast-forward，intraday 定时任务 commit 保留无事故，是约束 5（force-with-lease 是最后手段）的正确实践，对比小节S force-with-lease 事故。
+
+**git**：commit `65617ec2` `fix: 批量 gzip 全量 JSON(8个非export.py导出alert.json等缺.gz)+export.py main末尾根治`（118 files：117 `.gz` + `export.py` 12 行，含 Co-Authored-By），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward `94c79041..65617ec2`）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节W 落档 commit 仅改 NOTES.md。
