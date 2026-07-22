@@ -92,6 +92,10 @@ DT_TOL = 1.001   # close <= 跌停价 × 1.001
 EX_DIV_MULT = 1.5  # |pct_change| > 规则% × 1.5 → 除权日
 
 
+# 每日最少 code 数阈值：低于此值视为采集不全（如 mootdx 停服只采到 84 只），
+# 跳过该日宽度计算，保留 DB 已有值（防错误值覆盖正确值，2026-07-22 事故修复）。
+# 正常交易日全 A 约 5200 只（2016 年约 2800 只），1000 能区分采集不全。
+MIN_CODES_PER_DAY = 1000
 # ── 涨跌幅规则 ────────────────────────────────────────────────────────────────
 def limit_rule(code: str) -> float:
     """按代码前缀返回涨跌幅规则（小数）。mootdx 仅 SH/SZ，无北交所/B股。
@@ -180,11 +184,22 @@ def compute_width(df: pd.DataFrame) -> pd.DataFrame:
         up=("up", "sum"),
         down=("down", "sum"),
         amount_sum=("amount", "sum"),
+        n_codes=("date", "count"),
     )
     # 封板率 = zt / (zt + zb)
     denom = g["zt"] + g["zb"]
     g["seal_rate"] = g["zt"].where(denom > 0, 0) / denom.where(denom > 0, 1)
     g.loc[denom == 0, "seal_rate"] = float("nan")  # 无涨停无炸板 → NaN
+
+    # 过滤采集不全的日期（code 数 < MIN_CODES_PER_DAY，如 mootdx 停服只采到 84 只），
+    # 跳过该日写入，保留 DB 已有值（防错误值覆盖正确值，2026-07-22 事故修复）。
+    low_data_dates = g[g["n_codes"] < MIN_CODES_PER_DAY]["date"].tolist()
+    if low_data_dates:
+        print(f"[D2] WARN: 跳过 {len(low_data_dates)} 个采集不全日期 "
+              f"(code数<{MIN_CODES_PER_DAY}): {low_data_dates[:5]}...", flush=True)
+    g = g[g["n_codes"] >= MIN_CODES_PER_DAY].copy()
+    if len(g) == 0:
+        return g
     return g.sort_values("date").reset_index(drop=True)
 
 
