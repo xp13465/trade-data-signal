@@ -2541,7 +2541,7 @@ async function renderLabDetail(key, container) {
     chartSection.appendChild(chartDiv);
 
     try {
-      const r = await fetchJSON(`./data/index/${state.labIndex}-all.json`);
+      const r = await fetchJSON(`https://ssd.fx8.store/index/${state.labIndex}-all.json`);
       const ohlcFull = r.ohlc;
       if (!ohlcFull || !ohlcFull.length) {
         chartDiv.innerHTML = '<div class="empty-note">该指数暂无数据</div>';
@@ -3500,7 +3500,7 @@ async function _labSignalModalRender(overlay) {
     // 再由下方 cutoff 切到目标窗口。y10/all 无对应 range 用 all。
     // 静态版无 ranged JSON 固定取 -all.json 由 cutoff 前端切（全历史预热正确）。
     const apiRange = ({ y1: "3y", y3: "5y", y5: "5y", y10: "all", all: "all" }[win]) || "all";
-    const r = await fetchJSON(`./data/index/${m.index}-all.json`);
+    const r = await fetchJSON(`https://ssd.fx8.store/index/${m.index}-all.json`);
     const ohlcFull = r.ohlc;
     if (!ohlcFull || !ohlcFull.length) {
       chartArea.innerHTML = '<div class="lab-signal-no-chart">该指数暂无数据</div>';
@@ -4899,7 +4899,7 @@ async function _labFusionPairModalRender(overlay) {
 
   // 并行加载：融合回测数据 + 信号图指数数据 + 融合矩阵数据
   const simDataP = fetchLabFusionSimData(m.index);
-  const chartDataP = fetchJSON(`./data/index/${m.index}-all.json`).catch(() => null);
+  const chartDataP = fetchJSON(`https://ssd.fx8.store/index/${m.index}-all.json`).catch(() => null);
   const fusionMatrixP = fetchLabFusionMatrixData(m.index).catch(() => null);
   const [simData, chartData, fusionMatrixData] = await Promise.all([simDataP, chartDataP, fusionMatrixP]);
   if (m._gen !== myGen) return; // stale render

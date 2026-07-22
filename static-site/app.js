@@ -1,7 +1,7 @@
 // 静态版前端 —— 从 web/app.js 改造，数据源由 API 改为本地 JSON 文件。
 // 改动点：
 //   1. fetchJSON URL：/api/xxx → ./data/xxx.json（各 tab 按 range 读对应文件）
-//   2. index 详情：读 ./data/index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
+//   2. index 详情：读 https://ssd.fx8.store/index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
 //   3. 其他逻辑（render/ruleBar/signalColor/initBackToTop/initStickyOffset）保持功能一致
 //   4. 手动补录入口已移除（与动态版一致）
 
@@ -901,7 +901,7 @@ function statsHint(stats, strategy, indexId) {
   if (freqBlocks.length) {
     freqHtml = `<div class="hint-header">📅 信号频率</div><div class="hint-blocks">${freqBlocks.join("")}</div>`;
   }
-  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="./trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
+  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" title="查看模拟回测详情" target="_blank">📊 模拟回测</a>` : ''}</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     freqHtml +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
@@ -1072,7 +1072,8 @@ async function fetchJSON(url) {
   const _qIdx = url.indexOf("?");
   const _base = _qIdx >= 0 ? url.slice(0, _qIdx) : url;
   const _query = _qIdx >= 0 ? url.slice(_qIdx) : "";
-  const tryGz = _base.startsWith("./data/") && _base.endsWith(".json");
+  // R2 全迁后 ./data/ 与 https://ssd.fx8.store/ 均走 .gz 优先(DecompressionStream 解压)
+  const tryGz = (_base.startsWith("./data/") || _base.startsWith("https://ssd.fx8.store/")) && _base.endsWith(".json");
   const gzUrl = tryGz ? _base + ".gz" + _query : null;
   const controller = new AbortController();
   const slowTimer = setTimeout(() => controller.abort(), 15000);
@@ -1805,7 +1806,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       }
       isValue = true;
     } else {
-      const r = await fetchJSON(`./data/index/${indexId}-all.json`);
+      const r = await fetchJSON(`https://ssd.fx8.store/index/${indexId}-all.json`);
       chartData = r.ohlc || [];
       sigs = r.signals || [];
       stats = r.stats || {};
@@ -5466,7 +5467,7 @@ async function renderAStock(container = content) {
   container.appendChild(indicesSection);
   // 静态版 fetcher：读 index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
   await renderIndicesSection(indicesSection, r.indices, async (id, idx) => {
-    const raw = await fetchJSON(`./data/index/${id}-all.json`);
+    const raw = await fetchJSON(`https://ssd.fx8.store/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
   }, true);
 }
@@ -5538,7 +5539,7 @@ async function renderHK(container = content) {
   indicesSection.className = "indices-section";
   container.appendChild(indicesSection);
   await renderIndicesSection(indicesSection, indices, async (id, idx) => {
-    const raw = await fetchJSON(`./data/index/${id}-all.json`);
+    const raw = await fetchJSON(`https://ssd.fx8.store/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
   }, true);
   // 港股板块指数（复用 renderIndustryGrid，与 A 股行业网格一致）
@@ -5627,7 +5628,7 @@ async function renderGlobal(container = content) {
   container.appendChild(cardGrid);
   if (idxEntries.length) {
     const sigResults = await Promise.all(
-      idxEntries.map(([id]) => fetchJSON(`./data/index/${id}-all.json`).catch(() => null))
+      idxEntries.map(([id]) => fetchJSON(`https://ssd.fx8.store/index/${id}-all.json`).catch(() => null))
     );
     idxEntries.forEach(([id, idx], i) => {
       const sig = sigResults[i] || { signals: [], stats: {} };
@@ -6606,7 +6607,7 @@ async function _preloadIndDetail(id, idx) {
     return;
   }
   try {
-    const det = await fetchJSON("./data/industry-all-indices/" + id + "-detail.json");
+    const det = await fetchJSON("https://ssd.fx8.store/industry/industry-all-indices/" + id + "-detail.json");
     if (det.ohlc && idx.data && det.ohlc.length === idx.data.length && det.width && idx.width && det.width.length === idx.width.length) {
       _indDetail.set(id, det);
     } else {
@@ -6886,13 +6887,13 @@ async function renderRotationCard(container) {
 
 async function _loadIndustryData(range) {
   // all/5y/3y 走拆分：31 行业小文件按需并发 fetch，避免 industry-all 29MB / industry-5y 14MB / industry-3y 9.2MB 大单文件拖慢首屏
-  if (range !== "all" && range !== "5y" && range !== "3y") return await fetchJSON(`./data/industry-${range}.json`);
-  const meta = await fetchJSON(`./data/industry-${range}-meta.json`);
+  if (range !== "all" && range !== "5y" && range !== "3y") return await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}.json`);
+  const meta = await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}-meta.json`);
   const ids = meta.index_ids || [];
   const entries = await Promise.all(
-    ids.map(async (iid) => [iid, await fetchJSON(`./data/industry-${range}-indices/${iid}.json`)])
+    ids.map(async (iid) => [iid, await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}-indices/${iid}.json`)])
   );
-  const conceptsRes = await fetchJSON(`./data/industry-${range}-concepts.json`);
+  const conceptsRes = await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}-concepts.json`);
   return {
     indices: Object.fromEntries(entries),
     heatmap: meta.heatmap,

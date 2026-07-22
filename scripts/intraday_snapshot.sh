@@ -161,6 +161,14 @@ if [ "$PUSH_RC" -ne 0 ]; then
   exit "$PUSH_RC"
 fi
 
+# 2.5) 同步 index/ + industry/ 到 R2（前端已全迁 R2 读，盘中需同步刷新 R2 保实时）
+#      intraday collector 写 REPO/static-site/data/index/{iid}-all.json + industry-*-indices/，
+#      git push 只推到 git（MaoziYun/CF 源），R2 是前端 index/industry 唯一来源，必须同步。
+#      非阻塞：R2 失败不阻断 intraday（git 已推，下轮 deploy.sh 会补刷 R2）。
+echo "-> 同步 index/industry 到 R2（前端 R2 源）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/upload_r2.py" upload-index 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-index R2 失败，不阻断 intraday" | tee -a "$LOG"
+"$PY" "$REPO/scripts/upload_r2.py" upload-industry 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-industry R2 失败，不阻断 intraday" | tee -a "$LOG"
+
 # 3) 盘中信号邮件通知（标注【盘中实时】，去重防重复发）
 #    intraday_snapshot 已在 collect_and_save 中重算 signal_daily（_recompute_signals），
 #    check_signals 查当日信号发邮件。复用 signal_notified.json 去重（同日同 index_id+signal
