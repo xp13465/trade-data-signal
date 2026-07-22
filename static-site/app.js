@@ -904,7 +904,7 @@ function statsHint(stats, strategy, indexId) {
   if (freqBlocks.length) {
     freqHtml = `<div class="hint-header">📅 信号频率</div><div class="hint-blocks">${freqBlocks.join("")}</div>`;
   }
-  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" title="查看模拟回测详情" target="_blank">📊 模拟回测</a>` : ''}</div>` +
+  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     freqHtml +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
@@ -7268,38 +7268,455 @@ function initH5() {
   initH5Topbar();
 }
 
-// === 模拟回测 iframe 浮层（遮罩+圆角边框+缩放动画；左键点 sim-btn 打开，关闭后停留原位置）===
-function initSimOverlay() {
-  const overlay = document.createElement('div');
-  overlay.className = 'sim-overlay';  // CSS 默认 opacity:0/visibility:hidden 隐藏
-  overlay.innerHTML = '<div class="sim-window"><div class="sim-loading"><span class="sim-spinner"></span>加载回测中…</div><button class="sim-close" aria-label="关闭回测" title="关闭">✕</button><iframe class="sim-frame" src="about:blank" title="模拟回测"></iframe></div>';
-  document.body.appendChild(overlay);
-  const frame = overlay.querySelector('.sim-frame');
-  const loading = overlay.querySelector('.sim-loading');
-  let closeTimer = null;
-  const close = () => {
-    overlay.classList.remove('show');
-    document.body.style.overflow = '';
-    clearTimeout(closeTimer);
-    closeTimer = setTimeout(() => { frame.src = 'about:blank'; }, 260);  // 等缩放过渡结束再清 src，避免白闪
+// === 模拟回测 modal（替代 iframe，5窗口切换，每窗口独立 10w 起算）===
+// 主题继承父页（不再 iframe postMessage）；复用 lab.min.css 的 .lab-win-tabs/.lab-win-tab/.lab-win-bar
+var _tradeSimOverlay = null;
+var _tradeSimState = null;
+var _tradeSimStatsCache = {};
+var _tradeSimFullCache = {};
+var _TRADE_SIM_WIN_DEFS = [
+  { k: "all", l: "全历史" },
+  { k: "y10", l: "近10年" },
+  { k: "y5",  l: "近5年" },
+  { k: "y3",  l: "近3年" },
+  { k: "y1",  l: "近1年" },
+];
+var _TRADE_SIM_DEFAULT_WIN = "y5";
+
+function _tradeSimOverlayEl() {
+  if (_tradeSimOverlay) return _tradeSimOverlay;
+  var ov = document.createElement('div');
+  ov.className = 'trade-sim-overlay';
+  ov.innerHTML = '<div class="trade-sim-modal">' +
+    '<div class="trade-sim-modal-head">' +
+      '<span class="trade-sim-modal-title"></span>' +
+      '<button type="button" class="trade-sim-modal-close" aria-label="关闭" title="关闭">✕</button>' +
+    '</div>' +
+    '<div class="trade-sim-modal-body"></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  _tradeSimOverlay = ov;
+  ov.querySelector('.trade-sim-modal-close').onclick = _tradeSimCloseModal;
+  ov.onclick = function (e) { if (e.target === ov) _tradeSimCloseModal(); };
+  return ov;
+}
+
+function _tradeSimCloseModal() {
+  if (_tradeSimOverlay) _tradeSimOverlay.classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+function _tradeSimColorPct(pct) {
+  if (pct > 0) return "#e6492e";
+  if (pct < 0) return "#2e8b57";
+  return "#9e9e9e";
+}
+
+function _tradeSimFmtNum(n) {
+  if (n === null || n === undefined || n === Infinity) return "-";
+  return Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+}
+
+async function _tradeSimFetchStats(indexId) {
+  var resp = await fetch('data/trade_sim/trade_sim_' + encodeURIComponent(indexId) + '_stats.json');
+  if (!resp.ok) throw new Error('stats.json HTTP ' + resp.status);
+  return await resp.json();
+}
+
+async function _tradeSimFetchFull(indexId) {
+  var resp = await fetch('data/trade_sim/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
+  if (!resp.ok) throw new Error('full.json HTTP ' + resp.status);
+  return await resp.json();
+}
+
+async function _tradeSimOpenModal(indexId) {
+  var ov = _tradeSimOverlayEl();
+  _tradeSimState = {
+    indexId: indexId,
+    win: _TRADE_SIM_DEFAULT_WIN,
+    path: 0,
+    scenario: 0,
+    statsData: null,
+    fullData: null,
+    fullLoaded: false,
+    loadingFull: false,
   };
-  overlay.querySelector('.sim-close').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });  // 点遮罩区关闭
-  // 事件委托：所有 .sim-btn（动态生成于 hint）左键在当前页浮层打开 iframe；中键仍可新标签
-  document.addEventListener('click', (e) => {
-    const a = e.target.closest('.sim-btn');
-    if (!a) return;
-    e.preventDefault();
-    clearTimeout(closeTimer);
-    loading.classList.add('show');            // 显示 loading（iframe 加载期间盖白屏）
-    var _th; try { var _v = localStorage.getItem('trade-theme'); _th = (_v === null) ? 'redgold' : _v; } catch (e) { _th = 'redgold'; }
-    frame.src = a.href.split('#')[0] + '#' + encodeURIComponent(_th);  // hash 传当前主题给 iframe
-    overlay.classList.add('show');
-    document.body.style.overflow = 'hidden';
+  var body = ov.querySelector('.trade-sim-modal-body');
+  body.innerHTML = '<div class="trade-sim-loading"><span class="sim-spinner"></span>加载回测中…</div>';
+  ov.classList.add('show');
+  document.body.style.overflow = 'hidden';
+  try {
+    _tradeSimState.statsData = _tradeSimStatsCache[indexId] || await _tradeSimFetchStats(indexId);
+    _tradeSimStatsCache[indexId] = _tradeSimState.statsData;
+  } catch (e) {
+    body.innerHTML = '<div class="trade-sim-empty">⚠ 加载失败：' + (e.message || e) + '<br><br>可访问旧版：<a href="https://ssd.fx8.store/trade_sim/trade_sim_' + encodeURIComponent(indexId) + '.html" target="_blank">静态回测页</a></div>';
+    return;
+  }
+  _tradeSimModalRender(ov);
+}
+
+// 渲染净值曲线 SVG（照搬 simulate_trade._equity_svg，主题色用 CSS 变量）
+function _tradeSimEquitySVG(curve, initCap, gradId) {
+  if (!curve || curve.length < 2) return '<div style="padding:20px;color:var(--text-3);text-align:center">净值数据不足</div>';
+  var vals = curve.map(function (e) { return e.value; });
+  var dates = curve.map(function (e) { return e.date; });
+  var yMin = Math.min.apply(null, vals.concat([initCap])) * 0.95;
+  var yMax = Math.max.apply(null, vals.concat([initCap])) * 1.05;
+  if (yMax <= yMin) yMax = yMin + 1;
+  var W = 800, H = 160, ml = 80, mr = 10, mt = 5, mb = 24;
+  var pw = W - ml - mr, ph = H - mt - mb;
+  var n = vals.length;
+  var sy = function (v) { return mt + ph - ((v - yMin) / (yMax - yMin)) * ph; };
+  var sx = function (i) { return ml + (n > 1 ? (i / (n - 1)) * pw : 0); };
+  var baselineY = sy(initCap);
+  var finalVal = vals[n - 1];
+  var peakVal = Math.max.apply(null, vals);
+  var peakIdx = vals.indexOf(peakVal);
+  var minVal = Math.min.apply(null, vals);
+  var pts = vals.map(function (v, i) { return sx(i).toFixed(1) + ',' + sy(v).toFixed(1); });
+  var areaPts = pts.join(' ') + ' ' + sx(n - 1).toFixed(1) + ',' + (mt + ph).toFixed(1) + ' ' + sx(0).toFixed(1) + ',' + (mt + ph).toFixed(1);
+  var fmtV = function (v) { return v >= 10000 ? (v / 10000).toFixed(1) + '万' : v.toFixed(0); };
+  var yLabels = [
+    { l: '起始', v: initCap, c: 'var(--text-3)' },
+    { l: '最低', v: minVal, c: '#2e8b57' },
+    { l: '峰值', v: peakVal, c: '#e6492e' },
+    { l: '期末', v: finalVal, c: '#3370ff' },
+  ].map(function (it) {
+    return '<text x="' + (ml - 4) + '" y="' + sy(it.v).toFixed(1) + '" text-anchor="end" font-size="10" fill="' + it.c + '" dominant-baseline="middle">' + it.l + ' ' + fmtV(it.v) + '</text>';
+  }).join('');
+  var tickCount = Math.min(7, Math.max(3, Math.floor(n / 2)));
+  var step = n > 1 ? (n - 1) / (tickCount - 1) : 1;
+  var xLabels = [];
+  for (var k = 0; k < tickCount; k++) {
+    var i = Math.min(Math.round(k * step), n - 1);
+    xLabels.push('<text x="' + sx(i).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" font-size="9" fill="var(--text-3)">' + dates[i].substring(0, 7) + '</text>');
+  }
+  var lineColor = finalVal >= initCap ? '#3370ff' : '#9e9e9e';
+  return '<svg width="100%" height="150" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;margin-top:8px;border-radius:6px;background:var(--bg-hover)">' +
+    '<defs><linearGradient id="' + gradId + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="' + lineColor + '" stop-opacity="0.12"/><stop offset="100%" stop-color="' + lineColor + '" stop-opacity="0.01"/></linearGradient></defs>' +
+    '<line x1="' + ml + '" y1="' + baselineY.toFixed(1) + '" x2="' + sx(n - 1).toFixed(1) + '" y2="' + baselineY.toFixed(1) + '" stroke="var(--border)" stroke-dasharray="6,4" stroke-width="1"/>' +
+    '<polygon points="' + areaPts + '" fill="url(#' + gradId + ')"/>' +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + lineColor + '" stroke-width="1.5" stroke-linejoin="round"/>' +
+    yLabels +
+    '<circle cx="' + sx(peakIdx).toFixed(1) + '" cy="' + sy(peakVal).toFixed(1) + '" r="3" fill="#e6492e" stroke="#fff" stroke-width="1"/>' +
+    '<circle cx="' + sx(n - 1).toFixed(1) + '" cy="' + sy(finalVal).toFixed(1) + '" r="3" fill="#3370ff" stroke="#fff" stroke-width="1"/>' +
+    xLabels.join('') +
+    '</svg>';
+}
+
+// 12卡（照搬 _scenario_panel 的 .sim-cards 12个卡片，字段不删不减）
+function _tradeSimCardsHTML(s, initCap) {
+  var ddStr = s.max_drawdown.toFixed(1) + '%';
+  var ddDate = s.max_drawdown_date || 'N/A';
+  var totalOps = s.buy_count + s.sell_count;
+  var skippedTotal = s.skipped_full + s.skipped_no_cash + s.skipped_no_position;
+  var signalTotal = totalOps + skippedTotal;
+  return '<div class="sim-flow">' + s.flow_desc + '</div>' +
+    '<div class="sim-cards">' +
+    '<div class="sim-card"><span class="k">总资产变化</span><span class="v">' + _tradeSimFmtNum(s.total_capital) + ' -> ' + _tradeSimFmtNum(s.final_total) + ' 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 ' + _tradeSimFmtNum(s.final_holdings) + ' 元</div></span></div>' +
+    '<div class="sim-card"><span class="k">最大持仓</span><span class="v">' + _tradeSimFmtNum(s.max_holding) + ' 元（' + s.max_holding_pct + '%）<div class="sub">' + s.max_holding_date + '</div></span></div>' +
+    '<div class="sim-card"><span class="k">总收益</span><span class="v" style="color:' + _tradeSimColorPct(s.total_return) + '">' + _tradeSimFmtNum(s.total_return) + ' 元（' + (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct.toFixed(2) + '%）</span></div>' +
+    '<div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">首笔买入至今 ' + s.years + ' 年</div></span></div>' +
+    '<div class="sim-card"><span class="k">总资产峰值</span><span class="v">' + _tradeSimFmtNum(s.total_assets_peak) + ' 元<div class="sub">' + s.total_assets_peak_date + '</div></span></div>' +
+    '<div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:' + _tradeSimColorPct(-s.max_drawdown) + '">' + ddStr + '<div class="sub">' + ddDate + '</div></span></div>' +
+    '<div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:' + _tradeSimColorPct(-s.median_drawdown) + '">' + s.median_drawdown.toFixed(1) + '% / ' + s.trimmed_mean_drawdown.toFixed(1) + '%</span></div>' +
+    '<div class="sim-card"><span class="k">总操作</span><span class="v">' + s.buy_count + '买/' + s.sell_count + '卖（' + totalOps + '次）<div class="sub">共 ' + signalTotal + ' 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 ' + skippedTotal + ' 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 ' + s.max_positions_ever + ' 笔</span></div></span></div>' +
+    '<div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">' + s.win_rate + '%（' + s.win_count + '胜/' + s.lose_count + '负）</span></div>' +
+    '<div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">' + s.max_win_streak + ' 轮 / ' + s.max_lose_streak + ' 轮</span></div>' +
+    '<div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">' + _tradeSimFmtNum(s.avg_pl_ratio) + '（均盈' + _tradeSimFmtNum(s.avg_win_pct) + '% / 均亏' + _tradeSimFmtNum(s.avg_loss_pct) + '%）</span></div>' +
+    '<div class="sim-card"><span class="k">配对情况</span><span class="v">' + s.total_rounds + '笔成对 · ' + s.open_count + '笔未平仓</span></div>' +
+    '</div>';
+}
+
+// 交易记录清单表（11列，照搬 _scenario_panel 的 ledger 表）
+function _tradeSimLedgerHTML(ledger, indexName) {
+  if (!ledger || !ledger.length) return '<div style="padding:12px;color:var(--text-3)">无交易记录</div>';
+  var rows = ledger.map(function (entry, j) {
+    var opClass = entry.op.indexOf('止损') >= 0 ? 'sell_stop_loss'
+      : entry.op.indexOf('卖') >= 0 ? 'sell'
+      : entry.op.indexOf('追买') >= 0 ? 'buy_special'
+      : entry.op.indexOf('备买') >= 0 ? 'buy_backup'
+      : entry.op.indexOf('辅买') >= 0 ? 'buy_aux' : 'buy';
+    var opBadge = '<span class="ledger-op ' + opClass + '">' + entry.op + '</span>';
+    var pctStr = (entry.return_pct >= 0 ? '+' : '') + entry.return_pct.toFixed(2) + '%';
+    var pctColor = _tradeSimColorPct(entry.return_pct);
+    var closeStr = entry.close.toFixed(2);
+    var idxChg = entry.index_chg_pct;
+    var idxChgStr;
+    if (idxChg !== null && idxChg !== undefined) {
+      idxChgStr = '<span style="color:' + _tradeSimColorPct(idxChg) + ';font-weight:600">' + (idxChg >= 0 ? '+' : '') + idxChg.toFixed(2) + '%</span>';
+    } else {
+      idxChgStr = '<span style="color:var(--text-3)">-</span>';
+    }
+    var sharesTrd = entry.shares_traded || 0;
+    var sharesStr;
+    if (sharesTrd > 0) sharesStr = '<span style="color:#e6492e;font-weight:600">+' + sharesTrd.toFixed(2) + '</span>';
+    else if (sharesTrd < 0) sharesStr = '<span style="color:#2e8b57;font-weight:600">' + sharesTrd.toFixed(2) + '</span>';
+    else sharesStr = '<span style="color:var(--text-3)">-</span>';
+    var totalSh = entry.total_shares || 0;
+    var totalShStr = totalSh > 0 ? totalSh.toFixed(2) : '<span style="color:var(--text-3)">0</span>';
+    var hv = entry.holdings_value || 0;
+    var hvStr = hv > 0 ? _tradeSimFmtNum(hv) : '<span style="color:var(--text-3)">0</span>';
+    var amt = entry.amount;
+    var amtStr;
+    if (sharesTrd > 0) amtStr = _tradeSimFmtNum(amt) + ' <span style="font-size:10px;color:var(--text-3)">(←' + sharesTrd.toFixed(2) + '股)</span>';
+    else if (sharesTrd < 0) amtStr = _tradeSimFmtNum(amt) + ' <span style="font-size:10px;color:var(--text-3)">(' + Math.abs(sharesTrd).toFixed(2) + '股->)</span>';
+    else amtStr = _tradeSimFmtNum(amt);
+    return '<tr>' +
+      '<td>' + (j + 1) + '</td>' +
+      '<td>' + entry.date + '</td>' +
+      '<td style="white-space:nowrap">' + closeStr + '</td>' +
+      '<td>' + idxChgStr + '</td>' +
+      '<td>' + opBadge + '</td>' +
+      '<td>' + amtStr + '</td>' +
+      '<td>' + sharesStr + '</td>' +
+      '<td>' + totalShStr + '</td>' +
+      '<td>' + hvStr + '</td>' +
+      '<td>' + _tradeSimFmtNum(entry.total_assets) + '</td>' +
+      '<td style="color:' + pctColor + ';font-weight:600">' + pctStr + '</td>' +
+      '</tr>';
+  }).join('');
+  return '<h3 style="margin:20px 0 2px;font-size:15px;">📒 交易记录清单（' + ledger.length + ' 笔，按时间轴）</h3>' +
+    '<p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 -> 得份额；卖出：卖份额 -> 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × ' + indexName + '收盘价。</p>' +
+    '<div class="sim-table-wrap"><table><thead><tr>' +
+    '<th>#</th><th>日期</th><th>' + indexName + '收盘</th><th>较上条涨跌</th><th>操作</th><th>交易金额</th><th>份额变动</th><th>持仓份额</th><th>持仓市值</th><th>当前总资产</th><th>累计收益率</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+// 未平仓持仓表（7列）
+function _tradeSimOpenPositionsHTML(openPositions, s) {
+  if (!openPositions || !openPositions.length) return '';
+  var rows = openPositions.map(function (op, j) {
+    return '<tr>' +
+      '<td>' + (j + 1) + '</td>' +
+      '<td>' + op.buy_date + '</td>' +
+      '<td>' + op.buy_close + '</td>' +
+      '<td>' + op.shares + '</td>' +
+      '<td style="color:' + _tradeSimColorPct(op.pct) + ';font-weight:600">' + (op.pct >= 0 ? '+' : '') + op.pct.toFixed(2) + '%</td>' +
+      '<td>' + _tradeSimFmtNum(op.current_value) + '</td>' +
+      '<td style="color:' + _tradeSimColorPct(op.profit) + ';font-weight:600">' + (op.profit >= 0 ? '+' : '') + op.profit.toFixed(2) + '</td>' +
+      '</tr>';
+  }).join('');
+  return '<h3 style="margin:20px 0 10px;font-size:15px;">📌 未平仓持仓（' + s.open_count + ' 笔，按最后交易日收盘价估值）</h3>' +
+    '<div class="sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>份额</th><th>浮动盈亏%</th><th>当前市值</th><th>浮动盈亏</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+// 已完成回合表（10列，含子回合展开）
+function _tradeSimRoundsHTML(rounds) {
+  if (!rounds || !rounds.length) return '';
+  var rows = rounds.map(function (r, j) {
+    var subRows = '';
+    if (r._sub_rounds && r._sub_rounds.length > 1) {
+      subRows = r._sub_rounds.map(function (sr) {
+        return '<tr style="background:var(--bg-hover);font-size:11px;color:var(--text-2)">' +
+          '<td colspan="2" style="padding-left:20px;border-left:3px solid var(--border-strong)">└ ' + sr.buy_date + '</td>' +
+          '<td>' + sr.buy_close + '</td>' +
+          '<td colspan="2"></td>' +
+          '<td>' + sr.hold_days + ' 天</td>' +
+          '<td style="color:' + _tradeSimColorPct(sr.pct) + ';font-weight:600">' + (sr.pct >= 0 ? '+' : '') + sr.pct.toFixed(2) + '%</td>' +
+          '<td>' + _tradeSimFmtNum(sr.amount_in) + '</td>' +
+          '<td>' + _tradeSimFmtNum(sr.amount_out) + '</td>' +
+          '<td style="color:' + _tradeSimColorPct(sr.profit) + ';font-weight:600">' + (sr.profit >= 0 ? '+' : '') + sr.profit.toFixed(2) + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+    return '<tr>' +
+      '<td>' + (j + 1) + '</td>' +
+      '<td>' + r.buy_date + '</td>' +
+      '<td>' + r.buy_close + '</td>' +
+      '<td>' + r.sell_date + '</td>' +
+      '<td>' + r.sell_close + '</td>' +
+      '<td>' + r.hold_days + ' 天</td>' +
+      '<td style="color:' + _tradeSimColorPct(r.pct) + ';font-weight:600">' + (r.pct >= 0 ? '+' : '') + r.pct.toFixed(2) + '%</td>' +
+      '<td>' + _tradeSimFmtNum(r.amount_in) + '</td>' +
+      '<td>' + _tradeSimFmtNum(r.amount_out) + '</td>' +
+      '<td style="color:' + _tradeSimColorPct(r.profit) + ';font-weight:600">' + (r.profit >= 0 ? '+' : '') + r.profit.toFixed(2) + '</td>' +
+      '</tr>' + subRows;
+  }).join('');
+  return '<h3 style="margin:20px 0 10px;font-size:15px;">📋 已完成回合（' + rounds.length + ' 轮）</h3>' +
+    '<div class="sim-table-wrap"><table><thead><tr>' +
+    '<th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>持有时长</th><th>盈亏%</th><th>投入</th><th>回收</th><th>净利润</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+// 全局对比表（33行：3路径×11场景，每列最优/最差高亮，照搬 build_html 的对比表逻辑）
+function _tradeSimComparisonTableHTML(sd, win) {
+  var rows = [];
+  var paths = sd.paths, scenarios = sd.scenarios;
+  for (var pi = 0; pi < paths.length; pi++) {
+    for (var si = 0; si < scenarios.length; si++) {
+      var s = sd.data[win][paths[pi]][scenarios[si]].summary;
+      rows.push({
+        path: paths[pi], sig: scenarios[si],
+        final_total: s.final_total,
+        total_return_pct: s.total_return_pct,
+        annualized: s.annualized,
+        max_drawdown: s.max_drawdown,
+        median_drawdown: s.median_drawdown,
+        trimmed_mean_drawdown: s.trimmed_mean_drawdown,
+        win_rate: s.win_rate,
+        total_ops: s.buy_count + s.sell_count,
+      });
+    }
+  }
+  var bestFinal = Math.max.apply(null, rows.map(function (r) { return r.final_total; }));
+  var bestReturn = Math.max.apply(null, rows.map(function (r) { return r.total_return_pct; }));
+  var bestAnnual = Math.max.apply(null, rows.map(function (r) { return r.annualized; }));
+  var bestDd = Math.min.apply(null, rows.map(function (r) { return r.max_drawdown; }));
+  var bestMedianDd = Math.min.apply(null, rows.map(function (r) { return r.median_drawdown; }));
+  var bestTrimmedDd = Math.min.apply(null, rows.map(function (r) { return r.trimmed_mean_drawdown; }));
+  var bestWin = Math.max.apply(null, rows.map(function (r) { return r.win_rate; }));
+  var bestOps = Math.max.apply(null, rows.map(function (r) { return r.total_ops; }));
+  var worstFinal = Math.min.apply(null, rows.map(function (r) { return r.final_total; }));
+  var worstReturn = Math.min.apply(null, rows.map(function (r) { return r.total_return_pct; }));
+  var worstAnnual = Math.min.apply(null, rows.map(function (r) { return r.annualized; }));
+  var worstDd = Math.max.apply(null, rows.map(function (r) { return r.max_drawdown; }));
+  var worstMedianDd = Math.max.apply(null, rows.map(function (r) { return r.median_drawdown; }));
+  var worstTrimmedDd = Math.max.apply(null, rows.map(function (r) { return r.trimmed_mean_drawdown; }));
+  var worstWin = Math.min.apply(null, rows.map(function (r) { return r.win_rate; }));
+  var worstOps = Math.min.apply(null, rows.map(function (r) { return r.total_ops; }));
+  function cmpCell(val, best, worst, isPct, signed) {
+    var isBest = Math.abs(val - best) < 0.001;
+    var isWorst = Math.abs(val - worst) < 0.001;
+    var styles = [];
+    if (isBest) styles.push('background:var(--bg-best);font-weight:700');
+    else if (isWorst) styles.push('background:var(--bg-worst);font-weight:700');
+    if (signed) {
+      if (val > 0) styles.push('color:#e6492e');
+      else if (val < 0) styles.push('color:#2e8b57');
+      else styles.push('color:#9e9e9e');
+    }
+    var styleAttr = styles.length ? ' style="' + styles.join(';') + '"' : '';
+    var numStr;
+    if (isPct) numStr = (val >= 0 ? '+' : '') + val.toFixed(2) + '%';
+    else numStr = _tradeSimFmtNum(val);
+    return '<span' + styleAttr + '>' + numStr + '</span>';
+  }
+  var body = rows.map(function (r) {
+    return '<tr>' +
+      '<td>' + r.path + '</td>' +
+      '<td>' + r.sig + '</td>' +
+      '<td>' + cmpCell(r.final_total, bestFinal, worstFinal, false, false) + ' 元</td>' +
+      '<td>' + cmpCell(r.total_return_pct, bestReturn, worstReturn, true, true) + '</td>' +
+      '<td>' + cmpCell(r.annualized, bestAnnual, worstAnnual, true, true) + '</td>' +
+      '<td>' + cmpCell(r.max_drawdown, bestDd, worstDd, true, false) + '</td>' +
+      '<td>' + cmpCell(r.median_drawdown, bestMedianDd, worstMedianDd, true, false) + '</td>' +
+      '<td>' + cmpCell(r.trimmed_mean_drawdown, bestTrimmedDd, worstTrimmedDd, true, false) + '</td>' +
+      '<td>' + cmpCell(r.win_rate, bestWin, worstWin, true, false) + '</td>' +
+      '<td>' + cmpCell(r.total_ops, bestOps, worstOps, false, false) + ' 次</td>' +
+      '</tr>';
+  }).join('');
+  return '<div class="sim-cmp-table"><table><thead><tr>' +
+    '<th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>' +
+    '</tr></thead><tbody>' + body + '</tbody></table></div>';
+}
+
+// 场景面板：12卡 + 曲线 + 交易记录(懒加载) + 未平仓 + 回合表
+function _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId) {
+  var s = winData.summary;
+  var cards = _tradeSimCardsHTML(s, initCap);
+  var equitySvg = '<h3 style="margin:20px 0 2px;font-size:15px;">📈 资产变化曲线</h3>' +
+    '<p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 ' + _tradeSimFmtNum(initCap) + ' 元 · 蓝色 = 期末 · 红色 = 峰值 · 绿色 = 最低</p>' +
+    _tradeSimEquitySVG(winData.equity_curve, initCap, gradId);
+  // 交易记录/回合表/未平仓 从 full.json 懒加载
+  var detailHTML;
+  if (fullNode) {
+    detailHTML = _tradeSimLedgerHTML(fullNode.ledger, indexName) +
+      _tradeSimOpenPositionsHTML(fullNode.open_positions, s) +
+      _tradeSimRoundsHTML(fullNode.rounds);
+  } else {
+    detailHTML = '<div style="padding:16px;text-align:center">' +
+      '<button type="button" class="trade-sim-load-full" style="padding:8px 24px;border:1px solid var(--primary);border-radius:6px;background:var(--primary-bg);color:var(--primary);font-size:13px;cursor:pointer">📥 展开交易记录 / 回合明细 / 未平仓</button>' +
+      '<div style="margin-top:6px;font-size:11px;color:var(--text-3)">点击懒加载完整数据（约 1-3MB）</div>' +
+      '</div>';
+  }
+  return cards + equitySvg + detailHTML;
+}
+
+function _tradeSimModalRender(ov) {
+  var m = _tradeSimState;
+  if (!m || !m.statsData) return;
+  var sd = m.statsData;
+  var win = m.win;
+  var pathIdx = m.path;
+  var scenIdx = m.scenario;
+  var pathLabel = sd.paths[pathIdx];
+  var scenLabel = sd.scenarios[scenIdx];
+  var indexName = sd.index_name;
+  var initCap = sd.initial_capital || 100000;
+  var winData = sd.data[win][pathLabel][scenLabel];
+  var fullNode = (m.fullLoaded && m.fullData && m.fullData.data[win] && m.fullData.data[win][pathLabel] && m.fullData.data[win][pathLabel][scenLabel]) || null;
+  var winLabel = '';
+  for (var i = 0; i < _TRADE_SIM_WIN_DEFS.length; i++) {
+    if (_TRADE_SIM_WIN_DEFS[i].k === win) { winLabel = _TRADE_SIM_WIN_DEFS[i].l; break; }
+  }
+  ov.querySelector('.trade-sim-modal-title').textContent = indexName + ' · 技术信号模拟回测（' + winLabel + '）';
+  // 吸顶窗口切换条
+  var winBar = '<div class="lab-win-bar trade-sim-win-bar">' +
+    '<span class="lab-win-bar-label">时间窗口</span>' +
+    '<div class="lab-win-tabs">' + _TRADE_SIM_WIN_DEFS.map(function (w) {
+      return '<button type="button" class="lab-win-tab' + (w.k === win ? ' active' : '') + '" data-win="' + w.k + '">' + w.l + '</button>';
+    }).join('') + '</div>' +
+    '<span class="lab-win-bar-cur">' + winLabel + '</span>' +
+    '</div>';
+  var cmpTable = _tradeSimComparisonTableHTML(sd, win);
+  var mainTabs = '<div class="sim-main-tabs">' + sd.paths.map(function (p, i) {
+    return '<button class="sim-main-tab' + (i === pathIdx ? ' active' : '') + '" data-path="' + i + '">' + p + '</button>';
+  }).join('') + '</div>';
+  var subTabs = '<div class="sim-sub-tabs">' + sd.scenarios.map(function (s, i) {
+    return '<button class="sim-sub-tab' + (i === scenIdx ? ' active' : '') + '" data-sig="' + i + '">' + s + '</button>';
+  }).join('') + '</div>';
+  var gradId = 'tradeSimGrad_' + win + '_' + pathIdx + '_' + scenIdx;
+  var panel = _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId);
+  var body = ov.querySelector('.trade-sim-modal-body');
+  body.innerHTML = winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
+  // 绑定窗口切换
+  body.querySelectorAll('.lab-win-tab[data-win]').forEach(function (btn) {
+    btn.onclick = function () { m.win = btn.dataset.win; _tradeSimModalRender(ov); };
   });
-  frame.addEventListener('load', () => { loading.classList.remove('show'); });  // iframe 加载完隐藏 loading
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && overlay.classList.contains('show')) close();
+  body.querySelectorAll('.sim-main-tab').forEach(function (btn) {
+    btn.onclick = function () { m.path = parseInt(btn.dataset.path); _tradeSimModalRender(ov); };
+  });
+  body.querySelectorAll('.sim-sub-tab').forEach(function (btn) {
+    btn.onclick = function () { m.scenario = parseInt(btn.dataset.sig); _tradeSimModalRender(ov); };
+  });
+  var loadFullBtn = body.querySelector('.trade-sim-load-full');
+  if (loadFullBtn) {
+    loadFullBtn.onclick = async function () {
+      if (m.loadingFull) return;
+      m.loadingFull = true;
+      loadFullBtn.textContent = '加载中…';
+      loadFullBtn.disabled = true;
+      try {
+        if (!m.fullLoaded) {
+          m.fullData = _tradeSimFullCache[m.indexId] || await _tradeSimFetchFull(m.indexId);
+          _tradeSimFullCache[m.indexId] = m.fullData;
+          m.fullLoaded = true;
+        }
+        _tradeSimModalRender(ov);
+      } catch (e) {
+        loadFullBtn.textContent = '⚠ 加载失败，点击重试';
+        loadFullBtn.disabled = false;
+      } finally {
+        m.loadingFull = false;
+      }
+    };
+  }
+}
+
+function initSimOverlay() {
+  // sim-btn 左键打开 modal（不再 iframe）；中键仍可新标签打开旧 HTML 兜底
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('.sim-btn');
+    if (!a) return;
+    // 仅左键拦截；中键/ctrl+点击放行新标签
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    var indexId = a.dataset.index || 'sh';
+    _tradeSimOpenModal(indexId);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && _tradeSimOverlay && _tradeSimOverlay.classList.contains('show')) _tradeSimCloseModal();
   });
 }
 

@@ -22,7 +22,7 @@ import sqlite3
 import os
 import sys
 import yaml
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "sentiment.db")
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -33,8 +33,44 @@ TOTAL_CAPITAL = 100_000   # 总资金池
 POSITION_SIZE = 10_000    # 每次固定操作金额（路径 A / C）
 MAX_POSITIONS = 10        # 最多同时持仓 10 笔
 
+# 每窗口独立 sim 的起始资金（= TOTAL_CAPITAL，别名，与 lab_simulate.py 一致）
+INITIAL_CAPITAL = TOTAL_CAPITAL
+
+# 5个回测窗口：(key, label, years_or_None) —— 照搬 lab_simulate.py:91-97
+WINDOW_DEFS = [
+    ('all', '全历史', None),
+    ('y10', '近10年', 10),
+    ('y5',  '近5年',  5),
+    ('y3',  '近3年',  3),
+    ('y1',  '近1年',  1),
+]
+MAX_CURVE_POINTS = 100  # equity_curve 采样点数（照搬 lab_simulate.py:88）
+
 # 买信号类型 -> ledger op 中文标签（主买/辅买/追买/备买）
 _BUY_LABELS = {"buy": "主买", "buy_aux": "辅买", "buy_special": "追买", "buy_backup": "备买"}
+
+
+def _compute_w_start(last_date, years):
+    """计算窗口起始日期（YYYYMMDD）= last_date - years 年。
+    简单实现：年减 years，月日不变（Feb 29 -> Feb 28 兜底）。"""
+    y = int(last_date[:4]) - years
+    m = int(last_date[4:6])
+    d = int(last_date[6:8])
+    # Feb 29 在非闰年不存在，兜底到 28
+    if m == 2 and d == 29 and not (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)):
+        d = 28
+    return f"{y:04d}{m:02d}{d:02d}"
+
+
+def _sample_curve(curve, max_points=MAX_CURVE_POINTS):
+    """均匀采样净值曲线，保留首尾点（照搬 lab_simulate.py:166-174）。"""
+    if len(curve) <= max_points:
+        return curve
+    step = len(curve) / max_points
+    indices = sorted(set(int(i * step) for i in range(max_points)))
+    if indices[-1] != len(curve) - 1:
+        indices.append(len(curve) - 1)
+    return [curve[i] for i in indices]
 
 
 def load_name_map():
@@ -136,9 +172,12 @@ def _ledger(date, op, amount, cash, positions, close, prev_close=None, holdings_
 # ============================================================
 #  路径 A：固定 1w(10%) 进出（FIFO）
 # ============================================================
-def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, sell_types=None):
+def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None):
     if sell_types is None:
         sell_types = {"sell"}
+    # 窗口过滤：只保留 date >= w_start 的信号（每窗口独立从 INITIAL_CAPITAL 起算）
+    if w_start:
+        signals = [s for s in signals if s[0] >= w_start]
     cash = TOTAL_CAPITAL
     positions = []  # [(buy_date, buy_close, shares)]
     total_assets_peak = TOTAL_CAPITAL
@@ -239,16 +278,20 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, 
         max_drawdown=max_drawdown, max_drawdown_date=max_drawdown_date,
         skip1_label="仓位已满", skip2_label="现金不足", skip3_label="无持仓可卖",
         round_drawdowns=round_dds,
+        w_start=w_start,
     )
 
 
 # ============================================================
 #  路径 B：全仓进出（一次一笔，买用全部现金，卖清仓）
 # ============================================================
-def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, sell_types=None):
+def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None):
     """全仓进出：买→清仓→买→清仓，跳过连续同向信号。"""
     if sell_types is None:
         sell_types = {"sell"}
+    # 窗口过滤：只保留 date >= w_start 的信号（每窗口独立从 INITIAL_CAPITAL 起算）
+    if w_start:
+        signals = [s for s in signals if s[0] >= w_start]
     cash = TOTAL_CAPITAL
     holding = None  # (buy_date, buy_close, shares) or None
     total_assets_peak = TOTAL_CAPITAL
@@ -356,16 +399,20 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, se
         max_drawdown=max_drawdown, max_drawdown_date=max_drawdown_date,
         skip1_label="连续同向买入", skip2_label="", skip3_label="无持仓可卖",
         round_drawdowns=round_dds,
+        w_start=w_start,
     )
 
 
 # ============================================================
 #  路径 C：买固定 1w(10%) + 卖清仓
 # ============================================================
-def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, sell_types=None):
+def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None):
     """每次买 1 万（最多 10 笔），出现卖点则清仓全部。"""
     if sell_types is None:
         sell_types = {"sell"}
+    # 窗口过滤：只保留 date >= w_start 的信号（每窗口独立从 INITIAL_CAPITAL 起算）
+    if w_start:
+        signals = [s for s in signals if s[0] >= w_start]
     cash = TOTAL_CAPITAL
     positions = []  # [(buy_date, buy_close, shares)]
     total_assets_peak = TOTAL_CAPITAL
@@ -494,6 +541,7 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
         max_drawdown=max_drawdown, max_drawdown_date=max_drawdown_date,
         skip1_label="仓位已满", skip2_label="现金不足", skip3_label="无持仓可卖",
         round_drawdowns=round_dds,
+        w_start=w_start,
     )
 
 
@@ -506,7 +554,7 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
                   skip1, skip2, skip3, max_positions_ever, strategy_desc="",
                   max_drawdown=0.0, max_drawdown_date=None,
                   skip1_label="跳过", skip2_label="跳过", skip3_label="跳过",
-                  round_drawdowns=None):
+                  round_drawdowns=None, w_start=None):
     holdings_value = sum(s * last_close for _, _, s in positions)
     final_total = cash + holdings_value
     total_return = final_total - TOTAL_CAPITAL
@@ -598,10 +646,27 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
         else:
             trimmed_mean_dd = sum(sorted_dds) / n
 
+    # 构建 equity_curve：起点 = 窗口起点（或首笔买入日/last_date）value=INITIAL_CAPITAL，
+    # 逐笔 ledger 打点，末点 = last_date value=final_total（若未覆盖）
+    equity_curve = []
+    if w_start:
+        start_date = w_start
+    elif first_buy_date:
+        start_date = first_buy_date
+    else:
+        start_date = last_date
+    equity_curve.append({"date": _fmt_date(start_date), "value": INITIAL_CAPITAL})
+    for entry in ledger:
+        equity_curve.append({"date": entry["date"], "value": entry["total_assets"]})
+    last_date_fmt = _fmt_date(last_date)
+    if not equity_curve or equity_curve[-1]["date"] != last_date_fmt:
+        equity_curve.append({"date": last_date_fmt, "value": round(final_total, 2)})
+
     return {
         "rounds": rounds,
         "ledger": ledger,
         "open_positions": open_positions,
+        "equity_curve": equity_curve,
         "summary": {
             "scenario": scenario_name,
             "strategy": strategy_desc,
@@ -1288,6 +1353,125 @@ tr:hover td {{ background: var(--bg-hover); }}
 </html>"""
 
 
+# 信号组合定义（11场景）：单买4 + 双买6 + 止损1
+_SIG_LABELS = [
+    "主买+卖", "辅买+卖", "追买+卖", "备买+卖",
+    "主买+辅买+卖", "主买+追买+卖", "主买+备买+卖",
+    "辅买+追买+卖", "辅买+备买+卖", "追买+备买+卖",
+    "追买+追止损卖",
+]
+_SIG_TYPES = [
+    {"buy"}, {"buy_aux"}, {"buy_special"}, {"buy_backup"},
+    {"buy", "buy_aux"}, {"buy", "buy_special"}, {"buy", "buy_backup"},
+    {"buy_aux", "buy_special"}, {"buy_aux", "buy_backup"},
+    {"buy_special", "buy_backup"},
+    {"buy_special"},
+]
+# 各组合对应的卖点类型：前 10 组用通用 sell，第 11 组（追买+追止损卖）用 sell_stop_loss
+_SIG_SELL_TYPES = [
+    {"sell"}, {"sell"}, {"sell"}, {"sell"},
+    {"sell"}, {"sell"}, {"sell"},
+    {"sell"}, {"sell"}, {"sell"},
+    {"sell_stop_loss"},
+]
+# 3 条路径（与 _generate_one 顺序一致：C/B/A）
+_PATH_LABELS = ["买固定1w(10%)+卖清仓", "全仓进出", "固定1w(10%)进出（FIFO）"]
+_PATH_FUNCS = [simulate_sell_all, simulate_all_in, simulate_fixed_1w]
+
+
+def _windows_meta(signals, last_date):
+    """计算 5 窗口的元数据：key/label/start/end + w_start（None=全史）。
+    照搬 lab_simulate.run_index L668-678：w_start = last_date - years，若 < first_date 则 None。"""
+    first_date = signals[0][0]
+    meta = []
+    for wk, wl, wy in WINDOW_DEFS:
+        if wk == 'all' or wy is None:
+            meta.append({'k': wk, 'l': wl, 's': _fmt_date(first_date), 'e': _fmt_date(last_date), 'w_start': None})
+            continue
+        ws_candidate = _compute_w_start(last_date, wy)
+        if ws_candidate <= first_date:
+            # 窗口早于数据起点，用全史（w_start=None 不过滤）
+            meta.append({'k': wk, 'l': wl, 's': _fmt_date(first_date), 'e': _fmt_date(last_date), 'w_start': None})
+        else:
+            meta.append({'k': wk, 'l': wl, 's': _fmt_date(ws_candidate), 'e': _fmt_date(last_date), 'w_start': ws_candidate})
+    return meta
+
+
+def _generate_json(index_id, name_map, out_dir_data):
+    """生成单个品种的 JSON 回测数据（5窗口，每窗口独立 sim 从 INITIAL_CAPITAL 起算）。
+
+    输出两个文件到 out_dir_data/trade_sim/：
+    - trade_sim_{index}_stats.json：每窗口 summary + 采样 equity_curve(100点)（小，秒开）
+    - trade_sim_{index}_full.json：rounds/ledger/open_positions（大，懒加载）
+
+    返回 True 成功；无数据（signals 为空或 last 为 None）时返回 False 不写文件。
+    """
+    index_name = name_map.get(index_id, index_id)
+    signals, last = get_signals(index_id)
+    if not signals or last is None:
+        return False
+    last_date, last_close = last
+    signal_first_date = signals[0][0]
+    signal_last_date = signals[-1][0]
+
+    wins = _windows_meta(signals, last_date)
+
+    stats_data = {}  # {win_key: {path: {scenario: {summary, equity_curve}}}}
+    full_data = {}   # {win_key: {path: {scenario: {rounds, ledger, open_positions}}}}
+
+    for wm in wins:
+        wk = wm['k']
+        w_start = wm['w_start']
+        stats_data[wk] = {}
+        full_data[wk] = {}
+        for plabel, pfunc in zip(_PATH_LABELS, _PATH_FUNCS):
+            stats_data[wk][plabel] = {}
+            full_data[wk][plabel] = {}
+            for slabel, btypes, stypes in zip(_SIG_LABELS, _SIG_TYPES, _SIG_SELL_TYPES):
+                result = pfunc(slabel, signals, btypes, last_date, last_close,
+                               sell_types=stypes, w_start=w_start)
+                # stats：summary + 采样 equity_curve（前端渲染对比表+12卡+曲线）
+                stats_data[wk][plabel][slabel] = {
+                    'summary': result['summary'],
+                    'equity_curve': _sample_curve(result['equity_curve']),
+                }
+                # full：rounds/ledger/open_positions（前端懒加载渲染交易记录+回合表+未平仓）
+                full_data[wk][plabel][slabel] = {
+                    'rounds': result['rounds'],
+                    'ledger': result['ledger'],
+                    'open_positions': result['open_positions'],
+                }
+
+    stats_json = {
+        'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'index_id': index_id,
+        'index_name': index_name,
+        'initial_capital': INITIAL_CAPITAL,
+        'total_capital': TOTAL_CAPITAL,
+        'position_size': POSITION_SIZE,
+        'windows': [{'k': w['k'], 'l': w['l'], 's': w['s'], 'e': w['e']} for w in wins],
+        'signal_first_date': _fmt_date(signal_first_date),
+        'signal_last_date': _fmt_date(signal_last_date),
+        'paths': _PATH_LABELS,
+        'scenarios': _SIG_LABELS,
+        'data': stats_data,
+    }
+    full_json = {
+        'index_id': index_id,
+        'data': full_data,
+    }
+
+    out_dir = os.path.join(out_dir_data, 'trade_sim')
+    os.makedirs(out_dir, exist_ok=True)
+    stats_path = os.path.join(out_dir, f'trade_sim_{index_id}_stats.json')
+    full_path = os.path.join(out_dir, f'trade_sim_{index_id}_full.json')
+    with open(stats_path, 'w', encoding='utf-8') as f:
+        json.dump(stats_json, f, ensure_ascii=False, separators=(',', ':'))
+    with open(full_path, 'w', encoding='utf-8') as f:
+        json.dump(full_json, f, ensure_ascii=False, separators=(',', ':'))
+    return True
+
+
 def _generate_one(index_id, name_map, out_dir_static, output=None):
     """生成单个品种的回测 HTML。
 
@@ -1356,14 +1540,44 @@ def _generate_one(index_id, name_map, out_dir_static, output=None):
 def main():
     parser = argparse.ArgumentParser(description="技术信号模拟回测")
     parser.add_argument("--index", help="品种 index_id（默认 sh）")
-    parser.add_argument("--all", action="store_true", help="批量生成所有品种（写 static-site）")
-    parser.add_argument("--output", help="自定义输出路径（仅单品种，只写该路径）")
+    parser.add_argument("--all", action="store_true", help="批量生成所有品种")
+    parser.add_argument("--output", help="自定义输出路径（仅单品种 HTML，只写该路径）")
+    parser.add_argument("--html", action="store_true", help="生成旧版静态 HTML（默认不生成，仅 JSON）")
     args = parser.parse_args()
 
     base_dir = os.path.dirname(os.path.dirname(__file__))
     out_dir_static = os.path.join(base_dir, "static-site")
+    out_dir_data = os.path.join(base_dir, "static-site", "data")
     name_map = load_name_map()
 
+    # 默认生成 JSON（5窗口，每窗口独立 sim）；--html flag 才额外生成旧版静态 HTML
+    if not args.html:
+        if args.all:
+            ids = list(name_map.keys())
+            ok = 0; skip = 0; fail = 0
+            for index_id in ids:
+                try:
+                    if _generate_json(index_id, name_map, out_dir_data):
+                        ok += 1
+                    else:
+                        skip += 1
+                        print(f"SKIP（无数据）: {index_id}", file=sys.stderr)
+                except Exception as e:
+                    fail += 1
+                    print(f"FAIL: {index_id} - {e}", file=sys.stderr)
+            print(f"JSON 完成: 成功 {ok} / 跳过 {skip} / 失败 {fail} / 共 {len(ids)}")
+            return
+
+        index_id = args.index or "sh"
+        index_name = name_map.get(index_id, index_id)
+        if _generate_json(index_id, name_map, out_dir_data):
+            print(f"JSON Generated: {index_name} -> static-site/data/trade_sim/")
+        else:
+            print(f"无数据: {index_id}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    # --html: 旧版静态 HTML 生成（保留兜底过渡）
     if args.all:
         ids = list(name_map.keys())
         ok = 0; skip = 0; fail = 0
@@ -1377,7 +1591,7 @@ def main():
             except Exception as e:
                 fail += 1
                 print(f"FAIL: {index_id} - {e}", file=sys.stderr)
-        print(f"完成: 成功 {ok} / 跳过 {skip} / 失败 {fail} / 共 {len(ids)}")
+        print(f"HTML 完成: 成功 {ok} / 跳过 {skip} / 失败 {fail} / 共 {len(ids)}")
         return
 
     index_id = args.index or "sh"
