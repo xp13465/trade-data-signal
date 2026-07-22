@@ -692,14 +692,18 @@ def compute():
             buy_backup_filt = supertrend_buy_shift3 & confirm_above
 
             # h5 平衡档过滤预览（2026-07-22）：被过滤的 buy_special 标 buy_special_filtered（灰色 pin 预览模式，不删除）。
-            # h5 条件 = ATR(14)/close > 0.03 OR 量价背离。调研 /tmp/peak_filter_combos.py::h5：
-            # 10d 均 +1.66->+1.84 / 套牢 12.83->11.77，过滤率 ~29%（核心反直觉：套牢来自高波动假突破而非顶部追买）。
-            # 量价背离定义（与 /tmp/peak_filter_backtest.py L90-94 复刻口径一致）：
-            #   5 日价涨（close/close.shift(5)-1 > 0）且 近 5 日至少 3 日 amount < MA5(amount)。
+            # h5 条件 = ATR(14)/close > 0.03（方案 A，2026-07-22 改：去掉量价背离误杀）。
+            # 调研依据 /tmp/peak_filter_combos.py::h5 拆分：
+            #   - ATR>0.03 真过滤：滤中套牢率 20.05% >> 保留套牢率 9.45%，确实把高波动假突破标灰
+            #   - 量价背离误杀元凶：滤中套牢率 8.96% < 保留 9.45%（把好信号误标灰），故去掉
+            # 改前 (atr_pct>0.03)|(price_vol_div==1) 滤率 29.4% -> 改后 (atr_pct>0.03) 滤率 10.05%
+            # 预期：总收益 167.3 -> 190.9 (+23.6)，滤中套牢 23.84%（ATR 单独贡献）
             # 预览模式设计：被过滤的标灰展示不删除，未来把 buy_special_filtered 直接 drop 即可平滑过渡到真过滤。
             # atr14 已在 L655 算过（Wilder 14 周期，同 peak_filter_backtest.py L36-42 口径）；amount 用 load_index_amount。
             amount = load_index_amount(iid).reindex(close.index)
             atr_pct = atr14 / close
+            # price_vol_div 计算保留（h5 不再用，未来可能复用于其他过滤档）：
+            #   5 日价涨（close/close.shift(5)-1 > 0）且 近 5 日至少 3 日 amount < MA5(amount)。
             if amount.dropna().empty:
                 price_vol_div = pd.Series(0, index=close.index, dtype=int)
             else:
@@ -708,7 +712,12 @@ def compute():
                 amt_below_ma5 = (amount < amt_ma5).astype(int)
                 amt_below_5d = amt_below_ma5.rolling(5).sum()
                 price_vol_div = ((price_5d_chg > 0) & (amt_below_5d >= 3)).astype(int)
-            h5_filter_mask = ((atr_pct > 0.03) | (price_vol_div == 1)).fillna(False)
+            # 方案 C (2026-07-22): 偏离 ma60>20% AND ATR>3% 双条件精准过滤
+            # 滤率 5.02%, 滤中套牢 30.60%(最高=过滤掉的最差,精准度最高), 总收益 200.2(+32.9 vs h5)
+            # 依据 /tmp/peak_filter_combos.py h7 行 + h5 优化方案文档
+            # price_vol_div 计算保留(h5 不再用, 未来可能复用)
+            dev_ma60 = close / ma60
+            h5_filter_mask = ((dev_ma60 > 1.20) & (atr_pct > 0.03)).fillna(False)
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
