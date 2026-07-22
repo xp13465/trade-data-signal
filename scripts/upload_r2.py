@@ -280,6 +280,23 @@ def cmd_upload_trade_sim():
         sys.exit(1)
 
 
+def cmd_upload_trade_sim_json():
+    """上传 static-site/data/trade_sim/*.json + .gz 到 R2 trade_sim_data/ 前缀。
+
+    R2 key = trade_sim_data/trade_sim_{id}_stats.json[.gz] + trade_sim_{id}_full.json[.gz]。
+    前端改 fetchJSON -> https://ssd.fx8.store/trade_sim_data/trade_sim_{id}_stats.json。
+    用 trade_sim_data/ 前缀避开现有 trade_sim/ HTML 前缀冲突。
+    export.py 生成 100 品种 × (stats+full) × (.json+.gz) = 400 文件 ~275M。
+    deploy.sh 调本命令同步 R2（2026-07-22 迁出 git，解决 s.sugas.site 300MB 超限 404）。
+    """
+    ts_dir = STATIC_DIR / "data/trade_sim"
+    ok, total = _upload_glob(ts_dir, ["*.json", "*.json.gz"], "trade_sim_data")
+    if total == 0:
+        sys.exit(f"无 trade_sim json: {ts_dir}")
+    if ok != total:
+        sys.exit(1)
+
+
 def cmd_upload_index():
     """上传 static-site/data/index/*.json + .gz 到 R2 index/ 前缀。
 
@@ -547,6 +564,8 @@ if __name__ == "__main__":
         cmd_upload_lab()
     elif cmd == "upload-trade-sim":
         cmd_upload_trade_sim()
+    elif cmd == "upload-trade-sim-json":
+        cmd_upload_trade_sim_json()
     elif cmd == "upload-index":
         cmd_upload_index()
     elif cmd == "upload-industry":
@@ -569,6 +588,6 @@ if __name__ == "__main__":
     else:
         sys.exit(
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
-            "upload-index|upload-industry|upload-db|"
+            "upload-trade-sim-json|upload-index|upload-industry|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup]"
         )

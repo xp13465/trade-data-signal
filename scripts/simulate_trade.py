@@ -614,7 +614,7 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
     win_rate = win_count / len(rounds) * 100 if rounds else 0
     avg_win_pct = sum(r["pct"] for r in win_rounds) / win_count if win_count else 0
     avg_loss_pct = sum(r["pct"] for r in lose_rounds) / lose_count if lose_count else 0
-    avg_pl_ratio = abs(avg_win_pct / avg_loss_pct) if avg_loss_pct != 0 else float("inf")
+    avg_pl_ratio = abs(avg_win_pct / avg_loss_pct) if avg_loss_pct != 0 else None  # 无亏损交易时 None(JSON null), 避免 Infinity 致 JS JSON.parse 崩
 
     # 最长连胜/连败
     max_win_streak = 0
@@ -711,7 +711,7 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
             "win_rate": round(win_rate, 1),
             "avg_win_pct": round(avg_win_pct, 2),
             "avg_loss_pct": round(avg_loss_pct, 2),
-            "avg_pl_ratio": round(avg_pl_ratio, 2),
+            "avg_pl_ratio": round(avg_pl_ratio, 2) if avg_pl_ratio is not None else None,
             "median_drawdown": round(median_dd, 2),
             "trimmed_mean_drawdown": round(trimmed_mean_dd, 2),
             "flow_desc": flow_desc,

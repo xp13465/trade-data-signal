@@ -125,6 +125,7 @@ fi
 echo "-> 上传 lab/trade_sim/index/industry 到 R2 ..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-lab 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-lab 失败,继续部署" | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-trade-sim 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-trade-sim 失败,继续部署" | tee -a "$LOG"
+"$PY" "$REPO/scripts/upload_r2.py" upload-trade-sim-json 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-trade-sim-json 失败,继续部署" | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-index 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-index 失败,继续部署" | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-industry 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-industry 失败,继续部署" | tee -a "$LOG"
 

@@ -3,6 +3,8 @@
   --bg-page: #f5f6f8;        /* 页面背景 */
   --bg-card: #fff;           /* 卡片/容器背景 */
   --bg-hover: #f7f8fa;       /* hover/浅底 */
+  --bg-best: #fff8e1;        /* 最优单元格高亮 */
+  --bg-worst: #f5f5f5;       /* 最差单元格高亮 */
   --bg-active: #f0f5ff;     /* 激活浅底 */
   --border: #e5e6eb;         /* 边框 */
   --border-strong: #d9dce0;  /* 强边框 */
@@ -27,6 +29,8 @@
   --bg-page: #0d1117;
   --bg-card: #161b22;
   --bg-hover: #21262d;
+  --bg-best: rgba(240,185,11,0.16);
+  --bg-worst: rgba(255,255,255,0.06);
   --bg-active: #1c2333;
   --border: #30363d;
   --border-strong: #484f58;
@@ -49,6 +53,8 @@
   --bg-page: #1a1d29;
   --bg-card: #252836;
   --bg-hover: #2d3142;
+  --bg-best: rgba(240,185,11,0.22);
+  --bg-worst: rgba(0,0,0,0.20);
   --bg-active: #3a2e1a;
   --border: #3a3d4d;
   --border-strong: #545767;
@@ -2284,6 +2290,13 @@ main { padding: 16px 24px; }
 .trade-sim-modal-body .sim-cmp-table { margin-bottom: 20px; background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); padding: 8px; overflow-x: auto; }
 .trade-sim-modal-body .sim-cmp-table table { font-size: 12px; width: 100%; border-collapse: collapse; }
 .trade-sim-modal-body .sim-cmp-table th { background: var(--bg-hover); padding: 6px 10px; text-align: left; font-weight: 600; color: var(--text-2); white-space: nowrap; border-bottom: 1px solid var(--border); }
+.trade-sim-modal-body .sim-cmp-table th.sim-cmp-sortable { cursor: pointer; user-select: none; transition: background .15s, color .15s; }
+.trade-sim-modal-body .sim-cmp-table th.sim-cmp-sortable:hover { background: var(--bg-hover-strong, var(--bg-hover)); color: var(--text-1); }
+.trade-sim-modal-body .sim-cmp-table th.sim-cmp-active { background: var(--primary-bg, var(--bg-hover)); color: var(--primary, var(--text-1)); }
+.trade-sim-modal-body .sim-cmp-table th.sim-cmp-active:hover { background: var(--primary-bg, var(--bg-hover)); }
+.trade-sim-modal-body .sim-cmp-table th .sim-cmp-th-label { margin-right: 4px; }
+.trade-sim-modal-body .sim-cmp-table th .sim-cmp-arrow { font-size: 10px; opacity: 0.4; font-weight: 400; }
+.trade-sim-modal-body .sim-cmp-table th .sim-cmp-arrow.active { opacity: 1; font-weight: 700; color: var(--primary, var(--text-1)); }
 .trade-sim-modal-body .sim-cmp-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .trade-sim-modal-body .sim-cmp-table tr:hover td { background: var(--bg-hover); }
 .trade-sim-modal-body .sim-main-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid var(--border); overflow-x: auto; }

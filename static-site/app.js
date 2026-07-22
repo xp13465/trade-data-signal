@@ -7342,15 +7342,12 @@ function _tradeSimFmtNum(n) {
 }
 
 async function _tradeSimFetchStats(indexId) {
-  var resp = await fetch('data/trade_sim/trade_sim_' + encodeURIComponent(indexId) + '_stats.json');
-  if (!resp.ok) throw new Error('stats.json HTTP ' + resp.status);
-  return await resp.json();
+  // R2 托管：trade_sim_data/ 前缀避开 trade_sim/ HTML；fetchJSON 自动 .gz 优先 + DecompressionStream 解压（与 lab/index 一致）
+  return await fetchJSON('https://ssd.fx8.store/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_stats.json');
 }
 
 async function _tradeSimFetchFull(indexId) {
-  var resp = await fetch('data/trade_sim/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
-  if (!resp.ok) throw new Error('full.json HTTP ' + resp.status);
-  return await resp.json();
+  return await fetchJSON('https://ssd.fx8.store/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
 }
 
 async function _tradeSimOpenModal(indexId) {
@@ -7364,6 +7361,8 @@ async function _tradeSimOpenModal(indexId) {
     fullData: null,
     fullLoaded: false,
     loadingFull: false,
+    cmpSortCol: -1,    // 对比表当前排序列索引（-1=未排序，保持原始顺序）
+    cmpSortDir: 'desc', // 当前排序方向 'asc'|'desc'
   };
   var body = ov.querySelector('.trade-sim-modal-body');
   body.innerHTML = '<div class="trade-sim-loading"><span class="sim-spinner"></span>加载回测中…</div>';
@@ -7564,6 +7563,49 @@ function _tradeSimRoundsHTML(rounds) {
 }
 
 // 全局对比表（33行：3路径×11场景，每列最优/最差高亮，照搬 build_html 的对比表逻辑）
+// 列定义：key=数据字段名,type='str'|'num',defaultDir=首次点击默认方向
+//   - 数值指标越大越好的列默认 desc（高到低）
+//   - 回撤类指标越小越好默认 asc（小到大）
+//   - 字符串列默认 asc
+var _TRADE_SIM_CMP_COLS = [
+  { key: 'path', label: '策略', type: 'str', defaultDir: 'asc', title: '' },
+  { key: 'sig', label: '信号', type: 'str', defaultDir: 'asc', title: '' },
+  { key: 'final_total', label: '最终资产', type: 'num', defaultDir: 'desc', title: '' },
+  { key: 'total_return_pct', label: '总收益率', type: 'num', defaultDir: 'desc', title: '' },
+  { key: 'annualized', label: '年化', type: 'num', defaultDir: 'desc', title: '首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。' },
+  { key: 'max_drawdown', label: '最大回撤', type: 'num', defaultDir: 'asc', title: '历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。' },
+  { key: 'median_drawdown', label: '回撤中位数', type: 'num', defaultDir: 'asc', title: '' },
+  { key: 'trimmed_mean_drawdown', label: '回撤去极均值', type: 'num', defaultDir: 'asc', title: '' },
+  { key: 'win_rate', label: '胜率', type: 'num', defaultDir: 'desc', title: '盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。' },
+  { key: 'total_ops', label: '交易笔数', type: 'num', defaultDir: 'desc', title: '' }
+];
+
+// 按 colIdx/dir 对 rows 排序。null/NaN/非数值 视为"无数据"恒排末尾，不受 dir 影响。
+function _tradeSimCmpSortRows(rows, colIdx, dir) {
+  if (colIdx < 0 || colIdx >= _TRADE_SIM_CMP_COLS.length) return rows;
+  var col = _TRADE_SIM_CMP_COLS[colIdx];
+  var factor = (dir === 'asc') ? 1 : -1;
+  return rows.slice().sort(function (a, b) {
+    var av = a[col.key], bv = b[col.key];
+    if (col.type === 'str') {
+      var as = (av == null) ? '' : String(av);
+      var bs = (bv == null) ? '' : String(bv);
+      if (as === '' && bs === '') return 0;
+      if (as === '') return 1;   // 空值末尾
+      if (bs === '') return -1;
+      return as.localeCompare(bs, 'zh') * factor;
+    }
+    // num: null/NaN/Infinity 一律视为 null（无数据），恒排末尾
+    var an = (typeof av === 'number' && isFinite(av)) ? av : null;
+    var bn = (typeof bv === 'number' && isFinite(bv)) ? bv : null;
+    if (an === null && bn === null) return 0;
+    if (an === null) return 1;   // null 末尾，不随 dir 翻转
+    if (bn === null) return -1;
+    if (an === bn) return 0;
+    return (an < bn ? -1 : 1) * factor;
+  });
+}
+
 function _tradeSimComparisonTableHTML(sd, win) {
   var rows = [];
   var paths = sd.paths, scenarios = sd.scenarios;
@@ -7582,6 +7624,12 @@ function _tradeSimComparisonTableHTML(sd, win) {
         total_ops: s.buy_count + s.sell_count,
       });
     }
+  }
+  // 应用当前排序状态（-1=未排序保持原序）
+  var sortCol = (_tradeSimState && _tradeSimState.cmpSortCol != null) ? _tradeSimState.cmpSortCol : -1;
+  var sortDir = (_tradeSimState && _tradeSimState.cmpSortDir) || 'desc';
+  if (sortCol >= 0) {
+    rows = _tradeSimCmpSortRows(rows, sortCol, sortDir);
   }
   var bestFinal = Math.max.apply(null, rows.map(function (r) { return r.final_total; }));
   var bestReturn = Math.max.apply(null, rows.map(function (r) { return r.total_return_pct; }));
@@ -7630,8 +7678,19 @@ function _tradeSimComparisonTableHTML(sd, win) {
       '<td>' + cmpCell(r.total_ops, bestOps, worstOps, false, false) + ' 次</td>' +
       '</tr>';
   }).join('');
+  // 表头：th 可点击切换排序，当前列显示 ▲(升序)/▼(降序)，其他列显示 ⇅(可排序提示)
+  var headHTML = _TRADE_SIM_CMP_COLS.map(function (col, i) {
+    var isActive = (i === sortCol);
+    var arrow = isActive ? (sortDir === 'asc' ? '▲' : '▼') : '⇅';
+    var cls = 'sim-cmp-sortable' + (isActive ? ' sim-cmp-active' : '');
+    var titleAttr = col.title ? ' title="' + col.title + '"' : '';
+    return '<th class="' + cls + '" data-cmp-col="' + i + '"' + titleAttr + '>' +
+      '<span class="sim-cmp-th-label">' + col.label + '</span>' +
+      '<span class="sim-cmp-arrow' + (isActive ? ' active' : '') + '">' + arrow + '</span>' +
+      '</th>';
+  }).join('');
   return '<div class="sim-cmp-table"><table><thead><tr>' +
-    '<th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>' +
+    headHTML +
     '</tr></thead><tbody>' + body + '</tbody></table></div>';
 }
 
@@ -7703,6 +7762,22 @@ function _tradeSimModalRender(ov) {
   });
   body.querySelectorAll('.sim-sub-tab').forEach(function (btn) {
     btn.onclick = function () { m.scenario = parseInt(btn.dataset.sig); _tradeSimModalRender(ov); };
+  });
+  // 对比表列标题点击排序：同列=切方向，不同列=换列+用该列默认方向
+  body.querySelectorAll('.sim-cmp-table th[data-cmp-col]').forEach(function (th) {
+    th.onclick = function () {
+      var colIdx = parseInt(th.dataset.cmpCol);
+      if (isNaN(colIdx)) return;
+      if (m.cmpSortCol === colIdx) {
+        // 同列：翻转方向
+        m.cmpSortDir = (m.cmpSortDir === 'asc') ? 'desc' : 'asc';
+      } else {
+        // 不同列：切到该列，用其默认方向
+        m.cmpSortCol = colIdx;
+        m.cmpSortDir = _TRADE_SIM_CMP_COLS[colIdx].defaultDir;
+      }
+      _tradeSimModalRender(ov);
+    };
   });
   var loadFullBtn = body.querySelector('.trade-sim-load-full');
   if (loadFullBtn) {
