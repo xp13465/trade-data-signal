@@ -45,12 +45,17 @@ const CACHE_RULES = [
       p.endsWith('-1m.json'),
     cc: 'public, max-age=60',
   },
-  // 4) 历史 K线/全量/长周期 + 策略实验室 + 指数/行业拆分目录：1 小时
+  // 4) 指数/行业拆分目录：10 分钟（对齐 GitHub Pages sss.sugas.site max-age=600）
+  //    deploy 后 CF edge 缓存 1h 致数据滞后，改 600s 与 GH Pages 对齐根治滞后。
+  {
+    match: p => p.startsWith('/data/index/'),
+    cc: 'public, max-age=600',
+  },
+  // 5) 历史 K线/全量/长周期 + 策略实验室 + 行业3y/5y/all-indices：1 小时
   //    这些每天收盘才更新一次，1h 缓存既省回源又保证当日数据最迟 1h 内刷到 CDN。
   {
     match: p =>
       p.startsWith('/data/lab/') ||
-      p.startsWith('/data/index/') ||
       p.startsWith('/data/industry-3y-indices/') ||
       p.startsWith('/data/industry-5y-indices/') ||
       p.startsWith('/data/industry-all-indices/') ||
