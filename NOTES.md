@@ -1240,3 +1240,30 @@ h5 拆分发现：量价背离是误杀元凶（滤中套牢 8.96% < 保留 9.45
 
 **待办更新**：TASKS.md L246 附近「尖尖过滤」从「回测完成待决策」改「已上线方案 C+C12 预览 + R2 强化预览（E2+量价背离收紧），待观察后切真过滤」。
 
+### 小节AE：trade_sim/index 百度推送 HTTP mixed content 修复（2026-07-22）
+
+**背景**：用户本地点击模拟回测按钮打开 `https://ssd.fx8.store/trade_sim/trade_sim_sh.html`，浏览器报 "insecure connection, should be served over HTTPS"（mixed content）。根因：百度推送 JS 的 if/else 分支含 `http://push.zhanzhang.baidu.com/push.js`（HTTP），在 HTTPS 页面加载触发 mixed content（curl https://push.zhanzhang.baidu.com/push.js 无响应，旧推送不支持 HTTPS）。
+
+**根因**：百度推送代码用 `window.location.protocol` 判断协议，HTTPS 走 `zz.bdstatic.com`，HTTP 走 `push.zhanzhang.baidu.com`。HTTPS 页面预扫描 HTML 仍见 `http://` 链接报警，且 HTTP 推送源已不可用。
+
+**修复**：删 if/else 的 else 分支（HTTP），只保留 HTTPS `zz.bdstatic.com`（无条件加载）。涉及 5 处：
+1. `scripts/simulate_trade.py` L1280-1290（trade_sim HTML 生成模板，Python f-string `{{}}` 转义）
+2. `scripts/add_baidu_push.py` BAIDU_PUSH 模板（一次性注入工具，防未来再注入旧版）
+3. `static-site/index.html` L166-178（首页）
+4. `static-site/privacy.html` L68（文字说明删 push.zhanzhang.baidu.com 只留 zz.bdstatic.com）
+5. `static-site/trade_sim.html` L27667-27679（综合回测页，手动改，非 simulate_trade.py --all 生成，因 OUTPUT 常量 L30 定义未用）
+
+**重新生成 + 上线**：
+- `.venv/bin/python scripts/simulate_trade.py --all`：成功 90/共 90（name_map 90 品种，非任务预估的 97），生成 `static-site/trade_sim_*.html` 到本地（untracked，R2 托管）
+- `/Users/linhuichen/code/trade/.venv/bin/python /Users/linhuichen/code/trade/scripts/upload_r2.py upload-trade-sim`：共上传 90/90 -> `https://ssd.fx8.store/trade_sim/`（R2 立即生效）
+- index.html/privacy.html/trade_sim.html 通过 push main 触发 CF Workers deploy 上线
+
+**验证**：
+- `curl -sS https://ssd.fx8.store/trade_sim/trade_sim_sh.html | grep "http://push.zhanzhang"` 空（R2 已更新）✓
+- `curl -sS https://ssd.fx8.store/trade_sim/trade_sim_sh.html | grep "zz.bdstatic"` 存在（HTTPS 百度推送保留）✓
+- `curl -sS https://ss.fx8.store/ | grep "http://push.zhanzhang"` 待 CF Workers deploy 完成后空
+
+**git**：commit `6ad9b0bd`（fix）+ `3b434542`（merge origin/main e43c412b），push feat（`6d779fdc..3b434542`）+ push feat:main（`e43c412b..3b434542`，fast-forward，不 force）。远端 feat 此前被 div-backtest agent 推到 `6d779fdc`（与本地 `531ff532` 分叉），用 `git reset --hard origin/feat` + `cherry-pick 6ad9b0bd` + `merge origin/main` 对齐，全程不 force（符合 §8）。根 `data/`（signal_stats.json/sw_components.json）未 add 保持本地 M。trade_sim_*.html untracked 不 commit（R2 托管，.gitignore L63）。
+
+**待办更新**：TASKS.md L102 百度推送搁置项加注"2026-07-22 删 HTTP 百度推送修 mixed content，保留 HTTPS zz.bdstatic.com"。
+
