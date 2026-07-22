@@ -807,9 +807,19 @@ def compute():
             dist_from_high = (high_250 - close) / high_250
             peak_dd_filter_mask = ((atr_pct >= 0.025) | (dist_from_low60 > 0.30)).fillna(False)
             if iid == "sh":
-                # sh 用 C1 替代豁免（2026-07-22 小节AV）：atr_pct>=2.5% OR dist_from_high>=15%
-                #   方案 B 的 dist_from_low60>30% 对 sh 趋势中继误滤，dist_from_high>=15% 精准滤低位假突破
-                peak_dd_filter_mask = ((atr_pct >= 0.025) | (dist_from_high >= 0.15)).fillna(False)
+                # sh 用 C1|D1a 叠加（2026-07-22 小节AV 升级，原单 C1 → 叠加）：
+                #   C1 高波动/距高点远（atr_pct>=2.5% OR dist_from_high>=15%）
+                #     + D1a 中档共振补刀（atr_pct∈[1.8%,2.5%) AND dist_from_low60>15% AND dev_ma60>1.05）
+                #   D1a 补 C1 未覆盖的"中波动+涨多+均线之上"共振区，进一步降尖尖。
+                #   叠加实测（vs 单 C1）：612->503(保留 82.2%)，peak(<-10%) 7.35%->5.58%(-1.78pp)，
+                #     mdd -3.72%->-2.65%(改善 1.07pp)，ret20 +6.29%->+4.31%(损 1.96pp 可接受)，
+                #     bot_acc 69.12%->68.33%(-0.79pp)，keep 67.7%，Jaccard 重叠率 30.8%(C1 与 D1a 互补性强)。
+                peak_dd_filter_mask = (
+                    (atr_pct >= 0.025) |                        # C1 高波动
+                    (dist_from_high >= 0.15) |                  # C1 距高点远
+                    ((atr_pct >= 0.018) & (atr_pct < 0.025) &   # D1a 中档共振补刀
+                     (dist_from_low60 > 0.15) & (dev_ma60 > 1.05))
+                ).fillna(False)
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
