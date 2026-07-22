@@ -1267,6 +1267,28 @@ h5 拆分发现：量价背离是误杀元凶（滤中套牢 8.96% < 保留 9.45
 
 **待办更新**：TASKS.md L102 百度推送搁置项加注"2026-07-22 删 HTTP 百度推送修 mixed content，保留 HTTPS zz.bdstatic.com"。
 
+### 小节AP：upload_r2.py Content-Type 根治（2026-07-22，commit e1c8793a）
+
+**背景**：trade_sim HTML 上线 R2 后，浏览器打开 `https://ssd.fx8.store/trade_sim/trade_sim_sh.html` 弹下载框（HTML 当下载文件），页面加载不出。根因：`upload_r2.py` s3_request L110-111 硬编码 `headers["content-type"] = "application/octet-stream"`，所有 PUT 上传文件（HTML/JSON/JS/CSS/gz）R2 metadata Content-Type 都是 octet-stream，浏览器按二进制流处理 HTML -> 弹下载。
+
+**修复**：`scripts/upload_r2.py` s3_request 加 `content_type` 形参，默认 None 时按 key 扩展名推断（模块级 `_CONTENT_TYPE_MAP`：`.html`->`text/html; charset=utf-8` / `.json`->`application/json; charset=utf-8` / `.js`->`application/javascript; charset=utf-8` / `.css`->`text/css; charset=utf-8` / `.gz`->`application/gzip` / 其他->`application/octet-stream` 回退）。L110-111 删硬编码改用 `content_type` 变量。6 个 PUT 调用点（L197/213/244/358/381/469）均不传 content_type，自动按 key 推断。
+
+**重传覆盖 R2 metadata**（octet-stream metadata 必须重新 PUT 才能更新）：
+- `upload-trade-sim`：90/90 -> `https://ssd.fx8.store/trade_sim/`
+- `upload-index`（REPO=trade-data，180 文件）：180/180 -> `https://ssd.fx8.store/index/`
+- `upload-industry`（REPO=trade-data，253 文件 + .gz = 268）：268/268 -> `https://ssd.fx8.store/industry/`
+
+**验证**（curl -sI Content-Type）：
+- `https://ssd.fx8.store/trade_sim/trade_sim_sh.html` -> `text/html; charset=utf-8` ✓
+- `https://ssd.fx8.store/trade_sim/trade_sim_sz.html` -> `text/html; charset=utf-8` ✓
+- `https://ssd.fx8.store/index/sh-all.json` -> `application/json; charset=utf-8` ✓
+- `https://ssd.fx8.store/industry/industry-all-meta.json` -> `application/json; charset=utf-8` ✓
+- 注：`ssd.fx8.store/` 根 404（R2 域名只托管 trade_sim/index/industry prefix，无根 index.html，正常）；CF Workers 主站 `ss.fx8.store/` Content-Type 由 Workers 配置，不受 upload_r2.py 影响
+
+**git**：commit `e1c8793a`（fix upload_r2.py），push feat + push feat:main（fast-forward，不 force）。
+
+**待办更新**：TASKS.md L104 trade_sim 迁 R2 项加注 Content-Type 根治修复完成。
+
 ### 小节AN：rsync -a -> --checksum 根治 schedule_stats.json quick check 跳过（2026-07-22，commit 7d9c3c99）
 
 > 接小节AF（schedule_stats symlink 方案③解决时序竞态）+ 小节AK（A1 sentiment.db symlink 闭环）。小节AF 闭环后线上 schedule_stats.json intraday last_run 仍偶发停滞（11:30 后不进 13:05），问题2 agent 定位为 rsync quick check 误判新根因。
