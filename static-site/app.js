@@ -7525,6 +7525,18 @@ function _tradeSimOpenPositionsHTML(openPositions, s) {
 }
 
 // 已完成回合表（10列，含子回合展开）
+// 持有时长按方案A计算：最早买入日 -> 卖出日(与左侧 buy_date 区间起点对齐)
+// 兼容旧 JSON：后端曾把多笔分批建仓的子回合 hold_days 累加(原 bug 致 2037 天)，
+// 前端按 buy_date 区间起点 + sell_date 重算覆盖后端值，避免重生 100 品种 JSON
+function _tradeSimHoldDays(buyDateStr, sellDateStr) {
+  // buyDateStr 可能是 "2023-08-22"(单笔) 或 "2023-08-22~2024-09-19"(区间)
+  // 取区间最早日期(分隔符 ~ 前的部分)，计算到 sellDateStr 的天数
+  var earliest = String(buyDateStr || '').split('~')[0].trim();
+  var b = new Date(earliest);
+  var s = new Date(sellDateStr);
+  if (isNaN(b.getTime()) || isNaN(s.getTime())) return 0;
+  return Math.max(0, Math.round((s - b) / 86400000));
+}
 function _tradeSimRoundsHTML(rounds) {
   if (!rounds || !rounds.length) return '';
   var rows = rounds.map(function (r, j) {
@@ -7549,7 +7561,7 @@ function _tradeSimRoundsHTML(rounds) {
       '<td>' + r.buy_close + '</td>' +
       '<td>' + r.sell_date + '</td>' +
       '<td>' + r.sell_close + '</td>' +
-      '<td>' + r.hold_days + ' 天</td>' +
+      '<td>' + _tradeSimHoldDays(r.buy_date, r.sell_date) + ' 天</td>' +
       '<td style="color:' + _tradeSimColorPct(r.pct) + ';font-weight:600">' + (r.pct >= 0 ? '+' : '') + r.pct.toFixed(2) + '%</td>' +
       '<td>' + _tradeSimFmtNum(r.amount_in) + '</td>' +
       '<td>' + _tradeSimFmtNum(r.amount_out) + '</td>' +

@@ -2299,13 +2299,19 @@ main { padding: 16px 24px; }
 .trade-sim-modal-body .sim-cmp-table th .sim-cmp-arrow.active { opacity: 1; font-weight: 700; color: var(--primary, var(--text-1)); }
 .trade-sim-modal-body .sim-cmp-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .trade-sim-modal-body .sim-cmp-table tr:hover td { background: var(--bg-hover); }
-.trade-sim-modal-body .sim-main-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid var(--border); overflow-x: auto; }
+/* 3策略 tab + 买卖组合 tab 吸顶：滚动时叠在时间窗口条(winBar)下方
+   - winBar: top:-14px, 高度 44px → 吸顶时底部在 30px 处
+   - mainTabs(3策略): top:30px(紧贴 winBar 下沿), 高度 ~39px → 底部在 69px
+   - subTabs(11买卖组合): top:69px(紧贴 mainTabs 下沿)
+   - z-index 叠加：winBar(5) > mainTabs(4) > subTabs(3)
+   - 父容器无 overflow:hidden(sim-path-group display:block, modal-body 是滚动容器), sticky 可生效 */
+.trade-sim-modal-body .sim-main-tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid var(--border); overflow-x: auto; position: sticky; top: 30px; z-index: 4; background: var(--bg-card); }
 .trade-sim-modal-body .sim-main-tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; white-space: nowrap; flex-shrink: 0; }
 .trade-sim-modal-body .sim-main-tab.active { color: var(--text-1); font-weight: 600; border-bottom-color: var(--primary); }
 .trade-sim-modal-body .sim-main-tab:hover { color: var(--text-1); }
 .trade-sim-modal-body .sim-path-group { display: none; }
 .trade-sim-modal-body .sim-path-group.active { display: block; }
-.trade-sim-modal-body .sim-sub-tabs { display: flex; gap: 4px; padding: 10px 0 12px; background: var(--bg-card); border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.trade-sim-modal-body .sim-sub-tabs { display: flex; gap: 4px; padding: 10px 0 12px; background: var(--bg-card); border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; position: sticky; top: 69px; z-index: 3; }
 .trade-sim-modal-body .sim-sub-tab { padding: 6px 14px; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-2); transition: all .2s; white-space: nowrap; flex-shrink: 0; }
 .trade-sim-modal-body .sim-sub-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .trade-sim-modal-body .sim-sub-tab:hover:not(.active) { background: var(--bg-hover); }
@@ -2341,6 +2347,11 @@ main { padding: 16px 24px; }
   .trade-sim-modal-body .sim-cmp-table table { font-size: 11px; }
   .trade-sim-modal-body .sim-main-tab { padding: 8px 14px; font-size: 13px; }
   .trade-sim-modal-body .sim-sub-tab { padding: 5px 12px; font-size: 12px; }
+  /* mobile 吸顶偏移：winBar top:-10px(非-14), mainTabs 高度 ~34px(padding 8+font13*1.2+8+border2)
+     - mainTabs top: 34px(winBar 底 -10+44)
+     - subTabs top: 68px(34+34) */
+  .trade-sim-modal-body .sim-main-tabs { top: 34px; }
+  .trade-sim-modal-body .sim-sub-tabs { top: 68px; }
   .trade-sim-modal-body .sim-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 16px; }
   .trade-sim-modal-body .sim-card { padding: 10px 12px; }
   .trade-sim-modal-body .sim-card .v { font-size: 15px; }

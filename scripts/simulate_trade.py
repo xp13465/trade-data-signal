@@ -479,8 +479,11 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
             total_amount_out = 0.0
             total_profit = 0.0
             total_shares_sold = 0.0
+            first_buy_date_raw = None  # 最早买入日(YYYYMMDD)，用于计算整个回合真实持有时长(方案A：最早买入->卖出)
             while positions:
                 buy_date, buy_close, shares = positions.pop(0)
+                if first_buy_date_raw is None:
+                    first_buy_date_raw = buy_date  # positions FIFO：第一笔是最早买入
                 total_shares_sold += shares
                 sell_amount = shares * close
                 cash += sell_amount
@@ -501,7 +504,9 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
                 "buy_close": round(sum(s["buy_close"] for s in sold) / len(sold), 2),
                 "sell_date": _fmt_date(date),
                 "sell_close": round(close, 2),
-                "hold_days": sum(s["hold_days"] for s in sold),
+                # 持有时长 = 最早买入日 -> 卖出日(方案A)，与左侧 buy_date 区间起点对齐；
+                # 不再用 sum(子回合 hold_days) 累加(原 bug 致 2037 天违背阅读常识)
+                "hold_days": _days_between(first_buy_date_raw, date),
                 "pct": round(total_profit / total_amount_in * 100, 2) if total_amount_in else 0,
                 "amount_in": round(total_amount_in, 2),
                 "amount_out": round(total_amount_out, 2),
