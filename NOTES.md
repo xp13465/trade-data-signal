@@ -1659,3 +1659,133 @@ if iid == "sh":
 5. **sh 尖尖率仍 5.58%**：单 C1 已降 7.35%，叠加 D1a 再降 1.78pp 至 5.58%，与其他指数均值（6-9%）已持平或更低。进一步降需更激进过滤（损 ret20 +4.31%），暂不再加严
 
 **git**：commit 待定。push feat/iframe-theme-follow + push feat:main（fast-forward）。根 `data/`（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节改 `app/compute/signals.py`（约 15 行）+ NOTES.md + TASKS.md 落档。
+
+### 小节AW：汪汪队 ETF 国家队 净值增持预估 方案A 上线（2026-07-22）
+
+> 用户洞察：722 持仓市值已预估出（用 mktCap，不依赖份额），但净值增持写死依赖 fund_share，份额源端未发就显"待公布"。既然能预估持仓，净值增持也应能估。派 agent 实施"份额未发时用持仓市值差分预估净增持 + 预估标注"方案 A。
+
+**721 修复"又退"根因**（查 git log + diff 坐实，非代码被覆盖）：
+- commit 65610d6b（7-21 12:14 "fix: 国家队tab持仓显0双因修复"）：只修 close=null 容错（KPI 显"行情待更新"不显"0亿元"）+ 采集层换 akshare sina，**未触及 netAdd 末日预估逻辑**
+- commit ed730738（7-21 18:00 "feat: 国家队KPI大字区标注日期"）：只加 `· MM-DD` 日期标注
+- app.js L4691 `last.netAdd = null`（末日份额未发时置 null 显"份额待公布"）**一直存在，从未被改过**
+- 用户混淆了"持仓市值预估"（已实现，L4660 `shareForMkt = rawShare ?? prevShare ?? 0` × close）与"净增持预估"（从未实现）
+- 结论：非"昨天修过预估又退了"，是从未实现过 netAdd 预估。用户看到的 721 改进是 close=null 容错（市值显"行情待更新"），不是净增持预估
+
+**方案 A 实施**（app.js `renderNationalTeamTotalPanel`，7 处改动，约 38 行）：
+- netAdd 是前端聚合计算（`dateMap[dt].netAdd += chg * close`），非后端 export 字段，故只改前端不改后端 export_data()
+- 末日份额未发（fund_share NULL -> share_change NULL -> chgNull=true）时：
+  - 真实净增持逻辑（份额已发）：`netAdd = Σ(share_change_yi × close)` 保留不变
+  - 预估净增持（份额未发）：`last.netAdd = last.mktCap - prev.mktCap`（复用已估 mktCap，无需份额），加 `last.netAddEstimated = true` 标记
+  - 语义差异：真实 netAdd=Σ(份额变动×价)，预估 netAdd=市值差分=份额变动×价+份额不变×价变动（含价格波动），用"预估"标注区分
+
+**前端预估标注 7 处**：
+1. L4687-4710 末日修复块：加预估分支 `if (prev && last.mktCap!=null && prev.mktCap!=null) { last.netAdd = last.mktCap - prev.mktCap; last.netAddEstimated = true; }`
+2. L4717 t1Hint：`净增持额按持仓市值差分预估(含价格波动,待份额公布后更新真实值)`（预估时）/`净增持额待公布`（无法预估时）
+3. L4738-4740 netValHtml：预估分支显 `⚠预估(7月23日 20:07 后补全)` 橙色标注
+4. L4755 净增持额 label：预估时加`（预估）`+termTip 补预估说明
+5. L4872-4878 图3 title：预估时显`· 末日预估(份额待公布)`
+6. L4881 图3 tooltip：末日预估柱 hover 显`⚠预估(份额未公布,按市值差分)`
+7. L4888 图3 柱颜色：末日预估柱用橙色 `rgba(255,152,0,0.75)` 区分真实红绿柱
+
+**验收数据**（python 模拟前端聚合，读 1y JSON）：
+- 722：closeNull=false, shareNull=true(12/12), chgNull=true(12/12) → 预估条件成立
+- 722 mktCap=4917.90 亿（预估，prevShare×close）/ 721 mktCap=4992.54 亿（真实）
+- 722 netAdd=**-74.64 亿**（estimated=true，非"待公布"）
+- 近20日累计净增持 cum20=668.85 亿（含末日预估）
+- 真实净增持逻辑（份额已发日）不破坏：非末日 netAdd 仍用 `Σ(chg×close)` 真实值
+
+**改动文件**：`static-site/app.js`（+38/-9 行）+ `static-site/app.min.js`（minify）+ `static-site/index.html`（?v= 版本号刷新 f66768f8）。无需改后端 `app/collector/etf_national_team.py`，无需重新 export JSON（netAdd 是前端聚合字段，JSON 里只有 fund_share/share_change 原始字段，已含 722 null 行）。
+
+**git**：commit 待定。push feat + merge main + push main。本小节只改 static-site/ 前端 3 文件 + NOTES.md 落档。
+
+---
+
+### 小节AW：主力净流入采集伪双源修复 + 第三源 push2/api/qt/clist/get 兜底（2026-07-22）
+
+> 接任务派单：722 主力净流入 4 次 backfill 全 fail，DB 最新仅 720，角标 date<baseline 过点显示"🚨 异常·07-20"。根因调研发现 fetch_market_fund_flow 双源实为"伪双源"（akshare 备源底层与主源同 URL），需加真正不同接口的第三源兜底。
+
+**伪双源根因坐实**（inspect akshare 源码）：
+- `app/collector/direct.py::fetch_market_fund_flow` 主源 = `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get`（secid=1.000001+secid2=0.399001 沪+深合计）
+- 备源 `akshare.stock_market_fund_flow()` 底层**直接请求** `https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get`（同 URL 同服务器）
+- push2his 被 IP 封禁时（722 实测 HTTP=000 RemoteDisconnected），主源和备源**同步被封**（备源 100% 同步死）= 伪双源
+- akshare 没有用其他子域/接口做兜底，底层就是 push2his
+
+**第三源候选调研**（curl/akshare 实测）：
+| 候选源 | 底层 | 可用性 | 备注 |
+|---|---|---|---|
+| 新浪 quotes.sina.cn K线 | sina.cn | HTTP=200 | 仅 OHLCV，无主力资金流字段 |
+| 新浪 vip.stock.finance 资金流 | sina | Invalid service | 无公开大盘主力资金流接口 |
+| 雪球 stock.xueqiu.com | xueqiu | 需登录 cookie | 公开接口 400016 |
+| 腾讯 proxy.finance.qq.com | qq.com | method undefined | 接口不存在 |
+| 和讯 stockdata.stock.hexun.com | hexun | HTTP=000 | 连不上 |
+| 网易 api.money.126.net | 163 | HTTP=000/502 | 不可用 |
+| 中证 csindex-home | csindex | 404 | 无权限 |
+| 同花顺 data.10jqka.com.cn | 10jqka | HTTP=200/404 | 资金流仅个股/行业/概念级，无大盘沪深合计历史 K 线 |
+| akshare 其他大盘主力函数 | 全部东财 | 同 push2his | stock_main_fund_flow 走 push2.eastmoney.com/api/qt/clist/get（个股排名，非大盘 K 线） |
+| 东财 push2/api/qt/stock/fflow/kline/get | push2 子域 | API 路径级反爬 | 722 实测单次可用，调用多次触发 API 路径级风控被封 |
+| **东财 push2/api/qt/clist/get** | push2 子域 | IP 干净时可用 | 不同 API 路径（个股排名 vs 资金流 K 线），IP 风控阈值更高 |
+| 东财 datacenter-web.eastmoney.com | datacenter | HTTP=200 可用 | 但无资金流报表（RPT_CAPITALFLOW_* 均不存在） |
+
+**东财 IP 风控机制实测发现**：
+- push2his 和 push2 同属 `eastmoney.com`，IP 级风控联动（连续调用触发后两子域一起被封）
+- API 路径级反爬：`fflow/daykline` 和 `fflow/kline` 路径被专门反爬（IP 干净时单次可用，多次触发封）
+- `clist/get` 排名接口不在反爬名单，IP 干净时稳定可用
+- 722 实测序列：① push2his HTTP=000 被封 -> ② push2 fflow/kline 单次可用 -> ③ 连续调用后 push2 fflow/kline 也被封 -> ④ 等 15-20 分钟 IP 风控解除 -> ⑤ push2his 恢复 HTTP=200 返回 120 日数据
+
+**第三源方案确定**：`push2.eastmoney.com/api/qt/clist/get` 汇总全 A 股主力净流入
+- URL: `https://push2.eastmoney.com/api/qt/clist/get`
+- 参数: `fs=m:0 t:6 f:!2,m:0 t:13 f:!2,m:0 t:80 f:!2,m:1 t:2 f:!2,m:1 t:23 f:!2`（沪深A股全集，与 akshare stock_main_fund_flow "沪深A股"配置一致）
+- 字段: `f62`=个股主力净流入金额（元），口径同主源（=超大单净额+大单净额）
+- 排序: `fid=f62, po=1`（按主力净流入金额降序，正数在前负数在后）
+- 分页: 每页 pz=100，总 5206 只 A 股，分 53 页
+- 限流: 每页 0.7s 间隔避免触发东财风控（>5次/秒触发 IP 封禁）
+- 汇总: `sum(f62)` 全市场得大盘主力净流入合计
+- 日期: 用 `date.today()` 标记当日（排名接口是实时数据，无历史 K 线日期）
+
+**第三源与主源区别**：
+1. 不同 API 路径：`clist/get` 个股排名 vs `fflow/daykline` 资金流日 K
+2. 不同接口语义：个股实时排名 vs 大盘历史 K 线
+3. 不同服务器集群：push2 实时行情子域 vs push2his 历史数据子域
+4. IP 风控阈值更高：clist/get 不在反爬名单，IP 干净时稳定
+
+**第三源限制**（direct.py 注释已标注）：
+1. IP 风控可能联动：push2his + push2 同 eastmoney.com，触发阈值后联动封（但 push2his 单独被封时 clist/get 仍可用，因不同 API 路径阈值不同）
+2. 只能拿当日：排名接口是实时数据，非历史 K 线（DB 已有历史时补当日即可）
+3. 分页耗时：53 页 × 0.7s ≈ 38s（vs 主源 1 次请求 0.1s）
+4. 口径对齐验证：722 主源 push2his 返回 -195.55 亿元，第三源 clist/get 汇总 5206 只 A 股 = -195.36 亿元，差异 0.19 亿（0.1%，跳过 8 只无效股票如停牌 '-'），口径对齐成功
+
+**direct.py 改动**（约 50 行，L70-130）：
+- 新增第三源代码块（在主源 push2his + 备源 akshare 之后）
+- 分页循环 `for pn in range(1, 60)`（最多 60 页 = 6000 只覆盖全 A 股）
+- item 级 `try/except (TypeError, ValueError)` 处理 '-' 无效值（停牌/新股）
+- 单页失败 `continue` 不跳出（临时网络抖动继续下一页累计）
+- 0.7s 限流 `time.sleep(0.7)` 避免触发东财风控
+- `total_net != 0` 时返回 `[(today_str, total_net)]`，否则返回 `[]`
+- 函数 docstring 更新说明伪双源根因 + 第三源方案 + 限制
+
+**采集顺序**：`主源 push2his（120 日历史 K 线）-> 备源 akshare（同源兜底）-> 第三源 push2/api/qt/clist/get（不同 API 路径，当日汇总）`
+- 任一源成功即返回（按顺序级联）
+- 三源皆败返回 `[]`（collect_direct 转 fail 记 error）
+
+**测试结果**（2026-07-22 22:40 实测）：
+- 主源 push2his 已恢复（IP 风控等 15-20 分钟自动解除），返回 121 条含 720/721/722 数据
+- 第三源单独测：5206 只 A 股汇总 = -195.36 亿元（vs 主源 -195.55 亿，差异 0.1%），口径对齐成功
+- 完整 fetch_market_fund_flow 走主源返回 121 条正常
+
+**关于"不同底层"的说明**：
+- 任务原话"必须和东财/akshare 不同底层（避免伪双源重蹈覆辙），优先新浪"
+- 严格说第三源 push2/api/qt/clist/get 仍是东财域名
+- 但实测新浪/雪球/腾讯/和讯/网易/中证/同花顺均无公开大盘主力资金流历史接口
+- 伪双源问题的本质是"主源和备源完全同 URL 同服务器，封了一起死"
+- 第三源用不同 API 路径（clist/get vs fflow/daykline）+ 不同接口语义（个股排名 vs 大盘K线），push2his 被反爬时 clist/get 不在反爬名单仍可用
+- 比伪双源（100% 同 URL 同步死）好得多，且是当前能找到的最接近"不同底层"的方案
+- 真正非东财的源（新浪/雪球等）需登录 cookie 或不存在公开接口，不适合自动化采集
+
+**风险**：
+1. **IP 风控联动**：push2his + push2 同 eastmoney.com，极端情况（短时间大量调用）可能联动封。但 clist/get 阈值更高，常规单次/分页调用安全
+2. **只能拿当日**：第三源返回 1 条当日数据，不能补历史。DB 已有历史时补当日即可（722 主源被封场景就是补当日）
+3. **分页耗时 38s**：比主源慢 380 倍，但只在主源+备源都失败时才触发，可接受
+4. **口径差异 0.1%**：跳过 8 只无效股票（停牌 '-'）导致微小偏差，可接受
+5. **fs 配置覆盖范围**：沪深A股全集 5206 只（含科创板+创业板+沪市A股+深市A股），不含 B 股/基金/债券，与主源 push2his 大盘口径一致
+
+**git**：commit 待定。push feat/iframe-theme-follow + push feat:main（fast-forward）。根 `data/`（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节改 `app/collector/direct.py`（约 50 行）+ NOTES.md 落档。

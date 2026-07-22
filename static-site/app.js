@@ -4687,12 +4687,24 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   if (lastShareMissing && prev) {
     last.share = prev.share;   // 份额T+1未发布,沿用上日份额(市值已在聚合时用prevShare×当日close预估,不再整体复制prev.mktCap)
   }
+  // 方案A(2026-07-22): 末日份额未发(fund_share NULL -> share_change NULL)时,
+  // 用持仓市值差分预估净增持 = 当日mktCap - 前日mktCap(复用已估mktCap,无需份额),
+  // 加 netAddEstimated 标记,前端显"预估"标注区分真实净增持(份额已发时用真实值)。
+  // 语义差异:真实netAdd=Σ(份额变动×价),预估netAdd=市值差分=份额变动×价+份额不变×价变动(含价格波动)。
   if (lastChgMissing) {
-    last.netAdd = null;
+    if (prev && last.mktCap != null && prev.mktCap != null) {
+      last.netAdd = last.mktCap - prev.mktCap;
+      last.netAddEstimated = true;  // 预估标记,KPI/图3显"预估"标注
+    } else {
+      last.netAdd = null;  // 无前日数据或close缺失,无法预估,显"份额待公布"
+    }
   }
   if (lastCloseMissing) {
     last.mktCap = null;   // 末日close=null时不显"0亿元",KPI改显"行情待更新"
-    if (last.netAdd != null) last.netAdd = null;  // close=null时netAdd按0算也错,同样标null
+    if (last.netAdd != null) {  // close=null时预估也不准(市值差分依赖close),同样标null
+      last.netAdd = null;
+      last.netAddEstimated = false;
+    }
   }
   // cum20 求和用 (d.netAdd || 0),末日 close=null 时 last.netAdd 已置 null 不会误计0
   var cum20 = series.slice(-20).reduce(function (s, d) { return s + (d.netAdd || 0); }, 0);
@@ -4702,7 +4714,10 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   t1Hint.className = "nt-t1-hint";
   t1Hint.textContent = "⏳ ETF份额数据为T+1：上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日";
   if (lastShareMissing) {
-    t1Hint.textContent += "。⚠ 当日(" + fmtDate(last.date) + ")份额尚未发布,市值按上日份额×当日收盘价预估,份额沿用上日,净增持额待公布";
+    var netEstTxt = (last.netAddEstimated)
+      ? "净增持额按持仓市值差分预估(含价格波动,待份额公布后更新真实值)"
+      : "净增持额待公布";
+    t1Hint.textContent += "。⚠ 当日(" + fmtDate(last.date) + ")份额尚未发布,市值按上日份额×当日收盘价预估,份额沿用上日," + netEstTxt;
   }
   if (lastCloseMissing) {
     t1Hint.textContent += "。⚠ 当日(" + fmtDate(last.date) + ")收盘价缺失(行情源延迟),合计市值/净增持额暂显\"行情待更新\",下一采集时点补全";
@@ -4720,6 +4735,9 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     netValHtml = '<div class="nt-tk-val" style="color:var(--text-3)">行情待更新</div>';
   } else if (last.netAdd == null) {
     netValHtml = '<div class="nt-tk-val" style="color:var(--text-3)">份额待公布·' + _ntShareReplenishTxt(last.date) + '补全</div>';
+  } else if (last.netAddEstimated) {
+    // 方案A: 份额未发,按市值差分预估,显"预估"标注(橙色⚠,区分真实净增持)
+    netValHtml = '<div class="nt-tk-val ' + netCls + '">' + netSign + last.netAdd.toFixed(2) + ' <span class="nt-tk-unit">亿元</span> <span style="font-size:12px;color:#ff9800">⚠预估(' + _ntShareReplenishTxt(last.date) + '补全)</span></div>';
   } else {
     netValHtml = '<div class="nt-tk-val ' + netCls + '">' + netSign + last.netAdd.toFixed(2) + ' <span class="nt-tk-unit">亿元</span></div>';
   }
@@ -4734,7 +4752,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   }
   kpi.innerHTML =
     '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '<span class="chart-latest"> · 截至 ' + fmtDate(last.date) + '</span></div>' + mktCapValHtml + '</div>' +
-    '<div class="nt-tk-item"><div class="nt-tk-label">净增持额' + termTip("Σ(各ETF今日份额变动×今日价)。正值=今日净流入，负值=净流出。份额变动是硬数据不受价格波动干扰。") + '<span class="chart-latest"> · ' + fmtDate(last.date) + '</span></div>' + netValHtml + '</div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">净增持额' + (last.netAddEstimated ? '（预估）' : '') + termTip("Σ(各ETF今日份额变动×今日价)。正值=今日净流入，负值=净流出。份额变动是硬数据不受价格波动干扰。" + (last.netAddEstimated ? "当日份额未公布,暂用持仓市值差分预估(含价格波动),待份额公布后更新真实值。" : "")) + '<span class="chart-latest"> · ' + fmtDate(last.date) + '</span></div>' + netValHtml + '</div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看近一个月份额持续扩张还是收缩。") + '<span class="chart-latest"> · 截至 ' + fmtDate(last.date) + '</span></div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·按上日份额预估(' + _ntShareReplenishTxt(last.date) + '补全)</span>' : '') + '</div></div>';
   container.appendChild(kpi);
 
@@ -4851,17 +4869,23 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   }));
 
   // 图3：每日净增持额柱状（红流入绿流出，末日份额待公布则末日柱不画）
-  var c3 = mkCard("📉 每日净增持额（近" + dates.length + "日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(份额扩张)，绿柱=净流出(份额收缩)。") + (lastChgMissing ? '<span class="chart-latest" style="color:#ff9800">· 末日待公布</span>' : ''), 300, null, ntGrid);
+  // 方案A: 末日份额未发时,预估柱画出(橙色),title 标"末日预估(份额待公布)";无法预估时标"末日待公布"
+  var c3EstSuffix = lastChgMissing
+    ? (last.netAddEstimated
+      ? '<span class="chart-latest" style="color:#ff9800">· 末日预估(份额待公布)</span>'
+      : '<span class="chart-latest" style="color:#ff9800">· 末日待公布</span>')
+    : '';
+  var c3 = mkCard("📉 每日净增持额（近" + dates.length + "日）" + termTip("每日Σ(份额变动×当日价)柱状。红柱=当日净流入(份额扩张)，绿柱=净流出(份额收缩)。末日份额未公布时按持仓市值差分预估(橙色柱)。") + c3EstSuffix, 300, null, ntGrid);
   addCardTimeBadge(c3.getDom().parentElement, lastDate, snap, "t1", "etf_date");
   c3.setOption(withTheme({
-    tooltip: { trigger: "axis", formatter: function (p) { var v = p[0]; if (v.value == null) return fmtDate(v.axisValue) + "<br/>份额待公布"; return fmtDate(v.axisValue) + "<br/>" + (v.value >= 0 ? "+" : "") + (+v.value).toFixed(2) + " 亿元"; } },
+    tooltip: { trigger: "axis", formatter: function (p) { var v = p[0]; var dt = v.axisValue; if (v.value == null) return fmtDate(dt) + "<br/>份额待公布"; var est = (dt === last.date && last.netAddEstimated); return fmtDate(dt) + "<br/>" + (v.value >= 0 ? "+" : "") + (+v.value).toFixed(2) + " 亿元" + (est ? "<br/>⚠预估(份额未公布,按市值差分)" : ""); } },
     grid: { left: 55, right: 20, top: 30, bottom: 50 },
     xAxis: { type: "category", data: dates },
     yAxis: { type: "value", name: "亿元" },
     dataZoom: dzOpts(),
     series: [{
       name: "净增持额", type: "bar", data: netData.map(function (d) { return d.value; }),
-      itemStyle: { color: function (p) { return p.value == null ? "#999" : (p.value >= 0 ? "#e6492e" : "#2e8b57"); } },
+      itemStyle: { color: function (p) { var dt = dates[p.dataIndex]; var isEst = (dt === last.date && last.netAddEstimated); if (p.value == null) return "#999"; if (isEst) return "rgba(255,152,0,0.75)"; return p.value >= 0 ? "#e6492e" : "#2e8b57"; } },
     }],
   }));
 
