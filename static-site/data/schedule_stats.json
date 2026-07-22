@@ -13,9 +13,9 @@
     "name": "指数补采兜底",
     "schedule": "16:35 / 20:00 / 02:00",
     "est_text": "约13分钟",
-    "last_run": "2026-07-22 20:00",
-    "last_exit": 0,
-    "last_duration_sec": 2285
+    "last_run": "2026-07-23 02:00",
+    "last_exit": null,
+    "last_duration_sec": null
   },
   {
     "task": "intraday_snapshot",
@@ -49,7 +49,7 @@
     "name": "两融",
     "schedule": "23:00",
     "est_text": "约1秒",
-    "last_run": "2026-07-21 23:00",
+    "last_run": "2026-07-22 23:00",
     "last_exit": 0,
     "last_duration_sec": 1
   },
