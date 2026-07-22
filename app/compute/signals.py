@@ -700,9 +700,14 @@ def compute():
             #     切片 [bd+1:bd+6] 即 [t-4..t] 一致）
             #   - low.shift(5) at t = low[t-5]（突破日 low）
             donchian20_up_shift5 = donchian20_up.shift(5)
-            min_low_5d = low.rolling(5).min()  # at t: min(low[t-4..t])
-            low_shift5 = low.shift(5)  # at t: low[t-5]（突破日 low）
-            b4_hold5d_confirm = (min_low_5d >= low_shift5).fillna(False)
+            # 2026-07-22 升级（尖尖逃顶方案A）：low 瞬时插针假站稳 -> close 收盘有效站稳（容差2%）。
+            # 原 low.rolling(5).min() >= low.shift(5) 易被盘中插针 low 触发假确认；
+            # 改 close.rolling(5).min() >= close.shift(5)*0.98（允许2%噪音，close 站稳才算有效突破）。
+            # 调研依据 /tmp/peak_filter_backtest.py：close+2%容差 OR R2 真过滤组合滤率10.66%、
+            # trap-1.43pp(12.83%->11.40%)、win+0.6pp、pf+0.04、误杀55.82%最低、mean持平。
+            min_close_5d = close.rolling(5).min()  # at t: min(close[t-4..t])
+            close_shift5 = close.shift(5)  # at t: close[t-5]（突破日 close）
+            b4_hold5d_confirm = (min_close_5d >= close_shift5 * 0.98).fillna(False)
             buy_special_filt = donchian20_up_shift5 & b4_hold5d_confirm
 
             # buy_backup 加二次确认过滤（2026-07-21，stateless 延后触发）：
@@ -720,7 +725,7 @@ def compute():
             confirm_above = (min_close_3d > close_shift3).fillna(False)
             buy_backup_filt = supertrend_buy_shift3 & confirm_above
 
-            # h5 平衡档过滤预览（2026-07-22）：被过滤的 buy_special 标 buy_special_filtered（灰色 pin 预览模式，不删除）。
+            # h5 平衡档过滤（2026-07-22 预览->真过滤上线，尖尖逃顶方案A）：被过滤的 buy_special 直接 drop 不 append。
             # 方案 R2 = C + C12 + E2 + 量价背离收紧（2026-07-22 强化）：
             #   C  = 偏离 ma60>20% AND ATR>3%（方案 C，原 h5 主体）
             #   C12 = 均线附近假突破(dev_ma60∈(1.0,1.1] AND drawdown_hh20<-0.02)
@@ -732,7 +737,9 @@ def compute():
             #   - 量价背离误杀元凶：滤中套牢率 8.96% < 保留 9.45%（把好信号误标灰），故去掉
             # 改前 (atr_pct>0.03)|(price_vol_div==1) 滤率 29.4% -> 改后 (atr_pct>0.03) 滤率 10.05%
             # 预期：总收益 167.3 -> 190.9 (+23.6)，滤中套牢 23.84%（ATR 单独贡献）
-            # 预览模式设计：被过滤的标灰展示不删除，未来把 buy_special_filtered 直接 drop 即可平滑过渡到真过滤。
+            # 2026-07-22 真过滤上线：原预览模式（标灰展示不删除）改为真 drop，buy_special_filtered 类型废弃。
+            # 调研依据 /tmp/peak_filter_backtest.py：close+2%容差(方案A升级) OR R2 真过滤 组合滤率10.66%、
+            #   trap-1.43pp(12.83%->11.40%)、win+0.6pp、pf+0.04、误杀55.82%最低、mean持平。
             # R2 强化（2026-07-22）：/tmp/r2_c12_verify.py 实测 R2(C|E2|PV 不含C12) 滤率 7.87%/滤中套牢 26.50%/滤后10d+1.638%；
             #   R2+C12 滤率 14.24%/滤中套牢 23.31%/滤后套牢 11.09%(基线 12.83%)/滤后 10d+1.731%(基线 +1.656%)。
             #   E2 命中 188(独占42), PV 命中 428(独占297), C12 命中 846(独占821 最大)；三项叠加基本不误杀好信号。
@@ -786,10 +793,13 @@ def compute():
         buy_aux_set = set(buy_aux[buy_aux].index) - buy_set  # 去重：C1 主买优先
         sell_set = set(sell[sell].index)
         # 游标扩展（2026-07-22 方案B）：buy_special/buy_backup 也算前买点，纳入主循环游标更新，
-        # 使 sell reason 能标注全 4 种买点类型 [主买/辅买/追买/备买]。buy_special_filtered 是
-        # buy_special 被 h5 标灰的预览，类型算"追买"（_buy_type_cn L241 已映射）。
+        # 使 sell reason 能标注全 4 种买点类型 [主买/辅买/追买/备买]。
+        # 2026-07-22 h5 真过滤上线（尖尖逃顶方案A）：buy_special_set 排除 h5_filter_mask 命中日，
+        # 被过滤信号不发也不更新游标，原 buy_special_filtered 类型废弃（前端灰 pin 渲染保留无数据不影响）。
         # 这些信号的 reason 标注仍走独立 append 循环（L872-918），主循环只更新游标。
-        buy_special_set = set(buy_special_filt[buy_special_filt].index)
+        buy_special_set_all = set(buy_special_filt[buy_special_filt].index)
+        buy_special_set = {d for d in buy_special_set_all
+                           if not bool(h5_filter_mask.get(d, False))}  # h5 真过滤：排除命中日
         buy_backup_set = set(buy_backup_filt[buy_backup_filt].index)
         # 方案A 同日叠加过滤(2026-07-22):raw_sell_stop_set 在过滤前保存原始 stop 集合,
         # 供 buy reason 标注判断(若买点日 d 在 raw_sell_stop_set 则追加 "[同日触发ATR止损·弱势反弹]")。
@@ -837,13 +847,12 @@ def compute():
                 signals.append((date, iid, "buy_aux", ", ".join(parts) + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
             if date in buy_special_set:
                 # 特买/追买也算前买点 -> 更新游标（reason 标注走独立 append 循环 L872-899）。
-                # buy_special_filtered 是 buy_special 被 h5 标灰的预览，类型算"追买"（_buy_type_cn 已映射）。
-                # h5_hit 与独立 append 循环 L894 一致：h5_filter_mask 命中 -> buy_special_filtered，否则 buy_special。
+                # 2026-07-22 h5 真过滤上线：buy_special_set 已排除 h5_filter_mask 命中日，
+                # 此处进来的都是真发信号的 buy_special，last_buy_type 固定 "buy_special"。
                 c = close.get(date)
                 if pd.notna(c):
                     last_buy_close = float(c)
-                h5_hit = bool(h5_filter_mask.get(date, False))
-                last_buy_type = "buy_special_filtered" if h5_hit else "buy_special"
+                last_buy_type = "buy_special"
             if date in buy_backup_set:
                 # 备买也算前买点 -> 更新游标（reason 标注走独立 append 循环 L900-918）。
                 c = close.get(date)
@@ -895,8 +904,8 @@ def compute():
         # === 第一个止损卖过滤(2026-07-20 追买保护)===
         # 每个买入信号开持仓窗口 [信号日, 下一个买入日前),窗口内只保留第一个 sell_stop_loss,
         # 无前置买入的止损全过滤。sell_stop_loss 与 buy 独立(L794-799),不破坏买卖配对。
-        # D3 注:buy_special_filtered(h5 预览灰标)按方案应不算窗口起点,但 buy_special_set(L797)
-        # 含 h5_hit 日(预览模式不删除),伪代码原样用 buy_special_set;若需严格 D3 可改为排除 h5_hit。
+        # D3 注:2026-07-22 h5 真过滤上线后 buy_special_set 已排除 h5_filter_mask 命中日,
+        # 被过滤信号不算窗口起点,严格 D3 自动满足（原预览模式注释作废）。
         all_buy_dates = sorted(buy_set | buy_aux_set | buy_backup_set | buy_special_set)
         filtered_stop_set = set()
         for i, bd in enumerate(all_buy_dates):
@@ -921,9 +930,9 @@ def compute():
         for date in sorted(buy_special_set):
             # 特买：唐奇安20日上轨突破 + B4_hold5d 过滤（延后5日触发）。reason 标注突破日前高 +
             # 突破日 close + 信号日 close + cross 软分级参考。
-            # h5 平衡档过滤预览：被 h5 过滤条件（ATR>0.03 OR 量价背离）命中的 buy_special 标
-            # buy_special_filtered（灰色 pin），保留的标 buy_special（金色 pin）。reason 前缀
-            # 加 [h5过滤预览] 便于识别。预览模式不删除信号，未来 drop buy_special_filtered 即真过滤。
+            # 2026-07-22 h5 真过滤上线（尖尖逃顶方案A）：buy_special_set 已在 L794 排除 h5_filter_mask
+            # 命中日，此处进来的都是真发信号的 buy_special。原 buy_special_filtered 预览标灰改为真 drop，
+            # 命中 h5 的信号不发也不 append（降套牢优先，符合"尖尖逃顶"诉求）。
             c_now = close.get(date)  # 信号日（=突破日+5）close
             du = don_upper_shift5.get(date)  # 突破日的前高
             c_break = close_shift5.get(date)  # 突破日 close
@@ -932,23 +941,18 @@ def compute():
                 parts.append(f"唐奇安20日上轨突破(前高{du:.0f},close{c_break:.0f})")
             else:
                 parts.append("唐奇安20日上轨突破")
-            parts.append("+5日站稳确认")  # B4_hold5d 过滤
+            parts.append("+5日站稳确认")  # B4_hold5d 过滤（close+2%容差）
             if pd.notna(c_now):
                 parts.append(f"确认日close{c_now:.0f}")
             cv = cross_aligned.get(date)
             if pd.notna(cv):
                 parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
-            # h5 过滤预览：命中过滤条件的标 buy_special_filtered + reason 加前缀
-            h5_hit = bool(h5_filter_mask.get(date, False))
-            sig_name = "buy_special_filtered" if h5_hit else "buy_special"
             reason = ", ".join(parts)
-            if h5_hit:
-                reason = "[h5过滤预览]" + reason
-            # 方案A(2026-07-22):同日触发 ATR 止损 -> 追加弱势反弹预警(h5_hit 与非 h5_hit 两分支都加)
+            # 方案A(2026-07-22):同日触发 ATR 止损 -> 追加弱势反弹预警
             if date in raw_sell_stop_set:
                 reason += " [同日触发ATR止损·弱势反弹]"
-            signals.append((date, iid, sig_name, reason))
+            signals.append((date, iid, "buy_special", reason))
         for date in sorted(buy_backup_set):
             # 备买：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日触发）。reason 标注翻多日
             # ST 支撑 + 翻多日 close + 信号日 close + cross 软分级参考。
