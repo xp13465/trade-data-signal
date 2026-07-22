@@ -84,11 +84,24 @@ def signing_key(date_stamp):
     return k
 
 
-def s3_request(method, key, payload=b"", query="", bucket=None):
+_CONTENT_TYPE_MAP = {
+    ".html": "text/html; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".gz": "application/gzip",
+}
+
+
+def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None):
     """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
 
     带连接超时(30s)+ 重试(3 次,SSL/连接错退避 1s/2s/4s),防 R2 偶发断连致脚本挂死。
+    content_type=None 时按 key 扩展名推断(_CONTENT_TYPE_MAP),未知扩展名回退 application/octet-stream。
     """
+    if content_type is None:
+        ext = os.path.splitext(key)[1].lower()
+        content_type = _CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
     bkt = bucket or BUCKET
     last_exc = None
     for attempt in range(3):
@@ -108,7 +121,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None):
                 "x-amz-content-sha256": payload_hash,
             }
             if method == "PUT":
-                headers["content-type"] = "application/octet-stream"
+                headers["content-type"] = content_type
 
             sorted_items = sorted(headers.items(), key=lambda x: x[0])
             canonical_headers = "".join(f"{k}:{v.strip()}\n" for k, v in sorted_items)
