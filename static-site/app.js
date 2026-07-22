@@ -291,7 +291,8 @@ function signalLabel(s) {
   if (s.signal === "sell_stop_loss") return "ATR×3.5止损";  // ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控；动作描述对比 buy_special "上轨突破"）
   const r = s.reason || "";
   if (r.includes("止盈")) {
-    const m = r.match(/vs前买\s*([+-]?\d+(?:\.\d+)?)\s*%/);
+    // 2026-07-22: vs前买 后可能带 [买点类型] 前缀（主买/辅买/追买/备买），正则用可选组兼容新旧格式
+    const m = r.match(/vs前买(?:\[[^\]]+\])?\s*([+-]?\d+(?:\.\d+)?)\s*%/);
     if (m) return "盈亏" + m[1] + "%";
     return "盈亏拐点";
   }

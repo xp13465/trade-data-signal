@@ -238,6 +238,21 @@ def _cross_tag(cross_val) -> str:
     return "狂热"
 
 
+def _buy_type_cn(buy_type) -> str:
+    """买点类型 key 转中文（sell reason 的 vs前买[类型] 标注用，2026-07-22）。
+
+    buy_special_filtered 是 buy_special 被 h5 标灰的预览，类型算"追买"。
+    None/未知 -> 空串（调用方应保证 last_buy_type 非 None 才调用）。
+    """
+    return {
+        "buy": "主买",
+        "buy_aux": "辅买",
+        "buy_special": "追买",
+        "buy_backup": "备买",
+        "buy_special_filtered": "追买",
+    }.get(buy_type, "买")
+
+
 def _load_cross_score() -> pd.Series:
     conn = get_conn()
     rows = conn.execute(
@@ -494,10 +509,12 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
     sell_set = set(sell[sell].index)
     out = []
     last_buy_value = None
+    last_buy_type = None  # 跟随 last_buy_value 同步更新（sell reason 标 [类型] 用）
     for date in sorted(buy_set | buy_aux_set | sell_set):
         v = value.get(date)
         if date in buy_set:
             last_buy_value = float(v) if pd.notna(v) else last_buy_value
+            last_buy_type = "buy"
             r = rsi.get(date)
             rp = rsi_prev.get(date)
             reason = f"RSI上穿30({rp:.0f}->{r:.0f})" if pd.notna(r) and pd.notna(rp) else "RSI=NA"
@@ -506,6 +523,7 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
         if date in buy_aux_set:
             # buy_aux 也算买点 → 更新 last_buy_value 游标
             last_buy_value = float(v) if pd.notna(v) else last_buy_value
+            last_buy_type = "buy_aux"
             r = rsi.get(date)
             parts = []
             if pd.notna(v):
@@ -542,14 +560,16 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
                 ev = dea.get(date)
                 if pd.notna(dv) and pd.notna(ev):
                     parts.append(f"MACD=DIF{dv:.4g}/DEA{ev:.4g}[死叉确认]")
-            # vs前买 标注：分母 |last_buy_value| 兼容负数（cn_us_spread 可 -3~2）
+            # vs前买 标注：分母 |last_buy_value| 兼容负数（cn_us_spread 可 -3~2），标 [买点类型] 前缀
+            # （2026-07-22 加 last_buy_type 游标，类型来自前买点：buy->主买/buy_aux->辅买）
             if last_buy_value is not None and pd.notna(v):
                 denom = abs(last_buy_value)
                 if denom > 0:
                     pct = (float(v) - last_buy_value) / denom * 100
                     sign = "+" if pct >= 0 else ""
                     tag = "止盈" if pct > 0 else "买点失败"
-                    parts.append(f"vs前买{sign}{pct:.2f}%[{tag}]")
+                    type_cn = _buy_type_cn(last_buy_type)
+                    parts.append(f"vs前买[{type_cn}]{sign}{pct:.2f}%[{tag}]")
                 else:
                     parts.append("无前买点[趋势中]")
             else:
@@ -738,10 +758,12 @@ def compute():
         buy_aux_set = set(buy_aux[buy_aux].index) - buy_set  # 去重：C1 主买优先
         sell_set = set(sell[sell].index)
         last_buy_close = None  # 游标：最近一次买点 close（buy 或 buy_aux，None=窗口内无前置买点）
+        last_buy_type = None   # 游标：最近一次买点类型 key（跟随 last_buy_close 同步更新，sell reason 标 [类型] 用）
         for date in sorted(buy_set | buy_aux_set | sell_set):
             if date in buy_set:
                 # 买点（C1 主买）：RSI 上穿阈值事件化；reason 标注实际阈值。
                 last_buy_close = float(close.get(date)) if pd.notna(close.get(date)) else last_buy_close
+                last_buy_type = "buy"
                 r = rsi.get(date)
                 rp = rsi_prev.get(date)
                 if buy_filter == "rsi_cross_25":
@@ -755,6 +777,7 @@ def compute():
             if date in buy_aux_set:
                 # B1 辅买点：BB 下轨回归。也算买点 → 更新 last_buy_close 游标。
                 last_buy_close = float(close.get(date)) if pd.notna(close.get(date)) else last_buy_close
+                last_buy_type = "buy_aux"
                 c = close.get(date)
                 bl_v = bl_.get(date)
                 r = rsi.get(date)
@@ -798,12 +821,14 @@ def compute():
                 ev = dea.get(date)
                 if pd.notna(dv) and pd.notna(ev):
                     parts.append(f"MACD=DIF{dv:.0f}/DEA{ev:.0f}[死叉确认]")
-                # vs前买 标注（方案 B）：按 close vs last_buy_close 分类
+                # vs前买 标注（方案 B）：按 close vs last_buy_close 分类，标 [买点类型] 前缀
+                # （2026-07-22 加 last_buy_type 游标，类型来自前买点：buy->主买/buy_aux->辅买）
                 if last_buy_close is not None and pd.notna(c):
                     pct = (float(c) - last_buy_close) / last_buy_close * 100
                     sign = "+" if pct >= 0 else ""
                     tag = "止盈" if pct > 0 else "买点失败"
-                    parts.append(f"vs前买{sign}{pct:.2f}%[{tag}]")
+                    type_cn = _buy_type_cn(last_buy_type)
+                    parts.append(f"vs前买[{type_cn}]{sign}{pct:.2f}%[{tag}]")
                 else:
                     parts.append("无前买点[趋势中]")
                 signals.append((date, iid, "sell", ", ".join(parts)))
