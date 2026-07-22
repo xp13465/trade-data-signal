@@ -1188,3 +1188,55 @@ h5 拆分发现：量价背离是误杀元凶（滤中套牢 8.96% < 保留 9.45
 
 **待办更新**：TASKS.md L250 2026-07-22 待办 P2 第 6 项「width pipeline 7-21 18:03 被 Terminated:15」划掉标 ✅（注明 P0-b 超时保护防复发，错误值修复 P0-a 等收盘后另派）。
 
+### 小节AM：追买顶部过滤 R2 强化预览（E2 布林外高波动 + 量价背离收紧）
+
+> 接小节AG（h5 方案 C 上线）+ 小节AL 之后。R2 = C | C12 | E2 | 量价背离收紧，在 h5 预览模式（灰 pin 不删除 buy_special）下叠加 2 个新过滤项，扩大顶部过滤覆盖。
+
+**背景**：方案 C 上线后 h5 滤率仅 5.02%（C 独占），加上 C12 后约 11.2%，仍偏窄。R2 调研在 /tmp/peak_signals_enriched.pkl（12892 信号 × 90 指数，1991~2026-07-08）上拆 4 项过滤组合，目标扩到 15-18% 滤率且不误杀好信号。
+
+**新增 2 项**：
+1. **E2 布林上轨外 + 高波动**：`(above_bb_upper == 1) & (atr_pct > 0.03)`
+   - bb_upper = close.rolling(20).mean() + 2 * close.rolling(20).std()（与 signals.py L8 BB 口径一致）
+   - above_bb_upper = (close > bb_upper).astype(int)
+   - 语义：突破布林上轨 + 高波动 = 顶部超买；命中 188 个，独占 42 个（不被 C/C12/PV 覆盖），命中 10d 均 -1.058% 几乎不误杀好信号
+2. **量价背离收紧**：`(price_vol_div == 1) & (atr_pct > 0.025)`（ATR 阈值从 0.03 收紧到 0.025）
+   - price_vol_div 已在 signals.py L729-735 算（5日价涨 + 近5日至少3日成交额低于MA5），无需补算
+   - 命中 428 个，独占 297 个（最大独占贡献，因 ATR 收紧到 0.025 后扩面）
+
+**pkl 重测**（/tmp/r2_c12_verify.py，从 trade-data/data/sentiment.db index_daily 取完整 K 线算 drawdown_hh20）：
+- R2 (C|E2|PV, 不含 C12)：滤率 7.87% / 滤中套牢 26.50% / 滤后 10d +1.638%（与背景调研口径完全对齐）
+- R2+C12 (C|C12|E2|PV)：滤率 14.24% / 滤中套牢 23.31% / 滤后套牢 11.09%（基线 12.83%，改善 +1.74pp）/ 滤后 10d +1.731%（基线 +1.656%，+0.075pp）/ 误杀 37.69%
+- 单项独占：C 独占 413, C12 独占 821（最大，因 dev_ma60∈(1.0,1.1] 范围宽）, E2 独占 42, PV 独占 297
+
+**实施**（`app/compute/signals.py` L714-760 区域）：
+1. L714-722 h5 注释更新为「方案 R2 = C + C12 + E2 + 量价背离收紧（2026-07-22 强化）」，加 R2 实测数据小段
+2. L754-756 新增 BB 计算：
+   ```python
+   bb_upper = close.rolling(20).mean() + 2 * close.rolling(20).std()
+   above_bb_upper = (close > bb_upper).astype(int)
+   ```
+3. L757-763 h5_filter_mask 改为 4 项 OR：
+   ```python
+   h5_filter_mask = (
+       ((dev_ma60 > 1.20) & (atr_pct > 0.03))                              # C 现状
+       | ((dev_ma60 > 1.0) & (dev_ma60 <= 1.1) & (drawdown_hh20 < -0.02))  # C12 现状
+       | ((above_bb_upper == 1) & (atr_pct > 0.03))                        # E2 新增
+       | ((price_vol_div == 1) & (atr_pct > 0.025))                        # 量价背离收紧新增
+   )
+   h5_filter_mask = h5_filter_mask.fillna(False)
+   ```
+4. price_vol_div 无需补算（signals.py L729-735 已算），drawdown_hh20 已在 L750 算
+
+**预览模式安全**：buy_special（金 pin）+ buy_special_filtered（灰 pin）总数不变，命中 R2 的只是被标灰不删除，未来 drop buy_special_filtered 即可平滑切真过滤。盘中 intraday 跑新代码安全（不删 buy_special）。
+
+**本地测试**：
+- `python3 -c "import ast; ast.parse(open('app/compute/signals.py').read())"` OK
+- `.venv/bin/python -c "from app.compute import signals"` OK
+- `.venv/bin/python -c "from app.compute.signals import compute; compute()"` 跑通无报错
+- buy_special_filtered 命中 2454（占 buy_special* 总数 12892 的 19.03%，hs300 命中 25）；高于 pkl 实测 14.24% 因 compute() 用最新 DB 含 7-22 数据 + 部分 90 年代高波动期数据被 E2/PV 命中，预览模式安全可接受
+- buy_special + buy_special_filtered 总数 = 10438+2454 = 12892，与 pkl 信号总数对齐 ✓
+
+**git**：commit `feat: 追买顶部过滤强化R2(C+E2+量价背离收紧)预览模式(灰pin不删除)`（signals.py + NOTES.md/TASKS.md 落档，含 Co-Authored-By），push origin feat/iframe-theme-follow + rebase origin/main + push origin feat/iframe-theme-follow:main（非 force）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
+
+**待办更新**：TASKS.md L246 附近「尖尖过滤」从「回测完成待决策」改「已上线方案 C+C12 预览 + R2 强化预览（E2+量价背离收紧），待观察后切真过滤」。
+

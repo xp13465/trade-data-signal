@@ -243,7 +243,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 ### P1（方向决策，待用户定）
 3. **ATR×3 口径错位**（已上线待决策）：回测 ATR×3 46.91%/+1.76%（entry 配 ATR×3 出场策略收益，用户决策依据）≠ 生产 Chandelier 独立信号 forward 49.58%/+0.047%（近随机）+ 触发 5.3 倍（94689 vs 17842）。A 接受/B 调参降频(agent 推荐,high 拉长 40/60 日或 ATR 倍数 4*/5*)/C 改 entry 配对/D 回退 Don20。详见 NOTES §48 小节AC
-4. **尖尖信号过滤**（回测完成待决策）：h5 平衡档(ATR>0.03 OR 量价背离)首推，10d 均 +1.66->+1.84/套牢 12.83->11.77，代价滤掉 29% 信号；保守档 h7(偏离>1.20 AND ATR>0.03) 5%滤率换 1pct 套牢下降。核心反直觉：套牢不是顶部追买而是高波动假突破，传统顶部过滤(偏离/RSI/距前高)误杀 49-81%。详见 /tmp/peak_filter_*.py + /tmp/peak_signals_enriched.pkl
+4. **尖尖信号过滤**（已上线预览，待观察切真过滤）：h5 预览模式（灰 pin 不删除 buy_special）已上线 **R2 = C + C12 + E2 + 量价背离收紧**。C=偏离 ma60>20% AND ATR>3%；C12=均线附近假突破(dev∈(1.0,1.1] AND drawdown_hh20<-0.02)；**E2=布林上轨外 AND ATR>3%**（新增）；**量价背离收紧=price_vol_div==1 AND ATR>2.5%**（新增，ATR 从 0.03 收紧到 0.025）。pkl 实测 R2+C12 滤率 14.24%/滤中套牢 23.31%/滤后套牢 11.09%(基线 12.83%)/滤后 10d +1.731%(基线 +1.656%)。compute() 实跑 buy_special_filtered 2454/12892=19.03%（含 90 年代高波动期数据偏多）。预览模式安全，待观察后切真过滤（drop buy_special_filtered）。详见 NOTES §48 小节AM
 5. **买点净化**（调研完成待确认 R1-R5）：R1 buy_backup MA60+15% 过滤推荐(年度稳定,5.7%滤率,10d+4%);R2 buy_special pct 过滤需研究 regime(2025 拉低-1.11%);R3 buy/buy_aux 不推荐(误杀 pullback-in-uptrend 最佳信号)。详见 NOTES §48 小节AB
 
 ### P2
