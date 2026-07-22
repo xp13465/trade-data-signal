@@ -80,7 +80,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 🆕 2026-07-21 盘中事故后续根治（intraday 覆盖 + 国家队 mootdx 失效）
 > 今日盘中修复 3 事故（均已临时修复上线），根治待办防复发。详见 NOTES §48 小节X+Y（已落档，9 根治项 8 闭环 1 遗留 A1）。
 - **intraday 事故根治**（commit 94c79041 方案Y deploy 12:29 午休违规，deploy.sh 通配带入工作区 17:55 旧版覆盖 main 的 11:30 实时版；已 commit 64d43f8d/a6d86178 恢复 7-21 实时）：
-  1. trade/data/sentiment.db 改 symlink 指向 trade-data DB（解决 launchd 跑 trade-data 但 export.py 读 trade DB 不同步，trade DB 停凌晨全量值）
+  1. ~~trade/data/sentiment.db 改 symlink 指向 trade-data DB~~ ✅ 2026-07-22 实施（symlink -> trade-data/data/sentiment.db，collected_at=11:30:06 对齐 trade-data，WAL/SHM 不存在，备份 sentiment.db.bak.20260722，intraday 13:00 写 trade-data 不受影响，详见 NOTES §48 小节AK）
   2. deploy.sh 跑前 `git checkout -- static-site/data/intraday_snapshot.json` 恢复 main 版（防通配带入工作区旧版，§8 警告再现）
   3. deploy.sh 加时段闸门（09:30-15:30 拒绝跑全量 export+deploy，force 参数绕过，类似 intraday_snapshot.sh IS_TRADING 闸门）
   4. intraday_snapshot.sh git add 补加 .gz（本次发现只 add .json 不 add .gz，致 .gz 仍旧版，补 push .gz）
@@ -100,14 +100,14 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
   - ~~**阈值统一方案A**~~：✅ 已完成（2026-07-21，commit fc155ff1 + a8d42e30，`DIM_THRESHOLDS` H1/H4/L1/L3 threshold 80->60 全表 16 维统一 60，消除主表 dim_hits（HIT_THRESHOLD=60）与折叠表 data_thresholds（H1/H4/L1/L3=80）展示冲突（H1=71.79 主表✓命中 vs 折叠表✗未命中）。纯展示层不碰算法（high_alert 走 _weighted_score 不引用 DIM_THRESHOLDS）。55 JSON 重生成，6 个 H1/H4/L1/L3 value in [60,80) hit=True 验证生效（旧 80 下 False），线上 hsi H1 threshold=60 hit=True / cyb H4 value=73.81 threshold=60 hit=True 验证通过，详见 NOTES §48 小节R）。
 - **P2-5 app.js/lab.js 拆 chunk**：远期性能，现 CF br 压缩+defer 后可接受。
 - **百度推送效果验证**：搁置（用户 2026-07-14 定），后续有需要再启。
-- **trade_sim 迁 R2**：✅ 评估结论=不迁（已关闭，见 NOTES §48 小节G）。
-- **data JSON 迁 R2**：暂缓（工作量大，现 CF 缓存分层已够用）。
+- **trade_sim 迁 R2**：✅ 2026-07-20 评估=不迁（小节G），**2026-07-22 反转=已迁 R2**（s.sugas.site 瘦身需要，97 文件 200M，见小节AK）。
+- **data JSON 迁 R2**：✅ 阶段1+2+3 全完成（2026-07-22，index/industry/trade_sim 迁 R2，remote 523M->158M 解 s.sugas.site 超限恢复部署；剩裸 JSON .gz 后续按需，详见 NOTES §48 小节AK）。
 
 ### 下轮起点
 - ~~7-21 收盘后验证 ETF 方案 A 6 天回填是否自动补 7-20 数据。~~ ✅ 2026-07-21 验收通过（commit `d37c2c71`，etf_daily MAX=20260720，详见 NOTES §48 小节J）。
 - ~~ETF ohlc 隐患复查：7-21 20:07 槽跑完后复查 7-20 close/amount 是否补齐（凌晨 mootdx OHLC=0，需 20:07 槽或 update_all 补）。~~ ✅ **2026-07-22 验收通过，待办关闭**（commit `65610d6b` 换源 + 7-21 20:07 槽 ohlc=60 + 7-22 02:00 backfill 同 ohlc=60 稳定；DB 7-17/7-20/7-21 各 12 ETF close/amount 全非 NULL 非 0；线上 etf_date=20260721，详见 NOTES §48 小节AJ）。
 - usdcnh 7-27 周一 curl 验证防复发。
-- R2 P0/P1 已全闭环，P2 按需（trade_sim 不迁 / data JSON 暂缓）。
+- R2 P0/P1 已全闭环，P2 data JSON 迁 R2 阶段1+2+3 全完成（2026-07-22，remote 523M->158M，s.sugas.site 恢复部署，详见小节AK）。
 - C6 预警条已上线，下步观察线上预警准确性。P4 交互式分析已上线（#lab?sub=custom，详见 NOTES §48 小节L）。
 - deadcode + 验锁两条小节H.3 遗留已闭环（晚续4），无遗留。
 
@@ -136,7 +136,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ---
 
 
-## R2优化+备份方案待办（P0+P1 已全闭环 2026-07-20，详见 NOTES §48 小节A）
+## R2优化+备份方案待办（P0+P1 已全闭环 2026-07-20；P2 data JSON 迁 R2 阶段1+2+3 全闭环 2026-07-22，详见 NOTES §48 小节A+AK）
 
 > 2026-07-15 晚调研，2026-07-20 实施 P0×3 + P1×3 全闭环。.git gc 后 136M（原 1.1G）。DB 压缩实测最优 .dump+gzip 13.8MB(17%)，线上用 .db.gz 24MB(29%)。
 
@@ -151,8 +151,8 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 6. ✅ **git gc**：.git 1.1G->136M（松散925MB 未 gc 积压清理）
 
 ### P2（按需）
-7. ✅ **trade_sim HTML 52MB 迁 R2**：评估结论=**不迁**（2026-07-20，见 NOTES §48 小节G）。94 散文件共 51M，.git gc 后 136M 不臃肿，主站 CF Workers 已 br 压缩，无需迁。
-8. ⏸️ **data JSON 迁 R2**：暂缓（工作量大，现 CF 缓存分层已够用）
+7. ✅ **trade_sim HTML 52MB 迁 R2**：2026-07-20 评估=**不迁**（小节G），**2026-07-22 反转=已迁 R2**（s.sugas.site 瘦身 523M->158M 需要，97 文件 200M git rm --cached 保本地 untracked，commit b4b75671，见小节AK）。
+8. ✅ **data JSON 迁 R2（阶段1+2+3）**：2026-07-22 全完成。阶段1 R2 上传(trade_sim 97+index 180+industry 268，CORS *)+阶段2 前端改读 R2(app.js 4处+lab.js 3处，commit f145a409，app.min.js?v=b4eaf1ec)+阶段3 线上瘦身(commit b4b75671 git rm --cached index/trade_sim 保本地 untracked+.gitignore L63-65+intraday L131 改 no-op，remote 523M->158M < 300M，s.sugas.site 恢复部署 v=b4eaf1ec tooltip 颜色根治)。STATIC_DIR fix a0ba8431。剩裸 JSON .gz 后续按需。详见 NOTES §48 小节AK
 
 ### skip（调研后排除）
 - 增量备份：压缩后全量仅24MB，收益锐减

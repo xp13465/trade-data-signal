@@ -1119,3 +1119,51 @@ h5 拆分发现：量价背离是误杀元凶（滤中套牢 8.96% < 保留 9.45
 
 **待办关闭**：TASKS.md L34（ETF ohlc 隐患）/ L39（ETF ohlc 隐患复查）/ L108（下轮起点 ETF ohlc 隐患复查）三处均划掉标 ✅ 2026-07-22 验收通过，待办关闭。
 
+### 小节AK：2026-07-22 A1 sentiment.db symlink 闭环 + R2 全迁阶段3 线上瘦身闭环
+
+> 关闭 TASKS.md L83 intraday 事故根治第1条（DB symlink，小节X/Y 遗留 A1）+ R2 全迁阶段1+2+3 全闭环。承接小节G（trade_sim 不迁评估，2026-07-22 因 s.sugas.site 瘦身反转已迁）+ 小节X/Y（intraday 事故根治 9 项 8 闭环 1 遗留 A1）。
+
+#### A1 sentiment.db symlink 实施（11:38 午休窗口）
+
+**问题**：launchd 跑 trade-data 侧 update_all，但 export.py 读 `trade/data/sentiment.db`，两侧 DB 不同步，trade DB 停凌晨全量值，export 产出滞后版（intraday 事故根治 9 项中唯一遗留 A1）。
+
+**实施**（11:38 午休窗口，避开 13:00 开盘 intraday 写）：
+- `trade/data/sentiment.db` 改 symlink -> `trade-data/data/sentiment.db`（实体在 trade-data 侧）
+- export.py 读 symlink 即读 trade-data 最新版，重跑后 `collected_at=11:30:06` 对齐 trade-data 侧（非滞后版）
+- 备份原 DB：`data/sentiment.db.bak.20260722`
+- WAL/SHM 不存在（symlink 前确认），无需处理
+- 13:00 开盘 intraday 写 trade-data 不受影响（symlink 只在 `trade/data/` 侧，`trade-data/data/sentiment.db` 是实体）
+
+**验收**：export.py 重跑 collected_at 对齐 trade-data，A1 遗留闭环。
+
+#### R2 全迁阶段1+2+3 全闭环
+
+**阶段1 R2 上传**（commit f145a409）：upload_r2.py 加 3 命令（upload-trade-sim/upload-index/upload-industry），s3_request 加 30s 超时+3 次重试（SSL 断连不挂死），_upload_glob 单文件容错。上传完成 trade_sim 97/97 + index 180/180（90 json + 90 gz）+ industry 268/268。CORS `access-control-allow-origin: *` 验证 OK（ss.fx8.store/sss.sugas.site 均可跨域读）。
+
+**阶段2 前端改读 R2**（commit f145a409）：
+- app.js tryGz 条件加 R2 域名（.gz 优先覆盖 ssd.fx8.store URL）
+- app.js L904 trade_sim href -> R2 URL + target="_blank"（新 tab 打开）
+- app.js 4处 + lab.js 3处 `data/index/` -> `ssd.fx8.store/index/`
+- app.js 5处 `data/industry-` -> `ssd.fx8.store/industry/industry-`
+- deploy.sh L122-128 加 upload-trade-sim/upload-index/upload-industry
+- intraday_snapshot.sh L164-170 加 R2 同步（git push 后 upload-index/upload-industry）
+- build_min + bump_asset_version：app.min.js?v=b4eaf1ec
+- push feat + merge main（9187672a），线上验证 sss.sugas.site + ss.fx8.store 均上线
+
+**阶段3 线上瘦身**（commit b4b75671，11:58-12:05）：
+- `git rm --cached -r static-site/data/index/`（180 文件 52M）+ `static-site/trade_sim_*.html`（97 文件 200M）= 277 文件 252M，保本地 untracked
+- `.gitignore` L63-65 加规则：`static-site/data/index/` + `static-site/data/industry-*-indices/` + `static-site/trade_sim_*.html`
+- `intraday_snapshot.sh` L131 改 no-op（index/ 已 R2 托管，删 `git add static-site/data/index/` 行）
+- rebase origin/main 时 24 个 UD 冲突（index/ 文件 intraday 1c2a597f 修改 vs 删除），git rm --cached 解决保本地
+- autostash pop 49 个 UU 冲突（a-stock/global/hk 裸 JSON），checkout --theirs 保留 autostash 版本 + reset unstage + stash drop
+- push main 成功（1c2a597f..b4b75671），remote 523M -> 158.0M（< 300M MaoziYun 限制，static-site/data 150.3M）
+- s.sugas.site 恢复部署（从 531M 超 300M 404 -> 158M 恢复 200），app.min.js?v=b4eaf1ec HTTP 200（content-length 267781），tooltip 颜色根治
+
+**STATIC_DIR fix**（commit a0ba8431）：upload_r2.py 用 REPO env 定位 static-site 数据目录（非 ROOT.resolve），修复 trade-data symlink 致 stale 读 bug。
+
+**未达 < 100M 目标**：裸 JSON .gz 未瘦身（任务2.4「不确定就不动」），但解 s.sugas.site 超限目标已达成。industry-*-indices/ 虽加 .gitignore 规则但历史 tracked 文件未 git rm --cached（.gitignore 不影响已 tracked），后续按需处理。
+
+**小节G 反转**：2026-07-20 评估「trade_sim 不迁」（94 散文件 51M，.git gc 后 136M 不臃肿，主站 CF Workers 已 br 压缩），2026-07-22 因 s.sugas.site（MaoziYun，300M 限制，零压缩）超限 404，反转决策迁 R2 + git rm --cached，remote 523M->158M 恢复部署。
+
+**待办更新**：TASKS.md L83 第1条 DB symlink 划掉标 ✅；L103/L154 trade_sim 不迁标注 2026-07-22 反转已迁；L104/L155 data JSON 迁 R2 暂缓 -> 阶段1+2+3 全完成；L110 下轮起点 + L139 R2 待办章节标题同步更新。
+
