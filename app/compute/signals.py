@@ -712,7 +712,11 @@ def compute():
             buy_backup_filt = supertrend_buy_shift3 & confirm_above
 
             # h5 平衡档过滤预览（2026-07-22）：被过滤的 buy_special 标 buy_special_filtered（灰色 pin 预览模式，不删除）。
-            # 方案 C + C12 叠加（2026-07-22）：C=偏离ma60>20% AND ATR>3%；C12=均线附近假突破(dev∈(1.0,1.1] AND drawdown_hh20<-0.02)。
+            # 方案 R2 = C + C12 + E2 + 量价背离收紧（2026-07-22 强化）：
+            #   C  = 偏离 ma60>20% AND ATR>3%（方案 C，原 h5 主体）
+            #   C12 = 均线附近假突破(dev_ma60∈(1.0,1.1] AND drawdown_hh20<-0.02)
+            #   E2 = 布林上轨外 AND ATR>3%（新增）：close>BB_upper=close.rolling(20).mean()+2σ
+            #   量价背离收紧 = price_vol_div==1 AND ATR>2.5%（新增，ATR 从 0.03 收紧到 0.025）
             # h5 条件 = 偏离 ma60>20% AND ATR(14)/close>3% 双条件精准过滤（方案 C，2026-07-22 修正标注：原 88bd0eb3 commit message 误用 A 模板，实际代码即方案 C，与 L715 方案 C 一致）。
             # 调研依据 /tmp/peak_filter_combos.py::h5 拆分：
             #   - ATR>0.03 真过滤：滤中套牢率 20.05% >> 保留套牢率 9.45%，确实把高波动假突破标灰
@@ -720,6 +724,9 @@ def compute():
             # 改前 (atr_pct>0.03)|(price_vol_div==1) 滤率 29.4% -> 改后 (atr_pct>0.03) 滤率 10.05%
             # 预期：总收益 167.3 -> 190.9 (+23.6)，滤中套牢 23.84%（ATR 单独贡献）
             # 预览模式设计：被过滤的标灰展示不删除，未来把 buy_special_filtered 直接 drop 即可平滑过渡到真过滤。
+            # R2 强化（2026-07-22）：/tmp/r2_c12_verify.py 实测 R2(C|E2|PV 不含C12) 滤率 7.87%/滤中套牢 26.50%/滤后10d+1.638%；
+            #   R2+C12 滤率 14.24%/滤中套牢 23.31%/滤后套牢 11.09%(基线 12.83%)/滤后 10d+1.731%(基线 +1.656%)。
+            #   E2 命中 188(独占42), PV 命中 428(独占297), C12 命中 846(独占821 最大)；三项叠加基本不误杀好信号。
             # atr14 已在 L655 算过（Wilder 14 周期，同 peak_filter_backtest.py L36-42 口径）；amount 用 load_index_amount。
             amount = load_index_amount(iid).reindex(close.index)
             atr_pct = atr14 / close
@@ -744,7 +751,19 @@ def compute():
             #   口径与 /tmp/h5_optimize2.py L79-80 一致：drawdown_hh20 = close/hh20-1.0
             #   (hh20=high.rolling(20).max() 不带shift, L613 已算可复用; atr3_line L657 用的带shift版本口径不同)
             drawdown_hh20 = close / hh20 - 1.0
-            h5_filter_mask = ((dev_ma60 > 1.20) & (atr_pct > 0.03)) | ((dev_ma60 > 1.0) & (dev_ma60 <= 1.1) & (drawdown_hh20 < -0.02))
+            # E2 新增（2026-07-22 R2 强化）：布林上轨外 + 高波动
+            #   bb_upper = close.rolling(20).mean() + 2 * close.rolling(20).std()
+            #   above_bb_upper = (close > bb_upper).astype(int)
+            #   命中 188 个，独占 42 个；命中 10d 均 -1.058% 几乎不误杀好信号
+            bb_upper = close.rolling(20).mean() + 2 * close.rolling(20).std()
+            above_bb_upper = (close > bb_upper).astype(int)
+            # h5_filter_mask = R2 = C | C12 | E2 | 量价背离收紧
+            h5_filter_mask = (
+                ((dev_ma60 > 1.20) & (atr_pct > 0.03))                              # C 现状
+                | ((dev_ma60 > 1.0) & (dev_ma60 <= 1.1) & (drawdown_hh20 < -0.02))  # C12 现状
+                | ((above_bb_upper == 1) & (atr_pct > 0.03))                        # E2 新增
+                | ((price_vol_div == 1) & (atr_pct > 0.025))                        # 量价背离收紧新增
+            )
             h5_filter_mask = h5_filter_mask.fillna(False)
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
