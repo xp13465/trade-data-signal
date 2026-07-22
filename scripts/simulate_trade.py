@@ -85,6 +85,13 @@ def load_name_map():
         iname = idx.get("name")
         if iid and iname:
             name_map[iid] = iname
+    # 全球商品/指标 metrics：加 g. 前缀写入 name_map（供 --all 生成 g.* 品种 JSON）
+    # signal_daily 中 g.* 有数据的会生成，无数据的 _generate_json 自动 skip
+    for m in cfg.get("metrics", []) or []:
+        mid = m.get("id")
+        mname = m.get("name")
+        if mid and mname:
+            name_map[f"g.{mid}"] = mname
     return name_map
 
 
