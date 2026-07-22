@@ -243,9 +243,12 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 2. ~~**schedule_stats 过期版**：0d85d2f0 从 trade 跑 deploy.sh 读旧日志生成过期 schedule_stats（last_run 卡 7-16/7-17 vs 线上 7-21）~~ ✅ **2026-07-22 验收通过**（方案③ symlink：`trade/data/logs` -> `trade-data/data/logs`（8:42 建）+ gen_schedule_stats.py `90eede7f` 支持进行中任务根治时序竞态 + `0b491fc2` 推数据；curl 线上 `schedule_stats.json` last_run：intraday=2026-07-22 11:30 / backfill_evening=2026-07-22 02:00 / 其他 task 7-21（今日未到点正常）；intraday-snapshot 10:06/10:48/11:06/11:31 各推一次刷新。详见 NOTES §48 小节AF+AK）
 
 ### P1（方向决策，待用户定）
-3. **ATR×3 口径错位**（已上线待决策）：回测 ATR×3 46.91%/+1.76%（entry 配 ATR×3 出场策略收益，用户决策依据）≠ 生产 Chandelier 独立信号 forward 49.58%/+0.047%（近随机）+ 触发 5.3 倍（94689 vs 17842）。A 接受/B 调参降频(agent 推荐,high 拉长 40/60 日或 ATR 倍数 4*/5*)/C 改 entry 配对/D 回退 Don20。详见 NOTES §48 小节AC
+3. **ATR×3 口径错位**（已上线待决策）：回测 ATR×3 46.91%/+1.76%（entry 配 ATR×3 出场策略收益，用户决策依据）≠ 生产 Chandelier 独立信号 forward 49.58%/+0.047%（近随机）+ 触发 5.3 倍（94689 vs 17842）。A 接受/B 调参降频(agent 推荐,high 拉长 40/60 日或 ATR 倍数 4*/5*)/C 改 entry 配对/D 回退 Don20。详见 NOTES §48 小节AC。**2026-07-22 部分推进**：sell_stop_loss 首次跌破 dtype bug 修复（raw 6-7x 误增去重）+ 方案A定倍 csi_div 4.5（commit a45819e8，详见 NOTES §48 小节AO），用户"信号重复"核心诉求闭环
 4. **尖尖信号过滤**（已上线预览，待观察切真过滤）：h5 预览模式（灰 pin 不删除 buy_special）已上线 **R2 = C + C12 + E2 + 量价背离收紧**。C=偏离 ma60>20% AND ATR>3%；C12=均线附近假突破(dev∈(1.0,1.1] AND drawdown_hh20<-0.02)；**E2=布林上轨外 AND ATR>3%**（新增）；**量价背离收紧=price_vol_div==1 AND ATR>2.5%**（新增，ATR 从 0.03 收紧到 0.025）。pkl 实测 R2+C12 滤率 14.24%/滤中套牢 23.31%/滤后套牢 11.09%(基线 12.83%)/滤后 10d +1.731%(基线 +1.656%)。compute() 实跑 buy_special_filtered 2454/12892=19.03%（含 90 年代高波动期数据偏多）。预览模式安全，待观察后切真过滤（drop buy_special_filtered）。详见 NOTES §48 小节AM
 5. **买点净化**（调研完成待确认 R1-R5）：R1 buy_backup MA60+15% 过滤推荐(年度稳定,5.7%滤率,10d+4%);R2 buy_special pct 过滤需研究 regime(2025 拉低-1.11%);R3 buy/buy_aux 不推荐(误杀 pullback-in-uptrend 最佳信号)。详见 NOTES §48 小节AB
+
+### 🆕 P1-新（2026-07-22 闭环）
+9. ✅ **sell_stop_loss 首次跌破 dtype bug 修复 + 方案A定倍**（2026-07-22，commit a45819e8）：`sell_stop_cond.shift(1).fillna(False)` 返回 object dtype，`~object` 是位运算非布尔取反，致 first_break==below 完全不去重（6-7x 误增）。修复 `.astype(bool)`。raw 去重：csi_div 580->117 (5x)、hs300 1765->231 (7.6x)、us_spx 856->193 (4.4x)。方案A定倍 csi_div 3.5->4.5（raw 151->115 再降24%）。同日叠加过滤逻辑仍成立（副作用：最终窗口化信号数略升 csi_div 64->86，因 BUG 版过度过滤被修正，每个保留信号都是真首次跌破）。详见 NOTES §48 小节AO
 
 ### P2
 6. ~~**width pipeline 7-21 18:03 被 Terminated:15**：查 width 数据完整性，必要时重跑 backfill_evening 补 width~~ ✅ **2026-07-22 P0-b 闭环**（runner.py mootdx step 加 30min `signal.alarm` 超时保护防 SIGTERM 阻塞复发，详见 NOTES §48 小节AL；**错误值修复 P0-a**（7-17~7-20 用 84 只残缺样本算错误宽度 a_width_zt_count=1）等收盘后另派，未闭环）

@@ -1295,3 +1295,55 @@ h5 拆分发现：量价背离是误杀元凶（滤中套牢 8.96% < 保留 9.45
 
 **待办更新**：TASKS.md L82 intraday 事故根治 9 项加第 5 项「rsync -a -> --checksum 根治 schedule_stats.json quick check 跳过」。
 
+### 小节AO：sell_stop_loss 首次跌破 dtype bug 修复 + 方案A定倍（2026-07-22，commit a45819e8）
+
+> 接小节AC（sell_stop_loss 改 ATR×3 Chandelier Exit）+ 小节AE（第一个止损卖过滤）+ 小节AH（ATR×4 回测不采纳）。用户报"信号太多太重复问题依然没解决，这个信号用来止损，只有第一个才有用，都跌下来了还频繁出有什么意义"。
+
+**根因（dtype bug，主控逐字验证）**：`signals.py` L678-680（原）事件化代码：
+```python
+sell_stop_cond = (close < atr3_line).fillna(False)       # bool dtype
+sell_stop_prev = sell_stop_cond.shift(1).fillna(False)   # ⚠️ object dtype!
+sell_stop_loss = sell_stop_cond & (~sell_stop_prev)      # ~object = 位运算!
+```
+`bool.shift(1).fillna(False)` 在当前 pandas 版本返回 **object dtype**（非 bool）。`~` 作用于 object series 做的是**按位取反**（`~True=-2, ~False=-1`，Python int 的位运算），不是布尔取反。然后 `bool & int`：`True & -2 = True`（-2 truthy）、`True & -1 = True`（-1 truthy），所以 `first_break = below & (truthy) = below`，**完全不去重**。
+
+**验证**：`below.dtype=bool`，`prev_below.dtype=object`，`~prev_below.dtype=object`，`~prev_below` 的 unique 值 = `{-2, -1}`（非 `{True, False}`）。实测 `first_break.sum() == below.sum()`（csi_div 1043==1043），dedup_ratio = 1.0x（零去重）。
+
+**修复**：`.astype(bool)` 强制布尔，`~bool` 才是布尔取反：
+```python
+sell_stop_prev = sell_stop_cond.shift(1).fillna(False).astype(bool)  # 强制 bool
+sell_stop_loss = sell_stop_cond & (~sell_stop_prev)                  # ~bool = 布尔取反
+```
+
+**修复效果（raw first-break，窗口化前，回测 /tmp/backtest_stoploss_dedup.py）**：
+
+| 指数 | n_below | BUG_first | FIX_first | dedup |
+|------|---------|-----------|-----------|-------|
+| csi_div | 1043 | 1043 | 151 | 6.9x |
+| div_lowvol | 932 | 932 | 132 | 7.1x |
+| sz_div | 1297 | 1297 | 183 | 7.1x |
+| hs300 | 1765 | 1765 | 231 | 7.6x |
+| us_spx | 856 | 856 | 193 | 4.4x |
+
+**红利三指数 ×3.5/4.0/4.5 回测（FIX 版，套牢率=fwd10<0 占比）**：
+
+| 指数 | mult | FIX_n | fwd10 | fwd20 | 套牢率 |
+|------|------|-------|-------|-------|--------|
+| csi_div | 3.5 | 151 | -0.24% | 0.50% | 48.3% |
+| csi_div | 4.0 | 145 | 0.34% | 0.43% | 40.7% |
+| csi_div | 4.5 | 115 | -0.01% | 0.39% | 46.1% |
+| div_lowvol | 3.5 | 131 | -0.05% | 0.73% | 48.1% |
+| div_lowvol | 4.5 | 103 | 0.39% | 0.96% | 40.8% |
+| sz_div | 3.5 | 180 | -0.36% | 0.43% | 52.2% |
+| sz_div | 4.5 | 140 | -0.34% | 0.34% | 50.7% |
+
+**方案A定倍（用户指定）**：csi_div 3.5->4.5（raw 151->115 再降24%，套牢率 48.3%->46.1% 改善）；div_lowvol/sz_div 保持 3.5 默认。实现：`_STOP_LOSS_ATR_MULT = {"csi_div": 4.5}` per-index dict，缺省 3.5。reason 标注动态显示倍数 `ATR×{atr_mult:g}止损`（csi_div=4.5，其他=3.5）。
+
+**同日叠加过滤（L908-912）逻辑仍成立**：buy 同日 first-break = RSI 超卖反弹 + 价格当日首次跌破 Chandelier 线 = 矛盾确认，过滤合理。⚠️ **副作用**：BUG 版 below==first_break 过度过滤（买日常 below day 被滤），修复后同日 first-break 更少 -> 过滤更少 -> 最终窗口化信号数**略升**（csi_div 64->86，+22）。但每个保留信号都是真首次跌破，语义正确。用户核心诉求"事件化去重"（raw 6-7x 误增 -> 真去重）已达成。
+
+**非红利指数抽查（mult=3.5，不退化）**：hs300 1761->229（7.6x）、csi500 1323->202（6.6x）、usi 813->148（5.6x）、us_spx 856->193（4.4x）、us_dji 696->179（3.9x）、nikkei225 161->39（4.0x）。套牢率多数持平或略改善（us_spx 38.1%->37.8%），hsi 略升（43.1%->52.7%，止损信号 fwd 本就偏负，可接受）。
+
+**git**：commit `a45819e8`。push feat（`0ef9230f..a45819e8`）+ push feat:main（`0ef9230f..a45819e8`，fast-forward，不 force）。main 当时停在 0ef9230f（小节AN），feat 以其为父，无 rebase 需要。根 `data/`（signal_stats.json/sw_components.json）未 add 保持本地 M。
+
+**待办更新**：TASKS.md 加「sell_stop_loss 首次跌破 dtype bug 修复 + 方案A定倍」闭环。
+
