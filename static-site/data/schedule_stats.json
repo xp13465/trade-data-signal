@@ -4,18 +4,18 @@
     "name": "收盘全量",
     "schedule": "17:50",
     "est_text": "约5分钟",
-    "last_run": "2026-07-21 17:50",
-    "last_exit": 0,
-    "last_duration_sec": 735
+    "last_run": "2026-07-22 17:50",
+    "last_exit": null,
+    "last_duration_sec": null
   },
   {
     "task": "backfill_evening",
     "name": "指数补采兜底",
     "schedule": "16:35 / 20:00 / 02:00",
-    "est_text": "约7分钟",
+    "est_text": "约9分钟",
     "last_run": "2026-07-22 16:35",
-    "last_exit": null,
-    "last_duration_sec": null
+    "last_exit": 0,
+    "last_duration_sec": 1574
   },
   {
     "task": "intraday_snapshot",
