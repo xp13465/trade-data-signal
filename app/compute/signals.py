@@ -673,10 +673,19 @@ def compute():
             # 独立事件化（无配对 entry，区别于回测 /tmp/backtest_stoploss_compare.py atr_3 的
             # entry_close - 3*ATR(entry_idx) 入场价固定线口径——本信号无 entry 概念，用高点移动线适配）。
             # 事件化（前一日未跌破、当日跌破才标，避免连续标），当天跌破当天发。
+            # 方案A定倍（2026-07-22）：红利三指数 per-index ATR 倍数。csi_div 4.5（更宽止损线，降24%信号数，
+            # 套牢率 48.3%->46.1% 改善）；div_lowvol/sz_div 保持默认 3.5。回测依据 /tmp/backtest_stoploss_dedup.py。
+            # 首次跌破 dtype 修复（2026-07-22）：sell_stop_cond.shift(1).fillna(False) 返回 object dtype，
+            # ~object 做位运算（~True=-2, ~False=-1）非布尔取反，致 first_break==below 完全不去重（6-7x 误增）。
+            # 修复：.astype(bool) 强制布尔，~bool 才是布尔取反。修复后 csi_div 1029->151 信号（6.9x 去重）。
+            _STOP_LOSS_ATR_MULT = {"csi_div": 4.5}  # per-index ATR 倍数覆盖；缺省走 3.5
+            atr_mult = _STOP_LOSS_ATR_MULT.get(iid, 3.5)
             atr14 = _atr(high, low, close, 14)
-            atr3_line = high.rolling(20).max().shift(1) - 3.5 * atr14
+            atr3_line = high.rolling(20).max().shift(1) - atr_mult * atr14
             sell_stop_cond = (close < atr3_line).fillna(False)
-            sell_stop_prev = sell_stop_cond.shift(1).fillna(False)
+            # 首次跌破触发：today below AND prev NOT below（持续下方不出，回到上方再跌破才再出）。
+            # astype(bool) 必须：shift+fillna 返回 object dtype，~object 是位运算非布尔取反（2026-07-22 修复）。
+            sell_stop_prev = sell_stop_cond.shift(1).fillna(False).astype(bool)
             sell_stop_loss = sell_stop_cond & (~sell_stop_prev)
 
             # buy_special 加 B4_hold5d 过滤（2026-07-21，stateless 延后触发）：
@@ -879,7 +888,7 @@ def compute():
                 signals.append((date, iid, "sell", ", ".join(parts)))
 
         # 特买 buy_special Donchian20_up + B4_hold5d 过滤 + 备买 buy_backup Supertrend_buy +
-        # 二次确认过滤 + sell_stop_loss ATR×3.5 Chandelier Exit 止损 独立 append（不去重，叠加多色 pin，
+        # 二次确认过滤 + sell_stop_loss ATR×{atr_mult} Chandelier Exit 止损 独立 append（不去重，叠加多色 pin，
         # 独立计算不影响 buy/buy_aux/sell）。趋势跟踪类，与 C1/B1 均值回归类互补。
         # 注：buy_special_set/buy_backup_set 已在主循环前 L764-765 定义（游标扩展共用）。
         sell_stop_set = set(raw_sell_stop_set)  # 复用 L769 raw_sell_stop_set(方案A),后续 L880 同日叠加过滤
@@ -899,6 +908,9 @@ def compute():
         # === 同日叠加过滤(方案A 2026-07-22)===
         # 60-68% sell_stop_loss 与 buy 同日触发(深熊反弹初期 RSI上穿30 + close<atr3_line 矛盾信号),
         # 买入日不该止损,过滤掉与 buy 同日的 stop(raw sell_stop_set 保留在 L769 供 buy reason 标注判断)
+        # 2026-07-22 首次跌破修复后:buy 同日 first-break = price 当日首次跌破 Chandelier 线(RSI 说超卖反弹
+        # 但价格刚破支撑 = 矛盾确认),过滤逻辑仍成立。修复前 BUG(below==first_break)过度过滤(买日常 below),
+        # 修复后同日 first-break 更少 -> 过滤更少 -> 最终窗口化信号数略升(csi_div 64->86)但每个都是真首次跌破。
         buy_dates_set = set(all_buy_dates)
         sell_stop_set = {d for d in filtered_stop_set if d not in buy_dates_set}
         # 突破日/翻多日数据 vectorized 取（shift 后在信号日读取，对应 bd=t-5 / bd=t-3）
@@ -957,15 +969,16 @@ def compute():
             parts.append("[指数]")
             signals.append((date, iid, "buy_backup", ", ".join(parts) + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
         for date in sorted(sell_stop_set):
-            # 止损卖：ATR×3.5 Chandelier Exit 跌破（从近20日最高价回撤3.5*ATR）。reason 标注 ATR + 线 + close + cross。
+            # 止损卖：ATR×{atr_mult} Chandelier Exit 首次跌破（从近20日最高价回撤 atr_mult*ATR）。
+            # reason 标注 ATR 倍数 + 线 + close + cross（2026-07-22: 倍数动态显示，csi_div=4.5 其他=3.5）。
             c = close.get(date)
             al = atr3_line.get(date)
             av = atr14.get(date)
             parts = []
             if pd.notna(al) and pd.notna(c) and pd.notna(av):
-                parts.append(f"ATR×3.5止损(ATR={av:.2f}, 线={al:.0f}, close={c:.0f})")
+                parts.append(f"ATR×{atr_mult:g}止损(ATR={av:.2f}, 线={al:.0f}, close={c:.0f})")
             else:
-                parts.append("ATR×3.5止损")
+                parts.append(f"ATR×{atr_mult:g}止损")
             cv = cross_aligned.get(date)
             if pd.notna(cv):
                 parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
