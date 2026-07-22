@@ -1080,7 +1080,9 @@ async function fetchJSON(url) {
   const gzUrl = tryGz ? _base + ".gz" + _query : null;
   const controller = new AbortController();
   const slowTimer = setTimeout(() => controller.abort(), 15000);
-  const doFetch = (u) => fetch(u, { signal: controller.signal })
+  // cache: 'no-cache' 走条件请求(带 If-None-Match/If-Modified-Since), 绕过 R2 .gz 的 cache-control: max-age=14400 强制缓存
+  // 否则 stats 等数据更新后浏览器仍读 4h 旧缓存 (2026-07-22 csi_div tooltip 显示旧版 sell_stop_loss n 而非新版 86 的根因)
+  const doFetch = (u) => fetch(u, { signal: controller.signal, cache: "no-cache" })
     .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + u); return r; });
   const p = (async () => {
     let resp;
