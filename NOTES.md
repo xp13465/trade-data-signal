@@ -1167,3 +1167,24 @@ h5 拆分发现：量价背离是误杀元凶（滤中套牢 8.96% < 保留 9.45
 
 **待办更新**：TASKS.md L83 第1条 DB symlink 划掉标 ✅；L103/L154 trade_sim 不迁标注 2026-07-22 反转已迁；L104/L155 data JSON 迁 R2 暂缓 -> 阶段1+2+3 全完成；L110 下轮起点 + L139 R2 待办章节标题同步更新。
 
+### 小节AL：runner.py mootdx step 加 30min 超时保护（P0-b，防 7-21 18:03 SIGTERM 阻塞复发）
+
+> 接小节AD（width pipeline 7-21 18:03 被 Terminated:15）+ mootdx-fix agent 调研结论。mootdx 7/17 起 bestip 全返空，baostock fallback 串行 5527 只 ~7h，7-21 18:03 update_all width pipeline 被 SIGTERM 杀（mootdx step 只采 85 只），阻塞后续 industry_width/width_history（7-17~7-20 用 84 只残缺样本算错误全市场宽度写入 daily_metric，a_width_zt_count=1 错误值，7-21 才恢复 5199 只）。本节做 P0-b 超时保护防复发；P0-a 并发补采修错误值等收盘后另派。
+
+**机制选型**：`signal.alarm(1800)` SIGALRM 信号中断 socket syscall 抛 `TimeoutError`。
+- 候选对比：①`signal.alarm` Unix 信号主线程最简 ②`threading.Timer` 跨平台但同步调用难中断 ③`subprocess timeout` 不适用（mootdx step 是同进程同步调用非子进程）。
+- 选 `signal.alarm`：pipeline.sh 各 step（core/width/futures/stock_daily）独立子进程跑（update_all.sh L70-78 `bash pipeline.sh width &`），`runner.run()` 在 Python 主线程，signal.alarm 主线程限制满足；mootdx 阻塞点在 TCP 7709 socket I/O，SIGALRM 中断 EINTR 后 Python 处理信号抛 `TimeoutError` 可靠。
+
+**实施**（`app/collector/runner.py`，2 处改动）：
+1. L9 加 `import signal`；L28-30 加模块级 `_mootdx_timeout_handler(signum, frame)` raise `TimeoutError("mootdx step timeout 30min")`
+2. L278-329 mootdx step（`if _want(steps, "mootdx"):` 内）外层包 `signal.signal(SIGALRM, handler) + signal.alarm(1800)` + `try/finally`（`signal.alarm(0)` 取消 + `signal.signal(SIGALRM, _prev_sigalrm)` 恢复）；内层 `try` 加 `except TimeoutError` 记 `"timeout 30min, skip (后续 industry_width/width_history 用已有数据算)"`，原 `except Exception` 保留
+3. 超时跳过 mootdx step 后继续跑 industry_width/width_history（用 mootdx_daily_raw 已有数据算近 15 天/30 天宽度，不全 skip）
+
+**验证**：`python3 -c "import ast; ast.parse(open('app/collector/runner.py').read())"` OK；`.venv/bin/python -c "from app.collector import runner; runner._mootdx_timeout_handler"` 导入 OK。盘中不跑 update_all 测试（§8 禁），收盘 17:50 launchd update_all 自动验证。
+
+**未做（P0-a 等收盘后另派）**：mootdx step 并发补采/换源加速修 7-17~7-20 残缺宽度错误值（a_width_zt_count=1），不在本节范围。
+
+**git**：commit `fix: runner.py mootdx step加超时保护30min防SIGTERM阻塞update_all(P0-b)`（1 file 改 runner.py + NOTES.md/TASKS.md 落档，含 Co-Authored-By），push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（非 force，fast-forward）✓。根 data/（signal_stats.json/sw_components.json）未 add 保持本地 M。
+
+**待办更新**：TASKS.md L250 2026-07-22 待办 P2 第 6 项「width pipeline 7-21 18:03 被 Terminated:15」划掉标 ✅（注明 P0-b 超时保护防复发，错误值修复 P0-a 等收盘后另派）。
+

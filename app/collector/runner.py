@@ -6,6 +6,7 @@
   mootdx / industry_width / width_history / futures / ad_line / turnover
 依赖由调用方保证（如 width pipeline 传 ["mootdx","industry_width","width_history"]）。
 """
+import signal
 import sys
 import datetime as dt
 
@@ -22,6 +23,11 @@ def _now():
 def _want(steps, name):
     """steps=None 跑全部；否则只跑 steps 中列出的 step。"""
     return steps is None or name in steps
+
+
+def _mootdx_timeout_handler(signum, frame):  # noqa: ARG001
+    """SIGALRM 处理器：mootdx step 超 30min 抛 TimeoutError 跳过，防阻塞 update_all。"""
+    raise TimeoutError("mootdx step timeout 30min")
 
 
 def upsert_metric(date, metric_id, value, source="akshare"):
@@ -270,41 +276,56 @@ def run(date=None, verbose=True, steps=None):
     #   恢复后自动回归主力。**不走 run_batch 全量**（mootdx 7h）以遵守"防 scheduler
     #   全量回填"设计约束——换 baostock fallback 实现路径而非 mootdx 全量。
     if _want(steps, "mootdx"):
+        # 30min 超时保护（P0-b，2026-07-22）：mootdx 7/17 起 bestip 全空 + baostock
+        # fallback 串行 5527 只~7h，7-21 18:03 阻塞 width pipeline 被 SIGTERM 杀（只采
+        # 85 只）。signal.alarm 主线程同步调用最简（pipeline.sh 各 step 独立子进程，
+        # run() 在主线程）；SIGALRM 中断 socket syscall 抛 TimeoutError，跳过 mootdx
+        # step 继续跑 industry_width/width_history（用已有数据算），防复发。
+        _prev_sigalrm = signal.signal(signal.SIGALRM, _mootdx_timeout_handler)
+        signal.alarm(1800)  # 30min
         try:
-            from . import mootdx_daily
-            prog = mootdx_daily.load_progress()
-            if prog:
-                todo = list(prog.keys())  # 已 backfill 的 code 子集
-                # update_all 自动路径用更激进的熔断阈值(15 < 默认 50)：部分故障
-                # (批量全 empty)15 只×5s≈75s 即切 baostock fallback，比默认 250s
-                # 快 3 倍；整体故障(client init 失败)已在 run_batch 秒级切 fallback。
-                # 正常偶发 empty 不会连续 15 只，误触发风险低。CLI full/update 手动
-                # 跑仍用默认 50(容错优先，避免误切)。
-                res = mootdx_daily.run_batch(todo, incremental=True, verbose=verbose,
-                                             consecutive_fail_limit=15)
-                ok += res["ok"]
-                fail += res["fail"]
-                details.append(("mootdx_daily", "ok" if res["fail"] == 0 else "fail",
-                                f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
-                                f"({len(todo)} codes)"))
-            else:
-                # progress 空：mootdx 从未跑过，直接 baostock fallback 采 all_codes
-                # （跳过 mootdx 尝试；不走 run_batch 全量避免 7h 阻塞 scheduler）。
-                all_codes = mootdx_daily.load_codes()
-                today = dt.date.today().strftime("%Y%m%d")
-                fb_rows, fb_ok, fb_skip = mootdx_daily._run_baostock_fallback(
-                    all_codes, progress=prog, incremental=True,
-                    today=today, verbose=verbose)
-                mootdx_daily.save_progress(prog)  # fallback 内部每 5 只存盘，补末尾
-                ok += fb_ok
-                fail += len(all_codes) - fb_ok - fb_skip
-                details.append(("mootdx_daily", "ok" if fb_ok else "fail",
-                                f"fallback(baostock): +{fb_rows} rows, {fb_ok} ok/"
-                                f"{len(all_codes) - fb_ok - fb_skip} fail/{fb_skip} skip_bj "
-                                f"({len(all_codes)} codes, progress was empty)"))
-        except Exception as e:  # noqa: BLE001
-            fail += 1
-            details.append(("mootdx_daily", "fail", str(e)[:150]))
+            try:
+                from . import mootdx_daily
+                prog = mootdx_daily.load_progress()
+                if prog:
+                    todo = list(prog.keys())  # 已 backfill 的 code 子集
+                    # update_all 自动路径用更激进的熔断阈值(15 < 默认 50)：部分故障
+                    # (批量全 empty)15 只×5s≈75s 即切 baostock fallback，比默认 250s
+                    # 快 3 倍；整体故障(client init 失败)已在 run_batch 秒级切 fallback。
+                    # 正常偶发 empty 不会连续 15 只，误触发风险低。CLI full/update 手动
+                    # 跑仍用默认 50(容错优先，避免误切)。
+                    res = mootdx_daily.run_batch(todo, incremental=True, verbose=verbose,
+                                                 consecutive_fail_limit=15)
+                    ok += res["ok"]
+                    fail += res["fail"]
+                    details.append(("mootdx_daily", "ok" if res["fail"] == 0 else "fail",
+                                    f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
+                                    f"({len(todo)} codes)"))
+                else:
+                    # progress 空：mootdx 从未跑过，直接 baostock fallback 采 all_codes
+                    # （跳过 mootdx 尝试；不走 run_batch 全量避免 7h 阻塞 scheduler）。
+                    all_codes = mootdx_daily.load_codes()
+                    today = dt.date.today().strftime("%Y%m%d")
+                    fb_rows, fb_ok, fb_skip = mootdx_daily._run_baostock_fallback(
+                        all_codes, progress=prog, incremental=True,
+                        today=today, verbose=verbose)
+                    mootdx_daily.save_progress(prog)  # fallback 内部每 5 只存盘，补末尾
+                    ok += fb_ok
+                    fail += len(all_codes) - fb_ok - fb_skip
+                    details.append(("mootdx_daily", "ok" if fb_ok else "fail",
+                                    f"fallback(baostock): +{fb_rows} rows, {fb_ok} ok/"
+                                    f"{len(all_codes) - fb_ok - fb_skip} fail/{fb_skip} skip_bj "
+                                    f"({len(all_codes)} codes, progress was empty)"))
+            except TimeoutError:
+                fail += 1
+                details.append(("mootdx_daily", "fail",
+                                "timeout 30min, skip (后续 industry_width/width_history 用已有数据算)"))
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                details.append(("mootdx_daily", "fail", str(e)[:150]))
+        finally:
+            signal.alarm(0)  # 取消未触发的 alarm
+            signal.signal(signal.SIGALRM, _prev_sigalrm)  # 恢复原 handler
 
     # 8) 行业内宽度增量更新（F3，mootdx 增量后算近 15 天行业内涨跌/涨停/炸板）
     if _want(steps, "industry_width"):

@@ -247,6 +247,6 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 5. **买点净化**（调研完成待确认 R1-R5）：R1 buy_backup MA60+15% 过滤推荐(年度稳定,5.7%滤率,10d+4%);R2 buy_special pct 过滤需研究 regime(2025 拉低-1.11%);R3 buy/buy_aux 不推荐(误杀 pullback-in-uptrend 最佳信号)。详见 NOTES §48 小节AB
 
 ### P2
-6. **width pipeline 7-21 18:03 被 Terminated:15**：查 width 数据完整性，必要时重跑 backfill_evening 补 width
+6. ~~**width pipeline 7-21 18:03 被 Terminated:15**：查 width 数据完整性，必要时重跑 backfill_evening 补 width~~ ✅ **2026-07-22 P0-b 闭环**（runner.py mootdx step 加 30min `signal.alarm` 超时保护防 SIGTERM 阻塞复发，详见 NOTES §48 小节AL；**错误值修复 P0-a**（7-17~7-20 用 84 只残缺样本算错误宽度 a_width_zt_count=1）等收盘后另派，未闭环）
 7. **collect_health level=error 但 message=ok**：8420871a 已修 fetchers.py（空列表返"两源皆败无数据"）但 overview.json 仍矛盾，从 trade-data 重跑 export 验证修复是否生效
 8. **两融 T+1 显示**（可接受现状）：7-21 23:00 跑了源 T+1 未发当日（latest=20260720），last_run 卡 7-20。可改 schedule_stats 逻辑(任务跑了就更新 last_run 标"无新数据")或前端"数据更新规则"加注两融 T+1
