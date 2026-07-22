@@ -28,7 +28,7 @@ import time
 import traceback
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).absolute().parent.parent  # 不用 .resolve()：trade-data/scripts 是 trade/scripts 的 symlink，resolve() 会跳回 trade 致 alert*.json 绕过 trade-data 写到 trade
 sys.path.insert(0, str(ROOT))
 
 from app.alert_match import PREGEN_TARGETS, _load_index_name_map  # noqa: E402
