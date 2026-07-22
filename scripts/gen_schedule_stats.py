@@ -64,7 +64,12 @@ def _iter_lines(path: Path):
 
 
 def parse_standard(path: Path, script: str):
-    """标准 .sh 任务:返回 [(start_dt, end_dt, exit_code, duration_sec), ...]"""
+    """标准 .sh 任务:返回 (pairs, pending_start)
+    pairs=[(start_dt, end_dt, exit_code, duration_sec), ...]
+    pending_start=进行中任务的 start_dt(有 start 无 end),用于 last_run 显示"进行中"
+    (exit_code=null/duration=null),根治 intraday_snapshot.sh 在 push 前调本脚本时
+    日志只有开始行无结束行致 last_run 停留昨天的时序竞态。
+    """
     starts, ends = [], []
     for line in _iter_lines(path):
         m = START_RE.search(line)
@@ -77,11 +82,12 @@ def parse_standard(path: Path, script: str):
             code = int(m.group(3)) if m.group(3) is not None else 0
             ends.append((ts, code))
     # 双指针配对:每个 start 找首个未消耗的 end>=start 且 gap<=3h
-    pairs, ei = [], 0
+    pairs, ei, pending_start = [], 0, None
     for s in starts:
         while ei < len(ends) and ends[ei][0] < s:
             ei += 1  # 跳过早于该 start 的孤儿 end
         if ei >= len(ends):
+            pending_start = s  # 记录进行中的 start(有 start 无 end),break 退出
             break
         e_ts, e_code = ends[ei]
         dur = (e_ts - s).total_seconds()
@@ -89,11 +95,13 @@ def parse_standard(path: Path, script: str):
             pairs.append((s, e_ts, e_code, dur))
             ei += 1
         # dur>MAX_GAP_SEC:错位，丢弃该 start 不配对（不消耗 end）
-    return pairs
+    return pairs, pending_start
 
 
 def parse_etf_nt(path: Path):
-    """etf_nt:完成行无时间戳，耗时直接给出。last_run 用开始时间。"""
+    """etf_nt:完成行无时间戳，耗时直接给出。last_run 用开始时间。
+    返回 (pairs, pending_start)，pending_start=开始但未完成的进行中任务。
+    """
     pairs, pending = [], None
     for line in _iter_lines(path):
         m = ETF_START_RE.search(line)
@@ -105,7 +113,7 @@ def parse_etf_nt(path: Path):
             dur = float(m.group(1))
             pairs.append((pending, pending, 0, dur))  # end=start(无结束ts), exit=0
             pending = None
-    return pairs
+    return pairs, pending
 
 
 def est_text(pairs):
@@ -128,13 +136,22 @@ def build():
                            "est_text": "—", "last_run": None, "last_exit": None,
                            "last_duration_sec": None})
             continue
-        pairs = parse_etf_nt(log_path) if t["mode"] == "etf_nt" else parse_standard(log_path, t["script"])
+        if t["mode"] == "etf_nt":
+            pairs, pending_start = parse_etf_nt(log_path)
+        else:
+            pairs, pending_start = parse_standard(log_path, t["script"])
+        last_run, code, last_dur = None, None, None
         if pairs:
             s, e, code, dur = pairs[-1]
             last_run = s.strftime("%Y-%m-%d %H:%M")
             last_dur = round(dur)
-        else:
-            last_run, code, last_dur = None, None, None
+        # 进行中任务(有 start 无 end):若比最近配对更晚,覆盖为"进行中"
+        # exit_code/duration 留 null,前端 last_exit=null 不显示 ⚠️(任务还在跑或异常退出)
+        if pending_start is not None:
+            if last_run is None or pending_start > pairs[-1][0]:
+                last_run = pending_start.strftime("%Y-%m-%d %H:%M")
+                code = None
+                last_dur = None
         result.append({
             "task": t["task"], "name": t["name"], "schedule": t["schedule"],
             "est_text": est_text(pairs), "last_run": last_run,
