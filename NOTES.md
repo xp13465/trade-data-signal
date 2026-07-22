@@ -1267,3 +1267,31 @@ h5 拆分发现：量价背离是误杀元凶（滤中套牢 8.96% < 保留 9.45
 
 **待办更新**：TASKS.md L102 百度推送搁置项加注"2026-07-22 删 HTTP 百度推送修 mixed content，保留 HTTPS zz.bdstatic.com"。
 
+### 小节AN：rsync -a -> --checksum 根治 schedule_stats.json quick check 跳过（2026-07-22，commit 7d9c3c99）
+
+> 接小节AF（schedule_stats symlink 方案③解决时序竞态）+ 小节AK（A1 sentiment.db symlink 闭环）。小节AF 闭环后线上 schedule_stats.json intraday last_run 仍偶发停滞（11:30 后不进 13:05），问题2 agent 定位为 rsync quick check 误判新根因。
+
+**背景**：用户报线上"近期执行统计"intraday 行 last_run 停 11:30 不刷新（intraday_snapshot.json 本身正常，仅 schedule_stats.json 执行统计停滞）。intraday-snapshot 定时任务（launchd `com.trade.intraday-snapshot.plist`，9:35-15:05 每 30 分钟）正常跑且 gen_schedule_stats.py 正常生成新版，但 push 上线的 commit 不含 schedule_stats.json。
+
+**根因（问题2 agent 100% 确认 + 主控 grep 验收）**：`intraday_snapshot.sh` L115 `rsync -a "$REPO/static-site/data/." static-site/data/`（从 REPO 拷贝采集器刚写的数据 JSON 到 worktree）使用 rsync 默认 quick check 算法（比对 size + mtime）。schedule_stats.json 的 last_run 字段 "11:30" -> "13:05" 字符串长度不变（16 字符），文件 size 不变；worktree checkout 时 mtime 与 gen_schedule_stats.py 写完同秒。两个条件叠加 -> rsync quick check 判定"未变"跳过拷贝 -> worktree 仍是旧版 schedule_stats.json -> `git add` 不含变更 -> commit 不含 -> push main 线上停滞。intraday_snapshot.json 本身 size 每次变（含时间戳/价格），quick check 不跳过，所以正常。
+
+**修复**：两处 `rsync -a` -> `rsync -a --checksum`，强制 MD5 内容比对根治：
+1. `scripts/intraday_snapshot.sh` L116（trade + trade-data 两版本）：`rsync -a --checksum "$REPO/static-site/data/." static-site/data/`
+2. `scripts/deploy.sh` L100（trade + trade-data 两版本）：`rsync -a --checksum "$REPO/static-site/data/" "$GIT_REPO/static-site/data/"`
+
+**范围**：trade + trade-data 两版本同改。launchd plist `ProgramArguments` 实跑 `/Users/linhuichen/code/trade-data/scripts/intraday_snapshot.sh`（trade-data 版本），若只改 trade 版本不生效；两版本都改才根治。trade-data 不是 git 仓库（§10），不 commit，仅改工作区文件。
+
+**不动 deploy.sh L114**：`rsync -a --exclude=logs/ "$REPO/data/" "$GIT_REPO/data/"`（DB 同步）保持 `rsync -a` 不加 --checksum。理由：sentiment.db 80MB，--checksum 每次算 MD5 开销大；且 DB 每次采集 size 变，quick check 不跳过，不需 --checksum。
+
+**验证口径（主控逐字 grep 验收）**：
+- `grep -n "rsync -a" trade/scripts/intraday_snapshot.sh` -> L116 `rsync -a --checksum` ✓
+- `grep -n "rsync -a" trade/scripts/deploy.sh` -> L100 `rsync -a --checksum`（静态 JSON）+ L114 `rsync -a --exclude=logs/`（DB 同步，不动）✓
+- `grep -n "rsync -a" trade-data/scripts/intraday_snapshot.sh` -> L116 `rsync -a --checksum` ✓
+- `grep -n "rsync -a" trade-data/scripts/deploy.sh` -> L100 `rsync -a --checksum` + L114 `rsync -a --exclude=logs/` ✓
+
+**盘中改脚本不影响数据**：intraday-snapshot 15:35 才跑（launchd StartCalendarInterval 9:35-15:05 每 30 分钟，15:35 是收盘后首次），改完后 15:35 跑的就是新版 --checksum 不跳过。bash 每次执行读脚本文件不缓存，改完即生效。
+
+**git**：commit `e96b764f`（首次 commit），rebase 到 origin/main（main 多 1 个 commit `d5f98ac0` intraday 15:06 数据 commit）后新 hash `7d9c3c99`。push feat（`388e8288..7d9c3c99`）+ push feat:main（`d5f98ac0..7d9c3c99`，fast-forward，不 force）。rebase 用 `git -c rebase.autoStash=true rebase origin/main`（工作区有 upload_r2.py M 是百度推送 agent 改的，autoStash 不干扰）。根 `data/`（signal_stats.json/sw_components.json）未 add 保持本地 M。trade-data 版本不 commit（非 git 仓库）。
+
+**待办更新**：TASKS.md L82 intraday 事故根治 9 项加第 5 项「rsync -a -> --checksum 根治 schedule_stats.json quick check 跳过」。
+

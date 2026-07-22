@@ -84,6 +84,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
   2. deploy.sh 跑前 `git checkout -- static-site/data/intraday_snapshot.json` 恢复 main 版（防通配带入工作区旧版，§8 警告再现）
   3. deploy.sh 加时段闸门（09:30-15:30 拒绝跑全量 export+deploy，force 参数绕过，类似 intraday_snapshot.sh IS_TRADING 闸门）
   4. intraday_snapshot.sh git add 补加 .gz（本次发现只 add .json 不 add .gz，致 .gz 仍旧版，补 push .gz）
+  5. ✅ **rsync -a -> --checksum 根治 schedule_stats.json quick check 跳过**（2026-07-22，commit 7d9c3c99，详见 NOTES §48 小节AN）：intraday_snapshot.sh L116 + deploy.sh L100 改 `rsync -a` -> `rsync -a --checksum`，强制 MD5 比对根治 quick check 误判（schedule_stats.json last_run "11:30"->"13:05" size 不变+mtime同秒，quick check 跳过拷贝致 worktree 旧版 commit 不含线上执行统计停滞）。trade+trade-data 两版本同改（launchd 跑 trade-data 版本）。deploy.sh L114 DB 同步(--exclude=logs/)不动（sentiment.db 80MB --checksum 开销大+size 每次变）。
 - **mootdx 失效影响范围评估**：7/17 起 mootdx bestip 全返空（疑通达信协议升级/服务器停服），ETF 国家队已换 akshare fund_etf_hist_sina（commit 65610d6b）。需评估 runner.py/mootdx_daily.py/industry_width.py/width_history.py 是否也受影响（A 股 tab 有 baostock 兜底，待确认）
 - **换源后须同步 `gzip -kf` 补 .gz**（教训：fetchJSON .gz 优先 + DecompressionStream，只生成 .json 不更新 .gz 致线上读旧 .gz 仍显 0）
 - **static-site/data/a-stock-*.json 残留 M 确认**：下次 deploy 前确认工作区无旧版残留（94c79041 事故根因再现）
