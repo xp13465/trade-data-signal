@@ -16,6 +16,11 @@ from pathlib import Path
 from urllib.parse import urlparse, quote
 
 ROOT = Path(__file__).resolve().parent.parent
+# 静态数据目录：优先用 REPO env(launchd 设 trade-data,采集器写此处),
+# 回退 ROOT(trade)。trade-data/scripts 是 trade/scripts 的 symlink,
+# ROOT 经 .resolve() 解析到 trade/,但采集器写 trade-data/static-site/data/,
+# 故 upload 命令必须用 REPO 才能读到采集器刚写的实时数据(非 deploy rsync 后的 trade/)。
+STATIC_DIR = Path(os.environ.get("REPO", str(ROOT))) / "static-site"
 
 
 def _find_env():
@@ -197,7 +202,7 @@ def cmd_upload(local, key):
 
 
 def cmd_upload_lab():
-    lab = ROOT / "static-site/data/lab"
+    lab = STATIC_DIR / "data/lab"
     files = sorted(lab.glob("*.json"))
     if not files:
         sys.exit(f"无 lab json: {lab}")
@@ -254,7 +259,7 @@ def cmd_upload_trade_sim():
     R2 key = trade_sim/trade_sim_{id}.html（保留原文件名）。
     前端改 href -> https://ssd.fx8.store/trade_sim/trade_sim_{id}.html。
     """
-    ts_dir = ROOT / "static-site"
+    ts_dir = STATIC_DIR
     ok, total = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
     if total == 0:
         sys.exit(f"无 trade_sim html: {ts_dir}/trade_sim_*.html")
@@ -269,7 +274,7 @@ def cmd_upload_index():
     前端改 fetchJSON -> https://ssd.fx8.store/index/{id}-all.json。
     intraday_snapshot 盘中会重写本地 index/{iid}-all.json，deploy.sh 调本命令同步 R2。
     """
-    idx_dir = ROOT / "static-site/data/index"
+    idx_dir = STATIC_DIR / "data/index"
     ok, total = _upload_glob(idx_dir, ["*.json", "*.json.gz"], "index")
     if total == 0:
         sys.exit(f"无 index json: {idx_dir}")
@@ -288,7 +293,7 @@ def cmd_upload_industry():
     前端改 fetchJSON ./data/industry-X -> https://ssd.fx8.store/industry/industry-X。
     intraday_snapshot 盘中会重算 write_industry_split 重写本地文件，deploy.sh 调本命令同步 R2。
     """
-    data_dir = ROOT / "static-site/data"
+    data_dir = STATIC_DIR / "data"
     # 3 个拆分目录 + 扁平 industry-*.json[.gz]
     patterns = [
         "industry-all-indices/*", "industry-all-indices/*.gz",
