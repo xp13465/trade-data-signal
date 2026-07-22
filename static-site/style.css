@@ -476,6 +476,7 @@ main { padding: 16px 24px; }
 .chart-hint .hint-sig.buy { background: #e6492e; }
 .chart-hint .hint-sig.buy-aux { background: #d63384; }
 .chart-hint .hint-sig.buy-special { background: #ffd700; color: #333; }
+.chart-hint .hint-sig.buy-special-filtered { background: #9e9e9e; color: #fff; }  /* h5过滤预览 灰 */
 .chart-hint .hint-sig.buy-backup { background: #9c27b0; }
 .chart-hint .hint-sig.sell { background: #2e8b57; }
 .chart-hint .hint-sig.sell-stop-loss { background: #3498db; color: #fff; }

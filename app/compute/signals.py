@@ -75,7 +75,7 @@ Per-index buy 主买点 RSI 阈值收紧（2026-07-08，配置化）：`config/i
 """
 import pandas as pd
 
-from .normalize import load_index_close, load_index_high, load_metric_value, load_score_value
+from .normalize import load_index_amount, load_index_close, load_index_high, load_metric_value, load_score_value
 from ..collector.fetchers import load_config
 from ..db import get_conn
 
@@ -642,6 +642,7 @@ def compute():
             sell_stop_loss = pd.Series(False, index=close.index)
             buy_special_filt = pd.Series(False, index=close.index)
             buy_backup_filt = pd.Series(False, index=close.index)
+            h5_filter_mask = pd.Series(False, index=close.index)  # 无 low -> 无 ATR -> 不过滤
         else:
             st_line, st_dir = _supertrend(high, low, close, period=10, multiplier=3.0)
             supertrend_buy = ((st_dir.shift(1) == -1) & (st_dir == 1)).fillna(False)
@@ -689,6 +690,25 @@ def compute():
             close_shift3 = close.shift(3)  # at t: close[t-3]（翻多日 close）
             confirm_above = (min_close_3d > close_shift3).fillna(False)
             buy_backup_filt = supertrend_buy_shift3 & confirm_above
+
+            # h5 平衡档过滤预览（2026-07-22）：被过滤的 buy_special 标 buy_special_filtered（灰色 pin 预览模式，不删除）。
+            # h5 条件 = ATR(14)/close > 0.03 OR 量价背离。调研 /tmp/peak_filter_combos.py::h5：
+            # 10d 均 +1.66->+1.84 / 套牢 12.83->11.77，过滤率 ~29%（核心反直觉：套牢来自高波动假突破而非顶部追买）。
+            # 量价背离定义（与 /tmp/peak_filter_backtest.py L90-94 复刻口径一致）：
+            #   5 日价涨（close/close.shift(5)-1 > 0）且 近 5 日至少 3 日 amount < MA5(amount)。
+            # 预览模式设计：被过滤的标灰展示不删除，未来把 buy_special_filtered 直接 drop 即可平滑过渡到真过滤。
+            # atr14 已在 L655 算过（Wilder 14 周期，同 peak_filter_backtest.py L36-42 口径）；amount 用 load_index_amount。
+            amount = load_index_amount(iid).reindex(close.index)
+            atr_pct = atr14 / close
+            if amount.dropna().empty:
+                price_vol_div = pd.Series(0, index=close.index, dtype=int)
+            else:
+                amt_ma5 = amount.rolling(5).mean()
+                price_5d_chg = close / close.shift(5) - 1
+                amt_below_ma5 = (amount < amt_ma5).astype(int)
+                amt_below_5d = amt_below_ma5.rolling(5).sum()
+                price_vol_div = ((price_5d_chg > 0) & (amt_below_5d >= 3)).astype(int)
+            h5_filter_mask = ((atr_pct > 0.03) | (price_vol_div == 1)).fillna(False)
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
@@ -785,6 +805,9 @@ def compute():
         for date in sorted(buy_special_set):
             # 特买：唐奇安20日上轨突破 + B4_hold5d 过滤（延后5日触发）。reason 标注突破日前高 +
             # 突破日 close + 信号日 close + cross 软分级参考。
+            # h5 平衡档过滤预览：被 h5 过滤条件（ATR>0.03 OR 量价背离）命中的 buy_special 标
+            # buy_special_filtered（灰色 pin），保留的标 buy_special（金色 pin）。reason 前缀
+            # 加 [h5过滤预览] 便于识别。预览模式不删除信号，未来 drop buy_special_filtered 即真过滤。
             c_now = close.get(date)  # 信号日（=突破日+5）close
             du = don_upper_shift5.get(date)  # 突破日的前高
             c_break = close_shift5.get(date)  # 突破日 close
@@ -800,7 +823,13 @@ def compute():
             if pd.notna(cv):
                 parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
-            signals.append((date, iid, "buy_special", ", ".join(parts)))
+            # h5 过滤预览：命中过滤条件的标 buy_special_filtered + reason 加前缀
+            h5_hit = bool(h5_filter_mask.get(date, False))
+            sig_name = "buy_special_filtered" if h5_hit else "buy_special"
+            reason = ", ".join(parts)
+            if h5_hit:
+                reason = "[h5过滤预览]" + reason
+            signals.append((date, iid, sig_name, reason))
         for date in sorted(buy_backup_set):
             # 备买：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日触发）。reason 标注翻多日
             # ST 支撑 + 翻多日 close + 信号日 close + cross 软分级参考。

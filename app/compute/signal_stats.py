@@ -213,12 +213,12 @@ def compute_global_freq(stats=None) -> dict:
     cur_month = datetime.now().month
     freq: dict = {
         sig: {"year_count": 0, "total_count": 0, "year_months": set()}
-        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss")
+        for sig in ("buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss")
     }
     for iid, sigs in all_stats.items():
         if iid.startswith("_"):
             continue
-        for sig in ("buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"):
+        for sig in ("buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss"):
             f = sigs.get(sig, {}).get("frequency")
             if not f:
                 continue
