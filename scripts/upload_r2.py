@@ -5,6 +5,9 @@
   python3 scripts/upload_r2.py list                       # 列 bucket 对象
   python3 scripts/upload_r2.py upload <本地> <r2key>      # 上传单文件
   python3 scripts/upload_r2.py upload-lab                 # 上传 lab/*.json
+  python3 scripts/upload_r2.py upload-trade-sim           # 上传 trade_sim_*.html -> trade_sim/
+  python3 scripts/upload_r2.py upload-index               # 上传 data/index/*.json+.gz -> index/
+  python3 scripts/upload_r2.py upload-industry            # 上传 data/industry-* -> industry/
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
@@ -77,53 +80,69 @@ def signing_key(date_stamp):
 
 
 def s3_request(method, key, payload=b"", query="", bucket=None):
-    """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。"""
+    """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
+
+    带连接超时(30s)+ 重试(3 次,SSL/连接错退避 1s/2s/4s),防 R2 偶发断连致脚本挂死。
+    """
     bkt = bucket or BUCKET
-    now = datetime.datetime.utcnow()
-    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-    date_stamp = now.strftime("%Y%m%d")
-    payload_hash = hashlib.sha256(payload).hexdigest()
+    last_exc = None
+    for attempt in range(3):
+        try:
+            now = datetime.datetime.utcnow()
+            amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+            date_stamp = now.strftime("%Y%m%d")
+            payload_hash = hashlib.sha256(payload).hexdigest()
 
-    path = f"/{bkt}"
-    if key:
-        path += "/" + quote(key, safe="/")
+            path = f"/{bkt}"
+            if key:
+                path += "/" + quote(key, safe="/")
 
-    headers = {
-        "host": HOST,
-        "x-amz-date": amz_date,
-        "x-amz-content-sha256": payload_hash,
-    }
-    if method == "PUT":
-        headers["content-type"] = "application/octet-stream"
+            headers = {
+                "host": HOST,
+                "x-amz-date": amz_date,
+                "x-amz-content-sha256": payload_hash,
+            }
+            if method == "PUT":
+                headers["content-type"] = "application/octet-stream"
 
-    sorted_items = sorted(headers.items(), key=lambda x: x[0])
-    canonical_headers = "".join(f"{k}:{v.strip()}\n" for k, v in sorted_items)
-    signed_headers = ";".join(k for k, _ in sorted_items)
+            sorted_items = sorted(headers.items(), key=lambda x: x[0])
+            canonical_headers = "".join(f"{k}:{v.strip()}\n" for k, v in sorted_items)
+            signed_headers = ";".join(k for k, _ in sorted_items)
 
-    canonical_request = "\n".join([
-        method, path, query, canonical_headers, signed_headers, payload_hash,
-    ])
+            canonical_request = "\n".join([
+                method, path, query, canonical_headers, signed_headers, payload_hash,
+            ])
 
-    scope = f"{date_stamp}/{REGION}/{SERVICE}/aws4_request"
-    string_to_sign = "\n".join([
-        "AWS4-HMAC-SHA256", amz_date, scope,
-        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
-    ])
+            scope = f"{date_stamp}/{REGION}/{SERVICE}/aws4_request"
+            string_to_sign = "\n".join([
+                "AWS4-HMAC-SHA256", amz_date, scope,
+                hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+            ])
 
-    signature = _hmac_hex(signing_key(date_stamp), string_to_sign)
-    headers["authorization"] = (
-        f"AWS4-HMAC-SHA256 Credential={AK}/{scope}, "
-        f"SignedHeaders={signed_headers}, Signature={signature}"
-    )
+            signature = _hmac_hex(signing_key(date_stamp), string_to_sign)
+            headers["authorization"] = (
+                f"AWS4-HMAC-SHA256 Credential={AK}/{scope}, "
+                f"SignedHeaders={signed_headers}, Signature={signature}"
+            )
 
-    conn = http.client.HTTPSConnection(HOST, context=_CTX)
-    uri = path + ("?" + query if query else "")
-    body = payload if method in ("PUT", "POST") else None
-    conn.request(method, uri, body=body, headers=headers)
-    resp = conn.getresponse()
-    data = resp.read()
-    conn.close()
-    return resp.status, data
+            conn = http.client.HTTPSConnection(HOST, timeout=30, context=_CTX)
+            uri = path + ("?" + query if query else "")
+            body = payload if method in ("PUT", "POST") else None
+            conn.request(method, uri, body=body, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+            conn.close()
+            return resp.status, data
+        except (ssl.SSLError, OSError, http.client.HTTPException) as e:
+            last_exc = e
+            if attempt < 2:
+                import time
+                wait = 2 ** attempt  # 1s, 2s
+                print(f"  ⚠ {method} {key} attempt {attempt+1} 失败({type(e).__name__}: {e}), {wait}s 后重试", file=sys.stderr)
+                time.sleep(wait)
+            else:
+                raise
+    raise last_exc  # 不可达,防 mypy
 
 
 def cmd_list(prefix="", bucket=None):
@@ -193,6 +212,95 @@ def cmd_upload_lab():
         else:
             print(f"✗ {f.name} status={status} {data[:200]}")
     print(f"共上传 {ok}/{len(files)} -> {PUBLIC}/lab/")
+
+
+def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
+    """通用 glob 上传：local_dir 下按 patterns 匹配文件，上传到 R2 r2_prefix/。
+
+    R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total)。
+    include_gz=True 时同时上传 .gz（若存在）。
+    单文件失败(重试3次仍错)不中断整批,继续上传后续文件。
+    """
+    local_dir = Path(local_dir)
+    files = []
+    for pat in glob_patterns:
+        files.extend(local_dir.glob(pat))
+    # 去重 + 排序
+    files = sorted(set(files))
+    if not files:
+        print(f"⚠ {local_dir} 下 {glob_patterns} 无匹配文件")
+        return 0, 0
+    ok = 0
+    for f in files:
+        rel = f.relative_to(local_dir)
+        key = f"{r2_prefix}/{rel}"
+        payload = f.read_bytes()
+        try:
+            status, data = s3_request("PUT", key, payload)
+            if status == 200:
+                ok += 1
+                print(f"✓ {rel} ({len(payload) // 1024}KB)")
+            else:
+                print(f"✗ {rel} status={status} {data[:200]}")
+        except Exception as e:
+            print(f"✗ {rel} 异常({type(e).__name__}: {e})")
+    print(f"共上传 {ok}/{len(files)} -> {PUBLIC}/{r2_prefix}/")
+    return ok, len(files)
+
+
+def cmd_upload_trade_sim():
+    """上传 static-site/trade_sim_*.html 到 R2 trade_sim/ 前缀。
+
+    R2 key = trade_sim/trade_sim_{id}.html（保留原文件名）。
+    前端改 href -> https://ssd.fx8.store/trade_sim/trade_sim_{id}.html。
+    """
+    ts_dir = ROOT / "static-site"
+    ok, total = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
+    if total == 0:
+        sys.exit(f"无 trade_sim html: {ts_dir}/trade_sim_*.html")
+    if ok != total:
+        sys.exit(1)
+
+
+def cmd_upload_index():
+    """上传 static-site/data/index/*.json + .gz 到 R2 index/ 前缀。
+
+    R2 key = index/{id}-all.json[.gz]。
+    前端改 fetchJSON -> https://ssd.fx8.store/index/{id}-all.json。
+    intraday_snapshot 盘中会重写本地 index/{iid}-all.json，deploy.sh 调本命令同步 R2。
+    """
+    idx_dir = ROOT / "static-site/data/index"
+    ok, total = _upload_glob(idx_dir, ["*.json", "*.json.gz"], "index")
+    if total == 0:
+        sys.exit(f"无 index json: {idx_dir}")
+    if ok != total:
+        sys.exit(1)
+
+
+def cmd_upload_industry():
+    """上传 static-site/data/industry-* 到 R2 industry/ 前缀（保留原相对路径）。
+
+    覆盖：
+      - industry-{all,5y,3y}-indices/{iid}.json + {iid}-detail.json + .gz
+      - industry-{all,5y,3y}-meta.json + -concepts.json + .gz
+      - industry-{1y,3m,6m,1m}.json + .gz（非拆分 range 单文件）
+    R2 key = industry/{原 data/ 下相对路径}，如 industry/industry-all-indices/{iid}.json。
+    前端改 fetchJSON ./data/industry-X -> https://ssd.fx8.store/industry/industry-X。
+    intraday_snapshot 盘中会重算 write_industry_split 重写本地文件，deploy.sh 调本命令同步 R2。
+    """
+    data_dir = ROOT / "static-site/data"
+    # 3 个拆分目录 + 扁平 industry-*.json[.gz]
+    patterns = [
+        "industry-all-indices/*", "industry-all-indices/*.gz",
+        "industry-5y-indices/*", "industry-5y-indices/*.gz",
+        "industry-3y-indices/*", "industry-3y-indices/*.gz",
+        "industry-*.json", "industry-*.json.gz",
+    ]
+    ok, total = _upload_glob(data_dir, patterns, "industry")
+    if total == 0:
+        sys.exit(f"无 industry 文件: {data_dir}/industry-*")
+    if ok != total:
+        sys.exit(1)
 
 
 def _list_keys(prefix, bucket=None):
@@ -419,6 +527,12 @@ if __name__ == "__main__":
         cmd_upload(sys.argv[2], sys.argv[3])
     elif cmd == "upload-lab":
         cmd_upload_lab()
+    elif cmd == "upload-trade-sim":
+        cmd_upload_trade_sim()
+    elif cmd == "upload-index":
+        cmd_upload_index()
+    elif cmd == "upload-industry":
+        cmd_upload_industry()
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "download-db":
@@ -436,6 +550,7 @@ if __name__ == "__main__":
         cmd_clean_data_backup()
     else:
         sys.exit(
-            "用法: upload_r2.py [list [prefix]|upload-lab|upload-db|"
+            "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
+            "upload-index|upload-industry|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup]"
         )
