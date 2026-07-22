@@ -797,6 +797,20 @@ def compute():
         buy_special_set = set(buy_special_filt[buy_special_filt].index)
         buy_backup_set = set(buy_backup_filt[buy_backup_filt].index)
         sell_stop_set = set(sell_stop_loss[sell_stop_loss].index)
+        # === 第一个止损卖过滤(2026-07-20 追买保护)===
+        # 每个买入信号开持仓窗口 [信号日, 下一个买入日前),窗口内只保留第一个 sell_stop_loss,
+        # 无前置买入的止损全过滤。sell_stop_loss 与 buy 独立(L794-799),不破坏买卖配对。
+        # D3 注:buy_special_filtered(h5 预览灰标)按方案应不算窗口起点,但 buy_special_set(L797)
+        # 含 h5_hit 日(预览模式不删除),伪代码原样用 buy_special_set;若需严格 D3 可改为排除 h5_hit。
+        all_buy_dates = sorted(buy_set | buy_aux_set | buy_backup_set | buy_special_set)
+        filtered_stop_set = set()
+        for i, bd in enumerate(all_buy_dates):
+            # 日期为 YYYYMMDD 字符串(来自 index_daily),用字符串哨兵替代 pd.Timestamp.max
+            window_end = all_buy_dates[i+1] if i+1 < len(all_buy_dates) else "99991231"
+            stops_in_window = sorted(d for d in sell_stop_set if bd <= d < window_end)
+            if stops_in_window:
+                filtered_stop_set.add(stops_in_window[0])
+        sell_stop_set = filtered_stop_set  # 替换,后续 append 循环用过滤后的 set
         # 突破日/翻多日数据 vectorized 取（shift 后在信号日读取，对应 bd=t-5 / bd=t-3）
         don_upper_shift5 = don_upper.shift(5)  # 突破日的前高
         close_shift5 = close.shift(5)  # 突破日 close
