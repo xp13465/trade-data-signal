@@ -1026,3 +1026,67 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 
 **launchd 8 任务最近执行时点**（诊断 agent 查 trade-data/data/logs/，全部正常）：
 update_all 7-21 17:50(width 中断) / intraday 7-21 15:36 / lhb 7-21 19:33 / backfill_evening 7-21 20:11 / futures 7-21 21:02 / etf_national_team 7-21 21:35 / rzhb 7-21 23:00(源T+1) / lab 7-21 19:03。注：任务清单原说有 index_backfill/ind_flow，实际 launchd 只有 8 个无此两任务。
+
+---
+
+### 2026-07-22 工作（小节 AE-AI，承接小节 AD）
+
+### 小节AE：第一个止损卖过滤上线（2026-07-22，commit 4e515ebe）
+
+用户定位：追止损｜卖信号核心是"给追买做保护"，高频触发无意义，真正有效只有第一个。
+
+方案：signals.py L799 后插入过滤——每个买入信号(buy/buy_aux/buy_backup/buy_special)开持仓窗口 [信号日, 下一个买入日前)，窗口内只保留第一个 sell_stop_loss，无前置买入的止损全过滤。
+
+D1-D5 决策：D1 窗口终点=下一个买入日前；D2 无前置买入止损全过滤；D3 buy_special_filtered 算窗口起点（buy_special_set 含 h5_hit，预览模式）；D4 买入当日即止损保留；D5 所有买入类型统一。
+
+回测验证（worktree 隔离）：
+- hs300 sell_stop 5d: n 1762->278(-84.2%), win 50.23%->48.56%, pl 0.961->1.098
+- sh: 2593->425(-83.6%), pl 0.919->1.038
+- cyb: 1039->121(-88.4%), pl 0.967->1.171
+- sz50: 1456->241(-83.4%), pl 1.028->1.032
+- csi1000: 737->98(-86.7%), pl 1.165->1.281
+
+核心：盈亏比 5/5 全升（hs300/sh 突破 1.0 从亏变赚），降幅 83-88% 符合预估 70-90% 偏上限；胜率分化但盈亏比是止损卖核心指标。不破坏买卖配对（sell_stop_loss 本就独立于 last_buy_close 游标 L794-799）。实现细节：日期为 YYYYMMDD 字符串，用 "99991231" 哨兵替代 pd.Timestamp.max。
+
+### 小节AF：schedule_stats 时间乱修复 - symlink 方案③（2026-07-22，无 commit，本地 symlink）
+
+根因：deploy.sh 从 trade 跑，gen_schedule_stats.py L29 REPO=trade，读 trade/data/logs/（7-18 后无新 launchd 日志），生成旧版 schedule_stats 覆盖线上。
+
+复现时间线：885c99ca(7-22 00:36) 从 trade-data 跑生成 7-21 正确版 ✅；86c3d829(7-22 07:29) + 67fbd492(7-22 08:07) 从 trade 跑读旧日志覆盖 ❌。
+
+之前修复复现原因：134f211a(7-21) 只去 .resolve() 解决 launchd 从 trade-data 跑场景，没堵人手动从 trade 跑 deploy.sh；885c99ca 手动治标没改默认。
+
+修复：建 trade/data/logs -> trade-data/data/logs symlink（方案③），从 trade 或 trade-data 跑都读同一份日志，代码不用改，一劳永逸；旧日志保留 logs.old.20260722（361 个）。线上验证：schedule_stats.json 全部 7-21/7-22（收盘全量 7-21 17:50 / 指数补采 7-22 02:00 / 盘中快照 7-21 15:35）。
+
+### 小节AG：h5 尖尖过滤方案 C 上线（2026-07-22，commits 88bd0eb3 + 8fb14225 + fb461e33）
+
+原 h5（commit 0e94e329）：ATR>3% OR 量价背离，全站滤率 29.4%。
+
+h5 拆分发现：量价背离是误杀元凶（滤中套牢 8.96% < 保留 9.45% = 把好信号标灰），ATR>3% 才是真过滤（滤中套牢 20.05% > 保留 9.45%）。
+
+方案选型：A（ATR>0.03 单独，滤率 10.05%，总收益 190.9）/ B（ATR>3% AND 非量价背离，8.55%，195.3）/ C（偏离 ma60>20% AND ATR>3%，5.02%，200.2）。用户选 C（最精准，滤中套牢 30.60% 最高）。
+
+实施：signals.py L720 `dev_ma60 = close / ma60; h5_filter_mask = ((dev_ma60 > 1.20) & (atr_pct > 0.03)).fillna(False)`。线上：hs300 buy_special_filtered 5d n 9->5, sh 36->24。
+
+事故：commit 88bd0eb3 message 误标"方案A"（aa504590e99c27279 误用 A 模板，代码是 C），8fb14225 修正 L695 注释 + fb461e33 措辞微调避免 grep 误判。
+
+套牢率逻辑澄清：套牢率低=好信号（绝对），但判断过滤有效性看"被过滤 vs 保留"相对对比——有效=被过滤套牢率>保留（扔差留好），误杀=被过滤<保留（扔好留差）。buy_special_filtered 灰 pin 预览模式保留（只优化过滤条件，不 drop）。
+
+### 小节AH：ATR×4 回测（2026-07-22，不采纳，无 commit）
+
+用户反馈 ATR×3.5 触发还是多，想看 ATR×4。回测（worktree 隔离）：hs300 sell_stop 5d n 1762->1424(-19.2%), win 50.23%->49.65%, pl 0.961->0.9628, year_count 14->6。
+
+结论：触发少 20% 但质量没提升（胜率/盈亏比持平），year_count 腰斩（覆盖缩水），mean 升（卖点更不准）。判断：3.5 是较优平衡点，纯调 ATR 系数是死胡同——问题不在止损线宽窄，在连续触发冗余，调系数砍不掉冗余（一刀切降频把有效第一个和冗余后续一起砍）。印证第一个止损卖过滤方向正确（见小节AE）。
+
+### 小节AI：Donchian20_up 去留复盘（2026-07-22，无 commit）
+
+用户质疑：之前推荐现在不推荐，根因在哪。
+
+根因：两份报告评估口径完全不同，非数据冲突。
+- param_scan（推荐依据）：pos_frac>0.5 + default_ret>0（不看胜率），配对交易，3 指数，全史
+- 08 报告（不推荐依据）：胜率>50% + 盈亏比>1 + 样本≥30（4 窗口达标数），forward return，244 资产含 200 个股
+- Donchian20_up 配对交易胜率 39-41%，forward return 胜率 53.5%，差 15 个百分点
+
+结论：该加（已加），但不应以 param_scan 单一口径为依据。生产实施版已加 3 层过滤是第三套方案：B4_hold5d 过滤（胜率 43.4%->56.8%）+ sell_stop_loss ATR×3.5 + h5 过滤预览。
+
+教训：方案 commit 应同时比对多份报告口径，不采信单一口径就实施。
