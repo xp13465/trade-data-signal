@@ -2646,7 +2646,7 @@ async function renderLabDetail(key, container) {
     const mGenAt = mData ? mData.generated_at : "";
     matrixWrap.innerHTML = renderLabMatrix(mStratData);
     const srcEl = matrixCard.querySelector(".lab-matrix-source");
-    if (srcEl) srcEl.textContent = '数据来源：买卖点策略深度回测（' + _matrixIdxName(mIdx) + '，基于历史数据验证，重跑于 ' + (mGenAt || '2026-07-11') + '）';
+    if (srcEl) srcEl.textContent = '数据来源：买卖点策略深度回测（' + _matrixIdxName(mIdx) + '，基于历史数据验证' + (mGenAt ? '，重跑于 ' + mGenAt : '') + '）';
     _labUpdateMatrixRowHighlight();
   };
   renderMatrix();
