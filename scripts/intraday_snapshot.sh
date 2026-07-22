@@ -156,5 +156,18 @@ if [ "$PUSH_RC" -ne 0 ]; then
   exit "$PUSH_RC"
 fi
 
+# 3) 盘中信号邮件通知（标注【盘中实时】，去重防重复发）
+#    intraday_snapshot 已在 collect_and_save 中重算 signal_daily（_recompute_signals），
+#    check_signals 查当日信号发邮件。复用 signal_notified.json 去重（同日同 index_id+signal
+#    只发一次），盘中多次跑（9:35/10:05/...）只发新出现的信号。
+#    邮件标题加【盘中实时】+ 正文风险横幅（盘中快照非最终，收盘 17:50 update_all 仍发最终版）。
+#    失败不阻塞：快照数据已 push 上线，邮件失败仅 log 告警。
+#    REPO=trade-data 时 check_signals.sh 用 trade-data/scripts/check_signals.py，
+#    NOTIFIED_PATH=trade-data/data/signal_notified.json（与 update_all 同路径，去重一致）。
+echo "-> check_signals.sh --intraday（盘中信号邮件）..." | tee -a "$LOG"
+bash "$REPO/scripts/check_signals.sh" --intraday 2>&1 | tee -a "$LOG"
+SIGNAL_RC=${PIPESTATUS[0]}
+[ "$SIGNAL_RC" -ne 0 ] && echo "⚠ check_signals 退出码 ${SIGNAL_RC:-?}(邮件失败或配置缺失,不阻塞快照)" | tee -a "$LOG"
+
 echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
 exit 0

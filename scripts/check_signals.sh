@@ -26,12 +26,20 @@ echo "查询日期参数：${1:-（今天）}"
 echo "日志：$LOG"
 echo
 
-# 透传可选日期参数
-if [ $# -ge 1 ]; then
-  "$PY" "$REPO/scripts/check_signals.py" --date "$1" 2>&1 | tee "$LOG"
-else
-  "$PY" "$REPO/scripts/check_signals.py" 2>&1 | tee "$LOG"
-fi
+# 透传所有参数给 check_signals.py（支持 --date/--intraday/--full）。
+# 兼容旧用法：8 位数字日期参数自动转 --date（如 bash check_signals.sh 20260706）。
+# --intraday 由 intraday_snapshot.sh 盘中调用传入，邮件加【盘中实时】标注；
+# 收盘 update_all.sh 调用不传 --intraday（保持原"最终版"语义）。
+ARGS=()
+for arg in "$@"; do
+  if [[ "$arg" =~ ^[0-9]{8}$ ]]; then
+    ARGS+=(--date "$arg")
+  else
+    ARGS+=("$arg")
+  fi
+done
+# ${ARGS[@]+"${ARGS[@]}"} 兼容 bash 3.2 空数组 + set -u（不报 unbound）
+"$PY" "$REPO/scripts/check_signals.py" ${ARGS[@]+"${ARGS[@]}"} 2>&1 | tee "$LOG"
 RC=${PIPESTATUS[0]}
 
 echo

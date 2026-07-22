@@ -67,9 +67,10 @@ _PREFIX_RE = re.compile(r"^(?:g|s)\.(.+)$")
 RULE_SUMMARY = """【买卖点规则说明】
 • 主买（buy）：RSI 上穿 30（超卖反弹启动）。
 • 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）。
-• 特买（buy_special）：唐奇安20日上轨突破（close 突破前20日最高价，激进战法高回撤高收益，趋势跟踪类）。
-• 备买（buy_backup）：Supertrend ATR(10)×3 翻多（趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）。
+• 追买（buy_special）：唐奇安20日上轨突破 + B4_hold5d 过滤（close 突破前20日最高价且延后5日站稳确认，激进战法高回撤高收益，趋势跟踪类）。
+• 备买（buy_backup）：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日 close 确认仍站稳，趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）。
 • 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）。
+• 追止损卖（sell_stop_loss）：A1 Donchian20 下轨止损（close 跌破前20日最低价，与追买上轨突破对称，独立止损卖点）。
   附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注。</div>"""
 
 DISCLAIMER = """【免责声明】
@@ -80,11 +81,12 @@ DISCLAIMER = """【免责声明】
 SIGNAL_LABELS = {
     "buy": "主买",
     "buy_aux": "辅买",
-    "buy_special": "特买",
+    "buy_special": "追买",
     "buy_backup": "备买",
     "sell": "卖",
+    "sell_stop_loss": "追止损卖",
 }
-SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell"]
+SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"]
 
 # email.json.example 中的占位密码，识别后跳过实际发送（仅打印内容）
 PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
@@ -253,11 +255,16 @@ def _format_stats_line(stats_entry: dict | None) -> str | None:
     )
 
 
-def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tuple[str, str]:
-    """构建邮件主题 + HTML 正文。返回 (subject, html_body)。"""
+def build_email(date: str, signals: list[dict], name_map: dict[str, str],
+                intraday: bool = False) -> tuple[str, str]:
+    """构建邮件主题 + HTML 正文。返回 (subject, html_body)。
+
+    intraday=True 时邮件标注【盘中实时】+ 风险提示横幅（盘中快照非最终，
+    收盘后 17:50 update_all 仍发最终版）。默认 False（收盘/历史回测用）。
+    """
     stats = load_signal_stats()
 
-    # 按 signal 类型分组（buy / buy_aux / buy_special / buy_backup / sell）
+    # 按 signal 类型分组（buy / buy_aux / buy_special / buy_backup / sell / sell_stop_loss）
     groups: dict[str, list[dict]] = {k: [] for k in SIGNAL_ORDER}
     for s in signals:
         sig = s["signal"]
@@ -272,6 +279,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
     n_special = len(groups["buy_special"])
     n_backup = len(groups["buy_backup"])
     n_sell = len(groups["sell"])
+    n_stop_loss = len(groups["sell_stop_loss"])
 
     # === 标题：信号类型 + 品种摘要 ===
     parts = []
@@ -281,12 +289,26 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
         if g:
             summary = _summary_names(g, name_map, limit=3)
             parts.append(f"{label}×{len(g)} {summary}")
-    subject = f"[买卖点信号] {date}  {' | '.join(parts) if parts else '无信号'}"
+    # intraday 标注【盘中实时】前缀，收盘/历史不加（保持原"最终版"语义）
+    title_prefix = "盘中实时·" if intraday else ""
+    subject = f"[{title_prefix}买卖点信号] {date}  {' | '.join(parts) if parts else '无信号'}"
 
     # === HTML 正文 ===
+    # intraday 风险提示横幅：盘中快照非最终，信号可能随行情变化，收盘后 17:50 发最终版
+    h2_title = "📊 盘中实时·买卖点信号" if intraday else "📊 买卖点信号日报"
+    intraday_banner = ""
+    if intraday:
+        intraday_banner = (
+            '<div style="background:#fff7e6;border:1px solid #ffd591;border-radius:6px;'
+            'padding:10px 14px;margin:0 0 14px 0;font-size:13px;color:#d46b08;line-height:1.6;">'
+            '<b>⚠️ 盘中实时快照</b>：本邮件基于盘中行情快照生成，<b>信号可能随后续行情变化</b>'
+            '（如 buy_aux 消失/重现）。此为快照非最终，<b>收盘后 17:50 update_all 仍发最终版邮件</b>，'
+            '请以收盘最终版为准。</div>'
+        )
     html_parts = [f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
-<h2 style="margin:0 0 8px 0;color:#1d2129;">📊 买卖点信号日报</h2>
-<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 特买 {n_special} / 备买 {n_backup} / 卖 {n_sell}）</p>"""]
+<h2 style="margin:0 0 8px 0;color:#1d2129;">{h2_title}</h2>
+<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 追买 {n_special} / 备买 {n_backup} / 卖 {n_sell} / 追止损卖 {n_stop_loss}）</p>
+{intraday_banner}"""]
 
     if n_total == 0:
         html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
@@ -343,9 +365,10 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str]) -> tup
 <div style="font-weight:600;margin-bottom:4px;color:#1d2129;">📋 规则说明</div>
 • 主买（buy）：RSI 上穿 30（超卖反弹启动）<br>
 • 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）<br>
-• 特买（buy_special）：唐奇安20日上轨突破（close 突破前20日最高价，激进战法高回撤高收益，趋势跟踪类）<br>
-• 备买（buy_backup）：Supertrend ATR(10)×3 翻多（趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）<br>
+• 追买（buy_special）：唐奇安20日上轨突破 + B4_hold5d 过滤（close 突破前20日最高价且延后5日站稳确认，激进战法高回撤高收益，趋势跟踪类）<br>
+• 备买（buy_backup）：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日 close 确认仍站稳，趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）<br>
 • 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
+• 追止损卖（sell_stop_loss）：A1 Donchian20 下轨止损（close 跌破前20日最低价，与追买上轨突破对称，独立止损卖点）<br>
 • 附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注
 </div>
 <div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;font-size:12px;color:#86909c;line-height:1.8;">
@@ -410,10 +433,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="全量模式（跳过去重，发当日所有信号；收盘速递用）。默认去重只发当日新信号。",
     )
+    parser.add_argument(
+        "--intraday",
+        action="store_true",
+        help="盘中实时模式：邮件标题加【盘中实时】+ 正文加风险提示横幅"
+        "（盘中快照非最终，收盘 17:50 update_all 仍发最终版）。不走去重，仍用默认去重。",
+    )
     args = parser.parse_args(argv)
 
     date = args.date or datetime.now().strftime("%Y%m%d")
-    log.info("=== check_signals 开始，查询日期：%s（%s模式）===", date, "全量" if args.full else "去重")
+    log.info(
+        "=== check_signals 开始，查询日期：%s（%s模式%s）===",
+        date,
+        "全量" if args.full else "去重",
+        "·盘中实时" if args.intraday else "",
+    )
 
     signals = query_signals(date)
     if not signals:
@@ -425,9 +459,10 @@ def main(argv: list[str] | None = None) -> int:
     n_special = sum(1 for s in signals if s["signal"] == "buy_special")
     n_backup = sum(1 for s in signals if s["signal"] == "buy_backup")
     n_sell = sum(1 for s in signals if s["signal"] == "sell")
+    n_stop_loss = sum(1 for s in signals if s["signal"] == "sell_stop_loss")
     log.info(
-        "查询到 %d 个信号（主买=%d, 辅买=%d, 特买=%d, 备买=%d, 卖=%d）",
-        len(signals), n_buy, n_aux, n_special, n_backup, n_sell,
+        "查询到 %d 个信号（主买=%d, 辅买=%d, 追买=%d, 备买=%d, 卖=%d, 追止损卖=%d）",
+        len(signals), n_buy, n_aux, n_special, n_backup, n_sell, n_stop_loss,
     )
 
     name_map = load_name_map()
@@ -449,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
         if not signals_to_send:
             log.info("无新信号（已去重），不发邮件")
             return 0
-    subject, body = build_email(date, signals_to_send, name_map)
+    subject, body = build_email(date, signals_to_send, name_map, intraday=args.intraday)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
