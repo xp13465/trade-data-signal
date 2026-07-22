@@ -10,7 +10,7 @@
   <meta name="robots" content="index,follow">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <link rel="canonical" href="https://ss.fx8.store/">
-  <link rel="icon" href="data:,">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=9ecef961">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="信号实验室">
   <meta property="og:title" content="信号实验室">
@@ -29,15 +29,6 @@
   <!-- lab.min.css 懒加载：首屏不用 lab- 类（仅 trade_sim 弹窗动态注入 .lab-win-bar 等 5 个类），改 preload 异步加载省首屏阻塞 -->
   <link rel="preload" href="./lab.min.css?v=79e873b7" as="style" onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="./lab.min.css?v=79e873b7"></noscript>
-<script>
-var _hmt = _hmt || [];
-(function() {
-  var hm = document.createElement("script");
-  hm.src = "https://hm.baidu.com/hm.js?e1d50bf3c782798dd0c0515a14b1a48c";
-  var s = document.getElementsByTagName("script")[0];
-  s.parentNode.insertBefore(hm, s);
-})();
-</script>
 <!-- 防闪烁：CSS 加载后、body 渲染前读 localStorage 提前设 data-theme -->
 <script>
 (function(){
@@ -51,19 +42,11 @@ var _hmt = _hmt || [];
   }
 })();
 </script>
-<!-- 防闪烁：导航吸顶开关状态，body 渲染前读 localStorage 提前加 class 避免闪烁 -->
-<script>
-(function(){
-  try {
-    var ts = parseInt(localStorage.getItem('navStickyOff_ts'), 10);
-    if (ts && Date.now() - ts < 24*3600*1000) {
-      document.documentElement.classList.add('nav-no-sticky');
-    } else {
-      if (ts) localStorage.removeItem('navStickyOff_ts');
-    }
-  } catch(e){}
-})();
-</script>
+<!-- 外部化初始化脚本：百度统计(hm.baidu) + 导航吸顶状态(navSticky) + 百度站长(zz.bdstatic)
+     原内联于 head（hm.baidu/navSticky）与 body 末（zz.bdstatic），现统一抽到 inline-init.js。
+     <script defer> 在 HTML 解析完成后、DOMContentLoaded 前执行；
+     theme 防闪烁对时序敏感（需 CSS 加载前设 data-theme），保留内联。 -->
+<script defer src="./inline-init.js?v=5afe0f0d"></script>
 </head>
 <body>
 <noscript>
@@ -165,13 +148,6 @@ var _hmt = _hmt || [];
   <meta name="lab-asset-url" content="./lab.min.js?v=a3c5a685">
   <!-- P2-5: echarts.min.js 不再预加载（省 615KB 首屏 JS），renderTab 触发时由 app.js dynamic 注入 -->
   <meta name="echarts-asset-url" content="./vendor/echarts.min.js?v=12173341">
-<script>
-(function(){
-    var bp = document.createElement('script');
-    bp.src = 'https://zz.bdstatic.com/linksubmit/push.js';
-    var s = document.getElementsByTagName("script")[0];
-    s.parentNode.insertBefore(bp, s);
-})();
-</script>
+<!-- zz.bdstatic 百度站长已移到 inline-init.js（defer 统一外部化） -->
 </body>
 </html>

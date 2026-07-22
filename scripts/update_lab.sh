@@ -90,7 +90,7 @@ echo "-> [1/11] lab_simulate 单信号（128 组 × 9 指数）..." | tee -a "$L
 "$PY" "$REPO/scripts/lab/lab_simulate.py" 2>&1 | tee -a "$LOG"
 RC1=${PIPESTATUS[0]:-1}
 if [ "$RC1" -ne 0 ]; then
-  echo "⚠ lab_simulate 单信号失败（退出码 $RC1），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_simulate 单信号失败（退出码 ${RC1}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 单信号完成" | tee -a "$LOG"
 fi
@@ -100,7 +100,7 @@ echo "-> [2/11] lab_simulate 融合（91 候选 × 9 指数）..." | tee -a "$LO
 "$PY" "$REPO/scripts/lab/lab_simulate.py" --fusion 2>&1 | tee -a "$LOG"
 RC2=${PIPESTATUS[0]:-1}
 if [ "$RC2" -ne 0 ]; then
-  echo "⚠ lab_simulate 融合失败（退出码 $RC2），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_simulate 融合失败（退出码 ${RC2}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 融合完成" | tee -a "$LOG"
 fi
@@ -111,7 +111,7 @@ echo "-> [3/11] lab_matrix 单信号矩阵（9 指数，前端策略矩阵 lab_b
 "$PY" "$REPO/scripts/lab/lab_matrix.py" 2>&1 | tee -a "$LOG"
 RC3=${PIPESTATUS[0]:-1}
 if [ "$RC3" -ne 0 ]; then
-  echo "⚠ lab_matrix 单信号失败（退出码 $RC3），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_matrix 单信号失败（退出码 ${RC3}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 单信号矩阵完成" | tee -a "$LOG"
 fi
@@ -122,7 +122,7 @@ echo "-> [4/11] lab_matrix 融合矩阵（9 指数，前端融合矩阵 lab_back
 "$PY" "$REPO/scripts/lab/lab_matrix.py" --fusion 2>&1 | tee -a "$LOG"
 RC4=${PIPESTATUS[0]:-1}
 if [ "$RC4" -ne 0 ]; then
-  echo "⚠ lab_matrix 融合失败（退出码 $RC4），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_matrix 融合失败（退出码 ${RC4}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 融合矩阵完成" | tee -a "$LOG"
 fi
@@ -132,7 +132,7 @@ echo "-> [5/11] lab_retest 二次测试（切片）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_retest.py" 2>&1 | tee -a "$LOG"
 RC5=${PIPESTATUS[0]:-1}
 if [ "$RC5" -ne 0 ]; then
-  echo "⚠ lab_retest 失败（退出码 $RC5），继续上线已生成产物" | tee -a "$LOG"
+  echo "⚠ lab_retest 失败（退出码 ${RC5}），继续上线已生成产物" | tee -a "$LOG"
 else
   echo "✓ retest 完成" | tee -a "$LOG"
 fi
@@ -144,7 +144,7 @@ echo "-> [6/11] lab_retest_honors 荣誉表（lab_retest_honors.json）..." | te
 "$PY" "$REPO/scripts/lab/lab_retest_honors.py" 2>&1 | tee -a "$LOG"
 RC_HONORS=${PIPESTATUS[0]:-1}
 if [ "$RC_HONORS" -ne 0 ]; then
-  echo "⚠ lab_retest_honors 失败（退出码 $RC_HONORS），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_retest_honors 失败（退出码 ${RC_HONORS}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 荣誉表完成" | tee -a "$LOG"
 fi
@@ -157,7 +157,7 @@ echo "-> [7/11] backtest_strategies 全市场聚合（lab_backtest.json）..." |
 "$PY" "$REPO/a-stock-data/backtest_strategies.py" 2>&1 | tee -a "$LOG"
 RC6=${PIPESTATUS[0]:-1}
 if [ "$RC6" -ne 0 ]; then
-  echo "⚠ backtest_strategies 失败（退出码 $RC6），lab_backtest.json 可能过期" | tee -a "$LOG"
+  echo "⚠ backtest_strategies 失败（退出码 ${RC6}），lab_backtest.json 可能过期" | tee -a "$LOG"
 elif [ -f "$REPO/a-stock-data/lab_backtest.json" ]; then
   cp "$REPO/a-stock-data/lab_backtest.json" "$REPO/static-site/data/lab/lab_backtest.json"
   echo "✓ lab_backtest.json 复制到 static-site/data/lab/" | tee -a "$LOG"
@@ -171,7 +171,7 @@ echo "-> [8/11] lab_ablation 信号消融（lab_ablation.json）..." | tee -a "$
 "$PY" "$REPO/scripts/lab/lab_ablation.py" 2>&1 | tee -a "$LOG"
 RC_ABL=${PIPESTATUS[0]:-1}
 if [ "$RC_ABL" -ne 0 ]; then
-  echo "⚠ lab_ablation 失败（退出码 $RC_ABL），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_ablation 失败（退出码 ${RC_ABL}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 信号消融完成" | tee -a "$LOG"
 fi
@@ -182,7 +182,7 @@ echo "-> [9/11] lab_cost_compare 手续费对比（lab_cost_compare.json）..." 
 "$PY" "$REPO/scripts/lab/lab_cost_compare.py" 2>&1 | tee -a "$LOG"
 RC_CC=${PIPESTATUS[0]:-1}
 if [ "$RC_CC" -ne 0 ]; then
-  echo "⚠ lab_cost_compare 失败（退出码 $RC_CC），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_cost_compare 失败（退出码 ${RC_CC}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 手续费对比完成" | tee -a "$LOG"
 fi
@@ -193,7 +193,7 @@ echo "-> [10/11] lab_param_scan 参数敏感扫描（lab_param_scan.json）..." 
 "$PY" "$REPO/scripts/lab/lab_param_scan.py" 2>&1 | tee -a "$LOG"
 RC_PS=${PIPESTATUS[0]:-1}
 if [ "$RC_PS" -ne 0 ]; then
-  echo "⚠ lab_param_scan 失败（退出码 $RC_PS），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_param_scan 失败（退出码 ${RC_PS}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 参数扫描完成" | tee -a "$LOG"
 fi
@@ -204,7 +204,7 @@ echo "-> [11/11] lab_short_symmetry 多空对称（lab_short_symmetry.json）...
 "$PY" "$REPO/scripts/lab/lab_short_symmetry.py" 2>&1 | tee -a "$LOG"
 RC_SS=${PIPESTATUS[0]:-1}
 if [ "$RC_SS" -ne 0 ]; then
-  echo "⚠ lab_short_symmetry 失败（退出码 $RC_SS），继续后续步骤" | tee -a "$LOG"
+  echo "⚠ lab_short_symmetry 失败（退出码 ${RC_SS}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 多空对称完成" | tee -a "$LOG"
 fi
@@ -239,7 +239,7 @@ echo "-> upload_r2.py upload-lab（刷 R2）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/upload_r2.py" upload-lab 2>&1 | tee -a "$LOG"
 R2_RC=${PIPESTATUS[0]:-1}
 if [ "$R2_RC" -ne 0 ]; then
-  echo "⚠ upload-lab 失败（退出码 $R2_RC），lab R2 可能过期" | tee -a "$LOG"
+  echo "⚠ upload-lab 失败（退出码 ${R2_RC}），lab R2 可能过期" | tee -a "$LOG"
 else
   echo "✓ R2 上传完成" | tee -a "$LOG"
 fi
@@ -263,7 +263,7 @@ else
   git -C "$GIT_REPO" commit -m "$COMMIT_MSG" 2>&1 | tee -a "$LOG"
   COMMIT_RC=${PIPESTATUS[0]:-1}
   if [ "$COMMIT_RC" -ne 0 ]; then
-    echo "⚠ git commit 失败（退出码 $COMMIT_RC）" | tee -a "$LOG"
+    echo "⚠ git commit 失败（退出码 ${COMMIT_RC}）" | tee -a "$LOG"
     GIT_DEPLOY_RC=$COMMIT_RC
   fi
 fi
@@ -273,7 +273,7 @@ git -C "$GIT_REPO" push origin main 2>&1 | tee -a "$LOG"
 PUSH_RC=${PIPESTATUS[0]:-1}
 if [ "$PUSH_RC" -ne 0 ]; then
   # non-fast-forward：fetch 后确认本地是否落后，rebase 后重试一次
-  echo "⚠ git push 失败（退出码 $PUSH_RC），尝试 fetch + rebase 重试..." | tee -a "$LOG"
+  echo "⚠ git push 失败（退出码 ${PUSH_RC}），尝试 fetch + rebase 重试..." | tee -a "$LOG"
   git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
   if git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"; then
     if git -C "$GIT_REPO" push origin main 2>&1 | tee -a "$LOG"; then

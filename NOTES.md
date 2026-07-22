@@ -1789,3 +1789,71 @@ if iid == "sh":
 5. **fs 配置覆盖范围**：沪深A股全集 5206 只（含科创板+创业板+沪市A股+深市A股），不含 B 股/基金/债券，与主源 push2his 大盘口径一致
 
 **git**：commit 待定。push feat/iframe-theme-follow + push feat:main（fast-forward）。根 `data/`（signal_stats.json/sw_components.json）未 add 保持本地 M。本小节改 `app/collector/direct.py`（约 50 行）+ NOTES.md 落档。
+
+---
+
+### 小节AX：2026-07-23 全站自检（计划任务+待办核实+平台功能）+ update_lab err 根因
+
+> 接任务派单：今晚 3 项自检（launchd 8 任务近 5 天状态 + 待办清单核实 + 平台功能一致性）+ update_lab err 异常根因落档。update_lab err 根因是精彩踩坑，单独详记作教训留存。
+
+**1. 计划任务自检（launchd 8 任务，07-18~07-22 近 5 天）**
+
+8 任务全 exit 0 全准点（启动偏差 +0~5s），无漏跑。唯一异常：
+
+- **update_all 07-22 跑 66min**（历史 6-12min，慢 5-10x）
+  - 根因链：mootdx 17:50:06 起连续 15 只失败（疑似全停服）-> fallback baostock 采 70 只耗时 210s -> width pipeline 49min 瓶颈 -> 总 66min
+  - 数据时效仍 OK（overview.date=20260722, intraday_snapshot.collected_at=18:54:43）
+  - 已发 3 封告警邮件，fallback 机制正常恢复，非硬 bug
+- 其他 7 任务正常：
+  - intraday-snapshot（盘中 11 次 + 10:46 补 1 次）
+  - backfill-evening / futures-backfill / etf-national-team / lhb-backfill
+  - rzhb-backfill（两融源未发 1sec no-op，符合预期）
+  - lab-auto
+
+**2. update_lab err 根因（bash 3.2 中文全角括号解析 bug，必落档教训）**
+
+- 现象：`update_lab_launchd.err` 7493 bytes，含 `git diff --cached` 误用 + `COMMIT_RCï: unbound variable`
+- **不是 git diff --cached 误用**（commit 8b76b6b4 07-21 已修 L258 改 `git -C "$GIT_REPO" diff --cached --quiet 2>/dev/null`）
+- **真正根因 = bash 3.2 中文全角右括号 `）`（U+FF09，UTF-8 三字节 `ef bc 89`）解析 bug**
+  - `$VAR）` 中 bash 3.2 把变量名解析成 `VARï`（0xef 字节粘进变量名尾部）
+  - `set -u` 检查 `VARï` 未定义报 `VARï: unbound variable`（err hexdump 确认报错字符含 0xef）
+  - L264/L273 的 `:-1` 默认值救不了（根本没走到赋值，是 echo 行解析出错）
+- 修法：`update_lab.sh` 全文 14 处 `$VAR）` -> `${VAR}）`
+  - L93/103/114/125/135/147/160/174/185/196/207/242 防御性
+  - L266/L276 err 报错点
+- err 文件清空 + `alerts/latest.md` 写"无活跃告警"
+- trade + trade-data hard link 同 inode 238484280 同步
+- **教训**：bash 3.2（macOS 默认 `/bin/bash`）对中文全角括号解析有坑，脚本里 `$VAR）` 要写 `${VAR}）`（显式 `{}` 隔离变量名边界，避免 0xef 字节粘进变量名）
+
+**3. 待办清单重新核实（修正主控误报 6 项已完成 -> 未完成）**
+
+- 主控之前给用户的清单把 6 项已完成报成"未完成"，根因 = TASKS.md 标签滞后（只 sh C1|D1a L253 标了 ✅，其他 5 项没标）
+- **6 项已完成**（全部已上线，git commit 为证）：
+  1. sh 专属 C1|D1a 偏置监测（4 commits `0da514e0`+`5dce98f7`+`ea238749`+`b664483d`，TASKS L253 已标 ✅）
+  2. lab.css 57KB 懒加载（`ff1bfe04`，preload + noscript 兜底）
+  3. trade vs trade-data alert*.json 不同步（`ff1bfe04`，根因 `.resolve()` bug 改 `.absolute()`）
+  4. collect_health 矛盾验证（`8420871a`，矛盾消失，level=error 是真实采集失败非误报）
+  5. 主力净流入第三源 IP 风控联动监测（`30be6f45`，direct.py 加第三源 push2/api/qt/clist/get，详见小节 AW）
+  6. memory MEMORY.md 清理（`84815d3d`，19->18 条）
+- TASKS.md 已派 agent 把这 5 项标 ✅（commit 待推）
+- **真未完成仅 4 项**：
+  - 两融 T+1（用户接受现状）
+  - HTML 内联 script 外部化（在做）
+  - lab 滞后 11 天（需用户决策）
+  - 买点 R4·R5（远期研究）
+
+**4. 平台功能自检**
+
+- **CF Workers deploy 对齐**：线上 commit `a1f2b281` 已 deploy，版本号 `style.min.css?v=1c46c798` / `app.min.js?v=06270358` 与本地一致
+- **三站点一致性**：ss.fx8.store / sss.sugas.site / s.sugas.site 三站点 overview.json md5 完全一致（`cb88645ffe1358defbb225334c3de031`）
+- **s.sugas.site 已恢复**：之前 531MB 超 300MB 限制 404，trade_sim JSON 迁 R2 减重 275M 后恢复（详见小节 AK/AW）
+- **R2 数据源全可达**：trade_sim_data 14 品种 + 4 个 `.gz` 抽样全 200
+- **Infinity bug 根治**：R2 grep Infinity = 0，旧 git 路径 `/data/trade_sim/sh/stats.json` = 404（符合 R2 迁移预期）
+- **CSP/安全头全生效**：HSTS preload / CSP Report-Only（connect-src 含 `ssd.fx8.store`）/ nosniff / X-Frame SAMEORIGIN / Permissions-Policy
+- **缓存分层**：HTML no-cache / 版本化静态 1 年 immutable / 实时数据 JSON max-age=60
+- **API 404 符合预期**：CF Workers 纯静态，无后端，`app/main.py /api/*` 仅本地开发用
+- **需修项（低优先级）**：
+  - R2 `trade_sim_sh_full.json` 持有时长 `hold_days` 旧值 2037（前端 `_tradeSimHoldDays` 重算 451 天，UI 零影响，下次重生清理）
+  - `favicon.ico` 404（纯视觉，HTML 内联 script agent 在修 `favicon.svg`）
+
+**git**：本小节纯落档，只改 NOTES.md，不改码不 deploy。
