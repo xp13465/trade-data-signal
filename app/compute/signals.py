@@ -757,9 +757,16 @@ def compute():
         buy_set = set(buy[buy].index)
         buy_aux_set = set(buy_aux[buy_aux].index) - buy_set  # 去重：C1 主买优先
         sell_set = set(sell[sell].index)
-        last_buy_close = None  # 游标：最近一次买点 close（buy 或 buy_aux，None=窗口内无前置买点）
+        # 游标扩展（2026-07-22 方案B）：buy_special/buy_backup 也算前买点，纳入主循环游标更新，
+        # 使 sell reason 能标注全 4 种买点类型 [主买/辅买/追买/备买]。buy_special_filtered 是
+        # buy_special 被 h5 标灰的预览，类型算"追买"（_buy_type_cn L241 已映射）。
+        # 这些信号的 reason 标注仍走独立 append 循环（L872-918），主循环只更新游标。
+        buy_special_set = set(buy_special_filt[buy_special_filt].index)
+        buy_backup_set = set(buy_backup_filt[buy_backup_filt].index)
+        last_buy_close = None  # 游标：最近一次买点 close（buy/buy_aux/buy_special/buy_backup，None=窗口内无前置买点）
         last_buy_type = None   # 游标：最近一次买点类型 key（跟随 last_buy_close 同步更新，sell reason 标 [类型] 用）
-        for date in sorted(buy_set | buy_aux_set | sell_set):
+        # 同日多种买点触发时按代码顺序后更新覆盖：buy -> buy_aux -> buy_special -> buy_backup
+        for date in sorted(buy_set | buy_aux_set | sell_set | buy_special_set | buy_backup_set):
             if date in buy_set:
                 # 买点（C1 主买）：RSI 上穿阈值事件化；reason 标注实际阈值。
                 last_buy_close = float(close.get(date)) if pd.notna(close.get(date)) else last_buy_close
@@ -796,6 +803,21 @@ def compute():
                 if pd.notna(cv):
                     parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
                 signals.append((date, iid, "buy_aux", ", ".join(parts)))
+            if date in buy_special_set:
+                # 特买/追买也算前买点 -> 更新游标（reason 标注走独立 append 循环 L872-899）。
+                # buy_special_filtered 是 buy_special 被 h5 标灰的预览，类型算"追买"（_buy_type_cn 已映射）。
+                # h5_hit 与独立 append 循环 L894 一致：h5_filter_mask 命中 -> buy_special_filtered，否则 buy_special。
+                c = close.get(date)
+                if pd.notna(c):
+                    last_buy_close = float(c)
+                h5_hit = bool(h5_filter_mask.get(date, False))
+                last_buy_type = "buy_special_filtered" if h5_hit else "buy_special"
+            if date in buy_backup_set:
+                # 备买也算前买点 -> 更新游标（reason 标注走独立 append 循环 L900-918）。
+                c = close.get(date)
+                if pd.notna(c):
+                    last_buy_close = float(c)
+                last_buy_type = "buy_backup"
             if date in sell_set:
                 # 卖点（D1+S1）：close 从近 20 日 high 之 max 回落 5%，且 close>MA60（多头才放卖）。
                 h = hh20.get(date)
@@ -836,8 +858,7 @@ def compute():
         # 特买 buy_special Donchian20_up + B4_hold5d 过滤 + 备买 buy_backup Supertrend_buy +
         # 二次确认过滤 + sell_stop_loss ATR×3.5 Chandelier Exit 止损 独立 append（不去重，叠加多色 pin，
         # 独立计算不影响 buy/buy_aux/sell）。趋势跟踪类，与 C1/B1 均值回归类互补。
-        buy_special_set = set(buy_special_filt[buy_special_filt].index)
-        buy_backup_set = set(buy_backup_filt[buy_backup_filt].index)
+        # 注：buy_special_set/buy_backup_set 已在主循环前 L764-765 定义（游标扩展共用）。
         sell_stop_set = set(sell_stop_loss[sell_stop_loss].index)
         # === 第一个止损卖过滤(2026-07-20 追买保护)===
         # 每个买入信号开持仓窗口 [信号日, 下一个买入日前),窗口内只保留第一个 sell_stop_loss,
