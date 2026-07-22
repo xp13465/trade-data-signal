@@ -784,20 +784,32 @@ def compute():
             h5_filter_mask = h5_filter_mask.fillna(False)
 
             # 降回撤过滤方案B（2026-07-22 第三层叠加，不替换 B4 close 站稳 + h5 R2 真过滤）：
-            # peak_dd_filter_mask = (atr_pct >= 0.025) OR (dist_from_low60 > 0.30)
+            # 非 sh 分支: peak_dd_filter_mask = (atr_pct >= 0.025) OR (dist_from_low60 > 0.30)
             #   - atr_pct = ATR(14)/close（高波动=假突破/顶部震荡风险）
             #   - dist_from_low60 = (close - low_60) / low_60（涨多顶部=回撤空间大）
             # 调研依据 /tmp/agent-progress-drawdown-filter.md 阶段4 方案B（C7）:
             #   全集保留 12085/15809(76.5%), mdd -4.52%->-4.01%(-0.51pp), peak(<-10%) 11.34%->8.50%(-2.84pp,尖尖过滤率25%),
             #   ret20 +2.47%->+1.62%(-0.85pp 可接受); 滤除组 mdd -6.20%/peak 20.55%(精准度高)。
             # 触发分解: atr_pct>=2.5%: 1581(10.0%), dist_from_low60>30%: 3256(20.6%), 两者同时 1115, 总滤除 3722(23.5%)。
-            # sh 豁免: sh 分指数实测 mdd -3.72->-3.91(微退化 0.19pp) + ret20 +5.27->+1.90(损大 3.37pp),
-            #   过滤反而伤害 sh 趋势信号,故 sh 不应用 peak_dd_filter; 其他指数均有改善或微损可接受。
+            # sh 分支（2026-07-22 小节AV C1，替代原 sh 豁免）：用 dist_from_high>=15% 替代方案 B 的 dist_from_low60>30%（后者对 sh 误滤）。
+            #   核心洞察：sh 大盘趋势性强，涨多顶部(dist_from_low60>30%)常是趋势中继而非尖顶，方案 B 对 sh 误滤致
+            #   mdd -3.72%->-3.91%(退化 0.19pp) + ret20 +5.27%->+1.90%(损大 3.37pp)。dist_from_high>=15% 精准滤低位假突破：
+            #   dist_from_high 尖尖组 11.13% vs 非尖尖 5.59%(ratio 1.99)，>=15% 档尖尖率 23.91%(baseline 2.3 倍)、
+            #   ret20 -0.43%(亏损)、bot_acc 45.65% = 典型低位假突破。
+            #   C1 sh 实测(vs sh 豁免基线)：742->612(保留 82.5%)，mdd -3.72%->-3.01%(降 0.71pp)，
+            #   尖尖率(<-10%) 10.38%->7.35%(降 3.02pp/29%)，bot_acc 66.04%->69.12%(升 3.08pp)，
+            #   ret20 +5.27%->+6.29%(升 1.02pp，不损反升)。
+            #   其他 9 指数继续方案 B 不变（均有改善或微损可接受）。
             low_60 = low.rolling(60).min()
             dist_from_low60 = (close - low_60) / low_60
+            # C1 sh 专属：dist_from_high = (high_250 - close) / high_250（距 250 日高点的跌幅，>=15% = 低位假突破）
+            high_250 = high.rolling(250, min_periods=1).max()
+            dist_from_high = (high_250 - close) / high_250
             peak_dd_filter_mask = ((atr_pct >= 0.025) | (dist_from_low60 > 0.30)).fillna(False)
             if iid == "sh":
-                peak_dd_filter_mask = pd.Series(False, index=close.index)  # sh 豁免
+                # sh 用 C1 替代豁免（2026-07-22 小节AV）：atr_pct>=2.5% OR dist_from_high>=15%
+                #   方案 B 的 dist_from_low60>30% 对 sh 趋势中继误滤，dist_from_high>=15% 精准滤低位假突破
+                peak_dd_filter_mask = ((atr_pct >= 0.025) | (dist_from_high >= 0.15)).fillna(False)
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
@@ -814,8 +826,9 @@ def compute():
         # 2026-07-22 h5 真过滤上线（尖尖逃顶方案A）：buy_special_set 排除 h5_filter_mask 命中日，
         # 被过滤信号不发也不更新游标，原 buy_special_filtered 类型废弃（前端灰 pin 渲染保留无数据不影响）。
         # 2026-07-22 降回撤过滤方案B（第三层叠加）：buy_special_set 再排除 peak_dd_filter_mask 命中日，
-        # 高波动(atr_pct>=2.5%) 或 涨多顶部(dist_from_low60>30%) 的 buy_special 不发也不更新游标。
-        # sh 豁免：sh 指数 peak_dd_filter_mask 已在 L789 设全 False，此处自然不排除（sh buy_special 保留原数）。
+        # 非 sh 指数：高波动(atr_pct>=2.5%) 或 涨多顶部(dist_from_low60>30%) 不发也不更新游标。
+        # sh 指数（2026-07-22 小节AV C1，替代原豁免）：高波动(atr_pct>=2.5%) 或 低位假突破(dist_from_high>=15%) 不发也不更新游标。
+        #   sh peak_dd_filter_mask 已在 L810 改 C1 公式（非全 False），此处正常排除命中日（sh buy_special 742->612 保留 82.5%）。
         # 这些信号的 reason 标注仍走独立 append 循环（L872-918），主循环只更新游标。
         buy_special_set_all = set(buy_special_filt[buy_special_filt].index)
         buy_special_set = {d for d in buy_special_set_all
