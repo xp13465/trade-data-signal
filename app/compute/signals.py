@@ -692,6 +692,7 @@ def compute():
             buy_backup_filt = supertrend_buy_shift3 & confirm_above
 
             # h5 平衡档过滤预览（2026-07-22）：被过滤的 buy_special 标 buy_special_filtered（灰色 pin 预览模式，不删除）。
+            # 方案 C + C12 叠加（2026-07-22）：C=偏离ma60>20% AND ATR>3%；C12=均线附近假突破(dev∈(1.0,1.1] AND drawdown_hh20<-0.02)。
             # h5 条件 = 偏离 ma60>20% AND ATR(14)/close>3% 双条件精准过滤（方案 C，2026-07-22 修正标注：原 88bd0eb3 commit message 误用 A 模板，实际代码即方案 C，与 L715 方案 C 一致）。
             # 调研依据 /tmp/peak_filter_combos.py::h5 拆分：
             #   - ATR>0.03 真过滤：滤中套牢率 20.05% >> 保留套牢率 9.45%，确实把高波动假突破标灰
@@ -717,7 +718,14 @@ def compute():
             # 依据 /tmp/peak_filter_combos.py h7 行 + h5 优化方案文档
             # price_vol_div 计算保留(h5 不再用, 未来可能复用)
             dev_ma60 = close / ma60
-            h5_filter_mask = ((dev_ma60 > 1.20) & (atr_pct > 0.03)).fillna(False)
+            # C12 叠加（2026-07-22）：均线附近假突破 = dev_ma60∈(1.0,1.1] AND drawdown_hh20<-0.02
+            #   语义：均线附近刚启动（dev≤1.1）且从近20日高点回撤超2% = 趋势未确立就回撤的假突破
+            #   效果：新增标灰8%(107个),总标灰率3.5%->11.2%,滤中套牢率fwd_5=45.79%(+10.2pp)/fwd_10=48.60%(+13.8pp),3/5指数有效,不误杀好信号
+            #   口径与 /tmp/h5_optimize2.py L79-80 一致：drawdown_hh20 = close/hh20-1.0
+            #   (hh20=high.rolling(20).max() 不带shift, L613 已算可复用; atr3_line L657 用的带shift版本口径不同)
+            drawdown_hh20 = close / hh20 - 1.0
+            h5_filter_mask = ((dev_ma60 > 1.20) & (atr_pct > 0.03)) | ((dev_ma60 > 1.0) & (dev_ma60 <= 1.1) & (drawdown_hh20 < -0.02))
+            h5_filter_mask = h5_filter_mask.fillna(False)
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
