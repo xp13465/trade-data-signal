@@ -56,3 +56,10 @@ static-site/data/lab/
 # launchd plists 本地加载不 commit（含机器绝对路径，每台不同）
 # 注：历史 plist 已 tracked，此规则防新增 plist 误入库
 scripts/plists/
+
+# R2 阶段3 线上瘦身（2026-07-20）：index/industry-indices/trade_sim 已 R2 托管，本地保 untracked 不进 git
+# lab/ 已在上方 L54 移出；此处补 index/industry-*-indices/trade_sim
+# 注：trade_sim_*.html 在 static-site/ 根目录（非 data/），路径勿改
+static-site/data/index/
+static-site/data/industry-*-indices/
+static-site/trade_sim_*.html
