@@ -763,6 +763,10 @@ def compute():
         # 这些信号的 reason 标注仍走独立 append 循环（L872-918），主循环只更新游标。
         buy_special_set = set(buy_special_filt[buy_special_filt].index)
         buy_backup_set = set(buy_backup_filt[buy_backup_filt].index)
+        # 方案A 同日叠加过滤(2026-07-22):raw_sell_stop_set 在过滤前保存原始 stop 集合,
+        # 供 buy reason 标注判断(若买点日 d 在 raw_sell_stop_set 则追加 "[同日触发ATR止损·弱势反弹]")。
+        # 必须在所有 buy append (L783 buy / L805 buy_aux / L909 buy_special / L928 buy_backup) 之前定义。
+        raw_sell_stop_set = set(sell_stop_loss[sell_stop_loss].index)
         last_buy_close = None  # 游标：最近一次买点 close（buy/buy_aux/buy_special/buy_backup，None=窗口内无前置买点）
         last_buy_type = None   # 游标：最近一次买点类型 key（跟随 last_buy_close 同步更新，sell reason 标 [类型] 用）
         # 同日多种买点触发时按代码顺序后更新覆盖：buy -> buy_aux -> buy_special -> buy_backup
@@ -780,7 +784,7 @@ def compute():
                 cv = cross_aligned.get(date)
                 if pd.notna(cv):
                     reason += f",cross={cv:.0f}[{_cross_tag(cv)}]"
-                signals.append((date, iid, "buy", reason))
+                signals.append((date, iid, "buy", reason + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
             if date in buy_aux_set:
                 # B1 辅买点：BB 下轨回归。也算买点 → 更新 last_buy_close 游标。
                 last_buy_close = float(close.get(date)) if pd.notna(close.get(date)) else last_buy_close
@@ -802,7 +806,7 @@ def compute():
                 cv = cross_aligned.get(date)
                 if pd.notna(cv):
                     parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
-                signals.append((date, iid, "buy_aux", ", ".join(parts)))
+                signals.append((date, iid, "buy_aux", ", ".join(parts) + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
             if date in buy_special_set:
                 # 特买/追买也算前买点 -> 更新游标（reason 标注走独立 append 循环 L872-899）。
                 # buy_special_filtered 是 buy_special 被 h5 标灰的预览，类型算"追买"（_buy_type_cn 已映射）。
@@ -859,7 +863,7 @@ def compute():
         # 二次确认过滤 + sell_stop_loss ATR×3.5 Chandelier Exit 止损 独立 append（不去重，叠加多色 pin，
         # 独立计算不影响 buy/buy_aux/sell）。趋势跟踪类，与 C1/B1 均值回归类互补。
         # 注：buy_special_set/buy_backup_set 已在主循环前 L764-765 定义（游标扩展共用）。
-        sell_stop_set = set(sell_stop_loss[sell_stop_loss].index)
+        sell_stop_set = set(raw_sell_stop_set)  # 复用 L769 raw_sell_stop_set(方案A),后续 L880 同日叠加过滤
         # === 第一个止损卖过滤(2026-07-20 追买保护)===
         # 每个买入信号开持仓窗口 [信号日, 下一个买入日前),窗口内只保留第一个 sell_stop_loss,
         # 无前置买入的止损全过滤。sell_stop_loss 与 buy 独立(L794-799),不破坏买卖配对。
@@ -873,7 +877,11 @@ def compute():
             stops_in_window = sorted(d for d in sell_stop_set if bd <= d < window_end)
             if stops_in_window:
                 filtered_stop_set.add(stops_in_window[0])
-        sell_stop_set = filtered_stop_set  # 替换,后续 append 循环用过滤后的 set
+        # === 同日叠加过滤(方案A 2026-07-22)===
+        # 60-68% sell_stop_loss 与 buy 同日触发(深熊反弹初期 RSI上穿30 + close<atr3_line 矛盾信号),
+        # 买入日不该止损,过滤掉与 buy 同日的 stop(raw sell_stop_set 保留在 L769 供 buy reason 标注判断)
+        buy_dates_set = set(all_buy_dates)
+        sell_stop_set = {d for d in filtered_stop_set if d not in buy_dates_set}
         # 突破日/翻多日数据 vectorized 取（shift 后在信号日读取，对应 bd=t-5 / bd=t-3）
         don_upper_shift5 = don_upper.shift(5)  # 突破日的前高
         close_shift5 = close.shift(5)  # 突破日 close
@@ -906,6 +914,9 @@ def compute():
             reason = ", ".join(parts)
             if h5_hit:
                 reason = "[h5过滤预览]" + reason
+            # 方案A(2026-07-22):同日触发 ATR 止损 -> 追加弱势反弹预警(h5_hit 与非 h5_hit 两分支都加)
+            if date in raw_sell_stop_set:
+                reason += " [同日触发ATR止损·弱势反弹]"
             signals.append((date, iid, sig_name, reason))
         for date in sorted(buy_backup_set):
             # 备买：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日触发）。reason 标注翻多日
@@ -925,7 +936,7 @@ def compute():
             if pd.notna(cv):
                 parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
-            signals.append((date, iid, "buy_backup", ", ".join(parts)))
+            signals.append((date, iid, "buy_backup", ", ".join(parts) + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
         for date in sorted(sell_stop_set):
             # 止损卖：ATR×3.5 Chandelier Exit 跌破（从近20日最高价回撤3.5*ATR）。reason 标注 ATR + 线 + close + cross。
             c = close.get(date)
