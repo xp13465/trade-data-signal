@@ -692,7 +692,7 @@ def compute():
             buy_backup_filt = supertrend_buy_shift3 & confirm_above
 
             # h5 平衡档过滤预览（2026-07-22）：被过滤的 buy_special 标 buy_special_filtered（灰色 pin 预览模式，不删除）。
-            # h5 条件 = 偏离 ma60>20% AND ATR(14)/close>3% 双条件精准过滤（方案 C，2026-07-22 修正标注：原 88bd0eb3 commit message 误标方案 A，实际代码即方案 C，与 L715 方案 C 一致）。
+            # h5 条件 = 偏离 ma60>20% AND ATR(14)/close>3% 双条件精准过滤（方案 C，2026-07-22 修正标注：原 88bd0eb3 commit message 误用 A 模板，实际代码即方案 C，与 L715 方案 C 一致）。
             # 调研依据 /tmp/peak_filter_combos.py::h5 拆分：
             #   - ATR>0.03 真过滤：滤中套牢率 20.05% >> 保留套牢率 9.45%，确实把高波动假突破标灰
             #   - 量价背离误杀元凶：滤中套牢率 8.96% < 保留 9.45%（把好信号误标灰），故去掉
