@@ -288,7 +288,10 @@ function signalLabel(s) {
   if (s.signal === "buy_special") return "上轨突破";  // 追买 唐奇安20日上轨突破
   if (s.signal === "buy_special_filtered") return "特买(过滤预览)";  // 追买被h5过滤预览（ATR>0.03 OR 量价背离，灰色pin不删除）
   if (s.signal === "buy_backup") return "趋势转向";   // 备买 Supertrend 翻多
-  if (s.signal === "sell_stop_loss") return "ATR×3.5止损";  // ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控；动作描述对比 buy_special "上轨突破"）
+  if (s.signal === "sell_stop_loss") {
+    const m = (s.reason || "").match(/ATR×([\d.]+)止损/);
+    return m ? `ATR×${m[1]}止损` : "ATR止损";  // 从 reason 动态提取倍数(csi_div=×4.5,其他=×3.5),数据驱动;底层规则从 Donchian20 下轨改为 ATR×3,2026-07-21 调 ATR×3.5 降频,趋势跟踪风控
+  }
   const r = s.reason || "";
   if (r.includes("止盈")) {
     // 2026-07-22: vs前买 后可能带 [买点类型] 前缀（主买/辅买/追买/备买），正则用可选组兼容新旧格式
