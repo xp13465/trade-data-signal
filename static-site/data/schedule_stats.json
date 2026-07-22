@@ -31,9 +31,9 @@
     "name": "期货机构持仓",
     "schedule": "20:05 + 21:00(兜底)",
     "est_text": "约3分钟",
-    "last_run": "2026-07-22 20:05",
-    "last_exit": 0,
-    "last_duration_sec": 950
+    "last_run": "2026-07-22 21:00",
+    "last_exit": null,
+    "last_duration_sec": null
   },
   {
     "task": "lhb_backfill",
