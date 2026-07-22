@@ -6,11 +6,12 @@
   路径 B：全仓进出 — 一次只持有一笔，买用全部现金，卖清仓
   路径 C：买固定 1w(10%) + 卖清仓 - 每次买 1 万（10 万本金 10%），卖点清仓全部
 
-每种路径 x 十种信号场景（单买 4 + 双买 6）：
-  单买 4：主买+卖 / 辅买+卖 / 特买+卖 / 备买+卖
-  双买 6：主买+辅买+卖 / 主买+特买+卖 / 主买+备买+卖
-          辅买+特买+卖 / 辅买+备买+卖 / 特买+备买+卖
-  共 10 组合 × 3 策略 = 30 场景
+每种路径 x 十一种信号场景（单买 4 + 双买 6 + 止损 1）：
+  单买 4：主买+卖 / 辅买+卖 / 追买+卖 / 备买+卖
+  双买 6：主买+辅买+卖 / 主买+追买+卖 / 主买+备买+卖
+          辅买+追买+卖 / 辅买+备买+卖 / 追买+备买+卖
+  止损 1：追买+追止损卖（A1 Donchian20 下轨止损，独立卖点，与 sell 通用卖点并列）
+  共 11 组合 × 3 策略 = 33 场景
 
 用法：python scripts/simulate_trade.py [--index sh] [--output path]
 """
@@ -32,8 +33,8 @@ TOTAL_CAPITAL = 100_000   # 总资金池
 POSITION_SIZE = 10_000    # 每次固定操作金额（路径 A / C）
 MAX_POSITIONS = 10        # 最多同时持仓 10 笔
 
-# 买信号类型 -> ledger op 中文标签（主买/辅买/特买/备买）
-_BUY_LABELS = {"buy": "主买", "buy_aux": "辅买", "buy_special": "特买", "buy_backup": "备买"}
+# 买信号类型 -> ledger op 中文标签（主买/辅买/追买/备买）
+_BUY_LABELS = {"buy": "主买", "buy_aux": "辅买", "buy_special": "追买", "buy_backup": "备买"}
 
 
 def load_name_map():
@@ -135,7 +136,9 @@ def _ledger(date, op, amount, cash, positions, close, prev_close=None, holdings_
 # ============================================================
 #  路径 A：固定 1w(10%) 进出（FIFO）
 # ============================================================
-def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
+def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, sell_types=None):
+    if sell_types is None:
+        sell_types = {"sell"}
     cash = TOTAL_CAPITAL
     positions = []  # [(buy_date, buy_close, shares)]
     total_assets_peak = TOTAL_CAPITAL
@@ -160,7 +163,7 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
 
     for date, sig, _, close in signals:
         is_buy = sig in buy_types
-        is_sell = sig == "sell"
+        is_sell = sig in sell_types
 
         if is_buy and cash >= POSITION_SIZE and len(positions) < MAX_POSITIONS:
             if first_buy_date is None:
@@ -197,7 +200,8 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
                 "pct": round(pct, 2), "amount_in": POSITION_SIZE,
                 "amount_out": round(sell_amount, 2), "profit": round(profit, 2),
             })
-            ledger.append(_ledger(date, "卖出", sell_amount, cash, positions, close, prev_close, hc_before, shares_traded=-shares))
+            sell_op_label = "止损卖出" if sig == "sell_stop_loss" else "卖出"
+            ledger.append(_ledger(date, sell_op_label, sell_amount, cash, positions, close, prev_close, hc_before, shares_traded=-shares))
             prev_close = close
 
         elif is_sell and not positions:
@@ -241,8 +245,10 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close):
 # ============================================================
 #  路径 B：全仓进出（一次一笔，买用全部现金，卖清仓）
 # ============================================================
-def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
+def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, sell_types=None):
     """全仓进出：买→清仓→买→清仓，跳过连续同向信号。"""
+    if sell_types is None:
+        sell_types = {"sell"}
     cash = TOTAL_CAPITAL
     holding = None  # (buy_date, buy_close, shares) or None
     total_assets_peak = TOTAL_CAPITAL
@@ -267,7 +273,7 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
 
     for date, sig, _, close in signals:
         is_buy = sig in buy_types
-        is_sell = sig == "sell"
+        is_sell = sig in sell_types
 
         if is_buy and holding is None:
             if last_signal == "buy":
@@ -312,7 +318,8 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
             })
             holding = None
             last_signal = "sell"
-            ledger.append(_ledger(date, "卖出", sell_amount, cash, [], close, prev_close, hc_before, shares_traded=-shares))
+            sell_op_label = "止损清仓" if sig == "sell_stop_loss" else "卖出"
+            ledger.append(_ledger(date, sell_op_label, sell_amount, cash, [], close, prev_close, hc_before, shares_traded=-shares))
             prev_close = close
 
         elif is_sell and holding is None:
@@ -355,8 +362,10 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close):
 # ============================================================
 #  路径 C：买固定 1w(10%) + 卖清仓
 # ============================================================
-def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
+def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, sell_types=None):
     """每次买 1 万（最多 10 笔），出现卖点则清仓全部。"""
+    if sell_types is None:
+        sell_types = {"sell"}
     cash = TOTAL_CAPITAL
     positions = []  # [(buy_date, buy_close, shares)]
     total_assets_peak = TOTAL_CAPITAL
@@ -382,7 +391,7 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
 
     for date, sig, _, close in signals:
         is_buy = sig in buy_types
-        is_sell = sig == "sell"
+        is_sell = sig in sell_types
 
         if is_buy and cash >= POSITION_SIZE and len(positions) < MAX_POSITIONS:
             if first_buy_date is None:
@@ -446,7 +455,8 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close):
                 "_sub_rounds": sold,
             })
             last_signal = "sell"
-            ledger.append(_ledger(date, "清仓卖出", total_amount_out, cash, [], close, prev_close, hc_before, shares_traded=-total_shares_sold))
+            sell_op_label = "止损清仓卖出" if sig == "sell_stop_loss" else "清仓卖出"
+            ledger.append(_ledger(date, sell_op_label, total_amount_out, cash, [], close, prev_close, hc_before, shares_traded=-total_shares_sold))
             prev_close = close
 
         elif is_sell and not positions:
@@ -795,8 +805,9 @@ def _scenario_panel(data, index_name="上证指数"):
     # --- 交易记录清单（时间轴） ---
     ledger_rows = ""
     for j, entry in enumerate(data.get("ledger", [])):
-        op_class = ("sell" if "卖" in entry["op"]
-                    else "buy_special" if "特买" in entry["op"]
+        op_class = ("sell_stop_loss" if "止损" in entry["op"]
+                    else "sell" if "卖" in entry["op"]
+                    else "buy_special" if "追买" in entry["op"]
                     else "buy_backup" if "备买" in entry["op"]
                     else "buy_aux" if "辅买" in entry["op"]
                     else "buy")
@@ -1167,6 +1178,7 @@ tr:hover td {{ background: var(--bg-hover); }}
 .ledger-op.buy_special {{ background: #ffd700; color: #333; }}
 .ledger-op.buy_backup {{ background: #9c27b0; }}
 .ledger-op.sell {{ background: #2e8b57; }}
+.ledger-op.sell_stop_loss {{ background: #3498db; }}
 
 .footer {{ margin-top: 24px; font-size: 12px; color: var(--text-3); }}
 .footer a {{ color: var(--primary); }}
@@ -1225,7 +1237,7 @@ tr:hover td {{ background: var(--bg-hover); }}
   <p><a href="./">← 返回看板</a></p>
   <div style="margin-top: 12px; padding: 10px 14px; background: rgba(212,56,13,0.08); border: 1px solid rgba(212,56,13,0.25); border-left: 4px solid #d4380d; border-radius: 8px; font-size: 12px; line-height: 1.7; color: var(--text-1);">
     <b style="color:#d4380d;">⚠ 教育研究工具 · 非投资建议</b><br>
-    本页为个人学习/研究用途的技术信号模拟回测，非持牌证券投资咨询机构。所有信号与回测结果均为历史数据统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。模拟说明：三种策略路径 × 十种信号组合（单买 4 + 双买 6），共 30 个场景。总资金 10 万元。买固定 1w(10%) + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1w(10%) 进出（FIFO，最多同时 10 笔）。主买=红色，辅买=玫红色，特买=金色，备买=紫色，卖出=绿色。连续同向信号跳过（避免重复操作）。此为历史模拟，过往表现不代表未来收益，实盘收益通常低于回测。投资有风险，决策需谨慎。
+    本页为个人学习/研究用途的技术信号模拟回测，非持牌证券投资咨询机构。所有信号与回测结果均为历史数据统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。模拟说明：三种策略路径 × 十一种信号组合（单买 4 + 双买 6 + 止损 1），共 33 个场景。总资金 10 万元。买固定 1w(10%) + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1w(10%) 进出（FIFO，最多同时 10 笔）。主买=红色，辅买=玫红色，追买=金色，备买=紫色，卖出=绿色，追止损卖=蓝色。连续同向信号跳过（避免重复操作）。此为历史模拟，过往表现不代表未来收益，实盘收益通常低于回测。投资有风险，决策需谨慎。
   </div>
   <p style="margin-top: 12px; font-size: 12px; color: var(--text-3);">
     <a href="/privacy.html" style="color: var(--primary);">隐私政策</a>
@@ -1295,30 +1307,39 @@ def _generate_one(index_id, name_map, out_dir_static, output=None):
 
     # 单买 4 + 双买 6 = 10 信号组合，× 3 策略 = 30 场景
     SIG_LABELS = [
-        "主买+卖", "辅买+卖", "特买+卖", "备买+卖",
-        "主买+辅买+卖", "主买+特买+卖", "主买+备买+卖",
-        "辅买+特买+卖", "辅买+备买+卖", "特买+备买+卖",
+        "主买+卖", "辅买+卖", "追买+卖", "备买+卖",
+        "主买+辅买+卖", "主买+追买+卖", "主买+备买+卖",
+        "辅买+追买+卖", "辅买+备买+卖", "追买+备买+卖",
+        "追买+追止损卖",
     ]
     SIG_TYPES = [
         {"buy"}, {"buy_aux"}, {"buy_special"}, {"buy_backup"},
         {"buy", "buy_aux"}, {"buy", "buy_special"}, {"buy", "buy_backup"},
         {"buy_aux", "buy_special"}, {"buy_aux", "buy_backup"},
         {"buy_special", "buy_backup"},
+        {"buy_special"},
+    ]
+    # 各组合对应的卖点类型：前 10 组用通用 sell，第 11 组（追买+追止损卖）用 sell_stop_loss（A1 Donchian20 下轨止损）
+    SIG_SELL_TYPES = [
+        {"sell"}, {"sell"}, {"sell"}, {"sell"},
+        {"sell"}, {"sell"}, {"sell"},
+        {"sell"}, {"sell"}, {"sell"},
+        {"sell_stop_loss"},
     ]
 
     groups = {}
 
     groups["买固定1w(10%)+卖清仓"] = {}
-    for label, btypes in zip(SIG_LABELS, SIG_TYPES):
-        groups["买固定1w(10%)+卖清仓"][label] = simulate_sell_all(label, signals, btypes, last_date, last_close)
+    for label, btypes, stypes in zip(SIG_LABELS, SIG_TYPES, SIG_SELL_TYPES):
+        groups["买固定1w(10%)+卖清仓"][label] = simulate_sell_all(label, signals, btypes, last_date, last_close, sell_types=stypes)
 
     groups["全仓进出"] = {}
-    for label, btypes in zip(SIG_LABELS, SIG_TYPES):
-        groups["全仓进出"][label] = simulate_all_in(label, signals, btypes, last_date, last_close)
+    for label, btypes, stypes in zip(SIG_LABELS, SIG_TYPES, SIG_SELL_TYPES):
+        groups["全仓进出"][label] = simulate_all_in(label, signals, btypes, last_date, last_close, sell_types=stypes)
 
     groups["固定1w(10%)进出（FIFO）"] = {}
-    for label, btypes in zip(SIG_LABELS, SIG_TYPES):
-        groups["固定1w(10%)进出（FIFO）"][label] = simulate_fixed_1w(label, signals, btypes, last_date, last_close)
+    for label, btypes, stypes in zip(SIG_LABELS, SIG_TYPES, SIG_SELL_TYPES):
+        groups["固定1w(10%)进出（FIFO）"][label] = simulate_fixed_1w(label, signals, btypes, last_date, last_close, sell_types=stypes)
 
     signal_first_date = signals[0][0] if signals else None
     signal_last_date = signals[-1][0] if signals else None
