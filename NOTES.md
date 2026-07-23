@@ -1857,3 +1857,141 @@ if iid == "sh":
   - `favicon.ico` 404（纯视觉，HTML 内联 script agent 在修 `favicon.svg`）
 
 **git**：本小节纯落档，只改 NOTES.md，不改码不 deploy。
+
+### 小节AY：2026-07-23 今日全部工作闭环（国债3标的接入+chip三色文案+i18n+pin黑白字+kc50双Bug+fade-detect+前买取消灰橙+favicon+CLAUDE.md §7+pin策略modal+trade_sim旧bug值清理+3新方案落档TASKS）
+
+> 接任务派单：落档 2026-07-23 今日全部工作闭环。纯文档活，不改代码不碰 app.js/lab.js。涉及 12 项工作，2 个主 commit（`4c8b7838` 多修复 + `1e5d68b6` pin 策略 modal）。本小节为整日工作汇总落档，方便 compact 后恢复与回溯。
+
+**1. 国债3标的接入 indices 路径（已入库待 deploy）**
+
+新增 3 个国债相关标的走 indices 完整链路（6 类信号+回测+导出+前端 renderGlobal 自动遍历）：
+
+- `cgb_idx` 上证国债指数（5687 行，2003-02-24 起，腾讯源 `stock_zh_index_daily_tx`）
+- `cgb_10y_etf` 十年国债 ETF（2160 行，2017 起，新浪 `fund_etf_hist_sina`）
+- `cgb_10y_future` 10 年国债期货主力（2307 行，2017 起，新浪 `futures_main_sina`，返中文带"价"后缀字段）
+
+改动清单（零代码逻辑改动，3 处配置 3 行）：
+
+- `config/indicators.yaml` L215-217：新增 3 个标的配置
+- `index_backfill.py` L419-421 `HK_GLOBAL_INDICES`：新增 3 个标的
+- `alert_match.py` L44 `GLOBAL_INDEX_IDS`：新增 3 个 id
+- `fetchers.py` L342 `g()`：加"收盘价/开盘价/最高价/最低价"候选字段（国债期货中文带"价"后缀，需映射到 OHLC 英文字段）
+
+调研背景：`china-bond-feasibility` agent 调研报告结论——cn10y 收益率已接 extras，价格型走 indices 需 OHLC，收益率序列无 OHLC 不能升级 indices。用户决策：3 个全加（000012 + 511260 + T0）。
+
+**2. chip 三色文案 A+B+C+D（commit `4c8b7838`）**
+
+trade_sim 标题下换行 3 chip（年化最高/最稳健/回撤最小）配套文案 4 方案：
+
+- 方案 A：图例条加三色 mini-legend（📈年化最高 / 👍最稳健 / 🛡回撤最小）
+- 方案 B：steady `val:''` -> `'·最稳'`
+- 方案 C：tooltip 加三色含义
+- 方案 D：备买 termTip（备买 = Supertrend ATR×3 翻多 + 3 日二次确认）
+
+三色文案统一：金/年化最高 · 蓝/最稳健（综合分 = 胜率 40% + 低回撤 40% + 样本 20%）· 绿/回撤最小。
+
+**3. i18n 中文化（commit `4c8b7838`）**
+
+- `_INDEX_NAME_MAP` 补 8 港股板块指数：
+  - `hk_cesg10` 中华博彩业
+  - `hk_hsmogi` 恒生内地油气
+  - `hk_hsmbi` 恒生内地银行
+  - `hk_hsmpi` 恒生内地地产
+  - `hk_cshklre` 中证香港地产
+  - `hk_cshklc` 中证香港消费
+  - `hk_hscci` 恒生中资企业
+  - `hk_cshkdiv` 中证香港红利
+  - 加 `brent` 布伦特原油
+- 修首页"今日信号"卡显示"趋势转向 hk_cshkdiv"英文 bug
+
+**4. pin label 自动黑白字（commit `4c8b7838`）**
+
+- 新增 `_autoLabelColor(bg)` helper（gamma 校正 luminance 阈值 0.18）
+- 8 处 markPoint label + 7 处全局 `#fff` 兜底
+- `#ffd700` 追买金浅色皮肤显示黑字，contrast 14.97 达标
+
+**5. kc50 双 Bug 全修（commit `4c8b7838`）**
+
+- Bug1 弹窗标题 `sell_stop_loss` 英文：`app.js` L1904 硬编码三元链漏分支，改 `signalLabel` 调用
+- Bug2 走势图无 pin：数据源不同步
+  - intraday 先 `upload_r2` 后 git push 有 2 分钟窗口
+  - R2 失败不阻断 notify 告警
+  - L1187 `_NO_CACHE_URLS` 加 index 破 5min 缓存
+- 根因：卡片读 `overview.json`（git 源）vs 走势图读 `kc50-all.json`（R2 源）不同源 + 更新机制不同
+
+**6. 盘中信号收盘消失高亮 fade-detect（commit `4c8b7838`）**
+
+- `check_signals.py` 加 `--fade-detect`：对比 `signal_notified.json[date]` vs 收盘 `signal_daily[date]`
+- 三档告警：
+  - 严格消失红警（盘中 `buy*` 收盘无信号）
+  - 类型变化橙警（`buy*` -> `sell*`）
+  - 降级黄警（`buy` -> `buy_backup`）
+- 收盘模式默认开，邮件 ⚠ 前缀 + 红横幅 + 消失表格
+- 用户 5 个产品分叉决策：C 分等级 / A 统一警示 / A 不提示 sell / A 不显式标签 / A 并入收盘邮件
+- DB 路径修复：`check_signals.py` L31 `REPO` 不 resolve symlink（读 `trade-data/data/` 最新 DB，`.resolve()` 会钉死 `trade/` 滞后 1 天）
+
+**7. 前买失效取消灰橙 + 买点失败盈亏标签（commit `4c8b7838`）**
+
+- 卖点统一绿 `#2e8b57`，删灰 `#9e9e9e` / 橙 pin 色 + 前买失效分支
+- 买点失败 reason 提取负比例显示"盈亏-4.61%"（与止盈对称）
+
+**8. favicon 换金色上涨箭头（commit `4c8b7838`）**
+
+- `static-site/favicon.svg` 金底（`#8b1a1a`）+ 金色上涨箭头（`#f1c40f`）
+
+**9. CLAUDE.md §7 强化（commit `4c8b7838`）**
+
+- memory 读优化 + 落档写保障两条规则互不冲突都要执行到位
+- 前买失效教训：memory 队列"取消灰橙"被 chip 三档跳过没落档 TASKS 致漏做（详见 CLAUDE.md §7 末段）
+
+**10. P1-新-B pin 图表标题策略问号弹窗（commit `1e5d68b6`）**
+
+后端 + 前端联动：
+
+- 后端 `signals.py` `strategy_desc` 扩展：顶层 `buy/buy_aux/sell` 字符串向后兼容 + 新增 `_detail` 子对象 6 字段（`buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss_detail`，每 `{desc,params,filter,enabled}`）
+- 前端 `app.js`：
+  - `_STRATEGY_DETAIL_KEYS` + `_strategyModalHTML` + `_openStrategyModal` + `_initStrategyHelpDelegation`
+  - `_appendStrategyHint`（h3 末尾注入 ❓）
+  - 7 处调用点
+- per-index 定制展示：
+  - `kc50` `buy_filter=rsi_cross_25` 收紧
+  - `usdcnh` skip + 2σ 去趋势
+  - `csi_div` ATR 4.5
+  - `s.a_sentiment` skip 买
+
+**11. P2-9 trade_sim 持有时长旧 bug 值清理（已推 R2）**
+
+100 品种 JSON 重生（3 目标 bug 值清理）：
+
+- `sh` 9253 -> 1079
+- `hk_hscci` 6982 -> 760
+- `sw_801040` 4460 -> 533
+
+200 `.gz` 重生 + R2 推送 HTML 100 + JSON + `.gz` 400。线上验证 3 HTML + 3 JSON HTTP 200。根因：旧值 = `sub_rounds` 各子回合 `hold_days` 累加，新值 = `first_buy -> sell` 方案 A（commit `a1f2b281` L509）。
+
+**12. 三个新方案落档 TASKS（P1-新-A/B/C）**
+
+- P1-新-A 盘中信号收盘消失高亮提醒（已实施上线，见本小节第 6 点）
+- P1-新-B pin 图表标题策略问号弹窗（已实施上线，见本小节第 10 点）
+- P1-新-C ETF 买卖清单 AI 评分（方案已验收 + 用户决策已定，待实施，~870 行 2-3 天分两阶段）
+
+**git**：本小节纯落档，只改 NOTES.md，不改码不 deploy。涉及 commit 引用 `4c8b7838`（多修复）+ `1e5d68b6`（pin 策略 modal）。
+
+### 小节AZ：2026-07-23 待办外5方向调研（用户感兴趣，2 agent 只读给方案，落档 TASKS P2-新-A~E 待排期）
+用户问"待办外建议"，提了5方向都感兴趣。派2调研 agent（前端3+后端2）只读不改摸现状给方案，主控验收3关键结论坐实。
+
+**5方向方案摘要**（详见 TASKS.md `## 🆕 2026-07-23 待办外5方向`）：
+- **P2-新-A 采集健康度小灯**（~80行）：collect_health 已导出 overview.json 但前端采集时间旁没暴露（app.js L2465注释明说留给后端）。加🟢🟡🔴小灯
+- **P2-新-B 信号历史复盘**（2a~30行/2b~200行）：signal_stats.json 已导出但 app.js L745 只取10d，5d/20d浪费。2a扩三窗口对比/2b真pin复盘
+- **P2-新-C 移动端 PWA**（~150行）：完全空白（index.html manifest/SW grep计数0）。三件套 manifest+sw.js+meta，数据JSON用SWR
+- **P2-新-D DB灾备补强**（只文档）：**意外发现-已大部分实现**！backup_db.sh L48 sqlite3在线热备 + upload_r2.py 三层(日/周/月)+verify_backup演练 + update_all L202串接。只剩恢复文档。**防以后重复调研以为没做**
+- **P2-新-E 告警渠道 Telegram**（~70行）：纯邮件。notify.py加send_telegram+send()多渠道分发+删check_signals重复send_email。CF Workers反代解决国内可达
+
+**验收3关键结论**（grep单点坐实）：
+1. `export.py` L361 `collect_health = {"level":"ok","items":[]}` 确实导出
+2. `static-site/data/signal_stats.json` 230KB 7/23 02:05 确实已导出（app.js L792注释过期说没导出）
+3. `index.html` manifest/serviceWorker grep计数0 确实空白
+
+**主控排期建议**：D(只文档0成本) > B-2a(30行快见效) > A(数据诚信) > E(即时告警) > C(PWA) > B-2b(大工作量)。D/E改scripts不碰build可先做，A/B/C改app.js需build串行。
+
+**git**：本小节纯落档，只改 NOTES.md + TASKS.md，不改码不 deploy。
