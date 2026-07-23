@@ -26,6 +26,7 @@ data/backups/
 data/baostock_logs/
 data/*.log
 data/*_progress.json
+data/anomaly_notified.json
 data/baostock_*.sh
 data/baostock_skipped_bj.txt
 data/cleanup_d3d2_report.json
