@@ -1313,6 +1313,243 @@ function _appendStrategyHint(cardEl, indexId, strategy) {
   else target.appendChild(span);
 }
 
+// === A5 真 pin 复盘（2026-07-24）===
+// pin = 用户钉住某指数，钉住后在指数区顶部显示该指数专属详细复盘面板。
+// 持久化：localStorage["pinned_indices"] = JSON.stringify(["sh","sz300",...])，跨刷新保留。
+// 事件：togglePin 后 dispatch "pin-changed" CustomEvent，renderIndicesSection 监听后刷新复盘面板。
+// 复盘面板内容：历史走势摘要(近5/20/60日涨跌+波动)/信号状态(最近信号)/关键统计(6类信号10d胜率盈亏比)/专属规则(per-index)。
+var _PIN_INDICES_LS_KEY = "pinned_indices";
+function _getPinnedIds() {
+  try { return JSON.parse(localStorage.getItem(_PIN_INDICES_LS_KEY) || "[]"); } catch (e) { return []; }
+}
+function _setPinnedIds(arr) {
+  try { localStorage.setItem(_PIN_INDICES_LS_KEY, JSON.stringify(arr || [])); } catch (e) {}
+  document.dispatchEvent(new CustomEvent("pin-changed", { detail: { ids: arr || [] } }));
+}
+function _isPinned(id) { return _getPinnedIds().indexOf(id) >= 0; }
+function _togglePin(id) {
+  var ids = _getPinnedIds();
+  var i = ids.indexOf(id);
+  if (i >= 0) ids.splice(i, 1); else ids.push(id);
+  _setPinnedIds(ids);
+  return i < 0;  // 返回新状态（true=已 pin）
+}
+// 全局缓存：renderOne 时写入 {id: {idx, sig}}，pin 按钮点击时立即从缓存渲染复盘卡片（避免异步等待）
+var _pinDataCache = {};
+
+// 在 chart-card h3 末尾追加 📌 按钮（pin 切换）；h3 不存在时退到 spark-name。
+// 与❓/sim-btn 同行排列，放最末尾（[标题][❓][模拟回测][📌]）。
+function _appendPinBtn(cardEl, indexId, idx, sig) {
+  if (!cardEl || !indexId) return;
+  var h3 = cardEl.querySelector("h3");
+  var sparkName = !h3 ? cardEl.querySelector(".spark-name") : null;
+  var target = h3 || sparkName;
+  if (!target) return;
+  if (target.querySelector(".pin-btn")) return;  // 避免重复注入
+  // 缓存数据供复盘面板用
+  if (idx) _pinDataCache[indexId] = { idx: idx, sig: sig || _pinDataCache[indexId] && _pinDataCache[indexId].sig || null };
+  else if (_pinDataCache[indexId] && _pinDataCache[indexId].sig && sig) _pinDataCache[indexId].sig = sig;
+  var btn = document.createElement("span");
+  btn.className = "pin-btn" + (_isPinned(indexId) ? " active" : "");
+  btn.setAttribute("data-pin-id", indexId);
+  btn.setAttribute("role", "button");
+  btn.setAttribute("aria-label", _isPinned(indexId) ? "取消钉住" : "钉住指数");
+  btn.setAttribute("title", _isPinned(indexId) ? "已钉住，点击取消" : "钉住该指数，顶部显示专属复盘");
+  btn.textContent = "📌";
+  btn.addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var newPinned = _togglePin(indexId);
+    btn.classList.toggle("active", newPinned);
+    btn.setAttribute("aria-label", newPinned ? "取消钉住" : "钉住指数");
+    btn.setAttribute("title", newPinned ? "已钉住，点击取消" : "钉住该指数，顶部显示专属复盘");
+  });
+  target.appendChild(btn);
+}
+
+// 计算近 N 日涨跌幅（基于 ohlc close 末值 vs N 日前 close）
+function _pctChangeOver(ohlc, n) {
+  if (!ohlc || ohlc.length < 2) return null;
+  var len = ohlc.length;
+  var last = ohlc[len - 1];
+  var base = ohlc[len - 1 - n];
+  if (!last || !base || last.close == null || base.close == null) return null;
+  return (last.close / base.close - 1) * 100;
+}
+// 计算近 N 日波动率（日收益标准差×sqrt(N)，年化近似）
+function _volatilityOver(ohlc, n) {
+  if (!ohlc || ohlc.length < n + 1) return null;
+  var slice = ohlc.slice(-n - 1);
+  var rets = [];
+  for (var i = 1; i < slice.length; i++) {
+    if (slice[i].close != null && slice[i - 1].close != null && slice[i - 1].close > 0) {
+      rets.push(Math.log(slice[i].close / slice[i - 1].close));
+    }
+  }
+  if (rets.length < 2) return null;
+  var mean = rets.reduce(function (a, b) { return a + b; }, 0) / rets.length;
+  var variance = rets.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / rets.length;
+  return Math.sqrt(variance) * Math.sqrt(n) * 100;  // N 日波动率（%）
+}
+// 取近 N 日高低点
+function _highLowOver(ohlc, n) {
+  if (!ohlc || !ohlc.length) return null;
+  var slice = ohlc.slice(-Math.min(n, ohlc.length));
+  var hi = -Infinity, lo = Infinity;
+  for (var i = 0; i < slice.length; i++) {
+    if (slice[i].high != null && slice[i].high > hi) hi = slice[i].high;
+    if (slice[i].low != null && slice[i].low < lo) lo = slice[i].low;
+  }
+  if (hi === -Infinity || lo === Infinity) {
+    // 退到 close 兜底（valueChart 数据只有 value 无 high/low）
+    hi = -Infinity; lo = Infinity;
+    for (var j = 0; j < slice.length; j++) {
+      var v = slice[j].close != null ? slice[j].close : slice[j].value;
+      if (v == null) continue;
+      if (v > hi) hi = v;
+      if (v < lo) lo = v;
+    }
+  }
+  if (hi === -Infinity || lo === Infinity) return null;
+  return { high: hi, low: lo };
+}
+// 取最近一个信号（按 date 降序找最后一个）
+function _latestSignal(signals) {
+  if (!signals || !signals.length) return null;
+  var latest = null;
+  for (var i = 0; i < signals.length; i++) {
+    var s = signals[i];
+    if (!s || !s.date) continue;
+    if (!latest || s.date > latest.date) latest = s;
+  }
+  return latest;
+}
+// 6 类信号 stats 简表 HTML（胜率/盈亏比/样本，沿用 statsHint 配色但精简）
+function _pinStatsBriefHtml(stats) {
+  if (!stats) return '<div class="pin-empty">无统计数据</div>';
+  var labels = { buy: "买", buy_aux: "辅买", buy_special: "追买", buy_special_filtered: "追买(过滤)", buy_backup: "备买", sell: "卖", sell_stop_loss: "追止损|卖" };
+  var sigClass = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" };
+  var rows = [];
+  var order = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"];
+  for (var i = 0; i < order.length; i++) {
+    var sig = order[i];
+    var s = stats[sig];
+    if (!s || !s["10d"]) continue;
+    var d = s["10d"];
+    var n = d.n || 0;
+    if (n < 10) continue;  // 样本不足不显示
+    var wr = Math.round((d.win_rate || 0) * 100);
+    var pl = d.pl != null ? d.pl.toFixed(2) : "-";
+    var wrCls = winRateClass(wr);
+    var wrLabel = (sig === "sell" || sig === "sell_stop_loss") ? "走弱" : "胜率";
+    rows.push('<span class="pin-stat-item"><span class="hint-sig ' + sigClass[sig] + '">' + labels[sig] + '</span>' +
+      '<span class="pin-stat-val">' + wrLabel + ' <b class="wr ' + wrCls + '">' + wr + '%</b></span>' +
+      '<span class="pin-stat-val">盈亏比 <b>' + pl + '</b></span>' +
+      '<span class="pin-stat-val muted">n=' + n + '</span></span>');
+  }
+  if (!rows.length) return '<div class="pin-empty">无充足样本统计（所有信号 n&lt;10）</div>';
+  return '<div class="pin-stat-grid">' + rows.join("") + '</div>';
+}
+// 专属规则 HTML：6 类策略 desc + per-index filter（sh 专属 / 非 sh 方案B）
+function _pinStrategyHtml(strategy, indexId) {
+  var strat = strategyDesc(strategy);
+  var detail = strat && strat._detail;
+  if (!detail) {
+    return '<div class="pin-strat-line">📋 买: ' + (strat.buy || '-') + ' · 辅买: ' + (strat.buy_aux || '-') + ' · 卖: ' + (strat.sell || '-') + '</div>';
+  }
+  var lines = [];
+  for (var i = 0; i < _STRATEGY_DETAIL_KEYS.length; i++) {
+    var k = _STRATEGY_DETAIL_KEYS[i];
+    var d = detail[k.key];
+    if (!d) continue;
+    var name = k.name.split(" · ")[0];
+    var en = d.enabled !== false;
+    if (!en) { lines.push('<div class="pin-strat-line skip"><span class="pin-strat-dot" style="background:' + k.color + '"></span>' + name + '：skip（本指数不启用）</div>'); continue; }
+    var filt = d.filter || "";
+    var seg = filt.split("；").filter(function (s) { return /专属|非 sh/.test(s); }).slice(-1)[0] || "";
+    lines.push('<div class="pin-strat-line"><span class="pin-strat-dot" style="background:' + k.color + '"></span>' + name + '：' + (d.desc || "") + (seg ? '<span class="pin-strat-seg">【' + seg + '】</span>' : '') + '</div>');
+  }
+  return '<div class="pin-strat-block">' + lines.join("") + '</div>';
+}
+// 单个 pin 复盘卡片 HTML
+function _pinReviewCardHtml(id, idx, sig) {
+  var name = idx && idx.name ? idx.name : id;
+  var ohlc = (idx && idx.data) || [];
+  var last = ohlc.length ? ohlc[ohlc.length - 1] : null;
+  var lastClose = last && last.close != null ? last.close : null;
+  var lastPct = last && last.pct_change != null ? last.pct_change : null;
+  var lastDate = last && last.date ? last.date : "";
+  var up = (lastPct || 0) >= 0;
+  var pctColor = up ? "#e6492e" : "#2e8b57";
+  // 走势摘要
+  var pct5 = _pctChangeOver(ohlc, 5);
+  var pct20 = _pctChangeOver(ohlc, 20);
+  var pct60 = _pctChangeOver(ohlc, 60);
+  var vol60 = _volatilityOver(ohlc, 60);
+  var hl60 = _highLowOver(ohlc, 60);
+  // 信号状态
+  var signals = sig && sig.signals ? sig.signals : [];
+  var latestSig = _latestSignal(signals);
+  var stats = sig && sig.stats ? sig.stats : null;
+  var strategy = idx && idx.strategy ? idx.strategy : null;
+  // 头部
+  var closeHtml = lastClose != null ? '<span class="pin-close">' + (typeof lastClose === "number" ? lastClose.toFixed(2) : lastClose) + '</span>' : "";
+  var pctHtml = lastPct != null ? '<span class="pin-pct" style="color:' + pctColor + '">' + (up ? "+" : "") + lastPct.toFixed(2) + '%</span>' : "";
+  var dateHtml = lastDate ? '<span class="pin-date">· ' + fmtDate(lastDate) + '</span>' : "";
+  // 走势摘要行
+  function pctSpan(v, label) {
+    if (v == null) return "";
+    var cu = v >= 0;
+    return '<span class="pin-trend-item">' + label + ' <b style="color:' + (cu ? "#e6492e" : "#2e8b57") + '">' + (cu ? "+" : "") + v.toFixed(2) + '%</b></span>';
+  }
+  var trendHtml = pctSpan(pct5, "近5日") + pctSpan(pct20, "近20日") + pctSpan(pct60, "近60日");
+  if (vol60 != null) trendHtml += '<span class="pin-trend-item">60日波动 <b>' + vol60.toFixed(1) + '%</b></span>';
+  if (hl60) {
+    var hiStr = typeof hl60.high === "number" ? hl60.high.toFixed(2) : hl60.high;
+    var loStr = typeof hl60.low === "number" ? hl60.low.toFixed(2) : hl60.low;
+    trendHtml += '<span class="pin-trend-item">60日高 <b>' + hiStr + '</b> / 低 <b>' + loStr + '</b></span>';
+  }
+  if (!trendHtml) trendHtml = '<div class="pin-empty">无充足走势数据</div>';
+  // 信号状态
+  var sigHtml = "";
+  if (latestSig) {
+    var sigColor = signalColor(latestSig);
+    var sigLabel = signalLabel(latestSig);
+    sigHtml = '<div class="pin-sig-latest"><span class="hint-sig" style="background:' + sigColor + '">' + sigLabel + '</span>' +
+      '<span class="pin-sig-date">' + fmtDate(latestSig.date) + '</span>' +
+      '<span class="pin-sig-reason">' + (latestSig.reason || "").slice(0, 80) + (latestSig.reason && latestSig.reason.length > 80 ? "…" : "") + '</span></div>';
+  } else {
+    sigHtml = '<div class="pin-empty">近段无信号触发</div>';
+  }
+  // 组装
+  return '<div class="pin-review-card" data-pin-id="' + id + '">' +
+    '<div class="pin-review-head">' +
+      '<div class="pin-review-title">' +
+        '<span class="pin-review-name">' + name + '</span>' +
+        closeHtml + pctHtml + dateHtml +
+      '</div>' +
+      '<button class="pin-unpin-btn" data-unpin-id="' + id + '" title="取消钉住">✕</button>' +
+    '</div>' +
+    '<div class="pin-review-section-block">' +
+      '<div class="pin-block-label">📈 走势摘要</div>' +
+      '<div class="pin-trend-row">' + trendHtml + '</div>' +
+    '</div>' +
+    '<div class="pin-review-section-block">' +
+      '<div class="pin-block-label">🎯 信号状态</div>' +
+      sigHtml +
+    '</div>' +
+    '<div class="pin-review-section-block">' +
+      '<div class="pin-block-label">📊 关键统计（10d）</div>' +
+      _pinStatsBriefHtml(stats) +
+    '</div>' +
+    '<div class="pin-review-section-block">' +
+      '<div class="pin-block-label">📋 专属规则</div>' +
+      _pinStrategyHtml(strategy, id) +
+    '</div>' +
+    '<div class="pin-disclaimer">⚠ 历史回测统计与数学公式参考，非投资建议；过往表现不代表未来收益。</div>' +
+  '</div>';
+}
+
 // 模拟回测按钮 HTML（2026-07-23 改动3）：从 statsHint 抽出，由调用方注入为独立 DOM。
 // SIM_INDICES 之外的指数返回空串（不渲染按钮）。
 function _simBtnHtml(indexId) {
@@ -1906,9 +2143,80 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
     sectionCharts.length = 0;
   }
 
+  // === A5 pin 复盘面板：本 section 的容器引用 + 数据源（供 pin-changed 事件刷新用）===
+  let pinReviewContainer = null;
+  // 异步渲染复盘面板：pinned 指数列表 -> 每个渲染一张复盘卡片（数据从 _pinDataCache 拿，cache miss 则 await fetcher）
+  async function _renderPinReview() {
+    if (!pinReviewContainer || !pinReviewContainer.isConnected) return;
+    var pinnedIds = _getPinnedIds();
+    // 仅保留本 section 实际拥有的指数（跨 tab pin 状态隔离：A 股 tab 只显示 A 股 pinned）
+    var validIds = pinnedIds.filter(function (id) { return entries.some(function (e) { return e[0] === id; }); });
+    if (!validIds.length) {
+      pinReviewContainer.innerHTML = "";
+      pinReviewContainer.style.display = "none";
+      return;
+    }
+    pinReviewContainer.style.display = "";
+    pinReviewContainer.innerHTML = '<div class="pin-review-loading"><span class="loading__spinner"></span><span class="loading__text">加载钉住指数复盘…</span></div>';
+    var htmlParts = [];
+    for (var i = 0; i < validIds.length; i++) {
+      var id = validIds[i];
+      var entry = entries.find(function (e) { return e[0] === id; });
+      if (!entry) continue;
+      var idx = entry[1];
+      var sig = signalsCache[id] || (_pinDataCache[id] && _pinDataCache[id].sig) || null;
+      if (!sig) {
+        // cache miss: 异步补 fetcher（不阻塞其他卡片渲染）
+        try {
+          sig = await fetcher(id, idx);
+          signalsCache[id] = sig;
+        } catch (e) { sig = null; }
+      }
+      // 同步 _pinDataCache（_appendPinBtn 也会写，这里兜底）
+      _pinDataCache[id] = { idx: idx, sig: sig };
+      htmlParts.push(_pinReviewCardHtml(id, idx, sig));
+    }
+    if (!pinReviewContainer.isConnected) return;  // 异步期间可能被切走
+    pinReviewContainer.innerHTML = '<div class="pin-review-header">📌 钉住指数复盘（' + validIds.length + '）<span class="pin-review-hint">点击指数卡片标题 📌 钉住/取消</span></div>' +
+      '<div class="pin-review-list">' + htmlParts.join("") + '</div>';
+    // 绑定取消 pin 按钮
+    var unpinBtns = pinReviewContainer.querySelectorAll("[data-unpin-id]");
+    unpinBtns.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var uid = btn.getAttribute("data-unpin-id");
+        if (uid) _togglePin(uid);
+      });
+    });
+  }
+  // pin-changed 事件：刷新本 section 复盘面板 + 同步各卡片 📌 按钮状态
+  // self-cleanup：切 tab 后 container 被 renderTab 清空，pinReviewContainer 不再 connected，
+  // 下次 pin-changed 触发时检测到 not connected 即 removeEventListener 自身，避免监听器累积。
+  function _onPinChanged() {
+    if (!pinReviewContainer || !pinReviewContainer.isConnected) {
+      document.removeEventListener("pin-changed", _onPinChanged);
+      return;
+    }
+    _renderPinReview();
+    // 同步本 section 内所有 pin-btn 的 active 状态
+    var btns = container.querySelectorAll(".pin-btn[data-pin-id]");
+    btns.forEach(function (b) {
+      var bid = b.getAttribute("data-pin-id");
+      var act = _isPinned(bid);
+      b.classList.toggle("active", act);
+      b.setAttribute("aria-label", act ? "取消钉住" : "钉住指数");
+      b.setAttribute("title", act ? "已钉住，点击取消" : "钉住该指数，顶部显示专属复盘");
+    });
+  }
+  document.addEventListener("pin-changed", _onPinChanged);
+
   async function _doRender() {
     disposeSectionCharts();
     container.innerHTML = "";
+    // === A5 pin 复盘面板容器（放最顶部，filter-bar 之前）===
+    pinReviewContainer = document.createElement("div");
+    pinReviewContainer.className = "pin-review-section";
+    pinReviewContainer.style.display = "none";  // 无 pinned 时隐藏
+    container.appendChild(pinReviewContainer);
     // 当前 tab 不含已选 id 时回退"全部"（防跨 tab 状态残留导致空渲染）
     const filterId = state.indexFilter !== "all" && entries.some(([id]) => id === state.indexFilter) ? state.indexFilter : "all";
     const bar = document.createElement("div");
@@ -1951,6 +2259,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
         _appendBackupChipRow(c.getDom().parentElement, id);
         // C7 P4 market 融合:图表卡下 append 紧凑分数卡(白名单 iid 才显示)
         _attachMarketScoreCard(id, idx.name, c.getDom().parentElement);
+        // A5 真 pin 复盘：h3 末尾追加 📌 按钮（钉住该指数，顶部显示专属复盘面板）
+        _appendPinBtn(c.getDom().parentElement, id, idx, sig);
       }
     }
     // 选了单个指数：只渲染该指数，不折叠
@@ -1968,6 +2278,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
         chartLoadingEl.className = "trade-sim-empty";
         chartLoadingEl.innerHTML = "📊 该筛选暂无数据";
       }
+      // A5: 渲染 pin 复盘面板（signalsCache 已填充，异步补 cache miss）
+      _renderPinReview();
       return;
     }
     // "全部"模式：A股/港股(foldOneRow=true)全部指数直接铺入 .indices-grid 网格(不折叠，无"更多指数"按钮)。
@@ -1990,6 +2302,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
       chartLoadingEl.className = "trade-sim-empty";
       chartLoadingEl.innerHTML = "📊 该筛选暂无数据";
     }
+    // A5: 渲染 pin 复盘面板（signalsCache 已填充，异步补 cache miss）
+    _renderPinReview();
   }
 
   // doRender 包装：防 onchange 重入(快速切筛选时上一次 await 未完即触发下一次)，避免并发渲染撞 charts 数组

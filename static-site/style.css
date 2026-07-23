@@ -3942,5 +3942,198 @@ main { padding: 16px 24px; }
   .etf-hold-actions { flex-direction: row; }
 }
 
+/* === A5 真 pin 复盘（2026-07-24）=== */
+/* 📌 按钮：h3 末尾，默认灰色描边圆角；active 状态用 primary 实心高亮 */
+.pin-btn {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  vertical-align: middle;
+  user-select: none;
+  transition: all .15s;
+}
+.pin-btn:hover { color: var(--primary); border-color: var(--primary); }
+.pin-btn.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary-hover), var(--primary));
+  border-color: var(--primary);
+  box-shadow: 0 1px 4px rgba(22,93,255,.25);
+}
+.spark-name .pin-btn { margin-left: 4px; }
+
+/* 复盘面板容器：指数区顶部，无 pin 时 display:none */
+.pin-review-section {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+.pin-review-header {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pin-review-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.pin-review-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.pin-review-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 12px;
+}
+.pin-review-card {
+  background: var(--bg-2, var(--bg-card));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pin-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.pin-review-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.pin-review-name { font-weight: 700; color: var(--text-1); font-size: 14px; }
+.pin-close { color: var(--text-1); font-variant-numeric: tabular-nums; font-weight: 600; }
+.pin-pct { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pin-date { color: var(--text-3); font-size: 11px; }
+.pin-unpin-btn {
+  flex-shrink: 0;
+  width: 22px; height: 22px;
+  padding: 0; border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px; line-height: 1;
+  cursor: pointer;
+  transition: all .15s;
+}
+.pin-unpin-btn:hover { color: #fff; background: var(--down, #e6492e); border-color: var(--down, #e6492e); }
+
+.pin-review-section-block { display: flex; flex-direction: column; gap: 4px; }
+.pin-block-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.pin-trend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.pin-trend-item { font-variant-numeric: tabular-nums; }
+.pin-trend-item b { color: var(--text-1); font-weight: 600; }
+
+.pin-sig-latest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.pin-sig-date { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.pin-sig-reason { color: var(--text-2); flex: 1 1 auto; min-width: 0; }
+
+/* 统计简表：复用 .hint-sig 圆点色块 */
+.pin-stat-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pin-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.pin-stat-item .hint-sig { font-size: 10px; padding: 1px 5px; border-radius: 8px; color: #fff; }
+.pin-stat-val { font-variant-numeric: tabular-nums; }
+.pin-stat-val b { color: var(--text-1); font-weight: 600; }
+.pin-stat-val.muted { color: var(--text-3); }
+
+/* 专属规则 */
+.pin-strat-block { display: flex; flex-direction: column; gap: 3px; }
+.pin-strat-line {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-2);
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+.pin-strat-line.skip { color: var(--text-3); text-decoration: line-through; }
+.pin-strat-dot {
+  flex-shrink: 0;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  display: inline-block;
+}
+.pin-strat-seg {
+  color: var(--primary);
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+.pin-empty {
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+}
+.pin-disclaimer {
+  font-size: 10px;
+  color: var(--text-4, var(--text-3));
+  line-height: 1.5;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+/* 移动端：复盘列表单列，卡片内边距收紧 */
+@media (max-width: 768px) {
+  .pin-review-list { grid-template-columns: 1fr; }
+  .pin-review-section { padding: 10px 12px; margin-bottom: 12px; }
+  .pin-review-card { padding: 8px 10px; }
+  .pin-trend-row { gap: 3px 8px; }
+}
 
 
