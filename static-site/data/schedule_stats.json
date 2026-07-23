@@ -13,16 +13,16 @@
     "name": "指数补采兜底",
     "schedule": "16:35 / 20:00 / 02:00",
     "est_text": "约17分钟",
-    "last_run": "2026-07-23 02:00",
-    "last_exit": 0,
-    "last_duration_sec": 2050
+    "last_run": "2026-07-23 16:35",
+    "last_exit": null,
+    "last_duration_sec": null
   },
   {
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
-    "est_text": "约22分钟",
-    "last_run": "2026-07-23 14:35",
+    "est_text": "约28分钟",
+    "last_run": "2026-07-23 15:05",
     "last_exit": null,
     "last_duration_sec": null
   },
