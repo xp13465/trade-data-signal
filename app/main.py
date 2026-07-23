@@ -1405,4 +1405,4 @@ def og_image():
     return FileResponse(WEB_DIR / "og.png", media_type="image/png")
 
 
-app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="root")
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True, follow_symlink=True), name="root")
