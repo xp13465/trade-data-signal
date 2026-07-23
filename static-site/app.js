@@ -389,7 +389,7 @@ function _buildSignalMarkData(signals, getValueFn) {
 // 全仓进出路径（最能体现买点本身表现），近5年窗口（_TRADE_SIM_DEFAULT_WIN）。
 // 三档 chip（标题下换行单独一行展示，3 chip 横排）：
 //   📈 年化最高（金）   - 4 买点里年化最高那个
-//   👍 最稳健（蓝）     - 多维综合分最高（胜率40%+低回撤40%+样本20%），不带单数字
+//   👍 最稳健（蓝）     - 多维综合分最高（胜率40%+低回撤40%+样本20%），显回撤+胜率
 //   🛡 回撤最小（绿）   - 最大回撤最小那个
 // 同一买点只显1 chip（避免重复），优先级 年化>稳健>回撤；分散时最多3并排。
 // tooltip 补完整 4 买点对比 + 合规文案"研究参考，不构成投资建议，历史回测不代表未来"。
@@ -472,17 +472,16 @@ function _backupSignalChipRender(sd) {
   // 去重：同一买点只显1 chip（优先级 年化>稳健>回撤）
   var used = {};
   var chips = [];
-  if (bestAnn) { chips.push({ kind: 'strong', entry: bestAnn, val: '年化+' + bestAnn.annualized.toFixed(1) + '%' }); used[bestAnn.label] = 1; }
-  if (bestSteady && !used[bestSteady.label]) { chips.push({ kind: 'steady', entry: bestSteady, val: '·最稳' }); used[bestSteady.label] = 1; }
-  if (bestDd && !used[bestDd.label]) { chips.push({ kind: 'lowdraw', entry: bestDd, val: '跌' + bestDd.max_drawdown.toFixed(1) + '%' }); used[bestDd.label] = 1; }
+  if (bestAnn) { chips.push({ kind: 'strong', tier: '年化最高', entry: bestAnn, val: '年化+' + bestAnn.annualized.toFixed(1) + '%' }); used[bestAnn.label] = 1; }
+  if (bestSteady && !used[bestSteady.label]) { chips.push({ kind: 'steady', tier: '最稳健', entry: bestSteady, val: '回撤-' + bestSteady.max_drawdown.toFixed(1) + '% 胜率' + bestSteady.win_rate.toFixed(0) + '%' }); used[bestSteady.label] = 1; }
+  if (bestDd && !used[bestDd.label]) { chips.push({ kind: 'lowdraw', tier: '回撤最小', entry: bestDd, val: '回撤-' + bestDd.max_drawdown.toFixed(1) + '%' }); used[bestDd.label] = 1; }
   if (chips.length === 0) return '';
   // tooltip：完整 4 买点对比 + 合规文案
   var tip = _backupSignalChipTip(entries);
   return chips.map(function (c) {
     var emoji = c.kind === 'strong' ? '📈' : c.kind === 'steady' ? '👍' : '🛡';
     var cls = c.kind === 'strong' ? 'signal-chip-strong' : c.kind === 'steady' ? 'signal-chip-steady' : 'signal-chip-lowdraw';
-    var valStr = c.val ? ' ' + c.val : '';
-    return '<span class="signal-chip ' + cls + '" data-tip="' + tip + '">' + emoji + ' ' + c.entry.label + valStr + '</span>';
+    return '<span class="signal-chip ' + cls + '" data-tip="' + tip + '">' + emoji + ' ' + c.tier + ' · ' + c.entry.label + ' · ' + c.val + '</span>';
   }).join('');
 }
 // chip tooltip：4 买点对比 + 合规文案（含换行，依赖 .term-pop white-space:pre-line 渲染）
@@ -492,7 +491,6 @@ function _backupSignalChipTip(entries) {
     var e = entries[i];
     lines.push(e.label + ': 年化' + e.annualized.toFixed(1) + '% / 胜率' + e.win_rate.toFixed(0) + '% / 回撤' + e.max_drawdown.toFixed(1) + '% / 样本' + e.total_ops);
   }
-  lines.push('三档 chip 含义：📈金=年化最高 / 👍蓝·最稳=综合分最高(胜率40%+低回撤40%+样本20%) / 🛡绿=回撤最小');
   lines.push(_BACKUP_CHIP_COMPLIANCE);
   // HTML attribute 里换行需转义为 &#10;（textContent 解析时还原为 \n）
   return lines.join('&#10;').replace(/"/g, '&quot;');
@@ -501,10 +499,10 @@ function _backupSignalChipTip(entries) {
 // 6色信号图例（2026-07-23 三档优化版）：4色买点(主买红/辅买玫红/追买金/备买紫) + 卖绿 + 追止损蓝，
 // 指数走势图上方统一展示。备买风险提示附末尾（hover pop 显示"备买稳健性弱于追买仅供参考不单独决策"）。
 // 同日多买点信号合并拼色 pin（金描边+光晕），图例不单独列拼色（用户从 pin 视觉即可辨识）。
-// 三档 chip（年化最高/最稳健/回撤最小）已在每个指数标题下单独一行展示，图例条末尾追加三色 chip mini-legend
-// + ❓ termTip 解释 4 买点（重点备买=Supertrend翻多确认的备选买点），让用户看 chip 时即知三色含义。
+// 三档 chip（年化最高/最稳健/回撤最小）在每个指数卡片内 chip-row 单独一行展示，chip 自带档位标签+买点名+数值，
+// 不再在图例条重复展示 mini-legend（消除"分2处"）。图例末尾保留 ❓ termTip 解释 4 买点（重点备买=Supertrend翻多确认的备选买点）。
 var _BACKUP_LEGEND_TIP = "4 买点（主买/辅买/追买/备买）历史回测表现差异较大，每个指数标题下方的三档 chip 标注该指数近5年全仓进出回测中表现最优的买点（年化最高/最稳健/回撤最小）。研究参考，不构成投资建议，历史回测不代表未来。";
-var _BACKUP_BUYPOINT_TIP = "4 买点：主买=RSI(14)上穿30超卖拐点；辅买=布林下轨回归左侧布局；追买=Donchian20日上轨突破+5日确认；备买=Supertrend ATR×3翻多+3日二次确认的趋势反转备选买点（稳健性弱于追买，仅供参考不单独决策）。每个指数标题下三档 chip 标注该指数近5年回测中最优买点：📈金=年化最高 / 👍蓝·最稳=综合分最高(胜率40%+低回撤40%+样本20%) / 🛡绿=回撤最小。";
+var _BACKUP_BUYPOINT_TIP = "4 买点：主买=RSI(14)上穿30超卖拐点；辅买=布林下轨回归左侧布局；追买=Donchian20日上轨突破+5日确认；备买=Supertrend ATR×3翻多+3日二次确认的趋势反转备选买点（稳健性弱于追买，仅供参考不单独决策）。";
 function _signalLegendHtml() {
   return '<div class="signal-legend">'
     + '<span class="signal-legend-item"><i style="background:#e6492e"></i>超卖拐点(主买)</span>'
@@ -513,10 +511,6 @@ function _signalLegendHtml() {
     + '<span class="signal-legend-item"><i style="background:#9c27b0"></i>趋势转向(备买)</span>'
     + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>趋势转弱(卖)</span>'
     + '<span class="signal-legend-item"><i style="background:#3498db"></i>ATR×3.5止损(追止损|卖)</span>'
-    + '<span class="signal-legend-divider"></span>'
-    + '<span class="signal-chip signal-chip-strong">📈 年化最高</span>'
-    + '<span class="signal-chip signal-chip-steady">👍 最稳健</span>'
-    + '<span class="signal-chip signal-chip-lowdraw">🛡 回撤最小</span>'
     + '<span class="term-tip" data-tip="' + _BACKUP_BUYPOINT_TIP.replace(/"/g, '&quot;') + '">❓</span>'
     + '<span class="signal-legend-note" data-tip="' + _BACKUP_LEGEND_TIP + '">⚠ 买点回测差异提示</span>'
     + '</div>';
@@ -729,31 +723,38 @@ const _SIGNAL_HELP_ITEMS = [
   { sig: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR×3.5止损", desc: "ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5d win 49.58%->50.23%），backtest 旧 ATR×3 数据保留作历史对比，新参数 stats 见下方 forward 字段。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
 ];
 
-// 聚合 signal_stats.json（per-index）-> per-sig 概况（10d 窗口，按样本数 n 加权平均）
+// 聚合 signal_stats.json（per-index）-> per-sig 概况（5d/10d/20d 三窗口，按样本数 n 加权平均）
 // signal_stats.json 结构: {_updated_at, bj50:{buy:{10d:{win_rate,pl,mean,n},5d,20d,frequency},...}, sz:{...}}
 // 无 max_drawdown 字段（signal_stats.py 仅算 win_rate/pl/mean/n/frequency，未算最大回撤）
+// 返回 {sig: {5d:{win_rate,pl,mean,n}, 10d:{...}, 20d:{...}}} 或 null
 function _aggregateSignalStats(raw) {
   if (!raw || typeof raw !== "object") return null;
   const SIGS = ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss"];
+  const WINDOWS = ["5d", "10d", "20d"];
   const agg = {};
   for (const sig of SIGS) {
-    let totN = 0, sumWr = 0, sumPl = 0, sumMean = 0;
-    for (const [idx, sigs] of Object.entries(raw)) {
-      if (idx.startsWith("_")) continue;  // 跳过 _updated_at 等元字段
-      const s = sigs && sigs[sig];
-      if (!s || !s["10d"]) continue;
-      const d = s["10d"];
-      const n = d.n || 0;
-      if (n > 0) {
-        totN += n;
-        sumWr += (d.win_rate || 0) * n;
-        sumPl += (d.pl || 0) * n;
-        sumMean += (d.mean || 0) * n;
+    const sigAgg = {};
+    for (const win of WINDOWS) {
+      let totN = 0, sumWr = 0, sumPl = 0, sumMean = 0;
+      for (const [idx, sigs] of Object.entries(raw)) {
+        if (idx.startsWith("_")) continue;  // 跳过 _updated_at 等元字段
+        const s = sigs && sigs[sig];
+        if (!s || !s[win]) continue;
+        const d = s[win];
+        const n = d.n || 0;
+        if (n > 0) {
+          totN += n;
+          sumWr += (d.win_rate || 0) * n;
+          sumPl += (d.pl || 0) * n;
+          sumMean += (d.mean || 0) * n;
+        }
       }
+      sigAgg[win] = totN > 0
+        ? { win_rate: sumWr / totN, pl: sumPl / totN, mean: sumMean / totN, n: totN }
+        : null;
     }
-    agg[sig] = totN > 0
-      ? { win_rate: sumWr / totN, pl: sumPl / totN, mean: sumMean / totN, n: totN }
-      : null;
+    // 至少有一个窗口有数据才保留；否则 null
+    agg[sig] = (sigAgg["5d"] || sigAgg["10d"] || sigAgg["20d"]) ? sigAgg : null;
   }
   return agg;
 }
@@ -763,9 +764,17 @@ function _aggregateSignalStats(raw) {
 function _signalHelpModalHTML(aggStats) {
   const items = _SIGNAL_HELP_ITEMS.map((it) => {
     const s = aggStats && aggStats[it.sig];
-    const statHtml = s
-      ? '<div style="font-size:12px;line-height:1.5;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px">📈 <b>分析概况</b>（10日窗口·全品种加权）：胜率 <b>' + (s.win_rate * 100).toFixed(0) + '%</b> · 盈亏比 <b>' + s.pl.toFixed(2) + '</b> · 平均收益 <b>' + s.mean.toFixed(2) + '%</b> · 样本 <b>' + s.n + '</b></div>'
-      : '<div style="font-size:12px;line-height:1.5;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px;color:#ff9800">📈 分析概况：数据待补（signal_stats 未含此信号统计）</div>';
+    let statHtml;
+    if (s) {
+      // 三窗口对比行（5d/10d/20d），按样本数 n 加权聚合；某窗口无数据则该行显示 "—"
+      const winRows = [["5日", s["5d"]], ["10日", s["10d"]], ["20日", s["20d"]]].map(([label, w]) => {
+        if (!w) return '<div style="margin-left:8px"><span style="display:inline-block;width:3em">' + label + '：</span><span style="opacity:0.5">— 无数据</span></div>';
+        return '<div style="margin-left:8px"><span style="display:inline-block;width:3em">' + label + '：</span>胜率 <b>' + (w.win_rate * 100).toFixed(0) + '%</b> · 盈亏比 <b>' + w.pl.toFixed(2) + '</b> · 均收益 <b>' + w.mean.toFixed(2) + '%</b> · 样本 <b>' + w.n + '</b></div>';
+      }).join("");
+      statHtml = '<div style="font-size:12px;line-height:1.6;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px">📈 <b>分析概况</b>（全品种加权·按样本数加权）：<div style="margin-top:2px">' + winRows + '</div></div>';
+    } else {
+      statHtml = '<div style="font-size:12px;line-height:1.5;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px;color:#ff9800">📈 分析概况：数据待补（signal_stats 未含此信号统计）</div>';
+    }
     // 回测结论（backtest）：全史统计的持有期建议/止损方案对比，淡金色框区分于动态分析概况
     const backtestHtml = it.backtest
       ? '<div style="font-size:12px;line-height:1.55;margin:4px 0;padding:5px 8px;background:rgba(255,215,0,0.12);border-left:3px solid #ffd700;border-radius:4px">' + it.backtest + '</div>'
@@ -789,8 +798,8 @@ function _signalHelpModalHTML(aggStats) {
 }
 
 // 打开6色信号 modal：异步 fetch signal_stats.json 聚合后渲染（每次打开重新渲染含最新统计）
-// signal_stats.json 当前未导出到 static-site/data/（export.py 只导 signal_freq.json），404 -> 降级"数据待补"
-// 后端导出后自动生效（fetchJSON 缓存5分钟）
+// signal_stats.json 已导出到 static-site/data/（export.py 生成，110品种×6信号×5d/10d/20d 三窗口）
+// fetchJSON 缓存5分钟；若 fetch 失败(404/解析错误) -> aggStats=null -> 降级"数据待补"
 async function _openSignalHelpModal() {
   let aggStats = null;
   try {
@@ -1684,6 +1693,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
         addCardTimeBadge(c.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot, "t0");
         // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
         _appendStrategyHint(c.getDom().parentElement, id, idx.strategy);
+        // P2-新-G ETF 联动推荐：h3 末尾追加 ETF tag（buy 信号触发时加 .etf-tag-buy-signal 高亮）
+        _appendEtfLinkTag(c.getDom().parentElement, id, idx.etfs, sig.signals);
         // 备买 chip 三档（2026-07-23）：标题下换行单独一行展示，h3 之后插入独立 chip-row 容器（异步 fetch+patch）
         _appendBackupChipRow(c.getDom().parentElement, id);
         // C7 P4 market 融合:图表卡下 append 紧凑分数卡(白名单 iid 才显示)
@@ -6841,6 +6852,37 @@ function _bindFreqPopupToHintRows(cell, stats) {
       document.querySelectorAll(".freq-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
     }, true);
   }
+}
+
+// P2-新-G ETF 联动推荐：指数信号卡 h3 末尾追加 ETF tag（复用行业卡片的 _renderEtfTag/_bindEtfPopup）。
+// 最新信号为 buy 类（buy/buy_aux/buy_special/buy_special_filtered/buy_backup）时加 .etf-tag-buy-signal 高亮。
+// 仿 _appendStrategyHint 通过 cardEl.querySelector("h3") 注入子元素（不碰 markPoint/chip 区域）。
+// etfs 为空（sh/sz 综合指数无跟踪ETF）不渲染 tag，避免硬塞"代理"ETF 误导用户。
+// 注：ETF 滞后指数，tag 仅作"信号参考"展示（ETF 已反映部分预期），非交易指令。
+function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
+  if (!cardEl) return;
+  if (!etfs || !etfs.length) return;  // sh/sz 综合指数无跟踪ETF -> 不渲染
+  var h3 = cardEl.querySelector("h3");
+  if (!h3) return;
+  if (h3.querySelector(".etf-tag")) return;  // 避免重复注入
+  // 检测最新信号（按 date 降序取最新一条），buy 类则高亮 tag
+  var BUY_TYPES = { buy: 1, buy_aux: 1, buy_special: 1, buy_special_filtered: 1, buy_backup: 1 };
+  var latest = null;
+  if (signals && signals.length) {
+    for (var i = 0; i < signals.length; i++) {
+      var s = signals[i];
+      if (!s.date) continue;
+      if (!latest || s.date > latest.date) latest = s;
+    }
+  }
+  var isBuy = !!(latest && BUY_TYPES[latest.signal || latest.type]);
+  // 注入 tag HTML（top1 代码 + "+N" 候选）
+  h3.insertAdjacentHTML("beforeend", _renderEtfTag(etfs));
+  var tag = h3.querySelector(".etf-tag");
+  if (!tag) return;
+  if (isBuy) tag.classList.add("etf-tag-buy-signal");
+  // 绑定 popup：top1 点击复制 + 悬浮弹全部候选（按成交额降序，每行可复制）
+  _bindEtfPopup(h3, etfs);
 }
 
 // 行业/概念卡片：ETF 多候选展示（对齐用户诉求 -- 不替用户硬选1个）。

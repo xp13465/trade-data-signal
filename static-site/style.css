@@ -953,6 +953,17 @@ main { padding: 16px 24px; }
 .etf-tag.copied { background: #e8f5e9; color: #2e7d32; }
 .etf-tag { position: relative; }
 .etf-tag .etf-more { font-size: 9px; opacity: 0.7; margin-left: 1px; }
+/* P2-新-G ETF 联动推荐：buy 信号触发时高亮 tag（红色背景，与买点 #e6492e 一致，全主题不变色）*/
+.etf-tag.etf-tag-buy-signal {
+  background: #e6492e;
+  color: #fff;
+  font-weight: 600;
+  border: 1px solid #c93f23;
+  box-shadow: 0 0 4px rgba(230, 73, 46, 0.45);
+}
+.etf-tag.etf-tag-buy-signal:hover { background: #c93f23; }
+.etf-tag.etf-tag-buy-signal .etf-more { color: rgba(255, 255, 255, 0.85); opacity: 1; }
+.etf-tag.etf-tag-buy-signal.copied { background: #2e7d32; border-color: #1b5e20; }
 .etf-popup {
   display: none; position: absolute; z-index: 100; left: 0; top: 100%; margin-top: 3px;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;

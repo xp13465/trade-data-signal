@@ -487,8 +487,11 @@ def export_a_stock(conn, cfg, rng):
     metrics = {}
     for m in _metrics_for_groups(cfg, *groups):
         metrics[m["id"]] = {"name": m["name"], "unit": m.get("unit"), "data": _metric_series(conn, m["id"], start, end)}
+    # P2-新-G: 宽基/红利指数注入 etfs 字段（_etf_for 通用按 index_id 查 board_etf_map.json；
+    #   sh/sz 无跟踪ETF返空数组，前端 _renderEtfTag 返空串不渲染 tag）
     indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
-                         "strategy": strategy_desc(i["id"], cfg)}
+                         "strategy": strategy_desc(i["id"], cfg),
+                         **_etf_for(i["id"])}
                for i in _indices_for_market(cfg, "a")}
     return {"metrics": metrics, "indices": indices}
 
@@ -625,6 +628,9 @@ def export_index_detail(conn, cfg, index_id):
         "signals": _signals(conn, index_id, start, end),
         "stats": _stats_for(stats_all, index_id),
         "strategy": strategy_desc(index_id, cfg),
+        # P2-新-G: 宽基/红利指数信号卡 ETF 联动 tag（_etf_for 通用查 board_etf_map.json；
+        #   sh/sz 等无跟踪ETF返空数组，前端不渲染 tag）
+        **_etf_for(index_id),
     }
 
 

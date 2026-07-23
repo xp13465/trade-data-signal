@@ -249,21 +249,23 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
         print(f"⚠ {local_dir} 下 {glob_patterns} 无匹配文件")
         return 0, 0
     ok = 0
-    for f in files:
+    total = len(files)
+    for i, f in enumerate(files, 1):
         rel = f.relative_to(local_dir)
         key = f"{r2_prefix}/{rel}"
         payload = f.read_bytes()
+        size = len(payload)
         try:
             status, data = s3_request("PUT", key, payload)
             if status == 200:
                 ok += 1
-                print(f"✓ {rel} ({len(payload) // 1024}KB)")
+                print(f"[{i}/{total}] ✓ {rel} ({size}B)")
             else:
-                print(f"✗ {rel} status={status} {data[:200]}")
+                print(f"[{i}/{total}] ✗ {rel} status={status} {data[:200]}")
         except Exception as e:
-            print(f"✗ {rel} 异常({type(e).__name__}: {e})")
-    print(f"共上传 {ok}/{len(files)} -> {PUBLIC}/{r2_prefix}/")
-    return ok, len(files)
+            print(f"[{i}/{total}] ✗ {rel} 异常({type(e).__name__}: {e})")
+    print(f"共上传 {ok}/{total} -> {PUBLIC}/{r2_prefix}/")
+    return ok, total
 
 
 def cmd_upload_trade_sim():
