@@ -123,6 +123,44 @@ if STATS_FILE.exists():
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
+# 3) 产物时效检查：线上 overview.json collected_at vs NOW
+#    intraday push 失败就是线上滞后（schedule_stats 只看任务跑了没，不查产物上线=盲区）。
+#    仅交易日盘中 09:30-15:30 检查（intraday 每30min推一次），避免非交易时段误报。
+#    滞后 > 30min 告警 SEVERE。curl 超时 8s（subprocess timeout 12s 兜底）不阻塞 launchd 15min 周期。
+#    用 /usr/bin/curl 而非 urllib：venv python 缺系统 CA 证书会 SSL 校验失败，curl 走系统证书更稳。
+try:
+    from app.calendar import is_trading_day
+    now_hm = NOW.strftime("%H%M")
+    if is_trading_day() and "0930" <= now_hm <= "1530":
+        url = "https://ss.fx8.store/data/overview.json"
+        result = subprocess.run(
+            ["/usr/bin/curl", "-sS", "--max-time", "8", url],
+            capture_output=True, text=True, timeout=12,
+        )
+        if result.returncode != 0:
+            print(f"[warn] curl 线上 overview.json 失败 rc={result.returncode}: {result.stderr.strip()}", file=sys.stderr)
+        else:
+            ov = json.loads(result.stdout)
+            collected_at = ov.get("collected_at") or ""
+            try:
+                collected_dt = datetime.strptime(collected_at, "%Y%m%d %H:%M:%S")
+            except ValueError:
+                print(f"[warn] 线上 overview collected_at 格式异常: {collected_at!r}", file=sys.stderr)
+            else:
+                lag = NOW - collected_dt
+                lag_min = int(lag.total_seconds() // 60)
+                now_full = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                if lag > TOLERANCE:
+                    alerts.append(
+                        f"SEVERE: 线上 overview.json 时效滞后 "
+                        f"collected_at<{collected_at}> lag<{lag_min}min> "
+                        f"threshold<30min> now<{now_full}>"
+                    )
+                else:
+                    print(f"[ok] 线上 overview collected_at={collected_at} lag={lag_min}min")
+except Exception as e:
+    print(f"[warn] 线上 overview.json 时效检查失败: {e}", file=sys.stderr)
+
 # 输出 + 告警
 now_str = NOW.strftime("%Y-%m-%d %H:%M:%S")
 if alerts:
