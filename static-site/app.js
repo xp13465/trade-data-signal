@@ -222,6 +222,29 @@ function rethemeCharts() {
           return Object.assign({}, v, { textStyle: Object.assign({}, v.textStyle, { color: vmColor }) });
         }) });
       }
+      // markPoint label 字体色按皮肤适配（2026-07-23 修一刀切改黑色致暗色皮肤看不清）：
+      // _autoLabelColor 按皮肤返回不同色，此处对已渲染图表的 markPoint 数据项重新评估注入。
+      // 仅处理有 hex itemStyle.color 且已设 label.color 的数据项：
+      //   - app.js _autoLabelColor 调用点（7 处）label.color 已设 -> 重新评估
+      //   - lab.js 彩色 pin label 继承系列级 #fff 不设 label.color -> 跳过避免误改
+      //   - 拼色 pin（itemStyle.color 是渐变对象非 string）-> 跳过保留硬编码 #fff
+      if (opt.series && opt.series.length) {
+        var seriesUpd = opt.series.map(function (s) {
+          if (!s || !s.markPoint || !Array.isArray(s.markPoint.data)) return null;
+          var dataChanged = false;
+          var newData = s.markPoint.data.map(function (d) {
+            if (!d || !d.label || d.label.color == null) return d;
+            if (!d.itemStyle || typeof d.itemStyle.color !== "string") return d;
+            if (!/^#[0-9a-fA-F]{6}$/.test(d.itemStyle.color)) return d;
+            var newColor = _autoLabelColor(d.itemStyle.color);
+            if (d.label.color === newColor) return d;
+            dataChanged = true;
+            return Object.assign({}, d, { label: Object.assign({}, d.label, { color: newColor }) });
+          });
+          return dataChanged ? { markPoint: { data: newData } } : null;
+        }).filter(Boolean);
+        if (seriesUpd.length) c.setOption({ series: seriesUpd });
+      }
     }
     charts.forEach(retheme);
     _signalModalCharts.forEach(retheme);
@@ -285,11 +308,22 @@ function signalColor(s) {
   return "#2e8b57";  // 2026-07-20: 卖点统一绿（前买失效/无前买点/趋势转弱均落绿，取消灰橙）
 }
 
-// markPoint label 文字色：按底色相对亮度(luminance, sRGB gamma 校正)自动选黑白
-// lum>0.18 用黑字，否则白字。根治浅色皮肤下 #ffd700 追买金白字看不清（contrast 1.40 几乎隐形）
-// 阈值 0.18 覆盖：#ffd700(0.70)/#9e9e9e(0.34)/#3498db(0.28)/#409eff(0.33)/#e6492e(0.22)/#2e8b57(0.20)/#d63384(0.18临界)/#ff9800(0.49) -> 黑字
-// 仅 #9c27b0(0.12) 等深色保留白字（contrast 6.30 达标）
+// markPoint label 文字色：按皮肤适配（非一刀切）。
+// 暗色皮肤(dark/redgold)：用 --text-1 浅色字，根治黑字溢出 pin 形到暗卡片背景看不清
+//   （label.position 默认 inside，但文字宽于 pin 头时溢出到卡片背景，黑字在暗卡看不清）。
+// 浅色皮肤(default/morandi)：保留底色 luminance 逻辑（lum>0.18 用黑字否则白字），
+//   适用于 label 在 pin 形内（黑字 on 金/红/绿 pin 可读）。
+// 2026-07-20: 原 #ffd700 追买金白字看不清（contrast 1.40 几乎隐形）改黑字达标，
+// 2026-07-23: 但暗色皮肤下黑字溢出看不清，改为按皮肤适配。
 function _autoLabelColor(bg) {
+  var theme = (document.documentElement.getAttribute("data-theme") || "").toLowerCase();
+  if (theme === "dark" || theme === "redgold") {
+    // 暗色皮肤：统一用浅色字（--text-1），确保溢出 pin 形到暗卡片背景可读
+    return cssVar("--text-1") || "#e6edf3";
+  }
+  // 浅色皮肤：按底色 luminance 选黑白
+  // 阈值 0.18 覆盖：#ffd700(0.70)/#9e9e9e(0.34)/#3498db(0.28)/#409eff(0.33)/#e6492e(0.22)/#2e8b57(0.20)/#d63384(0.18临界)/#ff9800(0.49) -> 黑字
+  // 仅 #9c27b0(0.12) 等深色保留白字（contrast 6.30 达标）
   var c = (bg || "").replace("#", "");
   if (c.length < 6) return "#fff";
   var toLin = function (v) { v = v / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
@@ -1347,7 +1381,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         markPoint: {
           symbol: "pin",
           symbolSize: 34,
-          label: { fontSize: 11, color: "#000" },
+          label: { fontSize: 11, color: cssVar("--text-1") },
           data: markData,
         },
       },
@@ -1408,7 +1442,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
       markPoint: {
         symbol: "pin",
         symbolSize: 34,
-        label: { fontSize: 11, color: "#000", hideOverlap: true },
+        label: { fontSize: 11, color: cssVar("--text-1"), hideOverlap: true },
         data: markData,
       },
     }],
@@ -5216,7 +5250,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     series: [{
       name: "合计市值", type: "line", smooth: true, symbol: "none", connectNulls: true,
       data: mktData.map(function (d) { return d.value; }), lineStyle: { width: 1.8 },
-      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#000" }, data: mktMarks },
+      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: cssVar("--text-1") }, data: mktMarks },
     }],
   }));
 
@@ -5247,7 +5281,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     series: [{
       name: "份额合计", type: "line", smooth: true, symbol: "none", connectNulls: true,
       data: shareData.map(function (d) { return d.value; }), lineStyle: { width: 1.8 },
-      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#000" }, data: shareMarks },
+      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: cssVar("--text-1") }, data: shareMarks },
     }],
   }));
 
@@ -5558,7 +5592,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     series: [{
       name: "基金份额", type: "line", smooth: true, symbol: "none", connectNulls: true,
       data: shareData, lineStyle: { width: 1.8 },
-      markPoint: { symbol: "pin", symbolSize: 36, label: { fontSize: 11, color: "#000" }, data: shareMarks },
+      markPoint: { symbol: "pin", symbolSize: 36, label: { fontSize: 11, color: cssVar("--text-1") }, data: shareMarks },
     }],
   }));
   topCards.push(c1.getDom().parentElement);
@@ -5588,7 +5622,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     dataZoom: dzOpts(),
     series: [
       { name: "收盘价", type: "line", smooth: true, symbol: "none", data: closeData, lineStyle: { width: 1.5 },
-        markPoint: { symbol: "pin", symbolSize: 34, label: { fontSize: 11, color: "#000" }, data: volMarks } },
+        markPoint: { symbol: "pin", symbolSize: 34, label: { fontSize: 11, color: cssVar("--text-1") }, data: volMarks } },
       { name: "成交额", type: "bar", yAxisIndex: 1, data: amtData, itemStyle: { opacity: 0.4 } },
     ],
   }));
@@ -7183,7 +7217,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         type: "line", smooth: true, symbol: "none",
         data: ohlc.map((d) => [d.date, d.close]),
         lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
-        markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: "#000" }, data: markData },
+        markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: cssVar("--text-1") }, data: markData },
       }],
     }));
     charts.push(sc);
