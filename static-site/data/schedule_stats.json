@@ -13,18 +13,18 @@
     "name": "指数补采兜底",
     "schedule": "16:35 / 20:00 / 02:00",
     "est_text": "约24分钟",
-    "last_run": "2026-07-23 20:00",
-    "last_exit": 0,
-    "last_duration_sec": 4050
+    "last_run": "2026-07-24 02:00",
+    "last_exit": null,
+    "last_duration_sec": null
   },
   {
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
-    "est_text": "约28分钟",
-    "last_run": "2026-07-23 15:05",
-    "last_exit": null,
-    "last_duration_sec": null
+    "est_text": "约19分钟",
+    "last_run": "2026-07-23 15:35",
+    "last_exit": 0,
+    "last_duration_sec": 1144
   },
   {
     "task": "futures_backfill",
@@ -49,7 +49,7 @@
     "name": "两融",
     "schedule": "23:00",
     "est_text": "约1秒",
-    "last_run": "2026-07-22 23:00",
+    "last_run": "2026-07-23 23:00",
     "last_exit": 0,
     "last_duration_sec": 1
   },
