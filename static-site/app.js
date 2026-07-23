@@ -270,9 +270,9 @@ function lineChart(title, series, opts = {}, hint = null, container = content) {
   return c;
 }
 
-// 卖点 markPoint 配色（方案 B 标注，2026-07-06）：买=红、卖止盈=绿、卖买点失败=灰、卖无前买=橙。
+// 卖点 markPoint 配色（方案 B 标注，2026-07-06）：买=红、卖点统一绿（止盈/趋势转弱/前买失效均绿）。
 // B1+S1（2026-07-05）：buy_aux 辅买=粉紫 #d63384（与 buy 红 区分）。
-// 判断按 reason 子串：含"买点失败"→灰、"止盈"→绿、"无前买点"→橙；买=红；兜底旧卖点无标签按绿。
+// 2026-07-20: 取消灰色（买点失败）和橙色（无前买点），卖点统一落 #2e8b57 绿；sell_stop_loss 蓝独立；buy_special_filtered 灰是买类预览，保留。
 function signalColor(s) {
   if (s.signal === "buy") return "#e6492e";
   if (s.signal === "buy_aux") return "#d63384";
@@ -281,16 +281,32 @@ function signalColor(s) {
   if (s.signal === "buy_backup") return "#9c27b0";   // 备买 紫（Supertrend 趋势转向）
   if (s.signal === "sell_stop_loss") return "#3498db";  // 追止损卖 蓝（ATR×3.5 止损，底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）
   const r = s.reason || "";
-  if (r.includes("买点失败")) return "#9e9e9e";
   if (r.includes("止盈")) return "#2e8b57";
-  if (r.includes("无前买点")) return "#ff9800";
-  return "#2e8b57";
+  return "#2e8b57";  // 2026-07-20: 卖点统一绿（前买失效/无前买点/趋势转弱均落绿，取消灰橙）
+}
+
+// markPoint label 文字色：按底色相对亮度(luminance, sRGB gamma 校正)自动选黑白
+// lum>0.18 用黑字，否则白字。根治浅色皮肤下 #ffd700 追买金白字看不清（contrast 1.40 几乎隐形）
+// 阈值 0.18 覆盖：#ffd700(0.70)/#9e9e9e(0.34)/#3498db(0.28)/#409eff(0.33)/#e6492e(0.22)/#2e8b57(0.20)/#d63384(0.18临界)/#ff9800(0.49) -> 黑字
+// 仅 #9c27b0(0.12) 等深色保留白字（contrast 6.30 达标）
+function _autoLabelColor(bg) {
+  var c = (bg || "").replace("#", "");
+  if (c.length < 6) return "#fff";
+  var toLin = function (v) { v = v / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  var r = toLin(parseInt(c.slice(0, 2), 16)),
+      g = toLin(parseInt(c.slice(2, 4), 16)),
+      b = toLin(parseInt(c.slice(4, 6), 16));
+  var lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.18 ? "#000" : "#fff";
 }
 
 // markPoint 标签文案（P0-4 去指令化 + P0-3 主标签精简）：
-// buy/sell/止盈/买点失败 → 中性研究标注描述（非交易指令）；完整 reason 收进 hover tooltip。
+// buy/sell/止盈 -> 中性研究标注描述（非交易指令）；完整 reason 收进 hover tooltip。
 // buy→超卖拐点、buy_aux→下轨拐点；
-// sell 按 reason 子串细分：止盈→盈亏+X%(从 reason 提取 vs前买 比例)、买点失败→前买失效、其余→趋势转弱。
+// sell 按 reason 子串细分：
+//   止盈(卖点价>前买价，正收益) -> 盈亏+X%（提取 vs前买 正比例）
+//   买点失败(卖点价<前买价，负收益) -> 盈亏-X%（与止盈对称，提取 vs前买 负比例，如 -4.61）
+//   无前买点(无前买参考无法算盈亏) -> 趋势转弱
 function signalLabel(s) {
   if (s.signal === "buy") return "超卖拐点";
   if (s.signal === "buy_aux") return "下轨拐点";
@@ -308,8 +324,14 @@ function signalLabel(s) {
     if (m) return "盈亏" + m[1] + "%";
     return "盈亏拐点";
   }
-  if (r.includes("买点失败")) return "前买失效";
-  return "趋势转弱";
+  // 买点失败（卖点价<前买价，负收益）-> 盈亏-X%（与止盈对称，reason 里如 vs前买[追买]-4.61%，正则提取负号）
+  if (r.includes("买点失败")) {
+    const m = r.match(/vs前买(?:\[[^\]]+\])?\s*([+-]?\d+(?:\.\d+)?)\s*%/);
+    if (m) return "盈亏" + m[1] + "%";  // m[1] 已含负号如 -4.61
+    return "亏损拐点";
+  }
+  // 无前买点（无前买参考无法算盈亏）-> 趋势转弱
+  return "趋势转弱";  // 2026-07-20: 无前买点统一落趋势转弱（卖点统一绿）
 }
 
 // 多色拼色 pin（2026-07-22 方案A 重构）：同日全部信号（买/卖/止损，不分买卖语义）
@@ -335,6 +357,7 @@ function _buildSignalMarkData(signals, getValueFn) {
         value: signalLabel(s),
         reason: s.reason || "",
         itemStyle: { color: signalColor(s) },
+        label: { color: _autoLabelColor(signalColor(s)) },
       });
     } else {
       // 多信号同日：拼色 pin（金描边+光晕，买+卖/多买/多卖合一展示叠加价值）
@@ -450,7 +473,7 @@ function _backupSignalChipRender(sd) {
   var used = {};
   var chips = [];
   if (bestAnn) { chips.push({ kind: 'strong', entry: bestAnn, val: '年化+' + bestAnn.annualized.toFixed(1) + '%' }); used[bestAnn.label] = 1; }
-  if (bestSteady && !used[bestSteady.label]) { chips.push({ kind: 'steady', entry: bestSteady, val: '' }); used[bestSteady.label] = 1; }
+  if (bestSteady && !used[bestSteady.label]) { chips.push({ kind: 'steady', entry: bestSteady, val: '·最稳' }); used[bestSteady.label] = 1; }
   if (bestDd && !used[bestDd.label]) { chips.push({ kind: 'lowdraw', entry: bestDd, val: '跌' + bestDd.max_drawdown.toFixed(1) + '%' }); used[bestDd.label] = 1; }
   if (chips.length === 0) return '';
   // tooltip：完整 4 买点对比 + 合规文案
@@ -469,6 +492,7 @@ function _backupSignalChipTip(entries) {
     var e = entries[i];
     lines.push(e.label + ': 年化' + e.annualized.toFixed(1) + '% / 胜率' + e.win_rate.toFixed(0) + '% / 回撤' + e.max_drawdown.toFixed(1) + '% / 样本' + e.total_ops);
   }
+  lines.push('三档 chip 含义：📈金=年化最高 / 👍蓝·最稳=综合分最高(胜率40%+低回撤40%+样本20%) / 🛡绿=回撤最小');
   lines.push(_BACKUP_CHIP_COMPLIANCE);
   // HTML attribute 里换行需转义为 &#10;（textContent 解析时还原为 \n）
   return lines.join('&#10;').replace(/"/g, '&quot;');
@@ -477,8 +501,10 @@ function _backupSignalChipTip(entries) {
 // 6色信号图例（2026-07-23 三档优化版）：4色买点(主买红/辅买玫红/追买金/备买紫) + 卖绿 + 追止损蓝，
 // 指数走势图上方统一展示。备买风险提示附末尾（hover pop 显示"备买稳健性弱于追买仅供参考不单独决策"）。
 // 同日多买点信号合并拼色 pin（金描边+光晕），图例不单独列拼色（用户从 pin 视觉即可辨识）。
-// 三档 chip（年化最高/最稳健/回撤最小）已在每个指数标题下单独一行展示，不再进图例条。
+// 三档 chip（年化最高/最稳健/回撤最小）已在每个指数标题下单独一行展示，图例条末尾追加三色 chip mini-legend
+// + ❓ termTip 解释 4 买点（重点备买=Supertrend翻多确认的备选买点），让用户看 chip 时即知三色含义。
 var _BACKUP_LEGEND_TIP = "4 买点（主买/辅买/追买/备买）历史回测表现差异较大，每个指数标题下方的三档 chip 标注该指数近5年全仓进出回测中表现最优的买点（年化最高/最稳健/回撤最小）。研究参考，不构成投资建议，历史回测不代表未来。";
+var _BACKUP_BUYPOINT_TIP = "4 买点：主买=RSI(14)上穿30超卖拐点；辅买=布林下轨回归左侧布局；追买=Donchian20日上轨突破+5日确认；备买=Supertrend ATR×3翻多+3日二次确认的趋势反转备选买点（稳健性弱于追买，仅供参考不单独决策）。每个指数标题下三档 chip 标注该指数近5年回测中最优买点：📈金=年化最高 / 👍蓝·最稳=综合分最高(胜率40%+低回撤40%+样本20%) / 🛡绿=回撤最小。";
 function _signalLegendHtml() {
   return '<div class="signal-legend">'
     + '<span class="signal-legend-item"><i style="background:#e6492e"></i>超卖拐点(主买)</span>'
@@ -487,6 +513,11 @@ function _signalLegendHtml() {
     + '<span class="signal-legend-item"><i style="background:#9c27b0"></i>趋势转向(备买)</span>'
     + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>趋势转弱(卖)</span>'
     + '<span class="signal-legend-item"><i style="background:#3498db"></i>ATR×3.5止损(追止损|卖)</span>'
+    + '<span class="signal-legend-divider"></span>'
+    + '<span class="signal-chip signal-chip-strong">📈 年化最高</span>'
+    + '<span class="signal-chip signal-chip-steady">👍 最稳健</span>'
+    + '<span class="signal-chip signal-chip-lowdraw">🛡 回撤最小</span>'
+    + '<span class="term-tip" data-tip="' + _BACKUP_BUYPOINT_TIP.replace(/"/g, '&quot;') + '">❓</span>'
     + '<span class="signal-legend-note" data-tip="' + _BACKUP_LEGEND_TIP + '">⚠ 买点回测差异提示</span>'
     + '</div>';
 }
@@ -535,6 +566,10 @@ const _INDEX_NAME_MAP = {
   kc50: '科创50', bj50: '北证50', hs300: '沪深300', sz50: '上证50',
   // 港股
   hsi: '恒生指数', hscei: '国企指数', hstech: '恒生科技',
+  // 港股板块指数（来自 hk-5y.json，i18n 中文化 2026-07-20）
+  hk_cesg10: '中华博彩业', hk_hsmogi: '恒生内地油气', hk_hsmbi: '恒生内地银行',
+  hk_hsmpi: '恒生内地地产', hk_cshklre: '中证香港地产', hk_cshklc: '中证香港消费',
+  hk_hscci: '恒生中资企业', hk_cshkdiv: '中证香港红利',
   // 美股
   us_dji: '道琼斯', us_ixic: '纳斯达克', us_spx: '标普500', us_ndx: '纳斯达克100',
   // 全球股指（2026-07-16 上线，中文名以后端 index_backfill.py HK_GLOBAL_INDICES 为准，前端简短化）
@@ -542,7 +577,7 @@ const _INDEX_NAME_MAP = {
   // 红利/低波
   div_lowvol: '红利低波', csi_div: '中证红利', sz_div: '深证红利',
   // 全球指标
-  cn10y: '中国10年国债', us10y: '美国10年国债', wti_oil: 'WTI原油',
+  cn10y: '中国10年国债', us10y: '美国10年国债', wti_oil: 'WTI原油', brent: '布伦特原油',
   comex_silver: 'COMEX白银', gold: '伦敦金', oil: '原油', usdcnh: '美元/离岸人民币',
   a_qvix_300: '中国波指300', a_qvix_1000: '中国波指(50ETF期权)', cn_us_spread: '中美利差',
   // 综合情绪
@@ -1083,7 +1118,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
         markPoint: {
           symbol: "pin",
           symbolSize: 34,
-          label: { fontSize: 11, color: "#fff" },
+          label: { fontSize: 11, color: "#000" },
           data: markData,
         },
       },
@@ -1144,7 +1179,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
       markPoint: {
         symbol: "pin",
         symbolSize: 34,
-        label: { fontSize: 11, color: "#fff", hideOverlap: true },
+        label: { fontSize: 11, color: "#000", hideOverlap: true },
         data: markData,
       },
     }],
@@ -1161,7 +1196,10 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
 const _inflightFetch = new Map();
 const _resultCache = new Map(); // url -> { data, ts }
 // 兼容两种版本URL:静态 ./data/summary.json / summary_history.json；动态 /api/summary / /api/summary/history?...
-const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|summary(?:_history|\/history)?)(?:\.json)?(?:$|[?])/;
+// 2026-07-20: 加 index\/[^/]+-all 排除 kc50-all.json 等 index/{iid}-all.json（走势图源），
+// 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
+// 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
+const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 async function fetchJSON(url) {
   // 1. 结果缓存命中（时效敏感 URL 跳过，确保盘中快照实时性）
@@ -1692,14 +1730,12 @@ function ruleContentHtml() {
       <p class="rule-subtitle">盈亏标注（卖点颜色含义）</p>
       <table class="rule-table rule-table-color">
         <tr>
-          <td style="width:33%"><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 止盈</b></td>
-          <td style="width:33%"><span class="rule-dot-sm rule-dot-loss"></span> <b>灰色 = 买点失败</b></td>
-          <td><span class="rule-dot-sm rule-dot-noref"></span> <b>橙色 = 无前买点</b></td>
+          <td style="width:50%"><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 止盈</b></td>
+          <td><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 趋势转弱</b></td>
         </tr>
         <tr>
           <td>卖点价格 &gt; 前一个买点价格<br><span class="muted">→ 历史多为止盈/减仓情形</span></td>
-          <td>卖点价格 &lt; 前一个买点价格<br><span class="muted">→ 历史多为回落情形（非操作建议）</span></td>
-          <td>附近窗口内没有买点参考<br><span class="muted">→ 单独看趋势判断，不属止盈也不属止损</span></td>
+          <td>卖点价格 &le; 前一个买点价格 / 附近无前买参考<br><span class="muted">-> 含前买失效/无前买点，统一落趋势转弱（非操作建议）</span></td>
         </tr>
       </table>
 
@@ -1880,7 +1916,10 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   renderLoadingState(body);
   const name = indexIdToName(indexId);
   const isFreeze = signal === "freeze";
-  const sigLabel = signal === "buy" ? "超卖拐点" : signal === "buy_aux" ? "下轨拐点" : signal === "buy_special" ? "上轨突破" : signal === "buy_backup" ? "趋势转向" : signal === "sell" ? "趋势转弱" : isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signal;
+  // 2026-07-20: 删除硬编码三元链，复用 signalLabel（L310-335 已覆盖 7 种信号 + 默认 fallback "趋势转弱"）。
+  // 修复 sell_stop_loss / buy_special_filtered 等漏分支落英文原值的 bug（原末尾 `: signal` 返回英文）。
+  // reason 传空串：sell_stop_loss fallback 返回 "ATR止损"（L318），buy_special_filtered 返回 "特买(过滤预览)"。
+  const sigLabel = isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signalLabel({signal: signal, reason: ""});
   titleEl.textContent = `${name} · ${sigLabel} · ${fmtDate(date)}`;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -4887,8 +4926,8 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     if (daySigs.length === 1) {
       // 单信号：保持原样(内置pin、单色、size40)
       var sig = daySigs[0];
-      mktMarks.push({ coord: [d.date, mktY], value: sig.label, itemStyle: { color: sig.color } });
-      shareMarks.push({ coord: [d.date, shareY], value: sig.label, itemStyle: { color: sig.color } });
+      mktMarks.push({ coord: [d.date, mktY], value: sig.label, itemStyle: { color: sig.color }, label: { color: _autoLabelColor(sig.color) } });
+      shareMarks.push({ coord: [d.date, shareY], value: sig.label, itemStyle: { color: sig.color }, label: { color: _autoLabelColor(sig.color) } });
     } else {
       // 多信号：合并成1个拼色pin(分段渐变+金描边+光晕,size52)
       var valStr = daySigs.map(function (s) { return s.label; }).join("+");
@@ -4939,7 +4978,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     series: [{
       name: "合计市值", type: "line", smooth: true, symbol: "none", connectNulls: true,
       data: mktData.map(function (d) { return d.value; }), lineStyle: { width: 1.8 },
-      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#fff" }, data: mktMarks },
+      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#000" }, data: mktMarks },
     }],
   }));
 
@@ -4970,7 +5009,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     series: [{
       name: "份额合计", type: "line", smooth: true, symbol: "none", connectNulls: true,
       data: shareData.map(function (d) { return d.value; }), lineStyle: { width: 1.8 },
-      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#fff" }, data: shareMarks },
+      markPoint: { symbol: "pin", symbolSize: 40, label: { fontSize: 11, color: "#000" }, data: shareMarks },
     }],
   }));
 
@@ -5266,9 +5305,9 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
   daily.forEach((d) => {
     if (!d.signals) return;
     if (d.signals.find((s) => s.type === "share_surge"))
-      shareMarks.push({ coord: [d.date, d.fund_share_yi], value: "进", itemStyle: { color: "#e6492e" } });
+      shareMarks.push({ coord: [d.date, d.fund_share_yi], value: "进", itemStyle: { color: "#e6492e" }, label: { color: _autoLabelColor("#e6492e") } });
     if (d.signals.find((s) => s.type === "share_outflow"))
-      shareMarks.push({ coord: [d.date, d.fund_share_yi], value: "出", itemStyle: { color: "#2e8b57" } });
+      shareMarks.push({ coord: [d.date, d.fund_share_yi], value: "出", itemStyle: { color: "#2e8b57" }, label: { color: _autoLabelColor("#2e8b57") } });
   });
   const shareTitle = `${cur.code} ${cur.name} 份额趋势（亿份）${latest.fund_share_yi != null ? `<span class="chart-latest"> · ${fmtDate(latest.date)} ${latest.fund_share_yi.toFixed(1)}亿份</span>` : ""}`;
   const c1 = mkCard(shareTitle, 320, null, grid);
@@ -5281,7 +5320,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     series: [{
       name: "基金份额", type: "line", smooth: true, symbol: "none", connectNulls: true,
       data: shareData, lineStyle: { width: 1.8 },
-      markPoint: { symbol: "pin", symbolSize: 36, label: { fontSize: 11, color: "#fff" }, data: shareMarks },
+      markPoint: { symbol: "pin", symbolSize: 36, label: { fontSize: 11, color: "#000" }, data: shareMarks },
     }],
   }));
   topCards.push(c1.getDom().parentElement);
@@ -5295,7 +5334,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
   daily.forEach((d) => {
     if (!d.signals) return;
     if (d.signals.find((s) => s.type === "volume_surge"))
-      volMarks.push({ coord: [d.date, d.close], value: "量", itemStyle: { color: "#ff9800" } });
+      volMarks.push({ coord: [d.date, d.close], value: "量", itemStyle: { color: "#ff9800" }, label: { color: _autoLabelColor("#ff9800") } });
   });
   const priceTitle = `${cur.code} ${cur.name} 收盘价 / 成交额`;
   const c2 = mkCard(priceTitle, 320, null, grid);
@@ -5311,7 +5350,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     dataZoom: dzOpts(),
     series: [
       { name: "收盘价", type: "line", smooth: true, symbol: "none", data: closeData, lineStyle: { width: 1.5 },
-        markPoint: { symbol: "pin", symbolSize: 34, label: { fontSize: 11, color: "#fff" }, data: volMarks } },
+        markPoint: { symbol: "pin", symbolSize: 34, label: { fontSize: 11, color: "#000" }, data: volMarks } },
       { name: "成交额", type: "bar", yAxisIndex: 1, data: amtData, itemStyle: { opacity: 0.4 } },
     ],
   }));
@@ -5988,7 +6027,7 @@ async function renderSentiment() {
       const _fgMp = (_fgOpt.series && _fgOpt.series[0] && _fgOpt.series[0].markPoint && _fgOpt.series[0].markPoint.data) ? [..._fgOpt.series[0].markPoint.data] : [];
       if (data.length && data[data.length - 1].value != null) {
         const _l = data[data.length - 1];
-        _fgMp.push({ coord: [_l.date, _l.value], value: _l.value.toFixed(1), itemStyle: { color: "#409eff" }, symbol: "circle", symbolSize: 12, label: { fontSize: 11, color: "#fff" } });
+        _fgMp.push({ coord: [_l.date, _l.value], value: _l.value.toFixed(1), itemStyle: { color: "#409eff" }, symbol: "circle", symbolSize: 12, label: { fontSize: 11, color: _autoLabelColor("#409eff") } });
       }
       chart.setOption({ series: [{ markPoint: { data: _fgMp }, markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
@@ -6841,6 +6880,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         value: signalLabel(s),
         reason: s.reason || "",  // P0-3: 完整 reason 收进 hover tooltip
         itemStyle: { color: signalColor(s) },
+        label: { color: _autoLabelColor(signalColor(s)) },
       };
     });
     sc.setOption(withTheme({
@@ -6863,7 +6903,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         type: "line", smooth: true, symbol: "none",
         data: ohlc.map((d) => [d.date, d.close]),
         lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
-        markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: "#fff" }, data: markData },
+        markPoint: { symbol: "pin", symbolSize: 26, label: { fontSize: 9, color: "#000" }, data: markData },
       }],
     }));
     charts.push(sc);

@@ -415,6 +415,10 @@ def verify_and_backfill_indices(date, verbose=True):
         ("ftse100", "英国富时100指数", False),
         ("dax", "德国DAX 30种股价指数", False),
         ("cac40", "法CAC40指数", False),
+        # 中国国债指数表现观察(2026-07-20 加入,3标的 require_today=False:国债T+1源有时延)
+        ("cgb_idx",        "sh000012", False),
+        ("cgb_10y_etf",    "sh511260", False),
+        ("cgb_10y_future", "T0",       False),
     ]
     from . import fetchers as _fetchers_mod
     from datetime import datetime as _dt, timedelta as _td

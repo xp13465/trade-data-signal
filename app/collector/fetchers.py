@@ -339,15 +339,15 @@ def collect_index(idx, start_date, end_date):
     rows = []
     prev = None
     for _, r in df.iterrows():
-        close = g(r, "收盘", "close")
+        close = g(r, "收盘", "收盘价", "close")  # +收盘价(国债期货 futures_main_sina 返中文带"价"后缀)
         pct = g(r, "涨跌幅", "pct_change")
         if pct is None and prev and close:
             pct = (close / prev - 1) * 100
         rows.append((
             _norm_date(r[dc]), idx["id"],
-            g(r, "开盘", "open"),
-            g(r, "最高", "high"),
-            g(r, "最低", "low"),
+            g(r, "开盘", "开盘价", "open"),
+            g(r, "最高", "最高价", "high"),
+            g(r, "最低", "最低价", "low"),
             close, pct,
             g(r, "成交额", "成交金额", "amount"),
         ))

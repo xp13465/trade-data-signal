@@ -211,6 +211,10 @@ indices:
   - {id: ftse100, name: 富时100, market: global, func: index_global_hist_sina, symbol: "英国富时100指数", enabled: true}
   - {id: dax, name: 德国DAX, market: global, func: index_global_hist_sina, symbol: "德国DAX 30种股价指数", enabled: true}
   - {id: cac40, name: 法国CAC40, market: global, func: index_global_hist_sina, symbol: "法CAC40指数", enabled: true}
+  # 中国国债指数表现观察(2026-07-20 china-bond-feasibility 验收后加入,3标的:国债指数/10年国债ETF/10年国债期货主力)
+  - {id: cgb_idx,        name: 上证国债指数,    market: global, func: stock_zh_index_daily_tx, symbol: "sh000012", enabled: true}
+  - {id: cgb_10y_etf,    name: 十年国债ETF,    market: global, func: fund_etf_hist_sina,       symbol: "sh511260", enabled: true}
+  - {id: cgb_10y_future, name: 10年国债期货,   market: global, func: futures_main_sina,        symbol: "T0",        enabled: true}
 
 # ============ 板块（入 board_daily）—— 东财端点反爬封，待直爬实现 ============
 boards:

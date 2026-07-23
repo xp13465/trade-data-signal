@@ -28,7 +28,12 @@ from pathlib import Path
 
 import yaml
 
-REPO = Path(__file__).resolve().parent.parent
+# 不 .resolve()：trade-data/scripts 是 symlink 指向 trade/scripts，resolve 会把
+# REPO 钉死到 trade/，导致 launchd 跑时读 trade/data/sentiment.db（滞后）而非
+# trade-data/data/sentiment.db（最新，update_all/intraday 写入处）。保留 symlink
+# 路径让 trade-data 版读 trade-data/data/，与 app/db.py 的 .absolute() 同口径。
+# trade-data/app 是 symlink 指向 trade/app，sys.path 仍可正常 import app 模块。
+REPO = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO))
 from app.db import get_conn
 
@@ -87,6 +92,23 @@ SIGNAL_LABELS = {
     "sell_stop_loss": "追止损卖",
 }
 SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"]
+
+# === fade-detect 盘中信号收盘消失警示（2026-07-23 P1-新-A）===
+# buy 系列强度排序（强->弱），用于"降级"判定；sell 系列消失不警示（对已卖出用户利好）
+BUY_STRENGTH = {
+    "buy": 4,
+    "buy_special": 3,
+    "buy_aux": 2,
+    "buy_backup": 1,
+}
+SELL_TYPES = {"sell", "sell_stop_loss"}
+
+# fade 警示档位 -> (emoji, 中文标签, 主色)
+FADE_LEVEL_INFO = {
+    "red":    ("🔴", "严格消失", "#cf1322"),
+    "orange": ("🟠", "类型变化", "#d4380d"),
+    "yellow": ("🟡", "降级保留", "#d48806"),
+}
 
 # email.json.example 中的占位密码，识别后跳过实际发送（仅打印内容）
 PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
@@ -255,8 +277,155 @@ def _format_stats_line(stats_entry: dict | None) -> str | None:
     )
 
 
+def detect_fade(
+    notified_entries: list[list[str]],
+    closing_signals: list[tuple[str, str]] | list[dict],
+) -> list[dict]:
+    """检测盘中推送信号收盘是否消失/变化（fade-detect，2026-07-23 P1-新-A）。
+
+    只对 buy 系列警示（buy/buy_aux/buy_special/buy_backup）；
+    sell 系列消失不警示（对已卖出用户利好）。
+
+    三档判定：
+      - 严格消失（红 red）：盘中推 (X, buy*) 收盘 signal_daily 无 X 任何信号
+      - 类型变化（橙 orange）：盘中推 (X, buy*) 收盘有 (X, sell*)
+      - 降级保留（黄 yellow）：盘中推 (X, buy*) 收盘有更弱的 buy*
+      - 升级/保持：不警示（X 有同级或更强 buy*）
+
+    Args:
+      notified_entries: signal_notified.json[date] 的 [[index_id, signal], ...]
+      closing_signals: 收盘 signal_daily[date]，list[(index_id, signal)] 或 list[dict]
+        （dict 时取 index_id/signal 字段）
+
+    Returns:
+      fade_alerts list[dict]，每项含
+        index_id / intraday_signal / closing_signals(list) /
+        closing_status(str 中文) / level(red/orange/yellow) / suggestion(str)
+    """
+    # 收盘信号按 index_id 聚合为 set
+    closing_by_idx: dict[str, set[str]] = {}
+    for item in closing_signals:
+        if isinstance(item, dict):
+            idx, sig = item.get("index_id"), item.get("signal")
+        else:
+            idx, sig = item[0], item[1]
+        if not idx or not sig:
+            continue
+        closing_by_idx.setdefault(idx, set()).add(sig)
+
+    fade_alerts: list[dict] = []
+    for entry in notified_entries:
+        if not entry or len(entry) < 2:
+            continue
+        idx, intraday_sig = entry[0], entry[1]
+        # sell 系列不警示
+        if intraday_sig not in BUY_STRENGTH:
+            continue
+        closing_sigs = closing_by_idx.get(idx, set())
+        closing_buy_sigs = {s for s in closing_sigs if s in BUY_STRENGTH}
+        closing_sell_sigs = {s for s in closing_sigs if s in SELL_TYPES}
+
+        if not closing_sigs:
+            level = "red"
+            closing_status = "无任何信号"
+            suggestion = "信号消失，建议人工复核行情"
+        elif closing_sell_sigs:
+            level = "orange"
+            sell_labels = "、".join(_signal_label(s) for s in sorted(closing_sell_sigs))
+            closing_status = f"出现卖出信号（{sell_labels}）"
+            suggestion = "由买转卖，建议谨慎评估"
+        elif closing_buy_sigs:
+            intraday_strength = BUY_STRENGTH[intraday_sig]
+            max_closing_strength = max(BUY_STRENGTH[s] for s in closing_buy_sigs)
+            if max_closing_strength < intraday_strength:
+                level = "yellow"
+                buy_labels = "、".join(_signal_label(s) for s in sorted(closing_buy_sigs))
+                closing_status = f"降级为 {buy_labels}"
+                suggestion = "信号强度减弱，关注后续走势"
+            else:
+                # 同级或升级，不警示
+                continue
+        else:
+            # 收盘有信号但既非 buy 也非 sell（理论不会到这里，保留兜底）
+            continue
+
+        fade_alerts.append({
+            "index_id": idx,
+            "intraday_signal": intraday_sig,
+            "closing_signals": sorted(closing_sigs),
+            "closing_status": closing_status,
+            "level": level,
+            "suggestion": suggestion,
+        })
+    return fade_alerts
+
+
+def run_fade_detect(date: str, closing_signals: list[dict]) -> list[dict]:
+    """加载盘中 signal_notified.json[date]，对比收盘信号，返回 fade_alerts。
+
+    供 main 收盘模式调用。盘中无推送记录时返回空 list（不警示）。
+    """
+    notified = load_signal_notified()
+    notified_entries = notified.get(date, [])
+    if not notified_entries:
+        log.info("fade-detect：%s 无盘中推送记录（signal_notified.json），跳过", date)
+        return []
+    closing_pairs = [(s["index_id"], s["signal"]) for s in closing_signals]
+    fade_alerts = detect_fade(notified_entries, closing_pairs)
+    if fade_alerts:
+        log.warning("fade-detect：盘中推送 %d 条，检测到 %d 条收盘消失/变化",
+                    len(notified_entries), len(fade_alerts))
+        for a in fade_alerts:
+            emoji, level_label, _ = FADE_LEVEL_INFO.get(a["level"], ("⚪", a["level"], ""))
+            log.warning("  %s [%s] %s 盘中=%s -> 收盘=%s",
+                        emoji, level_label, a["index_id"],
+                        a["intraday_signal"], a["closing_status"])
+    else:
+        log.info("fade-detect：盘中推送 %d 条，收盘全部保留/升级，无消失",
+                 len(notified_entries))
+    return fade_alerts
+
+
+def _build_fade_banner(fade_alerts: list[dict], name_map: dict[str, str]) -> str:
+    """构建 fade 警示横幅 HTML（红/橙/黄三档表格）。"""
+    rows_html = []
+    for a in fade_alerts:
+        emoji, level_label, _ = FADE_LEVEL_INFO.get(
+            a["level"], ("⚪", a["level"], "#86909c"))
+        name = index_id_to_name(a["index_id"], name_map)
+        intraday_label = _signal_label(a["intraday_signal"])
+        rows_html.append(
+            f'<tr style="border-bottom:1px solid #ffe7e6;">'
+            f'<td style="padding:8px 10px;">{emoji} <b>{name}</b></td>'
+            f'<td style="padding:8px 10px;font-size:12px;">{intraday_label}</td>'
+            f'<td style="padding:8px 10px;font-size:12px;color:#4e5969;">{a["closing_status"]}</td>'
+            f'<td style="padding:8px 10px;font-size:12px;color:#4e5969;">{a["suggestion"]}</td>'
+            f'</tr>'
+        )
+    rows = "\n".join(rows_html)
+    n = len(fade_alerts)
+    return (
+        '<div style="background:#fff1f0;border:2px solid #ffa39e;border-radius:6px;'
+        'padding:12px 16px;margin:0 0 14px 0;">'
+        f'<div style="font-weight:700;color:#cf1322;font-size:15px;margin-bottom:6px;">'
+        f'⚠️ 盘中信号收盘消失警示（{n} 条）</div>'
+        '<p style="margin:0 0 10px 0;color:#a8071a;font-size:13px;line-height:1.6;">'
+        '以下信号盘中已推送，但收盘后状态变化或消失，请重点关注：</p>'
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;">'
+        '<thead><tr style="background:#ffe7e6;text-align:left;">'
+        '<th style="padding:8px 10px;border-bottom:2px solid #ffa39e;">品种</th>'
+        '<th style="padding:8px 10px;border-bottom:2px solid #ffa39e;">盘中信号</th>'
+        '<th style="padding:8px 10px;border-bottom:2px solid #ffa39e;">收盘状态</th>'
+        '<th style="padding:8px 10px;border-bottom:2px solid #ffa39e;">建议操作</th>'
+        '</tr></thead><tbody>'
+        f'{rows}'
+        '</tbody></table></div>'
+    )
+
+
 def build_email(date: str, signals: list[dict], name_map: dict[str, str],
-                intraday: bool = False) -> tuple[str, str]:
+                intraday: bool = False,
+                fade_alerts: list[dict] | None = None) -> tuple[str, str]:
     """构建邮件主题 + HTML 正文。返回 (subject, html_body)。
 
     intraday=True 时邮件标注【盘中实时】+ 风险提示横幅（盘中快照非最终，
@@ -291,7 +460,9 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
             parts.append(f"{label}×{len(g)} {summary}")
     # intraday 标注【盘中实时】前缀，收盘/历史不加（保持原"最终版"语义）
     title_prefix = "盘中实时·" if intraday else ""
-    subject = f"[{title_prefix}买卖点信号] {date}  {' | '.join(parts) if parts else '无信号'}"
+    # fade-detect 警示存在时主题加 ⚠️ 前缀（2026-07-23 P1-新-A）
+    fade_prefix = "⚠️ " if fade_alerts else ""
+    subject = f"{fade_prefix}[{title_prefix}买卖点信号] {date}  {' | '.join(parts) if parts else '无信号'}"
 
     # === HTML 正文 ===
     # intraday 风险提示横幅：盘中快照非最终，信号可能随行情变化，收盘后 17:50 发最终版
@@ -309,6 +480,10 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
 <h2 style="margin:0 0 8px 0;color:#1d2129;">{h2_title}</h2>
 <p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 追买 {n_special} / 备买 {n_backup} / 卖 {n_sell} / 追止损卖 {n_stop_loss}）</p>
 {intraday_banner}"""]
+
+    # fade-detect 警示横幅（红/橙/黄三档表格），放正文顶部 intraday 横幅之后（2026-07-23 P1-新-A）
+    if fade_alerts:
+        html_parts.append(_build_fade_banner(fade_alerts, name_map))
 
     if n_total == 0:
         html_parts.append('<p style="color:#86909c;">今日无买卖点信号。</p>')
@@ -439,19 +614,48 @@ def main(argv: list[str] | None = None) -> int:
         help="盘中实时模式：邮件标题加【盘中实时】+ 正文加风险提示横幅"
         "（盘中快照非最终，收盘 17:50 update_all 仍发最终版）。不走去重，仍用默认去重。",
     )
+    parser.add_argument(
+        "--fade-detect",
+        action="store_true",
+        default=None,
+        dest="fade_detect",
+        help="收盘模式检测盘中信号收盘消失/变化（默认：收盘模式开/intraday 模式关）。"
+        "对比 signal_notified.json[date]（盘中已推送）vs 收盘 signal_daily[date]，"
+        "buy* 系列消失/转 sell*/降级则邮件 ⚠️ 高亮警示。",
+    )
+    parser.add_argument(
+        "--no-fade-detect",
+        action="store_false",
+        dest="fade_detect",
+        help="显式关闭 fade-detect（即使收盘模式也不检测消失）",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="dry-run：跑逻辑（含 fade-detect）但不发邮件、不写 signal_notified.json（测试用）",
+    )
     args = parser.parse_args(argv)
+    # fade-detect 默认值：收盘模式（非 intraday）默认开，intraday 模式默认关
+    if args.fade_detect is None:
+        args.fade_detect = not args.intraday
 
     date = args.date or datetime.now().strftime("%Y%m%d")
     log.info(
-        "=== check_signals 开始，查询日期：%s（%s模式%s）===",
+        "=== check_signals 开始，查询日期：%s（%s模式%s%s）===",
         date,
         "全量" if args.full else "去重",
         "·盘中实时" if args.intraday else "",
+        f"·fade-detect={'on' if args.fade_detect else 'off'}",
     )
 
     signals = query_signals(date)
-    if not signals:
-        log.info("今日（%s）无买卖点信号，不发邮件", date)
+    # fade-detect：对比盘中 signal_notified.json[date] vs 收盘 signals，检测消失/变化
+    fade_alerts: list[dict] = []
+    if args.fade_detect:
+        fade_alerts = run_fade_detect(date, signals)
+
+    if not signals and not fade_alerts:
+        log.info("今日（%s）无买卖点信号且无 fade 警示，不发邮件", date)
         return 0
 
     n_buy = sum(1 for s in signals if s["signal"] == "buy")
@@ -482,14 +686,23 @@ def main(argv: list[str] | None = None) -> int:
             "去重模式：当日 %d 信号，新 %d / 已通知 %d", len(signals), len(signals_to_send), n_dup
         )
         if not signals_to_send:
-            log.info("无新信号（已去重），不发邮件")
-            return 0
-    subject, body = build_email(date, signals_to_send, name_map, intraday=args.intraday)
+            if fade_alerts:
+                log.info("无新信号（已去重），但有 %d 条 fade 警示，仍发 fade 警示邮件",
+                         len(fade_alerts))
+            else:
+                log.info("无新信号（已去重），不发邮件")
+                return 0
+    subject, body = build_email(date, signals_to_send, name_map,
+                                intraday=args.intraday, fade_alerts=fade_alerts)
     # 始终打印邮件内容（便于日志/调试/未配置场景查看）
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
     log.info("===== 邮件正文 =====")
     log.info("%s", body)
+
+    if args.dry_run:
+        log.info("dry-run：跳过实际发送 + 不更新 signal_notified.json")
+        return 0
 
     cfg = load_email_config()
     if cfg is None:

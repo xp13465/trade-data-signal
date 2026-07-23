@@ -376,6 +376,10 @@ main { padding: 16px 24px; }
 .signal-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 10px; margin: 6px 0; font-size: 12px; color: var(--text-2); background: rgba(128,128,128,0.06); border: 1px solid var(--border); border-radius: 8px; }
 .signal-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .signal-legend-item i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+/* 图例条内分隔线：6色 pin 与三档 chip mini-legend 之间视觉分组 */
+.signal-legend-divider { display: inline-block; width: 1px; height: 14px; background: var(--border); margin: 0 2px; align-self: center; }
+/* 三档 chip mini-legend 复用 .signal-chip 样式，在图例条内作纯展示无 data-tip */
+.signal-legend .signal-chip { cursor: default; }
 .signal-legend-note { color: #e6a23c; cursor: help; white-space: nowrap; margin-left: auto; }
 /* A：标题旁 ❓ 小问号 hover 提示（专业术语白话，原生 title 属性，无需 JS tooltip） */
 .term-tip {
