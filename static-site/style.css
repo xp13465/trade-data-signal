@@ -1016,6 +1016,11 @@ main { padding: 16px 24px; }
 .industry-cell { padding: 8px 10px; }
 /* 行业卡片角标放右上角(pct-badge已内联到标题,右上空出);覆盖 .spark-cell 默认右下 */
 .industry-cell .card-time-badge { top: 6px; right: 8px; bottom: auto; left: auto; }
+/* 2026-07-20 板分化 chip 紧凑样式：行业 spark-cell 列窄(700px 3 列),3 色 chip 两行文案默认撑高破坏等高,
+   字号 11->10、padding/gap/margin 收紧、line-height 1.25 让 2 行文案高度受控 */
+.industry-cell .signal-chip-row { gap: 4px; margin: 2px 0 4px; }
+.industry-cell .signal-chip-row .signal-chip { font-size: 10px; padding: 1px 6px; line-height: 1.25; border-radius: 8px; }
+.industry-cell .signal-chip-row .chip-weak-placeholder { font-size: 10px; padding: 2px 6px; line-height: 1.3; }
 .spark-cell .chart-hint { font-size: 10px; padding: 4px 6px; margin: 4px 0 6px; }
 .spark-cell .chart-hint .hint-strategy { font-size: 9px; padding: 2px 6px; margin-bottom: 3px; }
 .spark-cell .chart-hint .hint-row { margin: 1px 0; }

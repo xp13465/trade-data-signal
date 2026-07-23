@@ -472,9 +472,14 @@ function _appendBackupChipRow(cardEl, id) {
   row.setAttribute("data-chip-id", id);
   // 占位: 未缓存时先放 loading 提示，异步 fetch 完成后整体替换 innerHTML
   row.innerHTML = html || '<span class="signal-chip signal-chip-loading">⏳ 加载回测…</span>';
+  // 2026-07-20 板分化适配：行业 spark-cell 无 h3，加 .spark-head 兜底插入点，保证 [标题][chip-row][sim-btn] 顺序
   var h3 = cardEl.querySelector("h3");
   if (h3) h3.after(row);
-  else cardEl.appendChild(row);
+  else {
+    var head = cardEl.querySelector(".spark-head");
+    if (head) head.after(row);
+    else cardEl.appendChild(row);
+  }
   // 未缓存：触发异步加载
   if (!_tradeSimStatsCache[id]) _backupSignalChipLoad(id);
 }
@@ -7299,9 +7304,14 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     // ETF：top1 标签可点复制，悬浮弹全部候选（按成交额降序，每行可复制）
     _bindEtfPopup(cell, idx.etfs);
     // B2：视口懒加载行业 detail（tooltip 专属字段），进视口即预取
+    // 2026-07-20 板分化 chip：同步懒加载 _appendBackupChipRow，避免循环里同步调触发 58 并发 stats.json fetch
     const _io = new IntersectionObserver((entries) => {
       for (const e of entries) {
-        if (e.isIntersecting) { _preloadIndDetail(id, idx); _io.unobserve(e.target); }
+        if (e.isIntersecting) {
+          _preloadIndDetail(id, idx);
+          _appendBackupChipRow(cell, id);
+          _io.unobserve(e.target);
+        }
       }
     }, { rootMargin: "300px" });
     _io.observe(cell);
@@ -8082,7 +8092,9 @@ function _shapeMatchSVG(result, topPlot) {
   var yMin = Math.min.apply(null, allVals) * 0.97;
   var yMax = Math.max.apply(null, allVals) * 1.03;
   if (yMax <= yMin) yMax = yMin + 1;
-  var W = 820, H = 220, ml = 56, mr = 12, mt = 8, mb = 28;
+  // 2026-07-20 走势叠加图放大：去掉固定 height=200(配合 preserveAspectRatio=meet 在宽容器下左右大量留白),
+  // 改 width:100% + height:auto 让 SVG 按 viewBox 比例撑满容器宽度;H 220->260 适度加高纵向空间。
+  var W = 820, H = 260, ml = 56, mr = 12, mt = 8, mb = 28;
   var pw = W - ml - mr, ph = H - mt - mb;
   var sx = function (i) { return ml + (totalLen > 1 ? (i / (totalLen - 1)) * pw : 0); };
   var sy = function (v) { return mt + ph - ((v - yMin) / (yMax - yMin)) * ph; };
@@ -8123,7 +8135,7 @@ function _shapeMatchSVG(result, topPlot) {
   }
   legend = '<div style="display:flex;flex-wrap:wrap;gap:8px 14px;font-size:11px;margin:4px 0 0">' + legendItems.join('') + '</div>';
   return '<div style="margin-top:6px">' +
-    '<svg width="100%" height="200" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;border-radius:6px;background:var(--bg-hover)">' +
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto;border-radius:6px;background:var(--bg-hover)">' +
     '<line x1="' + ml + '" y1="' + baselineY.toFixed(1) + '" x2="' + (W - mr) + '" y2="' + baselineY.toFixed(1) + '" stroke="var(--border)" stroke-dasharray="3,3" stroke-width="1"/>' +
     '<line x1="' + sepX.toFixed(1) + '" y1="' + mt + '" x2="' + sepX.toFixed(1) + '" y2="' + (H - mb) + '" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="4,4"/>' +
     '<text x="' + (sepX + 3).toFixed(1) + '" y="' + (mt + 10) + '" font-size="9" fill="var(--text-3)">→ 延伸预测</text>' +
