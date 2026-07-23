@@ -3756,5 +3756,111 @@ main { padding: 16px 24px; }
   .etf-alert { margin-left: 0; }
 }
 
+/* ============ B4 持仓: 行高亮 + 持仓面板 ============ */
+.etf-score-row.is-holding {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.14), rgba(245, 158, 11, 0.04) 60%, var(--bg-card));
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.35), 0 1px 4px rgba(245, 158, 11, 0.12);
+}
+[data-theme="dark"] .etf-score-row.is-holding,
+[data-theme="redgold"] .etf-score-row.is-holding {
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.18), rgba(251, 191, 36, 0.05) 60%, var(--bg-card));
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.4), 0 1px 4px rgba(251, 191, 36, 0.14);
+}
+.etf-hold-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  background: #f59e0b; color: #fff; border-radius: 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+  vertical-align: middle;
+}
+[data-theme="dark"] .etf-hold-tag,
+[data-theme="redgold"] .etf-hold-tag { background: #fbbf24; color: #1f2329; }
+.etf-stat-hold { color: #f59e0b; font-weight: 700; }
+[data-theme="dark"] .etf-stat-hold,
+[data-theme="redgold"] .etf-stat-hold { color: #fbbf24; }
+
+/* "只看持仓" 筛选按钮（在搜索栏内） */
+.etf-hold-filter {
+  padding: 7px 12px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-2);
+  font-size: 13px; cursor: pointer; white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.etf-hold-filter:hover:not(:disabled):not(.active) { border-color: #f59e0b; color: #f59e0b; }
+.etf-hold-filter.active {
+  background: #f59e0b; color: #fff; border-color: #f59e0b; font-weight: 600;
+}
+[data-theme="dark"] .etf-hold-filter.active,
+[data-theme="redgold"] .etf-hold-filter.active { background: #fbbf24; color: #1f2329; border-color: #fbbf24; }
+.etf-hold-filter:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 持仓面板（可折叠） */
+#etf-holdings-panel {
+  margin: 8px 0 4px; padding: 0 4px;
+}
+.etf-hold-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.etf-hold-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-1);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.etf-hold-toggle:hover { border-color: #f59e0b; }
+.etf-hold-toggle.expanded { border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); }
+.etf-hold-star { color: #f59e0b; }
+.etf-hold-hint { font-size: 12px; color: var(--text-3); }
+.etf-hold-body {
+  margin-top: 8px; padding: 12px;
+  border: 1px dashed var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card);
+}
+.etf-hold-input-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+#etf-hold-input {
+  flex: 1; min-width: 220px;
+  padding: 8px 12px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-2, var(--bg-card)); color: var(--text-1);
+  font-size: 13px; font-family: inherit; resize: vertical; outline: none;
+  font-variant-numeric: tabular-nums;
+}
+#etf-hold-input:focus { border-color: var(--primary); }
+.etf-hold-actions { display: flex; flex-direction: column; gap: 6px; }
+.etf-hold-actions button {
+  padding: 6px 16px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-2);
+  font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.etf-hold-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+.etf-hold-btn-primary { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; font-weight: 600; }
+.etf-hold-btn-primary:hover { opacity: 0.9; }
+.etf-hold-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.etf-hold-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 4px 4px 10px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 16px; background: var(--bg-2, var(--bg-card));
+  font-size: 12px; line-height: 1.4;
+}
+.etf-hold-chip-buy { border-color: var(--up, #16a34a); }
+.etf-hold-chip-sell { border-color: var(--down, #e6492e); }
+.etf-hold-chip-off { border-style: dashed; opacity: 0.75; }
+.etf-hold-chip-code { font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.etf-hold-chip-name { color: var(--text-2); }
+.etf-hold-rank { color: #f59e0b; font-variant-numeric: tabular-nums; }
+[data-theme="dark"] .etf-hold-rank,
+[data-theme="redgold"] .etf-hold-rank { color: #fbbf24; }
+.etf-hold-chip-x {
+  width: 18px; height: 18px; padding: 0; border: none; border-radius: 50%;
+  background: var(--text-4); color: #fff; font-size: 13px; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.etf-hold-chip-x:hover { background: var(--down, #e6492e); }
+.etf-hold-empty { font-size: 12px; color: var(--text-3); padding: 4px 2px; line-height: 1.6; }
+@media (max-width: 768px) {
+  .etf-hold-input-row { flex-direction: column; }
+  .etf-hold-actions { flex-direction: row; }
+}
+
 
 

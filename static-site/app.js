@@ -7718,7 +7718,39 @@ async function renderIndustry() {
 // 合并成统一列表 + side(buy/sell) 字段, 分页(每页50) + 搜索(代码/名称过滤)
 // 注: 当前为代表性 62 只(buy20+sell30=50); 后端 --full-market 可扩至 ~1371 只, 分页自动生效
 const ETF_SCORE_PAGE_SIZE = 50;
-const _etfScoreState = { all: [], filtered: [], page: 1, search: "", meta: null };
+const _etfScoreState = { all: [], filtered: [], page: 1, search: "", meta: null, holdingOnly: false };
+
+// ============ B4 持仓: localStorage 读写（纯前端本地存，不传后端） ============
+// 存储格式: localStorage["etf_holdings"] = JSON.stringify(["510300","159915",...]) 6位ETF代码数组
+function _getEtfHoldings() {
+  try {
+    const raw = localStorage.getItem("etf_holdings");
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map((x) => String(x).trim()).filter(Boolean) : [];
+  } catch (e) { return []; }
+}
+function _setEtfHoldings(arr) {
+  try { localStorage.setItem("etf_holdings", JSON.stringify(arr)); } catch (e) {}
+}
+// 解析用户输入: 容忍 逗号(半/全角)/换行/空格/分号 分隔, 只保留 6 位数字代码, 去重保序
+function _parseEtfHoldingsInput(text) {
+  if (!text) return [];
+  const tokens = String(text).split(/[,，;；\n\r\s]+/).map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  const seen = Object.create(null);
+  tokens.forEach((t) => {
+    const m = t.match(/(\d{6})/);
+    if (m && !seen[m[1]]) { seen[m[1]] = 1; out.push(m[1]); }
+  });
+  return out;
+}
+// 持仓代码集合（用于 O(1) 判断行是否持仓）
+function _getEtfHoldingsSet() {
+  const set = Object.create(null);
+  _getEtfHoldings().forEach((c) => { set[c] = 1; });
+  return set;
+}
 
 function _esc(s) {
   // 简易 XSS 防护: 转义 HTML 特殊字符（reason_summary/name 等后端文本）
@@ -7745,10 +7777,16 @@ function _etfScorePages() {
 
 function _applyEtfScoreFilter() {
   const s = _etfScoreState.search.trim().toLowerCase();
-  _etfScoreState.filtered = s
+  let filtered = s
     ? _etfScoreState.all.filter((e) =>
         String(e.etf_code).toLowerCase().includes(s) || String(e.name).toLowerCase().includes(s))
     : _etfScoreState.all.slice();
+  // 持仓筛选: 只看持仓的 ETF
+  if (_etfScoreState.holdingOnly) {
+    const hset = _getEtfHoldingsSet();
+    filtered = filtered.filter((e) => hset[e.etf_code]);
+  }
+  _etfScoreState.filtered = filtered;
   const pages = _etfScorePages();
   if (_etfScoreState.page > pages) _etfScoreState.page = pages;
   if (_etfScoreState.page < 1) _etfScoreState.page = 1;
@@ -7767,10 +7805,14 @@ function _renderEtfScoreBody() {
   // 统计条
   const buyN = st.all.filter((e) => e.side === "buy").length;
   const sellN = st.all.filter((e) => e.side === "sell").length;
+  const hset = _getEtfHoldingsSet();
+  const holdingInList = st.all.filter((e) => hset[e.etf_code]).length;
   html += '<div class="etf-score-stat">共 ' + st.all.length + ' 只'
     + (st.meta && st.meta.full_market ? '（全市场）' : '（代表性清单）')
     + ' · 买入机会 ' + buyN + ' · 卖出信号 ' + sellN
-    + (st.search ? ' · 搜索命中 ' + total : '') + '</div>';
+    + (holdingInList > 0 ? ' · <b class="etf-stat-hold">我的持仓 ' + holdingInList + '</b>' : '')
+    + (st.search ? ' · 搜索命中 ' + total : '')
+    + (st.holdingOnly ? ' · 只看持仓' : '') + '</div>';
   if (total === 0) {
     html += '<div class="etf-score-empty">未命中任何 ETF，换个代码或名称试试</div>';
   } else {
@@ -7785,11 +7827,13 @@ function _renderEtfScoreBody() {
         ? (e.hands != null ? '买点 ' + e.hands + ' 手' : '')
         : (e.sell_signal ? _esc(e.sell_signal) : '');
       const rank = start + i + 1;
-      html += '<div class="etf-score-row etf-side-' + e.side + '">'
+      const isHolding = !!hset[e.etf_code];
+      const holdTag = isHolding ? '<span class="etf-hold-tag" title="我的持仓">⭐ 持仓</span>' : '';
+      html += '<div class="etf-score-row etf-side-' + e.side + (isHolding ? ' is-holding' : '') + '">'
         + '<div class="etf-row-main">'
         + '<span class="etf-rank">#' + rank + '</span>'
         + '<span class="etf-code">' + _esc(e.etf_code) + '</span>'
-        + '<span class="etf-name">' + _esc(e.name) + ntTag + '</span>'
+        + '<span class="etf-name">' + _esc(e.name) + ntTag + holdTag + '</span>'
         + '<span class="etf-score" style="color:' + col + '">' + (e.score != null ? e.score.toFixed(2) : '-') + '</span>'
         + '</div>'
         + '<div class="etf-row-sub">'
@@ -7863,16 +7907,24 @@ async function renderEtfScore() {
   _etfScoreState.filtered = all.slice();
   _etfScoreState.page = 1;
   _etfScoreState.search = "";
+  _etfScoreState.holdingOnly = false; // 进入 tab 重置持仓筛选
 
   content.innerHTML = "";
   const m = _etfScoreState.meta;
   content.insertAdjacentHTML("beforeend",
     '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:从代表性 ETF 清单里按多维度评分筛出当前<b>买入机会</b>（冰点共振/超跌反弹）与<b>卖出信号</b>（过热/位置偏高）。<b>怎么解读</b>:买入评分高=机会显著（历史常对应低位区域），卖出评分高=情绪过热（历史常对应高位区域）。<b>口径</b>:历史统计与技术分析参考，非投资建议。</div>');
+  // 持仓面板（可折叠输入区 + 持仓 chips 显示评分排名）
+  const holdWrap = document.createElement("div");
+  holdWrap.id = "etf-holdings-panel";
+  content.appendChild(holdWrap);
+  _renderEtfHoldingsPanel();
   // 搜索栏
   const bar = document.createElement("div");
   bar.className = "etf-score-bar";
+  const holdN = _getEtfHoldings().length;
   bar.innerHTML =
     '<input id="etf-score-search" type="search" placeholder="搜 ETF 代码或名称（如 515030 / 新能源车）" autocomplete="off" value="' + _esc(_etfScoreState.search) + '">'
+    + '<button id="etf-hold-filter" class="etf-hold-filter' + (_etfScoreState.holdingOnly ? ' active' : '') + '"' + (holdN === 0 ? ' disabled' : '') + '>只看持仓' + (holdN > 0 ? ' (' + holdN + ')' : '') + '</button>'
     + '<span class="etf-score-updated">更新 ' + (m && m.updated_at ? _esc(m.updated_at.slice(0, 16)) : '-') + (m && m.full_market ? ' · 全市场' : ' · 代表性') + '</span>';
   content.appendChild(bar);
   const input = bar.querySelector("#etf-score-search");
@@ -7885,11 +7937,126 @@ async function renderEtfScore() {
       _applyEtfScoreFilter();
     }, 180); // 防抖
   };
+  // 只看持仓 切换
+  const holdFilterBtn = bar.querySelector("#etf-hold-filter");
+  holdFilterBtn.onclick = () => {
+    if (holdFilterBtn.disabled) return;
+    _etfScoreState.holdingOnly = !_etfScoreState.holdingOnly;
+    holdFilterBtn.classList.toggle("active", _etfScoreState.holdingOnly);
+    _etfScoreState.page = 1;
+    _applyEtfScoreFilter();
+  };
   // 列表容器
   const body = document.createElement("div");
   body.id = "etf-score-body";
   content.appendChild(body);
   _renderEtfScoreBody();
+}
+
+// ============ B4 持仓面板: 输入/保存/清空 + chips 显示评分排名 ============
+// 折叠态记忆: localStorage["etf_holdings_expanded"] ("1"/"0"), 默认展开(引导输入)
+function _renderEtfHoldingsPanel() {
+  const wrap = document.getElementById("etf-holdings-panel");
+  if (!wrap) return;
+  const holdings = _getEtfHoldings();
+  let expanded = true;
+  try { const v = localStorage.getItem("etf_holdings_expanded"); if (v === "0") expanded = false; } catch (e) {}
+  // 计算每个持仓在评分榜中的排名（按 all 列表顺序，即评分排序）
+  const all = _etfScoreState.all;
+  const rankMap = Object.create(null);
+  all.forEach((e, i) => { if (rankMap[e.etf_code] == null) rankMap[e.etf_code] = i + 1; });
+  // chips: 持仓代码 + 名称(若在榜) + 榜内排名
+  const chipsHtml = holdings.map((code) => {
+    const item = all.find((e) => e.etf_code === code);
+    const rank = rankMap[code];
+    const onList = !!item;
+    const nameTxt = onList ? _esc(item.name) : '未在榜单';
+    const sideCls = onList ? (' etf-hold-chip-' + item.side) : ' etf-hold-chip-off';
+    const rankTxt = onList ? ' <b class="etf-hold-rank">#' + rank + '</b>' : '';
+    return '<span class="etf-hold-chip' + sideCls + '" data-code="' + _esc(code) + '">'
+      + '<span class="etf-hold-chip-code">' + _esc(code) + '</span>'
+      + '<span class="etf-hold-chip-name">' + nameTxt + rankTxt + '</span>'
+      + '<button class="etf-hold-chip-x" title="移除" data-code="' + _esc(code) + '">×</button>'
+      + '</span>';
+  }).join("");
+  const emptyTip = holdings.length === 0
+    ? '<div class="etf-hold-empty">尚未录入持仓。输入 ETF 代码后保存，榜单中持仓行会高亮并显示评分排名。</div>' : '';
+  wrap.innerHTML =
+    '<div class="etf-hold-head">'
+    + '<button class="etf-hold-toggle' + (expanded ? ' expanded' : '') + '">'
+    + '<span class="etf-hold-star">⭐</span> 我的持仓' + (holdings.length > 0 ? ' (' + holdings.length + ')' : '') + '</button>'
+    + (holdings.length > 0
+      ? '<span class="etf-hold-hint">榜单中持仓行高亮显示，并标注评分排名</span>' : '')
+    + '</div>'
+    + (expanded
+      ? '<div class="etf-hold-body">'
+        + '<div class="etf-hold-input-row">'
+        + '<textarea id="etf-hold-input" rows="2" placeholder="输入持仓 ETF 代码，逗号或换行分隔（如 510300, 159915）">' + _esc(holdings.join(", ")) + '</textarea>'
+        + '<div class="etf-hold-actions">'
+        + '<button id="etf-hold-save" class="etf-hold-btn-primary">保存</button>'
+        + '<button id="etf-hold-clear"' + (holdings.length === 0 ? ' disabled' : '') + '>清空</button>'
+        + '</div>'
+        + '</div>'
+        + '<div class="etf-hold-chips">' + chipsHtml + emptyTip + '</div>'
+        + '</div>'
+      : '');
+  // 折叠/展开
+  const toggleBtn = wrap.querySelector(".etf-hold-toggle");
+  toggleBtn.onclick = () => {
+    const next = !toggleBtn.classList.contains("expanded");
+    try { localStorage.setItem("etf_holdings_expanded", next ? "1" : "0"); } catch (e) {}
+    _renderEtfHoldingsPanel();
+  };
+  // 保存
+  const saveBtn = wrap.querySelector("#etf-hold-save");
+  if (saveBtn) {
+    saveBtn.onclick = () => {
+      const ta = wrap.querySelector("#etf-hold-input");
+      const arr = _parseEtfHoldingsInput(ta.value);
+      _setEtfHoldings(arr);
+      _renderEtfHoldingsPanel();
+      _refreshEtfHoldFilterBtn();
+      _etfScoreState.page = 1;
+      _applyEtfScoreFilter();
+    };
+  }
+  // 清空
+  const clearBtn = wrap.querySelector("#etf-hold-clear");
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      if (clearBtn.disabled) return;
+      _setEtfHoldings([]);
+      _renderEtfHoldingsPanel();
+      _refreshEtfHoldFilterBtn();
+      _etfScoreState.holdingOnly = false;
+      _etfScoreState.page = 1;
+      _applyEtfScoreFilter();
+    };
+  }
+  // chip 移除
+  wrap.querySelectorAll(".etf-hold-chip-x").forEach((x) => {
+    x.onclick = () => {
+      const code = x.dataset.code;
+      const arr = _getEtfHoldings().filter((c) => c !== code);
+      _setEtfHoldings(arr);
+      _renderEtfHoldingsPanel();
+      _refreshEtfHoldFilterBtn();
+      _etfScoreState.page = 1;
+      _applyEtfScoreFilter();
+    };
+  });
+}
+// 同步搜索栏"只看持仓"按钮的数字/状态
+function _refreshEtfHoldFilterBtn() {
+  const btn = document.getElementById("etf-hold-filter");
+  if (!btn) return;
+  const n = _getEtfHoldings().length;
+  btn.textContent = '只看持仓' + (n > 0 ? ' (' + n + ')' : '');
+  btn.disabled = (n === 0);
+  if (n === 0) {
+    _etfScoreState.holdingOnly = false;
+    btn.classList.remove("active");
+  }
 }
 
 // ============ 手动补录（前端入口已移除） ============
