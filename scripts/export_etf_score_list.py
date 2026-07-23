@@ -41,8 +41,10 @@
 
 动态采集(自包含,不依赖外部 backfill):
 - 首次跑全市场:对每只 ETF 先 fetch_etf_ohlc + upsert(近252日 OHLC,sina 0.3s/只),
-  再 compute_alert_for_target。1497只 ETF 全量约 20 分钟(7分钟采集+12分钟算分)。
+  再 compute_alert_for_target。~1371只 ETF 全量约 20 分钟(7分钟采集+12分钟算分)。
 - 后续跑增量:DB 已有近5日数据的 ETF 跳过采集,直接 compute_alert(0.5s/只),约 12 分钟。
+  (注: universe 数量由 akshare fund_etf_fund_daily_em 过滤 类型=='指数型-股票' 动态返回,
+   随市场变动,2026-07-20 实测 1371 只 sh=736 sz=635)
 
 异常处理: 单只 ETF 失败进 errors[], 不中断主流程。
 
@@ -68,7 +70,7 @@ ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app.alert_reason import build_reason  # noqa: E402
-from app.alert_score import compute_alert_for_target  # noqa: E402
+from app.alert_score import compute_alert_for_target, ETF_ADJUST_ENABLED  # noqa: E402
 from app.collector.etf_national_team import (  # noqa: E402
     DB_PATH, ETF_LIST, fetch_etf_ohlc, get_conn, init_db, is_national_team,
     universe_etf_codes, _upsert_daily,
@@ -83,7 +85,8 @@ DEFAULT_SELL_TOP = 30
 FETCH_DAYS = 252
 
 # 代表性 ETF 清单(62 只):核心宽基12 + 行业ETF~30 + 主题ETF~20
-# 阶段2 不跑全市场 1370 只(慢+大部分信号质量低),用代表性清单覆盖主要赛道
+# 阶段2 不跑全市场 ~1371 只(慢+大部分信号质量低),用代表性清单覆盖主要赛道
+# (全市场数量由 akshare 动态返回,加 --full-market 跑全市场)
 # name 字段为占位,fetch_etf_ohlc 采集时会用 akshare 返回的基金简称覆盖
 REPRESENTATIVE_ETF_CODES: list[tuple[str, str, str]] = [
     # ── 核心宽基 12(ETF_LIST 国家队)──
@@ -233,7 +236,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0,
                         help="只跑前 N 只 ETF(0=全部,用于小规模验证)")
     parser.add_argument("--full-market", action="store_true",
-                        help="跑全市场 A股股票型 ETF(universe_etf_codes,~1370 只,慢)"
+                        help="跑全市场 A股股票型 ETF(universe_etf_codes,~1300-1400 只,慢)"
                              " 默认跑代表性 62 只清单(核心宽基12+行业~30+主题~20)")
     args = parser.parse_args()
 
@@ -351,10 +354,13 @@ def main() -> None:
         "date": payload_date,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "source": (f"全市场 A股股票型 ETF ({len(universe)} 只) - 阶段2 扩采集"
+                   f" [ETF调权={'on' if ETF_ADJUST_ENABLED else 'off(待回测验证)'}]"
                    if args.full_market
-                   else f"代表性 ETF 清单 ({len(universe)} 只: 核心宽基12+行业~30+主题~20) - 阶段2"),
+                   else f"代表性 ETF 清单 ({len(universe)} 只: 核心宽基12+行业~30+主题~20) - 阶段2"
+                   f" [ETF调权={'on' if ETF_ADJUST_ENABLED else 'off(待回测验证)'}]"),
         "universe_count": len(universe),
         "full_market": args.full_market,
+        "etf_adjust": ETF_ADJUST_ENABLED,  # 阶段2: 是否启用 ETF 专属调权(默认 off,待回测验证)
         "buy_top": args.buy_top,
         "sell_top": args.sell_top,
         "fetch_count": fetch_count,

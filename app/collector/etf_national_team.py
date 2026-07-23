@@ -1079,7 +1079,8 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
     stats = {"ohlc": 0, "holders": 0, "sse": 0, "szse": 0, "signals": 0}
 
     # 1. sina/mootdx OHLC（阶段2: 遍历全市场 universe_etf_codes,每只ETF全历史）
-    #    sina fund_etf_hist_sina 返全历史(不传 start/end),0.3s/只,1497只 ≈ 7 分钟
+    #    sina fund_etf_hist_sina 返全历史(不传 start/end),0.3s/只,~1371只 ≈ 7 分钟
+    #    (universe 数量由 akshare 动态返回,随市场变动,2026-07-20 实测 1371 只)
     #    阶段2 新增 open/high/low 字段,fetcher 返回的 OHLC 全量入库
     universe = universe_etf_codes(refresh=True)
     print(f"[etf_nt] 1/4 OHLC（sina+mootdx, 全市场 {len(universe)} 只 ETF）...", flush=True)

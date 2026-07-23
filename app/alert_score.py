@@ -48,6 +48,28 @@ MIN_DIMS_TARGET = 4  # 单标的版放宽到 4(§9.3,适配后缺项多)
 # 宽基中已有 sentiment_xxx 序列的指数(6 个);sh/sz/bj50 等无 sentiment 退化为 RSI
 _BROAD_WITH_SENTIMENT = {"sz50", "hs300", "csi500", "csi1000", "cyb", "kc50"}
 
+# ── 阶段2: ETF 专属调权(待回测验证,默认 off)─────────────────────────────────
+# 背景: ETF 有汪汪队 share_surge/share_outflow 专属信号(H7/L4,来自 etf_signal 表,
+#   份额 z-score+放量双重确认,质量高);而 H3/L2 买卖点是对 ETF close/OHLC 现算的
+#   (RSI 上穿30/BB 下轨回归/20日高回落,复用 signals.py _rsi/_bollinger),
+#   无 signal_daily 表的指数级确认,质量低于指数版 H3/L2。
+# 调权方向(相对 HIGH_WEIGHTS/LOW_WEIGHTS):
+#   H7↑ 0.10->0.15  汪汪队离场是 ETF 强信号(份额 z<-2 + 放量,双重确认)
+#   L4↑ 0.15->0.22  汪汪队入场是 ETF 强信号(份额 z>2 + 放量,双重确认)
+#   H3↓ 0.13->0.08  ETF sell 现算(20日高回落5%)质量低于指数 signal_daily 表
+#   L2↓ 0.18->0.12  ETF buy 现算(RSI 上穿30/BB 下轨)同上
+# 调权后重归一化(和=1.0,浮点容差 1e-9 assert 校验)。
+# ⚠️ 开关 ETF_ADJUST_ENABLED 默认 False:未回测验证前不启用,避免误杀。
+#   回测验证通过后改 True 启用(预计 B4/B5 阶段做回测)。
+ETF_ADJUST_ENABLED = False  # 待回测验证,默认 off
+ETF_HIGH_WEIGHTS = {"H1": 0.26, "H2": 0.08, "H3": 0.08, "H4": 0.20,
+                    "H5": 0.08, "H6": 0.08, "H7": 0.15, "H8": 0.07}
+ETF_LOW_WEIGHTS = {"L1": 0.20, "L2": 0.12, "L3": 0.15, "L4": 0.22,
+                   "L5": 0.10, "L6": 0.08, "L7": 0.07, "L8": 0.06}
+# 校验调权后和=1.0(防手抖)
+assert abs(sum(ETF_HIGH_WEIGHTS.values()) - 1.0) < 1e-9, "ETF_HIGH_WEIGHTS 和必须=1.0"
+assert abs(sum(ETF_LOW_WEIGHTS.values()) - 1.0) < 1e-9, "ETF_LOW_WEIGHTS 和必须=1.0"
+
 
 # ---------------------------------------------------------------------------
 # 数据加载
@@ -633,19 +655,26 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
         }
     row = dims.iloc[-1]
     actual_date = str(dims.index[-1])
-    hd = dims[list(HIGH_WEIGHTS.keys())]
-    ld = dims[list(LOW_WEIGHTS.keys())]
-    ha = _weighted_score(hd, HIGH_WEIGHTS, min_dims=MIN_DIMS_TARGET).iloc[-1]
-    la = _weighted_score(ld, LOW_WEIGHTS, min_dims=MIN_DIMS_TARGET).iloc[-1]
+    # 阶段2: ETF 专属调权(开关 ETF_ADJUST_ENABLED 默认 off,待回测验证)
+    # 启用时对 ETF 用 ETF_HIGH_WEIGHTS/ETF_LOW_WEIGHTS(H7/L4↑ H3/L2↓),
+    # 指数或开关 off 用原 HIGH_WEIGHTS/LOW_WEIGHTS。
+    use_etf_adjust = (target_type == "etf" and ETF_ADJUST_ENABLED)
+    high_w = ETF_HIGH_WEIGHTS if use_etf_adjust else HIGH_WEIGHTS
+    low_w = ETF_LOW_WEIGHTS if use_etf_adjust else LOW_WEIGHTS
+    hd = dims[list(high_w.keys())]
+    ld = dims[list(low_w.keys())]
+    ha = _weighted_score(hd, high_w, min_dims=MIN_DIMS_TARGET).iloc[-1]
+    la = _weighted_score(ld, low_w, min_dims=MIN_DIMS_TARGET).iloc[-1]
 
-    avail_h = int(sum(1 for k in HIGH_WEIGHTS if not pd.isna(row[k])))
-    avail_l = int(sum(1 for k in LOW_WEIGHTS if not pd.isna(row[k])))
-    missing = [k for k in list(HIGH_WEIGHTS) + list(LOW_WEIGHTS) if pd.isna(row[k])]
+    avail_h = int(sum(1 for k in high_w if not pd.isna(row[k])))
+    avail_l = int(sum(1 for k in low_w if not pd.isna(row[k])))
+    missing = [k for k in list(high_w) + list(low_w) if pd.isna(row[k])]
     adapt = {
         "target_id": target_id, "target_type": target_type,
         "min_dims": MIN_DIMS_TARGET,
         "available_high": avail_h, "available_low": avail_l,
         "missing": missing,
+        "etf_adjust": use_etf_adjust,  # 阶段2: 是否启用 ETF 专属调权(默认 off)
     }
     return {
         "date": actual_date,
@@ -655,7 +684,7 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
         "high_level": _high_level(ha),
         "low_level": _low_level(la),
         "dims": {k: (None if pd.isna(row[k]) else round(float(row[k]), 2))
-                 for k in list(HIGH_WEIGHTS) + list(LOW_WEIGHTS)},
+                 for k in list(high_w) + list(low_w)},
         "adapt": adapt,
     }
 
