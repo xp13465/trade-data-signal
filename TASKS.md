@@ -364,10 +364,18 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 6. 数据时效 T+1（ETF数据收盘后才更新），盘中不能用
 
 **实施顺序建议**：分两阶段
-- 阶段1 MVP：先上国家队12个+现成权重+卖清单卖点信号列表（方案C+A+A+A，1-2天），验证评分模型+前端清单交互可用
-- 阶段2 扩展：全市场485+ETF专属调权+用户输入持仓（用户选的方案，2-3天），在MVP验证后扩
+- 阶段1 MVP：✅ **2026-07-23 已上线**（commit b8fbed75 后端 + d0d19830 前端 + 200bd4cc merge main，国家队12个+现成权重+卖清单卖点信号列表，三站点验证全绿，详见 NOTES §48 小节AZ4）
+- 阶段2 扩展：🔄 待实施（全市场485+ETF专属调权+用户输入持仓，~385行，2-3天）
 
 **与 P1-新-A/B 关系**：同属"AI 评分/预警"主题，P1-新-A（盘中信号消失）+P1-新-B（pin策略问号）+P1-新-C（ETF清单）三个可串行实施，互不冲突（A改check_signals后端/B改signals.py+app.js/C改lab.js+新增脚本，不同文件）
+
+### 🆕 2026-07-23 晚续3 新增待办（DB同步/baostock/R2监控）
+
+> 详见 NOTES §48 小节AZ4。
+
+- 🔴 **DB 同步根因修复（方案B，近期 P1）**：待实施。根因 = uvicorn cwd=trade/ 读滞后镜像，launchd 写 trade-data/data/ 最新主库，两 DB（trade/data/sentiment.db vs trade-data/data/sentiment.db）inode 不同=独立 copy 非 hardlink，仅 deploy.sh rsync 时同步；BaoStock 补采 / intraday 单独跑不触发 deploy -> 线上 export 漏数据。方案B：uvicorn + 手动补采统一从 trade-data/ cwd 跑，`app/db.py` 的 `.absolute()` 自动指向最新主库（零代码改启动配置）。遗留 bug：`app/alert_match.py:21` + `app/alert_score.py:24` 用 `.resolve()` 钉死 trade/ 需改 `.absolute()`（resolve 解析 symlink 跳回 trade/，absolute 保留 symlink 路径）；`scripts/backtest_buy_aux.py:53` 硬编码 trade/data/（只读回测不影响线上，优先级低）
+- 🔴 **baostock 断线重连（近期 P1）**：待实施。`_ensure_login` 加重连逻辑，避免单次断线致后续采集全 fail
+- **R2 上传超时监控（待办）**：deploy.sh R2 上传层 hang 不影响 git 上线（CF Workers 从 git deploy 不依赖 R2），但 `deploy.lock` 持有不释放会阻塞后续 update_all（2026-07-23 实测 upload_r2 卡 TCP SYN_SENT 8分20秒，主控 kill 36605+35416 释放锁）。监控 `upload_r2` 跑超 5 分钟即 kill 释放锁
 
 ---
 
