@@ -11,3 +11,7 @@ python-dateutil>=2.9
 # __init__.py 导致 ctypes 找不到 mr_eval_context 符号, akshare 指数全挂.
 # mootdx 依赖 py-mini-racer 但运行时 import py_mini_racer 由 mini-racer 满足.
 mini-racer==0.14.1
+# rcssmin: CSS 压缩器, scripts/build_min.py 依赖 (minify style.css/lab.css)。
+# trade 主 venv 已装; trade-data 采集 venv 也需装, 否则 deploy.sh 跑 build_min 时
+# CSS minify 被跳过 (build_min 已做 try/except 容错, 不崩, 但 CSS 不压缩)。
+rcssmin>=1.1

@@ -60,4 +60,13 @@ print(f'=== direct metrics 补采 ok={ok} fail={fail} ===', flush=True)
 
 RC=${PIPESTATUS[0]}
 echo "=== backfill_metrics.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$RC ===" | tee -a "$LOG"
+
+# 刷新 schedule_stats.json：deploy.sh 在 backfill 内部(index_backfill.main L884)被触发时，
+# backfill "结束"行尚未写入日志，gen_schedule_stats 解析 backfill_evening 为 pending(null exit/dur)，
+# 致前端"执行统计"backfill_evening 行永显 null。此处 backfill 已结束、日志含完整"开始+结束"对，
+# 重跑拿到正确 exit/dur（根治 git log 近10个 commit backfill_evening last_exit=null 的时序竞态）。
+# 只写 REPO(trade-data) 版本 schedule_stats.json，trade 版本(static-site/data/)等下次 deploy.sh
+# 的 rsync(95-100) 同步；若 backfill 内部 index_backfill 已触发 deploy（有新数据时），本次刷新值
+# 会在下次 update_all(17:50) 触发的 deploy 中被 rsync 到 trade 并 commit 推送上线。
+"$REPO/.venv/bin/python" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞 backfill" | tee -a "$LOG"
 exit $RC

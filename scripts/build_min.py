@@ -10,9 +10,10 @@
 
 依赖：
   - JS: npx terser（首次运行 npx --yes terser 自动下载缓存，无需项目内 npm install）
-  - CSS: rcssmin（pip install rcssmin，纯 Python 轻量 CSS 压缩器）
+  - CSS: rcssmin（pip install rcssmin，纯 Python 轻量 CSS 压缩器；未装时 CSS 跳过不崩）
 
 失败处理：任一文件 minify 失败则退出码 1，已成功的文件仍保留。
+  缺源/缺 rcssmin 视为跳过（非失败，退出码 0）。
 
 deploy.sh 会在 export.py 后调用本脚本，确保上线前 min 文件总是新鲜。
 """
@@ -20,7 +21,9 @@ import os
 import subprocess
 import sys
 
-import rcssmin
+# rcssmin 延迟导入（minify_css 内 try/except）：trade-data 的采集 venv 可能没装 rcssmin，
+# 此时 CSS minify 跳过（不崩，与"缺源跳过"同理），JS 仍走 terser 不受影响。
+# deploy.sh 视 build_min 失败为非阻断，但跳过可消除噪音 + 退出码 0。
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -75,6 +78,11 @@ def minify_js(src, dst, src_rel, dst_rel):
 
 def minify_css(src, dst, src_rel, dst_rel):
     """对单个 CSS 文件用 rcssmin 压缩（去 /* */ 注释/多余空白/合并，不改 CSS 规则，样式视觉一致）。"""
+    try:
+        import rcssmin
+    except ImportError:
+        print(f"  · 跳过 CSS（rcssmin 未装）：{src_rel}")
+        return None  # 非失败：trade-data 采集 venv 可能没装 rcssmin，跳过 CSS 不影响 JS
     with open(src, encoding="utf-8") as f:
         css = f.read()
     minified = rcssmin.cssmin(css)

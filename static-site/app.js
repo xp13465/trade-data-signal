@@ -12,7 +12,7 @@ const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
 const SIM_INDICES = new Set([
-  'sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300',
+  'sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300', 'sz50',
   'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div',
   'hk_cesg10', 'hk_hsmogi', 'hk_hsmbi', 'hk_hsmpi', 'hk_cshklre', 'hk_cshklc', 'hk_hscci', 'hk_cshkdiv',
   'us_ixic', 'us_spx', 'us_dji', 'us_ndx',
@@ -201,8 +201,16 @@ function rethemeCharts() {
     var vmColor = cssVar("--text-1");
     function retheme(c) {
       if (!c || c.isDisposed()) return;
-      c.setOption(chartThemeOpts());
       var opt = c.getOption();
+      var t = chartThemeOpts();
+      // 多轴图表：把单对象 yAxis/xAxis 转成与现有等长数组，确保 yAxis[1+] 也更新（Bug1 兜底）
+      if (Array.isArray(opt.yAxis) && opt.yAxis.length > 1) {
+        t.yAxis = Array.from({length: opt.yAxis.length}, function(){ return t.yAxis; });
+      }
+      if (Array.isArray(opt.xAxis) && opt.xAxis.length > 1) {
+        t.xAxis = Array.from({length: opt.xAxis.length}, function(){ return t.xAxis; });
+      }
+      c.setOption(t);
       if (opt.dataZoom && opt.dataZoom.length) {
         c.setOption({ dataZoom: opt.dataZoom.map(function (d) {
           if (d.type === "slider") return Object.assign({}, d, { textStyle: Object.assign({}, d.textStyle, { color: dzColor }) });
@@ -217,6 +225,7 @@ function rethemeCharts() {
     }
     charts.forEach(retheme);
     _signalModalCharts.forEach(retheme);
+    if (typeof _kpiDetailCharts !== "undefined") _kpiDetailCharts.forEach(retheme);
   } catch (e) {}
 }
 
@@ -352,28 +361,124 @@ function _buildSignalMarkData(signals, getValueFn) {
   return markData;
 }
 
-// 备买信号合规性 chip（2026-07-21 阶段4）：9 核心A股指数走势图标题旁标注。
-// 4 重点金 chip "备买优势区"（bj50/csi1000/kc50/csi500 备买 Supertrend 回测表现较优），
-// 5 弱提示灰 chip "备买弱势区"（sz50/hs300/sh/sz/cyb 备买回测表现较弱）。
-// 合规性提示：透明告知备买在不同指数表现差异，不藏弱只标强。
-// 备买稳健性弱于追买仅供参考不单独决策（chip hover tooltip 显示风险提示）。
-const _BACKUP_SIGNAL_CHIP = {
-  bj50: "strong", csi1000: "strong", kc50: "strong", csi500: "strong",
-  sz50: "weak", hs300: "weak", sh: "weak", sz: "weak", cyb: "weak",
-};
-const _BACKUP_CHIP_TIP = "备买信号(Supertrend ATR×3 翻多,趋势转向)历史回测显示在不同指数表现差异较大。备买稳健性弱于追买(Donchian上轨突破),仅供参考不单独决策,需结合主买/辅买/追买综合判断。";
-function _backupSignalChipHtml(id) {
-  const kind = _BACKUP_SIGNAL_CHIP[id];
-  if (!kind) return "";
-  if (kind === "strong") {
-    return ' <span class="signal-chip signal-chip-strong" data-tip="' + _BACKUP_CHIP_TIP + '该指数属备买表现较优区域。">备买优势区</span>';
+// 备买信号 chip 三档优化（2026-07-23）：删除旧版硬编码 9 指数二分（_BACKUP_SIGNAL_CHIP），
+// 改读 trade_sim JSON 实时算 4 单买点场景（主买+卖/辅买+卖/追买+卖/备买+卖）对比取最强，
+// 全仓进出路径（最能体现买点本身表现），近5年窗口（_TRADE_SIM_DEFAULT_WIN）。
+// 三档 chip（标题下换行单独一行展示，3 chip 横排）：
+//   📈 年化最高（金）   - 4 买点里年化最高那个
+//   👍 最稳健（蓝）     - 多维综合分最高（胜率40%+低回撤40%+样本20%），不带单数字
+//   🛡 回撤最小（绿）   - 最大回撤最小那个
+// 同一买点只显1 chip（避免重复），优先级 年化>稳健>回撤；分散时最多3并排。
+// tooltip 补完整 4 买点对比 + 合规文案"研究参考，不构成投资建议，历史回测不代表未来"。
+// 合规文案：年化最高/回撤最小是回测术语，非"最赚钱"导向词。
+var _backupChipLoading = {};  // 防并发重复 fetch 同一 index
+var _BACKUP_CHIP_COMPLIANCE = "研究参考，不构成投资建议，历史回测不代表未来。";
+var _BACKUP_CHIP_SCENARIOS = ["主买+卖", "辅买+卖", "追买+卖", "备买+卖"];
+var _BACKUP_CHIP_PATH = "全仓进出";
+// 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
+// SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
+function _appendBackupChipRow(cardEl, id) {
+  if (!SIM_INDICES.has(id)) return;
+  var html = _backupSignalChipRender(_tradeSimStatsCache[id]);
+  var row = document.createElement("div");
+  row.className = "signal-chip-row";
+  row.setAttribute("data-chip-id", id);
+  // 占位: 未缓存时先放 loading 提示，异步 fetch 完成后整体替换 innerHTML
+  row.innerHTML = html || '<span class="signal-chip signal-chip-loading">⏳ 加载回测…</span>';
+  var h3 = cardEl.querySelector("h3");
+  if (h3) h3.after(row);
+  else cardEl.appendChild(row);
+  // 未缓存：触发异步加载
+  if (!_tradeSimStatsCache[id]) _backupSignalChipLoad(id);
+}
+async function _backupSignalChipLoad(id) {
+  if (_backupChipLoading[id]) return;
+  _backupChipLoading[id] = true;
+  try {
+    var sd = _tradeSimStatsCache[id] || await _tradeSimFetchStats(id);
+    _tradeSimStatsCache[id] = sd;
+    var html = _backupSignalChipRender(sd);
+    var placeholders = document.querySelectorAll('.signal-chip-row[data-chip-id="' + id + '"]');
+    placeholders.forEach(function (el) { el.innerHTML = html; });
+  } catch (e) {
+    var errEls = document.querySelectorAll('.signal-chip-row[data-chip-id="' + id + '"]');
+    errEls.forEach(function (el) { el.innerHTML = '<span class="signal-chip signal-chip-error">⚠ 回测加载失败</span>'; });
+  } finally {
+    _backupChipLoading[id] = false;
   }
-  return ' <span class="signal-chip signal-chip-weak" data-tip="' + _BACKUP_CHIP_TIP + '该指数属备买表现较弱区域。">备买弱势区</span>';
+}
+// 算 4 单买点场景三档 chip HTML（已缓存数据同步算）。数据不足返回空串。
+function _backupSignalChipRender(sd) {
+  if (!sd || !sd.data) return '';
+  var win = _TRADE_SIM_DEFAULT_WIN;
+  var byWin = sd.data[win];
+  if (!byWin || !byWin[_BACKUP_CHIP_PATH]) return '';
+  var byPath = byWin[_BACKUP_CHIP_PATH];
+  var entries = [];
+  for (var i = 0; i < _BACKUP_CHIP_SCENARIOS.length; i++) {
+    var sc = _BACKUP_CHIP_SCENARIOS[i];
+    var blk = byPath[sc];
+    var s = blk && blk.summary;
+    if (!s) continue;
+    if (typeof s.annualized !== 'number' || typeof s.max_drawdown !== 'number' ||
+        typeof s.win_rate !== 'number' || typeof s.total_ops !== 'number') continue;
+    entries.push({
+      scenario: sc,
+      label: sc.replace(/\+卖$/, ''),
+      annualized: s.annualized,
+      max_drawdown: s.max_drawdown,
+      win_rate: s.win_rate,
+      total_ops: s.total_ops
+    });
+  }
+  if (entries.length < 2) return '';  // 不足 2 个买点无法对比
+  // 1. 年化最高
+  var bestAnn = entries.slice().sort(function (a, b) { return b.annualized - a.annualized; })[0];
+  // 2. 回撤最小（max_drawdown 越小越好）
+  var bestDd = entries.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; })[0];
+  // 3. 最稳健：综合分 = 胜率40% + 低回撤40% + 样本20%（normalize 到 0-1）
+  var maxOps = Math.max.apply(null, entries.map(function (e) { return e.total_ops; }));
+  var maxDd = Math.max.apply(null, entries.map(function (e) { return e.max_drawdown; }));
+  var scored = entries.map(function (e) {
+    var winNorm = e.win_rate / 100;
+    var ddNorm = maxDd > 0 ? 1 - e.max_drawdown / maxDd : 1;
+    var opsNorm = maxOps > 0 ? e.total_ops / maxOps : 0;
+    return Object.assign({}, e, { score: winNorm * 0.4 + ddNorm * 0.4 + opsNorm * 0.2 });
+  });
+  var bestSteady = scored.slice().sort(function (a, b) { return b.score - a.score; })[0];
+  // 去重：同一买点只显1 chip（优先级 年化>稳健>回撤）
+  var used = {};
+  var chips = [];
+  if (bestAnn) { chips.push({ kind: 'strong', entry: bestAnn, val: '年化+' + bestAnn.annualized.toFixed(1) + '%' }); used[bestAnn.label] = 1; }
+  if (bestSteady && !used[bestSteady.label]) { chips.push({ kind: 'steady', entry: bestSteady, val: '' }); used[bestSteady.label] = 1; }
+  if (bestDd && !used[bestDd.label]) { chips.push({ kind: 'lowdraw', entry: bestDd, val: '跌' + bestDd.max_drawdown.toFixed(1) + '%' }); used[bestDd.label] = 1; }
+  if (chips.length === 0) return '';
+  // tooltip：完整 4 买点对比 + 合规文案
+  var tip = _backupSignalChipTip(entries);
+  return chips.map(function (c) {
+    var emoji = c.kind === 'strong' ? '📈' : c.kind === 'steady' ? '👍' : '🛡';
+    var cls = c.kind === 'strong' ? 'signal-chip-strong' : c.kind === 'steady' ? 'signal-chip-steady' : 'signal-chip-lowdraw';
+    var valStr = c.val ? ' ' + c.val : '';
+    return '<span class="signal-chip ' + cls + '" data-tip="' + tip + '">' + emoji + ' ' + c.entry.label + valStr + '</span>';
+  }).join('');
+}
+// chip tooltip：4 买点对比 + 合规文案（含换行，依赖 .term-pop white-space:pre-line 渲染）
+function _backupSignalChipTip(entries) {
+  var lines = ['近5年回测（全仓进出，4 单买点场景对比）：'];
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    lines.push(e.label + ': 年化' + e.annualized.toFixed(1) + '% / 胜率' + e.win_rate.toFixed(0) + '% / 回撤' + e.max_drawdown.toFixed(1) + '% / 样本' + e.total_ops);
+  }
+  lines.push(_BACKUP_CHIP_COMPLIANCE);
+  // HTML attribute 里换行需转义为 &#10;（textContent 解析时还原为 \n）
+  return lines.join('&#10;').replace(/"/g, '&quot;');
 }
 
-// 6色信号图例（2026-07-21 阶段4）：4色买点(主买红/辅买玫红/追买金/备买紫) + 卖绿 + 追止损蓝，
+// 6色信号图例（2026-07-23 三档优化版）：4色买点(主买红/辅买玫红/追买金/备买紫) + 卖绿 + 追止损蓝，
 // 指数走势图上方统一展示。备买风险提示附末尾（hover pop 显示"备买稳健性弱于追买仅供参考不单独决策"）。
 // 同日多买点信号合并拼色 pin（金描边+光晕），图例不单独列拼色（用户从 pin 视觉即可辨识）。
+// 三档 chip（年化最高/最稳健/回撤最小）已在每个指数标题下单独一行展示，不再进图例条。
+var _BACKUP_LEGEND_TIP = "4 买点（主买/辅买/追买/备买）历史回测表现差异较大，每个指数标题下方的三档 chip 标注该指数近5年全仓进出回测中表现最优的买点（年化最高/最稳健/回撤最小）。研究参考，不构成投资建议，历史回测不代表未来。";
 function _signalLegendHtml() {
   return '<div class="signal-legend">'
     + '<span class="signal-legend-item"><i style="background:#e6492e"></i>超卖拐点(主买)</span>'
@@ -382,7 +487,7 @@ function _signalLegendHtml() {
     + '<span class="signal-legend-item"><i style="background:#9c27b0"></i>趋势转向(备买)</span>'
     + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>趋势转弱(卖)</span>'
     + '<span class="signal-legend-item"><i style="background:#3498db"></i>ATR×3.5止损(追止损|卖)</span>'
-    + '<span class="signal-legend-note" data-tip="' + _BACKUP_CHIP_TIP + '">⚠ 备买风险提示</span>'
+    + '<span class="signal-legend-note" data-tip="' + _BACKUP_LEGEND_TIP + '">⚠ 买点回测差异提示</span>'
     + '</div>';
 }
 
@@ -1412,10 +1517,11 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
       if (idx.data && idx.data.length) {
         // 港股盘中实时标注（快照注入 _snap_intraday=true 时显示）
         const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
-        const chipTag = _backupSignalChipHtml(id);
-        const c = indexChart(idx.name + intradayTag + chipTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
+        const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
         addCardTimeBadge(c.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot, "t0");
+        // 备买 chip 三档（2026-07-23）：标题下换行单独一行展示，h3 之后插入独立 chip-row 容器（异步 fetch+patch）
+        _appendBackupChipRow(c.getDom().parentElement, id);
         // C7 P4 market 融合:图表卡下 append 紧凑分数卡(白名单 iid 才显示)
         _attachMarketScoreCard(id, idx.name, c.getDom().parentElement);
       }
@@ -4254,8 +4360,8 @@ async function renderOverview() {
         grid: { left: 55, right: 55, top: 35, bottom: 35 },
         xAxis: { type: "category", data: adDates },
         yAxis: [
-          { type: "value", name: "涨跌比", axisLabel: { color: cssVar("--text-1"), formatter: v => v.toFixed(2) }, nameTextStyle: { color: cssVar("--text-1") }, splitLine: { show: false } },
-          { type: "value", name: "AD Line", axisLabel: { color: cssVar("--text-1") }, nameTextStyle: { color: cssVar("--text-1") } },
+          { type: "value", name: "涨跌比", axisLabel: { formatter: v => v.toFixed(2) }, splitLine: { show: false } },
+          { type: "value", name: "AD Line" },
         ],
         dataZoom: dzOpts(),
         series: [
@@ -4331,8 +4437,8 @@ async function renderOverview() {
         grid: { left: 55, right: 55, top: 35, bottom: 35 },
         xAxis: { type: "category", data: nhlDates },
         yAxis: [
-          { type: "value", name: "家数", axisLabel: { color: cssVar("--text-1") }, nameTextStyle: { color: cssVar("--text-1") }, splitLine: { show: false } },
-          { type: "value", name: "NH-NL", axisLabel: { color: cssVar("--text-1") }, nameTextStyle: { color: cssVar("--text-1") } },
+          { type: "value", name: "家数", splitLine: { show: false } },
+          { type: "value", name: "NH-NL" },
         ],
         dataZoom: dzOpts(),
         series: [

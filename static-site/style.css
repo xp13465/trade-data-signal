@@ -352,12 +352,26 @@ main { padding: 16px 24px; }
 .chart-latest { color: var(--primary); font-weight: 600; background: var(--primary-bg); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* 港股盘中实时标注（快照注入 _snap_intraday=true 时显示在图表标题旁） */
 .snap-intraday-tag { color: #e6a23c; font-size: 12px; font-weight: normal; white-space: nowrap; }
-/* 备买信号合规性 chip（2026-07-21 阶段4）：9 核心A股指数走势图标题旁标注。
-   重点金 chip "备买优势区" / 弱提示灰 chip "备买弱势区"，hover pop 显示风险提示。
+/* 备买信号 chip 三档优化（2026-07-23）：每个指数走势图标题下换行单独一行展示 3 chip 横排。
+   四档样式：strong（金/年化最高）+ steady（蓝/最稳健）+ lowdraw（绿/回撤最小）+ 状态（loading/error）。
+   删旧 signal-chip-weak（灰/备买弱势区），改读 trade_sim JSON 实时算 3 档。
    参照 .card-time-badge 的 color/border/background 半透明模式，内联 pill 样式。 */
 .signal-chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle; white-space: nowrap; cursor: help; }
 .signal-chip-strong { color: #ffd700; border: 1px solid rgba(255,215,0,0.5); background: rgba(255,215,0,0.18); }
-.signal-chip-weak { color: var(--text-3); border: 1px solid var(--border-strong); background: rgba(128,128,128,0.15); }
+.signal-chip-steady { color: #1c6dbf; border: 1px solid rgba(28,109,191,0.5); background: rgba(28,109,191,0.15); }
+.signal-chip-lowdraw { color: #2e8b57; border: 1px solid rgba(46,139,87,0.5); background: rgba(46,139,87,0.15); }
+.signal-chip-loading { color: var(--text-3); border: 1px dashed var(--border-strong); background: rgba(128,128,128,0.08); cursor: progress; }
+.signal-chip-error { color: #c62828; border: 1px solid rgba(198,40,40,0.5); background: rgba(198,40,40,0.12); cursor: help; }
+/* chip 容器行（标题下换行单独一行）：横排，PC flex-wrap，移动端 nowrap + overflow-x 横滚（复用 lab .lab-win-tabs 思路）。
+   覆盖 .signal-chip 默认 margin-left:6px，行内首项不要左缩进。 */
+.signal-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.signal-chip-row .signal-chip { margin-left: 0; }
+.signal-chip-row:empty { display: none; }  /* 数据不足时不渲染空行 */
+@media (hover: none) {
+  .signal-chip-row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .signal-chip-row::-webkit-scrollbar { display: none; }
+  .signal-chip-row { scrollbar-width: none; }
+}
 /* 5色信号图例条（2026-07-21 阶段4）：指数走势图上方统一展示 4色买点+卖绿 + 备买风险提示 */
 .signal-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 10px; margin: 6px 0; font-size: 12px; color: var(--text-2); background: rgba(128,128,128,0.06); border: 1px solid var(--border); border-radius: 8px; }
 .signal-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
@@ -1354,9 +1368,9 @@ main { padding: 16px 24px; }
   border-radius: 3px;
   line-height: 1.5;
 }
-.badge-buy { background: #fde8e8; color: #c0392b; }
-.badge-aux { background: #fce4ec; color: #c2185b; }
-.badge-sell { background: #e8f5e9; color: #2e7d32; }
+.badge-buy { background: var(--mx-good-bg); color: var(--mx-good-fg); }
+.badge-aux { background: var(--mx-warn-bg); color: var(--mx-warn-fg); }
+.badge-sell { background: var(--mx-bad-bg); color: var(--mx-bad-fg); }
 
 .rule-table {
   width: 100%;
@@ -2776,13 +2790,7 @@ main { padding: 16px 24px; }
 [data-theme="redgold"] .lab-warning { background: #2b2111; border-color: #4a351a; color: #d4b88a; }
 
 /* === 深色/红金皮肤覆盖：浅底硬编码块在深色卡上变白块，统一改 bg-hover 底 + text-2 字 === */
-/* C3: 买卖信号 badge(buy/aux/sell 原浅底硬编码) */
-[data-theme="dark"] .badge-buy,
-[data-theme="redgold"] .badge-buy { background: var(--bg-hover); color: var(--text-2); }
-[data-theme="dark"] .badge-aux,
-[data-theme="redgold"] .badge-aux { background: var(--bg-hover); color: var(--text-2); }
-[data-theme="dark"] .badge-sell,
-[data-theme="redgold"] .badge-sell { background: var(--bg-hover); color: var(--text-2); }
+/* C3: 买卖信号 badge 已改用 --mx-good/warn/bad 矩阵变量，各皮肤自适应，不再需要此处覆盖 */
 /* C4: 规则注释黄底块 */
 [data-theme="dark"] .rule-note,
 [data-theme="redgold"] .rule-note { background: var(--bg-hover); color: var(--text-2); }
