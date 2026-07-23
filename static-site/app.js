@@ -578,6 +578,7 @@ const _INDEX_NAME_MAP = {
   div_lowvol: '红利低波', csi_div: '中证红利', sz_div: '深证红利',
   // 全球指标
   cn10y: '中国10年国债', us10y: '美国10年国债', wti_oil: 'WTI原油', brent: '布伦特原油',
+  cgb_idx: '中证国债', cgb_10y_etf: '10年国债ETF', cgb_10y_future: '10年国债期货',
   comex_silver: 'COMEX白银', gold: '伦敦金', oil: '原油', usdcnh: '美元/离岸人民币',
   a_qvix_300: '中国波指300', a_qvix_1000: '中国波指(50ETF期权)', cn_us_spread: '中美利差',
   // 综合情绪
@@ -4512,26 +4513,26 @@ async function renderOverview() {
 
       const adSeries = [
         { name: "涨跌家数比", data: adData.map(d => ({ date: d.date, value: d.ratio })), label: "涨跌比" },
-        { name: "AD Line", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "AD" },
-        { name: "AD Line MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
+        { name: "腾落线", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "腾落线" },
+        { name: "腾落线MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
       ];
       const adc = mkCard("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 300, null, colC1);
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
       addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       adc.setOption(withTheme({
         tooltip: { trigger: "axis" },
-        legend: { top: 0, data: ["涨跌家数比", "AD Line", "AD Line MA20"] },
+        legend: { top: 0, data: ["涨跌家数比", "腾落线", "腾落线MA20"] },
         grid: { left: 55, right: 55, top: 35, bottom: 35 },
         xAxis: { type: "category", data: adDates },
         yAxis: [
           { type: "value", name: "涨跌比", axisLabel: { formatter: v => v.toFixed(2) }, splitLine: { show: false } },
-          { type: "value", name: "AD Line" },
+          { type: "value", name: "腾落线" },
         ],
         dataZoom: dzOpts(),
         series: [
           { name: "涨跌家数比", type: "bar", yAxisIndex: 0, data: ratioData.map((v, i) => ({ value: v, itemStyle: { color: ratioColors[i] } })), barWidth: "60%" },
-          { name: "AD Line", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adLineData, lineStyle: { color: "#5b8ff9", width: 1.5 } },
-          { name: "AD Line MA20", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adMA20, lineStyle: { color: "#f6bd16", width: 1.5, type: "dashed" } },
+          { name: "腾落线", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adLineData, lineStyle: { color: "#5b8ff9", width: 1.5 } },
+          { name: "腾落线MA20", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: adMA20, lineStyle: { color: "#f6bd16", width: 1.5, type: "dashed" } },
         ],
       }));
     } else {
@@ -4590,25 +4591,25 @@ async function renderOverview() {
       const nhlSeries = [
         { name: "52周新高", data: nhlData.map(d => ({ date: d.date, value: d.nh_52w })), label: "新高" },
         { name: "52周新低", data: nhlData.map(d => ({ date: d.date, value: d.nl_52w })), label: "新低" },
-        { name: "NH-NL", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "NH-NL" },
+        { name: "净新高", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "净新高" },
       ];
       const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 280, null, colC1);
       appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
       addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t0");
       nhlCard.setOption(withTheme({
         tooltip: { trigger: "axis" },
-        legend: { top: 0, data: ["52周新高", "52周新低", "NH-NL"] },
+        legend: { top: 0, data: ["52周新高", "52周新低", "净新高"] },
         grid: { left: 55, right: 55, top: 35, bottom: 35 },
         xAxis: { type: "category", data: nhlDates },
         yAxis: [
           { type: "value", name: "家数", splitLine: { show: false } },
-          { type: "value", name: "NH-NL" },
+          { type: "value", name: "净新高" },
         ],
         dataZoom: dzOpts(),
         series: [
           { name: "52周新高", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nh_52w), itemStyle: { color: "#e6492e" }, barWidth: "40%" },
           { name: "52周新低", type: "bar", yAxisIndex: 0, data: nhlData.map(d => d.nl_52w), itemStyle: { color: "#2e8b57" }, barWidth: "40%" },
-          { name: "NH-NL", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: nhlData.map(d => d.nhnl_52w), lineStyle: { color: "#5b8ff9", width: 1.5 } },
+          { name: "净新高", type: "line", yAxisIndex: 1, symbol: "none", smooth: true, data: nhlData.map(d => d.nhnl_52w), lineStyle: { color: "#5b8ff9", width: 1.5 } },
         ],
       }));
       // 最新日的指数级详情（8 个指数是否创 52周/20日新高新低）
@@ -5997,6 +5998,7 @@ const _COMP_NAMES = {
   // 跨市场综合评分组成维度（按指标分组归一化均值 0-100）
   a_width: "A股宽度", a_fund: "资金面", a_sentiment: "A股情绪",
   hk: "港股", global: "全球", lhb: "龙虎榜", unlock: "解禁", ipo: "IPO", cov: "可转债",
+  north: "北向资金",
 };
 // 各分项权重（A股综合情绪分 a_sentiment 为固定加权,缺项按可用重归一化;
 //  per-index 情绪分/跨市场评分/恐贪指数为等权,未列入的 key 显示"等权"）
