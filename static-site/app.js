@@ -8370,14 +8370,14 @@ function _esc(s) {
 }
 
 function _etfScoreColor(score, side) {
-  // 配色与卡片一致(2026-07-24):buy 暖红(涨=多,契合红金主题),sell 青蓝(冷色,非绿)
+  // 配色与卡片一致(2026-07-24 v2 淡雅低饱和):buy 淡粉暗红(多),sell 灰蓝(空,冷色非绿)
   if (side === "buy") {
-    if (score >= 80) return "#c0392b";
-    if (score >= 60) return "#e8826a";
+    if (score >= 80) return "#a05050";
+    if (score >= 60) return "#c08080";
     return "var(--text-3,#86909c)";
   }
-  if (score >= 80) return "#2c6e8f";
-  if (score >= 60) return "#5b9cc4";
+  if (score >= 80) return "#5a7a8a";
+  if (score >= 60) return "#8aaab8";
   return "var(--text-3,#86909c)";
 }
 

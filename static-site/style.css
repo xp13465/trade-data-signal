@@ -3783,24 +3783,24 @@ main { padding: 16px 24px; }
   border-radius: 8px; padding: 10px 12px;
   display: flex; flex-direction: column; gap: 6px;
 }
-/* 配色重新设计(2026-07-24):避免纯绿纯红刺眼。buy=暖红粉橙(涨=多,契合红金主题),sell=青蓝灰蓝(冷色,非绿) */
+/* 配色重新设计(2026-07-24 v2 淡雅低饱和):buy=淡粉底+暗红字(多,柔和不刺眼),sell=灰蓝底+深灰蓝字(空,冷色非绿) */
 .etf-score-row.etf-side-buy {
-  border-left-color: #e8826a;
-  background: linear-gradient(135deg, #fdecec 0%, var(--bg-card) 55%);
+  border-left-color: #a05050;
+  background: linear-gradient(135deg, #faf0f0 0%, var(--bg-card) 55%);
 }
 .etf-score-row.etf-side-sell {
-  border-left-color: #5b9cc4;
-  background: linear-gradient(135deg, #e7f0f7 0%, var(--bg-card) 55%);
+  border-left-color: #5a7a8a;
+  background: linear-gradient(135deg, #eef3f6 0%, var(--bg-card) 55%);
 }
 [data-theme="dark"] .etf-score-row.etf-side-buy,
 [data-theme="redgold"] .etf-score-row.etf-side-buy {
-  border-left-color: #f56565;
-  background: linear-gradient(135deg, rgba(245, 101, 101, 0.16) 0%, var(--bg-card) 60%);
+  border-left-color: #c87878;
+  background: linear-gradient(135deg, rgba(160, 80, 80, 0.20) 0%, var(--bg-card) 60%);
 }
 [data-theme="dark"] .etf-score-row.etf-side-sell,
 [data-theme="redgold"] .etf-score-row.etf-side-sell {
-  border-left-color: #5b9cc4;
-  background: linear-gradient(135deg, rgba(91, 156, 196, 0.18) 0%, var(--bg-card) 60%);
+  border-left-color: #8aaab8;
+  background: linear-gradient(135deg, rgba(90, 122, 138, 0.20) 0%, var(--bg-card) 60%);
 }
 .etf-row-main {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -3825,13 +3825,13 @@ main { padding: 16px 24px; }
   display: inline-block; padding: 2px 8px; border-radius: 10px;
   font-size: 11px; font-weight: 600;
 }
-/* side-tag 浅底深字(非纯色底白字),柔和现代 */
-.etf-side-buy { background: #fdecec; color: #c0392b; }
-.etf-side-sell { background: #e7f0f7; color: #2c6e8f; }
+/* side-tag 浅底深字(非纯色底白字),柔和现代;2026-07-24 v2 降饱和 */
+.etf-side-buy { background: #faf0f0; color: #a05050; }
+.etf-side-sell { background: #eef3f6; color: #5a7a8a; }
 [data-theme="dark"] .etf-side-buy,
-[data-theme="redgold"] .etf-side-buy { background: rgba(245, 101, 101, 0.22); color: #fca5a5; }
+[data-theme="redgold"] .etf-side-buy { background: rgba(160, 80, 80, 0.26); color: #e8b0b0; }
 [data-theme="dark"] .etf-side-sell,
-[data-theme="redgold"] .etf-side-sell { background: rgba(125, 211, 252, 0.2); color: #7dd3fc; }
+[data-theme="redgold"] .etf-side-sell { background: rgba(90, 122, 138, 0.26); color: #a8c8d4; }
 .etf-nt-tag {
   display: inline-block; margin-left: 6px; padding: 1px 6px;
   border: 1px solid var(--primary); color: var(--primary);
