@@ -3583,21 +3583,25 @@ function _renderLabSubNav() {
   const subNav = document.createElement("div");
   subNav.className = "lab-subnav";
   // 信号扫描(scan)为父tab，下挂3个三级子tab(信号拆解/多空对称/参数扫描)
+  // 自定义分析(custom)为父tab，下挂2个三级子tab(AI预警/AI评分)
   const _LAB_SUB_TABS = [
     { key: "scan", label: "信号扫描" },
     { key: "experiment", label: "信号实验" },
     { key: "retest", label: "🔬 二次测试实验" },
     { key: "custom", label: "🎯 自定义分析" },
-    { key: "aiscore", label: "📈 AI评分" },
   ];
   const _SCAN_CHILDREN = ["ablation", "symmetry", "paramscan"];
   const _SCAN_CHILD_LABELS = { ablation: "🧩 信号拆解", symmetry: "⚖️ 多空对称", paramscan: "🎛 参数扫描" };
   const _EXPERIMENT_CHILDREN = ["single", "fusion"];
   const _EXPERIMENT_CHILD_LABELS = { single: "单一信号实验", fusion: "融合信号实验" };
+  // custom 父tab 3级子tab: AI预警(原 custom 内容) + AI评分(原 aiscore 2级 tab 移入)
+  const _CUSTOM_CHILDREN = ["aiwarn", "aiscore"];
+  const _CUSTOM_CHILD_LABELS = { aiwarn: "🚨 AI预警", aiscore: "📈 AI评分" };
   const isScanActive = _SCAN_CHILDREN.includes(cur);
   const isExperimentActive = _EXPERIMENT_CHILDREN.includes(cur);
+  const isCustomActive = _CUSTOM_CHILDREN.includes(cur);
   subNav.innerHTML = _LAB_SUB_TABS.map((t) => {
-    const active = t.key === "scan" ? isScanActive : t.key === "experiment" ? isExperimentActive : cur === t.key;
+    const active = t.key === "scan" ? isScanActive : t.key === "experiment" ? isExperimentActive : t.key === "custom" ? isCustomActive : cur === t.key;
     return `<button type="button" class="lab-subnav-tab${active ? " active" : ""}" data-sub="${t.key}">${t.label}</button>`;
   }).join("") +
   `<button type="button" class="lab-subnav-tab lab-subnav-glossary" data-glossary-btn="1">❓ 术语词典</button>`;
@@ -3605,8 +3609,9 @@ function _renderLabSubNav() {
     btn.onclick = () => {
       // 术语词典按钮：打开词典modal，不切模式
       if (btn.dataset.glossaryBtn) { _labGlossaryOpenModal(); return; }
-      // scan 父tab点击 -> 默认进第一个子tab(ablation)
-      state.labSubMode = btn.dataset.sub === "scan" ? "ablation" : btn.dataset.sub === "experiment" ? "single" : btn.dataset.sub;
+      // 父tab点击 -> 默认进第一个子tab(scan->ablation / experiment->single / custom->aiwarn)
+      const sub = btn.dataset.sub;
+      state.labSubMode = sub === "scan" ? "ablation" : sub === "experiment" ? "single" : sub === "custom" ? "aiwarn" : sub;
       state.labStrategy = null; // 切换模式时清空策略选择，避免串模式
       renderSignalLab();
     };
@@ -3636,6 +3641,23 @@ function _renderLabSubNav() {
     childNav.className = "lab-subnav lab-subnav-child";
     childNav.innerHTML = _EXPERIMENT_CHILDREN.map((k) =>
       `<button type="button" class="lab-subnav-tab${cur === k ? " active" : ""}" data-sub="${k}">${_EXPERIMENT_CHILD_LABELS[k]}</button>`
+    ).join("");
+    childNav.querySelectorAll(".lab-subnav-tab").forEach((btn) => {
+      btn.onclick = () => {
+        state.labSubMode = btn.dataset.sub;
+        state.labStrategy = null;
+        renderSignalLab();
+      };
+    });
+    content.appendChild(childNav);
+  }
+
+  // 三级子nav：自定义分析父tab active 时，在二级nav下方渲染一行子tab(AI预警/AI评分)
+  if (isCustomActive) {
+    const childNav = document.createElement("div");
+    childNav.className = "lab-subnav lab-subnav-child";
+    childNav.innerHTML = _CUSTOM_CHILDREN.map((k) =>
+      `<button type="button" class="lab-subnav-tab${cur === k ? " active" : ""}" data-sub="${k}">${_CUSTOM_CHILD_LABELS[k]}</button>`
     ).join("");
     childNav.querySelectorAll(".lab-subnav-tab").forEach((btn) => {
       btn.onclick = () => {
@@ -5761,7 +5783,7 @@ async function renderSignalLab() {
   // 如果有选中的策略，进详情页（仅单一信号模式）
   if (state.labStrategy && state.labSubMode !== "fusion" && state.labSubMode !== "retest"
       && state.labSubMode !== "ablation" && state.labSubMode !== "symmetry" && state.labSubMode !== "paramscan"
-      && state.labSubMode !== "custom") {
+      && state.labSubMode !== "aiwarn" && state.labSubMode !== "aiscore") {
     await renderLabDetail(state.labStrategy);
     return;
   }
@@ -5817,15 +5839,15 @@ async function renderSignalLab() {
     return;
   }
 
-  // C7 P4-β: 自定义分析 -> 渲染情绪告警+维度拆解+历史类比分区
-  if (state.labSubMode === "custom") {
+  // C7 P4-β: 自定义分析 > AI预警子tab -> 渲染情绪告警+维度拆解+历史类比分区(原 custom 内容打包到此)
+  if (state.labSubMode === "aiwarn") {
     await renderCustomAnalyzeLab();
-    _labSetHash("#lab?sub=custom");
+    _labSetHash("#lab?sub=aiwarn");
     _labRestoreScroll();
     return;
   }
 
-  // P1-新-C: AI评分 -> 渲染ETF买清单+卖清单(用户输入持仓代码查high_alert)
+  // P1-新-C: 自定义分析 > AI评分子tab -> 渲染ETF买清单+卖清单(用户输入持仓代码查high_alert)
   if (state.labSubMode === "aiscore") {
     await renderAIScoreListLab();
     _labSetHash("#lab?sub=aiscore");
@@ -6596,8 +6618,9 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
   // 解析 ?sub= 恢复 labSubMode（列表页保位，避免 F5 回 single）
   if (queryPart) {
     const sub = new URLSearchParams(queryPart).get("sub");
-    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan", "custom", "aiscore"].includes(sub)) {
-      state.labSubMode = sub;
+    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan", "custom", "aiwarn", "aiscore"].includes(sub)) {
+      // 兼容旧 hash #lab?sub=custom -> 跳转到新 aiwarn 子tab(custom 已拆为父tab)
+      state.labSubMode = sub === "custom" ? "aiwarn" : sub;
     }
   }
   // 激活 lab tab 按钮 -> 触发 renderTab -> renderSignalLab/renderLabDetail
