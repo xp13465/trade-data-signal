@@ -127,12 +127,43 @@ fi
 
 # 1.8 上传 lab/*.json + trade_sim/*.html + index/ + industry/ 到 R2
 # (R2 全迁后 index/industry/trade_sim 前端从 R2 读;lab 已在 R2;双源过渡也刷 R2 保最新)
+#
+# R2 上传超时监控（A3，2026-07-23）：upload_r2 卡 TCP SYN_SENT 会持 deploy.lock
+# 阻塞后续 update_all（2026-07-23 实测卡 8分20秒，主控 kill 释放锁）。
+# macOS 无 timeout/gtimeout 命令，用 bash 原生 background+sleep+kill 实现：
+# 后台跑 upload_r2，每 5s 探活，超 R2_UPLOAD_TIMEOUT（默认 300s=5min）即 kill 释放锁。
+R2_UPLOAD_TIMEOUT="${R2_UPLOAD_TIMEOUT:-300}"
+run_r2_upload() {
+  local desc="$1"; shift
+  local tmp_log pid slept rc
+  tmp_log=$(mktemp)
+  "$PY" "$REPO/scripts/upload_r2.py" "$@" >"$tmp_log" 2>&1 &
+  pid=$!
+  slept=0
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    slept=$((slept + 5))
+    if [ "$slept" -ge "$R2_UPLOAD_TIMEOUT" ]; then
+      echo "⚠ $desc 超 ${R2_UPLOAD_TIMEOUT}s 未退出，kill pid=$pid 释放 deploy.lock" | tee -a "$LOG"
+      kill -TERM "$pid" 2>/dev/null; sleep 2
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      rm -f "$tmp_log"
+      return 1
+    fi
+  done
+  wait "$pid"; rc=$?
+  tail -1 "$tmp_log" | tee -a "$LOG"
+  rm -f "$tmp_log"
+  return "$rc"
+}
+
 echo "-> 上传 lab/trade_sim/index/industry 到 R2 ..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-lab 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-lab 失败,继续部署" | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-trade-sim 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-trade-sim 失败,继续部署" | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-trade-sim-json 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-trade-sim-json 失败,继续部署" | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-index 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-index 失败,继续部署" | tee -a "$LOG"
-"$PY" "$REPO/scripts/upload_r2.py" upload-industry 2>&1 | tail -1 | tee -a "$LOG" || echo "⚠ upload-industry 失败,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-lab" upload-lab || echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-trade-sim" upload-trade-sim || echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-index" upload-index || echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-industry" upload-industry || echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"
 
 # 2. git add 静态数据 + min JS（min 重新生成后若有变更一并提交）
 echo "→ git add static-site/data/ + min JS ..." | tee -a "$LOG"
