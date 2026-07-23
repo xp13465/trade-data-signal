@@ -451,8 +451,10 @@ var _BACKUP_CHIP_PATH_SHORT = {
 };
 // 三档绝对值门槛（2026-07-23 防"弱标的年化0.x%也推荐"bug）：不达标不进档，全 null 显示兜底文案。
 //   年化最高档：年化必须 >=3%（低于3%无推荐价值，不如存银行）
-//   最稳健档：综合分 >=0.5（满分1.0）AND 胜率 >=60% AND 回撤 <=20%（稳健要胜率过半+回撤可控）
-//   回撤最小档：回撤 <=15%（>15%谈不上"最小"优势）AND 样本 >=3（样本太少不算）
+//   最稳健档：综合分 >=0.5（满分1.0）AND 胜率 >=60% AND 回撤 <=20% AND 年化>回撤（收益必须覆盖回撤，
+//             防 0% 年化 + 1~3% 回撤的"稳健"策略实际亏本却推荐，2026-07-24 上证50 case 修复）
+//   回撤最小档：回撤 <=15%（>15%谈不上"最小"优势）AND 样本 >=3（样本太少不算）AND 年化>0
+//             （回撤低但年化为0/负的策略无推荐价值，2026-07-24 加门槛）
 //   门槛集中在此常量，方便后续调整（用户决策：加绝对值门槛 + 隐藏弱标的）。
 var _BACKUP_CHIP_THRESHOLDS = {
   ann: 3.0,           // 年化最高档门槛：年化 >=3%
@@ -460,7 +462,8 @@ var _BACKUP_CHIP_THRESHOLDS = {
   steadyWinRate: 60,  // 最稳健档胜率 >=60%
   steadyMaxDd: 20,    // 最稳健档回撤 <=20%
   ddMax: 15,          // 回撤最小档回撤 <=15%
-  ddMinOps: 3         // 回撤最小档样本 >=3
+  ddMinOps: 3,        // 回撤最小档样本 >=3
+  ddMinAnn: 0.0       // 回撤最小档年化 >0（防0%年化策略被推为"回撤最小"）
 };
 // 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
 // SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
@@ -569,15 +572,18 @@ function _backupSignalChipRender(sd) {
   var bestAnn = annCandidates.length > 0
     ? annCandidates.slice().sort(function (a, b) { return b.strongScore - a.strongScore; })[0]
     : null;
-  // 2. 最稳健 = steadyScore 最高（综合分>=0.5 AND 胜率>=60 AND 回撤<=20）
+  // 2. 最稳健 = steadyScore 最高（综合分>=0.5 AND 胜率>=60 AND 回撤<=20 AND 年化>回撤）
+  // 2026-07-24 加年化>回撤门槛：防"0%年化+1~3%回撤"的伪稳健策略被推（收益不覆盖回撤=实际亏）
   var steadyCandidates = scored.filter(function (e) {
-    return e.steadyScore >= TH.steadyScore && e.win_rate >= TH.steadyWinRate && e.max_drawdown <= TH.steadyMaxDd;
+    return e.steadyScore >= TH.steadyScore && e.win_rate >= TH.steadyWinRate
+      && e.max_drawdown <= TH.steadyMaxDd && e.annualized > e.max_drawdown;
   });
   var bestSteady = steadyCandidates.length > 0
     ? steadyCandidates.slice().sort(function (a, b) { return b.steadyScore - a.steadyScore; })[0]
     : null;
-  // 3. 回撤最小 = max_drawdown 最小（回撤<=15% AND 样本>=3）
-  var ddCandidates = scored.filter(function (e) { return e.max_drawdown <= TH.ddMax && e.total_ops >= TH.ddMinOps; });
+  // 3. 回撤最小 = max_drawdown 最小（回撤<=15% AND 样本>=3 AND 年化>0）
+  // 2026-07-24 加年化>0门槛：防0%年化策略被推为"回撤最小"（无收益的极低回撤无推荐价值）
+  var ddCandidates = scored.filter(function (e) { return e.max_drawdown <= TH.ddMax && e.total_ops >= TH.ddMinOps && e.annualized > TH.ddMinAnn; });
   var bestDd = ddCandidates.length > 0
     ? ddCandidates.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; })[0]
     : null;
@@ -1280,7 +1286,12 @@ function _appendStrategyHint(cardEl, indexId, strategy) {
     if (!d) continue;
     var name = k.name.split(" · ")[0];
     var en = d.enabled !== false;
-    tipLines.push(name + "：" + (en ? d.desc : "skip"));
+    // 2026-07-24 hoverpop 专属规则修复：hover 摘要原本只读 d.desc，sh/sz 一样；
+    // 追加 d.filter 末段 per-index 部分（sh 专属 / 非 sh 方案B），让 hover 显差异（click modal 仍读完整 d.filter）。
+    // 正则 /专属|非 sh/ 排除 buy/buy_aux 基线备注"无 per-index 配置"（含字面 per-index 字串会误匹配）。
+    var filt = d.filter || "";
+    var seg = filt.split("；").filter(function (s) { return /专属|非 sh/.test(s); }).slice(-1)[0] || "";
+    tipLines.push(name + "：" + (en ? d.desc : "skip") + (seg ? "【" + seg + "】" : ""));
   }
   tipLines.push("点击展开完整参数与过滤条件。");
   var tipText = tipLines.join("\n").replace(/"/g, "&quot;");
