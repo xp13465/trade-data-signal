@@ -486,3 +486,16 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - **即时价值**：E Telegram(70行) / J 异常波动(250行) / F 板块轮动(105行,数据受限)
 - **大工作量**：B-2b 真pin复盘(200行) / C PWA(150行) / H 相似形态(240行) / K 订阅推送(410行)
 - **2方向已实现**（DB灾备D/盘后日报I）防以后重复调研
+
+---
+
+## ✅ 2026-07-23 晚 补5项修复上线闭环
+
+> P1-新-C 阶段1 上线后收尾 5 项修复，主控 curl 三站点验证全绿。详见 `NOTES.md §48 小节AZ5`。
+
+- commits：`04f69fb7`（fix）+ `01ddf8af`（build min 破缓存），已 push main（639dbf0e..01ddf8af fast-forward）。数据 `f93a2066` data update [backfill] 2026-07-23_21:07，`etf_score_list.json` 含 H3/L2。版本号 `8428a4d1`。
+1. ✅ **alert_score.py H3/L2 ETF 专属信号**：L435 `_compute_etf_buy_sell_signals` 复用 signals.py `_rsi/_bollinger/_macd` 现算，L564 `compute_target_dims` ETF 分支调用。解决 P1-新-C 风险点 5「ETF 无 6 色信号 H3/L2 缺省」
+2. ✅ **chip flex:1 三等分撑满**（style.css L375）：`.signal-chip-row .signal-chip { flex: 1 1 0; ... }` 3 等分，移动端 L378-379 恢复横滚
+3. ✅ **模拟回测按钮挪 chip 后独立 DOM**（app.js L1296-1316）：新增 `_simBtnHtml` + `_prependSimBtn`，CSS 改 `.sim-btn`，放 chip-row 后
+4. ✅ **指数筛选 loading 提示**（app.js L1892-1931）：加载中显 spinner + "加载指数数据中…"，无数据显"📊 该筛选暂无数据"
+5. ✅ **注释修正**（app.js L437-438）：三元组去重说明 scenario+path+win（原二元组致 18/19 缺"回撤最小"）
