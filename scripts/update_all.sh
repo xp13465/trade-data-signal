@@ -111,6 +111,12 @@ echo "-> 预警分析快照（alert_analyze 40 宽基+行业）..." | tee -a "$L
 "$PY" "$REPO/scripts/export_alert_analyze.py" >> "$LOG" 2>&1 || \
   echo "⚠ export_alert_analyze 失败（不阻塞主流程）" | tee -a "$LOG"
 
+# P1-新-C ETF买卖清单：12 国家队 ETF 评分排序 -> etf_score_list.json (+ .gz)
+# 跟随 alert 每日重算（买卖清单应每日最新），约15s，失败不阻塞；口径同 export_alert
+echo "-> ETF 评分清单（etf_score_list 12 国家队）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_etf_score_list.py" >> "$LOG" 2>&1 || \
+  echo "⚠ export_etf_score_list 失败（不阻塞主流程）" | tee -a "$LOG"
+
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
 
