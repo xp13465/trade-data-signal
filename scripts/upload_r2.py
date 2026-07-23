@@ -15,6 +15,11 @@ import os, sys, hashlib, hmac, http.client, datetime, ssl
 from pathlib import Path
 from urllib.parse import urlparse, quote
 
+# stdout 行缓冲:遇换行就 flush,防止 `| tee -a` 管道时 block-buffered
+# 致 industry(268文件~10分钟)等长任务日志静默被误判卡死。
+# Python 3.7+ 支持。覆盖 intraday/deploy/手动所有调用场景。
+sys.stdout.reconfigure(line_buffering=True)
+
 ROOT = Path(__file__).resolve().parent.parent
 # 静态数据目录：优先用 REPO env(launchd 设 trade-data,采集器写此处),
 # 回退 ROOT(trade)。trade-data/scripts 是 trade/scripts 的 symlink,
