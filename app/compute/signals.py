@@ -451,6 +451,20 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
                 "enabled": True,
             }
 
+    # 降回撤方案B 第三层叠加 per-index（小节AV C1，sh 用 C1|D1a 叠加替代原豁免，非 sh 保持方案 B）
+    if raw == "sh":
+        # sh 专属 C1|D1a 公式来自 L940-953，实测数据来自 L945-947 注释
+        buy_special_filter_text = (
+            "sh 专属 C1|D1a 叠加（替代原 sh 豁免）："
+            "C1 高波动/距高点远(atr_pct>=2.5% OR dist_from_high>=15%) + D1a 中档共振补刀(atr_pct∈[1.8%,2.5%) AND dist_from_low60>15% AND dev_ma60>1.05)；"
+            "sh 实测(vs 单 C1)：612->503 保留82.2%，peak(<-10%) 7.35%->5.58%(-1.78pp)，mdd -3.72%->-2.65%(改善1.07pp)，"
+            "ret20 +6.29%->+4.31%(损1.96pp可接受)，keep 67.7%，Jaccard 重叠率30.8%(C1 与 D1a 互补性强)"
+        )
+    else:
+        # 非 sh 方案B 公式来自 L939（其他 9 指数继续方案 B 不变，均有改善或微损可接受）
+        buy_special_filter_text = (
+            f"非 sh 方案B 第三层叠加（{raw}）：atr_pct>=2.5% OR dist_from_low60>30%（高波动/涨多顶部过滤，命中日不发也不更新游标）"
+        )
     buy_special_detail = {
         "desc": "唐奇安 20 日上轨突破 + B4 5日站稳确认（2%容差）+ h5/R2 真过滤（C+C12+E2+量价背离收紧）",
         "params": (
@@ -461,7 +475,7 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
         ),
         "filter": (
             "全局统一（所有指数均启用）；h5 R2 真过滤上线（尖尖逃顶方案A，命中日直接 drop 不 append）；"
-            "降回撤方案B 第三层叠加（非 sh：atr_pct>=2.5% OR dist_from_low60>30%；sh 专属 C1|D1a：atr_pct>=2.5% OR dist_from_high>=15%）"
+            + buy_special_filter_text
         ),
         "enabled": True,
     }
@@ -511,7 +525,12 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
             + (f"（{raw} per-index 覆盖为 4.5，更宽止损线降 24% 信号数，套牢率 48.3%->46.1%）" if atr_mult != 3.5 else "（默认 3.5）")
             + "；hh20=high.rolling(20).max().shift(1)（不含当日）"
         ),
-        "filter": "全局统一；首次跌破触发（today below AND prev NOT below，astype(bool) 强制布尔取反，避免连续标）；与 buy 独立无配对 entry",
+        "filter": (
+            "全局统一；首次跌破触发（today below AND prev NOT below，astype(bool) 强制布尔取反，避免连续标）；与 buy 独立无配对 entry；"
+            "第一个止损卖过滤(小节AE):每个 buy 后窗口内只保留第一个止损卖(all_buy_dates 排序,window_end=下一buy,stops_in_window[0]),"
+            "降幅 83-88%,盈亏比 5/5 全升(hs300 0.961->1.098,sh 0.919->1.038 突破1.0)；"
+            "同日叠加过滤:buy 日不触发止损(sell_stop_set 排除 buy_dates_set),避免买点同时止损矛盾"
+        ),
         "enabled": True,
     }
 

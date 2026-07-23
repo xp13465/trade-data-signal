@@ -23,7 +23,9 @@ range 处理方案（备注）：
 """
 import gzip
 import json
+import os
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1426,6 +1428,25 @@ def main():
             _dst.write(_src.read())
         _gz_count += 1
     print(f"  批量 gzip: {_gz_count} 个 JSON -> .gz（含子目录 lab/ 等，rglob 递归）")
+
+    # 生成文件后自动走 R2 优化（用户规则：不等超 300MB 才发起）
+    # EXPORT_SKIP_R2=1 时跳过（deploy.sh/intraday_snapshot.sh 自己跑 R2，避免重复）
+    if os.environ.get("EXPORT_SKIP_R2") != "1":
+        print("\n-> 自动上传 R2 (EXPORT_SKIP_R2=1 可跳过)...", flush=True)
+        for _cmd in ["upload-lab", "upload-trade-sim-json", "upload-index", "upload-industry"]:
+            try:
+                _r = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts/upload_r2.py"), _cmd],
+                    env={**os.environ, "REPO": str(ROOT)},
+                    capture_output=True, text=True, timeout=300)
+                print(f"  {_cmd}: rc={_r.returncode}", flush=True)
+                if _r.stderr and _r.returncode != 0:
+                    print(f"    stderr: {_r.stderr[:200]}", flush=True)
+            except subprocess.TimeoutExpired:
+                print(f"  {_cmd}: 超时(300s)跳过", flush=True)
+            except Exception as _e:  # noqa: BLE001
+                print(f"  {_cmd}: 异常 {_e}", flush=True)
+        print("-> R2 上传完成(失败不阻塞)", flush=True)
 
 
 if __name__ == "__main__":

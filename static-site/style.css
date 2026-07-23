@@ -358,7 +358,8 @@ main { padding: 16px 24px; }
    四档样式：strong（金/年化最高）+ steady（蓝/最稳健）+ lowdraw（绿/回撤最小）+ 状态（loading/error）。
    删旧 signal-chip-weak（灰/备买弱势区），改读 trade_sim JSON 实时算 3 档。
    参照 .card-time-badge 的 color/border/background 半透明模式，内联 pill 样式。 */
-.signal-chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle; white-space: nowrap; cursor: help; }
+/* white-space: pre-line 让 chip val 两行(&#10; 换行)真正换行显示,防中文窗口名(近1年/近3年等)溢出单行;2026-07-23 中文化配套 */
+.signal-chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle; white-space: pre-line; cursor: help; }
 .signal-chip-strong { color: #ffd700; border: 1px solid rgba(255,215,0,0.5); background: rgba(255,215,0,0.18); }
 .signal-chip-steady { color: #1c6dbf; border: 1px solid rgba(28,109,191,0.5); background: rgba(28,109,191,0.15); }
 .signal-chip-lowdraw { color: #2e8b57; border: 1px solid rgba(46,139,87,0.5); background: rgba(46,139,87,0.15); }

@@ -71,6 +71,74 @@ ETF_BY_CODE = {c: (n, idx, mkt) for c, n, idx, mkt in ETF_LIST}
 SH_CODES = [c for c, _, _, m in ETF_LIST if m == "sh"]
 SZ_CODES = [c for c, _, _, m in ETF_LIST if m == "sz"]
 
+
+# ── 阶段2: 全市场 ETF 清单（A股股票型,排除跨境/固收/商品）─────────────────────────
+_UNIVERSE_CACHE: list[tuple[str, str, str]] | None = None  # [(code, name, mkt)]
+
+
+def _etf_market(code: str) -> str:
+    """从 ETF 代码前缀判断市场 sh/sz。
+    沪: 510xxx/511xxx/512xxx/513xxx/515xxx/516xxx/517xxx/518xxx/560xxx/561xxx/562xxx/563xxx/588xxx
+    深: 159xxx/150xxx/164xxx/161xxx/163xxx/165xxx
+    """
+    if code.startswith(("51", "56", "58")):
+        return "sh"
+    if code.startswith(("15", "16")):
+        return "sz"
+    return ""  # 未知市场,fetch_etf_ohlc 主源 sina 跳过,走 mootdx fallback
+
+
+def universe_etf_codes(refresh: bool = False) -> list[tuple[str, str, str]]:
+    """阶段2: 全市场 A股股票型 ETF 清单（排除跨境/固收/商品/海外）。
+    数据源: akshare.fund_etf_fund_daily_em() 返回全市场 ETF 实时列表,
+    过滤 类型=='指数型-股票' (排除 '指数型-海外股票'/'指数型-固收'/'指数型-其他')。
+    返回 [(code, name, mkt)] 列表,首次调用缓存后续复用。
+
+    用途:
+    - export_etf_score_list.py 阶段2 扩到全市场 AI评分清单
+    - pipeline_daily/backfill OHLC 部分遍历此清单（份额/持有人仍走 ETF_LIST 国家队专属）
+
+    refresh=True 强制重拉（用于每日清单更新:新发ETF自动纳入,退市ETF自动剔除）。
+    """
+    global _UNIVERSE_CACHE
+    if _UNIVERSE_CACHE and not refresh:
+        return _UNIVERSE_CACHE
+    try:
+        throttle()
+        df = safe_call(ak.fund_etf_fund_daily_em)
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            # 拉失败降级到 ETF_LIST 12 国家队,不阻塞
+            print(f"  [universe] akshare fund_etf_fund_daily_em 返空,降级到 ETF_LIST 12 只",
+                  flush=True)
+            _UNIVERSE_CACHE = [(c, n, m) for c, n, _, m in ETF_LIST]
+            return _UNIVERSE_CACHE
+        # 过滤 A股股票型 ETF
+        df = df[df["类型"].astype(str).str.strip() == "指数型-股票"].copy()
+        out: list[tuple[str, str, str]] = []
+        for _, row in df.iterrows():
+            code = str(row["基金代码"]).strip()
+            name = str(row.get("基金简称", code)).strip()
+            mkt = _etf_market(code)
+            if not mkt:  # 未知市场前缀跳过(如北交所 87xxx/57xxx)
+                continue
+            out.append((code, name, mkt))
+        # 排序: 沪市优先,代码升序
+        out.sort(key=lambda x: (x[2] != "sh", x[0]))
+        _UNIVERSE_CACHE = out
+        print(f"  [universe] 全市场 A股股票型 ETF {len(out)} 只 (sh={sum(1 for _,_,m in out if m=='sh')}"
+              f" sz={sum(1 for _,_,m in out if m=='sz')})", flush=True)
+        return out
+    except Exception as e:  # noqa: BLE001
+        print(f"  [universe] 拉全市场 ETF 失败: {type(e).__name__}: {e},降级到 ETF_LIST 12 只",
+              flush=True)
+        _UNIVERSE_CACHE = [(c, n, m) for c, n, _, m in ETF_LIST]
+        return _UNIVERSE_CACHE
+
+
+def is_national_team(code: str) -> bool:
+    """判断 ETF 代码是否属于 12 国家队宽基清单(ETF_LIST)。"""
+    return code in ETF_BY_CODE
+
 # ── v2: cninfo PDF 解析汇金/证金具名持有人 ──────────────────────────────────────
 # cninfo 公告查询 API（巨潮资讯网）
 CNINFO_ANNOUNCE_URL = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
@@ -147,6 +215,9 @@ CREATE TABLE IF NOT EXISTS etf_daily (
   date TEXT NOT NULL,
   etf_code TEXT NOT NULL,
   etf_name TEXT,
+  open REAL,                  -- 开盘价（阶段2 新增,OHLC 完整化供 H3/L2 信号）
+  high REAL,                  -- 最高价（同上）
+  low REAL,                   -- 最低价（同上）
   close REAL,
   amount REAL,                -- 成交额（元）
   fund_share REAL,            -- 基金份额（份）
@@ -156,6 +227,9 @@ CREATE TABLE IF NOT EXISTS etf_daily (
 );
 CREATE INDEX IF NOT EXISTS idx_etf_daily_code ON etf_daily(etf_code);
 CREATE INDEX IF NOT EXISTS idx_etf_daily_date ON etf_daily(date);
+
+-- 阶段2 新增: 旧库升级加 OHLC 列（ALTER TABLE 幂等,已存在则跳过）
+-- init_db() 里 _migrate_etf_daily_ohlc() 调用。
 
 CREATE TABLE IF NOT EXISTS etf_signal (
   date TEXT NOT NULL,
@@ -211,8 +285,25 @@ def get_conn() -> sqlite3.Connection:
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
+    _migrate_etf_daily_ohlc(conn)
     conn.commit()
+    # 强制 checkpoint 把 ALTER TABLE DDL 持久化到主 DB
+    # (WAL 损坏会回滚未 checkpoint 的数据,DDL 也不例外;阶段2 事故:任务跑 530 只时
+    #  WAL 损坏致 open/high/low 列丢失,后续 INSERT 报 no such column: open)
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     conn.close()
+
+
+def _migrate_etf_daily_ohlc(conn) -> None:
+    """阶段2: 旧 etf_daily 表升级加 open/high/low 列（幂等,已存在则跳过）。
+    SQLite 不支持 IF NOT EXISTS for ADD COLUMN, 需先查现有列。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(etf_daily)").fetchall()}
+    for col in ("open", "high", "low"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE etf_daily ADD COLUMN {col} REAL")
+            print(f"  [migrate] etf_daily 加列 {col} REAL", flush=True)
+    conn.commit()  # 立即 commit DDL,防 WAL 回滚丢列
 
 
 def _acquire_lock(nonblock: bool = True) -> bool:
@@ -285,8 +376,9 @@ def fetch_etf_ohlc(code: str, start_yyyymmdd: str = DEFAULT_START, client=None) 
     """
     out: list[dict] = []
     # ── 主源: akshare fund_etf_hist_sina（新浪）─────────────────────
-    # ETF_BY_CODE[code] = (name, idx, mkt)；fund_etf_hist_sina 需要前缀 sh/sz
-    mkt = ETF_BY_CODE.get(code, (None, None, ""))[2]
+    # 阶段2: 从代码前缀判断 sh/sz,不依赖 ETF_BY_CODE(全市场 ETF 不在 12 清单里)
+    # fund_etf_hist_sina 需要前缀 sh/sz
+    mkt = ETF_BY_CODE.get(code, (None, None, ""))[2] or _etf_market(code)
     if mkt:
         try:
             throttle()
@@ -827,23 +919,31 @@ def pipeline_daily() -> dict:
     recent = recent[-6:] if len(recent) >= 6 else recent
     stats = {"ohlc": 0, "sse": 0, "szse": 0, "signals": 0}
 
-    # 1. mootdx OHLC（每只ETF拉近800根覆盖近5日，复用 client 避免每只重新选服务器）
+    # 1. sina/mootdx OHLC（阶段2: 遍历全市场 universe_etf_codes,每只ETF拉近15日覆盖近5日）
+    #    阶段2 新增 open/high/low 字段,fetcher 返回的 OHLC 全量入库
     from .mootdx_daily import tdx_client
-    _tdx = tdx_client(market="std")
-    for code, _, _, _ in ETF_LIST:
+    _tdx = tdx_client(market="std")  # fallback mootdx 复用 client 避免每只重新选服务器
+    universe = universe_etf_codes(refresh=True)  # 每日刷新清单(新发ETF自动纳入)
+    n_done = 0
+    for code, name, _mkt in universe:
         try:
             rows = fetch_etf_ohlc(code, start_yyyymmdd=(dt.datetime.now() - dt.timedelta(days=15)).strftime("%Y%m%d"), client=_tdx)
             # 只取近5交易日
             recent_set = set(recent)
             rows = [r for r in rows if r["date"] in recent_set]
-            # 取交易所返回的简称
-            name = _etf_name_from_mootdx(code)
+            # ETF 简称:优先用 universe 拉的 fund_etf_fund_daily_em 简称(实时),
+            # mootdx fallback 返回的 rows 里没 name 字段,补上
             for r in rows:
                 r["etf_name"] = name
-            n = _upsert_daily(conn, rows, ["etf_name", "close", "amount"])
+            n = _upsert_daily(conn, rows, ["etf_name", "open", "high", "low", "close", "amount"])
             stats["ohlc"] += n
         except Exception as e:  # noqa: BLE001
             print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+        n_done += 1
+        if n_done % 200 == 0:
+            print(f"  OHLC 进度 {n_done}/{len(universe)} 只, 累计入库 {stats['ohlc']} 行",
+                  flush=True)
+    print(f"  OHLC 全市场 {n_done} 只完成, 入库 {stats['ohlc']} 行", flush=True)
 
     # 2. SSE 沪市份额（近5日逐日）
     for d in recent:
@@ -873,6 +973,69 @@ def pipeline_daily() -> dict:
     dt_sec = time.time() - t0
     print(f"[etf_nt] daily 完成 {dt_sec:.1f}s: ohlc={stats['ohlc']} sse={stats['sse']} "
           f"szse={stats['szse']} signals={stats['signals']}", flush=True)
+    return stats
+
+
+# ── Pipeline: intraday 收盘后采 ETF close 触发汪汪队预估 ─────────────────────────
+# 背景:汪汪队预估前端逻辑(app.js L5130 lastChgMissing=last.chgNull;L5140 if(lastChgMissing) 预估)
+#   末日 share_change=NULL(=share_change_yi undefined)才触发预估。
+#   原问题:backfill 只在 20:07/21:30 跑,15:00 收盘到 20:07 这 5 小时 -1m.json 末日还是昨日
+#   (share 已发,share_change 非空),lastChgMissing=false,预估不触发(每天约 20 小时不触发)。
+#   修复:intraday_snapshot.sh 15:35 收盘后顺便采 12 国家队 ETF 当日 close(不采 share,T+1 没发),
+#   生成末日 share_change=NULL -> export -1m.json -> 前端 lastChgMissing=true -> 预估提前 5 小时触发。
+#   复用 fetch_etf_ohlc(主源 sina,fallback mootdx)+ _upsert_daily + recompute_all_signals + export_json_files。
+def pipeline_intraday_close() -> dict:
+    """15:35 收盘后采 12 国家队 ETF 当日 close(不采 share,T+1 次日才发),
+    生成末日 share_change=NULL -> 前端预估触发。
+
+    时点:15:35 后跑,sina/mootdx 应已出当日 close;若未出当日 close 不入库,
+    末日仍为昨日(share 已发,预估不触发,等 20:07 backfill 兜底)。
+    复用 pipeline_daily 的 fetcher/_upsert_daily/recompute/export 链路。
+    """
+    from ..calendar import last_trading_day
+    print(f"[etf_nt] intraday-close 开始 {dt.datetime.now():%Y-%m-%d %H:%M:%S}", flush=True)
+    t0 = time.time()
+    conn = get_conn()
+    ltd = last_trading_day()  # 15:35 后交易日返回今日;非交易日返回上个交易日(节假日 intraday_snapshot 已跳过,此分支不会到)
+    print(f"  目标日期={ltd}(当日 close,share T+1 未发留 NULL 触发预估)", flush=True)
+    stats = {"ohlc": 0, "signals": 0}
+
+    # 复用 mootdx client(fallback 时避免每只ETF重新选服务器)
+    from .mootdx_daily import tdx_client
+    _tdx = tdx_client(market="std")
+    for code, name, _idx, _mkt in ETF_LIST:
+        try:
+            rows = fetch_etf_ohlc(code, start_yyyymmdd=ltd, client=_tdx)
+            # 只取当日那一行(fetcher 返回 >=ltd 的全历史,过滤当日)
+            rows = [r for r in rows if r["date"] == ltd]
+            if not rows:
+                print(f"  {code} {name}: 当日({ltd}) close 未采到(sina/mootdx 未出,跳过)",
+                      flush=True)
+                continue
+            for r in rows:
+                r["etf_name"] = name
+            # upsert close/open/high/low/amount;fund_share/share_change 不写保持 NULL
+            n = _upsert_daily(conn, rows, ["etf_name", "open", "high", "low", "close", "amount"])
+            stats["ohlc"] += n
+            print(f"  {code} {name}: close={rows[0]['close']:.4f} amount={rows[0]['amount']:.0f} 入库",
+                  flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+
+    # 重算 share_change + 信号
+    # compute_share_change 只遍历 fund_share IS NOT NULL 的行,末日 fund_share=NULL 被跳过
+    #   -> share_change 保持 NULL -> export 末日 share_change_yi 不存在 -> 前端 chgNull=true 预估触发
+    # compute_signals 末日 share_change=NaN -> z=NaN -> 不触发 share_surge/outflow;
+    #   vol_ratio 可能>2 -> 触发 volume_surge(amount 放量,真实信号,与预估触发不冲突)
+    stats["signals"] = recompute_all_signals(conn)
+    conn.close()
+
+    # 导出 JSON(包括 -1m.json 末日 share_change_yi 不存在 -> 前端预估触发)
+    export_json_files()
+
+    dt_sec = time.time() - t0
+    print(f"[etf_nt] intraday-close 完成 {dt_sec:.1f}s: ohlc={stats['ohlc']} signals={stats['signals']}",
+          flush=True)
     return stats
 
 
@@ -915,22 +1078,31 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
     today = dt.datetime.now().strftime("%Y%m%d")
     stats = {"ohlc": 0, "holders": 0, "sse": 0, "szse": 0, "signals": 0}
 
-    # 1. mootdx OHLC（每只ETF全历史, 老牌如510050上市2005需翻页7次, 复用 client 提速）
-    print(f"[etf_nt] 1/4 OHLC（mootdx, 12只ETF）...", flush=True)
+    # 1. sina/mootdx OHLC（阶段2: 遍历全市场 universe_etf_codes,每只ETF全历史）
+    #    sina fund_etf_hist_sina 返全历史(不传 start/end),0.3s/只,1497只 ≈ 7 分钟
+    #    阶段2 新增 open/high/low 字段,fetcher 返回的 OHLC 全量入库
+    universe = universe_etf_codes(refresh=True)
+    print(f"[etf_nt] 1/4 OHLC（sina+mootdx, 全市场 {len(universe)} 只 ETF）...", flush=True)
     from .mootdx_daily import tdx_client
     _tdx = tdx_client(market="std")
-    for code, _, _, _ in ETF_LIST:
+    n_done = 0
+    for code, name, _mkt in universe:
         try:
             rows = fetch_etf_ohlc(code, start_yyyymmdd=start, client=_tdx)
-            _fetch_and_store_name(conn, code, rows)
-            name = _MOOTDX_NAME_CACHE[code]
+            # ETF 简称:优先 universe fund_etf_fund_daily_em 简称;国家队清单 ETF 用易记名
+            if code in ETF_BY_CODE:
+                name = ETF_BY_CODE[code][0]
             for r in rows:
                 r["etf_name"] = name
-            n = _upsert_daily(conn, rows, ["etf_name", "close", "amount"])
+            n = _upsert_daily(conn, rows, ["etf_name", "open", "high", "low", "close", "amount"])
             stats["ohlc"] += n
-            print(f"  {code} {name}: {n} 行 OHLC", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+        n_done += 1
+        if n_done % 200 == 0:
+            print(f"  OHLC 进度 {n_done}/{len(universe)} 只, 累计入库 {stats['ohlc']} 行",
+                  flush=True)
+    print(f"  OHLC 全市场 {n_done} 只完成, 入库 {stats['ohlc']} 行", flush=True)
 
     # 2. 持有人结构（东财直爬，12只×1s限流）
     print(f"[etf_nt] 2/4 持有人结构（东财, 12只）...", flush=True)
@@ -1408,9 +1580,9 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "daily"
-    if cmd in ("daily", "backfill", "signals", "holders", "holders_v2", "export"):
-        # 进程互斥（daily/backfill/holders 持锁跑，signals/export/holders_v2 不需要锁）
-        if cmd in ("daily", "backfill", "holders"):
+    if cmd in ("daily", "backfill", "signals", "holders", "holders_v2", "export", "intraday-close"):
+        # 进程互斥（daily/backfill/holders/intraday-close 持锁跑，signals/export/holders_v2 不需要锁）
+        if cmd in ("daily", "backfill", "holders", "intraday-close"):
             if not _acquire_lock(nonblock=True):
                 print(f"[etf_nt] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
                 return
@@ -1434,11 +1606,14 @@ def main():
             export_json_files()
         elif cmd == "export":
             export_json_files()
+        elif cmd == "intraday-close":
+            pipeline_intraday_close()
     else:
         print(__doc__)
         print(f"\n用法: python -m app.collector.etf_national_team <command>")
         print(f"  backfill --start 20230101   全量回填")
         print(f"  daily                       当日增量")
+        print(f"  intraday-close              15:35 收盘后采 ETF close(末日 share_change=NULL 触发预估)")
         print(f"  signals                     重算信号")
         print(f"  holders                     只拉持有人(半年一次)")
         print(f"  holders_v2                  v2 cninfo PDF解析汇金/证金具名持有人")

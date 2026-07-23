@@ -16,6 +16,11 @@
 set -u
 # 不 set -e：每步显式判退出码，出错给清晰错误信息。
 
+# export.py 末尾会自动走 R2 上传（用户规则：生成文件后直接走，不等超 300MB）。
+# deploy.sh L123 自己跑 upload_r2.py 4 命令，故此处设 EXPORT_SKIP_R2=1 让 export.py 跳过，
+# 避免重复跑 R2（deploy.sh 调 export.py 后自己跑 R2，重复上传浪费时间+带宽）。
+export EXPORT_SKIP_R2=1
+
 REPO="${REPO:-/Users/linhuichen/code/trade}"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init,采集后 rsync 到 trade 上线)
 PY="$REPO/.venv/bin/python"

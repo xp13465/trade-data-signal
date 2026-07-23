@@ -1,14 +1,174 @@
 {
   "date": "20260722",
-  "updated_at": "2026-07-23T19:56:14",
-  "source": "代表性 ETF 清单 (5 只: 核心宽基12+行业~30+主题~20) - 阶段2",
-  "universe_count": 5,
+  "updated_at": "2026-07-23T19:59:43",
+  "source": "代表性 ETF 清单 (62 只: 核心宽基12+行业~30+主题~20) - 阶段2",
+  "universe_count": 62,
   "full_market": false,
   "buy_top": 20,
   "sell_top": 30,
-  "fetch_count": 0,
-  "skip_count": 0,
+  "fetch_count": 3,
+  "skip_count": 59,
   "buy_list": [
+    {
+      "etf_code": "515030",
+      "name": "新能源车ETF",
+      "score": 90.16,
+      "hands": 3,
+      "high_alert": 21.18,
+      "low_alert": 90.16,
+      "is_national_team": false,
+      "reason_summary": "多维度冰点共振,机会显著,关注超跌反弹,留意布局机会;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "515790",
+      "name": "光伏ETF",
+      "score": 89.47,
+      "hands": 3,
+      "high_alert": 24.81,
+      "low_alert": 89.47,
+      "is_national_team": false,
+      "reason_summary": "多维度冰点共振,机会显著,关注超跌反弹,留意布局机会;主要风险来自买点密集+情绪冰点"
+    },
+    {
+      "etf_code": "159755",
+      "name": "电池ETF",
+      "score": 89.17,
+      "hands": 3,
+      "high_alert": 21.56,
+      "low_alert": 89.17,
+      "is_national_team": false,
+      "reason_summary": "多维度冰点共振,机会显著,关注超跌反弹,留意布局机会;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "159775",
+      "name": "碳中和ETF",
+      "score": 88.76,
+      "hands": 3,
+      "high_alert": 21.89,
+      "low_alert": 88.76,
+      "is_national_team": false,
+      "reason_summary": "多维度冰点共振,机会显著,关注超跌反弹,留意布局机会;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "562990",
+      "name": "物流ETF",
+      "score": 84.61,
+      "hands": 3,
+      "high_alert": 26.82,
+      "low_alert": 84.61,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自买点密集+情绪冰点"
+    },
+    {
+      "etf_code": "562500",
+      "name": "机器人ETF",
+      "score": 82.17,
+      "hands": 3,
+      "high_alert": 27.92,
+      "low_alert": 82.17,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "512660",
+      "name": "军工ETF",
+      "score": 80.95,
+      "hands": 3,
+      "high_alert": 19.04,
+      "low_alert": 80.95,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "159845",
+      "name": "1000ETF华夏",
+      "score": 80.71,
+      "hands": 3,
+      "high_alert": 24.7,
+      "low_alert": 80.71,
+      "is_national_team": true,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "512100",
+      "name": "1000ETF南方",
+      "score": 80.54,
+      "hands": 3,
+      "high_alert": 23.02,
+      "low_alert": 80.54,
+      "is_national_team": true,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "512980",
+      "name": "传媒ETF",
+      "score": 79.97,
+      "hands": 3,
+      "high_alert": 33.76,
+      "low_alert": 79.97,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自买点密集+位置偏低"
+    },
+    {
+      "etf_code": "159870",
+      "name": "化工ETF",
+      "score": 78.01,
+      "hands": 3,
+      "high_alert": 35.11,
+      "low_alert": 78.01,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自买点密集+情绪冰点"
+    },
+    {
+      "etf_code": "512680",
+      "name": "国防ETF",
+      "score": 77.78,
+      "hands": 3,
+      "high_alert": 19.82,
+      "low_alert": 77.78,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "159996",
+      "name": "家电ETF",
+      "score": 77.51,
+      "hands": 3,
+      "high_alert": 26.67,
+      "low_alert": 77.51,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自位置偏低+买点密集"
+    },
+    {
+      "etf_code": "159995",
+      "name": "芯片ETF",
+      "score": 77.03,
+      "hands": 3,
+      "high_alert": 19.49,
+      "low_alert": 77.03,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自情绪冰点+买点密集"
+    },
+    {
+      "etf_code": "159790",
+      "name": "央企ETF",
+      "score": 76.44,
+      "hands": 3,
+      "high_alert": 23.27,
+      "low_alert": 76.44,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自买点密集+情绪冰点"
+    },
+    {
+      "etf_code": "512480",
+      "name": "半导体ETF",
+      "score": 76.29,
+      "hands": 3,
+      "high_alert": 20.22,
+      "low_alert": 76.29,
+      "is_national_team": false,
+      "reason_summary": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自情绪冰点+买点密集"
+    },
     {
       "etf_code": "510500",
       "name": "500ETF南方",
@@ -20,47 +180,137 @@
       "reason_summary": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自情绪冰点+买点密集"
     },
     {
-      "etf_code": "159919",
-      "name": "300ETF嘉实",
-      "score": 67.71,
-      "hands": 2,
-      "high_alert": 46.98,
-      "low_alert": 67.71,
-      "is_national_team": true,
-      "reason_summary": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自买点密集+情绪冰点"
+      "etf_code": "515210",
+      "name": "钢铁ETF",
+      "score": 72.61,
+      "hands": 3,
+      "high_alert": 35.79,
+      "low_alert": 72.61,
+      "is_national_team": false,
+      "reason_summary": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自买点密集+位置偏低"
     },
     {
-      "etf_code": "510300",
-      "name": "300ETF华泰柏瑞",
-      "score": 65.68,
-      "hands": 2,
-      "high_alert": 48.87,
-      "low_alert": 65.68,
+      "etf_code": "159922",
+      "name": "500ETF嘉实",
+      "score": 71.34,
+      "hands": 3,
+      "high_alert": 39.93,
+      "low_alert": 71.34,
       "is_national_team": true,
-      "reason_summary": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自买点密集+汪汪队入场"
+      "reason_summary": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自情绪冰点+买点密集"
     },
     {
-      "etf_code": "510050",
-      "name": "50ETF华夏",
-      "score": 54.97,
-      "hands": 1,
-      "high_alert": 56.55,
-      "low_alert": 54.97,
-      "is_national_team": true,
-      "reason_summary": "低位机会指标处于中性区间,暂无明显冰点信号,但 L2 买点密集/L4 汪汪队入场 有命中,整体加权后未达关注线"
-    },
-    {
-      "etf_code": "510310",
-      "name": "300ETF易方达",
-      "score": 54.27,
-      "hands": 1,
-      "high_alert": 47.21,
-      "low_alert": 54.27,
-      "is_national_team": true,
-      "reason_summary": "低位机会指标处于中性区间,暂无明显冰点信号,但 L2 买点密集/L1 情绪冰点 有命中,整体加权后未达关注线"
+      "etf_code": "512200",
+      "name": "房地产ETF",
+      "score": 70.68,
+      "hands": 3,
+      "high_alert": 34.74,
+      "low_alert": 70.68,
+      "is_national_team": false,
+      "reason_summary": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自位置偏低+买点密集"
     }
   ],
   "sell_list": [
+    {
+      "etf_code": "159992",
+      "name": "创新药ETF华宝",
+      "score": 72.49,
+      "high_alert": 72.49,
+      "low_alert": 19.91,
+      "sell_signal": "建议卖出(过热)",
+      "is_national_team": false,
+      "reason_summary": "市场偏热,部分指标进入高位区,留意风险,谨慎追高;主要风险来自情绪过热+位置偏高"
+    },
+    {
+      "etf_code": "515120",
+      "name": "创新药ETF",
+      "score": 72.43,
+      "high_alert": 72.43,
+      "low_alert": 19.87,
+      "sell_signal": "建议卖出(过热)",
+      "is_national_team": false,
+      "reason_summary": "市场偏热,部分指标进入高位区,留意风险,谨慎追高;主要风险来自情绪过热+位置偏高"
+    },
+    {
+      "etf_code": "159929",
+      "name": "医药ETF汇添富",
+      "score": 69.41,
+      "high_alert": 69.41,
+      "low_alert": 25.23,
+      "sell_signal": "观察(过热风险)",
+      "is_national_team": false,
+      "reason_summary": "市场偏热,部分指标进入高位区,留意风险,谨慎追高;主要风险来自情绪过热+卖点密集"
+    },
+    {
+      "etf_code": "512010",
+      "name": "医药ETF",
+      "score": 69.31,
+      "high_alert": 69.31,
+      "low_alert": 27.15,
+      "sell_signal": "观察(过热风险)",
+      "is_national_team": false,
+      "reason_summary": "市场偏热,部分指标进入高位区,留意风险,谨慎追高;主要风险来自情绪过热+卖点密集"
+    },
+    {
+      "etf_code": "512800",
+      "name": "银行ETF",
+      "score": 67.76,
+      "high_alert": 67.76,
+      "low_alert": 27.65,
+      "sell_signal": "观察(过热风险)",
+      "is_national_team": false,
+      "reason_summary": "市场偏热,部分指标进入高位区,留意风险,谨慎追高;主要风险来自情绪过热+位置偏高"
+    },
+    {
+      "etf_code": "510880",
+      "name": "红利ETF",
+      "score": 63.69,
+      "high_alert": 63.69,
+      "low_alert": 26.64,
+      "sell_signal": "观察(过热风险)",
+      "is_national_team": false,
+      "reason_summary": "市场偏热,部分指标进入高位区,留意风险,谨慎追高;主要风险来自情绪过热+位置偏高"
+    },
+    {
+      "etf_code": "512170",
+      "name": "医疗ETF",
+      "score": 62.83,
+      "high_alert": 62.83,
+      "low_alert": 35.26,
+      "sell_signal": "观察(过热风险)",
+      "is_national_team": false,
+      "reason_summary": "市场偏热,部分指标进入高位区,留意风险,谨慎追高;主要风险来自情绪过热+卖点密集"
+    },
+    {
+      "etf_code": "512070",
+      "name": "非银ETF",
+      "score": 59.91,
+      "high_alert": 59.91,
+      "low_alert": 31.85,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "512890",
+      "name": "红利低波ETF",
+      "score": 58.6,
+      "high_alert": 58.6,
+      "low_alert": 28.75,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "512000",
+      "name": "券商ETF",
+      "score": 58.43,
+      "high_alert": 58.43,
+      "low_alert": 42.77,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热/H3 卖点密集 有命中,整体加权后未达关注线"
+    },
     {
       "etf_code": "510050",
       "name": "50ETF华夏",
@@ -69,6 +319,136 @@
       "low_alert": 54.97,
       "sell_signal": "持有(未过热)",
       "is_national_team": true,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "515220",
+      "name": "煤炭ETF",
+      "score": 56.11,
+      "high_alert": 56.11,
+      "low_alert": 36.72,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热/H4 位置偏高 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "515170",
+      "name": "食品饮料ETF",
+      "score": 55.78,
+      "high_alert": 55.78,
+      "low_alert": 32.3,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "159928",
+      "name": "消费ETF",
+      "score": 55.71,
+      "high_alert": 55.71,
+      "low_alert": 30.54,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "510150",
+      "name": "消费ETF汇添富",
+      "score": 55.58,
+      "high_alert": 55.58,
+      "low_alert": 27.98,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "588000",
+      "name": "科创50ETF华夏",
+      "score": 54.65,
+      "high_alert": 54.65,
+      "low_alert": 56.71,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": true,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高/H3 卖点密集 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "512690",
+      "name": "酒ETF",
+      "score": 53.67,
+      "high_alert": 53.67,
+      "low_alert": 29.0,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "588050",
+      "name": "科创50ETF工银",
+      "score": 53.45,
+      "high_alert": 53.45,
+      "low_alert": 53.97,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": true,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高/H3 卖点密集 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "159819",
+      "name": "人工智能ETF",
+      "score": 53.11,
+      "high_alert": 53.11,
+      "low_alert": 51.47,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高/H3 卖点密集 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "516510",
+      "name": "云计算ETF",
+      "score": 53.02,
+      "high_alert": 53.02,
+      "low_alert": 43.96,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "159825",
+      "name": "农业ETF",
+      "score": 52.18,
+      "high_alert": 52.18,
+      "low_alert": 41.67,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "159611",
+      "name": "电力ETF",
+      "score": 51.97,
+      "high_alert": 51.97,
+      "low_alert": 44.95,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "159766",
+      "name": "旅游ETF",
+      "score": 51.15,
+      "high_alert": 51.15,
+      "low_alert": 45.37,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "159920",
+      "name": "北证50ETF",
+      "score": 50.33,
+      "high_alert": 50.33,
+      "low_alert": 39.3,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
       "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
     },
     {
@@ -82,6 +462,36 @@
       "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高 有命中,整体加权后未达关注线"
     },
     {
+      "etf_code": "515980",
+      "name": "人工智能ETF国联",
+      "score": 47.89,
+      "high_alert": 47.89,
+      "low_alert": 54.21,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高 有命中,整体加权后未达关注线"
+    },
+    {
+      "etf_code": "512720",
+      "name": "计算机ETF",
+      "score": 47.75,
+      "high_alert": 47.75,
+      "low_alert": 52.96,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号"
+    },
+    {
+      "etf_code": "159891",
+      "name": "物联网ETF",
+      "score": 47.28,
+      "high_alert": 47.28,
+      "low_alert": 39.87,
+      "sell_signal": "持有(未过热)",
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
+    },
+    {
       "etf_code": "510310",
       "name": "300ETF易方达",
       "score": 47.21,
@@ -92,24 +502,14 @@
       "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高 有命中,整体加权后未达关注线"
     },
     {
-      "etf_code": "159919",
-      "name": "300ETF嘉实",
-      "score": 46.98,
-      "high_alert": 46.98,
-      "low_alert": 67.71,
+      "etf_code": "515080",
+      "name": "中证红利ETF",
+      "score": 47.07,
+      "high_alert": 47.07,
+      "low_alert": 40.06,
       "sell_signal": "持有(未过热)",
-      "is_national_team": true,
-      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高 有命中,整体加权后未达关注线"
-    },
-    {
-      "etf_code": "510500",
-      "name": "500ETF南方",
-      "score": 36.99,
-      "high_alert": 36.99,
-      "low_alert": 74.81,
-      "sell_signal": "持有(未过热)",
-      "is_national_team": true,
-      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H3 卖点密集 有命中,整体加权后未达关注线"
+      "is_national_team": false,
+      "reason_summary": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线"
     }
   ]
 }

@@ -447,7 +447,7 @@ var _BACKUP_CHIP_SCENARIOS_ALL = [
 var _BACKUP_CHIP_PATH_SHORT = {
   "买固定1w(10%)+卖清仓": "1w清仓",
   "全仓进出": "全仓",
-  "固定1w(10%)进出（FIFO）": "1wFIFO"
+  "固定1w(10%)进出（FIFO）": "1w先进先出"
 };
 // 三档绝对值门槛（2026-07-23 防"弱标的年化0.x%也推荐"bug）：不达标不进档，全 null 显示兜底文案。
 //   年化最高档：年化必须 >=3%（低于3%无推荐价值，不如存银行）
@@ -497,6 +497,11 @@ async function _backupSignalChipLoad(id) {
 // 算三档 chip HTML（A+B 融合方案）：遍历全 165 回测，归一化综合分排名。数据不足返回空串。
 function _backupSignalChipRender(sd) {
   if (!sd || !sd.data) return '';
+  // 窗口 key -> 中文 label 映射（优先用后端 sd.windows.l，缺失兜底硬编码；2026-07-23 chip 英文中文化）
+  var winLabel = Object.assign(
+    { y1: '近1年', y3: '近3年', y5: '近5年', y10: '近10年', all: '全史' },
+    sd.windows ? Object.fromEntries(sd.windows.map(function (w) { return [w.k, w.l]; })) : {}
+  );
   // 遍历 5 窗口 × 3 路径 × 11 场景 = 165 回测
   var allEntries = [];
   for (var wi = 0; wi < _BACKUP_CHIP_WINS.length; wi++) {
@@ -571,16 +576,18 @@ function _backupSignalChipRender(sd) {
   var bestDd = ddCandidates.length > 0
     ? ddCandidates.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; })[0]
     : null;
-  // 去重：scenario+path 组合只显 1 chip（优先级 年化>稳健>回撤）
+  // 去重：scenario+path+win 三元组只显 1 chip（优先级 年化>稳健>回撤）
+  // 2026-07-23 弱化去重（原 scenario+path 二元组致 18/19 缺档：best_dd 与 best_steady 撞同一 entry 被吞）
+  // 副作用：同 scenario+path 不同 win 可能显 2 档（信息完整优先，可视觉冗余接受）
   var used = {};
   var chips = [];
-  if (bestAnn) { chips.push({ kind: 'strong', tier: '年化最高', entry: bestAnn }); used[bestAnn.scenario + '|' + bestAnn.path] = 1; }
+  if (bestAnn) { chips.push({ kind: 'strong', tier: '年化最高', entry: bestAnn }); used[bestAnn.scenario + '|' + bestAnn.path + '|' + bestAnn.win] = 1; }
   if (bestSteady) {
-    var kS = bestSteady.scenario + '|' + bestSteady.path;
+    var kS = bestSteady.scenario + '|' + bestSteady.path + '|' + bestSteady.win;
     if (!used[kS]) { chips.push({ kind: 'steady', tier: '最稳健', entry: bestSteady }); used[kS] = 1; }
   }
   if (bestDd) {
-    var kD = bestDd.scenario + '|' + bestDd.path;
+    var kD = bestDd.scenario + '|' + bestDd.path + '|' + bestDd.win;
     if (!used[kD]) { chips.push({ kind: 'lowdraw', tier: '回撤最小', entry: bestDd }); used[kD] = 1; }
   }
   if (chips.length === 0) {
@@ -594,7 +601,7 @@ function _backupSignalChipRender(sd) {
       var w = _BACKUP_CHIP_WINS[i];
       var s = sd.data && sd.data[w] && sd.data[w][e.path] && sd.data[w][e.path][e.scenario] && sd.data[w][e.path][e.scenario].summary;
       if (s && typeof s.annualized === 'number') {
-        parts.push(w + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%');
+        parts.push(winLabel[w] + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%');
       }
     }
     return parts.join(' ');
@@ -609,7 +616,7 @@ function _backupSignalChipRender(sd) {
     } else if (c.kind === 'steady') {
       line2 = '回撤-' + e.max_drawdown.toFixed(1) + '% 胜率' + e.win_rate.toFixed(0) + '% (5窗口均稳)';
     } else {
-      line2 = e.win + '回撤-' + e.max_drawdown.toFixed(1) + '% (全维度最小)';
+      line2 = winLabel[e.win] + '回撤-' + e.max_drawdown.toFixed(1) + '% (全维度最小)';
     }
     return { line1: line1, line2: line2 };
   }
@@ -622,15 +629,22 @@ function _backupSignalChipRender(sd) {
   }).join('');
 }
 // chip tooltip：该档 scenario+path 5 窗口 summary + 全 165 该维度 Top5 + 合规文案
+// 2026-07-23 格式美化：区块分隔线 + │ 列分隔 + ⚠ 合规前缀；winLabel 本函数内自建(隔离 _backupSignalChipRender 局部作用域)
 function _backupSignalChipTip(sd, scored, chip) {
   var e = chip.entry;
-  var lines = ['【' + chip.tier + '】' + e.label + ' · ' + e.pathShort + ' · ' + e.win + ' 窗口胜出'];
+  // 窗口 key -> 中文 label 映射（优先 sd.windows.l，兜底硬编码；同 _backupSignalChipRender）
+  var winLabel = Object.assign(
+    { y1: '近1年', y3: '近3年', y5: '近5年', y10: '近10年', all: '全史' },
+    sd.windows ? Object.fromEntries(sd.windows.map(function (w) { return [w.k, w.l]; })) : {}
+  );
+  var SEP = '────────────────────';
+  var lines = ['【' + chip.tier + '】' + e.label + ' · ' + e.pathShort + ' · ' + winLabel[e.win] + ' 综合分胜出'];
   lines.push('该买点+路径在 5 窗口表现（' + e.scenario + ' · ' + e.path + '）：');
   for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
     var w = _BACKUP_CHIP_WINS[i];
     var s = sd.data && sd.data[w] && sd.data[w][e.path] && sd.data[w][e.path][e.scenario] && sd.data[w][e.path][e.scenario].summary;
     if (s) {
-      lines.push('  ' + w + ': 年化' + (s.annualized || 0).toFixed(1) + '% / 回撤' + (s.max_drawdown || 0).toFixed(1) + '% / 胜率' + (s.win_rate || 0).toFixed(0) + '% / 样本' + (s.total_ops || 0));
+      lines.push('  ' + winLabel[w] + '  年化' + (s.annualized || 0).toFixed(1) + '% │ 回撤' + (s.max_drawdown || 0).toFixed(1) + '% │ 胜率' + (s.win_rate || 0).toFixed(0) + '% │ 样本' + (s.total_ops || 0));
     }
   }
   // 全 165 该维度 Top5
@@ -645,13 +659,16 @@ function _backupSignalChipTip(sd, scored, chip) {
     top5 = scored.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; }).slice(0, 5);
     label = '回撤最小';
   }
-  lines.push('全 165 回测 ' + label + ' Top5：');
+  lines.push(SEP);
+  lines.push('全 165 回测 · ' + label + ' Top5：');
   for (var i = 0; i < top5.length; i++) {
     var t = top5[i];
-    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '·' + t.win + ': 年化' + t.annualized.toFixed(1) + '% / 回撤' + t.max_drawdown.toFixed(1) + '% / 胜率' + t.win_rate.toFixed(0) + '% / 样本' + t.total_ops);
+    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '·' + winLabel[t.win] + '  年化' + t.annualized.toFixed(1) + '% │ 回撤' + t.max_drawdown.toFixed(1) + '% │ 胜率' + t.win_rate.toFixed(0) + '% │ 样本' + t.total_ops);
   }
-  lines.push('研究参考，不构成投资建议，历史回测不代表未来。综合排名覆盖全维度（5窗口×3路径×11场景=165回测），年化最高/回撤最小为综合分排名结果（非纯极值，防小样本虚高）。');
-  // HTML attribute 里换行需转义为 &#10;（textContent 解析时还原为 \n）
+  lines.push(SEP);
+  lines.push('⚠ 研究参考，不构成投资建议 · 历史回测不代表未来');
+  lines.push('综合排名覆盖全维度（5窗口×3路径×11场景=165回测），年化最高/回撤最小为综合分排名结果（非纯极值，防小样本虚高）。');
+  // HTML attribute 里换行需转义为 &#10;（textContent 解析时还原为 \n，.term-pop white-space: pre-line 渲染换行）
   return lines.join('&#10;').replace(/"/g, '&quot;');
 }
 
@@ -1336,7 +1353,13 @@ function statsHint(stats, strategy, indexId) {
   if (freqBlocks.length) {
     freqHtml = `<div class="hint-header">📅 信号频率</div><div class="hint-blocks">${freqBlocks.join("")}</div>`;
   }
-  return stratHtml + `<div class="hint-header">回测口径：全历史信号 · 信号触发后 10 个交易日收益统计${SIM_INDICES.has(indexId) ? ` <a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>` : ''}</div>` +
+  // 模拟回测按钮挪到 3 色 chip 之后：chip-row 由 _appendBackupChipRow 插到 chart-card 的 h3 之后、
+  // chart-hint 之前，故 chart-hint 第一个元素即"chip 之后"。按钮放 hint 最前 = 紧贴 chip，
+  // 语义上 chip 是回测摘要、按钮接 chip 顺理成章（比旧位置"回测口径/10交易日/凯利"区域更贴切）
+  const simBtnHtml = SIM_INDICES.has(indexId)
+    ? `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`
+    : "";
+  return simBtnHtml + stratHtml + `<div class="hint-header">统计基准：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     freqHtml +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
