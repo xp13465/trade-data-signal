@@ -58,9 +58,9 @@
     "name": "ETF国家队",
     "schedule": "20:07 + 21:30(兜底)",
     "est_text": "约3分钟",
-    "last_run": "2026-07-22 21:30",
-    "last_exit": 0,
-    "last_duration_sec": 142
+    "last_run": "2026-07-23 20:07",
+    "last_exit": null,
+    "last_duration_sec": null
   },
   {
     "task": "lab_auto",
