@@ -15,20 +15,24 @@ const SECURITY_HEADERS = {
 // 有序规则：第一条匹配的生效（first-match-wins = 精确/具体优先，兜底放最后）。
 // pathname 不含 query，故 ?v=xxxx 破缓存参数不影响匹配。
 // 缓存分层原则：版本化 JS/CSS 1 年 immutable（靠 ?v= 换 URL 破缓存）；
-//   HTML 入口 no-cache（每次验证）；实时数据 60s（分钟级刷新）；纯历史 1h（每天收盘才更新）。
+//   HTML 入口 private+no-cache（CF 边缘不缓存+浏览器每次验证；
+//   2026-07-23 修：no-cache 单独不够，CF Workers Static Assets 实测 HIT 不 revalidate，
+//   加 private 显式禁止共享缓存才能根治 index.html 被 CDN 缓存旧版）；
+//   实时数据 60s（分钟级刷新）；纯历史 1h（每天收盘才更新）。
 const CACHE_RULES = [
   // 1) 版本化静态资源：1 年 immutable（改动靠 ?v= 换 URL 破缓存）
   {
     match: p => /^\/(style\.css|app\.min\.js|lab\.min\.js|lab\.css|qr\.js)$/.test(p) || p.startsWith('/vendor/'),
     cc: 'public, max-age=31536000, immutable',
   },
-  // 2) HTML 入口 / feed / trade_sim：每次验证
+  // 2) HTML 入口 / feed / trade_sim：private 禁止 CF 边缘缓存 + 浏览器每次验证
+  //    （no-cache 单独 CF 仍 HIT 不重验，2026-07-23 加 private 根治）
   {
     match: p =>
       p === '/' || p === '/index.html' ||
       /^\/trade_sim_/.test(p) ||
       p === '/data/feed.xml',
-    cc: 'no-cache, must-revalidate',
+    cc: 'private, no-cache, must-revalidate',
   },
   // 3) 实时数据 JSON（盘中/每日更新，需分钟级刷新）：60 秒
   //    global-extras-all 含 usdcnh 等实时指标，必须在历史规则前命中，否则会被 -all 匹配到 1h 致滞后。
@@ -62,13 +66,13 @@ const CACHE_RULES = [
       /-(3m|6m|1y|3y|5y|all)(-\w+)?\.json$/.test(p),
     cc: 'public, max-age=3600',
   },
-  // 5) 兜底：每次验证
-  { match: () => true, cc: 'no-cache, must-revalidate' },
+  // 6) 兜底：private+每次验证（未知路径不应被 CF 边缘缓存）
+  { match: () => true, cc: 'private, no-cache, must-revalidate' },
 ];
 
 function cacheControlFor(pathname) {
   for (const r of CACHE_RULES) if (r.match(pathname)) return r.cc;
-  return 'no-cache, must-revalidate';
+  return 'private, no-cache, must-revalidate';
 }
 
 export default {
