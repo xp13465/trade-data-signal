@@ -2639,7 +2639,7 @@ function addStaleMark(cardEl, dataDate) {
 const T1_COLLECT_DEADLINE = {
   // T+1 源最晚可得时刻(北京时间 HH:MM)。当前时间 >= 该时刻仍未采到基准日期数据 -> 红(异常)
   // 盘中(intraday)<该时刻 -> _t1Relax 放宽基准到 ptd-1(数据源尚未发布,显示前日算正常等待)
-  a_fund_margin: "23:00",   // 两融(沪市融资余额): rzhb-backfill 23:00当晚单采; 上交所盘后发布较晚
+  a_fund_margin: "next_day", // 两融(沪市融资余额): 源端T+1日才发当日值(上交所次日盘后),23:00 rzhb单采永远采不到当日 -> next_day盘中恒放宽,消除T日23:00后误报红
   us_dji_date:   "16:35",   // 美股道指: 美股收盘=北京次日04:00,backfill-evening 16:35采集
   lhb_count:     "19:30",   // 龙虎榜: 东财18:00发当日,lhb-backfill 18:30+19:30(兜底)采集
   futures_date:  "21:00",   // 期货机构持仓: CFFEX 20:00发当日,futures-backfill 20:05+21:00(兜底)采集
@@ -2647,7 +2647,7 @@ const T1_COLLECT_DEADLINE = {
   etf_date:      "21:30",   // ETF国家队份额: 交易所盘后发布,etf-national-team 20:07+21:30(兜底)采集
   gold:          "18:00",   // 商品期货(黄金/原油): 新浪期货盘后发布,update_all 17:50采集
   cn10y:         "18:00",   // 国债收益率: 中债盘后发布,update_all 17:50采集
-  a_qvix_300:    "18:00",   // QVIX期权波动率: 源端盘后发布,update_all 17:50采集
+  a_qvix_300:    "next_day", // QVIX期权波动率: 源端optbbs T+1日02:00-16:30才发当日值,17:50 update_all常采不到 -> next_day盘中恒放宽,消除18:00后误报红
   industry:      "18:00",   // 申万行业指数: baostock/申万收盘后发布,update_all 17:50采集
   hk_south:      "18:00",   // 港股通净买入: 盘后发布,update_all 17:50采集
   // 换手率5项: BaoStock stock_daily T+1,update_all 17:50采集,18:00后应已到
