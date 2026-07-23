@@ -520,9 +520,10 @@ main { padding: 16px 24px; }
 .chart-hint .hint-kelly { color: var(--primary); }
 .chart-hint .hint-kelly b { font-weight: 700; }
 .chart-hint .hint-kelly.warn { color: #d4380d; }
-/* 模拟回测按钮（2026-07-23 改动3）：从 chart-hint 内挪出为独立兄弟 DOM（chip-row 之后）。
-   选择器从 .chart-hint .sim-btn 改为通用 .sim-btn（独立 DOM 不再嵌套 chart-hint）。 */
-.sim-btn-wrap { margin: 4px 0 2px; }
+/* 模拟回测按钮（2026-07-23 改动4）：挪入 h3 末尾排在❓后（标题行内排列）。
+   h3 不存在时（网格 spark-head）退到 chart-hint 前独立兄弟 DOM，inline-block 保持块级边距不变。 */
+.sim-btn-wrap { display: inline-block; margin: 4px 0 2px; vertical-align: middle; }
+.chart-card h3 .sim-btn-wrap { margin: 0 0 0 6px; }
 .sim-btn {
   display: inline-block;
   padding: 2px 10px;

@@ -1288,7 +1288,10 @@ function _appendStrategyHint(cardEl, indexId, strategy) {
   span.textContent = "❓";
   span.style.cursor = "help";
   span.__strategy = strat;  // click 委托时取回
-  h3.appendChild(span);
+  // 若 h3 已有 sim-btn-wrap（_prependSimBtn 先于本函数调用），把❓插到 sim-btn 前，保证 [❓][模拟回测] 顺序
+  var simWrap = h3.querySelector(".sim-btn-wrap");
+  if (simWrap) h3.insertBefore(span, simWrap);
+  else h3.appendChild(span);
 }
 
 // 模拟回测按钮 HTML（2026-07-23 改动3）：从 statsHint 抽出，由调用方注入为独立 DOM。
@@ -1297,19 +1300,29 @@ function _simBtnHtml(indexId) {
   if (!SIM_INDICES.has(indexId)) return "";
   return `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`;
 }
-// 把 sim-btn 作为 chart-hint 前的独立兄弟 DOM 注入（chip-row 之后）。
-// chart-hint 不存在时退到 h3 之后，h3 不存在时 append 到 cardEl 末尾。
+// 把 sim-btn 注入 h3 末尾（标题行内排列，排在❓之后）；h3 不存在时退到 chart-hint 前独立兄弟 DOM。
+// 注：_prependSimBtn 通常先于 _appendStrategyHint 调用（indexChart 内），此时 h3 内尚无❓，sim-btn 先追加末尾，
+// _appendStrategyHint 后续会把❓ insertBefore 到 sim-btn 前，保证最终顺序 [标题][❓][模拟回测]。
 function _prependSimBtn(cardEl, indexId) {
   var html = _simBtnHtml(indexId);
   if (!html) return;
-  var wrap = document.createElement("div");
+  var wrap = document.createElement("span");
   wrap.className = "sim-btn-wrap";
   wrap.innerHTML = html;
-  var hintEl = cardEl.querySelector(".chart-hint");
-  if (hintEl) hintEl.before(wrap);
-  else {
-    var h3 = cardEl.querySelector("h3");
-    if (h3) h3.after(wrap);
+  var h3 = cardEl.querySelector("h3");
+  if (h3) {
+    // 若❓已存在(data-strategy-help)，插在❓之后；否则追加末尾（❓后续由 _appendStrategyHint 插到 sim-btn 前）
+    var tip = h3.querySelector("[data-strategy-help]");
+    if (tip) {
+      if (tip.nextSibling) h3.insertBefore(wrap, tip.nextSibling);
+      else h3.appendChild(wrap);
+    } else {
+      h3.appendChild(wrap);
+    }
+  } else {
+    // 网格 spark-head 无 h3：退到 chart-hint 前独立兄弟 DOM（保持原网格布局）
+    var hintEl = cardEl.querySelector(".chart-hint");
+    if (hintEl) hintEl.before(wrap);
     else cardEl.appendChild(wrap);
   }
 }
@@ -1378,7 +1391,7 @@ function statsHint(stats, strategy, indexId) {
   }
   // 模拟回测按钮已从 statsHint 移出（2026-07-23 改动3）：原塞在 hint 最前属"策略区块内"，
   // 现由调用方（indexChart / valueChartWithSignals / KPI详情 / 网格）通过 _prependSimBtn
-  // 注入为 chart-hint 前的独立兄弟 DOM（chip-row 之后），语义上"真正挪出策略区块"。
+  // 注入 h3 末尾排在❓后（改动4），语义上"真正挪出策略区块"且与❓行内排列。
   return stratHtml + `<div class="hint-header">统计基准：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     freqHtml +
@@ -1404,7 +1417,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const _pctSuffix = (_pct != null) ? ` <span class="pct-badge" style="color:${_up ? "#e6492e" : "#2e8b57"}">${_up ? "+" : ""}${_pct.toFixed(2)}%</span>` : "";
   const _suffix = _closeSuffix + _pctSuffix;
   const c = mkCard(title + _suffix, 300, hint, container, chartArr);
-  // 模拟回测按钮：作为 chart-hint 前的独立兄弟 DOM 注入（chip-row 之后，挪出策略区块）
+  // 模拟回测按钮：注入 h3 末尾排在❓后（标题行内排列，挪出策略区块）
   _prependSimBtn(c.getDom().parentElement, indexId);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
@@ -1471,7 +1484,7 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
   const sigs = signals || [];
   const hint = statsHint(stats, strategy, indexId);
   const c = mkCard(title, 300, hint, container, chartArr);
-  // 模拟回测按钮：作为 chart-hint 前的独立兄弟 DOM 注入（与 indexChart 一致，挪出策略区块）
+  // 模拟回测按钮：注入 h3 末尾排在❓后（与 indexChart 一致，挪出策略区块）
   _prependSimBtn(c.getDom().parentElement, indexId);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
@@ -7279,7 +7292,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
       <div class="ind-metrics"></div>`;
-    // 模拟回测按钮：作为 chart-hint 前的独立兄弟 DOM 注入（与指数走势图卡片一致）
+    // 模拟回测按钮：网格 spark-head 无 h3，退到 chart-hint 前独立兄弟 DOM（与指数走势图卡片一致）
     _prependSimBtn(cell, id);
     // 信号频率改为 hover pop：绑在对应信号的成功率行(hint-row)上，悬浮显示频率
     _bindFreqPopupToHintRows(cell, idx.stats);
