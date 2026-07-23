@@ -250,6 +250,13 @@ def run(date=None, verbose=True, steps=None):
             try:
                 from . import baostock_daily
                 prog = baostock_daily.load_progress()
+                # 2026-07-23 修复：progress 可能只有部分 code（历史全量 backfill 未跑完），
+                # 跑前先 reconcile 从 DB 重建（与 turnover step 同口径），否则 todo 只含
+                # progress 已有的少数 code，致 run_update 只采少数 code
+                if len(prog) < 4000:
+                    print(f"[baostock] progress 只有 {len(prog)} codes < 4000，先 reconcile 从 DB 重建", flush=True)
+                    baostock_daily.reconcile()
+                    prog = baostock_daily.load_progress()
                 todo = [c for c, v in prog.items() if v.get("r")]  # 已 backfill recent 段的 code
                 if todo:
                     res = baostock_daily.run_update(todo, verbose=verbose)
@@ -404,6 +411,13 @@ def run(date=None, verbose=True, steps=None):
             try:
                 from . import baostock_daily
                 prog = baostock_daily.load_progress()
+                # 2026-07-23 修复：progress 可能只有部分 code（历史全量 backfill 未跑完），
+                # 跑前先 reconcile 从 DB 重建，否则 todo 只含 progress 已有的少数 code，
+                # 致 run_update 只采少数 code -> a_turnover_* 5项 缺 T 日数据角标滞后
+                if len(prog) < 4000:
+                    print(f"[turnover] progress 只有 {len(prog)} codes < 4000，先 reconcile 从 DB 重建", flush=True)
+                    baostock_daily.reconcile()
+                    prog = baostock_daily.load_progress()
                 todo = [c for c, v in prog.items() if v.get("r")]
                 if todo:
                     res = baostock_daily.run_update(todo, verbose=verbose)

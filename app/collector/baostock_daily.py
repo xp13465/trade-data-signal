@@ -461,6 +461,42 @@ def run_update(codes: list[str], *, save_every: int = 10, verbose: bool = True) 
             "details": details}
 
 
+def reconcile() -> int:
+    """从 DB 实际数据重建 progress（修并行采数时 progress.json 可能的写覆盖）。
+
+    也用于 turnover pipeline 跑前确保 progress 含全量 code：历史全量 backfill 若未
+    跑完，progress 只含少数 code -> runner.run_update 的 todo 只含这些 code ->
+    a_turnover_* 5项 缺 T 日数据角标滞后（2026-07-23 修复）。
+    """
+    conn = get_conn()
+    # 每个 code 的 recent 段最大日期
+    rows_r = conn.execute(
+        "SELECT code, MAX(date) FROM baostock_daily_raw "
+        "WHERE date >= '20160101' GROUP BY code").fetchall()
+    # 每个 code 的 old 段最大日期
+    rows_o = conn.execute(
+        "SELECT code, MAX(date) FROM baostock_daily_raw "
+        "WHERE date < '20160101' GROUP BY code").fetchall()
+    conn.close()
+    prog = load_progress()
+    n_fix = 0
+    for code, max_r in rows_r:
+        entry = prog.get(code, {})
+        if entry.get("r") != max_r:
+            entry["r"] = max_r
+            prog[code] = entry
+            n_fix += 1
+    for code, max_o in rows_o:
+        entry = prog.get(code, {})
+        if entry.get("o") != max_o:
+            entry["o"] = max_o
+            prog[code] = entry
+            n_fix += 1
+    save_progress(prog)
+    print(f"reconcile: {n_fix} entries fixed, {len(prog)} codes total")
+    return n_fix
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 def _cli(argv: list[str]) -> int:
     if len(argv) < 2:
@@ -476,33 +512,7 @@ def _cli(argv: list[str]) -> int:
         return 0
 
     if cmd == "reconcile":
-        """从 DB 实际数据重建 progress（修并行采数时 progress.json 可能的写覆盖）。"""
-        conn = get_conn()
-        # 每个 code 的 recent 段最大日期
-        rows_r = conn.execute(
-            "SELECT code, MAX(date) FROM baostock_daily_raw "
-            "WHERE date >= '20160101' GROUP BY code").fetchall()
-        # 每个 code 的 old 段最大日期
-        rows_o = conn.execute(
-            "SELECT code, MAX(date) FROM baostock_daily_raw "
-            "WHERE date < '20160101' GROUP BY code").fetchall()
-        conn.close()
-        prog = load_progress()
-        n_fix = 0
-        for code, max_r in rows_r:
-            entry = prog.get(code, {})
-            if entry.get("r") != max_r:
-                entry["r"] = max_r
-                prog[code] = entry
-                n_fix += 1
-        for code, max_o in rows_o:
-            entry = prog.get(code, {})
-            if entry.get("o") != max_o:
-                entry["o"] = max_o
-                prog[code] = entry
-                n_fix += 1
-        save_progress(prog)
-        print(f"reconcile: {n_fix} entries fixed, {len(prog)} codes total")
+        reconcile()
         return 0
 
     if cmd == "stats":
