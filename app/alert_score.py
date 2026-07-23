@@ -57,7 +57,12 @@ def _conn_sent() -> sqlite3.Connection:
 
 
 def _conn_nt() -> sqlite3.Connection:
-    return sqlite3.connect(_NT_DB)
+    # 阶段2: 与 etf_national_team.get_conn() 一致设 WAL + busy_timeout,
+    # 避免并发连接 journal_mode 不一致致 WAL 损坏回滚(open/high/low 列丢失事故)
+    c = sqlite3.connect(_NT_DB, timeout=10.0)
+    c.execute("PRAGMA journal_mode=WAL;")
+    c.execute("PRAGMA busy_timeout=30000;")
+    return c
 
 
 def _series(conn, sql, params=()):
@@ -359,28 +364,40 @@ def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
 
 
 def _load_target_close_amount(target_id: str, target_type: str):
-    """单标的 close/amount 序列 (ETF 用 etf_daily, 指数用 index_daily)。"""
+    """单标的 close/amount 序列 (ETF 用 etf_daily, 指数用 index_daily)。
+    阶段2: ETF 加读 open/high/low 字段(供 H3/L2 信号 RSI/BB/Donchian 计算)。
+    返回 (close, amount, ohlc_df) - ohlc_df 含 date/open/high/low/close/amount(ETF 专属,
+    指数为 None,因指数走 signal_daily 表查买卖点不需要 OHLC 重算)。
+    """
     if target_type == "etf":
+        # ETF 显式指定列名,fetchall 返 sqlite3.Row 列表退出 with 后变 tuple,
+        # 用 columns 参数让 DataFrame 按 2D 数组解析(与指数版同风格)
+        cols = ["date", "open", "high", "low", "close", "amount"]
         with _conn_nt() as c:
             rows = c.execute(
-                "SELECT date, close, amount FROM etf_daily WHERE etf_code=? "
+                "SELECT date, open, high, low, close, amount FROM etf_daily WHERE etf_code=? "
                 "AND close IS NOT NULL ORDER BY date",
                 (target_id,),
             ).fetchall()
+        if not rows:
+            return pd.Series(dtype=float), pd.Series(dtype=float), None
+        df = pd.DataFrame(rows, columns=cols).set_index("date")
     else:
+        cols = ["date", "close", "amount"]
         with _conn_sent() as c:
             rows = c.execute(
                 "SELECT date, close, amount FROM index_daily WHERE index_id=? "
                 "AND close IS NOT NULL ORDER BY date",
                 (target_id,),
             ).fetchall()
-    if not rows:
-        return pd.Series(dtype=float), pd.Series(dtype=float)
-    df = pd.DataFrame(rows, columns=["date", "close", "amount"]).set_index("date")
+        if not rows:
+            return pd.Series(dtype=float), pd.Series(dtype=float), None
+        df = pd.DataFrame(rows, columns=cols).set_index("date")
     close = df["close"].astype(float)
     amount = pd.to_numeric(df["amount"], errors="coerce")
     amount = amount.where(amount > 0, pd.NA)  # 0 视为缺省
-    return close, amount
+    ohlc_df = df if target_type == "etf" else None
+    return close, amount, ohlc_df
 
 
 def _target_signal_count(target_id: str, sig_types: list[str]) -> pd.Series:
@@ -415,13 +432,74 @@ def _target_etf_signal_count(etf_code: str, sig_types: list[str]) -> pd.Series:
     return pd.Series({r[0]: r[1] for r in rows}).sort_index().astype(float)
 
 
+def _compute_etf_buy_sell_signals(close: pd.Series, ohlc_df, idx) -> tuple:
+    """阶段2: ETF 专属 H3/L2 信号计算。
+    对 ETF close/open/high/low 现算买卖点事件,滚动10日计数百分位填 H3(sell 密集)/L2(buy 密集)。
+    复用 app.compute.signals 的 _rsi/_bollinger 函数(模块私有函数,显式 import)。
+
+    信号定义(与 signals.py compute() 同口径,§7 买卖点):
+    - C1 主买 buy: RSI(14) 上穿30(前一日<=30 且当日>30)
+    - B1 辅买 buy_aux: BB 下轨回归(前一日 close<下轨 且当日 close>下轨)
+    - D1 卖点 sell: close 从近20日最高价(high-based)回落5%,且 close>MA60(多头趋势过滤)
+    - Donchian20_up 特买(暂不计入 L2,与 signals.py 一致:独立信号不影响 buy/buy_aux/sell)
+
+    返回 (h3, l2) pd.Series,对齐 idx。无 OHLC(ohlc_df 为 None 或 high/low 全空)时
+    用 close 近似 high/low(close.rolling().max()/min(),与指数版一致)。
+    """
+    # 复用 signals.py 的 RSI/BB 函数(模块私有,显式 import)
+    from .compute.signals import _rsi, _bollinger
+
+    if close.empty or len(close) < 60:  # MA60 需 60 日
+        return pd.Series(pd.NA, index=idx), pd.Series(pd.NA, index=idx)
+
+    # high/low: 优先用 OHLC 真实值,缺失用 close 近似(与指数版一致)
+    if ohlc_df is not None and "high" in ohlc_df.columns and "low" in ohlc_df.columns:
+        high = pd.to_numeric(ohlc_df["high"], errors="coerce").reindex(idx)
+        low = pd.to_numeric(ohlc_df["low"], errors="coerce").reindex(idx)
+        # high/low 全空 -> close 近似
+        if high.dropna().empty:
+            high = close.copy()
+        if low.dropna().empty:
+            low = close.copy()
+    else:
+        high = close.copy()
+        low = close.copy()
+
+    rsi = _rsi(close, 14)
+    rsi_prev = rsi.shift(1)
+    # C1 主买: RSI 上穿30
+    buy = ((rsi_prev <= 30) & (rsi > 30)).fillna(False).astype(int)
+    # B1 辅买: BB 下轨回归
+    _, _, bl_ = _bollinger(close, 20, 2.0)
+    buy_aux = ((close.shift(1) < bl_.shift(1)) & (close > bl_)).fillna(False).astype(int)
+    # C1 与 BB 同日触发去重(保留 C1,不重复发 buy_aux)
+    buy_aux = buy_aux.where(buy == 0, 0)
+    # D1 卖点: close 从20日高回落5%(high-based),且 close>MA60(多头过滤)
+    hh20 = high.rolling(20).max()
+    thresh = hh20 * 0.95
+    sell = ((close.shift(1) >= thresh.shift(1)) & (close < thresh)).fillna(False)
+    ma60 = close.rolling(60, min_periods=60).mean()
+    sell = (sell & (close > ma60).fillna(False)).astype(int)
+
+    buy_cnt = (buy + buy_aux).clip(upper=1)  # 当日任一买点触发算1条
+    sell_cnt = sell
+
+    h3 = _rolling_sum_pct(sell_cnt, 10) if sell_cnt.sum() > 0 else pd.Series(pd.NA, index=idx)
+    l2 = _rolling_sum_pct(buy_cnt, 10) if buy_cnt.sum() > 0 else pd.Series(pd.NA, index=idx)
+    return h3, l2
+
+
 def compute_target_dims(target_id: str, target_type: str = "index") -> pd.DataFrame:
     """单标的 8+8 维度现算,套 §9.3 适配表。返回 DataFrame[date, H1..H8, L1..L8]。
 
     适配要点:
     - H1/L1: 宽基(6 个)用 sentiment_xxx,其他用 RSI(14) 120 日滚动百分位
     - H2: 0.6*缩量上涨 + 0.4*position_1y(无 amount 时退化为 position_1y)
-    - H3/L2: signal_daily 按 index_id 查 sell/buy+buy_aux(ETF 无 signal_daily -> 缺省)
+    - H3/L2: 指数走 signal_daily 按 index_id 查 sell/buy+buy_aux;
+      ETF 阶段2 新增:对 ETF close/open/high/low 现算 RSI 上穿30(C1 主买)+BB 下轨回归
+      (B1 辅买)+20日高回落5%(D1 卖点)+Donchian20 突破(特买),事件化后滚动10日计数填
+      H3(sell 信号密集)/L2(buy+buy_aux 信号密集)。复用 app.compute.signals 的 _rsi/
+      _bollinger/_macd/_atr 函数,不依赖 signal_daily 表(ETF 不在 signals.compute() 流程)。
     - H4/L3: close 1 年滚动分位 / 100-分位
     - H5: 100 - 新高(close>=52w_high)120 日滚动百分位
     - H6: 0.5*(100-ma_bullish百分位) + 0.5*ma_bearish百分位
@@ -430,7 +508,7 @@ def compute_target_dims(target_id: str, target_type: str = "index") -> pd.DataFr
     - L5: 100 - amount 120 日滚动百分位(地量分高)
     - L6: 新低(close<=52w_low)120 日滚动百分位
     """
-    close, amount = _load_target_close_amount(target_id, target_type)
+    close, amount, ohlc_df = _load_target_close_amount(target_id, target_type)
     if close.empty or len(close) < 30:
         return pd.DataFrame()
     idx = close.index
@@ -472,15 +550,18 @@ def compute_target_dims(target_id: str, target_type: str = "index") -> pd.DataFr
     else:
         h2 = position_1y  # 无 amount 退化
 
-    # 4. H3/L2 买卖点密集 (signal_daily 按 index_id)
+    # 4. H3/L2 买卖点密集
+    # 指数: signal_daily 按 index_id 查 sell/buy+buy_aux
+    # ETF 阶段2: 对 ETF close/open/high/low 现算 RSI 上穿30(C1 主买)+BB 下轨回归(B1 辅买)
+    #   +20日高回落5%(D1 卖点)+Donchian20 突破(特买),事件化后滚动10日计数填 H3/L2
     if target_type == "index":
         sell_cnt = _target_signal_count(target_id, ["sell"]).reindex(idx, fill_value=0)
         buy_cnt = _target_signal_count(target_id, ["buy", "buy_aux"]).reindex(idx, fill_value=0)
         h3 = _rolling_sum_pct(sell_cnt, 10) if sell_cnt.sum() > 0 else pd.Series(pd.NA, index=idx)
         l2 = _rolling_sum_pct(buy_cnt, 10) if buy_cnt.sum() > 0 else pd.Series(pd.NA, index=idx)
     else:
-        h3 = pd.Series(pd.NA, index=idx)  # ETF 无 signal_daily
-        l2 = pd.Series(pd.NA, index=idx)
+        # ETF 阶段2: 现算买卖点事件计数(复用 signals.py _rsi/_bollinger)
+        h3, l2 = _compute_etf_buy_sell_signals(close, ohlc_df, idx)
 
     # 5. H4/L3 位置
     h4 = position_1y

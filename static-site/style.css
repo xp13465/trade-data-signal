@@ -372,10 +372,11 @@ main { padding: 16px 24px; }
 /* chip 容器行（标题下换行单独一行）：横排，PC flex-wrap，移动端 nowrap + overflow-x 横滚（复用 lab .lab-win-tabs 思路）。
    覆盖 .signal-chip 默认 margin-left:6px，行内首项不要左缩进。 */
 .signal-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
-.signal-chip-row .signal-chip { margin-left: 0; }
+.signal-chip-row .signal-chip { flex: 1 1 0; min-width: 0; text-align: center; margin-left: 0; }  /* 3 等分撑满:缺块时 1-2 chip 各占 1/2 或全宽 */
 .signal-chip-row:empty { display: none; }  /* 数据不足时不渲染空行 */
 @media (hover: none) {
   .signal-chip-row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .signal-chip-row .signal-chip { flex: 0 0 auto; min-width: max-content; text-align: left; }  /* 移动端恢复横滚,不强制等分 */
   .signal-chip-row::-webkit-scrollbar { display: none; }
   .signal-chip-row { scrollbar-width: none; }
 }
@@ -519,7 +520,10 @@ main { padding: 16px 24px; }
 .chart-hint .hint-kelly { color: var(--primary); }
 .chart-hint .hint-kelly b { font-weight: 700; }
 .chart-hint .hint-kelly.warn { color: #d4380d; }
-.chart-hint .sim-btn {
+/* 模拟回测按钮（2026-07-23 改动3）：从 chart-hint 内挪出为独立兄弟 DOM（chip-row 之后）。
+   选择器从 .chart-hint .sim-btn 改为通用 .sim-btn（独立 DOM 不再嵌套 chart-hint）。 */
+.sim-btn-wrap { margin: 4px 0 2px; }
+.sim-btn {
   display: inline-block;
   padding: 2px 10px;
   background: linear-gradient(135deg, var(--primary-hover), var(--primary));
@@ -528,11 +532,11 @@ main { padding: 16px 24px; }
   font-size: 11px;
   font-weight: 600;
   text-decoration: none;
-  margin-left: 6px;
+  margin-left: 0;
   transition: all .2s;
   vertical-align: middle;
 }
-.chart-hint .sim-btn:hover {
+.sim-btn:hover {
   background: linear-gradient(135deg, var(--primary), var(--primary-hover));
   box-shadow: 0 2px 6px rgba(51,112,255,.3);
   color: #fff;

@@ -435,7 +435,7 @@ var _backupChipLoading = {};  // 防并发重复 fetch 同一 index
 //   最稳健档  = 综合分最高（胜率40% + 低回撤40% + 样本20%）
 //   回撤最小档 = max_drawdown 最小（跨全 165）
 // chip val 两行：首行 {scenario}·{path缩写}；次行 5 窗口年化对比 / 稳健指标 / 回撤指标
-// 去重粒度：scenario+path 组合（同 scenario 不同 path 算不同 chip）
+// 去重粒度：scenario+path+win 三元组（2026-07-23 弱化,解决18/19缺档）
 var _BACKUP_CHIP_WINS = ["y1", "y3", "y5", "y10", "all"];
 var _BACKUP_CHIP_PATHS = ["买固定1w(10%)+卖清仓", "全仓进出", "固定1w(10%)进出（FIFO）"];
 var _BACKUP_CHIP_SCENARIOS_ALL = [
@@ -1291,6 +1291,29 @@ function _appendStrategyHint(cardEl, indexId, strategy) {
   h3.appendChild(span);
 }
 
+// 模拟回测按钮 HTML（2026-07-23 改动3）：从 statsHint 抽出，由调用方注入为独立 DOM。
+// SIM_INDICES 之外的指数返回空串（不渲染按钮）。
+function _simBtnHtml(indexId) {
+  if (!SIM_INDICES.has(indexId)) return "";
+  return `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`;
+}
+// 把 sim-btn 作为 chart-hint 前的独立兄弟 DOM 注入（chip-row 之后）。
+// chart-hint 不存在时退到 h3 之后，h3 不存在时 append 到 cardEl 末尾。
+function _prependSimBtn(cardEl, indexId) {
+  var html = _simBtnHtml(indexId);
+  if (!html) return;
+  var wrap = document.createElement("div");
+  wrap.className = "sim-btn-wrap";
+  wrap.innerHTML = html;
+  var hintEl = cardEl.querySelector(".chart-hint");
+  if (hintEl) hintEl.before(wrap);
+  else {
+    var h3 = cardEl.querySelector("h3");
+    if (h3) h3.after(wrap);
+    else cardEl.appendChild(wrap);
+  }
+}
+
 function statsHint(stats, strategy, indexId) {
   const strat = strategyDesc(strategy);
   const stratHtml = strat ? `<div class="hint-strategy">📋 策略｜买: ${strat.buy} · 辅买: ${strat.buy_aux} · 卖: ${strat.sell}</div>` : "";
@@ -1353,13 +1376,10 @@ function statsHint(stats, strategy, indexId) {
   if (freqBlocks.length) {
     freqHtml = `<div class="hint-header">📅 信号频率</div><div class="hint-blocks">${freqBlocks.join("")}</div>`;
   }
-  // 模拟回测按钮挪到 3 色 chip 之后：chip-row 由 _appendBackupChipRow 插到 chart-card 的 h3 之后、
-  // chart-hint 之前，故 chart-hint 第一个元素即"chip 之后"。按钮放 hint 最前 = 紧贴 chip，
-  // 语义上 chip 是回测摘要、按钮接 chip 顺理成章（比旧位置"回测口径/10交易日/凯利"区域更贴切）
-  const simBtnHtml = SIM_INDICES.has(indexId)
-    ? `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`
-    : "";
-  return simBtnHtml + stratHtml + `<div class="hint-header">统计基准：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
+  // 模拟回测按钮已从 statsHint 移出（2026-07-23 改动3）：原塞在 hint 最前属"策略区块内"，
+  // 现由调用方（indexChart / valueChartWithSignals / KPI详情 / 网格）通过 _prependSimBtn
+  // 注入为 chart-hint 前的独立兄弟 DOM（chip-row 之后），语义上"真正挪出策略区块"。
+  return stratHtml + `<div class="hint-header">统计基准：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     freqHtml +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
@@ -1384,6 +1404,8 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const _pctSuffix = (_pct != null) ? ` <span class="pct-badge" style="color:${_up ? "#e6492e" : "#2e8b57"}">${_up ? "+" : ""}${_pct.toFixed(2)}%</span>` : "";
   const _suffix = _closeSuffix + _pctSuffix;
   const c = mkCard(title + _suffix, 300, hint, container, chartArr);
+  // 模拟回测按钮：作为 chart-hint 前的独立兄弟 DOM 注入（chip-row 之后，挪出策略区块）
+  _prependSimBtn(c.getDom().parentElement, indexId);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   const close = ohlc.map((d) => [d.date, d.close]);
@@ -1449,6 +1471,8 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
   const sigs = signals || [];
   const hint = statsHint(stats, strategy, indexId);
   const c = mkCard(title, 300, hint, container, chartArr);
+  // 模拟回测按钮：作为 chart-hint 前的独立兄弟 DOM 注入（与 indexChart 一致，挪出策略区块）
+  _prependSimBtn(c.getDom().parentElement, indexId);
   // 信号频率改 hover pop（与行业卡片一致，悬浮成功率行弹频率）
   _bindFreqPopupToHintRows(c.getDom().parentElement, stats);
   // 4色买点拼色 pin（同日多买点合并1个拼色 pin，参照汪汪队），卖绿独立 pin
@@ -1863,10 +1887,18 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
     container.appendChild(bar);
     // 6色信号图例（4色买点+卖绿+追止损蓝）+ 备买风险提示（2026-07-21 阶段4）
     container.insertAdjacentHTML("beforeend", _signalLegendHtml());
+    // 改动4（2026-07-23）：筛选切换时先显示 loading 占位，避免数据加载期间空白；
+    // renderOne 首次成功渲染时移除占位；若最终没有任何 chart-card 渲染出来则替换为"该筛选暂无数据"。
+    const chartLoadingEl = document.createElement("div");
+    chartLoadingEl.className = "loading loading--active index-filter-loading";
+    chartLoadingEl.innerHTML = `<span class="loading__spinner"></span><span class="loading__text">加载指数数据中…</span>`;
+    container.appendChild(chartLoadingEl);
     // 渲染单个指数到 parent（chart 入全局 charts 供 resize + sectionCharts 供本区 dispose）
     async function renderOne(id, idx, parent) {
       if (!signalsCache[id]) signalsCache[id] = await fetcher(id, idx);
       const sig = signalsCache[id];
+      // 首次成功进入渲染流程即移除 loading 占位（chart-card 即将 append）
+      if (chartLoadingEl.parentNode) chartLoadingEl.parentNode.removeChild(chartLoadingEl);
       if (idx.data && idx.data.length) {
         // 港股盘中实时标注（快照注入 _snap_intraday=true 时显示）
         const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
@@ -1893,6 +1925,11 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
         if (id !== filterId) continue; // 未选指数跳过渲染
         await renderOne(id, idx, container);
       }
+      // 改动4：若 loading 占位仍在说明没有任何 chart-card 渲染（如 idx.data 空），替换为 empty state
+      if (chartLoadingEl.parentNode) {
+        chartLoadingEl.className = "trade-sim-empty";
+        chartLoadingEl.innerHTML = "📊 该筛选暂无数据";
+      }
       return;
     }
     // "全部"模式：A股/港股(foldOneRow=true)全部指数直接铺入 .indices-grid 网格(不折叠，无"更多指数"按钮)。
@@ -1909,6 +1946,11 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
     ));
     for (const [id, idx] of entries) {
       await renderOne(id, idx, parent);
+    }
+    // 改动4：若 loading 占位仍在（如所有 idx.data 空），替换为 empty state
+    if (chartLoadingEl.parentNode) {
+      chartLoadingEl.className = "trade-sim-empty";
+      chartLoadingEl.innerHTML = "📊 该筛选暂无数据";
     }
   }
 
@@ -7215,6 +7257,8 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
       <div class="ind-metrics"></div>`;
+    // 模拟回测按钮：作为 chart-hint 前的独立兄弟 DOM 注入（与指数走势图卡片一致）
+    _prependSimBtn(cell, id);
     // 信号频率改为 hover pop：绑在对应信号的成功率行(hint-row)上，悬浮显示频率
     _bindFreqPopupToHintRows(cell, idx.stats);
     // ETF：top1 标签可点复制，悬浮弹全部候选（按成交额降序，每行可复制）
