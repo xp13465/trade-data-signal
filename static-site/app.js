@@ -7298,9 +7298,13 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const color = up ? "#e6492e" : "#2e8b57";
     const cell = document.createElement("div");
     cell.className = "spark-cell industry-cell";
+    cell.dataset.iid = id; // A9: 供轮动频次 Top N chip 点击滚动定位
     const sign = up ? "+" : "";
     const hint = statsHint(idx.stats, idx.strategy, id);
     const etfTag = _renderEtfTag(idx.etfs);
+    // A9: 板块轮动频次标记（fund_flow 方向反转次数，高频🔥🔥/中频🔥）
+    const rotFreq = _calcRotationFreq(idx.fund_flow);
+    const rotTag = _rotationTag(rotFreq);
     // 行业卡片标题加最新收盘值（与指数表现 latestSuffix 一致：· MM-DD 收盘价 +涨跌幅）
     // closeSuffix 兜底：last.close==null(T+1源当日未发布)时向前找最后 close!=null 的点显收盘价
     let _csDate = last.date, _csClose = last.close;
@@ -7313,7 +7317,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const pctSuffix = (pct != null) ? ` <span class="pct-badge" style="color:${color}">${sign}${pct.toFixed(2)}%</span>` : "";
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${idx.name}${etfTag}${closeSuffix}${pctSuffix}</span>
+        <span class="spark-name">${idx.name}${etfTag}${closeSuffix}${pctSuffix}${rotTag}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
@@ -7538,6 +7542,53 @@ async function renderRotationCard(container) {
   }
 }
 
+// ============ A9: 板块轮动频次（形态频次，非回测） ============
+// 数据源: r.indices[iid].fund_flow = [{date, value}, ...]（value=资金净流入，正=流入/负=流出）
+// 指标: 最近 N 日（默认20）资金流向反转次数（正->负 或 负->正 = 1次轮动）
+//   反转多 = 资金频繁进出 = 轮动频繁；反转少 = 资金方向稳定（持续流入或流出）
+// 注: fund_flow 仅 6-7 月历史（128天），只做形态频次展示，不做回测
+const ROTATION_WINDOW = 20;  // 最近 20 交易日窗口
+const ROTATION_HIGH = 8;     // >=8 次: 高频轮动 🔥🔥（超均值 1.25 倍）
+const ROTATION_MID = 6;      // 6-7 次: 中频轮动 🔥
+const ROTATION_MIN_SAMPLE = 10; // 样本 < 10 日不评级（数据不足）
+
+function _calcRotationFreq(fundFlow, window = ROTATION_WINDOW) {
+  if (!Array.isArray(fundFlow) || fundFlow.length < 2) return { reversals: 0, sample: 0, level: "na" };
+  const recent = fundFlow.slice(-window);
+  let reversals = 0;
+  let lastDir = 0; // 0=未定，1=流入，-1=流出
+  for (const p of recent) {
+    const v = (p && typeof p.value === "number") ? p.value : 0;
+    const dir = v > 0 ? 1 : (v < 0 ? -1 : 0);
+    if (dir === 0) continue; // 0 值不计入反转（资金持平）
+    if (lastDir !== 0 && dir !== lastDir) reversals++;
+    lastDir = dir;
+  }
+  const sample = recent.length;
+  let level = "low";
+  if (sample >= ROTATION_MIN_SAMPLE) {
+    if (reversals >= ROTATION_HIGH) level = "high";
+    else if (reversals >= ROTATION_MID) level = "mid";
+  } else {
+    level = "na"; // 样本不足，不评级
+  }
+  return { reversals, sample, level };
+}
+
+function _rotationTag(freq) {
+  if (!freq || freq.level === "low" || freq.level === "na") return "";
+  const icon = freq.level === "high" ? "🔥🔥" : "🔥";
+  return `<span class="rot-tag rot-${freq.level}" title="近期轮动频次: ${freq.reversals}次资金方向反转（近${freq.sample}日，频次高=资金切换频繁）">${icon}${freq.reversals}</span>`;
+}
+
+// A9 Top N 轮动频次板块列表（用于板块分化区独立卡片）
+function _buildRotationFreqList(indices) {
+  return Object.entries(indices || {})
+    .map(([id, idx]) => ({ id, name: idx.name, freq: _calcRotationFreq(idx.fund_flow) }))
+    .filter((x) => x.freq.sample >= ROTATION_MIN_SAMPLE) // 样本不足不参与排名
+    .sort((a, b) => b.freq.reversals - a.freq.reversals);
+}
+
 async function _loadIndustryData(range) {
   // all/5y/3y 走拆分：31 行业小文件按需并发 fetch，避免 industry-all 29MB / industry-5y 14MB / industry-3y 9.2MB 大单文件拖慢首屏
   if (range !== "all" && range !== "5y" && range !== "3y") return await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}.json`);
@@ -7690,6 +7741,41 @@ async function renderIndustry() {
     }, 250);
   };
   _applyIndustryFilter();
+
+  // A9: 板块轮动频次 Top N 卡片（基于 fund_flow 方向反转次数，单板块维度，与全局轮动速度互补）
+  // 插在 anchorBar 之前（热力图下方概览区），chip 点击清搜索+滚动定位对应板块卡
+  const _rotFreqExisting = content.querySelector(".rotation-freq-card");
+  if (_rotFreqExisting) _rotFreqExisting.remove();
+  const rotFreqList = _buildRotationFreqList(r.indices);
+  const rotTopN = rotFreqList.slice(0, 10);
+  if (rotTopN.length) {
+    const rotFreqCard = document.createElement("div");
+    rotFreqCard.className = "rotation-freq-card";
+    const highCnt = rotTopN.filter((x) => x.freq.level === "high").length;
+    rotFreqCard.innerHTML = `
+      <div class="rotation-freq-header">🔀 板块轮动频次 Top ${rotTopN.length}<span class="chart-latest"> · 近${ROTATION_WINDOW}日资金流向反转次数</span></div>
+      <div class="rotation-freq-body">
+        ${rotTopN.map((x, i) => `<button type="button" class="rot-freq-chip rot-${x.freq.level}" data-iid="${x.id}" title="${x.name}：近${x.freq.sample}日资金方向反转${x.freq.reversals}次（频次高=资金切换频繁）">${i + 1}. ${x.name} <b>${x.freq.reversals}次</b></button>`).join("")}
+      </div>
+      <div class="rotation-freq-hint">💡 资金流向频繁反转=板块轮动信号强（如 ${highCnt} 个高频板块🔥🔥）；频次低=资金方向稳定。点击 chip 跳转对应板块卡。<details class="rotation-explain"><summary>指标怎么算</summary><div class="rotation-explain-body"><div>取每个板块最近 ${ROTATION_WINDOW} 个交易日的 <b>资金净流入</b>（fund_flow），看资金方向（正=流入/负=流出）反转了几次：正->负或负->正算 1 次轮动。</div><div>分级：≥${ROTATION_HIGH}次 高频🔥🔥 / ${ROTATION_MID}-${ROTATION_HIGH - 1}次 中频🔥 / ≤${ROTATION_MID - 1}次 低频。样本＜${ROTATION_MIN_SAMPLE}日不评级。</div><div>注：fund_flow 仅 6-7 月历史，只做形态频次展示，非回测。</div></div></details></div>`;
+    content.insertBefore(rotFreqCard, anchorBar);
+    rotFreqCard.querySelectorAll(".rot-freq-chip").forEach((chip) => {
+      chip.onclick = () => {
+        // 清搜索以确保目标板块卡可见（搜索筛选会隐藏）
+        if (state.industrySearch) {
+          state.industrySearch = "";
+          const si = anchorBar.querySelector(".anchor-search");
+          if (si) si.value = "";
+          _applyIndustryFilter();
+        }
+        // 延迟一帧等重渲染完成再滚动定位
+        requestAnimationFrame(() => {
+          const target = swGridWrap.querySelector(`.industry-cell[data-iid="${CSS.escape(chip.dataset.iid)}"]`);
+          if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      };
+    });
+  }
 
   // I3：scrollspy -- 滚动时自动高亮当前可视区对应锚点按钮
   // 观察热力图区(sw-industries)、申万网格(spyFor=sw-industries)、概念区(thsc-concepts)
