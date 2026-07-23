@@ -449,6 +449,19 @@ var _BACKUP_CHIP_PATH_SHORT = {
   "全仓进出": "全仓",
   "固定1w(10%)进出（FIFO）": "1wFIFO"
 };
+// 三档绝对值门槛（2026-07-23 防"弱标的年化0.x%也推荐"bug）：不达标不进档，全 null 显示兜底文案。
+//   年化最高档：年化必须 >=3%（低于3%无推荐价值，不如存银行）
+//   最稳健档：综合分 >=0.5（满分1.0）AND 胜率 >=60% AND 回撤 <=20%（稳健要胜率过半+回撤可控）
+//   回撤最小档：回撤 <=15%（>15%谈不上"最小"优势）AND 样本 >=3（样本太少不算）
+//   门槛集中在此常量，方便后续调整（用户决策：加绝对值门槛 + 隐藏弱标的）。
+var _BACKUP_CHIP_THRESHOLDS = {
+  ann: 3.0,           // 年化最高档门槛：年化 >=3%
+  steadyScore: 0.5,   // 最稳健档综合分 >=0.5（满分1.0）
+  steadyWinRate: 60,  // 最稳健档胜率 >=60%
+  steadyMaxDd: 20,    // 最稳健档回撤 <=20%
+  ddMax: 15,          // 回撤最小档回撤 <=15%
+  ddMinOps: 3         // 回撤最小档样本 >=3
+};
 // 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
 // SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
 function _appendBackupChipRow(cardEl, id) {
@@ -539,12 +552,25 @@ function _backupSignalChipRender(sd) {
       steadyScore: wrNorm * 0.4 + ddN * 0.4 + opsNorm * 0.2
     });
   });
-  // 1. 年化最高 = strongScore 最高
-  var bestAnn = scored.slice().sort(function (a, b) { return b.strongScore - a.strongScore; })[0];
-  // 2. 最稳健 = steadyScore 最高
-  var bestSteady = scored.slice().sort(function (a, b) { return b.steadyScore - a.steadyScore; })[0];
-  // 3. 回撤最小 = max_drawdown 最小
-  var bestDd = scored.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; })[0];
+  // 三档绝对值门槛过滤（防弱标的年化0.x%也推荐）：先筛达标候选，再按维度排序取最高。无达标 -> null
+  var TH = _BACKUP_CHIP_THRESHOLDS;
+  // 1. 年化最高 = strongScore 最高（年化必须 >= TH.ann）
+  var annCandidates = scored.filter(function (e) { return e.annualized >= TH.ann; });
+  var bestAnn = annCandidates.length > 0
+    ? annCandidates.slice().sort(function (a, b) { return b.strongScore - a.strongScore; })[0]
+    : null;
+  // 2. 最稳健 = steadyScore 最高（综合分>=0.5 AND 胜率>=60 AND 回撤<=20）
+  var steadyCandidates = scored.filter(function (e) {
+    return e.steadyScore >= TH.steadyScore && e.win_rate >= TH.steadyWinRate && e.max_drawdown <= TH.steadyMaxDd;
+  });
+  var bestSteady = steadyCandidates.length > 0
+    ? steadyCandidates.slice().sort(function (a, b) { return b.steadyScore - a.steadyScore; })[0]
+    : null;
+  // 3. 回撤最小 = max_drawdown 最小（回撤<=15% AND 样本>=3）
+  var ddCandidates = scored.filter(function (e) { return e.max_drawdown <= TH.ddMax && e.total_ops >= TH.ddMinOps; });
+  var bestDd = ddCandidates.length > 0
+    ? ddCandidates.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; })[0]
+    : null;
   // 去重：scenario+path 组合只显 1 chip（优先级 年化>稳健>回撤）
   var used = {};
   var chips = [];
@@ -557,7 +583,10 @@ function _backupSignalChipRender(sd) {
     var kD = bestDd.scenario + '|' + bestDd.path;
     if (!used[kD]) { chips.push({ kind: 'lowdraw', tier: '回撤最小', entry: bestDd }); used[kD] = 1; }
   }
-  if (chips.length === 0) return '';
+  if (chips.length === 0) {
+    // 三档全 null（弱标的整体不达标）：显示兜底文案，区别于三色档中性灰
+    return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>';
+  }
   // chip val 第二行：该 scenario+path 在 5 窗口的年化对比
   function win5Ann(e) {
     var parts = [];

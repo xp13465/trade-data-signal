@@ -364,6 +364,10 @@ main { padding: 16px 24px; }
 .signal-chip-lowdraw { color: #2e8b57; border: 1px solid rgba(46,139,87,0.5); background: rgba(46,139,87,0.15); }
 .signal-chip-loading { color: var(--text-3); border: 1px dashed var(--border-strong); background: rgba(128,128,128,0.08); cursor: progress; }
 .signal-chip-error { color: #c62828; border: 1px solid rgba(198,40,40,0.5); background: rgba(198,40,40,0.12); cursor: help; }
+/* 弱标的兜底文案（2026-07-23 三档全不达标时显示）：中性灰虚线框，区别于三色档；
+   覆盖 .signal-chip 的 nowrap 让两行文案换行展示（主行+chip-tip 子行）。 */
+.chip-weak-placeholder { color: var(--text-3); border: 1px dashed var(--border-strong); background: rgba(128,128,128,0.10); white-space: normal; line-height: 1.35; cursor: help; }
+.chip-weak-placeholder .chip-tip { display: block; font-size: 10px; font-weight: 400; color: var(--text-3); margin-top: 2px; opacity: 0.85; }
 /* chip 容器行（标题下换行单独一行）：横排，PC flex-wrap，移动端 nowrap + overflow-x 横滚（复用 lab .lab-win-tabs 思路）。
    覆盖 .signal-chip 默认 margin-left:6px，行内首项不要左缩进。 */
 .signal-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
