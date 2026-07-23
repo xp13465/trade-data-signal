@@ -72,9 +72,15 @@ def _iter_lines(path: Path):
 def parse_standard(path: Path, script: str):
     """标准 .sh 任务:返回 (pairs, pending_start)
     pairs=[(start_dt, end_dt, exit_code, duration_sec), ...]
-    pending_start=进行中任务的 start_dt(有 start 无 end),用于 last_run 显示"进行中"
-    (exit_code=null/duration=null),根治 intraday_snapshot.sh 在 push 前调本脚本时
-    日志只有开始行无结束行致 last_run 停留昨天的时序竞态。
+    pending_start=最新一个"有 start 无 end"的 start_dt(进行中或被 SIGTERM 杀)。
+
+    2026-07-23 修复(根治 schedule 超时被杀致 last_run 错乱):
+    1) 不再 break 于首个 pending_start,改 continue 遍历所有 start 取最新 pending。
+       (旧 bug:15:05 被杀 + 15:35 在跑,旧逻辑取首个 15:05 当 last_run;
+        新逻辑 continue 到 15:35 取最新)
+    2) next_start 检测:若首个 end>=start 实际 >= 下一次 start(即 end 属于下一轮),
+       说明本次 start 被杀(未写结束行就被 SIGTERM 终止),判为孤儿 pending,
+       不消耗该 end(留给下一轮配对)。(旧 bug:被杀 start 偷下一轮 end 致配对错位)
     """
     starts, ends = [], []
     for line in _iter_lines(path):
@@ -87,15 +93,20 @@ def parse_standard(path: Path, script: str):
             ts = datetime.strptime(m.group(2), "%Y-%m-%d %H:%M:%S")
             code = int(m.group(3)) if m.group(3) is not None else 0
             ends.append((ts, code))
-    # 双指针配对:每个 start 找首个未消耗的 end>=start 且 gap<=3h
+    # 双指针配对:每个 start 找首个未消耗的 end>=start 且 end<next_start 且 gap<=3h
     pairs, ei, pending_start = [], 0, None
-    for s in starts:
+    for i, s in enumerate(starts):
+        next_s = starts[i + 1] if i + 1 < len(starts) else None
         while ei < len(ends) and ends[ei][0] < s:
             ei += 1  # 跳过早于该 start 的孤儿 end
         if ei >= len(ends):
-            pending_start = s  # 记录进行中的 start(有 start 无 end),break 退出
-            break
+            pending_start = s  # 无 end:进行中或被杀,continue 取最新
+            continue
         e_ts, e_code = ends[ei]
+        # end 属于下一轮(e_ts >= next_start) -> 本次 start 被杀(孤儿),不消耗 end
+        if next_s is not None and e_ts >= next_s:
+            pending_start = s
+            continue
         dur = (e_ts - s).total_seconds()
         if 0 <= dur <= MAX_GAP_SEC:
             pairs.append((s, e_ts, e_code, dur))
@@ -151,12 +162,17 @@ def build():
             s, e, code, dur = pairs[-1]
             last_run = s.strftime("%Y-%m-%d %H:%M")
             last_dur = round(dur)
-        # 进行中任务(有 start 无 end):若比最近配对更晚,覆盖为"进行中"
-        # exit_code/duration 留 null,前端 last_exit=null 不显示 ⚠️(任务还在跑或异常退出)
+        # 进行中/被杀任务(有 start 无 end):若比最近配对更晚,覆盖 last_run
+        # 区分 pending_start 性质:
+        #   距今 >MAX_GAP_SEC(3h) = 被 SIGTERM 杀(launchd ExitTimeOut 超时),
+        #     标 exit_code=143(128+SIGTERM15),前端显 ⚠️"退出码=143"提示异常;
+        #   否则为进行中(刚启动未结束),exit=null 不显⚠️
+        # (2026-07-23 修复:旧逻辑被杀任务 exit=null 与"进行中"混同,前端不显⚠️看不出异常)
         if pending_start is not None:
             if last_run is None or pending_start > pairs[-1][0]:
                 last_run = pending_start.strftime("%Y-%m-%d %H:%M")
-                code = None
+                age = (datetime.now() - pending_start).total_seconds()
+                code = 143 if age > MAX_GAP_SEC else None
                 last_dur = None
         result.append({
             "task": t["task"], "name": t["name"], "schedule": t["schedule"],
