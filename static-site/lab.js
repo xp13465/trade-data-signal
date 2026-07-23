@@ -6182,7 +6182,7 @@ function _labAIScoreCode(it) {
   return (it && (it.etf_code || it.code)) || "";
 }
 async function renderAIScoreListLab() {
-  // wrapper：顶部说明 + 买清单 + 卖清单 + 持仓自查
+  // wrapper：顶部说明 + 持仓自查 + (买清单|卖清单 左右并排)
   const wrapper = document.createElement("div");
   wrapper.className = "lab-aiscore-wrap";
 
@@ -6192,21 +6192,27 @@ async function renderAIScoreListLab() {
   intro.innerHTML = "💡 <b>这板块有什么用</b>：基于 🎯自定义分析 的 8+8 维度 AI 评分,对全市场 ETF 做买卖清单排序--低位机会分高的进买清单(按手数 3/2/1 建议买入量),高位风险分高的进卖清单(给卖出建议)。<b>怎么解读</b>:买清单按 AI 评分降序排,手数 badge 表示建议仓位(3手=机会最强/2手=关注/1手=少量);卖清单列出全部 ETF 的 high_alert + sell_signal 持有/减仓建议。点击行可看完整 8+8 维度拆解 modal(复用 🎯自定义分析 数据),也可用持仓自查输入任意 ETF 代码查询。";
   wrapper.appendChild(intro);
 
+  // 持仓自查 host（额外功能:输入任意ETF代码查询）— 移至最前,1列
+  const queryHost = document.createElement("div");
+  queryHost.className = "lab-aiscore-section lab-aiscore-query";
+  wrapper.appendChild(queryHost);
+
+  // 买清单 + 卖清单 左右并排容器(grid 1fr 1fr, 窄屏降1列)
+  const gridHost = document.createElement("div");
+  gridHost.className = "lab-aiscore-grid";
+
   // 买清单 host
   const buyHost = document.createElement("div");
   buyHost.className = "lab-aiscore-section lab-aiscore-buy";
   buyHost.innerHTML = '<div class="lab-custom-loading">⏳ 加载买清单…</div>';
-  wrapper.appendChild(buyHost);
+  gridHost.appendChild(buyHost);
 
   // 卖清单 host
   const sellHost = document.createElement("div");
   sellHost.className = "lab-aiscore-section lab-aiscore-sell";
-  wrapper.appendChild(sellHost);
+  gridHost.appendChild(sellHost);
 
-  // 持仓自查 host（额外功能:输入任意ETF代码查询）
-  const queryHost = document.createElement("div");
-  queryHost.className = "lab-aiscore-section lab-aiscore-query";
-  wrapper.appendChild(queryHost);
+  wrapper.appendChild(gridHost);
 
   content.querySelectorAll(".lab-aiscore-wrap").forEach((el) => el.remove());
   content.appendChild(wrapper);
