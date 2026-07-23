@@ -3765,14 +3765,36 @@ main { padding: 16px 24px; }
 .etf-score-updated { font-size: 12px; color: var(--text-3); white-space: nowrap; }
 .etf-score-stat { font-size: 13px; color: var(--text-3); margin: 4px 4px 10px; }
 .etf-score-empty { padding: 32px 16px; text-align: center; color: var(--text-3); font-size: 14px; }
-.etf-score-list { display: flex; flex-direction: column; gap: 8px; padding: 0 4px; }
+.etf-score-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px; padding: 0 4px;
+}
 .etf-score-row {
   background: var(--bg-card); border: 1px solid var(--border);
   border-left: 3px solid var(--text-4);
   border-radius: 8px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
 }
-.etf-score-row.etf-side-buy { border-left-color: var(--up, #16a34a); }
-.etf-score-row.etf-side-sell { border-left-color: var(--down, #e6492e); }
+/* 配色重新设计(2026-07-24):避免纯绿纯红刺眼。buy=暖红粉橙(涨=多,契合红金主题),sell=青蓝灰蓝(冷色,非绿) */
+.etf-score-row.etf-side-buy {
+  border-left-color: #e8826a;
+  background: linear-gradient(135deg, #fdecec 0%, var(--bg-card) 55%);
+}
+.etf-score-row.etf-side-sell {
+  border-left-color: #5b9cc4;
+  background: linear-gradient(135deg, #e7f0f7 0%, var(--bg-card) 55%);
+}
+[data-theme="dark"] .etf-score-row.etf-side-buy,
+[data-theme="redgold"] .etf-score-row.etf-side-buy {
+  border-left-color: #f56565;
+  background: linear-gradient(135deg, rgba(245, 101, 101, 0.16) 0%, var(--bg-card) 60%);
+}
+[data-theme="dark"] .etf-score-row.etf-side-sell,
+[data-theme="redgold"] .etf-score-row.etf-side-sell {
+  border-left-color: #5b9cc4;
+  background: linear-gradient(135deg, rgba(91, 156, 196, 0.18) 0%, var(--bg-card) 60%);
+}
 .etf-row-main {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
@@ -3794,14 +3816,15 @@ main { padding: 16px 24px; }
 }
 .etf-side-tag {
   display: inline-block; padding: 2px 8px; border-radius: 10px;
-  font-size: 11px; font-weight: 600; color: #fff;
+  font-size: 11px; font-weight: 600;
 }
-.etf-side-buy { background: var(--up, #16a34a); }
-.etf-side-sell { background: var(--down, #e6492e); }
+/* side-tag 浅底深字(非纯色底白字),柔和现代 */
+.etf-side-buy { background: #fdecec; color: #c0392b; }
+.etf-side-sell { background: #e7f0f7; color: #2c6e8f; }
 [data-theme="dark"] .etf-side-buy,
-[data-theme="redgold"] .etf-side-buy { background: #52c41a; color: #1f2329; }
+[data-theme="redgold"] .etf-side-buy { background: rgba(245, 101, 101, 0.22); color: #fca5a5; }
 [data-theme="dark"] .etf-side-sell,
-[data-theme="redgold"] .etf-side-sell { background: #ff7875; color: #1f2329; }
+[data-theme="redgold"] .etf-side-sell { background: rgba(125, 211, 252, 0.2); color: #7dd3fc; }
 .etf-nt-tag {
   display: inline-block; margin-left: 6px; padding: 1px 6px;
   border: 1px solid var(--primary); color: var(--primary);
@@ -3834,6 +3857,9 @@ main { padding: 16px 24px; }
   .etf-rank { display: none; } /* 移动端省略排名省空间 */
   .etf-score { font-size: 15px; }
   .etf-alert { margin-left: 0; }
+}
+@media (max-width: 640px) {
+  .etf-score-list { grid-template-columns: 1fr; } /* 窄屏单列,避免卡片过挤 */
 }
 
 /* ============ B4 持仓: 行高亮 + 持仓面板 ============ */
@@ -3967,6 +3993,86 @@ main { padding: 16px 24px; }
   box-shadow: 0 1px 4px rgba(22,93,255,.25);
 }
 .spark-name .pin-btn { margin-left: 4px; }
+
+/* ============ A12 订阅推送（2026-07-24 P2-新-K）============ */
+/* 🔔 订阅按钮（仿 .pin-btn，h3 末尾 span） */
+.subscribe-btn {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  vertical-align: middle;
+  user-select: none;
+  transition: all .15s;
+}
+.subscribe-btn:hover { color: #d4380d; border-color: #d4380d; }
+.spark-name .subscribe-btn { margin-left: 4px; }
+
+/* 订阅管理 modal */
+.subscribe-modal .rule-modal-body { width: min(92vw, 620px); max-height: 88vh; overflow-y: auto; }
+.subscribe-modal .rule-modal-content { padding: 14px 18px; }
+.sub-form-section { margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.sub-form-row { display: flex; align-items: center; margin: 8px 0; }
+.sub-form-row > label { width: 130px; flex-shrink: 0; font-size: 13px; color: var(--text-2); }
+.sub-form-row > input[type="text"],
+.sub-form-row > input[type="email"] {
+  flex: 1; padding: 6px 10px; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-card); color: var(--text-1);
+}
+.sub-form-row > input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(22,93,255,.1); }
+.sub-form-row-top { align-items: flex-start; }
+.sub-form-row-top > label { padding-top: 6px; }
+.sub-sig-checkboxes { flex: 1; display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.sub-sig-check { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
+.sub-sig-check input { margin: 0; }
+.sub-form-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.sub-save-btn {
+  padding: 7px 18px; font-size: 13px; font-weight: 600;
+  color: #fff; background: linear-gradient(135deg, var(--primary-hover), var(--primary));
+  border: none; border-radius: 6px; cursor: pointer; transition: all .15s;
+}
+.sub-save-btn:hover { box-shadow: 0 2px 8px rgba(22,93,255,.3); }
+.sub-msg { font-size: 12px; color: var(--text-3); }
+.sub-msg.success { color: #2e8b57; }
+.sub-msg.error { color: #e6492e; }
+
+/* 已订阅列表 */
+.sub-list-section { margin-top: 4px; }
+.sub-list-title { font-size: 14px; font-weight: 600; color: var(--text-1); margin-bottom: 10px; }
+.sub-list { display: flex; flex-direction: column; gap: 10px; }
+.sub-list-loading, .sub-list-empty, .sub-list-error { padding: 16px; text-align: center; font-size: 13px; color: var(--text-3); }
+.sub-list-item {
+  padding: 10px 12px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; font-size: 12px;
+}
+.sub-item-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.sub-item-name { font-weight: 600; color: var(--text-1); font-size: 13px; }
+.sub-disabled-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 11px; color: #86909c; background: rgba(134,144,156,.12);
+  border-radius: 8px;
+}
+.sub-delete-btn {
+  padding: 2px 8px; font-size: 13px; line-height: 1.4;
+  color: var(--text-3); background: transparent;
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  transition: all .15s;
+}
+.sub-delete-btn:hover { color: #fff; background: var(--down, #e6492e); border-color: var(--down, #e6492e); }
+.sub-item-row { margin: 3px 0; color: var(--text-2); line-height: 1.6; }
+.sub-item-label { color: var(--text-3); margin-right: 4px; }
+.sub-sig-all { display: inline-block; padding: 1px 6px; font-size: 11px; color: var(--text-2); background: rgba(134,144,156,.12); border-radius: 4px; }
+.sub-disclaimer {
+  margin-top: 14px; padding: 10px 12px; font-size: 11px; color: var(--text-3);
+  background: rgba(127,127,127,.06); border-radius: 6px; line-height: 1.6;
+}
 
 /* 复盘面板容器：指数区顶部，无 pin 时 display:none */
 .pin-review-section {
