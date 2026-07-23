@@ -62,7 +62,8 @@
 ## 9. 单版前端铁律(2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变
 - 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify,仅 static-site/app.js+lab.js 2对)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
-- 本地开发:`.venv/bin/uvicorn app.main:app --port 8000`(看页面+调API)或 `python -m http.server -d static-site`
+- 本地开发:`cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`(看页面+调API)或 `python -m http.server -d static-site`
+- ⚠️ **uvicorn cwd 必须是 trade-data/**(2026-07-20 方案B,根治线上读滞后镜像):让 app/db.py 的 `.absolute()` 读最新主库 `trade-data/data/sentiment.db`(inode 237343239),非 `trade/` 滞后镜像(inode 238648312,仅 deploy.sh rsync 时同步)。launchd 写 trade-data/data/,uvicorn 从 trade/ 跑会读滞后镜像致 export 漏数据(resolve 修复 commit f0f6df78 需 cwd 切 trade-data 才生效)。trade-data/app 是 symlink 指向 trade/app,代码不变。调试加 `--reload`
 
 ## 10. 切分支保护 DB(2026-07-14 已根治,作历史教训留存)
 - 历史隐患:data/sentiment.db(80MB)+ etf_national_team.db 曾进 git 跟踪,切分支时 git 用旧版覆盖污染 DB,致 2026-07-14 事故(收盘快照丢失)

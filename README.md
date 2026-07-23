@@ -82,7 +82,8 @@ python3 -m venv .venv
 .venv/bin/python -m app.backfill
 
 # 4. 启动看板（二选一）
-.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000   # 动态版:看页面 + 调 /api/* 读 DB
+cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000   # 动态版:看页面 + 调 /api/* 读 DB
+# ⚠️ cwd=trade-data/ 让 app/db.py .absolute() 读最新主库(trade-data/data/sentiment.db),非 trade/ 滞后镜像
 # 或纯静态:python -m http.server -d static-site --port 8000
 # 浏览器打开 http://localhost:8000
 ```

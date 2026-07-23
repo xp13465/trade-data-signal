@@ -612,7 +612,8 @@ python -m app.collector.etf_national_team holders                      只拉持
 **运行命令**：
 ```bash
 # 看板（浏览器打开 http://localhost:8000，局域网 http://192.168.31.207:8000）
-.venv/bin/python -m uvicorn app.main:app --port 8000 --host 0.0.0.0 --app-dir .
+cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/python -m uvicorn app.main:app --port 8000 --host 0.0.0.0
+# ⚠️ cwd=trade-data/ 让 app/db.py .absolute() 读最新主库(trade-data/data/sentiment.db),非 trade/ 滞后镜像
 
 # 手动跑当日采集+计算
 .venv/bin/python -m app.scheduler
