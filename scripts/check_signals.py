@@ -18,12 +18,9 @@ import argparse
 import json
 import logging
 import re
-import smtplib
 import sqlite3
 import sys
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText
-from email.utils import formataddr, formatdate
 from pathlib import Path
 
 import yaml
@@ -35,10 +32,11 @@ import yaml
 # trade-data/app 是 symlink 指向 trade/app，sys.path 仍可正常 import app 模块。
 REPO = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO))
-from app.db import get_conn
+sys.path.insert(0, str(REPO / "scripts"))  # 供 import notify（多渠道通知统一出口）
+import notify  # noqa: E402
+from app.db import get_conn  # noqa: E402
 
 DB_PATH = REPO / "data" / "sentiment.db"
-EMAIL_CONFIG = REPO / "config" / "email.json"
 INDICATORS_CONFIG = REPO / "config" / "indicators.yaml"
 STATS_PATH = REPO / "data" / "signal_stats.json"
 # F 方案（2026-07-21）：邮件去重持久化，记录当日已通知的 (index_id, signal) 集合。
@@ -109,9 +107,6 @@ FADE_LEVEL_INFO = {
     "orange": ("🟠", "类型变化", "#d4380d"),
     "yellow": ("🟡", "降级保留", "#d48806"),
 }
-
-# email.json.example 中的占位密码，识别后跳过实际发送（仅打印内容）
-PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
 
 
 def calc_kelly(win_rate: float | None, pl: float | None) -> float:
@@ -558,46 +553,6 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     return subject, body
 
 
-def load_email_config() -> dict | None:
-    """读 config/email.json。不存在或解析失败返回 None。"""
-    if not EMAIL_CONFIG.exists():
-        log.warning("config/email.json 不存在（复制 email.json.example 并填 SMTP 授权码后启用邮件）")
-        return None
-    try:
-        cfg = json.loads(EMAIL_CONFIG.read_text(encoding="utf-8"))
-    except Exception as e:  # noqa: BLE001
-        log.error("config/email.json 解析失败：%s", e)
-        return None
-    return cfg
-
-
-def send_email(cfg: dict, subject: str, body: str) -> None:
-    """SMTP SSL 发邮件。失败抛异常（由调用方 try/except 兜底）。
-
-    password 为占位符时跳过实际发送（仅日志，用于测试/未配置场景）。
-    """
-    smtp = cfg.get("smtp", "smtp.163.com")
-    port = int(cfg.get("port", 465))
-    user = cfg.get("user", "")
-    password = cfg.get("password", "")
-    to = cfg.get("to", user)
-
-    if not user or not password or password == PLACEHOLDER_PASSWORD:
-        log.warning("SMTP password 仍是占位符 —— 跳过实际发送（邮件内容已打印到日志）")
-        return
-
-    msg = MIMEText(body, "html", "utf-8")
-    msg["Subject"] = subject
-    msg["From"] = formataddr(("A股情绪看板", user))
-    msg["To"] = to
-    msg["Date"] = formatdate(localtime=True)
-
-    with smtplib.SMTP_SSL(smtp, port, timeout=30) as srv:
-        srv.login(user, password)
-        srv.sendmail(user, [to], msg.as_string())
-    log.info("✓ 邮件已发送至 %s", to)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="检测当天 signal_daily 买卖点信号 + 发邮件通知"
@@ -704,16 +659,22 @@ def main(argv: list[str] | None = None) -> int:
         log.info("dry-run：跳过实际发送 + 不更新 signal_notified.json")
         return 0
 
-    cfg = load_email_config()
-    if cfg is None:
-        log.warning("未配置 config/email.json —— 跳过实际发送（邮件内容已打印到日志）")
-        return 0
-
+    # 多渠道分发（邮件 + Telegram）：notify.send 统一出口，各渠道失败不互相阻塞。
+    # 任一渠道成功即视为通知已发出 -> 继续更新 signal_notified.json（标记已通知）。
+    # 全部渠道未发出（未配置/失败）-> 不更新去重记录，下次重试。
     try:
-        send_email(cfg, subject, body)
+        results = notify.send(subject, body)
     except Exception as e:  # noqa: BLE001
-        log.error("✗ 邮件发送失败：%s（不阻塞流程）", e)
-        return 2  # 非 0 但不崩
+        log.error("✗ 通知发送异常：%s（不阻塞流程）", e)
+        return 2
+    ok_channels = [ch for ch, v in results.items() if v]
+    fail_channels = [ch for ch, v in results.items() if not v]
+    if ok_channels:
+        log.info("✓ 通知已发送：%s%s", " ".join(ok_channels),
+                 f"（未发出：{' '.join(fail_channels)}）" if fail_channels else "")
+    else:
+        log.warning("✗ 通知未发出（渠道均未配置或失败）-- 不更新去重记录，下次重试")
+        return 0
 
     # 发送成功后更新 signal_notified.json（标记当日已通知，下次去重跳过）。
     # --full 模式也更新：把当日全部信号标记已通知，防止之后去重模式重复发。

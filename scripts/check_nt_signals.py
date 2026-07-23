@@ -28,8 +28,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts"))
 
-# 复用 check_signals.py 邮件机制（SMTP 163->QQ, config/email.json, 不硬编码密码）
-from check_signals import load_email_config, send_email  # noqa: E402
+# 多渠道通知（邮件 + Telegram）统一走 notify.send（SMTP 163->QQ + Telegram Bot API, config/email.json + telegram.json）
+import notify  # noqa: E402
 
 from app.collector.etf_national_team import ETF_BY_CODE, DB_PATH as NT_DB_PATH  # noqa: E402
 
@@ -278,22 +278,24 @@ def main(argv: list[str] | None = None) -> int:
         log.info("--no-send 模式，跳过实际发送")
         return 0
 
-    cfg = load_email_config()
-    if cfg is None:
-        log.warning("未配置 config/email.json -- 跳过实际发送（邮件内容已打印到日志）")
-        return 0
-
-    # 无信号不发邮件（避免噪音）；共振日必发
+    # 无信号不发通知（避免噪音）；共振日必发
     if not signals:
-        log.info("无信号，不发邮件")
+        log.info("无信号，不发通知")
         return 0
 
+    # 多渠道分发（邮件 + Telegram）：notify.send 统一出口，各渠道失败不互相阻塞
     try:
-        send_email(cfg, subject, body)
+        results = notify.send(subject, body)
     except Exception as e:  # noqa: BLE001
-        log.error("✗ 邮件发送失败：%s（不阻塞流程）", e)
+        log.error("✗ 通知发送异常：%s（不阻塞流程）", e)
         return 2
-
+    ok_channels = [ch for ch, v in results.items() if v]
+    fail_channels = [ch for ch, v in results.items() if not v]
+    if ok_channels:
+        log.info("✓ 通知已发送：%s%s", " ".join(ok_channels),
+                 f"（未发出：{' '.join(fail_channels)}）" if fail_channels else "")
+        return 0
+    log.warning("✗ 通知未发出（渠道均未配置或失败）")
     return 0
 
 

@@ -1,0 +1,6 @@
+{
+  "_help": "Telegram bot 通知配置。获取步骤：1) Telegram 找 @BotFather -> /newbot 创建 bot，获得 bot_token；2) 给你的 bot 发任意消息后，浏览器访问 https://api.telegram.org/bot<TOKEN>/getUpdates ，取 result[0].message.chat.id 作为 chat_id（频道用 @channelname）；3) 把本文件复制为 telegram.json（已 gitignore 防泄露）并填入真实值。api_base 默认 https://api.telegram.org，国内 GFW 不可达时设为 CF Workers 反代 URL（复用 ss.fx8.store 域名做 Telegram API 反代：在 worker/ 加路由把 /tg-api/* 透传到 https://api.telegram.org/*，然后 api_base 填 https://ss.fx8.store/tg-api）。token/chat_id 未填（占位符）时 notify.send 自动跳过 Telegram 渠道，不报错。",
+  "bot_token": "YOUR_BOT_TOKEN",
+  "chat_id": "YOUR_CHAT_ID",
+  "api_base": "https://api.telegram.org"
+}
