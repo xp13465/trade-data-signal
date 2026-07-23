@@ -36,6 +36,15 @@ data/etf_national_team.db-shm
 # F 方案（2026-07-21）：check_signals 邮件去重持久化，仅本地跨进程去重用
 data/signal_notified.json
 
+# 根 data/ 下本地维护的统计 JSON（CLAUDE.md §8 禁推根 data/）：
+# signal_stats.json / sw_components.json 是后端 check_signals/export.py 本地产物，
+# 已 tracked（历史 commit 进 git），保持本地 modified 不推；防误 `git add -A` 带入。
+# 注意：仅匹配根 data/ 下，不影响 static-site/data/signal_stats.json（上线渠道，§8 明确不禁推）。
+# ⚠ .gitignore 对已 tracked 文件无效，要彻底脱离 git 跟踪需 `git rm --cached data/<file>`
+# 后再 commit（由主控决定，本规则只防 future 新机器 clone 后误 add）。
+data/signal_stats.json
+data/sw_components.json
+
 # 邮件配置（含 SMTP 授权码，敏感 —— 用 email.json.example 作模板）
 config/email.json
 

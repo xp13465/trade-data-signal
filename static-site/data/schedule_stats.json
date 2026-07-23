@@ -21,8 +21,8 @@
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
-    "est_text": "约18分钟",
-    "last_run": "2026-07-23 13:35",
+    "est_text": "约19分钟",
+    "last_run": "2026-07-23 14:05",
     "last_exit": null,
     "last_duration_sec": null
   },
@@ -61,5 +61,14 @@
     "last_run": "2026-07-22 21:30",
     "last_exit": 0,
     "last_duration_sec": 142
+  },
+  {
+    "task": "lab_auto",
+    "name": "策略实验室",
+    "schedule": "19:00",
+    "est_text": "约2分钟",
+    "last_run": "2026-07-22 19:00",
+    "last_exit": 0,
+    "last_duration_sec": 203
   }
 ]

@@ -45,6 +45,12 @@ TASKS = [
      "schedule": "23:00", "log": "rzhb_backfill_launchd.log", "mode": "standard"},
     {"task": "etf_national_team", "name": "ETF国家队", "script": "etf_nt",
      "schedule": "20:07 + 21:30(兜底)", "log": "etf_national_team_launchd.log", "mode": "etf_nt"},
+    # lab-auto: 2026-07-23 补入监控范围。launchd com.trade.lab-auto 19:00 跑 update_lab.sh
+    # (策略实验室全量回测+上传 R2)。日志格式标准 .sh 开始/结束(结束带"耗时 Ns"后缀，
+    # END_RE 的 .*? 可吃掉，退出码组 None 默认 0)。schedule_monitor.sh 已先一步收录 lab_auto
+    # (硬编码 TASKS L43-61)，但前端 schedule_stats.json 仍漏显示，此处补齐。
+    {"task": "lab_auto", "name": "策略实验室", "script": "update_lab.sh",
+     "schedule": "19:00", "log": "update_lab_launchd.log", "mode": "standard"},
 ]
 
 _TS = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})'
