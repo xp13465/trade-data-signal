@@ -365,7 +365,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **实施顺序建议**：分两阶段
 - 阶段1 MVP：✅ **2026-07-23 已上线**（commit b8fbed75 后端 + d0d19830 前端 + 200bd4cc merge main，国家队12个+现成权重+卖清单卖点信号列表，三站点验证全绿，详见 NOTES §48 小节AZ4）
-- 阶段2 扩展：🔄 待实施（全市场485+ETF专属调权+用户输入持仓，~385行，2-3天）
+- 阶段2 扩展：🔄 部分完成（**ETF专属调权 ✅ 2026-07-23 已实施 commit `ad840d16`**，H7/L4↑ H3/L2↓ + 开关默认 off 待回测验证，详见 NOTES §48 小节AZ6；剩余待实施：全市场485扩采集+OHLC+前端分页/搜索/持仓输入，~385行，2-3天）
 
 **与 P1-新-A/B 关系**：同属"AI 评分/预警"主题，P1-新-A（盘中信号消失）+P1-新-B（pin策略问号）+P1-新-C（ETF清单）三个可串行实施，互不冲突（A改check_signals后端/B改signals.py+app.js/C改lab.js+新增脚本，不同文件）
 
@@ -383,7 +383,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 > 用户问"待办外建议"，提了5方向都感兴趣，派2个调研 agent（前端3+后端2）只读摸现状给方案。**结论：5方向中 DB灾备已大部分实现，其余4方向待实施。** 收盘 deploy 完再开（盘中不改 app.js/build）。
 
-### P2-新-A 数据可信度透明化 · 采集健康度小灯（前端方向1，~80行）
+### P2-新-A 数据可信度透明化 · 采集健康度小灯（前端方向1，~80行）✅ **2026-07-23 已实施**（commit `dd504c21`，详见 NOTES §48 小节AZ6）
 - **现状**：后端 `collect_health`（level=ok/warn/error + items）已导出 overview.json（export.py L361），但前端**采集时间旁没暴露小灯**（app.js L2465-2466 注释明说"留给后端日志不展示"）。KPI 灰态卡片只覆盖 9 个白名单指标（L3891-3895），其他 metric_id 的 error 不显示
 - **方案**：采集时间旁（`_renderCollectTime` L2485）加🟢🟡🔴小灯，hover 弹失败源 metric_id+message。`fetchCollectTime` 传 `r.collect_health`，复用现有 data-tip hover 机制
 - **风险**：① collect_health error 可能误报（export.py L382-394 已过滤陈旧误报但非100%）② 与"数据更新规则 modal"时效展示语义不同需文案区分（小灯=采集动作成败 / modal=数据到没到最新）
@@ -414,7 +414,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - **只剩补强**：① 恢复操作文档（脚本支持 `download-db` 但无流程文档）② 可选独立 plist 18:30 双保险（主控判断：plist 双保险价值不大，update_all 串接已够稳+有告警，**只做恢复文档即可**）
 - **决策点**：① DB备份触发方式（A现状update_all串接 / B独立plist / C双保险推荐但主控倾向只A+文档）② 异地备份层无需再上云盘（R2三层+verify已够）
 
-### P2-新-E 告警渠道扩展 Telegram bot（后端方向4，~70行）
+### P2-新-E 告警渠道扩展 Telegram bot（后端方向4，~70行）✅ **2026-07-23 已实施**（commit `fc27f631`，notify.py send_telegram + send 多渠道分发 + check_signals 删重复 send_email 改 notify.send，详见 NOTES §48 小节AZ6）
 - **现状**：纯邮件。notify.py `send()` 单一 SMTP，无即时渠道。check_signals.py L574-598 **重复实现 `send_email()`** 25行（与 notify.py 几乎一样，不走 notify.py）。fade-detect 红警纯邮件触达
 - **方案**：
   1. `config/telegram.json`（gitignore，bot_token/chat_id/api_base，模板 telegram.json.example）
@@ -449,7 +449,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - **决策点**：① 映射表维护（A扩build_board_etf_map关键词 / B推荐新INDEX_ETF_MAP反查汪汪队精准 / 可B为主A补缺）② 展示深度（必做信号卡tag + 可选走势图markPoint + 可选modal走势对比，推荐先做必做+可选1）
 - **和P1-新-C关系**：互补不重复。P1-新-C是"ETF视角清单"，方向2是"指数视角带ETF推荐"
 
-### P2-新-H 历史相似形态匹配（数据展示方向3，~240行，独特价值最高）
+### P2-新-H 历史相似形态匹配（数据展示方向3，~240行，独特价值最高）✅ **2026-07-23 已实施第一批**（commits `dd504c21`+`838dbafb`+`0ff4cbc1`+`2129a83b`+`935f69da`，皮尔逊相关系数+滑窗 top5 匹配 + sw_ 取数 + hover 高亮 + TOP_PLOT 3->5 + 走势叠加图例，详见 NOTES §48 小节AZ6）
 - **现状**：`index_daily` 表历史充足（sh 8688行1990起35年/hs300 5955/kc50 1588/bj50 1025，31行业每6417行）。trade_sim 是参数化回测，**无相似形态匹配**，功能互补
 - **方案**：皮尔逊相关系数+滑窗算法（O(n)前端实时算<100ms，numpy可向量化）。取当前近20日close归一化为日收益率，历史滑窗算相关系数取top5最相似时段，每个给"之后5/10/20日累计涨跌幅"。展示：trade_sim modal 新增「相似形态」tab + 走势图叠加top1延伸虚线
 - **风险**：① 过拟合/巧合相似（对策：展示top5+相似度分布，文案"历史相似≠未来重演"）② 市场结构变化（对策：默认扫描近10年可切换）③ 归一化敏感（默认日收益率scale-invariant）
@@ -461,7 +461,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - **决策点**：是否补操作建议字段（A推荐保持现状自然语言摘要避免过度设计 / B补结构化建议）
 - **和check_signals邮件关系**：独立合理（买卖点是技术指标层，日报是市场情绪层，受众不同信息密度过高不合并）
 
-### P2-新-J 异常波动盘中告警（推送方向5，~250行新文件，框架有检测缺）
+### P2-新-J 异常波动盘中告警（推送方向5，~250行新文件，框架有检测缺）✅ **2026-07-23 已实施**（commit `97134640`，detect_intraday_anomaly.py + 接入 intraday_snapshot.sh L194；`5924114a` 补 .gitignore anomaly_notified.json，详见 NOTES §48 小节AZ6）
 - **现状**：intraday_snapshot.sh 30分钟一次(9:35-15:35共11次/天)+邮件链路+去重机制(signal_notified.json 7天清理)全有，L188已接 check_signals --intraday。但推的是预定义买卖点信号(RSI/布林/唐奇安等)，**缺异常波动检测算法**（5分钟涨2%/急涨急跌/放量/突破）
 - **方案**：新增 `scripts/detect_intraday_anomaly.py`（~250行），借鉴 alert_score.py L5量能异动模式。检测急涨急跌(pct_change≥±3%/±5%/±7%三档)+放量(net_inflow≥近5日均×2)+突破(近20日高低点)。去重 data/anomaly_notified.json(同signal_notified模式)。复用 intraday 30分钟节奏不新增定时，L188前插入
 - **风险**：① 噪音（30分钟一次漏分钟级，阈值保守±3%起+同日去重）② 数据频率（intraday_snapshot 30分钟非tick，"5分钟涨2%"实际"30分钟内涨2%"语义需对齐）③ 历史对比缺（intraday_snapshot表单行覆盖无分钟级历史，严格5分钟对比需新intraday_history表DB迁移）④ 误报（开盘9:35首次无上一份，用prev_trading_day收盘作基线）
@@ -481,11 +481,11 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - **等用户拍板排期后实施**
 
 ### 11方向总览（5+6批，待统一排期）
-- **已实现/0成本**：D DB灾备(只文档) / I 盘后日报(已实现95%)
-- **快见效小工作量**：B-2a 信号三窗口(30行) ✅已实施(commit `02eae130`) / A 采集健康度小灯(80行) / G ETF联动(85行拼装) ✅已实施(commit `02eae130`)
-- **即时价值**：E Telegram(70行) / J 异常波动(250行) / F 板块轮动(105行,数据受限)
-- **大工作量**：B-2b 真pin复盘(200行) / C PWA(150行) / H 相似形态(240行) / K 订阅推送(410行)
-- **2方向已实现**（DB灾备D/盘后日报I）防以后重复调研
+- **已实现/0成本**：D DB灾备(只文档) ✅ / I 盘后日报(已实现95%)
+- **快见效小工作量**：B-2a 信号三窗口(30行) ✅已实施(commit `02eae130`) / A 采集健康度小灯(80行) ✅已实施(commit `dd504c21`) / G ETF联动(85行拼装) ✅已实施(commit `02eae130`)
+- **即时价值**：E Telegram(70行) ✅已实施(commit `fc27f631`) / J 异常波动(250行) ✅已实施(commit `97134640`) / F 板块轮动(105行,数据受限) 待实施
+- **大工作量**：B-2b 真pin复盘(200行) 待实施 / C PWA(150行) 待实施 / H 相似形态(240行) ✅已实施第一批(commit `dd504c21`+`935f69da`) / K 订阅推送(410行) 待实施
+- **已实现方向**（DB灾备D/盘后日报I/健康灯A/Telegram E/异常波动J/相似形态H第一批）防以后重复调研
 
 ---
 
@@ -499,3 +499,27 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 3. ✅ **模拟回测按钮挪 chip 后独立 DOM**（app.js L1296-1316）：新增 `_simBtnHtml` + `_prependSimBtn`，CSS 改 `.sim-btn`，放 chip-row 后
 4. ✅ **指数筛选 loading 提示**（app.js L1892-1931）：加载中显 spinner + "加载指数数据中…"，无数据显"📊 该筛选暂无数据"
 5. ✅ **注释修正**（app.js L437-438）：三元组去重说明 scenario+path+win（原二元组致 18/19 缺"回撤最小"）
+
+---
+
+## ✅ 2026-07-23 晚续4 闭环（A8 Telegram / CF缓存根治 / intraday修复 / 第一批前端4项 + A4/A10/A11/A13）
+
+> 当晚最后一批上线工作 + 今日早些时候已上线未单独落档项。详见 `NOTES.md §48 小节AZ6`。
+
+**当晚 4 项（主控 highlight）**：
+1. ✅ **A8 Telegram bot 多渠道通知**（commit `fc27f631`）：notify.py `send_telegram` + `send` 多渠道分发返回 dict + check_signals 删重复 send_email 改 notify.send + check_nt_signals 同步 + telegram.json.example 模板 + .gitignore。对应 P2-新-E ✅
+2. ✅ **CF 缓存根治**（commit `d1d137dc` + `3acb2c72`）：wrangler.jsonc `run_worker_first:true` 致 _headers 不生效，真正生效是 worker/headers.js；HTML 规则 private->no_store。**重要发现**：CF Workers Static Assets 无视 Cache-Control（no-store/private/no-cache 均无视仍 HIT），靠部署自动 purge；no-store 仅浏览器层生效
+3. ✅ **intraday 修复**（commit `74b0ec39`）：剥离 intraday_snapshot.sh 的 upload-industry（268文件~15-16min 超 ExitTimeOut=1800 被杀）-> industry 走 deploy.sh L166 收盘后全量管；gen_schedule_stats.py 配对逻辑修（break->continue + 孤儿检测 + 被杀标 exit=143 前端显⚠️）
+4. ✅ **第一批前端 4 项**（commit `935f69da`）：板分化按钮挪 spark-name 后 + 相似形态 sw_ 取数（_shapeLoadSeries 加 sw_* 分支走 ssd.fx8.store/index/${id}-all.json）+ top5 hover 高亮（data-shape-rank 事件委托）+ TOP_PLOT 3->5
+
+**今日其他完成项（早些时候 commit，补记）**：
+- ✅ **A4 采集健康度小灯 + A10 相似形态前端**（commit `dd504c21`）：采集时间旁🟢🟡🔴小灯 + 皮尔逊相关系数滑窗 top5 匹配。对应 P2-新-A / P2-新-H ✅
+- ✅ **A11 异常波动盘中告警**（commit `97134640` + `5924114a`）：detect_intraday_anomaly.py ~250行 + 接入 intraday_snapshot.sh + anomaly_notified.json 去重 + .gitignore。对应 P2-新-J ✅
+- ✅ **A13 P1-新-C 阶段2 ETF专属调权**（commit `ad840d16`）：H7/L4↑ H3/L2↓ + 开关默认 off 待回测。对应 P1-新-C 阶段2 调权部分 ✅
+- ✅ **A3 R2上传超时监控 + A7 DB灾备恢复文档**（commit `c43f3d6d`）：R2 跑超5min kill 释放锁 + docs/backup-restore.md + docs/restore-db.md。对应 P2-新-D ✅
+
+**§8 教训补充（2026-07-23）**：
+- commit 时间戳≠触发时点（6867daa0 21:30 是 deploy 打标签非任务触发；看 launchd log 文件存在性非 commit 时间戳）
+- CF Workers Static Assets 无视 Cache-Control（header 层最激进只能 no-store 浏览器层生效，CF 边缘靠部署自动 purge）
+
+**未完成项保留**：B4 ETF分页（P1-新-C 阶段2 剩余，进行中）/ A9 板块轮动(P2-新-F) / A5 pin复盘(P2-新-B 2b) / A6 PWA(P2-新-C) / A14 echarts拆core / A12 订阅推送(P2-新-K) / A15 拆chunk / C1 industry瘦身 / C2 64M迁R2
