@@ -8139,12 +8139,15 @@ function _shapeMatchSVG(result, topPlot) {
   }
   // 末点圆点 + 分隔线（当前 vs 延伸）
   var sepX = sx(curLen - 1);
-  var legend = '';
-  var legendItems = ['<span style="color:' + series[0].color + '">━ 当前' + result.current.startDate + '~' + result.current.endDate + '</span>'];
+  // 大白话图例：实线=当前真实走势；虚线=历史上与当前最像的几个时段、它们随后的实际走势（仅供形态参考，非预测）
+  // 2026-07-20 改：原 "top1/top2 + r=0.xx" 技术术语改为口语化（最像/第N像 + 相似度），并加一行总述 hint
+  var legendItems = ['<span style="color:' + series[0].color + '">━ 当前近 ' + curLen + ' 日真实走势</span>'];
   for (var lg = 1; lg < series.length; lg++) {
-    legendItems.push('<span style="color:' + series[lg].color + '">┄ top' + lg + ' ' + series[lg].name.split('~')[0] + ' (r=' + (series[lg].corr || 0).toFixed(2) + ')</span>');
+    var rankWord = lg === 1 ? '最像' : '第 ' + lg + ' 像';
+    legendItems.push('<span style="color:' + series[lg].color + '">┄ ' + rankWord + '的历史时段,随后 ' + fcLen + ' 日实际走势(相似度 ' + (series[lg].corr || 0).toFixed(2) + ')</span>');
   }
-  legend = '<div style="display:flex;flex-wrap:wrap;gap:8px 14px;font-size:11px;margin:4px 0 0">' + legendItems.join('') + '</div>';
+  legend = '<div style="font-size:12px;color:var(--text-2);margin:6px 0 2px;line-height:1.5">📊 <b>实线</b> = 当前真实走势;<b>虚线</b> = 历史上与当前最像的几个时段、它们随后的实际走势(仅供形态参考,不构成预测)</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;margin:0">' + legendItems.join('') + '</div>';
   return '<div style="margin-top:6px">' +
     '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto;border-radius:6px;background:var(--bg-hover)">' +
     '<line x1="' + ml + '" y1="' + baselineY.toFixed(1) + '" x2="' + (W - mr) + '" y2="' + baselineY.toFixed(1) + '" stroke="var(--border)" stroke-dasharray="3,3" stroke-width="1"/>' +
@@ -8187,7 +8190,7 @@ async function _tradeSimShapeViewHTML(indexId) {
   var listTable = '<table class="shape-match-table"><thead><tr><th>排名</th><th>历史时段</th><th>相关系数</th><th>后续' + FORECAST_LEN + '日涨跌</th></tr></thead><tbody>' + listRows + '</tbody></table>';
   return '<div class="trade-sim-shape-view">' +
     '<div class="trade-sim-shape-hint">🔮 取近 ' + CUR_LEN + ' 日<b>归一化日收益率</b>为当前形态，在 ' + idxName + ' 全历史（' + closes.length + ' 个交易日）中滑窗匹配皮尔逊相关最高的 ' + TOP_N + ' 个时段。<b>虚线为相似时段后续 ' + FORECAST_LEN + ' 日走势</b>（起点对齐当前末点），仅作形态参考非预测。</div>' +
-    '<div class="trade-sim-shape-section"><div class="trade-sim-shape-section-title">走势叠加 · 当前实线 + top' + TOP_PLOT + ' 延伸虚线</div>' + svg + '</div>' +
+    '<div class="trade-sim-shape-section"><div class="trade-sim-shape-section-title">走势叠加图(实线=当前,虚线=历史相似时段后续走势)</div>' + svg + '</div>' +
     '<div class="trade-sim-shape-section"><div class="trade-sim-shape-section-title">最相似 Top' + TOP_N + ' 时段</div>' + listTable + '</div>' +
     '</div>';
 }
