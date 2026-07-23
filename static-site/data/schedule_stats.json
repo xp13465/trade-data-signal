@@ -21,8 +21,8 @@
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
-    "est_text": "约19分钟",
-    "last_run": "2026-07-23 14:05",
+    "est_text": "约22分钟",
+    "last_run": "2026-07-23 14:35",
     "last_exit": null,
     "last_duration_sec": null
   },
