@@ -75,6 +75,24 @@ BS_MIN_INTERVAL = 0.1
 _last_call = [0.0]
 _logged_in = [False]
 
+# 网络类错误码（baostock/common/contants.py L147-154）——出现即视为连接断开，需重连。
+# 实证：baostock/util/socketutil.py 的 send_msg 断线时 try/except 抓异常后隐式 return None，
+# query_history_k_data_plus 收到 None 返 BSERR_RECVSOCK_FAIL("10002007")。socket 不会自动重建，
+# 后续 query 全 fail（2026-07-23 全量补采断链根因）。
+_NETWORK_ERROR_CODES = frozenset({
+    "10002001",  # SOCKET_ERR
+    "10002002",  # CONNECT_FAIL
+    "10002003",  # CONNECT_TIMEOUT
+    "10002004",  # RECVCONNECTION_CLOSED（断线典型）
+    "10002005",  # SENDSOCK_FAIL
+    "10002006",  # SENDSOCK_TIMEOUT
+    "10002007",  # RECVSOCK_FAIL（断线典型）
+    "10002008",  # RECVSOCK_TIMEOUT
+})
+# 重连参数：3 次重试，每次间隔 2 秒（避免死循环 + 给服务端恢复时间）。
+_RECONNECT_MAX_RETRIES = 3
+_RECONNECT_INTERVAL = 2.0  # 秒
+
 
 def _throttle():
     wait = BS_MIN_INTERVAL - (time.time() - _last_call[0])
@@ -83,13 +101,44 @@ def _throttle():
     _last_call[0] = time.time()
 
 
-def _ensure_login():
-    """BaoStock 全局 login（幂等，重复 login 会返 already login）。"""
+def _ensure_login(*, force_reconnect: bool = False) -> None:
+    """BaoStock 全局 login。
+
+    - 默认幂等（_logged_in[0]=True 时不重复 login），保持原行为
+    - force_reconnect=True：强制 _logout 清旧 socket 再 login，
+      用于断线后重建连接（实证 bs.login 每次都重建新 socket，id 不同）
+    """
+    if force_reconnect:
+        _logout()
     if not _logged_in[0]:
         lg = bs.login()
         if lg.error_code != "0":
             raise RuntimeError(f"baostock login failed: {lg.error_code} {lg.error_msg}")
         _logged_in[0] = True
+
+
+def _reconnect_with_retry(max_retries: int = _RECONNECT_MAX_RETRIES,
+                          interval: float = _RECONNECT_INTERVAL) -> None:
+    """断线重连：max_retries 次 logout+login，每次间隔 interval 秒。
+
+    bs.login 会重建 socket（实证：每次调用都 setattr 新 socket 到 context），
+    故先 _logout 标 _logged_in[0]=False，再 _ensure_login 触发 login。
+    全失败才 raise RuntimeError，调用方决定是否记 fail。
+    """
+    last_err = ""
+    for attempt in range(1, max_retries + 1):
+        try:
+            _logout()  # 清旧 socket（_logged_in=False）
+            _ensure_login()  # 触发新 login 重建 socket
+            return  # 成功立即返回
+        except Exception as e:  # noqa: BLE001
+            last_err = f"{type(e).__name__}: {str(e)[:150]}"
+            print(f"  [baostock reconnect] attempt {attempt}/{max_retries} "
+                  f"failed: {last_err}", flush=True)
+            if attempt < max_retries:
+                time.sleep(interval)
+    raise RuntimeError(
+        f"baostock reconnect failed after {max_retries} retries: {last_err}")
 
 
 def _logout():
@@ -225,6 +274,9 @@ def fetch_one(code: str, start_date: str, end_date: str) -> tuple[list[tuple], s
              turnover, pct_change, preclose), ...]
 
     BaoStock adjustflag="3" 不复权（与 D1 一致，保证涨停价判定准确）。
+
+    断线重连（2026-07-23 修复）：query 抛异常或返网络类错误码时，调
+    _reconnect_with_retry 重建 socket 后重试一次。第二次仍失败才返回 fail。
     """
     bs_code = to_baostock_code(code)
     if bs_code is None:
@@ -235,31 +287,54 @@ def fetch_one(code: str, start_date: str, end_date: str) -> tuple[list[tuple], s
     ed = _to_ymd(end_date)
 
     _ensure_login()
-    _throttle()
-    try:
-        rs = bs.query_history_k_data_plus(
-            bs_code, FIELDS,
-            start_date=sd, end_date=ed,
-            frequency="d", adjustflag="3",
-        )
-    except Exception as e:  # noqa: BLE001
-        return [], f"fetch err: {type(e).__name__}: {str(e)[:150]}"
-    if rs.error_code != "0":
-        return [], f"bs err {rs.error_code}: {rs.error_msg}"
 
-    rows = []
-    while (rs.error_code == "0") & rs.next():
-        d = rs.get_row_data()
-        # d = [date, code, open, high, low, close, volume, amount, turn, pctChg, preclose]
-        date_str = _norm_date(d[0]) if d[0] else None
-        if not date_str:
-            continue
-        row = (code, date_str,
-               _f(d[2]), _f(d[3]), _f(d[4]), _f(d[5]),
-               _f(d[6]), _f(d[7]),
-               _f(d[8]), _f(d[9]), _f(d[10]))
-        rows.append(row)
-    return rows, "ok" if rows else "empty"
+    # 2 次尝试：attempt 0=初次，attempt 1=重连后重试
+    reconnect_err = ""
+    for attempt in range(2):
+        _throttle()
+        try:
+            rs = bs.query_history_k_data_plus(
+                bs_code, FIELDS,
+                start_date=sd, end_date=ed,
+                frequency="d", adjustflag="3",
+            )
+        except Exception as e:  # noqa: BLE001  socket 异常（断线典型）
+            reconnect_err = f"{type(e).__name__}: {str(e)[:150]}"
+            if attempt == 0:
+                try:
+                    _reconnect_with_retry()
+                except Exception as re:  # noqa: BLE001
+                    return [], f"fetch err: {reconnect_err} (reconnect failed: {str(re)[:80]})"
+                continue  # 重试
+            return [], f"fetch err: {reconnect_err} (after reconnect)"
+
+        if rs.error_code != "0":
+            # 网络类错误码 -> 断线，重连后重试
+            if rs.error_code in _NETWORK_ERROR_CODES and attempt == 0:
+                reconnect_err = f"bs err {rs.error_code}: {rs.error_msg}"
+                try:
+                    _reconnect_with_retry()
+                except Exception as re:  # noqa: BLE001
+                    return [], f"{reconnect_err} (reconnect failed: {str(re)[:80]})"
+                continue  # 重试
+            return [], f"bs err {rs.error_code}: {rs.error_msg}"
+
+        rows = []
+        while (rs.error_code == "0") & rs.next():
+            d = rs.get_row_data()
+            # d = [date, code, open, high, low, close, volume, amount, turn, pctChg, preclose]
+            date_str = _norm_date(d[0]) if d[0] else None
+            if not date_str:
+                continue
+            row = (code, date_str,
+                   _f(d[2]), _f(d[3]), _f(d[4]), _f(d[5]),
+                   _f(d[6]), _f(d[7]),
+                   _f(d[8]), _f(d[9]), _f(d[10]))
+            rows.append(row)
+        return rows, "ok" if rows else "empty"
+
+    # 理论不可达（for 内 attempt 0/1 都会 return）
+    return [], f"unexpected fetch_one exit (last reconnect err: {reconnect_err})"
 
 
 def _to_ymd(s: str) -> str:
