@@ -395,9 +395,26 @@ function _buildSignalMarkData(signals, getValueFn) {
 // tooltip 补完整 4 买点对比 + 合规文案"研究参考，不构成投资建议，历史回测不代表未来"。
 // 合规文案：年化最高/回撤最小是回测术语，非"最赚钱"导向词。
 var _backupChipLoading = {};  // 防并发重复 fetch 同一 index
-var _BACKUP_CHIP_COMPLIANCE = "研究参考，不构成投资建议，历史回测不代表未来。";
-var _BACKUP_CHIP_SCENARIOS = ["主买+卖", "辅买+卖", "追买+卖", "备买+卖"];
-var _BACKUP_CHIP_PATH = "全仓进出";
+// A+B 融合方案（2026-07-23）：跨 5窗口×3路径×11场景=165 回测综合排名，原仅 y5 单窗口 4 单买 2.4% 切片面片。
+// 三档选择改为全维度归一化综合分（防 y1 小样本虚高）：
+//   年化最高档 = 综合分最高（年化50% + 胜率25% + 低回撤15% + 样本10%）
+//   最稳健档  = 综合分最高（胜率40% + 低回撤40% + 样本20%）
+//   回撤最小档 = max_drawdown 最小（跨全 165）
+// chip val 两行：首行 {scenario}·{path缩写}；次行 5 窗口年化对比 / 稳健指标 / 回撤指标
+// 去重粒度：scenario+path 组合（同 scenario 不同 path 算不同 chip）
+var _BACKUP_CHIP_WINS = ["y1", "y3", "y5", "y10", "all"];
+var _BACKUP_CHIP_PATHS = ["买固定1w(10%)+卖清仓", "全仓进出", "固定1w(10%)进出（FIFO）"];
+var _BACKUP_CHIP_SCENARIOS_ALL = [
+  "主买+卖", "辅买+卖", "追买+卖", "备买+卖",
+  "主买+辅买+卖", "主买+追买+卖", "主买+备买+卖",
+  "辅买+追买+卖", "辅买+备买+卖", "追买+备买+卖",
+  "追买+追止损卖"
+];
+var _BACKUP_CHIP_PATH_SHORT = {
+  "买固定1w(10%)+卖清仓": "1w清仓",
+  "全仓进出": "全仓",
+  "固定1w(10%)进出（FIFO）": "1wFIFO"
+};
 // 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
 // SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
 function _appendBackupChipRow(cardEl, id) {
@@ -430,68 +447,147 @@ async function _backupSignalChipLoad(id) {
     _backupChipLoading[id] = false;
   }
 }
-// 算 4 单买点场景三档 chip HTML（已缓存数据同步算）。数据不足返回空串。
+// 算三档 chip HTML（A+B 融合方案）：遍历全 165 回测，归一化综合分排名。数据不足返回空串。
 function _backupSignalChipRender(sd) {
   if (!sd || !sd.data) return '';
-  var win = _TRADE_SIM_DEFAULT_WIN;
-  var byWin = sd.data[win];
-  if (!byWin || !byWin[_BACKUP_CHIP_PATH]) return '';
-  var byPath = byWin[_BACKUP_CHIP_PATH];
-  var entries = [];
-  for (var i = 0; i < _BACKUP_CHIP_SCENARIOS.length; i++) {
-    var sc = _BACKUP_CHIP_SCENARIOS[i];
-    var blk = byPath[sc];
-    var s = blk && blk.summary;
-    if (!s) continue;
-    if (typeof s.annualized !== 'number' || typeof s.max_drawdown !== 'number' ||
-        typeof s.win_rate !== 'number' || typeof s.total_ops !== 'number') continue;
-    entries.push({
-      scenario: sc,
-      label: sc.replace(/\+卖$/, ''),
-      annualized: s.annualized,
-      max_drawdown: s.max_drawdown,
-      win_rate: s.win_rate,
-      total_ops: s.total_ops
-    });
+  // 遍历 5 窗口 × 3 路径 × 11 场景 = 165 回测
+  var allEntries = [];
+  for (var wi = 0; wi < _BACKUP_CHIP_WINS.length; wi++) {
+    var win = _BACKUP_CHIP_WINS[wi];
+    var byWin = sd.data[win];
+    if (!byWin) continue;
+    for (var pi = 0; pi < _BACKUP_CHIP_PATHS.length; pi++) {
+      var path = _BACKUP_CHIP_PATHS[pi];
+      var byPath = byWin[path];
+      if (!byPath) continue;
+      for (var si = 0; si < _BACKUP_CHIP_SCENARIOS_ALL.length; si++) {
+        var sc = _BACKUP_CHIP_SCENARIOS_ALL[si];
+        var blk = byPath[sc];
+        var s = blk && blk.summary;
+        if (!s) continue;
+        if (typeof s.annualized !== 'number' || typeof s.max_drawdown !== 'number' ||
+            typeof s.win_rate !== 'number' || typeof s.total_ops !== 'number') continue;
+        allEntries.push({
+          scenario: sc,
+          label: sc.replace(/\+卖$/, ''),
+          path: path,
+          pathShort: _BACKUP_CHIP_PATH_SHORT[path] || path,
+          win: win,
+          annualized: s.annualized,
+          max_drawdown: s.max_drawdown,
+          win_rate: s.win_rate,
+          total_ops: s.total_ops
+        });
+      }
+    }
   }
-  if (entries.length < 2) return '';  // 不足 2 个买点无法对比
-  // 1. 年化最高
-  var bestAnn = entries.slice().sort(function (a, b) { return b.annualized - a.annualized; })[0];
-  // 2. 回撤最小（max_drawdown 越小越好）
-  var bestDd = entries.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; })[0];
-  // 3. 最稳健：综合分 = 胜率40% + 低回撤40% + 样本20%（normalize 到 0-1）
-  var maxOps = Math.max.apply(null, entries.map(function (e) { return e.total_ops; }));
-  var maxDd = Math.max.apply(null, entries.map(function (e) { return e.max_drawdown; }));
-  var scored = entries.map(function (e) {
-    var winNorm = e.win_rate / 100;
-    var ddNorm = maxDd > 0 ? 1 - e.max_drawdown / maxDd : 1;
-    var opsNorm = maxOps > 0 ? e.total_ops / maxOps : 0;
-    return Object.assign({}, e, { score: winNorm * 0.4 + ddNorm * 0.4 + opsNorm * 0.2 });
+  if (allEntries.length < 2) return '';  // 不足 2 条无法对比
+  // 跨全 165 归一化（0-1）
+  var maxAnn = Math.max.apply(null, allEntries.map(function (e) { return e.annualized; }));
+  var minAnn = Math.min.apply(null, allEntries.map(function (e) { return e.annualized; }));
+  var maxDd = Math.max.apply(null, allEntries.map(function (e) { return e.max_drawdown; }));
+  var minDd = Math.min.apply(null, allEntries.map(function (e) { return e.max_drawdown; }));
+  var maxWr = Math.max.apply(null, allEntries.map(function (e) { return e.win_rate; }));
+  var minWr = Math.min.apply(null, allEntries.map(function (e) { return e.win_rate; }));
+  var maxOps = Math.max.apply(null, allEntries.map(function (e) { return e.total_ops; }));
+  var minOps = Math.min.apply(null, allEntries.map(function (e) { return e.total_ops; }));
+  function norm(v, mn, mx) { return mx > mn ? (v - mn) / (mx - mn) : 0; }
+  function ddNorm(dd) { return (maxDd > minDd) ? (maxDd - dd) / (maxDd - minDd) : 1; }  // 回撤越小越好故取反
+  var scored = allEntries.map(function (e) {
+    var annNorm = norm(e.annualized, minAnn, maxAnn);
+    var wrNorm = norm(e.win_rate, minWr, maxWr);
+    var ddN = ddNorm(e.max_drawdown);
+    var opsNorm = norm(e.total_ops, minOps, maxOps);
+    return Object.assign({}, e, {
+      // 年化最高档综合分：年化50% + 胜率25% + 低回撤15% + 样本10%
+      strongScore: annNorm * 0.5 + wrNorm * 0.25 + ddN * 0.15 + opsNorm * 0.10,
+      // 最稳健档综合分：胜率40% + 低回撤40% + 样本20%
+      steadyScore: wrNorm * 0.4 + ddN * 0.4 + opsNorm * 0.2
+    });
   });
-  var bestSteady = scored.slice().sort(function (a, b) { return b.score - a.score; })[0];
-  // 去重：同一买点只显1 chip（优先级 年化>稳健>回撤）
+  // 1. 年化最高 = strongScore 最高
+  var bestAnn = scored.slice().sort(function (a, b) { return b.strongScore - a.strongScore; })[0];
+  // 2. 最稳健 = steadyScore 最高
+  var bestSteady = scored.slice().sort(function (a, b) { return b.steadyScore - a.steadyScore; })[0];
+  // 3. 回撤最小 = max_drawdown 最小
+  var bestDd = scored.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; })[0];
+  // 去重：scenario+path 组合只显 1 chip（优先级 年化>稳健>回撤）
   var used = {};
   var chips = [];
-  if (bestAnn) { chips.push({ kind: 'strong', tier: '年化最高', entry: bestAnn, val: '年化+' + bestAnn.annualized.toFixed(1) + '%' }); used[bestAnn.label] = 1; }
-  if (bestSteady && !used[bestSteady.label]) { chips.push({ kind: 'steady', tier: '最稳健', entry: bestSteady, val: '回撤-' + bestSteady.max_drawdown.toFixed(1) + '% 胜率' + bestSteady.win_rate.toFixed(0) + '%' }); used[bestSteady.label] = 1; }
-  if (bestDd && !used[bestDd.label]) { chips.push({ kind: 'lowdraw', tier: '回撤最小', entry: bestDd, val: '回撤-' + bestDd.max_drawdown.toFixed(1) + '%' }); used[bestDd.label] = 1; }
+  if (bestAnn) { chips.push({ kind: 'strong', tier: '年化最高', entry: bestAnn }); used[bestAnn.scenario + '|' + bestAnn.path] = 1; }
+  if (bestSteady) {
+    var kS = bestSteady.scenario + '|' + bestSteady.path;
+    if (!used[kS]) { chips.push({ kind: 'steady', tier: '最稳健', entry: bestSteady }); used[kS] = 1; }
+  }
+  if (bestDd) {
+    var kD = bestDd.scenario + '|' + bestDd.path;
+    if (!used[kD]) { chips.push({ kind: 'lowdraw', tier: '回撤最小', entry: bestDd }); used[kD] = 1; }
+  }
   if (chips.length === 0) return '';
-  // tooltip：完整 4 买点对比 + 合规文案
-  var tip = _backupSignalChipTip(entries);
+  // chip val 第二行：该 scenario+path 在 5 窗口的年化对比
+  function win5Ann(e) {
+    var parts = [];
+    for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
+      var w = _BACKUP_CHIP_WINS[i];
+      var s = sd.data && sd.data[w] && sd.data[w][e.path] && sd.data[w][e.path][e.scenario] && sd.data[w][e.path][e.scenario].summary;
+      if (s && typeof s.annualized === 'number') {
+        parts.push(w + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%');
+      }
+    }
+    return parts.join(' ');
+  }
+  // chip val 两行格式
+  function formatVal(c) {
+    var e = c.entry;
+    var line1 = e.label + ' · ' + e.pathShort;
+    var line2;
+    if (c.kind === 'strong') {
+      line2 = win5Ann(e);  // y1+X% y3+Y% y5+Z% y10+W% all+V%
+    } else if (c.kind === 'steady') {
+      line2 = '回撤-' + e.max_drawdown.toFixed(1) + '% 胜率' + e.win_rate.toFixed(0) + '% (5窗口均稳)';
+    } else {
+      line2 = e.win + '回撤-' + e.max_drawdown.toFixed(1) + '% (全维度最小)';
+    }
+    return { line1: line1, line2: line2 };
+  }
   return chips.map(function (c) {
     var emoji = c.kind === 'strong' ? '📈' : c.kind === 'steady' ? '👍' : '🛡';
     var cls = c.kind === 'strong' ? 'signal-chip-strong' : c.kind === 'steady' ? 'signal-chip-steady' : 'signal-chip-lowdraw';
-    return '<span class="signal-chip ' + cls + '" data-tip="' + tip + '">' + emoji + ' ' + c.tier + ' · ' + c.entry.label + ' · ' + c.val + '</span>';
+    var tip = _backupSignalChipTip(sd, scored, c);
+    var v = formatVal(c);
+    return '<span class="signal-chip ' + cls + '" data-tip="' + tip + '">' + emoji + ' ' + c.tier + ' · ' + v.line1 + '&#10;   ' + v.line2 + '</span>';
   }).join('');
 }
-// chip tooltip：4 买点对比 + 合规文案（含换行，依赖 .term-pop white-space:pre-line 渲染）
-function _backupSignalChipTip(entries) {
-  var lines = ['近5年回测（全仓进出，4 单买点场景对比）：'];
-  for (var i = 0; i < entries.length; i++) {
-    var e = entries[i];
-    lines.push(e.label + ': 年化' + e.annualized.toFixed(1) + '% / 胜率' + e.win_rate.toFixed(0) + '% / 回撤' + e.max_drawdown.toFixed(1) + '% / 样本' + e.total_ops);
+// chip tooltip：该档 scenario+path 5 窗口 summary + 全 165 该维度 Top5 + 合规文案
+function _backupSignalChipTip(sd, scored, chip) {
+  var e = chip.entry;
+  var lines = ['【' + chip.tier + '】' + e.label + ' · ' + e.pathShort + ' · ' + e.win + ' 窗口胜出'];
+  lines.push('该买点+路径在 5 窗口表现（' + e.scenario + ' · ' + e.path + '）：');
+  for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
+    var w = _BACKUP_CHIP_WINS[i];
+    var s = sd.data && sd.data[w] && sd.data[w][e.path] && sd.data[w][e.path][e.scenario] && sd.data[w][e.path][e.scenario].summary;
+    if (s) {
+      lines.push('  ' + w + ': 年化' + (s.annualized || 0).toFixed(1) + '% / 回撤' + (s.max_drawdown || 0).toFixed(1) + '% / 胜率' + (s.win_rate || 0).toFixed(0) + '% / 样本' + (s.total_ops || 0));
+    }
   }
-  lines.push(_BACKUP_CHIP_COMPLIANCE);
+  // 全 165 该维度 Top5
+  var top5, label;
+  if (chip.kind === 'strong') {
+    top5 = scored.slice().sort(function (a, b) { return b.strongScore - a.strongScore; }).slice(0, 5);
+    label = '年化综合';
+  } else if (chip.kind === 'steady') {
+    top5 = scored.slice().sort(function (a, b) { return b.steadyScore - a.steadyScore; }).slice(0, 5);
+    label = '稳健综合';
+  } else {
+    top5 = scored.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; }).slice(0, 5);
+    label = '回撤最小';
+  }
+  lines.push('全 165 回测 ' + label + ' Top5：');
+  for (var i = 0; i < top5.length; i++) {
+    var t = top5[i];
+    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '·' + t.win + ': 年化' + t.annualized.toFixed(1) + '% / 回撤' + t.max_drawdown.toFixed(1) + '% / 胜率' + t.win_rate.toFixed(0) + '% / 样本' + t.total_ops);
+  }
+  lines.push('研究参考，不构成投资建议，历史回测不代表未来。综合排名覆盖全维度（5窗口×3路径×11场景=165回测），年化最高/回撤最小为综合分排名结果（非纯极值，防小样本虚高）。');
   // HTML attribute 里换行需转义为 &#10;（textContent 解析时还原为 \n）
   return lines.join('&#10;').replace(/"/g, '&quot;');
 }
