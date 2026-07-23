@@ -1367,6 +1367,214 @@ function _appendPinBtn(cardEl, indexId, idx, sig) {
   target.appendChild(btn);
 }
 
+// ============ A12 订阅推送（2026-07-24 P2-新-K）============
+// 用户订阅关注的标的（指数/ETF），有信号时推送邮件+Telegram。
+// 后端：config/subscriptions.json 存订阅（已 gitignore），scripts/check_signals.py 检测信号后匹配推送。
+// 前端：指数卡片 h3 末尾 🔔 按钮，点击弹订阅管理 modal（填邮箱/chat_id + 选标的 + 选信号 + 已订阅列表）。
+// localStorage：存用户邮箱/chat_id 免重复输入（key: sub_user_info）。
+var _SUB_USER_INFO_LS_KEY = "sub_user_info";
+var _SUB_SIGNAL_LABELS = [
+  { key: "buy", label: "主买", color: "#e6492e" },
+  { key: "buy_aux", label: "辅买", color: "#d63384" },
+  { key: "buy_special", label: "追买", color: "#ffd700" },
+  { key: "buy_backup", label: "备买", color: "#9c27b0" },
+  { key: "sell", label: "卖", color: "#2e8b57" },
+  { key: "sell_stop_loss", label: "追止损卖", color: "#3498db" },
+];
+
+function _loadSubUserInfo() {
+  try { return JSON.parse(localStorage.getItem(_SUB_USER_INFO_LS_KEY) || "{}"); } catch (e) { return {}; }
+}
+function _saveSubUserInfo(info) {
+  try { localStorage.setItem(_SUB_USER_INFO_LS_KEY, JSON.stringify(info || {})); } catch (e) {}
+}
+
+function _appendSubscribeBtn(cardEl, indexId, indexName) {
+  if (!cardEl || !indexId) return;
+  var h3 = cardEl.querySelector("h3");
+  var sparkName = !h3 ? cardEl.querySelector(".spark-name") : null;
+  var target = h3 || sparkName;
+  if (!target) return;
+  if (target.querySelector(".subscribe-btn")) return;  // 避免重复注入
+  var btn = document.createElement("span");
+  btn.className = "subscribe-btn";
+  btn.setAttribute("role", "button");
+  btn.setAttribute("aria-label", "订阅该指数信号");
+  btn.setAttribute("title", "订阅该指数信号（有买卖点时推送邮件/Telegram）");
+  btn.textContent = "🔔";
+  btn.addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    _openSubscribeModal(indexId, indexName);
+  });
+  target.appendChild(btn);
+}
+
+function _subscribeModalEl() {
+  var modal = document.getElementById("subscribe-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "subscribe-modal";
+    modal.className = "rule-modal subscribe-modal hidden";
+    document.body.appendChild(modal);
+  }
+  return modal;
+}
+
+function _openSubscribeModal(indexId, indexName) {
+  var modal = _subscribeModalEl();
+  var userInfo = _loadSubUserInfo();
+  var defaultEmail = userInfo.email || "";
+  var defaultChatId = userInfo.telegram_chat_id || "";
+  // 信号类型 checkbox（默认全选）
+  var sigCheckboxes = _SUB_SIGNAL_LABELS.map(function (s) {
+    return '<label class="sub-sig-check"><input type="checkbox" value="' + s.key + '" checked>'
+      + '<span class="hint-sig" style="background:' + s.color + '">' + s.label + '</span></label>';
+  }).join("");
+  modal.innerHTML =
+    '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body subscribe-modal-body">' +
+      '<div class="rule-modal-header"><h3>🔔 信号订阅' + (indexName ? ' · ' + indexName : '') + '</h3>' +
+        '<button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+      '<div class="rule-modal-content">' +
+        '<div class="sub-form-section">' +
+          '<div class="sub-form-row"><label>订阅名称（可选）</label><input id="sub-name" type="text" placeholder="如：我的宽基订阅" maxlength="40"></div>' +
+          '<div class="sub-form-row"><label>邮箱（可选）</label><input id="sub-email" type="email" placeholder="your@example.com" value="' + defaultEmail + '"></div>' +
+          '<div class="sub-form-row"><label>Telegram chat_id（可选）</label><input id="sub-chatid" type="text" placeholder="数字 id 或 @channelname" value="' + defaultChatId + '"></div>' +
+          '<div class="sub-form-row sub-form-row-top"><label>订阅标的（index_id，逗号分隔）</label>' +
+            '<input id="sub-targets" type="text" placeholder="如：sh,sz300,cyb" value="' + (indexId || "") + '"></div>' +
+          '<div class="sub-form-row sub-form-row-top"><label>订阅信号类型（不选=全部）</label>' +
+            '<div class="sub-sig-checkboxes">' + sigCheckboxes + '</div></div>' +
+          '<div class="sub-form-actions">' +
+            '<button id="sub-save-btn" class="sub-save-btn">保存订阅</button>' +
+            '<span id="sub-msg" class="sub-msg"></span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sub-list-section">' +
+          '<div class="sub-list-title">📋 已订阅列表</div>' +
+          '<div id="sub-list" class="sub-list"><div class="sub-list-loading">加载中...</div></div>' +
+        '</div>' +
+        '<div class="sub-disclaimer">⚠ 订阅后，check_signals 检测到匹配信号时会推送邮件/Telegram。每订阅每日每信号只推一次（去重）。历史回测信号仅供研究参考，非投资建议。</div>' +
+      '</div>' +
+    '</div>';
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  // 关闭事件
+  var _close = function () { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  // 保存按钮
+  modal.querySelector("#sub-save-btn").addEventListener("click", function () {
+    _saveSubscriptionFromModal(indexId);
+  });
+  // 加载已订阅列表
+  _renderSubscriptionsList();
+}
+
+function _saveSubscriptionFromModal(currentIndexId) {
+  var name = (document.getElementById("sub-name").value || "").trim();
+  var email = (document.getElementById("sub-email").value || "").trim();
+  var chatId = (document.getElementById("sub-chatid").value || "").trim();
+  var targetsRaw = (document.getElementById("sub-targets").value || "").trim();
+  var msgEl = document.getElementById("sub-msg");
+  // 解析 targets（逗号分隔，去空格去重）
+  var targets = targetsRaw.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  targets = Array.from(new Set(targets));
+  // 解析选中的信号类型
+  var signals = [];
+  var checkboxes = document.querySelectorAll("#subscribe-modal .sub-sig-check input:checked");
+  checkboxes.forEach(function (cb) { signals.push(cb.value); });
+  // 校验
+  if (!targets.length) { _setSubMsg("请填写订阅标的", true); return; }
+  if (!email && !chatId) { _setSubMsg("邮箱和 Telegram chat_id 至少填一个", true); return; }
+  // 存 localStorage 免重复输入
+  _saveSubUserInfo({ email: email, telegram_chat_id: chatId });
+  var payload = { id: "", name: name, email: email, telegram_chat_id: chatId, targets: targets, signals: signals, enabled: true };
+  _setSubMsg("保存中...", false);
+  fetch("/api/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    if (data.ok) {
+      _setSubMsg("✓ 订阅已保存（" + (data.action === "created" ? "新建" : "更新") + "）", false);
+      _renderSubscriptionsList();  // 刷新列表
+    } else {
+      _setSubMsg("✗ 保存失败：" + (data.detail || "未知错误"), true);
+    }
+  }).catch(function (err) {
+    _setSubMsg("✗ 网络错误：" + err.message, true);
+  });
+}
+
+function _setSubMsg(msg, isError) {
+  var el = document.getElementById("sub-msg");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = "sub-msg" + (isError ? " error" : " success");
+}
+
+function _renderSubscriptionsList() {
+  var listEl = document.getElementById("sub-list");
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="sub-list-loading">加载中...</div>';
+  fetch("/api/subscribe").then(function (r) { return r.json(); }).then(function (data) {
+    var subs = data.subscriptions || [];
+    if (!subs.length) {
+      listEl.innerHTML = '<div class="sub-list-empty">暂无订阅。在上方填写信息后点"保存订阅"创建。</div>';
+      return;
+    }
+    listEl.innerHTML = subs.map(function (s) {
+      var channels = [];
+      if (s.has_email) channels.push('📧 ' + (s.email_masked || '邮箱'));
+      if (s.has_telegram) channels.push('💬 ' + (s.telegram_chat_id_masked || 'TG'));
+      var sigsText = s.signals && s.signals.length
+        ? s.signals.map(function (sig) {
+            var found = _SUB_SIGNAL_LABELS.filter(function (x) { return x.key === sig; })[0];
+            return '<span class="hint-sig" style="background:' + (found ? found.color : '#86909c') + '">' + (found ? found.label : sig) + '</span>';
+          }).join("")
+        : '<span class="sub-sig-all">全部</span>';
+      var targetsText = (s.targets || []).join(", ");
+      var enabledBadge = s.enabled ? '' : '<span class="sub-disabled-badge">已暂停</span>';
+      return '<div class="sub-list-item" data-sub-id="' + s.id + '">' +
+        '<div class="sub-item-head">' +
+          '<span class="sub-item-name">' + (s.name || s.id) + '</span>' + enabledBadge +
+          '<button class="sub-delete-btn" data-sub-id="' + s.id + '" title="删除订阅">✕</button>' +
+        '</div>' +
+        '<div class="sub-item-row"><span class="sub-item-label">标的：</span>' + targetsText + '</div>' +
+        '<div class="sub-item-row"><span class="sub-item-label">信号：</span>' + sigsText + '</div>' +
+        '<div class="sub-item-row"><span class="sub-item-label">渠道：</span>' + (channels.join(" · ") || '未配置') + '</div>' +
+      '</div>';
+    }).join("");
+    // 绑定删除按钮
+    listEl.querySelectorAll(".sub-delete-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var subId = btn.getAttribute("data-sub-id");
+        if (!subId) return;
+        if (!confirm("确认删除此订阅？")) return;
+        _deleteSubscription(subId);
+      });
+    });
+  }).catch(function (err) {
+    listEl.innerHTML = '<div class="sub-list-error">加载失败：' + err.message + '</div>';
+  });
+}
+
+function _deleteSubscription(subId) {
+  fetch("/api/subscribe/" + encodeURIComponent(subId), { method: "DELETE" })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.ok) {
+        _setSubMsg("✓ 订阅已删除", false);
+        _renderSubscriptionsList();
+      } else {
+        _setSubMsg("✗ 删除失败：" + (data.detail || "未知错误"), true);
+      }
+    }).catch(function (err) {
+      _setSubMsg("✗ 网络错误：" + err.message, true);
+    });
+}
+
 // 计算近 N 日涨跌幅（基于 ohlc close 末值 vs N 日前 close）
 function _pctChangeOver(ohlc, n) {
   if (!ohlc || ohlc.length < 2) return null;
@@ -2261,6 +2469,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
         _attachMarketScoreCard(id, idx.name, c.getDom().parentElement);
         // A5 真 pin 复盘：h3 末尾追加 📌 按钮（钉住该指数，顶部显示专属复盘面板）
         _appendPinBtn(c.getDom().parentElement, id, idx, sig);
+        // A12 订阅推送：h3 末尾追加 🔔 按钮（订阅该指数信号，推送邮件+Telegram）
+        _appendSubscribeBtn(c.getDom().parentElement, id, idx.name);
       }
     }
     // 选了单个指数：只渲染该指数，不折叠
