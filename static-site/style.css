@@ -3296,3 +3296,259 @@ main { padding: 16px 24px; }
   .market-score-grid { grid-template-columns: 1fr; }
   .market-cell-score { font-size: 22px; }
 }
+
+/* === P1-新-C: 📈 AI评分 tab (ETF买清单+卖清单/持仓自查) === */
+.lab-aiscore-wrap {
+  display: flex; flex-direction: column; gap: 14px;
+}
+.lab-aiscore-section {
+  background: var(--bg-card); border: 1px solid var(--border-strong);
+  border-radius: 10px; padding: 14px 16px;
+}
+.lab-aiscore-section-head {
+  display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border-strong);
+}
+.lab-aiscore-section-title {
+  font-size: 16px; font-weight: 700; color: var(--text-1);
+}
+.lab-aiscore-date {
+  font-size: 12px; font-weight: 500; color: var(--text-3); margin-left: 8px;
+}
+.lab-aiscore-section-sub {
+  font-size: 12.5px; color: var(--text-3);
+}
+/* 买清单表格 */
+.lab-aiscore-table-wrap { overflow-x: auto; }
+.lab-aiscore-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.lab-aiscore-table th,
+.lab-aiscore-table td {
+  padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+.lab-aiscore-table th {
+  font-weight: 700; color: var(--text-2); background: var(--bg-hover);
+  font-size: 12px;
+}
+.lab-aiscore-table th:nth-child(6),
+.lab-aiscore-table td:nth-child(6) {
+  white-space: normal; max-width: 360px;
+}
+.lab-aiscore-row {
+  cursor: pointer; transition: background 0.15s;
+}
+.lab-aiscore-row:hover { background: var(--bg-hover); }
+.lab-aiscore-row:hover .aiscore-code { color: var(--primary); }
+.aiscore-rank {
+  font-weight: 700; color: var(--text-3); text-align: center; width: 36px;
+}
+.aiscore-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-1); font-weight: 600;
+}
+.aiscore-name {
+  color: var(--text-1); font-weight: 500;
+}
+.aiscore-score {
+  font-weight: 700; color: var(--text-1); font-size: 14px;
+}
+.aiscore-reason-cell .lab-aiscore-reason {
+  font-size: 12px; color: var(--text-3);
+}
+.lab-aiscore-empty {
+  text-align: center; color: var(--text-3); padding: 20px;
+}
+/* 国家队标注 */
+.lab-aiscore-nt {
+  display: inline-block; font-size: 10.5px; font-weight: 700;
+  padding: 1px 6px; margin-left: 6px; border-radius: 3px;
+  background: rgba(212,56,13,0.12); color: #d4380d;
+  vertical-align: middle;
+}
+[data-theme="dark"] .lab-aiscore-nt,
+[data-theme="redgold"] .lab-aiscore-nt {
+  background: rgba(255,120,117,0.18); color: #ff9c9a;
+}
+/* 手数 badge 4档配色:3绿/2黄/1橙/0灰 */
+.aiscore-hands { text-align: center; }
+.hands-badge {
+  display: inline-block; min-width: 38px; padding: 3px 10px;
+  font-size: 12px; font-weight: 700; border-radius: 12px; color: #fff;
+}
+.hands-badge.hands-3 { background: #389e0d; }
+.hands-badge.hands-2 { background: #faad14; color: #1f2329; }
+.hands-badge.hands-1 { background: #fa8c16; }
+.hands-badge.hands-0 { background: var(--text-4); }
+[data-theme="dark"] .hands-badge.hands-3,
+[data-theme="redgold"] .hands-badge.hands-3 { background: #52c41a; color: #1f2329; }
+[data-theme="dark"] .hands-badge.hands-2,
+[data-theme="redgold"] .hands-badge.hands-2 { background: #ffd666; color: #1f2329; }
+[data-theme="dark"] .hands-badge.hands-1,
+[data-theme="redgold"] .hands-badge.hands-1 { background: #ffa940; color: #1f2329; }
+/* 卖清单(持仓自查)输入框 */
+.lab-aiscore-sell-input-wrap {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.lab-aiscore-sell-input {
+  flex: 1; min-width: 200px;
+  padding: 8px 12px; font-size: 14px;
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  background: var(--bg-card); color: var(--text-1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.lab-aiscore-sell-input:focus {
+  outline: none; border-color: #d4380d;
+  box-shadow: 0 0 0 2px rgba(212,56,13,0.15);
+}
+[data-theme="redgold"] .lab-aiscore-sell-input:focus {
+  border-color: #ff8a8a; box-shadow: 0 0 0 2px rgba(255,138,138,0.18);
+}
+.lab-aiscore-sell-btn {
+  padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+  border: 1px solid #d4380d; background: transparent; color: #d4380d;
+  border-radius: 6px; transition: background 0.15s;
+}
+.lab-aiscore-sell-btn:hover { background: rgba(212,56,13,0.08); }
+[data-theme="dark"] .lab-aiscore-sell-btn,
+[data-theme="redgold"] .lab-aiscore-sell-btn { border-color: #ff7875; color: #ff9c9a; }
+[data-theme="dark"] .lab-aiscore-sell-btn:hover,
+[data-theme="redgold"] .lab-aiscore-sell-btn:hover { background: rgba(255,120,117,0.12); }
+/* 卖清单结果卡片 */
+.lab-aiscore-sell-card {
+  background: var(--bg-hover); border: 1px solid var(--border-strong);
+  border-radius: 8px; padding: 12px 14px;
+}
+.lab-aiscore-sell-head {
+  display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+}
+.lab-aiscore-sell-title {
+  font-size: 15px; font-weight: 700; color: var(--text-1);
+}
+.lab-aiscore-sell-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px; color: var(--text-2); margin-left: 6px;
+}
+.lab-aiscore-sell-iid {
+  font-size: 11px; color: var(--text-4); margin-left: 6px;
+}
+.lab-aiscore-sell-date {
+  font-size: 12px; color: var(--text-3);
+}
+.lab-aiscore-sell-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;
+}
+.lab-aiscore-sell-cell {
+  padding: 12px 14px; border-radius: 6px; border-left: 4px solid;
+  background: var(--bg-card);
+}
+.lab-aiscore-sell-cell.lvl-danger { border-left-color: #d4380d; background: linear-gradient(90deg, rgba(212,56,13,0.10), var(--bg-card)); }
+.lab-aiscore-sell-cell.lvl-warn { border-left-color: #fa8c16; background: linear-gradient(90deg, rgba(250,140,22,0.10), var(--bg-card)); }
+.lab-aiscore-sell-cell.lvl-good { border-left-color: #389e0d; background: linear-gradient(90deg, rgba(56,158,13,0.10), var(--bg-card)); }
+.lab-aiscore-sell-cell.lvl-neutral { border-left-color: var(--text-4); }
+[data-theme="dark"] .lab-aiscore-sell-cell.lvl-danger,
+[data-theme="redgold"] .lab-aiscore-sell-cell.lvl-danger { border-left-color: #ff7875; background: linear-gradient(90deg, rgba(255,120,117,0.16), var(--bg-card)); }
+[data-theme="dark"] .lab-aiscore-sell-cell.lvl-warn,
+[data-theme="redgold"] .lab-aiscore-sell-cell.lvl-warn { border-left-color: #ffa940; background: linear-gradient(90deg, rgba(255,169,64,0.14), var(--bg-card)); }
+[data-theme="dark"] .lab-aiscore-sell-cell.lvl-good,
+[data-theme="redgold"] .lab-aiscore-sell-cell.lvl-good { border-left-color: #52c41a; background: linear-gradient(90deg, rgba(82,196,26,0.14), var(--bg-card)); }
+.lab-aiscore-sell-cell-label {
+  font-size: 12px; color: var(--text-3); margin-bottom: 4px;
+}
+.lab-aiscore-sell-cell-score {
+  font-size: 26px; font-weight: 700; color: var(--text-1); line-height: 1.1;
+}
+.lab-aiscore-sell-cell-level {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 1px 8px; border-radius: 10px; margin-top: 4px;
+  background: var(--text-4); color: #fff;
+}
+.lvl-danger .lab-aiscore-sell-cell-level { background: #d4380d; }
+.lvl-warn .lab-aiscore-sell-cell-level { background: #fa8c16; }
+.lvl-good .lab-aiscore-sell-cell-level { background: #389e0d; }
+[data-theme="dark"] .lvl-danger .lab-aiscore-sell-cell-level,
+[data-theme="redgold"] .lvl-danger .lab-aiscore-sell-cell-level { background: #ff7875; color: #1f2329; }
+[data-theme="dark"] .lvl-warn .lab-aiscore-sell-cell-level,
+[data-theme="redgold"] .lvl-warn .lab-aiscore-sell-cell-level { background: #ffa940; color: #1f2329; }
+[data-theme="dark"] .lvl-good .lab-aiscore-sell-cell-level,
+[data-theme="redgold"] .lvl-good .lab-aiscore-sell-cell-level { background: #52c41a; color: #1f2329; }
+.lab-aiscore-sell-cell-signal {
+  font-size: 18px; font-weight: 700; color: var(--text-1); line-height: 1.2;
+}
+.lab-aiscore-sell-cell-desc {
+  font-size: 11px; color: var(--text-3); margin-top: 4px;
+}
+.lab-aiscore-sell-human {
+  font-size: 13px; line-height: 1.6; color: var(--text-1);
+  padding: 8px 12px; border-radius: 5px; margin-bottom: 10px;
+  background: var(--bg-card); border-left: 3px solid #1677ff;
+}
+[data-theme="dark"] .lab-aiscore-sell-human,
+[data-theme="redgold"] .lab-aiscore-sell-human { border-left-color: #59a9ff; }
+.lab-aiscore-sell-detail-btn {
+  padding: 6px 14px; font-size: 12.5px; cursor: pointer;
+  border: 1px solid var(--border-strong); background: var(--bg-card);
+  color: var(--text-2); border-radius: 6px; transition: all 0.15s;
+}
+.lab-aiscore-sell-detail-btn:hover {
+  border-color: var(--primary); color: var(--primary);
+}
+/* modal body 内的 lab-custom-* 已由通用样式覆盖,AI评分 modal 不需额外 modal 样式 */
+/* 移动端:卖清单卡片单列 */
+@media (max-width: 768px) {
+  .lab-aiscore-sell-grid { grid-template-columns: 1fr; }
+  .lab-aiscore-sell-cell-score { font-size: 22px; }
+  .lab-aiscore-sell-cell-signal { font-size: 16px; }
+  .lab-aiscore-table th:nth-child(6),
+  .lab-aiscore-table td:nth-child(6) { max-width: 200px; }
+}
+
+/* P1-新-C 补充:卖清单表格样式(high_alert/low_alert/sell_signal/理由 摘要) */
+.lab-aiscore-section-sub-inline {
+  font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 8px;
+}
+.lab-aiscore-table-sell th:nth-child(4),
+.lab-aiscore-table-sell td:nth-child(4),
+.lab-aiscore-table-sell th:nth-child(5),
+.lab-aiscore-table-sell td:nth-child(5) {
+  text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.lab-aiscore-table-sell th:nth-child(6),
+.lab-aiscore-table-sell td:nth-child(6) {
+  text-align: center;
+}
+.lab-aiscore-table-sell th:nth-child(7),
+.lab-aiscore-table-sell td:nth-child(7) {
+  white-space: normal; max-width: 360px;
+}
+.aiscore-high {
+  font-weight: 700; color: #d4380d;
+}
+.aiscore-low {
+  font-weight: 600; color: var(--text-2);
+}
+[data-theme="dark"] .aiscore-high,
+[data-theme="redgold"] .aiscore-high { color: #ff7875; }
+[data-theme="dark"] .aiscore-low,
+[data-theme="redgold"] .aiscore-low { color: #d9d9d9; }
+.aiscore-signal { text-align: center; }
+.sell-signal {
+  display: inline-block; font-size: 12px; font-weight: 700;
+  padding: 3px 10px; border-radius: 12px; color: #fff;
+}
+.sell-signal.sig-danger { background: #d4380d; }
+.sell-signal.sig-warn { background: #fa8c16; }
+.sell-signal.sig-neutral { background: var(--text-4); }
+[data-theme="dark"] .sell-signal.sig-danger,
+[data-theme="redgold"] .sell-signal.sig-danger { background: #ff7875; color: #1f2329; }
+[data-theme="dark"] .sell-signal.sig-warn,
+[data-theme="redgold"] .sell-signal.sig-warn { background: #ffa940; color: #1f2329; }
+/* 持仓自查区块样式(沿用 .lab-aiscore-sell-* 类名,共用) */
+.lab-aiscore-query {
+  background: var(--bg-card); border: 1px dashed var(--border-strong);
+  border-radius: 10px; padding: 14px 16px;
+}
+
+

@@ -3571,6 +3571,8 @@ document.addEventListener("keydown", (e) => {
     if (dv && dv.classList.contains("show")) _labSignalDetailCloseModal();
     const gv = document.getElementById("labGlossaryOverlay");
     if (gv && gv.classList.contains("show")) _labGlossaryCloseModal();
+    const av = document.getElementById("labAIScoreOverlay");
+    if (av && av.classList.contains("show")) _labAIScoreCloseModal();
   }
 });
 
@@ -3586,6 +3588,7 @@ function _renderLabSubNav() {
     { key: "experiment", label: "信号实验" },
     { key: "retest", label: "🔬 二次测试实验" },
     { key: "custom", label: "🎯 自定义分析" },
+    { key: "aiscore", label: "📈 AI评分" },
   ];
   const _SCAN_CHILDREN = ["ablation", "symmetry", "paramscan"];
   const _SCAN_CHILD_LABELS = { ablation: "🧩 信号拆解", symmetry: "⚖️ 多空对称", paramscan: "🎛 参数扫描" };
@@ -5813,6 +5816,14 @@ async function renderSignalLab() {
     return;
   }
 
+  // P1-新-C: AI评分 -> 渲染ETF买清单+卖清单(用户输入持仓代码查high_alert)
+  if (state.labSubMode === "aiscore") {
+    await renderAIScoreListLab();
+    _labSetHash("#lab?sub=aiscore");
+    _labRestoreScroll();
+    return;
+  }
+
   // 实验室自白黄块（列表页也显示，通用介绍 + 抖音号；移入左栏与策略列表同栏）
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
@@ -6141,6 +6152,370 @@ async function renderCustomAnalyzeLab() {
   }
 }
 
+// === P1-新-C: 📈 AI评分 tab（ETF买清单+卖清单/持仓自查）===
+// 数据源：static-site/data/etf_score_list.json（后端收盘后生成）
+//   {date, buy_list:[{etf_code,name,score,hands,high_alert,low_alert,is_national_team,reason_summary}],
+//    sell_list:[{etf_code,name,score,high_alert,low_alert,sell_signal,is_national_team,reason_summary}]}
+// 线上静态托管无后端，前端直接 fetch JSON；JSON 未生成/缺失时兜底"数据加载中/暂无"
+// 单标的分析(modal+持仓自查)复用 common.js 的 _labCustom*HTML 10函数（与 🎯自定义分析 tab 同源，前端0重写）
+// 国家队ETF代码->iid 映射（用于点击行打开详情 modal / 持仓自查输入框）
+var _LAB_AISCORE_ETF_TO_IID = {
+  "510050": "sz50", "510300": "hs300", "510310": "hs300", "510500": "csi500",
+  "159919": "hs300", "159915": "cyb", "159922": "csi500", "159920": "cyb",
+  "588000": "kc50", "588050": "kc50", "512100": "csi1000", "512760": "kc50",
+  "515050": "sz50", "588090": "kc50", "159949": "csi_div",
+  "510880": "sz_div", "515080": "csi_div", "512890": "div_lowvol",
+  "159845": "csi1000", "159952": "cyb",
+  "513050": "hstech", "510900": "hsi", "513100": "hscei",
+};
+// 取 ETF code（兼容 etf_code/code 两种字段名,后端用 etf_code）
+function _labAIScoreCode(it) {
+  return (it && (it.etf_code || it.code)) || "";
+}
+async function renderAIScoreListLab() {
+  // wrapper：顶部说明 + 买清单 + 卖清单 + 持仓自查
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-aiscore-wrap";
+
+  // 顶部说明
+  const intro = document.createElement("div");
+  intro.className = "lab-purpose-note";
+  intro.innerHTML = "💡 <b>这板块有什么用</b>：基于 🎯自定义分析 的 8+8 维度 AI 评分,对全市场 ETF 做买卖清单排序--低位机会分高的进买清单(按手数 3/2/1 建议买入量),高位风险分高的进卖清单(给卖出建议)。<b>怎么解读</b>:买清单按 AI 评分降序排,手数 badge 表示建议仓位(3手=机会最强/2手=关注/1手=少量);卖清单列出全部 ETF 的 high_alert + sell_signal 持有/减仓建议。点击行可看完整 8+8 维度拆解 modal(复用 🎯自定义分析 数据),也可用持仓自查输入任意 ETF 代码查询。";
+  wrapper.appendChild(intro);
+
+  // 买清单 host
+  const buyHost = document.createElement("div");
+  buyHost.className = "lab-aiscore-section lab-aiscore-buy";
+  buyHost.innerHTML = '<div class="lab-custom-loading">⏳ 加载买清单…</div>';
+  wrapper.appendChild(buyHost);
+
+  // 卖清单 host
+  const sellHost = document.createElement("div");
+  sellHost.className = "lab-aiscore-section lab-aiscore-sell";
+  wrapper.appendChild(sellHost);
+
+  // 持仓自查 host（额外功能:输入任意ETF代码查询）
+  const queryHost = document.createElement("div");
+  queryHost.className = "lab-aiscore-section lab-aiscore-query";
+  wrapper.appendChild(queryHost);
+
+  content.querySelectorAll(".lab-aiscore-wrap").forEach((el) => el.remove());
+  content.appendChild(wrapper);
+
+  // fetch etf_score_list.json（后端生成,不存在时兜底）
+  const v = _labCustomCacheBust();
+  const url = `./data/etf_score_list.json?v=${v}`;
+  let data = null;
+  try {
+    data = await fetchJSON(url);
+  } catch (e) {
+    buyHost.innerHTML = `<div class="lab-custom-error">` +
+      `<div class="lab-custom-error-title">⚠️ 买清单数据加载失败</div>` +
+      `<div class="lab-custom-error-detail">${e.message || e}</div>` +
+      `<div class="lab-custom-error-hint">etf_score_list.json 不存在或网络异常。后端生成后自动恢复（每日收盘后更新）。</div>` +
+      `<button type="button" class="lab-custom-retry">重试</button></div>`;
+    buyHost.querySelector(".lab-custom-retry").onclick = () => renderAIScoreListLab();
+    _renderAIScoreSellSection(sellHost, [], {});
+    _renderAIScoreQuerySection(queryHost, {});
+    return;
+  }
+  if (!data || data.error || !Array.isArray(data.buy_list)) {
+    buyHost.innerHTML = `<div class="lab-custom-error">` +
+      `<div class="lab-custom-error-title">⚠️ 买清单暂未生成</div>` +
+      `<div class="lab-custom-error-detail">${(data && data.error) || "etf_score_list.json 结构异常或为空"}</div>` +
+      `<div class="lab-custom-error-hint">后端未生成买清单数据,收盘后跑完评分即自动恢复。可先去 🎯自定义分析 tab 看单标的分析。</div>` +
+      `<button type="button" class="lab-custom-retry">重试</button></div>`;
+    buyHost.querySelector(".lab-custom-retry").onclick = () => renderAIScoreListLab();
+    _renderAIScoreSellSection(sellHost, [], {});
+    _renderAIScoreQuerySection(queryHost, {});
+    return;
+  }
+
+  // === 公共映射:ETF code -> iid（后端 buy_list 不含 iid,用前端 _LAB_AISCORE_ETF_TO_IID 兜底）===
+  const codeToIid = {};
+  Object.keys(_LAB_AISCORE_ETF_TO_IID).forEach((c) => {
+    codeToIid[c] = _LAB_AISCORE_ETF_TO_IID[c];
+  });
+
+  // === 买清单渲染（按 score 降序,展示前12行）===
+  const date = data.date || "";
+  const dateStr = date && date.length === 8 ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : date;
+  const sorted = data.buy_list.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 12);
+  const rowsHTML = sorted.map((it, idx) => {
+    const code = _labAIScoreCode(it);
+    const iid = codeToIid[code] || "";
+    const score = it.score != null ? Number(it.score).toFixed(1) : "-";
+    const hands = it.hands != null ? Number(it.hands) : 0;
+    const handsCls = `hands-${[3, 2, 1, 0].includes(hands) ? hands : 0}`;
+    const nt = it.is_national_team ? `<span class="lab-aiscore-nt">国家队</span>` : "";
+    const reason = it.reason_summary ? `<span class="lab-aiscore-reason">${it.reason_summary}</span>` : "";
+    return `<tr class="lab-aiscore-row" data-code="${code}" data-iid="${iid}" data-name="${it.name || ""}">` +
+      `<td class="aiscore-rank">${idx + 1}</td>` +
+      `<td class="aiscore-code">${code || "-"}</td>` +
+      `<td class="aiscore-name">${it.name || "-"}${nt}</td>` +
+      `<td class="aiscore-score">${score}</td>` +
+      `<td class="aiscore-hands"><span class="hands-badge ${handsCls}">${hands}手</span></td>` +
+      `<td class="aiscore-reason-cell">${reason}</td>` +
+    `</tr>`;
+  }).join("");
+  const emptyRow = sorted.length === 0 ? `<tr><td colspan="6" class="lab-aiscore-empty">暂无买清单数据</td></tr>` : "";
+  buyHost.innerHTML =
+    `<div class="lab-aiscore-section-head">` +
+      `<div class="lab-aiscore-section-title">📈 AI买清单 <span class="lab-aiscore-date">📅 ${dateStr || "未注明日期"}</span></div>` +
+      `<div class="lab-aiscore-section-sub">按低位机会分降序 · 手数 3/2/1 建议买入量 · 0手不入清单</div>` +
+    `</div>` +
+    `<div class="lab-aiscore-table-wrap">` +
+      `<table class="lab-aiscore-table">` +
+        `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>AI分</th><th>建议</th><th>理由摘要</th></tr></thead>` +
+        `<tbody>${rowsHTML}${emptyRow}</tbody>` +
+      `</table>` +
+    `</div>`;
+  // 点击行弹理由 modal（复用 _labCustom*HTML 5函数）
+  buyHost.querySelectorAll(".lab-aiscore-row").forEach((tr) => {
+    tr.onclick = () => {
+      const iid = tr.dataset.iid;
+      const code = tr.dataset.code;
+      const name = tr.dataset.name;
+      if (!iid) {
+        _labAIScoreOpenModal(`<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 无 iid 映射</div><div class="lab-custom-error-detail">ETF ${code}(${name}) 未配置 iid,无法加载 8+8 维度拆解。可去 🎯自定义分析 tab 手动选标的查看。</div></div>`);
+        return;
+      }
+      _labAIScoreOpenDetailModal(code, name, iid);
+    };
+  });
+
+  // === 卖清单渲染（直接渲染 sell_list 表格 + 持仓自查）===
+  _renderAIScoreSellSection(sellHost, data.sell_list || [], codeToIid);
+  _renderAIScoreQuerySection(queryHost, codeToIid);
+}
+
+// 卖清单渲染:直接展示 sell_list 表格(high_alert + sell_signal + 理由)
+function _renderAIScoreSellSection(host, sellList, codeToIid) {
+  sellList = sellList || [];
+  codeToIid = codeToIid || {};
+  const sortedSell = sellList.slice().sort((a, b) => (b.high_alert || 0) - (a.high_alert || 0));
+  const rowsHTML = sortedSell.map((it, idx) => {
+    const code = _labAIScoreCode(it);
+    const iid = codeToIid[code] || "";
+    const high = it.high_alert != null ? Number(it.high_alert).toFixed(1) : "-";
+    const low = it.low_alert != null ? Number(it.low_alert).toFixed(1) : "-";
+    const sig = it.sell_signal || "-";
+    // 危险词:含"减仓/卖出/清仓"等明确卖出动作;中性词:含"持有/观望";其余(如"偏热留意")=warn
+    // 注意:"持有(未过热)"含"过热"但语义中性,故只匹配"减仓/卖/清仓"动作词
+    const sigCls = /减仓|卖出|清仓|卖/.test(sig) ? "sig-danger" : /持有|观望/.test(sig) ? "sig-neutral" : "sig-warn";
+    const nt = it.is_national_team ? `<span class="lab-aiscore-nt">国家队</span>` : "";
+    const reason = it.reason_summary ? `<span class="lab-aiscore-reason">${it.reason_summary}</span>` : "";
+    return `<tr class="lab-aiscore-row" data-code="${code}" data-iid="${iid}" data-name="${it.name || ""}">` +
+      `<td class="aiscore-rank">${idx + 1}</td>` +
+      `<td class="aiscore-code">${code || "-"}</td>` +
+      `<td class="aiscore-name">${it.name || "-"}${nt}</td>` +
+      `<td class="aiscore-high">${high}</td>` +
+      `<td class="aiscore-low">${low}</td>` +
+      `<td class="aiscore-signal"><span class="sell-signal ${sigCls}">${sig}</span></td>` +
+      `<td class="aiscore-reason-cell">${reason}</td>` +
+    `</tr>`;
+  }).join("");
+  const empty = sortedSell.length === 0 ? `<tr><td colspan="7" class="lab-aiscore-empty">暂无卖清单数据（等后端生成）</td></tr>` : "";
+  host.innerHTML =
+    `<div class="lab-aiscore-section-head">` +
+      `<div class="lab-aiscore-section-title">📉 AI卖清单 <span class="lab-aiscore-section-sub-inline">按 high_alert 降序 · sell_signal=持有/减仓建议</span></div>` +
+    `</div>` +
+    `<div class="lab-aiscore-table-wrap">` +
+      `<table class="lab-aiscore-table lab-aiscore-table-sell">` +
+        `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>high_alert</th><th>low_alert</th><th>sell_signal</th><th>理由摘要</th></tr></thead>` +
+        `<tbody>${rowsHTML}${empty}</tbody>` +
+      `</table>` +
+    `</div>`;
+  host.querySelectorAll(".lab-aiscore-row").forEach((tr) => {
+    tr.onclick = () => {
+      const iid = tr.dataset.iid;
+      const code = tr.dataset.code;
+      const name = tr.dataset.name;
+      if (!iid) {
+        _labAIScoreOpenModal(`<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 无 iid 映射</div><div class="lab-custom-error-detail">ETF ${code}(${name}) 未配置 iid,无法加载 8+8 维度拆解。可去 🎯自定义分析 tab 手动选标的查看。</div></div>`);
+        return;
+      }
+      _labAIScoreOpenDetailModal(code, name, iid);
+    };
+  });
+}
+
+// 持仓自查:输入任意ETF代码 -> fetch alert_analyze -> 展示 high_alert + sell_signal + 理由
+function _renderAIScoreQuerySection(host, codeToIid) {
+  codeToIid = codeToIid || {};
+  host.innerHTML =
+    `<div class="lab-aiscore-section-head">` +
+      `<div class="lab-aiscore-section-title">🔍 持仓自查（输入任意 ETF 代码查 high_alert）</div>` +
+      `<div class="lab-aiscore-section-sub">输入持仓 ETF 代码（如 510300）查高位风险分 + 卖出建议 + 完整维度拆解</div>` +
+    `</div>` +
+    `<div class="lab-aiscore-sell-input-wrap">` +
+      `<input type="text" class="lab-aiscore-sell-input" placeholder="ETF代码(如510300)" autocomplete="off" inputmode="numeric">` +
+      `<button type="button" class="lab-aiscore-sell-btn">查 high_alert</button>` +
+    `</div>` +
+    `<div class="lab-aiscore-sell-result"></div>`;
+  const input = host.querySelector(".lab-aiscore-sell-input");
+  const btn = host.querySelector(".lab-aiscore-sell-btn");
+  const resultHost = host.querySelector(".lab-aiscore-sell-result");
+  const runQuery = async () => {
+    const code = (input.value || "").trim();
+    if (!code) { resultHost.innerHTML = `<div class="lab-custom-error">请输入 ETF 代码</div>`; return; }
+    const iid = codeToIid[code] || _LAB_AISCORE_ETF_TO_IID[code];
+    if (!iid) {
+      resultHost.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 未识别 ETF 代码</div><div class="lab-custom-error-detail">${code} 未配置 iid 映射(仅支持国家队等常见 ETF)。</div><div class="lab-custom-error-hint">常见:510050/510300/510500/159915/588000/510880/513050/510900 等,或去 🎯自定义分析 tab 选标的。</div></div>`;
+      return;
+    }
+    resultHost.innerHTML = `<div class="lab-custom-loading">⏳ 加载 ${code} 的 high_alert…</div>`;
+    const v = _labCustomCacheBust();
+    const url = `./data/alert_analyze_${iid}.json?v=${v}`;
+    let data = null;
+    try {
+      data = await fetchJSON(url);
+    } catch (e) {
+      resultHost.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 加载失败</div><div class="lab-custom-error-detail">${e.message || e}</div><button type="button" class="lab-custom-retry">重试</button></div>`;
+      const rt = resultHost.querySelector(".lab-custom-retry");
+      if (rt) rt.onclick = runQuery;
+      return;
+    }
+    if (!data || data.error) {
+      resultHost.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 数据不足</div><div class="lab-custom-error-detail">${(data && data.error) || "未知错误"}</div><div class="lab-custom-error-hint">该标的后端计算异常(如指数数据缺失),待后端修复后自动恢复。</div></div>`;
+      return;
+    }
+    const alert = data.alert || {};
+    const reason = data.reason || {};
+    const high = alert.high;
+    const highLvl = alert.high_level || "";
+    const highTooltip = _labCustomLevelTooltip(high, "high");
+    const highCls = _labCustomLevelClass(high, "high");
+    // sell_signal: high >= 70 建议减仓 / 50-70 偏热留意 / <50 暂无卖出信号
+    const sellSignal = (high != null && !isNaN(high)) ?
+      (high >= 70 ? "🔴 建议减仓" : high >= 50 ? "🟡 偏热留意" : "🟢 暂无卖出信号") : "无数据";
+    const highHuman = (reason.human_text && reason.human_text.high) || _labCustomDefaultHuman("high", high);
+    resultHost.innerHTML =
+      `<div class="lab-aiscore-sell-card">` +
+        `<div class="lab-aiscore-sell-head">` +
+          `<div class="lab-aiscore-sell-title">${data.target_name || code} <span class="lab-aiscore-sell-code">${code}</span> <span class="lab-aiscore-sell-iid">iid=${iid}</span></div>` +
+          `<div class="lab-aiscore-sell-date">📅 ${alert.date || ""}</div>` +
+        `</div>` +
+        `<div class="lab-aiscore-sell-grid">` +
+          `<div class="lab-aiscore-sell-cell ${highCls}">` +
+            `<div class="lab-aiscore-sell-cell-label">高位风险分 high_alert</div>` +
+            `<div class="lab-aiscore-sell-cell-score">${high != null ? Number(high).toFixed(2) : "-"}</div>` +
+            `<div class="lab-aiscore-sell-cell-level" title="${highTooltip}">${highLvl}</div>` +
+            `<div class="lab-aiscore-sell-cell-desc">分越高越接近过热 · ≥70 建议减仓</div>` +
+          `</div>` +
+          `<div class="lab-aiscore-sell-cell">` +
+            `<div class="lab-aiscore-sell-cell-label">卖出建议 sell_signal</div>` +
+            `<div class="lab-aiscore-sell-cell-signal">${sellSignal}</div>` +
+            `<div class="lab-aiscore-sell-cell-desc">基于 high_alert 阈值(70/50)派生,仅作参考</div>` +
+          `</div>` +
+        `</div>` +
+        `<div class="lab-aiscore-sell-human">${highHuman}</div>` +
+        `<button type="button" class="lab-aiscore-sell-detail-btn">查看完整 8+8 维度拆解 -></button>` +
+      `</div>`;
+    const detailBtn = resultHost.querySelector(".lab-aiscore-sell-detail-btn");
+    if (detailBtn) detailBtn.onclick = () => _labAIScoreOpenDetailModal(code, data.target_name || code, iid);
+  };
+  btn.onclick = runQuery;
+  input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); runQuery(); } };
+}
+
+// 单标的分析 modal（复用 _labCustom*HTML 5函数,fetch alert_analyze_{iid}.json）
+async function _labAIScoreOpenDetailModal(code, name, iid) {
+  // 先打开 modal 显示加载中
+  let overlay = document.getElementById("labAIScoreOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labAIScoreOverlay";
+    overlay.className = "lab-signal-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML =
+    `<div class="lab-signal-modal lab-aiscore-modal">` +
+      `<div class="lab-signal-modal-head">` +
+        `<span class="lab-signal-modal-title">📈 ${code} ${name} · AI 评分详情</span>` +
+        `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+      `</div>` +
+      `<div class="lab-signal-modal-body"><div class="lab-custom-loading">⏳ 加载 alert_analyze_${iid}.json…</div></div>` +
+    `</div>`;
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labAIScoreCloseModal(); };
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labAIScoreCloseModal;
+  const body = overlay.querySelector(".lab-signal-modal-body");
+
+  const v = _labCustomCacheBust();
+  const url = `./data/alert_analyze_${iid}.json?v=${v}`;
+  let data = null;
+  try {
+    data = await fetchJSON(url);
+  } catch (e) {
+    body.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 加载失败</div><div class="lab-custom-error-detail">${e.message || e}</div><button type="button" class="lab-custom-retry">重试</button></div>`;
+    const rt = body.querySelector(".lab-custom-retry");
+    if (rt) rt.onclick = () => _labAIScoreOpenDetailModal(code, name, iid);
+    return;
+  }
+  if (!data || data.error) {
+    body.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 数据不足</div><div class="lab-custom-error-detail">${(data && data.error) || "未知错误"}</div><div class="lab-custom-error-hint">该标的后端计算异常(如指数数据缺失),待后端修复后自动恢复。</div></div>`;
+    return;
+  }
+  const alert = data.alert || {};
+  const reason = data.reason || {};
+  body.innerHTML = "";
+  // F3: 分数卡
+  body.insertAdjacentHTML("beforeend", _labCustomScoreCardHTML(data, alert, reason.human_text));
+  // F4: 8+8 维度表
+  body.insertAdjacentHTML("beforeend", _labCustomDimsTableHTML(reason.dim_hits, alert.dims, alert.adapt));
+  // F5: 历史类比
+  body.insertAdjacentHTML("beforeend", _labCustomHistoryHTML(reason.history_analogy, reason.human_text));
+  // F6: 数据阈值表（折叠）
+  body.insertAdjacentHTML("beforeend", _labCustomThresholdsHTML(reason.data_thresholds));
+  // F7: 合规底栏
+  body.insertAdjacentHTML("beforeend", _labCustomFooterHTML(reason.compliance_footer, reason.no_data_hint));
+  // 折叠阈值表交互
+  const toggle = body.querySelector(".lab-custom-thresh-toggle");
+  if (toggle) {
+    toggle.onclick = () => {
+      const tBody = body.querySelector(".lab-custom-thresh-body");
+      const open = tBody && tBody.style.display !== "none";
+      if (tBody) tBody.style.display = open ? "none" : "block";
+      toggle.textContent = open ? "展开数据阈值表 ▾" : "收起数据阈值表 ▴";
+    };
+  }
+}
+
+// 简单 HTML 内容 modal（无数据时的兜底弹窗）
+function _labAIScoreOpenModal(html) {
+  let overlay = document.getElementById("labAIScoreOverlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "labAIScoreOverlay";
+    overlay.className = "lab-signal-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML =
+    `<div class="lab-signal-modal lab-aiscore-modal">` +
+      `<div class="lab-signal-modal-head">` +
+        `<span class="lab-signal-modal-title">📈 AI 评分详情</span>` +
+        `<button type="button" class="lab-rank-modal-close" aria-label="关闭">✕</button>` +
+      `</div>` +
+      `<div class="lab-signal-modal-body">${html}</div>` +
+    `</div>`;
+  overlay.classList.add("show");
+  document.body.style.overflow = "hidden";
+  overlay.onclick = (e) => { if (e.target === overlay) _labAIScoreCloseModal(); };
+  overlay.querySelector(".lab-rank-modal-close").onclick = _labAIScoreCloseModal;
+}
+
+function _labAIScoreCloseModal() {
+  const overlay = document.getElementById("labAIScoreOverlay");
+  if (overlay) {
+    overlay.classList.remove("show");
+    overlay.innerHTML = "";
+    overlay.onclick = null;
+  }
+  document.body.style.overflow = "";
+}
+
 var _labCustomScoreCardHTML = window._labCustomScoreCardHTML;
 
 var _labCustomDimsTableHTML = window._labCustomDimsTableHTML;
@@ -6206,7 +6581,7 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
   // 解析 ?sub= 恢复 labSubMode（列表页保位，避免 F5 回 single）
   if (queryPart) {
     const sub = new URLSearchParams(queryPart).get("sub");
-    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan", "custom"].includes(sub)) {
+    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan", "custom", "aiscore"].includes(sub)) {
       state.labSubMode = sub;
     }
   }
