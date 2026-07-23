@@ -2697,16 +2697,16 @@ function _bindTabCrosslink(scope, gotoTab) {
 // 采集时间独立化：任何 tab 刷新都能显示，不依赖 renderOverview 是否执行
 // 末尾追加 ℹ️ 图标，点击弹"数据更新规则"modal（事件委托在 initUpdateRules 绑定 document，重渲染不失效）。
 const _UPDATE_RULES_ICON = '<span class="update-rules-btn" title="数据更新规则" role="button" tabindex="0" aria-label="数据更新规则">ℹ️</span>';
-// 采集时间不再展示数据健康度圆点：采集层报错(如 HTTPSConnectionPool)用户看不懂且与数据时效功能重叠，
-// collect_health 留给后端日志，前端只显示采集时间文本。数据时效以"数据更新规则"弹窗(ℹ️)为准。
-function applyCollectTime(ct) {
-  _collectTimeBase = { ct: ct || "" };
+// A4 采集健康度小灯：采集时间旁圆点 🟢(ok)/🟡(warn)/🔴(error)，hover 弹失败源 metric_id+message 列表。
+// 复用 overview.collect_health（export.py 导出，最新一次 run 的非 ok 项）；level=ok 时绿点无 pop。
+function applyCollectTime(ct, health) {
+  _collectTimeBase = { ct: ct || "", health: health || null };
   _renderCollectTime();
 }
 // 采集时间统一口径（阶段2）：盘中"HH:MM · 动态(3min)"（腾讯最近拉取时间），收盘"HH:MM · 收盘快照"。
 // 盘中优先显腾讯动态时间，无则回退 snap 采集时间；后缀让用户一眼区分动态 vs 收盘。
 function _renderCollectTime() {
-  const { ct } = _collectTimeBase;
+  const { ct, health } = _collectTimeBase;
   const _icon = _UPDATE_RULES_ICON;
   if (!ct) {
     document.querySelectorAll(".pc-collect-time,.h5-collect-time").forEach((el) => { el.innerHTML = ""; });
@@ -2716,17 +2716,39 @@ function _renderCollectTime() {
   const intraday = snap && snap.is_closed === false;
   const timeStr = (intraday && _intradayDynamicTime) ? _intradayDynamicTime : ct;
   const suffix = intraday ? " · 动态(3min)" : " · 收盘快照";
+  const _healthHTML = _renderCollectHealthDot(health);
   document.querySelectorAll(".pc-collect-time").forEach((el) => {
-    el.innerHTML = `数据采集时间：${timeStr}${suffix}${_icon}`;
+    el.innerHTML = `数据采集时间：${timeStr}${suffix}${_healthHTML}${_icon}`;
   });
   document.querySelectorAll(".h5-collect-time").forEach((el) => {
-    el.innerHTML = `${timeStr}${suffix}${_icon}`;
+    el.innerHTML = `${timeStr}${suffix}${_healthHTML}${_icon}`;
   });
+}
+// A4 健康灯 HTML：ok 绿点（无 pop）；warn/error 黄/红点 + hover pop 显示失败源列表。
+function _renderCollectHealthDot(health) {
+  if (!health) return "";
+  const level = health.level || "ok";
+  const items = Array.isArray(health.items) ? health.items.filter((it) => it && it.status && it.status !== "ok") : [];
+  if (level === "ok" && !items.length) {
+    return `<span class="collect-health" data-level="ok" title="采集正常"><span class="collect-health-dot"></span></span>`;
+  }
+  const _tagText = (s) => (s === "error" ? "错误" : s === "disabled" ? "中断" : "警告");
+  const listHTML = items.map((it) =>
+    `<div class="collect-health-item"><span class="collect-health-tag collect-health-tag--${it.status}">${_tagText(it.status)}</span><span class="collect-health-mid">${it.metric_id || ""}</span><span class="collect-health-msg">${(it.message || "").replace(/</g, "&lt;")}</span></div>`
+  ).join("");
+  const title = `采集${level === "error" ? "异常" : "告警"} ${items.length} 项`;
+  return `<span class="collect-health" data-level="${level}" tabindex="0" role="button" aria-label="${title}">
+    <span class="collect-health-dot"></span>
+    <span class="collect-health-pop">
+      <div class="collect-health-pop-title">采集${level === "error" ? "异常" : "告警"} · ${items.length} 项</div>
+      ${listHTML || '<div class="collect-health-empty">无详情</div>'}
+    </span>
+  </span>`;
 }
 async function fetchCollectTime() {
   try {
     const r = await fetchJSON("./data/overview.json");
-    applyCollectTime(r.collected_at);
+    applyCollectTime(r.collected_at, r.collect_health);
   } catch (e) { /* 兜底不崩，保持空 */ }
 }
 
@@ -3932,8 +3954,8 @@ async function renderOverview() {
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
   const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
   _setCachedOverview(r);
-  // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）
-  applyCollectTime(r.collected_at);
+  // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）+ A4 健康灯（collect_health）
+  applyCollectTime(r.collected_at, r.collect_health);
   // 盘中标注：等快照就绪（最多 1.5s），让每张卡片角标判断 714 实时 vs 713 待收盘
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((res) => setTimeout(res, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
@@ -7906,13 +7928,242 @@ async function _tradeSimFetchFull(indexId) {
   return await fetchJSON('https://ssd.fx8.store/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
 }
 
-async function _tradeSimOpenModal(indexId) {
+// === A10 历史相似形态匹配（皮尔逊相关 + 滑窗，O(n) 前端实时算）===
+// 取近 N 日归一化日收益率作为"当前形态"，历史滑窗算 top5 最相似时段，top1 延伸虚线为后续走势参考。
+// 数据源路由：A股宽基/红利->a-stock-all.json，港股->hk-all.json，美股/欧洲->global-all.json(indices)，商品->global-all.json(extras)。
+var _tradeSimShapeCache = {};      // indexId -> {name, data:[{date,close,...}]} 或 null
+var _astockAllCache = null, _hkAllCache = null, _globalAllCache = null;
+var _SHAPE_A_STOCK = new Set(['sh','sz','cyb','csi500','csi1000','kc50','hs300','sz50','bj50','div_lowvol','csi_div','sz_div']);
+var _SHAPE_HK = new Set(['hsi','hscei','hstech']);
+var _SHAPE_US_EU = new Set(['us_dji','us_ixic','us_spx','us_ndx','ftse100','dax','nikkei225','kospi']);
+var _SHAPE_COMMODITY = {
+  'g.gold':'gold', 'gold':'gold', 'g.comex_silver':'comex_silver', 'comex_silver':'comex_silver',
+  'g.wti_oil':'wti_oil', 'wti_oil':'wti_oil', 'g.brent':'brent', 'brent':'brent',
+  'g.us10y':'us10y', 'us10y':'us10y', 'g.a_qvix_300':'a_qvix_300', 'a_qvix_300':'a_qvix_300',
+  'g.a_qvix_1000':'a_qvix_1000', 'a_qvix_1000':'a_qvix_1000',
+};
+var _SHAPE_COMMODITY_NAME = {
+  'gold':'伦敦金', 'comex_silver':'COMEX白银', 'wti_oil':'WTI原油', 'brent':'布伦特原油',
+  'us10y':'美10Y收益率', 'a_qvix_300':'A股300波动率', 'a_qvix_1000':'A股1000波动率',
+};
+// 路由取数：返回 {name, data:[{date,close}]} 或 null（行业等暂不支持）
+async function _shapeLoadSeries(indexId) {
+  if (_tradeSimShapeCache.hasOwnProperty(indexId)) return _tradeSimShapeCache[indexId];
+  var result = null;
+  try {
+    if (_SHAPE_A_STOCK.has(indexId)) {
+      _astockAllCache = _astockAllCache || await fetchJSON('./data/a-stock-all.json');
+      var idx = _astockAllCache.indices && _astockAllCache.indices[indexId];
+      if (idx) result = { name: idx.name, data: (idx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
+    } else if (_SHAPE_HK.has(indexId)) {
+      _hkAllCache = _hkAllCache || await fetchJSON('./data/hk-all.json');
+      var hidx = _hkAllCache.indices && _hkAllCache.indices[indexId];
+      if (hidx) result = { name: hidx.name, data: (hidx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
+    } else if (_SHAPE_US_EU.has(indexId)) {
+      _globalAllCache = _globalAllCache || await fetchJSON('./data/global-all.json');
+      var gidx = _globalAllCache.indices && _globalAllCache.indices[indexId];
+      if (gidx) result = { name: gidx.name, data: (gidx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
+    } else if (_SHAPE_COMMODITY[indexId]) {
+      _globalAllCache = _globalAllCache || await fetchJSON('./data/global-all.json');
+      var exKey = _SHAPE_COMMODITY[indexId];
+      var ex = _globalAllCache.extras && _globalAllCache.extras[exKey];
+      if (ex && ex.length) result = { name: _SHAPE_COMMODITY_NAME[exKey] || exKey, data: ex.map(function (d) { return { date: d.date, close: d.value }; }) };
+    }
+  } catch (e) { result = null; }
+  _tradeSimShapeCache[indexId] = result;
+  return result;
+}
+// 归一化（零均值、单位方差，用总体标准差；null=方差过小）
+function _shapeNormalize(arr) {
+  var n = arr.length;
+  if (n < 2) return null;
+  var mean = 0;
+  for (var i = 0; i < n; i++) mean += arr[i];
+  mean /= n;
+  var v = 0;
+  for (var j = 0; j < n; j++) v += (arr[j] - mean) * (arr[j] - mean);
+  var std = Math.sqrt(v / n);
+  if (std < 1e-10) return null;
+  var out = new Array(n);
+  for (var k = 0; k < n; k++) out[k] = (arr[k] - mean) / std;
+  return out;
+}
+// 皮尔逊相关（入参已归一化，= dot/n）
+function _shapePearson(a, b) {
+  if (a.length !== b.length) return null;
+  var dot = 0;
+  for (var i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return dot / a.length;
+}
+// 核心匹配：closes/dates 完整序列，curLen=当前形态长度，forecastLen=延伸长度，topN=返回数
+// 返回 {current:{startDate,endDate,cum:[{date,cum}]}, matches:[{startDate,endDate,corr,forecast:[{date,cum}]}]}
+function _shapeMatch(closes, dates, curLen, forecastLen, topN) {
+  var n = closes.length;
+  if (n < curLen + forecastLen + 5) return null;
+  var rets = new Array(n - 1);
+  for (var i = 1; i < n; i++) rets[i - 1] = (closes[i] - closes[i - 1]) / closes[i - 1];
+  // rets[t] 对应 closes[t+1] 的涨幅；当前末 curLen 日 = rets 末 curLen 个
+  var curStart = rets.length - curLen;
+  var curNorm = _shapeNormalize(rets.slice(curStart));
+  if (!curNorm) return null;
+  var matches = [];
+  // 历史窗末 index 必须 < curStart（不与当前重叠），且窗末后要有 forecastLen 日延伸
+  var lastAllowed = curStart - 1;
+  for (var i = 0; i + curLen - 1 <= lastAllowed; i++) {
+    var winEnd = i + curLen - 1;
+    if (winEnd + forecastLen >= rets.length) continue;
+    var winNorm = _shapeNormalize(rets.slice(i, i + curLen));
+    if (!winNorm) continue;
+    var corr = _shapePearson(curNorm, winNorm);
+    if (corr === null || isNaN(corr)) continue;
+    // 延伸：窗末 close=closes[i+curLen]，后续 forecastLen 日累计收益（归一化到窗末=1）
+    var base = closes[i + curLen];
+    var forecast = [];
+    for (var k = 1; k <= forecastLen; k++) {
+      var ci = i + curLen + k;
+      if (ci >= n) break;
+      forecast.push({ date: dates[ci], cum: closes[ci] / base });
+    }
+    matches.push({ startDate: dates[i + 1], endDate: dates[i + curLen], corr: corr, forecast: forecast, idx: i });
+  }
+  matches.sort(function (a, b) { return b.corr - a.corr; });
+  // 去重：相邻窗间隔 < curLen 视为重叠，只保留 corr 最高的
+  var picked = [];
+  for (var m = 0; m < matches.length; m++) {
+    var overlap = false;
+    for (var p = 0; p < picked.length; p++) {
+      if (Math.abs(matches[m].idx - picked[p].idx) < curLen) { overlap = true; break; }
+    }
+    if (!overlap) picked.push(matches[m]);
+    if (picked.length >= topN) break;
+  }
+  // 当前形态累计收益（末日=1，向前累乘）
+  var curBase = closes[n - 1];
+  var curCum = [];
+  for (var c = n - curLen; c < n; c++) curCum.push({ date: dates[c], cum: closes[c] / curBase });
+  return { current: { startDate: dates[n - curLen], endDate: dates[n - 1], cum: curCum }, matches: picked };
+}
+// 相似形态走势 SVG：当前末段实线 + top1..topN 延伸虚线（各延伸起点对齐到当前末点）
+function _shapeMatchSVG(result, topPlot) {
+  if (!result || !result.matches.length) return '<div style="padding:16px;color:var(--text-3);text-align:center">无相似时段</div>';
+  var cur = result.current.cum;
+  var topList = result.matches.slice(0, topPlot);
+  // 拼接序列：当前段（curLen 点）+ 延伸段（forecastLen 点）。当前段实线，延伸段虚线（top1 主色，top2+ 灰阶）
+  var curLen = cur.length;
+  var fcLen = topList[0].forecast.length;
+  var totalLen = curLen + fcLen;
+  var allVals = [];
+  for (var i = 0; i < curLen; i++) allVals.push(cur[i].cum);
+  // 当前延伸（预测=保持，cum=1 在末点）
+  allVals.push(1);
+  var series = [{ name: '当前', data: cur.concat([{ date: '延伸', cum: 1 }]), color: '#3370ff', dashed: false }];
+  for (var t = 0; t < topList.length; t++) {
+    var fc = topList[t].forecast;
+    var fcData = [];
+    // 延伸起点对齐当前末点（cum=1）：用 top 时段的累计收益作为后续相对走势
+    fcData.push({ date: cur[curLen - 1].date, cum: 1 });
+    for (var k = 0; k < fc.length; k++) fcData.push({ date: fc[k].date, cum: fc[k].cum });
+    series.push({ name: topList[t].startDate + '~' + topList[t].endDate, data: fcData, color: t === 0 ? '#e6a23c' : '#9e9e9e', dashed: true, corr: topList[t].corr });
+    for (var v = 0; v < fc.length; v++) allVals.push(fc[v].cum);
+  }
+  var yMin = Math.min.apply(null, allVals) * 0.97;
+  var yMax = Math.max.apply(null, allVals) * 1.03;
+  if (yMax <= yMin) yMax = yMin + 1;
+  var W = 820, H = 220, ml = 56, mr = 12, mt = 8, mb = 28;
+  var pw = W - ml - mr, ph = H - mt - mb;
+  var sx = function (i) { return ml + (totalLen > 1 ? (i / (totalLen - 1)) * pw : 0); };
+  var sy = function (v) { return mt + ph - ((v - yMin) / (yMax - yMin)) * ph; };
+  var baselineY = sy(1);
+  var xTicks = Math.min(7, totalLen);
+  var xLabels = '';
+  for (var xt = 0; xt < xTicks; xt++) {
+    var xi = Math.min(Math.round(xt * (totalLen - 1) / (xTicks - 1)), totalLen - 1);
+    var xLabel = xi < curLen ? cur[xi].date : (xi === curLen ? '今' : '+D' + (xi - curLen));
+    xLabels += '<text x="' + sx(xi).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="9" fill="var(--text-3)">' + xLabel + '</text>';
+  }
+  var yLabels = '';
+  var yTicks = [yMin, (yMin + yMax) / 2, 1, yMax];
+  for (var yi = 0; yi < yTicks.length; yi++) {
+    var yv = yTicks[yi];
+    if (yv < yMin || yv > yMax) continue;
+    yLabels += '<text x="' + (ml - 4) + '" y="' + sy(yv).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-3)" dominant-baseline="middle">' + ((yv - 1) * 100).toFixed(1) + '%</text>';
+  }
+  var paths = '';
+  // 当前实线（只画 curLen 段，不含延伸点）
+  var curPts = cur.map(function (d, i) { return sx(i).toFixed(1) + ',' + sy(d.cum).toFixed(1); }).join(' ');
+  paths += '<polyline points="' + curPts + '" fill="none" stroke="' + series[0].color + '" stroke-width="2" stroke-linejoin="round"/>';
+  // 各延伸虚线：从当前末点 (sx(curLen-1), sy(1)) 连到延伸各点（x 偏移到延伸区）
+  for (var s = 1; s < series.length; s++) {
+    var fcData = series[s].data;
+    var pts = (sx(curLen - 1).toFixed(1) + ',' + sy(1).toFixed(1));
+    for (var f = 1; f < fcData.length; f++) {
+      pts += ' ' + sx(curLen - 1 + f).toFixed(1) + ',' + sy(fcData[f].cum).toFixed(1);
+    }
+    paths += '<polyline points="' + pts + '" fill="none" stroke="' + series[s].color + '" stroke-width="' + (s === 1 ? 1.8 : 1) + '" stroke-dasharray="5,3" stroke-linejoin="round" opacity="' + (s === 1 ? 0.9 : 0.45) + '"/>';
+  }
+  // 末点圆点 + 分隔线（当前 vs 延伸）
+  var sepX = sx(curLen - 1);
+  var legend = '';
+  var legendItems = ['<span style="color:' + series[0].color + '">━ 当前' + result.current.startDate + '~' + result.current.endDate + '</span>'];
+  for (var lg = 1; lg < series.length; lg++) {
+    legendItems.push('<span style="color:' + series[lg].color + '">┄ top' + lg + ' ' + series[lg].name.split('~')[0] + ' (r=' + (series[lg].corr || 0).toFixed(2) + ')</span>');
+  }
+  legend = '<div style="display:flex;flex-wrap:wrap;gap:8px 14px;font-size:11px;margin:4px 0 0">' + legendItems.join('') + '</div>';
+  return '<div style="margin-top:6px">' +
+    '<svg width="100%" height="200" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" style="display:block;border-radius:6px;background:var(--bg-hover)">' +
+    '<line x1="' + ml + '" y1="' + baselineY.toFixed(1) + '" x2="' + (W - mr) + '" y2="' + baselineY.toFixed(1) + '" stroke="var(--border)" stroke-dasharray="3,3" stroke-width="1"/>' +
+    '<line x1="' + sepX.toFixed(1) + '" y1="' + mt + '" x2="' + sepX.toFixed(1) + '" y2="' + (H - mb) + '" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="4,4"/>' +
+    '<text x="' + (sepX + 3).toFixed(1) + '" y="' + (mt + 10) + '" font-size="9" fill="var(--text-3)">→ 延伸预测</text>' +
+    yLabels + xLabels + paths +
+    '<circle cx="' + sx(curLen - 1).toFixed(1) + '" cy="' + sy(1).toFixed(1) + '" r="3" fill="' + series[0].color + '" stroke="#fff" stroke-width="1"/>' +
+    '</svg>' + legend + '</div>';
+}
+// 相似形态视图 HTML
+async function _tradeSimShapeViewHTML(indexId) {
+  var series = await _shapeLoadSeries(indexId);
+  if (!series || !series.data || series.data.length < 30) {
+    return '<div class="trade-sim-shape-empty">该指数暂不支持相似形态分析（数据源未覆盖或数据不足）。<br>当前支持：A 股宽基/红利、港股、美股/欧洲、主要商品。</div>';
+  }
+  var closes = series.data.map(function (d) { return d.close; });
+  var dates = series.data.map(function (d) { return d.date; });
+  var CUR_LEN = 20, FORECAST_LEN = 20, TOP_N = 5, TOP_PLOT = 3;
+  var result = _shapeMatch(closes, dates, CUR_LEN, FORECAST_LEN, TOP_N);
+  if (!result) {
+    return '<div class="trade-sim-shape-empty">数据不足：需要至少 ' + (CUR_LEN + FORECAST_LEN + 5) + ' 个交易日，当前 ' + closes.length + ' 个。</div>';
+  }
+  var idxName = series.name || indexId;
+  var svg = _shapeMatchSVG(result, TOP_PLOT);
+  // top5 列表
+  var listRows = result.matches.map(function (m, i) {
+    var corrPct = (m.corr * 100).toFixed(1) + '%';
+    var corrColor = m.corr >= 0.7 ? '#e6492e' : m.corr >= 0.5 ? '#e6a23c' : 'var(--text-3)';
+    // 延伸20日累计涨跌
+    var endCum = m.forecast.length ? m.forecast[m.forecast.length - 1].cum : 1;
+    var chgPct = ((endCum - 1) * 100).toFixed(2) + '%';
+    var chgColor = endCum >= 1 ? '#e6492e' : '#2e8b57';
+    return '<tr>' +
+      '<td>top' + (i + 1) + '</td>' +
+      '<td>' + m.startDate + ' ~ ' + m.endDate + '</td>' +
+      '<td style="color:' + corrColor + ';font-weight:600">' + corrPct + '</td>' +
+      '<td style="color:' + chgColor + '">' + (chgPct >= 0 ? '+' : '') + chgPct + '</td>' +
+      '</tr>';
+  }).join('');
+  var listTable = '<table class="shape-match-table"><thead><tr><th>排名</th><th>历史时段</th><th>相关系数</th><th>后续' + FORECAST_LEN + '日涨跌</th></tr></thead><tbody>' + listRows + '</tbody></table>';
+  return '<div class="trade-sim-shape-view">' +
+    '<div class="trade-sim-shape-hint">🔮 取近 ' + CUR_LEN + ' 日<b>归一化日收益率</b>为当前形态，在 ' + idxName + ' 全历史（' + closes.length + ' 个交易日）中滑窗匹配皮尔逊相关最高的 ' + TOP_N + ' 个时段。<b>虚线为相似时段后续 ' + FORECAST_LEN + ' 日走势</b>（起点对齐当前末点），仅作形态参考非预测。</div>' +
+    '<div class="trade-sim-shape-section"><div class="trade-sim-shape-section-title">走势叠加 · 当前实线 + top' + TOP_PLOT + ' 延伸虚线</div>' + svg + '</div>' +
+    '<div class="trade-sim-shape-section"><div class="trade-sim-shape-section-title">最相似 Top' + TOP_N + ' 时段</div>' + listTable + '</div>' +
+    '</div>';
+}
+
+async function _tradeSimOpenModal(indexId, openView) {
   var ov = _tradeSimOverlayEl();
   _tradeSimState = {
     indexId: indexId,
     win: _TRADE_SIM_DEFAULT_WIN,
     path: 0,
     scenario: 0,
+    view: openView === 'shape' ? 'shape' : 'backtest',   // A10 视图切换：backtest=回测详情 / shape=相似形态（lab.js 可直传 'shape'）
     statsData: null,
     fullData: null,
     fullLoaded: false,
@@ -8301,7 +8552,36 @@ function _tradeSimModalRender(ov) {
   for (var i = 0; i < _TRADE_SIM_WIN_DEFS.length; i++) {
     if (_TRADE_SIM_WIN_DEFS[i].k === win) { winLabel = _TRADE_SIM_WIN_DEFS[i].l; break; }
   }
-  ov.querySelector('.trade-sim-modal-title').textContent = indexName + ' · 技术信号模拟回测（' + winLabel + '）';
+  var viewTabs = '<div class="sim-view-tabs">' +
+    '<button type="button" class="sim-view-tab' + (m.view === 'backtest' ? ' active' : '') + '" data-view="backtest">📊 回测详情</button>' +
+    '<button type="button" class="sim-view-tab' + (m.view === 'shape' ? ' active' : '') + '" data-view="shape">🔮 相似形态</button>' +
+    '</div>';
+  ov.querySelector('.trade-sim-modal-title').textContent = indexName + (m.view === 'shape' ? ' · 历史相似形态匹配' : ' · 技术信号模拟回测（' + winLabel + '）');
+  var body = ov.querySelector('.trade-sim-modal-body');
+  // A10 相似形态视图：异步加载，加载完填入；用户切走则不覆盖
+  if (m.view === 'shape') {
+    body.innerHTML = viewTabs + '<div class="trade-sim-loading"><span class="sim-spinner"></span>加载相似形态分析…</div>';
+    body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
+      btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };
+    });
+    (async function () {
+      try {
+        var html = await _tradeSimShapeViewHTML(m.indexId);
+        if (_tradeSimState !== m || m.view !== 'shape') return;
+        body.innerHTML = viewTabs + html;
+        body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
+          btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };
+        });
+      } catch (e) {
+        if (_tradeSimState !== m || m.view !== 'shape') return;
+        body.innerHTML = viewTabs + '<div class="trade-sim-empty">⚠ 相似形态加载失败：' + (e.message || e) + '</div>';
+        body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
+          btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };
+        });
+      }
+    })();
+    return;
+  }
   // 吸顶窗口切换条
   var winBar = '<div class="lab-win-bar trade-sim-win-bar">' +
     '<span class="lab-win-bar-label">时间窗口</span>' +
@@ -8319,9 +8599,11 @@ function _tradeSimModalRender(ov) {
   }).join('') + '</div>';
   var gradId = 'tradeSimGrad_' + win + '_' + pathIdx + '_' + scenIdx;
   var panel = _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId);
-  var body = ov.querySelector('.trade-sim-modal-body');
-  body.innerHTML = winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
-  // 绑定窗口切换
+  body.innerHTML = viewTabs + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
+  // 绑定视图切换（A10）+ 窗口切换
+  body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
+    btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };
+  });
   body.querySelectorAll('.lab-win-tab[data-win]').forEach(function (btn) {
     btn.onclick = function () { m.win = btn.dataset.win; _tradeSimModalRender(ov); };
   });

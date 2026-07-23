@@ -612,6 +612,16 @@
 }
 .lab-idx-tab:hover { background: var(--bg-hover); }
 .lab-idx-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+/* A10 相似形态分析按钮（配对对比榜指数选择栏旁，点击打开 trade_sim modal 相似形态视图）*/
+.lab-shape-bar { align-items: center; gap: 8px; }
+.lab-shape-btn {
+  padding: 5px 12px; border: 1px solid var(--primary); border-radius: 6px;
+  background: var(--primary-bg, var(--bg-hover)); color: var(--primary, var(--text-1));
+  font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+  -webkit-appearance: none; appearance: none;
+}
+.lab-shape-btn:hover { background: var(--primary); color: #fff; }
+.lab-shape-hint { font-size: 11px; color: var(--text-3); }
 /* 矩阵当前窗口行高亮 */
 .lab-matrix-table tr.lab-matrix-row-active > td { background: var(--primary-bg); }
 .lab-matrix-table tr.lab-matrix-row-active > .lab-matrix-rowhead { color: var(--primary); font-weight: 700; }

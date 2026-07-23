@@ -1223,6 +1223,81 @@ main { padding: 16px 24px; }
 }
 .update-rules-btn:hover,
 .update-rules-btn:focus-visible { color: var(--primary); outline: none; }
+/* === A4 采集健康度小灯（采集时间旁 🟢/🟡/🔴 圆点，hover 弹失败源列表）=== */
+.collect-health {
+  position: relative;
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: middle;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+}
+.collect-health-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  box-shadow: 0 0 0 1.5px var(--bg-card);
+}
+.collect-health[data-level="ok"] .collect-health-dot { background: #52c41a; }
+.collect-health[data-level="warn"] .collect-health-dot { background: #faad14; }
+.collect-health[data-level="error"] .collect-health-dot { background: #ff4d4f; animation: collectHealthBlink 1.4s ease-in-out infinite; }
+@keyframes collectHealthBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.collect-health-pop {
+  display: none;
+  position: absolute;
+  top: 100%; left: 50%; transform: translateX(-50%);
+  margin-top: 8px;
+  z-index: 9999;
+  background: var(--bg-card);
+  color: var(--text-1);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--primary);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 14px var(--shadow-strong);
+  font-size: 12px;
+  line-height: 1.5;
+  min-width: 220px;
+  max-width: 340px;
+  white-space: normal;
+  word-break: break-word;
+  animation: termPopIn .12s ease-out;
+}
+.collect-health:hover .collect-health-pop,
+.collect-health:focus-visible .collect-health-pop { display: block; }
+.collect-health:focus-visible { outline: none; }
+.collect-health-pop::before {
+  content: ""; position: absolute; left: 50%; margin-left: -6px;
+  bottom: 100%;
+  border: 6px solid transparent;
+  border-bottom-color: var(--primary);
+  pointer-events: none;
+}
+.collect-health-pop-title {
+  font-weight: 600; color: var(--text-1);
+  margin-bottom: 6px; padding-bottom: 4px;
+  border-bottom: 1px dashed var(--border);
+}
+.collect-health-item {
+  display: grid;
+  grid-template-columns: 36px 70px 1fr;
+  gap: 6px; align-items: start;
+  padding: 3px 0;
+}
+.collect-health-tag {
+  display: inline-block;
+  font-size: 10px; line-height: 1.4;
+  padding: 1px 4px; border-radius: 3px;
+  text-align: center; white-space: nowrap;
+}
+.collect-health-tag--error { background: var(--mx-good-bg); color: var(--mx-good-fg); }
+.collect-health-tag--warn { background: var(--mx-warn-bg); color: var(--mx-warn-fg); }
+.collect-health-tag--disabled { background: var(--mx-bad-bg); color: var(--mx-bad-fg); }
+.collect-health-mid { color: var(--text-2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+.collect-health-msg { color: var(--text-3); word-break: break-all; }
+.collect-health-empty { color: var(--text-3); padding: 4px 0; }
 .update-rules-modal .rule-modal-body { width: min(92vw, 720px); }
 .update-rules-modal .rule-section { margin-bottom: 18px; }
 .update-rules-modal .rule-section:last-child { margin-bottom: 0; }
@@ -2323,6 +2398,33 @@ main { padding: 16px 24px; }
 .trade-sim-modal-body { flex: 1; overflow-y: auto; padding: 14px 16px 20px; }
 .trade-sim-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 60px 0; color: var(--text-3); font-size: 14px; }
 .trade-sim-empty { padding: 40px; text-align: center; color: var(--text-3); font-size: 14px; }
+/* A10 视图切换 tab（回测详情 / 相似形态）+ 相似形态视图样式 */
+.sim-view-tabs { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.sim-view-tab {
+  padding: 6px 14px; font-size: 13px; color: var(--text-2);
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: color .15s, border-color .15s; margin-bottom: -1px;
+}
+.sim-view-tab:hover { color: var(--primary); }
+.sim-view-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.trade-sim-shape-view { font-size: 13px; color: var(--text-1); }
+.trade-sim-shape-hint {
+  background: var(--bg-hover); border-left: 3px solid var(--primary);
+  border-radius: 6px; padding: 8px 12px; margin-bottom: 14px;
+  font-size: 12px; line-height: 1.6; color: var(--text-2);
+}
+.trade-sim-shape-hint b { color: var(--text-1); }
+.trade-sim-shape-section { background: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px var(--shadow); padding: 12px; margin-bottom: 14px; }
+.trade-sim-shape-section-title { font-weight: 600; font-size: 13px; color: var(--text-1); margin-bottom: 6px; }
+.trade-sim-shape-empty {
+  padding: 40px 20px; text-align: center; color: var(--text-3); font-size: 13px; line-height: 1.7;
+  background: var(--bg-hover); border-radius: 8px; margin: 10px 0;
+}
+.shape-match-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+.shape-match-table th { background: var(--bg-hover); padding: 6px 10px; text-align: left; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.shape-match-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--text-1); }
+.shape-match-table tbody tr:hover { background: var(--bg-hover); }
+.shape-match-table td:nth-child(1) { color: var(--text-3); font-weight: 600; }
 /* 吸顶窗口切换条：吃掉 modal-body 的 padding，sticky top:0 在 body 内吸顶 */
 .trade-sim-win-bar {
   position: sticky; top: -14px; z-index: 5;

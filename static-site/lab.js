@@ -3760,6 +3760,7 @@ async function renderFusionLab() {
   rankSection.innerHTML = '<h3>🏆 回测配对对比榜' + _labHelpIcon("pair") + '</h3>' +
     '<div class="lab-rank-sub-note">一个买点+一个卖点组成一对完整交易，7买×7卖=49对</div>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
+    `<div class="lab-win-bar lab-shape-bar"><span class="lab-win-bar-label">形态分析</span><button type="button" class="lab-shape-btn" title="取近20日归一化日收益率，在全历史中滑窗匹配最相似时段">🔮 当前指数相似形态匹配</button><span class="lab-shape-hint">A10 · 历史相似时段 + top1 延伸走势参考</span></div>` +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载配对排行数据中…</div></div>';
   rightCol.appendChild(rankSection);
   // 组装2栏
@@ -3774,6 +3775,14 @@ async function renderFusionLab() {
     _labRankRerender(rankSection, simData);
   };
   _loadRank();
+  // A10 相似形态：点击用当前选中指数打开 trade_sim modal 的相似形态视图（复用 app.js 实现）
+  const _shapeBtn = rankSection.querySelector(".lab-shape-btn");
+  if (_shapeBtn) {
+    _shapeBtn.onclick = () => {
+      const idx = state.labSimIndex || "sh";
+      if (typeof _tradeSimOpenModal === "function") _tradeSimOpenModal(idx, "shape");
+    };
+  }
   // 指数切换：切换 active 按钮，重新加载该指数数据并重渲染 rank body
   rankSection.querySelectorAll(".lab-idx-tab").forEach((btn) => {
     btn.onclick = () => {
