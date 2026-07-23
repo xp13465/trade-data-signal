@@ -30,10 +30,10 @@
     "task": "futures_backfill",
     "name": "期货机构持仓",
     "schedule": "20:05 + 21:00(兜底)",
-    "est_text": "约7分钟",
+    "est_text": "约12分钟",
     "last_run": "2026-07-23 21:00",
-    "last_exit": null,
-    "last_duration_sec": null
+    "last_exit": 0,
+    "last_duration_sec": 3131
   },
   {
     "task": "lhb_backfill",
