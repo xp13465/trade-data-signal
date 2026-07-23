@@ -3959,7 +3959,7 @@ async function renderOverview() {
   for (const k of _orderedCards) {
     const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : k.disabled ? "disabled" : "stale";
     const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
-    const sentTag = k.id === "a_sentiment" || k.id === "cross_market" ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
+    const sentTag = (k.id === "a_sentiment" || k.id === "cross_market") && !k.tag ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
     const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
     let sub = k.sub || "";
     let valueHtml = k.value;
