@@ -18,7 +18,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-_REPO = Path(__file__).resolve().parent.parent
+_REPO = Path(__file__).absolute().parent.parent
 _SENT_DB = _REPO / "data" / "sentiment.db"
 _NT_DB = _REPO / "data" / "etf_national_team.db"
 _BOARD_ETF_MAP = _REPO / "data" / "board_etf_map.json"

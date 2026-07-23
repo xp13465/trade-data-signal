@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-_REPO = Path(__file__).resolve().parent.parent
+_REPO = Path(__file__).absolute().parent.parent
 _SENT_DB = _REPO / "data" / "sentiment.db"
 _NT_DB = _REPO / "data" / "etf_national_team.db"
 
