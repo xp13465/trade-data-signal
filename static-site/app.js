@@ -969,9 +969,12 @@ function isStaleMetric(metricDate, latestDate, days = 30) {
   return diff > days;
 }
 
-// 每个品类的买卖点策略公式标注。后端注入 idx.strategy 字段（{buy,buy_aux,sell}），
-// 由 app/compute/signals.py::strategy_desc 读 indicators.yaml 的 buy_aux_filter +
-// SKIP_IDS/s.* 前缀逻辑生成。无 strategy 字段时用基线兜底（兼容旧数据/未注入端点）。
+// 每个品类的买卖点策略公式标注。后端注入 idx.strategy 字段（{buy,buy_aux,sell,_detail}），
+// 由 app/compute/signals.py::strategy_desc 读 indicators.yaml 的 buy_filter/buy_aux_filter/
+// sell_no_trend_filter + SKIP_IDS/s.* 前缀逻辑生成。无 strategy 字段时用基线兜底（兼容旧数据/未注入端点）。
+// 顶层 buy/buy_aux/sell 字符串向后兼容（export.py/main.py/app.js 现有调用读字符串不破坏）。
+// _detail 子对象含 6 类信号完整描述（buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss），
+// 每字段 {desc, params, filter, enabled}，供标题❓ click 弹 modal 展开该指数策略组合。
 // 基线：C1 RSI上穿30 + B1 BB下轨回归 + D1 20日高回落5%+MA60+MACD死叉。
 function strategyDesc(strategy) {
   if (strategy) return strategy;
@@ -980,6 +983,126 @@ function strategyDesc(strategy) {
     buy_aux: "BB下轨回归",
     sell: "20日高回落5%+MA60多头+MACD死叉",
   };
+}
+
+// === 标题❓策略弹窗（方案 B1 紧凑版，2026-07-20）===
+// 6 类信号顺序 + 颜色圆点 + 名称（与 _SIGNAL_HELP_ITEMS 一致，便于用户对齐 6 色信号图例）
+var _STRATEGY_DETAIL_KEYS = [
+  { key: "buy", color: "#e6492e", name: "主买 · 超卖拐点" },
+  { key: "buy_aux", color: "#d63384", name: "辅买 · 下轨拐点" },
+  { key: "buy_special", color: "#ffd700", name: "追买 · 上轨突破" },
+  { key: "buy_backup", color: "#9c27b0", name: "备买 · 趋势转向" },
+  { key: "sell", color: "#2e8b57", name: "卖 · 趋势转弱" },
+  { key: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR止损" },
+];
+// 渲染策略 modal：6 行（颜色圆点+信号名+该指数策略描述+参数+过滤），skip 标灰删除线，末尾合规声明。
+// strategy._detail 6 字段，每字段 {desc, params, filter, enabled}。
+function _strategyModalHTML(strategy, indexId) {
+  var detail = strategy && strategy._detail;
+  var rows = [];
+  for (var i = 0; i < _STRATEGY_DETAIL_KEYS.length; i++) {
+    var k = _STRATEGY_DETAIL_KEYS[i];
+    var d = detail && detail[k.key];
+    if (!d) continue;
+    var enabled = d.enabled !== false;
+    var rowStyle = enabled
+      ? ""
+      : "opacity:0.5;text-decoration:line-through;";
+    var paramHtml = (d.params && d.params !== "-")
+      ? '<div style="font-size:12px;line-height:1.55;margin:3px 0;padding:4px 8px;background:rgba(127,127,127,0.08);border-radius:4px">⚙ 参数：<b>' + d.params + '</b></div>'
+      : "";
+    var filterHtml = (d.filter && d.filter !== "-")
+      ? '<div style="font-size:12px;line-height:1.55;margin:3px 0;padding:4px 8px;background:rgba(127,127,127,0.08);border-radius:4px">🔍 过滤：<b>' + d.filter + '</b></div>'
+      : "";
+    rows.push(
+      '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(127,127,127,0.18);' + rowStyle + '">' +
+      '<span style="flex:0 0 14px;width:14px;height:14px;border-radius:50%;margin-top:4px;background:' + k.color + '"></span>' +
+      '<div style="flex:1;min-width:0">' +
+      '<div style="font-weight:600;margin-bottom:2px">' + k.name + '</div>' +
+      '<div style="font-size:13px;line-height:1.55;opacity:0.85">' + d.desc + '</div>' +
+      paramHtml +
+      filterHtml +
+      (enabled ? '' : '<div style="font-size:12px;color:#ff9800;margin-top:3px">⚠ 此信号在该指数已 skip（不触发）</div>') +
+      '</div></div>'
+    );
+  }
+  var rowsHtml = rows.join("") || '<div style="padding:16px 0;opacity:0.6">该指数暂无策略详情数据。</div>';
+  return '<div class="rule-modal-overlay"></div>' +
+    '<div class="rule-modal-body"><div class="rule-modal-header">' +
+    '<h3>📋 本指数策略详情' + (indexId ? ' · ' + indexId : '') + '</h3>' +
+    '<button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
+    '<div class="rule-modal-content"><div style="padding:0 4px">' + rowsHtml +
+    '<div style="margin-top:12px;padding:8px 12px;font-size:12px;opacity:0.7;background:rgba(127,127,127,0.1);border-radius:6px">⚠ 以上为研究标注非交易指令，过往表现不代表未来收益。详见右下角浮动 📋 策略说明与 6 色信号参考 ❓。</div>' +
+    '</div></div></div></div>';
+}
+// 打开策略 modal：从 statsHint 闭包/全局 strategyDesc 兜底取 strat，渲染 modal 并绑定关闭事件。
+function _openStrategyModal(indexId, strategy) {
+  var strat = strategyDesc(strategy);
+  var modal = document.getElementById("strategyHelpModal");
+  var isFirst = !modal;
+  if (isFirst) {
+    modal = document.createElement("div");
+    modal.id = "strategyHelpModal";
+    modal.className = "rule-modal hidden";
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = _strategyModalHTML(strat, indexId);
+  var _close = function () { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  if (isFirst) {
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && !modal.classList.contains("hidden")) _close();
+    });
+  }
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+// click 委托 [data-strategy-help] -> 弹该指数策略 modal（capture 先于 termTip 移动端 pop，stopPropagation 防双弹）
+(function _initStrategyHelpDelegation() {
+  document.addEventListener("click", function (e) {
+    var el = e.target.closest("[data-strategy-help]");
+    if (!el) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var idx = el.getAttribute("data-index-id") || "";
+    var strat = el.__strategy || null;
+    _openStrategyModal(idx, strat);
+  }, true);
+})();
+// 在卡片 h3 末尾追加❓（hover pop 一句话摘要 + click 弹该指数策略 modal）。
+// cardEl: chart-card DOM；indexId: 该指数 id；strategy: 后端注入的 idx.strategy dict。
+// 仿 _appendBackupChipRow 通过 cardEl.querySelector("h3") 注入子元素的先例（不碰 markPoint/chip 区域）。
+function _appendStrategyHint(cardEl, indexId, strategy) {
+  if (!cardEl) return;
+  var h3 = cardEl.querySelector("h3");
+  if (!h3) return;
+  // 避免重复注入
+  if (h3.querySelector("[data-strategy-help]")) return;
+  var strat = strategyDesc(strategy);
+  // hover pop 一句话摘要：本指数6类策略组合（buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss）
+  var tipLines = ["本指数策略组合："];
+  var detail = strat && strat._detail;
+  for (var i = 0; i < _STRATEGY_DETAIL_KEYS.length; i++) {
+    var k = _STRATEGY_DETAIL_KEYS[i];
+    var d = detail && detail[k.key];
+    if (!d) continue;
+    var name = k.name.split(" · ")[0];
+    var en = d.enabled !== false;
+    tipLines.push(name + "：" + (en ? d.desc : "skip"));
+  }
+  tipLines.push("点击展开完整参数与过滤条件。");
+  var tipText = tipLines.join("\n").replace(/"/g, "&quot;");
+  var span = document.createElement("span");
+  span.className = "term-tip";
+  span.setAttribute("data-tip", tipText);
+  span.setAttribute("data-strategy-help", "1");
+  span.setAttribute("data-index-id", indexId || "");
+  span.setAttribute("aria-label", "本指数策略详情");
+  span.textContent = "❓";
+  span.style.cursor = "help";
+  span.__strategy = strat;  // click 委托时取回
+  h3.appendChild(span);
 }
 
 function statsHint(stats, strategy, indexId) {
@@ -1558,6 +1681,8 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
         const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
         addCardTimeBadge(c.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot, "t0");
+        // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
+        _appendStrategyHint(c.getDom().parentElement, id, idx.strategy);
         // 备买 chip 三档（2026-07-23）：标题下换行单独一行展示，h3 之后插入独立 chip-row 容器（异步 fetch+patch）
         _appendBackupChipRow(c.getDom().parentElement, id);
         // C7 P4 market 融合:图表卡下 append 紧凑分数卡(白名单 iid 才显示)
@@ -5811,6 +5936,8 @@ async function renderGlobal(container = content) {
         const chart = indexChart(idx.name, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
         if (chart) {
           addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, id && id.startsWith("us_") ? "t1" : "t0", id && id.startsWith("us_") ? "us_dji_date" : "");
+          // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
+          _appendStrategyHint(chart.getDom().parentElement, id, idx.strategy);
           // C7 P4 market 融合:全球指数卡下 append 紧凑分数卡
           _attachMarketScoreCard(id, idx.name, chart.getDom().parentElement);
         }
@@ -5854,6 +5981,8 @@ async function renderGlobal(container = content) {
           const _srcKey = _t0Extra ? "" : ({ oil: "gold", wti_oil: "gold", comex_silver: "gold", brent: "gold", a_qvix_1000: "a_qvix_300", us10y: "cn10y", cn_us_spread: "cn10y" }[id] || id);
           addCardTimeBadge(chart.getDom().parentElement, lastDate, snap, _t0Extra ? "t0" : "t1", _srcKey);
         }
+        // 标题❓策略弹窗（2026-07-20 方案B1）：global 指标卡 h3 末尾追加❓（如 usdcnh skip买/cn_us_spread skip卖/usdcnh 2σ 去趋势 等 per-index 差异化策略）
+        _appendStrategyHint(chart.getDom().parentElement, id, extrasStrategy[id]);
       }
     }
   }
@@ -6103,6 +6232,8 @@ async function renderSentiment() {
       ],
     } }] });
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
+    // 标题❓策略弹窗（2026-07-20 方案B1）：a_sentiment 卡 h3 末尾追加❓（s.* 情绪分 skip买 + 豁免MACD 差异化策略）
+    _appendStrategyHint(chart.getDom().parentElement, "s.a_sentiment", strat.a_sentiment);
     appendComponentsBlock(data, undefined, cell);
     // 图表高度统一240(与恐贪/中证1000三卡一致)，给下方历史位置3行腾空间
     const _asChartDiv = cell.querySelector('.chart');
@@ -6152,6 +6283,8 @@ async function renderSentiment() {
       chart.getDom().style.height = '240px';
       chart.resize();
       addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
+      // 标题❓策略弹窗（2026-07-20 方案B1）：sentiment_* 卡 h3 末尾追加❓（s.* 情绪分 skip买 + 豁免MACD 差异化策略）
+      _appendStrategyHint(chart.getDom().parentElement, "s." + key, strat[key]);
       appendComponentsBlock(data, undefined, cell);
       // 历史位置块(与 a股情绪分一致)：补齐卡片高度与恐贪/a股行对齐，同时给出该指数历史分位/近6月极值/极端触发
       appendHistoryPos(chart.getDom().parentElement, key);
@@ -6185,6 +6318,8 @@ async function renderSentiment() {
       ],
     } }] });
     addCardTimeBadge(chart.getDom().parentElement, data.length ? data[data.length - 1].date : "", snap, "t0");
+    // 标题❓策略弹窗（2026-07-20 方案B1）：cross_market 卡 h3 末尾追加❓（s.* 情绪分 skip买 + 豁免MACD 差异化策略）
+    _appendStrategyHint(chart.getDom().parentElement, "s.cross_market", strat.cross_market);
     appendComponentsBlock(data, undefined, cell);
     // 历史位置块：与细分指数/a股一致，补齐卡片高度对齐
     appendHistoryPos(chart.getDom().parentElement, "cross_market");

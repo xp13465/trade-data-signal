@@ -344,7 +344,7 @@ def _load_sell_no_trend_filters(cfg) -> dict:
 
 
 def strategy_desc(index_id: str, cfg: dict) -> dict:
-    """返回 {buy, buy_aux, sell} 策略描述字符串，供前端 hint-strategy 蓝色标注行。
+    """返回策略描述，供前端 hint-strategy 蓝色标注行 + 标题❓弹窗（顶层 buy/buy_aux/sell 字符串向后兼容 + _detail 6字段完整描述）。
 
     纯描述函数，不改买卖点计算逻辑。读 indicators.yaml 的 buy_filter / buy_aux_filter + 本模块的
     _SKIP_BUY_IDS / _SKIP_SELL_IDS / s.* 前缀规则，与 _compute_value_signals / compute 的实际触发逻辑一致：
@@ -396,7 +396,138 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
     else:
         sell = "20日高回落5%+MA60多头+MACD死叉"
 
-    return {"buy": buy, "buy_aux": buy_aux, "sell": sell}
+    # === _detail 6 字段完整描述（供前端标题❓ click 弹 modal 展开该指数策略组合）===
+    # 顶层 buy/buy_aux/sell 字符串保持不变（向后兼容），_detail 为新增子对象。
+    if is_skip_buy or is_a_sentiment:
+        buy_detail = {
+            "desc": "skip（买点失效）",
+            "params": "-",
+            "filter": "skip：" + (
+                "s.a_sentiment RSI 结构性≥40（0 信号，仅算卖）" if is_a_sentiment
+                else f"_SKIP_BUY_IDS 干预市买点失效（{raw} RSI 超卖后继续跌，回测验证）"
+            ),
+            "enabled": False,
+        }
+        buy_aux_detail = {
+            "desc": "skip（辅买同步失效）",
+            "params": "-",
+            "filter": "skip：与 buy 同步（_SKIP_BUY_IDS / s.a_sentiment）",
+            "enabled": False,
+        }
+    else:
+        if buy == "RSI(14)上穿25":
+            buy_detail = {
+                "desc": "RSI(14) 上穿 25（C1 主买，超卖拐点，per-index 收紧）",
+                "params": "RSI 周期=14，上穿阈值=25（rp≤25 & r>25）",
+                "filter": f"per-index buy_filter=rsi_cross_25（{raw}：回测凯利 f 15.92%->57.56%，比基线 30 更早捕捉超卖反弹）",
+                "enabled": True,
+            }
+        else:
+            buy_detail = {
+                "desc": "RSI(14) 上穿 30（C1 主买，超卖拐点，均值回归思路）",
+                "params": "RSI 周期=14，上穿阈值=30（rp≤30 & r>30）",
+                "filter": "基线（无 per-index buy_filter 配置）",
+                "enabled": True,
+            }
+        if buy_aux == "BB下轨回归+RSI上穿40":
+            buy_aux_detail = {
+                "desc": "BB 下轨回归 + RSI(14) 上穿 40（B1 辅买，左侧布局 + 动量转升双维确认）",
+                "params": "BB 周期=20，σ=2.0；RSI 上穿阈值=40（rp≤40 & r>40，与 C1 上穿30 对称）",
+                "filter": f"per-index buy_aux_filter=rsi_cross_40（{raw}：价格反弹+动量转升双维确认）",
+                "enabled": True,
+            }
+        elif buy_aux == "BB下轨回归+反弹2%":
+            buy_aux_detail = {
+                "desc": "BB 下轨回归 + 反弹 2%（B1 辅买，左侧布局 + 反弹力度确认）",
+                "params": "BB 周期=20，σ=2.0；反弹阈值=close > BB下轨 × 1.02（方案A，蕴含 B1 的 close>bl）",
+                "filter": f"per-index buy_aux_filter=close_above_bl_2pct（{raw}：2% 反弹过滤盘整下轨假回归）",
+                "enabled": True,
+            }
+        else:
+            buy_aux_detail = {
+                "desc": "BB 下轨回归（B1 辅买，左侧布局，价格跌穿 BB 下轨后回归）",
+                "params": "BB 周期=20，σ=2.0（close.shift(1)<bl.shift(1) & close>bl）",
+                "filter": "基线（无 per-index buy_aux_filter 配置）",
+                "enabled": True,
+            }
+
+    buy_special_detail = {
+        "desc": "唐奇安 20 日上轨突破 + B4 5日站稳确认（2%容差）+ h5/R2 真过滤（C+C12+E2+量价背离收紧）",
+        "params": (
+            "Donchian 周期=20（don_upper=high.rolling(20).max().shift(1)，不含当日）；"
+            "站稳窗口=5日（close.rolling(5).min() >= close.shift(5)*0.98，允许 2% 噪音）；"
+            "h5 R2 = C(dev_ma60>1.20 & ATR>3%) | C12(dev_ma60∈(1.0,1.1] & drawdown_hh20<-2%) | "
+            "E2(close>BB上轨 & ATR>3%) | 量价背离收紧(price_vol_div==1 & ATR>2.5%)"
+        ),
+        "filter": (
+            "全局统一（所有指数均启用）；h5 R2 真过滤上线（尖尖逃顶方案A，命中日直接 drop 不 append）；"
+            "降回撤方案B 第三层叠加（非 sh：atr_pct>=2.5% OR dist_from_low60>30%；sh 专属 C1|D1a：atr_pct>=2.5% OR dist_from_high>=15%）"
+        ),
+        "enabled": True,
+    }
+    buy_backup_detail = {
+        "desc": "Supertrend ATR(10)×3 翻多 + 3 日二次确认（close.rolling(3).min() > close.shift(3)）",
+        "params": (
+            "ATR 周期=10，multiplier=3.0（_supertrend high/low/close）；"
+            "确认窗口=3日（min_close_3d > close_shift3，翻多后 3 日收盘未跌破翻多日收盘=有效翻多非诱多）"
+        ),
+        "filter": "全局统一；3日二次确认过滤诱多（回测：诱多 22.3%->6.0%，胜率 57%->79%，t+20 收益 +2.22%->+7.73%）",
+        "enabled": True,
+    }
+    if is_skip_sell:
+        sell_detail = {
+            "desc": "skip（卖点失效）",
+            "params": "-",
+            "filter": f"skip：_SKIP_SELL_IDS（{raw} 卖点完全反向，卖后涨 15-25%，回测验证）",
+            "enabled": False,
+        }
+    elif sell_no_trend:
+        sell_detail = {
+            "desc": "20日高回落 2σ（去趋势过滤，干预市单边上行适用）",
+            "params": "hh20=high.rolling(20).max()；std20=close.rolling(20).std()；阈值=hh20-2.0*std20（2σ 去趋势）",
+            "filter": f"per-index sell_no_trend_filter=true（{raw}：单边上行 MA60 把卖点砍到 n=7，去过滤后 kelly=0.34-0.47 胜率 60-66%）",
+            "enabled": True,
+        }
+    elif is_score:
+        sell_detail = {
+            "desc": "20日高回落 5% + MA60 多头（豁免 MACD 死叉，s.* 情绪分序列适用）",
+            "params": "hh20=high.rolling(20).max()；阈值=hh20*0.95（5% 回落）；MA60 多头过滤（value>ma60）",
+            "filter": "s.* 情绪分序列豁免 MACD（a_sentiment 加 MACD 后 n=106->7 样本不足，cross_market 同理），保留 D1+S1",
+            "enabled": True,
+        }
+    else:
+        sell_detail = {
+            "desc": "20日高回落 5% + MA60 多头 + MACD 死叉（D1+S1+B 方案，止盈减仓提示）",
+            "params": "hh20=high.rolling(20).max()；阈值=hh20*0.95（5% 回落）；MA60 多头过滤（close>ma60）；MACD 死叉（DIF<DEA）",
+            "filter": "基线（指数 + g.* 指标均应用 MACD 过滤，回测建议率 18.3%->43.3%）",
+            "enabled": True,
+        }
+    _STOP_LOSS_ATR_MULT_DESC = {"csi_div": 4.5}  # 与 L682 compute 中 _STOP_LOSS_ATR_MULT 保持一致
+    atr_mult = _STOP_LOSS_ATR_MULT_DESC.get(raw, 3.5)
+    sell_stop_loss_detail = {
+        "desc": f"ATR×{atr_mult} Chandelier Exit（近20日最高-{atr_mult}×ATR(14)，移动止损线跟随高点更新）",
+        "params": (
+            f"ATR 周期=14（Wilder）；倍数={atr_mult}"
+            + (f"（{raw} per-index 覆盖为 4.5，更宽止损线降 24% 信号数，套牢率 48.3%->46.1%）" if atr_mult != 3.5 else "（默认 3.5）")
+            + "；hh20=high.rolling(20).max().shift(1)（不含当日）"
+        ),
+        "filter": "全局统一；首次跌破触发（today below AND prev NOT below，astype(bool) 强制布尔取反，避免连续标）；与 buy 独立无配对 entry",
+        "enabled": True,
+    }
+
+    return {
+        "buy": buy,
+        "buy_aux": buy_aux,
+        "sell": sell,
+        "_detail": {
+            "buy": buy_detail,
+            "buy_aux": buy_aux_detail,
+            "buy_special": buy_special_detail,
+            "buy_backup": buy_backup_detail,
+            "sell": sell_detail,
+            "sell_stop_loss": sell_stop_loss_detail,
+        },
+    }
 
 
 # ============ B 扩展：全球指标 + 情绪分数买卖点（2026-07-07）============

@@ -471,6 +471,9 @@ main { padding: 16px 24px; }
   border-radius: 2px;
   line-height: 1.5;
 }
+/* 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾 .term-tip 复用现有 term-pop hover + click 弹 rule-modal。
+   modal 内每行（颜色圆点+信号名+描述+参数+过滤）的内联 style 已覆盖布局，这里仅微调 h3 内 term-tip 间距。 */
+.chart-card h3 .term-tip { margin-left: 4px; vertical-align: middle; }
 .chart-hint .hint-header {
   font-size: 11px;
   color: var(--text-3);
