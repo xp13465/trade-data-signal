@@ -44,6 +44,13 @@ STATS_PATH = REPO / "data" / "signal_stats.json"
 # 仅在去重模式（默认）下读写；--full 全量模式不读只写（发后全标记已通知）。
 NOTIFIED_PATH = REPO / "data" / "signal_notified.json"
 
+# A12 订阅推送（2026-07-24）：用户订阅关注的标的，有信号时推送邮件+Telegram。
+# 订阅配置 config/subscriptions.json（含邮箱/chat_id，已 gitignore，模板见 subscriptions.json.example）。
+# 订阅去重 data/subscriptions_notified.json，格式 {date_str: {sub_id: [[index_id, signal], ...]}}，
+# 每订阅每日每信号只推一次（独立于全局 signal_notified.json，互不影响），7 天自动清理。
+SUBSCRIPTIONS_PATH = REPO / "config" / "subscriptions.json"
+SUBS_NOTIFIED_PATH = REPO / "data" / "subscriptions_notified.json"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -166,6 +173,152 @@ def save_signal_notified(data: dict[str, list[list[str]]]) -> None:
     tmp = NOTIFIED_PATH.parent / (NOTIFIED_PATH.name + ".tmp")
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(NOTIFIED_PATH)
+
+
+# ============ A12 订阅推送（2026-07-24 P2-新-K）============
+def load_subscriptions() -> list[dict]:
+    """读 config/subscriptions.json，返回有效订阅列表。
+
+    过滤：enabled=True 且有 email 或 telegram_chat_id 且 targets 非空。
+    文件不存在/解析失败返回空 list（静默跳过，不影响全局推送）。
+    """
+    if not SUBSCRIPTIONS_PATH.exists():
+        return []
+    try:
+        data = json.loads(SUBSCRIPTIONS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            log.warning("subscriptions.json 格式异常（非 dict），忽略订阅推送")
+            return []
+        subs = data.get("subscriptions", [])
+        if not isinstance(subs, list):
+            return []
+        return [
+            s for s in subs
+            if isinstance(s, dict)
+            and s.get("enabled", True)
+            and (s.get("email") or s.get("telegram_chat_id"))
+            and s.get("targets")
+            and s.get("id")
+        ]
+    except Exception as e:  # noqa: BLE001
+        log.warning("subscriptions.json 加载失败：%s（订阅推送降级为跳过）", e)
+        return []
+
+
+def filter_signals_for_subscription(sub: dict, signals: list[dict]) -> list[dict]:
+    """过滤出订阅者关心的信号（targets 命中 + signals 类型命中）。
+
+    targets: 订阅的 index_id 列表（精确匹配 signal_daily.index_id，含 g./s. 前缀）。
+    signals: 订阅的信号类型列表（空/None=全部；可选 buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss）。
+    """
+    targets = set(sub.get("targets", []) or [])
+    sig_types = sub.get("signals", []) or []
+    sig_set = set(sig_types) if sig_types else None
+    out = []
+    for s in signals:
+        if s["index_id"] not in targets:
+            continue
+        if sig_set is not None and s["signal"] not in sig_set:
+            continue
+        out.append(s)
+    return out
+
+
+def load_subs_notified() -> dict[str, dict[str, list[list[str]]]]:
+    """读 data/subscriptions_notified.json（订阅推送去重持久化）。
+
+    格式 {date_str: {sub_id: [[index_id, signal], ...]}}。不存在/解析失败返回 {}。
+    文件已 gitignore（§8 禁推），仅本地持久化跨进程去重。
+    """
+    if not SUBS_NOTIFIED_PATH.exists():
+        return {}
+    try:
+        data = json.loads(SUBS_NOTIFIED_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            log.warning("subscriptions_notified.json 格式异常（非 dict），忽略")
+            return {}
+        return data
+    except Exception as e:  # noqa: BLE001
+        log.warning("subscriptions_notified.json 加载失败：%s（订阅去重降级为全发）", e)
+        return {}
+
+
+def save_subs_notified(data: dict[str, dict[str, list[list[str]]]]) -> None:
+    """写 data/subscriptions_notified.json（原子写）。清理 7 天前旧记录避免无限增长。"""
+    cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
+    cleaned = {d: v for d, v in data.items() if d >= cutoff}
+    SUBS_NOTIFIED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(cleaned, ensure_ascii=False, separators=(",", ":"))
+    tmp = SUBS_NOTIFIED_PATH.parent / (SUBS_NOTIFIED_PATH.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(SUBS_NOTIFIED_PATH)
+
+
+def push_subscriptions(all_signals: list[dict], name_map: dict[str, str],
+                       date: str, intraday: bool = False,
+                       dry_run: bool = False) -> None:
+    """A12 订阅推送：对每个订阅，过滤匹配信号（从 all_signals），独立去重后推送。
+
+    与全局推送独立：用 all_signals（不去重），每订阅用 subs_notified.json 独立去重，
+    互不影响（全局推过的信号订阅者仍会收到，反之亦然）。
+
+    推送渠道：notify.send_to(subject, body, email, chat_id)
+      - SMTP user/password、bot_token/api_base 用 config 全局配置（单一发件方）
+      - email/chat_id 用订阅者配置（多收件人）
+
+    推送内容：复用 build_email 构建邮件（按订阅者关心的信号过滤后），主题加 [订阅:name] 前缀。
+    失败不阻塞（单订阅失败不影响其他订阅 + 不影响全局流程）。
+    """
+    subs = load_subscriptions()
+    if not subs:
+        return
+    log.info("=== A12 订阅推送：%d 个有效订阅 ===", len(subs))
+    notified = load_subs_notified()
+    today_notified = notified.get(date, {})
+    pushed_count = 0
+    for sub in subs:
+        sub_id = sub.get("id", "")
+        sub_name = sub.get("name") or sub_id
+        sub_signals = filter_signals_for_subscription(sub, all_signals)
+        if not sub_signals:
+            continue
+        # 去重：该订阅今日已推过的 (index_id, signal)
+        already = {tuple(x) for x in today_notified.get(sub_id, [])}
+        new_signals = [s for s in sub_signals if (s["index_id"], s["signal"]) not in already]
+        if not new_signals:
+            log.info("订阅 %s(%s)：当日匹配 %d 信号均已推送，跳过", sub_name, sub_id, len(sub_signals))
+            continue
+        # 构建专属邮件（复用 build_email，只含该订阅关心的信号）
+        subject, body = build_email(date, new_signals, name_map, intraday=intraday)
+        subject = f"[订阅:{sub_name}] {subject}"
+        email = (sub.get("email") or "").strip() or None
+        chat_id = (sub.get("telegram_chat_id") or "").strip() or None
+        try:
+            results = notify.send_to(subject, body, email=email, chat_id=chat_id, dry_run=dry_run)
+        except Exception as e:  # noqa: BLE001
+            log.error("订阅 %s(%s) 推送异常：%s（不阻塞其他订阅）", sub_name, sub_id, e)
+            continue
+        ok_channels = [ch for ch, v in results.items() if v]
+        if ok_channels:
+            # 标记已推（任一渠道成功即标记，避免重复推）
+            today_notified.setdefault(sub_id, [])
+            for s in new_signals:
+                today_notified[sub_id].append([s["index_id"], s["signal"]])
+            pushed_count += 1
+            log.info("✓ 订阅 %s(%s) 推送：%s（%d 信号）",
+                     sub_name, sub_id, "/".join(ok_channels), len(new_signals))
+        else:
+            log.warning("✗ 订阅 %s(%s) 推送失败（渠道均未配置/失败）-- 不标记已推，下次重试",
+                        sub_name, sub_id)
+    # 写回去重记录（仅当日有变更才写；dry_run 模式不写，测试用）
+    if pushed_count > 0 and not dry_run:
+        notified[date] = today_notified
+        save_subs_notified(notified)
+        log.info("A12 订阅推送完成：%d 个订阅成功推送，已更新去重记录", pushed_count)
+    else:
+        log.info("A12 订阅推送完成：%s",
+                 f"{pushed_count} 个订阅成功推送（dry-run 不写去重）" if dry_run and pushed_count
+                 else "无订阅成功推送（无匹配/全部已去重/全部失败）")
 
 
 def query_signals(date: str) -> list[dict]:
@@ -625,6 +778,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     name_map = load_name_map()
+    # A12 订阅推送（2026-07-24 P2-新-K）：独立于全局推送，用全部 signals（不去重），
+    # 每订阅用 subs_notified.json 独立去重。放在 name_map 加载后、全局推送流程之前，
+    # 保证退出点 2/3/4（无新信号/dry-run/全局推送失败）也执行，订阅者能收到匹配信号。
+    # 失败不阻塞全局推送（push_subscriptions 内部 try/except 兜底）。
+    try:
+        push_subscriptions(signals, name_map, date,
+                           intraday=args.intraday, dry_run=args.dry_run)
+    except Exception as e:  # noqa: BLE001
+        log.error("A12 订阅推送异常：%s（不阻塞全局推送）", e)
     # F 方案（2026-07-21）邮件去重：默认只发当日新 (index_id, signal)；
     # --full 全量模式发当日全部（收盘速递用，不走去重）。
     if args.full:

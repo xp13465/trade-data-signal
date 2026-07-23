@@ -37,6 +37,9 @@ data/etf_national_team.db-shm
 # F 方案（2026-07-21）：check_signals 邮件去重持久化，仅本地跨进程去重用
 data/signal_notified.json
 
+# A12 订阅推送去重持久化（2026-07-24）：每订阅每日每信号只推一次，仅本地跨进程去重用
+data/subscriptions_notified.json
+
 # 根 data/ 下本地维护的统计 JSON（CLAUDE.md §8 禁推根 data/）：
 # signal_stats.json / sw_components.json 是后端 check_signals/export.py 本地产物，
 # 已 tracked（历史 commit 进 git），保持本地 modified 不推；防误 `git add -A` 带入。
@@ -51,6 +54,9 @@ config/email.json
 
 # Telegram bot 配置（含 bot_token，敏感 -- 用 telegram.json.example 作模板）
 config/telegram.json
+
+# A12 订阅推送配置（含订阅者邮箱/chat_id，敏感 -- 用 subscriptions.json.example 作模板）
+config/subscriptions.json
 
 # 系统
 .DS_Store

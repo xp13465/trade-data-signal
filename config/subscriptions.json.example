@@ -1,0 +1,15 @@
+{
+  "_help": "A12 订阅推送配置。用户订阅关注的标的(指数/ETF),有信号时推送邮件+Telegram。本文件含邮箱/chat_id 等接收方信息,已 gitignore 防泄露,复制本模板为 subscriptions.json 后填入真实值。结构:{ subscriptions: [ { id, name, email, telegram_chat_id, targets, signals, enabled, created_at } ] }。字段说明:id=订阅唯一标识(前端生成 sub_<timestamp>);name=订阅名称(可选,用户自定义);email=接收邮件的邮箱(可空,留空则不推邮件);telegram_chat_id=接收 Telegram 的 chat_id(可空,留空则不推 Telegram;bot_token 用全局 config/telegram.json 的单一 bot);targets=订阅的 index_id 列表(如 sh/sz300/cyb,对应指数卡片 id);signals=订阅的信号类型(可空数组=全部;可选值 buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss);enabled=是否启用(true/false,前端可暂停);created_at=创建时间 ISO。推送逻辑:scripts/check_signals.py 检测信号后,读本文件,对每个订阅按 targets+signals 过滤,用 data/subscriptions_notified.json 独立去重(每订阅每日每信号只推一次),调 notify.send_to 推送(指定 email/chat_id,bot_token/SMTP 用全局配置)。去重文件 data/subscriptions_notified.json 已 gitignore,7 天自动清理。",
+  "subscriptions": [
+    {
+      "id": "sub_example",
+      "name": "示例订阅-宽基",
+      "email": "your_email@example.com",
+      "telegram_chat_id": "",
+      "targets": ["sh", "sz300", "cyb"],
+      "signals": ["buy", "buy_aux", "sell"],
+      "enabled": true,
+      "created_at": "2026-07-24T07:00:00"
+    }
+  ]
+}

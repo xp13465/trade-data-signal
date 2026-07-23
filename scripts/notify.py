@@ -94,7 +94,8 @@ def _html_to_text(html: str) -> str:
     return text.strip()
 
 
-def send_telegram(subject: str, body: str, dry_run: bool = False) -> bool:
+def send_telegram(subject: str, body: str, dry_run: bool = False,
+                  chat_id: str | None = None) -> bool:
     """发 Telegram 消息（POST Bot API sendMessage）。
 
     读 config/telegram.json（bot_token/chat_id/api_base）。失败只 print 警告不抛异常
@@ -109,6 +110,9 @@ def send_telegram(subject: str, body: str, dry_run: bool = False) -> bool:
                    CF Workers 反代 URL（复用 ss.fx8.store 域名做 Telegram API 反代，
                    详见 config/telegram.json.example 帮助文本）
 
+    chat_id 参数（A12 订阅推送用）：指定接收方 chat_id，覆盖 config 的 chat_id。
+      bot_token/api_base 仍用 config 全局配置（单一 bot 给多用户推送）。None 时用 config 默认。
+
     返回 True 表示发出（或 dry_run 模拟成功），False 表示未发（配置缺失/占位符/发送失败）。
     """
     cfg = load_telegram_config()
@@ -117,11 +121,13 @@ def send_telegram(subject: str, body: str, dry_run: bool = False) -> bool:
         return False
 
     token = str(cfg.get("bot_token", "")).strip()
-    chat_id = str(cfg.get("chat_id", "")).strip()
+    default_chat = str(cfg.get("chat_id", "")).strip()
+    # A12 订阅推送：chat_id 参数优先于 config 默认
+    target_chat = str(chat_id).strip() if chat_id else default_chat
     api_base = str(cfg.get("api_base", "https://api.telegram.org")).strip().rstrip("/")
 
     if (not token or token == PLACEHOLDER_TG_TOKEN
-            or not chat_id or chat_id == PLACEHOLDER_TG_CHAT):
+            or not target_chat or target_chat == PLACEHOLDER_TG_CHAT):
         print(f"[notify] telegram bot_token/chat_id 占位符或缺失，跳过发送（subject={subject}）",
               file=sys.stderr)
         return False
@@ -132,13 +138,13 @@ def send_telegram(subject: str, body: str, dry_run: bool = False) -> bool:
         text = text[: TG_TEXT_LIMIT - 30] + "\n…(已截断)"
 
     if dry_run:
-        print(f"[notify][dry-run] telegram chat={chat_id} api_base={api_base}", file=sys.stderr)
+        print(f"[notify][dry-run] telegram chat={target_chat} api_base={api_base}", file=sys.stderr)
         print(f"[notify][dry-run] telegram text(前200)=\n{text[:200]}", file=sys.stderr)
         return True
 
     url = f"{api_base}/bot{token}/sendMessage"
     payload = json.dumps(
-        {"chat_id": chat_id, "text": text, "parse_mode": ""},
+        {"chat_id": target_chat, "text": text, "parse_mode": ""},
         ensure_ascii=False,
     ).encode("utf-8")
     req = urllib.request.Request(
@@ -149,7 +155,7 @@ def send_telegram(subject: str, body: str, dry_run: bool = False) -> bool:
         with urllib.request.urlopen(req, timeout=30) as resp:
             resp_data = json.loads(resp.read().decode("utf-8", "replace"))
         if resp_data.get("ok"):
-            print(f"[notify] Telegram 已发送至 {chat_id}：{subject}", file=sys.stderr)
+            print(f"[notify] Telegram 已发送至 {target_chat}：{subject}", file=sys.stderr)
             return True
         print(f"[notify] Telegram API 返回非 ok：{resp_data}", file=sys.stderr)
         return False
@@ -159,14 +165,18 @@ def send_telegram(subject: str, body: str, dry_run: bool = False) -> bool:
         return False
 
 
-def _send_email(subject: str, body: str, dry_run: bool = False) -> bool:
-    """发邮件（内部，由 send() 调用）。dry_run=True 只 print 不真发。
+def _send_email(subject: str, body: str, dry_run: bool = False,
+                to: str | None = None) -> bool:
+    """发邮件（内部，由 send()/send_to() 调用）。dry_run=True 只 print 不真发。
 
     发送失败只 print 警告不抛异常。返回 True 表示发出（或 dry_run 模拟成功），
     False 表示未发（配置缺失/占位符/发送失败）。
+
+    to 参数（A12 订阅推送用）：指定收件人邮箱，覆盖 config 的 to。
+      SMTP user/password 仍用 config 全局配置（单一发件邮箱给多收件人推送）。None 时用 config 默认。
     """
     if dry_run:
-        print(f"[notify][dry-run] email subject={subject}", file=sys.stderr)
+        print(f"[notify][dry-run] email subject={subject} to={to or '(config默认)'}", file=sys.stderr)
         print(f"[notify][dry-run] email body=\n{body}", file=sys.stderr)
         return True
 
@@ -178,7 +188,9 @@ def _send_email(subject: str, body: str, dry_run: bool = False) -> bool:
     port = int(cfg.get("port", 465))
     user = cfg.get("user", "")
     password = cfg.get("password", "")
-    to = cfg.get("to", user)
+    default_to = cfg.get("to", user)
+    # A12 订阅推送：to 参数优先于 config 默认
+    to_addr = to if to else default_to
 
     if not user or not password or password == PLACEHOLDER_PASSWORD:
         print(f"[notify] SMTP password 占位符或缺失，跳过发送（subject={subject}）", file=sys.stderr)
@@ -187,14 +199,14 @@ def _send_email(subject: str, body: str, dry_run: bool = False) -> bool:
     msg = MIMEText(body, "html", "utf-8")
     msg["Subject"] = subject
     msg["From"] = formataddr(("情绪看板监控", user))
-    msg["To"] = to
+    msg["To"] = to_addr
     msg["Date"] = formatdate(localtime=True)
 
     try:
         with smtplib.SMTP_SSL(smtp, port, timeout=30) as srv:
             srv.login(user, password)
-            srv.sendmail(user, [to], msg.as_string())
-        print(f"[notify] 邮件已发送至 {to}：{subject}", file=sys.stderr)
+            srv.sendmail(user, [to_addr], msg.as_string())
+        print(f"[notify] 邮件已发送至 {to_addr}：{subject}", file=sys.stderr)
         return True
     except Exception as e:  # noqa: BLE001
         # 不抛异常，不阻塞调用方
@@ -216,6 +228,22 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False) -
         subject = SEVERE_PREFIX + subject
     email_ok = _send_email(subject, body, dry_run=dry_run)
     tg_ok = send_telegram(subject, body, dry_run=dry_run)
+    return {"email": email_ok, "telegram": tg_ok}
+
+
+def send_to(subject: str, body: str, email: str | None = None,
+            chat_id: str | None = None, dry_run: bool = False) -> dict:
+    """A12 订阅推送：指定收件人（email/chat_id）多渠道分发。
+
+    与 send() 区别：send() 用 config 全局 to/chat_id（单一管理员）；
+    send_to() 接收 email/chat_id 参数，给订阅者独立推送（SMTP user/password、
+    bot_token/api_base 仍用 config 全局配置，单一发件方给多收件人）。
+
+    email/chat_id 任一为 None/空则跳过该渠道。各渠道独立失败不互相阻塞。
+    返回 {"email": bool, "telegram": bool}。
+    """
+    email_ok = _send_email(subject, body, dry_run=dry_run, to=email) if email else False
+    tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id else False
     return {"email": email_ok, "telegram": tg_ok}
 
 

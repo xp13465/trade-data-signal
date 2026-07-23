@@ -1319,6 +1319,169 @@ def manual(entry: ManualEntry):
 _INDEX_CACHE = {"sig": None, "html": None}
 
 
+# ============ A12 订阅推送管理 API（2026-07-24 P2-新-K）============
+# 订阅存储：config/subscriptions.json（含邮箱/chat_id 敏感，已 gitignore，模板见 .example）
+# 推送逻辑：scripts/check_signals.py 检测信号后读本文件匹配标的，调 notify.send_to 推送
+# 去重：data/subscriptions_notified.json（每订阅每日每信号只推一次，7 天清理）
+import threading
+
+_SUBS_PATH = WEB_DIR.parent / "config" / "subscriptions.json"
+_SUBS_LOCK = threading.Lock()  # 读写锁，防并发写冲突
+
+
+def _load_subscriptions_file() -> dict:
+    """读 config/subscriptions.json。不存在/解析失败返回空结构。"""
+    if not _SUBS_PATH.exists():
+        return {"_help": "A12 订阅推送配置", "subscriptions": []}
+    try:
+        data = json.loads(_SUBS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("subscriptions"), list):
+            return {"_help": "A12 订阅推送配置", "subscriptions": []}
+        return data
+    except Exception:
+        return {"_help": "A12 订阅推送配置", "subscriptions": []}
+
+
+def _save_subscriptions_file(data: dict) -> None:
+    """原子写 config/subscriptions.json。"""
+    _SUBS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    tmp = _SUBS_PATH.parent / (_SUBS_PATH.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(_SUBS_PATH)
+
+
+class SubscriptionIn(BaseModel):
+    """订阅创建/更新请求体。id 为空=新建（自动生成），非空=更新。"""
+    id: str = ""
+    name: str = ""
+    email: str = ""
+    telegram_chat_id: str = ""
+    targets: list[str] = []  # 订阅的 index_id 列表（如 sh/sz300/cyb）
+    signals: list[str] = []  # 订阅的信号类型（空=全部；buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss）
+    enabled: bool = True
+
+
+_VALID_SIGNAL_TYPES = {"buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"}
+
+
+@app.get("/api/subscribe")
+def subscribe_list():
+    """列出所有订阅。返回 {subscriptions: [...]}。
+
+    敏感字段 email/telegram_chat_id 做脱敏（隐藏中间），前端展示用；
+    原始值仅后端推送时读文件使用（API 不返回原始敏感值）。
+    """
+    with _SUBS_LOCK:
+        data = _load_subscriptions_file()
+    subs = data.get("subscriptions", [])
+    # 脱敏：邮箱保留首字符+域名，chat_id 保留末 4 位
+    out = []
+    for s in subs:
+        out.append({
+            "id": s.get("id", ""),
+            "name": s.get("name", ""),
+            "email_masked": _mask_email(s.get("email", "")),
+            "telegram_chat_id_masked": _mask_chat_id(s.get("telegram_chat_id", "")),
+            "has_email": bool(s.get("email")),
+            "has_telegram": bool(s.get("telegram_chat_id")),
+            "targets": s.get("targets", []),
+            "signals": s.get("signals", []),
+            "enabled": s.get("enabled", True),
+            "created_at": s.get("created_at", ""),
+        })
+    return {"subscriptions": out}
+
+
+@app.post("/api/subscribe")
+def subscribe_create(sub: SubscriptionIn):
+    """添加或更新订阅。id 为空=新建（自动生成 sub_<timestamp>），非空=更新现有。
+
+    校验：targets 非空；email/telegram_chat_id 至少一个非空；
+    signals（若非空）每一项在 _VALID_SIGNAL_TYPES 内。
+    """
+    if not sub.targets:
+        raise HTTPException(status_code=400, detail="targets 不能为空（至少订阅一个标的）")
+    if not sub.email and not sub.telegram_chat_id:
+        raise HTTPException(status_code=400, detail="email 和 telegram_chat_id 至少填一个")
+    for sig in sub.signals:
+        if sig not in _VALID_SIGNAL_TYPES:
+            raise HTTPException(status_code=400, detail=f"无效的信号类型: {sig}，可选 {','.join(sorted(_VALID_SIGNAL_TYPES))}")
+    with _SUBS_LOCK:
+        data = _load_subscriptions_file()
+        subs = data.get("subscriptions", [])
+        now = datetime.now().isoformat(timespec="seconds")
+        if sub.id:
+            # 更新现有
+            target_idx = None
+            for i, s in enumerate(subs):
+                if s.get("id") == sub.id:
+                    target_idx = i
+                    break
+            if target_idx is None:
+                raise HTTPException(status_code=404, detail=f"订阅 {sub.id} 不存在")
+            subs[target_idx].update({
+                "name": sub.name,
+                "email": sub.email,
+                "telegram_chat_id": sub.telegram_chat_id,
+                "targets": sub.targets,
+                "signals": sub.signals,
+                "enabled": sub.enabled,
+            })
+            action = "updated"
+            sub_id = sub.id
+        else:
+            # 新建
+            sub_id = f"sub_{int(datetime.now().timestamp())}"
+            subs.append({
+                "id": sub_id,
+                "name": sub.name or f"订阅-{len(subs) + 1}",
+                "email": sub.email,
+                "telegram_chat_id": sub.telegram_chat_id,
+                "targets": sub.targets,
+                "signals": sub.signals,
+                "enabled": sub.enabled,
+                "created_at": now,
+            })
+            action = "created"
+        data["subscriptions"] = subs
+        _save_subscriptions_file(data)
+    return {"ok": True, "id": sub_id, "action": action}
+
+
+@app.delete("/api/subscribe/{sub_id}")
+def subscribe_delete(sub_id: str):
+    """删除订阅。sub_id 为订阅唯一标识。"""
+    with _SUBS_LOCK:
+        data = _load_subscriptions_file()
+        subs = data.get("subscriptions", [])
+        new_subs = [s for s in subs if s.get("id") != sub_id]
+        if len(new_subs) == len(subs):
+            raise HTTPException(status_code=404, detail=f"订阅 {sub_id} 不存在")
+        data["subscriptions"] = new_subs
+        _save_subscriptions_file(data)
+    return {"ok": True, "deleted": sub_id}
+
+
+def _mask_email(email: str) -> str:
+    """邮箱脱敏：保留首字符 + 域名，中间用 *** 替代。"""
+    if not email or "@" not in email:
+        return ""
+    local, domain = email.split("@", 1)
+    if len(local) <= 1:
+        return f"{local}***@{domain}"
+    return f"{local[0]}***@{domain}"
+
+
+def _mask_chat_id(chat_id: str) -> str:
+    """Telegram chat_id 脱敏：保留末 4 位，前面用 *** 替代。"""
+    if not chat_id:
+        return ""
+    if len(chat_id) <= 4:
+        return "***" + chat_id
+    return "***" + chat_id[-4:]
+
+
 # ============ C7 P4-β 交互式自定义分析 (docs §9) ============
 @app.get("/api/alert/analyze")
 def alert_analyze(target: str, type: str | None = None, limit: int = 20):
