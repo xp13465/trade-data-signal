@@ -2591,9 +2591,11 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
     const ttl = `超过该源最晚可得时刻仍未采到最新数据，末日 ${mmdd}，已滞后约${lagDays}天，可能采集异常，请反馈`;
     return `<span class="card-time-badge t1-severe" data-tip="${ttl}">🚨 异常·${mmdd}</span>`;
   }
-  const ttl = srcClass === "t1"
-    ? `T+1数据源盘后公布，当前未到最晚可得时刻，末日 ${mmdd}，已滞后约${lagDays}天，预计稍后更新`
-    : `数据滞后(末日 ${mmdd})，盘中等待刷新或update_all尚未运行`;
+  if (srcClass === "t1") {
+    const ttl = `T+1数据源盘后公布，当前未到最晚可得时刻，末日 ${mmdd}，已滞后约${lagDays}天，预计稍后更新`;
+    return `<span class="card-time-badge t1-pending" data-tip="${ttl}">⏳ T+1待更新·${mmdd}</span>`;
+  }
+  const ttl = `数据滞后(末日 ${mmdd})，盘中等待刷新或update_all尚未运行`;
   return `<span class="card-time-badge t1-stale" data-tip="${ttl}">⚠ 滞后·${mmdd}</span>`;
 }
 // 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
