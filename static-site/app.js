@@ -1273,9 +1273,12 @@ function _openStrategyModal(indexId, strategy) {
 function _appendStrategyHint(cardEl, indexId, strategy) {
   if (!cardEl) return;
   var h3 = cardEl.querySelector("h3");
-  if (!h3) return;
+  // 2026-07-20 板分化适配：行业网格卡无 h3，走 spark-name 路径（❓+按钮入 spark-name 内，与指数表现 h3 一行布局一致）
+  var sparkName = !h3 ? cardEl.querySelector(".spark-name") : null;
+  var target = h3 || sparkName;
+  if (!target) return;
   // 避免重复注入
-  if (h3.querySelector("[data-strategy-help]")) return;
+  if (target.querySelector("[data-strategy-help]")) return;
   var strat = strategyDesc(strategy);
   // hover pop 一句话摘要：本指数6类策略组合（buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss）
   var tipLines = ["本指数策略组合："];
@@ -1304,10 +1307,10 @@ function _appendStrategyHint(cardEl, indexId, strategy) {
   span.textContent = "❓";
   span.style.cursor = "help";
   span.__strategy = strat;  // click 委托时取回
-  // 若 h3 已有 sim-btn-wrap（_prependSimBtn 先于本函数调用），把❓插到 sim-btn 前，保证 [❓][模拟回测] 顺序
-  var simWrap = h3.querySelector(".sim-btn-wrap");
-  if (simWrap) h3.insertBefore(span, simWrap);
-  else h3.appendChild(span);
+  // 若 target 已有 sim-btn-wrap（_prependSimBtn 先于本函数调用），把❓插到 sim-btn 前，保证 [❓][模拟回测] 顺序
+  var simWrap = target.querySelector(".sim-btn-wrap");
+  if (simWrap) target.insertBefore(span, simWrap);
+  else target.appendChild(span);
 }
 
 // 模拟回测按钮 HTML（2026-07-23 改动3）：从 statsHint 抽出，由调用方注入为独立 DOM。
@@ -1336,10 +1339,16 @@ function _prependSimBtn(cardEl, indexId) {
       h3.appendChild(wrap);
     }
   } else {
-    // 网格 spark-head 无 h3：退到 chart-hint 前独立兄弟 DOM（保持原网格布局）
-    var hintEl = cardEl.querySelector(".chart-hint");
-    if (hintEl) hintEl.before(wrap);
-    else cardEl.appendChild(wrap);
+    // 2026-07-20 板分化适配：网格 spark-head 无 h3，走 spark-name 路径（按钮入 spark-name 内末尾，与指数表现 h3 一行布局一致）
+    var sparkName = cardEl.querySelector(".spark-name");
+    if (sparkName) {
+      sparkName.appendChild(wrap);
+    } else {
+      // 兜底：spark-name 也不存在时退到 chart-hint 前独立兄弟 DOM
+      var hintEl = cardEl.querySelector(".chart-hint");
+      if (hintEl) hintEl.before(wrap);
+      else cardEl.appendChild(wrap);
+    }
   }
 }
 
@@ -7308,8 +7317,10 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
       <div class="ind-metrics"></div>`;
-    // 模拟回测按钮：网格 spark-head 无 h3，退到 chart-hint 前独立兄弟 DOM（与指数走势图卡片一致）
+    // 模拟回测按钮：网格 spark-head 无 h3，走 spark-name 路径（与指数表现 h3 一行布局一致）
     _prependSimBtn(cell, id);
+    // 2026-07-20 板分化适配：行业卡加❓策略详情入口（走 spark-name 路径，_prependSimBtn 后调保证 [❓][按钮] 顺序）
+    _appendStrategyHint(cell, id, idx.strategy);
     // 信号频率改为 hover pop：绑在对应信号的成功率行(hint-row)上，悬浮显示频率
     _bindFreqPopupToHintRows(cell, idx.stats);
     // ETF：top1 标签可点复制，悬浮弹全部候选（按成交额降序，每行可复制）
@@ -7964,7 +7975,7 @@ async function _tradeSimFetchFull(indexId) {
 
 // === A10 历史相似形态匹配（皮尔逊相关 + 滑窗，O(n) 前端实时算）===
 // 取近 N 日归一化日收益率作为"当前形态"，历史滑窗算 top5 最相似时段，top1 延伸虚线为后续走势参考。
-// 数据源路由：A股宽基/红利->a-stock-all.json，港股->hk-all.json，美股/欧洲->global-all.json(indices)，商品->global-all.json(extras)。
+// 数据源路由：A股宽基/红利->a-stock-all.json，港股->hk-all.json，美股/欧洲->global-all.json(indices)，商品->global-all.json(extras)，申万行业->index/${id}-all.json。
 var _tradeSimShapeCache = {};      // indexId -> {name, data:[{date,close,...}]} 或 null
 var _astockAllCache = null, _hkAllCache = null, _globalAllCache = null;
 var _SHAPE_A_STOCK = new Set(['sh','sz','cyb','csi500','csi1000','kc50','hs300','sz50','bj50','div_lowvol','csi_div','sz_div']);
@@ -7980,7 +7991,7 @@ var _SHAPE_COMMODITY_NAME = {
   'gold':'伦敦金', 'comex_silver':'COMEX白银', 'wti_oil':'WTI原油', 'brent':'布伦特原油',
   'us10y':'美10Y收益率', 'a_qvix_300':'A股300波动率', 'a_qvix_1000':'A股1000波动率',
 };
-// 路由取数：返回 {name, data:[{date,close}]} 或 null（行业等暂不支持）
+// 路由取数：返回 {name, data:[{date,close}]} 或 null（数据源未覆盖或加载失败）
 async function _shapeLoadSeries(indexId) {
   if (_tradeSimShapeCache.hasOwnProperty(indexId)) return _tradeSimShapeCache[indexId];
   var result = null;
@@ -8002,6 +8013,13 @@ async function _shapeLoadSeries(indexId) {
       var exKey = _SHAPE_COMMODITY[indexId];
       var ex = _globalAllCache.extras && _globalAllCache.extras[exKey];
       if (ex && ex.length) result = { name: _SHAPE_COMMODITY_NAME[exKey] || exKey, data: ex.map(function (d) { return { date: d.date, close: d.value }; }) };
+    } else if (indexId && indexId.indexOf('sw_') === 0) {
+      // 2026-07-20 板分化适配：申万行业指数走 index/${id}-all.json（与 _preloadIndDetail 同路径），取 ohlc[].close
+      var swJson = await fetchJSON('https://ssd.fx8.store/index/' + encodeURIComponent(indexId) + '-all.json');
+      if (swJson && swJson.ohlc && swJson.ohlc.length) {
+        var swName = (_INDEX_NAME_MAP && _INDEX_NAME_MAP[indexId]) ? _INDEX_NAME_MAP[indexId] : indexId;
+        result = { name: swName, data: swJson.ohlc.map(function (d) { return { date: String(d.date), close: d.close }; }) };
+      }
     }
   } catch (e) { result = null; }
   _tradeSimShapeCache[indexId] = result;
@@ -8077,6 +8095,12 @@ function _shapeMatch(closes, dates, curLen, forecastLen, topN) {
   for (var c = n - curLen; c < n; c++) curCum.push({ date: dates[c], cum: closes[c] / curBase });
   return { current: { startDate: dates[n - curLen], endDate: dates[n - 1], cum: curCum }, matches: picked };
 }
+// 相似形态虚线样式：rank 1=top1(最亮最粗)，2-5 递减区分层次（TOP_PLOT=5 用）
+function _shapeLineStyle(rank) {
+  var W = [0, 1.8, 1.3, 1.1, 0.9, 0.8];
+  var O = [0, 0.9, 0.55, 0.45, 0.35, 0.28];
+  return { width: W[rank] || 0.8, opacity: O[rank] || 0.28 };
+}
 // 相似形态走势 SVG：当前末段实线 + top1..topN 延伸虚线（各延伸起点对齐到当前末点）
 function _shapeMatchSVG(result, topPlot) {
   if (!result || !result.matches.length) return '<div style="padding:16px;color:var(--text-3);text-align:center">无相似时段</div>';
@@ -8125,9 +8149,9 @@ function _shapeMatchSVG(result, topPlot) {
     yLabels += '<text x="' + (ml - 4) + '" y="' + sy(yv).toFixed(1) + '" text-anchor="end" font-size="9" fill="var(--text-3)" dominant-baseline="middle">' + ((yv - 1) * 100).toFixed(1) + '%</text>';
   }
   var paths = '';
-  // 当前实线（只画 curLen 段，不含延伸点）
+  // 当前实线（只画 curLen 段，不含延伸点）rank=0 基准
   var curPts = cur.map(function (d, i) { return sx(i).toFixed(1) + ',' + sy(d.cum).toFixed(1); }).join(' ');
-  paths += '<polyline points="' + curPts + '" fill="none" stroke="' + series[0].color + '" stroke-width="2" stroke-linejoin="round"/>';
+  paths += '<polyline class="shape-line" data-shape-rank="0" points="' + curPts + '" fill="none" stroke="' + series[0].color + '" stroke-width="2" stroke-linejoin="round"/>';
   // 各延伸虚线：从当前末点 (sx(curLen-1), sy(1)) 连到延伸各点（x 偏移到延伸区）
   for (var s = 1; s < series.length; s++) {
     var fcData = series[s].data;
@@ -8135,7 +8159,8 @@ function _shapeMatchSVG(result, topPlot) {
     for (var f = 1; f < fcData.length; f++) {
       pts += ' ' + sx(curLen - 1 + f).toFixed(1) + ',' + sy(fcData[f].cum).toFixed(1);
     }
-    paths += '<polyline points="' + pts + '" fill="none" stroke="' + series[s].color + '" stroke-width="' + (s === 1 ? 1.8 : 1) + '" stroke-dasharray="5,3" stroke-linejoin="round" opacity="' + (s === 1 ? 0.9 : 0.45) + '"/>';
+    var ls = _shapeLineStyle(s);
+    paths += '<polyline class="shape-line" data-shape-rank="' + s + '" points="' + pts + '" fill="none" stroke="' + series[s].color + '" stroke-width="' + ls.width + '" stroke-dasharray="5,3" stroke-linejoin="round" opacity="' + ls.opacity + '"/>';
   }
   // 末点圆点 + 分隔线（当前 vs 延伸）
   var sepX = sx(curLen - 1);
@@ -8161,11 +8186,11 @@ function _shapeMatchSVG(result, topPlot) {
 async function _tradeSimShapeViewHTML(indexId) {
   var series = await _shapeLoadSeries(indexId);
   if (!series || !series.data || series.data.length < 30) {
-    return '<div class="trade-sim-shape-empty">该指数暂不支持相似形态分析（数据源未覆盖或数据不足）。<br>当前支持：A 股宽基/红利、港股、美股/欧洲、主要商品。</div>';
+    return '<div class="trade-sim-shape-empty">该指数暂不支持相似形态分析（数据源未覆盖或数据不足）。<br>当前支持：A 股宽基/红利、港股、美股/欧洲、主要商品、申万行业。</div>';
   }
   var closes = series.data.map(function (d) { return d.close; });
   var dates = series.data.map(function (d) { return d.date; });
-  var CUR_LEN = 20, FORECAST_LEN = 20, TOP_N = 5, TOP_PLOT = 3;
+  var CUR_LEN = 20, FORECAST_LEN = 20, TOP_N = 5, TOP_PLOT = 5;
   var result = _shapeMatch(closes, dates, CUR_LEN, FORECAST_LEN, TOP_N);
   if (!result) {
     return '<div class="trade-sim-shape-empty">数据不足：需要至少 ' + (CUR_LEN + FORECAST_LEN + 5) + ' 个交易日，当前 ' + closes.length + ' 个。</div>';
@@ -8180,7 +8205,7 @@ async function _tradeSimShapeViewHTML(indexId) {
     var endCum = m.forecast.length ? m.forecast[m.forecast.length - 1].cum : 1;
     var chgPct = ((endCum - 1) * 100).toFixed(2) + '%';
     var chgColor = endCum >= 1 ? '#e6492e' : '#2e8b57';
-    return '<tr>' +
+    return '<tr data-shape-rank="' + (i + 1) + '">' +
       '<td>top' + (i + 1) + '</td>' +
       '<td>' + m.startDate + ' ~ ' + m.endDate + '</td>' +
       '<td style="color:' + corrColor + ';font-weight:600">' + corrPct + '</td>' +
@@ -8610,6 +8635,31 @@ function _tradeSimModalRender(ov) {
         body.innerHTML = viewTabs + html;
         body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
           btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };
+        });
+        // top5 列表 hover 高亮：tr hover 时对应 rank polyline 加粗高亮，其他虚线降透明（rank 0=当前实线基准不参与）
+        body.querySelectorAll('.shape-match-table tbody tr[data-shape-rank]').forEach(function (tr) {
+          var rank = tr.getAttribute('data-shape-rank');
+          tr.addEventListener('mouseenter', function () {
+            body.querySelectorAll('polyline.shape-line').forEach(function (pl) {
+              var pr = pl.getAttribute('data-shape-rank');
+              if (pr === '0') return;
+              if (pr === rank) {
+                pl.setAttribute('stroke-width', '3.5');
+                pl.setAttribute('opacity', '1');
+              } else {
+                pl.setAttribute('opacity', '0.12');
+              }
+            });
+          });
+          tr.addEventListener('mouseleave', function () {
+            body.querySelectorAll('polyline.shape-line').forEach(function (pl) {
+              var pr = pl.getAttribute('data-shape-rank');
+              if (pr === '0') return;
+              var ls = _shapeLineStyle(parseInt(pr, 10));
+              pl.setAttribute('stroke-width', ls.width);
+              pl.setAttribute('opacity', ls.opacity);
+            });
+          });
         });
       } catch (e) {
         if (_tradeSimState !== m || m.view !== 'shape') return;

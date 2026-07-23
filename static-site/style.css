@@ -521,9 +521,11 @@ main { padding: 16px 24px; }
 .chart-hint .hint-kelly b { font-weight: 700; }
 .chart-hint .hint-kelly.warn { color: #d4380d; }
 /* 模拟回测按钮（2026-07-23 改动4）：挪入 h3 末尾排在❓后（标题行内排列）。
-   h3 不存在时（网格 spark-head）退到 chart-hint 前独立兄弟 DOM，inline-block 保持块级边距不变。 */
+   2026-07-20 板分化适配：h3 不存在时（行业网格 spark-head）走 spark-name 路径（按钮+❓入 spark-name 内末尾），与指数表现 h3 一行布局一致。 */
 .sim-btn-wrap { display: inline-block; margin: 4px 0 2px; vertical-align: middle; }
 .chart-card h3 .sim-btn-wrap { margin: 0 0 0 6px; }
+.spark-name .sim-btn-wrap { margin: 0 0 0 6px; }
+.spark-name .term-tip { margin-left: 4px; vertical-align: middle; }
 .sim-btn {
   display: inline-block;
   padding: 2px 10px;
