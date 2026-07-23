@@ -3670,4 +3670,91 @@ main { padding: 16px 24px; }
   border-radius: 10px; padding: 14px 16px;
 }
 
+/* === B4: ETF 评分列表（分页+搜索）=== */
+.etf-score-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 12px 0 8px; padding: 0 4px;
+}
+.etf-score-bar input[type="search"] {
+  flex: 1; min-width: 180px; max-width: 420px;
+  padding: 8px 14px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-1);
+  font-size: 14px; outline: none;
+}
+.etf-score-bar input[type="search"]:focus { border-color: var(--primary); }
+.etf-score-updated { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.etf-score-stat { font-size: 13px; color: var(--text-3); margin: 4px 4px 10px; }
+.etf-score-empty { padding: 32px 16px; text-align: center; color: var(--text-3); font-size: 14px; }
+.etf-score-list { display: flex; flex-direction: column; gap: 8px; padding: 0 4px; }
+.etf-score-row {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-left: 3px solid var(--text-4);
+  border-radius: 8px; padding: 10px 12px;
+}
+.etf-score-row.etf-side-buy { border-left-color: var(--up, #16a34a); }
+.etf-score-row.etf-side-sell { border-left-color: var(--down, #e6492e); }
+.etf-row-main {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.etf-rank {
+  font-size: 12px; color: var(--text-4); min-width: 36px; font-variant-numeric: tabular-nums;
+}
+.etf-code {
+  font-size: 13px; font-weight: 600; color: var(--text-1);
+  font-variant-numeric: tabular-nums; letter-spacing: 0.3px;
+}
+.etf-name { font-size: 14px; color: var(--text-1); flex: 1; min-width: 120px; }
+.etf-score {
+  font-size: 16px; font-weight: 700; margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.etf-row-sub {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 6px; font-size: 12px; color: var(--text-3);
+}
+.etf-side-tag {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; color: #fff;
+}
+.etf-side-buy { background: var(--up, #16a34a); }
+.etf-side-sell { background: var(--down, #e6492e); }
+[data-theme="dark"] .etf-side-buy,
+[data-theme="redgold"] .etf-side-buy { background: #52c41a; color: #1f2329; }
+[data-theme="dark"] .etf-side-sell,
+[data-theme="redgold"] .etf-side-sell { background: #ff7875; color: #1f2329; }
+.etf-nt-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  border: 1px solid var(--primary); color: var(--primary);
+  border-radius: 8px; font-size: 10px; font-weight: 600;
+}
+.etf-signal { color: var(--text-2); }
+.etf-alert {
+  margin-left: auto; color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+.etf-reason {
+  margin-top: 6px; font-size: 12px; line-height: 1.5; color: var(--text-3);
+  padding-top: 6px; border-top: 1px dashed var(--border);
+}
+.etf-score-pager {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  justify-content: center; padding: 20px 8px 32px;
+}
+.etf-page-btn {
+  min-width: 32px; height: 32px; padding: 0 10px;
+  border: 1px solid var(--border-strong, var(--border)); background: var(--bg-card);
+  color: var(--text-2); border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.etf-page-btn:hover:not(:disabled):not(.active) { border-color: var(--primary); color: var(--primary); }
+.etf-page-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.etf-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.etf-page-ellipsis { color: var(--text-4); padding: 0 4px; }
+.etf-page-info { font-size: 12px; color: var(--text-3); margin-left: 8px; }
+@media (max-width: 768px) {
+  .etf-rank { display: none; } /* 移动端省略排名省空间 */
+  .etf-score { font-size: 15px; }
+  .etf-alert { margin-left: 0; }
+}
+
+
 

@@ -89,6 +89,7 @@
     <button data-tab="market">指数表现</button>
     <button data-tab="sentiment">情绪温度</button>
     <button data-tab="industry">板块分化</button>
+    <button data-tab="etf">ETF评分</button>
     <button data-tab="lab">🧪 策略实验</button>
     <!-- UX：周期选择器移入 tab 栏右端，随 sticky tab 栏一起悬浮顶部，下滚始终可见可操作 -->
     <!-- 默认隐藏防闪烁：概览/实验室 tab 无需周期切换，renderTab 按 tab 控制显隐 -->
@@ -123,6 +124,7 @@
     <button data-tab="market"><span class="bn-icon">📈</span><span class="bn-label">指数表现</span></button>
     <button data-tab="sentiment"><span class="bn-icon">😊</span><span class="bn-label">情绪温度</span></button>
     <button data-tab="industry"><span class="bn-icon">🏭</span><span class="bn-label">板块分化</span></button>
+    <button data-tab="etf"><span class="bn-icon">💹</span><span class="bn-label">ETF评分</span></button>
     <button data-tab="lab"><span class="bn-icon">🧪</span><span class="bn-label">策略实验</span></button>
   </nav>
 
@@ -143,7 +145,7 @@
 
   <script src="./qr.js?v=1b721750"></script>
   <script defer src="./common.min.js?v=f01a2fa2"></script>
-  <script defer src="./app.min.js?v=6f5e090d"></script>
+  <script defer src="./app.min.js?v=924a6c79"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
   <meta name="lab-asset-url" content="./lab.min.js?v=d03e18e5">
   <!-- P2-5: echarts.min.js 不再预加载（省 615KB 首屏 JS），renderTab 触发时由 app.js dynamic 注入 -->

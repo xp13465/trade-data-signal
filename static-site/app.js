@@ -2703,7 +2703,7 @@ async function renderTab() {
   await loadEcharts();   // P2-5: 懒加载 echarts（所有 tab 图表 + lab.js 都依赖）
   clearCharts();
   // 概览 tab 图表固定近60日、策略实验 tab 全历史，周期切换均无意义，隐藏 .periods 和 .h5-period-bar；切走恢复
-  const _hidePeriods = (state.tab === "lab" || state.tab === "overview");
+  const _hidePeriods = (state.tab === "lab" || state.tab === "overview" || state.tab === "etf");
   document.querySelectorAll(".periods, .h5-period-bar").forEach((el) => {
     el.style.display = _hidePeriods ? "none" : "";
   });
@@ -2713,6 +2713,7 @@ async function renderTab() {
     else if (state.tab === "market") await renderMarket();
     else if (state.tab === "sentiment") await renderSentiment();
     else if (state.tab === "industry") await renderIndustry();
+    else if (state.tab === "etf") await renderEtfScore();
     else if (state.tab === "lab") {
       await loadLabScript();   // B5: 懒加载 lab.js
       await renderSignalLab();
@@ -7710,6 +7711,187 @@ async function renderIndustry() {
   if (_industryScrollSpy) _industryScrollSpy.observe(swGridWrap);
 }
 
+// ============ B4: ETF 评分列表（分页+搜索） ============
+// 数据源: static-site/data/etf_score_list.json
+//   buy_list: 买入机会（score 高=机会显著）, 字段 etf_code/name/score/hands/high_alert/low_alert/is_national_team/reason_summary
+//   sell_list: 卖出信号（score 高=过热）, 字段 etf_code/name/score/sell_signal/high_alert/low_alert/is_national_team/reason_summary
+// 合并成统一列表 + side(buy/sell) 字段, 分页(每页50) + 搜索(代码/名称过滤)
+// 注: 当前为代表性 62 只(buy20+sell30=50); 后端 --full-market 可扩至 ~1371 只, 分页自动生效
+const ETF_SCORE_PAGE_SIZE = 50;
+const _etfScoreState = { all: [], filtered: [], page: 1, search: "", meta: null };
+
+function _esc(s) {
+  // 简易 XSS 防护: 转义 HTML 特殊字符（reason_summary/name 等后端文本）
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function _etfScoreColor(score, side) {
+  // buy: 高分=机会(绿); sell: 高分=过热(红)
+  if (side === "buy") {
+    if (score >= 80) return "var(--up,#16a34a)";
+    if (score >= 60) return "#4fc3f7";
+    return "var(--text-3,#86909c)";
+  }
+  if (score >= 80) return "var(--down,#e6492e)";
+  if (score >= 60) return "#e6a23c";
+  return "var(--text-3,#86909c)";
+}
+
+function _etfScorePages() {
+  return Math.max(1, Math.ceil(_etfScoreState.filtered.length / ETF_SCORE_PAGE_SIZE));
+}
+
+function _applyEtfScoreFilter() {
+  const s = _etfScoreState.search.trim().toLowerCase();
+  _etfScoreState.filtered = s
+    ? _etfScoreState.all.filter((e) =>
+        String(e.etf_code).toLowerCase().includes(s) || String(e.name).toLowerCase().includes(s))
+    : _etfScoreState.all.slice();
+  const pages = _etfScorePages();
+  if (_etfScoreState.page > pages) _etfScoreState.page = pages;
+  if (_etfScoreState.page < 1) _etfScoreState.page = 1;
+  _renderEtfScoreBody();
+}
+
+function _renderEtfScoreBody() {
+  const body = document.getElementById("etf-score-body");
+  if (!body) return;
+  const st = _etfScoreState;
+  const total = st.filtered.length;
+  const pages = _etfScorePages();
+  const start = (st.page - 1) * ETF_SCORE_PAGE_SIZE;
+  const slice = st.filtered.slice(start, start + ETF_SCORE_PAGE_SIZE);
+  let html = "";
+  // 统计条
+  const buyN = st.all.filter((e) => e.side === "buy").length;
+  const sellN = st.all.filter((e) => e.side === "sell").length;
+  html += '<div class="etf-score-stat">共 ' + st.all.length + ' 只'
+    + (st.meta && st.meta.full_market ? '（全市场）' : '（代表性清单）')
+    + ' · 买入机会 ' + buyN + ' · 卖出信号 ' + sellN
+    + (st.search ? ' · 搜索命中 ' + total : '') + '</div>';
+  if (total === 0) {
+    html += '<div class="etf-score-empty">未命中任何 ETF，换个代码或名称试试</div>';
+  } else {
+    html += '<div class="etf-score-list">';
+    slice.forEach((e, i) => {
+      const col = _etfScoreColor(e.score, e.side);
+      const sideTag = e.side === "buy"
+        ? '<span class="etf-side-tag etf-side-buy">买入机会</span>'
+        : '<span class="etf-side-tag etf-side-sell">卖出信号</span>';
+      const ntTag = e.is_national_team ? '<span class="etf-nt-tag" title="国家队宽基ETF">国家队</span>' : '';
+      const signalTxt = e.side === "buy"
+        ? (e.hands != null ? '买点 ' + e.hands + ' 手' : '')
+        : (e.sell_signal ? _esc(e.sell_signal) : '');
+      const rank = start + i + 1;
+      html += '<div class="etf-score-row etf-side-' + e.side + '">'
+        + '<div class="etf-row-main">'
+        + '<span class="etf-rank">#' + rank + '</span>'
+        + '<span class="etf-code">' + _esc(e.etf_code) + '</span>'
+        + '<span class="etf-name">' + _esc(e.name) + ntTag + '</span>'
+        + '<span class="etf-score" style="color:' + col + '">' + (e.score != null ? e.score.toFixed(2) : '-') + '</span>'
+        + '</div>'
+        + '<div class="etf-row-sub">'
+        + sideTag
+        + (signalTxt ? '<span class="etf-signal">' + signalTxt + '</span>' : '')
+        + '<span class="etf-alert" title="高位/低位预警区间">预警 ' + (e.high_alert != null ? e.high_alert.toFixed(2) : '-') + ' / ' + (e.low_alert != null ? e.low_alert.toFixed(2) : '-') + '</span>'
+        + '</div>'
+        + (e.reason_summary ? '<div class="etf-reason">' + _esc(e.reason_summary) + '</div>' : '')
+        + '</div>';
+    });
+    html += '</div>';
+    // 分页器
+    if (pages > 1) {
+      html += '<div class="etf-score-pager">';
+      html += '<button class="etf-page-btn" data-page="' + (st.page > 1 ? st.page - 1 : 1) + '"' + (st.page <= 1 ? ' disabled' : '') + '>上一页</button>';
+      // 页码：最多显示 9 个，首尾+当前附近
+      const pageBtns = [];
+      const addPage = (p) => { if (pageBtns.indexOf(p) < 0) pageBtns.push(p); };
+      addPage(1); addPage(pages);
+      for (let p = st.page - 2; p <= st.page + 2; p++) {
+        if (p > 1 && p < pages) addPage(p);
+      }
+      pageBtns.sort((a, b) => a - b);
+      let prev = 0;
+      pageBtns.forEach((p) => {
+        if (p - prev > 1) html += '<span class="etf-page-ellipsis">…</span>';
+        html += '<button class="etf-page-btn' + (p === st.page ? " active" : "") + '" data-page="' + p + '">' + p + '</button>';
+        prev = p;
+      });
+      html += '<button class="etf-page-btn" data-page="' + (st.page < pages ? st.page + 1 : pages) + '"' + (st.page >= pages ? ' disabled' : '') + '>下一页</button>';
+      html += '<span class="etf-page-info">' + st.page + ' / ' + pages + ' 页（' + total + ' 只）</span>';
+      html += '</div>';
+    }
+  }
+  body.innerHTML = html;
+  // 绑定分页按钮
+  body.querySelectorAll(".etf-page-btn[data-page]").forEach((b) => {
+    b.onclick = () => {
+      if (b.disabled) return;
+      _etfScoreState.page = parseInt(b.dataset.page, 10) || 1;
+      _renderEtfScoreBody();
+      // 翻页后滚到列表顶部
+      const top = body.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    };
+  });
+}
+
+async function renderEtfScore() {
+  const r = await fetchJSON("./data/etf_score_list.json");
+  _etfScoreState.meta = {
+    date: r.date, updated_at: r.updated_at, source: r.source,
+    universe_count: r.universe_count, full_market: r.full_market,
+    buy_top: r.buy_top, sell_top: r.sell_top, fetch_count: r.fetch_count, skip_count: r.skip_count,
+  };
+  // 合并 buy_list + sell_list 成统一列表
+  const all = [];
+  (r.buy_list || []).forEach((e) => all.push({
+    etf_code: e.etf_code, name: e.name, score: e.score, side: "buy",
+    hands: e.hands, high_alert: e.high_alert, low_alert: e.low_alert,
+    is_national_team: e.is_national_team, reason_summary: e.reason_summary,
+    sell_signal: null,
+  }));
+  (r.sell_list || []).forEach((e) => all.push({
+    etf_code: e.etf_code, name: e.name, score: e.score, side: "sell",
+    hands: null, high_alert: e.high_alert, low_alert: e.low_alert,
+    is_national_team: e.is_national_team, reason_summary: e.reason_summary,
+    sell_signal: e.sell_signal,
+  }));
+  _etfScoreState.all = all;
+  _etfScoreState.filtered = all.slice();
+  _etfScoreState.page = 1;
+  _etfScoreState.search = "";
+
+  content.innerHTML = "";
+  const m = _etfScoreState.meta;
+  content.insertAdjacentHTML("beforeend",
+    '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:从代表性 ETF 清单里按多维度评分筛出当前<b>买入机会</b>（冰点共振/超跌反弹）与<b>卖出信号</b>（过热/位置偏高）。<b>怎么解读</b>:买入评分高=机会显著（历史常对应低位区域），卖出评分高=情绪过热（历史常对应高位区域）。<b>口径</b>:历史统计与技术分析参考，非投资建议。</div>');
+  // 搜索栏
+  const bar = document.createElement("div");
+  bar.className = "etf-score-bar";
+  bar.innerHTML =
+    '<input id="etf-score-search" type="search" placeholder="搜 ETF 代码或名称（如 515030 / 新能源车）" autocomplete="off" value="' + _esc(_etfScoreState.search) + '">'
+    + '<span class="etf-score-updated">更新 ' + (m && m.updated_at ? _esc(m.updated_at.slice(0, 16)) : '-') + (m && m.full_market ? ' · 全市场' : ' · 代表性') + '</span>';
+  content.appendChild(bar);
+  const input = bar.querySelector("#etf-score-search");
+  let _searchTimer = null;
+  input.oninput = () => {
+    if (_searchTimer) clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => {
+      _etfScoreState.search = input.value;
+      _etfScoreState.page = 1;
+      _applyEtfScoreFilter();
+    }, 180); // 防抖
+  };
+  // 列表容器
+  const body = document.createElement("div");
+  body.id = "etf-score-body";
+  content.appendChild(body);
+  _renderEtfScoreBody();
+}
+
 // ============ 手动补录（前端入口已移除） ============
 // 敏感操作不应在主导航暴露。后端 /api/manual 与 /api/manual/check API 保留，
 // 需要时直接调 API 或另设权限入口。原 modal/handler 代码已删除。
@@ -7889,7 +8071,7 @@ function closeSummaryHistoryModal() {
 // === H5 移动端适配（方案B：底部导航 + 顶部精简条 + 1/2列切换）===
 // matchMedia 驱动 body.h5，@media(max-width:768px) 自动切换布局，PC(>768) 零影响。
 const SUMMARY_URL = "./data/summary.json";
-const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 指数表现", sentiment: "😊 情绪温度", industry: "🏭 板块分化", lab: "🧪 策略实验" };
+const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 指数表现", sentiment: "😊 情绪温度", industry: "🏭 板块分化", etf: "💹 ETF评分", lab: "🧪 策略实验" };
 
 function updateH5Topbar() {
   if (!document.body.classList.contains("h5")) return;
@@ -9554,7 +9736,7 @@ initUpdateRules();
 // #lab 开头归 lab.js 的 lab 恢复逻辑（含 #lab/策略key），此模块只管 4 个非 lab 主 tab。
 // 大盘 tab 的二级 tab 也写进 hash：#market/{subtab}（如 #market/national-team=汪汪队），
 // F5 刷新解析恢复二级 tab，避免刷新回退到默认 a 股。
-const _MAIN_TABS = ["overview", "market", "sentiment", "industry"];
+const _MAIN_TABS = ["overview", "market", "sentiment", "industry", "etf"];
 const _MARKET_SUBTABS = ["a-stock", "hk", "global", "futures", "national-team"];
 function _setTabHash(tab) {
   let h = "#" + tab;
