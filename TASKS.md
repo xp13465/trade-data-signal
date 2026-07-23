@@ -365,7 +365,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **实施顺序建议**：分两阶段
 - 阶段1 MVP：✅ **2026-07-23 已上线**（commit b8fbed75 后端 + d0d19830 前端 + 200bd4cc merge main，国家队12个+现成权重+卖清单卖点信号列表，三站点验证全绿，详见 NOTES §48 小节AZ4）
-- 阶段2 扩展：🔄 部分完成（**ETF专属调权 ✅ 2026-07-23 已实施 commit `ad840d16`**，H7/L4↑ H3/L2↓ + 开关默认 off 待回测验证，详见 NOTES §48 小节AZ6；剩余待实施：全市场485扩采集+OHLC+前端分页/搜索/持仓输入，~385行，2-3天）
+- 阶段2 扩展：🔄 部分完成（**ETF专属调权 ✅ 2026-07-23 已实施 commit `ad840d16`**，H7/L4↑ H3/L2↓ + 开关默认 off 待回测验证，详见 NOTES §48 小节AZ6；**前端分页+搜索+持仓输入 ✅ 2026-07-24 已实施 commit `743c3ef2`+`02730655`**，62只代表性ETF分页+搜索+持仓高亮+排名+只看持仓筛选，详见 NOTES §48 小节AZ7；剩余待实施：全市场485扩采集+OHLC，~200行，1-2天）
 
 **与 P1-新-A/B 关系**：同属"AI 评分/预警"主题，P1-新-A（盘中信号消失）+P1-新-B（pin策略问号）+P1-新-C（ETF清单）三个可串行实施，互不冲突（A改check_signals后端/B改signals.py+app.js/C改lab.js+新增脚本，不同文件）
 
@@ -392,7 +392,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 ### P2-新-B 信号历史复盘展示（前端方向2，分2档）
 - **现状**：`signal_stats.json` 已导出 static-site/data/（230KB，110品种×6信号×3窗口），但 app.js L745 `_aggregateSignalStats` **硬编码只取 `s["10d"]`**，5d/20d 数据浪费；L792 注释过期说"未导出"实际已导出
 - **方案2a（简单，~30行，先做）** ✅ **2026-07-23 已实施**（commit `02eae130`，app.js L732-808 `WINDOWS=["5d","10d","20d"]` 三窗口聚合，待 merge main 上线，详见 NOTES 小节AZ3）：信号 modal 分析概况从"10日单一窗口"扩"5d/10d/20d 三窗口对比"，让用户看短/中/长期表现。零风险（数据已有+渲染逻辑已有）
-- **方案2b（复杂，~200行，后做）**：具体 pin 旁标"X天前buy_aux至今+3.2%"真复盘。查 `indices_sparkline[index_id]` close 序列算涨跌。难点：sparkline 只含宽基，行业/全球指数 close 序列需另查 industry.json/global-all.json
+- **方案2b（复杂，~200行，后做）** ✅ **2026-07-24 已实施**（commit `8091db40`，从零实现真 pin 复盘专属面板，详见 NOTES §48 小节AZ7）：具体 pin 旁标"X天前buy_aux至今+3.2%"真复盘。查 `indices_sparkline[index_id]` close 序列算涨跌。难点：sparkline 只含宽基，行业/全球指数 close 序列需另查 industry.json/global-all.json。**实际实施**：localStorage[`pinned_indices`] + 📌按钮（`_appendPinBtn`）+ pin 复盘卡片（`_pinReviewCardHtml`/`_renderPinReview`）四段（📈走势摘要 5/20/60日涨跌+波动率+高低点 / 🎯最近信号 / 📊10d 6类信号胜率盈亏比 / 📋专属规则 6类策略desc+per-index filter）+ 跨tab状态隔离 + self-cleanup + 数据缓存双轨
 - **风险**：① 2b 数据覆盖度（sparkline 只宽基）② 2b 真实性 vs signal_stats 聚合语义不同（用户预期真复盘，signal_stats 是统计聚合）③ 样本数 n<5 误导需标注
 - **决策点**：① 2a vs 2b vs 都做（推荐先2a后2b）② 2b 展示位置（pin旁徽章 推荐 vs modal内）
 
@@ -436,11 +436,12 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 > 用户对第二批6方向也感兴趣，派2个调研 agent（数据展示3+推送告警3）只读摸现状给方案。**结论：6方向中盘后日报已完整实现，板块轮动受限于6-7个月历史，其余待实施。** 收盘 deploy 完再开。
 
-### P2-新-F 板块轮动信号（数据展示方向1，~105行，数据受限）
+### P2-新-F 板块轮动信号（数据展示方向1，~105行，数据受限）✅ **2026-07-24 已实施**（commit `b4285988`，形态频次非回测，详见 NOTES §48 小节AZ7）
 - **现状**：`daily_metric` 表 `ind_flow_<sw_id>` 31个行业资金净流入（同花顺源直接亿元），export.py L580 已导 fund_flow 字段，app.js L7040 已渲染资金流 mini sparkline。但**热力图 _industry_heatmap 只算涨跌幅无资金流维度**
 - **方案**：3档轮动信号（连流入3日/流入加速/资金占比Top3）+ 行业卡 chip「🔥连流入3日」「🚀流入加速」+ 热力图双维度着色。export.py 新增 `_rotation_signal()` 注入行业 JSON
+- **实际实施**：受 ind_flow 仅 6-7 月历史硬约束，**只做形态频次不做回测**。指标=最近20交易日 `fund_flow.value` 方向反转次数（正->负或负->正=1次）。分级：≥8高频🔥🔥/6-7中频🔥/≤5低频，样本<10不评级。31板块平均6.4次。展示：板块卡 spark-name 旁 rotTag + 热力图下 Top10 rotation-freq-card（可点击滚动定位）。新函数 `_calcRotationFreq`/`_rotationTag`/`_buildRotationFreqList`
 - **风险**：**致命硬约束**--ind_flow 仅 6-7个月历史（2026-01-05起，130交易日），回测"后续收益分布"样本不足。对策：缩小到3个月只做"形态触发频次统计"不做回测，文案明确"近3个月统计"
-- **决策点**：回测窗口（A推荐3个月只做形态统计 / B等补历史源当前无可用）
+- **决策点**：回测窗口（A推荐3个月只做形态统计 / B等补历史源当前无可用）-- 采纳 A
 
 ### P2-新-G ETF联动推荐（数据展示方向2，~85行，推荐先做）✅ **2026-07-23 已实施**（commit `02eae130`，待 merge main 上线，详见 NOTES 小节AZ3）
 - **现状**：`board_etf_map.json`（65KB）已含58板块->ETF候选，但**keys只有 sw_*/thsc_*，9个宽基指数 ID 不在 map**。汪汪队 `etf_national_team.py` L56 `ETF_LIST` 12只含 (code,易记名,跟踪指数,市场) **现成映射数据源**（覆盖7宽基）。前端 `_renderEtfTag`/`_bindEtfPopup` 已是通用函数，但指数信号卡 `renderOne` L1666 没调用
@@ -522,4 +523,16 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - commit 时间戳≠触发时点（6867daa0 21:30 是 deploy 打标签非任务触发；看 launchd log 文件存在性非 commit 时间戳）
 - CF Workers Static Assets 无视 Cache-Control（header 层最激进只能 no-store 浏览器层生效，CF 边缘靠部署自动 purge）
 
-**未完成项保留**：B4 ETF分页（P1-新-C 阶段2 剩余，进行中）/ A9 板块轮动(P2-新-F) / A5 pin复盘(P2-新-B 2b) / A6 PWA(P2-新-C) / A14 echarts拆core / A12 订阅推送(P2-新-K) / A15 拆chunk / C1 industry瘦身 / C2 64M迁R2
+---
+
+## ✅ 2026-07-23 深夜续 / 7-24 凌晨续闭环（rzhb 误报根治 + B4 ETF 评分列表 + A9 板块轮动 + A5 真 pin 复盘）
+
+> 7/23 23:30 ~ 7/24 00:50 深夜续最后一批上线工作。详见 `NOTES.md §48 小节AZ7`。
+
+1. ✅ **rzhb 误报根治**（commit `9116e97f`）：schedule_monitor 与任务整点竞态（23:00:05 读 log 时 rzhb 还没写"开始"行）+ rzhb 退出不刷 stats。修复=schedule_monitor.sh 漏跑检查下界 +60s buffer（sch+60s <= NOW）+ rzhb_backfill.sh 加 `trap refresh_stats EXIT` 退出调 gen_schedule_stats.py。同日 21:00 futures / 21:30 etf 同竞态误报一并根治。验证：intraday 7/23 15:35 exit=0 dur=1144s 不再超时 + rzhb 7/23 23:00 stats 正确显示（trap 生效）
+2. ✅ **B4 完整 ETF 评分列表 - 分页+搜索**（commit `743c3ef2`）：新增 etf tab，`renderEtfScore`/`_etfScorePages`/`_applyEtfScoreFilter`/`_renderEtfScoreBody`，62只代表性 buy20+sell30 分页+搜索框
+3. ✅ **B4 完整 ETF 评分列表 - 持仓输入**（commit `02730655`）：localStorage[`etf_holdings`] 6位代码数组 + `_getEtfHoldings`/`_setEtfHoldings`/`_renderEtfHoldingsPanel` + 持仓行 `.is-holding` 金色高亮 + ⭐持仓 badge + "只看持仓(N)"筛选 chip + chips 显示"代码 名称 #排名"
+4. ✅ **A9 板块轮动信号**（commit `b4285988`）：**只做形态频次不做回测**（ind_flow 仅6-7月历史）。指标=最近20交易日 fund_flow.value 方向反转次数。分级：≥8🔥🔥/6-7🔥/≤5低频，样本<10不评级。31板块平均6.4次。展示：板块卡 spark-name 旁 rotTag + 热力图下 Top10 rotation-freq-card。新函数 `_calcRotationFreq`/`_rotationTag`/`_buildRotationFreqList`。对应 P2-新-F ✅
+5. ✅ **A5 真 pin 复盘**（commit `8091db40`）：现有"pin"是 echarts markPoint symbol 非用户钉住，从零实现。localStorage[`pinned_indices`] + 📌按钮（`_appendPinBtn`）+ pin 复盘卡片（`_pinReviewCardHtml`/`_renderPinReview`）四段（📈走势摘要 5/20/60日涨跌+60日波动率+高低点 / 🎯最近信号 / 📊10d 6类信号胜率盈亏比 / 📋专属规则 6类策略desc+per-index filter sh/非sh）+ 跨tab状态隔离 + self-cleanup（`_onPinChanged` 检查 isConnected）+ 数据缓存双轨（signalsCache + _pinDataCache）。对应 P2-新-B 2b ✅
+
+**未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余，前端分页/搜索/持仓输入已完成）/ A6 PWA(P2-新-C) / A14 echarts拆core / A12 订阅推送(P2-新-K) / A15 拆chunk / C1 industry瘦身 / C2 64M迁R2
