@@ -99,7 +99,14 @@ for t in TASKS:
 
     for sch_hm in t["schedules"]:
         sch = today_schedule(sch_hm)
-        if sch <= NOW <= sch + TOLERANCE:
+        # 下界 +60s buffer：launchd StartCalendarInterval 整点触发后，任务脚本有
+        # caffeinate + with_lock.py 包装 + mkdir/cd 等启动开销，"开始"行通常延后 3-8s
+        # 写入日志。schedule_monitor 同样整点触发(cron Minute=0,15,30,45)，若下界=sch，
+        # 读 log 时任务的"开始"行可能还没写入，last_run 解析到上一轮，误报漏跑。
+        # 2026-07-23 事故：rzhb/futures/etf 多次整点竞态误报(21:00 futures/21:30 etf/
+        # 23:00 rzhb)，下一个 15min 周期自愈 OK。+60s 下界根治：sch+60s <= NOW 才检查，
+        # 给任务 1 分钟启动 buffer，覆盖 launchd 启动+写"开始"行的延迟。
+        if sch + timedelta(seconds=60) <= NOW <= sch + TOLERANCE:
             # now 在容忍窗口内，检查任务是否在 sch 之后跑过
             if last_run is None or last_run < sch:
                 alerts.append(

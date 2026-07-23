@@ -45,6 +45,18 @@ fi
 
 echo "=== rzhb_backfill.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 
+# 刷新 schedule_stats.json：脚本退出时(trap EXIT)调用 gen_schedule_stats.py，
+# 确保 rzhb 的 last_run/last_exit 及时更新到前端"执行统计"。
+# 2026-07-23 事故：rzhb 退出不刷 stats，依赖其他任务(intraday/backfill/deploy)顺带刷新，
+# 23:00 后无其他任务 -> schedule_stats.json rzhb last_run 停 7/22，前端展示滞后。
+# 与 intraday_snapshot.sh L273 / backfill_metrics.sh L71 一致。失败不阻塞退出。
+# 注：trap 在"结束"行 tee 后 exit 时触发，gen_stats 能读到完整"开始+结束"对正确配对。
+refresh_stats() {
+  "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" | tail -1 \
+    || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
+}
+trap refresh_stats EXIT
+
 # 交易日闸门（与 update_all.sh / intraday_snapshot.sh / lhb_backfill.sh 同口径）
 FORCE=0
 [ "${1:-}" = "force" ] && FORCE=1
