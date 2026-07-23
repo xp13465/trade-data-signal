@@ -1,72 +1,72 @@
 {
-  "date": "20260722",
-  "generated_at": "2026-07-22 18:56:25",
+  "date": "20260723",
+  "generated_at": "2026-07-23 19:06:35",
   "high": {
-    "score": 45.43,
+    "score": 53.81,
     "level": "中性",
     "triggered": false,
     "dims": [
       {
         "k": "H1",
         "name": "情绪过热",
-        "score": 52.25,
+        "score": 82.26,
         "weight": 0.26,
-        "contribution": 13.59,
-        "hit": false
+        "contribution": 21.39,
+        "hit": true
       },
       {
         "k": "H4",
         "name": "位置偏高",
-        "score": 56.0,
+        "score": 56.3,
         "weight": 0.2,
-        "contribution": 11.2,
+        "contribution": 11.26,
         "hit": false
       },
       {
         "k": "H6",
         "name": "均线转弱",
-        "score": 86.25,
+        "score": 85.83,
         "weight": 0.08,
-        "contribution": 6.9,
+        "contribution": 6.87,
         "hit": true
       },
       {
         "k": "H5",
         "name": "动量衰退",
-        "score": 65.42,
+        "score": 65.0,
         "weight": 0.08,
-        "contribution": 5.23,
+        "contribution": 5.2,
         "hit": true
       },
       {
         "k": "H7",
         "name": "汪汪队离场",
-        "score": 30.0,
+        "score": 30.42,
         "weight": 0.1,
-        "contribution": 3.0,
+        "contribution": 3.04,
         "hit": false
       },
       {
         "k": "H2",
         "name": "量价背离",
-        "score": 22.4,
+        "score": 22.52,
         "weight": 0.08,
-        "contribution": 1.79,
+        "contribution": 1.8,
         "hit": false
       },
       {
         "k": "H3",
         "name": "卖点密集",
-        "score": 4.17,
+        "score": 3.75,
         "weight": 0.13,
-        "contribution": 0.54,
+        "contribution": 0.49,
         "hit": false
       }
     ],
     "reason": "高位风险指标处于中性区间"
   },
   "low": {
-    "score": 69.74,
+    "score": 69.7,
     "level": "关注",
     "triggered": false,
     "dims": [
@@ -81,33 +81,33 @@
       {
         "k": "L4",
         "name": "汪汪队入场",
-        "score": 98.75,
+        "score": 98.33,
         "weight": 0.15,
-        "contribution": 14.81,
+        "contribution": 14.75,
         "hit": true
       },
       {
         "k": "L1",
         "name": "情绪冰点",
-        "score": 68.19,
+        "score": 52.1,
         "weight": 0.2,
-        "contribution": 13.64,
-        "hit": true
-      },
-      {
-        "k": "L3",
-        "name": "位置偏低",
-        "score": 44.0,
-        "weight": 0.15,
-        "contribution": 6.6,
+        "contribution": 10.42,
         "hit": false
       },
       {
         "k": "L5",
         "name": "量能异动",
-        "score": 47.5,
+        "score": 80.0,
         "weight": 0.1,
-        "contribution": 4.75,
+        "contribution": 8.0,
+        "hit": true
+      },
+      {
+        "k": "L3",
+        "name": "位置偏低",
+        "score": 43.7,
+        "weight": 0.15,
+        "contribution": 6.56,
         "hit": false
       },
       {
@@ -121,9 +121,9 @@
       {
         "k": "L8",
         "name": "价值显现",
-        "score": 45.42,
+        "score": 45.83,
         "weight": 0.07,
-        "contribution": 3.18,
+        "contribution": 3.21,
         "hit": false
       }
     ],

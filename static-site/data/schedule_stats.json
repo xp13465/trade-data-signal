@@ -3,10 +3,10 @@
     "task": "update_all",
     "name": "收盘全量",
     "schedule": "17:50",
-    "est_text": "约17分钟",
+    "est_text": "约27分钟",
     "last_run": "2026-07-23 17:50",
-    "last_exit": null,
-    "last_duration_sec": null
+    "last_exit": 0,
+    "last_duration_sec": 4597
   },
   {
     "task": "backfill_evening",
@@ -39,8 +39,8 @@
     "task": "lhb_backfill",
     "name": "龙虎榜",
     "schedule": "18:30 + 19:30(兜底)",
-    "est_text": "约7分钟",
-    "last_run": "2026-07-23 18:30",
+    "est_text": "约13分钟",
+    "last_run": "2026-07-23 19:30",
     "last_exit": null,
     "last_duration_sec": null
   },
@@ -66,9 +66,9 @@
     "task": "lab_auto",
     "name": "策略实验室",
     "schedule": "19:00",
-    "est_text": "约2分钟",
+    "est_text": "约3分钟",
     "last_run": "2026-07-23 19:00",
-    "last_exit": null,
-    "last_duration_sec": null
+    "last_exit": 0,
+    "last_duration_sec": 701
   }
 ]

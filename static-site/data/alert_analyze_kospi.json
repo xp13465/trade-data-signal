@@ -3,11 +3,11 @@
   "target_type": "index",
   "target_name": "KOSPI",
   "alert": {
-    "date": "20260722",
+    "date": "20260723",
     "target_id": "kospi",
     "target_type": "index",
-    "high": 49.76,
-    "low": 68.78,
+    "high": 49.68,
+    "low": 68.66,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
@@ -15,12 +15,12 @@
       "H2": 81.35,
       "H3": 40.83,
       "H4": 81.35,
-      "H5": 64.17,
-      "H6": 60.42,
+      "H5": 63.75,
+      "H6": 60.0,
       "H7": null,
       "H8": null,
       "L1": 87.5,
-      "L2": 97.92,
+      "L2": 97.5,
       "L3": 18.65,
       "L4": null,
       "L5": null,
@@ -77,18 +77,18 @@
         {
           "k": "H5",
           "name": "动量衰退",
-          "score": 64.17,
+          "score": 63.75,
           "weight": 0.08,
-          "contribution": 5.13,
+          "contribution": 5.1,
           "hit": true,
           "direction": "high"
         },
         {
           "k": "H6",
           "name": "均线转弱",
-          "score": 60.42,
+          "score": 60.0,
           "weight": 0.08,
-          "contribution": 4.83,
+          "contribution": 4.8,
           "hit": true,
           "direction": "high"
         },
@@ -106,9 +106,9 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 97.92,
+          "score": 97.5,
           "weight": 0.18,
-          "contribution": 17.63,
+          "contribution": 17.55,
           "hit": true,
           "direction": "low"
         },
@@ -186,7 +186,7 @@
         {
           "k": "H5",
           "name": "动量衰退",
-          "value": 64.17,
+          "value": 63.75,
           "threshold": 60,
           "unit": "分",
           "desc": "动量衰退(新高回落)",
@@ -196,7 +196,7 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 60.42,
+          "value": 60.0,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
@@ -238,7 +238,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 97.92,
+          "value": 97.5,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -309,7 +309,7 @@
     },
     "history_analogy": {
       "high": {
-        "cur_date": "20260722",
+        "cur_date": "20260723",
         "top_n": 3,
         "matches": [
           {
@@ -326,7 +326,7 @@
               "L2"
             ],
             "forward_returns": {
-              "ret_5d": null,
+              "ret_5d": -3.55,
               "ret_10d": null,
               "ret_20d": null
             }
@@ -372,7 +372,7 @@
         ],
         "window_days": 756,
         "stats": {
-          "avg_ret_5d": -1.94,
+          "avg_ret_5d": -2.48,
           "avg_ret_10d": 15.15,
           "avg_ret_20d": 29.01,
           "n_up_10d": 1,
@@ -381,7 +381,7 @@
         }
       },
       "low": {
-        "cur_date": "20260722",
+        "cur_date": "20260723",
         "top_n": 3,
         "matches": [
           {
@@ -398,7 +398,7 @@
               "L2"
             ],
             "forward_returns": {
-              "ret_5d": null,
+              "ret_5d": -3.55,
               "ret_10d": null,
               "ret_20d": null
             }
@@ -444,7 +444,7 @@
         ],
         "window_days": 756,
         "stats": {
-          "avg_ret_5d": -1.94,
+          "avg_ret_5d": -2.48,
           "avg_ret_10d": 15.15,
           "avg_ret_20d": 29.01,
           "n_up_10d": 1,
