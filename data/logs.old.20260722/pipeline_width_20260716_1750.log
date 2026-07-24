@@ -1,0 +1,165 @@
+=== pipeline[width] 开始 2026-07-16 17:50:05 steps=mootdx,industry_width,width_history ===
+-> [width] 采集 steps=mootdx,industry_width,width_history ...
+2026-07-16 17:50:06,375 - mootdx - INFO - [-] 选择最快的服务器...
+  [100/5203] 000516: ok +1 (last=20260716) | elapsed 74s, 1.4/s, ETA 3752s
+  [200/5203] 000669: ok +1 (last=20260716) | elapsed 89s, 2.2/s, ETA 2233s
+  [300/5203] 000820: ok +1 (last=20260716) | elapsed 105s, 2.9/s, ETA 1717s
+  [400/5203] 000978: ok +1 (last=20260716) | elapsed 121s, 3.3/s, ETA 1450s
+  [500/5203] 001338: ok +1 (last=20260716) | elapsed 134s, 3.7/s, ETA 1257s
+  [600/5203] 002072: ok +1 (last=20260716) | elapsed 147s, 4.1/s, ETA 1131s
+  [700/5203] 002178: ok +1 (last=20260716) | elapsed 163s, 4.3/s, ETA 1050s
+  [800/5203] 002283: ok +1 (last=20260716) | elapsed 179s, 4.5/s, ETA 982s
+  [900/5203] 002389: ok +1 (last=20260716) | elapsed 192s, 4.7/s, ETA 918s
+  [1000/5203] 002498: ok +1 (last=20260716) | elapsed 205s, 4.9/s, ETA 861s
+  [1100/5203] 002606: ok +1 (last=20260716) | elapsed 219s, 5.0/s, ETA 817s
+  [1200/5203] 002717: ok +1 (last=20260716) | elapsed 233s, 5.1/s, ETA 778s
+  [1300/5203] 002831: ok +1 (last=20260716) | elapsed 247s, 5.3/s, ETA 742s
+  [1400/5203] 002940: ok +1 (last=20260716) | elapsed 263s, 5.3/s, ETA 714s
+  [1500/5203] 300004: ok +1 (last=20260716) | elapsed 275s, 5.4/s, ETA 680s
+  [1600/5203] 300113: ok +1 (last=20260716) | elapsed 287s, 5.6/s, ETA 646s
+  [1700/5203] 300222: ok +1 (last=20260716) | elapsed 300s, 5.7/s, ETA 619s
+  [1800/5203] 300331: ok +1 (last=20260716) | elapsed 316s, 5.7/s, ETA 597s
+  [1900/5203] 300442: ok +1 (last=20260716) | elapsed 332s, 5.7/s, ETA 577s
+  [2000/5203] 300546: ok +1 (last=20260716) | elapsed 348s, 5.8/s, ETA 557s
+  [2100/5203] 300649: ok +1 (last=20260716) | elapsed 363s, 5.8/s, ETA 537s
+  [2200/5203] 300756: ok +1 (last=20260716) | elapsed 379s, 5.8/s, ETA 517s
+  [2300/5203] 300859: ok +1 (last=20260716) | elapsed 395s, 5.8/s, ETA 498s
+  [2400/5203] 300965: ok +1 (last=20260716) | elapsed 410s, 5.9/s, ETA 479s
+  [2500/5203] 301071: ok +1 (last=20260716) | elapsed 425s, 5.9/s, ETA 460s
+  [2600/5203] 301189: ok +1 (last=20260716) | elapsed 440s, 5.9/s, ETA 441s
+  [2700/5203] 301310: ok +1 (last=20260716) | elapsed 454s, 6.0/s, ETA 421s
+  [2800/5203] 301507: ok +1 (last=20260716) | elapsed 465s, 6.0/s, ETA 399s
+  [2900/5203] 600008: ok +1 (last=20260716) | elapsed 472s, 6.1/s, ETA 375s
+  [3000/5203] 600141: ok +1 (last=20260716) | elapsed 488s, 6.1/s, ETA 359s
+  [3100/5203] 600276: ok +1 (last=20260716) | elapsed 504s, 6.1/s, ETA 342s
+  [3200/5203] 600409: ok +1 (last=20260716) | elapsed 520s, 6.1/s, ETA 326s
+  [3300/5203] 600556: ok +1 (last=20260716) | elapsed 536s, 6.2/s, ETA 309s
+  [3400/5203] 600679: ok +1 (last=20260716) | elapsed 552s, 6.2/s, ETA 293s
+  [3500/5203] 600797: ok +1 (last=20260716) | elapsed 568s, 6.2/s, ETA 276s
+  [3600/5203] 600935: ok +1 (last=20260716) | elapsed 584s, 6.2/s, ETA 260s
+  [3700/5203] 601155: ok +1 (last=20260716) | elapsed 599s, 6.2/s, ETA 243s
+  [3800/5203] 601727: ok +1 (last=20260716) | elapsed 615s, 6.2/s, ETA 227s
+  [3900/5203] 603035: ok +1 (last=20260716) | elapsed 631s, 6.2/s, ETA 211s
+  [4000/5203] 603161: ok +1 (last=20260716) | elapsed 646s, 6.2/s, ETA 194s
+  [4100/5203] 603285: ok +1 (last=20260716) | elapsed 660s, 6.2/s, ETA 177s
+  [4200/5203] 603429: ok +1 (last=20260716) | elapsed 674s, 6.2/s, ETA 161s
+  [4300/5203] 603668: ok +1 (last=20260716) | elapsed 689s, 6.2/s, ETA 145s
+  [4400/5203] 603866: ok +1 (last=20260716) | elapsed 705s, 6.2/s, ETA 129s
+  [4500/5203] 605066: ok +1 (last=20260716) | elapsed 721s, 6.2/s, ETA 113s
+  [4600/5203] 688007: ok +1 (last=20260716) | elapsed 737s, 6.2/s, ETA 97s
+  [4700/5203] 688120: ok +1 (last=20260716) | elapsed 753s, 6.2/s, ETA 81s
+  [4800/5203] 688234: ok +1 (last=20260716) | elapsed 768s, 6.2/s, ETA 65s
+  [4900/5203] 688355: ok +1 (last=20260716) | elapsed 784s, 6.2/s, ETA 48s
+  [5000/5203] 688519: ok +1 (last=20260716) | elapsed 798s, 6.3/s, ETA 32s
+  [5100/5203] 688652: ok +1 (last=20260716) | elapsed 811s, 6.3/s, ETA 16s
+  [5200/5203] 688819: ok +1 (last=20260716) | elapsed 822s, 6.3/s, ETA 0s
+=== batch done: ok=5200 fail=3 rows=5200 processed=5203 elapsed=823s ===
+[F3-recent] 465 rows (31 ind × 15 dates, since 20260626)
+[D2-recent] 22 trading days (20260616~20260716), zt total=1877, dt total=588, zb total=897, up total=49371
+[D2-recent] wrote: {'written': 130, 'protected_akshare_dates': 8, 'dry_run': False}
+=== 采集 20260716 完成 (steps=['mootdx', 'industry_width', 'width_history']): ok=5200 fail=3 ===
+  [fail] mootdx_daily               +5200 rows, 5200 ok/3 fail (5203 codes)
+  [  ok] industry_width             +465 rows recent
+  [  ok] width_history              +22 days recent
+[width] 采集退出码=0(部分失败仍继续,非0不阻塞后续)
+-> [width] compute_runner ...
+[volume_ratio] 计算完成: 2558 天, 写入 10219 条 metric
+=== 计算完成: §4情绪分=2549天  sz50=5458天  hs300=5936天  csi500=5215天  csi1000=2842天  cyb=3901天  kc50=1569天  §6跨市场=4660天  买卖点=16432个  派生公式=2365行  AD Line=10232行  量比=2558天  位置感=24行  恐贪指数=4487天  买卖点stats=109品种(124695B)  新高新低=43415行  均线排列=25872行  板块轮动=6行 ===
+-> [width] 等待 deploy 锁（串行化 git）...
+=== deploy.sh 开始 2026-07-16 18:04:05 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (54832 bytes)
+  a-stock-1m.json (56516 bytes)
+  a-stock-3m.json (140945 bytes)
+  a-stock-6m.json (263962 bytes)
+  a-stock-1y.json (532042 bytes)
+  a-stock-3y.json (1578530 bytes)
+  a-stock-5y.json (2601531 bytes)
+  a-stock-all.json (6850917 bytes)
+  hk-1m.json (44665 bytes)
+  hk-3m.json (109740 bytes)
+  hk-6m.json (203668 bytes)
+  hk-1y.json (411473 bytes)
+  hk-3y.json (1203142 bytes)
+  hk-5y.json (2003958 bytes)
+  hk-all.json (4536988 bytes)
+  global-1m.json (48299 bytes)
+  global-3m.json (112377 bytes)
+  global-6m.json (208446 bytes)
+  global-1y.json (414924 bytes)
+  global-3y.json (1219078 bytes)
+  global-5y.json (1842806 bytes)
+  global-all.json (3915639 bytes)
+  global-extras-all.json (1065019 bytes)
+  sentiment-1m.json (36324 bytes)
+  sentiment-3m.json (86295 bytes)
+  sentiment-6m.json (156984 bytes)
+  sentiment-1y.json (313021 bytes)
+  sentiment-3y.json (925940 bytes)
+  sentiment-5y.json (1541306 bytes)
+  sentiment-all.json (4242529 bytes)
+  industry-1m.json (423510 bytes)
+  industry-3m.json (978360 bytes)
+  industry-6m.json (1794537 bytes)
+  industry-1y.json (3432948 bytes)
+  industry-3y.json (9571846 bytes)
+  industry-5y.json (14703092 bytes)
+  industry-all 拆分: 31 行业 + 27 概念 + meta
+  metrics.json (2099 bytes)
+  futures.json (422622 bytes)
+  ad_line.json (38452 bytes)
+  volume_ratio.json (45641 bytes)
+  position.json (1367 bytes)
+  summary.json (1290 bytes)
+  summary_history.json (119387 bytes)
+  signal_freq.json (251 bytes)
+  rotation.json (37046 bytes)
+  new_high_low.json (25888 bytes)
+  ma_alignment.json (19173 bytes)
+  intraday_snapshot.json (10617 bytes)
+  etf_national_team-1m.json (63520 bytes)
+  etf_national_team-3m.json (176332 bytes)
+  etf_national_team-6m.json (341877 bytes)
+  etf_national_team-1y.json (704302 bytes)
+  etf_national_team-3y.json (2108243 bytes)
+  etf_national_team-5y.json (3467751 bytes)
+  etf_national_team-all.json (7653348 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  etf_national_team_holders.json (27485 bytes)
+  index/*.json (90 files)
+
+导出完成：211 个 JSON 文件，138.3 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 7 ranges
+  - metrics: 1
+  - index detail: 90 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+-> 运行 gen_schedule_stats.py 刷新任务执行统计 ...
+✓ static-site/data/schedule_stats.json (7 tasks)
+  收盘全量     17:50                  est=约8分钟     last=2026-07-15 17:50 exit=0 dur=955s
+  指数补采兜底   16:35 / 20:00 / 02:00  est=约2分钟     last=2026-07-16 16:35 exit=1 dur=152s
+  盘中快照     盘中 09:35-15:35         est=约1分钟     last=2026-07-16 15:35 exit=0 dur=73s
+  期货机构持仓   20:05 + 21:00(兜底)      est=约1秒      last=2026-07-15 20:05 exit=0 dur=1s
+  龙虎榜      18:30 + 19:30(兜底)      est=约40秒     last=2026-07-15 18:30 exit=0 dur=40s
+  两融       23:00                  est=约1秒      last=2026-07-15 22:10 exit=0 dur=1s
+  ETF国家队   20:07 + 21:30(兜底)      est=约1分钟     last=2026-07-15 20:07 exit=0 dur=68s
+→ 运行 build_min.py 重新生成 min JS ...
+=== terser minify 构建 ===
+  terser terser 5.49.0 可用
+  ✓ web/app.js (327,747B) → web/app.min.js (189,568B, -42.2%) + app.min.js.map (177,562B)
+  ✓ web/lab.js (160,181B) → web/lab.min.js (100,298B, -37.4%) + lab.min.js.map (80,095B)
+  ✓ static-site/app.js (332,147B) → static-site/app.min.js (191,320B, -42.4%) + app.min.js.map (179,812B)
+  ✓ static-site/lab.js (160,163B) → static-site/lab.min.js (100,280B, -37.4%) + lab.min.js.map (80,095B)
+完成。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [width] 2026-07-16_18:04
+[feat/iframe-theme-follow e49686f] data update [width] 2026-07-16_18:04
+ 101 files changed, 101 insertions(+), 101 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   4408991..e49686f  HEAD -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-16 18:04:38 退出码=0 ===
+=== pipeline[width] 结束 2026-07-16 18:04:38 collect=0 deploy=0 ===

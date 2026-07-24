@@ -1,0 +1,69 @@
+=== deploy.sh 开始 2026-07-13 23:50:26 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (52989 bytes)
+  a-stock-1m.json (49998 bytes)
+  a-stock-3m.json (138572 bytes)
+  a-stock-6m.json (261642 bytes)
+  a-stock-1y.json (527569 bytes)
+  a-stock-all.json (6842110 bytes)
+  hk-1m.json (9069 bytes)
+  hk-3m.json (28275 bytes)
+  hk-6m.json (54835 bytes)
+  hk-1y.json (112460 bytes)
+  hk-all.json (1192547 bytes)
+  global-1m.json (25988 bytes)
+  global-3m.json (64198 bytes)
+  global-6m.json (117827 bytes)
+  global-1y.json (234274 bytes)
+  global-all.json (3137869 bytes)
+  sentiment-1m.json (31979 bytes)
+  sentiment-3m.json (81021 bytes)
+  sentiment-6m.json (145526 bytes)
+  sentiment-1y.json (289046 bytes)
+  sentiment-all.json (3929531 bytes)
+  industry-1m.json (393524 bytes)
+  industry-3m.json (975512 bytes)
+  industry-6m.json (1792029 bytes)
+  industry-1y.json (3414389 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (421262 bytes)
+  ad_line.json (38455 bytes)
+  volume_ratio.json (45621 bytes)
+  position.json (1367 bytes)
+  summary.json (892 bytes)
+  summary_history.json (85234 bytes)
+  signal_freq.json (324 bytes)
+  rotation.json (37127 bytes)
+  new_high_low.json (25894 bytes)
+  ma_alignment.json (19169 bytes)
+  intraday_snapshot.json (4857 bytes)
+  etf_national_team.json (180538 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  index/*.json (77 files)
+
+导出完成：149 个 JSON 文件，78.6 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 77 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ 运行 build_min.py 重新生成 min JS ...
+=== terser minify 构建 ===
+  terser terser 5.49.0 可用
+  ✓ web/app.js (166,947B) → web/app.min.js (103,291B, -38.1%) + app.min.js.map (94,137B)
+  ✓ web/lab.js (140,718B) → web/lab.min.js (88,627B, -37.0%) + lab.min.js.map (71,340B)
+  ✓ static-site/app.js (170,840B) → static-site/app.min.js (104,771B, -38.7%) + app.min.js.map (95,884B)
+  ✓ static-site/lab.js (140,688B) → static-site/lab.min.js (88,546B, -37.1%) + lab.min.js.map (71,247B)
+完成。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [futures] 2026-07-13_23:50
+[feat/iframe-theme-follow ca01753] data update [futures] 2026-07-13_23:50
+ 47 files changed, 47 insertions(+), 47 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   09e0669..ca01753  HEAD -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-13 23:50:48 退出码=0 ===

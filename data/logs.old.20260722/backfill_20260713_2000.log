@@ -1,0 +1,8 @@
+=== backfill_indices.sh 开始 2026-07-13 20:00:05 ===
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/Users/linhuichen/code/trade/app/collector/index_backfill.py", line 308, in main
+    today = last_trading_day().strftime("%Y%m%d")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'strftime'
+=== backfill_indices.sh 结束 2026-07-13 20:00:06 退出码=1 ===

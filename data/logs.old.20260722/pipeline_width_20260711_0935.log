@@ -1,0 +1,72 @@
+=== pipeline[width] 开始 2026-07-11 09:35:09 steps=mootdx,industry_width,width_history ===
+-> [width] 采集 steps=mootdx,industry_width,width_history ...
+  [100/5203] 000516: empty | elapsed 438s, 0.2/s, ETA 22331s
+  [200/5203] 000669: empty | elapsed 868s, 0.2/s, ETA 21717s
+  [300/5203] 000820: empty | elapsed 1299s, 0.2/s, ETA 21224s
+  [400/5203] 000978: empty | elapsed 1729s, 0.2/s, ETA 20755s
+[F3-recent] 434 rows (31 ind × 14 dates, since 20260621)
+[D2-recent] 20 trading days (20260611~20260709), zt total=1883, dt total=467, zb total=839, up total=44254
+[D2-recent] wrote: {'written': 125, 'protected_akshare_dates': 5, 'dry_run': False}
+=== 采集 20260710 完成 (steps=['mootdx', 'industry_width', 'width_history']): ok=0 fail=1 ===
+  [fail] mootdx_daily               [Errno 2] No such file or directory: '/Users/linhuichen/code/trade/data/mootdx_progress.json.tmp' -> '/Users/linhuichen/code/trade/data/mootdx_progres
+  [  ok] industry_width             +434 rows recent
+  [  ok] width_history              +20 days recent
+-> [width] compute_runner ...
+[volume_ratio] 计算完成: 2554 天, 写入 10203 条 metric
+=== 计算完成: §4情绪分=2545天  sz50=5454天  hs300=5932天  csi500=5211天  csi1000=2838天  cyb=3897天  kc50=1565天  §6跨市场=4650天  买卖点=14576个  派生公式=2358行  AD Line=10216行  量比=2554天  位置感=24行  恐贪指数=4483天  买卖点stats=91品种(105221B)  新高新低=43395行  均线排列=25860行  板块轮动=6行 ===
+-> [width] 等待 deploy 锁（串行化 git）...
+=== deploy.sh 开始 2026-07-11 10:04:54 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (52551 bytes)
+  a-stock-1m.json (51850 bytes)
+  a-stock-3m.json (130875 bytes)
+  a-stock-6m.json (248576 bytes)
+  a-stock-1y.json (498319 bytes)
+  a-stock-all.json (6709735 bytes)
+  hk-1m.json (10015 bytes)
+  hk-3m.json (28312 bytes)
+  hk-6m.json (55325 bytes)
+  hk-1y.json (112948 bytes)
+  hk-all.json (1192127 bytes)
+  global-1m.json (28669 bytes)
+  global-3m.json (64942 bytes)
+  global-6m.json (119449 bytes)
+  global-1y.json (235969 bytes)
+  global-all.json (3137767 bytes)
+  sentiment-1m.json (34216 bytes)
+  sentiment-3m.json (81328 bytes)
+  sentiment-6m.json (146575 bytes)
+  sentiment-1y.json (290298 bytes)
+  sentiment-all.json (3928453 bytes)
+  industry-1m.json (417783 bytes)
+  industry-3m.json (968285 bytes)
+  industry-6m.json (1797062 bytes)
+  industry-1y.json (3412974 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (421583 bytes)
+  ad_line.json (38454 bytes)
+  volume_ratio.json (45636 bytes)
+  position.json (1365 bytes)
+  summary.json (727 bytes)
+  summary_history.json (46425 bytes)
+  signal_freq.json (162 bytes)
+  rotation.json (37122 bytes)
+  new_high_low.json (25894 bytes)
+  ma_alignment.json (19169 bytes)
+  index/*.json (76 files)
+
+导出完成：145 个 JSON 文件，78.1 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 76 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+✓ 无新数据变更，跳过 commit（仍 push 推未 push commit）
+→ git push ...
+Everything up-to-date
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-11 10:05:05 退出码=0 ===
+=== pipeline[width] 结束 2026-07-11 10:05:05 collect=0 deploy=0 ===

@@ -1,0 +1,156 @@
+=== deploy.sh 开始 2026-07-20 23:02:28 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (61742 bytes)
+  a-stock-3m.json (144309 bytes)
+  a-stock-6m.json (269047 bytes)
+  a-stock-1y.json (536095 bytes)
+  a-stock-3y.json (1580736 bytes)
+  a-stock-5y.json (2616633 bytes)
+  a-stock-all.json (6923250 bytes)
+  hk-3m.json (110329 bytes)
+  hk-6m.json (204266 bytes)
+  hk-1y.json (410494 bytes)
+  hk-3y.json (1201839 bytes)
+  hk-5y.json (2004405 bytes)
+  hk-all.json (4540739 bytes)
+  global-3m.json (115966 bytes)
+  global-6m.json (215362 bytes)
+  global-1y.json (420368 bytes)
+  global-3y.json (1225696 bytes)
+  global-5y.json (1862822 bytes)
+  global-all.json (3999506 bytes)
+  global-extras-all.json (1146980 bytes)
+  sentiment-3m.json (88029 bytes)
+  sentiment-6m.json (160724 bytes)
+  sentiment-1y.json (317230 bytes)
+  sentiment-3y.json (932319 bytes)
+  sentiment-5y.json (1561162 bytes)
+  sentiment-all.json (4330288 bytes)
+  industry-3m.json (968069 bytes)
+  industry-6m.json (1783718 bytes)
+  industry-1y.json (3411942 bytes)
+  industry-all 拆分: 31 行业 + 27 概念 + meta
+  industry-5y 拆分: 31 行业 + 27 概念 + meta
+  industry-3y 拆分: 31 行业 + 27 概念 + meta
+  futures.json (422606 bytes)
+  ad_line.json (38453 bytes)
+  volume_ratio.json (45632 bytes)
+  position.json (1364 bytes)
+  summary.json (1275 bytes)
+  summary_history.json (119324 bytes)
+  signal_freq.json (250 bytes)
+  rotation.json (37047 bytes)
+  new_high_low.json (25890 bytes)
+  ma_alignment.json (19175 bytes)
+  intraday_snapshot.json (10654 bytes)
+  etf_national_team-3m.json (180033 bytes)
+  etf_national_team-6m.json (345191 bytes)
+  etf_national_team-1y.json (705355 bytes)
+  etf_national_team-3y.json (2106203 bytes)
+  etf_national_team-5y.json (3471715 bytes)
+  etf_national_team-all.json (7662718 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  etf_national_team_holders.json (27485 bytes)
+  index/*.json (90 files)
+
+导出完成：268 个 JSON 文件，138.1 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 6 ranges
+  - metrics: 1
+  - index detail: 90 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+-> 运行 gen_schedule_stats.py 刷新任务执行统计 ...
+✓ static-site/data/schedule_stats.json (7 tasks)
+  收盘全量     17:50                  est=约15分钟    last=2026-07-16 17:50 exit=0 dur=2940s
+  指数补采兜底   16:35 / 20:00 / 02:00  est=约3分钟     last=2026-07-18 02:00 exit=0 dur=0s
+  盘中快照     盘中 09:35-15:35         est=约1分钟     last=2026-07-16 15:35 exit=0 dur=73s
+  期货机构持仓   20:05 + 21:00(兜底)      est=约23秒     last=2026-07-17 21:00 exit=0 dur=26s
+  龙虎榜      18:30 + 19:30(兜底)      est=约43秒     last=2026-07-17 19:30 exit=0 dur=52s
+  两融       23:00                  est=约1秒      last=2026-07-17 23:00 exit=0 dur=1s
+  ETF国家队   20:07 + 21:30(兜底)      est=约2分钟     last=2026-07-17 21:30 exit=0 dur=191s
+-> 运行 gen_rss.py 生成 RSS feed.xml ...
+✓ /Users/linhuichen/code/trade/static-site/data/feed.xml 生成（30 items）
+→ 运行 build_min.py 重新生成 min JS ...
+=== terser minify 构建 ===
+  terser terser 5.49.0 可用
+  ✓ static-site/app.js (424,323B) -> static-site/app.min.js (245,639B, -42.1%)
+  ✓ static-site/lab.js (333,395B) -> static-site/lab.min.js (199,352B, -40.2%)
+完成（built=2 skipped=0）。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+-> 上传 lab 到 R2 ...
+✓ lab_backtest.json (64KB)
+✓ lab_backtest_bj50.json (25KB)
+✓ lab_backtest_csi1000.json (25KB)
+✓ lab_backtest_csi500.json (25KB)
+✓ lab_backtest_cyb.json (25KB)
+✓ lab_backtest_fusion_bj50.json (117KB)
+✓ lab_backtest_fusion_csi1000.json (119KB)
+✓ lab_backtest_fusion_csi500.json (119KB)
+✓ lab_backtest_fusion_cyb.json (119KB)
+✓ lab_backtest_fusion_hs300.json (118KB)
+✓ lab_backtest_fusion_kc50.json (118KB)
+✓ lab_backtest_fusion_sh.json (119KB)
+✓ lab_backtest_fusion_sz.json (118KB)
+✓ lab_backtest_fusion_sz50.json (119KB)
+✓ lab_backtest_hs300.json (25KB)
+✓ lab_backtest_kc50.json (25KB)
+✓ lab_backtest_sh.json (25KB)
+✓ lab_backtest_sz.json (25KB)
+✓ lab_backtest_sz50.json (25KB)
+✓ lab_retest_bj50.json (3KB)
+✓ lab_retest_csi1000.json (21KB)
+✓ lab_retest_csi500.json (21KB)
+✓ lab_retest_cyb.json (11KB)
+✓ lab_retest_honors.json (4KB)
+✓ lab_retest_hs300.json (21KB)
+✓ lab_retest_kc50.json (17KB)
+✓ lab_retest_sh.json (21KB)
+✓ lab_retest_sz.json (21KB)
+✓ lab_retest_sz50.json (22KB)
+✓ lab_sim_bj50_full.json (1917KB)
+✓ lab_sim_bj50_fusion_full.json (2558KB)
+✓ lab_sim_bj50_fusion_stats.json (338KB)
+✓ lab_sim_bj50_stats.json (143KB)
+✓ lab_sim_csi1000_full.json (3744KB)
+✓ lab_sim_csi1000_fusion_full.json (4609KB)
+✓ lab_sim_csi1000_fusion_stats.json (338KB)
+✓ lab_sim_csi1000_stats.json (143KB)
+✓ lab_sim_csi500_full.json (4962KB)
+✓ lab_sim_csi500_fusion_full.json (6153KB)
+✓ lab_sim_csi500_fusion_stats.json (338KB)
+✓ lab_sim_csi500_stats.json (143KB)
+✓ lab_sim_cyb_full.json (4325KB)
+✓ lab_sim_cyb_fusion_full.json (5506KB)
+✓ lab_sim_cyb_fusion_stats.json (337KB)
+✓ lab_sim_cyb_stats.json (142KB)
+✓ lab_sim_hs300_full.json (5149KB)
+✓ lab_sim_hs300_fusion_full.json (6202KB)
+✓ lab_sim_hs300_fusion_stats.json (338KB)
+✓ lab_sim_hs300_stats.json (143KB)
+✓ lab_sim_kc50_full.json (2559KB)
+✓ lab_sim_kc50_fusion_full.json (3316KB)
+✓ lab_sim_kc50_fusion_stats.json (319KB)
+✓ lab_sim_kc50_stats.json (142KB)
+✓ lab_sim_sh_full.json (6365KB)
+✓ lab_sim_sh_fusion_full.json (7722KB)
+✓ lab_sim_sh_fusion_stats.json (338KB)
+✓ lab_sim_sh_stats.json (143KB)
+✓ lab_sim_sz50_full.json (4869KB)
+✓ lab_sim_sz50_fusion_full.json (5983KB)
+✓ lab_sim_sz50_fusion_stats.json (337KB)
+✓ lab_sim_sz50_stats.json (143KB)
+✓ lab_sim_sz_full.json (6389KB)
+✓ lab_sim_sz_fusion_full.json (7923KB)
+✓ lab_sim_sz_fusion_stats.json (337KB)
+✓ lab_sim_sz_stats.json (143KB)
+共上传 65/65 -> https://ssd.fx8.store/lab/
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [all] 2026-07-20_23:04
+[feat/iframe-theme-follow 78b13030] data update [all] 2026-07-20_23:04
+ 9 files changed, 9 insertions(+), 9 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   1db4ff7b..78b13030  HEAD -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-20 23:05:02 退出码=0 ===

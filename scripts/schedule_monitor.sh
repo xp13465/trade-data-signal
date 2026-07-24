@@ -48,7 +48,7 @@ TASKS = [
     {"task": "update_all",          "log": "update_all_launchd.log",
      "schedules": ["17:50"]},
     {"task": "backfill_evening",    "log": "backfill_evening_launchd.log",
-     "schedules": ["02:00", "16:35", "20:00"]},
+     "schedules": ["02:00", "16:35"]},  # 2026-07-24 B4 Top2 去重：删 20:00 槽（plist 已删，监控配置同步）
     {"task": "intraday_snapshot",   "log": "intraday_snapshot_launchd.log",
      "schedules": ["09:35", "09:50", "10:05", "10:20", "10:35", "10:50", "11:05", "11:20", "11:30",
                    "13:05", "13:20", "13:35", "13:50", "14:05", "14:20", "14:35", "14:50", "15:05"]},

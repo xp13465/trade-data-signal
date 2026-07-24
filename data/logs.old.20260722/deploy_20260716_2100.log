@@ -1,0 +1,96 @@
+=== deploy.sh 开始 2026-07-16 21:00:07 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (54736 bytes)
+  a-stock-1m.json (56392 bytes)
+  a-stock-3m.json (140821 bytes)
+  a-stock-6m.json (263838 bytes)
+  a-stock-1y.json (531918 bytes)
+  a-stock-3y.json (1578406 bytes)
+  a-stock-5y.json (2601407 bytes)
+  a-stock-all.json (6850793 bytes)
+  hk-1m.json (44669 bytes)
+  hk-3m.json (109744 bytes)
+  hk-6m.json (203672 bytes)
+  hk-1y.json (411477 bytes)
+  hk-3y.json (1203146 bytes)
+  hk-5y.json (2003962 bytes)
+  hk-all.json (4536992 bytes)
+  global-1m.json (48299 bytes)
+  global-3m.json (112377 bytes)
+  global-6m.json (208446 bytes)
+  global-1y.json (414924 bytes)
+  global-3y.json (1219078 bytes)
+  global-5y.json (1842806 bytes)
+  global-all.json (3915639 bytes)
+  global-extras-all.json (1065019 bytes)
+  sentiment-1m.json (36324 bytes)
+  sentiment-3m.json (86295 bytes)
+  sentiment-6m.json (156984 bytes)
+  sentiment-1y.json (313021 bytes)
+  sentiment-3y.json (925940 bytes)
+  sentiment-5y.json (1541306 bytes)
+  sentiment-all.json (4242529 bytes)
+  industry-1m.json (423510 bytes)
+  industry-3m.json (978360 bytes)
+  industry-6m.json (1794537 bytes)
+  industry-1y.json (3432948 bytes)
+  industry-3y.json (9571846 bytes)
+  industry-5y.json (14703092 bytes)
+  industry-all 拆分: 31 行业 + 27 概念 + meta
+  metrics.json (2099 bytes)
+  futures.json (422622 bytes)
+  ad_line.json (38452 bytes)
+  volume_ratio.json (45627 bytes)
+  position.json (1367 bytes)
+  summary.json (1275 bytes)
+  summary_history.json (119372 bytes)
+  signal_freq.json (251 bytes)
+  rotation.json (37046 bytes)
+  new_high_low.json (25888 bytes)
+  ma_alignment.json (19173 bytes)
+  intraday_snapshot.json (10617 bytes)
+  etf_national_team-1m.json (66269 bytes)
+  etf_national_team-3m.json (179081 bytes)
+  etf_national_team-6m.json (344626 bytes)
+  etf_national_team-1y.json (707051 bytes)
+  etf_national_team-3y.json (2110992 bytes)
+  etf_national_team-5y.json (3470500 bytes)
+  etf_national_team-all.json (7656097 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  etf_national_team_holders.json (27485 bytes)
+  index/*.json (90 files)
+
+导出完成：211 个 JSON 文件，138.3 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 7 ranges
+  - metrics: 1
+  - index detail: 90 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+-> 运行 gen_schedule_stats.py 刷新任务执行统计 ...
+✓ static-site/data/schedule_stats.json (7 tasks)
+  收盘全量     17:50                  est=约15分钟    last=2026-07-16 17:50 exit=0 dur=2940s
+  指数补采兜底   16:35 / 20:00 / 02:00  est=约2分钟     last=2026-07-16 19:55 exit=1 dur=124s
+  盘中快照     盘中 09:35-15:35         est=约1分钟     last=2026-07-16 15:35 exit=0 dur=73s
+  期货机构持仓   20:05 + 21:00(兜底)      est=约14秒     last=2026-07-16 20:05 exit=0 dur=27s
+  龙虎榜      18:30 + 19:30(兜底)      est=约41秒     last=2026-07-16 19:30 exit=0 dur=41s
+  两融       23:00                  est=约1秒      last=2026-07-15 22:10 exit=0 dur=1s
+  ETF国家队   20:07 + 21:30(兜底)      est=约1分钟     last=2026-07-16 20:07 exit=0 dur=105s
+→ 运行 build_min.py 重新生成 min JS ...
+=== terser minify 构建 ===
+  terser terser 5.49.0 可用
+  ✓ web/app.js (327,076B) → web/app.min.js (189,060B, -42.2%) + app.min.js.map (176,999B)
+  ✓ web/lab.js (167,845B) → web/lab.min.js (105,430B, -37.2%) + lab.min.js.map (83,189B)
+  ✓ static-site/app.js (331,476B) → static-site/app.min.js (190,812B, -42.4%) + app.min.js.map (179,254B)
+  ✓ static-site/lab.js (167,821B) → static-site/lab.min.js (105,406B, -37.2%) + lab.min.js.map (83,189B)
+完成。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [futures] 2026-07-16_21:00
+[feat/iframe-theme-follow 386eab9] data update [futures] 2026-07-16_21:00
+ 10 files changed, 14 insertions(+), 14 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   5d68c73..386eab9  HEAD -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-16 21:00:42 退出码=0 ===

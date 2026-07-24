@@ -1,0 +1,41 @@
+2026-07-16 18:37:38 [INFO] === check_signals 开始，查询日期：20260716 ===
+2026-07-16 18:37:38 [INFO] 查询到 1 个信号（主买=0, 辅买=1, 卖=0）
+2026-07-16 18:37:38 [INFO] ===== 邮件主题 =====
+2026-07-16 18:37:38 [INFO] [买卖点信号] 20260716  辅买×1 军工信息化
+2026-07-16 18:37:38 [INFO] ===== 邮件正文 =====
+2026-07-16 18:37:38 [INFO] <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
+<h2 style="margin:0 0 8px 0;color:#1d2129;">📊 买卖点信号日报</h2>
+<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">20260716 · 共 <b>1</b> 个信号（主买 0 / 辅买 1 / 卖 0）</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+<thead><tr style="background:#f2f3f5;text-align:left;">
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">品种</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:48px;">类型</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">触发条件</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">胜率</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">盈亏比</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:130px;text-align:center;">凯利建议</th>
+</tr></thead><tbody>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🟣 <b>军工信息化</b></td>
+<td style="padding:8px 10px;font-size:12px;">辅买</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">布林下轨回归(下轨1515,close1522), RSI=33, cross=41[偏冷]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#e6492e;">31%</td>
+<td style="padding:8px 10px;text-align:center;">0.54</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#86909c;">不建议入场</td>
+</tr>
+</tbody></table>
+<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#4e5969;line-height:1.8;">
+<div style="font-weight:600;margin-bottom:4px;color:#1d2129;">📋 规则说明</div>
+• 主买（buy）：RSI 上穿 30（超卖反弹启动）<br>
+• 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）<br>
+• 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
+• 附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注
+</div>
+<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;font-size:12px;color:#86909c;line-height:1.8;">
+<div style="font-weight:600;margin-bottom:4px;color:#1d2129;">⚠️ 免责声明</div>
+本信号由历史数据量化回测生成，仅供研究参考，不构成任何投资建议。<br>
+市场有风险，投资需谨慎。请结合自身判断与资金管理做出决策。
+</div>
+<p style="color:#c9cdd4;font-size:11px;margin-top:16px;">—— A股/港股/全球情绪数据复盘看板 · 生成时间：2026-07-16 18:37:38</p>
+</body></html>
+2026-07-16 18:37:39 [INFO] ✓ 邮件已发送至 234058394@qq.com

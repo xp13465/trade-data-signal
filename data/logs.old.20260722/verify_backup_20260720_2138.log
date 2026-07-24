@@ -1,0 +1,33 @@
+=== verify_backup.sh 开始 2026-07-20 21:38:57 ===
+临时目录: /tmp/verify-backup-FgFSrq（只读演练，不动真实 data/*.db）
+-> 从 R2(signal-backup) 下载最新备份 ...
+最新 sentiment 备份: signal-backup/backup/sentiment_20260720.db (日期 20260720)
+✓ 下载 86192128B -> /tmp/verify-backup-FgFSrq/sentiment_20260720.db
+最新 etf_national_team 备份: signal-backup/backup/etf_national_team_20260720.db (日期 20260720)
+✓ 下载 5353472B -> /tmp/verify-backup-FgFSrq/etf_national_team_20260720.db
+下载完成：
+  sentiment:         /tmp/verify-backup-FgFSrq/sentiment_20260720.db
+  etf_national_team: /tmp/verify-backup-FgFSrq/etf_national_team_20260720.db
+VERIFY_OK=1
+=== integrity_check（完整性）===
+  sentiment: ok  [OK]
+  etf_national_team: ok  [OK]
+
+=== 行数对比（备份 vs 本地，只读）===
+--- sentiment ---
+  score_daily                  备份=36635  本地=42123  [OK]
+  daily_metric                 备份=214345  本地=214475  [OK]
+  signal_daily                 备份=16906  本地=16906  [OK]
+  index_daily                  备份=284097  本地=284100  [OK]
+  industry_width_daily         备份=79298  本地=79298  [OK]
+  futures_position             备份=9210  本地=9210  [OK]
+  futures_accuracy             备份=22275  本地=22275  [OK]
+  collect_log                  备份=961  本地=981  [OK]
+--- etf_national_team ---
+  etf_daily                    备份=33951  本地=33951  [OK]
+  etf_signal                   备份=2550  本地=2550  [OK]
+  etf_holder_quarterly         备份=284  本地=284  [OK]
+  national_team_holders        备份=192  本地=192  [OK]
+
+=== 结论：✓ 通过（integrity 全 ok + 关键表行数正常）===
+=== verify_backup.sh 结束 2026-07-20 21:40:05 退出码=0 ===

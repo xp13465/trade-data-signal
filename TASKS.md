@@ -8,9 +8,9 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-24 19:08(批次1 提速 B4 C方案+Top2 etf_nt去重 上线完成)
+**最后更新**:2026-07-24 20:20(B4实测崩溃✓验收退出码133+FATAL V8+0只成功;7/24 ETF国家队缺失etf_daily最新7/23;派a22修复ProcessPoolExecutor中)
 
-**分支**:`feat/b4-speedup` 已 merge 到 main(origin/main = `172fe2b6` 批次1 提速)
+**分支**:origin/main = `194c097f`(批次1 提速 `172fe2b6`+docs `194c097f` 已上线)
 - 批次1 commit:`0e916672` feat: B4 C方案(E2去双throttle+并发采集+--full-market) + `172fe2b6` data: etf_score_list 1371只修复(手动rsync trade-data->trade)
   - B4 base.py:throttle()加threading.Lock + safe_call加skip_throttle参数
   - B4 etf_national_team.py:L384去显式throttle(双->单) + akshare sina skip_throttle=True可并发 + mootdx fallback _MOOTDX_LOCK串行 + pipeline_daily/pipeline_backfill改ThreadPoolExecutor(max_workers=10)
@@ -27,16 +27,22 @@
 - `da35a696`(48h 监控,每小时13分,durable,至 2026-07-25 08:44 结束给汇总+CronDelete)
 
 **活跃 agent**:
-- 批次1 提速 a99f4fbaa ✓完成上线(commit 0e916672+172fe2b6,三站验证sss.sugas.site 1371只✓,待20:07 etf pipeline_daily跑并发新代码验证全量提速35min->?min)
-- 修sticky 已完成push feat/sticky-fix(commit 003fc9db,等指示push main,需rebase origin/main=172fe2b6)
-- 国债调研 a4f04af2 ✓完成(根因:compute_band_signal只返回最新1条+store DELETE重算致历史sell被覆盖;验收通过signals.py L1330注释+DB sell=0)
-- 国债修复 a67c9f22 ✓完成验收(commit db1dbf32 feat/cgb-band-fix,DB sell=8原0+band_hold=46原1+7/22 sell恢复,回测100%一致,等push main+deploy含export重生JSON,需rebase origin/main=172fe2b6)
+- 批次1 提速 a99f4fbaa ✓完成上线验收通过(commit 0e916672+172fe2b6+194c097f,sss.sugas.site 1371只✓,ss.fx8.store 62只CF deploy延迟跟进,Top2 plist去重✓;待20:07 etf pipeline_daily跑并发新代码验证全量提速35min->?min)
+- 修sticky a19b42a5 ✓完成验收(commit 47c66add rebase后push main,sss.sugas.site style.min.css?v=0a15c967含position:sticky✓;ss.fx8.store批次1数据1371只✓+sticky前端CF deploy延迟~20min中,非失效是CF Git integration延迟特性,远期可加GH Actions wrangler deploy加速)
+- 国债修复 a67c9f22 ✓全部完成上线(commit 7a389561 data update全历史band JSON push main,三站验证sss band_hold 5d_n=4045/1805/1564全历史✓非旧版0;方案A改进worktree+双DB symlink跑deploy.sh不动主工作区§10/§12;遗留R2 lab/trade_sim旧版非阻塞远期trade-data跑R2)
+- 国债范围核实 a50e5409 ✓完成(验收:db1dbf32是LIMIT 120近60天滚动窗口非全量,60=MA60 warmup,DB band_hold 46条仅20260427..20260723近60天,index_daily全历史2161天,band与其他信号范围不一致)
+- 理财专员使用指南 a0ce362e ✓完成验收(docs/理财专员使用指南.md 613行7章+附录;合规口径1手2手3手非1档2档3档+免责声明3处§〇/§6.7/文末;回测数字真实标注来源signals.py/trade_sim/signal_stats;卖点定位胜率≈50%非独立指令;无回测品种诚实说明§5.6;等用户定上线about页/就放docs)
+- 文档merge main a94cd396 ✓完成验收(cherry-pick 7ff066d7 push main fast-forward,origin/main含文档613行,worktree清理,主工作区未动)
+- R2 lab/trade_sim上传 ab17abaf ✓完成验收(upload_r2.py lab 65/65+trade_sim html 100/100+json 400/400,线上ssd.fx8.store content-length一致,补a67c9f22 worktree缺失;关键教训:trade_sim只在trade/不在trade-data/,R2 upload不设REPO从trade/跑,§9 cwd=trade-data规范是uvicorn读DB不适用R2上传)
+- B4实测查 a325e4ada08ccae9b ✓完成验收(20:07 etf跑B4并发新代码,日志line1728-1912:max_workers=10启用1374只sh737sz637+FATAL address_pool_manager 6次V8多线程重复初始化+退出码133 SIGTRAP崩溃+0只成功;7/23旧串行1371只有OHLC进度日志正常未崩;根因mini_racer V8 isolate非线程安全ThreadPoolExecutor并发不兼容;提速35min->?min不成立根本没采到)
+- **B4修复 a22d34eb297df2786 🔄运行中**(用户选直接修复终极并发:调研mini_racer多进程可行性->ProcessPoolExecutor initializer创建进程局部V8 isolate[若不可行fallback串行化mini_racer锁调用只并发IO]->重采7/24验证1374只成功+无崩溃+耗时->push feat+merge main+deploy+验证三站updated_at含7/24;等deploy.sh PID49743跑完再push避免git撞;进度文件/tmp/agent-progress-b4-fix.md)
+- **backfill_evening 20:00 漏跑告警排查 ✓完成**（2026-07-24 20:15:06 告警;结论=**误告警**:plist 已由 Top2 去重删 20:00 槽[16:35+02:00 两槽],但 `scripts/schedule_monitor.sh` L51 schedules 仍含 20:00 => 监控配置滞后误判;处理:schedule_monitor.sh L51 删 20:00 同步 + 清空 data/alerts/latest.md[本地 untracked,gitignore L24];下次 schedule_monitor 跑[每15分钟]后无新告警;commit 待 push）
 
-**正在等**:批次1 提速 ✓上线(待20:07验证B4全量提速);sticky 003fc9db 等push main(需rebase);国债修复 a72521f7 等push main(需rebase)
+**正在等**:B4修复 a22d34eb297df2786 跑完(调研ProcessPoolExecutor可行性+实施+重采7/24+push+deploy+验证三站);明天17:50 update_all后验证全历史band生产闭环(sell不回0/band_hold全历史);远期ss.fx8.store CF deploy优化(GH Actions wrangler)
 
 **三站验证结果**(批次1 提速,任一新版即算上线):
-- sss.sugas.site(GitHub Pages):etf_score_list.json universe=1371 full_market=True ✓ + overview collected_at=20260724 18:30 ✓
-- ss.fx8.store(CF 主站):etf_score_list 仍62只(CF Workers Static Assets缓存延迟,push main触发deploy+purge待生效,不卡单域名§8);overview collected_at=20260724 18:30 ✓
+- sss.sugas.site(GitHub Pages):etf_score_list.json universe=1371 full_market=True ✓(批次1上线OK)
+- ss.fx8.store(CF 主站):etf_score_list 仍62只 full_market=False(CF Workers deploy延迟,sticky push main触发新deploy时跟进;不卡单域名§8)
 
 **收盘后分批实施**:
 - 批次1 提速:Top2集群(B1+F2+L3+L-1+R1 零代码省100min/天)+ B4 C方案(E2去双throttle+并发采集+--full-market,35min->3.5min)

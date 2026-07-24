@@ -1,0 +1,9 @@
+=== lhb_backfill.sh 开始 2026-07-16 09:18:45 ===
+交易日判断: IS_TRADING=1 FORCE=1
+-> 单采龙虎榜当日 (group=lhb) ...
+[lhb] lhb_count fail: stock_lhb_detail_em error: 'NoneType' object is not subscriptable
+[lhb] lhb_inst_net fail: stock_lhb_jgmmtj_em error: 'NoneType' object is not subscriptable
+[lhb] date=20260716 ok=0 fail=2
+龙虎榜采集退出码=1(0=有新数据,非0=源未发布/为空)
+龙虎榜无新数据（源未发布或为空），跳过重算+推送
+=== lhb_backfill.sh 结束 2026-07-16 09:18:56 退出码=0 ===

@@ -1,0 +1,41 @@
+=== deploy.sh 开始 2026-07-07 12:55:20 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (30583 bytes)
+  a-stock-1m.json (42177 bytes)
+  a-stock-3m.json (117985 bytes)
+  a-stock-6m.json (226340 bytes)
+  a-stock-1y.json (461723 bytes)
+  a-stock-all.json (6177002 bytes)
+  hk-1m.json (8382 bytes)
+  hk-3m.json (27138 bytes)
+  hk-6m.json (53700 bytes)
+  hk-1y.json (111787 bytes)
+  hk-all.json (1189579 bytes)
+  global-1m.json (6091 bytes)
+  global-3m.json (18963 bytes)
+  global-6m.json (37896 bytes)
+  global-1y.json (81106 bytes)
+  global-all.json (819289 bytes)
+  sentiment-1m.json (4567 bytes)
+  sentiment-3m.json (13328 bytes)
+  sentiment-6m.json (25935 bytes)
+  sentiment-1y.json (53117 bytes)
+  sentiment-all.json (709159 bytes)
+  industry-1m.json (175269 bytes)
+  industry-3m.json (515758 bytes)
+  industry-6m.json (1004550 bytes)
+  industry-1y.json (2055677 bytes)
+  industry-all.json (24888806 bytes)
+  metrics.json (2055 bytes)
+  index/*.json (44 files)
+
+导出完成：71 个 JSON 文件，56.8 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 44 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+✓ 无数据变更，skip push
+=== deploy.sh 结束 2026-07-07 12:55:23 退出码=0 ===

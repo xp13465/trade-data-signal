@@ -1,0 +1,181 @@
+=== update_all.sh 开始 2026-07-11 09:34:25 ===
+交易日判断: IS_TRADING=0 FORCE=1
+⚠ force 模式：非交易日强制采集（补数据/校准）
+-> 并发启动 pipeline: core / width / futures / stock_daily(后台)
+  PID: core=85154 width=85155 futures=85156 stock_daily=85157(后台不等)
+=== pipeline[stock_daily] 开始 2026-07-11 09:34:26 steps=stock_daily ===
+=== pipeline[futures] 开始 2026-07-11 09:34:26 steps=futures ===
+=== pipeline[width] 开始 2026-07-11 09:34:26 steps=mootdx,industry_width,width_history ===
+=== pipeline[core] 开始 2026-07-11 09:34:26 steps=metrics,indices,industry_extras ===
+-> [stock_daily] 采集 steps=stock_daily ...
+-> [futures] 采集 steps=futures ...
+-> [width] 采集 steps=mootdx,industry_width,width_history ...
+-> [core] 采集 steps=metrics,indices,industry_extras ...
+=== 采集 20260710 完成 (steps=['stock_daily']): ok=0 fail=0 ===
+  [  ok] stock_daily                skip (no progress yet, run `stock_daily full` manually)
+/Users/linhuichen/code/trade/scripts/pipeline.sh: line 44: COLLECT_RC�: unbound variable
+=== pipeline[stock_daily] 结束 2026-07-11 09:34:26 collect=0 deploy=0 ===
+Please wait for a moment:   0%|          | 0/70 [00:00<?, ?it/s]Please wait for a moment:   1%|▏         | 1/70 [00:00<00:08,  8.61it/s]Please wait for a moment:   3%|▎         | 2/70 [00:00<00:07,  8.56it/s][futures_position] 20260710: collected 15 variety-role combos across roles (top20, 中信期货, 国泰君安)
+=== 采集 20260710 完成 (steps=['futures']): ok=2 fail=0 ===
+  [  ok] futures_position           collected 20260710
+  [  ok] futures_accuracy           45 rows
+/Users/linhuichen/code/trade/scripts/pipeline.sh: line 44: COLLECT_RC�: unbound variable
+-> [futures] 等待 deploy 锁（串行化 git）...
+Please wait for a moment:   4%|▍         | 3/70 [00:00<00:07,  8.73it/s]Please wait for a moment:   6%|▌         | 4/70 [00:00<00:07,  8.82it/s]Please wait for a moment:   7%|▋         | 5/70 [00:00<00:07,  8.99it/s]Please wait for a moment:   9%|▊         | 6/70 [00:00<00:07,  8.98it/s]Please wait for a moment:  10%|█         | 7/70 [00:00<00:06,  9.01it/s]Please wait for a moment:  11%|█▏        | 8/70 [00:00<00:06,  9.03it/s]Please wait for a moment:  13%|█▎        | 9/70 [00:01<00:06,  9.07it/s]Please wait for a moment:  14%|█▍        | 10/70 [00:01<00:06,  8.73it/s]Please wait for a moment:  16%|█▌        | 11/70 [00:01<00:07,  7.45it/s]Please wait for a moment:  17%|█▋        | 12/70 [00:01<00:07,  7.29it/s]Please wait for a moment:  19%|█▊        | 13/70 [00:01<00:12,  4.49it/s]Please wait for a moment:  20%|██        | 14/70 [00:02<00:11,  4.90it/s]Please wait for a moment:  21%|██▏       | 15/70 [00:02<00:09,  5.66it/s]Please wait for a moment:  23%|██▎       | 16/70 [00:02<00:14,  3.72it/s]Please wait for a moment:  24%|██▍       | 17/70 [00:03<00:16,  3.19it/s]Please wait for a moment:  26%|██▌       | 18/70 [00:03<00:20,  2.53it/s]Please wait for a moment:  27%|██▋       | 19/70 [00:03<00:15,  3.22it/s]Please wait for a moment:  29%|██▊       | 20/70 [00:03<00:12,  3.99it/s]Please wait for a moment:  30%|███       | 21/70 [00:04<00:15,  3.21it/s]Please wait for a moment:  31%|███▏      | 22/70 [00:04<00:12,  3.98it/s]Please wait for a moment:  33%|███▎      | 23/70 [00:04<00:09,  4.77it/s]Please wait for a moment:  34%|███▍      | 24/70 [00:04<00:08,  5.49it/s]Please wait for a moment:  36%|███▌      | 25/70 [00:05<00:12,  3.63it/s]Please wait for a moment:  37%|███▋      | 26/70 [00:05<00:10,  4.36it/s]Please wait for a moment:  39%|███▊      | 27/70 [00:05<00:13,  3.13it/s]Please wait for a moment:  40%|████      | 28/70 [00:05<00:10,  3.89it/s]Please wait for a moment:  41%|████▏     | 29/70 [00:06<00:08,  4.66it/s]Please wait for a moment:  43%|████▎     | 30/70 [00:06<00:07,  5.46it/s]Please wait for a moment:  44%|████▍     | 31/70 [00:06<00:06,  6.16it/s]Please wait for a moment:  46%|████▌     | 32/70 [00:06<00:05,  6.66it/s]Please wait for a moment:  47%|████▋     | 33/70 [00:06<00:05,  7.12it/s]Please wait for a moment:  49%|████▊     | 34/70 [00:07<00:09,  3.80it/s]Please wait for a moment:  50%|█████     | 35/70 [00:07<00:11,  3.07it/s]Please wait for a moment:  51%|█████▏    | 36/70 [00:07<00:12,  2.67it/s]Please wait for a moment:  53%|█████▎    | 37/70 [00:08<00:13,  2.43it/s]Please wait for a moment:  54%|█████▍    | 38/70 [00:08<00:13,  2.31it/s]Please wait for a moment:  56%|█████▌    | 39/70 [00:09<00:10,  2.89it/s]Please wait for a moment:  57%|█████▋    | 40/70 [00:09<00:11,  2.57it/s]Please wait for a moment:  59%|█████▊    | 41/70 [00:10<00:12,  2.38it/s]Please wait for a moment:  60%|██████    | 42/70 [00:10<00:12,  2.20it/s]Please wait for a moment:  61%|██████▏   | 43/70 [00:11<00:13,  1.95it/s]Please wait for a moment:  63%|██████▎   | 44/70 [00:11<00:14,  1.83it/s]=== pipeline[futures] 结束 2026-07-11 09:34:38 collect=0 deploy=0 ===
+Please wait for a moment:  64%|██████▍   | 45/70 [00:12<00:15,  1.63it/s]Please wait for a moment:  66%|██████▌   | 46/70 [00:13<00:14,  1.70it/s]Please wait for a moment:  67%|██████▋   | 47/70 [00:13<00:10,  2.23it/s]Please wait for a moment:  69%|██████▊   | 48/70 [00:13<00:07,  2.85it/s]Please wait for a moment:  70%|███████   | 49/70 [00:13<00:05,  3.54it/s]Please wait for a moment:  71%|███████▏  | 50/70 [00:13<00:04,  4.25it/s]Please wait for a moment:  73%|███████▎  | 51/70 [00:14<00:06,  3.09it/s]Please wait for a moment:  74%|███████▍  | 52/70 [00:14<00:04,  3.80it/s]Please wait for a moment:  76%|███████▌  | 53/70 [00:14<00:03,  4.45it/s]Please wait for a moment:  77%|███████▋  | 54/70 [00:14<00:03,  5.15it/s]Please wait for a moment:  79%|███████▊  | 55/70 [00:15<00:05,  2.86it/s]Please wait for a moment:  80%|████████  | 56/70 [00:15<00:05,  2.55it/s]Please wait for a moment:  81%|████████▏ | 57/70 [00:16<00:05,  2.25it/s]Please wait for a moment:  83%|████████▎ | 58/70 [00:16<00:04,  2.88it/s]Please wait for a moment:  84%|████████▍ | 59/70 [00:16<00:04,  2.56it/s]Please wait for a moment:  86%|████████▌ | 60/70 [00:17<00:04,  2.18it/s]Please wait for a moment:  87%|████████▋ | 61/70 [00:18<00:04,  1.91it/s]Please wait for a moment:  89%|████████▊ | 62/70 [00:18<00:03,  2.47it/s]Please wait for a moment:  90%|█████████ | 63/70 [00:18<00:02,  3.10it/s]Please wait for a moment:  91%|█████████▏| 64/70 [00:19<00:02,  2.65it/s]Please wait for a moment:  93%|█████████▎| 65/70 [00:19<00:02,  2.43it/s]Please wait for a moment:  94%|█████████▍| 66/70 [00:20<00:01,  2.26it/s]Please wait for a moment:  96%|█████████▌| 67/70 [00:20<00:01,  1.86it/s]Please wait for a moment:  97%|█████████▋| 68/70 [00:20<00:00,  2.41it/s]Please wait for a moment:  99%|█████████▊| 69/70 [00:21<00:00,  3.05it/s]                                                                           0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  6.29it/s] 67%|██████▋   | 2/3 [00:00<00:00,  6.06it/s]100%|██████████| 3/3 [00:00<00:00,  6.32it/s]                                               0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  3.86it/s] 67%|██████▋   | 2/3 [00:00<00:00,  4.88it/s]100%|██████████| 3/3 [00:00<00:00,  5.63it/s]                                               0%|          | 0/13 [00:00<?, ?it/s]  8%|▊         | 1/13 [00:00<00:02,  5.65it/s] 15%|█▌        | 2/13 [00:00<00:01,  5.59it/s] 23%|██▎       | 3/13 [00:00<00:01,  5.02it/s] 31%|███       | 4/13 [00:00<00:01,  4.58it/s] 38%|███▊      | 5/13 [00:01<00:01,  4.51it/s] 46%|████▌     | 6/13 [00:01<00:01,  5.07it/s] 54%|█████▍    | 7/13 [00:01<00:01,  5.64it/s] 62%|██████▏   | 8/13 [00:01<00:00,  5.11it/s] 69%|██████▉   | 9/13 [00:01<00:00,  5.39it/s] 77%|███████▋  | 10/13 [00:01<00:00,  5.10it/s] 85%|████████▍ | 11/13 [00:02<00:00,  4.87it/s] 92%|█████████▏| 12/13 [00:02<00:00,  4.70it/s]100%|██████████| 13/13 [00:02<00:00,  5.14it/s]                                                 0%|          | 0/19 [00:00<?, ?it/s] 11%|█         | 2/19 [00:00<00:01,  9.39it/s] 16%|█▌        | 3/19 [00:00<00:01,  8.55it/s] 21%|██        | 4/19 [00:00<00:01,  8.80it/s] 26%|██▋       | 5/19 [00:00<00:01,  9.17it/s]                                                0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  7.47it/s]                                               0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  3.28it/s] 67%|██████▋   | 2/3 [00:01<00:00,  1.62it/s]100%|██████████| 3/3 [00:01<00:00,  2.53it/s]                                               0%|          | 0/39 [00:00<?, ?it/s]  3%|▎         | 1/39 [00:00<00:04,  8.42it/s]  5%|▌         | 2/39 [00:02<00:47,  1.29s/it]  8%|▊         | 3/39 [00:02<00:26,  1.33it/s] 10%|█         | 4/39 [00:02<00:17,  2.00it/s] 15%|█▌        | 6/39 [00:02<00:09,  3.52it/s] 18%|█▊        | 7/39 [00:02<00:07,  4.26it/s] 23%|██▎       | 9/39 [00:02<00:05,  5.67it/s] 26%|██▌       | 10/39 [00:03<00:04,  5.81it/s] 28%|██▊       | 11/39 [00:03<00:04,  6.23it/s] 33%|███▎      | 13/39 [00:03<00:03,  7.42it/s] 36%|███▌      | 14/39 [00:03<00:03,  7.87it/s] 38%|███▊      | 15/39 [00:03<00:02,  8.30it/s] 44%|████▎     | 17/39 [00:03<00:02,  8.47it/s] 49%|████▊     | 19/39 [00:04<00:02,  8.61it/s] 51%|█████▏    | 20/39 [00:04<00:02,  8.68it/s] 54%|█████▍    | 21/39 [00:04<00:02,  8.91it/s] 56%|█████▋    | 22/39 [00:04<00:01,  8.93it/s] 62%|██████▏   | 24/39 [00:04<00:01,  9.40it/s] 67%|██████▋   | 26/39 [00:04<00:01,  9.71it/s] 69%|██████▉   | 27/39 [00:04<00:01,  9.59it/s] 72%|███████▏  | 28/39 [00:05<00:01,  9.60it/s] 74%|███████▍  | 29/39 [00:05<00:01,  9.62it/s] 79%|███████▉  | 31/39 [00:05<00:00,  9.92it/s] 82%|████████▏ | 32/39 [00:05<00:00,  9.80it/s] 85%|████████▍ | 33/39 [00:05<00:00,  9.44it/s] 90%|████████▉ | 35/39 [00:05<00:00,  9.54it/s] 92%|█████████▏| 36/39 [00:05<00:00,  9.51it/s] 95%|█████████▍| 37/39 [00:05<00:00,  9.49it/s]100%|██████████| 39/39 [00:06<00:00,  9.91it/s]                                                 0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.40it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.59it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00,  9.97it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.36it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.30it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.84it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.60it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.63it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.37it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.06it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.55it/s]100%|██████████| 2/2 [00:00<00:00,  9.27it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.59it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.67it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.36it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.80it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.45it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.44it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.51it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.63it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.53it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.42it/s]100%|██████████| 2/2 [00:00<00:00,  8.62it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.19it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.64it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.30it/s]100%|██████████| 2/2 [00:00<00:00,  8.79it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.34it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.22it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.38it/s]                                               [校验] 8 个核心 A 股指数今日(20260710)齐全 ✓
+  [1/31] ind_flow_sw_801010 FAIL: fflow error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/fflow/daykline/get?lmt=0&klt=101&secid=90.BK0433&fields1=f1%2Cf2%2Cf3%2Cf7&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64%2Cf65&ut=b2884a393a59ad64002292a3e90d46a5 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [1/31] ind_turn_sw_801010 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0433&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [2/31] ind_flow_sw_801030 FAIL: fflow error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/fflow/daykline/get?lmt=0&klt=101&secid=90.BK1206&fields1=f1%2Cf2%2Cf3%2Cf7&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64%2Cf65&ut=b2884a393a59ad64002292a3e90d46a5 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [2/31] ind_turn_sw_801030 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK1206&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [3/31] ind_flow_sw_801040 FAIL: fflow error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/fflow/daykline/get?lmt=0&klt=101&secid=90.BK0479&fields1=f1%2Cf2%2Cf3%2Cf7&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64%2Cf65&ut=b2884a393a59ad64002292a3e90d46a5 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [3/31] ind_turn_sw_801040 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0479&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  ⚠ 连续3个行业全失败(东财封IP),提前结束剩余28个行业
+=== 行业资金流/换手率采集完成: ok=0 fail=6 ===
+=== 采集 20260710 完成 (steps=['metrics', 'indices', 'industry_extras']): ok=106 fail=14 ===
+  [  ok] a_width_up_count           3772
+  [  ok] a_width_down_count         1677
+  [  ok] a_width_zt_count           92
+  [  ok] a_width_dt_count           4
+  [  ok] a_width_max_lianban        2
+  [  ok] a_width_zhaban_rate        0.4973
+  [  ok] a_width_daban_premium      0.6762
+  [fail] a_width_zb_count           disabled
+  [fail] a_width_seal_rate          disabled
+  [  ok] a_fund_north               2264 rows
+  [  ok] a_fund_margin              1326 rows
+  [fail] a_fund_main                direct:market_fund_flow error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/fflow/daykline/get?lmt=0&klt=101&secid=1.000001&secid2=0.399001&fields1=f1%2Cf2%2Cf3%2Cf7&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64%2Cf65&ut=b2884a393a59ad64002292a3e90d46a5 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [  ok] a_qvix_300                 1572 rows
+  [  ok] a_qvix_1000                807 rows
+  [  ok] a_amount                   3.41e+04
+  [  ok] a_turnover_rate            0.49
+  [fail] a_turnover_mean            disabled
+  [fail] a_turnover_median          disabled
+  [fail] a_turnover_p90             disabled
+  [fail] a_turnover_p10             disabled
+  [fail] a_turnover_gt5_pct         disabled
+  [  ok] a_div_yield                5225 rows
+  [  ok] hk_south                   2667 rows
+  [  ok] usdcnh                     484 rows
+  [  ok] gold                       4506 rows
+  [  ok] oil                        2011 rows
+  [  ok] wti_oil                    7690 rows
+  [  ok] comex_silver               2590 rows
+  [  ok] cn10y                      2499 rows
+  [  ok] us10y                      2633 rows
+  [  ok] lhb_count                  105
+  [  ok] lhb_inst_net               24.48
+  [  ok] unlock_amount              4265
+  [  ok] unlock_count               4
+  [  ok] ipo_count                  1
+  [  ok] ipo_amount                 17.6
+  [  ok] cov_count                  1032
+  [  ok] cov_premium_median         31.09
+  [  ok] sh                         8679 rows
+  [  ok] sz                         8587 rows
+  [  ok] hs300                      5946 rows
+  [  ok] sz50                       5468 rows
+  [  ok] csi500                     5225 rows
+  [  ok] csi1000                    2852 rows
+  [  ok] cyb                        3911 rows
+  [  ok] kc50                       1579 rows
+  [  ok] csi_div                    4012 rows
+  [  ok] div_lowvol                 4012 rows
+  [  ok] sz_div                     4969 rows
+  [  ok] hsi                        3170 rows
+  [  ok] hstech                     1447 rows
+  [  ok] hscei                      3170 rows
+  [  ok] us_dji                     5667 rows
+  [  ok] us_ixic                    5665 rows
+  [  ok] us_spx                     5668 rows
+  [  ok] us_ndx                     3116 rows
+  [  ok] sw_801010                  6408 rows
+  [  ok] sw_801030                  6408 rows
+  [  ok] sw_801040                  6408 rows
+  [  ok] sw_801050                  6408 rows
+  [  ok] sw_801080                  6408 rows
+  [  ok] sw_801880                  2994 rows
+  [  ok] sw_801110                  6408 rows
+  [  ok] sw_801120                  6408 rows
+  [  ok] sw_801130                  6408 rows
+  [  ok] sw_801140                  6408 rows
+  [  ok] sw_801150                  6408 rows
+  [  ok] sw_801160                  6408 rows
+  [  ok] sw_801170                  6408 rows
+  [  ok] sw_801180                  6408 rows
+  [  ok] sw_801200                  6408 rows
+  [  ok] sw_801210                  6408 rows
+  [  ok] sw_801780                  2994 rows
+  [  ok] sw_801790                  2994 rows
+  [  ok] sw_801230                  6408 rows
+  [  ok] sw_801710                  2994 rows
+  [  ok] sw_801720                  2994 rows
+  [  ok] sw_801730                  2994 rows
+  [  ok] sw_801890                  2994 rows
+  [  ok] sw_801740                  2994 rows
+  [  ok] sw_801750                  2994 rows
+  [  ok] sw_801760                  2994 rows
+  [  ok] sw_801770                  2994 rows
+  [  ok] sw_801950                  1810 rows
+  [  ok] sw_801960                  1100 rows
+  [  ok] sw_801970                  1100 rows
+  [  ok] sw_801980                  1100 rows
+  [  ok] thsc_300816                268 rows
+  [  ok] thsc_309119                268 rows
+  [  ok] thsc_308700                268 rows
+  [  ok] thsc_309049                268 rows
+  [  ok] thsc_301085                268 rows
+  [  ok] thsc_307940                268 rows
+  [  ok] thsc_302035                268 rows
+  [  ok] thsc_309068                268 rows
+  [  ok] thsc_308828                268 rows
+  [  ok] thsc_309020                268 rows
+  [  ok] thsc_309060                268 rows
+  [  ok] thsc_300008                268 rows
+  [  ok] thsc_301079                268 rows
+  [  ok] thsc_300733                268 rows
+  [  ok] thsc_306380                268 rows
+  [  ok] thsc_308294                268 rows
+  [  ok] thsc_309115                268 rows
+  [  ok] thsc_308014                268 rows
+  [  ok] thsc_300082                268 rows
+  [  ok] thsc_300830                268 rows
+  [  ok] thsc_308725                268 rows
+  [  ok] thsc_308300                268 rows
+  [  ok] thsc_309113                268 rows
+  [  ok] thsc_308491                268 rows
+  [  ok] thsc_308870                268 rows
+  [  ok] thsc_308752                268 rows
+  [  ok] thsc_309128                268 rows
+  [fail] ind_flow_sw_801010         fflow error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/fflow/daykline/get?lmt=0&klt=101&secid=90.BK0433&fields1=f1%2Cf2%2Cf3%2Cf7&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64%2Cf65&ut=b2884a393a59ad64002292a3e90d46a5 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [fail] ind_turn_sw_801010         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0433&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [fail] ind_flow_sw_801030         fflow error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/fflow/daykline/get?lmt=0&klt=101&secid=90.BK1206&fields1=f1%2Cf2%2Cf3%2Cf7&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64%2Cf65&ut=b2884a393a59ad64002292a3e90d46a5 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [fail] ind_turn_sw_801030         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK1206&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [fail] ind_flow_sw_801040         fflow error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/fflow/daykline/get?lmt=0&klt=101&secid=90.BK0479&fields1=f1%2Cf2%2Cf3%2Cf7&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61%2Cf62%2Cf63%2Cf64%2Cf65&ut=b2884a393a59ad64002292a3e90d46a5 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [fail] ind_turn_sw_801040         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0479&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [skip] industry_extras            连续3行业全失败(东财封IP),跳过剩余28行业
+/Users/linhuichen/code/trade/scripts/pipeline.sh: line 44: COLLECT_RC�: unbound variable
+-> [core] compute_runner ...
+[volume_ratio] 计算完成: 2554 天, 写入 10203 条 metric
+=== 计算完成: §4情绪分=2545天  sz50=5454天  hs300=5932天  csi500=5211天  csi1000=2838天  cyb=3897天  kc50=1565天  §6跨市场=4650天  买卖点=14576个  派生公式=2358行  AD Line=10216行  量比=2554天  位置感=24行  恐贪指数=4483天  买卖点stats=91品种(105221B)  新高新低=43395行  均线排列=25860行  板块轮动=6行 ===
+-> [core] 等待 deploy 锁（串行化 git）...
+=== pipeline[core] 结束 2026-07-11 09:41:00 collect=0 deploy=0 ===
+  [100/5203] 000516: empty | elapsed 428s, 0.2/s, ETA 21838s
+  [200/5203] 000669: empty | elapsed 859s, 0.2/s, ETA 21476s
+  [300/5203] 000820: empty | elapsed 1289s, 0.2/s, ETA 21069s
+  [400/5203] 000978: empty | elapsed 1729s, 0.2/s, ETA 20757s
+  [500/5203] 001338: empty | elapsed 2159s, 0.2/s, ETA 20311s
+  [600/5203] 002072: empty | elapsed 2591s, 0.2/s, ETA 19875s
+  [700/5203] 002178: empty | elapsed 3022s, 0.2/s, ETA 19438s
+  [800/5203] 002283: empty | elapsed 3453s, 0.2/s, ETA 19004s
+  [900/5203] 002389: empty | elapsed 3884s, 0.2/s, ETA 18571s
+  [1000/5203] 002498: empty | elapsed 4315s, 0.2/s, ETA 18137s
+  [1100/5203] 002606: empty | elapsed 4746s, 0.2/s, ETA 17703s
+  [1200/5203] 002717: empty | elapsed 5182s, 0.2/s, ETA 17285s
+  [1300/5203] 002831: empty | elapsed 5613s, 0.2/s, ETA 16852s
+  [1400/5203] 002940: empty | elapsed 6045s, 0.2/s, ETA 16420s
+  [1500/5203] 300004: empty | elapsed 6475s, 0.2/s, ETA 15986s
+  [1600/5203] 300113: empty | elapsed 6905s, 0.2/s, ETA 15550s
+  [1700/5203] 300222: empty | elapsed 7336s, 0.2/s, ETA 15116s
+  [1800/5203] 300331: empty | elapsed 7766s, 0.2/s, ETA 14682s
+  [1900/5203] 300442: empty | elapsed 8202s, 0.2/s, ETA 14259s
+  [2000/5203] 300546: empty | elapsed 8635s, 0.2/s, ETA 13830s

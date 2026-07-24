@@ -1,0 +1,22 @@
+=== pipeline[width] 开始 2026-07-11 09:34:26 steps=mootdx,industry_width,width_history ===
+-> [width] 采集 steps=mootdx,industry_width,width_history ...
+  [100/5203] 000516: empty | elapsed 428s, 0.2/s, ETA 21838s
+  [200/5203] 000669: empty | elapsed 859s, 0.2/s, ETA 21476s
+  [300/5203] 000820: empty | elapsed 1289s, 0.2/s, ETA 21069s
+  [400/5203] 000978: empty | elapsed 1729s, 0.2/s, ETA 20757s
+  [500/5203] 001338: empty | elapsed 2159s, 0.2/s, ETA 20311s
+  [600/5203] 002072: empty | elapsed 2591s, 0.2/s, ETA 19875s
+  [700/5203] 002178: empty | elapsed 3022s, 0.2/s, ETA 19438s
+  [800/5203] 002283: empty | elapsed 3453s, 0.2/s, ETA 19004s
+  [900/5203] 002389: empty | elapsed 3884s, 0.2/s, ETA 18571s
+  [1000/5203] 002498: empty | elapsed 4315s, 0.2/s, ETA 18137s
+  [1100/5203] 002606: empty | elapsed 4746s, 0.2/s, ETA 17703s
+  [1200/5203] 002717: empty | elapsed 5182s, 0.2/s, ETA 17285s
+  [1300/5203] 002831: empty | elapsed 5613s, 0.2/s, ETA 16852s
+  [1400/5203] 002940: empty | elapsed 6045s, 0.2/s, ETA 16420s
+  [1500/5203] 300004: empty | elapsed 6475s, 0.2/s, ETA 15986s
+  [1600/5203] 300113: empty | elapsed 6905s, 0.2/s, ETA 15550s
+  [1700/5203] 300222: empty | elapsed 7336s, 0.2/s, ETA 15116s
+  [1800/5203] 300331: empty | elapsed 7766s, 0.2/s, ETA 14682s
+  [1900/5203] 300442: empty | elapsed 8202s, 0.2/s, ETA 14259s
+  [2000/5203] 300546: empty | elapsed 8635s, 0.2/s, ETA 13830s

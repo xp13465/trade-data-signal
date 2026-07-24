@@ -1,0 +1,47 @@
+=== deploy.sh 开始 2026-07-07 13:54:38 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (30600 bytes)
+  a-stock-1m.json (42842 bytes)
+  a-stock-3m.json (118650 bytes)
+  a-stock-6m.json (227005 bytes)
+  a-stock-1y.json (462388 bytes)
+  a-stock-all.json (6177667 bytes)
+  hk-1m.json (8418 bytes)
+  hk-3m.json (27174 bytes)
+  hk-6m.json (53736 bytes)
+  hk-1y.json (111823 bytes)
+  hk-all.json (1189615 bytes)
+  global-1m.json (6379 bytes)
+  global-3m.json (19251 bytes)
+  global-6m.json (38184 bytes)
+  global-1y.json (81394 bytes)
+  global-all.json (819577 bytes)
+  sentiment-1m.json (4816 bytes)
+  sentiment-3m.json (13577 bytes)
+  sentiment-6m.json (26184 bytes)
+  sentiment-1y.json (53366 bytes)
+  sentiment-all.json (709408 bytes)
+  industry-1m.json (186704 bytes)
+  industry-3m.json (533322 bytes)
+  industry-6m.json (1030877 bytes)
+  industry-1y.json (2086475 bytes)
+  industry-all.json (24931554 bytes)
+  metrics.json (2055 bytes)
+  index/*.json (44 files)
+
+导出完成：71 个 JSON 文件，56.9 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 44 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+→ git commit: data update 2026-07-07_13:54
+[main 86eb989] data update 2026-07-07_13:54
+ 22 files changed, 22 insertions(+), 22 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   823aed0..86eb989  main -> main
+✓ push 成功（Cloudflare Pages 将自动部署）
+=== deploy.sh 结束 2026-07-07 13:54:49 退出码=0 ===

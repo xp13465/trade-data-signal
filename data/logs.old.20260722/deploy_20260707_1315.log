@@ -1,0 +1,44 @@
+=== deploy.sh 开始 2026-07-07 13:15:03 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (30670 bytes)
+  a-stock-1m.json (42795 bytes)
+  a-stock-3m.json (118603 bytes)
+  a-stock-6m.json (226958 bytes)
+  a-stock-1y.json (462341 bytes)
+  a-stock-all.json (6177620 bytes)
+  hk-1m.json (8418 bytes)
+  hk-3m.json (27174 bytes)
+  hk-6m.json (53736 bytes)
+  hk-1y.json (111823 bytes)
+  hk-all.json (1189615 bytes)
+  global-1m.json (6331 bytes)
+  global-3m.json (19203 bytes)
+  global-6m.json (38136 bytes)
+  global-1y.json (81346 bytes)
+  global-all.json (819529 bytes)
+  sentiment-1m.json (4567 bytes)
+  sentiment-3m.json (13328 bytes)
+  sentiment-6m.json (25935 bytes)
+  sentiment-1y.json (53117 bytes)
+  sentiment-all.json (709159 bytes)
+  industry-1m.json (180952 bytes)
+  industry-3m.json (524388 bytes)
+  industry-6m.json (1017385 bytes)
+  industry-1y.json (2072744 bytes)
+  industry-all.json (24917823 bytes)
+  metrics.json (2055 bytes)
+  index/*.json (44 files)
+
+导出完成：71 个 JSON 文件，56.8 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 44 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+✓ 无新数据变更，跳过 commit（仍 push 推未 push commit）
+→ git push ...
+Everything up-to-date
+✓ push 成功（Cloudflare Pages 将自动部署）
+=== deploy.sh 结束 2026-07-07 13:15:09 退出码=0 ===

@@ -1,0 +1,59 @@
+=== deploy.sh 开始 2026-07-13 15:40:04 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (51943 bytes)
+  a-stock-1m.json (48981 bytes)
+  a-stock-3m.json (137555 bytes)
+  a-stock-6m.json (260625 bytes)
+  a-stock-1y.json (526552 bytes)
+  a-stock-all.json (6841093 bytes)
+  hk-1m.json (8649 bytes)
+  hk-3m.json (27855 bytes)
+  hk-6m.json (54415 bytes)
+  hk-1y.json (112040 bytes)
+  hk-all.json (1192127 bytes)
+  global-1m.json (25988 bytes)
+  global-3m.json (64198 bytes)
+  global-6m.json (117827 bytes)
+  global-1y.json (234274 bytes)
+  global-all.json (3137869 bytes)
+  sentiment-1m.json (31152 bytes)
+  sentiment-3m.json (80194 bytes)
+  sentiment-6m.json (144699 bytes)
+  sentiment-1y.json (288219 bytes)
+  sentiment-all.json (3928704 bytes)
+  industry-1m.json (390196 bytes)
+  industry-3m.json (972184 bytes)
+  industry-6m.json (1788701 bytes)
+  industry-1y.json (3411061 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (419970 bytes)
+  ad_line.json (38455 bytes)
+  volume_ratio.json (45620 bytes)
+  position.json (1365 bytes)
+  summary.json (641 bytes)
+  summary_history.json (46242 bytes)
+  signal_freq.json (162 bytes)
+  rotation.json (37127 bytes)
+  new_high_low.json (25894 bytes)
+  ma_alignment.json (19169 bytes)
+  intraday_snapshot.json (4857 bytes)
+  index/*.json (77 files)
+
+导出完成：147 个 JSON 文件，78.4 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 77 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+→ git commit: data update [core] 2026-07-13_15:40
+[fix/dd-color-text-only 4624b91] data update [core] 2026-07-13_15:40
+ 39 files changed, 39 insertions(+), 38 deletions(-)
+ create mode 100644 static-site/data/intraday_snapshot.json
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   ed67d98..4624b91  fix/dd-color-text-only -> fix/dd-color-text-only
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-13 15:40:19 退出码=0 ===

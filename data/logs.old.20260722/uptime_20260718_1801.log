@@ -1,0 +1,3 @@
+=== uptime_check.sh 开始 2026-07-18 18:01:40 URL=https://s.aisusu.cn/data/overview.json ===
+✓ https://s.aisusu.cn/data/overview.json 正常（HTTP 200，OK date=20260717）
+=== uptime_check.sh 结束 正常 退出码=0 ===

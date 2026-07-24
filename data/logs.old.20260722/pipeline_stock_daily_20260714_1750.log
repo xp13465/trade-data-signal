@@ -1,0 +1,5 @@
+=== pipeline[stock_daily] 开始 2026-07-14 17:50:01 steps=stock_daily ===
+-> [stock_daily] 采集 steps=stock_daily ...
+=== 采集 20260714 完成 (steps=['stock_daily']): ok=0 fail=0 ===
+  [  ok] stock_daily                skip (no progress yet, run `stock_daily full` manually)
+=== pipeline[stock_daily] 结束 2026-07-14 17:50:01 collect=0 deploy=0 ===

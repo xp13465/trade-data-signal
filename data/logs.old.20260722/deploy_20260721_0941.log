@@ -1,0 +1,472 @@
+=== deploy.sh 开始 2026-07-21 09:41:13 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (61207 bytes)
+  a-stock-3m.json (142107 bytes)
+  a-stock-6m.json (266858 bytes)
+  a-stock-1y.json (536095 bytes)
+  a-stock-3y.json (1578538 bytes)
+  a-stock-5y.json (2614594 bytes)
+  a-stock-all.json (6923250 bytes)
+  hk-3m.json (109186 bytes)
+  hk-6m.json (203109 bytes)
+  hk-1y.json (410920 bytes)
+  hk-3y.json (1200685 bytes)
+  hk-5y.json (2003140 bytes)
+  hk-all.json (4541165 bytes)
+  global-3m.json (114438 bytes)
+  global-6m.json (213834 bytes)
+  global-1y.json (420403 bytes)
+  global-3y.json (1224167 bytes)
+  global-5y.json (1861631 bytes)
+  global-all.json (3999541 bytes)
+  global-extras-all.json (1147015 bytes)
+  sentiment-3m.json (86529 bytes)
+  sentiment-6m.json (159548 bytes)
+  sentiment-1y.json (317229 bytes)
+  sentiment-3y.json (931122 bytes)
+  sentiment-5y.json (1559970 bytes)
+  sentiment-all.json (4330287 bytes)
+  industry-3m.json (954219 bytes)
+  industry-6m.json (1770023 bytes)
+  industry-1y.json (3411942 bytes)
+  industry-all 拆分: 31 行业 + 27 概念 + meta
+  industry-5y 拆分: 31 行业 + 27 概念 + meta
+  industry-3y 拆分: 31 行业 + 27 概念 + meta
+  futures.json (422606 bytes)
+  ad_line.json (38453 bytes)
+  volume_ratio.json (45632 bytes)
+  position.json (1364 bytes)
+  summary.json (1275 bytes)
+  summary_history.json (119324 bytes)
+  signal_freq.json (250 bytes)
+  rotation.json (37047 bytes)
+  new_high_low.json (25890 bytes)
+  ma_alignment.json (19175 bytes)
+  intraday_snapshot.json (10657 bytes)
+  etf_national_team-3m.json (178707 bytes)
+  etf_national_team-6m.json (342503 bytes)
+  etf_national_team-1y.json (706806 bytes)
+  etf_national_team-3y.json (2104922 bytes)
+  etf_national_team-5y.json (3470327 bytes)
+  etf_national_team-all.json (7664169 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  etf_national_team_holders.json (27485 bytes)
+  index/*.json (90 files)
+
+导出完成：268 个 JSON 文件，138.0 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 6 ranges
+  - metrics: 1
+  - index detail: 90 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+-> 运行 gen_schedule_stats.py 刷新任务执行统计 ...
+✓ static-site/data/schedule_stats.json (7 tasks)
+  收盘全量     17:50                  est=约15分钟    last=2026-07-16 17:50 exit=0 dur=2940s
+  指数补采兜底   16:35 / 20:00 / 02:00  est=约3分钟     last=2026-07-18 02:00 exit=0 dur=0s
+  盘中快照     盘中 09:35-15:35         est=约1分钟     last=2026-07-16 15:35 exit=0 dur=73s
+  期货机构持仓   20:05 + 21:00(兜底)      est=约23秒     last=2026-07-17 21:00 exit=0 dur=26s
+  龙虎榜      18:30 + 19:30(兜底)      est=约43秒     last=2026-07-17 19:30 exit=0 dur=52s
+  两融       23:00                  est=约1秒      last=2026-07-17 23:00 exit=0 dur=1s
+  ETF国家队   20:07 + 21:30(兜底)      est=约2分钟     last=2026-07-17 21:30 exit=0 dur=191s
+-> 运行 gen_rss.py 生成 RSS feed.xml ...
+✓ /Users/linhuichen/code/trade/static-site/data/feed.xml 生成（30 items）
+→ 运行 build_min.py 重新生成 min JS ...
+=== build_min: JS(terser) + CSS(rcssmin) ===
+  terser terser 5.49.0 可用
+  ✓ static-site/common.js (19,472B) -> static-site/common.min.js (12,513B, -35.7%)
+  ✓ static-site/app.js (435,034B) -> static-site/app.min.js (251,637B, -42.2%)
+  ✓ static-site/lab.js (346,235B) -> static-site/lab.min.js (206,681B, -40.3%)
+  ✓ static-site/style.css (133,633B) -> static-site/style.min.css (99,581B, -25.5%)
+  ✓ static-site/lab.css (57,985B) -> static-site/lab.min.css (44,595B, -23.1%)
+完成（built=5 skipped=0）。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+-> 上传 lab 到 R2 ...
+✓ lab_backtest.json (64KB)
+✓ lab_backtest_bj50.json (25KB)
+✓ lab_backtest_csi1000.json (25KB)
+✓ lab_backtest_csi500.json (25KB)
+✓ lab_backtest_cyb.json (25KB)
+✓ lab_backtest_fusion_bj50.json (117KB)
+✓ lab_backtest_fusion_csi1000.json (119KB)
+✓ lab_backtest_fusion_csi500.json (119KB)
+✓ lab_backtest_fusion_cyb.json (119KB)
+✓ lab_backtest_fusion_hs300.json (118KB)
+✓ lab_backtest_fusion_kc50.json (118KB)
+✓ lab_backtest_fusion_sh.json (119KB)
+✓ lab_backtest_fusion_sz.json (118KB)
+✓ lab_backtest_fusion_sz50.json (119KB)
+✓ lab_backtest_hs300.json (25KB)
+✓ lab_backtest_kc50.json (25KB)
+✓ lab_backtest_sh.json (25KB)
+✓ lab_backtest_sz.json (25KB)
+✓ lab_backtest_sz50.json (25KB)
+✓ lab_retest_bj50.json (3KB)
+✓ lab_retest_csi1000.json (21KB)
+✓ lab_retest_csi500.json (21KB)
+✓ lab_retest_cyb.json (11KB)
+✓ lab_retest_honors.json (4KB)
+✓ lab_retest_hs300.json (21KB)
+✓ lab_retest_kc50.json (17KB)
+✓ lab_retest_sh.json (21KB)
+✓ lab_retest_sz.json (21KB)
+✓ lab_retest_sz50.json (22KB)
+✓ lab_sim_bj50_full.json (1917KB)
+✓ lab_sim_bj50_fusion_full.json (2558KB)
+✓ lab_sim_bj50_fusion_stats.json (338KB)
+✓ lab_sim_bj50_stats.json (143KB)
+✓ lab_sim_csi1000_full.json (3744KB)
+✓ lab_sim_csi1000_fusion_full.json (4609KB)
+✓ lab_sim_csi1000_fusion_stats.json (338KB)
+✓ lab_sim_csi1000_stats.json (143KB)
+✓ lab_sim_csi500_full.json (4962KB)
+✓ lab_sim_csi500_fusion_full.json (6153KB)
+✓ lab_sim_csi500_fusion_stats.json (338KB)
+✓ lab_sim_csi500_stats.json (143KB)
+✓ lab_sim_cyb_full.json (4325KB)
+✓ lab_sim_cyb_fusion_full.json (5506KB)
+✓ lab_sim_cyb_fusion_stats.json (337KB)
+✓ lab_sim_cyb_stats.json (142KB)
+✓ lab_sim_hs300_full.json (5149KB)
+✓ lab_sim_hs300_fusion_full.json (6202KB)
+✓ lab_sim_hs300_fusion_stats.json (338KB)
+✓ lab_sim_hs300_stats.json (143KB)
+✓ lab_sim_kc50_full.json (2559KB)
+✓ lab_sim_kc50_fusion_full.json (3316KB)
+✓ lab_sim_kc50_fusion_stats.json (319KB)
+✓ lab_sim_kc50_stats.json (142KB)
+✓ lab_sim_sh_full.json (6365KB)
+✓ lab_sim_sh_fusion_full.json (7722KB)
+✓ lab_sim_sh_fusion_stats.json (338KB)
+✓ lab_sim_sh_stats.json (143KB)
+✓ lab_sim_sz50_full.json (4869KB)
+✓ lab_sim_sz50_fusion_full.json (5983KB)
+✓ lab_sim_sz50_fusion_stats.json (337KB)
+✓ lab_sim_sz50_stats.json (143KB)
+✓ lab_sim_sz_full.json (6389KB)
+✓ lab_sim_sz_fusion_full.json (7923KB)
+✓ lab_sim_sz_fusion_stats.json (337KB)
+✓ lab_sim_sz_stats.json (143KB)
+共上传 65/65 -> https://ssd.fx8.store/lab/
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [all] 2026-07-21_09:43
+[feat/iframe-theme-follow 0b3082f1] data update [all] 2026-07-21_09:43
+ 314 files changed, 11 insertions(+), 11 deletions(-)
+ create mode 100644 static-site/data/a-stock-1y.json.gz
+ create mode 100644 static-site/data/a-stock-3m.json.gz
+ create mode 100644 static-site/data/a-stock-3y.json.gz
+ create mode 100644 static-site/data/a-stock-5y.json.gz
+ create mode 100644 static-site/data/a-stock-6m.json.gz
+ create mode 100644 static-site/data/a-stock-all.json.gz
+ create mode 100644 static-site/data/alert_analyze_bj50.json.gz
+ create mode 100644 static-site/data/alert_analyze_cac40.json.gz
+ create mode 100644 static-site/data/alert_analyze_csi1000.json.gz
+ create mode 100644 static-site/data/alert_analyze_csi500.json.gz
+ create mode 100644 static-site/data/alert_analyze_csi_div.json.gz
+ create mode 100644 static-site/data/alert_analyze_cyb.json.gz
+ create mode 100644 static-site/data/alert_analyze_dax.json.gz
+ create mode 100644 static-site/data/alert_analyze_div_lowvol.json.gz
+ create mode 100644 static-site/data/alert_analyze_ftse100.json.gz
+ create mode 100644 static-site/data/alert_analyze_hs300.json.gz
+ create mode 100644 static-site/data/alert_analyze_hscei.json.gz
+ create mode 100644 static-site/data/alert_analyze_hsi.json.gz
+ create mode 100644 static-site/data/alert_analyze_hstech.json.gz
+ create mode 100644 static-site/data/alert_analyze_kc50.json.gz
+ create mode 100644 static-site/data/alert_analyze_kospi.json.gz
+ create mode 100644 static-site/data/alert_analyze_nikkei225.json.gz
+ create mode 100644 static-site/data/alert_analyze_sh.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801010.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801030.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801040.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801050.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801080.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801110.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801120.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801130.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801140.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801150.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801160.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801170.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801180.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801200.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801210.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801230.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801710.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801720.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801730.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801740.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801750.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801760.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801770.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801780.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801790.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801880.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801890.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801950.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801960.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801970.json.gz
+ create mode 100644 static-site/data/alert_analyze_sw_801980.json.gz
+ create mode 100644 static-site/data/alert_analyze_sz.json.gz
+ create mode 100644 static-site/data/alert_analyze_sz50.json.gz
+ create mode 100644 static-site/data/alert_analyze_sz_div.json.gz
+ create mode 100644 static-site/data/alert_analyze_us_dji.json.gz
+ create mode 100644 static-site/data/alert_analyze_us_ixic.json.gz
+ create mode 100644 static-site/data/alert_analyze_us_ndx.json.gz
+ create mode 100644 static-site/data/alert_analyze_us_spx.json.gz
+ create mode 100644 static-site/data/etf_national_team-1y.json.gz
+ create mode 100644 static-site/data/etf_national_team-3m.json.gz
+ create mode 100644 static-site/data/etf_national_team-3y.json.gz
+ create mode 100644 static-site/data/etf_national_team-5y.json.gz
+ create mode 100644 static-site/data/etf_national_team-6m.json.gz
+ create mode 100644 static-site/data/etf_national_team-all.json.gz
+ create mode 100644 static-site/data/futures.json.gz
+ create mode 100644 static-site/data/global-1y.json.gz
+ create mode 100644 static-site/data/global-3m.json.gz
+ create mode 100644 static-site/data/global-3y.json.gz
+ create mode 100644 static-site/data/global-5y.json.gz
+ create mode 100644 static-site/data/global-6m.json.gz
+ create mode 100644 static-site/data/global-all.json.gz
+ create mode 100644 static-site/data/global-extras-all.json.gz
+ create mode 100644 static-site/data/hk-1y.json.gz
+ create mode 100644 static-site/data/hk-3m.json.gz
+ create mode 100644 static-site/data/hk-3y.json.gz
+ create mode 100644 static-site/data/hk-5y.json.gz
+ create mode 100644 static-site/data/hk-6m.json.gz
+ create mode 100644 static-site/data/hk-all.json.gz
+ create mode 100644 static-site/data/index/bj50-all.json.gz
+ create mode 100644 static-site/data/index/cac40-all.json.gz
+ create mode 100644 static-site/data/index/csi1000-all.json.gz
+ create mode 100644 static-site/data/index/csi500-all.json.gz
+ create mode 100644 static-site/data/index/csi_div-all.json.gz
+ create mode 100644 static-site/data/index/cyb-all.json.gz
+ create mode 100644 static-site/data/index/dax-all.json.gz
+ create mode 100644 static-site/data/index/div_lowvol-all.json.gz
+ create mode 100644 static-site/data/index/ftse100-all.json.gz
+ create mode 100644 static-site/data/index/hk_cesg10-all.json.gz
+ create mode 100644 static-site/data/index/hk_cshkdiv-all.json.gz
+ create mode 100644 static-site/data/index/hk_cshklc-all.json.gz
+ create mode 100644 static-site/data/index/hk_cshklre-all.json.gz
+ create mode 100644 static-site/data/index/hk_hscci-all.json.gz
+ create mode 100644 static-site/data/index/hk_hsmbi-all.json.gz
+ create mode 100644 static-site/data/index/hk_hsmogi-all.json.gz
+ create mode 100644 static-site/data/index/hk_hsmpi-all.json.gz
+ create mode 100644 static-site/data/index/hs300-all.json.gz
+ create mode 100644 static-site/data/index/hscei-all.json.gz
+ create mode 100644 static-site/data/index/hsi-all.json.gz
+ create mode 100644 static-site/data/index/hstech-all.json.gz
+ create mode 100644 static-site/data/index/kc50-all.json.gz
+ create mode 100644 static-site/data/index/kospi-all.json.gz
+ create mode 100644 static-site/data/index/nikkei225-all.json.gz
+ create mode 100644 static-site/data/index/sh-all.json.gz
+ create mode 100644 static-site/data/index/sw_801010-all.json.gz
+ create mode 100644 static-site/data/index/sw_801030-all.json.gz
+ create mode 100644 static-site/data/index/sw_801040-all.json.gz
+ create mode 100644 static-site/data/index/sw_801050-all.json.gz
+ create mode 100644 static-site/data/index/sw_801080-all.json.gz
+ create mode 100644 static-site/data/index/sw_801110-all.json.gz
+ create mode 100644 static-site/data/index/sw_801120-all.json.gz
+ create mode 100644 static-site/data/index/sw_801130-all.json.gz
+ create mode 100644 static-site/data/index/sw_801140-all.json.gz
+ create mode 100644 static-site/data/index/sw_801150-all.json.gz
+ create mode 100644 static-site/data/index/sw_801160-all.json.gz
+ create mode 100644 static-site/data/index/sw_801170-all.json.gz
+ create mode 100644 static-site/data/index/sw_801180-all.json.gz
+ create mode 100644 static-site/data/index/sw_801200-all.json.gz
+ create mode 100644 static-site/data/index/sw_801210-all.json.gz
+ create mode 100644 static-site/data/index/sw_801230-all.json.gz
+ create mode 100644 static-site/data/index/sw_801710-all.json.gz
+ create mode 100644 static-site/data/index/sw_801720-all.json.gz
+ create mode 100644 static-site/data/index/sw_801730-all.json.gz
+ create mode 100644 static-site/data/index/sw_801740-all.json.gz
+ create mode 100644 static-site/data/index/sw_801750-all.json.gz
+ create mode 100644 static-site/data/index/sw_801760-all.json.gz
+ create mode 100644 static-site/data/index/sw_801770-all.json.gz
+ create mode 100644 static-site/data/index/sw_801780-all.json.gz
+ create mode 100644 static-site/data/index/sw_801790-all.json.gz
+ create mode 100644 static-site/data/index/sw_801880-all.json.gz
+ create mode 100644 static-site/data/index/sw_801890-all.json.gz
+ create mode 100644 static-site/data/index/sw_801950-all.json.gz
+ create mode 100644 static-site/data/index/sw_801960-all.json.gz
+ create mode 100644 static-site/data/index/sw_801970-all.json.gz
+ create mode 100644 static-site/data/index/sw_801980-all.json.gz
+ create mode 100644 static-site/data/index/sz-all.json.gz
+ create mode 100644 static-site/data/index/sz50-all.json.gz
+ create mode 100644 static-site/data/index/sz_div-all.json.gz
+ create mode 100644 static-site/data/index/thsc_300008-all.json.gz
+ create mode 100644 static-site/data/index/thsc_300082-all.json.gz
+ create mode 100644 static-site/data/index/thsc_300733-all.json.gz
+ create mode 100644 static-site/data/index/thsc_300816-all.json.gz
+ create mode 100644 static-site/data/index/thsc_300830-all.json.gz
+ create mode 100644 static-site/data/index/thsc_301079-all.json.gz
+ create mode 100644 static-site/data/index/thsc_301085-all.json.gz
+ create mode 100644 static-site/data/index/thsc_302035-all.json.gz
+ create mode 100644 static-site/data/index/thsc_306380-all.json.gz
+ create mode 100644 static-site/data/index/thsc_307940-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308014-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308294-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308300-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308491-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308700-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308725-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308752-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308828-all.json.gz
+ create mode 100644 static-site/data/index/thsc_308870-all.json.gz
+ create mode 100644 static-site/data/index/thsc_309020-all.json.gz
+ create mode 100644 static-site/data/index/thsc_309049-all.json.gz
+ create mode 100644 static-site/data/index/thsc_309060-all.json.gz
+ create mode 100644 static-site/data/index/thsc_309068-all.json.gz
+ create mode 100644 static-site/data/index/us_dji-all.json.gz
+ create mode 100644 static-site/data/index/us_ixic-all.json.gz
+ create mode 100644 static-site/data/index/us_ndx-all.json.gz
+ create mode 100644 static-site/data/index/us_spx-all.json.gz
+ create mode 100644 static-site/data/industry-1y.json.gz
+ create mode 100644 static-site/data/industry-3m.json.gz
+ create mode 100644 static-site/data/industry-3y-concepts.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801010.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801030.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801040.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801050.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801080.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801110.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801120.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801130.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801140.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801150.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801160.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801170.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801180.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801200.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801210.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801230.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801710.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801720.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801730.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801740.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801750.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801760.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801770.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801780.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801790.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801880.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801890.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801950.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801960.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801970.json.gz
+ create mode 100644 static-site/data/industry-3y-indices/sw_801980.json.gz
+ create mode 100644 static-site/data/industry-5y-concepts.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801010.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801030.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801040.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801050.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801080.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801110.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801120.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801130.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801140.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801150.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801160.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801170.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801180.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801200.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801210.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801230.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801710.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801720.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801730.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801740.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801750.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801760.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801770.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801780.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801790.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801880.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801890.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801950.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801960.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801970.json.gz
+ create mode 100644 static-site/data/industry-5y-indices/sw_801980.json.gz
+ create mode 100644 static-site/data/industry-6m.json.gz
+ create mode 100644 static-site/data/industry-all-concepts.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801010-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801010.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801030-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801030.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801040-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801040.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801050-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801050.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801080-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801080.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801110-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801110.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801120-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801120.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801130-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801130.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801140-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801140.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801150-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801150.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801160-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801160.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801170-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801170.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801180-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801180.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801200-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801200.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801210-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801210.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801230-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801230.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801710-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801710.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801720-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801720.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801730-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801730.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801740-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801740.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801750-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801750.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801760-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801760.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801770-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801770.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801780-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801780.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801790-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801790.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801880-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801880.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801890-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801890.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801950-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801950.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801960-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801960.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801970-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801970.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801980-detail.json.gz
+ create mode 100644 static-site/data/industry-all-indices/sw_801980.json.gz
+ create mode 100644 static-site/data/sentiment-1y.json.gz
+ create mode 100644 static-site/data/sentiment-3y.json.gz
+ create mode 100644 static-site/data/sentiment-5y.json.gz
+ create mode 100644 static-site/data/sentiment-6m.json.gz
+ create mode 100644 static-site/data/sentiment-all.json.gz
+ create mode 100644 static-site/data/summary_history.json.gz
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+ ! [rejected]          HEAD -> main (non-fast-forward)
+error: failed to push some refs to 'github.com:xp13465/trade-data-signal.git'
+hint: Updates were rejected because a pushed branch tip is behind its remote
+hint: counterpart. Check out this branch and integrate the remote changes
+hint: (e.g. 'git pull ...') before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+From github.com:xp13465/trade-data-signal
+ * branch              main       -> FETCH_HEAD
+-> 本地落后 origin/main，rebase 后重试 push ...
+error: cannot rebase: You have unstaged changes.
+error: Please commit or stash them.
+✗ rebase origin/main 失败（可能数据 JSON 冲突），已 abort 保持工作区干净。
+  请手动：git -C /Users/linhuichen/code/trade fetch origin && git -C /Users/linhuichen/code/trade rebase origin/main，解决冲突后重跑 deploy.sh

@@ -994,12 +994,18 @@ function _aggregateSignalStats(raw) {
   const agg = {};
   for (const sig of SIGS) {
     const sigAgg = {};
+    let freqTotal = 0;  // 全品种 frequency.total_count 求和（已生成总例数，窗口未到也计数）
     for (const win of WINDOWS) {
       let totN = 0, sumWr = 0, sumPl = 0, sumMean = 0;
       for (const [idx, sigs] of Object.entries(raw)) {
         if (idx.startsWith("_")) continue;  // 跳过 _updated_at 等元字段
         const s = sigs && sigs[sig];
-        if (!s || !s[win]) continue;
+        if (!s) continue;
+        // 聚合 frequency.total_count（每品种每信号只计一次，用 5d 轮次做去重开关）
+        if (win === "5d" && s.frequency && s.frequency.total_count) {
+          freqTotal += s.frequency.total_count;
+        }
+        if (!s[win]) continue;
         const d = s[win];
         const n = d.n || 0;
         if (n > 0) {
@@ -1013,8 +1019,9 @@ function _aggregateSignalStats(raw) {
         ? { win_rate: sumWr / totN, pl: sumPl / totN, mean: sumMean / totN, n: totN }
         : null;
     }
-    // 至少有一个窗口有数据才保留；否则 null
-    agg[sig] = (sigAgg["5d"] || sigAgg["10d"] || sigAgg["20d"]) ? sigAgg : null;
+    sigAgg.frequency_total = freqTotal;
+    // 至少有一个窗口有数据，或有 frequency_total（已生成N例但窗口未到）才保留；否则 null
+    agg[sig] = (sigAgg["5d"] || sigAgg["10d"] || sigAgg["20d"] || freqTotal > 0) ? sigAgg : null;
   }
   return agg;
 }
@@ -1026,12 +1033,18 @@ function _signalHelpModalHTML(aggStats) {
     const s = aggStats && aggStats[it.sig];
     let statHtml;
     if (s) {
-      // 三窗口对比行（5d/10d/20d），按样本数 n 加权聚合；某窗口无数据则该行显示 "—"
+      // 三窗口对比行（5d/10d/20d），按样本数 n 加权聚合；某窗口无数据显示 "—"
+      const hasWin = !!(s["5d"] || s["10d"] || s["20d"]);
+      const freqTotal = s.frequency_total || 0;
       const winRows = [["5日", s["5d"]], ["10日", s["10d"]], ["20日", s["20d"]]].map(([label, w]) => {
-        if (!w) return '<div style="margin-left:8px"><span style="display:inline-block;width:3em">' + label + '：</span><span style="opacity:0.5">— 无数据</span></div>';
+        if (!w) return '<div style="margin-left:8px"><span style="display:inline-block;width:3em">' + label + '：</span><span style="opacity:0.5">— 累积中</span></div>';
         return '<div style="margin-left:8px"><span style="display:inline-block;width:3em">' + label + '：</span>胜率 <b>' + (w.win_rate * 100).toFixed(0) + '%</b> · 盈亏比 <b>' + w.pl.toFixed(2) + '</b> · 均收益 <b>' + w.mean.toFixed(2) + '%</b> · 样本 <b>' + w.n + '</b></div>';
       }).join("");
-      statHtml = '<div style="font-size:12px;line-height:1.6;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px">📈 <b>分析概况</b>（全品种加权·按样本数加权）：<div style="margin-top:2px">' + winRows + '</div></div>';
+      // 无窗口数据但有 frequency(刚上线窗口未到) -> "已生成N例,窗口统计累积中"; 有窗口数据 -> 附"累计N例"
+      const freqNote = (!hasWin && freqTotal > 0)
+        ? '<div style="margin-top:3px;color:#ff9800">⏳ 已生成 <b>' + freqTotal + '</b> 例，窗口统计(5d/10d/20d)待未来交易日到位后累积</div>'
+        : (freqTotal > 0 ? '<div style="margin-top:2px;opacity:0.6;font-size:11px">累计已生成 ' + freqTotal + ' 例</div>' : '');
+      statHtml = '<div style="font-size:12px;line-height:1.6;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px">📈 <b>分析概况</b>（全品种加权·按样本数加权）：<div style="margin-top:2px">' + winRows + '</div>' + freqNote + '</div>';
     } else {
       statHtml = '<div style="font-size:12px;line-height:1.5;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px;color:#ff9800">📈 分析概况：数据待补（signal_stats 未含此信号统计）</div>';
     }

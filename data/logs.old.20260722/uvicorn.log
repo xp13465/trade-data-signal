@@ -1,0 +1,1447 @@
+INFO:     Will watch for changes in these directories: ['/Users/linhuichen/code/trade/a-stock-data']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [70027] using WatchFiles
+INFO:     Started server process [70030]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:58924 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58987 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49726 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49726 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52945 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61535 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63429 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63429 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55171 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50072 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49676 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49676 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49334 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49334 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49334 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61912 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51391 - "GET /api/hk?range=1m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51391 - "GET /api/index/hsi?range=1m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51391 - "GET /api/index/hstech?range=1m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51391 - "GET /api/index/hscei?range=1m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51391 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51391 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51391 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51391 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54767 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54767 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52468 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56910 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'backtest_sell_optimize.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70030]
+INFO:     Started server process [79360]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_sell_optimize.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [79360]
+INFO:     Started server process [79380]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_sell_optimize.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [79380]
+INFO:     Started server process [79386]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_sell_optimize.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [79386]
+INFO:     Started server process [79805]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     192.168.31.134:57166 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57166 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62162 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:53719 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62162 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62162 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62162 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62162 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62162 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49236 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52311 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52311 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52311 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52311 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_optimize.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [79805]
+INFO:     Started server process [84104]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_optimize.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [84104]
+INFO:     Started server process [84137]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_sw801200.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [84137]
+INFO:     Started server process [85422]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [85422]
+INFO:     Started server process [87785]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [87785]
+INFO:     Started server process [87958]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [87958]
+INFO:     Started server process [87972]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [87972]
+INFO:     Started server process [88001]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88001]
+INFO:     Started server process [88014]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88014]
+INFO:     Started server process [88061]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88061]
+INFO:     Started server process [88265]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88265]
+INFO:     Started server process [88398]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88398]
+INFO:     Started server process [88499]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [88499]
+INFO:     Started server process [92526]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92526]
+INFO:     Started server process [92641]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92641]
+INFO:     Started server process [92675]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92675]
+INFO:     Started server process [92696]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92696]
+INFO:     Started server process [92756]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92756]
+INFO:     Started server process [92780]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92780]
+INFO:     Started server process [92794]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92794]
+INFO:     Started server process [92822]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92822]
+INFO:     Started server process [92844]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92844]
+INFO:     Started server process [92866]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92866]
+INFO:     Started server process [92894]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [92894]
+INFO:     Started server process [93063]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [93063]
+INFO:     Started server process [93121]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [93121]
+INFO:     Started server process [93149]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [93149]
+INFO:     Started server process [93201]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [93201]
+INFO:     Started server process [93855]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [93855]
+INFO:     Started server process [1851]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1851]
+INFO:     Started server process [1950]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1950]
+INFO:     Started server process [1973]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1973]
+INFO:     Started server process [1999]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1999]
+INFO:     Started server process [2027]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2027]
+INFO:     Started server process [2103]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2103]
+INFO:     Started server process [2203]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2203]
+INFO:     Started server process [2255]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     192.168.31.134:61367 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61367 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64942 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62581 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62581 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62581 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62581 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62581 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62581 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50040 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50040 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51328 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51324 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51328 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62239 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54748 - "GET /api/industry?range=1m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54748 - "GET /api/industry?range=3m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63554 - "GET /api/industry?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:53429 - "GET /api/sentiment?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50540 - "GET /api/global?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50540 - "GET /api/index/us_dji?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50540 - "GET /api/index/us_ixic?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50540 - "GET /api/index/us_spx?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50540 - "GET /api/index/us_ndx?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50999 - "GET /api/hk?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50999 - "GET /api/index/hsi?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50999 - "GET /api/index/hstech?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50999 - "GET /api/index/hscei?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/a-stock?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/sh?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/sz?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/hs300?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/csi500?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/csi1000?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/cyb?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/kc50?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/csi_div?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/div_lowvol?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58334 - "GET /api/index/sz_div?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/a-stock?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/sh?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/sz?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/hs300?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/csi500?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/csi1000?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/cyb?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/kc50?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/csi_div?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/div_lowvol?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52624 - "GET /api/index/sz_div?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/hk?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hsi?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hstech?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hscei?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/global?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/us_dji?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/us_ixic?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/us_spx?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/us_ndx?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/hk?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hsi?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hstech?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hscei?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/sentiment?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/industry?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/sentiment?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/hk?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hsi?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hstech?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hscei?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/a-stock?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/sh?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/sz?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/hs300?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/csi500?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/csi1000?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/cyb?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/kc50?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/csi_div?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/div_lowvol?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61089 - "GET /api/index/sz_div?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61867 - "GET /api/industry?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59227 - "GET /api/sentiment?range=6m HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2255]
+INFO:     Started server process [56442]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     192.168.31.134:51555 - "GET /api/global?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51555 - "GET /api/index/us_dji?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51555 - "GET /api/index/us_ixic?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51555 - "GET /api/index/us_spx?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51555 - "GET /api/index/us_ndx?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51555 - "GET /api/hk?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51555 - "GET /api/index/hsi?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51555 - "GET /api/index/hstech?range=6m HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51555 - "GET /api/index/hscei?range=6m HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [56442]
+INFO:     Started server process [56527]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [56527]
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Started server process [56531]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [56531]
+INFO:     Started server process [56536]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [56536]
+INFO:     Started server process [56588]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [56588]
+INFO:     Started server process [56595]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [56595]
+INFO:     Started server process [56633]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [56633]
+INFO:     Started server process [56954]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_hstech_winrate.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [56954]
+INFO:     Started server process [57130]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [57130]
+INFO:     Started server process [59078]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [59078]
+INFO:     Started server process [59090]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [59090]
+INFO:     Started server process [59202]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [59202]
+INFO:     Started server process [59257]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [59257]
+INFO:     Started server process [59281]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [59281]
+INFO:     Started server process [59320]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [59320]
+INFO:     Started server process [59360]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [59360]
+INFO:     Started server process [59408]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     192.168.31.134:58047 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58047 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61947 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50686 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50686 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50686 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58361 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58361 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51982 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56410 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51982 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51982 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56442 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56460 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62525 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62525 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:54240 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54240 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54240 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54240 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62769 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62769 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62769 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62769 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62769 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62054 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50321 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50321 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61867 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61867 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61867 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61867 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61867 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63306 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59635 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50223 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50223 - "GET /static/vendor/echarts.min.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:50226 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50227 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61197 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [59408]
+INFO:     Started server process [30098]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [30098]
+INFO:     Started server process [30146]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [30146]
+INFO:     Started server process [30181]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [30181]
+INFO:     Started server process [30410]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [30410]
+INFO:     Started server process [30648]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [30648]
+INFO:     Started server process [30878]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [30878]
+INFO:     Started server process [30987]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_aux_batch.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [30987]
+INFO:     Started server process [31041]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'backtest_buy_optimize.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [31041]
+INFO:     Started server process [33863]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:55002 - "GET /api/index/kc50?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55007 - "GET /api/index/sw_801730?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55009 - "GET /api/index/sw_801760?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55011 - "GET /api/index/sh?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55179 - "GET /api/index/kc50?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55181 - "GET /api/index/sh?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55212 - "GET /api/index/sw_801760?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50394 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50394 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50972 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54575 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/a-stock?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/sh?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/sz?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/hs300?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/csi500?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/csi1000?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/cyb?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/kc50?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/csi_div?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/div_lowvol?range=all HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52209 - "GET /api/index/sz_div?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55522 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56103 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65238 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65238 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50807 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65278 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50807 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50807 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50807 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57500 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57500 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57502 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:57511 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57511 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57536 - "GET /trade_sim.html HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57646 - "GET /trade_sim.html HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57669 - "GET /trade_sim.html HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57674 - "GET /trade_sim.html HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57696 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57705 - "GET /trade_sim.html HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57728 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57800 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57800 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:57803 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57809 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58188 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58283 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58814 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64502 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64502 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50527 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:53484 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:53484 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:59083 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59083 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:55399 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55399 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:61466 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:61466 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61466 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:61466 - "GET /static/trade_sim.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:61466 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:60657 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60657 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:60657 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60657 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:60657 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60657 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:57287 - "GET /static/trade_sim.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:57287 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:51404 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51404 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:64077 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64077 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:64507 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:64507 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64507 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64507 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:57893 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57893 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55569 - "GET /static/trade_sim.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55569 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:64520 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64520 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:63936 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:63936 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63936 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51523 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60652 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60652 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54603 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54797 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54797 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:59649 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:59649 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49683 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49683 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:62175 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:62175 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62175 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55802 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65304 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49676 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:49676 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65084 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58766 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58472 - "GET /static/trade_sim_sz.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58472 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:58472 - "GET /static/trade_sim_sh.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58472 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:64945 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:58748 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58748 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58748 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58748 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58748 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58748 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58748 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54441 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55842 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54441 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54441 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54441 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54441 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54441 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54441 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52216 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64857 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64857 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64857 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64857 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59987 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59987 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59987 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59987 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59987 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59987 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59987 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63409 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54432 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54432 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54432 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54432 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54432 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54432 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54432 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54432 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:53795 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:53795 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54843 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58687 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54843 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54843 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54843 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54843 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54843 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54843 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52868 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55442 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62624 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62624 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:51137 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51137 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:61413 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61413 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:59580 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59580 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:63938 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63938 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:65076 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65076 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65076 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58857 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59067 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58857 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57314 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65062 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65062 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55920 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:59441 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59441 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:55952 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55952 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:54174 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54174 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60449 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58133 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:55941 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55941 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50764 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65478 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:65478 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:65478 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:65478 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:65199 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65199 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:63344 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/a-stock?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/sh?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/sz?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/hs300?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/csi500?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/csi1000?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/cyb?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/kc50?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/csi_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/div_lowvol?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/sz_div?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/hk?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/hsi?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/hstech?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61234 - "GET /api/index/hscei?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65184 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65184 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:65184 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:65184 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:62954 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:62954 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:65237 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65237 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:65237 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:65237 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:65237 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:65237 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:65237 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:65237 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:49676 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:54836 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:54836 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:60230 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60230 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:55600 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:55600 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50704 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65351 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65351 - "GET /api/global?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65351 - "GET /api/index/us_dji?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65351 - "GET /api/index/us_ixic?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65351 - "GET /api/index/us_spx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65351 - "GET /api/index/us_ndx?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65351 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65351 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57425 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57425 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57425 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57425 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57788 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57788 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57788 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57788 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57788 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61664 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:55271 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61664 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61664 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60166 - "GET /static/trade_sim_sw_801030.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:60166 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:51137 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51137 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61645 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50163 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61645 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61645 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65231 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:65231 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52111 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57222 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52111 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:52111 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50607 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50607 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50610 - "GET /static/vendor/echarts.min.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:50611 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50611 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50611 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.207:50779 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.207:50779 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.207:50780 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.207:50781 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.207:50780 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56643 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56643 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:56643 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:56643 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50448 - "GET /static/trade_sim_g.wti_oil.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50448 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:50448 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50448 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50448 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61728 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61728 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:61728 - "GET /api/sentiment?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64936 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:64936 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:51939 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51939 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:51939 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59042 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59042 - "GET /static/style.css HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:58565 - "GET /static/app.js HTTP/1.1" 304 Not Modified
+INFO:     192.168.31.134:58565 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58565 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58522 - "GET /static/trade_sim_sw_801770.html HTTP/1.1" 200 OK
+INFO:     192.168.31.134:58522 - "GET /favicon.ico HTTP/1.1" 204 No Content
+INFO:     192.168.31.134:50085 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57938 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.31.134:57938 - "GET /static/style.css HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50409 - "GET /static/vendor/echarts.min.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:59306 - "GET /static/app.js HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50409 - "GET /api/overview HTTP/1.1" 200 OK
+INFO:     192.168.31.134:50409 - "GET /api/industry?range=1y HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52544 - "GET /api/industry?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52590 - "GET /api/industry?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52602 - "GET /api/industry?range=1m HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52605 - "GET /api/industry?range=all HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52632 - "GET /api/industry?range=all HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [33863]
+INFO:     Stopping reloader process [70027]

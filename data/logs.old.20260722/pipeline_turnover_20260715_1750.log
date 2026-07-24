@@ -1,0 +1,103 @@
+=== pipeline[turnover] 开始 2026-07-15 17:50:07 steps=turnover ===
+-> [turnover] 采集 steps=turnover ...
+login success!
+  [3/5072] 000004: empty
+  [1278/5072] 002808: empty
+  [1523/5072] 300029: empty
+[turnover] 增量模式：从 daily_metric 末尾 20260715 +1 -> 20260716
+[turnover] loading baostock turnover 20260716..20260715 ...
+[turnover] no data, abort
+=== 采集 20260715 完成 (steps=['turnover']): ok=0 fail=3 ===
+  [fail] baostock_turnover          +0 rows, 0 ok/3 fail (5072 codes)
+  [  ok] turnover_dist              skip (no turnover data)
+-> [turnover] 等待 deploy 锁（串行化 git）...
+=== deploy.sh 开始 2026-07-15 17:50:39 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (52257 bytes)
+  a-stock-1m.json (54959 bytes)
+  a-stock-3m.json (139233 bytes)
+  a-stock-6m.json (262278 bytes)
+  a-stock-1y.json (530369 bytes)
+  a-stock-3y.json (1574683 bytes)
+  a-stock-5y.json (2599729 bytes)
+  a-stock-all.json (6847070 bytes)
+  hk-1m.json (9934 bytes)
+  hk-3m.json (28236 bytes)
+  hk-6m.json (54772 bytes)
+  hk-1y.json (112875 bytes)
+  hk-3y.json (335633 bytes)
+  hk-5y.json (559371 bytes)
+  hk-all.json (1193412 bytes)
+  global-1m.json (27461 bytes)
+  global-3m.json (63847 bytes)
+  global-6m.json (117474 bytes)
+  global-1y.json (234733 bytes)
+  global-3y.json (689237 bytes)
+  global-5y.json (1129115 bytes)
+  global-all.json (3139225 bytes)
+  global-extras-all.json (930568 bytes)
+  sentiment-1m.json (34030 bytes)
+  sentiment-3m.json (80451 bytes)
+  sentiment-6m.json (145319 bytes)
+  sentiment-1y.json (289685 bytes)
+  sentiment-3y.json (855620 bytes)
+  sentiment-5y.json (1426061 bytes)
+  sentiment-all.json (3931579 bytes)
+  industry-1m.json (403363 bytes)
+  industry-3m.json (957927 bytes)
+  industry-6m.json (1774124 bytes)
+  industry-1y.json (3411504 bytes)
+  industry-3y.json (9538457 bytes)
+  industry-5y.json (14679069 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (422141 bytes)
+  ad_line.json (38453 bytes)
+  volume_ratio.json (45599 bytes)
+  position.json (1364 bytes)
+  summary.json (1242 bytes)
+  summary_history.json (119258 bytes)
+  signal_freq.json (251 bytes)
+  rotation.json (36900 bytes)
+  new_high_low.json (25892 bytes)
+  ma_alignment.json (19171 bytes)
+  intraday_snapshot.json (5575 bytes)
+  etf_national_team-1m.json (63985 bytes)
+  etf_national_team-3m.json (176062 bytes)
+  etf_national_team-6m.json (343228 bytes)
+  etf_national_team-1y.json (704293 bytes)
+  etf_national_team-3y.json (2105215 bytes)
+  etf_national_team-5y.json (3467456 bytes)
+  etf_national_team-all.json (7650320 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  etf_national_team_holders.json (27485 bytes)
+  index/*.json (77 files)
+
+导出完成：198 个 JSON 文件，125.5 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 7 ranges
+  - metrics: 1
+  - index detail: 77 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ 运行 build_min.py 重新生成 min JS ...
+=== terser minify 构建 ===
+  terser terser 5.49.0 可用
+  ✓ web/app.js (300,913B) → web/app.min.js (175,472B, -41.7%) + app.min.js.map (164,996B)
+  ✓ web/lab.js (141,295B) → web/lab.min.js (89,183B, -36.9%) + lab.min.js.map (71,410B)
+  ✓ static-site/app.js (305,492B) → static-site/app.min.js (177,221B, -42.0%) + app.min.js.map (167,247B)
+  ✓ static-site/lab.js (141,265B) → static-site/lab.min.js (89,102B, -36.9%) + lab.min.js.map (71,317B)
+完成。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [turnover] 2026-07-15_17:50
+Auto packing the repository in background for optimum performance.
+See "git help gc" for manual housekeeping.
+[feat/iframe-theme-follow d6a1153] data update [turnover] 2026-07-15_17:50
+ 17 files changed, 17 insertions(+), 17 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   9f5a9b4..aa822a5  HEAD -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-15 17:51:03 退出码=0 ===
+=== pipeline[turnover] 结束 2026-07-15 17:51:03 collect=0 deploy=0 ===

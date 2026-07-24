@@ -1,0 +1,174 @@
+=== deploy.sh 开始 2026-07-21 15:44:07 ===
+时段闸门: IS_TRADING=1 CURRENT_HM=1544 FORCE=0
+-> 恢复 intraday_snapshot.json/.gz 到 origin/main 版（防工作区残留带入通配 add）...
+From github.com:xp13465/trade-data-signal
+ * branch              main       -> FETCH_HEAD
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (65449 bytes)
+  a-stock-3m.json (143464 bytes)
+  a-stock-6m.json (268215 bytes)
+  a-stock-1y.json (537452 bytes)
+  a-stock-3y.json (1579895 bytes)
+  a-stock-5y.json (2615951 bytes)
+  a-stock-all.json (6924607 bytes)
+  hk-3m.json (110254 bytes)
+  hk-6m.json (204177 bytes)
+  hk-1y.json (411988 bytes)
+  hk-3y.json (1201753 bytes)
+  hk-5y.json (2004208 bytes)
+  hk-all.json (4542233 bytes)
+  global-3m.json (115684 bytes)
+  global-6m.json (215080 bytes)
+  global-1y.json (421649 bytes)
+  global-3y.json (1225413 bytes)
+  global-5y.json (1862820 bytes)
+  global-all.json (4000730 bytes)
+  global-extras-all.json (1147198 bytes)
+  sentiment-3m.json (87679 bytes)
+  sentiment-6m.json (160698 bytes)
+  sentiment-1y.json (318379 bytes)
+  sentiment-3y.json (932272 bytes)
+  sentiment-5y.json (1561120 bytes)
+  sentiment-all.json (4331437 bytes)
+  industry-3m.json (964620 bytes)
+  industry-6m.json (1780424 bytes)
+  industry-1y.json (3422343 bytes)
+  industry-all 拆分: 31 行业 + 27 概念 + meta
+  industry-5y 拆分: 31 行业 + 27 概念 + meta
+  industry-3y 拆分: 31 行业 + 27 概念 + meta
+  futures.json (422606 bytes)
+  ad_line.json (38453 bytes)
+  volume_ratio.json (45613 bytes)
+  position.json (1365 bytes)
+  summary.json (1250 bytes)
+  summary_history.json (119257 bytes)
+  signal_freq.json (251 bytes)
+  rotation.json (37045 bytes)
+  new_high_low.json (25892 bytes)
+  ma_alignment.json (19181 bytes)
+  intraday_snapshot.json (10581 bytes)
+  etf_national_team-3m.json (180441 bytes)
+  etf_national_team-6m.json (344237 bytes)
+  etf_national_team-1y.json (708540 bytes)
+  etf_national_team-3y.json (2106656 bytes)
+  etf_national_team-5y.json (3472061 bytes)
+  etf_national_team-all.json (7665903 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  etf_national_team_holders.json (27485 bytes)
+  index/*.json (90 files)
+
+导出完成：268 个 JSON 文件，138.1 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 6 ranges
+  - metrics: 1
+  - index detail: 90 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+  批量 gzip: 396 个 JSON -> .gz（含子目录 lab/ 等，rglob 递归）
+✓ export.py 完成
+-> 运行 gen_schedule_stats.py 刷新任务执行统计 ...
+✓ static-site/data/schedule_stats.json (7 tasks)
+  收盘全量     17:50                  est=约15分钟    last=2026-07-16 17:50 exit=0 dur=2940s
+  指数补采兜底   16:35 / 20:00 / 02:00  est=约3分钟     last=2026-07-18 02:00 exit=0 dur=0s
+  盘中快照     盘中 09:35-15:35         est=约1分钟     last=2026-07-16 15:35 exit=0 dur=73s
+  期货机构持仓   20:05 + 21:00(兜底)      est=约23秒     last=2026-07-17 21:00 exit=0 dur=26s
+  龙虎榜      18:30 + 19:30(兜底)      est=约43秒     last=2026-07-17 19:30 exit=0 dur=52s
+  两融       23:00                  est=约1秒      last=2026-07-17 23:00 exit=0 dur=1s
+  ETF国家队   20:07 + 21:30(兜底)      est=约2分钟     last=2026-07-17 21:30 exit=0 dur=191s
+-> 运行 gen_rss.py 生成 RSS feed.xml ...
+✓ /Users/linhuichen/code/trade/static-site/data/feed.xml 生成（30 items）
+→ 运行 build_min.py 重新生成 min JS ...
+=== build_min: JS(terser) + CSS(rcssmin) ===
+  terser terser 5.49.0 可用
+  ✓ static-site/common.js (19,462B) -> static-site/common.min.js (12,511B, -35.7%)
+  ✓ static-site/app.js (436,566B) -> static-site/app.min.js (252,220B, -42.2%)
+  ✓ static-site/lab.js (346,206B) -> static-site/lab.min.js (206,681B, -40.3%)
+  ✓ static-site/style.css (133,633B) -> static-site/style.min.css (99,581B, -25.5%)
+  ✓ static-site/lab.css (57,985B) -> static-site/lab.min.css (44,595B, -23.1%)
+完成（built=5 skipped=0）。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+-> 上传 lab 到 R2 ...
+✓ lab_backtest.json (64KB)
+✓ lab_backtest_bj50.json (25KB)
+✓ lab_backtest_csi1000.json (25KB)
+✓ lab_backtest_csi500.json (25KB)
+✓ lab_backtest_cyb.json (25KB)
+✓ lab_backtest_fusion_bj50.json (117KB)
+✓ lab_backtest_fusion_csi1000.json (118KB)
+✓ lab_backtest_fusion_csi500.json (119KB)
+✓ lab_backtest_fusion_cyb.json (119KB)
+✓ lab_backtest_fusion_hs300.json (119KB)
+✓ lab_backtest_fusion_kc50.json (117KB)
+✓ lab_backtest_fusion_sh.json (119KB)
+✓ lab_backtest_fusion_sz.json (119KB)
+✓ lab_backtest_fusion_sz50.json (119KB)
+✓ lab_backtest_hs300.json (25KB)
+✓ lab_backtest_kc50.json (25KB)
+✓ lab_backtest_sh.json (25KB)
+✓ lab_backtest_sz.json (25KB)
+✓ lab_backtest_sz50.json (25KB)
+✓ lab_retest_bj50.json (3KB)
+✓ lab_retest_csi1000.json (21KB)
+✓ lab_retest_csi500.json (21KB)
+✓ lab_retest_cyb.json (11KB)
+✓ lab_retest_honors.json (4KB)
+✓ lab_retest_hs300.json (21KB)
+✓ lab_retest_kc50.json (17KB)
+✓ lab_retest_sh.json (21KB)
+✓ lab_retest_sz.json (21KB)
+✓ lab_retest_sz50.json (22KB)
+✓ lab_sim_bj50_full.json (1917KB)
+✓ lab_sim_bj50_fusion_full.json (2558KB)
+✓ lab_sim_bj50_fusion_stats.json (338KB)
+✓ lab_sim_bj50_stats.json (143KB)
+✓ lab_sim_csi1000_full.json (3744KB)
+✓ lab_sim_csi1000_fusion_full.json (4609KB)
+✓ lab_sim_csi1000_fusion_stats.json (338KB)
+✓ lab_sim_csi1000_stats.json (143KB)
+✓ lab_sim_csi500_full.json (4962KB)
+✓ lab_sim_csi500_fusion_full.json (6153KB)
+✓ lab_sim_csi500_fusion_stats.json (338KB)
+✓ lab_sim_csi500_stats.json (143KB)
+✓ lab_sim_cyb_full.json (4325KB)
+✓ lab_sim_cyb_fusion_full.json (5506KB)
+✓ lab_sim_cyb_fusion_stats.json (337KB)
+✓ lab_sim_cyb_stats.json (142KB)
+✓ lab_sim_hs300_full.json (5149KB)
+✓ lab_sim_hs300_fusion_full.json (6202KB)
+✓ lab_sim_hs300_fusion_stats.json (338KB)
+✓ lab_sim_hs300_stats.json (143KB)
+✓ lab_sim_kc50_full.json (2559KB)
+✓ lab_sim_kc50_fusion_full.json (3316KB)
+✓ lab_sim_kc50_fusion_stats.json (319KB)
+✓ lab_sim_kc50_stats.json (142KB)
+✓ lab_sim_sh_full.json (6365KB)
+✓ lab_sim_sh_fusion_full.json (7722KB)
+✓ lab_sim_sh_fusion_stats.json (338KB)
+✓ lab_sim_sh_stats.json (143KB)
+✓ lab_sim_sz50_full.json (4869KB)
+✓ lab_sim_sz50_fusion_full.json (5983KB)
+✓ lab_sim_sz50_fusion_stats.json (337KB)
+✓ lab_sim_sz50_stats.json (143KB)
+✓ lab_sim_sz_full.json (6389KB)
+✓ lab_sim_sz_fusion_full.json (7923KB)
+✓ lab_sim_sz_fusion_stats.json (337KB)
+✓ lab_sim_sz_stats.json (143KB)
+共上传 65/65 -> https://ssd.fx8.store/lab/
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [backfill] 2026-07-21_15:48
+[feat/iframe-theme-follow 76f71935] data update [backfill] 2026-07-21_15:48
+ 589 files changed, 285 insertions(+), 285 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+ ! [rejected]          HEAD -> main (non-fast-forward)
+error: failed to push some refs to 'github.com:xp13465/trade-data-signal.git'
+hint: Updates were rejected because a pushed branch tip is behind its remote
+hint: counterpart. Check out this branch and integrate the remote changes
+hint: (e.g. 'git pull ...') before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+From github.com:xp13465/trade-data-signal
+ * branch              main       -> FETCH_HEAD
+-> 本地落后 origin/main，rebase 后重试 push ...
+error: cannot rebase: You have unstaged changes.
+error: Please commit or stash them.
+✗ rebase origin/main 失败（可能数据 JSON 冲突），已 abort 保持工作区干净。
+  请手动：git -C /Users/linhuichen/code/trade fetch origin && git -C /Users/linhuichen/code/trade rebase origin/main，解决冲突后重跑 deploy.sh

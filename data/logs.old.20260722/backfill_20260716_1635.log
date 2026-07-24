@@ -1,0 +1,31 @@
+=== backfill_indices.sh 开始 2026-07-16 16:35:01 ===
+[backfill] 目标日期 20260716
+[backfill] -> 序列指标补采 (stock_margin_sse 等)...
+  0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  4.64it/s] 67%|██████▋   | 2/3 [00:00<00:00,  5.03it/s]100%|██████████| 3/3 [00:00<00:00,  4.55it/s]                                               [series] a_fund_north              ok (2264 rows, latest=20240816)
+  [series] a_fund_margin             ok (1324 rows, latest=20210125)
+  [series] a_qvix_300                ok (1575 rows, latest=20260715)
+  [series] a_qvix_1000               ok (807 rows, latest=20260313)
+  [series] a_div_yield               ok (5228 rows, latest=20260715)
+  0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  4.18it/s] 67%|██████▋   | 2/3 [00:00<00:00,  4.18it/s]100%|██████████| 3/3 [00:00<00:00,  3.74it/s]                                               [series] hk_south                  ok (2670 rows, latest=20260715)
+  0%|          | 0/13 [00:00<?, ?it/s]  8%|▊         | 1/13 [00:00<00:01,  8.21it/s] 15%|█▌        | 2/13 [00:00<00:01,  7.55it/s] 23%|██▎       | 3/13 [00:00<00:01,  7.62it/s] 31%|███       | 4/13 [00:00<00:01,  7.43it/s] 38%|███▊      | 5/13 [00:00<00:01,  7.43it/s] 46%|████▌     | 6/13 [00:00<00:01,  6.41it/s] 54%|█████▍    | 7/13 [00:01<00:01,  5.93it/s] 62%|██████▏   | 8/13 [00:01<00:00,  5.78it/s] 69%|██████▉   | 9/13 [00:02<00:02,  1.97it/s] 77%|███████▋  | 10/13 [00:02<00:01,  2.57it/s] 85%|████████▍ | 11/13 [00:02<00:00,  3.18it/s] 92%|█████████▏| 12/13 [00:02<00:00,  3.90it/s]                                                 [series] usdcnh                    ok (485 rows, has 20260716)
+  [series] gold                      ok (4510 rows, has 20260716)
+  [series] oil                       ok (2014 rows, latest=20260715)
+  [series] wti_oil                   ok (7691 rows, has 20260716)
+  [series] comex_silver              ok (2589 rows, has 20260716)
+  [series] cn10y                     ok (2499 rows, latest=20260715)
+  0%|          | 0/19 [00:00<?, ?it/s]  5%|▌         | 1/19 [00:00<00:02,  8.05it/s] 11%|█         | 2/19 [00:00<00:02,  8.15it/s] 16%|█▌        | 3/19 [00:00<00:02,  7.95it/s] 21%|██        | 4/19 [00:00<00:01,  7.90it/s] 26%|██▋       | 5/19 [00:00<00:02,  5.88it/s]                                              Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/Users/linhuichen/code/trade/app/collector/index_backfill.py", line 781, in main
+    ok, fail, _ = verify_and_backfill_indices(today, verbose=True)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/linhuichen/code/trade/app/collector/index_backfill.py", line 463, in verify_and_backfill_indices
+    upsert_index_rows(rows)  # 仍 UPSERT 历史数据
+    ^^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'upsert_index_rows' where it is not associated with a value
+  [series] us10y                     ok (2636 rows, latest=20260715)
+  [series] brent                     ok (2586 rows, has 20260716)
+[backfill] 序列补采: 14 个指标成功, 当日新数据=是
+  [校验] 9 个核心 A 股指数今日(20260716)齐全 ✓
+  [校验] 31 个申万行业指数今日(20260716)齐全 ✓
+  [校验] 27 个概念指数今日(20260716)齐全 ✓
+=== backfill_indices.sh 结束 2026-07-16 16:37:33 退出码=1 ===

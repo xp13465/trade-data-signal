@@ -1,0 +1,159 @@
+=== pipeline[width] 开始 2026-07-14 17:50:01 steps=mootdx,industry_width,width_history ===
+-> [width] 采集 steps=mootdx,industry_width,width_history ...
+2026-07-14 17:50:01,741 - mootdx - INFO - [-] 选择最快的服务器...
+  [100/5203] 000516: ok +1 (last=20260714) | elapsed 73s, 1.4/s, ETA 3708s
+  [200/5203] 000669: ok +1 (last=20260714) | elapsed 88s, 2.3/s, ETA 2190s
+  [300/5203] 000820: ok +1 (last=20260714) | elapsed 102s, 2.9/s, ETA 1674s
+  [400/5203] 000978: ok +1 (last=20260714) | elapsed 117s, 3.4/s, ETA 1410s
+  [500/5203] 001338: ok +1 (last=20260714) | elapsed 130s, 3.8/s, ETA 1224s
+  [600/5203] 002072: ok +1 (last=20260714) | elapsed 143s, 4.2/s, ETA 1098s
+  [700/5203] 002178: ok +1 (last=20260714) | elapsed 158s, 4.4/s, ETA 1016s
+  [800/5203] 002283: ok +1 (last=20260714) | elapsed 176s, 4.6/s, ETA 966s
+  [900/5203] 002389: ok +1 (last=20260714) | elapsed 194s, 4.6/s, ETA 927s
+  [1000/5203] 002498: ok +1 (last=20260714) | elapsed 207s, 4.8/s, ETA 871s
+  [1100/5203] 002606: ok +1 (last=20260714) | elapsed 221s, 5.0/s, ETA 824s
+  [1200/5203] 002717: ok +1 (last=20260714) | elapsed 234s, 5.1/s, ETA 781s
+  [1300/5203] 002831: ok +1 (last=20260714) | elapsed 247s, 5.3/s, ETA 742s
+  [1400/5203] 002940: ok +1 (last=20260714) | elapsed 266s, 5.3/s, ETA 723s
+  [1500/5203] 300004: ok +1 (last=20260714) | elapsed 278s, 5.4/s, ETA 686s
+  [1600/5203] 300113: ok +1 (last=20260714) | elapsed 292s, 5.5/s, ETA 658s
+  [1700/5203] 300222: ok +1 (last=20260714) | elapsed 308s, 5.5/s, ETA 634s
+  [1800/5203] 300331: ok +1 (last=20260714) | elapsed 329s, 5.5/s, ETA 623s
+  [1900/5203] 300442: ok +1 (last=20260714) | elapsed 345s, 5.5/s, ETA 600s
+  [2000/5203] 300546: ok +1 (last=20260714) | elapsed 362s, 5.5/s, ETA 579s
+  [2100/5203] 300649: ok +1 (last=20260714) | elapsed 386s, 5.4/s, ETA 570s
+  [2200/5203] 300756: ok +1 (last=20260714) | elapsed 404s, 5.4/s, ETA 551s
+  [2300/5203] 300859: ok +1 (last=20260714) | elapsed 419s, 5.5/s, ETA 529s
+  [2400/5203] 300965: ok +1 (last=20260714) | elapsed 435s, 5.5/s, ETA 507s
+  [2500/5203] 301071: ok +1 (last=20260714) | elapsed 450s, 5.5/s, ETA 487s
+  [2600/5203] 301189: ok +1 (last=20260714) | elapsed 471s, 5.5/s, ETA 472s
+  [2700/5203] 301310: ok +1 (last=20260714) | elapsed 489s, 5.5/s, ETA 453s
+  [2800/5203] 301507: ok +1 (last=20260714) | elapsed 501s, 5.6/s, ETA 430s
+  [2900/5203] 600008: ok +1 (last=20260714) | elapsed 509s, 5.7/s, ETA 404s
+  [3000/5203] 600141: ok +1 (last=20260714) | elapsed 524s, 5.7/s, ETA 385s
+  [3100/5203] 600276: ok +1 (last=20260714) | elapsed 542s, 5.7/s, ETA 367s
+  [3200/5203] 600409: ok +1 (last=20260714) | elapsed 559s, 5.7/s, ETA 350s
+  [3300/5203] 600556: ok +1 (last=20260714) | elapsed 574s, 5.7/s, ETA 331s
+  [3400/5203] 600679: ok +1 (last=20260714) | elapsed 589s, 5.8/s, ETA 313s
+  [3500/5203] 600797: ok +1 (last=20260714) | elapsed 604s, 5.8/s, ETA 294s
+  [3600/5203] 600935: ok +1 (last=20260714) | elapsed 619s, 5.8/s, ETA 276s
+  [3700/5203] 601155: ok +1 (last=20260714) | elapsed 634s, 5.8/s, ETA 258s
+  [3800/5203] 601727: ok +1 (last=20260714) | elapsed 653s, 5.8/s, ETA 241s
+  [3900/5203] 603035: ok +1 (last=20260714) | elapsed 668s, 5.8/s, ETA 223s
+  [4000/5203] 603161: ok +1 (last=20260714) | elapsed 682s, 5.9/s, ETA 205s
+  [4100/5203] 603285: ok +1 (last=20260714) | elapsed 695s, 5.9/s, ETA 187s
+  [4200/5203] 603429: ok +1 (last=20260714) | elapsed 708s, 5.9/s, ETA 169s
+  [4300/5203] 603668: ok +1 (last=20260714) | elapsed 723s, 6.0/s, ETA 152s
+  [4400/5203] 603866: ok +1 (last=20260714) | elapsed 739s, 6.0/s, ETA 135s
+  [4500/5203] 605066: ok +1 (last=20260714) | elapsed 758s, 5.9/s, ETA 118s
+  [4600/5203] 688007: ok +1 (last=20260714) | elapsed 773s, 6.0/s, ETA 101s
+  [4700/5203] 688120: ok +1 (last=20260714) | elapsed 787s, 6.0/s, ETA 84s
+  [4800/5203] 688234: ok +1 (last=20260714) | elapsed 802s, 6.0/s, ETA 67s
+  [4900/5203] 688355: ok +1 (last=20260714) | elapsed 818s, 6.0/s, ETA 51s
+  [5000/5203] 688519: ok +1 (last=20260714) | elapsed 835s, 6.0/s, ETA 34s
+  [5100/5203] 688652: ok +1 (last=20260714) | elapsed 847s, 6.0/s, ETA 17s
+  [5200/5203] 688819: ok +1 (last=20260714) | elapsed 859s, 6.1/s, ETA 0s
+=== batch done: ok=5200 fail=3 rows=5200 processed=5203 elapsed=859s ===
+[F3-recent] 465 rows (31 ind × 15 dates, since 20260624)
+[D2-recent] 21 trading days (20260615~20260714), zt total=1914, dt total=509, zb total=883, up total=47498
+[D2-recent] wrote: {'written': 123, 'protected_akshare_dates': 8, 'dry_run': False}
+=== 采集 20260714 完成 (steps=['mootdx', 'industry_width', 'width_history']): ok=5200 fail=3 ===
+  [fail] mootdx_daily               +5200 rows, 5200 ok/3 fail (5203 codes)
+  [  ok] industry_width             +465 rows recent
+  [  ok] width_history              +21 days recent
+-> [width] compute_runner ...
+[volume_ratio] 计算完成: 2556 天, 写入 10211 条 metric
+=== 计算完成: §4情绪分=2547天  sz50=5456天  hs300=5934天  csi500=5213天  csi1000=2840天  cyb=3899天  kc50=1567天  §6跨市场=4652天  买卖点=14652个  派生公式=2361行  AD Line=10224行  量比=2556天  位置感=24行  恐贪指数=4485天  买卖点stats=92品种(106379B)  新高新低=43405行  均线排列=25866行  板块轮动=3行 ===
+-> [width] 等待 deploy 锁（串行化 git）...
+=== deploy.sh 开始 2026-07-14 18:04:35 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (53980 bytes)
+  a-stock-1m.json (52954 bytes)
+  a-stock-3m.json (139392 bytes)
+  a-stock-6m.json (262447 bytes)
+  a-stock-1y.json (530524 bytes)
+  a-stock-3y.json (1572678 bytes)
+  a-stock-5y.json (2599739 bytes)
+  a-stock-all.json (6845065 bytes)
+  hk-1m.json (9491 bytes)
+  hk-3m.json (28244 bytes)
+  hk-6m.json (54799 bytes)
+  hk-1y.json (112882 bytes)
+  hk-3y.json (335190 bytes)
+  hk-5y.json (559390 bytes)
+  hk-all.json (1192969 bytes)
+  global-1m.json (27175 bytes)
+  global-3m.json (64417 bytes)
+  global-6m.json (118044 bytes)
+  global-1y.json (235344 bytes)
+  global-3y.json (688951 bytes)
+  global-5y.json (1129931 bytes)
+  global-all.json (3138939 bytes)
+  sentiment-1m.json (32931 bytes)
+  sentiment-3m.json (80907 bytes)
+  sentiment-6m.json (145288 bytes)
+  sentiment-1y.json (289995 bytes)
+  sentiment-3y.json (854521 bytes)
+  sentiment-5y.json (1426045 bytes)
+  sentiment-all.json (3930480 bytes)
+  industry-1m.json (405450 bytes)
+  industry-3m.json (973773 bytes)
+  industry-6m.json (1790146 bytes)
+  industry-1y.json (3426315 bytes)
+  industry-3y.json (9540544 bytes)
+  industry-5y.json (14690934 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (422934 bytes)
+  ad_line.json (38453 bytes)
+  volume_ratio.json (45637 bytes)
+  position.json (1365 bytes)
+  summary.json (1254 bytes)
+  summary_history.json (119417 bytes)
+  signal_freq.json (323 bytes)
+  rotation.json (36902 bytes)
+  new_high_low.json (25893 bytes)
+  ma_alignment.json (19170 bytes)
+  intraday_snapshot.json (5552 bytes)
+  etf_national_team-1m.json (64270 bytes)
+  etf_national_team-3m.json (179105 bytes)
+  etf_national_team-6m.json (347757 bytes)
+  etf_national_team-1y.json (707366 bytes)
+  etf_national_team-3y.json (2105500 bytes)
+  etf_national_team-5y.json (3470460 bytes)
+  etf_national_team-all.json (7650605 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  etf_national_team_holders.json (27485 bytes)
+  index/*.json (77 files)
+
+导出完成：166 个 JSON 文件，124.3 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 7 ranges
+  - metrics: 1
+  - index detail: 77 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ 运行 build_min.py 重新生成 min JS ...
+=== terser minify 构建 ===
+  terser terser 5.49.0 可用
+  ✓ web/app.js (275,793B) → web/app.min.js (163,433B, -40.7%) + app.min.js.map (152,546B)
+  ✓ web/lab.js (140,742B) → web/lab.min.js (88,651B, -37.0%) + lab.min.js.map (71,340B)
+  ✓ static-site/app.js (280,371B) → static-site/app.min.js (165,181B, -41.1%) + app.min.js.map (154,826B)
+  ✓ static-site/lab.js (140,712B) → static-site/lab.min.js (88,570B, -37.1%) + lab.min.js.map (71,247B)
+完成。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [width] 2026-07-14_18:04
+[feat/iframe-theme-follow b0b03d6] data update [width] 2026-07-14_18:04
+ 79 files changed, 89 insertions(+), 83 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+ ! [rejected]        HEAD -> main (non-fast-forward)
+error: failed to push some refs to 'github.com:xp13465/trade-data-signal.git'
+hint: Updates were rejected because a pushed branch tip is behind its remote
+hint: counterpart. Check out this branch and integrate the remote changes
+hint: (e.g. 'git pull ...') before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+/Users/linhuichen/code/trade/scripts/deploy.sh: line 80: PUSH_RC�: unbound variable
+✗ [width] deploy 失败 (rc=1)
+=== pipeline[width] 结束 2026-07-14 18:04:56 collect=0 deploy=1 ===

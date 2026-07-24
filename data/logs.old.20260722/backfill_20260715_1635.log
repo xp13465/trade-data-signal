@@ -1,0 +1,145 @@
+=== backfill_indices.sh 开始 2026-07-15 16:35:04 ===
+[backfill] 目标日期 20260715
+[backfill] -> 序列指标补采 (stock_margin_sse 等)...
+  0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  5.64it/s] 67%|██████▋   | 2/3 [00:00<00:00,  5.66it/s]100%|██████████| 3/3 [00:00<00:00,  5.63it/s]                                               [series] a_fund_north              ok (2264 rows, latest=20141117)
+  [series] a_fund_margin             ok (1324 rows, latest=20260714)
+  [series] a_qvix_300                ok (1575 rows, has 20260715)
+  [series] a_qvix_1000               ok (807 rows, latest=20220722)
+  [series] a_div_yield               ok (5227 rows, latest=20050104)
+  0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  5.95it/s] 67%|██████▋   | 2/3 [00:00<00:00,  5.73it/s]100%|██████████| 3/3 [00:00<00:00,  6.34it/s]                                               [series] hk_south                  ok (2669 rows, latest=20141117)
+  0%|          | 0/13 [00:00<?, ?it/s]  8%|▊         | 1/13 [00:00<00:03,  3.95it/s] 15%|█▌        | 2/13 [00:00<00:01,  5.72it/s] 23%|██▎       | 3/13 [00:00<00:01,  6.39it/s] 31%|███       | 4/13 [00:00<00:01,  6.95it/s] 38%|███▊      | 5/13 [00:00<00:01,  7.43it/s] 46%|████▌     | 6/13 [00:00<00:00,  7.32it/s] 54%|█████▍    | 7/13 [00:01<00:00,  7.48it/s] 62%|██████▏   | 8/13 [00:01<00:00,  7.76it/s] 69%|██████▉   | 9/13 [00:01<00:00,  7.73it/s] 77%|███████▋  | 10/13 [00:01<00:00,  7.73it/s] 85%|████████▍ | 11/13 [00:01<00:00,  7.73it/s] 92%|█████████▏| 12/13 [00:01<00:00,  7.82it/s]                                                 [series] usdcnh                    ok (485 rows, has 20260715)
+  [series] gold                      ok (4509 rows, has 20260715)
+  [series] oil                       ok (2014 rows, has 20260715)
+  [series] wti_oil                   ok (7691 rows, has 20260715)
+  [series] comex_silver              ok (2589 rows, has 20260715)
+  [series] cn10y                     ok (2498 rows, latest=20160718)
+  0%|          | 0/19 [00:00<?, ?it/s]  5%|▌         | 1/19 [00:00<00:03,  5.21it/s] 11%|█         | 2/19 [00:00<00:02,  7.16it/s] 16%|█▌        | 3/19 [00:00<00:03,  5.01it/s] 21%|██        | 4/19 [00:00<00:02,  5.95it/s] 26%|██▋       | 5/19 [00:00<00:02,  6.72it/s]                                              [volume_ratio] 计算完成: 2557 天, 写入 10215 条 metric
+=== 计算完成: §4情绪分=2548天  sz50=5457天  hs300=5935天  csi500=5214天  csi1000=2841天  cyb=3900天  kc50=1568天  §6跨市场=4653天  买卖点=14652个  派生公式=2363行  AD Line=10228行  量比=2557天  位置感=24行  恐贪指数=4486天  买卖点stats=92品种(106380B)  新高新低=43410行  均线排列=25869行  板块轮动=3行 ===
+=== deploy.sh 开始 2026-07-15 16:37:52 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (52095 bytes)
+  a-stock-1m.json (53416 bytes)
+  a-stock-3m.json (137690 bytes)
+  a-stock-6m.json (260735 bytes)
+  a-stock-1y.json (528826 bytes)
+  a-stock-3y.json (1573140 bytes)
+  a-stock-5y.json (2598186 bytes)
+  a-stock-all.json (6845527 bytes)
+  hk-1m.json (9909 bytes)
+  hk-3m.json (28211 bytes)
+  hk-6m.json (54747 bytes)
+  hk-1y.json (112850 bytes)
+  hk-3y.json (335608 bytes)
+  hk-5y.json (559346 bytes)
+  hk-all.json (1193387 bytes)
+  global-1m.json (27461 bytes)
+  global-3m.json (63847 bytes)
+  global-6m.json (117474 bytes)
+  global-1y.json (234733 bytes)
+  global-3y.json (689237 bytes)
+  global-5y.json (1129115 bytes)
+  global-all.json (3139225 bytes)
+  global-extras-all.json (930568 bytes)
+  sentiment-1m.json (34033 bytes)
+  sentiment-3m.json (80454 bytes)
+  sentiment-6m.json (145322 bytes)
+  sentiment-1y.json (289688 bytes)
+  sentiment-3y.json (855623 bytes)
+  sentiment-5y.json (1426064 bytes)
+  sentiment-all.json (3931582 bytes)
+  industry-1m.json (403363 bytes)
+  industry-3m.json (957927 bytes)
+  industry-6m.json (1774124 bytes)
+  industry-1y.json (3411504 bytes)
+  industry-3y.json (9538457 bytes)
+  industry-5y.json (14679069 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (420844 bytes)
+  ad_line.json (38453 bytes)
+  volume_ratio.json (45599 bytes)
+  position.json (1364 bytes)
+  summary.json (1242 bytes)
+  summary_history.json (119258 bytes)
+  signal_freq.json (251 bytes)
+  rotation.json (36900 bytes)
+  new_high_low.json (25892 bytes)
+  ma_alignment.json (19171 bytes)
+  intraday_snapshot.json (5575 bytes)
+  etf_national_team-1m.json (63985 bytes)
+  etf_national_team-3m.json (176062 bytes)
+  etf_national_team-6m.json (343228 bytes)
+  etf_national_team-1y.json (704293 bytes)
+  etf_national_team-3y.json (2105215 bytes)
+  etf_national_team-5y.json (3467456 bytes)
+  etf_national_team-all.json (7650320 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  etf_national_team_holders.json (27485 bytes)
+  index/*.json (77 files)
+
+导出完成：198 个 JSON 文件，125.4 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 7 ranges
+  - metrics: 1
+  - index detail: 77 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ 运行 build_min.py 重新生成 min JS ...
+=== terser minify 构建 ===
+  terser terser 5.49.0 可用
+  ✓ web/app.js (299,807B) → web/app.min.js (175,078B, -41.6%) + app.min.js.map (164,557B)
+  ✓ web/lab.js (141,295B) → web/lab.min.js (89,183B, -36.9%) + lab.min.js.map (71,410B)
+  ✓ static-site/app.js (304,386B) → static-site/app.min.js (176,827B, -41.9%) + app.min.js.map (166,807B)
+  ✓ static-site/lab.js (141,265B) → static-site/lab.min.js (89,102B, -36.9%) + lab.min.js.map (71,317B)
+完成。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [backfill] 2026-07-15_16:38
+[feat/iframe-theme-follow a6d7998] data update [backfill] 2026-07-15_16:38
+ 146 files changed, 146 insertions(+), 146 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   7e03819..a6d7998  HEAD -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-15 16:38:26 退出码=0 ===
+  [series] us10y                     ok (2635 rows, latest=20160104)
+[backfill] 序列补采: 13 个指标成功, 当日新数据=是
+  [校验] 9 个核心 A 股指数今日(20260715)齐全 ✓
+  [校验] 31 个申万行业指数缺今日 20260715 -> 申万 trend API 补采
+    - sw_801010 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801030 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801040 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801050 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801080 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801880 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801110 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801120 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801130 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801140 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801150 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801160 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801170 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801180 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801200 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801210 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801780 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801790 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801230 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801710 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801720 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801730 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801890 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801740 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801750 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801760 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801770 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801950 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801960 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801970 申万源故障/同花顺当日未发布，下次定时任务再补
+    - sw_801980 申万源故障/同花顺当日未发布，下次定时任务再补
+  [校验] 港股+全球指数(7个) 最新日期检查完成
+[backfill] 指数补采结果 ok=0 fail=31
+[backfill] ⚠ 31 个指数三源都缺今日(已写 collect_log 告警)
+[backfill] 补到新数据 -> 重算情绪分 + 推送公网
+[backfill] ✓ 补采+重算+推送完成
+=== backfill_indices.sh 结束 2026-07-15 16:38:26 退出码=0 ===

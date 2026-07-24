@@ -1,0 +1,9 @@
+=== backup_db.sh 开始 2026-07-18 18:01:40 ===
+BACKUP_DIR=/Users/linhuichen/code/trade/data/backups RETAIN_DAYS=14
+-> .backup /Users/linhuichen/code/trade/data/sentiment.db (85700608 bytes) -> /Users/linhuichen/code/trade/data/backups/sentiment_20260718_1801.db
+✓ sentiment 备份完成 (85700608 bytes)
+-> .backup /Users/linhuichen/code/trade/data/etf_national_team.db (5349376 bytes) -> /Users/linhuichen/code/trade/data/backups/etf_national_team_20260718_1801.db
+✓ etf_national_team 备份完成 (5349376 bytes)
+-> 清理 14 天前的备份 ...
+当前备份数：7（/Users/linhuichen/code/trade/data/backups）
+=== backup_db.sh 结束 2026-07-18 18:01:40 退出码=0 ===

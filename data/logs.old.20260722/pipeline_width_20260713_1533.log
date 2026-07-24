@@ -1,0 +1,131 @@
+=== pipeline[width] 开始 2026-07-13 15:33:05 steps=mootdx,industry_width,width_history ===
+-> [width] 采集 steps=mootdx,industry_width,width_history ...
+2026-07-13 15:33:06,514 - mootdx - INFO - [-] 选择最快的服务器...
+  [100/5203] 000516: up-to-date (last=20260713) | elapsed 58s, 1.7/s, ETA 2972s
+  [200/5203] 000669: up-to-date (last=20260713) | elapsed 58s, 3.4/s, ETA 1458s
+  [300/5203] 000820: up-to-date (last=20260713) | elapsed 58s, 5.1/s, ETA 953s
+  [400/5203] 000978: up-to-date (last=20260713) | elapsed 58s, 6.9/s, ETA 700s
+  [500/5203] 001338: up-to-date (last=20260713) | elapsed 58s, 8.6/s, ETA 549s
+  [600/5203] 002072: up-to-date (last=20260713) | elapsed 58s, 10.3/s, ETA 448s
+  [700/5203] 002178: up-to-date (last=20260713) | elapsed 58s, 12.0/s, ETA 376s
+  [800/5203] 002283: up-to-date (last=20260713) | elapsed 58s, 13.7/s, ETA 322s
+  [900/5203] 002389: up-to-date (last=20260713) | elapsed 58s, 15.4/s, ETA 280s
+  [1000/5203] 002498: up-to-date (last=20260713) | elapsed 59s, 17.1/s, ETA 246s
+  [1100/5203] 002606: up-to-date (last=20260713) | elapsed 59s, 18.8/s, ETA 218s
+  [1200/5203] 002717: up-to-date (last=20260713) | elapsed 59s, 20.5/s, ETA 195s
+  [1300/5203] 002831: up-to-date (last=20260713) | elapsed 59s, 22.2/s, ETA 176s
+  [1400/5203] 002940: up-to-date (last=20260713) | elapsed 59s, 23.9/s, ETA 159s
+  [1500/5203] 300004: up-to-date (last=20260713) | elapsed 59s, 25.6/s, ETA 145s
+  [1600/5203] 300113: up-to-date (last=20260713) | elapsed 59s, 27.1/s, ETA 133s
+  [1700/5203] 300222: up-to-date (last=20260713) | elapsed 59s, 28.8/s, ETA 122s
+  [1800/5203] 300331: up-to-date (last=20260713) | elapsed 59s, 30.5/s, ETA 112s
+  [1900/5203] 300442: up-to-date (last=20260713) | elapsed 59s, 32.2/s, ETA 103s
+  [2000/5203] 300546: up-to-date (last=20260713) | elapsed 59s, 33.9/s, ETA 95s
+  [2100/5203] 300649: up-to-date (last=20260713) | elapsed 59s, 35.5/s, ETA 87s
+  [2200/5203] 300756: up-to-date (last=20260713) | elapsed 59s, 37.2/s, ETA 81s
+  [2300/5203] 300859: up-to-date (last=20260713) | elapsed 59s, 38.9/s, ETA 75s
+  [2400/5203] 300965: up-to-date (last=20260713) | elapsed 59s, 40.5/s, ETA 69s
+  [2500/5203] 301071: up-to-date (last=20260713) | elapsed 59s, 42.2/s, ETA 64s
+  [2600/5203] 301189: up-to-date (last=20260713) | elapsed 59s, 43.9/s, ETA 59s
+  [2700/5203] 301310: up-to-date (last=20260713) | elapsed 59s, 45.5/s, ETA 55s
+  [2800/5203] 301507: up-to-date (last=20260713) | elapsed 59s, 47.2/s, ETA 51s
+  [2900/5203] 600008: up-to-date (last=20260713) | elapsed 59s, 48.9/s, ETA 47s
+  [3000/5203] 600141: up-to-date (last=20260713) | elapsed 59s, 50.5/s, ETA 44s
+  [3100/5203] 600276: up-to-date (last=20260713) | elapsed 59s, 52.2/s, ETA 40s
+  [3200/5203] 600409: up-to-date (last=20260713) | elapsed 59s, 53.9/s, ETA 37s
+  [3300/5203] 600556: up-to-date (last=20260713) | elapsed 59s, 55.5/s, ETA 34s
+  [3400/5203] 600679: up-to-date (last=20260713) | elapsed 59s, 57.2/s, ETA 32s
+  [3500/5203] 600797: up-to-date (last=20260713) | elapsed 60s, 58.8/s, ETA 29s
+  [3600/5203] 600935: up-to-date (last=20260713) | elapsed 60s, 60.5/s, ETA 27s
+  [3700/5203] 601155: up-to-date (last=20260713) | elapsed 60s, 62.1/s, ETA 24s
+  [3800/5203] 601727: up-to-date (last=20260713) | elapsed 60s, 63.8/s, ETA 22s
+  [3900/5203] 603035: up-to-date (last=20260713) | elapsed 60s, 65.4/s, ETA 20s
+  [4000/5203] 603161: up-to-date (last=20260713) | elapsed 60s, 67.1/s, ETA 18s
+  [4100/5203] 603285: up-to-date (last=20260713) | elapsed 60s, 68.7/s, ETA 16s
+  [4200/5203] 603429: up-to-date (last=20260713) | elapsed 60s, 70.3/s, ETA 14s
+  [4300/5203] 603668: up-to-date (last=20260713) | elapsed 60s, 72.0/s, ETA 13s
+  [4400/5203] 603866: up-to-date (last=20260713) | elapsed 60s, 73.6/s, ETA 11s
+  [4500/5203] 605066: up-to-date (last=20260713) | elapsed 60s, 75.3/s, ETA 9s
+  [4600/5203] 688007: up-to-date (last=20260713) | elapsed 60s, 76.9/s, ETA 8s
+  [4700/5203] 688120: up-to-date (last=20260713) | elapsed 60s, 78.5/s, ETA 6s
+  [4800/5203] 688234: up-to-date (last=20260713) | elapsed 60s, 80.2/s, ETA 5s
+  [4900/5203] 688355: up-to-date (last=20260713) | elapsed 60s, 81.8/s, ETA 4s
+  [5000/5203] 688519: up-to-date (last=20260713) | elapsed 60s, 83.4/s, ETA 2s
+  [5100/5203] 688652: up-to-date (last=20260713) | elapsed 60s, 85.1/s, ETA 1s
+  [5200/5203] 688819: up-to-date (last=20260713) | elapsed 60s, 86.7/s, ETA 0s
+=== batch done: ok=5202 fail=1 rows=0 processed=5203 elapsed=60s ===
+[F3-recent] 465 rows (31 ind × 15 dates, since 20260623)
+[D2-recent] 20 trading days (20260615~20260713), zt total=1833, dt total=481, zb total=863, up total=43586
+[D2-recent] wrote: {'written': 119, 'protected_akshare_dates': 7, 'dry_run': False}
+=== 采集 20260713 完成 (steps=['mootdx', 'industry_width', 'width_history']): ok=5202 fail=1 ===
+  [fail] mootdx_daily               +0 rows, 5202 ok/1 fail (5203 codes)
+  [  ok] industry_width             +465 rows recent
+  [  ok] width_history              +20 days recent
+-> [width] compute_runner ...
+[volume_ratio] 计算完成: 2555 天, 写入 10207 条 metric
+=== 计算完成: §4情绪分=2546天  sz50=5454天  hs300=5932天  csi500=5211天  csi1000=2838天  cyb=3897天  kc50=1565天  §6跨市场=4651天  买卖点=14647个  派生公式=2359行  AD Line=10220行  量比=2555天  位置感=24行  恐贪指数=4483天  买卖点stats=92品种(106379B)  新高新低=43395行  均线排列=25860行  板块轮动=6行 ===
+-> [width] 等待 deploy 锁（串行化 git）...
+=== deploy.sh 开始 2026-07-13 15:34:19 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (51943 bytes)
+  a-stock-1m.json (48981 bytes)
+  a-stock-3m.json (137555 bytes)
+  a-stock-6m.json (260625 bytes)
+  a-stock-1y.json (526552 bytes)
+  a-stock-all.json (6841093 bytes)
+  hk-1m.json (8649 bytes)
+  hk-3m.json (27855 bytes)
+  hk-6m.json (54415 bytes)
+  hk-1y.json (112040 bytes)
+  hk-all.json (1192127 bytes)
+  global-1m.json (25988 bytes)
+  global-3m.json (64198 bytes)
+  global-6m.json (117827 bytes)
+  global-1y.json (234274 bytes)
+  global-all.json (3137869 bytes)
+  sentiment-1m.json (31152 bytes)
+  sentiment-3m.json (80194 bytes)
+  sentiment-6m.json (144699 bytes)
+  sentiment-1y.json (288219 bytes)
+  sentiment-all.json (3928704 bytes)
+  industry-1m.json (390153 bytes)
+  industry-3m.json (972141 bytes)
+  industry-6m.json (1788658 bytes)
+  industry-1y.json (3411018 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (419970 bytes)
+  ad_line.json (38455 bytes)
+  volume_ratio.json (45620 bytes)
+  position.json (1365 bytes)
+  summary.json (641 bytes)
+  summary_history.json (46242 bytes)
+  signal_freq.json (162 bytes)
+  rotation.json (37127 bytes)
+  new_high_low.json (25894 bytes)
+  ma_alignment.json (19169 bytes)
+  index/*.json (77 files)
+
+导出完成：146 个 JSON 文件，78.4 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 77 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+→ git commit: data update [width] 2026-07-13_15:34
+[feat/intraday-snapshot 3f111bb] data update [width] 2026-07-13_15:34
+ 36 files changed, 36 insertions(+), 36 deletions(-)
+→ git push ...
+fatal: The current branch feat/intraday-snapshot has no upstream branch.
+To push the current branch and set the remote as upstream, use
+
+    git push --set-upstream origin feat/intraday-snapshot
+
+To have this happen automatically for branches without a tracking
+upstream, see 'push.autoSetupRemote' in 'git help config'.
+
+/Users/linhuichen/code/trade/scripts/deploy.sh: line 65: PUSH_RC�: unbound variable
+✗ [width] deploy 失败 (rc=128)
+=== pipeline[width] 结束 2026-07-13 15:34:26 collect=0 deploy=128 ===

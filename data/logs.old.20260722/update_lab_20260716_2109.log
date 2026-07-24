@@ -1,0 +1,1695 @@
+=== update_lab.sh 开始 2026-07-16 21:09:04 ===
+交易日判断: IS_TRADING=1
+✓ update_all 已完成（或未运行），开始 lab 回测
+-> [1/3] lab_simulate 单信号（128 组 × 9 指数）...
+=== 策略实验室多指数回测 ===
+指数: ['sh', 'sz', 'cyb', 'kc50', 'bj50', 'sz50', 'hs300', 'csi500', 'csi1000']
+
+[load] sh (上证指数) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 8683 条, 1990-12-19 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  80笔 ret=  -87.9%  fixed_10k:  80笔 ret=  -40.1%
+  BB_lower_revert        x MA_death_5_20           full_in: 134笔 ret= +432.9%  fixed_10k: 134笔 ret= +145.5%
+  BB_lower_revert        x BB_middle_break         full_in: 141笔 ret= +889.0%  fixed_10k: 141笔 ret= +137.9%
+  BB_lower_revert        x Donchian10_down         full_in: 234笔 ret=  -45.6%  fixed_10k: 234笔 ret=   +5.1%
+  BB_lower_revert        x Donchian20_down         full_in: 220笔 ret=  -56.9%  fixed_10k: 220笔 ret=   +6.2%
+  BB_lower_revert        x MACD_death              full_in: 156笔 ret= +210.8%  fixed_10k: 156笔 ret=  +32.7%
+  BB_lower_revert        x ATR_trail_stop          full_in: 166笔 ret= +336.3%  fixed_10k: 166笔 ret=  +92.7%
+  BB_lower_revert        x D1_high20_drop5         full_in: 143笔 ret=  -48.4%  fixed_10k: 143笔 ret=   -8.9%
+  Supertrend_buy         x BB_upper_revert         full_in:  93笔 ret=  -68.0%  fixed_10k:  93笔 ret=   +0.9%
+  Supertrend_buy         x MA_death_5_20           full_in: 124笔 ret=+18906.1%  fixed_10k: 124笔 ret= +133.7%
+  Supertrend_buy         x BB_middle_break         full_in: 127笔 ret=+42208.3%  fixed_10k: 127笔 ret= +132.4%
+  Supertrend_buy         x Donchian10_down         full_in: 121笔 ret=+38347.4%  fixed_10k: 121笔 ret= +126.5%
+  Supertrend_buy         x Donchian20_down         full_in: 104笔 ret=+17213.0%  fixed_10k: 104笔 ret= +284.5%
+  Supertrend_buy         x MACD_death              full_in: 128笔 ret=+11952.6%  fixed_10k: 128笔 ret=  +64.9%
+  Supertrend_buy         x ATR_trail_stop          full_in: 124笔 ret=+43369.2%  fixed_10k: 124笔 ret= +122.2%
+  Supertrend_buy         x D1_high20_drop5         full_in: 114笔 ret=+2968.1%  fixed_10k: 114笔 ret=  +59.7%
+  Donchian20_up          x BB_upper_revert         full_in: 212笔 ret=+1158.3%  fixed_10k: 212笔 ret=  +91.3%
+  Donchian20_up          x MA_death_5_20           full_in: 138笔 ret=+40142.2%  fixed_10k: 138笔 ret= +373.0%
+  Donchian20_up          x BB_middle_break         full_in: 151笔 ret=+46466.6%  fixed_10k: 151笔 ret= +383.4%
+  Donchian20_up          x Donchian10_down         full_in: 126笔 ret=+37457.4%  fixed_10k: 126笔 ret= +338.9%
+  Donchian20_up          x Donchian20_down         full_in:  93笔 ret=+23070.0%  fixed_10k:  93笔 ret= +646.0%
+  Donchian20_up          x MACD_death              full_in: 173笔 ret=+73444.6%  fixed_10k: 173笔 ret= +293.0%
+  Donchian20_up          x ATR_trail_stop          full_in: 113笔 ret=+33871.8%  fixed_10k: 113笔 ret= +330.1%
+  Donchian20_up          x D1_high20_drop5         full_in: 134笔 ret=+11950.8%  fixed_10k: 134笔 ret= +214.3%
+  Donchian55_up          x BB_upper_revert         full_in: 143笔 ret=+1846.7%  fixed_10k: 143笔 ret= +105.2%
+  Donchian55_up          x MA_death_5_20           full_in:  85笔 ret=+13910.8%  fixed_10k:  85笔 ret= +319.9%
+  Donchian55_up          x BB_middle_break         full_in:  92笔 ret=+16084.9%  fixed_10k:  92笔 ret= +337.5%
+  Donchian55_up          x Donchian10_down         full_in:  78笔 ret=+13183.6%  fixed_10k:  78笔 ret= +301.6%
+  Donchian55_up          x Donchian20_down         full_in:  59笔 ret=+9467.0%  fixed_10k:  59笔 ret= +544.6%
+  Donchian55_up          x MACD_death              full_in: 118笔 ret=+17081.8%  fixed_10k: 118笔 ret= +253.3%
+  Donchian55_up          x ATR_trail_stop          full_in:  68笔 ret=+13833.5%  fixed_10k:  68笔 ret= +288.3%
+  Donchian55_up          x D1_high20_drop5         full_in:  85笔 ret=+9469.3%  fixed_10k:  85笔 ret= +184.1%
+  MA_golden_5_20         x BB_upper_revert         full_in: 116笔 ret=  -41.1%  fixed_10k: 116笔 ret=  -17.3%
+  MA_golden_5_20         x MA_death_5_20           full_in: 247笔 ret=+27031.5%  fixed_10k: 247笔 ret= +105.1%
+  MA_golden_5_20         x BB_middle_break         full_in: 239笔 ret=+37271.3%  fixed_10k: 239笔 ret= +107.2%
+  MA_golden_5_20         x Donchian10_down         full_in: 199笔 ret=+9761.8%  fixed_10k: 199笔 ret=  +90.4%
+  MA_golden_5_20         x Donchian20_down         full_in: 136笔 ret=+11384.0%  fixed_10k: 136笔 ret= +259.4%
+  MA_golden_5_20         x MACD_death              full_in: 213笔 ret=+1325.8%  fixed_10k: 213笔 ret=  +33.8%
+  MA_golden_5_20         x ATR_trail_stop          full_in: 174笔 ret=+14328.1%  fixed_10k: 174笔 ret=  +89.1%
+  MA_golden_5_20         x D1_high20_drop5         full_in: 172笔 ret= +934.2%  fixed_10k: 172笔 ret=  +48.0%
+  MA_golden_10_60        x BB_upper_revert         full_in:  74笔 ret=  -47.2%  fixed_10k:  74笔 ret=   +1.1%
+  MA_golden_10_60        x MA_death_5_20           full_in:  88笔 ret= +735.2%  fixed_10k:  88笔 ret=  +27.5%
+  MA_golden_10_60        x BB_middle_break         full_in:  88笔 ret= +874.3%  fixed_10k:  88笔 ret=  +29.8%
+  MA_golden_10_60        x Donchian10_down         full_in:  87笔 ret= +507.5%  fixed_10k:  87笔 ret=  +23.9%
+  MA_golden_10_60        x Donchian20_down         full_in:  81笔 ret=+4365.3%  fixed_10k:  81笔 ret= +115.3%
+  MA_golden_10_60        x MACD_death              full_in:  88笔 ret= +288.1%  fixed_10k:  88笔 ret=  +16.8%
+  MA_golden_10_60        x ATR_trail_stop          full_in:  88笔 ret= +624.8%  fixed_10k:  88笔 ret=  +24.8%
+  MA_golden_10_60        x D1_high20_drop5         full_in:  81笔 ret= +791.9%  fixed_10k:  81笔 ret=  +30.1%
+  MACD_golden            x BB_upper_revert         full_in: 137笔 ret=  -41.9%  fixed_10k: 137笔 ret=  +15.1%
+  MACD_golden            x MA_death_5_20           full_in: 212笔 ret=+27383.3%  fixed_10k: 212笔 ret= +231.4%
+  MACD_golden            x BB_middle_break         full_in: 245笔 ret=+26898.6%  fixed_10k: 245笔 ret= +220.7%
+  MACD_golden            x Donchian10_down         full_in: 233笔 ret=+17243.5%  fixed_10k: 233笔 ret= +154.4%
+  MACD_golden            x Donchian20_down         full_in: 168笔 ret=+13089.0%  fixed_10k: 168笔 ret= +337.6%
+  MACD_golden            x MACD_death              full_in: 313笔 ret=+44615.6%  fixed_10k: 313笔 ret=  +84.5%
+  MACD_golden            x ATR_trail_stop          full_in: 206笔 ret=+24479.9%  fixed_10k: 206笔 ret= +162.7%
+  MACD_golden            x D1_high20_drop5         full_in: 189笔 ret= +809.7%  fixed_10k: 189笔 ret=  +63.0%
+  C1_RSI30               x BB_upper_revert         full_in:  50笔 ret=  -70.5%  fixed_10k:  50笔 ret=   +8.1%
+  C1_RSI30               x MA_death_5_20           full_in:  81笔 ret= +686.6%  fixed_10k:  81笔 ret= +130.0%
+  C1_RSI30               x BB_middle_break         full_in:  81笔 ret= +490.7%  fixed_10k:  81笔 ret= +118.0%
+  C1_RSI30               x Donchian10_down         full_in: 142笔 ret= +182.8%  fixed_10k: 142笔 ret=  +29.6%
+  C1_RSI30               x Donchian20_down         full_in: 141笔 ret=+1675.8%  fixed_10k: 141笔 ret= +217.4%
+  C1_RSI30               x MACD_death              full_in:  93笔 ret= +341.3%  fixed_10k:  93笔 ret=  +41.3%
+  C1_RSI30               x ATR_trail_stop          full_in:  89笔 ret= +317.0%  fixed_10k:  89笔 ret=  +87.2%
+  C1_RSI30               x D1_high20_drop5         full_in:  86笔 ret=  -31.2%  fixed_10k:  86笔 ret=   +1.2%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sh_stats.json (88.0 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sh_stats.json (88.0 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sh_full.json (2847.9 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sh_full.json (2847.9 KB)
+完成: sh (上证指数) - 64 组配对, 16 个策略, 5窗口
+
+[load] sz (深证成指) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 8591 条, 1991-04-03 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  78笔 ret=  -87.8%  fixed_10k:  78笔 ret=  -36.0%
+  BB_lower_revert        x MA_death_5_20           full_in: 137笔 ret= +288.3%  fixed_10k: 137笔 ret=  +87.8%
+  BB_lower_revert        x BB_middle_break         full_in: 144笔 ret=  +60.1%  fixed_10k: 144笔 ret=  +73.1%
+  BB_lower_revert        x Donchian10_down         full_in: 263笔 ret=  +61.4%  fixed_10k: 263笔 ret=  +19.4%
+  BB_lower_revert        x Donchian20_down         full_in: 243笔 ret= +436.5%  fixed_10k: 243笔 ret=  +36.6%
+  BB_lower_revert        x MACD_death              full_in: 161笔 ret=  +87.4%  fixed_10k: 161笔 ret=  +54.4%
+  BB_lower_revert        x ATR_trail_stop          full_in: 181笔 ret=  +14.0%  fixed_10k: 181笔 ret=  +52.3%
+  BB_lower_revert        x D1_high20_drop5         full_in: 159笔 ret=  -63.1%  fixed_10k: 159笔 ret=  +23.6%
+  Supertrend_buy         x BB_upper_revert         full_in:  91笔 ret=  -42.5%  fixed_10k:  91笔 ret=  +15.2%
+  Supertrend_buy         x MA_death_5_20           full_in: 121笔 ret=+2087.5%  fixed_10k: 121笔 ret=  +56.6%
+  Supertrend_buy         x BB_middle_break         full_in: 124笔 ret=+2306.3%  fixed_10k: 124笔 ret=  +52.8%
+  Supertrend_buy         x Donchian10_down         full_in: 120笔 ret=+3138.3%  fixed_10k: 120笔 ret=  +55.1%
+  Supertrend_buy         x Donchian20_down         full_in: 105笔 ret=+15605.8%  fixed_10k: 105笔 ret= +135.6%
+  Supertrend_buy         x MACD_death              full_in: 124笔 ret=+3172.0%  fixed_10k: 124笔 ret=  +48.6%
+  Supertrend_buy         x ATR_trail_stop          full_in: 123笔 ret=+4575.3%  fixed_10k: 123笔 ret=  +68.1%
+  Supertrend_buy         x D1_high20_drop5         full_in: 118笔 ret= +306.7%  fixed_10k: 118笔 ret=  +23.6%
+  Donchian20_up          x BB_upper_revert         full_in: 210笔 ret=+2156.5%  fixed_10k: 210笔 ret=  +60.4%
+  Donchian20_up          x MA_death_5_20           full_in: 131笔 ret=+51225.6%  fixed_10k: 131笔 ret= +284.5%
+  Donchian20_up          x BB_middle_break         full_in: 144笔 ret=+46130.6%  fixed_10k: 144笔 ret= +246.4%
+  Donchian20_up          x Donchian10_down         full_in: 122笔 ret=+27878.9%  fixed_10k: 122笔 ret= +261.5%
+  Donchian20_up          x Donchian20_down         full_in:  91笔 ret=+30106.1%  fixed_10k:  91笔 ret= +487.0%
+  Donchian20_up          x MACD_death              full_in: 170笔 ret=+90058.2%  fixed_10k: 170笔 ret= +211.4%
+  Donchian20_up          x ATR_trail_stop          full_in: 109笔 ret=+23815.6%  fixed_10k: 109笔 ret= +257.4%
+  Donchian20_up          x D1_high20_drop5         full_in: 147笔 ret=+8826.8%  fixed_10k: 147笔 ret= +144.4%
+  Donchian55_up          x BB_upper_revert         full_in: 153笔 ret=+3371.4%  fixed_10k: 153笔 ret=  +56.9%
+  Donchian55_up          x MA_death_5_20           full_in:  80笔 ret=+11042.8%  fixed_10k:  80笔 ret= +200.6%
+  Donchian55_up          x BB_middle_break         full_in:  87笔 ret=+8726.0%  fixed_10k:  87笔 ret= +168.6%
+  Donchian55_up          x Donchian10_down         full_in:  75笔 ret=+6109.0%  fixed_10k:  75笔 ret= +171.7%
+  Donchian55_up          x Donchian20_down         full_in:  56笔 ret=+7220.6%  fixed_10k:  56笔 ret= +311.5%
+  Donchian55_up          x MACD_death              full_in: 118笔 ret=+10381.3%  fixed_10k: 118笔 ret= +140.9%
+  Donchian55_up          x ATR_trail_stop          full_in:  67笔 ret=+6160.3%  fixed_10k:  67笔 ret= +171.9%
+  Donchian55_up          x D1_high20_drop5         full_in:  97笔 ret=+2884.8%  fixed_10k:  97笔 ret=  +94.3%
+  MA_golden_5_20         x BB_upper_revert         full_in: 112笔 ret=  -66.0%  fixed_10k: 112笔 ret=   -9.6%
+  MA_golden_5_20         x MA_death_5_20           full_in: 238笔 ret=+20257.8%  fixed_10k: 238笔 ret=  +79.5%
+  MA_golden_5_20         x BB_middle_break         full_in: 233笔 ret=+18012.2%  fixed_10k: 233笔 ret=  +74.1%
+  MA_golden_5_20         x Donchian10_down         full_in: 191笔 ret=+7968.4%  fixed_10k: 191笔 ret=  +85.8%
+  MA_golden_5_20         x Donchian20_down         full_in: 135笔 ret=+7853.9%  fixed_10k: 135笔 ret= +175.6%
+  MA_golden_5_20         x MACD_death              full_in: 215笔 ret=+6324.5%  fixed_10k: 215笔 ret=  +57.1%
+  MA_golden_5_20         x ATR_trail_stop          full_in: 171笔 ret=+4088.7%  fixed_10k: 171笔 ret=  +85.2%
+  MA_golden_5_20         x D1_high20_drop5         full_in: 188笔 ret= +516.7%  fixed_10k: 188笔 ret=  +26.8%
+  MA_golden_10_60        x BB_upper_revert         full_in:  68笔 ret=  -69.4%  fixed_10k:  68笔 ret=   +0.5%
+  MA_golden_10_60        x MA_death_5_20           full_in:  85笔 ret= +286.4%  fixed_10k:  85笔 ret=  +18.1%
+  MA_golden_10_60        x BB_middle_break         full_in:  86笔 ret= +553.0%  fixed_10k:  86笔 ret=  +24.6%
+  MA_golden_10_60        x Donchian10_down         full_in:  85笔 ret= +385.7%  fixed_10k:  85笔 ret=  +22.5%
+  MA_golden_10_60        x Donchian20_down         full_in:  75笔 ret=+3061.5%  fixed_10k:  75笔 ret=  +77.2%
+  MA_golden_10_60        x MACD_death              full_in:  85笔 ret= +443.9%  fixed_10k:  85笔 ret=  +19.9%
+  MA_golden_10_60        x ATR_trail_stop          full_in:  83笔 ret= +416.0%  fixed_10k:  83笔 ret=  +26.2%
+  MA_golden_10_60        x D1_high20_drop5         full_in:  82笔 ret= +208.6%  fixed_10k:  82笔 ret=  +17.8%
+  MACD_golden            x BB_upper_revert         full_in: 131笔 ret=  -89.4%  fixed_10k: 131笔 ret=   -7.3%
+  MACD_golden            x MA_death_5_20           full_in: 218笔 ret=+6036.2%  fixed_10k: 218笔 ret= +141.5%
+  MACD_golden            x BB_middle_break         full_in: 247笔 ret=+4367.0%  fixed_10k: 247笔 ret= +123.0%
+  MACD_golden            x Donchian10_down         full_in: 234笔 ret=+1098.0%  fixed_10k: 234笔 ret=  +95.7%
+  MACD_golden            x Donchian20_down         full_in: 175笔 ret=+1228.8%  fixed_10k: 175笔 ret= +194.1%
+  MACD_golden            x MACD_death              full_in: 314笔 ret=+18020.7%  fixed_10k: 314笔 ret=  +77.9%
+  MACD_golden            x ATR_trail_stop          full_in: 202笔 ret=+1228.4%  fixed_10k: 202笔 ret= +138.1%
+  MACD_golden            x D1_high20_drop5         full_in: 219笔 ret= +125.6%  fixed_10k: 219笔 ret=  +40.8%
+  C1_RSI30               x BB_upper_revert         full_in:  47笔 ret=  -66.8%  fixed_10k:  47笔 ret=  +31.6%
+  C1_RSI30               x MA_death_5_20           full_in:  77笔 ret=+1386.9%  fixed_10k:  77笔 ret=  +70.3%
+  C1_RSI30               x BB_middle_break         full_in:  81笔 ret= +707.7%  fixed_10k:  81笔 ret=  +64.1%
+  C1_RSI30               x Donchian10_down         full_in: 129笔 ret= +836.6%  fixed_10k: 129笔 ret=  +41.6%
+  C1_RSI30               x Donchian20_down         full_in: 127笔 ret=+7723.9%  fixed_10k: 127笔 ret=  +98.0%
+  C1_RSI30               x MACD_death              full_in:  95笔 ret= +742.6%  fixed_10k:  95笔 ret=  +49.2%
+  C1_RSI30               x ATR_trail_stop          full_in:  93笔 ret= +351.7%  fixed_10k:  93笔 ret=  +51.1%
+  C1_RSI30               x D1_high20_drop5         full_in:  84笔 ret=  +99.5%  fixed_10k:  84笔 ret=  +32.3%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sz_stats.json (88.0 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sz_stats.json (88.0 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sz_full.json (2859.7 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sz_full.json (2859.7 KB)
+完成: sz (深证成指) - 64 组配对, 16 个策略, 5窗口
+
+[load] cyb (创业板指) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 3915 条, 2010-06-01 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  35笔 ret=  -50.2%  fixed_10k:  35笔 ret=  -21.8%
+  BB_lower_revert        x MA_death_5_20           full_in:  64笔 ret=  +37.6%  fixed_10k:  64笔 ret=  +13.3%
+  BB_lower_revert        x BB_middle_break         full_in:  66笔 ret=  -10.7%  fixed_10k:  66笔 ret=   +6.3%
+  BB_lower_revert        x Donchian10_down         full_in: 114笔 ret=  -32.0%  fixed_10k: 114笔 ret=   -0.0%
+  BB_lower_revert        x Donchian20_down         full_in: 103笔 ret=  +27.2%  fixed_10k: 103笔 ret=  +11.4%
+  BB_lower_revert        x MACD_death              full_in:  72笔 ret=  -25.0%  fixed_10k:  72笔 ret=   -3.3%
+  BB_lower_revert        x ATR_trail_stop          full_in:  80笔 ret= +152.5%  fixed_10k:  80笔 ret=  +26.7%
+  BB_lower_revert        x D1_high20_drop5         full_in:  72笔 ret=  -25.7%  fixed_10k:  72笔 ret=   +6.9%
+  Supertrend_buy         x BB_upper_revert         full_in:  44笔 ret=  -30.3%  fixed_10k:  44笔 ret=   -6.9%
+  Supertrend_buy         x MA_death_5_20           full_in:  60笔 ret= +482.6%  fixed_10k:  60笔 ret=  +23.2%
+  Supertrend_buy         x BB_middle_break         full_in:  61笔 ret= +153.4%  fixed_10k:  61笔 ret=  +12.0%
+  Supertrend_buy         x Donchian10_down         full_in:  60笔 ret= +328.5%  fixed_10k:  60笔 ret=  +20.4%
+  Supertrend_buy         x Donchian20_down         full_in:  47笔 ret= +920.0%  fixed_10k:  47笔 ret=  +32.3%
+  Supertrend_buy         x MACD_death              full_in:  60笔 ret= +171.6%  fixed_10k:  60笔 ret=  +11.3%
+  Supertrend_buy         x ATR_trail_stop          full_in:  58笔 ret= +667.0%  fixed_10k:  58笔 ret=  +28.1%
+  Supertrend_buy         x D1_high20_drop5         full_in:  59笔 ret=  +47.7%  fixed_10k:  59笔 ret=   +4.9%
+  Donchian20_up          x BB_upper_revert         full_in: 112笔 ret=  +53.5%  fixed_10k: 112笔 ret=   +6.9%
+  Donchian20_up          x MA_death_5_20           full_in:  64笔 ret= +803.0%  fixed_10k:  64笔 ret= +139.1%
+  Donchian20_up          x BB_middle_break         full_in:  70笔 ret= +555.7%  fixed_10k:  70笔 ret=  +83.8%
+  Donchian20_up          x Donchian10_down         full_in:  61笔 ret= +511.8%  fixed_10k:  61笔 ret= +117.0%
+  Donchian20_up          x Donchian20_down         full_in:  42笔 ret= +756.6%  fixed_10k:  42笔 ret= +143.2%
+  Donchian20_up          x MACD_death              full_in:  83笔 ret= +488.7%  fixed_10k:  83笔 ret=  +49.9%
+  Donchian20_up          x ATR_trail_stop          full_in:  50笔 ret= +771.7%  fixed_10k:  50笔 ret= +116.5%
+  Donchian20_up          x D1_high20_drop5         full_in:  77笔 ret= +123.6%  fixed_10k:  77笔 ret=  +48.8%
+  Donchian55_up          x BB_upper_revert         full_in:  86笔 ret=  +49.4%  fixed_10k:  86笔 ret=  +16.3%
+  Donchian55_up          x MA_death_5_20           full_in:  39笔 ret= +382.6%  fixed_10k:  39笔 ret= +123.1%
+  Donchian55_up          x BB_middle_break         full_in:  45笔 ret= +237.7%  fixed_10k:  45笔 ret=  +70.6%
+  Donchian55_up          x Donchian10_down         full_in:  40笔 ret= +213.0%  fixed_10k:  40笔 ret= +103.5%
+  Donchian55_up          x Donchian20_down         full_in:  27笔 ret= +373.5%  fixed_10k:  27笔 ret= +127.6%
+  Donchian55_up          x MACD_death              full_in:  56笔 ret= +251.9%  fixed_10k:  56笔 ret=  +41.7%
+  Donchian55_up          x ATR_trail_stop          full_in:  33笔 ret= +269.1%  fixed_10k:  33笔 ret=  +96.6%
+  Donchian55_up          x D1_high20_drop5         full_in:  52笔 ret=  +66.9%  fixed_10k:  52笔 ret=  +38.3%
+  MA_golden_5_20         x BB_upper_revert         full_in:  54笔 ret=  -68.8%  fixed_10k:  54笔 ret=  -31.8%
+  MA_golden_5_20         x MA_death_5_20           full_in: 126笔 ret= +268.9%  fixed_10k: 126笔 ret=  +21.8%
+  MA_golden_5_20         x BB_middle_break         full_in: 123笔 ret=  +99.6%  fixed_10k: 123笔 ret=  +10.0%
+  MA_golden_5_20         x Donchian10_down         full_in: 100笔 ret= +103.4%  fixed_10k: 100笔 ret=   +7.7%
+  MA_golden_5_20         x Donchian20_down         full_in:  64笔 ret= +498.4%  fixed_10k:  64笔 ret=  +33.7%
+  MA_golden_5_20         x MACD_death              full_in: 107笔 ret=  +20.9%  fixed_10k: 107笔 ret=   +5.6%
+  MA_golden_5_20         x ATR_trail_stop          full_in:  87笔 ret= +278.4%  fixed_10k:  87笔 ret=  +32.8%
+  MA_golden_5_20         x D1_high20_drop5         full_in: 102笔 ret=  -12.8%  fixed_10k: 102笔 ret=   -0.8%
+  MA_golden_10_60        x BB_upper_revert         full_in:  34笔 ret=  -32.4%  fixed_10k:  34笔 ret=   -7.6%
+  MA_golden_10_60        x MA_death_5_20           full_in:  47笔 ret= +490.4%  fixed_10k:  47笔 ret=  +23.7%
+  MA_golden_10_60        x BB_middle_break         full_in:  46笔 ret=  +98.9%  fixed_10k:  46笔 ret=   +8.6%
+  MA_golden_10_60        x Donchian10_down         full_in:  47笔 ret= +138.0%  fixed_10k:  47笔 ret=  +13.9%
+  MA_golden_10_60        x Donchian20_down         full_in:  41笔 ret= +335.4%  fixed_10k:  41笔 ret=  +24.1%
+  MA_golden_10_60        x MACD_death              full_in:  47笔 ret=  +34.6%  fixed_10k:  47笔 ret=   +3.7%
+  MA_golden_10_60        x ATR_trail_stop          full_in:  45笔 ret= +343.2%  fixed_10k:  45笔 ret=  +23.0%
+  MA_golden_10_60        x D1_high20_drop5         full_in:  45笔 ret=  +65.2%  fixed_10k:  45笔 ret=   +5.1%
+  MACD_golden            x BB_upper_revert         full_in:  67笔 ret=  -22.3%  fixed_10k:  67笔 ret=  -14.9%
+  MACD_golden            x MA_death_5_20           full_in: 108笔 ret= +579.7%  fixed_10k: 108笔 ret=  +51.3%
+  MACD_golden            x BB_middle_break         full_in: 123笔 ret= +284.7%  fixed_10k: 123笔 ret=  +23.4%
+  MACD_golden            x Donchian10_down         full_in: 112笔 ret= +285.9%  fixed_10k: 112笔 ret=  +29.9%
+  MACD_golden            x Donchian20_down         full_in:  76笔 ret= +560.5%  fixed_10k:  76笔 ret=  +57.2%
+  MACD_golden            x MACD_death              full_in: 149笔 ret= +431.4%  fixed_10k: 149笔 ret=  +21.8%
+  MACD_golden            x ATR_trail_stop          full_in:  94笔 ret= +208.6%  fixed_10k:  94笔 ret=  +42.1%
+  MACD_golden            x D1_high20_drop5         full_in: 113笔 ret=  +21.3%  fixed_10k: 113笔 ret=  +11.9%
+  C1_RSI30               x BB_upper_revert         full_in:  20笔 ret=  -29.9%  fixed_10k:  20笔 ret=  +11.7%
+  C1_RSI30               x MA_death_5_20           full_in:  35笔 ret= +154.6%  fixed_10k:  35笔 ret=  +20.0%
+  C1_RSI30               x BB_middle_break         full_in:  36笔 ret=  +28.0%  fixed_10k:  36笔 ret=   +9.4%
+  C1_RSI30               x Donchian10_down         full_in:  59笔 ret=  +62.8%  fixed_10k:  59笔 ret=   +7.8%
+  C1_RSI30               x Donchian20_down         full_in:  59笔 ret= +144.1%  fixed_10k:  59笔 ret=  +12.5%
+  C1_RSI30               x MACD_death              full_in:  45笔 ret=  +73.2%  fixed_10k:  45笔 ret=   +1.7%
+  C1_RSI30               x ATR_trail_stop          full_in:  41笔 ret=  +63.0%  fixed_10k:  41笔 ret=   +8.1%
+  C1_RSI30               x D1_high20_drop5         full_in:  38笔 ret=  +74.0%  fixed_10k:  38笔 ret=  +15.5%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_cyb_stats.json (88.0 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_cyb_stats.json (88.0 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_cyb_full.json (1696.7 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_cyb_full.json (1696.7 KB)
+完成: cyb (创业板指) - 64 组配对, 16 个策略, 5窗口
+
+[load] kc50 (科创50) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 1583 条, 2020-01-02 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  17笔 ret=  +10.1%  fixed_10k:  17笔 ret=   +6.9%
+  BB_lower_revert        x MA_death_5_20           full_in:  24笔 ret=   +5.5%  fixed_10k:  24笔 ret=   +6.5%
+  BB_lower_revert        x BB_middle_break         full_in:  30笔 ret=   +4.1%  fixed_10k:  30笔 ret=  +10.7%
+  BB_lower_revert        x Donchian10_down         full_in:  47笔 ret=  +45.0%  fixed_10k:  47笔 ret=   +5.1%
+  BB_lower_revert        x Donchian20_down         full_in:  42笔 ret=  +24.3%  fixed_10k:  42笔 ret=   +3.4%
+  BB_lower_revert        x MACD_death              full_in:  29笔 ret=  +66.8%  fixed_10k:  29笔 ret=  +15.9%
+  BB_lower_revert        x ATR_trail_stop          full_in:  33笔 ret=  +10.0%  fixed_10k:  33笔 ret=   +9.6%
+  BB_lower_revert        x D1_high20_drop5         full_in:  32笔 ret=  +40.2%  fixed_10k:  32笔 ret=  +14.4%
+  Supertrend_buy         x BB_upper_revert         full_in:  19笔 ret=  +30.5%  fixed_10k:  19笔 ret=   +4.3%
+  Supertrend_buy         x MA_death_5_20           full_in:  26笔 ret= +122.8%  fixed_10k:  26笔 ret=  +10.3%
+  Supertrend_buy         x BB_middle_break         full_in:  28笔 ret= +101.4%  fixed_10k:  28笔 ret=   +8.1%
+  Supertrend_buy         x Donchian10_down         full_in:  27笔 ret= +139.8%  fixed_10k:  27笔 ret=  +10.0%
+  Supertrend_buy         x Donchian20_down         full_in:  23笔 ret=  +61.5%  fixed_10k:  23笔 ret=   +6.8%
+  Supertrend_buy         x MACD_death              full_in:  28笔 ret= +159.2%  fixed_10k:  28笔 ret=  +11.0%
+  Supertrend_buy         x ATR_trail_stop          full_in:  28笔 ret=  +85.8%  fixed_10k:  28笔 ret=   +7.5%
+  Supertrend_buy         x D1_high20_drop5         full_in:  27笔 ret= +128.4%  fixed_10k:  27笔 ret=   +9.7%
+  Donchian20_up          x BB_upper_revert         full_in:  43笔 ret=  +54.4%  fixed_10k:  43笔 ret=   +9.9%
+  Donchian20_up          x MA_death_5_20           full_in:  20笔 ret= +163.4%  fixed_10k:  20笔 ret=  +13.0%
+  Donchian20_up          x BB_middle_break         full_in:  21笔 ret= +173.7%  fixed_10k:  21笔 ret=  +15.2%
+  Donchian20_up          x Donchian10_down         full_in:  19笔 ret= +149.5%  fixed_10k:  19笔 ret=   +9.1%
+  Donchian20_up          x Donchian20_down         full_in:  15笔 ret= +102.1%  fixed_10k:  15笔 ret=   -2.6%
+  Donchian20_up          x MACD_death              full_in:  25笔 ret= +212.9%  fixed_10k:  25笔 ret=   +9.7%
+  Donchian20_up          x ATR_trail_stop          full_in:  20笔 ret=  +79.5%  fixed_10k:  20笔 ret=   +0.4%
+  Donchian20_up          x D1_high20_drop5         full_in:  25笔 ret= +154.5%  fixed_10k:  25笔 ret=  +13.7%
+  Donchian55_up          x BB_upper_revert         full_in:  28笔 ret=  +31.3%  fixed_10k:  28笔 ret=   +3.9%
+  Donchian55_up          x MA_death_5_20           full_in:  10笔 ret=  +77.2%  fixed_10k:  10笔 ret=   +6.1%
+  Donchian55_up          x BB_middle_break         full_in:  10笔 ret=  +77.5%  fixed_10k:  10笔 ret=   +9.6%
+  Donchian55_up          x Donchian10_down         full_in:  10笔 ret=  +53.9%  fixed_10k:  10笔 ret=   +2.2%
+  Donchian55_up          x Donchian20_down         full_in:   9笔 ret=  +20.1%  fixed_10k:   9笔 ret=   -6.7%
+  Donchian55_up          x MACD_death              full_in:  14笔 ret=  +75.6%  fixed_10k:  14笔 ret=   -0.5%
+  Donchian55_up          x ATR_trail_stop          full_in:  11笔 ret=  +20.1%  fixed_10k:  11笔 ret=   -8.2%
+  Donchian55_up          x D1_high20_drop5         full_in:  13笔 ret=  +73.5%  fixed_10k:  13笔 ret=   +7.3%
+  MA_golden_5_20         x BB_upper_revert         full_in:  20笔 ret=  +24.3%  fixed_10k:  20笔 ret=   +6.3%
+  MA_golden_5_20         x MA_death_5_20           full_in:  40笔 ret= +130.4%  fixed_10k:  40笔 ret=  +10.4%
+  MA_golden_5_20         x BB_middle_break         full_in:  40笔 ret=  +56.8%  fixed_10k:  40笔 ret=   +5.4%
+  MA_golden_5_20         x Donchian10_down         full_in:  35笔 ret=  +98.0%  fixed_10k:  35笔 ret=  +11.2%
+  MA_golden_5_20         x Donchian20_down         full_in:  24笔 ret=  +84.1%  fixed_10k:  24笔 ret=   +9.8%
+  MA_golden_5_20         x MACD_death              full_in:  35笔 ret= +141.2%  fixed_10k:  35笔 ret=  +12.7%
+  MA_golden_5_20         x ATR_trail_stop          full_in:  32笔 ret=  +69.4%  fixed_10k:  32笔 ret=   +9.7%
+  MA_golden_5_20         x D1_high20_drop5         full_in:  36笔 ret= +144.1%  fixed_10k:  36笔 ret=  +13.9%
+  MA_golden_10_60        x BB_upper_revert         full_in:  15笔 ret=   +9.4%  fixed_10k:  15笔 ret=   +1.3%
+  MA_golden_10_60        x MA_death_5_20           full_in:  19笔 ret=  +53.5%  fixed_10k:  19笔 ret=   +5.2%
+  MA_golden_10_60        x BB_middle_break         full_in:  19笔 ret=  +36.6%  fixed_10k:  19笔 ret=   +4.1%
+  MA_golden_10_60        x Donchian10_down         full_in:  19笔 ret=  +49.3%  fixed_10k:  19笔 ret=   +5.0%
+  MA_golden_10_60        x Donchian20_down         full_in:  16笔 ret=  +18.5%  fixed_10k:  16笔 ret=   +3.8%
+  MA_golden_10_60        x MACD_death              full_in:  19笔 ret=  +29.2%  fixed_10k:  19笔 ret=   +3.0%
+  MA_golden_10_60        x ATR_trail_stop          full_in:  19笔 ret=  +11.2%  fixed_10k:  19笔 ret=   +1.8%
+  MA_golden_10_60        x D1_high20_drop5         full_in:  19笔 ret=  +38.8%  fixed_10k:  19笔 ret=   +3.9%
+  MACD_golden            x BB_upper_revert         full_in:  24笔 ret=  +28.9%  fixed_10k:  24笔 ret=   +1.4%
+  MACD_golden            x MA_death_5_20           full_in:  37笔 ret= +124.0%  fixed_10k:  37笔 ret=   +9.7%
+  MACD_golden            x BB_middle_break         full_in:  45笔 ret= +130.0%  fixed_10k:  45笔 ret=  +12.1%
+  MACD_golden            x Donchian10_down         full_in:  40笔 ret= +142.9%  fixed_10k:  40笔 ret=  +10.7%
+  MACD_golden            x Donchian20_down         full_in:  31笔 ret= +135.7%  fixed_10k:  31笔 ret=   +8.0%
+  MACD_golden            x MACD_death              full_in:  52笔 ret= +313.1%  fixed_10k:  52笔 ret=  +16.4%
+  MACD_golden            x ATR_trail_stop          full_in:  40笔 ret= +112.7%  fixed_10k:  40笔 ret=  +10.9%
+  MACD_golden            x D1_high20_drop5         full_in:  46笔 ret= +166.3%  fixed_10k:  46笔 ret=  +17.8%
+  C1_RSI30               x BB_upper_revert         full_in:   9笔 ret=  +22.0%  fixed_10k:   9笔 ret=   +6.5%
+  C1_RSI30               x MA_death_5_20           full_in:  11笔 ret=  +22.5%  fixed_10k:  11笔 ret=   +6.8%
+  C1_RSI30               x BB_middle_break         full_in:  12笔 ret=  +46.2%  fixed_10k:  12笔 ret=   +9.2%
+  C1_RSI30               x Donchian10_down         full_in:  20笔 ret=  +34.7%  fixed_10k:  20笔 ret=   +3.4%
+  C1_RSI30               x Donchian20_down         full_in:  20笔 ret=  +41.3%  fixed_10k:  20笔 ret=   +4.0%
+  C1_RSI30               x MACD_death              full_in:  13笔 ret=  +58.5%  fixed_10k:  13笔 ret=  +11.0%
+  C1_RSI30               x ATR_trail_stop          full_in:  13笔 ret=  +26.1%  fixed_10k:  13笔 ret=   +7.5%
+  C1_RSI30               x D1_high20_drop5         full_in:  12笔 ret=  +25.9%  fixed_10k:  12笔 ret=   +5.3%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_kc50_stats.json (87.7 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_kc50_stats.json (87.7 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_kc50_full.json (821.4 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_kc50_full.json (821.4 KB)
+完成: kc50 (科创50) - 64 组配对, 16 个策略, 5窗口
+
+[load] bj50 (北证50) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 1020 条, 2022-05-05 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  10笔 ret=  +26.7%  fixed_10k:  10笔 ret=   -0.9%
+  BB_lower_revert        x MA_death_5_20           full_in:  17笔 ret= +132.1%  fixed_10k:  17笔 ret=  +14.2%
+  BB_lower_revert        x BB_middle_break         full_in:  18笔 ret= +113.7%  fixed_10k:  18笔 ret=  +12.2%
+  BB_lower_revert        x Donchian10_down         full_in:  35笔 ret=   -6.6%  fixed_10k:  35笔 ret=   +0.3%
+  BB_lower_revert        x Donchian20_down         full_in:  35笔 ret=  -25.2%  fixed_10k:  35笔 ret=   -2.1%
+  BB_lower_revert        x MACD_death              full_in:  23笔 ret= +135.9%  fixed_10k:  23笔 ret=  +12.6%
+  BB_lower_revert        x ATR_trail_stop          full_in:  24笔 ret=  -20.1%  fixed_10k:  24笔 ret=   +1.8%
+  BB_lower_revert        x D1_high20_drop5         full_in:  24笔 ret=  +69.1%  fixed_10k:  24笔 ret=   +9.5%
+  Supertrend_buy         x BB_upper_revert         full_in:  10笔 ret=  +33.7%  fixed_10k:  10笔 ret=   +4.8%
+  Supertrend_buy         x MA_death_5_20           full_in:  15笔 ret= +138.6%  fixed_10k:  15笔 ret=  +12.2%
+  Supertrend_buy         x BB_middle_break         full_in:  16笔 ret= +147.8%  fixed_10k:  16笔 ret=  +12.8%
+  Supertrend_buy         x Donchian10_down         full_in:  16笔 ret= +112.1%  fixed_10k:  16笔 ret=  +10.3%
+  Supertrend_buy         x Donchian20_down         full_in:  16笔 ret=  +21.3%  fixed_10k:  16笔 ret=   +4.5%
+  Supertrend_buy         x MACD_death              full_in:  16笔 ret= +114.0%  fixed_10k:  16笔 ret=  +10.2%
+  Supertrend_buy         x ATR_trail_stop          full_in:  15笔 ret=  +44.2%  fixed_10k:  15笔 ret=   +5.3%
+  Supertrend_buy         x D1_high20_drop5         full_in:  16笔 ret=  +63.1%  fixed_10k:  16笔 ret=   +6.0%
+  Donchian20_up          x BB_upper_revert         full_in:  14笔 ret=  +41.8%  fixed_10k:  14笔 ret=   +5.9%
+  Donchian20_up          x MA_death_5_20           full_in:  12笔 ret= +132.0%  fixed_10k:  12笔 ret=   +9.7%
+  Donchian20_up          x BB_middle_break         full_in:  15笔 ret=  +95.8%  fixed_10k:  15笔 ret=  +11.3%
+  Donchian20_up          x Donchian10_down         full_in:  12笔 ret=  +90.6%  fixed_10k:  12笔 ret=   +5.3%
+  Donchian20_up          x Donchian20_down         full_in:  12笔 ret=  +22.2%  fixed_10k:  12笔 ret=   -5.9%
+  Donchian20_up          x MACD_death              full_in:  15笔 ret=  +91.6%  fixed_10k:  15笔 ret=   +8.3%
+  Donchian20_up          x ATR_trail_stop          full_in:  13笔 ret=  +14.1%  fixed_10k:  13笔 ret=   +1.3%
+  Donchian20_up          x D1_high20_drop5         full_in:  19笔 ret=   +2.4%  fixed_10k:  19笔 ret=   +0.9%
+  Donchian55_up          x BB_upper_revert         full_in:   7笔 ret=  +14.8%  fixed_10k:   7笔 ret=   +1.2%
+  Donchian55_up          x MA_death_5_20           full_in:   6笔 ret=  +45.5%  fixed_10k:   6笔 ret=   +3.3%
+  Donchian55_up          x BB_middle_break         full_in:   7笔 ret=  +43.8%  fixed_10k:   7笔 ret=   +3.8%
+  Donchian55_up          x Donchian10_down         full_in:   6笔 ret=  +28.8%  fixed_10k:   6笔 ret=   +0.7%
+  Donchian55_up          x Donchian20_down         full_in:   6笔 ret=  -10.1%  fixed_10k:   6笔 ret=   -3.5%
+  Donchian55_up          x MACD_death              full_in:   7笔 ret=  +29.6%  fixed_10k:   7笔 ret=   +0.9%
+  Donchian55_up          x ATR_trail_stop          full_in:   6笔 ret=   -8.5%  fixed_10k:   6笔 ret=   -2.8%
+  Donchian55_up          x D1_high20_drop5         full_in:   9笔 ret=  -13.9%  fixed_10k:   9笔 ret=   -1.4%
+  MA_golden_5_20         x BB_upper_revert         full_in:  11笔 ret=  +24.4%  fixed_10k:  11笔 ret=   +7.0%
+  MA_golden_5_20         x MA_death_5_20           full_in:  25笔 ret= +113.5%  fixed_10k:  25笔 ret=  +10.3%
+  MA_golden_5_20         x BB_middle_break         full_in:  24笔 ret=  +61.6%  fixed_10k:  24笔 ret=   +7.2%
+  MA_golden_5_20         x Donchian10_down         full_in:  19笔 ret=  +98.1%  fixed_10k:  19笔 ret=   +9.5%
+  MA_golden_5_20         x Donchian20_down         full_in:  18笔 ret=  +12.1%  fixed_10k:  18笔 ret=   +2.0%
+  MA_golden_5_20         x MACD_death              full_in:  22笔 ret=  +98.3%  fixed_10k:  22笔 ret=   +7.9%
+  MA_golden_5_20         x ATR_trail_stop          full_in:  18笔 ret=  +17.3%  fixed_10k:  18笔 ret=   +3.7%
+  MA_golden_5_20         x D1_high20_drop5         full_in:  20笔 ret=  +34.6%  fixed_10k:  20笔 ret=   +9.2%
+  MA_golden_10_60        x BB_upper_revert         full_in:   5笔 ret=  -17.9%  fixed_10k:   5笔 ret=   -1.3%
+  MA_golden_10_60        x MA_death_5_20           full_in:   8笔 ret=  +36.9%  fixed_10k:   8笔 ret=   +3.4%
+  MA_golden_10_60        x BB_middle_break         full_in:   8笔 ret=  +46.8%  fixed_10k:   8笔 ret=   +4.2%
+  MA_golden_10_60        x Donchian10_down         full_in:   8笔 ret=  +18.1%  fixed_10k:   8笔 ret=   +1.8%
+  MA_golden_10_60        x Donchian20_down         full_in:   8笔 ret=  -20.2%  fixed_10k:   8笔 ret=   -2.0%
+  MA_golden_10_60        x MACD_death              full_in:   8笔 ret=  +25.5%  fixed_10k:   8笔 ret=   +2.4%
+  MA_golden_10_60        x ATR_trail_stop          full_in:   8笔 ret=  -12.6%  fixed_10k:   8笔 ret=   -0.9%
+  MA_golden_10_60        x D1_high20_drop5         full_in:   8笔 ret=  -19.8%  fixed_10k:   8笔 ret=   -2.1%
+  MACD_golden            x BB_upper_revert         full_in:  12笔 ret=   -1.9%  fixed_10k:  12笔 ret=   +0.1%
+  MACD_golden            x MA_death_5_20           full_in:  22笔 ret= +135.9%  fixed_10k:  22笔 ret=   +8.1%
+  MACD_golden            x BB_middle_break         full_in:  30笔 ret= +104.4%  fixed_10k:  30笔 ret=   +8.0%
+  MACD_golden            x Donchian10_down         full_in:  30笔 ret= +128.8%  fixed_10k:  30笔 ret=   +7.7%
+  MACD_golden            x Donchian20_down         full_in:  26笔 ret=  +43.0%  fixed_10k:  26笔 ret=   -2.2%
+  MACD_golden            x MACD_death              full_in:  43笔 ret=  +67.6%  fixed_10k:  43笔 ret=   +8.4%
+  MACD_golden            x ATR_trail_stop          full_in:  24笔 ret=  +17.4%  fixed_10k:  24笔 ret=   -1.6%
+  MACD_golden            x D1_high20_drop5         full_in:  29笔 ret=  +24.9%  fixed_10k:  29笔 ret=   +6.8%
+  C1_RSI30               x BB_upper_revert         full_in:   9笔 ret=  +95.7%  fixed_10k:   9笔 ret=  +28.7%
+  C1_RSI30               x MA_death_5_20           full_in:  13笔 ret= +337.9%  fixed_10k:  13笔 ret=  +53.0%
+  C1_RSI30               x BB_middle_break         full_in:  13笔 ret= +233.0%  fixed_10k:  13笔 ret=  +49.1%
+  C1_RSI30               x Donchian10_down         full_in:  22笔 ret= +336.4%  fixed_10k:  22笔 ret=  +27.9%
+  C1_RSI30               x Donchian20_down         full_in:  22笔 ret= +186.2%  fixed_10k:  22笔 ret=  +21.9%
+  C1_RSI30               x MACD_death              full_in:  17笔 ret= +294.4%  fixed_10k:  17笔 ret=  +43.4%
+  C1_RSI30               x ATR_trail_stop          full_in:  16笔 ret= +203.8%  fixed_10k:  16笔 ret=  +18.2%
+  C1_RSI30               x D1_high20_drop5         full_in:  15笔 ret= +156.0%  fixed_10k:  15笔 ret=  +29.5%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_bj50_stats.json (87.6 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_bj50_stats.json (87.6 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_bj50_full.json (605.1 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_bj50_full.json (605.1 KB)
+完成: bj50 (北证50) - 64 组配对, 16 个策略, 5窗口
+
+[load] sz50 (上证50) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 5472 条, 2004-01-02 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  60笔 ret=  -24.2%  fixed_10k:  60笔 ret=  -21.4%
+  BB_lower_revert        x MA_death_5_20           full_in:  87笔 ret=  +59.9%  fixed_10k:  87笔 ret=  +12.7%
+  BB_lower_revert        x BB_middle_break         full_in:  93笔 ret= +134.8%  fixed_10k:  93笔 ret=  +21.6%
+  BB_lower_revert        x Donchian10_down         full_in: 147笔 ret=  +70.4%  fixed_10k: 147笔 ret=  +10.3%
+  BB_lower_revert        x Donchian20_down         full_in: 140笔 ret=  +71.8%  fixed_10k: 140笔 ret=  +18.6%
+  BB_lower_revert        x MACD_death              full_in:  99笔 ret=  -15.0%  fixed_10k:  99笔 ret=   +0.7%
+  BB_lower_revert        x ATR_trail_stop          full_in: 101笔 ret=  -10.1%  fixed_10k: 101笔 ret=   -0.4%
+  BB_lower_revert        x D1_high20_drop5         full_in:  96笔 ret=   +9.5%  fixed_10k:  96笔 ret=   +0.6%
+  Supertrend_buy         x BB_upper_revert         full_in:  66笔 ret=  -41.2%  fixed_10k:  66笔 ret=   -5.9%
+  Supertrend_buy         x MA_death_5_20           full_in:  78笔 ret= +184.1%  fixed_10k:  78笔 ret=  +15.1%
+  Supertrend_buy         x BB_middle_break         full_in:  79笔 ret= +297.7%  fixed_10k:  79笔 ret=  +18.7%
+  Supertrend_buy         x Donchian10_down         full_in:  74笔 ret= +163.5%  fixed_10k:  74笔 ret=  +14.6%
+  Supertrend_buy         x Donchian20_down         full_in:  66笔 ret= +286.0%  fixed_10k:  66笔 ret=  +29.5%
+  Supertrend_buy         x MACD_death              full_in:  79笔 ret=  +78.7%  fixed_10k:  79笔 ret=   +7.8%
+  Supertrend_buy         x ATR_trail_stop          full_in:  75笔 ret= +304.8%  fixed_10k:  75笔 ret=  +20.3%
+  Supertrend_buy         x D1_high20_drop5         full_in:  71笔 ret= +190.2%  fixed_10k:  71笔 ret=  +17.8%
+  Donchian20_up          x BB_upper_revert         full_in: 159笔 ret= +235.7%  fixed_10k: 159笔 ret=  +33.2%
+  Donchian20_up          x MA_death_5_20           full_in:  93笔 ret= +325.7%  fixed_10k:  93笔 ret=  +99.8%
+  Donchian20_up          x BB_middle_break         full_in:  97笔 ret= +472.6%  fixed_10k:  97笔 ret= +101.5%
+  Donchian20_up          x Donchian10_down         full_in:  85笔 ret= +277.6%  fixed_10k:  85笔 ret=  +79.3%
+  Donchian20_up          x Donchian20_down         full_in:  64笔 ret= +351.5%  fixed_10k:  64笔 ret= +183.7%
+  Donchian20_up          x MACD_death              full_in: 107笔 ret= +577.9%  fixed_10k: 107笔 ret=  +85.5%
+  Donchian20_up          x ATR_trail_stop          full_in:  74笔 ret= +311.1%  fixed_10k:  74笔 ret= +103.8%
+  Donchian20_up          x D1_high20_drop5         full_in:  84笔 ret= +368.1%  fixed_10k:  84笔 ret=  +85.2%
+  Donchian55_up          x BB_upper_revert         full_in:  97笔 ret= +631.5%  fixed_10k:  97笔 ret=  +50.5%
+  Donchian55_up          x MA_death_5_20           full_in:  54笔 ret= +370.9%  fixed_10k:  54笔 ret=  +84.1%
+  Donchian55_up          x BB_middle_break         full_in:  57笔 ret= +397.7%  fixed_10k:  57笔 ret=  +80.5%
+  Donchian55_up          x Donchian10_down         full_in:  49笔 ret= +346.1%  fixed_10k:  49笔 ret=  +65.8%
+  Donchian55_up          x Donchian20_down         full_in:  38笔 ret= +473.2%  fixed_10k:  38笔 ret= +155.5%
+  Donchian55_up          x MACD_death              full_in:  66笔 ret= +521.4%  fixed_10k:  66笔 ret=  +85.1%
+  Donchian55_up          x ATR_trail_stop          full_in:  43笔 ret= +334.7%  fixed_10k:  43笔 ret=  +79.0%
+  Donchian55_up          x D1_high20_drop5         full_in:  55笔 ret= +313.2%  fixed_10k:  55笔 ret=  +58.1%
+  MA_golden_5_20         x BB_upper_revert         full_in:  89笔 ret=  -18.9%  fixed_10k:  89笔 ret=   -0.8%
+  MA_golden_5_20         x MA_death_5_20           full_in: 171笔 ret= +167.6%  fixed_10k: 171笔 ret=  +16.9%
+  MA_golden_5_20         x BB_middle_break         full_in: 166笔 ret= +159.0%  fixed_10k: 166笔 ret=  +15.2%
+  MA_golden_5_20         x Donchian10_down         full_in: 133笔 ret= +179.2%  fixed_10k: 133笔 ret=  +20.4%
+  MA_golden_5_20         x Donchian20_down         full_in:  92笔 ret= +262.3%  fixed_10k:  92笔 ret=  +33.9%
+  MA_golden_5_20         x MACD_death              full_in: 148笔 ret=  +94.2%  fixed_10k: 148笔 ret=  +10.4%
+  MA_golden_5_20         x ATR_trail_stop          full_in: 119笔 ret= +155.7%  fixed_10k: 119笔 ret=  +27.0%
+  MA_golden_5_20         x D1_high20_drop5         full_in: 116笔 ret= +118.1%  fixed_10k: 116笔 ret=  +32.2%
+  MA_golden_10_60        x BB_upper_revert         full_in:  51笔 ret=  -64.4%  fixed_10k:  51笔 ret=   -4.9%
+  MA_golden_10_60        x MA_death_5_20           full_in:  55笔 ret= +130.9%  fixed_10k:  55笔 ret=  +11.9%
+  MA_golden_10_60        x BB_middle_break         full_in:  55笔 ret= +214.6%  fixed_10k:  55笔 ret=  +14.5%
+  MA_golden_10_60        x Donchian10_down         full_in:  55笔 ret= +101.1%  fixed_10k:  55笔 ret=  +10.8%
+  MA_golden_10_60        x Donchian20_down         full_in:  52笔 ret= +291.8%  fixed_10k:  52笔 ret=  +23.0%
+  MA_golden_10_60        x MACD_death              full_in:  55笔 ret=  +28.4%  fixed_10k:  55笔 ret=   +2.4%
+  MA_golden_10_60        x ATR_trail_stop          full_in:  55笔 ret=  +84.5%  fixed_10k:  55笔 ret=  +10.1%
+  MA_golden_10_60        x D1_high20_drop5         full_in:  51笔 ret= +259.5%  fixed_10k:  51笔 ret=  +17.4%
+  MACD_golden            x BB_upper_revert         full_in: 103笔 ret=  +37.9%  fixed_10k: 103笔 ret=   -9.4%
+  MACD_golden            x MA_death_5_20           full_in: 149笔 ret=  +99.4%  fixed_10k: 149笔 ret=  +17.8%
+  MACD_golden            x BB_middle_break         full_in: 173笔 ret= +355.8%  fixed_10k: 173笔 ret=  +28.6%
+  MACD_golden            x Donchian10_down         full_in: 151笔 ret= +131.0%  fixed_10k: 151笔 ret=  +20.7%
+  MACD_golden            x Donchian20_down         full_in: 109笔 ret= +174.9%  fixed_10k: 109笔 ret=  +47.8%
+  MACD_golden            x MACD_death              full_in: 208笔 ret= +250.7%  fixed_10k: 208笔 ret=  +18.7%
+  MACD_golden            x ATR_trail_stop          full_in: 142笔 ret=  +98.1%  fixed_10k: 142笔 ret=  +19.3%
+  MACD_golden            x D1_high20_drop5         full_in: 135笔 ret=  +66.8%  fixed_10k: 135笔 ret=  +39.4%
+  C1_RSI30               x BB_upper_revert         full_in:  30笔 ret=  -45.5%  fixed_10k:  30笔 ret=  -21.8%
+  C1_RSI30               x MA_death_5_20           full_in:  40笔 ret=   +9.5%  fixed_10k:  40笔 ret=   -2.6%
+  C1_RSI30               x BB_middle_break         full_in:  41笔 ret=  +68.2%  fixed_10k:  41笔 ret=   +6.6%
+  C1_RSI30               x Donchian10_down         full_in:  70笔 ret=  -25.4%  fixed_10k:  70笔 ret=   -1.6%
+  C1_RSI30               x Donchian20_down         full_in:  70笔 ret=   +8.6%  fixed_10k:  70笔 ret=   +7.3%
+  C1_RSI30               x MACD_death              full_in:  44笔 ret=  -36.0%  fixed_10k:  44笔 ret=   -8.4%
+  C1_RSI30               x ATR_trail_stop          full_in:  45笔 ret=  -36.0%  fixed_10k:  45笔 ret=   -9.2%
+  C1_RSI30               x D1_high20_drop5         full_in:  39笔 ret=  -34.1%  fixed_10k:  39笔 ret=   -6.1%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sz50_stats.json (87.8 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sz50_stats.json (87.8 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sz50_full.json (2040.2 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sz50_full.json (2040.2 KB)
+完成: sz50 (上证50) - 64 组配对, 16 个策略, 5窗口
+
+[load] hs300 (沪深300) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 5950 条, 2002-01-04 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  57笔 ret=  -61.4%  fixed_10k:  57笔 ret=  -19.1%
+  BB_lower_revert        x MA_death_5_20           full_in:  94笔 ret= +161.6%  fixed_10k:  94笔 ret=  +19.1%
+  BB_lower_revert        x BB_middle_break         full_in:  98笔 ret= +211.5%  fixed_10k:  98笔 ret=  +24.6%
+  BB_lower_revert        x Donchian10_down         full_in: 162笔 ret=  -28.5%  fixed_10k: 162笔 ret=   +1.1%
+  BB_lower_revert        x Donchian20_down         full_in: 153笔 ret= +269.5%  fixed_10k: 153笔 ret=  +29.6%
+  BB_lower_revert        x MACD_death              full_in: 105笔 ret=  -19.4%  fixed_10k: 105笔 ret=   -5.0%
+  BB_lower_revert        x ATR_trail_stop          full_in: 113笔 ret= +319.9%  fixed_10k: 113笔 ret=  +22.4%
+  BB_lower_revert        x D1_high20_drop5         full_in: 106笔 ret=  +11.1%  fixed_10k: 106笔 ret=   -1.5%
+  Supertrend_buy         x BB_upper_revert         full_in:  69笔 ret=   -6.2%  fixed_10k:  69笔 ret=   +8.7%
+  Supertrend_buy         x MA_death_5_20           full_in:  95笔 ret= +429.9%  fixed_10k:  95笔 ret=  +22.8%
+  Supertrend_buy         x BB_middle_break         full_in:  98笔 ret= +321.0%  fixed_10k:  98笔 ret=  +18.4%
+  Supertrend_buy         x Donchian10_down         full_in:  98笔 ret= +167.7%  fixed_10k:  98笔 ret=  +13.0%
+  Supertrend_buy         x Donchian20_down         full_in:  81笔 ret= +901.6%  fixed_10k:  81笔 ret=  +45.6%
+  Supertrend_buy         x MACD_death              full_in:  96笔 ret= +162.6%  fixed_10k:  96笔 ret=  +10.7%
+  Supertrend_buy         x ATR_trail_stop          full_in:  96笔 ret= +722.5%  fixed_10k:  96笔 ret=  +27.0%
+  Supertrend_buy         x D1_high20_drop5         full_in:  88笔 ret= +162.2%  fixed_10k:  88笔 ret=  +12.9%
+  Donchian20_up          x BB_upper_revert         full_in: 148笔 ret= +257.5%  fixed_10k: 148笔 ret=  +32.6%
+  Donchian20_up          x MA_death_5_20           full_in: 103笔 ret= +840.6%  fixed_10k: 103笔 ret= +112.4%
+  Donchian20_up          x BB_middle_break         full_in: 113笔 ret= +975.9%  fixed_10k: 113笔 ret= +103.2%
+  Donchian20_up          x Donchian10_down         full_in:  96笔 ret= +715.2%  fixed_10k:  96笔 ret=  +68.1%
+  Donchian20_up          x Donchian20_down         full_in:  69笔 ret=+1187.0%  fixed_10k:  69笔 ret= +221.7%
+  Donchian20_up          x MACD_death              full_in: 127笔 ret=+1505.3%  fixed_10k: 127笔 ret=  +78.5%
+  Donchian20_up          x ATR_trail_stop          full_in:  83笔 ret= +907.6%  fixed_10k:  83笔 ret= +128.8%
+  Donchian20_up          x D1_high20_drop5         full_in:  90笔 ret= +547.0%  fixed_10k:  90笔 ret= +101.4%
+  Donchian55_up          x BB_upper_revert         full_in: 102笔 ret= +127.3%  fixed_10k: 102笔 ret=  +36.4%
+  Donchian55_up          x MA_death_5_20           full_in:  62笔 ret= +729.1%  fixed_10k:  62笔 ret=  +92.2%
+  Donchian55_up          x BB_middle_break         full_in:  70笔 ret= +587.4%  fixed_10k:  70笔 ret=  +80.5%
+  Donchian55_up          x Donchian10_down         full_in:  60笔 ret= +499.2%  fixed_10k:  60笔 ret=  +67.3%
+  Donchian55_up          x Donchian20_down         full_in:  42笔 ret= +953.8%  fixed_10k:  42笔 ret= +177.7%
+  Donchian55_up          x MACD_death              full_in:  85笔 ret= +835.9%  fixed_10k:  85笔 ret=  +68.0%
+  Donchian55_up          x ATR_trail_stop          full_in:  49笔 ret= +779.5%  fixed_10k:  49笔 ret=  +99.0%
+  Donchian55_up          x D1_high20_drop5         full_in:  56笔 ret= +495.0%  fixed_10k:  56笔 ret=  +80.7%
+  MA_golden_5_20         x BB_upper_revert         full_in:  90笔 ret=  +20.7%  fixed_10k:  90笔 ret=   +8.1%
+  MA_golden_5_20         x MA_death_5_20           full_in: 179笔 ret= +624.9%  fixed_10k: 179笔 ret=  +26.8%
+  MA_golden_5_20         x BB_middle_break         full_in: 175笔 ret= +375.6%  fixed_10k: 175笔 ret=  +22.1%
+  MA_golden_5_20         x Donchian10_down         full_in: 141笔 ret= +230.0%  fixed_10k: 141笔 ret=  +14.3%
+  MA_golden_5_20         x Donchian20_down         full_in:  96笔 ret= +619.3%  fixed_10k:  96笔 ret=  +51.9%
+  MA_golden_5_20         x MACD_death              full_in: 151笔 ret= +143.0%  fixed_10k: 151笔 ret=  +10.3%
+  MA_golden_5_20         x ATR_trail_stop          full_in: 123笔 ret= +861.8%  fixed_10k: 123笔 ret=  +37.8%
+  MA_golden_5_20         x D1_high20_drop5         full_in: 120笔 ret=  +58.1%  fixed_10k: 120笔 ret=  +23.4%
+  MA_golden_10_60        x BB_upper_revert         full_in:  52笔 ret=  -54.7%  fixed_10k:  52笔 ret=   -3.0%
+  MA_golden_10_60        x MA_death_5_20           full_in:  57笔 ret=  +93.3%  fixed_10k:  57笔 ret=   +9.6%
+  MA_golden_10_60        x BB_middle_break         full_in:  57笔 ret=  +72.2%  fixed_10k:  57笔 ret=   +8.0%
+  MA_golden_10_60        x Donchian10_down         full_in:  56笔 ret=   -4.4%  fixed_10k:  56笔 ret=   +0.0%
+  MA_golden_10_60        x Donchian20_down         full_in:  53笔 ret= +363.1%  fixed_10k:  53笔 ret=  +25.5%
+  MA_golden_10_60        x MACD_death              full_in:  57笔 ret=  +21.1%  fixed_10k:  57笔 ret=   +2.5%
+  MA_golden_10_60        x ATR_trail_stop          full_in:  55笔 ret= +172.8%  fixed_10k:  55笔 ret=  +12.9%
+  MA_golden_10_60        x D1_high20_drop5         full_in:  54笔 ret= +121.1%  fixed_10k:  54笔 ret=  +10.0%
+  MACD_golden            x BB_upper_revert         full_in: 107笔 ret=   -2.7%  fixed_10k: 107笔 ret=   -2.4%
+  MACD_golden            x MA_death_5_20           full_in: 154笔 ret= +374.1%  fixed_10k: 154笔 ret=  +49.0%
+  MACD_golden            x BB_middle_break         full_in: 179笔 ret= +701.8%  fixed_10k: 179笔 ret=  +43.9%
+  MACD_golden            x Donchian10_down         full_in: 168笔 ret= +233.3%  fixed_10k: 168笔 ret=  +28.1%
+  MACD_golden            x Donchian20_down         full_in: 119笔 ret= +543.2%  fixed_10k: 119笔 ret=  +85.0%
+  MACD_golden            x MACD_death              full_in: 225笔 ret= +535.7%  fixed_10k: 225笔 ret=  +24.4%
+  MACD_golden            x ATR_trail_stop          full_in: 144笔 ret= +969.1%  fixed_10k: 144笔 ret=  +59.2%
+  MACD_golden            x D1_high20_drop5         full_in: 137笔 ret=  +76.2%  fixed_10k: 137笔 ret=  +41.7%
+  C1_RSI30               x BB_upper_revert         full_in:  34笔 ret=  -36.7%  fixed_10k:  34笔 ret=  +17.4%
+  C1_RSI30               x MA_death_5_20           full_in:  51笔 ret=  +60.2%  fixed_10k:  51笔 ret=   +5.9%
+  C1_RSI30               x BB_middle_break         full_in:  51笔 ret=  +65.8%  fixed_10k:  51笔 ret=   +7.4%
+  C1_RSI30               x Donchian10_down         full_in:  89笔 ret=  -38.3%  fixed_10k:  89笔 ret=   +0.7%
+  C1_RSI30               x Donchian20_down         full_in:  89笔 ret= +270.9%  fixed_10k:  89笔 ret=  +33.8%
+  C1_RSI30               x MACD_death              full_in:  56笔 ret=  -14.4%  fixed_10k:  56笔 ret=   +0.0%
+  C1_RSI30               x ATR_trail_stop          full_in:  52笔 ret= +126.6%  fixed_10k:  52笔 ret=  +14.7%
+  C1_RSI30               x D1_high20_drop5         full_in:  54笔 ret=   -2.5%  fixed_10k:  54笔 ret=   +2.9%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_hs300_stats.json (87.8 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_hs300_stats.json (87.8 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_hs300_full.json (2202.3 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_hs300_full.json (2202.3 KB)
+完成: hs300 (沪深300) - 64 组配对, 16 个策略, 5窗口
+
+[load] csi500 (中证500) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 5229 条, 2005-01-04 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  44笔 ret=  -49.2%  fixed_10k:  44笔 ret=   -2.0%
+  BB_lower_revert        x MA_death_5_20           full_in:  89笔 ret= +488.9%  fixed_10k:  89笔 ret=  +56.1%
+  BB_lower_revert        x BB_middle_break         full_in:  92笔 ret= +574.1%  fixed_10k:  92笔 ret=  +53.3%
+  BB_lower_revert        x Donchian10_down         full_in: 144笔 ret=  +57.5%  fixed_10k: 144笔 ret=  +16.0%
+  BB_lower_revert        x Donchian20_down         full_in: 129笔 ret= +106.6%  fixed_10k: 129笔 ret=  +17.0%
+  BB_lower_revert        x MACD_death              full_in: 102笔 ret=  +72.1%  fixed_10k: 102笔 ret=  +22.9%
+  BB_lower_revert        x ATR_trail_stop          full_in: 107笔 ret=  +10.2%  fixed_10k: 107笔 ret=  +19.4%
+  BB_lower_revert        x D1_high20_drop5         full_in:  94笔 ret= +111.8%  fixed_10k:  94笔 ret=  +23.7%
+  Supertrend_buy         x BB_upper_revert         full_in:  56笔 ret=  -41.2%  fixed_10k:  56笔 ret=   +2.2%
+  Supertrend_buy         x MA_death_5_20           full_in:  86笔 ret=+1259.8%  fixed_10k:  86笔 ret=  +43.7%
+  Supertrend_buy         x BB_middle_break         full_in:  88笔 ret=+1298.8%  fixed_10k:  88笔 ret=  +51.0%
+  Supertrend_buy         x Donchian10_down         full_in:  85笔 ret= +907.0%  fixed_10k:  85笔 ret=  +47.4%
+  Supertrend_buy         x Donchian20_down         full_in:  70笔 ret= +791.4%  fixed_10k:  70笔 ret=  +84.2%
+  Supertrend_buy         x MACD_death              full_in:  89笔 ret= +438.7%  fixed_10k:  89笔 ret=  +19.4%
+  Supertrend_buy         x ATR_trail_stop          full_in:  87笔 ret=+1103.0%  fixed_10k:  87笔 ret=  +37.7%
+  Supertrend_buy         x D1_high20_drop5         full_in:  82笔 ret= +261.6%  fixed_10k:  82笔 ret=  +18.5%
+  Donchian20_up          x BB_upper_revert         full_in: 129笔 ret=  +69.5%  fixed_10k: 129笔 ret=  +16.8%
+  Donchian20_up          x MA_death_5_20           full_in:  89笔 ret=+1752.4%  fixed_10k:  89笔 ret= +131.8%
+  Donchian20_up          x BB_middle_break         full_in: 104笔 ret=+2134.1%  fixed_10k: 104笔 ret= +144.5%
+  Donchian20_up          x Donchian10_down         full_in:  83笔 ret=+1898.4%  fixed_10k:  83笔 ret= +152.2%
+  Donchian20_up          x Donchian20_down         full_in:  65笔 ret= +709.4%  fixed_10k:  65笔 ret= +223.8%
+  Donchian20_up          x MACD_death              full_in: 126笔 ret=+1803.1%  fixed_10k: 126笔 ret=  +64.8%
+  Donchian20_up          x ATR_trail_stop          full_in:  79笔 ret= +950.5%  fixed_10k:  79笔 ret= +169.1%
+  Donchian20_up          x D1_high20_drop5         full_in:  96笔 ret= +511.3%  fixed_10k:  96笔 ret=  +53.4%
+  Donchian55_up          x BB_upper_revert         full_in: 101笔 ret=  +35.2%  fixed_10k: 101笔 ret=  +24.6%
+  Donchian55_up          x MA_death_5_20           full_in:  57笔 ret= +659.7%  fixed_10k:  57笔 ret= +108.0%
+  Donchian55_up          x BB_middle_break         full_in:  69笔 ret= +689.9%  fixed_10k:  69笔 ret= +120.3%
+  Donchian55_up          x Donchian10_down         full_in:  55笔 ret= +711.0%  fixed_10k:  55笔 ret= +124.0%
+  Donchian55_up          x Donchian20_down         full_in:  42笔 ret= +319.4%  fixed_10k:  42笔 ret= +184.8%
+  Donchian55_up          x MACD_death              full_in:  89笔 ret= +755.6%  fixed_10k:  89笔 ret=  +43.4%
+  Donchian55_up          x ATR_trail_stop          full_in:  53笔 ret= +408.7%  fixed_10k:  53笔 ret= +146.4%
+  Donchian55_up          x D1_high20_drop5         full_in:  65笔 ret= +249.2%  fixed_10k:  65笔 ret=  +32.1%
+  MA_golden_5_20         x BB_upper_revert         full_in:  58笔 ret=  -61.3%  fixed_10k:  58笔 ret=  -10.7%
+  MA_golden_5_20         x MA_death_5_20           full_in: 149笔 ret=+1989.6%  fixed_10k: 149笔 ret=  +40.3%
+  MA_golden_5_20         x BB_middle_break         full_in: 144笔 ret=+2472.8%  fixed_10k: 144笔 ret=  +44.6%
+  MA_golden_5_20         x Donchian10_down         full_in: 119笔 ret=+1615.2%  fixed_10k: 119笔 ret=  +35.6%
+  MA_golden_5_20         x Donchian20_down         full_in:  88笔 ret= +502.1%  fixed_10k:  88笔 ret=  +86.5%
+  MA_golden_5_20         x MACD_death              full_in: 129笔 ret= +663.5%  fixed_10k: 129笔 ret=  +17.7%
+  MA_golden_5_20         x ATR_trail_stop          full_in: 112笔 ret= +376.3%  fixed_10k: 112笔 ret=  +36.9%
+  MA_golden_5_20         x D1_high20_drop5         full_in: 110笔 ret= +371.6%  fixed_10k: 110笔 ret=  +17.8%
+  MA_golden_10_60        x BB_upper_revert         full_in:  41笔 ret=  +57.1%  fixed_10k:  41笔 ret=   +5.6%
+  MA_golden_10_60        x MA_death_5_20           full_in:  54笔 ret= +339.3%  fixed_10k:  54笔 ret=  +20.1%
+  MA_golden_10_60        x BB_middle_break         full_in:  54笔 ret= +465.8%  fixed_10k:  54笔 ret=  +24.7%
+  MA_golden_10_60        x Donchian10_down         full_in:  53笔 ret= +474.4%  fixed_10k:  53笔 ret=  +23.9%
+  MA_golden_10_60        x Donchian20_down         full_in:  50笔 ret= +575.8%  fixed_10k:  50笔 ret=  +31.3%
+  MA_golden_10_60        x MACD_death              full_in:  54笔 ret= +122.8%  fixed_10k:  54笔 ret=   +8.8%
+  MA_golden_10_60        x ATR_trail_stop          full_in:  52笔 ret=  +62.1%  fixed_10k:  52笔 ret=   +5.0%
+  MA_golden_10_60        x D1_high20_drop5         full_in:  52笔 ret=  +46.8%  fixed_10k:  52笔 ret=   +4.1%
+  MACD_golden            x BB_upper_revert         full_in:  77笔 ret=  -31.4%  fixed_10k:  77笔 ret=  +14.6%
+  MACD_golden            x MA_death_5_20           full_in: 129笔 ret=+2949.9%  fixed_10k: 129笔 ret=  +84.0%
+  MACD_golden            x BB_middle_break         full_in: 151笔 ret=+3014.7%  fixed_10k: 151笔 ret=  +88.0%
+  MACD_golden            x Donchian10_down         full_in: 140笔 ret=+1663.8%  fixed_10k: 140笔 ret=  +83.3%
+  MACD_golden            x Donchian20_down         full_in: 103笔 ret= +750.4%  fixed_10k: 103笔 ret= +166.6%
+  MACD_golden            x MACD_death              full_in: 204笔 ret=+2045.0%  fixed_10k: 204笔 ret=  +36.9%
+  MACD_golden            x ATR_trail_stop          full_in: 130笔 ret= +587.1%  fixed_10k: 130笔 ret=  +69.6%
+  MACD_golden            x D1_high20_drop5         full_in: 130笔 ret= +473.0%  fixed_10k: 130笔 ret=  +34.2%
+  C1_RSI30               x BB_upper_revert         full_in:  26笔 ret=  -30.0%  fixed_10k:  26笔 ret=  +22.1%
+  C1_RSI30               x MA_death_5_20           full_in:  45笔 ret= +198.3%  fixed_10k:  45笔 ret=  +37.0%
+  C1_RSI30               x BB_middle_break         full_in:  47笔 ret= +204.2%  fixed_10k:  47笔 ret=  +25.2%
+  C1_RSI30               x Donchian10_down         full_in:  73笔 ret=  +70.0%  fixed_10k:  73笔 ret=  +12.0%
+  C1_RSI30               x Donchian20_down         full_in:  73笔 ret= +298.3%  fixed_10k:  73笔 ret=  +26.4%
+  C1_RSI30               x MACD_death              full_in:  56笔 ret=  +83.8%  fixed_10k:  56笔 ret=  +17.1%
+  C1_RSI30               x ATR_trail_stop          full_in:  52笔 ret=   +2.1%  fixed_10k:  52笔 ret=   +5.8%
+  C1_RSI30               x D1_high20_drop5         full_in:  50笔 ret= +131.7%  fixed_10k:  50笔 ret=  +15.5%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_csi500_stats.json (88.0 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_csi500_stats.json (88.0 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_csi500_full.json (2058.0 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_csi500_full.json (2058.0 KB)
+完成: csi500 (中证500) - 64 组配对, 16 个策略, 5窗口
+
+[load] csi1000 (中证1000) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 2856 条, 2014-10-17 ~ 2026-07-16
+[windows] 5 个: all, y10, y5, y3, y1
+[signals] buy策略=10, sell策略=11
+  BB_lower_revert        x BB_upper_revert         full_in:  24笔 ret=  -39.8%  fixed_10k:  24笔 ret=  -26.9%
+  BB_lower_revert        x MA_death_5_20           full_in:  50笔 ret= +128.7%  fixed_10k:  50笔 ret=  +15.0%
+  BB_lower_revert        x BB_middle_break         full_in:  51笔 ret=  -26.4%  fixed_10k:  51笔 ret=   +4.1%
+  BB_lower_revert        x Donchian10_down         full_in:  86笔 ret=  -29.5%  fixed_10k:  86笔 ret=   -3.3%
+  BB_lower_revert        x Donchian20_down         full_in:  81笔 ret=  -44.6%  fixed_10k:  81笔 ret=   -7.3%
+  BB_lower_revert        x MACD_death              full_in:  56笔 ret=  -21.2%  fixed_10k:  56笔 ret=   +0.2%
+  BB_lower_revert        x ATR_trail_stop          full_in:  66笔 ret=  +69.0%  fixed_10k:  66笔 ret=  +12.8%
+  BB_lower_revert        x D1_high20_drop5         full_in:  56笔 ret=  -34.1%  fixed_10k:  56笔 ret=   -0.5%
+  Supertrend_buy         x BB_upper_revert         full_in:  27笔 ret=  -55.0%  fixed_10k:  27笔 ret=   -3.7%
+  Supertrend_buy         x MA_death_5_20           full_in:  45笔 ret= +235.5%  fixed_10k:  45笔 ret=  +16.1%
+  Supertrend_buy         x BB_middle_break         full_in:  45笔 ret= +134.2%  fixed_10k:  45笔 ret=  +10.6%
+  Supertrend_buy         x Donchian10_down         full_in:  44笔 ret= +143.4%  fixed_10k:  44笔 ret=  +12.3%
+  Supertrend_buy         x Donchian20_down         full_in:  38笔 ret= +102.2%  fixed_10k:  38笔 ret=  +10.0%
+  Supertrend_buy         x MACD_death              full_in:  46笔 ret= +112.4%  fixed_10k:  46笔 ret=   +9.5%
+  Supertrend_buy         x ATR_trail_stop          full_in:  45笔 ret= +129.2%  fixed_10k:  45笔 ret=  +11.0%
+  Supertrend_buy         x D1_high20_drop5         full_in:  44笔 ret=  +63.5%  fixed_10k:  44笔 ret=   +4.8%
+  Donchian20_up          x BB_upper_revert         full_in:  59笔 ret=  -46.6%  fixed_10k:  59笔 ret=  -22.1%
+  Donchian20_up          x MA_death_5_20           full_in:  45笔 ret= +257.3%  fixed_10k:  45笔 ret=  +79.2%
+  Donchian20_up          x BB_middle_break         full_in:  54笔 ret= +212.9%  fixed_10k:  54笔 ret=  +40.4%
+  Donchian20_up          x Donchian10_down         full_in:  47笔 ret= +163.4%  fixed_10k:  47笔 ret=  +66.2%
+  Donchian20_up          x Donchian20_down         full_in:  36笔 ret=  +62.0%  fixed_10k:  36笔 ret=  +43.7%
+  Donchian20_up          x MACD_death              full_in:  57笔 ret= +303.4%  fixed_10k:  57笔 ret=  +44.4%
+  Donchian20_up          x ATR_trail_stop          full_in:  42笔 ret=  +98.4%  fixed_10k:  42笔 ret=  +64.5%
+  Donchian20_up          x D1_high20_drop5         full_in:  48笔 ret=  +33.2%  fixed_10k:  48笔 ret=  +17.2%
+  Donchian55_up          x BB_upper_revert         full_in:  45笔 ret=  -53.5%  fixed_10k:  45笔 ret=  -16.9%
+  Donchian55_up          x MA_death_5_20           full_in:  26笔 ret= +144.2%  fixed_10k:  26笔 ret=  +68.8%
+  Donchian55_up          x BB_middle_break         full_in:  33笔 ret= +101.3%  fixed_10k:  33笔 ret=  +25.9%
+  Donchian55_up          x Donchian10_down         full_in:  26笔 ret= +129.0%  fixed_10k:  26笔 ret=  +58.7%
+  Donchian55_up          x Donchian20_down         full_in:  21笔 ret=  +49.1%  fixed_10k:  21笔 ret=  +38.2%
+  Donchian55_up          x MACD_death              full_in:  37笔 ret= +161.9%  fixed_10k:  37笔 ret=  +34.4%
+  Donchian55_up          x ATR_trail_stop          full_in:  25笔 ret=  +52.5%  fixed_10k:  25笔 ret=  +50.9%
+  Donchian55_up          x D1_high20_drop5         full_in:  28笔 ret=  +34.7%  fixed_10k:  28笔 ret=  +14.1%
+  MA_golden_5_20         x BB_upper_revert         full_in:  27笔 ret=  -63.8%  fixed_10k:  27笔 ret=  -17.4%
+  MA_golden_5_20         x MA_death_5_20           full_in:  87笔 ret= +102.6%  fixed_10k:  87笔 ret=  +13.1%
+  MA_golden_5_20         x BB_middle_break         full_in:  85笔 ret=   +9.1%  fixed_10k:  85笔 ret=   +1.6%
+  MA_golden_5_20         x Donchian10_down         full_in:  72笔 ret=  +61.1%  fixed_10k:  72笔 ret=   +6.2%
+  MA_golden_5_20         x Donchian20_down         full_in:  46笔 ret=  +78.3%  fixed_10k:  46笔 ret=   +9.3%
+  MA_golden_5_20         x MACD_death              full_in:  79笔 ret=  +40.1%  fixed_10k:  79笔 ret=   +3.4%
+  MA_golden_5_20         x ATR_trail_stop          full_in:  65笔 ret=  +25.8%  fixed_10k:  65笔 ret=   +8.2%
+  MA_golden_5_20         x D1_high20_drop5         full_in:  64笔 ret=  -38.9%  fixed_10k:  64笔 ret=   -4.1%
+  MA_golden_10_60        x BB_upper_revert         full_in:  19笔 ret=  +13.0%  fixed_10k:  19笔 ret=   +1.0%
+  MA_golden_10_60        x MA_death_5_20           full_in:  28笔 ret= +191.3%  fixed_10k:  28笔 ret=  +14.2%
+  MA_golden_10_60        x BB_middle_break         full_in:  27笔 ret= +123.0%  fixed_10k:  27笔 ret=   +9.1%
+  MA_golden_10_60        x Donchian10_down         full_in:  28笔 ret= +147.6%  fixed_10k:  28笔 ret=  +12.5%
+  MA_golden_10_60        x Donchian20_down         full_in:  27笔 ret= +107.4%  fixed_10k:  27笔 ret=   +9.4%
+  MA_golden_10_60        x MACD_death              full_in:  28笔 ret=  +79.6%  fixed_10k:  28笔 ret=   +6.3%
+  MA_golden_10_60        x ATR_trail_stop          full_in:  28笔 ret= +162.0%  fixed_10k:  28笔 ret=  +13.3%
+  MA_golden_10_60        x D1_high20_drop5         full_in:  28笔 ret=  +72.8%  fixed_10k:  28笔 ret=   +6.7%
+  MACD_golden            x BB_upper_revert         full_in:  33笔 ret=  -63.8%  fixed_10k:  33笔 ret=  -18.9%
+  MACD_golden            x MA_death_5_20           full_in:  77笔 ret= +152.2%  fixed_10k:  77笔 ret=  +33.1%
+  MACD_golden            x BB_middle_break         full_in:  92笔 ret= +105.5%  fixed_10k:  92笔 ret=  +14.3%
+  MACD_golden            x Donchian10_down         full_in:  81笔 ret= +101.6%  fixed_10k:  81笔 ret=  +18.6%
+  MACD_golden            x Donchian20_down         full_in:  56笔 ret=  +90.2%  fixed_10k:  56笔 ret=  +14.6%
+  MACD_golden            x MACD_death              full_in: 115笔 ret= +152.3%  fixed_10k: 115笔 ret=  +12.9%
+  MACD_golden            x ATR_trail_stop          full_in:  79笔 ret=  +62.8%  fixed_10k:  79笔 ret=  +21.1%
+  MACD_golden            x D1_high20_drop5         full_in:  76笔 ret=  +18.5%  fixed_10k:  76笔 ret=   +0.2%
+  C1_RSI30               x BB_upper_revert         full_in:  15笔 ret=   -3.4%  fixed_10k:  15笔 ret=   -3.3%
+  C1_RSI30               x MA_death_5_20           full_in:  28笔 ret=  +28.7%  fixed_10k:  28笔 ret=   +6.5%
+  C1_RSI30               x BB_middle_break         full_in:  29笔 ret=  +11.9%  fixed_10k:  29笔 ret=   +4.7%
+  C1_RSI30               x Donchian10_down         full_in:  49笔 ret=  -25.0%  fixed_10k:  49笔 ret=   -2.0%
+  C1_RSI30               x Donchian20_down         full_in:  49笔 ret=  -18.4%  fixed_10k:  49笔 ret=   -1.3%
+  C1_RSI30               x MACD_death              full_in:  32笔 ret=   -1.5%  fixed_10k:  32笔 ret=   +3.3%
+  C1_RSI30               x ATR_trail_stop          full_in:  31笔 ret=  +12.9%  fixed_10k:  31笔 ret=   +2.2%
+  C1_RSI30               x D1_high20_drop5         full_in:  32笔 ret=  +16.7%  fixed_10k:  32笔 ret=   +3.4%
+
+[配对] 64 组 × 2模式 × 5窗口 = 640 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_csi1000_stats.json (87.8 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_csi1000_stats.json (87.8 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_csi1000_full.json (1350.0 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_csi1000_full.json (1350.0 KB)
+完成: csi1000 (中证1000) - 64 组配对, 16 个策略, 5窗口
+
+=== 全部完成: 9 个指数, 总耗时 10.3s ===
+✓ 单信号完成
+-> [2/3] lab_simulate 融合（91 候选 × 9 指数）...
+=== 策略实验室融合信号回测（91 候选 × 9 指数）===
+指数: ['sh', 'sz', 'cyb', 'kc50', 'bj50', 'sz50', 'hs300', 'csi500', 'csi1000']
+
+[fusion load] sh (上证指数) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 8683 条, 1990-12-19 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires= 250 sellfires= 231  full_in:  80笔 ret=  -87.9%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires= 250 sellfires= 248  full_in: 134笔 ret= +432.9%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires= 250 sellfires= 403  full_in: 141笔 ret= +889.0%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires= 250 sellfires= 507  full_in: 234笔 ret=  -45.6%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires= 250 sellfires= 359  full_in: 220笔 ret=  -56.9%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires= 250 sellfires= 313  full_in: 156笔 ret= +210.8%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires= 250 sellfires= 346  full_in: 166笔 ret= +336.3%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires= 129 sellfires= 231  full_in:  93笔 ret=  -68.0%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires= 129 sellfires= 248  full_in: 124笔 ret=+18906.1%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires= 129 sellfires= 403  full_in: 127笔 ret=+42208.3%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires= 129 sellfires= 507  full_in: 121笔 ret=+38347.4%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires= 129 sellfires= 359  full_in: 104笔 ret=+17213.0%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires= 129 sellfires= 313  full_in: 128笔 ret=+11952.6%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires= 129 sellfires= 346  full_in: 124笔 ret=+43369.2%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires= 462 sellfires= 231  full_in: 212笔 ret=+1158.3%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires= 462 sellfires= 248  full_in: 138笔 ret=+40142.2%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires= 462 sellfires= 403  full_in: 151笔 ret=+46466.6%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires= 462 sellfires= 507  full_in: 126笔 ret=+37457.4%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires= 462 sellfires= 359  full_in:  93笔 ret=+23070.0%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires= 462 sellfires= 313  full_in: 173笔 ret=+73444.6%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires= 462 sellfires= 346  full_in: 113笔 ret=+33871.8%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires= 294 sellfires= 231  full_in: 143笔 ret=+1846.7%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires= 294 sellfires= 248  full_in:  85笔 ret=+13910.8%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires= 294 sellfires= 403  full_in:  92笔 ret=+16084.9%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires= 294 sellfires= 507  full_in:  78笔 ret=+13183.6%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires= 294 sellfires= 359  full_in:  59笔 ret=+9467.0%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires= 294 sellfires= 313  full_in: 118笔 ret=+17081.8%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires= 294 sellfires= 346  full_in:  68笔 ret=+13833.5%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires= 247 sellfires= 231  full_in: 116笔 ret=  -41.1%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires= 247 sellfires= 248  full_in: 247笔 ret=+27031.5%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires= 247 sellfires= 403  full_in: 239笔 ret=+37271.3%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires= 247 sellfires= 507  full_in: 199笔 ret=+9761.8%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires= 247 sellfires= 359  full_in: 136笔 ret=+11384.0%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires= 247 sellfires= 313  full_in: 213笔 ret=+1325.8%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires= 247 sellfires= 346  full_in: 174笔 ret=+14328.1%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=  91 sellfires= 231  full_in:  74笔 ret=  -47.2%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=  91 sellfires= 248  full_in:  88笔 ret= +735.2%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=  91 sellfires= 403  full_in:  88笔 ret= +874.3%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=  91 sellfires= 507  full_in:  87笔 ret= +507.5%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=  91 sellfires= 359  full_in:  81笔 ret=+4365.3%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=  91 sellfires= 313  full_in:  88笔 ret= +288.1%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=  91 sellfires= 346  full_in:  88笔 ret= +624.8%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires= 313 sellfires= 231  full_in: 137笔 ret=  -41.9%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires= 313 sellfires= 248  full_in: 212笔 ret=+27383.3%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires= 313 sellfires= 403  full_in: 245笔 ret=+26898.6%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires= 313 sellfires= 507  full_in: 233笔 ret=+17243.5%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires= 313 sellfires= 359  full_in: 168笔 ret=+13089.0%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires= 313 sellfires= 313  full_in: 313笔 ret=+44615.6%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires= 313 sellfires= 346  full_in: 206笔 ret=+24479.9%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   2 sellfires= 340  full_in:   2笔 ret=  -52.2%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires= 340  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires= 340  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires= 340  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires= 340  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   3 sellfires= 340  full_in:   3笔 ret=   -6.3%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=  42 sellfires= 340  full_in:  41笔 ret= +523.1%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=   5 sellfires= 340  full_in:   5笔 ret= +243.2%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=  19 sellfires= 340  full_in:  18笔 ret=  +74.3%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   1 sellfires= 340  full_in:   1笔 ret=   -4.8%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=  30 sellfires= 340  full_in:  30笔 ret=  +29.7%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires= 269 sellfires= 340  full_in:  78笔 ret=+5461.7%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=  24 sellfires= 340  full_in:  22笔 ret= +166.9%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=  13 sellfires= 340  full_in:  13笔 ret=  +52.0%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=  36 sellfires= 340  full_in:  25笔 ret= +151.4%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   7 sellfires= 340  full_in:   6笔 ret=  +18.2%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   3 sellfires= 340  full_in:   3笔 ret=  +21.3%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=  29 sellfires= 340  full_in:  18笔 ret= +103.9%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   3 sellfires= 340  full_in:   3笔 ret=  +16.3%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=  25 sellfires= 340  full_in:  23笔 ret=  +44.2%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   1 sellfires= 340  full_in:   1笔 ret=   +2.9%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires= 165 sellfires=   0  full_in:   0笔 ret=+3468.1%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires= 165 sellfires=   0  full_in:   0笔 ret=+3468.1%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires= 165 sellfires=   0  full_in:   0笔 ret=+3468.1%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires= 165 sellfires=   0  full_in:   0笔 ret=+3468.1%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires= 165 sellfires=   0  full_in:   0笔 ret=+3468.1%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires= 165 sellfires=   2  full_in:   2笔 ret=+1969.2%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires= 165 sellfires=  23  full_in:  17笔 ret=+4556.6%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires= 165 sellfires=  47  full_in:  39笔 ret=+2554.9%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires= 165 sellfires=  22  full_in:  20笔 ret=+2283.2%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires= 165 sellfires=  21  full_in:  20笔 ret=+7538.0%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires= 165 sellfires=  50  full_in:  38笔 ret=+2300.6%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires= 165 sellfires=  64  full_in:  41笔 ret=+10329.5%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires= 165 sellfires=   6  full_in:   6笔 ret=+5433.9%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires= 165 sellfires=  66  full_in:  40笔 ret=+3677.4%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires= 165 sellfires=  41  full_in:  25笔 ret= +272.0%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires= 165 sellfires= 334  full_in: 140笔 ret=+3200.5%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires= 165 sellfires=  64  full_in:  47笔 ret=+4940.6%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires= 165 sellfires= 129  full_in:  67笔 ret=+4779.7%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires= 165 sellfires=  36  full_in:  30笔 ret=+9768.6%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires= 165 sellfires=  83  full_in:  60笔 ret=+2906.7%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires= 165 sellfires=  40  full_in:  33笔 ret=+4782.0%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sh_fusion_stats.json (132.1 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sh_fusion_stats.json (132.1 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sh_fusion_full.json (2645.6 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sh_fusion_full.json (2645.6 KB)
+完成: sh (上证指数) - 91 组融合配对, 5窗口
+
+[fusion load] sz (深证成指) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 8591 条, 1991-04-03 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires= 275 sellfires= 224  full_in:  78笔 ret=  -87.8%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires= 275 sellfires= 238  full_in: 137笔 ret= +288.3%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires= 275 sellfires= 423  full_in: 144笔 ret=  +60.1%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires= 275 sellfires= 540  full_in: 263笔 ret=  +61.4%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires= 275 sellfires= 387  full_in: 243笔 ret= +436.5%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires= 275 sellfires= 315  full_in: 161笔 ret=  +87.4%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires= 275 sellfires= 337  full_in: 181笔 ret=  +14.0%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires= 126 sellfires= 224  full_in:  91笔 ret=  -42.5%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires= 126 sellfires= 238  full_in: 121笔 ret=+2087.5%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires= 126 sellfires= 423  full_in: 124笔 ret=+2306.3%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires= 126 sellfires= 540  full_in: 120笔 ret=+3138.3%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires= 126 sellfires= 387  full_in: 105笔 ret=+15605.8%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires= 126 sellfires= 315  full_in: 124笔 ret=+3172.0%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires= 126 sellfires= 337  full_in: 123笔 ret=+4575.3%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires= 415 sellfires= 224  full_in: 210笔 ret=+2156.5%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires= 415 sellfires= 238  full_in: 131笔 ret=+51225.6%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires= 415 sellfires= 423  full_in: 144笔 ret=+46130.6%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires= 415 sellfires= 540  full_in: 122笔 ret=+27878.9%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires= 415 sellfires= 387  full_in:  91笔 ret=+30106.1%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires= 415 sellfires= 315  full_in: 170笔 ret=+90058.2%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires= 415 sellfires= 337  full_in: 109笔 ret=+23815.6%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires= 269 sellfires= 224  full_in: 153笔 ret=+3371.4%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires= 269 sellfires= 238  full_in:  80笔 ret=+11042.8%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires= 269 sellfires= 423  full_in:  87笔 ret=+8726.0%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires= 269 sellfires= 540  full_in:  75笔 ret=+6109.0%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires= 269 sellfires= 387  full_in:  56笔 ret=+7220.6%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires= 269 sellfires= 315  full_in: 118笔 ret=+10381.3%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires= 269 sellfires= 337  full_in:  67笔 ret=+6160.3%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires= 238 sellfires= 224  full_in: 112笔 ret=  -66.0%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires= 238 sellfires= 238  full_in: 238笔 ret=+20257.8%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires= 238 sellfires= 423  full_in: 233笔 ret=+18012.2%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires= 238 sellfires= 540  full_in: 191笔 ret=+7968.4%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires= 238 sellfires= 387  full_in: 135笔 ret=+7853.9%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires= 238 sellfires= 315  full_in: 215笔 ret=+6324.5%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires= 238 sellfires= 337  full_in: 171笔 ret=+4088.7%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=  89 sellfires= 224  full_in:  68笔 ret=  -69.4%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=  89 sellfires= 238  full_in:  85笔 ret= +286.4%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=  89 sellfires= 423  full_in:  86笔 ret= +553.0%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=  89 sellfires= 540  full_in:  85笔 ret= +385.7%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=  89 sellfires= 387  full_in:  75笔 ret=+3061.5%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=  89 sellfires= 315  full_in:  85笔 ret= +443.9%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=  89 sellfires= 337  full_in:  83笔 ret= +416.0%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires= 314 sellfires= 224  full_in: 131笔 ret=  -89.4%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires= 314 sellfires= 238  full_in: 218笔 ret=+6036.2%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires= 314 sellfires= 423  full_in: 247笔 ret=+4367.0%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires= 314 sellfires= 540  full_in: 234笔 ret=+1098.0%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires= 314 sellfires= 387  full_in: 175笔 ret=+1228.8%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires= 314 sellfires= 315  full_in: 314笔 ret=+18020.7%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires= 314 sellfires= 337  full_in: 202笔 ret=+1228.4%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   0 sellfires= 403  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires= 403  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires= 403  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires= 403  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires= 403  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   2 sellfires= 403  full_in:   2笔 ret=   +7.8%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=  44 sellfires= 403  full_in:  42笔 ret= +348.9%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=  11 sellfires= 403  full_in:  11笔 ret=  +38.3%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=  25 sellfires= 403  full_in:  24笔 ret=  +51.7%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   2 sellfires= 403  full_in:   2笔 ret=  +51.5%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=  20 sellfires= 403  full_in:  20笔 ret=  -29.9%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires= 250 sellfires= 403  full_in:  89笔 ret=+3200.9%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=  27 sellfires= 403  full_in:  25笔 ret= +200.0%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=  16 sellfires= 403  full_in:  16笔 ret=  +28.5%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=  32 sellfires= 403  full_in:  28笔 ret=  +36.2%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   6 sellfires= 403  full_in:   6笔 ret=  +18.7%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   3 sellfires= 403  full_in:   3笔 ret=   -9.2%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=  26 sellfires= 403  full_in:  22笔 ret=  +32.4%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   6 sellfires= 403  full_in:   6笔 ret=   -9.9%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=  26 sellfires= 403  full_in:  23笔 ret=  +35.8%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   3 sellfires= 403  full_in:   3笔 ret=   -6.7%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires= 149 sellfires=   0  full_in:   0笔 ret=+2249.3%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires= 149 sellfires=   0  full_in:   0笔 ret=+2249.3%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires= 149 sellfires=   0  full_in:   0笔 ret=+2249.3%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires= 149 sellfires=   0  full_in:   0笔 ret=+2249.3%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires= 149 sellfires=   0  full_in:   0笔 ret=+2249.3%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires= 149 sellfires=   1  full_in:   1笔 ret=+2448.5%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires= 149 sellfires=  17  full_in:  17笔 ret= +659.4%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires= 149 sellfires=  53  full_in:  42笔 ret= +462.8%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires= 149 sellfires=  23  full_in:  20笔 ret=+2455.0%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires= 149 sellfires=  23  full_in:  19笔 ret=+5591.3%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires= 149 sellfires=  45  full_in:  35笔 ret= +116.1%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires= 149 sellfires=  65  full_in:  39笔 ret= +633.2%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires= 149 sellfires=   3  full_in:   3笔 ret=+2574.4%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires= 149 sellfires=  57  full_in:  35笔 ret=+1238.5%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires= 149 sellfires=  36  full_in:  26笔 ret=+1825.5%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires= 149 sellfires= 360  full_in: 121笔 ret=+7322.5%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires= 149 sellfires=  74  full_in:  58笔 ret=+7721.2%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires= 149 sellfires= 129  full_in:  66笔 ret=+3287.9%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires= 149 sellfires=  36  full_in:  32笔 ret=+1583.1%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires= 149 sellfires=  89  full_in:  61笔 ret=+9539.1%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires= 149 sellfires=  37  full_in:  33笔 ret=+4861.9%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sz_fusion_stats.json (132.1 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sz_fusion_stats.json (132.1 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sz_fusion_full.json (2641.1 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sz_fusion_full.json (2641.1 KB)
+完成: sz (深证成指) - 91 组融合配对, 5窗口
+
+[fusion load] cyb (创业板指) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 3915 条, 2010-06-01 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires= 120 sellfires= 121  full_in:  35笔 ret=  -50.2%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires= 120 sellfires= 126  full_in:  64笔 ret=  +37.6%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires= 120 sellfires= 225  full_in:  66笔 ret=  -10.7%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires= 120 sellfires= 238  full_in: 114笔 ret=  -32.0%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires= 120 sellfires= 163  full_in: 103笔 ret=  +27.2%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires= 120 sellfires= 149  full_in:  72笔 ret=  -25.0%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires= 120 sellfires= 159  full_in:  80笔 ret= +152.5%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires=  61 sellfires= 121  full_in:  44笔 ret=  -30.3%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires=  61 sellfires= 126  full_in:  60笔 ret= +482.6%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires=  61 sellfires= 225  full_in:  61笔 ret= +153.4%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires=  61 sellfires= 238  full_in:  60笔 ret= +328.5%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires=  61 sellfires= 163  full_in:  47笔 ret= +920.0%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires=  61 sellfires= 149  full_in:  60笔 ret= +171.6%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires=  61 sellfires= 159  full_in:  58笔 ret= +667.0%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires= 216 sellfires= 121  full_in: 112笔 ret=  +53.5%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires= 216 sellfires= 126  full_in:  64笔 ret= +803.0%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires= 216 sellfires= 225  full_in:  70笔 ret= +555.7%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires= 216 sellfires= 238  full_in:  61笔 ret= +511.8%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires= 216 sellfires= 163  full_in:  42笔 ret= +756.6%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires= 216 sellfires= 149  full_in:  83笔 ret= +488.7%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires= 216 sellfires= 159  full_in:  50笔 ret= +771.7%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires= 138 sellfires= 121  full_in:  86笔 ret=  +49.4%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires= 138 sellfires= 126  full_in:  39笔 ret= +382.6%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires= 138 sellfires= 225  full_in:  45笔 ret= +237.7%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires= 138 sellfires= 238  full_in:  40笔 ret= +213.0%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires= 138 sellfires= 163  full_in:  27笔 ret= +373.5%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires= 138 sellfires= 149  full_in:  56笔 ret= +251.9%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires= 138 sellfires= 159  full_in:  33笔 ret= +269.1%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires= 126 sellfires= 121  full_in:  54笔 ret=  -68.8%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires= 126 sellfires= 126  full_in: 126笔 ret= +268.9%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires= 126 sellfires= 225  full_in: 123笔 ret=  +99.6%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires= 126 sellfires= 238  full_in: 100笔 ret= +103.4%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires= 126 sellfires= 163  full_in:  64笔 ret= +498.4%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires= 126 sellfires= 149  full_in: 107笔 ret=  +20.9%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires= 126 sellfires= 159  full_in:  87笔 ret= +278.4%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=  47 sellfires= 121  full_in:  34笔 ret=  -32.4%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=  47 sellfires= 126  full_in:  47笔 ret= +490.4%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=  47 sellfires= 225  full_in:  46笔 ret=  +98.9%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=  47 sellfires= 238  full_in:  47笔 ret= +138.0%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=  47 sellfires= 163  full_in:  41笔 ret= +335.4%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=  47 sellfires= 149  full_in:  47笔 ret=  +34.6%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=  47 sellfires= 159  full_in:  45笔 ret= +343.2%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires= 149 sellfires= 121  full_in:  67笔 ret=  -22.3%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires= 149 sellfires= 126  full_in: 108笔 ret= +579.7%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires= 149 sellfires= 225  full_in: 123笔 ret= +284.7%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires= 149 sellfires= 238  full_in: 112笔 ret= +285.9%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires= 149 sellfires= 163  full_in:  76笔 ret= +560.5%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires= 149 sellfires= 149  full_in: 149笔 ret= +431.4%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires= 149 sellfires= 159  full_in:  94笔 ret= +208.6%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   0 sellfires= 188  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires= 188  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires= 188  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires= 188  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires= 188  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   1 sellfires= 188  full_in:   1笔 ret=  +33.2%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=  21 sellfires= 188  full_in:  21笔 ret=  +18.0%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=   5 sellfires= 188  full_in:   5笔 ret=   +2.8%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=  12 sellfires= 188  full_in:  12笔 ret=   +8.6%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   3 sellfires= 188  full_in:   3笔 ret=  +13.2%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=  18 sellfires= 188  full_in:  18笔 ret=  -24.1%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires= 134 sellfires= 188  full_in:  51笔 ret=  +32.6%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=   8 sellfires= 188  full_in:   8笔 ret=  +30.2%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=   8 sellfires= 188  full_in:   8笔 ret=   -5.6%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=  13 sellfires= 188  full_in:  13笔 ret=  -16.9%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   4 sellfires= 188  full_in:   4笔 ret=   -2.9%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   2 sellfires= 188  full_in:   2笔 ret=  +22.3%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=   9 sellfires= 188  full_in:   9笔 ret=   -9.3%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   1 sellfires= 188  full_in:   1笔 ret=   -5.9%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=  18 sellfires= 188  full_in:  17笔 ret=  -30.9%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   2 sellfires= 188  full_in:   2笔 ret=  +11.5%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires=  69 sellfires=   0  full_in:   0笔 ret= +313.2%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires=  69 sellfires=   1  full_in:   1笔 ret= +309.0%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires=  69 sellfires=   1  full_in:   1笔 ret= +309.0%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires=  69 sellfires=   0  full_in:   0笔 ret= +313.2%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires=  69 sellfires=   0  full_in:   0笔 ret= +313.2%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires=  69 sellfires=   2  full_in:   2笔 ret= +346.3%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires=  69 sellfires=  16  full_in:  12笔 ret= +346.9%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires=  69 sellfires=  30  full_in:  20笔 ret=  +90.5%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires=  69 sellfires=  17  full_in:  12笔 ret= +126.4%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires=  69 sellfires=   9  full_in:   7笔 ret= +498.2%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires=  69 sellfires=  21  full_in:  16笔 ret=  +73.2%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires=  69 sellfires=  37  full_in:  20笔 ret=  +79.8%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires=  69 sellfires=   2  full_in:   2笔 ret= +370.4%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires=  69 sellfires=  43  full_in:  19笔 ret=  +47.9%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires=  69 sellfires=  17  full_in:  13笔 ret= +117.6%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires=  69 sellfires= 148  full_in:  56笔 ret= +144.3%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires=  69 sellfires=  31  full_in:  24笔 ret= +574.8%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires=  69 sellfires=  60  full_in:  30笔 ret= +210.4%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires=  69 sellfires=  13  full_in:  13笔 ret= +561.9%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires=  69 sellfires=  46  full_in:  27笔 ret= +125.8%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires=  69 sellfires=  16  full_in:  12笔 ret= +158.7%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_cyb_fusion_stats.json (132.2 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_cyb_fusion_stats.json (132.2 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_cyb_fusion_full.json (1576.0 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_cyb_fusion_full.json (1576.0 KB)
+完成: cyb (创业板指) - 91 组融合配对, 5窗口
+
+[fusion load] kc50 (科创50) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 1583 条, 2020-01-02 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires=  48 sellfires=  45  full_in:  17笔 ret=  +10.1%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires=  48 sellfires=  41  full_in:  24笔 ret=   +5.5%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires=  48 sellfires=  86  full_in:  30笔 ret=   +4.1%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires=  48 sellfires= 107  full_in:  47笔 ret=  +45.0%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires=  48 sellfires=  78  full_in:  42笔 ret=  +24.3%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires=  48 sellfires=  52  full_in:  29笔 ret=  +66.8%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires=  48 sellfires=  76  full_in:  33笔 ret=  +10.0%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires=  28 sellfires=  45  full_in:  19笔 ret=  +30.5%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires=  28 sellfires=  41  full_in:  26笔 ret= +122.8%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires=  28 sellfires=  86  full_in:  28笔 ret= +101.4%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires=  28 sellfires= 107  full_in:  27笔 ret= +139.8%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires=  28 sellfires=  78  full_in:  23笔 ret=  +61.5%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires=  28 sellfires=  52  full_in:  28笔 ret= +159.2%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires=  28 sellfires=  76  full_in:  28笔 ret=  +85.8%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires=  67 sellfires=  45  full_in:  43笔 ret=  +54.4%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires=  67 sellfires=  41  full_in:  20笔 ret= +163.4%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires=  67 sellfires=  86  full_in:  21笔 ret= +173.7%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires=  67 sellfires= 107  full_in:  19笔 ret= +149.5%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires=  67 sellfires=  78  full_in:  15笔 ret= +102.1%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires=  67 sellfires=  52  full_in:  25笔 ret= +212.9%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires=  67 sellfires=  76  full_in:  20笔 ret=  +79.5%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires=  40 sellfires=  45  full_in:  28笔 ret=  +31.3%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires=  40 sellfires=  41  full_in:  10笔 ret=  +77.2%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires=  40 sellfires=  86  full_in:  10笔 ret=  +77.5%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires=  40 sellfires= 107  full_in:  10笔 ret=  +53.9%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires=  40 sellfires=  78  full_in:   9笔 ret=  +20.1%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires=  40 sellfires=  52  full_in:  14笔 ret=  +75.6%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires=  40 sellfires=  76  full_in:  11笔 ret=  +20.1%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires=  40 sellfires=  45  full_in:  20笔 ret=  +24.3%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires=  40 sellfires=  41  full_in:  40笔 ret= +130.4%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires=  40 sellfires=  86  full_in:  40笔 ret=  +56.8%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires=  40 sellfires= 107  full_in:  35笔 ret=  +98.0%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires=  40 sellfires=  78  full_in:  24笔 ret=  +84.1%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires=  40 sellfires=  52  full_in:  35笔 ret= +141.2%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires=  40 sellfires=  76  full_in:  32笔 ret=  +69.4%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=  19 sellfires=  45  full_in:  15笔 ret=   +9.4%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=  19 sellfires=  41  full_in:  19笔 ret=  +53.5%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=  19 sellfires=  86  full_in:  19笔 ret=  +36.6%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=  19 sellfires= 107  full_in:  19笔 ret=  +49.3%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=  19 sellfires=  78  full_in:  16笔 ret=  +18.5%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=  19 sellfires=  52  full_in:  19笔 ret=  +29.2%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=  19 sellfires=  76  full_in:  19笔 ret=  +11.2%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires=  52 sellfires=  45  full_in:  24笔 ret=  +28.9%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires=  52 sellfires=  41  full_in:  37笔 ret= +124.0%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires=  52 sellfires=  86  full_in:  45笔 ret= +130.0%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires=  52 sellfires= 107  full_in:  40笔 ret= +142.9%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires=  52 sellfires=  78  full_in:  31笔 ret= +135.7%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires=  52 sellfires=  52  full_in:  52笔 ret= +313.1%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires=  52 sellfires=  76  full_in:  40笔 ret= +112.7%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=   4 sellfires=  83  full_in:   4笔 ret=  +15.3%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=   1 sellfires=  83  full_in:   1笔 ret=   +4.0%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=   3 sellfires=  83  full_in:   3笔 ret=   -2.7%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=   5 sellfires=  83  full_in:   5笔 ret=  +37.2%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires=  36 sellfires=  83  full_in:  12笔 ret=  +38.5%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=   3 sellfires=  83  full_in:   3笔 ret=  +40.1%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=   1 sellfires=  83  full_in:   1笔 ret=   +6.0%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   1 sellfires=  83  full_in:   1笔 ret=   +4.0%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=   2 sellfires=  83  full_in:   2笔 ret=  +24.6%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   1 sellfires=  83  full_in:   1笔 ret=  +15.4%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=   1 sellfires=  83  full_in:   1笔 ret=   +1.2%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   0 sellfires=  83  full_in:   0笔 ret=   +0.0%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires=  21 sellfires=   0  full_in:   0笔 ret=  +40.7%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires=  21 sellfires=   0  full_in:   0笔 ret=  +40.7%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires=  21 sellfires=   0  full_in:   0笔 ret=  +40.7%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires=  21 sellfires=   0  full_in:   0笔 ret=  +40.7%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires=  21 sellfires=   0  full_in:   0笔 ret=  +40.7%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires=  21 sellfires=   0  full_in:   0笔 ret=  +40.7%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires=  21 sellfires=   6  full_in:   4笔 ret=   -5.0%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires=  21 sellfires=  10  full_in:   8笔 ret= +102.8%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires=  21 sellfires=   2  full_in:   2笔 ret=  +42.5%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires=  21 sellfires=   4  full_in:   4笔 ret=   +7.4%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires=  21 sellfires=  11  full_in:   7笔 ret=  +48.1%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires=  21 sellfires=   8  full_in:   7笔 ret=  +40.9%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires=  21 sellfires=   0  full_in:   0笔 ret=  +40.7%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires=  21 sellfires=  10  full_in:   5笔 ret=  +66.4%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires=  21 sellfires=  13  full_in:   7笔 ret=  +37.5%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires=  21 sellfires=  73  full_in:  19笔 ret=  +38.6%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires=  21 sellfires=   6  full_in:   5笔 ret=  +37.1%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires=  21 sellfires=  21  full_in:   9笔 ret=  +11.0%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires=  21 sellfires=   3  full_in:   3笔 ret=  +51.2%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires=  21 sellfires=  11  full_in:   6笔 ret=  +11.8%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires=  21 sellfires=   5  full_in:   4笔 ret=  +19.9%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_kc50_fusion_stats.json (131.5 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_kc50_fusion_stats.json (131.5 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_kc50_fusion_full.json (761.9 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_kc50_fusion_full.json (761.9 KB)
+完成: kc50 (科创50) - 91 组融合配对, 5窗口
+
+[fusion load] bj50 (北证50) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 1020 条, 2022-05-05 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires=  36 sellfires=  14  full_in:  10笔 ret=  +26.7%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires=  36 sellfires=  25  full_in:  17笔 ret= +132.1%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires=  36 sellfires=  45  full_in:  18笔 ret= +113.7%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires=  36 sellfires=  79  full_in:  35笔 ret=   -6.6%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires=  36 sellfires=  60  full_in:  35笔 ret=  -25.2%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires=  36 sellfires=  44  full_in:  23笔 ret= +135.9%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires=  36 sellfires=  38  full_in:  24笔 ret=  -20.1%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires=  16 sellfires=  14  full_in:  10笔 ret=  +33.7%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires=  16 sellfires=  25  full_in:  15笔 ret= +138.6%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires=  16 sellfires=  45  full_in:  16笔 ret= +147.8%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires=  16 sellfires=  79  full_in:  16笔 ret= +112.1%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires=  16 sellfires=  60  full_in:  16笔 ret=  +21.3%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires=  16 sellfires=  44  full_in:  16笔 ret= +114.0%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires=  16 sellfires=  38  full_in:  15笔 ret=  +44.2%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires=  25 sellfires=  14  full_in:  14笔 ret=  +41.8%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires=  25 sellfires=  25  full_in:  12笔 ret= +132.0%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires=  25 sellfires=  45  full_in:  15笔 ret=  +95.8%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires=  25 sellfires=  79  full_in:  12笔 ret=  +90.6%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires=  25 sellfires=  60  full_in:  12笔 ret=  +22.2%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires=  25 sellfires=  44  full_in:  15笔 ret=  +91.6%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires=  25 sellfires=  38  full_in:  13笔 ret=  +14.1%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires=   9 sellfires=  14  full_in:   7笔 ret=  +14.8%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires=   9 sellfires=  25  full_in:   6笔 ret=  +45.5%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires=   9 sellfires=  45  full_in:   7笔 ret=  +43.8%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires=   9 sellfires=  79  full_in:   6笔 ret=  +28.8%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires=   9 sellfires=  60  full_in:   6笔 ret=  -10.1%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires=   9 sellfires=  44  full_in:   7笔 ret=  +29.6%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires=   9 sellfires=  38  full_in:   6笔 ret=   -8.5%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires=  25 sellfires=  14  full_in:  11笔 ret=  +24.4%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires=  25 sellfires=  25  full_in:  25笔 ret= +113.5%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires=  25 sellfires=  45  full_in:  24笔 ret=  +61.6%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires=  25 sellfires=  79  full_in:  19笔 ret=  +98.1%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires=  25 sellfires=  60  full_in:  18笔 ret=  +12.1%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires=  25 sellfires=  44  full_in:  22笔 ret=  +98.3%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires=  25 sellfires=  38  full_in:  18笔 ret=  +17.3%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=   8 sellfires=  14  full_in:   5笔 ret=  -17.9%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=   8 sellfires=  25  full_in:   8笔 ret=  +36.9%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=   8 sellfires=  45  full_in:   8笔 ret=  +46.8%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=   8 sellfires=  79  full_in:   8笔 ret=  +18.1%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=   8 sellfires=  60  full_in:   8笔 ret=  -20.2%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=   8 sellfires=  44  full_in:   8笔 ret=  +25.5%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=   8 sellfires=  38  full_in:   8笔 ret=  -12.6%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires=  43 sellfires=  14  full_in:  12笔 ret=   -1.9%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires=  43 sellfires=  25  full_in:  22笔 ret= +135.9%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires=  43 sellfires=  45  full_in:  30笔 ret= +104.4%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires=  43 sellfires=  79  full_in:  30笔 ret= +128.8%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires=  43 sellfires=  60  full_in:  26笔 ret=  +43.0%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires=  43 sellfires=  44  full_in:  43笔 ret=  +67.6%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires=  43 sellfires=  38  full_in:  24笔 ret=  +17.4%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=   6 sellfires=  55  full_in:   6笔 ret=  -11.6%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=   2 sellfires=  55  full_in:   2笔 ret=   -9.6%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=   4 sellfires=  55  full_in:   4笔 ret=   -9.9%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires=   6 sellfires=  55  full_in:   6笔 ret=  -18.4%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=   4 sellfires=  55  full_in:   4笔 ret=  +20.4%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=   1 sellfires=  55  full_in:   1笔 ret=   -5.3%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=   6 sellfires=  55  full_in:   5笔 ret=   -9.8%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   1 sellfires=  55  full_in:   1笔 ret=   -3.7%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=   2 sellfires=  55  full_in:   2笔 ret=   +0.6%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=   3 sellfires=  55  full_in:   2笔 ret=   +6.5%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   0 sellfires=  55  full_in:   0笔 ret=   +0.0%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires=  25 sellfires=   0  full_in:   0笔 ret=   +5.5%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires=  25 sellfires=   0  full_in:   0笔 ret=   +5.5%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires=  25 sellfires=   0  full_in:   0笔 ret=   +5.5%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires=  25 sellfires=   0  full_in:   0笔 ret=   +5.5%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires=  25 sellfires=   0  full_in:   0笔 ret=   +5.5%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires=  25 sellfires=   0  full_in:   0笔 ret=   +5.5%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires=  25 sellfires=   7  full_in:   5笔 ret=  +86.2%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires=  25 sellfires=   4  full_in:   3笔 ret=  +32.1%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires=  25 sellfires=   0  full_in:   0笔 ret=   +5.5%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires=  25 sellfires=   4  full_in:   4笔 ret=  +50.2%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires=  25 sellfires=   2  full_in:   2笔 ret=  +25.4%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires=  25 sellfires=   1  full_in:   1笔 ret=  +17.1%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires=  25 sellfires=   0  full_in:   0笔 ret=   +5.5%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires=  25 sellfires=   7  full_in:   4笔 ret=  +39.2%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires=  25 sellfires=   6  full_in:   4笔 ret=  +38.8%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires=  25 sellfires=  56  full_in:  22笔 ret= +160.7%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires=  25 sellfires=   9  full_in:   8笔 ret=  +50.5%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires=  25 sellfires=  18  full_in:   9笔 ret= +167.0%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires=  25 sellfires=   8  full_in:   7笔 ret=  +41.0%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires=  25 sellfires=  12  full_in:   7笔 ret=  +67.5%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires=  25 sellfires=   4  full_in:   4笔 ret=  +20.1%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_bj50_fusion_stats.json (131.5 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_bj50_fusion_stats.json (131.5 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_bj50_fusion_full.json (562.9 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_bj50_fusion_full.json (562.9 KB)
+完成: bj50 (北证50) - 91 组融合配对, 5窗口
+
+[fusion load] sz50 (上证50) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 5472 条, 2004-01-02 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires= 152 sellfires= 176  full_in:  60笔 ret=  -24.2%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires= 152 sellfires= 172  full_in:  87笔 ret=  +59.9%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires= 152 sellfires= 305  full_in:  93笔 ret= +134.8%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires= 152 sellfires= 322  full_in: 147笔 ret=  +70.4%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires= 152 sellfires= 222  full_in: 140笔 ret=  +71.8%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires= 152 sellfires= 208  full_in:  99笔 ret=  -15.0%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires= 152 sellfires= 249  full_in: 101笔 ret=  -10.1%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires=  79 sellfires= 176  full_in:  66笔 ret=  -41.2%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires=  79 sellfires= 172  full_in:  78笔 ret= +184.1%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires=  79 sellfires= 305  full_in:  79笔 ret= +297.7%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires=  79 sellfires= 322  full_in:  74笔 ret= +163.5%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires=  79 sellfires= 222  full_in:  66笔 ret= +286.0%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires=  79 sellfires= 208  full_in:  79笔 ret=  +78.7%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires=  79 sellfires= 249  full_in:  75笔 ret= +304.8%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires= 261 sellfires= 176  full_in: 159笔 ret= +235.7%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires= 261 sellfires= 172  full_in:  93笔 ret= +325.7%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires= 261 sellfires= 305  full_in:  97笔 ret= +472.6%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires= 261 sellfires= 322  full_in:  85笔 ret= +277.6%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires= 261 sellfires= 222  full_in:  64笔 ret= +351.5%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires= 261 sellfires= 208  full_in: 107笔 ret= +577.9%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires= 261 sellfires= 249  full_in:  74笔 ret= +311.1%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires= 158 sellfires= 176  full_in:  97笔 ret= +631.5%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires= 158 sellfires= 172  full_in:  54笔 ret= +370.9%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires= 158 sellfires= 305  full_in:  57笔 ret= +397.7%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires= 158 sellfires= 322  full_in:  49笔 ret= +346.1%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires= 158 sellfires= 222  full_in:  38笔 ret= +473.2%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires= 158 sellfires= 208  full_in:  66笔 ret= +521.4%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires= 158 sellfires= 249  full_in:  43笔 ret= +334.7%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires= 171 sellfires= 176  full_in:  89笔 ret=  -18.9%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires= 171 sellfires= 172  full_in: 171笔 ret= +167.6%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires= 171 sellfires= 305  full_in: 166笔 ret= +159.0%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires= 171 sellfires= 322  full_in: 133笔 ret= +179.2%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires= 171 sellfires= 222  full_in:  92笔 ret= +262.3%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires= 171 sellfires= 208  full_in: 148笔 ret=  +94.2%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires= 171 sellfires= 249  full_in: 119笔 ret= +155.7%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=  56 sellfires= 176  full_in:  51笔 ret=  -64.4%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=  56 sellfires= 172  full_in:  55笔 ret= +130.9%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=  56 sellfires= 305  full_in:  55笔 ret= +214.6%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=  56 sellfires= 322  full_in:  55笔 ret= +101.1%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=  56 sellfires= 222  full_in:  52笔 ret= +291.8%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=  56 sellfires= 208  full_in:  55笔 ret=  +28.4%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=  56 sellfires= 249  full_in:  55笔 ret=  +84.5%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires= 208 sellfires= 176  full_in: 103笔 ret=  +37.9%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires= 208 sellfires= 172  full_in: 149笔 ret=  +99.4%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires= 208 sellfires= 305  full_in: 173笔 ret= +355.8%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires= 208 sellfires= 322  full_in: 151笔 ret= +131.0%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires= 208 sellfires= 222  full_in: 109笔 ret= +174.9%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires= 208 sellfires= 208  full_in: 208笔 ret= +250.7%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires= 208 sellfires= 249  full_in: 142笔 ret=  +98.1%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   0 sellfires= 243  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires= 243  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires= 243  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires= 243  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires= 243  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   1 sellfires= 243  full_in:   1笔 ret=   +1.1%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=  36 sellfires= 243  full_in:  32笔 ret= +164.6%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=   5 sellfires= 243  full_in:   5笔 ret=   +1.5%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=  13 sellfires= 243  full_in:  13笔 ret=  -14.6%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   0 sellfires= 243  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=  17 sellfires= 243  full_in:  17笔 ret= +106.9%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires= 146 sellfires= 243  full_in:  51笔 ret= +192.1%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=  14 sellfires= 243  full_in:  14笔 ret=  +55.5%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=   5 sellfires= 243  full_in:   5笔 ret=   -0.5%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=  16 sellfires= 243  full_in:  14笔 ret= +151.0%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   3 sellfires= 243  full_in:   3笔 ret=   -0.1%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   3 sellfires= 243  full_in:   3笔 ret=   -5.4%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=   9 sellfires= 243  full_in:   9笔 ret=  +45.9%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   1 sellfires= 243  full_in:   1笔 ret=  +11.6%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=  19 sellfires= 243  full_in:  17笔 ret=  +42.8%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   1 sellfires= 243  full_in:   1笔 ret=   -4.3%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires=  76 sellfires=   0  full_in:   0笔 ret= +183.1%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires=  76 sellfires=   1  full_in:   1笔 ret= +111.5%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires=  76 sellfires=   0  full_in:   0笔 ret= +183.1%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires=  76 sellfires=   0  full_in:   0笔 ret= +183.1%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires=  76 sellfires=   1  full_in:   1笔 ret= +111.5%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires=  76 sellfires=   0  full_in:   0笔 ret= +183.1%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires=  76 sellfires=  31  full_in:  19笔 ret=  +45.0%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires=  76 sellfires=  37  full_in:  20笔 ret=  +58.0%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires=  76 sellfires=  14  full_in:  11笔 ret= +204.5%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires=  76 sellfires=  23  full_in:  19笔 ret= +116.9%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires=  76 sellfires=  32  full_in:  21笔 ret=  +88.4%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires=  76 sellfires=  48  full_in:  25笔 ret=  +30.4%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires=  76 sellfires=   4  full_in:   4笔 ret= +279.1%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires=  76 sellfires=  65  full_in:  24笔 ret=  -10.6%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires=  76 sellfires=  19  full_in:  13笔 ret=  +34.2%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires=  76 sellfires= 204  full_in:  70笔 ret=   +6.7%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires=  76 sellfires=  47  full_in:  32笔 ret= +386.7%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires=  76 sellfires=  91  full_in:  39笔 ret= +159.4%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires=  76 sellfires=  21  full_in:  18笔 ret= +107.8%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires=  76 sellfires=  68  full_in:  33笔 ret=  +76.6%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires=  76 sellfires=  29  full_in:  17笔 ret= +130.6%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sz50_fusion_stats.json (131.8 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sz50_fusion_stats.json (131.8 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_sz50_fusion_full.json (1923.8 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_sz50_fusion_full.json (1923.8 KB)
+完成: sz50 (上证50) - 91 组融合配对, 5窗口
+
+[fusion load] hs300 (沪深300) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 5950 条, 2002-01-04 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires= 167 sellfires= 165  full_in:  57笔 ret=  -61.4%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires= 167 sellfires= 179  full_in:  94笔 ret= +161.6%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires= 167 sellfires= 312  full_in:  98笔 ret= +211.5%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires= 167 sellfires= 390  full_in: 162笔 ret=  -28.5%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires= 167 sellfires= 270  full_in: 153笔 ret= +269.5%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires= 167 sellfires= 226  full_in: 105笔 ret=  -19.4%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires= 167 sellfires= 235  full_in: 113笔 ret= +319.9%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires= 103 sellfires= 165  full_in:  69笔 ret=   -6.2%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires= 103 sellfires= 179  full_in:  95笔 ret= +429.9%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires= 103 sellfires= 312  full_in:  98笔 ret= +321.0%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires= 103 sellfires= 390  full_in:  98笔 ret= +167.7%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires= 103 sellfires= 270  full_in:  81笔 ret= +901.6%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires= 103 sellfires= 226  full_in:  96笔 ret= +162.6%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires= 103 sellfires= 235  full_in:  96笔 ret= +722.5%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires= 321 sellfires= 165  full_in: 148笔 ret= +257.5%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires= 321 sellfires= 179  full_in: 103笔 ret= +840.6%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires= 321 sellfires= 312  full_in: 113笔 ret= +975.9%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires= 321 sellfires= 390  full_in:  96笔 ret= +715.2%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires= 321 sellfires= 270  full_in:  69笔 ret=+1187.0%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires= 321 sellfires= 226  full_in: 127笔 ret=+1505.3%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires= 321 sellfires= 235  full_in:  83笔 ret= +907.6%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires= 205 sellfires= 165  full_in: 102笔 ret= +127.3%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires= 205 sellfires= 179  full_in:  62笔 ret= +729.1%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires= 205 sellfires= 312  full_in:  70笔 ret= +587.4%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires= 205 sellfires= 390  full_in:  60笔 ret= +499.2%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires= 205 sellfires= 270  full_in:  42笔 ret= +953.8%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires= 205 sellfires= 226  full_in:  85笔 ret= +835.9%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires= 205 sellfires= 235  full_in:  49笔 ret= +779.5%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires= 179 sellfires= 165  full_in:  90笔 ret=  +20.7%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires= 179 sellfires= 179  full_in: 179笔 ret= +624.9%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires= 179 sellfires= 312  full_in: 175笔 ret= +375.6%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires= 179 sellfires= 390  full_in: 141笔 ret= +230.0%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires= 179 sellfires= 270  full_in:  96笔 ret= +619.3%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires= 179 sellfires= 226  full_in: 151笔 ret= +143.0%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires= 179 sellfires= 235  full_in: 123笔 ret= +861.8%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=  57 sellfires= 165  full_in:  52笔 ret=  -54.7%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=  57 sellfires= 179  full_in:  57笔 ret=  +93.3%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=  57 sellfires= 312  full_in:  57笔 ret=  +72.2%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=  57 sellfires= 390  full_in:  56笔 ret=   -4.4%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=  57 sellfires= 270  full_in:  53笔 ret= +363.1%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=  57 sellfires= 226  full_in:  57笔 ret=  +21.1%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=  57 sellfires= 235  full_in:  55笔 ret= +172.8%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires= 225 sellfires= 165  full_in: 107笔 ret=   -2.7%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires= 225 sellfires= 179  full_in: 154笔 ret= +374.1%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires= 225 sellfires= 312  full_in: 179笔 ret= +701.8%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires= 225 sellfires= 390  full_in: 168笔 ret= +233.3%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires= 225 sellfires= 270  full_in: 119笔 ret= +543.2%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires= 225 sellfires= 226  full_in: 225笔 ret= +535.7%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires= 225 sellfires= 235  full_in: 144笔 ret= +969.1%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   2 sellfires= 246  full_in:   2笔 ret=   +1.7%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires= 246  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires= 246  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires= 246  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires= 246  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   1 sellfires= 246  full_in:   1笔 ret=   -3.9%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=  30 sellfires= 246  full_in:  30笔 ret=  +62.0%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=   1 sellfires= 246  full_in:   1笔 ret=   -5.3%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=  10 sellfires= 246  full_in:  10笔 ret=   +3.8%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   1 sellfires= 246  full_in:   1笔 ret=  +23.3%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=  16 sellfires= 246  full_in:  15笔 ret=  -26.4%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires= 186 sellfires= 246  full_in:  52笔 ret= +379.6%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=  19 sellfires= 246  full_in:  17笔 ret=  +19.3%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=  12 sellfires= 246  full_in:  12笔 ret=   +0.2%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=  25 sellfires= 246  full_in:  19笔 ret=  +69.4%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   5 sellfires= 246  full_in:   5笔 ret=   -3.8%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   2 sellfires= 246  full_in:   2笔 ret=  -12.0%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=  16 sellfires= 246  full_in:  13笔 ret=  +33.7%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   0 sellfires= 246  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=  16 sellfires= 246  full_in:  14笔 ret=  +88.5%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   0 sellfires= 246  full_in:   0笔 ret=   +0.0%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires= 100 sellfires=   0  full_in:   0笔 ret= +297.1%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires= 100 sellfires=   0  full_in:   0笔 ret= +297.1%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires= 100 sellfires=   0  full_in:   0笔 ret= +297.1%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires= 100 sellfires=   0  full_in:   0笔 ret= +297.1%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires= 100 sellfires=   1  full_in:   1笔 ret= +285.7%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires= 100 sellfires=   0  full_in:   0笔 ret= +297.1%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires= 100 sellfires=  18  full_in:  14笔 ret=  +94.8%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires= 100 sellfires=  40  full_in:  30笔 ret= +153.7%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires= 100 sellfires=  10  full_in:   9笔 ret=  +67.8%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires= 100 sellfires=  14  full_in:  13笔 ret= +186.0%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires= 100 sellfires=  29  full_in:  21笔 ret=  +75.6%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires= 100 sellfires=  59  full_in:  35笔 ret=  +86.1%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires= 100 sellfires=   1  full_in:   1笔 ret= +311.2%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires= 100 sellfires=  46  full_in:  27笔 ret= +120.8%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires= 100 sellfires=  38  full_in:  25笔 ret=  +40.7%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires= 100 sellfires= 246  full_in:  88笔 ret= +252.4%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires= 100 sellfires=  52  full_in:  35笔 ret=  +43.7%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires= 100 sellfires=  95  full_in:  45笔 ret= +177.2%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires= 100 sellfires=  24  full_in:  22笔 ret= +165.7%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires= 100 sellfires=  56  full_in:  34笔 ret= +547.8%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires= 100 sellfires=  29  full_in:  25笔 ret= +583.7%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_hs300_fusion_stats.json (131.9 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_hs300_fusion_stats.json (131.9 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_hs300_fusion_full.json (2061.5 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_hs300_fusion_full.json (2061.5 KB)
+完成: hs300 (沪深300) - 91 组融合配对, 5窗口
+
+[fusion load] csi500 (中证500) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 5229 条, 2005-01-04 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires= 154 sellfires= 137  full_in:  44笔 ret=  -49.2%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires= 154 sellfires= 149  full_in:  89笔 ret= +488.9%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires= 154 sellfires= 268  full_in:  92笔 ret= +574.1%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires= 154 sellfires= 272  full_in: 144笔 ret=  +57.5%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires= 154 sellfires= 182  full_in: 129笔 ret= +106.6%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires= 154 sellfires= 204  full_in: 102笔 ret=  +72.1%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires= 154 sellfires= 206  full_in: 107笔 ret=  +10.2%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires=  90 sellfires= 137  full_in:  56笔 ret=  -41.2%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires=  90 sellfires= 149  full_in:  86笔 ret=+1259.8%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires=  90 sellfires= 268  full_in:  88笔 ret=+1298.8%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires=  90 sellfires= 272  full_in:  85笔 ret= +907.0%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires=  90 sellfires= 182  full_in:  70笔 ret= +791.4%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires=  90 sellfires= 204  full_in:  89笔 ret= +438.7%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires=  90 sellfires= 206  full_in:  87笔 ret=+1103.0%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires= 334 sellfires= 137  full_in: 129笔 ret=  +69.5%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires= 334 sellfires= 149  full_in:  89笔 ret=+1752.4%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires= 334 sellfires= 268  full_in: 104笔 ret=+2134.1%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires= 334 sellfires= 272  full_in:  83笔 ret=+1898.4%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires= 334 sellfires= 182  full_in:  65笔 ret= +709.4%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires= 334 sellfires= 204  full_in: 126笔 ret=+1803.1%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires= 334 sellfires= 206  full_in:  79笔 ret= +950.5%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires= 208 sellfires= 137  full_in: 101笔 ret=  +35.2%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires= 208 sellfires= 149  full_in:  57笔 ret= +659.7%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires= 208 sellfires= 268  full_in:  69笔 ret= +689.9%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires= 208 sellfires= 272  full_in:  55笔 ret= +711.0%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires= 208 sellfires= 182  full_in:  42笔 ret= +319.4%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires= 208 sellfires= 204  full_in:  89笔 ret= +755.6%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires= 208 sellfires= 206  full_in:  53笔 ret= +408.7%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires= 149 sellfires= 137  full_in:  58笔 ret=  -61.3%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires= 149 sellfires= 149  full_in: 149笔 ret=+1989.6%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires= 149 sellfires= 268  full_in: 144笔 ret=+2472.8%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires= 149 sellfires= 272  full_in: 119笔 ret=+1615.2%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires= 149 sellfires= 182  full_in:  88笔 ret= +502.1%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires= 149 sellfires= 204  full_in: 129笔 ret= +663.5%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires= 149 sellfires= 206  full_in: 112笔 ret= +376.3%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=  54 sellfires= 137  full_in:  41笔 ret=  +57.1%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=  54 sellfires= 149  full_in:  54笔 ret= +339.3%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=  54 sellfires= 268  full_in:  54笔 ret= +465.8%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=  54 sellfires= 272  full_in:  53笔 ret= +474.4%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=  54 sellfires= 182  full_in:  50笔 ret= +575.8%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=  54 sellfires= 204  full_in:  54笔 ret= +122.8%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=  54 sellfires= 206  full_in:  52笔 ret=  +62.1%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires= 204 sellfires= 137  full_in:  77笔 ret=  -31.4%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires= 204 sellfires= 149  full_in: 129笔 ret=+2949.9%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires= 204 sellfires= 268  full_in: 151笔 ret=+3014.7%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires= 204 sellfires= 272  full_in: 140笔 ret=+1663.8%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires= 204 sellfires= 182  full_in: 103笔 ret= +750.4%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires= 204 sellfires= 204  full_in: 204笔 ret=+2045.0%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires= 204 sellfires= 206  full_in: 130笔 ret= +587.1%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   0 sellfires= 219  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires= 219  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires= 219  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires= 219  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires= 219  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   1 sellfires= 219  full_in:   1笔 ret=   +2.3%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=  24 sellfires= 219  full_in:  22笔 ret=  +45.7%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=   5 sellfires= 219  full_in:   5笔 ret=   -9.3%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=   9 sellfires= 219  full_in:   9笔 ret=  +32.3%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   2 sellfires= 219  full_in:   2笔 ret=  -10.5%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=  18 sellfires= 219  full_in:  18笔 ret=  +34.4%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires= 192 sellfires= 219  full_in:  62笔 ret= +148.5%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=  15 sellfires= 219  full_in:  14笔 ret=  +31.2%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=   5 sellfires= 219  full_in:   5笔 ret=   +2.6%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=  25 sellfires= 219  full_in:  19笔 ret= +197.5%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   3 sellfires= 219  full_in:   3笔 ret=   +4.5%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   1 sellfires= 219  full_in:   1笔 ret=   -3.2%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=  20 sellfires= 219  full_in:  14笔 ret= +125.1%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   1 sellfires= 219  full_in:   1笔 ret=   -4.6%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=  14 sellfires= 219  full_in:  12笔 ret=  +33.9%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   1 sellfires= 219  full_in:   1笔 ret=   -3.8%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires=  84 sellfires=   0  full_in:   0笔 ret= +725.1%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires=  84 sellfires=   0  full_in:   0笔 ret= +725.1%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires=  84 sellfires=   0  full_in:   0笔 ret= +725.1%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires=  84 sellfires=   0  full_in:   0笔 ret= +725.1%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires=  84 sellfires=   0  full_in:   0笔 ret= +725.1%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires=  84 sellfires=   0  full_in:   0笔 ret= +725.1%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires=  84 sellfires=  17  full_in:  11笔 ret=+1422.4%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires=  84 sellfires=  27  full_in:  19笔 ret= +282.3%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires=  84 sellfires=  17  full_in:  13笔 ret= +367.1%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires=  84 sellfires=  12  full_in:  11笔 ret=+1577.7%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires=  84 sellfires=  27  full_in:  18笔 ret= +308.7%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires=  84 sellfires=  54  full_in:  27笔 ret= +127.5%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires=  84 sellfires=   3  full_in:   3笔 ret= +836.3%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires=  84 sellfires=  50  full_in:  23笔 ret=   +9.1%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires=  84 sellfires=  28  full_in:  19笔 ret= +396.3%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires=  84 sellfires= 160  full_in:  67笔 ret= +286.5%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires=  84 sellfires=  47  full_in:  31笔 ret= +266.6%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires=  84 sellfires=  78  full_in:  39笔 ret=  +73.6%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires=  84 sellfires=  17  full_in:  16笔 ret= +882.4%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires=  84 sellfires=  45  full_in:  32笔 ret= +293.9%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires=  84 sellfires=  33  full_in:  24笔 ret=+1235.0%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_csi500_fusion_stats.json (132.0 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_csi500_fusion_stats.json (132.0 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_csi500_fusion_full.json (1901.9 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_csi500_fusion_full.json (1901.9 KB)
+完成: csi500 (中证500) - 91 组融合配对, 5窗口
+
+[fusion load] csi1000 (中证1000) from /Users/linhuichen/code/trade/data/sentiment.db
+  数据: 2856 条, 2014-10-17 ~ 2026-07-16
+[fusion] 生成 91 个候选 (buy_sell/buy_buy/sell_sell)
+  [buy_sell ] BB_lower_revert|BB_upper_revert                 buyfires=  92 sellfires=  61  full_in:  24笔 ret=  -39.8%
+  [buy_sell ] BB_lower_revert|MA_death_5_20                   buyfires=  92 sellfires=  87  full_in:  50笔 ret= +128.7%
+  [buy_sell ] BB_lower_revert|BB_middle_break                 buyfires=  92 sellfires= 158  full_in:  51笔 ret=  -26.4%
+  [buy_sell ] BB_lower_revert|Donchian10_down                 buyfires=  92 sellfires= 166  full_in:  86笔 ret=  -29.5%
+  [buy_sell ] BB_lower_revert|Donchian20_down                 buyfires=  92 sellfires= 116  full_in:  81笔 ret=  -44.6%
+  [buy_sell ] BB_lower_revert|MACD_death                      buyfires=  92 sellfires= 115  full_in:  56笔 ret=  -21.2%
+  [buy_sell ] BB_lower_revert|ATR_trail_stop                  buyfires=  92 sellfires= 128  full_in:  66笔 ret=  +69.0%
+  [buy_sell ] Supertrend_buy|BB_upper_revert                  buyfires=  47 sellfires=  61  full_in:  27笔 ret=  -55.0%
+  [buy_sell ] Supertrend_buy|MA_death_5_20                    buyfires=  47 sellfires=  87  full_in:  45笔 ret= +235.5%
+  [buy_sell ] Supertrend_buy|BB_middle_break                  buyfires=  47 sellfires= 158  full_in:  45笔 ret= +134.2%
+  [buy_sell ] Supertrend_buy|Donchian10_down                  buyfires=  47 sellfires= 166  full_in:  44笔 ret= +143.4%
+  [buy_sell ] Supertrend_buy|Donchian20_down                  buyfires=  47 sellfires= 116  full_in:  38笔 ret= +102.2%
+  [buy_sell ] Supertrend_buy|MACD_death                       buyfires=  47 sellfires= 115  full_in:  46笔 ret= +112.4%
+  [buy_sell ] Supertrend_buy|ATR_trail_stop                   buyfires=  47 sellfires= 128  full_in:  45笔 ret= +129.2%
+  [buy_sell ] Donchian20_up|BB_upper_revert                   buyfires= 152 sellfires=  61  full_in:  59笔 ret=  -46.6%
+  [buy_sell ] Donchian20_up|MA_death_5_20                     buyfires= 152 sellfires=  87  full_in:  45笔 ret= +257.3%
+  [buy_sell ] Donchian20_up|BB_middle_break                   buyfires= 152 sellfires= 158  full_in:  54笔 ret= +212.9%
+  [buy_sell ] Donchian20_up|Donchian10_down                   buyfires= 152 sellfires= 166  full_in:  47笔 ret= +163.4%
+  [buy_sell ] Donchian20_up|Donchian20_down                   buyfires= 152 sellfires= 116  full_in:  36笔 ret=  +62.0%
+  [buy_sell ] Donchian20_up|MACD_death                        buyfires= 152 sellfires= 115  full_in:  57笔 ret= +303.4%
+  [buy_sell ] Donchian20_up|ATR_trail_stop                    buyfires= 152 sellfires= 128  full_in:  42笔 ret=  +98.4%
+  [buy_sell ] Donchian55_up|BB_upper_revert                   buyfires=  90 sellfires=  61  full_in:  45笔 ret=  -53.5%
+  [buy_sell ] Donchian55_up|MA_death_5_20                     buyfires=  90 sellfires=  87  full_in:  26笔 ret= +144.2%
+  [buy_sell ] Donchian55_up|BB_middle_break                   buyfires=  90 sellfires= 158  full_in:  33笔 ret= +101.3%
+  [buy_sell ] Donchian55_up|Donchian10_down                   buyfires=  90 sellfires= 166  full_in:  26笔 ret= +129.0%
+  [buy_sell ] Donchian55_up|Donchian20_down                   buyfires=  90 sellfires= 116  full_in:  21笔 ret=  +49.1%
+  [buy_sell ] Donchian55_up|MACD_death                        buyfires=  90 sellfires= 115  full_in:  37笔 ret= +161.9%
+  [buy_sell ] Donchian55_up|ATR_trail_stop                    buyfires=  90 sellfires= 128  full_in:  25笔 ret=  +52.5%
+  [buy_sell ] MA_golden_5_20|BB_upper_revert                  buyfires=  87 sellfires=  61  full_in:  27笔 ret=  -63.8%
+  [buy_sell ] MA_golden_5_20|MA_death_5_20                    buyfires=  87 sellfires=  87  full_in:  87笔 ret= +102.6%
+  [buy_sell ] MA_golden_5_20|BB_middle_break                  buyfires=  87 sellfires= 158  full_in:  85笔 ret=   +9.1%
+  [buy_sell ] MA_golden_5_20|Donchian10_down                  buyfires=  87 sellfires= 166  full_in:  72笔 ret=  +61.1%
+  [buy_sell ] MA_golden_5_20|Donchian20_down                  buyfires=  87 sellfires= 116  full_in:  46笔 ret=  +78.3%
+  [buy_sell ] MA_golden_5_20|MACD_death                       buyfires=  87 sellfires= 115  full_in:  79笔 ret=  +40.1%
+  [buy_sell ] MA_golden_5_20|ATR_trail_stop                   buyfires=  87 sellfires= 128  full_in:  65笔 ret=  +25.8%
+  [buy_sell ] MA_golden_10_60|BB_upper_revert                 buyfires=  28 sellfires=  61  full_in:  19笔 ret=  +13.0%
+  [buy_sell ] MA_golden_10_60|MA_death_5_20                   buyfires=  28 sellfires=  87  full_in:  28笔 ret= +191.3%
+  [buy_sell ] MA_golden_10_60|BB_middle_break                 buyfires=  28 sellfires= 158  full_in:  27笔 ret= +123.0%
+  [buy_sell ] MA_golden_10_60|Donchian10_down                 buyfires=  28 sellfires= 166  full_in:  28笔 ret= +147.6%
+  [buy_sell ] MA_golden_10_60|Donchian20_down                 buyfires=  28 sellfires= 116  full_in:  27笔 ret= +107.4%
+  [buy_sell ] MA_golden_10_60|MACD_death                      buyfires=  28 sellfires= 115  full_in:  28笔 ret=  +79.6%
+  [buy_sell ] MA_golden_10_60|ATR_trail_stop                  buyfires=  28 sellfires= 128  full_in:  28笔 ret= +162.0%
+  [buy_sell ] MACD_golden|BB_upper_revert                     buyfires= 115 sellfires=  61  full_in:  33笔 ret=  -63.8%
+  [buy_sell ] MACD_golden|MA_death_5_20                       buyfires= 115 sellfires=  87  full_in:  77笔 ret= +152.2%
+  [buy_sell ] MACD_golden|BB_middle_break                     buyfires= 115 sellfires= 158  full_in:  92笔 ret= +105.5%
+  [buy_sell ] MACD_golden|Donchian10_down                     buyfires= 115 sellfires= 166  full_in:  81笔 ret= +101.6%
+  [buy_sell ] MACD_golden|Donchian20_down                     buyfires= 115 sellfires= 116  full_in:  56笔 ret=  +90.2%
+  [buy_sell ] MACD_golden|MACD_death                          buyfires= 115 sellfires= 115  full_in: 115笔 ret= +152.3%
+  [buy_sell ] MACD_golden|ATR_trail_stop                      buyfires= 115 sellfires= 128  full_in:  79笔 ret=  +62.8%
+  [buy_buy  ] BB_lower_revert|Supertrend_buy                  buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian20_up                   buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|Donchian55_up                   buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_5_20                  buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MA_golden_10_60                 buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] BB_lower_revert|MACD_golden                     buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Supertrend_buy|Donchian20_up                    buyfires=  10 sellfires= 123  full_in:   9笔 ret=  +44.2%
+  [buy_buy  ] Supertrend_buy|Donchian55_up                    buyfires=   2 sellfires= 123  full_in:   2笔 ret=  -17.8%
+  [buy_buy  ] Supertrend_buy|MA_golden_5_20                   buyfires=   5 sellfires= 123  full_in:   5笔 ret=  -20.8%
+  [buy_buy  ] Supertrend_buy|MA_golden_10_60                  buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Supertrend_buy|MACD_golden                      buyfires=   3 sellfires= 123  full_in:   3笔 ret=   -8.3%
+  [buy_buy  ] Donchian20_up|Donchian55_up                     buyfires=  83 sellfires= 123  full_in:  25笔 ret=  +22.8%
+  [buy_buy  ] Donchian20_up|MA_golden_5_20                    buyfires=   6 sellfires= 123  full_in:   5笔 ret=  +17.1%
+  [buy_buy  ] Donchian20_up|MA_golden_10_60                   buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Donchian20_up|MACD_golden                       buyfires=  10 sellfires= 123  full_in:   8笔 ret=  +26.1%
+  [buy_buy  ] Donchian55_up|MA_golden_5_20                    buyfires=   2 sellfires= 123  full_in:   2笔 ret=   -2.0%
+  [buy_buy  ] Donchian55_up|MA_golden_10_60                   buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] Donchian55_up|MACD_golden                       buyfires=   5 sellfires= 123  full_in:   4笔 ret=   -7.2%
+  [buy_buy  ] MA_golden_5_20|MA_golden_10_60                  buyfires=   0 sellfires= 123  full_in:   0笔 ret=   +0.0%
+  [buy_buy  ] MA_golden_5_20|MACD_golden                      buyfires=  10 sellfires= 123  full_in:  10笔 ret=  -10.4%
+  [buy_buy  ] MA_golden_10_60|MACD_golden                     buyfires=   1 sellfires= 123  full_in:   1笔 ret=   -4.3%
+  [sell_sell] BB_upper_revert|MA_death_5_20                   buyfires=  52 sellfires=   0  full_in:   0笔 ret=  +27.1%
+  [sell_sell] BB_upper_revert|BB_middle_break                 buyfires=  52 sellfires=   0  full_in:   0笔 ret=  +27.1%
+  [sell_sell] BB_upper_revert|Donchian10_down                 buyfires=  52 sellfires=   0  full_in:   0笔 ret=  +27.1%
+  [sell_sell] BB_upper_revert|Donchian20_down                 buyfires=  52 sellfires=   0  full_in:   0笔 ret=  +27.1%
+  [sell_sell] BB_upper_revert|MACD_death                      buyfires=  52 sellfires=   0  full_in:   0笔 ret=  +27.1%
+  [sell_sell] BB_upper_revert|ATR_trail_stop                  buyfires=  52 sellfires=   0  full_in:   0笔 ret=  +27.1%
+  [sell_sell] MA_death_5_20|BB_middle_break                   buyfires=  52 sellfires=  13  full_in:   9笔 ret=  +84.6%
+  [sell_sell] MA_death_5_20|Donchian10_down                   buyfires=  52 sellfires=  17  full_in:  13笔 ret= +106.6%
+  [sell_sell] MA_death_5_20|Donchian20_down                   buyfires=  52 sellfires=  10  full_in:   9笔 ret=  +69.6%
+  [sell_sell] MA_death_5_20|MACD_death                        buyfires=  52 sellfires=  16  full_in:  13笔 ret=  +30.8%
+  [sell_sell] MA_death_5_20|ATR_trail_stop                    buyfires=  52 sellfires=  19  full_in:  14笔 ret=   +1.9%
+  [sell_sell] BB_middle_break|Donchian10_down                 buyfires=  52 sellfires=  33  full_in:  18笔 ret=  +24.7%
+  [sell_sell] BB_middle_break|Donchian20_down                 buyfires=  52 sellfires=   3  full_in:   2笔 ret=  +55.2%
+  [sell_sell] BB_middle_break|MACD_death                      buyfires=  52 sellfires=  33  full_in:  15笔 ret=  +21.6%
+  [sell_sell] BB_middle_break|ATR_trail_stop                  buyfires=  52 sellfires=  13  full_in:  11笔 ret=   +7.6%
+  [sell_sell] Donchian10_down|Donchian20_down                 buyfires=  52 sellfires= 103  full_in:  44笔 ret=  -24.1%
+  [sell_sell] Donchian10_down|MACD_death                      buyfires=  52 sellfires=  28  full_in:  19笔 ret=  -51.6%
+  [sell_sell] Donchian10_down|ATR_trail_stop                  buyfires=  52 sellfires=  42  full_in:  21笔 ret=  -18.3%
+  [sell_sell] Donchian20_down|MACD_death                      buyfires=  52 sellfires=  12  full_in:  12笔 ret=  +13.8%
+  [sell_sell] Donchian20_down|ATR_trail_stop                  buyfires=  52 sellfires=  32  full_in:  21笔 ret=  +16.0%
+  [sell_sell] MACD_death|ATR_trail_stop                       buyfires=  52 sellfires=  13  full_in:  11笔 ret=  -10.6%
+
+[融合配对] 91 组 × 2模式 × 5窗口 = 910 组窗口回测
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_csi1000_fusion_stats.json (131.7 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_csi1000_fusion_stats.json (131.7 KB)
+[output] /Users/linhuichen/code/trade/web/data/lab/lab_sim_csi1000_fusion_full.json (1248.7 KB)
+[output] /Users/linhuichen/code/trade/static-site/data/lab/lab_sim_csi1000_fusion_full.json (1248.7 KB)
+完成: csi1000 (中证1000) - 91 组融合配对, 5窗口
+
+=== 融合回测全部完成: 9 个指数, 总耗时 10.6s ===
+✓ 融合完成
+-> [3/3] lab_retest 二次测试（切片）...
+=== 策略实验室二次测试(回测切片) ===
+
+[retest] sh (上证指数)
+  数据范围: 1990-12-19 ~ 2026-07-16 (8683天)
+  融合候选: 91个
+  ⭐️候选数: 22
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_sh.json (19.9 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_sh.json (19.9 KB)
+
+[retest] sz (深证成指)
+  数据范围: 1991-04-03 ~ 2026-07-16 (8591天)
+  融合候选: 91个
+  ⭐️候选数: 19
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_sz.json (17.4 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_sz.json (17.4 KB)
+
+[retest] cyb (创业板指)
+  数据范围: 2010-06-01 ~ 2026-07-16 (3915天)
+  融合候选: 91个
+  ⭐️候选数: 18
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_cyb.json (16.2 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_cyb.json (16.2 KB)
+
+[retest] kc50 (科创50)
+  数据范围: 2020-01-02 ~ 2026-07-16 (1583天)
+  融合候选: 91个
+  ⭐️候选数: 37
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_kc50.json (27.4 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_kc50.json (27.4 KB)
+
+[retest] bj50 (北证50)
+  数据范围: 2022-05-05 ~ 2026-07-16 (1020天)
+  融合候选: 91个
+  ⭐️候选数: 39
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_bj50.json (26.1 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_bj50.json (26.1 KB)
+
+[retest] sz50 (上证50)
+  数据范围: 2004-01-02 ~ 2026-07-16 (5472天)
+  融合候选: 91个
+  ⭐️候选数: 11
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_sz50.json (10.2 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_sz50.json (10.2 KB)
+
+[retest] hs300 (沪深300)
+  数据范围: 2002-01-04 ~ 2026-07-16 (5950天)
+  融合候选: 91个
+  ⭐️候选数: 11
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_hs300.json (10.3 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_hs300.json (10.3 KB)
+
+[retest] csi500 (中证500)
+  数据范围: 2005-01-04 ~ 2026-07-16 (5229天)
+  融合候选: 91个
+  ⭐️候选数: 27
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_csi500.json (25.2 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_csi500.json (25.2 KB)
+
+[retest] csi1000 (中证1000)
+  数据范围: 2014-10-17 ~ 2026-07-16 (2856天)
+  融合候选: 91个
+  ⭐️候选数: 26
+  [output] /Users/linhuichen/code/trade/web/data/lab/lab_retest_csi1000.json (24.0 KB)
+  [output] /Users/linhuichen/code/trade/static-site/data/lab/lab_retest_csi1000.json (24.0 KB)
+
+=== 全部完成,总耗时 2.5s ===
+✓ retest 完成
+-> git add static-site/data/lab/ + web/data/lab/ ...
+-> git commit: data update [lab] 2026-07-16_21:09
+[feat/iframe-theme-follow 6bad9cd] data update [lab] 2026-07-16_21:09
+ 18 files changed, 18 insertions(+), 18 deletions(-)
+-> git push origin HEAD:main ...
+To github.com:xp13465/trade-data-signal.git
+   d9bcd78..6bad9cd  HEAD -> main
+✓ push 完成
+=== update_lab.sh 结束 2026-07-16 21:09:34 耗时 30s（0min）===
+退出码汇总: sim=0 fusion=0 retest=0 push=0

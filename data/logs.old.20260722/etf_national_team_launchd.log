@@ -1,0 +1,24 @@
+[etf_nt] daily 开始 2026-07-14 19:36:08
+  [sse] 20260714 跳过: KeyError
+[etf_nt] daily 完成 67.6s: ohlc=72 sse=35 szse=25 signals=2540
+[etf_nt] export JSON 完成 -> static-site/data/ (daily ×7 ranges + quarterly + holders)
+[etf_nt] daily 开始 2026-07-14 20:07:05
+  [sse] 20260714 跳过: KeyError
+[etf_nt] daily 完成 70.1s: ohlc=72 sse=35 szse=25 signals=2540
+[etf_nt] export JSON 完成 -> static-site/data/ (daily ×7 ranges + quarterly + holders)
+[etf_nt] daily 开始 2026-07-15 20:07:05
+  [sse] 20260715 跳过: KeyError
+[etf_nt] daily 完成 68.4s: ohlc=72 sse=35 szse=25 signals=2540
+[etf_nt] export JSON 完成 -> static-site/data/ (daily ×7 ranges + quarterly + holders)
+[etf_nt] daily 开始 2026-07-16 20:07:05
+[etf_nt] daily 完成 105.4s: ohlc=72 sse=35 szse=25 signals=2540
+[etf_nt] export JSON 完成 -> static-site/data/ (daily ×7 ranges + quarterly + holders)
+[etf_nt] daily 开始 2026-07-16 21:30:06
+[etf_nt] daily 完成 105.3s: ohlc=72 sse=35 szse=25 signals=2540
+[etf_nt] export JSON 完成 -> static-site/data/ (daily ×7 ranges + quarterly + holders)
+[etf_nt] daily 开始 2026-07-17 20:07:05
+[etf_nt] daily 完成 191.3s: ohlc=0 sse=35 szse=25 signals=2542
+[etf_nt] export JSON 完成 -> static-site/data/ (daily ×7 ranges + quarterly + holders)
+[etf_nt] daily 开始 2026-07-17 21:30:05
+[etf_nt] daily 完成 191.2s: ohlc=0 sse=35 szse=25 signals=2542
+[etf_nt] export JSON 完成 -> static-site/data/ (daily ×7 ranges + quarterly + holders)

@@ -1,0 +1,23 @@
+=== intraday_snapshot.sh 开始 2026-07-14 09:35:01 ===
+交易日判断: IS_TRADING=1 FORCE=0
+-> 采集盘中快照 ...
+[intraday] 开始采集盘中实时快照 2026-07-14 09:35:02
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  7.63it/s]                                             [intraday] 快照完成：12 指数（9 A 股 + 3 港股） / 29 行业 (盘中实时小结)，0.9s -> intraday_snapshot.json
+  [intraday] index_daily 反哺完成：12 条（来源：实时快照，amount=NULL）
+  [intraday] index_daily 行业反哺完成：29 条
+  [intraday] sentiment_sz50: 5456天, 末日=20260714=40.98
+  [intraday] sentiment_hs300: 5934天, 末日=20260714=35.45
+  [intraday] sentiment_csi500: 5213天, 末日=20260714=32.76
+  [intraday] sentiment_csi1000: 2840天, 末日=20260714=31.79
+  [intraday] sentiment_cyb: 3899天, 末日=20260714=36.73
+  [intraday] sentiment_kc50: 1567天, 末日=20260714=41.33
+  [intraday] fear_greed 重算: 4485天, 末日=20260714=36.51
+  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×12 + hk×7
+[intraday] 反哺+重算+export 完成（12 指数 + 29 行业反哺）
+-> commit + push static-site/data/intraday_snapshot.json（持 deploy 锁串行）msg="data update [intraday] 2026-07-14_09:35" ...
+[feat/iframe-theme-follow 5f1f36c] data update [intraday] 2026-07-14_09:35
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+✓ git commit 完成
+To github.com:xp13465/trade-data-signal.git
+   2cb2aab..5f1f36c  feat/iframe-theme-follow -> feat/iframe-theme-follow
+=== intraday_snapshot.sh 结束 2026-07-14 09:35:12 退出码=0 ===

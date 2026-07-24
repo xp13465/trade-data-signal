@@ -1,0 +1,96 @@
+=== pipeline[width] 开始 2026-07-12 20:12:50 steps=mootdx,industry_width,width_history ===
+-> [width] 采集 steps=mootdx,industry_width,width_history ...
+  [100/5203] 000516: empty | elapsed 430s, 0.2/s, ETA 21940s
+  [200/5203] 000669: empty | elapsed 863s, 0.2/s, ETA 21578s
+  [300/5203] 000820: empty | elapsed 1300s, 0.2/s, ETA 21247s
+  [400/5203] 000978: empty | elapsed 1734s, 0.2/s, ETA 20822s
+  [500/5203] 001338: empty | elapsed 2167s, 0.2/s, ETA 20382s
+  [600/5203] 002072: empty | elapsed 2600s, 0.2/s, ETA 19944s
+  [700/5203] 002178: empty | elapsed 3036s, 0.2/s, ETA 19527s
+  [800/5203] 002283: empty | elapsed 3468s, 0.2/s, ETA 19089s
+  [900/5203] 002389: empty | elapsed 3901s, 0.2/s, ETA 18651s
+  [1000/5203] 002498: empty | elapsed 4334s, 0.2/s, ETA 18214s
+  [1100/5203] 002606: empty | elapsed 4766s, 0.2/s, ETA 17778s
+  [1200/5203] 002717: empty | elapsed 5215s, 0.2/s, ETA 17396s
+  [1300/5203] 002831: empty | elapsed 5643s, 0.2/s, ETA 16942s
+  [1400/5203] 002940: empty | elapsed 6077s, 0.2/s, ETA 16507s
+  [1500/5203] 300004: empty | elapsed 6509s, 0.2/s, ETA 16068s
+  [1600/5203] 300113: empty | elapsed 6943s, 0.2/s, ETA 15635s
+  [1700/5203] 300222: empty | elapsed 7375s, 0.2/s, ETA 15198s
+  [1800/5203] 300331: empty | elapsed 7809s, 0.2/s, ETA 14763s
+  [1900/5203] 300442: empty | elapsed 8246s, 0.2/s, ETA 14335s
+  [2000/5203] 300546: empty | elapsed 8686s, 0.2/s, ETA 13910s
+  [2100/5203] 300649: empty | elapsed 9122s, 0.2/s, ETA 13479s
+  [2200/5203] 300756: empty | elapsed 9572s, 0.2/s, ETA 13066s
+  [2300/5203] 300859: empty | elapsed 10004s, 0.2/s, ETA 12627s
+  [2400/5203] 300965: empty | elapsed 10447s, 0.2/s, ETA 12201s
+  [2500/5203] 301071: empty | elapsed 10879s, 0.2/s, ETA 11762s
+  [2600/5203] 301189: empty | elapsed 11334s, 0.2/s, ETA 11347s
+  [2700/5203] 301310: empty | elapsed 11767s, 0.2/s, ETA 10909s
+  [2800/5203] 301507: empty | elapsed 12198s, 0.2/s, ETA 10469s
+  [2900/5203] 600008: empty | elapsed 12628s, 0.2/s, ETA 10028s
+  [3000/5203] 600141: empty | elapsed 13059s, 0.2/s, ETA 9590s
+  [3100/5203] 600276: empty | elapsed 13489s, 0.2/s, ETA 9151s
+-> [width] compute_runner ...
+[volume_ratio] 计算完成: 2554 天, 写入 10203 条 metric
+=== 计算完成: §4情绪分=2545天  sz50=5454天  hs300=5932天  csi500=5211天  csi1000=2838天  cyb=3897天  kc50=1565天  §6跨市场=4650天  买卖点=14643个  派生公式=2358行  AD Line=10216行  量比=2554天  位置感=24行  恐贪指数=4483天  买卖点stats=92品种(106374B)  新高新低=43395行  均线排列=25860行  板块轮动=6行 ===
+-> [width] 等待 deploy 锁（串行化 git）...
+=== deploy.sh 开始 2026-07-13 00:05:11 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (53362 bytes)
+  a-stock-1m.json (48167 bytes)
+  a-stock-3m.json (136741 bytes)
+  a-stock-6m.json (259811 bytes)
+  a-stock-1y.json (525738 bytes)
+  a-stock-all.json (6840279 bytes)
+  hk-1m.json (8649 bytes)
+  hk-3m.json (27855 bytes)
+  hk-6m.json (54415 bytes)
+  hk-1y.json (112040 bytes)
+  hk-all.json (1192127 bytes)
+  global-1m.json (25886 bytes)
+  global-3m.json (64096 bytes)
+  global-6m.json (117725 bytes)
+  global-1y.json (234172 bytes)
+  global-all.json (3137767 bytes)
+  sentiment-1m.json (30901 bytes)
+  sentiment-3m.json (79943 bytes)
+  sentiment-6m.json (144448 bytes)
+  sentiment-1y.json (287968 bytes)
+  sentiment-all.json (3928453 bytes)
+  industry-1m.json (373997 bytes)
+  industry-3m.json (954637 bytes)
+  industry-6m.json (1769284 bytes)
+  industry-1y.json (3387565 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (419970 bytes)
+  ad_line.json (38454 bytes)
+  volume_ratio.json (45636 bytes)
+  position.json (1365 bytes)
+  summary.json (705 bytes)
+  summary_history.json (46290 bytes)
+  signal_freq.json (162 bytes)
+  rotation.json (37122 bytes)
+  new_high_low.json (25894 bytes)
+  ma_alignment.json (19169 bytes)
+  index/*.json (77 files)
+
+导出完成：146 个 JSON 文件，78.2 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 77 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+→ git commit: data update [width] 2026-07-13_00:05
+[main 7f47ec3] data update [width] 2026-07-13_00:05
+ 26 files changed, 26 insertions(+), 25 deletions(-)
+ create mode 100644 static-site/data/index/bj50-all.json
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   d655763..7f47ec3  main -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-13 00:05:23 退出码=0 ===
+=== pipeline[width] 结束 2026-07-13 00:05:23 collect=137 deploy=0 ===

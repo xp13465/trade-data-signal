@@ -1,0 +1,3 @@
+=== uptime_check.sh 开始 2026-07-18 18:05:01 URL=https://s.aisusu.cn/data/metrics.json ===
+✗ ERR 解析失败:'list' object has no attribute 'get'（已发严重通知）
+=== uptime_check.sh 结束 异常 退出码=1 ===

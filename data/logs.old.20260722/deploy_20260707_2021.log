@@ -1,0 +1,49 @@
+=== deploy.sh 开始 2026-07-07 20:21:42 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (30694 bytes)
+  a-stock-1m.json (43831 bytes)
+  a-stock-3m.json (119639 bytes)
+  a-stock-6m.json (227994 bytes)
+  a-stock-1y.json (463377 bytes)
+  a-stock-all.json (6178656 bytes)
+  hk-1m.json (8836 bytes)
+  hk-3m.json (27592 bytes)
+  hk-6m.json (54154 bytes)
+  hk-1y.json (112241 bytes)
+  hk-all.json (1190033 bytes)
+  global-1m.json (18384 bytes)
+  global-3m.json (57808 bytes)
+  global-6m.json (113828 bytes)
+  global-1y.json (237066 bytes)
+  global-all.json (3196291 bytes)
+  sentiment-1m.json (5426 bytes)
+  sentiment-3m.json (15452 bytes)
+  sentiment-6m.json (29757 bytes)
+  sentiment-1y.json (61263 bytes)
+  sentiment-all.json (809062 bytes)
+  industry-1m.json (188392 bytes)
+  industry-3m.json (538225 bytes)
+  industry-6m.json (1040385 bytes)
+  industry-1y.json (2096227 bytes)
+  industry-all.json (24941306 bytes)
+  metrics.json (2055 bytes)
+  index/*.json (48 files)
+
+导出完成：75 个 JSON 文件，61.7 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 48 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+→ git commit: data update 2026-07-07_20:21
+[main 1353b8e] data update 2026-07-07_20:21
+ 8 files changed, 12 insertions(+), 8 deletions(-)
+ create mode 100644 static-site/data/index/us_ndx-all.json
+→ git push ...
+Connection closed by 20.205.243.166 port 22
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.

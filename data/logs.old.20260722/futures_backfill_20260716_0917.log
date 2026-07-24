@@ -1,0 +1,8 @@
+=== futures_backfill.sh 开始 2026-07-16 09:17:41 ===
+交易日判断: IS_TRADING=1 FORCE=1
+-> 采集期货机构持仓当日 + compute_accuracy ...
+[futures_position] 20260716: no data (non-trading day or API error)
+[futures] 20260716: no data (源未发布/非交易日)
+期货采集退出码=1(0=有新数据,非0=源未发布/为空)
+期货无新数据（源未发布或为空），跳过推送
+=== futures_backfill.sh 结束 2026-07-16 09:17:42 退出码=0 ===

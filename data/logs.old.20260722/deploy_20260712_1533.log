@@ -1,0 +1,54 @@
+=== deploy.sh 开始 2026-07-12 15:33:02 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (52551 bytes)
+  a-stock-1m.json (51850 bytes)
+  a-stock-3m.json (130875 bytes)
+  a-stock-6m.json (248576 bytes)
+  a-stock-1y.json (498319 bytes)
+  a-stock-all.json (6709735 bytes)
+  hk-1m.json (10015 bytes)
+  hk-3m.json (28312 bytes)
+  hk-6m.json (55325 bytes)
+  hk-1y.json (112948 bytes)
+  hk-all.json (1192127 bytes)
+  global-1m.json (28669 bytes)
+  global-3m.json (64942 bytes)
+  global-6m.json (119449 bytes)
+  global-1y.json (235969 bytes)
+  global-all.json (3137767 bytes)
+  sentiment-1m.json (34216 bytes)
+  sentiment-3m.json (81328 bytes)
+  sentiment-6m.json (146575 bytes)
+  sentiment-1y.json (290298 bytes)
+  sentiment-all.json (3928453 bytes)
+  industry-1m.json (417783 bytes)
+  industry-3m.json (968285 bytes)
+  industry-6m.json (1797062 bytes)
+  industry-1y.json (3412974 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (421583 bytes)
+  ad_line.json (38454 bytes)
+  volume_ratio.json (45636 bytes)
+  position.json (1365 bytes)
+  summary.json (727 bytes)
+  summary_history.json (46425 bytes)
+  signal_freq.json (162 bytes)
+  rotation.json (37122 bytes)
+  new_high_low.json (25894 bytes)
+  ma_alignment.json (19169 bytes)
+  index/*.json (76 files)
+
+导出完成：145 个 JSON 文件，78.1 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 76 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+✓ 无新数据变更，跳过 commit（仍 push 推未 push commit）
+→ git push ...
+Everything up-to-date
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-12 15:33:14 退出码=0 ===

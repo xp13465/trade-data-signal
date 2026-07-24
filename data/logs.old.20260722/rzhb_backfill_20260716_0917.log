@@ -1,0 +1,7 @@
+=== rzhb_backfill.sh 开始 2026-07-16 09:17:51 ===
+交易日判断: IS_TRADING=1 FORCE=1
+-> 单采两融当日 (func=stock_margin_sse/szse) ...
+[rzhb] a_fund_margin ok (1324 rows, latest=20260715, 暂无 20260716)
+[rzhb] date=20260716 ok=1 has_today=False
+两融无当日新数据（源未发布或为空），跳过重算+推送
+=== rzhb_backfill.sh 结束 2026-07-16 09:17:52 退出码=0 ===

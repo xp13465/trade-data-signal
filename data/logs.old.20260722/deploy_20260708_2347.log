@@ -1,0 +1,48 @@
+=== deploy.sh 开始 2026-07-08 23:47:12 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (32661 bytes)
+  a-stock-1m.json (51248 bytes)
+  a-stock-3m.json (130257 bytes)
+  a-stock-6m.json (245976 bytes)
+  a-stock-1y.json (497689 bytes)
+  a-stock-all.json (6705076 bytes)
+  hk-1m.json (10013 bytes)
+  hk-3m.json (28317 bytes)
+  hk-6m.json (54873 bytes)
+  hk-1y.json (112959 bytes)
+  hk-all.json (1191210 bytes)
+  global-1m.json (24201 bytes)
+  global-3m.json (60363 bytes)
+  global-6m.json (114053 bytes)
+  global-1y.json (231445 bytes)
+  global-all.json (3131470 bytes)
+  sentiment-1m.json (20972 bytes)
+  sentiment-3m.json (52388 bytes)
+  sentiment-6m.json (95527 bytes)
+  sentiment-1y.json (193650 bytes)
+  sentiment-all.json (2724698 bytes)
+  industry-1m.json (327166 bytes)
+  industry-3m.json (819940 bytes)
+  industry-6m.json (1554209 bytes)
+  industry-1y.json (3098698 bytes)
+  industry-all.json (29176272 bytes)
+  metrics.json (2055 bytes)
+  index/*.json (76 files)
+
+导出完成：103 个 JSON 文件，74.7 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 76 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+→ git commit: data update 2026-07-08_23:47
+[main 7f28dc9] data update 2026-07-08_23:47
+ 102 files changed, 102 insertions(+), 101 deletions(-)
+ create mode 100644 static-site/data/index/sz50-all.json
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   a11e48b..7f28dc9  main -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-08 23:47:29 退出码=0 ===

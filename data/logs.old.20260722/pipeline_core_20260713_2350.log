@@ -1,0 +1,267 @@
+=== pipeline[core] 开始 2026-07-13 23:50:25 steps=metrics,indices,industry_extras ===
+-> [core] 采集 steps=metrics,indices,industry_extras ...
+Please wait for a moment:   0%|          | 0/70 [00:00<?, ?it/s]Please wait for a moment:   1%|▏         | 1/70 [00:00<00:08,  8.25it/s]Please wait for a moment:   3%|▎         | 2/70 [00:00<00:07,  8.56it/s]Please wait for a moment:   4%|▍         | 3/70 [00:00<00:18,  3.72it/s]Please wait for a moment:   6%|▌         | 4/70 [00:00<00:13,  4.77it/s]Please wait for a moment:   7%|▋         | 5/70 [00:00<00:11,  5.70it/s]Please wait for a moment:   9%|▊         | 6/70 [00:01<00:10,  6.21it/s]Please wait for a moment:  10%|█         | 7/70 [00:01<00:09,  6.71it/s]Please wait for a moment:  11%|█▏        | 8/70 [00:01<00:09,  6.42it/s]Please wait for a moment:  13%|█▎        | 9/70 [00:01<00:09,  6.35it/s]Please wait for a moment:  14%|█▍        | 10/70 [00:01<00:09,  6.21it/s]Please wait for a moment:  16%|█▌        | 11/70 [00:01<00:09,  6.52it/s]Please wait for a moment:  17%|█▋        | 12/70 [00:01<00:09,  6.15it/s]Please wait for a moment:  19%|█▊        | 13/70 [00:02<00:08,  6.46it/s]Please wait for a moment:  20%|██        | 14/70 [00:02<00:13,  4.30it/s]Please wait for a moment:  21%|██▏       | 15/70 [00:02<00:10,  5.02it/s]Please wait for a moment:  23%|██▎       | 16/70 [00:02<00:09,  5.68it/s]Please wait for a moment:  24%|██▍       | 17/70 [00:02<00:08,  6.32it/s]Please wait for a moment:  26%|██▌       | 18/70 [00:03<00:07,  6.86it/s]Please wait for a moment:  27%|██▋       | 19/70 [00:03<00:07,  7.18it/s]Please wait for a moment:  29%|██▊       | 20/70 [00:03<00:06,  7.65it/s]Please wait for a moment:  30%|███       | 21/70 [00:03<00:06,  7.80it/s]Please wait for a moment:  31%|███▏      | 22/70 [00:03<00:05,  8.07it/s]Please wait for a moment:  33%|███▎      | 23/70 [00:03<00:05,  8.03it/s]Please wait for a moment:  34%|███▍      | 24/70 [00:03<00:05,  8.22it/s]Please wait for a moment:  36%|███▌      | 25/70 [00:03<00:05,  8.13it/s]Please wait for a moment:  37%|███▋      | 26/70 [00:03<00:05,  8.28it/s]Please wait for a moment:  39%|███▊      | 27/70 [00:04<00:05,  8.29it/s]Please wait for a moment:  40%|████      | 28/70 [00:04<00:05,  8.29it/s]Please wait for a moment:  41%|████▏     | 29/70 [00:04<00:04,  8.37it/s]Please wait for a moment:  43%|████▎     | 30/70 [00:04<00:04,  8.23it/s]Please wait for a moment:  44%|████▍     | 31/70 [00:04<00:04,  8.38it/s]Please wait for a moment:  46%|████▌     | 32/70 [00:04<00:04,  7.97it/s]Please wait for a moment:  47%|████▋     | 33/70 [00:04<00:04,  8.07it/s]Please wait for a moment:  49%|████▊     | 34/70 [00:04<00:04,  8.27it/s]Please wait for a moment:  50%|█████     | 35/70 [00:05<00:04,  8.36it/s]Please wait for a moment:  51%|█████▏    | 36/70 [00:05<00:04,  8.40it/s]Please wait for a moment:  53%|█████▎    | 37/70 [00:05<00:03,  8.57it/s]Please wait for a moment:  54%|█████▍    | 38/70 [00:05<00:03,  8.68it/s]Please wait for a moment:  56%|█████▌    | 39/70 [00:05<00:03,  8.49it/s]Please wait for a moment:  57%|█████▋    | 40/70 [00:05<00:03,  8.57it/s]Please wait for a moment:  59%|█████▊    | 41/70 [00:05<00:03,  8.61it/s]Please wait for a moment:  60%|██████    | 42/70 [00:06<00:06,  4.43it/s]Please wait for a moment:  61%|██████▏   | 43/70 [00:06<00:05,  5.04it/s]Please wait for a moment:  63%|██████▎   | 44/70 [00:06<00:04,  5.65it/s]Please wait for a moment:  64%|██████▍   | 45/70 [00:06<00:04,  6.16it/s]Please wait for a moment:  66%|██████▌   | 46/70 [00:07<00:06,  3.88it/s]Please wait for a moment:  67%|██████▋   | 47/70 [00:07<00:04,  4.63it/s]Please wait for a moment:  69%|██████▊   | 48/70 [00:07<00:06,  3.35it/s]Please wait for a moment:  70%|███████   | 49/70 [00:08<00:07,  2.79it/s]Please wait for a moment:  71%|███████▏  | 50/70 [00:08<00:08,  2.23it/s]Please wait for a moment:  73%|███████▎  | 51/70 [00:09<00:08,  2.13it/s]Please wait for a moment:  74%|███████▍  | 52/70 [00:09<00:08,  2.18it/s]Please wait for a moment:  76%|███████▌  | 53/70 [00:10<00:08,  2.10it/s]Please wait for a moment:  77%|███████▋  | 54/70 [00:10<00:08,  1.97it/s]Please wait for a moment:  79%|███████▊  | 55/70 [00:11<00:07,  1.98it/s]Please wait for a moment:  80%|████████  | 56/70 [00:11<00:07,  1.94it/s]Please wait for a moment:  81%|████████▏ | 57/70 [00:12<00:06,  1.95it/s]Please wait for a moment:  83%|████████▎ | 58/70 [00:12<00:06,  1.98it/s]Please wait for a moment:  84%|████████▍ | 59/70 [00:13<00:05,  1.98it/s]Please wait for a moment:  86%|████████▌ | 60/70 [00:13<00:05,  1.97it/s]Please wait for a moment:  87%|████████▋ | 61/70 [00:14<00:04,  1.92it/s]Please wait for a moment:  89%|████████▊ | 62/70 [00:14<00:04,  2.00it/s]Please wait for a moment:  90%|█████████ | 63/70 [00:15<00:03,  1.81it/s]Please wait for a moment:  91%|█████████▏| 64/70 [00:16<00:03,  1.81it/s]Please wait for a moment:  93%|█████████▎| 65/70 [00:16<00:02,  1.70it/s]Please wait for a moment:  94%|█████████▍| 66/70 [00:17<00:02,  1.77it/s]Please wait for a moment:  96%|█████████▌| 67/70 [00:17<00:01,  2.30it/s]Please wait for a moment:  97%|█████████▋| 68/70 [00:18<00:00,  2.16it/s]Please wait for a moment:  99%|█████████▊| 69/70 [00:18<00:00,  2.10it/s]Please wait for a moment: 100%|██████████| 70/70 [00:19<00:00,  2.06it/s]                                                                           0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  6.57it/s] 67%|██████▋   | 2/3 [00:00<00:00,  6.86it/s]100%|██████████| 3/3 [00:00<00:00,  6.86it/s]                                               0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  4.20it/s] 67%|██████▋   | 2/3 [00:00<00:00,  5.09it/s]100%|██████████| 3/3 [00:00<00:00,  5.52it/s]                                               0%|          | 0/13 [00:00<?, ?it/s]  8%|▊         | 1/13 [00:00<00:01,  7.92it/s] 15%|█▌        | 2/13 [00:00<00:01,  7.88it/s] 23%|██▎       | 3/13 [00:00<00:01,  7.44it/s] 31%|███       | 4/13 [00:00<00:01,  7.68it/s] 38%|███▊      | 5/13 [00:00<00:01,  7.84it/s] 46%|████▌     | 6/13 [00:00<00:00,  7.91it/s] 54%|█████▍    | 7/13 [00:00<00:00,  8.10it/s] 62%|██████▏   | 8/13 [00:01<00:00,  8.18it/s] 69%|██████▉   | 9/13 [00:01<00:00,  7.94it/s] 77%|███████▋  | 10/13 [00:01<00:00,  8.36it/s] 85%|████████▍ | 11/13 [00:01<00:00,  8.25it/s] 92%|█████████▏| 12/13 [00:01<00:00,  8.43it/s]                                                 0%|          | 0/19 [00:00<?, ?it/s]  5%|▌         | 1/19 [00:00<00:02,  7.98it/s] 11%|█         | 2/19 [00:00<00:01,  8.67it/s] 16%|█▌        | 3/19 [00:00<00:01,  8.89it/s] 21%|██        | 4/19 [00:00<00:01,  9.03it/s] 26%|██▋       | 5/19 [00:00<00:01,  8.88it/s]                                                0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  7.40it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  4.44it/s]                                               0%|          | 0/3 [00:00<?, ?it/s] 33%|███▎      | 1/3 [00:00<00:00,  2.03it/s] 67%|██████▋   | 2/3 [00:02<00:01,  1.58s/it]100%|██████████| 3/3 [00:02<00:00,  1.09it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.12it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.61it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.16it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.07it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.25it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.93it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.69it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.24it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.58it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.28it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.68it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.65it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.28it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.19it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.14it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.32it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.12it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.72it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.60it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.12it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.56it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.48it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.86it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.75it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.56it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.17it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.54it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.19it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.79it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.62it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.78it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.37it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.39it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.34it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.67it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.96it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.87it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.15it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.27it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  7.95it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.42it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.33it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.98it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.05it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.13it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.76it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.86it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.12it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  7.87it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  7.97it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.67it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.53it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.81it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.46it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  7.75it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.65it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.35it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.21it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.50it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.39it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.78it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.17it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  7.33it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.53it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.15it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.63it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.45it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.05it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  8.92it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.68it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.69it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.92it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.18it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]                                       0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.34it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.42it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.54it/s]                                               0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:00<00:00,  9.19it/s]                                               0%|          | 0/39 [00:00<?, ?it/s]  5%|▌         | 2/39 [00:00<00:02, 12.34it/s] 10%|█         | 4/39 [00:00<00:02, 12.17it/s] 15%|█▌        | 6/39 [00:00<00:03, 10.55it/s] 21%|██        | 8/39 [00:00<00:03,  8.98it/s] 23%|██▎       | 9/39 [00:00<00:03,  8.32it/s] 26%|██▌       | 10/39 [00:01<00:03,  8.01it/s] 28%|██▊       | 11/39 [00:01<00:03,  7.71it/s] 31%|███       | 12/39 [00:01<00:03,  7.49it/s] 33%|███▎      | 13/39 [00:01<00:03,  7.31it/s] 36%|███▌      | 14/39 [00:01<00:03,  7.34it/s] 38%|███▊      | 15/39 [00:01<00:03,  7.57it/s] 41%|████      | 16/39 [00:01<00:03,  7.53it/s] 44%|████▎     | 17/39 [00:02<00:02,  7.86it/s] 46%|████▌     | 18/39 [00:02<00:02,  8.20it/s] 51%|█████▏    | 20/39 [00:02<00:02,  8.89it/s] 54%|█████▍    | 21/39 [00:02<00:01,  9.10it/s] 59%|█████▉    | 23/39 [00:02<00:01,  9.32it/s] 62%|██████▏   | 24/39 [00:02<00:01,  8.92it/s] 64%|██████▍   | 25/39 [00:02<00:01,  9.10it/s] 69%|██████▉   | 27/39 [00:03<00:01,  9.48it/s] 74%|███████▍  | 29/39 [00:03<00:01,  9.68it/s] 77%|███████▋  | 30/39 [00:03<00:00,  9.56it/s] 82%|████████▏ | 32/39 [00:03<00:00,  9.71it/s] 87%|████████▋ | 34/39 [00:03<00:00,  9.71it/s] 90%|████████▉ | 35/39 [00:03<00:00,  9.72it/s] 95%|█████████▍| 37/39 [00:04<00:00,  9.74it/s] 97%|█████████▋| 38/39 [00:04<00:00,  9.54it/s]100%|██████████| 39/39 [00:04<00:00,  9.64it/s]                                                 0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.33it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.03it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.92it/s]100%|██████████| 2/2 [00:00<00:00,  9.29it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.16it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.67it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.59it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.53it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.85it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.23it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.54it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.38it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00,  9.74it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.72it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.47it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00,  9.44it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.07it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.41it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.10it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.23it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.89it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.23it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  9.99it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.25it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.42it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 11.43it/s]                                               0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00,  9.93it/s]                                               0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:00<00:00,  8.84it/s]                                               [校验] 9 个核心 A 股指数今日(20260713)齐全 ✓
+  [校验] 31 个申万行业指数今日(20260713)齐全 ✓
+  [校验] 港股+全球指数(7个) 最新日期检查完成
+  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [00:00<00:00, 10.08it/s]                                               ind_flow_sw_801150 ok (-23.60亿, ths)
+  ind_flow_sw_801780 ok (65.77亿, ths)
+  ind_flow_sw_801960 ok (2.64亿, ths)
+  ind_flow_sw_801160 ok (-34.35亿, ths)
+  ind_flow_sw_801790 ok (-17.74亿, ths)
+  ind_flow_sw_801170 ok (-3.55亿, ths)
+  ind_flow_sw_801120 ok (6.26亿, ths)
+  ind_flow_sw_801950 ok (3.61亿, ths)
+  ind_flow_sw_801010 ok (-1.96亿, ths)
+  ind_flow_sw_801040 ok (-6.74亿, ths)
+  ind_flow_sw_801230 ok (-3.56亿, ths)
+  ind_flow_sw_801880 ok (-46.99亿, ths)
+  ind_flow_sw_801200 ok (-17.23亿, ths)
+  ind_flow_sw_801980 ok (-2.91亿, ths)
+  ind_flow_sw_801180 ok (-17.18亿, ths)
+  ind_flow_sw_801110 ok (-6.46亿, ths)
+  ind_flow_sw_801030 ok (-59.14亿, ths)
+  ind_flow_sw_801210 ok (-13.54亿, ths)
+  ind_flow_sw_801130 ok (-7.32亿, ths)
+  ind_flow_sw_801970 ok (-13.11亿, ths)
+  ind_flow_sw_801140 ok (-11.64亿, ths)
+  ind_flow_sw_801890 ok (-106.55亿, ths)
+  ind_flow_sw_801720 ok (-23.72亿, ths)
+  ind_flow_sw_801760 ok (-55.15亿, ths)
+  ind_flow_sw_801750 ok (-84.38亿, ths)
+  ind_flow_sw_801770 ok (-68.57亿, ths)
+  ind_flow_sw_801050 ok (-76.49亿, ths)
+  ind_flow_sw_801710 ok (-7.81亿, ths)
+  ind_flow_sw_801730 ok (-68.63亿, ths)
+  ind_flow_sw_801080 ok (-166.40亿, ths)
+  ind_flow_sw_801740 ok (-39.54亿, ths)
+  [资金流] 同花顺 31/31 行业到位 (ok (31/31 SW mapped))
+  [1/31] ind_turn_sw_801010 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0433&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [2/31] ind_turn_sw_801030 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK1206&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [3/31] ind_turn_sw_801040 FAIL: kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0479&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  ⚠ 连续3个换手率失败(东财封IP),提前结束剩余28个
+=== 行业资金流/换手率采集完成: ok=31 fail=3 ===
+=== 采集 20260713 完成 (steps=['metrics', 'indices', 'industry_extras']): ok=108 fail=41 ===
+  [  ok] a_width_up_count           801
+  [  ok] a_width_down_count         4682
+  [  ok] a_width_zt_count           29
+  [  ok] a_width_dt_count           172
+  [  ok] a_width_max_lianban        3
+  [  ok] a_width_zhaban_rate        0.3256
+  [  ok] a_width_daban_premium      -2.582
+  [fail] a_width_zb_count           disabled
+  [fail] a_width_seal_rate          disabled
+  [  ok] a_fund_north               2264 rows
+  [  ok] a_fund_margin              1324 rows
+  [  ok] a_fund_main                120 rows
+  [  ok] a_qvix_300                 1573 rows
+  [  ok] a_qvix_1000                807 rows
+  [  ok] a_amount                   2.834e+04
+  [  ok] a_turnover_rate            0.48
+  [fail] a_turnover_mean            disabled
+  [fail] a_turnover_median          disabled
+  [fail] a_turnover_p90             disabled
+  [fail] a_turnover_p10             disabled
+  [fail] a_turnover_gt5_pct         disabled
+  [  ok] a_div_yield                5226 rows
+  [  ok] hk_south                   2668 rows
+  [  ok] usdcnh                     483 rows
+  [  ok] gold                       4507 rows
+  [  ok] oil                        2012 rows
+  [  ok] wti_oil                    7689 rows
+  [  ok] comex_silver               2589 rows
+  [  ok] cn10y                      2498 rows
+  [  ok] us10y                      2633 rows
+  [  ok] lhb_count                  94
+  [  ok] lhb_inst_net               13.18
+  [  ok] unlock_amount              4265
+  [  ok] unlock_count               4
+  [  ok] ipo_count                  1
+  [  ok] ipo_amount                 17.6
+  [  ok] cov_count                  1033
+  [  ok] cov_premium_median         31.09
+  [  ok] sh                         8680 rows
+  [  ok] sz                         8588 rows
+  [  ok] hs300                      5947 rows
+  [  ok] sz50                       5469 rows
+  [  ok] csi500                     5226 rows
+  [  ok] csi1000                    2853 rows
+  [  ok] cyb                        3912 rows
+  [  ok] kc50                       1580 rows
+  [  ok] bj50                       1017 rows
+  [  ok] csi_div                    4013 rows
+  [  ok] div_lowvol                 4013 rows
+  [  ok] sz_div                     4970 rows
+  [  ok] hsi                        3171 rows
+  [  ok] hstech                     1448 rows
+  [  ok] hscei                      3171 rows
+  [  ok] us_dji                     5667 rows
+  [  ok] us_ixic                    5665 rows
+  [  ok] us_spx                     5668 rows
+  [  ok] us_ndx                     3116 rows
+  [fail] sw_801010                  no new THS dates after 20260713 for sw_801010
+  [fail] sw_801030                  no new THS dates after 20260713 for sw_801030
+  [fail] sw_801040                  no new THS dates after 20260713 for sw_801040
+  [fail] sw_801050                  no new THS dates after 20260713 for sw_801050
+  [fail] sw_801080                  no new THS dates after 20260713 for sw_801080
+  [fail] sw_801880                  no new THS dates after 20260713 for sw_801880
+  [fail] sw_801110                  no new THS dates after 20260713 for sw_801110
+  [fail] sw_801120                  no new THS dates after 20260713 for sw_801120
+  [fail] sw_801130                  no new THS dates after 20260713 for sw_801130
+  [fail] sw_801140                  no new THS dates after 20260713 for sw_801140
+  [fail] sw_801150                  no new THS dates after 20260713 for sw_801150
+  [fail] sw_801160                  no new THS dates after 20260713 for sw_801160
+  [fail] sw_801170                  no new THS dates after 20260713 for sw_801170
+  [fail] sw_801180                  no new THS dates after 20260713 for sw_801180
+  [fail] sw_801200                  no new THS dates after 20260713 for sw_801200
+  [fail] sw_801210                  no new THS dates after 20260713 for sw_801210
+  [fail] sw_801780                  no new THS dates after 20260713 for sw_801780
+  [fail] sw_801790                  no new THS dates after 20260713 for sw_801790
+  [fail] sw_801230                  no new THS dates after 20260713 for sw_801230
+  [fail] sw_801710                  no new THS dates after 20260713 for sw_801710
+  [fail] sw_801720                  no new THS dates after 20260713 for sw_801720
+  [fail] sw_801730                  no new THS dates after 20260713 for sw_801730
+  [fail] sw_801890                  no new THS dates after 20260713 for sw_801890
+  [fail] sw_801740                  no new THS dates after 20260713 for sw_801740
+  [fail] sw_801750                  no new THS dates after 20260713 for sw_801750
+  [fail] sw_801760                  no new THS dates after 20260713 for sw_801760
+  [fail] sw_801770                  no new THS dates after 20260713 for sw_801770
+  [fail] sw_801950                  no new THS dates after 20260713 for sw_801950
+  [fail] sw_801960                  no new THS dates after 20260713 for sw_801960
+  [fail] sw_801970                  no new THS dates after 20260713 for sw_801970
+  [fail] sw_801980                  no new THS dates after 20260713 for sw_801980
+  [  ok] thsc_300816                267 rows
+  [  ok] thsc_309119                267 rows
+  [  ok] thsc_308700                267 rows
+  [  ok] thsc_309049                267 rows
+  [  ok] thsc_301085                267 rows
+  [  ok] thsc_307940                267 rows
+  [  ok] thsc_302035                267 rows
+  [  ok] thsc_309068                267 rows
+  [  ok] thsc_308828                267 rows
+  [  ok] thsc_309020                267 rows
+  [  ok] thsc_309060                267 rows
+  [  ok] thsc_300008                267 rows
+  [  ok] thsc_301079                267 rows
+  [  ok] thsc_300733                267 rows
+  [  ok] thsc_306380                267 rows
+  [  ok] thsc_308294                267 rows
+  [  ok] thsc_309115                267 rows
+  [  ok] thsc_308014                267 rows
+  [  ok] thsc_300082                267 rows
+  [  ok] thsc_300830                267 rows
+  [  ok] thsc_308725                267 rows
+  [  ok] thsc_308300                267 rows
+  [  ok] thsc_309113                267 rows
+  [  ok] thsc_308491                267 rows
+  [  ok] thsc_308870                267 rows
+  [  ok] thsc_308752                267 rows
+  [  ok] thsc_309128                267 rows
+  [  ok] ind_flow_sw_801150         -23.60亿 (ths)
+  [  ok] ind_flow_sw_801780         65.77亿 (ths)
+  [  ok] ind_flow_sw_801960         2.64亿 (ths)
+  [  ok] ind_flow_sw_801160         -34.35亿 (ths)
+  [  ok] ind_flow_sw_801790         -17.74亿 (ths)
+  [  ok] ind_flow_sw_801170         -3.55亿 (ths)
+  [  ok] ind_flow_sw_801120         6.26亿 (ths)
+  [  ok] ind_flow_sw_801950         3.61亿 (ths)
+  [  ok] ind_flow_sw_801010         -1.96亿 (ths)
+  [  ok] ind_flow_sw_801040         -6.74亿 (ths)
+  [  ok] ind_flow_sw_801230         -3.56亿 (ths)
+  [  ok] ind_flow_sw_801880         -46.99亿 (ths)
+  [  ok] ind_flow_sw_801200         -17.23亿 (ths)
+  [  ok] ind_flow_sw_801980         -2.91亿 (ths)
+  [  ok] ind_flow_sw_801180         -17.18亿 (ths)
+  [  ok] ind_flow_sw_801110         -6.46亿 (ths)
+  [  ok] ind_flow_sw_801030         -59.14亿 (ths)
+  [  ok] ind_flow_sw_801210         -13.54亿 (ths)
+  [  ok] ind_flow_sw_801130         -7.32亿 (ths)
+  [  ok] ind_flow_sw_801970         -13.11亿 (ths)
+  [  ok] ind_flow_sw_801140         -11.64亿 (ths)
+  [  ok] ind_flow_sw_801890         -106.55亿 (ths)
+  [  ok] ind_flow_sw_801720         -23.72亿 (ths)
+  [  ok] ind_flow_sw_801760         -55.15亿 (ths)
+  [  ok] ind_flow_sw_801750         -84.38亿 (ths)
+  [  ok] ind_flow_sw_801770         -68.57亿 (ths)
+  [  ok] ind_flow_sw_801050         -76.49亿 (ths)
+  [  ok] ind_flow_sw_801710         -7.81亿 (ths)
+  [  ok] ind_flow_sw_801730         -68.63亿 (ths)
+  [  ok] ind_flow_sw_801080         -166.40亿 (ths)
+  [  ok] ind_flow_sw_801740         -39.54亿 (ths)
+  [fail] ind_turn_sw_801010         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0433&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [fail] ind_turn_sw_801030         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK1206&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [fail] ind_turn_sw_801040         kline error: HTTPSConnectionPool(host='push2his.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/stock/kline/get?secid=90.BK0479&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5%2Cf6%2Cf7%2Cf8%2Cf9%2Cf10%2Cf11%2Cf12%2Cf13&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58%2Cf59%2Cf60%2Cf61&klt=101&fqt=1&beg=20240101&end=20261231&ut=fa5fd1943c7b386f172d6893dbbd1 (Caused by ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')))
+  [skip] industry_extras            连续3换手率失败(东财封IP),跳过剩余28
+-> [core] compute_runner ...
+[volume_ratio] 计算完成: 2555 天, 写入 10207 条 metric
+=== 计算完成: §4情绪分=2546天  sz50=5455天  hs300=5933天  csi500=5212天  csi1000=2839天  cyb=3898天  kc50=1566天  §6跨市场=4651天  买卖点=14645个  派生公式=2359行  AD Line=10220行  量比=2555天  位置感=24行  恐贪指数=4484天  买卖点stats=92品种(106372B)  新高新低=43400行  均线排列=25863行  板块轮动=6行 ===
+-> [core] 等待 deploy 锁（串行化 git）...
+=== deploy.sh 开始 2026-07-13 23:54:48 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (53021 bytes)
+  a-stock-1m.json (50710 bytes)
+  a-stock-3m.json (139283 bytes)
+  a-stock-6m.json (262353 bytes)
+  a-stock-1y.json (528280 bytes)
+  a-stock-all.json (6842821 bytes)
+  hk-1m.json (9105 bytes)
+  hk-3m.json (28311 bytes)
+  hk-6m.json (54871 bytes)
+  hk-1y.json (112496 bytes)
+  hk-all.json (1192583 bytes)
+  global-1m.json (26120 bytes)
+  global-3m.json (64213 bytes)
+  global-6m.json (117842 bytes)
+  global-1y.json (234288 bytes)
+  global-all.json (3137883 bytes)
+  sentiment-1m.json (31828 bytes)
+  sentiment-3m.json (80867 bytes)
+  sentiment-6m.json (145372 bytes)
+  sentiment-1y.json (288892 bytes)
+  sentiment-all.json (3929377 bytes)
+  industry-1m.json (397181 bytes)
+  industry-3m.json (979169 bytes)
+  industry-6m.json (1795686 bytes)
+  industry-1y.json (3418046 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (421262 bytes)
+  ad_line.json (38455 bytes)
+  volume_ratio.json (45635 bytes)
+  position.json (1367 bytes)
+  summary.json (912 bytes)
+  summary_history.json (85242 bytes)
+  signal_freq.json (324 bytes)
+  rotation.json (37091 bytes)
+  new_high_low.json (25889 bytes)
+  ma_alignment.json (19171 bytes)
+  intraday_snapshot.json (4857 bytes)
+  etf_national_team.json (180538 bytes)
+  etf_national_team_quarterly.json (34288 bytes)
+  index/*.json (77 files)
+
+导出完成：149 个 JSON 文件，78.7 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 77 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ 运行 build_min.py 重新生成 min JS ...
+=== terser minify 构建 ===
+  terser terser 5.49.0 可用
+  ✓ web/app.js (169,775B) → web/app.min.js (104,737B, -38.3%) + app.min.js.map (95,488B)
+  ✓ web/lab.js (140,718B) → web/lab.min.js (88,627B, -37.0%) + lab.min.js.map (71,340B)
+  ✓ static-site/app.js (173,670B) → static-site/app.min.js (106,217B, -38.8%) + app.min.js.map (97,219B)
+  ✓ static-site/lab.js (140,688B) → static-site/lab.min.js (88,546B, -37.1%) + lab.min.js.map (71,247B)
+完成。记得跑 bump_asset_version.py 刷新 ?v= 版本号。
+✓ build_min.py 完成
+→ git add static-site/data/ + min JS ...
+→ git commit: data update [core] 2026-07-13_23:55
+[feat/iframe-theme-follow d333c9f] data update [core] 2026-07-13_23:55
+ 68 files changed, 68 insertions(+), 68 deletions(-)
+→ git push ...
+To github.com:xp13465/trade-data-signal.git
+   2ec99bc..d333c9f  HEAD -> main
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-13 23:55:11 退出码=0 ===
+=== pipeline[core] 结束 2026-07-13 23:55:11 collect=0 deploy=0 ===

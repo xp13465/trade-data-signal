@@ -1,0 +1,342 @@
+=== update_all.sh 开始 2026-07-11 15:33:05 ===
+交易日判断: IS_TRADING=0 FORCE=0
+非交易日，跳过采集，仅 deploy 补推 + check_signals（force 可绕过）
+=== deploy.sh 开始 2026-07-11 15:33:05 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (52551 bytes)
+  a-stock-1m.json (51850 bytes)
+  a-stock-3m.json (130875 bytes)
+  a-stock-6m.json (248576 bytes)
+  a-stock-1y.json (498319 bytes)
+  a-stock-all.json (6709735 bytes)
+  hk-1m.json (10015 bytes)
+  hk-3m.json (28312 bytes)
+  hk-6m.json (55325 bytes)
+  hk-1y.json (112948 bytes)
+  hk-all.json (1192127 bytes)
+  global-1m.json (28669 bytes)
+  global-3m.json (64942 bytes)
+  global-6m.json (119449 bytes)
+  global-1y.json (235969 bytes)
+  global-all.json (3137767 bytes)
+  sentiment-1m.json (34216 bytes)
+  sentiment-3m.json (81328 bytes)
+  sentiment-6m.json (146575 bytes)
+  sentiment-1y.json (290298 bytes)
+  sentiment-all.json (3928453 bytes)
+  industry-1m.json (417783 bytes)
+  industry-3m.json (968285 bytes)
+  industry-6m.json (1797062 bytes)
+  industry-1y.json (3412974 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (421583 bytes)
+  ad_line.json (38454 bytes)
+  volume_ratio.json (45636 bytes)
+  position.json (1365 bytes)
+  summary.json (727 bytes)
+  summary_history.json (46425 bytes)
+  signal_freq.json (162 bytes)
+  rotation.json (37122 bytes)
+  new_high_low.json (25894 bytes)
+  ma_alignment.json (19169 bytes)
+  index/*.json (76 files)
+
+导出完成：145 个 JSON 文件，78.1 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 76 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+✓ 无新数据变更，跳过 commit（仍 push 推未 push commit）
+→ git push ...
+Everything up-to-date
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-11 15:33:19 退出码=0 ===
+=== check_signals.sh 开始 2026-07-11 15:33:19 ===
+查询日期参数：（今天）
+日志：/Users/linhuichen/code/trade/data/logs/check_signals_20260711_1533.log
+
+2026-07-11 15:33:19 [INFO] === check_signals 开始，查询日期：20260711 ===
+2026-07-11 15:33:19 [INFO] 今日（20260711）无买卖点信号，不发邮件
+
+=== check_signals.sh 结束 2026-07-11 15:33:19 退出码=0 ===
+=== update_all.sh 结束（非交易日）2026-07-11 15:33:19 ===
+=== update_all.sh 开始 2026-07-12 15:33:01 ===
+交易日判断: IS_TRADING=0 FORCE=0
+非交易日，跳过采集，仅 deploy 补推 + check_signals（force 可绕过）
+=== deploy.sh 开始 2026-07-12 15:33:02 ===
+→ 运行 export.py 生成静态 JSON ...
+  overview.json (52551 bytes)
+  a-stock-1m.json (51850 bytes)
+  a-stock-3m.json (130875 bytes)
+  a-stock-6m.json (248576 bytes)
+  a-stock-1y.json (498319 bytes)
+  a-stock-all.json (6709735 bytes)
+  hk-1m.json (10015 bytes)
+  hk-3m.json (28312 bytes)
+  hk-6m.json (55325 bytes)
+  hk-1y.json (112948 bytes)
+  hk-all.json (1192127 bytes)
+  global-1m.json (28669 bytes)
+  global-3m.json (64942 bytes)
+  global-6m.json (119449 bytes)
+  global-1y.json (235969 bytes)
+  global-all.json (3137767 bytes)
+  sentiment-1m.json (34216 bytes)
+  sentiment-3m.json (81328 bytes)
+  sentiment-6m.json (146575 bytes)
+  sentiment-1y.json (290298 bytes)
+  sentiment-all.json (3928453 bytes)
+  industry-1m.json (417783 bytes)
+  industry-3m.json (968285 bytes)
+  industry-6m.json (1797062 bytes)
+  industry-1y.json (3412974 bytes)
+  industry-all 拆分: 31 行业 + concepts + meta
+  metrics.json (2055 bytes)
+  futures.json (421583 bytes)
+  ad_line.json (38454 bytes)
+  volume_ratio.json (45636 bytes)
+  position.json (1365 bytes)
+  summary.json (727 bytes)
+  summary_history.json (46425 bytes)
+  signal_freq.json (162 bytes)
+  rotation.json (37122 bytes)
+  new_high_low.json (25894 bytes)
+  ma_alignment.json (19169 bytes)
+  index/*.json (76 files)
+
+导出完成：145 个 JSON 文件，78.1 MB
+  - overview: 1
+  - tab ranges: 5 tabs × 5 ranges = 25
+  - metrics: 1
+  - index detail: 76 (all range, full history)
+输出目录: /Users/linhuichen/code/trade/static-site/data
+✓ export.py 完成
+→ git add static-site/data/ ...
+✓ 无新数据变更，跳过 commit（仍 push 推未 push commit）
+→ git push ...
+Everything up-to-date
+✓ push 成功（Cloudflare wrangler deploy 将自动部署）
+=== deploy.sh 结束 2026-07-12 15:33:14 退出码=0 ===
+=== check_signals.sh 开始 2026-07-12 15:33:14 ===
+查询日期参数：（今天）
+日志：/Users/linhuichen/code/trade/data/logs/check_signals_20260712_1533.log
+
+2026-07-12 15:33:14 [INFO] === check_signals 开始，查询日期：20260712 ===
+2026-07-12 15:33:14 [INFO] 今日（20260712）无买卖点信号，不发邮件
+
+=== check_signals.sh 结束 2026-07-12 15:33:14 退出码=0 ===
+=== update_all.sh 结束（非交易日）2026-07-12 15:33:14 ===
+=== update_all.sh 开始 2026-07-13 15:33:05 ===
+交易日判断: IS_TRADING=1 FORCE=0
+-> 并发启动 pipeline: core / width / futures / stock_daily(后台)
+  PID: core=76415 width=76416 futures=76417 stock_daily=76418(后台不等)
+pipeline 退出码: core=0 width=128 futures=0 (stock_daily PID=76418 仍在后台)
+-> check_signals.sh ...
+=== check_signals.sh 开始 2026-07-13 15:40:19 ===
+查询日期参数：（今天）
+日志：/Users/linhuichen/code/trade/data/logs/check_signals_20260713_1540.log
+
+2026-07-13 15:40:19 [INFO] === check_signals 开始，查询日期：20260713 ===
+2026-07-13 15:40:19 [INFO] 今日（20260713）无买卖点信号，不发邮件
+
+=== check_signals.sh 结束 2026-07-13 15:40:19 退出码=0 ===
+=== update_all.sh 结束 2026-07-13 15:40:19 ===
+core=0 width=128 futures=0 check_signals=0
+=== update_all.sh 开始 2026-07-14 17:50:00 ===
+交易日判断: IS_TRADING=1 FORCE=0
+-> 并发启动 pipeline: core / width / futures / stock_daily(后台)
+  PID: core=25424 width=25425 futures=25426 stock_daily=25427(后台不等)
+pipeline 退出码: core=1 width=1 futures=1 (stock_daily PID=25427 仍在后台)
+-> check_signals.sh ...
+=== check_signals.sh 开始 2026-07-14 18:04:56 ===
+查询日期参数：（今天）
+日志：/Users/linhuichen/code/trade/data/logs/check_signals_20260714_1804.log
+
+2026-07-14 18:04:57 [INFO] === check_signals 开始，查询日期：20260714 ===
+2026-07-14 18:04:57 [INFO] 查询到 7 个信号（主买=1, 辅买=5, 卖=1）
+2026-07-14 18:04:57 [INFO] ===== 邮件主题 =====
+2026-07-14 18:04:57 [INFO] [买卖点信号] 20260714  主买×1 北证50 | 辅买×5 中证500、创业板指、沪深300等5个 | 卖×1 QVIX(300ETF)
+2026-07-14 18:04:57 [INFO] ===== 邮件正文 =====
+2026-07-14 18:04:57 [INFO] <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
+<h2 style="margin:0 0 8px 0;color:#1d2129;">📊 买卖点信号日报</h2>
+<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">20260714 · 共 <b>7</b> 个信号（主买 1 / 辅买 5 / 卖 1）</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+<thead><tr style="background:#f2f3f5;text-align:left;">
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">品种</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:48px;">类型</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">触发条件</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">胜率</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">盈亏比</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:130px;text-align:center;">凯利建议</th>
+</tr></thead><tbody>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🔴 <b>北证50</b></td>
+<td style="padding:8px 10px;font-size:12px;">主买</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">RSI上穿30(29-&gt;34),cross=61[中性]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#1d2129;">58%</td>
+<td style="padding:8px 10px;text-align:center;">4.03</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#2e8b57;">建议仓位 <b>48%</b></td>
+</tr>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🟣 <b>中证500</b></td>
+<td style="padding:8px 10px;font-size:12px;">辅买</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">布林下轨回归(下轨8211,close8276), RSI=43, cross=61[中性]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#1d2129;">48%</td>
+<td style="padding:8px 10px;text-align:center;">0.84</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#86909c;">不建议入场</td>
+</tr>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🟣 <b>创业板指</b></td>
+<td style="padding:8px 10px;font-size:12px;">辅买</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">布林下轨回归(下轨3715,close3851), RSI=44, RSI[上穿40], cross=61[中性]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#2e8b57;">65%</td>
+<td style="padding:8px 10px;text-align:center;">0.70</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#2e8b57;">建议仓位 <b>15%</b></td>
+</tr>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🟣 <b>沪深300</b></td>
+<td style="padding:8px 10px;font-size:12px;">辅买</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">布林下轨回归(下轨4700,close4797), RSI=47, cross=61[中性]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#1d2129;">43%</td>
+<td style="padding:8px 10px;text-align:center;">0.95</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#86909c;">不建议入场</td>
+</tr>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🟣 <b>上证指数</b></td>
+<td style="padding:8px 10px;font-size:12px;">辅买</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">布林下轨回归(下轨3930,close3967), RSI=43, cross=61[中性]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#e6492e;">39%</td>
+<td style="padding:8px 10px;text-align:center;">1.19</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#86909c;">不建议入场</td>
+</tr>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🟣 <b>深成指</b></td>
+<td style="padding:8px 10px;font-size:12px;">辅买</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">布林下轨回归(下轨14639,close14925), RSI=44, cross=61[中性]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#1d2129;">46%</td>
+<td style="padding:8px 10px;text-align:center;">1.17</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#86909c;">不建议入场</td>
+</tr>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🟢 <b>QVIX(300ETF)</b></td>
+<td style="padding:8px 10px;font-size:12px;">卖</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">20日高回落5%(高23.18-&gt;阈22.02,value21.5), RSI=52, MA60=19.24[趋势过滤], MACD=DIF0.6553/DEA0.7182[死叉确认], vs前买+30.70%[止盈], [指标]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#2e8b57;">75%</td>
+<td style="padding:8px 10px;text-align:center;">0.53</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#c9cdd4;">样本不足(8例)</td>
+</tr>
+</tbody></table>
+<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#4e5969;line-height:1.8;">
+<div style="font-weight:600;margin-bottom:4px;color:#1d2129;">📋 规则说明</div>
+• 主买（buy）：RSI 上穿 30（超卖反弹启动）<br>
+• 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）<br>
+• 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
+• 附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注
+</div>
+<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;font-size:12px;color:#86909c;line-height:1.8;">
+<div style="font-weight:600;margin-bottom:4px;color:#1d2129;">⚠️ 免责声明</div>
+本信号由历史数据量化回测生成，仅供研究参考，不构成任何投资建议。<br>
+市场有风险，投资需谨慎。请结合自身判断与资金管理做出决策。
+</div>
+<p style="color:#c9cdd4;font-size:11px;margin-top:16px;">—— A股/港股/全球情绪数据复盘看板 · 生成时间：2026-07-14 18:04:57</p>
+</body></html>
+2026-07-14 18:04:57 [INFO] ✓ 邮件已发送至 234058394@qq.com
+
+=== check_signals.sh 结束 2026-07-14 18:04:57 退出码=0 ===
+-> intraday_snapshot 采集 ...
+=== update_all.sh 结束 2026-07-14 18:05:23 ===
+core=1 width=1 futures=1 check_signals=0
+=== update_all.sh 开始 2026-07-15 17:50:06 ===
+交易日判断: IS_TRADING=1 FORCE=0
+-> 并发启动 pipeline: core / width / futures / turnover / stock_daily(后台)
+  PID: core=53941 width=53942 futures=53943 turnover=53944 stock_daily=53945(后台不等)
+pipeline 退出码: core=0 width=0 futures=0 turnover=0 (stock_daily PID=53945 仍在后台)
+-> check_signals.sh ...
+=== check_signals.sh 开始 2026-07-15 18:05:39 ===
+查询日期参数：（今天）
+日志：/Users/linhuichen/code/trade/data/logs/check_signals_20260715_1805.log
+
+2026-07-15 18:05:39 [INFO] === check_signals 开始，查询日期：20260715 ===
+2026-07-15 18:05:39 [INFO] 今日（20260715）无买卖点信号，不发邮件
+
+=== check_signals.sh 结束 2026-07-15 18:05:39 退出码=0 ===
+-> intraday_snapshot 采集 ...
+=== update_all.sh 结束 2026-07-15 18:06:01 ===
+core=0 width=0 futures=0 turnover=0 check_signals=0
+=== update_all.sh 开始 2026-07-16 17:50:05 ===
+交易日判断: IS_TRADING=1 FORCE=0
+-> 并发启动 pipeline: core / width / futures / turnover / stock_daily(后台)
+  PID: core=88652 width=88653 futures=88654 turnover=88655 stock_daily=88656(后台不等)
+pipeline 退出码: core=0 width=0 futures=0 turnover=0 (stock_daily PID=88656 仍在后台)
+-> check_signals.sh ...
+=== check_signals.sh 开始 2026-07-16 18:37:38 ===
+查询日期参数：（今天）
+日志：/Users/linhuichen/code/trade/data/logs/check_signals_20260716_1837.log
+
+2026-07-16 18:37:38 [INFO] === check_signals 开始，查询日期：20260716 ===
+2026-07-16 18:37:38 [INFO] 查询到 1 个信号（主买=0, 辅买=1, 卖=0）
+2026-07-16 18:37:38 [INFO] ===== 邮件主题 =====
+2026-07-16 18:37:38 [INFO] [买卖点信号] 20260716  辅买×1 军工信息化
+2026-07-16 18:37:38 [INFO] ===== 邮件正文 =====
+2026-07-16 18:37:38 [INFO] <html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
+<h2 style="margin:0 0 8px 0;color:#1d2129;">📊 买卖点信号日报</h2>
+<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">20260716 · 共 <b>1</b> 个信号（主买 0 / 辅买 1 / 卖 0）</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+<thead><tr style="background:#f2f3f5;text-align:left;">
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">品种</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:48px;">类型</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">触发条件</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">胜率</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:56px;text-align:center;">盈亏比</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:130px;text-align:center;">凯利建议</th>
+</tr></thead><tbody>
+<tr style="border-bottom:1px solid #f2f3f5;">
+<td style="padding:8px 10px;">🟣 <b>军工信息化</b></td>
+<td style="padding:8px 10px;font-size:12px;">辅买</td>
+<td style="padding:8px 10px;font-size:12px;color:#4e5969;">布林下轨回归(下轨1515,close1522), RSI=33, cross=41[偏冷]</td>
+<td style="padding:8px 10px;text-align:center;font-weight:600;color:#e6492e;">31%</td>
+<td style="padding:8px 10px;text-align:center;">0.54</td>
+<td style="padding:8px 10px;text-align:center;font-size:12px;color:#86909c;">不建议入场</td>
+</tr>
+</tbody></table>
+<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#4e5969;line-height:1.8;">
+<div style="font-weight:600;margin-bottom:4px;color:#1d2129;">📋 规则说明</div>
+• 主买（buy）：RSI 上穿 30（超卖反弹启动）<br>
+• 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）<br>
+• 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
+• 附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注
+</div>
+<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;font-size:12px;color:#86909c;line-height:1.8;">
+<div style="font-weight:600;margin-bottom:4px;color:#1d2129;">⚠️ 免责声明</div>
+本信号由历史数据量化回测生成，仅供研究参考，不构成任何投资建议。<br>
+市场有风险，投资需谨慎。请结合自身判断与资金管理做出决策。
+</div>
+<p style="color:#c9cdd4;font-size:11px;margin-top:16px;">—— A股/港股/全球情绪数据复盘看板 · 生成时间：2026-07-16 18:37:38</p>
+</body></html>
+2026-07-16 18:37:39 [INFO] ✓ 邮件已发送至 234058394@qq.com
+
+=== check_signals.sh 结束 2026-07-16 18:37:39 退出码=0 ===
+-> intraday_snapshot 采集 ...
+=== update_all.sh 结束 2026-07-16 18:39:05 ===
+core=0 width=0 futures=0 turnover=0 check_signals=0
+=== update_all.sh 开始 2026-07-17 17:50:04 ===
+交易日判断: IS_TRADING=1 FORCE=0
+-> 并发启动 pipeline: core / width / futures / turnover / stock_daily(后台)
+  PID: core=97236 width=97237 futures=97238 turnover=97239 stock_daily=97240(后台不等)
+pipeline 退出码: core=0 width=0 futures=0 turnover=0 (stock_daily PID=97240 仍在后台)
+-> check_signals.sh ...
+=== check_signals.sh 开始 2026-07-18 01:07:28 ===
+查询日期参数：（今天）
+日志：/Users/linhuichen/code/trade/data/logs/check_signals_20260718_0107.log
+
+2026-07-18 01:07:28 [INFO] === check_signals 开始，查询日期：20260718 ===
+2026-07-18 01:07:28 [INFO] 今日（20260718）无买卖点信号，不发邮件
+
+=== check_signals.sh 结束 2026-07-18 01:07:28 退出码=0 ===
+-> intraday_snapshot 采集 ...
+=== update_all.sh 结束 2026-07-18 01:08:07 ===
+core=0 width=0 futures=0 turnover=0 check_signals=0
