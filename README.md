@@ -132,6 +132,60 @@ scripts/            # 采集/部署/一键更新脚本
 详细文档：
 - [REQUIREMENTS.md](REQUIREMENTS.md) - 需求 + 数据字典 + 公式披露
 - [NOTES.md](NOTES.md) - 调研笔记 + 修复历史
+- [docs/data-dictionary.md](docs/data-dictionary.md) - 数据字典（`static-site/data/` JSON 字段说明）
+- [docs/data-sources.md](docs/data-sources.md) - 数据源说明（akshare/mootdx/baostock/HKEX/CCASS/东财/同花顺/新浪/腾讯等）
+- [docs/LICENSE-data.md](docs/LICENSE-data.md) - 数据集 CC BY 4.0 授权声明
+
+---
+
+## 📊 数据集说明（可复用）
+
+本看板每日盘后采集产出的 `static-site/data/` 下 JSON 数据集**对外开放可复用**，无需 API key，直接 HTTP 拉取即可。
+
+### 在线数据访问
+
+| 站点 | 用途 |
+|---|---|
+| `https://ss.fx8.store/data/{filename}` | Cloudflare Workers 主站（push main 自动 deploy，支持 br 压缩） |
+| `https://sss.sugas.site/data/{filename}` | GitHub Pages 备站 |
+| `https://ssd.fx8.store/data/{filename}` | R2 CDN（大 JSON 产物如 `industry-3y-indices/sw_*.json`） |
+
+示例：`curl https://ss.fx8.store/data/overview.json | jq .` 拉今日快照。
+
+### 核心数据文件
+
+- `overview.json` - 今日快照（恐贪/情绪/涨跌/买卖点/冰点/indices_sparkline 等）
+- `sentiment-{3m,6m,1y,3y,5y,all}.json` - 情绪指数历史（9 个情绪分序列 + signals/stats/strategy）
+- `a-stock-{3m,6m,1y,3y,5y,all}.json` - A 股 32 指标（a_fund_north/a_fund_margin/a_fund_main/a_amount 等）+ 12 宽基指数 OHLC
+- `hk-{3m,6m,1y,3y,5y,all}.json` - 港股 3 宽基 + 8 板块指数 + 港股通
+- `global-{3m,6m,1y,3y,5y,all}.json` - 全球指数 + 商品/汇率/债券
+- `industry-{3m,6m,1y,3y,5y,all}.json` - 申万 31 行业 + 27 同花顺概念（大文件已拆分到 R2 CDN）
+- `etf_national_team-*.json` - 12 只宽基 ETF 国家队资金动向（份额变动 + 信号 + 持有人）
+- `futures.json` - 中金所 IF/IC/IH/IM 期货机构持仓
+- `summary.json` / `summary_history.json` - 收盘速递（规则引擎 + 历史回看）
+- `signal_stats.json` - 113 品种买卖点回测统计（5d/10d/20d forward 收益）
+- `index/{id}-all.json` - 44 个指数全历史 OHLC + signals + stats + strategy
+- `intraday_snapshot.json` - 盘中实时快照（09:35–15:00 每 15 分钟更新）
+
+字段说明详见 [docs/data-dictionary.md](docs/data-dictionary.md)，数据来源详见 [docs/data-sources.md](docs/data-sources.md)。
+
+### 采集时点
+
+- **17:50（CST）** 主采集 [`scripts/update_all.sh`](scripts/update_all.sh)：4 条并行 pipeline（core 快核心 / width 慢宽度 / futures 期货 / stock_daily 后台死端），约 31 分钟跑完，当日下午即可看到当日数据
+- **09:35–15:00 盘中** 每 15 分钟跑 `intraday_snapshot` 推 `intraday_snapshot.json` 实时快照
+- 另有 7 个辅助 launchd 任务（futures/lhb/rzhb/etf-national-team/backfill-evening/lab-auto/schedule-monitor），详见 [docs/data-sources.md](docs/data-sources.md#采集时点-launchd-8-个任务)
+- 非交易日跳过采集仅 deploy + check_signals；盘中 09:30-15:30 拒跑全量 export+deploy（防覆盖 intraday 实时版）
+
+### 数据时效
+
+| 类型 | 时效 |
+|---|---|
+| A 股宽度/资金/情绪分 | T+0 当日（17:50 后） |
+| 港股指数 | T+0 当日 |
+| 美股指数 | T+1（时差，次日 17:50 采到前一日） |
+| 申万一级行业 | T+1 偶发（申万官方 trend API 偶尔 T+1 才发） |
+| 北向资金季度净买额 | 季度（2024-08 港交所新规改季度披露，CCASS 季度末+20 天后发布） |
+| ETF 持有人结构 | 半年（cninfo 年报/半年报 PDF，滞后 2-3 月） |
 
 ---
 
@@ -141,4 +195,7 @@ scripts/            # 采集/部署/一键更新脚本
 
 ## 📄 License
 
-MIT
+- **代码**：[MIT](LICENSE)（`app/` / `scripts/` / `static-site/` 的 `.py` / `.js` / `.css` / `.html` 等）
+- **数据集**：[CC BY 4.0](docs/LICENSE-data.md)（`static-site/data/` 下的 `.json` / `.xml` 产物，可共享/改编/商用，需署名）
+
+数据来源均为公开免费数据源（akshare / mootdx / BaoStock / HKEX / CCASS / 东财 / 同花顺 / 申万 / 中证指数公司 / 新浪 / 腾讯 / CFFEX / cninfo），详见 [docs/data-sources.md](docs/data-sources.md)。
