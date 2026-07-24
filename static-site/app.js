@@ -8370,10 +8370,17 @@ function _esc(s) {
 }
 
 function _etfScoreColor(score, side) {
-  // 配色与卡片一致(2026-07-24 v2 淡雅低饱和):buy 淡粉暗红(多),sell 灰蓝(空,冷色非绿)
+  // 配色与卡片一致(2026-07-24 v2 淡雅低饱和):buy 淡粉暗红(多),sell 灰蓝(空,冷色非绿),hold 暗黄(持有观察)
   if (side === "buy") {
     if (score >= 80) return "#a05050";
     if (score >= 60) return "#c08080";
+    return "var(--text-3,#86909c)";
+  }
+  if (side === "hold") {
+    const theme = document.documentElement.getAttribute("data-theme");
+    const isDark = theme === "dark" || theme === "redgold";
+    if (score >= 80) return isDark ? "#e8b870" : "#b8860b";
+    if (score >= 60) return isDark ? "#f0c890" : "#d4a017";
     return "var(--text-3,#86909c)";
   }
   if (score >= 80) return "#5a7a8a";
@@ -8415,11 +8422,12 @@ function _renderEtfScoreBody() {
   // 统计条
   const buyN = st.all.filter((e) => e.side === "buy").length;
   const sellN = st.all.filter((e) => e.side === "sell").length;
+  const holdN = st.all.filter((e) => e.side === "hold").length;
   const hset = _getEtfHoldingsSet();
   const holdingInList = st.all.filter((e) => hset[e.etf_code]).length;
   html += '<div class="etf-score-stat">共 ' + st.all.length + ' 只'
     + (st.meta && st.meta.full_market ? '（全市场）' : '（代表性清单）')
-    + ' · 买入机会 ' + buyN + ' · 卖出信号 ' + sellN
+    + ' · 买入机会 ' + buyN + ' · 持有观察 ' + holdN + ' · 卖出信号 ' + sellN
     + (holdingInList > 0 ? ' · <b class="etf-stat-hold">我的持仓 ' + holdingInList + '</b>' : '')
     + (st.search ? ' · 搜索命中 ' + total : '')
     + (st.holdingOnly ? ' · 只看持仓' : '') + '</div>';
@@ -8431,10 +8439,14 @@ function _renderEtfScoreBody() {
       const col = _etfScoreColor(e.score, e.side);
       const sideTag = e.side === "buy"
         ? '<span class="etf-side-tag etf-side-buy">买入机会</span>'
+        : e.side === "hold"
+        ? '<span class="etf-side-tag etf-side-hold">持有观察</span>'
         : '<span class="etf-side-tag etf-side-sell">卖出信号</span>';
       const ntTag = e.is_national_team ? '<span class="etf-nt-tag" title="国家队宽基ETF">国家队</span>' : '';
       const signalTxt = e.side === "buy"
         ? (e.hands != null ? '买点 ' + e.hands + ' 手' : '')
+        : e.side === "hold"
+        ? (e.sell_signal ? _esc(e.sell_signal) : '继续持有')
         : (e.sell_signal ? _esc(e.sell_signal) : '');
       const rank = start + i + 1;
       const isHolding = !!hset[e.etf_code];
@@ -8507,12 +8519,17 @@ async function renderEtfScore() {
     is_national_team: e.is_national_team, reason_summary: e.reason_summary,
     sell_signal: null,
   }));
-  (r.sell_list || []).forEach((e) => all.push({
-    etf_code: e.etf_code, name: e.name, score: e.score, side: "sell",
-    hands: null, high_alert: e.high_alert, low_alert: e.low_alert,
-    is_national_team: e.is_national_team, reason_summary: e.reason_summary,
-    sell_signal: e.sell_signal,
-  }));
+  (r.sell_list || []).forEach((e) => {
+    // sell_list 按 sell_signal 拆 side:含"建议卖出/减仓/清仓"->sell,含"观察/持有"->hold
+    const sig = e.sell_signal || "";
+    const side = /建议卖出|减仓|清仓/.test(sig) ? "sell" : "hold";
+    all.push({
+      etf_code: e.etf_code, name: e.name, score: e.score, side: side,
+      hands: null, high_alert: e.high_alert, low_alert: e.low_alert,
+      is_national_team: e.is_national_team, reason_summary: e.reason_summary,
+      sell_signal: e.sell_signal,
+    });
+  });
   _etfScoreState.all = all;
   _etfScoreState.filtered = all.slice();
   _etfScoreState.page = 1;

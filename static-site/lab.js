@@ -6211,7 +6211,7 @@ async function renderAIScoreListLab() {
   // 顶部说明
   const intro = document.createElement("div");
   intro.className = "lab-purpose-note";
-  intro.innerHTML = "💡 <b>这板块有什么用</b>：基于 🎯自定义分析 的 8+8 维度 AI 评分,对全市场 ETF 做买卖清单排序--低位机会分高的进买清单(按手数 3/2/1 建议买入量),高位风险分高的进卖清单(给卖出建议)。<b>怎么解读</b>:买清单按 AI 评分降序排,手数 badge 表示建议仓位(3手=机会最强/2手=关注/1手=少量);卖清单列出全部 ETF 的 high_alert + sell_signal 持有/减仓建议。点击行可看完整 8+8 维度拆解 modal(复用 🎯自定义分析 数据),也可用持仓自查输入任意 ETF 代码查询。";
+  intro.innerHTML = "💡 <b>这板块有什么用</b>：基于 🎯自定义分析 的 8+8 维度 AI 评分,对全市场 ETF 做买卖清单排序--低位机会分高的进买清单(按手数 3/2/1 建议买入量),高位风险分高的进卖清单(给卖出建议)。<b>怎么解读</b>:买清单按 AI 评分降序排,手数标签表示建议仓位(3手=机会最强/2手=关注/1手=少量);卖清单列出全部 ETF 的高位风险分 + 卖出信号 持有/减仓建议。点击行可看完整 8+8 维度拆解弹窗(复用 🎯自定义分析 数据),也可用持仓自查输入任意 ETF 代码查询。";
   wrapper.appendChild(intro);
 
   // 持仓自查 host（额外功能:输入任意ETF代码查询）— 移至最前,1列
@@ -6257,7 +6257,7 @@ async function renderAIScoreListLab() {
       `<div class="lab-custom-error-hint">etf_score_list.json 不存在或网络异常。后端生成后自动恢复（每日收盘后更新）。</div>` +
       `<button type="button" class="lab-custom-retry">重试</button></div>`;
     buyHost.querySelector(".lab-custom-retry").onclick = () => renderAIScoreListLab();
-    _renderAIScoreHoldSection(holdHost, [], [], {});
+    _renderAIScoreHoldSection(holdHost, [], {});
     _renderAIScoreSellSection(sellHost, [], {});
     _renderAIScoreQuerySection(queryHost, {});
     return;
@@ -6269,7 +6269,7 @@ async function renderAIScoreListLab() {
       `<div class="lab-custom-error-hint">后端未生成买清单数据,收盘后跑完评分即自动恢复。可先去 🎯自定义分析 tab 看单标的分析。</div>` +
       `<button type="button" class="lab-custom-retry">重试</button></div>`;
     buyHost.querySelector(".lab-custom-retry").onclick = () => renderAIScoreListLab();
-    _renderAIScoreHoldSection(holdHost, [], [], {});
+    _renderAIScoreHoldSection(holdHost, [], {});
     _renderAIScoreSellSection(sellHost, [], {});
     _renderAIScoreQuerySection(queryHost, {});
     return;
@@ -6281,30 +6281,19 @@ async function renderAIScoreListLab() {
     codeToIid[c] = _LAB_AISCORE_ETF_TO_IID[c];
   });
 
-  // === 持仓过滤:用户持有的ETF从买/卖清单分离,单独进"持有建议"列 ===
-  // 持仓数据来源:localStorage["etf_holdings"]（与持仓自查/首页持仓同源,app.js _getEtfHoldingsSet）
-  const holdSet = (typeof _getEtfHoldingsSet === "function") ? _getEtfHoldingsSet() : {};
+  // === 持有建议列:sell_list 中 sell_signal 含"持有"的(未过热持有项) ===
+  // 注:持有建议 = sell_signal 含"持有"的ETF(如"持有(未过热)"),非用户持仓
   const buyListRaw = Array.isArray(data.buy_list) ? data.buy_list : [];
   const sellListRaw = Array.isArray(data.sell_list) ? data.sell_list : [];
-  // 持有的ETF:在 buy_list 或 sell_list 中出现的持仓标的(去重保序,先buy后sell)
-  const holdSeen = Object.create(null);
-  const holdItems = [];
-  buyListRaw.forEach((it) => {
-    const c = _labAIScoreCode(it);
-    if (c && holdSet[c] && !holdSeen[c]) { holdSeen[c] = 1; holdItems.push({ ...it, _src: "buy" }); }
-  });
-  sellListRaw.forEach((it) => {
-    const c = _labAIScoreCode(it);
-    if (c && holdSet[c] && !holdSeen[c]) { holdSeen[c] = 1; holdItems.push({ ...it, _src: "sell" }); }
-  });
-  // 买/卖清单剔除持仓标的（持有项移入持有建议列,不重复出现）
-  const buyListFiltered = buyListRaw.filter((it) => { const c = _labAIScoreCode(it); return !(c && holdSet[c]); });
-  const sellListFiltered = sellListRaw.filter((it) => { const c = _labAIScoreCode(it); return !(c && holdSet[c]); });
+  // 持有建议:sell_signal 含"持有"的(未过热,继续持有)
+  const holdItems = sellListRaw.filter((it) => /持有/.test(it.sell_signal || ""));
+  // 卖清单:sell_signal 不含"持有"的(建议卖出+观察)
+  const sellListFiltered = sellListRaw.filter((it) => !/持有/.test(it.sell_signal || ""));
 
   // === 买清单渲染（按 score 降序,展示前12行）===
   const date = data.date || "";
   const dateStr = date && date.length === 8 ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : date;
-  const sorted = buyListFiltered.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 12);
+  const sorted = buyListRaw.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 12);
   const rowsHTML = sorted.map((it, idx) => {
     const code = _labAIScoreCode(it);
     const iid = codeToIid[code] || "";
@@ -6349,7 +6338,7 @@ async function renderAIScoreListLab() {
   });
 
   // === 持有建议渲染（用户持有的ETF,从买/卖清单分离）===
-  _renderAIScoreHoldSection(holdHost, holdItems, holdSet, codeToIid, dateStr);
+  _renderAIScoreHoldSection(holdHost, holdItems, codeToIid, dateStr);
 
   // === 卖清单渲染（直接渲染 sell_list 表格 + 持仓自查）===
   _renderAIScoreSellSection(sellHost, sellListFiltered, codeToIid);
@@ -6358,51 +6347,28 @@ async function renderAIScoreListLab() {
   _renderAIScoreQuerySection(queryHost, codeToIid, buyListRaw.concat(sellListRaw), dateStr);
 }
 
-// 持有建议渲染:展示用户持有的ETF(从买/卖清单分离)
-// 每项展示:ETF代码/名称 + 来源标记(buy=看多继续持有 / sell=减仓建议) + high_alert/score + sell_signal + 理由
-// 持有但未出现在买/卖清单的标的（全市场ETF未进榜单）不在此列,因无AI评分数据可展示
-function _renderAIScoreHoldSection(host, holdItems, holdSet, codeToIid, dateStr) {
+// 持有建议渲染:sell_list 中 sell_signal 含"持有"的(未过热持有项)
+// 每项展示:ETF代码/名称 + 高位风险分 + 低位机会分 + 持有建议(sell_signal 文本) + 理由
+// 按 high_alert 降序(风险高的排前)
+function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
   holdItems = holdItems || [];
   codeToIid = codeToIid || {};
-  // 排序:来源 sell 的（高风险）排前,buy 的（机会）排后;同来源按 high_alert 降序
-  const sortedHold = holdItems.slice().sort((a, b) => {
-    const aSell = a._src === "sell" ? 1 : 0;
-    const bSell = b._src === "sell" ? 1 : 0;
-    if (aSell !== bSell) return bSell - aSell;
-    return (b.high_alert || 0) - (a.high_alert || 0);
-  });
+  // 排序:按 high_alert 降序(风险高的排前)
+  const sortedHold = holdItems.slice().sort((a, b) => (b.high_alert || 0) - (a.high_alert || 0));
   const rowsHTML = sortedHold.map((it, idx) => {
     const code = _labAIScoreCode(it);
     const iid = codeToIid[code] || "";
     const high = it.high_alert != null ? Number(it.high_alert).toFixed(1) : "-";
     const low = it.low_alert != null ? Number(it.low_alert).toFixed(1) : "-";
-    const isSellSrc = it._src === "sell";
-    // 来源建议:buy清单=机会继续持有 / sell清单=风险留意减仓
-    const srcBadge = isSellSrc
-      ? `<span class="hold-src-badge hold-src-sell">📉 风险</span>`
-      : `<span class="hold-src-badge hold-src-buy">📈 机会</span>`;
-    // 持有建议文案:依据 high_alert 阈值(sell_signal 若有直接用,否则按 high_alert 推断)
-    let advice = "";
-    let adviceCls = "hold-advice-neutral";
-    if (isSellSrc) {
-      const sig = it.sell_signal || "";
-      if (/减仓|卖出|清仓|卖/.test(sig)) { advice = sig || "建议减仓"; adviceCls = "hold-advice-danger"; }
-      else if (/持有|观望/.test(sig)) { advice = sig; adviceCls = "hold-advice-warn"; }
-      else { advice = sig || "偏热留意"; adviceCls = "hold-advice-warn"; }
-    } else {
-      // 来自买清单:low_alert/score 高 = 机会强,建议继续持有/逢低加仓
-      const score = it.score != null ? Number(it.score) : 0;
-      if (score >= 80) { advice = "继续持有·可加仓"; adviceCls = "hold-advice-good"; }
-      else if (score >= 60) { advice = "继续持有"; adviceCls = "hold-advice-good"; }
-      else { advice = "持有观望"; adviceCls = "hold-advice-neutral"; }
-    }
+    // 持有建议:固定显示 sell_signal 文本(如"持有(未过热)"),无则"继续持有"
+    const advice = it.sell_signal || "继续持有";
+    const adviceCls = "hold-advice-warn";
     const nt = it.is_national_team ? `<span class="lab-aiscore-nt">国家队</span>` : "";
     const reason = it.reason_summary ? `<span class="lab-aiscore-reason">${it.reason_summary}</span>` : "";
     return `<tr class="lab-aiscore-row lab-aiscore-hold-row" data-code="${code}" data-iid="${iid}" data-name="${it.name || ""}">` +
       `<td class="aiscore-rank">${idx + 1}</td>` +
       `<td class="aiscore-code">${code || "-"}</td>` +
       `<td class="aiscore-name">${it.name || "-"}${nt}</td>` +
-      `<td class="aiscore-src">${srcBadge}</td>` +
       `<td class="aiscore-high">${high}</td>` +
       `<td class="aiscore-low">${low}</td>` +
       `<td class="aiscore-advice"><span class="hold-advice ${adviceCls}">${advice}</span></td>` +
@@ -6411,15 +6377,15 @@ function _renderAIScoreHoldSection(host, holdItems, holdSet, codeToIid, dateStr)
   }).join("");
   const holdCount = sortedHold.length;
   const empty = holdCount === 0
-    ? `<tr><td colspan="8" class="lab-aiscore-empty">暂无持仓ETF出现在AI评分榜单<br><span style="font-size:11.5px;color:var(--text-4)">在上方持仓自查输入持仓代码,或去首页 B4 持仓区添加</span></td></tr>`
+    ? `<tr><td colspan="7" class="lab-aiscore-empty">暂无未过热持有项</td></tr>`
     : "";
   host.innerHTML =
     `<div class="lab-aiscore-section-head">` +
-      `<div class="lab-aiscore-section-title">💼 AI持有建议 <span class="lab-aiscore-section-sub-inline">持仓ETF的AI评分建议${holdCount ? ` · ${holdCount}只` : ""}</span></div>` +
+      `<div class="lab-aiscore-section-title">💼 未过热持有建议 <span class="lab-aiscore-section-sub-inline">未过热持有项${holdCount ? ` · ${holdCount}只` : ""}</span></div>` +
     `</div>` +
     `<div class="lab-aiscore-table-wrap">` +
       `<table class="lab-aiscore-table lab-aiscore-table-hold">` +
-        `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>来源</th><th>high</th><th>low</th><th>持有建议</th><th>理由摘要</th></tr></thead>` +
+        `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>高位风险分</th><th>低位机会分</th><th>持有建议</th><th>理由摘要</th></tr></thead>` +
         `<tbody>${rowsHTML}${empty}</tbody>` +
       `</table>` +
     `</div>`;
@@ -6466,11 +6432,11 @@ function _renderAIScoreSellSection(host, sellList, codeToIid) {
   const empty = sortedSell.length === 0 ? `<tr><td colspan="7" class="lab-aiscore-empty">暂无卖清单数据（等后端生成）</td></tr>` : "";
   host.innerHTML =
     `<div class="lab-aiscore-section-head">` +
-      `<div class="lab-aiscore-section-title">📉 AI卖清单 <span class="lab-aiscore-section-sub-inline">按 high_alert 降序 · sell_signal=持有/减仓建议</span></div>` +
+      `<div class="lab-aiscore-section-title">📉 AI卖清单 <span class="lab-aiscore-section-sub-inline">按高位风险分降序 · 卖出信号=持有/减仓建议</span></div>` +
     `</div>` +
     `<div class="lab-aiscore-table-wrap">` +
       `<table class="lab-aiscore-table lab-aiscore-table-sell">` +
-        `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>high_alert</th><th>low_alert</th><th>sell_signal</th><th>理由摘要</th></tr></thead>` +
+        `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>高位风险分</th><th>低位机会分</th><th>卖出信号</th><th>理由摘要</th></tr></thead>` +
         `<tbody>${rowsHTML}${empty}</tbody>` +
       `</table>` +
     `</div>`;
@@ -6498,12 +6464,12 @@ function _renderAIScoreQuerySection(host, codeToIid, etfList, dateStr) {
   etfList = Array.isArray(etfList) ? etfList : [];
   host.innerHTML =
     `<div class="lab-aiscore-section-head">` +
-      `<div class="lab-aiscore-section-title">🔍 持仓自查（输入任意 ETF 代码查 AI 评分 / high_alert）</div>` +
+      `<div class="lab-aiscore-section-title">🔍 持仓自查（输入任意 ETF 代码查 AI 评分 / 高位风险分）</div>` +
       `<div class="lab-aiscore-section-sub">输入持仓 ETF 代码（如 510300 / 515030）查 AI 评分 + 高位风险分 + 卖出建议 + 完整维度拆解</div>` +
     `</div>` +
     `<div class="lab-aiscore-sell-input-wrap">` +
       `<input type="text" class="lab-aiscore-sell-input" placeholder="ETF代码(如510300/515030)" autocomplete="off" inputmode="numeric">` +
-      `<button type="button" class="lab-aiscore-sell-btn">查 high_alert</button>` +
+      `<button type="button" class="lab-aiscore-sell-btn">查高位风险分</button>` +
     `</div>` +
     `<div class="lab-aiscore-sell-result"></div>`;
   const input = host.querySelector(".lab-aiscore-sell-input");
@@ -6534,7 +6500,7 @@ function _renderAIScoreQuerySection(host, codeToIid, etfList, dateStr) {
       return;
     }
     // 5. 有 iid:fetch alert_analyze,显示完整 high_alert 卡片(若同时 matched,顶部补评分 badge)
-    resultHost.innerHTML = `<div class="lab-custom-loading">⏳ 加载 ${matchedCode} 的 high_alert…</div>`;
+    resultHost.innerHTML = `<div class="lab-custom-loading">⏳ 加载 ${matchedCode} 的高位风险分…</div>`;
     const v = _labCustomCacheBust();
     const url = `./data/alert_analyze_${iid}.json?v=${v}`;
     let data = null;
@@ -6576,15 +6542,15 @@ function _renderAIScoreQuerySection(host, codeToIid, etfList, dateStr) {
         `</div>` +
         `<div class="lab-aiscore-sell-grid">` +
           `<div class="lab-aiscore-sell-cell ${highCls}">` +
-            `<div class="lab-aiscore-sell-cell-label">高位风险分 high_alert</div>` +
+            `<div class="lab-aiscore-sell-cell-label">高位风险分</div>` +
             `<div class="lab-aiscore-sell-cell-score">${high != null ? Number(high).toFixed(2) : "-"}</div>` +
             `<div class="lab-aiscore-sell-cell-level" title="${highTooltip}">${highLvl}</div>` +
             `<div class="lab-aiscore-sell-cell-desc">分越高越接近过热 · ≥70 建议减仓</div>` +
           `</div>` +
           `<div class="lab-aiscore-sell-cell">` +
-            `<div class="lab-aiscore-sell-cell-label">卖出建议 sell_signal</div>` +
+            `<div class="lab-aiscore-sell-cell-label">卖出建议</div>` +
             `<div class="lab-aiscore-sell-cell-signal">${sellSignal}</div>` +
-            `<div class="lab-aiscore-sell-cell-desc">基于 high_alert 阈值(70/50)派生,仅作参考</div>` +
+            `<div class="lab-aiscore-sell-cell-desc">基于高位风险分阈值(70/50)派生,仅作参考</div>` +
           `</div>` +
         `</div>` +
         `<div class="lab-aiscore-sell-human">${highHuman}</div>` +
@@ -6611,9 +6577,9 @@ function _buildEtfScoreOnlyCardHTML(item, dateStr, warnMsg) {
   const handsCls = `hands-${[3, 2, 1, 0].includes(hands) ? hands : 0}`;
   const sellSignalCell = sig ?
     `<div class="lab-aiscore-sell-cell">` +
-      `<div class="lab-aiscore-sell-cell-label">卖出建议 sell_signal</div>` +
+      `<div class="lab-aiscore-sell-cell-label">卖出建议</div>` +
       `<div class="lab-aiscore-sell-cell-signal">${sig}</div>` +
-      `<div class="lab-aiscore-sell-cell-desc">后端基于 high_alert 阈值派生</div>` +
+      `<div class="lab-aiscore-sell-cell-desc">后端基于高位风险分阈值派生</div>` +
     `</div>` : "";
   const warnHTML = warnMsg ? `<div class="lab-aiscore-sell-human" style="border-left-color:#faad14">${warnMsg}</div>` : "";
   const iidCount = Object.keys(_LAB_AISCORE_ETF_TO_IID).length;

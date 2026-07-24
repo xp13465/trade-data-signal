@@ -286,10 +286,10 @@ function _labCustomHistoryHTML(historyAnalogy, humanText) {
     return `<div class="lab-custom-hist-col">` +
       `<div class="lab-custom-hist-col-title">${label} <span class="lab-custom-hist-cur">基准日 ${curDateStr} · 样本窗 ${ha.window_days || ""} 日</span></div>` +
       `<div class="lab-custom-hist-stats">` +
-        `<span class="hist-stat">平均 <b>5d</b> <span class="${avgCls(avg5)}">${avgStr(avg5)}</span></span>` +
-        `<span class="hist-stat">平均 <b>10d</b> <span class="${avgCls(avg10)}">${avgStr(avg10)}</span></span>` +
-        `<span class="hist-stat">平均 <b>20d</b> <span class="${avgCls(avg20)}">${avgStr(avg20)}</span></span>` +
-        (ratioTxt ? `<span class="hist-stat hist-ratio">10d 涨跌比 ${ratioTxt}</span>` : "") +
+        `<span class="hist-stat">平均 <b>5日</b> <span class="${avgCls(avg5)}">${avgStr(avg5)}</span></span>` +
+        `<span class="hist-stat">平均 <b>10日</b> <span class="${avgCls(avg10)}">${avgStr(avg10)}</span></span>` +
+        `<span class="hist-stat">平均 <b>20日</b> <span class="${avgCls(avg20)}">${avgStr(avg20)}</span></span>` +
+        (ratioTxt ? `<span class="hist-stat hist-ratio">10日涨跌比 ${ratioTxt}</span>` : "") +
       `</div>` +
       `<table class="lab-custom-hist-table">` +
         `<thead><tr><th>历史日期</th><th>相似度</th><th>5日涨跌</th><th>10日涨跌</th><th>20日涨跌</th></tr></thead>` +
@@ -300,7 +300,7 @@ function _labCustomHistoryHTML(historyAnalogy, humanText) {
   }
 
   return `<div class="lab-custom-hist">` +
-    `<div class="lab-custom-section-title">📜 历史类比 Top3（相似特征时段后续涨跌统计）</div>` +
+    `<div class="lab-custom-section-title">📜 历史类比 前3（相似特征时段后续涨跌统计）</div>` +
     `<div class="lab-custom-hist-grid">` +
       sideHTML("high", "高位风险视角") +
       sideHTML("low", "低位机会视角") +

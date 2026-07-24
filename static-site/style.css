@@ -3837,6 +3837,15 @@ main { padding: 16px 24px; }
   border-left-color: #8aaab8;
   background: linear-gradient(135deg, rgba(90, 122, 138, 0.20) 0%, var(--bg-card) 60%);
 }
+.etf-score-row.etf-side-hold {
+  border-left-color: #b8860b;
+  background: linear-gradient(135deg, #faf5e8 0%, var(--bg-card) 55%);
+}
+[data-theme="dark"] .etf-score-row.etf-side-hold,
+[data-theme="redgold"] .etf-score-row.etf-side-hold {
+  border-left-color: #e8b870;
+  background: linear-gradient(135deg, rgba(184, 134, 11, 0.20) 0%, var(--bg-card) 60%);
+}
 .etf-row-main {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
@@ -3867,6 +3876,9 @@ main { padding: 16px 24px; }
 [data-theme="redgold"] .etf-side-buy { background: rgba(160, 80, 80, 0.26); color: #e8b0b0; }
 [data-theme="dark"] .etf-side-sell,
 [data-theme="redgold"] .etf-side-sell { background: rgba(90, 122, 138, 0.26); color: #a8c8d4; }
+.etf-side-hold { background: #faf5e8; color: #b8860b; }
+[data-theme="dark"] .etf-side-hold,
+[data-theme="redgold"] .etf-side-hold { background: rgba(184, 134, 11, 0.26); color: #e8b870; }
 .etf-nt-tag {
   display: inline-block; margin-left: 6px; padding: 1px 6px;
   border: 1px solid var(--primary); color: var(--primary);
