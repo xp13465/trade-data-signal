@@ -2227,6 +2227,15 @@ function _marketScoreCardHTML(data, alert, humanText) {
   const highTooltip = _labCustomLevelTooltip(high, "high");
   const lowTooltip = _labCustomLevelTooltip(low, "low");
   const summary = _labCustomScoreSummary(high, low);
+  // 方案B:仓位分(alert.position = {hands, volatility, label})
+  const pos = alert.position || null;
+  const posHands = pos ? pos.hands : null;
+  const posLabel = pos ? pos.label : "";
+  const posVol = pos ? pos.volatility : null;
+  const posBadge = pos
+    ? `<span class="position-badge position-${posHands}">建议仓位 ${posLabel}(${posHands}档)</span>` +
+      `<span class="volatility-text">波动率 ${posVol != null ? posVol.toFixed(2) : "-"}%</span>`
+    : `<span class="position-badge position-0">建议仓位 数据不足</span>`;
   return `<div class="market-score-card" data-iid="${data.target_id || ""}">
     <div class="market-score-summary ${summary.cls}">${summary.text}</div>
     <div class="market-score-grid">
@@ -2241,6 +2250,7 @@ function _marketScoreCardHTML(data, alert, humanText) {
         <div class="market-cell-level" title="${lowTooltip}">${lowLvlText}</div>
       </div>
     </div>
+    <div class="market-position-row">${posBadge}</div>
     <div class="market-score-cta">🔬 点击查看深度拆解</div>
   </div>`;
 }

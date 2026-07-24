@@ -387,9 +387,10 @@ def _compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
 
 def _load_target_close_amount(target_id: str, target_type: str):
     """单标的 close/amount 序列 (ETF 用 etf_daily, 指数用 index_daily)。
-    阶段2: ETF 加读 open/high/low 字段(供 H3/L2 信号 RSI/BB/Donchian 计算)。
-    返回 (close, amount, ohlc_df) - ohlc_df 含 date/open/high/low/close/amount(ETF 专属,
-    指数为 None,因指数走 signal_daily 表查买卖点不需要 OHLC 重算)。
+    阶段2: ETF/指数 均读 open/high/low 字段(ETF 供 H3/L2 信号 RSI/BB/Donchian 计算,
+    指数供 compute_alert_for_target 算 ATR 波动率给仓位分)。
+    返回 (close, amount, ohlc_df) - ohlc_df 含 date/open/high/low/close/amount
+    (ETF/指数 均返回 DataFrame,不再 None;旧调用方依赖 None 判断已迁移完毕)。
     """
     if target_type == "etf":
         # ETF 显式指定列名,fetchall 返 sqlite3.Row 列表退出 with 后变 tuple,
@@ -405,10 +406,11 @@ def _load_target_close_amount(target_id: str, target_type: str):
             return pd.Series(dtype=float), pd.Series(dtype=float), None
         df = pd.DataFrame(rows, columns=cols).set_index("date")
     else:
-        cols = ["date", "close", "amount"]
+        # 指数:补查 open/high/low(供 ATR 波动率算仓位分),无则降级用 close 近似
+        cols = ["date", "open", "high", "low", "close", "amount"]
         with _conn_sent() as c:
             rows = c.execute(
-                "SELECT date, close, amount FROM index_daily WHERE index_id=? "
+                "SELECT date, open, high, low, close, amount FROM index_daily WHERE index_id=? "
                 "AND close IS NOT NULL ORDER BY date",
                 (target_id,),
             ).fetchall()
@@ -418,7 +420,7 @@ def _load_target_close_amount(target_id: str, target_type: str):
     close = df["close"].astype(float)
     amount = pd.to_numeric(df["amount"], errors="coerce")
     amount = amount.where(amount > 0, pd.NA)  # 0 视为缺省
-    ohlc_df = df if target_type == "etf" else None
+    ohlc_df = df
     return close, amount, ohlc_df
 
 
@@ -627,6 +629,42 @@ def compute_target_dims(target_id: str, target_type: str = "index") -> pd.DataFr
     }).sort_index()
 
 
+# 仓位档位标签(0=观望/1=轻仓/2=半仓/3=重仓)
+_POSITION_LABELS = {0: "观望", 1: "轻仓", 2: "半仓", 3: "重仓"}
+
+
+def _position_tier_for_score_vol(score: float | None, volatility: float | None) -> int:
+    """建议仓位档位(方案B:同ETF hands方案3,机会分×波动率混合)。
+    base = score 分级(基于 alert.low 低位机会分):
+      >=70 -> 3(重仓) / 60-70 -> 2(半仓) / 50-60 -> 1(轻仓) / <50 -> 0(观望)
+    vol 调整(只对高波动降仓,不加分):
+      volatility>5.0% -> max(0, base-2)  极高波动砍2档
+      volatility>4.0% -> max(0, base-1)  高波动砍1档
+      volatility None -> base(数据不足降级用老逻辑)
+    volatility 单位:%(ATR/close*100)。
+
+    与 scripts/export_etf_score_list.py:_hands_for_score_vol 同款逻辑,
+    因 scripts 反向 import app.alert_score,本函数独立实现避免循环依赖。
+    """
+    if score is None:
+        return 0
+    if score >= 70:
+        base = 3
+    elif score >= 60:
+        base = 2
+    elif score >= 50:
+        base = 1
+    else:
+        return 0
+    if volatility is None:
+        return base
+    if volatility > 5.0:
+        return max(0, base - 2)
+    if volatility > 4.0:
+        return max(0, base - 1)
+    return base
+
+
 def compute_alert_for_target(target_id: str, target_type: str = "index",
                              date: str | None = None) -> dict:
     """单标的预警分(§9.4)。返回 {date, high, low, high_level, low_level, dims, adapt}。
@@ -643,6 +681,7 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
             "high": None, "low": None, "high_level": "数据不足", "low_level": "数据不足",
             "dims": {}, "adapt": {"min_dims": MIN_DIMS_TARGET, "available_high": 0,
                                   "available_low": 0, "missing": list(HIGH_WEIGHTS) + list(LOW_WEIGHTS)},
+            "position": None,
         }
     if date:
         dims = dims[dims.index <= date]
@@ -652,6 +691,7 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
             "high": None, "low": None, "high_level": "数据不足", "low_level": "数据不足",
             "dims": {}, "adapt": {"min_dims": MIN_DIMS_TARGET, "available_high": 0,
                                   "available_low": 0, "missing": list(HIGH_WEIGHTS) + list(LOW_WEIGHTS)},
+            "position": None,
         }
     row = dims.iloc[-1]
     actual_date = str(dims.index[-1])
@@ -676,6 +716,40 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
         "missing": missing,
         "etf_adjust": use_etf_adjust,  # 阶段2: 是否启用 ETF 专属调权(默认 off)
     }
+
+    # 方案B:仓位分(机会分×波动率混合,同ETF hands方案3)
+    # vol = ATR(20)/close*100 (Wilder smoothing,口径同 signals.py + talib.ATR)
+    # hands = _position_tier_for_score_vol(low_alert, vol):base 分级+vol 砍档
+    # label = {0观望/1轻仓/2半仓/3重仓}
+    position = None
+    try:
+        from .compute.signals import _atr
+        close_t, _, ohlc_df = _load_target_close_amount(target_id, target_type)
+        if (ohlc_df is not None and not close_t.empty and len(close_t) >= 20
+                and "high" in ohlc_df.columns and "low" in ohlc_df.columns):
+            high_t = pd.to_numeric(ohlc_df["high"], errors="coerce")
+            low_t = pd.to_numeric(ohlc_df["low"], errors="coerce")
+            # high/low 全空 -> close 近似(与 _compute_etf_buy_sell_signals 一致)
+            if high_t.dropna().empty:
+                high_t = close_t.copy()
+            if low_t.dropna().empty:
+                low_t = close_t.copy()
+            atr_series = _atr(high_t, low_t, close_t, period=20)
+            last_close = float(close_t.iloc[-1])
+            last_atr = atr_series.iloc[-1]
+            if last_close and not pd.isna(last_atr) and last_atr > 0:
+                vol = float(last_atr) / last_close * 100
+                score_for_tier = None if pd.isna(la) else float(la)
+                hands = _position_tier_for_score_vol(score_for_tier, vol)
+                position = {
+                    "hands": hands,
+                    "volatility": round(vol, 2),
+                    "label": _POSITION_LABELS.get(hands, "观望"),
+                }
+    except Exception:
+        # 任何异常降级 position=None(不影响主流程返回 high/low/dims)
+        position = None
+
     return {
         "date": actual_date,
         "target_id": target_id, "target_type": target_type,
@@ -686,6 +760,7 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
         "dims": {k: (None if pd.isna(row[k]) else round(float(row[k]), 2))
                  for k in list(high_w) + list(low_w)},
         "adapt": adapt,
+        "position": position,
     }
 
 

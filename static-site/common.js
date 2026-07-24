@@ -156,6 +156,18 @@ function _labCustomScoreCardHTML(data, alert, humanText) {
   // 顶部总判断(基于 high+low 综合给一句话)
   const summary = _labCustomScoreSummary(high, low);
 
+  // 方案B:仓位分(alert.position = {hands, volatility, label})
+  const pos = alert.position || null;
+  const posHands = pos ? pos.hands : null;
+  const posLabel = pos ? pos.label : "";
+  const posVol = pos ? pos.volatility : null;
+  const posRow = pos
+    ? `<div class="market-position-row">` +
+        `<span class="position-badge position-${posHands}">建议仓位 ${posLabel}(${posHands}档)</span>` +
+        `<span class="volatility-text">波动率 ${posVol != null ? posVol.toFixed(2) : "-"}%</span>` +
+      `</div>`
+    : `<div class="market-position-row"><span class="position-badge position-0">建议仓位 数据不足</span></div>`;
+
   return `<div class="lab-custom-score-card">` +
     `<div class="lab-custom-score-head">` +
       `<div class="lab-custom-score-title">${name} <span class="lab-custom-score-date">📅 ${dateStr}</span></div>` +
@@ -178,6 +190,7 @@ function _labCustomScoreCardHTML(data, alert, humanText) {
         `<div class="lab-custom-cell-human">${lowHuman}</div>` +
       `</div>` +
     `</div>` +
+    posRow +
   `</div>`;
 }
 
