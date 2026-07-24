@@ -3,10 +3,10 @@
     "task": "update_all",
     "name": "收盘全量",
     "schedule": "17:50",
-    "est_text": "约27分钟",
+    "est_text": "约31分钟",
     "last_run": "2026-07-24 17:50",
-    "last_exit": null,
-    "last_duration_sec": null
+    "last_exit": 0,
+    "last_duration_sec": 3283
   },
   {
     "task": "backfill_evening",
@@ -39,10 +39,10 @@
     "task": "lhb_backfill",
     "name": "龙虎榜",
     "schedule": "18:30 + 19:30(兜底)",
-    "est_text": "约16分钟",
+    "est_text": "约17分钟",
     "last_run": "2026-07-24 18:30",
-    "last_exit": null,
-    "last_duration_sec": null
+    "last_exit": 0,
+    "last_duration_sec": 575
   },
   {
     "task": "rzhb_backfill",
