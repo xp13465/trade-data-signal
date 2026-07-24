@@ -3504,9 +3504,9 @@ main { padding: 16px 24px; }
   background: var(--bg-card); border: 1px solid var(--border-strong);
   border-radius: 10px; padding: 14px 16px;
 }
-/* 买清单+卖清单 左右并排(持仓自查单独1列在上方) */
+/* 买清单+持有建议+卖清单 三列并排(持仓自查单独1列在上方) */
 .lab-aiscore-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start;
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; align-items: start;
 }
 @media (max-width: 900px) {
   .lab-aiscore-grid { grid-template-columns: 1fr; }
@@ -3542,6 +3542,16 @@ main { padding: 16px 24px; }
 .lab-aiscore-table td:nth-child(6) {
   white-space: normal; max-width: 360px;
 }
+/* 持有建议表 8列: 理由摘要在第8列,允许换行 */
+.lab-aiscore-table-hold th:nth-child(8),
+.lab-aiscore-table-hold td:nth-child(8) {
+  white-space: normal; max-width: 280px;
+}
+/* 卖清单表 7列: 理由摘要在第7列,允许换行 */
+.lab-aiscore-table-sell th:nth-child(7),
+.lab-aiscore-table-sell td:nth-child(7) {
+  white-space: normal; max-width: 280px;
+}
 .lab-aiscore-row {
   cursor: pointer; transition: background 0.15s;
 }
@@ -3566,6 +3576,31 @@ main { padding: 16px 24px; }
 .lab-aiscore-empty {
   text-align: center; color: var(--text-3); padding: 20px;
 }
+/* 持有建议列: 来源 badge(buy=机会/sell=风险) + 持有建议文案 badge */
+.hold-src-badge {
+  display: inline-block; font-size: 10.5px; font-weight: 700;
+  padding: 2px 7px; border-radius: 3px; white-space: nowrap;
+}
+.hold-src-buy { background: rgba(56,158,13,0.14); color: #389e0d; }
+.hold-src-sell { background: rgba(212,56,13,0.12); color: #d4380d; }
+[data-theme="dark"] .hold-src-buy,
+[data-theme="redgold"] .hold-src-buy { background: rgba(82,196,26,0.18); color: #52c41a; }
+[data-theme="dark"] .hold-src-sell,
+[data-theme="redgold"] .hold-src-sell { background: rgba(255,120,117,0.18); color: #ff9c9a; }
+.hold-advice {
+  display: inline-block; font-size: 12px; font-weight: 700;
+  padding: 3px 10px; border-radius: 12px; color: #fff; white-space: nowrap;
+}
+.hold-advice-good { background: #389e0d; }
+.hold-advice-warn { background: #faad14; color: #1f2329; }
+.hold-advice-danger { background: #d4380d; }
+.hold-advice-neutral { background: var(--text-4); }
+[data-theme="dark"] .hold-advice-good,
+[data-theme="redgold"] .hold-advice-good { background: #52c41a; }
+[data-theme="dark"] .hold-advice-danger,
+[data-theme="redgold"] .hold-advice-danger { background: #ff7875; }
+[data-theme="dark"] .hold-advice-warn,
+[data-theme="redgold"] .hold-advice-warn { background: #ffa940; color: #1f2329; }
 /* 国家队标注 */
 .lab-aiscore-nt {
   display: inline-block; font-size: 10.5px; font-weight: 700;
