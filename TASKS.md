@@ -8,26 +8,35 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-24 17:10(批次2b 仓位展示丰富化方案1+2 上线完成)
+**最后更新**:2026-07-24 19:08(批次1 提速 B4 C方案+Top2 etf_nt去重 上线完成)
 
-**分支**:`feat/b4-holding-input` 已 merge 到 main(origin/main = `dac046ee` 批次2b 仓位展示丰富化)
-- 批次2b commit:`dac046ee` feat: 批次2b 仓位展示丰富化(6维度透明化,方案1+2)
-  - 方案1 主chip:app.js _marketScoreCardHTML +综合分 position-score + 维度摘要 position-dim-summary(hover tooltip 看全6维度)
-  - 方案2 弹窗:common.js _labCustomPositionDetailHTML(综合分公式+6维度明细表+档位映射+算法说明+回测+免责)+ app.js openIndexAnalyzeModal 插入
-  - style.css +.position-score/.position-dim-summary +.lab-custom-position-*(3皮肤适配)
-- force-with-lease feat(覆盖 rebase 前旧 commit 1a1f8478,用户明示"中间态不保留");feat:main 快进 85dc6f42..dac046ee
-- 版本号:app=9601bca3 common=256e3709 style=35ed6ea5
+**分支**:`feat/b4-speedup` 已 merge 到 main(origin/main = `172fe2b6` 批次1 提速)
+- 批次1 commit:`0e916672` feat: B4 C方案(E2去双throttle+并发采集+--full-market) + `172fe2b6` data: etf_score_list 1371只修复(手动rsync trade-data->trade)
+  - B4 base.py:throttle()加threading.Lock + safe_call加skip_throttle参数
+  - B4 etf_national_team.py:L384去显式throttle(双->单) + akshare sina skip_throttle=True可并发 + mootdx fallback _MOOTDX_LOCK串行 + pipeline_daily/pipeline_backfill改ThreadPoolExecutor(max_workers=10)
+  - B4 update_all.sh:L117加--full-market(62只代表性->全市场1371只ETF评分)
+  - B4 小测:20只ETF串行5.73s->并发1.04s,提速5.52x,结果一致(True)
+  - Top2 backfill-evening plist:删20:00槽(晚间冗余兜底),保留16:35+02:00(unload/load生效)
+  - Top2 etf-national-team plist:删21:30槽(20:07已采兜底冗余),保留20:07(unload/load生效)
+  - Top2 省时:旧代码~91min/天(20:00 backfill 56min+21:30 etf 35min),B4后~20.9min/天
+- 批次2b commit:`dac046ee` feat: 批次2b 仓位展示丰富化(6维度透明化,方案1+2)(已上线)
+- 版本号:app=9601bca3 common=256e3709 style=35ed6ea5(B4未改前端,版本号不变)
 
 **活跃 cron**:
 - `4260c097`(§11 兜底轮询,每10分钟 7,17,27,37,47,57,session-only)
 - `da35a696`(48h 监控,每小时13分,durable,至 2026-07-25 08:44 结束给汇总+CronDelete)
 
-**活跃 agent**:无(批次2b 仓位展示丰富化已完成)
+**活跃 agent**:
+- 批次1 提速 a99f4fbaa ✓完成上线(commit 0e916672+172fe2b6,三站验证sss.sugas.site 1371只✓,待20:07 etf pipeline_daily跑并发新代码验证全量提速35min->?min)
+- 修sticky 已完成push feat/sticky-fix(commit 003fc9db,等指示push main,需rebase origin/main=172fe2b6)
+- 国债调研 a4f04af2 ✓完成(根因:compute_band_signal只返回最新1条+store DELETE重算致历史sell被覆盖;验收通过signals.py L1330注释+DB sell=0)
+- 国债修复 a67c9f22 ✓完成验收(commit db1dbf32 feat/cgb-band-fix,DB sell=8原0+band_hold=46原1+7/22 sell恢复,回测100%一致,等push main+deploy含export重生JSON,需rebase origin/main=172fe2b6)
 
-**正在等**:无(批次2b 方案1+2 均已上线,方案3远期不做)
+**正在等**:批次1 提速 ✓上线(待20:07验证B4全量提速);sticky 003fc9db 等push main(需rebase);国债修复 a72521f7 等push main(需rebase)
 
-**三站验证结果**(任一新版即算上线,三站全过):
-- ss.fx8.store(CF 主站):app.min.js?v=9601bca3 ✓ + common.min.js?v=256e3709 ✓(含 position-score/_labCustomPositionDetailHTML/仓位计算依据/lab-custom-position 签名串)/ alert_analyze_cgb_10y_etf.json position.detail 6维度(opp/trend/mom/vol/liq/draw+score)齐全 hands=3 score=62.21 ✓
+**三站验证结果**(批次1 提速,任一新版即算上线):
+- sss.sugas.site(GitHub Pages):etf_score_list.json universe=1371 full_market=True ✓ + overview collected_at=20260724 18:30 ✓
+- ss.fx8.store(CF 主站):etf_score_list 仍62只(CF Workers Static Assets缓存延迟,push main触发deploy+purge待生效,不卡单域名§8);overview collected_at=20260724 18:30 ✓
 
 **收盘后分批实施**:
 - 批次1 提速:Top2集群(B1+F2+L3+L-1+R1 零代码省100min/天)+ B4 C方案(E2去双throttle+并发采集+--full-market,35min->3.5min)
