@@ -8,7 +8,7 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-24 20:20(B4实测崩溃✓验收退出码133+FATAL V8+0只成功;7/24 ETF国家队缺失etf_daily最新7/23;派a22修复ProcessPoolExecutor中)
+**最后更新**:2026-07-24 20:48(B4实测崩溃✓验收退出码133+FATAL V8+0只成功;7/24 ETF国家队缺失etf_daily最新7/23;派a22修复ProcessPoolExecutor中;backfill_evening 20:00 漏跑告警✓排查=误告警[plist Top2已删20:00,schedule_monitor配置滞后],已修schedule_monitor.sh L51删20:00+清空latest.md)
 
 **分支**:origin/main = `194c097f`(批次1 提速 `172fe2b6`+docs `194c097f` 已上线)
 - 批次1 commit:`0e916672` feat: B4 C方案(E2去双throttle+并发采集+--full-market) + `172fe2b6` data: etf_score_list 1371只修复(手动rsync trade-data->trade)
