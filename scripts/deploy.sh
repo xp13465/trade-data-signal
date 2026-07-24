@@ -184,7 +184,9 @@ for _tab in a-stock hk global sentiment; do
   done
 done
 # global-extras-all 已 R2 托管（upload-data-large 上传，前端 dataUrl() 路由），不进 git
-# industry: 仅 meta 留 git（3m/6m/1y 单文件 + all/5y/3y-concepts 已 R2 托管，.gitignore 移出减 ~24M）
+# industry: 仅 meta 留 git（3m/6m/1y 单文件 + all/5y/3y 单文件 + all/5y/3y-concepts 已 R2 托管，.gitignore 移出减 ~24M）
+# 2026-07-25 补 industry-{all,5y,3y}.json 单文件漏移（5y/all 已 untracked，3y 仍 tracked 致 7/24
+# 20:07 etf deploy rebase 撞 unstaged M 失败，stash 56770911 兜底但根因未除，现 git rm --cached 根治）
 # industry-*-meta 是 4KB 小文件，留 git 作元数据参考；前端 meta 也从 R2 读但 git 带冗余可忽略
 for _rng in all 5y 3y; do
   DATA_FILES+=("static-site/data/industry-${_rng}-meta.json" "static-site/data/industry-${_rng}-meta.json.gz")
