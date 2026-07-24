@@ -47,7 +47,7 @@
     "position": {
       "hands": 1,
       "volatility": 1.68,
-      "label": "轻仓",
+      "label": "1手",
       "detail": {
         "opp": 40.47,
         "ma60_ratio": 0.989,

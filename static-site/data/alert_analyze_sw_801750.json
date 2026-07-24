@@ -46,19 +46,19 @@
     },
     "position": {
       "hands": 2,
-      "volatility": 2.92,
-      "label": "半仓",
+      "volatility": 2.93,
+      "label": "2手",
       "detail": {
         "opp": 77.31,
-        "ma60_ratio": 0.8754,
+        "ma60_ratio": 0.8734,
         "trend": 0.0,
-        "macd_hist": -27.2525,
+        "macd_hist": -28.4645,
         "mom": 10.0,
         "vol": 70.0,
-        "volatility": 2.92,
+        "volatility": 2.93,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -32.18,
+        "drawdown": -32.34,
         "draw": 85.0,
         "score": 50.06
       }

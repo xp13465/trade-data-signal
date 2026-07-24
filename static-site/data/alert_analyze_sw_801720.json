@@ -6,12 +6,12 @@
     "date": "20260724",
     "target_id": "sw_801720",
     "target_type": "index",
-    "high": 22.22,
-    "low": 88.41,
+    "high": 22.75,
+    "low": 87.86,
     "high_level": "中性",
-    "low_level": "机遇",
+    "low_level": "机会",
     "dims": {
-      "H1": 9.17,
+      "H1": 10.83,
       "H2": 0.32,
       "H3": 46.25,
       "H4": 0.79,
@@ -19,7 +19,7 @@
       "H6": 70.42,
       "H7": null,
       "H8": null,
-      "L1": 90.83,
+      "L1": 89.17,
       "L2": 94.17,
       "L3": 99.21,
       "L4": null,
@@ -46,21 +46,21 @@
     },
     "position": {
       "hands": 2,
-      "volatility": 2.07,
-      "label": "半仓",
+      "volatility": 2.06,
+      "label": "2手",
       "detail": {
-        "opp": 88.41,
-        "ma60_ratio": 0.8701,
+        "opp": 87.86,
+        "ma60_ratio": 0.8713,
         "trend": 0.0,
-        "macd_hist": -21.5593,
+        "macd_hist": -21.251,
         "mom": 40.0,
         "vol": 85.0,
-        "volatility": 2.07,
+        "volatility": 2.06,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -24.71,
+        "drawdown": -24.61,
         "draw": 70.0,
-        "score": 59.19
+        "score": 59.0
       }
     }
   },
@@ -97,9 +97,9 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 9.17,
+          "score": 10.83,
           "weight": 0.26,
-          "contribution": 2.38,
+          "contribution": 2.82,
           "hit": false,
           "direction": "high"
         },
@@ -126,9 +126,9 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 90.83,
+          "score": 89.17,
           "weight": 0.2,
-          "contribution": 18.17,
+          "contribution": 17.83,
           "hit": true,
           "direction": "low"
         },
@@ -166,7 +166,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 9.17,
+          "value": 10.83,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -248,7 +248,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 90.83,
+          "value": 89.17,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -334,7 +334,7 @@
     },
     "human_text": {
       "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H6 均线转弱 有命中,整体加权后未达关注线",
-      "low": "多维度冰点共振,机会显著,关注超跌反弹,留意布局机会;主要风险来自情绪冰点+买点密集"
+      "low": "冰点信号密集,关注阶段性机会,留意企稳信号;主要风险来自情绪冰点+买点密集"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",
     "no_data_hint": null

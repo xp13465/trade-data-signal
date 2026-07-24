@@ -6,14 +6,14 @@
     "date": "20260723",
     "target_id": "cgb_idx",
     "target_type": "index",
-    "high": 75.17,
+    "high": 79.06,
     "low": 21.28,
     "high_level": "警示",
     "low_level": "中性",
     "dims": {
       "H1": 94.17,
       "H2": 45.0,
-      "H3": null,
+      "H3": 100.0,
       "H4": 100.0,
       "H5": 17.08,
       "H6": 39.58,
@@ -32,10 +32,9 @@
       "target_id": "cgb_idx",
       "target_type": "index",
       "min_dims": 4,
-      "available_high": 5,
+      "available_high": 6,
       "available_low": 5,
       "missing": [
-        "H3",
         "H7",
         "H8",
         "L4",
@@ -82,6 +81,15 @@
           "score": 100.0,
           "weight": 0.2,
           "contribution": 20.0,
+          "hit": true,
+          "direction": "high"
+        },
+        {
+          "k": "H3",
+          "name": "卖点密集",
+          "score": 100.0,
+          "weight": 0.13,
+          "contribution": 13.0,
           "hit": true,
           "direction": "high"
         },
@@ -186,12 +194,12 @@
         {
           "k": "H3",
           "name": "卖点密集",
-          "value": null,
+          "value": 100.0,
           "threshold": 60,
           "unit": "分",
           "desc": "卖点密集(近10日sell信号)",
-          "hit": false,
-          "status": "无数据"
+          "hit": true,
+          "status": "命中"
         },
         {
           "k": "H4",
