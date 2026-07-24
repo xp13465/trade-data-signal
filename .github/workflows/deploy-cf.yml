@@ -1,0 +1,42 @@
+name: Deploy to Cloudflare Workers
+
+# 触发条件:push to main 且 static-site/ worker/ wrangler.jsonc app/ 有改动时
+# 目的:替代 CF Workers Git integration(~20min 延迟),实现秒级上线
+# 与 Git integration 并存,GH Actions wrangler 为加速主路径(先跑完),
+# Git integration 作兜底(GH Actions 失败时仍会 deploy)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'static-site/**'
+      - 'worker/**'
+      - 'wrangler.jsonc'
+      - 'app/**'
+      - '.github/workflows/deploy-cf.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一时刻只跑一个 deploy,排队不取消(避免半截状态)
+concurrency:
+  group: cf-workers-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install wrangler
+        run: npm install wrangler@latest
+
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
