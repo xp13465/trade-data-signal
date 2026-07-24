@@ -6734,6 +6734,8 @@ function _renderUSFuturesExpect(snap, container) {
 }
 
 async function renderGlobal(container = content) {
+  // 显式设 loading：fetch + 盘中快照等待期间保持 loading，避免点击后空白无反馈（对齐 renderFutures 模式）
+  renderLoadingState(container, "加载全球数据…");
   let r;
   try {
     r = await fetchJSON(`./data/global-${state.range}.json`);
@@ -6741,10 +6743,10 @@ async function renderGlobal(container = content) {
     renderErrorState(container, e, () => renderGlobal(container));
     return;
   }
-  container.innerHTML = "";
   // 拉取盘中快照，供走势卡角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
+  container.innerHTML = "";  // 清 loading 开始渲染
   container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看全球主要指数+商品/国债/汇率等风险资产。美股期货(ES/NQ)亚盘实时预估美股当晚开盘方向。商品/国债T+1。</div>');
   // M2：r.indices 已有 || {} 兜底；为空时显示空数据提示而非静默空白
   const idxEntries = Object.entries(r.indices || {});
@@ -6762,9 +6764,16 @@ async function renderGlobal(container = content) {
   cardGrid.className = "indices-grid";
   container.appendChild(cardGrid);
   if (idxEntries.length) {
+    // 9 个全球指数 sig 并发 fetch 期间显示内部 loading（避免 indices-grid 空白，grid-column:1/-1 占满整行）
+    const gridLoading = document.createElement("div");
+    gridLoading.className = "loading loading--active";
+    gridLoading.style.gridColumn = "1 / -1";
+    gridLoading.innerHTML = '<span class="loading__spinner"></span><span class="loading__text">加载指数图表…</span>';
+    cardGrid.appendChild(gridLoading);
     const sigResults = await Promise.all(
       idxEntries.map(([id]) => fetchJSON(`https://ssd.fx8.store/index/${id}-all.json`).catch(() => null))
     );
+    gridLoading.remove();
     idxEntries.forEach(([id, idx], i) => {
       const sig = sigResults[i] || { signals: [], stats: {} };
       const sigs = filterSignalsByRange(sig.signals, idx.data);
