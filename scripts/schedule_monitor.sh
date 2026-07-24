@@ -36,7 +36,11 @@ STATS_FILE = REPO / "static-site" / "data" / "schedule_stats.json"
 MONITOR_LOG = LOG_DIR / "schedule_monitor_launchd.log"
 
 NOW = datetime.now()
-TOLERANCE = timedelta(minutes=30)  # 30min 容忍窗口
+TOLERANCE = timedelta(minutes=30)  # 漏跑检查容忍窗口（适用所有任务，与采集频率无关）
+# 产物时效检查阈值（intraday 15min 频率 + 5min buffer = 20min）：
+#   intraday 15min 推一次 overview.json，下一轮 sch+15min 已推新版，留 5min buffer 给
+#   采集+push 耗时（任务2优化后 <7min），超过 20min 即为线上滞后（push 失败或卡死）。
+LAG_TOLERANCE = timedelta(minutes=20)
 
 # 8 任务计划时点表（与 ~/Library/LaunchAgents/com.trade.*.plist StartCalendarInterval 对齐）
 # 字段：task | launchd log 文件名 | 计划时点列表（HH:MM）
@@ -46,8 +50,8 @@ TASKS = [
     {"task": "backfill_evening",    "log": "backfill_evening_launchd.log",
      "schedules": ["02:00", "16:35", "20:00"]},
     {"task": "intraday_snapshot",   "log": "intraday_snapshot_launchd.log",
-     "schedules": ["09:35", "10:05", "10:35", "11:05", "11:30",
-                   "13:05", "13:35", "14:05", "14:35", "15:05", "15:35"]},
+     "schedules": ["09:35", "09:50", "10:05", "10:20", "10:35", "10:50", "11:05", "11:20", "11:30",
+                   "13:05", "13:20", "13:35", "13:50", "14:05", "14:20", "14:35", "14:50", "15:05"]},
     {"task": "futures_backfill",    "log": "futures_backfill_launchd.log",
      "schedules": ["20:05", "21:00"]},
     {"task": "lhb_backfill",        "log": "lhb_backfill_launchd.log",
@@ -132,21 +136,22 @@ if STATS_FILE.exists():
 
 # 3) 产物时效检查：线上 overview.json collected_at vs NOW
 #    intraday push 失败就是线上滞后（schedule_stats 只看任务跑了没，不查产物上线=盲区）。
-#    仅交易日盘中 09:50-15:30 检查（intraday 每30min推一次，首次 09:35 完成于 ~09:45），
+#    仅交易日盘中 09:50-15:30 检查（intraday 每15min推一次，首次 09:35 完成于 ~09:42），
 #    09:50 起检避开开盘空窗期 overview.json 仍是凌晨旧版导致的误报；避免非交易时段误报。
 #    多域名容错：依次试 ss.fx8.store/sss.sugas.site/s.sugas.site，任一不 lag 即 OK，
-#    规避 CF Workers cache 滞后单域名误报。滞后 > 30min（3域名全 lag）告警 SEVERE。
+#    规避 CF Workers cache 滞后单域名误报。滞后 > 20min（3域名全 lag）告警 SEVERE
+#    （intraday 15min 频率 + 5min buffer；2026-07-24 从 30min 改 20min 适配 15min 频率）。
 #    curl 超时 8s（subprocess timeout 12s 兜底）不阻塞 launchd 15min 周期。
 #    用 /usr/bin/curl 而非 urllib：venv python 缺系统 CA 证书会 SSL 校验失败，curl 走系统证书更稳。
 try:
     from app.calendar import is_trading_day
     now_hm = NOW.strftime("%H%M")
-    # 0950 起检：intraday 第一次 09:35，dur 约 10min，09:45 才完成 push。
-    # 0930-0945 开盘空窗期 overview.json 必然是凌晨 02:38 旧版，必触发误报。
-    # 0950 检查避开空窗，覆盖盘中其余时点（intraday 每 30min 推一次）。
+    # 0950 起检：intraday 第一次 09:35，dur 约 7min（任务2优化后），09:42 才完成 push。
+    # 0930-0942 开盘空窗期 overview.json 必然是凌晨 02:38 旧版，必触发误报。
+    # 0950 检查避开空窗，覆盖盘中其余时点（intraday 每 15min 推一次）。
     # 1130-1315 排除午休窗口：A股午休 11:30-13:00 无交易，overview.json collected_at
-    # 停在上午 11:30 快照(完成于 ~11:40)，直到 13:05 快照完成(~13:15)才更新。
-    # 此窗口内 lag 必然 >30min 但属正常(午休没交易)，排除避免误报。
+    # 停在上午 11:30 快照(完成于 ~11:37)，直到 13:05 快照完成(~13:12)才更新。
+    # 此窗口内 lag 必然 >20min 但属正常(午休没交易)，排除避免误报。
     # 2026-07-24 12:30 误报事故根因：午休未排除，12:15 起 lag>30min 触发 SEVERE。
     # 非交易日已由 is_trading_day() 排除（周末/节假日 overview 滞后正常）。
     if is_trading_day() and "0950" <= now_hm <= "1530" and not ("1130" <= now_hm < "1315"):
@@ -186,9 +191,9 @@ try:
                 continue
             lag = NOW - collected_dt
             lag_min = int(lag.total_seconds() // 60)
-            status = "ok" if lag <= TOLERANCE else "lag"
+            status = "ok" if lag <= LAG_TOLERANCE else "lag"
             lag_results.append((base, collected_at, lag_min, status))
-            if lag <= TOLERANCE:
+            if lag <= LAG_TOLERANCE:
                 all_lag = False
                 print(f"[ok] 线上 overview collected_at={collected_at} lag={lag_min}min (via {base})")
                 break
@@ -200,7 +205,7 @@ try:
             )
             alerts.append(
                 f"SEVERE: 线上 overview.json 时效滞后(3域名全lag) "
-                f"threshold<30min> now<{now_full}> 详情: {detail}"
+                f"threshold<20min> now<{now_full}> 详情: {detail}"
             )
 except Exception as e:
     print(f"[warn] 线上 overview.json 时效检查失败: {e}", file=sys.stderr)

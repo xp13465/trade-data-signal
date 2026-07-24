@@ -243,7 +243,14 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
     R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total)。
     include_gz=True 时同时上传 .gz（若存在）。
     单文件失败(重试3次仍错)不中断整批,继续上传后续文件。
+
+    并发上传(ThreadPoolExecutor 8 线程)：186 文件串行 3-5min -> 并发约 30-60s。
+    R2 S3 API 支持并发(AWS SDK 默认 10-20 并发),8 线程保守安全;
+    每线程独立 HTTPSConnection(无共享状态),ssl.SSLContext 线程安全。
+    2026-07-24: intraday 频率从 30min 缩 15min,采集需 <7min,R2 串行成瓶颈,改并发。
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     local_dir = Path(local_dir)
     files = []
     for pat in glob_patterns:
@@ -253,9 +260,10 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
     if not files:
         print(f"⚠ {local_dir} 下 {glob_patterns} 无匹配文件")
         return 0, 0
-    ok = 0
     total = len(files)
-    for i, f in enumerate(files, 1):
+
+    def _upload_one(idx_f):
+        i, f = idx_f
         rel = f.relative_to(local_dir)
         key = f"{r2_prefix}/{rel}"
         payload = f.read_bytes()
@@ -263,12 +271,23 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
         try:
             status, data = s3_request("PUT", key, payload)
             if status == 200:
-                ok += 1
-                print(f"[{i}/{total}] ✓ {rel} ({size}B)")
-            else:
-                print(f"[{i}/{total}] ✗ {rel} status={status} {data[:200]}")
+                return (i, True, rel, size, None)
+            return (i, False, rel, size, f"status={status} {data[:200]}")
         except Exception as e:
-            print(f"[{i}/{total}] ✗ {rel} 异常({type(e).__name__}: {e})")
+            return (i, False, rel, size, f"异常({type(e).__name__}: {e})")
+
+    ok = 0
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(_upload_one, (i, f)) for i, f in enumerate(files, 1)]
+        done = 0
+        for fut in as_completed(futures):
+            i, success, rel, size, err = fut.result()
+            done += 1
+            if success:
+                ok += 1
+                print(f"[{done}/{total}] ✓ {rel} ({size}B)")
+            else:
+                print(f"[{done}/{total}] ✗ {rel} {err}")
     print(f"共上传 {ok}/{total} -> {PUBLIC}/{r2_prefix}/")
     return ok, total
 

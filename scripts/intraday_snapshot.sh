@@ -67,16 +67,24 @@ if [ "$SNAP_RC" -ne 0 ]; then
   exit "$SNAP_RC"
 fi
 
-# 1.5) 15:35 收盘后顺便采 12 国家队 ETF 当日 close(末日 share_change=NULL -> 触发预估)
+# 1.5) 15:05 收盘后顺便采 12 国家队 ETF 当日 close(末日 share_change=NULL -> 触发预估)
 #      原问题:backfill 只在 20:07/21:30 跑,15:00 收盘到 20:07 这 5 小时 -1m.json 末日还是昨日
 #      (share 已发 share_change 非空),前端 lastChgMissing=false 预估不触发(每天约 20 小时不触发)。
-#      修复:此处采 ETF 当日 close -> 末日 share_change=NULL -> 前端预估提前 5 小时触发(15:35 而非 20:07)。
+#      修复:此处采 ETF 当日 close -> 末日 share_change=NULL -> 前端预估提前 5 小时触发(15:05 而非 20:07)。
 #      复用 etf_national_team.py pipeline_intraday_close(fetch_etf_ohlc + _upsert_daily + export_json_files)。
 #      失败不阻塞:快照已采+将 push,ETF 预估触发延迟到 20:07 backfill 兜底。
-echo "-> 采 ETF 国家队当日 close(末日 share_change=NULL 触发预估)..." | tee -a "$LOG"
-"$PY" -m app.collector.etf_national_team intraday-close 2>&1 | tee -a "$LOG"
-ETF_RC=${PIPESTATUS[0]}
-[ "$ETF_RC" -ne 0 ] && echo "⚠ ETF intraday-close 失败(退出码 $ETF_RC),不阻塞快照" | tee -a "$LOG"
+#      2026-07-24: 盘中(9:35-14:50)收盘价必然采空(sina/mootdx 未出),12 只全跳过仍耗时 191.5s
+#      (mootdx 选最快 server + 12 只 TCP 连接开销),是 intraday 10min 耗时的主瓶颈之一。
+#      15min 频率下需 <7min,故加时间闸门:仅在 15:00 后(15:05 时点)跑,盘中其余 17 时点跳过省 191.5s/轮。
+HOUR_MIN=$(date +%H%M)
+if [ "$HOUR_MIN" -ge "1500" ]; then
+  echo "-> 采 ETF 国家队当日 close(末日 share_change=NULL 触发预估,15:00 后跑)..." | tee -a "$LOG"
+  "$PY" -m app.collector.etf_national_team intraday-close 2>&1 | tee -a "$LOG"
+  ETF_RC=${PIPESTATUS[0]}
+  [ "$ETF_RC" -ne 0 ] && echo "⚠ ETF intraday-close 失败(退出码 $ETF_RC),不阻塞快照" | tee -a "$LOG"
+else
+  echo "-> 跳过 ETF intraday-close(盘中时点 $HOUR_MIN<1500,收盘价未出采空必失败,省约 190s)" | tee -a "$LOG"
+fi
 
 # 2) commit + push 受影响的静态数据 JSON 到 main 分支（部署分支）
 #    用独立 git worktree 操作 main，不影响当前 feat 开发分支：
