@@ -124,10 +124,10 @@ CGB_BAND_PARAMS = {
 
 
 def compute_band_signal(index_id: str, params: dict) -> list[dict]:
-    """国债波段仓位管理信号（实盘化，近60天每天1条，每日独立判断，返回信号 list[dict]）。
+    """国债波段仓位管理信号（实盘化，全历史每天1条，每日独立判断，返回信号 list[dict]）。
 
-    读 index_daily 近 120 天 cgb 品种收盘价（60天暖机 + 60天信号），算指标，
-    遍历最后60天每天算信号。指标与回测 /tmp/backtest_cgb_band.py 一致:
+    读 index_daily 全量历史 cgb 品种收盘价（前60天 MA60 暖机，其后每天算信号），算指标，
+    遍历 MA60 暖机后每天算信号。指标与回测 /tmp/backtest_cgb_band.py 一致:
     - MA20/MA60 乖离: bias20=close/MA20-1, bias60=close/MA60-1
     - RSI14: EWM α=1/14 adjust=False（复刻 _rsi）
     - 布林(20,2σ): rolling(20).std(ddof=1, 与回测一致; signals._bollinger 用 ddof=0 是另一套口径)
@@ -141,23 +141,23 @@ def compute_band_signal(index_id: str, params: dict) -> list[dict]:
     实盘化「不看历史仓位」= 不依赖回测的 pos/cash/last_action 状态，每天独立给当前状态。
     （实盘只需当前状态提示，历史回溯用回测结果 /tmp/cgb_band_results.json）
 
-    返回 list[dict]（近60天每天1条，升序；数据不足返回 []）。每条 dict:
+    返回 list[dict]（全历史每天1条，升序；数据不足返回 []）。每条 dict:
       {date, signal, reason, ratio, rsi, bias20, bias60, bb_pos}
       signal: "减仓"/"接回"/"止损"/"持有"
       date: 交易日(YYYYMMDD 字符串, 与 signal_daily 主键一致)
 
     2026-07-24 修复: 原只返回最新1天 dict|None, store() DELETE 重算致历史波段信号每天被
-    覆盖(sell减仓次日消失)。改为返回近60天 list,与其他信号(buy/sell等算全历史)一致,
+    覆盖(sell减仓次日消失)。改为返回全历史 list,与其他信号(buy/sell等算全历史)一致,
     signal_daily 保留历史波段信号,前端走势图可回放历史减仓/接回时点。
     """
     conn = get_conn()
     rows = conn.execute(
         "SELECT date, close FROM index_daily WHERE index_id=? AND close IS NOT NULL "
-        "ORDER BY date DESC LIMIT 120",
+        "ORDER BY date DESC",
         (index_id,),
     ).fetchall()
     conn.close()
-    if len(rows) < 120:
+    if len(rows) < 60:
         return []
     # 按日期升序（DB 取出是 DESC，反转）
     rows = list(reversed(rows))
