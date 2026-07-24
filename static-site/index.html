@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1a1d29">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="信号实验室">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>信号实验室 | 盘后复盘·多市场情绪·技术分析参考点 · tdsignal</title>
   <meta name="description" content="A股/港股/全球盘后复盘情绪看板:综合情绪分(0-100)、市场宽度、恐贪指数与技术分析参考点,一屏看懂多市场冷热。">
   <meta name="keywords" content="A股情绪看板,市场情绪指数,盘后复盘,恐贪指数,市场宽度,综合情绪分,涨跌家数,涨停连板,行业热力图,技术分析参考点,tdsignal">
@@ -11,6 +16,8 @@
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <link rel="canonical" href="https://ss.fx8.store/">
   <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=9ecef961">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="信号实验室">
   <meta property="og:title" content="信号实验室">
@@ -155,5 +162,15 @@
   <!-- P2-5: echarts.min.js 不再预加载（省 615KB 首屏 JS），renderTab 触发时由 app.js dynamic 注入 -->
   <meta name="echarts-asset-url" content="./vendor/echarts.min.js?v=12173341">
 <!-- zz.bdstatic 百度站长已移到 inline-init.js（defer 统一外部化） -->
+<!-- A6 PWA: 注册 service worker, 移动端可安装+离线缓存关键资源 (静态 SWR / 动态 JSON network-first) -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').catch(function (err) {
+      console.warn('[pwa] SW register failed:', err);
+    });
+  });
+}
+</script>
 </body>
 </html>

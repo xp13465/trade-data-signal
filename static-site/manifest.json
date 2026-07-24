@@ -1,0 +1,27 @@
+{
+  "name": "信号实验室 | 盘后复盘·多市场情绪看板",
+  "short_name": "信号实验室",
+  "description": "A股/港股/全球盘后复盘情绪看板:综合情绪分(0-100)、市场宽度、恐贪指数与技术分析参考点,一屏看懂多市场冷热。",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#1a1d29",
+  "theme_color": "#1a1d29",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "市场全景", "short_name": "全景", "url": "./?tab=overview&source=pwa" },
+    { "name": "情绪温度", "short_name": "情绪", "url": "./?tab=sentiment&source=pwa" },
+    { "name": "ETF评分", "short_name": "ETF", "url": "./?tab=etf&source=pwa" }
+  ]
+}
