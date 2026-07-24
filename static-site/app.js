@@ -2332,7 +2332,7 @@ function _marketScoreCardHTML(data, alert, humanText) {
     ? `<span class="position-dim-summary" title="${posDimTitle}">机会${_f0(_d.opp)} 趋势${_f0(_d.trend)}</span>`
     : "";
   const posBadge = pos
-    ? `<span class="position-badge position-${posHands}">建议仓位 ${posHands}手·${posLabel}</span>` +
+    ? `<span class="position-badge position-${posHands}">建议仓位 ${posLabel}</span>` +
       posScoreHTML + posDimHTML +
       `<span class="volatility-text">波动率 ${posVol != null ? posVol.toFixed(2) : "-"}%</span>`
     : `<span class="position-badge position-0">建议仓位 数据不足</span>`;

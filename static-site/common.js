@@ -163,7 +163,7 @@ function _labCustomScoreCardHTML(data, alert, humanText) {
   const posVol = pos ? pos.volatility : null;
   const posRow = pos
     ? `<div class="market-position-row">` +
-        `<span class="position-badge position-${posHands}">建议仓位 ${posHands}手·${posLabel}</span>` +
+        `<span class="position-badge position-${posHands}">建议仓位 ${posLabel}</span>` +
         `<span class="volatility-text">波动率 ${posVol != null ? posVol.toFixed(2) : "-"}%</span>` +
       `</div>`
     : `<div class="market-position-row"><span class="position-badge position-0">建议仓位 数据不足</span></div>`;
