@@ -100,6 +100,145 @@ def _bollinger(close: pd.Series, window: int = 20, n_std: float = 2.0):
     return bu, mid, bl
 
 
+# === 国债三品种波段仓位管理策略（2026-07-24 上线）===
+# 回测依据: /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json best_params.{品种}.all.params
+# 回测验证: cgb_idx 降风险(年化3.57%->3.23% 微降,回撤-10.4%->-4.8% 大降,夏普2.80->3.58);
+#           cgb_10y_etf 放宽双赢(年化3.50%->3.24% 微降,回撤-4.62%->-3.62% 降,夏普1.31->1.52);
+#           cgb_10y_future 双赢(年化1.30%->1.63% 升,回撤-6.80%->-2.37% 大降,夏普0.42->1.58)。
+# 替代原 D1 卖点(20日高回落5%)对国债完全失效(sell=0 无理由)的问题:国债波动小,D1 从未触发。
+# 波段策略用 RSI+乖离+布林三指标,减仓/接回/止损三动作,实盘化每日独立判断。
+CGB_BAND_PARAMS = {
+    "cgb_idx": {
+        "bias_th": 0.003, "rsi_high": 65, "rsi_low": 35,
+        "ratio1": 0.2, "ratio2": 0.5, "ratio3": 0.3,
+    },
+    "cgb_10y_etf": {
+        "bias_th": 0.003, "rsi_high": 70, "rsi_low": 35,
+        "ratio1": 0.3, "ratio2": 0.5, "ratio3": 0.3,
+    },
+    "cgb_10y_future": {
+        "bias_th": 0.003, "rsi_high": 65, "rsi_low": 25,
+        "ratio1": 0.5, "ratio2": 0.2, "ratio3": 0.3,
+    },
+}
+
+
+def compute_band_signal(index_id: str, params: dict) -> dict | None:
+    """国债波段仓位管理信号（实盘化，判断最新交易日，每日独立，返回信号 dict）。
+
+    读 index_daily 近 60 天 cgb 品种收盘价，算指标，判断当日（最新交易日）信号。
+    指标与回测 /tmp/backtest_cgb_band.py 一致:
+    - MA20/MA60 乖离: bias20=close/MA20-1, bias60=close/MA60-1
+    - RSI14: EWM α=1/14 adjust=False（复刻 _rsi）
+    - 布林(20,2σ): rolling(20).std(ddof=1, 与回测一致; signals._bollinger 用 ddof=0 是另一套口径)
+
+    动作条件(回测 L103-105, 实盘化去掉 last_action 防连续, 每天独立判断给方向+比例):
+    - 减仓: (bias20>bias_th AND rsi>rsi_high) OR close>=bb_up -> 减 ratio1
+    - 接回: (rsi<rsi_low AND |bias60|<0.02) OR close<=bb_low -> 接 ratio2
+    - 止损: close<MA60*0.98 -> 减 ratio3
+    - 持有: 无以上
+
+    实盘化「不看历史仓位」= 不依赖回测的 pos/cash/last_action 状态，每天独立给当前状态。
+    （实盘只需当前状态提示，历史回溯用回测结果 /tmp/cgb_band_results.json）
+
+    返回 dict: {date, signal, reason, ratio, rsi, bias20, bias60, bb_pos} 或 None(数据不足)。
+      signal: "减仓"/"接回"/"止损"/"持有"
+      date: 最新交易日(YYYYMMDD 字符串, 与 signal_daily 主键一致)
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id=? AND close IS NOT NULL "
+        "ORDER BY date DESC LIMIT 60",
+        (index_id,),
+    ).fetchall()
+    conn.close()
+    if len(rows) < 60:
+        return None
+    # 按日期升序（DB 取出是 DESC，反转）
+    rows = list(reversed(rows))
+    dates = [r[0] for r in rows]
+    closes = [float(r[1]) for r in rows]
+    close = pd.Series(closes, index=dates)
+
+    ma20 = close.rolling(20).mean()
+    ma60 = close.rolling(60, min_periods=60).mean()
+    bias20 = (close - ma20) / ma20
+    bias60 = (close - ma60) / ma60
+    rsi = _rsi(close, 14)
+    bb_mid = close.rolling(20).mean()
+    bb_std = close.rolling(20).std()  # ddof=1 与回测一致（backtest_cgb_band.py L51 默认）
+    bb_up = bb_mid + 2.0 * bb_std
+    bb_low = bb_mid - 2.0 * bb_std
+    bb_pos = (close - bb_low) / (bb_up - bb_low)
+
+    bias_th = params["bias_th"]
+    rsi_high = params["rsi_high"]
+    rsi_low = params["rsi_low"]
+    ratio1 = params["ratio1"]
+    ratio2 = params["ratio2"]
+    ratio3 = params["ratio3"]
+
+    # 最新交易日
+    c = close.iloc[-1]
+    r = rsi.iloc[-1]
+    b20 = bias20.iloc[-1]
+    b60 = bias60.iloc[-1]
+    m60 = ma60.iloc[-1]
+    bu = bb_up.iloc[-1]
+    bl = bb_low.iloc[-1]
+    bp = bb_pos.iloc[-1]
+    latest_date = dates[-1]
+
+    if pd.isna(c) or pd.isna(r) or pd.isna(b20) or pd.isna(b60) or pd.isna(m60) or pd.isna(bu) or pd.isna(bl):
+        return None
+
+    reduce_sig = (b20 > bias_th and r > rsi_high) or (c >= bu)
+    rebuy_sig = (r < rsi_low and abs(b60) < 0.02) or (c <= bl)
+    stop_sig = c < m60 * 0.98
+
+    if stop_sig:
+        signal = "止损"
+        ratio = ratio3
+        drop_pct = (c - m60) / m60 * 100
+        reason = (f"波段止损{int(ratio * 100)}%: 跌破MA60支撑"
+                  f"(MA60={m60:.2f},close={c:.2f},跌幅{drop_pct:.2f}%)")
+    elif reduce_sig:
+        signal = "减仓"
+        ratio = ratio1
+        triggers = []
+        if b20 > bias_th and r > rsi_high:
+            triggers.append(f"RSI{r:.0f}超买+bias20 {b20 * 100:.2f}%")
+        if c >= bu:
+            triggers.append("触布林上轨")
+        reason = f"波段减仓{int(ratio * 100)}%: " + "+".join(triggers)
+    elif rebuy_sig:
+        signal = "接回"
+        ratio = ratio2
+        triggers = []
+        if r < rsi_low and abs(b60) < 0.02:
+            triggers.append(f"RSI{r:.0f}超卖+乖离回归")
+        if c <= bl:
+            triggers.append("触布林下轨")
+        reason = f"波段接回{int(ratio * 100)}%: " + "+".join(triggers)
+    else:
+        signal = "持有"
+        ratio = 0.0
+        bp_str = f"{bp * 100:.0f}%" if pd.notna(bp) else "NA"
+        reason = (f"波段持有: 无超买超卖信号"
+                  f"(RSI{r:.0f},bias20 {b20 * 100:.2f}%,BB位{bp_str})")
+
+    return {
+        "date": latest_date,
+        "signal": signal,
+        "reason": reason,
+        "ratio": float(ratio),
+        "rsi": float(r),
+        "bias20": float(b20),
+        "bias60": float(b60),
+        "bb_pos": float(bp) if pd.notna(bp) else None,
+    }
+
+
 def _macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
     """MACD(12,26,9)：DIF = EMA(close,12) - EMA(close,26)，DEA = EMA(DIF,9)。
 
@@ -1182,6 +1321,19 @@ def compute():
                 parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
             signals.append((date, iid, "sell_stop_loss", ", ".join(parts)))
+
+        # 国债三品种波段仓位管理信号(2026-07-24): 替代 D1 sell=0 无理由(国债波动小 D1 从不触发)。
+        # 与标准 buy/buy_aux/sell/buy_special/buy_backup/sell_stop_loss 并存
+        # (signal_daily 主键 date+index_id+signal,波段 signal_type 不同不冲突)。
+        # 减仓/止损 -> "sell"(alert_score sell_cnt 计入=sell=1); 接回 -> "buy_aux"(买点提示);
+        # 持有 -> "band_hold"(新类型,alert_score 不影响)。
+        # 实盘化: 只判断最新交易日给当前状态(不写历史,历史回溯用回测结果)。
+        if iid in CGB_BAND_PARAMS:
+            band = compute_band_signal(iid, CGB_BAND_PARAMS[iid])
+            if band is not None:
+                sig_map = {"减仓": "sell", "止损": "sell", "接回": "buy_aux", "持有": "band_hold"}
+                sig_type = sig_map[band["signal"]]
+                signals.append((band["date"], iid, sig_type, band["reason"]))
 
     # B 扩展：全球指标 + 情绪分数 signals（value 当 close，按 09 回测推荐规则 + B1+S1）
     for mid in GLOBAL_METRIC_IDS:
