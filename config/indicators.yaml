@@ -32,7 +32,10 @@ metrics:
   - {id: a_width_seal_rate,     name: 封板率(zt/(zt+zb)),   group: a_width, type: simple, func: TODO, unit: "%", direction: positive, enabled: true}
 
   # ============ A股 · 资金面 ============
-  - {id: a_fund_north,   name: 北向资金净流入(2024年8月停更), group: a_fund, type: simple, func: stock_hsgt_hist_em,     params: {symbol: 北向资金}, column: 当日成交净买额, unit: 亿元, direction: positive, enabled: true}
+  - {id: a_fund_north,   name: 北向资金成交总额(2024年8月净额停更后替代), group: a_fund, type: simple, func: direct:north_fund_total, unit: 亿元, direction: positive, enabled: true}
+  # 北向资金 2024-08 港交所新规取消盘中净买额披露，东财 NET_DEAL_AMT 全 null 停更。
+  # 方案A 救急：改用 DEAL_AMT（成交总额=买+卖）替代，语义从「净流入方向」变「市场活跃度」。
+  # direction 仍 positive（成交总额大=市场活跃）。方案B（CCASS 反算真净买额）TODO 后续单独大任务。
   - {id: a_fund_margin,  name: 两融余额(沪市融资), group: a_fund, type: simple, func: stock_margin_sse,       column: 融资余额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
   - {id: a_fund_main,    name: 主力净流入,     group: a_fund, type: simple, func: direct:market_fund_flow, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
 

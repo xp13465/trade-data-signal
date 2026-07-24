@@ -121,3 +121,86 @@ def fetch_market_fund_flow():
     except Exception:
         pass
     return []  # 三源皆败，返回空（collect_direct 转 fail 记 error）
+
+
+def fetch_north_fund_total():
+    """北向资金成交总额（沪股通+深股通 buySellAmt 之和），返回 [(date_YYYYMMDD, value_亿元), ...]。
+
+    背景：2024-08 港交所新规取消盘中实时净买额披露后，东财 RPT_MUTUAL_DEAL_HISTORY 的
+    NET_DEAL_AMT（净买额）/BUY_AMT/SELL_AMT 全 null 停更，akshare stock_hsgt_hist_em 的
+    「当日成交净买额」返 NaN（fetchers.py L141 跳 NaN 致 20240816 后不入库）。
+    方案A 救急：改用同接口的 DEAL_AMT（成交总额=买+卖）替代。语义从「净流入方向」变
+    「市场活跃度」，sentiment north direction 仍 positive（成交总额大=市场活跃）。
+    方案B（CCASS 反算真净买额）为后续单独大任务 TODO，本 fetcher 不实现。
+
+    主源：datacenter-web.eastmoney.com RPT_MUTUAL_DEAL_HISTORY（MUTUAL_TYPE=005 北向合计），
+    返回 2014-11 至今 ~2716 日，3 页（pageSize=1000）。DEAL_AMT 原值单位百元，/100=亿元。
+    对照：2026-07-24 DEAL_AMT=283837.28 -> 2838.37 亿，与 push2 kamt/get 的
+    hk2sh.buySellAmt(13605483.14万)+hk2sz.buySellAmt(14778245.72万)=28383728.86万=2838.37亿 吻合。
+
+    fallback：datacenter 失败时用 push2 kamt/get 拿当日（只今天 1 天，无历史回填），
+    buySellAmt 单位万元，/10000=亿元。仅兜底，正常路径走主源拿全量历史。
+    """
+    # 主源：datacenter-web RPT_MUTUAL_DEAL_HISTORY（历史日K，全量 ~3 页）
+    rows = []
+    try:
+        for page in range(1, 6):  # 最多 5 页兜底（实测 3 页）
+            r = em_get(
+                "https://datacenter-web.eastmoney.com/api/data/v1/get",
+                params={
+                    "sortColumns": "TRADE_DATE",
+                    "sortTypes": "-1",
+                    "pageSize": "1000",
+                    "pageNumber": str(page),
+                    "reportName": "RPT_MUTUAL_DEAL_HISTORY",
+                    "columns": "ALL",
+                    "source": "WEB",
+                    "client": "WEB",
+                    "filter": '(MUTUAL_TYPE="005")',
+                },
+                timeout=20,
+            )
+            data = r.json()
+            result = data.get("result") or {}
+            page_rows = result.get("data") or []
+            if not page_rows:
+                break
+            for item in page_rows:
+                try:
+                    d = str(item.get("TRADE_DATE", ""))[:10].replace("-", "")
+                    v = float(item.get("DEAL_AMT")) / 100.0  # 百元 -> 亿元
+                    if v == v:  # NaN 跳过
+                        rows.append((d, v))
+                except (TypeError, ValueError, KeyError):
+                    continue
+            total_pages = int(result.get("pages", 0))
+            if page >= total_pages:
+                break
+        if rows:
+            return rows
+    except Exception:
+        pass  # datacenter 封禁/网络异常 -> 走 fallback
+
+    # fallback：push2 kamt/get 拿当日（只今天 1 天，无历史）
+    try:
+        r = em_get(
+            "https://push2.eastmoney.com/api/qt/kamt/get",
+            params={
+                "ut": "b2884a393a59ad64002292a3e90d46a5",
+                "fields1": "f1,f2,f3,f4",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
+            },
+            timeout=15,
+        )
+        data = r.json().get("data", {}) or {}
+        hk2sh = data.get("hk2sh", {}) or {}
+        hk2sz = data.get("hk2sz", {}) or {}
+        d = str(hk2sh.get("date2", "")).replace("-", "")
+        if d:
+            total = float(hk2sh.get("buySellAmt") or 0) + float(hk2sz.get("buySellAmt") or 0)
+            # buySellAmt 单位万元，/10000=亿元
+            if total > 0:
+                rows.append((d, total / 10000.0))
+    except Exception:
+        pass
+    return rows
