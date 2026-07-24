@@ -97,4 +97,10 @@ DEPLOY_RC=${PIPESTATUS[0]}
 [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 
 echo "=== futures_backfill.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') deploy=$DEPLOY_RC ===" | tee -a "$LOG"
+
+# 刷新 schedule_stats.json（2026-07-24 方案A根治：从 deploy.sh:72 移到此处，在"结束"行后调用，
+# gen_stats 能读到完整"开始+结束"对，正确配对当前任务 exit/dur，不再 pending null）
+"$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" \
+  || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
+
 exit "$DEPLOY_RC"

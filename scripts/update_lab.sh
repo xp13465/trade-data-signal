@@ -296,3 +296,8 @@ ELAPSED=$((END_TS - START_TS))
 ELAPSED_MIN=$((ELAPSED / 60))
 echo "=== update_lab.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 耗时 ${ELAPSED}s（${ELAPSED_MIN}min）===" | tee -a "$LOG"
 echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retest=$RC5 honors=$RC_HONORS backtest=$RC6 abl=$RC_ABL cc=$RC_CC ps=$RC_PS ss=$RC_SS r2=$R2_RC git_tl=$GIT_DEPLOY_RC" | tee -a "$LOG"
+
+# 刷新 schedule_stats.json（2026-07-24 方案A根治：从 deploy.sh:72 移到此处，在"结束"行后调用，
+# gen_stats 能读到完整"开始+结束"对，正确配对当前任务 exit/dur，不再 pending null）
+"$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" \
+  || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"

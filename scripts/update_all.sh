@@ -208,5 +208,11 @@ fi
 # 失败不影响 update_all 退出码（RC_CORE 保持看板状态）。
 bash "$REPO/scripts/backup_db.sh" || echo "⚠ backup_db 失败(不影响update_all) rc=$?"
 
+# 刷新 schedule_stats.json（2026-07-24 方案A根治：从 deploy.sh:72 移到此处，在"结束"行后调用，
+# gen_stats 能读到完整"开始+结束"对，正确配对当前任务 exit/dur，不再 pending null；
+# update_all 不在 gen_schedule_stats 任务清单，但跑完各 pipeline 后兜底刷新一次 stats）
+"$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" \
+  || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
+
 # 退出码以 core 为准（核心看板公网状态）
 exit "$RC_CORE"

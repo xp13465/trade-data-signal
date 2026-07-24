@@ -66,14 +66,12 @@ if [ "$EXPORT_RC" -ne 0 ]; then
 fi
 echo "✓ export.py 完成" | tee -a "$LOG"
 
-# 1.4 刷新计划任务执行统计（解析 data/logs/*_launchd.log 写 schedule_stats.json）
-# 每次部署刷新，前端"数据更新规则"弹窗展示预估耗时+最后执行时间。失败不阻断部署。
-echo "-> 运行 gen_schedule_stats.py 刷新任务执行统计 ..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG"
-GENS_RC=${PIPESTATUS[0]}
-if [ "$GENS_RC" -ne 0 ]; then
-  echo "⚠ gen_schedule_stats.py 失败(退出码 $GENS_RC)，schedule_stats.json 可能过期，继续部署" | tee -a "$LOG"
-fi
+# 1.4 刷新计划任务执行统计（gen_schedule_stats.py）已移到各任务脚本结尾（2026-07-24 方案A根治）：
+#   原在 deploy.sh:72 跑时，调 deploy 的任务脚本（futures/lhb/etf 等）尚未写"结束"行，
+#   gen_stats 解析当前任务 log 显示 pending（exit=null）。移到各任务脚本"结束"行后调用，
+#   gen_stats 能读到完整"开始+结束"对，正确配对。各任务脚本：futures_backfill/lhb_backfill/
+#   etf_national_team_backfill/update_lab/update_all 结尾 + rzhb_backfill(trap) + intraday_snapshot +
+#   backfill_metrics 已各自调用。手动 deploy 不刷 schedule_stats（无任务脚本上下文），下次任务跑时刷新。
 
 # 1.4b 生成 RSS feed.xml（读 summary_history.json，随 static-site/data/ 上线）
 # 每次部署刷新，供 RSS 阅读器订阅当日收盘情绪。失败不阻断部署。
@@ -171,7 +169,8 @@ run_r2_upload "upload-data-large" upload-data-large || echo "⚠ upload-data-lar
 # 工作区任何残留文件（含 export.py 不再生成的废弃残留，如 etf_national_team-1m.json）。
 # 改为精确文件列表：只 add export.py + deploy.sh 生成/上线的 JSON（+ .gz 副本）+ min JS。
 # - export.py: overview, tab×6ranges, industry 拆分, 单文件, etf_national_team×6ranges(无1m)
-# - deploy.sh: gen_schedule_stats(schedule_stats), gen_rss(feed.xml), build_min(app/lab.min.js)
+# - 各任务脚本结尾: gen_schedule_stats(schedule_stats) [2026-07-24 方案A从 deploy.sh 移出]
+# - deploy.sh: gen_rss(feed.xml), build_min(app/lab.min.js)
 # - update_all.sh/update_lab.sh 靠 deploy 上线: alert, etf_score_list, lab_*(4个)
 # - alert_analyze_*.json 动态(40宽基+行业，新增品种自动覆盖)，用前缀通配(只匹配 alert_analyze_ 前缀)
 # - 不含: etf_national_team-1m.json(废弃), index/industry-*-indices/lab/trade_sim/(.gitignore R2托管)
@@ -242,11 +241,33 @@ if [ "$PUSH_RC" -ne 0 ]; then
     # 本地落后 origin/main（并发 deploy 已推新 commit）：rebase 到 origin/main 后重试 push 一次。
     # 数据 JSON 提交通常不冲突；冲突则 abort 保持工作区干净，退出待人工 rebase 后重跑。
     echo "-> 本地落后 origin/main，rebase 后重试 push ..." | tee -a "$LOG"
+    # 2026-07-24 stash预防（事故根因：工作区有 tracked M 文件如 signal_stats.json/
+    # sw_components.json/TASKS.md 时，rebase 报 "cannot rebase: you have unstaged changes" 失败）：
+    # rebase 前自动 stash tracked M 文件，rebase 后两条路径（成功 push 后 / 失败 abort 后）都 pop 恢复。
+    # 只 stash tracked M（不加 -u），不碰 untracked DB（sentiment.db/etf_national_team.db 已 gitignore）。
+    STASH_CNT_BEFORE=$(git -C "$GIT_REPO" stash list 2>/dev/null | wc -l | tr -d ' ')
+    git -C "$GIT_REPO" stash push -m "deploy.sh-rebase-$(date +%Y%m%d_%H%M%S)" 2>&1 | tee -a "$LOG" || true
+    STASH_CNT_AFTER=$(git -C "$GIT_REPO" stash list 2>/dev/null | wc -l | tr -d ' ')
+    REBASE_STASHED=0
+    if [ "$STASH_CNT_AFTER" -gt "$STASH_CNT_BEFORE" ]; then
+      REBASE_STASHED=1
+      echo "✓ rebase 前已 stash 工作区 tracked M 文件（stash@{0}）" | tee -a "$LOG"
+    else
+      echo "  工作区无 tracked M 文件需 stash（或 stash 无变化跳过）" | tee -a "$LOG"
+    fi
+    # rebase 后恢复 stash 的 helper（pop 冲突则保留 stash 待手动处理，不阻塞 push）
+    pop_rebase_stash() {
+      if [ "$REBASE_STASHED" = "1" ]; then
+        git -C "$GIT_REPO" stash pop 2>&1 | tee -a "$LOG" \
+          || echo "⚠ stash pop 失败/冲突，保留 stash@{0} 待手动 git stash pop" | tee -a "$LOG"
+      fi
+    }
     git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"
     REBASE_RC=${PIPESTATUS[0]:-1}
     if [ "$REBASE_RC" -eq 0 ]; then
       git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
       PUSH_RC=${PIPESTATUS[0]:-1}
+      pop_rebase_stash   # push 后恢复工作区 M 文件（无论 push 成功失败都 pop）
       if [ "$PUSH_RC" -eq 0 ]; then
         echo "✓ rebase + 重试 push 成功" | tee -a "$LOG"
       else
@@ -255,6 +276,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
       fi
     else
       git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
+      pop_rebase_stash   # abort 后恢复工作区 M 文件（已回到 rebase 前状态，pop 安全）
       echo "✗ rebase origin/main 失败（可能数据 JSON 冲突），已 abort 保持工作区干净。" | tee -a "$LOG"
       echo "  请手动：git -C $GIT_REPO fetch origin && git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
       exit 1
