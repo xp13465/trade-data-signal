@@ -119,6 +119,14 @@ for t in TASKS:
                 )
 
 # 2) 退出失败检查：从 schedule_stats.json 读 last_exit（非 null 且非 0 = 失败）
+#    去重(2026-07-25)：exit!=0 但 last_run 距今 >24h 的旧告警不重复 SEVERE。
+#    根因场景：etf_national_team 7/24 20:07 collector crash last_exit=143(假告警)，
+#    根因已闭环(bba5ecaa deploy根治 + 6824a43c 真实exit code + c1921857 ProcessPool修crash)，
+#    但 stats 旧记录未清(周末不跑，周一 20:07 跑才更新)，schedule_monitor 每15min读到
+#    exit=143 非0 -> 持续 SEVERE 告警邮件约192封。
+#    规则：last_run 距今 >24h 且 exit!=0 = 旧问题(任务超1天没跑)，等下次任务跑更新
+#    stats 自动清除，降级 log INFO 不重复 SEVERE；最近 24h 内 exit!=0 仍 SEVERE(新问题不漏报)。
+STALE_EXIT_THRESHOLD = timedelta(hours=24)
 if STATS_FILE.exists():
     try:
         with open(STATS_FILE, encoding="utf-8") as f:
@@ -127,10 +135,29 @@ if STATS_FILE.exists():
             exit_code = s.get("last_exit")
             # null=进行中/无数据不算失败；非0=退出失败
             if exit_code is not None and exit_code != 0:
-                alerts.append(
-                    f"SEVERE: {s['task']} 退出失败 last_exit={exit_code} "
-                    f"last_run={s.get('last_run')}"
-                )
+                last_run_str = s.get("last_run") or ""
+                is_stale = False
+                if last_run_str:
+                    try:
+                        # last_run 格式 "2026-07-24 20:05"（无秒，gen_schedule_stats 写入）
+                        last_run_dt = datetime.strptime(last_run_str, "%Y-%m-%d %H:%M")
+                        age = NOW - last_run_dt
+                        if age > STALE_EXIT_THRESHOLD:
+                            is_stale = True
+                    except ValueError:
+                        print(f"[warn] {s.get('task')} last_run 格式异常: {last_run_str}", file=sys.stderr)
+                if is_stale:
+                    # 旧告警已过期(任务>24h没跑)，等下次任务跑更新 stats 自动清除，不重复 SEVERE
+                    print(
+                        f"[info] {s['task']} 退出失败 last_exit={exit_code} "
+                        f"last_run={last_run_str} 距今>{int(STALE_EXIT_THRESHOLD.total_seconds()//3600)}h, "
+                        f"旧告警已过期,等下次任务跑更新(不重复 SEVERE)"
+                    )
+                else:
+                    alerts.append(
+                        f"SEVERE: {s['task']} 退出失败 last_exit={exit_code} "
+                        f"last_run={last_run_str}"
+                    )
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
