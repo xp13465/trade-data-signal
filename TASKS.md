@@ -4,6 +4,30 @@
 
 > **历史已完成项（2026-07-06 ~ 2026-07-20 晚续3 的交接状态、22 任务全 done 的任务清单/进度看板、综合AI风险预警 P1/P2/P4 全闭环）已归档到 [docs/archive/TASKS-done.md](docs/archive/TASKS-done.md)。本文件只保留头部 + 晚续4 + 工作约定 + R2待办 + 全站性能待办。**
 
+## 📍 当前会话状态（compact 恢复用,每次状态变化后 Edit 更新）
+
+> compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
+
+**最后更新**:2026-07-24 15:31
+
+**分支**:`feat/b4`(9 commit 链:`bee5e625` 方案B国债ETF仓位 ← `de7a1d2d` NOTES AZ10 ← `06055972` 国债波段 ← `cc9ad116` 落档 ← `3709982b` 前端 ← `85212f83` deploy.sh ← `109f4329` intraday ← `ee8a8edd` R2第一步 ← `62297300` R2第二步)
+
+**活跃 cron**:
+- `88df4ec6`(15:40 一次性,session-only):merge feat/b4 9commit + deploy.sh(export.py 跑 signals 生成国债 band 信号)+ 三站验证
+- `4260c097`(§11 兜底轮询,每10分钟 7,17,27,37,47,57,session-only)
+- `da35a696`(48h 监控,每小时13分,durable,至 2026-07-25 08:44 结束给汇总+CronDelete)
+
+**活跃 agent**:无(6项调研全收齐:提速/合规改名/C1/A6/仓位展示/国债tooltip)
+
+**正在等**:15:40 cron 触发 deploy
+
+**收盘后分批实施**:
+- 批次1 提速:Top2集群(B1+F2+L3+L-1+R1 零代码省100min/天)+ B4 C方案(E2去双throttle+并发采集+--full-market,35min->3.5min)
+- 批次2 合规+展示:合规改名(8+19处 1档->1手 + 建议类导向词)+ 仓位展示丰富化(方案1主展示chip 30min + 方案2弹窗加仓位依据分区 1.5h 推荐 + 方案3全套透明化 3-4h;后端6维度全分已算前端只露波动率)+ 重生JSON deploy
+- 批次3 远期:Top3 U1+U2(baostock多进程+合并deploy)+ A6 PWA(3方向分叉待定)+ C1 TASKS移除已闭环标记
+
+**保活**:caffeinate PID 98731 至 2026-07-25 08:44
+
 ## 总体大纲
 
 A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECharts，Mac 本地。当前 27 个指标、13 指数、运行在 http://localhost:8000（`--reload`，改文件自动生效，**不要杀进程**）。本轮迭代目标：修回归问题 + 补国债 / 原油白银 / 红利 / A 股十年回溯 / 买卖点优化 / 行业看板 / 概览美化。
