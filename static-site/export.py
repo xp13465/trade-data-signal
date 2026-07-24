@@ -1416,7 +1416,9 @@ def main():
     print(f"输出目录: {DATA_DIR}")
 
     # 批量 gzip DATA_DIR 下所有 *.json（含非本脚本导出的，如 alert.json / lab_*.json /
-    # schedule_stats.json / etf_national_team-1m.json / industry-3y.json 等）。
+    # schedule_stats.json / etf_national_team-1m.json 等）。
+    # 注意：industry-{all,5y,3y} 单文件已拆分为 indices/ 子目录（见上方 write_industry_split），
+    # 不再生成 industry-3y.json 等单文件；此处 rglob 不会扫到已删除的 stale 单文件。
     # write_json 已对 export.py 导出的 JSON 生成 .gz，但非本脚本导出的 JSON 不会有 .gz，
     # 致前端 fetchJSON .gz 优先命中 404（Console 红）。此处统一补齐，确保所有 .json 都有 .gz。
     # rglob 递归扫描子目录：lab/*.json（scripts/lab/*.py 生成，不走 write_json，否则无 .gz）、
