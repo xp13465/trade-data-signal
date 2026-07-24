@@ -2280,7 +2280,7 @@ function setupOneRowToggle(grid, items, moreTextFn, defaultExpanded = false) {
 // sectionCharts 同步 push 全局 charts（供 window resize），dispose 时从 charts 移除，避免悬空引用。
 // fetcher(id, idx) 返回 { signals, stats }；动态版按 range 走 API，静态版读 all.json 前端过滤。
 // === C7 P4 market 融合:market tab 指数卡接入分数卡 + 深度拆解 modal ===
-// 55 个 iid 白名单(9宽基+3红利+3港股+9全球+31申万),与 static-site/data/alert_analyze_*.json 一一对应
+// 58 个 iid 白名单(9宽基+3红利+3港股+9全球+31申万+3国债),与 static-site/data/alert_analyze_*.json 一一对应
 // 复用 common.js 的 _labCustom* 函数(window._labCustom*),lab-custom-* 样式已移到 style.css 全 tab 共享
 const _MARKET_ANALYZE_IIDS = new Set([
   // 9 宽基
@@ -2297,6 +2297,8 @@ const _MARKET_ANALYZE_IIDS = new Set([
   "sw_801170","sw_801180","sw_801200","sw_801210","sw_801780","sw_801790",
   "sw_801230","sw_801710","sw_801720","sw_801730","sw_801890","sw_801740",
   "sw_801750","sw_801760","sw_801770","sw_801950","sw_801960","sw_801970","sw_801980",
+  // 3 国债波段(方案B:仓位分 alert.position 数据已就绪,接入分数卡)
+  "cgb_idx","cgb_10y_etf","cgb_10y_future",
 ]);
 
 // 紧凑版分数卡 HTML(图表下方用,深度内容进 modal 看)
