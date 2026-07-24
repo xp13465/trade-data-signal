@@ -2527,3 +2527,19 @@ trade_sim 标题下换行 3 chip（年化最高/最稳健/回撤最小）配套�
 - **rzhb launchd reload**：plist 23:00->19:15（commit eb64a8db 2026-07-24 23:15改，第一时间紧跟数据发布）+07-25 00:38 launchctl unload+load reload让19:15生效（07-24 23:00跑的是改前旧schedule正常非异常，19:15没跑因23:15才改）。周六19:15首次验证新时点触发
 - **deploy.sh stash根治**（commit 56770911 2026-07-24 23:02，"fix:3项修复"之一）：scripts/deploy.sh L244-283 rebase前`git stash push -m "deploy.sh-rebase-时间戳"`（无路径参数全stash tracked M，不加-u不碰untracked DB[sentiment.db等已gitignore]）+STASH_CNT_BEFORE/AFTER对比判断REBASE_STASHED+rebase后两路径pop（成功push后L270 pop/失败abort后L279 pop，pop_rebase_stash helper REBASE_STASHED=1才pop，pop失败保留stash@{0}待手动不阻塞）。根治etf 07-24 20:07 deploy失败（工作区unstaged致rebase "cannot rebase: you have unstaged changes"拒绝）。关键：全stash tracked M比"只stash根data/"更正确（industry-3y.json.gz/A6PWA改的index.html也撞rebase，根data/signal_stats.json+sw_components.json已untracked+.gitignore L49-50不撞）
 - **etf deploy根因已修**：56770911 stash机制，下次etf周一20:07用新deploy.sh会stash tracked M，rebase不撞。07-24数据若cb1647a9未带，周一etf backfill重采+deploy
+
+### 小节AZ15：2026-07-25 凌晨 etf deploy失败三连环完整根因排查+修复
+
+用户收邮件"etf_national_team 退出失败 last_exit=143 last_run=724 20:07"质疑时区。排查确认系统时区CST+0800 Asia/Shanghai正确(`date`+`/etc/localtime`确认),schedule_monitor/gen_schedule_stats/launchd log全程`datetime.now()`/`date`本地时间无UTC转换,20:07是etf计划时点(非时区bug)。真正根因是三连环:
+
+**1. collector crash(c1921857用户既存已修)**：B4提速(0e916672)引入ThreadPoolExecutor max_workers=10并发采ETF,akshare.fund_etf_hist_sina内部创建py_mini_racer.MiniRacer() V8 isolate,V8 address_pool进程全局只能init一次,多线程并发创建->`[FATAL:address_pool_manager.cc(67)] Check failed: !pool->IsInitialized()` SIGTRAP exit 133。修复c1921857:ThreadPool->ProcessPoolExecutor(max_workers=8)进程隔离每进程独立V8 isolate(etf_national_team.py L1012/1189)。历史FATAL仅7/24一次(偶发已修不复发)
+
+**2. deploy失败(bba5ecaa根治)**：industry-3y.json[.gz]在R2阶段4移出时漏untrack(3m/6m/1y+concepts移了,3y漏),tracked但不在deploy.sh DATA_FILES也不在.gitignore,export每次重生成致unstaged M,rebase origin/main撞"cannot rebase: you have unstaged changes"失败。56770911 stash是兜底(catch ALL unstaged tracked M),bba5ecaa根治源头(git rm --cached industry-3y.json+.gz + .gitignore L113-114补industry-{all,5y,3y}.json[.gz])。前端_loadIndustryData L8251-8255对3y走拆分(meta+indices)从ssd.fx8.store/industry/读不读单文件,untrack安全(线上ssd R2 HTTP200/ss data HTTP404验证)
+
+**3. 21:30兜底漏跑(plist 22:56:59重加)**：plist 21:30 slot在7/22-7/23被删(B4提速后认为不需兜底),7/24 22:56:59才重加(56770911前刚改)。7/24 21:30时plist无21:30 slot=launchd不触发=漏跑(schedule_monitor 21:45告警last_run=20:12:37<21:30)。已修:plist重加21:30+launchctl已加载,7/27周一20:07+21:30都跑
+
+**4. last_exit=143假告警(6824a43c修)**：collector crash没写"[etf_nt] daily 完成"行,gen_schedule_stats.py L175启发式(无DONE+age>3h)标假143(128+SIGTERM15),与shell脚本20:21:37正常写"结束"行矛盾(内外层:gen_stats跟踪内层collector的[etf_nt]行,shell外层===结束行正常)。修复6824a43c:etf_backfill.sh L65-66 collector crash时(COLLECT_RC!=0)补"[etf_nt] daily 失败 exit=$COLLECT_RC" fallback行 + ETF_DONE_RE L66兼容"完成|失败" + parse_etf_nt L136用group(3)真实exit code替代硬编码0。未来crash报真实exit(133)非假143
+
+**7/24数据状态**：DB 736条(正常~1367,54%),SH 510xxx/512xxx/588xxx全有7/24,4 SZ ETF(159845/159919/159922/159952)latest=20260723缺7/24(SZ源T+1延迟20:41重采未覆盖)。线上JSON updated_at=2026-07-25T01:08。7/27周一20:07 backfill 6天回填窗口自动补4 SZ ETF 7/24数据,无需手动干预
+
+**3 commit(bba5ecaa+6824a43c+c1921857)均在origin/main+origin/feat/iframe-theme-follow。c1921857是用户既存(7/24 20:41),bba5ecaa+6824a43c是本次排查新增**
