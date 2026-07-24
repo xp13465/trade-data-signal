@@ -3,17 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>关于信号实验室 | 站点定位与免责声明 · tdsignal</title>
-  <meta name="description" content="关于信号实验室(tdsignal):站点定位、非投资咨询声明、核心功能、数据来源与免责声明。本站为个人学习与研究工具,以市场情绪数据复盘为核心功能,策略回测实验为进阶功能,其他市场数据为辅助佐证,非持牌证券投资咨询机构。">
+  <title>关于信号实验室 | 使用指南·站点说明·免责声明 · tdsignal</title>
+  <meta name="description" content="关于信号实验室(tdsignal):站点定位、适合人群、6大核心板块、每日操作流程、基于真实回测的预期收益、风险提示、进阶用法。本站为个人学习与研究工具,非持牌证券投资咨询机构,不荐股,所有数据与信号均为历史统计与技术分析参考,不构成投资建议。">
+  <meta name="keywords" content="信号实验室,tdsignal,关于,使用指南,A股情绪看板,盘后复盘,恐贪指数,市场宽度,技术分析参考点,风险提示,免责声明">
   <meta name="robots" content="index,follow">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <link rel="canonical" href="https://ss.fx8.store/about.html">
   <link rel="icon" href="data:,">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="信号实验室">
-  <meta property="og:title" content="关于信号实验室 | 站点定位与免责声明">
-  <meta property="og:description" content="信号实验室是个人学习与研究工具,以市场情绪数据复盘为核心功能,策略回测实验为进阶功能,其他市场数据为辅助佐证,非持牌证券投资咨询机构。">
+  <meta property="og:title" content="关于信号实验室 | 使用指南·站点说明·免责声明">
+  <meta property="og:description" content="站点定位、适合人群、6大核心板块、每日操作流程、基于真实回测的预期收益、风险提示、进阶用法。非持牌证券投资咨询机构,不构成投资建议。">
   <meta property="og:url" content="https://ss.fx8.store/about.html">
   <meta property="og:image" content="https://ss.fx8.store/og.png">
+  <meta property="og:locale" content="zh_CN">
   <link rel="stylesheet" href="./style.min.css?v=0a15c967">
   <link rel="stylesheet" href="./lab.min.css?v=8b434e44">
   <!-- 防闪烁:CSS 加载后、body 渲染前读 localStorage 提前设 data-theme -->
@@ -34,80 +37,689 @@
   <main class="about-wrap">
     <header class="about-header">
       <h1>📖 关于信号实验室</h1>
-      <p class="about-sub">信号实验室 · tdsignal</p>
+      <p class="about-sub">信号实验室 · tdsignal · 使用指南与站点说明</p>
+      <p class="about-sites">主站 <a href="https://ss.fx8.store/">ss.fx8.store</a>(Cloudflare Workers)/ 备站 <a href="https://sss.sugas.site/">sss.sugas.site</a>(GitHub Pages)/ <a href="https://s.sugas.site/">s.sugas.site</a>(MaoziYun)</p>
       <p><a href="/" class="about-back">← 返回看板</a></p>
     </header>
 
-    <section>
-      <p class="about-updated">最后更新日期:2026-07-18</p>
-      <p class="about-intro">信号实验室(trade-data-signal / tdsignal)是个人学习与研究工具,以市场情绪数据复盘为核心功能,策略回测实验为进阶功能,其他市场数据(市场情绪、大盘信号、板块轮动、期货持仓)为市场环境辅助佐证。所有内容仅供学习参考。</p>
+    <section class="about-toc">
+      <h2>📋 目录</h2>
+      <ol>
+        <li><a href="#sec-0">〇、合规声明(必读)</a></li>
+        <li><a href="#sec-1">一、这个网站是什么</a></li>
+        <li><a href="#sec-2">二、适合谁</a></li>
+        <li><a href="#sec-3">三、核心板块逐个讲(6 个 Tab)</a></li>
+        <li><a href="#sec-4">四、每日操作流程</a></li>
+        <li><a href="#sec-5">五、预期收益(基于真实回测数字)</a></li>
+        <li><a href="#sec-6">六、风险提示</a></li>
+        <li><a href="#sec-7">七、进阶用法</a></li>
+        <li><a href="#sec-appendix">附录:关键文件路径与数据产物</a></li>
+      </ol>
     </section>
 
-    <section>
-      <h2>一、站点定位</h2>
-      <p>信号实验室是个人学习与研究工具,以市场情绪数据复盘为核心功能,策略回测实验为进阶功能,其他市场数据(市场情绪/大盘信号/板块轮动/期货持仓)为市场环境辅助佐证。所有内容仅供学习参考,不构成任何投资建议或交易指令。</p>
+    <section id="sec-0">
+      <h2>〇、合规声明(必读)</h2>
+      <p class="about-intro">本站为个人学习/研究工具,<strong>非持牌证券投资咨询机构,不荐股,不代客理财</strong>。所有数据与信号均为历史统计与技术分析参考,<strong>不构成任何投资建议或交易指令</strong>。过往表现不代表未来收益,数据可能存在延迟。投资有风险,决策需谨慎。本指南仅帮助理解网站功能与信号含义,最终买卖决策与风险由使用者自行承担。</p>
     </section>
 
-    <section>
-      <h2>二、非投资咨询声明</h2>
-      <p>本站非持牌证券投资咨询机构,不提供个股买卖建议或投资顾问服务,不从事证券经纪、投资咨询或资产管理业务。本站所有数据、信号、回测结果均为历史统计与技术分析参考,不构成任何投资建议、买卖建议或交易指令。</p>
-    </section>
+    <section id="sec-1">
+      <h2>一、这个网站是什么</h2>
+      <p><strong>信号实验室(tdsignal)</strong> 是一个 A 股/港股/全球盘后复盘用的情绪数据与技术分析参考看板。技术栈为 Python + FastAPI + SQLite + ECharts,Mac 本地每日收盘后采集公开数据(东方财富/腾讯财经/baostock/同花顺/申万等),静态部署到 Cloudflare Workers + GitHub Pages。</p>
 
-    <section>
-      <h2>三、核心功能</h2>
+      <h3>定位(很重要)</h3>
       <ul>
-        <li><strong>市场情绪复盘(核心)</strong>:综合情绪分(0-100,多指标加权)、跨市场综合评分、涨跌家数、涨停连板、炸板率/封板率、成交额等宽度指标</li>
-        <li><strong>大盘信号</strong>:RSI 买卖点信号 + BB 下轨辅买 + MA60 多头过滤 + MACD 死叉确认 + 回测统计</li>
-        <li><strong>板块轮动</strong>:申万 31 行业涨跌幅热力图、行业资金流、行业内宽度</li>
-        <li><strong>期货持仓</strong>:中金所 IF/IC/IH/IM 机构净多空持仓及同向/逆向准确率</li>
-        <li><strong>策略实验(进阶)</strong>:22+ 策略多周期回测对比,支持多指数、多窗口回测与模拟回测配对分析</li>
+        <li>✅ <strong>盘后复盘辅助工具</strong>:每日收盘后跑一次,把散落各处的"涨跌家数、涨停连板、综合情绪分、恐贪指数、买卖点参考"汇总到一处,辅助复盘判断市场情绪拐点(冰点/过热)与买卖时机。</li>
+        <li>✅ <strong>情绪+信号+仓位辅助决策参考</strong>:提供 27 项指标 / 13 个宽基指数 / 31 个申万一级行业 / 27 个同花顺概念 / 港股 / 全球指数的综合情绪评分、技术分析参考点、6 维度仓位建议。</li>
+        <li>❌ <strong>不是荐股软件</strong>:不给具体个股买卖建议,只标注指数/ETF/指标序列的技术分析参考点。</li>
+        <li>❌ <strong>不代客理财</strong>:不接管资金,不自动下单,所有信号仅作参考。</li>
+        <li>❌ <strong>不是盘中实时行情</strong>:盘后 T+1 数据,不做盘中实时(仅有 30 分钟节奏的盘中异常波动告警快照)。</li>
       </ul>
-      <p>其中市场情绪数据复盘为核心功能,策略回测实验为进阶功能,上述其他市场数据为市场环境的辅助佐证。</p>
+
+      <h3>核心数据规模</h3>
+      <ul>
+        <li>27 项启用指标(宽度/资金/情绪/试采龙虎榜解禁 IPO 可转债)</li>
+        <li>13 个 A 股宽基 + 3 个红利 + 8 个港股 + 14 个全球指数 + 31 个申万行业 + 27 个同花顺概念 = ~96 个标的</li>
+        <li>综合情绪分(A 股 6 项加权 / 跨市场去极值截尾均值 / 恐贪指数 / 6 宽基情绪分)</li>
+        <li>8+8 维度 AI 风险预警(高位风险 H1-H8 + 低位机会 L1-L8)</li>
+        <li>7 种技术分析参考点信号(主买/辅买/追买/备买/卖/止损卖/波段持有)</li>
+        <li>100 个品种的配对交易模拟回测(trade_sim)</li>
+        <li>22 策略多周期回测矩阵(策略实验室)</li>
+      </ul>
     </section>
 
-    <section>
-      <h2>四、数据来源</h2>
-      <p>本站数据来自公开来源,包括但不限于:东方财富、腾讯财经、baostock、同花顺等。数据可能存在延迟或错误,仅供参考。</p>
+    <section id="sec-2">
+      <h2>二、适合谁</h2>
+      <h3>适合的目标用户</h3>
+      <ol>
+        <li><strong>有一定 A 股投资经验、能自主决策的投资者</strong>:看得懂 RSI、MACD、布林带、均线等基础技术指标,理解"超卖反弹/趋势转弱"等概念,能独立判断信号是否适用。</li>
+        <li><strong>愿意做盘后复盘、按纪律执行的投资者</strong>:本站每日盘后更新,适合收盘后花 15-30 分钟复盘 + 制定次日计划,而非盘中追涨杀跌。</li>
+        <li><strong>做指数/ETF 波段、追求风险控制的投资者</strong>:本站信号以指数与宽基 ETF 为主(非个股),适合做波段仓位管理,与"卖为降风险非趋势放弃"理念契合(卖出不是看空,是降风险锁利润,底部接回提高收益率)。</li>
+        <li><strong>想学习技术分析策略与回测方法的投资者</strong>:策略实验室提供 22 策略回测矩阵,可学习各类经典策略在 A 股历史的表现与局限。</li>
+      </ol>
+      <h3>不适合的用户</h3>
+      <ul>
+        <li>❌ <strong>完全无投资经验的小白</strong>:本站不解释基础概念,信号含义需要一定技术分析基础才能正确解读。</li>
+        <li>❌ <strong>想跟单/抄作业的用户</strong>:本站不荐股、不给具体买卖指令,信号胜率多在 50% 左右(接近随机),不可作为独立交易指令。</li>
+        <li>❌ <strong>追求短期暴富的用户</strong>:本站策略以波段 + 风险控制为主,年化预期多在个位数到低双位数(详见 <a href="#sec-5">§5 预期收益</a>),不满足暴富诉求。</li>
+        <li>❌ <strong>做高频/盘中交易者</strong>:本站为盘后 T+1 数据,不做盘中实时,不适合高频场景。</li>
+      </ul>
     </section>
 
-    <section>
-      <h2>五、免责声明</h2>
-      <p>本站数据仅供参考,不构成任何投资建议。历史回测基于历史数据的理想化模拟,不代表未来收益,实盘收益通常低于回测结果。市场有风险,投资需谨慎。</p>
-      <p>本站不对因使用本站内容而产生的任何直接或间接损失承担责任。</p>
+    <section id="sec-3">
+      <h2>三、核心板块逐个讲(6 个 Tab)</h2>
+      <p>网站顶部导航分 6 个 Tab:<strong>市场全景 / 指数表现 / 情绪温度 / 板块分化 / ETF 评分 / 策略实验</strong>。每个 Tab 的"看什么 + 怎么看 + 怎么用"分述如下。</p>
+
+      <h3>3.1 市场全景(overview)</h3>
+      <p><strong>看什么</strong>:首页一屏看完当日市场全貌。</p>
+      <ul>
+        <li>顶部 <strong>风险预警条</strong>:显示当日 8+8 维度 AI 风险预警的 high_alert(高位风险分,0-100,越高越危险)与 low_alert(低位机会分,0-100,越高越接近底)。分级:&gt;88 高危/机遇,&gt;75 警示/机会,&gt;60 关注,&lt;60 中性。</li>
+        <li><strong>综合情绪分卡</strong>:A 股综合情绪分(a_sentiment,6 项加权:涨跌家数 25% + 涨停数 20% + 炸板率 15% + 连板高度 15% + 成交额 10% + 北向资金 15%)、跨市场综合评分(cross_market,去极值截尾均值)、恐贪指数(fear_greed)。阈值:&lt;20 冰点,&gt;80 过热。</li>
+        <li><strong>当日信号 chips</strong>:显示当日触发的 buy/buy_aux/sell 等信号数量。</li>
+        <li><strong>10 指数迷你走势图</strong>:上证/深成/沪深300/上证50/创业板/科创50/北证50/中证500/中证1000/恒生。</li>
+        <li><strong>盘中快照 chips</strong>(仅盘中有):30 分钟节奏的急涨急跌 ±3%/±5%/±7% 三档告警 + 放量 + 突破提示。</li>
+        <li><strong>31 行业热力图</strong>:申万一级 31 行业当日涨跌幅热力图。</li>
+        <li><strong>板块轮动速度卡</strong>:申万行业与概念板块的 5/10/20 日轮动速度(≥60% 快速轮动,≥30% 中等,&lt;30% 缓慢)。</li>
+        <li><strong>国家队 ETF 资金动向</strong>:12 只宽基 ETF 的份额异动 + 放量信号(疑似大资金进场/离场)。</li>
+      </ul>
+      <p><strong>怎么用</strong>:</p>
+      <ul>
+        <li><strong>冰点区(low_alert≥75)+ 综合情绪分&lt;20</strong>:历史常对应底部区域,可关注买入机会(但需结合信号确认,非直接抄底)。</li>
+        <li><strong>过热区(high_alert≥75)+ 综合情绪分&gt;80</strong>:历史常对应顶部区域,注意减仓风险。</li>
+        <li><strong>国家队 ETF 进场信号</strong>:疑似大资金布局,可作中期参考(注意:份额变动≠国家队,可能来自任何机构/大户)。</li>
+      </ul>
+
+      <h3>3.2 指数表现(market)</h3>
+      <p><strong>看什么</strong>:13 个 A 股宽基 + 3 个红利 + 港股 + 全球指数的折线图,叠加 7 种技术分析参考点信号 pin。</p>
+      <p><strong>7 种信号含义</strong>(signals.py 实现,详见 <a href="#sec-5">§5</a>):</p>
+      <table>
+        <thead><tr><th>信号类型</th><th>颜色</th><th>触发条件</th><th>语义</th></tr></thead>
+        <tbody>
+          <tr><td>buy(主买)</td><td>红 #e6492e</td><td>RSI(14) 上穿 30(基线)或 25(科创50/电力设备/传媒)</td><td>超卖拐点,均值回归思路</td></tr>
+          <tr><td>buy_aux(辅买)</td><td>粉紫 #d63384</td><td>BB 下轨回归(+部分品类叠加 RSI 上穿40 / 反弹2%)</td><td>超卖反弹,强势市更敏感,互补 C1 盲区</td></tr>
+          <tr><td>buy_special(追买)</td><td>金 #ffd700</td><td>唐奇安 20 日上轨突破 + 5 日站稳确认 + h5/R2 真过滤</td><td>趋势跟踪,激进型,高回撤高收益</td></tr>
+          <tr><td>buy_backup(备买)</td><td>紫 #9c27b0</td><td>Supertrend ATR(10)×3 翻多 + 3 日二次确认</td><td>趋势转向,实验性</td></tr>
+          <tr><td>sell(卖)</td><td>绿/灰/橙</td><td>20 日高回落 5% + MA60 多头 + MACD 止叉</td><td>趋势转弱/止盈减仓提示(非做空)</td></tr>
+          <tr><td>sell_stop_loss(止损卖)</td><td>蓝</td><td>ATR×3.5 Chandelier Exit 首次跌破(csi_div=4.5)</td><td>移动止损,从高点回撤 3.5×ATR</td></tr>
+          <tr><td>band_hold(波段持有)</td><td>-</td><td>国债波段:无超买超卖</td><td>国债专属,详见 §3.6</td></tr>
+        </tbody>
+      </table>
+      <p><strong>怎么看</strong>:</p>
+      <ul>
+        <li>周期按钮切换:3 月 / 6 月 / 1 年 / 3 年 / 5 年 / 全部。</li>
+        <li>鼠标悬浮信号 pin 看 reason 详情(如 <code>RSI上穿30(29-&gt;34),cross=8[冰点]</code> 或 <code>20日高回落5%(高4259-&gt;阈4046,close4028), RSI=40, cross=53[中性], MA60=4000[趋势过滤], MACD=DIF39/DEA62[死叉确认], vs前买+2.30%[止盈]</code>)。</li>
+        <li>卖点 reason 末尾的 <strong>vs前买 标注</strong>:绿色[止盈]=卖点 close 高于前买点(止盈减仓);灰色[买点失败]=卖点 close 低于前买点(止损观望);橙色[无前买点]=窗口内无前置买点(单独看趋势)。</li>
+      </ul>
+      <p><strong>怎么用</strong>:</p>
+      <ul>
+        <li><strong>主买(C1)+ 辅买(B1)</strong>:历史回测显示买点是更值得关注的 alpha 来源(详见 <a href="#sec-5">§5</a>)。</li>
+        <li><strong>追买/备买</strong>:趋势跟踪类,激进型,适合趋势确认后跟进,震荡市易假突破。</li>
+        <li><strong>卖点</strong>:⚠️ <strong>定位为"趋势转弱/止盈减仓提示",胜率≈50% 接近随机,不可作为独立卖出指令</strong>--只能作"该检查仓位了"的风险注意灯,需结合仓位成本(vs前买 标注)与趋势背景综合判断。</li>
+        <li><strong>止损卖</strong>:移动止损线,适合已持仓时设置风险边界。</li>
+        <li>⚠️ <strong>卖不是看空</strong>:符合"卖为降风险非趋势放弃"理念--卖出是降风险锁利润,不是趋势看空放弃,底部接回可提高收益率。</li>
+      </ul>
+
+      <h3>3.3 情绪温度(sentiment)</h3>
+      <p><strong>看什么</strong>:市场情绪类指标的折线图。</p>
+      <ul>
+        <li><strong>恐贪指数(fear_greed)</strong>:综合贪婪/恐惧情绪,0-100。</li>
+        <li><strong>A 股综合情绪分(a_sentiment)</strong>:6 项加权(涨跌家数 25% + 涨停数 20% + 炸板率 15% + 连板高度 15% + 成交额 10% + 北向资金 15%),120 日滚动百分位归一化。</li>
+        <li><strong>跨市场综合评分(cross_market)</strong>:去极值截尾均值(去掉最高 1 + 最低 1,其余算术平均),跨 A 股/港股/全球 38 个指标,视野更宽更稳健。</li>
+        <li><strong>6 宽基情绪分</strong>:上证50/沪深300/中证500/中证1000/创业板/科创50 各自的情绪分。</li>
+        <li><strong>市场宽度</strong>:涨跌家数、涨停数、跌停数、连板高度、炸板率、封板率、打板溢价、成交额、北向资金(2024-08 起停更,保留历史)、两融余额、主力净流入。</li>
+        <li><strong>换手率分布</strong>:全市场换手率均值/中位/90 分位/10 分位/&gt;5% 家数占比。</li>
+        <li><strong>新高新低</strong>:52 周新高/新低家数。</li>
+        <li><strong>均线排列</strong>:多头/空头排列家数。</li>
+        <li><strong>QVIX</strong>:中国波指(300ETF/50ETF 期权波动率),A股的 VIX。</li>
+        <li><strong>股息率</strong>:上证 A 股股息率。</li>
+        <li><strong>8+8 维度 AI 风险预警</strong>:高位风险 H1-H8(情绪过热/量价背离/卖点密集/位置偏高/动量衰退/均线转弱/汪汪队离场/全球走弱)+ 低位机会 L1-L8(情绪冰点/买点密集/位置偏低/汪汪队入场/量能异动/新低极端/波指飙升/价值显现),加权合成 high_alert / low_alert。</li>
+      </ul>
+      <p><strong>怎么看</strong>:</p>
+      <ul>
+        <li>阈值统一:&lt;20 冰点,&gt;80 过热(综合情绪分/跨市场分/恐贪指数通用)。</li>
+        <li>8+8 维度预警:看 high_alert 判断顶部风险,看 low_alert 判断底部机会,悬浮看各维度贡献。</li>
+        <li>QVIX 飙升常对应恐慌底部,QVIX 低迷常对应市场平静。</li>
+      </ul>
+      <p><strong>怎么用</strong>:</p>
+      <ul>
+        <li><strong>情绪冰点(low_alert≥75 + 综合分&lt;20)</strong>:历史常对应中期底部区域,可分批关注(非一次性抄底)。</li>
+        <li><strong>情绪过热(high_alert≥75 + 综合分&gt;80)</strong>:历史常对应短期顶部附近,注意降仓锁利润。</li>
+        <li><strong>8+8 维度拆解</strong>:看是哪几个维度触发(如 H1 情绪过热 + H4 位置偏高共振 = 顶部信号更强;L1 情绪冰点 + L2 买点密集共振 = 底部信号更强)。</li>
+      </ul>
+
+      <h3>3.4 板块分化(industry)</h3>
+      <p><strong>看什么</strong>:申万一级 31 行业 + 同花顺 27 概念的轮动与分化。</p>
+      <ul>
+        <li><strong>行业涨跌幅热力图</strong>:31 行业当日/近 N 日涨跌幅。</li>
+        <li><strong>行业内宽度</strong>:每个行业内的涨跌家数/涨停/跌停/炸板/封板率(行业级宽度,与全市场口径一致)。</li>
+        <li><strong>行业资金流</strong>:31 行业大单净流入(<code>ind_flow_&lt;sw_id&gt;</code>)。</li>
+        <li><strong>行业换手率</strong>:31 行业换手率(<code>ind_turn_&lt;sw_id&gt;</code>)。</li>
+        <li><strong>板块轮动速度卡</strong>:5/10/20 日轮动速度(申万 + 概念),≥60% 快速/≥30% 中等/&lt;30% 缓慢。</li>
+        <li><strong>A9 板块轮动频次</strong>(⚠️ 形态频次非回测):近 20 日资金流向反转次数,≥8 次高频(🔥🔥)/6-7 次中频(🔥)/其他低频。三档信号:连流入/加速/占比 Top3。</li>
+        <li><strong>龙虎榜</strong>:上榜家数 + 机构净买入额。</li>
+      </ul>
+      <p><strong>怎么用</strong>:</p>
+      <ul>
+        <li><strong>主线判断</strong>:轮动缓慢 + 资金持续流入的行业 = 当前主线,可关注。</li>
+        <li><strong>规避追涨</strong>:轮动快速时避免追涨杀跌,等主线明确再介入。</li>
+        <li>⚠️ <strong>A9 板块轮动频次只做形态提示不做回测收益</strong>:<code>ind_flow</code> 仅 6-7 个月历史,回测样本不足,文案明确"近 20 交易日统计",不可作为回测收益依据。</li>
+      </ul>
+
+      <h3>3.5 ETF 评分(etf)</h3>
+      <p><strong>看什么</strong>:代表性 ETF 清单的多维度评分排序。</p>
+      <ul>
+        <li><strong>数据源</strong>:<code>etf_score_list.json</code>,聚合 23 只国家队宽基 ETF + 全市场代表性 ETF 的 8+8 维度评分。</li>
+        <li><strong>买入榜(buy_list)</strong>:按 low_alert(低位机会分)排序的 top 8,含 etf_code/name/score/hands(建议仓位 0-3 手)/reason_summary(理由)。</li>
+        <li><strong>卖出榜(sell_list)</strong>:按 high_alert(高位风险分)排序的 top 12,含 sell_signal(减仓/清仓/观察/持有)。</li>
+        <li><strong>持仓输入</strong>:可输入自己持有的 ETF 代码,高亮显示其在评分榜中的排名位置。</li>
+        <li><strong>搜索 + 分页</strong>:支持按代码/名称搜索,分页浏览。</li>
+      </ul>
+      <p><strong>6 维度仓位建议 v5</strong>(2026-07-24 上线,详见 <a href="#sec-5">§5.4</a>):</p>
+      <ul>
+        <li>综合分 = 机会分(low_alert)×35% + 趋势分(MA60)×20% + 动量分(MACD)×15% + 波动分(ATR)×15% + 流动性(成交额)×5% + 回撤分(252日)×10%</li>
+        <li>档位映射:low_alert&lt;35 -&gt; 0 手观望;综合分≥60 -&gt; 3 手重仓;≥50 -&gt; 2 手半仓;≥40 -&gt; 1 手轻仓;其他 -&gt; 0 手观望。</li>
+      </ul>
+      <p><strong>怎么用</strong>:</p>
+      <ul>
+        <li><strong>买入参考</strong>:买入榜 top + hands≥2 手的 ETF,可分批关注(非一次性满仓)。</li>
+        <li><strong>减仓参考</strong>:卖出榜 top + sell_signal 含"减仓/清仓"的 ETF,注意降仓锁利润。</li>
+        <li><strong>持仓对账</strong>:输入持仓 ETF 看其在评分榜中的位置,判断当前持仓的强弱。</li>
+        <li>⚠️ 仓位建议为研究参考,非投资建议;hands=3 手不等于"全仓买入",应根据自身风险承受能力调整。</li>
+      </ul>
+
+      <h3>3.6 国债波段(在"指数表现"Tab 的全球指数区)</h3>
+      <p><strong>看什么</strong>:3 个国债品种的波段仓位管理信号(2026-07-24 上线)。</p>
+      <ul>
+        <li><strong>3 个品种</strong>:上证国债指数(cgb_idx)/ 十年国债 ETF(cgb_10y_etf)/ 10 年国债期货主力(cgb_10y_future)。</li>
+        <li><strong>4 种信号</strong>:减仓 / 接回 / 止损 / 持有(band_hold)。</li>
+        <li><strong>指标</strong>:MA20/MA60 乖离 + RSI14 + 布林带(20, 2σ)。</li>
+      </ul>
+      <p><strong>触发条件</strong>:</p>
+      <ul>
+        <li>减仓:(bias20&gt;0.3% AND RSI&gt;rsi_high) OR close≥布林上轨</li>
+        <li>接回:(RSI&lt;rsi_low AND |bias60|&lt;2%) OR close≤布林下轨</li>
+        <li>止损:close&lt;MA60×0.98</li>
+        <li>持有:无以上</li>
+      </ul>
+      <p><strong>为什么单独做国债波段</strong>:原 D1 卖点(20 日高回落 5%)对国债完全失效(国债波动小,D1 从未触发,sell=0 无理由)。波段策略用 RSI+乖离+布林三指标,减仓/接回/止损三动作,实盘化每日独立判断。</p>
+
+      <h3>3.7 策略实验(lab)</h3>
+      <p><strong>看什么</strong>:22 策略多周期回测矩阵 + 自定义标的分析。</p>
+      <ul>
+        <li><strong>22 策略分 4 区</strong>:候选买 7 / 候选卖 7 / 已排除 6 / 生产 3。</li>
+        <li><strong>回测矩阵</strong>:244 资产(13 指数 + 31 行业 + 200 抽样个股)× 5 窗口(全史/近10年/近5年/近3年/近1年)× 4 horizon(5d/10d/20d/60d)的胜率/盈亏比/均值/样本数。</li>
+        <li><strong>自定义标的分析</strong>:输入指数/ETF/全球指标,查看 8+8 维度评分 + 6 维度仓位 + 历史类比 Top3(相似特征时段后续涨跌统计)。</li>
+        <li><strong>每个策略有回测报告</strong>:如"布林下轨回归买达标数 3/4(近10年/近3年/近1年),近3年60d盈亏比1.79、均值+4.7%"。</li>
+      </ul>
+      <p><strong>怎么用</strong>(进阶,详见 <a href="#sec-7">§7</a>):学习策略回测表现与理论依据,自定义分析关注标的,参数调优。</p>
     </section>
 
-    <section>
-      <h2>六、联系方式</h2>
-      <p>如对本站有任何疑问或建议,请联系:(联系方式待补充)</p>
+    <section id="sec-4">
+      <h2>四、每日操作流程</h2>
+      <h3>4.1 盘前(09:00-09:30)</h3>
+      <ul>
+        <li>打开网站 -&gt; 市场全景 Tab,看昨日的<strong>风险预警条</strong>与<strong>综合情绪分</strong>。</li>
+        <li>看<strong>当日信号 chips</strong>(昨日盘后计算的 buy/buy_aux/sell 信号)。</li>
+        <li>看<strong>美股隔夜表现</strong>(道琼斯/纳斯达克/标普500 迷你图)判断外围情绪。</li>
+        <li>制定当日计划:有无触发买点参考(关注)/卖点参考(检查仓位)/止损位调整。</li>
+      </ul>
+      <h3>4.2 盘中(09:30-15:30)</h3>
+      <ul>
+        <li>⚠️ 本站为盘后数据,<strong>盘中不更新主数据</strong>(仅有 30 分钟节奏的异常波动告警快照)。</li>
+        <li>盘中可看<strong>盘中快照 chips</strong>:急涨急跌 ±3%/±5%/±7% 三档告警 + 放量 + 突破提示。</li>
+        <li>盘中不要追涨杀跌,按盘前计划执行。</li>
+        <li>⚠️ 盘中(09:30-15:30)本站不跑全量采集+部署,只跑 intraday-snapshot 定时任务推 intraday_snapshot.json。</li>
+      </ul>
+      <h3>4.3 收盘后(15:30-18:00)</h3>
+      <ul>
+        <li>15:33 launchd 自动跑全量采集 + 计算 + 部署(每交易日一次)。</li>
+        <li>18:00 后打开网站看完整更新:
+          <ol>
+            <li><strong>市场全景</strong>:看当日 risk_alert / 综合情绪分 / 信号 chips / 行业热力图。</li>
+            <li><strong>指数表现</strong>:看持仓/关注指数的买卖点信号 pin,读 reason 详情。</li>
+            <li><strong>ETF 评分</strong>:看买入榜/卖出榜 top,hands 仓位建议,持仓对账。</li>
+            <li><strong>板块分化</strong>:看行业资金流主线,轮动速度判断市场状态。</li>
+            <li><strong>情绪温度</strong>:看 8+8 维度预警拆解,判断高位/低位共振。</li>
+          </ol>
+        </li>
+      </ul>
+      <h3>4.4 每周复盘(周末)</h3>
+      <ul>
+        <li>切换周期到"1 年"或"全部",看长期趋势与信号密集区。</li>
+        <li>复盘本周触发的信号:买点是否盈利(看 vs前买 标注)/卖点是否有效(看后续走势)。</li>
+        <li>调整下周计划:持仓是否需要调仓,关注哪些新增信号。</li>
+        <li>策略实验室看策略回测矩阵,学习/验证策略表现。</li>
+      </ul>
+    </section>
+
+    <section id="sec-5">
+      <h2>五、预期收益(基于真实回测数字)</h2>
+      <blockquote class="warn">
+        <strong>⚠️ 以下数字均来自历史回测,不代表未来收益</strong>。回测假设信号触发即按固定仓位买卖,未考虑滑点/手续费/冲击成本/流动性限制。实际收益受市场环境/执行纪律/情绪控制等多因素影响,可能显著偏离回测结果。
+      </blockquote>
+
+      <h3>5.1 买卖点信号 forward return 胜率(signal_stats.json,信号触发后 N 日涨跌)</h3>
+      <p><strong>口径</strong>:信号触发后 5/10/20 日的 forward return 胜率(非配对交易收益)。</p>
+      <p><strong>买点</strong>(近3年 10d 胜率,基线 RSI 上穿 30):</p>
+      <ul>
+        <li>沪深300 buy: 近3年 10d 胜率约 50-55%,盈亏比 1.0-1.2(REQUIREMENTS §7.7:近3年 10日 C1 盈亏比 1.13,B1_dual 1.18)。</li>
+        <li>科创50 buy_filter=rsi_cross_25: 凯利 f 15.92%-&gt;57.56%(收紧后),胜率 57.1%-&gt;84.6%,n=13(样本小,§7.4)。</li>
+        <li>电力设备 buy_filter=rsi_cross_25: 凯利 f 0%-&gt;29.55%,胜率 48.0%-&gt;60.9%,n=23。</li>
+        <li>传媒 buy_filter=rsi_cross_25: 凯利 f 0%-&gt;41.74%,胜率 44.6%-&gt;60.9%,n=23。</li>
+      </ul>
+      <p><strong>辅买 buy_aux</strong>(per-index 增强后):</p>
+      <ul>
+        <li>家用电器(rsi_cross_40): 凯利 f -38.5%-&gt;+16.2% 转正,胜率 44.8%-&gt;54.5%,盈亏比 0.66-&gt;1.19,n=33。</li>
+        <li>基础化工(close_above_bl_2pct): 凯利 f -21%-&gt;+20% 转正,胜率 42.5%-&gt;57.9%,盈亏比 0.91-&gt;1.12,n=19&lt;30 样本警示。</li>
+        <li>中证1000(rsi_cross_40): 凯利 f -19.5%-&gt;+3.47% 转正,盈亏比 0.74-&gt;1.20,n=19。</li>
+        <li>传媒(rsi_cross_40): 凯利 f -14%-&gt;+28% 转正,胜率 55.1%-&gt;73.7%,n=19。</li>
+        <li>创业板指(rsi_cross_40): 凯利 f -13%-&gt;+15% 转正,胜率 51.1%-&gt;65.0%,n=20。</li>
+        <li>医药生物(rsi_cross_40): 凯利 f -2%-&gt;+22% 转正,盈亏比 1.04-&gt;1.80,n=36≥30 稳健。</li>
+      </ul>
+      <p><strong>卖点</strong>(§7.7,近3年 10d):</p>
+      <ul>
+        <li>D1(20日高回落5%): 胜率 53.3%,盈亏比 0.87。</li>
+        <li>D1+S1(+MA60多头): 胜率 55.0%,盈亏比 0.84(+1.7pp,样本砍 39%)。</li>
+        <li>D1+S1+MACD(当前生产): 凯利建议率 18.3%-&gt;43.3%。</li>
+        <li>⚠️ <strong>卖点本质难预测</strong>:指数向上漂移,S1 近3年盈亏比仍&lt;1,胜率≈50% 接近随机,<strong>不可作为独立卖出指令</strong>,定位"趋势转弱/止盈减仓提示"。</li>
+      </ul>
+      <p><strong>止损卖 sell_stop_loss</strong>(ATR×3.5 Chandelier Exit):</p>
+      <ul>
+        <li>回测胜率 46.91%,均值 +1.76%(回测口径,entry 配 ATR×3 出场)。</li>
+        <li>第一个止损卖过滤后:盈亏比 5/5 全升(hs300 0.961-&gt;1.098,sh 0.919-&gt;1.038 突破 1.0)。</li>
+        <li>生产 forward 口径:胜率 49.58% 近随机,均值 +0.047% 近 0。</li>
+      </ul>
+
+      <h3>5.2 配对交易模拟回测(trade_sim,买固定1w10%+卖清仓策略)</h3>
+      <p><strong>口径</strong>:信号触发即买 1 万元(10% 仓位),卖点信号触发即清仓该笔。初始资金 10 万元。100 个品种 × 5 窗口 × 3 策略路径 × 11 场景。以下为<strong>买固定1w(10%)+卖清仓</strong>策略下 4 个单买点场景的回测数据。</p>
+
+      <h4>5.2.1 A 股宽基(近3年 y3)</h4>
+      <table>
+        <thead><tr><th>品种</th><th>场景</th><th class="num">年化%</th><th class="num">最大回撤%</th><th class="num">胜率%</th><th class="num">盈亏比</th><th class="num">总收益%</th><th class="num">轮数</th><th class="num">年数</th></tr></thead>
+        <tbody>
+          <tr><td>上证指数</td><td>主买</td><td class="num">5.3</td><td class="num">8.3</td><td class="num">100</td><td class="num">-</td><td class="num">16.4</td><td class="num">1</td><td class="num">2.9</td></tr>
+          <tr><td>上证指数</td><td>追买</td><td class="num">6.1</td><td class="num">13.8</td><td class="num">100</td><td class="num">-</td><td class="num">19.2</td><td class="num">1</td><td class="num">3.0</td></tr>
+          <tr><td>沪深300</td><td>主买</td><td class="num">4.8</td><td class="num">5.7</td><td class="num">100</td><td class="num">-</td><td class="num">13.7</td><td class="num">2</td><td class="num">2.7</td></tr>
+          <tr><td>沪深300</td><td>辅买</td><td class="num">5.3</td><td class="num">12.9</td><td class="num">100</td><td class="num">-</td><td class="num">16.3</td><td class="num">2</td><td class="num">2.9</td></tr>
+          <tr><td>沪深300</td><td>追买</td><td class="num">7.9</td><td class="num">13.1</td><td class="num">100</td><td class="num">-</td><td class="num">25.5</td><td class="num">2</td><td class="num">3.0</td></tr>
+          <tr><td>上证50</td><td>主买</td><td class="num">3.1</td><td class="num">4.0</td><td class="num">100</td><td class="num">-</td><td class="num">8.7</td><td class="num">1</td><td class="num">2.7</td></tr>
+          <tr><td>上证50</td><td>辅买</td><td class="num">5.1</td><td class="num">12.1</td><td class="num">100</td><td class="num">-</td><td class="num">15.5</td><td class="num">1</td><td class="num">2.9</td></tr>
+          <tr><td>中证500</td><td>主买</td><td class="num">5.7</td><td class="num">8.8</td><td class="num">80</td><td class="num">10.69</td><td class="num">17.4</td><td class="num">5</td><td class="num">2.9</td></tr>
+          <tr><td>中证500</td><td>辅买</td><td class="num">1.8</td><td class="num">4.4</td><td class="num">83</td><td class="num">11.19</td><td class="num">5.4</td><td class="num">6</td><td class="num">2.9</td></tr>
+          <tr><td>中证1000</td><td>主买</td><td class="num">1.2</td><td class="num">17.7</td><td class="num">75</td><td class="num">4.24</td><td class="num">3.6</td><td class="num">4</td><td class="num">2.9</td></tr>
+          <tr><td>创业板指</td><td>主买</td><td class="num">5.6</td><td class="num">9.0</td><td class="num">75</td><td class="num">18.47</td><td class="num">17.2</td><td class="num">4</td><td class="num">2.9</td></tr>
+          <tr><td>创业板指</td><td>追买</td><td class="num">10.0</td><td class="num">4.3</td><td class="num">50</td><td class="num">3.67</td><td class="num">29.3</td><td class="num">6</td><td class="num">2.7</td></tr>
+          <tr><td>科创50</td><td>主买</td><td class="num">5.6</td><td class="num">9.9</td><td class="num">100</td><td class="num">-</td><td class="num">17.2</td><td class="num">2</td><td class="num">2.9</td></tr>
+          <tr><td>科创50</td><td>辅买</td><td class="num">16.8</td><td class="num">12.9</td><td class="num">100</td><td class="num">-</td><td class="num">59.0</td><td class="num">6</td><td class="num">3.0</td></tr>
+          <tr><td>科创50</td><td>追买</td><td class="num">7.9</td><td class="num">0.4</td><td class="num">75</td><td class="num">4.66</td><td class="num">11.6</td><td class="num">4</td><td class="num">1.4</td></tr>
+          <tr><td>北证50</td><td>主买</td><td class="num">26.7</td><td class="num">17.4</td><td class="num">100</td><td class="num">-</td><td class="num">102.8</td><td class="num">4</td><td class="num">3.0</td></tr>
+          <tr><td>北证50</td><td>辅买</td><td class="num">12.8</td><td class="num">11.9</td><td class="num">100</td><td class="num">-</td><td class="num">42.8</td><td class="num">6</td><td class="num">2.9</td></tr>
+        </tbody>
+      </table>
+      <p>来源:<code>static-site/data/trade_sim/trade_sim_&lt;iid&gt;_stats.json</code>,窗口 y3,策略"买固定1w(10%)+卖清仓",场景"主买+卖/辅买+卖/追买+卖/备买+卖"。北证50 近3年表现突出(年化 26.7%)与其 2022 年开市后波动特性有关,样本年数短(3 年),不可外推。</p>
+
+      <h4>5.2.2 A 股宽基(全历史 all)</h4>
+      <table>
+        <thead><tr><th>品种</th><th>场景</th><th class="num">年化%</th><th class="num">最大回撤%</th><th class="num">胜率%</th><th class="num">盈亏比</th><th class="num">总收益%</th><th class="num">轮数</th><th class="num">年数</th></tr></thead>
+        <tbody>
+          <tr><td>上证指数</td><td>主买</td><td class="num">2.3</td><td class="num">27.9</td><td class="num">70</td><td class="num">2.67</td><td class="num">125.3</td><td class="num">27</td><td class="num">35.2</td></tr>
+          <tr><td>上证指数</td><td>追买</td><td class="num">5.6</td><td class="num">7.1</td><td class="num">54</td><td class="num">3.43</td><td class="num">581.6</td><td class="num">26</td><td class="num">35.4</td></tr>
+          <tr><td>沪深300</td><td>主买</td><td class="num">1.6</td><td class="num">31.0</td><td class="num">81</td><td class="num">1.54</td><td class="num">47.2</td><td class="num">21</td><td class="num">24.5</td></tr>
+          <tr><td>沪深300</td><td>追买</td><td class="num">3.9</td><td class="num">31.5</td><td class="num">57</td><td class="num">2.36</td><td class="num">151.2</td><td class="num">28</td><td class="num">24.4</td></tr>
+          <tr><td>中证500</td><td>主买</td><td class="num">1.3</td><td class="num">25.4</td><td class="num">80</td><td class="num">2.61</td><td class="num">31.8</td><td class="num">20</td><td class="num">21.5</td></tr>
+          <tr><td>创业板指</td><td>主买</td><td class="num">1.9</td><td class="num">14.5</td><td class="num">71</td><td class="num">5.80</td><td class="num">35.8</td><td class="num">17</td><td class="num">16.0</td></tr>
+          <tr><td>科创50</td><td>主买</td><td class="num">4.6</td><td class="num">9.8</td><td class="num">100</td><td class="num">-</td><td class="num">21.9</td><td class="num">5</td><td class="num">4.4</td></tr>
+          <tr><td>科创50</td><td>辅买</td><td class="num">7.0</td><td class="num">20.5</td><td class="num">75</td><td class="num">4.05</td><td class="num">54.3</td><td class="num">16</td><td class="num">6.4</td></tr>
+        </tbody>
+      </table>
+      <blockquote class="warn">⚠️ <strong>全历史回撤普遍较大</strong>(上证指数主买最大回撤 27.9%,沪深300 31.0%,中证500 25.4%)--说明信号策略在长期熊市/股灾期间会承受显著回撤,需有相应风险承受能力。</blockquote>
+
+      <h4>5.2.3 红利指数(近3年 y3)</h4>
+      <table>
+        <thead><tr><th>品种</th><th>场景</th><th class="num">年化%</th><th class="num">最大回撤%</th><th class="num">胜率%</th><th class="num">总收益%</th><th class="num">轮数</th></tr></thead>
+        <tbody>
+          <tr><td>中证红利</td><td>主买</td><td class="num">2.0</td><td class="num">5.6</td><td class="num">100</td><td class="num">5.6</td><td class="num">1</td></tr>
+          <tr><td>红利低波</td><td>主买</td><td class="num">2.1</td><td class="num">5.0</td><td class="num">100</td><td class="num">5.8</td><td class="num">1</td></tr>
+          <tr><td>深证红利</td><td>主买</td><td class="num">3.3</td><td class="num">13.3</td><td class="num">100</td><td class="num">9.4</td><td class="num">1</td></tr>
+        </tbody>
+      </table>
+
+      <h4>5.2.4 申万一级行业(近3年 y3,挑代表)</h4>
+      <table>
+        <thead><tr><th>品种</th><th>场景</th><th class="num">年化%</th><th class="num">最大回撤%</th><th class="num">胜率%</th><th class="num">盈亏比</th><th class="num">总收益%</th></tr></thead>
+        <tbody>
+          <tr><td>SW 非银金融</td><td>主买</td><td class="num">10.5</td><td class="num">4.3</td><td class="num">100</td><td class="num">-</td><td class="num">29.8</td></tr>
+          <tr><td>SW 非银金融</td><td>辅买</td><td class="num">11.6</td><td class="num">9.1</td><td class="num">100</td><td class="num">-</td><td class="num">35.8</td></tr>
+          <tr><td>SW 煤炭</td><td>主买</td><td class="num">5.9</td><td class="num">3.0</td><td class="num">100</td><td class="num">-</td><td class="num">12.3</td></tr>
+          <tr><td>SW 通信</td><td>主买</td><td class="num">4.2</td><td class="num">4.4</td><td class="num">100</td><td class="num">-</td><td class="num">11.8</td></tr>
+          <tr><td>SW 通信</td><td>备买</td><td class="num">7.6</td><td class="num">1.4</td><td class="num">100</td><td class="num">-</td><td class="num">16.6</td></tr>
+          <tr><td>SW 计算机</td><td>主买</td><td class="num">5.3</td><td class="num">9.6</td><td class="num">100</td><td class="num">-</td><td class="num">15.2</td></tr>
+          <tr><td>SW 电力设备</td><td>追买</td><td class="num">29.9</td><td class="num">4.1</td><td class="num">33</td><td class="num">20.85</td><td class="num">45.5</td></tr>
+          <tr><td>SW 机械设备</td><td>主买</td><td class="num">3.3</td><td class="num">8.3</td><td class="num">75</td><td class="num">69.90</td><td class="num">9.8</td></tr>
+          <tr><td>SW 银行</td><td>辅买</td><td class="num">2.9</td><td class="num">5.9</td><td class="num">100</td><td class="num">-</td><td class="num">8.0</td></tr>
+          <tr><td>SW 医药生物</td><td>主买</td><td class="num">2.4</td><td class="num">12.4</td><td class="num">100</td><td class="num">-</td><td class="num">7.2</td></tr>
+          <tr><td>SW 食品饮料</td><td>主买</td><td class="num">0.0</td><td class="num">14.1</td><td class="num">100</td><td class="num">-</td><td class="num">0.0</td></tr>
+          <tr><td>SW 食品饮料</td><td>辅买</td><td class="num">-6.4</td><td class="num">25.9</td><td class="num">67</td><td class="num">2.26</td><td class="num">-17.1</td></tr>
+          <tr><td>SW 家用电器</td><td>追买</td><td class="num">-6.2</td><td class="num">15.8</td><td class="num">50</td><td class="num">0.24</td><td class="num">-14.4</td></tr>
+        </tbody>
+      </table>
+      <blockquote class="warn">⚠️ <strong>行业分化显著</strong>:非银金融/煤炭/通信/计算机近3年表现较好,食品饮料/家电追买近3年失效。不同行业适用不同买点类型(如电力设备追买年化 29.9% 但样本 n=3 不可外推,家电追买年化 -6.2% 追买在家电上失效)。</blockquote>
+
+      <h4>5.2.5 港股 + 全球指数(近3年 y3)</h4>
+      <table>
+        <thead><tr><th>品种</th><th>场景</th><th class="num">年化%</th><th class="num">最大回撤%</th><th class="num">胜率%</th><th class="num">盈亏比</th><th class="num">总收益%</th></tr></thead>
+        <tbody>
+          <tr><td>恒生指数</td><td>主买</td><td class="num">2.9</td><td class="num">1.8</td><td class="num">100</td><td class="num">-</td><td class="num">8.8</td></tr>
+          <tr><td>恒生指数</td><td>辅买</td><td class="num">4.9</td><td class="num">4.7</td><td class="num">80</td><td class="num">30.32</td><td class="num">15.2</td></tr>
+          <tr><td>恒生国企</td><td>辅买</td><td class="num">5.3</td><td class="num">7.2</td><td class="num">75</td><td class="num">90.44</td><td class="num">16.2</td></tr>
+          <tr><td>恒生科技</td><td>辅买</td><td class="num">2.3</td><td class="num">9.5</td><td class="num">75</td><td class="num">4.66</td><td class="num">7.0</td></tr>
+          <tr><td>道琼斯</td><td>主买</td><td class="num">9.4</td><td class="num">8.1</td><td class="num">0</td><td class="num">-</td><td class="num">28.6</td></tr>
+          <tr><td>道琼斯</td><td>追买</td><td class="num">13.8</td><td class="num">15.2</td><td class="num">0</td><td class="num">-</td><td class="num">47.3</td></tr>
+          <tr><td>纳斯达克</td><td>主买</td><td class="num">7.3</td><td class="num">5.2</td><td class="num">100</td><td class="num">-</td><td class="num">14.7</td></tr>
+          <tr><td>纳斯达克</td><td>辅买</td><td class="num">10.5</td><td class="num">6.5</td><td class="num">60</td><td class="num">30.91</td><td class="num">34.3</td></tr>
+          <tr><td>纳斯达克</td><td>追买</td><td class="num">13.9</td><td class="num">16.9</td><td class="num">100</td><td class="num">-</td><td class="num">41.6</td></tr>
+          <tr><td>纳斯达克100</td><td>主买</td><td class="num">7.6</td><td class="num">2.7</td><td class="num">100</td><td class="num">-</td><td class="num">10.4</td></tr>
+          <tr><td>纳斯达克100</td><td>辅买</td><td class="num">10.7</td><td class="num">3.8</td><td class="num">80</td><td class="num">34.58</td><td class="num">34.9</td></tr>
+          <tr><td>纳斯达克100</td><td>追买</td><td class="num">11.5</td><td class="num">4.7</td><td class="num">75</td><td class="num">13.62</td><td class="num">33.8</td></tr>
+          <tr><td>标普500</td><td>追买</td><td class="num">17.6</td><td class="num">15.5</td><td class="num">0</td><td class="num">-</td><td class="num">62.3</td></tr>
+          <tr><td>日经225</td><td>主买</td><td class="num">6.4</td><td class="num">3.4</td><td class="num">100</td><td class="num">-</td><td class="num">18.8</td></tr>
+          <tr><td>日经225</td><td>追买</td><td class="num">9.4</td><td class="num">6.6</td><td class="num">80</td><td class="num">3.73</td><td class="num">29.3</td></tr>
+        </tbody>
+      </table>
+      <p>⚠️ 美股近3年表现突出(标普500追买年化 17.6%,纳指追买 13.9%),与 2023-2026 美股 AI 牛市有关,不可外推至其他市场环境。道琼斯/标普500 胜率显示 0%(轮数 0)是因近3年未触发完整买卖配对,总收益来自未平仓浮盈,胜率统计无意义。</p>
+
+      <h4>5.2.6 商品(近3年 y3)</h4>
+      <table>
+        <thead><tr><th>品种</th><th>场景</th><th class="num">年化%</th><th class="num">最大回撤%</th><th class="num">胜率%</th><th class="num">盈亏比</th><th class="num">总收益%</th></tr></thead>
+        <tbody>
+          <tr><td>黄金(沪金)</td><td>主买</td><td class="num">0.6</td><td class="num">2.6</td><td class="num">100</td><td class="num">-</td><td class="num">1.8</td></tr>
+          <tr><td>黄金(沪金)</td><td>辅买</td><td class="num">1.4</td><td class="num">5.2</td><td class="num">100</td><td class="num">-</td><td class="num">3.5</td></tr>
+          <tr><td>原油(INE)</td><td>主买</td><td class="num">3.1</td><td class="num">3.6</td><td class="num">100</td><td class="num">-</td><td class="num">8.6</td></tr>
+          <tr><td>原油(INE)</td><td>辅买</td><td class="num">8.2</td><td class="num">25.0</td><td class="num">67</td><td class="num">0.80</td><td class="num">23.6</td></tr>
+          <tr><td>WTI原油</td><td>主买</td><td class="num">2.2</td><td class="num">1.4</td><td class="num">67</td><td class="num">229.00</td><td class="num">6.0</td></tr>
+          <tr><td>布伦特原油</td><td>主买</td><td class="num">7.9</td><td class="num">2.3</td><td class="num">100</td><td class="num">-</td><td class="num">17.5</td></tr>
+          <tr><td>布伦特原油</td><td>辅买</td><td class="num">15.7</td><td class="num">7.1</td><td class="num">100</td><td class="num">-</td><td class="num">50.0</td></tr>
+          <tr><td>COMEX白银</td><td>主买</td><td class="num">1.3</td><td class="num">0.0</td><td class="num">100</td><td class="num">-</td><td class="num">3.7</td></tr>
+          <tr><td>COMEX白银</td><td>辅买</td><td class="num">2.1</td><td class="num">2.7</td><td class="num">100</td><td class="num">-</td><td class="num">6.3</td></tr>
+        </tbody>
+      </table>
+
+      <h3>5.3 国债波段策略回测(2026-07-24)</h3>
+      <p><strong>口径</strong>:RSI+乖离+布林三指标波段策略,vs 原 D1 卖点(20日高回落5%,国债从未触发)。</p>
+      <table>
+        <thead><tr><th>品种</th><th>指标</th><th class="num">原策略(D1)</th><th class="num">波段策略</th><th>改善</th></tr></thead>
+        <tbody>
+          <tr><td>上证国债指数(cgb_idx)</td><td>年化%</td><td class="num">3.57</td><td class="num">3.23</td><td>微降</td></tr>
+          <tr><td>cgb_idx</td><td>最大回撤%</td><td class="num">-10.4</td><td class="num">-4.8</td><td>大降(降风险)</td></tr>
+          <tr><td>cgb_idx</td><td>夏普</td><td class="num">2.80</td><td class="num">3.58</td><td>升</td></tr>
+          <tr><td>十年国债ETF(cgb_10y_etf)</td><td>年化%</td><td class="num">3.50</td><td class="num">3.24</td><td>微降</td></tr>
+          <tr><td>cgb_10y_etf</td><td>最大回撤%</td><td class="num">-4.62</td><td class="num">-3.62</td><td>降</td></tr>
+          <tr><td>cgb_10y_etf</td><td>夏普</td><td class="num">1.31</td><td class="num">1.52</td><td>升</td></tr>
+          <tr><td>10年国债期货(cgb_10y_future)</td><td>年化%</td><td class="num">1.30</td><td class="num">1.63</td><td>升</td></tr>
+          <tr><td>cgb_10y_future</td><td>最大回撤%</td><td class="num">-6.80</td><td class="num">-2.37</td><td>大降</td></tr>
+          <tr><td>cgb_10y_future</td><td>夏普</td><td class="num">0.42</td><td class="num">1.58</td><td>大升</td></tr>
+        </tbody>
+      </table>
+      <p><strong>结论</strong>:国债波段策略在三个品种上均为"降风险+提夏普"(年化微降或微升,回撤大降,夏普提升),符合"卖为降风险非趋势放弃"理念。</p>
+
+      <h3>5.4 仓位 v5 回测(2026-07-24)</h3>
+      <p><strong>口径</strong>:50 ETF + 120 日截尾均值,hands=3 vs hands=1 的 forward return 对比。</p>
+      <table>
+        <thead><tr><th>持有期</th><th class="num">hands=3 截尾均值</th><th class="num">hands=1 截尾均值</th><th>结论</th></tr></thead>
+        <tbody>
+          <tr><td>5 日</td><td class="num">+0.93%</td><td class="num">+0.74%</td><td>hands=3 &gt; hands=1 ✅</td></tr>
+          <tr><td>10 日</td><td class="num">hands=3 &lt; hands=1</td><td class="num">-</td><td>代理局限(非公式问题)</td></tr>
+          <tr><td>20 日</td><td class="num">hands=3 &lt; hands=1</td><td class="num">-</td><td>代理局限</td></tr>
+        </tbody>
+      </table>
+      <p><strong>核心价值</strong>:区分度(buy_list 3 手占比 80%-&gt;15%,有加有砍),非预测未来收益。历史回测用 position 分位+RSI 代理 low_alert(真实历史未存),实际效果应优于回测。</p>
+
+      <h3>5.5 22 策略实验室回测矩阵(lab.js)</h3>
+      <p><strong>口径</strong>:244 资产(13 指数 + 31 行业 + 200 抽样个股)× 5 窗口 × 4 horizon(5d/10d/20d/60d)。</p>
+      <p><strong>生产 3 策略</strong>(已上线):</p>
+      <ul>
+        <li>RSI 上穿 30 买(C1):达标数 3/4(全史/近10年/近3年),近3年 60d 盈亏比 1.68,均值 +5.3%。</li>
+        <li>BB 下轨回归买(B1):达标数 3/4,近3年 60d 盈亏比 1.79,均值 +4.7%,近1年(强势单边市)唯一达标买点。</li>
+        <li>20 日高回落 5% 卖(D1):近3年 20d 胜率 55.9%(卖点较高),盈亏比 0.86&lt;1(卖点结构性问题),维持现状合理,"最不坏"方案。</li>
+      </ul>
+      <p><strong>候选买 7 策略</strong>(实验中):Supertrend 翻多买/唐奇安 20 日突破买/海龟 55 日突破买/均线 5-20 金叉买/均线 10-60 金叉买/MACD 金叉买/布林上轨回归买(实验性新组合)。</p>
+      <p><strong>候选卖 7 策略</strong>(实验中):布林上轨回落卖/均线 5-20 死叉卖/跌破布林中轨卖/跌破 10 日最低卖/跌破 20 日最低卖/MACD 死叉卖/真实波幅追踪止损卖。</p>
+      <p><strong>已排除 6 策略</strong>(回测不达标,反面教材):</p>
+      <ul>
+        <li>突破布林上轨买:0/4 达标,追高被套。</li>
+        <li>KDJ 超卖金叉买:0/4 达标,信号密集但胜率低。</li>
+        <li>放量突破买:0/4 达标,近3年 10d 胜率 43.0% 最低,A 股个股反向指标。</li>
+        <li>RSI 下穿 70 卖:0/4 达标,方向相反(信号后价格仍涨),最差卖点。</li>
+        <li>KDJ 超买死叉卖:0/4 达标,近年失效。</li>
+        <li>Supertrend 翻空卖:近3年失效,A 股向上漂移致趋势跟踪卖点失效。</li>
+      </ul>
+
+      <h3>5.6 无回测数据或回测失效的品种(诚实说明)</h3>
+      <ul>
+        <li><strong>离岸人民币(usdcnh)</strong>:近3年 0 信号(干预市单边上行,RSI 超卖后继续跌,skip_buy)。不可用 RSI 买卖点策略,仅作宏观参考指标。</li>
+        <li><strong>中美利差(cn_us_spread)</strong>:卖点完全反向(卖后涨 15-25%,skip_sell)。不可用卖点策略。</li>
+        <li><strong>中国10年国债收益率(g.cn10y)/ 美国10年国债收益率(g.us10y)</strong>:作为指标序列用 RSI 买卖不适用,近3年主买年化 -10.6% / -2.4%(全负)。⚠️ 注意:这是 g.cn10y/g.us10y <strong>收益率序列</strong>的回测,不是 §5.3 的国债波段策略(cgb_idx/cgb_10y_etf/cgb_10y_future),两者不同。</li>
+        <li><strong>板块轮动 A9 信号</strong>:仅形态频次非回测(<code>ind_flow</code> 仅 6-7 月历史,样本不足),文案明确"近 20 交易日统计",不可作为回测收益依据。</li>
+        <li><strong>行业资金流(ind_flow)/ 行业换手率(ind_turn)</strong>:历史仅 6-7 个月(东财 fflow 接口~121 天历史),不支持长期回测。</li>
+        <li><strong>美股 VIX</strong>:无直接 akshare 函数,未采集。</li>
+        <li><strong>乐咕活跃度/东财情绪</strong>:源不稳定/接口待验证,已禁用。</li>
+        <li><strong>持仓盈利为 0% 的品种</strong>(如食品饮料主买近3年 0.0%):信号触发但未产生正收益,说明该品种近3年信号失效或市场环境不利。</li>
+      </ul>
+    </section>
+
+    <section id="sec-6">
+      <h2>六、风险提示</h2>
+
+      <h3>6.1 最大回撤风险</h3>
+      <blockquote class="warn">⚠️ <strong>全历史回测显示策略最大回撤普遍较大</strong>:
+        <ul>
+          <li>上证指数主买:最大回撤 27.9%(35.2 年)</li>
+          <li>沪深300 主买:最大回撤 31.0%(24.5 年)</li>
+          <li>中证500 主买:最大回撤 25.4%(21.5 年)</li>
+          <li>中证1000 追买:最大回撤 49.9%(全历史)</li>
+          <li>SW 钢铁 辅买:最大回撤 65.3%(全历史)</li>
+          <li>SW 有色金属 主买:最大回撤 61.6%(全历史)</li>
+        </ul>
+        <strong>含义</strong>:需有承受 30-50% 最大回撤的心理准备与资金能力。即使历史回测年化为正,过程中可能承受巨大浮亏。<strong>不建议使用杠杆,不建议投入无法承受亏损的资金</strong>。
+      </blockquote>
+
+      <h3>6.2 卖点结构性问题</h3>
+      <blockquote class="warn">⚠️ <strong>卖点本质难预测,胜率≈50% 接近随机</strong>:
+        <ul>
+          <li>D1 卖点 2016+ 10 日胜率 50.6%(接近随机),盈亏比 1.04(&lt;1.5 不算强)。</li>
+          <li>A 股指数向上漂移致卖点结构性偏弱(卖出后价格常继续涨)。</li>
+          <li><strong>卖点定位为"趋势转弱/止盈减仓提示",不可作为独立卖出指令</strong>--只能作"该检查仓位了"的风险注意灯。</li>
+          <li>卖点 reason 的 vs前买 标注:[止盈]=减仓锁利润,[买点失败]=止损观望,[无前买点]=单独看趋势。</li>
+        </ul>
+      </blockquote>
+
+      <h3>6.3 策略失效场景</h3>
+      <ul>
+        <li><strong>单边上涨市</strong>:卖点频繁假信号(趋势跟踪类固有代价),买点稀少(RSI 难到 30)。</li>
+        <li><strong>单边下跌市</strong>:买点频繁假信号(RSI 反复进出超卖区,每次退出都触发但价格继续跌)。</li>
+        <li><strong>震荡市</strong>:追买/备买(趋势跟踪类)易假突破,买点/辅买(均值回归类)相对适用。</li>
+        <li><strong>市场结构变化</strong>:近年市场宽度结构变化致 cross 多在 30-70 中性区,冰点/狂热极端态罕见(2026-07-06 C1 改进背景)。</li>
+        <li><strong>政策干预市</strong>:如离岸人民币(RSI 失效)、中美利差(卖点反向),已 skip 不出信号。</li>
+      </ul>
+
+      <h3>6.4 数据风险</h3>
+      <ul>
+        <li><strong>数据延迟</strong>:本站为盘后 T+1 数据,非实时。盘中仅 30 分钟节奏的异常波动告警快照。</li>
+        <li><strong>数据源风险</strong>:东财 push2 clist/板块端点被反爬封(已用 sina/直爬替代);北向资金 2024-08 起停更;QVIX 2026-06 后滞后;涨停板池仅近 2 周历史(历史段由 mootdx 全 A 日线按收盘封板口径回填,zt 交叉校验误差~3%)。</li>
+        <li><strong>ST/北交所/B 股误差</strong>:mootdx 无 ST 标记致 dt 系统性偏高~20-30%;北交所 324 只由 BaoStock 兜底;B 股不覆盖。</li>
+        <li><strong>成分股映射限制</strong>:申万一级成分股映射源 legulegu 返当前成分非历史,2016-2021 段用当前成分算宽度存在~5-10% 偏差。</li>
+      </ul>
+
+      <h3>6.5 回测局限性</h3>
+      <ul>
+        <li><strong>历史回测不代表未来</strong>:市场环境变化、监管政策变化、市场参与者结构变化都可能使历史有效的策略未来失效。</li>
+        <li><strong>未考虑交易成本</strong>:回测未计滑点/手续费/冲击成本/流动性限制,实际收益会低于回测。</li>
+        <li><strong>样本量警示</strong>:部分 per-index 增强(如基础化工 n=19/科创50 n=13/电力设备 n=23)样本偏小,结论可能过拟合,需后续样本累积验证。</li>
+        <li><strong>单一市场经验</strong>:多数回测基于 A 股历史,外推至港股/全球/商品需谨慎。</li>
+        <li><strong>forward return vs 配对交易口径不同</strong>:signal_stats.json 的胜率是信号触发后 N 日涨跌(forward return),trade_sim 是配对交易收益(买固定1w+卖清仓),两者不同,不可混用。</li>
+      </ul>
+
+      <h3>6.6 适用人群限制</h3>
+      <ul>
+        <li>本站适合有一定经验、能自主决策的 A 股投资者(详见 <a href="#sec-2">§2</a>)。</li>
+        <li>不适合完全小白/想跟单/追求暴富的用户。</li>
+        <li>应根据自身风险承受能力、投资期限、财务状况决定是否参考本站信号,必要时应咨询持牌投资顾问。</li>
+      </ul>
+
+      <h3>6.7 免责声明</h3>
+      <blockquote class="warn">⚠️ <strong>本站为个人学习/研究工具,非持牌证券投资咨询机构,不荐股,不代客理财。所有数据与信号均为历史统计与技术分析参考,不构成任何投资建议或交易指令。过往表现不代表未来收益,数据可能存在延迟。投资有风险,决策需谨慎。</strong> 使用本站信号导致的任何盈亏,由使用者自行承担,本站不承担任何责任。</blockquote>
+    </section>
+
+    <section id="sec-7">
+      <h2>七、进阶用法</h2>
+
+      <h3>7.1 策略实验室回测矩阵学习</h3>
+      <p><strong>目标</strong>:学习 22 策略的回测表现与理论依据,理解不同策略的适用场景与局限。</p>
+      <p><strong>操作</strong>:</p>
+      <ol>
+        <li>进入"策略实验"Tab。</li>
+        <li>看 22 策略分 4 区(候选买 7 / 候选卖 7 / 已排除 6 / 生产 3)。</li>
+        <li>点每个策略看其回测报告(如"布林下轨回归买达标数 3/4,近3年 60d 盈亏比 1.79")。</li>
+        <li>看回测矩阵:244 资产 × 5 窗口 × 4 horizon 的胜率/盈亏比/均值/样本数。</li>
+        <li>学习策略理论:每个策略有 theory 字段说明(如"RSI 上穿 30:相对强弱指标从 ≤30 升回 &gt;30,超卖结束拐点")。</li>
+      </ol>
+      <p><strong>学习要点</strong>:哪些策略在 A 股历史达标;哪些策略在 A 股失效(已排除 6);不同 horizon 的胜率/盈亏比变化;不同窗口的表现差异(全史 vs 近1年,市场 regime 影响)。</p>
+
+      <h3>7.2 自定义标的分析</h3>
+      <p><strong>目标</strong>:输入关注的标的(指数/ETF/全球指标),查看其 8+8 维度评分 + 6 维度仓位 + 历史类比 Top3。</p>
+      <p><strong>操作</strong>:</p>
+      <ol>
+        <li>进入"策略实验"Tab,选"自定义分析"。</li>
+        <li>从 55 个预生成 iid 中选标的(9 宽基 + 31 行业 + 3 红利 + 3 港股 + 9 全球)。</li>
+        <li>查看分析结果:
+          <ul>
+            <li><strong>分数卡</strong>:高位风险分 + 低位机会分 + 建议仓位(0-3 手)+ 波动率。</li>
+            <li><strong>8+8 维度拆解</strong>:H1-H8 高位风险 + L1-L8 低位机会,各维度分值/权重/贡献/命中。</li>
+            <li><strong>历史类比 Top3</strong>:相似特征时段后续 5/10/20 日涨跌统计(高位风险视角 + 低位机会视角)。</li>
+            <li><strong>数据阈值表</strong>:各维度当前值 vs 阈值 vs 状态(命中/未命中/无数据)。</li>
+            <li><strong>仓位计算依据</strong>:6 维度综合分 v5 透明化(机会 35% + 趋势 20% + 动量 15% + 波动 15% + 流动性 5% + 回撤 10%)。</li>
+          </ul>
+        </li>
+      </ol>
+
+      <h3>7.3 模拟回测弹窗(trade_sim)</h3>
+      <p><strong>目标</strong>:查看具体品种的配对交易模拟回测详情。</p>
+      <p><strong>操作</strong>:</p>
+      <ol>
+        <li>在指数表现/ETF 评分 Tab,点走势图上的"模拟回测"按钮。</li>
+        <li>弹窗显示该品种的 trade_sim 详情:
+          <ul>
+            <li>5 窗口(全史/近10年/近5年/近3年/近1年)× 3 策略路径 × 11 场景。</li>
+            <li>每个组合的年化/最大回撤/胜率/盈亏比/总收益/轮数。</li>
+            <li><strong>3 chip 档位</strong>:年化最高(金)/ 最稳健(蓝,综合分=胜率40%+低回撤40%+样本20%)/ 回撤最小(绿)。门槛 ann≥3% 才显示,全 null 显示"该标的回测表现均较弱,暂无优质买点推荐"。</li>
+            <li>权益曲线(equity_curve)展示资金轨迹。</li>
+          </ul>
+        </li>
+      </ol>
+
+      <h3>7.4 持仓对账(ETF 评分 Tab)</h3>
+      <p><strong>目标</strong>:输入持仓 ETF,看其在评分榜中的排名位置。</p>
+      <p><strong>操作</strong>:</p>
+      <ol>
+        <li>进入"ETF 评分"Tab。</li>
+        <li>在持仓输入区输入持仓 ETF 代码(逗号分隔)。</li>
+        <li>评分榜中持仓行高亮,显示"代码 名称 #排名"。</li>
+        <li>点"只看持仓(N)"chip 仅显示持仓行。</li>
+      </ol>
+      <p><strong>学习要点</strong>:持仓 ETF 在买入榜 = 低位机会(可加仓);持仓 ETF 在卖出榜 + sell_signal 含"减仓/清仓" = 高位风险(注意降仓);持仓 ETF 不在榜 = 评分中性(观望)。</p>
+    </section>
+
+    <section id="sec-appendix">
+      <h2>附录:关键文件路径与数据产物</h2>
+      <p>本站为开源/透明项目,关键路径与数据产物公开如下(供审计与复现):</p>
+      <h3>源码与配置</h3>
+      <ul>
+        <li>项目根:<code>/Users/linhuichen/code/trade/</code></li>
+        <li>前端源码:<code>static-site/</code>(index.html / app.js / common.js / lab.js / style.css)</li>
+        <li>后端源码:<code>app/</code>(main.py / alert_score.py / compute/signals.py / compute/sentiment.py / compute/cross.py)</li>
+        <li>指标配置:<code>config/indicators.yaml</code></li>
+        <li>需求文档:<code>REQUIREMENTS.md</code>(需求真实来源,§7 买卖点逻辑详解)</li>
+        <li>项目规范:<code>CLAUDE.md</code></li>
+        <li>历史回测报告归档:<code>docs/archive/</code>(01-26 回测报告 + EVAL/REVIEW/H5_DESIGN 等)</li>
+      </ul>
+      <h3>静态数据产物(上线渠道)</h3>
+      <p>静态数据产物在 <code>static-site/data/</code>,前端直接读取:</p>
+      <ul>
+        <li><code>overview.json</code>:首页概览数据</li>
+        <li><code>signal_stats.json</code>:100 品种 × 7 信号 × 3 horizon 的 forward return 胜率</li>
+        <li><code>trade_sim/</code>:100 品种 × 5 窗口 × 3 策略 × 11 场景的配对交易回测</li>
+        <li><code>etf_score_list.json</code>:23 国家队 + 全市场代表性 ETF 评分排序</li>
+        <li><code>alert.json</code> + <code>alert_analyze_*.json</code>:8+8 维度 AI 风险预警(全市场 + 单标的)</li>
+        <li><code>industry_heatmap.json</code> + <code>rotation.json</code>:行业热力图 + 轮动速度</li>
+        <li><code>etf_national_team.json</code>:12 宽基 ETF 国家队资金动向</li>
+      </ul>
+    </section>
+
+    <section class="about-final">
+      <h2>最后再次强调</h2>
+      <p>本站所有数据与信号均为历史统计与技术分析参考,<strong>不构成任何投资建议或交易指令</strong>。投资有风险,决策需谨慎。应根据自身情况独立决策,必要时应咨询持牌投资顾问。</p>
     </section>
 
     <footer class="about-footer">
+      <p class="about-updated">最后更新日期:2026-07-20(数据采集至 2026-07-24)</p>
       <!-- ICP备案号占位:ss.fx8.store 为未备案国际域名,暂隐藏;待国内备案后启用
       <p>ICP备案号:沪ICP备XXXXXXXX号</p>
       -->
-      <p>© 2026 信号实验室 · tdsignal</p>
+      <p>© 2026 信号实验室 · tdsignal · <a href="/">返回看板</a> · <a href="/privacy.html">隐私政策</a></p>
     </footer>
   </main>
 
   <style>
-  .about-wrap { max-width: 820px; margin: 0 auto; padding: 24px 20px 64px; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--text-1); line-height: 1.75; }
-  .about-header h1 { font-size: 22px; margin: 0 0 4px; color: var(--text-1); }
-  .about-sub { color: var(--text-3); font-size: 13px; margin: 0 0 12px; }
+  .about-wrap { max-width: 860px; margin: 0 auto; padding: 24px 20px 64px; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--text-1); line-height: 1.75; }
+  .about-header h1 { font-size: 24px; margin: 0 0 4px; color: var(--text-1); }
+  .about-sub { color: var(--text-3); font-size: 13px; margin: 0 0 6px; }
+  .about-sites { color: var(--text-3); font-size: 12px; margin: 0 0 12px; }
+  .about-sites a { color: var(--primary, #3370ff); }
   .about-back { color: var(--primary, #3370ff); text-decoration: none; font-size: 14px; }
   .about-back:hover { text-decoration: underline; }
   .about-updated { color: var(--text-3); font-size: 13px; margin: 0 0 8px; }
   .about-intro { color: var(--text-2); font-size: 14px; }
-  .about-wrap section { margin: 20px 0; padding: 16px 18px; background: var(--bg-card, var(--bg-hover)); border-radius: 8px; border-left: 3px solid var(--primary, #3370ff); }
-  .about-wrap section h2 { font-size: 16px; margin: 0 0 10px; color: var(--text-1); }
+  .about-wrap section { margin: 18px 0; padding: 18px 20px; background: var(--bg-card, var(--bg-hover)); border-radius: 8px; border-left: 3px solid var(--primary, #3370ff); }
+  .about-wrap section h2 { font-size: 18px; margin: 0 0 12px; color: var(--text-1); padding-bottom: 6px; border-bottom: 1px solid var(--border, #e5e6eb); }
+  .about-wrap section h3 { font-size: 15px; margin: 16px 0 8px; color: var(--text-1); }
+  .about-wrap section h4 { font-size: 14px; margin: 14px 0 6px; color: var(--text-1); }
   .about-wrap section p { margin: 8px 0; font-size: 14px; color: var(--text-2); }
-  .about-wrap section ul { margin: 8px 0 8px 20px; padding: 0; }
+  .about-wrap section ul, .about-wrap section ol { margin: 8px 0 8px 22px; padding: 0; }
   .about-wrap section li { font-size: 14px; color: var(--text-2); margin: 4px 0; }
   .about-wrap section a { color: var(--primary, #3370ff); }
+  .about-wrap section strong { color: var(--text-1); font-weight: 600; }
+  .about-wrap section code { background: var(--bg-hover, rgba(0,0,0,0.05)); color: var(--text-1); padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; }
+  /* table */
+  .about-wrap table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; display: block; overflow-x: auto; }
+  .about-wrap th, .about-wrap td { border: 1px solid var(--border, #e5e6eb); padding: 6px 8px; text-align: left; vertical-align: top; }
+  .about-wrap th { background: var(--bg-hover, rgba(0,0,0,0.04)); color: var(--text-1); font-weight: 600; white-space: nowrap; }
+  .about-wrap td { color: var(--text-2); }
+  .about-wrap td.num { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: nowrap; }
+  /* warn blockquote */
+  .about-wrap blockquote.warn { margin: 12px 0; padding: 10px 14px; background: var(--bg-hover, rgba(255,180,0,0.06)); border-left: 3px solid #f5a623; border-radius: 4px; color: var(--text-2); font-size: 14px; }
+  .about-wrap blockquote.warn ul { margin: 6px 0 6px 20px; }
+  .about-wrap blockquote.warn strong { color: var(--text-1); }
+  /* toc */
+  .about-toc ol { margin: 8px 0 8px 24px; }
+  .about-toc li { margin: 4px 0; }
+  /* final section */
+  .about-final { border-left-color: #e6492e; }
+  .about-final h2 { color: #e6492e; }
+  /* footer */
   .about-footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border, #e5e6eb); text-align: center; font-size: 12px; color: var(--text-3); line-height: 1.6; }
   .about-footer p { margin: 2px 0; }
+  .about-footer a { color: var(--text-3); }
+  /* dark/redgold theme adjustments for warn/table */
+  [data-theme="dark"] .about-wrap blockquote.warn { background: rgba(245,166,35,0.12); }
+  [data-theme="dark"] .about-wrap th { background: rgba(255,255,255,0.06); }
+  [data-theme="redgold"] .about-wrap blockquote.warn { background: rgba(245,166,35,0.14); }
+  [data-theme="redgold"] .about-wrap th { background: rgba(255,255,255,0.08); }
   @media (max-width: 768px) {
-    .about-wrap { padding: 16px 14px 64px; }
-    .about-wrap section { padding: 14px; }
+    .about-wrap { padding: 16px 12px 64px; }
+    .about-wrap section { padding: 14px 14px; }
+    .about-wrap section h2 { font-size: 16px; }
+    .about-wrap section h3 { font-size: 14px; }
+    .about-wrap table { font-size: 12px; }
+    .about-wrap th, .about-wrap td { padding: 5px 6px; }
   }
   </style>
 
