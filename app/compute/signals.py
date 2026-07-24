@@ -185,17 +185,30 @@ def compute_band_signal(index_id: str, params: dict) -> list[dict]:
 
     out: list[dict] = []
     # 从 index 60 开始（前60天 MA60 暖机），算最后60天每天信号（与回测 dropna(ma60) 后等价）
+    #
+    # 性能优化（2026-07-25）：原逐日 close.iloc[i]/rsi.iloc[i]/... 读 7 个 pandas Series，
+    # 3 CGB 指数 × ~4000 天 × 7 .iloc[] = ~84k 次 pandas indexing 开销（cProfile 实测 0.7s）。
+    # 改为 numpy 数组下标读取（arr[i] O(1) 无包装），算法/输出完全一致。
+    import numpy as np
+    c_arr = close.to_numpy(dtype=float)
+    r_arr = rsi.to_numpy(dtype=float)
+    b20_arr = bias20.to_numpy(dtype=float)
+    b60_arr = bias60.to_numpy(dtype=float)
+    m60_arr = ma60.to_numpy(dtype=float)
+    bu_arr = bb_up.to_numpy(dtype=float)
+    bl_arr = bb_low.to_numpy(dtype=float)
+    bp_arr = bb_pos.to_numpy(dtype=float)
     for i in range(60, len(rows)):
-        c = close.iloc[i]
-        r = rsi.iloc[i]
-        b20 = bias20.iloc[i]
-        b60 = bias60.iloc[i]
-        m60 = ma60.iloc[i]
-        bu = bb_up.iloc[i]
-        bl = bb_low.iloc[i]
-        bp = bb_pos.iloc[i]
+        c = c_arr[i]
+        r = r_arr[i]
+        b20 = b20_arr[i]
+        b60 = b60_arr[i]
+        m60 = m60_arr[i]
+        bu = bu_arr[i]
+        bl = bl_arr[i]
+        bp = bp_arr[i]
         d = dates[i]
-        if pd.isna(c) or pd.isna(r) or pd.isna(b20) or pd.isna(b60) or pd.isna(m60) or pd.isna(bu) or pd.isna(bl):
+        if np.isnan(c) or np.isnan(r) or np.isnan(b20) or np.isnan(b60) or np.isnan(m60) or np.isnan(bu) or np.isnan(bl):
             continue
 
         reduce_sig = (b20 > bias_th and r > rsi_high) or (c >= bu)
@@ -229,7 +242,7 @@ def compute_band_signal(index_id: str, params: dict) -> list[dict]:
         else:
             signal = "持有"
             ratio = 0.0
-            bp_str = f"{bp * 100:.0f}%" if pd.notna(bp) else "NA"
+            bp_str = f"{bp * 100:.0f}%" if not np.isnan(bp) else "NA"
             reason = (f"波段持有: 无超买超卖信号"
                       f"(RSI{r:.0f},bias20 {b20 * 100:.2f}%,BB位{bp_str})")
 
@@ -241,7 +254,7 @@ def compute_band_signal(index_id: str, params: dict) -> list[dict]:
             "rsi": float(r),
             "bias20": float(b20),
             "bias60": float(b60),
-            "bb_pos": float(bp) if pd.notna(bp) else None,
+            "bb_pos": float(bp) if not np.isnan(bp) else None,
         })
     return out
 
@@ -275,6 +288,42 @@ def _load_index_low(index_id: str) -> pd.Series:
     if not rows:
         return pd.Series(dtype=float)
     return pd.Series({r["date"]: r["low"] for r in rows}).sort_index().astype(float)
+
+
+def _load_index_ohlc_amount(index_id: str) -> tuple:
+    """一次查询加载 close/high/low/amount 四序列（性能优化 2026-07-25）。
+
+    原计算流程对每个指数调 4 次 normalize.load_index_*/_load_index_low，各开 1 个
+    sqlite 连接 + 1 次 execute + 1 次 fetchall + 1 次 close（93 指数 × 4 = 372 次
+    连接开关 + PRAGMA journal_mode 开销，cProfile 实测 DB 部分约 1.3s）。合并为
+    1 次查询 `SELECT date, close, high, low, amount WHERE index_id=? ORDER BY date`，
+    按列拆 Series 并各自 dropna（等价于原 `WHERE col IS NOT NULL` 过滤）。
+
+    返回 (close, high, low, amount) 四个 pd.Series，与分别调用
+    load_index_close / load_index_high / _load_index_low / load_index_amount 完全等价
+    （同 index、同 dtype=float、各列过滤 null、按 date 升序）。调用方仍需 high/low/
+    amount.reindex(close.index) 对齐到 close（与原逻辑一致）。
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT date, close, high, low, amount FROM index_daily "
+        "WHERE index_id=? ORDER BY date",
+        (index_id,),
+    ).fetchall()
+    conn.close()
+    if not rows:
+        empty = pd.Series(dtype=float)
+        return empty, empty, empty, empty
+    # 按列拆分：每列只保留非 null 值（等价于原各 loader 的 WHERE col IS NOT NULL）
+    close_data = {r["date"]: r["close"] for r in rows if r["close"] is not None}
+    high_data = {r["date"]: r["high"] for r in rows if r["high"] is not None}
+    low_data = {r["date"]: r["low"] for r in rows if r["low"] is not None}
+    amount_data = {r["date"]: r["amount"] for r in rows if r["amount"] is not None}
+    close = pd.Series(close_data).sort_index().astype(float) if close_data else pd.Series(dtype=float)
+    high = pd.Series(high_data).sort_index().astype(float) if high_data else pd.Series(dtype=float)
+    low = pd.Series(low_data).sort_index().astype(float) if low_data else pd.Series(dtype=float)
+    amount = pd.Series(amount_data).sort_index().astype(float) if amount_data else pd.Series(dtype=float)
+    return close, high, low, amount
 
 
 def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 10) -> pd.Series:
@@ -312,6 +361,13 @@ def _supertrend(
     - supertrend line: 多头=final_lower（支撑线），空头=final_upper（压力线）
 
     数据不足（前 period 日 ATR 为 NaN）安全跳过，direction 默认 1（多头），后续迭代会被覆盖。
+
+    性能优化（2026-07-25）：原用 pandas Series.iloc[i] 读写逐日递推，每赋值触发 pandas 内部
+    validate/cast/setitem/apply 全链路开销（93 指数 × ~10000 天 × 多次 .iloc[]= ≈ 1.17M 次
+    setitem，占 signals.compute 93% 耗时，cProfile 实测 69s/74s）。改为 numpy 数组下标读写
+    （arr[i]=val 是 O(1) 原生赋值无 pandas 包装），算法/递推关系/输出完全一致，实测降至 ~1.5s
+    （省 97%+）。算法本身有递归依赖（每日依赖前日 final_upper/final_lower/direction），循环无法
+    消除，但 numpy 标量读写消除 pandas .iloc 开销即够。
     """
     import numpy as np
 
@@ -321,46 +377,51 @@ def _supertrend(
     lower_basic = hl2 - multiplier * atr
 
     n = len(close)
-    final_upper = upper_basic.copy().astype(float)
-    final_lower = lower_basic.copy().astype(float)
-    direction = pd.Series(1, index=close.index, dtype=int)  # 默认多头
+    # 全部转 numpy 数组做循环（避免 pandas .iloc[]=/iloc[] 的链路开销）
+    ub_arr = upper_basic.to_numpy(dtype=float)
+    lb_arr = lower_basic.to_numpy(dtype=float)
+    close_arr = close.to_numpy(dtype=float)
+    fu_arr = ub_arr.copy()  # final_upper
+    fl_arr = lb_arr.copy()  # final_lower
+    dir_arr = np.ones(n, dtype=np.int8)  # 默认多头=1
 
     for i in range(1, n):
         # ATR/upper_basic 为 NaN（前 period 日）跳过，保持默认值
-        if pd.isna(upper_basic.iloc[i]) or pd.isna(close.iloc[i - 1]):
+        ub_i = ub_arr[i]
+        prev_close = close_arr[i - 1]
+        if np.isnan(ub_i) or np.isnan(prev_close):
             continue
         # final_upper 更新（多头时上轨只下移不上移）
-        prev_fu = final_upper.iloc[i - 1]
-        if pd.notna(prev_fu):
-            if upper_basic.iloc[i] < prev_fu or close.iloc[i - 1] > prev_fu:
-                final_upper.iloc[i] = upper_basic.iloc[i]
+        prev_fu = fu_arr[i - 1]
+        if not np.isnan(prev_fu):
+            if ub_i < prev_fu or prev_close > prev_fu:
+                fu_arr[i] = ub_i
             else:
-                final_upper.iloc[i] = prev_fu
+                fu_arr[i] = prev_fu
         # final_lower 更新（空头时下轨只上移不下移）
-        prev_fl = final_lower.iloc[i - 1]
-        if pd.notna(prev_fl):
-            if lower_basic.iloc[i] > prev_fl or close.iloc[i - 1] < prev_fl:
-                final_lower.iloc[i] = lower_basic.iloc[i]
+        prev_fl = fl_arr[i - 1]
+        if not np.isnan(prev_fl):
+            lb_i = lb_arr[i]
+            if lb_i > prev_fl or prev_close < prev_fl:
+                fl_arr[i] = lb_i
             else:
-                final_lower.iloc[i] = prev_fl
+                fl_arr[i] = prev_fl
         # direction 更新：close 突破 prev_final_upper -> 多头；跌破 prev_final_lower -> 空头；否则继承
-        prev_fu2 = final_upper.iloc[i - 1]
-        prev_fl2 = final_lower.iloc[i - 1]
-        cur_close = close.iloc[i]
-        if pd.notna(prev_fu2) and cur_close > prev_fu2:
-            direction.iloc[i] = 1
-        elif pd.notna(prev_fl2) and cur_close < prev_fl2:
-            direction.iloc[i] = -1
+        prev_fu2 = fu_arr[i - 1]
+        prev_fl2 = fl_arr[i - 1]
+        cur_close = close_arr[i]
+        if not np.isnan(prev_fu2) and cur_close > prev_fu2:
+            dir_arr[i] = 1
+        elif not np.isnan(prev_fl2) and cur_close < prev_fl2:
+            dir_arr[i] = -1
         else:
-            direction.iloc[i] = direction.iloc[i - 1] if i > 0 else 1
+            dir_arr[i] = dir_arr[i - 1]  # i >= 1 here, 继承前日
 
     # supertrend line: 多头=final_lower（支撑），空头=final_upper（压力）
-    supertrend = pd.Series(np.nan, index=close.index, dtype=float)
-    for i in range(n):
-        if direction.iloc[i] == 1:
-            supertrend.iloc[i] = final_lower.iloc[i]
-        else:
-            supertrend.iloc[i] = final_upper.iloc[i]
+    # vectorized np.where 替代原逐日 .iloc[] 赋值循环
+    supertrend_arr = np.where(dir_arr == 1, fl_arr, fu_arr)
+    supertrend = pd.Series(supertrend_arr, index=close.index, dtype=float)
+    direction = pd.Series(dir_arr, index=close.index, dtype=int)
 
     return supertrend, direction
 
@@ -886,10 +947,14 @@ def compute():
         if not idx.get("enabled", True):
             continue
         iid = idx["id"]
-        close = load_index_close(iid)
+        # 性能优化（2026-07-25）：4 次 DB 查询合并为 1 次（_load_index_ohlc_amount），
+        # 省 93×3=279 次 sqlite 连接开关 + execute + fetchall 开销（~0.7s）。
+        # 原: close=load_index_close(iid); high=load_index_high(iid).reindex(close.index);
+        #     low=_load_index_low(iid).reindex(close.index); amount=load_index_amount(iid).reindex(close.index)
+        close, high_raw, low_raw, amount_raw = _load_index_ohlc_amount(iid)
         if len(close) < 60:  # MA60 需要 60 日，不足则卖点过滤全砍，无意义
             continue
-        high = load_index_high(iid).reindex(close.index)  # high 对齐 close，缺失前向无填充
+        high = high_raw.reindex(close.index)  # high 对齐 close，缺失前向无填充
         rsi = _rsi(close, 14)
         cross_aligned = cross.reindex(close.index)
         rsi_prev = rsi.shift(1)
@@ -950,7 +1015,8 @@ def compute():
         # 备买 Supertrend_buy（2026-07-21）：ATR(10)×3 Supertrend 从翻空转翻多 = 趋势转向。
         # 趋势跟踪类（与 C1/B1 均值回归类互补）。独立计算不影响 buy/buy_aux/sell。
         # low 对齐 close（缺失前向无填充），low 全空则跳过 Supertrend（如部分指数无 low 数据）。
-        low = _load_index_low(iid).reindex(close.index)
+        # 性能优化（2026-07-25）：low/amount 复用 _load_index_ohlc_amount 已查的 low_raw/amount_raw
+        low = low_raw.reindex(close.index)
         if low.dropna().empty:
             # 无 low 数据（极少见）-> 不发备买/止损信号，st_line 全 NaN（reason 兜底省略 ST 值）
             st_line = close.astype(float) * float("nan")
@@ -1041,7 +1107,8 @@ def compute():
             #   R2+C12 滤率 14.24%/滤中套牢 23.31%/滤后套牢 11.09%(基线 12.83%)/滤后 10d+1.731%(基线 +1.656%)。
             #   E2 命中 188(独占42), PV 命中 428(独占297), C12 命中 846(独占821 最大)；三项叠加基本不误杀好信号。
             # atr14 已在 L655 算过（Wilder 14 周期，同 peak_filter_backtest.py L36-42 口径）；amount 用 load_index_amount。
-            amount = load_index_amount(iid).reindex(close.index)
+            # 性能优化（2026-07-25）：amount 复用 _load_index_ohlc_amount 已查的 amount_raw
+            amount = amount_raw.reindex(close.index)
             atr_pct = atr14 / close
             # price_vol_div 计算保留（h5 不再用，未来可能复用于其他过滤档）：
             #   5 日价涨（close/close.shift(5)-1 > 0）且 近 5 日至少 3 日 amount < MA5(amount)。
