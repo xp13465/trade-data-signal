@@ -2543,3 +2543,14 @@ trade_sim 标题下换行 3 chip（年化最高/最稳健/回撤最小）配套�
 **7/24数据状态**：DB 736条(正常~1367,54%),SH 510xxx/512xxx/588xxx全有7/24,4 SZ ETF(159845/159919/159922/159952)latest=20260723缺7/24(SZ源T+1延迟20:41重采未覆盖)。线上JSON updated_at=2026-07-25T01:08。7/27周一20:07 backfill 6天回填窗口自动补4 SZ ETF 7/24数据,无需手动干预
 
 **3 commit(bba5ecaa+6824a43c+c1921857)均在origin/main+origin/feat/iframe-theme-follow。c1921857是用户既存(7/24 20:41),bba5ecaa+6824a43c是本次排查新增**
+
+### 小节AZ16：2026-07-25 凌晨 数据集开源 A 简化版
+
+用户选 A 简化版(trade 内补 docs + CC BY 4.0,不建独立仓库)。trade-data-signal 已 public,代码 MIT 开源,数据 CC BY 4.0。commit 20a8e459 + merge 4597e5f6 在 origin/main+feat:
+
+- **docs/data-dictionary.md**(674行19节):核心JSON字段说明(overview/sentiment/a-stock/hk/global/industry/etf_nt/futures/summary/signal_stats/index单只/大盘宽度/alert/intraday/etf_score_list/lab/trade_sim/schedule_stats/feed.xml),32个A股指标id+12宽基+31申万行业+27同花顺概念,读实际JSON结构非编造
+- **docs/data-sources.md**(316行14节):14源(akshare/mootdx/baostock/HKEX官方/HKEX CCASS/东财直爬/同花顺/申万/中证指数公司/新浪/腾讯/CFFEX/cninfo/legulegu),含北向2024-08港交所新规(日频改季度,CCASS季度反算)+8 launchd时点+完整性兜底6条+准确性声明
+- **docs/LICENSE-data.md**(92行):CC BY 4.0完整声明+数据集范围清单+引用建议(bibtex)+准确性声明
+- **README.md**:加"📊数据集说明(可复用)"章节(在线访问3域名/核心文件/采集时点/数据时效表)+License扩为代码MIT+数据CC BY 4.0,不破坏现有内容
+
+只git add docs/+README.md,无根data/。27 metric id+12 index id真实存在于a-stock-1y.json(非编造验收)
