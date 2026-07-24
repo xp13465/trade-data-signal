@@ -123,11 +123,11 @@ CGB_BAND_PARAMS = {
 }
 
 
-def compute_band_signal(index_id: str, params: dict) -> dict | None:
-    """国债波段仓位管理信号（实盘化，判断最新交易日，每日独立，返回信号 dict）。
+def compute_band_signal(index_id: str, params: dict) -> list[dict]:
+    """国债波段仓位管理信号（实盘化，近60天每天1条，每日独立判断，返回信号 list[dict]）。
 
-    读 index_daily 近 60 天 cgb 品种收盘价，算指标，判断当日（最新交易日）信号。
-    指标与回测 /tmp/backtest_cgb_band.py 一致:
+    读 index_daily 近 120 天 cgb 品种收盘价（60天暖机 + 60天信号），算指标，
+    遍历最后60天每天算信号。指标与回测 /tmp/backtest_cgb_band.py 一致:
     - MA20/MA60 乖离: bias20=close/MA20-1, bias60=close/MA60-1
     - RSI14: EWM α=1/14 adjust=False（复刻 _rsi）
     - 布林(20,2σ): rolling(20).std(ddof=1, 与回测一致; signals._bollinger 用 ddof=0 是另一套口径)
@@ -141,19 +141,24 @@ def compute_band_signal(index_id: str, params: dict) -> dict | None:
     实盘化「不看历史仓位」= 不依赖回测的 pos/cash/last_action 状态，每天独立给当前状态。
     （实盘只需当前状态提示，历史回溯用回测结果 /tmp/cgb_band_results.json）
 
-    返回 dict: {date, signal, reason, ratio, rsi, bias20, bias60, bb_pos} 或 None(数据不足)。
+    返回 list[dict]（近60天每天1条，升序；数据不足返回 []）。每条 dict:
+      {date, signal, reason, ratio, rsi, bias20, bias60, bb_pos}
       signal: "减仓"/"接回"/"止损"/"持有"
-      date: 最新交易日(YYYYMMDD 字符串, 与 signal_daily 主键一致)
+      date: 交易日(YYYYMMDD 字符串, 与 signal_daily 主键一致)
+
+    2026-07-24 修复: 原只返回最新1天 dict|None, store() DELETE 重算致历史波段信号每天被
+    覆盖(sell减仓次日消失)。改为返回近60天 list,与其他信号(buy/sell等算全历史)一致,
+    signal_daily 保留历史波段信号,前端走势图可回放历史减仓/接回时点。
     """
     conn = get_conn()
     rows = conn.execute(
         "SELECT date, close FROM index_daily WHERE index_id=? AND close IS NOT NULL "
-        "ORDER BY date DESC LIMIT 60",
+        "ORDER BY date DESC LIMIT 120",
         (index_id,),
     ).fetchall()
     conn.close()
-    if len(rows) < 60:
-        return None
+    if len(rows) < 120:
+        return []
     # 按日期升序（DB 取出是 DESC，反转）
     rows = list(reversed(rows))
     dates = [r[0] for r in rows]
@@ -178,65 +183,67 @@ def compute_band_signal(index_id: str, params: dict) -> dict | None:
     ratio2 = params["ratio2"]
     ratio3 = params["ratio3"]
 
-    # 最新交易日
-    c = close.iloc[-1]
-    r = rsi.iloc[-1]
-    b20 = bias20.iloc[-1]
-    b60 = bias60.iloc[-1]
-    m60 = ma60.iloc[-1]
-    bu = bb_up.iloc[-1]
-    bl = bb_low.iloc[-1]
-    bp = bb_pos.iloc[-1]
-    latest_date = dates[-1]
+    out: list[dict] = []
+    # 从 index 60 开始（前60天 MA60 暖机），算最后60天每天信号（与回测 dropna(ma60) 后等价）
+    for i in range(60, len(rows)):
+        c = close.iloc[i]
+        r = rsi.iloc[i]
+        b20 = bias20.iloc[i]
+        b60 = bias60.iloc[i]
+        m60 = ma60.iloc[i]
+        bu = bb_up.iloc[i]
+        bl = bb_low.iloc[i]
+        bp = bb_pos.iloc[i]
+        d = dates[i]
+        if pd.isna(c) or pd.isna(r) or pd.isna(b20) or pd.isna(b60) or pd.isna(m60) or pd.isna(bu) or pd.isna(bl):
+            continue
 
-    if pd.isna(c) or pd.isna(r) or pd.isna(b20) or pd.isna(b60) or pd.isna(m60) or pd.isna(bu) or pd.isna(bl):
-        return None
+        reduce_sig = (b20 > bias_th and r > rsi_high) or (c >= bu)
+        rebuy_sig = (r < rsi_low and abs(b60) < 0.02) or (c <= bl)
+        stop_sig = c < m60 * 0.98
 
-    reduce_sig = (b20 > bias_th and r > rsi_high) or (c >= bu)
-    rebuy_sig = (r < rsi_low and abs(b60) < 0.02) or (c <= bl)
-    stop_sig = c < m60 * 0.98
+        if stop_sig:
+            signal = "止损"
+            ratio = ratio3
+            drop_pct = (c - m60) / m60 * 100
+            reason = (f"波段止损{int(ratio * 100)}%: 跌破MA60支撑"
+                      f"(MA60={m60:.2f},close={c:.2f},跌幅{drop_pct:.2f}%)")
+        elif reduce_sig:
+            signal = "减仓"
+            ratio = ratio1
+            triggers = []
+            if b20 > bias_th and r > rsi_high:
+                triggers.append(f"RSI{r:.0f}超买+bias20 {b20 * 100:.2f}%")
+            if c >= bu:
+                triggers.append("触布林上轨")
+            reason = f"波段减仓{int(ratio * 100)}%: " + "+".join(triggers)
+        elif rebuy_sig:
+            signal = "接回"
+            ratio = ratio2
+            triggers = []
+            if r < rsi_low and abs(b60) < 0.02:
+                triggers.append(f"RSI{r:.0f}超卖+乖离回归")
+            if c <= bl:
+                triggers.append("触布林下轨")
+            reason = f"波段接回{int(ratio * 100)}%: " + "+".join(triggers)
+        else:
+            signal = "持有"
+            ratio = 0.0
+            bp_str = f"{bp * 100:.0f}%" if pd.notna(bp) else "NA"
+            reason = (f"波段持有: 无超买超卖信号"
+                      f"(RSI{r:.0f},bias20 {b20 * 100:.2f}%,BB位{bp_str})")
 
-    if stop_sig:
-        signal = "止损"
-        ratio = ratio3
-        drop_pct = (c - m60) / m60 * 100
-        reason = (f"波段止损{int(ratio * 100)}%: 跌破MA60支撑"
-                  f"(MA60={m60:.2f},close={c:.2f},跌幅{drop_pct:.2f}%)")
-    elif reduce_sig:
-        signal = "减仓"
-        ratio = ratio1
-        triggers = []
-        if b20 > bias_th and r > rsi_high:
-            triggers.append(f"RSI{r:.0f}超买+bias20 {b20 * 100:.2f}%")
-        if c >= bu:
-            triggers.append("触布林上轨")
-        reason = f"波段减仓{int(ratio * 100)}%: " + "+".join(triggers)
-    elif rebuy_sig:
-        signal = "接回"
-        ratio = ratio2
-        triggers = []
-        if r < rsi_low and abs(b60) < 0.02:
-            triggers.append(f"RSI{r:.0f}超卖+乖离回归")
-        if c <= bl:
-            triggers.append("触布林下轨")
-        reason = f"波段接回{int(ratio * 100)}%: " + "+".join(triggers)
-    else:
-        signal = "持有"
-        ratio = 0.0
-        bp_str = f"{bp * 100:.0f}%" if pd.notna(bp) else "NA"
-        reason = (f"波段持有: 无超买超卖信号"
-                  f"(RSI{r:.0f},bias20 {b20 * 100:.2f}%,BB位{bp_str})")
-
-    return {
-        "date": latest_date,
-        "signal": signal,
-        "reason": reason,
-        "ratio": float(ratio),
-        "rsi": float(r),
-        "bias20": float(b20),
-        "bias60": float(b60),
-        "bb_pos": float(bp) if pd.notna(bp) else None,
-    }
+        out.append({
+            "date": d,
+            "signal": signal,
+            "reason": reason,
+            "ratio": float(ratio),
+            "rsi": float(r),
+            "bias20": float(b20),
+            "bias60": float(b60),
+            "bb_pos": float(bp) if pd.notna(bp) else None,
+        })
+    return out
 
 
 def _macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
@@ -1324,16 +1331,18 @@ def compute():
 
         # 国债三品种波段仓位管理信号(2026-07-24): 替代 D1 sell=0 无理由(国债波动小 D1 从不触发)。
         # 与标准 buy/buy_aux/sell/buy_special/buy_backup/sell_stop_loss 并存
-        # (signal_daily 主键 date+index_id+signal,波段 signal_type 不同不冲突)。
-        # 减仓/止损 -> "sell"(alert_score sell_cnt 计入=sell=1); 接回 -> "buy_aux"(买点提示);
+        # (signal_daily 主键 date+index_id+signal,减仓/止损 if/elif 互斥,同天同品种最多1条 sell 不冲突)。
+        # 减仓/止损 -> "sell"(alert_score sell_cnt 按日 COUNT 计入); 接回 -> "buy_aux"(买点提示);
         # 持有 -> "band_hold"(新类型,alert_score 不影响)。
-        # 实盘化: 只判断最新交易日给当前状态(不写历史,历史回溯用回测结果)。
+        # 实盘化: 近60天每天1条信号(与其他信号算全历史一致),前端走势图可回放历史减仓/接回时点。
+        # 2026-07-24 修复: 原只算最新1天,store() DELETE 重算致历史波段信号每天被覆盖。
         if iid in CGB_BAND_PARAMS:
-            band = compute_band_signal(iid, CGB_BAND_PARAMS[iid])
-            if band is not None:
+            band_list = compute_band_signal(iid, CGB_BAND_PARAMS[iid])
+            if band_list:
                 sig_map = {"减仓": "sell", "止损": "sell", "接回": "buy_aux", "持有": "band_hold"}
-                sig_type = sig_map[band["signal"]]
-                signals.append((band["date"], iid, sig_type, band["reason"]))
+                for band in band_list:
+                    sig_type = sig_map[band["signal"]]
+                    signals.append((band["date"], iid, sig_type, band["reason"]))
 
     # B 扩展：全球指标 + 情绪分数 signals（value 当 close，按 09 回测推荐规则 + B1+S1）
     for mid in GLOBAL_METRIC_IDS:
