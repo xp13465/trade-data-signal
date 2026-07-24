@@ -134,7 +134,45 @@ if STATS_FILE.exists():
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
-# 3) 产物时效检查：线上 overview.json collected_at vs NOW
+# 3) ETF 国家队耗时阈值检查（B4 稳定性 2026-07-24）
+#    daily 正常 ~140s(2.3min), >300s(5min)告警(进程池退化信号, 如 2026-07-23 2032s 事故)
+#    backfill 全量正常 ~15min, >1800s(30min)告警
+#    只检查最近 2 小时内的完成行(避免旧超时重复告警, schedule_monitor 每15min跑)
+ETF_DAILY_THRESHOLD = 300  # 5min
+ETF_BACKFILL_THRESHOLD = 1800  # 30min
+ETF_DUR_RE = re.compile(r"\[etf_nt\] (daily|backfill) 完成 (\d+\.?\d*)s")
+ETF_DAILY_START_RE = re.compile(r"\[etf_nt\] daily 开始 (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+ETF_BACKFILL_START_RE = re.compile(r"\[etf_nt\] backfill 开始 (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+etf_log = LOG_DIR / "etf_national_team_launchd.log"
+if etf_log.exists():
+    try:
+        etf_lines = etf_log.read_text(encoding="utf-8", errors="replace").splitlines()
+        # 反向找最后一行完成行(只查最近一次跑的耗时)
+        for i in range(len(etf_lines) - 1, -1, -1):
+            m = ETF_DUR_RE.search(etf_lines[i])
+            if m:
+                mode, dur = m.group(1), float(m.group(2))
+                # 反向找该完成行之前最近的同 mode 开始行
+                start_re = ETF_DAILY_START_RE if mode == "daily" else ETF_BACKFILL_START_RE
+                start_dt = None
+                for j in range(i - 1, -1, -1):
+                    m2 = start_re.search(etf_lines[j])
+                    if m2:
+                        start_dt = datetime.strptime(m2.group(1), "%Y-%m-%d %H:%M:%S")
+                        break
+                # 只检查最近 2 小时内的(避免旧超时重复告警)
+                if start_dt and NOW - start_dt <= timedelta(hours=2):
+                    threshold = ETF_DAILY_THRESHOLD if mode == "daily" else ETF_BACKFILL_THRESHOLD
+                    if dur > threshold:
+                        alerts.append(
+                            f"SEVERE: etf_national_team {mode} 耗时 {dur:.0f}s 超阈值 {threshold}s "
+                            f"(进程池退化信号) start<{start_dt.strftime('%Y-%m-%d %H:%M:%S')}>"
+                        )
+                break  # 只查最后一行完成行
+    except Exception as e:
+        print(f"[warn] ETF 耗时检查失败: {e}", file=sys.stderr)
+
+# 4) 产物时效检查：线上 overview.json collected_at vs NOW
 #    intraday push 失败就是线上滞后（schedule_stats 只看任务跑了没，不查产物上线=盲区）。
 #    仅交易日盘中 09:50-15:30 检查（intraday 每15min推一次，首次 09:35 完成于 ~09:42），
 #    09:50 起检避开开盘空窗期 overview.json 仍是凌晨旧版导致的误报；避免非交易时段误报。
