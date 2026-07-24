@@ -59,6 +59,12 @@ echo "-> 采集 ETF 国家队当日 + 导出 JSON ..." | tee -a "$LOG"
 "$PY" -m app.collector.etf_national_team daily 2>&1 | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]}
 echo "ETF国家队采集退出码=$COLLECT_RC" | tee -a "$LOG"
+# 2026-07-25: collector crash 时(如 libmini_racer FATAL)不会写 [etf_nt] daily 完成 行,
+# gen_schedule_stats 的 etf_nt 模式找不到 DONE -> 启发式标 exit=143(假 SIGTERM),
+# 与 shell 脚本正常结束矛盾。补 fallback DONE 行让 gen_stats 解析真实 exit code:
+if [ "$COLLECT_RC" -ne 0 ]; then
+  echo "[etf_nt] daily 失败 exit=$COLLECT_RC" | tee -a "$LOG"
+fi
 
 # 1.5) 采集完第一时间发汪汪队信号通知（20:07采集通常到T-1，check_nt_signals 标题注明数据日期）
 #      放 deploy 前：deploy 持锁 git push 较慢，通知不依赖上线数据、只读 DB，先发最快。

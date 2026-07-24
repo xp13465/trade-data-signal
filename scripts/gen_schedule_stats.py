@@ -60,7 +60,10 @@ START_RE = re.compile(r'=== (\S+\.sh) 开始 ' + _TS + r' ===')
 END_RE = re.compile(r'=== (\S+\.sh) 结束.*?' + _TS + r'(?:.*?退出码=(\d+))?')
 # etf_nt
 ETF_START_RE = re.compile(r'\[etf_nt\] daily 开始 ' + _TS)
-ETF_DONE_RE = re.compile(r'\[etf_nt\] daily 完成 (\d+\.?\d*)s')
+# 2026-07-25: 兼容 collector crash 的 fallback "失败 exit=N" 行
+# (collector 撞 libmini_racer FATAL 等不写 "完成" 行, shell 脚本补 "失败 exit=N",
+#  否则 gen_stats 启发式标 143 假 SIGTERM, 与 shell 正常结束矛盾)
+ETF_DONE_RE = re.compile(r'\[etf_nt\] daily (完成|失败)(?:\s+(\d+\.?\d*)s)?(?:.*?exit=(\d+))?')
 
 
 def _iter_lines(path: Path):
@@ -118,6 +121,8 @@ def parse_standard(path: Path, script: str):
 def parse_etf_nt(path: Path):
     """etf_nt:完成行无时间戳，耗时直接给出。last_run 用开始时间。
     返回 (pairs, pending_start)，pending_start=开始但未完成的进行中任务。
+    2026-07-25: 兼容 "失败 exit=N" fallback 行(collector crash 时 shell 补写),
+    解析真实 exit code 而非启发式 143。
     """
     pairs, pending = [], None
     for line in _iter_lines(path):
@@ -127,8 +132,10 @@ def parse_etf_nt(path: Path):
             continue
         m = ETF_DONE_RE.search(line)
         if m and pending is not None:
-            dur = float(m.group(1))
-            pairs.append((pending, pending, 0, dur))  # end=start(无结束ts), exit=0
+            # group(1)=完成/失败, group(2)=duration(可选), group(3)=exit(可选,默认0)
+            dur = float(m.group(2)) if m.group(2) else 0
+            code = int(m.group(3)) if m.group(3) else 0
+            pairs.append((pending, pending, code, dur))  # end=start(无结束ts)
             pending = None
     return pairs, pending
 
