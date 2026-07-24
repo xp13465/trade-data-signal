@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """静态化导出脚本：从 SQLite (data/sentiment.db) 导出所有 API 端点数据为静态 JSON。
 
-复刻 app/main.py 各端点的查询逻辑，保证 JSON 结构与 API 返回一致（前端改动最小）。
+查询逻辑统一在 app/queries.py（与 main.py 路由共用）。本文件只保留：
+- 进程级缓存层（series 全量缓存 + stats 缓存，包装 queries 调用，P1-2 性能优化）
+- JSON 写盘（write_json + gzip）
+- industry 拆分导出（write_industry_split）
+- main() 导出流水线
+
 可重复跑（python static-site/export.py），覆盖 data/ 下 JSON。
 
 导出端点：
@@ -27,1213 +32,158 @@ import os
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
 # 复用 app 包代码（与 API 完全一致的查询逻辑）
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
-from app.calendar import last_trading_day  # noqa: E402
 from app.collector.fetchers import load_config  # noqa: E402
 from app.compute import signal_stats as sigstats  # noqa: E402
-from app.compute.position import compute_position  # noqa: E402
-from app.compute.market_summary import generate_summary, summary_brief  # noqa: E402
-from app.compute.signals import strategy_desc  # noqa: E402
 from app.db import get_conn  # noqa: E402
+from app import queries  # noqa: E402
 
 STATIC_DIR = Path(__file__).absolute().parent
 DATA_DIR = STATIC_DIR / "data"
 INDEX_DIR = DATA_DIR / "index"
 
 # 1m 周期已废弃删除：前端 range 选项仅 3m/6m/1y/3y/5y/all（无 1m 按钮），1m JSON 无人 fetch（冗余）
-RANGES = {"3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825}
-ALL_RANGES = list(RANGES.keys()) + ["all"]
+EXPORT_RANGES = ["3m", "6m", "1y", "3y", "5y", "all"]
 
 
-_stats_cache = None
+# ============ 进程级缓存层（P1-2 性能优化）============
+# 5 tab × 6 range = 30 次 range 循环，同一 id 被查 6 次。优化：每个 id 只查全量一次，
+# 后续按 start/end 字符串切片。date 是 YYYYMMDD 字符串，字典序=时间序，可直接字符串比较过滤。
+# cache dict 传给 queries building block 函数（cache 参数），queries 不创建/存储 cache，
+# 只在非空时读缓存。进程级缓存，export 跑完即释放（不跨进程持久化）。
+_series_cache: dict = {}
+
+# signal_stats 现算缓存（与 export 其他 export_* 保持一致，避免重复算）
+_stats_cache: dict | None = None
 
 
-def _stats_all() -> dict:
-    """现算 signal_stats（读 DB），进程内缓存。
-
-    根因（2026-07-16 修复）：原读 data/signal_stats.json 文件，但 pipeline core/width
-    并行跑 compute_runner 时 signal_stats.store 互相覆盖，偶发写出缺部分品种（全球指数
-    ftse100/dax/cac40 等 + 全球指标 oil/brent/usdcnh/cn_us_spread）的文件。export 读到
-    缺品种文件 -> global-*.json / index/*.json 缺这些品种 stats -> 前端全球tab有买卖点pin
-    但无回测口径/胜率/凯利/模拟回测（statsHint 收到空 stats 只显示策略文字）。
-
-    改为现算 sigstats.compute()：直接读 signal_daily + index_daily/daily_metric/score_daily，
-    SQLite WAL 事务隔离保证读到某个 commit 后的完整版本（不会读到 DELETE+INSERT 中间的
-    空表），不受并发 store 覆盖文件影响。进程内缓存（export 多次调 _stats_all）避免重复算。
-    """
+def _get_stats() -> dict:
+    """进程内缓存 signal_stats.compute() 结果。"""
     global _stats_cache
     if _stats_cache is None:
-        _stats_cache = sigstats.compute()
+        _stats_cache = queries.stats_all()
     return _stats_cache
 
 
-def _stats_for(stats_all: dict, index_id: str) -> dict:
-    return stats_all.get(index_id, {})
-
-# 概览 KPI 指标（与 main.py KPI_METRIC_IDS 一致）
-KPI_METRIC_IDS = [
-    "a_width_zt_count",
-    "a_width_dt_count",
-    "a_width_up_count",
-    "a_width_down_count",
-    "a_amount",
-    "a_volume_ratio",
-    "a_fund_north",
-    "a_fund_margin",
-    "gold",
-    "cn10y",
-    "a_qvix_300",
-    "lhb_count",
-    "a_width_zhaban_rate",     # 炸板率（新源 mootdx derived，7-20有数据；旧 a_width_zb_count 数/旧源东财 stock_zt_pool_em 停7-16 已弃）
-    "a_width_fengban_rate",   # 封板率（新源 derived=1-炸板率，旧 a_width_seal_rate func=TODO 停7-16）
-    "a_fund_main",
-    "a_turnover_mean",
-    "a_turnover_median",
-    "a_turnover_p90",
-    "a_turnover_p10",
-    "a_turnover_gt5_pct",
-]
-SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech"]
-
-
-# ============ 查询辅助（复刻 main.py 私有函数，保证结构一致）============
-
-def _range(rng: str):
-    end = last_trading_day()
-    if rng == "all":
-        return "20100101", end
-    days = RANGES.get(rng, 365)
-    start = (datetime.strptime(end, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
-    return start, end
-
-
-# P1-2 series 查询内存缓存（2026-07-24）：5 tab × 6 range = 30 次 range 循环，同一 id 被查 6
-# 次（各 range 一次 DB 往返）。优化：每个 id 只查全量一次（不带 range），缓存到进程级 dict，
-# 后续按 start/end 字符串切片。date 是 YYYYMMDD 字符串，字典序=时间序，可直接字符串比较过滤。
-# 进程级缓存，export 跑完即释放（不跨进程持久化，不污染其他调用）。
-_metric_series_cache: dict[str, list] = {}
-_index_series_cache: dict[str, list] = {}
-_score_series_cache: dict[str, list] = {}
-_signals_cache: dict[str | None, list] = {}  # None=全局，str=按 index_id
-_industry_width_cache: dict[str, list] = {}
-
-
-def _metric_series(conn, metric_id, start, end):
-    cache = _metric_series_cache.get(metric_id)
-    if cache is None:
-        rows = conn.execute(
-            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
-            (metric_id,),
-        ).fetchall()
-        cache = [{"date": r["date"], "value": r["value"]} for r in rows]
-        _metric_series_cache[metric_id] = cache
-    return [r for r in cache if start <= r["date"] <= end]
-
-
-def _index_series(conn, index_id, start, end):
-    cache = _index_series_cache.get(index_id)
-    if cache is None:
-        rows = conn.execute(
-            "SELECT date, open, high, low, close, pct_change, amount FROM index_daily "
-            "WHERE index_id=? ORDER BY date",
-            (index_id,),
-        ).fetchall()
-        cache = [dict(r) for r in rows]
-        _index_series_cache[index_id] = cache
-    return [r for r in cache if start <= r["date"] <= end]
-
-
-def _score_series(conn, score_id, start, end):
-    cache = _score_series_cache.get(score_id)
-    if cache is None:
-        rows = conn.execute(
-            "SELECT date, value, is_freeze, is_overheat, components FROM score_daily "
-            "WHERE score_id=? ORDER BY date",
-            (score_id,),
-        ).fetchall()
-        cache = [dict(r) for r in rows]
-        _score_series_cache[score_id] = cache
-    return [r for r in cache if start <= r["date"] <= end]
-
-
-def _signals(conn, index_id=None, start=None, end=None):
-    cache_key = index_id  # None=全局，str=按 index_id
-    cache = _signals_cache.get(cache_key)
-    if cache is None:
-        q = "SELECT date, index_id, signal, reason FROM signal_daily"
-        params = []
-        if index_id:
-            q += " WHERE index_id=?"
-            params.append(index_id)
-        q += " ORDER BY date"
-        rows = conn.execute(q, params).fetchall()
-        cache = [dict(r) for r in rows]
-        _signals_cache[cache_key] = cache
-    return [r for r in cache if start <= r["date"] <= end]
-
-
-def _metrics_for_groups(cfg, *groups):
-    return [m for m in cfg.get("metrics", []) if m.get("group") in groups and m.get("enabled")]
-
-
-def _indices_for_market(cfg, market):
-    return [i for i in cfg.get("indices", []) if i.get("market") == market and i.get("enabled", True)]
-
-
-# 行业/概念 -> 相关 ETF 候选列表映射（读 data/board_etf_map.json，由 scripts/build_board_etf_map.py 生成）。
-ETF_MAP_PATH = ROOT / "data" / "board_etf_map.json"
-_ETF_CACHE = None
-
-
-def _etf_for(index_id):
-    """返回 {etfs: [{code, name, amount}, ...]}，按成交额降序；无匹配返空列表。"""
-    global _ETF_CACHE
-    if _ETF_CACHE is None:
-        _ETF_CACHE = json.loads(ETF_MAP_PATH.read_text(encoding="utf-8")) if ETF_MAP_PATH.exists() else {}
-    return {"etfs": _ETF_CACHE.get(index_id) or []}
-
-
-def _industry_heatmap(conn, cfg):
-    """申万一级行业近 1 日 / 近 5 日涨跌幅（与 main.py _industry_heatmap 一致）。"""
-    indices = _indices_for_market(cfg, "industry")
-    out = []
-    for idx in indices:
-        iid = idx["id"]
-        rows = conn.execute(
-            "SELECT date, close, pct_change FROM index_daily "
-            "WHERE index_id=? AND pct_change IS NOT NULL ORDER BY date DESC LIMIT 6",
-            (iid,),
-        ).fetchall()
-        if len(rows) < 2:
-            continue
-        latest = rows[0]
-        pct_1d = latest["pct_change"]
-        pct_5d = None
-        # 优先用 close 算；盘中反哺行 close=NULL 时改用近 5 日 pct_change 累乘
-        if latest["close"]:
-            if len(rows) >= 6 and rows[5]["close"]:
-                pct_5d = (latest["close"] / rows[5]["close"] - 1) * 100
-            elif len(rows) >= 2 and rows[-1]["close"]:
-                pct_5d = (latest["close"] / rows[-1]["close"] - 1) * 100
-        elif len(rows) >= 5:
-            # 盘中 close=NULL：用近 5 日 pct_change 累乘算累计收益
-            cum = 1.0
-            for r in rows[:5]:
-                cum *= (1 + (r["pct_change"] or 0) / 100)
-            pct_5d = (cum - 1) * 100
-        out.append({
-            "id": iid,
-            "name": idx["name"],
-            "pct_1d": pct_1d,
-            "pct_5d": pct_5d,
-            "last_date": latest["date"],
-        })
-    return out
-
-
-def _industry_width(conn, industry_code, start, end):
-    cache = _industry_width_cache.get(industry_code)
-    if cache is None:
-        rows = conn.execute(
-            "SELECT date, up_count, down_count, zt_count, dt_count, zb_count, seal_rate, amount "
-            "FROM industry_width_daily WHERE industry_code=? ORDER BY date",
-            (industry_code,),
-        ).fetchall()
-        cache = [dict(r) for r in rows]
-        _industry_width_cache[industry_code] = cache
-    return [r for r in cache if start <= r["date"] <= end]
-
-
-# ============ 端点导出函数 ============
+# ============ 端点导出函数（薄包装 queries 调用 + 缓存注入）============
 
 def export_overview(conn, cfg):
     """复刻 /api/overview。"""
-    row = conn.execute("SELECT max(date) FROM score_daily").fetchone()
-    score_date = row[0] if row and row[0] else last_trading_day()
-    scores = {r["score_id"]: dict(r) for r in conn.execute(
-        "SELECT score_id, value, is_freeze, is_overheat FROM score_daily WHERE date=?",
-        (score_date,),
-    ).fetchall()}
-
-    metric_cfg = {m["id"]: m for m in cfg.get("metrics", []) if m.get("enabled")}
-    metric_cfg["a_volume_ratio"] = {"id": "a_volume_ratio", "name": "量比", "unit": ""}
-    today_metrics = []
-    for mid in KPI_METRIC_IDS:
-        m = metric_cfg.get(mid)
-        if not m:
-            continue
-        r = conn.execute(
-            "SELECT date, value, source FROM daily_metric WHERE metric_id=? AND value IS NOT NULL "
-            "ORDER BY date DESC LIMIT 1",
-            (mid,),
-        ).fetchone()
-        if r:
-            entry = {
-                "id": mid,
-                "name": m["name"],
-                "unit": m.get("unit"),
-                "value": r["value"],
-                "date": r["date"],
-                "source": r["source"],
-            }
-            if mid == "a_volume_ratio":
-                sig_row = conn.execute(
-                    "SELECT value FROM daily_metric WHERE metric_id='a_volume_signal' AND date=?",
-                    (r["date"],),
-                ).fetchone()
-                signal_labels = {0: "正常", 1: "放量上涨", 2: "放量下跌", 3: "缩量上涨", 4: "缩量下跌"}
-                entry["signal"] = signal_labels.get(int(sig_row["value"]) if sig_row and sig_row["value"] is not None else 0, "正常")
-                amt_row = conn.execute(
-                    "SELECT value FROM daily_metric WHERE metric_id='a_amount' AND date=?",
-                    (r["date"],),
-                ).fetchone()
-                entry["amount"] = amt_row["value"] if amt_row else None
-            today_metrics.append(entry)
-
-    # 前端按日分组（一天一行），故取"最近9个日期"的全部记录而非LIMIT 9条记录
-    sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=25)).strftime("%Y%m%d")
-    sig_dates = [r[0] for r in conn.execute(
-        "SELECT DISTINCT date FROM signal_daily WHERE date >= ? ORDER BY date DESC LIMIT 9",
-        (sig_start,),
-    ).fetchall()]
-    sigs = []
-    if sig_dates:
-        sigs = [dict(r) for r in conn.execute(
-            "SELECT date, index_id, signal, reason FROM signal_daily "
-            "WHERE date IN (%s) ORDER BY date DESC, index_id" % ",".join("?" * len(sig_dates)),
-            sig_dates,
-        ).fetchall()]
-    freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
-    freeze_dates = [r[0] for r in conn.execute(
-        "SELECT DISTINCT date FROM score_daily WHERE is_freeze=1 AND date >= ? ORDER BY date DESC LIMIT 9",
-        (freeze_start,),
-    ).fetchall()]
-    freeze_days = []
-    if freeze_dates:
-        freeze_days = [dict(r) for r in conn.execute(
-            "SELECT date, score_id, value FROM score_daily WHERE is_freeze=1 "
-            "AND date IN (%s) ORDER BY date DESC" % ",".join("?" * len(freeze_dates)),
-            freeze_dates,
-        ).fetchall()]
-
-    spark_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=60)).strftime("%Y%m%d")
-    indices_cfg = {i["id"]: i for i in cfg.get("indices", []) if i.get("enabled", True)}
-    indices_sparkline = {}
-    for iid in SPARKLINE_INDEX_IDS:
-        idx = indices_cfg.get(iid)
-        if not idx:
-            continue
-        rows = conn.execute(
-            "SELECT date, close, pct_change FROM index_daily WHERE index_id=? AND date>=? ORDER BY date",
-            (iid, spark_start),
-        ).fetchall()
-        if not rows:
-            continue
-        recent = rows[-30:]
-        indices_sparkline[iid] = {
-            "name": idx["name"],
-            "dates": [r["date"] for r in recent],
-            "closes": [r["close"] for r in recent],
-            "pct_change": recent[-1]["pct_change"],
-            "last_date": recent[-1]["date"],
-        }
-
-    width_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=45)).strftime("%Y%m%d")
-    width_1m = {
-        "up": [{"date": r["date"], "value": r["value"]} for r in conn.execute(
-            "SELECT date, value FROM daily_metric WHERE metric_id='a_width_up_count' AND date>=? ORDER BY date",
-            (width_start,),
-        )],
-        "down": [{"date": r["date"], "value": r["value"]} for r in conn.execute(
-            "SELECT date, value FROM daily_metric WHERE metric_id='a_width_down_count' AND date>=? ORDER BY date",
-            (width_start,),
-        )],
-    }
-
-    six_m_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=210)).strftime("%Y%m%d")
-    cross_6m = [{"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
-                for r in conn.execute(
-                    "SELECT date, value, is_freeze, is_overheat FROM score_daily "
-                    "WHERE score_id='cross_market' AND date>=? ORDER BY date",
-                    (six_m_start,))]
-    asent_6m = [{"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
-                for r in conn.execute(
-                    "SELECT date, value, is_freeze, is_overheat FROM score_daily "
-                    "WHERE score_id='a_sentiment' AND date>=? ORDER BY date",
-                    (six_m_start,))]
-    fg_6m = [{"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
-             for r in conn.execute(
-                 "SELECT date, value, is_freeze, is_overheat FROM score_daily "
-                 "WHERE score_id='fear_greed' AND date>=? ORDER BY date",
-                 (six_m_start,))]
-
-    # 采集时间 + 数据健康度：collect_log 最新一次 run（run_date 取当天全部记录）
-    _last = conn.execute(
-        "SELECT run_date, run_at FROM collect_log ORDER BY run_at DESC LIMIT 1"
-    ).fetchone()
-    # collected_at：盘中 snap 每30分钟更新（11:30/13:05等），但凌晨 backfill 让
-    # collect_log.run_at 停在 02:01；取 snap.collected_at 与 collect_log run_at 较新者显示。
-    def _fmt_iso(iso: str) -> str:
-        return iso[:10].replace("-", "") + " " + iso[11:19] if iso and len(iso) >= 19 else ""
-    _cands: list[tuple[str, str]] = []  # (iso, formatted) 取较新者
-    if _last and _last["run_at"] and len(_last["run_at"]) >= 19:
-        _cands.append((_last["run_at"], _fmt_iso(_last["run_at"])))
-    try:
-        from app.collector.intraday_snapshot import load_latest_snapshot
-        _snap = load_latest_snapshot()
-        if _snap and _snap.get("collected_at") and len(_snap["collected_at"]) >= 19:
-            _cands.append((_snap["collected_at"], _fmt_iso(_snap["collected_at"])))
-    except Exception:  # noqa: BLE001
-        pass
-    collected_at = max(_cands, key=lambda x: x[0])[1] if _cands else ""
-    # 数据健康度：最新一次 run 的 warn/error 记录（绿=全ok/黄=有warn/红=有error）
-    # 采集时间旁圆点展示，hover pop 显示具体告警，管理用户预期（如某指数源未取到）
-    collect_health = {"level": "ok", "items": []}
-    if _last and _last["run_date"]:
-        # 取每个 metric_id 当天最新一条状态（20:00 ok 覆盖 17:50 瞬时 error），
-        # 避免后续成功采集被早先 error 永久误报（如 usdcnh 17:50 forex_hist_em 被封
-        # error，20:00 currency_boc_sina ok，只看最新即 ok 不报）
-        _all_rows = conn.execute(
-            "SELECT metric_id, status, message FROM collect_log WHERE run_date=? ORDER BY run_at DESC",
-            (_last["run_date"],)
-        ).fetchall()
-        _seen = set()
-        _hrows = []
-        for _r in _all_rows:
-            if _r["metric_id"] in _seen:
-                continue
-            _seen.add(_r["metric_id"])
-            if _r["status"] != "ok":
-                _hrows.append(_r)
-        # 复核"指数今日数据缺失"类告警：backfill 凌晨跑时新浪主源未取到当日指数，
-        # 但盘中 intraday_snapshot 反哺后 index_daily 已有当日 close，旧告警成陈旧误报，
-        # 前端小红点因此常亮误导用户。对核心 A 股指数（index_backfill.CORE_A_INDICES）
-        # 的该类 item 复核 index_daily 是否已有当日 close，有则移除该 item。
-        _CORE_A_IDX = {"sh", "sz", "hs300", "sz50", "csi500", "csi1000", "cyb", "kc50", "bj50"}
-        _hrun_date = _last["run_date"]
-        _filtered = []
-        for _r in _hrows:
-            _msg = _r["message"] or ""
-            if _r["metric_id"] in _CORE_A_IDX and "指数今日数据缺失" in _msg:
-                _chk = conn.execute(
-                    "SELECT close FROM index_daily WHERE index_id=? AND date=?",
-                    (_r["metric_id"], _hrun_date)
-                ).fetchone()
-                if _chk and _chk["close"] is not None:
-                    continue  # 实际已有数据，跳过陈旧误报
-            _filtered.append(_r)
-        if _filtered:
-            collect_health["level"] = "error" if any(r["status"] == "error" for r in _filtered) else "warn"
-            collect_health["items"] = [
-                {"metric_id": r["metric_id"], "status": r["status"], "message": r["message"]}
-                for r in _filtered
-            ]
-
-    # 行业热力图：盘中时用快照行业覆盖（P2-B，含 net_inflow/lead_stock），收盘后用 DB（P0-A 已修 SQL）
-    heatmap = _industry_heatmap(conn, cfg)
-    try:
-        from app.collector.intraday_snapshot import maybe_override_heatmap
-        heatmap = maybe_override_heatmap(heatmap)
-    except Exception:  # noqa: BLE001
-        pass
-
-    # 数据时效横幅补充源日期：期货/ETF国家队/美股从静态导出 JSON 取末日期
-    extra_dates = {}
-    try:
-        def _jload(name):
-            p = DATA_DIR / name
-            return json.load(open(p, encoding="utf-8")) if p.exists() else None
-        _fut = _jload("futures.json")
-        if _fut and _fut.get("summary", {}).get("date"):
-            extra_dates["futures_date"] = _fut["summary"]["date"]
-        _etf = _jload("etf_national_team-all.json")
-        # etf_date 优先取 etf_daily 表 MAX(date)（真实数据日期，如 20260717），
-        # JSON updated_at 是重建时间戳会误导角标假绿。etf_daily 在独立库 etf_national_team.db。
-        _etf_d = ""
-        try:
-            from app.collector.etf_national_team import get_conn as _etf_get_conn
-            _ec = _etf_get_conn()
-            _er = _ec.execute("SELECT MAX(date) FROM etf_daily").fetchone()
-            _ec.close()
-            if _er and _er[0]:
-                _etf_d = _er[0]
-        except Exception:  # noqa: BLE001
-            pass
-        if _etf_d:
-            extra_dates["etf_date"] = _etf_d
-        elif _etf and _etf.get("updated_at"):
-            extra_dates["etf_date"] = _etf["updated_at"][:10].replace("-", "")
-        _glob = _jload("global-all.json")
-        if _glob:
-            _ud = _glob.get("indices", {}).get("us_dji", {}).get("data", [])
-            if _ud:
-                extra_dates["us_dji_date"] = _ud[-1]["date"]
-        # 中证红利: 中证指数公司盘后次日发布，从 DB 取最新日期(不在 SPARKLINE_INDEX_IDS 中)
-        _cd = conn.execute("SELECT date FROM index_daily WHERE index_id='csi_div' ORDER BY date DESC LIMIT 1").fetchall()
-        if _cd:
-            extra_dates["csi_div_date"] = _cd[0]["date"]
-    except Exception:  # noqa: BLE001
-        pass
-
-    # 汪汪队(ETF国家队)最新信号 + 共振聚合：首页🐶卡片展示，点击跳专区
-    nt_signals_today = None
-    try:
-        from app.collector.etf_national_team import latest_signals_overview, recent_signals_overview
-        nt_signals_today = latest_signals_overview()
-        if nt_signals_today:
-            nt_signals_today["recent"] = recent_signals_overview()
-    except Exception:  # noqa: BLE001
-        pass
-
-    return {
-        "date": score_date,
-        "collected_at": collected_at,
-        "collect_health": collect_health,
-        "scores": scores,
-        "signals_today": sigs,
-        "recent_freeze": freeze_days,
-        "today": {
-            "scores": {k: {**v, "date": score_date} for k, v in scores.items()},
-            "metrics": today_metrics,
-        },
-        "indices_sparkline": indices_sparkline,
-        "width_1m": width_1m,
-        "cross_market_6m": cross_6m,
-        "a_sentiment_6m": asent_6m,
-        "fear_greed_6m": fg_6m,
-        "industry_heatmap": heatmap,
-        "futures_date": extra_dates.get("futures_date", ""),
-        "etf_date": extra_dates.get("etf_date", ""),
-        "us_dji_date": extra_dates.get("us_dji_date", ""),
-        "csi_div_date": extra_dates.get("csi_div_date", ""),
-        "nt_signals_today": nt_signals_today,
-    }
+    return queries.overview(conn, cfg)
 
 
 def export_a_stock(conn, cfg, rng):
-    """复刻 /api/a-stock。"""
-    start, end = _range(rng)
-    groups = ("a_width", "a_fund", "a_sentiment", "lhb", "unlock", "ipo", "cov")
-    metrics = {}
-    for m in _metrics_for_groups(cfg, *groups):
-        metrics[m["id"]] = {"name": m["name"], "unit": m.get("unit"), "data": _metric_series(conn, m["id"], start, end)}
-    # P2-新-G: 宽基/红利指数注入 etfs 字段（_etf_for 通用按 index_id 查 board_etf_map.json；
-    #   sh/sz 无跟踪ETF返空数组，前端 _renderEtfTag 返空串不渲染 tag）
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
-                         "strategy": strategy_desc(i["id"], cfg),
-                         **_etf_for(i["id"])}
-               for i in _indices_for_market(cfg, "a")}
-    return {"metrics": metrics, "indices": indices}
+    """复刻 /api/a-stock（含 ETF 候选列表，P2-新-G）。"""
+    start, end = queries.range_for(rng)
+    return queries.a_stock(conn, cfg, start, end, cache=_series_cache, include_etf=True)
 
 
 def export_hk(conn, cfg, rng):
     """复刻 /api/hk。"""
-    start, end = _range(rng)
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
-                         "strategy": strategy_desc(i["id"], cfg)}
-               for i in _indices_for_market(cfg, "hk")}
-    south = _metric_series(conn, "hk_south", start, end)
-    stats_all = _stats_all()
-    hk_industries = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
-                               "signals": _signals(conn, i["id"], start, end),
-                               "stats": _stats_for(stats_all, i["id"]),
-                               "strategy": strategy_desc(i["id"], cfg)}
-                     for i in _indices_for_market(cfg, "hk_industry")}
-    return {"indices": indices, "hk_south": south, "hk_industries": hk_industries}
+    start, end = queries.range_for(rng)
+    return queries.hk(conn, cfg, start, end, cache=_series_cache, stats_all_dict=_get_stats())
 
 
 def export_global(conn, cfg, rng):
     """复刻 /api/global。"""
-    start, end = _range(rng)
-    stats_all = _stats_all()
-    indices = {i["id"]: {"name": i["name"], "data": _index_series(conn, i["id"], start, end),
-                         "strategy": strategy_desc(i["id"], cfg)}
-               for i in _indices_for_market(cfg, "global")}
-    extras = {}
-    extras_signals = {}
-    extras_stats = {}
-    extras_strategy = {}
-    for mid in ("gold", "oil", "wti_oil", "comex_silver", "usdcnh", "a_qvix_300", "a_qvix_1000", "cn10y", "us10y", "cn_us_spread", "brent"):
-        extras[mid] = _metric_series(conn, mid, start, end)
-        extras_signals[mid] = _signals(conn, f"g.{mid}", start, end)
-        extras_stats[mid] = _stats_for(stats_all, f"g.{mid}")
-        extras_strategy[mid] = strategy_desc(f"g.{mid}", cfg)
-    return {"indices": indices, "extras": extras, "extras_signals": extras_signals,
-            "extras_stats": extras_stats, "extras_strategy": extras_strategy}
+    start, end = queries.range_for(rng)
+    return queries.global_market(conn, cfg, start, end, cache=_series_cache, stats_all_dict=_get_stats())
 
 
 def export_sentiment(conn, cfg, rng):
-    """复刻 /api/sentiment。"""
-    start, end = _range(rng)
-    stats_all = _stats_all()
-    return {
-        "a_sentiment": _score_series(conn, "a_sentiment", start, end),
-        "cross_market": _score_series(conn, "cross_market", start, end),
-        "sentiment_sz50": _score_series(conn, "sentiment_sz50", start, end),
-        "sentiment_hs300": _score_series(conn, "sentiment_hs300", start, end),
-        "sentiment_csi500": _score_series(conn, "sentiment_csi500", start, end),
-        "sentiment_csi1000": _score_series(conn, "sentiment_csi1000", start, end),
-        "sentiment_cyb": _score_series(conn, "sentiment_cyb", start, end),
-        "sentiment_kc50": _score_series(conn, "sentiment_kc50", start, end),
-        "fear_greed": _score_series(conn, "fear_greed", start, end),
-        "signals": {
-            "a_sentiment": _signals(conn, "s.a_sentiment", start, end),
-            "cross_market": _signals(conn, "s.cross_market", start, end),
-            "sentiment_sz50": _signals(conn, "s.sentiment_sz50", start, end),
-            "sentiment_hs300": _signals(conn, "s.sentiment_hs300", start, end),
-            "sentiment_csi500": _signals(conn, "s.sentiment_csi500", start, end),
-            "sentiment_csi1000": _signals(conn, "s.sentiment_csi1000", start, end),
-            "sentiment_cyb": _signals(conn, "s.sentiment_cyb", start, end),
-            "sentiment_kc50": _signals(conn, "s.sentiment_kc50", start, end),
-            "fear_greed": _signals(conn, "s.fear_greed", start, end),
-        },
-        "stats": {
-            "a_sentiment": _stats_for(stats_all, "s.a_sentiment"),
-            "cross_market": _stats_for(stats_all, "s.cross_market"),
-            "sentiment_sz50": _stats_for(stats_all, "s.sentiment_sz50"),
-            "sentiment_hs300": _stats_for(stats_all, "s.sentiment_hs300"),
-            "sentiment_csi500": _stats_for(stats_all, "s.sentiment_csi500"),
-            "sentiment_csi1000": _stats_for(stats_all, "s.sentiment_csi1000"),
-            "sentiment_cyb": _stats_for(stats_all, "s.sentiment_cyb"),
-            "sentiment_kc50": _stats_for(stats_all, "s.sentiment_kc50"),
-        },
-        "strategy": {
-            "a_sentiment": strategy_desc("s.a_sentiment", cfg),
-            "cross_market": strategy_desc("s.cross_market", cfg),
-            "sentiment_sz50": strategy_desc("s.sentiment_sz50", cfg),
-            "sentiment_hs300": strategy_desc("s.sentiment_hs300", cfg),
-            "sentiment_csi500": strategy_desc("s.sentiment_csi500", cfg),
-            "sentiment_csi1000": strategy_desc("s.sentiment_csi1000", cfg),
-            "sentiment_cyb": strategy_desc("s.sentiment_cyb", cfg),
-            "sentiment_kc50": strategy_desc("s.sentiment_kc50", cfg),
-        },
-    }
+    """复刻 /api/sentiment（不含 futures，前端读 futures.json 独立加载）。"""
+    start, end = queries.range_for(rng)
+    return queries.sentiment(conn, cfg, start, end, cache=_series_cache, stats_all_dict=_get_stats())
 
 
 def export_industry(conn, cfg, rng):
     """复刻 /api/industry。"""
-    start, end = _range(rng)
-    stats_all = _stats_all()
-    indices_cfg = _indices_for_market(cfg, "industry")
-    indices = {}
-    for i in indices_cfg:
-        iid = i["id"]
-        ind_code = iid[3:] if iid.startswith("sw_") else iid
-        indices[iid] = {
-            "name": i["name"],
-            "data": _index_series(conn, iid, start, end),
-            "signals": _signals(conn, iid, start, end),
-            "stats": _stats_for(stats_all, iid),
-            "strategy": strategy_desc(iid, cfg),
-            "fund_flow": _metric_series(conn, f"ind_flow_{iid}", start, end),
-            "turnover": _metric_series(conn, f"ind_turn_{iid}", start, end),
-            "width": _industry_width(conn, ind_code, start, end),
-            **_etf_for(iid),
-        }
-
-    # Also include concept boards
-    concepts_cfg = _indices_for_market(cfg, "concept")
-    concepts = {}
-    for i in concepts_cfg:
-        iid = i["id"]
-        concepts[iid] = {
-            "name": i["name"],
-            "data": _index_series(conn, iid, start, end),
-            "signals": _signals(conn, iid, start, end),
-            "stats": _stats_for(stats_all, iid),
-            "strategy": strategy_desc(iid, cfg),
-            **_etf_for(iid),
-        }
-
-    return {"indices": indices, "heatmap": _industry_heatmap(conn, cfg),
-            "concepts": concepts}
+    start, end = queries.range_for(rng)
+    return queries.industry(conn, cfg, start, end, cache=_series_cache, stats_all_dict=_get_stats())
 
 
 def export_index_detail(conn, cfg, index_id):
-    """复刻 /api/index/{index_id}?range=all。全历史 ohlc + signals + stats + strategy。"""
-    start, end = _range("all")
-    stats_all = _stats_all()
-    return {
-        "ohlc": _index_series(conn, index_id, start, end),
-        "signals": _signals(conn, index_id, start, end),
-        "stats": _stats_for(stats_all, index_id),
-        "strategy": strategy_desc(index_id, cfg),
-        # P2-新-G: 宽基/红利指数信号卡 ETF 联动 tag（_etf_for 通用查 board_etf_map.json；
-        #   sh/sz 等无跟踪ETF返空数组，前端不渲染 tag）
-        **_etf_for(index_id),
-    }
+    """复刻 /api/index/{index_id}?range=all。全历史 ohlc + signals + stats + strategy + etfs。"""
+    start, end = queries.range_for("all")
+    return queries.index_detail(conn, cfg, index_id, start, end,
+                                cache=_series_cache, stats_all_dict=_get_stats(), include_etf=True)
 
 
-def export_metrics(cfg):
-    """复刻 /api/metrics。"""
-    return [{"id": m["id"], "name": m["name"], "unit": m.get("unit")}
-            for m in cfg.get("metrics", []) if m.get("enabled")]
+def export_futures(conn):
+    """复刻 /api/futures。"""
+    return queries.futures_data(conn)
+
+
+def export_ad_line(conn):
+    """复刻 /api/ad_line。"""
+    return queries.ad_line(conn)
+
+
+def export_volume_ratio(conn):
+    """复刻 /api/volume_ratio。"""
+    return queries.volume_ratio(conn)
+
+
+def export_new_high_low(conn):
+    """复刻 /api/new_high_low。"""
+    return queries.new_high_low(conn)
+
+
+def export_ma_alignment(conn):
+    """复刻 /api/ma_alignment。"""
+    return queries.ma_alignment(conn)
+
+
+def export_rotation(conn):
+    """复刻 /api/rotation（latest 统一用 compute_rotation 含门控）。"""
+    return queries.rotation(conn)
 
 
 def export_position():
     """复刻 /api/position。"""
-    return {"positions": compute_position()}
-
-
-def export_signal_freq():
-    """复刻 /api/signal_freq：全局信号频率统计。
-
-    委托 signal_stats.compute_global_freq()，与动态版 /api/signal_freq 字段完全一致
-    （含 year/year_count、total/total_count 两套字段，X6 兼容期；月均按今年实际有
-    信号的有效月份数计算，S2 修复）。
-
-    传 _stats_all()（进程内 cache）避免重复 load 文件，与 export_signal_stats 等
-    其他 export_* 保持一致（2026-07-21 修复）。
-    """
-    return sigstats.compute_global_freq(_stats_all())
+    return queries.position()
 
 
 def export_summary():
     """复刻 /api/summary。"""
-    return generate_summary()
+    return queries.summary()
 
 
 def export_summary_history(days: int = 90):
     """复刻 /api/summary/history：最近 N 天一句话总结（时间倒序）。
 
     静态站无后端，预生成 summary_history.json 供前端"更多"弹窗本地分页。
-    取有 a_sentiment 的日期倒序前 N 个，每个调 generate_summary(date) 回算。
     """
-    conn = get_conn()
-    dates = [r["date"] for r in conn.execute(
-        "SELECT DISTINCT date FROM score_daily WHERE score_id='a_sentiment' "
-        "ORDER BY date DESC LIMIT ?",
-        (days,),
-    ).fetchall()]
-    conn.close()
-    items = [summary_brief(generate_summary(d)) for d in dates]
-    return {"items": items, "total": len(items)}
+    return queries.summary_history(get_conn(), 0, days)
 
 
-def export_rotation(conn):
-    """复刻 /api/rotation。"""
-    metric_ids = [
-        "a_rotation_5d", "a_rotation_10d", "a_rotation_20d",
-        "a_rotation_concept_5d", "a_rotation_concept_10d", "a_rotation_concept_20d",
-    ]
-    series: dict[str, dict[str, float]] = {}
-    for mid in metric_ids:
-        rows = conn.execute(
-            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
-            (mid,),
-        ).fetchall()
-        series[mid] = {r["date"]: r["value"] for r in rows}
-
-    all_dates = sorted(set().union(*[s.keys() for s in series.values()]))
-    all_dates = all_dates[-250:]
-
-    data = []
-    for d in all_dates:
-        data.append({
-            "date": d,
-            "speed_5d": series.get("a_rotation_5d", {}).get(d),
-            "speed_10d": series.get("a_rotation_10d", {}).get(d),
-            "speed_20d": series.get("a_rotation_20d", {}).get(d),
-            "speed_concept_5d": series.get("a_rotation_concept_5d", {}).get(d),
-            "speed_concept_10d": series.get("a_rotation_concept_10d", {}).get(d),
-            "speed_concept_20d": series.get("a_rotation_concept_20d", {}).get(d),
-        })
-
-    # 最新值摘要：从 index_daily 直接取当日领涨板块
-    last_date = all_dates[-1] if all_dates else ""
-    sw_top3 = []
-    concept_top3 = []
-    sw_leader = None
-    concept_leader = None
-    if last_date:
-        sw_rows = conn.execute(
-            "SELECT index_id, pct_change FROM index_daily "
-            "WHERE index_id LIKE 'sw_%' AND date=? AND pct_change IS NOT NULL "
-            "ORDER BY pct_change DESC LIMIT 3",
-            (last_date,),
-        ).fetchall()
-        sw_top3 = [{"index_id": r["index_id"], "pct_change": r["pct_change"]} for r in sw_rows]
-        sw_leader = sw_top3[0]["index_id"] if sw_top3 else None
-
-        thsc_rows = conn.execute(
-            "SELECT index_id, pct_change FROM index_daily "
-            "WHERE index_id LIKE 'thsc_%' AND date=? AND pct_change IS NOT NULL "
-            "ORDER BY pct_change DESC LIMIT 3",
-            (last_date,),
-        ).fetchall()
-        concept_top3 = [{"index_id": r["index_id"], "pct_change": r["pct_change"]} for r in thsc_rows]
-        concept_leader = concept_top3[0]["index_id"] if concept_top3 else None
-
-    latest_sw = {
-        "speed_5d": data[-1]["speed_5d"] if data else None,
-        "speed_10d": data[-1]["speed_10d"] if data else None,
-        "speed_20d": data[-1]["speed_20d"] if data else None,
-        "leader": sw_leader,
-        "top3": sw_top3,
-    }
-    latest_concept = {
-        "speed_5d": data[-1]["speed_concept_5d"] if data else None,
-        "speed_10d": data[-1]["speed_concept_10d"] if data else None,
-        "speed_20d": data[-1]["speed_concept_20d"] if data else None,
-        "leader": concept_leader,
-        "top3": concept_top3,
-    }
-
-    return {
-        "data": data,
-        "latest": {
-            "date": last_date,
-            "sw": latest_sw,
-            "concept": latest_concept,
-        },
-    }
-
-
-def export_futures(conn):
-    """复刻 /api/futures。"""
-    _VARIETY_NAMES = {
-        "IF": "沪深300期货", "IC": "中证500期货",
-        "IH": "上证50期货", "IM": "中证1000期货",
-        "综合": "综合",
-    }
-    _ROLE_DISPLAY = {
-        "top20": "机构(前20)",
-        "中信期货": "中信期货",
-        "国泰君安": "国泰君安",
-    }
-
-    end = last_trading_day()
-    one_year_ago = (datetime.strptime(end, "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
-
-    # 近 1 年日度净持仓（按角色分组）
-    pos_rows = conn.execute(
-        "SELECT date, variety, role, net_position, net_ratio FROM futures_position "
-        "WHERE date>=? AND (net_position IS NOT NULL OR net_ratio IS NOT NULL) ORDER BY date, variety, role",
-        (one_year_ago,),
-    ).fetchall()
-
-    positions_by_date = {}
-    ratio_by_date = {}
-    for r in pos_rows:
-        d = r["date"]
-        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
-        if d not in positions_by_date:
-            positions_by_date[d] = {}
-            ratio_by_date[d] = {}
-        if role_display not in positions_by_date[d]:
-            positions_by_date[d][role_display] = {}
-            ratio_by_date[d][role_display] = {}
-        positions_by_date[d][role_display][_VARIETY_NAMES.get(r["variety"], r["variety"])] = r["net_position"]
-        ratio_by_date[d][role_display][_VARIETY_NAMES.get(r["variety"], r["variety"])] = r["net_ratio"]
-    positions = [{"date": d, **v} for d, v in sorted(positions_by_date.items())]
-    positions_ratio = [{"date": d, **v} for d, v in sorted(ratio_by_date.items())]
-
-    # 最新 summary
-    summary_date = positions[-1]["date"] if positions else end
-    summary_roles = {}
-    summary_rows = conn.execute(
-        "SELECT variety, role, net_position FROM futures_position "
-        "WHERE date=? AND net_position IS NOT NULL",
-        (summary_date,),
-    ).fetchall()
-    for r in summary_rows:
-        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
-        vname = _VARIETY_NAMES.get(r["variety"], r["variety"])
-        if role_display not in summary_roles:
-            summary_roles[role_display] = {}
-        summary_roles[role_display][vname] = round(r["net_position"], 0)
-
-    summary = {
-        "date": summary_date,
-        "品种": ["沪深300期货", "中证500期货", "上证50期货", "中证1000期货"],
-        "roles": summary_roles,
-    }
-
-    # 最新准确率（按角色+窗口，仅综合品种）
-    accuracy_rows = conn.execute(
-        "SELECT a.date, a.role, a.window, a.follow_accuracy, a.contrarian_accuracy, "
-        "a.follow_n, a.contrarian_n, a.net_direction, a.actual_return "
-        "FROM futures_accuracy a "
-        "INNER JOIN (SELECT role, window, MAX(date) AS max_date "
-        "            FROM futures_accuracy WHERE variety='综合' GROUP BY role, window) b "
-        "ON a.role=b.role AND a.window=b.window AND a.date=b.max_date "
-        "WHERE a.variety='综合' "
-        "ORDER BY a.role, a.window"
-    ).fetchall()
-
-    accuracy = {}
-    for r in accuracy_rows:
-        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
-        if role_display not in accuracy:
-            accuracy[role_display] = {}
-        w = f"{r['window']}d"
-        accuracy[role_display][w] = {
-            "follow": r["follow_accuracy"],
-            "contrarian": r["contrarian_accuracy"],
-            "follow_n": r["follow_n"],
-            "contrarian_n": r["contrarian_n"],
-        }
-        # net_direction/actual_return 同日同角色跨窗口一致，写入 role 级别
-        accuracy[role_display]["net_direction"] = r["net_direction"]
-        accuracy[role_display]["actual_return"] = r["actual_return"]
-
-    # 最近已完成的方向+涨跌（actual_return 非null 的最新日期）
-    latest_bet_rows = conn.execute(
-        "SELECT role, net_direction, actual_return, date "
-        "FROM futures_accuracy WHERE variety='综合' AND actual_return IS NOT NULL "
-        "AND date=(SELECT MAX(date) FROM futures_accuracy WHERE variety='综合' AND actual_return IS NOT NULL) "
-        "ORDER BY role"
-    ).fetchall()
-    latest_bet = {}
-    for r in latest_bet_rows:
-        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
-        latest_bet[role_display] = {
-            "net_direction": r["net_direction"],
-            "actual_return": r["actual_return"],
-            "date": r["date"],
-        }
-
-    # 历史准确率序列
-    acc_history_rows = conn.execute(
-        "SELECT date, role, window, follow_accuracy, contrarian_accuracy "
-        "FROM futures_accuracy WHERE variety='综合' "
-        "ORDER BY date, role, window"
-    ).fetchall()
-    acc_history = []
-    _acc_by_date = {}
-    for r in acc_history_rows:
-        d = r["date"]
-        role_display = _ROLE_DISPLAY.get(r["role"], r["role"])
-        if d not in _acc_by_date:
-            _acc_by_date[d] = {}
-        if role_display not in _acc_by_date[d]:
-            _acc_by_date[d][role_display] = {}
-        w = f"{r['window']}d"
-        _acc_by_date[d][role_display][w] = {
-            "follow": r["follow_accuracy"],
-            "contrarian": r["contrarian_accuracy"],
-        }
-    for d in sorted(_acc_by_date.keys()):
-        acc_history.append({"date": d, **_acc_by_date[d]})
-
-    return {"summary": summary, "positions": positions, "positions_ratio": positions_ratio,
-            "accuracy": accuracy, "accuracy_history": acc_history, "latest_bet": latest_bet}
-
-
-def export_ad_line(conn):
-    """复刻 /api/ad_line。"""
-    metrics = ["a_width_up_count", "a_width_down_count", "a_up_down_ratio",
-               "a_ad_line", "a_ad_line_ma5", "a_ad_line_ma20"]
-    series: dict[str, dict[str, float]] = {}
-    for mid in metrics:
-        rows = conn.execute(
-            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
-            (mid,),
-        ).fetchall()
-        series[mid] = {r["date"]: r["value"] for r in rows}
-
-    all_dates = sorted(set().union(*[s.keys() for s in series.values()]))
-    all_dates = all_dates[-250:]
-
-    data = []
-    for d in all_dates:
-        up = series.get("a_width_up_count", {}).get(d)
-        down = series.get("a_width_down_count", {}).get(d)
-        data.append({
-            "date": d,
-            "up_count": up,
-            "down_count": down,
-            "ratio": series.get("a_up_down_ratio", {}).get(d),
-            "ad_line": series.get("a_ad_line", {}).get(d),
-            "ad_line_ma5": series.get("a_ad_line_ma5", {}).get(d),
-            "ad_line_ma20": series.get("a_ad_line_ma20", {}).get(d),
-        })
-    return {"data": data}
-
-
-def export_volume_ratio(conn):
-    """复刻 /api/volume_ratio。"""
-    amount_rows = conn.execute(
-        "SELECT date, value FROM daily_metric WHERE metric_id='a_amount' ORDER BY date"
-    ).fetchall()
-    amount_map = {r["date"]: r["value"] for r in amount_rows}
-
-    ratio_rows = conn.execute(
-        "SELECT date, value FROM daily_metric WHERE metric_id='a_volume_ratio' ORDER BY date"
-    ).fetchall()
-    ratio_map = {r["date"]: r["value"] for r in ratio_rows}
-
-    ma5_rows = conn.execute(
-        "SELECT date, value FROM daily_metric WHERE metric_id='a_amount_ma5' ORDER BY date"
-    ).fetchall()
-    ma5_map = {r["date"]: r["value"] for r in ma5_rows}
-
-    ma20_rows = conn.execute(
-        "SELECT date, value FROM daily_metric WHERE metric_id='a_amount_ma20' ORDER BY date"
-    ).fetchall()
-    ma20_map = {r["date"]: r["value"] for r in ma20_rows}
-
-    signal_rows = conn.execute(
-        "SELECT date, value FROM daily_metric WHERE metric_id='a_volume_signal' ORDER BY date"
-    ).fetchall()
-    signal_map = {r["date"]: int(r["value"]) for r in signal_rows if r["value"] is not None}
-
-    pct_rows = conn.execute(
-        "SELECT date, pct_change FROM index_daily WHERE index_id='sh' ORDER BY date"
-    ).fetchall()
-    pct_map = {r["date"]: r["pct_change"] for r in pct_rows}
-
-    all_dates = sorted(set(amount_map.keys()) & set(ratio_map.keys()))
-    all_dates = all_dates[-250:]
-
-    signal_labels = {0: "正常", 1: "放量上涨", 2: "放量下跌", 3: "缩量上涨", 4: "缩量下跌"}
-
-    data = []
-    for d in all_dates:
-        data.append({
-            "date": d,
-            "amount": amount_map.get(d),
-            "ma5": ma5_map.get(d),
-            "ma20": ma20_map.get(d),
-            "ratio": ratio_map.get(d),
-            "signal": signal_labels.get(signal_map.get(d), "正常"),
-            "signal_code": signal_map.get(d, 0),
-            "pct_change": pct_map.get(d),
-        })
-    return {"data": data}
-
-
-def export_new_high_low(conn):
-    """复刻 /api/new_high_low。"""
-    from app.compute.new_high_low import INDICES, INDEX_NAMES, WINDOW_52W, WINDOW_20D
-
-    metric_ids = ["a_nh_52w", "a_nl_52w", "a_nhnl_52w", "a_nh_20d", "a_nl_20d"]
-    series = {}
-    for mid in metric_ids:
-        rows = conn.execute(
-            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
-            (mid,),
-        ).fetchall()
-        series[mid] = {r["date"]: r["value"] for r in rows}
-
-    all_dates = sorted(set().union(*[s.keys() for s in series.values()]))
-    all_dates = all_dates[-250:]
-
-    latest_date = all_dates[-1] if all_dates else None
-    latest_details = []
-    if latest_date:
-        import pandas as pd
-        placeholders = ",".join(["?"] * len(INDICES))
-        idx_rows = conn.execute(
-            f"SELECT date, index_id, close FROM index_daily "
-            f"WHERE index_id IN ({placeholders}) AND close IS NOT NULL ORDER BY date",
-            INDICES,
-        ).fetchall()
-
-        if idx_rows:
-            df = pd.DataFrame(idx_rows, columns=["date", "index_id", "close"])
-            pivoted = df.pivot(index="date", columns="index_id", values="close")
-
-            for iid in INDICES:
-                if iid not in pivoted.columns:
-                    continue
-                series_i = pivoted[iid].dropna()
-                if latest_date not in series_i.index:
-                    continue
-
-                close_val = float(series_i.loc[latest_date])
-                idx_loc = series_i.index.get_loc(latest_date)
-
-                nh_52w = False
-                nl_52w = False
-                if idx_loc >= WINDOW_52W:
-                    lookback_52w = series_i.iloc[idx_loc - WINDOW_52W:idx_loc]
-                    if len(lookback_52w) > 0:
-                        prev_high = float(lookback_52w.max())
-                        prev_low = float(lookback_52w.min())
-                        if close_val > prev_high:
-                            nh_52w = True
-                        if close_val < prev_low:
-                            nl_52w = True
-
-                nh_20d = False
-                nl_20d = False
-                if idx_loc >= WINDOW_20D:
-                    lookback_20d = series_i.iloc[idx_loc - WINDOW_20D:idx_loc]
-                    if len(lookback_20d) > 0:
-                        prev_high = float(lookback_20d.max())
-                        prev_low = float(lookback_20d.min())
-                        if close_val > prev_high:
-                            nh_20d = True
-                        if close_val < prev_low:
-                            nl_20d = True
-
-                latest_details.append({
-                    "index_id": iid,
-                    "name": INDEX_NAMES.get(iid, iid),
-                    "close": round(close_val, 2),
-                    "nh_52w": nh_52w,
-                    "nl_52w": nl_52w,
-                    "nh_20d": nh_20d,
-                    "nl_20d": nl_20d,
-                })
-
-    data = []
-    for d in all_dates:
-        entry = {
-            "date": d,
-            "nh_52w": series.get("a_nh_52w", {}).get(d),
-            "nl_52w": series.get("a_nl_52w", {}).get(d),
-            "nhnl_52w": series.get("a_nhnl_52w", {}).get(d),
-            "nh_20d": series.get("a_nh_20d", {}).get(d),
-            "nl_20d": series.get("a_nl_20d", {}).get(d),
-            "details": latest_details if d == latest_date else [],
-        }
-        data.append(entry)
-
-    return {"data": data}
-
-
-def export_ma_alignment(conn):
-    """复刻 /api/ma_alignment。"""
-    from app.compute.ma_alignment import INDICES, INDEX_NAMES, MA_PERIODS
-
-    metric_ids = ["a_ma_bullish", "a_ma_bearish", "a_ma_cross"]
-    series = {}
-    for mid in metric_ids:
-        rows = conn.execute(
-            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
-            (mid,),
-        ).fetchall()
-        series[mid] = {r["date"]: r["value"] for r in rows}
-
-    all_dates = sorted(set().union(*[s.keys() for s in series.values()]))
-    all_dates = all_dates[-250:]
-
-    latest_date = all_dates[-1] if all_dates else None
-    latest_details = []
-    if latest_date:
-        import pandas as pd
-        placeholders = ",".join(["?"] * len(INDICES))
-        idx_rows = conn.execute(
-            f"SELECT date, index_id, close FROM index_daily "
-            f"WHERE index_id IN ({placeholders}) AND close IS NOT NULL ORDER BY date",
-            INDICES,
-        ).fetchall()
-
-        if idx_rows:
-            df = pd.DataFrame(idx_rows, columns=["date", "index_id", "close"])
-            pivoted = df.pivot(index="date", columns="index_id", values="close")
-
-            for iid in INDICES:
-                if iid not in pivoted.columns:
-                    continue
-                series_i = pivoted[iid].dropna()
-                if len(series_i) < max(MA_PERIODS) or latest_date not in series_i.index:
-                    continue
-
-                vals = {}
-                for p in MA_PERIODS:
-                    ma_vals = series_i.rolling(p, min_periods=p).mean()
-                    v = ma_vals.get(latest_date)
-                    vals[f"ma{p}"] = round(float(v), 2) if v is not None and not pd.isna(v) else None
-
-                if any(v is None for v in vals.values()):
-                    continue
-
-                if vals["ma5"] > vals["ma10"] > vals["ma20"] > vals["ma60"]:
-                    alignment = "bullish"
-                elif vals["ma5"] < vals["ma10"] < vals["ma20"] < vals["ma60"]:
-                    alignment = "bearish"
-                else:
-                    alignment = "cross"
-
-                latest_details.append({
-                    "index_id": iid,
-                    "name": INDEX_NAMES.get(iid, iid),
-                    "alignment": alignment,
-                    "ma5": vals["ma5"],
-                    "ma10": vals["ma10"],
-                    "ma20": vals["ma20"],
-                    "ma60": vals["ma60"],
-                })
-
-    data = []
-    for d in all_dates:
-        entry = {
-            "date": d,
-            "bullish": series.get("a_ma_bullish", {}).get(d),
-            "bearish": series.get("a_ma_bearish", {}).get(d),
-            "cross": series.get("a_ma_cross", {}).get(d),
-            "details": latest_details if d == latest_date else [],
-        }
-        data.append(entry)
-
-    return {"data": data}
+def export_signal_freq():
+    """复刻 /api/signal_freq：全局信号频率统计。"""
+    return queries.signal_freq(_get_stats())
 
 
 def export_intraday_snapshot():
-    """复刻 /api/intraday_snapshot：从 DB 读最新盘中实时快照。
-
-    与 API 返回结构一致：{collected_at, is_closed, label, indices, industries}。
-    DB 无数据时返回空结构（label="暂无快照"），保证双版一致。
-    """
-    from app.collector.intraday_snapshot import load_latest_snapshot
-    snap = load_latest_snapshot()
-    if snap is None:
-        return {"collected_at": None, "is_closed": True, "label": "暂无快照",
-                "prev_trading_day": "", "indices": [], "industries": [], "concepts": []}
-    return snap
-
-
-def _nt_slice_by_range(daily_json, rng):
-    """按 range 切片 daily（日历日），与前端 ntSliceDataByRange 一致。
-    all/未知 -> 全量；1m/3m/6m/1y/3y/5y -> 按天数 cutoff 过滤 date。
-    保留 latest（全历史最新行不随 range 切，与前端 ntSliceDataByRange 行为一致）。"""
-    if rng == "all":
-        return daily_json
-    days = RANGES.get(rng, 365)
-    end = last_trading_day()
-    cutoff = (datetime.strptime(end, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
-    out_etfs = []
-    for e in daily_json.get("etfs", []):
-        out_etfs.append({
-            "code": e["code"], "name": e["name"], "index": e["index"],
-            "market": e.get("market"),
-            "daily": [d for d in (e.get("daily") or []) if d.get("date", "") >= cutoff],
-            "latest": e.get("latest"),
-        })
-    return {"updated_at": daily_json.get("updated_at"), "etfs": out_etfs}
+    """复刻 /api/intraday_snapshot：从 DB 读最新盘中实时快照。"""
+    return queries.intraday_snapshot()
 
 
 def export_etf_national_team(rng="all"):
-    """国家队宽基 ETF 资金动向（12 只宽基 ETF 份额+成交额+信号）。
-    与 /api/etf-national-team?range=rng 返回结构一致。读 data/etf_national_team.db。
-    rng 默认 all（全历史）；1y/3y/5y 等按日历日切片，大幅减小默认加载体积。"""
-    from app.collector.etf_national_team import export_data
-    daily, _q, _h = export_data()
-    return _nt_slice_by_range(daily, rng)
+    """国家队宽基 ETF 资金动向（12 只宽基 ETF 份额+成交额+信号）。"""
+    return queries.etf_national_team(rng)
 
 
 def export_etf_national_team_quarterly():
-    """季度持有人结构（机构占比历史轨迹）。与 /api/etf-national-team/quarterly 一致。"""
-    from app.collector.etf_national_team import export_data
-    _d, quarterly, _h = export_data()
-    return quarterly
+    """季度持有人结构（机构占比历史轨迹）。"""
+    return queries.etf_national_team_quarterly()
 
 
 def export_etf_national_team_holders():
-    """v2 具名持有人（cninfo PDF 解析的前十大持有人，含汇金/证金识别）。
-    与 /api/etf-national-team/holders 一致。
-    """
-    from app.collector.etf_national_team import export_data
-    _d, _q, holders = export_data()
-    return holders
+    """v2 具名持有人（cninfo PDF 解析的前十大持有人，含汇金/证金识别）。"""
+    return queries.etf_national_team_holders()
 
 
 # ============ JSON 序列化 + 写盘 ============
@@ -1247,7 +197,7 @@ def _json_default(o):
 
 def write_json(path: Path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    # 紧凑输出（separators 无空白）——industry-all.json 全历史约 26MB，
+    # 紧凑输出（separators 无空白）--industry-all.json 全历史约 26MB，
     # 默认 ', '/': ' 分隔会让其超 Cloudflare Pages 25MB 单文件限制。
     text = json.dumps(data, ensure_ascii=False, default=_json_default,
                       separators=(",", ":"))
@@ -1343,7 +293,7 @@ def main():
         "industry": export_industry,
     }
     for name, fn in tab_exporters.items():
-        for rng in ALL_RANGES:
+        for rng in EXPORT_RANGES:
             if name == "industry" and rng in ("all", "5y", "3y"):
                 continue  # industry-all/5y/3y 拆分为多文件（见下方），避免大单文件拖慢首屏
             fname = f"{name}-{rng}.json"
@@ -1394,7 +344,7 @@ def main():
     print(f"  signal_freq.json ({counts['signal_freq.json']} bytes)")
     # 7.9.1 signal_stats（per-index 回测统计，6类信号含 sell_stop_loss；供前端❓弹窗分析概况聚合）
     # 用 _stats_all() 现算内存结果（不读根 data/signal_stats.json 旧文件，避免缺品种/过期）
-    counts["signal_stats.json"] = write_json(DATA_DIR / "signal_stats.json", _stats_all())
+    counts["signal_stats.json"] = write_json(DATA_DIR / "signal_stats.json", _get_stats())
     print(f"  signal_stats.json ({counts['signal_stats.json']} bytes)")
 
     # 7.10. rotation
@@ -1415,12 +365,12 @@ def main():
     print(f"  intraday_snapshot.json ({counts['intraday_snapshot.json']} bytes)")
 
     # 7.14. etf_national_team × range（默认1y≈0.67MB，all≈7.6MB；手机默认只下1y，避免7.6MB裸传卡顿）
-    # 仿 sentiment 拆分：预生成 1m/3m/6m/1y/3y/5y/all 七个文件，前端按 state.range 按需 fetch。
+    # 仿 sentiment 拆分：预生成 3m/6m/1y/3y/5y/all 六个文件，前端按 state.range 按需 fetch。
     from app.collector.etf_national_team import export_data as _nt_export_data
     _nt_daily, _nt_quarterly, _nt_holders = _nt_export_data()
-    for rng in ALL_RANGES:
+    for rng in EXPORT_RANGES:
         fname = f"etf_national_team-{rng}.json"
-        counts[fname] = write_json(DATA_DIR / fname, _nt_slice_by_range(_nt_daily, rng))
+        counts[fname] = write_json(DATA_DIR / fname, export_etf_national_team(rng))
         print(f"  {fname} ({counts[fname]} bytes)")
     counts["etf_national_team_quarterly.json"] = write_json(
         DATA_DIR / "etf_national_team_quarterly.json", _nt_quarterly)
@@ -1443,7 +393,7 @@ def main():
     total_bytes = sum(counts.values())
     print(f"\n导出完成：{len(counts)} 个 JSON 文件，{total_bytes / 1024 / 1024:.1f} MB")
     print(f"  - overview: 1")
-    print(f"  - tab ranges: 5 tabs × {len(ALL_RANGES)} ranges")
+    print(f"  - tab ranges: 5 tabs × {len(EXPORT_RANGES)} ranges")
     print(f"  - metrics: 1")
     print(f"  - index detail: {len(all_indices)} (all range, full history)")
     print(f"输出目录: {DATA_DIR}")
