@@ -190,8 +190,9 @@ done
 for _rng in all 5y 3y; do
   DATA_FILES+=("static-site/data/industry-${_rng}-meta.json" "static-site/data/industry-${_rng}-meta.json.gz")
 done
-# etf_national_team × 小 range 3m/6m/1y（大 range all/5y/3y 已 R2 托管）+ quarterly + holders
-for _rng in 3m 6m 1y; do
+# etf_national_team × 小 range 1m/3m/6m/1y（大 range all/5y/3y 已 R2 托管）+ quarterly + holders
+# 1m 由 pipeline_daily export_json_files 生成(非 export.py),deploy git add 工作区最新版
+for _rng in 1m 3m 6m 1y; do
   DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
 done
 DATA_FILES+=("static-site/data/etf_national_team_quarterly.json" "static-site/data/etf_national_team_quarterly.json.gz")
