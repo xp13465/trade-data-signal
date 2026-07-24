@@ -112,40 +112,69 @@ def _range(rng: str):
     return start, end
 
 
+# P1-2 series 查询内存缓存（2026-07-24）：5 tab × 6 range = 30 次 range 循环，同一 id 被查 6
+# 次（各 range 一次 DB 往返）。优化：每个 id 只查全量一次（不带 range），缓存到进程级 dict，
+# 后续按 start/end 字符串切片。date 是 YYYYMMDD 字符串，字典序=时间序，可直接字符串比较过滤。
+# 进程级缓存，export 跑完即释放（不跨进程持久化，不污染其他调用）。
+_metric_series_cache: dict[str, list] = {}
+_index_series_cache: dict[str, list] = {}
+_score_series_cache: dict[str, list] = {}
+_signals_cache: dict[str | None, list] = {}  # None=全局，str=按 index_id
+_industry_width_cache: dict[str, list] = {}
+
+
 def _metric_series(conn, metric_id, start, end):
-    rows = conn.execute(
-        "SELECT date, value FROM daily_metric WHERE metric_id=? AND date BETWEEN ? AND ? ORDER BY date",
-        (metric_id, start, end),
-    ).fetchall()
-    return [{"date": r["date"], "value": r["value"]} for r in rows]
+    cache = _metric_series_cache.get(metric_id)
+    if cache is None:
+        rows = conn.execute(
+            "SELECT date, value FROM daily_metric WHERE metric_id=? ORDER BY date",
+            (metric_id,),
+        ).fetchall()
+        cache = [{"date": r["date"], "value": r["value"]} for r in rows]
+        _metric_series_cache[metric_id] = cache
+    return [r for r in cache if start <= r["date"] <= end]
 
 
 def _index_series(conn, index_id, start, end):
-    rows = conn.execute(
-        "SELECT date, open, high, low, close, pct_change, amount FROM index_daily "
-        "WHERE index_id=? AND date BETWEEN ? AND ? ORDER BY date",
-        (index_id, start, end),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    cache = _index_series_cache.get(index_id)
+    if cache is None:
+        rows = conn.execute(
+            "SELECT date, open, high, low, close, pct_change, amount FROM index_daily "
+            "WHERE index_id=? ORDER BY date",
+            (index_id,),
+        ).fetchall()
+        cache = [dict(r) for r in rows]
+        _index_series_cache[index_id] = cache
+    return [r for r in cache if start <= r["date"] <= end]
 
 
 def _score_series(conn, score_id, start, end):
-    rows = conn.execute(
-        "SELECT date, value, is_freeze, is_overheat, components FROM score_daily "
-        "WHERE score_id=? AND date BETWEEN ? AND ? ORDER BY date",
-        (score_id, start, end),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    cache = _score_series_cache.get(score_id)
+    if cache is None:
+        rows = conn.execute(
+            "SELECT date, value, is_freeze, is_overheat, components FROM score_daily "
+            "WHERE score_id=? ORDER BY date",
+            (score_id,),
+        ).fetchall()
+        cache = [dict(r) for r in rows]
+        _score_series_cache[score_id] = cache
+    return [r for r in cache if start <= r["date"] <= end]
 
 
 def _signals(conn, index_id=None, start=None, end=None):
-    q = "SELECT date, index_id, signal, reason FROM signal_daily WHERE date BETWEEN ? AND ?"
-    params = [start, end]
-    if index_id:
-        q += " AND index_id=?"
-        params.append(index_id)
-    rows = conn.execute(q + " ORDER BY date", params).fetchall()
-    return [dict(r) for r in rows]
+    cache_key = index_id  # None=全局，str=按 index_id
+    cache = _signals_cache.get(cache_key)
+    if cache is None:
+        q = "SELECT date, index_id, signal, reason FROM signal_daily"
+        params = []
+        if index_id:
+            q += " WHERE index_id=?"
+            params.append(index_id)
+        q += " ORDER BY date"
+        rows = conn.execute(q, params).fetchall()
+        cache = [dict(r) for r in rows]
+        _signals_cache[cache_key] = cache
+    return [r for r in cache if start <= r["date"] <= end]
 
 
 def _metrics_for_groups(cfg, *groups):
@@ -208,12 +237,16 @@ def _industry_heatmap(conn, cfg):
 
 
 def _industry_width(conn, industry_code, start, end):
-    rows = conn.execute(
-        "SELECT date, up_count, down_count, zt_count, dt_count, zb_count, seal_rate, amount "
-        "FROM industry_width_daily WHERE industry_code=? AND date BETWEEN ? AND ? ORDER BY date",
-        (industry_code, start, end),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    cache = _industry_width_cache.get(industry_code)
+    if cache is None:
+        rows = conn.execute(
+            "SELECT date, up_count, down_count, zt_count, dt_count, zb_count, seal_rate, amount "
+            "FROM industry_width_daily WHERE industry_code=? ORDER BY date",
+            (industry_code,),
+        ).fetchall()
+        cache = [dict(r) for r in rows]
+        _industry_width_cache[industry_code] = cache
+    return [r for r in cache if start <= r["date"] <= end]
 
 
 # ============ 端点导出函数 ============
