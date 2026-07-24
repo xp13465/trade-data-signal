@@ -197,12 +197,44 @@ def load_progress() -> dict:
 
 
 def save_progress(progress: dict) -> None:
-    """原子写：先写临时文件再 rename。"""
+    """原子写：先写临时文件再 rename。多 worker 并发时用 fcntl.flock 串行化，
+    避免 tmp 文件竞争（worker A rename 走 tmp 后 worker B replace 时 FileNotFoundError）。"""
     PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = PROGRESS_PATH.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
-                   encoding="utf-8")
-    tmp.replace(PROGRESS_PATH)
+    import fcntl
+    lock_path = PROGRESS_PATH.with_suffix(".json.lock")
+    with open(lock_path, "w") as lockf:
+        fcntl.flock(lockf, fcntl.LOCK_EX)
+        tmp = PROGRESS_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(progress, ensure_ascii=False, indent=None, sort_keys=True),
+                       encoding="utf-8")
+        tmp.replace(PROGRESS_PATH)
+
+
+def update_progress_entry(code: str, key: str, value: str) -> None:
+    """原子更新单个 code 的 progress entry（锁内 load-modify-save）。
+
+    多 worker 并发时，若各自 load_progress → modify → save_progress，后 save 的会
+    覆盖先 save 的更新（丢失更新问题）。本函数在 fcntl.flock 内 load 最新 progress
+    → modify 单 entry → save，保证原子性。worker 并发写 progress 必须用此函数。
+    """
+    import fcntl
+    PROGRESS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = PROGRESS_PATH.with_suffix(".json.lock")
+    with open(lock_path, "w") as lockf:
+        fcntl.flock(lockf, fcntl.LOCK_EX)
+        prog = {}
+        if PROGRESS_PATH.exists():
+            try:
+                prog = json.loads(PROGRESS_PATH.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                prog = {}
+        entry = prog.get(code, {})
+        entry[key] = value
+        prog[code] = entry
+        tmp = PROGRESS_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(prog, ensure_ascii=False, indent=None, sort_keys=True),
+                       encoding="utf-8")
+        tmp.replace(PROGRESS_PATH)
 
 
 # ── code 列表 + 转换 ──────────────────────────────────────────────────────────

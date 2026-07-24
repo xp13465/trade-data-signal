@@ -248,7 +248,7 @@ def run(date=None, verbose=True, steps=None):
         import os
         if os.environ.get("RUN_BAOSTOCK"):
             try:
-                from . import baostock_daily
+                from . import baostock_daily, baostock_parallel
                 prog = baostock_daily.load_progress()
                 # 2026-07-23 修复：progress 可能只有部分 code（历史全量 backfill 未跑完），
                 # 跑前先 reconcile 从 DB 重建（与 turnover step 同口径），否则 todo 只含
@@ -259,12 +259,12 @@ def run(date=None, verbose=True, steps=None):
                     prog = baostock_daily.load_progress()
                 todo = [c for c, v in prog.items() if v.get("r")]  # 已 backfill recent 段的 code
                 if todo:
-                    res = baostock_daily.run_update(todo, verbose=verbose)
+                    res = baostock_parallel.run_update_parallel(todo, n_workers=4, verbose=verbose)
                     ok += res["ok"]
                     fail += res["fail"]
                     details.append(("baostock_daily", "ok" if res["fail"] == 0 else "fail",
                                     f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
-                                    f"({len(todo)} codes)"))
+                                    f"({len(todo)} codes, parallel)"))
                 else:
                     details.append(("baostock_daily", "ok", "skip (no progress)"))
             except Exception as e:  # noqa: BLE001
@@ -409,7 +409,7 @@ def run(date=None, verbose=True, steps=None):
         import os
         if os.environ.get("RUN_BAOSTOCK"):
             try:
-                from . import baostock_daily
+                from . import baostock_daily, baostock_parallel
                 prog = baostock_daily.load_progress()
                 # 2026-07-23 修复：progress 可能只有部分 code（历史全量 backfill 未跑完），
                 # 跑前先 reconcile 从 DB 重建，否则 todo 只含 progress 已有的少数 code，
@@ -420,12 +420,12 @@ def run(date=None, verbose=True, steps=None):
                     prog = baostock_daily.load_progress()
                 todo = [c for c, v in prog.items() if v.get("r")]
                 if todo:
-                    res = baostock_daily.run_update(todo, verbose=verbose)
+                    res = baostock_parallel.run_update_parallel(todo, n_workers=4, verbose=verbose)
                     ok += res["ok"]
                     fail += res["fail"]
                     details.append(("baostock_turnover", "ok" if res["fail"] == 0 else "fail",
                                     f"+{res['total_rows']} rows, {res['ok']} ok/{res['fail']} fail "
-                                    f"({len(todo)} codes)"))
+                                    f"({len(todo)} codes, parallel)"))
                 else:
                     details.append(("baostock_turnover", "ok", "skip (no progress)"))
             except Exception as e:  # noqa: BLE001

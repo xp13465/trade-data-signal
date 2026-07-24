@@ -106,6 +106,113 @@ def run_parallel(seg="r", n_workers=4, limit=None):
     print(f"total {seg} done: {n_done}/{len(todo)}", flush=True)
 
 
+def run_update_parallel(codes, n_workers=4, verbose=True):
+    """并行增量更新（recent 段增量）。codes 是已筛选的 todo（有 progress['r'] 的）。
+
+    对每个 code 算 start=progress['r']+1 天, end=today，跳过 up-to-date。
+    分 chunk 给 worker subprocess（--mode=update，chunk=[(code,start,end),...]）。
+    每个 worker 独立 BaoStock login + 独立 DB conn（WAL 兜底并发写）。
+
+    返回 {ok, fail, skip_bj, skip_done, total_rows, processed, details}，
+    与 baostock_daily.run_update 返回结构兼容（runner.py 直接用）。
+    """
+    import re
+    from app.collector.baostock_daily import (
+        to_baostock_code, init_db, RECENT_START, TODAY,
+    )
+    init_db()
+    progress_before = load_progress()
+    today_ymd = TODAY()
+
+    # 算每个 code 的 (code, start, end)，跳过 bj 和 up-to-date
+    tasks = []
+    skip_bj = 0
+    skip_done = 0
+    for code in codes:
+        if to_baostock_code(code) is None:
+            skip_bj += 1
+            continue
+        entry = progress_before.get(code, {})
+        last_r = entry.get("r")
+        if not last_r:
+            skip_done += 1
+            continue
+        d = dt.datetime.strptime(last_r, "%Y%m%d").date() + dt.timedelta(days=1)
+        start = d.strftime("%Y-%m-%d")
+        end = today_ymd
+        if start.replace("-", "") > end.replace("-", ""):
+            skip_done += 1
+            continue
+        tasks.append((code, start, end))
+
+    if not tasks:
+        print("parallel update: nothing to do (all up-to-date)", flush=True)
+        return {"ok": 0, "fail": 0, "skip_bj": skip_bj, "skip_done": skip_done,
+                "total_rows": 0, "processed": len(codes), "details": []}
+
+    print(f"parallel update: {len(tasks)} codes to fetch, {n_workers} workers",
+          flush=True)
+
+    chunks = chunk_list(tasks, n_workers)
+    chunks = [c for c in chunks if c]
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    ts = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    procs = []
+    for i, chunk in enumerate(chunks):
+        log_file = LOG_DIR / f"worker_update_{i}_{ts}.log"
+        chunk_file = LOG_DIR / f"chunk_update_{i}_{ts}.json"
+        chunk_file.write_text(json.dumps(chunk), encoding="utf-8")
+        p = subprocess.Popen(
+            [sys.executable, "-u", str(WORKER_SCRIPT),
+             f"--chunk={chunk_file}", "--mode=update"],
+            stdout=open(log_file, "w"),
+            stderr=subprocess.STDOUT,
+        )
+        procs.append((p, log_file, len(chunk)))
+        print(f"  worker {i}: {len(chunk)} codes -> PID {p.pid}, log {log_file.name}",
+              flush=True)
+
+    print(f"\n{len(procs)} workers launched. Monitoring...", flush=True)
+    start_time = time.time()
+    while True:
+        time.sleep(15)
+        elapsed = time.time() - start_time
+        alive = sum(1 for p, _, _ in procs if p.poll() is None)
+        # 从 progress 看进度（entry['r'] >= end 视为该 code done）
+        prog = load_progress()
+        n_done = sum(1 for c, s, e in tasks
+                     if prog.get(c, {}).get("r", "") >= e.replace("-", ""))
+        if verbose:
+            print(f"  [{elapsed/60:.1f}min] progress: {n_done}/{len(tasks)} codes done, "
+                  f"{alive}/{len(procs)} workers alive", flush=True)
+        if alive == 0:
+            break
+
+    elapsed_min = (time.time() - start_time) / 60
+    print(f"\n=== all workers done in {elapsed_min:.1f}min ===", flush=True)
+
+    # 从 worker 日志汇总 ok/fail/total_rows（worker 末行 "done: ok=X fail=Y rows=Z"）
+    ok = fail = total_rows = 0
+    for p, log_file, _ in procs:
+        try:
+            log_text = log_file.read_text(encoding="utf-8", errors="replace")
+            m = re.search(r"done: ok=(\d+) fail=(\d+) rows=(\d+)", log_text)
+            if m:
+                ok += int(m.group(1))
+                fail += int(m.group(2))
+                total_rows += int(m.group(3))
+        except Exception:  # noqa: BLE001
+            pass
+
+    if verbose:
+        print(f"parallel update done: ok={ok} fail={fail} rows={total_rows} "
+              f"({len(tasks)} codes, {elapsed_min:.1f}min)", flush=True)
+
+    return {"ok": ok, "fail": fail, "skip_bj": skip_bj, "skip_done": skip_done,
+            "total_rows": total_rows, "processed": len(codes), "details": []}
+
+
 if __name__ == "__main__":
     seg = "r"
     n_workers = 4

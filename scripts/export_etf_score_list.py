@@ -288,6 +288,76 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | Non
         return None
 
 
+def _process_one_etf_worker(args):
+    """ProcessPool worker: 处理单只 ETF (fetch+compute+build_reason+volatility)。
+
+    进程隔离 V8 isolate(akshare fund_etf_hist_sina 内部 py_mini_racer.MiniRacer()
+    V8 isolate 非线程安全,B4 教训:ThreadPool 并发会崩 V8,必须 ProcessPool)。
+    每个子进程独立 get_conn()(WAL + busy_timeout=30000 兜底并发写)。
+
+    args = (code, name, mkt, no_fetch)
+    返回 dict(主进程组装 buy_list/sell_list/errors,不再访问 alert/pos)。
+    """
+    code, name, _mkt, no_fetch = args
+    import traceback as _tb
+
+    res = {
+        "code": code, "name": name, "error": None, "traceback": "",
+        "high_alert": None, "low_alert": None, "date": "",
+        "is_nt": False, "vol": None, "alert_hands": 0, "pos_volatility": None,
+        "in_buy": False, "in_sell": False,
+        "low_text": "", "high_text": "",
+        "fetch_count": 0, "skip_count": 0,
+    }
+    try:
+        init_db()  # 幂等:子进程首次跑加 open/high/low 列
+        conn = get_conn()
+        try:
+            # 动态采集(自包含):DB 无近5日数据 -> fetch+upsert
+            if not no_fetch:
+                if _has_recent_data(conn, code):
+                    res["skip_count"] = 1
+                else:
+                    n = _fetch_and_upsert_ohlc(code, name, conn)
+                    if n > 0:
+                        res["fetch_count"] = 1
+
+            alert = compute_alert_for_target(code, "etf")
+            high_alert = alert.get("high")
+            low_alert = alert.get("low")
+            date = alert.get("date") or ""
+            res["high_alert"] = high_alert
+            res["low_alert"] = low_alert
+            res["date"] = date
+            res["is_nt"] = is_national_team(code)
+
+            # _compute_volatility 保留: 触发 OHLC 补采 + 输出 volatility 字段
+            vol = _compute_volatility(code, conn)
+            res["vol"] = vol
+
+            pos = alert.get("position") or {}
+            res["alert_hands"] = pos.get("hands", 0)
+            res["pos_volatility"] = pos.get("volatility")
+
+            in_buy = (high_alert is not None and high_alert < 60
+                      and res["alert_hands"] > 0)
+            in_sell = (high_alert is not None)
+            res["in_buy"] = in_buy
+            res["in_sell"] = in_sell
+
+            if in_buy or in_sell:
+                reason = build_reason(code, "etf", alert_result=alert, include_analogy=True)
+                human = reason.get("human_text", {})
+                res["low_text"] = _summarize(human.get("low"))
+                res["high_text"] = _summarize(human.get("high"))
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001
+        res["error"] = f"{type(e).__name__}: {e}"
+        res["traceback"] = _tb.format_exc(limit=3)
+    return res
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="P1-新-C 阶段2 全市场 ETF 评分清单")
     parser.add_argument("--no-fetch", action="store_true",
@@ -323,98 +393,108 @@ def main() -> None:
     fetch_count = 0
     skip_count = 0
 
-    conn = get_conn()
-    try:
-        for i, (code, name, _mkt) in enumerate(universe, 1):
-            try:
-                t0 = time.time()
-                # 动态采集(自包含):DB 无近5日数据 -> fetch+upsert
-                if not args.no_fetch:
-                    if _has_recent_data(conn, code):
-                        skip_count += 1
-                    else:
-                        n = _fetch_and_upsert_ohlc(code, name, conn)
-                        if n > 0:
-                            fetch_count += 1
+    # ProcessPool 并行处理(akshare fund_etf_hist_sina 内部 py_mini_racer V8 isolate
+    # 非线程安全,B4 教训:ThreadPool 并发会崩 V8,必须 ProcessPool 进程隔离)。
+    # 每个子进程独立 get_conn()(WAL + busy_timeout=30000 兜底并发写串行化)。
+    # 小批量(<=20)走串行避免 ProcessPool 启动开销(验证/调试用)。
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from concurrent.futures.process import BrokenProcessPool
 
-                # 定期 checkpoint 防 WAL 膨胀损坏(阶段2 事故:跑 530 只时 WAL 损坏回滚
-                # 致 open/high/low 列丢失,后续 INSERT 报 no such column: open)
-                if i % 100 == 0:
+    _worker_args = [(code, name, _mkt, args.no_fetch) for code, name, _mkt in universe]
+    results: list[dict] = []
+    use_parallel = args.full_market or len(universe) > 20
+    if use_parallel and _worker_args:
+        n_workers = min(6, len(_worker_args))
+        print(f"  [parallel] ProcessPool {n_workers} workers, {len(universe)} ETFs", flush=True)
+        _t_par = time.time()
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers) as ex:
+                futures = {ex.submit(_process_one_etf_worker, a): a[0] for a in _worker_args}
+                done = 0
+                for fut in as_completed(futures):
                     try:
-                        conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
-                    except Exception:  # noqa: BLE001
-                        pass
+                        results.append(fut.result())
+                    except Exception as e:  # noqa: BLE001  单只失败不中断
+                        code = futures[fut]
+                        results.append({
+                            "code": code, "name": "", "error": f"{type(e).__name__}: {e}",
+                            "traceback": "", "high_alert": None, "low_alert": None,
+                            "date": "", "is_nt": False, "vol": None, "alert_hands": 0,
+                            "pos_volatility": None, "in_buy": False, "in_sell": False,
+                            "low_text": "", "high_text": "",
+                            "fetch_count": 0, "skip_count": 0,
+                        })
+                    done += 1
+                    if done % 100 == 0:
+                        print(f"  [parallel] {done}/{len(universe)} done", flush=True)
+        except (BrokenProcessPool, Exception) as e:  # noqa: BLE001
+            print(f"  [parallel] WARNING ProcessPool 异常({type(e).__name__}: {e}), "
+                  f"fallback 串行", flush=True)
+            results = [_process_one_etf_worker(a) for a in _worker_args]
+        print(f"  [parallel] 完成 {time.time()-_t_par:.1f}s ({len(results)} results)", flush=True)
+    else:
+        # 小批量(<=20):串行(验证用,避免 ProcessPool 启动开销)
+        results = [_process_one_etf_worker(a) for a in _worker_args]
 
-                alert = compute_alert_for_target(code, "etf")
-                high_alert = alert.get("high")
-                low_alert = alert.get("low")
-                date = alert.get("date") or ""
-                if date and not payload_date:
-                    payload_date = date
+    # 组装结果(主进程,不再访问 conn/alert)
+    for i, res in enumerate(results, 1):
+        code = res["code"]
+        name = res["name"]
+        if res["error"]:
+            errors.append({
+                "etf_code": code, "name": name,
+                "error": res["error"], "traceback": res["traceback"],
+            })
+            if len(errors) <= 5:
+                print(f"  [{i:4d}/{len(universe)}] {code} {name} FAILED: "
+                      f"{res['error']}", flush=True)
+            continue
 
-                # 阶段2 全市场太慢,先按阈值过滤,只对入围的算 reason_summary
-                # hands 由 compute_alert_for_target 内 _compute_hands_multi_dim 算(多维度综合)
-                # _compute_volatility 保留: 触发 OHLC 补采 + 输出 volatility 字段
-                is_nt = is_national_team(code)
-                vol = _compute_volatility(code, conn)
-                pos = alert.get("position") or {}
-                alert_hands = pos.get("hands", 0)
-                in_buy = (high_alert is not None and high_alert < 60
-                          and alert_hands > 0)
-                in_sell = (high_alert is not None)  # sell_list 按 high DESC 取 top N
+        fetch_count += res["fetch_count"]
+        skip_count += res["skip_count"]
 
-                human = {"high": "", "low": ""}
-                if in_buy or in_sell:
-                    reason = build_reason(code, "etf", alert_result=alert, include_analogy=True)
-                    human = reason.get("human_text", {})
-                low_text = _summarize(human.get("low"))
-                high_text = _summarize(human.get("high"))
+        date = res["date"]
+        if date and not payload_date:
+            payload_date = date
 
-                elapsed = time.time() - t0
-                if i % 50 == 0 or i <= 5 or in_buy:
-                    print(f"  [{i:4d}/{len(universe)}] {code} {name[:10]}: "
-                          f"high={high_alert} low={low_alert} ({elapsed:.1f}s)"
-                          f"{' [BUY]' if in_buy else ''}", flush=True)
+        high_alert = res["high_alert"]
+        low_alert = res["low_alert"]
+        is_nt = res["is_nt"]
+        vol = res["vol"]
+        alert_hands = res["alert_hands"]
 
-                if in_buy:
-                    # hands 从 alert.position 取(compute_alert_for_target 内 _compute_hands_multi_dim 算)
-                    # vol 优先用 alert.position.volatility(新公式算的),兜底用 _compute_volatility
-                    pos_vol = pos.get("volatility")
-                    out_vol = pos_vol if pos_vol is not None else (round(vol, 2) if vol is not None else None)
-                    buy_list.append({
-                        "etf_code": code,
-                        "name": name,
-                        "score": low_alert,
-                        "hands": alert_hands,
-                        "high_alert": high_alert,
-                        "low_alert": low_alert,
-                        "is_national_team": is_nt,
-                        "volatility": out_vol,
-                        "reason_summary": low_text,
-                    })
+        if i <= 5 or res["in_buy"]:
+            print(f"  [{i:4d}/{len(universe)}] {code} {name[:10]}: "
+                  f"high={high_alert} low={low_alert}"
+                  f"{' [BUY]' if res['in_buy'] else ''}", flush=True)
 
-                if in_sell:
-                    sell_list.append({
-                        "etf_code": code,
-                        "name": name,
-                        "score": high_alert,
-                        "high_alert": high_alert,
-                        "low_alert": low_alert,
-                        "sell_signal": _sell_signal_for_high(high_alert),
-                        "is_national_team": is_nt,
-                        "reason_summary": high_text,
-                    })
-            except Exception as e:  # noqa: BLE001
-                tb = traceback.format_exc(limit=3)
-                errors.append({
-                    "etf_code": code, "name": name,
-                    "error": f"{type(e).__name__}: {e}", "traceback": tb,
-                })
-                if len(errors) <= 5:
-                    print(f"  [{i:4d}/{len(universe)}] {code} {name} FAILED: "
-                          f"{type(e).__name__}: {e}", flush=True)
-    finally:
-        conn.close()
+        if res["in_buy"]:
+            # vol 优先用 alert.position.volatility(新公式算的),兜底用 _compute_volatility
+            pos_vol = res["pos_volatility"]
+            out_vol = pos_vol if pos_vol is not None else (round(vol, 2) if vol is not None else None)
+            buy_list.append({
+                "etf_code": code,
+                "name": name,
+                "score": low_alert,
+                "hands": alert_hands,
+                "high_alert": high_alert,
+                "low_alert": low_alert,
+                "is_national_team": is_nt,
+                "volatility": out_vol,
+                "reason_summary": res["low_text"],
+            })
+
+        if res["in_sell"]:
+            sell_list.append({
+                "etf_code": code,
+                "name": name,
+                "score": high_alert,
+                "high_alert": high_alert,
+                "low_alert": low_alert,
+                "sell_signal": _sell_signal_for_high(high_alert),
+                "is_national_team": is_nt,
+                "reason_summary": res["high_text"],
+            })
 
     # 排序 + 取 top N
     buy_list.sort(key=lambda x: (x.get("low_alert") or 0), reverse=True)
