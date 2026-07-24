@@ -19,7 +19,7 @@
     "source": "全市场 A股股票型 ETF (XXXX 只) - 阶段2 扩采集",
     "universe_count": XXXX,
     "buy_list": [
-      {etf_code, name, score, hands, high_alert, low_alert, is_national_team, reason_summary},
+      {etf_code, name, score, hands, high_alert, low_alert, is_national_team, volatility, reason_summary},
       ... (top N=20, 按 low_alert DESC)
     ],
     "sell_list": [
@@ -31,7 +31,8 @@
 
 排序与过滤口径(与阶段1 一致,仅容量扩到 top N):
 - buy_list: high_alert<60 (非过热) + low_alert>=50 (有机会), 按 low_alert DESC 排序, 取 top N=20
-  手数 3/2/1/0 映射: low_alert>=70 -> 3手 / 60-70 -> 2手 / 50-60 -> 1手 / <50 -> 0手不入清单
+  手数(方案3 混合:score 主导 + vol 调整): base = low_alert>=70 -> 3手 / 60-70 -> 2手 / 50-60 -> 1手 / <50 -> 0手不入清单;
+    volatility>5% 砍2档 / >4% 砍1档 / None 降级用 base。volatility = ATR(20)/close*100
   score = low_alert (机会分, 越高越适合买)
 - sell_list: 全部 ETF 按 high_alert DESC 排序, 取 top N=30
   sell_signal: high_alert>70 建议卖 / >60 观察 / 否则持有
@@ -175,17 +176,32 @@ def _summarize(text: str | None, max_len: int = 100) -> str:
     return text[:max_len] + "..."
 
 
-def _hands_for_low(low_alert: float | None) -> int:
-    """low_alert -> 建议手数: >=70 -> 3 / 60-70 -> 2 / 50-60 -> 1 / <50 -> 0"""
-    if low_alert is None:
+def _hands_for_score_vol(score: float | None, volatility: float | None) -> int:
+    """建议手数(方案3 混合:score 主导 + vol 调整)。
+    base = score 分级(老逻辑): >=70 -> 3 / 60-70 -> 2 / 50-60 -> 1 / <50 -> 0
+    vol 调整(只对高波动 ETF 降仓,不加分):
+      volatility>5.0 -> max(0, base-2)  极高波动砍2档
+      volatility>4.0 -> max(0, base-1)  高波动砍1档
+      volatility None -> base(数据不足降级用老逻辑)
+    volatility 单位:%(ATR/close*100)。
+    """
+    if score is None:
         return 0
-    if low_alert >= 70:
-        return 3
-    if low_alert >= 60:
-        return 2
-    if low_alert >= 50:
-        return 1
-    return 0
+    if score >= 70:
+        base = 3
+    elif score >= 60:
+        base = 2
+    elif score >= 50:
+        base = 1
+    else:
+        return 0
+    if volatility is None:
+        return base
+    if volatility > 5.0:
+        return max(0, base - 2)
+    if volatility > 4.0:
+        return max(0, base - 1)
+    return base
 
 
 def _sell_signal_for_high(high_alert: float | None) -> str:
@@ -216,13 +232,88 @@ def _fetch_and_upsert_ohlc(code: str, name: str, conn) -> int:
 
 
 def _has_recent_data(conn, code: str, days: int = 5) -> bool:
-    """检查 etf_daily 是否有近 days 日数据(有则跳过采集,节省时间)。"""
+    """检查 etf_daily 近 days 日 OHLC 是否完整(open/high/low/close 都非 NULL)。
+    只查 close 会漏 OHLC 缺失(9只国家队宽基历史 pipeline_daily 只拉近15日 OHLC 未回填),
+    改查 OHLC 四列全非空,不齐则上层会触发 fetch_etf_ohlc 补采。
+    """
     cutoff = (_dt.datetime.now() - _dt.timedelta(days=days * 2)).strftime("%Y%m%d")
     r = conn.execute(
-        "SELECT COUNT(*) FROM etf_daily WHERE etf_code=? AND date>=? AND close IS NOT NULL",
+        "SELECT COUNT(*) FROM etf_daily WHERE etf_code=? AND date>=? "
+        "AND close IS NOT NULL AND open IS NOT NULL "
+        "AND high IS NOT NULL AND low IS NOT NULL",
         (code, cutoff),
     ).fetchone()
     return r[0] > 0
+
+
+def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | None:
+    """计算 ETF 近期波动率(方案3 手数调整输入)。
+
+    查 etf_daily 近 lookback_days 日 OHLC,若完整行 < 20 则调
+    fetch_etf_ohlc(code, start=FETCH_DAYS日前) + _upsert_daily 补采(单只~0.3s),
+    再用 _atr(period=20, Wilder smoothing).iloc[-1] / close.iloc[-1] * 100 得波动率%。
+
+    返回 volatility%(float),数据不足/NaN/异常兜底返 None(上层降级用 base 老逻辑)。
+    """
+    import pandas as pd
+    from app.compute.signals import _atr
+
+    cutoff = (_dt.datetime.now() - _dt.timedelta(days=lookback_days * 2)).strftime("%Y%m%d")
+    rows = conn.execute(
+        "SELECT date, open, high, low, close FROM etf_daily "
+        "WHERE etf_code=? AND date>=? "
+        "AND open IS NOT NULL AND high IS NOT NULL "
+        "AND low IS NOT NULL AND close IS NOT NULL "
+        "ORDER BY date",
+        (code, cutoff),
+    ).fetchall()
+
+    # OHLC 完整行不足 20 -> 补采(9只国家队宽基历史 OHLC 缺失走此分支)
+    if len(rows) < 20:
+        start_yyyymmdd = (_dt.datetime.now() - _dt.timedelta(days=FETCH_DAYS)).strftime("%Y%m%d")
+        try:
+            new_rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd)
+            if new_rows:
+                # 查已有 etf_name 防覆盖空串(_upsert_daily 需要 etf_name 字段)
+                name_row = conn.execute(
+                    "SELECT etf_name FROM etf_daily WHERE etf_code=? "
+                    "AND etf_name IS NOT NULL AND etf_name != '' LIMIT 1",
+                    (code,),
+                ).fetchone()
+                etf_name = name_row[0] if name_row else code
+                for r in new_rows:
+                    r["etf_name"] = etf_name
+                _upsert_daily(conn, new_rows,
+                              ["etf_name", "open", "high", "low", "close", "amount"])
+                conn.commit()
+                # 重查补采后的数据
+                rows = conn.execute(
+                    "SELECT date, open, high, low, close FROM etf_daily "
+                    "WHERE etf_code=? AND date>=? "
+                    "AND open IS NOT NULL AND high IS NOT NULL "
+                    "AND low IS NOT NULL AND close IS NOT NULL "
+                    "ORDER BY date",
+                    (code, cutoff),
+                ).fetchall()
+        except Exception:  # noqa: BLE001
+            return None
+
+    if len(rows) < 20:
+        return None  # 补采后仍不足,数据不足降级
+
+    high = pd.Series([r["high"] for r in rows], dtype=float)
+    low = pd.Series([r["low"] for r in rows], dtype=float)
+    close = pd.Series([r["close"] for r in rows], dtype=float)
+
+    try:
+        atr_series = _atr(high, low, close, period=20)
+        atr_last = atr_series.iloc[-1]
+        close_last = close.iloc[-1]
+        if pd.isna(atr_last) or pd.isna(close_last) or close_last == 0:
+            return None
+        return float(atr_last / close_last * 100)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def main() -> None:
@@ -291,8 +382,9 @@ def main() -> None:
 
                 # 阶段2 全市场太慢,先按阈值过滤,只对入围的算 reason_summary
                 is_nt = is_national_team(code)
+                vol = _compute_volatility(code, conn)
                 in_buy = (high_alert is not None and high_alert < 60
-                          and _hands_for_low(low_alert) > 0)
+                          and _hands_for_score_vol(low_alert, vol) > 0)
                 in_sell = (high_alert is not None)  # sell_list 按 high DESC 取 top N
 
                 human = {"high": "", "low": ""}
@@ -309,7 +401,7 @@ def main() -> None:
                           f"{' [BUY]' if in_buy else ''}", flush=True)
 
                 if in_buy:
-                    hands = _hands_for_low(low_alert)
+                    hands = _hands_for_score_vol(low_alert, vol)
                     buy_list.append({
                         "etf_code": code,
                         "name": name,
@@ -318,6 +410,7 @@ def main() -> None:
                         "high_alert": high_alert,
                         "low_alert": low_alert,
                         "is_national_team": is_nt,
+                        "volatility": round(vol, 2) if vol is not None else None,
                         "reason_summary": low_text,
                     })
 
