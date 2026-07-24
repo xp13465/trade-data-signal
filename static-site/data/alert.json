@@ -1,114 +1,130 @@
 {
-  "date": "20260723",
-  "generated_at": "2026-07-23 19:06:35",
+  "date": "20260724",
+  "generated_at": "2026-07-24 18:24:34",
   "high": {
-    "score": 53.81,
+    "score": 38.51,
     "level": "中性",
     "triggered": false,
     "dims": [
       {
-        "k": "H1",
-        "name": "情绪过热",
-        "score": 82.26,
-        "weight": 0.26,
-        "contribution": 21.39,
-        "hit": true
-      },
-      {
         "k": "H4",
         "name": "位置偏高",
-        "score": 56.3,
+        "score": 48.07,
         "weight": 0.2,
-        "contribution": 11.26,
+        "contribution": 9.61,
+        "hit": false
+      },
+      {
+        "k": "H1",
+        "name": "情绪过热",
+        "score": 35.18,
+        "weight": 0.26,
+        "contribution": 9.15,
         "hit": false
       },
       {
         "k": "H6",
         "name": "均线转弱",
-        "score": 85.83,
+        "score": 85.42,
         "weight": 0.08,
-        "contribution": 6.87,
+        "contribution": 6.83,
         "hit": true
       },
       {
         "k": "H5",
         "name": "动量衰退",
-        "score": 65.0,
+        "score": 64.58,
         "weight": 0.08,
-        "contribution": 5.2,
+        "contribution": 5.17,
         "hit": true
       },
       {
         "k": "H7",
         "name": "汪汪队离场",
-        "score": 30.42,
+        "score": 30.83,
         "weight": 0.1,
-        "contribution": 3.04,
+        "contribution": 3.08,
         "hit": false
       },
       {
         "k": "H2",
         "name": "量价背离",
-        "score": 22.52,
+        "score": 19.23,
         "weight": 0.08,
-        "contribution": 1.8,
+        "contribution": 1.54,
         "hit": false
       },
       {
         "k": "H3",
         "name": "卖点密集",
-        "score": 3.75,
+        "score": 3.33,
         "weight": 0.13,
-        "contribution": 0.49,
+        "contribution": 0.43,
         "hit": false
       }
     ],
     "reason": "高位风险指标处于中性区间"
   },
   "low": {
-    "score": 69.7,
-    "level": "关注",
+    "score": 77.43,
+    "level": "机会",
     "triggered": false,
     "dims": [
       {
         "k": "L2",
         "name": "买点密集",
-        "score": 99.17,
-        "weight": 0.18,
-        "contribution": 17.85,
-        "hit": true
-      },
-      {
-        "k": "L4",
-        "name": "汪汪队入场",
         "score": 98.33,
-        "weight": 0.15,
-        "contribution": 14.75,
+        "weight": 0.18,
+        "contribution": 17.7,
         "hit": true
       },
       {
         "k": "L1",
         "name": "情绪冰点",
-        "score": 52.1,
+        "score": 74.41,
         "weight": 0.2,
-        "contribution": 10.42,
-        "hit": false
+        "contribution": 14.88,
+        "hit": true
+      },
+      {
+        "k": "L4",
+        "name": "汪汪队入场",
+        "score": 97.92,
+        "weight": 0.15,
+        "contribution": 14.69,
+        "hit": true
       },
       {
         "k": "L5",
         "name": "量能异动",
-        "score": 80.0,
+        "score": 94.17,
         "weight": 0.1,
-        "contribution": 8.0,
+        "contribution": 9.42,
         "hit": true
       },
       {
         "k": "L3",
         "name": "位置偏低",
-        "score": 43.7,
+        "score": 51.93,
         "weight": 0.15,
-        "contribution": 6.56,
+        "contribution": 7.79,
         "hit": false
+      },
+      {
+        "k": "L8",
+        "name": "价值显现",
+        "score": 66.67,
+        "weight": 0.07,
+        "contribution": 4.67,
+        "hit": true
+      },
+      {
+        "k": "L7",
+        "name": "波指飙升",
+        "score": 60.83,
+        "weight": 0.07,
+        "contribution": 4.26,
+        "hit": true
       },
       {
         "k": "L6",
@@ -117,17 +133,9 @@
         "weight": 0.08,
         "contribution": 4.03,
         "hit": false
-      },
-      {
-        "k": "L8",
-        "name": "价值显现",
-        "score": 45.83,
-        "weight": 0.07,
-        "contribution": 3.21,
-        "hit": false
       }
     ],
-    "reason": "市场偏冷(买点密集+汪汪队入场),部分指标进入低位区,关注企稳信号"
+    "reason": "❄️ 冰点信号密集(买点密集+情绪冰点),关注阶段性机会,留意布局"
   },
   "history": []
 }

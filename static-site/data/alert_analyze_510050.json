@@ -44,21 +44,21 @@
     },
     "position": {
       "hands": 3,
-      "volatility": 1.34,
-      "label": "重仓",
+      "volatility": 1.86,
+      "label": "3手",
       "detail": {
         "opp": 59.05,
         "ma60_ratio": 1.0191,
         "trend": 70.0,
         "macd_hist": 0.0079,
         "mom": 100.0,
-        "vol": 100.0,
-        "volatility": 1.34,
+        "vol": 85.0,
+        "volatility": 1.86,
         "amt_pct": 16.7,
         "liq": 40.0,
         "drawdown": -4.67,
         "draw": 20.0,
-        "score": 68.67
+        "score": 66.42
       }
     }
   },

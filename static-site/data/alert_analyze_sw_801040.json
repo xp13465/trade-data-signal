@@ -6,22 +6,22 @@
     "date": "20260724",
     "target_id": "sw_801040",
     "target_type": "index",
-    "high": 32.6,
-    "low": 67.58,
+    "high": 31.12,
+    "low": 69.06,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
-      "H1": 51.67,
-      "H2": 1.43,
+      "H1": 48.33,
+      "H2": 0.79,
       "H3": 38.33,
-      "H4": 3.57,
+      "H4": 1.98,
       "H5": 52.92,
       "H6": 44.79,
       "H7": null,
       "H8": null,
-      "L1": 48.33,
+      "L1": 51.67,
       "L2": 72.92,
-      "L3": 96.43,
+      "L3": 98.02,
       "L4": null,
       "L5": null,
       "L6": 49.58,
@@ -45,22 +45,22 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 3,
-      "volatility": 2.11,
-      "label": "重仓",
+      "hands": 2,
+      "volatility": 2.16,
+      "label": "2手",
       "detail": {
-        "opp": 67.58,
-        "ma60_ratio": 0.9029,
-        "trend": 20.0,
-        "macd_hist": 24.2012,
+        "opp": 69.06,
+        "ma60_ratio": 0.8968,
+        "trend": 0.0,
+        "macd_hist": 22.3476,
         "mom": 70.0,
         "vol": 85.0,
-        "volatility": 2.11,
+        "volatility": 2.16,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -32.74,
+        "drawdown": -33.2,
         "draw": 85.0,
-        "score": 61.9
+        "score": 58.42
       }
     }
   },
@@ -70,9 +70,9 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 51.67,
+          "score": 48.33,
           "weight": 0.26,
-          "contribution": 13.43,
+          "contribution": 12.57,
           "hit": false,
           "direction": "high"
         },
@@ -106,18 +106,18 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 3.57,
+          "score": 1.98,
           "weight": 0.2,
-          "contribution": 0.71,
+          "contribution": 0.4,
           "hit": false,
           "direction": "high"
         },
         {
           "k": "H2",
           "name": "量价背离",
-          "score": 1.43,
+          "score": 0.79,
           "weight": 0.08,
-          "contribution": 0.11,
+          "contribution": 0.06,
           "hit": false,
           "direction": "high"
         }
@@ -126,9 +126,9 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 96.43,
+          "score": 98.02,
           "weight": 0.15,
-          "contribution": 14.46,
+          "contribution": 14.7,
           "hit": true,
           "direction": "low"
         },
@@ -144,9 +144,9 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 48.33,
+          "score": 51.67,
           "weight": 0.2,
-          "contribution": 9.67,
+          "contribution": 10.33,
           "hit": false,
           "direction": "low"
         },
@@ -166,17 +166,17 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 51.67,
+          "value": 48.33,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
           "hit": false,
-          "status": "接近"
+          "status": "未命中"
         },
         {
           "k": "H2",
           "name": "量价背离",
-          "value": 1.43,
+          "value": 0.79,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
@@ -196,7 +196,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 3.57,
+          "value": 1.98,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -248,12 +248,12 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 48.33,
+          "value": 51.67,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
           "hit": false,
-          "status": "未命中"
+          "status": "接近"
         },
         {
           "k": "L2",
@@ -268,7 +268,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 96.43,
+          "value": 98.02,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",
