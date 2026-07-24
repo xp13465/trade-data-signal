@@ -2318,7 +2318,7 @@ function _marketScoreCardHTML(data, alert, humanText) {
   const posLabel = pos ? pos.label : "";
   const posVol = pos ? pos.volatility : null;
   const posBadge = pos
-    ? `<span class="position-badge position-${posHands}">建议仓位 ${posLabel}(${posHands}档)</span>` +
+    ? `<span class="position-badge position-${posHands}">建议仓位 ${posHands}手·${posLabel}</span>` +
       `<span class="volatility-text">波动率 ${posVol != null ? posVol.toFixed(2) : "-"}%</span>`
     : `<span class="position-badge position-0">建议仓位 数据不足</span>`;
   return `<div class="market-score-card" data-iid="${data.target_id || ""}">
@@ -8624,7 +8624,7 @@ async function renderEtfScore() {
     sell_signal: null,
   }));
   (r.sell_list || []).forEach((e) => {
-    // sell_list 按 sell_signal 拆 side:含"建议卖出/减仓/清仓"->sell,含"观察/持有"->hold
+    // sell_list 按 sell_signal 拆 side:含"减仓信号/减仓/清仓"->sell,含"观察/持有"->hold
     const sig = e.sell_signal || "";
     const side = /建议卖出|减仓|清仓/.test(sig) ? "sell" : "hold";
     all.push({

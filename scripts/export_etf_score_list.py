@@ -35,7 +35,7 @@
     volatility>5% 砍2档 / >4% 砍1档 / None 降级用 base。volatility = ATR(20)/close*100
   score = low_alert (机会分, 越高越适合买)
 - sell_list: 全部 ETF 按 high_alert DESC 排序, 取 top N=30
-  sell_signal: high_alert>70 建议卖 / >60 观察 / 否则持有
+  sell_signal: high_alert>70 减仓信号 / >60 观察 / 否则持有
   score = high_alert (过热分, 越高越适合卖)
 - reason_summary: build_reason human_text.low (buy) / human_text.high (sell) 前 100 字摘要
 - is_national_team: 从 ETF_LIST 12 国家队宽基清单判断(app.collector.etf_national_team.is_national_team)
@@ -177,11 +177,11 @@ def _summarize(text: str | None, max_len: int = 100) -> str:
 
 
 def _sell_signal_for_high(high_alert: float | None) -> str:
-    """high_alert -> 卖出建议: >70 建议卖 / >60 观察 / 否则持有"""
+    """high_alert -> 减仓信号: >70 减仓 / >60 观察 / 否则持有"""
     if high_alert is None:
         return "数据不足"
     if high_alert > 70:
-        return "建议卖出(过热)"
+        return "减仓信号(过热)"
     if high_alert > 60:
         return "观察(过热风险)"
     return "持有(未过热)"

@@ -629,8 +629,8 @@ def compute_target_dims(target_id: str, target_type: str = "index") -> pd.DataFr
     }).sort_index()
 
 
-# 仓位档位标签(0=观望/1=轻仓/2=半仓/3=重仓)
-_POSITION_LABELS = {0: "观望", 1: "轻仓", 2: "半仓", 3: "重仓"}
+# 仓位档位标签(0=观望/1=1手/2=2手/3=3手)
+_POSITION_LABELS = {0: "观望", 1: "1手", 2: "2手", 3: "3手"}
 
 
 def _position_tier_for_score_vol(score: float | None, volatility: float | None) -> int:
@@ -638,7 +638,7 @@ def _position_tier_for_score_vol(score: float | None, volatility: float | None) 
     保留供向后兼容,新调用用 _compute_hands_multi_dim(多维度综合,有加有砍)。
 
     base = score 分级(基于 alert.low 低位机会分):
-      >=70 -> 3(重仓) / 60-70 -> 2(半仓) / 50-60 -> 1(轻仓) / <50 -> 0(观望)
+      >=70 -> 3(3手) / 60-70 -> 2(2手) / 50-60 -> 1(1手) / <50 -> 0(观望)
     vol 调整(只对高波动降仓,不加分):
       volatility>5.0% -> max(0, base-2)  极高波动砍2档
       volatility>4.0% -> max(0, base-1)  高波动砍1档
@@ -681,7 +681,7 @@ def _compute_hands_multi_dim(
       流动性(成交额)   5% - 近 60 日分位高加
       回撤分(252日)   10% - 深回撤加(低位机会)
     映射:
-      >=60 -> 3(重仓) / >=50 -> 2(半仓) / >=40 -> 1(轻仓) / else 0(观望)
+      >=60 -> 3(3手) / >=50 -> 2(2手) / >=40 -> 1(1手) / else 0(观望)
 
     回测局限性说明:
       - 历史回测用 position 分位+RSI 代理 low_alert(真实 low_alert 历史未存)
@@ -909,7 +909,7 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
     # 终极公式 v5: 多维度综合 hands(机会+趋势+动量+波动+流动性+回撤)
     # 替代旧 _position_tier_for_score_vol(base 分级+vol 只砍不升)
     # 解决"buy_list 80% 都3手"问题: 有加有砍,真正区分买点质量
-    # label = {0观望/1轻仓/2半仓/3重仓}, detail 含各维度分供前端展示
+    # label = {0观望/1手/2手/3手}, detail 含各维度分供前端展示
     position = None
     try:
         close_t, _, ohlc_df = _load_target_close_amount(target_id, target_type)

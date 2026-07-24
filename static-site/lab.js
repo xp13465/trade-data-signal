@@ -6288,7 +6288,7 @@ async function renderAIScoreListLab() {
   const sellListRaw = Array.isArray(data.sell_list) ? data.sell_list : [];
   // 持有建议:sell_signal 含"持有"的(未过热,继续持有)
   const holdItems = sellListRaw.filter((it) => /持有/.test(it.sell_signal || ""));
-  // 卖清单:sell_signal 不含"持有"的(建议卖出+观察)
+  // 卖清单:sell_signal 不含"持有"的(减仓信号+观察)
   const sellListFiltered = sellListRaw.filter((it) => !/持有/.test(it.sell_signal || ""));
 
   // === 买清单渲染（按 score 降序,展示前12行）===
