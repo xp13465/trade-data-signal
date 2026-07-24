@@ -47,7 +47,21 @@
     "position": {
       "hands": 0,
       "volatility": 0.04,
-      "label": "观望"
+      "label": "观望",
+      "detail": {
+        "opp": 21.28,
+        "ma60_ratio": 1.0049,
+        "trend": 70.0,
+        "macd_hist": 0.0409,
+        "mom": 100.0,
+        "vol": 100.0,
+        "volatility": 0.04,
+        "amt_pct": 81.7,
+        "liq": 100.0,
+        "drawdown": 0.0,
+        "draw": 20.0,
+        "score": 58.45
+      }
     }
   },
   "reason": {

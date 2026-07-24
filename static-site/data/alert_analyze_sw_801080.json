@@ -3,25 +3,25 @@
   "target_type": "index",
   "target_name": "SW 电子",
   "alert": {
-    "date": "20260723",
+    "date": "20260724",
     "target_id": "sw_801080",
     "target_type": "index",
-    "high": 39.46,
-    "low": 72.74,
+    "high": 39.18,
+    "low": 72.81,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
       "H1": 3.33,
-      "H2": 31.59,
+      "H2": 31.27,
       "H3": 33.33,
-      "H4": 78.97,
-      "H5": 59.58,
-      "H6": 55.83,
+      "H4": 78.17,
+      "H5": 59.17,
+      "H6": 55.62,
       "H7": null,
       "H8": null,
       "L1": 96.67,
-      "L2": 99.17,
-      "L3": 21.03,
+      "L2": 98.75,
+      "L3": 21.83,
       "L4": null,
       "L5": null,
       "L6": 50.42,
@@ -46,8 +46,22 @@
     },
     "position": {
       "hands": 1,
-      "volatility": 6.38,
-      "label": "轻仓"
+      "volatility": 5.95,
+      "label": "轻仓",
+      "detail": {
+        "opp": 72.81,
+        "ma60_ratio": 0.8494,
+        "trend": 0.0,
+        "macd_hist": -593.2157,
+        "mom": 40.0,
+        "vol": 10.0,
+        "volatility": 5.95,
+        "amt_pct": null,
+        "liq": 50.0,
+        "drawdown": -31.92,
+        "draw": 85.0,
+        "score": 43.98
+      }
     }
   },
   "reason": {
@@ -56,27 +70,27 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 78.97,
+          "score": 78.17,
           "weight": 0.2,
-          "contribution": 15.79,
+          "contribution": 15.63,
           "hit": true,
           "direction": "high"
         },
         {
           "k": "H5",
           "name": "动量衰退",
-          "score": 59.58,
+          "score": 59.17,
           "weight": 0.08,
-          "contribution": 4.77,
+          "contribution": 4.73,
           "hit": false,
           "direction": "high"
         },
         {
           "k": "H6",
           "name": "均线转弱",
-          "score": 55.83,
+          "score": 55.62,
           "weight": 0.08,
-          "contribution": 4.47,
+          "contribution": 4.45,
           "hit": false,
           "direction": "high"
         },
@@ -92,9 +106,9 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "score": 31.59,
+          "score": 31.27,
           "weight": 0.08,
-          "contribution": 2.53,
+          "contribution": 2.5,
           "hit": false,
           "direction": "high"
         },
@@ -121,9 +135,9 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 99.17,
+          "score": 98.75,
           "weight": 0.18,
-          "contribution": 17.85,
+          "contribution": 17.77,
           "hit": true,
           "direction": "low"
         },
@@ -139,9 +153,9 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 21.03,
+          "score": 21.83,
           "weight": 0.15,
-          "contribution": 3.15,
+          "contribution": 3.27,
           "hit": false,
           "direction": "low"
         }
@@ -162,7 +176,7 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "value": 31.59,
+          "value": 31.27,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
@@ -182,7 +196,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 78.97,
+          "value": 78.17,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -192,7 +206,7 @@
         {
           "k": "H5",
           "name": "动量衰退",
-          "value": 59.58,
+          "value": 59.17,
           "threshold": 60,
           "unit": "分",
           "desc": "动量衰退(新高回落)",
@@ -202,7 +216,7 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 55.83,
+          "value": 55.62,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
@@ -244,7 +258,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 99.17,
+          "value": 98.75,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -254,7 +268,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 21.03,
+          "value": 21.83,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",

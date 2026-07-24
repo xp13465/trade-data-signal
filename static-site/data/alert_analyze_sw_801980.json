@@ -3,25 +3,25 @@
   "target_type": "index",
   "target_name": "SW 美容护理",
   "alert": {
-    "date": "20260723",
+    "date": "20260724",
     "target_id": "sw_801980",
     "target_type": "index",
-    "high": 45.26,
-    "low": 47.1,
+    "high": 33.72,
+    "low": 57.11,
     "high_level": "中性",
     "low_level": "中性",
     "dims": {
-      "H1": 72.5,
-      "H2": null,
+      "H1": 45.83,
+      "H2": 0.32,
       "H3": 50.42,
-      "H4": 5.95,
+      "H4": 0.79,
       "H5": 49.58,
-      "H6": 42.29,
+      "H6": 67.08,
       "H7": null,
       "H8": null,
-      "L1": 27.5,
+      "L1": 54.17,
       "L2": 31.25,
-      "L3": 94.05,
+      "L3": 99.21,
       "L4": null,
       "L5": null,
       "L6": 43.75,
@@ -32,10 +32,9 @@
       "target_id": "sw_801980",
       "target_type": "index",
       "min_dims": 4,
-      "available_high": 5,
+      "available_high": 6,
       "available_low": 4,
       "missing": [
-        "H2",
         "H7",
         "H8",
         "L4",
@@ -46,9 +45,23 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 0,
-      "volatility": 2.53,
-      "label": "观望"
+      "hands": 2,
+      "volatility": 2.28,
+      "label": "半仓",
+      "detail": {
+        "opp": 57.11,
+        "ma60_ratio": 0.9086,
+        "trend": 20.0,
+        "macd_hist": 13.3978,
+        "mom": 70.0,
+        "vol": 85.0,
+        "volatility": 2.28,
+        "amt_pct": null,
+        "liq": 50.0,
+        "drawdown": -37.37,
+        "draw": 85.0,
+        "score": 58.24
+      }
     }
   },
   "reason": {
@@ -57,10 +70,10 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 72.5,
+          "score": 45.83,
           "weight": 0.26,
-          "contribution": 18.85,
-          "hit": true,
+          "contribution": 11.92,
+          "hit": false,
           "direction": "high"
         },
         {
@@ -73,6 +86,15 @@
           "direction": "high"
         },
         {
+          "k": "H6",
+          "name": "均线转弱",
+          "score": 67.08,
+          "weight": 0.08,
+          "contribution": 5.37,
+          "hit": true,
+          "direction": "high"
+        },
+        {
           "k": "H5",
           "name": "动量衰退",
           "score": 49.58,
@@ -82,20 +104,20 @@
           "direction": "high"
         },
         {
-          "k": "H6",
-          "name": "均线转弱",
-          "score": 42.29,
-          "weight": 0.08,
-          "contribution": 3.38,
+          "k": "H4",
+          "name": "位置偏高",
+          "score": 0.79,
+          "weight": 0.2,
+          "contribution": 0.16,
           "hit": false,
           "direction": "high"
         },
         {
-          "k": "H4",
-          "name": "位置偏高",
-          "score": 5.95,
-          "weight": 0.2,
-          "contribution": 1.19,
+          "k": "H2",
+          "name": "量价背离",
+          "score": 0.32,
+          "weight": 0.08,
+          "contribution": 0.03,
           "hit": false,
           "direction": "high"
         }
@@ -104,10 +126,19 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 94.05,
+          "score": 99.21,
           "weight": 0.15,
-          "contribution": 14.11,
+          "contribution": 14.88,
           "hit": true,
+          "direction": "low"
+        },
+        {
+          "k": "L1",
+          "name": "情绪冰点",
+          "score": 54.17,
+          "weight": 0.2,
+          "contribution": 10.83,
+          "hit": false,
           "direction": "low"
         },
         {
@@ -116,15 +147,6 @@
           "score": 31.25,
           "weight": 0.18,
           "contribution": 5.62,
-          "hit": false,
-          "direction": "low"
-        },
-        {
-          "k": "L1",
-          "name": "情绪冰点",
-          "score": 27.5,
-          "weight": 0.2,
-          "contribution": 5.5,
           "hit": false,
           "direction": "low"
         },
@@ -144,22 +166,22 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 72.5,
+          "value": 45.83,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
-          "hit": true,
-          "status": "命中"
+          "hit": false,
+          "status": "未命中"
         },
         {
           "k": "H2",
           "name": "量价背离",
-          "value": null,
+          "value": 0.32,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
           "hit": false,
-          "status": "无数据"
+          "status": "未命中"
         },
         {
           "k": "H3",
@@ -174,7 +196,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 5.95,
+          "value": 0.79,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -194,12 +216,12 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 42.29,
+          "value": 67.08,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
-          "hit": false,
-          "status": "未命中"
+          "hit": true,
+          "status": "命中"
         },
         {
           "k": "H7",
@@ -226,12 +248,12 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 27.5,
+          "value": 54.17,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
           "hit": false,
-          "status": "未命中"
+          "status": "接近"
         },
         {
           "k": "L2",
@@ -246,7 +268,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 94.05,
+          "value": 99.21,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",
@@ -311,7 +333,7 @@
       "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
-      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热 有命中,整体加权后未达关注线",
+      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H6 均线转弱 有命中,整体加权后未达关注线",
       "low": "低位机会指标处于中性区间,暂无明显冰点信号,但 L3 位置偏低 有命中,整体加权后未达关注线"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",

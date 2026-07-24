@@ -3,25 +3,25 @@
   "target_type": "index",
   "target_name": "SW 银行",
   "alert": {
-    "date": "20260723",
+    "date": "20260724",
     "target_id": "sw_801780",
     "target_type": "index",
-    "high": 60.17,
-    "low": 35.44,
+    "high": 61.3,
+    "low": 34.53,
     "high_level": "关注",
     "low_level": "中性",
     "dims": {
-      "H1": 91.67,
+      "H1": 93.33,
       "H2": null,
       "H3": 50.42,
-      "H4": 34.52,
+      "H4": 36.51,
       "H5": 49.58,
-      "H6": 48.33,
+      "H6": 48.54,
       "H7": null,
       "H8": null,
-      "L1": 8.33,
-      "L2": 35.0,
-      "L3": 65.48,
+      "L1": 6.67,
+      "L2": 35.42,
+      "L3": 63.49,
       "L4": null,
       "L5": null,
       "L6": 47.92,
@@ -47,8 +47,22 @@
     },
     "position": {
       "hands": 0,
-      "volatility": 1.64,
-      "label": "观望"
+      "volatility": 1.41,
+      "label": "观望",
+      "detail": {
+        "opp": 34.53,
+        "ma60_ratio": 1.0215,
+        "trend": 70.0,
+        "macd_hist": 41.4301,
+        "mom": 70.0,
+        "vol": 100.0,
+        "volatility": 1.41,
+        "amt_pct": null,
+        "liq": 50.0,
+        "drawdown": -12.87,
+        "draw": 50.0,
+        "score": 59.09
+      }
     }
   },
   "reason": {
@@ -57,18 +71,18 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 91.67,
+          "score": 93.33,
           "weight": 0.26,
-          "contribution": 23.83,
+          "contribution": 24.27,
           "hit": true,
           "direction": "high"
         },
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 34.52,
+          "score": 36.51,
           "weight": 0.2,
-          "contribution": 6.9,
+          "contribution": 7.3,
           "hit": false,
           "direction": "high"
         },
@@ -93,9 +107,9 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "score": 48.33,
+          "score": 48.54,
           "weight": 0.08,
-          "contribution": 3.87,
+          "contribution": 3.88,
           "hit": false,
           "direction": "high"
         }
@@ -104,18 +118,18 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 65.48,
+          "score": 63.49,
           "weight": 0.15,
-          "contribution": 9.82,
+          "contribution": 9.52,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 35.0,
+          "score": 35.42,
           "weight": 0.18,
-          "contribution": 6.3,
+          "contribution": 6.38,
           "hit": false,
           "direction": "low"
         },
@@ -131,9 +145,9 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 8.33,
+          "score": 6.67,
           "weight": 0.2,
-          "contribution": 1.67,
+          "contribution": 1.33,
           "hit": false,
           "direction": "low"
         }
@@ -144,7 +158,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 91.67,
+          "value": 93.33,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -174,7 +188,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 34.52,
+          "value": 36.51,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -194,7 +208,7 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 48.33,
+          "value": 48.54,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
@@ -226,7 +240,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 8.33,
+          "value": 6.67,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -236,7 +250,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 35.0,
+          "value": 35.42,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -246,7 +260,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 65.48,
+          "value": 63.49,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",

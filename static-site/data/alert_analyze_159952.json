@@ -6,14 +6,14 @@
     "date": "20260723",
     "target_id": "159952",
     "target_type": "etf",
-    "high": 36.81,
+    "high": 37.31,
     "low": 69.21,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
       "H1": 6.67,
       "H2": 35.5,
-      "H3": 33.75,
+      "H3": null,
       "H4": 75.0,
       "H5": 58.33,
       "H6": 53.96,
@@ -32,9 +32,10 @@
       "target_id": "159952",
       "target_type": "etf",
       "min_dims": 4,
-      "available_high": 7,
+      "available_high": 6,
       "available_low": 6,
       "missing": [
+        "H3",
         "H8",
         "L7",
         "L8"
@@ -42,9 +43,23 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 1,
-      "volatility": 4.56,
-      "label": "轻仓"
+      "hands": 2,
+      "volatility": 3.41,
+      "label": "半仓",
+      "detail": {
+        "opp": 69.21,
+        "ma60_ratio": 0.9093,
+        "trend": 20.0,
+        "macd_hist": -0.0492,
+        "mom": 40.0,
+        "vol": 70.0,
+        "volatility": 3.41,
+        "amt_pct": 81.7,
+        "liq": 100.0,
+        "drawdown": -18.19,
+        "draw": 70.0,
+        "score": 56.72
+      }
     }
   },
   "reason": {
@@ -65,15 +80,6 @@
           "score": 58.33,
           "weight": 0.08,
           "contribution": 4.67,
-          "hit": false,
-          "direction": "high"
-        },
-        {
-          "k": "H3",
-          "name": "卖点密集",
-          "score": 33.75,
-          "weight": 0.13,
-          "contribution": 4.39,
           "hit": false,
           "direction": "high"
         },
@@ -196,12 +202,12 @@
         {
           "k": "H3",
           "name": "卖点密集",
-          "value": 33.75,
+          "value": null,
           "threshold": 60,
           "unit": "分",
           "desc": "卖点密集(近10日sell信号)",
           "hit": false,
-          "status": "未命中"
+          "status": "无数据"
         },
         {
           "k": "H4",

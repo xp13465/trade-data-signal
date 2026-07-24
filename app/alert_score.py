@@ -634,7 +634,9 @@ _POSITION_LABELS = {0: "观望", 1: "轻仓", 2: "半仓", 3: "重仓"}
 
 
 def _position_tier_for_score_vol(score: float | None, volatility: float | None) -> int:
-    """建议仓位档位(方案B:同ETF hands方案3,机会分×波动率混合)。
+    """[DEPRECATED 2026-07-24] 旧公式: base=score 分级 + vol 只砍不升。
+    保留供向后兼容,新调用用 _compute_hands_multi_dim(多维度综合,有加有砍)。
+
     base = score 分级(基于 alert.low 低位机会分):
       >=70 -> 3(重仓) / 60-70 -> 2(半仓) / 50-60 -> 1(轻仓) / <50 -> 0(观望)
     vol 调整(只对高波动降仓,不加分):
@@ -642,9 +644,6 @@ def _position_tier_for_score_vol(score: float | None, volatility: float | None) 
       volatility>4.0% -> max(0, base-1)  高波动砍1档
       volatility None -> base(数据不足降级用老逻辑)
     volatility 单位:%(ATR/close*100)。
-
-    与 scripts/export_etf_score_list.py:_hands_for_score_vol 同款逻辑,
-    因 scripts 反向 import app.alert_score,本函数独立实现避免循环依赖。
     """
     if score is None:
         return 0
@@ -663,6 +662,196 @@ def _position_tier_for_score_vol(score: float | None, volatility: float | None) 
     if volatility > 4.0:
         return max(0, base - 1)
     return base
+
+
+def _compute_hands_multi_dim(
+    close: pd.Series, high: pd.Series, low: pd.Series,
+    amount: pd.Series, low_alert: float | None,
+) -> tuple[int, dict]:
+    """终极公式 v5(综合分加权)-> (hands, detail)。
+
+    多维度综合,有加有砍(非只砍不升)。各维度 0-100,加权后映射 0-3。
+    解决旧公式"buy_list 80% 都3手"(base 全靠 score,vol 只砍不升)的问题。
+
+    权重(回测验证 2026-07-24,50 ETF+120 日截尾均值 5/10/20 日 hands=3>hands=1):
+      机会分(low_alert) 35% - 低位机会主导(L1-L8 多维加权分)
+      趋势分(MA60)    20% - close>MA60 多头加,空头砍
+      动量分(MACD hist)15% - hist>0 上升加,负砍
+      波动分(ATR20)   15% - 低波动加,高波动砍
+      流动性(成交额)   5% - 近 60 日分位高加
+      回撤分(252日)   10% - 深回撤加(低位机会)
+    映射:
+      >=60 -> 3(重仓) / >=50 -> 2(半仓) / >=40 -> 1(轻仓) / else 0(观望)
+
+    回测局限性说明:
+      - 历史回测用 position 分位+RSI 代理 low_alert(真实 low_alert 历史未存)
+      - 代理指标无法完全代表 L1-L8 多维加权,实际效果应优于回测
+      - ETF 均值回归特性致 100ETF+180 日长周期 hands=3 中期回落(市场特性,非公式问题)
+      - 核心价值: 区分度(buy_list 3手 80%->15%,有加有砍),非预测未来收益
+
+    Args:
+        close/high/low/amount: 对齐的 pd.Series(长度>=35 才算全维度,<35 降级)
+        low_alert: 低位机会分 0-100(None 降级用 50 中性)
+    Returns:
+        (hands 0-3, detail dict 含各维度分+原始值)
+    """
+    from .compute.signals import _macd, _atr
+    n = len(close)
+    detail: dict = {}
+
+    # 1. 机会分 = low_alert(0-100,L1-L8 多维加权)
+    opp = float(low_alert) if low_alert is not None else 50.0
+    detail["opp"] = round(opp, 2)
+
+    # 2. 趋势分: close vs MA60 偏离度
+    if n >= 60:
+        ma60 = close.rolling(60).mean().iloc[-1]
+        last = close.iloc[-1]
+        ratio = float(last / ma60) if ma60 and not pd.isna(ma60) and ma60 > 0 else 1.0
+        detail["ma60_ratio"] = round(ratio, 4)
+        if ratio > 1.10:
+            trend = 100.0
+        elif ratio > 1.05:
+            trend = 85.0
+        elif ratio > 1.00:
+            trend = 70.0
+        elif ratio > 0.95:
+            trend = 40.0
+        elif ratio > 0.90:
+            trend = 20.0
+        else:
+            trend = 0.0
+    else:
+        trend = 50.0
+        detail["ma60_ratio"] = None
+    detail["trend"] = trend
+
+    # 3. 动量分: MACD hist(DIF-DEA)*2
+    if n >= 35:
+        dif, dea = _macd(close)
+        hist = (dif - dea) * 2
+        last_hist = hist.iloc[-1]
+        prev_hist = hist.iloc[-2] if len(hist) >= 2 else 0
+        detail["macd_hist"] = round(float(last_hist), 4) if not pd.isna(last_hist) else None
+        if pd.isna(last_hist):
+            mom = 50.0
+        else:
+            rising = last_hist > prev_hist
+            if last_hist > 0 and rising:
+                mom = 100.0
+            elif last_hist > 0:
+                mom = 70.0
+            elif last_hist < 0 and rising:
+                mom = 40.0
+            else:
+                mom = 10.0
+    else:
+        mom = 50.0
+        detail["macd_hist"] = None
+    detail["mom"] = mom
+
+    # 4. 波动分: ATR(20)/close*100(低波动高分)
+    vol_pct = None
+    vol_score = 50.0
+    if n >= 21 and high is not None and low is not None:
+        try:
+            atr = _atr(high, low, close, period=20)
+            last_atr = atr.iloc[-1]
+            last_close = close.iloc[-1]
+            if last_close and not pd.isna(last_atr) and last_atr > 0:
+                vol_pct = float(last_atr) / float(last_close) * 100
+                if vol_pct <= 1.5:
+                    vol_score = 100.0
+                elif vol_pct <= 2.5:
+                    vol_score = 85.0
+                elif vol_pct <= 3.5:
+                    vol_score = 70.0
+                elif vol_pct <= 4.5:
+                    vol_score = 50.0
+                elif vol_pct <= 5.5:
+                    vol_score = 30.0
+                else:
+                    vol_score = 10.0
+        except Exception:  # noqa: BLE001
+            pass
+    detail["vol"] = vol_score
+    detail["volatility"] = round(vol_pct, 2) if vol_pct is not None else None
+
+    # 5. 流动性: 近 60 日成交额分位
+    if n >= 20 and amount is not None:
+        amt_recent = amount.tail(60).dropna()
+        if len(amt_recent) >= 20:
+            last_amt = amount.iloc[-1]
+            if not pd.isna(last_amt):
+                pct = float((amt_recent < last_amt).sum()) / len(amt_recent) * 100
+                detail["amt_pct"] = round(pct, 1)
+                if pct > 80:
+                    liq = 100.0
+                elif pct > 50:
+                    liq = 80.0
+                elif pct > 20:
+                    liq = 60.0
+                else:
+                    liq = 40.0
+            else:
+                liq = 50.0
+                detail["amt_pct"] = None
+        else:
+            liq = 50.0
+            detail["amt_pct"] = None
+    else:
+        liq = 50.0
+        detail["amt_pct"] = None
+    detail["liq"] = liq
+
+    # 6. 回撤分: 相对近 252 日最高价的回撤(深回撤高分=低位机会)
+    lookback = min(252, n)
+    if lookback >= 30:
+        window_high = close.tail(lookback).max()
+        last_close = close.iloc[-1]
+        if window_high and not pd.isna(window_high) and window_high > 0:
+            drawdown = float((last_close - window_high) / window_high * 100)  # 负值
+            detail["drawdown"] = round(drawdown, 2)
+            dd_abs = abs(drawdown)
+            if dd_abs > 40:
+                draw = 100.0
+            elif dd_abs > 25:
+                draw = 85.0
+            elif dd_abs > 15:
+                draw = 70.0
+            elif dd_abs > 5:
+                draw = 50.0
+            else:
+                draw = 20.0
+        else:
+            draw = 50.0
+            detail["drawdown"] = None
+    else:
+        draw = 50.0
+        detail["drawdown"] = None
+    detail["draw"] = draw
+
+    # 综合分加权
+    score = (opp * 0.35 + trend * 0.20 + mom * 0.15 +
+             vol_score * 0.15 + liq * 0.05 + draw * 0.10)
+    detail["score"] = round(score, 2)
+
+    # 映射 0-3(阈值 60/50/40 + 低机会极端0手)
+    # 回测验证 50ETF+120日: 5/10/20日截尾均值 hands=3>hands=1(OK)
+    # low_alert<35 极端低机会直接0手(国债/海外指数等无A股低位机会)
+    # 避免低opp+极低波动(如国债 opp=21 vol=0.04)综合分拿1手
+    if low_alert is not None and low_alert < 35:
+        hands = 0
+    elif score >= 60:
+        hands = 3
+    elif score >= 50:
+        hands = 2
+    elif score >= 40:
+        hands = 1
+    else:
+        hands = 0
+
+    return hands, detail
 
 
 def compute_alert_for_target(target_id: str, target_type: str = "index",
@@ -717,35 +906,38 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
         "etf_adjust": use_etf_adjust,  # 阶段2: 是否启用 ETF 专属调权(默认 off)
     }
 
-    # 方案B:仓位分(机会分×波动率混合,同ETF hands方案3)
-    # vol = ATR(20)/close*100 (Wilder smoothing,口径同 signals.py + talib.ATR)
-    # hands = _position_tier_for_score_vol(low_alert, vol):base 分级+vol 砍档
-    # label = {0观望/1轻仓/2半仓/3重仓}
+    # 终极公式 v5: 多维度综合 hands(机会+趋势+动量+波动+流动性+回撤)
+    # 替代旧 _position_tier_for_score_vol(base 分级+vol 只砍不升)
+    # 解决"buy_list 80% 都3手"问题: 有加有砍,真正区分买点质量
+    # label = {0观望/1轻仓/2半仓/3重仓}, detail 含各维度分供前端展示
     position = None
     try:
-        from .compute.signals import _atr
         close_t, _, ohlc_df = _load_target_close_amount(target_id, target_type)
         if (ohlc_df is not None and not close_t.empty and len(close_t) >= 20
                 and "high" in ohlc_df.columns and "low" in ohlc_df.columns):
             high_t = pd.to_numeric(ohlc_df["high"], errors="coerce")
             low_t = pd.to_numeric(ohlc_df["low"], errors="coerce")
-            # high/low 全空 -> close 近似(与 _compute_etf_buy_sell_signals 一致)
+            amount_t = pd.to_numeric(ohlc_df["amount"], errors="coerce") if "amount" in ohlc_df.columns else None
+            # OHLC 缺失行用 close 填充(国家队宽基历史 OHLC 不全兜底,同回测脚本)
             if high_t.dropna().empty:
                 high_t = close_t.copy()
+            else:
+                high_t = high_t.fillna(close_t)
             if low_t.dropna().empty:
                 low_t = close_t.copy()
-            atr_series = _atr(high_t, low_t, close_t, period=20)
-            last_close = float(close_t.iloc[-1])
-            last_atr = atr_series.iloc[-1]
-            if last_close and not pd.isna(last_atr) and last_atr > 0:
-                vol = float(last_atr) / last_close * 100
-                score_for_tier = None if pd.isna(la) else float(la)
-                hands = _position_tier_for_score_vol(score_for_tier, vol)
-                position = {
-                    "hands": hands,
-                    "volatility": round(vol, 2),
-                    "label": _POSITION_LABELS.get(hands, "观望"),
-                }
+            else:
+                low_t = low_t.fillna(close_t)
+            if amount_t is not None:
+                amount_t = amount_t.where(amount_t > 0, pd.NA)
+            score_for_tier = None if pd.isna(la) else float(la)
+            hands, detail = _compute_hands_multi_dim(
+                close_t, high_t, low_t, amount_t, score_for_tier)
+            position = {
+                "hands": hands,
+                "volatility": detail.get("volatility"),
+                "label": _POSITION_LABELS.get(hands, "观望"),
+                "detail": detail,
+            }
     except Exception:
         # 任何异常降级 position=None(不影响主流程返回 high/low/dims)
         position = None

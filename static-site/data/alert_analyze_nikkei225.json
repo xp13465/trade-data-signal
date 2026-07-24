@@ -45,9 +45,23 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 2,
+      "hands": 3,
       "volatility": 2.82,
-      "label": "半仓"
+      "label": "重仓",
+      "detail": {
+        "opp": 63.29,
+        "ma60_ratio": 1.0073,
+        "trend": 70.0,
+        "macd_hist": -918.53,
+        "mom": 40.0,
+        "vol": 70.0,
+        "volatility": 2.82,
+        "amt_pct": null,
+        "liq": 50.0,
+        "drawdown": -8.21,
+        "draw": 50.0,
+        "score": 60.15
+      }
     }
   },
   "reason": {

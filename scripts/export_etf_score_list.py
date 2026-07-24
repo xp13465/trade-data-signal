@@ -176,34 +176,6 @@ def _summarize(text: str | None, max_len: int = 100) -> str:
     return text[:max_len] + "..."
 
 
-def _hands_for_score_vol(score: float | None, volatility: float | None) -> int:
-    """建议手数(方案3 混合:score 主导 + vol 调整)。
-    base = score 分级(老逻辑): >=70 -> 3 / 60-70 -> 2 / 50-60 -> 1 / <50 -> 0
-    vol 调整(只对高波动 ETF 降仓,不加分):
-      volatility>5.0 -> max(0, base-2)  极高波动砍2档
-      volatility>4.0 -> max(0, base-1)  高波动砍1档
-      volatility None -> base(数据不足降级用老逻辑)
-    volatility 单位:%(ATR/close*100)。
-    """
-    if score is None:
-        return 0
-    if score >= 70:
-        base = 3
-    elif score >= 60:
-        base = 2
-    elif score >= 50:
-        base = 1
-    else:
-        return 0
-    if volatility is None:
-        return base
-    if volatility > 5.0:
-        return max(0, base - 2)
-    if volatility > 4.0:
-        return max(0, base - 1)
-    return base
-
-
 def _sell_signal_for_high(high_alert: float | None) -> str:
     """high_alert -> 卖出建议: >70 建议卖 / >60 观察 / 否则持有"""
     if high_alert is None:
@@ -381,10 +353,14 @@ def main() -> None:
                     payload_date = date
 
                 # 阶段2 全市场太慢,先按阈值过滤,只对入围的算 reason_summary
+                # hands 由 compute_alert_for_target 内 _compute_hands_multi_dim 算(多维度综合)
+                # _compute_volatility 保留: 触发 OHLC 补采 + 输出 volatility 字段
                 is_nt = is_national_team(code)
                 vol = _compute_volatility(code, conn)
+                pos = alert.get("position") or {}
+                alert_hands = pos.get("hands", 0)
                 in_buy = (high_alert is not None and high_alert < 60
-                          and _hands_for_score_vol(low_alert, vol) > 0)
+                          and alert_hands > 0)
                 in_sell = (high_alert is not None)  # sell_list 按 high DESC 取 top N
 
                 human = {"high": "", "low": ""}
@@ -401,16 +377,19 @@ def main() -> None:
                           f"{' [BUY]' if in_buy else ''}", flush=True)
 
                 if in_buy:
-                    hands = _hands_for_score_vol(low_alert, vol)
+                    # hands 从 alert.position 取(compute_alert_for_target 内 _compute_hands_multi_dim 算)
+                    # vol 优先用 alert.position.volatility(新公式算的),兜底用 _compute_volatility
+                    pos_vol = pos.get("volatility")
+                    out_vol = pos_vol if pos_vol is not None else (round(vol, 2) if vol is not None else None)
                     buy_list.append({
                         "etf_code": code,
                         "name": name,
                         "score": low_alert,
-                        "hands": hands,
+                        "hands": alert_hands,
                         "high_alert": high_alert,
                         "low_alert": low_alert,
                         "is_national_team": is_nt,
-                        "volatility": round(vol, 2) if vol is not None else None,
+                        "volatility": out_vol,
                         "reason_summary": low_text,
                     })
 

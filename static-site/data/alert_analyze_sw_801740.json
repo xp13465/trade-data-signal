@@ -3,24 +3,24 @@
   "target_type": "index",
   "target_name": "SW 国防军工",
   "alert": {
-    "date": "20260723",
+    "date": "20260724",
     "target_id": "sw_801740",
     "target_type": "index",
-    "high": 26.29,
-    "low": 86.62,
+    "high": 23.31,
+    "low": 87.04,
     "high_level": "中性",
     "low_level": "机会",
     "dims": {
-      "H1": 19.17,
-      "H2": null,
+      "H1": 17.5,
+      "H2": 0.79,
       "H3": 50.42,
       "H4": 1.98,
       "H5": 49.58,
       "H6": 47.71,
       "H7": null,
       "H8": null,
-      "L1": 80.83,
-      "L2": 100.0,
+      "L1": 82.5,
+      "L2": 99.58,
       "L3": 98.02,
       "L4": null,
       "L5": null,
@@ -32,10 +32,9 @@
       "target_id": "sw_801740",
       "target_type": "index",
       "min_dims": 4,
-      "available_high": 5,
+      "available_high": 6,
       "available_low": 4,
       "missing": [
-        "H2",
         "H7",
         "H8",
         "L4",
@@ -47,8 +46,22 @@
     },
     "position": {
       "hands": 2,
-      "volatility": 4.01,
-      "label": "半仓"
+      "volatility": 3.38,
+      "label": "半仓",
+      "detail": {
+        "opp": 87.04,
+        "ma60_ratio": 0.8474,
+        "trend": 0.0,
+        "macd_hist": -30.8542,
+        "mom": 40.0,
+        "vol": 70.0,
+        "volatility": 3.38,
+        "amt_pct": null,
+        "liq": 50.0,
+        "drawdown": -33.79,
+        "draw": 85.0,
+        "score": 57.96
+      }
     }
   },
   "reason": {
@@ -66,9 +79,9 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 19.17,
+          "score": 17.5,
           "weight": 0.26,
-          "contribution": 4.98,
+          "contribution": 4.55,
           "hit": false,
           "direction": "high"
         },
@@ -98,24 +111,33 @@
           "contribution": 0.4,
           "hit": false,
           "direction": "high"
+        },
+        {
+          "k": "H2",
+          "name": "量价背离",
+          "score": 0.79,
+          "weight": 0.08,
+          "contribution": 0.06,
+          "hit": false,
+          "direction": "high"
         }
       ],
       "low": [
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 100.0,
+          "score": 99.58,
           "weight": 0.18,
-          "contribution": 18.0,
+          "contribution": 17.92,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 80.83,
+          "score": 82.5,
           "weight": 0.2,
-          "contribution": 16.17,
+          "contribution": 16.5,
           "hit": true,
           "direction": "low"
         },
@@ -144,7 +166,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 19.17,
+          "value": 17.5,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -154,12 +176,12 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "value": null,
+          "value": 0.79,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
           "hit": false,
-          "status": "无数据"
+          "status": "未命中"
         },
         {
           "k": "H3",
@@ -226,7 +248,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 80.83,
+          "value": 82.5,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -236,7 +258,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 100.0,
+          "value": 99.58,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
