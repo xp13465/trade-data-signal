@@ -2,12 +2,12 @@
 
 > A股 / 港股 / 全球 盘后复盘 **市场温度看板** —— 把散落各处的情绪值、涨跌家数、连板高度、买卖点信号汇总到一处，攒成历史序列，辅助判断市场情绪拐点与买卖时机。
 
-**在线体验**：https://ss.fx8.store/（CF Workers 主站，wrangler.jsonc 绑定，push main 自动 deploy，支持 br 压缩 + `_headers` CSP/HSTS）
+**在线体验**：<https://ss.fx8.store/>（CF Workers 主站，wrangler.jsonc 绑定，push main 自动 deploy，支持 br 压缩 + `_headers` CSP/HSTS）
 
 **备用站点**：
-- https://sss.sugas.site/（GitHub Pages）
-- https://s.sugas.site/（MaoziYun，300MB 总大小限制）
-- https://ssd.fx8.store/（R2 CDN，大 JSON 产物）
+- <https://sss.sugas.site/>（GitHub Pages）
+- <https://s.sugas.site/>（MaoziYun，300MB 总大小限制）
+- <https://ssd.fx8.store/>（R2 CDN，大 JSON 产物）
 
 ⚠️ 旧域 `tdsignal-ujpzw01zm.maozi.io` / `s.aisusu.cn` 已撤 DNS 不可达。
 
