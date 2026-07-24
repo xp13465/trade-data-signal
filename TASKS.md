@@ -8,18 +8,27 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-24 15:31
+**最后更新**:2026-07-24 16:10(deploy 上线完成)
 
-**分支**:`feat/b4`(9 commit 链:`bee5e625` 方案B国债ETF仓位 ← `de7a1d2d` NOTES AZ10 ← `06055972` 国债波段 ← `cc9ad116` 落档 ← `3709982b` 前端 ← `85212f83` deploy.sh ← `109f4329` intraday ← `ee8a8edd` R2第一步 ← `62297300` R2第二步)
+**分支**:`feat/b4-holding-input` 已 merge 到 main(origin/main = `79b9de5a` data update [all] 16:05)
+- rebase 后 10 commit 链(新 hash):`c54cfbd4` compact恢复 ← `d0b4860f` 国债ETF仓位 ← `8b6b83f9` NOTES AZ10 ← `930c8eeb` R2第二步 ← `5c5196fc` R2第一步 ← `3a628e5c` intraday优化 ← `2e75ef2a` deploy精确add ← `9fcb2e59` trade_sim chip ← `cfbf4290` 落档AZ9 ← `efac8b7b` 国债波段策略
+- deploy commit:`79b9de5a` data update [all] 2026-07-24_16:05(126 files:国债band信号+建议仓位+R2大JSON+min JS ?v=721120f8)
+- rebase 冲突:27 个大range JSON modify/delete(62297300 删 vs origin/main intraday 改),全 `git rm` 解决(大range 已 R2 托管)
 
 **活跃 cron**:
-- `88df4ec6`(15:40 一次性,session-only):merge feat/b4 9commit + deploy.sh(export.py 跑 signals 生成国债 band 信号)+ 三站验证
 - `4260c097`(§11 兜底轮询,每10分钟 7,17,27,37,47,57,session-only)
 - `da35a696`(48h 监控,每小时13分,durable,至 2026-07-25 08:44 结束给汇总+CronDelete)
 
-**活跃 agent**:无(6项调研全收齐:提速/合规改名/C1/A6/仓位展示/国债tooltip)
+**活跃 agent**:无(deploy a68e9464 已完成,三站验证全通过)
 
-**正在等**:15:40 cron 触发 deploy
+**正在等**:用户验收 deploy 结果(国债 band 信号 + 建议仓位 + 三站新版)
+
+**三站验证结果**(任一新版即算上线,三站全过):
+- ss.fx8.store(CF 主站):app.min.js?v=721120f8 ✓ / alert_analyze_cgb_10y_etf.json HTTP200 position.label=重仓 hands=3 score=62.21 ✓
+- sss.sugas.site(GitHub Pages 备站):app.min.js?v=721120f8 ✓
+- s.sugas.site(MaoziYun 备站):app.min.js?v=721120f8 ✓
+- R2 ssd.fx8.store/index/cgb_10y_etf-all.json HTTP200:band 信号齐全(buy_special 接回233 / sell_stop_loss 止损47 / sell 波段减仓30%×1=20260722最新),非全 sell=0 ✓
+- ⚠️ task 原验 URL `signal_daily_cgb_10y_etf.json` 404(该文件不存在,signal_daily 是 DB 表非 JSON 文件,band 信号实际在 index/cgb_10y_etf-all.json 的 signals 数组,已从 R2 验证)
 
 **收盘后分批实施**:
 - 批次1 提速:Top2集群(B1+F2+L3+L-1+R1 零代码省100min/天)+ B4 C方案(E2去双throttle+并发采集+--full-market,35min->3.5min)
