@@ -6,22 +6,22 @@
     "date": "20260724",
     "target_id": "sw_801030",
     "target_type": "index",
-    "high": 22.72,
-    "low": 88.91,
+    "high": 22.94,
+    "low": 88.71,
     "high_level": "中性",
     "low_level": "机遇",
     "dims": {
       "H1": 5.0,
-      "H2": 4.6,
+      "H2": 4.92,
       "H3": 37.08,
-      "H4": 11.51,
+      "H4": 12.3,
       "H5": 52.5,
       "H6": 73.33,
       "H7": null,
       "H8": null,
       "L1": 95.0,
       "L2": 99.58,
-      "L3": 88.49,
+      "L3": 87.7,
       "L4": null,
       "L5": null,
       "L6": 50.42,
@@ -46,21 +46,21 @@
     },
     "position": {
       "hands": 2,
-      "volatility": 2.93,
-      "label": "2手",
+      "volatility": 2.9,
+      "label": "半仓",
       "detail": {
-        "opp": 88.91,
-        "ma60_ratio": 0.844,
+        "opp": 88.71,
+        "ma60_ratio": 0.8469,
         "trend": 0.0,
-        "macd_hist": -85.8916,
+        "macd_hist": -84.1926,
         "mom": 40.0,
         "vol": 70.0,
-        "volatility": 2.93,
+        "volatility": 2.9,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -25.08,
-        "draw": 85.0,
-        "score": 58.62
+        "drawdown": -24.83,
+        "draw": 70.0,
+        "score": 57.05
       }
     }
   },
@@ -97,9 +97,9 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 11.51,
+          "score": 12.3,
           "weight": 0.2,
-          "contribution": 2.3,
+          "contribution": 2.46,
           "hit": false,
           "direction": "high"
         },
@@ -115,9 +115,9 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "score": 4.6,
+          "score": 4.92,
           "weight": 0.08,
-          "contribution": 0.37,
+          "contribution": 0.39,
           "hit": false,
           "direction": "high"
         }
@@ -144,9 +144,9 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 88.49,
+          "score": 87.7,
           "weight": 0.15,
-          "contribution": 13.27,
+          "contribution": 13.15,
           "hit": true,
           "direction": "low"
         },
@@ -176,7 +176,7 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "value": 4.6,
+          "value": 4.92,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
@@ -196,7 +196,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 11.51,
+          "value": 12.3,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -268,7 +268,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 88.49,
+          "value": 87.7,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",

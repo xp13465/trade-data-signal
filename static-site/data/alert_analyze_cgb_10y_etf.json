@@ -6,14 +6,14 @@
     "date": "20260722",
     "target_id": "cgb_10y_etf",
     "target_type": "index",
-    "high": 54.98,
+    "high": 46.62,
     "low": 57.75,
     "high_level": "中性",
     "low_level": "中性",
     "dims": {
       "H1": 32.5,
       "H2": 74.34,
-      "H3": 100.0,
+      "H3": null,
       "H4": 49.6,
       "H5": 49.58,
       "H6": 54.38,
@@ -32,9 +32,10 @@
       "target_id": "cgb_10y_etf",
       "target_type": "index",
       "min_dims": 4,
-      "available_high": 6,
+      "available_high": 5,
       "available_low": 5,
       "missing": [
+        "H3",
         "H7",
         "H8",
         "L4",
@@ -46,7 +47,7 @@
     "position": {
       "hands": 3,
       "volatility": 0.11,
-      "label": "3手",
+      "label": "重仓",
       "detail": {
         "opp": 57.75,
         "ma60_ratio": 0.998,
@@ -66,15 +67,6 @@
   "reason": {
     "dim_hits": {
       "high": [
-        {
-          "k": "H3",
-          "name": "卖点密集",
-          "score": 100.0,
-          "weight": 0.13,
-          "contribution": 13.0,
-          "hit": true,
-          "direction": "high"
-        },
         {
           "k": "H4",
           "name": "位置偏高",
@@ -194,12 +186,12 @@
         {
           "k": "H3",
           "name": "卖点密集",
-          "value": 100.0,
+          "value": null,
           "threshold": 60,
           "unit": "分",
           "desc": "卖点密集(近10日sell信号)",
-          "hit": true,
-          "status": "命中"
+          "hit": false,
+          "status": "无数据"
         },
         {
           "k": "H4",
@@ -341,7 +333,7 @@
       "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
-      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H3 卖点密集/H2 量价背离 有命中,整体加权后未达关注线",
+      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H2 量价背离 有命中,整体加权后未达关注线",
       "low": "低位机会指标处于中性区间,暂无明显冰点信号,但 L1 情绪冰点/L5 量能异动 有命中,整体加权后未达关注线"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",

@@ -46,19 +46,19 @@
     },
     "position": {
       "hands": 1,
-      "volatility": 4.97,
-      "label": "1手",
+      "volatility": 4.96,
+      "label": "轻仓",
       "detail": {
         "opp": 59.51,
-        "ma60_ratio": 0.8587,
+        "ma60_ratio": 0.8595,
         "trend": 0.0,
-        "macd_hist": -237.3715,
+        "macd_hist": -236.5186,
         "mom": 40.0,
         "vol": 30.0,
-        "volatility": 4.97,
+        "volatility": 4.96,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -27.67,
+        "drawdown": -27.6,
         "draw": 85.0,
         "score": 42.33
       }

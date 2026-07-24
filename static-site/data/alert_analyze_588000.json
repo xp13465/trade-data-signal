@@ -6,14 +6,14 @@
     "date": "20260723",
     "target_id": "588000",
     "target_type": "etf",
-    "high": 53.51,
+    "high": 49.95,
     "low": 57.74,
     "high_level": "中性",
     "low_level": "中性",
     "dims": {
       "H1": 25.83,
       "H2": 35.56,
-      "H3": 75.42,
+      "H3": null,
       "H4": 88.89,
       "H5": 57.08,
       "H6": 53.33,
@@ -32,9 +32,10 @@
       "target_id": "588000",
       "target_type": "etf",
       "min_dims": 4,
-      "available_high": 7,
+      "available_high": 6,
       "available_low": 6,
       "missing": [
+        "H3",
         "H8",
         "L7",
         "L8"
@@ -42,22 +43,22 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 1,
-      "volatility": 6.39,
-      "label": "1手",
+      "hands": 2,
+      "volatility": 4.54,
+      "label": "半仓",
       "detail": {
         "opp": 57.74,
         "ma60_ratio": 0.9831,
         "trend": 40.0,
         "macd_hist": -0.0773,
         "mom": 40.0,
-        "vol": 10.0,
-        "volatility": 6.39,
+        "vol": 30.0,
+        "volatility": 4.54,
         "amt_pct": 86.7,
         "liq": 100.0,
         "drawdown": -19.45,
         "draw": 70.0,
-        "score": 47.71
+        "score": 50.71
       }
     }
   },
@@ -70,15 +71,6 @@
           "score": 88.89,
           "weight": 0.2,
           "contribution": 17.78,
-          "hit": true,
-          "direction": "high"
-        },
-        {
-          "k": "H3",
-          "name": "卖点密集",
-          "score": 75.42,
-          "weight": 0.13,
-          "contribution": 9.8,
           "hit": true,
           "direction": "high"
         },
@@ -210,12 +202,12 @@
         {
           "k": "H3",
           "name": "卖点密集",
-          "value": 75.42,
+          "value": null,
           "threshold": 60,
           "unit": "分",
           "desc": "卖点密集(近10日sell信号)",
-          "hit": true,
-          "status": "命中"
+          "hit": false,
+          "status": "无数据"
         },
         {
           "k": "H4",
@@ -357,7 +349,7 @@
       "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
-      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高/H3 卖点密集 有命中,整体加权后未达关注线",
+      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高 有命中,整体加权后未达关注线",
       "low": "低位机会指标处于中性区间,暂无明显冰点信号,但 L2 买点密集/L1 情绪冰点 有命中,整体加权后未达关注线"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",

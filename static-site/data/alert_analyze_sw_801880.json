@@ -47,12 +47,12 @@
     "position": {
       "hands": 2,
       "volatility": 2.46,
-      "label": "2手",
+      "label": "半仓",
       "detail": {
         "opp": 88.74,
-        "ma60_ratio": 0.8468,
+        "ma60_ratio": 0.8469,
         "trend": 0.0,
-        "macd_hist": -40.2219,
+        "macd_hist": -40.1429,
         "mom": 10.0,
         "vol": 85.0,
         "volatility": 2.46,

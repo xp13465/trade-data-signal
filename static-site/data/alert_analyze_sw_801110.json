@@ -6,12 +6,12 @@
     "date": "20260724",
     "target_id": "sw_801110",
     "target_type": "index",
-    "high": 24.19,
-    "low": 94.97,
+    "high": 23.93,
+    "low": 95.24,
     "high_level": "中性",
     "low_level": "机遇",
     "dims": {
-      "H1": 14.17,
+      "H1": 13.33,
       "H2": 0.16,
       "H3": 50.42,
       "H4": 0.4,
@@ -19,7 +19,7 @@
       "H6": 72.29,
       "H7": null,
       "H8": null,
-      "L1": 85.83,
+      "L1": 86.67,
       "L2": 99.58,
       "L3": 99.6,
       "L4": null,
@@ -46,21 +46,21 @@
     },
     "position": {
       "hands": 2,
-      "volatility": 1.77,
-      "label": "2手",
+      "volatility": 1.8,
+      "label": "半仓",
       "detail": {
-        "opp": 94.97,
-        "ma60_ratio": 0.8997,
+        "opp": 95.24,
+        "ma60_ratio": 0.8957,
         "trend": 0.0,
-        "macd_hist": -91.1904,
+        "macd_hist": -95.7792,
         "mom": 10.0,
         "vol": 85.0,
-        "volatility": 1.77,
+        "volatility": 1.8,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -17.64,
+        "drawdown": -18.02,
         "draw": 70.0,
-        "score": 56.99
+        "score": 57.09
       }
     }
   },
@@ -97,9 +97,9 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 14.17,
+          "score": 13.33,
           "weight": 0.26,
-          "contribution": 3.68,
+          "contribution": 3.47,
           "hit": false,
           "direction": "high"
         },
@@ -135,9 +135,9 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 85.83,
+          "score": 86.67,
           "weight": 0.2,
-          "contribution": 17.17,
+          "contribution": 17.33,
           "hit": true,
           "direction": "low"
         },
@@ -166,7 +166,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 14.17,
+          "value": 13.33,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -248,7 +248,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 85.83,
+          "value": 86.67,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",

@@ -47,7 +47,7 @@
     "position": {
       "hands": 2,
       "volatility": 1.18,
-      "label": "2手",
+      "label": "半仓",
       "detail": {
         "opp": 43.93,
         "ma60_ratio": 1.0108,

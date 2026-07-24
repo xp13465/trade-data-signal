@@ -6,12 +6,12 @@
     "date": "20260724",
     "target_id": "cyb",
     "target_type": "index",
-    "high": 50.58,
-    "low": 65.52,
+    "high": 51.86,
+    "low": 64.18,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
-      "H1": 23.53,
+      "H1": 27.62,
       "H2": 73.41,
       "H3": 33.75,
       "H4": 73.41,
@@ -19,7 +19,7 @@
       "H6": 78.96,
       "H7": null,
       "H8": null,
-      "L1": 76.47,
+      "L1": 72.38,
       "L2": 92.5,
       "L3": 26.59,
       "L4": null,
@@ -46,21 +46,21 @@
     },
     "position": {
       "hands": 1,
-      "volatility": 4.5,
-      "label": "1手",
+      "volatility": 4.45,
+      "label": "轻仓",
       "detail": {
-        "opp": 65.52,
-        "ma60_ratio": 0.885,
+        "opp": 64.18,
+        "ma60_ratio": 0.8928,
         "trend": 0.0,
-        "macd_hist": -76.6367,
+        "macd_hist": -72.6953,
         "mom": 40.0,
-        "vol": 30.0,
-        "volatility": 4.5,
+        "vol": 50.0,
+        "volatility": 4.45,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -20.38,
+        "drawdown": -19.68,
         "draw": 70.0,
-        "score": 42.93
+        "score": 45.46
       }
     }
   },
@@ -77,21 +77,21 @@
           "direction": "high"
         },
         {
+          "k": "H1",
+          "name": "情绪过热",
+          "score": 27.62,
+          "weight": 0.26,
+          "contribution": 7.18,
+          "hit": false,
+          "direction": "high"
+        },
+        {
           "k": "H6",
           "name": "均线转弱",
           "score": 78.96,
           "weight": 0.08,
           "contribution": 6.32,
           "hit": true,
-          "direction": "high"
-        },
-        {
-          "k": "H1",
-          "name": "情绪过热",
-          "score": 23.53,
-          "weight": 0.26,
-          "contribution": 6.12,
-          "hit": false,
           "direction": "high"
         },
         {
@@ -135,9 +135,9 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 76.47,
+          "score": 72.38,
           "weight": 0.2,
-          "contribution": 15.29,
+          "contribution": 14.48,
           "hit": true,
           "direction": "low"
         },
@@ -166,7 +166,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 23.53,
+          "value": 27.62,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -248,7 +248,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 76.47,
+          "value": 72.38,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",

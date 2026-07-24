@@ -7,7 +7,7 @@
     "target_id": "hstech",
     "target_type": "index",
     "high": 37.99,
-    "low": 56.89,
+    "low": 58.07,
     "high_level": "中性",
     "low_level": "中性",
     "dims": {
@@ -23,7 +23,7 @@
       "L2": 32.5,
       "L3": 94.84,
       "L4": null,
-      "L5": 89.17,
+      "L5": 97.5,
       "L6": 48.75,
       "L7": null,
       "L8": null
@@ -46,20 +46,20 @@
     "position": {
       "hands": 2,
       "volatility": 3.06,
-      "label": "2手",
+      "label": "半仓",
       "detail": {
-        "opp": 56.89,
-        "ma60_ratio": 0.9656,
+        "opp": 58.07,
+        "ma60_ratio": 0.9657,
         "trend": 40.0,
-        "macd_hist": 19.4908,
+        "macd_hist": 19.5189,
         "mom": 70.0,
         "vol": 70.0,
         "volatility": 3.06,
-        "amt_pct": 3.3,
+        "amt_pct": 1.7,
         "liq": 40.0,
         "drawdown": -31.01,
         "draw": 85.0,
-        "score": 59.41
+        "score": 59.82
       }
     }
   },
@@ -134,9 +134,9 @@
         {
           "k": "L5",
           "name": "量能异动",
-          "score": 89.17,
+          "score": 97.5,
           "weight": 0.1,
-          "contribution": 8.92,
+          "contribution": 9.75,
           "hit": true,
           "direction": "low"
         },
@@ -296,7 +296,7 @@
         {
           "k": "L5",
           "name": "量能异动",
-          "value": 89.17,
+          "value": 97.5,
           "threshold": 60,
           "unit": "分",
           "desc": "量能异动(地量分高)",

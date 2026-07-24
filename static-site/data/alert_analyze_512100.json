@@ -6,14 +6,14 @@
     "date": "20260723",
     "target_id": "512100",
     "target_type": "etf",
-    "high": 24.14,
+    "high": 22.51,
     "low": 84.69,
     "high_level": "中性",
     "low_level": "机会",
     "dims": {
       "H1": 5.83,
       "H2": 35.13,
-      "H3": 34.17,
+      "H3": null,
       "H4": 14.09,
       "H5": 52.08,
       "H6": 51.46,
@@ -32,9 +32,10 @@
       "target_id": "512100",
       "target_type": "etf",
       "min_dims": 4,
-      "available_high": 7,
+      "available_high": 6,
       "available_low": 6,
       "missing": [
+        "H3",
         "H8",
         "L7",
         "L8"
@@ -43,36 +44,27 @@
     },
     "position": {
       "hands": 2,
-      "volatility": 3.63,
-      "label": "2手",
+      "volatility": 2.65,
+      "label": "半仓",
       "detail": {
         "opp": 84.69,
         "ma60_ratio": 0.862,
         "trend": 0.0,
         "macd_hist": -0.0918,
         "mom": 40.0,
-        "vol": 50.0,
-        "volatility": 3.63,
+        "vol": 70.0,
+        "volatility": 2.65,
         "amt_pct": 40.0,
         "liq": 60.0,
         "drawdown": -19.01,
         "draw": 70.0,
-        "score": 53.14
+        "score": 56.14
       }
     }
   },
   "reason": {
     "dim_hits": {
       "high": [
-        {
-          "k": "H3",
-          "name": "卖点密集",
-          "score": 34.17,
-          "weight": 0.13,
-          "contribution": 4.44,
-          "hit": false,
-          "direction": "high"
-        },
         {
           "k": "H5",
           "name": "动量衰退",
@@ -210,12 +202,12 @@
         {
           "k": "H3",
           "name": "卖点密集",
-          "value": 34.17,
+          "value": null,
           "threshold": 60,
           "unit": "分",
           "desc": "卖点密集(近10日sell信号)",
           "hit": false,
-          "status": "未命中"
+          "status": "无数据"
         },
         {
           "k": "H4",

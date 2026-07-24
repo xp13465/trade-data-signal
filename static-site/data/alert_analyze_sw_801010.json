@@ -6,22 +6,22 @@
     "date": "20260724",
     "target_id": "sw_801010",
     "target_type": "index",
-    "high": 29.66,
-    "low": 61.1,
+    "high": 31.07,
+    "low": 59.63,
     "high_level": "中性",
-    "low_level": "关注",
+    "low_level": "中性",
     "dims": {
-      "H1": 39.17,
-      "H2": 0.79,
+      "H1": 43.33,
+      "H2": 0.95,
       "H3": 50.42,
-      "H4": 1.98,
+      "H4": 2.38,
       "H5": 49.58,
       "H6": 43.12,
       "H7": null,
       "H8": null,
-      "L1": 60.83,
+      "L1": 56.67,
       "L2": 38.33,
-      "L3": 98.02,
+      "L3": 97.62,
       "L4": null,
       "L5": null,
       "L6": 43.75,
@@ -46,21 +46,21 @@
     },
     "position": {
       "hands": 2,
-      "volatility": 2.34,
-      "label": "2手",
+      "volatility": 2.3,
+      "label": "半仓",
       "detail": {
-        "opp": 61.1,
-        "ma60_ratio": 0.9167,
+        "opp": 59.63,
+        "ma60_ratio": 0.9216,
         "trend": 20.0,
-        "macd_hist": -1.8333,
+        "macd_hist": -0.2602,
         "mom": 10.0,
         "vol": 85.0,
-        "volatility": 2.34,
+        "volatility": 2.3,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -28.67,
+        "drawdown": -28.28,
         "draw": 85.0,
-        "score": 50.63
+        "score": 50.12
       }
     }
   },
@@ -70,9 +70,9 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 39.17,
+          "score": 43.33,
           "weight": 0.26,
-          "contribution": 10.18,
+          "contribution": 11.27,
           "hit": false,
           "direction": "high"
         },
@@ -106,18 +106,18 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 1.98,
+          "score": 2.38,
           "weight": 0.2,
-          "contribution": 0.4,
+          "contribution": 0.48,
           "hit": false,
           "direction": "high"
         },
         {
           "k": "H2",
           "name": "量价背离",
-          "score": 0.79,
+          "score": 0.95,
           "weight": 0.08,
-          "contribution": 0.06,
+          "contribution": 0.08,
           "hit": false,
           "direction": "high"
         }
@@ -126,19 +126,19 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 98.02,
+          "score": 97.62,
           "weight": 0.15,
-          "contribution": 14.7,
+          "contribution": 14.64,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 60.83,
+          "score": 56.67,
           "weight": 0.2,
-          "contribution": 12.17,
-          "hit": true,
+          "contribution": 11.33,
+          "hit": false,
           "direction": "low"
         },
         {
@@ -166,7 +166,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 39.17,
+          "value": 43.33,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -176,7 +176,7 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "value": 0.79,
+          "value": 0.95,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
@@ -196,7 +196,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 1.98,
+          "value": 2.38,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -248,12 +248,12 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 60.83,
+          "value": 56.67,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
-          "hit": true,
-          "status": "命中"
+          "hit": false,
+          "status": "接近"
         },
         {
           "k": "L2",
@@ -268,7 +268,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 98.02,
+          "value": 97.62,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",
@@ -334,7 +334,7 @@
     },
     "human_text": {
       "high": "高位风险指标处于中性区间,暂无明显过热信号",
-      "low": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自位置偏低+情绪冰点"
+      "low": "低位机会指标处于中性区间,暂无明显冰点信号,但 L3 位置偏低 有命中,整体加权后未达关注线"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",
     "no_data_hint": null
