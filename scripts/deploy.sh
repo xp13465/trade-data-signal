@@ -165,11 +165,53 @@ run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || echo "⚠ upload-
 run_r2_upload "upload-index" upload-index || echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-industry" upload-industry || echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"
 
-# 2. git add 静态数据 + min JS（min 重新生成后若有变更一并提交）
-echo "→ git add static-site/data/ + min JS ..." | tee -a "$LOG"
-git -C "$GIT_REPO" add static-site/data/ \
-  static-site/app.min.js static-site/lab.min.js \
-  2>&1 | tee -a "$LOG"
+# 2. git add 静态数据 + min JS（精确文件列表，根治通配带入残留旧文件）
+# 2026-07-20 intraday 回退事故根因：原 `git add static-site/data/` 目录级通配会带入
+# 工作区任何残留文件（含 export.py 不再生成的废弃残留，如 etf_national_team-1m.json）。
+# 改为精确文件列表：只 add export.py + deploy.sh 生成/上线的 JSON（+ .gz 副本）+ min JS。
+# - export.py: overview, tab×6ranges, industry 拆分, 单文件, etf_national_team×6ranges(无1m)
+# - deploy.sh: gen_schedule_stats(schedule_stats), gen_rss(feed.xml), build_min(app/lab.min.js)
+# - update_all.sh/update_lab.sh 靠 deploy 上线: alert, etf_score_list, lab_*(4个)
+# - alert_analyze_*.json 动态(40宽基+行业，新增品种自动覆盖)，用前缀通配(只匹配 alert_analyze_ 前缀)
+# - 不含: etf_national_team-1m.json(废弃), index/industry-*-indices/lab/trade_sim/(.gitignore R2托管)
+echo "-> git add 精确文件列表（export.py + deploy.sh 生成 JSON + min JS）..." | tee -a "$LOG"
+DATA_FILES=()
+# tab × 6 ranges（a-stock/hk/global/sentiment；industry 单独处理）
+for _tab in a-stock hk global sentiment; do
+  for _rng in 3m 6m 1y 3y 5y all; do
+    DATA_FILES+=("static-site/data/${_tab}-${_rng}.json" "static-site/data/${_tab}-${_rng}.json.gz")
+  done
+done
+# global-extras-all（global-all 的轻量四件套）
+DATA_FILES+=("static-site/data/global-extras-all.json" "static-site/data/global-extras-all.json.gz")
+# industry: 3m/6m/1y 单文件 + all/5y/3y concepts/meta（all/5y/3y 主文件已拆 indices/ 子目录，.gitignore）
+for _rng in 3m 6m 1y; do
+  DATA_FILES+=("static-site/data/industry-${_rng}.json" "static-site/data/industry-${_rng}.json.gz")
+done
+for _rng in all 5y 3y; do
+  DATA_FILES+=("static-site/data/industry-${_rng}-concepts.json" "static-site/data/industry-${_rng}-concepts.json.gz")
+  DATA_FILES+=("static-site/data/industry-${_rng}-meta.json" "static-site/data/industry-${_rng}-meta.json.gz")
+done
+# etf_national_team × 6 ranges（不含 1m，已废弃）+ quarterly + holders
+for _rng in 3m 6m 1y 3y 5y all; do
+  DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
+done
+DATA_FILES+=("static-site/data/etf_national_team_quarterly.json" "static-site/data/etf_national_team_quarterly.json.gz")
+DATA_FILES+=("static-site/data/etf_national_team_holders.json" "static-site/data/etf_national_team_holders.json.gz")
+# 单文件（export.py 生成 + deploy/update_all/update_lab 生成）
+for _f in overview futures ad_line volume_ratio position \
+          summary summary_history signal_freq signal_stats \
+          rotation new_high_low ma_alignment intraday_snapshot \
+          schedule_stats alert etf_score_list \
+          lab_ablation lab_cost_compare lab_param_scan lab_short_symmetry; do
+  DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
+done
+# feed.xml（gen_rss.py 生成，非 .json）+ min JS
+DATA_FILES+=("static-site/data/feed.xml" "static-site/app.min.js" "static-site/lab.min.js")
+# 精确文件列表 git add（部分文件不存在时 git 报 fatal 但继续，不影响其余 add；deploy 无 set -e 不阻塞）
+git -C "$GIT_REPO" add "${DATA_FILES[@]}" 2>&1 | tee -a "$LOG" || true
+# alert_analyze_*.json 动态列表（40 宽基+行业，新增品种自动覆盖），前缀通配只匹配 alert_analyze_
+git -C "$GIT_REPO" add static-site/data/alert_analyze_*.json static-site/data/alert_analyze_*.json.gz 2>&1 | tee -a "$LOG" || true
 
 # 3. 检查有无变更（cached diff 非空才 commit；无变更跳过 commit 但仍 push）
 if git -C "$GIT_REPO" diff --cached --quiet; then
