@@ -22,9 +22,9 @@
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
     "est_text": "约15分钟",
-    "last_run": "2026-07-24 11:30",
+    "last_run": "2026-07-24 13:05",
     "last_exit": 0,
-    "last_duration_sec": 600
+    "last_duration_sec": 642
   },
   {
     "task": "futures_backfill",
