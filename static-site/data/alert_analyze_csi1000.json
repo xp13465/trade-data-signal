@@ -41,7 +41,13 @@
         "L5",
         "L7",
         "L8"
-      ]
+      ],
+      "etf_adjust": false
+    },
+    "position": {
+      "hands": 3,
+      "volatility": 3.56,
+      "label": "重仓"
     }
   },
   "reason": {
@@ -308,130 +314,13 @@
       ]
     },
     "history_analogy": {
-      "high": {
-        "cur_date": "20260723",
-        "top_n": 3,
-        "matches": [
-          {
-            "date": "20240102",
-            "jaccard": 1.0,
-            "cosine": 0.991,
-            "combined": 0.9955,
-            "hit_overlap": [
-              "L2",
-              "L3"
-            ],
-            "forward_returns": {
-              "ret_5d": -5.15,
-              "ret_10d": -5.38,
-              "ret_20d": -14.86
-            }
-          },
-          {
-            "date": "20240103",
-            "jaccard": 1.0,
-            "cosine": 0.9905,
-            "combined": 0.9953,
-            "hit_overlap": [
-              "L2",
-              "L3"
-            ],
-            "forward_returns": {
-              "ret_5d": -5.36,
-              "ret_10d": -7.47,
-              "ret_20d": -17.84
-            }
-          },
-          {
-            "date": "20230829",
-            "jaccard": 1.0,
-            "cosine": 0.9895,
-            "combined": 0.9947,
-            "hit_overlap": [
-              "L2",
-              "L3"
-            ],
-            "forward_returns": {
-              "ret_5d": 0.96,
-              "ret_10d": 1.24,
-              "ret_20d": -1.84
-            }
-          }
-        ],
-        "window_days": 756,
-        "stats": {
-          "avg_ret_5d": -3.18,
-          "avg_ret_10d": -3.87,
-          "avg_ret_20d": -11.51,
-          "n_up_10d": 1,
-          "n_down_10d": 2,
-          "n_total_10d": 3
-        }
-      },
-      "low": {
-        "cur_date": "20260723",
-        "top_n": 3,
-        "matches": [
-          {
-            "date": "20240102",
-            "jaccard": 1.0,
-            "cosine": 0.991,
-            "combined": 0.9955,
-            "hit_overlap": [
-              "L2",
-              "L3"
-            ],
-            "forward_returns": {
-              "ret_5d": -5.15,
-              "ret_10d": -5.38,
-              "ret_20d": -14.86
-            }
-          },
-          {
-            "date": "20240103",
-            "jaccard": 1.0,
-            "cosine": 0.9905,
-            "combined": 0.9953,
-            "hit_overlap": [
-              "L2",
-              "L3"
-            ],
-            "forward_returns": {
-              "ret_5d": -5.36,
-              "ret_10d": -7.47,
-              "ret_20d": -17.84
-            }
-          },
-          {
-            "date": "20230829",
-            "jaccard": 1.0,
-            "cosine": 0.9895,
-            "combined": 0.9947,
-            "hit_overlap": [
-              "L2",
-              "L3"
-            ],
-            "forward_returns": {
-              "ret_5d": 0.96,
-              "ret_10d": 1.24,
-              "ret_20d": -1.84
-            }
-          }
-        ],
-        "window_days": 756,
-        "stats": {
-          "avg_ret_5d": -3.18,
-          "avg_ret_10d": -3.87,
-          "avg_ret_20d": -11.51,
-          "n_up_10d": 1,
-          "n_down_10d": 2,
-          "n_total_10d": 3
-        }
-      }
+      "high": null,
+      "low": null,
+      "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
       "high": "高位风险指标处于中性区间,暂无明显过热信号",
-      "low": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自买点密集+位置偏低;历史3次相似特征后10日平均下跌3.87%(涨1次/跌2次),历史统计参考不代表未来必然走势"
+      "low": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自买点密集+位置偏低"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",
     "no_data_hint": null

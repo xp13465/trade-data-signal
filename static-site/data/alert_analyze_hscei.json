@@ -40,7 +40,13 @@
         "L4",
         "L7",
         "L8"
-      ]
+      ],
+      "etf_adjust": false
+    },
+    "position": {
+      "hands": 0,
+      "volatility": 2.09,
+      "label": "观望"
     }
   },
   "reason": {
@@ -316,138 +322,9 @@
       ]
     },
     "history_analogy": {
-      "high": {
-        "cur_date": "20260723",
-        "top_n": 3,
-        "matches": [
-          {
-            "date": "20240215",
-            "jaccard": 1.0,
-            "cosine": 0.9982,
-            "combined": 0.9991,
-            "hit_overlap": [
-              "H1",
-              "H2",
-              "L3",
-              "L5"
-            ],
-            "forward_returns": {
-              "ret_5d": 6.42,
-              "ret_10d": 4.93,
-              "ret_20d": 9.17
-            }
-          },
-          {
-            "date": "20240214",
-            "jaccard": 1.0,
-            "cosine": 0.9972,
-            "combined": 0.9986,
-            "hit_overlap": [
-              "H1",
-              "H2",
-              "L3",
-              "L5"
-            ],
-            "forward_returns": {
-              "ret_5d": 4.76,
-              "ret_10d": 5.61,
-              "ret_20d": 10.14
-            }
-          },
-          {
-            "date": "20260414",
-            "jaccard": 1.0,
-            "cosine": 0.9859,
-            "combined": 0.9929,
-            "hit_overlap": [
-              "H1",
-              "H2",
-              "L3",
-              "L5"
-            ],
-            "forward_returns": {
-              "ret_5d": 3.14,
-              "ret_10d": -0.31,
-              "ret_20d": 2.36
-            }
-          }
-        ],
-        "window_days": 756,
-        "stats": {
-          "avg_ret_5d": 4.77,
-          "avg_ret_10d": 3.41,
-          "avg_ret_20d": 7.22,
-          "n_up_10d": 2,
-          "n_down_10d": 1,
-          "n_total_10d": 3
-        }
-      },
-      "low": {
-        "cur_date": "20260723",
-        "top_n": 3,
-        "matches": [
-          {
-            "date": "20240215",
-            "jaccard": 1.0,
-            "cosine": 0.9982,
-            "combined": 0.9991,
-            "hit_overlap": [
-              "H1",
-              "H2",
-              "L3",
-              "L5"
-            ],
-            "forward_returns": {
-              "ret_5d": 6.42,
-              "ret_10d": 4.93,
-              "ret_20d": 9.17
-            }
-          },
-          {
-            "date": "20240214",
-            "jaccard": 1.0,
-            "cosine": 0.9972,
-            "combined": 0.9986,
-            "hit_overlap": [
-              "H1",
-              "H2",
-              "L3",
-              "L5"
-            ],
-            "forward_returns": {
-              "ret_5d": 4.76,
-              "ret_10d": 5.61,
-              "ret_20d": 10.14
-            }
-          },
-          {
-            "date": "20260414",
-            "jaccard": 1.0,
-            "cosine": 0.9859,
-            "combined": 0.9929,
-            "hit_overlap": [
-              "H1",
-              "H2",
-              "L3",
-              "L5"
-            ],
-            "forward_returns": {
-              "ret_5d": 3.14,
-              "ret_10d": -0.31,
-              "ret_20d": 2.36
-            }
-          }
-        ],
-        "window_days": 756,
-        "stats": {
-          "avg_ret_5d": 4.77,
-          "avg_ret_10d": 3.41,
-          "avg_ret_20d": 7.22,
-          "n_up_10d": 2,
-          "n_down_10d": 1,
-          "n_total_10d": 3
-        }
-      }
+      "high": null,
+      "low": null,
+      "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
       "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H1 情绪过热/H2 量价背离 有命中,整体加权后未达关注线",
