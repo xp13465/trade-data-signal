@@ -158,12 +158,13 @@ run_r2_upload() {
   return "$rc"
 }
 
-echo "-> 上传 lab/trade_sim/index/industry 到 R2 ..." | tee -a "$LOG"
+echo "-> 上传 lab/trade_sim/index/industry/data-large 到 R2 ..." | tee -a "$LOG"
 run_r2_upload "upload-lab" upload-lab || echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-trade-sim" upload-trade-sim || echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-index" upload-index || echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-industry" upload-industry || echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-data-large" upload-data-large || echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"
 
 # 2. git add 静态数据 + min JS（精确文件列表，根治通配带入残留旧文件）
 # 2026-07-20 intraday 回退事故根因：原 `git add static-site/data/` 目录级通配会带入
@@ -184,12 +185,9 @@ for _tab in a-stock hk global sentiment; do
 done
 # global-extras-all（global-all 的轻量四件套）
 DATA_FILES+=("static-site/data/global-extras-all.json" "static-site/data/global-extras-all.json.gz")
-# industry: 3m/6m/1y 单文件 + all/5y/3y concepts/meta（all/5y/3y 主文件已拆 indices/ 子目录，.gitignore）
-for _rng in 3m 6m 1y; do
-  DATA_FILES+=("static-site/data/industry-${_rng}.json" "static-site/data/industry-${_rng}.json.gz")
-done
+# industry: 仅 meta 留 git（3m/6m/1y 单文件 + all/5y/3y-concepts 已 R2 托管，.gitignore 移出减 ~24M）
+# industry-*-meta 是 4KB 小文件，留 git 作元数据参考；前端 meta 也从 R2 读但 git 带冗余可忽略
 for _rng in all 5y 3y; do
-  DATA_FILES+=("static-site/data/industry-${_rng}-concepts.json" "static-site/data/industry-${_rng}-concepts.json.gz")
   DATA_FILES+=("static-site/data/industry-${_rng}-meta.json" "static-site/data/industry-${_rng}-meta.json.gz")
 done
 # etf_national_team × 6 ranges（不含 1m，已废弃）+ quarterly + holders

@@ -8,6 +8,7 @@
   python3 scripts/upload_r2.py upload-trade-sim           # 上传 trade_sim_*.html -> trade_sim/
   python3 scripts/upload_r2.py upload-index               # 上传 data/index/*.json+.gz -> index/
   python3 scripts/upload_r2.py upload-industry            # 上传 data/industry-* -> industry/
+  python3 scripts/upload_r2.py upload-data-large          # 上传 data/ 顶层 >1MB .json+.gz -> data/
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
@@ -364,6 +365,56 @@ def cmd_upload_industry():
         sys.exit(1)
 
 
+def cmd_upload_data_large():
+    """上传 static-site/data/ 顶层 >1MB 的 .json + .gz 到 R2 data/ 前缀。
+
+    双源备份策略（2026-07-20 R2 优化根治 300MB）：
+    - 前端暂未全改 R2 URL 的（a-stock/hk/global/sentiment/etf_national_team 大 range）：
+      git 仍带（线上 ./data/ 读），R2 也有副本（前端改 URL 后可 .gitignore 移出 git）。
+    - industry-* 已走 upload-industry（industry/ 前缀），此处排除避免重复。
+    - index/industry-*-indices/lab/trade_sim 已各自独立命令，不在此上传。
+
+    阈值 1MB：小于此留 git 即可（小 JSON 上传 R2 收益小于增加的请求延迟）。
+    新增大文件自动覆盖（glob + 大小过滤，无需维护硬编码清单）。
+    """
+    data_dir = STATIC_DIR / "data"
+    LARGE_THRESHOLD = 1 * 1024 * 1024  # 1MB
+    # 排除已走独立 R2 前缀的（industry-/index/ 子目录/lab/ 子目录/trade_sim/ 子目录由各自命令处理）
+    exclude_prefixes = ("industry-",)
+    files = []
+    for f in sorted(data_dir.glob("*.json")):
+        if any(f.name.startswith(p) for p in exclude_prefixes):
+            continue
+        try:
+            sz = f.stat().st_size
+        except OSError:
+            continue
+        if sz >= LARGE_THRESHOLD:
+            files.append(f)
+            gz = f.with_suffix(".json.gz")
+            if gz.exists():
+                files.append(gz)
+    if not files:
+        print(f"⚠ 无 >{LARGE_THRESHOLD // 1024}KB 的顶层 .json: {data_dir}")
+        return
+    ok = 0
+    total = len(files)
+    for i, f in enumerate(files, 1):
+        key = f"data/{f.name}"
+        payload = f.read_bytes()
+        size = len(payload)
+        try:
+            status, data = s3_request("PUT", key, payload)
+            if status == 200:
+                ok += 1
+                print(f"[{i}/{total}] ✓ {f.name} ({size // 1024}KB)")
+            else:
+                print(f"[{i}/{total}] ✗ {f.name} status={status} {data[:200]}")
+        except Exception as e:
+            print(f"[{i}/{total}] ✗ {f.name} 异常({type(e).__name__}: {e})")
+    print(f"共上传 {ok}/{total} -> {PUBLIC}/data/")
+
+
 def _list_keys(prefix, bucket=None):
     """list bucket 下 prefix 的对象 key 列表（list-type=2）。"""
     import re
@@ -596,6 +647,8 @@ if __name__ == "__main__":
         cmd_upload_index()
     elif cmd == "upload-industry":
         cmd_upload_industry()
+    elif cmd == "upload-data-large":
+        cmd_upload_data_large()
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "download-db":
@@ -614,6 +667,6 @@ if __name__ == "__main__":
     else:
         sys.exit(
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
-            "upload-trade-sim-json|upload-index|upload-industry|upload-db|"
+            "upload-trade-sim-json|upload-index|upload-industry|upload-data-large|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup]"
         )

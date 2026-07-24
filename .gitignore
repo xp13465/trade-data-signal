@@ -86,3 +86,20 @@ static-site/data/index/
 static-site/data/industry-*-indices/
 static-site/trade_sim_*.html
 static-site/data/trade_sim/
+
+# R2 阶段4 顶层大 JSON 瘦身（2026-07-24）：industry 顶层大文件前端已从 R2 industry/ 读
+# （app.js _loadIndustryData L8212/8218 走 https://ssd.fx8.store/industry/），git 带是冗余。
+# industry-meta（4KB 小文件）留 git 作元数据参考；industry-3m/6m/1y + concepts 移出减 ~24M。
+# upload-industry 命令每日刷 R2 industry/ 前缀，前端 R2 为唯一来源。
+static-site/data/industry-3m.json
+static-site/data/industry-3m.json.gz
+static-site/data/industry-6m.json
+static-site/data/industry-6m.json.gz
+static-site/data/industry-1y.json
+static-site/data/industry-1y.json.gz
+static-site/data/industry-all-concepts.json
+static-site/data/industry-all-concepts.json.gz
+static-site/data/industry-5y-concepts.json
+static-site/data/industry-5y-concepts.json.gz
+static-site/data/industry-3y-concepts.json
+static-site/data/industry-3y-concepts.json.gz
