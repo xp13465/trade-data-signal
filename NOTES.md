@@ -2554,3 +2554,31 @@ trade_sim 标题下换行 3 chip（年化最高/最稳健/回撤最小）配套�
 - **README.md**:加"📊数据集说明(可复用)"章节(在线访问3域名/核心文件/采集时点/数据时效表)+License扩为代码MIT+数据CC BY 4.0,不破坏现有内容
 
 只git add docs/+README.md,无根data/。27 metric id+12 index id真实存在于a-stock-1y.json(非编造验收)
+
+### 小节AZ17：2026-07-25 05:13 etf 143 假告警循环彻底收尾闭环（afd9b5a8）
+
+AZ15 修复后 05:00 schedule_monitor 仍发 SEVERE `etf_national_team 退出失败 last_exit=143`,48h 监控 cron 触发发现未闭环。主控单点确认根因后派 agent a14029986d 彻底修。
+
+**根因（为何 143 没消除）**:
+1. **7/24 20:07 collector 撞 libmini_racer V8 `address_pool_manager.cc FATAL` 6 次（launchd.err SIGTRAP 133）,未写 `[etf_nt] daily 完成` DONE 行**。但 backfill.sh 没死,继续跑 deploy（20:12:37 开始）,最后 deploy rebase 失败 rc=1 撞 unstaged industry-3y（bba5ecaa 7/25 才修）
+2. **7/24 跑的旧版 backfill.sh 无 fallback DONE 行**（L65-67 是 6824a43c 7/25 03:54 才加的）,launchd.log 7/24 20:07 零 DONE 行
+3. **02:09 backfill_evening 调 gen_stats**,parse_etf_nt 无 DONE -> pending_start=20:07,age>3h -> 旧版启发式标 exit=143（假 SIGTERM,实际 SIGTRAP 133 + deploy rc=1）
+4. **schedule_monitor.sh L35 只读 schedule_stats.json 不重跑 gen_stats**,每 15min 读 trade-data/static-site/data/ 的 02:09 旧值（143）持续 SEVERE
+5. **6824a43c 正则修复只对未来有效**（7/24 旧 log 无 DONE 仍 143）;**01c0bdc9 24h stale 阈值**（9h<24h 仍 SEVERE）
+6. 关键澄清（验收铁律双向）:主控上轮 grep launchd.log tail -5 看到的 `完成 2032.0s` 实际是 **7/23 20:07**（line 1524）,7/24 20:07 无此行。agent 纠正主控看错日期
+
+**修复 commit afd9b5a8（push feat+main fast-forward,05:23:01）**:
+- **A. etf_national_team_backfill.sh L84-112**:加 `FINAL_RC` 综合退出码（collector 或 deploy 任一失败即非0）;补最终 DONE 行带真实 exit+duration（`完成 ${DUR}s exit=$FINAL_RC` / `失败 exit=$FINAL_RC`）;`exit "$FINAL_RC"`。**补全 6824a43c 只覆盖 collector 失败的缺陷**:collector 成功+deploy 失败 -> FINAL_RC=1 -> `完成 Ns exit=1`（覆盖 collector 完成行,gen_stats 取最后一个 DONE）
+- **B. gen_schedule_stats.py**:parse_etf_nt 同一 pending 内多个 DONE 行取最后一个（覆盖）;build() etf_nt 模式 pending_start **不启发式标 143**（code=None）,standard 模式保留 143
+- **C. schedule_monitor.sh L128-139**:heredoc 内读 STATS_FILE 前调 `gen_schedule_stats.py` 重生成（不读滞后旧值）,失败兜底 warn 读旧值
+- **D. 重跑 gen_stats + 上线**:etf last_exit 143->null
+
+**验收（主控逐字 6 项全 ✓）**:
+1. commit afd9b5a8 origin/feat+main 都含
+2. 本地 schedule_stats.json etf `last_exit=null`（非143非0）
+3. grep backfill.sh L99/L101/L112 DONE 行带 `exit=$FINAL_RC`
+4. grep schedule_monitor.sh L135 跑前调 gen_stats
+5. curl ss.fx8.store 线上 etf=null（已同步上线）
+6. 矛盾澄清:7/24 collector FATAL crash 没 DONE + backfill.sh 继续 deploy 失败 rc=1,None 是合理表示（历史无 DONE 无法还原真实 exit,但避免假143;未来 crash/deploy失败有 fallback DONE 带真实 exit 133/1）
+
+**止损效果**:schedule_monitor 下次跑（05:30）跑前调 gen_stats 重生成 + etf_nt 不标 143,持续 OK 不发假告警。7/24 历史 None 不再 SEVERE（null=进行中/无数据不算失败,schedule_monitor.sh L10 注释）。未来 collector crash 报真实 133,deploy 失败报真实 1,不再假 143。
