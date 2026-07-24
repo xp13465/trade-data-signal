@@ -6219,7 +6219,8 @@ async function renderAIScoreListLab() {
   queryHost.className = "lab-aiscore-section lab-aiscore-query";
   wrapper.appendChild(queryHost);
 
-  // 买清单 + 持有建议 + 卖清单 三列并排容器(grid 1fr 1fr 1fr, 窄屏降1列)
+  // 买清单 + 卖清单 + 持有建议 三列并排容器(grid 1fr 1fr 1fr, 窄屏降1列)
+  // 顺序:买清单 -> 卖清单 -> 持有建议(买卖清单优先看,持有建议靠后)
   const gridHost = document.createElement("div");
   gridHost.className = "lab-aiscore-grid";
 
@@ -6229,15 +6230,15 @@ async function renderAIScoreListLab() {
   buyHost.innerHTML = '<div class="lab-custom-loading">⏳ 加载买清单…</div>';
   gridHost.appendChild(buyHost);
 
-  // 持有建议 host（用户持有的ETF,从买/卖清单分离,单独成列）
-  const holdHost = document.createElement("div");
-  holdHost.className = "lab-aiscore-section lab-aiscore-hold";
-  gridHost.appendChild(holdHost);
-
   // 卖清单 host（非持仓 + side=sell）
   const sellHost = document.createElement("div");
   sellHost.className = "lab-aiscore-section lab-aiscore-sell";
   gridHost.appendChild(sellHost);
+
+  // 持有建议 host（用户持有的ETF,从买/卖清单分离,单独成列;放最后,买卖清单优先看）
+  const holdHost = document.createElement("div");
+  holdHost.className = "lab-aiscore-section lab-aiscore-hold";
+  gridHost.appendChild(holdHost);
 
   wrapper.appendChild(gridHost);
 
