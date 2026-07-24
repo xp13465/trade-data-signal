@@ -11,11 +11,11 @@
   {
     "task": "backfill_evening",
     "name": "指数补采兜底",
-    "schedule": "16:35 / 20:00 / 02:00",
+    "schedule": "16:35 / 02:00",
     "est_text": "约33分钟",
-    "last_run": "2026-07-24 16:35",
+    "last_run": "2026-07-25 02:00",
     "last_exit": 0,
-    "last_duration_sec": 3036
+    "last_duration_sec": 565
   },
   {
     "task": "intraday_snapshot",
@@ -47,7 +47,7 @@
   {
     "task": "rzhb_backfill",
     "name": "两融",
-    "schedule": "23:00",
+    "schedule": "19:15",
     "est_text": "约1秒",
     "last_run": "2026-07-24 23:00",
     "last_exit": 0,

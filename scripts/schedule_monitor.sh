@@ -126,6 +126,18 @@ for t in TASKS:
 #    exit=143 非0 -> 持续 SEVERE 告警邮件约192封。
 #    规则：last_run 距今 >24h 且 exit!=0 = 旧问题(任务超1天没跑)，等下次任务跑更新
 #    stats 自动清除，降级 log INFO 不重复 SEVERE；最近 24h 内 exit!=0 仍 SEVERE(新问题不漏报)。
+# 2026-07-25: 跑前刷新 schedule_stats.json(保证读最新,不读滞后旧值)。
+# 根因:schedule_monitor 每15min跑,但 schedule_stats.json 只在各任务脚本结尾刷新,
+# 若任务没跑(如周末),json 滞后旧值(如 etf 143 假告警),schedule_monitor 持续读旧值误告警。
+# 跑前调 gen_schedule_stats.py 重生成(读最新 launchd.log),保证读到当前真实状态。
+try:
+    subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "gen_schedule_stats.py")],
+        capture_output=True, text=True, timeout=60,
+    )
+except Exception as e:
+    print(f"[warn] gen_schedule_stats 刷新失败(读旧 schedule_stats.json): {e}", file=sys.stderr)
+
 STALE_EXIT_THRESHOLD = timedelta(hours=24)
 if STATS_FILE.exists():
     try:

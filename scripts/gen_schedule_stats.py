@@ -123,21 +123,35 @@ def parse_etf_nt(path: Path):
     返回 (pairs, pending_start)，pending_start=开始但未完成的进行中任务。
     2026-07-25: 兼容 "失败 exit=N" fallback 行(collector crash 时 shell 补写),
     解析真实 exit code 而非启发式 143。
+    2026-07-25: 同一 pending 内多个 DONE 行取最后一个(覆盖),支持 backfill.sh 在
+    collector 完成行后补写最终 DONE 行(带综合 exit code),让 gen_stats 记录真实
+    backfill.sh 退出码而非 collector 的 exit=0(collector 成功+deploy 失败场景)。
     """
-    pairs, pending = [], None
+    pairs, pending, last_done = [], None, None
     for line in _iter_lines(path):
         m = ETF_START_RE.search(line)
         if m:
+            # 上一个 pending 有 DONE -> 入 pairs(取最后一个 DONE,覆盖 collector 完成行)
+            if pending is not None and last_done is not None:
+                pairs.append((pending, pending, last_done[0], last_done[1]))
             pending = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+            last_done = None
             continue
         m = ETF_DONE_RE.search(line)
         if m and pending is not None:
             # group(1)=完成/失败, group(2)=duration(可选), group(3)=exit(可选,默认0)
+            # 不立即 append,记录最后一个 DONE(覆盖),让 backfill.sh 最终 DONE 行生效
             dur = float(m.group(2)) if m.group(2) else 0
             code = int(m.group(3)) if m.group(3) else 0
-            pairs.append((pending, pending, code, dur))  # end=start(无结束ts)
-            pending = None
-    return pairs, pending
+            last_done = (code, dur)
+    # 处理最后一个 pending
+    pending_start = None
+    if pending is not None:
+        if last_done is not None:
+            pairs.append((pending, pending, last_done[0], last_done[1]))
+        else:
+            pending_start = pending  # 无 DONE:进行中或被杀
+    return pairs, pending_start
 
 
 def est_text(pairs):
@@ -179,7 +193,14 @@ def build():
             if last_run is None or pending_start > pairs[-1][0]:
                 last_run = pending_start.strftime("%Y-%m-%d %H:%M")
                 age = (datetime.now() - pending_start).total_seconds()
-                code = 143 if age > MAX_GAP_SEC else None
+                # 2026-07-25: etf_nt 模式不启发式标 143(假 SIGTERM 告警代价大)。
+                # backfill.sh 保证写最终 DONE 行(带真实 exit),无 DONE = 极端(SIGKILL 整个脚本),
+                # code=None 不假告警,真问题靠漏跑检查/耗时检查/launchd err log。
+                # standard 模式保留 143(检测 launchd ExitTimeOut 超时被杀)。
+                if t["mode"] == "etf_nt":
+                    code = None
+                else:
+                    code = 143 if age > MAX_GAP_SEC else None
                 last_dur = None
         result.append({
             "task": t["task"], "name": t["name"], "schedule": t["schedule"],

@@ -84,6 +84,24 @@ echo "-> 持 deploy 锁推送（串行化 git，可能排队等 backfill/intrada
 DEPLOY_RC=${PIPESTATUS[0]}
 [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 
+# 2026-07-25 彻底修复 etf_national_team 143 假告警:
+# 综合退出码(collector 或 deploy 任一失败即非0) + 最终 DONE 行带真实 exit + duration。
+# gen_schedule_stats parse_etf_nt 取最后一个 DONE 行(覆盖 collector 完成行),
+# 此处最终 DONE 行让 gen_stats 记录真实 backfill.sh 综合退出码,而非 collector 的 exit=0。
+# 覆盖 6824a43c 只覆盖 collector 失败的缺陷: collector 成功+deploy 失败也能正确记录 exit=1。
+FINAL_RC=0
+[ "$COLLECT_RC" -ne 0 ] && FINAL_RC=$COLLECT_RC
+[ "$DEPLOY_RC" -ne 0 ] && FINAL_RC=$DEPLOY_RC
+if [ "$FINAL_RC" -ne 0 ]; then
+  # 抓 collector 的 duration(若有完成行),失败也带 duration 便于前端展示
+  DUR=$(grep -oE '\[etf_nt\] daily 完成 [0-9]+\.?[0-9]*s' "$LOG" | tail -1 | sed -E 's/.*完成 ([0-9.]+)s.*/\1/')
+  if [ -n "$DUR" ]; then
+    echo "[etf_nt] daily 完成 ${DUR}s exit=$FINAL_RC" | tee -a "$LOG"
+  else
+    echo "[etf_nt] daily 失败 exit=$FINAL_RC" | tee -a "$LOG"
+  fi
+fi
+
 echo "=== etf_national_team_backfill.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') deploy=$DEPLOY_RC ===" | tee -a "$LOG"
 
 # 刷新 schedule_stats.json（2026-07-24 方案A根治：从 deploy.sh:72 移到此处，在"结束"行后调用，
@@ -91,4 +109,4 @@ echo "=== etf_national_team_backfill.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') depl
 "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" \
   || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
 
-exit "$DEPLOY_RC"
+exit "$FINAL_RC"
