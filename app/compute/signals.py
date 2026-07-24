@@ -1368,8 +1368,11 @@ def compute():
 def store(signals) -> int:
     conn = get_conn()
     conn.execute("DELETE FROM signal_daily")  # 信号逻辑变更，清空重算
+    # INSERT OR REPLACE: 全历史 band 信号(接回->buy_aux)可能与标准 buy_aux(布林下轨回归)
+    # 同天同品种冲突(30个, cgb_idx 历史)。band 信号后 append, 覆盖标准 buy_aux
+    # (cgb 波段仓管是国债主要信号, 有 ratio 仓位比例)。其他品种无 band 无影响。
     conn.executemany(
-        "INSERT INTO signal_daily (date, index_id, signal, reason) VALUES (?,?,?,?)",
+        "INSERT OR REPLACE INTO signal_daily (date, index_id, signal, reason) VALUES (?,?,?,?)",
         signals,
     )
     conn.commit()
