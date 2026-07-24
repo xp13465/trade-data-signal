@@ -21,10 +21,10 @@
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
-    "est_text": "约18分钟",
-    "last_run": "2026-07-24 09:35",
+    "est_text": "约16分钟",
+    "last_run": "2026-07-24 10:35",
     "last_exit": 0,
-    "last_duration_sec": 607
+    "last_duration_sec": 636
   },
   {
     "task": "futures_backfill",
