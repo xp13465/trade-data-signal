@@ -468,12 +468,14 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - **风险**：① 噪音（30分钟一次漏分钟级，阈值保守±3%起+同日去重）② 数据频率（intraday_snapshot 30分钟非tick，"5分钟涨2%"实际"30分钟内涨2%"语义需对齐）③ 历史对比缺（intraday_snapshot表单行覆盖无分钟级历史，严格5分钟对比需新intraday_history表DB迁移）④ 误报（开盘9:35首次无上一份，用prev_trading_day收盘作基线）
 - **决策点**：检测版本（A简单版日涨跌幅阈值 / B完整版加DB表存历史 / C推荐混合版日级+30分钟对比不加DB）
 
-### P2-新-K 订阅个性化推送（推送方向6，~410行，完全空白分阶段）
+### P2-新-K 订阅个性化推送（推送方向6，~410行，完全空白分阶段）✅ **2026-07-24 已实施**（前端 commit `c703a584` + 后端 commit `3d29c05c`，详见 NOTES §48 小节AZ8）
 - **现状**：完全空白。scripts/ 和 app.js grep subscribe/订阅/favorite/收藏/watch_list 全空（仅gen_rss RSS阅读器非订阅）。check_signals 当前全量推送，用户收到一堆不关注的
 - **方案**：3层新建。① 存储config/subscribe.json（email+indices+signal_types，gitignore同email.json）② check_signals 加订阅过滤分支（默认去重模式按email分组，去重key改email+index_id+signal）③ 前端订阅UI（指数页加订阅按钮+管理页，app.js+250行+后端/app/main.py /api/subscribe +80行）
 - **风险**：① 隐私（subscribe.json含email需gitignore）② 单文件扩展性差未来转DB需迁移 ③ 去重+订阅交互（全局去重改按email分组）④ 前端改动量大（app.js已8971行）
 - **决策点**：① 存储（A推荐config/subscribe.json单用户够用 / B DB表多用户扩展）② 是否先做后端过滤再做前端UI（A推荐分阶段先JSON+过滤验证，UI后做）③ 订阅粒度（A推荐按指数订阅 / B按指数+信号类型避免过度复杂）
 - **订阅对象清单**：indicators.yaml 含 9 A股+3 港股+31 行业+27 概念+8 综合分=78个可选
+- **实际实施**：`config/subscriptions.json`（gitignore）+ `.example` 模板；前端指数卡片 h3 末尾 🔔 按钮 + 订阅管理 modal（邮箱/chat_id+标的+6类信号+已订阅列表脱敏+localStorage `sub_user_info` 免重复输入）；后端 `app/main.py` /api/subscribe（GET 脱敏列表/POST 创建更新/DELETE）+ `scripts/check_signals.py` `push_subscriptions`/`load_subscriptions`/`save_subs_notified`（独立去重 `subs_notified.json` 7天清理）+ `scripts/notify.py` `send_to`（email+chat_id）
+- ⚠️**线上限制**：ss.fx8.store 纯静态站（CF Workers 托管 static-site/）无 FastAPI 后端，线上 `/api/*` 全 404（含 /api/subscribe）。订阅管理 UI modal 线上弹得出但保存/列表/删除 API 调用失败。**订阅推送本身可用**（launchd 跑 check_signals 读本地 `config/subscriptions.json` 推送，不依赖线上 API）。线上管理订阅需手动编辑 `config/subscriptions.json`（从 `.example` 复制）
 
 ### 6方向排期建议
 - **改动量**：F(105行,数据受限) / G(85行,拼装) / H(240行,独特) / I(已实现,可选~40行) / J(250行新文件) / K(410行,空白)
@@ -535,4 +537,21 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 4. ✅ **A9 板块轮动信号**（commit `b4285988`）：**只做形态频次不做回测**（ind_flow 仅6-7月历史）。指标=最近20交易日 fund_flow.value 方向反转次数。分级：≥8🔥🔥/6-7🔥/≤5低频，样本<10不评级。31板块平均6.4次。展示：板块卡 spark-name 旁 rotTag + 热力图下 Top10 rotation-freq-card。新函数 `_calcRotationFreq`/`_rotationTag`/`_buildRotationFreqList`。对应 P2-新-F ✅
 5. ✅ **A5 真 pin 复盘**（commit `8091db40`）：现有"pin"是 echarts markPoint symbol 非用户钉住，从零实现。localStorage[`pinned_indices`] + 📌按钮（`_appendPinBtn`）+ pin 复盘卡片（`_pinReviewCardHtml`/`_renderPinReview`）四段（📈走势摘要 5/20/60日涨跌+60日波动率+高低点 / 🎯最近信号 / 📊10d 6类信号胜率盈亏比 / 📋专属规则 6类策略desc+per-index filter sh/非sh）+ 跨tab状态隔离 + self-cleanup（`_onPinChanged` 检查 isConnected）+ 数据缓存双轨（signalsCache + _pinDataCache）。对应 P2-新-B 2b ✅
 
-**未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余，前端分页/搜索/持仓输入已完成）/ A6 PWA(P2-新-C) / A14 echarts拆core / A12 订阅推送(P2-新-K) / A15 拆chunk / C1 industry瘦身 / C2 64M迁R2
+**未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余，前端分页/搜索/持仓输入已完成）/ A6 PWA(P2-新-C) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身（~~C2 64M迁R2~~ 2026-07-24 取消，`ls -lhS static-site/data/` 确认无 64M 文件，最大 industry-3y.json 9.2M，C2 基于错误前提）
+
+## ✅ 2026-07-24 工作闭环（futuresbackfill 漏跑排查 + A12 订阅推送 + etf 评分优化/配色 + ai 评分布局 + migration 实施 + C2 取消）
+
+> 7/24 全天 7 项闭环。详见 `NOTES.md §48 小节AZ8`。
+
+1. ✅ **futuresbackfill 漏跑排查**（commit `9116e97f`，承接 AZ7 rzhb 误报根治同一改动）：**无真漏跑**。futuresbackfill 7/23 20:05/21:00 两次 `exit=0 duration=24min/52min` 正常完成。schedule_monitor 报漏跑 = 整点竞态误报（21:00 futures/21:30 etf/23:00 rzhb 同因，监控和任务同整点 launchd 触发，读 log 时"开始"行未刷入）。修复已在 AZ7 落档（`schedule_monitor.sh` L109 `+60s buffer` + `rzhb_backfill.sh` trap refresh_stats EXIT）。**决策**：futures_backfill 不需加 trap（走 deploy.sh 间接刷 stats，与 rzhb 独立直跑不同）。7/24 00:00 后 alerts=0 无告警
+2. ✅ **C2 64M 迁 R2 取消**（无 commit）：`ls -lhS static-site/data/` 确认无 64M 文件，最大是 `industry-3y.json` 9.2M。C2"64M 迁 R2"基于错误前提（主控推荐时记错），取消。C2 agent session 被 A12 cron prompt 覆盖（报 A12 结果），但本就无需做
+3. ✅ **A12 订阅推送 - 前端**（commit `c703a584`）：指数卡片 h3 末尾 🔔 按钮 + 订阅管理 modal（填邮箱/chat_id + 选标的 + 选信号 6 类 + 已订阅列表脱敏），localStorage `sub_user_info` 免重复输入
+4. ✅ **A12 订阅推送 - 后端**（commit `3d29c05c`）：`config/subscriptions.json`（gitignore）+ `.example` 模板 + `app/main.py` /api/subscribe（GET 脱敏列表/POST 创建更新/DELETE）+ `scripts/check_signals.py` `push_subscriptions`/`load_subscriptions`/`save_subs_notified`（独立去重 `subs_notified.json` 7天清理）+ `scripts/notify.py` `send_to`（email+chat_id）。⚠️**线上限制**：ss.fx8.store 纯静态站无 FastAPI 后端，线上 `/api/*` 全 404。订阅推送本身可用（launchd 跑 check_signals 读本地 config 推送）。线上管理订阅需手动编辑 `config/subscriptions.json`。对应 P2-新-K ✅
+5. ✅ **etf 评分多列网格布局 + 配色**（commit `14ce6355`）：多列网格 `grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))`（移动端降 1 列）+ 配色 buy 暖红粉橙 `#fdecec`/`#c0392b` / sell 青蓝 `#e7f0f7`/`#2c6e8f` 避免纯绿纯红
+6. ✅ **etf 配色淡雅低饱和**（commit `177e1b0a`，覆盖 14ce6355 第一版配色）：AskUserQuestion 用户选"淡雅低饱和"。buy `#faf0f0`/`#a05050` / sell `#eef3f6`/`#5a7a8a`，`_etfScoreColor` 同步（buy 80+`#a05050`/60+`#c08080`，sell 80+`#5a7a8a`/60+`#8aaab8`），dark/redgold 主题变体同步。比 14ce6355 更柔和（粉橙->淡粉，青蓝->灰蓝）
+7. ✅ **ai 评分布局**（commit `0ef19bdc`）：`lab.js renderAIScoreListLab` 持仓自查前置 1 列 + 买清单/卖清单左右并排（`.lab-aiscore-grid` grid 1fr 1fr，`@media max-width:900px` 降 1 列）。lab URL：https://ss.fx8.store/#lab -> 策略实验 -> AI 评分
+8. ✅ **migration 实施**（commit `1f95ba2e`）：用户决策"etf 评分暂不迁移（首页保留），custom 下 2 个 3 级 tab [AI预警][AI评分]"。`lab.js` custom 2 级 tab 下加 3 级 tab，仿 `_SCAN_CHILDREN` 机制定义 `_CUSTOM_CHILDREN=["aiwarn","aiscore"]` + `_CUSTOM_CHILD_LABELS`。AI预警(aiwarn)= `renderCustomAnalyzeLab` 原 custom 内容打包；AI评分(aiscore)= `renderAIScoreListLab`（原 2 级 tab 降为 3 级子 tab，渲染函数零改动，`0ef19bdc` 布局保留）。`_LAB_SUB_TABS` 5->4 项（去 aiscore）。旧 `#lab?sub=custom` 兼容跳 aiwarn。etf 评分不迁移（首页底部导航 ETF评分 tab 保留）
+
+**未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余）/ A6 PWA(P2-新-C) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身（~~C2 64M迁R2~~ 取消）
+
+**教训**：glm-5.2 安全分类器时好时坏（A12 派发两次失败，cron 5 分钟后重试成功）；migration 调研 agent 卡死（jsonl mtime 27 分钟没动），基于进度文件方案 A + 用户确认直接派实施不重派调研；A12 cron 07:14 触发和 etf 优化 agent 撞 app.js（14ce6355 etf 优化 -> c703a584 A12 前端基于 etf 版叠加，两者共存）
