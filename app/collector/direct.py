@@ -1,7 +1,18 @@
 """直爬东财接口（akshare 部分函数被反爬封，这里用 em_get 防封层直连）。"""
+import datetime as _dt
+import json
+import re as _re
+
 import requests
 
 from .base import UA, em_get
+
+# HKEX 官方每日统计 JS 模板（C3：北向成交总额权威源）
+# 文件内容: tabData = [...] JSON 数组，含 SSE/SZSE Northbound/Southbound 4 条记录
+# 北向 schema=['Total Turnover','Total Trade Count','DQB','ETF Turnover']，只有成交总额
+# 单位百万 RMB，/100=亿元。保留窗口约 7 个月（实测 2025-12-29 起），周末/假日 404 跳过
+HKEX_DAILY_STAT_URL = "https://www.hkex.com.hk/eng/csm/DailyStat/data_tab_daily_{date}e.js"
+HKEX_DAILY_STAT_REFERER = "https://www.hkex.com.hk/Mutual-Market/Stock-Connect/Statistics/Historical-Daily"
 
 
 def fetch_market_fund_flow():
@@ -123,25 +134,98 @@ def fetch_market_fund_flow():
     return []  # 三源皆败，返回空（collect_direct 转 fail 记 error）
 
 
+def fetch_north_fund_hkex(days=90):
+    """HKEX 官方每日统计 JS：北向成交总额（沪股通+深股通 Total Turnover 合计），
+    返回 [(date_YYYYMMDD, value_亿元), ...]。
+
+    数据源: HKEX_DAILY_STAT_URL 模板，每天一个 JS 文件，tabData=[...] JSON 数组。
+    - SSE/SZSE Northbound 的 content[0].table.tr[0].td[0][0] = Total Turnover（百万 RMB）
+    - 沪深合计 / 100 = 亿元
+    - 对照：2026-07-24 SSE=136054.83 + SZSE=147782.45 = 283837.28 百万 = 2838.37 亿
+      与东财 kamt/get buySellAmt 一致（hk2sh+hk2sz=28383728.86 万=2838.37 亿）
+
+    保留窗口约 7 个月（实测 2025-12-29 起，更早 404）。周末/假日 404 跳过。
+    days=90 默认覆盖最近 ~3 个月交易日（约 60 天），足够增量更新。
+
+    C3 升级：从东财 kamt/get 切到 HKEX 官方权威源，减少东财依赖，反爬风险更低。
+    """
+    rows = []
+    today = _dt.date.today()
+    for i in range(days):
+        d = today - _dt.timedelta(days=i)
+        date_str = d.strftime("%Y%m%d")
+        url = HKEX_DAILY_STAT_URL.format(date=date_str)
+        try:
+            r = requests.get(
+                url,
+                headers={"User-Agent": UA, "Referer": HKEX_DAILY_STAT_REFERER},
+                timeout=15,
+            )
+            if r.status_code != 200:
+                continue  # 周末/假日/早期 404 跳过
+            m = _re.search(r"tabData\s*=\s*(\[.*\])\s*;?\s*$", r.text, _re.DOTALL)
+            if not m:
+                continue
+            try:
+                arr = json.loads(m.group(1))
+            except json.JSONDecodeError:
+                continue
+            # SSE Northbound + SZSE Northbound 合计
+            total = 0.0
+            found = 0
+            for rec in arr:
+                market = rec.get("market", "")
+                if "Northbound" not in market:
+                    continue
+                content = rec.get("content") or []
+                if not content:
+                    continue
+                table = content[0].get("table") or {}
+                trs = table.get("tr") or []
+                if not trs:
+                    continue
+                td = trs[0].get("td") or []
+                if not td or not td[0]:
+                    continue
+                # td[0] 是 ["136,054.83"] 列表（schema 第一列 Total Turnover）
+                val = td[0][0] if isinstance(td[0], list) else td[0]
+                val_str = str(val).replace(",", "").strip()
+                try:
+                    total += float(val_str)
+                    found += 1
+                except ValueError:
+                    continue
+            if found == 2:  # 沪+深都找到
+                rows.append((date_str, total / 100.0))  # 百万 -> 亿元
+        except Exception:
+            continue  # 单日失败不跳出，继续下一日
+    return rows
+
+
 def fetch_north_fund_total():
-    """北向资金成交总额（沪股通+深股通 buySellAmt 之和），返回 [(date_YYYYMMDD, value_亿元), ...]。
+    """北向资金成交总额（沪股通+深股通 Total Turnover 合计），返回 [(date_YYYYMMDD, value_亿元), ...]。
 
     背景：2024-08 港交所新规取消盘中实时净买额披露后，东财 RPT_MUTUAL_DEAL_HISTORY 的
     NET_DEAL_AMT（净买额）/BUY_AMT/SELL_AMT 全 null 停更，akshare stock_hsgt_hist_em 的
     「当日成交净买额」返 NaN（fetchers.py L141 跳 NaN 致 20240816 后不入库）。
     方案A 救急：改用同接口的 DEAL_AMT（成交总额=买+卖）替代。语义从「净流入方向」变
     「市场活跃度」，sentiment north direction 仍 positive（成交总额大=市场活跃）。
-    方案B（CCASS 反算真净买额）为后续单独大任务 TODO，本 fetcher 不实现。
+    方案B（CCASS 反算真净买额）实测不可行：2024-08 新规后北向持股改季度披露，
+    只能拿季度末快照，反算出来是季度净买额非日频。改用 C2 季度反算单独指标。
 
-    主源：datacenter-web.eastmoney.com RPT_MUTUAL_DEAL_HISTORY（MUTUAL_TYPE=005 北向合计），
-    返回 2014-11 至今 ~2716 日，3 页（pageSize=1000）。DEAL_AMT 原值单位百元，/100=亿元。
-    对照：2026-07-24 DEAL_AMT=283837.28 -> 2838.37 亿，与 push2 kamt/get 的
-    hk2sh.buySellAmt(13605483.14万)+hk2sz.buySellAmt(14778245.72万)=28383728.86万=2838.37亿 吻合。
-
-    fallback：datacenter 失败时用 push2 kamt/get 拿当日（只今天 1 天，无历史回填），
-    buySellAmt 单位万元，/10000=亿元。仅兜底，正常路径走主源拿全量历史。
+    主源（C3 升级）：HKEX 官方每日统计 JS（权威源，数据与东财一致，反爬风险低）
+    fallback 1：东财 datacenter RPT_MUTUAL_DEAL_HISTORY（全量历史 ~2716 日，HKEX 失败兜底）
+    fallback 2：东财 push2 kamt/get（当日，datacenter 也失败时最后兜底）
     """
-    # 主源：datacenter-web RPT_MUTUAL_DEAL_HISTORY（历史日K，全量 ~3 页）
+    # 主源：HKEX 官方 JS（最近 90 天增量）
+    try:
+        rows = fetch_north_fund_hkex(days=90)
+        if rows:
+            return rows
+    except Exception:
+        pass  # HKEX 封禁/网络异常 -> 走东财 fallback
+
+    # fallback 1：datacenter-web RPT_MUTUAL_DEAL_HISTORY（历史日K，全量 ~3 页）
     rows = []
     try:
         for page in range(1, 6):  # 最多 5 页兜底（实测 3 页）
@@ -181,7 +265,7 @@ def fetch_north_fund_total():
     except Exception:
         pass  # datacenter 封禁/网络异常 -> 走 fallback
 
-    # fallback：push2 kamt/get 拿当日（只今天 1 天，无历史）
+    # fallback 2：push2 kamt/get 拿当日（只今天 1 天，无历史）
     try:
         r = em_get(
             "https://push2.eastmoney.com/api/qt/kamt/get",
@@ -204,3 +288,13 @@ def fetch_north_fund_total():
     except Exception:
         pass
     return rows
+
+
+def fetch_north_fund_ccass_quarterly():
+    """CCASS 季度反算北向净买额（C2 指标），返回 [(quarter_end_YYYYMMDD, value_亿元), ...]。
+
+    包装 app.collector.hkex_ccass_quarterly.fetch_north_fund_ccass_quarterly。
+    详见 hkex_ccass_quarterly.py 模块文档。
+    """
+    from .hkex_ccass_quarterly import fetch_north_fund_ccass_quarterly as _fetch
+    return _fetch()

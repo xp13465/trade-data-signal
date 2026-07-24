@@ -32,10 +32,19 @@ metrics:
   - {id: a_width_seal_rate,     name: 封板率(zt/(zt+zb)),   group: a_width, type: simple, func: TODO, unit: "%", direction: positive, enabled: true}
 
   # ============ A股 · 资金面 ============
-  - {id: a_fund_north,   name: 北向资金成交总额(2024年8月净额停更后替代), group: a_fund, type: simple, func: direct:north_fund_total, unit: 亿元, direction: positive, enabled: true}
+  - {id: a_fund_north,   name: 北向资金成交总额(HKEX官方源), group: a_fund, type: simple, func: direct:north_fund_total, unit: 亿元, direction: positive, enabled: true}
   # 北向资金 2024-08 港交所新规取消盘中净买额披露，东财 NET_DEAL_AMT 全 null 停更。
   # 方案A 救急：改用 DEAL_AMT（成交总额=买+卖）替代，语义从「净流入方向」变「市场活跃度」。
-  # direction 仍 positive（成交总额大=市场活跃）。方案B（CCASS 反算真净买额）TODO 后续单独大任务。
+  # direction 仍 positive（成交总额大=市场活跃）。
+  # C3 升级：fetcher 主源切 HKEX 官方 csm/DailyStat JS（权威源+反爬风险低），
+  # fallback 1 东财 datacenter RPT_MUTUAL_DEAL_HISTORY（全量历史），fallback 2 东财 kamt/get（当日）。
+  # 方案B（CCASS 日频反算）实测不可行：2024-08 新规后北向持股改季度披露，只能拿季度末快照。
+  # C2 替代：新增 a_fund_north_quarterly 季度反算指标（下方）。
+  - {id: a_fund_north_quarterly, name: 北向资金季度净买额(CCASS反算), group: a_fund, type: simple, func: direct:north_fund_ccass_quarterly, unit: 亿元, direction: positive, enabled: true}
+  # C2：CCASS 季度末持股差 × Q_curr 收盘价 反算季度净买额。
+  # 数据源：www3.hkexnews.hk/sdw/search/mutualmarket.aspx?t=sh|sz（ASP.NET WebForm POST）
+  # 收盘价：stock_daily.db（mootdx/baostock）+ baostock 逐只补缺失。
+  # 季度任务，每季度末+20 天后 CCASS 发布数据才可反算。覆盖率<50% 或异常值（万亿级）跳过。
   - {id: a_fund_margin,  name: 两融余额(沪市融资), group: a_fund, type: simple, func: stock_margin_sse,       column: 融资余额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
   - {id: a_fund_main,    name: 主力净流入,     group: a_fund, type: simple, func: direct:market_fund_flow, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
 
