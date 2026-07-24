@@ -50,6 +50,52 @@ from .base import em_get, safe_call, throttle
 # fallback 段用此 Lock 串行化,保证 akshare sina 并发时 mootdx 不撞协议竞态
 _MOOTDX_LOCK = threading.Lock()
 
+# B4 修复(2026-07-24):ProcessPoolExecutor 进程级 tdx_client 缓存 + worker 函数
+# akshare fund_etf_hist_sina 内部 py_mini_racer.MiniRacer() V8 isolate 非线程安全,
+# ThreadPoolExecutor 并发触发 address_pool_manager.cc(67) Check failed 崩溃(退出码 133,0 只成功)。
+# 改 ProcessPoolExecutor:每进程独立 V8 isolate 进程隔离不撞;
+# mootdx client 不能跨进程传递(不可 pickle),每个 worker 进程懒创建并缓存到进程全局。
+_WORKER_TDX = None
+
+
+def _get_worker_tdx():
+    """ProcessPool worker 进程内懒创建 tdx_client(进程隔离,不跨进程传递)。
+    每个 worker 进程首次 fallback mootdx 时创建,后续复用避免重复选服务器。"""
+    global _WORKER_TDX
+    if _WORKER_TDX is None:
+        from .mootdx_daily import tdx_client
+        _WORKER_TDX = tdx_client(market="std")
+    return _WORKER_TDX
+
+
+def _fetch_one_ohlc_worker(args):
+    """ProcessPoolExecutor worker: 拉单只 ETF 近15日 OHLC(进程隔离 V8 isolate)。
+    args = (code, name, mkt, start_yyyymmdd)。返回 (code, name, rows)。"""
+    code, name, _mkt, start_yyyymmdd = args
+    try:
+        rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd, client=_get_worker_tdx())
+        return (code, name, rows)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+        return (code, name, [])
+
+
+def _fetch_one_backfill_worker(args):
+    """ProcessPoolExecutor worker: 拉单只 ETF 全历史 OHLC(进程隔离 V8 isolate)。
+    args = (code, name, mkt, start_yyyymmdd)。返回 (code, name, rows)。"""
+    code, name, _mkt, start_yyyymmdd = args
+    try:
+        rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd, client=_get_worker_tdx())
+        # ETF 简称:优先 universe fund_etf_fund_daily_em 简称;国家队清单 ETF 用易记名
+        if code in ETF_BY_CODE:
+            name = ETF_BY_CODE[code][0]
+        for r in rows:
+            r["etf_name"] = name
+        return (code, name, rows)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+        return (code, name, [])
+
 # ── 路径与常量 ──────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
 DB_PATH = _DATA_DIR / "etf_national_team.db"
@@ -930,31 +976,22 @@ def pipeline_daily() -> dict:
 
     # 1. sina/mootdx OHLC（阶段2: 遍历全市场 universe_etf_codes,每只ETF拉近15日覆盖近5日）
     #    阶段2 新增 open/high/low 字段,fetcher 返回的 OHLC 全量入库
-    #    B4 并发改造(2026-07-24):ThreadPoolExecutor max_workers=10 ETF 间并发采集,
-    #    fetch_etf_ohlc 内 akshare sina skip_throttle=True 可并发;
-    #    mootdx fallback 用 _MOOTDX_LOCK 串行(单连接不支持并发);
-    #    upsert 串行(SQLite conn 不支持并发写)
-    from .mootdx_daily import tdx_client
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    _tdx = tdx_client(market="std")  # fallback mootdx 复用 client 避免每只重新选服务器
+    #    B4 修复(2026-07-24):ThreadPoolExecutor -> ProcessPoolExecutor。
+    #    akshare fund_etf_hist_sina 内部 py_mini_racer.MiniRacer() V8 isolate 非线程安全,
+    #    ThreadPoolExecutor 并发触发 address_pool_manager.cc(67) 崩溃(退出码 133,0 只成功)。
+    #    ProcessPoolExecutor 每进程独立 V8 isolate 进程隔离不撞;
+    #    mootdx client 每进程懒创建(_get_worker_tdx);upsert 串行(SQLite conn 不支持并发写)。
+    from concurrent.futures import ProcessPoolExecutor, as_completed
     universe = universe_etf_codes(refresh=True)  # 每日刷新清单(新发ETF自动纳入)
     _ohlc_start = (dt.datetime.now() - dt.timedelta(days=15)).strftime("%Y%m%d")
 
-    def _fetch_one_ohlc(item):
-        code, name, _mkt = item
-        try:
-            rows = fetch_etf_ohlc(code, start_yyyymmdd=_ohlc_start, client=_tdx)
-            return (code, name, rows)
-        except Exception as e:  # noqa: BLE001
-            print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
-            return (code, name, [])
-
-    # 并发 fetch(网络IO密集,10线程)
-    print(f"  [etf_nt] 并发采集 {len(universe)} 只ETF(max_workers=10)...", flush=True)
+    # 并发 fetch(每进程独立 V8 isolate,8 进程=CPU 核数)
+    print(f"  [etf_nt] 并发采集 {len(universe)} 只ETF(ProcessPool max_workers=8)...", flush=True)
     _t_fetch = time.time()
+    _worker_args = [(code, name, _mkt, _ohlc_start) for code, name, _mkt in universe]
     results: list = []
-    with ThreadPoolExecutor(max_workers=10) as _ex:
-        futures = [_ex.submit(_fetch_one_ohlc, item) for item in universe]
+    with ProcessPoolExecutor(max_workers=8) as _ex:
+        futures = [_ex.submit(_fetch_one_ohlc_worker, a) for a in _worker_args]
         for fut in as_completed(futures):
             results.append(fut.result())
     print(f"  [etf_nt] 并发采集完成 {time.time()-_t_fetch:.1f}s", flush=True)
@@ -1113,32 +1150,17 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
     #    sina fund_etf_hist_sina 返全历史(不传 start/end),0.3s/只,~1371只 ≈ 7 分钟
     #    (universe 数量由 akshare 动态返回,随市场变动,2026-07-20 实测 1371 只)
     #    阶段2 新增 open/high/low 字段,fetcher 返回的 OHLC 全量入库
-    #    B4 并发改造(2026-07-24):ThreadPoolExecutor max_workers=10 ETF 间并发采集
+    #    B4 修复(2026-07-24):ThreadPoolExecutor -> ProcessPoolExecutor(V8 isolate 进程隔离)
     universe = universe_etf_codes(refresh=True)
-    print(f"[etf_nt] 1/4 OHLC（sina+mootdx, 全市场 {len(universe)} 只 ETF, 并发10）...", flush=True)
-    from .mootdx_daily import tdx_client
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    _tdx = tdx_client(market="std")
+    print(f"[etf_nt] 1/4 OHLC（sina+mootdx, 全市场 {len(universe)} 只 ETF, ProcessPool 并发8）...", flush=True)
+    from concurrent.futures import ProcessPoolExecutor, as_completed
 
-    def _fetch_one_backfill(item):
-        code, name, _mkt = item
-        try:
-            rows = fetch_etf_ohlc(code, start_yyyymmdd=start, client=_tdx)
-            # ETF 简称:优先 universe fund_etf_fund_daily_em 简称;国家队清单 ETF 用易记名
-            if code in ETF_BY_CODE:
-                name = ETF_BY_CODE[code][0]
-            for r in rows:
-                r["etf_name"] = name
-            return (code, name, rows)
-        except Exception as e:  # noqa: BLE001
-            print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
-            return (code, name, [])
-
-    # 并发 fetch(网络IO密集,10线程)
+    # 并发 fetch(每进程独立 V8 isolate,8 进程)
     _t_fetch = time.time()
+    _worker_args = [(code, name, _mkt, start) for code, name, _mkt in universe]
     results: list = []
-    with ThreadPoolExecutor(max_workers=10) as _ex:
-        futures = [_ex.submit(_fetch_one_backfill, item) for item in universe]
+    with ProcessPoolExecutor(max_workers=8) as _ex:
+        futures = [_ex.submit(_fetch_one_backfill_worker, a) for a in _worker_args]
         for fut in as_completed(futures):
             results.append(fut.result())
     print(f"  [etf_nt] 并发采集完成 {time.time()-_t_fetch:.1f}s", flush=True)
