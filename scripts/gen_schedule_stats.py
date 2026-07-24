@@ -34,7 +34,7 @@ TASKS = [
     {"task": "update_all", "name": "收盘全量", "script": "update_all.sh",
      "schedule": "17:50", "log": "update_all_launchd.log", "mode": "standard"},
     {"task": "backfill_evening", "name": "指数补采兜底", "script": r"backfill_(indices|metrics)\.sh",
-     "schedule": "16:35 / 20:00 / 02:00", "log": "backfill_evening_launchd.log", "mode": "standard"},
+     "schedule": "16:35 / 02:00", "log": "backfill_evening_launchd.log", "mode": "standard"},
     {"task": "intraday_snapshot", "name": "盘中快照", "script": "intraday_snapshot.sh",
      "schedule": "盘中 09:35-15:35", "log": "intraday_snapshot_launchd.log", "mode": "standard"},
     {"task": "futures_backfill", "name": "期货机构持仓", "script": "futures_backfill.sh",
@@ -42,7 +42,7 @@ TASKS = [
     {"task": "lhb_backfill", "name": "龙虎榜", "script": "lhb_backfill.sh",
      "schedule": "18:30 + 19:30(兜底)", "log": "lhb_backfill_launchd.log", "mode": "standard"},
     {"task": "rzhb_backfill", "name": "两融", "script": "rzhb_backfill.sh",
-     "schedule": "23:00", "log": "rzhb_backfill_launchd.log", "mode": "standard"},
+     "schedule": "19:15", "log": "rzhb_backfill_launchd.log", "mode": "standard"},
     {"task": "etf_national_team", "name": "ETF国家队", "script": "etf_nt",
      "schedule": "20:07 + 21:30(兜底)", "log": "etf_national_team_launchd.log", "mode": "etf_nt"},
     # lab-auto: 2026-07-23 补入监控范围。launchd com.trade.lab-auto 19:00 跑 update_lab.sh

@@ -11,7 +11,7 @@
   {
     "task": "backfill_evening",
     "name": "指数补采兜底",
-    "schedule": "16:35 / 20:00 / 02:00",
+    "schedule": "16:35 / 02:00",
     "est_text": "约33分钟",
     "last_run": "2026-07-24 16:35",
     "last_exit": 0,
@@ -30,10 +30,10 @@
     "task": "futures_backfill",
     "name": "期货机构持仓",
     "schedule": "20:05 + 21:00(兜底)",
-    "est_text": "约13分钟",
-    "last_run": "2026-07-24 20:05",
+    "est_text": "约14分钟",
+    "last_run": "2026-07-24 21:00",
     "last_exit": 0,
-    "last_duration_sec": 453
+    "last_duration_sec": 348
   },
   {
     "task": "lhb_backfill",
@@ -47,11 +47,11 @@
   {
     "task": "rzhb_backfill",
     "name": "两融",
-    "schedule": "23:00",
+    "schedule": "19:15",
     "est_text": "约1秒",
-    "last_run": "2026-07-23 23:00",
+    "last_run": "2026-07-24 23:00",
     "last_exit": 0,
-    "last_duration_sec": 1
+    "last_duration_sec": 2
   },
   {
     "task": "etf_national_team",
@@ -59,7 +59,7 @@
     "schedule": "20:07 + 21:30(兜底)",
     "est_text": "约7分钟",
     "last_run": "2026-07-24 20:07",
-    "last_exit": null,
+    "last_exit": 143,
     "last_duration_sec": null
   },
   {

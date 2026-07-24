@@ -57,7 +57,7 @@ TASKS = [
     {"task": "lhb_backfill",        "log": "lhb_backfill_launchd.log",
      "schedules": ["18:30", "19:30"]},
     {"task": "rzhb_backfill",       "log": "rzhb_backfill_launchd.log",
-     "schedules": ["23:00"]},
+     "schedules": ["19:15"]},  # 2026-07-24 23:00->19:15 紧跟数据发布(18:00-19:00)，避开 lhb 19:30
     {"task": "etf_national_team",   "log": "etf_national_team_launchd.log",
      "schedules": ["20:07", "21:30"]},
     {"task": "lab_auto",            "log": "update_lab_launchd.log",
