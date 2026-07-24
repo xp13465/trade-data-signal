@@ -8,27 +8,26 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-24 17:52(合规改名 batch 2a 上线完成)
+**最后更新**:2026-07-24 17:10(批次2b 仓位展示丰富化方案1+2 上线完成)
 
-**分支**:`feat/b4-holding-input` 已 merge 到 main(origin/main = `79b9de5a` data update [all] 16:05)
-- rebase 后 10 commit 链(新 hash):`c54cfbd4` compact恢复 ← `d0b4860f` 国债ETF仓位 ← `8b6b83f9` NOTES AZ10 ← `930c8eeb` R2第二步 ← `5c5196fc` R2第一步 ← `3a628e5c` intraday优化 ← `2e75ef2a` deploy精确add ← `9fcb2e59` trade_sim chip ← `cfbf4290` 落档AZ9 ← `efac8b7b` 国债波段策略
-- deploy commit:`79b9de5a` data update [all] 2026-07-24_16:05(126 files:国债band信号+建议仓位+R2大JSON+min JS ?v=721120f8)
-- rebase 冲突:27 个大range JSON modify/delete(62297300 删 vs origin/main intraday 改),全 `git rm` 解决(大range 已 R2 托管)
+**分支**:`feat/b4-holding-input` 已 merge 到 main(origin/main = `dac046ee` 批次2b 仓位展示丰富化)
+- 批次2b commit:`dac046ee` feat: 批次2b 仓位展示丰富化(6维度透明化,方案1+2)
+  - 方案1 主chip:app.js _marketScoreCardHTML +综合分 position-score + 维度摘要 position-dim-summary(hover tooltip 看全6维度)
+  - 方案2 弹窗:common.js _labCustomPositionDetailHTML(综合分公式+6维度明细表+档位映射+算法说明+回测+免责)+ app.js openIndexAnalyzeModal 插入
+  - style.css +.position-score/.position-dim-summary +.lab-custom-position-*(3皮肤适配)
+- force-with-lease feat(覆盖 rebase 前旧 commit 1a1f8478,用户明示"中间态不保留");feat:main 快进 85dc6f42..dac046ee
+- 版本号:app=9601bca3 common=256e3709 style=35ed6ea5
 
 **活跃 cron**:
 - `4260c097`(§11 兜底轮询,每10分钟 7,17,27,37,47,57,session-only)
 - `da35a696`(48h 监控,每小时13分,durable,至 2026-07-25 08:44 结束给汇总+CronDelete)
 
-**活跃 agent**:无(合规改名 batch 2a 已完成,三站验证 alert_analyze_cgb label=3手 通过)
+**活跃 agent**:无(批次2b 仓位展示丰富化已完成)
 
-**正在等**:用户验收合规改名 batch 2a(1档2档3档->1手2手3手 规避重仓/半仓/轻仓 + 建议卖出(过热)->减仓信号(过热);三站 alert_analyze_cgb_10y_etf position.label=3手 ✓;commit main=8dcb643b)
+**正在等**:无(批次2b 方案1+2 均已上线,方案3远期不做)
 
 **三站验证结果**(任一新版即算上线,三站全过):
-- ss.fx8.store(CF 主站):app.min.js?v=5fe57dff ✓ / alert_analyze_cgb_10y_etf.json HTTP200 position.label=3手 hands=3 score=62.21 ✓(合规改名 batch 2a,原"重仓"->"3手")
-- sss.sugas.site(GitHub Pages 备站):app.min.js?v=721120f8 ✓
-- s.sugas.site(MaoziYun 备站):app.min.js?v=721120f8 ✓
-- R2 ssd.fx8.store/index/cgb_10y_etf-all.json HTTP200:band 信号齐全(buy_special 接回233 / sell_stop_loss 止损47 / sell 波段减仓30%×1=20260722最新),非全 sell=0 ✓
-- ⚠️ task 原验 URL `signal_daily_cgb_10y_etf.json` 404(该文件不存在,signal_daily 是 DB 表非 JSON 文件,band 信号实际在 index/cgb_10y_etf-all.json 的 signals 数组,已从 R2 验证)
+- ss.fx8.store(CF 主站):app.min.js?v=9601bca3 ✓ + common.min.js?v=256e3709 ✓(含 position-score/_labCustomPositionDetailHTML/仓位计算依据/lab-custom-position 签名串)/ alert_analyze_cgb_10y_etf.json position.detail 6维度(opp/trend/mom/vol/liq/draw+score)齐全 hands=3 score=62.21 ✓
 
 **收盘后分批实施**:
 - 批次1 提速:Top2集群(B1+F2+L3+L-1+R1 零代码省100min/天)+ B4 C方案(E2去双throttle+并发采集+--full-market,35min->3.5min)
