@@ -223,8 +223,9 @@ header h1 { font-size: 18px; margin: 0; }
   z-index: 50;
   box-shadow: 0 1px 3px var(--shadow);
 }
-/* 关闭导航吸顶：tab 栏 / 规则条 / 行业锚点条回归文档流（方便截图） */
+/* 关闭导航吸顶：tab 栏 / 二级 tab 栏 / 规则条 / 行业锚点条回归文档流（方便截图） */
 .nav-no-sticky .tabs,
+.nav-no-sticky .subtab-bar,
 .nav-no-sticky .rule-bar,
 .nav-no-sticky .industry-anchor-bar { position: static; }
 .tabs > button {   /* 仅直接子（tab 按钮），不影响 .periods 内的周期按钮 */
@@ -1729,6 +1730,10 @@ main { padding: 16px 24px; }
   margin-bottom: 14px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
+  position: sticky;   /* UX：二级 tab(A股/港股/全球/期货/汪汪队)滚动时悬浮在一级 tab 栏正下方，top = 一级 tab 栏实测高度(由 JS 写入 --tab-h，兜底 41px) */
+  top: var(--tab-h, 41px);
+  z-index: 40;
+  background: var(--bg-card);   /* 必须设背景，否则 sticky 悬浮时下方内容透出 */
 }
 .subtab-bar button {
   padding: 6px 16px;
@@ -2353,9 +2358,10 @@ main { padding: 16px 24px; }
   .rit-full { display: none; }
   .rit-short { display: inline; }
 
-  /* sticky 规则条/锚点条让位 H5 周期条：rule-bar 取消 sticky，anchor-bar 下移到周期条下 */
+  /* sticky 规则条/锚点条/二级tab栏 让位 H5 周期条：rule-bar 取消 sticky，anchor-bar 与 subtab-bar 下移到周期条下(周期条高约46px) */
   .rule-bar { position: static; }
   .industry-anchor-bar { top: 46px; }
+  .subtab-bar { top: 46px; }
   /* H5：tab 按钮+搜索框一行放不下时，搜索框换行占满整行 */
   .industry-anchor-bar .anchor-search { flex-basis: 100%; max-width: none; margin-left: 0; }
 
