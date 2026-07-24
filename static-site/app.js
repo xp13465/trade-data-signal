@@ -661,14 +661,27 @@ function _backupSignalChipTip(sd, scored, chip) {
     { y1: '近1年', y3: '近3年', y5: '近5年', y10: '近10年', all: '全史' },
     sd.windows ? Object.fromEntries(sd.windows.map(function (w) { return [w.k, w.l]; })) : {}
   );
+  // 窗口 key -> 起止日期 "s~e" 映射（2026-07-24 时间窗口强化：显示回测区间起止日期）
+  // sd.windows[].s/e 为后端返回的窗口起止日期（如 y5: 2021-07-22~2026-07-22）
+  var winRange = {};
+  if (sd.windows) {
+    sd.windows.forEach(function (w) {
+      if (w.s && w.e) winRange[w.k] = w.s + '~' + w.e;
+    });
+  }
   var SEP = '────────────────────';
   var lines = ['【' + chip.tier + '】' + e.label + ' · ' + e.pathShort + ' · ' + winLabel[e.win] + ' 综合分胜出'];
+  // 顶部显示整体回测区间（all 窗口 s~e，覆盖最长历史；缺失则用 y5 兜底）
+  var overallRange = winRange.all || winRange.y5 || '';
+  if (overallRange) lines.push('回测区间: ' + overallRange);
   lines.push('该买点+路径在 5 窗口表现（' + e.scenario + ' · ' + e.path + '）：');
   for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
     var w = _BACKUP_CHIP_WINS[i];
     var s = sd.data && sd.data[w] && sd.data[w][e.path] && sd.data[w][e.path][e.scenario] && sd.data[w][e.path][e.scenario].summary;
     if (s) {
-      lines.push('  ' + winLabel[w] + '  年化' + (s.annualized || 0).toFixed(1) + '% │ 回撤' + (s.max_drawdown || 0).toFixed(1) + '% │ 胜率' + (s.win_rate || 0).toFixed(0) + '% │ 样本' + (s.total_ops || 0));
+      // 每个窗口行末尾加 [s~e] 起止日期，让用户明确各窗口具体回测时段
+      var rng = winRange[w] ? '  [' + winRange[w] + ']' : '';
+      lines.push('  ' + winLabel[w] + '  年化' + (s.annualized || 0).toFixed(1) + '% │ 回撤' + (s.max_drawdown || 0).toFixed(1) + '% │ 胜率' + (s.win_rate || 0).toFixed(0) + '% │ 样本' + (s.total_ops || 0) + rng);
     }
   }
   // 全 165 该维度 Top5
@@ -721,6 +734,52 @@ function _signalLegendHtml() {
 // 按 ", "（逗号+空格）断成多行——段内括号里的逗号无空格不会被拆，防 tooltip 单行过长超宽。
 function _fmtReason(r) {
   return r ? String(r).replace(/, /g, "<br/>") : "";
+}
+
+// 波段仓位比例可视化（国债波段仓位管理，2026-07-24）：解析 reason 中"波段减仓X%"/"波段接回X%"/"波段止损"/"波段持有"，
+// 返回 HTML 仓位变化进度条（不只文字 reason，直观展示仓位动态调整）。非波段信号返回 ""。
+// 设计：减仓=绿色条减少（100%->80%/70%）；接回=粉紫条增加（80%/70%->100%）；止损=蓝色清仓（100%->0%）；持有=橙色满仓维持。
+// 国债波段策略是动态仓位管理（非静态 sell）：根据 RSI+乖离+布林三指标超买超卖动态调仓，
+// 减仓(触超买)/接回(超卖回归)/止损(趋势破位)/持有(无信号维持)四动作联动，走势图 pin 即历史调仓时点回放。
+function _bandPositionBar(reason) {
+  if (!reason) return "";
+  var r = String(reason);
+  var m = r.match(/波段减仓(\d+)%/);
+  if (m) {
+    var pct = parseInt(m[1], 10);
+    return _positionBarHtml(100, 100 - pct, "减仓" + pct + "%", "#2e8b57");
+  }
+  m = r.match(/波段接回(\d+)%/);
+  if (m) {
+    var pct = parseInt(m[1], 10);
+    return _positionBarHtml(100 - pct, 100, "接回" + pct + "%", "#d63384");
+  }
+  if (r.includes("波段止损")) {
+    return _positionBarHtml(100, 0, "止损清仓", "#3498db");
+  }
+  if (r.includes("波段持有")) {
+    return _positionBarHtml(100, 100, "持有·仓位不变", "#ff9800");
+  }
+  return "";
+}
+// 仓位条 HTML：before% -> after%，label + 颜色，inline-block 适配 echarts tooltip。
+// 满仓部分用 color，空仓部分用半透明灰（深浅皮肤均可见），箭头 -> 表示变化方向。
+function _positionBarHtml(before, after, label, color) {
+  function bar(pct, col) {
+    return '<span style="display:inline-block;width:44px;height:8px;background:linear-gradient(to right,' + col + ' ' + pct + '%,rgba(127,127,127,0.3) ' + pct + '%);border-radius:2px;vertical-align:middle"></span>';
+  }
+  return '<div style="margin-top:3px;font-size:11px;line-height:1.5;white-space:nowrap">'
+    + '<span style="color:#aaa">' + label + ':</span> '
+    + bar(before, "rgba(127,127,127,0.5)") + '<span style="color:#aaa;padding:0 1px">' + before + '%</span>'
+    + '<span style="color:#666;padding:0 2px">-></span>'
+    + bar(after, color) + '<span style="color:' + color + ';font-weight:600;padding:0 1px">' + after + '%</span>'
+    + '</div>';
+}
+// _fmtReason + 波段仓位条（tooltip 统一调用：reason 文字 + 仓位可视化，非波段信号仅返回 reason 文字）
+function _fmtReasonWithBand(reason) {
+  var base = _fmtReason(reason);
+  var bar = _bandPositionBar(reason);
+  return base + (bar ? '<br/>' + bar : '');
 }
 
 // 情绪分文字标签：散户秒懂，数值旁边加标签
@@ -921,7 +980,7 @@ const _SIGNAL_HELP_ITEMS = [
   { sig: "buy_backup", color: "#9c27b0", name: "备买 · 趋势转向", desc: "Supertrend ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
   { sig: "sell", color: "#2e8b57", name: "卖 · 趋势转弱", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈减仓提示。", note: "📌 pin 标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；hover tooltip 的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈减仓非反向信号。配套：走弱概率≈50%接近随机；与追止损|卖共振时减仓信号更强。" },
   { sig: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR×3.5止损", desc: "ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5d win 49.58%->50.23%），backtest 旧 ATR×3 数据保留作历史对比，新参数 stats 见下方 forward 字段。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
-  { sig: "band_hold", color: "#ff9800", name: "波段持有 · 国债波段仓管", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1 卖点对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属波段状态信号。配套：减仓(sell绿)/接回(buy_aux粉紫)为动作信号，持有(橙)为无信号状态。" },
+  { sig: "band_hold", color: "#ff9800", name: "波段持有 · 国债波段仓管", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1 卖点对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖点）。四动作联动：减仓(sell绿,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓)/持有(band_hold橙,无超买超卖维持仓位)。走势图 pin = 历史调仓时点回放，hover 信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
 ];
 
 // 聚合 signal_stats.json（per-index）-> per-sig 概况（5d/10d/20d 三窗口，按样本数 n 加权平均）
@@ -1930,10 +1989,10 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
           if (Array.isArray(m.tipColors) && Array.isArray(m.tipLabels)) {
             // 拼色 pin：渲染多色●（如 ●趋势转向+●上轨突破 紫●+金●，方案3 修拼色 tooltip bug）
             const dots = m.tipColors.map((c, i) => '<b style="color:' + c + '">●</b>' + (m.tipLabels[i] || "")).join("+");
-            tip += '<br/>' + dots + " " + _fmtReason(m.reason);
+            tip += '<br/>' + dots + " " + _fmtReasonWithBand(m.reason);
           } else {
             const mc = typeof m.itemStyle.color === "string" ? m.itemStyle.color : "#ffd700";
-            tip += '<br/><b style="color:' + mc + '">● ' + m.value + "</b> " + _fmtReason(m.reason);
+            tip += '<br/><b style="color:' + mc + '">● ' + m.value + "</b> " + _fmtReasonWithBand(m.reason);
           }
         }
         return tip;
@@ -1993,10 +2052,10 @@ function valueChartWithSignals(title, data, signals, opts, stats, strategy, inde
           if (Array.isArray(m.tipColors) && Array.isArray(m.tipLabels)) {
             // 拼色 pin：渲染多色●（如 ●趋势转向+●上轨突破 紫●+金●，方案3 修拼色 tooltip bug）
             const dots = m.tipColors.map((c, i) => '<b style="color:' + c + '">●</b>' + (m.tipLabels[i] || "")).join("+");
-            tip += '<br/>' + dots + " " + _fmtReason(m.reason);
+            tip += '<br/>' + dots + " " + _fmtReasonWithBand(m.reason);
           } else {
             const mc = typeof m.itemStyle.color === "string" ? m.itemStyle.color : "#ffd700";
-            tip += '<br/><b style="color:' + mc + '">● ' + m.value + "</b> " + _fmtReason(m.reason);
+            tip += '<br/><b style="color:' + mc + '">● ' + m.value + "</b> " + _fmtReasonWithBand(m.reason);
           }
         }
         return tip;
@@ -7937,7 +7996,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
         if (od.open != null && od.high != null && od.low != null) lines.push(`开 ${od.open.toFixed(2)} 高 ${od.high.toFixed(2)} 低 ${od.low.toFixed(2)}`);
         // P0-3: 信号日追加完整 reason
         const marks = markData.filter((m) => m.coord[0] === p[0].axisValue && m.reason);
-        for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${_fmtReason(m.reason)}`);
+        for (const m of marks) lines.push(`<b style="color:${m.itemStyle.color}">● ${m.value}</b> ${_fmtReasonWithBand(m.reason)}`);
         return lines.join("<br/>");
       } },
       series: [{
