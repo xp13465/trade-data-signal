@@ -8,7 +8,7 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-24 20:48(B4实测崩溃✓验收退出码133+FATAL V8+0只成功;7/24 ETF国家队缺失etf_daily最新7/23;派a22修复ProcessPoolExecutor中;backfill_evening 20:00 漏跑告警✓排查=误告警[plist Top2已删20:00,schedule_monitor配置滞后],已修schedule_monitor.sh L51删20:00+清空latest.md)
+**最后更新**:2026-07-24 20:55(B4修复a22✓全部完成上线:ProcessPoolExecutor max_workers=8重采1376只daily158s无崩溃FATAL=0+DB etf_daily 7/24采734只+提速35min->158s=13.3x+push c1921857/merge55e7c163+deploy 37b6571d+1m补推31f3be74;三站验证sss/s.sugas=20:40含7/24末日510050=3.05✓ss.fx8.store待wrangler;附带修deploy.sh etf_nt _rng补1m[原漏1m致deploy不commit 1m];backfill_evening误告警✓af3闭环9d612ec5)
 
 **分支**:origin/main = `194c097f`(批次1 提速 `172fe2b6`+docs `194c097f` 已上线)
 - 批次1 commit:`0e916672` feat: B4 C方案(E2去双throttle+并发采集+--full-market) + `172fe2b6` data: etf_score_list 1371只修复(手动rsync trade-data->trade)
@@ -35,10 +35,10 @@
 - 文档merge main a94cd396 ✓完成验收(cherry-pick 7ff066d7 push main fast-forward,origin/main含文档613行,worktree清理,主工作区未动)
 - R2 lab/trade_sim上传 ab17abaf ✓完成验收(upload_r2.py lab 65/65+trade_sim html 100/100+json 400/400,线上ssd.fx8.store content-length一致,补a67c9f22 worktree缺失;关键教训:trade_sim只在trade/不在trade-data/,R2 upload不设REPO从trade/跑,§9 cwd=trade-data规范是uvicorn读DB不适用R2上传)
 - B4实测查 a325e4ada08ccae9b ✓完成验收(20:07 etf跑B4并发新代码,日志line1728-1912:max_workers=10启用1374只sh737sz637+FATAL address_pool_manager 6次V8多线程重复初始化+退出码133 SIGTRAP崩溃+0只成功;7/23旧串行1371只有OHLC进度日志正常未崩;根因mini_racer V8 isolate非线程安全ThreadPoolExecutor并发不兼容;提速35min->?min不成立根本没采到)
-- **B4修复 a22d34eb297df2786 🔄运行中**(用户选直接修复终极并发:调研mini_racer多进程可行性->ProcessPoolExecutor initializer创建进程局部V8 isolate[若不可行fallback串行化mini_racer锁调用只并发IO]->重采7/24验证1374只成功+无崩溃+耗时->push feat+merge main+deploy+验证三站updated_at含7/24;等deploy.sh PID49743跑完再push避免git撞;进度文件/tmp/agent-progress-b4-fix.md)
-- **backfill_evening 20:00 漏跑告警排查 ✓完成**（2026-07-24 20:15:06 告警;结论=**误告警**:plist 已由 Top2 去重删 20:00 槽[16:35+02:00 两槽],但 `scripts/schedule_monitor.sh` L51 schedules 仍含 20:00 => 监控配置滞后误判;处理:schedule_monitor.sh L51 删 20:00 同步 + 清空 data/alerts/latest.md[本地 untracked,gitignore L24];下次 schedule_monitor 跑[每15分钟]后无新告警;commit 待 push）
+- **B4修复 a22d34eb297df2786 ✓完成验收上线**(ProcessPoolExecutor max_workers=8,模块级_fetch_one_ohlc_worker/_fetch_one_backfill_worker pickle-able+_get_worker_tdx进程局部懒创建tdx_client;每进程独立V8 isolate进程隔离不撞address_pool_manager;保留B4其他改动throttle加锁/skip_throttle/--full-market/_MOOTDX_LOCK;重采1376只完成入库7555行daily全流程158.0s并发采集142.6s无崩溃FATAL=0;DB etf_daily MAX(date)=20260724采734只ETF;提速35min->158s=13.3x达预期;push c1921857+merge 55e7c163 push feat+main无force;deploy 37b6571d从trade-data跑读最新DB+1m补推31f3be74;三站验证:sss.sugas.site/s.sugas.site updated_at=20:40:32含7/24末日510050 close=3.05✓,ss.fx8.store仍17:15[wrangler未装CF Workers待手动deploy,任一OK即算上线§8];附带修deploy.sh L194 etf_nt _rng补1m[原3m/6m/1y漏1m致deploy git add不commit 1m数据,1m由pipeline_daily export_json_files生成非export.py];进度文件/tmp/agent-progress-b4-fix.md)
+- **backfill_evening 20:00 漏跑告警排查 af3e3c90e8fa2d042 ✓完成验收**（2026-07-24 20:15:06 告警;结论=**误告警**:plist 已由 Top2 去重删 20:00 槽[16:35+02:00 两槽],但 `scripts/schedule_monitor.sh` L51 schedules 仍含 20:00 => 监控配置滞后误判;处理:schedule_monitor.sh L51 删 20:00 同步 + 清空 data/alerts/latest.md[本地 untracked,gitignore L24];下次 schedule_monitor 21:00跑后无新告警;commit 9d612ec5 push main ✓[a22 merge 55e7c163带入schedule_monitor改动,af3 9d612ec5只补TASKS fast-forward无冲突]）
 
-**正在等**:B4修复 a22d34eb297df2786 跑完(调研ProcessPoolExecutor可行性+实施+重采7/24+push+deploy+验证三站);明天17:50 update_all后验证全历史band生产闭环(sell不回0/band_hold全历史);远期ss.fx8.store CF deploy优化(GH Actions wrangler)
+**正在等**:明天17:50 update_all后验证全历史band生产闭环(sell不回0/band_hold全历史)+B4 ProcessPoolExecutor全量backfill(20:07 pipeline_daily验证OK,pipeline_backfill全历史待下次backfill跑验证);远期ss.fx8.store CF deploy优化(GH Actions wrangler)
 
 **三站验证结果**(批次1 提速,任一新版即算上线):
 - sss.sugas.site(GitHub Pages):etf_score_list.json universe=1371 full_market=True ✓(批次1上线OK)
