@@ -367,6 +367,95 @@ function _labCustomFooterHTML(complianceFooter, noDataHint) {
   `</div>`;
 }
 
+// 批次2b:仓位计算依据(6维度综合分 v5 透明化)
+// pos = alert.position = {hands, volatility, label, detail}
+// detail 含 opp/trend/mom/vol/liq/draw(分值0-100) + score(综合分) + 原始值(ma60_ratio/macd_hist/volatility/amt_pct/drawdown)
+function _labCustomPositionDetailHTML(pos) {
+  if (!pos || !pos.detail) {
+    return `<div class="lab-custom-position">` +
+      `<div class="lab-custom-section-title">📐 仓位计算依据</div>` +
+      `<div class="lab-custom-position-empty">仓位数据不足(后端 position 未生成)</div>` +
+    `</div>`;
+  }
+  const d = pos.detail;
+  const f2 = (v) => (v != null ? Number(v).toFixed(2) : "-");
+  // 6维度:[key, 名称, 原始值文案, 权重]
+  const dims = [
+    ["opp", "机会分", `low_alert = ${f2(d.opp)}`, 0.35],
+    ["trend", "趋势分", `MA60比 = ${f2(d.ma60_ratio)}`, 0.20],
+    ["mom", "动量分", `MACD hist = ${f2(d.macd_hist)}`, 0.15],
+    ["vol", "波动分", `ATR/close = ${f2(d.volatility)}%`, 0.15],
+    ["liq", "流动性", `成交额分位 = ${f2(d.amt_pct)}%`, 0.05],
+    ["draw", "回撤分", `252日回撤 = ${f2(d.drawdown)}%`, 0.10],
+  ];
+  const rows = dims.map(([k, name, rawText, w]) => {
+    const score = d[k] != null ? Number(d[k]) : null;
+    const contrib = score != null ? score * w : null;
+    return `<tr class="lab-custom-dim-row">` +
+      `<td class="dim-name">${name}</td>` +
+      `<td class="dim-raw">${rawText}</td>` +
+      `<td class="dim-score">${score != null ? f2(score) : "-"}</td>` +
+      `<td class="dim-weight">${(w * 100).toFixed(0)}%</td>` +
+      `<td class="dim-contrib">${contrib != null ? contrib.toFixed(2) : "-"}</td>` +
+    `</tr>`;
+  }).join("");
+  const score = d.score != null ? Number(d.score) : null;
+  const head = `<tr><th>维度</th><th>原始值</th><th>分值</th><th>权重</th><th>贡献</th></tr>`;
+  const totalRow = `<tr class="lab-custom-position-total">` +
+    `<td class="dim-name">综合分</td><td class="dim-raw">-</td>` +
+    `<td class="dim-score"><b>${score != null ? score.toFixed(2) : "-"}</b></td>` +
+    `<td class="dim-weight">100%</td>` +
+    `<td class="dim-contrib"><b>${score != null ? score.toFixed(2) : "-"}</b></td>` +
+  `</tr>`;
+  // 档位映射
+  const tier = pos.hands != null ? pos.hands : null;
+  const tierText = tier === 3 ? "3手(重仓)" : tier === 2 ? "2手(半仓)" : tier === 1 ? "1手(轻仓)" : "0手(观望)";
+  return `<div class="lab-custom-position">` +
+    `<div class="lab-custom-section-title">📐 仓位计算依据(6维度综合分 v5)</div>` +
+    `<div class="lab-custom-position-score-row">` +
+      `<span class="lab-custom-position-score-label">综合分</span>` +
+      `<span class="lab-custom-position-score-val">${score != null ? score.toFixed(2) : "-"}</span>` +
+      `<span class="lab-custom-position-tier">当前档位:${tierText}</span>` +
+    `</div>` +
+    `<div class="lab-custom-position-formula">` +
+      `公式:0.35×机会 + 0.20×趋势 + 0.15×动量 + 0.15×波动 + 0.05×流动性 + 0.10×回撤 = ` +
+      `<b>${score != null ? score.toFixed(2) : "-"}</b>` +
+    `</div>` +
+    `<table class="lab-custom-dims-table lab-custom-position-table">` +
+      `<thead>${head}</thead><tbody>${rows}${totalRow}</tbody>` +
+    `</table>` +
+    `<div class="lab-custom-position-rules">` +
+      `<div class="lab-custom-position-sub-title">档位映射规则</div>` +
+      `<ul>` +
+        `<li>低机会(<b>low_alert &lt; 35</b>):直接 0手(观望,如国债/海外指数无 A股低位机会)</li>` +
+        `<li>综合分 ≥ <b>60</b>:3手(重仓)</li>` +
+        `<li>综合分 ≥ <b>50</b>:2手(半仓)</li>` +
+        `<li>综合分 ≥ <b>40</b>:1手(轻仓)</li>` +
+        `<li>其他:0手(观望)</li>` +
+      `</ul>` +
+    `</div>` +
+    `<div class="lab-custom-position-notes">` +
+      `<div class="lab-custom-position-sub-title">各维度算法</div>` +
+      `<ul>` +
+        `<li><b>机会分</b>(权重35%):low_alert 低位机会分,L1-L8 多维加权(0-100),主导仓位</li>` +
+        `<li><b>趋势分</b>(20%):close/MA60 偏离度。&gt;1.10→100,&gt;1.05→85,&gt;1.00→70,&gt;0.95→40,&gt;0.90→20,else→0</li>` +
+        `<li><b>动量分</b>(15%):MACD hist(DIF-DEA)×2。正且上升→100,正→70,负但上升→40,负→10</li>` +
+        `<li><b>波动分</b>(15%):ATR(20)/close×100。≤1.5%→100,≤2.5%→85,≤3.5%→70,≤4.5%→50,≤5.5%→30,&gt;5.5%→10(低波动高分)</li>` +
+        `<li><b>流动性</b>(5%):近60日成交额分位。&gt;80%→100,&gt;50%→80,&gt;20%→60,else→40</li>` +
+        `<li><b>回撤分</b>(10%):相对252日最高价回撤。&gt;40%→100,&gt;25%→85,&gt;15%→70,&gt;5%→50,else→20(深回撤=低位机会)</li>` +
+      `</ul>` +
+    `</div>` +
+    `<div class="lab-custom-position-backtest">` +
+      `<b>回测验证</b>(2026-07-24,v5公式):50 ETF + 120日截尾均值,5/10/20日 hands=3 &gt; hands=1。` +
+      `历史回测用 position 分位+RSI 代理 low_alert(真实历史未存),实际效果应优于回测。` +
+      `核心价值:区分度(buy_list 3手 80%→15%,有加有砍),非预测未来收益。` +
+    `</div>` +
+    `<div class="lab-custom-position-disclaimer">` +
+      `⚠️ 免责声明:本仓位建议为研究参考,非投资建议。市场有风险,投资需谨慎。` +
+    `</div>` +
+  `</div>`;
+}
+
 // === 挂到 window,供 lab.js / app.js 跨文件引用 ===
 window._LAB_CUSTOM_BROAD = _LAB_CUSTOM_BROAD;
 window._LAB_CUSTOM_SW = _LAB_CUSTOM_SW;
@@ -384,3 +473,4 @@ window._labCustomDimsTableHTML = _labCustomDimsTableHTML;
 window._labCustomHistoryHTML = _labCustomHistoryHTML;
 window._labCustomThresholdsHTML = _labCustomThresholdsHTML;
 window._labCustomFooterHTML = _labCustomFooterHTML;
+window._labCustomPositionDetailHTML = _labCustomPositionDetailHTML;

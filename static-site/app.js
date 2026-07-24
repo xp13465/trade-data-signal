@@ -2312,13 +2312,28 @@ function _marketScoreCardHTML(data, alert, humanText) {
   const highTooltip = _labCustomLevelTooltip(high, "high");
   const lowTooltip = _labCustomLevelTooltip(low, "low");
   const summary = _labCustomScoreSummary(high, low);
-  // 方案B:仓位分(alert.position = {hands, volatility, label})
+  // 方案B:仓位分(alert.position = {hands, volatility, label, detail})
+  // 批次2b:6维度透明化,主chip露综合分+关键维度摘要,tooltip 看全6维度
   const pos = alert.position || null;
   const posHands = pos ? pos.hands : null;
   const posLabel = pos ? pos.label : "";
   const posVol = pos ? pos.volatility : null;
+  const posDetail = (pos && pos.detail) ? pos.detail : null;
+  const posScore = posDetail && posDetail.score != null ? Number(posDetail.score) : null;
+  const _d = posDetail || {};
+  const _f0 = (v) => (v != null ? Number(v).toFixed(0) : "-");
+  const posDimTitle = posDetail
+    ? `机会${_f0(_d.opp)} / 趋势${_f0(_d.trend)} / 动量${_f0(_d.mom)} / 波动${_f0(_d.vol)} / 流动性${_f0(_d.liq)} / 回撤${_f0(_d.draw)}`
+    : "";
+  const posScoreHTML = posScore != null
+    ? `<span class="position-score" title="综合分=${posScore.toFixed(1)}(6维度加权,点击深度拆解看明细)">综合 ${posScore.toFixed(1)}</span>`
+    : "";
+  const posDimHTML = posDetail
+    ? `<span class="position-dim-summary" title="${posDimTitle}">机会${_f0(_d.opp)} 趋势${_f0(_d.trend)}</span>`
+    : "";
   const posBadge = pos
     ? `<span class="position-badge position-${posHands}">建议仓位 ${posHands}手·${posLabel}</span>` +
+      posScoreHTML + posDimHTML +
       `<span class="volatility-text">波动率 ${posVol != null ? posVol.toFixed(2) : "-"}%</span>`
     : `<span class="position-badge position-0">建议仓位 数据不足</span>`;
   return `<div class="market-score-card" data-iid="${data.target_id || ""}">
@@ -2400,6 +2415,7 @@ function openIndexAnalyzeModal(iid, name) {
       const reason = data.reason || {};
       body.innerHTML = "";
       body.insertAdjacentHTML("beforeend", _labCustomScoreCardHTML(data, alert, reason.human_text));
+      body.insertAdjacentHTML("beforeend", _labCustomPositionDetailHTML(alert.position));
       body.insertAdjacentHTML("beforeend", _labCustomDimsTableHTML(reason.dim_hits, alert.dims, alert.adapt));
       body.insertAdjacentHTML("beforeend", _labCustomHistoryHTML(reason.history_analogy, reason.human_text));
       body.insertAdjacentHTML("beforeend", _labCustomThresholdsHTML(reason.data_thresholds));
