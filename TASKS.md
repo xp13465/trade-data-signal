@@ -554,4 +554,26 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余）/ A6 PWA(P2-新-C) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身（~~C2 64M迁R2~~ 取消）
 
+## ✅ 2026-07-24 晚续闭环（国债波段策略 + hands终极 + intraday修复 + schedule_monitor午休 + 08报告归档）
+
+> 7/24 午后~晚间国债卖点三轮迭代 + 买点 hands 终极 + intraday 推 main 修复 + schedule_monitor 午休告警修复。详见 `NOTES.md §48 小节AZ9`。本节 5 commit 待 15:35 收盘后主控 merge feat/b4 -> main + deploy（盘中不 deploy）。
+
+1. ✅ **国债 A1 回退**（无 commit，checkout + DB 重算）：A1 std2σ 方案致三国债 sell 82/64/69 kelly 全负，回退原版 hh20*0.95（sell=0 恢复，sell_stop_loss 47/61/61 保留）。否决原因：kelly 全仓评估长期上行资产方法错
+2. ✅ **国债 B 方案否决**（无 commit，4+2 回测全不达标）：B1/B2/B3/B4 + B1 严格版 + B1 分时段无一达标（kelly>=0.3 且 win_rate>0.5）。2015 年后国债长期上行 kelly 全负（-0.16~-2.86），结构性问题非参数可调，国债不适合标准卖点
+3. ✅ **国债波段策略实施**（commit `06055972`，feat/b4，待 deploy）：`signals.py` `compute_band_signal`（RSI14+乖离+布林，减仓/接回/止损）+ 三品种 sell 调用 + 前端 `band_hold` 橙展示。回测 future 1296 严格双赢/etf 290 放宽双赢/idx 降风险（夏普 2.80->3.58）。**待 15:35 deploy 上线**
+4. ✅ **买点 hands 终极方案 v5**（commit `13cbdf6b`，已 push main + 3 域名验证）：多维度综合（机会35+趋势20+动量15+波动15+流动性5+回撤10，阈值60/50/40，有加有砍）+ 极端 0 手（low<35）。buy_list 3 手 80%->15%，两处逻辑统一为 alert_score.py 一份（消除重复）
+5. ✅ **schedule_monitor overview 滞后告警修复**（commit `497e7a5a`，已 push main）：时点 0930->0950（避开开盘空窗）+ 多域名容错（3 域名任一不 lag 即 OK）
+6. ✅ **intraday 推 main 修复**（commit `b2eb9fa9`）：stash 工作区残留 -> force push main fast-forward -> stash pop 恢复。3 域名验证 collected_at=10:49:28
+7. ✅ **intraday_snapshot.sh 根治 rebase 阻塞 + alert_analyze position**（commit `2bbf7bae`）：L178 `git checkout -- .` 兜底清 unstaged 残留根治 rebase 阻塞 + 70 个 alert_analyze position 字段重生成（修复指数弹窗"数据不足"）
+8. ✅ **schedule_monitor 午休告警修复**（本节 commit）：L147 加 `not ("1130" <= now_hm < "1315")` 排除午休窗口（A股 11:30-13:00 无交易，overview 停在 11:30 快照直到 13:05 更新，12:15 起 lag>30min 误报 SEVERE）。非交易日已由 is_trading_day() 排除
+9. ✅ **08 买卖点回测报告根副本清理**（无 commit，已归档 `62ba37c4`）：`docs/archive/08-买卖点策略深度回测.md` 早已归档（244 序列=13指数+3红利+31行业+200个股，12策略×4周期×4 horizon）。根目录残留 untracked 同名副本元数据矛盾（标的 129 序列 vs 脚注 244 资产，cutoff 07-23 vs 脚注 07-06），是不一致部分重生成版。保留归档可靠版（244 序列一致），删除根目录矛盾副本，08 无需新 commit
+
+**用户准则 2 条（已落 CLAUDE.md §5 / memory）**：①方案选择默认准则 3 条（完整正确+不以工作量偷懒+一步到位终极方案不妥协）②卖为降风险非趋势放弃（长期上行≠只买不卖，波段仓位管理评估用波段收益非 kelly 全仓）
+
+**教训 4 条**：①A1 kelly 全仓评估长期上行资产方法错 ②intraday_snapshot.sh git add 通配隐患（git checkout -- . 兜底清残留）③§11 轮询用 stat -L 查 .jsonl 实际 mtime（非 .output 符号链接）④午休告警误报（1130-1315 排除）
+
+**48h 监控运行中**：caffeinate 48h（07-23 ~08:45 启动，PID 98731，-t 172800 自动退出）运行至 07-25 ~08:44，监控 launchd 计划任务 + schedule_monitor heartbeat。期间 schedule_monitor 每 15min 跑一次，heartbeat 写 /tmp/schedule-monitor-heartbeat.txt
+
+**未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余）/ A6 PWA(P2-新-C) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身 / 国债波段策略待 15:35 deploy 上线验证
+
 **教训**：glm-5.2 安全分类器时好时坏（A12 派发两次失败，cron 5 分钟后重试成功）；migration 调研 agent 卡死（jsonl mtime 27 分钟没动），基于进度文件方案 A + 用户确认直接派实施不重派调研；A12 cron 07:14 触发和 etf 优化 agent 撞 app.js（14ce6355 etf 优化 -> c703a584 A12 前端基于 etf 版叠加，两者共存）

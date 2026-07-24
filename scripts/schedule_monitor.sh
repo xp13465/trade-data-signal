@@ -144,7 +144,12 @@ try:
     # 0950 起检：intraday 第一次 09:35，dur 约 10min，09:45 才完成 push。
     # 0930-0945 开盘空窗期 overview.json 必然是凌晨 02:38 旧版，必触发误报。
     # 0950 检查避开空窗，覆盖盘中其余时点（intraday 每 30min 推一次）。
-    if is_trading_day() and "0950" <= now_hm <= "1530":
+    # 1130-1315 排除午休窗口：A股午休 11:30-13:00 无交易，overview.json collected_at
+    # 停在上午 11:30 快照(完成于 ~11:40)，直到 13:05 快照完成(~13:15)才更新。
+    # 此窗口内 lag 必然 >30min 但属正常(午休没交易)，排除避免误报。
+    # 2026-07-24 12:30 误报事故根因：午休未排除，12:15 起 lag>30min 触发 SEVERE。
+    # 非交易日已由 is_trading_day() 排除（周末/节假日 overview 滞后正常）。
+    if is_trading_day() and "0950" <= now_hm <= "1530" and not ("1130" <= now_hm < "1315"):
         # 多域名容错：CF Workers Static Assets 靠部署自动 purge，但 intraday push
         # main 不触发 CF wrangler redeploy，ss.fx8.store cache 可能滞后；依次试 3 域名，
         # 任一 collected_at 在 30min 内即 OK（不 lag），都滞后才告警。
