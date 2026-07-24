@@ -103,3 +103,39 @@ static-site/data/industry-5y-concepts.json
 static-site/data/industry-5y-concepts.json.gz
 static-site/data/industry-3y-concepts.json
 static-site/data/industry-3y-concepts.json.gz
+
+# R2 阶段4 续（2026-07-24）：a-stock/hk/global/sentiment/etf_national_team 大 range（all/5y/3y）
+# + global-extras-all 前端已从 R2 data/ 读（app.js dataUrl() helper 路由大 range -> ssd.fx8.store），
+# git 带是冗余。小 range（3m/6m/1y）留 git 减 R2 请求延迟。upload-data-large 每日刷 R2 data/ 前缀。
+static-site/data/a-stock-all.json
+static-site/data/a-stock-all.json.gz
+static-site/data/a-stock-5y.json
+static-site/data/a-stock-5y.json.gz
+static-site/data/a-stock-3y.json
+static-site/data/a-stock-3y.json.gz
+static-site/data/hk-all.json
+static-site/data/hk-all.json.gz
+static-site/data/hk-5y.json
+static-site/data/hk-5y.json.gz
+static-site/data/hk-3y.json
+static-site/data/hk-3y.json.gz
+static-site/data/global-all.json
+static-site/data/global-all.json.gz
+static-site/data/global-5y.json
+static-site/data/global-5y.json.gz
+static-site/data/global-3y.json
+static-site/data/global-3y.json.gz
+static-site/data/sentiment-all.json
+static-site/data/sentiment-all.json.gz
+static-site/data/sentiment-5y.json
+static-site/data/sentiment-5y.json.gz
+static-site/data/sentiment-3y.json
+static-site/data/sentiment-3y.json.gz
+static-site/data/etf_national_team-all.json
+static-site/data/etf_national_team-all.json.gz
+static-site/data/etf_national_team-5y.json
+static-site/data/etf_national_team-5y.json.gz
+static-site/data/etf_national_team-3y.json
+static-site/data/etf_national_team-3y.json.gz
+static-site/data/global-extras-all.json
+static-site/data/global-extras-all.json.gz

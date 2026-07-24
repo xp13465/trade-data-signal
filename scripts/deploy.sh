@@ -175,23 +175,23 @@ run_r2_upload "upload-data-large" upload-data-large || echo "⚠ upload-data-lar
 # - update_all.sh/update_lab.sh 靠 deploy 上线: alert, etf_score_list, lab_*(4个)
 # - alert_analyze_*.json 动态(40宽基+行业，新增品种自动覆盖)，用前缀通配(只匹配 alert_analyze_ 前缀)
 # - 不含: etf_national_team-1m.json(废弃), index/industry-*-indices/lab/trade_sim/(.gitignore R2托管)
+# - 不含: tab 大 range all/5y/3y + global-extras-all（R2 托管，.gitignore 移出，前端 dataUrl() 路由）
 echo "-> git add 精确文件列表（export.py + deploy.sh 生成 JSON + min JS）..." | tee -a "$LOG"
 DATA_FILES=()
-# tab × 6 ranges（a-stock/hk/global/sentiment；industry 单独处理）
+# tab × 小 range 3m/6m/1y（大 range all/5y/3y + global-extras-all 已 R2 托管，.gitignore 移出减 ~58M）
 for _tab in a-stock hk global sentiment; do
-  for _rng in 3m 6m 1y 3y 5y all; do
+  for _rng in 3m 6m 1y; do
     DATA_FILES+=("static-site/data/${_tab}-${_rng}.json" "static-site/data/${_tab}-${_rng}.json.gz")
   done
 done
-# global-extras-all（global-all 的轻量四件套）
-DATA_FILES+=("static-site/data/global-extras-all.json" "static-site/data/global-extras-all.json.gz")
+# global-extras-all 已 R2 托管（upload-data-large 上传，前端 dataUrl() 路由），不进 git
 # industry: 仅 meta 留 git（3m/6m/1y 单文件 + all/5y/3y-concepts 已 R2 托管，.gitignore 移出减 ~24M）
 # industry-*-meta 是 4KB 小文件，留 git 作元数据参考；前端 meta 也从 R2 读但 git 带冗余可忽略
 for _rng in all 5y 3y; do
   DATA_FILES+=("static-site/data/industry-${_rng}-meta.json" "static-site/data/industry-${_rng}-meta.json.gz")
 done
-# etf_national_team × 6 ranges（不含 1m，已废弃）+ quarterly + holders
-for _rng in 3m 6m 1y 3y 5y all; do
+# etf_national_team × 小 range 3m/6m/1y（大 range all/5y/3y 已 R2 托管）+ quarterly + holders
+for _rng in 3m 6m 1y; do
   DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
 done
 DATA_FILES+=("static-site/data/etf_national_team_quarterly.json" "static-site/data/etf_national_team_quarterly.json.gz")

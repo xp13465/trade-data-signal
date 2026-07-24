@@ -2098,6 +2098,14 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
 const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
+// R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
+// fetchJSON 自动 .gz 优先 + DecompressionStream 解压，./data/ 与 https://ssd.fx8.store/ 均生效。
+// 匹配 -(all|5y|3y).json 结尾 -> R2；其余 -> 本地 ./data/。
+const _R2_DATA_BASE = "https://ssd.fx8.store/data/";
+const _R2_LARGE_RANGE_RE = /-(?:all|5y|3y)\.json$/;
+function dataUrl(filename) {
+  return _R2_LARGE_RANGE_RE.test(filename) ? _R2_DATA_BASE + filename : "./data/" + filename;
+}
 async function fetchJSON(url) {
   // 1. 结果缓存命中（时效敏感 URL 跳过，确保盘中快照实时性）
   if (!_NO_CACHE_URLS.test(url)) {
@@ -2937,7 +2945,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
 
     if (indexId.startsWith("g.")) {
       const key = indexId.slice(2);
-      const r = await fetchJSON("./data/global-extras-all.json");
+      const r = await fetchJSON(dataUrl("global-extras-all.json"));
       const data = (r.extras && r.extras[key]) || [];
       sigs = (r.extras_signals && r.extras_signals[key]) || [];
       stats = (r.extras_stats && r.extras_stats[key]) || {};
@@ -2951,7 +2959,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       isValue = true;
     } else if (indexId.startsWith("s.")) {
       const key = indexId.slice(2);
-      const r = await fetchJSON("./data/sentiment-all.json");
+      const r = await fetchJSON(dataUrl("sentiment-all.json"));
       const data = r[key] || [];
       sigs = (r.signals && r.signals[key]) || [];
       stats = (r.stats && r.stats[key]) || {};
@@ -3077,7 +3085,7 @@ async function _loadKpiHistory(kpiId, cfg, period) {
 
   // 情绪分 9 张：visualMap 5 段着色（冰点蓝/偏冷浅蓝/中性灰/偏热橙/过热红，与热力图+恐贪一致：冰=冷色，过热=热色）
   if (cfg.src === "sentiment") {
-    const r = await fetchJSON(`./data/sentiment-${period}.json`);
+    const r = await fetchJSON(dataUrl(`sentiment-${period}.json`));
     const list = r[kpiId] || [];
     return {
       series: [{ name, data: list.map(d => ({ date: d.date, value: d.value })) }],
@@ -3098,7 +3106,7 @@ async function _loadKpiHistory(kpiId, cfg, period) {
 
   // a-stock 指标
   if (cfg.src === "astock") {
-    const r = await fetchJSON(`./data/a-stock-${period}.json`);
+    const r = await fetchJSON(dataUrl(`a-stock-${period}.json`));
     const metrics = r.metrics || {};
     const _get = (k) => (metrics[k] && metrics[k].data) ? metrics[k].data.map(d => ({ date: d.date, value: d.value })) : [];
 
@@ -3202,7 +3210,7 @@ async function _loadKpiHistory(kpiId, cfg, period) {
 
   // 全球指标：gold/cn10y/a_qvix_300（global-extras-all.json，按 period 客户端过滤）
   if (cfg.src === "global") {
-    const r = await fetchJSON("./data/global-extras-all.json");
+    const r = await fetchJSON(dataUrl("global-extras-all.json"));
     const all = (r.extras && r.extras[kpiId]) || [];
     const cutoff = _signalModalCutoff(all, period);
     const data = cutoff ? all.filter(d => d.date >= cutoff) : all;
@@ -4697,7 +4705,7 @@ async function renderOverview() {
       if (_frozenList.length >= 3) {
         let _firstSince = "";
         try {
-          const sall = await fetchJSON("./data/sentiment-all.json");
+          const sall = await fetchJSON(dataUrl("sentiment-all.json"));
           if (state.tab !== 'overview') return;
           // 扫描历史，找上一个 ≥3 宽基同日冰点的日期，算"近X月首次"
           const _dfc = {};
@@ -5633,7 +5641,7 @@ async function renderNationalTeam(container = content) {
   renderLoadingState(container);
   let data, qData, hData;
   try {
-    data = await fetchJSON(`./data/etf_national_team-${state.range}.json`);
+    data = await fetchJSON(dataUrl(`etf_national_team-${state.range}.json`));
     qData = await fetchJSON("./data/etf_national_team_quarterly.json");
     try { hData = await fetchJSON("./data/etf_national_team_holders.json"); } catch (e) { hData = null; }
   } catch (e) {
@@ -6596,7 +6604,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
 async function renderAStock(container = content) {
   let r;
   try {
-    r = await fetchJSON(`./data/a-stock-${state.range}.json`);
+    r = await fetchJSON(dataUrl(`a-stock-${state.range}.json`));
   } catch (e) {
     renderErrorState(container, e, () => renderAStock(container));
     return;
@@ -6728,7 +6736,7 @@ function _injectHkSnapshot(indices, snap) {
 async function renderHK(container = content) {
   let r;
   try {
-    r = await fetchJSON(`./data/hk-${state.range}.json`);
+    r = await fetchJSON(dataUrl(`hk-${state.range}.json`));
   } catch (e) {
     renderErrorState(container, e, () => renderHK(container));
     return;
@@ -6813,7 +6821,7 @@ async function renderGlobal(container = content) {
   renderLoadingState(container, "加载全球数据…");
   let r;
   try {
-    r = await fetchJSON(`./data/global-${state.range}.json`);
+    r = await fetchJSON(dataUrl(`global-${state.range}.json`));
   } catch (e) {
     renderErrorState(container, e, () => renderGlobal(container));
     return;
@@ -7029,7 +7037,7 @@ function appendHistoryPos(container, indexId = "a_sentiment") {
 async function renderSentiment() {
   // 期货数据与情绪数据无依赖，用 Promise.all 并发请求；futures 失败不影响情绪图（独立 .catch）
   const [r, futures] = await Promise.all([
-    fetchJSON(`./data/sentiment-${state.range}.json`),
+    fetchJSON(dataUrl(`sentiment-${state.range}.json`)),
     fetchJSON("./data/futures.json").catch(() => null),
   ]);
   content.innerHTML = "";
@@ -9067,19 +9075,19 @@ async function _shapeLoadSeries(indexId) {
   var result = null;
   try {
     if (_SHAPE_A_STOCK.has(indexId)) {
-      _astockAllCache = _astockAllCache || await fetchJSON('./data/a-stock-all.json');
+      _astockAllCache = _astockAllCache || await fetchJSON(dataUrl("a-stock-all.json"));
       var idx = _astockAllCache.indices && _astockAllCache.indices[indexId];
       if (idx) result = { name: idx.name, data: (idx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
     } else if (_SHAPE_HK.has(indexId)) {
-      _hkAllCache = _hkAllCache || await fetchJSON('./data/hk-all.json');
+      _hkAllCache = _hkAllCache || await fetchJSON(dataUrl("hk-all.json"));
       var hidx = _hkAllCache.indices && _hkAllCache.indices[indexId];
       if (hidx) result = { name: hidx.name, data: (hidx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
     } else if (_SHAPE_US_EU.has(indexId)) {
-      _globalAllCache = _globalAllCache || await fetchJSON('./data/global-all.json');
+      _globalAllCache = _globalAllCache || await fetchJSON(dataUrl("global-all.json"));
       var gidx = _globalAllCache.indices && _globalAllCache.indices[indexId];
       if (gidx) result = { name: gidx.name, data: (gidx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
     } else if (_SHAPE_COMMODITY[indexId]) {
-      _globalAllCache = _globalAllCache || await fetchJSON('./data/global-all.json');
+      _globalAllCache = _globalAllCache || await fetchJSON(dataUrl("global-all.json"));
       var exKey = _SHAPE_COMMODITY[indexId];
       var ex = _globalAllCache.extras && _globalAllCache.extras[exKey];
       if (ex && ex.length) result = { name: _SHAPE_COMMODITY_NAME[exKey] || exKey, data: ex.map(function (d) { return { date: d.date, close: d.value }; }) };
