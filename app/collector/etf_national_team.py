@@ -36,6 +36,7 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -44,6 +45,10 @@ from . import base  # noqa: F401
 import akshare as ak
 
 from .base import em_get, safe_call, throttle
+
+# B4 并发改造(2026-07-24):mootdx client 单连接不支持并发调用,
+# fallback 段用此 Lock 串行化,保证 akshare sina 并发时 mootdx 不撞协议竞态
+_MOOTDX_LOCK = threading.Lock()
 
 # ── 路径与常量 ──────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
@@ -381,8 +386,10 @@ def fetch_etf_ohlc(code: str, start_yyyymmdd: str = DEFAULT_START, client=None) 
     mkt = ETF_BY_CODE.get(code, (None, None, ""))[2] or _etf_market(code)
     if mkt:
         try:
-            throttle()
-            df = safe_call(ak.fund_etf_hist_sina, symbol=f"{mkt}{code}")
+            # B4 并发改造(2026-07-24):去显式 throttle(双throttle->单throttle),
+            # akshare sina 限流不严,传 skip_throttle=True 让 safe_call 内也跳过,
+            # ETF 间可 ThreadPoolExecutor 并发采集。mootdx fallback 保留默认限流。
+            df = safe_call(ak.fund_etf_hist_sina, skip_throttle=True, symbol=f"{mkt}{code}")
             if not isinstance(df, Exception) and df is not None and len(df) > 0:
                 for _, row in df.iterrows():
                     # date 可能是 datetime.date / Timestamp / str，统一转 YYYYMMDD
@@ -411,31 +418,33 @@ def fetch_etf_ohlc(code: str, start_yyyymmdd: str = DEFAULT_START, client=None) 
         client = tdx_client(market="std")
     PAGE = 800
     start_off = 0
-    while True:
-        df = safe_call(client.bars, symbol=code, frequency=9, offset=PAGE, start=start_off)
-        if isinstance(df, Exception) or df is None or len(df) == 0:
-            break
-        for ts, row in df.iterrows():
-            dstr = str(ts)[:10].replace("-", "")  # 2026-07-13 -> 20260713
-            if dstr < start_yyyymmdd:
-                continue
-            try:
-                out.append({
-                    "date": dstr,
-                    "etf_code": code,
-                    "open": float(row["open"]),
-                    "close": float(row["close"]),
-                    "high": float(row["high"]),
-                    "low": float(row["low"]),
-                    "amount": float(row["amount"]),  # 元
-                })
-            except (TypeError, ValueError):
-                continue
-        if len(df) < PAGE:
-            break
-        start_off += PAGE
-        if start_off > MOOTDX_PAGE_LIMIT:  # 安全上限 ~24年(510050 2005上市≈5180根)
-            break
+    # B4 并发改造:mootdx client 单连接不支持并发,用 _MOOTDX_LOCK 串行化 fallback 段
+    with _MOOTDX_LOCK:
+        while True:
+            df = safe_call(client.bars, symbol=code, frequency=9, offset=PAGE, start=start_off)
+            if isinstance(df, Exception) or df is None or len(df) == 0:
+                break
+            for ts, row in df.iterrows():
+                dstr = str(ts)[:10].replace("-", "")  # 2026-07-13 -> 20260713
+                if dstr < start_yyyymmdd:
+                    continue
+                try:
+                    out.append({
+                        "date": dstr,
+                        "etf_code": code,
+                        "open": float(row["open"]),
+                        "close": float(row["close"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "amount": float(row["amount"]),  # 元
+                    })
+                except (TypeError, ValueError):
+                    continue
+            if len(df) < PAGE:
+                break
+            start_off += PAGE
+            if start_off > MOOTDX_PAGE_LIMIT:  # 安全上限 ~24年(510050 2005上市≈5180根)
+                break
     if not out:
         print(f"  [ohlc] WARNING {code} 主源sina+fallback mootdx 均返空，close/amount 将为 NULL",
               flush=True)
@@ -921,24 +930,46 @@ def pipeline_daily() -> dict:
 
     # 1. sina/mootdx OHLC（阶段2: 遍历全市场 universe_etf_codes,每只ETF拉近15日覆盖近5日）
     #    阶段2 新增 open/high/low 字段,fetcher 返回的 OHLC 全量入库
+    #    B4 并发改造(2026-07-24):ThreadPoolExecutor max_workers=10 ETF 间并发采集,
+    #    fetch_etf_ohlc 内 akshare sina skip_throttle=True 可并发;
+    #    mootdx fallback 用 _MOOTDX_LOCK 串行(单连接不支持并发);
+    #    upsert 串行(SQLite conn 不支持并发写)
     from .mootdx_daily import tdx_client
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     _tdx = tdx_client(market="std")  # fallback mootdx 复用 client 避免每只重新选服务器
     universe = universe_etf_codes(refresh=True)  # 每日刷新清单(新发ETF自动纳入)
-    n_done = 0
-    for code, name, _mkt in universe:
+    _ohlc_start = (dt.datetime.now() - dt.timedelta(days=15)).strftime("%Y%m%d")
+
+    def _fetch_one_ohlc(item):
+        code, name, _mkt = item
         try:
-            rows = fetch_etf_ohlc(code, start_yyyymmdd=(dt.datetime.now() - dt.timedelta(days=15)).strftime("%Y%m%d"), client=_tdx)
-            # 只取近5交易日
-            recent_set = set(recent)
-            rows = [r for r in rows if r["date"] in recent_set]
-            # ETF 简称:优先用 universe 拉的 fund_etf_fund_daily_em 简称(实时),
-            # mootdx fallback 返回的 rows 里没 name 字段,补上
-            for r in rows:
-                r["etf_name"] = name
-            n = _upsert_daily(conn, rows, ["etf_name", "open", "high", "low", "close", "amount"])
-            stats["ohlc"] += n
+            rows = fetch_etf_ohlc(code, start_yyyymmdd=_ohlc_start, client=_tdx)
+            return (code, name, rows)
         except Exception as e:  # noqa: BLE001
             print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+            return (code, name, [])
+
+    # 并发 fetch(网络IO密集,10线程)
+    print(f"  [etf_nt] 并发采集 {len(universe)} 只ETF(max_workers=10)...", flush=True)
+    _t_fetch = time.time()
+    results: list = []
+    with ThreadPoolExecutor(max_workers=10) as _ex:
+        futures = [_ex.submit(_fetch_one_ohlc, item) for item in universe]
+        for fut in as_completed(futures):
+            results.append(fut.result())
+    print(f"  [etf_nt] 并发采集完成 {time.time()-_t_fetch:.1f}s", flush=True)
+
+    # 串行 upsert(SQLite conn 不支持并发写)
+    recent_set = set(recent)
+    n_done = 0
+    for code, name, rows in results:
+        rows = [r for r in rows if r["date"] in recent_set]
+        # ETF 简称:优先用 universe 拉的 fund_etf_fund_daily_em 简称(实时),
+        # mootdx fallback 返回的 rows 里没 name 字段,补上
+        for r in rows:
+            r["etf_name"] = name
+        n = _upsert_daily(conn, rows, ["etf_name", "open", "high", "low", "close", "amount"])
+        stats["ohlc"] += n
         n_done += 1
         if n_done % 200 == 0:
             print(f"  OHLC 进度 {n_done}/{len(universe)} 只, 累计入库 {stats['ohlc']} 行",
@@ -1082,12 +1113,15 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
     #    sina fund_etf_hist_sina 返全历史(不传 start/end),0.3s/只,~1371只 ≈ 7 分钟
     #    (universe 数量由 akshare 动态返回,随市场变动,2026-07-20 实测 1371 只)
     #    阶段2 新增 open/high/low 字段,fetcher 返回的 OHLC 全量入库
+    #    B4 并发改造(2026-07-24):ThreadPoolExecutor max_workers=10 ETF 间并发采集
     universe = universe_etf_codes(refresh=True)
-    print(f"[etf_nt] 1/4 OHLC（sina+mootdx, 全市场 {len(universe)} 只 ETF）...", flush=True)
+    print(f"[etf_nt] 1/4 OHLC（sina+mootdx, 全市场 {len(universe)} 只 ETF, 并发10）...", flush=True)
     from .mootdx_daily import tdx_client
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     _tdx = tdx_client(market="std")
-    n_done = 0
-    for code, name, _mkt in universe:
+
+    def _fetch_one_backfill(item):
+        code, name, _mkt = item
         try:
             rows = fetch_etf_ohlc(code, start_yyyymmdd=start, client=_tdx)
             # ETF 简称:优先 universe fund_etf_fund_daily_em 简称;国家队清单 ETF 用易记名
@@ -1095,10 +1129,25 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
                 name = ETF_BY_CODE[code][0]
             for r in rows:
                 r["etf_name"] = name
-            n = _upsert_daily(conn, rows, ["etf_name", "open", "high", "low", "close", "amount"])
-            stats["ohlc"] += n
+            return (code, name, rows)
         except Exception as e:  # noqa: BLE001
             print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+            return (code, name, [])
+
+    # 并发 fetch(网络IO密集,10线程)
+    _t_fetch = time.time()
+    results: list = []
+    with ThreadPoolExecutor(max_workers=10) as _ex:
+        futures = [_ex.submit(_fetch_one_backfill, item) for item in universe]
+        for fut in as_completed(futures):
+            results.append(fut.result())
+    print(f"  [etf_nt] 并发采集完成 {time.time()-_t_fetch:.1f}s", flush=True)
+
+    # 串行 upsert(SQLite conn 不支持并发写)
+    n_done = 0
+    for code, name, rows in results:
+        n = _upsert_daily(conn, rows, ["etf_name", "open", "high", "low", "close", "amount"])
+        stats["ohlc"] += n
         n_done += 1
         if n_done % 200 == 0:
             print(f"  OHLC 进度 {n_done}/{len(universe)} 只, 累计入库 {stats['ohlc']} 行",

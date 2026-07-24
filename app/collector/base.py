@@ -1,6 +1,7 @@
 """采集基础设施：限频、重试、日志、绕过系统代理。"""
 import os
 import random
+import threading
 import time
 from datetime import datetime
 
@@ -68,14 +69,19 @@ UA = (
 
 _LAST_CALL = [0.0]
 THROTTLE_SEC = 0.6
+_THROTTLE_LOCK = threading.Lock()
 
 
 def throttle() -> None:
-    now = time.time()
-    gap = now - _LAST_CALL[0]
-    if gap < THROTTLE_SEC:
-        time.sleep(THROTTLE_SEC - gap)
-    _LAST_CALL[0] = time.time()
+    """全局限流(线程安全,2026-07-24 B4 并发改造加 Lock)。
+    并发采集时多线程调 throttle 用 Lock 串行化保线程安全。
+    akshare sina 等限流不严的源可传 skip_throttle=True 给 safe_call 跳过。"""
+    with _THROTTLE_LOCK:
+        now = time.time()
+        gap = now - _LAST_CALL[0]
+        if gap < THROTTLE_SEC:
+            time.sleep(THROTTLE_SEC - gap)
+        _LAST_CALL[0] = time.time()
 
 
 def direct_session() -> requests.Session:
@@ -125,17 +131,21 @@ def log_collect(run_date: str, metric_id: str, status: str, message: str = "") -
     conn.close()
 
 
-def safe_call(fn, retries: int = 2, **kwargs):
+def safe_call(fn, retries: int = 2, skip_throttle: bool = False, **kwargs):
     """调用函数，失败重试。返回结果或异常对象（由调用方判断）。
 
     连接类错误（ConnectionError/RemoteDisconnected/Timeout）用更长退避(2-5s)，
     避免在远端过载时雪上加霜；其他错误用标准退避(0.8s)。
+
+    skip_throttle=True 跳过全局限流(2026-07-24 B4 并发改造),
+    用于 akshare sina 等限流不严的源并发采集;mootdx 等单源限流保留默认 False。
     """
     import random
     last_err = None
     for i in range(retries + 1):
         try:
-            throttle()
+            if not skip_throttle:
+                throttle()
             return fn(**kwargs) if kwargs else fn()
         except Exception as e:  # noqa: BLE001
             last_err = e
