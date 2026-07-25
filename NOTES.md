@@ -3328,6 +3328,51 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 4. g.cn_us_spread FAIL(complex 类型 __round__):历史遗留 bug,非本次引入,不影响其他品种(103 成功),维持原状不修(任务"不改计算逻辑")
 5. cross 优化 lru_cache 对短进程(export/runner)安全;长进程(uvicorn)config 改了不刷新,但 normalize/cross 一般 export 时跑非请求时实时跑,无影响
 
+### 小节AZ37：2026-07-26 3色chip明确标注过拟合/样本不足类别(方向D 后续 UI 改进)
+
+**分支**:feat/chip-label-opt(from origin/main,1 commit d2188476,fast-forward 推 main 8384c3db..d2188476)
+
+**背景**:阶段1 方向D(commit 2474a891,AZ34)黑名单分级后,过拟合类(`_OVERFIT_FAILED_IDS`: sz/csi500/cyb/csi_div)显示单橙红 chip 不进三档,样本不足类(`_SMALL_SAMPLE_IDS`: hs300/kc50/sw_801110)显示三档 + 前置淡蓝"📜 样本不足"chip。用户反馈:看 3 色 chip 时分不清品种是过拟合还是样本不足,前置 chip 不够醒目(和三档同级 flex:1 1 0 四等分,视觉平起平坐)。
+
+**改进(app.js + style.css 4 处组合)**:
+
+1. **过拟合类文案**(app.js L591,`_backupSignalChipRender` 内):"⚠ 过拟合/测试段失效,仅供参考" -> "⚠ 过拟合/测试段失效,不进推荐"(用户上次建议,去"仅供参考"歧义,明确不进推荐;chip-tip 详述"不进三档推荐"不变)
+
+2. **样本不足类前置 chip 加醒目**(style.css `.chip-small-sample-note`):
+   - 加粗 font-weight: 600 -> 700
+   - 加大字号 font-size: 11px -> 12px(移动端行业卡片 10px -> 11px,比三档 10px 大)
+   - 边框 dashed -> solid(实线更"正式"),颜色 0.55 -> 0.7 加深
+   - 背景加深 rgba(28,109,191,0.10) -> 0.18
+
+3. **样本不足类三档容器加视觉框**(app.js `_appendBackupChipRow` L552 + style.css 新增 `.chip-row-small-sample`):
+   - app.js: `row.className = "signal-chip-row"` -> `"signal-chip-row" + (id in _SMALL_SAMPLE_IDS ? " chip-row-small-sample" : "")`
+   - CSS: 淡蓝背景 rgba(28,109,191,0.06) + 左侧 3px 蓝色粗实线边框 + padding 4px 6px + border-radius 4px
+   - 视觉上把三档 chip "框住"表示"有保留的推荐",和前置 chip 呼应,用户一眼识别
+
+4. **前置 chip 不参与三档等分**(style.css 新增 `.chip-row-small-sample .chip-small-sample-note`):
+   - flex: 1 1 0(和三档四等分) -> flex: 0 0 auto(自适应宽度做"标签")
+   - align-self: center(垂直居中对齐三档两行文案)
+   - 三档 flex: 1 1 0 三等分剩余空间,前置 chip 视觉跳出做标注标签
+
+**视觉区分(用户一眼识别 3 类)**:
+- 过拟合类:单个橙红 chip(实线 #ad6800),"不进推荐"文案,无三档
+- 样本不足类:蓝框三档(左侧蓝粗边框 + 淡蓝背景)+ 前置加粗蓝色实线 chip "📜 样本不足"(字号比三档大)
+- 正常类:三档 chip 无框无前置标注
+
+**上线验证(curl https://ss.fx8.store/,CF Workers 主站)**:
+- index.html 版本号:app.min.js?v=fbc9bbea, style.min.css?v=137e1aed ✓
+- app.min.js grep "不进推荐" ✓ + "chip-row-small-sample" ✓
+- style.min.css grep "chip-row-small-sample" ✓(3 处:row 容器 + 前置 chip flex + 移动端行业卡片)
+- style.min.css grep `.chip-small-sample-note` 样式含 font-weight:700 + font-size:12px + border solid ✓
+- commit d2188476 在 origin/main(fast-forward)✓
+
+**commit**:d2188476(feat/chip-label-opt -> main fast-forward)
+
+**教训/发现**:
+1. 前置 chip 和三档同级 flex:1 1 0 等分是"不够醒目"根因:前置标注被 dilute 成"第四档",用户难区分标注 vs 档位;改 flex:0 0 auto 让前置 chip 回归"标签"语义
+2. build_min.py 的 rcssmin 系统 python3 未装,需用 .venv python(`/Users/linhuichen/code/trade/.venv/bin/python`)跑才生成 style.min.css;JS(terser)系统 python3 可跑
+3. 切分支前工作区有低风险 agent 残留 `M data/board_etf_map.json`(根目录 data/,§8 禁推),`git stash push data/board_etf_map.json` 暂存后从 origin/main 切 feat/chip-label-opt,互不干扰
+
 
 
 
