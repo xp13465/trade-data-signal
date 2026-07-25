@@ -3098,7 +3098,7 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 - `node --check static-site/app.js` 语法 OK
 - build_min:app.js 627849B->357617B(-43.0%), style.css 204421B->155122B(-24.1%)
 - bump_asset_version:app.min.js?v=99cfaba0, style.min.css?v=1dd3a314
-- 线上 curl 验证(见下)
+- 线上 curl `https://ss.fx8.store/` 确认 HTML 版本号=99cfaba0/1dd3a314,app.min.js 含 `etf-side-chip`/`etf-score-sort`/`_etfSortLabel`/`sideFilter` 新符号 ✓
 
-**commit**:(本次 commit hash 待 push 后填)
+**commit**:fd8ecb10(feat/iframe-theme-follow) + e3cb5729(merge main,含 NOTES AZ29-AZ32 三方合并)
 
