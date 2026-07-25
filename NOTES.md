@@ -2747,3 +2747,32 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 **闭环**:csi_div 已修正上线 origin/main;rzhb/etf 新时点 plist 已生效今晚19:15/20:07/21:30 首次触发(周六交易日闸门跳过,周一07-27 真采验证),exit=None 根因 FINAL_RC 已修复待今晚验证;信号拟合度调研结论已记(中偏高/过拟合嫌疑中高),待用户决策是否改进(生产 signals.py 引入 walk-forward / trade_sim 加 sharpe 字段 / 小样本标注)。
 
 **教训**:①ETF 映射加 INDEX_ETF_MAP 后需全指数复核(bj50 修复未顺带复核 csi_div/div_lowvol,红利指数跨基映射易错,本次补复核 csi_div 修正)②launchd 新时点首次触发前 crash 不写 fallback DONE 行致 exit=None 假象,FINAL_RC 综合退出码+fallback 行根治(afd9b5a8)③生产 signals.py 无 walk-forward 是最大过拟合源(grep 0 命中坐实),小样本<30笔无统计意义需前端标注,夏普>3 触发可疑过拟合红线(cgb_idx 3.58)
+
+### 小节AZ24：2026-07-25 13:00 生产 signals.py 全信号 walk-forward 诊断报告(纯诊断不改线上)
+
+**背景**:AZ23 项3 信号拟合度调研结论"中偏高/过拟合嫌疑中高",最大过拟合源=生产 signals.py 全样本调参无 walk-forward(grep 0 命中)。用户定做全套 walk-forward 诊断"纯报告零风险都可以做一下"。
+
+**框架**(/tmp/walkforward_diag.py):
+- 训练窗3年+测试窗1年,滚动步长1年(kc50 数据短改2年+1年)
+- CGB波段(NAV型):复用 /tmp/backtest_cgb_band.py backtest_np,网格324组合(bias_th×rsi_high×rsi_low×ratio1×ratio2=4×3×3×3×3),训练段网格搜索最优->测试段用最优跑->拼接测试段日收益算wf夏普
+- 事件型(C1/B1/D1/buy_special/buy_backup/sell_stop_loss):训练段网格搜索关键阈值(RSI 20/25/30/35,回落3/5/7/10%,ATR倍数2.5-4.5)->测试段用最优阈值算10d forward return sharpe
+- WFE=wf夏普/全样本夏普(>80%稳健/50-80%可接受/<50%过拟合);参数稳定性=各段调出参数CV
+
+**结果**(docs/walk-forward-report.md 完整报告):
+- **🟢 稳健**:CGB_BAND cgb_idx(WFE1.404,夏普3.58>3可疑但WFE证明未过拟合,高夏普来自国债牛市非参数过拟合;近期2025-2026退化到2.62需观察)/cgb_10y_etf(WFE1.269);buy_special基础(WFE0.94-1.10);buy_backup(WFE0.95-1.17);D1 sh/hs300(WFE>1);sell_stop_loss sh/hs300(WFE>1负夏普=止损生效正常);B1(WFE>1单独无预测力但稳定,作辅买点合理)
+- **🔴 过拟合**:C1 sz(WFE0.039全样本阈值测试段失效);D1 sz/csi500/cyb(WFE<0);sell_stop_loss sz/csi_div(WFE<0,csi_div 4.5倍per-index需警惕)
+- **⚪ 小样本**:C1 hs300/csi500/cyb/kc50/sw_801110(全样本n<50或测试段n<30,C1信号稀疏统计意义有限)
+- **⚪ 未跑完整walk-forward(结构性分析)**:alert_score HIGH/LOW/hands v5(参数26+验证窄单ETF+代理指标,风险中-高,有120日归一化缓解);sh C1|D1a(5阈值单指数拟合风险中)/h5 R2(6阈值四条件风险中-高)过滤层(基础buy_special WFE0.942稳健,叠加10+阈值过滤层经多轮迭代风险升)
+
+**关键发现**:
+1. cgb_idx 全样本夏普3.58>3触发"可疑"红线,但WFE1.404>1证明**未过拟合**(参数滚动调整比固定参数更适应市场,高夏普来自国债2023-2024大牛市非参数过拟合);但近期2025-2026测试段夏普骤降到2.62(前几段8-9),策略近期可能退化
+2. 生产参数=全样本网格搜索最优(cgb_idx 确认),全样本调参无walk-forward是最大过拟合源(坐实)
+3. C1/D1/sell_stop_loss 在 sz/csi500/cyb/csi_div 过拟合(WFE<0),全样本调出的阈值在测试段失效
+4. alert_score hands v5 回测验证范围窄(仅50ETF+120日截尾均值hands=3>hands=1),用position分位+RSI代理low_alert(真实历史未存),过拟合风险中-高
+5. sh C1|D1a/h5 R2 过滤层参数多(5-6阈值)+多轮迭代调参,基础buy_special稳健但叠加过滤层风险升
+
+**建议(只建议不改)**:①C1/D1过拟合指数per-index参数收敛为通用规则或降权标注②C1小样本指数前端标注"仅供参考"不进三档chip③cgb_idx近期退化持续观察④alert_score hands v5补跑完整walk-forward扩展验证范围⑤sh C1|D1a/h5 R2过滤层做walk-forward验证滤率/套牢率改善持续性⑥trade_sim加sharpe字段>3标红⑦生产signals.py未来引入walk-forward验证机制per-index调参附WFE
+
+**闭环**:docs/walk-forward-report.md 已落档(总表+每信号详细+结论+建议);signals.py 未改(git diff确认);纯诊断报告零线上影响。脚本 /tmp/walkforward_diag.py + /tmp/wf_batch.py + 结果 /tmp/wf_all_results.json(本地不进git)。
+
+**教训**:①全样本调参无walk-forward是最大过拟合源,WFE>1证明参数滚动调整比固定参数更适应市场(cgb_idx WFE1.404)②夏普>3"可疑"需结合WFE看,cgb_idx夏普3.58但WFE>1未过拟合(高夏普来自国债牛市非参数过拟合)③事件型信号(C1/B1)样本稀疏,多数指数n<50统计意义有限,需前端标注④过滤层经多轮迭代调参易过拟合到历史(sh C1|D1a 5阈值/h5 R2 6阈值),基础信号稳健但叠加过滤层风险升⑤alert_score回测验证范围窄(单ETF+代理指标)需扩展
