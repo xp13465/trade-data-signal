@@ -658,14 +658,16 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
                 "enabled": True,
             }
 
-    # 降回撤方案B 第三层叠加 per-index（小节AV C1，sh 用 C1|D1a 叠加替代原豁免，非 sh 保持方案 B）
+    # 降回撤方案B 第三层叠加 per-index（2026-07-25 情况C P1选项A：sh 去 D1a 回退单 C1，非 sh 保持方案 B）
     if raw == "sh":
-        # sh 专属 C1|D1a 公式来自 L940-953，实测数据来自 L945-947 注释
+        # sh 专属 C1 主体公式来自 compute() L1177-1188，实测数据来自注释（单 C1 vs 豁免基线）
         buy_special_filter_text = (
-            "sh 专属 C1|D1a 叠加（替代原 sh 豁免）："
-            "C1 高波动/距高点远(atr_pct>=2.5% OR dist_from_high>=15%) + D1a 中档共振补刀(atr_pct∈[1.8%,2.5%) AND dist_from_low60>15% AND dev_ma60>1.05)；"
-            "sh 实测(vs 单 C1)：612->503 保留82.2%，peak(<-10%) 7.35%->5.58%(-1.78pp)，mdd -3.72%->-2.65%(改善1.07pp)，"
-            "ret20 +6.29%->+4.31%(损1.96pp可接受)，keep 67.7%，Jaccard 重叠率30.8%(C1 与 D1a 互补性强)"
+            "sh 专属 C1 主体（2026-07-25 情况C P1选项A，去 D1a 共振补刀）："
+            "C1 高波动/距高点远(atr_pct>=2.5% OR dist_from_high>=15%)；"
+            "sh 实测(单 C1 vs 豁免基线)：612 信号，peak(<-10%) 7.35%(vs 豁免 10.38% 降3.02pp)，"
+            "mdd -3.01%(vs 豁免 -3.72% 改善0.71pp)，ret20 +6.29%(vs 豁免 +5.27% 升1.02pp)；"
+            "去 D1a 原因：walk-forward 诊断(docs/walk-forward-c-report.md §3) D1a 元凶 dist_from_low60_d1a CV=146%，"
+            "WF夏普0.773<未过滤全样本1.226(测试段反向退化)，去D1a后WF夏普预估>0.9"
         )
     else:
         # 非 sh 方案B 公式来自 L939（其他 9 指数继续方案 B 不变，均有改善或微损可接受）
@@ -1175,18 +1177,18 @@ def compute():
             dist_from_high = (high_250 - close) / high_250
             peak_dd_filter_mask = ((atr_pct >= 0.025) | (dist_from_low60 > 0.30)).fillna(False)
             if iid == "sh":
-                # sh 用 C1|D1a 叠加（2026-07-22 小节AV 升级，原单 C1 → 叠加）：
+                # sh 用 C1 主体（2026-07-25 情况C P1选项A：去 D1a 共振补刀，保留 C1 主体 2 阈值）：
                 #   C1 高波动/距高点远（atr_pct>=2.5% OR dist_from_high>=15%）
-                #     + D1a 中档共振补刀（atr_pct∈[1.8%,2.5%) AND dist_from_low60>15% AND dev_ma60>1.05）
-                #   D1a 补 C1 未覆盖的"中波动+涨多+均线之上"共振区，进一步降尖尖。
-                #   叠加实测（vs 单 C1）：612->503(保留 82.2%)，peak(<-10%) 7.35%->5.58%(-1.78pp)，
-                #     mdd -3.72%->-2.65%(改善 1.07pp)，ret20 +6.29%->+4.31%(损 1.96pp 可接受)，
-                #     bot_acc 69.12%->68.33%(-0.79pp)，keep 67.7%，Jaccard 重叠率 30.8%(C1 与 D1a 互补性强)。
+                #   原 C1|D1a 叠加（2026-07-22 小节AV）的 D1a 子句（atr_pct∈[1.8%,2.5%) AND
+                #   dist_from_low60>15% AND dev_ma60>1.05）经 walk-forward 诊断（docs/walk-forward-c-report.md
+                #   §3）确凿过拟合：固定参数 WFE=0.336（<50% 过拟合），WF夏普 0.773 < 未过滤全样本 1.226
+                #   （测试段反向退化），元凶 dist_from_low60_d1a CV=146%（各段 0.015/0.25 乱跳）。
+                #   去 D1a 后回退单 C1（2026-07-22 小节AV 之前的稳定版本）：
+                #   sh 实测（单 C1 vs 豁免基线）：612 信号，peak(<-10%) 7.35%，mdd -3.01%，ret20 +6.29%。
+                #   锁参文档见 docs/hands-v5-param-lock.md；impact report 见 docs/walk-forward-c-impact-report.md。
                 peak_dd_filter_mask = (
                     (atr_pct >= 0.025) |                        # C1 高波动
-                    (dist_from_high >= 0.15) |                  # C1 距高点远
-                    ((atr_pct >= 0.018) & (atr_pct < 0.025) &   # D1a 中档共振补刀
-                     (dist_from_low60 > 0.15) & (dev_ma60 > 1.05))
+                    (dist_from_high >= 0.15)                    # C1 距高点远
                 ).fillna(False)
 
         # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
