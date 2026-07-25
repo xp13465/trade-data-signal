@@ -4153,6 +4153,89 @@ main { padding: 16px 24px; }
   .etf-hold-actions { flex-direction: row; }
 }
 
+/* ============ B4 ETF 评分 UX 重构(2026-07-25): 3区分区 + 5档分档色块 ============ */
+/* 3区: 我的持仓(置顶) -> 卖出/持有观察(置顶) -> 买入(默认折叠Top20) */
+.etf-section { margin: 18px 0 24px; padding: 0; }
+.etf-section + .etf-section { margin-top: 28px; }
+.etf-section-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 4px 10px; padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-2, var(--bg-card));
+  border-left: 3px solid var(--text-4);
+  font-size: 14px; font-weight: 600; color: var(--text-1);
+}
+.etf-section-icon { font-size: 16px; line-height: 1; }
+.etf-section-count {
+  display: inline-block; padding: 1px 8px;
+  background: var(--primary); color: #fff;
+  border-radius: 10px; font-size: 12px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.etf-section-sub { font-size: 12px; font-weight: 400; color: var(--text-3); }
+.etf-section-holdings .etf-section-head { border-left-color: #f59e0b; background: linear-gradient(90deg, rgba(245,158,11,0.12), var(--bg-2, var(--bg-card)) 70%); }
+.etf-section-sellhold .etf-section-head { border-left-color: #5a7a8a; background: linear-gradient(90deg, rgba(90,122,138,0.12), var(--bg-2, var(--bg-card)) 70%); }
+.etf-section-buy .etf-section-head { border-left-color: #a05050; background: linear-gradient(90deg, rgba(160,80,80,0.12), var(--bg-2, var(--bg-card)) 70%); }
+[data-theme="dark"] .etf-section-holdings .etf-section-head,
+[data-theme="redgold"] .etf-section-holdings .etf-section-head { border-left-color: #fbbf24; }
+[data-theme="dark"] .etf-section-sellhold .etf-section-head,
+[data-theme="redgold"] .etf-section-sellhold .etf-section-head { border-left-color: #8aaab8; }
+[data-theme="dark"] .etf-section-buy .etf-section-head,
+[data-theme="redgold"] .etf-section-buy .etf-section-head { border-left-color: #c87878; }
+
+/* 展开/收起按钮(买入区折叠态) */
+.etf-section-collapse-wrap { text-align: center; padding: 12px 0 4px; }
+.etf-section-collapse {
+  padding: 8px 20px; border: 1px dashed var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-2);
+  font-size: 13px; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.etf-section-collapse:hover { border-color: var(--primary); color: var(--primary); border-style: solid; }
+
+/* 5档分档色块(行底色+左边框, 覆盖原 etf-side-* 细分) */
+.etf-score-row.etf-tier-strong-sell { border-left-color: #3d5a6a; background: linear-gradient(135deg, #e8eef2 0%, var(--bg-card) 55%); }
+.etf-score-row.etf-tier-sell { border-left-color: #5a7a8a; background: linear-gradient(135deg, #eef3f6 0%, var(--bg-card) 55%); }
+.etf-score-row.etf-tier-hold { border-left-color: #b8860b; background: linear-gradient(135deg, #faf5e8 0%, var(--bg-card) 55%); }
+.etf-score-row.etf-tier-buy { border-left-color: #c08080; background: linear-gradient(135deg, #faf0f0 0%, var(--bg-card) 55%); }
+.etf-score-row.etf-tier-strong-buy { border-left-color: #7a3030; background: linear-gradient(135deg, #f5e0e0 0%, var(--bg-card) 55%); }
+[data-theme="dark"] .etf-score-row.etf-tier-strong-sell,
+[data-theme="redgold"] .etf-score-row.etf-tier-strong-sell { border-left-color: #7aa0b0; background: linear-gradient(135deg, rgba(61,90,106,0.30) 0%, var(--bg-card) 60%); }
+[data-theme="dark"] .etf-score-row.etf-tier-sell,
+[data-theme="redgold"] .etf-score-row.etf-tier-sell { border-left-color: #8aaab8; background: linear-gradient(135deg, rgba(90,122,138,0.22) 0%, var(--bg-card) 60%); }
+[data-theme="dark"] .etf-score-row.etf-tier-hold,
+[data-theme="redgold"] .etf-score-row.etf-tier-hold { border-left-color: #e8b870; background: linear-gradient(135deg, rgba(184,134,11,0.22) 0%, var(--bg-card) 60%); }
+[data-theme="dark"] .etf-score-row.etf-tier-buy,
+[data-theme="redgold"] .etf-score-row.etf-tier-buy { border-left-color: #c87878; background: linear-gradient(135deg, rgba(192,128,128,0.22) 0%, var(--bg-card) 60%); }
+[data-theme="dark"] .etf-score-row.etf-tier-strong-buy,
+[data-theme="redgold"] .etf-score-row.etf-tier-strong-buy { border-left-color: #e09898; background: linear-gradient(135deg, rgba(122,48,48,0.34) 0%, var(--bg-card) 60%); }
+
+/* 档位标签 chip(行内档位标识) */
+.etf-tier-chip {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 10px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.2px; border: 1px solid transparent;
+}
+.etf-tier-chip-strong-sell { background: #e8eef2; color: #3d5a6a; border-color: #3d5a6a; }
+.etf-tier-chip-sell { background: #eef3f6; color: #5a7a8a; border-color: #5a7a8a; }
+.etf-tier-chip-hold { background: #faf5e8; color: #b8860b; border-color: #b8860b; }
+.etf-tier-chip-buy { background: #faf0f0; color: #a05050; border-color: #c08080; }
+.etf-tier-chip-strong-buy { background: #f5e0e0; color: #7a3030; border-color: #7a3030; }
+[data-theme="dark"] .etf-tier-chip-strong-sell,
+[data-theme="redgold"] .etf-tier-chip-strong-sell { background: rgba(61,90,106,0.30); color: #7aa0b0; border-color: #7aa0b0; }
+[data-theme="dark"] .etf-tier-chip-sell,
+[data-theme="redgold"] .etf-tier-chip-sell { background: rgba(90,122,138,0.30); color: #8aaab8; border-color: #8aaab8; }
+[data-theme="dark"] .etf-tier-chip-hold,
+[data-theme="redgold"] .etf-tier-chip-hold { background: rgba(184,134,11,0.30); color: #e8b870; border-color: #e8b870; }
+[data-theme="dark"] .etf-tier-chip-buy,
+[data-theme="redgold"] .etf-tier-chip-buy { background: rgba(192,128,128,0.30); color: #c87878; border-color: #c87878; }
+[data-theme="dark"] .etf-tier-chip-strong-buy,
+[data-theme="redgold"] .etf-tier-chip-strong-buy { background: rgba(122,48,48,0.36); color: #e09898; border-color: #e09898; }
+
+/* strong 档 score 字号略大(视觉强调极端档位) */
+.etf-score.etf-tier-score-strong-buy,
+.etf-score.etf-tier-score-strong-sell { font-size: 17px; }
+
 /* === A5 真 pin 复盘（2026-07-24）=== */
 /* 📌 按钮：h3 末尾，默认灰色描边圆角；active 状态用 primary 实心高亮 */
 .pin-btn {
