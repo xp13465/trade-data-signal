@@ -2943,3 +2943,31 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 - 已用 `.absolute()` + 注释说明的（正确范例）：`detect_intraday_anomaly.py:26` / `export_alert.py:27` / `export_alert_analyze.py:31` / `export_etf_score_list.py:78`
 - 已用 `Path(__file__).parent.parent`（无 resolve，正确）：`gen_schedule_stats.py:27` / `check_signals.py:28`
 - 待办：若上述 7 脚本从 trade-data/ 跑且读 DB/data，需同步改 `.absolute()`；仅从 trade/ 跑的可保留（resolve=absolute 同效）。需逐个确认运行 cwd 后定，本次不动
+
+### 小节AZ29：2026-07-25 15:25 R2 trade_sim 上传失败修复(立即修复+upload_r2.py ROOT 回退根治)
+
+**背景**：P1 实施agent报告 deploy.sh 从 trade-data 跑时 `upload_r2.py upload-trade-sim-json` 失败（sys.exit "无 trade_sim json: trade-data/static-site/data/trade_sim"），trade_sim JSON 未上 R2（ssd.fx8.store）。memory `r2-upload-from-trade` 记的 workaround 是"不设 REPO 从 trade/ 跑"，但 deploy.sh 从 trade-data 跑时 launchd 设 REPO=trade-data 继承到子进程，每次 deploy 都犯。
+
+**根因**：
+- `upload_r2.py:29` `STATIC_DIR = Path(os.environ.get("REPO", str(ROOT))) / "static-site"`，REPO=trade-data 时 STATIC_DIR=trade-data/static-site
+- `cmd_upload_trade_sim_json()` 找 `STATIC_DIR/data/trade_sim` = trade-data/static-site/data/trade_sim/（不存在）
+- `simulate_trade.py:1561` `base_dir = dirname(dirname(__file__))` 按 `__file__` 写 ROOT(trade/)static-site/data/trade_sim/（永远写 trade/ 不写 trade-data/，因 scripts/ symlink 经 .resolve() 解析到 trade/）
+- deploy.sh:112 rsync 方向是 trade-data/static-site/data/ -> trade/static-site/data/（单向），不会把 trade/ 的 trade_sim 同步回 trade-data/
+- 结论：trade_sim JSON 只在 trade/ 不在 trade-data/，upload_r2 REPO=trade-data 时必找不到
+
+**立即修复**（先让线上正确）：
+- 从 trade/ 跑 `env -u REPO python scripts/upload_r2.py upload-trade-sim-json`，400/400 文件上传成功 -> https://ssd.fx8.store/trade_sim_data/
+- curl 验证 `https://ssd.fx8.store/trade_sim_data/trade_sim_csi1000_stats.json` HTTP 200 + JSON 内容正确（generated_at 2026-07-23 11:39）
+
+**根治方案（选项B：upload_r2.py 路径回退，不破坏 deploy 流程）**：
+- `cmd_upload_lab()` / `cmd_upload_trade_sim()` / `cmd_upload_trade_sim_json()` 三函数加 ROOT 回退
+- 逻辑：先试 `STATIC_DIR`(REPO，采集器/export.py 写处)，若 trade_sim/lab 目录不存在或无 JSON/HTML，回退 `ROOT/static-site`(trade/，simulate_trade.py/lab 脚本按 __file__ 写处)
+- 不改 deploy.sh（run_r2_upload 调用不变）、不改 rsync 方向、不动 git add 逻辑
+- lab 当前 trade-data/ 也有文件（primary 命中不触发回退），加回退是预防性（memory `r2-upload-from-trade` 说 lab 同模式）
+
+**验证链**：
+1. `py_compile upload_r2.py` 通过（无语法错误）
+2. REPO=trade-data 路径回退模拟：trade_sim_json primary(trade-data/)不存在 -> FALLBACK -> trade/ 存在 200 JSON ✓；trade_sim_html/lab primary 命中不回退 ✓
+3. REPO=trade-data 端到端实测：`REPO=trade-data python upload_r2.py upload-trade-sim-json` 400/400 上传成功 ✓（模拟 deploy.sh 从 trade-data 跑的场景）
+
+**影响**：deploy.sh 以后从 trade-data 跑时 upload-trade-sim-json 不再 sys.exit，trade_sim JSON 正常上 R2。memory `r2-upload-from-trade` 的 workaround（手动不设 REPO）不再需要，但保留作历史记录。

@@ -221,7 +221,11 @@ def cmd_upload(local, key):
 
 
 def cmd_upload_lab():
+    # lab JSON 由 scripts/lab/*.py 按 __file__ 写 ROOT(trade/)static-site/data/lab/,
+    # REPO=trade-data 时 trade-data/static-site/data/lab/ 可能不存在(或滞后),回退 ROOT。
     lab = STATIC_DIR / "data/lab"
+    if not lab.exists() or not any(lab.glob("*.json")):
+        lab = ROOT / "static-site" / "data" / "lab"
     files = sorted(lab.glob("*.json"))
     if not files:
         sys.exit(f"无 lab json: {lab}")
@@ -299,7 +303,11 @@ def cmd_upload_trade_sim():
     R2 key = trade_sim/trade_sim_{id}.html（保留原文件名）。
     前端改 href -> https://ssd.fx8.store/trade_sim/trade_sim_{id}.html。
     """
+    # simulate_trade.py 按 __file__ 写 ROOT(trade/)static-site/trade_sim_*.html,
+    # REPO=trade-data 时 trade-data/static-site/ 可能无 trade_sim_*.html,回退 ROOT。
     ts_dir = STATIC_DIR
+    if not any(ts_dir.glob("trade_sim_*.html")):
+        ts_dir = ROOT / "static-site"
     ok, total = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
     if total == 0:
         sys.exit(f"无 trade_sim html: {ts_dir}/trade_sim_*.html")
@@ -315,8 +323,14 @@ def cmd_upload_trade_sim_json():
     用 trade_sim_data/ 前缀避开现有 trade_sim/ HTML 前缀冲突。
     export.py 生成 100 品种 × (stats+full) × (.json+.gz) = 400 文件 ~275M。
     deploy.sh 调本命令同步 R2（2026-07-22 迁出 git，解决 s.sugas.site 300MB 超限 404）。
+
+    simulate_trade.py 按 __file__ 写 ROOT(trade/)static-site/data/trade_sim/（非 REPO）,
+    REPO=trade-data 时 trade-data/static-site/data/trade_sim/ 不存在,回退 ROOT(trade/)。
+    （2026-07-25 AZ28 根治:此前 deploy.sh 从 trade-data 跑时本命令 sys.exit 无文件）
     """
     ts_dir = STATIC_DIR / "data/trade_sim"
+    if not ts_dir.exists() or not any(ts_dir.glob("*.json")):
+        ts_dir = ROOT / "static-site" / "data" / "trade_sim"
     ok, total = _upload_glob(ts_dir, ["*.json", "*.json.gz"], "trade_sim_data")
     if total == 0:
         sys.exit(f"无 trade_sim json: {ts_dir}")
