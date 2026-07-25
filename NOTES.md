@@ -2688,3 +2688,25 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 **闭环**:ETF评分从买入77%(1064只)淹没卖出持有 -> 三分类清晰(buy 188/sell 96/hold 925/数据不足167),卖出持有易找。方向A 5档色块+3区布局(持仓置顶/卖出持有观察/买入折叠)UX提升。P1-新-C 阶段2 ETF评分列表功能完整(分页/搜索/持仓输入/OHLC K线/三分类)。
 
 **教训**:①ETF vs AI同源,数量差异是前端slice截断非独立逻辑 ②收紧买入阈值必须三分类(防被过滤项全进sell_list) ③deploy.sh跑export副作用生成全量数据残留,§8 git restore清理避免下次deploy带入回退 ④方向A 5档阈值用绝对值依赖方向B评分分布,分布变需微调
+
+### 小节AZ22：2026-07-25 11:25 ETF联动tag数据缺修复 + bj50映射错误修正 + 漏上线误判纠正
+
+**漏上线误判纠正**:用户问"还有什么待办",派 add2b0c5 盘点 06055972(国债波段)/02eae130(P2-新-G等)两个 `git branch --contains` 返回空的 commit,初判"漏上线"。agent 盘点纠正:**两个均已 cherry-pick 上线**(06055972->efac8b7b / 02eae130->61be8e72),原 hash 悬空是 cherry-pick 产生新 hash 的正常现象(后续 GC 清理),非漏上线。主控逐字验收:efac8b7b/61be8e72 在 origin/main + compute_band_signal signals.py L126 + _appendEtfLinkTag app.js L7809 + 线上 cgb_idx-all.json 含 3134 条 band_hold 信号。**教训**:`git branch --contains` 返回空 ≠ 漏上线,要查 cherry-pick 新 hash 是否在 main。
+
+**ETF联动tag数据缺修复**(aafeea92,commit `bdad37f6`):
+- **附带发现**(add2b0c5 盘点时):P2-新-G ETF联动tag代码已上线(_appendEtfLinkTag app.js L7809 / INDEX_ETF_MAP build_board_etf_map.py L103-115 / etf_for queries.py L225),但 build_board_etf_map.py **不在 update_all.sh 流程**(grep 确认只自身调用),未跑最新版,board_etf_map.json 缺宽基/红利 ETF 数据(全 EMPTY/MISSING),etf_for() 查不到,前端 tag 不渲染,线上 hs300-all.json etfs=[] 空
+- **关键发现**:index/ 是 R2 托管 + .gitignore L85,git add 不可行,部署只能走 upload_r2.py upload-index;ss.fx8.store/sss.sugas.site/s.sugas.site 返 404 正常(index/ 不在 git/Pages,前端从 ssd.fx8.store CSP connect-src 读 R2)
+- **修复**:重跑 build_board_etf_map.py(akshare fund_etf_spot_em 联网采集,INDEX_ETF_MAP 静态映射10宽基/红利+KW关键词31行业/28概念)-> 同步 trade-data -> 部分刷新 10 index/*-all.json(export_index_detail 单指数,避免全量272 JSON超时)-> rsync -> upload_r2 upload-index 186文件
+- **根因修复**(§5 根治):deploy.sh L65-66 加 step 0.8 每次 deploy 前跑 build_board_etf_map.py 刷新 map(akshare ~15s,失败不阻塞继续用旧 map),下次 update_all deploy 自动刷,export.py 全量生成 index/a-stock/industry JSON 都含正确 etfs
+- 验收:board_etf_map.json 含10宽基/红利 + 线上 hs300-all.json etfs=3(510300/159919/510310)+ commit bdad37f6 origin/main
+
+**bj50映射错误修正**(a397c50c,commit `38eb8741`):
+- **数据质量问题**(aafeea92 修复时发现):board_etf_map.json bj50 映射 [{'code':'159509','name':'纳指科技ETF景顺'}] 错误。根因:INDEX_ETF_MAP L112 映射 bj50->['159509','593550'],159509 现为纳指科技ETF景顺(跨境ETF代码复用,应被 EXCLUDE 排除却因 L163-178 代码精确匹配段未检查 name 绕过),593550 akshare 无此代码
+- **调研**:akshare 1555条 ETF,name 含"北证"/"BJ50"=0条 = 市场无活跃北证50 ETF。决策:移除 bj50 映射(空比错误显示纳指科技好)
+- **修复**:①INDEX_ETF_MAP 移除 bj50 行(L100-102 注释说明)②EXCLUDE 补"纳指"简称(原只有"纳斯达克"漏简称致"纳指ETF"系列未排除)③L163-178 代码精确匹配段加 name 跨境检查(`if any(ex in rname for ex in EXCLUDE): continue`)双重防御代码复用绕过
+- **数据刷新**:重跑 build_board_etf_map.py(无 bj50 键,9宽基/红利正常)-> 同步 trade-data -> 单指数刷新 index/bj50-all.json(etfs=[])-> rsync -> upload_r2 单文件上传
+- 验收:commit 38eb8741 origin/main + INDEX_ETF_MAP 无 bj50 + EXCLUDE 含"纳指" + L173-174 跨境检查 + 线上 ssd.fx8.store/index/bj50-all.json etfs=[] + 本地 board_etf_map.json 无 bj50 键 + hs300 仍正常3个ETF
+
+**闭环**:P2-新-G ETF联动tag功能完整工作(代码上线+数据刷新+根因修复deploy.sh自动刷+bj50错误修正+EXCLUDE防御加强)。index/ R2 托管机制记录(gitignored,upload_r2 upload-index 部署,前端从 ssd.fx8.store 读)。
+
+**教训**:①`git branch --contains` 返回空 ≠ 漏上线,查 cherry-pick 新 hash ②生成数据脚本不在 update_all/deploy 流程 = 数据滞后隐患(deploy.sh step 0.8 根治)③ETF 代码复用(跨境ETF占用原国内ETF代码)需 name 跨境检查防御,代码精确匹配优先于关键词排除的漏洞 ④index/ 是 R2 托管 + gitignored,部署走 upload_r2 非 git add
