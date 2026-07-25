@@ -3985,6 +3985,8 @@ main { padding: 16px 24px; }
   font-variant-numeric: tabular-nums; letter-spacing: 0.3px;
 }
 .etf-name { font-size: 14px; color: var(--text-1); flex: 1; min-width: 120px; }
+.etf-spark-wrap { display: inline-flex; align-items: center; margin-left: 8px; opacity: 0.85; }
+.etf-spark { display: block; }
 .etf-score {
   font-size: 16px; font-weight: 700; margin-left: auto;
   font-variant-numeric: tabular-nums;
@@ -4039,6 +4041,7 @@ main { padding: 16px 24px; }
   .etf-rank { display: none; } /* 移动端省略排名省空间 */
   .etf-score { font-size: 15px; }
   .etf-alert { margin-left: 0; }
+  .etf-spark-wrap { display: none; } /* 移动端隐藏 sparkline 省空间 */
 }
 @media (max-width: 640px) {
   .etf-score-list { grid-template-columns: 1fr; } /* 窄屏单列,避免卡片过挤 */

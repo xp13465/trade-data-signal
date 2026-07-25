@@ -7,7 +7,8 @@
   - etf_daily 表加 open/high/low 列,fetcher C 返回的 OHLC 全量入库(原只存 close/amount)
   - compute_target_dims H3/L2 ETF 专属:对 ETF close 现算 RSI 上穿30(C1)+BB 下轨回归(B1 辅买)
     +20日高回落5%(D1 卖点)事件化后滚动10日计数填 H3/L2(原 ETF H3/L2=NA 因无 signal_daily)
-  - buy_list/sell_list 容量从 12 扩到 top N(可配置,默认 buy_top=20/sell_top=30)
+  - buy_list/sell_list 容量从 12 扩到 top N(可配置,默认 0=全量导出,前端分页处理)
+  - 每只 ETF 导出近 OHLC_EXPORT_DAYS(30)日 K线 [date,o,h,l,c] 供前端 sparkline 渲染
 
 复用 compute_alert_for_target(target_type="etf") (app/alert_score.py L527 已支持 ETF)
 + build_reason (app/alert_reason.py L363) 取 human_text 摘要。
@@ -16,25 +17,29 @@
   {
     "date": "20260722",
     "updated_at": "...",
-    "source": "全市场 A股股票型 ETF (XXXX 只) - 阶段2 扩采集",
+    "source": "全市场 A股股票型 ETF (XXXX 只) - 阶段2 扩采集+OHLC",
     "universe_count": XXXX,
+    "ohlc_days": 30,
     "buy_list": [
-      {etf_code, name, score, hands, high_alert, low_alert, is_national_team, volatility, reason_summary},
-      ... (top N=20, 按 low_alert DESC)
+      {etf_code, name, score, hands, high_alert, low_alert, is_national_team, volatility, reason_summary, ohlc},
+      ... (0=全量, 按 low_alert DESC; --buy-top N 取 top N)
     ],
     "sell_list": [
-      {etf_code, name, score, high_alert, low_alert, sell_signal, is_national_team, reason_summary},
-      ... (top N=30, 按 high_alert DESC)
+      {etf_code, name, score, high_alert, low_alert, sell_signal, is_national_team, reason_summary, ohlc},
+      ... (0=全量, 按 high_alert DESC; --sell-top N 取 top N)
     ],
     "errors": [...]
   }
 
-排序与过滤口径(与阶段1 一致,仅容量扩到 top N):
-- buy_list: high_alert<60 (非过热) + low_alert>=50 (有机会), 按 low_alert DESC 排序, 取 top N=20
+ohlc 字段格式: [[date, open, high, low, close], ...] 升序(旧->新), 近30交易日。
+  数据不足(新ETF/采失败)为空列表 [], 前端 sparkline 不渲染。
+
+排序与过滤口径(与阶段1 一致):
+- buy_list: high_alert<60 (非过热) + hands>0 (有机会), 按 low_alert DESC 排序
   手数(方案3 混合:score 主导 + vol 调整): base = low_alert>=70 -> 3手 / 60-70 -> 2手 / 50-60 -> 1手 / <50 -> 0手不入清单;
     volatility>5% 砍2档 / >4% 砍1档 / None 降级用 base。volatility = ATR(20)/close*100
   score = low_alert (机会分, 越高越适合买)
-- sell_list: 全部 ETF 按 high_alert DESC 排序, 取 top N=30
+- sell_list: 与 buy_list 互斥(不含 buy_list ETF), 按 high_alert DESC 排序
   sell_signal: high_alert>70 减仓信号 / >60 观察 / 否则持有
   score = high_alert (过热分, 越高越适合卖)
 - reason_summary: build_reason human_text.low (buy) / human_text.high (sell) 前 100 字摘要
@@ -50,9 +55,9 @@
 异常处理: 单只 ETF 失败进 errors[], 不中断主流程。
 
 用法:
-  .venv/bin/python scripts/export_etf_score_list.py
-  .venv/bin/python scripts/export_etf_score_list.py --no-fetch    # 跳过采集,仅算分(快速验证)
-  .venv/bin/python scripts/export_etf_score_list.py --buy-top 30 --sell-top 50   # 自定义 top N
+  .venv/bin/python scripts/export_etf_score_list.py --full-market    # 全市场~1371只, 全量导出(默认 buy_top=sell_top=0)
+  .venv/bin/python scripts/export_etf_score_list.py --no-fetch       # 跳过采集,仅算分(快速验证)
+  .venv/bin/python scripts/export_etf_score_list.py --buy-top 20 --sell-top 30  # 限 top N(兼容旧默认)
 """
 from __future__ import annotations
 
@@ -79,11 +84,14 @@ from app.collector.etf_national_team import (  # noqa: E402
 
 DATA_DIR = ROOT / "static-site" / "data"
 
-# 默认 top N(阶段2 扩容:从阶段1 的 8/12 扩到 20/30)
-DEFAULT_BUY_TOP = 20
-DEFAULT_SELL_TOP = 30
+# 默认 top N(阶段2 扩容:0=全量导出,前端分页处理;可 --buy-top/--sell-top 自定义)
+# 阶段1: 8/12; 阶段2 初: 20/30; 阶段2 OHLC: 0/0(全量,配合前端 50/页分页+搜索)
+DEFAULT_BUY_TOP = 0
+DEFAULT_SELL_TOP = 0
 # 动态采集拉近252日(1年,够 RSI14 + MA60 + 252日分位)
 FETCH_DAYS = 252
+# OHLC K线导出近 N 个交易日(前端 sparkline 用,30日≈6周,够看短期趋势+不过大 JSON)
+OHLC_EXPORT_DAYS = 30
 
 # 代表性 ETF 清单(62 只):核心宽基12 + 行业ETF~30 + 主题ETF~20
 # 阶段2 不跑全市场 ~1371 只(慢+大部分信号质量低),用代表性清单覆盖主要赛道
@@ -203,6 +211,30 @@ def _fetch_and_upsert_ohlc(code: str, name: str, conn) -> int:
         return 0
 
 
+def _fetch_recent_ohlc(code: str, conn, days: int = OHLC_EXPORT_DAYS) -> list:
+    """从 etf_daily 表查近 N 个交易日 OHLC K线(前端 sparkline 用)。
+    返回 [[date, open, high, low, close], ...] 升序(旧->新), 仅含 OHLC 全非空行。
+    days 日历日回溯(含周末)约覆盖 days*0.7 交易日; 取 days*2 兜底确保够 N 交易日。
+    数据不足(新ETF/采失败)返空列表, 前端 sparkline 不渲染。
+    """
+    cutoff = (_dt.datetime.now() - _dt.timedelta(days=days * 2)).strftime("%Y%m%d")
+    try:
+        rows = conn.execute(
+            "SELECT date, open, high, low, close FROM etf_daily "
+            "WHERE etf_code=? AND date>=? "
+            "AND open IS NOT NULL AND high IS NOT NULL "
+            "AND low IS NOT NULL AND close IS NOT NULL "
+            "ORDER BY date DESC LIMIT ?",
+            (code, cutoff, days),
+        ).fetchall()
+        if not rows:
+            return []
+        # DESC 查出 -> 反转成升序(旧->新, 前端 sparkline 左->右)
+        return [[r["date"], r["open"], r["high"], r["low"], r["close"]] for r in reversed(rows)]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _has_recent_data(conn, code: str, days: int = 5) -> bool:
     """检查 etf_daily 近 days 日 OHLC 是否完整(open/high/low/close 都非 NULL)。
     只查 close 会漏 OHLC 缺失(9只国家队宽基历史 pipeline_daily 只拉近15日 OHLC 未回填),
@@ -308,6 +340,7 @@ def _process_one_etf_worker(args):
         "in_buy": False, "in_sell": False,
         "low_text": "", "high_text": "",
         "fetch_count": 0, "skip_count": 0,
+        "ohlc": [],  # 近 OHLC_EXPORT_DAYS 日 K线 [[date,o,h,l,c],...] 升序
     }
     try:
         init_db()  # 幂等:子进程首次跑加 open/high/low 列
@@ -335,13 +368,17 @@ def _process_one_etf_worker(args):
             vol = _compute_volatility(code, conn)
             res["vol"] = vol
 
+            # 导出近 N 日 OHLC K线(前端 sparkline 用, 数据不足返空列表)
+            res["ohlc"] = _fetch_recent_ohlc(code, conn, days=OHLC_EXPORT_DAYS)
+
             pos = alert.get("position") or {}
             res["alert_hands"] = pos.get("hands", 0)
             res["pos_volatility"] = pos.get("volatility")
 
             in_buy = (high_alert is not None and high_alert < 60
                       and res["alert_hands"] > 0)
-            in_sell = (high_alert is not None)
+            # 互斥: in_sell = 有 high_alert 且不在 buy_list(避免同一 ETF 同时出现在 buy/sell)
+            in_sell = (high_alert is not None) and not in_buy
             res["in_buy"] = in_buy
             res["in_sell"] = in_sell
 
@@ -363,9 +400,9 @@ def main() -> None:
     parser.add_argument("--no-fetch", action="store_true",
                         help="跳过动态采集,仅用 DB 已有数据算分(快速验证)")
     parser.add_argument("--buy-top", type=int, default=DEFAULT_BUY_TOP,
-                        help=f"buy_list 容量(默认 {DEFAULT_BUY_TOP})")
+                        help=f"buy_list 容量(默认 {DEFAULT_BUY_TOP}=全量导出,>0 取 top N)")
     parser.add_argument("--sell-top", type=int, default=DEFAULT_SELL_TOP,
-                        help=f"sell_list 容量(默认 {DEFAULT_SELL_TOP})")
+                        help=f"sell_list 容量(默认 {DEFAULT_SELL_TOP}=全量导出,>0 取 top N)")
     parser.add_argument("--limit", type=int, default=0,
                         help="只跑前 N 只 ETF(0=全部,用于小规模验证)")
     parser.add_argument("--full-market", action="store_true",
@@ -482,6 +519,7 @@ def main() -> None:
                 "is_national_team": is_nt,
                 "volatility": out_vol,
                 "reason_summary": res["low_text"],
+                "ohlc": res["ohlc"],
             })
 
         if res["in_sell"]:
@@ -494,27 +532,31 @@ def main() -> None:
                 "sell_signal": _sell_signal_for_high(high_alert),
                 "is_national_team": is_nt,
                 "reason_summary": res["high_text"],
+                "ohlc": res["ohlc"],
             })
 
-    # 排序 + 取 top N
+    # 排序 + 取 top N (0=全量导出, 前端分页处理)
     buy_list.sort(key=lambda x: (x.get("low_alert") or 0), reverse=True)
     sell_list.sort(key=lambda x: (x.get("high_alert") or 0), reverse=True)
-    buy_list = buy_list[:args.buy_top]
-    sell_list = sell_list[:args.sell_top]
+    if args.buy_top > 0:
+        buy_list = buy_list[:args.buy_top]
+    if args.sell_top > 0:
+        sell_list = sell_list[:args.sell_top]
 
     payload = {
         "date": payload_date,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "source": (f"全市场 A股股票型 ETF ({len(universe)} 只) - 阶段2 扩采集"
+        "source": (f"全市场 A股股票型 ETF ({len(universe)} 只) - 阶段2 扩采集+OHLC"
                    f" [ETF调权={'on' if ETF_ADJUST_ENABLED else 'off(待回测验证)'}]"
                    if args.full_market
-                   else f"代表性 ETF 清单 ({len(universe)} 只: 核心宽基12+行业~30+主题~20) - 阶段2"
+                   else f"代表性 ETF 清单 ({len(universe)} 只: 核心宽基12+行业~30+主题~20) - 阶段2+OHLC"
                    f" [ETF调权={'on' if ETF_ADJUST_ENABLED else 'off(待回测验证)'}]"),
         "universe_count": len(universe),
         "full_market": args.full_market,
         "etf_adjust": ETF_ADJUST_ENABLED,  # 阶段2: 是否启用 ETF 专属调权(默认 off,待回测验证)
         "buy_top": args.buy_top,
         "sell_top": args.sell_top,
+        "ohlc_days": OHLC_EXPORT_DAYS,  # 每只 ETF 导出近 N 日 OHLC K线(前端 sparkline)
         "fetch_count": fetch_count,
         "skip_count": skip_count,
         "buy_list": buy_list,

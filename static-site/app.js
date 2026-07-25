@@ -8456,10 +8456,11 @@ async function renderIndustry() {
 
 // ============ B4: ETF 评分列表（分页+搜索） ============
 // 数据源: static-site/data/etf_score_list.json
-//   buy_list: 买入机会（score 高=机会显著）, 字段 etf_code/name/score/hands/high_alert/low_alert/is_national_team/reason_summary
-//   sell_list: 卖出信号（score 高=过热）, 字段 etf_code/name/score/sell_signal/high_alert/low_alert/is_national_team/reason_summary
+//   buy_list: 买入机会（score 高=机会显著）, 字段 etf_code/name/score/hands/high_alert/low_alert/is_national_team/reason_summary/ohlc
+//   sell_list: 卖出信号（score 高=过热）, 字段 etf_code/name/score/sell_signal/high_alert/low_alert/is_national_team/reason_summary/ohlc
+//   ohlc: 近30交易日 [[date,o,h,l,c],...] 升序, 前端 _etfSparkline 用 close 画迷你折线
 // 合并成统一列表 + side(buy/sell) 字段, 分页(每页50) + 搜索(代码/名称过滤)
-// 注: 当前为代表性 62 只(buy20+sell30=50); 后端 --full-market 可扩至 ~1371 只, 分页自动生效
+// 注: 后端 --full-market 全量导出~1371只, buy_list+sell_list 互斥(每只ETF出现一次), 分页自动生效
 const ETF_SCORE_PAGE_SIZE = 50;
 const _etfScoreState = { all: [], filtered: [], page: 1, search: "", meta: null, holdingOnly: false };
 
@@ -8500,6 +8501,30 @@ function _esc(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// ETF 评分行迷你折线(sparkline): 用近30日 close 画 SVG 线, 末点高亮。
+// ohlc 格式 [[date,o,h,l,c],...] 升序; 取 close(idx=4) 画线。数据<2点返空串。
+// 涨跌色: 末值>=首值用红(up), 反之绿(down), 跟主题涨跌色一致(A股红涨绿跌)。
+function _etfSparkline(ohlc, w, h) {
+  if (!ohlc || ohlc.length < 2) return "";
+  var vals = ohlc.map(function (d) { return d[4]; }).filter(function (v) { return v != null; });
+  if (vals.length < 2) return "";
+  var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+  var range = max - min || 1;
+  var n = vals.length;
+  var pts = vals.map(function (v, i) {
+    var x = (i / (n - 1)) * w;
+    var y = h - 2 - ((v - min) / range) * (h - 4);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  var lastY = h - 2 - ((vals[n - 1] - min) / range) * (h - 4);
+  var isUp = vals[n - 1] >= vals[0];
+  var stroke = isUp ? "#e6492e" : "#2e8b57";
+  return '<svg class="etf-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">'
+    + '<polyline points="' + pts + '" fill="none" stroke="' + stroke + '" stroke-width="1.5"/>'
+    + '<circle cx="' + w.toFixed(1) + '" cy="' + lastY.toFixed(1) + '" r="2.2" fill="' + stroke + '"/>'
+    + '</svg>';
 }
 
 function _etfScoreColor(score, side) {
@@ -8584,11 +8609,14 @@ function _renderEtfScoreBody() {
       const rank = start + i + 1;
       const isHolding = !!hset[e.etf_code];
       const holdTag = isHolding ? '<span class="etf-hold-tag" title="我的持仓">⭐ 持仓</span>' : '';
+      const spark = _etfSparkline(e.ohlc, 60, 20);
+      const sparkTag = spark ? '<span class="etf-spark-wrap" title="近30日走势">' + spark + '</span>' : '';
       html += '<div class="etf-score-row etf-side-' + e.side + (isHolding ? ' is-holding' : '') + '">'
         + '<div class="etf-row-main">'
         + '<span class="etf-rank">#' + rank + '</span>'
         + '<span class="etf-code">' + _esc(e.etf_code) + '</span>'
         + '<span class="etf-name">' + _esc(e.name) + ntTag + holdTag + '</span>'
+        + sparkTag
         + '<span class="etf-score" style="color:' + col + '">' + (e.score != null ? e.score.toFixed(2) : '-') + '</span>'
         + '</div>'
         + '<div class="etf-row-sub">'
@@ -8650,7 +8678,7 @@ async function renderEtfScore() {
     etf_code: e.etf_code, name: e.name, score: e.score, side: "buy",
     hands: e.hands, high_alert: e.high_alert, low_alert: e.low_alert,
     is_national_team: e.is_national_team, reason_summary: e.reason_summary,
-    sell_signal: null,
+    sell_signal: null, ohlc: e.ohlc || [],
   }));
   (r.sell_list || []).forEach((e) => {
     // sell_list 按 sell_signal 拆 side:含"减仓信号/减仓/清仓"->sell,含"观察/持有"->hold
@@ -8660,7 +8688,7 @@ async function renderEtfScore() {
       etf_code: e.etf_code, name: e.name, score: e.score, side: side,
       hands: null, high_alert: e.high_alert, low_alert: e.low_alert,
       is_national_team: e.is_national_team, reason_summary: e.reason_summary,
-      sell_signal: e.sell_signal,
+      sell_signal: e.sell_signal, ohlc: e.ohlc || [],
     });
   });
   _etfScoreState.all = all;
