@@ -3641,6 +3641,10 @@ main { padding: 16px 24px; }
 .lab-aiscore-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; align-items: start;
 }
+/* 竖屏/中宽屏(≤1280): 降2列,避免3列每列过窄致理由列挤压换行超高(2026-07-20 修复1080竖屏3列bug) */
+@media (max-width: 1280px) {
+  .lab-aiscore-grid { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 900px) {
   .lab-aiscore-grid { grid-template-columns: 1fr; }
 }
@@ -3675,9 +3679,9 @@ main { padding: 16px 24px; }
 .lab-aiscore-table td:nth-child(6) {
   white-space: normal; max-width: 360px;
 }
-/* 持有建议表 8列: 理由摘要在第8列,允许换行 */
-.lab-aiscore-table-hold th:nth-child(8),
-.lab-aiscore-table-hold td:nth-child(8) {
+/* 持有建议表 7列: 理由摘要在第7列,允许换行(原 nth-child(8) 笔误,实际表头7列) */
+.lab-aiscore-table-hold th:nth-child(7),
+.lab-aiscore-table-hold td:nth-child(7) {
   white-space: normal; max-width: 280px;
 }
 /* 卖清单表 7列: 理由摘要在第7列,允许换行 */
@@ -3704,7 +3708,9 @@ main { padding: 16px 24px; }
   font-weight: 700; color: var(--text-1); font-size: 14px;
 }
 .aiscore-reason-cell .lab-aiscore-reason {
-  font-size: 12px; color: var(--text-3);
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden; text-overflow: ellipsis;
+  font-size: 12px; color: var(--text-3); line-height: 1.5;
 }
 .lab-aiscore-empty {
   text-align: center; color: var(--text-3); padding: 20px;

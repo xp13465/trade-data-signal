@@ -6278,7 +6278,7 @@ async function renderAIScoreListLab() {
     const hands = it.hands != null ? Number(it.hands) : 0;
     const handsCls = `hands-${[3, 2, 1, 0].includes(hands) ? hands : 0}`;
     const nt = it.is_national_team ? `<span class="lab-aiscore-nt">国家队</span>` : "";
-    const reason = it.reason_summary ? `<span class="lab-aiscore-reason">${it.reason_summary}</span>` : "";
+    const reason = it.reason_summary ? `<span class="lab-aiscore-reason" title="${it.reason_summary}">${it.reason_summary}</span>` : "";
     return `<tr class="lab-aiscore-row" data-code="${code}" data-iid="${iid}" data-name="${it.name || ""}">` +
       `<td class="aiscore-rank">${idx + 1}</td>` +
       `<td class="aiscore-code">${code || "-"}</td>` +
@@ -6341,7 +6341,7 @@ function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
     const advice = it.sell_signal || "继续持有";
     const adviceCls = "hold-advice-warn";
     const nt = it.is_national_team ? `<span class="lab-aiscore-nt">国家队</span>` : "";
-    const reason = it.reason_summary ? `<span class="lab-aiscore-reason">${it.reason_summary}</span>` : "";
+    const reason = it.reason_summary ? `<span class="lab-aiscore-reason" title="${it.reason_summary}">${it.reason_summary}</span>` : "";
     return `<tr class="lab-aiscore-row lab-aiscore-hold-row" data-code="${code}" data-iid="${iid}" data-name="${it.name || ""}">` +
       `<td class="aiscore-rank">${idx + 1}</td>` +
       `<td class="aiscore-code">${code || "-"}</td>` +
@@ -6395,7 +6395,7 @@ function _renderAIScoreSellSection(host, sellList, codeToIid) {
     // 注意:"持有(未过热)"含"过热"但语义中性,故只匹配"减仓/卖/清仓"动作词
     const sigCls = /减仓|卖出|清仓|卖/.test(sig) ? "sig-danger" : /持有|观望/.test(sig) ? "sig-neutral" : "sig-warn";
     const nt = it.is_national_team ? `<span class="lab-aiscore-nt">国家队</span>` : "";
-    const reason = it.reason_summary ? `<span class="lab-aiscore-reason">${it.reason_summary}</span>` : "";
+    const reason = it.reason_summary ? `<span class="lab-aiscore-reason" title="${it.reason_summary}">${it.reason_summary}</span>` : "";
     return `<tr class="lab-aiscore-row" data-code="${code}" data-iid="${iid}" data-name="${it.name || ""}">` +
       `<td class="aiscore-rank">${idx + 1}</td>` +
       `<td class="aiscore-code">${code || "-"}</td>` +
