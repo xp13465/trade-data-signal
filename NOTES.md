@@ -2943,6 +2943,7 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 - 已用 `.absolute()` + 注释说明的（正确范例）：`detect_intraday_anomaly.py:26` / `export_alert.py:27` / `export_alert_analyze.py:31` / `export_etf_score_list.py:78`
 - 已用 `Path(__file__).parent.parent`（无 resolve，正确）：`gen_schedule_stats.py:27` / `check_signals.py:28`
 - 待办：若上述 7 脚本从 trade-data/ 跑且读 DB/data，需同步改 `.absolute()`；仅从 trade/ 跑的可保留（resolve=absolute 同效）。需逐个确认运行 cwd 后定，本次不动
+
 - ✅ **已在 AZ30 处置**（2026-07-25）：6 处逐个确认 cwd 后改 5 处（daily_summary_email/build_board_etf_map/notify/backtest_alert/check_nt_signals）+ 保留 1 处（add_baidu_push 一次性工具）+ upload_r2.py 排除（AZ29 R2 修复 agent 在改）
 
 ### 小节AZ29：2026-07-25 15:25 R2 trade_sim 上传失败修复(立即修复+upload_r2.py ROOT 回退根治)
@@ -3063,3 +3064,41 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 **验证脚本**：/tmp/p1-baseline.py + /tmp/p1-verify-{ma_alignment,new_high_low,cross}.py（golden baseline 对比）
 **基准脚本**：/tmp/bench-runner.py（13步计时）
 **调研文档**：docs/perf-p1-plan.md（P1-1/P1-2 性能调研报告）
+
+
+---
+
+### 小节AZ32：2026-07-25 16:10 ETF评分列表筛选优化(买入机会首屏可见+chip筛选+排序下拉)
+
+**背景**:用户反馈"ETF评分列表很长要滚动很久才能看到买入机会"。现状(续10三分类 commit 1bd75d66):buy=188/sell=96/hold=925(共1376只),hold 占 67%。原渲染顺序=持仓->卖出/持有观察(100/页)->买入(折叠Top20),买入机会被埋在 1021 只 sell/hold 后面,用户要滚动过 1000+ 只才看到买入 Top20。
+
+**诊断**:
+- 根因=渲染顺序导致买入被埋。sellHold(sell+hold=96+925=1021只)排在买入前面,即使 100/页也要先翻 10 页才到买入区
+- 次因=无快速分类筛选,用户无法一键只看买入机会
+- JSON 字段够用(buy_list 有 hands/amt_pct/score/high_alert/low_alert),不需改 export 流程
+
+**方案**(一步到位完整合集):
+1. **调整渲染顺序**:持仓 -> 买入机会(折叠Top20,首屏可见) -> 卖出/持有观察。买入 Top20 紧跟持仓下方,首屏即可见,不用滚动
+2. **加 side 筛选 chip 组**:全部/买入/卖出/持有(各带数量),默认全部。点"买入"只看买入机会(188只),点"卖出"只看卖出信号(96只),点"持有"只看持有观察(925只)。单区模式统一 50/页分页
+3. **加排序下拉**:评分(默认降序)/买点手数/成交额分位/高位预警/低位预警,各支持升降序。null 值排末尾(无 hands/amt_pct 的 ETF 不会挤到前面)
+4. **搜索框保留**(已有,代码/名称搜索)
+5. **localStorage 记忆偏好**:side 筛选 + 排序选择跨会话保留(同 buyExpanded 逻辑)
+6. **持仓区不受 sideFilter 影响**:用户持仓永远置顶可见,切 chip 时持仓区不丢
+
+**实施**:
+- `static-site/app.js`:
+  - `_etfScoreState` 加 `sideFilter:"all"` / `sortKey:"score"` / `sortDir:"desc"`
+  - `_applyEtfScoreFilter()` 加 side 过滤(sideFilter!=all 时只留该 side)
+  - 新增 `_sortEtfList(arr, keepSideGroup)` 排序工具 + `_etfSortLabel()` 中文标签
+  - `_renderEtfScoreBody()` 重构:sideFilter=all 三区(持仓->买入->卖出/持有观察),sideFilter!=all 单区(统一 50/页)。sellHold 排序保留 sell 先 hold 后分组(keepSideGroup=true)
+  - `renderEtfScore()` 搜索栏加 chip 组 + 排序下拉,绑定事件 + localStorage 记忆
+- `static-site/style.css`:`.etf-side-chips`/`.etf-side-chip`/`.etf-chip-buy|sell|hold`/`.etf-score-sort` 样式,三主题(light/dark/redgold)适配
+
+**验证**:
+- `node --check static-site/app.js` 语法 OK
+- build_min:app.js 627849B->357617B(-43.0%), style.css 204421B->155122B(-24.1%)
+- bump_asset_version:app.min.js?v=99cfaba0, style.min.css?v=1dd3a314
+- 线上 curl 验证(见下)
+
+**commit**:(本次 commit hash 待 push 后填)
+

@@ -4091,6 +4091,44 @@ main { padding: 16px 24px; }
 [data-theme="redgold"] .etf-hold-filter.active { background: #fbbf24; color: #1f2329; border-color: #fbbf24; }
 .etf-hold-filter:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* side 筛选 chip 组(全部/买入/卖出/持有, 2026-07-25 加, 买入机会首屏可见) */
+.etf-side-chips {
+  display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 3px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 10px; background: var(--bg-2, var(--bg-card));
+}
+.etf-side-chip {
+  padding: 5px 12px; border: none; border-radius: 8px;
+  background: transparent; color: var(--text-2);
+  font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  font-variant-numeric: tabular-nums;
+}
+.etf-side-chip:hover:not(.active) { background: var(--bg-card); color: var(--text-1); }
+.etf-side-chip.active { background: var(--bg-card); color: var(--text-1); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+/* buy chip 激活态淡红(买入色系) */
+.etf-side-chip.etf-chip-buy.active { color: #a05050; }
+[data-theme="dark"] .etf-side-chip.etf-chip-buy.active,
+[data-theme="redgold"] .etf-side-chip.etf-chip-buy.active { color: #e8b0b0; }
+/* sell chip 激活态灰蓝 */
+.etf-side-chip.etf-chip-sell.active { color: #5a7a8a; }
+[data-theme="dark"] .etf-side-chip.etf-chip-sell.active,
+[data-theme="redgold"] .etf-side-chip.etf-chip-sell.active { color: #a8c8d4; }
+/* hold chip 激活态金黄 */
+.etf-side-chip.etf-chip-hold.active { color: #b8860b; }
+[data-theme="dark"] .etf-side-chip.etf-chip-hold.active,
+[data-theme="redgold"] .etf-side-chip.etf-chip-hold.active { color: #e8b870; }
+
+/* 排序下拉(在搜索栏内) */
+.etf-score-sort {
+  padding: 7px 10px; border: 1px solid var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-2);
+  font-size: 13px; cursor: pointer; outline: none;
+  font-variant-numeric: tabular-nums;
+}
+.etf-score-sort:focus { border-color: var(--primary); }
+.etf-score-sort:hover { border-color: var(--primary); color: var(--primary); }
+
 /* 持仓面板（可折叠） */
 #etf-holdings-panel {
   margin: 8px 0 4px; padding: 0 4px;
