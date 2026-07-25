@@ -488,11 +488,39 @@ def overview(conn, cfg):
                     continue  # 实际已有数据，跳过陈旧误报
             _filtered.append(_r)
         if _filtered:
-            collect_health["level"] = "error" if any(r["status"] == "error" for r in _filtered) else "warn"
-            collect_health["items"] = [
-                {"metric_id": r["metric_id"], "status": r["status"], "message": r["message"]}
-                for r in _filtered
-            ]
+            # 持续故障降级：同一 metric_id+message 在最近 N 个采集日都报 error，
+            # 降级为 warn（黄点），message 加"[持续X天 已知故障]"前缀。
+            # 避免红点常亮困扰用户，真新故障（<N天）仍红点报。
+            _N_DEGRADE = 3
+            _recent_dates = [r["run_date"] for r in conn.execute(
+                "SELECT DISTINCT run_date FROM collect_log ORDER BY run_date DESC LIMIT ?",
+                (_N_DEGRADE,)
+            ).fetchall()]
+            _degraded_items = []
+            for r in _filtered:
+                _msg = r["message"] or ""
+                _cnt = 0
+                if _recent_dates and r["metric_id"]:
+                    _ph = ",".join("?" * len(_recent_dates))
+                    _cnt = conn.execute(
+                        f"SELECT COUNT(DISTINCT run_date) FROM collect_log "
+                        f"WHERE metric_id=? AND message=? AND status!=? AND run_date IN ({_ph})",
+                        (r["metric_id"], _msg, "ok", *_recent_dates)
+                    ).fetchone()[0]
+                if _cnt >= _N_DEGRADE and r["status"] == "error":
+                    _degraded_items.append({
+                        "metric_id": r["metric_id"],
+                        "status": "warn",
+                        "message": f"[持续{_cnt}天 已知故障] {_msg}",
+                    })
+                else:
+                    _degraded_items.append({
+                        "metric_id": r["metric_id"],
+                        "status": r["status"],
+                        "message": _msg,
+                    })
+            collect_health["level"] = "error" if any(it["status"] == "error" for it in _degraded_items) else "warn"
+            collect_health["items"] = _degraded_items
 
     # 行业热力图：盘中时用快照行业覆盖（P2-B，含 net_inflow/lead_stock），收盘后用 DB（P0-A 已修 SQL）
     heatmap = industry_heatmap(conn, cfg)
