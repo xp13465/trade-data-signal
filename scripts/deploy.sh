@@ -56,6 +56,15 @@ git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
 git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz 2>/dev/null && \
   git -C "$GIT_REPO" reset HEAD -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz 2>/dev/null || true
 
+# 0.8 刷新 board_etf_map.json（P2-新-G ETF 联动 tag 数据源：行业/概念关键词匹配
+# + 10 宽基/红利指数代码精确匹配，akshare fund_etf_spot_em() 联网 ~15s）。
+# 根因修复（2026-07-25）：build_board_etf_map.py 原不在 pipeline，data/board_etf_map.json
+# 滞后致 export.py 生成 index/*-all.json etfs 字段为空，前端 ETF 联动 tag 不渲染。
+# 失败不阻塞（akshare 反爬/周末时 ETF tag 暂用旧 map，下次 deploy 再刷新）。
+echo "-> 刷新 board_etf_map.json (ETF 联动 tag 数据源) ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/build_board_etf_map.py" >> "$LOG" 2>&1 || \
+  echo "⚠ build_board_etf_map.py 失败(akshare 反爬/网络?)，继续用旧 map（ETF tag 可能滞后）" | tee -a "$LOG"
+
 # 1. 导出 JSON
 echo "→ 运行 export.py 生成静态 JSON ..." | tee -a "$LOG"
 "$PY" "$EXPORT" 2>&1 | tee -a "$LOG"
