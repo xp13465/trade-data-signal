@@ -2710,3 +2710,40 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 **闭环**:P2-新-G ETF联动tag功能完整工作(代码上线+数据刷新+根因修复deploy.sh自动刷+bj50错误修正+EXCLUDE防御加强)。index/ R2 托管机制记录(gitignored,upload_r2 upload-index 部署,前端从 ssd.fx8.store 读)。
 
 **教训**:①`git branch --contains` 返回空 ≠ 漏上线,查 cherry-pick 新 hash ②生成数据脚本不在 update_all/deploy 流程 = 数据滞后隐患(deploy.sh step 0.8 根治)③ETF 代码复用(跨境ETF占用原国内ETF代码)需 name 跨境检查防御,代码精确匹配优先于关键词排除的漏洞 ④index/ 是 R2 托管 + gitignored,部署走 upload_r2 非 git add
+
+### 小节AZ23：2026-07-25 12:30 csi_div ETF映射修正 + rzhb/etf新时点排查 + 信号拟合度调研
+
+三项工作落档(用户已验收坐实)。项1 已上线 commit c4613e21;项2 plist 已生效今晚首次触发待验证;项3 调研结论待用户决策是否改进。
+
+**项1：csi_div ETF 映射修正**(commit `c4613e21`,origin/main fast-forward f6432266..c4613e21 非force push)
+- 文件:`scripts/build_board_etf_map.py` L114
+- 原:`"csi_div": ["515080", "515100", "515090"]` -> 改:`"csi_div": ["515080"]`
+- 原因:515100 红利低波100ETF景顺跟踪中证红利低波动100(非中证红利,跨基映射错);515090 可持续发展ETF博时跟踪中证可持续发展+成交额93万死流动性
+- 顺带复核:div_lowvol(512890 红利低波ETF华泰柏瑞跟踪中证红利低波动✓正确不动)/ sz_div(159905 红利ETF工银跟踪深证红利✓正确不动)/ 515450 标普非中证正确未加 / 481012 akshare无记录忽略
+- 线上验证:ssd.fx8.store/index/csi_div-all.json etfs 只剩 515080(R2 186/186上传成功)
+- 引入时点:commit `61be8e72`(07-23)加 INDEX_ETF_MAP 时引入,bj50 修复(`38eb8741`)未顺带复核其他红利指数(本次补复核)
+- deploy.sh 自动产生的 data update commit `f6432266` 含新 L114 重新生成的 index/*-all.json
+
+**项2：rzhb/etf 新时点排查**(plist已生效,今晚首次触发)
+- rzhb-backfill plist:`{Hour:19, Minute:15}`(改自23:00,07-24 23:12改,launchctl loaded确认,今晚19:15首次触发)
+- etf-national-team plist:array `{20:7}`(主槽)+`{21:30}`(兜底槽)(07-24 22:56重载,commit `56770911`,今晚20:07+21:30重载后首次触发,runs=0)
+- launchctl list:rzhb/etf 均 loaded,LastExitStatus=0
+- etf exit=None根因:07-24 20:07 collector 并发采1374只ETF撞 libmini_racer FATAL(address_pool_manager.cc(67) Check failed),python被SIGTRAP(signal 5)杀退出码133;旧版 backfill.sh collector crash时不写 fallback DONE 行,gen_schedule_stats parse_etf_nt pending_start->exit=None;连锁 deploy.sh 也失败(non-fast-forward+rebase撞 unstaged changes)
+- 已修复:commit `afd9b5a8`(07-25 05:23)加 FINAL_RC 综合退出码+fallback DONE 行,今晚若再crash记真实exit=133不再 None
+- 周六说明:IS_TRADING=0,launchd会触发19:15/20:07/21:30但脚本内交易日闸门跳过采集 exit 0,触发即验证 plist 生效,跳过不算漏跑,真正采数据看周一07-27
+
+**项3：信号拟合度调研结论**(中偏高/过拟合嫌疑中高,纯调研无 commit)
+- 拟合度:中偏高(核心信号 C1/B1/D1/Supertrend/Donchian/MACD/Bollinger 用业界标准参数稳健低嫌疑;叠加 per-index 调参+多轮迭代+小样本拉高)
+- 过拟合嫌疑中高分级:
+  - **高嫌疑**:sh C1|D1a(上证专属5阈值)/h5 R2四条件/国债波段 cgb_idx 夏普3.58>3进可疑区/hands v5 六维4档/sw_801110 per-index
+  - **中嫌疑**:alert_score H/L 权重基于2021/2024顶部拟合(120日滚动百分位有缓冲)
+  - **低嫌疑**:C1/B1/D1/标准指标业界标准参数
+  - **小样本**:kc50 22笔/us_spx 13笔/hstech 20笔/div_lowvol 30笔(<30无统计意义)
+- 最大过拟合源:生产 signals.py 全样本调参,无 train/test split/walk-forward(grep 确认0命中),只有 lab 候选信号做样本外(70/30)
+- 是否公布:lab 页面已公布样本外 tab/过拟合度公式 overfit=|train_ret-test_ret|(lab.js L3932)/OOS综合分/参数敏感扫描(7策略)/5窗口交叉验证/免责声明;**未公布**:生产 signals.py per-index 调参细节/alert_score 权重拟合依据/国债夏普3.58/hands v5 回测/整体拟合度综合评分(无)/trade_sim 无 sharpe 字段
+- 参考标准:夏普>1可用/>2优秀/>3可疑过拟合/>5必过拟合(cgb_idx 3.58触发);参数数<样本量1/10(Bailey 2014);样本<30笔无统计意义;胜率>80%+盈亏比>3几乎必过拟合(div_lowvol PL5.35/sz PL5.98需警惕);PBO≥50%严重过拟合/PSR≥95%夏普可信(López de Prado)
+- 建议(若改进):生产 signals.py 引入 walk-forward/per-index 调参收敛为通用规则+1-2个 regime 参数/trade_sim 加 sharpe 字段>3标红/小样本<30笔前端标注仅供参考不进三档 chip/过拟合度分级<5%绿5-15%黄>15%红
+
+**闭环**:csi_div 已修正上线 origin/main;rzhb/etf 新时点 plist 已生效今晚19:15/20:07/21:30 首次触发(周六交易日闸门跳过,周一07-27 真采验证),exit=None 根因 FINAL_RC 已修复待今晚验证;信号拟合度调研结论已记(中偏高/过拟合嫌疑中高),待用户决策是否改进(生产 signals.py 引入 walk-forward / trade_sim 加 sharpe 字段 / 小样本标注)。
+
+**教训**:①ETF 映射加 INDEX_ETF_MAP 后需全指数复核(bj50 修复未顺带复核 csi_div/div_lowvol,红利指数跨基映射易错,本次补复核 csi_div 修正)②launchd 新时点首次触发前 crash 不写 fallback DONE 行致 exit=None 假象,FINAL_RC 综合退出码+fallback 行根治(afd9b5a8)③生产 signals.py 无 walk-forward 是最大过拟合源(grep 0 命中坐实),小样本<30笔无统计意义需前端标注,夏普>3 触发可疑过拟合红线(cgb_idx 3.58)

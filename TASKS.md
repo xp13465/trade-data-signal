@@ -648,3 +648,21 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余）/ A6 PWA(P2-新-C) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身 / 国债波段策略待 15:35 deploy 上线验证
 
 **教训**：glm-5.2 安全分类器时好时坏（A12 派发两次失败，cron 5 分钟后重试成功）；migration 调研 agent 卡死（jsonl mtime 27 分钟没动），基于进度文件方案 A + 用户确认直接派实施不重派调研；A12 cron 07:14 触发和 etf 优化 agent 撞 app.js（14ce6355 etf 优化 -> c703a584 A12 前端基于 etf 版叠加，两者共存）
+
+## ✅ 2026-07-25 续12 闭环（csi_div ETF映射修正 + rzhb/etf新时点排查 + 信号拟合度调研）
+
+> 7-25 三项工作落档。详见 `NOTES.md §48 小节AZ23`。项1 已上线,项2 plist 今晚首次触发待验证,项3 调研结论待用户决策是否改进。
+
+1. ✅ **csi_div ETF 映射修正**（commit `c4613e21`，origin/main fast-forward f6432266..c4613e21 非force push）：`scripts/build_board_etf_map.py` L114 `"csi_div": ["515080","515100","515090"]` -> `["515080"]`。原因:515100 红利低波100ETF景顺跟踪中证红利低波动100(非中证红利跨基映射错);515090 可持续发展ETF博时+成交额93万死流动性。顺带复核 div_lowvol/sz_div/515450/481012 均正确不动。线上 ssd.fx8.store/index/csi_div-all.json etfs 只剩 515080(R2 186/186)。引入时点 `61be8e72`(07-23)加 INDEX_ETF_MAP,bj50 修复 `38eb8741` 未顺带复核其他红利指数本次补。deploy.sh 自动 data update commit `f6432266` 含新 L114 重新生成的 index/*-all.json
+2. ⏳ **rzhb/etf 新时点排查**（plist已生效,今晚首次触发,周六交易日闸门跳过,周一07-27真采验证）：rzhb-backfill plist `{19:15}`(改自23:00,07-24 23:12改 launchctl loaded确认);etf-national-team plist array `{20:7}`主槽+`{21:30}`兜底槽(07-24 22:56重载 commit `56770911` runs=0);launchctl list rzhb/etf 均 loaded LastExitStatus=0。etf exit=None 根因:07-24 20:07 collector 并发采1374只ETF撞 libmini_racer FATAL(address_pool_manager.cc(67) Check failed) python被SIGTRAP(signal 5)杀退出码133,旧版 backfill.sh collector crash 不写 fallback DONE 行 -> gen_schedule_stats parse_etf_nt pending_start -> exit=None,连锁 deploy.sh 也失败(non-fast-forward+rebase撞 unstaged changes)。已修复 commit `afd9b5a8`(07-25 05:23)加 FINAL_RC 综合退出码+fallback DONE 行,今晚若再crash记真实 exit=133 不再 None
+3. ✅ **信号拟合度调研结论**（纯调研无 commit,中偏高/过拟合嫌疑中高,待用户决策是否改进）：
+   - **拟合度中偏高**:核心信号 C1/B1/D1/Supertrend/Donchian/MACD/Bollinger 用业界标准参数稳健低嫌疑,叠加 per-index 调参+多轮迭代+小样本拉高
+   - **过拟合嫌疑中高分级**:高嫌疑(sh C1|D1a 上证专属5阈值 / h5 R2四条件 / 国债波段 cgb_idx 夏普3.58>3进可疑区 / hands v5 六维4档 / sw_801110 per-index);中嫌疑(alert_score H/L 权重基于2021/2024顶部拟合 120日滚动百分位有缓冲);低嫌疑(C1/B1/D1/标准指标业界标准参数);小样本(kc50 22笔 / us_spx 13笔 / hstech 20笔 / div_lowvol 30笔 <30无统计意义)
+   - **最大过拟合源**:生产 signals.py 全样本调参无 train/test split/walk-forward(grep 0 命中坐实),只有 lab 候选信号做样本外(70/30)
+   - **是否公布**:lab 已公布样本外 tab/过拟合度公式 overfit=|train_ret-test_ret|(lab.js L3932)/OOS综合分/参数敏感扫描(7策略)/5窗口交叉验证/免责声明;**未公布**生产 signals.py per-index 调参细节 / alert_score 权重拟合依据 / 国债夏普3.58 / hands v5 回测 / 整体拟合度综合评分(无) / trade_sim 无 sharpe 字段
+   - **参考标准**:夏普>1可用/>2优秀/>3可疑过拟合/>5必过拟合(cgb_idx 3.58触发);参数数<样本量1/10(Bailey 2014);样本<30笔无统计意义;胜率>80%+盈亏比>3几乎必过拟合(div_lowvol PL5.35/sz PL5.98需警惕);PBO≥50%严重过拟合/PSR≥95%夏普可信(López de Prado)
+   - **建议(若改进)**:生产 signals.py 引入 walk-forward / per-index 调参收敛为通用规则+1-2个 regime 参数 / trade_sim 加 sharpe 字段>3标红 / 小样本<30笔前端标注仅供参考不进三档 chip / 过拟合度分级<5%绿 5-15%黄 >15%红
+
+**未完成项保留**：rzhb/etf 新时点今晚19:15/20:07/21:30 首次触发待验证(周六交易日闸门跳过周一07-27真采) / 信号拟合度改进建议待用户决策是否实施 / B4 全市场485扩采集+OHLC 已完成(2026-07-25 AZ20)/ A6 PWA 已完成(AZ20)/ A14 echarts拆core / A15 拆chunk / C1 industry瘦身
+
+**教训**：①ETF 映射加 INDEX_ETF_MAP 后需全指数复核(bj50 修复未顺带复核 csi_div/div_lowvol 红利指数跨基映射易错,本次补复核 csi_div 修正)②launchd 新时点首次触发前 crash 不写 fallback DONE 行致 exit=None 假象,FINAL_RC 综合退出码+fallback 行根治(afd9b5a8)③生产 signals.py 无 walk-forward 是最大过拟合源(grep 0 命中坐实),小样本<30笔无统计意义需前端标注,夏普>3 触发可疑过拟合红线(cgb_idx 3.58)
