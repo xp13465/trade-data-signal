@@ -2853,3 +2853,58 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 1. walk-forward的WFE解读需结合信号语义:止损卖forward return为负正常(止损生效),正夏普=止损失败
 2. 网格搜索WFE(滚动调参)≠固定参数WFE(生产参数),action-plan把两者混为一谈致误判
 3. 验证脚本需固定参数跑walk-forward,反映生产参数(不调参)的真实WFE
+
+### 小节AZ27：2026-07-25 15:00 情况C P1选项A实施(去sh D1a共振补刀)+P2 hands v5锁参文档
+
+**背景**:基于 docs/walk-forward-c-report.md §3 诊断,sh C1|D1a 过拟合确凿(固定参数 WFE=0.336<50%,WF夏普0.773<未过滤全样本1.226 测试段反向退化,元凶 dist_from_low60_d1a CV=146% 各段0.015/0.25乱跳)。实施 P1选项A(去D1a保留C1主体)+ P2(hands v5锁参文档)。
+
+**项1: signals.py P1选项A(app/compute/signals.py)**
+- L1185-1190 peak_dd_filter_mask 删 D1a 共振补刀子句(atr_pct∈[1.8%,2.5%) AND dist_from_low60>15% AND dev_ma60>1.05),保留 C1 主体2阈值(atr_pct>=2.5% OR dist_from_high>=15%)
+- L1178-1184 注释更新:说明去D1a原因(WF诊断WFE0.336过拟合,元凶CV146%)
+- L661-671 strategy_desc() buy_special_filter_text 更新:去D1a描述,改为单C1主体+去D1a原因
+- git diff: 17 insertions 15 deletions, 仅改 if iid=="sh": 分支, 其他9指数走L1176方案B不变
+
+**项2: WF验证结果(/tmp/wf_signal_c.py 加 WF_C1_ONLY 开关)**
+- 改前(C1|D1a): WF夏普0.773 WFE0.336(过拟合) filt_full_sharpe2.299 ret20 4.52% 滤率35.4% (与报告一致)
+- 改后(C1-only): WF夏普1.602(远超预估>0.9-1.0) WFE1.138(🟢稳健,远超预估>0.6) filt_full_sharpe1.408 ret20 6.38%(反升) 滤率21.5%
+- 网格搜索: WF夏普0.182->0.978 WFE0.071(过拟合)->0.608(🟡可接受)
+- sh buy_special: 502->612(+110,+21.9%,与预估+109一致)
+- 全部达标: WF夏普>0.9 ✅ ret20不退化(4.52%->6.38%) ✅ mdd无退化(trade_sim仓位限制无差异) ✅
+- WF远超预估原因: D1a元凶dist_from_low60_d1a CV146%对测试段毒害极大,去除后测试段恢复显著
+
+**项3: trade_sim对比(scripts/simulate_trade.py)**
+- 改前/改后 trade_sim 数字完全一致(路径A全历史: 年化5.6% mdd7.07% buy=197 sell=26)
+- 原因: simulate_trade.py受 MAX_POSITIONS=10 限制, 新增110信号都在满仓时被skipped_full跳过,未改变实际交易
+- 结论: trade_sim口径(受仓位限制)无法体现C1-only vs C1|D1a差异,需用WF夏普(forward return based,不受仓位限制)对比
+
+**项4: P2锁参文档(docs/hands-v5-param-lock.md)**
+- 7章+ETF调权变体+sh C1主体锁定确认
+- 锁定 alert_score.py _compute_hands_multi_dim 26参数(6维度权重/4档阈值/8维HIGH/8维LOW)+5维度子档位
+- 禁止调参清单+长期减参方向(16维->8维按4类合并+regime-based)
+- 同节确认 sh C1主体2阈值锁定不动,禁止恢复D1a
+
+**项5: 上线**
+- commit 3255e30f: signals.py改+4 docs(hands-v5-param-lock + walk-forward-c-action-plan/report/impact-report)
+- push feat/iframe-theme-follow: b24b13e6..3255e30f
+- merge feat to main(reset main to origin/main first, --no-ff merge): 0f2776ce
+- push main: b24b13e6..0f2776ce
+- deploy.sh(从trade-data跑REPO=trade-data读最新DB): export.py 272 JSON + rsync trade-data->trade + git push cb440559
+- 线上验证: ss.fx8.store HTTP 200 + overview.json 200 + sss.sugas.site 200, origin/main含情况Ccommit ✅
+
+**项6: trade_sim JSON R2上传失败(已知问题,不影响上线)**
+- upload-trade-sim-json 失败("无 trade_sim json: trade-data/static-site/data/trade_sim")
+- 原因: 从trade-data跑deploy.sh,upload_r2.py找trade-data/static-site/data/trade_sim,但trade_sim JSON在trade/static-site/data/trade_sim(simulate_trade.py从trade/跑生成)
+- memory r2-upload-from-trade: R2上传trade_sim只在trade/不设REPO从trade跑
+- 影响: trade_sim JSON未上R2,但数字改前改后一样(仓位限制),线上旧版数字正确,不影响用户感知
+- 后续: 需从trade/跑upload_r2.py upload-trade-sim-json修复(独立问题)
+
+**关键发现**:
+1. WF夏普远超预估(1.602 >> 预估0.9-1.0):D1a元凶CV146%对测试段毒害极大,去除后测试段恢复显著,样本内夏普下降(2.299->1.408)是去除过拟合的必要代价
+2. trade_sim受MAX_POSITIONS限制无法体现信号数差异:新增110信号都在满仓时被跳过,equity_curve不变,需用WF夏普(forward return based)对比
+3. wf_signal_c.py加WF_C1_ONLY开关:原诊断(C1|D1a)和改后验证(C1-only)用同一脚本,网格搜索C1-only只调2阈值
+4. ret20反升(+1.86pp):D1a误杀的好信号恢复,是正向收益,与预估6.29%一致(实际6.38%)
+
+**教训**:
+1. 过拟合参数对测试段毒害可能远超预估:去D1a后WF夏普从0.773跳到1.602(+107%),说明D1a不仅"无效"而是"反向有害"(测试段滤掉好信号)
+2. trade_sim口径(equity_curve based)与WF口径(forward return based)互补:trade_sim受仓位限制无法体现信号数差异,WF不受限制能体现;两者都跑才能全面评估
+3. deploy.sh从trade-data跑时R2上传路径会错:upload_r2.py用REPO路径找文件,trade-data/static-site/data/trade_sim不存在(simulate_trade.py输出到trade/),需从trade/跑R2上传
