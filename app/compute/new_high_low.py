@@ -8,6 +8,7 @@
 import json
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 
 from ..db import get_conn
@@ -47,6 +48,8 @@ def compute_new_highs_lows(date: str | None = None) -> dict:
 
     df = pd.DataFrame(rows, columns=["date", "index_id", "close"])
     pivoted = df.pivot(index="date", columns="index_id", values="close")
+    # reindex 到 INDICES 顺序(保持 details 顺序一致;缺失指数列全 NaN,close NaN 跳过等效原 get 返回 NaN)
+    pivoted = pivoted.reindex(columns=INDICES)
 
     # 计算滚动 N 日最高/最低
     rolling_high_52w = pivoted.rolling(WINDOW_52W, min_periods=20).max().shift(1)
@@ -54,63 +57,59 @@ def compute_new_highs_lows(date: str | None = None) -> dict:
     rolling_high_20d = pivoted.rolling(WINDOW_20D, min_periods=5).max().shift(1)
     rolling_low_20d = pivoted.rolling(WINDOW_20D, min_periods=5).min().shift(1)
 
+    # 向量化比较(替代逐日逐指数 .loc 循环,P1-1 AZ29)
+    # close NaN->False, rolling NaN->False,等价原 pd.isna 检查 + 跳过
+    nh_52w_bool = (pivoted > rolling_high_52w)
+    nl_52w_bool = (pivoted < rolling_low_52w)
+    nh_20d_bool = (pivoted > rolling_high_20d)
+    nl_20d_bool = (pivoted < rolling_low_20d)
+
+    # count: sum(axis=1) 向量化(等价原逐指数累加)
+    nh_52w_count = nh_52w_bool.sum(axis=1).values
+    nl_52w_count = nl_52w_bool.sum(axis=1).values
+    nh_20d_count = nh_20d_bool.sum(axis=1).values
+    nl_20d_count = nl_20d_bool.sum(axis=1).values
+
+    # details:values.tolist() + list comp(替代逐日逐指数 append)
+    close_arr = pivoted.values
+    nh_52w_arr = nh_52w_bool.values
+    nl_52w_arr = nl_52w_bool.values
+    nh_20d_arr = nh_20d_bool.values
+    nl_20d_arr = nl_20d_bool.values
+
+    dates = pivoted.index
+    names = [INDEX_NAMES.get(iid, iid) for iid in INDICES]
+    n_indices = len(INDICES)
+
     results = []
-    for date_idx in pivoted.index:
-        d = date_idx
-        close_row = pivoted.loc[d]
-        nh_52w_count = 0
-        nl_52w_count = 0
-        nh_20d_count = 0
-        nl_20d_count = 0
-        details = []
-
-        for iid in INDICES:
-            close_val = close_row.get(iid)
-            if pd.isna(close_val):
-                continue
-
-            is_nh_52w = False
-            is_nl_52w = False
-            is_nh_20d = False
-            is_nl_20d = False
-
-            if d in rolling_high_52w.index:
-                prev_high_52w = rolling_high_52w.loc[d, iid]
-                prev_low_52w = rolling_low_52w.loc[d, iid]
-                if not pd.isna(prev_high_52w) and close_val > prev_high_52w:
-                    is_nh_52w = True
-                    nh_52w_count += 1
-                if not pd.isna(prev_low_52w) and close_val < prev_low_52w:
-                    is_nl_52w = True
-                    nl_52w_count += 1
-
-            if d in rolling_high_20d.index:
-                prev_high_20d = rolling_high_20d.loc[d, iid]
-                prev_low_20d = rolling_low_20d.loc[d, iid]
-                if not pd.isna(prev_high_20d) and close_val > prev_high_20d:
-                    is_nh_20d = True
-                    nh_20d_count += 1
-                if not pd.isna(prev_low_20d) and close_val < prev_low_20d:
-                    is_nl_20d = True
-                    nl_20d_count += 1
-
-            details.append({
-                "index_id": iid,
-                "name": INDEX_NAMES.get(iid, iid),
-                "close": round(float(close_val), 2),
-                "nh_52w": is_nh_52w,
-                "nl_52w": is_nl_52w,
-                "nh_20d": is_nh_20d,
-                "nl_20d": is_nl_20d,
-            })
-
+    for i in range(len(dates)):
+        d = dates[i]
+        close_row = close_arr[i]
+        nh_52w_row = nh_52w_arr[i]
+        nl_52w_row = nl_52w_arr[i]
+        nh_20d_row = nh_20d_arr[i]
+        nl_20d_row = nl_20d_arr[i]
+        # list comp 构造 details(close NaN 跳过,等价原 continue)
+        details = [
+            {
+                "index_id": INDICES[j],
+                "name": names[j],
+                "close": round(float(close_row[j]), 2),  # Python round 保证与原一致
+                "nh_52w": bool(nh_52w_row[j]),
+                "nl_52w": bool(nl_52w_row[j]),
+                "nh_20d": bool(nh_20d_row[j]),
+                "nl_20d": bool(nl_20d_row[j]),
+            }
+            for j in range(n_indices)
+            if not np.isnan(close_row[j])
+        ]
         results.append({
             "date": d,
-            "nh_52w": nh_52w_count,
-            "nl_52w": nl_52w_count,
-            "nhnl_52w": nh_52w_count - nl_52w_count,
-            "nh_20d": nh_20d_count,
-            "nl_20d": nl_20d_count,
+            "nh_52w": int(nh_52w_count[i]),
+            "nl_52w": int(nl_52w_count[i]),
+            "nhnl_52w": int(nh_52w_count[i] - nl_52w_count[i]),
+            "nh_20d": int(nh_20d_count[i]),
+            "nl_20d": int(nl_20d_count[i]),
             "details": details,
         })
 

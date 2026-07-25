@@ -3016,3 +3016,50 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 - daily_summary_email.py 读 trade-data 侧最新 summary_history.json（deploy 生成产物）
 - add_baidu_push.py 保留 .resolve()（一次性工具无 bug，改了也无害但无必要）
 - AZ28 待办闭环：7 处 -> 6 处已处置（5 改 1 保留）+ upload_r2.py AZ29 处置
+
+### 小节AZ31：2026-07-25 P1-1 方案A 向量化 ma_alignment/new_high_low/cross（11.871s->6.100s 省49%）
+
+**背景**：perf-p1-plan.md 调研发现 runner.py 13步串行 compute 11.689s，新瓶颈 ma_alignment 3.876s（逐日 .get 循环）/new_high_low 1.534s（双重循环）/cross 1.881s（df.apply trim_mean 逐行）。延续 signals 向量化成功路径（AZ12 455ca51c 19.6s->2.7s），对 3 模块向量化。
+
+**改动**（3 文件）：
+1. `app/compute/ma_alignment.py` L46-88 逐日 .get 循环 -> numpy MA + Python round + sort+numpy 分组
+   - rolling.mean().values 向量化（原 .get 16万次慢）
+   - **Python round 逐元素**：np.round 边界值 118.175 与 Python round 有差异（np.round->118.18 Python->118.17，因 118.175 浮点存为 118.1749999...，Python round 基于实际值向下，np.round 用 C rint 基于十进制 banker's rounding）
+   - **groupby 改 sort+numpy 分组**：原 groupby 逐组 to_dict 8630次 4.7s 瓶颈 -> values.tolist 1.2s 仍慢 -> sort+numpy 分组边界+一次 values.tolist 0.2s
+   - 3.944s -> 0.227s 省94%
+2. `app/compute/new_high_low.py` L58-115 双重循环 -> pivoted>rolling 向量化 + sum(axis=1) + list comp
+   - reindex(columns=INDICES) 保持 details 顺序（缺失指数列全 NaN 等效原 get 返回 NaN 跳过）
+   - (pivoted > rolling_high) 向量化比较（close NaN->False 等价原 pd.isna 跳过）
+   - sum(axis=1) 向量化 count；list comp 构造 details
+   - 1.560s -> 0.132s 省92%
+3. `app/compute/cross.py` L46-52 df.apply trim_mean 逐行 -> numpy sort+mask 向量化
+   - np.sort 升序（NaN 放最后）+ mask_keep（1<=j<n_valid-1 去首尾）+ sum/count
+   - n_valid<3 返回 nan（等价原 pd.NA）
+   - 1.896s -> 1.487s 省22%（**trim_mean 已优化到位**，剩余 1.4s 是 normalized 循环 40次 load_config/yaml 不在本次范围；perf-p1-plan.md 预期 1.5s 是误判假设 cross.compute() 全是 trim_mean，实际 trim_mean 只占 ~0.4s，cProfile 确认向量化后不在 top12）
+
+**正确性验证**（STRICT MATCH，改前改后 100% 一致）：
+- ma_alignment：8630/8630 days 一致（alignment + ma5/10/20/60 值 + bullish/bearish/cross count + details）
+- new_high_low：8689/8689 days 一致（nh/nl count + details close + bool flags）
+- cross：7893/7893 dates 一致（score_series + components_df）
+- 验证方法：改前 dump golden baseline JSON（/tmp/p1-baseline-*.json），改后 dump 对比（/tmp/p1-verify-*.py），逐元素深度对比
+
+**端到端基准**（13步串行 compute，不含 store，cwd=trade-data，python=trade/.venv/bin/python）：
+
+| 步骤 | 改前 | 改后 | 省 |
+|---|---|---|---|
+| 3.cross | 1.896s | 1.487s | 0.41s |
+| 5.signals | 2.789s | 2.709s | -（已优化 AZ12） |
+| 11.new_high_low | 1.560s | 0.132s | 1.43s |
+| 12.ma_alignment | 3.944s | 0.227s | 3.72s |
+| **13步总计** | **11.871s** | **6.100s** | **5.77s（49%）** |
+
+达成 ~6s 目标。新瓶颈：signals 2.709s（依赖链，已优化 AZ12）+ cross 1.487s（normalized 循环，非 trim_mean）+ signal_stats 0.715s。
+
+**关键教训**：
+1. **np.round vs Python round**：浮点边界值（如 118.175）有差异。np.round 用 C rint（round half to even 基于十进制），Python round 基于浮点实际值（118.1749999...->118.17）。向量化 round 必须验证，必要时用 Python round 逐元素（7万次 list comp 0.02s 可接受，比 np.round 慢但保证一致）
+2. **pandas to_dict("records") 慢**：8630 次 4.7s（内部 itertuples + 类型转换）。values.tolist() + list comp 替代，但 groupby 逐组 values.tolist 仍慢（8630 次 pandas 切片 sanitize_array/_interleave 开销）。最终用 sort + numpy 分组边界 + 一次 values.tolist（0.2s）
+3. **perf-p1-plan.md 预期 cross 1.5s 省时是误判**：cross.compute() 含 normalized 循环（40次 load_config/yaml ~1.4s），trim_mean 只占 ~0.4s。cProfile 确认 trim_mean 向量化后不在 top12。预期应基于实际 profile 非"总耗时即目标模块耗时"
+
+**验证脚本**：/tmp/p1-baseline.py + /tmp/p1-verify-{ma_alignment,new_high_low,cross}.py（golden baseline 对比）
+**基准脚本**：/tmp/bench-runner.py（13步计时）
+**调研文档**：docs/perf-p1-plan.md（P1-1/P1-2 性能调研报告）

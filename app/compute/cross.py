@@ -2,6 +2,7 @@
 import json
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 
 from .normalize import normalized
@@ -43,13 +44,23 @@ def compute():
         return pd.Series(dtype=float), pd.DataFrame()
     df = pd.DataFrame(series)
 
-    def trim_mean(row):
-        vals = row.dropna()
-        if len(vals) < 3:
-            return pd.NA
-        return vals.sort_values().iloc[1:-1].mean()
-
-    score = df.apply(trim_mean, axis=1)
+    # 向量化 trim_mean(替代 df.apply trim_mean 逐行,P1-1 AZ29)
+    # 原逻辑:dropna -> sort 升序 -> iloc[1:-1] 去最高最低 -> mean;有效值<3 返回 NA
+    # 向量化:np.sort 升序(NaN 放最后)+ mask 去首尾 + sum/count
+    vals = df.values
+    n_valid = (~np.isnan(vals)).sum(axis=1)
+    sorted_vals = np.sort(vals, axis=1)  # 升序,NaN 放最后
+    n_cols = vals.shape[1]
+    j_idx = np.arange(n_cols)
+    # mask_keep: 1 <= j < n_valid-1(有效值中去首尾;等价原 iloc[1:-1])
+    mask_keep = (j_idx[None, :] >= 1) & (j_idx[None, :] < (n_valid - 1)[:, None])
+    keep_sum = np.where(mask_keep, sorted_vals, 0.0).sum(axis=1)
+    keep_count = mask_keep.sum(axis=1)
+    # n_valid<3 时 keep_count=0,返回 nan(等价原 pd.NA)
+    score_arr = np.full(len(df), np.nan)
+    valid_rows = keep_count > 0
+    score_arr[valid_rows] = keep_sum[valid_rows] / keep_count[valid_rows]
+    score = pd.Series(score_arr, index=df.index)
 
     # 按分组聚合归一化均值（组成因子：展示各市场维度冷热）
     group_cols = {}

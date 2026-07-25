@@ -10,6 +10,7 @@
 import json
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 
 from ..db import get_conn
@@ -52,39 +53,42 @@ def compute_ma_alignment(date: str | None = None) -> dict:
         if len(series) < max(MA_PERIODS):
             continue
 
-        ma = {}
-        for p in MA_PERIODS:
-            ma[p] = series.rolling(p, min_periods=p).mean()
+        # 向量化 MA 计算(替代逐日 .get 循环,P1-1 AZ29)
+        # rolling.mean() 已向量化,取 .values 后用 numpy 索引替代 pandas .get
+        ma5 = series.rolling(5, min_periods=5).mean().values
+        ma10 = series.rolling(10, min_periods=10).mean().values
+        ma20 = series.rolling(20, min_periods=20).mean().values
+        ma60 = series.rolling(60, min_periods=60).mean().values
 
-        for date_idx in series.index:
-            vals = {}
-            for p in MA_PERIODS:
-                v = ma[p].get(date_idx)
-                if pd.isna(v):
-                    vals[p] = None
-                else:
-                    vals[p] = round(float(v), 2)
+        # 有效 mask(4 个 MA 都非 NaN,等价原 any(None) continue)
+        valid = ~(np.isnan(ma5) | np.isnan(ma10) | np.isnan(ma20) | np.isnan(ma60))
+        valid_idx = np.where(valid)[0]
 
-            if any(v is None for v in vals.values()):
-                continue
-
-            # 判断排列
-            if vals[5] > vals[10] > vals[20] > vals[60]:
-                alignment = "bullish"
-            elif vals[5] < vals[10] < vals[20] < vals[60]:
-                alignment = "bearish"
+        # 逐元素 Python round + 排列判断
+        # 必须用 Python round:np.round 在边界值(如 118.175)与 Python round 有差异
+        # (118.175 浮点存为 118.1749999...,Python round->118.17,np.round->118.18)
+        dates_arr = series.index
+        name = INDEX_NAMES.get(iid, iid)
+        for i in valid_idx:
+            m5 = round(float(ma5[i]), 2)
+            m10 = round(float(ma10[i]), 2)
+            m20 = round(float(ma20[i]), 2)
+            m60 = round(float(ma60[i]), 2)
+            if m5 > m10 > m20 > m60:
+                align = "bullish"
+            elif m5 < m10 < m20 < m60:
+                align = "bearish"
             else:
-                alignment = "cross"
-
+                align = "cross"
             results.append({
-                "date": date_idx,
+                "date": dates_arr[i],
                 "index_id": iid,
-                "name": INDEX_NAMES.get(iid, iid),
-                "alignment": alignment,
-                "ma5": vals[5],
-                "ma10": vals[10],
-                "ma20": vals[20],
-                "ma60": vals[60],
+                "name": name,
+                "alignment": align,
+                "ma5": m5,
+                "ma10": m10,
+                "ma20": m20,
+                "ma60": m60,
             })
 
     conn.close()
@@ -92,16 +96,33 @@ def compute_ma_alignment(date: str | None = None) -> dict:
     if not results:
         return {"data": [], "latest": {}}
 
-    # 按日期汇总
+    # 按日期汇总:sort + numpy 分组 + 一次 values.tolist
+    # (替代 groupby 逐组 values.tolist 8630 次,原 to_dict 4.7s 瓶颈,values.tolist 1.2s 仍慢)
     df_results = pd.DataFrame(results)
-    grouped = df_results.groupby("date")
+    # 加 order 列保持 INDICES 顺序(groupby 保持 results 顺序=INDICES 顺序,sort 后需 order 列)
+    index_order = {iid: i for i, iid in enumerate(INDICES)}
+    df_results["order"] = df_results["index_id"].map(index_order)
+    df_sorted = df_results.sort_values(["date", "order"])
+
+    dates_arr = df_sorted["date"].values
+    cols = ["index_id", "name", "alignment", "ma5", "ma10", "ma20", "ma60"]
+    all_rows = df_sorted[cols].values.tolist()
+
+    # numpy 找分组边界(连续相同 date;sort 后同 date 连续)
+    date_change = np.concatenate(([True], dates_arr[1:] != dates_arr[:-1]))
+    group_starts = np.where(date_change)[0]
+    group_ends = np.append(group_starts[1:], len(dates_arr))
 
     data = []
-    for d, grp in grouped:
-        bullish = (grp["alignment"] == "bullish").sum()
-        bearish = (grp["alignment"] == "bearish").sum()
-        cross = (grp["alignment"] == "cross").sum()
-        details = grp[["index_id", "name", "alignment", "ma5", "ma10", "ma20", "ma60"]].to_dict("records")
+    for s, e in zip(group_starts, group_ends):
+        d = dates_arr[s]
+        rows = all_rows[s:e]
+        details = [dict(zip(cols, r)) for r in rows]
+        # count 用 list comp(避免 pandas bool 比较 + sum 开销)
+        aligns = [r[2] for r in rows]  # alignment 是 cols[2]
+        bullish = sum(1 for a in aligns if a == "bullish")
+        bearish = sum(1 for a in aligns if a == "bearish")
+        cross = sum(1 for a in aligns if a == "cross")
         data.append({
             "date": d,
             "bullish": int(bullish),
