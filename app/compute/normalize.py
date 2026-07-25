@@ -1,4 +1,6 @@
 """归一化与数据加载。"""
+from functools import lru_cache
+
 import pandas as pd
 
 from ..db import get_conn
@@ -88,6 +90,13 @@ def load_index_amount(index_id: str) -> pd.Series:
 def directions() -> dict:
     cfg = load_config()
     return {m["id"]: m.get("direction", "neutral") for m in cfg.get("metrics", [])}
+
+
+# 缓存 directions 结果:normalized() 在 cross.compute() 循环里被调 40 次,
+# 每次触发 directions()->load_config() 读 yaml,40 次文件 IO 重复无意义。
+# 进程级缓存(config 在单次 export/runner 运行内不变),首次计算后复用。
+# P1-2 AZ36: 40 次 load_config -> 1 次
+directions = lru_cache(maxsize=1)(directions)
 
 
 def rolling_percentile(s: pd.Series, window: int = _WINDOW, min_periods: int = _MIN_PERIODS) -> pd.Series:
