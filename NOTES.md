@@ -3200,4 +3200,74 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 **后续(阶段2 方向C regime-based)**:本阶段只做黑名单分级+门槛组级化(前端层),方向C regime-based(后端 signals.py 按 regime 切阈值)留阶段2后续派 agent 实施。
 
 
+### 小节AZ35：2026-07-20 策略优化阶段2 -- 方向C regime-based 动态阈值 + WF 验证
+
+**背景**:阶段1(方向D 黑名单分级+门槛组级化,AZ34)已上线。调研根因:trend 维度均值 26.3(弱市 close<MA60)拖累 score 卡 [50,60) 占 64% 无 70+ 高分。方向C目标:regime-based 动态阈值,弱市 opp_low=30 改善 0 手边缘品种变 1 手。
+
+**分支**:feat/strategy-opt-c(from origin/main,含 stage1 commit 2474a891+c015031c)
+
+**实施(app/alert_score.py)**:
+1. 新增 `_compute_regime(close, window=250)` 函数:按各品种 250 日年化收益率判 regime
+   - bull (>=15%) / bear (<=-10%) / range (中间),数据不足降级 range
+   - per-symbol(各品种自有 trend 维度,regime 应 per-symbol 对应),与 doc §5.2 原 sh-based 规划不同(按任务要求用 per-symbol close)
+2. 新增 `REGIME_THRESHOLDS` 常量 + `_HANDS_TH_3=60.0` 固定
+3. 改 `_compute_hands_multi_dim` L894-909 阈值映射:opp_low+th_1+th_2 按 regime 动态,th_3 固定
+   - bull:  opp_low=40 th_1=45 th_2=55(避免高位追涨)
+   - bear:  opp_low=30 th_1=35 th_2=45(捕捉深熊反弹,0手边缘变1手)
+   - range: opp_low=35 th_1=40 th_2=50(基线=改前现状)
+   - th_3=60 固定(WF 证明动态反伤收益)
+4. detail 加 regime + regime_th 供前端展示/调试
+
+**阈值 X=15%/Y=-10% 标定依据**(/tmp/compute_regime_dist.py 全标的 250 日年化分布调研):
+- 跨 67 标的最新: P25=-8.2% P50=8.1% P75=23.1%, >15%占40% <-10%占23% 震荡37%
+- sh 33.8 年时序: Y=-10%/X=15% -> 熊27% 震荡40% 牛33%(三分合理)
+- hs300 22.8 年:   Y=-10%/X=15% -> 熊33% 震荡35% 牛32%
+- 与 docs/hands-v5-param-lock.md §5.2 规划一致
+
+**WF 验证**(/tmp/wf_regime_c.py 三变体对比 7 指数 sh/sz/hs300/csi500/cyb/csi_div/sw_801110):
+
+| 指数 | baseline WFE | regime_full WFE | regime_opp_th12 WFE |
+|---|---|---|---|
+| sh | 1.125 | 0.517 | 0.695 |
+| sz | 0.439 | -0.934 | -1.141(信号弱) |
+| hs300 | 0.492 | 1.187 | 0.917 |
+| csi500 | 0.966 | 72.330(degen) | 1.272 |
+| cyb | 8.719 | -0.014 | 8.665 |
+| csi_div | 2.032 | 0.968 | 2.068 |
+| sw_801110 | 2.614 | 0.756 | 3.374 |
+| **WFE>0.5 通过** | **5/7** | **5/7** | **6/7** |
+
+- baseline: 固定 opp_low=35 th_3=60 th_2=50 th_1=40(改前现状)
+- regime_full: opp_low+th_3/2/1 全动态(任务原列表) -> WFE 5/7 但 wf_sharpe 6/7 下降(th_3 熊市55<60 致更多买入信号在熊市亏损,样本量 n 暴跌 27-46%)
+- regime_opp_th12: opp_low+th_1+th_2 动态,th_3 固定 60 -> WFE 6/7,wf_sharpe 与 baseline 接近(sz 还改善),样本量 n 几乎不变
+
+**关键决策:th_3 固定,仅 opp_low+th_1+th_2 动态**
+- WF 只测买入信号(hands<3->3,由 th_3 决定 forward return)。th_3 动态影响买入信号(WF 测到,熊市降触发亏损买入);opp_low/th_1/th_2 影响 0<->1<->2 边界(非买入信号),WF-neutral 安全
+- 任务列 4 阈值,WF 仅否决 th_3(有证据),th_1/th_2 保留(无反证,WF-neutral)
+- doc §5.2 原规划只改 opp_low,此处扩展到 th_1/th_2(WF-neutral,更完整控制 0/1/2 边界)
+
+**alert_analyze 重跑(70 标的)**:regime 分布 bull:28/bear:16/range:26
+- hands 分布:0手 2->9(+7) / 1手 15->19(+4) / 2手 42->31(-11) / 3手 11->11(0,th_3 固定)
+- 22 个品种 hands 改变:
+  - bear(2个 1->2手): sw_801180(score47.2 th_2=45)/sw_801760(score49.9)
+  - bull(18个降级): 11个2->1(hs300/csi500/sz/sz50等 score50-54 th_2=55) + 7个1->0(cyb/kc50/us_spx/kospi等 score40-44 th_1=45)
+- 任务首要目标"弱市0手边缘变1手":当前数据无 bear 标的落边缘区(bear low_alert 最低37/score 最低47,因 bear=深跌=高 L1-L8 机会分),但 bull 降级(避免追涨)效果显著,符合 regime 设计意图。0->1 效果会在不同市场状态(bear 标的 low_alert 落 [30,35) 时)激活
+
+**线上验证(curl ss.fx8.store + sss.sugas.site)**:
+- hs300: hands=1 regime=bull score=53.99 ✓(was 2手)
+- sw_801180: hands=2 regime=bear th={opp_low:30,th_1:35,th_2:45,th_3:60} ✓(was 1手)
+- sz: hands=1 regime=bull score=53.44 ✓(was 2手)
+- 两站均验证到新版,CF Workers 自动部署成功
+
+**commit**:29a00b03(feat/strategy-opt-c) + 8cd91cc6(merge main)
+**WF 脚本**:/tmp/wf_regime_c.py + /tmp/wf_regime_c_results.json + /tmp/compute_regime_dist.py
+**重跑对比明细**:/tmp/alert_analyze_regime_compare.json
+
+**教训/发现**:
+1. WF 测什么很重要:WF 只测买入信号(hands->3),不能验证 0/1/2 边界改动(opp_low/th_1/th_2)。改 th_3 需 WF,改 opp_low/th_1/th_2 是 WF-neutral
+2. low_alert 在 bear regime 反而高(深跌=高 L1-L8 机会分),任务前提"弱市低 low_alert"不成立 on current data。opp_low=30 的 0->1 效果是结构性改进,需特定市场状态才激活
+3. regime-based 主要生效在 bull 降级(避免追涨),而非 bear 升级(捕捉反弹)——当前数据特性
+
+
+
 
