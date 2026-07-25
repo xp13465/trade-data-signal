@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#1a1d29">
+  <meta name="theme-color" content="#d4af37">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="信号实验室">
@@ -163,15 +163,56 @@
   <!-- P2-5: echarts.min.js 不再预加载（省 615KB 首屏 JS），renderTab 触发时由 app.js dynamic 注入 -->
   <meta name="echarts-asset-url" content="./vendor/echarts.min.js?v=12173341">
 <!-- zz.bdstatic 百度站长已移到 inline-init.js（defer 统一外部化） -->
-<!-- A6 PWA: 注册 service worker, 移动端可安装+离线缓存关键资源 (静态 SWR / 动态 JSON network-first) -->
+<!-- A6 PWA: 注册 service worker, 移动端可安装+离线缓存关键资源
+     策略: App Shell CacheFirst + 数据 JSON SWR(3min) + intraday NetworkFirst + 第三方不缓存
+     版本切换: skipWaiting+clients.claim 立即接管, postMessage 提示用户手动刷新(避免 mid-session 切版本) -->
+<style>
+#sw-update-toast{position:fixed;right:16px;bottom:84px;z-index:90;display:none;background:var(--bg-card);color:var(--text-1);border:1px solid var(--primary);border-radius:8px;box-shadow:0 4px 16px var(--shadow-strong);padding:10px 14px;font-size:13px;line-height:1.5;max-width:260px;gap:8px;align-items:center}
+#sw-update-toast.show{display:flex}
+#sw-update-toast .sw-update-btn{margin-left:8px;background:var(--primary);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;flex-shrink:0;white-space:nowrap}
+#sw-update-toast .sw-update-btn:hover{opacity:.88}
+@media (max-width:768px){#sw-update-toast{bottom:92px;right:8px;left:8px;max-width:none}}
+</style>
+<div id="sw-update-toast" role="alert" aria-live="polite">
+  <span>🔄 已有新版</span>
+  <button class="sw-update-btn" type="button">刷新</button>
+</div>
 <script>
-if ('serviceWorker' in navigator) {
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  var toast = document.getElementById('sw-update-toast');
+  var btn = toast && toast.querySelector('.sw-update-btn');
+
+  function showUpdateToast() {
+    if (toast) toast.classList.add('show');
+  }
+
+  // SW 更新到位时(SW_UPDATED postMessage)提示用户刷新
+  navigator.serviceWorker.addEventListener('message', function (event) {
+    if (event.data && event.data.type === 'SW_UPDATED') showUpdateToast();
+  });
+
+  // controllerchange 也兜底提示(新 SW 接管)
+  var refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (refreshing) return;
+    refreshing = true;
+    showUpdateToast();
+  });
+
+  // 用户点击刷新按钮 -> 强制 reload 拿新版 App Shell
+  if (btn) {
+    btn.addEventListener('click', function () {
+      window.location.reload();
+    });
+  }
+
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('./sw.js').catch(function (err) {
       console.warn('[pwa] SW register failed:', err);
     });
   });
-}
+})();
 </script>
 </body>
 </html>
