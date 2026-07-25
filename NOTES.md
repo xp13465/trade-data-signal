@@ -2582,3 +2582,32 @@ AZ15 修复后 05:00 schedule_monitor 仍发 SEVERE `etf_national_team 退出失
 6. 矛盾澄清:7/24 collector FATAL crash 没 DONE + backfill.sh 继续 deploy 失败 rc=1,None 是合理表示（历史无 DONE 无法还原真实 exit,但避免假143;未来 crash/deploy失败有 fallback DONE 带真实 exit 133/1）
 
 **止损效果**:schedule_monitor 下次跑（05:30）跑前调 gen_stats 重生成 + etf_nt 不标 143,持续 OK 不发假告警。7/24 历史 None 不再 SEVERE（null=进行中/无数据不算失败,schedule_monitor.sh L10 注释）。未来 collector crash 报真实 133,deploy 失败报真实 1,不再假 143。
+
+### 小节AZ18：2026-07-25 08:00 角标红点机制调研+A+B修复(采集健康灯+a_fund_main根治+持续故障降级)
+
+用户问"右上角小红点怎样变绿/异常信息自动清理还是怎样消失"。派 a06473c4 调研(4项验收✓)+ A ab487f68 查修 + B a003f50f 降级。
+
+**角标机制**(a06473c4 验收✓ app.js L3415 _renderCollectHealthDot 绿/黄/红 + L3437 fetchJSON overview.json collect_health + queries.py L456-471 过滤 status!=ok):
+- 右上角小红点 = **采集健康度灯**(collect-health-dot),非卡片时效角标(card-time-badge 另一套,绿=最新/黄=待更新/红=异常/灰=停更)
+- 数据源:overview.json collect_health 字段(前端 fetchJSON ./data/overview.json,纯静态非 API)
+- 后端:queries.py overview() 聚合 collect_log 表(每 metric_id 取当天最新一条,过滤 status!=ok,核心指数陈旧误报复核)
+- 红变绿3路径:同日后续 ok 覆盖旧 error / 跨日清零(WHERE run_date=当天)/ 核心指数"今日数据缺失"告警若 intraday 反哺 index_daily 已有 close 自动过滤
+- 异常信息自动清理:盘中 intraday_snapshot 每15-30min 覆盖式重生成 overview.json,不需手动清 alerts/latest.md(那是 schedule_monitor 写的另一套 SEVERE 邮件告警,前端不读),不需点击清除
+
+**当前红点原因**:a_fund_main direct:market_fund_flow 两源皆败持续多日(东财反爬)。
+
+**A 根治**(ab487f68 验收✓ commit `8ad1ac6a` push feat+main 08:13:24):
+- 根因:东财端点级反爬(push2his.eastmoney.com 整域名被封 curl 52 Empty reply + push2 clist 被封,akshare 底层走东财同步死,同花顺 chameleon 401/新浪 MoneyFlow 下线/mootdx 无资金流接口)
+- 修复:direct.py L86 新增第三源 push2/api/qt/stock/fflow/kline/get(dapan.js 实时K线端点未反爬,klt=101 日K f52 主力净流入,口径与主源一致沪深 secid=1.000001+0.399001 合计),原 clist 60页分页降第四源避免加剧反爬,四源兜底
+- 第一次测试成功 7/24 -774.61 亿(与最近波动 -1700~+465 一致)。反复测试触发东财 IP 级封锁(升级 push2 整域名封),collect_log ok 待 launchd 17:50 或反爬间歇期(7-23 17:02 曾成功模式)自然出现,7/27 周一开盘日验证
+
+**B 降级兜底**(a003f50f 验收✓ commit `f1187fed` push feat+main 08:01:13):
+- N=3 阈值:同 metric_id+message 连续3采集日(DISTINCT run_date,考虑周末不采集非自然日)error 降 warn。依据:1-2天偶发网络抖动,3天确认持续故障。DB 验证 a_fund_main 两源皆败 0722-0724 连续3采集日
+- queries.py L490-525 降级逻辑(L494 _N_DEGRADE=3 / L510 _cnt>=_N_DEGRADE and status==error / L513-514 status=warn+message 加[持续{cnt}天 已知故障]前缀 / L522 level 按降级后 items 聚合 error/warn)
+- 未改 app.js(_renderCollectHealthDot warn/error 都显示 pop,后端前缀足够,无需 build_min/bump)
+- 线上 ss.fx8.store 验证:level=warn a_fund_main|warn|[持续3天 已知故障]两源皆败(红点变黄点)
+- 新 error(<3天)仍红(L510 条件),不被狼来了淹没
+
+**闭环**:A 修好后 a_fund_main ok->绿点;B 降级兜底(A 未修好时黄点不困扰)。当前红点困扰已解决(黄点+根治代码上线待自然验证)。
+
+**附带**:#19/#20/#21 验收已上线(commit c75c9c57 7/17 首页三板块白话说明 #21 + a428b44c 7/17 lab全tab作用说明 #19 + 参数扫描判定栏背景色 #20),19处 purpose-note 文案(app.js home 11+lab.js lab 8)+ CSS 双类(style.css L2967 .home-purpose-note/lab.css L989 .lab-purpose-note),TaskUpdate #19/#20/#21 done。场景B重构(统一类名+集中文案)列低优先级可选待办。
