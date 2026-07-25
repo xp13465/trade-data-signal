@@ -2651,3 +2651,40 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 - 验收7项✓:a41fb2df origin/main含 / 改3文件(index.html+49/manifest+2/sw.js+151) / manifest theme_color #d4af37 / index.html 9处标记 / sw.js CACHE_VERSION v2+CacheFirst+SWR+NetworkFirst / icon 3文件 / 三站点manifest.json+sw.js HTTP200+theme_color #d4af37
 
 **①②③全闭环**。周末开发续9闭环,剩等时点待办(7/27周一新时点验证rzhb19:15/etf20:07&21:30 / a_fund_main ok自然验证下周一update_all / 07-26 08:44 48h监控汇总+CronDelete)。
+
+### 小节AZ21：2026-07-25 10:16 ETF评分三分类重构(方向A UI 4项 + ETF vs AI 调研 + 方向B 回测 + C2 三分类实施)
+
+用户反馈"ETF评分买入太多(1064/1376=77%)淹没卖出/持有,找持有或卖出太难"。四步推进:
+
+**调研发现:ETF vs AI 评分同源**(agent a4ce12):ETF评分(首页底部tab)和AI评分(lab custom 3级tab)读同一份 `etf_score_list.json`,无独立AI逻辑。AI评分 lab.js L6273 `slice(0,12)` 前端截断只显示前12只,致"数量不夸张"假象。根本问题是 buy_list 买入门槛宽松(high_alert<60 AND hands>0 = 1064只)。
+
+**方向A UI重构4项**(agent d271a,commit `d271e0ed`,app.js+294行(10751->10869)/style.css+83行(4430->4513),build_min app.min.js?v=7b210158/style.min.css?v=e8e9b3fb):
+1. 卖出置顶(区B卖出+持有观察合并置顶,3区结构 A持仓/B卖出持有/C买入)
+2. 买入折叠(区C买入默认折叠,buyExpanded localStorage 记忆)
+3. 持仓置顶(区A持仓置顶独立区)
+4. 5档分档色块(strong-sell/sell/hold/buy/strong-buy)
+- 新函数 `_etfScoreTier(e)` 5档分类(strong-sell: sell&score>=75 / sell: sell&score<75 / hold: hold / buy: buy&score<76 / strong-buy: buy&score>=76) + `_etfScoreColor` 改用 _etfScoreTier + `_renderEtfScoreBody` 重写3区结构 + `_renderEtfPager` helper
+- 5档阈值用绝对值(score>=76/75),依赖方向B评分逻辑;若score分布变需微调(或用相对分位P75更稳,留待观察)
+
+**方向B回测定C2**(agent a33c9,回测文件 /tmp/backtest_etf_threshold.py + etf_backtest_data.pkl 8.6M 65776行 + etf_threshold_backtest_results.json):
+- **S2/S3 score阈值提高**:2026熊市反向误杀严重(dropped 比 keep 好),否决
+- **B2/B3 成交额分位过滤**:regime-agnostic 最佳,不随牛熊失效
+- **C2(hands>=2 AND amt_pct>60)双重过滤最彻底**:209只/5d+0.21/10d+0.37/20d+0.29,regime-agnostic 误杀合理
+- amt_pct = alert_score.py L787 `_compute_hands_multi_dim` 已算(近60日成交额分位 _rolling_pct),只需导出到 buy_list
+- 用户对比 b3 vs c2 后选 c2(更彻底,双重过滤)
+
+**C2 三分类实施**(agent a8cc46,commit `1bd75d66` push feat+main fast-forward d271e0ed..1bd75d66):
+- **核心设计(主控识别,agent报告"改动小"未考虑此点)**:若只改 in_buy=C2 条件,被过滤的~870只会因 `not in_buy` 全进 sell_list(暴增1000+,语义混乱)。必须三分类:
+  - buy_list = C2条件(high_alert<60 AND hands>=2 AND amt_pct>60) = **188只**
+  - sell_list = 过热(high_alert>=60) = **96只**(19减仓信号+77观察)
+  - hold_list = 不够格buy但不过热(high_alert<60 AND not C2) = **925只**(hold_reason="持有观察(未达买入阈值)")
+  - 数据不足(high_alert=None) = **167只**,不进任何list
+  - **数量闭环:188+96+925+167=1376 ✓**(universe=1376) 三分类互斥(buy∩sell∩hold=0)
+- 后端 export_etf_score_list.py +71(L390-396):worker 三分类(in_buy/in_sell/in_hold) + buy_list加amt_pct字段(L535,从position.detail.amt_pct取 L787算) + hold_list收集(L557-567,hold_reason) + payload加hold_list(L600) + 排序(L576 按 low_alert DESC)
+- 前端 app.js +48:renderEtfScore 三路合并(buy/sell/hold),sell_list全归side="sell"不再按sell_signal拆hold,hold_list->side="hold";_etfScoreTier注释数量更新
+- **验收(主控逐字)**:commit 1bd75d66 origin/main顶部含6文件(export_py+71/app.js+48/app.min.js/etf_score_list.json/.gz/index.html) / L390-392 `in_buy = has_alert and high_alert<60 and res["alert_hands"]>=2 and amt_pct is not None and amt_pct>60` / L395 `in_sell = has_alert and high_alert>=60` / L396 `in_hold = has_alert and high_alert<60 and not in_buy` / 线上ss.fx8.store buy=188 sell=96 hold=925 buy+sell+hold=1209 date=20260724(+数据不足167=1376闭环) / buy[0] amt_pct=83.3(>60) high_alert=18.32(<60)符合C2 / sell[0] high_alert=80.68(>=60) sell_signal=减仓信号(过热) / hold[0] high_alert=17.67(<60) hold_reason=持有观察(未达买入阈值) / build_min app.min.js?v=98f51469 / 三站点(ss.fx8.store/sss.sugas.site/s.sugas.site)全验证buy=188/sell=96/hold=925✓
+- **工作区残留处理**:deploy.sh跑export.py副作用重新生成272 JSON数据文件(overview/ad_line/alert/etf_national_team等*.json.gz),R2上传超时>3min被杀git add/push没执行。按§8教训(deploy.sh `git add static-site/data/`通领会带入工作区残留旧文件致2020事故根因),主控 `git restore static-site/data/`清100+残留M + `rm data/baostock_progress.json.lock`,工作区干净(周末数据不变,周一update_all 17:50重新生成最新推上线)。C2代码改动已全在commit 1bd75d66,清残留不丢成果。
+
+**闭环**:ETF评分从买入77%(1064只)淹没卖出持有 -> 三分类清晰(buy 188/sell 96/hold 925/数据不足167),卖出持有易找。方向A 5档色块+3区布局(持仓置顶/卖出持有观察/买入折叠)UX提升。P1-新-C 阶段2 ETF评分列表功能完整(分页/搜索/持仓输入/OHLC K线/三分类)。
+
+**教训**:①ETF vs AI同源,数量差异是前端slice截断非独立逻辑 ②收紧买入阈值必须三分类(防被过滤项全进sell_list) ③deploy.sh跑export副作用生成全量数据残留,§8 git restore清理避免下次deploy带入回退 ④方向A 5档阈值用绝对值依赖方向B评分分布,分布变需微调
