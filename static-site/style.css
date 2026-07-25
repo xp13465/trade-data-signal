@@ -120,7 +120,7 @@
    致 auto-fill 网格(如 .lab-strategy-list minmax(320px))宽度突变跨列(2列<->3列抖动)。
    scrollbar-gutter:stable 始终保留滚动条槽,开关弹窗视口宽度恒定,消除抖动。
    (overlay 滚动条环境无可见槽,本声明为 no-op,不影响) */
-html { scrollbar-gutter: stable; }
+html { scrollbar-gutter: stable; overflow-x: hidden; }
 body {
   margin: 0;
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -1261,20 +1261,20 @@ main { padding: 16px 24px; }
 .collect-health-pop {
   display: none;
   position: absolute;
-  top: 100%; left: 50%; transform: translateX(-50%);
+  top: 100%; left: auto; right: 0; transform: none;
   margin-top: 8px;
-  z-index: 9999;
+  z-index: 10000;
   background: var(--bg-card);
   color: var(--text-1);
   border: 1px solid var(--border-strong);
   border-left: 3px solid var(--primary);
   border-radius: 8px;
-  padding: 8px 10px;
-  box-shadow: 0 4px 14px var(--shadow-strong);
+  padding: 10px 12px;
+  box-shadow: 0 6px 20px var(--shadow-strong);
   font-size: 12px;
   line-height: 1.5;
   min-width: 220px;
-  max-width: 340px;
+  max-width: min(340px, calc(100vw - 24px));
   white-space: normal;
   word-break: break-word;
   animation: termPopIn .12s ease-out;
@@ -1283,7 +1283,7 @@ main { padding: 16px 24px; }
 .collect-health:focus-visible .collect-health-pop { display: block; }
 .collect-health:focus-visible { outline: none; }
 .collect-health-pop::before {
-  content: ""; position: absolute; left: 50%; margin-left: -6px;
+  content: ""; position: absolute; left: auto; right: 1px; margin-left: 0;
   bottom: 100%;
   border: 6px solid transparent;
   border-bottom-color: var(--primary);
@@ -1310,7 +1310,7 @@ main { padding: 16px 24px; }
 .collect-health-tag--warn { background: var(--mx-warn-bg); color: var(--mx-warn-fg); }
 .collect-health-tag--disabled { background: var(--mx-bad-bg); color: var(--mx-bad-fg); }
 .collect-health-mid { color: var(--text-2); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
-.collect-health-msg { color: var(--text-3); word-break: break-all; }
+.collect-health-msg { color: var(--text-2); word-break: break-all; }
 .collect-health-empty { color: var(--text-3); padding: 4px 0; }
 .update-rules-modal .rule-modal-body { width: min(92vw, 720px); }
 .update-rules-modal .rule-section { margin-bottom: 18px; }
