@@ -6,21 +6,21 @@
     "date": "20260723",
     "target_id": "cgb_10y_etf",
     "target_type": "index",
-    "high": 40.0,
-    "low": 52.0,
+    "high": 44.24,
+    "low": 51.37,
     "high_level": "中性",
     "low_level": "中性",
     "dims": {
       "H1": 32.5,
       "H2": 19.37,
-      "H3": null,
+      "H3": 67.08,
       "H4": 48.41,
       "H5": 49.58,
       "H6": 54.38,
       "H7": null,
       "H8": null,
       "L1": 67.5,
-      "L2": 38.33,
+      "L2": 35.83,
       "L3": 51.59,
       "L4": null,
       "L5": 47.5,
@@ -32,10 +32,9 @@
       "target_id": "cgb_10y_etf",
       "target_type": "index",
       "min_dims": 4,
-      "available_high": 5,
+      "available_high": 6,
       "available_low": 5,
       "missing": [
-        "H3",
         "H7",
         "H8",
         "L4",
@@ -49,7 +48,7 @@
       "volatility": 0.11,
       "label": "3手",
       "detail": {
-        "opp": 52.0,
+        "opp": 51.37,
         "ma60_ratio": 0.9979,
         "trend": 40.0,
         "macd_hist": 0.0925,
@@ -60,7 +59,7 @@
         "liq": 80.0,
         "drawdown": -1.22,
         "draw": 20.0,
-        "score": 62.2
+        "score": 61.98
       }
     }
   },
@@ -74,6 +73,15 @@
           "weight": 0.2,
           "contribution": 9.68,
           "hit": false,
+          "direction": "high"
+        },
+        {
+          "k": "H3",
+          "name": "卖点密集",
+          "score": 67.08,
+          "weight": 0.13,
+          "contribution": 8.72,
+          "hit": true,
           "direction": "high"
         },
         {
@@ -135,9 +143,9 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 38.33,
+          "score": 35.83,
           "weight": 0.18,
-          "contribution": 6.9,
+          "contribution": 6.45,
           "hit": false,
           "direction": "low"
         },
@@ -186,12 +194,12 @@
         {
           "k": "H3",
           "name": "卖点密集",
-          "value": null,
+          "value": 67.08,
           "threshold": 60,
           "unit": "分",
           "desc": "卖点密集(近10日sell信号)",
-          "hit": false,
-          "status": "无数据"
+          "hit": true,
+          "status": "命中"
         },
         {
           "k": "H4",
@@ -258,7 +266,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 38.33,
+          "value": 35.83,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -333,7 +341,7 @@
       "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
-      "high": "高位风险指标处于中性区间,暂无明显过热信号",
+      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H3 卖点密集 有命中,整体加权后未达关注线",
       "low": "低位机会指标处于中性区间,暂无明显冰点信号,但 L1 情绪冰点 有命中,整体加权后未达关注线"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",
