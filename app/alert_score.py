@@ -70,6 +70,36 @@ ETF_LOW_WEIGHTS = {"L1": 0.20, "L2": 0.12, "L3": 0.15, "L4": 0.22,
 assert abs(sum(ETF_HIGH_WEIGHTS.values()) - 1.0) < 1e-9, "ETF_HIGH_WEIGHTS 和必须=1.0"
 assert abs(sum(ETF_LOW_WEIGHTS.values()) - 1.0) < 1e-9, "ETF_LOW_WEIGHTS 和必须=1.0"
 
+# ---------------------------------------------------------------------------
+# 方向C regime-based 动态阈值(2026-07-20 策略优化阶段2)
+# opp_low + th_1 + th_2 按各品种 250 日年化收益率判定的 regime 切换;th_3 固定基线 60.0。
+#   bull  (250日年化>=15%): opp_low=40 th_1=45 th_2=55(提高0/1/2手门槛,避免高位追涨)
+#   bear  (250日年化<=-10%): opp_low=30 th_1=35 th_2=45(降低0/1/2手门槛,捕捉深熊反弹,
+#                          让弱市 0 手边缘品种变 1 手,改善 trend 维度拖累 score 卡 [50,60))
+#   range (中间):           opp_low=35 th_1=40 th_2=50(基线=改前现状)
+#   th_3 固定 60.0(买入信号门槛,WF 证明动态反伤收益,见下)
+# 阈值标定依据(全标的 250 日年化分布调研,/tmp/compute_regime_dist.py):
+#   跨 67 标的最新: P25=-8.2% P50=8.1% P75=23.1%, >15%占40% <-10%占23% 震荡37%
+#   sh 33.8年时序:  Y=-10%/X=15% -> 熊27% 震荡40% 牛33%(三分合理)
+#   hs300 22.8年:   Y=-10%/X=15% -> 熊33% 震荡35% 牛32%
+# 与 docs/hands-v5-param-lock.md §5.2 规划一致(该文档原用 sh 250日年化,此处按任务用
+# per-symbol close:各品种自有 trend 维度,regime 应 per-symbol 对应才一致)
+#
+# WF 验证决策(2026-07-20,/tmp/wf_regime_c.py 三变体对比 7 指数):
+#   首轮实施 opp_low+th_3/2/1 全动态,WF 发现 th_3 熊市降低(55<60)致更多买入信号在
+#   熊市亏损,wf_sharpe 6/7 下降,样本量 n 暴跌 27-46%。WF 只测买入信号(hands<3->3,
+#   由 th_3 决定 forward return),故 th_3 必须固定。opp_low/th_1/th_2 影响 0<->1<->2
+#   边界(非买入信号),WF-neutral,可安全动态。改 opp_low+th_1+th_2 动态+th_3固定后:
+#     WFE>0.5 通过 6/7(>full 5/7>baseline 5/7),wf_sharpe 与 baseline 接近(sz 还改善),
+#     样本量 n 几乎不变。详见 NOTES AZ35 + /tmp/wf_regime_c_results.json
+REGIME_THRESHOLDS = {
+    "bull":  {"opp_low": 40.0, "th_1": 45.0, "th_2": 55.0},
+    "bear":  {"opp_low": 30.0, "th_1": 35.0, "th_2": 45.0},
+    "range": {"opp_low": 35.0, "th_1": 40.0, "th_2": 50.0},  # 基线=改前现状
+}
+# th_3 买入信号门槛固定(WF 证明动态反伤收益,熊市降触发亏损买入)
+_HANDS_TH_3 = 60.0
+
 
 # ---------------------------------------------------------------------------
 # 数据加载
@@ -664,6 +694,42 @@ def _position_tier_for_score_vol(score: float | None, volatility: float | None) 
     return base
 
 
+def _compute_regime(close: pd.Series, window: int = 250) -> str:
+    """根据 close 序列 window 日年化收益率判定市场 regime(牛/熊/震荡)。
+
+    方向C(2026-07-20):per-symbol regime,各品种自有 trend 维度,regime 应 per-symbol
+    对应才一致(与 docs/hands-v5-param-lock.md §5.2 原 sh-based 规划不同,按任务用 per-symbol)。
+
+    阈值标定(全标的 250 日年化分布,/tmp/compute_regime_dist.py):
+      - 跨 67 标的最新: >15%占40% <-10%占23%(三分合理)
+      - sh 33.8年时序: Y=-10%/X=15% -> 熊27% 震荡40% 牛33%
+      - hs300 22.8年:  Y=-10%/X=15% -> 熊33% 震荡35% 牛32%
+
+    Args:
+        close: pd.Series 收盘价(升序),需 len>=window 才判定,不足降级 'range'
+        window: 回看窗口(默认 250 交易日≈1年)
+
+    Returns:
+        'bull' (250日年化>=15%) / 'bear' (<=-10%) / 'range' (中间或数据不足)
+    """
+    if close is None or len(close) < window:
+        return "range"
+    try:
+        last = float(close.iloc[-1])
+        base = float(close.iloc[-window])
+        if pd.isna(last) or pd.isna(base) or base <= 0:
+            return "range"
+        ann_ret = (last / base - 1) * 100  # 250 交易日≈1年,年化≈总收益
+        if ann_ret >= 15.0:
+            return "bull"
+        elif ann_ret <= -10.0:
+            return "bear"
+        else:
+            return "range"
+    except Exception:  # noqa: BLE001
+        return "range"
+
+
 def _compute_hands_multi_dim(
     close: pd.Series, high: pd.Series, low: pd.Series,
     amount: pd.Series, low_alert: float | None,
@@ -836,17 +902,27 @@ def _compute_hands_multi_dim(
              vol_score * 0.15 + liq * 0.05 + draw * 0.10)
     detail["score"] = round(score, 2)
 
-    # 映射 0-3(阈值 60/50/40 + 低机会极端0手)
+    # 映射 0-3(regime-based 动态阈值,方向C 2026-07-20 策略优化阶段2)
+    # regime 由各品种 250 日年化判定(牛>=15% / 熊<=-10% / 震荡中间):
+    #   opp_low + th_1 + th_2 按 regime 切换(0/1/2 手边界,WF-neutral 不影响买入信号)
+    #   th_3 固定 60.0(买入信号门槛,WF 证明动态反伤收益)
+    #   bull  opp_low=40 th_1=45 th_2=55(避免高位追涨)
+    #   bear  opp_low=30 th_1=35 th_2=45(捕捉深熊反弹,让弱市 0 手边缘品种变 1 手)
+    #   range opp_low=35 th_1=40 th_2=50(基线=改前现状)
     # 回测验证 50ETF+120日: 5/10/20日截尾均值 hands=3>hands=1(OK)
-    # low_alert<35 极端低机会直接0手(国债/海外指数等无A股低位机会)
+    # low_alert<opp_low 极端低机会直接0手(国债/海外指数等无A股低位机会)
     # 避免低opp+极低波动(如国债 opp=21 vol=0.04)综合分拿1手
-    if low_alert is not None and low_alert < 35:
+    regime = _compute_regime(close, window=250)
+    th = REGIME_THRESHOLDS[regime]
+    detail["regime"] = regime
+    detail["regime_th"] = {"opp_low": th["opp_low"], "th_1": th["th_1"], "th_2": th["th_2"], "th_3": _HANDS_TH_3}
+    if low_alert is not None and low_alert < th["opp_low"]:
         hands = 0
-    elif score >= 60:
+    elif score >= _HANDS_TH_3:
         hands = 3
-    elif score >= 50:
+    elif score >= th["th_2"]:
         hands = 2
-    elif score >= 40:
+    elif score >= th["th_1"]:
         hands = 1
     else:
         hands = 0

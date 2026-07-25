@@ -57,7 +57,14 @@
         "liq": 80.0,
         "drawdown": -19.76,
         "draw": 70.0,
-        "score": 45.51
+        "score": 45.51,
+        "regime": "bull",
+        "regime_th": {
+          "opp_low": 40.0,
+          "th_1": 45.0,
+          "th_2": 55.0,
+          "th_3": 60.0
+        }
       }
     }
   },
