@@ -478,11 +478,27 @@ var _BACKUP_CHIP_THRESHOLDS = {
   ddMinOps: 3,        // 回撤最小档样本 >=3
   ddMinAnn: 0.0       // 回撤最小档年化 >0（防0%年化策略被推为"回撤最小"）
 };
+// 2026-07-25 walk-forward 优化黑名单（docs/walk-forward-action-plan.md 情况B+D）：
+// 这 7 个品种的信号经全样本调参后测试段失效(WFE<0.5 过拟合)或样本不足(WF n<30),
+// 不进三档 chip 推荐,仅显示"过拟合/样本不足,仅供参考"标注 chip。
+//   情况 B 过拟合(6 信号-品种对): sz(C1主买/D1卖/sell_stop_loss) csi500(D1卖) cyb(D1卖) csi_div(sell_stop_loss)
+//   情况 D 小样本(5 信号-品种对): hs300/csi500/cyb/kc50/sw_801110 的 C1主买(测试段 n<30)
+// 注:csi_div 止损卖已在 signals.py 改 4.5->3.5 通用化去 per-index 过拟合,但仍标注提醒用户测试段表现弱。
+// 上证综指(sh)walk-forward 稳健(WFE 0.94),不进黑名单,继续参与 chip 推荐。
+var _OVERFIT_OR_SMALL_SAMPLE_IDS = new Set([
+  'sz',          // 情况B: C1主买/D1卖/sell_stop_loss 测试段失效
+  'csi500',      // 情况B(D1卖)+情况D(C1主买)
+  'cyb',         // 情况B(D1卖)+情况D(C1主买)
+  'csi_div',     // 情况B: sell_stop_loss 测试段失效(4.5已改3.5通用化)
+  'hs300',       // 情况D: C1主买 测试段样本不足
+  'kc50',        // 情况D: C1主买 数据短训练2年测1年
+  'sw_801110'    // 情况D: C1主买 测试段样本不足
+]);
 // 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
 // SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
 function _appendBackupChipRow(cardEl, id) {
   if (!SIM_INDICES.has(id)) return;
-  var html = _backupSignalChipRender(_tradeSimStatsCache[id]);
+  var html = _backupSignalChipRender(_tradeSimStatsCache[id], id);
   var row = document.createElement("div");
   row.className = "signal-chip-row";
   row.setAttribute("data-chip-id", id);
@@ -505,7 +521,7 @@ async function _backupSignalChipLoad(id) {
   try {
     var sd = _tradeSimStatsCache[id] || await _tradeSimFetchStats(id);
     _tradeSimStatsCache[id] = sd;
-    var html = _backupSignalChipRender(sd);
+    var html = _backupSignalChipRender(sd, id);
     var placeholders = document.querySelectorAll('.signal-chip-row[data-chip-id="' + id + '"]');
     placeholders.forEach(function (el) { el.innerHTML = html; });
   } catch (e) {
@@ -516,8 +532,12 @@ async function _backupSignalChipLoad(id) {
   }
 }
 // 算三档 chip HTML（A+B 融合方案）：遍历全 165 回测，归一化综合分排名。数据不足返回空串。
-function _backupSignalChipRender(sd) {
+function _backupSignalChipRender(sd, id) {
   if (!sd || !sd.data) return '';
+  // 2026-07-25 walk-forward 优化黑名单：过拟合/小样本品种不进三档 chip,仅显示标注 chip
+  if (id && _OVERFIT_OR_SMALL_SAMPLE_IDS.has(id)) {
+    return '<div class="signal-chip chip-overfit-placeholder">⚠ 过拟合/样本不足,仅供参考<span class="chip-tip">该品种信号在 walk-forward 测试段失效或样本不足(WFE&lt;0.5 或 n&lt;30),不进三档推荐;详见完整回测 modal,历史表现不代表未来</span></div>';
+  }
   // 窗口 key -> 中文 label 映射（优先用后端 sd.windows.l，缺失兜底硬编码；2026-07-23 chip 英文中文化）
   var winLabel = Object.assign(
     { y1: '近1年', y3: '近3年', y5: '近5年', y10: '近10年', all: '全史' },

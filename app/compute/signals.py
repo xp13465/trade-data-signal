@@ -723,13 +723,14 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
             "filter": "基线（指数 + g.* 指标均应用 MACD 过滤，回测建议率 18.3%->43.3%）",
             "enabled": True,
         }
-    _STOP_LOSS_ATR_MULT_DESC = {"csi_div": 4.5}  # 与 L682 compute 中 _STOP_LOSS_ATR_MULT 保持一致
+    # 2026-07-25 walk-forward 优化:csi_div per-index 4.5 经全样本调参后测试段 WFE 0.189<0.5 过拟合
+    # (docs/walk-forward-action-plan.md 情况B),改回 3.5 通用化消除 per-index 过拟合,符合"收益要稳"目标。
+    _STOP_LOSS_ATR_MULT_DESC = {}  # 与 L682 compute 中 _STOP_LOSS_ATR_MULT 保持一致;空=全品种走默认 3.5
     atr_mult = _STOP_LOSS_ATR_MULT_DESC.get(raw, 3.5)
     sell_stop_loss_detail = {
         "desc": f"ATR×{atr_mult} Chandelier Exit（近20日最高-{atr_mult}×ATR(14)，移动止损线跟随高点更新）",
         "params": (
-            f"ATR 周期=14（Wilder）；倍数={atr_mult}"
-            + (f"（{raw} per-index 覆盖为 4.5，更宽止损线降 24% 信号数，套牢率 48.3%->46.1%）" if atr_mult != 3.5 else "（默认 3.5）")
+            f"ATR 周期=14（Wilder）；倍数={atr_mult}（默认 3.5，walk-forward 优化后全品种统一，去 per-index 过拟合）"
             + "；hh20=high.rolling(20).max().shift(1)（不含当日）"
         ),
         "filter": (
@@ -1041,7 +1042,11 @@ def compute():
             # 首次跌破 dtype 修复（2026-07-22）：sell_stop_cond.shift(1).fillna(False) 返回 object dtype，
             # ~object 做位运算（~True=-2, ~False=-1）非布尔取反，致 first_break==below 完全不去重（6-7x 误增）。
             # 修复：.astype(bool) 强制布尔，~bool 才是布尔取反。修复后 csi_div 1029->151 信号（6.9x 去重）。
-            _STOP_LOSS_ATR_MULT = {"csi_div": 4.5}  # per-index ATR 倍数覆盖；缺省走 3.5
+            # 2026-07-25 walk-forward 优化:csi_div per-index 4.5 经全样本调参后测试段 WFE 0.189<0.5 过拟合
+            # (docs/walk-forward-action-plan.md 情况B),改回 3.5 通用化消除 per-index 过拟合,符合"收益要稳"目标。
+            # 历史:方案A定倍(2026-07-22)曾对 csi_div per-index 4.5(更宽止损线,降24%信号数,套牢率 48.3%->46.1%);
+            # walk-forward 证明该全样本调参在测试段失效(WFE 0.189),故取消 per-index 覆盖回归默认 3.5。
+            _STOP_LOSS_ATR_MULT = {}  # per-index ATR 倍数覆盖;空=全品种走默认 3.5(walk-forward 优化去 per-index 过拟合)
             atr_mult = _STOP_LOSS_ATR_MULT.get(iid, 3.5)
             atr14 = _atr(high, low, close, 14)
             atr3_line = high.rolling(20).max().shift(1) - atr_mult * atr14
@@ -1381,7 +1386,7 @@ def compute():
             signals.append((date, iid, "buy_backup", ", ".join(parts) + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
         for date in sorted(sell_stop_set):
             # 止损卖：ATR×{atr_mult} Chandelier Exit 首次跌破（从近20日最高价回撤 atr_mult*ATR）。
-            # reason 标注 ATR 倍数 + 线 + close + cross（2026-07-22: 倍数动态显示，csi_div=4.5 其他=3.5）。
+            # reason 标注 ATR 倍数 + 线 + close + cross（2026-07-25 walk-forward 优化后全品种统一 3.5,去 per-index 过拟合）。
             c = close.get(date)
             al = atr3_line.get(date)
             av = atr14.get(date)

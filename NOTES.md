@@ -2804,3 +2804,52 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 2. 但 SendMessage+重派会导致两agent同任务,本次结果好(补强)但通常重复/冲突
 3. 后续改进:判卡死优先SendMessage resume,等一轮(10分钟)再决重派,避免SendMessage+重派并发;重派时新agent prompt要求先读进度文件+git log确认前agent是否已完成,避免重复
 4. 本次幸运:两agent改同文件不同时(串行fast-forward),若并发改同区域会冲突
+
+### 小节AZ26：2026-07-25 14:00 walk-forward优化实施(csi_div止损卖4.5->3.5通用化+前端标注7品种+chip兜底)
+
+**背景**:基于 docs/walk-forward-action-plan.md(情况B 6个过拟合+情况D 5个小样本+情况C 3个疑似暂不动),实施 walk-forward 优化。用户三目标:信号准/收益稳/样本够。
+
+**项1: signals.py csi_div 止损卖 4.5->3.5 通用化**
+- L726 `_STOP_LOSS_ATR_MULT_DESC = {"csi_div": 4.5}` -> `{}`(空,全品种走默认3.5)
+- L1044 `_STOP_LOSS_ATR_MULT = {"csi_div": 4.5}` -> `{}`(空,全品种走默认3.5)
+- L732 描述文本简化:"默认3.5,walk-forward优化后全品种统一,去per-index过拟合"
+- L1039-1047 注释更新:说明4.5是全样本调参过拟合产物,网格搜索WFE 0.189<0.5,改3.5通用化
+- L1389 历史注释更新:"2026-07-25 walk-forward优化后全品种统一3.5"
+
+**项2: app.js/style.css 前端标注+chip过滤**
+- 新增 `_OVERFIT_OR_SMALL_SAMPLE_IDS` 黑名单(7品种):sz/csi500/cyb/csi_div/hs300/kc50/sw_801110
+- `_backupSignalChipRender(sd, id)` 命中黑名单返回橙红警示标注chip:"⚠ 过拟合/样本不足,仅供参考"
+- style.css 新增 `.chip-overfit-placeholder` 样式(橙红实线框,区别于三色档与弱标兜底)
+- 行业cell内同步小尺寸规则(sw_801110在industry-cell中)
+- 覆盖:情况B(sz C1主买/D1卖/sell_stop_loss, csi500 D1卖, cyb D1卖, csi_div sell_stop_loss)+情况D(hs300/csi500/cyb/kc50/sw_801110 C1主买)
+
+**项3: 验证结果(/tmp/wf_csi_div_verify.py + docs/walk-forward-impact-report.md)**
+- 固定mult=3.5(改后): 全样本夏普-0.268, WF夏普-0.052, WFE 0.194(过拟合<50%)
+- 固定mult=4.5(改前): 全样本夏普0.093, WF夏普0.415, WFE 4.478(假稳健=止损失败卖后涨)
+- 网格搜索: 全样本夏普0.458(mult=4.0), WF夏普0.086, WFE 0.189(过拟合,训练段从未调出4.5)
+- trade_sim对比: 改前117信号+0.07%均收益(止损失败) -> 改后151信号-0.24%均收益(止损成功),触发数+29.1%
+- 决策: 保留3.5改动(4.5假稳健=止损失败,3.5止损成功是正确方向)+前端标注降级(3.5测试段WFE 0.194<50%信号不稳定,不进chip)
+- task预期"改后3.5应>80%稳健"未达成,按硬约束"若仍<50%则csi_div止损卖剔除/降级"选降级(标注+不进chip),不剔除代码
+
+**项4: 情况C暂不动(独立排期)**
+- hands v5综合评分(app/alert_score.py L667-854): 暂不动,补跑WF
+- sh C1|D1a过滤层(app/compute/signals.py L661-668): 暂不动,补跑WF
+- h5 R2量价背离过滤层(app/compute/signals.py L1141-1145): 暂不动,补跑WF
+
+**项5: 上线方式**
+- build_min.py + bump_asset_version.py 已跑(app.min.js/style.min.css刷新+?v=版本号)
+- 不跑deploy.sh(避免自动commit+push静态JSON与单一commit冲突)
+- 前端标注通过git push main自动deploy到CF Workers(ss.fx8.store)
+- trade_sim JSON线上还是旧数据,等下次update_all(launchd 15:33)更新signal_daily+trade_sim
+
+**关键发现**:
+1. action-plan的"4.5 per-index过拟合"判定基于网格搜索WFE 0.189,但4.5固定参数WFE 4.478(看似稳健)
+2. 深挖发现:4.5固定WFE 4.478是"假稳健"——全样本夏普正(0.093)说明止损失败(卖后涨=过早止损),WFE高是因为"稳定地止损失败"
+3. 3.5全样本夏普负(-0.268)说明止损成功(卖后跌=避开下跌),符合止损卖语义;但测试段WFE 0.194低=近期止损效果不稳定
+4. 网格搜索各窗口训练最优mult在2.5-4.0跳动(均值3.08),从未调出4.5,证明4.5是全样本调参过拟合产物
+5. sell_stop_loss的WFE解读:全样本夏普为负(止损生效)+WFE>1=稳健(如hs300);全样本夏普为正(止损失败)+WFE高=假稳健(如csi_div 4.5)
+
+**教训**:
+1. walk-forward的WFE解读需结合信号语义:止损卖forward return为负正常(止损生效),正夏普=止损失败
+2. 网格搜索WFE(滚动调参)≠固定参数WFE(生产参数),action-plan把两者混为一谈致误判
+3. 验证脚本需固定参数跑walk-forward,反映生产参数(不调参)的真实WFE
