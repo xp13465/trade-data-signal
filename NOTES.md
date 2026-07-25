@@ -2611,3 +2611,13 @@ AZ15 修复后 05:00 schedule_monitor 仍发 SEVERE `etf_national_team 退出失
 **闭环**:A 修好后 a_fund_main ok->绿点;B 降级兜底(A 未修好时黄点不困扰)。当前红点困扰已解决(黄点+根治代码上线待自然验证)。
 
 **附带**:#19/#20/#21 验收已上线(commit c75c9c57 7/17 首页三板块白话说明 #21 + a428b44c 7/17 lab全tab作用说明 #19 + 参数扫描判定栏背景色 #20),19处 purpose-note 文案(app.js home 11+lab.js lab 8)+ CSS 双类(style.css L2967 .home-purpose-note/lab.css L989 .lab-purpose-note),TaskUpdate #19/#20/#21 done。场景B重构(统一类名+集中文案)列低优先级可选待办。
+
+### 小节AZ19：2026-07-25 08:38 场景B purpose-note 重构统一(9afccee0)
+
+a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push feat+main 08:38:01,18files +100/-70,7项验收全✓)。消除三大技术债:
+
+- **类名分裂**:`.home-purpose-note`(style.css L2967)+ `.lab-purpose-note`(lab.css L989)两套几乎相同 CSS -> 统一 `.purpose-note`(style.css L2969 基准 padding12px16px/font13.5px/lh1.7)+ `.purpose-note.lab-sm` 修饰类(lab.css L991 仅覆盖 padding10px14px/font12.5px/lh1.6)
+- **写法分裂**:app.js 9处 `insertAdjacentHTML("beforeend",'<div class="home-purpose-note">...')` + lab.js 8处 `createElement+className="lab-purpose-note"` -> 统一 `renderPurposeNote(container,text,{variant})` 通用函数(common.js L466,variant="lab-sm" 加修饰类,text空返回null防空框)
+- **文案散布**:19段硬编码散在各 render 函数体内 -> 集中 `static-site/purpose-notes.js` 17key(9home+8lab,PURPOSE_NOTES 对象,纯配置无副作用,`<script defer>` 在 common 后 app 前加载)
+
+验收7项:commit 9afccee0 origin/main 含 / common.js L466 函数 / purpose-notes.js 17key / app.js 残留0+9处调用 / lab.js 残留0+8处调用 / CSS 统一旧类删 / build_min+bump 跑过(6文件built,版本号 purpose-notes.min.js?v=666be462)/ 线上 ss.fx8.store purpose-notes.min.js HTTP200。文案原样搬运不改,nt-banner 不碰(国家队口径声明复合结构保持独立)。未来加新tab作用说明只需加一行 PURPOSE_NOTES[key]+调函数,3皮肤自动适配不变。本次是代码质量优化非功能变更(#19/#20/#21 功能 7/17 已上线)。
