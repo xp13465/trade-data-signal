@@ -2943,6 +2943,7 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 - 已用 `.absolute()` + 注释说明的（正确范例）：`detect_intraday_anomaly.py:26` / `export_alert.py:27` / `export_alert_analyze.py:31` / `export_etf_score_list.py:78`
 - 已用 `Path(__file__).parent.parent`（无 resolve，正确）：`gen_schedule_stats.py:27` / `check_signals.py:28`
 - 待办：若上述 7 脚本从 trade-data/ 跑且读 DB/data，需同步改 `.absolute()`；仅从 trade/ 跑的可保留（resolve=absolute 同效）。需逐个确认运行 cwd 后定，本次不动
+- ✅ **已在 AZ30 处置**（2026-07-25）：6 处逐个确认 cwd 后改 5 处（daily_summary_email/build_board_etf_map/notify/backtest_alert/check_nt_signals）+ 保留 1 处（add_baidu_push 一次性工具）+ upload_r2.py 排除（AZ29 R2 修复 agent 在改）
 
 ### 小节AZ29：2026-07-25 15:25 R2 trade_sim 上传失败修复(立即修复+upload_r2.py ROOT 回退根治)
 
@@ -2971,3 +2972,47 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 3. REPO=trade-data 端到端实测：`REPO=trade-data python upload_r2.py upload-trade-sim-json` 400/400 上传成功 ✓（模拟 deploy.sh 从 trade-data 跑的场景）
 
 **影响**：deploy.sh 以后从 trade-data 跑时 upload-trade-sim-json 不再 sys.exit，trade_sim JSON 正常上 R2。memory `r2-upload-from-trade` 的 workaround（手动不设 REPO）不再需要，但保留作历史记录。
+
+### 小节AZ30：2026-07-25 16:00 scripts/ 6 处 .resolve()->.absolute() 处置（AZ28 待办闭环，排除 upload_r2.py）
+
+**背景**：AZ28 验证 alert_match/alert_score 修复时发现 scripts/ 仍有 7 处 `.resolve()` 同 bug 模式（从 trade-data/ 跑会跳回 trade/ 读滞后镜像，§9），列为待办。本次逐个确认运行 cwd 后处置 6 处（排除 upload_r2.py，AZ29 R2 修复 agent a0c4726ec6e8da925 在改不撞车）。
+
+**环境事实确认**：
+- `trade-data/app` / `scripts` / `config` / `web` = symlink -> trade/（trade-data/web broken，web/ 已删 §9）
+- `trade-data/data` / `static-site` = **实体目录**（非 symlink），data/ 是主库侧
+- 所有 launchd 任务（update-all / etf-national-team / backfill-evening / intraday-snapshot 等）均设 `REPO=/Users/linhuichen/code/trade-data` + `WorkingDirectory=trade-data` -> 6 脚本实际都从 trade-data/ 跑
+- `data/sentiment.db`（trade-data inode 237343239 主库 vs trade inode 239125123 滞后镜像）/ `data/etf_national_team.db` / `data/alerts/` 均在 .gitignore（两边 data/ 独立不同步）
+- `app/db.py:5` 和 `app/collector/etf_national_team.py:116` 已用 `.absolute()`（正确范例）
+
+**6 处逐个判断**：
+| 脚本:行 | 调用方(cwd) | 访问资源 | 处置 | 原因 |
+|---|---|---|---|---|
+| daily_summary_email.py:56 | update_all.sh(trade-data) | 读 static-site/data/summary_history.json + config/email.json | **改** | summary_history.json 是 deploy.sh 生成产物，commit 前两边不同步；改后读 trade-data 侧最新 |
+| build_board_etf_map.py:20 | deploy.sh step 0.8(trade-data) | 写 data/board_etf_map.json | **改** | data/ 两边独立不同步；改后写 trade-data/data/，rsync 再同步到 trade/ 上线（deploy.sh:107） |
+| add_baidu_push.py:16 | 一次性手动(无 launchd 调用) | 改 static-site/*.html | **保留** | 一次性 SEO 工具（grep 无调用，已跑完幂等跳过）；不访问 REPO/data/（不读 DB 不写 data/）；static-site git 跟踪 commit 后同步；web/ 已删 dirs=[ROOT/web,ROOT/static-site] 中 web 无文件；无滞后镜像 bug |
+| notify.py:36 | update_all.sh 等多脚本(trade-data) | 读 config/*.json + 写 data/alerts/latest.md | **改** | data/alerts/ gitignore 两边独立；改后写 trade-data 侧，Claude 开工从 trade-data 读到 |
+| backtest_alert.py:21 | 手动/alert agent 调 | 读 data/sentiment.db | **改** | DB 滞后镜像 bug 最严重；改后读 trade-data 主库(inode 237343239) |
+| check_nt_signals.py:27 | etf_national_team_backfill.sh(trade-data) | REPO 用于 sys.path | **改** | 语义对齐指向 trade-data/，配合 notify.py 改后一致；NT_DB_PATH 来自 app 模块(已 .absolute())不受影响 |
+| upload_r2.py:24 | deploy.sh(trade-data) | - | **排除** | AZ29 R2 修复 agent 在改，不撞车 |
+
+**改动**：5 处 `.resolve()` -> `.absolute()`，每文件 1 行：
+- `scripts/daily_summary_email.py:56` / `build_board_etf_map.py:20` / `notify.py:36` / `backtest_alert.py:21` / `check_nt_signals.py:27`
+
+**验证链**（cwd=/Users/linhuichen/code/trade-data，python=/Users/linhuichen/code/trade/.venv/bin/python）：
+1. 5 处 import 成功，REPO/ROOT 全指向 `/Users/linhuichen/code/trade-data`（旧 .resolve() 跳回 trade/）✓
+2. `backtest_alert.py` DB 路径 = `trade-data/data/sentiment.db`，inode=237343239（主库）；旧 .resolve() 会读 `trade/data/sentiment.db` inode=239125123（滞后镜像）✓
+3. `daily_summary_email.SUMMARY_SRC` = trade-data/static-site/data/summary_history.json（读最新生成）✓
+4. `notify.ALERTS_FILE` = trade-data/data/alerts/latest.md（Claude 开工读到）✓
+5. `build_board_etf_map.OUT` = trade-data/data/board_etf_map.json（写主库侧，rsync 同步上线）✓
+6. `check_nt_signals.NT_DB_PATH` = trade-data/data/etf_national_team.db（来自 app 模块 .absolute()）✓
+7. `backtest_alert.py --help` 正常（import 链通）✓
+8. git diff 只含 5 scripts 文件，不含 upload_r2.py / deploy.sh（不撞 R2 修复 agent）✓
+
+**影响**：
+- 6 脚本从 trade-data/ 跑时 REPO/ROOT 正确指向 trade-data/，读最新主库/写正确位置
+- backtest_alert.py 读 sentiment.db 主库（非滞后镜像），回测结果基于最新数据
+- notify.py 写 alerts/latest.md 到 trade-data 侧，Claude 开工从 trade-data 读到严重告警
+- build_board_etf_map.py 写 board_etf_map.json 到 trade-data/data/，deploy.sh rsync 同步到 trade/ 上线
+- daily_summary_email.py 读 trade-data 侧最新 summary_history.json（deploy 生成产物）
+- add_baidu_push.py 保留 .resolve()（一次性工具无 bug，改了也无害但无必要）
+- AZ28 待办闭环：7 处 -> 6 处已处置（5 改 1 保留）+ upload_r2.py AZ29 处置

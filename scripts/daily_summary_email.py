@@ -53,7 +53,7 @@ from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).absolute().parent.parent
 SUMMARY_SRC = REPO / "static-site" / "data" / "summary_history.json"
 EMAIL_CONFIG = REPO / "config" / "email.json"
 SITE_NAME = "A股情绪看板"

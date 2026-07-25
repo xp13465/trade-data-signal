@@ -33,7 +33,7 @@ from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).absolute().parent.parent
 EMAIL_CONFIG = REPO / "config" / "email.json"
 TELEGRAM_CONFIG = REPO / "config" / "telegram.json"
 ALERTS_DIR = REPO / "data" / "alerts"

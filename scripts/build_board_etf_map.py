@@ -17,7 +17,7 @@ from pathlib import Path
 
 import akshare as ak
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 from app.collector.fetchers import load_config
 
