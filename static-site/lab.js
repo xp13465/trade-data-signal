@@ -3682,10 +3682,7 @@ async function renderFusionLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = _labFusionEssayHTML();
-  const purposeNote = document.createElement("div");
-  purposeNote.className = "lab-purpose-note";
-  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：把多个信号同日共振组合成融合策略回测--看组合共振是否比单信号更准、更能过滤假信号。<b>怎么解读</b>：融合卡显示组成条件和触发逻辑；点击看配对回测（买×卖）或同向共振回测的胜率/收益/5窗口。融合优于单一=共振有效，否则多信号没带来增量。";
-  leftCol.appendChild(purposeNote);
+  renderPurposeNote(leftCol, PURPOSE_NOTES["lab.fusion"], {variant:"lab-sm"});
   leftCol.appendChild(essayWarn);
 
   // 分区 tab
@@ -4442,10 +4439,7 @@ async function renderRetestLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = `<p>${_LAB_RETEST_RULE}</p>`;
-  const purposeNote = document.createElement("div");
-  purposeNote.className = "lab-purpose-note";
-  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：对配对策略做分年/样本外/极端行情三套稳健性检验--防止策略只在某段行情碰巧赚钱(过拟合)，换个时段就失效。<b>怎么解读</b>：分年回测看各年是否都盈利；样本外看未参与调参的区间表现；极端行情看暴跌暴涨时是否扛得住。三套都稳定=策略稳健，某套崩=过拟合风险。";
-  leftCol.appendChild(purposeNote);
+  renderPurposeNote(leftCol, PURPOSE_NOTES["lab.retest"], {variant:"lab-sm"});
   leftCol.appendChild(essayWarn);
 
   // 分类按钮(融合9指数:主候选/替补/全部,代替原9指数选择器。用户不再需要逐个指数点击找有数据的)
@@ -5345,10 +5339,7 @@ async function renderAblationLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = `<p>${_LAB_ABLATION_RULE}</p>`;
-  const purposeNote = document.createElement("div");
-  purposeNote.className = "lab-purpose-note";
-  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：把融合信号拆开，单独看每个子信号对收益贡献多少--判断哪个是真本领、哪个是蹭车的，防止被无用信号拖累。<b>怎么解读</b>：贡献率为正=该子信号提升收益（有用）；为负=去掉反而更好（拖累，可考虑剔除）。";
-  leftCol.appendChild(purposeNote);
+  renderPurposeNote(leftCol, PURPOSE_NOTES["lab.ablation"], {variant:"lab-sm"});
   leftCol.appendChild(essayWarn);
 
   const data = await fetchLabAblationData();
@@ -5469,10 +5460,7 @@ async function renderSymmetryLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = `<p>${_LAB_SYMMETRY_RULE}</p>`;
-  const purposeNote = document.createElement("div");
-  purposeNote.className = "lab-purpose-note";
-  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：测同一策略做多和做空是否对称--有的策略只适合做多、做空就亏，看这个能判断策略方向适用性。<b>怎么解读</b>：对称比越接近0越对称（可双向做）；越负越偏做多。A股长期向上，做多盈利、做空亏损属正常，不代表策略失效。";
-  leftCol.appendChild(purposeNote);
+  renderPurposeNote(leftCol, PURPOSE_NOTES["lab.symmetry"], {variant:"lab-sm"});
   leftCol.appendChild(essayWarn);
 
   const data = await fetchLabSymmetryData();
@@ -5587,10 +5575,7 @@ async function renderParamScanLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = `<p>${_LAB_PARAMSCAN_RULE}</p>`;
-  const purposeNote = document.createElement("div");
-  purposeNote.className = "lab-purpose-note";
-  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：调参数看结果怎么变--判断策略对参数敏不敏感，太敏感=过拟合风险（实盘换组参数就失效）。<b>怎么解读</b>：稳健高原=默认参数附近都盈利（靠谱）；尖锐尖峰=仅个别参数盈利（过拟合，慎用）。";
-  leftCol.appendChild(purposeNote);
+  renderPurposeNote(leftCol, PURPOSE_NOTES["lab.paramscan"], {variant:"lab-sm"});
   leftCol.appendChild(essayWarn);
 
   const data = await fetchLabParamScanData();
@@ -5859,9 +5844,6 @@ async function renderSignalLab() {
   const essayWarn = document.createElement("div");
   essayWarn.className = "lab-warning lab-warning-essay";
   essayWarn.innerHTML = _labWarningEssayHTML();
-  const purposeNote = document.createElement("div");
-  purposeNote.className = "lab-purpose-note";
-  purposeNote.innerHTML = "💡 <b>这板块有什么用</b>：逐个测试每条买卖信号单独触发的效果--看哪个信号真有用、胜率收益如何，点进卡片还能看配对回测的净值曲线和交易记录。<b>怎么解读</b>：卡片摘要的10d胜率/PL是单边统计（信号触发后10日涨跌占比）；点进详情的模拟回测才是真实配对交易（买×卖配对算净值）。胜率高+PL为正=信号有效。";
 
   // 预加载回测数据（用于卡片摘要）
   const data = await fetchLabData();
@@ -5882,7 +5864,7 @@ async function renderSignalLab() {
     btn.onclick = () => { state.labZone = z.key; renderSignalLab(); };
     zoneTabs.appendChild(btn);
   });
-  leftCol.appendChild(purposeNote);
+  renderPurposeNote(leftCol, PURPOSE_NOTES["lab.single"], {variant:"lab-sm"});
   leftCol.appendChild(essayWarn);
   zoneTabs.insertAdjacentHTML("beforeend", _labHelpIcon("status"));
   leftCol.appendChild(zoneTabs);
@@ -6038,10 +6020,7 @@ async function renderCustomAnalyzeLab() {
     wrapper.className = "lab-custom-wrap";
 
     // 顶部说明
-    const intro = document.createElement("div");
-    intro.className = "lab-purpose-note";
-    intro.innerHTML = "💡 <b>这板块有什么用</b>：对单个指数/行业做情绪告警分析--看高位风险分(过热?)和低位机会分(冰点?)，拆解 8+8 维度贡献，并找历史相似时段看后续涨跌。<b>怎么解读</b>：高位分>70=过热警惕，低位分>70=偏冷关注企稳；历史类比仅作统计参考，不代表未来必然走势。";
-    wrapper.appendChild(intro);
+    renderPurposeNote(wrapper, PURPOSE_NOTES["lab.aiwarn"], {variant:"lab-sm"});
 
     // 标的选择器
     const selector = document.createElement("div");
@@ -6209,10 +6188,7 @@ async function renderAIScoreListLab() {
   wrapper.className = "lab-aiscore-wrap";
 
   // 顶部说明
-  const intro = document.createElement("div");
-  intro.className = "lab-purpose-note";
-  intro.innerHTML = "💡 <b>这板块有什么用</b>：基于 🎯自定义分析 的 8+8 维度 AI 评分,对全市场 ETF 做买卖清单排序--低位机会分高的进买清单(按手数 3/2/1 建议买入量),高位风险分高的进卖清单(给卖出建议)。<b>怎么解读</b>:买清单按 AI 评分降序排,手数标签表示建议仓位(3手=机会最强/2手=关注/1手=少量);卖清单列出全部 ETF 的高位风险分 + 卖出信号 持有/减仓建议。点击行可看完整 8+8 维度拆解弹窗(复用 🎯自定义分析 数据),也可用持仓自查输入任意 ETF 代码查询。";
-  wrapper.appendChild(intro);
+  renderPurposeNote(wrapper, PURPOSE_NOTES["lab.aiscore"], {variant:"lab-sm"});
 
   // 持仓自查 host（额外功能:输入任意ETF代码查询）— 移至最前,1列
   const queryHost = document.createElement("div");

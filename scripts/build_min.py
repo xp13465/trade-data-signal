@@ -31,6 +31,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # CSS 放最后（独立，与 JS 无依赖；terser 不可用时 CSS 仍能压缩，不受影响）
 PAIRS = [
     ("static-site/common.js", "static-site/common.min.js"),
+    ("static-site/purpose-notes.js", "static-site/purpose-notes.min.js"),
     ("static-site/app.js", "static-site/app.min.js"),
     ("static-site/lab.js", "static-site/lab.min.js"),
     ("static-site/style.css", "static-site/style.min.css"),

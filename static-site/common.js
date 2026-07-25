@@ -456,6 +456,22 @@ function _labCustomPositionDetailHTML(pos) {
   `</div>`;
 }
 
+// === 场景B重构(B1): purpose-note 通用渲染函数 ===
+// 统一 home(app.js 原 insertAdjacentHTML '<div class="home-purpose-note">') + lab(lab.js 原 createElement+className="lab-purpose-note") 两套写法
+// variant:
+//   "home" / undefined -> 基础类 "purpose-note"(home 尺寸:padding 12px16px/font 13.5px/line-height 1.7,3皮肤用主色变量自动适配)
+//   "lab-sm"           -> "purpose-note lab-sm"(lab 小字号修饰:padding 10px14px/font 12.5px/line-height 1.6)
+// 文案由 PURPOSE_NOTES(purpose-notes.js)集中配置,调用方传 PURPOSE_NOTES[key]
+// 返回创建的 div 元素;text 为空/undefined 则不渲染返回 null(防 key 拼错出空框)
+function renderPurposeNote(container, text, {variant}={}) {
+  if (!text) return null;
+  const el = document.createElement("div");
+  el.className = variant === "lab-sm" ? "purpose-note lab-sm" : "purpose-note";
+  el.innerHTML = text;
+  if (container) container.appendChild(el);
+  return el;
+}
+
 // === 挂到 window,供 lab.js / app.js 跨文件引用 ===
 window._LAB_CUSTOM_BROAD = _LAB_CUSTOM_BROAD;
 window._LAB_CUSTOM_SW = _LAB_CUSTOM_SW;
@@ -474,3 +490,4 @@ window._labCustomHistoryHTML = _labCustomHistoryHTML;
 window._labCustomThresholdsHTML = _labCustomThresholdsHTML;
 window._labCustomFooterHTML = _labCustomFooterHTML;
 window._labCustomPositionDetailHTML = _labCustomPositionDetailHTML;
+window.renderPurposeNote = renderPurposeNote;

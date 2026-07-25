@@ -4587,7 +4587,7 @@ function openNtDayModal(date) {
 }
 
 // C6 综合风险预警条:读 data/alert.json,high_alert>=72(高位红)/low_alert>=85(低位蓝)时
-// 在首页 home-purpose-note 之前插入预警条(等级+原因+命中维度TopN),可折叠/关闭,移动端适配。
+// 在首页 purpose-note 之前插入预警条(等级+原因+命中维度TopN),可折叠/关闭,移动端适配。
 async function renderAlertBar(host) {
   let a;
   try { a = await fetchJSON("./data/alert.json"); } catch { return; }
@@ -4595,7 +4595,7 @@ async function renderAlertBar(host) {
   const showHigh = a.high && a.high.triggered;
   const showLow = a.low && a.low.triggered;
   if (!showHigh && !showLow) return; // 市场中性时不打扰
-  const note = host.querySelector(".home-purpose-note");
+  const note = host.querySelector(".purpose-note");
   const items = [];
   if (showHigh) items.push({ type: "high", d: a.high });
   if (showLow) items.push({ type: "low", d: a.low });
@@ -4648,7 +4648,7 @@ async function renderOverview() {
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>今天 A 股多冷多热?一眼看全</b>:情绪分(0-100,越低越恐慌)+涨跌家数+历史位置+拐点提示,综合判断当前偏冷还是偏热。</div>');
+  renderPurposeNote(content, PURPOSE_NOTES["overview"]);
   // C6 综合风险预警条:high_alert>=72(高位红)/low_alert>=85(低位蓝)时顶部提示(异步,不阻塞渲染)
   renderAlertBar(content);
   // 数据时效栏已移入"数据更新规则"弹窗（ℹ️ 图标入口），首页不再展示健康横幅。
@@ -5598,7 +5598,7 @@ async function renderOverview() {
 // 大盘Tab：二级Tab切换（A股/港股/全球），渲染 subtab 栏 + 对应子内容
 async function renderMarket() {
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看A股、港股、全球指数走势,叠加技术分析参考点,综合判断大盘情绪偏冷还是偏热;另追踪🐶汪汪队宽基ETF份额变动(观察份额增减与成交放量)。<b>怎么解读</b>:信号偏多通常反映情绪回暖,偏空反映转弱(历史统计参考,非操作建议);汪汪队大额净流入历史上常伴随市场低位区域,流出对应份额收缩。</div>');
+  renderPurposeNote(content, PURPOSE_NOTES["market"]);
   content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看指数<b>价格走势</b>+买卖点信号;想看市场<b>情绪温度</b>(恐贪指数/冰点过热热力图)-> 去<a data-goto="sentiment" role="button" tabindex="0">【情绪温度】</a></div>');
   _bindTabCrosslink(content, "sentiment");
   // 二级 tab 栏
@@ -5654,7 +5654,7 @@ async function renderFutures(container) {
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
   container.innerHTML = "";
-  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看中金所股指期货机构(前20会员/中信/国君)净多空持仓变化,作市场情绪参考。<b>怎么解读</b>:机构净多空为正=偏看多、为负=偏看空;但极端值常为<strong>反向参考</strong>(极度看多可能见顶)。历史同向/逆向准确率辅助判断,均不构成未来预测。</div>');
+  renderPurposeNote(container, PURPOSE_NOTES["market.futures"]);
   if (futures && futures.positions && futures.positions.length) {
     renderFuturesSection(futures, snap, container);
   } else {
@@ -6644,7 +6644,7 @@ async function renderAStock(container = content) {
   // 拉取盘中快照，供走势卡角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
-  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:A股全景指标:涨停连板(打板情绪)+涨跌家数(市场广度)+资金面(北向/融资/主力)+波动率/换手率(活跃度)。综合判断A股冷热。</div>');
+  renderPurposeNote(container, PURPOSE_NOTES["market.a-stock"]);
   const groups = {
     "涨停/跌停/连板/炸板率": ["a_width_zt_count", "a_width_dt_count", "a_width_max_lianban", "a_width_zhaban_rate"],
     "市场宽度（涨跌家数）": ["a_width_up_count", "a_width_down_count"],
@@ -6776,7 +6776,7 @@ async function renderHK(container = content) {
   // 等快照就绪，注入港股实时数据 + 供走势卡角标判断盘中/收盘状态
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
-  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看港股(恒生/恒生科技/国企)走势+技术分析参考点,叠加港股通南向资金(内地资金买港股的通道,净流入=看好港股)。另含港股板块指数。</div>');
+  renderPurposeNote(container, PURPOSE_NOTES["market.hk"]);
   if (r.hk_south && r.hk_south.length) {
     const hks = r.hk_south.map((d) => ({ date: d.date, value: d.value }));
     const chart = lineChart("港股通净买入（亿元）" + termTip("港股通南向资金净买入。内地投资者借港股通通道买港股,净流入为正=内地资金净买入港股(看好)。T+1数据。") + latestSuffixPct(hks), hks, {}, null, container);
@@ -6861,7 +6861,7 @@ async function renderGlobal(container = content) {
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
   container.innerHTML = "";  // 清 loading 开始渲染
-  container.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:看全球主要指数+商品/国债/汇率等风险资产。美股期货(ES/NQ)亚盘实时预估美股当晚开盘方向。商品/国债T+1。</div>');
+  renderPurposeNote(container, PURPOSE_NOTES["market.global"]);
   // M2：r.indices 已有 || {} 兜底；为空时显示空数据提示而非静默空白
   const idxEntries = Object.entries(r.indices || {});
   if (!idxEntries.length) {
@@ -7072,7 +7072,7 @@ async function renderSentiment() {
     fetchJSON("./data/futures.json").catch(() => null),
   ]);
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:把多项情绪指标合成0-100的温度计,量化市场冷热(≤20冰点、≥80过热),作逆向参考。<b>怎么解读</b>:≤20冰点(人人恐慌)=情绪极端偏冷区域(历史常对应阶段性低位),≥80过热(人人贪婪)=情绪极端偏热区域(历史常对应阶段性高位);中间区域为中性(历史统计参考,非操作建议)。</div>');
+  renderPurposeNote(content, PURPOSE_NOTES["sentiment"]);
   content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看<b>情绪温度计</b>+冰点/过热热力图;想看指数<b>价格走势</b>-> 去<a data-goto="market" role="button" tabindex="0">【指数表现】</a></div>');
   _bindTabCrosslink(content, "market");
   const sig = r.signals || {};
@@ -8291,7 +8291,7 @@ async function renderIndustry() {
     _industryCache = { range: state.range, r };
   }
   content.innerHTML = "";
-  content.insertAdjacentHTML("beforeend", '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:追踪申万一级行业和概念板块的资金流向与轮动速度,辅助判断主线、定位走强板块。<b>怎么解读</b>:持续净流入+加速轮动=主线走强特征;净流出+减速=走弱特征(历史统计,非配置建议);行业/概念技术信号辅助观察。</div>');
+  renderPurposeNote(content, PURPOSE_NOTES["industry"]);
   const snap = state.intradaySnapshot;
 
   // 板块轮动速度卡片 + 申万行业热力图：1:2 grid 合并一行（左轮动卡 / 右热力图）
@@ -8671,8 +8671,7 @@ async function renderEtfScore() {
 
   content.innerHTML = "";
   const m = _etfScoreState.meta;
-  content.insertAdjacentHTML("beforeend",
-    '<div class="home-purpose-note">💡 <b>这板块有什么用</b>:从代表性 ETF 清单里按多维度评分筛出当前<b>买入机会</b>（冰点共振/超跌反弹）与<b>卖出信号</b>（过热/位置偏高）。<b>怎么解读</b>:买入评分高=机会显著（历史常对应低位区域），卖出评分高=情绪过热（历史常对应高位区域）。<b>口径</b>:历史统计与技术分析参考，非投资建议。</div>');
+  renderPurposeNote(content, PURPOSE_NOTES["etf"]);
   // 持仓面板（可折叠输入区 + 持仓 chips 显示评分排名）
   const holdWrap = document.createElement("div");
   holdWrap.id = "etf-holdings-panel";

@@ -2963,14 +2963,16 @@ main { padding: 16px 24px; }
 /* tab 级副标题：灰字小号 + 虚线下边框，跟随主题色 */
 .tab-subtitle { color: var(--text-2); font-size: 13px; padding: 6px 2px 10px; margin: 0 0 8px; border-bottom: 1px dashed var(--border); }
 
-/* 首页板块"这板块有什么用"白话说明卡片（替代原 tab-subtitle 副标题，作板块主说明，3皮肤用主色变量自动适配） */
-.home-purpose-note {
+/* 首页板块"这板块有什么用"白话说明卡片（替代原 tab-subtitle 副标题，作板块主说明，3皮肤用主色变量自动适配）
+   场景B重构:原 .home-purpose-note + .lab-purpose-note 合并为统一 .purpose-note(home 基准尺寸),
+   lab 小字号用 .purpose-note.lab-sm 修饰类覆盖(见 lab.css) */
+.purpose-note {
   padding: 12px 16px; margin: 0 0 12px;
   background: var(--primary-bg); border: 1px solid var(--border);
   border-radius: 6px; font-size: 13.5px; color: var(--text-1); line-height: 1.7;
 }
-.home-purpose-note b { color: var(--primary); font-weight: 700; }
-/* tab 互链引导:轻量灰字小注,置于 home-purpose-note 之下,不抢眼 */
+.purpose-note b { color: var(--primary); font-weight: 700; }
+/* tab 互链引导:轻量灰字小注,置于 purpose-note 之下,不抢眼 */
 .tab-crosslink-note {
   margin: 0 0 12px; padding: 0 16px;
   font-size: 12.5px; color: var(--text-3); line-height: 1.6;
