@@ -2083,7 +2083,7 @@ trade_sim 标题下换行 3 chip（年化最高/最稳健/回撤最小）配套�
 - 架构：`trade-data/app` + `scripts` 是 symlink 指向 `trade/`，`trade-data/data` 是真目录（非 symlink）
 - 事故根因：uvicorn cwd=trade/ 读滞后镜像，launchd 写 trade-data/data/ 最新主库，两 DB 仅 `deploy.sh` rsync 时同步；BaoStock 补采 / intraday 单独跑不触发 deploy -> 线上 export 漏数据
 - 推荐方案B（零代码改启动配置）：uvicorn + 手动补采统一从 trade-data/ cwd 跑，`app/db.py` 的 `.absolute()` 自动指向最新主库
-- 遗留 bug：`app/alert_match.py:21` + `app/alert_score.py:24` 用 `.resolve()` 钉死 trade/，需改 `.absolute()`（resolve 解析 symlink 跳回 trade/，absolute 保留 symlink 路径）；`scripts/backtest_buy_aux.py:53` 硬编码 trade/data/（只读回测不影响线上，优先级低）
+- ✅ 已修复（commit f0f6df78，2026-07-23 18:41）：`app/alert_match.py:21` + `app/alert_score.py:24` `.resolve()->.absolute()`（resolve 解析 symlink 跳回 trade/，absolute 保留 symlink 路径）。验证见小节AZ28；`scripts/backtest_buy_aux.py:53` 硬编码 trade/data/（只读回测不影响线上，优先级低，未改）
 
 **5. R2 卡死运维教训（2026-07-23）**
 - 现象：`deploy.sh` core 的 `upload_r2.py upload-index` 卡 TCP SYN_SENT（8分20秒不动），日志停 18:28
@@ -2908,3 +2908,38 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 1. 过拟合参数对测试段毒害可能远超预估:去D1a后WF夏普从0.773跳到1.602(+107%),说明D1a不仅"无效"而是"反向有害"(测试段滤掉好信号)
 2. trade_sim口径(equity_curve based)与WF口径(forward return based)互补:trade_sim受仓位限制无法体现信号数差异,WF不受限制能体现;两者都跑才能全面评估
 3. deploy.sh从trade-data跑时R2上传路径会错:upload_r2.py用REPO路径找文件,trade-data/static-site/data/trade_sim不存在(simulate_trade.py输出到trade/),需从trade/跑R2上传
+
+### 小节AZ28：alert_match/alert_score .resolve()->.absolute() 修复验证闭环（2026-07-20 晚，纯验证+落档不改码）
+
+**背景**：NOTES line 2086（小节AZ4）把 `app/alert_match.py:21` + `app/alert_score.py:24` 的 `.resolve()` 列为"遗留 bug"，line 2096 列为"今晚后续推进"待办。实际已于 2026-07-23 18:41 由 commit `f0f6df78` 修复，但 NOTES 未回填"已修复"状态，本节补验证闭环。
+
+**1. 修复确认（commit f0f6df78，已在 main + feat/iframe-theme-follow）**
+- commit message：`fix: alert_match/alert_score .resolve()->.absolute() 修DB口径`
+- 改动：`app/alert_match.py | 2 +-` + `app/alert_score.py | 2 +-`（各 1 行，`Path(__file__).resolve()`->`Path(__file__).absolute()`）
+- `git branch --contains f0f6df78`：main + feat/iframe-theme-follow 均含
+- 当前代码实测：`alert_match.py:21` = `_REPO = Path(__file__).absolute().parent.parent`，`alert_score.py:24` 同（grep app/ 全目录无 `.resolve()` 残留）
+
+**2. DB 路径验证（cwd=trade-data/，§9 规范）**
+```
+cd /Users/linhuichen/code/trade-data && .venv/bin/python -c "
+  from app import alert_match, alert_score
+  print(alert_match._SENT_DB)  # /Users/linhuichen/code/trade-data/data/sentiment.db
+  print(alert_score._SENT_DB)  # 同上
+  os.stat(...).st_ino           # 237343239
+"
+```
+- alert_match._REPO = `/Users/linhuichen/code/trade-data`（非 trade/，absolute 保留 symlink 路径）
+- alert_match._SENT_DB = `/Users/linhuichen/code/trade-data/data/sentiment.db`
+- inode 237343239 = trade-data/ 主库（§9 规范 inode 237343239）；trade/ 镜像 inode=239125123（rsync 时变），alert 不读镜像 ✅
+- 两个模块均读 trade-data/ 最新主库，与 §9 uvicorn cwd=trade-data/ 一致，根治 BaoStock 补采写 trade-data 但线上读 trade/ 致 export 漏数据
+
+**3. NOTES 回填**
+- line 2086："遗留 bug" -> "✅ 已修复（commit f0f6df78）"
+- 本节 AZ28 补验证闭环（纯落档，不改码，无 commit 代码改动）
+
+**4. 相关发现（scripts/ .resolve() 残留，本次未改-超任务范围 step2 限 app/）**
+grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑会跳回 trade/ 读滞后镜像）：
+- `scripts/daily_summary_email.py:56` / `build_board_etf_map.py:20` / `add_baidu_push.py:16` / `notify.py:36` / `upload_r2.py:24`（已有注释承认问题）/ `backtest_alert.py:21` / `check_nt_signals.py:27`
+- 已用 `.absolute()` + 注释说明的（正确范例）：`detect_intraday_anomaly.py:26` / `export_alert.py:27` / `export_alert_analyze.py:31` / `export_etf_score_list.py:78`
+- 已用 `Path(__file__).parent.parent`（无 resolve，正确）：`gen_schedule_stats.py:27` / `check_signals.py:28`
+- 待办：若上述 7 脚本从 trade-data/ 跑且读 DB/data，需同步改 `.absolute()`；仅从 trade/ 跑的可保留（resolve=absolute 同效）。需逐个确认运行 cwd 后定，本次不动
