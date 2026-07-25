@@ -3268,6 +3268,66 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 2. low_alert 在 bear regime 反而高(深跌=高 L1-L8 机会分),任务前提"弱市低 low_alert"不成立 on current data。opp_low=30 的 0->1 效果是结构性改进,需特定市场状态才激活
 3. regime-based 主要生效在 bull 降级(避免追涨),而非 bear 升级(捕捉反弹)——当前数据特性
 
+### 小节AZ36：2026-07-26 低风险两项串行 -- cross normalized 循环 directions 缓存 + trade_sim stats 165回测重跑
+
+**分支**:feat/low-risk-opt(from main,两项分两 commit)
+
+**任务1:cross normalized 循环优化(快)**
+
+**背景**:P1-1 AZ31(commit cefe0b57)已优化 cross 的 trim_mean 部分(1.896s->1.487s 省22%),但 normalized 循环 40 次 load_config 未优化。cross.compute() 循环调 normalized(mid) 40 次,每次触发 directions()->load_config() 读 yaml,40 次文件 IO 重复无意义。signals 新瓶颈 2.709s。
+
+**实施(app/compute/normalize.py)**:
+- `directions()` 加 `functools.lru_cache(maxsize=1)` 包装(`directions = lru_cache(maxsize=1)(directions)`)
+- 保留原函数定义清晰度,仅包装返回值缓存
+- 进程级缓存(config 在单次 export/runner 运行内不变),首次计算后复用
+- 不改计算逻辑,不改调用方(cross.py/sentiment.py 透明受益)
+
+**STRICT MATCH 验证**(/tmp/snapshot_cross.py 改前快照 + /tmp/snapshot_cross_after.py 改后对比):
+- score: PASS(7893 len, 4666 nna, 逐元素 max_diff=0)
+- comps: PASS(7893x9, 逐元素 max_diff=0)
+- 缓存命中: hits=40 misses=1(40 次 load_config -> 1 次,完全符合任务要求)
+- 性能: BEFORE 1.5385s -> AFTER 0.1652s, 省 1.3733s (89.3%)
+- 预期省 ~1.4s, 实际省 1.37s ✓
+- 结果存 /tmp/cross_strict_match.json
+
+**commit**:1f1e121f(feat/low-risk-opt)
+
+**任务2:trade_sim stats 165 回测重跑(慢)**
+
+**背景**:线上 trade_sim_*_stats.json 滞后 4 天(7-22 生成,mtime 7-23),需用 P1+D+C 后的代码重新生成,让三档 chip 数据更新。
+
+**定位**:
+- 生成脚本:scripts/simulate_trade.py --all(批量生成所有品种 JSON)
+- 输出:static-site/data/trade_sim/trade_sim_{id}_stats.json + _full.json
+- name_map 139 个品种,每品种 5窗口x3路径x11场景=165 回测(任务"165"含义)
+- static-site/data/trade_sim/ 在 .gitignore(R2 托管,不进 git),上线走 upload_r2.py upload-trade-sim-json
+- 线上 URL:https://ssd.fx8.store/trade_sim_data/trade_sim_{id}_stats.json
+
+**实施**:
+1. 从 trade-data cwd 跑 `python scripts/simulate_trade.py --all`(读最新主库 inode 237343239):
+   - 成功 103 / 跳过 35(无数据) / 失败 1(g.cn_us_spread, complex 类型 __round__ bug,非本次引入) / 共 139
+   - 时长 26.4s(远低于 3h 预估,无需分步)
+   - 生成 trade-data/static-site/data/trade_sim/: 103 stats + 103 full(mtime 07:17 今天)
+   - generated_at=2026-07-26 07:17, signal_last_date=2026-07-21(P1+D+C 后最新数据)
+2. 生成 .gz(206 个,覆盖旧版,基于新 .json)
+3. rsync trade-data/static-site/data/trade_sim/ -> trade/static-site/data/trade_sim/(--delete 保一致,412 文件 326MB)
+4. upload_r2.py upload-trade-sim-json:412/412 文件上传成功(81s)-> https://ssd.fx8.store/trade_sim_data/
+
+**线上验证(curl ss.fx8.store)**:
+- trade_sim_sh_stats.json: generated_at=2026-07-26 07:17, signal_last_date=2026-07-21 ✓
+- trade_sim_sh_stats.json.gz: 同上(.gz 同步更新)✓
+- trade_sim_csi500_stats.json: 同上 ✓
+- R2 数据已更新,前端可读最新 trade_sim stats(三档 chip 数据 P1+D+C 后)
+
+**NOTES commit**:本次 commit(trade_sim 重跑无 git 变更因 .gitignore,仅 NOTES 落档)
+
+**教训/发现**:
+1. trade_sim/ 在 .gitignore R2 托管(2026-07-22 迁出 400 文件 275M 解决 s.sugas.site 300MB 超限),任务描述"commit static-site/data/trade_sim_stats.json"基于过时信息,实际走 upload_r2.py 不走 git
+2. simulate_trade.py 用 `DB = __file__/../../data/sentiment.db` 硬编码常量(非 app/db.py 的 .absolute()),从 trade-data cwd 跑因 scripts 是 symlink 保留路径,DB 解析为 trade-data/data/sentiment.db(最新主库),正确
+3. upload_r2.py 默认从 trade/static-site/data/trade_sim/ 读(ROOT resolve 解析 symlink=trade),需 rsync trade-data->trade 后再上传;或设 REPO=trade-data 环境变量直接从 trade-data 读
+4. g.cn_us_spread FAIL(complex 类型 __round__):历史遗留 bug,非本次引入,不影响其他品种(103 成功),维持原状不修(任务"不改计算逻辑")
+5. cross 优化 lru_cache 对短进程(export/runner)安全;长进程(uvicorn)config 改了不刷新,但 normalize/cross 一般 export 时跑非请求时实时跑,无影响
+
 
 
 
