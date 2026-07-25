@@ -3103,7 +3103,7 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 **commit**:fd8ecb10(feat/iframe-theme-follow) + e3cb5729(merge main,含 NOTES AZ29-AZ32 三方合并)
 
 
-### 小节AZ33：2026-07-20 AI评分卡片1080竖屏3列布局bug修复(理由行高超高一条一屏)
+### 小节AZ33：2026-07-25 AI评分卡片1080竖屏3列布局bug修复(理由行高超高一条一屏)
 
 **背景**:用户反馈"ai 评分在电脑竖屏展示时只有1080宽但还是保持着3列。前2列因为理由过长导致行高超高 一条一屏"。竖屏 1080 宽下买/卖/持有清单 3 列布局挤死,理由列文字密集换行把单条撑到一屏高。
 
@@ -3200,7 +3200,7 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 **后续(阶段2 方向C regime-based)**:本阶段只做黑名单分级+门槛组级化(前端层),方向C regime-based(后端 signals.py 按 regime 切阈值)留阶段2后续派 agent 实施。
 
 
-### 小节AZ35：2026-07-20 策略优化阶段2 -- 方向C regime-based 动态阈值 + WF 验证
+### 小节AZ35：2026-07-25 策略优化阶段2 -- 方向C regime-based 动态阈值 + WF 验证
 
 **背景**:阶段1(方向D 黑名单分级+门槛组级化,AZ34)已上线。调研根因:trend 维度均值 26.3(弱市 close<MA60)拖累 score 卡 [50,60) 占 64% 无 70+ 高分。方向C目标:regime-based 动态阈值,弱市 opp_low=30 改善 0 手边缘品种变 1 手。
 
