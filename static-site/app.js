@@ -8490,7 +8490,9 @@ const ETF_TIER_LABEL = {
   "strong-sell": "强卖出", "sell": "卖出", "hold": "持有观察",
   "buy": "买入", "strong-buy": "强买入"
 };
-const _etfScoreState = { all: [], filtered: [], page: 1, pageSellHold: 1, search: "", meta: null, holdingOnly: false, buyExpanded: false };
+// sideFilter: "all"/"buy"/"sell"/"hold" 快速过滤(默认 all, 买入区在前首屏可见)
+// sortKey/sortDir: 排序键("score"/"hands"/"amt_pct"/"high_alert")与方向("desc"/"asc"), 默认 score 降序
+const _etfScoreState = { all: [], filtered: [], page: 1, pageSellHold: 1, search: "", meta: null, holdingOnly: false, buyExpanded: false, sideFilter: "all", sortKey: "score", sortDir: "desc" };
 
 // ============ B4 持仓: localStorage 读写（纯前端本地存，不传后端） ============
 // 存储格式: localStorage["etf_holdings"] = JSON.stringify(["510300","159915",...]) 6位ETF代码数组
@@ -8582,12 +8584,25 @@ function _etfScorePages() {
   return Math.max(1, Math.ceil(_etfScoreState.filtered.length / ETF_SCORE_PAGE_SIZE));
 }
 
+// 排序标签(中文, 用于 section-head 副标题)
+function _etfSortLabel() {
+  const map = {
+    score: "评分", hands: "买点手数", amt_pct: "成交额分位",
+    high_alert: "高位预警", low_alert: "低位预警"
+  };
+  return map[_etfScoreState.sortKey] || "评分";
+}
+
 function _applyEtfScoreFilter() {
   const s = _etfScoreState.search.trim().toLowerCase();
   let filtered = s
     ? _etfScoreState.all.filter((e) =>
         String(e.etf_code).toLowerCase().includes(s) || String(e.name).toLowerCase().includes(s))
     : _etfScoreState.all.slice();
+  // side 筛选: all=全部, buy/sell/hold=只看该 side
+  if (_etfScoreState.sideFilter !== "all") {
+    filtered = filtered.filter((e) => e.side === _etfScoreState.sideFilter);
+  }
   // 持仓筛选: 只看持仓的 ETF
   if (_etfScoreState.holdingOnly) {
     const hset = _getEtfHoldingsSet();
@@ -8601,6 +8616,24 @@ function _applyEtfScoreFilter() {
   if (_etfScoreState.pageSellHold > shPages) _etfScoreState.pageSellHold = shPages;
   if (_etfScoreState.pageSellHold < 1) _etfScoreState.pageSellHold = 1;
   _renderEtfScoreBody();
+}
+
+// 排序工具: 按 sortKey/sortDir 排序数组(返回新数组, 不改原数组)
+// null/undefined 值排到末尾(无论升降序, 避免无手数/无amt_pct的ETF挤到前面)
+// keepSideGroup=true 时保留 sell 先 hold 后的分组(sellHold 区用, 卖出比持有观察更紧急)
+function _sortEtfList(arr, keepSideGroup) {
+  const key = _etfScoreState.sortKey;
+  const dir = _etfScoreState.sortDir === "asc" ? 1 : -1;
+  return arr.slice().sort((a, b) => {
+    if (keepSideGroup && a.side !== b.side && (a.side === "sell" || a.side === "hold") && (b.side === "sell" || b.side === "hold")) {
+      return a.side === "sell" ? -1 : 1;
+    }
+    const va = a[key], vb = b[key];
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;   // a 无值排后
+    if (vb == null) return -1;  // b 无值排后
+    return (va - vb) * dir;
+  });
 }
 
 // 分页器HTML生成(scope: "buy"/"sh" 标识区, 用于绑定区分)
@@ -8633,18 +8666,17 @@ function _renderEtfScoreBody() {
   const hset = _getEtfHoldingsSet();
   const filtered = st.filtered;
 
-  // 拆3组: 持仓置顶 / 卖出+持有观察 / 买入
+  // 拆3组: 持仓置顶 / 买入 / 卖出+持有观察
+  // 渲染顺序(2026-07-25 优化): 持仓 -> 买入机会(首屏可见) -> 卖出/持有观察
+  //   原顺序 持仓->卖出/持有观察->买入 导致买入被埋在1000+只sell/hold后面, 用户要滚很久
   // 持仓行从原 side 区上移到顶部持仓区, 原 side 区去重(避免重复显示)
-  const holdings = filtered.filter((e) => hset[e.etf_code]);
-  const sellHold = filtered.filter((e) => (e.side === "sell" || e.side === "hold") && !hset[e.etf_code]);
-  const buys = filtered.filter((e) => e.side === "buy" && !hset[e.etf_code]);
-  // 排序: 持仓按score降序; sellHold 按 side(sell先hold后)+score降序; buy 按 score 降序
-  holdings.sort((a, b) => (b.score || 0) - (a.score || 0));
-  sellHold.sort((a, b) => {
-    if (a.side !== b.side) return a.side === "sell" ? -1 : 1;
-    return (b.score || 0) - (a.score || 0);
-  });
-  buys.sort((a, b) => (b.score || 0) - (a.score || 0));
+  let holdings = filtered.filter((e) => hset[e.etf_code]);
+  let sellHold = filtered.filter((e) => (e.side === "sell" || e.side === "hold") && !hset[e.etf_code]);
+  let buys = filtered.filter((e) => e.side === "buy" && !hset[e.etf_code]);
+  // 排序: 用 _sortEtfList 按 sortKey/sortDir 排序; sellHold 保留 sell 先 hold 后的分组(keepSideGroup)
+  holdings = _sortEtfList(holdings);
+  sellHold = _sortEtfList(sellHold, true);
+  buys = _sortEtfList(buys);
 
   // 统计条
   const buyN = st.all.filter((e) => e.side === "buy").length;
@@ -8706,7 +8738,7 @@ function _renderEtfScoreBody() {
   if (holdings.length > 0) {
     html += '<div class="etf-section etf-section-holdings">';
     html += '<div class="etf-section-head"><span class="etf-section-icon">⭐</span> 我的持仓 <span class="etf-section-count">' + holdings.length + '</span>'
-      + '<span class="etf-section-sub">按评分排序</span></div>';
+      + '<span class="etf-section-sub">按' + _etfSortLabel() + '排序</span></div>';
     html += '<div class="etf-score-list">';
     holdings.forEach((e, i) => { html += renderRow(e, i + 1); });
     html += '</div></div>';
@@ -8714,52 +8746,85 @@ function _renderEtfScoreBody() {
 
   // holdingOnly 模式只显持仓区
   if (!st.holdingOnly) {
-    // 区B: 卖出/持有观察(置顶, 100/页大页少翻页) —— 卖出从"被淹没"变"主角"
-    if (sellHold.length > 0) {
-      const shPages = Math.max(1, Math.ceil(sellHold.length / ETF_SELLHOLD_PAGE_SIZE));
-      if (st.pageSellHold > shPages) st.pageSellHold = shPages;
-      const shStart = (st.pageSellHold - 1) * ETF_SELLHOLD_PAGE_SIZE;
-      const shSlice = sellHold.slice(shStart, shStart + ETF_SELLHOLD_PAGE_SIZE);
-      const sellN2 = sellHold.filter((e) => e.side === "sell").length;
-      const holdN2 = sellHold.filter((e) => e.side === "hold").length;
-      html += '<div class="etf-section etf-section-sellhold">';
-      html += '<div class="etf-section-head"><span class="etf-section-icon">🔻</span> 卖出 / 持有观察 <span class="etf-section-count">' + sellHold.length + '</span>'
-        + '<span class="etf-section-sub">卖出信号 ' + sellN2 + ' · 持有观察 ' + holdN2 + '</span></div>';
-      html += '<div class="etf-score-list">';
-      shSlice.forEach((e, i) => { html += renderRow(e, shStart + i + 1); });
-      html += '</div>';
-      if (shPages > 1) html += _renderEtfPager("sh", st.pageSellHold, shPages, sellHold.length);
-      html += '</div>';
-    }
-    // 区C: 买入(默认折叠Top20, 展开后50/页) —— 折叠态省滚动, 想看再展开
-    if (buys.length > 0) {
-      const strongBuyN = buys.filter((e) => _etfScoreTier(e) === "strong-buy").length;
-      const buyN2 = buys.length - strongBuyN;
-      html += '<div class="etf-section etf-section-buy">';
-      html += '<div class="etf-section-head"><span class="etf-section-icon">🔺</span> 买入机会 <span class="etf-section-count">' + buys.length + '</span>'
-        + '<span class="etf-section-sub">强买入 ' + strongBuyN + ' · 买入 ' + buyN2 + '</span></div>';
-      if (st.buyExpanded) {
-        // 展开态: 50/页分页
-        const bPages = Math.max(1, Math.ceil(buys.length / ETF_SCORE_PAGE_SIZE));
-        if (st.page > bPages) st.page = bPages;
-        const bStart = (st.page - 1) * ETF_SCORE_PAGE_SIZE;
-        const bSlice = buys.slice(bStart, bStart + ETF_SCORE_PAGE_SIZE);
+    if (st.sideFilter !== "all") {
+      // 单区模式: 只显示筛选的 side, 统一 50/页分页(取消折叠/分区差异, 简化浏览)
+      // 持仓区已在上方显示(不受 sideFilter 影响, 用户持仓永远可见)
+      const sideList = st.sideFilter === "buy" ? buys
+        : st.sideFilter === "sell" ? sellHold.filter((e) => e.side === "sell")
+        : sellHold.filter((e) => e.side === "hold");
+      const sideLabel = st.sideFilter === "buy" ? "买入机会"
+        : st.sideFilter === "sell" ? "卖出信号"
+        : "持有观察";
+      const sideIcon = st.sideFilter === "buy" ? "🔺" : st.sideFilter === "sell" ? "🔻" : "⏸";
+      const secClass = st.sideFilter === "buy" ? "etf-section-buy"
+        : st.sideFilter === "sell" ? "etf-section-sellhold"
+        : "etf-section-sellhold";
+      if (sideList.length > 0) {
+        const pages = Math.max(1, Math.ceil(sideList.length / ETF_SCORE_PAGE_SIZE));
+        if (st.page > pages) st.page = pages;
+        const start = (st.page - 1) * ETF_SCORE_PAGE_SIZE;
+        const slice = sideList.slice(start, start + ETF_SCORE_PAGE_SIZE);
+        html += '<div class="etf-section ' + secClass + '">';
+        html += '<div class="etf-section-head"><span class="etf-section-icon">' + sideIcon + '</span> ' + sideLabel + ' <span class="etf-section-count">' + sideList.length + '</span>'
+          + '<span class="etf-section-sub">按' + _etfSortLabel() + '排序</span></div>';
         html += '<div class="etf-score-list">';
-        bSlice.forEach((e, i) => { html += renderRow(e, bStart + i + 1); });
+        slice.forEach((e, i) => { html += renderRow(e, start + i + 1); });
         html += '</div>';
-        if (bPages > 1) html += _renderEtfPager("buy", st.page, bPages, buys.length);
-        html += '<div class="etf-section-collapse-wrap"><button class="etf-section-collapse" data-action="collapse-buy">收起（仅显示 Top ' + ETF_BUY_COLLAPSE_TOP + '）</button></div>';
+        if (pages > 1) html += _renderEtfPager("buy", st.page, pages, sideList.length);
+        html += '</div>';
       } else {
-        // 折叠态: Top20 + 展开按钮
-        const top = buys.slice(0, ETF_BUY_COLLAPSE_TOP);
-        html += '<div class="etf-score-list">';
-        top.forEach((e, i) => { html += renderRow(e, i + 1); });
-        html += '</div>';
-        if (buys.length > ETF_BUY_COLLAPSE_TOP) {
-          html += '<div class="etf-section-collapse-wrap"><button class="etf-section-collapse" data-action="expand-buy">展开全部 ' + buys.length + ' 只（共 ' + Math.ceil(buys.length / ETF_SCORE_PAGE_SIZE) + ' 页）</button></div>';
-        }
+        html += '<div class="etf-score-empty">当前筛选下无 ' + sideLabel + ' ETF</div>';
       }
-      html += '</div>';
+    } else {
+      // 全部模式: 三区显示, 顺序 买入(首屏可见) -> 卖出/持有观察
+      //   原顺序 卖出/持有观察->买入 导致买入被埋在1000+只sell/hold后面, 2026-07-25 调整
+      // 区B: 买入(默认折叠Top20, 展开后50/页) -- 折叠态首屏可见 Top20 买入机会
+      if (buys.length > 0) {
+        const strongBuyN = buys.filter((e) => _etfScoreTier(e) === "strong-buy").length;
+        const buyN2 = buys.length - strongBuyN;
+        html += '<div class="etf-section etf-section-buy">';
+        html += '<div class="etf-section-head"><span class="etf-section-icon">🔺</span> 买入机会 <span class="etf-section-count">' + buys.length + '</span>'
+          + '<span class="etf-section-sub">强买入 ' + strongBuyN + ' · 买入 ' + buyN2 + ' · 按' + _etfSortLabel() + '排序</span></div>';
+        if (st.buyExpanded) {
+          // 展开态: 50/页分页
+          const bPages = Math.max(1, Math.ceil(buys.length / ETF_SCORE_PAGE_SIZE));
+          if (st.page > bPages) st.page = bPages;
+          const bStart = (st.page - 1) * ETF_SCORE_PAGE_SIZE;
+          const bSlice = buys.slice(bStart, bStart + ETF_SCORE_PAGE_SIZE);
+          html += '<div class="etf-score-list">';
+          bSlice.forEach((e, i) => { html += renderRow(e, bStart + i + 1); });
+          html += '</div>';
+          if (bPages > 1) html += _renderEtfPager("buy", st.page, bPages, buys.length);
+          html += '<div class="etf-section-collapse-wrap"><button class="etf-section-collapse" data-action="collapse-buy">收起（仅显示 Top ' + ETF_BUY_COLLAPSE_TOP + '）</button></div>';
+        } else {
+          // 折叠态: Top20 + 展开按钮
+          const top = buys.slice(0, ETF_BUY_COLLAPSE_TOP);
+          html += '<div class="etf-score-list">';
+          top.forEach((e, i) => { html += renderRow(e, i + 1); });
+          html += '</div>';
+          if (buys.length > ETF_BUY_COLLAPSE_TOP) {
+            html += '<div class="etf-section-collapse-wrap"><button class="etf-section-collapse" data-action="expand-buy">展开全部 ' + buys.length + ' 只（共 ' + Math.ceil(buys.length / ETF_SCORE_PAGE_SIZE) + ' 页）</button></div>';
+          }
+        }
+        html += '</div>';
+      }
+      // 区C: 卖出/持有观察(100/页大页少翻页)
+      if (sellHold.length > 0) {
+        const shPages = Math.max(1, Math.ceil(sellHold.length / ETF_SELLHOLD_PAGE_SIZE));
+        if (st.pageSellHold > shPages) st.pageSellHold = shPages;
+        const shStart = (st.pageSellHold - 1) * ETF_SELLHOLD_PAGE_SIZE;
+        const shSlice = sellHold.slice(shStart, shStart + ETF_SELLHOLD_PAGE_SIZE);
+        const sellN2 = sellHold.filter((e) => e.side === "sell").length;
+        const holdN2 = sellHold.filter((e) => e.side === "hold").length;
+        html += '<div class="etf-section etf-section-sellhold">';
+        html += '<div class="etf-section-head"><span class="etf-section-icon">🔻</span> 卖出 / 持有观察 <span class="etf-section-count">' + sellHold.length + '</span>'
+          + '<span class="etf-section-sub">卖出信号 ' + sellN2 + ' · 持有观察 ' + holdN2 + ' · 按' + _etfSortLabel() + '排序</span></div>';
+        html += '<div class="etf-score-list">';
+        shSlice.forEach((e, i) => { html += renderRow(e, shStart + i + 1); });
+        html += '</div>';
+        if (shPages > 1) html += _renderEtfPager("sh", st.pageSellHold, shPages, sellHold.length);
+        html += '</div>';
+      }
     }
   }
 
@@ -8841,6 +8906,25 @@ async function renderEtfScore() {
   // 买入区展开状态从 localStorage 恢复(记忆用户偏好)
   _etfScoreState.buyExpanded = false;
   try { if (localStorage.getItem("etf_buy_expanded") === "1") _etfScoreState.buyExpanded = true; } catch (e) {}
+  // side 筛选从 localStorage 恢复(记忆用户偏好, 默认 all); 排序恢复(默认 score desc)
+  _etfScoreState.sideFilter = "all";
+  try {
+    const savedSide = localStorage.getItem("etf_side_filter");
+    if (savedSide && ["all", "buy", "sell", "hold"].indexOf(savedSide) >= 0) _etfScoreState.sideFilter = savedSide;
+  } catch (e) {}
+  _etfScoreState.sortKey = "score";
+  _etfScoreState.sortDir = "desc";
+  try {
+    const savedSort = localStorage.getItem("etf_sort");
+    if (savedSort) {
+      const parts = savedSort.split("-");
+      if (parts.length === 2 && ["score", "hands", "amt_pct", "high_alert", "low_alert"].indexOf(parts[0]) >= 0
+          && (parts[1] === "asc" || parts[1] === "desc")) {
+        _etfScoreState.sortKey = parts[0];
+        _etfScoreState.sortDir = parts[1];
+      }
+    }
+  } catch (e) {}
 
   content.innerHTML = "";
   const m = _etfScoreState.meta;
@@ -8850,13 +8934,34 @@ async function renderEtfScore() {
   holdWrap.id = "etf-holdings-panel";
   content.appendChild(holdWrap);
   _renderEtfHoldingsPanel();
-  // 搜索栏
+  // 搜索栏 + side 筛选 chip + 排序下拉
   const bar = document.createElement("div");
   bar.className = "etf-score-bar";
   const holdN = _getEtfHoldings().length;
+  // 统计各 side 数量(用于 chip 标签显示)
+  const allN = _etfScoreState.all.length;
+  const buyNChip = _etfScoreState.all.filter((e) => e.side === "buy").length;
+  const sellNChip = _etfScoreState.all.filter((e) => e.side === "sell").length;
+  const holdNChip = _etfScoreState.all.filter((e) => e.side === "hold").length;
+  const sf = _etfScoreState.sideFilter;
+  const sortVal = _etfScoreState.sortKey + "-" + _etfScoreState.sortDir;
   bar.innerHTML =
     '<input id="etf-score-search" type="search" placeholder="搜 ETF 代码或名称（如 515030 / 新能源车）" autocomplete="off" value="' + _esc(_etfScoreState.search) + '">'
+    + '<div class="etf-side-chips" role="tablist" aria-label="ETF 分类筛选">'
+    + '<button type="button" class="etf-side-chip' + (sf === "all" ? " active" : "") + '" data-side="all">全部 ' + allN + '</button>'
+    + '<button type="button" class="etf-side-chip etf-chip-buy' + (sf === "buy" ? " active" : "") + '" data-side="buy">买入 ' + buyNChip + '</button>'
+    + '<button type="button" class="etf-side-chip etf-chip-sell' + (sf === "sell" ? " active" : "") + '" data-side="sell">卖出 ' + sellNChip + '</button>'
+    + '<button type="button" class="etf-side-chip etf-chip-hold' + (sf === "hold" ? " active" : "") + '" data-side="hold">持有 ' + holdNChip + '</button>'
+    + '</div>'
     + '<button id="etf-hold-filter" class="etf-hold-filter' + (_etfScoreState.holdingOnly ? ' active' : '') + '"' + (holdN === 0 ? ' disabled' : '') + '>只看持仓' + (holdN > 0 ? ' (' + holdN + ')' : '') + '</button>'
+    + '<select id="etf-score-sort" class="etf-score-sort" title="排序方式" aria-label="排序方式">'
+    + '<option value="score-desc"' + (sortVal === "score-desc" ? " selected" : "") + '>评分 高→低</option>'
+    + '<option value="score-asc"' + (sortVal === "score-asc" ? " selected" : "") + '>评分 低→高</option>'
+    + '<option value="hands-desc"' + (sortVal === "hands-desc" ? " selected" : "") + '>买点手数 多→少</option>'
+    + '<option value="amt_pct-desc"' + (sortVal === "amt_pct-desc" ? " selected" : "") + '>成交额分位 高→低</option>'
+    + '<option value="high_alert-desc"' + (sortVal === "high_alert-desc" ? " selected" : "") + '>高位预警 高→低</option>'
+    + '<option value="low_alert-desc"' + (sortVal === "low_alert-desc" ? " selected" : "") + '>低位预警 高→低</option>'
+    + '</select>'
     + '<span class="etf-score-updated">更新 ' + (m && m.updated_at ? _esc(m.updated_at.slice(0, 16)) : '-') + (m && m.full_market ? ' · 全市场' : ' · 代表性') + '</span>';
   content.appendChild(bar);
   const input = bar.querySelector("#etf-score-search");
@@ -8869,6 +8974,31 @@ async function renderEtfScore() {
       _etfScoreState.pageSellHold = 1;
       _applyEtfScoreFilter();
     }, 180); // 防抖
+  };
+  // side chip 切换
+  bar.querySelectorAll(".etf-side-chip[data-side]").forEach((chip) => {
+    chip.onclick = () => {
+      const side = chip.dataset.side;
+      if (!side || side === _etfScoreState.sideFilter) return;
+      _etfScoreState.sideFilter = side;
+      try { localStorage.setItem("etf_side_filter", side); } catch (e) {}
+      bar.querySelectorAll(".etf-side-chip[data-side]").forEach((c) => {
+        c.classList.toggle("active", c.dataset.side === side);
+      });
+      _etfScoreState.page = 1;
+      _etfScoreState.pageSellHold = 1;
+      _applyEtfScoreFilter();
+    };
+  });
+  // 排序下拉
+  const sortSel = bar.querySelector("#etf-score-sort");
+  sortSel.onchange = () => {
+    const v = sortSel.value || "score-desc";
+    const parts = v.split("-");
+    _etfScoreState.sortKey = parts[0] || "score";
+    _etfScoreState.sortDir = parts[1] === "asc" ? "asc" : "desc";
+    try { localStorage.setItem("etf_sort", _etfScoreState.sortKey + "-" + _etfScoreState.sortDir); } catch (e) {}
+    _applyEtfScoreFilter();
   };
   // 只看持仓 切换
   const holdFilterBtn = bar.querySelector("#etf-hold-filter");
