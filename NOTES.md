@@ -2776,3 +2776,31 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 **闭环**:docs/walk-forward-report.md 已落档(总表+每信号详细+结论+建议);signals.py 未改(git diff确认);纯诊断报告零线上影响。脚本 /tmp/walkforward_diag.py + /tmp/wf_batch.py + 结果 /tmp/wf_all_results.json(本地不进git)。
 
 **教训**:①全样本调参无walk-forward是最大过拟合源,WFE>1证明参数滚动调整比固定参数更适应市场(cgb_idx WFE1.404)②夏普>3"可疑"需结合WFE看,cgb_idx夏普3.58但WFE>1未过拟合(高夏普来自国债牛市非参数过拟合)③事件型信号(C1/B1)样本稀疏,多数指数n<50统计意义有限,需前端标注④过滤层经多轮迭代调参易过拟合到历史(sh C1|D1a 5阈值/h5 R2 6阈值),基础信号稳健但叠加过滤层风险升⑤alert_score回测验证范围窄(单ETF+代理指标)需扩展
+
+### 小节AZ25：2026-07-25 13:30 csi_div ETF映射补强515180易方达 + §11卡死SendMessage+重派两agent同任务教训
+
+**项1: csi_div ETF 映射补强(commit e0b7e05b)**
+
+**背景**:accba4668(commit c4613e21)已将 csi_div 从 `["515080","515100","515090"]` 改为 `["515080"]`(515100跟踪红利低波100/515090跟踪可持续发展+93万死流动性,排除)。但 ab238f3f 后续调研发现遗漏:515180 红利ETF易方达**同样精确跟踪中证红利指数000922**,且成交额4.25亿(比515080的3.64亿更活跃)。原"515080唯一活跃中证红利ETF"前提有误,515180 应纳入。
+
+**515180 权威依据**:eastmoney fundf10 详情页"跟踪标的:中证红利指数"+基金全称"易方达中证红利交易型开放式指数证券投资基金"+业绩比较基准"中证红利指数收益率";akshare fund_etf_spot_em 成交额4.25亿。
+
+**最终 L114**:`"csi_div": ["515080", "515180"]`(515080招商3.64亿+515180易方达4.25亿均精确跟踪中证红利000922且活跃)。线上 ssd.fx8.store/index/csi_div-all.json etfs=[515180红利ETF易方达4.25亿, 515080中证红利ETF招商3.64亿](按成交额降序)。commit e0b7e05b 在 origin/main(在 2d74c6e7 walk-forward报告 + 9d0f5971 data update 之后)。
+
+**复核**:div_lowvol(512890跟踪中证红利低波动7.04亿)/sz_div(159905跟踪深证红利0.65亿)复核无误未改。符合§5"完整正确/调研全面/不留尾巴":ab238f3f 发现 accba4668 + 主控都漏了515180,补强更完整。
+
+**项2: §11 卡死处理教训(SendMessage+重派导致两agent同任务)**
+
+**时间线**:
+- 11:47 派 ab238f3f 修复 csi_div
+- 12:00 jsonl mtime 713s没动判卡死,SendMessage resume(提示禁WebFetch换python akshare)
+- 12:10 仍卡死(1314s)判进程已死,重派 accba4668
+- accba4668 12:30完成 c4613e21(["515080"]),主控验收
+- ab238f3f 实际没死,SendMessage唤醒后继续跑5923秒(99分钟),13:23完成 e0b7e05b 补强(["515080","515180"])
+- 两agent都改csi_div L114,fast-forward无冲突,ab238f3f补强更完整
+
+**教训**:
+1. SendMessage resume 可能延迟生效(agent卡在长工具如WebFetch,消息排队等下轮处理),即使jsonl >600s没动也不一定真死
+2. 但 SendMessage+重派会导致两agent同任务,本次结果好(补强)但通常重复/冲突
+3. 后续改进:判卡死优先SendMessage resume,等一轮(10分钟)再决重派,避免SendMessage+重派并发;重派时新agent prompt要求先读进度文件+git log确认前agent是否已完成,避免重复
+4. 本次幸运:两agent改同文件不同时(串行fast-forward),若并发改同区域会冲突
