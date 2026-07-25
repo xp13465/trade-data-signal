@@ -2621,3 +2621,33 @@ a83e66c8 调研给方案(场景B B1+B2),aca89f88 实施(commit `9afccee0` push f
 - **文案散布**:19段硬编码散在各 render 函数体内 -> 集中 `static-site/purpose-notes.js` 17key(9home+8lab,PURPOSE_NOTES 对象,纯配置无副作用,`<script defer>` 在 common 后 app 前加载)
 
 验收7项:commit 9afccee0 origin/main 含 / common.js L466 函数 / purpose-notes.js 17key / app.js 残留0+9处调用 / lab.js 残留0+8处调用 / CSS 统一旧类删 / build_min+bump 跑过(6文件built,版本号 purpose-notes.min.js?v=666be462)/ 线上 ss.fx8.store purpose-notes.min.js HTTP200。文案原样搬运不改,nt-banner 不碰(国家队口径声明复合结构保持独立)。未来加新tab作用说明只需加一行 PURPOSE_NOTES[key]+调函数,3皮肤自动适配不变。本次是代码质量优化非功能变更(#19/#20/#21 功能 7/17 已上线)。
+
+### 小节AZ20：2026-07-25 09:05 B4 OHLC + a_fund_main第五源 + A6 PWA 三项闭环
+
+用户定"1+2+3"全做,派3 background agent 并行(文件范围不冲突,§3 并行派):①改 export_etf_score_list.py+app.js+style.css ②改 direct.py ③改 index.html+manifest+sw.js。
+
+**① B4 ETF OHLC K线导出**(agent a7aa,commit `ca1e2eb9` 代码 + `313d2235` data update 09:05):
+- **重大发现**:全市场扩采集 1371 只 7-24 已完成(`172fe2b6` --full-market 1371只 / `0e916672` 并发采集 / `0ffed42d` 并行化,TASKS 当时未落档),本次真正剩余 = OHLC K线导出
+- 后端 `scripts/export_etf_score_list.py`:`OHLC_EXPORT_DAYS=30` + `_fetch_and_upsert_ohlc()` 从 etf_daily 查近30日 `[[date,o,h,l,c]]` 升序 + `DEFAULT_BUY_TOP/SELL_TOP` 20/30->0/0 全量导出(前端50/页分页1376只=28页) + buy/sell 互斥(`in_sell = high_alert and not in_buy`)避免重复 + buy_list/sell_list 每项加 ohlc + payload 加 ohlc_days 元数据
+- 前端 `app.js`:`renderEtfScore` merge ohlc + 新增 `_etfSparkline(ohlc,w,h)` SVG折线(close画线,涨红跌绿A股色,末点圆点高亮) + `_renderEtfScoreBody` 行内 name/score 间加 60×20 sparkline
+- CSS `style.css`:`.etf-spark-wrap`/`.etf-spark` + 移动端隐藏
+- 验收7项✓:universe=1376 / buy_list=1064 / sell_list=145 / 失败0 / 重叠0 / 空ohlc0(1209只全有30日K) / 4.2M raw 429K gz / 三站点 ohlc_days=30 + buy[0] ohlc len=30 / app.min.js?v=97a94764 含_etfSparkline / style.min.css?v=9d9f1e23 含etf-spark
+
+**② a_fund_main 第五源同花顺兜底**(agent af19,commit `1b6b04c1`):
+- **背景**:7-24起 eastmoney.com 全家桶(push2his+push2+datacenter主力流)联动封,现有四源全死(ConnectionError),a_fund_main 采集 fail
+- **调研9类候选源**(全面不省略维度):东财datacenter-web(无A股主力资金流reportName,遍历17候选名只北向)/新浪(vip.stock板块有但无大盘合计,q.stock DNS失效,ssl_bkzj_zjlx/zjbk Service not found)/同花顺(zjlswd 404,hyzjl行业资金流可达)/腾讯(stock.gtimg bill/zjlx 404)/网易(api.money.126 404/SSL失败)/东财其他子域(push2ex/quote/dataapi/fundflow均无fflow端点)。**结论:同花顺行业资金流是唯一可用独立非东财源**
+- 实施 `direct.py` +41:第五源 `ak.stock_fund_flow_industry("即时")` sum 90行业"净额" + 周末往前推到周五修正日期 + 亿元转元(与主源f52单位一致)。五源按序 push2his->akshare->push2 fflow/kline->push2 clist->同花顺,不破坏现有
+- **口径差异诚实说明**:同花顺 sum=-969.56亿 vs 东财7-24=-774亿,**差异25%**(同花顺"净额"=全部资金含中小单 vs 东财"主力净流入"=超大单+大单),方向一致(都净流出),绝对值更大符合"全部>主力"。simple类型a_fund_main只需方向判断,25%偏差兜底可接受;东财解封回切主源。严格<1%无法达到(东财全死时无口径一致独立源,9类全调研过)
+- 验收6项✓:1b6b04c1 origin/main含 / direct.py +42 / 五源按序不破坏 / 线上collect_health level=ok items=0 / collect_log 20260725 ok "1 rows[第五源同花顺]"(同日error变ok) / 三站点验证
+
+**③ A6 PWA 三件套修正**(agent a399,commit `a41fb2df`):
+- **发现PWA已存在**:`044fd34d`(之前会话部分完成,在 feat/iframe-theme-follow + main),本次修正两处不符约束
+- `manifest.json` theme_color `#1a1d29`->`#d4af37`(redgold,固定不做动态切换;background_color留#1a1d29暗色避免启动白闪)
+- `index.html` meta theme-color `#1a1d29`->`#d4af37` + SW注册增强(message监听SW_UPDATED + controllerchange兜底 + `#sw-update-toast`浮层提示刷新,避免mid-session切版本)
+- `sw.js` 完全重写策略对齐约束:App Shell(HTML/CSS/JS/vendor/图标/manifest)CacheFirst / 数据JSON(除intraday)SWR(maxAge 3min盘中刷,<3min直接返回缓存省流量,>=3min后台拉新版) / intraday_snapshot.json NetworkFirst(盘中实时性优先,离线回退缓存) / 第三方(hm.baidu/zz.bdstatic/echarts CDN)跨域不拦截不缓存 / CACHE_VERSION v1->v2 清旧 + skipWaiting+clients.claim+postMessage SW_UPDATED
+- icon 已存在(之前会话magick从favicon.svg生成):icon-192 13K / icon-512 57K / apple-touch-icon 13K,`file`命令验证格式正确(不Read图片,§13模型不支持图片)
+- build_min+bump_asset_version已跑(app.js/lab.js未改,bump基于md5内容哈希不变则?v=不变)
+- 上线方式:不跑deploy.sh(PWA修正无需重跑export),直接 `git push origin feat:main` fast-forward推main触发CF Workers自动deploy
+- 验收7项✓:a41fb2df origin/main含 / 改3文件(index.html+49/manifest+2/sw.js+151) / manifest theme_color #d4af37 / index.html 9处标记 / sw.js CACHE_VERSION v2+CacheFirst+SWR+NetworkFirst / icon 3文件 / 三站点manifest.json+sw.js HTTP200+theme_color #d4af37
+
+**①②③全闭环**。周末开发续9闭环,剩等时点待办(7/27周一新时点验证rzhb19:15/etf20:07&21:30 / a_fund_main ok自然验证下周一update_all / 07-26 08:44 48h监控汇总+CronDelete)。
