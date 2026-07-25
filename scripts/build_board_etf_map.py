@@ -89,16 +89,18 @@ KW: dict[str, list[str]] = {
 
 # 排除词：跨境/债券/商品/货币等非 A 股行业主题 ETF
 EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "日本", "德国",
-           "法国", "英国", "韩国", "中韩", "亚太", "纳斯达克", "标普", "日经",
+           "法国", "英国", "韩国", "中韩", "亚太", "纳斯达克", "纳指", "标普", "日经",
            "恒生", "港股", "香港", "QDII", "商品", "豆粕", "REIT", "可转债",
            "国债", "信用", "MOM", "FOF"]
 
 # P2-新-G ETF 联动推荐：宽基/红利指数 -> 跟踪 ETF 代码清单。
 # 汪汪队 app/collector/etf_national_team.py ETF_LIST 覆盖 7 宽基
 #   (sz50/hs300/csi500/csi1000/cyb/kc50)：直接复用其代码清单。
-# 补充汪汪队未覆盖：bj50 北证50 + 3 红利指数（csi_div/div_lowvol/sz_div）。
-# sh 上证指数 / sz 深成指为综合指数，性质决定无跟踪 ETF，不加入（前端不渲染 tag，
-#   _etf_for 返空数组 -> _renderEtfTag 返空串 -> 标题不显示 ETF tag）。
+# 补充汪汪队未覆盖：3 红利指数（csi_div/div_lowvol/sz_div）。
+# bj50 北证50：akshare 全表无活跃跟踪 ETF（159509 代码复用为"纳指科技ETF景顺"跨境，
+#   593550 已退市/未上市），不加入 INDEX_ETF_MAP（前端 _etf_for 返空数组 -> 不渲染 tag，
+#   空比错误显示纳指科技好）。若后续有新北证50 ETF 上市，再加回此处。
+# sh 上证指数 / sz 深成指为综合指数，性质决定无跟踪 ETF，不加入（同上不渲染 tag）。
 # 这里只列代码，name/amount 由 akshare fund_etf_spot_em() 实时填（与行业关键词匹配同源）。
 INDEX_ETF_MAP: dict[str, list[str]] = {
     # ── 7 宽基（汪汪队 ETF_LIST 覆盖，代码与 ETF_LIST 一致）──
@@ -109,7 +111,6 @@ INDEX_ETF_MAP: dict[str, list[str]] = {
     "cyb":     ["159915", "159952"],                          # 创业板指
     "kc50":    ["588000", "588050"],                          # 科创50
     # ── 汪汪队未覆盖，手动补充 ──
-    "bj50":        ["159509", "593550"],                      # 北证50
     "csi_div":     ["515080", "515100", "515090"],            # 中证红利
     "div_lowvol":  ["512890"],                               # 红利低波
     "sz_div":      ["159905"],                               # 深证红利
@@ -166,10 +167,16 @@ def main():
             r = df_by_code.get(code)
             if r is None:
                 continue  # akshare 无此代码（已退市/未上市），跳过
+            rname = str(r["名称"])
+            # 代码复用绕过防御：代码精确匹配时也检查 name 不含跨境/债券等排除词
+            # （2026-07-20 事故：159509 原北证50ETF 复用为"纳指科技ETF景顺"绕过 EXCLUDE）
+            if any(ex in rname for ex in EXCLUDE):
+                print(f"  [跳过] {iid} {code} {rname}（name 命中 EXCLUDE，代码复用绕过防御）")
+                continue
             try:
                 etfs.append({
                     "code": str(code),
-                    "name": str(r["名称"]),
+                    "name": rname,
                     "amount": round(float(r["成交额"]) / 1e8, 2),
                 })
             except (TypeError, ValueError, KeyError):
