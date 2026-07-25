@@ -59,7 +59,14 @@
         "liq": 40.0,
         "drawdown": -30.73,
         "draw": 85.0,
-        "score": 58.52
+        "score": 58.52,
+        "regime": "bear",
+        "regime_th": {
+          "opp_low": 30.0,
+          "th_1": 35.0,
+          "th_2": 45.0,
+          "th_3": 60.0
+        }
       }
     }
   },

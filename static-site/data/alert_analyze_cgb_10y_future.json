@@ -6,21 +6,21 @@
     "date": "20260724",
     "target_id": "cgb_10y_future",
     "target_type": "index",
-    "high": 68.76,
-    "low": 35.85,
+    "high": 62.76,
+    "low": 35.73,
     "high_level": "关注",
     "low_level": "中性",
     "dims": {
       "H1": 53.33,
       "H2": 98.81,
-      "H3": null,
+      "H3": 30.42,
       "H4": 98.81,
       "H5": 51.67,
       "H6": 30.83,
       "H7": null,
       "H8": null,
       "L1": 46.67,
-      "L2": 46.25,
+      "L2": 45.83,
       "L3": 1.19,
       "L4": null,
       "L5": null,
@@ -32,10 +32,9 @@
       "target_id": "cgb_10y_future",
       "target_type": "index",
       "min_dims": 4,
-      "available_high": 5,
+      "available_high": 6,
       "available_low": 4,
       "missing": [
-        "H3",
         "H7",
         "H8",
         "L4",
@@ -50,7 +49,7 @@
       "volatility": 0.13,
       "label": "3手",
       "detail": {
-        "opp": 35.85,
+        "opp": 35.73,
         "ma60_ratio": 1.0025,
         "trend": 70.0,
         "macd_hist": 0.0062,
@@ -61,7 +60,14 @@
         "liq": 50.0,
         "drawdown": -0.04,
         "draw": 20.0,
-        "score": 61.05
+        "score": 61.01,
+        "regime": "range",
+        "regime_th": {
+          "opp_low": 35.0,
+          "th_1": 40.0,
+          "th_2": 50.0,
+          "th_3": 60.0
+        }
       }
     }
   },
@@ -105,6 +111,15 @@
           "direction": "high"
         },
         {
+          "k": "H3",
+          "name": "卖点密集",
+          "score": 30.42,
+          "weight": 0.13,
+          "contribution": 3.95,
+          "hit": false,
+          "direction": "high"
+        },
+        {
           "k": "H6",
           "name": "均线转弱",
           "score": 30.83,
@@ -127,9 +142,9 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 46.25,
+          "score": 45.83,
           "weight": 0.18,
-          "contribution": 8.32,
+          "contribution": 8.25,
           "hit": false,
           "direction": "low"
         },
@@ -178,12 +193,12 @@
         {
           "k": "H3",
           "name": "卖点密集",
-          "value": null,
+          "value": 30.42,
           "threshold": 60,
           "unit": "分",
           "desc": "卖点密集(近10日sell信号)",
           "hit": false,
-          "status": "无数据"
+          "status": "未命中"
         },
         {
           "k": "H4",
@@ -250,7 +265,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 46.25,
+          "value": 45.83,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",

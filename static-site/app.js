@@ -469,31 +469,78 @@ var _BACKUP_CHIP_PATH_SHORT = {
 //   回撤最小档：回撤 <=15%（>15%谈不上"最小"优势）AND 样本 >=3（样本太少不算）AND 年化>0
 //             （回撤低但年化为0/负的策略无推荐价值，2026-07-24 加门槛）
 //   门槛集中在此常量，方便后续调整（用户决策：加绝对值门槛 + 隐藏弱标的）。
+//
+// 2026-07-25 方向D 三档门槛组级化：按 market 分组差异化 ann（年化档）+ ddMax（回撤档），其余门槛统一。
+//   年化最高档：主板/创业板/科创板维持 3%（低于3%无推荐价值），行业/全球降到 2%（波动小门槛放宽）
+//   回撤最小档：主板维持 15%（>15%谈不上"最小"），创业板/科创板放到 20%（高波动板块适当放宽）
+//   其余门槛（steadyScore/steadyWinRate/steadyMaxDd/ddMinOps/ddMinAnn）不分 market，统一基础值。
+//   分组依据：A股宽基+红利=主板(3%/15%)，创业板指/科创50=高波动(3%/20%)，
+//            申万行业/同花顺+全球股指=中小盘/外围(2%/15%)，商品/汇率/债=高波动资产(3%/15%)。
 var _BACKUP_CHIP_THRESHOLDS = {
-  ann: 3.0,           // 年化最高档门槛：年化 >=3%
+  ann: 3.0,           // 年化最高档门槛（默认/main）：年化 >=3%
   steadyScore: 0.5,   // 最稳健档综合分 >=0.5（满分1.0）
   steadyWinRate: 60,  // 最稳健档胜率 >=60%
   steadyMaxDd: 20,    // 最稳健档回撤 <=20%
-  ddMax: 15,          // 回撤最小档回撤 <=15%
+  ddMax: 15,          // 回撤最小档回撤（默认/main）：<=15%
   ddMinOps: 3,        // 回撤最小档样本 >=3
   ddMinAnn: 0.0       // 回撤最小档年化 >0（防0%年化策略被推为"回撤最小"）
 };
-// 2026-07-25 walk-forward 优化黑名单（docs/walk-forward-action-plan.md 情况B+D）：
-// 这 7 个品种的信号经全样本调参后测试段失效(WFE<0.5 过拟合)或样本不足(WF n<30),
-// 不进三档 chip 推荐,仅显示"过拟合/样本不足,仅供参考"标注 chip。
-//   情况 B 过拟合(6 信号-品种对): sz(C1主买/D1卖/sell_stop_loss) csi500(D1卖) cyb(D1卖) csi_div(sell_stop_loss)
-//   情况 D 小样本(5 信号-品种对): hs300/csi500/cyb/kc50/sw_801110 的 C1主买(测试段 n<30)
-// 注:csi_div 止损卖已在 signals.py 改 4.5->3.5 通用化去 per-index 过拟合,但仍标注提醒用户测试段表现弱。
-// 上证综指(sh)walk-forward 稳健(WFE 0.94),不进黑名单,继续参与 chip 推荐。
-var _OVERFIT_OR_SMALL_SAMPLE_IDS = new Set([
+// market 分组门槛覆盖（仅 ann + ddMax，其余继承 _BACKUP_CHIP_THRESHOLDS 基础值）
+var _BACKUP_CHIP_MARKET_OVERRIDE = {
+  main:      { ann: 3.0, ddMax: 15 },  // 主板（A股宽基+红利）：维持 3%/15%
+  gem:       { ann: 3.0, ddMax: 20 },  // 创业板：年化3% + 回撤放宽20%
+  star:      { ann: 3.0, ddMax: 20 },  // 科创板：年化3% + 回撤放宽20%
+  industry:  { ann: 2.0, ddMax: 15 },  // 行业（申万 sw_* + 同花顺 thsc_*）：年化降到2%
+  global:    { ann: 2.0, ddMax: 15 },  // 全球（港股/美股/欧亚股指）：年化降到2%
+  commodity: { ann: 3.0, ddMax: 15 }   // 商品/汇率/债（g.*）：维持3%/15%（波动大门槛不降）
+};
+// market 分类：显式 A股主板/红利 + 创业板/科创 + 前缀匹配 行业/全球/商品，默认 main
+function _backupChipMarketOf(id) {
+  if (id === 'cyb') return 'gem';
+  if (id === 'kc50') return 'star';
+  if (['sh','sz','sz50','hs300','csi500','csi1000','bj50','csi_div','div_lowvol','sz_div'].indexOf(id) >= 0) return 'main';
+  if (['hsi','hscei','hstech','us_dji','us_ixic','us_ndx','us_spx','ftse100','dax','cac40','kospi','nikkei225'].indexOf(id) >= 0) return 'global';
+  if (id.indexOf('hk_') === 0) return 'global';
+  if (id.indexOf('g.') === 0) return 'commodity';
+  if (id.indexOf('sw_') === 0 || id.indexOf('thsc_') === 0) return 'industry';
+  return 'main';
+}
+// 按 id 取门槛（基础值 + market 覆盖）
+function _backupChipThresholdsFor(id) {
+  var m = _backupChipMarketOf(id);
+  var override = _BACKUP_CHIP_MARKET_OVERRIDE[m] || {};
+  return Object.assign({}, _BACKUP_CHIP_THRESHOLDS, override);
+}
+// 2026-07-25 walk-forward 优化黑名单（docs/walk-forward-action-plan.md 情况B+D）+
+// 2026-07-25 方向D 黑名单分级：拆为「WF 确凿失效」(维持屏蔽) + 「小样本」(不屏蔽,加标注走三档)两级。
+//
+// _OVERFIT_FAILED_IDS（情况B WF 确凿失效，维持屏蔽）：信号经全样本调参后测试段反向退化
+// （WF夏普 < 未过滤全样本），不进三档 chip 推荐，仅显示"过拟合/测试段失效"标注 chip。
+//   sz        : C1主买/D1卖/sell_stop_loss 测试段失效
+//   csi500    : D1卖 测试段失效（情况D C1主买小样本问题被情况B覆盖，仍维持屏蔽）
+//   cyb       : D1卖 测试段失效（情况D C1主买小样本问题被情况B覆盖，仍维持屏蔽）
+//   csi_div   : sell_stop_loss 测试段失效（4.5已改3.5通用化去 per-index 过拟合，但仍标注提醒）
+//
+// _SMALL_SAMPLE_IDS（情况D 小样本，不屏蔽）：C1主买 测试段 n<30，统计意义弱。
+// 2026-07-25 方向D：从原 _OVERFIT_OR_SMALL_SAMPLE_IDS 拆出，恢复三档 chip 显示，仅在 chip-row
+// 前加"样本不足"标注 chip 提醒用户，让用户看到三档推荐的同时知道样本量限制。
+//   hs300     : C1主买 测试段样本不足
+//   kc50      : C1主买 数据短训练2年测1年
+//   sw_801110 : C1主买 测试段样本不足
+// 上证综指(sh)walk-forward 稳健(WFE 1.138,2026-07-25 P1 去 D1a 后)，不进黑名单，继续参与 chip 推荐。
+var _OVERFIT_FAILED_IDS = new Set([
   'sz',          // 情况B: C1主买/D1卖/sell_stop_loss 测试段失效
-  'csi500',      // 情况B(D1卖)+情况D(C1主买)
-  'cyb',         // 情况B(D1卖)+情况D(C1主买)
-  'csi_div',     // 情况B: sell_stop_loss 测试段失效(4.5已改3.5通用化)
+  'csi500',      // 情况B: D1卖 测试段失效（情况D C1主买小样本被覆盖）
+  'cyb',         // 情况B: D1卖 测试段失效（情况D C1主买小样本被覆盖）
+  'csi_div'      // 情况B: sell_stop_loss 测试段失效(4.5已改3.5通用化)
+]);
+var _SMALL_SAMPLE_IDS = new Set([
   'hs300',       // 情况D: C1主买 测试段样本不足
   'kc50',        // 情况D: C1主买 数据短训练2年测1年
   'sw_801110'    // 情况D: C1主买 测试段样本不足
 ]);
+// 兼容旧引用（如有外部脚本引用 _OVERFIT_OR_SMALL_SAMPLE_IDS）：合并视图，只读
+var _OVERFIT_OR_SMALL_SAMPLE_IDS = new Set(Array.from(_OVERFIT_FAILED_IDS).concat(Array.from(_SMALL_SAMPLE_IDS)));
 // 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
 // SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
 function _appendBackupChipRow(cardEl, id) {
@@ -534,9 +581,15 @@ async function _backupSignalChipLoad(id) {
 // 算三档 chip HTML（A+B 融合方案）：遍历全 165 回测，归一化综合分排名。数据不足返回空串。
 function _backupSignalChipRender(sd, id) {
   if (!sd || !sd.data) return '';
-  // 2026-07-25 walk-forward 优化黑名单：过拟合/小样本品种不进三档 chip,仅显示标注 chip
-  if (id && _OVERFIT_OR_SMALL_SAMPLE_IDS.has(id)) {
-    return '<div class="signal-chip chip-overfit-placeholder">⚠ 过拟合/样本不足,仅供参考<span class="chip-tip">该品种信号在 walk-forward 测试段失效或样本不足(WFE&lt;0.5 或 n&lt;30),不进三档推荐;详见完整回测 modal,历史表现不代表未来</span></div>';
+  // 2026-07-25 方向D 黑名单分级：
+  //   _OVERFIT_FAILED_IDS（WF 确凿失效）：维持屏蔽，仅显示过拟合标注 chip，不进三档
+  //   _SMALL_SAMPLE_IDS（小样本 n<30）：不屏蔽，三档 chip 正常计算 + 前置"样本不足"标注 chip 提醒
+  var smallSamplePrefix = '';
+  if (id && _OVERFIT_FAILED_IDS.has(id)) {
+    return '<div class="signal-chip chip-overfit-placeholder">⚠ 过拟合/测试段失效,仅供参考<span class="chip-tip">该品种信号在 walk-forward 测试段反向退化(WF夏普 &lt; 未过滤全样本),不进三档推荐;详见完整回测 modal,历史表现不代表未来</span></div>';
+  }
+  if (id && _SMALL_SAMPLE_IDS.has(id)) {
+    smallSamplePrefix = '<span class="signal-chip chip-small-sample-note" data-tip="该品种 C1 主买信号在 walk-forward 测试段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测 modal">📜 样本不足</span>';
   }
   // 窗口 key -> 中文 label 映射（优先用后端 sd.windows.l，缺失兜底硬编码；2026-07-23 chip 英文中文化）
   var winLabel = Object.assign(
@@ -599,7 +652,8 @@ function _backupSignalChipRender(sd, id) {
     });
   });
   // 三档绝对值门槛过滤（防弱标的年化0.x%也推荐）：先筛达标候选，再按维度排序取最高。无达标 -> null
-  var TH = _BACKUP_CHIP_THRESHOLDS;
+  // 2026-07-25 方向D：门槛按 market 分组差异化（_backupChipThresholdsFor 覆盖 ann/ddMax）
+  var TH = _backupChipThresholdsFor(id);
   // 1. 年化最高 = strongScore 最高（年化必须 >= TH.ann）
   var annCandidates = scored.filter(function (e) { return e.annualized >= TH.ann; });
   var bestAnn = annCandidates.length > 0
@@ -636,7 +690,8 @@ function _backupSignalChipRender(sd, id) {
   }
   if (chips.length === 0) {
     // 三档全 null（弱标的整体不达标）：显示兜底文案，区别于三色档中性灰
-    return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>';
+    // 小样本品种仍前置标注 chip（让用户知道样本量限制，即便三档全不达标）
+    return smallSamplePrefix + '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>';
   }
   // chip val 第二行：该 scenario+path 在 5 窗口的年化对比
   function win5Ann(e) {
@@ -664,7 +719,7 @@ function _backupSignalChipRender(sd, id) {
     }
     return { line1: line1, line2: line2 };
   }
-  return chips.map(function (c) {
+  return smallSamplePrefix + chips.map(function (c) {
     var emoji = c.kind === 'strong' ? '📈' : c.kind === 'steady' ? '👍' : '🛡';
     var cls = c.kind === 'strong' ? 'signal-chip-strong' : c.kind === 'steady' ? 'signal-chip-steady' : 'signal-chip-lowdraw';
     var tip = _backupSignalChipTip(sd, scored, c);

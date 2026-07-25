@@ -3140,3 +3140,64 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 
 **关键说明(分支偏离)**:任务假设当前在 feat/iframe-theme-follow(gitStatus 快照),实际开工时工作区已在 main(快照过期)。agent 直接在 main 上 commit + ff push 上线,跳过了 feat->merge 流程。结果 OK(代码已上线 + fast-forward 无强推),但流程偏离用户约束的"push feat + merge main"。后续任务若需在 feat 分支跑,开工前先 `git branch --show-current` 确认实况不依赖快照。
 
+
+### 小节AZ34：2026-07-25 策略优化阶段1 -- 重跑 alert_analyze 诊断 P1 + 方向D 黑名单分级+三档门槛组级化
+
+**背景**:P1 去 sh D1a 共振补刀(commit 3255e30f,7-25 15:01)已上线,sh 买点 502->612(+110,WF夏普 0.773->1.602)。但 alert_analyze 是 7-24 18:24 生成(P1 前),P1 放宽效果没进数据。同时黑名单 7 品种混在 `_OVERFIT_OR_SMALL_SAMPLE_IDS`(app.js L488)一刀切屏蔽,未区分「WF 确凿失效」vs「小样本」;三档门槛 `_BACKUP_CHIP_THRESHOLDS`(L472)全市场统一 3%/15%,未按板块差异化。本阶段做:① 重跑 alert_analyze 诊断 P1 后真实占比 ② 方向D 黑名单分级+三档门槛组级化。方向C regime-based 留阶段2后续派。
+
+**阶段1 重跑诊断**(`scripts/export_alert_analyze.py`,cwd=trade-data 读最新主库 sentiment.db inode 237343239 mtime 7-25 16:46):
+- 重跑 70 标的,ok=70 err=0 耗时 4.5s,输出 trade-data/static-site/data/(symlink 跳回 trade 问题已通过 ROOT=.absolute() 规避)
+- cp 回 trade/static-site/data/ 后 git status 对比 HEAD:
+  - **59 标的 md5 一致**(P1 改 sh buy_special 过滤层不影响 alert_analyze 当日评分,因 L2 买点密集虽依赖 buy_special 但当日 7-24 sh 未触发 D1a 过滤)
+  - **11 标的有真实数据更新**(非 P1 影响,是 sentiment.db 7-25 16:46 补采导致):
+    * 8 ETF(510050/510300/510310/510500/512100/588000/588050/159915)date 7-23 -> 7-24(ETF 数据滞后 1 日补齐)
+    * 3 国债(cgb_idx/cgb_10y_etf/cgb_10y_future)H3 卖点密集分变化(如 cgb_idx H3 100->75,high 79.84->75.92)
+- **sh 买点 502->612 已在 P1 commit 3255e30f message 验证**(WF夏普 0.773->1.602,WFE 0.336->1.138,滤率 35.4%->21.5%,ret20 4.52%->6.38%)
+- **不推荐占比(黑名单7+弱标的3+0手2=10-13%)未变化**:P1 只动 sh,sh 不在黑名单;弱标的/0手依赖 trade_sim stats,本阶段不重跑(stats 165 回测几小时太慢,单独周末慢任务)
+
+**方向D 黑名单分级**(app.js L517-543,依据 `docs/walk-forward-c-report.md` §5.1):
+- 拆 `_OVERFIT_OR_SMALL_SAMPLE_IDS`(7 品种混在一起)为两级:
+  - `_OVERFIT_FAILED_IDS = {sz, csi500, cyb, csi_div}` 情况B WF 确凿失效(WF夏普 < 未过滤全样本,测试段反向退化),**维持屏蔽**显示"⚠ 过拟合/测试段失效"标注 chip,不进三档
+  - `_SMALL_SAMPLE_IDS = {hs300, kc50, sw_801110}` 情况D 小样本(C1主买 测试段 n<30),**不屏蔽**,三档 chip 正常计算 + 前置"📜 样本不足"标注 chip 提醒用户
+- 依据:csi500/cyb 同时有情况B(D1卖失效)+情况D(C1主买小样本),情况B 更严重覆盖情况D,仍进 `_OVERFIT_FAILED_IDS`
+- 保留 `_OVERFIT_OR_SMALL_SAMPLE_IDS`(合并视图,只读)兼容旧引用
+- 新增 `.chip-small-sample-note` CSS(style.css L379):淡蓝虚线 info 风格(#1c6dbf/dashed),区别于过拟合橙红实线警告(#ad6800/solid);行业卡片适配 L1035
+
+**方向D 三档门槛组级化**(app.js L472-512 `_BACKUP_CHIP_THRESHOLDS` + `_BACKUP_CHIP_MARKET_OVERRIDE` + `_backupChipMarketOf` + `_backupChipThresholdsFor`):
+- 基础门槛 `_BACKUP_CHIP_THRESHOLDS` 保留作默认值(ann=3/steadyScore=0.5/steadyWinRate=60/steadyMaxDd=20/ddMax=15/ddMinOps=3/ddMinAnn=0)
+- market 分组门槛覆盖 `_BACKUP_CHIP_MARKET_OVERRIDE`(仅 ann + ddMax,其余继承基础):
+  | market | ann(年化档) | ddMax(回撤档) | 标的 |
+  |---|---|---|---|
+  | main 主板 | 3.0(维持) | 15(维持) | sh/sz/sz50/hs300/csi500/csi1000/bj50/csi_div/div_lowvol/sz_div |
+  | gem 创业板 | 3.0(维持) | 20(放宽) | cyb |
+  | star 科创板 | 3.0(维持) | 20(放宽) | kc50 |
+  | industry 行业 | 2.0(降) | 15(维持) | sw_* + thsc_* |
+  | global 全球 | 2.0(降) | 15(维持) | us_*/hsi/hscei/hstech/hk_*/ftse100/dax/cac40/kospi/nikkei225 |
+  | commodity 商品 | 3.0(维持) | 15(维持) | g.* |
+- 设计依据:行业/全球股指波动小于主板,年化 3% 门槛过严(降到 2% 让优质行业/全球标的进档);创业板/科创板高波动,回撤 15% 过严(放到 20% 让高波动但优质的标的进"回撤最小"档);商品波动大门槛不降(防低年化被推)
+- `_backupChipMarketOf(id)`:显式 A股主板/红利 + cyb/kc50 + 全球股指,前缀匹配 hk_/g./sw_/thsc_,默认 main
+- `_backupChipThresholdsFor(id)`:`Object.assign({}, _BACKUP_CHIP_THRESHOLDS, override)` 按 market 取门槛
+- `_backupSignalChipRender` L656:`var TH = _backupChipThresholdsFor(id)` 替换原 `var TH = _BACKUP_CHIP_THRESHOLDS`
+
+**实施**:
+- `static-site/app.js`:黑名单拆分(L517-543)+ market 分组门槛(L472-512)+ chip render 屏蔽逻辑(L585-592)+ 兜底/返回前置 smallSamplePrefix(L694/722)
+- `static-site/style.css`:.chip-small-sample-note 样式(L379)+ 行业卡片适配(L1035)
+- `scripts/build_min.py`:app.min.js/style.min.css 重新 minify(app.js 632KB->358KB,style.css 205KB->155KB)
+- `scripts/bump_asset_version.py`:版本号刷新 app df5e336a / style 8c026ddd
+
+**验证**(主控逐字验收):
+- `git log`:commit 2474a891 在 origin/main 最新(d4a746c7..2474a891 fast-forward,未 force push)
+- `grep app.js`:`_OVERFIT_FAILED_IDS`(L531)+ `_SMALL_SAMPLE_IDS`(L537)+ `_backupChipMarketOf`(L498)+ `_backupChipThresholdsFor`(L509)+ `_BACKUP_CHIP_MARKET_OVERRIDE`(L489)全部到位 ✓
+- `grep app.js L656`:`var TH = _backupChipThresholdsFor(id)` ✓(替换原 `_BACKUP_CHIP_THRESHOLDS`)
+- `curl https://ss.fx8.store/?_=timestamp`:HTML 版本号 app.min.js?v=df5e336a / style.min.css?v=8c026ddd 全新 ✓(不带 cache busting 拿到 CF 缓存旧 ?v=99cfaba0,带 ?_=timestamp 拿到新版)
+- `curl 线上 app.min.js grep`:命中 `_OVERFIT_FAILED_IDS` + `_SMALL_SAMPLE_IDS` + `_backupChipMarketOf` ✓
+- `curl alert_analyze_510050.json`:date 20260724(从 7-23 更新)high 46.4 low 61.3 ✓
+- `curl alert_analyze_sh.json`:date 20260724 high 28.23 low 85.6 ✓(P1 后重跑)
+- 分支流程:feat/strategy-opt-d(开工前 git branch --show-current 确认在 main,先 checkout -b feat/strategy-opt-d 再改,遵守 §8 feat->merge 规范,纠正 AZ33 流程偏离)
+
+**commit**:2474a891(feat/strategy-opt-d,fast-forward push main)
+
+**后续(阶段2 方向C regime-based)**:本阶段只做黑名单分级+门槛组级化(前端层),方向C regime-based(后端 signals.py 按 regime 切阈值)留阶段2后续派 agent 实施。
+
+
+

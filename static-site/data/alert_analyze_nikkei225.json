@@ -45,9 +45,9 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 2,
+      "hands": 1,
       "volatility": 2.92,
-      "label": "2手",
+      "label": "1手",
       "detail": {
         "opp": 67.7,
         "ma60_ratio": 0.9786,
@@ -60,7 +60,14 @@
         "liq": 50.0,
         "drawdown": -10.72,
         "draw": 50.0,
-        "score": 51.19
+        "score": 51.19,
+        "regime": "bull",
+        "regime_th": {
+          "opp_low": 40.0,
+          "th_1": 45.0,
+          "th_2": 55.0,
+          "th_3": 60.0
+        }
       }
     }
   },
