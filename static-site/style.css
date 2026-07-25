@@ -374,9 +374,15 @@ main { padding: 16px 24px; }
    区别于三色档(正常推荐)与弱标的兜底(灰虚线);不进三档仅标注。 */
 .chip-overfit-placeholder { color: #ad6800; border: 1px solid rgba(173,104,0,0.55); background: rgba(173,104,0,0.12); white-space: normal; line-height: 1.35; cursor: help; }
 .chip-overfit-placeholder .chip-tip { display: block; font-size: 10px; font-weight: 400; color: var(--text-3); margin-top: 2px; opacity: 0.85; }
-/* 小样本品种标注 chip（2026-07-25 方向D）：淡蓝虚线框 info 风格，区别于过拟合的橙红实线警告;
+/* 小样本品种标注 chip（2026-07-25 方向D；2026-07-20 加醒目）：加粗+加大字号+实线边框+背景加深,
+   让用户看 3 色 chip 时一眼识别"样本不足"标注(区别于过拟合的橙红单 chip 不进三档)。
    不屏蔽三档 chip，仅作前置提醒，让用户看到推荐的同时知道样本量限制。 */
-.chip-small-sample-note { color: #1c6dbf; border: 1px dashed rgba(28,109,191,0.55); background: rgba(28,109,191,0.10); white-space: normal; line-height: 1.35; cursor: help; }
+.chip-small-sample-note { color: #1c6dbf; border: 1px solid rgba(28,109,191,0.7); background: rgba(28,109,191,0.18); font-weight: 700; font-size: 12px; white-space: normal; line-height: 1.35; cursor: help; }
+/* 样本不足品种三档容器（2026-07-20）：整个 signal-chip-row 加淡蓝背景框 + 左侧蓝色粗边框,
+   视觉上把三档 chip "框住"表示"有保留的推荐",和前置 chip 呼应,用户一眼知道该品种样本不足。 */
+.chip-row-small-sample { background: rgba(28,109,191,0.06); border-left: 3px solid rgba(28,109,191,0.6); padding: 4px 6px; border-radius: 4px; }
+/* 前置标注 chip 不参与三档等分:自适应宽度做"标签",三档 flex:1 1 0 三等分剩余空间 */
+.chip-row-small-sample .chip-small-sample-note { flex: 0 0 auto; min-width: max-content; align-self: center; }
 /* chip 容器行（标题下换行单独一行）：横排，PC flex-wrap，移动端 nowrap + overflow-x 横滚（复用 lab .lab-win-tabs 思路）。
    覆盖 .signal-chip 默认 margin-left:6px，行内首项不要左缩进。 */
 .signal-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
@@ -1032,7 +1038,8 @@ main { padding: 16px 24px; }
 .industry-cell .signal-chip-row .signal-chip { font-size: 10px; padding: 1px 6px; line-height: 1.25; border-radius: 8px; }
 .industry-cell .signal-chip-row .chip-weak-placeholder { font-size: 10px; padding: 2px 6px; line-height: 1.3; }
 .industry-cell .signal-chip-row .chip-overfit-placeholder { font-size: 10px; padding: 2px 6px; line-height: 1.3; }
-.industry-cell .signal-chip-row .chip-small-sample-note { font-size: 10px; padding: 2px 6px; line-height: 1.3; }
+.industry-cell .signal-chip-row .chip-small-sample-note { font-size: 11px; padding: 2px 6px; line-height: 1.3; font-weight: 700; }
+.industry-cell .chip-row-small-sample { padding: 3px 5px; }
 .spark-cell .chart-hint { font-size: 10px; padding: 4px 6px; margin: 4px 0 6px; }
 .spark-cell .chart-hint .hint-strategy { font-size: 9px; padding: 2px 6px; margin-bottom: 3px; }
 .spark-cell .chart-hint .hint-row { margin: 1px 0; }

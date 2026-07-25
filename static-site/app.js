@@ -547,7 +547,9 @@ function _appendBackupChipRow(cardEl, id) {
   if (!SIM_INDICES.has(id)) return;
   var html = _backupSignalChipRender(_tradeSimStatsCache[id], id);
   var row = document.createElement("div");
-  row.className = "signal-chip-row";
+  // 2026-07-20 样本不足品种:row 加 modifier class,配合 CSS 给三档容器加淡蓝背景框+左侧蓝粗边框,
+  // 让用户看 3 色 chip 时一眼知道该品种样本不足(WF 测试段 n<30,统计意义弱),区别于过拟合(单橙红 chip 不进三档)与正常三档
+  row.className = "signal-chip-row" + (id && _SMALL_SAMPLE_IDS.has(id) ? " chip-row-small-sample" : "");
   row.setAttribute("data-chip-id", id);
   // 占位: 未缓存时先放 loading 提示，异步 fetch 完成后整体替换 innerHTML
   row.innerHTML = html || '<span class="signal-chip signal-chip-loading">⏳ 加载回测…</span>';
@@ -586,7 +588,7 @@ function _backupSignalChipRender(sd, id) {
   //   _SMALL_SAMPLE_IDS（小样本 n<30）：不屏蔽，三档 chip 正常计算 + 前置"样本不足"标注 chip 提醒
   var smallSamplePrefix = '';
   if (id && _OVERFIT_FAILED_IDS.has(id)) {
-    return '<div class="signal-chip chip-overfit-placeholder">⚠ 过拟合/测试段失效,仅供参考<span class="chip-tip">该品种信号在 walk-forward 测试段反向退化(WF夏普 &lt; 未过滤全样本),不进三档推荐;详见完整回测 modal,历史表现不代表未来</span></div>';
+    return '<div class="signal-chip chip-overfit-placeholder">⚠ 过拟合/测试段失效,不进推荐<span class="chip-tip">该品种信号在 walk-forward 测试段反向退化(WF夏普 &lt; 未过滤全样本),不进三档推荐;详见完整回测 modal,历史表现不代表未来</span></div>';
   }
   if (id && _SMALL_SAMPLE_IDS.has(id)) {
     smallSamplePrefix = '<span class="signal-chip chip-small-sample-note" data-tip="该品种 C1 主买信号在 walk-forward 测试段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测 modal">📜 样本不足</span>';
