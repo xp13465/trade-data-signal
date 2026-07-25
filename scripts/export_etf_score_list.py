@@ -21,12 +21,16 @@
     "universe_count": XXXX,
     "ohlc_days": 30,
     "buy_list": [
-      {etf_code, name, score, hands, high_alert, low_alert, is_national_team, volatility, reason_summary, ohlc},
+      {etf_code, name, score, hands, amt_pct, high_alert, low_alert, is_national_team, volatility, reason_summary, ohlc},
       ... (0=全量, 按 low_alert DESC; --buy-top N 取 top N)
     ],
     "sell_list": [
       {etf_code, name, score, high_alert, low_alert, sell_signal, is_national_team, reason_summary, ohlc},
       ... (0=全量, 按 high_alert DESC; --sell-top N 取 top N)
+    ],
+    "hold_list": [
+      {etf_code, name, score, high_alert, low_alert, hold_reason, is_national_team, reason_summary, ohlc},
+      ... (0=全量, 按 low_alert DESC; 持有观察, 不够格buy但不过热)
     ],
     "errors": [...]
   }
@@ -34,15 +38,16 @@
 ohlc 字段格式: [[date, open, high, low, close], ...] 升序(旧->新), 近30交易日。
   数据不足(新ETF/采失败)为空列表 [], 前端 sparkline 不渲染。
 
-排序与过滤口径(与阶段1 一致):
-- buy_list: high_alert<60 (非过热) + hands>0 (有机会), 按 low_alert DESC 排序
-  手数(方案3 混合:score 主导 + vol 调整): base = low_alert>=70 -> 3手 / 60-70 -> 2手 / 50-60 -> 1手 / <50 -> 0手不入清单;
-    volatility>5% 砍2档 / >4% 砍1档 / None 降级用 base。volatility = ATR(20)/close*100
-  score = low_alert (机会分, 越高越适合买)
-- sell_list: 与 buy_list 互斥(不含 buy_list ETF), 按 high_alert DESC 排序
-  sell_signal: high_alert>70 减仓信号 / >60 观察 / 否则持有
-  score = high_alert (过热分, 越高越适合卖)
-- reason_summary: build_reason human_text.low (buy) / human_text.high (sell) 前 100 字摘要
+排序与过滤口径(2026-07-25 C2 三分类, 回测 a33c9 定):
+- buy_list: C2 阈值 high_alert<60 AND hands>=2 AND amt_pct>60(~194只, 原 hands>0 的1064只收紧)
+  按 low_alert DESC 排序; score=low_alert(机会分); amt_pct=近60日成交额分位(_compute_hands_multi_dim L787)
+- sell_list: 过热 high_alert>=60(~96只, 真正卖出信号), 按 high_alert DESC 排序
+  sell_signal: >70 减仓信号(过热) / 60-70 观察(过热风险); score=high_alert(过热分)
+- hold_list: 不够格 buy(C2)但不过热 high_alert<60 AND not C2(~919只, 持有观察)
+  按 low_alert DESC 排序; score=low_alert; hold_reason="持有观察(未达买入阈值)"
+- 数据不足(high_alert=None, ~167只)不进任何 list
+- 三分类互斥(每只ETF只进一个list), 数量闭环 buy+sell+hold+数据不足=universe
+- reason_summary: build_reason human_text.low (buy/hold) / human_text.high (sell) 前 100 字摘要
 - is_national_team: 从 ETF_LIST 12 国家队宽基清单判断(app.collector.etf_national_team.is_national_team)
 
 动态采集(自包含,不依赖外部 backfill):
@@ -337,7 +342,7 @@ def _process_one_etf_worker(args):
         "code": code, "name": name, "error": None, "traceback": "",
         "high_alert": None, "low_alert": None, "date": "",
         "is_nt": False, "vol": None, "alert_hands": 0, "pos_volatility": None,
-        "in_buy": False, "in_sell": False,
+        "in_buy": False, "in_sell": False, "in_hold": False, "amt_pct": None,
         "low_text": "", "high_text": "",
         "fetch_count": 0, "skip_count": 0,
         "ohlc": [],  # 近 OHLC_EXPORT_DAYS 日 K线 [[date,o,h,l,c],...] 升序
@@ -375,14 +380,25 @@ def _process_one_etf_worker(args):
             res["alert_hands"] = pos.get("hands", 0)
             res["pos_volatility"] = pos.get("volatility")
 
-            in_buy = (high_alert is not None and high_alert < 60
-                      and res["alert_hands"] > 0)
-            # 互斥: in_sell = 有 high_alert 且不在 buy_list(避免同一 ETF 同时出现在 buy/sell)
-            in_sell = (high_alert is not None) and not in_buy
+            # C2 买入阈值(2026-07-25 回测 a33c9 定): hands>=2 AND amt_pct>60
+            # 从原 hands>0(1064只)收紧到 ~194只, regime-agnostic, 误杀合理
+            # amt_pct 从 position.detail.amt_pct 取(_compute_hands_multi_dim L787 算出)
+            pos_detail = pos.get("detail") or {}
+            amt_pct = pos_detail.get("amt_pct")
+            res["amt_pct"] = amt_pct
+            has_alert = high_alert is not None
+            in_buy = (has_alert and high_alert < 60
+                      and res["alert_hands"] >= 2
+                      and amt_pct is not None and amt_pct > 60)
+            # 三分类(2026-07-25): buy=C2 / sell=过热(high>=60) / hold=不够格buy但不过热
+            # 数据不足(high_alert=None)不进任何 list; 数量闭环 buy+sell+hold+数据不足=universe
+            in_sell = has_alert and high_alert >= 60
+            in_hold = has_alert and high_alert < 60 and not in_buy
             res["in_buy"] = in_buy
             res["in_sell"] = in_sell
+            res["in_hold"] = in_hold
 
-            if in_buy or in_sell:
+            if in_buy or in_sell or in_hold:
                 reason = build_reason(code, "etf", alert_result=alert, include_analogy=True)
                 human = reason.get("human_text", {})
                 res["low_text"] = _summarize(human.get("low"))
@@ -425,6 +441,7 @@ def main() -> None:
     t_start = time.time()
     buy_list: list[dict] = []
     sell_list: list[dict] = []
+    hold_list: list[dict] = []
     errors: list[dict] = []
     payload_date = ""
     fetch_count = 0
@@ -458,6 +475,7 @@ def main() -> None:
                             "traceback": "", "high_alert": None, "low_alert": None,
                             "date": "", "is_nt": False, "vol": None, "alert_hands": 0,
                             "pos_volatility": None, "in_buy": False, "in_sell": False,
+                            "in_hold": False, "amt_pct": None,
                             "low_text": "", "high_text": "",
                             "fetch_count": 0, "skip_count": 0,
                         })
@@ -514,6 +532,7 @@ def main() -> None:
                 "name": name,
                 "score": low_alert,
                 "hands": alert_hands,
+                "amt_pct": res["amt_pct"],  # C2 流动性分位(近60日成交额分位)
                 "high_alert": high_alert,
                 "low_alert": low_alert,
                 "is_national_team": is_nt,
@@ -535,9 +554,26 @@ def main() -> None:
                 "ohlc": res["ohlc"],
             })
 
+        if res["in_hold"]:
+            # hold_list: 不够格 buy(C2)但不过热(high<60), 持有观察
+            # score 用 low_alert(机会分, 与 buy 同口径; high<60 机会仍存)
+            # 两种语义: ① high 40-60 观察过热风险(原 sell_list 持有档) ② high<60 但 hands<2 或 amt<=60 流动性/手数不足
+            hold_list.append({
+                "etf_code": code,
+                "name": name,
+                "score": low_alert,
+                "high_alert": high_alert,
+                "low_alert": low_alert,
+                "hold_reason": "持有观察(未达买入阈值)",
+                "is_national_team": is_nt,
+                "reason_summary": res["low_text"] or res["high_text"],
+                "ohlc": res["ohlc"],
+            })
+
     # 排序 + 取 top N (0=全量导出, 前端分页处理)
     buy_list.sort(key=lambda x: (x.get("low_alert") or 0), reverse=True)
     sell_list.sort(key=lambda x: (x.get("high_alert") or 0), reverse=True)
+    hold_list.sort(key=lambda x: (x.get("low_alert") or 0), reverse=True)
     if args.buy_top > 0:
         buy_list = buy_list[:args.buy_top]
     if args.sell_top > 0:
@@ -561,6 +597,7 @@ def main() -> None:
         "skip_count": skip_count,
         "buy_list": buy_list,
         "sell_list": sell_list,
+        "hold_list": hold_list,
     }
     if errors:
         payload["errors"] = errors
@@ -569,7 +606,7 @@ def main() -> None:
     _write_json_gz(out_path, payload)
     elapsed = time.time() - t_start
     print(f"\n✓ 完成: universe={len(universe)} buy={len(buy_list)} sell={len(sell_list)} "
-          f"err={len(errors)} fetch={fetch_count} skip={skip_count} 耗时={elapsed:.1f}s")
+          f"hold={len(hold_list)} err={len(errors)} fetch={fetch_count} skip={skip_count} 耗时={elapsed:.1f}s")
     print(f"  输出: {out_path}")
 
 

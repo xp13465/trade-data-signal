@@ -8455,13 +8455,13 @@ async function renderIndustry() {
 }
 
 // ============ B4: ETF 评分列表（分页+搜索） ============
-// 数据源: static-site/data/etf_score_list.json
-//   buy_list: 买入机会（score 高=机会显著）, 字段 etf_code/name/score/hands/high_alert/low_alert/is_national_team/reason_summary/ohlc
-//   sell_list: 卖出信号（score 高=过热）, 字段 etf_code/name/score/sell_signal/high_alert/low_alert/is_national_team/reason_summary/ohlc
+// 数据源: static-site/data/etf_score_list.json (三分类, 2026-07-25 C2)
+//   buy_list: C2 买入机会(high<60 AND hands>=2 AND amt_pct>60, ~194只), 字段含 hands/amt_pct
+//   sell_list: 过热卖出信号(high>=60, ~96只), 字段含 sell_signal
+//   hold_list: 持有观察(不够格buy但不过热 high<60 AND not C2, ~919只), 字段含 hold_reason
 //   ohlc: 近30交易日 [[date,o,h,l,c],...] 升序, 前端 _etfSparkline 用 close 画迷你折线
-// 合并成统一列表 + side(buy/sell/hold) 字段, 分区渲染(持仓置顶 → 卖出/持有观察 → 买入折叠)
-// 注: 后端 --full-market 全量导出~1371只, buy_list+sell_list 互斥(每只ETF出现一次)
-//     sell_list 内按 sell_signal 拆 sell(减仓/清仓过热)/hold(持有/观察过热风险) 两 side
+// 合并成统一列表 + side(buy/sell/hold) 字段, 分区渲染(持仓置顶 -> 卖出/持有观察 -> 买入折叠)
+// 三分类互斥(每只ETF出现一次), 数据不足(high_alert=None)不进任何list
 // 4项 UX(2026-07-25): ①卖出/持有置顶区 ②买入默认折叠Top20 ③持仓永远置顶高亮 ④5档分档色块
 const ETF_SCORE_PAGE_SIZE = 50;       // 买入区展开后页大小
 const ETF_SELLHOLD_PAGE_SIZE = 100;   // 卖出/持有观察区页大小(145只大页少翻页)
@@ -8535,11 +8535,11 @@ function _etfSparkline(ohlc, w, h) {
     + '</svg>';
 }
 
-// 5档分档(2026-07-25): 强卖出/卖出/持有观察/买入/强买入
-// 阈值基于 score 分布(详见 /tmp/agent-progress-etf-ux.md):
-//   sell side(19只减仓过热): score>=75=强卖出(5只, 过热最严重), <75=卖出(14只)
-//   hold side(126只持有/观察): 全归"持有观察"档
-//   buy(1064只): score>=76=强买入(266只, P75=76.34机会显著), <76=买入(798只)
+// 5档分档(2026-07-25 C2三分类): 强卖出/卖出/持有观察/买入/强买入
+// 阈值基于 score 分布:
+//   sell side(过热~96只): score>=75=强卖出, <75=卖出
+//   hold side(持有观察~919只): 全归"持有观察"档
+//   buy(C2~194只): score>=76=强买入, <76=买入
 // 配色延续 177e1e0a 淡雅低饱和(非纯绿纯红), dark/redgold 由 CSS class 变体处理
 function _etfScoreTier(e) {
   const score = e.score == null ? -1 : e.score;
@@ -8781,23 +8781,35 @@ async function renderEtfScore() {
     universe_count: r.universe_count, full_market: r.full_market,
     buy_top: r.buy_top, sell_top: r.sell_top, fetch_count: r.fetch_count, skip_count: r.skip_count,
   };
-  // 合并 buy_list + sell_list 成统一列表
+  // 合并 buy_list + sell_list + hold_list 成统一列表(三分类, 2026-07-25 C2)
+  // buy=C2买入机会 / sell=过热卖出信号 / hold=不够格buy但不过热持有观察
   const all = [];
   (r.buy_list || []).forEach((e) => all.push({
     etf_code: e.etf_code, name: e.name, score: e.score, side: "buy",
-    hands: e.hands, high_alert: e.high_alert, low_alert: e.low_alert,
+    hands: e.hands, amt_pct: e.amt_pct,
+    high_alert: e.high_alert, low_alert: e.low_alert,
     is_national_team: e.is_national_team, reason_summary: e.reason_summary,
     sell_signal: null, ohlc: e.ohlc || [],
   }));
   (r.sell_list || []).forEach((e) => {
-    // sell_list 按 sell_signal 拆 side:含"减仓信号/减仓/清仓"->sell,含"观察/持有"->hold
-    const sig = e.sell_signal || "";
-    const side = /建议卖出|减仓|清仓/.test(sig) ? "sell" : "hold";
+    // sell_list 只含过热(high_alert>=60), 统一 side="sell"(不再按 sell_signal 拆 hold)
     all.push({
-      etf_code: e.etf_code, name: e.name, score: e.score, side: side,
-      hands: null, high_alert: e.high_alert, low_alert: e.low_alert,
+      etf_code: e.etf_code, name: e.name, score: e.score, side: "sell",
+      hands: null, amt_pct: null,
+      high_alert: e.high_alert, low_alert: e.low_alert,
       is_national_team: e.is_national_team, reason_summary: e.reason_summary,
       sell_signal: e.sell_signal, ohlc: e.ohlc || [],
+    });
+  });
+  (r.hold_list || []).forEach((e) => {
+    // hold_list: 不够格buy但不过热, side="hold"(新数据源, 原从 sell_list 拆)
+    // sell_signal 字段复用存 hold_reason 文本(前端 renderRow hold side 读 sell_signal 显示)
+    all.push({
+      etf_code: e.etf_code, name: e.name, score: e.score, side: "hold",
+      hands: null, amt_pct: null,
+      high_alert: e.high_alert, low_alert: e.low_alert,
+      is_national_team: e.is_national_team, reason_summary: e.reason_summary,
+      sell_signal: e.hold_reason || "持有观察", ohlc: e.ohlc || [],
     });
   });
   _etfScoreState.all = all;
