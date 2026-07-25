@@ -23,13 +23,17 @@ def fetch_market_fund_flow():
     近 120 日；7-13/7-17 间歇封禁兜底）。collect_direct 会按 metric.scale 换算亿元。
 
     722 伪双源修复：akshare 底层亦走 push2his.eastmoney.com（与主源同 URL 同服务器），
-    主源封禁时 akshare 同步被封（722 4 次 backfill 全 fail）。新增第三源 push2/api/qt/clist/get
-    汇总全 A 股主力净流入：push2.eastmoney.com/api/qt/clist/get（个股排名接口，非资金流 K 线
-    接口），字段 f62=个股主力净流入金额，分页 sum 得大盘主力净流入合计。
-    与主源区别：不同 API 路径（clist/get 排名 vs fflow/daykline K 线）+ 不同接口语义
-    （个股排名 vs 大盘K线）。722 实测 IP 干净时单次调用可用，push2his 被封但 clist/get HTTP=200。
-    限制：① IP 风控可能联动（同 eastmoney.com，触发阈值后联动封）② 只能拿当日（排名是实时数据）
-    ③ 分页 53 次需 0.7s 限流约 37s ④ 口径为"全 A 股主力净流入之和"（理论等价于大盘主力净流入）。
+    主源封禁时 akshare 同步被封（722 4 次 backfill 全 fail）。新增 clist 源 push2/api/qt/clist/get
+    汇总全 A 股主力净流入：字段 f62=个股主力净流入金额，分页 sum 得大盘主力净流入合计。
+    限制：① IP 风控可能联动（同 eastmoney.com）② 只能拿当日 ③ 分页 53 次需 0.7s 限流约 37s
+    ④ 口径为"全 A 股主力净流入之和"（理论等价于大盘主力净流入）。
+
+    725 第三源修复：7-24 起 push2his 整域名被封 + push2/api/qt/clist/get 被封（端点级反爬），
+    主源/akshare/clist 全死。实测 push2/api/qt/stock/fflow/kline/get（非 daykline 历史K线）
+    端点未封（dapan.js 网页实时K线端点）。klt=101 日K返回当日/最近交易日 1 行，f52=主力净流入
+    （元），口径与主源一致。725 调整为第三源（原 clist 降为第四源）：① 单次调用轻量，不加剧
+    反爬 ② 主源/akshare 死后立即试此源 ③ simple 类型 a_fund_main 只需当日值足够。
+    限制：只能拿当日 1 行（非历史），等主源解封时优先回切主源拿历史 120 日。
     """
     # 主源：东财 push2his（历史日K，近 120 日）
     try:
@@ -79,10 +83,46 @@ def fetch_market_fund_flow():
     except Exception:
         pass  # akshare 同步被封（底层走 push2his） -> 走第三源
 
-    # 第三源：东财 push2/api/qt/clist/get 汇总全 A 股主力净流入（不同 API 路径兜底）
-    # 722 伪双源修复：akshare 底层走 push2his（与主源同 URL 同服务器，主源封禁同步死）。
-    # 新增第三源用 push2.eastmoney.com/api/qt/clist/get（个股排名接口，非资金流 K 线接口），
-    # 字段 f62=个股主力净流入金额（元），分页汇总全 A 股得到大盘主力净流入合计。
+    # 第三源：东财 push2/api/qt/stock/fflow/kline/get（实时资金流K线，非 daykline 历史K线）
+    # 725 修复：7-24 起 push2his.eastmoney.com 整域名被封 + push2/api/qt/clist/get 被封，
+    # 主源/akshare/第三源全死。实测 push2/api/qt/stock/fflow/kline/get 端点未封（dapan.js
+    # 网页用的实时K线端点，东财未对此端点反爬）。klt=101 日K返回当日/最近交易日 1 行，
+    # f52=主力净流入（元），口径与主源一致（沪深 secid=1.000001+0.399001 合计）。
+    # 限制：① 只能拿当日 1 行（非历史 K 线），simple 类型 a_fund_main 只需当日值足够
+    # ② 端点可能后续也被反爬，等主源解封时优先回切主源拿历史 120 日
+    # 725 实测 7-24 数据 -774 亿（与最近波动 -1700~+465 一致，合理）
+    try:
+        r = em_get(
+            "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get",
+            params={
+                "lmt": 0,
+                "klt": 101,
+                "secid": "1.000001",
+                "secid2": "0.399001",
+                "fields1": "f1,f2,f3,f7",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
+                "ut": "b2884a393a59ad64002292a3e90d46a5",
+            },
+            timeout=15,
+        )
+        data = r.json()
+        klines = data.get("data", {}).get("klines", []) or []
+        rows = []
+        for line in klines:
+            parts = line.split(",")
+            try:
+                d = parts[0].replace("-", "")
+                v = float(parts[1])  # f52 主力净流入（元）
+                rows.append((d, v))
+            except (IndexError, ValueError):
+                continue
+        if rows:
+            return rows
+    except Exception:
+        pass  # 第三源也失败 -> 走第四源
+    # 第四源：东财 push2/api/qt/clist/get 汇总全 A 股主力净流入（不同 API 路径重型兜底）
+    # 722 伪双源修复原第三源，725 降为第四源：push2 clist 60 页分页会加剧东财反爬，
+    # 优先用第三源 fflow/kline 轻量单次调用，第三源也失败才走此重型兜底。
     # 与主源区别：① 不同 API 路径（clist/get 排名 vs fflow/daykline 资金流K线）
     # ② 不同接口语义（个股排名 vs 大盘K线）③ 722 实测 IP 干净时单次调用可用。
     # 限制：① IP 风控可能联动（push2his + push2 同属 eastmoney.com，触发阈值后联动封）
@@ -131,7 +171,8 @@ def fetch_market_fund_flow():
             return [(today_str, total_net)]
     except Exception:
         pass
-    return []  # 三源皆败，返回空（collect_direct 转 fail 记 error）
+
+    return []  # 四源皆败，返回空（collect_direct 转 fail 记 error）
 
 
 def fetch_north_fund_hkex(days=90):
