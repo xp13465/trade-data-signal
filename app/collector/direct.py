@@ -34,6 +34,16 @@ def fetch_market_fund_flow():
     （元），口径与主源一致。725 调整为第三源（原 clist 降为第四源）：① 单次调用轻量，不加剧
     反爬 ② 主源/akshare 死后立即试此源 ③ simple 类型 a_fund_main 只需当日值足够。
     限制：只能拿当日 1 行（非历史），等主源解封时优先回切主源拿历史 120 日。
+
+    725 第五源修复：7-24 起 eastmoney.com 全家桶(push2his+push2+datacenter 主力流)联动封，
+    四源全死(eastmoney 全家桶 ConnectionError)。新增同花顺行业资金流 data.10jqka.com.cn 作
+    非东财独立兜底：akshare stock_fund_flow_industry 走同花顺 ajax，返回 90 行业"净额"，
+    sum 得大盘资金流合计。⚠️ 口径差异：同花顺"净额"=流入-流出全部资金净额(含中小单)，
+    东财"主力净流入"=超大单+大单净额。725 实测同花顺 sum=-969.56 亿 vs 东财 7-24=-774 亿，
+    差异 25%(同花顺绝对值更大，符合"全部资金>主力"预期)，方向一致。simple 类型 a_fund_main
+    只需方向判断，25% 偏差可接受；东财解封后优先回切主源拿口径一致+历史数据。
+    限制：① 只能拿当日"即时"值(非历史K线) ② 口径为全部资金净额(非主力) ③ 周末访问返回
+    周五收盘数据，日期做周末往前推修正。
     """
     # 主源：东财 push2his（历史日K，近 120 日）
     try:
@@ -172,7 +182,37 @@ def fetch_market_fund_flow():
     except Exception:
         pass
 
-    return []  # 四源皆败，返回空（collect_direct 转 fail 记 error）
+    # 第五源：同花顺行业资金流（非东财独立兜底，防 eastmoney.com 全家桶联动封）
+    # 725 新增：7-24 起 eastmoney.com 全家桶(push2his+push2+datacenter 主力流)联动封，四源全死。
+    # 同花顺 data.10jqka.com.cn 独立域名，不受东财反爬影响。akshare stock_fund_flow_industry
+    # 走同花顺 ajax 接口，返回 90 个行业"流入资金/流出资金/净额(亿)"，sum(净额)≈大盘资金流合计。
+    # ⚠️ 口径差异：同花顺"净额"=流入-流出全部资金净额(含中小单)，东财"主力净流入"=超大单+大单净额。
+    # 实测 7-25：同花顺 sum=-969.56 亿 vs 东财主源 7-24=-774 亿，差异 25%(绝对值更大符合"全部>主力"预期)，
+    # 方向一致。simple 类型 a_fund_main 只需方向判断，25% 偏差可接受。
+    # 限制：① 只能拿当日"即时"值(非历史K线) ② 口径为全部资金净额(非主力) ③ 周末往前推到周五修正日期
+    try:
+        import akshare as ak
+        df = ak.stock_fund_flow_industry(symbol="即时")
+        total_net_yi = 0.0  # 单位亿元
+        for _, r in df.iterrows():
+            try:
+                v = float(str(r["净额"]).replace(",", ""))
+                total_net_yi += v
+            except (KeyError, ValueError, TypeError):
+                continue
+        if total_net_yi != 0:
+            # 周末/周日往前推到周五（非交易日数据归交易日，节假日不修正-东财解封时不依赖此源）
+            from datetime import date as _date, timedelta as _td
+            d = _date.today()
+            while d.weekday() >= 5:  # 5=周六, 6=周日
+                d -= _td(days=1)
+            today_str = d.strftime("%Y%m%d")
+            # 同花顺净额单位亿元，转元（与主源 f52 单位一致）
+            return [(today_str, total_net_yi * 1e8)]
+    except Exception:
+        pass
+
+    return []  # 五源皆败，返回空（collect_direct 转 fail 记 error）
 
 
 def fetch_north_fund_hkex(days=90):
