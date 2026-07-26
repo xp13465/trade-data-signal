@@ -3422,12 +3422,15 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 - 手动 `git add` 前端文件(app.js/app.min.js/index.html)+ commit + push feat + merge main ff + push main ff
 - 不碰根目录 data/,不跑 export.py,不覆盖 intraday_snapshot.json
 
-**线上验证(待 push 后 curl https://ss.fx8.store/)**:
-- app.min.js grep `new Set(["csi500"])` ✓(_OVERFIT_FAILED_IDS 仅 csi500)
+**线上验证(curl https://ss.fx8.store/,CF Workers 主站,push main ff 后自动 deploy)**:
+- index.html 版本号:app.min.js?v=703ea135(线上 = 本地一致)✓
+- app.min.js grep `new Set(["csi500"])` ✓(_OVERFIT_FAILED_IDS 仅 csi500,sz/cyb/csi_div 已移除)
 - app.min.js grep `new Set(["hs300","kc50","sw_801110","csi_div"])` ✓(_SMALL_SAMPLE_IDS 含 csi_div)
 - sz/cyb 恢复三档推荐(非过拟合标注),csi500 仍屏蔽(改标注),csi_div 走小样本蓝框
 
-**commit**:待 push 后回填
+**commit**:bb6447cd(feat/low-risk-opt -> main fast-forward,push main 成功 96fb463e..bb6447cd)
+
+**feat 分支 non-ff**:remote feat/low-risk-opt 在 50e6ea7a(AZ37 补落档,历史分叉),local feat 在 bb6447cd(基于 main 96fb463e)。按 §8 硬约束不擅自 force-with-lease,停下报告主控决定(rebase + force 或弃用 remote feat 重推)。
 
 
 
