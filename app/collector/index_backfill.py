@@ -481,17 +481,23 @@ def verify_and_backfill_indices(date, verbose=True):
             # 新浪无当日数据（收盘后延迟发布）-> 腾讯实时源兜底
             # 港股板块5个(cesg10/hsmogi/hsmbi/hsmpi/hscci)已纳入 _HK_CODE_MAP 可兜底；
             # 3个中证指数(cshklre/cshklc/cshkdiv)腾讯无代码，_tencent_hk_fallback 安全返回 False
+            # -> 再用 _sina_spot_hk_fallback(新浪实时行情接口)兜底(2026-07-26 彻底收尾)
             if rows:
                 upsert_index_rows(rows)  # 仍 UPSERT 历史数据
             fixed = _tencent_hk_fallback(idx_id, date, conn, verbose)
+            fallback_src = "腾讯"
+            if not fixed:
+                # 腾讯无代码(3中证)或腾讯失败 -> 新浪 spot 实时接口兜底
+                fixed = _sina_spot_hk_fallback(idx_id, date, conn, verbose)
+                fallback_src = "sina_spot"
             if fixed:
                 ok += 1
-                details.append((idx_id, "ok", f"backfill 腾讯兜底 date={date}"))
+                details.append((idx_id, "ok", f"backfill {fallback_src}兜底 date={date}"))
             else:
                 fail += 1
-                details.append((idx_id, "fail", f"新浪无当日+腾讯兜底失败: {msg}"))
+                details.append((idx_id, "fail", f"新浪无当日+腾讯/sina_spot兜底均失败: {msg}"))
                 if verbose:
-                    print(f"    ✗ {idx_id} 新浪无当日({msg}), 腾讯兜底也失败")
+                    print(f"    ✗ {idx_id} 新浪无当日({msg}), 腾讯/sina_spot 兜底均失败")
         else:
             fail += 1
             details.append((idx_id, "fail", f"新浪源空: {msg}"))
@@ -583,6 +589,85 @@ def _tencent_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) ->
     conn.commit()
     if verbose:
         print(f"    ✓ {idx_id} <- 腾讯兜底 close={price} pct={pct} amount={amount} date={date}")
+    return True
+
+
+def _sina_spot_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) -> bool:
+    """新浪实时行情源港股兜底:daily_sina 历史接口当日延迟未出 + 腾讯无代码(3中证)时,
+    用 stock_hk_index_spot_sina 实时行情接口拿收盘价写入 index_daily。
+
+    2026-07-26 彻底收尾(723根治):港股3中证(cshklre/cshklc/cshkdiv)腾讯 qt.gtimg.cn
+    无对应代码(实测 r_hkCSHKLRE/CSHKLC/CSHKDIV 均 v_pv_none_match),原 _tencent_hk_fallback
+    对3中证直接返回 False -> sina 单点风险。多源实测(baostock 不支持字母代码/东财 push2his
+    连接被拒/中证官网接口404失效)后,唯一可用备源=新浪 spot 实时接口(同域名不同接口路径)。
+
+    spot_sina 一次返38个港股指数实时行情(代码/名称/最新价/涨跌额/涨跌幅/昨收/今开/最高/最低),
+    无显式日期字段 -> 靠时间门控避免盘中价覆盖:港股16:00(HKT=北京时间)收盘,now.hour>=16 才写,
+    盘中跳过返回False(与 _tencent_hk_fallback 同策略)。收盘后"最新价"=收盘价。
+    非交易日(周末/假期)调时,spot 返回最近交易日收盘价,backfill target_date=最近交易日,匹配写入。
+
+    局限:同域名sina,daily_sina 与 spot_sina 整体封禁时均挂(接口级备源非域名级);spot 无成交额,
+    amount 写 None(后续 daily_sina 出当日数据时 upsert 覆盖补全)。适用场景:daily_sina 当日延迟
+    发布(723根因:7-23 daily 历史接口未出当日,但 spot 实时接口收盘后已有收盘价),解决"当日卡T-1"。
+
+    返回 True=写入成功, False=未写入(盘中/数据异常/不在映射)。
+    """
+    from datetime import datetime
+    # 时间门控:港股16:00(HKT)收盘,北京时间同16:00。收盘前跳过(盘中价非收盘价,避免覆盖)
+    # backfill 触发时点(16:35收盘后首采 / 02:00补昨日)均在收盘后,门控满足。
+    now = datetime.now()
+    if now.hour < 16:
+        if verbose:
+            print(f"    ~ {idx_id} sina_spot 兜底: 港股未收盘(<16:00),跳过避免盘中价")
+        return False
+    # idx_id -> sina spot 代码映射(与 _HK_CODE_MAP 互补,含3中证+5板块+3宽基)
+    _SPOT_SYM_MAP = {
+        "hsi": "HSI", "hstech": "HSTECH", "hscei": "HSCEI",
+        "hk_cesg10": "CESG10", "hk_hsmogi": "HSMOGI", "hk_hsmbi": "HSMBI",
+        "hk_hsmpi": "HSMPI", "hk_hscci": "HSCCI",
+        "hk_cshklre": "CSHKLRE", "hk_cshklc": "CSHKLC", "hk_cshkdiv": "CSHKDIV",
+    }
+    sym = _SPOT_SYM_MAP.get(idx_id)
+    if not sym:
+        return False
+    try:
+        import akshare as ak
+        df = ak.stock_hk_index_spot_sina()
+        if df is None or len(df) == 0:
+            return False
+        row = df[df["代码"].astype(str) == sym]
+        if len(row) == 0:
+            return False
+        r = row.iloc[0]
+
+        def _f(col):
+            try:
+                v = r[col]
+                return float(v) if v not in (None, "", 0, "0") else None
+            except (TypeError, ValueError, KeyError):
+                return None
+        close = _f("最新价")
+        if close is None:
+            return False
+        pct = _f("涨跌幅")
+        open_ = _f("今开")
+        high = _f("最高")
+        low = _f("最低")
+    except Exception:  # noqa: BLE001
+        return False
+
+    # spot 无成交额字段,amount 写 None(daily_sina 后续 upsert 覆盖补全)
+    conn.execute(
+        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
+        "VALUES (?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(date, index_id) DO UPDATE SET "
+        "open=excluded.open, high=excluded.high, low=excluded.low, "
+        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+        (date, idx_id, open_, high, low, close, pct, None),
+    )
+    conn.commit()
+    if verbose:
+        print(f"    ✓ {idx_id} <- sina_spot 兜底 close={close} pct={pct} amount=None date={date}")
     return True
 
 
@@ -902,10 +987,19 @@ def main():
         # deploy 持 /tmp/trade_deploy.lock 串行化 git（阻塞排队），与 pipeline.sh /
         # intraday_snapshot.sh 共享 deploy 锁，避免 20:00 前后撞 update_all pipeline
         # 的 git add/commit/push 致 .git/index.lock 冲突（原裸调 deploy 无锁=隐患）。
+        # 显式传 env 让 deploy.sh 的 REPO 与本进程 repo 一致（根治隐藏 bug 2026-07-26）：
+        # repo 由 Path(__file__).absolute() 解析，launchd 从 trade-data 跑时 repo=trade-data
+        # （trade-data/app 是 symlink，.absolute() 不 resolve 保留 trade-data 路径）；
+        # 但 subprocess 默认继承 os.environ，手动从 trade-data 跑 backfill 时 os.environ
+        # 无 REPO，deploy.sh L24 `REPO="${REPO:-...trade}"` 退回默认 trade，export 读
+        # trade/data/sentiment.db 滞后镜像（§9 inode 238648312），刚补采写入 trade-data
+        # 主库（inode 237343239）的当日新数据读不到 -> 部署上去指数仍卡 T-1。
+        # 传 env={**os.environ,"REPO":str(repo)} 保证 deploy.sh export 基准 = backfill 写库基准。
+        # GIT_REPO 不传：deploy.sh L25 默认 trade（.git 只在 trade，trade-data 不 git init）正确。
         subprocess.run(
             [sys.executable, str(repo / "scripts" / "with_lock.py"),
              "/tmp/trade_deploy.lock", "bash", "scripts/deploy.sh", "backfill"],
-            cwd=repo, check=False)
+            cwd=repo, env={**os.environ, "REPO": str(repo)}, check=False)
         print("[backfill] ✓ 补采+重算+推送完成")
     else:
         print("[backfill] 无新数据(已采全或源未发布),跳过重算+推送")

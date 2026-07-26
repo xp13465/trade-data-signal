@@ -3448,9 +3448,42 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 - 港股 3 中证已在 HK_GLOBAL_INDICES 组(L405-408)有 backfill 兜底,根因非"不在 backfill 组"(区别于 sz_div 原不在 CORE_A_INDICES),而是 sina 单点 + 腾讯无代码无备源;backfill main 已改非交易日补采(commit 5ce4a32d,周末能补最近交易日),故 16:35/02:00 launchd backfill 周末跑时能补此类 sina 延迟缺口
 - 线上验证(三源):① R2 ssd.fx8.store/index/hk_cshklc-all.json + hk_cshklre-all.json ohlc[-1].date=20260724(上传即时生效);② 主站 ss.fx8.store/data/hk-1y.json hk_cshklc/hk_cshklre.data[last]=20260724(push main 后 CF Workers deploy,约 90s 生效);③ 备站 sss.sugas.site/data/hk-1y.json 同=20260724(GitHub Pages)。角标 723 消失
 
-**发现隐藏 bug(留待后续,本次不修)**:backfill main()(index_backfill.py L907-908)调 deploy.sh 时 cwd=repo=trade-data 但未设 REPO env,deploy.sh 默认 REPO=trade,L27 EXPORT=$REPO/static-site/export.py=trade/static-site/export.py,L70 export.py 的 `ROOT=Path(__file__).absolute().parent.parent`=trade,读 trade/data/sentiment.db(滞后镜像,inode 238648312,非 trade-data 主库 inode 237343239),backfill main 补的当日新数据可能读不到致 export 生成旧版 JSON。本次手动 REPO=trade-data 跑 deploy.sh 绕过(export 读 trade-data 主库)。建议 backfill main 调 deploy.sh 时设 `env={**os.environ, "REPO": str(repo)}` 确保 export 读最新 DB(与 §9 uvicorn cwd=trade-data 铁律同源)。注:deploy.sh L121 rsync data/ 在 L70 export 之后,时序无法补救此 bug(export 先读滞后 DB,rsync 后到)。
+**发现隐藏 bug(已于本次彻底修复,见七节)**:backfill main()(index_backfill.py L905-908)调 deploy.sh 时 cwd=repo=trade-data 但未设 REPO env,deploy.sh 默认 REPO=trade,L27 EXPORT=$REPO/static-site/export.py=trade/static-site/export.py,L70 export.py 的 `ROOT=Path(__file__).absolute().parent.parent`=trade,读 trade/data/sentiment.db(滞后镜像,inode 238648312,非 trade-data 主库 inode 237343239),backfill main 补的当日新数据可能读不到致 export 生成旧版 JSON。本次手动 REPO=trade-data 跑 deploy.sh 绕过(export 读 trade-data 主库)。建议 backfill main 调 deploy.sh 时设 `env={**os.environ, "REPO": str(repo)}` 确保 export 读最新 DB(与 §9 uvicorn cwd=trade-data 铁律同源)。注:deploy.sh L121 rsync data/ 在 L70 export 之后,时序无法补救此 bug(export 先读滞后 DB,rsync 后到)。
 
 **方向 E 证伪**:见四节,已充分落档(7 品种 6 恶化,sz 27%->-19%,前提不成立),不重复。
+
+#### 七、723 彻底收尾:backfill REPO 隐藏 bug 修复 + 港股3中证备源调研(2026-07-26 周日)
+
+723 异常已全根治(sz_div+港股3+11指数,线上三源07-24确认)。本次做彻底收尾消除根因(§5 完整正确不留尾巴),2 件不冲突任务。
+
+**任务一:backfill REPO 隐藏 bug 修复(commit 本次)**
+
+- bug 机理(六节"发现隐藏bug"根治):`app/collector/index_backfill.py` main() L905-908 调 deploy.sh 的 subprocess.run 未传 env,subprocess 默认继承 os.environ。launchd 场景 plist 设了 `REPO=trade-data` 环境变量,os.environ 有 REPO,deploy.sh `${REPO:-trade}` 取到 trade-data(正确);但**手动从 trade-data 跑 backfill** 时(cwd=trade-data,os.environ 无 REPO),deploy.sh 退回默认 REPO=trade,L27 `EXPORT=$REPO/static-site/export.py`=trade/static-site/export.py(symlink),L70 export.py 的 `ROOT=Path(__file__).absolute().parent.parent`=trade(因 export.py 通过 trade/static-site/export.py symlink 路径解析),读 trade/data/sentiment.db 滞后镜像,backfill 刚补采写入 trade-data 主库的当日新数据读不到 -> 部署上去指数仍卡 T-1。
+- 修复:subprocess.run 加 `env={**os.environ, "REPO": str(repo)}`(L917)。repo 变量 = `Path(__file__).absolute().parent.parent.parent`,launchd/手动从 trade-data 跑时 trade-data/app 是 symlink,`.absolute()` 不 resolve 保留 trade-data 路径,故 repo=trade-data。传 env 确保 deploy.sh 的 REPO 与 backfill 的 repo(DB 写入基准)一致。GIT_REPO 不传:deploy.sh L25 默认 trade(.git 只在 trade,trade-data 不 git init)正确。
+- 验证(实测 env 传递机制):模拟手动从 trade-data 跑(清 os.environ 的 REPO),默认 subprocess 继承无 REPO -> deploy.sh `${REPO:-/default_trade}` 退回默认 trade(BUG 重现);传 `env={**os.environ,"REPO":str(repo)}` 后 -> deploy.sh REPO=trade-data(修复生效,读最新主库)。语法检查 ast.parse OK。
+- 注:launchd 场景 os.environ 已有 REPO=trade-data(plist 设),本修复对 launchd 无变化(原本正确),主要修正手动从 trade-data 跑 backfill 的场景,防御性 + 正确性双保险。
+
+**任务二:港股3中证(cshklre/cshklc/cshkdiv)备源多源实测 + sina_spot 兜底实现**
+
+- 背景:港股3中证走 sina `stock_hk_index_daily_sina`(历史日K)单源,7-23 当日延迟未出致卡 07-23(723 根因之一)。原 `_tencent_hk_fallback` 的 `_HK_CODE_MAP`(L521-527)只含5港股板块不含3中证(腾讯无代码),sina 失败无备源。本次多源实测找备源。
+- 多源实测(cwd=trade-data,.venv/bin/python,2026-07-26 周末测 07-24 周五收盘数据):
+  1. **新浪 daily_sina(主源)**:3指数均能采到 07-24 当日(close cshklre=291.6626/cshklc=999.29089/cshkdiv=3903.35449),3184行历史齐全。周末已出周五数据。
+  2. **腾讯 qt.gtimg.cn**:5种代码格式(r_hkCSHKLRE/r_hkCSHKLC/r_hkCSHKDIV/r_CSHKLRE/CSHKLRE/hkCSHKLRE 等)全部 `v_pv_none_match`(复测确认注释 L519-520 所述,腾讯无此3指数)。
+  3. **baostock**:要9位数字代码(sh.600000 格式),CSHKLRE 字母代码不认(err 10004006 股票代码应为9位),不支持中证港股指数。
+  4. **东财 push2his + stock_hk_index_daily_em**:全部 `RemoteDisconnected('Remote end closed connection without response')`,东财封了直连(IP/UA 被拒);东财搜索 searchapi 返回6条但结构异常无法解析 secid。
+  5. **中证指数公司官网 csindex.com.cn**:4个候选接口路径(/csindex-home/indexInfo/indexDaily / indexDailyAll /performance/indexDaily /index-infomation)GET+POST 全部 404,接口已失效;akshare `stock_zh_index_hist_csindex` 异常(Length mismatch,接口改版)。
+  6. **新浪 spot_sina(`stock_hk_index_spot_sina`,实时行情接口)**:✓ 3指数都在(38个港股指数全量),返回 代码/名称/最新价/涨跌额/涨跌幅/昨收/今开/最高/最低,最新价=07-24收盘价(cshklre=291.663/cshklc=999.291/cshkdiv=3903.354,与 daily_sina 一致)。无显式日期字段。
+- 结论:跨域名备源(腾讯/baostock/东财/中证官网)全不可用;唯一可用备源=新浪 spot_sina(同域名 finance.sina.com.cn,不同接口路径/endpoint)。属"接口级备源"非"域名级备源":daily_sina(历史接口)当日延迟批处理未出时,spot_sina(实时接口)收盘后已更新收盘价,解决"当日卡T-1"场景(723 根因);但 sina 整体封禁时两接口均挂(此风险只能靠 backfill 非交易日补采兜底,已实现 commit 5ce4a32d)。
+- 实现:新增 `_sina_spot_hk_fallback(idx_id, date, conn, verbose)` 函数(index_backfill.py L595-672),仿 `_tencent_hk_fallback` 逻辑:
+  - `_SPOT_SYM_MAP` 含3中证+5板块+3宽基(与 `_HK_CODE_MAP` 互补)
+  - 时间门控:`now.hour < 16` 跳过返回 False(港股16:00 HKT=北京时间收盘,盘中价非收盘价避免覆盖;backfill 16:35/02:00 触发均在收盘后)
+  - 调 `ak.stock_hk_index_spot_sina()` 一次返38指数全量,按 symbol 过滤
+  - 写入 index_daily:close=最新价/pct=涨跌幅/open=今开/high=最高/low=最低/amount=None(spot 无成交额,daily_sina 后续 upsert 覆盖补全)
+  - ON CONFLICT UPDATE 幂等
+- 调用点改动(L486-500):`_tencent_hk_fallback` 返回 False 时(3中证腾讯无代码),再调 `_sina_spot_hk_fallback`;fallback_src 标签区分"腾讯"/"sina_spot";均失败才 fail。
+- 验证(内存 sqlite + core 逻辑):3中证 close 匹配期望(07-24收盘价),SQL 写入字段正确(open/high/low/close/pct/amount=None),幂等(重复写行数=1)。时间门控 L619-622 单行 if 代码 review 正确。注:datetime.datetime 为 immutable type 无法 monkeypatch now,改用 core 逻辑复制测试 + 门控代码 review。
+
+**上线方式**:本次只改后端 Python(index_backfill.py 2处:任务一 env + 任务二 sina_spot 函数/调用点),不涉及 CSS/JS,不跑 build_min/bump_asset_version;不跑全量 export(周日非盘中但不必要,backfill 16:35 launchd 会自动跑触发新逻辑)。commit + push main 即可,backfill 下次触发(16:35/02:00)生效。根目录 data/ 下文件绝不 add(sentiment.db/signal_stats.json 等保持本地 M/untracked)。
 
 
 
