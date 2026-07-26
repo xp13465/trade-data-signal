@@ -12,19 +12,19 @@
     "task": "backfill_evening",
     "name": "指数补采兜底",
     "schedule": "16:35 / 02:00",
-    "est_text": "约33分钟",
-    "last_run": "2026-07-26 02:00",
+    "est_text": "约31分钟",
+    "last_run": "2026-07-26 16:35",
     "last_exit": 0,
-    "last_duration_sec": 514
+    "last_duration_sec": 694
   },
   {
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
     "est_text": "约0秒",
-    "last_run": "2026-07-26 14:50",
+    "last_run": "2026-07-26 15:05",
     "last_exit": 0,
-    "last_duration_sec": 0
+    "last_duration_sec": 1
   },
   {
     "task": "futures_backfill",
