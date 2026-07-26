@@ -33,8 +33,11 @@
 from .base import log_collect
 from ..db import get_conn
 
-# 9 个核心 A 股指数：(baostock_code, tencent_symbol)
-# 这 9 个决定上证涨幅展示 + fear_greed 的 6 个 per-index 情绪分 + 北证50 卡片。
+# 10 个核心 A 股指数：(baostock_code, tencent_symbol)
+# 前 9 个决定上证涨幅展示 + fear_greed 的 6 个 per-index 情绪分 + 北证50 卡片。
+# sz_div(深证红利, sz399324)：走 sina stock_zh_index_daily，新浪收盘后偶发延迟发布当日数据
+# (如 2026-07-24 当日未出，update_all 采到的是历史总量但无当日行)，原不在 backfill 列表
+# 致 723 角标异常(2026-07-26 排查)。baostock sz.399324 + 腾讯 sz399324 均覆盖，纳入兜底。
 CORE_A_INDICES = {
     "sh":      ("sh.000001", "sh000001"),
     "sz":      ("sz.399001", "sz399001"),
@@ -45,6 +48,7 @@ CORE_A_INDICES = {
     "cyb":     ("sz.399006", "sz399006"),
     "kc50":    ("sh.000688", "sh000688"),  # baostock 无，腾讯补
     "bj50":    (None, "bj899050"),          # baostock 无北证50，腾讯补
+    "sz_div":  ("sz.399324", "sz399324"),   # 深证红利，baostock+腾讯均覆盖
 }
 
 # 31 个申万一级行业指数代码（symbol 传给申万 trend API）
