@@ -3374,5 +3374,61 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 3. 切分支前工作区有低风险 agent 残留 `M data/board_etf_map.json`(根目录 data/,§8 禁推),`git stash push data/board_etf_map.json` 暂存后从 origin/main 切 feat/chip-label-opt,互不干扰
 
 
+### 小节AZ38：2026-07-26 sz/cyb 黑名单解禁 + csi500 改标注 + csi_div 移小样本 + 723异常根治 + 方向E证伪
+
+**分支**:feat/low-risk-opt(from origin/main 96fb463e,父 commit 含 723 异常根治 5ce4a32d)
+
+#### 一、723 异常根治(commit 5ce4a32d+96fb463e 已 push main,解禁前验收通过)
+
+**现象**:07-23 起 14 指数停止更新(红利/港股/美股/欧洲/国债时差品种 + 源失败)。具体:红利类(div_lowvol/csi_div)、港股(hk_cshklc/hk_cshklre/hk_cshkdiv 等)、美股(us_dji/us_ixic/us_ndx/us_spx)、欧洲(dax/cac40/ftse100)、国债(cgb_10y_etf)07-23 起卡片停滞。
+
+**根因**:`backfill` 脚本遇非交易日直接跳过该日(当日无数据则不补前序交易日),叠加 `global` 宽松判断(非交易日不视为"应有数据"),致 07-23(若为非交易日或源延迟)当日及前序交易日缺失都不触发补采,卡片长期停滞。
+
+**根治(commit 5ce4a32d)**:
+1. `backfill` 非交易日不跳过:遇当日无数据时回溯补前序交易日数据,不再因"当日是非交易日"放弃整次补采
+2. `global` 严格判断(strict_global):非交易日也视为"应更新",触发 backfill 回溯补采逻辑
+
+**上线验证(07-24)**:线上 11 指数 07-24 数据已确认恢复(csi_div/div_lowvol/hk_cshkdiv/us_dji/us_ixic/us_ndx/us_spx/cac40/dax/ftse100/cgb_10y_etf,见 commit 96fb463e data update)。3 个 DNS 失败品种(sz_div/hk_cshklc/hk_cshklre)等 launchd 16:35 定时任务补采。
+
+#### 二、解禁依据(固定 0.05 参数 WF,用 test_mean_ret 算正占比,主控逐字验收通过)
+
+**sz 值得解禁**:D1 WFE=1.49,正窗 64.3%(18/28),近 3 窗全正,trade_sim 全窗口正(+5.4%/y10 +4.9%/y5 +5.8%/y3 +10.9%/y1)
+
+**cyb 值得解禁(偏弱)**:D1 WFE=0.91,正窗 50%,C1 稳 60%,trade_sim 全窗口正(+4.5%/y10 +6.0%/y5 +8.2%/y3 +22.1%/y1)
+
+**csi500 保留屏蔽改标注**:D1 固定 0.05 wf=-0.949,信号无效(非过拟合,正窗 35.7% < 50%)。原标注"过拟合/测试段失效"误导,改"D1 卖固定 0.05 WF 无效 wf=-0.949,非调参过拟合"。
+
+**csi_div 移小样本组**:n=25 样本不足(正窗 30%),但 C1 买 WF 强 wfe=1.11 应走三档 + 标注(从 `_OVERFIT_FAILED_IDS` 移到 `_SMALL_SAMPLE_IDS`,显示三档 + 前置蓝框"样本不足"标注,而非单橙红 chip 屏蔽)。
+
+#### 三、实施(static-site/app.js 3 处改动)
+
+1. **`_OVERFIT_FAILED_IDS`(L530-532)**:移除 'sz'/'cyb'/'csi_div',仅保留 'csi500',注释改"D1 卖固定 0.05 WF 无效 wf=-0.949,信号无效(非调参过拟合,维持屏蔽)"
+
+2. **`_SMALL_SAMPLE_IDS`(L533-538)**:加入 'csi_div',注释"D1 样本不足 n=25,C1 买 WF 强 wfe=1.11 走三档 + 标注"
+
+3. **L517 注释更新**:"sz/cyb 已解禁(固定 0.05 WF 有效,原网格过拟合判定不适用生产);csi500 保留(D1 信号无效);csi_div 移小样本组"
+
+#### 四、方向 E 证伪(去 MACD 改善失效品种)
+
+**假设**:去 MACD 指标可改善失效品种的 trade_sim 表现。
+
+**证伪**:7 品种 6 恶化(sz 27% -> -19%),其他修复方案不可行。前提不成立 -- 固定 0.05 参数 WFE > 0.7 的品种不失效,黑名单基于网格搜索调参的误判(网格过拟合判定不适用生产固定 0.05 参数场景)。
+
+#### 五、上线方式(盘中合规)
+
+**盘中(13:10)不跑 deploy.sh 全量**(§8 硬约束 + deploy.sh L45 时段闸门 09:30-15:30 拒跑,防 export.py 重新生成 data JSON 覆盖 intraday 实时版)。本次只改前端 JS 逻辑(黑名单解禁),不涉及后端数据,改手动 commit 前端文件上线:
+- `scripts/build_min.py`(NPM_CONFIG_OFFLINE=1 用本地 terser 缓存,npx --yes 联网检查超时 120s 的 workaround):app.min.js 358KB(-43.2%)
+- `scripts/bump_asset_version.py`:index.html 等 ?v= 版本号刷新
+- 手动 `git add` 前端文件(app.js/app.min.js/index.html)+ commit + push feat + merge main ff + push main ff
+- 不碰根目录 data/,不跑 export.py,不覆盖 intraday_snapshot.json
+
+**线上验证(待 push 后 curl https://ss.fx8.store/)**:
+- app.min.js grep `new Set(["csi500"])` ✓(_OVERFIT_FAILED_IDS 仅 csi500)
+- app.min.js grep `new Set(["hs300","kc50","sw_801110","csi_div"])` ✓(_SMALL_SAMPLE_IDS 含 csi_div)
+- sz/cyb 恢复三档推荐(非过拟合标注),csi500 仍屏蔽(改标注),csi_div 走小样本蓝框
+
+**commit**:待 push 后回填
+
+
 
 

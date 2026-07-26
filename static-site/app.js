@@ -516,10 +516,9 @@ function _backupChipThresholdsFor(id) {
 //
 // _OVERFIT_FAILED_IDS（情况B WF 确凿失效，维持屏蔽）：信号经全样本调参后测试段反向退化
 // （WF夏普 < 未过滤全样本），不进三档 chip 推荐，仅显示"过拟合/测试段失效"标注 chip。
-//   sz        : C1主买/D1卖/sell_stop_loss 测试段失效
-//   csi500    : D1卖 测试段失效（情况D C1主买小样本问题被情况B覆盖，仍维持屏蔽）
-//   cyb       : D1卖 测试段失效（情况D C1主买小样本问题被情况B覆盖，仍维持屏蔽）
-//   csi_div   : sell_stop_loss 测试段失效（4.5已改3.5通用化去 per-index 过拟合，但仍标注提醒）
+// 2026-07-26 解禁更新：sz/cyb已解禁（固定0.05 WF有效，原网格过拟合判定不适用生产）；
+//              csi500保留（D1卖固定0.05 WF无效wf=-0.949，非调参过拟合）；csi_div移小样本组。
+//   csi500    : D1卖固定0.05 WF无效wf=-0.949，信号无效（非调参过拟合，维持屏蔽）
 //
 // _SMALL_SAMPLE_IDS（情况D 小样本，不屏蔽）：C1主买 测试段 n<30，统计意义弱。
 // 2026-07-25 方向D：从原 _OVERFIT_OR_SMALL_SAMPLE_IDS 拆出，恢复三档 chip 显示，仅在 chip-row
@@ -529,15 +528,13 @@ function _backupChipThresholdsFor(id) {
 //   sw_801110 : C1主买 测试段样本不足
 // 上证综指(sh)walk-forward 稳健(WFE 1.138,2026-07-25 P1 去 D1a 后)，不进黑名单，继续参与 chip 推荐。
 var _OVERFIT_FAILED_IDS = new Set([
-  'sz',          // 情况B: C1主买/D1卖/sell_stop_loss 测试段失效
-  'csi500',      // 情况B: D1卖 测试段失效（情况D C1主买小样本被覆盖）
-  'cyb',         // 情况B: D1卖 测试段失效（情况D C1主买小样本被覆盖）
-  'csi_div'      // 情况B: sell_stop_loss 测试段失效(4.5已改3.5通用化)
+  'csi500'       // D1卖固定0.05 WF无效wf=-0.949，信号无效（非调参过拟合，维持屏蔽）
 ]);
 var _SMALL_SAMPLE_IDS = new Set([
   'hs300',       // 情况D: C1主买 测试段样本不足
   'kc50',        // 情况D: C1主买 数据短训练2年测1年
-  'sw_801110'    // 情况D: C1主买 测试段样本不足
+  'sw_801110',   // 情况D: C1主买 测试段样本不足
+  'csi_div'      // D1样本不足n=25，C1买WF强wfe=1.11走三档+标注
 ]);
 // 兼容旧引用（如有外部脚本引用 _OVERFIT_OR_SMALL_SAMPLE_IDS）：合并视图，只读
 var _OVERFIT_OR_SMALL_SAMPLE_IDS = new Set(Array.from(_OVERFIT_FAILED_IDS).concat(Array.from(_SMALL_SAMPLE_IDS)));
