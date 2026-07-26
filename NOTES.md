@@ -3432,6 +3432,26 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 
 **feat 分支 non-ff**:remote feat/low-risk-opt 在 50e6ea7a(AZ37 补落档,历史分叉),local feat 在 bb6447cd(基于 main 96fb463e)。按 §8 硬约束不擅自 force-with-lease,停下报告主控决定(rebase + force 或弃用 remote feat 重推)。
 
+#### 六、723 剩余 3 品种根治(sz_div 78fec33c + 港股 a198e2af,2026-07-26 补落档)
+
+一节"上线验证"末尾原写"3 个 DNS 失败品种(sz_div/hk_cshklc/hk_cshklre)等 launchd 16:35 定时任务补采",实际 7-26 已手动根治完毕,补落档如下:
+
+**sz_div 深证红利根治(commit 78fec33c)**:
+- 根因:sz_div 走 sina 源收盘后偶发延迟,7-24 update_all 采时新浪未出当日数据;backfill 只补 9 核心 A 股指数(CORE_A_INDICES 原不含 sz_div),致 sz_div 卡 07-23,周末 baseline=07-24 pastDeadline=true -> 角标🚨异常·07-23
+- 解决:① 补采 sz_div 07-24(baostock sz.399324 close=8286.079 pct=-1.89%)写入主库+镜像;② 跑 export 生成 a-stock-{1y,3m,6m}.json + overview.json;③ 根治 sz_div 加入 CORE_A_INDICES(app/collector/index_backfill.py L52:`"sz_div": ("sz.399324", "sz399324")`,baostock+腾讯均覆盖),backfill 16:35/02:00 自动兜底,新浪延迟不再致卡
+- 线上验证:ss.fx8.store + sss.sugas.site 双域名 a-stock-1y.json sz_div.data[last]=20260724 close=8286.0787 pct=-1.89%,角标📍收盘·07-24(723 消失)
+
+**港股 hk_cshklc/hk_cshklre 根治(commit a198e2af "data update [backfill] 2026-07-26_15:11")**:
+- 根因:2 指数走 sina 源 stock_hk_index_daily_sina,7-24 收盘后新浪延迟未出当日数据;腾讯兜底 `_HK_CODE_MAP`(index_backfill.py L521-527)只含 5 个港股板块(cesg10/hsmogi/hsmbi/hsmpi/hscci),不含 3 个中证(cshklre/cshklc/cshkdiv,注释 L519-520 实测 r_hkCSHKLRE/r_hkCSHKLC/r_hkCSHKDIV 均 v_pv_none_match),sina 失败无备源。注:hk_cshkdiv 同源但 7-24 已采到(sina 对 cshkdiv 当天有数据),仅 cshklre/cshklc 卡 07-23
+- 现象定位:本地+线上 hk-1y.json hk_industries.hk_cshklc/hk_cshklre.data[last]=20260723(hk_cshkdiv=20260724),线上 hk-all/hk-5y/hk-3y.json 及 index/hk_cshk*-all.json 已 R2 托管(git rm --cached,commit b4b75671),前端读 hk-${range}.json 的 hk_industries 算角标
+- 解决:① trade-data 环境(cwd=/Users/linhuichen/code/trade-data,.venv/bin/python)7-26 周末 sina 源已出 07-24 数据,跑 verify_and_backfill_indices('20260724') 补采(cshklc close=999.29089 pct=-1.32%,cshklre close=291.6626 pct=-2.72%,ok=2 fail=0);② REPO=trade-data GIT_REPO=trade cwd=trade-data 跑 deploy.sh,export.py 从 trade-data/static-site/export.py(symlink)跑,ROOT=trade-data,读 trade-data/data/sentiment.db(最新主库,§9 cwd 铁律),生成 hk-1y.json 等 8 港股指数 data[last]=20260724;③ R2 上传 index/ 186 个(含 hk_cshklc/hk_cshklre-all.json)+ data/ 30 个(含 hk-all/5y/3y.json);④ git commit a198e2af(124 files changed)+ push main(78fec33c..a198e2af)成功
+- 港股 3 中证已在 HK_GLOBAL_INDICES 组(L405-408)有 backfill 兜底,根因非"不在 backfill 组"(区别于 sz_div 原不在 CORE_A_INDICES),而是 sina 单点 + 腾讯无代码无备源;backfill main 已改非交易日补采(commit 5ce4a32d,周末能补最近交易日),故 16:35/02:00 launchd backfill 周末跑时能补此类 sina 延迟缺口
+- 线上验证(三源):① R2 ssd.fx8.store/index/hk_cshklc-all.json + hk_cshklre-all.json ohlc[-1].date=20260724(上传即时生效);② 主站 ss.fx8.store/data/hk-1y.json hk_cshklc/hk_cshklre.data[last]=20260724(push main 后 CF Workers deploy,约 90s 生效);③ 备站 sss.sugas.site/data/hk-1y.json 同=20260724(GitHub Pages)。角标 723 消失
+
+**发现隐藏 bug(留待后续,本次不修)**:backfill main()(index_backfill.py L907-908)调 deploy.sh 时 cwd=repo=trade-data 但未设 REPO env,deploy.sh 默认 REPO=trade,L27 EXPORT=$REPO/static-site/export.py=trade/static-site/export.py,L70 export.py 的 `ROOT=Path(__file__).absolute().parent.parent`=trade,读 trade/data/sentiment.db(滞后镜像,inode 238648312,非 trade-data 主库 inode 237343239),backfill main 补的当日新数据可能读不到致 export 生成旧版 JSON。本次手动 REPO=trade-data 跑 deploy.sh 绕过(export 读 trade-data 主库)。建议 backfill main 调 deploy.sh 时设 `env={**os.environ, "REPO": str(repo)}` 确保 export 读最新 DB(与 §9 uvicorn cwd=trade-data 铁律同源)。注:deploy.sh L121 rsync data/ 在 L70 export 之后,时序无法补救此 bug(export 先读滞后 DB,rsync 后到)。
+
+**方向 E 证伪**:见四节,已充分落档(7 品种 6 恶化,sz 27%->-19%,前提不成立),不重复。
+
 
 
 
