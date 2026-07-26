@@ -628,7 +628,7 @@ def backfill_series_metrics(date):
     return ok, has_today_new
 
 
-def backfill_history_gaps(date, verbose=True):
+def backfill_history_gaps(date, verbose=True, strict_global=False):
     """检查所有 enabled 指数/序列指标的历史缺口,latest 落后期望日期则补采。
 
     根治 2026-07-15 事故:backfill 之前只查"今日"缺失,某天 T+1 源因时差/
@@ -643,6 +643,10 @@ def backfill_history_gaps(date, verbose=True):
       - A股/港股指数(market in a/hk): date(最近交易日),latest<date=缺口
       - 全球/美股指数(market=global): 允许滞后1天(美股收盘晚于A股一个时差,
         latest 距 date <=1天=正常 T+1;>1天=真缺口)
+        * strict_global=True(非交易日补采场景): 用 latest<date 严格判断,
+          因非交易日补采时境外市场早已收盘,时差已过,滞后即为真缺口
+          (根治 2026-07-26 "指数表现异常723":周末 backfill 跳过致周五
+          美股/欧洲缺口无法补,14 指数停在 07-23)
       - 序列指标: date(T+1源次日应出;源没出则 collect_series 空跑跳过)
 
     与 verify_and_backfill_indices 互补:后者只校验 CORE_A/SW/thsc/HK_GLOBAL
@@ -682,10 +686,14 @@ def backfill_history_gaps(date, verbose=True):
             except ValueError:
                 continue
             market = idx.get("market", "a")
-            if market == "global":
+            if market == "global" and not strict_global:
                 # 美股/全球:T+1源,允许滞后1天(美股收盘晚于A股一个时差)
+                # 交易日当天跑用此宽松阈值(美股可能未收盘,滞后1天属正常 T+1)
                 is_gap = (target_d - last_d).days > 1
             else:
+                # A股/港股/序列:latest<target_d 即缺口
+                # strict_global=True(非交易日补采):全球类也用严格判断,
+                # 因非交易日补采时境外市场早已收盘,时差已过,滞后即为真缺口
                 is_gap = last_d < target_d
             if not is_gap:
                 continue
@@ -769,11 +777,16 @@ def main():
     from datetime import datetime, timedelta
     from ..calendar import is_trading_day, last_trading_day
 
-    if not is_trading_day():
-        print("[backfill] 非交易日,跳过")
-        return
+    # 根治 2026-07-26 "指数表现异常723":非交易日不再直接跳过,改为补采最近交易日缺口。
+    # 原逻辑非交易日 return,致周末(7-25/7-26)无法补 7-24(周五)缺口,14 指数停在
+    # 07-23(港股新浪源当日失败/美股欧洲时差未收盘/红利国债 T+1 源),用户看到"好多异常723"。
+    # 非交易日 today=last_trading_day()(最近交易日,即周五),补采该日缺口 + 重算 + 推送。
+    # 幂等安全:collect_index/collect_series 拉全量 upsert,已采全则无新数据不 deploy。
+    non_trading = not is_trading_day()
+    if non_trading:
+        print("[backfill] 非交易日,补采最近交易日缺口(不跳过,根治周末缺口停滞)")
 
-    today = last_trading_day()  # 已是 YYYYMMDD str
+    today = last_trading_day()  # 已是 YYYYMMDD str(非交易日返回最近交易日)
     if hasattr(today, "strftime"):
         today = today.strftime("%Y%m%d")
     # 门控(2026-07-16):last_trading_day() 在交易日当天未收盘(<15:00)仍返回今日,
@@ -807,7 +820,7 @@ def main():
     # 与 verify(查今日)互补:本函数覆盖所有 enabled 指数(含 sz_div 等非核心)
     # + 序列指标,且检测历史缺口(非仅今日)。)
     print("[backfill] -> 历史缺口检测+补采 ...")
-    gap_fixed = backfill_history_gaps(today, verbose=True)
+    gap_fixed = backfill_history_gaps(today, verbose=True, strict_global=non_trading)
     print(f"[backfill] 历史缺口补采 {gap_fixed} 个品种")
 
     # 2.6) 凌晨兜底:补 futures/lhb/etf(02:00 backfill 原只补 SERIES_FUNCS+指数,
