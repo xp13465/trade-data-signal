@@ -1001,7 +1001,10 @@ function indexIdToName(indexId) {
 // items: freeze={date,score_id,value} | signal={date,index_id,signal,reason}
 // kind: "freeze" | "signal"；todayDate: 数据"今日"基准(r.date)
 // 每日期全部显示（不做折叠），卡片 .signal-grid 有 max-height+overflow 滚动兜底。
-function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
+// isClosed: 数据是否已收盘(默认true)。今日+盘中(!isClosed)的pin是盘中预估信号，
+// 收盘后(17:50)update_all重算定版可能消失/变动(intraday_snapshot._recompute_signals
+// DELETE+INSERT幂等覆盖)，挂⚠角标强提醒。freeze(冰点日)为历史定版不提醒。
+function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // 按 date 分组（降序），今日组单独提到最前
   const groups = {};
@@ -1024,9 +1027,18 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText) {
     } else {
       dayItems.sort((a, b) => (a.value ?? 99) - (b.value ?? 99));
     }
-    const cellHtml = (it) => kind === "signal"
-      ? `<span class="sig-item sig-clickable" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}</span>`
-      : `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
+    const cellHtml = (it) => {
+      if (kind === "signal") {
+        // 今日+盘中=盘中预估信号，收盘后(17:50)重算定版可能消失/变动，挂⚠角标强提醒
+        const showIntradayWarn = isToday && !isClosed;
+        const warnBadge = showIntradayWarn
+          ? '<sup class="sig-intraday-warn" title="盘中预估·收盘后(17:50)重算定版，此信号可能消失或变动">⚠</sup>'
+          : '';
+        const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
+        return `<span class="${cls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}${warnBadge}</span>`;
+      }
+      return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
+    };
     const dateLabel = fmtDate(dt);
     // 同日数据超过 4 个时按 4 个/行分块换行，每行重复日期（不做合并单元格效果）。
     // COLS 与 CSS .sig-items grid-template-columns:repeat(4,1fr) 一致；
@@ -1166,9 +1178,12 @@ function _signalHelpModalHTML(aggStats) {
       // 三窗口对比行（5d/10d/20d），按样本数 n 加权聚合；某窗口无数据显示 "—"
       const hasWin = !!(s["5d"] || s["10d"] || s["20d"]);
       const freqTotal = s.frequency_total || 0;
+      // flex布局：标签 flex:0 0 3.5em 固定宽度(足够"10日："+余量)+white-space:nowrap 防标签内换行,
+      // 内容 flex 自适应, align-items:baseline 基线对齐。修原 width:3em inline-block "10日："约3em填满溢出致行间错位。
       const winRows = [["5日", s["5d"]], ["10日", s["10d"]], ["20日", s["20d"]]].map(([label, w]) => {
-        if (!w) return '<div style="margin-left:8px"><span style="display:inline-block;width:3em">' + label + '：</span><span style="opacity:0.5">— 累积中</span></div>';
-        return '<div style="margin-left:8px"><span style="display:inline-block;width:3em">' + label + '：</span>胜率 <b>' + (w.win_rate * 100).toFixed(0) + '%</b> · 盈亏比 <b>' + w.pl.toFixed(2) + '</b> · 均收益 <b>' + w.mean.toFixed(2) + '%</b> · 样本 <b>' + w.n + '</b></div>';
+        const lbl = '<span style="flex:0 0 3.5em;white-space:nowrap">' + label + '：</span>';
+        if (!w) return '<div style="margin-left:8px;display:flex;align-items:baseline">' + lbl + '<span style="opacity:0.5">- 累积中</span></div>';
+        return '<div style="margin-left:8px;display:flex;align-items:baseline">' + lbl + '<span>胜率 <b>' + (w.win_rate * 100).toFixed(0) + '%</b> · 盈亏比 <b>' + w.pl.toFixed(2) + '</b> · 均收益 <b>' + w.mean.toFixed(2) + '%</b> · 样本 <b>' + w.n + '</b></span></div>';
       }).join("");
       // 无窗口数据但有 frequency(刚上线窗口未到) -> "已生成N例,窗口统计累积中"; 有窗口数据 -> 附"累计N例"
       const freqNote = (!hasWin && freqTotal > 0)
@@ -5466,17 +5481,18 @@ async function renderOverview() {
   // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card";
-  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · 今日高亮）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点");
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · 今日高亮）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
   addCardTimeBadge(sigCard, r.date, snap, "t0");
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
   // (_SNAPSHOT_TO_INDEX_ID 只12个),盘中它们的 -all.json 不更新,首页看到的当日 buy/sell pin
   // 点弹窗看不到 T 日 pin(K线末日还是 T-1)。加提示让用户知道收盘后 17:50 全对齐,非 bug。
   // 触发: snap.is_closed===false(盘中) 且 有信号(r.signals_today 非空),收盘后/无信号不显示。
+  // 强提醒已挂到具体今日pin上(⚠角标sig-intraday)，底部提示作总览解释⚠含义+兜底。
   if (snap && snap.is_closed === false && Array.isArray(r.signals_today) && r.signals_today.length) {
     const _sigIntradayHint = document.createElement("div");
     _sigIntradayHint.className = "sig-intraday-hint";
     _sigIntradayHint.setAttribute("style", "margin-top:8px;padding:6px 10px;font-size:11px;color:var(--text-3);background:rgba(230,162,60,0.08);border-left:3px solid #e6a23c;border-radius:3px;line-height:1.5;");
-    _sigIntradayHint.innerHTML = "⚠ 盘中：部分行业/概念指数的当日pin待收盘后(17:50)同步，9大指数+3港股已实时更新";
+    _sigIntradayHint.innerHTML = "⚠ 今日带⚠角标的pin为盘中预估信号，收盘后(17:50)重算定版可能消失或变动；9大指数+3港股已实时更新";
     sigCard.appendChild(_sigIntradayHint);
   }
   // 点击买卖点卡片弹窗：展示对应指数/品类走势图+买卖信号标注
