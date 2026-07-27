@@ -16,12 +16,12 @@
     "name": "指数补采兜底",
     "schedule": "16:35 / 02:00",
     "est_text": "约27分钟",
-    "last_run": "2026-07-27 16:35",
+    "last_run": "2026-07-28 02:00",
     "last_exit": 0,
-    "last_duration_sec": 1131,
-    "log_anomaly": true,
-    "log_anomaly_keyword": "error: failed to push",
-    "log_anomaly_line": "error: failed to push some refs to 'github.com:xp13465/trade-data-signal.git'"
+    "last_duration_sec": null,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
   },
   {
     "task": "intraday_snapshot",
@@ -75,10 +75,10 @@
     "task": "etf_national_team",
     "name": "ETF国家队",
     "schedule": "20:07 + 21:30(兜底)",
-    "est_text": "约7分钟",
-    "last_run": "2026-07-27 20:07",
+    "est_text": "约6分钟",
+    "last_run": "2026-07-27 21:30",
     "last_exit": 0,
-    "last_duration_sec": 160,
+    "last_duration_sec": 159,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
