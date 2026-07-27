@@ -170,6 +170,34 @@ if STATS_FILE.exists():
                         f"SEVERE: {s['task']} 退出失败 last_exit={exit_code} "
                         f"last_run={last_run_str}"
                     )
+            # 第4盲区修复: log 异常关键词检查(脚本吞异常 exit=0 漏报)
+            # 即使 last_exit=0(异常被 try/except 吞),log 里有 Traceback/异常类名也算失败
+            # 复用 24h stale 去重(与 exit!=0 同逻辑, 旧告警不重复 SEVERE)
+            if s.get("log_anomaly"):
+                keyword = s.get("log_anomaly_keyword") or "?"
+                line = (s.get("log_anomaly_line") or "")[:120]
+                last_run_str_a = s.get("last_run") or ""
+                is_stale_a = False
+                if last_run_str_a:
+                    try:
+                        last_run_dt_a = datetime.strptime(last_run_str_a, "%Y-%m-%d %H:%M")
+                        if NOW - last_run_dt_a > STALE_EXIT_THRESHOLD:
+                            is_stale_a = True
+                    except ValueError:
+                        pass
+                if is_stale_a:
+                    print(
+                        f"[info] {s['task']} log异常 keyword={keyword} "
+                        f"last_run={last_run_str_a} 距今>"
+                        f"{int(STALE_EXIT_THRESHOLD.total_seconds()//3600)}h, "
+                        f"旧告警已过期,等下次任务跑更新(不重复 SEVERE)"
+                    )
+                else:
+                    alerts.append(
+                        f"SEVERE: {s['task']} log异常关键词<{keyword}> "
+                        f"exit={exit_code}(可能被try/except吞) "
+                        f"last_run={last_run_str_a} 行: {line}"
+                    )
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 

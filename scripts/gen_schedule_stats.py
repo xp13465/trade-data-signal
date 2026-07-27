@@ -84,6 +84,28 @@ LABEL_MAP = {
 # launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）
 _LAUNCHCTL_LAST_EXIT_RE = re.compile(r'last exit code = \(?(-?\d+|none)\)?', re.IGNORECASE)
 
+# 第4盲区修复(2026-07-27): log 异常关键词扫描
+# 根因: intraday_snapshot.py _export_affected_json 抛 AttributeError 被 try/except 吞,
+# 脚本 exit=0,监控只看 exit code 漏报 3 天。log 里有 Traceback/异常类名痕迹,
+# 关键词扫描能抓到。
+# 关键词设计原则: 精确匹配,避免"失败""Error"宽泛误报:
+#   - Python Traceback 标志行(每次未捕获异常必带)
+#   - Python 异常类名 + 冒号(标准打印格式 "ExceptionName: msg"),
+#     \b 词边界 + \s*: 确保 "Exception handler" 等正常文本不误配
+#   - 系统级致命错误(FATAL/panic/segfault/core dumped,libmini_racer crash 场景)
+#   - bash/git 明确失败标志(精确字符串,非泛化"失败")
+ANOMALY_RE = re.compile(
+    r'Traceback \(most recent call last\)'
+    r'|\b(?:AttributeError|TypeError|ValueError|KeyError|IndexError|ImportError|'
+    r'ModuleNotFoundError|NameError|SyntaxError|RuntimeError|StopIteration|'
+    r'ZeroDivisionError|RecursionError|FileNotFoundError|PermissionError|'
+    r'OSError|IOError|NotImplementedError|OverflowError|MemoryError|SystemError|'
+    r'UnicodeError|UnicodeDecodeError|UnicodeEncodeError|ConnectionError|TimeoutError|'
+    r'JSONDecodeError|Exception)\s*:'
+    r'|FATAL\b|panic:|Segmentation fault|core dumped'
+    r'|error: failed to push|error: cannot rebase'
+)
+
 
 def launchctl_last_exit(label: str | None) -> int | None:
     """调 `launchctl print gui/UID/label` 读真实 last exit code。
@@ -116,6 +138,76 @@ def launchctl_last_exit(label: str | None) -> int | None:
         return int(val)
     except ValueError:
         return None
+
+
+def scan_log_anomaly(log_path: Path, script: str, mode: str) -> dict | None:
+    """扫描 log 文件最近一次运行窗口内的异常关键词(第4盲区修复)。
+
+    根因场景: intraday_snapshot.py 的 _export_affected_json 抛 AttributeError 被
+    try/except 吞掉,脚本仍 exit=0,监控只看 exit code 漏报 3 天。log 里有
+    Traceback/异常类名痕迹,关键词扫描能抓到。
+
+    切窗口方式(避免历史 Error 误报): 找最后一个 start 行行号 -> 找其后第一个
+    end 行行号 -> 扫 [start_line, end_line) 之间所有行。只扫本次运行时段的 log,
+    不依赖行内时间戳(中间过程行多无时间戳,靠 start/end 标记切窗口最稳)。
+    若无 end(进行中或被 SIGTERM 杀),扫到文件末尾(本次运行的所有输出)。
+
+    Args:
+        log_path: log 文件路径
+        script: standard 模式的脚本名 regex(如 "intraday_snapshot.sh")
+        mode: "standard" 或 "etf_nt"
+
+    Returns:
+        {"keyword": "AttributeError", "line": "AttributeError: '...' ..."} 或 None。
+        line 截断到 200 字符避免 JSON 过大;keyword 为正则命中的字符串。
+    """
+    if not log_path.exists():
+        return None
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return None
+
+    # 找最后一个 start 行(standard 用 START_RE+fullmatch script, etf_nt 用 ETF_START_RE)
+    last_start_idx = None
+    if mode == "etf_nt":
+        for i in range(len(lines) - 1, -1, -1):
+            if ETF_START_RE.search(lines[i]):
+                last_start_idx = i
+                break
+    else:
+        for i in range(len(lines) - 1, -1, -1):
+            m = START_RE.search(lines[i])
+            if m and re.fullmatch(script, m.group(1)):
+                last_start_idx = i
+                break
+    if last_start_idx is None:
+        return None  # log 里无 start 行,无法切窗口
+
+    # 找 start 后第一个 end 行(限定本次运行窗口,避免扫到下一轮 start 之间)
+    # 若无 end(进行中或被杀),扫到文件末尾
+    end_idx = len(lines)
+    if mode == "etf_nt":
+        for i in range(last_start_idx + 1, len(lines)):
+            if ETF_DONE_RE.search(lines[i]):
+                end_idx = i + 1
+                break
+    else:
+        for i in range(last_start_idx + 1, len(lines)):
+            m = END_RE.search(lines[i])
+            if m and re.fullmatch(script, m.group(1)):
+                end_idx = i + 1
+                break
+
+    # 扫描 [last_start_idx, end_idx) 之间所有行,返回首个命中
+    for i in range(last_start_idx, end_idx):
+        m = ANOMALY_RE.search(lines[i])
+        if m:
+            return {
+                "keyword": m.group(0),
+                "line": lines[i].strip()[:200],
+            }
+    return None
 
 
 def _iter_lines(path: Path):
@@ -223,8 +315,10 @@ def build():
         log_path = LOG_DIR / t["log"]
         if not log_path.exists():
             result.append({**{k: t[k] for k in ("task", "name", "schedule")},
-                           "est_text": "—", "last_run": None, "last_exit": None,
-                           "last_duration_sec": None})
+                           "est_text": "-", "last_run": None, "last_exit": None,
+                           "last_duration_sec": None,
+                           "log_anomaly": False, "log_anomaly_keyword": None,
+                           "log_anomaly_line": None})
             continue
         if t["mode"] == "etf_nt":
             pairs, pending_start = parse_etf_nt(log_path)
@@ -262,17 +356,24 @@ def build():
                     else:
                         code = 143 if age > MAX_GAP_SEC else None  # 回退启发式
                 last_dur = None
+        # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
+        # 即使 exit=0(异常被 try/except 吞)也能抓到告警
+        anomaly = scan_log_anomaly(log_path, t["script"], t["mode"])
         result.append({
             "task": t["task"], "name": t["name"], "schedule": t["schedule"],
             "est_text": est_text(pairs), "last_run": last_run,
             "last_exit": code, "last_duration_sec": last_dur,
+            "log_anomaly": bool(anomaly),
+            "log_anomaly_keyword": anomaly["keyword"] if anomaly else None,
+            "log_anomaly_line": anomaly["line"] if anomaly else None,
         })
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"✓ {OUT.relative_to(REPO)} ({len(result)} tasks)")
     for r in result:
+        flag = " ⚠ANOMALY" if r.get("log_anomaly") else ""
         print(f"  {r['name']:8s} {r['schedule']:22s} est={r['est_text']:8s} "
-              f"last={r['last_run']} exit={r['last_exit']} dur={r['last_duration_sec']}s")
+              f"last={r['last_run']} exit={r['last_exit']} dur={r['last_duration_sec']}s{flag}")
     return result
 
 

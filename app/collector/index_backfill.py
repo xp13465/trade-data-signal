@@ -30,6 +30,8 @@
 
 触发：runner.step2 indices 采完后调用 verify_and_backfill_indices(date)。
 """
+import os
+
 from .base import log_collect
 from ..db import get_conn
 

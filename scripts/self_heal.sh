@@ -155,8 +155,10 @@ for s in stats:
     task = s.get("task")
     exit_code = s.get("last_exit")
     last_run_str = s.get("last_run")
-    # null/0 不 heal（null=进行中/无数据，0=成功）
-    if exit_code is None or exit_code == 0:
+    log_anomaly = s.get("log_anomaly", False)
+    # null/0 且无 log_anomaly 不 heal（null=进行中/无数据，0=成功）
+    # 第4盲区修复: log_anomaly=true 时即使 exit=0 也 heal（脚本吞异常场景）
+    if (exit_code is None or exit_code == 0) and not log_anomaly:
         continue
     # last_run 时效检查
     if not last_run_str:
@@ -179,7 +181,7 @@ for s in stats:
         print(f"[self_heal] {task} launchctl state={st}（在跑），跳过避免误杀")
         audit(f"SKIP_RUNNING {task} state={st} last_exit={exit_code}")
         continue
-    to_heal.append((task, exit_code, last_run_str, st))
+    to_heal.append((task, exit_code, last_run_str, st, log_anomaly))
 
 if not to_heal:
     print(f"[{NOW.strftime('%Y-%m-%d %H:%M:%S')}] OK 无需 heal 的任务"
@@ -188,7 +190,7 @@ if not to_heal:
 
 # 4) 执行 heal（每日上限内，逐个后台触发重跑，不阻塞 self_heal 退出）
 healed_now = []
-for task, exit_code, last_run_str, st in to_heal:
+for task, exit_code, last_run_str, st, log_anomaly in to_heal:
     if state["count"] >= DAILY_LIMIT:
         msg = (f"执行中达到每日上限 {DAILY_LIMIT} 次，剩余任务跳过。"
                f"已 heal: {json.dumps(state['healed'], ensure_ascii=False)}")
@@ -200,6 +202,27 @@ for task, exit_code, last_run_str, st in to_heal:
     if not cmd:
         print(f"[self_heal] {task} 无 HEAL_ACTIONS 配置，跳过", file=sys.stderr)
         continue
+    # 盘中保护（§8）：update_all 的 force = 全量 export+deploy，交易日盘中
+    # (09:30-15:30) 跳过避免撞 intraday-snapshot 定时任务推 main 致互相覆盖事故。
+    # 其他任务（backfill/futures/lhb/rzhb/etf_nt）不涉及全量 export，盘中可跑不加保护。
+    # 节假日未严格判断（盘中跳过即使节假日也无害，只是少跑一次自愈，收盘后/次日正常触发）。
+    if task == "update_all":
+        hhmm = int(NOW.strftime("%H%M"))
+        is_weekday = NOW.isoweekday() <= 5  # 1-5 周一到周五（等价 date +%u 1-5）
+        if is_weekday and 930 <= hhmm <= 1530:
+            audit(f"SKIP_INTRADAY {task} reason=intraday_skip "
+                  f"now={NOW.strftime('%H:%M')} §8 盘中不跑全量，收盘后自愈 "
+                  f"last_exit={exit_code} last_run={last_run_str} log_anomaly={log_anomaly}")
+            state.setdefault("skipped", []).append({
+                "task": task, "time": NOW.strftime("%H:%M:%S"),
+                "reason": "intraday_skip",
+                "last_exit": exit_code, "last_run": last_run_str,
+                "log_anomaly": log_anomaly,
+            })
+            save_state(state)
+            print(f"[self_heal] {task} 盘中跳过 update_all force（§8 盘中不跑全量），"
+                  f"收盘后自愈。now={NOW.strftime('%H:%M')}", file=sys.stderr)
+            continue
     # 后台触发重跑：nohup + & 让子进程 detach（self_heal 退出不杀重跑任务）
     cmd_str = " ".join(cmd)
     log_file = LOG_DIR / f"{task}_heal.log"
@@ -214,10 +237,12 @@ for task, exit_code, last_run_str, st in to_heal:
     state["healed"].append({
         "task": task, "time": NOW.strftime("%H:%M:%S"),
         "exit": exit_code, "last_run": last_run_str,
+        "log_anomaly": log_anomaly,
     })
     healed_now.append(task)
-    audit(f"HEAL {task} last_exit={exit_code} last_run={last_run_str} state={st} "
-          f"-> 触发 {cmd_str} (log={log_file.name})")
+    reason = "log_anomaly" if (log_anomaly and (exit_code is None or exit_code == 0)) else f"exit={exit_code}"
+    audit(f"HEAL {task} reason={reason} last_exit={exit_code} last_run={last_run_str} "
+          f"log_anomaly={log_anomaly} state={st} -> 触发 {cmd_str} (log={log_file.name})")
 
 save_state(state)
 print(f"[{NOW.strftime('%Y-%m-%d %H:%M:%S')}] HEAL 触发 {len(healed_now)} 个任务: {healed_now}")

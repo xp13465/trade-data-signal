@@ -3615,3 +3615,102 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 - 非交易日(周末/假日)update_all 跳过,手动截断版会滞留线上到下一交易日 17:50 才被覆盖;发现后应立即手动重跑全量 deploy(非盘中时点可跑)。
 
 
+### 小节AZ41：2026-07-27 盘中采集 export 稳定性双 bug 修复（commits 879f7c56 + 37ae4500）
+
+**背景**：盘中 intraday_snapshot 定时任务连续 3 天（7/24-7/27）export 失败但 exit=0 被 try/except 吞，线上 intraday 数据停在早盘。两个独立 bug 叠加。
+
+**bug1：intraday_snapshot.sh PUSH_RC unbound + git add 撞 .gitignore（commit 879f7c56）**
+- `scripts/intraday_snapshot.sh` 原 L154-177 `git add static-site/data/a-stock-*.json` 等通配会命中 `.gitignore` 忽略的大 range 文件（all/5y/3y，commit 930c8eeb R2 阶段4 移出 git 减 58M），`git add` 返回非0，`set -e` 退出子 shell，push 未执行。
+- 同脚本 L267 `$PUSH_RC）` 全角右括号（UTF-8 `ef bc 89`），bash 把 `0xef` 当变量名一部分解析成 `PUSH_RC\xef` unbound。
+- 修复：改 `DATA_FILES=()` for 循环精确文件列表（只 add 小 range 3m/6m/1y + etf 1m）+ `|| true` 兜底，参考 `deploy.sh` L188-221 `DATA_FILES` 模式；全角括号改 `${PUSH_RC}` 明确变量名边界。
+
+**bug2：intraday_snapshot.py 6 处 ALL_RANGES 漏改 EXPORT_RANGES（commit 37ae4500）**
+- `app/collector/intraday_snapshot.py` L973/990/1005 等 6 处仍引用 `export_mod.ALL_RANGES`，但 commit 329c1ce8（小节AZ13 queries.py 重构）已把 `ALL_RANGES` 改名为 `EXPORT_RANGES`。
+- 盘中 `_export_affected_json()` 抛 `AttributeError: module has no attribute 'ALL_RANGES'`，被 `try/except` 吞，exit=0，gen_schedule_stats 记成功漏报 3 天。
+- 修复：6 处 `ALL_RANGES` -> `EXPORT_RANGES`。
+
+**教训**：见小节AZ46 铁律2（重构改名要全局搜替换）、铁律3（监控4盲区之①exit code 吞异常 + ③全角字符 + ④git add 通配）。
+
+
+### 小节AZ42：2026-07-27 P0 系统稳定性五项（commit 16a39964，含 self_heal.sh 新文件）
+
+**背景**：小节AZ41 intraday export 失败 3 天无人知，暴露监控盲区。本 commit 补 5 项 P0 稳定性基建。
+
+**5 项内容**：
+1. `scripts/gen_schedule_stats.py` 加 `launchctl_last_exit(label)` 函数 + `LABEL_MAP`（task->launchctl label 映射）：standard 模式优先调 `launchctl list` 读真实退出码（原只读 task wrapper 的 exit code，脚本吞异常时记 0 漏报）。L43/L82-90。
+2. `scripts/self_heal.sh`（新文件，228 行）：白名单 force 重跑失败任务（last_exit!=0 且 24h 内、launchctl state 非 running），每日 3 次上限防连环重跑，audit log 写 `data/logs/self_heal_audit.log`。launchd `com.trade.self-heal` 每 15 分钟（Minute=7/22/37/52）触发。
+3. `scripts/lint_scripts.sh`（新文件）：`bash -n` 语法检查 + `grep -nP` 扫 `$VAR` 后紧跟全角括号（`\x{FF08}\x{FF09}`，bug2 模式）+ `py_compile`，任一失败 exit 1。
+4. `scripts/pre-commit`（新文件）+ `scripts/install_hooks.sh`：staged 含 .sh/.py 时跑 lint_scripts.sh，失败阻止 commit（防 intraday_snapshot.sh 全角括号 bug2 入库）。
+5. gen_schedule_stats 加 log 解析 fallback（崩在 DONE 前记 null 的盲区，见铁律3②）。
+
+**教训**：见小节AZ46 铁律3（监控4盲区）。
+
+
+### 小节AZ43：2026-07-27 前端盘中实时性 3 项（commits 6ea86c9f + 3c3b27fc + 766a90ea）
+
+**背景**：盘中用户看到的数据滞后（CF 边缘缓存 1h + 浏览器 HTTP 缓存 + 行业概念指数 pin 不更新），3 项分别从前端轮询/CF 缓存/提示文案根治。
+
+**①前端盘中自动轮询 + cache-busting（commit 6ea86c9f）**
+- `static-site/app.js` 加 `_NO_CACHE_URLS` 正则匹配时效敏感 URL（overview/intraday_snapshot/sentiment-{3m,6m,1y} 等），命中时 fetch 加 `?_=Date.now()` bustQuery + `cache: "no-store"`（浏览器完全不读 HTTP 缓存每次发 GET，避免 CF HIT 旧 etag 返回 304 读旧缓存）；其他 URL 用 `cache: "no-cache"` 条件请求省带宽。
+- 加 `OVERVIEW_REFRESH_MS = 5*60*1000` overview 5min 轮询（盘中 `is_closed===false` 才启动，收盘自停），更新顶部采集时间 badge + `_overviewCache`；`visibilitychange` 切回 tab 距上次>5min 立即刷新（省资源）。
+
+**②CF 缓存拆分（commit 3c3b27fc）**
+- `worker/headers.js` 规则5拆 5a/5b：原 `-(3m|6m|1y|3y|5y|all)` 统一 `max-age=3600`，盘中每 15min 推新数据但边缘缓存 1h 致用户看 1h 前。
+- 5a：`-(3m|6m|1y)` 改 `max-age=60`（盘中要快的小周期，60s 多回源几次无害 CF 免费额度 100k/天够用）；5b：`-(3y|5y|all)` + 策略实验室 + 行业长周期保持 `max-age=3600`。
+
+**③方案B技术分析参考点盘中提示（commit 766a90ea）**
+- `static-site/app.js` `_renderSignalGrid` 加盘中提示：`sw_/thsc_/cgb_` 等行业概念指数不在 intraday 反哺列表（`_SNAPSHOT_TO_INDEX_ID` 只12个），盘中它们的 `-all.json` 不更新，首页当日 buy/sell pin 滞后到 17:50 收盘后才同步。
+- 触发：`snap.is_closed===false`（盘中）且有信号（`r.signals_today` 非空），显示"⚠ 盘中：部分行业/概念指数的当日pin待收盘后(17:50)同步，9大指数+3港股已实时更新"；收盘后/无信号不显示。
+
+
+### 小节AZ44：2026-07-27 AI评分 tab 显示更多 + hold_list 双 bug 修复（commit 19d6f1df）
+
+**背景**：AI评分 tab buy 列表 `slice(0,12)` 截断只显 12 只，用户看不到全量（buy 227 只）；持有建议列永远空。
+
+**双 bug 修复（lab.js L6303-6305/L6331/L6432）**：
+- bug①：`holdItems = sellListRaw.filter((it) => /持有/.test(it.sell_signal || ""))` 永远空。根因：后端 `export_etf_score_list.py:558` 已将 hold 拆独立字段 `data.hold_list`（951 只持有观察项），`sell_list` 31 只全是过热项（high>=60）不含"持有"。改 `const holdItems = Array.isArray(data.hold_list) ? data.hold_list : []`。
+- bug②：`_renderAIScoreHoldSection` 原读 `sell_signal` 字段，但 `hold_list` 用 `hold_reason` 字段（`sell_signal` 在 hold_list 不存在）。改读 `hold_reason`，无则"持有观察"。
+- 显示更多：原 `slice(0,12)` 截断改折叠 Top20 + 展开分页 50/页（L6331 注释），buy 227 只可全量浏览；hold 951 只同样 50/页分页按 `high_alert` 降序。
+
+
+### 小节AZ45：2026-07-27 角标 T+1 修复 3 项（commits b90c700f + 16829292 + 31f23612）
+
+**①龙虎榜 T+1 漏配修复（commit b90c700f）**
+- `static-site/app.js` `_kpiT1` 列表漏配 `lhb_count`，龙虎榜（T+1，东财18:00发当日）误走 t0 分支 baseline=今日，盘后误判"滞后"（7-24 误报根因）。
+- L14 加 `|| k.id === "lhb_count"`；举一反三注释：这4项（两融/北向/qvix/换手率）+龙虎榜实为 T+1 性质源，`T1_COLLECT_DEADLINE` 已配 19:30 但漏配本列表，与"数据更新规则"弹窗标 T+1 不一致。
+
+**②sw.js bump CACHE_VERSION（commit 16829292）**
+- `static-site/sw.js` L16 `CACHE_VERSION` 从 `v2-20260725-a6` bump 到 `v2-20260727-a7`。
+- 根因：3 个 agent 改 app.js（6ea86c9f/766a90ea/b90c700f）都没 bump sw.js，旧 sw CacheFirst 缓存旧 app.min.js，用户硬刷短暂看到新数据普通刷新又退回旧数据（"强刷到11:19再刷又1105"）。详见小节AZ46 铁律1。
+
+**③T+1 隔周末/节假日顺延提示（commit 31f23612）**
+- `static-site/app.js` 13 处文案补"逢周末/节假日顺延"：T+1 角标 tooltip（`_kpiT1` badge）、两融/商品/国债/龙虎榜/期货持仓/ETF国家队/中国波指/红利指数/美股/行业指数 hint、"数据更新规则"弹窗 li。
+- 背景：周一显周五数据用户疑惑（T+1 源周末不发），tooltip 补顺延提示消解。sw.js a7->a8 同步 bump（改 app.js 必 bump）。
+
+
+### 小节AZ46：2026-07-27 三大铁律落档（防再犯，含 memory 同步）
+
+今天 10 个 commit 暴露 3 个反复犯的根因，特落档铁律防 compact 后再犯。已同步记 memory `bump-sw-version-with-appjs`。
+
+**铁律1：改 app.js/lab.js 后必须同步 bump sw.js CACHE_VERSION**
+
+> 症状：硬刷新短暂看到新数据，普通刷新退回旧数据（今天用户"强刷到 11:19 再刷又 1105"）。
+> 根因：`sw.js` CacheFirst 策略缓存 `app.min.js`，不 bump `CACHE_VERSION` 旧 sw 不触发 install -> 不清旧缓存 -> 返回旧 `app.min.js`，no-store 新逻辑/新文案全失效。
+> 今天事故：3 个 agent 改 app.js（6ea86c9f auto-refresh + 766a90ea 方案B + b90c700f 龙虎榜）都没 bump sw.js，直到 16829292 补 bump a6->a7 才激活，31f23612 又改 app.js 同步 bump a7->a8。
+> 规则：**任何改动 `static-site/app.js` / `lab.js` 的 commit，必须同时 bump `static-site/sw.js` 的 `CACHE_VERSION`（末位字母 +1 或换日期戳），否则用户拿不到新代码。** 已记 CLAUDE.md 验收铁律 + memory `bump-sw-version-with-appjs`。
+
+**铁律2：重构改名要全局搜替换**
+
+> 症状：盘中 intraday export 失败 3 天（小节AZ41 bug2，commit 37ae4500）。
+> 根因：commit 329c1ce8（小节AZ13）把 `ALL_RANGES` 改名 `EXPORT_RANGES`，只改了 queries.py，漏改 `intraday_snapshot.py` 6 处引用，盘中 `_export_affected_json()` 抛 `AttributeError` 被 try/except 吞。
+> 规则：**重构改名（变量/函数/模块属性）后，必须 `grep -rn "旧名" --include=*.py --include=*.js` 全仓扫所有引用点逐一替换，不能只改当前文件。** bash/JS 同理（如 ALL_RANGES 这类跨模块常量）。
+
+**铁律3：监控4盲区**
+
+今天 intraday export 失败 3 天无人知，暴露 4 个监控盲区，前 3 已修，第4 正在另一个 agent 做：
+
+> ①**exit code 盲区**：脚本 `try/except` 吞异常 exit=0，`gen_schedule_stats` 记成功漏报。修复：`gen_schedule_stats.py` 加 `launchctl_last_exit(label)` 读 launchctl 真实退出码（小节AZ42）。
+> ②**log 解析盲区**：脚本崩在 `echo DONE` 前，log 解析记 null 不告警。修复：gen_schedule_stats 加 log 解析 fallback（小节AZ42）。
+> ③**全角字符盲区**：`intraday_snapshot.sh` L267 `$PUSH_RC）` 全角右括号（`ef bc 89`），bash 解析成 `PUSH_RC\xef` unbound。修复：`lint_scripts.sh` 扫 `$VAR` 后紧跟全角括号 + pre-commit hook 阻止入库（小节AZ42）。
+> ④**git add 通配盲区**：`git add *.json` 撞 `.gitignore` 忽略文件返回非0，`set -e` 退出子 shell。修复：改精确文件列表 + `|| true`（小节AZ41 bug1）。**log 关键词扫描抓 exit=0 的盲区（脚本吞异常看似成功）正在另一个 agent 做**，补 gen_schedule_stats 对"intraday 24h 无新数据"等语义层校验。
+
