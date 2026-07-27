@@ -35,6 +35,7 @@ forward 收益（信号日 close/value → N 交易日后 close/value，N=5/10/2
   buy_backup=ATR(10)×3 Supertrend 翻多。is_sell=sig=='sell' 判定买/卖方向（4 买点默认买逻辑）。
 """
 import json
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -77,6 +78,38 @@ def _load_series_for(index_id: str) -> pd.Series:
     return load_index_close(index_id)
 
 
+def _compute_score(win_rate, pl, mean, n, is_sell):
+    """技术参考点综合把握度评分（0-1，越大越优）。
+
+    四维加权：
+    - 准确率 acc = min(win_rate, 1.0)，权重 0.35
+    - 稳定性 stab = tanh(|mean|/5.0)（|mean|=5%->0.76，越大收益越稳），权重 0.30
+    - 盈亏比 pl_score = tanh((pl or 0)/3.0)（pl=2->0.80），权重 0.15
+    - 样本量 sample = min(log10(n)/2.0, 1.0)（n=100->1.0, n=10->0.5），权重 0.20
+
+    惩罚：
+    - 方向错（买信号 mean<=0 / 卖信号 mean>=0）score *= 0.6
+    - 样本不足 n<30 降级：score *= (0.7 + 0.3*n/30.0)（n=30->1.0, n=1->0.71）
+
+    返回 round(score, 3)；n==0 或 win_rate is None 返回 None。
+    """
+    if n == 0 or win_rate is None:
+        return None
+    acc = min(win_rate, 1.0)
+    stab = math.tanh(abs(mean) / 5.0) if mean is not None else 0.0
+    pl_score = math.tanh((pl or 0) / 3.0)
+    sample = min(math.log10(max(n, 1)) / 2.0, 1.0)
+    score = acc * 0.35 + stab * 0.30 + pl_score * 0.15 + sample * 0.20
+    # 方向错惩罚：买信号期望收益>0、卖信号期望收益<0（信号后下跌才算对）
+    direction_ok = (mean < 0) if is_sell else (mean > 0)
+    if not direction_ok:
+        score *= 0.6
+    # 小样本降级：n<30 越少越降
+    if n < 30:
+        score *= (0.7 + 0.3 * n / 30.0)
+    return round(score, 3)
+
+
 def _stats_for_returns(returns: list[float], is_sell: bool) -> dict:
     """算一组 forward 收益的胜率/盈亏比/均值/样本数。
 
@@ -87,7 +120,7 @@ def _stats_for_returns(returns: list[float], is_sell: bool) -> dict:
     arr = [r for r in returns if r is not None and not pd.isna(r)]
     n = len(arr)
     if n == 0:
-        return {"win_rate": None, "pl": None, "mean": None, "n": 0}
+        return {"win_rate": None, "pl": None, "mean": None, "n": 0, "score": None}
     if is_sell:
         wins = [r for r in arr if r < 0]
         losses = [r for r in arr if r >= 0]
@@ -99,11 +132,13 @@ def _stats_for_returns(returns: list[float], is_sell: bool) -> dict:
     mean_loss = sum(abs(r) for r in losses) / len(losses) if losses else None
     pl = (mean_win / mean_loss) if (mean_loss is not None and mean_loss > 0) else None
     mean_ret = sum(arr) / n
+    score = _compute_score(win_rate, pl, mean_ret, n, is_sell)
     return {
         "win_rate": round(win_rate, 4),
         "pl": round(pl, 4) if pl is not None else None,
         "mean": round(mean_ret, 4),
         "n": n,
+        "score": score,
     }
 
 

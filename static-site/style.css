@@ -679,6 +679,14 @@ main { padding: 16px 24px; }
    收盘后(is_closed=true)/非今日pin不带此标记(已定版不消失)。 */
 .sig-clickable.sig-intraday { box-shadow: 0 0 0 1.5px rgba(230,162,60,0.55); }
 .sig-intraday-warn { color: #e6a23c; font-size: 11px; margin-left: 2px; vertical-align: super; line-height: 0; cursor: help; }
+/* 评分尾缀角标：技术参考点综合把握度（10d 窗口 score）。sup 小号上标，hover tooltip 详情。
+   score≥0.75 高(深绿#15803d)/≥0.55 中(橙#e6a23c)/<0.55 低(灰 var(--text-3))。
+   .sig-item-high：score≥0.75 的 pin 整体细绿描边+微背景，一眼识别优质参考点。 */
+.sig-score { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; font-weight: 600; }
+.sig-score-high { color: #15803d; }
+.sig-score-mid { color: #e6a23c; }
+.sig-score-low { color: var(--text-3); }
+.sig-item-high { border: 1px solid #15803d44; background: #15803d0a; border-radius: 4px; }
 /* 通用隐藏类（rule-modal 等复用） */
 .hidden { display: none !important; }
 .muted { color: var(--text-3); }

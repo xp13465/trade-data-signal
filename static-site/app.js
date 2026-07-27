@@ -7,7 +7,7 @@
 
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null };
+const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -997,6 +997,20 @@ function indexIdToName(indexId) {
   return _INDEX_NAME_MAP[key] || indexId;
 }
 
+// 按 index_id + signal 关联 state.signalStats 取 10d 窗口 stats（含 score）。
+// signal 字段映射：buy_special_filtered -> buy_special（共享同一信号 stats）。
+// 返回 {win_rate,pl,mean,n,score} 或 null（无 stats / score None）。
+function _getSignalScore(it) {
+  if (!state.signalStats) return null;
+  const sigKey = it.signal === "buy_special_filtered" ? "buy_special" : it.signal;
+  const iidStats = state.signalStats[it.index_id];
+  if (!iidStats) return null;
+  const sigStats = iidStats[sigKey];
+  if (!sigStats || !sigStats["10d"]) return null;
+  const d = sigStats["10d"];
+  return (d && d.score != null) ? d : null;
+}
+
 // 首页冰点日/买卖点卡片：按日期分组渲染，同日4个/行，今日(date===todayDate)高亮且排首。
 // items: freeze={date,score_id,value} | signal={date,index_id,signal,reason}
 // kind: "freeze" | "signal"；todayDate: 数据"今日"基准(r.date)
@@ -1004,6 +1018,9 @@ function indexIdToName(indexId) {
 // isClosed: 数据是否已收盘(默认true)。今日+盘中(!isClosed)的pin是盘中预估信号，
 // 收盘后(17:50)update_all重算定版可能消失/变动(intraday_snapshot._recompute_signals
 // DELETE+INSERT幂等覆盖)，挂⚠角标强提醒。freeze(冰点日)为历史定版不提醒。
+// 评分尾缀（2026-07-27）：技术参考点综合把握度 score（10d 窗口），角标[高/中/低]+hover tooltip
+//   详情。score≥0.75 高(绿)/≥0.55 中(橙)/<0.55 低(灰)；≥0.75 pin 加 .sig-item-high 描边高亮。
+//   组内排序：保留大类优先(买>辅买>卖)，同大类内按 score 降序（高分靠前）。
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // 按 date 分组（降序），今日组单独提到最前
@@ -1023,7 +1040,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // 今日组内部再按信号优先级排（买>辅买>卖）；冰点按值升序（越冷越前）
     if (kind === "signal") {
       const ord = { buy: 0, buy_aux: 1, sell: 2 };
-      dayItems.sort((a, b) => (ord[a.signal] ?? 9) - (ord[b.signal] ?? 9));
+      dayItems.sort((a, b) => {
+        const oa = ord[a.signal] ?? 9;
+        const ob = ord[b.signal] ?? 9;
+        if (oa !== ob) return oa - ob;
+        // 同大类内按 score 降序（高分靠前，无 score 视为 -1 排末）
+        const sa = _getSignalScore(a)?.score ?? -1;
+        const sb = _getSignalScore(b)?.score ?? -1;
+        return sb - sa;
+      });
     } else {
       dayItems.sort((a, b) => (a.value ?? 99) - (b.value ?? 99));
     }
@@ -1035,7 +1060,21 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           ? '<sup class="sig-intraday-warn" data-tip="盘中预估·收盘后(17:50)重算定版，此信号可能消失或变动">⚠</sup>'
           : '';
         const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
-        return `<span class="${cls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}${warnBadge}</span>`;
+        // 评分尾缀：技术参考点综合把握度（10d 窗口 score）
+        const sc = _getSignalScore(it);
+        let scoreBadge = "";
+        let scoreCls = "";
+        if (sc && sc.score != null) {
+          const s = sc.score;
+          let lvl, lvlCls;
+          if (s >= 0.75) { lvl = "高"; lvlCls = "sig-score sig-score-high"; }
+          else if (s >= 0.55) { lvl = "中"; lvlCls = "sig-score sig-score-mid"; }
+          else { lvl = "低"; lvlCls = "sig-score sig-score-low"; }
+          const tip = `把握度 ${s.toFixed(2)}·准确率${(sc.win_rate * 100).toFixed(0)}%·盈亏比${sc.pl != null ? sc.pl.toFixed(2) : "-"}·样本${sc.n}`;
+          scoreBadge = `<sup class="${lvlCls}" data-tip="${tip}">${lvl}</sup>`;
+          if (s >= 0.75) scoreCls = " sig-item-high";
+        }
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}${warnBadge}${scoreBadge}</span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -5122,6 +5161,11 @@ async function renderOverview() {
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
   const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
   _setCachedOverview(r);
+  // 预 fetch signal_stats.json 缓存到 state.signalStats（_renderSignalGrid 评分尾缀用）
+  // 异步不阻塞渲染；5min TTL 由 fetchJSON 保证；失败静默降级（不显示评分角标）
+  if (!state.signalStats) {
+    fetchJSON("./data/signal_stats.json").then((raw) => { state.signalStats = raw; }).catch(() => {});
+  }
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）+ A4 健康灯（collect_health）
   applyCollectTime(r.collected_at, r.collect_health);
   // 盘中标注：等快照就绪（最多 1.5s），让每张卡片角标判断 714 实时 vs 713 待收盘
