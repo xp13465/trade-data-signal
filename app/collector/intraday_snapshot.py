@@ -24,8 +24,13 @@ from ..db import get_conn
 from .base import UA, throttle
 from .industry_extras import THS_TO_SW
 
-# 9 核心 A 股指数 + 3 港股指数（腾讯 qt 支持混合请求）
+# 9 核心 A 股指数 + 3 港股宽基 + 4 signals 触发指数（腾讯 qt 支持混合请求）
 # 港股用 r_hkXXX 前缀（腾讯港股实时源），盘中（9:30-16:00）返实时价，16:00 收盘后返收盘价
+# 2026-07-27 加 4 个 signals 触发指数（cgb_idx/hk_hsmbi/hk_hsmogi + 预防性 cgb_10y_etf），
+# 让盘中 signals.compute() 能算出 buy_special/sell（此前 5 触发指数都不在反哺列表，
+# 盘中读不到当日 close -> buy_special/sell/band_hold 当日 NaN -> False，盘后 update_all 才触发）。
+# cgb_10y_future（T0 国债期货主连合约）腾讯/新浪实时源都不支持，盘中缺 band_hold 1 条，
+# 盘后 update_all 采 T+1 完整 daily 补。
 INDEX_CODES = [
     "sh000001",  # 上证指数
     "sz399001",  # 深证成指
@@ -39,6 +44,10 @@ INDEX_CODES = [
     "r_hkHSI",   # 恒生指数（港股）
     "r_hkHSTECH",  # 恒生科技指数（港股）
     "r_hkHSCEI",   # 国企指数（港股）
+    "sh000012",    # 上证国债指数 -> cgb_idx（buy_special/sell 触发）
+    "sh511260",    # 十年国债ETF -> cgb_10y_etf（预防性加，band_hold 触发）
+    "r_hkHSMBI",   # 恒生内地银行 -> hk_hsmbi（buy_special 触发）
+    "r_hkHSMOGI",  # 恒生内地油气 -> hk_hsmogi（buy_special 触发）
 ]
 
 # A 股 codes（用于新浪兜底；新浪不支持 r_hkXXX 格式，港股只走腾讯）
@@ -51,9 +60,12 @@ _SINA_HEADERS = {"User-Agent": UA, "Referer": "https://finance.sina.com.cn"}
 # static-site 静态 JSON 输出路径（与 export.py 的 DATA_DIR 同源）
 STATIC_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "static-site" / "data"
 
-# 快照 code -> index_daily.index_id 映射（9 核心 A 股 + 3 港股）
+# 快照 code -> index_daily.index_id 映射（9 核心 A 股 + 3 港股宽基 + 4 signals 触发 + 1 新浪港股）
 # 注意：_parse_tencent 提取 key 时 strip "v_" 前缀 + split("_")[-1]，
 #   A 股 v_sh000001 -> "sh000001"；港股 v_r_hkHSI -> "hkHSI"（r_ 被吃掉）。
+# hkCSHKDIV 由 _fetch_hk_cshkdiv_sina() 单独采（腾讯无代码，新浪 A 股 list 不支持 rt_ 前缀）。
+# 5 触发指数中 4 个盘中可采（cgb_idx/cgb_10y_etf/hk_hsmbi/hk_hsmogi + hk_cshkdiv），
+# cgb_10y_future（T0 主连）实时源不支持，盘中缺 band_hold 1 条，盘后 update_all 补。
 _SNAPSHOT_TO_INDEX_ID = {
     "sh000001": "sh",      # 上证指数
     "sz399001": "sz",      # 深证成指
@@ -67,6 +79,11 @@ _SNAPSHOT_TO_INDEX_ID = {
     "hkHSI": "hsi",        # 恒生指数（港股）
     "hkHSTECH": "hstech",  # 恒生科技（港股）
     "hkHSCEI": "hscei",    # 国企指数（港股）
+    "sh000012": "cgb_idx",        # 上证国债指数（buy_special/sell 触发）
+    "sh511260": "cgb_10y_etf",    # 十年国债ETF（预防性加，band_hold 触发）
+    "hkHSMBI": "hk_hsmbi",        # 恒生内地银行（buy_special 触发）
+    "hkHSMOGI": "hk_hsmogi",      # 恒生内地油气（buy_special 触发）
+    "hkCSHKDIV": "hk_cshkdiv",    # 中证香港红利（buy_special 触发，新浪 rt_ 单独采）
 }
 
 
@@ -195,24 +212,85 @@ def _parse_sina(text: str) -> list[dict]:
     return out
 
 
+def _fetch_hk_cshkdiv_sina() -> dict | None:
+    """新浪 rt_hkCSHKDIV 港股指数实时接口单独采 hk_cshkdiv。
+
+    腾讯 qt 无 CSHKDIV 代码（实测 r_hkCSHKDIV 返 v_pv_none_match），新浪 A 股 list
+    接口也不支持 rt_ 前缀，故港股指数 rt_ 系列走单独的 hq.sinajs.cn/list=rt_hkCSHKDIV
+    接口。返回与 _parse_tencent 一致结构的 dict（code="hkCSHKDIV"，供 _SNAPSHOT_TO_INDEX_ID
+    映射），失败/无价返 None。
+
+    字段（实测 2026-07-27）:
+      [0]=代码 [1]=名称 [2]=昨收 [3]=今开 [4]=最高 [5]=最低 [6]=现价
+      [7]=涨跌额 [8]=涨跌幅 [17]=日期(YYYY/MM/DD) [18]=时间(HH:MM:SS)
+    amount 留 None（rt_ 字段单位不确定，与 _sina_spot_hk_fallback 一致，盘后 update_all 覆盖补全）。
+    """
+    try:
+        throttle()
+        r = requests.get(
+            "http://hq.sinajs.cn/list=rt_hkCSHKDIV",
+            headers=_SINA_HEADERS, timeout=10)
+        body = r.content.decode("gbk")
+        if '"' not in body:
+            return None
+        body = body.split('"', 2)[1]
+        fields = body.split(",")
+        if len(fields) < 9:
+            return None
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] 新浪 rt_hkCSHKDIV 请求失败: {type(e).__name__} {e}", flush=True)
+        return None
+
+    def f(i):
+        try:
+            return float(fields[i])
+        except (IndexError, ValueError):
+            return None
+
+    price = f(6)
+    if price is None:
+        return None
+    date = fields[17].strip() if len(fields) > 17 else ""
+    tm = fields[18].strip() if len(fields) > 18 else ""
+    dtstr = (date.replace("/", "") + tm.replace(":", "")) if date else ""
+    return {
+        "code": "hkCSHKDIV",
+        "name": fields[1].strip(),
+        "price": price,
+        "pre_close": f(2),
+        "change": f(7),
+        "pct_change": f(8),
+        "open": f(3),
+        "high": f(4),
+        "low": f(5),
+        "datetime": dtstr,
+        "amount": None,
+    }
+
+
 def fetch_index_realtime() -> list[dict]:
-    """采集 12 指数实时行情（9 A 股 + 3 港股）。腾讯主，A 股失败逐个降级新浪。
-    港股只走腾讯（新浪不支持 r_hkXXX 格式）。返回 12 条。"""
+    """采集 17 指数实时行情（9 A 股核心 + 3 港股宽基 + 4 signals 触发 + 1 新浪港股）。
+    腾讯主，A 股失败逐个降级新浪。港股只走腾讯（新浪不支持 r_hkXXX 格式），
+    但 hk_cshkdiv 腾讯无代码，新浪 rt_hkCSHKDIV 港股指数实时接口单独采。返回最多 17 条。"""
     # 1) 腾讯主源（一次拉全部，含 A 股 + 港股）
+    result: list[dict] = []
+    tdata: list[dict] = []
+    missing: list[str] = []
     try:
         throttle()
         r = requests.get(_TENCENT_URL, headers={"User-Agent": UA}, timeout=10)
         tdata = _parse_tencent(r.content.decode("gbk"))
         got = {d["code"] for d in tdata if d.get("price")}
         if len(got) >= len(INDEX_CODES) - 1:  # 容忍 1 个缺失
-            return tdata
-        # 缺的用新浪补（仅 A 股，港股跳过新浪不支持）
-        missing = [c for c in INDEX_CODES if c not in got and not c.startswith("r_hk")]
-        if missing:
-            print(f"  [intraday] 腾讯缺 {len(missing)} A 股指数，新浪补采: {missing}", flush=True)
-        hk_missing = [c for c in INDEX_CODES if c not in got and c.startswith("r_hk")]
-        if hk_missing:
-            print(f"  [intraday] 腾讯缺 {len(hk_missing)} 港股指数（新浪不支持，跳过）: {hk_missing}", flush=True)
+            result = tdata
+        else:
+            # 缺的用新浪补（仅 A 股，港股跳过新浪不支持）
+            missing = [c for c in INDEX_CODES if c not in got and not c.startswith("r_hk")]
+            if missing:
+                print(f"  [intraday] 腾讯缺 {len(missing)} A 股指数，新浪补采: {missing}", flush=True)
+            hk_missing = [c for c in INDEX_CODES if c not in got and c.startswith("r_hk")]
+            if hk_missing:
+                print(f"  [intraday] 腾讯缺 {len(hk_missing)} 港股指数（新浪不支持，跳过）: {hk_missing}", flush=True)
     except Exception as e:  # noqa: BLE001
         tdata = []
         missing = [c for c in INDEX_CODES if not c.startswith("r_hk")]  # 全量降级新浪（仅 A 股）
@@ -237,9 +315,14 @@ def fetch_index_realtime() -> list[dict]:
             if c in s_by_code:
                 merged[c] = s_by_code[c]
         # 按 INDEX_CODES 顺序输出
-        return [merged[c] for c in INDEX_CODES if c in merged]
+        result = [merged[c] for c in INDEX_CODES if c in merged]
 
-    return tdata
+    # 3) 新浪港股 rt_ 单独采 hk_cshkdiv（腾讯无代码，新浪 A 股 list 不支持 rt_ 前缀）
+    cshkdiv = _fetch_hk_cshkdiv_sina()
+    if cshkdiv:
+        result.append(cshkdiv)
+
+    return result
 
 
 def _load_sw_names() -> dict[str, str]:
