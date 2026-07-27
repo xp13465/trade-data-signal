@@ -973,7 +973,7 @@ def _export_affected_json() -> None:
                           export_mod.export_overview(conn, cfg))
 
     # sentiment 5 ranges（含 6 per-index + fear_greed 全历史）
-    for rng in export_mod.ALL_RANGES:
+    for rng in export_mod.EXPORT_RANGES:
         export_mod.write_json(export_mod.DATA_DIR / f"sentiment-{rng}.json",
                               export_mod.export_sentiment(conn, cfg, rng))
 
@@ -990,14 +990,14 @@ def _export_affected_json() -> None:
                               export_mod.export_index_detail(conn, cfg, iid))
 
     # hk tab JSON（含港股指数 OHLC + 港股通；港股反哺后需更新）
-    for rng in export_mod.ALL_RANGES:
+    for rng in export_mod.EXPORT_RANGES:
         export_mod.write_json(export_mod.DATA_DIR / f"hk-{rng}.json",
                               export_mod.export_hk(conn, cfg, rng))
 
     # a-stock（大盘A股tab，复用 export_a_stock；指数图 + width 指标到当日盘中值）
     # a-stock 读 index_daily（已反哺到当日）+ daily_metric（width 类已采到当日），
     # 重导后指数图和 width 指标反映盘中最新值（解决大盘 A 股 tab 冻结在早盘的问题）。
-    for rng in export_mod.ALL_RANGES:
+    for rng in export_mod.EXPORT_RANGES:
         try:
             export_mod.write_json(export_mod.DATA_DIR / f"a-stock-{rng}.json",
                                   export_mod.export_a_stock(conn, cfg, rng))
@@ -1005,7 +1005,7 @@ def _export_affected_json() -> None:
             print(f"  [intraday] a-stock-{rng} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     # global（大盘全球tab，复用 export_global；外盘 T+1 重导意义不大但保持完整性）
-    for rng in export_mod.ALL_RANGES:
+    for rng in export_mod.EXPORT_RANGES:
         try:
             export_mod.write_json(export_mod.DATA_DIR / f"global-{rng}.json",
                                   export_mod.export_global(conn, cfg, rng))
@@ -1030,8 +1030,8 @@ def _export_affected_json() -> None:
 
     conn.close()
     print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)} "
-          f"+ hk×{len(export_mod.ALL_RANGES)} + a-stock×{len(export_mod.ALL_RANGES)} "
-          f"+ global×{len(export_mod.ALL_RANGES)} + industry-all/5y 拆分 + rotation",
+          f"+ hk×{len(export_mod.EXPORT_RANGES)} + a-stock×{len(export_mod.EXPORT_RANGES)} "
+          f"+ global×{len(export_mod.EXPORT_RANGES)} + industry-all/5y 拆分 + rotation",
           flush=True)
 
 
