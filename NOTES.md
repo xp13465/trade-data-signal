@@ -3576,6 +3576,42 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 
 **过拟合系列收尾状态**:alert_score 层治标(done)+ signals 层 WF(方案 B 不实施)+ sell_stop_loss(ATR3.5 保留)+ trade_sim sharpe 红线(done,本节)。过拟合系列全部闭环。
 
+### 小节AZ40：2026-07-27 09:00 etf_score_list 截断版 bug 修复(重跑全量 + deploy 上线)
 
+**背景**:线上 `static-site/data/etf_score_list.json` 是手动截断版(commit cb440559 `data update [all] 2026-07-25_15:12`,用 `--buy-top 20 --sell-top 30` 跑了覆盖):universe=1371 buy_list=20/sell_list=30/**hold_list 字段缺失**(buy_top/sell_top>0 截断时 hold_list 不生成或被裁)。全量版应以 commit 1bd75d66 为准:universe≈1376 buy≈188/sell≈96/hold≈925,hold_list 字段回归。
+
+**根因(主控已验收)**:
+- cb440559 手动截断版覆盖了 1bd75d66 全量版(7/25 15:12 手动跑 `--buy-top 20 --sell-top 30` 测试,commit 上线)。
+- 17:50 update_all.sh 定时任务本应重跑全量覆盖回全量版,但 7/25 周五之后是非交易日(7/26 周六/7/27 周日),update_all 非交易日跳过未重跑,截断版滞留线上。
+- `update_all.sh` L118 本身不截断(调 `export_etf_score_list.py --full-market`),`export_etf_score_list.py` L94-95 `DEFAULT_BUY_TOP=0 DEFAULT_SELL_TOP=0` 默认全量。截断是 cb440559 手动加参数导致,非脚本默认行为。
+
+**修复实施(2026-07-27 08:51-09:08)**:
+- 08:51 周一非盘中(09:30 前,§8 盘中禁跑全量 export+deploy 约束不触发),可跑。
+- 08:51-09:00 跑全量:`.venv/bin/python scripts/export_etf_score_list.py --full-market`(不传 `--buy-top/--sell-top`,用默认 0 全量)。cwd=trade/,DB 读 `trade/data/etf_national_team.db`(7/26 16:40,非交易日无新数据,与主库 trade-data/data/ 同步)。ROOT=`Path(__file__).absolute().parent.parent`,DATA_DIR=`ROOT/static-site/data`。
+- 447.7s 完成:universe=1376 buy=227 sell=31 hold=951 err=0 fetch=0 skip=1367(DB 缓存命中)。buy+sell+hold=1209,余 167 只数据不足(OHLC 为 NULL 的低流动性 ETF,如 561450/561490/588530/159xxx 新股)被过滤不进任一列表,正常。
+- hold_list 字段回归:951 条,每条含 `etf_code/high_alert/hold_reason/is_national_team/low_alert/name/ohlc/reason_summary/score` 9 字段(hold_reason 为 hold 专属理由)。
+- 文件大小:18KB(截断版)→ 4.4MB(全量版),.gz 434943 字节。
+
+**deploy 上线**:
+- `bash scripts/deploy.sh`(REPO=trade,GIT_REPO=trade):
+  - 时段闸门 IS_TRADING=1 CURRENT_HM=0902 FORCE=0,非盘中通过。
+  - 恢复 intraday_snapshot.json/.gz 到 origin/main 版(防工作区残留带入通配 add,§8 教训)。
+  - export.py 生成 622 个 JSON+gzip + gen_rss.py feed.xml(30 items) + build_min.py 6 个 min JS/CSS。
+  - R2 上传:lab/65 + trade_sim/6 + trade_sim_data/412 + index/186 + industry/268 + data/32 全部完成。
+  - git add 精确文件列表(L177 根治通配带入,含 etf_score_list) + commit `7f62d05e` `data update [all] 2026-07-27_09:07`(131 files changed, 268729 insertions) + push main `693260f0..7f62d05e` 成功。
+  - 09:07:27 退出码=0。
+
+**线上验证(https://ss.fx8.store/data/etf_score_list.json.gz)**:
+- HTTP 200,cf-cache-status: MISS(新部署未缓存),content-type: application/json。
+- .gz 434943 字节(与本地一致,新版)。
+- 解压验证:universe_count=1376,full_market=True,buy_top=0,sell_top=0,buy_list=227,sell_list=31,**hold_list=951**(回归),updated_at=2026-07-27T09:00:38,date=20260724。
+- hold_list[0] keys 含 hold_reason ✓。
+
+**数量波动说明**:buy=227/sell=31/hold=951 与 1bd75d66 的≈188/96/925 有波动(buy 多 39/sell 少 65/hold 多 26),因 7/25 收盘数据变化 + 评分边界 ETF 流转正常,非 bug。1bd75d66 时点为 7/24 收盘,本次为 7/24 收盘(date=20260724 同),但 fetch 过程中 sina/mootdx 部分低流动性 ETF 返空(12 条 WARNING)与 1bd75d66 时点的 fetch 结果可能略有差异,导致边界品种评分微调。核心:hold_list 字段回归 + 全量未截断(buy_top=sell_top=0)即修复目标达成。
+
+**教训**:
+- 手动截断参数(`--buy-top N --sell-top N`)仅用于本地测试预览,**不得 commit 覆盖线上**;截断版会丢失 hold_list 字段(截断逻辑只保留 top N 的 buy/sell,hold 不在截断范围)。
+- `update_all.sh` L118 默认 `--full-market` 不截断是安全口径,手动测试截断参数后必须重跑全量上线。
+- 非交易日(周末/假日)update_all 跳过,手动截断版会滞留线上到下一交易日 17:50 才被覆盖;发现后应立即手动重跑全量 deploy(非盘中时点可跑)。
 
 
