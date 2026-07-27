@@ -4683,6 +4683,11 @@ let _overviewVisBound = false;
 let _overviewCollectHistory = [];   // collected_at 时间戳序列(单调递增去重, 保留最近8个)
 let _overviewHighFreqStart = 0;     // 预测高频窗口起点(ms), 0=无预测走低频
 let _overviewHighFreqEnd = 0;       // 预测高频窗口终点(ms)
+let _overviewNextFireAt = 0;        // 下次轮询触发时间戳(ms), debug倒计时用
+let _lastVisibleAt = Date.now();    // 上次页面可见时间戳, visibilitychange gap计算用
+let _inOverviewRefresh = false;     // _doOverviewRefresh 幂等锁, 防visibilitychange+定时器并发重复触发
+let _refreshDebugEl = null;         // debug状态条DOM引用
+let _refreshDebugTimer = null;      // debug状态条1秒更新定时器
 
 // 解析 overview.json 的 collected_at("20260727 13:05:05") 为 ms 时间戳; 兜底尝试 ISO 等标准格式
 function _parseCollectAt(s) {
@@ -4722,6 +4727,7 @@ function _startOverviewRefresh() {
   _overviewLastFetch = Date.now();
   _recomputeOverviewPrediction(); // 历史已有(同日重启)则恢复预测, 否则走3min低频攒数据
   _scheduleNextOverviewRefresh();
+  _initRefreshDebugBar(); // debug状态条随轮询启动(收盘态不启动也不显示)
   if (!_overviewVisBound) {
     _overviewVisBound = true;
     document.addEventListener("visibilitychange", _onOverviewVisChange);
@@ -4731,6 +4737,8 @@ function _startOverviewRefresh() {
 function _stopOverviewRefresh() {
   _overviewRefreshActive = false;
   if (_overviewRefreshTimer) { clearTimeout(_overviewRefreshTimer); _overviewRefreshTimer = null; }
+  _overviewNextFireAt = 0;
+  _updateRefreshDebug(); // 更新debug状态条为"已停止"
 }
 
 // 调度下次轮询: 高频窗口内15s / 窗口起点在3min内等到起点 / 否则3min低频兜底.
@@ -4748,8 +4756,10 @@ function _scheduleNextOverviewRefresh() {
   } else {
     delay = OVERVIEW_REFRESH_MS; // 低频兜底: 3min
   }
+  _overviewNextFireAt = now + Math.max(1000, delay); // debug倒计时用
   _overviewRefreshTimer = setTimeout(() => {
     _overviewRefreshTimer = null;
+    _overviewNextFireAt = 0;
     if (!_overviewRefreshActive) return;
     if (document.hidden) { _scheduleNextOverviewRefresh(); return; } // 页面不可见时跳过
     _doOverviewRefresh();
@@ -4760,6 +4770,9 @@ function _scheduleNextOverviewRefresh() {
 // 拉到新collected_at(>已知最新) = 命中高频, push历史后重算预测自动转低频(下一轮窗口在15min后).
 // 高频窗口超时未命中 -> _recomputeOverviewPrediction 发现窗口已过清空 -> 走低频兜底.
 async function _doOverviewRefresh() {
+  if (_inOverviewRefresh) return; // 幂等锁: visibilitychange+定时器并发时不重复触发
+  _inOverviewRefresh = true;
+  try {
   _overviewLastFetch = Date.now();
   try {
     const r = await fetchJSON("./data/overview.json");
@@ -4793,18 +4806,109 @@ async function _doOverviewRefresh() {
   // 命中(新历史)或超时(窗口已过)都重算预测: 命中->用新历史预测下一轮; 超时->清空走低频兜底
   _recomputeOverviewPrediction();
   _scheduleNextOverviewRefresh();
+  } finally {
+    _inOverviewRefresh = false;
+    _updateRefreshDebug();
+  }
 }
 
-// visibilitychange: 切回tab, 高频窗口内或距上次>3min立即刷新overview
+// visibilitychange: 后台标签页setTimeout被浏览器throttle/pause(节能策略),
+// _scheduleNextOverviewRefresh的定时器在后台不准时. 回前台3动作补偿:
+// ①立即触发_doOverviewRefresh(不等定时器, 补偿后台错过时间拉最新overview)
+// ②历史gap>5min清空_overviewCollectHistory(后台太久历史过期预测会偏, 重攒)
+// ③_recomputeOverviewPrediction重算预测+_scheduleNextOverviewRefresh重排定时器(废弃后台卡住的timer)
+// 幂等: _doOverviewRefresh内_inOverviewRefresh锁防与定时器并发重复触发; 收盘后_overviewRefreshActive=false不触发.
 function _onOverviewVisChange() {
-  if (document.hidden || !_overviewRefreshActive) return;
-  const now = Date.now();
-  const inHighFreq = _overviewHighFreqStart && now >= _overviewHighFreqStart && now < _overviewHighFreqEnd;
-  if (inHighFreq || (now - _overviewLastFetch) >= OVERVIEW_REFRESH_MS) {
-    _doOverviewRefresh();
-  } else if (!_overviewRefreshTimer) {
-    _scheduleNextOverviewRefresh();
+  if (document.visibilityState === 'hidden') {
+    _lastVisibleAt = Date.now(); // 记录离开时刻, 回来算gap
+    return;
   }
+  // visible: 回到前台
+  if (!_overviewRefreshActive) return; // 收盘已停不触发
+  const now = Date.now();
+  const gap = now - _lastVisibleAt;
+  // 后台太久(gap>5min)历史collected_at过期, 中位数预测会偏, 清空重攒
+  if (gap > 5 * 60 * 1000) {
+    _overviewCollectHistory = [];
+    _overviewHighFreqStart = 0;
+    _overviewHighFreqEnd = 0;
+  }
+  _lastVisibleAt = now;
+  // 重算预测(后台可能错过窗口, 重算后窗口已过则走低频, 在未来则等)
+  _recomputeOverviewPrediction();
+  // 立即触发一次(幂等锁防重复, 补偿后台错过时间拉最新overview)
+  _doOverviewRefresh();
+  // 重排定时器(废弃后台卡住的timer, 按当前时间+预测重新调度)
+  _scheduleNextOverviewRefresh();
+  _updateRefreshDebug();
+}
+
+// ============ debug: 自适应轮询状态条(隐秘右下角, 方便观测) ============
+// 固定定位右下角, 小字灰色半透明, z-index低不抢主界面. 显示: 倒计时/状态/后端时间/样本数/预测.
+// 倒计时基于 _overviewNextFireAt(下次触发时间戳) 每秒算剩余秒数, 独立1s setInterval更新.
+// 状态判断: !_overviewRefreshActive=已停止(收盘); 高频窗口内=高频追新; 窗口在未来=等预测窗口; 否则=低频兜底.
+function _initRefreshDebugBar() {
+  if (_refreshDebugEl) return; // 幂等防重复插入
+  const el = document.createElement('div');
+  el.id = 'refresh-debug';
+  el.style.cssText = 'position:fixed;bottom:2px;right:6px;z-index:1;font-size:10px;line-height:1.4;' +
+    'color:rgba(125,125,125,0.62);background:rgba(255,255,255,0.35);padding:2px 6px;border-radius:3px;' +
+    'pointer-events:none;max-width:280px;font-family:ui-monospace,Menlo,Consolas,monospace;' +
+    'backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  document.body.appendChild(el);
+  _refreshDebugEl = el;
+  _updateRefreshDebug();
+  // 倒计时每秒更新(基于 _overviewNextFireAt 算剩余秒数, 不依赖轮询本身触发)
+  if (_refreshDebugTimer) clearInterval(_refreshDebugTimer);
+  _refreshDebugTimer = setInterval(_updateRefreshDebug, 1000);
+}
+
+// ms时间戳 -> "HH:MM"(本地时区), 用于后端collected_at和预测下推时刻格式化
+function _fmtHM(ms) {
+  if (!ms || isNaN(ms)) return '--:--';
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+// 渲染debug状态条内容. 每秒由_refreshDebugTimer调, 也在_start/_stop/_doRefresh/_onVisChange后调.
+function _updateRefreshDebug() {
+  if (!_refreshDebugEl) return;
+  const now = Date.now();
+  // 状态判断
+  let status;
+  if (!_overviewRefreshActive) {
+    status = '已停止(收盘)';
+  } else if (_overviewHighFreqStart && now >= _overviewHighFreqStart && now < _overviewHighFreqEnd) {
+    status = '高频追新';
+  } else if (_overviewHighFreqStart && now < _overviewHighFreqStart) {
+    status = '等预测窗口';
+  } else {
+    status = '低频兜底';
+  }
+  // 倒计时(基于 _overviewNextFireAt 算剩余秒数)
+  let countdown;
+  if (_overviewNextFireAt > now) {
+    countdown = Math.ceil((_overviewNextFireAt - now) / 1000) + 's';
+  } else if (_overviewRefreshActive) {
+    countdown = '0s';
+  } else {
+    countdown = '--';
+  }
+  // 最近 collected_at(历史序列末尾)
+  const lastCA = _overviewCollectHistory.length
+    ? _overviewCollectHistory[_overviewCollectHistory.length - 1] : NaN;
+  const backend = isNaN(lastCA) ? '--:--' : _fmtHM(lastCA);
+  // 历史样本数
+  const samples = _overviewCollectHistory.length + '/' + OVERVIEW_HISTORY_MAX;
+  // 预测下推时刻(高频窗口起点+提前量=预测推完时刻)
+  let predict = '';
+  if (_overviewHighFreqStart) {
+    predict = ' 预测:' + _fmtHM(_overviewHighFreqStart + OVERVIEW_PREDICT_LEAD_MS);
+  }
+  _refreshDebugEl.textContent =
+    '下次:' + countdown + ' | ' + status +
+    ' | 后端:' + backend +
+    ' | 样本:' + samples + predict;
 }
 
 // 页面加载后初始化自动刷新: 等snap就绪判断盘中后启动overview轮询
