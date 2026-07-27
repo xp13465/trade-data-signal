@@ -1032,7 +1032,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 今日+盘中=盘中预估信号，收盘后(17:50)重算定版可能消失/变动，挂⚠角标强提醒
         const showIntradayWarn = isToday && !isClosed;
         const warnBadge = showIntradayWarn
-          ? '<sup class="sig-intraday-warn" title="盘中预估·收盘后(17:50)重算定版，此信号可能消失或变动">⚠</sup>'
+          ? '<sup class="sig-intraday-warn" data-tip="盘中预估·收盘后(17:50)重算定版，此信号可能消失或变动">⚠</sup>'
           : '';
         const cls = showIntradayWarn ? "sig-item sig-clickable sig-intraday" : "sig-item sig-clickable";
         return `<span class="${cls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}${warnBadge}</span>`;
