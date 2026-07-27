@@ -953,7 +953,7 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 
 **git**：本小节AB 为纯调研落档，仅改 NOTES.md + TASKS.md，不 deploy 不 force push。回测脚本/结果留 `/tmp/` 供主控复算。
 
-### 小节AC：sell_stop_loss 改 ATR×3 Chandelier Exit + ⚠️口径错位问题（2026-07-21，待用户决策）
+### 小节AC：sell_stop_loss 改 ATR×3 Chandelier Exit + ⚠️口径错位问题（2026-07-21，待用户决策；2026-07-26 重评保留 ATR×3.5，见末尾更新）
 
 **改造内容**（后端 agent a479b62f + 前端 agent a374e58b + B resume）：
 - `app/compute/signals.py` L649-657：sell_stop_loss 旧 Donchian20 下轨（`close < low.rolling(20).min().shift(1)`）改为 ATR×3 Chandelier Exit（`close < high.rolling(20).max().shift(1) - 3*ATR(14)`），事件化 `& ~prev` 去重连续触发
@@ -989,6 +989,49 @@ H1 desc 保留"情绪过热线"原文（Edit 中途误删"线"字已立即修复
 **当前处理（主控决策）**：按用户原指令上线 ATR×3（已 commit + deploy），Chandelier Exit 语义正确 + forward 非负 + 可逆（用户醒来要回退 git checkout 即可）。记录口径错位 + backtest 矛盾 + 5.3 倍触发，等用户醒来决策是否调参(B)/回退(D)/接受(A)/加注 backtest 口径。
 
 **验收数据**：hs300 sell_stop_loss 5d win_rate 0.4958/pl 0.9805/mean 0.0471/n 2138；10d 0.514/0.9219/0.0433/2136；20d 0.5154/0.8492/0.2544/2136；frequency total 2141/月均 9.87/21 年。
+
+---
+
+**2026-07-26 重评更新（结论：ATR×3.5 Chandelier 保留，不回退 Don20，不调参，维持现状）**
+
+> 上一轮主控验收通过 sell_stop_loss 口径错位重评 agent 结论。初版（2026-07-21）记录的"生产 Chandelier forward 49.58%/+0.047% 近随机"是 **ATR×3 初版 + hs300 单品种 5d** 数据，**已过期**。生产经多轮演进为 **ATR×3.5**，本次重评（正确口径、8 品种 10d）显示止损方向成功，**口径错位已不构成回退理由**。
+
+**关键修正：生产实际 = ATR×3.5（非初版 ATR×3）**
+- `app/compute/signals.py` L730 `_STOP_LOSS_ATR_MULT_DESC = {}`（strategy_desc 函数内，空字典默认 3.5）
+- L1051 `_STOP_LOSS_ATR_MULT = {}`（compute 函数内，同理）+ L1054 `atr3_line = high.rolling(20).max().shift(1) - atr_mult * atr14`
+- L1036-1038 注释亦标注"2026-07-21 改 ATR×3.5 降频"；L731/L1052 `atr_mult = _STOP_LOSS_ATR_MULT.get(iid, 3.5)`
+
+**演进历程**（ATR×3 -> 3.5 + 多层过滤 + WF 通用化）：
+- **AC（2026-07-21）**：ATR×3 Chandelier Exit 初版上线，发现口径错位（回测口径 vs forward 口径）
+- **AE（2026-07-22，commit 4e515ebe）**：第一个止损卖过滤上线（持仓窗口内只保留首个 sell_stop_loss），盈亏比 5/5 全升，降幅 83-88%
+- **AO（2026-07-22，commit a45819e8）**：首次跌破 dtype bug 修复（`~bool` 位运算 -> 布尔取反），事件化去重生效
+- **AZ26（2026-07-25）**：csi_div 止损卖 ATR 倍数 4.5 -> 3.5 通用化（`_STOP_LOSS_ATR_MULT` 清空 per-index 覆盖，全品种统一 3.5），去 per-index 过拟合 + 前端黑名单标注 7 品种
+- **本次重评（2026-07-26）**：ATR×3.5 forward 重评 8 品种 10d，6/8 止损成功方向
+
+**forward 重评数据**（正确口径，8 核心品种 10d，ATR×3.5 vs Don20，来源 `/tmp/sell_stop_eval_results.json`）：
+
+| 品种 | ATR×3.5 mean | Don20 mean | ATR×3.5 止损方向 |
+|---|---|---|---|
+| sh | -0.63% | +0.19% | 成功（卖后跌） |
+| sz | -0.09% | -0.05% | 成功 |
+| hs300 | -0.29% | +0.10% | 成功 |
+| csi500 | -0.31% | +0.40% | 成功 |
+| cyb | -0.76% | -0.24% | 成功 |
+| csi_div | -0.24% | +0.33% | 成功 |
+| sw_801110 | +0.35% | +0.12% | 持平（两者均弱） |
+| cgb_idx | +0.01% | -0.23% | 止损过早（国债牛市不适用趋势止损） |
+
+6/8 品种 ATR×3.5 止损成功（mean 负 = 卖后跌），Don20 多数 mean 正（止损失效）。例外 2 品种：sw_801110 两者均弱（ATR3.5 mean +0.35% / Don20 +0.12%，非趋势品种止损本就难生效）；cgb_idx ATR3.5 止损过早（国债牛市趋势止损不适用，但主策略 CGB_BAND trade_sim total_ret 差仅 0.09，1.31 vs 1.40，影响可忽略）。
+
+**trade_sim 影响**：4:4 品种互有胜负，差异 <5pp，不恶化。全样本 total_ret：atr35 胜 sz/csi500/csi_div，don20 胜 sh/hs300/cyb/sw_801110/cgb_idx；近 5 年 y5 反向：atr35 胜 hs300/csi500/cyb/sw_801110/csi_div。win_rate 差异均 <1.5pp（<5pp）。盈亏比（pl）ATR3.5 6/8 品种优于 Don20。
+
+**WF 去过拟合**：3.5 通用化（`_STOP_LOSS_ATR_MULT={}` 空，非 per-index）是去 per-index 过拟合的正确方向。WFE（来源 `/tmp/wf_all_results.json`）：sh 1.39 / hs300 1.86（稳健，verdict >80%），sz -92.99 / csi_div 0.189（过拟合，verdict <50%，**已前端黑名单标注降级**）。止损卖 WFE 解读：全样本夏普负 = 止损生效（正常），WFE>1 = 稳健；全样本夏普正 + WFE 高 = 假稳健（如旧 csi_div 4.5 倍 per-index）。
+
+**口径错位已不构成回退理由**：口径错位论点（回测口径 vs forward 口径）本身成立，但作为"回退理由"已被演进后的 forward 数据消解——初版"forward 49.58%/+0.047% 近随机"是 ATR×3 + hs300 单品种 5d 数据；ATR×3.5 演进 + 8 品种 10d 重评后，6/8 止损成功方向（mean 负），forward 不再近随机。
+
+**不回退 Don20 理由**：① forward 止损失效（Don20 多数品种 mean 正 = 卖后涨，止损没起作用）；② 语义弱点（Don20 下轨要深跌才触发，初版记录 ATR3.5 触发 5.3 倍于 Don20 反向印证 ATR3.5 触发更合理）；③ 丢弃多轮优化（AE 过滤 + AO bug 修复 + AZ26 WF 通用化）；④ 需重回填 DB（signal_daily 全量回填 sell_stop_loss，回退 Don20 要重跑回填）。
+
+**评估数据来源**：`/tmp/sell_stop_eval_results.json`（8 品种 × 3 方法 × 4 horizon forward + trade_sim + signal_count）+ `/tmp/sell_stop_random_baseline.json`（8 品种随机基线 p50/p95）+ `/tmp/wf_all_results.json`（4 品种 sell_stop_loss WFE）。
 
 ### 小节AD：MaoziYun 拉取卡住 + schedule_stats 过期版事故 + 两融 T+1 + width 中断（2026-07-22 计划任务诊断，待用户处理）
 
