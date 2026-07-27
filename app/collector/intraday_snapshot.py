@@ -947,7 +947,7 @@ def _recompute_rotation() -> None:
         print(f"  [intraday] rotation 重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
 
-def _export_affected_json() -> None:
+def _export_affected_json(is_closed: bool = False) -> None:
     """重算后 dump 受影响的静态 JSON（双版同步：static-site/data/）。
 
     导出：overview + sentiment(5 ranges) + 9 指数 detail + hk + a-stock + global
@@ -956,6 +956,11 @@ def _export_affected_json() -> None:
     a-stock 重导后指数图和 width 指标反映盘中最新值（解决大盘 A 股 tab 冻结在早盘）。
     industry-all / rotation 盘中导出含当日实时行：行业/概念已反哺 index_daily，
     前端读这些 JSON 即可盘中可见当日（无需改前端读快照）。
+
+    P1实时性优化(2026-07-20): is_closed=False(盘中)跳过 global 导出省5-10s
+    (外盘 T+1/盘后才变,盘中导出数据不变浪费5-10s);is_closed=True(盘后15:05收盘轮)
+    正常导出。盘后补导机制:update_all.sh -> deploy.sh -> export.py L295-302 全量生成
+    global-{3m/6m/1y/3y/5y/all}.json,盘中跳过不会导致线上 global 停在昨日。
     """
     import importlib.util
     from .fetchers import load_config
@@ -1005,12 +1010,19 @@ def _export_affected_json() -> None:
             print(f"  [intraday] a-stock-{rng} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     # global（大盘全球tab，复用 export_global；外盘 T+1 重导意义不大但保持完整性）
-    for rng in export_mod.EXPORT_RANGES:
-        try:
-            export_mod.write_json(export_mod.DATA_DIR / f"global-{rng}.json",
-                                  export_mod.export_global(conn, cfg, rng))
-        except Exception as e:  # noqa: BLE001
-            print(f"  [intraday] global-{rng} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
+    # P1实时性优化(2026-07-20): 盘中(is_closed=False)跳过 global 导出省5-10s
+    #   (外盘 T+1/盘后才变,盘中导出数据不变浪费5-10s);盘后(is_closed=True)正常导出
+    #   盘后补导:update_all.sh -> deploy.sh -> export.py L295-302 全量生成 global-*.json
+    if is_closed:
+        for rng in export_mod.EXPORT_RANGES:
+            try:
+                export_mod.write_json(export_mod.DATA_DIR / f"global-{rng}.json",
+                                      export_mod.export_global(conn, cfg, rng))
+            except Exception as e:  # noqa: BLE001
+                print(f"  [intraday] global-{rng} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
+    else:
+        print(f"  [intraday] 盘中跳过 global 导出省5-10s(外盘 T+1 不变,盘后 update_all 补导)",
+              flush=True)
 
     # industry-all/5y 拆分（31 行业折线图 + 27 概念 + meta 热力图）
     # 行业/概念已反哺 index_daily 当日行，重导后 industry-{all,5y}-indices/* 和
@@ -1029,9 +1041,10 @@ def _export_affected_json() -> None:
         print(f"  [intraday] rotation 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     conn.close()
+    _g_cnt = len(export_mod.EXPORT_RANGES) if is_closed else 0
     print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)} "
           f"+ hk×{len(export_mod.EXPORT_RANGES)} + a-stock×{len(export_mod.EXPORT_RANGES)} "
-          f"+ global×{len(export_mod.EXPORT_RANGES)} + industry-all/5y 拆分 + rotation",
+          f"+ global×{_g_cnt}{'(盘中跳过)' if not is_closed else ''} + industry-all/5y 拆分 + rotation",
           flush=True)
 
 
@@ -1143,7 +1156,7 @@ def collect_and_save() -> dict:
         if n_ind > 0 or n_concept > 0:
             _recompute_rotation()
         if n_backfill > 0 or n_ind > 0 or n_concept > 0 or width_n > 0:
-            _export_affected_json()
+            _export_affected_json(is_closed=snap["is_closed"])
             print(f"[intraday] 反哺+width+重算+export 完成"
                   f"（{n_backfill} 指数 + {n_ind} 行业 + {n_concept} 概念反哺 + {width_n} width 指标）",
                   flush=True)
