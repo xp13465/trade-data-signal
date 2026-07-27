@@ -1755,6 +1755,7 @@ main { padding: 16px 24px; }
   max-height: none;
   overflow-y: visible;
   border-bottom: none;
+  flex: 1; /* tbody 撑满剩余空间，3卡片底部空白等高 */
 }
 /* 固定表头行高 + note 区 min-height，3表表格起始位置一致，日期行严格对齐 */
 .futures-triple-grid .accuracy-table thead th {
@@ -1762,6 +1763,14 @@ main { padding: 16px 24px; }
   height: 44px;
   vertical-align: middle;
   box-shadow: none;
+}
+/* 标题统一2行高度：合并表h3字数多(28字)在窄列换行，净加表h3短(16字)单行，min-height强制等高避免thead起始位置错位 */
+.futures-triple-grid .chart-card h3 {
+  min-height: 34px;
+}
+/* 副标题统一2行高度：合并表副标题(32字)换行，净加表副标题(12字)单行，min-height强制等高避免thead起始位置错位 */
+.futures-triple-grid .futures-stat-sub {
+  min-height: 32px;
 }
 .futures-triple-grid .futures-note {
   min-height: 60px;
