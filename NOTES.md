@@ -3528,6 +3528,54 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 
 **上线方式**:本次只改后端 Python(index_backfill.py 2处:任务一 env + 任务二 sina_spot 函数/调用点),不涉及 CSS/JS,不跑 build_min/bump_asset_version;不跑全量 export(周日非盘中但不必要,backfill 16:35 launchd 会自动跑触发新逻辑)。commit + push main 即可,backfill 下次触发(16:35/02:00)生效。根目录 data/ 下文件绝不 add(sentiment.db/signal_stats.json 等保持本地 M/untracked)。
 
+### 小节AZ39：2026-07-27 trade_sim sharpe 字段 + 前端夏普>3 可疑过拟合红线标注(过拟合系列收尾)
+
+**背景**:NOTES line 2749 教训③"生产 signals.py 无 WF 是最大过拟合源...夏普>3 触发可疑过拟合红线(cgb_idx 3.58)"。过拟合系列收尾最后一块:在 trade_sim 加 sharpe 字段 + 前端对夏普>3 品种标注可疑过拟合红线,让前端能标注可疑过拟合品种,数据透明让用户判断。前序已完成:alert_score 层治标(sz/cyb 解禁+csi500 改标注+csi_div 移小样本);signals 层 WF 评估完成方案 B 价值有限不实施;sell_stop_loss 重评 ATR3.5 保留。
+
+**后端 simulate_trade.py sharpe 计算**:
+- 口径:equity_curve 相邻点收益率 r_i=(v_i - v_{i-1})/v_{i-1} 的 mean/std × sqrt(252),与 lab_simulate.py L241-261 同口径(lab/生产可比)。
+- equity_curve 为事件稀疏序列(买卖日+期末打点,非完整日 K),故为基于事件点收益率的近似年化值。sqrt(252) 假设日频,事件稀疏时年化偏高(已知特性,与 lab 一致)。
+- 实现:_build_result 函数(L663+),equity_curve 构建后算 daily_rets(相邻点收益率),len>=2 时 mean/std×sqrt(252),不足或零波动给 0.0。summary dict 加 `"sharpe": round(sharpe, 2)`。
+- import math 添加(L19)。
+
+**前端 app.js 夏普>3 红线标注**:
+- `_sharpeRedlineInfo(sd)`:遍历全 165 回测(5窗口×3路径×11场景)找 max sharpe,>3(_SHARPE_REDLINE_THRESHOLD=3.0)为 isRedline。
+- `_chipRowClassName(id, sd)`:拼装 row class 含 `chip-row-sharpe-redline` 修饰(sd 未缓存时只加 small-sample,sd 加载后异步 patch)。
+- `_backupSignalChipRender`:4 个 return 点(overfit/weak/insufficient/normal)全加 `sharpeRedlinePrefix` 前置红线 chip `"⚠ 可疑过拟合(夏普X.XX>3)"`,data-tip 解释口径+阈值来源+非必过拟合判定。
+- chip tooltip per-window + top5 行加夏普列(`│ 夏普X.XX`)。
+- modal sim-card 加夏普比率卡(>3 红色 `#c0392b` + ⚠>3 标注),title 解释口径。
+- `_appendBackupChipRow` + `_backupSignalChipLoad` 同步/异步 patch row className。
+
+**CSS style.css**:
+- `.chip-sharpe-redline`:红实线框(`#c0392b`)警示色,font-weight 700,与 chip-overfit-placeholder(橙红)区分。
+- `.chip-row-sharpe-redline`:row 红框修饰(淡红背景+左侧红粗边框),与 chip-row-small-sample(蓝框)并列。
+- industry-cell 缩小版适配(font-size 11px)。
+
+**阈值与口径说明**:
+- Bailey 2014:夏普>3 可疑过拟合 />5 必过拟合(WF report L18-19 引用)。
+- trade_sim sharpe 为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径),值偏高;标注为"可疑"非"必过拟合"判定。
+- cgb_idx 3.58 为 WF eval 全样本夏普(WF report L77,NAV 日收益年化),与 trade_sim sharpe 不同口径不可直接比;trade_sim cgb_idx max sharpe=9.17(y1|全仓进出|主买+卖,小样本 1-2 ops 极端值),all 窗口 max=6.77(备买+卖,低波动国债非过拟合)。红线为"可疑"提示用户查详,数据透明让用户判断。
+- 覆盖范围:trade_sim 所有品种(不只黑名单),任何 max sharpe>3 都标注。103 品种中多数 max>3(事件稀疏 sqrt(252) 年化偏高特性),标注为提示非判定。
+
+**simulate_trade.py HTML 报告同步**:
+- sim-card 加夏普比率卡(与 modal 一致)。
+- 对比表(comparison table)加夏普列,>3 标 ⚠。
+
+**重跑 + 上线**:
+- `python scripts/simulate_trade.py --all`(cwd=/Users/linhuichen/code/trade-data/,139 品种):成功 103 / 跳过 35(无数据) / 失败 1(g.cn_us_spread complex type 预存问题非本次引入),25 秒完成。
+- 103 品种 trade_sim JSON 全含 sharpe 字段(verify 0 missing)。
+- R2 上传:`upload_r2.py upload-trade-sim-json` 412/412 文件(stats/full × json/gz)上传 ssd.fx8.store/trade_sim_data/。
+- build_min.py + bump_asset_version.py:app.min.js?v=164e35c5 / style.min.css?v=bf4a9710。
+- commit `82e09ef7` + push origin main(8778eff3..82e09ef7)。
+
+**线上验证**:
+- ss.fx8.store/ app.min.js?v=164e35c5 含 chip-sharpe-redline + _SHARPE_REDLINE_THRESHOLD + _sharpeRedlineInfo ✓
+- ss.fx8.store/ style.min.css?v=bf4a9710 含 chip-sharpe-redline + chip-row-sharpe-redline ✓
+- ssd.fx8.store/trade_sim_data/trade_sim_cgb_idx_stats.json sharpe 字段有(all|全仓进出|追买+追止损卖 sharpe=4.6),max sharpe=9.17>3 触发红线 ✓
+- 前端 chip 标注需用户访问 ss.fx8.store 看 cgb_idx 等品种标题下红线 chip(模型不支持图片无法视觉验证,代码逻辑已验证)。
+
+**过拟合系列收尾状态**:alert_score 层治标(done)+ signals 层 WF(方案 B 不实施)+ sell_stop_loss(ATR3.5 保留)+ trade_sim sharpe 红线(done,本节)。过拟合系列全部闭环。
+
 
 
 
