@@ -3833,3 +3833,43 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 
 **教训**：今日 12 commit 印证 3 铁律全部落地--前端 6 commit 全部 bump sw.js（铁律1执行到位）；4bcfb2bf 漏 import os 印证铁律2（重构加引用须配套 import）；监控4盲区全部修复+log 关键词扫描上线即暴露 3 真实 bug（铁律3闭环）。盘中实时性主线：后端省 170s+5-10s（线2）+ 前端自适应轮询 5min->15s（线3④）+ ⚠强提醒防误导（线3①）+ 邮件文案防误解（线3⑥），盘中数据滞后从"小时级"压到"15s 级"。
 
+
+### 小节AZ49：2026-07-27晚 中信多空表3需求上线+etf验证+巡检+告警去重/追买修复补落档
+
+**背景**：今晚主线是中信多空/机构持仓 3 张表需求上线（A），顺带 etf-national-team 20:07 新时点首触复查（B）、10 任务巡检（C），并把告警去重机制（D）和追买逻辑修复（E）补落档（NOTES 此前未记）。
+
+**A. 中信多空表 3 需求上线（commit 8eaf4aa7 需求1+2原版 + 91e844a2 拆分+中文，已 push main）**
+
+- **需求1 旧表加 7天/15天维度**：`app/compute/futures_position.py` `DEFAULT_WINDOWS=[7,15,30,60,120]`（原 `[30,60,120]`）。新增 `backfill_futures_acc_7_15.py` 回填插入 18390 行（9195/窗口 × 2 窗口）。前端 3 角色（中信/机构/…）× 5 窗口 7d/15d/30d/60d/120d。
+- **需求2 多空单准确率表（15 天评判）**：4 列（日期|方向|次日涨跌|对错）+ 统计行"共几次 对几次 错几次"。主导方向 = 同向 count >= 逆向 count ? 同向 : 逆向，对错按主导方向判断。15 天窗口。中信 73.3%（同向 11 对 4 错），机构 60%（同向 9 对 6 错）。函数 `_renderRoleAccuracyCard`。
+- **需求3 过去 15 天净加表（net_chg 口径）**：7 列（日期|上证50净加|沪深300净加|中证500净加|中证1000净加|合计净加|方向）。`net_chg=long_chg-short_chg`（当日多头增减-空头增减），4 品种合计对标上证综指（sh 000001 大盘，非 sz50/hs300）。函数 `_renderRoleNetChgCard`。727 中信合计 -1261（空）：IH -1973 / IF +110 / IC -432 / IM +1034；机构合计 -2561（空）：IH -137 / IF +735 / IC -703 / IM -2456。与用户外部机构数据 100% 一致。
+- **next_return 对标改上证综指(sh) 非 sz50**：724 次日涨跌从 sz50 跌 0.2% 改为 sh 涨 1.15%（用户反馈"上证指数涨 1.15%"）。
+- **品种名全中文**：前端显示 IH->上证50 / IF->沪深300 / IC->中证500 / IM->中证1000；**DB 查询 SQL 仍用英文 `variety='IH'` 不变**，只前端显示改中文。JS 属性名 `ih_chg` 等小写 DB 字段名保留不误改。
+- **727 当天行高亮**：`next_return==null` 行淡黄高亮 `rgba(255,235,59,0.22)` + `font-weight:bold`，倒序 `localeCompare` 让 727 置顶。
+- **函数改造**：`compute_role_ih_detail(role, n_days=15, index_id='sh')`（原 `compute_citic_ih_detail` 改造支持 role 参数），返回 `citic_ih_detail` + `inst_ih_detail` 两字段。
+- **破缓存**：`sw.js` CACHE_VERSION a17->a18。`app.min.js?v=4ec31143`（375327B）。
+- **线上验证**：push main 后等 75 秒 CF Workers deploy 完成，curl `ss.fx8.store` 确认 sw a18 + `app.min.js?v=4ec31143` + 中文列名"上证50净加"生效（CF 边缘缓存有延迟，3 域名任一验证到新版即算上线 OK，见 §8）。
+
+**B. etf-national-team 20:07 新时点首触**：exit=0，1376 只 ETF，07-24 的 libmini_racer.dylib crash 今晚未复现。20:07 复查 OK（AZ48 异常C 已降级 INFO 去重，今晚观察印证未复现）。
+
+**C. 巡检**：10 任务全 exit=0，数据时效当日（overview 19:30，sh/sz 20260727）。
+
+**D. 告警去重机制（NOTES 补落档，对应 memory `alert-dedup-mechanism`）**
+
+- `scripts/schedule_monitor.sh` 维护 `alert_state.json` 状态文件做告警去重：同一异常首次发出后持续 suppress，异常消失时发恢复邮件。15min 周期不轰炸。
+- 关联：AZ47 ① `schedule_monitor.sh` L176 `log_anomaly=true` 告警复用 24h stale 去重；AZ48 异常C（etf_nt FATAL）>24h 降级 INFO 去重生效即此机制体现。
+
+**E. 追买逻辑修复（NOTES 补落档，对应 memory `trade-sim-chip-three-tier`）**
+
+- 追买逻辑修复（buy_special 相关，细节见小节AM/AZ26 walk-forward 优化脉络），已上线 commit 77fba4cf（备买 chip 三档优化：标题下 3 chip 年化最高/最稳健/回撤最小，读 trade_sim JSON 算 4 买点场景，删硬编码 9 指数二分）。
+
+**今日 commit 清单（3 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| 8eaf4aa7 | 中信多空表需求1+2原版上线（旧表加 7/15 天 + 多空单准确率表） |
+| 91e844a2 | 中信多空表需求3 拆分+中文列名（净加表 net_chg 口径 + 品种名中文化 + sw a18） |
+| (回填/补档) | backfill_futures_acc_7_15.py 回填 18390 行 + sw.js a17->a18 + app.min.js?v=4ec31143 |
+
+**教训**：今晚中信多空表 3 需求上线印证 §5 准则--一次性把 3 张表（旧表扩窗 + 准确率表 + 净加表）完整正确合集一步到位，不作"先上 1 张后续再补"妥协；net_chg 口径与用户外部机构数据 100% 一致是"完整正确"的验证标尺。告警去重/追买修复此前只在 memory 未落档 NOTES，今晚按 CLAUDE.md §7（memory 读优化 + NOTES 写保障互不冲突）补齐，避免 compact 后 memory 丢而 NOTES 无据可查。
+
