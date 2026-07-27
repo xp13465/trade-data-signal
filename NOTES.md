@@ -3707,10 +3707,56 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 
 **铁律3：监控4盲区**
 
-今天 intraday export 失败 3 天无人知，暴露 4 个监控盲区，前 3 已修，第4 正在另一个 agent 做：
+今天 intraday export 失败 3 天无人知，暴露 4 个监控盲区，4 盲区现已全部修复（第4 commit 494c2532，详见小节AZ47）：
 
 > ①**exit code 盲区**：脚本 `try/except` 吞异常 exit=0，`gen_schedule_stats` 记成功漏报。修复：`gen_schedule_stats.py` 加 `launchctl_last_exit(label)` 读 launchctl 真实退出码（小节AZ42）。
 > ②**log 解析盲区**：脚本崩在 `echo DONE` 前，log 解析记 null 不告警。修复：gen_schedule_stats 加 log 解析 fallback（小节AZ42）。
 > ③**全角字符盲区**：`intraday_snapshot.sh` L267 `$PUSH_RC）` 全角右括号（`ef bc 89`），bash 解析成 `PUSH_RC\xef` unbound。修复：`lint_scripts.sh` 扫 `$VAR` 后紧跟全角括号 + pre-commit hook 阻止入库（小节AZ42）。
-> ④**git add 通配盲区**：`git add *.json` 撞 `.gitignore` 忽略文件返回非0，`set -e` 退出子 shell。修复：改精确文件列表 + `|| true`（小节AZ41 bug1）。**log 关键词扫描抓 exit=0 的盲区（脚本吞异常看似成功）正在另一个 agent 做**，补 gen_schedule_stats 对"intraday 24h 无新数据"等语义层校验。
+> ④**git add 通配盲区**：`git add *.json` 撞 `.gitignore` 忽略文件返回非0，`set -e` 退出子 shell。修复：改精确文件列表 + `|| true`（小节AZ41 bug1）。**log 关键词扫描抓 exit=0 的盲区（脚本吞异常看似成功）已完成 commit 494c2532**：gen_schedule_stats 加 `scan_log_anomaly`（L143，start/end 标记切窗口只扫本次运行）+ `ANOMALY_RE`（L97，精确匹配 Traceback/异常类名+冒号/FATAL/panic/git push 失败，不用"失败/Error"宽泛词）+ schedule_monitor 告警（log_anomaly=true 即使 exit=0）+ self_heal 触发条件扩展（exit!=0 OR log_anomaly=true）。**上线即暴露 3 个原本漏报 3 天的真实 bug（import os / broken symlink / etf_nt FATAL）全部修复**，详见小节AZ47。
+
+
+### 小节AZ47：2026-07-27下午 监控第4盲区根治+3真实bug连根拔起+P1实时性
+
+**背景**：AZ46 铁律3 第4盲区（log 关键词扫描抓"脚本吞异常 exit=0"）上午标"正在做"，下午 5 commit 闭环：监控层上线即暴露 3 个原本漏报 3 天的真实 bug，逐一连根拔起，并顺带做 P1 盘中实时性优化 2 项。
+
+**①监控第4盲区 log 关键词扫描层（commit 494c2532）**
+- `scripts/gen_schedule_stats.py`（+107行）：
+  - L97 `ANOMALY_RE`：精确匹配 4 类异常痕迹——Traceback 标志 / Python 异常类名+冒号（AttributeError/NameError/FileNotFoundError 等 24 种）/ FATAL·panic·segfault / git push·rebase 失败。**刻意不用"失败/Error"宽泛词**避免正常日志（"0 errors""无新异常"）误报。
+  - L143 `scan_log_anomaly(log_path, script, mode)`：找最后一个 start 行（本次运行起点）-> 其后第一个 end 行 -> 只扫 [start,end) 窗口。靠 start/end 标记切窗口（不依赖行内时间戳最稳），历史 Error 残留不误报、多轮运行取最后一轮、进行中任务扫到末尾。
+  - L361-368 每任务加 3 字段：`log_anomaly` / `log_anomaly_keyword` / `log_anomaly_line`。
+- `scripts/schedule_monitor.sh`（+28行）：第5项检查 `log_anomaly=true` 即告警（即使 exit=0），复用 24h stale 去重。
+- `scripts/self_heal.sh`（+16行）：触发条件扩展 `last_exit!=0 OR log_anomaly=true`；audit 记 reason 区分；**HEAL_ACTIONS 白名单 8 任务未动**（只 force 重跑，无 force push/删文件）。
+- 价值：根治"intraday ALL_RANGES 故障 3 天无人知"根因——脚本 try/except 吞异常 exit=0，log 里有 Traceback 痕迹，关键词扫描能抓到。
+
+**②self_heal 盘中保护（commit a2e60f1a）**
+- `scripts/self_heal.sh` L205-225：to_heal 循环取 cmd 后、subprocess.run 前，对 `update_all` 加时间窗判断——工作日（isoweekday 1-5）且 `0930<=HHMM<=1530` 则 skip，audit 记 `SKIP_INTRADAY reason=intraday_skip`，state.skipped 追加记录，不增 count。其他任务（backfill/futures/lhb/rzhb/etf_nt）盘中可跑不加保护。
+- 背景：①的 log_anomaly=true 会触发 self_heal force 重跑；update_all 的 force = 全量 export+deploy，盘中跑会撞 intraday-snapshot 定时任务推 main（§8 互相覆盖事故）。13:22 self_heal 触发点前必须上线此保护。
+
+**③index_backfill 补 import os（commit f7d39c22）——第4盲区暴露的 bug1**
+- `app/collector/index_backfill.py` L33 文件头加 `import os`。
+- 根因：commit 4bcfb2bf 加 `env={**os.environ,"REPO":str(repo)}`（L1004）修复 deploy.sh 读滞后镜像 bug，但**漏 import os**，L1004 `os.environ` 引用抛 `NameError`，被 `subprocess(check=False)` 吞 exit=0。
+- 后果：4bcfb2bf 想修的"读滞后镜像"bug 实际没修成——backfill 补到新数据走重算+推送分支时 deploy.sh backfill 因 NameError 没跑成，指数卡 T-1。**第4盲区 log 扫描抓到 Traceback 才暴露**。
+
+**④upload_r2 broken symlink 鲁棒性（commit 8c300d84）——第4盲区暴露的 bug2**
+- `scripts/upload_r2.py`（+22行）3 处防护：
+  - L269 `_upload_glob` 入口 `broken=[f for f in files if not f.exists()]` 过滤+提示，`files=[f for f in files if f.exists()]`（broken symlink `exists()=False`）。
+  - L278-284 `_upload_one` 的 `read_bytes()` 移进 try 块，`except (OSError,FileNotFoundError)` 捕获，单文件失败跳过不中断整批（兑现 docstring 承诺）。
+  - L327 `cmd_upload_trade_sim` 的 `any(f.exists() for f in ts_dir.glob(...))` 避免 broken symlink 误判"有文件"不回退 ROOT。
+- 根因：`trade-data/static-site/` 100 个 `trade_sim_*.html` symlink 指向 `trade/static-site/`，94 个目标 7/23 后删除变 broken。glob 把 broken symlink 算匹配，`read_bytes()` 在 try 外抛 `FileNotFoundError` 不捕获整批崩溃，`deploy.sh || echo` 吞异常致 update_all exit=0。
+- 任务2调研结论：trade_sim 生产路径是 JSON（412 文件 fresh），HTML 是 legacy 兜底，6 个 HTML 是 7/23 后 94 个被删残留非设计；broken symlink 是历史残留，鲁棒性修复后不崩，HTML 补齐非紧急。
+
+**⑤P1盘中实时性优化2项（commit 4fa655c6）**
+- 任务1 ETF 试探 510050：`app/collector/etf_national_team.py` `pipeline_intraday_close`（L1079）批量采前先试探 510050（L1099-1113）。**选型理由**：510050 上市 2005 最老牌+成交量最大，sina/mootdx 数据发布最稳定，它未就绪其他更不可能就绪。就绪则试探即入库+批量采剩余 11 只；未就绪跳过 12 只循环省 ~170s（185s->15s）；异常降级按原逻辑采不阻塞。单元测试 3 场景 PASS。
+- 任务2 global 盘中跳过：`app/collector/intraday_snapshot.py` `_export_affected_json` 加 `is_closed` 参数（L950），L1016 `if is_closed` 盘后导出 global×6 / else 盘中跳过省 5-10s。**盘后补导双保险**：15:05 收盘轮 `is_closed=True`（`is_a_stock_closed` 15:00 后返回 True）+ 15:35 `update_all`->`deploy.sh`->`export.py` 全量导 global。单元测试 2 场景 PASS。
+- 用户准则：盘中要快盘后要准互不冲突，盘中早一秒都是好的。
+
+**3个真实 bug 根因强调（第4盲区修复价值的证明）**
+
+监控层 494c2532 上线即刻从真实 schedule_stats.json 检出 3 个原本全 exit=0/None 漏报 3 天的异常，证明第4盲区修复的必要：
+1. **import os 缺失**（bug1，commit f7d39c22 修复）：index_backfill.py L1004 `os.environ` NameError 被 `check=False` 吞 exit=0，4bcfb2bf 想修的读滞后镜像 bug 实际没修成，指数卡 T-1。
+2. **broken symlink 崩溃**（bug2，commit 8c300d84 修复）：upload_r2 _upload_glob 撞 94 个 broken symlink 整批崩溃，deploy.sh `|| echo` 吞异常致 update_all exit=0。
+3. **etf_nt FATAL**（bug3，commit 494c2532 检出）：>24h 降级 INFO（去重生效），self_heal 触发 2 重跑覆盖 bug1+bug2。
+
+**教训**：exit=0 不等于成功，log 关键词扫描是最后一道防线——3 个 bug 都在 log 里留了 Traceback/FATAL 痕迹，但原监控只看 exit code 全漏报 3 天。详见小节AZ46 铁律3（监控4盲区现已全部修复）。
+
 
