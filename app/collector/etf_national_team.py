@@ -1095,24 +1095,63 @@ def pipeline_intraday_close() -> dict:
     # 复用 mootdx client(fallback 时避免每只ETF重新选服务器)
     from .mootdx_daily import tdx_client
     _tdx = tdx_client(market="std")
-    for code, name, _idx, _mkt in ETF_LIST:
-        try:
-            rows = fetch_etf_ohlc(code, start_yyyymmdd=ltd, client=_tdx)
-            # 只取当日那一行(fetcher 返回 >=ltd 的全历史,过滤当日)
-            rows = [r for r in rows if r["date"] == ltd]
-            if not rows:
-                print(f"  {code} {name}: 当日({ltd}) close 未采到(sina/mootdx 未出,跳过)",
-                      flush=True)
-                continue
-            for r in rows:
-                r["etf_name"] = name
-            # upsert close/open/high/low/amount;fund_share/share_change 不写保持 NULL
-            n = _upsert_daily(conn, rows, ["etf_name", "open", "high", "low", "close", "amount"])
+
+    # P1实时性优化(2026-07-20): 先试探1只510050确认数据源就绪,未就绪跳过12只循环省~170s
+    # 选510050:上市2005年最老牌+成交量最大,sina/mootdx 数据发布最稳定;它未就绪其他更不可能就绪
+    # 失败回退:试探异常降级按原逻辑批量采(最差和现在一样,不阻塞);未就绪跳过循环(结果同"12只全跳过")
+    PROBE_CODE, PROBE_NAME = "510050", "50ETF华夏"
+    probe_rows: list[dict] = []
+    probe_ready = False
+    try:
+        _t_probe = time.time()
+        probe_rows = fetch_etf_ohlc(PROBE_CODE, start_yyyymmdd=ltd, client=_tdx)
+        probe_rows = [r for r in probe_rows
+                      if r["date"] == ltd and float(r.get("close", 0) or 0) > 0]
+        probe_ready = bool(probe_rows)
+        if probe_ready:
+            print(f"  [probe] {PROBE_CODE} {PROBE_NAME} 当日 close={probe_rows[0]['close']:.4f} "
+                  f"就绪({time.time()-_t_probe:.1f}s),510050 入库+批量采剩余 11 只", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [probe] {PROBE_CODE} 试探异常: {type(e).__name__} {e},降级按原逻辑批量采 12 只",
+              flush=True)
+        probe_ready = True  # 异常降级:按原逻辑批量采(最差和现在一样,不阻塞)
+        probe_rows = []  # 确保降级分支不误用试探结果
+
+    if probe_ready:
+        # 试探就绪(probe_rows 非空): 510050 已采,先入库,批量循环跳过省一次重复采集
+        # 试探异常降级(probe_rows 空): 按原逻辑批量采 12 只
+        if probe_rows:
+            for r in probe_rows:
+                r["etf_name"] = PROBE_NAME
+            n = _upsert_daily(conn, probe_rows,
+                              ["etf_name", "open", "high", "low", "close", "amount"])
             stats["ohlc"] += n
-            print(f"  {code} {name}: close={rows[0]['close']:.4f} amount={rows[0]['amount']:.0f} 入库",
-                  flush=True)
-        except Exception as e:  # noqa: BLE001
-            print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+            print(f"  {PROBE_CODE} {PROBE_NAME}: close={probe_rows[0]['close']:.4f} "
+                  f"amount={probe_rows[0]['amount']:.0f} 入库(试探即采)", flush=True)
+        for code, name, _idx, _mkt in ETF_LIST:
+            if probe_rows and code == PROBE_CODE:
+                continue  # 已在试探时入库,跳过省一次重复采集
+            try:
+                rows = fetch_etf_ohlc(code, start_yyyymmdd=ltd, client=_tdx)
+                # 只取当日那一行(fetcher 返回 >=ltd 的全历史,过滤当日)
+                rows = [r for r in rows if r["date"] == ltd]
+                if not rows:
+                    print(f"  {code} {name}: 当日({ltd}) close 未采到(sina/mootdx 未出,跳过)",
+                          flush=True)
+                    continue
+                for r in rows:
+                    r["etf_name"] = name
+                # upsert close/open/high/low/amount;fund_share/share_change 不写保持 NULL
+                n = _upsert_daily(conn, rows,
+                                  ["etf_name", "open", "high", "low", "close", "amount"])
+                stats["ohlc"] += n
+                print(f"  {code} {name}: close={rows[0]['close']:.4f} amount={rows[0]['amount']:.0f} 入库",
+                      flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+    else:
+        print(f"  [probe] {PROBE_CODE} {PROBE_NAME} 当日({ltd}) close 未就绪(sina/mootdx 未出),"
+              f"跳过 12 只批量采省~170s,末日仍为昨日(等 20:07 backfill 兜底)", flush=True)
 
     # 重算 share_change + 信号
     # compute_share_change 只遍历 fund_share IS NOT NULL 的行,末日 fund_share=NULL 被跳过
