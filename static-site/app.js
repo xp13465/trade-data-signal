@@ -8036,6 +8036,11 @@ function renderFuturesSection(data, snap, container) {
   };
   _renderTripleCards(data.citic_ih_detail, data.inst_ih_detail);
 
+  // 第456卡片(昨日净多空/历史准确率/当日净加对照)3列并排，和前3一样复用 futures-triple-grid 3列布局
+  const tripleGrid2 = document.createElement("div");
+  tripleGrid2.className = "futures-triple-grid";
+  fgGrid.appendChild(tripleGrid2);
+
   // 1. 昨日净多空概览卡片
   if (data.summary && data.summary.roles) {
     const div = document.createElement("div");
@@ -8060,7 +8065,7 @@ function renderFuturesSection(data, snap, container) {
     html += '<div class="term-plain">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
     html += '<div class="futures-reverse-note">⚠ 机构持仓极端值常为<strong>反向参考</strong>（机构极度看多时可能见顶、极度看空时可能见底），需结合历史准确率与市场位置判断，不可单看净持仓方向顺势操作。</div>';
     div.innerHTML = html;
-    fgGrid.appendChild(div);
+    tripleGrid2.appendChild(div);
     addCardTimeBadge(div, dateStr, snap, "t1", "futures_date");
   }
 
@@ -8128,7 +8133,7 @@ function renderFuturesSection(data, snap, container) {
     html += '</tbody></table>';
     html += '<div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     div.innerHTML = html;
-    fgGrid.appendChild(div);
+    tripleGrid2.appendChild(div);
     addCardTimeBadge(div, accDates.length ? accDates[accDates.length - 1] : "", snap, "t1", "futures_date");
   }
 
@@ -8158,7 +8163,7 @@ function renderFuturesSection(data, snap, container) {
     html += '</tbody></table>';
     html += '<div class="term-plain">净加=多头增减-空头增减(手)。合计=上证50+沪深300+中证500+中证1000。多(红)/空(绿)按当日4品种合计净加方向。三套数据方向一致=共振信号，不一致=分歧。</div>';
     div.innerHTML = html;
-    fgGrid.appendChild(div);
+    tripleGrid2.appendChild(div);
     addCardTimeBadge(div, latestDate, snap, "t1", "futures_date");
   };
   _renderDailyNetCompareCard(data.citic_ih_detail, data.inst_ih_detail, data.guotai_ih_detail);

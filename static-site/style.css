@@ -1745,11 +1745,8 @@ main { padding: 16px 24px; }
   margin-bottom: 12px;
   grid-column: 1 / -1; /* 跨满父级 indices-grid 全宽，避免被多列grid挤成1列致3表挤压 */
 }
-/* 期货表格卡(昨日净多空/历史准确率/当日净加对照/说明卡)跨满 indices-grid 全宽各占一行；
-   用直接子选择器 > 排除 .futures-triple-grid 内的3表(它们是wrapper子级非indices-grid直接子) */
-.indices-grid > .futures-table-card {
-  grid-column: 1 / -1;
-}
+/* 第456卡片(昨日净多空/历史准确率/当日净加对照)已移入 futures-triple-grid wrapper 3列并排(app.js _renderTripleCards 后 tripleGrid2)；
+   说明卡(无表格)仍留 indices-grid 自然流，不再强制跨满全宽(a25 副作用已修) */
 /* 3表卡片由 grid gap 统一间距，去掉单卡 margin-bottom */
 .futures-triple-grid .chart-card {
   margin-bottom: 0;
@@ -1770,16 +1767,16 @@ main { padding: 16px 24px; }
   vertical-align: middle;
   box-shadow: none;
 }
-/* 标题统一2行高度：合并表h3字数多(28字)在窄列换行，净加表h3短(16字)单行，min-height强制等高避免thead起始位置错位 */
+/* 标题统一2行高度(44px=14px*1.5*2+2px buffer)：合并表h3字数多(31字)在窄列换2行(42px)，净加表h3短(16字)单行(21px)，min-height强制等高避免thead起始位置错位 */
 .futures-triple-grid .chart-card h3 {
-  min-height: 34px;
+  min-height: 44px;
 }
-/* 副标题统一2行高度：合并表副标题(32字)换行，净加表副标题(12字)单行，min-height强制等高避免thead起始位置错位 */
+/* 副标题统一2行高度(42px=13px*1.5*2+3px buffer)：合并表副标题(30字)换2行(39px)，净加表副标题(13字)单行(20px)，min-height强制等高避免thead起始位置错位 */
 .futures-triple-grid .futures-stat-sub {
-  min-height: 32px;
+  min-height: 42px;
 }
 .futures-triple-grid .futures-note {
-  min-height: 60px;
+  min-height: 84px;
 }
 /* 窄屏(≤768px)：3表改上下排列 */
 @media (max-width: 768px) {
