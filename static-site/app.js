@@ -3622,7 +3622,7 @@ function fetchIntradaySnapshot() {
       const snap = await fetchJSON("./data/intraday_snapshot.json");
       if (snap && snap.indices) {
         state.intradaySnapshot = snap;
-        // snap 就绪回调启动 5min overview 轮询(根治 2s 超时竞态, 2026-07-27):
+        // snap 就绪回调启动 overview 自适应轮询(根治 2s 超时竞态, 2026-07-27):
         // 旧版 _initAutoRefresh 用 Promise.race 2s 超时, 弱网/强刷首屏 snap 未就绪 -> 永不启动.
         // 现在 snap 何时就绪何时启动, 无超时卡死. 收盘态(is_closed===true)不启动.
         // _startOverviewRefresh 内部先 _stopOverviewRefresh 再置 active=true, 幂等可重复调.
@@ -3733,7 +3733,7 @@ function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey) {
   }
 }
 
-// 5min overview 轮询拉到新 snap 后, 重绘所有 addCardTimeBadge 添加的角标(根治 Bug2: 轮询不重绘卡片角标).
+// overview 轮询拉到新 snap 后, 重绘所有 addCardTimeBadge 添加的角标(根治 Bug2: 轮询不重绘卡片角标).
 // 遍历 .card-time-badge[data-badge-date], 用存的 (dataDate, srcClass, srcKey) + 新 snap 重算 HTML 并替换.
 // 安全性: T+1 角标走 getCardTimeBadge t1 分支, 永远返回 📅/⏳/🚨 + 自身 dataDate 的 mmdd(非 snap 实时时间),
 // 不会被误刷成实时时间; 只有 t0+intraday 角标会显 ⏰ 盘中·HH:MM(随 snap.datetime 变化, 正是要更新的).
@@ -4616,7 +4616,7 @@ async function _doIntradayRefresh() {
   if (curSnap && curSnap.is_closed === true) {
     _onMarketClosed(); // 先恢复 badge/chips/时间为收盘态（需 _bannerRenderCtx 未置空）
     _stopIntradayRefresh();
-    _stopOverviewRefresh(); // 联动停止 overview 5min 轮询（收盘数据不变）
+    _stopOverviewRefresh(); // 联动停止 overview 自适应轮询（收盘数据不变）
     return;
   }
   ctx.snap = curSnap;
@@ -4658,22 +4658,69 @@ function _onIntradayVisChange() {
   }
 }
 
-// ============ 盘中 overview 轮询（5min，更新采集时间badge + overview缓存） ============
+// ============ 盘中 overview 自适应轮询(预测后端推完时刻 + 3min兜底) ============
 // 独立于3min分时轮询(_startIntradayRefresh): 分时轮询拉腾讯API更新badge/chips/分时图,
 // overview轮询拉overview.json更新顶部采集时间badge(_renderCollectTime)+_overviewCache.
-// 盘中(is_closed===false)才启动, 收盘自停. visibilitychange切回tab距上次>5min立即刷新.
+// 盘中(is_closed===false)才启动, 收盘自停. visibilitychange切回tab高频窗口内或距上次>3min立即刷新.
 // cache-busting: fetchJSON对时效敏感URL(overview匹配_NO_CACHE_URLS)已加?_=Date.now()+cache:no-store,
 //   绕过浏览器HTTP缓存 + CF 60s边缘缓存过期后向R2拉新, 无需手动Cmd+Shift+R强刷.
-const OVERVIEW_REFRESH_MS = 5 * 60 * 1000; // 5分钟
+//
+// 两态状态机(2026-07-27): 低频兜底层(3min) + 自适应高频层(预测窗口内15s). 追后端推完那一刻而非固定周期,
+// 盘中数据滞后从最坏5min降到<15s. 后端周期15min但每轮采集耗时1.5-2min波动, 5min固定轮询追"周期"非"推完",
+// 最坏滞后近5min. 自适应层用历史collected_at序列中位数预测下一次推完时刻, 提前30s切高频狂拉, 拉到新即转低频.
+// 兜底保证: 任何情况两次轮询间隔<=3min, 自适应层失效(预测偏差/后端延迟/周期异常)不卡死.
+const OVERVIEW_REFRESH_MS = 3 * 60 * 1000;        // 低频兜底3min(原5min,缩短保证最坏滞后3min)
+const OVERVIEW_HIGH_FREQ_MS = 15 * 1000;           // 高频15s: 预测窗口内追后端推完
+const OVERVIEW_PREDICT_LEAD_MS = 30 * 1000;        // 高频窗口提前量: 预测推完前30s开始
+const OVERVIEW_PREDICT_TAIL_MS = 3 * 60 * 1000;    // 高频窗口尾部: 预测推完后3min(覆盖后端耗时波动/延迟)
+const OVERVIEW_HISTORY_MAX = 8;                     // 历史collected_at保留个数(中位数预测用)
+const OVERVIEW_PERIOD_MIN_MS = 5 * 60 * 1000;       // 周期异常下限(防数据污染): <5min不预测
+const OVERVIEW_PERIOD_MAX_MS = 30 * 60 * 1000;      // 周期异常上限: >30min视为跨天/中断,清空历史重攒
 let _overviewRefreshTimer = null;
 let _overviewLastFetch = 0;
 let _overviewRefreshActive = false;
 let _overviewVisBound = false;
+let _overviewCollectHistory = [];   // collected_at 时间戳序列(单调递增去重, 保留最近8个)
+let _overviewHighFreqStart = 0;     // 预测高频窗口起点(ms), 0=无预测走低频
+let _overviewHighFreqEnd = 0;       // 预测高频窗口终点(ms)
+
+// 解析 overview.json 的 collected_at("20260727 13:05:05") 为 ms 时间戳; 兜底尝试 ISO 等标准格式
+function _parseCollectAt(s) {
+  if (!s) return NaN;
+  const m = /^(\d{4})(\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/.exec(String(s));
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+  const t = Date.parse(s);
+  return isNaN(t) ? NaN : t;
+}
+
+// 用历史collected_at序列预测下一次推完时刻, 设置高频窗口[start,end].
+// 中位数周期 P, 预测推完 = 最近collected_at + P, 窗口 = [推完-30s, 推完+3min].
+// 周期异常(<5min或>30min)/窗口已过(后端延迟很久) -> 清空高频窗口走低频兜底.
+function _recomputeOverviewPrediction() {
+  const h = _overviewCollectHistory;
+  if (h.length < 2) { _overviewHighFreqStart = 0; _overviewHighFreqEnd = 0; return; }
+  const gaps = [];
+  for (let i = 1; i < h.length; i++) gaps.push(h[i] - h[i - 1]);
+  gaps.sort((a, b) => a - b);
+  const med = gaps.length % 2
+    ? gaps[(gaps.length - 1) >> 1]
+    : (gaps[gaps.length / 2 - 1] + gaps[gaps.length / 2]) / 2;
+  if (med < OVERVIEW_PERIOD_MIN_MS || med > OVERVIEW_PERIOD_MAX_MS) {
+    _overviewHighFreqStart = 0; _overviewHighFreqEnd = 0; return;
+  }
+  const predicted = h[h.length - 1] + med; // 预测下一次推完时刻(collected_at+周期)
+  _overviewHighFreqStart = predicted - OVERVIEW_PREDICT_LEAD_MS;
+  _overviewHighFreqEnd = predicted + OVERVIEW_PREDICT_TAIL_MS;
+  if (_overviewHighFreqEnd < Date.now()) { // 整个窗口已过(预测太早/后端延迟很久) -> 走低频
+    _overviewHighFreqStart = 0; _overviewHighFreqEnd = 0;
+  }
+}
 
 function _startOverviewRefresh() {
   _stopOverviewRefresh();
   _overviewRefreshActive = true;
   _overviewLastFetch = Date.now();
+  _recomputeOverviewPrediction(); // 历史已有(同日重启)则恢复预测, 否则走3min低频攒数据
   _scheduleNextOverviewRefresh();
   if (!_overviewVisBound) {
     _overviewVisBound = true;
@@ -4686,18 +4733,32 @@ function _stopOverviewRefresh() {
   if (_overviewRefreshTimer) { clearTimeout(_overviewRefreshTimer); _overviewRefreshTimer = null; }
 }
 
+// 调度下次轮询: 高频窗口内15s / 窗口起点在3min内等到起点 / 否则3min低频兜底.
+// 兜底铁律: delay 最大 = OVERVIEW_REFRESH_MS(3min), 任何情况两次轮询间隔<=3min.
 function _scheduleNextOverviewRefresh() {
   if (!_overviewRefreshActive) return;
   if (_overviewRefreshTimer) clearTimeout(_overviewRefreshTimer);
+  const now = Date.now();
+  let delay;
+  if (_overviewHighFreqStart && now >= _overviewHighFreqStart && now < _overviewHighFreqEnd) {
+    delay = OVERVIEW_HIGH_FREQ_MS; // 高频窗口内: 15s追后端推完
+  } else if (_overviewHighFreqStart && now < _overviewHighFreqStart
+             && (_overviewHighFreqStart - now) <= OVERVIEW_REFRESH_MS) {
+    delay = _overviewHighFreqStart - now; // 窗口起点在3min内: 精确等到起点切高频
+  } else {
+    delay = OVERVIEW_REFRESH_MS; // 低频兜底: 3min
+  }
   _overviewRefreshTimer = setTimeout(() => {
     _overviewRefreshTimer = null;
     if (!_overviewRefreshActive) return;
     if (document.hidden) { _scheduleNextOverviewRefresh(); return; } // 页面不可见时跳过
     _doOverviewRefresh();
-  }, OVERVIEW_REFRESH_MS);
+  }, Math.max(1000, delay));
 }
 
-// 执行一轮overview刷新: fetch overview.json + 更新采集时间badge + 重绘卡片角标 + 检查收盘
+// 执行一轮overview刷新: fetch overview.json + 更新采集时间badge + 重绘卡片角标 + 检查收盘 + 更新预测.
+// 拉到新collected_at(>已知最新) = 命中高频, push历史后重算预测自动转低频(下一轮窗口在15min后).
+// 高频窗口超时未命中 -> _recomputeOverviewPrediction 发现窗口已过清空 -> 走低频兜底.
 async function _doOverviewRefresh() {
   _overviewLastFetch = Date.now();
   try {
@@ -4705,6 +4766,18 @@ async function _doOverviewRefresh() {
     if (r) {
       _setCachedOverview(r); // 更新5min TTL缓存(分享图/renderOverview复用)
       applyCollectTime(r.collected_at, r.collect_health); // 更新顶部时效badge
+      // 记录 collected_at 历史(单调递增去重), 用于预测下一次推完时刻
+      const t = _parseCollectAt(r.collected_at);
+      if (!isNaN(t)) {
+        const last = _overviewCollectHistory.length
+          ? _overviewCollectHistory[_overviewCollectHistory.length - 1] : NaN;
+        if (isNaN(last) || t > last) {
+          // 跨天/长中断(gap>30min)清空历史重攒, 防混合跨天数据污染中位数预测
+          if (!isNaN(last) && (t - last) > OVERVIEW_PERIOD_MAX_MS) _overviewCollectHistory = [];
+          _overviewCollectHistory.push(t);
+          if (_overviewCollectHistory.length > OVERVIEW_HISTORY_MAX) _overviewCollectHistory.shift();
+        }
+      }
     }
     // 检查snap是否收盘(复用fetchIntradaySnapshot单例, 2s超时避免阻塞)
     _intradaySnapPromise = null;
@@ -4717,13 +4790,17 @@ async function _doOverviewRefresh() {
       return;
     }
   } catch (e) { /* 静默重试, 不弹错 */ }
+  // 命中(新历史)或超时(窗口已过)都重算预测: 命中->用新历史预测下一轮; 超时->清空走低频兜底
+  _recomputeOverviewPrediction();
   _scheduleNextOverviewRefresh();
 }
 
-// visibilitychange: 切回tab且距上次>5min时立即刷新overview
+// visibilitychange: 切回tab, 高频窗口内或距上次>3min立即刷新overview
 function _onOverviewVisChange() {
   if (document.hidden || !_overviewRefreshActive) return;
-  if (Date.now() - _overviewLastFetch >= OVERVIEW_REFRESH_MS) {
+  const now = Date.now();
+  const inHighFreq = _overviewHighFreqStart && now >= _overviewHighFreqStart && now < _overviewHighFreqEnd;
+  if (inHighFreq || (now - _overviewLastFetch) >= OVERVIEW_REFRESH_MS) {
     _doOverviewRefresh();
   } else if (!_overviewRefreshTimer) {
     _scheduleNextOverviewRefresh();
@@ -4947,7 +5024,7 @@ async function renderOverview() {
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((res) => setTimeout(res, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
-  // 兜底启动 5min overview 轮询(覆盖切 tab/重渲染场景, 2026-07-27):
+  // 兜底启动 overview 自适应轮询(覆盖切 tab/重渲染场景, 2026-07-27):
   // 首屏 _initAutoRefresh 已由 fetchIntradaySnapshot 内回调启动; 但若用户开盘前打开页面(收盘态不启动),
   // 盘中切回概览 tab 时 renderOverview 兜底补启动. !_overviewRefreshActive 防重复启动.
   if (snap && snap.is_closed === false && !_overviewRefreshActive) {
