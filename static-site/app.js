@@ -3155,6 +3155,20 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       sigs = [...sigs, ...freezePts];
     }
     body.innerHTML = "";
+    // B2 方案B(2026-07-27): 走势图数据未同步到 T 日时提示 - 盘中 sw_/thsc_/cgb_ 等行业概念指数
+    // 的 -all.json 不更新(末日停 T-1),用户点首页 T 日 pin 弹窗看不到 T 日 K 线/pin。
+    // 触发: chartData 末日 < overview.date(T 日) = 数据未同步; 末日==T 日(已同步)不显示。
+    // 收盘后 update_all(17:50) 全量 export,所有指数 -all.json 同步到 T 日,提示自动消失。
+    const _ovB2 = _getCachedOverview();
+    const _todayDateB2 = _ovB2 && _ovB2.date ? _ovB2.date : "";
+    const _lastDateB2 = chartData && chartData.length ? chartData[chartData.length - 1].date : "";
+    if (_todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2) {
+      const _lagHint = document.createElement("div");
+      _lagHint.className = "sig-chart-lag-hint";
+      _lagHint.setAttribute("style", "margin-bottom:8px;padding:6px 10px;font-size:12px;color:#e6a23c;background:rgba(230,162,60,0.1);border:1px solid rgba(230,162,60,0.3);border-radius:4px;line-height:1.5;");
+      _lagHint.innerHTML = "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，T日(" + fmtDate(_todayDateB2) + ")的pin标注待收盘后(17:50)同步";
+      body.appendChild(_lagHint);
+    }
     const title = name + latestSuffix(chartData);
     if (isValue) valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts);
     else indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
@@ -5357,6 +5371,17 @@ async function renderOverview() {
   sigCard.className = "chart-card";
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · 今日高亮）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点");
   addCardTimeBadge(sigCard, r.date, snap, "t0");
+  // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
+  // (_SNAPSHOT_TO_INDEX_ID 只12个),盘中它们的 -all.json 不更新,首页看到的当日 buy/sell pin
+  // 点弹窗看不到 T 日 pin(K线末日还是 T-1)。加提示让用户知道收盘后 17:50 全对齐,非 bug。
+  // 触发: snap.is_closed===false(盘中) 且 有信号(r.signals_today 非空),收盘后/无信号不显示。
+  if (snap && snap.is_closed === false && Array.isArray(r.signals_today) && r.signals_today.length) {
+    const _sigIntradayHint = document.createElement("div");
+    _sigIntradayHint.className = "sig-intraday-hint";
+    _sigIntradayHint.setAttribute("style", "margin-top:8px;padding:6px 10px;font-size:11px;color:var(--text-3);background:rgba(230,162,60,0.08);border-left:3px solid #e6a23c;border-radius:3px;line-height:1.5;");
+    _sigIntradayHint.innerHTML = "⚠ 盘中：部分行业/概念指数的当日pin待收盘后(17:50)同步，9大指数+3港股已实时更新";
+    sigCard.appendChild(_sigIntradayHint);
+  }
   // 点击买卖点卡片弹窗：展示对应指数/品类走势图+买卖信号标注
   sigCard.addEventListener("click", (e) => {
     const item = e.target.closest(".sig-clickable");
