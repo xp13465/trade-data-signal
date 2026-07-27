@@ -154,27 +154,24 @@ echo "-> commit + push 数据 JSON 到 main（独立 work tree，持 deploy 锁�
   # 只 add 数据文件，不碰 app.js/style.css 等
   # period .gz 通配必加：write_json 生成 raw+.gz，rsync 进 worktree 后 .gz 也在，
   # 不 add 则 .gz 不进 commit 不 push，前端 fetchJSON 优先读 .gz = 读旧数据（停 7-21 根因）。
-  # sentiment-*.json.gz / hk-*.json.gz 通配已含 all/1y，故不再单列 sentiment-all/hk-1y 显式行。
+  # 大 range（all/5y/3y）+ global-extras-all 已 R2 托管（2026-07-24 commit 930c8eeb .gitignore 移出减58M），
+  # 通配 a-stock-*.json 等会撞 ignored 文件致 git add 返回非0 set -e 退出子shell（2026-07-27 故障根因 bug1）。
+  # 改精确文件列表只 add 小 range（3m/6m/1y + etf 1m），参考 deploy.sh DATA_FILES 模式（L188-221）。
   # index/ 已 R2 托管（2026-07-20 R2 阶段3 瘦身），本地 untracked 不进 git，由 upload_r2.py upload-index 刷 R2。
-  git add static-site/data/intraday_snapshot.json \
-          static-site/data/intraday_snapshot.json.gz \
-          static-site/data/schedule_stats.json \
-          static-site/data/schedule_stats.json.gz \
-          static-site/data/overview.json \
-          static-site/data/overview.json.gz \
-          static-site/data/sentiment-*.json \
-          static-site/data/sentiment-*.json.gz \
-          static-site/data/summary.json \
-          static-site/data/summary.json.gz \
-          static-site/data/summary_history.json \
-          static-site/data/hk-*.json \
-          static-site/data/hk-*.json.gz \
-          static-site/data/a-stock-*.json \
-          static-site/data/a-stock-*.json.gz \
-          static-site/data/global-*.json \
-          static-site/data/global-*.json.gz \
-          static-site/data/etf_national_team-*.json \
-          static-site/data/etf_national_team-*.json.gz
+  DATA_FILES=()
+  for _tab in a-stock hk global sentiment; do
+    for _rng in 3m 6m 1y; do
+      DATA_FILES+=("static-site/data/${_tab}-${_rng}.json" "static-site/data/${_tab}-${_rng}.json.gz")
+    done
+  done
+  for _rng in 1m 3m 6m 1y; do
+    DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
+  done
+  for _f in intraday_snapshot schedule_stats overview summary summary_history; do
+    DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
+  done
+  # 部分文件不存在时 git 报 fatal 但 || true 继续，不影响其余 add（参考 deploy.sh L221）
+  git add "${DATA_FILES[@]}" 2>&1 | tee -a "$LOG" || true
 
   # 清掉非 add 列表的 unstaged 残留(2026-07-24 根治 rebase 阻塞隐患):
   #   rsync -a 把 REPO/static-site/data/. 全量拷进 worktree,非 add 列表的 tracked 文件
@@ -264,7 +261,7 @@ echo "-> commit + push 数据 JSON 到 main（独立 work tree，持 deploy 锁�
 ' 2>&1
 PUSH_RC=$?
 if [ "$PUSH_RC" -ne 0 ]; then
-  echo "✗ commit/push 失败（退出码 $PUSH_RC），写 stderr 告警" | tee -a "$LOG" >&2
+  echo "✗ commit/push 失败（退出码 ${PUSH_RC}），写 stderr 告警" | tee -a "$LOG" >&2
   exit "$PUSH_RC"
 fi
 
