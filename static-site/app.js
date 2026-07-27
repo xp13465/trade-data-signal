@@ -3620,7 +3620,16 @@ function fetchIntradaySnapshot() {
   _intradaySnapPromise = (async () => {
     try {
       const snap = await fetchJSON("./data/intraday_snapshot.json");
-      if (snap && snap.indices) state.intradaySnapshot = snap;
+      if (snap && snap.indices) {
+        state.intradaySnapshot = snap;
+        // snap 就绪回调启动 5min overview 轮询(根治 2s 超时竞态, 2026-07-27):
+        // 旧版 _initAutoRefresh 用 Promise.race 2s 超时, 弱网/强刷首屏 snap 未就绪 -> 永不启动.
+        // 现在 snap 何时就绪何时启动, 无超时卡死. 收盘态(is_closed===true)不启动.
+        // _startOverviewRefresh 内部先 _stopOverviewRefresh 再置 active=true, 幂等可重复调.
+        if (!_overviewRefreshActive && snap.is_closed === false) {
+          _startOverviewRefresh();
+        }
+      }
     } catch (e) { /* 兜底不崩，保持空 */ }
   })();
   return _intradaySnapPromise;
@@ -3706,13 +3715,47 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
 }
 // 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
 // 同时加 has-time-badge 类，CSS 据此给标题预留 padding-right 防角标压文字
+// 2026-07-27: badge 元素打 data-badge-date/src/srckey 属性, 供 refreshCardTimeBadges 重绘.
 function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey) {
   if (!cardEl) return;
   const html = getCardTimeBadge(dataDate, snap, srcClass, srcKey);
   if (html) {
-    cardEl.insertAdjacentHTML("beforeend", html);
+    // 用临时 wrapper 解析出 badge 元素, 打上 data-* 参数后 append(避免 insertAdjacentHTML 无法加属性)
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    const badge = tmp.firstElementChild;
+    if (!badge) return;
+    badge.setAttribute("data-badge-date", dataDate || "");
+    badge.setAttribute("data-badge-src", srcClass || "t0");
+    if (srcKey) badge.setAttribute("data-badge-srckey", srcKey);
+    cardEl.appendChild(badge);
     cardEl.classList.add("has-time-badge");
   }
+}
+
+// 5min overview 轮询拉到新 snap 后, 重绘所有 addCardTimeBadge 添加的角标(根治 Bug2: 轮询不重绘卡片角标).
+// 遍历 .card-time-badge[data-badge-date], 用存的 (dataDate, srcClass, srcKey) + 新 snap 重算 HTML 并替换.
+// 安全性: T+1 角标走 getCardTimeBadge t1 分支, 永远返回 📅/⏳/🚨 + 自身 dataDate 的 mmdd(非 snap 实时时间),
+// 不会被误刷成实时时间; 只有 t0+intraday 角标会显 ⏰ 盘中·HH:MM(随 snap.datetime 变化, 正是要更新的).
+// 非 addCardTimeBadge 添加的 badge(如 L5184 🚨异常/L6734 半年报/L7113 期货报价时间)无 data-badge-date, 不被动.
+function refreshCardTimeBadges(snap) {
+  const _snap = snap || state.intradaySnapshot;
+  document.querySelectorAll(".card-time-badge[data-badge-date]").forEach((badge) => {
+    const dataDate = badge.getAttribute("data-badge-date") || "";
+    const srcClass = badge.getAttribute("data-badge-src") || "t0";
+    const srcKey = badge.getAttribute("data-badge-srckey") || "";
+    const newHTML = getCardTimeBadge(dataDate, _snap, srcClass, srcKey);
+    if (!newHTML) return;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = newHTML;
+    const newBadge = tmp.firstElementChild;
+    if (!newBadge) return;
+    // 保留 data-* 供下一轮重绘
+    newBadge.setAttribute("data-badge-date", dataDate);
+    newBadge.setAttribute("data-badge-src", srcClass);
+    if (srcKey) newBadge.setAttribute("data-badge-srckey", srcKey);
+    badge.replaceWith(newBadge);
+  });
 }
 
 // 数据停更标记：指标末日距今>STALE_DAYS 天，判为源端长期停更（非我们采集故障），灰色提示区别于滞后(黄)/异常(红)
@@ -4654,7 +4697,7 @@ function _scheduleNextOverviewRefresh() {
   }, OVERVIEW_REFRESH_MS);
 }
 
-// 执行一轮overview刷新: fetch overview.json + 更新采集时间badge + 检查收盘
+// 执行一轮overview刷新: fetch overview.json + 更新采集时间badge + 重绘卡片角标 + 检查收盘
 async function _doOverviewRefresh() {
   _overviewLastFetch = Date.now();
   try {
@@ -4667,6 +4710,8 @@ async function _doOverviewRefresh() {
     _intradaySnapPromise = null;
     try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 2000))]); } catch (e) {}
     const snap = state.intradaySnapshot;
+    // 重绘卡片角标(snap 更新后, T+0 盘中 HH:MM 变化 / T+1 分级可能变化). 收盘态也会先重绘(盘中->收盘切换).
+    if (snap) refreshCardTimeBadges(snap);
     if (snap && snap.is_closed === true) {
       _stopOverviewRefresh(); // 收盘自停
       return;
@@ -4686,10 +4731,12 @@ function _onOverviewVisChange() {
 }
 
 // 页面加载后初始化自动刷新: 等snap就绪判断盘中后启动overview轮询
+// 2026-07-27: snap 就绪回调已在 fetchIntradaySnapshot 内启动轮询(根治 2s 超时竞态),
+// 此处 await 不带超时(回调保证 snap 就绪即启动), 末尾兜底检查防回调漏触发.
 async function _initAutoRefresh() {
-  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 2000))]); } catch (e) {}
+  try { await fetchIntradaySnapshot(); } catch (e) {}
   const snap = state.intradaySnapshot;
-  if (snap && snap.is_closed === false) {
+  if (snap && snap.is_closed === false && !_overviewRefreshActive) {
     _startOverviewRefresh();
   }
 }
@@ -4900,6 +4947,12 @@ async function renderOverview() {
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((res) => setTimeout(res, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
+  // 兜底启动 5min overview 轮询(覆盖切 tab/重渲染场景, 2026-07-27):
+  // 首屏 _initAutoRefresh 已由 fetchIntradaySnapshot 内回调启动; 但若用户开盘前打开页面(收盘态不启动),
+  // 盘中切回概览 tab 时 renderOverview 兜底补启动. !_overviewRefreshActive 防重复启动.
+  if (snap && snap.is_closed === false && !_overviewRefreshActive) {
+    _startOverviewRefresh();
+  }
   content.innerHTML = "";
   renderPurposeNote(content, PURPOSE_NOTES["overview"]);
   // C6 综合风险预警条:high_alert>=72(高位红)/low_alert>=85(低位蓝)时顶部提示(异步,不阻塞渲染)
