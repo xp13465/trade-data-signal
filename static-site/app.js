@@ -3667,7 +3667,7 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
       if (snapDate && dataDate === snapDate) {
         return `<span class="card-time-badge t1-latest" data-tip="T+1数据源已采到今日(${mmdd}),属今天最新(已追平收盘日,非待更新)">📅 T+1·${mmdd}</span>`;
       }
-      return `<span class="card-time-badge t1" data-tip="T+1数据源已采到最新可得日期(${mmdd}),属正常(数据最新可得${mmdd},T+1源次日盘后补全)">📅 T+1·${mmdd}</span>`;
+      return `<span class="card-time-badge t1" data-tip="T+1数据源已采到最新可得日期(${mmdd}),属正常(数据最新可得${mmdd},T+1源下一交易日盘后补全,逢周末/节假日顺延)">📅 T+1·${mmdd}</span>`;
     }
     return `<span class="card-time-badge intraday" data-tip="收盘后定格,显示当日收盘数据(最新)">📍 收盘·${mmdd}</span>`;
   }
@@ -3839,7 +3839,7 @@ function _buildHealthSources(r, snap) {
   const margin = findM("a_fund_margin");
   if (margin && margin.date) {
     const f = _dataFreshness(margin.date, ptd, _t1Relax("a_fund_margin", intraday), shDate);
-    sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布较晚(实测22:10仍未出当日),当晚23:00单采+凌晨backfill兜底补齐" });
+    sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布较晚(实测22:10仍未出当日),当晚23:00单采+凌晨backfill兜底补齐(逢周末顺延到下一交易日)" });
   }
   // 北向资金 2024-08 起源端停更。停≤30天提示用户，>30天长期停更不再提醒（避免长期挂红条烦扰）。
   // 通用规则：任何源端停更的数据源均按此30天口径（与 isStaleMetric 同源日期差逻辑）。
@@ -3869,14 +3869,14 @@ function _buildHealthSources(r, snap) {
   //   overview 未暴露的取不到 date 时显示该源预估时点（像追剧有预期），不跳过。
   const spark = (r && r.indices_sparkline) || {};
   const EXTRA = [
-    { name: "商品", mid: "gold", hint: "黄金/原油等商品期货T+1,源端(新浪期货)次日盘后发布,15:30收盘后显示昨日属正常,次日盘后更新当日", def: "📅 次日盘后" },
-    { name: "国债", mid: "cn10y", hint: "国债收益率T+1,中债/美债盘后次日发布,美债更滞后(常停T-3)", def: "📅 次日盘后" },
-    { name: "龙虎榜", mid: "lhb_count", hint: "龙虎榜T+1,东财盘后次日发布,当日18点后更新当日", def: "📅 当日18点后" },
-    { name: "期货持仓", mid: null, dateKey: "futures_date", hint: "CFFEX期货机构持仓T+1,次日盘后发布,次日20:00后更新当日", def: "📅 次日20点后" },
-    { name: "ETF国家队", mid: null, dateKey: "etf_date", hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日", def: "📅 次日22点+" },
-    { name: "中国波指", mid: "a_qvix_300", hint: "中国波指(期权隐含波动率)T+1,源端盘后次日发布", def: "📅 次日盘后" },
-    { name: "红利指数", iid: "csi_div", dateKey: "csi_div_date", hint: "红利指数T+1,中证指数公司盘后次日发布", def: "📅 次日盘后" },
-    { name: "美股", iid: "us_dji", dateKey: "us_dji_date", hint: "美股指数时区滞后,美东21:30开盘(北京),次日晨才出当日收盘,当前显示T-1属正常", def: "📅 次日晨(T-1)" },
+    { name: "商品", mid: "gold", hint: "黄金/原油等商品期货T+1,源端(新浪期货)次日盘后发布,15:30收盘后显示昨日属正常,次日盘后更新当日(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
+    { name: "国债", mid: "cn10y", hint: "国债收益率T+1,中债/美债盘后次日发布,美债更滞后(常停T-3)(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
+    { name: "龙虎榜", mid: "lhb_count", hint: "龙虎榜T+1,东财盘后次日发布,当日18点后更新当日(逢周末顺延到下一交易日)", def: "📅 当日18点后" },
+    { name: "期货持仓", mid: null, dateKey: "futures_date", hint: "CFFEX期货机构持仓T+1,次日盘后发布,次日20:00后更新当日(逢周末顺延到下一交易日)", def: "📅 次日20点后" },
+    { name: "ETF国家队", mid: null, dateKey: "etf_date", hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日(逢周末顺延到下一交易日)", def: "📅 次日22点+" },
+    { name: "中国波指", mid: "a_qvix_300", hint: "中国波指(期权隐含波动率)T+1,源端盘后次日发布(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
+    { name: "红利指数", iid: "csi_div", dateKey: "csi_div_date", hint: "红利指数T+1,中证指数公司盘后次日发布(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
+    { name: "美股", iid: "us_dji", dateKey: "us_dji_date", hint: "美股指数时区滞后,美东21:30开盘(北京),次日晨才出当日收盘,当前显示T-1属正常(周末顺延到下一交易日)", def: "📅 次日晨(T-1)" },
   ];
   EXTRA.forEach((cfg) => {
     let dateStr = "";
@@ -6184,7 +6184,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   // ▼ T+1 提示行：让用户知道国家队份额为何停 T-1 ▼
   var t1Hint = document.createElement("div");
   t1Hint.className = "nt-t1-hint";
-  t1Hint.textContent = "⏳ ETF份额数据为T+1：上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日";
+  t1Hint.textContent = "⏳ ETF份额数据为T+1：上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日(逢周末顺延到下一交易日)";
   if (lastShareMissing) {
     var netEstTxt = (last.netAddEstimated)
       ? "净增持额按持仓市值差分预估(含价格波动,待份额公布后更新真实值)"
@@ -8259,7 +8259,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     _attachMarketScoreCard(id, idx.name, cell);
     // 行业绿色(最新)档专属 tip（补充申万/baostock 源说明）；滞后/异常档保留通用 tip
     const _indBdg = cell.querySelector(".card-time-badge.intraday");
-    if (_indBdg) _indBdg.setAttribute("data-tip", "行业指数T+1(申万/baostock收盘后次日补全),已更新到最新交易日");
+    if (_indBdg) _indBdg.setAttribute("data-tip", "行业指数T+1(申万/baostock收盘后次日补全,逢周末顺延到下一交易日),已更新到最新交易日");
     const chartDom = cell.querySelector(".spark-chart");
     const exist = echarts.getInstanceByDom(chartDom);
     if (exist) exist.dispose();
@@ -10960,7 +10960,7 @@ function updateRulesContentHtml() {
     '<div class="rule-section">' +
       '<h4>🏷️ 卡片角标时效分级</h4>' +
       '<ul class="ur-list">' +
-        '<li>📅 <b>T+1·MM-DD（灰）</b>：正常。数据源盘后T+1公布，公开平台（行情软件）也才到这个日期，次日才更新</li>' +
+        '<li>📅 <b>T+1·MM-DD（灰）</b>：正常。数据源盘后T+1公布，公开平台（行情软件）也才到这个日期，下一交易日才更新（逢周末/节假日顺延）</li>' +
         '<li>⏰ <b>盘中·HH:MM（绿）/ 午休（黄）</b>：实时。A股/港股指数盘中动态拉取，约3分钟刷新</li>' +
         '<li>📍 <b>收盘·MM-DD（主题色）</b>：收盘后归档，数据正常时显示；若滞后则切换为⚠/🚨</li>' +
         '<li>⚠ <b>滞后·MM-DD（黄）</b>：异常。该数据应T+1更新但已滞后（hover 可见天数），公开平台已有更新但我们没采到</li>' +
