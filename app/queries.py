@@ -879,13 +879,15 @@ def futures_data(conn):
     for d in sorted(_acc_by_date.keys()):
         acc_history.append({"date": d, **_acc_by_date[d]})
 
-    # 中信/机构 4品种合计净加仓 15天明细：最近15个交易日合计净加仓方向 vs 上证50次日涨跌
+    # 中信/机构/国泰君安 4品种合计净加仓 15天明细：最近15个交易日合计净加仓方向 vs 上证50次日涨跌
     citic_ih_detail = compute_role_ih_detail(role="中信期货", n_days=15)
     inst_ih_detail = compute_role_ih_detail(role="top20", n_days=15)
+    guotai_ih_detail = compute_role_ih_detail(role="国泰君安", n_days=15)
 
     return {"summary": summary, "positions": positions, "positions_ratio": positions_ratio,
             "accuracy": accuracy, "accuracy_history": acc_history, "latest_bet": latest_bet,
-            "citic_ih_detail": citic_ih_detail, "inst_ih_detail": inst_ih_detail}
+            "citic_ih_detail": citic_ih_detail, "inst_ih_detail": inst_ih_detail,
+            "guotai_ih_detail": guotai_ih_detail}
 
 
 def ad_line(conn):

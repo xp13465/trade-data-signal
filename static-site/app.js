@@ -7913,102 +7913,6 @@ function renderFuturesSection(data, snap, container) {
   fgGrid.className = "indices-grid";
   _fgHost.appendChild(fgGrid);
 
-  // 1. 昨日净多空概览卡片
-  if (data.summary && data.summary.roles) {
-    const div = document.createElement("div");
-    div.className = "chart-card futures-table-card";
-    const dateStr = data.summary.date || "";
-    const dateSuffix = dateStr ? `<span class="chart-latest"> · ${fmtDate(dateStr)}</span>` : "";
-    let html = `<h3>昨日净多空（万手）${dateSuffix}</h3>`;
-    html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
-    for (const role of roles) html += `<th>${role}</th>`;
-    html += '</tr></thead><tbody>';
-    for (const prod of products) {
-      html += `<tr><td class="sym-name">${prod}</td>`;
-      for (const role of roles) {
-        const v = (data.summary.roles[role] || {})[prod];
-        const cls = v > 0 ? "futures-long" : v < 0 ? "futures-short" : "";
-        const sign = v > 0 ? "+" : "";
-        html += `<td class="${cls}">${v != null ? sign + (v / 10000).toFixed(1) + "万手" : "-"}</td>`;
-      }
-      html += '</tr>';
-    }
-    html += '</tbody></table>';
-    html += '<div class="term-plain">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
-    html += '<div class="futures-reverse-note">⚠ 机构持仓极端值常为<strong>反向参考</strong>（机构极度看多时可能见顶、极度看空时可能见底），需结合历史准确率与市场位置判断，不可单看净持仓方向顺势操作。</div>';
-    div.innerHTML = html;
-    fgGrid.appendChild(div);
-    addCardTimeBadge(div, dateStr, snap, "t1", "futures_date");
-  }
-
-  // 2. 历史准确率表格（移到综合图前面）
-  if (data.accuracy) {
-    const div = document.createElement("div");
-    div.className = "chart-card futures-table-card";
-    const windows = ["7d", "15d", "30d", "60d", "120d"];
-    const accDates = (data.positions || []).map(p => p.date).filter(Boolean).sort();
-    const accDateSuffix = accDates.length ? `<span class="chart-latest"> · ${fmtDate(accDates[accDates.length - 1])}</span>` : "";
-    let html = `<h3>历史同向/逆向准确率（次工作日涨跌）${accDateSuffix}</h3>`;
-    html += '<div class="futures-note">同向=跟随机构方向做多/做空；逆向=反向操作。滚动窗口统计，不构成未来预测。数据来源：中金所前20会员持仓。</div>';
-    html += '<table class="accuracy-table"><thead><tr><th>滚动窗口</th>';
-    for (const role of roles) html += `<th>${role}</th>`;
-    html += '</tr></thead><tbody>';
-    for (const win of windows) {
-      html += `<tr><td class="sym-name">${win}</td>`;
-      for (const role of roles) {
-        const acc = (data.accuracy[role] || {})[win];
-        if (acc) {
-          const f = acc.follow != null ? Math.round(acc.follow * 100) : null;
-          const c = acc.contrarian != null ? Math.round(acc.contrarian * 100) : null;
-          const fCls = f != null && f > 55 ? "acc-good" : "";
-          const cCls = c != null && c > 55 ? "acc-warn" : "";
-          html += `<td><span class="${fCls}">同${f != null ? f + "%" : "-"}</span> <span class="${cCls}">逆${c != null ? c + "%" : "-"}</span></td>`;
-        } else {
-          html += '<td>-</td>';
-        }
-      }
-      html += '</tr>';
-    }
-    // 当期方向+实际涨跌行：net_direction(红多绿空) + actual_return(涨跌)
-    html += `<tr><td class="sym-name"><span class="term-tip" data-tip="机构最新持仓方向(多/空)及对应指数实际涨跌幅。多+涨/空+跌=赌对方向，反之赌错。actual_return待收盘次日更新">当期方向❓</span></td>`;
-    for (const role of roles) {
-      const acc = data.accuracy[role] || {};
-      let dir = acc.net_direction;
-      let ret = acc.actual_return;
-      // 最新日期 actual_return 常为 null(待收盘)，回退到最近已完成的方向+涨跌
-      let betDate = "";
-      if (ret == null && data.latest_bet && data.latest_bet[role]) {
-        const lb = data.latest_bet[role];
-        dir = lb.net_direction;
-        ret = lb.actual_return;
-        betDate = lb.date ? `(${lb.date.slice(4, 6)}/${lb.date.slice(6, 8)})` : "";
-      }
-      if (dir != null) {
-        const dirText = dir === "long" ? "多" : dir === "short" ? "空" : dir;
-        const dirColor = dir === "long" ? "#e6492e" : "#2e8b57";
-        let retStr = "待收盘";
-        let retColor = "var(--text-3)";
-        let judge = "";
-        if (ret != null) {
-          retStr = (ret >= 0 ? "+" : "") + ret.toFixed(2) + "%";
-          retColor = ret >= 0 ? "#e6492e" : "#2e8b57";
-          // 赌对方向：多+涨 / 空+跌
-          const correct = (dir === "long" && ret >= 0) || (dir === "short" && ret < 0);
-          judge = correct ? " ✓" : " ✗";
-        }
-        html += `<td><span style="color:${dirColor}">${dirText}</span> <span style="color:${retColor}">${retStr}</span>${betDate}<span style="color:${ret != null ? (ret >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-3)"}">${judge}</span></td>`;
-      } else {
-        html += '<td>-</td>';
-      }
-    }
-    html += '</tr>';
-    html += '</tbody></table>';
-    html += '<div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
-    div.innerHTML = html;
-    fgGrid.appendChild(div);
-    addCardTimeBadge(div, accDates.length ? accDates[accDates.length - 1] : "", snap, "t1", "futures_date");
-  }
-
   // 2.5 中信/机构 4品种合计净加仓 15天明细表（拆成两类：准确率合并表×1 + 净加多空表×2）
   // 需求2合并: 中信+机构 多空单同向准确率合并表（7列：日期|中信方向|中信次日涨跌|中信对错|机构方向|机构次日涨跌|机构对错）
   const _renderMergedAccuracyCard = (citicCd, instCd, host, sharedDates) => {
@@ -8113,7 +8017,7 @@ function renderFuturesSection(data, snap, container) {
     (host || fgGrid).appendChild(div);
     addCardTimeBadge(div, latestDetailDate, snap, "t1", "futures_date");
   };
-  // 需求3布局: 3张表（准确率合并表 + 中信净加表 + 机构净加表）横向并排，等高+日期行对齐
+  // 需求3布局: 3张表（中信净加表 + 机构净加表 + 准确率合并表）横向并排，等高+日期行对齐 -- 期货tab前3位置
   const _renderTripleCards = (citicCd, instCd) => {
     if (!citicCd && !instCd) return;
     // 3表共享日期并集（升序），保证3表同日期同一行水平对齐
@@ -8125,20 +8029,120 @@ function renderFuturesSection(data, snap, container) {
     wrapper.className = "futures-triple-grid";
     fgGrid.appendChild(wrapper);
     // 3张表渲染到同一 wrapper（横向并排），共享 sharedDates 保证行对齐
-    _renderMergedAccuracyCard(citicCd, instCd, wrapper, sharedDates);
+    // 顺序：①中信净加多空 ②机构净加多空 ③中信/机构多空单同向准确率合并表
     _renderRoleNetChgCard(citicCd, "中信", "最近15个交易日中信期货4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天(727)置顶高亮。", wrapper, sharedDates);
     _renderRoleNetChgCard(instCd, "机构", "最近15个交易日机构(前20会员)4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天(727)置顶高亮。", wrapper, sharedDates);
+    _renderMergedAccuracyCard(citicCd, instCd, wrapper, sharedDates);
   };
-  // 2.5.0 当日净加对照表（中信 vs 机构 4品种净加并排对照，最新交易日727置顶最显眼位置）
-  const _renderDailyNetCompareCard = (citicD, instD) => {
+  _renderTripleCards(data.citic_ih_detail, data.inst_ih_detail);
+
+  // 1. 昨日净多空概览卡片
+  if (data.summary && data.summary.roles) {
+    const div = document.createElement("div");
+    div.className = "chart-card futures-table-card";
+    const dateStr = data.summary.date || "";
+    const dateSuffix = dateStr ? `<span class="chart-latest"> · ${fmtDate(dateStr)}</span>` : "";
+    let html = `<h3>昨日净多空（万手）${dateSuffix}</h3>`;
+    html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
+    for (const role of roles) html += `<th>${role}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const prod of products) {
+      html += `<tr><td class="sym-name">${prod}</td>`;
+      for (const role of roles) {
+        const v = (data.summary.roles[role] || {})[prod];
+        const cls = v > 0 ? "futures-long" : v < 0 ? "futures-short" : "";
+        const sign = v > 0 ? "+" : "";
+        html += `<td class="${cls}">${v != null ? sign + (v / 10000).toFixed(1) + "万手" : "-"}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    html += '<div class="term-plain">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
+    html += '<div class="futures-reverse-note">⚠ 机构持仓极端值常为<strong>反向参考</strong>（机构极度看多时可能见顶、极度看空时可能见底），需结合历史准确率与市场位置判断，不可单看净持仓方向顺势操作。</div>';
+    div.innerHTML = html;
+    fgGrid.appendChild(div);
+    addCardTimeBadge(div, dateStr, snap, "t1", "futures_date");
+  }
+
+  // 2. 历史准确率表格（移到综合图前面）
+  if (data.accuracy) {
+    const div = document.createElement("div");
+    div.className = "chart-card futures-table-card";
+    const windows = ["7d", "15d", "30d", "60d", "120d"];
+    const accDates = (data.positions || []).map(p => p.date).filter(Boolean).sort();
+    const accDateSuffix = accDates.length ? `<span class="chart-latest"> · ${fmtDate(accDates[accDates.length - 1])}</span>` : "";
+    let html = `<h3>历史同向/逆向准确率（次工作日涨跌）${accDateSuffix}</h3>`;
+    html += '<div class="futures-note">同向=跟随机构方向做多/做空；逆向=反向操作。滚动窗口统计，不构成未来预测。数据来源：中金所前20会员持仓。</div>';
+    html += '<table class="accuracy-table"><thead><tr><th>滚动窗口</th>';
+    for (const role of roles) html += `<th>${role}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const win of windows) {
+      html += `<tr><td class="sym-name">${win}</td>`;
+      for (const role of roles) {
+        const acc = (data.accuracy[role] || {})[win];
+        if (acc) {
+          const f = acc.follow != null ? Math.round(acc.follow * 100) : null;
+          const c = acc.contrarian != null ? Math.round(acc.contrarian * 100) : null;
+          const fCls = f != null && f > 55 ? "acc-good" : "";
+          const cCls = c != null && c > 55 ? "acc-warn" : "";
+          html += `<td><span class="${fCls}">同${f != null ? f + "%" : "-"}</span> <span class="${cCls}">逆${c != null ? c + "%" : "-"}</span></td>`;
+        } else {
+          html += '<td>-</td>';
+        }
+      }
+      html += '</tr>';
+    }
+    // 当期方向+实际涨跌行：net_direction(红多绿空) + actual_return(涨跌)
+    html += `<tr><td class="sym-name"><span class="term-tip" data-tip="机构最新持仓方向(多/空)及对应指数实际涨跌幅。多+涨/空+跌=赌对方向，反之赌错。actual_return待收盘次日更新">当期方向❓</span></td>`;
+    for (const role of roles) {
+      const acc = data.accuracy[role] || {};
+      let dir = acc.net_direction;
+      let ret = acc.actual_return;
+      // 最新日期 actual_return 常为 null(待收盘)，回退到最近已完成的方向+涨跌
+      let betDate = "";
+      if (ret == null && data.latest_bet && data.latest_bet[role]) {
+        const lb = data.latest_bet[role];
+        dir = lb.net_direction;
+        ret = lb.actual_return;
+        betDate = lb.date ? `(${lb.date.slice(4, 6)}/${lb.date.slice(6, 8)})` : "";
+      }
+      if (dir != null) {
+        const dirText = dir === "long" ? "多" : dir === "short" ? "空" : dir;
+        const dirColor = dir === "long" ? "#e6492e" : "#2e8b57";
+        let retStr = "待收盘";
+        let retColor = "var(--text-3)";
+        let judge = "";
+        if (ret != null) {
+          retStr = (ret >= 0 ? "+" : "") + ret.toFixed(2) + "%";
+          retColor = ret >= 0 ? "#e6492e" : "#2e8b57";
+          // 赌对方向：多+涨 / 空+跌
+          const correct = (dir === "long" && ret >= 0) || (dir === "short" && ret < 0);
+          judge = correct ? " ✓" : " ✗";
+        }
+        html += `<td><span style="color:${dirColor}">${dirText}</span> <span style="color:${retColor}">${retStr}</span>${betDate}<span style="color:${ret != null ? (ret >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-3)"}">${judge}</span></td>`;
+      } else {
+        html += '<td>-</td>';
+      }
+    }
+    html += '</tr>';
+    html += '</tbody></table>';
+    html += '<div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
+    div.innerHTML = html;
+    fgGrid.appendChild(div);
+    addCardTimeBadge(div, accDates.length ? accDates[accDates.length - 1] : "", snap, "t1", "futures_date");
+  }
+
+  // 2.5.0 当日净加对照表（中信 vs 机构 vs 国泰君安 4品种净加并排对照，最新交易日727置顶最显眼位置）
+  const _renderDailyNetCompareCard = (citicD, instD, guotaiD) => {
     if (!citicD || !instD || !citicD.details || !citicD.details.length || !instD.details || !instD.details.length) return;
     const citicLatest = citicD.details[citicD.details.length - 1];
     const instLatest = instD.details[instD.details.length - 1];
+    const guotaiLatest = (guotaiD && guotaiD.details && guotaiD.details.length) ? guotaiD.details[guotaiD.details.length - 1] : null;
     const latestDate = citicLatest.date || instLatest.date;
     const div = document.createElement("div");
     div.className = "chart-card futures-table-card";
     let html = `<h3>当日净加对照（${fmtDate(latestDate)}）</h3>`;
-    html += `<div class="futures-note">中信期货 vs 机构前20 在 ${fmtDate(latestDate)} 当日 上证50/沪深300/中证500/中证1000 4品种净加仓并排对照，一眼看两套数据方向。次日涨跌待收盘后回填统计准确率。</div>`;
+    html += `<div class="futures-note">中信期货 vs 机构前20 vs 国泰君安 在 ${fmtDate(latestDate)} 当日 上证50/沪深300/中证500/中证1000 4品种净加仓并排对照，一眼看三套数据方向。次日涨跌待收盘后回填统计准确率。</div>`;
     html += '<table class="accuracy-table"><thead><tr><th>角色</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th></tr></thead><tbody>';
     const cmpChgColor = (v) => v != null ? (v >= 0 ? "#2e8b57" : "#e6492e") : "var(--text-3)";
     const cmpChgStr = (v) => v != null ? (v >= 0 ? "+" : "") + Math.round(v) : "-";
@@ -8150,14 +8154,14 @@ function renderFuturesSection(data, snap, container) {
     };
     renderRow("中信期货", citicLatest);
     renderRow("机构前20", instLatest);
+    if (guotaiLatest) renderRow("国泰君安", guotaiLatest);
     html += '</tbody></table>';
-    html += '<div class="term-plain">净加=多头增减-空头增减(手)。合计=上证50+沪深300+中证500+中证1000。多(红)/空(绿)按当日4品种合计净加方向。两套数据方向一致=共振信号，不一致=分歧。</div>';
+    html += '<div class="term-plain">净加=多头增减-空头增减(手)。合计=上证50+沪深300+中证500+中证1000。多(红)/空(绿)按当日4品种合计净加方向。三套数据方向一致=共振信号，不一致=分歧。</div>';
     div.innerHTML = html;
     fgGrid.appendChild(div);
     addCardTimeBadge(div, latestDate, snap, "t1", "futures_date");
   };
-  _renderDailyNetCompareCard(data.citic_ih_detail, data.inst_ih_detail);
-  _renderTripleCards(data.citic_ih_detail, data.inst_ih_detail);
+  _renderDailyNetCompareCard(data.citic_ih_detail, data.inst_ih_detail, data.guotai_ih_detail);
 
   // 3. 四张折线图：net_position 手数趋势
 
