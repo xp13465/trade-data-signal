@@ -3,53 +3,53 @@
     "task": "update_all",
     "name": "收盘全量",
     "schedule": "17:50",
-    "est_text": "约28分钟",
-    "last_run": "2026-07-25 17:50",
+    "est_text": "约26分钟",
+    "last_run": "2026-07-26 17:50",
     "last_exit": 0,
-    "last_duration_sec": 514
+    "last_duration_sec": 294
   },
   {
     "task": "backfill_evening",
     "name": "指数补采兜底",
     "schedule": "16:35 / 02:00",
-    "est_text": "约31分钟",
-    "last_run": "2026-07-26 16:35",
+    "est_text": "约29分钟",
+    "last_run": "2026-07-27 02:00",
     "last_exit": 0,
-    "last_duration_sec": 694
+    "last_duration_sec": 602
   },
   {
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
-    "est_text": "约0秒",
-    "last_run": "2026-07-26 15:05",
+    "est_text": "约17秒",
+    "last_run": "2026-07-27 10:35",
     "last_exit": 0,
-    "last_duration_sec": 1
+    "last_duration_sec": 79
   },
   {
     "task": "futures_backfill",
     "name": "期货机构持仓",
     "schedule": "20:05 + 21:00(兜底)",
     "est_text": "约13分钟",
-    "last_run": "2026-07-25 21:00",
+    "last_run": "2026-07-26 21:00",
     "last_exit": 0,
-    "last_duration_sec": 1
+    "last_duration_sec": 0
   },
   {
     "task": "lhb_backfill",
     "name": "龙虎榜",
     "schedule": "18:30 + 19:30(兜底)",
     "est_text": "约17分钟",
-    "last_run": "2026-07-25 19:30",
+    "last_run": "2026-07-26 19:30",
     "last_exit": 0,
-    "last_duration_sec": 0
+    "last_duration_sec": 1
   },
   {
     "task": "rzhb_backfill",
     "name": "两融",
     "schedule": "19:15",
     "est_text": "约1秒",
-    "last_run": "2026-07-25 19:15",
+    "last_run": "2026-07-26 19:15",
     "last_exit": 0,
     "last_duration_sec": 0
   },
@@ -67,7 +67,7 @@
     "name": "策略实验室",
     "schedule": "19:00",
     "est_text": "约3分钟",
-    "last_run": "2026-07-25 19:00",
+    "last_run": "2026-07-26 19:00",
     "last_exit": 0,
     "last_duration_sec": 0
   }
