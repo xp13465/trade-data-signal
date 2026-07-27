@@ -674,6 +674,11 @@ main { padding: 16px 24px; }
 .sig-clickable { cursor: pointer; transition: background 0.12s; border-radius: 4px; padding: 1px 3px; margin: -1px -3px; }
 .sig-clickable:hover { background: var(--primary-bg); }
 .sig-clickable:active { background: var(--primary-bg); }
+/* 盘中预估信号强提醒：今日+盘中的pin收盘后(17:50)重算定版可能消失/变动，
+   挂⚠角标(警示橙#e6a23c，温和不刺眼)+橙色描边让用户一眼识别"这个pin可能没"。
+   收盘后(is_closed=true)/非今日pin不带此标记(已定版不消失)。 */
+.sig-clickable.sig-intraday { box-shadow: 0 0 0 1.5px rgba(230,162,60,0.55); }
+.sig-intraday-warn { color: #e6a23c; font-size: 11px; margin-left: 2px; vertical-align: super; line-height: 0; cursor: help; }
 /* 通用隐藏类（rule-modal 等复用） */
 .hidden { display: none !important; }
 .muted { color: var(--text-3); }
