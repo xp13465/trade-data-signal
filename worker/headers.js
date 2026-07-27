@@ -56,15 +56,24 @@ const CACHE_RULES = [
     match: p => p.startsWith('/data/index/'),
     cc: 'public, max-age=600',
   },
-  // 5) 历史 K线/全量/长周期 + 策略实验室 + 行业3y/5y/all-indices：1 小时
-  //    这些每天收盘才更新一次，1h 缓存既省回源又保证当日数据最迟 1h 内刷到 CDN。
+  // 5a) 盘中要快的小周期 K线(3m/6m/1y)：60 秒
+  //     盘中每 15min 推新 a-stock/hk/global/sentiment-{3m,6m,1y}.json，
+  //     原 1h 边缘缓存致盘中用户看到 1h 前数据；改 60s 根治盘中延迟。
+  //     60s 多回源几次无害(CF 免费额度 100k/天够用)。
+  //     注：-1m.json 已由规则3命中 max-age=60，此处不重复。
+  {
+    match: p => /-(3m|6m|1y)(-\w+)?\.json$/.test(p),
+    cc: 'public, max-age=60',
+  },
+  // 5b) 历史 K线/全量/长周期(3y/5y/all) + 策略实验室 + 行业3y/5y/all-indices：1 小时
+  //     这些每天收盘才更新一次，1h 缓存既省回源又保证当日数据最迟 1h 内刷到 CDN。
   {
     match: p =>
       p.startsWith('/data/lab/') ||
       p.startsWith('/data/industry-3y-indices/') ||
       p.startsWith('/data/industry-5y-indices/') ||
       p.startsWith('/data/industry-all-indices/') ||
-      /-(3m|6m|1y|3y|5y|all)(-\w+)?\.json$/.test(p),
+      /-(3y|5y|all)(-\w+)?\.json$/.test(p),
     cc: 'public, max-age=3600',
   },
   // 6) 兜底：private+每次验证（未知路径不应被 CF 边缘缓存）

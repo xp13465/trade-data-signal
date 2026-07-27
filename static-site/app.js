@@ -2263,17 +2263,31 @@ async function fetchJSON(url) {
   // 失败(404/解压错/不支持)fallback 原 .json。仅对 ./data/*.json 静态资源启用(跳过 /api/* 和外链 https://)
   // 支持 url 带 query string(如 ?v=xxx): .gz 插在 .json 后 query 前
   // 方案Y: export.py GZ_THRESHOLD=0 全量生成 .gz(含小文件),.gz 优先不再 404
+  // cache-busting(2026-07-27): 时效敏感URL(_NO_CACHE_URLS匹配)加 ?_=Date.now() 绕过浏览器HTTP缓存;
+  //   CF Workers Static Assets 忽略 query string 仍HIT同path, 但 raw .json 走 worker max-age=60规则,
+  //   60s后CF边缘缓存过期向R2拉新; .gz走worker兜底无max-age(TTL不可控), 时效敏感URL跳过.gz优先。
+  //   cache模式: 时效敏感用no-store(浏览器不读HTTP缓存每次发GET), 其他用no-cache(条件请求省带宽)
+  const _isFresh = _NO_CACHE_URLS.test(url);
   const _qIdx = url.indexOf("?");
   const _base = _qIdx >= 0 ? url.slice(0, _qIdx) : url;
-  const _query = _qIdx >= 0 ? url.slice(_qIdx) : "";
+  const _origQuery = _qIdx >= 0 ? url.slice(_qIdx) : "";
+  // cache-busting query: 时效敏感URL追加 _=Date.now() (CF忽略但浏览器URL不同不读HTTP缓存)
+  const _bustQuery = _isFresh
+    ? (_origQuery ? _origQuery + "&_=" + Date.now() : "?_=" + Date.now())
+    : _origQuery;
   // R2 全迁后 ./data/ 与 https://ssd.fx8.store/ 均走 .gz 优先(DecompressionStream 解压)
-  const tryGz = (_base.startsWith("./data/") || _base.startsWith("https://ssd.fx8.store/")) && _base.endsWith(".json");
-  const gzUrl = tryGz ? _base + ".gz" + _query : null;
+  // 时效敏感URL跳过.gz(.gz走worker兜底无max-age CF边缘TTL不可控; raw .json有max-age=60)
+  const tryGz = !_isFresh && (_base.startsWith("./data/") || _base.startsWith("https://ssd.fx8.store/")) && _base.endsWith(".json");
+  const gzUrl = tryGz ? _base + ".gz" + _bustQuery : null;
+  // 实际请求URL(带cache-busting): 时效敏感用_bustQuery, 其他用原query
+  const _fetchUrl = _base + _bustQuery;
   const controller = new AbortController();
   const slowTimer = setTimeout(() => controller.abort(), 15000);
   // cache: 'no-cache' 走条件请求(带 If-None-Match/If-Modified-Since), 绕过 R2 .gz 的 cache-control: max-age=14400 强制缓存
   // 否则 stats 等数据更新后浏览器仍读 4h 旧缓存 (2026-07-22 csi_div tooltip 显示旧版 sell_stop_loss n 而非新版 86 的根因)
-  const doFetch = (u) => fetch(u, { signal: controller.signal, cache: "no-cache" })
+  // 时效敏感URL用no-store(浏览器完全不读HTTP缓存每次发GET, 避免CF HIT旧etag返回304浏览器读旧缓存)
+  const _cacheMode = _isFresh ? "no-store" : "no-cache";
+  const doFetch = (u) => fetch(u, { signal: controller.signal, cache: _cacheMode })
     .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status + " " + u); return r; });
   const p = (async () => {
     let resp;
@@ -2287,7 +2301,7 @@ async function fetchJSON(url) {
         const txt = await new Response(decompressed).text();
         return JSON.parse(txt);
       }
-      resp = await doFetch(url);
+      resp = await doFetch(_fetchUrl);
       return await resp.json();
     } catch (e) {
       // .gz 失败(404/解压错/不支持) -> fallback 原 .json(只对原本就是 .gz 尝试的 URL)
@@ -4544,6 +4558,7 @@ async function _doIntradayRefresh() {
   if (curSnap && curSnap.is_closed === true) {
     _onMarketClosed(); // 先恢复 badge/chips/时间为收盘态（需 _bannerRenderCtx 未置空）
     _stopIntradayRefresh();
+    _stopOverviewRefresh(); // 联动停止 overview 5min 轮询（收盘数据不变）
     return;
   }
   ctx.snap = curSnap;
@@ -4582,6 +4597,85 @@ function _onIntradayVisChange() {
     _doIntradayRefresh();
   } else if (!_intradayRefreshTimer) {
     _scheduleNextRefresh();
+  }
+}
+
+// ============ 盘中 overview 轮询（5min，更新采集时间badge + overview缓存） ============
+// 独立于3min分时轮询(_startIntradayRefresh): 分时轮询拉腾讯API更新badge/chips/分时图,
+// overview轮询拉overview.json更新顶部采集时间badge(_renderCollectTime)+_overviewCache.
+// 盘中(is_closed===false)才启动, 收盘自停. visibilitychange切回tab距上次>5min立即刷新.
+// cache-busting: fetchJSON对时效敏感URL(overview匹配_NO_CACHE_URLS)已加?_=Date.now()+cache:no-store,
+//   绕过浏览器HTTP缓存 + CF 60s边缘缓存过期后向R2拉新, 无需手动Cmd+Shift+R强刷.
+const OVERVIEW_REFRESH_MS = 5 * 60 * 1000; // 5分钟
+let _overviewRefreshTimer = null;
+let _overviewLastFetch = 0;
+let _overviewRefreshActive = false;
+let _overviewVisBound = false;
+
+function _startOverviewRefresh() {
+  _stopOverviewRefresh();
+  _overviewRefreshActive = true;
+  _overviewLastFetch = Date.now();
+  _scheduleNextOverviewRefresh();
+  if (!_overviewVisBound) {
+    _overviewVisBound = true;
+    document.addEventListener("visibilitychange", _onOverviewVisChange);
+  }
+}
+
+function _stopOverviewRefresh() {
+  _overviewRefreshActive = false;
+  if (_overviewRefreshTimer) { clearTimeout(_overviewRefreshTimer); _overviewRefreshTimer = null; }
+}
+
+function _scheduleNextOverviewRefresh() {
+  if (!_overviewRefreshActive) return;
+  if (_overviewRefreshTimer) clearTimeout(_overviewRefreshTimer);
+  _overviewRefreshTimer = setTimeout(() => {
+    _overviewRefreshTimer = null;
+    if (!_overviewRefreshActive) return;
+    if (document.hidden) { _scheduleNextOverviewRefresh(); return; } // 页面不可见时跳过
+    _doOverviewRefresh();
+  }, OVERVIEW_REFRESH_MS);
+}
+
+// 执行一轮overview刷新: fetch overview.json + 更新采集时间badge + 检查收盘
+async function _doOverviewRefresh() {
+  _overviewLastFetch = Date.now();
+  try {
+    const r = await fetchJSON("./data/overview.json");
+    if (r) {
+      _setCachedOverview(r); // 更新5min TTL缓存(分享图/renderOverview复用)
+      applyCollectTime(r.collected_at, r.collect_health); // 更新顶部时效badge
+    }
+    // 检查snap是否收盘(复用fetchIntradaySnapshot单例, 2s超时避免阻塞)
+    _intradaySnapPromise = null;
+    try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 2000))]); } catch (e) {}
+    const snap = state.intradaySnapshot;
+    if (snap && snap.is_closed === true) {
+      _stopOverviewRefresh(); // 收盘自停
+      return;
+    }
+  } catch (e) { /* 静默重试, 不弹错 */ }
+  _scheduleNextOverviewRefresh();
+}
+
+// visibilitychange: 切回tab且距上次>5min时立即刷新overview
+function _onOverviewVisChange() {
+  if (document.hidden || !_overviewRefreshActive) return;
+  if (Date.now() - _overviewLastFetch >= OVERVIEW_REFRESH_MS) {
+    _doOverviewRefresh();
+  } else if (!_overviewRefreshTimer) {
+    _scheduleNextOverviewRefresh();
+  }
+}
+
+// 页面加载后初始化自动刷新: 等snap就绪判断盘中后启动overview轮询
+async function _initAutoRefresh() {
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 2000))]); } catch (e) {}
+  const snap = state.intradaySnapshot;
+  if (snap && snap.is_closed === false) {
+    _startOverviewRefresh();
   }
 }
 
@@ -5067,7 +5161,10 @@ async function renderOverview() {
       sub = sig || "";
     }
     const _kpiT1 = k.id === "a_fund_margin" || k.id === "a_fund_north" || k.id === "a_qvix_300" || k.id.startsWith("a_turnover_")
-      || k.id === "gold" || k.id === "cn10y" || k.id === "a_fund_main" || k.id === "a_width_fengban_rate"; // 2026-07-23 修复:这4项实为T+1性质源(盘后次日发布),漏配误走t0分支baseline=今日致盘后误判"滞后",与"数据更新规则"弹窗标T+1不一致
+      || k.id === "gold" || k.id === "cn10y" || k.id === "a_fund_main" || k.id === "a_width_fengban_rate"
+      || k.id === "lhb_count"; // 2026-07-23 修复:这4项实为T+1性质源(盘后次日发布),漏配误走t0分支baseline=今日致盘后误判"滞后",与"数据更新规则"弹窗标T+1不一致
+      // 2026-07-24 补配 lhb_count: 龙虎榜T+1(东财18:00发当日,lhb-backfill 18:30+19:30采集),T1_COLLECT_DEADLINE已配19:30但漏配本列表,
+      // 致卡片走t0分支判"数据日期<今日=滞后",盘后/盘中误显⚠滞后7-24,与弹窗L3874"📅当日18点后"不一致
     const _badge = k.disabled
       ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
       : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
@@ -11154,6 +11251,8 @@ window.addEventListener("scroll", () => {
 fetchCollectTime();
 // 盘中实时快照独立获取（不依赖当前 tab），一句话总结覆盖 T+1 缺失数据用
 fetchIntradaySnapshot();
+// 盘中自动轮询 overview.json(5min) 更新采集时间badge, 收盘自停, visibilitychange切回tab立即刷新
+_initAutoRefresh();
 // #lab* hash 由 lab.js 接管初始渲染（_labInitHashRestore 的 labBtn.click 触发 renderTab）。
 // 此处跳过 bootstrap renderTab，避免与 lab 渲染竞态导致概览内容（含行业热力图）串入实验室页 / 高亮与内容不一致。
 if (location.hash.startsWith("#lab")) {
