@@ -202,6 +202,27 @@ for task, exit_code, last_run_str, st, log_anomaly in to_heal:
     if not cmd:
         print(f"[self_heal] {task} 无 HEAL_ACTIONS 配置，跳过", file=sys.stderr)
         continue
+    # 盘中保护（§8）：update_all 的 force = 全量 export+deploy，交易日盘中
+    # (09:30-15:30) 跳过避免撞 intraday-snapshot 定时任务推 main 致互相覆盖事故。
+    # 其他任务（backfill/futures/lhb/rzhb/etf_nt）不涉及全量 export，盘中可跑不加保护。
+    # 节假日未严格判断（盘中跳过即使节假日也无害，只是少跑一次自愈，收盘后/次日正常触发）。
+    if task == "update_all":
+        hhmm = int(NOW.strftime("%H%M"))
+        is_weekday = NOW.isoweekday() <= 5  # 1-5 周一到周五（等价 date +%u 1-5）
+        if is_weekday and 930 <= hhmm <= 1530:
+            audit(f"SKIP_INTRADAY {task} reason=intraday_skip "
+                  f"now={NOW.strftime('%H:%M')} §8 盘中不跑全量，收盘后自愈 "
+                  f"last_exit={exit_code} last_run={last_run_str} log_anomaly={log_anomaly}")
+            state.setdefault("skipped", []).append({
+                "task": task, "time": NOW.strftime("%H:%M:%S"),
+                "reason": "intraday_skip",
+                "last_exit": exit_code, "last_run": last_run_str,
+                "log_anomaly": log_anomaly,
+            })
+            save_state(state)
+            print(f"[self_heal] {task} 盘中跳过 update_all force（§8 盘中不跑全量），"
+                  f"收盘后自愈。now={NOW.strftime('%H:%M')}", file=sys.stderr)
+            continue
     # 后台触发重跑：nohup + & 让子进程 detach（self_heal 退出不杀重跑任务）
     cmd_str = " ".join(cmd)
     log_file = LOG_DIR / f"{task}_heal.log"
