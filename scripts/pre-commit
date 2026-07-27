@@ -1,0 +1,26 @@
+#!/bin/bash
+# pre-commit hook - staged .sh/.py 文件时跑 lint_scripts.sh，失败阻止 commit
+#
+# 入库模板（scripts/pre-commit），由 scripts/install_hooks.sh 安装到 .git/hooks/pre-commit。
+# 防止 bash 语法错 / 全角括号 bug（如 intraday_snapshot.sh 全角括号事故 879f7c56）入库。
+#
+# 检查范围：staged 含 .sh/.py 时跑全量 lint_scripts.sh（P0 简化，全量 bash -n + 全角扫描
+# + py_compile；只检查 staged 文件更精准但 P0 全量更稳，lint 耗时 <5s 可接受）。
+set -uo pipefail
+
+REPO="$(git rev-parse --show-toplevel)"
+
+# 取 staged 的 .sh/.py 文件（Added/Copied/Modified/Renamed）
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.sh' '*.py' 2>/dev/null || true)
+if [ -z "$STAGED" ]; then
+    # 无 .sh/.py staged，放行（纯文档/JSON commit 不阻塞）
+    exit 0
+fi
+
+echo "[pre-commit] staged .sh/.py 文件，跑 lint_scripts.sh..."
+if ! bash "$REPO/scripts/lint_scripts.sh"; then
+    echo "[pre-commit] FAIL lint 未通过，commit 被阻止。修复后重试。"
+    exit 1
+fi
+
+exit 0

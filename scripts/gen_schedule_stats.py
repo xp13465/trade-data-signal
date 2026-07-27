@@ -20,7 +20,9 @@
 # 内嵌的 deploy.sh/check_signals.sh 不计（避免嵌套干扰）。
 from __future__ import annotations
 import json
+import os
 import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -64,6 +66,56 @@ ETF_START_RE = re.compile(r'\[etf_nt\] daily 开始 ' + _TS)
 # (collector 撞 libmini_racer FATAL 等不写 "完成" 行, shell 脚本补 "失败 exit=N",
 #  否则 gen_stats 启发式标 143 假 SIGTERM, 与 shell 正常结束矛盾)
 ETF_DONE_RE = re.compile(r'\[etf_nt\] daily (完成|失败)(?:\s+(\d+\.?\d*)s)?(?:.*?exit=(\d+))?')
+
+# P0 稳定性(2026-07-20): task -> launchctl label 映射，用于 launchctl_last_exit 读真实退出码
+# 消除 pending_start 启发式 143(假 SIGTERM)漏报/误报：崩在结束行前的任务，
+# launchd 仍记录真实 last exit code，比日志启发式准。
+LABEL_MAP = {
+    "update_all": "com.trade.update-all",
+    "backfill_evening": "com.trade.backfill-evening",
+    "intraday_snapshot": "com.trade.intraday-snapshot",
+    "futures_backfill": "com.trade.futures-backfill",
+    "lhb_backfill": "com.trade.lhb-backfill",
+    "rzhb_backfill": "com.trade.rzhb-backfill",
+    "etf_national_team": "com.trade.etf-national-team",
+    "lab_auto": "com.trade.lab-auto",
+}
+
+# launchctl print "last exit code = N" 行（N 可为 143/0/1/None，None 显 "last exit code = (none)"）
+_LAUNCHCTL_LAST_EXIT_RE = re.compile(r'last exit code = \(?(-?\d+|none)\)?', re.IGNORECASE)
+
+
+def launchctl_last_exit(label: str | None) -> int | None:
+    """调 `launchctl print gui/UID/label` 读真实 last exit code。
+
+    返回 int 退出码（0=成功，非0=失败如 143=SIGTERM 超时被杀，1=脚本异常）。
+    label 为 None/空、launchctl 调用失败、解析不到、或值为 "none"（任务从没跑过）时返回 None。
+
+    用途：pending_start（有 start 无 end，崩在结束行前）时，日志启发式只能 age>3h 猜 143，
+    launchctl 记录真实退出码（含 SIGTERM=143 / 脚本异常 exit=1 / 正常 exit=0），
+    优先用真实码消除漏报（exit=1 漏报为 None）和误报（exit=0 误报为 143）。
+    """
+    if not label:
+        return None
+    try:
+        result = subprocess.run(
+            ["launchctl", "print", f"gui/{os.getuid()}/{label}"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    m = _LAUNCHCTL_LAST_EXIT_RE.search(result.stdout)
+    if not m:
+        return None
+    val = m.group(1).lower()
+    if val == "none":
+        return None
+    try:
+        return int(val)
+    except ValueError:
+        return None
 
 
 def _iter_lines(path: Path):
@@ -197,10 +249,18 @@ def build():
                 # backfill.sh 保证写最终 DONE 行(带真实 exit),无 DONE = 极端(SIGKILL 整个脚本),
                 # code=None 不假告警,真问题靠漏跑检查/耗时检查/launchd err log。
                 # standard 模式保留 143(检测 launchd ExitTimeOut 超时被杀)。
+                # P0 稳定性(2026-07-20): standard 模式优先调 launchctl_last_exit 读真实退出码,
+                # 消除启发式 143 漏报(exit=1 被漏报为 None)和误报(exit=0 被误报为 143)。
+                # launchctl 读不到(label 不存在/launchd 异常/任务从没跑过显 none)才回退
+                # 原启发式(143 if age>3h else None)。
                 if t["mode"] == "etf_nt":
                     code = None
                 else:
-                    code = 143 if age > MAX_GAP_SEC else None
+                    real_exit = launchctl_last_exit(LABEL_MAP.get(t["task"]))
+                    if real_exit is not None:
+                        code = real_exit  # 0=成功, 143=SIGTERM超时, 1=脚本异常(真实码不启发式)
+                    else:
+                        code = 143 if age > MAX_GAP_SEC else None  # 回退启发式
                 last_dur = None
         result.append({
             "task": t["task"], "name": t["name"], "schedule": t["schedule"],
