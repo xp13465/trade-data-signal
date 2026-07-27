@@ -1743,6 +1743,12 @@ main { padding: 16px 24px; }
   gap: 12px;
   align-items: stretch;
   margin-bottom: 12px;
+  grid-column: 1 / -1; /* 跨满父级 indices-grid 全宽，避免被多列grid挤成1列致3表挤压 */
+}
+/* 期货表格卡(昨日净多空/历史准确率/当日净加对照/说明卡)跨满 indices-grid 全宽各占一行；
+   用直接子选择器 > 排除 .futures-triple-grid 内的3表(它们是wrapper子级非indices-grid直接子) */
+.indices-grid > .futures-table-card {
+  grid-column: 1 / -1;
 }
 /* 3表卡片由 grid gap 统一间距，去掉单卡 margin-bottom */
 .futures-triple-grid .chart-card {
