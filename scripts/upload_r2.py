@@ -262,6 +262,14 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
         files.extend(local_dir.glob(pat))
     # 去重 + 排序
     files = sorted(set(files))
+    # 方案3 通用防护:过滤 broken symlink / 不存在文件(glob 把 broken symlink 也算匹配,
+    # exists() 对 broken symlink 返回 False)。trade-data/static-site/ 的 trade_sim_*.html
+    # symlink 指向 trade/static-site/,目标被删时 symlink 变 broken,read_bytes 会抛
+    # FileNotFoundError;此处提前过滤避免 _upload_one 撞 broken symlink。
+    broken = [f for f in files if not f.exists()]
+    if broken:
+        print(f"⚠ 跳过 {len(broken)} 个不存在/broken-symlink 文件(首个: {broken[0]})")
+        files = [f for f in files if f.exists()]
     if not files:
         print(f"⚠ {local_dir} 下 {glob_patterns} 无匹配文件")
         return 0, 0
@@ -271,15 +279,22 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
         i, f = idx_f
         rel = f.relative_to(local_dir)
         key = f"{r2_prefix}/{rel}"
-        payload = f.read_bytes()
-        size = len(payload)
         try:
+            # 方案2:read_bytes 移进 try 块。broken symlink 的 read_bytes() 抛
+            # FileNotFoundError,原代码在 try 外面不捕获致 _upload_glob 整批崩溃
+            # (违背 docstring "单文件失败不中断整批"承诺)。移进 try 后单文件失败
+            # 仅记日志跳过,不影响其他文件上传。
+            payload = f.read_bytes()
+            size = len(payload)
             status, data = s3_request("PUT", key, payload)
             if status == 200:
                 return (i, True, rel, size, None)
             return (i, False, rel, size, f"status={status} {data[:200]}")
+        except (OSError, FileNotFoundError) as e:
+            # 文件读失败(broken symlink/权限/IO 错):size 未知填 0,跳过该文件继续整批
+            return (i, False, rel, 0, f"读文件失败({type(e).__name__}: {e})")
         except Exception as e:
-            return (i, False, rel, size, f"异常({type(e).__name__}: {e})")
+            return (i, False, rel, 0, f"异常({type(e).__name__}: {e})")
 
     ok = 0
     with ThreadPoolExecutor(max_workers=8) as pool:
@@ -306,7 +321,10 @@ def cmd_upload_trade_sim():
     # simulate_trade.py 按 __file__ 写 ROOT(trade/)static-site/trade_sim_*.html,
     # REPO=trade-data 时 trade-data/static-site/ 可能无 trade_sim_*.html,回退 ROOT。
     ts_dir = STATIC_DIR
-    if not any(ts_dir.glob("trade_sim_*.html")):
+    # 方案3:any() 判断用 exists() 过滤,避免 broken symlink 误判"有文件"不回退 ROOT。
+    # glob 把 broken symlink 也算匹配(返回 symlink Path 对象),any() 为 True 不回退;
+    # 用 exists()(对 broken symlink 返回 False)判断是否真有可上传文件。
+    if not any(f.exists() for f in ts_dir.glob("trade_sim_*.html")):
         ts_dir = ROOT / "static-site"
     ok, total = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
     if total == 0:
