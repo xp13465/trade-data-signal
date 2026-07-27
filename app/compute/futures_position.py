@@ -8,7 +8,7 @@
   - 从 index_daily 读对标指数的 close，算次日涨跌（1 日 forward）
   - 同向准确率 = (sign == sign(next_day_return)) 的占比
   - 逆向准确率 = (sign != sign(next_day_return)) 的占比
-  - 使用三个滚动窗口（30/60/120 日）计算，写入 futures_accuracy
+  - 使用滚动窗口（7/15/30/60/120 日）计算，写入 futures_accuracy
 
 独立跑：python -m app.compute.futures_position compute [--date YYYYMMDD]
         python -m app.compute.futures_position compute-all
@@ -30,7 +30,7 @@ VARIETY_INDEX_MAP = {
     "综合": "hs300",
 }
 
-DEFAULT_WINDOWS = [30, 60, 120]
+DEFAULT_WINDOWS = [7, 15, 30, 60, 120]
 
 
 ROLES = ['top20', '中信期货', '国泰君安']
@@ -105,6 +105,7 @@ def _compute_accuracy_for_variety(
     dates = list(pos.index)
 
     max_window = max(windows)
+    min_window = min(windows)
 
     if target_date is not None:
         # 单日计算：取 target_date 及之前的数据
@@ -123,8 +124,9 @@ def _compute_accuracy_for_variety(
         BACKFILL_DAYS = 10
         work_dates = dates[max(0, idx - BACKFILL_DAYS + 1) : idx + 1]
     else:
-        # 全量计算：从第 max_window 个日期开始
-        work_dates = dates[max_window - 1:]
+        # 全量计算：从第 min_window 个日期开始（各窗口从各自最早有效日起算，
+        # 小窗口不被大窗口拖后；早期日期大窗口 follow_n 较小属正常，按实际 n 算）
+        work_dates = dates[min_window - 1:]
 
     for d in work_dates:
         idx = dates.index(d)
@@ -246,6 +248,177 @@ def compute_all():
     return compute_accuracy(date=None)
 
 
+def compute_role_ih_detail(role: str = "中信期货", n_days: int = 15, index_id: str = "sh") -> dict:
+    """指定角色4品种合计净加仓方向 vs 上证指数(sh)次日涨跌（最近 n_days + 当天）。
+
+    算法：
+      - 取 futures_position 指定 role 的 IH/IF/IC/IM 的 long_chg/short_chg
+      - 每日每品种 net_chg = long_chg - short_chg，4品种合计 total_chg
+      - citic_dir = sign(total_chg)：正=多，负=空
+      - next_return = 上证指数(sh, 上证综指000001) close[t+1]/close[t]-1
+        （4品种覆盖50/300/500/1000，对标大盘上证综指，非单品种指数）
+      - 同向 count = (多&涨)|(空&跌)；逆向 count = (多&跌)|(空&涨)
+      - 主导方向 = 同向 >= 逆向 ? "同向" : "逆向"
+      - 每日对错按主导方向判定
+      - details 含最近 n_days 个有 next_return 的交易日 + 当天（next_return=null）
+
+    Returns:
+        {dominant_dir, total, correct_count, wrong_count, accuracy,
+         details:[{date, ih_chg, if_chg, ic_chg, im_chg, total_chg, citic_dir, next_return, correct}]}
+        或 None（数据不足）
+    """
+    conn = get_conn()
+    # 指定角色4品种 long_chg/short_chg
+    rows = conn.execute(
+        "SELECT date, variety, long_chg, short_chg FROM futures_position "
+        "WHERE role=? AND variety IN ('IH','IF','IC','IM') "
+        "AND long_chg IS NOT NULL AND short_chg IS NOT NULL "
+        "ORDER BY date, variety",
+        (role,),
+    ).fetchall()
+    # 上证指数(sh) close
+    close_rows = conn.execute(
+        "SELECT date, close FROM index_daily WHERE index_id=? "
+        "AND close IS NOT NULL ORDER BY date",
+        (index_id,),
+    ).fetchall()
+    conn.close()
+
+    if not rows or not close_rows:
+        return None
+
+    # 按日期聚合4品种 net_chg
+    chg_by_date: dict[str, dict] = {}
+    for r in rows:
+        d = r["date"]
+        v = r["variety"]
+        nc = float(r["long_chg"]) - float(r["short_chg"])
+        if d not in chg_by_date:
+            chg_by_date[d] = {}
+        chg_by_date[d][v] = nc
+
+    close_map = {r["date"]: float(r["close"]) for r in close_rows}
+    close_dates = sorted(close_map.keys())
+    close_idx = {d: i for i, d in enumerate(close_dates)}
+
+    # 每日计算
+    all_daily = []
+    for d in sorted(chg_by_date.keys()):
+        chgs = chg_by_date[d]
+        # 4品种齐全才算
+        if not all(v in chgs for v in ("IH", "IF", "IC", "IM")):
+            continue
+        ih_chg = chgs["IH"]
+        if_chg = chgs["IF"]
+        ic_chg = chgs["IC"]
+        im_chg = chgs["IM"]
+        total_chg = ih_chg + if_chg + ic_chg + im_chg
+        citic_dir = "多" if total_chg > 0 else ("空" if total_chg < 0 else None)
+
+        # next_return from 上证指数(sh)
+        next_return = None
+        if d in close_idx:
+            ci = close_idx[d]
+            if ci + 1 < len(close_dates):
+                c0 = close_map[d]
+                c1 = close_map[close_dates[ci + 1]]
+                if c0 != 0:
+                    next_return = round((c1 / c0 - 1) * 100, 4)
+
+        all_daily.append({
+            "date": d,
+            "ih_chg": round(ih_chg, 0),
+            "if_chg": round(if_chg, 0),
+            "ic_chg": round(ic_chg, 0),
+            "im_chg": round(im_chg, 0),
+            "total_chg": round(total_chg, 0),
+            "citic_dir": citic_dir,
+            "next_return": next_return,
+        })
+
+    if not all_daily:
+        return None
+
+    # 当天 = 最新日期（next_return 通常为 null，次日未收盘）
+    current_day = all_daily[-1]
+
+    # judged = 有 next_return 且方向明确的
+    judged = [
+        x for x in all_daily
+        if x["next_return"] is not None and x["next_return"] != 0 and x["citic_dir"] is not None
+    ]
+    last_judged = judged[-n_days:]
+    if not last_judged:
+        return None
+
+    # 统计同向/逆向
+    same_count = 0
+    contrarian_count = 0
+    for x in last_judged:
+        is_up = x["next_return"] > 0
+        is_long = x["citic_dir"] == "多"
+        if (is_long and is_up) or (not is_long and not is_up):
+            same_count += 1
+        else:
+            contrarian_count += 1
+
+    dominant_dir = "同向" if same_count >= contrarian_count else "逆向"
+    total = len(last_judged)
+
+    # 每日对错（按主导方向）
+    details = []
+    correct_count = 0
+    wrong_count = 0
+    for x in last_judged:
+        is_up = x["next_return"] > 0
+        is_long = x["citic_dir"] == "多"
+        is_same = (is_long and is_up) or (not is_long and not is_up)
+        if dominant_dir == "同向":
+            correct = is_same
+        else:
+            correct = not is_same
+        if correct:
+            correct_count += 1
+        else:
+            wrong_count += 1
+        details.append({
+            "date": x["date"],
+            "ih_chg": x["ih_chg"],
+            "if_chg": x["if_chg"],
+            "ic_chg": x["ic_chg"],
+            "im_chg": x["im_chg"],
+            "total_chg": x["total_chg"],
+            "citic_dir": x["citic_dir"],
+            "next_return": x["next_return"],
+            "correct": correct,
+        })
+
+    # 加当天行（当天 next_return=null 时，追加到明细末尾供用户对照）
+    if current_day["next_return"] is None:
+        details.append({
+            "date": current_day["date"],
+            "ih_chg": current_day["ih_chg"],
+            "if_chg": current_day["if_chg"],
+            "ic_chg": current_day["ic_chg"],
+            "im_chg": current_day["im_chg"],
+            "total_chg": current_day["total_chg"],
+            "citic_dir": current_day["citic_dir"],
+            "next_return": None,
+            "correct": None,
+        })
+
+    accuracy = round(correct_count / total * 100, 1) if total > 0 else 0
+
+    return {
+        "dominant_dir": dominant_dir,
+        "total": total,
+        "correct_count": correct_count,
+        "wrong_count": wrong_count,
+        "accuracy": accuracy,
+        "details": details,
+    }
+
+
 def compute_net_position():
     """防御性每日汇总：从 futures_position 读取最新数据，计算综合净持仓（可选）。
 
@@ -283,7 +456,7 @@ def main():
     parser = argparse.ArgumentParser(description="期货机构持仓准确率计算")
     sub = parser.add_subparsers(dest="cmd")
 
-    p_compute = sub.add_parser("compute", help="计算截至指定日期的滚动窗口准确率（30/60/120 日）")
+    p_compute = sub.add_parser("compute", help="计算截至指定日期的滚动窗口准确率（7/15/30/60/120 日）")
     p_compute.add_argument("--date", type=str, default=None, help="YYYYMMDD，默认最新交易日")
 
     p_all = sub.add_parser("compute-all", help="全量重算所有历史日期")

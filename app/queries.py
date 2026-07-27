@@ -20,6 +20,7 @@ from .calendar import last_trading_day
 from .collector.fetchers import load_config
 from .compute import signal_stats as sigstats
 from .compute.market_summary import generate_summary, summary_brief
+from .compute.futures_position import compute_role_ih_detail
 from .compute.rotation import compute_rotation
 from .compute.signals import strategy_desc
 
@@ -878,8 +879,13 @@ def futures_data(conn):
     for d in sorted(_acc_by_date.keys()):
         acc_history.append({"date": d, **_acc_by_date[d]})
 
+    # 中信/机构 4品种合计净加仓 15天明细：最近15个交易日合计净加仓方向 vs 上证50次日涨跌
+    citic_ih_detail = compute_role_ih_detail(role="中信期货", n_days=15)
+    inst_ih_detail = compute_role_ih_detail(role="top20", n_days=15)
+
     return {"summary": summary, "positions": positions, "positions_ratio": positions_ratio,
-            "accuracy": accuracy, "accuracy_history": acc_history, "latest_bet": latest_bet}
+            "accuracy": accuracy, "accuracy_history": acc_history, "latest_bet": latest_bet,
+            "citic_ih_detail": citic_ih_detail, "inst_ih_detail": inst_ih_detail}
 
 
 def ad_line(conn):

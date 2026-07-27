@@ -7945,7 +7945,7 @@ function renderFuturesSection(data, snap, container) {
   if (data.accuracy) {
     const div = document.createElement("div");
     div.className = "chart-card futures-table-card";
-    const windows = ["30d", "60d", "120d"];
+    const windows = ["7d", "15d", "30d", "60d", "120d"];
     const accDates = (data.positions || []).map(p => p.date).filter(Boolean).sort();
     const accDateSuffix = accDates.length ? `<span class="chart-latest"> · ${fmtDate(accDates[accDates.length - 1])}</span>` : "";
     let html = `<h3>历史同向/逆向准确率（次工作日涨跌）${accDateSuffix}</h3>`;
@@ -8009,6 +8009,53 @@ function renderFuturesSection(data, snap, container) {
     addCardTimeBadge(div, accDates.length ? accDates[accDates.length - 1] : "", snap, "t1", "futures_date");
   }
 
+  // 2.5 中信/机构 4品种合计净加仓 15天明细表
+  // 渲染单个角色的明细卡片（中信/机构复用同一逻辑）
+  const _renderRoleDetailCard = (cd, titlePrefix, noteText) => {
+    if (!cd) return;
+    const div = document.createElement("div");
+    div.className = "chart-card futures-table-card";
+    const latestDetailDate = cd.details && cd.details.length ? cd.details[cd.details.length - 1].date : "";
+    const detailSuffix = latestDetailDate ? `<span class="chart-latest"> · ${fmtDate(latestDetailDate)}</span>` : "";
+    let html = `<h3>${titlePrefix}多空单（${cd.dominant_dir}）准确率${detailSuffix}</h3>`;
+    html += `<div class="futures-note">${noteText}</div>`;
+    html += `<div class="term-plain" style="margin:6px 0;font-size:13px;">共${cd.total}次 · <span style="color:#e6492e;font-weight:bold">对${cd.correct_count}</span> · <span style="color:#2e8b57;font-weight:bold">错${cd.wrong_count}</span> · 准确率<strong style="color:var(--text-1)">${cd.accuracy}%</strong></div>`;
+    html += '<table class="accuracy-table"><thead><tr><th>日期</th><th>IH净加</th><th>IF净加</th><th>IC净加</th><th>IM净加</th><th>合计净加</th><th>方向</th><th>次日涨跌</th><th>对错</th></tr></thead><tbody>';
+    // 净加手数：正绿负红（正=净加多=绿，负=净加空=红）
+    const chgColor = (v) => v != null ? (v >= 0 ? "#2e8b57" : "#e6492e") : "var(--text-3)";
+    const chgStr = (v) => v != null ? (v >= 0 ? "+" : "") + Math.round(v) : "-";
+    for (const item of cd.details) {
+      const ihC = chgColor(item.ih_chg), ifC = chgColor(item.if_chg), icC = chgColor(item.ic_chg), imC = chgColor(item.im_chg), totC = chgColor(item.total_chg);
+      const dirText = item.citic_dir === "多" ? "多" : item.citic_dir === "空" ? "空" : "-";
+      const dirColor = item.citic_dir === "多" ? "#e6492e" : item.citic_dir === "空" ? "#2e8b57" : "var(--text-3)";
+      const ret = item.next_return;
+      let retStr = "待收盘";
+      let retColor = "var(--text-3)";
+      if (ret != null) {
+        retStr = (ret >= 0 ? "涨" : "跌") + Math.abs(ret).toFixed(2) + "%";
+        retColor = ret >= 0 ? "#e6492e" : "#2e8b57";
+      }
+      const judge = item.correct === true ? "✓" : item.correct === false ? "✗" : "待";
+      const judgeColor = item.correct === true ? "#e6492e" : item.correct === false ? "#2e8b57" : "var(--text-3)";
+      html += `<tr><td class="sym-name">${fmtDate(item.date)}</td><td style="color:${ihC};text-align:right">${chgStr(item.ih_chg)}</td><td style="color:${ifC};text-align:right">${chgStr(item.if_chg)}</td><td style="color:${icC};text-align:right">${chgStr(item.ic_chg)}</td><td style="color:${imC};text-align:right">${chgStr(item.im_chg)}</td><td style="color:${totC};text-align:right;font-weight:bold">${chgStr(item.total_chg)}</td><td style="color:${dirColor}">${dirText}</td><td style="color:${retColor}">${retStr}</td><td style="color:${judgeColor};font-weight:bold">${judge}</td></tr>`;
+    }
+    html += '</tbody></table>';
+    html += '<div class="term-plain">净加=多头增减-空头增减(手)。合计=IH+IF+IC+IM。多+涨/空+跌=同向；多+跌/空+涨=逆向。按主导方向统计历史准确率，不构成未来预测。</div>';
+    div.innerHTML = html;
+    fgGrid.appendChild(div);
+    addCardTimeBadge(div, latestDetailDate, snap, "t1", "futures_date");
+  };
+  _renderRoleDetailCard(
+    data.citic_ih_detail,
+    "中信",
+    "最近15个交易日中信期货4品种(IH/IF/IC/IM)合计净加仓(long_chg-short_chg)方向 vs 上证指数(上证综指)次日涨跌。主导方向按同向/逆向天数多少判定，每日对错按主导方向判断。末行为当天（次日涨跌待收盘）。",
+  );
+  _renderRoleDetailCard(
+    data.inst_ih_detail,
+    "机构",
+    "最近15个交易日机构(前20会员)4品种(IH/IF/IC/IM)合计净加仓(long_chg-short_chg)方向 vs 上证指数(上证综指)次日涨跌。主导方向按同向/逆向天数多少判定，每日对错按主导方向判断。末行为当天（次日涨跌待收盘）。",
+  );
+
   // 3. 四张折线图：net_position 手数趋势
 
 // 图1：综合净多空手数 — 3 条线（机构/中信/国君的综合品种）
@@ -8043,7 +8090,7 @@ function renderFuturesSection(data, snap, container) {
               if (roleAcc) {
                 html += '<span style="color:var(--text-3);font-size:11px;margin-left:16px;">';
                 const parts = [];
-                for (const w of ["30d", "60d", "120d"]) {
+                for (const w of ["7d", "15d", "30d", "60d", "120d"]) {
                   const a = roleAcc[w];
                   if (a) {
                     const f = Math.round(a.follow * 100);
