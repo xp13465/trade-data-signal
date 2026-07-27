@@ -22,6 +22,7 @@ export REPO
 
 # 用 python heredoc 处理日期解析 + JSON 读取（bash 处理太繁琐易错）
 "$REPO/.venv/bin/python" <<'PYEOF' 2>&1
+import hashlib
 import json
 import os
 import re
@@ -93,6 +94,38 @@ def today_schedule(hm: str) -> datetime:
 
 
 alerts = []
+recoveries = []  # 异常恢复通知(log_anomaly 从 true 变 false)
+
+# 告警去重/抑制机制(2026-07-20): 同一异常持续不重复发邮件,异常消失发恢复邮件
+# state 文件不进 git(与 sentiment.db 同级),丢失时 24h stale 降级兜底
+ALERT_STATE_FILE = REPO / "data" / "alert_state.json"
+
+
+def load_alert_state():
+    """读 alert_state.json,不存在/异常返回 {}"""
+    if not ALERT_STATE_FILE.exists():
+        return {}
+    try:
+        with open(ALERT_STATE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[warn] 读 alert_state.json 失败(按空 state 处理): {e}", file=sys.stderr)
+        return {}
+
+
+def save_alert_state(state):
+    """写 alert_state.json(目录不存在自动创建)"""
+    try:
+        ALERT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ALERT_STATE_FILE.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception as e:
+        print(f"[warn] 写 alert_state.json 失败: {e}", file=sys.stderr)
+
+
+alert_state = load_alert_state()
+seen_keys_this_run = set()  # 本次运行仍存在的异常 key(防误报恢复)
 
 # 1) 漏跑检查：对每个任务的每个计划时点，若 now 落在 [sch, sch+30min] 窗口内
 #    且 last_run < sch（任务在该计划时点之后没跑过）= 漏跑
@@ -176,6 +209,14 @@ if STATS_FILE.exists():
             if s.get("log_anomaly"):
                 keyword = s.get("log_anomaly_keyword") or "?"
                 line = (s.get("log_anomaly_line") or "")[:120]
+                line_sample = line[:80]
+                # 去重 key: task|keyword|line前80字符md5前8位
+                dedup_key = (
+                    f"{s['task']}|{keyword}|"
+                    f"{hashlib.md5(line_sample.encode('utf-8', errors='replace')).hexdigest()[:8]}"
+                )
+                # 标记本次仍存在(防误报恢复),无论 stale 与否
+                seen_keys_this_run.add(dedup_key)
                 last_run_str_a = s.get("last_run") or ""
                 is_stale_a = False
                 if last_run_str_a:
@@ -186,6 +227,7 @@ if STATS_FILE.exists():
                     except ValueError:
                         pass
                 if is_stale_a:
+                    # 24h stale 兜底(state 丢失时仍不轰炸)
                     print(
                         f"[info] {s['task']} log异常 keyword={keyword} "
                         f"last_run={last_run_str_a} 距今>"
@@ -193,13 +235,48 @@ if STATS_FILE.exists():
                         f"旧告警已过期,等下次任务跑更新(不重复 SEVERE)"
                     )
                 else:
-                    alerts.append(
-                        f"SEVERE: {s['task']} log异常关键词<{keyword}> "
-                        f"exit={exit_code}(可能被try/except吞) "
-                        f"last_run={last_run_str_a} 行: {line}"
-                    )
+                    existing = alert_state.get(dedup_key)
+                    if existing is None or existing.get("status") != "active":
+                        # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
+                        alerts.append(
+                            f"SEVERE: {s['task']} log异常关键词<{keyword}> "
+                            f"exit={exit_code}(可能被try/except吞) "
+                            f"last_run={last_run_str_a} 行: {line}"
+                        )
+                        alert_state[dedup_key] = {
+                            "status": "active",
+                            "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "keyword": keyword,
+                            "line_sample": line_sample,
+                        }
+                    else:
+                        # 已 active = 抑制不重发,只 log
+                        print(
+                            f"[suppress] {s['task']} {keyword} 异常持续中, "
+                            f"last_alerted={existing.get('last_alerted')}, 不重发"
+                        )
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
+
+# 恢复检测: state 里 active 但本次未 seen = 异常已消失,发恢复邮件
+# (gen_schedule_stats 每任务只记首个命中,故每 task 至多1个 active key)
+for _key, _info in list(alert_state.items()):
+    if _info.get("status") == "active" and _key not in seen_keys_this_run:
+        _task = _key.split("|", 1)[0] if "|" in _key else _key
+        _kw = _info.get("keyword", "?")
+        recoveries.append({
+            "task": _task,
+            "keyword": _kw,
+            "first_seen": _info.get("first_seen", "?"),
+        })
+        _info["status"] = "recovered"
+        _info["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+        print(
+            f"[recovery] {_task} 异常关键词 {_kw} 已消失 "
+            f"(首次发现: {_info.get('first_seen')})"
+        )
+save_alert_state(alert_state)
 
 # 3) ETF 国家队耗时阈值检查（B4 稳定性 2026-07-24）
 #    daily 正常 ~140s(2.3min), >300s(5min)告警(进程池退化信号, 如 2026-07-23 2032s 事故)
@@ -338,6 +415,35 @@ if alerts:
     )
 else:
     print(f"[{now_str}] OK 所有任务按计划执行，无漏跑，无退出失败")
+
+# 恢复邮件(独立于 SEVERE,异常消失即发,不加 --severe 前缀)
+if recoveries:
+    print(f"[{now_str}] 检测到 {len(recoveries)} 个异常恢复:")
+    for r in recoveries:
+        print(f"  [恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失")
+    if len(recoveries) == 1:
+        r0 = recoveries[0]
+        subject = f"[恢复] {r0['task']} 异常关键词 {r0['keyword']} 已消失"
+    else:
+        subject = f"[恢复] {len(recoveries)}个计划任务异常已消失"
+    rec_lines = [
+        f"[恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失 "
+        f"(首次发现: {r['first_seen']}, 恢复时间: {now_str})"
+        for r in recoveries
+    ]
+    body = "<br>".join(
+        l.replace("<", "&lt;").replace(">", "&gt;") for l in rec_lines
+    )
+    subprocess.run(
+        [
+            sys.executable, str(REPO / "scripts" / "notify.py"),
+            subject,
+            body,
+            "--alert-issue", "计划任务监控恢复",
+            "--alert-log", str(MONITOR_LOG),
+        ],
+        check=False,
+    )
 
 # Heartbeat：每次完整跑完都更新时间戳（主控 Claude Code cron 读此文件，
 # 超过 30 分钟未更新 = launchd 层可能挂了，立即提示用户）。
