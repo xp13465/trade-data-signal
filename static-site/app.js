@@ -538,15 +538,57 @@ var _SMALL_SAMPLE_IDS = new Set([
 ]);
 // 兼容旧引用（如有外部脚本引用 _OVERFIT_OR_SMALL_SAMPLE_IDS）：合并视图，只读
 var _OVERFIT_OR_SMALL_SAMPLE_IDS = new Set(Array.from(_OVERFIT_FAILED_IDS).concat(Array.from(_SMALL_SAMPLE_IDS)));
+// 2026-07-27 sharpe>3 可疑过拟合红线(NOTES §48 教训③:Bailey 2014 夏普>3 可疑/>5 必过拟合阈值,
+// cgb_idx 3.58 为红线案例)。trade_sim summary.sharpe 为事件稀疏 equity_curve 收益率 sqrt(252) 年化
+// 近似值(与 lab_simulate.py L241-261 同口径),值偏高;红线为"可疑"提示非"必过拟合"判定,数据透明让用户判断。
+// 遍历全 165 回测(5窗口×3路径×11场景)找 max sharpe;>3 触发红线 chip 前置标注+row 红框修饰。
+var _SHARPE_REDLINE_THRESHOLD = 3.0;
+function _sharpeRedlineInfo(sd) {
+  if (!sd || !sd.data) return { maxSharpe: null, isRedline: false };
+  var maxSharpe = -Infinity;
+  var hasSharpe = false;
+  for (var wkey in sd.data) {
+    var byWin = sd.data[wkey];
+    if (!byWin) continue;
+    for (var pkey in byWin) {
+      var byPath = byWin[pkey];
+      if (!byPath) continue;
+      for (var skey in byPath) {
+        var s = byPath[skey] && byPath[skey].summary;
+        if (s && typeof s.sharpe === 'number' && isFinite(s.sharpe)) {
+          hasSharpe = true;
+          if (s.sharpe > maxSharpe) maxSharpe = s.sharpe;
+        }
+      }
+    }
+  }
+  return {
+    maxSharpe: hasSharpe ? maxSharpe : null,
+    isRedline: hasSharpe && maxSharpe > _SHARPE_REDLINE_THRESHOLD
+  };
+}
+// chip-row 容器 className 拼装:base + small-sample 修饰 + sharpe-redline 修饰
+// sd 可为 null(未缓存),此时只加 small-sample 修饰;sd 加载后异步 patch redline 修饰
+function _chipRowClassName(id, sd) {
+  var cls = "signal-chip-row";
+  if (id && _SMALL_SAMPLE_IDS.has(id)) cls += " chip-row-small-sample";
+  if (sd) {
+    var si = _sharpeRedlineInfo(sd);
+    if (si.isRedline) cls += " chip-row-sharpe-redline";
+  }
+  return cls;
+}
 // 在 chart-card 的 h3 之后插入独立 chip-row 容器（标题下换行单独一行展示）。
 // SIM_INDICES 之外的指数不显示；已缓存数据同步渲染，未缓存先占位再异步 fetch+patch。
 function _appendBackupChipRow(cardEl, id) {
   if (!SIM_INDICES.has(id)) return;
-  var html = _backupSignalChipRender(_tradeSimStatsCache[id], id);
+  var cachedSd = _tradeSimStatsCache[id];
+  var html = _backupSignalChipRender(cachedSd, id);
   var row = document.createElement("div");
   // 2026-07-20 样本不足品种:row 加 modifier class,配合 CSS 给三档容器加淡蓝背景框+左侧蓝粗边框,
   // 让用户看 3 色 chip 时一眼知道该品种样本不足(WF 测试段 n<30,统计意义弱),区别于过拟合(单橙红 chip 不进三档)与正常三档
-  row.className = "signal-chip-row" + (id && _SMALL_SAMPLE_IDS.has(id) ? " chip-row-small-sample" : "");
+  // 2026-07-27 sharpe>3 红线:row 加 chip-row-sharpe-redline 修饰(红框),cachedSd 在手时同步加,否则异步 patch
+  row.className = _chipRowClassName(id, cachedSd);
   row.setAttribute("data-chip-id", id);
   // 占位: 未缓存时先放 loading 提示，异步 fetch 完成后整体替换 innerHTML
   row.innerHTML = html || '<span class="signal-chip signal-chip-loading">⏳ 加载回测…</span>';
@@ -569,7 +611,9 @@ async function _backupSignalChipLoad(id) {
     _tradeSimStatsCache[id] = sd;
     var html = _backupSignalChipRender(sd, id);
     var placeholders = document.querySelectorAll('.signal-chip-row[data-chip-id="' + id + '"]');
-    placeholders.forEach(function (el) { el.innerHTML = html; });
+    // 2026-07-27 sharpe>3 红线:sd 加载后同步 patch row className(加/去 chip-row-sharpe-redline 修饰)
+    var rowCls = _chipRowClassName(id, sd);
+    placeholders.forEach(function (el) { el.innerHTML = html; el.className = rowCls; });
   } catch (e) {
     var errEls = document.querySelectorAll('.signal-chip-row[data-chip-id="' + id + '"]');
     errEls.forEach(function (el) { el.innerHTML = '<span class="signal-chip signal-chip-error">⚠ 回测加载失败</span>'; });
@@ -580,12 +624,22 @@ async function _backupSignalChipLoad(id) {
 // 算三档 chip HTML（A+B 融合方案）：遍历全 165 回测，归一化综合分排名。数据不足返回空串。
 function _backupSignalChipRender(sd, id) {
   if (!sd || !sd.data) return '';
+  // 2026-07-27 sharpe>3 可疑过拟合红线(NOTES §48 教训③):遍历全 165 回测找 max sharpe,
+  // >3 前置红线 chip 提醒(不屏蔽三档,让用户看推荐时知夏普越线需谨慎查详)。
+  // trade_sim sharpe 为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径),值偏高;
+  // 标注为"可疑"非"必过拟合"判定,数据透明让用户判断。
+  var sharpeInfo = _sharpeRedlineInfo(sd);
+  var sharpeRedlinePrefix = '';
+  if (sharpeInfo.isRedline) {
+    var shVal = sharpeInfo.maxSharpe.toFixed(2);
+    sharpeRedlinePrefix = '<span class="signal-chip chip-sharpe-redline" data-tip="该品种部分回测夏普 ' + shVal + ' &gt; 3(Bailey 2014 可疑过拟合红线)。trade_sim 夏普为事件稀疏 equity_curve 收益率 sqrt(252) 年化近似值(与 lab 同口径),值偏高;高夏普可能来自参数过拟合/低波动/小样本,非判定必过拟合。详见完整回测 modal,历史表现不代表未来">⚠ 可疑过拟合(夏普' + shVal + '&gt;3)</span>';
+  }
   // 2026-07-25 方向D 黑名单分级：
   //   _OVERFIT_FAILED_IDS（WF 确凿失效）：维持屏蔽，仅显示过拟合标注 chip，不进三档
   //   _SMALL_SAMPLE_IDS（小样本 n<30）：不屏蔽，三档 chip 正常计算 + 前置"样本不足"标注 chip 提醒
   var smallSamplePrefix = '';
   if (id && _OVERFIT_FAILED_IDS.has(id)) {
-    return '<div class="signal-chip chip-overfit-placeholder">⚠ 过拟合/测试段失效,不进推荐<span class="chip-tip">该品种信号在 walk-forward 测试段反向退化(WF夏普 &lt; 未过滤全样本),不进三档推荐;详见完整回测 modal,历史表现不代表未来</span></div>';
+    return sharpeRedlinePrefix + '<div class="signal-chip chip-overfit-placeholder">⚠ 过拟合/测试段失效,不进推荐<span class="chip-tip">该品种信号在 walk-forward 测试段反向退化(WF夏普 &lt; 未过滤全样本),不进三档推荐;详见完整回测 modal,历史表现不代表未来</span></div>';
   }
   if (id && _SMALL_SAMPLE_IDS.has(id)) {
     smallSamplePrefix = '<span class="signal-chip chip-small-sample-note" data-tip="该品种 C1 主买信号在 walk-forward 测试段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测 modal">📜 样本不足</span>';
@@ -621,12 +675,13 @@ function _backupSignalChipRender(sd, id) {
           annualized: s.annualized,
           max_drawdown: s.max_drawdown,
           win_rate: s.win_rate,
-          total_ops: s.total_ops
+          total_ops: s.total_ops,
+          sharpe: typeof s.sharpe === 'number' ? s.sharpe : null
         });
       }
     }
   }
-  if (allEntries.length < 2) return '';  // 不足 2 条无法对比
+  if (allEntries.length < 2) return sharpeRedlinePrefix;  // 不足 2 条无法对比,但仍显 sharpe 红线(若有)
   // 跨全 165 归一化（0-1）
   var maxAnn = Math.max.apply(null, allEntries.map(function (e) { return e.annualized; }));
   var minAnn = Math.min.apply(null, allEntries.map(function (e) { return e.annualized; }));
@@ -690,7 +745,8 @@ function _backupSignalChipRender(sd, id) {
   if (chips.length === 0) {
     // 三档全 null（弱标的整体不达标）：显示兜底文案，区别于三色档中性灰
     // 小样本品种仍前置标注 chip（让用户知道样本量限制，即便三档全不达标）
-    return smallSamplePrefix + '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>';
+    // 2026-07-27 sharpe 红线品种仍前置红线 chip（即便三档全不达标，夏普越线信息仍需透明）
+    return sharpeRedlinePrefix + smallSamplePrefix + '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>';
   }
   // chip val 第二行：该 scenario+path 在 5 窗口的年化对比
   function win5Ann(e) {
@@ -718,7 +774,7 @@ function _backupSignalChipRender(sd, id) {
     }
     return { line1: line1, line2: line2 };
   }
-  return smallSamplePrefix + chips.map(function (c) {
+  return sharpeRedlinePrefix + smallSamplePrefix + chips.map(function (c) {
     var emoji = c.kind === 'strong' ? '📈' : c.kind === 'steady' ? '👍' : '🛡';
     var cls = c.kind === 'strong' ? 'signal-chip-strong' : c.kind === 'steady' ? 'signal-chip-steady' : 'signal-chip-lowdraw';
     var tip = _backupSignalChipTip(sd, scored, c);
@@ -755,7 +811,7 @@ function _backupSignalChipTip(sd, scored, chip) {
     if (s) {
       // 每个窗口行末尾加 [s~e] 起止日期，让用户明确各窗口具体回测时段
       var rng = winRange[w] ? '  [' + winRange[w] + ']' : '';
-      lines.push('  ' + winLabel[w] + '  年化' + (s.annualized || 0).toFixed(1) + '% │ 回撤' + (s.max_drawdown || 0).toFixed(1) + '% │ 胜率' + (s.win_rate || 0).toFixed(0) + '% │ 样本' + (s.total_ops || 0) + rng);
+      lines.push('  ' + winLabel[w] + '  年化' + (s.annualized || 0).toFixed(1) + '% │ 回撤' + (s.max_drawdown || 0).toFixed(1) + '% │ 胜率' + (s.win_rate || 0).toFixed(0) + '% │ 夏普' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + ' │ 样本' + (s.total_ops || 0) + rng);
     }
   }
   // 全 165 该维度 Top5
@@ -774,7 +830,7 @@ function _backupSignalChipTip(sd, scored, chip) {
   lines.push('全 165 回测 · ' + label + ' Top5：');
   for (var i = 0; i < top5.length; i++) {
     var t = top5[i];
-    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '·' + winLabel[t.win] + '  年化' + t.annualized.toFixed(1) + '% │ 回撤' + t.max_drawdown.toFixed(1) + '% │ 胜率' + t.win_rate.toFixed(0) + '% │ 样本' + t.total_ops);
+    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '·' + winLabel[t.win] + '  年化' + t.annualized.toFixed(1) + '% │ 回撤' + t.max_drawdown.toFixed(1) + '% │ 胜率' + t.win_rate.toFixed(0) + '% │ 夏普' + (typeof t.sharpe === 'number' ? t.sharpe.toFixed(2) : '-') + ' │ 样本' + t.total_ops);
   }
   lines.push(SEP);
   lines.push('⚠ 研究参考，不构成投资建议 · 历史回测不代表未来');
@@ -9781,6 +9837,7 @@ function _tradeSimCardsHTML(s, initCap) {
     '<div class="sim-card"><span class="k">最大持仓</span><span class="v">' + _tradeSimFmtNum(s.max_holding) + ' 元（' + s.max_holding_pct + '%）<div class="sub">' + s.max_holding_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k">总收益</span><span class="v" style="color:' + _tradeSimColorPct(s.total_return) + '">' + _tradeSimFmtNum(s.total_return) + ' 元（' + (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct.toFixed(2) + '%）</span></div>' +
     '<div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">首笔买入至今 ' + s.years + ' 年</div></span></div>' +
+    '<div class="sim-card"><span class="k" title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普比率</span><span class="v" style="color:' + (typeof s.sharpe === 'number' && s.sharpe > 3 ? '#c0392b' : 'var(--text-1)') + '">' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + (typeof s.sharpe === 'number' && s.sharpe > 3 ? ' ⚠>3' : '') + '<div class="sub">事件稀疏 sqrt(252) 年化</div></span></div>' +
     '<div class="sim-card"><span class="k">总资产峰值</span><span class="v">' + _tradeSimFmtNum(s.total_assets_peak) + ' 元<div class="sub">' + s.total_assets_peak_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:' + _tradeSimColorPct(-s.max_drawdown) + '">' + ddStr + '<div class="sub">' + ddDate + '</div></span></div>' +
     '<div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:' + _tradeSimColorPct(-s.median_drawdown) + '">' + s.median_drawdown.toFixed(1) + '% / ' + s.trimmed_mean_drawdown.toFixed(1) + '%</span></div>' +

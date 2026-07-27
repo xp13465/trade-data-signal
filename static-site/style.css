@@ -378,6 +378,13 @@ main { padding: 16px 24px; }
    让用户看 3 色 chip 时一眼识别"样本不足"标注(区别于过拟合的橙红单 chip 不进三档)。
    不屏蔽三档 chip，仅作前置提醒，让用户看到推荐的同时知道样本量限制。 */
 .chip-small-sample-note { color: #1c6dbf; border: 1px solid rgba(28,109,191,0.7); background: rgba(28,109,191,0.18); font-weight: 700; font-size: 12px; white-space: normal; line-height: 1.35; cursor: help; }
+/* 夏普>3 可疑过拟合红线标注 chip（2026-07-27 NOTES §48 教训③）：红实线框警示色,
+   Bailey 2014 夏普>3 可疑/>5 必过拟合阈值。trade_sim 事件稀疏 equity_curve 收益率近似年化
+   (sqrt(252),与 lab_simulate.py 同口径),值偏高;标注为"可疑"提示用户查详,非判定必过拟合。
+   不屏蔽三档 chip,前置红线 chip 提醒+整行红框,用户看推荐时知夏普越线需谨慎。 */
+.chip-sharpe-redline { color: #c0392b; border: 1px solid rgba(192,57,43,0.75); background: rgba(192,57,43,0.14); font-weight: 700; font-size: 12px; white-space: normal; line-height: 1.35; cursor: help; }
+.chip-row-sharpe-redline { background: rgba(192,57,43,0.05); border-left: 3px solid rgba(192,57,43,0.65); padding: 4px 6px; border-radius: 4px; }
+.chip-row-sharpe-redline .chip-sharpe-redline { flex: 0 0 auto; min-width: max-content; align-self: center; }
 /* 样本不足品种三档容器（2026-07-20）：整个 signal-chip-row 加淡蓝背景框 + 左侧蓝色粗边框,
    视觉上把三档 chip "框住"表示"有保留的推荐",和前置 chip 呼应,用户一眼知道该品种样本不足。 */
 .chip-row-small-sample { background: rgba(28,109,191,0.06); border-left: 3px solid rgba(28,109,191,0.6); padding: 4px 6px; border-radius: 4px; }
@@ -1039,7 +1046,9 @@ main { padding: 16px 24px; }
 .industry-cell .signal-chip-row .chip-weak-placeholder { font-size: 10px; padding: 2px 6px; line-height: 1.3; }
 .industry-cell .signal-chip-row .chip-overfit-placeholder { font-size: 10px; padding: 2px 6px; line-height: 1.3; }
 .industry-cell .signal-chip-row .chip-small-sample-note { font-size: 11px; padding: 2px 6px; line-height: 1.3; font-weight: 700; }
+.industry-cell .signal-chip-row .chip-sharpe-redline { font-size: 11px; padding: 2px 6px; line-height: 1.3; font-weight: 700; }
 .industry-cell .chip-row-small-sample { padding: 3px 5px; }
+.industry-cell .chip-row-sharpe-redline { padding: 3px 5px; }
 .spark-cell .chart-hint { font-size: 10px; padding: 4px 6px; margin: 4px 0 6px; }
 .spark-cell .chart-hint .hint-strategy { font-size: 9px; padding: 2px 6px; margin-bottom: 3px; }
 .spark-cell .chart-hint .hint-row { margin: 1px 0; }

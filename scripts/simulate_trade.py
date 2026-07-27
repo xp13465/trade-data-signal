@@ -18,6 +18,7 @@
 
 import argparse
 import json
+import math
 import sqlite3
 import os
 import sys
@@ -674,6 +675,23 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
     if not equity_curve or equity_curve[-1]["date"] != last_date_fmt:
         equity_curve.append({"date": last_date_fmt, "value": round(final_total, 2)})
 
+    # sharpe(年化夏普,无风险0):从 equity_curve 相邻点收益率 r_i=(v_i-v_{i-1})/v_{i-1}
+    # 算 mean/std × sqrt(252)。equity_curve 为事件稀疏序列(买卖日+期末打点,非完整日K),
+    # 故为基于事件点收益率的近似年化值(口径与 lab_simulate.py L241-261 一致,lab/生产可比)。
+    # 2026-07-27 加:前端对 max sharpe>3 品种标注"可疑过拟合"红线(NOTES §48 教训③)。
+    daily_rets = []
+    for i in range(1, len(equity_curve)):
+        prev_v = equity_curve[i - 1]["value"]
+        if prev_v > 0:
+            daily_rets.append((equity_curve[i]["value"] - prev_v) / prev_v)
+    if len(daily_rets) >= 2:
+        mean_r = sum(daily_rets) / len(daily_rets)
+        var_r = sum((r - mean_r) ** 2 for r in daily_rets) / (len(daily_rets) - 1)
+        std_r = math.sqrt(var_r) if var_r > 0 else 0.0
+        sharpe = (mean_r / std_r * math.sqrt(252)) if std_r > 0 else 0.0
+    else:
+        sharpe = 0.0
+
     return {
         "rounds": rounds,
         "ledger": ledger,
@@ -711,6 +729,7 @@ def _build_result(scenario_name, cash, positions, rounds, ledger, last_close,
             "ledger_count": len(ledger),
             "years": round(years, 1),
             "annualized": round(annualized, 1),
+            "sharpe": round(sharpe, 2),
             "win_count": win_count,
             "lose_count": lose_count,
             "win_rate": round(win_rate, 1),
@@ -983,6 +1002,7 @@ def _scenario_panel(data, index_name="上证指数"):
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">{format_num(s['max_holding'])} 元（{s['max_holding_pct']}%）<div class="sub">{s['max_holding_date']}</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
       <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
+      <div class="sim-card"><span class="k" title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普比率</span><span class="v" style="color:{'#c0392b' if s.get('sharpe') is not None and s['sharpe'] > 3 else 'var(--text-1)'}">{s['sharpe']:.2f}{(' ⚠>3' if s.get('sharpe') is not None and s['sharpe'] > 3 else '')}<div class="sub">事件稀疏 sqrt(252) 年化</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
       <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:{color_for_pct(-s['max_drawdown'])}">{dd_str}<div class="sub">{dd_date}</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:{color_for_pct(-s['median_drawdown'])}">{s['median_drawdown']:.1f}% / {s['trimmed_mean_drawdown']:.1f}%</span></div>
@@ -1055,6 +1075,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
                 "final_total": s["final_total"],
                 "total_return_pct": s["total_return_pct"],
                 "annualized": s["annualized"],
+                "sharpe": s.get("sharpe", 0),
                 "max_drawdown": s.get("max_drawdown", 0),
                 "median_drawdown": s.get("median_drawdown", 0),
                 "trimmed_mean_drawdown": s.get("trimmed_mean_drawdown", 0),
@@ -1066,6 +1087,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     best_final = max(r["final_total"] for r in comparison_rows)
     best_return = max(r["total_return_pct"] for r in comparison_rows)
     best_annual = max(r["annualized"] for r in comparison_rows)
+    best_sharpe = max(r["sharpe"] for r in comparison_rows)
     best_dd = min(r["max_drawdown"] for r in comparison_rows)
     best_median_dd = min(r["median_drawdown"] for r in comparison_rows)
     best_trimmed_dd = min(r["trimmed_mean_drawdown"] for r in comparison_rows)
@@ -1076,6 +1098,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     worst_final = min(r["final_total"] for r in comparison_rows)
     worst_return = min(r["total_return_pct"] for r in comparison_rows)
     worst_annual = min(r["annualized"] for r in comparison_rows)
+    worst_sharpe = min(r["sharpe"] for r in comparison_rows)
     worst_dd = max(r["max_drawdown"] for r in comparison_rows)
     worst_median_dd = max(r["median_drawdown"] for r in comparison_rows)
     worst_trimmed_dd = max(r["trimmed_mean_drawdown"] for r in comparison_rows)
@@ -1115,6 +1138,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
           <td>{cmp_cell(r['final_total'], best_final, worst_final, ',.0f', suffix=' 元')}</td>
           <td>{cmp_cell(r['total_return_pct'], best_return, worst_return, '.2f', is_pct=True, signed=True)}</td>
           <td>{cmp_cell(r['annualized'], best_annual, worst_annual, '.1f', is_pct=True, signed=True)}</td>
+          <td>{cmp_cell(r['sharpe'], best_sharpe, worst_sharpe, '.2f')}{(' ⚠' if r['sharpe'] > 3 else '')}</td>
           <td>{cmp_cell(r['max_drawdown'], best_dd, worst_dd, '.1f', is_pct=True)}</td>
           <td>{cmp_cell(r['median_drawdown'], best_median_dd, worst_median_dd, '.1f', is_pct=True)}</td>
           <td>{cmp_cell(r['trimmed_mean_drawdown'], best_trimmed_dd, worst_trimmed_dd, '.1f', is_pct=True)}</td>
@@ -1126,7 +1150,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     <div class="sim-cmp-table">
       <table>
         <thead><tr>
-          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>
+          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化</th><th title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>
         </tr></thead>
         <tbody>{cmp_table_rows}</tbody>
       </table>
