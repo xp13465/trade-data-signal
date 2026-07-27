@@ -5162,9 +5162,15 @@ async function renderOverview() {
   const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
   _setCachedOverview(r);
   // 预 fetch signal_stats.json 缓存到 state.signalStats（_renderSignalGrid 评分尾缀用）
-  // 异步不阻塞渲染；5min TTL 由 fetchJSON 保证；失败静默降级（不显示评分角标）
+  // 2026-07-20 修复(a28 bug):改 await + Promise.race 超时,确保首屏 sigCard 渲染前 signalStats 就绪,
+  // 否则 _getSignalScore L1004 `if(!state.signalStats) return null` 致首屏无评分(切tab再切回才有)
   if (!state.signalStats) {
-    fetchJSON("./data/signal_stats.json").then((raw) => { state.signalStats = raw; }).catch(() => {});
+    try {
+      await Promise.race([
+        fetchJSON("./data/signal_stats.json").then((raw) => { state.signalStats = raw; }),
+        new Promise((res) => setTimeout(res, 1500))
+      ]);
+    } catch {}
   }
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）+ A4 健康灯（collect_health）
   applyCollectTime(r.collected_at, r.collect_health);
@@ -5807,7 +5813,7 @@ async function renderOverview() {
       _ntRecentDaily = null;
     }
     ntCard.innerHTML =
-      '<h3>🐶 汪汪队信号 <span class="nt-date-tag">数据 ' + fmtDate(nt.date) + '</span>' + resBadge +
+      '<h3>🐶 汪汪队信号 <span class="nt-date-tag">数据 ' + fmtDate(r.etf_date) + ' · 最近信号 ' + fmtDate(nt.date) + '</span>' + resBadge +
       termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。点击下方信号chip查看当日明细。") + "</h3>" +
       summaryHtml +
       '<div class="signal-grid nt-signal-grid">' + _renderNtSignalList(rc && rc.daily ? rc.daily : [], nt.date) + '</div>';
