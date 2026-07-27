@@ -3873,3 +3873,66 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 
 **教训**：今晚中信多空表 3 需求上线印证 §5 准则--一次性把 3 张表（旧表扩窗 + 准确率表 + 净加表）完整正确合集一步到位，不作"先上 1 张后续再补"妥协；net_chg 口径与用户外部机构数据 100% 一致是"完整正确"的验证标尺。告警去重/追买修复此前只在 memory 未落档 NOTES，今晚按 CLAUDE.md §7（memory 读优化 + NOTES 写保障互不冲突）补齐，避免 compact 后 memory 丢而 NOTES 无据可查。
 
+
+### 小节AZ50：2026-07-27 期货3表布局/颜色+信号评定清单+技术参考点评分尾缀+intraday修复确认
+
+**背景**：今晚主线是期货 tab 前 3 表（中信多空 / 机构多空 / 准确率合并表）布局与颜色收尾（A+B），并完成横跨全站的信号评定清单（C）+ 技术参考点评分尾缀上线（D），顺带确认 intraday 修复生效（E）与 9 任务监控巡检（F）。
+
+**A. 期货3表布局修复 a26（commit d422a7c6，已 push main）**
+
+- **问题**：a25（ffad6815）修“前 5 首行前 3 挤中布局”时给 `.indices-grid>.futures-table-card` 加了 `grid-column:1/-1` 跨满父 grid，副作用致第 4/5/6 卡片不再 3 列并排堆成单列；同时前 3 表（准确率合并表最长）thead 起始位置不一，左右没对齐。
+- **修复**：
+  - 前 3 表标题（h3）/ 副标题 / 描述区设 `min-height: 44/42/84px` 等高（容纳准确率合并表最长内容），让 3 卡片 thead 起始 Y 坐标一致在 ~727px 左右对齐。
+  - 删 a25 副作用 `.indices-grid>.futures-table-card{grid-column:1/-1}`，第 4/5/6 卡片恢复 3 列并排。
+  - 新建 `tripleGrid2` 复用 `.futures-triple-grid` 类，保证 3 表一组横排不串位。
+- **破缓存**：sw.js CACHE_VERSION a25->a26。
+
+**B. 期货3表副标题颜色 a27（commit 137a1d72，已 push main）**
+
+- **问题**：前 3 表副标题“同向 X%”从未带颜色（a24 前就没有，非 a24 丢失），准确率高低看不出。
+- **修复**：同向 X% 按准确率着色 -> `>55%` 绿 `#16a34a` / `<=55%` 红 `#dc2626`，阈值与历史准确率卡片（app.js L8091）一致。
+- **根因澄清**：`fmtStat` 从未带颜色，本次新增标注，非回归。
+- **破缓存**：sw.js a26->a27。
+
+**C. 信号评定清单（signal_stats.json 全量三维评定）**
+
+- **数据规模**：signal_stats.json 114 品种 × 6 信号 × 3 窗口（5d/10d/20d）= 1836 组合。
+- **三维评定权重**：准确率 35% + 收益 30% + 盈亏比 15% + 样本 20% + 方向惩罚 + n<30 降级。
+- **Top15 标杆**：上证追买 10d n=612 胜率 72.2% / 盈亏比 2.37 / +4.02% 为全站标杆。
+- **结论**：
+  - 趋势突破（追买唐奇安 20 日）在 A 股指数 / 概念 / 行业最有把握。
+  - 均值回归仅银行 / 美股蓝筹有效。
+  - 卖点对指数基本失效（仅情绪分见顶可作降温确认）。
+
+**D. 技术参考点评分尾缀 a28（commit e128cc42，已 push main）**
+
+- **后端**：`signal_stats.py` 加 `_compute_score`（四维加权 + 方向惩罚 + n 降级），每组合加 `score` 字段（0-1）。
+- **前端**：app.js 预 fetch signal_stats + `_getSignalScore` 按 index_id+signal 关联 10d score + `_renderSignalGrid` 加：
+  - `[高/中/低]` 角标（高 ≥0.75 深绿 / 中 ≥0.55 橙 / 低 <0.55 灰）
+  - tooltip（把握度 / 准确率 / 盈亏比 / 样本）
+  - 组内按 score 降序
+  - score≥0.75 `sig-item-high` 绿描边高亮
+- **验证**：sh buy_special 10d score=0.751 高。
+- **破缓存**：sw.js a27->a28。
+
+**E. intraday 修复确认（commit 37ae4500，AZ41 已落档，本次确认生效）**
+
+- **修复回顾**：refactor commit 329c1ce8 把 `ALL_RANGES` 改名 `EXPORT_RANGES` 漏改 `intraday_snapshot.py` 6 处引用，盘中 export `AttributeError` 被 try/except 吞 exit=0，监控第 4 盲区 `scan_log_anomaly` 抓到（AZ47 根治的第 4 盲区机制发挥作用）。commit 37ae4500 已修 + 推。
+- **本次确认**：旧 agent a4103228d2e5845ae 10:51 修 + 推卡死没报回，今晚确认 3 天盘中 export 失败已修，etf_date=20260727 正确。
+- **误报澄清**：异常 2（任务背景过时 20260724 周五值）为误报，非真实异常。
+- **commit stat 验收**：`git show --stat 37ae4500` = app/collector/intraday_snapshot.py 1 file changed, 6 insertions(+), 6 deletions(-)，与“6 处引用”一致。
+
+**F. 监控 9 任务（待补）**
+
+- 今晚 etf 20:07 & 21:30 / rzhb 19:15 首触，待监控 agent 报告补全。
+
+**今日 commit 清单（3 新 commit + 1 确认）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| d422a7c6 | 前3标题描述等高727对齐+第456恢复3列并排(删a25副作用+tripleGrid2)+sw a26 |
+| 137a1d72 | 前3副标题准确率着色(同向X%>55%绿<=55%红,与历史准确率卡片阈值一致)+sw a27 |
+| e128cc42 | 技术参考点评分尾缀(等级+tooltip,signal_stats加score,高≥0.75/中≥0.55/低<0.55,组内按score降序+高分高亮)+sw a28 |
+| 37ae4500 | intraday_snapshot.py EXPORT_RANGES 6处引用修复(AZ41已落档,本次确认生效) |
+
+**教训**：今晚印证几条既有准则：①监控第 4 盲区 `scan_log_anomaly`（AZ47 根治）再次发挥作用抓出 intraday export 被吞的 AttributeError，证明“脚本吞异常 exit=0”盲区必须有独立扫描层，不能信 exit 码；②a25 修一个布局 bug 引入另一个布局 bug（跨满 grid 副作用），印证改 CSS 布局要全局看 grid 影响，不能只盯目标元素；③信号评定清单是首次横跨 1836 组合的三维量化评定，为后续卖点策略优化（卖点对指数失效）提供数据基线，避免拍脑袋。
