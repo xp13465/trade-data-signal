@@ -6182,6 +6182,44 @@ var _LAB_AISCORE_ETF_TO_IID = {
 function _labAIScoreCode(it) {
   return (it && (it.etf_code || it.code)) || "";
 }
+
+// ============ AI评分tab分页常量 + state(参照 app.js ETF评分模式) ============
+// 2026-07-27: buy 227只折叠Top20+展开50/页, hold 951只50/页分页, sell 31只全量
+const _LAB_AISCORE_PAGE_SIZE = 50;        // buy/hold 区页大小
+const _LAB_AISCORE_COLLAPSE_TOP = 20;     // buy 区折叠态显 Top N(按 score 降序)
+const _labAiscoreState = {
+  data: null,        // 缓存 etf_score_list.json, 翻页/展开不重新 fetch
+  codeToIid: {},     // ETF code -> iid 映射缓存
+  buyPage: 1,        // buy 区当前页(展开态)
+  buyExpanded: false,// buy 区展开状态(折叠Top20 / 展开50页)
+  holdPage: 1,       // hold 区当前页
+};
+// buyExpanded 从 localStorage 恢复(记忆用户偏好)
+try { if (localStorage.getItem("lab_aiscore_buy_expanded") === "1") _labAiscoreState.buyExpanded = true; } catch (e) {}
+
+// 分页器HTML(复用 .etf-page-btn 全局样式; scope="buy"/"hold" 区分)
+function _labAiscorePager(scope, page, pages, total) {
+  let html = '<div class="etf-score-pager">';
+  html += '<button class="etf-page-btn" data-scope="' + scope + '" data-page="' + (page > 1 ? page - 1 : 1) + '"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>';
+  const pageBtns = [];
+  const addPage = (p) => { if (pageBtns.indexOf(p) < 0) pageBtns.push(p); };
+  addPage(1); addPage(pages);
+  for (let p = page - 2; p <= page + 2; p++) {
+    if (p > 1 && p < pages) addPage(p);
+  }
+  pageBtns.sort((a, b) => a - b);
+  let prev = 0;
+  pageBtns.forEach((p) => {
+    if (p - prev > 1) html += '<span class="etf-page-ellipsis">…</span>';
+    html += '<button class="etf-page-btn' + (p === page ? " active" : "") + '" data-scope="' + scope + '" data-page="' + p + '">' + p + '</button>';
+    prev = p;
+  });
+  html += '<button class="etf-page-btn" data-scope="' + scope + '" data-page="' + (page < pages ? page + 1 : pages) + '"' + (page >= pages ? ' disabled' : '') + '>下一页</button>';
+  html += '<span class="etf-page-info">' + page + ' / ' + pages + ' 页（' + total + ' 只）</span>';
+  html += '</div>';
+  return html;
+}
+
 async function renderAIScoreListLab() {
   // wrapper：顶部说明 + 持仓自查 + (买清单|卖清单 左右并排)
   const wrapper = document.createElement("div");
@@ -6258,20 +6296,47 @@ async function renderAIScoreListLab() {
     codeToIid[c] = _LAB_AISCORE_ETF_TO_IID[c];
   });
 
-  // === 持有建议列:sell_list 中 sell_signal 含"持有"的(未过热持有项) ===
-  // 注:持有建议 = sell_signal 含"持有"的ETF(如"持有(未过热)"),非用户持仓
+  // === 持有建议列:hold_list 独立字段(2026-07-27 修复原从 sell_list 过滤"持有"永远空 bug) ===
+  // 注:持有建议 = data.hold_list(不够格buy但不过热 high<60 的持有观察项),非用户持仓
+  // 后端 export_etf_score_list.py:558 已将 hold 拆独立字段, sell_list 31只全是过热项(high>=60)不含"持有"
   const buyListRaw = Array.isArray(data.buy_list) ? data.buy_list : [];
   const sellListRaw = Array.isArray(data.sell_list) ? data.sell_list : [];
-  // 持有建议:sell_signal 含"持有"的(未过热,继续持有)
-  const holdItems = sellListRaw.filter((it) => /持有/.test(it.sell_signal || ""));
-  // 卖清单:sell_signal 不含"持有"的(减仓信号+观察)
-  const sellListFiltered = sellListRaw.filter((it) => !/持有/.test(it.sell_signal || ""));
-
-  // === 买清单渲染（按 score 降序,展示前12行）===
+  // 持有建议:从 data.hold_list 读(原 sellListRaw.filter("持有") 因 sell_list 全是过热项永远空)
+  const holdItems = Array.isArray(data.hold_list) ? data.hold_list : [];
+  // 卖清单:sell_list 全是过热卖出信号(high>=60), hold 已拆独立字段, 直接用
+  const sellListFiltered = sellListRaw;
+  // 缓存到 state, 翻页/展开/收起时不重新 fetch, 只重渲染对应区
+  _labAiscoreState.data = data;
+  _labAiscoreState.codeToIid = codeToIid;
+  _labAiscoreState.buyPage = 1;
+  _labAiscoreState.holdPage = 1;
+  // 日期字符串(用于 section-head)
   const date = data.date || "";
   const dateStr = date && date.length === 8 ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : date;
-  const sorted = buyListRaw.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 12);
-  const rowsHTML = sorted.map((it, idx) => {
+
+  // === 买清单渲染(折叠Top20+展开50/页, 参照 app.js ETF评分模式) ===
+  _renderLabAiscoreBuySection(buyHost, buyListRaw, codeToIid, dateStr);
+
+  // === 持有建议渲染（用户持有的ETF,从买/卖清单分离）===
+  _renderAIScoreHoldSection(holdHost, holdItems, codeToIid, dateStr);
+
+  // === 卖清单渲染（直接渲染 sell_list 表格 + 持仓自查）===
+  _renderAIScoreSellSection(sellHost, sellListFiltered, codeToIid);
+  // 持仓自查:传入 buy+sell 全量清单(含持仓标的,便于查任意ETF)+ dateStr
+  // 修复2026-07-24:515030等非国家队ETF在etf_score_list有评分但无iid,原逻辑报"未识别",现先查etf_score_list降级显示评分卡片
+  _renderAIScoreQuerySection(queryHost, codeToIid, buyListRaw.concat(sellListRaw), dateStr);
+}
+
+// buy 区渲染:折叠Top20+展开50/页(参照 app.js _renderEtfScoreBody buy 区)
+// 2026-07-27: 原 slice(0,12) 截断只显12只, 改为折叠Top20+展开分页, buy 227只可全量浏览
+function _renderLabAiscoreBuySection(buyHost, buyList, codeToIid, dateStr) {
+  buyList = buyList || [];
+  codeToIid = codeToIid || {};
+  // 按 score 降序
+  const sorted = buyList.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+  const st = _labAiscoreState;
+  // 单行 HTML 生成(buy 区共用)
+  const rowHTML = (it, idx) => {
     const code = _labAIScoreCode(it);
     const iid = codeToIid[code] || "";
     const score = it.score != null ? Number(it.score).toFixed(1) : "-";
@@ -6287,8 +6352,30 @@ async function renderAIScoreListLab() {
       `<td class="aiscore-hands"><span class="hands-badge ${handsCls}">${hands}手</span></td>` +
       `<td class="aiscore-reason-cell">${reason}</td>` +
     `</tr>`;
-  }).join("");
+  };
+  let rowsHTML = "";
+  let pagerHTML = "";
+  let collapseHTML = "";
   const emptyRow = sorted.length === 0 ? `<tr><td colspan="6" class="lab-aiscore-empty">暂无买清单数据</td></tr>` : "";
+  if (st.buyExpanded) {
+    // 展开态: 50/页分页
+    const pages = Math.max(1, Math.ceil(sorted.length / _LAB_AISCORE_PAGE_SIZE));
+    if (st.buyPage > pages) st.buyPage = pages;
+    if (st.buyPage < 1) st.buyPage = 1;
+    const start = (st.buyPage - 1) * _LAB_AISCORE_PAGE_SIZE;
+    const slice = sorted.slice(start, start + _LAB_AISCORE_PAGE_SIZE);
+    rowsHTML = slice.map((it, idx) => rowHTML(it, start + idx)).join("");
+    if (pages > 1) pagerHTML = _labAiscorePager("buy", st.buyPage, pages, sorted.length);
+    collapseHTML = `<div class="lab-aiscore-collapse-wrap"><button type="button" class="lab-aiscore-collapse" data-action="collapse-buy">收起（仅显示 Top ${_LAB_AISCORE_COLLAPSE_TOP}）</button></div>`;
+  } else {
+    // 折叠态: Top20 + 展开按钮
+    const top = sorted.slice(0, _LAB_AISCORE_COLLAPSE_TOP);
+    rowsHTML = top.map((it, idx) => rowHTML(it, idx)).join("");
+    if (sorted.length > _LAB_AISCORE_COLLAPSE_TOP) {
+      const pages = Math.ceil(sorted.length / _LAB_AISCORE_PAGE_SIZE);
+      collapseHTML = `<div class="lab-aiscore-collapse-wrap"><button type="button" class="lab-aiscore-collapse" data-action="expand-buy">展开全部 ${sorted.length} 只（共 ${pages} 页）</button></div>`;
+    }
+  }
   buyHost.innerHTML =
     `<div class="lab-aiscore-section-head">` +
       `<div class="lab-aiscore-section-title">📈 AI买清单 <span class="lab-aiscore-date">📅 ${dateStr || "未注明日期"}</span></div>` +
@@ -6299,7 +6386,7 @@ async function renderAIScoreListLab() {
         `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>AI分</th><th>建议</th><th>理由摘要</th></tr></thead>` +
         `<tbody>${rowsHTML}${emptyRow}</tbody>` +
       `</table>` +
-    `</div>`;
+    `</div>` + pagerHTML + collapseHTML;
   // 点击行弹理由 modal（复用 _labCustom*HTML 5函数）
   buyHost.querySelectorAll(".lab-aiscore-row").forEach((tr) => {
     tr.onclick = () => {
@@ -6313,32 +6400,51 @@ async function renderAIScoreListLab() {
       _labAIScoreOpenDetailModal(code, name, iid);
     };
   });
-
-  // === 持有建议渲染（用户持有的ETF,从买/卖清单分离）===
-  _renderAIScoreHoldSection(holdHost, holdItems, codeToIid, dateStr);
-
-  // === 卖清单渲染（直接渲染 sell_list 表格 + 持仓自查）===
-  _renderAIScoreSellSection(sellHost, sellListFiltered, codeToIid);
-  // 持仓自查:传入 buy+sell 全量清单(含持仓标的,便于查任意ETF)+ dateStr
-  // 修复2026-07-24:515030等非国家队ETF在etf_score_list有评分但无iid,原逻辑报"未识别",现先查etf_score_list降级显示评分卡片
-  _renderAIScoreQuerySection(queryHost, codeToIid, buyListRaw.concat(sellListRaw), dateStr);
+  // 绑定分页器按钮(buy 区)
+  buyHost.querySelectorAll(".etf-page-btn[data-page]").forEach((b) => {
+    b.onclick = () => {
+      if (b.disabled) return;
+      const p = parseInt(b.dataset.page, 10) || 1;
+      if ((b.dataset.scope || "buy") === "buy") st.buyPage = p;
+      _renderLabAiscoreBuySection(buyHost, sorted, codeToIid, dateStr);
+      const top = buyHost.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    };
+  });
+  // 绑定展开/收起按钮(localStorage 记忆 buyExpanded)
+  buyHost.querySelectorAll(".lab-aiscore-collapse[data-action]").forEach((b) => {
+    b.onclick = () => {
+      const act = b.dataset.action;
+      if (act === "expand-buy") {
+        st.buyExpanded = true;
+        try { localStorage.setItem("lab_aiscore_buy_expanded", "1"); } catch (e) {}
+        st.buyPage = 1;
+      } else if (act === "collapse-buy") {
+        st.buyExpanded = false;
+        try { localStorage.setItem("lab_aiscore_buy_expanded", "0"); } catch (e) {}
+      }
+      _renderLabAiscoreBuySection(buyHost, sorted, codeToIid, dateStr);
+    };
+  });
 }
 
-// 持有建议渲染:sell_list 中 sell_signal 含"持有"的(未过热持有项)
-// 每项展示:ETF代码/名称 + 高位风险分 + 低位机会分 + 持有建议(sell_signal 文本) + 理由
-// 按 high_alert 降序(风险高的排前)
+// 持有建议渲染:从 data.hold_list 读(951只, 50/页分页), 按 high_alert 降序
+// 2026-07-27 修复双重bug: ①从 data.hold_list 读(原 sellListRaw.filter 永远空) ②读 hold_reason(原 sell_signal 字段在 hold_list 不存在)
+// 每项展示:ETF代码/名称 + 高位风险分 + 低位机会分 + 持有建议(hold_reason 文本) + 理由
 function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
   holdItems = holdItems || [];
   codeToIid = codeToIid || {};
   // 排序:按 high_alert 降序(风险高的排前)
   const sortedHold = holdItems.slice().sort((a, b) => (b.high_alert || 0) - (a.high_alert || 0));
-  const rowsHTML = sortedHold.map((it, idx) => {
+  const st = _labAiscoreState;
+  // 单行 HTML 生成(hold 区共用)
+  const rowHTML = (it, idx) => {
     const code = _labAIScoreCode(it);
     const iid = codeToIid[code] || "";
     const high = it.high_alert != null ? Number(it.high_alert).toFixed(1) : "-";
     const low = it.low_alert != null ? Number(it.low_alert).toFixed(1) : "-";
-    // 持有建议:固定显示 sell_signal 文本(如"持有(未过热)"),无则"继续持有"
-    const advice = it.sell_signal || "继续持有";
+    // 持有建议:hold_list 用 hold_reason 字段(非 sell_signal), 无则"持有观察"
+    const advice = it.hold_reason || it.sell_signal || "持有观察";
     const adviceCls = "hold-advice-warn";
     const nt = it.is_national_team ? `<span class="lab-aiscore-nt">国家队</span>` : "";
     const reason = it.reason_summary ? `<span class="lab-aiscore-reason" title="${it.reason_summary}">${it.reason_summary}</span>` : "";
@@ -6351,11 +6457,19 @@ function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
       `<td class="aiscore-advice"><span class="hold-advice ${adviceCls}">${advice}</span></td>` +
       `<td class="aiscore-reason-cell">${reason}</td>` +
     `</tr>`;
-  }).join("");
+  };
   const holdCount = sortedHold.length;
+  // 50/页分页(951只用50/页约20页, 避免一次性渲染卡顿)
+  const pages = Math.max(1, Math.ceil(holdCount / _LAB_AISCORE_PAGE_SIZE));
+  if (st.holdPage > pages) st.holdPage = pages;
+  if (st.holdPage < 1) st.holdPage = 1;
+  const start = (st.holdPage - 1) * _LAB_AISCORE_PAGE_SIZE;
+  const slice = sortedHold.slice(start, start + _LAB_AISCORE_PAGE_SIZE);
+  const rowsHTML = slice.map((it, idx) => rowHTML(it, start + idx)).join("");
   const empty = holdCount === 0
     ? `<tr><td colspan="7" class="lab-aiscore-empty">暂无未过热持有项</td></tr>`
     : "";
+  const pagerHTML = (holdCount > 0 && pages > 1) ? _labAiscorePager("hold", st.holdPage, pages, holdCount) : "";
   host.innerHTML =
     `<div class="lab-aiscore-section-head">` +
       `<div class="lab-aiscore-section-title">💼 未过热持有建议 <span class="lab-aiscore-section-sub-inline">未过热持有项${holdCount ? ` · ${holdCount}只` : ""}</span></div>` +
@@ -6365,7 +6479,8 @@ function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
         `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>高位风险分</th><th>低位机会分</th><th>持有建议</th><th>理由摘要</th></tr></thead>` +
         `<tbody>${rowsHTML}${empty}</tbody>` +
       `</table>` +
-    `</div>`;
+    `</div>` + pagerHTML;
+  // 点击行弹理由 modal
   host.querySelectorAll(".lab-aiscore-row").forEach((tr) => {
     tr.onclick = () => {
       const iid = tr.dataset.iid;
@@ -6376,6 +6491,17 @@ function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
         return;
       }
       _labAIScoreOpenDetailModal(code, name, iid);
+    };
+  });
+  // 绑定分页器按钮(hold 区)
+  host.querySelectorAll(".etf-page-btn[data-page]").forEach((b) => {
+    b.onclick = () => {
+      if (b.disabled) return;
+      const p = parseInt(b.dataset.page, 10) || 1;
+      if ((b.dataset.scope || "hold") === "hold") st.holdPage = p;
+      _renderAIScoreHoldSection(host, sortedHold, codeToIid, dateStr);
+      const top = host.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
     };
   });
 }
