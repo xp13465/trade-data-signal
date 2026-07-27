@@ -4,12 +4,12 @@
     "name": "收盘全量",
     "schedule": "17:50",
     "est_text": "约26分钟",
-    "last_run": "2026-07-26 17:50",
+    "last_run": "2026-07-27 17:50",
     "last_exit": 0,
-    "last_duration_sec": 294,
-    "log_anomaly": true,
-    "log_anomaly_keyword": "FileNotFoundError:",
-    "log_anomaly_line": "FileNotFoundError: [Errno 2] No such file or directory: '/Users/linhuichen/code/trade-data/static-site/trade_sim_cyb.html'"
+    "last_duration_sec": null,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
   },
   {
     "task": "backfill_evening",
