@@ -3760,3 +3760,76 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 **教训**：exit=0 不等于成功，log 关键词扫描是最后一道防线——3 个 bug 都在 log 里留了 Traceback/FATAL 痕迹，但原监控只看 exit code 全漏报 3 天。详见小节AZ46 铁律3（监控4盲区现已全部修复）。
 
 
+### 小节AZ48：2026-07-27 盘中实时性+监控4盲区根治+前端轮询+3铁律
+
+**背景**：今日围绕"盘中实时性"主线推进 4 条线：监控第4盲区根治（AZ47 已详述 5 commit，此处补 4bcfb2bf 前因+异常C状态）、P1 盘中实时性 2 项（AZ47 ⑤ 已述）、前端盘中提示+轮询 6 commit（本节详述，今日 NEW）、3 铁律落档（AZ46 已述）。AZ47 为"下午 5 commit 闭环"快速落档，本节为当日全量收尾，重点补前端轮询线。
+
+**线1：监控第4盲区根治 + 3 个真实 bug 连根拔起（AZ47 详述，此处补前因）**
+
+- 监控第4盲区 log 关键词扫描层（commit 494c2532）：`scripts/gen_schedule_stats.py` L97 `ANOMALY_RE`（精确匹配 Traceback/Python 异常类名+冒号/FATAL/panic/git push 失败，**不用"失败/Error"宽泛词**避免误报）+ L143 `scan_log_anomaly(start/end 切窗口只扫本次运行)` + L320/366-368 每任务加 `log_anomaly`/`log_anomaly_keyword`/`log_anomaly_line` 3 字段。`scripts/schedule_monitor.sh` L176 `log_anomaly=true` 告警。详见 AZ47 ①。
+- 异常B（index_backfill 漏 import os）：**前因 commit 4bcfb2bf**（2026-07-26 15:28）重构加 `env={**os.environ,"REPO":str(repo)}`（L1004）修 deploy.sh 读滞后镜像 bug，但**漏 import os**，L1004 `os.environ` 抛 `NameError` 被 `subprocess(check=False)` 吞 exit=0，4bcfb2bf 想修的 bug 实际没修成。修复 commit f7d39c22 补 `import os`（L33）。详见 AZ47 ③。
+- 异常A（upload_r2 broken symlink）：`trade-data/static-site/` 100 个 `trade_sim_*.html` symlink，94 个 broken（7/23 后删除残留）。`read_bytes` 在 try 外+glob 含 broken symlink。修复 commit 8c300d84 方案2（`read_bytes` 移进 try）+方案3（`_upload_glob` 入口加 `exists()` 过滤）。详见 AZ47 ④。
+- 异常C（etf_nt FATAL libmini_racer）：已知历史问题（py_mini_racer 库 FATAL），>24h 降级 INFO 去重生效，今晚 20:07 真采观察。
+- self_heal 盘中保护（commit a2e60f1a）：`scripts/self_heal.sh` L205-225 update_all 工作日 `0930<=hhmm<=1530` 跳过（§8 盘中不跑全量），state 记 `reason=intraday_skip`。L161 触发条件扩展 `exit!=0 OR log_anomaly=true`。详见 AZ47 ②。
+
+**线2：P1 盘中实时性 2 项（AZ47 ⑤ 已述）**
+
+- ETF 试探 510050 省 170s（commit 4fa655c6）：`app/collector/etf_national_team.py` L1099-1113 `pipeline_intraday_close` 试探 510050（上市 2005 最老牌+成交量最大）。就绪则试探即入库+批量采剩余 11 只；未就绪跳过 12 只循环省 ~170s（185s->15s）；异常降级不阻塞。
+- global 盘中跳过省 5-10s（commit 4fa655c6）：`app/collector/intraday_snapshot.py` L950 `_export_affected_json(is_closed: bool=False)`，L1016 `if is_closed` 盘后导出 global×6 / else 盘中跳过。盘后补导双保险：15:05 收盘轮 `is_closed=True` + 15:35 `update_all`->`export.py` L288-302。
+
+**线3：前端盘中提示 + 轮询（今日 NEW，6 commit 详述）**
+
+**①盘中预估信号⚠强提醒 + modal 换行修复（commit 0a3aab12）**
+- `static-site/app.js` L1007 `_renderSignalGrid(items,todayDate,title,kind,emptyText,isClosed=true)` 加第 6 参 `isClosed`（默认 true 兼容 freeze 调用点）。L1033-1037 `showIntradayWarn=isToday&&!isClosed`，命中时 pin 挂 `<sup class="sig-intraday-warn" data-tip="盘中预估·收盘后(17:50)重算定版，此信号可能消失或变动">⚠</sup>` + `.sig-intraday` 橙色描边。判定：`date===todayDate && !isClosed`，非今日/收盘后不显示。
+- 背景：收盘后 17:50 update_all 重算定版（`intraday_snapshot._recompute_signals` DELETE+INSERT 幂等覆盖），盘中预估的今日 pin 非定版可能消失/变动，需强提醒用户。
+- modal 换行修复：app.js L1184 `<span style="flex:0 0 3.5em;white-space:nowrap">` 固定标签宽度（修 6 色信号 modal 5 日/10 日标签换行错位）。
+- `static-site/style.css` L680-681 加 `.sig-clickable.sig-intraday { box-shadow: 0 0 0 1.5px rgba(230,162,60,0.55); }` + `.sig-intraday-warn { color: #e6a23c; font-size: 11px; ... }`（警示橙 #e6a23c 温和不刺眼）。
+
+**②⚠角标提示机制统一 data-tip hoverpop（commit adddf397）**
+- app.js L1035 `title="..."` -> `data-tip="..."`（文案/橙色 sup 视觉不变），与卡片标题❓ term-tip 走同一套 `_initTermPop` 全局事件委托 hover pop。避免父 span 也有 title 时 hover⚠命中父提示时序不稳。sw.js a9->a10。
+
+**③overview 5min 轮询启动竞态根治（commit 625bfe11）**
+- bug1（主因）：`_initAutoRefresh` 用 `Promise.race` 2s 超时等 snap，弱网/强刷首屏 snap 未就绪 -> `snap=null` -> 不启动轮询 -> 永不启动（无补救）。修复：`fetchIntradaySnapshot`（app.js L3628-3630）内 snap 写入后加就绪回调钩子 `if(!_overviewRefreshActive && snap.is_closed===false) _startOverviewRefresh()`，snap 何时就绪何时启动，无超时卡死。`_initAutoRefresh` 去掉 2s Promise.race 改 `await fetchIntradaySnapshot`+兜底检查。`renderOverview` 加兜底启动：切 tab/重渲染时若 snap 就绪且 `!active` 则补启动。
+- bug2（次因）：`_doOverviewRefresh` 每轮只调 `applyCollectTime` 更新顶部采集时间 badge，未更新卡片角标数据。修复：每轮补调 `renderOverview` 卡片角标刷新逻辑。
+
+**④overview 轮询改自适应预测 + 3min 兜底（commit 0ad77395）**
+- app.js L4672-4676 常量：`OVERVIEW_REFRESH_MS=3*60*1000`（低频 3min 兜底，原 5min 缩短）/ `OVERVIEW_HIGH_FREQ_MS=15*1000`（高频 15s）/ `OVERVIEW_PREDICT_LEAD_MS=30*1000`（高频窗口提前量）/ `OVERVIEW_HISTORY_MAX=8`（历史 collected_at 保留个数）。
+- L4704 `_recomputeOverviewPrediction()`：历史 collected_at 中位数周期预测下一次推完时刻 `predicted`，高频窗口 `[predicted-30s, predicted+3min]`（提前 30s 切高频，拉到新 collected_at 命中转低频，超时降回低频）。
+- L4746-4759 `_scheduleNextOverviewRefresh()` 三分支：高频窗口内 `delay=15s` / 窗口在未来且 `窗口起点-now<=3min` 等到起点 / 否则 `delay=3min` 低频兜底。**兜底铁律**：任何情况两次轮询间隔<=3min，预测偏差/后端延迟/周期异常不卡死。
+- 跨天 gap>30min 清空历史重攒，周期<5min 或>30min 不预测走低频。sw.js a11->a12。
+
+**⑤overview 轮询 debug 状态条 + visibilitychange 后台恢复（commit 101b2684）**
+- debug 状态条：app.js L4850 `_initRefreshDebugBar()`（fixed bottom-right 10px 灰半透明 `rgba(0,0,0,0.62)` z-index:1 pointer-events:none）+ `_updateRefreshDebug()`（L4874）显示：下次拉取倒计时（秒级倒数）/ 状态（低频兜底/高频追新/等预测窗口/已停止）/ 后端最近 collected_at(HH:MM) / 样本数 n/8 / 预测下推时刻(HH:MM)。
+- 倒计时机制：L4686 `_overviewNextFireAt` 时间戳，独立 1s setInterval 基于此算剩余秒数，不依赖轮询触发。
+- visibilitychange：app.js L4821 `_onOverviewVisChange`--`hidden` 记录 `_lastVisibleAt`（L4687）；`visible` 时 `if(!_overviewRefreshActive) return`；gap>5min 清历史+重算预测+立即触发 `_doOverviewRefresh`+重排定时器。
+- 幂等锁：L4688 `_inOverviewRefresh`，L4773 入口 `if(_inOverviewRefresh) return`，L4810 `finally` 释放（防 visibilitychange+定时器并发重复触发）。sw.js a12->a13。
+
+**⑥盘中异动告警邮件文案 异常->异动（commit e23374c9）**
+- `scripts/detect_intraday_anomaly.py` 8 处文案 异常->异动：L255/L257 邮件 subject `[盘中异动] {len(alerts)}项异动`、L260 h3 `盘中异动告警`、L261 正文 `项异动`、L294/L298/L303 日志 print `项异动/新异动/无新异动`、L1/L3 docstring。
+- 区分保留：系统异常语境（stderr"失败"文案/notify.py"不抛异常"Python 术语/app.js 采集异常角标）保留"异常"；A股标准术语"异常波动"保留。背景：用户反馈"5项异常"让人误以为是系统故障（实际是市场异动业务告警）。
+
+**线4：3 铁律（AZ46 已详述，此处标注闭环状态）**
+
+- 铁律1 改 app.js 必 bump sw.js CACHE_VERSION（AZ46 铁律1）：今日 6 个改 app.js 的 commit（0a3aab12/adddf397/625bfe11/0ad77395/101b2684/e23374c9）全部同步 bump sw.js（a8->a9->a10->a11->a12->a13），铁律执行到位。已记 memory `bump-sw-version-with-appjs`。
+- 铁律2 重构改名全局搜替换（AZ46 铁律2）：今日 4bcfb2bf 漏 import os 教训再次印证（重构加 `os.environ` 未配套 `import os`），f7d39c22 修复。规则：重构加新引用后必须 grep 全仓确认配套 import/定义。
+- 铁律3 监控4盲区（AZ46 铁律3）：**4 盲区现已全部修复**--①exit code 吞异常（AZ42 launchctl_last_exit）/ ②log 解析 null（AZ42 log 解析 fallback）/ ③全角字符（AZ42 lint_scripts+pre-commit）/ ④git add 通配（AZ41 精确文件列表）+ **今日 log 关键词扫描层（commit 494c2532）补第4盲区最后一道防线**，上线即暴露 3 个真实 bug 全部修复（AZ47）。
+
+**今日 commit 清单（12 commit，4bcfb2bf 为 7/26 前因）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| 4bcfb2bf | backfill REPO 隐藏 bug 修复+港股3中证备源（**漏 import os 埋雷**，7/26） |
+| 494c2532 | 监控第4盲区修复-log 关键词扫描层（根治脚本吞异常 exit=0 漏报） |
+| a2e60f1a | self_heal.sh 盘中保护-update_all force 交易日 09:30-15:30 跳过（§8） |
+| f7d39c22 | index_backfill.py 补 import os（修 4bcfb2bf 漏 import 致 NameError 吞异常 exit=0） |
+| 8c300d84 | upload_r2 修 broken symlink 致 _upload_glob 崩溃吞异常（方案2+3） |
+| 4fa655c6 | P1 盘中实时性优化 2 项（ETF 试探 1 只省 170s + global 盘中跳过省 5-10s） |
+| 0a3aab12 | 盘中预估信号 pin 加⚠强提醒 + 修 6 色信号 modal 5日10日换行错位 |
+| adddf397 | 盘中预估信号⚠角标提示机制统一（data-tip hoverpop，title->data-tip） |
+| 625bfe11 | 根治 overview 5min 轮询启动竞态+让轮询真正更新卡片角标 |
+| 0ad77395 | overview 轮询改自适应预测+3min 兜底（盘中滞后 5min->15s） |
+| 101b2684 | overview 轮询 debug 状态条+visibilitychange 后台标签页回来轮询恢复 |
+| e23374c9 | 盘中异动告警邮件文案 异常->异动 避免误解为系统 bug |
+
+**教训**：今日 12 commit 印证 3 铁律全部落地--前端 6 commit 全部 bump sw.js（铁律1执行到位）；4bcfb2bf 漏 import os 印证铁律2（重构加引用须配套 import）；监控4盲区全部修复+log 关键词扫描上线即暴露 3 真实 bug（铁律3闭环）。盘中实时性主线：后端省 170s+5-10s（线2）+ 前端自适应轮询 5min->15s（线3④）+ ⚠强提醒防误导（线3①）+ 邮件文案防误解（线3⑥），盘中数据滞后从"小时级"压到"15s 级"。
+
