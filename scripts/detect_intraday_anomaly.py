@@ -1,6 +1,6 @@
-"""A11 异常波动盘中告警
+"""A11 盘中异动告警
 
-盘中实时检测三档异常，随 intraday_snapshot 30分钟节奏触发（不新增定时任务）：
+盘中实时检测三档异动，随 intraday_snapshot 30分钟节奏触发（不新增定时任务）：
 1. 急涨急跌: 日内涨幅 ±3%/±5%/±7% 三档（指数+行业+概念）
 2. 放量: net_inflow ≥ 近5日均 × 2（行业，有净流入字段）
 3. 突破: 突破近20日高低点（指数，有 OHLC）
@@ -254,11 +254,11 @@ def send_alert(alerts: list[dict]) -> None:
     if severe_n:
         subject = f"[盘中异动] {severe_n}项≥7% + {len(alerts)-severe_n}项其他 ({now})"
     else:
-        subject = f"[盘中异动] {len(alerts)}项异常 ({now})"
+        subject = f"[盘中异动] {len(alerts)}项异动 ({now})"
 
     tier_badge = {"severe": "[严重]", "strong": "[强]", "normal": "[普通]"}
-    lines = [f"<h3>盘中异常波动告警 ({now})</h3>",
-             f"<p>共 {len(alerts)} 项异常（去重后首次触发）：</p>", "<ul>"]
+    lines = [f"<h3>盘中异动告警 ({now})</h3>",
+             f"<p>共 {len(alerts)} 项异动（去重后首次触发）：</p>", "<ul>"]
     for a in alerts:
         badge = tier_badge.get(a.get("tier"), "")
         lines.append(f"<li>{badge} {a['desc']}</li>")
@@ -291,16 +291,16 @@ def main() -> int:
         alerts += detect_volume_surge(snap, conn)
         alerts += detect_breakout(snap, conn)
 
-    print(f"[anomaly] 检测到 {len(alerts)} 项异常（去重前）", flush=True)
+    print(f"[anomaly] 检测到 {len(alerts)} 项异动（去重前）", flush=True)
 
     new_alerts = filter_and_record(alerts)
     if new_alerts:
-        print(f"[anomaly] 去重后 {len(new_alerts)} 项新异常，发告警：", flush=True)
+        print(f"[anomaly] 去重后 {len(new_alerts)} 项新异动，发告警：", flush=True)
         for a in new_alerts:
             print(f"  - {a['desc']}", flush=True)
         send_alert(new_alerts)
     else:
-        print(f"[anomaly] 无新异常（均已告警过），不发邮件", flush=True)
+        print(f"[anomaly] 无新异动（均已告警过），不发邮件", flush=True)
 
     return 0
 
