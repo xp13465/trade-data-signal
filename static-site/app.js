@@ -7930,8 +7930,12 @@ function renderFuturesSection(data, snap, container) {
     const instDir = instCd ? instCd.dominant_dir : "-";
     let html = `<h3>中信/机构 多空单同向准确率（中信${citicDir}/机构${instDir}）${detailSuffix}</h3>`;
     html += `<div class="futures-note">最近15个交易日中信期货 vs 机构(前20会员) 4品种合计净加仓方向 vs 上证指数次日涨跌。主导方向按同向/逆向天数判定，每日对错按各自主导方向判断。首行为当天（次日涨跌待收盘）。</div>`;
-    // 合并统计副标题：中信 同向X%(Y对Z错) | 机构 同向X%(Y对Z错)
-    const fmtStat = (cd) => cd ? `同向${cd.accuracy}%(${cd.correct_count}对${cd.wrong_count}错)` : "-";
+    // 合并统计副标题：中信 同向X%(Y对Z错) | 机构 同向X%(Y对Z错) — X%按准确率着色(>55%绿/#16a34a, <=55%红/#dc2626, 同 acc-good/acc-bad)
+    const fmtStat = (cd) => {
+      if (!cd) return "-";
+      const accColor = cd.accuracy > 55 ? "#16a34a" : "#dc2626";
+      return `同向<span style="color:${accColor}">${cd.accuracy}%</span>(${cd.correct_count}对${cd.wrong_count}错)`;
+    };
     html += `<div class="term-plain futures-stat-sub" style="margin:6px 0;font-size:13px;">中信 <strong style="color:var(--text-1)">${fmtStat(citicCd)}</strong> · 机构 <strong style="color:var(--text-1)">${fmtStat(instCd)}</strong></div>`;
     // 合并表7列，用 .accuracy-table-scroll 滚动容器
     html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>中信方向</th><th>中信次日涨跌</th><th>中信对错</th><th>机构方向</th><th>机构次日涨跌</th><th>机构对错</th></tr></thead><tbody>';
@@ -7984,8 +7988,9 @@ function renderFuturesSection(data, snap, container) {
     const detailSuffix = latestDetailDate ? `<span class="chart-latest"> · ${fmtDate(latestDetailDate)}</span>` : "";
     let html = `<h3>${titlePrefix}净加多空（过去15天）${detailSuffix}</h3>`;
     html += `<div class="futures-note">${noteText}</div>`;
-    // 统计副标题（与准确率合并表结构对齐，保证3表表格起始位置一致）
-    html += `<div class="term-plain futures-stat-sub" style="margin:6px 0;font-size:13px;">同向${cd.accuracy}%(${cd.correct_count}对${cd.wrong_count}错)</div>`;
+    // 统计副标题（与准确率合并表结构对齐，保证3表表格起始位置一致）— X%按准确率着色(>55%绿/#16a34a, <=55%红/#dc2626)
+    const accColor = cd.accuracy > 55 ? "#16a34a" : "#dc2626";
+    html += `<div class="term-plain futures-stat-sub" style="margin:6px 0;font-size:13px;"><strong style="color:var(--text-1)">同向<span style="color:${accColor}">${cd.accuracy}%</span>(${cd.correct_count}对${cd.wrong_count}错)</strong></div>`;
     html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th></tr></thead><tbody>';
     // 净加手数：正绿负红（正=净加多=绿，负=净加空=红）
     const chgColor = (v) => v != null ? (v >= 0 ? "#2e8b57" : "#e6492e") : "var(--text-3)";
