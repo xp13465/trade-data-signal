@@ -155,8 +155,10 @@ for s in stats:
     task = s.get("task")
     exit_code = s.get("last_exit")
     last_run_str = s.get("last_run")
-    # null/0 不 heal（null=进行中/无数据，0=成功）
-    if exit_code is None or exit_code == 0:
+    log_anomaly = s.get("log_anomaly", False)
+    # null/0 且无 log_anomaly 不 heal（null=进行中/无数据，0=成功）
+    # 第4盲区修复: log_anomaly=true 时即使 exit=0 也 heal（脚本吞异常场景）
+    if (exit_code is None or exit_code == 0) and not log_anomaly:
         continue
     # last_run 时效检查
     if not last_run_str:
@@ -179,7 +181,7 @@ for s in stats:
         print(f"[self_heal] {task} launchctl state={st}（在跑），跳过避免误杀")
         audit(f"SKIP_RUNNING {task} state={st} last_exit={exit_code}")
         continue
-    to_heal.append((task, exit_code, last_run_str, st))
+    to_heal.append((task, exit_code, last_run_str, st, log_anomaly))
 
 if not to_heal:
     print(f"[{NOW.strftime('%Y-%m-%d %H:%M:%S')}] OK 无需 heal 的任务"
@@ -188,7 +190,7 @@ if not to_heal:
 
 # 4) 执行 heal（每日上限内，逐个后台触发重跑，不阻塞 self_heal 退出）
 healed_now = []
-for task, exit_code, last_run_str, st in to_heal:
+for task, exit_code, last_run_str, st, log_anomaly in to_heal:
     if state["count"] >= DAILY_LIMIT:
         msg = (f"执行中达到每日上限 {DAILY_LIMIT} 次，剩余任务跳过。"
                f"已 heal: {json.dumps(state['healed'], ensure_ascii=False)}")
@@ -214,10 +216,12 @@ for task, exit_code, last_run_str, st in to_heal:
     state["healed"].append({
         "task": task, "time": NOW.strftime("%H:%M:%S"),
         "exit": exit_code, "last_run": last_run_str,
+        "log_anomaly": log_anomaly,
     })
     healed_now.append(task)
-    audit(f"HEAL {task} last_exit={exit_code} last_run={last_run_str} state={st} "
-          f"-> 触发 {cmd_str} (log={log_file.name})")
+    reason = "log_anomaly" if (log_anomaly and (exit_code is None or exit_code == 0)) else f"exit={exit_code}"
+    audit(f"HEAL {task} reason={reason} last_exit={exit_code} last_run={last_run_str} "
+          f"log_anomaly={log_anomaly} state={st} -> 触发 {cmd_str} (log={log_file.name})")
 
 save_state(state)
 print(f"[{NOW.strftime('%Y-%m-%d %H:%M:%S')}] HEAL 触发 {len(healed_now)} 个任务: {healed_now}")

@@ -6,7 +6,10 @@
     "est_text": "约26分钟",
     "last_run": "2026-07-26 17:50",
     "last_exit": 0,
-    "last_duration_sec": 294
+    "last_duration_sec": 294,
+    "log_anomaly": true,
+    "log_anomaly_keyword": "FileNotFoundError:",
+    "log_anomaly_line": "FileNotFoundError: [Errno 2] No such file or directory: '/Users/linhuichen/code/trade-data/static-site/trade_sim_cyb.html'"
   },
   {
     "task": "backfill_evening",
@@ -15,16 +18,22 @@
     "est_text": "约29分钟",
     "last_run": "2026-07-27 02:00",
     "last_exit": 0,
-    "last_duration_sec": 602
+    "last_duration_sec": 602,
+    "log_anomaly": true,
+    "log_anomaly_keyword": "Traceback (most recent call last)",
+    "log_anomaly_line": "Traceback (most recent call last):"
   },
   {
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
-    "est_text": "约40秒",
-    "last_run": "2026-07-27 11:05",
+    "est_text": "约1分钟",
+    "last_run": "2026-07-27 11:30",
     "last_exit": 0,
-    "last_duration_sec": 111
+    "last_duration_sec": 117,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
   },
   {
     "task": "futures_backfill",
@@ -33,7 +42,10 @@
     "est_text": "约13分钟",
     "last_run": "2026-07-26 21:00",
     "last_exit": 0,
-    "last_duration_sec": 0
+    "last_duration_sec": 0,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
   },
   {
     "task": "lhb_backfill",
@@ -42,7 +54,10 @@
     "est_text": "约17分钟",
     "last_run": "2026-07-26 19:30",
     "last_exit": 0,
-    "last_duration_sec": 1
+    "last_duration_sec": 1,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
   },
   {
     "task": "rzhb_backfill",
@@ -51,7 +66,10 @@
     "est_text": "约1秒",
     "last_run": "2026-07-26 19:15",
     "last_exit": 0,
-    "last_duration_sec": 0
+    "last_duration_sec": 0,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
   },
   {
     "task": "etf_national_team",
@@ -60,7 +78,10 @@
     "est_text": "约7分钟",
     "last_run": "2026-07-24 20:07",
     "last_exit": null,
-    "last_duration_sec": null
+    "last_duration_sec": null,
+    "log_anomaly": true,
+    "log_anomaly_keyword": "FATAL",
+    "log_anomaly_line": "[FATAL:address_pool_manager.cc(67)] Check failed: !pool->IsInitialized()."
   },
   {
     "task": "lab_auto",
@@ -69,6 +90,9 @@
     "est_text": "约3分钟",
     "last_run": "2026-07-26 19:00",
     "last_exit": 0,
-    "last_duration_sec": 0
+    "last_duration_sec": 0,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
   }
 ]
