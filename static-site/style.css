@@ -1717,6 +1717,62 @@ main { padding: 16px 24px; }
   font-weight: 600;
 }
 
+/* 准确率/净加表纵向滚动容器：固定高度 + 表头 sticky（用于 _renderRoleAccuracyCard / _renderRoleNetChgCard 15天明细表）*/
+.accuracy-table-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-bottom: 1px solid var(--bg-hover);
+}
+.accuracy-table-scroll .accuracy-table {
+  width: 100%;
+}
+.accuracy-table-scroll .accuracy-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-hover);
+  /* sticky th 在窄屏 display:block 模式下仍需显式宽度避免塌缩 */
+  box-shadow: inset 0 -1px 0 0 var(--bg-hover);
+}
+
+/* 3张表横向并排（准确率合并表 + 中信净加表 + 机构净加表）：等高 + 日期行对齐 */
+.futures-triple-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 12px;
+}
+/* 3表卡片由 grid gap 统一间距，去掉单卡 margin-bottom */
+.futures-triple-grid .chart-card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 3表去独立滚动（日期对齐优先于滚动），显示全部行 */
+.futures-triple-grid .accuracy-table-scroll {
+  max-height: none;
+  overflow-y: visible;
+  border-bottom: none;
+}
+/* 固定表头行高 + note 区 min-height，3表表格起始位置一致，日期行严格对齐 */
+.futures-triple-grid .accuracy-table thead th {
+  position: static;
+  height: 44px;
+  vertical-align: middle;
+  box-shadow: none;
+}
+.futures-triple-grid .futures-note {
+  min-height: 60px;
+}
+/* 窄屏(≤768px)：3表改上下排列 */
+@media (max-width: 768px) {
+  .futures-triple-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 期货净多空概览表 */
 .futures-summary-table {
   width: 100%;

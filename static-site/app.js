@@ -8009,58 +8009,97 @@ function renderFuturesSection(data, snap, container) {
     addCardTimeBadge(div, accDates.length ? accDates[accDates.length - 1] : "", snap, "t1", "futures_date");
   }
 
-  // 2.5 中信/机构 4品种合计净加仓 15天明细表（拆成两张：准确率表 + 净加多空表）
-  // 需求2: 准确率表（日期|方向|次日涨跌|对错），统计行，去掉4品种明细
-  const _renderRoleAccuracyCard = (cd, titlePrefix, noteText) => {
-    if (!cd) return;
+  // 2.5 中信/机构 4品种合计净加仓 15天明细表（拆成两类：准确率合并表×1 + 净加多空表×2）
+  // 需求2合并: 中信+机构 多空单同向准确率合并表（7列：日期|中信方向|中信次日涨跌|中信对错|机构方向|机构次日涨跌|机构对错）
+  const _renderMergedAccuracyCard = (citicCd, instCd, host, sharedDates) => {
+    if (!citicCd && !instCd) return;
     const div = document.createElement("div");
     div.className = "chart-card futures-table-card";
-    const latestDetailDate = cd.details && cd.details.length ? cd.details[cd.details.length - 1].date : "";
+    // 日期集：优先用传入 sharedDates（3表对齐），否则自算并集
+    const allDates = sharedDates && sharedDates.length
+      ? [...sharedDates].sort()
+      : [...new Set([...((citicCd && citicCd.details) ? citicCd.details.map(d => d.date).filter(Boolean) : []), ...((instCd && instCd.details) ? instCd.details.map(d => d.date).filter(Boolean) : [])])].sort();
+    const latestDetailDate = allDates.length ? allDates[allDates.length - 1] : "";
     const detailSuffix = latestDetailDate ? `<span class="chart-latest"> · ${fmtDate(latestDetailDate)}</span>` : "";
-    let html = `<h3>${titlePrefix}多空单（${cd.dominant_dir}）准确率${detailSuffix}</h3>`;
-    html += `<div class="futures-note">${noteText}</div>`;
-    html += `<div class="term-plain" style="margin:6px 0;font-size:13px;">共${cd.total}次 · <span style="color:#e6492e;font-weight:bold">对${cd.correct_count}</span> · <span style="color:#2e8b57;font-weight:bold">错${cd.wrong_count}</span> · 准确率<strong style="color:var(--text-1)">${cd.accuracy}%</strong></div>`;
-    html += '<table class="accuracy-table"><thead><tr><th>日期</th><th>方向</th><th>次日涨跌</th><th>对错</th></tr></thead><tbody>';
-    // 倒序渲染（最新727当天在上，最旧在下），当日行（next_return=null）高亮淡黄+加粗
-    const sortedDetails = [...cd.details].sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    for (const item of sortedDetails) {
-      const isToday = item.next_return == null;
-      const rowStyle = isToday ? ' style="background-color:rgba(255,235,59,0.22);font-weight:bold"' : '';
-      const dirText = item.citic_dir === "多" ? "多" : item.citic_dir === "空" ? "空" : "-";
-      const dirColor = item.citic_dir === "多" ? "#e6492e" : item.citic_dir === "空" ? "#2e8b57" : "var(--text-3)";
+    // 标题：显示两角色各自主导方向
+    const citicDir = citicCd ? citicCd.dominant_dir : "-";
+    const instDir = instCd ? instCd.dominant_dir : "-";
+    let html = `<h3>中信/机构 多空单同向准确率（中信${citicDir}/机构${instDir}）${detailSuffix}</h3>`;
+    html += `<div class="futures-note">最近15个交易日中信期货 vs 机构(前20会员) 4品种合计净加仓方向 vs 上证指数次日涨跌。主导方向按同向/逆向天数判定，每日对错按各自主导方向判断。首行为当天（次日涨跌待收盘）。</div>`;
+    // 合并统计副标题：中信 同向X%(Y对Z错) | 机构 同向X%(Y对Z错)
+    const fmtStat = (cd) => cd ? `同向${cd.accuracy}%(${cd.correct_count}对${cd.wrong_count}错)` : "-";
+    html += `<div class="term-plain" style="margin:6px 0;font-size:13px;">中信 <strong style="color:var(--text-1)">${fmtStat(citicCd)}</strong> · 机构 <strong style="color:var(--text-1)">${fmtStat(instCd)}</strong></div>`;
+    // 合并表7列，用 .accuracy-table-scroll 滚动容器
+    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>中信方向</th><th>中信次日涨跌</th><th>中信对错</th><th>机构方向</th><th>机构次日涨跌</th><th>机构对错</th></tr></thead><tbody>';
+    // 按 date join 两份 details（并集，缺则该角色留空"-"）
+    const citicMap = {};
+    if (citicCd && citicCd.details) citicCd.details.forEach(d => { citicMap[d.date] = d; });
+    const instMap = {};
+    if (instCd && instCd.details) instCd.details.forEach(d => { instMap[d.date] = d; });
+    // 倒序渲染（727当天置顶），当天行(任一 next_return==null)高亮淡黄+加粗
+    const sortedDates = [...allDates].sort((a, b) => String(b).localeCompare(String(a)));
+    const fmtDir = (item) => {
+      if (!item) return { text: "-", color: "var(--text-3)" };
+      const t = item.citic_dir === "多" ? "多" : item.citic_dir === "空" ? "空" : "-";
+      const c = item.citic_dir === "多" ? "#e6492e" : item.citic_dir === "空" ? "#2e8b57" : "var(--text-3)";
+      return { text: t, color: c };
+    };
+    const fmtRet = (item) => {
+      if (!item) return { str: "-", color: "var(--text-3)" };
       const ret = item.next_return;
-      let retStr = "待收盘";
-      let retColor = "var(--text-3)";
-      if (ret != null) {
-        retStr = (ret >= 0 ? "涨" : "跌") + Math.abs(ret).toFixed(2) + "%";
-        retColor = ret >= 0 ? "#e6492e" : "#2e8b57";
-      }
-      const judge = item.correct === true ? "✓" : item.correct === false ? "✗" : "待";
-      const judgeColor = item.correct === true ? "#e6492e" : item.correct === false ? "#2e8b57" : "var(--text-3)";
-      html += `<tr${rowStyle}><td class="sym-name">${fmtDate(item.date)}</td><td style="color:${dirColor};font-weight:bold">${dirText}</td><td style="color:${retColor}">${retStr}</td><td style="color:${judgeColor};font-weight:bold">${judge}</td></tr>`;
+      if (ret == null) return { str: "待收盘", color: "var(--text-3)" };
+      return { str: (ret >= 0 ? "涨" : "跌") + Math.abs(ret).toFixed(2) + "%", color: ret >= 0 ? "#e6492e" : "#2e8b57" };
+    };
+    const fmtJudge = (item) => {
+      if (!item) return { text: "-", color: "var(--text-3)" };
+      const j = item.correct === true ? "✓" : item.correct === false ? "✗" : "待";
+      const c = item.correct === true ? "#e6492e" : item.correct === false ? "#2e8b57" : "var(--text-3)";
+      return { text: j, color: c };
+    };
+    for (const date of sortedDates) {
+      const citicItem = citicMap[date];
+      const instItem = instMap[date];
+      const isToday = (citicItem && citicItem.next_return == null) || (instItem && instItem.next_return == null);
+      const rowStyle = isToday ? ' style="background-color:rgba(255,235,59,0.22);font-weight:bold"' : '';
+      const cD = fmtDir(citicItem), cR = fmtRet(citicItem), cJ = fmtJudge(citicItem);
+      const iD = fmtDir(instItem), iR = fmtRet(instItem), iJ = fmtJudge(instItem);
+      html += `<tr${rowStyle}><td class="sym-name">${fmtDate(date)}</td><td style="color:${cD.color};font-weight:bold">${cD.text}</td><td style="color:${cR.color}">${cR.str}</td><td style="color:${cJ.color};font-weight:bold">${cJ.text}</td><td style="color:${iD.color};font-weight:bold">${iD.text}</td><td style="color:${iR.color}">${iR.str}</td><td style="color:${iJ.color};font-weight:bold">${iJ.text}</td></tr>`;
     }
-    html += '</tbody></table>';
-    html += '<div class="term-plain">多+涨/空+跌=同向(✓)；多+跌/空+涨=逆向(✗)。按主导方向统计历史准确率，不构成未来预测。</div>';
+    html += '</tbody></table></div>';
+    html += '<div class="term-plain">多+涨/空+跌=同向(✓)；多+跌/空+涨=逆向(✗)。按各自主导方向统计历史准确率，不构成未来预测。</div>';
     div.innerHTML = html;
-    fgGrid.appendChild(div);
+    (host || fgGrid).appendChild(div);
     addCardTimeBadge(div, latestDetailDate, snap, "t1", "futures_date");
   };
   // 需求3: 净加多空表（日期|上证50净加|沪深300净加|中证500净加|中证1000净加|合计净加|方向），过去15天，去掉次日涨跌+对错
-  const _renderRoleNetChgCard = (cd, titlePrefix, noteText) => {
+  const _renderRoleNetChgCard = (cd, titlePrefix, noteText, host, sharedDates) => {
     if (!cd) return;
     const div = document.createElement("div");
     div.className = "chart-card futures-table-card";
-    const latestDetailDate = cd.details && cd.details.length ? cd.details[cd.details.length - 1].date : "";
+    const latestDetailDate = sharedDates && sharedDates.length ? sharedDates[sharedDates.length - 1] : (cd.details && cd.details.length ? cd.details[cd.details.length - 1].date : "");
     const detailSuffix = latestDetailDate ? `<span class="chart-latest"> · ${fmtDate(latestDetailDate)}</span>` : "";
     let html = `<h3>${titlePrefix}净加多空（过去15天）${detailSuffix}</h3>`;
     html += `<div class="futures-note">${noteText}</div>`;
-    html += '<table class="accuracy-table"><thead><tr><th>日期</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th></tr></thead><tbody>';
+    // 统计副标题（与准确率合并表结构对齐，保证3表表格起始位置一致）
+    html += `<div class="term-plain" style="margin:6px 0;font-size:13px;">同向${cd.accuracy}%(${cd.correct_count}对${cd.wrong_count}错)</div>`;
+    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th></tr></thead><tbody>';
     // 净加手数：正绿负红（正=净加多=绿，负=净加空=红）
     const chgColor = (v) => v != null ? (v >= 0 ? "#2e8b57" : "#e6492e") : "var(--text-3)";
     const chgStr = (v) => v != null ? (v >= 0 ? "+" : "") + Math.round(v) : "-";
     // 倒序渲染（最新727当天在上，最旧在下），当日行（next_return=null）高亮淡黄+加粗
-    const sortedDetails = [...cd.details].sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    for (const item of sortedDetails) {
+    // 3表对齐：优先用传入 sharedDates，缺则用 cd 自身 dates；缺失日期渲染空行保持行对齐
+    const detailMap = {};
+    if (cd.details) cd.details.forEach(d => { detailMap[d.date] = d; });
+    const sortedDates = sharedDates && sharedDates.length
+      ? [...sharedDates].sort((a, b) => String(b).localeCompare(String(a)))
+      : [...cd.details].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(d => d.date);
+    for (const date of sortedDates) {
+      const item = detailMap[date];
+      if (!item) {
+        // 该日期在本角色缺失，渲染空行保持3表行对齐
+        html += `<tr><td class="sym-name">${fmtDate(date)}</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="color:var(--text-3)">-</td></tr>`;
+        continue;
+      }
       const isToday = item.next_return == null;
       const rowStyle = isToday ? ' style="background-color:rgba(255,235,59,0.22);font-weight:bold"' : '';
       const ihC = chgColor(item.ih_chg), ifC = chgColor(item.if_chg), icC = chgColor(item.ic_chg), imC = chgColor(item.im_chg), totC = chgColor(item.total_chg);
@@ -8068,11 +8107,27 @@ function renderFuturesSection(data, snap, container) {
       const dirColor = item.citic_dir === "多" ? "#e6492e" : item.citic_dir === "空" ? "#2e8b57" : "var(--text-3)";
       html += `<tr${rowStyle}><td class="sym-name">${fmtDate(item.date)}</td><td style="color:${ihC};text-align:right">${chgStr(item.ih_chg)}</td><td style="color:${ifC};text-align:right">${chgStr(item.if_chg)}</td><td style="color:${icC};text-align:right">${chgStr(item.ic_chg)}</td><td style="color:${imC};text-align:right">${chgStr(item.im_chg)}</td><td style="color:${totC};text-align:right;font-weight:bold">${chgStr(item.total_chg)}</td><td style="color:${dirColor};font-weight:bold">${dirText}</td></tr>`;
     }
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     html += '<div class="term-plain">净加=多头增减-空头增减(手)。合计=上证50+沪深300+中证500+中证1000。多(红)/空(绿)按当日合计净加方向。次日涨跌待收盘后回填统计准确率。</div>';
     div.innerHTML = html;
-    fgGrid.appendChild(div);
+    (host || fgGrid).appendChild(div);
     addCardTimeBadge(div, latestDetailDate, snap, "t1", "futures_date");
+  };
+  // 需求3布局: 3张表（准确率合并表 + 中信净加表 + 机构净加表）横向并排，等高+日期行对齐
+  const _renderTripleCards = (citicCd, instCd) => {
+    if (!citicCd && !instCd) return;
+    // 3表共享日期并集（升序），保证3表同日期同一行水平对齐
+    const citicDates = (citicCd && citicCd.details) ? citicCd.details.map(d => d.date).filter(Boolean) : [];
+    const instDates = (instCd && instCd.details) ? instCd.details.map(d => d.date).filter(Boolean) : [];
+    const sharedDates = [...new Set([...citicDates, ...instDates])].sort();
+    // 3列 grid 容器（align-items:stretch 等高）
+    const wrapper = document.createElement("div");
+    wrapper.className = "futures-triple-grid";
+    fgGrid.appendChild(wrapper);
+    // 3张表渲染到同一 wrapper（横向并排），共享 sharedDates 保证行对齐
+    _renderMergedAccuracyCard(citicCd, instCd, wrapper, sharedDates);
+    _renderRoleNetChgCard(citicCd, "中信", "最近15个交易日中信期货4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天(727)置顶高亮。", wrapper, sharedDates);
+    _renderRoleNetChgCard(instCd, "机构", "最近15个交易日机构(前20会员)4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天(727)置顶高亮。", wrapper, sharedDates);
   };
   // 2.5.0 当日净加对照表（中信 vs 机构 4品种净加并排对照，最新交易日727置顶最显眼位置）
   const _renderDailyNetCompareCard = (citicD, instD) => {
@@ -8102,26 +8157,7 @@ function renderFuturesSection(data, snap, container) {
     addCardTimeBadge(div, latestDate, snap, "t1", "futures_date");
   };
   _renderDailyNetCompareCard(data.citic_ih_detail, data.inst_ih_detail);
-  _renderRoleAccuracyCard(
-    data.citic_ih_detail,
-    "中信",
-    "最近15个交易日中信期货4品种合计净加仓方向 vs 上证指数次日涨跌。主导方向按同向/逆向天数判定，每日对错按主导方向判断。首行为当天（次日涨跌待收盘）。",
-  );
-  _renderRoleAccuracyCard(
-    data.inst_ih_detail,
-    "机构",
-    "最近15个交易日机构(前20会员)4品种合计净加仓方向 vs 上证指数次日涨跌。主导方向按同向/逆向天数判定，每日对错按主导方向判断。首行为当天（次日涨跌待收盘）。",
-  );
-  _renderRoleNetChgCard(
-    data.citic_ih_detail,
-    "中信",
-    "最近15个交易日中信期货4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天(727)置顶高亮。",
-  );
-  _renderRoleNetChgCard(
-    data.inst_ih_detail,
-    "机构",
-    "最近15个交易日机构(前20会员)4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天(727)置顶高亮。",
-  );
+  _renderTripleCards(data.citic_ih_detail, data.inst_ih_detail);
 
   // 3. 四张折线图：net_position 手数趋势
 
