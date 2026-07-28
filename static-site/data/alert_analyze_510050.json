@@ -3,27 +3,27 @@
   "target_type": "etf",
   "target_name": "510050",
   "alert": {
-    "date": "20260724",
+    "date": "20260727",
     "target_id": "510050",
     "target_type": "etf",
-    "high": 46.4,
-    "low": 61.3,
+    "high": 50.31,
+    "low": 64.71,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
       "H1": 65.0,
-      "H2": 16.83,
+      "H2": 58.8,
       "H3": 50.42,
-      "H4": 42.06,
+      "H4": 43.25,
       "H5": 49.58,
       "H6": 47.08,
-      "H7": 22.08,
+      "H7": 22.5,
       "H8": null,
       "L1": 35.0,
-      "L2": 81.67,
-      "L3": 57.94,
-      "L4": 97.5,
-      "L5": 36.67,
+      "L2": 81.25,
+      "L3": 56.75,
+      "L4": 97.08,
+      "L5": 69.17,
       "L6": 50.42,
       "L7": null,
       "L8": null
@@ -43,21 +43,21 @@
     },
     "position": {
       "hands": 3,
-      "volatility": 1.85,
+      "volatility": 1.87,
       "label": "3手",
       "detail": {
-        "opp": 61.3,
-        "ma60_ratio": 1.0077,
+        "opp": 64.71,
+        "ma60_ratio": 1.0088,
         "trend": 70.0,
-        "macd_hist": 0.0059,
+        "macd_hist": 0.0047,
         "mom": 70.0,
         "vol": 85.0,
-        "volatility": 1.85,
-        "amt_pct": 51.7,
-        "liq": 80.0,
-        "drawdown": -5.72,
+        "volatility": 1.87,
+        "amt_pct": 18.3,
+        "liq": 40.0,
+        "drawdown": -5.6,
         "draw": 50.0,
-        "score": 67.7,
+        "score": 66.9,
         "regime": "range",
         "regime_th": {
           "opp_low": 35.0,
@@ -83,9 +83,9 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 42.06,
+          "score": 43.25,
           "weight": 0.2,
-          "contribution": 8.41,
+          "contribution": 8.65,
           "hit": false,
           "direction": "high"
         },
@@ -95,6 +95,15 @@
           "score": 50.42,
           "weight": 0.13,
           "contribution": 6.55,
+          "hit": false,
+          "direction": "high"
+        },
+        {
+          "k": "H2",
+          "name": "量价背离",
+          "score": 58.8,
+          "weight": 0.08,
+          "contribution": 4.7,
           "hit": false,
           "direction": "high"
         },
@@ -119,18 +128,9 @@
         {
           "k": "H7",
           "name": "汪汪队离场",
-          "score": 22.08,
+          "score": 22.5,
           "weight": 0.1,
-          "contribution": 2.21,
-          "hit": false,
-          "direction": "high"
-        },
-        {
-          "k": "H2",
-          "name": "量价背离",
-          "score": 16.83,
-          "weight": 0.08,
-          "contribution": 1.35,
+          "contribution": 2.25,
           "hit": false,
           "direction": "high"
         }
@@ -139,27 +139,27 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 81.67,
+          "score": 81.25,
           "weight": 0.18,
-          "contribution": 14.7,
+          "contribution": 14.62,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L4",
           "name": "汪汪队入场",
-          "score": 97.5,
+          "score": 97.08,
           "weight": 0.15,
-          "contribution": 14.62,
+          "contribution": 14.56,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 57.94,
+          "score": 56.75,
           "weight": 0.15,
-          "contribution": 8.69,
+          "contribution": 8.51,
           "hit": false,
           "direction": "low"
         },
@@ -173,20 +173,20 @@
           "direction": "low"
         },
         {
+          "k": "L5",
+          "name": "量能异动",
+          "score": 69.17,
+          "weight": 0.1,
+          "contribution": 6.92,
+          "hit": true,
+          "direction": "low"
+        },
+        {
           "k": "L6",
           "name": "新低极端",
           "score": 50.42,
           "weight": 0.08,
           "contribution": 4.03,
-          "hit": false,
-          "direction": "low"
-        },
-        {
-          "k": "L5",
-          "name": "量能异动",
-          "score": 36.67,
-          "weight": 0.1,
-          "contribution": 3.67,
           "hit": false,
           "direction": "low"
         }
@@ -207,12 +207,12 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "value": 16.83,
+          "value": 58.8,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
           "hit": false,
-          "status": "未命中"
+          "status": "接近"
         },
         {
           "k": "H3",
@@ -227,7 +227,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 42.06,
+          "value": 43.25,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -257,7 +257,7 @@
         {
           "k": "H7",
           "name": "汪汪队离场",
-          "value": 22.08,
+          "value": 22.5,
           "threshold": 60,
           "unit": "分",
           "desc": "汪汪队离场(近30日share_outflow)",
@@ -289,7 +289,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 81.67,
+          "value": 81.25,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -299,7 +299,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 57.94,
+          "value": 56.75,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",
@@ -309,7 +309,7 @@
         {
           "k": "L4",
           "name": "汪汪队入场",
-          "value": 97.5,
+          "value": 97.08,
           "threshold": 60,
           "unit": "分",
           "desc": "汪汪队入场(近30日share_surge)",
@@ -319,12 +319,12 @@
         {
           "k": "L5",
           "name": "量能异动",
-          "value": 36.67,
+          "value": 69.17,
           "threshold": 60,
           "unit": "分",
           "desc": "量能异动(地量分高)",
-          "hit": false,
-          "status": "未命中"
+          "hit": true,
+          "status": "命中"
         },
         {
           "k": "L6",

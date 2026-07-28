@@ -3,27 +3,27 @@
   "target_type": "etf",
   "target_name": "159922",
   "alert": {
-    "date": "20260724",
+    "date": "20260727",
     "target_id": "159922",
     "target_type": "etf",
-    "high": 33.24,
-    "low": 72.17,
+    "high": 38.23,
+    "low": 70.69,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
-      "H1": 5.83,
-      "H2": 20.0,
+      "H1": 19.17,
+      "H2": 51.43,
       "H3": 27.08,
-      "H4": 50.0,
-      "H5": 53.33,
-      "H6": 77.71,
+      "H4": 53.57,
+      "H5": 52.92,
+      "H6": 52.5,
       "H7": 37.92,
       "H8": null,
-      "L1": 94.17,
-      "L2": 94.17,
-      "L3": 50.0,
+      "L1": 80.83,
+      "L2": 93.75,
+      "L3": 46.43,
       "L4": 78.33,
-      "L5": 30.0,
+      "L5": 50.0,
       "L6": 50.42,
       "L7": null,
       "L8": null
@@ -43,21 +43,21 @@
     },
     "position": {
       "hands": 1,
-      "volatility": 3.44,
+      "volatility": 3.36,
       "label": "1手",
       "detail": {
-        "opp": 72.17,
-        "ma60_ratio": 0.8991,
-        "trend": 0.0,
-        "macd_hist": -0.0707,
+        "opp": 70.69,
+        "ma60_ratio": 0.9227,
+        "trend": 20.0,
+        "macd_hist": -0.0539,
         "mom": 40.0,
         "vol": 70.0,
-        "volatility": 3.44,
-        "amt_pct": 70.0,
+        "volatility": 3.36,
+        "amt_pct": 53.3,
         "liq": 80.0,
-        "drawdown": -16.5,
-        "draw": 70.0,
-        "score": 52.76,
+        "drawdown": -14.37,
+        "draw": 50.0,
+        "score": 54.24,
         "regime": "bull",
         "regime_th": {
           "opp_low": 40.0,
@@ -74,27 +74,45 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 50.0,
+          "score": 53.57,
           "weight": 0.2,
-          "contribution": 10.0,
+          "contribution": 10.71,
+          "hit": false,
+          "direction": "high"
+        },
+        {
+          "k": "H1",
+          "name": "情绪过热",
+          "score": 19.17,
+          "weight": 0.26,
+          "contribution": 4.98,
+          "hit": false,
+          "direction": "high"
+        },
+        {
+          "k": "H5",
+          "name": "动量衰退",
+          "score": 52.92,
+          "weight": 0.08,
+          "contribution": 4.23,
           "hit": false,
           "direction": "high"
         },
         {
           "k": "H6",
           "name": "均线转弱",
-          "score": 77.71,
+          "score": 52.5,
           "weight": 0.08,
-          "contribution": 6.22,
-          "hit": true,
+          "contribution": 4.2,
+          "hit": false,
           "direction": "high"
         },
         {
-          "k": "H5",
-          "name": "动量衰退",
-          "score": 53.33,
+          "k": "H2",
+          "name": "量价背离",
+          "score": 51.43,
           "weight": 0.08,
-          "contribution": 4.27,
+          "contribution": 4.11,
           "hit": false,
           "direction": "high"
         },
@@ -115,42 +133,24 @@
           "contribution": 3.52,
           "hit": false,
           "direction": "high"
-        },
-        {
-          "k": "H2",
-          "name": "量价背离",
-          "score": 20.0,
-          "weight": 0.08,
-          "contribution": 1.6,
-          "hit": false,
-          "direction": "high"
-        },
-        {
-          "k": "H1",
-          "name": "情绪过热",
-          "score": 5.83,
-          "weight": 0.26,
-          "contribution": 1.52,
-          "hit": false,
-          "direction": "high"
         }
       ],
       "low": [
         {
-          "k": "L1",
-          "name": "情绪冰点",
-          "score": 94.17,
-          "weight": 0.2,
-          "contribution": 18.83,
+          "k": "L2",
+          "name": "买点密集",
+          "score": 93.75,
+          "weight": 0.18,
+          "contribution": 16.88,
           "hit": true,
           "direction": "low"
         },
         {
-          "k": "L2",
-          "name": "买点密集",
-          "score": 94.17,
-          "weight": 0.18,
-          "contribution": 16.95,
+          "k": "L1",
+          "name": "情绪冰点",
+          "score": 80.83,
+          "weight": 0.2,
+          "contribution": 16.17,
           "hit": true,
           "direction": "low"
         },
@@ -166,9 +166,18 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 50.0,
+          "score": 46.43,
           "weight": 0.15,
-          "contribution": 7.5,
+          "contribution": 6.96,
+          "hit": false,
+          "direction": "low"
+        },
+        {
+          "k": "L5",
+          "name": "量能异动",
+          "score": 50.0,
+          "weight": 0.1,
+          "contribution": 5.0,
           "hit": false,
           "direction": "low"
         },
@@ -180,15 +189,6 @@
           "contribution": 4.03,
           "hit": false,
           "direction": "low"
-        },
-        {
-          "k": "L5",
-          "name": "量能异动",
-          "score": 30.0,
-          "weight": 0.1,
-          "contribution": 3.0,
-          "hit": false,
-          "direction": "low"
         }
       ]
     },
@@ -197,7 +197,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 5.83,
+          "value": 19.17,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -207,12 +207,12 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "value": 20.0,
+          "value": 51.43,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
           "hit": false,
-          "status": "未命中"
+          "status": "接近"
         },
         {
           "k": "H3",
@@ -227,17 +227,17 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 50.0,
+          "value": 53.57,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
           "hit": false,
-          "status": "未命中"
+          "status": "接近"
         },
         {
           "k": "H5",
           "name": "动量衰退",
-          "value": 53.33,
+          "value": 52.92,
           "threshold": 60,
           "unit": "分",
           "desc": "动量衰退(新高回落)",
@@ -247,12 +247,12 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 77.71,
+          "value": 52.5,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
-          "hit": true,
-          "status": "命中"
+          "hit": false,
+          "status": "接近"
         },
         {
           "k": "H7",
@@ -279,7 +279,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 94.17,
+          "value": 80.83,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -289,7 +289,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 94.17,
+          "value": 93.75,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -299,7 +299,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 50.0,
+          "value": 46.43,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",
@@ -319,7 +319,7 @@
         {
           "k": "L5",
           "name": "量能异动",
-          "value": 30.0,
+          "value": 50.0,
           "threshold": 60,
           "unit": "分",
           "desc": "量能异动(地量分高)",
@@ -364,8 +364,8 @@
       "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
-      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H6 均线转弱 有命中,整体加权后未达关注线",
-      "low": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自情绪冰点+买点密集"
+      "high": "高位风险指标处于中性区间,暂无明显过热信号",
+      "low": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自买点密集+情绪冰点"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",
     "no_data_hint": null

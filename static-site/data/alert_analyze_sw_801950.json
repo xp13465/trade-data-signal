@@ -3,25 +3,25 @@
   "target_type": "index",
   "target_name": "SW 煤炭",
   "alert": {
-    "date": "20260727",
+    "date": "20260728",
     "target_id": "sw_801950",
     "target_type": "index",
-    "high": 58.08,
-    "low": 39.87,
+    "high": 53.1,
+    "low": 42.06,
     "high_level": "中性",
     "low_level": "中性",
     "dims": {
-      "H1": 52.5,
-      "H2": null,
+      "H1": 50.0,
+      "H2": 28.41,
       "H3": 46.25,
-      "H4": 76.59,
+      "H4": 71.03,
       "H5": 53.33,
       "H6": 53.96,
       "H7": null,
       "H8": null,
-      "L1": 47.5,
+      "L1": 50.0,
       "L2": 40.42,
-      "L3": 23.41,
+      "L3": 28.97,
       "L4": null,
       "L5": null,
       "L6": 50.42,
@@ -32,10 +32,9 @@
       "target_id": "sw_801950",
       "target_type": "index",
       "min_dims": 4,
-      "available_high": 5,
+      "available_high": 6,
       "available_low": 4,
       "missing": [
-        "H2",
         "H7",
         "H8",
         "L4",
@@ -46,22 +45,22 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 0,
-      "volatility": 2.88,
-      "label": "观望",
+      "hands": 1,
+      "volatility": 2.82,
+      "label": "1手",
       "detail": {
-        "opp": 39.87,
-        "ma60_ratio": 1.0063,
-        "trend": 70.0,
-        "macd_hist": 54.4689,
+        "opp": 42.06,
+        "ma60_ratio": 0.997,
+        "trend": 40.0,
+        "macd_hist": 41.4735,
         "mom": 70.0,
         "vol": 70.0,
-        "volatility": 2.88,
+        "volatility": 2.82,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -10.74,
+        "drawdown": -11.68,
         "draw": 50.0,
-        "score": 56.45,
+        "score": 51.22,
         "regime": "bull",
         "regime_th": {
           "opp_low": 40.0,
@@ -78,18 +77,18 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 76.59,
+          "score": 71.03,
           "weight": 0.2,
-          "contribution": 15.32,
+          "contribution": 14.21,
           "hit": true,
           "direction": "high"
         },
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 52.5,
+          "score": 50.0,
           "weight": 0.26,
-          "contribution": 13.65,
+          "contribution": 13.0,
           "hit": false,
           "direction": "high"
         },
@@ -119,15 +118,24 @@
           "contribution": 4.27,
           "hit": false,
           "direction": "high"
+        },
+        {
+          "k": "H2",
+          "name": "量价背离",
+          "score": 28.41,
+          "weight": 0.08,
+          "contribution": 2.27,
+          "hit": false,
+          "direction": "high"
         }
       ],
       "low": [
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 47.5,
+          "score": 50.0,
           "weight": 0.2,
-          "contribution": 9.5,
+          "contribution": 10.0,
           "hit": false,
           "direction": "low"
         },
@@ -141,20 +149,20 @@
           "direction": "low"
         },
         {
+          "k": "L3",
+          "name": "位置偏低",
+          "score": 28.97,
+          "weight": 0.15,
+          "contribution": 4.35,
+          "hit": false,
+          "direction": "low"
+        },
+        {
           "k": "L6",
           "name": "新低极端",
           "score": 50.42,
           "weight": 0.08,
           "contribution": 4.03,
-          "hit": false,
-          "direction": "low"
-        },
-        {
-          "k": "L3",
-          "name": "位置偏低",
-          "score": 23.41,
-          "weight": 0.15,
-          "contribution": 3.51,
           "hit": false,
           "direction": "low"
         }
@@ -165,22 +173,22 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 52.5,
+          "value": 50.0,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
           "hit": false,
-          "status": "接近"
+          "status": "未命中"
         },
         {
           "k": "H2",
           "name": "量价背离",
-          "value": null,
+          "value": 28.41,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
           "hit": false,
-          "status": "无数据"
+          "status": "未命中"
         },
         {
           "k": "H3",
@@ -195,7 +203,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 76.59,
+          "value": 71.03,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -247,7 +255,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 47.5,
+          "value": 50.0,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -267,7 +275,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 23.41,
+          "value": 28.97,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",

@@ -3,27 +3,27 @@
   "target_type": "index",
   "target_name": "上证国债指数",
   "alert": {
-    "date": "20260727",
+    "date": "20260728",
     "target_id": "cgb_idx",
     "target_type": "index",
-    "high": 79.07,
-    "low": 22.22,
+    "high": 81.81,
+    "low": 22.04,
     "high_level": "警示",
     "low_level": "中性",
     "dims": {
       "H1": 98.33,
-      "H2": 54.0,
+      "H2": null,
       "H3": 85.42,
       "H4": 100.0,
-      "H5": 17.92,
-      "H6": 40.0,
+      "H5": 18.33,
+      "H6": 40.21,
       "H7": null,
       "H8": null,
       "L1": 1.67,
       "L2": 50.42,
       "L3": 0.0,
       "L4": null,
-      "L5": 23.33,
+      "L5": null,
       "L6": 50.42,
       "L7": null,
       "L8": null
@@ -32,12 +32,14 @@
       "target_id": "cgb_idx",
       "target_type": "index",
       "min_dims": 4,
-      "available_high": 6,
-      "available_low": 5,
+      "available_high": 5,
+      "available_low": 4,
       "missing": [
+        "H2",
         "H7",
         "H8",
         "L4",
+        "L5",
         "L7",
         "L8"
       ],
@@ -48,18 +50,18 @@
       "volatility": 0.04,
       "label": "观望",
       "detail": {
-        "opp": 22.22,
-        "ma60_ratio": 1.0052,
+        "opp": 22.04,
+        "ma60_ratio": 1.0051,
         "trend": 70.0,
-        "macd_hist": 0.0701,
+        "macd_hist": 0.0745,
         "mom": 100.0,
         "vol": 100.0,
         "volatility": 0.04,
-        "amt_pct": 51.7,
-        "liq": 80.0,
+        "amt_pct": null,
+        "liq": 50.0,
         "drawdown": 0.0,
         "draw": 20.0,
-        "score": 57.78,
+        "score": 56.21,
         "regime": "range",
         "regime_th": {
           "opp_low": 35.0,
@@ -101,29 +103,20 @@
           "direction": "high"
         },
         {
-          "k": "H2",
-          "name": "量价背离",
-          "score": 54.0,
-          "weight": 0.08,
-          "contribution": 4.32,
-          "hit": false,
-          "direction": "high"
-        },
-        {
           "k": "H6",
           "name": "均线转弱",
-          "score": 40.0,
+          "score": 40.21,
           "weight": 0.08,
-          "contribution": 3.2,
+          "contribution": 3.22,
           "hit": false,
           "direction": "high"
         },
         {
           "k": "H5",
           "name": "动量衰退",
-          "score": 17.92,
+          "score": 18.33,
           "weight": 0.08,
-          "contribution": 1.43,
+          "contribution": 1.47,
           "hit": false,
           "direction": "high"
         }
@@ -144,15 +137,6 @@
           "score": 50.42,
           "weight": 0.08,
           "contribution": 4.03,
-          "hit": false,
-          "direction": "low"
-        },
-        {
-          "k": "L5",
-          "name": "量能异动",
-          "score": 23.33,
-          "weight": 0.1,
-          "contribution": 2.33,
           "hit": false,
           "direction": "low"
         },
@@ -191,12 +175,12 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "value": 54.0,
+          "value": null,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
           "hit": false,
-          "status": "接近"
+          "status": "无数据"
         },
         {
           "k": "H3",
@@ -221,7 +205,7 @@
         {
           "k": "H5",
           "name": "动量衰退",
-          "value": 17.92,
+          "value": 18.33,
           "threshold": 60,
           "unit": "分",
           "desc": "动量衰退(新高回落)",
@@ -231,7 +215,7 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 40.0,
+          "value": 40.21,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
@@ -303,12 +287,12 @@
         {
           "k": "L5",
           "name": "量能异动",
-          "value": 23.33,
+          "value": null,
           "threshold": 60,
           "unit": "分",
           "desc": "量能异动(地量分高)",
           "hit": false,
-          "status": "未命中"
+          "status": "无数据"
         },
         {
           "k": "L6",
