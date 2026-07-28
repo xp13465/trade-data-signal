@@ -693,8 +693,15 @@ def a_stock(conn, cfg, start, end, *, cache=None, include_etf=False):
 
 def hk(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
     """复刻 /api/hk。"""
-    indices = {i["id"]: {"name": i["name"], "data": index_series(conn, i["id"], start, end, cache=cache),
-                         "strategy": strategy_desc(i["id"], cfg)} for i in indices_for_market(cfg, "hk")}
+    indices = {}
+    for i in indices_for_market(cfg, "hk"):
+        entry = {
+            "name": i["name"],
+            "data": index_series(conn, i["id"], start, end, cache=cache),
+            "strategy": strategy_desc(i["id"], cfg),
+        }
+        entry.update(etf_for(i["id"]))  # 2026-07-28 注入港股 ETF 候选（hsi/hstech/hscei，board_etf_map 单源）
+        indices[i["id"]] = entry
     south = metric_series(conn, "hk_south", start, end, cache=cache)
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
     hk_industries = {i["id"]: {"name": i["name"], "data": index_series(conn, i["id"], start, end, cache=cache),
