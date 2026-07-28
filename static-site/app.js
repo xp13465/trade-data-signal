@@ -1135,7 +1135,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           const _dir = it.since_correct ? "符合预测" : "不符预测";
           correctBadge = `<sup class="sig-correct" data-tip="至今${_retS}·${_dir}">${_mark}</sup>`;
         }
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}${warnBadge}${scoreBadge}${correctBadge}</span>`;
+        // DOM 顺序(2026-07-28 调整): [信号标签b][⚠][评级高/中/低][☑️/✖️][指数名]
+        // 原顺序 [信号标签b][指数名][⚠][评级][对错] 在窄屏下指数名过长把评级+对错挤到右侧被 ellipsis 截掉看不见。
+        // 现把评级+对错移到指数名前(紧跟信号标签),指数名放最右,溢出时 ellipsis 只截指数名,评级+对错始终可见。
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
