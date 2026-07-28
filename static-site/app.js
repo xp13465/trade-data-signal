@@ -4773,6 +4773,7 @@ let _lastVisibleAt = Date.now();    // 上次页面可见时间戳, visibilitych
 let _inOverviewRefresh = false;     // _doOverviewRefresh 幂等锁, 防visibilitychange+定时器并发重复触发
 let _refreshDebugEl = null;         // debug状态条DOM引用
 let _refreshDebugTimer = null;      // debug状态条1秒更新定时器
+let _marketOpenCheckTimer = null;   // 收盘态周期检测开盘定时器(盘前/收盘后自动启动轮询用)
 
 // 解析 overview.json 的 collected_at("20260727 13:05:05") 为 ms 时间戳; 兜底尝试 ISO 等标准格式
 function _parseCollectAt(s) {
@@ -4996,15 +4997,39 @@ function _updateRefreshDebug() {
     ' | 样本:' + samples + predict;
 }
 
+const MARKET_OPEN_CHECK_MS = 3 * 60 * 1000;          // 收盘态每3min检测一次市场是否开盘
+
+// 收盘态周期检测市场是否开盘: 每3min重新fetch intraday_snapshot, 若is_closed===false则
+// fetchIntradaySnapshot内回调自动触发_startOverviewRefresh(启动轮询+debug状态条).
+// 解决: 盘前打开页面(is_closed=true) -> 轮询不启动 -> debug状态条不出现 -> 开盘后无机制自动启动.
+// 幂等: 已有timer则跳过; 盘中_overviewRefreshActive=true时no-op不发请求.
+function _startMarketOpenCheck() {
+  if (_marketOpenCheckTimer) return; // 幂等防重复
+  _marketOpenCheckTimer = setInterval(async () => {
+    if (_overviewRefreshActive) return; // 盘中轮询已启动, 无需检测
+    _intradaySnapPromise = null; // 清单例强制重新fetch
+    try { await fetchIntradaySnapshot(); } catch (e) {}
+    // fetchIntradaySnapshot 回调内: if(!_overviewRefreshActive && snap.is_closed===false) _startOverviewRefresh()
+    // 开盘则自动启动轮询+debug状态条, 无需此处手动调
+    _updateRefreshDebug(); // 刷新debug状态条(显示最新状态)
+  }, MARKET_OPEN_CHECK_MS);
+}
+
 // 页面加载后初始化自动刷新: 等snap就绪判断盘中后启动overview轮询
 // 2026-07-27: snap 就绪回调已在 fetchIntradaySnapshot 内启动轮询(根治 2s 超时竞态),
 // 此处 await 不带超时(回调保证 snap 就绪即启动), 末尾兜底检查防回调漏触发.
+// 2026-07-28: 始终创建debug状态条(收盘态显示"已停止")+启动开盘检测(盘前打开页面开盘后自动启动轮询).
 async function _initAutoRefresh() {
   try { await fetchIntradaySnapshot(); } catch (e) {}
   const snap = state.intradaySnapshot;
   if (snap && snap.is_closed === false && !_overviewRefreshActive) {
-    _startOverviewRefresh();
+    _startOverviewRefresh(); // 盘中: 启动轮询(内含_initRefreshDebugBar)
+  } else {
+    // 收盘态: 仍创建debug状态条(显示"已停止(收盘)"), 避免盘前打开页面debug区空白
+    _initRefreshDebugBar();
   }
+  // 始终启动开盘检测(幂等): 盘中no-op, 收盘态每3min检测开盘自动启动轮询
+  _startMarketOpenCheck();
 }
 
 // ============ 🐶 汪汪队首页卡片：近期信号列表 + 点击弹 day modal ============
