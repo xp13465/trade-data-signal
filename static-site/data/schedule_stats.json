@@ -4,9 +4,9 @@
     "name": "收盘全量",
     "schedule": "17:50",
     "est_text": "约26分钟",
-    "last_run": "2026-07-27 17:50",
+    "last_run": "2026-07-28 17:50",
     "last_exit": 0,
-    "last_duration_sec": 1658,
+    "last_duration_sec": null,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
