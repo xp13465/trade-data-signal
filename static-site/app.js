@@ -445,12 +445,17 @@ function _buildSignalMarkData(signals, getValueFn) {
 // 合规文案：年化最高/回撤最小是回测术语，非"最赚钱"导向词。
 var _backupChipLoading = {};  // 防并发重复 fetch 同一 index
 // A+B 融合方案（2026-07-23）：跨 5窗口×3路径×11场景=165 回测综合排名，原仅 y5 单窗口 4 单买 2.4% 切片面片。
-// 三档选择改为全维度归一化综合分（防 y1 小样本虚高）：
-//   年化最高档 = 综合分最高（年化50% + 胜率25% + 低回撤15% + 样本10%）
-//   最稳健档  = 综合分最高（胜率40% + 低回撤40% + 样本20%）
-//   回撤最小档 = max_drawdown 最小（跨全 165）
-// chip val 两行：首行 {scenario}·{path缩写}；次行 5 窗口年化对比 / 稳健指标 / 回撤指标
-// 去重粒度：scenario+path+win 三元组（2026-07-23 弱化,解决18/19缺档）
+// 2026-07-29 方案D 升级：打分单元从「单窗口 entry」改为「策略(path+scen二元组)」聚合 5 窗口指标后打分。
+//   聚合维度：盈利窗口数(profitWins) / 年化中位(medianAnn) / 回撤中位(medianDd) / 最大回撤(maxDdAll,5窗口最差) / 样本总数(totalOpsSum)
+//   原 steadyScore 单窗口打分(wrNorm*0.4+ddN*0.4+opsNorm*0.2)仅验证 entry 自身窗口，门槛"年化>回撤"不检查同策略其他窗口，
+//   致"近1年·全仓·追买+追止损卖"(年化6.9%回撤4.1%)被推为"最稳健"，但同策略近10年-13.1%回撤84%严重不稳健。
+//   方案D 多窗口综合分彻底根治：盈利窗口数>=3 门槛 + 5窗口中位归一化打分，防单窗口虚高。
+// 三档选择改为全维度归一化综合分（策略级，3路径×11场景=33策略各自聚合5窗口）：
+//   年化最高档 = 综合分最高（年化中位40% + 低回撤中位20% + 盈利窗口数20% + 样本20%）过滤 盈利>=3 AND 年化中位>=TH.ann
+//   最稳健档  = 综合分最高（年化中位40% + 低回撤中位30% + 盈利窗口数20% + 样本10%）过滤 盈利>=3，门槛 steadyScore>=0.5
+//   回撤最小档 = 5窗口最大回撤(maxDdAll)最小 过滤 年化中位>0 AND 样本>=TH.ddMinOps（取最差窗口的回撤，非最好窗口）
+// chip val 两行：首行 {scenario}·{path缩写}；次行 "5窗口盈利X/5 · 年化中位+Y% · 回撤中位Z%"（回撤最小档额外加"最大回撤W%"）
+// 去重粒度：scenario+path 二元组（2026-07-29 方案D：打分单元为策略级，去重粒度从三元组降为二元组）
 var _BACKUP_CHIP_WINS = ["y1", "y3", "y5", "y10", "all"];
 var _BACKUP_CHIP_PATHS = ["买固定1w(10%)+卖清仓", "全仓进出", "固定1w(10%)进出（FIFO）"];
 var _BACKUP_CHIP_SCENARIOS_ALL = [
@@ -465,27 +470,20 @@ var _BACKUP_CHIP_PATH_SHORT = {
   "固定1w(10%)进出（FIFO）": "1w先进先出"
 };
 // 三档绝对值门槛（2026-07-23 防"弱标的年化0.x%也推荐"bug）：不达标不进档，全 null 显示兜底文案。
-//   年化最高档：年化必须 >=3%（低于3%无推荐价值，不如存银行）
-//   最稳健档：综合分 >=0.5（满分1.0）AND 胜率 >=60% AND 回撤 <=20% AND 年化>回撤（收益必须覆盖回撤，
-//             防 0% 年化 + 1~3% 回撤的"稳健"策略实际亏本却推荐，2026-07-24 上证50 case 修复）
-//   回撤最小档：回撤 <=15%（>15%谈不上"最小"优势）AND 样本 >=3（样本太少不算）AND 年化>0
-//             （回撤低但年化为0/负的策略无推荐价值，2026-07-24 加门槛）
-//   门槛集中在此常量，方便后续调整（用户决策：加绝对值门槛 + 隐藏弱标的）。
-//
-// 2026-07-25 方向D 三档门槛组级化：按 market 分组差异化 ann（年化档）+ ddMax（回撤档），其余门槛统一。
-//   年化最高档：主板/创业板/科创板维持 3%（低于3%无推荐价值），行业/全球降到 2%（波动小门槛放宽）
-//   回撤最小档：主板维持 15%（>15%谈不上"最小"），创业板/科创板放到 20%（高波动板块适当放宽）
-//   其余门槛（steadyScore/steadyWinRate/steadyMaxDd/ddMinOps/ddMinAnn）不分 market，统一基础值。
-//   分组依据：A股宽基+红利=主板(3%/15%)，创业板指/科创50=高波动(3%/20%)，
-//            申万行业/同花顺+全球股指=中小盘/外围(2%/15%)，商品/汇率/债=高波动资产(3%/15%)。
+// 2026-07-29 方案D 三档打分单元从「单窗口 entry」改为「策略(path+scen二元组)」聚合 5 窗口指标后打分。
+//   新增维度：盈利窗口数（5 窗口中年化>0 的数量）、年化中位、回撤中位、最大回撤（5 窗口最差）、样本总数。
+//   原 steadyWinRate/steadyMaxDd 单窗口门槛删除（不适用于策略级聚合，由「盈利窗口数>=3」替代防小样本虚高）。
+//   年化最高档：年化中位 >= TH.ann AND 盈利窗口数>=3（原年化单窗口门槛升级为多窗口中位+盈利数双门槛）
+//   最稳健档：综合分 >=0.5 AND 盈利窗口数>=3（防近1年单窗口虚高被推为"稳健"，
+//             2026-07-29 修复: 近1年·全仓·追买+追止损卖 年化6.9%回撤4.1%曾被推为"最稳健"，
+//             但同策略近10年-13.1%回撤84%严重不稳健，多窗口综合分彻底根治）
+//   回撤最小档：样本总数 >=3 AND 年化中位>0（原门槛升级为策略级，按「5窗口最大回撤」升序排，非单窗口最小回撤）
 var _BACKUP_CHIP_THRESHOLDS = {
-  ann: 3.0,           // 年化最高档门槛（默认/main）：年化 >=3%
-  steadyScore: 0.5,   // 最稳健档综合分 >=0.5（满分1.0）
-  steadyWinRate: 60,  // 最稳健档胜率 >=60%
-  steadyMaxDd: 20,    // 最稳健档回撤 <=20%
-  ddMax: 15,          // 回撤最小档回撤（默认/main）：<=15%
-  ddMinOps: 3,        // 回撤最小档样本 >=3
-  ddMinAnn: 0.0       // 回撤最小档年化 >0（防0%年化策略被推为"回撤最小"）
+  ann: 3.0,           // 年化最高档门槛（默认/main）：年化中位 >=3% AND 盈利窗口数>=3
+  steadyScore: 0.5,   // 最稳健档综合分 >=0.5（满分1.0）AND 盈利窗口数>=3
+  ddMax: 15,          // 回撤最小档回撤（默认/main）：<=15%（5窗口最大回撤，最差窗口）
+  ddMinOps: 3,        // 回撤最小档样本总数 >=3
+  ddMinAnn: 0.0       // 回撤最小档年化中位 >0（防0%年化策略被推为"回撤最小"）
 };
 // market 分组门槛覆盖（仅 ann + ddMax，其余继承 _BACKUP_CHIP_THRESHOLDS 基础值）
 var _BACKUP_CHIP_MARKET_OVERRIDE = {
@@ -651,8 +649,10 @@ function _backupSignalChipRender(sd, id) {
     { y1: '近1年', y3: '近3年', y5: '近5年', y10: '近10年', all: '全史' },
     sd.windows ? Object.fromEntries(sd.windows.map(function (w) { return [w.k, w.l]; })) : {}
   );
-  // 遍历 5 窗口 × 3 路径 × 11 场景 = 165 回测
+  // 2026-07-29 方案D：打分单元从「单窗口 entry」改为「策略(path+scen二元组)」聚合 5 窗口指标。
+  // 先收集所有 entry（allEntries 备用），同时构建 strategy_map: (path,scen) -> 5 窗口 summary 字典
   var allEntries = [];
+  var strategyMap = {};  // key: path|scen -> { path, scenario, label, pathShort, winSummaries: {win: summary} }
   for (var wi = 0; wi < _BACKUP_CHIP_WINS.length; wi++) {
     var win = _BACKUP_CHIP_WINS[wi];
     var byWin = sd.data[win];
@@ -680,68 +680,142 @@ function _backupSignalChipRender(sd, id) {
           total_ops: s.total_ops,
           sharpe: typeof s.sharpe === 'number' ? s.sharpe : null
         });
+        var skey = path + '|' + sc;
+        if (!strategyMap[skey]) {
+          strategyMap[skey] = {
+            path: path, scenario: sc, label: sc.replace(/\+卖$/, ''),
+            pathShort: _BACKUP_CHIP_PATH_SHORT[path] || path,
+            winSummaries: {}
+          };
+        }
+        strategyMap[skey].winSummaries[win] = s;
       }
     }
   }
   if (allEntries.length < 2) return sharpeRedlinePrefix;  // 不足 2 条无法对比,但仍显 sharpe 红线(若有)
-  // 跨全 165 归一化（0-1）
-  var maxAnn = Math.max.apply(null, allEntries.map(function (e) { return e.annualized; }));
-  var minAnn = Math.min.apply(null, allEntries.map(function (e) { return e.annualized; }));
-  var maxDd = Math.max.apply(null, allEntries.map(function (e) { return e.max_drawdown; }));
-  var minDd = Math.min.apply(null, allEntries.map(function (e) { return e.max_drawdown; }));
-  var maxWr = Math.max.apply(null, allEntries.map(function (e) { return e.win_rate; }));
-  var minWr = Math.min.apply(null, allEntries.map(function (e) { return e.win_rate; }));
-  var maxOps = Math.max.apply(null, allEntries.map(function (e) { return e.total_ops; }));
-  var minOps = Math.min.apply(null, allEntries.map(function (e) { return e.total_ops; }));
-  function norm(v, mn, mx) { return mx > mn ? (v - mn) / (mx - mn) : 0; }
-  function ddNorm(dd) { return (maxDd > minDd) ? (maxDd - dd) / (maxDd - minDd) : 1; }  // 回撤越小越好故取反
-  var scored = allEntries.map(function (e) {
-    var annNorm = norm(e.annualized, minAnn, maxAnn);
-    var wrNorm = norm(e.win_rate, minWr, maxWr);
-    var ddN = ddNorm(e.max_drawdown);
-    var opsNorm = norm(e.total_ops, minOps, maxOps);
-    return Object.assign({}, e, {
-      // 年化最高档综合分：年化50% + 胜率25% + 低回撤15% + 样本10%
-      strongScore: annNorm * 0.5 + wrNorm * 0.25 + ddN * 0.15 + opsNorm * 0.10,
-      // 最稳健档综合分：胜率40% + 低回撤40% + 样本20%
-      steadyScore: wrNorm * 0.4 + ddN * 0.4 + opsNorm * 0.2
+  // 策略级聚合：每个策略聚合 5 窗口指标后打分
+  // 聚合维度：盈利窗口数(profitWins) / 年化中位(medianAnn) / 回撤中位(medianDd) / 最大回撤(maxDdAll,5窗口最差) / 样本总数(totalOpsSum)
+  function medianOf(arr) {
+    if (!arr || arr.length === 0) return 0;
+    var s = arr.slice().sort(function (a, b) { return a - b; });
+    var n = s.length;
+    return n % 2 === 1 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+  }
+  var strategies = [];
+  for (var sk in strategyMap) {
+    var strat = strategyMap[sk];
+    var ws = strat.winSummaries;
+    var anns = [], dds = [], ops = [], profitWins = 0;
+    for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
+      var w = _BACKUP_CHIP_WINS[i];
+      var sm = ws[w];
+      if (!sm) continue;
+      anns.push(sm.annualized);
+      dds.push(sm.max_drawdown);
+      ops.push(sm.total_ops);
+      if (sm.annualized > 0) profitWins++;
+    }
+    if (anns.length === 0) continue;
+    strategies.push({
+      path: strat.path, scenario: strat.scenario, label: strat.label, pathShort: strat.pathShort,
+      winSummaries: ws,
+      profitWins: profitWins,
+      medianAnn: medianOf(anns),
+      medianDd: medianOf(dds),
+      maxDdAll: Math.max.apply(null, dds),  // 5 窗口最差回撤
+      totalOpsSum: ops.reduce(function (a, b) { return a + b; }, 0),
+      // 兼容旧 tooltip 字段（_backupSignalChipTip 用）
+      annualized: medianOf(anns),  // 用年化中位作 tooltip 主年化展示
+      max_drawdown: medianOf(dds), // 用回撤中位作 tooltip 主回撤展示
+      win_rate: 0,                 // 策略级不再有单一胜率，tooltip 改展示聚合指标
+      total_ops: ops.reduce(function (a, b) { return a + b; }, 0),
+      sharpe: null,
+      win: 'y5'                    // 占位，tooltip 已改为 5 窗口明细展示
+    });
+  }
+  // 三档绝对值门槛过滤（防弱标的年化0.x%也推荐）：先筛达标候选，再归一化打分排序取最高。无达标 -> null
+  // 2026-07-25 方向D：门槛按 market 分组差异化（_backupChipThresholdsFor 覆盖 ann/ddMax）
+  // 2026-07-29 方案D：打分单元改为策略级，过滤+归一化均在「达标策略子集」内做（每档各自子集归一化）
+  var TH = _backupChipThresholdsFor(id);
+  function normalizeSubset(values) {
+    // 在子集内归一化到 0-1
+    if (values.length === 0) return [];
+    var mn = Math.min.apply(null, values);
+    var mx = Math.max.apply(null, values);
+    if (mx > mn) return values.map(function (v) { return (v - mn) / (mx - mn); });
+    return values.map(function () { return 0; });
+  }
+  function lowIsBetterSubset(values) {
+    // 越小越好（如回撤）：归一化时取反
+    if (values.length === 0) return [];
+    var mn = Math.min.apply(null, values);
+    var mx = Math.max.apply(null, values);
+    if (mx > mn) return values.map(function (v) { return (mx - v) / (mx - mn); });
+    return values.map(function () { return 1; });
+  }
+  // 1. 年化最高 = 策略级综合分最高（过滤: 盈利窗口数>=3 AND 年化中位>=TH.ann）
+  //    打分 = 年化中位归一化*0.4 + 低回撤中位归一化*0.2 + 盈利窗口数归一化*0.2 + 样本总数归一化*0.2
+  var annCand = strategies.filter(function (s) { return s.profitWins >= 3 && s.medianAnn >= TH.ann; });
+  var bestAnn = null;
+  if (annCand.length > 0) {
+    var aA = annCand.map(function (s) { return s.medianAnn; });
+    var aD = annCand.map(function (s) { return s.medianDd; });
+    var aP = annCand.map(function (s) { return s.profitWins; });
+    var aO = annCand.map(function (s) { return s.totalOpsSum; });
+    var nA = normalizeSubset(aA), nD = lowIsBetterSubset(aD), nP = normalizeSubset(aP), nO = normalizeSubset(aO);
+    var scoredAnn = annCand.map(function (s, i) {
+      var score = nA[i] * 0.4 + nD[i] * 0.2 + nP[i] * 0.2 + nO[i] * 0.2;
+      return Object.assign({}, s, { strongScore: score });
+    });
+    scoredAnn.sort(function (a, b) { return b.strongScore - a.strongScore; });
+    bestAnn = scoredAnn[0];
+  }
+  // 2. 最稳健 = 策略级综合分最高（过滤: 盈利窗口数>=3）
+  //    打分 = 年化中位归一化*0.4 + 低回撤中位归一化*0.3 + 盈利窗口数归一化*0.2 + 样本总数归一化*0.1
+  //    门槛 steadyScore>=0.5（保留，防弱策略被推）
+  var steadyCand = strategies.filter(function (s) { return s.profitWins >= 3; });
+  var bestSteady = null;
+  if (steadyCand.length > 0) {
+    var sA = steadyCand.map(function (s) { return s.medianAnn; });
+    var sD = steadyCand.map(function (s) { return s.medianDd; });
+    var sP = steadyCand.map(function (s) { return s.profitWins; });
+    var sO = steadyCand.map(function (s) { return s.totalOpsSum; });
+    var mA = normalizeSubset(sA), mD = lowIsBetterSubset(sD), mP = normalizeSubset(sP), mO = normalizeSubset(sO);
+    var scoredSteady = steadyCand.map(function (s, i) {
+      var score = mA[i] * 0.4 + mD[i] * 0.3 + mP[i] * 0.2 + mO[i] * 0.1;
+      return Object.assign({}, s, { steadyScore: score });
+    });
+    scoredSteady.sort(function (a, b) { return b.steadyScore - a.steadyScore; });
+    for (var i = 0; i < scoredSteady.length; i++) {
+      if (scoredSteady[i].steadyScore >= TH.steadyScore) { bestSteady = scoredSteady[i]; break; }
+    }
+  }
+  // 3. 回撤最小 = 5 窗口最大回撤(maxDdAll)最小（过滤: 年化中位>0 AND 样本总数>=TH.ddMinOps）
+  //    2026-07-29 方案D：按「5 窗口最大回撤」升序排（取最差窗口的回撤，非最好窗口），选「整体回撤最小」的策略
+  var ddCand = strategies.filter(function (s) { return s.medianAnn > TH.ddMinAnn && s.totalOpsSum >= TH.ddMinOps; });
+  var bestDd = null;
+  if (ddCand.length > 0) {
+    var sortedDd = ddCand.slice().sort(function (a, b) { return a.maxDdAll - b.maxDdAll; });
+    bestDd = sortedDd[0];
+  }
+  // 构建 scored 数组供 _backupSignalChipTip Top5 展示（策略级，合并三档分数）
+  var scored = strategies.map(function (s) {
+    return Object.assign({}, s, {
+      strongScore: bestAnn && bestAnn.path === s.path && bestAnn.scenario === s.scenario ? bestAnn.strongScore : 0,
+      steadyScore: bestSteady && bestSteady.path === s.path && bestSteady.scenario === s.scenario ? bestSteady.steadyScore : 0
     });
   });
-  // 三档绝对值门槛过滤（防弱标的年化0.x%也推荐）：先筛达标候选，再按维度排序取最高。无达标 -> null
-  // 2026-07-25 方向D：门槛按 market 分组差异化（_backupChipThresholdsFor 覆盖 ann/ddMax）
-  var TH = _backupChipThresholdsFor(id);
-  // 1. 年化最高 = strongScore 最高（年化必须 >= TH.ann）
-  var annCandidates = scored.filter(function (e) { return e.annualized >= TH.ann; });
-  var bestAnn = annCandidates.length > 0
-    ? annCandidates.slice().sort(function (a, b) { return b.strongScore - a.strongScore; })[0]
-    : null;
-  // 2. 最稳健 = steadyScore 最高（综合分>=0.5 AND 胜率>=60 AND 回撤<=20 AND 年化>回撤）
-  // 2026-07-24 加年化>回撤门槛：防"0%年化+1~3%回撤"的伪稳健策略被推（收益不覆盖回撤=实际亏）
-  var steadyCandidates = scored.filter(function (e) {
-    return e.steadyScore >= TH.steadyScore && e.win_rate >= TH.steadyWinRate
-      && e.max_drawdown <= TH.steadyMaxDd && e.annualized > e.max_drawdown;
-  });
-  var bestSteady = steadyCandidates.length > 0
-    ? steadyCandidates.slice().sort(function (a, b) { return b.steadyScore - a.steadyScore; })[0]
-    : null;
-  // 3. 回撤最小 = max_drawdown 最小（回撤<=15% AND 样本>=3 AND 年化>0）
-  // 2026-07-24 加年化>0门槛：防0%年化策略被推为"回撤最小"（无收益的极低回撤无推荐价值）
-  var ddCandidates = scored.filter(function (e) { return e.max_drawdown <= TH.ddMax && e.total_ops >= TH.ddMinOps && e.annualized > TH.ddMinAnn; });
-  var bestDd = ddCandidates.length > 0
-    ? ddCandidates.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; })[0]
-    : null;
-  // 去重：scenario+path+win 三元组只显 1 chip（优先级 年化>稳健>回撤）
-  // 2026-07-23 弱化去重（原 scenario+path 二元组致 18/19 缺档：best_dd 与 best_steady 撞同一 entry 被吞）
-  // 副作用：同 scenario+path 不同 win 可能显 2 档（信息完整优先，可视觉冗余接受）
+  // 去重：策略级 scenario+path 二元组只显 1 chip（优先级 年化>稳健>回撤）
+  // 2026-07-29 方案D：打分单元已是策略级，去重粒度从原三元组(scenario+path+win)降为二元组(scenario+path)
   var used = {};
   var chips = [];
-  if (bestAnn) { chips.push({ kind: 'strong', tier: '年化最高', entry: bestAnn }); used[bestAnn.scenario + '|' + bestAnn.path + '|' + bestAnn.win] = 1; }
+  if (bestAnn) { chips.push({ kind: 'strong', tier: '年化最高', entry: bestAnn }); used[bestAnn.scenario + '|' + bestAnn.path] = 1; }
   if (bestSteady) {
-    var kS = bestSteady.scenario + '|' + bestSteady.path + '|' + bestSteady.win;
+    var kS = bestSteady.scenario + '|' + bestSteady.path;
     if (!used[kS]) { chips.push({ kind: 'steady', tier: '最稳健', entry: bestSteady }); used[kS] = 1; }
   }
   if (bestDd) {
-    var kD = bestDd.scenario + '|' + bestDd.path + '|' + bestDd.win;
+    var kD = bestDd.scenario + '|' + bestDd.path;
     if (!used[kD]) { chips.push({ kind: 'lowdraw', tier: '回撤最小', entry: bestDd }); used[kD] = 1; }
   }
   if (chips.length === 0) {
@@ -750,29 +824,17 @@ function _backupSignalChipRender(sd, id) {
     // 2026-07-27 sharpe 红线品种仍前置红线 chip（即便三档全不达标，夏普越线信息仍需透明）
     return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>' + sharpeRedlinePrefix + smallSamplePrefix;
   }
-  // chip val 第二行：该 scenario+path 在 5 窗口的年化对比
-  function win5Ann(e) {
-    var parts = [];
-    for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
-      var w = _BACKUP_CHIP_WINS[i];
-      var s = sd.data && sd.data[w] && sd.data[w][e.path] && sd.data[w][e.path][e.scenario] && sd.data[w][e.path][e.scenario].summary;
-      if (s && typeof s.annualized === 'number') {
-        parts.push(winLabel[w] + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%');
-      }
-    }
-    return parts.join(' ');
-  }
-  // chip val 两行格式 + 含费标注行（2026-07-28 加：显示回测含手续费万3/千1滑点，ETF 替代品种显示 ETF 代码）
+  // 2026-07-29 方案D：chip val 第二行统一改为策略级聚合指标显示
+  //   原 line2 反映单窗口（"回撤-X% 胜率Y%" 或 "y1+X% y3+Y%..."），有误导（近1年虚高也能显示"回撤4%胜率66%"）
+  //   新 line2: "5窗口盈利X/5 · 年化中位+Y% · 回撤中位Z%"（三档统一，反映策略整体 5 窗口表现）
+  //   回撤最小档额外加 "最大回撤W%"（该档核心指标是 5 窗口最大回撤，需明示）
   function formatVal(c) {
     var e = c.entry;
     var line1 = e.label + ' · ' + e.pathShort;
-    var line2;
-    if (c.kind === 'strong') {
-      line2 = win5Ann(e);  // y1+X% y3+Y% y5+Z% y10+W% all+V%
-    } else if (c.kind === 'steady') {
-      line2 = '回撤-' + e.max_drawdown.toFixed(1) + '% 胜率' + e.win_rate.toFixed(0) + '% (5窗口均稳)';
-    } else {
-      line2 = winLabel[e.win] + '回撤-' + e.max_drawdown.toFixed(1) + '% (全维度最小)';
+    var annSign = e.medianAnn >= 0 ? '+' : '';
+    var line2 = '5窗口盈利' + e.profitWins + '/5 · 年化中位' + annSign + e.medianAnn.toFixed(1) + '% · 回撤中位' + e.medianDd.toFixed(1) + '%';
+    if (c.kind === 'lowdraw') {
+      line2 += ' · 最大回撤' + e.maxDdAll.toFixed(1) + '%';  // 回撤最小档明示 5 窗口最大回撤（核心指标）
     }
     // 含费标注：ETF 替代品种显示 "ETF 代码·含费万3"，纯指数显示 "纯指数模拟·无ETF可交易"
     // sd.etf_code 由 simulate_trade.py _generate_json 写入（None=纯指数，agent3 重新生成 JSON 后才有值；
@@ -808,21 +870,24 @@ function _backupSignalChipTip(sd, scored, chip) {
     });
   }
   var SEP = '────────────────────';
-  var lines = ['【' + chip.tier + '】' + e.label + ' · ' + e.pathShort + ' · ' + winLabel[e.win] + ' 综合分胜出'];
+  // 2026-07-29 方案D：策略级（path+scen 二元组）打分，tooltip 显示 5 窗口聚合指标 + 33 策略 Top5
+  var lines = ['【' + chip.tier + '】' + e.label + ' · ' + e.pathShort + ' · 5窗口综合分胜出'];
   // 顶部显示整体回测区间（all 窗口 s~e，覆盖最长历史；缺失则用 y5 兜底）
   var overallRange = winRange.all || winRange.y5 || '';
   if (overallRange) lines.push('回测区间: ' + overallRange);
-  lines.push('该买点+路径在 5 窗口表现（' + e.scenario + ' · ' + e.path + '）：');
+  // 策略级聚合指标汇总（chip 上的 line2 完整版）
+  lines.push('策略聚合（5 窗口）：盈利' + e.profitWins + '/5 │ 年化中位' + e.medianAnn.toFixed(1) + '% │ 回撤中位' + e.medianDd.toFixed(1) + '% │ 最大回撤' + e.maxDdAll.toFixed(1) + '% │ 样本总数' + e.totalOpsSum);
+  lines.push('该买点+路径在 5 窗口逐窗口表现（' + e.scenario + ' · ' + e.path + '）：');
   for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
     var w = _BACKUP_CHIP_WINS[i];
-    var s = sd.data && sd.data[w] && sd.data[w][e.path] && sd.data[w][e.path][e.scenario] && sd.data[w][e.path][e.scenario].summary;
+    var s = e.winSummaries && e.winSummaries[w];
     if (s) {
       // 每个窗口行末尾加 [s~e] 起止日期，让用户明确各窗口具体回测时段
       var rng = winRange[w] ? '  [' + winRange[w] + ']' : '';
       lines.push('  ' + winLabel[w] + '  年化' + (s.annualized || 0).toFixed(1) + '% │ 回撤' + (s.max_drawdown || 0).toFixed(1) + '% │ 胜率' + (s.win_rate || 0).toFixed(0) + '% │ 夏普' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + ' │ 样本' + (s.total_ops || 0) + rng);
     }
   }
-  // 全 165 该维度 Top5
+  // 全 33 策略该维度 Top5（策略级，非 entry 级 165）
   var top5, label;
   if (chip.kind === 'strong') {
     top5 = scored.slice().sort(function (a, b) { return b.strongScore - a.strongScore; }).slice(0, 5);
@@ -831,14 +896,14 @@ function _backupSignalChipTip(sd, scored, chip) {
     top5 = scored.slice().sort(function (a, b) { return b.steadyScore - a.steadyScore; }).slice(0, 5);
     label = '稳健综合';
   } else {
-    top5 = scored.slice().sort(function (a, b) { return a.max_drawdown - b.max_drawdown; }).slice(0, 5);
-    label = '回撤最小';
+    top5 = scored.slice().sort(function (a, b) { return a.maxDdAll - b.maxDdAll; }).slice(0, 5);
+    label = '回撤最小（按5窗口最大回撤）';
   }
   lines.push(SEP);
-  lines.push('全 165 回测 · ' + label + ' Top5：');
+  lines.push('全 33 策略（3路径×11场景）· ' + label + ' Top5：');
   for (var i = 0; i < top5.length; i++) {
     var t = top5[i];
-    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '·' + winLabel[t.win] + '  年化' + t.annualized.toFixed(1) + '% │ 回撤' + t.max_drawdown.toFixed(1) + '% │ 胜率' + t.win_rate.toFixed(0) + '% │ 夏普' + (typeof t.sharpe === 'number' ? t.sharpe.toFixed(2) : '-') + ' │ 样本' + t.total_ops);
+    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '  盈利' + t.profitWins + '/5 │ 年化中位' + t.medianAnn.toFixed(1) + '% │ 回撤中位' + t.medianDd.toFixed(1) + '% │ 最大回撤' + t.maxDdAll.toFixed(1) + '% │ 样本' + t.totalOpsSum);
   }
   lines.push(SEP);
   // 2026-07-28 回测精准模拟说明：手续费万3 + 滑点千1 + 沪市过户费万0.1，ETF 替代指数含跟踪误差
@@ -848,7 +913,7 @@ function _backupSignalChipTip(sd, scored, chip) {
     : '回测含费：佣金万3 + 滑点千1（纯指数模拟，无过户费；ETF 替代品种才收沪市过户费）';
   lines.push(feeLine);
   lines.push('⚠ 研究参考，不构成投资建议 · 历史回测不代表未来');
-  lines.push('综合排名覆盖全维度（5窗口×3路径×11场景=165回测），年化最高/回撤最小为综合分排名结果（非纯极值，防小样本虚高）。');
+  lines.push('方案D 多窗口综合分：打分单元为策略（path+场景二元组），聚合 5 窗口指标（盈利窗口数/年化中位/回撤中位/最大回撤/样本总数）后归一化打分，防近1年单窗口虚高被推为"稳健"。');
   // HTML attribute 里换行需转义为 &#10;（textContent 解析时还原为 \n，.term-pop white-space: pre-line 渲染换行）
   return lines.join('&#10;').replace(/"/g, '&quot;');
 }
