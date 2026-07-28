@@ -3565,8 +3565,15 @@ async function openKpiDetailModal(kpiId, period = "3m") {
     }
     // 走势图
     const mainSeries = result.series[0];
+    // P0-1(2026-07-28): 补 T 日预估点（KPI 场景，数据源=overview.today 非 intraday_snapshot）。
+    // chartData 末日<T日时，从 overview.today 查 KPI 当日值补灰色"预估"点（T+1 源无 T 日值不补）。
+    // 必须在算 dates/seriesOpt 之前补，这样 T 日点纳入 xAxis 范围 + seriesOpt.data。
+    const _ovK = _getCachedOverview();
+    const _todayDateK = _ovK && _ovK.date ? _ovK.date : "";
+    const _estimates = _todayDateK ? await _appendKpiEstimate(result, kpiId, _todayDateK) : [];
+    const _hasEst = _estimates.length > 0;
     const last = mainSeries.data[mainSeries.data.length - 1];
-    const suffix = last ? ` <span class="chart-latest">· ${fmtDate(last.date)}</span>` : "";
+    const suffix = last ? ` <span class="chart-latest">· ${fmtDate(last.date)}${_hasEst ? " (预估)" : ""}</span>` : "";
     const noteHtml = result.note ? ` <span class="chart-latest" style="color:var(--text-3)">（${result.note}）</span>` : "";
     const chartCard = document.createElement("div");
     chartCard.className = "chart-card";
@@ -3577,17 +3584,29 @@ async function openKpiDetailModal(kpiId, period = "3m") {
     _kpiDetailCharts.push(chart);
 
     const dates = [...new Set(result.series.flatMap(s => (s.data || []).map(d => d.date)))].sort();
-    const seriesOpt = result.series.map(s => ({
-      name: s.name,
-      type: "line",
-      smooth: true,
-      symbol: "none",
-      connectNulls: true,
-      data: dates.map(d => { const p = (s.data || []).find(x => x.date === d); return p ? p.value : null; }),
-      ...(s.color ? { color: s.color, lineStyle: { color: s.color } } : {}),
-      ...(s.areaStyle ? { areaStyle: s.areaStyle } : {}),
-      ...(s.markLine ? { markLine: s.markLine } : {}),
-    }));
+    const seriesOpt = result.series.map((s, idx) => {
+      // P0-1: 补了预估点的 series 加灰色"预估"markPoint（与信号弹窗 estimate pin 风格一致）
+      const est = _estimates.find(e => e.seriesIdx === idx);
+      const markPoint = est ? {
+        symbol: "circle",
+        symbolSize: 8,
+        label: { show: true, formatter: "预估", color: "#909399", position: "top", fontSize: 10 },
+        itemStyle: { color: "#909399" },
+        data: [{ coord: [est.date, est.value], value: "预估" }],
+      } : undefined;
+      return {
+        name: s.name,
+        type: "line",
+        smooth: true,
+        symbol: "none",
+        connectNulls: true,
+        data: dates.map(d => { const p = (s.data || []).find(x => x.date === d); return p ? p.value : null; }),
+        ...(s.color ? { color: s.color, lineStyle: { color: s.color } } : {}),
+        ...(s.areaStyle ? { areaStyle: s.areaStyle } : {}),
+        ...(s.markLine ? { markLine: s.markLine } : {}),
+        ...(markPoint ? { markPoint } : {}),
+      };
+    });
     chart.setOption(withTheme({
       tooltip: { trigger: "axis" },
       legend: { top: 0, type: "scroll" },
@@ -11371,15 +11390,26 @@ const _SNAPSHOT_IID_TO_CODE = {
 // 补点格式：index 图补 {date,open,high,low,close,pct_change,amount}；value 图补 {date,value}。
 // 同时追加 signal="estimate" 的 pin 标注（灰色"预估"pin，视觉区分非真实信号）。
 // 返回 true=已补点，false=无法补（indexId 不在快照/无实时价/快照拉取失败）。
-async function _appendIntradayEstimate(chartData, sigs, indexId, todayDate, isValue) {
+// P0-1(2026-07-28): 新增可选第6参 todayValueOverride——KPI 弹窗场景由调用方
+// （_appendKpiEstimate 适配层）从 overview.today 查到 T 日值后直接传入，跳过 snapshot
+// 反查（KPI 用 score_id/kpiId 非 index_id，不在 _SNAPSHOT_IID_TO_CODE 17 基础指数内）。
+// 不传或传 null/undefined 时走原 snapshot 路径（信号弹窗向后兼容）。
+async function _appendIntradayEstimate(chartData, sigs, indexId, todayDate, isValue, todayValueOverride) {
   if (!chartData || !chartData.length || !todayDate) return false;
   if (chartData[chartData.length - 1].date >= todayDate) return false; // 末日已==T日，无需补
-  const code = _SNAPSHOT_IID_TO_CODE[indexId];
-  if (!code) return false; // 不在 17 基础指数，无实时价来源
-  const snap = await _getCachedSnapshot();
-  if (!snap || !snap.indices) return false;
-  const idx = snap.indices.find(it => it.code === code);
-  if (!idx || idx.price == null) return false;
+  let idx;
+  if (todayValueOverride != null) {
+    // KPI 场景：调用方已查好 T 日值（overview.today），无需 snapshot 反查
+    idx = { price: todayValueOverride };
+  } else {
+    // 信号弹窗场景：从 intraday_snapshot 反查腾讯全码
+    const code = _SNAPSHOT_IID_TO_CODE[indexId];
+    if (!code) return false; // 不在 17 基础指数，无实时价来源
+    const snap = await _getCachedSnapshot();
+    if (!snap || !snap.indices) return false;
+    idx = snap.indices.find(it => it.code === code);
+    if (!idx || idx.price == null) return false;
+  }
   // 补 T 日点到 chartData 末尾
   if (isValue) {
     chartData.push({ date: todayDate, value: idx.price });
@@ -11396,8 +11426,64 @@ async function _appendIntradayEstimate(chartData, sigs, indexId, todayDate, isVa
     });
   }
   // 追加"预估"pin 标注（signalLabel/signalColor 已加 estimate 分支：灰色"预估"）
-  sigs.push({ date: todayDate, index_id: indexId, signal: "estimate", reason: "盘中预估价(" + idx.price + ")" });
+  // KPI 场景 sigs 传 null 时跳过（KPI 走势图不用信号 pin，由 openKpiDetailModal 加 markPoint）
+  if (sigs) {
+    sigs.push({ date: todayDate, index_id: indexId, signal: "estimate", reason: "盘中预估(" + idx.price + ")" });
+  }
   return true;
+}
+
+// P0-1(2026-07-28): KPI 走势弹窗专用预估点适配层。
+// KPI 数据源=overview.today（9 sentiment scores + 20 astock/global/volume_ratio metrics），
+// 非 intraday_snapshot.indices（仅 17 基础指数，KPI 用 kpiId/score_id 无法反查腾讯码）。
+// 仅对 overview.today 中 date===T日 的 KPI 补点（T+1 源 gold/cn10y/a_qvix_300/
+// a_fund_margin/lhb_count/a_turnover_*/a_width_fengban_rate 等无 T 日值，不硬凑）。
+// 多 series KPI（涨跌家数/涨跌停数）通过 _KPI_COMPANION 映射 companion kpiId 同步补。
+// 百分比 KPI（seal_rate/fengban_rate）chartData 存 *100 值，overview 存 0-1 小数，需 *100 对齐。
+// 返回 estimates 数组（{seriesIdx,date,value}），供 openKpiDetailModal 渲染灰色"预估"markPoint。
+const _KPI_COMPANION = {
+  a_width_up_count: "a_width_down_count", a_width_down_count: "a_width_up_count",
+  a_width_zt_count: "a_width_dt_count",   a_width_dt_count: "a_width_zt_count",
+};
+const _KPI_RATE_X100 = { a_width_seal_rate: true, a_width_fengban_rate: true };
+async function _appendKpiEstimate(result, kpiId, todayDate) {
+  if (!result || !result.series || !result.series.length || !todayDate) return [];
+  const mainSeries = result.series[0];
+  if (!mainSeries || !mainSeries.data || !mainSeries.data.length) return [];
+  if (mainSeries.data[mainSeries.data.length - 1].date >= todayDate) return []; // 末日已==T日
+  // overview 缓存（5min TTL）+ fallback fetch
+  let ov = _getCachedOverview();
+  if (!ov) {
+    try { ov = await fetchJSON("./data/overview.json"); if (ov) _setCachedOverview(ov); } catch (e) { return []; }
+  }
+  if (!ov || !ov.today) return [];
+  // 构建 {kpiId -> {value,date}} 查找表（scores 9 + metrics 20）
+  const todayMap = {};
+  const scores = ov.today.scores || {};
+  for (const k in scores) {
+    const sc = scores[k];
+    if (sc && sc.value != null && sc.date) todayMap[k] = { value: sc.value, date: sc.date };
+  }
+  const metrics = ov.today.metrics || [];
+  for (const m of metrics) {
+    if (m && m.id && m.value != null && m.date) todayMap[m.id] = { value: m.value, date: m.date };
+  }
+  const estimates = [];
+  const _tryPush = async (seriesIdx, kid) => {
+    const info = todayMap[kid];
+    if (!info || info.date !== todayDate) return; // T+1 源无 T 日值，不硬凑
+    const s = result.series[seriesIdx];
+    if (!s || !s.data || !s.data.length) return;
+    if (s.data[s.data.length - 1].date >= todayDate) return; // 该 series 末日已==T日
+    const val = _KPI_RATE_X100[kid] ? info.value * 100 : info.value;
+    const pushed = await _appendIntradayEstimate(s.data, null, kid, todayDate, true, val);
+    if (pushed) estimates.push({ seriesIdx, date: todayDate, value: val });
+  };
+  // series[0] = 主 kpiId
+  await _tryPush(0, kpiId);
+  // 多 series：companion kpiId -> series[1]（涨跌家数/涨跌停数）
+  if (_KPI_COMPANION[kpiId] && result.series[1]) await _tryPush(1, _KPI_COMPANION[kpiId]);
+  return estimates;
 }
 
 async function openShareModal() {
