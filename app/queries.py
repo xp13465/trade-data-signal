@@ -366,6 +366,70 @@ def overview(conn, cfg):
             "WHERE date IN (%s) ORDER BY date DESC, index_id" % ",".join("?" * len(sig_dates)),
             sig_dates
         ).fetchall()]
+    # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
+    # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
+    # 用传入 conn 查（不调 normalize.load_* 避免新建连接，遵守模块无状态原则）。
+    # 方向判定：看多(buy/buy_aux/buy_special/buy_special_filtered/buy_backup)至今涨=对；
+    # 看空(sell/sell_stop_loss)至今跌=对；band_hold 中性 since_correct=None 但 since_return 照算。
+    if sigs:
+        _close_map_cache: dict[str, dict[str, float]] = {}
+
+        def _load_close_map(iid: str) -> dict[str, float]:
+            if iid in _close_map_cache:
+                return _close_map_cache[iid]
+            m: dict[str, float] = {}
+            if iid.startswith("g."):
+                rows = conn.execute(
+                    "SELECT date, value FROM daily_metric WHERE metric_id=? AND value IS NOT NULL",
+                    (iid[2:],),
+                ).fetchall()
+                for r in rows:
+                    m[r["date"]] = r["value"]
+            elif iid.startswith("s."):
+                rows = conn.execute(
+                    "SELECT date, value FROM score_daily WHERE score_id=? AND value IS NOT NULL",
+                    (iid[2:],),
+                ).fetchall()
+                for r in rows:
+                    m[r["date"]] = r["value"]
+            else:
+                rows = conn.execute(
+                    "SELECT date, close FROM index_daily WHERE index_id=? AND close IS NOT NULL",
+                    (iid,),
+                ).fetchall()
+                for r in rows:
+                    m[r["date"]] = r["close"]
+            _close_map_cache[iid] = m
+            return m
+
+        _SELL_SIGNALS = {"sell", "sell_stop_loss"}
+        for _s in sigs:
+            _sig_type = _s.get("signal")
+            _iid = _s.get("index_id")
+            _sig_date = _s.get("date")
+            _s["since_return"] = None
+            _s["since_correct"] = None
+            _cm = _load_close_map(_iid)
+            _sig_close = _cm.get(_sig_date)
+            if _sig_close is None:
+                continue
+            _today_close = _cm.get(score_date)
+            if _today_close is None and _cm:
+                # 末日兜底：score_date 无 close 时取序列最大日期（最新可用）
+                _today_close = _cm[max(_cm.keys())]
+            if _today_close is None:
+                continue
+            # 今日信号(date==score_date)无"至今"语义：since_return/since_correct 均 None
+            if _sig_date == score_date:
+                continue
+            _since_ret = round((_today_close - _sig_close) / _sig_close * 100, 2)
+            _s["since_return"] = _since_ret
+            # band_hold 中性 -> since_correct=None（since_return 照算）
+            if _sig_type == "band_hold":
+                _s["since_correct"] = None
+            else:
+                _is_sell = _sig_type in _SELL_SIGNALS
+                _s["since_correct"] = (_since_ret < 0) if _is_sell else (_since_ret > 0)
     freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_dates = [r[0] for r in conn.execute(
         "SELECT DISTINCT date FROM score_daily WHERE is_freeze=1 AND date >= ? ORDER BY date DESC LIMIT 9",

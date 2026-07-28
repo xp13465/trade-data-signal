@@ -1074,7 +1074,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           scoreBadge = `<sup class="${lvlCls}" data-tip="${tip}">${lvl}</sup>`;
           if (s >= 0.75) scoreCls = " sig-item-high";
         }
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}${warnBadge}${scoreBadge}</span>`;
+        // 信号至今对错角标：至今走势符合预测☑️ / 不符✖️（since_correct=null 今日信号/band_hold中性不显示）
+        let correctBadge = "";
+        if (it.since_correct === true || it.since_correct === false) {
+          const _mark = it.since_correct ? "☑️" : "✖️";
+          const _retS = it.since_return != null ? (it.since_return > 0 ? "+" : "") + it.since_return.toFixed(2) + "%" : "";
+          const _dir = it.since_correct ? "符合预测" : "不符预测";
+          correctBadge = `<sup class="sig-correct" data-tip="至今${_retS}·${_dir}">${_mark}</sup>`;
+        }
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b> ${indexIdToName(it.index_id)}${warnBadge}${scoreBadge}${correctBadge}</span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -3236,6 +3244,26 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       _lagHint.setAttribute("style", "margin-bottom:8px;padding:6px 10px;font-size:12px;color:#e6a23c;background:rgba(230,162,60,0.1);border:1px solid rgba(230,162,60,0.3);border-radius:4px;line-height:1.5;");
       _lagHint.innerHTML = "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，T日(" + fmtDate(_todayDateB2) + ")的pin标注待收盘后(17:50)同步";
       body.appendChild(_lagHint);
+    }
+    // 信号至今盈亏行（方案B后端算）：成功/失败 · 至今盈亏 ±X%（since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）
+    const _ovSR = _getCachedOverview();
+    const _sigsSR = _ovSR && _ovSR.signals_today ? _ovSR.signals_today : [];
+    const _matchSR = _sigsSR.find((it) => it.index_id === indexId && it.signal === signal && it.date === date);
+    if (_matchSR && _matchSR.since_return != null) {
+      const _srLine = document.createElement("div");
+      _srLine.setAttribute("style", "margin-bottom:8px;padding:6px 10px;font-size:12px;border-radius:4px;line-height:1.5;");
+      const _ret = _matchSR.since_return;
+      const _correct = _matchSR.since_correct;
+      const _retStr = (_ret > 0 ? "+" : "") + _ret.toFixed(2) + "%";
+      let _txt, _color;
+      if (_correct === true) { _txt = `成功 · 至今盈亏 ${_retStr}`; _color = "#67c23a"; }
+      else if (_correct === false) { _txt = `失败 · 至今盈亏 ${_retStr}`; _color = "#f56c6c"; }
+      else { _txt = `至今盈亏 ${_retStr}`; _color = "#909399"; }
+      _srLine.style.color = _color;
+      _srLine.style.background = `${_color}1a`;
+      _srLine.style.border = `1px solid ${_color}55`;
+      _srLine.textContent = _txt;
+      body.appendChild(_srLine);
     }
     const title = name + latestSuffix(chartData);
     if (isValue) valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts);
