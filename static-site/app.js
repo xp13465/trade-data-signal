@@ -8103,7 +8103,7 @@ function renderFuturesSection(data, snap, container) {
     if (data.summary && data.summary.roles) {
       const dateStr = data.summary.date || "";
       const dateSuffix = dateStr ? `<span class="chart-latest"> · ${fmtDate(dateStr)}</span>` : "";
-      let html = `<h3>昨日净多空（万手）${termTip("净多空=多头持仓-空头持仓。正数=机构净多头寸偏多(看多占优)，负数=净空(看空占优)。看机构当前持仓偏向的静态水平，非当日变化。")}${dateSuffix}</h3>`;
+      let html = `<h3>昨日净多空（万手）${dateSuffix}</h3>`;
       html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
       for (const role of roles) html += `<th>${role}</th>`;
       html += '</tr></thead><tbody>';
@@ -8125,7 +8125,7 @@ function renderFuturesSection(data, snap, container) {
       addCardTimeBadge(div, dateStr, snap, "t1", "futures_date");
     } else {
       // 无数据空状态：保证卡片结构完整(h3+empty-note)，min-height 生效不塌陷
-      div.innerHTML = '<h3>昨日净多空（万手）' + termTip("净多空=多头持仓-空头持仓。正数=机构净多头寸偏多(看多占优)，负数=净空(看空占优)。看机构当前持仓偏向的静态水平，非当日变化。") + '</h3><div class="empty-note">暂无数据</div>';
+      div.innerHTML = '<h3>昨日净多空（万手）</h3><div class="empty-note">暂无数据</div>';
       tripleGrid2.appendChild(div);
     }
   }
@@ -8207,7 +8207,7 @@ function renderFuturesSection(data, snap, container) {
     const latestDate = citicLatest.date || instLatest.date;
     const div = document.createElement("div");
     div.className = "chart-card futures-table-card";
-    let html = `<h3>当日净加对照（${fmtDate(latestDate)}）${termTip("净加=多头增减-空头增减(即净多空的日变化量)。正数=多头加仓多于空头(净多增加)，负数=净加空(净多减少)。看机构当日加仓方向，区别于净多空(静态持仓水平)。")}</h3>`;
+    let html = `<h3>当日净加对照（${fmtDate(latestDate)}）</h3>`;
     html += `<div class="futures-note">中信期货 vs 机构前20 vs 国泰君安 在 ${fmtDate(latestDate)} 当日 上证50/沪深300/中证500/中证1000 4品种净加仓并排对照，一眼看三套数据方向。次日涨跌待收盘后回填统计准确率。</div>`;
     html += '<table class="accuracy-table"><thead><tr><th>角色</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th></tr></thead><tbody>';
     const cmpChgColor = (v) => v != null ? (v >= 0 ? "#2e8b57" : "#e6492e") : "var(--text-3)";
