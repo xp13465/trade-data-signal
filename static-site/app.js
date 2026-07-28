@@ -543,10 +543,13 @@ var _OVERFIT_OR_SMALL_SAMPLE_IDS = new Set(Array.from(_OVERFIT_FAILED_IDS).conca
 // 近似值(与 lab_simulate.py L241-261 同口径),值偏高;红线为"可疑"提示非"必过拟合"判定,数据透明让用户判断。
 // 遍历全 165 回测(5窗口×3路径×11场景)找 max sharpe;>3 触发红线 chip 前置标注+row 红框修饰。
 var _SHARPE_REDLINE_THRESHOLD = 3.0;
+// 2026-07-20 chip 警示文案优化(方案C): _sharpeRedlineInfo 增强返回 globalMaxSource(来源 wkey/pkey/skey+中文label)
+// 让警示条区分"全局max来自三档推荐"vs"全局max来自非三档推荐策略"两种情况,避免全局 10.59 误导三档推荐判断
 function _sharpeRedlineInfo(sd) {
-  if (!sd || !sd.data) return { maxSharpe: null, isRedline: false };
+  if (!sd || !sd.data) return { maxSharpe: null, isRedline: false, maxSource: null };
   var maxSharpe = -Infinity;
   var hasSharpe = false;
+  var maxWkey = null, maxPkey = null, maxSkey = null;
   for (var wkey in sd.data) {
     var byWin = sd.data[wkey];
     if (!byWin) continue;
@@ -557,14 +560,35 @@ function _sharpeRedlineInfo(sd) {
         var s = byPath[skey] && byPath[skey].summary;
         if (s && typeof s.sharpe === 'number' && isFinite(s.sharpe)) {
           hasSharpe = true;
-          if (s.sharpe > maxSharpe) maxSharpe = s.sharpe;
+          if (s.sharpe > maxSharpe) {
+            maxSharpe = s.sharpe;
+            maxWkey = wkey; maxPkey = pkey; maxSkey = skey;
+          }
         }
       }
     }
   }
+  // 来源信息: 窗口/路径中文 label(sd.windows.l 优先, _BACKUP_CHIP_PATH_SHORT 兜底), path|scen 二元组键(供三档推荐匹配用)
+  var maxSource = null;
+  if (hasSharpe) {
+    var winLab = maxWkey;
+    if (sd.windows) {
+      for (var i = 0; i < sd.windows.length; i++) {
+        if (sd.windows[i].k === maxWkey) { winLab = sd.windows[i].l; break; }
+      }
+    }
+    var pathLab = _BACKUP_CHIP_PATH_SHORT[maxPkey] || maxPkey;
+    var scenLab = maxSkey.replace(/\+卖$/, '');
+    maxSource = {
+      wkey: maxWkey, pkey: maxPkey, skey: maxSkey,
+      winLabel: winLab, pathShort: pathLab, scenarioLabel: scenLab,
+      pathScenKey: maxPkey + '|' + maxSkey  // 与三档 entry 的 scenario|path 键同构,供匹配判断来源是否在三档推荐内
+    };
+  }
   return {
     maxSharpe: hasSharpe ? maxSharpe : null,
-    isRedline: hasSharpe && maxSharpe > _SHARPE_REDLINE_THRESHOLD
+    isRedline: hasSharpe && maxSharpe > _SHARPE_REDLINE_THRESHOLD,
+    maxSource: maxSource
   };
 }
 // chip-row 容器 className 拼装:base + small-sample 修饰 + sharpe-redline 修饰
@@ -628,11 +652,21 @@ function _backupSignalChipRender(sd, id) {
   // >3 前置红线 chip 提醒(不屏蔽三档,让用户看推荐时知夏普越线需谨慎查详)。
   // trade_sim sharpe 为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径),值偏高;
   // 标注为"可疑"非"必过拟合"判定,数据透明让用户判断。
+  // 2026-07-20 chip 警示文案优化(方案C): 4 处误导点修复
+  //   1) "可疑过拟合警示"->"夏普比率红线提示"(去"过拟合"强词,避免和 AZ26-AZ38 参数整治混淆)
+  //   2) "部分回测"->"165回测中"(明确范围,用户知是全量回测 max)
+  //   3) "夏普10.59"->"夏普比率最高{maxSharpe}来自{来源}"(强调是 max + 明示来源,避免全局 max 误导三档推荐判断)
+  //   4) 加"参数侧已 AZ26-AZ38 整治"+"非必过拟合判定"(解释整治后为何还有红线 + 明确性质)
+  //   基础版(无三档推荐场景: 黑名单/allEntries<2/三档全null) 用 globalMaxSharpe + globalMaxSource;
+  //   完整版(有三档推荐) 在三档推荐算完后重新生成, 加 topTierMaxSharpe + 区分全局max是否来自三档推荐策略
   var sharpeInfo = _sharpeRedlineInfo(sd);
   var sharpeRedlinePrefix = '';
   if (sharpeInfo.isRedline) {
     var shVal = sharpeInfo.maxSharpe.toFixed(2);
-    sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种部分回测夏普 ' + shVal + ' &gt; 3(Bailey 2014 可疑过拟合红线)。trade_sim 夏普为事件稀疏 equity_curve 收益率 sqrt(252) 年化近似值(与 lab 同口径),值偏高;高夏普可能来自参数过拟合/低波动/小样本,非判定必过拟合。详见完整回测 modal,历史表现不代表未来">⚠ 可疑过拟合警示: 部分回测夏普 ' + shVal + ' &gt; 3 (Bailey 2014 红线), 高夏普可能来自参数过拟合/低波动/小样本, 三档推荐需谨慎看待<span class="warn-tip">trade_sim 夏普为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径), 值偏高; 标注为"可疑"非"必过拟合"判定, 详见完整回测 modal</span></div>';
+    var src = sharpeInfo.maxSource || {};
+    var srcStr = src.scenarioLabel ? ('来自' + src.scenarioLabel + '·' + src.pathShort + '·' + src.winLabel + ', ') : '';
+    var tipSrcStr = src.scenarioLabel ? ('来自' + src.scenarioLabel + '·' + src.pathShort + '·' + src.winLabel + ', ') : '';
+    sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种165回测中夏普比率最高 ' + shVal + ' (' + tipSrcStr + 'Bailey 2014 可疑过拟合红线&gt;3)。trade_sim 夏普为事件稀疏 equity_curve 收益率 sqrt(252) 年化近似值(与 lab 同口径),值偏高;高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治)。非必过拟合判定,详见完整回测 modal,历史表现不代表未来">⚠ 夏普比率红线提示: 该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStr + 'Bailey 2014 可疑过拟合红线&gt;3); trade_sim 夏普为事件稀疏 sqrt(252) 年化近似值, 值偏高, 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); 非必过拟合判定<span class="warn-tip">trade_sim 夏普为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径), 值偏高; 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); 非必过拟合判定, 详见完整回测 modal</span></div>';
   }
   // 2026-07-25 方向D 黑名单分级：
   //   _OVERFIT_FAILED_IDS（WF 确凿失效）：维持屏蔽，仅显示过拟合标注 chip，不进三档
@@ -824,6 +858,44 @@ function _backupSignalChipRender(sd, id) {
     // 2026-07-27 sharpe 红线品种仍前置红线 chip（即便三档全不达标，夏普越线信息仍需透明）
     return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>' + sharpeRedlinePrefix + smallSamplePrefix;
   }
+  // 2026-07-20 chip 警示文案优化(方案C): 三档推荐算完后, 重新生成 sharpeRedlinePrefix 完整版
+  //   加 topTierMaxSharpe(三档推荐策略各自 maxSharpe 的最大值) + 区分全局max来源是否在三档推荐内
+  //   情况a(全局max来自三档推荐): "来自三档推荐策略 X·Y·Z"
+  //   情况b(全局max来自非三档推荐, 如 sw_801230 全局10.59来自追买+追止损卖非三档): "来自非三档推荐策略 X·Y·Z, 三档推荐策略夏普也均>3(最高6.91)"
+  //   让用户明确区分"全局最高"vs"三档内最高", 不被全局10.59误导三档推荐判断
+  if (sharpeInfo.isRedline) {
+    var tierKeys = {};
+    if (bestAnn) tierKeys[bestAnn.path + '|' + bestAnn.scenario] = 1;
+    if (bestSteady) tierKeys[bestSteady.path + '|' + bestSteady.scenario] = 1;
+    if (bestDd) tierKeys[bestDd.path + '|' + bestDd.scenario] = 1;
+    var tierList = [bestAnn, bestSteady, bestDd];
+    var tierSharps = [];
+    for (var ti = 0; ti < tierList.length; ti++) {
+      var tstrat = tierList[ti];
+      if (!tstrat || !tstrat.winSummaries) continue;
+      var tmax = -Infinity, thas = false;
+      for (var twk in tstrat.winSummaries) {
+        var tsm = tstrat.winSummaries[twk];
+        if (tsm && typeof tsm.sharpe === 'number' && isFinite(tsm.sharpe)) {
+          thas = true;
+          if (tsm.sharpe > tmax) tmax = tsm.sharpe;
+        }
+      }
+      if (thas) tierSharps.push(tmax);
+    }
+    var topTierMaxSharpe = tierSharps.length > 0 ? Math.max.apply(null, tierSharps) : null;
+    var srcInTier = src.pathScenKey && tierKeys[src.pathScenKey];
+    var srcTierLabel = srcInTier ? '三档推荐策略' : '非三档推荐策略';
+    var srcStrFull = src.scenarioLabel ? ('来自' + srcTierLabel + ' ' + src.scenarioLabel + '·' + src.pathShort + '·' + src.winLabel + ', ') : '';
+    var tierStr = '';
+    if (topTierMaxSharpe !== null) {
+      var tierMaxStr = topTierMaxSharpe.toFixed(2);
+      tierStr = topTierMaxSharpe > _SHARPE_REDLINE_THRESHOLD
+        ? '三档推荐策略夏普也均&gt;3(最高 ' + tierMaxStr + ', 详见各档标注), '
+        : '三档推荐策略夏普均&lt;=3(最高 ' + tierMaxStr + ', 详见各档标注), ';
+    }
+    sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStrFull + 'Bailey 2014 可疑过拟合红线&gt;3)。trade_sim 夏普为事件稀疏 equity_curve 收益率 sqrt(252) 年化近似值(与 lab 同口径),值偏高;高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治)。' + tierStr + '非必过拟合判定,详见完整回测 modal,历史表现不代表未来">⚠ 夏普比率红线提示: 该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStrFull + 'Bailey 2014 可疑过拟合红线&gt;3); trade_sim 夏普为事件稀疏 sqrt(252) 年化近似值, 值偏高, 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); ' + tierStr + '数据透明供判断, 非必过拟合判定<span class="warn-tip">trade_sim 夏普为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径), 值偏高; 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); ' + tierStr + '非必过拟合判定, 详见完整回测 modal</span></div>';
+  }
   // 2026-07-29 方案D：chip val 第二行统一改为策略级聚合指标显示
   //   原 line2 反映单窗口（"回撤-X% 胜率Y%" 或 "y1+X% y3+Y%..."），有误导（近1年虚高也能显示"回撤4%胜率66%"）
   //   新 line2: "5窗口盈利X/5 · 年化中位+Y% · 回撤中位Z%"（三档统一，反映策略整体 5 窗口表现）
@@ -842,6 +914,22 @@ function _backupSignalChipRender(sd, id) {
     // 2026-07-28 统一：board_etf_map 首位（approx 优先 false）。关联不到 ETF（如 nikkei/g.gold）-> 纯指数模拟·无ETF可交易
     var etfCode = sd && sd.etf_code;
     var line3 = etfCode ? ('ETF ' + etfCode + ' 模拟 · 含费万3') : '纯指数模拟 · 无ETF可交易';
+    // 2026-07-20 改动2(方案C): line3 追加该档策略 maxSharpe(5窗口 winSummaries.sharpe 的 max), 越线(>3)加⚠
+    //   让用户看三档各自策略真实夏普, 不被全局10.59误导(三档实际maxSharpe是6.91/6.91/3.43, 非10.59)
+    if (e.winSummaries) {
+      var esmx = -Infinity, eshas = false;
+      for (var eswk in e.winSummaries) {
+        var esm = e.winSummaries[eswk];
+        if (esm && typeof esm.sharpe === 'number' && isFinite(esm.sharpe)) {
+          eshas = true;
+          if (esm.sharpe > esmx) esmx = esm.sharpe;
+        }
+      }
+      if (eshas) {
+        line3 += ' · 策略夏普' + esmx.toFixed(2);
+        if (esmx > _SHARPE_REDLINE_THRESHOLD) line3 += '⚠';
+      }
+    }
     return { line1: line1, line2: line2, line3: line3 };
   }
   return chips.map(function (c) {
