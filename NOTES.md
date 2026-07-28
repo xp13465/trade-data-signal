@@ -4220,3 +4220,34 @@ DB 查询今日（20260728）signal_daily：
 - **不做**（1项）：龙虎榜/两融（数据源盘后披露限制）
 
 **落档后**：commit + push feat（盘中合规，仅改 NOTES.md，未跑全量 export/deploy，未 add 根目录 data/ 下文件）。完整报告见 `/tmp/agent-progress-opt-report.md`。
+
+---
+
+### 小节AZ55：2026-07-28 P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min
+
+**1. P0-1 KPI走势弹窗补T日预估点** (commit 7d06f9b6, sw a39)
+- 复用方案A的 `_appendIntradayEstimate` + 新增 `_appendKpiEstimate` 适配层（todayValueOverride 参数向后兼容）
+- `openKpiDetailModal`(L3522) 画完走势图后补T日灰色预估点，解决 KPI 弹窗末日 T-1 问题
+- 数据源：`overview.today`(scores+metrics) 非 `intraday_snapshot`
+
+**2. debug条 CSS 皮肤适配** (commit 7b179644, sw a40)
+- 根因：debug 倒计时条硬编码 `color:rgba(125,125,125,0.62)` + `background:rgba(255,255,255,0.35)`，redgold 暗色皮肤下灰文字+白半透在深背景 = 低对比看不清，仅浅色皮肤可见
+- 修复：改用 CSS 变量 `color:var(--text-3)` + `background:color-mix(in srgb,var(--bg-card) 45%,transparent)`，跟随 15 皮肤自动适配
+- 先例：app.js L314/L321-322 暗色皮肤用 --text-1 浅字；style.css L98-103 暗色用 rgba(255,255,255,0.18) 白半透明
+
+**3. 封板率盘中滞后根因修复** (commit e51df0fa, sw a41)
+- 根因：`intraday_snapshot.py` 的 `_collect_intraday_width_metrics` 采完 zhaban_rate 到 7-28 后，没调 `derived.store_derived(compute_derived_formulas())` 重算 fengban(=1-zhaban)，致 fengban 停 7-27。dc551dbd(7-23) 误标 fengban 为 T+1（`app.js:3907 T1_COLLECT_DEADLINE` + `app.js:5553 _kpiT1`）掩盖 bug 非根治
+- 修复三处联动：① `intraday_snapshot.py` L920 采完 zhaban 加 `derived.store_derived(derived.compute_derived_formulas())` 重算 fengban ② `app.js:3907` 移除 T1_COLLECT_DEADLINE 的 fengban ③ `app.js:5553` 移除 _kpiT1 的 fengban
+- 验证：11:15 定时跑后 fengban=0.7941=1-zhaban(0.2059) source=derived date=7-28，盘中实时
+
+**4. 分时图刷新 3min->1min** (commit 9dcbb080, sw a42)
+- 调研：分时图前端直拉腾讯分时 API（web.ifzq.gtimg.cn/appstock/app/minute/query, CORS *），返回分钟线每分钟一个点，3min 刷新 = 最坏滞后 3 点偏保守
+- 1min 匹配腾讯分钟线更新节奏（30s 浪费一半请求，2min 仍 2 点滞后）
+- 改动：INTRADAY_REFRESH_MS 3min->1min + `_onIntradayVisChange` 切回 tab 立即刷新（原"距上次>3min 才刷新"）+ 渐进退避（MAX_FAILS=6, BACKOFF_CAP=8min, 失败1次间隔翻倍替代原3次直接停）+ 角标 "3min"->"1min"（4处 dyn-pulse）
+- 注意：overview 轮询 3min 低频+15s 高频是另一套（后端 15min 生成 overview.json，非瓶颈）
+
+**教训**
+- debug 条 CSS 不适配皮肤（硬编码颜色）-> 浮层 CSS 应用 CSS 变量跟随皮肤，不能写死一套
+- derived 重算遗漏：intraday_snapshot 采了源数据(zhaban)没重算派生指标(fengban=1-zhaban) -> 采完源数据应调 derived 重算所有派生指标
+- T+1 标注掩盖 bug：dc551dbd 误标 fengban T+1 而非根治 derived 重算 -> 发现"derived 指标滞后"应查是否漏调重算，非简单标 T+1
+- 分时图数据流：前端直拉腾讯分钟线 API（非后端 JSON），瓶颈在前端刷新频率(3min) 非后端 intraday_snapshot(10min，已退居后端职责)
