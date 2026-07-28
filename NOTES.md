@@ -3985,3 +3985,75 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 | 01b30a31 | 工作区清理(board_etf_map/lab_backtest untrack+.gitignore)+about/privacy CSS版本同步+feat←main FF sync |
 
 **教训**：今晚印证几条既有准则：①a30-a34 连续 5 commit 围绕期货 tab 单区域迭代，每次只动一个维度（行高/术语/常显/响应式/盈亏角标），印证“新功能先单开 tab 验证再融合”的 bite-sized 迭代节奏，避免一次性大改难验收；②a34 信号至今盈亏选方案 B 后端算（缓存 series 避 N+1）而非前端算，印证“数据第一时间发布第一”+ 后端预聚合原则，150 信号前端不重复拉 series；③评分评级阈值用户拍板保持 10d+0.75 不妥协，印证“方案选择默认准则”——不因今日无“高”信号就降阈值凑数，数据原因非 bug；④工作区清理把有生成脚本的数据产物改 untrack，印证 §8“不 add 根目录 data/ 下文件”精神延伸到所有有生成脚本的数据产物。
+
+### 小节AZ52：2026-07-28 09:47 盘中反哺5指数验证生效(commit 11b12c3f 闭环验收)
+
+**背景**：commit 11b12c3f 扩展盘中反哺 5 指数（cgb_idx / hk_cshkdiv / hk_hsmbi / hk_hsmogi / cgb_10y_etf），目的是让盘中 overview.json 的 `signals_today` 能实时看到 `buy_special`（追买，带 ⚠ 预估角标）和 `sell`（波段减仓）信号，而非等盘后 17:50 全量 export 才出。今日 2026-07-28 盘中 09:47 验证反哺是否生效。
+
+**验证时点**：2026-07-28 09:47（开盘后 17 分钟，collected_at=20260728 09:35:05 反哺已执行）
+
+**一、curl 线上 overview.json signals_today 统计**
+
+```
+curl https://ss.fx8.store/data/overview.json?v=$RANDOM
+date=20260728 etf_date=20260727 collected_at=20260728 09:35:05
+signals_today总数=141
+各类信号统计={
+  'band_hold': 20, 'buy': 61, 'sell': 8,
+  'buy_special': 12, 'buy_aux': 25,
+  'sell_stop_loss': 14, 'buy_backup': 1
+}
+```
+
+**关键结论**：`buy_special`（追买 12 条）+ `sell`（波段减仓 8 条）**盘中可见**，commit 11b12c3f 反哺扩展生效。`buy_special` 前端走 ⚠ 预估角标渲染（overview 数据层 `signal='buy_special'` 即支持，前端 AZ34/a34 已有 `correctBadge` ☑️✖️ 角标）。
+
+**二、5 个反哺指数全部出现（signals_today 详情）**
+
+| 指数 | 盘中可见信号 | 日期 | since_return | since_correct |
+|------|-------------|------|--------------|---------------|
+| cgb_idx | sell | 20260727 | -0.01 | True |
+| cgb_idx | buy_special | 20260727 | -0.01 | False |
+| hk_cshkdiv | buy_special | 20260727 | -0.25 | False |
+| hk_hsmbi | buy_special | 20260727 | 0.35 | True |
+| hk_hsmogi | buy_special | 20260727 | -1.15 | False |
+| cgb_10y_etf | sell | 20260724 | -0.02 | True |
+| cgb_idx | sell + buy_special | 20260724/20260722/20260720/20260717 | 多日 | 多值 |
+
+5 个反哺指数全部命中，且昨日（20260727）的 buy_special 4 条 + sell 1 条盘中即可见（原本要等 17:50 全量 export）。
+
+**三、反哺日志确认（/Users/linhuichen/code/trade-data/data/logs/intraday_snapshot_20260728_0935.log）**
+
+```
+[intraday] index_daily 反哺完成：17 条（来源：实时快照，港股含成交额）
+[intraday] index_daily 行业反哺完成：30 条（close 计算法 30 条，含 net_inflow/amount）
+[intraday] index_daily 概念反哺完成：27 条（含完整 OHLC + amount）
+[intraday] 反哺+width+重算+export 完成（17 指数 + 30 行业 + 27 概念反哺 + 8 width 指标）
+[3/186] ✓ cgb_10y_etf-all.json.gz
+[9/186] ✓ cgb_idx-all.json.gz
+[26/186] ✓ hk_cshkdiv-all.json.gz
+[34/186] ✓ hk_hsmbi-all.json.gz
+[37/186] ✓ hk_hsmogi-all.json.gz
+```
+
+17 指数反哺完成，5 个目标指数文件全部 ✓ 导出（.json + .json.gz 各一份）。
+
+**四、cgb_10y_future 盘中缺 band_hold 1 条（技术限制，非 bug）**
+
+DB 查询今日（20260728）signal_daily：
+
+| 指数 | 今日信号 |
+|------|---------|
+| cgb_10y_etf | band_hold |
+| cgb_idx | band_hold |
+| cgb_10y_future | （空，盘中缺） |
+
+对照 20260727 cgb_10y_future 有 band_hold 信号，今日盘中缺 1 条。**根因**：实时源不支持主连合约（cgb_10y_future = 国债期货主连），盘中反哺采不到实时 close；盘后 17:50 全量 export 用日 K 源补算，届时 band_hold 会补上。**技术限制非 bug**，与 AZ48 记录一致。
+
+今日 DB 0 条 buy_special / sell 属正常（09:47 刚开盘，日 K 信号需收盘 close 确认，20260727 的 6 条 buy_special + 1 条 sell 是昨日盘后已入库，盘中反哺刷进 overview）。
+
+**五、结论**
+
+- ✅ commit 11b12c3f 盘中反哺扩展 5 指数**生效**：signals_today 含 buy_special 12 + sell 8 盘中可见，5 个反哺指数全部命中，反哺日志 17 指数 + 5 目标文件 ✓ 导出。
+- ✅ buy_special 带 ⚠ 预估角标（前端 AZ34/a34 已支持 `correctBadge` ☑️✖️ 角标渲染）。
+- ⚠️ cgb_10y_future 盘中缺 band_hold 1 条 = 技术限制（主连合约实时源不支持），盘后 17:50 全量补，非 bug。
+- 📅 落档后 commit + push feat（盘中合规，仅改 NOTES.md，未跑全量 export/deploy）。
