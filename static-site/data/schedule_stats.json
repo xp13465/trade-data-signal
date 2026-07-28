@@ -15,10 +15,10 @@
     "task": "backfill_evening",
     "name": "指数补采兜底",
     "schedule": "16:35 / 02:00",
-    "est_text": "约28分钟",
-    "last_run": "2026-07-28 02:00",
+    "est_text": "约23分钟",
+    "last_run": "2026-07-28 16:35",
     "last_exit": 0,
-    "last_duration_sec": 2077,
+    "last_duration_sec": 950,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
