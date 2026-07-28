@@ -914,6 +914,14 @@ def _collect_intraday_width_metrics() -> dict:
         print(f"  [intraday] stock_zt_pool_zbgc_em 异常（不阻断）: {type(e).__name__} {e} "
               f"({time.time()-t0:.1f}s)", flush=True)
 
+    # 采完zhaban后立即重算derived(封板率=1-炸板率), 避免fengban停昨日致KPI角标滞后
+    try:
+        from ..compute import derived
+        derived.store_derived(derived.compute_derived_formulas())
+        print("  [intraday] derived重算完成（fengban_rate=1-zhaban_rate 同步到当日）", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] derived重算失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
     conn.close()
 
     # 5) volume_ratio 重算（基于 a_amount -> a_volume_ratio/ma5/ma20/signal）
