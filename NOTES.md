@@ -4057,3 +4057,69 @@ DB 查询今日（20260728）signal_daily：
 - ✅ buy_special 带 ⚠ 预估角标（前端 AZ34/a34 已支持 `correctBadge` ☑️✖️ 角标渲染）。
 - ⚠️ cgb_10y_future 盘中缺 band_hold 1 条 = 技术限制（主连合约实时源不支持），盘后 17:50 全量补，非 bug。
 - 📅 落档后 commit + push feat（盘中合规，仅改 NOTES.md，未跑全量 export/deploy）。
+
+### 小节AZ53：2026-07-28 今日改动汇总（7项，AZ52之外的其他改动）
+
+**背景**：今日 2026-07-28 完成多个改动，AZ52 已落档反哺 5 指数验证（commit 4d711d06），本节汇总今日其余 7 项改动，避免待办/改动没落档丢失（教训：之前 15m->10m 待办没落档，用户质疑时 grep 不到）。
+
+**一、盈亏颜色改 A 股红涨绿跌**（commit 0de7f52c，sw a35）
+
+- 文件：`static-site/app.js` `openSignalChartModal` 盈亏行颜色
+- 改动：颜色判定从 `since_correct`（对错）改为 `since_return`（正负）：`>0` 红 `#dc2626` / `<0` 绿 `#16a34a` / `==0` 灰 `#6b7280`；文案保持 `since_correct`（成功/失败/中性）
+- 根因：a34 用国际惯例（成功绿/失败红），但买信号"对"（涨了盈利）应显示红却显示绿，颜色反了。A 股语义红涨绿跌，盈利=红才对
+
+**二、邮件 band_hold 补充完整展示**（commit 16e61a7b，撤销 0c1a220c 过滤）
+
+- 文件：`check_signals.py`
+- 改动：`SIGNAL_ORDER` 加 `band_hold` 第 7 类；邮件表格加"波段持有"行；统计/主题/正文含 band_hold；fade-detect 保留用全量 signals
+- 方案：用户定方案 B 补充完整（非过滤），撤销之前 0c1a220c 的过滤方案
+- 根因：7-28 盘中 2 个 cgb 国债 band_hold 致"共 2 信号 / 详情全 0 没列表"矛盾邮件（统计算了 band_hold 但详情表格过滤掉）
+
+**三、intraday 9:25 首触发**（commit cc991142）
+
+- 文件：`intraday_snapshot.py` + launchd plist
+- 改动：`is_market_closed` 加 9:25 竞价完成态（`is_closed=False`，label"竞价完成·待开盘（9:30 开盘）"）；plist 加 9:25 首触发
+- 生效：明天 7-29 生效，比 9:35 早 10 分钟
+- 依据：腾讯 `qt.gtimg.cn` 9:25 竞价完成返回开盘价
+
+**四、信号弹窗默认 3 个月**（commit ac368989，sw a36）
+
+- 文件：`static-site/app.js` `openSignalChartModal`
+- 改动：默认 period `1y` -> `3m`（L3101 active 移 3m + L3163 `period="3m"`）
+- 根因：7-19 commit 7cd7eee6 只改 KPI 弹窗 `openKpiDetailModal` 没改信号弹窗 `openSignalChartModal`（commit message 明示"信号弹窗保持 1y 不变"），用户以为"弹窗默认 3 个月"覆盖信号弹窗，实际没有
+
+**五、intraday 15m -> 10m 频率**（plist 本地改 + reload，非 git tracked）
+
+- 文件：launchd plist（本地改，非 git tracked）
+- 改动：plist 26 条 10m 序列：
+  - 上午 9:25/9:35/9:45/9:55/10:05/10:15/10:25/10:35/10:45/10:55/11:05/11:15/11:25
+  - 下午 13:05/13:15/13:25/13:35/13:45/13:55/14:05/14:15/14:25/14:35/14:45/14:55/15:05
+  - 避开 :00/:30 整点；9:25 首触发 + 15:05 收盘 P0 保留（14:55 盘中仍开拿不到最终收盘值）
+- 验证：10:05/10:15 验证 exit=0 dur=90s
+- 备份：`/tmp/intraday-snapshot.plist.bak.15m`
+- 效果：盘中每 10 分钟更新，比 15m 早 5 分钟
+
+**六、走势图今日 pin 盘中同步 方案 0+B+A**（commit 37399375，sw a37）
+
+- 调研发现：affected17 指数（sh/sz/hs300/sz50/csi500/csi1000/cyb/kc50/bj50/hsi/hstech/hscei/cgb_idx/cgb_10y_etf/hk_hsmbi/hk_hsmogi/hk_cshkdiv）盘中已 T 日（`intraday_snapshot.py` `_export_affected_json` L1040 盘中每 15min 增量重导到 ssd.fx8.store R2，线上 sh-all.json/cgb_idx-all.json 末日=20260728 验证）。"待 17:50 同步"是 `_lagHint` 对今日无信号指数的误报
+- 方案 0（前端文案）：`app.js` `_lagHint` 加 `_hasTodaySigB2` 条件（今日有信号才提示）+ `_sigsSR` 提前 + 文案改"盘中实时预估中，收盘后(17:50)同步最终 pin"
+- 方案 B（后端动态合并）：`intraday_snapshot.py` L1082 affected 动态合并（17 基础 + 今日有信号的非基础指数查 signal_daily DISTINCT index_id），让 sw_/thsc_ 出信号当日 per-index -all.json 也盘中到 T 日
+- 方案 A（前端兜底预估点）：`app.js` `_appendIntradayEstimate` 补 T 日预估点（兜底，从 intraday_snapshot 实时价，灰色"estimate"标签视觉区分）
+- 17:50 根因：launchd `com.trade.update-all` StartCalendarInterval `Hour=17 Minute=50`（全量 export.py 生成所有 44 个 -all.json）+ §8 盘中禁全量 export+deploy。但 intraday_snapshot 已增量重导 affected17，17:50 对这 17 个已不成立
+
+**七、AZ49 反哺 5 指数验证**（commit 4d711d06，详见 AZ52 章节）
+
+- 盘中验证 commit 11b12c3f 反哺扩展 5 指数（cgb_idx/hk_cshkdiv/hk_hsmbi/hk_hsmogi/cgb_10y_etf）生效
+- signals_today=141 条（buy_special=12 / sell=8 盘中可见），5 反哺指数全部命中
+- 详细验证见 AZ52 章节（commit 4d711d06 即 AZ52 落档 commit）
+
+**今日 commit 链汇总**：
+- 0de7f52c 盈亏颜色 A 股红涨绿跌（sw a35）
+- 16e61a7b 邮件 band_hold 补充完整展示（方案 B）
+- cc991142 intraday 9:25 首触发
+- ac368989 信号弹窗默认 3 个月（sw a36）
+- 37399375 走势图今日 pin 盘中同步 方案 0+B+A（sw a37）
+- 4d711d06 AZ52 反哺 5 指数验证落档
+- intraday 15m->10m（plist 本地改，非 git tracked）
+
+**落档后**：commit + push feat（盘中合规，仅改 NOTES.md，未跑全量 export/deploy，未 add 根目录 data/ 下文件）。
