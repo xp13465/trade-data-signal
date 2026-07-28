@@ -362,6 +362,7 @@ def build():
         else:
             pairs, pending_start = parse_standard(log_path, t["script"])
         last_run, code, last_dur = None, None, None
+        pending_crash_retry = False  # P1(2026-07-29): pending_start + last_exit!=0 (crash重试中)
         if pairs:
             s, e, code, dur = pairs[-1]
             last_run = s.strftime("%Y-%m-%d %H:%M")
@@ -376,26 +377,34 @@ def build():
             if last_run is None or pending_start > pairs[-1][0]:
                 last_run = pending_start.strftime("%Y-%m-%d %H:%M")
                 age = (datetime.now() - pending_start).total_seconds()
-                # 2026-07-25: etf_nt 模式不启发式标 143(假 SIGTERM 告警代价大)。
+                # P1 稳定性(2026-07-29): 所有模式(含 etf_nt)pending_start 都读 launchctl_last_exit
+                # 真实退出码,不读 None(7-24 ETF SIGTRAP 退出码133被 None 掩盖 crash)。
+                # etf_nt 仍不回退启发式 143(假 SIGTERM 告警代价大),launchctl 读不到才 None;
+                # standard 模式 launchctl 读不到回退原启发式(143 if age>3h else None)。
                 # backfill.sh 保证写最终 DONE 行(带真实 exit),无 DONE = 极端(SIGKILL 整个脚本),
-                # code=None 不假告警,真问题靠漏跑检查/耗时检查/launchd err log。
-                # standard 模式保留 143(检测 launchd ExitTimeOut 超时被杀)。
-                # P0 稳定性(2026-07-20): standard 模式优先调 launchctl_last_exit 读真实退出码,
-                # 消除启发式 143 漏报(exit=1 被漏报为 None)和误报(exit=0 被误报为 143)。
-                # launchctl 读不到(label 不存在/launchd 异常/任务从没跑过显 none)才回退
-                # 原启发式(143 if age>3h else None)。
-                if t["mode"] == "etf_nt":
-                    code = None
+                # 真问题靠漏跑检查/耗时检查/launchd err log + launchctl 真实码。
+                real_exit = launchctl_last_exit(LABEL_MAP.get(t["task"]))
+                if real_exit is not None:
+                    code = real_exit  # 0=成功, 143=SIGTERM超时, 133=SIGTRAP, 1=脚本异常
+                elif t["mode"] == "etf_nt":
+                    code = None  # etf_nt 不启发式标 143(launchctl 读不到才 None)
                 else:
-                    real_exit = launchctl_last_exit(LABEL_MAP.get(t["task"]))
-                    if real_exit is not None:
-                        code = real_exit  # 0=成功, 143=SIGTERM超时, 1=脚本异常(真实码不启发式)
-                    else:
-                        code = 143 if age > MAX_GAP_SEC else None  # 回退启发式
+                    code = 143 if age > MAX_GAP_SEC else None  # standard 回退启发式
                 last_dur = None
+                # P1(2026-07-29): pending_start(当前在跑) + last_exit!=0(上次crash) = 重试中,
+                # 标记 pending_crash_retry 供后续 log_anomaly 标注
+                if code is not None and code != 0:
+                    pending_crash_retry = True
         # 第4盲区修复: 扫最近一次运行窗口的 log 找异常关键词,
         # 即使 exit=0(异常被 try/except 吞)也能抓到告警
         anomaly = scan_log_anomaly(log_path, t["script"], t["mode"])
+        # P1 稳定性(2026-07-29): pending_start + last_exit!=0 = 上次crash现在重试中,
+        # log_anomaly 标注 "pending但上次exit非0"(不覆盖 log 关键词扫描已发现的 anomaly)
+        if not anomaly and pending_crash_retry:
+            anomaly = {
+                "keyword": "pending但上次exit非0",
+                "line": f"pending_start={pending_start.strftime('%Y-%m-%d %H:%M')} last_exit={code}",
+            }
         result.append({
             "task": t["task"], "name": t["name"], "schedule": t["schedule"],
             "est_text": est_text(pairs), "last_run": last_run,
