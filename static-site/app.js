@@ -3245,7 +3245,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       _lagHint.innerHTML = "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，T日(" + fmtDate(_todayDateB2) + ")的pin标注待收盘后(17:50)同步";
       body.appendChild(_lagHint);
     }
-    // 信号至今盈亏行（方案B后端算）：成功/失败 · 至今盈亏 ±X%（since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）
+    // 信号至今盈亏行（方案B后端算）：文案=成功/失败·至今盈亏 ±X%（since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；颜色=A股红涨绿跌按since_return正负（>0红/<0绿/==0灰）
     const _ovSR = _getCachedOverview();
     const _sigsSR = _ovSR && _ovSR.signals_today ? _ovSR.signals_today : [];
     const _matchSR = _sigsSR.find((it) => it.index_id === indexId && it.signal === signal && it.date === date);
@@ -3256,9 +3256,13 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       const _correct = _matchSR.since_correct;
       const _retStr = (_ret > 0 ? "+" : "") + _ret.toFixed(2) + "%";
       let _txt, _color;
-      if (_correct === true) { _txt = `成功 · 至今盈亏 ${_retStr}`; _color = "#67c23a"; }
-      else if (_correct === false) { _txt = `失败 · 至今盈亏 ${_retStr}`; _color = "#f56c6c"; }
-      else { _txt = `至今盈亏 ${_retStr}`; _color = "#909399"; }
+      // 文案按 since_correct 对错（成功/失败/中性）；颜色按 since_return 盈亏正负（A股红涨绿跌：>0红/<0绿/==0灰）
+      if (_correct === true) { _txt = `成功 · 至今盈亏 ${_retStr}`; }
+      else if (_correct === false) { _txt = `失败 · 至今盈亏 ${_retStr}`; }
+      else { _txt = `至今盈亏 ${_retStr}`; }
+      if (_ret > 0) { _color = "#dc2626"; }
+      else if (_ret < 0) { _color = "#16a34a"; }
+      else { _color = "#6b7280"; }
       _srLine.style.color = _color;
       _srLine.style.background = `${_color}1a`;
       _srLine.style.border = `1px solid ${_color}55`;
