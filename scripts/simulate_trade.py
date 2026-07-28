@@ -1288,51 +1288,14 @@ def _scenario_panel(data, index_name="上证指数"):
     return cards + equity_svg + ledger_html + open_html + table
 
 
-def build_html(groups, index_id="sh", index_name="上证指数", signal_first_date=None, signal_last_date=None):
-    """构建两级 Tab 页面。"""
+def build_html(groups, index_id="sh", index_name="上证指数", signal_first_date=None, signal_last_date=None, windows_stats=None, windows_meta=None):
+    """构建两级 Tab 页面。
+
+    windows_stats/windows_meta（可选）：来自 _generate_json 产物的 stats JSON，用于渲染5窗口防退化对比表。
+    不提供时退化为单窗口对比表（用 groups 的 'all' summary）。
+    """
     path_labels = list(groups.keys())
     sig_labels = list(next(iter(groups.values())).keys())
-
-    # --- 九场景全局对比表 ---
-    comparison_rows = []
-    for path_label in path_labels:
-        for sig_label in sig_labels:
-            s = groups[path_label][sig_label]["summary"]
-            comparison_rows.append({
-                "path": path_label,
-                "sig": sig_label,
-                "final_total": s["final_total"],
-                "total_return_pct": s["total_return_pct"],
-                "annualized": s["annualized"],
-                "sharpe": s.get("sharpe", 0),
-                "max_drawdown": s.get("max_drawdown", 0),
-                "median_drawdown": s.get("median_drawdown", 0),
-                "trimmed_mean_drawdown": s.get("trimmed_mean_drawdown", 0),
-                "win_rate": s["win_rate"],
-                "total_ops": s["total_ops"],
-            })
-
-    # 计算每列最优值
-    best_final = max(r["final_total"] for r in comparison_rows)
-    best_return = max(r["total_return_pct"] for r in comparison_rows)
-    best_annual = max(r["annualized"] for r in comparison_rows)
-    best_sharpe = max(r["sharpe"] for r in comparison_rows)
-    best_dd = min(r["max_drawdown"] for r in comparison_rows)
-    best_median_dd = min(r["median_drawdown"] for r in comparison_rows)
-    best_trimmed_dd = min(r["trimmed_mean_drawdown"] for r in comparison_rows)
-    best_win = max(r["win_rate"] for r in comparison_rows)
-    best_ops = max(r["total_ops"] for r in comparison_rows)
-
-    # 计算每列最差值（回撤类 worst=max，其余 worst=min；与 best 语义对称）
-    worst_final = min(r["final_total"] for r in comparison_rows)
-    worst_return = min(r["total_return_pct"] for r in comparison_rows)
-    worst_annual = min(r["annualized"] for r in comparison_rows)
-    worst_sharpe = min(r["sharpe"] for r in comparison_rows)
-    worst_dd = max(r["max_drawdown"] for r in comparison_rows)
-    worst_median_dd = max(r["median_drawdown"] for r in comparison_rows)
-    worst_trimmed_dd = max(r["trimmed_mean_drawdown"] for r in comparison_rows)
-    worst_win = min(r["win_rate"] for r in comparison_rows)
-    worst_ops = min(r["total_ops"] for r in comparison_rows)
 
     def cmp_cell(val, best, worst, fmt=".2f", is_pct=False, suffix="", signed=False):
         """渲染策略对比单元格。
@@ -1358,40 +1321,91 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
             return f'<span{style_attr}>{val:+.2f}%</span>'
         return f'<span{style_attr}>{val:{fmt}}{suffix}</span>'
 
-    cmp_table_rows = ""
-    for r in comparison_rows:
-        cmp_table_rows += f"""
+    # 单窗口对比表渲染（供5窗口 tab 复用；wstats = {path: {sig: {summary}}} 或 {path: {sig: result}}）
+    def _render_window_table(wstats):
+        wrows = []
+        for plabel in path_labels:
+            for slabel in sig_labels:
+                item = wstats.get(plabel, {}).get(slabel, {})
+                s = item.get('summary') if isinstance(item, dict) else None
+                if not s:
+                    continue
+                wrows.append({
+                    "path": plabel, "sig": slabel,
+                    "final_total": s["final_total"],
+                    "total_return_pct": s["total_return_pct"],
+                    "annualized": s["annualized"],
+                    "sharpe": s.get("sharpe", 0),
+                    "max_drawdown": s.get("max_drawdown", 0),
+                    "median_drawdown": s.get("median_drawdown", 0),
+                    "trimmed_mean_drawdown": s.get("trimmed_mean_drawdown", 0),
+                    "win_rate": s["win_rate"],
+                    "total_ops": s["total_ops"],
+                })
+        if not wrows:
+            return ""
+        b_final = max(r["final_total"] for r in wrows); b_return = max(r["total_return_pct"] for r in wrows)
+        b_annual = max(r["annualized"] for r in wrows); b_sharpe = max(r["sharpe"] for r in wrows)
+        b_dd = min(r["max_drawdown"] for r in wrows); b_mdd = min(r["median_drawdown"] for r in wrows)
+        b_tdd = min(r["trimmed_mean_drawdown"] for r in wrows); b_win = max(r["win_rate"] for r in wrows)
+        b_ops = max(r["total_ops"] for r in wrows)
+        w_final = min(r["final_total"] for r in wrows); w_return = min(r["total_return_pct"] for r in wrows)
+        w_annual = min(r["annualized"] for r in wrows); w_sharpe = min(r["sharpe"] for r in wrows)
+        w_dd = max(r["max_drawdown"] for r in wrows); w_mdd = max(r["median_drawdown"] for r in wrows)
+        w_tdd = max(r["trimmed_mean_drawdown"] for r in wrows); w_win = min(r["win_rate"] for r in wrows)
+        w_ops = min(r["total_ops"] for r in wrows)
+        rows_html = ""
+        for r in wrows:
+            rows_html += f"""
         <tr>
           <td>{r['path']}</td>
           <td>{r['sig']}</td>
-          <td>{cmp_cell(r['final_total'], best_final, worst_final, ',.0f', suffix=' 元')}</td>
-          <td>{cmp_cell(r['total_return_pct'], best_return, worst_return, '.2f', is_pct=True, signed=True)}</td>
-          <td>{cmp_cell(r['annualized'], best_annual, worst_annual, '.1f', is_pct=True, signed=True)}</td>
-          <td>{cmp_cell(r['sharpe'], best_sharpe, worst_sharpe, '.2f')}{(' ⚠' if r['sharpe'] > 3 else '')}</td>
-          <td>{cmp_cell(r['max_drawdown'], best_dd, worst_dd, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['median_drawdown'], best_median_dd, worst_median_dd, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['trimmed_mean_drawdown'], best_trimmed_dd, worst_trimmed_dd, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['win_rate'], best_win, worst_win, '.1f', is_pct=True)}</td>
-          <td>{cmp_cell(r['total_ops'], best_ops, worst_ops, '.0f', suffix=' 次')}</td>
+          <td>{cmp_cell(r['final_total'], b_final, w_final, ',.0f', suffix=' 元')}</td>
+          <td>{cmp_cell(r['total_return_pct'], b_return, w_return, '.2f', is_pct=True, signed=True)}</td>
+          <td>{cmp_cell(r['annualized'], b_annual, w_annual, '.1f', is_pct=True, signed=True)}</td>
+          <td>{cmp_cell(r['sharpe'], b_sharpe, w_sharpe, '.2f')}{(' ⚠' if r['sharpe'] > 3 else '')}</td>
+          <td>{cmp_cell(r['max_drawdown'], b_dd, w_dd, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['median_drawdown'], b_mdd, w_mdd, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['trimmed_mean_drawdown'], b_tdd, w_tdd, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['win_rate'], b_win, w_win, '.1f', is_pct=True)}</td>
+          <td>{cmp_cell(r['total_ops'], b_ops, w_ops, '.0f', suffix=' 次')}</td>
         </tr>"""
-
-    comparison_table = f"""
+        return f"""
     <div class="sim-cmp-table">
       <table>
         <thead><tr>
           <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化</th><th title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>
         </tr></thead>
-        <tbody>{cmp_table_rows}</tbody>
+        <tbody>{rows_html}</tbody>
       </table>
     </div>"""
 
-    # --- 回测区间 ---
+    # 5窗口 tab 对比表（windows_stats 来自 stats JSON，与 modal 同源）；无则单窗口兜底（用 groups）
+    if windows_stats and windows_meta:
+        win_tabs_html = ""
+        win_panels_html = ""
+        for wi, wm in enumerate(windows_meta):
+            wk = wm['k']; wl = wm['l']
+            active = "active" if wi == 0 else ""
+            win_tabs_html += f'<button class="sim-win-tab {active}" data-win="{wi}">{wl}</button>\n'
+            tbl = _render_window_table(windows_stats.get(wk, {}))
+            win_panels_html += f'<div class="sim-win-panel {active}" data-win="{wi}">{tbl}</div>'
+        comparison_table = f"""
+    <div class="sim-win-tabs">{win_tabs_html}</div>
+    <div class="sim-win-cmp">{win_panels_html}</div>"""
+    else:
+        comparison_table = _render_window_table(groups)
+
+    # --- 回测区间 + 5窗口元数据（内嵌防退化窗口起止日期，供 grep 验证）---
     backtest_info = ""
     if signal_first_date and signal_last_date:
         first_fmt = _fmt_date(signal_first_date)
         last_fmt = _fmt_date(signal_last_date)
         bt_years = _days_between(signal_first_date, signal_last_date) / 365.25
         backtest_info = f" · 回测区间：{first_fmt} ~ {last_fmt}（{bt_years:.1f} 年）"
+    if windows_meta:
+        win_parts = [f"{wm['l']}:{wm['s']}~{wm['e']}" for wm in windows_meta]
+        backtest_info += " · 5窗口：" + " / ".join(win_parts)
 
     main_tabs = ""
     for pi, plabel in enumerate(path_labels):
@@ -1485,6 +1499,14 @@ h1 {{ font-size: 20px; margin-bottom: 4px; }}
 .sim-sub-tab {{ padding: 6px 14px; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-2); transition: all .2s; }}
 .sim-sub-tab.active {{ background: var(--primary); color: #fff; border-color: var(--primary); }}
 .sim-sub-tab:hover:not(.active) {{ background: var(--bg-hover); }}
+
+/* 5窗口对比表 tab（防退化窗口切换） */
+.sim-win-tabs {{ display: flex; gap: 0; margin-bottom: 12px; border-bottom: 2px solid var(--border); overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+.sim-win-tab {{ padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 13px; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; white-space: nowrap; flex-shrink: 0; }}
+.sim-win-tab.active {{ color: var(--text-1); font-weight: 600; border-bottom-color: var(--primary); }}
+.sim-win-tab:hover {{ color: var(--text-1); }}
+.sim-win-panel {{ display: none; }}
+.sim-win-panel.active {{ display: block; }}
 
 .sim-scenario {{ display: none; }}
 .sim-scenario.active {{ display: block; }}
@@ -1602,6 +1624,18 @@ tr:hover td {{ background: var(--bg-hover); }}
       currentPath = parseInt(btn.dataset.path);
       currentSig = parseInt(btn.dataset.sig);
       show();
+    }};
+  }});
+
+  // 5窗口对比表 tab 切换（防退化窗口）
+  document.querySelectorAll('.sim-win-tab').forEach(btn => {{
+    btn.onclick = () => {{
+      document.querySelectorAll('.sim-win-tab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.sim-win-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      var wi = btn.dataset.win;
+      var panel = document.querySelector('.sim-win-panel[data-win="' + wi + '"]');
+      if (panel) panel.classList.add('active');
     }};
   }});
 }})();
@@ -1803,7 +1837,24 @@ def _generate_one(index_id, name_map, out_dir_static, output=None):
 
     signal_first_date = signals[0][0] if signals else None
     signal_last_date = signals[-1][0] if signals else None
-    html = build_html(groups, index_id, index_name, signal_first_date, signal_last_date)
+
+    # 读取5窗口 stats JSON（_generate_json 产物），提取 windows_meta + 5窗口 summary 供 HTML 内嵌
+    # 这样 HTML 兜底入口也能展示5窗口防退化数据（与 modal 读 JSON 同源）；JSON 不存在则退化为单窗口兜底
+    windows_stats = None
+    windows_meta = None
+    stats_json_path = os.path.join(out_dir_static, 'data', 'trade_sim', f'trade_sim_{index_id}_stats.json')
+    if os.path.exists(stats_json_path):
+        try:
+            with open(stats_json_path, 'r', encoding='utf-8') as f:
+                sj = json.load(f)
+            windows_meta = sj.get('windows')  # [{k,l,s,e}]
+            windows_stats = sj.get('data')    # {win: {path: {sig: {summary, equity_curve}}}}
+        except Exception:
+            windows_stats = None
+            windows_meta = None
+
+    html = build_html(groups, index_id, index_name, signal_first_date, signal_last_date,
+                      windows_stats=windows_stats, windows_meta=windows_meta)
 
     if output:
         outputs = [output]

@@ -24,13 +24,6 @@ from app.collector.fetchers import load_config
 
 OUT = ROOT / "data" / "board_etf_map.json"
 
-# 方案F（2026-07-28）：ETF 数据长度下限。etf_daily 有效 close 天数 < 此值的 ETF 在源头剔除，
-# 不写入 board_etf_map.json。与 simulate_trade.py _pick_first_etf 的 min_data_days 同阈值（252=1年交易日）。
-# 原因：次新 ETF（如 sh 510210 上市 2025-11-14 仅 170 天）会致 5 窗口 w_start 全早于 ETF 上市，
-# if w_start 过滤全跳过 -> 5 窗口跑同一批 signals -> 数据相同退化 bug。
-# 源头剔除后 sh 等指数的 ETF 全部 < 252 天会变空数组（正确：纯指数模拟比 8 月数据 5 窗口全废好）。
-MIN_ETF_DATA_DAYS = 252
-
 # 每个板块的匹配关键词（同义词，ETF 名称命中任一即候选；空列表 = 主动留空）
 KW: dict[str, list[str]] = {
     # ---- 申万一级行业 ----
@@ -146,32 +139,6 @@ def _get_etf_db_path() -> Path:
         return main
     return base / "data" / "etf_national_team.db"
 
-
-def _count_etf_days_multi(etf_codes: list[str]) -> dict[str, int]:
-    """批量查 etf_daily 中各 ETF 的有效 close 天数（close IS NOT NULL）。
-
-    供方案F源头过滤次新 ETF 用（MIN_ETF_DATA_DAYS=252）。读不到 DB/异常返回 {}（调用方视 days=0 剔除）。
-    与 simulate_trade.py _count_etf_days_multi 同实现（独立脚本不依赖 simulate_trade）。
-    """
-    if not etf_codes:
-        return {}
-    db_path = _get_etf_db_path()
-    if not db_path.exists():
-        print(f"⚠ etf_national_team.db 不存在: {db_path}，方案F数据长度过滤退化为不过滤")
-        return {}
-    try:
-        conn = sqlite3.connect(str(db_path), timeout=30.0)
-        placeholders = ",".join("?" * len(etf_codes))
-        rows = conn.execute(
-            f"SELECT etf_code, COUNT(*) FROM etf_daily "
-            f"WHERE etf_code IN ({placeholders}) AND close IS NOT NULL GROUP BY etf_code",
-            list(etf_codes),
-        ).fetchall()
-        conn.close()
-        return {code: cnt for code, cnt in rows}
-    except Exception as e:
-        print(f"⚠ 查 etf_daily 数据天数失败: {e}，方案F数据长度过滤退化为不过滤")
-        return {}
 
 # 指数ID -> {code: track_index_code, name_eq?: 过滤规则, cross_border?: bool} 映射
 # code: 该指数跟踪的标准指数代码（etf_index_map.json 的 track_index_code 字段）
@@ -331,46 +298,6 @@ def main():
         out[iid] = etfs
         if not etfs:
             empty_boards.append(f"{iid} {name_by_id.get(iid, iid)}（宽基/红利/综合/港股）")
-
-    # 方案F（2026-07-28）：源头过滤次新 ETF。etf_daily 有效 close 天数 < MIN_ETF_DATA_DAYS(252) 的
-    # ETF 从 board_etf_map.json 剔除。原因：次新 ETF（如 sh 510210 上市 2025-11-14 仅 170 天）会致
-    # simulate_trade 5 窗口 w_start 全早于 ETF 上市 -> if w_start 过滤全跳过 -> 5 窗口跑同一批 signals
-    # 数据相同退化。源头剔除后 simulate_trade _pick_first_etf 即使不过滤也不会拿到次新 ETF（双保险）。
-    # sh 等指数的 ETF 全 < 252 天会变空数组（正确：纯指数模拟比 8 月数据 5 窗口全废好）。
-    all_codes = []
-    for iid, etfs in out.items():
-        if iid == "_meta":
-            continue
-        for e in etfs:
-            if e.get("code"):
-                all_codes.append(e["code"])
-    if all_codes:
-        days_map = _count_etf_days_multi(all_codes)
-        filter_log = []
-        for iid, etfs in out.items():
-            if iid == "_meta":
-                continue
-            kept = []
-            for e in etfs:
-                code = e.get("code")
-                days = days_map.get(code, 0)
-                if days >= MIN_ETF_DATA_DAYS:
-                    kept.append(e)
-                else:
-                    filter_log.append(f"  [剔除] {iid} {code} {e.get('name','')} 数据仅{days}天 < {MIN_ETF_DATA_DAYS}天（方案F）")
-            out[iid] = kept
-        if filter_log:
-            print(f"\n方案F源头过滤（MIN_ETF_DATA_DAYS={MIN_ETF_DATA_DAYS}）剔除 {len(filter_log)} 只次新ETF:")
-            for line in filter_log:
-                print(line)
-        # 过滤后变空的指数（原本有候选但全不足252天）补充到 empty_boards 报告
-        for iid, etfs in out.items():
-            if iid == "_meta":
-                continue
-            if not etfs:
-                label = f"{iid} {name_by_id.get(iid, iid)}"
-                if label not in empty_boards:
-                    empty_boards.append(label)
 
     # 写盘
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
