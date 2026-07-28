@@ -3667,7 +3667,7 @@ function applyCollectTime(ct, health) {
   _collectTimeBase = { ct: ct || "", health: health || null };
   _renderCollectTime();
 }
-// 采集时间统一口径（阶段2）：盘中"HH:MM · 动态(3min)"（腾讯最近拉取时间），收盘"HH:MM · 收盘快照"。
+// 采集时间统一口径（阶段2）：盘中"HH:MM · 动态(1min)"（腾讯最近拉取时间），收盘"HH:MM · 收盘快照"。
 // 盘中优先显腾讯动态时间，无则回退 snap 采集时间；后缀让用户一眼区分动态 vs 收盘。
 function _renderCollectTime() {
   const { ct, health } = _collectTimeBase;
@@ -3679,7 +3679,7 @@ function _renderCollectTime() {
   const snap = state.intradaySnapshot;
   const intraday = snap && snap.is_closed === false;
   const timeStr = (intraday && _intradayDynamicTime) ? _intradayDynamicTime : ct;
-  const suffix = intraday ? " · 动态(3min)" : " · 收盘快照";
+  const suffix = intraday ? " · 动态(1min)" : " · 收盘快照";
   const _healthHTML = _renderCollectHealthDot(health);
   document.querySelectorAll(".pc-collect-time").forEach((el) => {
     el.innerHTML = `数据采集时间：${timeStr}${suffix}${_healthHTML}${_icon}`;
@@ -4281,9 +4281,9 @@ function renderIntradayChips(snap) {
   return chipsRow + topRow + bottomRow;
 }
 
-// ============ 当日分时图（腾讯分时API直拉 + 3分钟动态刷新）============
+// ============ 当日分时图（腾讯分时API直拉 + 1分钟动态刷新）============
 // CORS 已确认：腾讯分时API access-control-allow-origin:*，前端可直拉。
-// 盘中每3分钟刷新分时走势；收盘后默认收起，点按钮按需展开。
+// 盘中每1分钟刷新分时走势；收盘后默认收起，点按钮按需展开。
 // 海外指数盘中无分时（时差），维持T+1现状不动态。
 
 // 指数ID -> 腾讯分时API code 映射（复用现有指数ID体系：sh/sz/hs300/cyb 等）
@@ -4313,8 +4313,9 @@ const _INTRADAY_INDICES = [
   { id: "hstech", name: "恒生科技" },
 ];
 
-const INTRADAY_REFRESH_MS = 3 * 60 * 1000; // 3分钟
-const INTRADAY_MAX_FAILS = 3; // 连续失败3次暂停刷新
+const INTRADAY_REFRESH_MS = 1 * 60 * 1000; // 1分钟(匹配腾讯分钟线更新节奏)
+const INTRADAY_MAX_FAILS = 6; // 连续失败6次暂停(渐进退避: 1min->2min->4min->8min上限)
+const INTRADAY_BACKOFF_CAP_MS = 8 * 60 * 1000; // 退避上限8min
 
 // 分时fetch in-flight去重（同URL并发只发一次，复用Promise）
 const _inflightMinute = new Map();
@@ -4326,7 +4327,7 @@ let _intradayRenderCtx = null; // { sparkGrid, snap }
 let _intradayVisBound = false;
 
 // ============ 盘中动态值统一（阶段2）：腾讯分时数据驱动卡片badge/横幅chips/采集时间 ============
-// 盘中所有"实时数值类"展示（分时图/卡片涨跌幅badge/横幅chips）同源，均由腾讯分时数据驱动（3分钟）。
+// 盘中所有"实时数值类"展示（分时图/卡片涨跌幅badge/横幅chips）同源，均由腾讯分时数据驱动（1分钟）。
 // snap（30分钟）退居后端职责：反哺日K+重算情绪分+收盘归档，不再驱动前端盘中数值展示。
 // _intradayDynamicPct: {sh:{pct,price}, sz:{...}} 腾讯最近一次成功拉取的动态值
 // _intradayDynamicTime: "HH:MM" 腾讯最近成功拉取时间（取上证最新分时点时间，无则空）
@@ -4628,7 +4629,7 @@ function renderIntradaySection(sparkGrid, snap) {
   // 全局切换按钮（控制所有 .spark-intraday 显隐）
   const toggle = document.createElement("button");
   toggle.className = "intraday-toggle" + (expanded ? " expanded" : "");
-  const pulseHtml = isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>3min</span>';
+  const pulseHtml = isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
   toggle.innerHTML = (expanded ? "📊 收起分时图" : "📊 显示分时图") + pulseHtml;
   sparkGrid.parentElement.insertBefore(toggle, sparkGrid);
 
@@ -4636,7 +4637,7 @@ function renderIntradaySection(sparkGrid, snap) {
     const nowExpanded = !toggle.classList.contains("expanded");
     toggle.classList.toggle("expanded", nowExpanded);
     toggle.innerHTML = (nowExpanded ? "📊 收起分时图" : "📊 显示分时图") +
-      (isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>3min</span>');
+      (isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>1min</span>');
     sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]").forEach((el) => {
       el.classList.toggle("collapsed", !nowExpanded);
       // 展开时若容器为空才渲染（避免重复渲染）
@@ -4659,7 +4660,7 @@ function renderIntradaySection(sparkGrid, snap) {
     _renderIntradayInSparkCells(sparkGrid, snap);
   }
 
-  // 盘中启动3分钟动态刷新（无论展开与否，badge/chips 都需刷新）
+  // 盘中启动1分钟动态刷新（无论展开与否，badge/chips 都需刷新）
   if (!isClosed) {
     _intradayRenderCtx = { sparkGrid, snap };
     _startIntradayRefresh();
@@ -4673,7 +4674,7 @@ function renderIntradaySection(sparkGrid, snap) {
   sparkGrid.parentElement.insertBefore(notice, sparkGrid.nextSibling);
 }
 
-// 启动3分钟动态刷新（setTimeout递归，避免tab隐藏时堆积）
+// 启动1分钟动态刷新（setTimeout递归，避免tab隐藏时堆积）
 function _startIntradayRefresh() {
   _stopIntradayRefresh();
   _intradayActive = true;
@@ -4695,16 +4696,19 @@ function _stopIntradayRefresh() {
 }
 
 // 调度下次刷新（不可见时跳过但重新调度，不堆积）
+// 渐进退避: 失败时间隔翻倍(1min->2min->4min->8min上限), 成功重置为1min
 function _scheduleNextRefresh() {
   if (!_intradayActive) return;
   if (_intradayFailCount >= INTRADAY_MAX_FAILS) return;
   if (_intradayRefreshTimer) clearTimeout(_intradayRefreshTimer);
+  // 退避: failCount=0正常1min, 1->2min, 2->4min, 3+->8min上限
+  const _delay = Math.min(INTRADAY_REFRESH_MS * Math.pow(2, _intradayFailCount), INTRADAY_BACKOFF_CAP_MS);
   _intradayRefreshTimer = setTimeout(() => {
     _intradayRefreshTimer = null;
     if (!_intradayActive) return;
     if (document.hidden) { _scheduleNextRefresh(); return; } // 页面不可见时跳过
     _doIntradayRefresh();
-  }, INTRADAY_REFRESH_MS);
+  }, _delay);
 }
 
 // 执行一轮刷新：并行refetch所有图表，跟踪成功/失败
@@ -4751,18 +4755,14 @@ async function _doIntradayRefresh() {
   _scheduleNextRefresh();
 }
 
-// visibilitychange：切回tab且距上次>3分钟时立即刷新
+// visibilitychange：切回tab立即刷新（方案B: 用户切回说明在看，不论距上次多久）
 function _onIntradayVisChange() {
   if (document.hidden || !_intradayActive) return;
-  if (Date.now() - _intradayLastFetch >= INTRADAY_REFRESH_MS) {
-    _doIntradayRefresh();
-  } else if (!_intradayRefreshTimer) {
-    _scheduleNextRefresh();
-  }
+  _doIntradayRefresh();
 }
 
 // ============ 盘中 overview 自适应轮询(预测后端推完时刻 + 3min兜底) ============
-// 独立于3min分时轮询(_startIntradayRefresh): 分时轮询拉腾讯API更新badge/chips/分时图,
+// 独立于1min分时轮询(_startIntradayRefresh): 分时轮询拉腾讯API更新badge/chips/分时图,
 // overview轮询拉overview.json更新顶部采集时间badge(_renderCollectTime)+_overviewCache.
 // 盘中(is_closed===false)才启动, 收盘自停. visibilitychange切回tab高频窗口内或距上次>3min立即刷新.
 // cache-busting: fetchJSON对时效敏感URL(overview匹配_NO_CACHE_URLS)已加?_=Date.now()+cache:no-store,
@@ -5306,7 +5306,7 @@ async function renderOverview() {
         const titleText = `📊 ${datePrefix} ${_lunch ? "午休" : "盘中动态"} A股`.replace(/\s+/g, " ").trim();
         const snapBadge = `<span class="summary-snap-tag" style="color:#e6a23c">⏰ ${_lunch ? "午休小结" : "盘中动态小结"}</span>`;
         const _tLabel = _lunch ? "13:00复牌" : `更新于 ${_intradayDynamicTime || hhmm}`;
-        const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>3min</span>';
+        const _pulse = '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
         banner.innerHTML = `<div class="summary-top"><span class="summary-title"><span class="summary-title-text">${titleText}</span></span><span class="summary-meta">${snapBadge}<span class="summary-time-label" id="banner-time-label">${_tLabel}</span>${_pulse}<button class="summary-history-btn" title="查看历史收盘分析">📜 更多</button></span></div><div id="banner-chips-host">${renderIntradayChips(snap)}</div>`;
         _bannerRenderCtx = { el: banner, s: null, snap, type: "intraday" };
       } else {
@@ -5329,7 +5329,7 @@ async function renderOverview() {
         else if (_lunch2) _tLabel2 = "13:00复牌";
         else if (_intraday2) _tLabel2 = `更新于 ${_tTime2}`;
         else _tLabel2 = (s.generated_at || "").replace(/^\d+月\d+日\s*/, "").trim();
-        const _pulse2 = _intraday2 ? '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>3min</span>' : "";
+        const _pulse2 = _intraday2 ? '<span class="dyn-pulse" id="banner-pulse"><span class="dyn-pulse-dot"></span>1min</span>' : "";
         const freezeBadge = s.is_freeze ? `<span class="summary-freeze">❄️ 冰点</span>` : "";
         const fgBadge = s.fear_greed_label ? `<span class="summary-fg-tag">😐 ${s.fear_greed_label} ${s.fear_greed_value?.toFixed(0) || ""}</span>` : "";
         const genAt = s.generated_at || "";
@@ -5724,7 +5724,7 @@ async function renderOverview() {
   }
   _dynamicBadgeIds = _sparkDynIds;
 
-  // ---- 1b. 当日分时图（嵌入 spark-cell，腾讯分时API直拉，盘中3分钟动态刷新）----
+  // ---- 1b. 当日分时图（嵌入 spark-cell，腾讯分时API直拉，盘中1分钟动态刷新）----
   renderIntradaySection(grid, snap);
   // 盘中：立即拉取腾讯动态值刷新卡片badge/横幅chips/采集时间
   // （与分时图共用 fetchTencentMinute in-flight 去重，11 指数只发一次请求不重复）
@@ -11628,7 +11628,7 @@ function updateRulesContentHtml() {
     '<div class="rule-section">' +
       '<h4>⏱️ 各数据时效</h4>' +
       '<ul class="ur-list">' +
-        '<li>📈 <b>A股指数涨跌幅/热点板块/一句话总结</b>：盘中前端动态拉取腾讯分时数据（约3分钟刷新）；30分钟服务器快照仅用于收盘归档与情绪分计算</li>' +
+        '<li>📈 <b>A股指数涨跌幅/热点板块/一句话总结</b>：盘中前端动态拉取腾讯分时数据（约1分钟刷新）；30分钟服务器快照仅用于收盘归档与情绪分计算</li>' +
         '<li>🇭🇰 <b>港股指数（恒生/恒生科技/国企）</b>：盘中实时快照（9:30-16:00），16:35 补完整收盘 OHLC</li>' +
         '<li>🇭🇰 <b>港股板块指数</b>：腾讯备源兜底（cesg10/hsmogi/hsmbi/hsmpi/hscci 5个有腾讯兜底）；cshklre/cshklc/cshkdiv 3个仅新浪无备源</li>' +
         '<li>🇺🇸 <b>美股指数</b>：北京时差晚 21:30 开盘，A 股交易日看美股最新是 T-1 或 T-2（跨周末），属正常</li>' +
@@ -11642,7 +11642,7 @@ function updateRulesContentHtml() {
       '<h4>🏷️ 卡片角标时效分级</h4>' +
       '<ul class="ur-list">' +
         '<li>📅 <b>T+1·MM-DD（灰）</b>：正常。数据源盘后T+1公布，公开平台（行情软件）也才到这个日期，下一交易日才更新（逢周末/节假日顺延）</li>' +
-        '<li>⏰ <b>盘中·HH:MM（绿）/ 午休（黄）</b>：实时。A股/港股指数盘中动态拉取，约3分钟刷新</li>' +
+        '<li>⏰ <b>盘中·HH:MM（绿）/ 午休（黄）</b>：实时。A股/港股指数盘中动态拉取，约1分钟刷新</li>' +
         '<li>📍 <b>收盘·MM-DD（主题色）</b>：收盘后归档，数据正常时显示；若滞后则切换为⚠/🚨</li>' +
         '<li>⚠ <b>滞后·MM-DD（黄）</b>：异常。该数据应T+1更新但已滞后（hover 可见天数），公开平台已有更新但我们没采到</li>' +
         '<li>🚨 <b>异常·MM-DD（红）</b>：严重滞后（>15天），请反馈</li>' +
@@ -11652,7 +11652,7 @@ function updateRulesContentHtml() {
     '<div class="rule-section">' +
       '<h4>🔄 盘中动态值说明</h4>' +
       '<ul class="ur-list">' +
-        '<li>盘中：卡片涨跌幅、横幅指标 chips、分时图均为前端动态拉取腾讯分时数据，约3分钟刷新，三处数值同源一致</li>' +
+        '<li>盘中：卡片涨跌幅、横幅指标 chips、分时图均为前端动态拉取腾讯分时数据，约1分钟刷新，三处数值同源一致</li>' +
         '<li>30分钟服务器快照仅用于收盘归档与情绪分计算，不直接展示盘中数值</li>' +
         '<li>收盘后：切换为服务器收盘快照，停止动态更新</li>' +
       '</ul>' +
