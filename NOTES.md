@@ -4251,3 +4251,61 @@ DB 查询今日（20260728）signal_daily：
 - derived 重算遗漏：intraday_snapshot 采了源数据(zhaban)没重算派生指标(fengban=1-zhaban) -> 采完源数据应调 derived 重算所有派生指标
 - T+1 标注掩盖 bug：dc551dbd 误标 fengban T+1 而非根治 derived 重算 -> 发现"derived 指标滞后"应查是否漏调重算，非简单标 T+1
 - 分时图数据流：前端直拉腾讯分钟线 API（非后端 JSON），瓶颈在前端刷新频率(3min) 非后端 intraday_snapshot(10min，已退居后端职责)
+
+---
+
+### 小节AZ56：2026-07-28 回测精准模拟+滞后提示修复+ETF同类去重+监控3异常自愈
+
+**1. 回测精准模拟（commit 05490a0f + 71d3adcd）**
+- 用户需求：回测没算手续费 + 指数不可买应用最关联ETF（ETF有跟踪误差）
+- 实施：`simulate_trade.py` 加手续费万3/千1双边+最低5元+沪市过户费万0.1
+  - 常量：`COMMISSION_RATE=0.0003` / `SLIPPAGE=0.001` / `MIN_COMMISSION=5.0` / `TRANSFER_FEE_RATE_SH=0.00001`
+- ETF替代指数含跟踪误差：`data/index_etf_map.json` 11品种映射
+  - 宽基7：sh->510050 / hs300->510300 / sz50->510050 / csi500->510500 / csi1000->512100 / cyb->159915 / kc50->588000
+  - 港股3：hsi->513600 / hstech->513130 / hscei->513900
+  - 中概1：g.cn_us互联网->513050
+  - 信号在指数生成，成交在ETF
+- 纯指数也加费统一横向对比（避免ETF替代后回测变差误归因跟踪误差）
+- 港股ETF补采入etf_daily：513600恒生2793行/513130恒生科技1250行/513900恒生国企1972行/513050中概互联2299行（全到20260727）
+- 前端chip显示"ETF 510300 · 含费万3"或"指数模拟 · 含费万3"（app.js L781）
+- 修复2 bug：
+  - ①`simulate_trade.py` L52 `__file__`未解析symlink致trade-data跑读不到index_etf_map.json，etf_code全None，改`os.path.realpath(__file__)`（71d3adcd）
+  - ②`upload_r2.py` REPO相对路径致STATIC_DIR解析错，用绝对路径`REPO=/Users/linhuichen/code/trade-data`
+- 206 JSON+206 .gz推R2生效（线上 hs300 etf_code=510300 验证✓）
+- 3 agent协作：agent1补采港股ETF / agent2代码改 / agent3重生JSON+R2
+
+**2. 滞后提示修复（commit 28cf19a6, sw a44）**
+- 用户反馈："如果不是异常 哪就不应该提示滞后 滞后给人感觉就是非计划内了"
+- 根因：弹窗 `_dataFreshness`(app.js:3975) 与卡片角标 `getCardTimeBadge`(3820) 口径不一致，T+1源过采集时刻仍显示"⚠滞后"而非"🚨异常"
+- 修复：`_dataFreshness` 加 srcKey+pastDeadline 参数对齐卡片角标三档
+  - T+1源过时刻=🚨异常 / 未到时刻=⏳T+1待更新 / T+0源=⚠滞后兜底
+  - summary severeCount/staleCount 分离
+  - t1-pending tip 改"前一交易日属正常设计(非异常)"
+- T+1源6类配置完整：`T1_COLLECT_DEADLINE`(3897-3908) + `_kpiT1`(5551) 双列表覆盖北向/沪金/国债/QVIX/龙虎榜/换手率
+
+**3. ETF评分买入机会同类去重按钮（commit f52a4a36, sw a45）**
+- 用户需求："ETF评分的买入机会里需要一个同类去重按钮。开启去重后同类买入ETF只保留最好的。同类=同行业(如建材)或同指数(如中证1000)"
+- 实施：
+  - app.js L9417 `ETF_DEDUP_KEYWORDS`优先级表（复合关键词最优先->行业/主题->宽基指数->全名成组）
+  - L9431 `_etfDedupKey`函数
+  - UI：L9814 "只看持仓"后加"同类去重"toggle（复用etf-hold-filter class），默认关，localStorage `etf_dedup`持久化
+  - 过滤：L9525 buys排序后加filter，每组保留score(=low_alert机会分)最高一只
+  - 展示：完全隐藏同类其他，区B副标题"同类去重后N只"提示
+  - 只影响buys，holdings/sellHold不受影响
+- 效果：227只->104只（减少123只31组合并），中证500 21->1/沪深300 14->1/A500 13->1等
+
+**4. 监控3异常自愈（非活跃问题）+ 4条修复建议待定**
+- ETF国家队 exit=None last=7-24：7-24 collector撞libmini_racer SIGTRAP(133)+7-25/26周末跳过致schedule_stats滞后，7-27自愈
+- 指数补采兜底 last=7-27 16:35：deploy push失败(non-ff+rebase失败)，7-28 02:00自愈
+- 期货机构持仓 last=7-26 21:00 dur=0s：周日非交易日正常跳过
+- 4条修复建议（列入TASKS待办）：
+  - ①ETF libmini_racer根治（V8 isolate非线程安全，B4已用ProcessPool进程隔离，但collector单进程仍可能撞）
+  - ②gen_schedule_stats pending_start读真实退出码（现exit=None掩盖crash）
+  - ③deploy.sh rebase失败git stash（现rebase失败abort退出，unstaged致失败）
+  - ④futures非交易日dur=0不改（正常跳过，非bug）
+
+**教训**
+- 回测真实性：手续费+滑点+过户费+ETF跟踪误差四要素缺一不可，纯指数无费对比会误归因跟踪误差为策略变差
+- symlink路径：`__file__`在symlink下不解析真实路径，trade-data cwd跑simulate_trade.py读不到trade/data/index_etf_map.json，用`os.path.realpath(__file__)`根治（同§9 cwd=trade-data规范副作用）
+- 滞后vs异常语义：T+1源过采集时刻=异常（计划内应到未到），未到时刻=正常待更新，T+0源滞后=兜底警示；弹窗与角标口径必须一致，否则同一数据源两处显示矛盾
+- ETF同类去重：227只买入77%淹没（续10 C2三分类后仍188 buy），同类去重31组合并减123只，保留每组最优score；去重关键词优先级表（复合>行业>宽基>全名）是核心设计
