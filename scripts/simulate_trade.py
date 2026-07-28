@@ -130,20 +130,43 @@ def _load_index_etf_map():
         return {}
 
 
-def _pick_first_etf(etf_map, index_id):
+def _pick_first_etf(etf_map, index_id, min_data_days=252):
     """从 board_etf_map 候选列表取首位 ETF（回测成交标的）。
 
     首位定义（2026-07-28 统一）：approx 优先 false（精准跟踪优先），同 approx 内 amount 降序。
     即排序键 (approx, -amount)，approx False(0) 排前。例：sh 只有 510050(approx=True) ->
     首位 510050（唯一候选，虽近似但无更优选择）；hs300 有 3 个均 approx=False -> 首位 510300(amount 78亿最大)。
 
+    数据长度过滤（2026-07-28 方案D）：候选 ETF 在 etf_daily 表的有效 close 天数 < min_data_days
+    则剔除。全部候选都不足 -> 返回 (None, None, False) 纯指数模拟（全史起算）。
+    例：sh 的 8 个 ETF 全部 2025-11-14 后上市，数据 < 170 天 < 252 -> 返回 None 纯指数模拟，
+    避免 5 窗口 w_start 全早于 ETF 上市致 if w_start 过滤全跳过、5 窗口跑同一批 signals 的退化 bug。
+    min_data_days=252（1 年交易日）阈值：保证 ETF 有足够数据覆盖 y1/y3 窗口且非次新 ETF，
+    与 build_board_etf_map.py 源头过滤（方案F）同阈值一致。
+
     返回 (etf_code, etf_name, approx)：
-      - 候选空或 index_id 不在 map -> (None, None, False) 纯指数模拟（无 ETF 可交易）
+      - 候选空或 index_id 不在 map 或全候选数据不足 -> (None, None, False) 纯指数模拟（无 ETF 可交易）
       - 否则首位 (code, name, approx_bool)
     """
     cands = etf_map.get(index_id) or []
     if not cands:
         return None, None, False
+    # 数据长度过滤（方案D）：剔除 etf_daily 有效 close 天数 < min_data_days 的候选
+    if min_data_days and min_data_days > 0:
+        codes = [c.get("code") for c in cands if c.get("code")]
+        days_map = _count_etf_days_multi(codes)
+        filtered = []
+        for c in cands:
+            code = c.get("code")
+            days = days_map.get(code, 0)
+            if days >= min_data_days:
+                filtered.append(c)
+            else:
+                print(f"  [ETF过滤] {index_id} {code} {c.get('name','')} 数据仅{days}天 < {min_data_days}天，剔除（方案D）")
+        cands = filtered
+        if not cands:
+            print(f"  [ETF过滤] {index_id} 全部候选数据不足{min_data_days}天，回退纯指数模拟（方案D）")
+            return None, None, False
     # 排序键 (approx, -amount)：approx False(0) < True(1)，False 排前；同 approx 内 amount 大的排前
     srt = sorted(cands, key=lambda c: (bool(c.get("approx", False)), -float(c.get("amount", 0) or 0)))
     top = srt[0]
@@ -177,6 +200,31 @@ def _load_etf_close_map(etf_code):
         ).fetchall()
         conn.close()
         return {d: c for d, c in rows}
+    except Exception:
+        return {}
+
+
+def _count_etf_days_multi(etf_codes):
+    """批量查 etf_daily 中各 ETF 的有效 close 天数（close IS NOT NULL）。
+
+    供 _pick_first_etf 方案D 过滤次新 ETF 用（min_data_days=252）。
+    返回 {etf_code: days}。读不到 DB 或异常返回 {}（调用方视 days=0 剔除）。
+    """
+    if not etf_codes:
+        return {}
+    db_path = _get_etf_db_path()
+    if not os.path.exists(db_path):
+        return {}
+    try:
+        conn = sqlite3.connect(db_path, timeout=30.0)
+        placeholders = ",".join("?" * len(etf_codes))
+        rows = conn.execute(
+            f"SELECT etf_code, COUNT(*) FROM etf_daily "
+            f"WHERE etf_code IN ({placeholders}) AND close IS NOT NULL GROUP BY etf_code",
+            list(etf_codes),
+        ).fetchall()
+        conn.close()
+        return {code: cnt for code, cnt in rows}
     except Exception:
         return {}
 
