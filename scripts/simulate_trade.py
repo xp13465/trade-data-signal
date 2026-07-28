@@ -49,7 +49,7 @@ TRANSFER_FEE_RATE_SH = 0.00001   # 沪市过户费万0.1（仅沪市 ETF 51xxxx/
 # 指数 -> ETF 代码映射（成交在 ETF，信号仍在指数生成，跟踪误差自然反映）
 # 不映射的品种（行业 sw_xxx / 概念 thsc_xxx / 国债 cgb_idx / 海外 nikkei/dax / 商品 gold/oil 等）降级纯指数+手续费
 # bj50 -> 159920 仅 167 天数据不足，不映射降级纯指数
-INDEX_ETF_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "index_etf_map.json")
+INDEX_ETF_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "data", "index_etf_map.json")
 
 # 5个回测窗口：(key, label, years_or_None) —— 照搬 lab_simulate.py:91-97
 WINDOW_DEFS = [
