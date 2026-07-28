@@ -9310,7 +9310,7 @@ const ETF_TIER_LABEL = {
 };
 // sideFilter: "all"/"buy"/"sell"/"hold" 快速过滤(默认 all, 买入区在前首屏可见)
 // sortKey/sortDir: 排序键("score"/"hands"/"amt_pct"/"high_alert")与方向("desc"/"asc"), 默认 score 降序
-const _etfScoreState = { all: [], filtered: [], page: 1, pageSellHold: 1, search: "", meta: null, holdingOnly: false, buyExpanded: false, sideFilter: "all", sortKey: "score", sortDir: "desc" };
+const _etfScoreState = { all: [], filtered: [], page: 1, pageSellHold: 1, search: "", meta: null, holdingOnly: false, buyExpanded: false, sideFilter: "all", sortKey: "score", sortDir: "desc", dedup: false };
 
 // ============ B4 持仓: localStorage 读写（纯前端本地存，不传后端） ============
 // 存储格式: localStorage["etf_holdings"] = JSON.stringify(["510300","159915",...]) 6位ETF代码数组
@@ -9411,6 +9411,32 @@ function _etfSortLabel() {
   return map[_etfScoreState.sortKey] || "评分";
 }
 
+// ============ ETF 买入机会同类去重: 同行业/同指数只保留评分最高一只 ============
+// 优先级表(从前到后匹配, 复合关键词最优先 -> 单一行业/主题 -> 宽基指数 -> 全名自身成组)
+// name.indexOf(k)>=0 即归到该关键词组; 例如"建材ETF"和"中证建材ETF"都含"建材"归同组
+const ETF_DEDUP_KEYWORDS = [
+  // 复合关键词(先匹配, 避免被单一关键词抢先)
+  "央企红利", "红利低波", "港股通汽车", "港股通红利", "港股通创新药", "港股通医药", "医疗器械",
+  // 单一行业/主题关键词
+  "人工智能", "云计算", "大数据", "物联网", "5G", "创新药", "碳中和", "电池", "储能", "机器人",
+  "智能车", "新能源车", "新能源", "光伏", "半导体", "芯片", "军工", "国防", "医药", "医疗",
+  "银行", "券商", "非银", "消费", "食品", "酒", "煤炭", "有色", "房地产", "电力", "钢铁",
+  "农业", "家电", "物流", "旅游", "通信", "化工", "基建", "传媒", "计算机", "建材", "矿业",
+  "影视", "央企", "红利", "黄金", "白银", "原油", "豆粕", "稀土", "港股通", "中概", "互联",
+  // 宽基指数关键词
+  "中证1000", "中证2000", "中证500", "中证A500", "中证A50", "中证A100",
+  "沪深300", "上证50", "上证指数", "创业板", "科创50", "A500", "A50", "A100"
+];
+// 计算 ETF 去重分组 key: 按优先级表顺序匹配 name, 命中即返回该关键词; 都不匹配返回 name 自身(独占一组)
+function _etfDedupKey(name) {
+  if (!name) return "";
+  const n = String(name);
+  for (let i = 0; i < ETF_DEDUP_KEYWORDS.length; i++) {
+    if (n.indexOf(ETF_DEDUP_KEYWORDS[i]) >= 0) return ETF_DEDUP_KEYWORDS[i];
+  }
+  return n; // 都不匹配, 用全名自身成组(不与其他合并)
+}
+
 function _applyEtfScoreFilter() {
   const s = _etfScoreState.search.trim().toLowerCase();
   let filtered = s
@@ -9495,6 +9521,16 @@ function _renderEtfScoreBody() {
   holdings = _sortEtfList(holdings);
   sellHold = _sortEtfList(sellHold, true);
   buys = _sortEtfList(buys);
+  // 同类去重: 同行业/同指数买入ETF只保留评分最高一只(buys已按score降序, filter保留每组首个即最优)
+  if (st.dedup && buys.length > 0) {
+    const seen = {};
+    buys = buys.filter((e) => {
+      const k = _etfDedupKey(e.name);
+      if (seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
+  }
 
   // 统计条
   const buyN = st.all.filter((e) => e.side === "buy").length;
@@ -9602,7 +9638,7 @@ function _renderEtfScoreBody() {
         const buyN2 = buys.length - strongBuyN;
         html += '<div class="etf-section etf-section-buy">';
         html += '<div class="etf-section-head"><span class="etf-section-icon">🔺</span> 买入机会 <span class="etf-section-count">' + buys.length + '</span>'
-          + '<span class="etf-section-sub">强买入 ' + strongBuyN + ' · 买入 ' + buyN2 + ' · 按' + _etfSortLabel() + '排序</span></div>';
+          + '<span class="etf-section-sub">强买入 ' + strongBuyN + ' · 买入 ' + buyN2 + ' · 按' + _etfSortLabel() + '排序' + (st.dedup ? ' · 同类去重后 ' + buys.length + ' 只' : '') + '</span></div>';
         if (st.buyExpanded) {
           // 展开态: 50/页分页
           const bPages = Math.max(1, Math.ceil(buys.length / ETF_SCORE_PAGE_SIZE));
@@ -9724,6 +9760,9 @@ async function renderEtfScore() {
   // 买入区展开状态从 localStorage 恢复(记忆用户偏好)
   _etfScoreState.buyExpanded = false;
   try { if (localStorage.getItem("etf_buy_expanded") === "1") _etfScoreState.buyExpanded = true; } catch (e) {}
+  // 同类去重状态从 localStorage 恢复(记忆用户偏好, 默认关闭)
+  _etfScoreState.dedup = false;
+  try { if (localStorage.getItem("etf_dedup") === "1") _etfScoreState.dedup = true; } catch (e) {}
   // side 筛选从 localStorage 恢复(记忆用户偏好, 默认 all); 排序恢复(默认 score desc)
   _etfScoreState.sideFilter = "all";
   try {
@@ -9772,6 +9811,7 @@ async function renderEtfScore() {
     + '<button type="button" class="etf-side-chip etf-chip-hold' + (sf === "hold" ? " active" : "") + '" data-side="hold">持有 ' + holdNChip + '</button>'
     + '</div>'
     + '<button id="etf-hold-filter" class="etf-hold-filter' + (_etfScoreState.holdingOnly ? ' active' : '') + '"' + (holdN === 0 ? ' disabled' : '') + '>只看持仓' + (holdN > 0 ? ' (' + holdN + ')' : '') + '</button>'
+    + '<button id="etf-dedup-filter" class="etf-hold-filter' + (_etfScoreState.dedup ? ' active' : '') + '" title="同类买入ETF（同行业/同指数）只保留评分最高的一只">同类去重</button>'
     + '<select id="etf-score-sort" class="etf-score-sort" title="排序方式" aria-label="排序方式">'
     + '<option value="score-desc"' + (sortVal === "score-desc" ? " selected" : "") + '>评分 高→低</option>'
     + '<option value="score-asc"' + (sortVal === "score-asc" ? " selected" : "") + '>评分 低→高</option>'
@@ -9826,6 +9866,15 @@ async function renderEtfScore() {
     holdFilterBtn.classList.toggle("active", _etfScoreState.holdingOnly);
     _etfScoreState.page = 1;
     _etfScoreState.pageSellHold = 1;
+    _applyEtfScoreFilter();
+  };
+  // 同类去重 切换: 同行业/同指数买入ETF只保留评分最高一只
+  const dedupBtn = bar.querySelector("#etf-dedup-filter");
+  dedupBtn.onclick = () => {
+    _etfScoreState.dedup = !_etfScoreState.dedup;
+    dedupBtn.classList.toggle("active", _etfScoreState.dedup);
+    try { localStorage.setItem("etf_dedup", _etfScoreState.dedup ? "1" : "0"); } catch (e) {}
+    _etfScoreState.page = 1;
     _applyEtfScoreFilter();
   };
   // 列表容器
