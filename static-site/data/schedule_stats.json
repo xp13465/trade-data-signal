@@ -76,9 +76,9 @@
     "name": "ETF国家队",
     "schedule": "20:07 + 21:30(兜底)",
     "est_text": "约6分钟",
-    "last_run": "2026-07-28 20:07",
+    "last_run": "2026-07-28 21:30",
     "last_exit": 0,
-    "last_duration_sec": 166,
+    "last_duration_sec": 157,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
