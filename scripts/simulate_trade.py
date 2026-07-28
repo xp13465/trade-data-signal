@@ -49,7 +49,9 @@ TRANSFER_FEE_RATE_SH = 0.00001   # 沪市过户费万0.1（仅沪市 ETF 51xxxx/
 # 指数 -> ETF 代码映射（成交在 ETF，信号仍在指数生成，跟踪误差自然反映）
 # 不映射的品种（行业 sw_xxx / 概念 thsc_xxx / 国债 cgb_idx / 海外 nikkei/dax / 商品 gold/oil 等）降级纯指数+手续费
 # bj50 -> 159920 仅 167 天数据不足，不映射降级纯指数
-INDEX_ETF_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "data", "index_etf_map.json")
+# 2026-07-28 统一：3 套 ETF 系统合并为 1 套，data/board_etf_map.json 作唯一源（含 amount+approx），
+# 旧的 data/index_etf_map.json（{index_id: "etf_code"} 字符串）不再读，保留文件作历史兼容。
+INDEX_ETF_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "data", "board_etf_map.json")
 
 # 5个回测窗口：(key, label, years_or_None) —— 照搬 lab_simulate.py:91-97
 WINDOW_DEFS = [
@@ -111,14 +113,41 @@ def load_name_map():
 
 
 def _load_index_etf_map():
-    """加载 指数 -> ETF 代码映射（data/index_etf_map.json），返回 dict 或空 dict。"""
+    """加载 指数 -> ETF 候选列表映射（data/board_etf_map.json），返回 dict 或空 dict。
+
+    2026-07-28 统一：读 board_etf_map.json（3套ETF系统唯一源），结构为
+    {index_id: [{code, name, amount, approx}, ...]}。过滤 _meta 等非 index_id key。
+    旧的 index_etf_map.json（{index_id: "etf_code"} 字符串）不再读。
+    """
     if not os.path.exists(INDEX_ETF_MAP_PATH):
         return {}
     try:
         with open(INDEX_ETF_MAP_PATH, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        # 过滤 _meta 等非 index_id key（_meta 是 build_board_etf_map.py 写的元信息）
+        return {k: v for k, v in data.items() if not k.startswith("_")}
     except Exception:
         return {}
+
+
+def _pick_first_etf(etf_map, index_id):
+    """从 board_etf_map 候选列表取首位 ETF（回测成交标的）。
+
+    首位定义（2026-07-28 统一）：approx 优先 false（精准跟踪优先），同 approx 内 amount 降序。
+    即排序键 (approx, -amount)，approx False(0) 排前。例：sh 只有 510050(approx=True) ->
+    首位 510050（唯一候选，虽近似但无更优选择）；hs300 有 3 个均 approx=False -> 首位 510300(amount 78亿最大)。
+
+    返回 (etf_code, etf_name, approx)：
+      - 候选空或 index_id 不在 map -> (None, None, False) 纯指数模拟（无 ETF 可交易）
+      - 否则首位 (code, name, approx_bool)
+    """
+    cands = etf_map.get(index_id) or []
+    if not cands:
+        return None, None, False
+    # 排序键 (approx, -amount)：approx False(0) < True(1)，False 排前；同 approx 内 amount 大的排前
+    srt = sorted(cands, key=lambda c: (bool(c.get("approx", False)), -float(c.get("amount", 0) or 0)))
+    top = srt[0]
+    return top.get("code"), top.get("name"), bool(top.get("approx", False))
 
 
 def _get_etf_db_path():
@@ -155,14 +184,15 @@ def _load_etf_close_map(etf_code):
 def get_signals(index_id="sh"):
     """获取信号和价格数据。对于 g.* 全球商品，从 JSON 文件读取价格数据。
 
-    ETF 替代（2026-07-28 加）：若 index_id 在 index_etf_map.json 中映射到 ETF 代码，
-    从 etf_daily 读 ETF close 替代 index_daily.close（信号仍在指数生成，成交在 ETF，
-    跟踪误差自然反映）。无映射或映射读不到数据 -> 用 index_daily.close 纯指数模拟。
+    ETF 替代（2026-07-28 统一）：若 index_id 在 board_etf_map.json 中映射到 ETF 候选，
+    取首位 ETF（approx 优先 false，同 approx 内 amount 降序）从 etf_daily 读 ETF close
+    替代 index_daily.close（信号仍在指数生成，成交在 ETF，跟踪误差自然反映）。
+    无映射或映射读不到数据 -> 用 index_daily.close 纯指数模拟。
     返回 (rows, last)，rows=[(date, signal, reason, close), ...]，last=(last_date, last_close)。
     """
     conn = get_conn()
     etf_map = _load_index_etf_map()
-    etf_code = etf_map.get(index_id)
+    etf_code, _etf_name, _etf_approx = _pick_first_etf(etf_map, index_id)
     etf_close_map = _load_etf_close_map(etf_code) if etf_code else {}
 
     if index_id.startswith("g."):
@@ -1601,9 +1631,9 @@ def _generate_json(index_id, name_map, out_dir_data):
     signal_first_date = signals[0][0]
     signal_last_date = signals[-1][0]
 
-    # ETF 替代标记：get_signals 内部已用 etf_close_map 替代 close，这里查 map 拿 etf_code 写入 JSON 供前端显示
+    # ETF 替代标记：get_signals 内部已用 etf_close_map 替代 close，这里取首位 ETF 写入 JSON 供前端显示
     etf_map = _load_index_etf_map()
-    etf_code = etf_map.get(index_id)  # None=纯指数模拟
+    etf_code, etf_name, etf_approx = _pick_first_etf(etf_map, index_id)  # None=纯指数模拟
 
     wins = _windows_meta(signals, last_date)
 
@@ -1646,7 +1676,9 @@ def _generate_json(index_id, name_map, out_dir_data):
         'slippage': SLIPPAGE,
         'min_commission': MIN_COMMISSION,
         'transfer_fee_rate_sh': TRANSFER_FEE_RATE_SH,
-        'etf_code': etf_code,  # None=纯指数，否则为 ETF 代码（成交在 ETF，信号在指数）
+        'etf_code': etf_code,  # None=纯指数，否则为首位 ETF 代码（成交在 ETF，信号在指数）
+        'etf_name': etf_name,  # 首位 ETF 名称（board_etf_map 候选 name，供前端显示，前端 fallback _TRADE_SIM_ETF_NAMES）
+        'etf_approx': etf_approx,  # True=首位 ETF 为近似替代（如 sh 用上证50近似上证指数），前端标注"近似替代"
         'windows': [{'k': w['k'], 'l': w['l'], 's': w['s'], 'e': w['e']} for w in wins],
         'signal_first_date': _fmt_date(signal_first_date),
         'signal_last_date': _fmt_date(signal_last_date),
@@ -1708,7 +1740,7 @@ def _generate_one(index_id, name_map, out_dir_static, output=None):
 
     # ETF 替代标记（旧 HTML 生成也传 etf_code，保持与新 JSON 生成一致）
     etf_map = _load_index_etf_map()
-    etf_code = etf_map.get(index_id)
+    etf_code, _n, _a = _pick_first_etf(etf_map, index_id)
     groups["买固定1w(10%)+卖清仓"] = {}
     for label, btypes, stypes in zip(SIG_LABELS, SIG_TYPES, SIG_SELL_TYPES):
         groups["买固定1w(10%)+卖清仓"][label] = simulate_sell_all(label, signals, btypes, last_date, last_close, sell_types=stypes, etf_code=etf_code)

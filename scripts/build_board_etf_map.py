@@ -93,27 +93,41 @@ EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "�
            "恒生", "港股", "香港", "QDII", "商品", "豆粕", "REIT", "可转债",
            "国债", "信用", "MOM", "FOF"]
 
-# P2-新-G ETF 联动推荐：宽基/红利指数 -> 跟踪 ETF 代码清单。
+# P2-新-G ETF 联动推荐：宽基/红利/综合/港股指数 -> 跟踪 ETF 候选清单。
 # 汪汪队 app/collector/etf_national_team.py ETF_LIST 覆盖 7 宽基
 #   (sz50/hs300/csi500/csi1000/cyb/kc50)：直接复用其代码清单。
-# 补充汪汪队未覆盖：3 红利指数（csi_div/div_lowvol/sz_div）。
+# 补充汪汪队未覆盖：3 红利指数（csi_div/div_lowvol/sz_div）+ 2 综合指数（sh/sz）+ 3 港股指数（hsi/hstech/hscei）。
 # bj50 北证50：akshare 全表无活跃跟踪 ETF（159509 代码复用为"纳指科技ETF景顺"跨境，
 #   593550 已退市/未上市），不加入 INDEX_ETF_MAP（前端 _etf_for 返空数组 -> 不渲染 tag，
 #   空比错误显示纳指科技好）。若后续有新北证50 ETF 上市，再加回此处。
-# sh 上证指数 / sz 深成指为综合指数，性质决定无跟踪 ETF，不加入（同上不渲染 tag）。
-# 这里只列代码，name/amount 由 akshare fund_etf_spot_em() 实时填（与行业关键词匹配同源）。
-INDEX_ETF_MAP: dict[str, list[str]] = {
+# sh 上证指数：综合指数无精准跟踪 ETF，用上证50ETF(510050)近似，标 approx=True。
+# sz 深成指：159943 跟踪深证成指399001，相关系数0.999878，属精准跟踪，approx=False（修原 bug 漏配）。
+# 港股 hsi/hstech/hscei：跨境ETF，name 含"恒生/港股/香港"会命中 EXCLUDE，
+#   需标 cross_border=True 绕过代码复用防御（这些代码确属港股ETF，非被劫持）。
+#
+# 候选结构：list[dict]，每项 {"code": str, "approx": bool=False, "cross_border": bool=False}
+#   - approx=False (默认) = 跟踪精准；approx=True = 仅作近似参考
+#   - cross_border=False (默认) = 检查 EXCLUDE 防御；cross_border=True = 跳过 EXCLUDE（港股ETF）
+# name/amount 由 akshare fund_etf_spot_em() 实时填。
+INDEX_ETF_MAP: dict[str, list[dict]] = {
     # ── 7 宽基（汪汪队 ETF_LIST 覆盖，代码与 ETF_LIST 一致）──
-    "sz50":    ["510050"],                                    # 上证50
-    "hs300":   ["510300", "510310", "159919"],                # 沪深300
-    "csi500":  ["510500", "159922"],                          # 中证500
-    "csi1000": ["512100", "159845"],                          # 中证1000
-    "cyb":     ["159915", "159952"],                          # 创业板指
-    "kc50":    ["588000", "588050"],                          # 科创50
-    # ── 汪汪队未覆盖，手动补充 ──
-    "csi_div":     ["515080", "515180"],                            # 中证红利(515080招商+515180易方达均精确跟踪中证红利指数000922且活跃3.64/4.25亿;515100跟踪红利低波100非中证红利/515090跟踪可持续发展+93万死流动性,均排除)
-    "div_lowvol":  ["512890"],                               # 红利低波
-    "sz_div":      ["159905"],                               # 深证红利
+    "sz50":    [{"code": "510050"}],                                    # 上证50
+    "hs300":   [{"code": "510300"}, {"code": "510310"}, {"code": "159919"}],  # 沪深300
+    "csi500":  [{"code": "510500"}, {"code": "159922"}],                # 中证500
+    "csi1000": [{"code": "512100"}, {"code": "159845"}],                # 中证1000
+    "cyb":     [{"code": "159915"}, {"code": "159952"}],                # 创业板指
+    "kc50":    [{"code": "588000"}, {"code": "588050"}],                # 科创50
+    # ── 汪汪队未覆盖，手动补充：红利指数 ──
+    "csi_div":     [{"code": "515080"}, {"code": "515180"}],            # 中证红利(515080招商+515180易方达均精确跟踪中证红利指数000922且活跃3.64/4.25亿;515100跟踪红利低波100非中证红利/515090跟踪可持续发展+93万死流动性,均排除)
+    "div_lowvol":  [{"code": "512890"}],                                # 红利低波
+    "sz_div":      [{"code": "159905"}],                                # 深证红利
+    # ── 综合指数（无精准跟踪ETF，sh 用宽基近似 / sz 有精准ETF修bug）──
+    "sh":      [{"code": "510050", "approx": True}],    # 上证50近似上证指数（510050跟踪上证50≠上证指数，仅作近似参考）
+    "sz":      [{"code": "159943"}],                    # 深证成指（159943跟踪深证成指399001，相关系数0.999878，精准跟踪）
+    # ── 港股指数（跨境ETF，从 data/index_etf_map.json 迁移；cross_border=True 绕过 EXCLUDE 防御）──
+    "hsi":     [{"code": "513600", "cross_border": True}],   # 恒生指数
+    "hstech":  [{"code": "513130", "cross_border": True}],   # 恒生科技
+    "hscei":   [{"code": "513900", "cross_border": True}],   # 恒生中国企业指数（H股指数）
 }
 
 
@@ -153,24 +167,29 @@ def main():
                 "code": str(r["代码"]),
                 "name": str(r["名称"]),
                 "amount": round(float(r["成交额"]) / 1e8, 2),  # 亿元
+                "approx": False,  # 行业/概念关键词匹配均为精准跟踪
             })
         out[iid] = etfs
         if not etfs:
             empty_boards.append(f"{iid} {name_by_id.get(iid)}")
 
-    # P2-新-G: 宽基/红利指数 -> 跟踪 ETF 候选（代码精确匹配，按成交额降序）
-    # 覆盖 sz50/hs300/csi500/csi1000/cyb/kc50/bj50/csi_div/div_lowvol/sz_div 10 个指数。
-    # sh 上证指数/sz 深成指无跟踪 ETF，不在此处加入（前端不渲染 tag）。
-    for iid, codes in INDEX_ETF_MAP.items():
+    # P2-新-G: 宽基/红利/综合/港股指数 -> 跟踪 ETF 候选（代码精确匹配，按成交额降序）
+    # 覆盖 sz50/hs300/csi500/csi1000/cyb/kc50/csi_div/div_lowvol/sz_div/sh/sz/hsi/hstech/hscei 15 个指数。
+    # sh 用上证50近似(approx=True)；sz 159943 精准跟踪深证成指；港股3指数 cross_border=True 绕过 EXCLUDE。
+    for iid, entries in INDEX_ETF_MAP.items():
         etfs = []
-        for code in codes:
+        for entry in entries:
+            code = entry["code"]
+            approx = entry.get("approx", False)
+            cross_border = entry.get("cross_border", False)
             r = df_by_code.get(code)
             if r is None:
                 continue  # akshare 无此代码（已退市/未上市），跳过
             rname = str(r["名称"])
-            # 代码复用绕过防御：代码精确匹配时也检查 name 不含跨境/债券等排除词
+            # 代码复用绕过防御：非跨境ETF检查 name 不含跨境/债券等排除词
             # （2026-07-20 事故：159509 原北证50ETF 复用为"纳指科技ETF景顺"绕过 EXCLUDE）
-            if any(ex in rname for ex in EXCLUDE):
+            # 跨境ETF（港股 hsi/hstech/hscei）name 本就含"恒生/港股"，标 cross_border=True 跳过此检查
+            if not cross_border and any(ex in rname for ex in EXCLUDE):
                 print(f"  [跳过] {iid} {code} {rname}（name 命中 EXCLUDE，代码复用绕过防御）")
                 continue
             try:
@@ -178,13 +197,14 @@ def main():
                     "code": str(code),
                     "name": rname,
                     "amount": round(float(r["成交额"]) / 1e8, 2),
+                    "approx": approx,
                 })
             except (TypeError, ValueError, KeyError):
                 continue
         etfs.sort(key=lambda x: x.get("amount", 0), reverse=True)
         out[iid] = etfs
         if not etfs:
-            empty_boards.append(f"{iid} {name_by_id.get(iid, iid)}（宽基/红利）")
+            empty_boards.append(f"{iid} {name_by_id.get(iid, iid)}（宽基/红利/综合/港股）")
 
     # 写盘
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -203,15 +223,16 @@ def main():
             dist["2-3"] += 1
         else:
             dist["4+"] += 1
-    print(f"生成 {OUT.name}：{total} 板块 + {len(INDEX_ETF_MAP)} 宽基/红利指数")
+    print(f"生成 {OUT.name}：{total} 板块 + {len(INDEX_ETF_MAP)} 宽基/红利/综合/港股指数")
     print(f"候选数分布(行业/概念): 0个={dist['0']}  1个={dist['1']}  2-3个={dist['2-3']}  4+个={dist['4+']}")
-    print(f"\n宽基/红利指数 ETF 联动（{len(INDEX_ETF_MAP)} 个，sh/sz 综合指数无跟踪ETF不含）:")
+    print(f"\n宽基/红利/综合/港股指数 ETF 联动（{len(INDEX_ETF_MAP)} 个，含 sh 近似/sz 精准/港股跨境）:")
     for iid in INDEX_ETF_MAP.keys():
         etfs = out.get(iid, [])
         if etfs:
             e = etfs[0]
             extra = f" +{len(etfs)-1}" if len(etfs) > 1 else ""
-            print(f"  {name_by_id.get(iid, iid):<10} {e['code']} {e['name']} ({e['amount']}亿){extra}")
+            approx_tag = " [approx]" if e.get("approx") else ""
+            print(f"  {name_by_id.get(iid, iid):<10} {e['code']} {e['name']} ({e['amount']}亿){extra}{approx_tag}")
         else:
             print(f"  {name_by_id.get(iid, iid):<10} (无匹配ETF)")
     print(f"\n留空板块（{n_empty}，无相关ETF/主动留空）:")

@@ -774,11 +774,12 @@ function _backupSignalChipRender(sd, id) {
     } else {
       line2 = winLabel[e.win] + '回撤-' + e.max_drawdown.toFixed(1) + '% (全维度最小)';
     }
-    // 含费标注：ETF 替代品种显示 "ETF 代码·含费万3"，纯指数显示 "指数·含费万3"
+    // 含费标注：ETF 替代品种显示 "ETF 代码·含费万3"，纯指数显示 "纯指数模拟·无ETF可交易"
     // sd.etf_code 由 simulate_trade.py _generate_json 写入（None=纯指数，agent3 重新生成 JSON 后才有值；
     // 旧 JSON 无此字段时 undefined -> 当作纯指数显示，避免 NaN/undefined 泄漏到 UI）
+    // 2026-07-28 统一：board_etf_map 首位（approx 优先 false）。关联不到 ETF（如 nikkei/g.gold）-> 纯指数模拟·无ETF可交易
     var etfCode = sd && sd.etf_code;
-    var line3 = etfCode ? ('ETF ' + etfCode + ' 模拟 · 含费万3') : '指数模拟 · 含费万3';
+    var line3 = etfCode ? ('ETF ' + etfCode + ' 模拟 · 含费万3') : '纯指数模拟 · 无ETF可交易';
     return { line1: line1, line2: line2, line3: line3 };
   }
   return chips.map(function (c) {
@@ -8750,6 +8751,14 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   var tag = h3.querySelector(".etf-tag");
   if (!tag) return;
   if (isBuy) tag.classList.add("etf-tag-buy-signal");
+  // 2026-07-28 近似标注：首位 ETF approx=true 时加"⚠近似"标注（如 sh 用上证50近似上证指数，非精准跟踪）
+  // 首位 = etfs[0]（board_etf_map 候选，与回测chip首位一致；approx 优先 false 排序由后端 _pick_first_etf 保证）
+  var top0 = etfs[0];
+  if (top0 && top0.approx) {
+    tag.classList.add("etf-tag-approx");
+    tag.insertAdjacentHTML("beforeend", '<span class="etf-approx-mark">⚠近似</span>');
+    tag.setAttribute("title", "近似替代，非精准跟踪 · 点击复制代码，悬浮看全部候选 · 颜色: 红色=当前有买点信号, 黄色=最新信号非买点");
+  }
   // 绑定 popup：top1 点击复制 + 悬浮弹全部候选（按成交额降序，每行可复制）
   _bindEtfPopup(h3, etfs);
 }
@@ -10296,11 +10305,13 @@ var _TRADE_SIM_WIN_DEFS = [
   { k: "y1",  l: "近1年" },
 ];
 var _TRADE_SIM_DEFAULT_WIN = "y5";
-// trade_sim etf_code -> ETF 名称映射（9 个宽基/港股 ETF 替代品种；JSON 顶层 etf_name 为 null, 前端自建名称表）
-// 用于回测详情 modal infoBar 显示"回测标的: ETF 代码（名称）"; sh 映射 510050=上证50ETF 近似替代上证指数(非完美跟踪)
+// trade_sim etf_code -> ETF 名称映射（fallback 兜底表；2026-07-28 统一后 sd.etf_name 优先，旧 JSON 无 etf_name 时用此表）
+// 用于回测详情 modal infoBar 显示"回测标的: ETF 代码（名称）"; 覆盖宽基/港股首位 ETF 代码。
+// 注：sh 510050=上证50ETF 近似替代上证指数(approx=true)；sz 159943=深证成指ETF 精准跟踪深成指(approx=false)。
+// 行业 sw_xxx 等首位 ETF 由 sd.etf_name 提供（board_etf_map 候选 name），不在此硬编码。
 var _TRADE_SIM_ETF_NAMES = {
   '510050': '上证50ETF', '510300': '沪深300ETF', '510500': '中证500ETF', '512100': '中证1000ETF',
-  '159915': '创业板ETF', '588000': '科创50ETF',
+  '159915': '创业板ETF', '159943': '深证成指ETF', '588000': '科创50ETF',
   '513900': 'H股ETF', '513600': '恒生ETF', '513130': '恒生科技ETF'
 };
 
@@ -10990,10 +11001,12 @@ function _tradeSimModalRender(ov) {
   var indexName = sd.index_name;
   var initCap = sd.initial_capital || 100000;
   // 2026-07-20 infoBar: 回测标的 + 费率明细（modal 详情明确标注 ETF 代码/名称 + 完整费率, 区分 ETF 替代 vs 纯指数）
-  // sh 映射 510050=上证50ETF 近似替代上证指数(综合指数无完美跟踪ETF), 标注"近似替代"避免误导
+  // 2026-07-28 统一：sd.etf_name/etf_approx 由 simulate_trade.py 从 board_etf_map 首位写入；
+  // _etfName 优先 sd.etf_name，fallback _TRADE_SIM_ETF_NAMES 硬编码（旧 JSON 无 etf_name 时兜底）；
+  // _isApprox 用 sd.etf_approx（不再硬编码 index_id==='sh'，任何首位 approx=true 都标注"近似替代"）
   var etfCode = sd.etf_code;
-  var _etfName = etfCode ? _TRADE_SIM_ETF_NAMES[etfCode] : null;
-  var _isApprox = etfCode && sd.index_id === 'sh';
+  var _etfName = etfCode ? (sd.etf_name || _TRADE_SIM_ETF_NAMES[etfCode]) : null;
+  var _isApprox = !!(etfCode && sd.etf_approx);
   var _commRate = sd.commission_rate != null ? ('佣金万' + (sd.commission_rate * 10000).toFixed(1).replace(/\.0$/, '')) : '佣金万3';
   var _slipRate = sd.slippage != null ? ('滑点千' + (sd.slippage * 1000).toFixed(1).replace(/\.0$/, '')) : '滑点千1';
   var _transferFee = sd.transfer_fee_rate_sh != null ? ('沪市过户费万' + (sd.transfer_fee_rate_sh * 10000).toFixed(1).replace(/\.0$/, '')) : '沪市过户费万0.1';
