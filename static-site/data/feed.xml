@@ -5,11 +5,18 @@
     <link>https://ss.fx8.store/</link>
     <description>A股市场情绪、恐贪指数、涨跌家数、量能与板块轮动每日收盘速递</description>
     <language>zh-CN</language>
-    <lastBuildDate>Tue, 28 Jul 2026 02:06:19 +0800</lastBuildDate>
+    <lastBuildDate>Tue, 28 Jul 2026 16:44:09 +0800</lastBuildDate>
     <item>
-      <title>2026-07-27 收盘 | 恐贪指数 57.8 | 乐观积极</title>
+      <title>2026-07-28 收盘 | 恐贪指数 29.5 | 情绪平稳</title>
       <link>https://ss.fx8.store/</link>
-      <description><![CDATA[涨跌家数:5194涨/286跌 | 涨停0/跌停0 | 成交额20883亿(温和缩量) | 买点13/卖点1 | 上证+1.15%收3858 | 领涨:美容护理(+4.9%)、电力设备(+4.1%)、医药生物(+3.7%) | 领跌:石油石化(-1.5%)、银行(+0.3%)、非银金融(+0.6%)]]></description>
+      <description><![CDATA[涨跌家数:2602涨/2769跌 | 涨停0/跌停0 | 成交额20387亿(温和缩量) | 买点0/卖点0 | 上证-1.16%收3813 | 领涨:食品饮料(+2.5%)、银行(+1.0%)、纺织服饰(+1.0%) | 领跌:电子(-5.2%)、通信(-3.5%)、国防军工(-2.0%) | ❗中证1000情绪冰点(20分)]]></description>
+      <pubDate>Tue, 28 Jul 2026 15:00:00 +0800</pubDate>
+      <guid>https://ss.fx8.store/?date=2026-07-28</guid>
+    </item>
+    <item>
+      <title>2026-07-27 收盘 | 恐贪指数 58.0 | 乐观积极</title>
+      <link>https://ss.fx8.store/</link>
+      <description><![CDATA[涨跌家数:5194涨/286跌 | 涨停0/跌停0 | 成交额20883亿(温和缩量) | 买点14/卖点1 | 上证+1.15%收3858 | 领涨:美容护理(+4.9%)、电力设备(+4.1%)、医药生物(+3.7%) | 领跌:石油石化(-1.5%)、银行(+0.3%)、非银金融(+0.6%)]]></description>
       <pubDate>Mon, 27 Jul 2026 15:00:00 +0800</pubDate>
       <guid>https://ss.fx8.store/?date=2026-07-27</guid>
     </item>
@@ -208,13 +215,6 @@
       <description><![CDATA[涨跌家数:2608涨/2482跌 | 涨停0/跌停0 | 成交额30645亿(量能平稳) | 买点1/卖点5 | 上证-0.11%收4092 | 领涨:建筑材料(+4.2%)、电力设备(+2.7%)、通信(+2.5%) | 领跌:交通运输(-2.0%)、煤炭(-2.0%)、石油石化(-1.9%)]]></description>
       <pubDate>Tue, 16 Jun 2026 15:00:00 +0800</pubDate>
       <guid>https://ss.fx8.store/?date=2026-06-16</guid>
-    </item>
-    <item>
-      <title>2026-06-15 收盘 | 恐贪指数 69.3 | 情绪亢奋</title>
-      <link>https://ss.fx8.store/</link>
-      <description><![CDATA[涨跌家数:3646涨/1418跌 | 涨停0/跌停0 | 成交额30310亿(量能平稳) | 买点3/卖点0 | 上证+1.61%收4096 | 领涨:电子(+6.6%)、通信(+6.5%)、建筑材料(+5.0%) | 领跌:煤炭(-4.6%)、银行(-1.6%)、食品饮料(-0.9%)]]></description>
-      <pubDate>Mon, 15 Jun 2026 15:00:00 +0800</pubDate>
-      <guid>https://ss.fx8.store/?date=2026-06-15</guid>
     </item>
   </channel>
 </rss>
