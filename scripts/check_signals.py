@@ -81,6 +81,7 @@ RULE_SUMMARY = """【买卖点规则说明】
 • 备买（buy_backup）：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日 close 确认仍站稳，趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）。
 • 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）。
 • 追止损卖（sell_stop_loss）：A1 Donchian20 下轨止损（close 跌破前20日最低价，与追买上轨突破对称，独立止损卖点）。
+• 波段持有（band_hold）：当前处于波段持有状态（无超买超卖触发，非买卖操作，中性持有信号，供参考持仓状态）。
   附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注。</div>"""
 
 DISCLAIMER = """【免责声明】
@@ -95,8 +96,11 @@ SIGNAL_LABELS = {
     "buy_backup": "备买",
     "sell": "卖",
     "sell_stop_loss": "追止损卖",
+    "band_hold": "波段持有",
 }
-SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss"]
+# 含 band_hold（波段持有）：用户定方案B"补充完整展示"（2026-07-28），
+# 邮件表格展示所有信号状态（含当前持有），不再过滤 band_hold。
+SIGNAL_ORDER = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss", "band_hold"]
 
 # === fade-detect 盘中信号收盘消失警示（2026-07-23 P1-新-A）===
 # buy 系列强度排序（强->弱），用于"降级"判定；sell 系列消失不警示（对已卖出用户利好）
@@ -405,6 +409,8 @@ def _signal_emoji(sig_type: str) -> str:
         return "🟪"
     if sig_type == "sell":
         return "🟢"
+    if sig_type == "band_hold":
+        return "⚪"
     return "⚪"
 
 
@@ -597,6 +603,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     n_backup = len(groups["buy_backup"])
     n_sell = len(groups["sell"])
     n_stop_loss = len(groups["sell_stop_loss"])
+    n_hold = len(groups["band_hold"])
 
     # === 标题：信号类型 + 品种摘要 ===
     parts = []
@@ -626,7 +633,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
         )
     html_parts = [f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
 <h2 style="margin:0 0 8px 0;color:#1d2129;">{h2_title}</h2>
-<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 追买 {n_special} / 备买 {n_backup} / 卖 {n_sell} / 追止损卖 {n_stop_loss}）</p>
+<p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">{date} · 共 <b>{n_total}</b> 个信号（主买 {n_buy} / 辅买 {n_aux} / 追买 {n_special} / 备买 {n_backup} / 卖 {n_sell} / 追止损卖 {n_stop_loss} / 波段持有 {n_hold}）</p>
 {intraday_banner}"""]
 
     # fade-detect 警示横幅（红/橙/黄三档表格），放正文顶部 intraday 横幅之后（2026-07-23 P1-新-A）
@@ -692,6 +699,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
 • 备买（buy_backup）：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日 close 确认仍站稳，趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）<br>
 • 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
 • 追止损卖（sell_stop_loss）：A1 Donchian20 下轨止损（close 跌破前20日最低价，与追买上轨突破对称，独立止损卖点）<br>
+• 波段持有（band_hold）：当前处于波段持有状态（无超买超卖触发，非买卖操作，中性持有信号，供参考持仓状态）<br>
 • 附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注
 </div>
 <div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;font-size:12px;color:#86909c;line-height:1.8;">
@@ -757,24 +765,17 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     signals = query_signals(date)
-    # fade-detect：对比盘中 signal_notified.json[date] vs 收盘 signals，检测消失/变化
-    # 注意：fade-detect 需用未过滤的全量 signals（含 band_hold 等），因其按 index_id 聚合
-    # closing 信号判定档位（band_hold 在 closing -> 非空 -> 不算"严格消失 red"）；
-    # 若先过滤 band_hold，intraday buy* -> closing 仅 band_hold 会误判为 red 消失。
+    # fade-detect：对比盘中 signal_notified.json[date] vs 收盘 signals，检测消失/变化。
+    # signals 为 query_signals 返回的全量（含 band_hold 波段持有）；fade-detect 按 index_id
+    # 聚合 closing 信号判定档位（band_hold 在 closing -> 非空 -> 不算"严格消失 red"）。
     fade_alerts: list[dict] = []
     if args.fade_detect:
         fade_alerts = run_fade_detect(date, signals)
 
-    # 过滤非买卖点信号（band_hold=波段持有/无超买超卖信号 等中性/持有状态）：
-    # 邮件"买卖点信号"只关注可操作买卖点（SIGNAL_ORDER 6 类），band_hold 不含买卖点、
-    # 不计数、不发邮件。根治 2026-07-28 盘中 bug：2 个 band_hold 致邮件正文"共 2 个信号
-    # （主买 0 / 辅买 0 / ...）"但类型全 0、表格 tbody 空、主题"无信号"的自相矛盾。
-    actionable_types = set(SIGNAL_ORDER)
-    actionable = [s for s in signals if s["signal"] in actionable_types]
-    n_filtered = len(signals) - len(actionable)
-    if n_filtered:
-        log.info("过滤 %d 个非买卖点信号（band_hold 等持有状态，非可操作买卖点）", n_filtered)
-    signals = actionable
+    # 方案B（2026-07-28 用户定）：补充完整展示所有信号状态（含 band_hold 波段持有），
+    # 不再过滤 band_hold。SIGNAL_ORDER 已含 band_hold（第7类），邮件表格/统计/主题均展示。
+    # 原 2026-07-28 盘中 bug（2 个 band_hold 致"共2信号但类型全0/表格空/主题无信号"矛盾）
+    # 通过 SIGNAL_ORDER 加 band_hold 自然修复，不需过滤。
 
     if not signals and not fade_alerts:
         log.info("今日（%s）无买卖点信号且无 fade 警示，不发邮件", date)
@@ -786,9 +787,10 @@ def main(argv: list[str] | None = None) -> int:
     n_backup = sum(1 for s in signals if s["signal"] == "buy_backup")
     n_sell = sum(1 for s in signals if s["signal"] == "sell")
     n_stop_loss = sum(1 for s in signals if s["signal"] == "sell_stop_loss")
+    n_hold = sum(1 for s in signals if s["signal"] == "band_hold")
     log.info(
-        "查询到 %d 个信号（主买=%d, 辅买=%d, 追买=%d, 备买=%d, 卖=%d, 追止损卖=%d）",
-        len(signals), n_buy, n_aux, n_special, n_backup, n_sell, n_stop_loss,
+        "查询到 %d 个信号（主买=%d, 辅买=%d, 追买=%d, 备买=%d, 卖=%d, 追止损卖=%d, 波段持有=%d）",
+        len(signals), n_buy, n_aux, n_special, n_backup, n_sell, n_stop_loss, n_hold,
     )
 
     name_map = load_name_map()
