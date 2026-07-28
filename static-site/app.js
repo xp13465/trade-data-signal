@@ -762,7 +762,7 @@ function _backupSignalChipRender(sd, id) {
     }
     return parts.join(' ');
   }
-  // chip val 两行格式
+  // chip val 两行格式 + 含费标注行（2026-07-28 加：显示回测含手续费万3/千1滑点，ETF 替代品种显示 ETF 代码）
   function formatVal(c) {
     var e = c.entry;
     var line1 = e.label + ' · ' + e.pathShort;
@@ -774,14 +774,19 @@ function _backupSignalChipRender(sd, id) {
     } else {
       line2 = winLabel[e.win] + '回撤-' + e.max_drawdown.toFixed(1) + '% (全维度最小)';
     }
-    return { line1: line1, line2: line2 };
+    // 含费标注：ETF 替代品种显示 "ETF 代码·含费万3"，纯指数显示 "指数·含费万3"
+    // sd.etf_code 由 simulate_trade.py _generate_json 写入（None=纯指数，agent3 重新生成 JSON 后才有值；
+    // 旧 JSON 无此字段时 undefined -> 当作纯指数显示，避免 NaN/undefined 泄漏到 UI）
+    var etfCode = sd && sd.etf_code;
+    var line3 = etfCode ? ('ETF ' + etfCode + ' · 含费万3') : '指数模拟 · 含费万3';
+    return { line1: line1, line2: line2, line3: line3 };
   }
   return sharpeRedlinePrefix + smallSamplePrefix + chips.map(function (c) {
     var emoji = c.kind === 'strong' ? '📈' : c.kind === 'steady' ? '👍' : '🛡';
     var cls = c.kind === 'strong' ? 'signal-chip-strong' : c.kind === 'steady' ? 'signal-chip-steady' : 'signal-chip-lowdraw';
     var tip = _backupSignalChipTip(sd, scored, c);
     var v = formatVal(c);
-    return '<span class="signal-chip ' + cls + '" data-tip="' + tip + '">' + emoji + ' ' + c.tier + ' · ' + v.line1 + '&#10;   ' + v.line2 + '</span>';
+    return '<span class="signal-chip ' + cls + '" data-tip="' + tip + '">' + emoji + ' ' + c.tier + ' · ' + v.line1 + '&#10;   ' + v.line2 + '&#10;   ' + v.line3 + '</span>';
   }).join('');
 }
 // chip tooltip：该档 scenario+path 5 窗口 summary + 全 165 该维度 Top5 + 合规文案
@@ -835,6 +840,12 @@ function _backupSignalChipTip(sd, scored, chip) {
     lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '·' + winLabel[t.win] + '  年化' + t.annualized.toFixed(1) + '% │ 回撤' + t.max_drawdown.toFixed(1) + '% │ 胜率' + t.win_rate.toFixed(0) + '% │ 夏普' + (typeof t.sharpe === 'number' ? t.sharpe.toFixed(2) : '-') + ' │ 样本' + t.total_ops);
   }
   lines.push(SEP);
+  // 2026-07-28 回测精准模拟说明：手续费万3 + 滑点千1 + 沪市过户费万0.1，ETF 替代指数含跟踪误差
+  var etfCodeTip = sd && sd.etf_code;
+  var feeLine = etfCodeTip
+    ? '回测含费：佣金万3 + 滑点千1 + 沪市过户费万0.1，成交在 ETF ' + etfCodeTip + '（信号在指数生成，含跟踪误差）'
+    : '回测含费：佣金万3 + 滑点千1（纯指数模拟，无过户费；ETF 替代品种才收沪市过户费）';
+  lines.push(feeLine);
   lines.push('⚠ 研究参考，不构成投资建议 · 历史回测不代表未来');
   lines.push('综合排名覆盖全维度（5窗口×3路径×11场景=165回测），年化最高/回撤最小为综合分排名结果（非纯极值，防小样本虚高）。');
   // HTML attribute 里换行需转义为 &#10;（textContent 解析时还原为 \n，.term-pop white-space: pre-line 渲染换行）

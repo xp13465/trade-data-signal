@@ -37,6 +37,20 @@ MAX_POSITIONS = 10        # 最多同时持仓 10 笔
 # 每窗口独立 sim 的起始资金（= TOTAL_CAPITAL，别名，与 lab_simulate.py 一致）
 INITIAL_CAPITAL = TOTAL_CAPITAL
 
+# 回测费率参数（2026-07-28 加：手续费万3 + 滑点千1 + 沪市过户费万0.1）
+# ETF 替代指数时，沪市 ETF（51xxxx/58xxxx 开头）收过户费；深市 ETF（15/16 开头）与纯指数不收。
+# 纯指数模拟也加 commission+slippage，统一费率横向对比，避免 ETF 替代后回测变差误归因跟踪误差。
+# 参考风格：scripts/lab/lab_simulate.py:289 simulate_full_in(commission_rate, slippage)。
+COMMISSION_RATE = 0.0003         # 券商佣金万3（单边，按成交金额计）
+SLIPPAGE = 0.001                 # 滑点千1（单边，买入价=close*(1+s)升高，卖出价=close*(1-s)降低）
+MIN_COMMISSION = 5.0             # 单笔最低佣金5元（小单兜底，万3 不足 5 元按 5 元收）
+TRANSFER_FEE_RATE_SH = 0.00001   # 沪市过户费万0.1（仅沪市 ETF 51xxxx/58xxxx 收，深市 ETF 与纯指数不收）
+
+# 指数 -> ETF 代码映射（成交在 ETF，信号仍在指数生成，跟踪误差自然反映）
+# 不映射的品种（行业 sw_xxx / 概念 thsc_xxx / 国债 cgb_idx / 海外 nikkei/dax / 商品 gold/oil 等）降级纯指数+手续费
+# bj50 -> 159920 仅 167 天数据不足，不映射降级纯指数
+INDEX_ETF_MAP_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "index_etf_map.json")
+
 # 5个回测窗口：(key, label, years_or_None) —— 照搬 lab_simulate.py:91-97
 WINDOW_DEFS = [
     ('all', '全历史', None),
@@ -96,12 +110,63 @@ def load_name_map():
     return name_map
 
 
+def _load_index_etf_map():
+    """加载 指数 -> ETF 代码映射（data/index_etf_map.json），返回 dict 或空 dict。"""
+    if not os.path.exists(INDEX_ETF_MAP_PATH):
+        return {}
+    try:
+        with open(INDEX_ETF_MAP_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _get_etf_db_path():
+    """ETF DB 路径：优先 trade-data/data/etf_national_team.db（主库，launchd 写），
+    回退 trade/data/etf_national_team.db（镜像，deploy.sh rsync 同步）。
+    与 app/db.py 的 .absolute() 策略一致：从 trade-data 跑读主库，从 trade 跑读镜像。"""
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # trade/
+    main = os.path.join(os.path.dirname(base), "trade-data", "data", "etf_national_team.db")
+    if os.path.exists(main):
+        return main
+    return os.path.join(base, "data", "etf_national_team.db")
+
+
+def _load_etf_close_map(etf_code):
+    """从 etf_daily 读 ETF close，返回 {date_str(YYYYMMDD): close}。读不到返回 {}。
+    表结构：etf_daily(date TEXT, etf_code TEXT, etf_name TEXT, close REAL, ...)。"""
+    if not etf_code:
+        return {}
+    db_path = _get_etf_db_path()
+    if not os.path.exists(db_path):
+        return {}
+    try:
+        conn = sqlite3.connect(db_path, timeout=30.0)
+        rows = conn.execute(
+            "SELECT date, close FROM etf_daily WHERE etf_code=? AND close IS NOT NULL ORDER BY date",
+            (etf_code,),
+        ).fetchall()
+        conn.close()
+        return {d: c for d, c in rows}
+    except Exception:
+        return {}
+
+
 def get_signals(index_id="sh"):
-    """获取信号和价格数据。对于 g.* 全球商品，从 JSON 文件读取价格数据。"""
+    """获取信号和价格数据。对于 g.* 全球商品，从 JSON 文件读取价格数据。
+
+    ETF 替代（2026-07-28 加）：若 index_id 在 index_etf_map.json 中映射到 ETF 代码，
+    从 etf_daily 读 ETF close 替代 index_daily.close（信号仍在指数生成，成交在 ETF，
+    跟踪误差自然反映）。无映射或映射读不到数据 -> 用 index_daily.close 纯指数模拟。
+    返回 (rows, last)，rows=[(date, signal, reason, close), ...]，last=(last_date, last_close)。
+    """
     conn = get_conn()
+    etf_map = _load_index_etf_map()
+    etf_code = etf_map.get(index_id)
+    etf_close_map = _load_etf_close_map(etf_code) if etf_code else {}
 
     if index_id.startswith("g."):
-        # 全球商品：从 signal_daily 取信号，从 JSON 文件取价格
+        # 全球商品：从 signal_daily 取信号，从 JSON 文件取价格（g.* 无 ETF 替代）
         json_key = index_id[2:]  # g.gold -> gold
         base_dir = os.path.dirname(os.path.dirname(__file__))
         json_path = os.path.join(base_dir, "static-site", "data", "global-all.json")
@@ -146,7 +211,87 @@ def get_signals(index_id="sh"):
         (index_id,),
     ).fetchone()
     conn.close()
+    # ETF 替代：用 etf_close_map 覆盖 close。ETF 上市前(无 ETF close)的信号丢弃
+    # （语义：信号在指数生成，成交在 ETF；ETF 不存在时无法成交。副作用：sh 回测区间从
+    # 1991 缩到 ETF 上市年如 510050=2005，这是正确的——ETF 上市前不能交易 ETF，避免
+    # 指数 close 与 ETF close 价格水平差百倍致假跳跃）
+    if etf_close_map:
+        rows = [(d, s, r, etf_close_map[d]) for (d, s, r, _idx_close) in rows if d in etf_close_map]
+    # last_close 也用 ETF 替代（若有映射）。last_date 仍用指数 last_date（窗口计算基准，ETF 同步更新）
+    if last is not None:
+        last_date, last_idx_close = last
+        if etf_close_map:
+            # 优先用指数 last_date 对应的 ETF close；查不到（ETF 停牌）用 ETF 最新日期 close 兜底
+            last_close = etf_close_map.get(last_date)
+            if last_close is None and etf_close_map:
+                last_close = etf_close_map[max(etf_close_map.keys())]
+            if last_close is None:
+                last_close = last_idx_close
+        else:
+            last_close = last_idx_close
+        last = (last_date, last_close)
     return rows, last
+
+
+def _is_sh_etf(etf_code):
+    """沪市 ETF 判断：51xxxx/58xxxx 开头收过户费，深市 15/16 开头不收。纯指数（None）不收。"""
+    if not etf_code:
+        return False
+    return etf_code.startswith('51') or etf_code.startswith('58')
+
+
+def _buy_with_fees(budget, close, etf_code=None):
+    """买入扣费（手续费 + 滑点 + 沪市过户费）。
+
+    budget: 买入总预算（含费），花光为止。
+    close: 当日收盘价（指数收盘或 ETF 收盘，由 get_signals 替换）。
+    etf_code: ETF 代码，None=纯指数（不收过户费，仍收佣金+滑点）。
+
+    返回 (buy_price, shares, commission, transfer_fee)：
+      - buy_price = close*(1+SLIPPAGE)  实际成交价（升高）
+      - shares = 预算扣费后能买的份额
+      - commission = max(成交金额*COMMISSION_RATE, MIN_COMMISSION)
+      - transfer_fee = 沪市 ETF 收成交金额*TRANSFER_FEE_RATE_SH，其余 0
+
+    数学（budget = buy_price*shares + commission + transfer_fee）：
+      一般情况（无最低佣金触发，commission=gross*rate, transfer=gross*sh_rate）:
+        budget = gross*(1+rate+sh_rate) => shares = budget/(buy_price*(1+rate+sh_rate))
+      最低佣金触发（gross*rate < MIN_COMMISSION, commission=MIN_COMMISSION 固定）:
+        budget = gross + MIN_COMMISSION + gross*sh_rate
+        => shares = (budget-MIN_COMMISSION)/(buy_price*(1+sh_rate))
+    """
+    buy_price = close * (1 + SLIPPAGE)
+    sh_rate = TRANSFER_FEE_RATE_SH if _is_sh_etf(etf_code) else 0.0
+    # 先按一般情况算（佣金 = 成交金额*rate）
+    shares = budget / (buy_price * (1 + COMMISSION_RATE + sh_rate))
+    gross = shares * buy_price
+    commission = gross * COMMISSION_RATE
+    # 最低佣金触发：重算 shares（commission 固定 5 元）
+    if commission < MIN_COMMISSION:
+        shares = (budget - MIN_COMMISSION) / (buy_price * (1 + sh_rate))
+        gross = shares * buy_price
+        commission = MIN_COMMISSION
+    transfer_fee = gross * sh_rate
+    return buy_price, shares, commission, transfer_fee
+
+
+def _sell_with_fees(shares, close, etf_code=None):
+    """卖出扣费（手续费 + 滑点 + 沪市过户费）。
+
+    返回 (sell_price, sell_amount, commission, transfer_fee, net_proceeds)：
+      - sell_price = close*(1-SLIPPAGE)  实际成交价（降低）
+      - sell_amount = shares*sell_price  成交金额
+      - commission = max(sell_amount*COMMISSION_RATE, MIN_COMMISSION)
+      - transfer_fee = 沪市 ETF 收 sell_amount*TRANSFER_FEE_RATE_SH，其余 0
+      - net_proceeds = sell_amount - commission - transfer_fee  实际到账现金
+    """
+    sell_price = close * (1 - SLIPPAGE)
+    sell_amount = shares * sell_price
+    commission = max(sell_amount * COMMISSION_RATE, MIN_COMMISSION)
+    sh_rate = TRANSFER_FEE_RATE_SH if _is_sh_etf(etf_code) else 0.0
+    transfer_fee = sell_amount * sh_rate
+    net = sell_amount - commission - transfer_fee
+    return sell_price, sell_amount, commission, transfer_fee, net
 
 
 def _ledger(date, op, amount, cash, positions, close, prev_close=None, holdings_cost_before=None, shares_traded=0):
@@ -180,7 +325,7 @@ def _ledger(date, op, amount, cash, positions, close, prev_close=None, holdings_
 # ============================================================
 #  路径 A：固定 1w(10%) 进出（FIFO）
 # ============================================================
-def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None):
+def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None):
     if sell_types is None:
         sell_types = {"sell"}
     # 窗口过滤：只保留 date >= w_start 的信号（每窗口独立从 INITIAL_CAPITAL 起算）
@@ -217,8 +362,9 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, 
                 first_buy_date = date
             buy_count += 1
             hc_before = sum(POSITION_SIZE for _ in positions)
-            shares = POSITION_SIZE / close
-            positions.append((date, close, shares))
+            # 含费买入：buy_price=close*(1+SLIPPAGE), shares 扣佣金+过户费, budget=POSITION_SIZE 花光为止
+            buy_price, shares, _comm, _tf = _buy_with_fees(POSITION_SIZE, close, etf_code)
+            positions.append((date, buy_price, shares))  # buy_close 记实际成交价(含滑点)
             cash -= POSITION_SIZE
             hv = sum(s * close for _, _, s in positions)
             if hv > max_holding:
@@ -236,19 +382,20 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, 
             sell_count += 1
             hc_before = sum(POSITION_SIZE for _ in positions)
             buy_date, buy_close, shares = positions.pop(0)
-            sell_amount = shares * close
-            cash += sell_amount
-            pct = (close - buy_close) / buy_close * 100
-            profit = sell_amount - POSITION_SIZE
+            # 含费卖出：sell_price=close*(1-SLIPPAGE), net 扣佣金+过户费
+            sell_price, sell_amount, _comm, _tf, net_proceeds = _sell_with_fees(shares, close, etf_code)
+            cash += net_proceeds
+            pct = (sell_price - buy_close) / buy_close * 100  # 用实际成交价算盈亏%
+            profit = net_proceeds - POSITION_SIZE
             rounds.append({
                 "buy_date": _fmt_date(buy_date), "buy_close": round(buy_close, 2),
-                "sell_date": _fmt_date(date), "sell_close": round(close, 2),
+                "sell_date": _fmt_date(date), "sell_close": round(sell_price, 2),
                 "hold_days": _days_between(buy_date, date),
                 "pct": round(pct, 2), "amount_in": POSITION_SIZE,
-                "amount_out": round(sell_amount, 2), "profit": round(profit, 2),
+                "amount_out": round(net_proceeds, 2), "profit": round(profit, 2),
             })
             sell_op_label = "止损卖出" if sig == "sell_stop_loss" else "卖出"
-            ledger.append(_ledger(date, sell_op_label, sell_amount, cash, positions, close, prev_close, hc_before, shares_traded=-shares))
+            ledger.append(_ledger(date, sell_op_label, net_proceeds, cash, positions, close, prev_close, hc_before, shares_traded=-shares))
             prev_close = close
 
         elif is_sell and not positions:
@@ -293,7 +440,7 @@ def simulate_fixed_1w(scenario_name, signals, buy_types, last_date, last_close, 
 # ============================================================
 #  路径 B：全仓进出（一次一笔，买用全部现金，卖清仓）
 # ============================================================
-def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None):
+def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None):
     """全仓进出：买→清仓→买→清仓，跳过连续同向信号。"""
     if sell_types is None:
         sell_types = {"sell"}
@@ -333,17 +480,18 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, se
             if first_buy_date is None:
                 first_buy_date = date
             buy_count += 1
-            shares = cash / close
-            holding = (date, close, shares)
-            buy_amount = cash  # all-in
+            # 含费全仓买入：budget=cash 花光为止, buy_price=close*(1+SLIPPAGE)
+            buy_price, shares, _comm, _tf = _buy_with_fees(cash, close, etf_code)
+            holding = (date, buy_price, shares)  # buy_close 记实际成交价(含滑点)
+            buy_amount = cash  # all-in (预算=成交前现金)
             cash = 0.0
-            hv = shares * close
+            hv = shares * close  # 持仓市值用收盘价估值(非成交价)
             if hv > max_holding:
                 max_holding = hv
                 max_holding_date = date
                 max_holding_total = cash + hv
             last_signal = "buy"
-            entry = _ledger(date, _BUY_LABELS.get(sig, "买"), buy_amount, 0.0, [(date, close, shares)], close, prev_close, 0.0, shares_traded=shares)
+            entry = _ledger(date, _BUY_LABELS.get(sig, "买"), buy_amount, 0.0, [(date, buy_price, shares)], close, prev_close, 0.0, shares_traded=shares)
             entry["holdings_cost_after"] = round(buy_amount, 2)
             ledger.append(entry)
             prev_close = close
@@ -355,22 +503,23 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, se
             sell_count += 1
             buy_date, buy_close, shares = holding
             hc_before = round(shares * buy_close, 2)
-            sell_amount = shares * close
-            cash = sell_amount
-            pct = (close - buy_close) / buy_close * 100
-            profit = sell_amount - (shares * buy_close)
+            # 含费清仓卖出：sell_price=close*(1-SLIPPAGE), net 扣佣金+过户费
+            sell_price, sell_amount, _comm, _tf, net_proceeds = _sell_with_fees(shares, close, etf_code)
+            cash = net_proceeds
+            pct = (sell_price - buy_close) / buy_close * 100  # 用实际成交价算盈亏%
+            profit = net_proceeds - (shares * buy_close)
             amount_in = round(shares * buy_close, 2)
             rounds.append({
                 "buy_date": _fmt_date(buy_date), "buy_close": round(buy_close, 2),
-                "sell_date": _fmt_date(date), "sell_close": round(close, 2),
+                "sell_date": _fmt_date(date), "sell_close": round(sell_price, 2),
                 "hold_days": _days_between(buy_date, date),
                 "pct": round(pct, 2), "amount_in": amount_in,
-                "amount_out": round(sell_amount, 2), "profit": round(profit, 2),
+                "amount_out": round(net_proceeds, 2), "profit": round(profit, 2),
             })
             holding = None
             last_signal = "sell"
             sell_op_label = "止损清仓" if sig == "sell_stop_loss" else "卖出"
-            ledger.append(_ledger(date, sell_op_label, sell_amount, cash, [], close, prev_close, hc_before, shares_traded=-shares))
+            ledger.append(_ledger(date, sell_op_label, net_proceeds, cash, [], close, prev_close, hc_before, shares_traded=-shares))
             prev_close = close
 
         elif is_sell and holding is None:
@@ -414,7 +563,7 @@ def simulate_all_in(scenario_name, signals, buy_types, last_date, last_close, se
 # ============================================================
 #  路径 C：买固定 1w(10%) + 卖清仓
 # ============================================================
-def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None):
+def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, sell_types=None, w_start=None, etf_code=None):
     """每次买 1 万（最多 10 笔），出现卖点则清仓全部。"""
     if sell_types is None:
         sell_types = {"sell"}
@@ -453,8 +602,9 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
                 first_buy_date = date
             buy_count += 1
             hc_before = sum(POSITION_SIZE for _ in positions)
-            shares = POSITION_SIZE / close
-            positions.append((date, close, shares))
+            # 含费买入：buy_price=close*(1+SLIPPAGE), shares 扣佣金+过户费, budget=POSITION_SIZE 花光为止
+            buy_price, shares, _comm, _tf = _buy_with_fees(POSITION_SIZE, close, etf_code)
+            positions.append((date, buy_price, shares))  # buy_close 记实际成交价(含滑点)
             cash -= POSITION_SIZE
             hv = sum(s * close for _, _, s in positions)
             if hv > max_holding:
@@ -474,10 +624,10 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
                 continue
             sell_count += 1
             hc_before = sum(POSITION_SIZE for _ in positions)
-            # 清仓全部
+            # 清仓全部（每笔独立扣费：sell_price=close*(1-SLIPPAGE), net 扣佣金+过户费）
             sold = []
             total_amount_in = 0.0
-            total_amount_out = 0.0
+            total_amount_out = 0.0  # 累计实际到账(net_proceeds)
             total_profit = 0.0
             total_shares_sold = 0.0
             first_buy_date_raw = None  # 最早买入日(YYYYMMDD)，用于计算整个回合真实持有时长(方案A：最早买入->卖出)
@@ -486,25 +636,26 @@ def simulate_sell_all(scenario_name, signals, buy_types, last_date, last_close, 
                 if first_buy_date_raw is None:
                     first_buy_date_raw = buy_date  # positions FIFO：第一笔是最早买入
                 total_shares_sold += shares
-                sell_amount = shares * close
-                cash += sell_amount
+                # 含费卖出：每笔独立扣佣金+过户费(简化:不合并单笔订单;万3+最低5元对1w单影响<0.5%)
+                sell_price, _sa, _c, _t, net_proceeds = _sell_with_fees(shares, close, etf_code)
+                cash += net_proceeds
                 total_amount_in += POSITION_SIZE
-                total_amount_out += sell_amount
-                total_profit += sell_amount - POSITION_SIZE
+                total_amount_out += net_proceeds
+                total_profit += net_proceeds - POSITION_SIZE
                 sold.append({
                     "buy_date": _fmt_date(buy_date), "buy_close": round(buy_close, 2),
-                    "sell_date": _fmt_date(date), "sell_close": round(close, 2),
+                    "sell_date": _fmt_date(date), "sell_close": round(sell_price, 2),
                     "hold_days": _days_between(buy_date, date),
-                    "pct": round((close - buy_close) / buy_close * 100, 2),
+                    "pct": round((sell_price - buy_close) / buy_close * 100, 2),
                     "amount_in": POSITION_SIZE,
-                    "amount_out": round(sell_amount, 2),
-                    "profit": round(sell_amount - POSITION_SIZE, 2),
+                    "amount_out": round(net_proceeds, 2),
+                    "profit": round(net_proceeds - POSITION_SIZE, 2),
                 })
             rounds.append({
                 "buy_date": sold[0]["buy_date"] if len(sold) == 1 else f"{sold[0]['buy_date']}~{sold[-1]['buy_date']}",
                 "buy_close": round(sum(s["buy_close"] for s in sold) / len(sold), 2),
                 "sell_date": _fmt_date(date),
-                "sell_close": round(close, 2),
+                "sell_close": round(sell_price, 2),
                 # 持有时长 = 最早买入日 -> 卖出日(方案A)，与左侧 buy_date 区间起点对齐；
                 # 不再用 sum(子回合 hold_days) 累加(原 bug 致 2037 天违背阅读常识)
                 "hold_days": _days_between(first_buy_date_raw, date),
@@ -1450,6 +1601,10 @@ def _generate_json(index_id, name_map, out_dir_data):
     signal_first_date = signals[0][0]
     signal_last_date = signals[-1][0]
 
+    # ETF 替代标记：get_signals 内部已用 etf_close_map 替代 close，这里查 map 拿 etf_code 写入 JSON 供前端显示
+    etf_map = _load_index_etf_map()
+    etf_code = etf_map.get(index_id)  # None=纯指数模拟
+
     wins = _windows_meta(signals, last_date)
 
     stats_data = {}  # {win_key: {path: {scenario: {summary, equity_curve}}}}
@@ -1465,7 +1620,7 @@ def _generate_json(index_id, name_map, out_dir_data):
             full_data[wk][plabel] = {}
             for slabel, btypes, stypes in zip(_SIG_LABELS, _SIG_TYPES, _SIG_SELL_TYPES):
                 result = pfunc(slabel, signals, btypes, last_date, last_close,
-                               sell_types=stypes, w_start=w_start)
+                               sell_types=stypes, w_start=w_start, etf_code=etf_code)
                 # stats：summary + 采样 equity_curve（前端渲染对比表+12卡+曲线）
                 stats_data[wk][plabel][slabel] = {
                     'summary': result['summary'],
@@ -1485,6 +1640,13 @@ def _generate_json(index_id, name_map, out_dir_data):
         'initial_capital': INITIAL_CAPITAL,
         'total_capital': TOTAL_CAPITAL,
         'position_size': POSITION_SIZE,
+        # 2026-07-28 回测精准模拟：手续费万3+滑点千1+沪市过户费万0.1，ETF 替代指数（含跟踪误差）
+        # etf_code=None=纯指数模拟（仍加 commission+slippage，统一费率横向对比）
+        'commission_rate': COMMISSION_RATE,
+        'slippage': SLIPPAGE,
+        'min_commission': MIN_COMMISSION,
+        'transfer_fee_rate_sh': TRANSFER_FEE_RATE_SH,
+        'etf_code': etf_code,  # None=纯指数，否则为 ETF 代码（成交在 ETF，信号在指数）
         'windows': [{'k': w['k'], 'l': w['l'], 's': w['s'], 'e': w['e']} for w in wins],
         'signal_first_date': _fmt_date(signal_first_date),
         'signal_last_date': _fmt_date(signal_last_date),
@@ -1544,17 +1706,20 @@ def _generate_one(index_id, name_map, out_dir_static, output=None):
 
     groups = {}
 
+    # ETF 替代标记（旧 HTML 生成也传 etf_code，保持与新 JSON 生成一致）
+    etf_map = _load_index_etf_map()
+    etf_code = etf_map.get(index_id)
     groups["买固定1w(10%)+卖清仓"] = {}
     for label, btypes, stypes in zip(SIG_LABELS, SIG_TYPES, SIG_SELL_TYPES):
-        groups["买固定1w(10%)+卖清仓"][label] = simulate_sell_all(label, signals, btypes, last_date, last_close, sell_types=stypes)
+        groups["买固定1w(10%)+卖清仓"][label] = simulate_sell_all(label, signals, btypes, last_date, last_close, sell_types=stypes, etf_code=etf_code)
 
     groups["全仓进出"] = {}
     for label, btypes, stypes in zip(SIG_LABELS, SIG_TYPES, SIG_SELL_TYPES):
-        groups["全仓进出"][label] = simulate_all_in(label, signals, btypes, last_date, last_close, sell_types=stypes)
+        groups["全仓进出"][label] = simulate_all_in(label, signals, btypes, last_date, last_close, sell_types=stypes, etf_code=etf_code)
 
     groups["固定1w(10%)进出（FIFO）"] = {}
     for label, btypes, stypes in zip(SIG_LABELS, SIG_TYPES, SIG_SELL_TYPES):
-        groups["固定1w(10%)进出（FIFO）"][label] = simulate_fixed_1w(label, signals, btypes, last_date, last_close, sell_types=stypes)
+        groups["固定1w(10%)进出（FIFO）"][label] = simulate_fixed_1w(label, signals, btypes, last_date, last_close, sell_types=stypes, etf_code=etf_code)
 
     signal_first_date = signals[0][0] if signals else None
     signal_last_date = signals[-1][0] if signals else None
