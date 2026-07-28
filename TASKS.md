@@ -682,3 +682,19 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 2. **gen_schedule_stats pending_start 读真实退出码**：现 exit=None 掩盖 crash（7-24 ETF collector SIGTRAP 退出码 133 被 None 掩盖，致 schedule_stats 滞后才暴露）。gen_schedule_stats.py 已加 `launchctl_last_exit`（AZ42），但 pending_start 状态仍读 None。需 pending_start 也调 `launchctl_last_exit` 读真实退出码
 3. **deploy.sh rebase 失败 git stash**：7-27 16:35 指数补采兜底 deploy push 失败（non-ff + rebase 失败 abort 退出），7-28 02:00 自愈。deploy.sh L141-160 rebase 段现 abort 退出等人工处理（§8 规定 agent 不得擅自 force）。可加 rebase 失败前 `git stash` 自动暂存 unstaged，rebase 成功后 `git stash pop`
 4. **futures 非交易日 dur=0s 不改**（确认非 bug，保持现状）：7-26 21:00 期货机构持仓 dur=0s（周日非交易日正常跳过）。非 bug 不需修复
+
+---
+
+## 🆕 2026-07-28 ETF统一+自动采集待办（用户诉求：统一3套ETF口径+自动采集替代硬编码）
+
+> 用户质疑 sh 用510050近似错（实际8个精准ETF跟踪上证综合指数000001），且不能每个指数/行业都硬编码。3套ETF系统（前端标签 board_etf_map.json / 回测chip index_etf_map.json / app.js硬编码 _TRADE_SIM_ETF_NAMES）需统一为1套+自动采集。
+
+1. ✅ **自动采集方案深调研完成**（方案D选定，用户定"先d 不行再e"）：dataPro全量查1555只ETF建 etf_index_map.json(etf_code->跟踪指数)，配额不够降级方案E混合fundf10爬虫。覆盖所有指数，新ETF上市不漏
+2. 🔄 **统一实施已上线(44d6cd34)+sh改方案A进行中**：board_etf_map.json唯一源+simulate_trade首位+app.js标签+回测chip 已上线；sh改8精准ETF(510210成交额14.13亿首位,6纯被动approx=false+2增强approx=true,不含510050) agent a6108fbb5265291c0 跑中；sz(159943精准)+港股(hsi/hstech/hscei用513900标approx过渡待510900确认)
+3. 🔄 **方案D第一阶段建表**（agent a21b4f8357bafc908 重派中，上次只写"开始"会话结束失败）：dataPro查1555只ETF建 data/etf_index_map.json，先测20只配额，够则全量，不够降级E混合fundf10爬虫
+4. ⏳ **方案D第二阶段**（第一阶段完成后）：改 build_board_etf_map.py 用 etf_index_map.json 自动采集替代硬编码INDEX_ETF_MAP，重新生成 board_etf_map.json
+5. ⏳ **统一检查所有指数+行业板块相关ETF**（自动采集实施后）：核对每个指数/行业的ETF候选正确完整（不再漏如sh的8个ETF）
+6. ⏳ **模拟回测重跑**：simulate_trade.py 重跑所有指数生成新 trade_sim JSON（回测chip用首位ETF，ETF变了如sh从510050改510210，回测结果变，需重跑上线）
+7. ⏳ **hscei精准ETF确认**：513900港股通100不精准，查510900是否跟踪恒生中国企业指数HSCEI，确认后改 hscei=510900(approx=false)
+
+**教训**：①3套ETF系统不同步致 sh/sz 回测chip有ETF标签无的视觉割裂（board_etf_map.json vs index_etf_map.json vs _TRADE_SIM_ETF_NAMES）②build_board_etf_map.py L103注释"sh无精准跟踪ETF"是错误判断，实际8个精准ETF（用户质疑纠正）③akshare fund_etf_spot_em()无跟踪指数字段，需深调研其他接口/数据源④首位=关联性最大(纯被动精准优先)+体量最大(成交额降序)，510210非510980(跟踪误差低但成交额小)非510050(跟踪上证50≠上证指数)
