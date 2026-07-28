@@ -1063,6 +1063,10 @@ main { padding: 16px 24px; }
   height: 2px;
 }
 .etf-pop-title { padding: 2px 10px 4px; color: var(--text-3); font-size: 10px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+/* task2：ETF popup 红黄判定行（最近一条信号 + 日期） */
+.etf-pop-sig { padding: 2px 10px; font-size: 10px; border-bottom: 1px solid var(--border); margin-bottom: 2px; }
+.etf-pop-sig-buy { color: #e6492e; font-weight: 600; }
+.etf-pop-sig-no { color: #b8860b; }
 .etf-pop-row { display: flex; gap: 6px; padding: 3px 10px; cursor: pointer; align-items: center; }
 .etf-pop-row:hover { background: var(--primary-bg); }
 .etf-pop-row.copied { background: #e8f5e9; }

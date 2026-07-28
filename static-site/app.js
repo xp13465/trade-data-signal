@@ -8801,8 +8801,11 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   if (!cardEl) return;
   if (!etfs || !etfs.length) return;  // sh/sz 综合指数无跟踪ETF -> 不渲染
   var h3 = cardEl.querySelector("h3");
-  if (!h3) return;
-  if (h3.querySelector(".etf-tag")) return;  // 避免重复注入
+  // 2026-07-20 板分化适配：行业网格卡无 h3，走 spark-name 路径（仿 _appendStrategyHint L1689）
+  var sparkName = !h3 ? cardEl.querySelector(".spark-name") : null;
+  var target = h3 || sparkName;
+  if (!target) return;
+  if (target.querySelector(".etf-tag")) return;  // 避免重复注入
   // 检测最新信号（按 date 降序取最新一条），buy 类则高亮 tag
   var BUY_TYPES = { buy: 1, buy_aux: 1, buy_special: 1, buy_special_filtered: 1, buy_backup: 1 };
   var latest = null;
@@ -8814,9 +8817,10 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
     }
   }
   var isBuy = !!(latest && BUY_TYPES[latest.signal || latest.type]);
+  var latestDate = latest ? latest.date : "";  // task2：popup 标题行显"最近一条信号(日期)"，避免"当前"误导
   // 注入 tag HTML（top1 代码 + "+N" 候选）
-  h3.insertAdjacentHTML("beforeend", _renderEtfTag(etfs));
-  var tag = h3.querySelector(".etf-tag");
+  target.insertAdjacentHTML("beforeend", _renderEtfTag(etfs));
+  var tag = target.querySelector(".etf-tag");
   if (!tag) return;
   if (isBuy) tag.classList.add("etf-tag-buy-signal");
   // 2026-07-28 近似标注：首位 ETF approx=true 时加"⚠近似"标注（如 sh 用上证50近似上证指数，非精准跟踪）
@@ -8825,10 +8829,12 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   if (top0 && top0.approx) {
     tag.classList.add("etf-tag-approx");
     tag.insertAdjacentHTML("beforeend", '<span class="etf-approx-mark">⚠近似</span>');
-    tag.setAttribute("title", "近似替代，非精准跟踪 · 点击复制代码，悬浮看全部候选 · 颜色: 红色=当前有买点信号, 黄色=最新信号非买点");
+    // task1 C根治：删 title（原"近似替代...颜色判定"措辞），避免 _initTermPop 捕获 [title] 弹 .term-pop 盖住 .etf-popup
+    // 近似说明已在 tag 内显"⚠近似"标记，红黄判定+日期移到 .etf-popup 标题行（_bindEtfPopup）
   }
   // 绑定 popup：top1 点击复制 + 悬浮弹全部候选（按成交额降序，每行可复制）
-  _bindEtfPopup(h3, etfs);
+  // task2：传 isBuy + latestDate，popup 标题行显示红黄判定 + 最近信号日期
+  _bindEtfPopup(target, etfs, isBuy, latestDate);
 }
 
 // 行业/概念卡片：ETF 多候选展示（对齐用户诉求 -- 不替用户硬选1个）。
@@ -8838,26 +8844,38 @@ function _renderEtfTag(etfs) {
   if (!etfs || !etfs.length) return "";
   const top = etfs[0];
   const more = etfs.length > 1 ? `<span class="etf-more">+${etfs.length - 1}</span>` : "";
-  return `<span class="etf-tag" title="相关ETF · 点击复制代码，悬浮看全部候选 · 颜色: 红色=当前有买点信号, 黄色=最新信号非买点">${top.code}${more}</span>`;
+  // task1 C根治：无 title -- 避免 _initTermPop 全局 mouseover 捕获 [title] 弹 .term-pop(z:9999 fixed) 盖住 .etf-popup(z:100 absolute)
+  // task1 D止血：data-no-pop 双保险，即使后续误加 title 也被 _initTermPop L1475 显式排除
+  // task2：红黄判定措辞移到 .etf-popup 标题行（_bindEtfPopup 传 isBuy+latestDate），tag 本身只显代码+"+N"
+  return `<span class="etf-tag" data-no-pop="">${top.code}${more}</span>`;
 }
 
 function _copyEtfCode(el, code) {
   const txt = navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.resolve();
   txt.then(() => {
-    const origTitle = el.getAttribute("title") || "";
+    // task1 C根治：不依赖 title 做"已复制"反馈（title 已删，避免 _initTermPop 捕获）
+    // 改用 .copied class（CSS L1020/1033 已有绿底视觉反馈）+ data-copied 属性（a11y/selector 备用）
     el.classList.add("copied");
-    el.setAttribute("title", `已复制 ${code}`);
-    setTimeout(() => { el.classList.remove("copied"); el.setAttribute("title", origTitle); }, 900);
+    el.setAttribute("data-copied", code);
+    setTimeout(() => { el.classList.remove("copied"); el.removeAttribute("data-copied"); }, 900);
   });
 }
 
-function _bindEtfPopup(cell, etfs) {
+function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
   if (!etfs || !etfs.length) return;
   const tag = cell.querySelector(".etf-tag");
   if (!tag) return;
   const popup = document.createElement("div");
   popup.className = "etf-popup";
-  popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` +
+  // task2：标题行下加红黄判定 + 最近信号日期，措辞明确"最近一条信号"非"当前"
+  // 原 tag title 措辞"当前有买点信号"误导（实际=最新一条不限时间）；buy 类含 buy/buy_aux/buy_special/buy_special_filtered/buy_backup
+  var sigLine = "";
+  if (latestDate) {
+    sigLine = isBuy
+      ? `<div class="etf-pop-sig etf-pop-sig-buy">🔴 最近买类信号(${latestDate})</div>`
+      : `<div class="etf-pop-sig etf-pop-sig-no">🟡 最近信号非买点(${latestDate})</div>`;
+  }
+  popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` + sigLine +
     etfs.map((e) => `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span></div>`).join("");
   tag.appendChild(popup);
   const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
@@ -8957,7 +8975,6 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     cell.dataset.iid = id; // A9: 供轮动频次 Top N chip 点击滚动定位
     const sign = up ? "+" : "";
     const hint = statsHint(idx.stats, idx.strategy, id);
-    const etfTag = _renderEtfTag(idx.etfs);
     // A9: 板块轮动频次标记（fund_flow 方向反转次数，高频🔥🔥/中频🔥）
     const rotFreq = _calcRotationFreq(idx.fund_flow);
     const rotTag = _rotationTag(rotFreq);
@@ -8973,7 +8990,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const pctSuffix = (pct != null) ? ` <span class="pct-badge" style="color:${color}">${sign}${pct.toFixed(2)}%</span>` : "";
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${idx.name}${etfTag}${closeSuffix}${pctSuffix}${rotTag}</span>
+        <span class="spark-name">${idx.name}${closeSuffix}${pctSuffix}${rotTag}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
@@ -8985,7 +9002,8 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     // 信号频率改为 hover pop：绑在对应信号的成功率行(hint-row)上，悬浮显示频率
     _bindFreqPopupToHintRows(cell, idx.stats);
     // ETF：top1 标签可点复制，悬浮弹全部候选（按成交额降序，每行可复制）
-    _bindEtfPopup(cell, idx.etfs);
+    // task3：改用 _appendEtfLinkTag（与指数表现一致：ETF tag 在 sim-btn 后 + 红黄判定），signals 在 L8950 已定义
+    _appendEtfLinkTag(cell, id, idx.etfs, signals);
     // B2：视口懒加载行业 detail（tooltip 专属字段），进视口即预取
     // 2026-07-20 板分化 chip：同步懒加载 _appendBackupChipRow，避免循环里同步调触发 58 并发 stats.json fetch
     const _io = new IntersectionObserver((entries) => {
