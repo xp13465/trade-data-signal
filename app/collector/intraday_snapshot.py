@@ -1079,10 +1079,32 @@ def _export_affected_json(is_closed: bool = False) -> None:
                           export_mod.export_summary_history())
 
     # 9 指数 detail（反哺的指数 OHLC + signals，含港股 hsi/hstech/hscei）
+    # 方案B(2026-07-28): affected 动态合并 = 17 基础 + 今日有信号的非基础指数。
+    # 让 sw_/thsc_/cgb_ 等出信号当日的 per-index -all.json 也盘中到 T 日（原仅 17 基础盘中更新）。
+    # 查 signal_daily 当日 DISTINCT index_id，排除已在 17 基础的（避免重复导出）。
     affected = list(_SNAPSHOT_TO_INDEX_ID.values())
+    try:
+        today = datetime.now().strftime("%Y%m%d")
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT index_id FROM signal_daily WHERE date=?", (today,))
+        base_set = set(affected)
+        extra = [row[0] for row in cur.fetchall() if row[0] not in base_set]
+        if extra:
+            affected.extend(extra)
+            print(f"  [intraday] affected 动态合并: 17 基础 + {len(extra)} 今日有信号非基础指数 "
+                  f"({', '.join(extra)})", flush=True)
+        else:
+            print(f"  [intraday] affected 动态合并: 今日无非基础指数出信号，保持 17 基础", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] affected 动态合并查询失败（回退 17 基础）: {type(e).__name__} {e}", flush=True)
     for iid in affected:
-        export_mod.write_json(export_mod.INDEX_DIR / f"{iid}-all.json",
-                              export_mod.export_index_detail(conn, cfg, iid))
+        try:
+            export_mod.write_json(export_mod.INDEX_DIR / f"{iid}-all.json",
+                                  export_mod.export_index_detail(conn, cfg, iid))
+        except Exception as e:  # noqa: BLE001
+            # 方案B: 动态加的非基础指数可能无 index_daily 数据（queries.index_detail 容错），
+            # 单个失败不阻断其余指数导出（原 17 基础无 try/catch，动态加的需要容错）。
+            print(f"  [intraday] index detail {iid} 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
     # hk tab JSON（含港股指数 OHLC + 港股通；港股反哺后需更新）
     for rng in export_mod.EXPORT_RANGES:

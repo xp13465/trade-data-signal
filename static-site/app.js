@@ -304,6 +304,7 @@ function signalColor(s) {
   if (s.signal === "buy_backup") return "#9c27b0";   // 备买 紫（Supertrend 趋势转向）
   if (s.signal === "sell_stop_loss") return "#3498db";  // 追止损卖 蓝（ATR×3.5 止损，底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）
   if (s.signal === "band_hold") return "#ff9800";  // 波段持有 橙（国债波段仓位管理，中性状态，2026-07-24）
+  if (s.signal === "estimate") return "#909399";  // 盘中预估点 灰（方案A补T日点，非真实信号，视觉区分）
   const r = s.reason || "";
   if (r.includes("止盈")) return "#2e8b57";
   return "#2e8b57";  // 2026-07-20: 卖点统一绿（前买失效/无前买点/趋势转弱均落绿，取消灰橙）
@@ -358,6 +359,7 @@ function signalLabel(s) {
     return m ? `ATR×${m[1]}止损` : "ATR止损";  // 从 reason 动态提取倍数(csi_div=×4.5,其他=×3.5),数据驱动;底层规则从 Donchian20 下轨改为 ATR×3,2026-07-21 调 ATR×3.5 降频,趋势跟踪风控
   }
   if (s.signal === "band_hold") return "波段持有";  // 国债波段仓位管理 持有状态（2026-07-24）
+  if (s.signal === "estimate") return "预估";  // 盘中预估点（方案A补T日点，非真实信号）
   const r = s.reason || "";
   // 波段减仓/止损（国债波段仓位管理，2026-07-24）：reason 含"波段减仓X%"/"波段止损X%"
   if (r.includes("波段减仓") || r.includes("波段止损")) {
@@ -3235,19 +3237,31 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     // 的 -all.json 不更新(末日停 T-1),用户点首页 T 日 pin 弹窗看不到 T 日 K 线/pin。
     // 触发: chartData 末日 < overview.date(T 日) = 数据未同步; 末日==T 日(已同步)不显示。
     // 收盘后 update_all(17:50) 全量 export,所有指数 -all.json 同步到 T 日,提示自动消失。
-    const _ovB2 = _getCachedOverview();
-    const _todayDateB2 = _ovB2 && _ovB2.date ? _ovB2.date : "";
+    // 方案0(2026-07-28): _lagHint 仅对今日有信号的指数提示，无信号指数不误报"待17:50同步"。
+    // _sigsSR 提前到此（原在 L3249 之后），供 _lagHint 条件 + 下方信号至今盈亏行共用。
+    const _ovSR = _getCachedOverview();
+    const _sigsSR = _ovSR && _ovSR.signals_today ? _ovSR.signals_today : [];
+    const _todayDateB2 = _ovSR && _ovSR.date ? _ovSR.date : "";
     const _lastDateB2 = chartData && chartData.length ? chartData[chartData.length - 1].date : "";
-    if (_todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2) {
+    // 今日该指数有信号才提示（.some 过滤 signals_today 中 index_id 匹配且 date===T日）
+    const _hasTodaySigB2 = _sigsSR.some(it => it.index_id === indexId && it.date === _todayDateB2);
+    if (_todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2 && _hasTodaySigB2) {
       const _lagHint = document.createElement("div");
       _lagHint.className = "sig-chart-lag-hint";
       _lagHint.setAttribute("style", "margin-bottom:8px;padding:6px 10px;font-size:12px;color:#e6a23c;background:rgba(230,162,60,0.1);border:1px solid rgba(230,162,60,0.3);border-radius:4px;line-height:1.5;");
-      _lagHint.innerHTML = "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，T日(" + fmtDate(_todayDateB2) + ")的pin标注待收盘后(17:50)同步";
+      _lagHint.innerHTML = "⚠ 走势图数据截止 " + fmtDate(_lastDateB2) + "，T日(" + fmtDate(_todayDateB2) + ")有信号·盘中实时预估中，收盘后(17:50)同步最终pin";
       body.appendChild(_lagHint);
     }
+    // 方案A(2026-07-28): chartData 末日<T日时，从 intraday_snapshot.json 读实时价补 T 日预估点（兜底）。
+    // 覆盖 B 未覆盖的指数/未到 15min 增量窗口的时差：只要该指数在 intraday_snapshot.indices 有实时 close 即补。
+    if (_todayDateB2 && _lastDateB2 && _lastDateB2 < _todayDateB2) {
+      const _estPt = await _appendIntradayEstimate(chartData, sigs, indexId, _todayDateB2, isValue);
+      if (_estPt) {
+        // 补点后 chartData 末日==T日，无需再显示 _lagHint 误报（但上方 _lagHint 已基于 _hasTodaySigB2 渲染，保留语义提示）
+        // 补的预估点用 "estimate" 信号 pin 标注，视觉区分（灰色虚线 pin）
+      }
+    }
     // 信号至今盈亏行（方案B后端算）：文案=成功/失败·至今盈亏 ±X%（since_correct=null 今日/band_hold 仅显示盈亏不带成功失败）；颜色=A股红涨绿跌按since_return正负（>0红/<0绿/==0灰）
-    const _ovSR = _getCachedOverview();
-    const _sigsSR = _ovSR && _ovSR.signals_today ? _ovSR.signals_today : [];
     const _matchSR = _sigsSR.find((it) => it.index_id === indexId && it.signal === signal && it.date === date);
     if (_matchSR && _matchSR.since_return != null) {
       const _srLine = document.createElement("div");
@@ -11304,6 +11318,61 @@ function _getCachedOverview() {
 }
 function _setCachedOverview(r) {
   _overviewCache = { data: r, ts: Date.now() };
+}
+
+// 方案A(2026-07-28): intraday_snapshot.json 缓存（2 分钟 TTL），避免每次点弹窗都请求。
+// 盘中实时价用于补 T 日预估点（chartData 末日<T日 时兜底）。
+const _SNAP_TTL = 2 * 60 * 1000;
+let _snapCache = { data: null, ts: 0 };
+async function _getCachedSnapshot() {
+  const now = Date.now();
+  if (_snapCache.data && (now - _snapCache.ts) < _SNAP_TTL) return _snapCache.data;
+  try {
+    const r = await fetchJSON("./data/intraday_snapshot.json");
+    _snapCache = { data: r, ts: now };
+    return r;
+  } catch (e) { return null; }
+}
+// indexId(短式如 sh/sz/hs300) -> intraday_snapshot.indices[].code(腾讯全码如 sh000001) 反查表。
+// 与 intraday_snapshot.py 的 _SNAPSHOT_TO_INDEX_ID 同步（17 基础指数）。
+const _SNAPSHOT_IID_TO_CODE = {
+  sh: "sh000001", sz: "sz399001", hs300: "sh000300", sz50: "sh000016",
+  csi500: "sh000905", csi1000: "sh000852", cyb: "sz399006", kc50: "sh000688",
+  bj50: "bj899050", hsi: "hkHSI", hstech: "hkHSTECH", hscei: "hkHSCEI",
+  cgb_idx: "sh000012", cgb_10y_etf: "sh511260", hk_hsmbi: "hkHSMBI",
+  hk_hsmogi: "hkHSMOGI", hk_cshkdiv: "hkCSHKDIV",
+};
+// 方案A: chartData 末日<T日时，从 intraday_snapshot.json 读实时价补 T 日预估点。
+// 补点格式：index 图补 {date,open,high,low,close,pct_change,amount}；value 图补 {date,value}。
+// 同时追加 signal="estimate" 的 pin 标注（灰色"预估"pin，视觉区分非真实信号）。
+// 返回 true=已补点，false=无法补（indexId 不在快照/无实时价/快照拉取失败）。
+async function _appendIntradayEstimate(chartData, sigs, indexId, todayDate, isValue) {
+  if (!chartData || !chartData.length || !todayDate) return false;
+  if (chartData[chartData.length - 1].date >= todayDate) return false; // 末日已==T日，无需补
+  const code = _SNAPSHOT_IID_TO_CODE[indexId];
+  if (!code) return false; // 不在 17 基础指数，无实时价来源
+  const snap = await _getCachedSnapshot();
+  if (!snap || !snap.indices) return false;
+  const idx = snap.indices.find(it => it.code === code);
+  if (!idx || idx.price == null) return false;
+  // 补 T 日点到 chartData 末尾
+  if (isValue) {
+    chartData.push({ date: todayDate, value: idx.price });
+  } else {
+    // ohlc 格式：open/high/low 用盘中实际值，close 用最新价
+    chartData.push({
+      date: todayDate,
+      open: idx.open != null ? idx.open : idx.price,
+      high: idx.high != null ? idx.high : idx.price,
+      low: idx.low != null ? idx.low : idx.price,
+      close: idx.price,
+      pct_change: idx.pct_change != null ? idx.pct_change : 0,
+      amount: idx.amount != null ? idx.amount : null,
+    });
+  }
+  // 追加"预估"pin 标注（signalLabel/signalColor 已加 estimate 分支：灰色"预估"）
+  sigs.push({ date: todayDate, index_id: indexId, signal: "estimate", reason: "盘中预估价(" + idx.price + ")" });
+  return true;
 }
 
 async function openShareModal() {
