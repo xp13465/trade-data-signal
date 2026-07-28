@@ -103,7 +103,27 @@ ANOMALY_RE = re.compile(
     r'UnicodeError|UnicodeDecodeError|UnicodeEncodeError|ConnectionError|TimeoutError|'
     r'JSONDecodeError|Exception)\s*:'
     r'|FATAL\b|panic:|Segmentation fault|core dumped'
-    r'|error: failed to push|error: cannot rebase'
+)
+
+# 第4盲区修复补丁(2026-07-29): push 失败类关键词单独处理,避免 deploy.sh 内置
+# fetch+rebase+重试机制自愈后仍误报。
+# 根因: deploy.sh push 失败 -> rebase origin/main -> 重试 push 成功 打
+#   "✓ rebase + 重试 push 成功"(deploy.sh L288)或"✓ push 成功"(L303)。
+#   旧逻辑 ANOMALY_RE 含 "error: failed to push" 命中即报,不认后续成功标记,
+#   致 lab_auto 7-28 19:02 自愈后仍 log_anomaly=True 误报 active 至今。
+# 修复: push 失败命中后,若同窗口出现成功标记,判已恢复不报;无成功标记才报真实失败。
+# (futures_backfill 7-28 21:00 rebase abort 无成功标记,仍报 True=正确)
+PUSH_FAIL_RE = re.compile(
+    r'error: failed to push'
+    r'|error: cannot rebase'
+    r'|!\s*\[remote rejected\]'
+)
+# deploy.sh / update_lab.sh 的 push 成功标记(同运行窗口出现即判 push 失败已恢复)
+PUSH_SUCCESS_RE = re.compile(
+    r'✓ rebase \+ 重试 push 成功'
+    r'|✓ push 成功'
+    r'|✓ git push'
+    r'|视为幂等成功'
 )
 
 
@@ -200,11 +220,28 @@ def scan_log_anomaly(log_path: Path, script: str, mode: str) -> dict | None:
                 break
 
     # 扫描 [last_start_idx, end_idx) 之间所有行,返回首个命中
+    # 2026-07-29 修复: push 失败类(error: failed to push / error: cannot rebase /
+    #   ! [remote rejected]) 特殊处理--deploy.sh 内置 fetch+rebase+重试机制,
+    #   push 失败后 rebase 重试成功会打 "✓ rebase + 重试 push 成功" / "✓ push 成功"
+    #   等标记。若同窗口出现成功标记,判已恢复不报;无成功标记才报真实失败。
+    #   其他关键词(Traceback/异常类名/FATAL)逻辑不变,命中即报。
+    window_lines = lines[last_start_idx:end_idx]
+    has_push_success = any(PUSH_SUCCESS_RE.search(l) for l in window_lines)
     for i in range(last_start_idx, end_idx):
+        # 优先扫非 push 失败类异常(Traceback/异常类名/FATAL):命中即报,不抑制
         m = ANOMALY_RE.search(lines[i])
         if m:
             return {
                 "keyword": m.group(0),
+                "line": lines[i].strip()[:200],
+            }
+        # push 失败类:同窗口有成功标记=已恢复,跳过;无成功标记=真实失败,报
+        mp = PUSH_FAIL_RE.search(lines[i])
+        if mp:
+            if has_push_success:
+                continue  # 已恢复,不报
+            return {
+                "keyword": mp.group(0),
                 "line": lines[i].strip()[:200],
             }
     return None
