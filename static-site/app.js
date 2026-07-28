@@ -20,8 +20,8 @@ const SIM_INDICES = new Set([
   'g.gold', 'g.comex_silver', 'g.wti_oil', 'g.us10y', 'g.a_qvix_300', 'g.a_qvix_1000', 'g.brent',
   'gold', 'comex_silver', 'wti_oil', 'brent', 'us10y', 'a_qvix_300', 'a_qvix_1000',
   'sw_801010', 'sw_801030', 'sw_801040', 'sw_801050', 'sw_801080',
-  'sw_801110', 'sw_801130', 'sw_801150', 'sw_801160', 'sw_801170',
-  'sw_801180', 'sw_801210', 'sw_801230',
+  'sw_801110', 'sw_801120', 'sw_801130', 'sw_801140', 'sw_801150', 'sw_801160', 'sw_801170',
+  'sw_801180', 'sw_801200', 'sw_801210', 'sw_801230',
   'sw_801710', 'sw_801720', 'sw_801730', 'sw_801740', 'sw_801750',
   'sw_801760', 'sw_801770', 'sw_801780', 'sw_801790',
   'sw_801880', 'sw_801890', 'sw_801950', 'sw_801960', 'sw_801970', 'sw_801980',
@@ -2205,9 +2205,12 @@ function _pinReviewCardHtml(id, idx, sig) {
 }
 
 // 模拟回测按钮 HTML（2026-07-23 改动3）：从 statsHint 抽出，由调用方注入为独立 DOM。
-// SIM_INDICES 之外的指数返回空串（不渲染按钮）。
+// 2026-07-20 灰色兜底：SIM_INDICES 之外的指数也生成按钮（灰色 disabled + hover 提示"暂未接入"），
+// 不再返回空串（用户要求：按钮必须显示，不可用时灰色而非缺失，避免用户以为坏了）。
 function _simBtnHtml(indexId) {
-  if (!SIM_INDICES.has(indexId)) return "";
+  if (!SIM_INDICES.has(indexId)) {
+    return `<a class="sim-btn sim-btn-disabled" data-index="${indexId}" title="该行业暂未接入模拟回测">📊 模拟回测</a>`;
+  }
   return `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`;
 }
 // 把 sim-btn 注入 h3 末尾（标题行内排列，排在❓之后）；h3 不存在时退到 chart-hint 前独立兄弟 DOM。
@@ -8799,13 +8802,18 @@ function _bindFreqPopupToHintRows(cell, stats) {
 // 注：ETF 滞后指数，tag 仅作"信号参考"展示（ETF 已反映部分预期），非交易指令。
 function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   if (!cardEl) return;
-  if (!etfs || !etfs.length) return;  // sh/sz 综合指数无跟踪ETF -> 不渲染
   var h3 = cardEl.querySelector("h3");
   // 2026-07-20 板分化适配：行业网格卡无 h3，走 spark-name 路径（仿 _appendStrategyHint L1689）
   var sparkName = !h3 ? cardEl.querySelector(".spark-name") : null;
   var target = h3 || sparkName;
   if (!target) return;
   if (target.querySelector(".etf-tag")) return;  // 避免重复注入
+  // 2026-07-20 灰色兜底：无 ETF 时生成灰色占位符（用户要求：不能空白，否则用户以为坏了）
+  // data-no-pop 排除 _initTermPop 捕获 title（L1475），保留原生 hover tooltip "该标的暂无相关ETF"
+  if (!etfs || !etfs.length) {
+    target.insertAdjacentHTML("beforeend", '<span class="etf-tag etf-tag-empty" data-no-pop="" title="该标的暂无相关ETF">无ETF</span>');
+    return;
+  }
   // 检测最新信号（按 date 降序取最新一条），buy 类则高亮 tag
   var BUY_TYPES = { buy: 1, buy_aux: 1, buy_special: 1, buy_special_filtered: 1, buy_backup: 1 };
   var latest = null;
@@ -9004,6 +9012,10 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     // ETF：top1 标签可点复制，悬浮弹全部候选（按成交额降序，每行可复制）
     // task3：改用 _appendEtfLinkTag（与指数表现一致：ETF tag 在 sim-btn 后 + 红黄判定），signals 在 L8950 已定义
     _appendEtfLinkTag(cell, id, idx.etfs, signals);
+    // 2026-07-20 板分化三按钮补齐：📌 钉住 + 🔔 订阅（与指数表现 L2967-2969 一致顺序：[etf-tag][📌][🔔]）
+    // sig 构造 {signals, stats} 对齐指数表现 sig = signalsCache[id] 结构
+    _appendPinBtn(cell, id, idx, { signals: signals, stats: idx.stats });
+    _appendSubscribeBtn(cell, id, idx.name);
     // B2：视口懒加载行业 detail（tooltip 专属字段），进视口即预取
     // 2026-07-20 板分化 chip：同步懒加载 _appendBackupChipRow，避免循环里同步调触发 58 并发 stats.json fetch
     const _io = new IntersectionObserver((entries) => {

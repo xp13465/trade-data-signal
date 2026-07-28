@@ -570,6 +570,19 @@ main { padding: 16px 24px; }
   box-shadow: 0 2px 6px rgba(51,112,255,.3);
   color: #fff;
 }
+/* 2026-07-20 灰色兜底：未接入模拟回测的行业也显示按钮（灰色 disabled + hover 提示"暂未接入"）。
+   用户要求：按钮必须显示，不可用时灰色而非缺失，避免用户以为坏了。 */
+.sim-btn.sim-btn-disabled {
+  background: var(--bg-hover, #e9ecef);
+  color: var(--text-3, #999);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.sim-btn.sim-btn-disabled:hover {
+  background: var(--bg-hover, #e9ecef);
+  color: var(--text-3, #999);
+  box-shadow: none;
+}
 .chart-hint .hint-warn { color: #d4380d; font-weight: 600; }
 .chart-hint .hint-note { color: var(--text-3); font-size: 11px; }
 .chart-hint .hint-note b { color: #d4380d; font-weight: 600; }
@@ -1034,6 +1047,17 @@ main { padding: 16px 24px; }
 /* 2026-07-28 近似替代标注：首位 ETF approx=true 时（如 sh 用上证50近似上证指数）加"⚠近似"标记 */
 .etf-tag .etf-approx-mark { font-size: 9px; margin-left: 2px; color: #e67e22; font-weight: 600; }
 .etf-tag.etf-tag-buy-signal .etf-approx-mark { color: rgba(255, 235, 156, 0.95); }
+/* 2026-07-20 灰色兜底：无 ETF 时灰色占位符（虚线边框+浅色文字，hover 原生 tooltip "暂无相关ETF"）。
+   用户要求：不能空白，固定占位符做好提示，避免用户以为坏了。data-no-pop 排除 _initTermPop。 */
+.etf-tag.etf-tag-empty {
+  color: var(--text-3, #999);
+  background: transparent;
+  border: 1px dashed var(--border, #ddd);
+  cursor: default;
+  font-size: 9px;
+  font-family: var(--font-base, inherit);
+}
+.etf-tag.etf-tag-empty:hover { background: transparent; }
 .etf-popup {
   display: none; position: absolute; z-index: 100; left: 0; top: 100%; margin-top: 3px;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
