@@ -4123,3 +4123,100 @@ DB 查询今日（20260728）signal_daily：
 - intraday 15m->10m（plist 本地改，非 git tracked）
 
 **落档后**：commit + push feat（盘中合规，仅改 NOTES.md，未跑全量 export/deploy，未 add 根目录 data/ 下文件）。
+
+### 小节AZ54：2026-07-28 10:40 平台"实时预估"优化点调研报告（9模块+6维度全覆盖，纯调研落档不改码）
+
+**背景**：走势图今日pin已用"实时预估"思路（方案A盘中用intraday_snapshot实时价补T日点，方案B affected动态合并盘中重导，方案0前端文案）。用户问：考虑实时预估的话，平台还有哪里可以优化？本节调研9模块+6维度，给优化点清单+可行性+优先级。**纯调研落档，不改任何代码**。
+
+**一、数据流现状（调研结论）**
+
+已有盘中实时能力（`intraday_snapshot` 每10min跑，`app/collector/intraday_snapshot.py`）：
+- 反哺 `index_daily`：17指数（9A股核心+3港股宽基+4信号触发+1新浪港股）+ 30申万行业（聚合90二级行业）+ 27概念
+- 重算 `score_daily`：a_sentiment / cross_market / fear_greed（恐贪指数）+ 8 width指标（涨跌家数/涨停跌停/炸板率/成交额）
+- 重算 `signal_daily`：buy / sell / band_hold / buy_special / buy_aux / buy_backup / sell_stop_loss（7类）
+- 重算 rotation（轮动速度）
+- export 静态JSON：overview.json（含恐贪/情绪/KPI sparkline/买卖点/冰点/热力图）+ sentiment×5ranges + index/{iid}-all.json×affected（17基础+今日有信号扩展，方案B）+ hk×5 + a-stock×5 + global（非closed跳过）+ industry-{rng} + rotation + summary
+- 前端缓存（`app.js` L2306 `_NO_CACHE_URLS`）：overview/intraday_snapshot/metrics/summary/index/*-all 用 no-store（不读浏览器缓存），其他 no-cache + 5min _resultCache。**时效敏感数据盘中实时性OK**
+
+盘后才有数据（intraday不刷新，需盘后任务采集）：
+
+| 数据 | 任务时点 | 数据源 | 盘中可预估? |
+|------|---------|--------|------------|
+| ETF国家队持仓 | 20:07 & 21:30 | akshare fund_etf_scale_sse/szse（交易所份额披露） | 部分（实时价+昨份额估市值，不算净加仓） |
+| 龙虎榜 | 18:30 & 19:30 | akshare stock_lhb_detail_em（盘后披露） | 否 |
+| 两融 | 19:15 | akshare（交易所盘后公布） | 否 |
+| 期货持仓 | 20:05 & 21:00 | akshare（大商所/中金所盘后公布） | 部分（实时价估盈亏，净加仓无法） |
+| 策略实验室 | 19:00 | 跑回测（需收盘价确认信号） | 否（盘中跑意义不大） |
+| global外盘 | 17:50全量 | T+1（A股盘中外盘无新数据） | 否 |
+| 全量44个-all.json | 17:50 | export.py全量 | affected17已盘中（方案B），其余非必要 |
+
+走势图pin 0+B+A 已实现（commit 37399375，详见AZ53第六节）：方案0（`_lagHint`文案）+ 方案B（affected动态合并）+ 方案A（`_appendIntradayEstimate`补T日灰色预估点）。
+
+**二、优化点汇总表**
+
+| # | 优化点 | 模块 | 当前状态 | 优化方案 | 可行性 | 收益 | 优先级 | 改动量 |
+|---|--------|------|---------|---------|--------|------|--------|--------|
+| 1 | KPI走势弹窗补T日预估点 | 首页KPI | `openKpiDetailModal`末日T-1 | 复用`_appendIntradayEstimate`补预估点 | 高 | 中 | P0 | 小 |
+| 2 | 下次10m更新倒计时 | 首页UX | intraday已10m但无倒计时 | 基于`collected_at`+10min算倒计时显示 | 高 | 中 | P0 | 小 |
+| 3 | 盘后数据"待更新"角标 | ETF/龙虎榜/两融/期货 | 盘中显示T-1无提示 | 各卡片加"待盘后XX:XX更新"角标 | 高 | 中 | P1 | 中 |
+| 4 | fade-detect盘中实时监测 | 邮件/信号 | `check_signals`盘后触发 | intraday_snapshot内盘中监测信号消失推送 | 中 | 中 | P1 | 中 |
+| 5 | ETF国家队盘中市值预估 | ETF汪汪队 | 盘中无更新 | 实时ETF价+昨份额估市值波动，标"预估" | 中 | 中 | P1 | 中 |
+| 6 | 盘中状态全局标识 | 首页UX | is_closed有但提示弱 | 未收盘时全局顶部"盘中预估中"横幅 | 高 | 低 | P1 | 小 |
+| 7 | 期货持仓盘中盈亏预估 | 期货tab | 盘中无持仓更新 | 实时期货价+昨持仓估盈亏 | 低 | 低 | P2 | 中 |
+| 8 | 策略实验室盘中轻量回测 | 策略实验室 | 19:00盘后跑 | 盘中实时价跑回测 | 低 | 低 | P2 | 大 |
+| 9 | 龙虎榜/两融盘中预估 | 龙虎榜/两融 | 盘后披露 | 无（数据源限制） | - | - | 不做 | - |
+
+**三、详细分析（P0/P1 重点项目）**
+
+**P0-1 KPI走势弹窗补T日预估点**
+- 数据流：overview.json（indices_sparkline含当日盘中值）-> 前端KPI卡片显示当日值 -> 点击弹窗`openKpiDetailModal`（`app.js` L3522）读sentiment-{rng}.json画历史走势 -> 末日可能T-1
+- 现状：`openKpiDetailModal`（L3522-3603）**未调用**`_appendIntradayEstimate`，走势图末日可能是T-1
+- 方案：在`openKpiDetailModal`画完走势图后，复用`_appendIntradayEstimate`（indexId改为score_id/kpiId映射）补T日预估点（灰色estimate标签）
+- 改动点：`static-site/app.js` `openKpiDetailModal`函数（L3522-3603）。方案A函数已存在，直接复用。需确认KPI走势图series结构和信号弹窗兼容（score_id vs index_id）
+
+**P0-2 下次10m更新倒计时**
+- 数据流：`intraday_snapshot.json`有`collected_at`字段 -> 前端`renderIntradayChips`（`app.js` L4201）已展示采集时间
+- 现状：展示"XX:XX采集"但无下次更新倒计时
+- 方案：基于`collected_at`+10min算下次更新时点，显示倒计时"下次更新XX:XX（剩Y分Z秒）"。复用debug倒计时逻辑（正在修的）
+- 改动点：`static-site/app.js` `renderIntradayChips`函数（L4201附近），加倒计时DOM+定时器
+
+**P1-3 盘后数据"待更新"角标**
+- 现状：盘中ETF国家队/龙虎榜/两融/期货持仓卡片显示T-1数据，用户不知为何不是今日
+- 方案：各卡片加角标"待盘后XX:XX更新"（ETF国家队20:07/龙虎榜18:30/两融19:15/期货持仓20:05），基于当前时间判断盘中则显示
+- 改动点：`static-site/app.js` `renderFutures`（L6242）/`renderNationalTeam`（L6268）等渲染函数加角标DOM
+
+**P1-4 fade-detect盘中实时监测**
+- 现状：`check_signals.py`（L105）fade-detect监测buy系列信号收盘消失 -> 邮件警示，但只在check_signals触发（盘后17:50）
+- 方案：`intraday_snapshot`每10min跑时调用fade-detect逻辑监测信号消失，实时推送邮件/订阅
+- 改动点：`app/collector/intraday_snapshot.py` `collect_and_save`后加fade-detect调用；抽离`check_signals`的fade逻辑为可复用函数
+
+**P1-5 ETF国家队盘中市值预估**
+- 现状：`etf_national_team.py`采集ETF份额（fund_etf_scale_sse/szse盘后披露）+ETF价格算市值/净加仓，盘中份额无更新
+- 方案：盘中用ETF实时价格（fund_etf_fund_daily_em盘中可取）+昨日份额，估算今日市值波动（不算净加仓），标注"预估市值（基于昨份额）"
+- 改动点：`app/collector/etf_national_team.py`加盘中预估函数；`static-site/export.py` `export_etf_national_team`加预估字段；前端`renderNationalTeam`展示预估
+- 局限：份额T+1才更新，预估只反映价格波动非加仓动作
+
+**P1-6 盘中状态全局标识**
+- 现状：`intraday_snapshot.json`有`is_closed`字段，`renderIntradayChips`已用，但提示在intraday区域非全局醒目
+- 方案：未收盘时首页顶部加"盘中预估中（数据实时更新，收盘后17:50同步最终）"横幅
+- 改动点：`static-site/app.js` `renderOverview`（L5206）或顶部加横幅DOM
+
+**四、与走势图pin 0+B+A模式可复用性**
+
+| 模式 | 可复用场景 | 说明 |
+|------|-----------|------|
+| 方案A（前端补预估点） | P0-1 KPI走势弹窗、（如有）恐贪/情绪历史走势弹窗 | `_appendIntradayEstimate`函数已存在，直接复用补T日灰色预估点 |
+| 方案B（后端动态affected） | 已用于index/{iid}-all.json（17基础+今日信号扩展） | 可扩展到其他按需导出JSON，但当前affected已覆盖出信号指数，非必要 |
+| 方案0（前端文案） | P1-3 盘后数据角标、P1-6 盘中横幅 | `_lagHint`思路复用，提示用户数据时效状态 |
+
+**核心复用点**：方案A的`_appendIntradayEstimate`是通用预估点补丁，任何"走势图末日T-1"场景都可复用。P0-1 KPI弹窗是最佳复用场景（函数已存在，只需在`openKpiDetailModal`调用）。
+
+**五、结论**
+
+- **已优化**（走势图pin + intraday反哺17指数+重算scores/signals/width）：首页KPI/情绪/恐贪/行业宽度/买卖信号/走势图pin 盘中已实时
+- **P0可立即做**（2项）：KPI弹窗预估点 + 更新倒计时，复用现有函数，改动小
+- **P1短期**（4项）：盘后数据角标 + 盘中横幅 + fade-detect盘中 + ETF市值预估
+- **P2长期**（2项）：期货盈亏预估 + 策略实验室盘中回测
+- **不做**（1项）：龙虎榜/两融（数据源盘后披露限制）
+
+**落档后**：commit + push feat（盘中合规，仅改 NOTES.md，未跑全量 export/deploy，未 add 根目录 data/ 下文件）。完整报告见 `/tmp/agent-progress-opt-report.md`。
