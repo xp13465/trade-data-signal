@@ -471,8 +471,11 @@ def is_market_closed(at: datetime | None = None) -> tuple[bool, str]:
     时间+数据双重判断：传入 at（通常是快照 collected_at）时按该时刻判断
     落在哪个时段；不传默认 now（向后兼容现有无参调用）。
 
-    4 态区分（基于 at 而非当前时钟）：
+    5 态区分（基于 at 而非当前时钟）：
     - 盘中(9:30-11:30 / 13:00-15:00 周一至五交易日): (False, "盘中实时小结")
+    - 竞价完成(9:25-9:30): (False, "竞价完成·待开盘（9:30开盘）")
+      # 9:25 集合竞价完成，开盘价已确定（腾讯实时源返开盘价），但连续竞价未开始。
+      # is_closed=False：非收盘态，盘中跳过 global 导出省5-10s；用户 9:25 即可看竞价开盘涨跌。
     - 午休(11:30-13:00): (False, "午休·盘中暂停（13:00复牌）")  # 午休也算未收盘
     - 收盘 / 非交易日: (True, "收盘快照")
     - at 早于今天（旧数据）: (True, "上一交易日收盘")
@@ -493,6 +496,10 @@ def is_market_closed(at: datetime | None = None) -> tuple[bool, str]:
     hm = at.hour * 100 + at.minute
     if (930 <= hm <= 1130) or (1300 <= hm < 1500):
         return False, "盘中实时小结"
+    if 925 <= hm < 930:
+        # 9:25 集合竞价完成，开盘价已定（腾讯实时源返开盘价），连续竞价 9:30 才开始。
+        # is_closed=False：非收盘态，盘中跳过 global 导出省5-10s；用户 9:25 即可看竞价开盘涨跌。
+        return False, "竞价完成·待开盘（9:30开盘）"
     if 1130 < hm < 1300:
         return False, "午休·盘中暂停（13:00复牌）"
     return True, "收盘快照"
