@@ -4309,3 +4309,45 @@ DB 查询今日（20260728）signal_daily：
 - symlink路径：`__file__`在symlink下不解析真实路径，trade-data cwd跑simulate_trade.py读不到trade/data/index_etf_map.json，用`os.path.realpath(__file__)`根治（同§9 cwd=trade-data规范副作用）
 - 滞后vs异常语义：T+1源过采集时刻=异常（计划内应到未到），未到时刻=正常待更新，T+0源滞后=兜底警示；弹窗与角标口径必须一致，否则同一数据源两处显示矛盾
 - ETF同类去重：227只买入77%淹没（续10 C2三分类后仍188 buy），同类去重31组合并减123只，保留每组最优score；去重关键词优先级表（复合>行业>宽基>全名）是核心设计
+
+### 小节AZ57：2026-07-28 晚续 ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F
+
+> 4 件事闭环：①ETF统一+自动采集（续接前次方案D）②回测切窗口数据不变bug修复（用户报"进模拟回测弹窗 切换时间窗口 数据不变"）③ETF历史K线补采治本 ④trade_sim HTML升级5窗口+撤销方案F。commit 链：`de4be178` / `6482d461` / `a426c38d` / `78eae801` / `63a0daee` / `ba0c4dae`(data update [all] 2026-07-29_00:15)。
+
+**1. ETF统一+自动采集（续接前次方案D）**
+- 3套ETF系统割裂：前端标签 `board_etf_map.json`(展示源) / 回测chip `index_etf_map.json`(已废弃) / app.js硬编码 `_TRADE_SIM_ETF_NAMES`
+- sh改8精准ETF（commit `de4be178`，510210首位）：510210/510760/510980/530060/510910/510140/562810/563930（6纯被动 approx=false + 2增强 approx=true，不含510050跟踪上证50≠上证指数）
+- 方案D第二阶段自动采集（commit `6482d461`）：`build_board_etf_map.py` 读 `etf_index_map.json` 建反向映射 `{track_index_code:[etf_code]}`，每指数按 amount 降序取 ETF。修3硬编码bug：hscei 513900->510900 / hsi 513600->159920 / sz 159943->159903
+- 豆包3方案调研：AkShare无跟踪指数字段不成立 / Tushare需8000积分 / 当前方案D已等效，用户定继续D
+- `etf_index_map.json` 建表（1555只/ok=1192/上证综指8个全到位），dataPro MCP 单查ETF返回 track_index_code
+
+**2. 回测切窗口数据不变 bug 修复（用户报"进模拟回测弹窗 切换时间窗口 数据不变"）**
+- 根因：`simulate_trade.py _pick_first_etf` 运行时过滤数据<252天的ETF（方案D），phase2重跑后首位ETF上市太晚（sh 510210仅170天），`get_signals` L248-249 `rows=[(d,s,r,etf_close_map[d]) for ... if d in etf_close_map]` 丢弃ETF上市前 signals，5窗口全退化全史跑同一批。48/103品种受影响
+- 修复方案：方案D（保留，运行时过滤 `min_data_days=252`）+ ETF历史K线补采治本
+- 前端双入口确认：app.js L10297 modal（左键 sim-btn，读 `trade_sim_data/*.json`，主入口）+ L2146 sim-btn跳HTML（中键/ctrl兜底）。用户报"弹窗"=modal
+- 评级✅❌移指数名前（commit `a426c38d`，DOM顺序 `[信号标签b][⚠][评级][☑️/✖️][指数名]`，bump sw a49->a50）
+
+**3. ETF历史K线补采治本（commit `78eae801`）**
+- 新增 `scripts/backfill_etf_daily.py`：akshare `fund_etf_hist_sina`（新浪源，东财 `fund_etf_hist_em` 被封）拉全史
+- 补采 1228 只 ok ETF 全成功，入库 988688 行，>=252天ETF 17->885只（总表889只）
+- 关键ETF全史：510050 50ETF 5208天 / 510300 300ETF 3443天 / 159915 创业板 3551天 / 512660 军工 2420天
+- etf_daily 表 252516->1034267行（增 781751），1371->1478只
+- `build_board_etf_map` 重跑：59空->16空，行业ETF全恢复（证券512880/银行512800/通信515880/军工512660等）
+- `simulate_trade --all` 重跑：103成功，行业ETF etf_code全恢复（补采前=None），5窗口 .s 各行业不同（防退化成功）
+
+**4. trade_sim HTML升级5窗口 + 撤销方案F（commit `63a0daee`）**
+- 根因：`simulate_trade.py --all` 默认只生成JSON不生成HTML（需 `--html` flag）；trade-data 的 HTML 是悬空 symlink（94/100指向不存在的 trade/static-site/）
+- 旧版HTML单窗口不含5窗口，升级 `build_html`：新增 `windows_stats`/`windows_meta` 参数 + `_render_window_table()` + 5窗口tab切换(all/y10/y5/y3/y1) + subtitle内嵌5窗口起止日期 + CSS/JS。无 `windows_stats` 时退化单窗口兜底
+- `_generate_one` 读 `trade_sim_{id}_stats.json` 提取 `windows_meta`+5窗口summary传 `build_html`（不重复计算，与modal同源）
+- 跑 `--all --html` 生成103个HTML（2.5MB/个），上传R2 `trade_sim/`（103个）+ `trade_sim_data/`（412个stats）
+- 撤销方案F：`build_board_etf_map.py` 移除 `MIN_ETF_DATA_DAYS=252` 常量 + `_count_etf_days_multi` 辅助函数 + 源头过滤逻辑（-73行）。方案F是设计错误（展示源不应过滤），保留方案D（`simulate_trade.py` 运行时过滤）。backfill后全>=252天，撤销后 board_etf_map 内容不变
+
+**线上验证（3+1域名）**
+- R2 ssd.fx8.store/trade_sim/trade_sim_sh.html last-modified=2026-07-28 16:12:55 GMT（今天），2.5MB，内嵌5窗口 2011/2016/2021/2023/2025
+- R2 ssd.fx8.store/trade_sim_data/trade_sim_sh_stats.json generated_at=2026-07-28 23:35，etf_code=510210，5窗口防退化
+- ss.fx8.store board_etf_map sh=8个+行业非空
+
+**教训**
+- 回测切窗口退化根因：ETF上市晚 + `get_signals` 按 `etf_close_map` 过滤丢上市前 signals，5窗口全退化全史跑同一批；治本=补采ETF全史而非调过滤逻辑（方案D运行时过滤保留正确，数据不足才是根因）
+- 展示源不应过滤（方案F设计错误）：`board_etf_map.json` 是展示源，过滤<252天ETF是 `simulate_trade` 运行时过滤的职责，混在展示源导致空ETF；撤销方案F保留方案D是正确分层
+- HTML与JSON不同源风险：`simulate_trade --all` 默认只生JSON不生HTML，旧HTML单窗口不含5窗口，前端 modal 读JSON（主入口）vs HTML（中键兜底）两入口数据口径需一致；HTML 需显式 `--html` flag 重生
