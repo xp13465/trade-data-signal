@@ -4351,3 +4351,62 @@ DB 查询今日（20260728）signal_daily：
 - 回测切窗口退化根因：ETF上市晚 + `get_signals` 按 `etf_close_map` 过滤丢上市前 signals，5窗口全退化全史跑同一批；治本=补采ETF全史而非调过滤逻辑（方案D运行时过滤保留正确，数据不足才是根因）
 - 展示源不应过滤（方案F设计错误）：`board_etf_map.json` 是展示源，过滤<252天ETF是 `simulate_trade` 运行时过滤的职责，混在展示源导致空ETF；撤销方案F保留方案D是正确分层
 - HTML与JSON不同源风险：`simulate_trade --all` 默认只生JSON不生HTML，旧HTML单窗口不含5窗口，前端 modal 读JSON（主入口）vs HTML（中键兜底）两入口数据口径需一致；HTML 需显式 `--html` flag 重生
+
+### 小节AZ58：2026-07-29 晚 chip方案D多窗口综合分+ETF hover+板块分化按钮+过拟合警示文案
+
+> 本轮4项修复闭环上线：①chip三档方案D多窗口综合分根治"最稳健选出近10年-13.31%回撤84%"②ETF tag hover重叠/红黄措辞/位置统一三项③板块分化按钮灰色兜底(SIM_INDICES缺3行业+未调pin/subscribe)④chip过拟合警示文案优化方案C。commit 链：`e2b097c7` / `b082462a` / `5be5a2d3` / `62e7d19e`。sw.js CACHE_VERSION 连升 a50->a51->a52->a53->a54。
+
+**1. chip 三档方案D 多窗口综合分（commit `e2b097c7`，sw a51）**
+
+- **根因**：用户报"最稳健"选出近10年-13.31%回撤84%不稳健。`steadyScore` 单窗口打分（wrNorm*0.4+ddN*0.4+opsNorm*0.2）门槛"年化>回撤"只验证 entry 自身窗口，单窗口虚高即被推"稳健"。
+- **修复**：打分单元从单窗口 entry 改成策略（path+scen 二元组）聚合5窗口指标：profitWins（盈利窗口数）/medianAnn（年化中位）/medianDd（回撤中位）/maxDdAll（5窗口最大回撤）/totalOpsSum（总操作数）。
+- **三档门槛**：
+  - 年化最高 = 年化中位 >= TH.ann AND 盈利窗口数 >= 3
+  - 最稳健 = 综合分 >= 0.5 AND 盈利窗口数 >= 3
+  - 回撤最小 = 5窗口最大回撤最小 AND 年化中位 > 0 AND 样本 >= 3
+- **核心**：盈利窗口数>=3 门槛防单窗口虚高被推"稳健"。
+
+**2. ETF tag 三项修复（commit `b082462a`，sw a52）**
+
+- **hover 重叠**：`.etf-tag` 删 `title` + 加 `data-no-pop`（避免 `_initTermPop` 捕获弹 `.term-pop` 盖住 `.etf-popup`）+ `_copyEtfCode` 改 `.copied` class 不依赖 `title`。
+- **红黄措辞**：`_bindEtfPopup` 加"🔴最近买类信号(日期)/🟡最近信号非买点(日期)"，消除"当前"误导（实际=最新一条信号不限时间）。
+- **板块分化位置统一方案A**：`_appendEtfLinkTag` 支持 spark-name 回退（h3->target）+ 板块分化改调 `_appendEtfLinkTag`，位置（ETF tag 在 sim-btn 后）+ 红黄判定都统一。
+
+**3. 板块分化按钮灰色兜底（commit `5be5a2d3`，sw a53）**
+
+- **根因**：`SIM_INDICES` 缺 sw_801120（食品饮料）/sw_801140（轻工）/sw_801200（商贸零售）3 行业 + `renderIndustryGrid` 未调 `_appendPinBtn`/`_appendSubscribeBtn`。
+- **修复**：
+  - `_simBtnHtml` 始终生成（不在 `SIM_INDICES` 时灰色 disabled + hover "暂未接入"）
+  - 补 3 sw 进 `SIM_INDICES`（stats.json 存在变可用）
+  - L9017/9018 加 pin/subscribe 调用
+  - `_appendEtfLinkTag` etfs 为空时生成"无ETF"灰色占位符 + hover 提示
+- **用户要求**：sim-btn 必须保持有，不可用灰色+hover 提示原因；无 ETF 行业固定占位符不空白。
+
+**4. chip 过拟合警示文案优化方案C（commit `62e7d19e`，sw a54）**
+
+- **调研结论**：警示不是旧逻辑残留。整治（AZ26-AZ38）管参数侧（signals.py per-index 调参），警示（AZ39）管结果侧（trade_sim 夏普>3），两者不同维度互补。
+- **4 误导点修复**：
+  - ① 10.59 被误读年化（实际夏普）
+  - ② "部分"指代不明
+  - ③ 全局 maxSharpe（10.59 来自非三档推荐策略）和"三档推荐需谨慎"组合误导（三档实际 6.91/6.91/3.43）
+  - ④ 没区分参数过拟合 vs 小样本高夏普
+- **修复**：警示条改"夏普比率红线提示" + 明确"165 回测中最高" + 来源 + AZ26-AZ38 整治说明 + "非必过拟合判定" + 三档 chip 各自标注策略夏普（6.91⚠ 等） + `_sharpeRedlineInfo` 增强返回 maxSource + topTierMaxSharpe 区分全局 max vs 三档 max。
+
+**5. 附带发现（独立问题，未修）**
+
+- 所有 28 个申万行业 trade_sim HTML 线上 404（HTML 未上传 R2，sim-btn 左键跳 modal 读 stats.json 不受影响 online 200，中键/ctrl 跳 HTML 才 404）。
+
+**今日 commit 清单（4 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `e2b097c7` | chip三档方案D多窗口综合分(策略聚合5窗口+盈利>=3门槛防单窗口虚高) sw a51 |
+| `b082462a` | ETF tag三项(hover重叠data-no-pop+红黄措辞🔴🟡+位置统一_appendEtfLinkTag) sw a52 |
+| `5be5a2d3` | 板块分化按钮灰色兜底(_simBtnHtml始终生成+补3sw进SIM_INDICES+无ETF占位符) sw a53 |
+| `62e7d19e` | chip过拟合警示文案优化方案C(夏普红线提示+maxSource+topTierMaxSharpe区分) sw a54 |
+
+**教训**
+- chip 三档门槛应基于策略多窗口聚合指标而非单窗口 entry 指标：单窗口易虚高（短期运气），5窗口综合分+盈利>=3门槛才是"稳健"的真实度量；打分单元从 entry 提升到策略(path+scen 二元组)是关键设计。
+- ETF tag hover 重叠根因是 `_initTermPop` 全局捕获 title 属性，加 `data-no-pop` 显式排除 + `.copied` class 替代 title 反馈是分层防御（不只靠一处规避）。
+- 按钮"不可用"应灰色兜底而非不生成：用户期望 sim-btn 始终在（哪怕灰色），空白会让用户以为前端坏了；hover 提示原因比直接消失更友好，符合"展示源不应过滤"分层原则（同 AZ57 方案F撤销教训）。
+- 过拟合警示文案应明确"红线指标 vs 判定结论"区别：夏普>3 是红线提示非必过拟合判定（小样本也可能高夏普），全局 max 与三档 max 要分开标注避免误导；整治(AZ26-AZ38 参数侧)与警示(AZ39 结果侧)是互补两维度非重复。
