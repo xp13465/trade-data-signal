@@ -346,6 +346,8 @@ main { padding: 16px 24px; }
 .ur-fchip.t1-latest { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.15); }
 .ur-fchip.t1 { color: var(--text-3); border-color: var(--border-strong); }
 .ur-fchip.t1-stale { color: #e6a23c; border-color: rgba(230,162,60,0.6); background: rgba(230,162,60,0.18); }
+/* T+1 过渡态(未到采集时刻,正常等待):中性灰蓝(slate-500),与 .card-time-badge.t1-pending 同色 */
+.ur-fchip.t1-pending { color: #64748b; border-color: rgba(100,116,139,0.5); background: rgba(100,116,139,0.18); }
 .ur-fchip.t1-severe { color: #c62828; border-color: rgba(198,40,40,0.7); background: rgba(198,40,40,0.18); }
 /* 走势图大卡(.chart-card)右上角空旷，角标放回右上角；基础数据小卡(.card.kpi)保持右下角(右上更盖标题，右下是两害取其轻) */
 .chart-card .card-time-badge { top: 6px; right: 8px; bottom: auto; }

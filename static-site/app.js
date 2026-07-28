@@ -3822,7 +3822,10 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
     return `<span class="card-time-badge t1-severe" data-tip="${ttl}">🚨 异常·${mmdd}</span>`;
   }
   if (srcClass === "t1") {
-    const ttl = `T+1数据源盘后公布，当前未到最晚可得时刻，末日 ${mmdd}，已滞后约${lagDays}天，预计稍后更新`;
+    // T+1源未到采集时刻显前一交易日属正常设计(非异常/非滞后)，消除"已滞后约X天"误导口径
+    const _dl = T1_COLLECT_DEADLINE[srcKey];
+    const _dlStr = _dl === "next_day" ? "次日盘后" : (_dl ? `当日${_dl}后` : "盘后");
+    const ttl = `T+1数据源${_dlStr}才发布当日值，未到采集时刻显示前一交易日(${mmdd})属正常设计(非异常)，预计${_dlStr}更新`;
     return `<span class="card-time-badge t1-pending" data-tip="${ttl}">⏳ T+1待更新·${mmdd}</span>`;
   }
   const ttl = `数据滞后(末日 ${mmdd})，盘中等待刷新或update_all尚未运行`;
@@ -3964,7 +3967,12 @@ function _pastCollectDeadline(key) {
   const [hh, mm] = t.split(":").map(Number);
   return _bjTimeMin() >= hh * 60 + mm;
 }
-function _dataFreshness(dateStr, ptd, relax, snapDate) {
+// srcKey: T+1源标识(查T1_COLLECT_DEADLINE得最晚可得时刻)；T+0源传空""走滞后口径。
+// 与 getCardTimeBadge 三档分级同口径：
+//   - T+1源 dateStr<baseline: 过最晚可得时刻=_pastCollectDeadline(srcKey)?t1-severe(🚨异常):t1-pending(⏳T+1待更新,非滞后)
+//   - T+0源 dateStr<baseline: >15天=t1-severe(🚨异常) 否则=t1-stale(⚠滞后)
+// 消除"T+1源过采集时刻仍显⚠滞后"误导(用户原话:如果不是异常哪就不应该提示滞后)
+function _dataFreshness(dateStr, ptd, relax, snapDate, srcKey) {
   if (!dateStr) return { cls: "", text: "无数据" };
   const mmdd = dateStr.length === 8 ? `${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}` : dateStr;
   // 盘中未到采集时点：基准放宽到 ptd-1 交易日(显示前一交易日算正常等待)
@@ -3974,6 +3982,14 @@ function _dataFreshness(dateStr, ptd, relax, snapDate) {
     const cls = (snapDate && dateStr === snapDate) ? "t1-latest" : "t1";
     return { cls, text: `📅 T+1·${mmdd}` };
   }
+  // dateStr < baseline：T+1源走 pastDeadline 三档(T+1源盘中/未到时刻显 t1-pending 是正常设计非滞后)
+  if (srcKey) {
+    if (_pastCollectDeadline(srcKey)) {
+      return { cls: "t1-severe", text: `🚨 异常·${mmdd}` };
+    }
+    return { cls: "t1-pending", text: `⏳ T+1待更新·${mmdd}` };
+  }
+  // T+0源：dateStr<baseline 即真滞后(⚠)；>15天升级异常(🚨)，保留原口径
   let severe = false;
   if (dateStr.length === 8 && ptd.length === 8) {
     const d1 = new Date(+dateStr.slice(0, 4), +dateStr.slice(4, 6) - 1, +dateStr.slice(6, 8));
@@ -4010,7 +4026,7 @@ function _buildHealthSources(r, snap) {
   const findM = (id) => metrics.find((m) => m.id === id);
   const margin = findM("a_fund_margin");
   if (margin && margin.date) {
-    const f = _dataFreshness(margin.date, ptd, _t1Relax("a_fund_margin", intraday), shDate);
+    const f = _dataFreshness(margin.date, ptd, _t1Relax("a_fund_margin", intraday), shDate, "a_fund_margin");
     sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布较晚(实测22:10仍未出当日),当晚23:00单采+凌晨backfill兜底补齐(逢周末顺延到下一交易日)" });
   }
   // 北向资金 2024-08 起源端停更。停≤30天提示用户，>30天长期停更不再提醒（避免长期挂红条烦扰）。
@@ -4028,13 +4044,13 @@ function _buildHealthSources(r, snap) {
   const amt = findM("a_amount");
   if (amt && amt.date) {
     if (intraday) sources.push({ name: "成交/涨停", cls: "intraday", text: "✓ 实时", hint: "成交额/涨停数盘中实时(东财板池),收盘后定格" });
-    else { const f = _dataFreshness(amt.date, ptd, undefined, shDate); sources.push({ name: "成交/涨停", cls: f.cls, text: f.text, hint: "成交额/涨停数,收盘后定格" }); }
+    else { const f = _dataFreshness(amt.date, ptd, undefined, shDate, ""); sources.push({ name: "成交/涨停", cls: f.cls, text: f.text, hint: "成交额/涨停数,收盘后定格" }); }
   }
   // 综合情绪分
   const scores = (r && r.today && r.today.scores) || {};
   const aSent = scores.a_sentiment;
   if (aSent && aSent.date) {
-    const f = _dataFreshness(aSent.date, ptd, undefined, shDate);
+    const f = _dataFreshness(aSent.date, ptd, undefined, shDate, "");
     sources.push({ name: "情绪分", cls: f.cls, text: f.text, hint: "综合情绪分基于各指标计算,随依赖指标更新而更新" });
   }
   // === T+1 补充源：多为盘后次日发布。优先从 today.metrics / indices_sparkline 取最新日期分级；
@@ -4061,7 +4077,7 @@ function _buildHealthSources(r, snap) {
     // 美股跨市场时区滞后：未过16:35采集点放宽基准(同 getCardTimeBadge 美股特殊处理)
     if ((cfg.mid || cfg.dateKey) === "us_dji_date") relax = !_pastCollectDeadline("us_dji_date");
     let cls, text;
-    if (dateStr) { const f = _dataFreshness(dateStr, ptd, relax, shDate); cls = f.cls; text = f.text; }
+    if (dateStr) { const f = _dataFreshness(dateStr, ptd, relax, shDate, cfg.mid || cfg.dateKey || ""); cls = f.cls; text = f.text; }
     else { cls = "t1"; text = cfg.def; }
     sources.push({ name: cfg.name, cls, text, hint: cfg.hint });
   });
@@ -11730,12 +11746,12 @@ async function _renderFreshnessInModal() {
   }
   if (!r) { box.innerHTML = '<p class="ur-note">时效数据加载失败，请稍后重试</p>'; return; }
   const sources = _buildHealthSources(r, snap);
-  let staleCount = 0, hasSevere = false;
+  let staleCount = 0, severeCount = 0;
   sources.forEach((s) => {
-    if (s.cls === "t1-stale" || s.cls === "t1-severe") staleCount++;
-    if (s.cls === "t1-severe") hasSevere = true;
+    if (s.cls === "t1-stale") staleCount++;
+    if (s.cls === "t1-severe") severeCount++;
   });
-  const summary = hasSevere ? `🚨 ${staleCount}项异常` : staleCount > 0 ? `⚠ ${staleCount}项滞后` : "✓ 全部正常";
+  const summary = severeCount > 0 ? `🚨 ${severeCount}项异常` : staleCount > 0 ? `⚠ ${staleCount}项滞后` : "✓ 全部正常";
   const chips = sources.map((s) =>
     `<span class="ur-fchip ${s.cls}" data-tip="${s.hint || ""}">${s.name}<span class="ur-fval">${s.text}</span></span>`
   ).join("");
