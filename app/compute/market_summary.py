@@ -20,6 +20,7 @@ _SCORE_ID_CN = {
     "sentiment_csi1000": "中证1000情绪",
     "sentiment_cyb": "创业板情绪",
     "sentiment_kc50": "科创50情绪",
+    "low_alert": "低位机会",
 }
 
 

@@ -215,8 +215,13 @@ for _f in overview futures ad_line volume_ratio position \
           lab_ablation lab_cost_compare lab_param_scan lab_short_symmetry; do
   DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
 done
-# feed.xml（gen_rss.py 生成，非 .json）+ min JS
-DATA_FILES+=("static-site/data/feed.xml" "static-site/app.min.js" "static-site/lab.min.js")
+# feed.xml（gen_rss.py 生成，非 .json）+ min JS/CSS（build_min.py 生成的全部 6 个 min 文件，
+# 2026-07-20 修复：原仅 add app.min.js/lab.min.js，漏 style.min.css/common.min.js/purpose-notes.min.js/lab.min.css，
+# 致改 CSS 后 style.min.css 不上线；9b98425c 手动补的根因根治）
+DATA_FILES+=("static-site/data/feed.xml" \
+  "static-site/app.min.js" "static-site/lab.min.js" \
+  "static-site/common.min.js" "static-site/purpose-notes.min.js" \
+  "static-site/style.min.css" "static-site/lab.min.css")
 # 精确文件列表 git add（部分文件不存在时 git 报 fatal 但继续，不影响其余 add；deploy 无 set -e 不阻塞）
 git -C "$GIT_REPO" add "${DATA_FILES[@]}" 2>&1 | tee -a "$LOG" || true
 # alert_analyze_*.json 动态列表（40 宽基+行业，新增品种自动覆盖），前缀通配只匹配 alert_analyze_
