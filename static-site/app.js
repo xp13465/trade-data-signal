@@ -4957,7 +4957,7 @@ function _initRefreshDebugBar() {
   const el = document.createElement('div');
   el.id = 'refresh-debug';
   el.style.cssText = 'position:fixed;bottom:2px;right:6px;z-index:1;font-size:10px;line-height:1.4;' +
-    'color:rgba(125,125,125,0.62);background:rgba(255,255,255,0.35);padding:2px 6px;border-radius:3px;' +
+    'color:var(--text-3);background:color-mix(in srgb,var(--bg-card) 45%,transparent);padding:2px 6px;border-radius:3px;' +
     'pointer-events:none;max-width:280px;font-family:ui-monospace,Menlo,Consolas,monospace;' +
     'backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
   document.body.appendChild(el);
