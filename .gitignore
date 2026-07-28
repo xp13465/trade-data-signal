@@ -57,6 +57,8 @@ config/telegram.json
 
 # A12 订阅推送配置（含订阅者邮箱/chat_id，敏感 -- 用 subscriptions.json.example 作模板）
 config/subscriptions.json
+# C 方案（2026-07-24）：CF Workers 订阅接口密码（回流同步用，敏感）
+config/sub_pwd.json
 
 # 系统
 .DS_Store

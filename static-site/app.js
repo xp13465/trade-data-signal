@@ -634,17 +634,17 @@ function _backupSignalChipRender(sd, id) {
   var sharpeRedlinePrefix = '';
   if (sharpeInfo.isRedline) {
     var shVal = sharpeInfo.maxSharpe.toFixed(2);
-    sharpeRedlinePrefix = '<span class="signal-chip chip-sharpe-redline" data-tip="该品种部分回测夏普 ' + shVal + ' &gt; 3(Bailey 2014 可疑过拟合红线)。trade_sim 夏普为事件稀疏 equity_curve 收益率 sqrt(252) 年化近似值(与 lab 同口径),值偏高;高夏普可能来自参数过拟合/低波动/小样本,非判定必过拟合。详见完整回测 modal,历史表现不代表未来">⚠ 可疑过拟合(夏普' + shVal + '&gt;3)</span>';
+    sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种部分回测夏普 ' + shVal + ' &gt; 3(Bailey 2014 可疑过拟合红线)。trade_sim 夏普为事件稀疏 equity_curve 收益率 sqrt(252) 年化近似值(与 lab 同口径),值偏高;高夏普可能来自参数过拟合/低波动/小样本,非判定必过拟合。详见完整回测 modal,历史表现不代表未来">⚠ 可疑过拟合警示: 部分回测夏普 ' + shVal + ' &gt; 3 (Bailey 2014 红线), 高夏普可能来自参数过拟合/低波动/小样本, 三档推荐需谨慎看待<span class="warn-tip">trade_sim 夏普为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径), 值偏高; 标注为"可疑"非"必过拟合"判定, 详见完整回测 modal</span></div>';
   }
   // 2026-07-25 方向D 黑名单分级：
   //   _OVERFIT_FAILED_IDS（WF 确凿失效）：维持屏蔽，仅显示过拟合标注 chip，不进三档
   //   _SMALL_SAMPLE_IDS（小样本 n<30）：不屏蔽，三档 chip 正常计算 + 前置"样本不足"标注 chip 提醒
   var smallSamplePrefix = '';
   if (id && _OVERFIT_FAILED_IDS.has(id)) {
-    return sharpeRedlinePrefix + '<div class="signal-chip chip-overfit-placeholder">⚠ 过拟合/测试段失效,不进推荐<span class="chip-tip">该品种信号在 walk-forward 测试段反向退化(WF夏普 &lt; 未过滤全样本),不进三档推荐;详见完整回测 modal,历史表现不代表未来</span></div>';
+    return sharpeRedlinePrefix + '<div class="overfit-warn-row overfit-warn-failed">⚠ 过拟合/测试段失效: 信号在 walk-forward 测试段反向退化(WF夏普 &lt; 未过滤全样本), 不进三档推荐<span class="warn-tip">该品种信号在 WF 测试段反向退化(WF夏普 &lt; 未过滤全样本), 不进三档推荐; 详见完整回测 modal, 历史表现不代表未来</span></div>';
   }
   if (id && _SMALL_SAMPLE_IDS.has(id)) {
-    smallSamplePrefix = '<span class="signal-chip chip-small-sample-note" data-tip="该品种 C1 主买信号在 walk-forward 测试段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测 modal">📜 样本不足</span>';
+    smallSamplePrefix = '<div class="overfit-warn-row overfit-warn-sample" data-tip="该品种 C1 主买信号在 walk-forward 测试段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测 modal">📜 样本不足提示: C1 主买测试段样本量 n&lt;30, 统计意义弱, 三档推荐仅供谨慎参考<span class="warn-tip">WF 测试段 n&lt;30 统计意义弱; 详见完整回测 modal</span></div>';
   }
   // 窗口 key -> 中文 label 映射（优先用后端 sd.windows.l，缺失兜底硬编码；2026-07-23 chip 英文中文化）
   var winLabel = Object.assign(
@@ -748,7 +748,7 @@ function _backupSignalChipRender(sd, id) {
     // 三档全 null（弱标的整体不达标）：显示兜底文案，区别于三色档中性灰
     // 小样本品种仍前置标注 chip（让用户知道样本量限制，即便三档全不达标）
     // 2026-07-27 sharpe 红线品种仍前置红线 chip（即便三档全不达标，夏普越线信息仍需透明）
-    return sharpeRedlinePrefix + smallSamplePrefix + '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>';
+    return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>' + sharpeRedlinePrefix + smallSamplePrefix;
   }
   // chip val 第二行：该 scenario+path 在 5 窗口的年化对比
   function win5Ann(e) {
@@ -778,16 +778,16 @@ function _backupSignalChipRender(sd, id) {
     // sd.etf_code 由 simulate_trade.py _generate_json 写入（None=纯指数，agent3 重新生成 JSON 后才有值；
     // 旧 JSON 无此字段时 undefined -> 当作纯指数显示，避免 NaN/undefined 泄漏到 UI）
     var etfCode = sd && sd.etf_code;
-    var line3 = etfCode ? ('ETF ' + etfCode + ' · 含费万3') : '指数模拟 · 含费万3';
+    var line3 = etfCode ? ('ETF ' + etfCode + ' 模拟 · 含费万3') : '指数模拟 · 含费万3';
     return { line1: line1, line2: line2, line3: line3 };
   }
-  return sharpeRedlinePrefix + smallSamplePrefix + chips.map(function (c) {
+  return chips.map(function (c) {
     var emoji = c.kind === 'strong' ? '📈' : c.kind === 'steady' ? '👍' : '🛡';
     var cls = c.kind === 'strong' ? 'signal-chip-strong' : c.kind === 'steady' ? 'signal-chip-steady' : 'signal-chip-lowdraw';
     var tip = _backupSignalChipTip(sd, scored, c);
     var v = formatVal(c);
     return '<span class="signal-chip ' + cls + '" data-tip="' + tip + '">' + emoji + ' ' + c.tier + ' · ' + v.line1 + '&#10;   ' + v.line2 + '&#10;   ' + v.line3 + '</span>';
-  }).join('');
+  }).join('') + sharpeRedlinePrefix + smallSamplePrefix;
 }
 // chip tooltip：该档 scenario+path 5 窗口 summary + 全 165 该维度 Top5 + 合规文案
 // 2026-07-23 格式美化：区块分隔线 + │ 列分隔 + ⚠ 合规前缀；winLabel 本函数内自建(隔离 _backupSignalChipRender 局部作用域)
@@ -1024,6 +1024,44 @@ function _getSignalScore(it) {
   return (d && d.score != null) ? d : null;
 }
 
+// 技术分析参考点准确率统计（2026-07-28 B方案）：遍历 items 统计 since_correct
+// ☑️(true)/✖️(false)/null(今日/未结算不计分母)，并按 _getSignalScore 的 score 分档
+// （高≥0.75/中0.55-0.75/低<0.55）分别统计。返回 {total, grade:{high,mid,low}}。
+// pct = t/(t+f)*100，t+f=0 时 pct=null（避免 0/0 误导）。无 score 的 item 计入 total 但不计入分档。
+function _calcSignalAccuracy(items) {
+  const acc = {
+    total: { t: 0, f: 0, n: 0, pct: null },
+    grade: {
+      high: { t: 0, f: 0, n: 0, pct: null },
+      mid: { t: 0, f: 0, n: 0, pct: null },
+      low: { t: 0, f: 0, n: 0, pct: null },
+    },
+  };
+  if (!items || !items.length) return acc;
+  const _tally = (bin, it) => {
+    if (it.since_correct === true) bin.t++;
+    else if (it.since_correct === false) bin.f++;
+    else bin.n++;
+  };
+  for (const it of items) {
+    _tally(acc.total, it);
+    const sc = _getSignalScore(it);
+    if (!sc || sc.score == null) continue; // 无 score 不计入分档
+    const s = sc.score;
+    let bin;
+    if (s >= 0.75) bin = acc.grade.high;
+    else if (s >= 0.55) bin = acc.grade.mid;
+    else bin = acc.grade.low;
+    _tally(bin, it);
+  }
+  const _pct = (bin) => (bin.t + bin.f > 0 ? (bin.t / (bin.t + bin.f)) * 100 : null);
+  acc.total.pct = _pct(acc.total);
+  acc.grade.high.pct = _pct(acc.grade.high);
+  acc.grade.mid.pct = _pct(acc.grade.mid);
+  acc.grade.low.pct = _pct(acc.grade.low);
+  return acc;
+}
+
 // 首页冰点日/买卖点卡片：按日期分组渲染，同日4个/行，今日(date===todayDate)高亮且排首。
 // items: freeze={date,score_id,value} | signal={date,index_id,signal,reason}
 // kind: "freeze" | "signal"；todayDate: 数据"今日"基准(r.date)
@@ -1109,7 +1147,18 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       rows += `<div class="sig-day-row${isToday ? " today-row" : ""}"><span class="sig-day-date">${dateLabel}</span><div class="sig-items">${cellsHtml}</div></div>`;
     }
   }
-  return `<h3>${title}</h3><div class="signal-grid">${rows}</div>`;
+  // B方案(2026-07-28): 技术分析参考点准确率汇总条（仅 signal 类；freeze 无 since_correct/score 不显示）
+  // 格式：总准确率 X% (T对/F错·N未结算) | 高 X% (t/f) · 中 X% (t/f) · 低 X% (t/f)
+  // 高/中/低前带色点(高绿#15803d/中橙#e6a23c/低灰)；高档0样本(t+f=0) pct=null 显示"-"避免0/0误导
+  let _accHtml = "";
+  if (kind === "signal") {
+    const _acc = _calcSignalAccuracy(items);
+    const _fmt = (pct) => (pct == null ? "-" : pct.toFixed(0) + "%");
+    const _seg = (label, bin, dotCls) =>
+      `<span class="sig-acc-seg"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</span>`;
+    _accHtml = `<div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (${_acc.total.t}对/${_acc.total.f}错·${_acc.total.n}未结算) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low")}</div>`;
+  }
+  return `<h3>${title}</h3>${_accHtml}<div class="signal-grid">${rows}</div>`;
 }
 
 // 买卖点回测 stats tips（折线图上方）：散户化多块文案 + 胜率配色梯度 + 凯利公式折叠详解。
@@ -1682,6 +1731,35 @@ function _saveSubUserInfo(info) {
   try { localStorage.setItem(_SUB_USER_INFO_LS_KEY, JSON.stringify(info || {})); } catch (e) {}
 }
 
+// C 方案（2026-07-24）：CF Workers 订阅接口单用户密码认证。
+// 密码存 localStorage key sub_pwd（用户在订阅弹窗输入），每次请求带 X-Sub-Pwd header。
+// 生产环境 /api/subscribe 走 CF Workers + KV；本地开发走 uvicorn main.py（无密码，_subFetch 仍兼容）。
+var _SUB_PWD_LS_KEY = "sub_pwd";
+function _getSubPwd() {
+  try { return localStorage.getItem(_SUB_PWD_LS_KEY) || ""; } catch (e) { return ""; }
+}
+function _setSubPwd(pwd) {
+  try { localStorage.setItem(_SUB_PWD_LS_KEY, pwd || ""); } catch (e) {}
+}
+// 统一 fetch 包装：自动加 X-Sub-Pwd header + r.ok 容错（旧代码直接 .json() 不判状态码）。
+// 返回 Promise<json>（已解析），HTTP 错误时 reject（catch 显示友好提示）。
+function _subFetch(url, opts) {
+  opts = opts || {};
+  var headers = Object.assign({}, opts.headers || {});
+  var pwd = _getSubPwd();
+  if (pwd) headers["X-Sub-Pwd"] = pwd;
+  opts.headers = headers;
+  return fetch(url, opts).then(function (r) {
+    if (!r.ok) {
+      var msg = "订阅接口未启用(HTTP " + r.status + ")";
+      if (r.status === 401) msg = "密码错误，请在弹窗中重新输入订阅密码";
+      if (r.status === 503) msg = "订阅接口未配置密码（联系管理员设置 SUBSCRIBE_PASSWORD）";
+      throw new Error(msg);
+    }
+    return r.json();
+  });
+}
+
 function _appendSubscribeBtn(cardEl, indexId, indexName) {
   if (!cardEl || !indexId) return;
   var h3 = cardEl.querySelector("h3");
@@ -1719,6 +1797,7 @@ function _openSubscribeModal(indexId, indexName) {
   var userInfo = _loadSubUserInfo();
   var defaultEmail = userInfo.email || "";
   var defaultChatId = userInfo.telegram_chat_id || "";
+  var defaultSubPwd = _getSubPwd();  // C 方案：订阅密码预填（存 localStorage）
   // 信号类型 checkbox（默认全选）
   var sigCheckboxes = _SUB_SIGNAL_LABELS.map(function (s) {
     return '<label class="sub-sig-check"><input type="checkbox" value="' + s.key + '" checked>'
@@ -1731,6 +1810,7 @@ function _openSubscribeModal(indexId, indexName) {
         '<button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
       '<div class="rule-modal-content">' +
         '<div class="sub-form-section">' +
+          '<div class="sub-form-row"><label>订阅密码</label><input id="sub-pwd" type="password" placeholder="访问订阅功能所需密码" value="' + defaultSubPwd + '" autocomplete="off"></div>' +
           '<div class="sub-form-row"><label>订阅名称（可选）</label><input id="sub-name" type="text" placeholder="如：我的宽基订阅" maxlength="40"></div>' +
           '<div class="sub-form-row"><label>邮箱（可选）</label><input id="sub-email" type="email" placeholder="your@example.com" value="' + defaultEmail + '"></div>' +
           '<div class="sub-form-row"><label>Telegram chat_id（可选）</label><input id="sub-chatid" type="text" placeholder="数字 id 或 @channelname" value="' + defaultChatId + '"></div>' +
@@ -1768,6 +1848,7 @@ function _saveSubscriptionFromModal(currentIndexId) {
   var name = (document.getElementById("sub-name").value || "").trim();
   var email = (document.getElementById("sub-email").value || "").trim();
   var chatId = (document.getElementById("sub-chatid").value || "").trim();
+  var subPwd = (document.getElementById("sub-pwd").value || "").trim();
   var targetsRaw = (document.getElementById("sub-targets").value || "").trim();
   var msgEl = document.getElementById("sub-msg");
   // 解析 targets（逗号分隔，去空格去重）
@@ -1778,17 +1859,19 @@ function _saveSubscriptionFromModal(currentIndexId) {
   var checkboxes = document.querySelectorAll("#subscribe-modal .sub-sig-check input:checked");
   checkboxes.forEach(function (cb) { signals.push(cb.value); });
   // 校验
+  if (!subPwd) { _setSubMsg("请填写订阅密码", true); return; }
   if (!targets.length) { _setSubMsg("请填写订阅标的", true); return; }
   if (!email && !chatId) { _setSubMsg("邮箱和 Telegram chat_id 至少填一个", true); return; }
-  // 存 localStorage 免重复输入
+  // 存 localStorage 免重复输入（密码+邮箱+chat_id）
+  _setSubPwd(subPwd);
   _saveSubUserInfo({ email: email, telegram_chat_id: chatId });
   var payload = { id: "", name: name, email: email, telegram_chat_id: chatId, targets: targets, signals: signals, enabled: true };
   _setSubMsg("保存中...", false);
-  fetch("/api/subscribe", {
+  _subFetch("/api/subscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-  }).then(function (r) { return r.json(); }).then(function (data) {
+  }).then(function (data) {
     if (data.ok) {
       _setSubMsg("✓ 订阅已保存（" + (data.action === "created" ? "新建" : "更新") + "）", false);
       _renderSubscriptionsList();  // 刷新列表
@@ -1811,7 +1894,7 @@ function _renderSubscriptionsList() {
   var listEl = document.getElementById("sub-list");
   if (!listEl) return;
   listEl.innerHTML = '<div class="sub-list-loading">加载中...</div>';
-  fetch("/api/subscribe").then(function (r) { return r.json(); }).then(function (data) {
+  _subFetch("/api/subscribe").then(function (data) {
     var subs = data.subscriptions || [];
     if (!subs.length) {
       listEl.innerHTML = '<div class="sub-list-empty">暂无订阅。在上方填写信息后点"保存订阅"创建。</div>';
@@ -1854,8 +1937,7 @@ function _renderSubscriptionsList() {
 }
 
 function _deleteSubscription(subId) {
-  fetch("/api/subscribe/" + encodeURIComponent(subId), { method: "DELETE" })
-    .then(function (r) { return r.json(); })
+  _subFetch("/api/subscribe/" + encodeURIComponent(subId), { method: "DELETE" })
     .then(function (data) {
       if (data.ok) {
         _setSubMsg("✓ 订阅已删除", false);
@@ -8677,7 +8759,7 @@ function _renderEtfTag(etfs) {
   if (!etfs || !etfs.length) return "";
   const top = etfs[0];
   const more = etfs.length > 1 ? `<span class="etf-more">+${etfs.length - 1}</span>` : "";
-  return `<span class="etf-tag" title="相关ETF · 点击复制代码，悬浮看全部候选">${top.code}${more}</span>`;
+  return `<span class="etf-tag" title="相关ETF · 点击复制代码，悬浮看全部候选 · 颜色: 红色=当前有买点信号, 黄色=最新信号非买点">${top.code}${more}</span>`;
 }
 
 function _copyEtfCode(el, code) {
@@ -10212,6 +10294,13 @@ var _TRADE_SIM_WIN_DEFS = [
   { k: "y1",  l: "近1年" },
 ];
 var _TRADE_SIM_DEFAULT_WIN = "y5";
+// trade_sim etf_code -> ETF 名称映射（9 个宽基/港股 ETF 替代品种；JSON 顶层 etf_name 为 null, 前端自建名称表）
+// 用于回测详情 modal infoBar 显示"回测标的: ETF 代码（名称）"; sh 映射 510050=上证50ETF 近似替代上证指数(非完美跟踪)
+var _TRADE_SIM_ETF_NAMES = {
+  '510050': '上证50ETF', '510300': '沪深300ETF', '510500': '中证500ETF', '512100': '中证1000ETF',
+  '159915': '创业板ETF', '588000': '科创50ETF',
+  '513900': 'H股ETF', '513600': '恒生ETF', '513130': '恒生科技ETF'
+};
 
 function _tradeSimOverlayEl() {
   if (_tradeSimOverlay) return _tradeSimOverlay;
@@ -10582,15 +10671,17 @@ function _tradeSimEquitySVG(curve, initCap, gradId) {
 }
 
 // 12卡（照搬 _scenario_panel 的 .sim-cards 12个卡片，字段不删不减）
-function _tradeSimCardsHTML(s, initCap) {
+function _tradeSimCardsHTML(s, initCap, etfCode) {
   var ddStr = s.max_drawdown.toFixed(1) + '%';
   var ddDate = s.max_drawdown_date || 'N/A';
   var totalOps = s.buy_count + s.sell_count;
   var skippedTotal = s.skipped_full + s.skipped_no_cash + s.skipped_no_position;
   var signalTotal = totalOps + skippedTotal;
+  // 2026-07-20 总资产卡片副标题加 ETF 代码标注（ETF 替代 vs 纯指数模拟）
+  var _assetSub = etfCode ? ' · ETF ' + etfCode : ' · 纯指数模拟';
   return '<div class="sim-flow">' + s.flow_desc + '</div>' +
     '<div class="sim-cards">' +
-    '<div class="sim-card"><span class="k">总资产变化</span><span class="v">' + _tradeSimFmtNum(s.total_capital) + ' -> ' + _tradeSimFmtNum(s.final_total) + ' 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 ' + _tradeSimFmtNum(s.final_holdings) + ' 元</div></span></div>' +
+    '<div class="sim-card"><span class="k">总资产变化</span><span class="v">' + _tradeSimFmtNum(s.total_capital) + ' -> ' + _tradeSimFmtNum(s.final_total) + ' 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 ' + _tradeSimFmtNum(s.final_holdings) + ' 元' + _assetSub + '</div></span></div>' +
     '<div class="sim-card"><span class="k">最大持仓</span><span class="v">' + _tradeSimFmtNum(s.max_holding) + ' 元（' + s.max_holding_pct + '%）<div class="sub">' + s.max_holding_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k">总收益</span><span class="v" style="color:' + _tradeSimColorPct(s.total_return) + '">' + _tradeSimFmtNum(s.total_return) + ' 元（' + (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct.toFixed(2) + '%）</span></div>' +
     '<div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">首笔买入至今 ' + s.years + ' 年</div></span></div>' +
@@ -10607,8 +10698,10 @@ function _tradeSimCardsHTML(s, initCap) {
 }
 
 // 交易记录清单表（11列，照搬 _scenario_panel 的 ledger 表）
-function _tradeSimLedgerHTML(ledger, indexName) {
+function _tradeSimLedgerHTML(ledger, indexName, etfCode) {
   if (!ledger || !ledger.length) return '<div style="padding:12px;color:var(--text-3)">无交易记录</div>';
+  // 2026-07-20 加 ETF 代码标注：ETF 替代品种表头/提示用 "ETF 代码", 纯指数保留 indexName
+  var _priceColName = etfCode ? ('ETF ' + etfCode) : indexName;
   var rows = ledger.map(function (entry, j) {
     var opClass = entry.op.indexOf('止损') >= 0 ? 'sell_stop_loss'
       : entry.op.indexOf('卖') >= 0 ? 'sell'
@@ -10654,10 +10747,10 @@ function _tradeSimLedgerHTML(ledger, indexName) {
       '<td style="color:' + pctColor + ';font-weight:600">' + pctStr + '</td>' +
       '</tr>';
   }).join('');
-  return '<h3 style="margin:20px 0 2px;font-size:15px;">📒 交易记录清单（' + ledger.length + ' 笔，按时间轴）</h3>' +
-    '<p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 -> 得份额；卖出：卖份额 -> 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × ' + indexName + '收盘价。</p>' +
+  return '<h3 style="margin:20px 0 2px;font-size:15px;">📒 交易记录清单' + (etfCode ? ' · ETF ' + etfCode : '') + '（' + ledger.length + ' 笔，按时间轴）</h3>' +
+    '<p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 -> 得份额；卖出：卖份额 -> 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × ' + _priceColName + '收盘价。</p>' +
     '<div class="sim-table-wrap"><table><thead><tr>' +
-    '<th>#</th><th>日期</th><th>' + indexName + '收盘</th><th>较上条涨跌</th><th>操作</th><th>交易金额</th><th>份额变动</th><th>持仓份额</th><th>持仓市值</th><th>当前总资产</th><th>累计收益率</th>' +
+    '<th>#</th><th>日期</th><th>' + _priceColName + '收盘</th><th>较上条涨跌</th><th>操作</th><th>交易金额</th><th>份额变动</th><th>持仓份额</th><th>持仓市值</th><th>当前总资产</th><th>累计收益率</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 
@@ -10862,16 +10955,16 @@ function _tradeSimComparisonTableHTML(sd, win) {
 }
 
 // 场景面板：12卡 + 曲线 + 交易记录(懒加载) + 未平仓 + 回合表
-function _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId) {
+function _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId, etfCode) {
   var s = winData.summary;
-  var cards = _tradeSimCardsHTML(s, initCap);
+  var cards = _tradeSimCardsHTML(s, initCap, etfCode);
   var equitySvg = '<h3 style="margin:20px 0 2px;font-size:15px;">📈 资产变化曲线</h3>' +
     '<p style="margin:0 0 4px;font-size:11px;color:var(--text-3)">虚线 = 初始资金 ' + _tradeSimFmtNum(initCap) + ' 元 · 蓝色 = 期末 · 红色 = 峰值 · 绿色 = 最低</p>' +
     _tradeSimEquitySVG(winData.equity_curve, initCap, gradId);
   // 交易记录/回合表/未平仓 从 full.json 懒加载
   var detailHTML;
   if (fullNode) {
-    detailHTML = _tradeSimLedgerHTML(fullNode.ledger, indexName) +
+    detailHTML = _tradeSimLedgerHTML(fullNode.ledger, indexName, etfCode) +
       _tradeSimOpenPositionsHTML(fullNode.open_positions, s) +
       _tradeSimRoundsHTML(fullNode.rounds);
   } else {
@@ -10894,6 +10987,22 @@ function _tradeSimModalRender(ov) {
   var scenLabel = sd.scenarios[scenIdx];
   var indexName = sd.index_name;
   var initCap = sd.initial_capital || 100000;
+  // 2026-07-20 infoBar: 回测标的 + 费率明细（modal 详情明确标注 ETF 代码/名称 + 完整费率, 区分 ETF 替代 vs 纯指数）
+  // sh 映射 510050=上证50ETF 近似替代上证指数(综合指数无完美跟踪ETF), 标注"近似替代"避免误导
+  var etfCode = sd.etf_code;
+  var _etfName = etfCode ? _TRADE_SIM_ETF_NAMES[etfCode] : null;
+  var _isApprox = etfCode && sd.index_id === 'sh';
+  var _commRate = sd.commission_rate != null ? ('佣金万' + (sd.commission_rate * 10000).toFixed(1).replace(/\.0$/, '')) : '佣金万3';
+  var _slipRate = sd.slippage != null ? ('滑点千' + (sd.slippage * 1000).toFixed(1).replace(/\.0$/, '')) : '滑点千1';
+  var _transferFee = sd.transfer_fee_rate_sh != null ? ('沪市过户费万' + (sd.transfer_fee_rate_sh * 10000).toFixed(1).replace(/\.0$/, '')) : '沪市过户费万0.1';
+  var _minComm = sd.min_commission != null ? ('最低' + sd.min_commission + '元/笔') : '最低5元/笔';
+  var _targetText = etfCode
+    ? '回测标的: ETF ' + etfCode + '（' + (_etfName || 'ETF') + (_isApprox ? ', 近似替代' + indexName : '') + '）· 信号在指数生成, 成交在 ETF'
+    : '回测标的: ' + indexName + '（纯指数模拟, 无 ETF 替代）';
+  var _feeText = etfCode
+    ? '费率: ' + _commRate + ' + ' + _slipRate + ' + ' + _transferFee + '（' + _minComm + '）'
+    : '费率: ' + _commRate + ' + ' + _slipRate + '（纯指数模拟, 无过户费）';
+  var infoBar = '<div class="sim-info-bar">' + _targetText + ' ｜ ' + _feeText + '</div>';
   var winData = sd.data[win][pathLabel][scenLabel];
   var fullNode = (m.fullLoaded && m.fullData && m.fullData.data[win] && m.fullData.data[win][pathLabel] && m.fullData.data[win][pathLabel][scenLabel]) || null;
   var winLabel = '';
@@ -10971,8 +11080,8 @@ function _tradeSimModalRender(ov) {
     return '<button class="sim-sub-tab' + (i === scenIdx ? ' active' : '') + '" data-sig="' + i + '">' + s + '</button>';
   }).join('') + '</div>';
   var gradId = 'tradeSimGrad_' + win + '_' + pathIdx + '_' + scenIdx;
-  var panel = _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId);
-  body.innerHTML = viewTabs + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
+  var panel = _tradeSimPanelHTML(winData, fullNode, indexName, initCap, gradId, etfCode);
+  body.innerHTML = viewTabs + infoBar + winBar + cmpTable + mainTabs + '<div class="sim-path-group active">' + subTabs + panel + '</div>';
   // 绑定视图切换（A10）+ 窗口切换
   body.querySelectorAll('.sim-view-tab[data-view]').forEach(function (btn) {
     btn.onclick = function () { m.view = btn.dataset.view; _tradeSimModalRender(ov); };

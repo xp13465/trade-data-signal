@@ -392,6 +392,14 @@ main { padding: 16px 24px; }
 .chip-row-small-sample { background: rgba(28,109,191,0.06); border-left: 3px solid rgba(28,109,191,0.6); padding: 4px 6px; border-radius: 4px; }
 /* 前置标注 chip 不参与三档等分:自适应宽度做"标签",三档 flex:1 1 0 三等分剩余空间 */
 .chip-row-small-sample .chip-small-sample-note { flex: 0 0 auto; min-width: max-content; align-self: center; }
+/* 过拟合/小样本警示行（2026-07-20）：从原前置 span chip 改为独占一行的 div, 放 3 色 chip 后面。
+   flex:0 0 100% 在 .signal-chip-row flex 容器内强制换行独占一行; 3 色 chip 保持 flex:1 1 0 三等分。
+   三种警示: sharpe(红/夏普>3) + sample(蓝/样本不足) + failed(橙/WF失效不进推荐); 左侧彩色边框区分。 */
+.overfit-warn-row { flex: 0 0 100%; width: 100%; margin: 4px 0 0; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; line-height: 1.4; cursor: help; }
+.overfit-warn-sharpe { color: #c0392b; border-left: 3px solid rgba(192,57,43,0.65); background: rgba(192,57,43,0.10); }
+.overfit-warn-sample { color: #1c6dbf; border-left: 3px solid rgba(28,109,191,0.6); background: rgba(28,109,191,0.10); }
+.overfit-warn-failed { color: #ad6800; border-left: 3px solid rgba(173,104,0,0.55); background: rgba(173,104,0,0.12); }
+.overfit-warn-row .warn-tip { display: block; font-size: 10px; font-weight: 400; color: var(--text-3); margin-top: 2px; opacity: 0.85; }
 /* chip 容器行（标题下换行单独一行）：横排，PC flex-wrap，移动端 nowrap + overflow-x 横滚（复用 lab .lab-win-tabs 思路）。
    覆盖 .signal-chip 默认 margin-left:6px，行内首项不要左缩进。 */
 .signal-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
@@ -689,6 +697,15 @@ main { padding: 16px 24px; }
 .sig-score-mid { color: #e6a23c; }
 .sig-score-low { color: var(--text-3); }
 .sig-item-high { border: 1px solid #15803d44; background: #15803d0a; border-radius: 4px; }
+/* B方案(2026-07-28): 技术分析参考点准确率汇总条。显示在标题下、signal-grid 上方。
+   总准确率+三档(高/中/低)分档准确率，每档前带色点(高绿/中橙/低灰)。
+   高档0样本(t+f=0) pct=null 显示"-"避免0/0误导。 */
+.signal-accuracy-summary { font-size: 12px; color: var(--text-2); margin: 4px 0; padding: 4px 8px; background: var(--bg-2, var(--bg-hover)); border-radius: 4px; line-height: 1.6; }
+.sig-acc-seg { white-space: nowrap; }
+.sig-acc-dot { font-size: 10px; margin-right: 1px; }
+.sig-acc-dot-high { color: #15803d; }
+.sig-acc-dot-mid { color: #e6a23c; }
+.sig-acc-dot-low { color: var(--text-3); }
 /* 通用隐藏类（rule-modal 等复用） */
 .hidden { display: none !important; }
 .muted { color: var(--text-3); }
@@ -1064,6 +1081,8 @@ main { padding: 16px 24px; }
 .industry-cell .signal-chip-row .chip-sharpe-redline { font-size: 11px; padding: 2px 6px; line-height: 1.3; font-weight: 700; }
 .industry-cell .chip-row-small-sample { padding: 3px 5px; }
 .industry-cell .chip-row-sharpe-redline { padding: 3px 5px; }
+.industry-cell .overfit-warn-row { font-size: 10px; padding: 2px 6px; line-height: 1.3; margin-top: 2px; }
+.industry-cell .overfit-warn-row .warn-tip { font-size: 9px; margin-top: 1px; }
 .spark-cell .chart-hint { font-size: 10px; padding: 4px 6px; margin: 4px 0 6px; }
 .spark-cell .chart-hint .hint-strategy { font-size: 9px; padding: 2px 6px; margin-bottom: 3px; }
 .spark-cell .chart-hint .hint-row { margin: 1px 0; }
@@ -2664,6 +2683,8 @@ main { padding: 16px 24px; }
 .trade-sim-modal-body .sim-sub-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .trade-sim-modal-body .sim-sub-tab:hover:not(.active) { background: var(--bg-hover); }
 .trade-sim-modal-body .sim-flow { background: var(--bg-card); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: var(--text-1); box-shadow: 0 1px 3px var(--shadow); border-left: 3px solid var(--primary); }
+/* 回测标的 + 费率明细信息条（2026-07-20）：modal 详情顶部明确标注 ETF 代码/名称 + 完整费率, 区分 ETF 替代 vs 纯指数 */
+.trade-sim-modal-body .sim-info-bar { background: var(--bg-card); border-radius: 8px; padding: 8px 14px; margin-bottom: 12px; font-size: 12px; color: var(--text-2); line-height: 1.6; box-shadow: 0 1px 3px var(--shadow); border-left: 3px solid var(--primary); }
 .trade-sim-modal-body .sim-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
 .trade-sim-modal-body .sim-card { background: var(--bg-card); border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px var(--shadow); }
 .trade-sim-modal-body .sim-card .k { display: block; font-size: 12px; color: var(--text-3); margin-bottom: 4px; }

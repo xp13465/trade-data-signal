@@ -2,14 +2,25 @@
 // 加最小 Worker 脚本接管 response headers，实现 last-wins 覆盖 + 缓存分层
 // （_headers 文件追加语义无法实现分层，见 worker/headers.js 注释）。
 // push 到 main 后 Cloudflare 构建环境跑 wrangler deploy，内置 esbuild 自动 bundle worker/headers.js。
+// C 方案（2026-07-24）：KV 存订阅（/api/subscribe CRUD），SUBSCRIBE_PASSWORD secret 认证。
+//   2026-07-28：KV namespace 已创建（id 见下），剩 wrangler secret put SUBSCRIBE_PASSWORD 设密码。
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "trade-data-signal",
-  "compatibility_date": "2026-07-07",
-  "main": "worker/headers.js",
-  "assets": {
-    "directory": "./static-site",
-    "binding": "ASSETS",
-    "run_worker_first": true
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "trade-data-signal",
+	"compatibility_date": "2026-07-07",
+	"main": "worker/headers.js",
+	"assets": {
+		"directory": "./static-site",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	// 订阅接口 KV 存储（C 方案）。2026-07-28 已创建 namespace 并填入 id（wrangler kv namespace create）。
+	// local dev 用 remote namespace（wrangler 自动加 remote:true）。
+	"kv_namespaces": [
+		{
+			"binding": "SUBSCRIBE_KV",
+			"id": "7d373c3365314ec7a334ac47a73f1578",
+			"remote": true
+		}
+	]
 }

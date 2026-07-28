@@ -180,12 +180,37 @@ def save_signal_notified(data: dict[str, list[list[str]]]) -> None:
 
 
 # ============ A12 订阅推送（2026-07-24 P2-新-K）============
+def _sync_subscriptions_from_cf() -> None:
+    """C 方案（2026-07-24）：跑前从 CF Workers 拉订阅回流本地 config/subscriptions.json。
+
+    best-effort 同步：失败不阻塞（网络错/密码错/未配置），用旧 config/subscriptions.json 兜底。
+    调 scripts/sync_subscriptions_from_cf.py，stdout/stderr 仅 log 不抛。
+    """
+    sync_script = REPO / "scripts" / "sync_subscriptions_from_cf.py"
+    if not sync_script.exists():
+        return
+    try:
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, str(sync_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.stdout:
+            log.info("[sync_subscriptions] %s", result.stdout.strip())
+        if result.returncode != 0 and result.stderr:
+            log.warning("[sync_subscriptions] %s", result.stderr.strip())
+    except Exception as e:  # noqa: BLE001
+        log.warning("[sync_subscriptions] 同步异常：%s（用旧 config/subscriptions.json）", e)
+
+
 def load_subscriptions() -> list[dict]:
     """读 config/subscriptions.json，返回有效订阅列表。
 
     过滤：enabled=True 且有 email 或 telegram_chat_id 且 targets 非空。
     文件不存在/解析失败返回空 list（静默跳过，不影响全局推送）。
     """
+    # C 方案：读本地文件前先 best-effort 从 CF Workers 同步（失败用旧文件兜底）
+    _sync_subscriptions_from_cf()
     if not SUBSCRIPTIONS_PATH.exists():
         return []
     try:

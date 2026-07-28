@@ -3,6 +3,9 @@
 // 部署：push main 后 Cloudflare Builds 跑 wrangler deploy，内置 esbuild 自动 bundle 本文件。
 
 // 安全头（原 _headers /* 块内容，对非 HTML 响应浏览器自动忽略，无副作用）
+// 订阅接口 handler（C 方案 2026-07-24：/api/* 路由分发到此，KV 存储+密码认证）
+import subscribeHandler from './subscribe.js';
+
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
   'X-Content-Type-Options': 'nosniff',
@@ -88,6 +91,10 @@ function cacheControlFor(pathname) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // /api/* 路由分发到订阅 handler（生产无 FastAPI，CRUD 走 KV）
+    if (url.pathname.startsWith('/api/')) {
+      return subscribeHandler(request, env);
+    }
     const response = await env.ASSETS.fetch(request);
     // 复制原响应 headers（保留 ETag / Content-Type / CF-Cache-Status 等），覆盖 Cache-Control，附加安全头
     const headers = new Headers(response.headers);
