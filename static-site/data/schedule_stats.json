@@ -28,9 +28,9 @@
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
     "est_text": "约2分钟",
-    "last_run": "2026-07-28 09:35",
-    "last_exit": 0,
-    "last_duration_sec": 122,
+    "last_run": "2026-07-28 10:15",
+    "last_exit": null,
+    "last_duration_sec": null,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
