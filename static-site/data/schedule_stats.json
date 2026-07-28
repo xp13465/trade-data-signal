@@ -39,13 +39,13 @@
     "task": "futures_backfill",
     "name": "期货机构持仓",
     "schedule": "20:05 + 21:00(兜底)",
-    "est_text": "约8分钟",
+    "est_text": "约4分钟",
     "last_run": "2026-07-28 21:00",
     "last_exit": 0,
-    "last_duration_sec": null,
-    "log_anomaly": false,
-    "log_anomaly_keyword": null,
-    "log_anomaly_line": null
+    "last_duration_sec": 303,
+    "log_anomaly": true,
+    "log_anomaly_keyword": "error: failed to push",
+    "log_anomaly_line": "error: failed to push some refs to 'github.com:xp13465/trade-data-signal.git'"
   },
   {
     "task": "lhb_backfill",
