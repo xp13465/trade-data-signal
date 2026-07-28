@@ -1744,10 +1744,12 @@ main { padding: 16px 24px; }
   box-shadow: inset 0 -1px 0 0 var(--bg-hover);
 }
 
-/* 3张表横向并排（准确率合并表 + 中信净加表 + 机构净加表）：等高 + 日期行对齐 */
+/* 3张表横向并排（准确率合并表 + 中信净加表 + 机构净加表）：等高 + 日期行对齐
+   自适应切列(auto-fit)：宽屏(>1044px)3列、中屏(692-1043px)2列、窄屏(<692px或≤768px)1列；
+   auto-fit 而非 auto-fill：futures-triple-grid 固定3卡，auto-fill 宽屏会留空轨道右侧空白，auto-fit 折叠空轨让3卡均匀撑满 */
 .futures-triple-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 12px;
   align-items: stretch;
   margin-bottom: 12px;
@@ -1785,7 +1787,7 @@ main { padding: 16px 24px; }
 .futures-triple-grid .futures-note {
   min-height: auto;
 }
-/* 窄屏(≤768px)：3表改上下排列 */
+/* 窄屏(≤768px)：3表改上下排列(覆盖自适应，移动端强制1列全宽，与 indices-grid 移动端一致) */
 @media (max-width: 768px) {
   .futures-triple-grid {
     grid-template-columns: 1fr;
