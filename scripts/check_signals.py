@@ -758,9 +758,23 @@ def main(argv: list[str] | None = None) -> int:
 
     signals = query_signals(date)
     # fade-detect：对比盘中 signal_notified.json[date] vs 收盘 signals，检测消失/变化
+    # 注意：fade-detect 需用未过滤的全量 signals（含 band_hold 等），因其按 index_id 聚合
+    # closing 信号判定档位（band_hold 在 closing -> 非空 -> 不算"严格消失 red"）；
+    # 若先过滤 band_hold，intraday buy* -> closing 仅 band_hold 会误判为 red 消失。
     fade_alerts: list[dict] = []
     if args.fade_detect:
         fade_alerts = run_fade_detect(date, signals)
+
+    # 过滤非买卖点信号（band_hold=波段持有/无超买超卖信号 等中性/持有状态）：
+    # 邮件"买卖点信号"只关注可操作买卖点（SIGNAL_ORDER 6 类），band_hold 不含买卖点、
+    # 不计数、不发邮件。根治 2026-07-28 盘中 bug：2 个 band_hold 致邮件正文"共 2 个信号
+    # （主买 0 / 辅买 0 / ...）"但类型全 0、表格 tbody 空、主题"无信号"的自相矛盾。
+    actionable_types = set(SIGNAL_ORDER)
+    actionable = [s for s in signals if s["signal"] in actionable_types]
+    n_filtered = len(signals) - len(actionable)
+    if n_filtered:
+        log.info("过滤 %d 个非买卖点信号（band_hold 等持有状态，非可操作买卖点）", n_filtered)
+    signals = actionable
 
     if not signals and not fade_alerts:
         log.info("今日（%s）无买卖点信号且无 fade 警示，不发邮件", date)
