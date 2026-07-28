@@ -1779,12 +1779,11 @@ main { padding: 16px 24px; }
 .futures-triple-grid .chart-card h3 {
   min-height: 44px;
 }
-/* 副标题统一2行高度(42px=13px*1.5*2+3px buffer)：合并表副标题(30字)换2行(39px)，净加表副标题(13字)单行(20px)，min-height强制等高避免thead起始位置错位 */
-.futures-triple-grid .futures-stat-sub {
-  min-height: 42px;
-}
+/* 副标题(futures-stat-sub)/说明(futures-note) 去掉强制 min-height：贴合实际内容高度(1-2行)，消除多余空白；
+   标题 h3 仍 min-height:44px 保证3表标题等高对齐(a26 核心修复保留)；描述行不再强制等高，短内容不留空白、长内容自然撑高 */
+.futures-triple-grid .futures-stat-sub,
 .futures-triple-grid .futures-note {
-  min-height: 84px;
+  min-height: auto;
 }
 /* 窄屏(≤768px)：3表改上下排列 */
 @media (max-width: 768px) {

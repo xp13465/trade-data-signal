@@ -5817,7 +5817,7 @@ async function renderOverview() {
       termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。进=份额增+z>2+放量(红)/出=份额减+z<-2+放量(绿)/量=成交额>5日均2倍(橙)。共振=进/出≥2只、量≥3只宽基同日同步异动。ETF份额T+1发布，数据日期可能为T-1。点击下方信号chip查看当日明细。") + "</h3>" +
       summaryHtml +
       '<div class="signal-grid nt-signal-grid">' + _renderNtSignalList(rc && rc.daily ? rc.daily : [], nt.date) + '</div>';
-    addCardTimeBadge(ntCard, nt.date, snap, "t1", "etf_date");
+    addCardTimeBadge(ntCard, r.etf_date, snap, "t1", "etf_date");
     // chip 点击：弹当日明细 modal（事件委托，[data-nt-date] 触发；stopPropagation 防冒泡）
     ntCard.addEventListener("click", (e) => {
       const chip = e.target.closest("[data-nt-date]");
@@ -5831,7 +5831,7 @@ async function renderOverview() {
       '<h3>🐶 汪汪队信号' +
       termTip("宽基ETF份额变动跟踪;观察份额增减与成交放量。ETF份额T+1发布。") + "</h3>" +
       '<div class="empty-note">近期无汪汪队信号</div>';
-    if (nt && nt.date) addCardTimeBadge(ntCard, nt.date, snap, "t1", "etf_date");
+    if (r && r.etf_date) addCardTimeBadge(ntCard, r.etf_date, snap, "t1", "etf_date");
   }
   colA2.appendChild(ntCard);
 
@@ -8096,32 +8096,38 @@ function renderFuturesSection(data, snap, container) {
   tripleGrid2.className = "futures-triple-grid";
   fgGrid.appendChild(tripleGrid2);
 
-  // 1. 昨日净多空概览卡片
-  if (data.summary && data.summary.roles) {
+  // 1. 昨日净多空概览卡片（始终创建卡片结构，无数据显示空状态，保证 min-height 生效不塌陷、tripleGrid2 三列布局不缺格）
+  {
     const div = document.createElement("div");
     div.className = "chart-card futures-table-card";
-    const dateStr = data.summary.date || "";
-    const dateSuffix = dateStr ? `<span class="chart-latest"> · ${fmtDate(dateStr)}</span>` : "";
-    let html = `<h3>昨日净多空（万手）${dateSuffix}</h3>`;
-    html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
-    for (const role of roles) html += `<th>${role}</th>`;
-    html += '</tr></thead><tbody>';
-    for (const prod of products) {
-      html += `<tr><td class="sym-name">${prod}</td>`;
-      for (const role of roles) {
-        const v = (data.summary.roles[role] || {})[prod];
-        const cls = v > 0 ? "futures-long" : v < 0 ? "futures-short" : "";
-        const sign = v > 0 ? "+" : "";
-        html += `<td class="${cls}">${v != null ? sign + (v / 10000).toFixed(1) + "万手" : "-"}</td>`;
+    if (data.summary && data.summary.roles) {
+      const dateStr = data.summary.date || "";
+      const dateSuffix = dateStr ? `<span class="chart-latest"> · ${fmtDate(dateStr)}</span>` : "";
+      let html = `<h3>昨日净多空（万手）${dateSuffix}</h3>`;
+      html += '<table class="futures-summary-table"><thead><tr><th>品种</th>';
+      for (const role of roles) html += `<th>${role}</th>`;
+      html += '</tr></thead><tbody>';
+      for (const prod of products) {
+        html += `<tr><td class="sym-name">${prod}</td>`;
+        for (const role of roles) {
+          const v = (data.summary.roles[role] || {})[prod];
+          const cls = v > 0 ? "futures-long" : v < 0 ? "futures-short" : "";
+          const sign = v > 0 ? "+" : "";
+          html += `<td class="${cls}">${v != null ? sign + (v / 10000).toFixed(1) + "万手" : "-"}</td>`;
+        }
+        html += '</tr>';
       }
-      html += '</tr>';
+      html += '</tbody></table>';
+      html += '<div class="term-plain">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
+      html += '<div class="futures-reverse-note">⚠ 机构持仓极端值常为<strong>反向参考</strong>（机构极度看多时可能见顶、极度看空时可能见底），需结合历史准确率与市场位置判断，不可单看净持仓方向顺势操作。</div>';
+      div.innerHTML = html;
+      tripleGrid2.appendChild(div);
+      addCardTimeBadge(div, dateStr, snap, "t1", "futures_date");
+    } else {
+      // 无数据空状态：保证卡片结构完整(h3+empty-note)，min-height 生效不塌陷
+      div.innerHTML = '<h3>昨日净多空（万手）</h3><div class="empty-note">暂无数据</div>';
+      tripleGrid2.appendChild(div);
     }
-    html += '</tbody></table>';
-    html += '<div class="term-plain">正数=净多（红），负数=净空（绿）。数据来源：中金所前20会员持仓。</div>';
-    html += '<div class="futures-reverse-note">⚠ 机构持仓极端值常为<strong>反向参考</strong>（机构极度看多时可能见顶、极度看空时可能见底），需结合历史准确率与市场位置判断，不可单看净持仓方向顺势操作。</div>';
-    div.innerHTML = html;
-    tripleGrid2.appendChild(div);
-    addCardTimeBadge(div, dateStr, snap, "t1", "futures_date");
   }
 
   // 2. 历史准确率表格（移到综合图前面）
