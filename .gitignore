@@ -148,3 +148,9 @@ static-site/data/etf_national_team-3y.json
 static-site/data/etf_national_team-3y.json.gz
 static-site/data/global-extras-all.json
 static-site/data/global-extras-all.json.gz
+
+# 运行时数据产物/状态(本地保留不推)
+/data/board_etf_map.json
+/a-stock-data/lab_backtest.json
+/data/alert_state.json
+/data/baostock_progress.json.lock
