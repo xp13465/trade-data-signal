@@ -3936,3 +3936,52 @@ grep scripts/ 仍有 7 处 `.resolve()`（同 bug 模式，从 trade-data/ 跑�
 | 37ae4500 | intraday_snapshot.py EXPORT_RANGES 6处引用修复(AZ41已落档,本次确认生效) |
 
 **教训**：今晚印证几条既有准则：①监控第 4 盲区 `scan_log_anomaly`（AZ47 根治）再次发挥作用抓出 intraday export 被吞的 AttributeError，证明“脚本吞异常 exit=0”盲区必须有独立扫描层，不能信 exit 码；②a25 修一个布局 bug 引入另一个布局 bug（跨满 grid 副作用），印证改 CSS 布局要全局看 grid 影响，不能只盯目标元素；③信号评定清单是首次横跨 1836 组合的三维量化评定，为后续卖点策略优化（卖点对指数失效）提供数据基线，避免拍脑袋。
+
+### 小节AZ51：2026-07-28 期货tab迭代链(a30-a34)+信号至今盈亏(方案B后端算)+工作区清理sync+监控回归+评分评级用户定A
+
+**背景**：今晚主线是期货 tab 前 6 卡片细节迭代（A，a30-a34 连续 5 commit）+ 信号至今盈亏方案 B 后端算落地（A 末段 a34，queries 缓存避 N+1）+ 工作区清理与 feat←main 同步（B）+ 监控 cron 回归（C）+ 评分评级阈值用户拍板保持 10d+0.75（D）。
+
+**A. 期货 tab 迭代链 a30-a34（5 commit，已 push main）**
+
+- **a30（commit cbc5dad4）** 期货前 6 卡片描述行高压缩 + 昨日净多空空状态 + 汪汪队 T+1 角标 dataDate 修复：
+  - 描述行高 `min-height 42/84px` -> `auto` 贴合内容，保留 h3 `44px` 让前 3 等高。
+  - 昨日净多空无条件创建卡片，无数据显示“暂无数据”不塌陷。
+  - 汪汪队 T+1 角标 `dataDate` 改用 `r.etf_date` 不再误显“⏳T+1待更新·7-20”——根因是角标用 `nt.date`（信号日）非数据日，改用 `etf_date=7-27` 显示“📅T+1·7-27”。
+- **a31（commit f3f74bfe）** 期货 tab 补净加/净多空概念介绍：昨日净多空 + 当日净加对照卡片 h3 加 `termTip` hover❓ + `term-plain` 常显容器。术语：净多空 = 多头持仓-空头持仓（静态，queries.py L771）；净加 = 多头增减-空头增减（动态日变化，`futures_position.py` L323 `nc=long_chg-short_chg`）。
+- **a32（commit 062114fd）** 介绍改常显文字：去 h3 `termTip` hover❓ 重复（用户反馈 hover 不方便），保留 `term-plain` 常显直接放下面。
+- **a33（commit a415d9b6）** 期货 grid 响应式自适应：`1fr 1fr 1fr` 固定 3 列 -> `auto-fit minmax(340px,1fr)`，收缩屏幕平滑切列，与 `indices-grid` 一致。
+- **a34（commit 13338284）** 信号至今盈亏（方案 B 后端算）-角标☑️✖️+弹窗盈亏行：
+  - 后端：`queries.py overview()` 加 `since_return`/`since_correct`（缓存 `{index_id: series}` 避 N+1，复用 `_load_series_for` 逻辑）。
+  - 前端：`_renderSignalGrid` 加 `correctBadge`（☑️符合预测 / ✖️不符，null 不显示）；`openSignalChartModal` 顶部加“成功/失败·至今盈亏±X%”行。
+  - 方向判定：看多（buy/buy_aux/buy_special/buy_backup）至今涨=对；看空（sell/sell_stop_loss）至今跌=对；`band_hold` 中性 `since_correct=null`。今日信号（date==score_date）无角标。
+  - 数据验证：overview.json 150 信号 = 22 今日 None + 66 对☑️ + 43 错✖️。
+
+**B. 工作区清理 + feat←main sync（commit 01b30a31，已 push main）**
+
+- `board_etf_map.json` / `lab_backtest.json` 改 untrack + `.gitignore`（数据产物有生成脚本 `build_board_etf_map.py` / `update_lab.sh`，不推，符合 §8）；`about.html` / `privacy.html` CSS 版本号同步；`08-买卖点策略深度回测.md` 回测文档更新。
+- rebase sync feat←main：核实 a29（36664ed0）已在 origin/main + 上线，feat 无独立 commit（落后 main），纯 FF 同步（之前 deploy.sh 的 binary .gz 冲突已不存，是历史情况）。
+
+**C. 监控 cron（commit c2fb5996）**
+
+- 监控 cron c2fb5996 每小时 13 回归 1 天（session-only），查 9 任务 exit / 数据时效 / launchd 加载 / 日志异常。
+- 7-27 9 任务全 exit=0 正常（ETF 国家队 20:07+21:30 首触 / rzhb 19:15 / lhb 18:30+19:30 / 期货 20:05+21:00 / 收盘全量 17:50 / 策略实验室 19:00），无 SIGTRAP / libmini_racer crash。
+- 昨天监控问题修正：`schedule_stats` 旧版误判（7-26/7-24）-> 7-28 07:30 更新正常；`a_fund_north_quarterly` 两源皆败 -> 恢复 ok=3 fail=0；rebase .gz 冲突 -> FF 解决；工作区 5M -> 01b30a31 清理；收盘全量/指数补采⚠ANOMALY（dur 超 est 但 exit=0 非真问题）。
+
+**D. 评分评级（用户定方案 A，保持 10d + 0.75 阈值）**
+
+- 技术参考点评分尾缀（a28）+ 首屏显示（a29）线上确认，用户无痕验证评分有了。
+- 评级用 10d score（高 ≥0.75 / 中 ≥0.55 / 低 <0.55），今日 150 信号最高 bj50 buy 10d=0.689（中）无“高”——数据原因非 bug（全量 30 个 ≥0.75 高分信号今日没出现）。
+- 用户选方案 A 保持 10d + 0.75（不改阈值 / horizon）。
+
+**今日 commit 清单（6 新 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| cbc5dad4 | 期货前6卡片描述行高auto+昨日净多空空状态不塌陷+汪汪队T+1角标用etf_date不误显 |
+| f3f74bfe | 期货tab补净加/净多空概念介绍(h3 termTip hover❓+term-plain常显) |
+| 062114fd | 介绍改常显文字(去hover❓,term-plain直接放下面) |
+| a415d9b6 | 期货grid响应式auto-fit minmax(340px,1fr)与indices-grid一致 |
+| 13338284 | 信号至今盈亏方案B后端算(queries since_return/since_correct避N+1+☑️✖️角标+弹窗盈亏行) |
+| 01b30a31 | 工作区清理(board_etf_map/lab_backtest untrack+.gitignore)+about/privacy CSS版本同步+feat←main FF sync |
+
+**教训**：今晚印证几条既有准则：①a30-a34 连续 5 commit 围绕期货 tab 单区域迭代，每次只动一个维度（行高/术语/常显/响应式/盈亏角标），印证“新功能先单开 tab 验证再融合”的 bite-sized 迭代节奏，避免一次性大改难验收；②a34 信号至今盈亏选方案 B 后端算（缓存 series 避 N+1）而非前端算，印证“数据第一时间发布第一”+ 后端预聚合原则，150 信号前端不重复拉 series；③评分评级阈值用户拍板保持 10d+0.75 不妥协，印证“方案选择默认准则”——不因今日无“高”信号就降阈值凑数，数据原因非 bug；④工作区清理把有生成脚本的数据产物改 untrack，印证 §8“不 add 根目录 data/ 下文件”精神延伸到所有有生成脚本的数据产物。
