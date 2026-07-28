@@ -1798,7 +1798,8 @@ function _openSubscribeModal(indexId, indexName) {
   var userInfo = _loadSubUserInfo();
   var defaultEmail = userInfo.email || "";
   var defaultChatId = userInfo.telegram_chat_id || "";
-  var defaultSubPwd = _getSubPwd();  // C 方案：订阅密码预填（存 localStorage）
+  var defaultSubPwd = _getSubPwd() || "kant2218";  // C 方案：订阅密码预填（存 localStorage，内测期默认填 kant2218）
+  if (!_getSubPwd()) _setSubPwd(defaultSubPwd);  // 首次访问预填后立即写入 localStorage，确保 X-Sub-Pwd header 自动带上（用户无需手输也无需点提交）
   // 信号类型 checkbox（默认全选）
   var sigCheckboxes = _SUB_SIGNAL_LABELS.map(function (s) {
     return '<label class="sub-sig-check"><input type="checkbox" value="' + s.key + '" checked>'

@@ -279,6 +279,7 @@ main { padding: 16px 24px; }
   margin-bottom: 16px;
   box-shadow: 0 1px 3px var(--shadow);
   position: relative;
+  min-width: 0;
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); padding-right: 4px; }
 /* 盘中标注角标：右下角浮动药丸(absolute 不占位)，半透明毛玻璃背景像贴纸浮于内容之上，区分盘中(绿)/午休(黄)/待收盘(灰)/收盘(主题色) */
@@ -402,15 +403,9 @@ main { padding: 16px 24px; }
 .overfit-warn-row .warn-tip { display: block; font-size: 10px; font-weight: 400; color: var(--text-3); margin-top: 2px; opacity: 0.85; }
 /* chip 容器行（标题下换行单独一行）：横排，PC flex-wrap，移动端 nowrap + overflow-x 横滚（复用 lab .lab-win-tabs 思路）。
    覆盖 .signal-chip 默认 margin-left:6px，行内首项不要左缩进。 */
-.signal-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.signal-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; max-width: 100%; }
 .signal-chip-row .signal-chip { flex: 1 1 0; min-width: 0; text-align: center; margin-left: 0; }  /* 3 等分撑满:缺块时 1-2 chip 各占 1/2 或全宽 */
 .signal-chip-row:empty { display: none; }  /* 数据不足时不渲染空行 */
-@media (hover: none) {
-  .signal-chip-row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .signal-chip-row .signal-chip { flex: 0 0 auto; min-width: max-content; text-align: left; }  /* 移动端恢复横滚,不强制等分 */
-  .signal-chip-row::-webkit-scrollbar { display: none; }
-  .signal-chip-row { scrollbar-width: none; }
-}
 /* 5色信号图例条（2026-07-21 阶段4）：指数走势图上方统一展示 4色买点+卖绿 + 备买风险提示 */
 .signal-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 10px; margin: 6px 0; font-size: 12px; color: var(--text-2); background: rgba(128,128,128,0.06); border: 1px solid var(--border); border-radius: 8px; }
 .signal-legend-item { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
@@ -812,6 +807,7 @@ main { padding: 16px 24px; }
   padding: 10px 12px;
   box-shadow: 0 1px 3px var(--shadow);
   position: relative;
+  min-width: 0;
 }
 .spark-head {
   display: flex;
@@ -927,7 +923,7 @@ main { padding: 16px 24px; }
 }
 .astock-top-grid {
   display: grid;
-  grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800 */
+  grid-template-columns: minmax(0, 1fr); /* 移动端(≤768px)1列撑满，豁免800 */
   gap: 12px;
   margin-bottom: 16px;
   align-items: start; /* 各卡按自然内容高度不拉伸(避免stretch撑高矮卡留白),与 .indices-grid 一致;图表已统一300px */
@@ -941,7 +937,7 @@ main { padding: 16px 24px; }
 /* 指数折线区网格(A股)：9个指数全部铺开不折叠；移动端1列撑满，PC 每列最小800px */
 .indices-grid {
   display: grid;
-  grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800 */
+  grid-template-columns: minmax(0, 1fr); /* 移动端(≤768px)1列撑满，豁免800 */
   gap: 12px;
   margin-bottom: 12px;
   align-items: start; /* 三卡图表已统一240，各卡按自然内容高度不拉伸(避免stretch撑高矮卡留白) */
@@ -989,7 +985,7 @@ main { padding: 16px 24px; }
 
 /* === 行业看板（F1）=== */
 .industry-grid {
-  grid-template-columns: 1fr; /* 移动端(≤768px)1列撑满，豁免800；PC 由下方 @media(min-width:769px) 切 minmax */
+  grid-template-columns: minmax(0, 1fr); /* 移动端(≤768px)1列撑满，豁免800；PC 由下方 @media(min-width:769px) 切 minmax */
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -2441,7 +2437,7 @@ main { padding: 16px 24px; }
 
   /* 概览 sparkline 默认 2 列（移动端信息密度合适）；行业卡片内容多，强制 1 列 */
   .spark-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .industry-grid { grid-template-columns: 1fr; gap: 10px; }
+  .industry-grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .spark-cell { padding: 8px 10px; }
   .industry-grid .spark-cell .spark-chart { min-height: 100px; }
   /* 分时图嵌入 spark-cell，移动端高度适配 */
@@ -2459,7 +2455,7 @@ main { padding: 16px 24px; }
   .spark-cell.has-time-badge .spark-foot { padding-right: 56px; }
   .industry-cell .card-time-badge { top: 4px; right: 5px; bottom: auto; }
   .card.kpi.has-time-badge .card-sub { padding-right: 58px; }
-  .ov-2col { grid-template-columns: 1fr; gap: 12px; }
+  .ov-2col { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .ov-2col .chart-card, .astock-top-grid .chart-card { min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
   .sig-day-date { flex: 0 0 56px; font-size: 11px; }

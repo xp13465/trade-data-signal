@@ -55,6 +55,7 @@ from pathlib import Path
 
 REPO = Path(__file__).absolute().parent.parent
 SUMMARY_SRC = REPO / "static-site" / "data" / "summary_history.json"
+SUBSCRIPTIONS_SRC = REPO / "config" / "subscriptions.json"
 EMAIL_CONFIG = REPO / "config" / "email.json"
 SITE_NAME = "A股情绪看板"
 SITE_DOMAIN = "s.sugas.site"
@@ -150,7 +151,7 @@ def build_subject(it: dict) -> str:
     return f"[收盘速递] {iso_date(date_str)}{wd_str} | {' '.join(parts)}{sent_part}"
 
 
-def build_text(it: dict) -> str:
+def build_text(it: dict, subs: list[dict] | None = None) -> str:
     """生成纯文本正文(ASCII 示意格式)。"""
     date_str = it.get("date", "")
     lines = []
@@ -229,12 +230,18 @@ def build_text(it: dict) -> str:
     if summary:
         lines.append("摘要:" + str(summary))
 
+    # 订阅列表段（失败/无订阅则跳过，不阻塞）
+    if subs:
+        subs_seg = build_subs_text(subs)
+        if subs_seg:
+            lines.append(subs_seg)
+
     lines.append("-" * 44)
     lines.append(f"由 {SITE_NAME} 自动发送 · {SITE_DOMAIN}")
     return "\n".join(lines)
 
 
-def build_html(it: dict) -> str:
+def build_html(it: dict, subs: list[dict] | None = None) -> str:
     """生成简单 HTML 正文(内联 style,禁图片/外部资源/外部 URL)。"""
     date_str = it.get("date", "")
     rows = []  # (label, value)
@@ -320,6 +327,9 @@ def build_html(it: dict) -> str:
             f'{_esc(summary)}</div>'
         )
 
+    # 订阅列表段（失败/无订阅则跳过，不阻塞）
+    subs_html = build_subs_html(subs) if subs else ""
+
     return f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:560px;">
 <h2 style="margin:0 0 4px 0;color:#1d2129;">A股收盘情绪速递</h2>
 <p style="margin:0 0 12px 0;color:#86909c;font-size:13px;">{iso_date(date_str)} {weekday_cn(date_str)}</p>
@@ -327,6 +337,7 @@ def build_html(it: dict) -> str:
 {freeze_html}
 {section_html}
 {summary_html}
+{subs_html}
 <p style="color:#c9cdd4;font-size:11px;margin-top:16px;">-- 由 {SITE_NAME} 自动发送 · {SITE_DOMAIN}</p>
 </body></html>"""
 
@@ -338,6 +349,112 @@ def _esc(s) -> str:
     return (str(s).replace("&", "&amp;")
                   .replace("<", "&lt;")
                   .replace(">", "&gt;"))
+
+
+# ---------------------------------------------------------------- 订阅列表段
+# 信号 key -> 中文标签（与 app.js _SUB_SIGNAL_LABELS 保持一致）
+_SUB_SIGNAL_LABELS = {
+    "buy": "主买",
+    "buy_aux": "辅买",
+    "buy_special": "追买",
+    "buy_backup": "备买",
+    "sell": "卖",
+    "sell_stop_loss": "追止损卖",
+}
+
+
+def _mask_email(email: str) -> str:
+    """邮箱脱敏：首字母 + ***@域名。sugas13465@gmail.com -> s***@gmail.com。
+
+    空串/无@ 原样返回（不脱敏无意义）。
+    """
+    email = email or ""
+    if "@" not in email:
+        return email
+    local, _, domain = email.partition("@")
+    if not local:
+        return email
+    return f"{local[0]}***@{domain}"
+
+
+def load_subscriptions() -> list[dict]:
+    """读 config/subscriptions.json，返回 subscriptions 列表。
+
+    文件缺失/解析失败/无 subscriptions 字段 -> 返回空列表（调用方优雅跳过该段）。
+    失败不阻塞邮件发送。
+    """
+    if not SUBSCRIPTIONS_SRC.exists():
+        log.info("config/subscriptions.json 不存在，跳过订阅列表段")
+        return []
+    try:
+        data = json.loads(SUBSCRIPTIONS_SRC.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("config/subscriptions.json 解析失败，跳过订阅列表段：%s", e)
+        return []
+    subs = data.get("subscriptions") if isinstance(data, dict) else data
+    if not isinstance(subs, list):
+        return []
+    return [s for s in subs if isinstance(s, dict)]
+
+
+def _format_signals(signals) -> str:
+    """信号 key 列表 -> 中文标签用 / 分隔。未知 key 原样保留。"""
+    if not isinstance(signals, list):
+        return ""
+    return "/".join(_SUB_SIGNAL_LABELS.get(str(s), str(s)) for s in signals)
+
+
+def _format_targets(targets) -> str:
+    """标的列表 -> 逗号分隔字符串。"""
+    if not isinstance(targets, list):
+        return ""
+    return ", ".join(str(t) for t in targets)
+
+
+def build_subs_text(subs: list[dict]) -> str:
+    """生成订阅列表纯文本段。空列表返回空串（不输出该段）。"""
+    if not subs:
+        return ""
+    lines = ["", "📋 当前订阅列表（%d 条）：" % len(subs)]
+    for i, s in enumerate(subs, 1):
+        name = s.get("name", "") or ""
+        targets = _format_targets(s.get("targets"))
+        signals = _format_signals(s.get("signals"))
+        email = _mask_email(s.get("email", ""))
+        enabled = "启用" if s.get("enabled", True) else "停用"
+        lines.append(
+            f"[{i}] {name} ({enabled}) | 标的:{targets} | 信号:{signals} | {email}"
+        )
+    return "\n".join(lines)
+
+
+def build_subs_html(subs: list[dict]) -> str:
+    """生成订阅列表 HTML 段。空列表返回空串。"""
+    if not subs:
+        return ""
+    rows = ""
+    for i, s in enumerate(subs, 1):
+        name = _esc(s.get("name", ""))
+        targets = _esc(_format_targets(s.get("targets")))
+        signals = _esc(_format_signals(s.get("signals")))
+        email = _esc(_mask_email(s.get("email", "")))
+        enabled = "启用" if s.get("enabled", True) else "停用"
+        enabled_color = "#2e8b57" if s.get("enabled", True) else "#86909c"
+        rows += (
+            f'<tr><td style="padding:4px 8px;color:#86909c;font-size:12px;'
+            f'vertical-align:top;">#{i}</td>'
+            f'<td style="padding:4px 8px;font-size:12px;line-height:1.6;">'
+            f'<b>{name}</b> '
+            f'<span style="color:{enabled_color};">({enabled})</span><br>'
+            f'<span style="color:#4e5969;">标的:{targets}</span> | '
+            f'<span style="color:#4e5969;">信号:{signals}</span><br>'
+            f'<span style="color:#c9cdd4;">{email}</span></td></tr>'
+        )
+    return (
+        f'<h3 style="margin:16px 0 6px 0;color:#1d2129;font-size:14px;">'
+        f'📋 当前订阅列表（{len(subs)} 条）</h3>'
+        f'<table style="border-collapse:collapse;margin-bottom:8px;">{rows}</table>'
+    )
 
 
 # ---------------------------------------------------------------- 邮件发送
@@ -418,8 +535,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     subject = build_subject(it)
-    text_body = build_text(it)
-    html_body = build_html(it)
+    # 加载订阅列表（文件缺失/解析失败返回空列表，不阻塞）
+    subs = load_subscriptions()
+    text_body = build_text(it, subs)
+    html_body = build_html(it, subs)
 
     if args.dry_run:
         print("===== 邮件主题 =====")
