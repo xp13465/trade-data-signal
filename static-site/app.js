@@ -7,7 +7,7 @@
 
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null };
+const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1266,9 +1266,31 @@ function _calcSignalAccuracy(items) {
 //   组内排序：保留大类优先(买>辅买>卖)，同大类内按 score 降序（高分靠前）。
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
+  // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
+  // 列表渲染用 filtered(只显示符合筛选的参考点)。null=不筛; "high"/"mid"/"low"=评级;
+  // "true"/"false"/"null"=对/错/未结算。点击汇总条 button toggle 筛选, 再点同档恢复。
+  let filtered = items;
+  if (kind === "signal" && (state.sigGradeFilter || state.sigCorrectFilter)) {
+    filtered = items.filter((it) => {
+      if (state.sigGradeFilter) {
+        const sc = _getSignalScore(it);
+        if (!sc || sc.score == null) return false;
+        const s = sc.score;
+        if (state.sigGradeFilter === "high" && !(s >= 0.75)) return false;
+        if (state.sigGradeFilter === "mid" && !(s >= 0.55 && s < 0.75)) return false;
+        if (state.sigGradeFilter === "low" && !(s < 0.55)) return false;
+      }
+      if (state.sigCorrectFilter) {
+        const v = it.since_correct;
+        const k = v === true ? "true" : v === false ? "false" : "null";
+        if (k !== state.sigCorrectFilter) return false;
+      }
+      return true;
+    });
+  }
   // 按 date 分组（降序），今日组单独提到最前
   const groups = {};
-  for (const it of items) {
+  for (const it of filtered) {
     (groups[it.date] = groups[it.date] || []).push(it);
   }
   let dates = Object.keys(groups).sort((a, b) => (a < b ? 1 : -1));
@@ -1345,15 +1367,71 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // B方案(2026-07-28): 技术分析参考点准确率汇总条（仅 signal 类；freeze 无 since_correct/score 不显示）
   // 格式：总准确率 X% (T对/F错·N未结算) | 高 X% (t/f) · 中 X% (t/f) · 低 X% (t/f)
   // 高/中/低前带色点(高绿#15803d/中橙#e6a23c/低灰)；高档0样本(t+f=0) pct=null 显示"-"避免0/0误导
+  // A/B 方案(2026-07-29): 高/中/低 + 对/错/未结算 均改为 button 可点击筛选(toggle), 选中态加
+  //   sig-acc-filter-active; 末尾追加"恢复全部"按钮(仅筛选激活时显示)。汇总条数字始终用全量 items。
+  // C 方案(2026-07-29): 未结算 button 带 data-tip 补说明(信号已发出未验证对错, 收盘后转对/错)。
   let _accHtml = "";
   if (kind === "signal") {
     const _acc = _calcSignalAccuracy(items);
     const _fmt = (pct) => (pct == null ? "-" : pct.toFixed(0) + "%");
-    const _seg = (label, bin, dotCls) =>
-      `<span class="sig-acc-seg"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</span>`;
-    _accHtml = `<div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (${_acc.total.t}对/${_acc.total.f}错·${_acc.total.n}未结算) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low")}</div>`;
+    const _gActive = (g) => (state.sigGradeFilter === g ? " sig-acc-filter-active" : "");
+    const _cActive = (k) => (state.sigCorrectFilter === k ? " sig-acc-filter-active" : "");
+    const _seg = (label, bin, dotCls, grade) =>
+      `<button class="sig-acc-seg sig-acc-filter${_gActive(grade)}" data-grade-filter="${grade}" data-tip="${_escAttr("点击只看评级" + label + "的参考点")}"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</button>`;
+    const _unsettledTip = '未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②波段持有中性状态;③等待收盘价回填。收盘后update_all重算since_correct后转为“对”或“错”。点击只看未结算项';
+    const _reset = (state.sigGradeFilter || state.sigCorrectFilter)
+      ? ` <button class="sig-acc-reset" data-grade-filter-reset="1">恢复全部</button>`
+      : "";
+    _accHtml = `<div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>`;
+  }
+  // 筛选后无匹配: 汇总条仍显示(全量统计), 列表区给提示
+  if (kind === "signal" && !rows && (state.sigGradeFilter || state.sigCorrectFilter)) {
+    rows = `<div class="empty-note" style="margin:8px 0">当前筛选无匹配参考点，点击“恢复全部”查看全部</div>`;
   }
   return `<h3>${title}</h3>${_accHtml}<div class="signal-grid">${rows}</div>`;
+}
+
+// D 方案(2026-07-29): sigCard 自动更新 - ts:overview-refreshed hook 增量重绘。
+// 盘中后端 intraday_snapshot 每 30min 重算 overview.json 并 push main, 前端轮询拉到新
+// collected_at 时自动重绘 sigCard, 用户不刷新也能看到最新信号。重绘保留筛选 state(内部读 state)。
+let _sigCardRenderedAt = null;  // 上次渲染 sigCard 的 overview collected_at(防重复重绘)
+
+// 增量重绘 sigCard 内容: 只替换 .signal-accuracy-summary + .signal-grid 两个子元素,
+// 保留 .card-time-badge 角标 + .sig-intraday-hint 盘中提示(不整卡 innerHTML 替换)。
+// 筛选 state(sigGradeFilter/sigCorrectFilter) 由 _renderSignalGrid 内部读取, 重绘自动保留。
+function _rerenderSigCardContent(r, snap) {
+  if (!r) return;
+  const sigCard = document.querySelector(".sig-card");
+  if (!sigCard) return;
+  const isClosed = snap ? snap.is_closed : true;
+  const title = "近期技术分析参考点（近 15 交易日 · 今日高亮）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）");
+  const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed);
+  const tmp = document.createElement("div");
+  tmp.innerHTML = newHtml;
+  const newSummary = tmp.querySelector(".signal-accuracy-summary");
+  const newGrid = tmp.querySelector(".signal-grid");
+  const oldSummary = sigCard.querySelector(".signal-accuracy-summary");
+  const oldGrid = sigCard.querySelector(".signal-grid");
+  if (newSummary && newGrid && oldSummary && oldGrid) {
+    oldSummary.replaceWith(newSummary);
+    oldGrid.replaceWith(newGrid);
+  } else {
+    // 兜底: 数据从有变空/空变有 - 保留 badge + hint, 替换其余
+    const badge = sigCard.querySelector(".card-time-badge");
+    const hint = sigCard.querySelector(".sig-intraday-hint");
+    sigCard.innerHTML = newHtml;
+    if (badge) sigCard.appendChild(badge);
+    if (hint) sigCard.appendChild(hint);
+  }
+}
+
+// ts:overview-refreshed hook: collected_at 变化时增量重绘 sigCard(非概览 tab / 无数据 / 同 collected_at 跳过)
+function _maybeRerenderSigCard(r, snap) {
+  if (state.tab !== "overview") return;
+  if (!r || !r.signals_today) return;
+  if (r.collected_at === _sigCardRenderedAt) return;
+  _sigCardRenderedAt = r.collected_at;
+  _rerenderSigCardContent(r, snap);
 }
 
 // 买卖点回测 stats tips（折线图上方）：散户化多块文案 + 胜率配色梯度 + 凯利公式折叠详解。
@@ -5781,7 +5859,11 @@ function initNotifyButton() {
   });
 
   // 监听 overview 刷新事件 -> 触发通知检测（hook _doOverviewRefresh 自定义事件）
-  window.addEventListener('ts:overview-refreshed', () => { _checkNotifications(); });
+  // D 方案(2026-07-29): 同时增量重绘 sigCard(collected_at 变化时), 盘中自动看到最新信号
+  window.addEventListener('ts:overview-refreshed', (e) => {
+    _checkNotifications();
+    _maybeRerenderSigCard(_getCachedOverview(), e && e.detail && e.detail.snap);
+  });
 }
 
 // ============ 🐶 汪汪队首页卡片：近期信号列表 + 点击弹 day modal ============
@@ -6616,9 +6698,10 @@ async function renderOverview() {
 
   // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
-  sigCard.className = "chart-card";
+  sigCard.className = "chart-card sig-card";
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · 今日高亮）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
   addCardTimeBadge(sigCard, r.date, snap, "t0");
+  _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
   // (_SNAPSHOT_TO_INDEX_ID 只12个),盘中它们的 -all.json 不更新,首页看到的当日 buy/sell pin
   // 点弹窗看不到 T 日 pin(K线末日还是 T-1)。加提示让用户知道收盘后 17:50 全对齐,非 bug。
@@ -6632,7 +6715,26 @@ async function renderOverview() {
     sigCard.appendChild(_sigIntradayHint);
   }
   // 点击买卖点卡片弹窗：展示对应指数/品类走势图+买卖信号标注
+  // A/B 方案(2026-07-29): 汇总条 button click 委托 toggle 评级/对错筛选, 优先于 .sig-clickable 弹窗。
   sigCard.addEventListener("click", (e) => {
+    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-grade-filter-reset]");
+    if (filterBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (filterBtn.hasAttribute("data-grade-filter-reset")) {
+        state.sigGradeFilter = null;
+        state.sigCorrectFilter = null;
+      } else if (filterBtn.dataset.gradeFilter != null) {
+        const g = filterBtn.dataset.gradeFilter;
+        state.sigGradeFilter = (state.sigGradeFilter === g) ? null : g;  // toggle: 再点同档恢复
+      } else if (filterBtn.dataset.correctFilter != null) {
+        const k = filterBtn.dataset.correctFilter;
+        state.sigCorrectFilter = (state.sigCorrectFilter === k) ? null : k;  // toggle
+      }
+      // 用最新 overview + snap 重绘(不依赖闭包 r/snap, 盘中自动更新后筛选也生效)
+      _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
+      return;
+    }
     const item = e.target.closest(".sig-clickable");
     if (!item) return;
     e.preventDefault();
