@@ -6408,7 +6408,7 @@ async function renderOverview() {
       maCard.innerHTML = maHtml;
       colB2.appendChild(maCard);
       appendPlainTip(maCard, "多头排列=短期均线在长期之上，趋势向上；反之趋势向下");
-      addCardTimeBadge(maCard, d.date, snap, "t1");
+      addCardTimeBadge(maCard, d.date, snap, "t0");
     }
   }).catch((e) => { renderFailCard(colB2, "&#x1F4C8; 均线排列", e); });
 
@@ -6439,7 +6439,7 @@ async function renderOverview() {
       posHtml += `</div>`;
       posCard.innerHTML = posHtml;
       colB2.appendChild(posCard);
-      addCardTimeBadge(posCard, posDates.length ? posDates[posDates.length - 1] : "", snap, "t1");
+      addCardTimeBadge(posCard, posDates.length ? posDates[posDates.length - 1] : "", snap, "t0");
     }
   }).catch((e) => { renderFailCard(colB2, "&#x1F4CD; 大盘位置感", e); });
 
@@ -6478,7 +6478,7 @@ async function renderOverview() {
       ];
       const adc = mkCard("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 300, null, colC1);
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
-      addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t1");
+      addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       adc.setOption(withTheme({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["涨跌家数比", "腾落线", "腾落线MA20"] },
@@ -6519,7 +6519,7 @@ async function renderOverview() {
       ];
       const vrc = mkCard("📈 成交额与量比（近 120 日）" + termTip("量比=当日成交额/前5日均量。>1.5=放量(交投活跃),<0.7=缩量(清淡)。放量伴随涨跌更可信。") + latestSuffixMulti(vrSeries), 300, null, colC2);
       appendPlainTip(vrc, "量比>1.5为明显放量，<0.5为明显缩量");
-      addCardTimeBadge(vrc.getDom().parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t1");
+      addCardTimeBadge(vrc.getDom().parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t0");
       vrc.setOption(withTheme({
         tooltip: { trigger: "axis", formatter: function(params) {
           const d = vrData[params[0].dataIndex];
@@ -6555,7 +6555,7 @@ async function renderOverview() {
       ];
       const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 280, null, colC1);
       appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
-      addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t1");
+      addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t0");
       nhlCard.setOption(withTheme({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["52周新高", "52周新低", "净新高"] },
