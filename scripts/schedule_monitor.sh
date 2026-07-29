@@ -164,8 +164,13 @@ for t in TASKS:
 #    根因已闭环(bba5ecaa deploy根治 + 6824a43c 真实exit code + c1921857 ProcessPool修crash)，
 #    但 stats 旧记录未清(周末不跑，周一 20:07 跑才更新)，schedule_monitor 每15min读到
 #    exit=143 非0 -> 持续 SEVERE 告警邮件约192封。
+#    去重2(2026-07-30)：exit!=0 走 alert_state.json suppress(与 log异常关键词路径对称)。
+#    根因场景：etf_national_team 7/29 21:30 exit=1(deploy rebase失败,a4f48c26修复前),
+#    24h 内 schedule_monitor 每15min读到 exit=1 -> 持续 SEVERE 邮件约50封(轰炸用户)。
+#    根因:exit!=0 路径只做24h stale去重,没走 alert_state suppress(每15min append SEVERE)。
+#    修复:同task同exit_code首次发SEVERE+写state active,持续suppress,exit变0/null发恢复邮件。
 #    规则：last_run 距今 >24h 且 exit!=0 = 旧问题(任务超1天没跑)，等下次任务跑更新
-#    stats 自动清除，降级 log INFO 不重复 SEVERE；最近 24h 内 exit!=0 仍 SEVERE(新问题不漏报)。
+#    stats 自动清除，降级 log INFO 不重复 SEVERE；最近 24h 内 exit!=0 首次发SEVERE+suppress(不重发)。
 # 2026-07-25: 跑前刷新 schedule_stats.json(保证读最新,不读滞后旧值)。
 # 根因:schedule_monitor 每15min跑,但 schedule_stats.json 只在各任务脚本结尾刷新,
 # 若任务没跑(如周末),json 滞后旧值(如 etf 143 假告警),schedule_monitor 持续读旧值误告警。
@@ -198,18 +203,39 @@ if STATS_FILE.exists():
                             is_stale = True
                     except ValueError:
                         print(f"[warn] {s.get('task')} last_run 格式异常: {last_run_str}", file=sys.stderr)
+                # 去重 key: task|exit!=0|exit_code (与 log异常关键词路径结构对称)
+                # 标记本次仍存在(防误报恢复),无论 stale 与否(与 log关键词路径 L250-251 同逻辑)
+                dedup_key = f"{s['task']}|exit!=0|{exit_code}"
+                seen_keys_this_run.add(dedup_key)
                 if is_stale:
                     # 旧告警已过期(任务>24h没跑)，等下次任务跑更新 stats 自动清除，不重复 SEVERE
+                    # state 保持 active(stale 不触发误恢复),等任务真正跑 exit=0/null 才恢复
                     print(
                         f"[info] {s['task']} 退出失败 last_exit={exit_code} "
                         f"last_run={last_run_str} 距今>{int(STALE_EXIT_THRESHOLD.total_seconds()//3600)}h, "
                         f"旧告警已过期,等下次任务跑更新(不重复 SEVERE)"
                     )
                 else:
-                    alerts.append(
-                        f"SEVERE: {s['task']} 退出失败 last_exit={exit_code} "
-                        f"last_run={last_run_str}"
-                    )
+                    existing = alert_state.get(dedup_key)
+                    if existing is None or existing.get("status") != "active":
+                        # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
+                        alerts.append(
+                            f"SEVERE: {s['task']} 退出失败 last_exit={exit_code} "
+                            f"last_run={last_run_str}"
+                        )
+                        alert_state[dedup_key] = {
+                            "status": "active",
+                            "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "keyword": f"exit={exit_code}",
+                            "line_sample": f"last_run={last_run_str}",
+                        }
+                    else:
+                        # 已 active = 抑制不重发,只 log
+                        print(
+                            f"[suppress] {s['task']} 退出失败(exit={exit_code}) 持续中, "
+                            f"last_alerted={existing.get('last_alerted')}, 不重发"
+                        )
             # 第4盲区修复: log 异常关键词检查(脚本吞异常 exit=0 漏报)
             # 即使 last_exit=0(异常被 try/except 吞),log 里有 Traceback/异常类名也算失败
             # 复用 24h stale 去重(与 exit!=0 同逻辑, 旧告警不重复 SEVERE)
