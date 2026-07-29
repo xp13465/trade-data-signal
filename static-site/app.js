@@ -5659,15 +5659,18 @@ function showNotification(title, body, tag, clickAction) {
       }
       // controller null: 等 SW ready 再 postMessage（硬刷后 SW 刚 register 时序问题）
       navigator.serviceWorker.ready.then(reg => {
-        if (navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
+        // controller null 时用 reg.active.postMessage（active SW 即可收 message，不依赖 controller 接管页面）
+        const sw = navigator.serviceWorker.controller || reg.active;
+        if (sw) {
+          sw.postMessage({
             type: 'SHOW_NOTIFICATION',
             payload: { title, body, tag, data: notifData }
           });
-          console.log('[notify] 走SW postMessage (ready后controller接管)');
+          const via = navigator.serviceWorker.controller ? 'controller' : 'reg.active';
+          console.log('[notify] 走SW postMessage (' + via + ')');
         } else {
-          // ready 后 controller 仍 null: 降级 new Notification
-          console.warn('[notify] controller仍null，降级new Notification（Mac点击可能不可靠）');
+          // reg.active 也 null（极端情况）: 降级 new Notification
+          console.warn('[notify] 无active SW，降级new Notification');
           _fallbackNewNotification(title, body, tag, notifData);
         }
       });
