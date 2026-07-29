@@ -4246,8 +4246,9 @@ const T1_COLLECT_DEADLINE = {
   futures_date:  "21:00",   // 期货机构持仓: CFFEX 20:00发当日,futures-backfill 20:05+21:00(兜底)采集
   csi_div_date:  "18:00",   // 中证红利: 中证指数公司盘后发布,update_all 17:50采集,18:00后应已到
   etf_date:      "21:30",   // ETF国家队份额: 交易所盘后发布,etf-national-team 20:07+21:30(兜底)采集
-  // 2026-07-29 T+1治理: gold(沪金AU0)/cn10y(10年国债)采集侧改实时源(新浪期货/中债所)后变T+0,不再列入T+1截止时点表
-  // 原 gold: "18:00" / cn10y: "18:00" 已移除(盘后不再判T+1滞后)
+  // 2026-07-29 T+1治理: gold(沪金AU0)采集侧改新浪/腾讯实时源变T+0,不再列入T+1截止时点表(原 gold: "18:00" 已移除)
+  // cn10y 保持T+1(中债估值源端T+1,采集侧67acb836确认),恢复 cn10y: "18:00" 项; us10y/cn_us_spread derived 跟随,共用cn10y srcKey
+  cn10y:         "18:00",   // 国债收益率: 中债估值盘后T+1发布,update_all 17:50采集
   a_qvix_300:    "next_day", // QVIX期权波动率: 源端optbbs T+1日02:00-16:30才发当日值,17:50 update_all常采不到 -> next_day盘中恒放宽,消除18:00后误报红
   industry:      "18:00",   // 申万行业指数: baostock/申万收盘后发布,update_all 17:50采集
   hk_south:      "18:00",   // 港股通净买入: 盘后发布,update_all 17:50采集
@@ -6228,11 +6229,12 @@ async function renderOverview() {
       sub = sig || "";
     }
     const _kpiT1 = k.id === "a_fund_margin" || k.id === "a_fund_north" || k.id === "a_qvix_300" || k.id.startsWith("a_turnover_")
-      || k.id === "a_fund_main"
+      || k.id === "cn10y" || k.id === "a_fund_main"
       || k.id === "lhb_count"; // 2026-07-23 修复:这4项实为T+1性质源(盘后次日发布),漏配误走t0分支baseline=今日致盘后误判"滞后",与"数据更新规则"弹窗标T+1不一致
       // 2026-07-24 补配 lhb_count: 龙虎榜T+1(东财18:00发当日,lhb-backfill 18:30+19:30采集),T1_COLLECT_DEADLINE已配19:30但漏配本列表,
       // 致卡片走t0分支判"数据日期<今日=滞后",盘后/盘中误显⚠滞后7-24,与弹窗L3874"📅当日18点后"不一致
-      // 2026-07-29 T+1治理: gold(沪金AU0)/cn10y(10年国债)采集侧改实时源变T+0,从_kpiT1移除(走t0分支,无T1角标)
+      // 2026-07-29 T+1治理: gold(沪金AU0)采集侧改新浪/腾讯实时源变T+0,从_kpiT1移除(走t0分支,无T1角标)
+      // 2026-07-29 T+1治理修正: cn10y保持T+1(中债估值源端T+1,采集侧67acb836确认),恢复_kpiT1标记; us10y/cn_us_spread derived跟随T+1
       // 注: a_fund_margin/a_fund_north/a_fund_main/a_turnover_* 即便挪出首屏KPI小卡(C组实施3),仍保留T1标记兜底(灰态卡/未来回KPI用)
     let _badge = k.disabled
       ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
@@ -8271,12 +8273,14 @@ async function renderGlobal(container = content) {
         if (dataStaleDays(lastDate) > STALE_DAYS) addStaleMark(chart.getDom().parentElement, lastDate);
         else {
           // usdcnh=离岸人民币实时(T+0);
-          // 2026-07-29 T+1治理: A组6商品(gold/oil/wti_oil/comex_silver/brent)采集侧改新浪/腾讯实时源变T+0;
-          // B组国债(cn10y/us10y/cn_us_spread)采集侧改中债实时源变T+0; 均走t0分支(无T1角标)
+          // 2026-07-29 T+1治理: A组6商品(gold/oil/wti_oil/comex_silver/brent)采集侧改新浪/腾讯实时源变T+0,走t0分支(无T1角标)
+          // 国债保持T+1(采集侧67acb836确认): cn10y=中债估值源端T+1; us10y=美债bond_zh_us_rate T+1(hf_TNX新浪源全空);
+          // cn_us_spread=cn10y-us10y derived 跟随T+1; 走t1分支+srcKey映射到cn10y(共用T1_COLLECT_DEADLINE放宽口径)
+          // 注: 采集侧新增cn10y_etf=sh511260十年国债ETF价格(T+0)作辅助参考,前端暂不加卡(后续再议是否展示ETF价格)
           // 剩余T+1 extras: a_qvix_1000 -> a_qvix_300 (qvix期权波动率optbbs次日发)
-          const _T0_EXTRAS = new Set(["usdcnh", "gold", "oil", "wti_oil", "comex_silver", "brent", "cn10y", "us10y", "cn_us_spread"]);
+          const _T0_EXTRAS = new Set(["usdcnh", "gold", "oil", "wti_oil", "comex_silver", "brent"]);
           const _t0Extra = _T0_EXTRAS.has(id);
-          const _srcKey = _t0Extra ? "" : ({ a_qvix_1000: "a_qvix_300" }[id] || id);
+          const _srcKey = _t0Extra ? "" : ({ us10y: "cn10y", cn_us_spread: "cn10y", a_qvix_1000: "a_qvix_300" }[id] || id);
           addCardTimeBadge(chart.getDom().parentElement, lastDate, snap, _t0Extra ? "t0" : "t1", _srcKey);
         }
         // 标题❓策略弹窗（2026-07-20 方案B1）：global 指标卡 h3 末尾追加❓（如 usdcnh skip买/cn_us_spread skip卖/usdcnh 2σ 去趋势 等 per-index 差异化策略）
