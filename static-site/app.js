@@ -228,20 +228,48 @@ function rethemeCharts() {
       //   - app.js _autoLabelColor 调用点（7 处）label.color 已设 -> 重新评估
       //   - lab.js 彩色 pin label 继承系列级 #fff 不设 label.color -> 跳过避免误改
       //   - 拼色 pin（itemStyle.color 是渐变对象非 string）-> 跳过保留硬编码 #fff
+      // markPoint/markLine/markArea label 字体色按皮肤适配（canvas 不响应 CSS var，切皮肤需手动重注入）：
+      // - markPoint: _autoLabelColor 按数据点 itemStyle.color 返回对比色（2026-07-23 修一刀切改黑色致暗色看不清）
+      // - markLine: 分时图"昨收"基准线 label 跟 --text-3
+      // - markArea: 分时图"午休"灰条 label 跟 --text-4
+      // 2026-07-29 补 markLine/markArea：原仅处理 markPoint，切皮肤后分时图"昨收"/"午休"label
+      // 保留旧皮肤色（暗色皮肤灰底灰字看不清），此处补齐重注入。
       if (opt.series && opt.series.length) {
+        var mlColor = cssVar("--text-3");
+        var maColor = cssVar("--text-4");
         var seriesUpd = opt.series.map(function (s) {
-          if (!s || !s.markPoint || !Array.isArray(s.markPoint.data)) return null;
-          var dataChanged = false;
-          var newData = s.markPoint.data.map(function (d) {
-            if (!d || !d.label || d.label.color == null) return d;
-            if (!d.itemStyle || typeof d.itemStyle.color !== "string") return d;
-            if (!/^#[0-9a-fA-F]{6}$/.test(d.itemStyle.color)) return d;
-            var newColor = _autoLabelColor(d.itemStyle.color);
-            if (d.label.color === newColor) return d;
-            dataChanged = true;
-            return Object.assign({}, d, { label: Object.assign({}, d.label, { color: newColor }) });
-          });
-          return dataChanged ? { markPoint: { data: newData } } : null;
+          if (!s) return null;
+          var patches = {};
+          // markPoint label：按 itemStyle.color 重新评估对比色
+          if (s.markPoint && Array.isArray(s.markPoint.data)) {
+            var dataChanged = false;
+            var newData = s.markPoint.data.map(function (d) {
+              if (!d || !d.label || d.label.color == null) return d;
+              if (!d.itemStyle || typeof d.itemStyle.color !== "string") return d;
+              if (!/^#[0-9a-fA-F]{6}$/.test(d.itemStyle.color)) return d;
+              var newColor = _autoLabelColor(d.itemStyle.color);
+              if (d.label.color === newColor) return d;
+              dataChanged = true;
+              return Object.assign({}, d, { label: Object.assign({}, d.label, { color: newColor }) });
+            });
+            if (dataChanged) patches.markPoint = { data: newData };
+          }
+          // markLine label："昨收"基准线 label 跟皮肤（label 在 per-data 项内）
+          if (s.markLine && Array.isArray(s.markLine.data)) {
+            var mlChanged = false;
+            var newMlData = s.markLine.data.map(function (d) {
+              if (!d || !d.label) return d;
+              if (d.label.color === mlColor) return d;
+              mlChanged = true;
+              return Object.assign({}, d, { label: Object.assign({}, d.label, { color: mlColor }) });
+            });
+            if (mlChanged) patches.markLine = { data: newMlData };
+          }
+          // markArea label："午休"灰条 label 跟皮肤（label 在 markArea 级非 per-data）
+          if (s.markArea && s.markArea.label && s.markArea.label.color !== maColor) {
+            patches.markArea = { label: Object.assign({}, s.markArea.label, { color: maColor }) };
+          }
+          return Object.keys(patches).length ? patches : null;
         }).filter(Boolean);
         if (seriesUpd.length) c.setOption({ series: seriesUpd });
       }
