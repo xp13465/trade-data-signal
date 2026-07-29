@@ -4820,3 +4820,138 @@ if (!isClosed) {
 2. **增量重绘保留兄弟元素而非整卡重建**：`_rerenderSigCardContent` 只替换 `.signal-accuracy-summary` + `.signal-grid` 两子节点，保留 `.card-time-badge` 角标 + `.sig-intraday-hint`（这些已由 refresh 路径独立更新）。整卡重建会丢失角标刚更新的状态 + 引发视觉闪烁。下次"某子区域需要重绘"时，定位最小替换单元（子节点 selector），保留同卡其他已更新的兄弟元素。
 3. **筛选 state 放模块级由 render 内部读，重绘自动保留**：`sigGradeFilter` / `sigCorrectFilter` 放 state 模块变量，`_renderSignalGrid` 内部读并应用 filter，重绘时自动按当前 state 过滤（无需重绘后额外"恢复筛选态"）。下次"列表 + 筛选 + 自动重绘"组合时，筛选 state 放模块级 + render 内部读，比放 DOM data 属性重绘后再读回更可靠。
 4. **agent 调研"X 分钟更新"结论先核对实际调度 plist 而非脚本文件头注释**：a79561e8a 报"30min 更新逻辑"是误读 `intraday_snapshot.sh` L2 过时注释（写 30min 但 plist 实际 10min 调度，2026-07-28 从 15m 升 10m 没改注释），a3b8c7844 纠正。下次调研"某任务多久跑一次"，查 launchd plist `StartCalendarInterval` 或 `StartInterval` 而非脚本文件头注释（注释易过时，plist 是实际调度源）。
+
+### 小节AZ68：2026-07-29 晚续8 Mac Chrome 通知点击无响应-迁移 SW showNotification+notificationclick（page new Notification Mac 失焦 onclick 丢失）
+
+> 用户报 Mac Chrome 通知点击无响应/不弹。根因=page `new Notification()` + `onclick`，Mac Chrome 代理通知到 macOS 通知中心后页面失焦时 onclick 回调链路丢失（Win Chrome 走 Action Center 集成度高 onclick 稳定）；sw.js 无 `notificationclick` 监听（架构缺口）。修复=迁移到 SW `registration.showNotification()` + `notificationclick` 事件。
+
+**背景**：用户报 Mac Chrome 通知点击后无响应，不弹或点击不跳转。Win Chrome 正常。
+
+**调研**：page 走 `new Notification(title, {body, tag})` + `notification.onclick = () => { ... }` 路径，Mac Chrome 将通知代理到 macOS 通知中心，页面失焦（切到其他 app/tab）后 onclick 回调无法回传到 page JS 上下文 -> 点击通知无反应。Win Chrome 走系统 Action Center 集成度高，onclick 回调链路稳定。sw.js 之前无 `notificationclick` 监听，是架构缺口。
+
+**修复**（commit `193beb21`，sw a68->a69）：
+- sw.js 加 SHOW_NOTIFICATION message 代理：page postMessage `{type: 'SHOW_NOTIFICATION', title, body, tag, clickAction}` 让 SW 弹通知，SW 调 `self.registration.showNotification(title, {body, tag})`。
+- sw.js 加 `notificationclick` 事件：`event.notification.close()` + `event.waitUntil(clients.matchAll().then(...))` 聚焦已开 tab（`client.focus()`）+ postMessage `{type: 'NOTIFICATION_CLICK', clickAction}` 给 page 触发 UI 反馈。
+- app.js `showNotification` 改走 SW 代理：`navigator.serviceWorker.controller.postMessage({type: 'SHOW_NOTIFICATION', ...})` 代替 `new Notification()`；新增 `clickAction` 参数标识点击后跳转目标。
+- app.js 新增 `_handleNotifyClick(clickAction)`：根据 clickAction 滚动到对应板块（信号/异动/预警/恐贪/涨停/收盘速递）+ 高亮闪烁（CSS `.notify-flash`）。
+- app.js `_processNotifications` 10 处补 `clickAction` 参数：信号 / 异动 / 预警 / 恐贪 / 涨停 / 收盘速递等通知点。
+- CSS `.notify-flash` 高亮动画。
+- sw.js `CACHE_VERSION` a68->a69。
+
+**关联**：为 AZ69 铺垫（SW 迁移后 controller null 时 postMessage 失败 -> AZ69 修 pref null + controller null）。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `193beb21` | Mac Chrome通知点击无响应迁移SW showNotification+notificationclick(sw.js加SHOW_NOTIFICATION message代理+notificationclick聚焦tab+postMessage触发页面UI反馈;app.js showNotification改走SW代理+clickAction参数+_handleNotifyClick滚动高亮闪烁;_processNotifications 10处补clickAction信号/异动/预警/恐贪/涨停/收盘速递;CSS .notify-flash); sw a68->a69 |
+
+**教训**
+
+1. **page `new Notification()` Mac 失焦 onclick 丢失 -> 迁移 SW `registration.showNotification()` + `notificationclick`**：Mac Chrome 将 page 创建的通知代理到 macOS 通知中心，页面失焦后 onclick 回调无法回传到 page JS 上下文 -> 点击无反应；Win Chrome 走 Action Center 集成度高 onclick 稳定。标准做法是 SW `registration.showNotification()` + `notificationclick` 事件（SW 常驻不依赖 page focus，Mac 稳定）。下次"通知点击"功能优先走 SW 路径，不用 page `new Notification()`。
+
+### 小节AZ69：2026-07-29 晚续8 通知不弹根因（pref null + controller null）-试看一键开启+SW ready 等 controller
+
+> AZ68 迁移后通知仍不弹。根因=pref null（localStorage 通知偏好未开启，key=`ts_notify_enabled` 非 notifyPref）+ controller null（SW activated 但硬刷时序未接管页面）。`showNotification` 第一行 `if (!_loadNotifyPref()) return false` 直接返回。
+
+**背景**：AZ68 上线后用户报"还是不弹"。
+
+**调研**：
+- pref null：localStorage key=`ts_notify_enabled`（NOTIFY_STORAGE_KEY 常量 app.js L5566），用户没点过"开启通知"按钮 -> `_loadNotifyPref()` 返回 false -> `showNotification` 第一行 `if (!_loadNotifyPref()) return false` 直接返回。
+- controller null：SW 已 activated 但硬刷（Cmd+Shift+R）时序未让 SW 接管页面（`navigator.serviceWorker.controller === null`，需 `clients.claim()` + 页面刷新后接管）-> `controller.postMessage` 报 null。
+
+**修复**（commit `30685ddf`，sw a69->a70）：
+- 试看按钮改一键开启：点击"试看"按钮自动 `_saveNotifyPref(true)` + `Notification.requestPermission()` + 弹测试通知，不再静默 return（用户点试看即开启偏好 + 请求权限 + 验证通知）。
+- `showNotification` controller null 时等 `navigator.serviceWorker.ready` 再 postMessage：`if (!controller) { navigator.serviceWorker.ready.then(reg => reg.active.postMessage(...)) }`。
+- ready 后 controller 仍 null 走降级 `new Notification`（带 onclick `_handleNotifyClick`，AZ70 会改成 reg.active.postMessage 不降级）。
+- 加 `controllerchange` 监听器：SW 接管 page 后触发回调。
+- 加诊断 console.log（permission / pref / controller 状态）。
+- sw.js `CACHE_VERSION` a69->a70。
+
+**关联**：AZ70 发现降级 `new Notification` Mac onclick 丢失（AZ68 教训①复现）-> AZ70 改用 `reg.active.postMessage` 绕过 controller 依赖。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `30685ddf` | 通知不弹根因(pref null+controller null)修复-试看按钮一键开启(_saveNotifyPref(true)+requestPermission+弹测试通知)+showNotification controller null等SW ready再postMessage+ready后仍null降级new Notification带onclick+controllerchange监听+诊断console.log; sw a69->a70 |
+
+**教训**
+
+1. **pref localStorage key 是 `ts_notify_enabled` 非 notifyPref**：NOTIFY_STORAGE_KEY 常量 app.js L5566，排查"通知偏好没生效"先 `localStorage.getItem('ts_notify_enabled')` 确认值（null/`"true"`/`"false"`），不是查 `notifyPref`。
+2. **试看/测试按钮应一键开启全链路**：用户点"试看"期望立即看到通知，若按钮只弹通知但 pref 未开启/权限未请求，showNotification 第一行 `if (!_loadNotifyPref()) return false` 静默返回 -> 用户以为按钮坏了。试看按钮应 `_saveNotifyPref(true)` + `requestPermission()` + 弹通知三步合一，用户一点即通。
+
+### 小节AZ70：2026-07-29 晚续8 controller null 用 reg.active.postMessage 走 SW 路径（不依赖 controller 接管页面）
+
+> AZ69 降级 `new Notification` Mac onclick 丢失（AZ68 教训①复现）。修复=controller null 时用 `reg.active.postMessage`（ready resolve 时 reg.active 是 active SW，postMessage 给 active SW 即可，不依赖 controller 接管页面）-> SW 收 SHOW_NOTIFICATION 调 `self.registration.showNotification` + notificationclick（Mac 稳定）。
+
+**背景**：AZ69 降级路径 `new Notification` 在 Mac 仍走 AZ68 教训①的失焦 onclick 丢失路径，等于 AZ68 迁移白做。
+
+**调研**：`navigator.serviceWorker.ready` resolve 时 `reg.active` 是 active SW（已 activated），`reg.active.postMessage` 不依赖 `controller`（controller 是"已接管当前 page 的 SW"，硬刷后时序未接管时为 null，但 active SW 已存在可接收 message）。故 controller null 时改用 `reg.active.postMessage` 走 SW 路径，而非降级 `new Notification`。
+
+**修复**（commit `4fd71a74`，sw a70->a71）：
+- `const sw = navigator.serviceWorker.controller || reg.active`：优先 controller，null 则用 reg.active。
+- 仅 controller 和 reg.active 都 null 才降级 `new Notification`（极端情况兜底）。
+- sw.js `CACHE_VERSION` a70->a71。
+
+**关联**：AZ71/AZ72 加 SW 诊断日志定位"还是不弹"的最后根因（SW 卡旧版不 update）。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `4fd71a74` | controller null用reg.active.postMessage走SW路径(navigator.serviceWorker.controller||reg.active 优先controller null则reg.active,ready resolve时reg.active是active SW postMessage不依赖controller接管页面;仅都null才降级new Notification); sw a70->a71 |
+
+**教训**
+
+1. **controller null（硬刷后 SW 更新时序，clients.claim 未及时接管当前页面）-> 用 `reg.active.postMessage` 绕过 controller 依赖**：`navigator.serviceWorker.controller` 是"已接管当前 page 的 SW"，硬刷（Cmd+Shift+R）后 SW 更新时序未完成时 controller 为 null，但 `navigator.serviceWorker.ready` resolve 时 `reg.active` 是已 activated 的 active SW，`reg.active.postMessage` 可达。下次"controller null"场景优先 `reg.active.postMessage` 而非降级 page 路径。
+
+### 小节AZ71/AZ72：2026-07-29 晚续8 SW 诊断日志定位通知没弹（SW 卡旧版不 update）
+
+> AZ68-AZ70 修复后通知仍不弹。加 SW 诊断日志定位，发现 SW 卡旧版（硬刷 Cmd+Shift+R 不触发 SW update check，SW 卡 a69 不更新到 a72）-> 注销旧 SW + 刷新强制重新注册新版后正常。
+
+**背景**：AZ70 上线后用户报"还是不弹"，前三轮修复（AZ68 迁移 / AZ69 pref+controller / AZ70 reg.active）逻辑都对，但用户硬刷拿不到新版 SW。
+
+**调研**：sw.js 加诊断 console.log 定位：
+- SHOW_NOTIFICATION message 分支：收到 / showNotification 成功 / 失败各步日志。
+- notificationclick：matchAll / focus / postMessage 各步日志。
+- 发现 SW 实际版本卡在 a69（用户硬刷 Cmd+Shift+R 不触发 SW update check，SW 不更新到 a72）。
+
+**修复**（commit `3c788360`，sw a71->a72）：
+- sw.js message SHOW_NOTIFICATION 分支加 console.log（收到 / 成功 / 失败）。
+- sw.js notificationclick 加 matchAll / focus / postMessage 各步日志。
+- sw.js `CACHE_VERSION` a71->a72。
+- 用户侧手动注销旧 SW + 刷新强制重新注册新版：`navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))).then(()=>location.reload())`。
+
+**关联**：最终根因=SW 卡旧版不 update（非代码 bug，是 SW update 机制 + 用户硬刷不触发 update check）。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `3c788360` | SW诊断日志定位通知没弹(sw.js message SHOW_NOTIFICATION分支加console.log收到/成功/失败+notificationclick加matchAll/focus/postMessage各步日志;定位SW卡旧版a69不update到a72,用户手动注销旧SW+刷新强制重新注册); sw a71->a72 |
+
+**教训**
+
+1. **Mac Chrome 通知双重权限：浏览器级 + 系统级**：浏览器级 `Notification.permission=granted` 只是第一层，macOS 系统级通知设置（系统设置>通知>Google Chrome>允许通知 + 样式横幅/提醒非无）是第二层。Win 只有浏览器级，故 Win 正常 Mac 不弹。排查 Mac 通知问题必查系统级设置。
+2. **SW 更新卡旧版（硬刷 Cmd+Shift+R 不触发 SW update check）-> 手动注销旧 SW + 刷新强制重新注册**：bump `CACHE_VERSION` 只让新 SW 破缓存，不强制旧 SW update。用户硬刷拿新版需手动 `navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))).then(()=>location.reload())` 注销旧 SW + 刷新，或等浏览器自动 update check（可能 24h）。下次"SW 改了但用户硬刷拿不到新版"先让用户注销旧 SW 重注册，不死磕代码。
+3. **SW Console 看 SW 日志：`chrome://inspect/#service-workers` > 找 sw.js > inspect**：不是 DevTools Console 下拉"top"（下拉可能无 sw.js 选项）。SW 内部变量（如 CACHE_VERSION）只能在 SW Console 跑，page Console 报 not defined。下次调试 SW 代码走 `chrome://inspect/#service-workers` 专有入口。
+
+### 小节AZ68-AZ72 总结：Mac Chrome 通知点击无响应/不弹修复（4 commit 4 轮迭代）
+
+**用户验证**：通知弹出 + 点击跳转正常 ✅
+
+**最终根因（5 层）**：
+1. Mac 双重通知权限（浏览器级 + macOS 系统级，Win 只有浏览器级故 Win 正常 Mac 不弹）。
+2. page `new Notification()` Mac 失焦 onclick 丢失（Mac Chrome 代理通知到 macOS 通知中心后 page 失焦 onclick 回传链路丢失）。
+3. pref null（localStorage key=`ts_notify_enabled` 未开启，showNotification 第一行 return）。
+4. controller null（硬刷后 SW 更新时序未接管 page，controller.postMessage 报 null）。
+5. SW 卡旧版不 update（硬刷 Cmd+Shift+R 不触发 SW update check，SW 卡 a69 不更新到 a72，前三轮修复用户拿不到）。
+
+**修复路径（4 commit）**：
+- AZ68（`193beb21`，a69）：page new Notification 迁移 SW showNotification + notificationclick。
+- AZ69（`30685ddf`，a70）：试看一键开启 + SW ready 等 controller。
+- AZ70（`4fd71a74`，a71）：controller null 用 reg.active.postMessage。
+- AZ71/AZ72（`3c788360`，a72）：SW 诊断日志 + 用户手动注销旧 SW 重注册。
+
+**教训合集**：见各小节教训段。
