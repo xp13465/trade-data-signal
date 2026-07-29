@@ -964,7 +964,9 @@ function _backupSignalChipRender(sd, id) {
       }
       if (eshas) {
         line3 += ' · 策略夏普' + esmx.toFixed(2);
+        // 2026-07-30 分级符号: >3⚠(红线) / 2-3~(中等警示), 与 modal sim-card 颜色分级协同
         if (esmx > _SHARPE_REDLINE_THRESHOLD) line3 += '⚠';
+        else if (esmx >= 2) line3 += '~';
       }
     }
     return { line1: line1, line2: line2, line3: line3 };
@@ -1009,7 +1011,14 @@ function _backupSignalChipTip(sd, scored, chip) {
     if (s) {
       // 每个窗口行末尾加 [s~e] 起止日期，让用户明确各窗口具体回测时段
       var rng = winRange[w] ? '  [' + winRange[w] + ']' : '';
-      lines.push('  ' + winLabel[w] + '  年化' + (s.annualized || 0).toFixed(1) + '% │ 回撤' + (s.max_drawdown || 0).toFixed(1) + '% │ 胜率' + (s.win_rate || 0).toFixed(0) + '% │ 夏普' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + ' │ 样本' + (s.total_ops || 0) + rng);
+      // 2026-07-30 夏普分级符号: >3⚠(红线) / 2-3~(中等警示), tooltip 纯文本无法着色, 用符号区分
+      var shStr = typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-';
+      var shSym = '';
+      if (typeof s.sharpe === 'number' && isFinite(s.sharpe)) {
+        if (s.sharpe > _SHARPE_REDLINE_THRESHOLD) shSym = '⚠';
+        else if (s.sharpe >= 2) shSym = '~';
+      }
+      lines.push('  ' + winLabel[w] + '  年化' + (s.annualized || 0).toFixed(1) + '% │ 回撤' + (s.max_drawdown || 0).toFixed(1) + '% │ 胜率' + (s.win_rate || 0).toFixed(0) + '% │ 夏普' + shStr + shSym + ' │ 样本' + (s.total_ops || 0) + rng);
     }
   }
   // 全 33 策略该维度 Top5（策略级，非 entry 级 165）
@@ -11380,6 +11389,27 @@ function _tradeSimColorPct(pct) {
   return "#9e9e9e";
 }
 
+// 2026-07-30 过拟合度分级颜色: sharpe>3 红(可疑过拟合红线) / 2-3 橙(中等警示) / 1-2 默认(正常) / <1 灰(弱)
+// 与 _tradeSimColorPct 同风格: 数据语义色硬编码(红橙警示色不随皮肤变), 正常/弱用 var(--text-1/3) 随皮肤协调
+// 红线阈值与 _SHARPE_REDLINE_THRESHOLD(3.0) 一致; 橙色 #d97706 介于红 #c0392b 与 WF失效 #ad6800 之间, 警示层级清晰
+// Bailey 2014: 夏普>3 可疑过拟合 / >5 必过拟合; trade_sim 夏普为事件稀疏 sqrt(252) 年化近似值偏高, 分级为提示非判定
+function _tradeSimSharpeColor(sharpe) {
+  if (typeof sharpe !== 'number' || !isFinite(sharpe)) return 'var(--text-3)';  // 无数据/非数: 灰
+  if (sharpe > _SHARPE_REDLINE_THRESHOLD) return '#c0392b';   // 红: 可疑过拟合(>3)
+  if (sharpe >= 2) return '#d97706';                           // 橙: 中等警示(2-3)
+  if (sharpe >= 1) return 'var(--text-1)';                     // 默认: 正常(1-2)
+  return 'var(--text-3)';                                      // 灰: 弱(<1或负)
+}
+
+// 2026-07-30 夏普分级后缀符号: >3 ⚠>3(红线警示) / 2-3 ~2-3(中等提示) / 其他空
+// 与 _tradeSimSharpeColor 配合, modal sim-card 夏普比率卡显示数值+后缀, 一眼区分过拟合度级别
+function _tradeSimSharpeSuffix(sharpe) {
+  if (typeof sharpe !== 'number' || !isFinite(sharpe)) return '';
+  if (sharpe > _SHARPE_REDLINE_THRESHOLD) return ' ⚠>3';
+  if (sharpe >= 2) return ' ~2-3';
+  return '';
+}
+
 function _tradeSimFmtNum(n) {
   if (n === null || n === undefined || n === Infinity) return "-";
   return Number(n).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
@@ -11734,7 +11764,7 @@ function _tradeSimCardsHTML(s, initCap, etfCode) {
     '<div class="sim-card"><span class="k">最大持仓</span><span class="v">' + _tradeSimFmtNum(s.max_holding) + ' 元（' + s.max_holding_pct + '%）<div class="sub">' + s.max_holding_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k">总收益</span><span class="v" style="color:' + _tradeSimColorPct(s.total_return) + '">' + _tradeSimFmtNum(s.total_return) + ' 元（' + (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct.toFixed(2) + '%）</span></div>' +
     '<div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">首笔买入至今 ' + s.years + ' 年</div></span></div>' +
-    '<div class="sim-card"><span class="k" title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普比率</span><span class="v" style="color:' + (typeof s.sharpe === 'number' && s.sharpe > 3 ? '#c0392b' : 'var(--text-1)') + '">' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + (typeof s.sharpe === 'number' && s.sharpe > 3 ? ' ⚠>3' : '') + '<div class="sub">事件稀疏 sqrt(252) 年化</div></span></div>' +
+    '<div class="sim-card"><span class="k" title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)。颜色分级: >3红(可疑过拟合)/2-3橙(中等警示)/1-2默认(正常)/<1灰(弱)">夏普比率</span><span class="v" style="color:' + _tradeSimSharpeColor(s.sharpe) + '">' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + _tradeSimSharpeSuffix(s.sharpe) + '<div class="sub">事件稀疏 sqrt(252) 年化 · 分级&gt;3红/2-3橙/&lt;1灰</div></span></div>' +
     '<div class="sim-card"><span class="k">总资产峰值</span><span class="v">' + _tradeSimFmtNum(s.total_assets_peak) + ' 元<div class="sub">' + s.total_assets_peak_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:' + _tradeSimColorPct(-s.max_drawdown) + '">' + ddStr + '<div class="sub">' + ddDate + '</div></span></div>' +
     '<div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:' + _tradeSimColorPct(-s.median_drawdown) + '">' + s.median_drawdown.toFixed(1) + '% / ' + s.trimmed_mean_drawdown.toFixed(1) + '%</span></div>' +
