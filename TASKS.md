@@ -884,3 +884,21 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **教训**：①Mac Chrome 通知双重权限（浏览器级 Notification.permission=granted 只是第一层，macOS 系统级通知设置系统设置>通知>Google Chrome>允许通知+样式横幅/提醒非无是第二层，Win 只有浏览器级故 Win 正常 Mac 不弹；排查 Mac 通知问题必查系统级设置）②page new Notification Mac 失焦 onclick 丢失 -> 迁移 SW registration.showNotification + notificationclick（Mac 稳定标准做法，SW 常驻不依赖 page focus；下次"通知点击"功能优先走 SW 路径）③controller null（硬刷后 SW 更新时序 clients.claim 未及时接管当前页面）-> 用 reg.active.postMessage 绕过 controller 依赖（reg.active 是 active SW postMessage 不依赖 controller 接管页面；下次"controller null"场景优先 reg.active.postMessage 而非降级 page 路径）④SW 更新卡旧版（硬刷 Cmd+Shift+R 不触发 SW update check SW 卡 a69 不更新到 a72）-> navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))).then(()=>location.reload()) 注销旧 SW+刷新强制重新注册新版，bump CACHE_VERSION 只让新 SW 破缓存不强制旧 SW update，用户硬刷拿新版需此手动注销或浏览器自动 update check 可能 24h（下次"SW 改了但用户硬刷拿不到新版"先让用户注销旧 SW 重注册不死磕代码）⑤pref localStorage key 是 ts_notify_enabled 非 notifyPref（NOTIFY_STORAGE_KEY 常量 L5566，排查"通知偏好没生效"先 localStorage.getItem('ts_notify_enabled') 确认值）⑥SW Console 看 SW 日志 chrome://inspect/#service-workers > 找 sw.js > inspect（不是 DevTools Console 下拉"top"下拉可能无 sw.js 选项；SW 内部变量如 CACHE_VERSION 只能在 SW Console 跑 page Console 报 not defined）⑦试看/测试按钮应一键开启全链路（用户点"试看"期望立即看到通知，若按钮只弹通知但 pref 未开启/权限未请求 showNotification 第一行 if (!_loadNotifyPref()) return false 静默返回用户以为按钮坏了；试看按钮应 _saveNotifyPref(true)+requestPermission()+弹通知三步合一用户一点即通）
 
+---
+
+## ⏸ 2026-07-29 晚续9 Safari通知兼容修复（用户验证搁置）
+
+> AZ73: Safari 走 new Notification + permission 缓存绕静态属性 bug，Chrome SW 路径不变。详见 `NOTES.md §48 小节AZ73`。commit `f02245b5`，sw a72->a73。
+
+1. ⏸ **AZ73 Safari兼容(Safari走new Notification+permission缓存绕静态属性bug+Chrome SW路径不变)**（commit `f02245b5`，sw a72->a73）：
+   - **根因三重**：①Safari `Notification.permission` 静态属性不同步 bug（站点设置允许但 API 返回 denied，需完全重启 Safari 或清站点数据才同步）-- 用户"被屏蔽"直接原因 ②sw.js message event 调 `showNotification` Safari 不支持（Apple 限制仅 push event 支持，Chrome 允许 message event）③降级 `new Notification` 桌面 Safari 6+ 可用但被根因①挡住走不到。
+   - **方案X**：`_isSafari()` 检测（UA 含 Safari 不含 Chrome/Chromium/Edge/FxiIOS）+ `_notifyPerm()` Safari 优先读 sessionStorage 缓存 `ts_notify_perm_cache`（requestPermission Promise 返回值，绕静态属性不同步 bug）+ `requestNotifyPermission()` async 函数 Safari 缓存 Promise 返回值到 sessionStorage + `showNotification()` Safari 短路走 `_fallbackNewNotification`（页面 new Notification 绕开 SW message event 限制，Chrome 走原 SW 路径不变）+ `updateBtnState`/点击处理 denied 分支加 Safari 专属提示（移除站点+Cmd+Q 重启恢复指引）+ 试看按钮用 `requestNotifyPermission` 复用缓存 + sw a72->a73。
+   - **方案B（Web Push+APNs）列未来增强待办**（工作量大破坏架构）：VAPID+推送服务器+破坏现有前端轮询架构，本步用方案X 兼容。
+   - **用户验证搁置**：Safari denied 需手动恢复（移除站点+Cmd+Q 重启），a73 代码已上线保留，未来用 Safari 时按恢复指引操作即可走 new Notification 路径。
+
+**构建+版本**：`build_min.py` + `bump_asset_version.py` + sw.js `CACHE_VERSION` a72->a73（§9 铁律1 改 app.js 必 bump sw）。
+
+**commits**：`f02245b5`（Safari 兼容修复 a73）。
+
+**主控验收**：grep 确认 NOTES AZ73 + TASKS 续27 + commit 链 + push feat + merge main 全成功。
+

@@ -4955,3 +4955,32 @@ if (!isClosed) {
 - AZ71/AZ72（`3c788360`，a72）：SW 诊断日志 + 用户手动注销旧 SW 重注册。
 
 **教训合集**：见各小节教训段。
+
+### 小节AZ73：2026-07-29 晚续9 Safari 通知"被屏蔽"修复（方案X Safari 兼容，Chrome SW 路径不变）
+
+**背景**：AZ68-AZ72 Mac Chrome 通知点击修复（SW showNotification 路径）后，用户切 Safari 测试发现"通知被屏蔽"（permission denied）走不到通知逻辑。Safari 与 Chrome 通知机制差异大，AZ68-AZ72 的 SW message event showNotification 路径在 Safari 不通。commit `f02245b5`，sw a72->a73。
+
+**根因（三重）**：
+1. Safari `Notification.permission` 静态属性不同步 bug：站点设置允许但 API 返回 denied（需完全重启 Safari 或清站点数据才同步）。用户"被屏蔽"的直接原因。
+2. sw.js message event 调 `showNotification` Safari 不支持：Apple 限制仅 push event 支持 `showNotification`，Chrome 允许 message event 调用。AZ68 的 SW message 代理路径在 Safari 失效。
+3. 降级 `new Notification` 桌面 Safari 6+ 可用但被根因1挡住走不到（permission denied 时 showNotification 第一行 return）。
+
+**修复方案X（Safari 兼容完整修复，不破坏 Chrome SW 路径）**：
+- `_isSafari()` 检测：UA 含 `Safari` 不含 `Chrome`/`Chromium`/`Edge`/`FxiOS`（精确判 Safari 排除 Chrome 等伪装 UA）。
+- `_notifyPerm()` Safari 优先读 sessionStorage 缓存 `ts_notify_perm_cache`（`requestPermission` Promise 返回值），绕开静态属性不同步 bug；无缓存或非 Safari 走 `Notification.permission`。
+- `requestNotifyPermission()` async 函数：Safari 缓存 Promise 返回值到 sessionStorage（granted/denied/default），解决"站点设置允许但 API 返回 denied"。
+- `showNotification()` Safari 短路走 `_fallbackNewNotification`（页面 `new Notification`，绕开 SW message event 限制），Chrome 走原 SW 路径不变。
+- `updateBtnState`/点击处理 denied 分支加 Safari 专属提示：移除站点 + Cmd+Q 重启恢复指引（Safari denied 持久化无法 JS 重置）。
+- 试看按钮用 `requestNotifyPermission` 复用缓存。
+- sw a72->a73（bump CACHE_VERSION）。
+
+**关键教训**：
+1. Safari `Notification.permission` 静态属性不同步 bug：即使站点设置允许，API 可能返回 denied。正确做法用 `requestPermission().then(p=>...)` Promise 返回值缓存，非静态属性。
+2. Safari SW `showNotification` 仅 push event 支持，message event 不支持（Apple 限制）。Chrome 允许 message event。跨浏览器 SW 通知需区分。
+3. 桌面 Safari 6+ 支持页面 `new Notification()`，可作为 Safari 降级路径（onclick 在桌面 Safari 可靠，不像 Mac Chrome 失焦丢失）。
+4. Safari denied 状态持久化无法 JS 重置，需用户手动：Safari>设置>网站>通知>移除站点 + 完全退出 Safari（Cmd+Q）+ 重开重新授权。
+5. 方案B（Web Push + APNs 后端）是 Safari 通知终极方案但工作量极大（VAPID+推送服务器+破坏现有前端轮询架构），列为未来增强待办，本步用方案X 兼容。
+
+**用户验证搁置**：Safari denied 需手动恢复（移除站点 + Cmd+Q 重启），a73 代码已上线保留，未来用 Safari 时按恢复指引操作即可走 new Notification 路径。
+
+**关联**：AZ68-AZ72 Mac Chrome 修复用 SW showNotification 路径，AZ73 Safari 因 SW message event 限制改走 page new Notification 路径，两浏览器路径不同但共存不冲突（`_isSafari` 分流）。
