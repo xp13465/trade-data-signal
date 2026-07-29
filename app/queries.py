@@ -622,11 +622,14 @@ def overview(conn, cfg):
             extra_dates["etf_date"] = _etf_d
         elif _etf and _etf.get("updated_at"):
             extra_dates["etf_date"] = _etf["updated_at"][:10].replace("-", "")
-        _glob = _jload("global-all.json")
-        if _glob:
-            _ud = _glob.get("indices", {}).get("us_dji", {}).get("data", [])
-            if _ud:
-                extra_dates["us_dji_date"] = _ud[-1]["date"]
+        # 美股: 从 DB 取最新日期（与 csi_div 同路径，不依赖 global-all.json 生成顺序）。
+        # 原 _jload("global-all.json") 读静态 JSON，但 export.py 先生成 overview 再生成
+        # global-all，致 overview 读到上一版 global-all 的旧末日期（us_dji_date 滞后 1 天）。
+        _ud_db = conn.execute(
+            "SELECT date FROM index_daily WHERE index_id='us_dji' ORDER BY date DESC LIMIT 1"
+        ).fetchall()
+        if _ud_db:
+            extra_dates["us_dji_date"] = _ud_db[0]["date"]
         # 中证红利: 中证指数公司盘后次日发布，从 DB 取最新日期(不在 SPARKLINE_INDEX_IDS 中)
         _cd = conn.execute("SELECT date FROM index_daily WHERE index_id='csi_div' ORDER BY date DESC LIMIT 1").fetchall()
         if _cd:
