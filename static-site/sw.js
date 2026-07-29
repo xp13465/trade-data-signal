@@ -13,7 +13,7 @@
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260729-a71';
+const CACHE_VERSION = 'v2-20260729-a72';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -181,11 +181,16 @@ self.addEventListener('message', (event) => {
   // 页面失焦时 new Notification().onclick 链路丢失 -> 点击无响应；SW registration.showNotification + notificationclick 稳定）
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
     const { title, body, tag, data } = event.data.payload || {};
+    console.log('[sw] 收到SHOW_NOTIFICATION', title, '| tag=', tag);
     event.waitUntil(
       self.registration.showNotification(title || '', {
         body: body || '', tag: tag || undefined,
         icon: '/favicon.svg', badge: '/favicon.svg',
         requireInteraction: false, data: data || {},
+      }).then(() => {
+        console.log('[sw] showNotification 成功', title);
+      }).catch((err) => {
+        console.warn('[sw] showNotification 失败', err?.message || err, '| title=', title);
       })
     );
   }
@@ -193,6 +198,7 @@ self.addEventListener('message', (event) => {
 
 // ============== notificationclick: 通知点击 -> 聚焦已有 tab + postMessage 触发页面 UI 反馈 ==============
 self.addEventListener('notificationclick', (event) => {
+  console.log('[sw] notificationclick 触发', '| data=', JSON.stringify(event.notification.data));
   event.notification.close();
   const notifData = event.notification.data || {};
   const msgType = notifData.msgType || 'NOTIFY_CLICK';
@@ -200,6 +206,7 @@ self.addEventListener('notificationclick', (event) => {
   const hash = notifData.hash || '';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      console.log('[sw] matchAll 找到', clientList.length, '个client');
       let target = null;
       for (const c of clientList) {
         if (c.url.startsWith(self.location.origin)) {
@@ -208,8 +215,10 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       if (target) {
+        console.log('[sw] focus+postMessage target', target.url);
         return target.focus().then(() => target.postMessage({ type: msgType, payload, hash }));
       }
+      console.log('[sw] 无匹配client，openWindow', hash || '/');
       const openUrl = hash ? self.location.origin + '/' + hash : self.location.origin + '/';
       return self.clients.openWindow(openUrl);
     })
