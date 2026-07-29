@@ -21,7 +21,7 @@ import json
 import logging
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).absolute().parent.parent
@@ -56,6 +56,45 @@ SIG_COLOR = {  # 邮件表格用色（与前端 pin 配色一致）
 }
 # 展示顺序：进 -> 出 -> 量
 SIG_ORDER = ["share_surge", "share_outflow", "volume_surge"]
+
+# 跨日去重（2026-07-30 根治每晚重复发旧 etf 邮件）：
+# etf_national_team backfill 每晚跑都读 MAX(date) 信号，7-21~7-29 无新信号时反复发 7-20 旧邮件。
+# 格式 {date_str(YYYYMMDD): [[etf_code, signal_type], ...]}，7 天自动清理旧记录。
+# 参考 check_signals.py 的 signal_notified.json 模式（独立文件，互不冲突）。
+# 文件位于 data/ 已 gitignore（§8 禁推），仅本地持久化跨进程去重。
+NT_NOTIFIED_PATH = REPO / "data" / "nt_signal_notified.json"
+
+
+def load_nt_notified() -> dict[str, list[list[str]]]:
+    """读 data/nt_signal_notified.json（跨日去重持久化）。
+
+    格式 {date_str(YYYYMMDD): [[etf_code, signal_type], ...]}。不存在/解析失败返回 {}。
+    """
+    if not NT_NOTIFIED_PATH.exists():
+        return {}
+    try:
+        data = json.loads(NT_NOTIFIED_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            log.warning("nt_signal_notified.json 格式异常（非 dict），忽略")
+            return {}
+        return data
+    except Exception as e:  # noqa: BLE001
+        log.warning("nt_signal_notified.json 加载失败：%s（去重降级为全发）", e)
+        return {}
+
+
+def save_nt_notified(data: dict[str, list[list[str]]]) -> None:
+    """写 data/nt_signal_notified.json（原子写）。清理 7 天前旧记录避免无限增长。
+
+    原子写（.tmp + replace）：防 backfill 并发跑时读到半截 JSON。
+    """
+    cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
+    cleaned = {d: v for d, v in data.items() if d >= cutoff}
+    NT_NOTIFIED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(cleaned, ensure_ascii=False, separators=(",", ":"))
+    tmp = NT_NOTIFIED_PATH.parent / (NT_NOTIFIED_PATH.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(NT_NOTIFIED_PATH)
 
 
 def query_nt_signals(date: str | None = None) -> tuple[str, list[dict]]:
@@ -261,14 +300,36 @@ def main(argv: list[str] | None = None) -> int:
         log.info("无汪汪队信号数据，退出")
         return 0
 
-    agg = aggregate_resonance(signals)
+    # 跨日去重：data_date 的信号已发过邮件则跳过（根治每晚重复发旧 etf 邮件）。
+    # 参考 check_signals.py signal_notified.json 模式，key=(etf_code, signal_type)。
+    # backfill 每晚跑都读 MAX(date)，7-21~7-29 无新信号时反复发 7-20 旧邮件 -> 去重后跳过。
+    notified = load_nt_notified()
+    today_notified = {tuple(x) for x in notified.get(data_date, [])}
+    signals_to_send = [
+        s for s in signals if (s["etf_code"], s["signal_type"]) not in today_notified
+    ]
+    n_dup = len(signals) - len(signals_to_send)
     log.info(
-        "数据日期=%s 信号数=%d (进=%d 出=%d 量=%d) 共振=%s",
-        data_date, len(signals), agg["n_surge"], agg["n_outflow"],
-        agg["n_volume"], "是" if agg["is_resonance"] else "否",
+        "数据日期=%s 当日信号=%d (进=%d 出=%d 量=%d) 去重新=%d 已通知=%d",
+        data_date, len(signals),
+        sum(1 for s in signals if s["signal_type"] == "share_surge"),
+        sum(1 for s in signals if s["signal_type"] == "share_outflow"),
+        sum(1 for s in signals if s["signal_type"] == "volume_surge"),
+        len(signals_to_send), n_dup,
     )
 
-    subject, body = build_email(data_date, signals, agg)
+    if not signals_to_send:
+        log.info("无新信号（已去重），不发通知")
+        return 0
+
+    agg = aggregate_resonance(signals_to_send)
+    log.info(
+        "共振=%s (进=%d 出=%d 量=%d)",
+        "是" if agg["is_resonance"] else "否",
+        agg["n_surge"], agg["n_outflow"], agg["n_volume"],
+    )
+
+    subject, body = build_email(data_date, signals_to_send, agg)
     log.info("===== 邮件主题 =====")
     log.info("%s", subject)
     log.info("===== 邮件正文 =====")
@@ -276,11 +337,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.no_send:
         log.info("--no-send 模式，跳过实际发送")
-        return 0
-
-    # 无信号不发通知（避免噪音）；共振日必发
-    if not signals:
-        log.info("无信号，不发通知")
         return 0
 
     # 多渠道分发（邮件 + Telegram）：notify.send 统一出口，各渠道失败不互相阻塞
@@ -294,8 +350,16 @@ def main(argv: list[str] | None = None) -> int:
     if ok_channels:
         log.info("✓ 通知已发送：%s%s", " ".join(ok_channels),
                  f"（未发出：{' '.join(fail_channels)}）" if fail_channels else "")
+        # 发送成功后标记已通知，下次去重跳过（任一渠道成功即标记，避免重复发）
+        notified = load_nt_notified()  # 重新加载防并发 backfill 覆盖
+        today_set = {tuple(x) for x in notified.get(data_date, [])}
+        for s in signals_to_send:
+            today_set.add((s["etf_code"], s["signal_type"]))
+        notified[data_date] = sorted([list(x) for x in today_set])
+        save_nt_notified(notified)
+        log.info("已更新 nt_signal_notified.json：当日已通知 %d 条", len(notified[data_date]))
         return 0
-    log.warning("✗ 通知未发出（渠道均未配置或失败）")
+    log.warning("✗ 通知未发出（渠道均未配置或失败）-- 不更新去重记录，下次重试")
     return 0
 
 
