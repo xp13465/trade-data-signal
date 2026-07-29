@@ -1,5 +1,5 @@
 #!/bin/bash
-# intraday_snapshot.sh - 盘中实时快照采集（launchd 定时，盘中每 30 分钟）
+# intraday_snapshot.sh - 盘中实时快照采集（launchd 定时，盘中每 10 分钟）
 #
 # 跑 .venv/bin/python -m app.collector.intraday_snapshot（秒级）：
 #   采腾讯9指数实时 + 同花顺行业实时涨跌幅，存 DB + dump static-site/data/intraday_snapshot.json
