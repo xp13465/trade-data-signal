@@ -5640,36 +5640,72 @@ function _markNotifyTimeWindow(category) {
 
 // 弹通知（优先走 SW showNotification: Mac Chrome 下点击比页面 new Notification 可靠）
 // clickAction: { msgType, hash?, payload? } 携带点击后期号 UI 反馈动作
+// controller null 时（硬刷后 SW 刚 register 时序问题）等 navigator.serviceWorker.ready 再 postMessage
 function showNotification(title, body, tag, clickAction) {
-  if (!_loadNotifyPref()) return false;
-  if (_notifyPerm() !== 'granted') return false;
+  if (!_loadNotifyPref()) { console.warn('[notify] pref未开启，跳过'); return false; }
+  if (_notifyPerm() !== 'granted') { console.warn('[notify] permission非granted，跳过'); return false; }
   if (_isMobileUA()) return false;
   const notifData = clickAction || {};
   try {
-    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.controller.postMessage({
-        type: 'SHOW_NOTIFICATION',
-        payload: { title, body, tag, data: notifData }
+    if (navigator.serviceWorker) {
+      // controller 存在: 直接 postMessage
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'SHOW_NOTIFICATION',
+          payload: { title, body, tag, data: notifData }
+        });
+        console.log('[notify] 走SW postMessage (controller存在)');
+        return true;
+      }
+      // controller null: 等 SW ready 再 postMessage（硬刷后 SW 刚 register 时序问题）
+      navigator.serviceWorker.ready.then(reg => {
+        if (navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            payload: { title, body, tag, data: notifData }
+          });
+          console.log('[notify] 走SW postMessage (ready后controller接管)');
+        } else {
+          // ready 后 controller 仍 null: 降级 new Notification
+          console.warn('[notify] controller仍null，降级new Notification（Mac点击可能不可靠）');
+          _fallbackNewNotification(title, body, tag, notifData);
+        }
       });
       return true;
     }
-    // 降级: 无 SW 控制时用页面 new Notification（Win 可用, Mac 点击不可靠但兜底）
-    const n = new Notification(title, {
-      body: body, tag: tag,
-      icon: '/favicon.svg', badge: '/favicon.svg',
-      requireInteraction: false, data: notifData,
-    });
-    n.onclick = (e) => {
-      try { e.preventDefault(); } catch (_) {}
-      window.focus();
-      _handleNotifyClick(notifData);
-      n.close();
-    };
-    setTimeout(() => { try { n.close(); } catch (e) {} }, 10000);
+    // 无 SW: 降级 new Notification
+    console.warn('[notify] 无SW支持，降级new Notification');
+    _fallbackNewNotification(title, body, tag, notifData);
     return true;
   } catch (e) {
     console.warn('[notify] showNotification failed:', e);
     return false;
+  }
+}
+
+// 降级: 页面 new Notification（Win 可用, Mac 点击不可靠但兜底至少通知能弹）
+function _fallbackNewNotification(title, body, tag, notifData) {
+  const n = new Notification(title, {
+    body: body, tag: tag,
+    icon: '/favicon.svg', badge: '/favicon.svg',
+    requireInteraction: false, data: notifData,
+  });
+  n.onclick = (e) => {
+    try { e.preventDefault(); } catch (_) {}
+    window.focus();
+    _handleNotifyClick(notifData);
+    n.close();
+  };
+  setTimeout(() => { try { n.close(); } catch (e) {} }, 10000);
+}
+
+// 抽取弹测试通知逻辑（试看按钮点击调用，clickAction 用 OPEN_SIGNAL_DETAIL 让用户看到点击滚动效果）
+function _doTestNotify() {
+  const ok = showNotification('测试通知 🔔',
+    '点击此通知测试跳转功能（应聚焦窗口+滚动到信号卡） ' + new Date().toLocaleTimeString(),
+    'test-preview-' + Date.now(), { msgType: 'OPEN_SIGNAL_DETAIL' });
+  if (!ok) {
+    console.warn('[notify] showNotification 返回 false，通知未弹（检查 pref/permission/controller）');
   }
 }
 
@@ -5899,12 +5935,27 @@ function initNotifyButton() {
     _checkNotifications();
   });
 
-  // 方案B: 试看按钮点击 -> 弹测试通知（tag 用时间戳避免去重，每次点都弹新通知）
+  // 方案B: 试看按钮点击 -> 确保pref开启+permission granted -> 弹测试通知（一键开启+测试，不静默return）
   testBtn.addEventListener('click', () => {
-    if (!_loadNotifyPref() || _notifyPerm() !== 'granted') return;
-    showNotification('测试通知 🔔',
-      '浏览器通知功能正常工作中 ' + new Date().toLocaleTimeString(),
-      'test-preview-' + Date.now(), { msgType: 'TEST' });
+    // 自动开启通知偏好（如果未开启）
+    if (!_loadNotifyPref()) {
+      _saveNotifyPref(true);
+      console.log('[notify] 试看自动开启通知偏好');
+      updateBtnState();
+    }
+    // 确保 permission
+    if (_notifyPerm() !== 'granted') {
+      Notification.requestPermission().then(p => {
+        if (p === 'granted') {
+          updateBtnState();
+          _doTestNotify();
+        } else {
+          console.warn('[notify] 通知权限被拒绝，请在 Chrome 站点设置授权');
+        }
+      });
+    } else {
+      _doTestNotify();
+    }
   });
 
   // 跨标签页同步（storage 事件：另一 tab 开关通知，本 tab 按钮状态同步）
@@ -5933,6 +5984,12 @@ function initNotifyButton() {
         _handleNotifyClick({ msgType: d.type, hash: d.hash, payload: d.payload });
       }
     });
+    // controller 接管后提示（硬刷后 SW activate+claim，controller 从 null 变非 null）
+    if (!navigator.serviceWorker.controller) {
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        console.log('[notify] SW controller 已接管，通知点击将走 SW notificationclick（Mac 稳定）');
+      });
+    }
   }
 }
 
