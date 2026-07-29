@@ -4410,3 +4410,47 @@ DB 查询今日（20260728）signal_daily：
 - ETF tag hover 重叠根因是 `_initTermPop` 全局捕获 title 属性，加 `data-no-pop` 显式排除 + `.copied` class 替代 title 反馈是分层防御（不只靠一处规避）。
 - 按钮"不可用"应灰色兜底而非不生成：用户期望 sim-btn 始终在（哪怕灰色），空白会让用户以为前端坏了；hover 提示原因比直接消失更友好，符合"展示源不应过滤"分层原则（同 AZ57 方案F撤销教训）。
 - 过拟合警示文案应明确"红线指标 vs 判定结论"区别：夏普>3 是红线提示非必过拟合判定（小样本也可能高夏普），全局 max 与三档 max 要分开标注避免误导；整治(AZ26-AZ38 参数侧)与警示(AZ39 结果侧)是互补两维度非重复。
+
+### 小节AZ59：2026-07-29 全站时序优化6项上线(美股/us10y/QVIX换分钟csv/两融rzhb改08:00/csi_div 21:00/监控同步)+QVIX时点精确化+告警根因修复
+
+**背景**：用户提出"明明可以更早拿到但因计划任务调度反而晚，全站是否还有类似问题"。派全站时序调研 agent（aede3705）扫描所有 launchd 时点 vs 数据源发布时点，发现 **P0 美股 + P1 四项时序错位 + P2 监控盲区**，逐项根治；同时派 QVIX 时点精确化 agent（a4fd5da）回答用户两个时点问题；告警根因修复 agent（ad1451c4）排查 7-29 08:00/08:15 两封漏跑告警邮件的 4 条根因。
+
+**6 项上线（6 commits）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `de4934da` | P0 美股早采：us_stock_morning.py 05:00（美股 04:00 收盘后 1h 余量），新浪实时 gb_$ 主源 4 只全 OHLC（东财 100.NDX mislabeled 返 IXIC 弃用），queries.py us_dji_date 改读 DB（原读 global-all.json 滞后 1 天因 export 生成顺序）。线上 us_dji_date=20260728 |
+| `5c447d62` | 方案1 us10y：us_stock_morning 加 collect_us10y（bond_zh_us_rate 美债 10 年），与美股同时区 04:00 收盘 05:00 顺带采，消除 us10y 滞后 2 天。DB us10y date=20260728 value=4.61，R2 ssd.fx8.store extras.us10y=20260728 ✓ |
+| `b952343f` | 方案2a QVIX300/50 换分钟 csv：daily k.csv T+1+ 才出 T 日且偶尔卡更（7-29 仍停 7-27），同源分钟 csv vix300.csv/vix50.csv T 盘后 15:00:32-45 即出 T 日全天 intraday。fetchers.py L97-211 _qvix_today_from_min（dropna iloc[-1] 取 14:56:30 值），16:35 backfill 即可采到，比 daily k.csv T+1 16:35 提前 25.5h。线上 a_qvix_300=20260728/22.7、a_qvix_1000=20260728/19.7 ✓ |
+| `29939ade` | 方案2b 两融 rzhb 改 08:00 + csi_div 加 21:00：调研铁证 SSE 两融 T+1 早晨发布（非 memory 误判 18-19 点，7-27/7-28 19:15 连续采不到 T 日，7-29 07:59 才有 7-28），rzhb plist 19:15->08:00；csi_div T 日晚 16:35-02:00 间发，backfill_evening 加 21:00 槽提前 5h；修正 index_backfill.py L676 docstring 错误注释 + backfill_metrics.sh 时点注释 |
+| `4425366c` | 方案3 schedule_monitor 同步：加 us_stock_morning 05:00 监控 + intraday_snapshot schedules 同步 plist 28 时点（26 时点 10m 9:25-15:05 + 15:35 + 20:35，原仅旧 15m 18 时点）消监控盲区 |
+| `3e0676aa` | libmini_racer 方案 A+C3：etf_national_team.py pipeline_intraday_close 走 ProcessPool（原 12 只串行）+ _run_with_processpool 辅助函数（L116-165，BrokenProcessPool 重启 pool 1 次继续剩余仍失败才 fallback 串行，替代 faba0f08 直接 fallback），三处统一调用消除重复。防 V8 单进程理论 SIGTRAP |
+
+**QVIX 时点精确化调研（agent a4fd5da，回答用户 2 问题）**
+
+- **澄清前提**：a_qvix_1000 metric 实际采 50ETF 波指（config L53 func=index_option_50etf_qvix，7-20 commit "qvix 语义修正-a_qvix_1000 换 50ETF 源" 改的），真 1000 波指 daily 源 k.csv 1000 列 2026-03-13 后停更 4 个多月，分钟源 vixindex1000.csv 全 #NAME?
+- **问题 1（源坏前更新时点）**：T+1 16:35 稳定采到 T 日（不是 T+2），日志铁证 4 样本 3 个 T+1 16:35 出 1 个 T 日 20:00 出，T+1 02:00 全部采不到
+- **问题 2（修正后几点）**：300/50 换分钟 csv 后 T 日盘后 15:01 采到当日（curl -I 铁证 vix300.csv Last-Modified 北京 7-28 15:00:45 / vix50.csv 15:00:32），a_qvix_1000（实际 50ETF）同随 300 换源同样 15:01 采到
+- **额外发现**：k.csv 7-29 仍停 7-27，daily 源 7-28 后也卡更，进一步印证换分钟 csv 必要
+
+**告警根因修复（agent ad1451c4，commit `e6422edf`）**
+
+用户 7-29 08:00/08:15 收 2 封漏跑告警邮件，根因 4：
+
+1. **rzhb 08:00 漏跑**：plist 08:08 才改晚于时点，一次性明天正常
+2. **us_stock_morning 05:00 漏跑**：plist 07:52 创建晚于 05:00，一次性明天正常
+3. **futures_backfill log_anomaly**：7-28 21:00 deploy.sh rebase 撞 static-site/data/*.gz 二进制冲突 abort 致 push 永久失败，已修 deploy.sh L290-360 rebase 数据冲突自动 --theirs=本地最新 export + 非数据冲突保守 abort
+4. **schedule_stats.json 没us_stock_morning**：gen_schedule_stats.py TASKS 漏同步 commit 4425366c 只改 schedule_monitor.sh 漏改 gen，已补 L48-51 + L84 LABEL_MAP
+
+2 个一次性漏跑明天自愈，2 个明确 bug 已修上线。
+
+**附带 memory 新记**：`cf-workers-large-json-404-r2-fallback`（ss.fx8.store 对 5MB+ 大 JSON 返回 404，前端 dataUrl L2566 走 R2 直链 ssd.fx8.store，验证大文件上线 curl ssd.fx8.store 非 ss.fx8.store）
+
+**教训**
+
+- **时序审计要扫"计划任务时点 vs 数据源发布时点"对照表**：单看任务是否跑（exit=0）不够，任务跑了但源还没发数据 = 滞后根因（rzhb 19:15 连续两天采不到 T 日数据，源实际 T+1 早晨才发）；时序优化先确认源发布时点（curl -I Last-Modified / 多日样本），再定任务时点，不靠 memory 旧判断。
+- **同源换粒度是根治数据滞后的重要手段**：QVIX daily k.csv T+1+ 才出 T 日 + 偶尔卡更，同源分钟 csv T 盘后 15:00 即出全天，换分钟 csv 取 iloc[-1] 比 daily T+1 提前 25.5h；换源前先 curl -I 确认分钟 csv Last-Modified 铁证发布时点。
+- **memory 旧判断要随源行为变化更新**：memory 记"SSE 两融 18-19 点发布"是旧观察，7-27/7-28 19:15 连续采不到应触发重新调研源实际时点（实测 T+1 早晨发），不照旧 memory 配时点；memory 是读优化不是真理，源行为变化要落档更新。
+- **监控同步 plist 改动要改两个文件**：schedule_monitor.sh（监控侧）+ gen_schedule_stats.py（统计侧 TASKS/LABEL_MAP），只改监控侧致 schedule_stats.json 缺新任务 metric 二次告警；commit 4425366c 只改 schedule_monitor.sh 漏改 gen，e6422edf 补齐。
+- **deploy.sh rebase 二进制冲突（.gz）不能保守 abort**：static-site/data/*.gz 是 export 最新产物，rebase 撞 .gz 冲突应自动 --theirs=本地最新 export（数据产物本地永远最新），非数据冲突（代码/文档）才保守 abort 等人工；7-28 21:00 保守 abort 致 push 永久失败触发 log_anomaly 告警。
+- **libmini_racer SIGTRAP 防患走 ProcessPool + BrokenProcessPool 重启**：V8 isolate 非线程安全，pipeline_intraday_close 12 只串行改 ProcessPool 进程隔离，BrokenProcessPool 重启 pool 1 次继续剩余仍失败才 fallback 串行（替代 faba0f08 直接 fallback 不重试），既隔离 SIGTRAP 又保留恢复能力。
