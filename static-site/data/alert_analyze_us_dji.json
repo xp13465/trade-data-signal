@@ -3,25 +3,25 @@
   "target_type": "index",
   "target_name": "道琼斯",
   "alert": {
-    "date": "20260727",
+    "date": "20260728",
     "target_id": "us_dji",
     "target_type": "index",
-    "high": 58.24,
-    "low": 40.45,
-    "high_level": "中性",
+    "high": 66.04,
+    "low": 33.09,
+    "high_level": "关注",
     "low_level": "中性",
     "dims": {
-      "H1": 35.83,
+      "H1": 55.0,
       "H2": null,
       "H3": 50.42,
-      "H4": 94.44,
+      "H4": 98.81,
       "H5": 56.67,
       "H6": 54.79,
       "H7": null,
       "H8": null,
-      "L1": 64.17,
+      "L1": 45.0,
       "L2": 38.75,
-      "L3": 5.56,
+      "L3": 1.19,
       "L4": null,
       "L5": null,
       "L6": 50.42,
@@ -46,22 +46,22 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 1,
+      "hands": 0,
       "volatility": 1.09,
-      "label": "1手",
+      "label": "观望",
       "detail": {
-        "opp": 40.45,
-        "ma60_ratio": 1.0202,
+        "opp": 33.09,
+        "ma60_ratio": 1.0297,
         "trend": 70.0,
-        "macd_hist": -256.4109,
+        "macd_hist": -148.8745,
         "mom": 40.0,
         "vol": 100.0,
         "volatility": 1.09,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -1.59,
+        "drawdown": -0.58,
         "draw": 20.0,
-        "score": 53.66,
+        "score": 51.08,
         "regime": "bull",
         "regime_th": {
           "opp_low": 40.0,
@@ -78,18 +78,18 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 94.44,
+          "score": 98.81,
           "weight": 0.2,
-          "contribution": 18.89,
+          "contribution": 19.76,
           "hit": true,
           "direction": "high"
         },
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 35.83,
+          "score": 55.0,
           "weight": 0.26,
-          "contribution": 9.32,
+          "contribution": 14.3,
           "hit": false,
           "direction": "high"
         },
@@ -125,10 +125,10 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 64.17,
+          "score": 45.0,
           "weight": 0.2,
-          "contribution": 12.83,
-          "hit": true,
+          "contribution": 9.0,
+          "hit": false,
           "direction": "low"
         },
         {
@@ -152,9 +152,9 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 5.56,
+          "score": 1.19,
           "weight": 0.15,
-          "contribution": 0.83,
+          "contribution": 0.18,
           "hit": false,
           "direction": "low"
         }
@@ -165,12 +165,12 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 35.83,
+          "value": 55.0,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
           "hit": false,
-          "status": "未命中"
+          "status": "接近"
         },
         {
           "k": "H2",
@@ -195,7 +195,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 94.44,
+          "value": 98.81,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -247,12 +247,12 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 64.17,
+          "value": 45.0,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
-          "hit": true,
-          "status": "命中"
+          "hit": false,
+          "status": "未命中"
         },
         {
           "k": "L2",
@@ -267,7 +267,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 5.56,
+          "value": 1.19,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",
@@ -332,8 +332,8 @@
       "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
-      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H4 位置偏高 有命中,整体加权后未达关注线",
-      "low": "低位机会指标处于中性区间,暂无明显冰点信号,但 L1 情绪冰点 有命中,整体加权后未达关注线"
+      "high": "市场偏热,部分指标进入高位区,留意风险,谨慎追高;主要风险来自位置偏高",
+      "low": "低位机会指标处于中性区间,暂无明显冰点信号"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",
     "no_data_hint": null

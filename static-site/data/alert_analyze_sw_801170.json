@@ -3,25 +3,25 @@
   "target_type": "index",
   "target_name": "SW 交通运输",
   "alert": {
-    "date": "20260728",
+    "date": "20260729",
     "target_id": "sw_801170",
     "target_type": "index",
-    "high": 50.91,
-    "low": 43.9,
+    "high": 53.99,
+    "low": 41.01,
     "high_level": "中性",
     "low_level": "中性",
     "dims": {
-      "H1": 85.0,
+      "H1": 90.83,
       "H2": null,
       "H3": 50.42,
-      "H4": 9.13,
+      "H4": 13.1,
       "H5": 50.42,
       "H6": 45.83,
       "H7": null,
       "H8": null,
-      "L1": 15.0,
+      "L1": 9.17,
       "L2": 35.83,
-      "L3": 90.87,
+      "L3": 86.9,
       "L4": null,
       "L5": null,
       "L6": 46.25,
@@ -46,22 +46,22 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 3,
-      "volatility": 1.49,
-      "label": "3手",
+      "hands": 2,
+      "volatility": 1.47,
+      "label": "2手",
       "detail": {
-        "opp": 43.9,
-        "ma60_ratio": 0.972,
+        "opp": 41.01,
+        "ma60_ratio": 0.987,
         "trend": 40.0,
-        "macd_hist": 15.3325,
+        "macd_hist": 19.7343,
         "mom": 100.0,
         "vol": 100.0,
-        "volatility": 1.49,
+        "volatility": 1.47,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -15.22,
-        "draw": 70.0,
-        "score": 62.87,
+        "drawdown": -14.02,
+        "draw": 50.0,
+        "score": 59.86,
         "regime": "range",
         "regime_th": {
           "opp_low": 35.0,
@@ -78,9 +78,9 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 85.0,
+          "score": 90.83,
           "weight": 0.26,
-          "contribution": 22.1,
+          "contribution": 23.62,
           "hit": true,
           "direction": "high"
         },
@@ -114,9 +114,9 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 9.13,
+          "score": 13.1,
           "weight": 0.2,
-          "contribution": 1.83,
+          "contribution": 2.62,
           "hit": false,
           "direction": "high"
         }
@@ -125,9 +125,9 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 90.87,
+          "score": 86.9,
           "weight": 0.15,
-          "contribution": 13.63,
+          "contribution": 13.04,
           "hit": true,
           "direction": "low"
         },
@@ -152,9 +152,9 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 15.0,
+          "score": 9.17,
           "weight": 0.2,
-          "contribution": 3.0,
+          "contribution": 1.83,
           "hit": false,
           "direction": "low"
         }
@@ -165,7 +165,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 85.0,
+          "value": 90.83,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -195,7 +195,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 9.13,
+          "value": 13.1,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -247,7 +247,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 15.0,
+          "value": 9.17,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -267,7 +267,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 90.87,
+          "value": 86.9,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",

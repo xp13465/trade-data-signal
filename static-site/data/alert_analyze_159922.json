@@ -3,27 +3,27 @@
   "target_type": "etf",
   "target_name": "159922",
   "alert": {
-    "date": "20260727",
+    "date": "20260729",
     "target_id": "159922",
     "target_type": "etf",
-    "high": 38.23,
-    "low": 70.69,
+    "high": 32.52,
+    "low": 73.91,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
-      "H1": 19.17,
-      "H2": 51.43,
+      "H1": 7.08,
+      "H2": 18.49,
       "H3": 27.08,
-      "H4": 53.57,
+      "H4": 46.23,
       "H5": 52.92,
-      "H6": 52.5,
+      "H6": 76.67,
       "H7": 37.92,
       "H8": null,
-      "L1": 80.83,
-      "L2": 93.75,
-      "L3": 46.43,
-      "L4": 78.33,
-      "L5": 50.0,
+      "L1": 92.92,
+      "L2": 76.67,
+      "L3": 53.77,
+      "L4": 77.92,
+      "L5": null,
       "L6": 50.42,
       "L7": null,
       "L8": null
@@ -33,9 +33,10 @@
       "target_type": "etf",
       "min_dims": 4,
       "available_high": 7,
-      "available_low": 6,
+      "available_low": 5,
       "missing": [
         "H8",
+        "L5",
         "L7",
         "L8"
       ],
@@ -43,21 +44,21 @@
     },
     "position": {
       "hands": 1,
-      "volatility": 3.36,
+      "volatility": 3.33,
       "label": "1手",
       "detail": {
-        "opp": 70.69,
-        "ma60_ratio": 0.9227,
-        "trend": 20.0,
-        "macd_hist": -0.0539,
+        "opp": 73.91,
+        "ma60_ratio": 0.8935,
+        "trend": 0.0,
+        "macd_hist": -0.0486,
         "mom": 40.0,
         "vol": 70.0,
-        "volatility": 3.36,
-        "amt_pct": 53.3,
-        "liq": 80.0,
-        "drawdown": -14.37,
-        "draw": 50.0,
-        "score": 54.24,
+        "volatility": 3.33,
+        "amt_pct": null,
+        "liq": 50.0,
+        "drawdown": -17.35,
+        "draw": 70.0,
+        "score": 51.87,
         "regime": "bull",
         "regime_th": {
           "opp_low": 40.0,
@@ -74,19 +75,19 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 53.57,
+          "score": 46.23,
           "weight": 0.2,
-          "contribution": 10.71,
+          "contribution": 9.25,
           "hit": false,
           "direction": "high"
         },
         {
-          "k": "H1",
-          "name": "情绪过热",
-          "score": 19.17,
-          "weight": 0.26,
-          "contribution": 4.98,
-          "hit": false,
+          "k": "H6",
+          "name": "均线转弱",
+          "score": 76.67,
+          "weight": 0.08,
+          "contribution": 6.13,
+          "hit": true,
           "direction": "high"
         },
         {
@@ -95,24 +96,6 @@
           "score": 52.92,
           "weight": 0.08,
           "contribution": 4.23,
-          "hit": false,
-          "direction": "high"
-        },
-        {
-          "k": "H6",
-          "name": "均线转弱",
-          "score": 52.5,
-          "weight": 0.08,
-          "contribution": 4.2,
-          "hit": false,
-          "direction": "high"
-        },
-        {
-          "k": "H2",
-          "name": "量价背离",
-          "score": 51.43,
-          "weight": 0.08,
-          "contribution": 4.11,
           "hit": false,
           "direction": "high"
         },
@@ -133,51 +116,60 @@
           "contribution": 3.52,
           "hit": false,
           "direction": "high"
+        },
+        {
+          "k": "H1",
+          "name": "情绪过热",
+          "score": 7.08,
+          "weight": 0.26,
+          "contribution": 1.84,
+          "hit": false,
+          "direction": "high"
+        },
+        {
+          "k": "H2",
+          "name": "量价背离",
+          "score": 18.49,
+          "weight": 0.08,
+          "contribution": 1.48,
+          "hit": false,
+          "direction": "high"
         }
       ],
       "low": [
         {
-          "k": "L2",
-          "name": "买点密集",
-          "score": 93.75,
-          "weight": 0.18,
-          "contribution": 16.88,
+          "k": "L1",
+          "name": "情绪冰点",
+          "score": 92.92,
+          "weight": 0.2,
+          "contribution": 18.58,
           "hit": true,
           "direction": "low"
         },
         {
-          "k": "L1",
-          "name": "情绪冰点",
-          "score": 80.83,
-          "weight": 0.2,
-          "contribution": 16.17,
+          "k": "L2",
+          "name": "买点密集",
+          "score": 76.67,
+          "weight": 0.18,
+          "contribution": 13.8,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L4",
           "name": "汪汪队入场",
-          "score": 78.33,
+          "score": 77.92,
           "weight": 0.15,
-          "contribution": 11.75,
+          "contribution": 11.69,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 46.43,
+          "score": 53.77,
           "weight": 0.15,
-          "contribution": 6.96,
-          "hit": false,
-          "direction": "low"
-        },
-        {
-          "k": "L5",
-          "name": "量能异动",
-          "score": 50.0,
-          "weight": 0.1,
-          "contribution": 5.0,
+          "contribution": 8.07,
           "hit": false,
           "direction": "low"
         },
@@ -197,7 +189,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 19.17,
+          "value": 7.08,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -207,12 +199,12 @@
         {
           "k": "H2",
           "name": "量价背离",
-          "value": 51.43,
+          "value": 18.49,
           "threshold": 60,
           "unit": "分",
           "desc": "量价背离(缩量上涨+高位)",
           "hit": false,
-          "status": "接近"
+          "status": "未命中"
         },
         {
           "k": "H3",
@@ -227,12 +219,12 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 53.57,
+          "value": 46.23,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
           "hit": false,
-          "status": "接近"
+          "status": "未命中"
         },
         {
           "k": "H5",
@@ -247,12 +239,12 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 52.5,
+          "value": 76.67,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
-          "hit": false,
-          "status": "接近"
+          "hit": true,
+          "status": "命中"
         },
         {
           "k": "H7",
@@ -279,7 +271,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 80.83,
+          "value": 92.92,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -289,7 +281,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 93.75,
+          "value": 76.67,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -299,17 +291,17 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 46.43,
+          "value": 53.77,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",
           "hit": false,
-          "status": "未命中"
+          "status": "接近"
         },
         {
           "k": "L4",
           "name": "汪汪队入场",
-          "value": 78.33,
+          "value": 77.92,
           "threshold": 60,
           "unit": "分",
           "desc": "汪汪队入场(近30日share_surge)",
@@ -319,12 +311,12 @@
         {
           "k": "L5",
           "name": "量能异动",
-          "value": 50.0,
+          "value": null,
           "threshold": 60,
           "unit": "分",
           "desc": "量能异动(地量分高)",
           "hit": false,
-          "status": "未命中"
+          "status": "无数据"
         },
         {
           "k": "L6",
@@ -364,8 +356,8 @@
       "error": "too many values to unpack (expected 2)"
     },
     "human_text": {
-      "high": "高位风险指标处于中性区间,暂无明显过热信号",
-      "low": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自买点密集+情绪冰点"
+      "high": "高位风险指标处于中性区间,暂无明显过热信号,但 H6 均线转弱 有命中,整体加权后未达关注线",
+      "low": "市场偏冷,部分指标进入低位区,关注企稳信号;主要风险来自情绪冰点+买点密集"
     },
     "compliance_footer": "⚠️ 本分析基于历史数据统计,仅供学习参考,不构成投资建议或交易指令,市场有风险,决策需谨慎。历史类比仅作统计参考,不代表未来必然走势。",
     "no_data_hint": null

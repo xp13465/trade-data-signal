@@ -3,25 +3,25 @@
   "target_type": "index",
   "target_name": "SW 纺织服饰",
   "alert": {
-    "date": "20260728",
+    "date": "20260729",
     "target_id": "sw_801130",
     "target_type": "index",
-    "high": 36.84,
-    "low": 72.31,
+    "high": 40.62,
+    "low": 68.61,
     "high_level": "中性",
     "low_level": "关注",
     "dims": {
-      "H1": 49.17,
+      "H1": 59.17,
       "H2": null,
       "H3": 50.42,
-      "H4": 2.78,
+      "H4": 3.97,
       "H5": 50.83,
       "H6": 45.83,
       "H7": null,
       "H8": null,
-      "L1": 50.83,
-      "L2": 86.25,
-      "L3": 97.22,
+      "L1": 40.83,
+      "L2": 85.83,
+      "L3": 96.03,
       "L4": null,
       "L5": null,
       "L6": 47.92,
@@ -46,22 +46,22 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 2,
-      "volatility": 2.16,
-      "label": "2手",
+      "hands": 3,
+      "volatility": 2.09,
+      "label": "3手",
       "detail": {
-        "opp": 72.31,
-        "ma60_ratio": 0.9214,
+        "opp": 68.61,
+        "ma60_ratio": 0.9368,
         "trend": 20.0,
-        "macd_hist": -3.6793,
-        "mom": 40.0,
+        "macd_hist": 4.5646,
+        "mom": 100.0,
         "vol": 85.0,
-        "volatility": 2.16,
+        "volatility": 2.09,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -20.63,
+        "drawdown": -19.53,
         "draw": 70.0,
-        "score": 57.56,
+        "score": 65.27,
         "regime": "range",
         "regime_th": {
           "opp_low": 35.0,
@@ -78,9 +78,9 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "score": 49.17,
+          "score": 59.17,
           "weight": 0.26,
-          "contribution": 12.78,
+          "contribution": 15.38,
           "hit": false,
           "direction": "high"
         },
@@ -114,9 +114,9 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 2.78,
+          "score": 3.97,
           "weight": 0.2,
-          "contribution": 0.56,
+          "contribution": 0.79,
           "hit": false,
           "direction": "high"
         }
@@ -125,27 +125,27 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 86.25,
+          "score": 85.83,
           "weight": 0.18,
-          "contribution": 15.52,
+          "contribution": 15.45,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 97.22,
+          "score": 96.03,
           "weight": 0.15,
-          "contribution": 14.58,
+          "contribution": 14.4,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 50.83,
+          "score": 40.83,
           "weight": 0.2,
-          "contribution": 10.17,
+          "contribution": 8.17,
           "hit": false,
           "direction": "low"
         },
@@ -165,12 +165,12 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 49.17,
+          "value": 59.17,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
           "hit": false,
-          "status": "未命中"
+          "status": "接近"
         },
         {
           "k": "H2",
@@ -195,7 +195,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 2.78,
+          "value": 3.97,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -247,7 +247,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 50.83,
+          "value": 40.83,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -257,7 +257,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 86.25,
+          "value": 85.83,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -267,7 +267,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 97.22,
+          "value": 96.03,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",

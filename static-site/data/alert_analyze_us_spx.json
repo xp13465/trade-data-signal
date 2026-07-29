@@ -3,25 +3,25 @@
   "target_type": "index",
   "target_name": "标普500",
   "alert": {
-    "date": "20260727",
+    "date": "20260728",
     "target_id": "us_spx",
     "target_type": "index",
-    "high": 51.4,
-    "low": 44.36,
+    "high": 54.1,
+    "low": 41.93,
     "high_level": "中性",
     "low_level": "中性",
     "dims": {
-      "H1": 23.33,
+      "H1": 30.83,
       "H2": null,
       "H3": 50.42,
-      "H4": 85.71,
+      "H4": 86.11,
       "H5": 57.92,
       "H6": 51.88,
       "H7": null,
       "H8": null,
-      "L1": 76.67,
-      "L2": 30.83,
-      "L3": 14.29,
+      "L1": 69.17,
+      "L2": 31.25,
+      "L3": 13.89,
       "L4": null,
       "L5": null,
       "L6": 50.42,
@@ -46,22 +46,22 @@
       "etf_adjust": false
     },
     "position": {
-      "hands": 0,
-      "volatility": 1.11,
-      "label": "观望",
+      "hands": 1,
+      "volatility": 1.1,
+      "label": "1手",
       "detail": {
-        "opp": 44.36,
-        "ma60_ratio": 0.9954,
+        "opp": 41.93,
+        "ma60_ratio": 0.997,
         "trend": 40.0,
-        "macd_hist": -32.6585,
-        "mom": 10.0,
+        "macd_hist": -30.5884,
+        "mom": 40.0,
         "vol": 100.0,
-        "volatility": 1.11,
+        "volatility": 1.1,
         "amt_pct": null,
         "liq": 50.0,
-        "drawdown": -2.58,
+        "drawdown": -2.38,
         "draw": 20.0,
-        "score": 44.53,
+        "score": 48.17,
         "regime": "bull",
         "regime_th": {
           "opp_low": 40.0,
@@ -78,10 +78,19 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "score": 85.71,
+          "score": 86.11,
           "weight": 0.2,
-          "contribution": 17.14,
+          "contribution": 17.22,
           "hit": true,
+          "direction": "high"
+        },
+        {
+          "k": "H1",
+          "name": "情绪过热",
+          "score": 30.83,
+          "weight": 0.26,
+          "contribution": 8.02,
+          "hit": false,
           "direction": "high"
         },
         {
@@ -90,15 +99,6 @@
           "score": 50.42,
           "weight": 0.13,
           "contribution": 6.55,
-          "hit": false,
-          "direction": "high"
-        },
-        {
-          "k": "H1",
-          "name": "情绪过热",
-          "score": 23.33,
-          "weight": 0.26,
-          "contribution": 6.07,
           "hit": false,
           "direction": "high"
         },
@@ -125,18 +125,18 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "score": 76.67,
+          "score": 69.17,
           "weight": 0.2,
-          "contribution": 15.33,
+          "contribution": 13.83,
           "hit": true,
           "direction": "low"
         },
         {
           "k": "L2",
           "name": "买点密集",
-          "score": 30.83,
+          "score": 31.25,
           "weight": 0.18,
-          "contribution": 5.55,
+          "contribution": 5.62,
           "hit": false,
           "direction": "low"
         },
@@ -152,9 +152,9 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "score": 14.29,
+          "score": 13.89,
           "weight": 0.15,
-          "contribution": 2.14,
+          "contribution": 2.08,
           "hit": false,
           "direction": "low"
         }
@@ -165,7 +165,7 @@
         {
           "k": "H1",
           "name": "情绪过热",
-          "value": 23.33,
+          "value": 30.83,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪过热线(RSI或综合情绪分百分位)",
@@ -195,7 +195,7 @@
         {
           "k": "H4",
           "name": "位置偏高",
-          "value": 85.71,
+          "value": 86.11,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置分位",
@@ -247,7 +247,7 @@
         {
           "k": "L1",
           "name": "情绪冰点",
-          "value": 76.67,
+          "value": 69.17,
           "threshold": 60,
           "unit": "分",
           "desc": "情绪冰点(100-RSI百分位)",
@@ -257,7 +257,7 @@
         {
           "k": "L2",
           "name": "买点密集",
-          "value": 30.83,
+          "value": 31.25,
           "threshold": 60,
           "unit": "分",
           "desc": "买点密集(近10日buy信号)",
@@ -267,7 +267,7 @@
         {
           "k": "L3",
           "name": "位置偏低",
-          "value": 14.29,
+          "value": 13.89,
           "threshold": 60,
           "unit": "%",
           "desc": "1年位置低位(100-分位)",
