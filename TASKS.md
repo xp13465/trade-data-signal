@@ -926,4 +926,6 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - [ ] rzhb 08:00 主采 + 19:15 兜底：7-30 两次执行（08:00 主采 SSE T+1 + 19:15 兜底防漏），查 rzhb_backfill_launchd.log
 - [x] 告警轰炸根治（AZ77，commit `51d404f3`）：schedule_monitor exit!=0 路径加 alert_state suppress + 预填 etf active 止血。07:00 实证 `[suppress] etf_national_team 退出失败(exit=1) 持续中, 不重发` + 0 告警 + last_alerted 不更新 ✅ 已验证
 - [ ] 今晚 21:30 etf 兜底成功 exit=0 后：schedule_monitor 检测恢复 -> alert_state etf 转 recovered + 发 1 封 recovery 邮件（不再轰炸 50 次）
+- [x] us_stock 延迟根因修复（AZ78，commit `28d5c9eb`）：us_stock_morning.sh 加 gen_schedule_stats trap + 结束行退出码（根治 schedule_stats us_stock exit=null）。验收 6 点 grep 全过 ✅
+- [ ] 7-31 05:00 us_stock 跑后本地 schedule_stats us_stock exit=0 立即更新（trap 触发）+ 7-31 17:50 update_all deploy 后线上显示（时序矛盾本地立即/线上滞后12h）
 

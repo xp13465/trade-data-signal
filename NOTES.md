@@ -5040,3 +5040,14 @@ if (!isClosed) {
 - **验证（2026-07-30 07:00 实证）**：07:00 schedule_monitor 跑后日志出现 `[suppress] etf_national_team 退出失败(exit=1) 持续中, last_alerted=2026-07-30 06:45:04, 不重发` + `[2026-07-30 07:00:05] OK 所有任务按计划执行，无漏跑，无退出失败`（0 告警）+ alert_state last_alerted 仍 06:45:04（suppress 不更新，符合预期）。告警轰炸根治 ✅
 - **后续**：今晚 21:30 etf 兜底成功 exit=0 后，schedule_stats 更新 exit=0/null -> schedule_monitor 检测到恢复 -> alert_state etf 转为 recovered + 发 1 封 recovery 邮件（不再轰炸）
 - **关联**：memory `alert-dedup-mechanism`（schedule_monitor alert_state.json 状态去重，同一异常首次发持续 suppress 消失发恢复邮件，15min 周期不轰炸）；与 AZ74 deploy.sh rebase stash -u 修复（a4f48c26）配合——后者治 etf 21:30 deploy 失败根因，前者治告警轰炸症状
+
+### AZ78 us_stock_morning.sh 加 gen_schedule_stats trap（根治 schedule_stats us_stock exit=null 延迟，2026-07-30 07:1X）
+- **背景**：us_stock_morning 7-30 05:04:54 exit=0 + push main 49d7b47f 成功，但线上 schedule_stats.json us_stock 字段 `exit=null dur=null` 显示延迟（gen_schedule_stats 没被 us_stock 触发更新）
+- **根因**（调研 agent a5f393ba + 主控验收）：`us_stock_morning.sh` 是唯一漏调 `gen_schedule_stats` 的任务脚本（7-29 新增 commit 4425366c 时漏，其他 8 任务 futures/etf/lhb/rzhb/backfill_indices/intraday_snapshot/update_all/update_lab 都调了）+ L39 早退路径结束行 `=== 结束 <ts> ===` 无 `退出码=$COLLECT_RC`，gen_stats END_RE 正则（L66 `(?:.*?退出码=(\d+))?`）匹配不到 exit 组默认 code=0 误报（实际 COLLECT_RC 非0）。deploy.sh L80 注释"gen_stats 已移到各任务脚本结尾"但 us_stock_morning.sh 漏了
+- **修复**（commit `28d5c9eb`，对齐 rzhb_backfill.sh L56-60 trap 模式）：
+  1. L29 后插入 `refresh_stats()` 函数 + `trap refresh_stats EXIT`（覆盖所有退出路径：L49 早退 / L60 正常 / SIGTERM 被杀）
+  2. L49 早退路径结束行加 `退出码=$COLLECT_RC`（让 gen_stats 解析真实退出码非默认0误报）
+  3. L60 正常路径结束行加 `退出码=0` + L45 加 `采集退出码=$COLLECT_RC`（agent 多加更彻底）
+- **验收**（主控逐字 grep 6 点全过）：`trap refresh_stats EXIT` L39 / `退出码=$COLLECT_RC` L49（-F grep 避免 $ BRE 锚点）/ `退出码=0 采集=` L60 / `gen_schedule_stats` 命中3次 / commit 28d5c9eb 在 origin/main / `bash -n` 语法 OK + pre-commit lint_scripts.sh 全过
+- **时序矛盾（本次不修，所有任务共同设计局限）**：trap gen_stats 在 deploy.sh push 之后执行，push 的是旧 schedule_stats.json（trap 写的新值没进 commit）。**本地立即更新**（下次 us_stock 05:00 跑完 trap 触发 gen_stats 写新 schedule_stats.json），**线上要等 7-31 17:50 update_all deploy 才显示** us_stock exit=0（滞后约12小时）。如要立即线上显示需 trap 后独立 push schedule_stats.json（像 intraday_snapshot 那样），但其他任务也没这么做，保持一致
+- **关联**：AZ56 gen_schedule_stats pending_start 读真实退出码（commit 3a1ba16e，AZ42 launchctl_last_exit）+ rzhb_backfill.sh L56-60 / futures_backfill.sh L99-105 / lhb_backfill.sh trap 模式参考；memory `commit-timestamp-not-trigger`（commit 时间戳非任务触发时点）
