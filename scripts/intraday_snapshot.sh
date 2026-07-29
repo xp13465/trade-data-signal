@@ -89,6 +89,33 @@ else
   echo "-> 跳过 ETF 预估(盘前 $HOUR_MIN<0935,等 9:35 首触)" | tee -a "$LOG"
 fi
 
+# 1.8) 盘中信号邮件 + 导出 notifications.json（B2 优化 2026-07-20：移到 push 块前）
+#      原顺序：push 块 -> check_signals -> export_notifications，当轮生成的 notifications.json
+#      不进当轮 commit/push，下一轮 rsync 才带进 worktree push -> 滞后 1 轮 10min。
+#      修复：check_signals + export_notifications 移到 push 块前，当轮生成 + 当轮 push 无滞后。
+#      时序依赖：export_notifications 读 check_signals 写的 signal_notified.json（去重）+
+#      signal_daily（intraday_snapshot 采集时已 _recompute_signals 重算），故顺序固定：
+#      采集 -> ETF预估 -> check_signals -> export_notifications -> commit+push。
+#      intraday_snapshot 已在 collect_and_save 中重算 signal_daily，check_signals 查当日信号
+#      发邮件，复用 signal_notified.json 去重（同日同 index_id+signal 只发一次），盘中多次跑
+#      （9:35/10:05/...）只发新出现的信号。邮件标题加【盘中实时】+ 正文风险横幅（盘中快照非
+#      最终，收盘 17:50 update_all 仍发最终版）。失败不阻塞：快照数据将 push，邮件/notifications
+#      失败仅 log 告警。REPO=trade-data 时 check_signals.sh 用 trade-data/scripts/check_signals.py，
+#      NOTIFIED_PATH=trade-data/data/signal_notified.json（与 update_all 同路径，去重一致）。
+echo "-> check_signals.sh --intraday（盘中信号邮件）..." | tee -a "$LOG"
+bash "$REPO/scripts/check_signals.sh" --intraday 2>&1 | tee -a "$LOG"
+SIGNAL_RC=${PIPESTATUS[0]}
+[ "$SIGNAL_RC" -ne 0 ] && echo "⚠ check_signals 退出码 ${SIGNAL_RC:-?}(邮件失败或配置缺失,不阻塞快照)" | tee -a "$LOG"
+
+# 导出 notifications.json（浏览器通知源，P2-新-W 方案A 根因①修复）
+#      check_signals 写完 signal_notified.json 后导出，读 DB 当日信号/预警/恐贪/异动。
+#      生成 static-site/data/notifications.json，当轮 rsync 进 worktree push（B2 修复：无滞后）。
+#      失败不阻塞：快照数据将 push，notifications.json 滞后下一轮补。
+#      cwd=$REPO（trade-data 跑时 ROOT=trade-data 读主库，§9）；与 export_alert 同调用方式。
+echo "-> export_notifications.py（浏览器通知源 JSON）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_notifications.py" 2>&1 | tee -a "$LOG" || \
+  echo "⚠ export_notifications 失败(不阻塞快照)" | tee -a "$LOG"
+
 # 2) commit + push 受影响的静态数据 JSON 到 main 分支（部署分支）
 #    用独立 git worktree 操作 main，不影响当前 feat 开发分支：
 #    - 采集在 REPO 跑（trade-data 架构：trade-data 采集，数据 JSON 写到 trade-data/static-site/data/）
@@ -274,28 +301,6 @@ if [ "$PUSH_RC" -ne 0 ]; then
   echo "✗ commit/push 失败（退出码 ${PUSH_RC}），写 stderr 告警" | tee -a "$LOG" >&2
   exit "$PUSH_RC"
 fi
-
-# 3) 盘中信号邮件通知（标注【盘中实时】，去重防重复发）
-#    intraday_snapshot 已在 collect_and_save 中重算 signal_daily（_recompute_signals），
-#    check_signals 查当日信号发邮件。复用 signal_notified.json 去重（同日同 index_id+signal
-#    只发一次），盘中多次跑（9:35/10:05/...）只发新出现的信号。
-#    邮件标题加【盘中实时】+ 正文风险横幅（盘中快照非最终，收盘 17:50 update_all 仍发最终版）。
-#    失败不阻塞：快照数据已 push 上线，邮件失败仅 log 告警。
-#    REPO=trade-data 时 check_signals.sh 用 trade-data/scripts/check_signals.py，
-#    NOTIFIED_PATH=trade-data/data/signal_notified.json（与 update_all 同路径，去重一致）。
-echo "-> check_signals.sh --intraday（盘中信号邮件）..." | tee -a "$LOG"
-bash "$REPO/scripts/check_signals.sh" --intraday 2>&1 | tee -a "$LOG"
-SIGNAL_RC=${PIPESTATUS[0]}
-[ "$SIGNAL_RC" -ne 0 ] && echo "⚠ check_signals 退出码 ${SIGNAL_RC:-?}(邮件失败或配置缺失,不阻塞快照)" | tee -a "$LOG"
-
-# 2.7) 导出 notifications.json（浏览器通知源，P2-新-W 方案A 根因①修复）
-#      check_signals 写完 signal_notified.json 后导出，读 DB 当日信号/预警/恐贪/异动。
-#      生成 static-site/data/notifications.json，下一轮 intraday rsync 进 worktree push（一轮延迟可接受）。
-#      失败不阻塞：快照数据已 push，notifications.json 滞后下一轮补。
-#      cwd=$REPO（trade-data 跑时 ROOT=trade-data 读主库，§9）；与 export_alert 同调用方式。
-echo "-> export_notifications.py（浏览器通知源 JSON）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/export_notifications.py" 2>&1 | tee -a "$LOG" || \
-  echo "⚠ export_notifications 失败(不阻塞快照)" | tee -a "$LOG"
 
 echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
 
