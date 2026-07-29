@@ -4109,12 +4109,13 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
   // 绿：数据日期 >= 基准(已采到最新可得)
   if (!baseline || dataDate >= baseline) {
     if (intraday && snapDate && dataDate === snapDate) {
-      const hh = shIdx.datetime.slice(8, 10);
-      const mm = shIdx.datetime.slice(10, 12);
+      // 盘中优先用腾讯实时1min时间(_intradayDynamicTime "HH:MM")，无则回退 snap.datetime(10min粒度)
+      const _hh = _intradayDynamicTime ? _intradayDynamicTime.slice(0, 2) : shIdx.datetime.slice(8, 10);
+      const _mm = _intradayDynamicTime ? _intradayDynamicTime.slice(3, 5) : shIdx.datetime.slice(10, 12);
       if (snap.label && /午休/.test(snap.label)) {
-        return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复T+0实时">⏰ 午休·${hh}:${mm}</span>`;
+        return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复T+0实时">⏰ 午休·${_hh}:${_mm}</span>`;
       }
-      return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${hh}:${mm}</span>`;
+      return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${_hh}:${_mm}</span>`;
     }
     if (srcClass === "t1") {
       // T+1数据已追平今日(snapDate)=今天最新,显绿(与T+0收盘同色,数据确为今日已采到);
@@ -4710,7 +4711,9 @@ async function fetchTencentMinute(code) {
   if (cached) return cached;
   const p = (async () => {
     try {
-      const resp = await fetch(url);
+      // cache-busting: 腾讯分时API加 _=Date.now() + cache:no-store，绕过浏览器/CDN HTTP缓存拿1min最新
+      const _url = url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + Date.now();
+      const resp = await fetch(_url, { cache: 'no-store' });
       const json = await resp.json();
       if (!json || json.code !== 0 || !json.data) return null;
       const node = json.data[tcCode];
@@ -4805,6 +4808,25 @@ function _applyDynamicToBadges(results) {
     el.style.color = color;
     el.textContent = `${sign}${pct.toFixed(2)}%`;
     el.classList.add("dyn-updated");
+  });
+}
+
+// 更新 spark-foot 底部（最新价 + 相对昨收涨跌点数），与右上角 pct 同维度
+// results[id] 含 preClose（fetchTencentMinute 完整返回）；回退 _intradayDynamicPct[id] 只存 pct+price 无 preClose -> skip 静默保持原值
+function _applyDynamicToSparkFoot(results) {
+  document.querySelectorAll(".spark-cell").forEach((cell) => {
+    const badge = cell.querySelector(".pct-badge[data-spark-id]");
+    if (!badge) return;
+    const id = badge.getAttribute("data-spark-id");
+    const r = (results && results[id]) || _intradayDynamicPct[id];
+    if (!r || r.price == null || r.preClose == null) return; // 静默回退：保持原值
+    const foot = cell.querySelector(".spark-foot");
+    if (!foot) return;
+    const chg = r.price - r.preClose;
+    const chgUp = chg >= 0;
+    const chgColor = chgUp ? "#e6492e" : "#2e8b57";
+    const chgText = (chgUp ? "+" : "") + chg.toFixed(2);
+    foot.innerHTML = `${r.price.toFixed(2)} <span style="color:${chgColor}">${chgText}</span>`;
   });
 }
 
@@ -5102,6 +5124,8 @@ async function _doIntradayRefresh() {
   });
   const results = await Promise.all(promises);
   const dynResult = await dynP; // 确保 badge/chips 已更新
+  _applyDynamicToSparkFoot(dynResult && dynResult.results); // 补更新底部 spark-foot(用腾讯实时价+昨收，与右上角pct同维度，不再卡 renderOverview 旧值)
+  if (curSnap) refreshCardTimeBadges(curSnap); // 补更新角标(1min刷新也带动角标，不再卡 snap.datetime 10min粒度)
   // 判断成功：有分时图渲染成功 OR 动态值拉取成功（分时图全收起时靠动态值判断）
   const anyOk = results.length > 0 ? results.some((r) => r) : (dynResult && dynResult.ok);
   if (anyOk) {
