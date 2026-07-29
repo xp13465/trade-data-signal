@@ -118,6 +118,13 @@ echo "-> ETF 评分清单（etf_score_list --full-market 全市场）..." | tee 
 "$PY" "$REPO/scripts/export_etf_score_list.py" --full-market >> "$LOG" 2>&1 || \
   echo "⚠ export_etf_score_list 失败（不阻塞主流程）" | tee -a "$LOG"
 
+# P2-新-W 浏览器通知源 JSON（根因①修复：收盘全量后导出 notifications.json，覆盖 post_close 场景）
+# 读 DB 当日信号/预警/恐贪/异动 + post_close=True 标志（18:00 后），前端弹"收盘速递"通知。
+# 失败不阻塞；口径同 export_alert（本地更新，下次 pipeline deploy 推上线）。
+echo "-> 浏览器通知源（notifications.json post_close）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_notifications.py" >> "$LOG" 2>&1 || \
+  echo "⚠ export_notifications 失败（不阻塞主流程）" | tee -a "$LOG"
+
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
 

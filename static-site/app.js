@@ -5796,6 +5796,24 @@ async function _checkNotifications() {
   finally { _notifyFetchInFlight = false; }
 }
 
+// 独立轮询定时器（根因③修复：原仅靠 ts:overview-refreshed 事件触发，
+// document.hidden 时 overview 轮询被跳过(L5372)致 _checkNotifications 不触发，
+// 后台标签页收不到通知。独立 setInterval 不受 document.hidden 影响，后台也能弹通知。
+// _checkNotifications 内部有 pref/permission/30s 节流三层短路，关闭时 return 不发请求。）
+let _notifyCheckTimer = null;
+function _startNotifyPolling() {
+  if (_notifyCheckTimer) return;  // 防重复启动（initNotifyButton 可能多次调用）
+  _notifyCheckTimer = setInterval(_checkNotifications, NOTIFY_FETCH_INTERVAL_MS);
+  console.log('[notify] 独立轮询已启动 (每' + NOTIFY_FETCH_INTERVAL_MS / 1000 + 's)');
+}
+function _stopNotifyPolling() {
+  if (_notifyCheckTimer) {
+    clearInterval(_notifyCheckTimer);
+    _notifyCheckTimer = null;
+    console.log('[notify] 独立轮询已停止');
+  }
+}
+
 // 处理 notifications.json：6 类触发场景 + 三层去重
 function _processNotifications(data) {
   const today = data.date;
@@ -5808,9 +5826,10 @@ function _processNotifications(data) {
         && !_isInNotifyTimeWindow('signal_buy')) {
       const names = newBuys.slice(0, 3).map(s => s.name || s.index_id).join('、');
       const more = newBuys.length > 3 ? `等${newBuys.length}个` : '';
-      showNotification('🔴 新买入信号', `${names}${more} 触发买入`, `signal_buy_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' });
-      _markNotified(`signal_buy_${today}`);
-      _markNotifyTimeWindow('signal_buy');
+      if (showNotification('🔴 新买入信号', `${names}${more} 触发买入`, `signal_buy_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' })) {
+        _markNotified(`signal_buy_${today}`);
+        _markNotifyTimeWindow('signal_buy');
+      }
     }
     const newSells = data.signals.filter(s =>
       ['sell', 'sell_stop_loss'].includes(s.signal));
@@ -5818,9 +5837,10 @@ function _processNotifications(data) {
         && !_isInNotifyTimeWindow('signal_sell')) {
       const names = newSells.slice(0, 3).map(s => s.name || s.index_id).join('、');
       const more = newSells.length > 3 ? `等${newSells.length}个` : '';
-      showNotification('🟢 新卖出信号', `${names}${more} 触发卖出`, `signal_sell_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' });
-      _markNotified(`signal_sell_${today}`);
-      _markNotifyTimeWindow('signal_sell');
+      if (showNotification('🟢 新卖出信号', `${names}${more} 触发卖出`, `signal_sell_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' })) {
+        _markNotified(`signal_sell_${today}`);
+        _markNotifyTimeWindow('signal_sell');
+      }
     }
   }
 
@@ -5831,9 +5851,10 @@ function _processNotifications(data) {
         && !_isInNotifyTimeWindow('anomaly')) {
       const desc = severe.slice(0, 2).map(a => a.desc || a.name).join('；');
       const more = severe.length > 2 ? `等${severe.length}项` : '';
-      showNotification('⚠️ 盘中异动', `${desc}${more}`, `anomaly_${today}`, { msgType: 'OPEN_ANOMALY' });
-      _markNotified(`anomaly_${today}`);
-      _markNotifyTimeWindow('anomaly');
+      if (showNotification('⚠️ 盘中异动', `${desc}${more}`, `anomaly_${today}`, { msgType: 'OPEN_ANOMALY' })) {
+        _markNotified(`anomaly_${today}`);
+        _markNotifyTimeWindow('anomaly');
+      }
     }
   }
 
@@ -5841,15 +5862,17 @@ function _processNotifications(data) {
   if (data.alerts) {
     if (data.alerts.high && data.alerts.high.triggered
         && !_isNotifyNotified(`alert_high_${today}`)) {
-      showNotification('🔴 高位预警',
-        `${data.alerts.high.level}（分数 ${data.alerts.high.score}）`, `alert_high_${today}`, { msgType: 'OPEN_ALERT' });
-      _markNotified(`alert_high_${today}`);
+      if (showNotification('🔴 高位预警',
+        `${data.alerts.high.level}（分数 ${data.alerts.high.score}）`, `alert_high_${today}`, { msgType: 'OPEN_ALERT' })) {
+        _markNotified(`alert_high_${today}`);
+      }
     }
     if (data.alerts.low && data.alerts.low.triggered
         && !_isNotifyNotified(`alert_low_${today}`)) {
-      showNotification('🔵 低位机会',
-        `${data.alerts.low.level}（分数 ${data.alerts.low.score}）`, `alert_low_${today}`, { msgType: 'OPEN_ALERT' });
-      _markNotified(`alert_low_${today}`);
+      if (showNotification('🔵 低位机会',
+        `${data.alerts.low.level}（分数 ${data.alerts.low.score}）`, `alert_low_${today}`, { msgType: 'OPEN_ALERT' })) {
+        _markNotified(`alert_low_${today}`);
+      }
     }
   }
 
@@ -5857,30 +5880,33 @@ function _processNotifications(data) {
   if (data.fear_greed && data.fear_greed.extreme
       && !_isNotifyNotified(`fg_${data.fear_greed.extreme}_${today}`)) {
     const isFear = data.fear_greed.extreme === 'fear';
-    showNotification(
+    if (showNotification(
       isFear ? '😨 恐贪极值：极度恐惧' : '🤑 恐贪极值：极度贪婪',
       `恐贪指数 ${data.fear_greed.value}（${isFear ? '<20' : '>80'}）`,
       `fg_${data.fear_greed.extreme}_${today}`,
       { msgType: 'OPEN_FG' }
-    );
-    _markNotified(`fg_${data.fear_greed.extreme}_${today}`);
+    )) {
+      _markNotified(`fg_${data.fear_greed.extreme}_${today}`);
+    }
   }
 
   // 6. 涨停潮（a_width_zt_count > 5日均×1.8 且 >=50）
   if (data.limit_up && data.limit_up.spike
       && !_isNotifyNotified(`zt_${today}`) && !_isInNotifyTimeWindow('zt')) {
-    showNotification('🔥 涨停潮',
-      `今日涨停 ${data.limit_up.count} 只（5日均 ${data.limit_up.avg}）`, `zt_${today}`, { msgType: 'OPEN_ZT' });
-    _markNotified(`zt_${today}`);
-    _markNotifyTimeWindow('zt');
+    if (showNotification('🔥 涨停潮',
+      `今日涨停 ${data.limit_up.count} 只（5日均 ${data.limit_up.avg}）`, `zt_${today}`, { msgType: 'OPEN_ZT' })) {
+      _markNotified(`zt_${today}`);
+      _markNotifyTimeWindow('zt');
+    }
   }
 
   // 7. 盘后速递（post_close=True 且有信号时弹一次）
   if (data.post_close && data.signals && data.signals.length
       && !_isNotifyNotified(`post_close_${today}`)) {
-    showNotification('📊 收盘速递',
-      `今日 ${data.signals.length} 个信号，点击查看详情`, `post_close_${today}`, { msgType: 'OPEN_POST_CLOSE' });
-    _markNotified(`post_close_${today}`);
+    if (showNotification('📊 收盘速递',
+      `今日 ${data.signals.length} 个信号，点击查看详情`, `post_close_${today}`, { msgType: 'OPEN_POST_CLOSE' })) {
+      _markNotified(`post_close_${today}`);
+    }
   }
 }
 
@@ -5942,6 +5968,7 @@ function initNotifyButton() {
     if (enabled) {
       _saveNotifyPref(false);
       updateBtnState();
+      _stopNotifyPolling();  // 关闭时停独立轮询
       return;
     }
     const perm = _notifyPerm();
@@ -5967,6 +5994,7 @@ function initNotifyButton() {
     }
     _saveNotifyPref(true);
     updateBtnState();
+    _startNotifyPolling();  // 开启时启独立轮询（后台标签页也能弹通知，根因③修复）
     // 方案A: 首次开启（权限 default->granted）自动弹欢迎测试通知，让用户立即看到效果验证功能正常
     if (!wasGranted) {
       showNotification('通知已开启 ✅',
@@ -6010,6 +6038,12 @@ function initNotifyButton() {
     _checkNotifications();
     _maybeRerenderSigCard(_getCachedOverview(), e && e.detail && e.detail.snap);
   });
+
+  // 根因③修复：启动独立 setInterval 轮询（不依赖 overview 事件，后台标签页也能弹通知）
+  // pref 已开启 + permission granted 时启动；否则等用户点击开启时启动
+  if (_loadNotifyPref() && _notifyPerm() === 'granted') {
+    _startNotifyPolling();
+  }
 
   // 监听 SW notificationclick 转发的 postMessage -> 触发 UI 反馈
   // 防重复注册(initNotifyButton 可能被多次调用): 标志位短路

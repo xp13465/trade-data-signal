@@ -8,12 +8,12 @@
  *  2. 数据 JSON (除 intraday_snapshot): stale-while-revalidate (盘中 3 分钟刷)
  *     - 先返回缓存(毫秒级),后台拉新版更新缓存
  *     - 缓存 < 3 分钟直接返回缓存不发网络(省流量);>= 3 分钟后台拉新版
- *  3. intraday_snapshot.json: NetworkFirst (盘中实时性优先,离线回退缓存)
+ *  3. intraday_snapshot.json + notifications.json: NetworkFirst (盘中实时性优先,离线回退缓存)
  *  4. 第三方 (hm.baidu/zz.bdstatic/echarts CDN 等): 跨域不拦截,直接走网络,不缓存
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260729-a73';
+const CACHE_VERSION = 'v2-20260729-a74';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -82,8 +82,10 @@ self.addEventListener('fetch', (event) => {
   //    直接走浏览器默认网络栈,不缓存
   if (url.origin !== self.location.origin) return;
 
-  // 3) intraday_snapshot.json: NetworkFirst (盘中实时性优先,离线回退缓存)
-  if (url.pathname.endsWith('/intraday_snapshot.json')) {
+  // 3) intraday_snapshot.json + notifications.json: NetworkFirst (盘中实时性优先,离线回退缓存)
+  //    notifications.json 走 NetworkFirst（根因③修复）：原走 SWR 3min 缓存致前端读旧 notifications.json，
+  //    真实信号触发后即使后端更新了前端也拿旧缓存不弹通知。改 NetworkFirst 每次走网络拿最新。
+  if (url.pathname.endsWith('/intraday_snapshot.json') || url.pathname.endsWith('/notifications.json')) {
     event.respondWith(
       fetch(req)
         .then((res) => {

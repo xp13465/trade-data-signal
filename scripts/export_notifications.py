@@ -13,10 +13,11 @@
   6. 涨停潮 (a_width_zt_count > 5日均×1.8 且 >=50)
   + 盘后速递标志 (post_close=True when hour>=18)
 
-去重三层（对应 TASKS.md P2-新-W）：
-  1. 后端：信号复用 signal_notified.json[today]（已邮件推送的跳过，避免双通道重复）
-  2. 后端：异动复用 anomaly_notified.json[today]（detect_intraday_anomaly.py 已去重）
-  3. 前端：localStorage notified_keys（同事件当日只弹一次）+ Notification tag（同 tag 显最新）
+去重两层（2026-07-30 修复：删后端信号排除，双通道用户邮件+浏览器两处都该收到）：
+  1. 后端：异动复用 anomaly_notified.json[today]（detect_intraday_anomaly.py 已去重）
+  2. 前端：localStorage notified_keys（同事件当日只弹一次）+ Notification tag（同 tag 显最新）
+  原"后端信号复用 signal_notified.json 排除已邮件推送"已删：该排除致 notifications.json signals 恒空，
+  真实信号触发时邮件收到但浏览器通知不弹（前端靠 localStorage 当日去重即可避免双通道重复）。
 
 用法：
   cd /Users/linhuichen/code/trade-data && python3 /Users/linhuichen/code/trade/scripts/export_notifications.py
@@ -273,15 +274,12 @@ def export_notifications(date: str | None = None) -> dict:
     finally:
         conn.close()
 
-    # 后端去重：信号复用 signal_notified.json[today]（已邮件推送的跳过）
-    notified = _load_json(SIGNAL_NOTIFIED_PATH, {})
-    if not isinstance(notified, dict):
-        notified = {}
-    today_notified = {tuple(x) for x in notified.get(date, [])}
+    # 信号全量导出（不排除已邮件推送的信号）：双通道用户邮件+浏览器两处都该收到，
+    # 前端靠 localStorage 当日去重(_markNotified)避免同事件弹两次。
+    # 2026-07-30 修复：原 L283 排除 today_notified 致 notifications.json signals 恒空，
+    # 真实信号触发时邮件收到但浏览器通知不弹，已删。
     signals = []
     for s in signals_raw:
-        if (s["index_id"], s["signal"]) in today_notified:
-            continue  # 已邮件推送，跳过避免双通道重复
         s2 = dict(s)
         s2["name"] = _index_name(s["index_id"], name_map)
         s2["label"] = SIGNAL_NAMES.get(s["signal"], s["signal"])
@@ -308,7 +306,7 @@ def export_notifications(date: str | None = None) -> dict:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     print(
         f"[export_notifications] 导出 {OUT_JSON.name} "
-        f"(date={date} signals={len(signals)}/{len(signals_raw)} "
+        f"(date={date} signals={len(signals)} "
         f"anomalies={len(anomalies)} "
         f"alerts_high={alerts.get('high', {}).get('triggered', False)} "
         f"alerts_low={alerts.get('low', {}).get('triggered', False)} "

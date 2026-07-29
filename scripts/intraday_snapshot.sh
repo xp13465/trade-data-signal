@@ -155,6 +155,8 @@ PUSH_RC=0
   gzip -kf static-site/data/schedule_stats.json
   gzip -kf static-site/data/hk-1y.json
   gzip -kf static-site/data/sentiment-all.json
+  # notifications.json（浏览器通知源，export_notifications.py 生成；同轮若未生成则跳过不影响其余）
+  gzip -kf static-site/data/notifications.json 2>/dev/null || true
   # etf_national_team daily 全 range gzip(末日 close 更新影响所有 range 末行;
   # 前端默认下 1y,但用户切换 3m/6m 等时按需 fetch .gz,不 gzip 则读旧 .gz = 读旧数据)
   for f in static-site/data/etf_national_team-*.json; do gzip -kf "$f" || true; done
@@ -175,7 +177,7 @@ PUSH_RC=0
   for _rng in 1m 3m 6m 1y; do
     DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
   done
-  for _f in intraday_snapshot schedule_stats overview summary summary_history; do
+  for _f in intraday_snapshot schedule_stats overview summary summary_history notifications; do
     DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
   done
   # 部分文件不存在时 git 报 fatal 但 || true 继续，不影响其余 add（参考 deploy.sh L221）
@@ -285,6 +287,15 @@ echo "-> check_signals.sh --intraday（盘中信号邮件）..." | tee -a "$LOG"
 bash "$REPO/scripts/check_signals.sh" --intraday 2>&1 | tee -a "$LOG"
 SIGNAL_RC=${PIPESTATUS[0]}
 [ "$SIGNAL_RC" -ne 0 ] && echo "⚠ check_signals 退出码 ${SIGNAL_RC:-?}(邮件失败或配置缺失,不阻塞快照)" | tee -a "$LOG"
+
+# 2.7) 导出 notifications.json（浏览器通知源，P2-新-W 方案A 根因①修复）
+#      check_signals 写完 signal_notified.json 后导出，读 DB 当日信号/预警/恐贪/异动。
+#      生成 static-site/data/notifications.json，下一轮 intraday rsync 进 worktree push（一轮延迟可接受）。
+#      失败不阻塞：快照数据已 push，notifications.json 滞后下一轮补。
+#      cwd=$REPO（trade-data 跑时 ROOT=trade-data 读主库，§9）；与 export_alert 同调用方式。
+echo "-> export_notifications.py（浏览器通知源 JSON）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_notifications.py" 2>&1 | tee -a "$LOG" || \
+  echo "⚠ export_notifications 失败(不阻塞快照)" | tee -a "$LOG"
 
 echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
 
