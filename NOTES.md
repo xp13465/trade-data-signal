@@ -4479,3 +4479,92 @@ DB 查询今日（20260728）signal_daily：
 2. **修 bug 勿改逻辑**：t0 兜底拆分能在 t0 分支内解决盘中 T+1 误判，不需 t0->t1 改 srcClass（用户"保证逻辑不变"原则）。t0->t1 是"修 bug 而修 bug"改变 baseline/显示/配置：baseline 从 snapDate 改 ptd-1、显示从⏳待盘后更新改📅T+1、需配 `T1_COLLECT_DEADLINE`。能用分支拆分在原 srcClass 内解决就不改 srcClass。
 3. **a0e2498 调研误报 `signals_today` 末位 BUG**（称 L6178 取末位作 dataDate=0717 触发⚠滞后），主控 grep 验收发现实际 L6178 用 `r.date` 不取末位，排除该修复（§0 验收铁律价值：调研 agent 报"BUG"主控必须读代码确认，不信 agent 报告直接改码会引入新 bug）。
 4. **实施 agent 第一次没回退修复1b**（已 commit+push），主控 SendMessage 二次明确要求才回退（commit `5473bf32`）：派 agent 实施后若用户提出新约束（"保证逻辑不变"），主控必须显式 SendMessage 传达新约束 + 要求回退已 commit 部分，不能假设 agent 会自己意识到新约束。
+
+### 小节AZ61：2026-07-29 晚续 usdcnh 7-27验证 + bump_asset_version日期根治 + update_lab.sh加simulate_trade --html + 监控异常深查3类根因 + PC浏览器通知方案A实施
+
+> 本轮 5 项全闭环上线，含 1 项数据验证 + 1 项工具脚本根治 + 1 项 lab流水线补步 + 1 项监控异常深查（含 deploy.sh 二进制冲突根治） + 1 项 PC浏览器通知完整实施。commit 链：`7de49686`/`632feb4a`/`e6422edf`(已在 AZ59 落档的告警根因修复，本轮属验证)/`4c4be0a8`+merge `601a9da7`。sw.js CACHE_VERSION a58->a59（铁律1：改 app.js 必 bump sw）。
+
+**1. usdcnh 7-27 验证通过**（承接 H.3 遗留，防复发）
+
+- **背景**：USDCNH 主源 `currency_boc_sina` 7-22 上线后留待 7-27 周一收盘后 curl 验证稳定。
+- **验证**：本地 `global-all.json` extras.usdcnh 末值 `{date:20260727, value:679.11}`；线上 ssd.fx8.store 三源（ss.fx8.store / sss.sugas.site / sss.sugas.site 三域名）一致。
+- **结论**：主源稳定，无需手动 backfill，防复发闭环。TASKS 待办"usdcnh 7-27 周一 curl 验证"标 ✅。
+
+**2. bump_asset_version.py 日期逻辑根治**（commit `7de49686`）
+
+- **关键纠正**：a54 后缀**不是 git commit hash，而是 sw.js CACHE_VERSION 后缀**（`v2-20260720-a54` 格式）；`20260720` 是用户手工误写**非脚本 bug**（原 bump 脚本只用 md5 内容哈希，无任何日期逻辑）。
+- **修复**：
+  - 新增 `today_version()`：用 `ZoneInfo("Asia/Shanghai")` 显式时区，避免 UTC 跨日漂移（mac 本地时区可能受系统设置影响）。
+  - 新增 `bump_sw_version()`：正则同步 sw.js 日期部分（保留 `vN/aM`，幂等不重复 bump），main() 末尾自动调用，未来无需手动维护 sw.js 日期。
+  - 单元测试 `today_version()=20260729` 通过。
+- **澄清 context currentDate**：CLAUDE.md 注入的 `currentDate 2026/07/20` 已过时（agent session 注入时点），真实北京时间 7-29 CST，脚本以 `ZoneInfo("Asia/Shanghai")` 实时取为准。
+
+**3. update_lab.sh 加第 12 步 simulate_trade --html**（commit `632feb4a`）
+
+- **背景**：simulate_trade `--all` 默认只生 JSON 不生 HTML（AZ57 已修），但 update_lab.sh 流水线未加 `--html` flag，导致 19:00 lab-auto 重生时 HTML 不更新（中键/ctrl 跳 HTML 兜底入口读旧版）。
+- **修复**：
+  - 加第 12 步 `simulate_trade --html --output static-site/trade_sim.html`：`--output` 指定 git tracked 路径（默认 `trade_sim_{index_id}.html` 被 `.gitignore` 走 R2，不带 `--output` 的批量 HTML 仍走 R2 不变）。
+  - 失败不阻塞：`echo ⚠ 不 exit 1`（lab 流水线幂等，HTML 兜底入口缺失不应中断 lab 主流程）。
+  - 步骤编号 `[1/11]` -> `[1/12]`，lab-auto 19:00 定时任务自动重生 trade_sim.html。
+- **关键决策**：`--output` 指定 git tracked 路径 vs 走 R2：选 git tracked 因 trade_sim.html 是单文件不批量（不像 stats JSON 412 个走 R2 必要），git tracked 路径部署更简单（deploy.sh `git add static-site/trade_sim.html`）+ CF Workers 直接服务无需 R2 回源。
+
+**4. 监控异常深查 3 类根因**
+
+承接 AZ59 告警根因修复，本轮深查 3 类异常的真正根因：
+
+- **① futures_backfill deploy push 失败持续 1 天+**：
+  - **根因**：旧版 deploy.sh rebase 撞 20+ 个 `static-site/data/*.json.gz` 二进制冲突直接 `abort + exit 1`，致 push 永久失败。
+  - **修复**（commit `e6422edf` 已到 origin/main + trade-data deploy.sh L306）：rebase 撞数据文件冲突时 `git checkout --theirs`（数据产物本地永远最新，取本地最新 export）+ `git rebase --continue` + 重试 push；非数据冲突（代码/文档）保守 `abort` 等人工处理。
+  - **验证**：今晚 20:05 futures_backfill 定时任务自然验证（agent 不需手动触发，等定时任务跑后看 log）。
+
+- **② 美股早采 last_run=None**：
+  - **根因**：plist 7-29 07:52 创建错过 `StartCalendarInterval Hour=5` 首触（launchd StartCalendarInterval 错过的时点不会立即触发，等下一个时点）。
+  - **结论**：一次性漏跑，7-30 05:00 自动恢复，不需手动干预（与 AZ59 rzhb 08:00 同类）。
+
+- **③ ANOMALY 标记**：
+  - **策略实验室已自动消除**（commit `eb897914` PUSH_FAIL+PUSH_SUCCESS 抑制补丁 + intraday 重生成覆盖旧 stats）。
+  - **期货机构持仓随异常 ① 修复消除**：deploy push 成功后 futures_backfill 不再 log_anomaly。
+- **教训**：deploy.sh rebase 二进制冲突（.gz）不能保守 abort，已在 AZ59 教训落档；本轮验证 `--theirs` 自动解决路径生效，未来 .gz 冲突不再阻塞 deploy。
+
+**5. P2-新-W PC浏览器通知方案 A 实施**（commit `4c4be0a8` + merge main `601a9da7`）
+
+完整实施 P2-新-W（推送方向7，原 ~230 行预估，实际 333+230 行）：
+
+- **后端 `scripts/export_notifications.py`（333 行）**：
+  - 6 类触发：新信号（buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss）/ 异常（volume_surge/breakout/rapid_move）/ 综合预警 / 恐贪极值 / 涨停潮 / 盘后速递（D10）。
+  - 复用 `signal_notified.json` / `anomaly_notified.json` 去重（每事件每日只导出一次，与邮件/TG 共享后端 diff，不新增去重文件）。
+  - 输出 `static-site/data/notifications.json` 供前端 fetch。
+
+- **前端 `static-site/app.js`（~230 行）**：
+  - 🔔 开关 `initNotifyButton`：PC 显示移动隐藏（UA 检测）+ `requestPermission` 用户手势合规（首次点击触发，非自动弹）+ `localStorage notify_enabled` 持久化。
+  - 工具函数 `showNotification(title, options)`：封装 `new Notification` API，支持 `tag` 去重。
+  - 检测 `_checkNotifications`：fetch `notifications.json` + 30s 节流（避免高频轮询）+ in-flight 去重（防并发请求）。
+  - **三层去重**：后端 `signal_notified`/`anomaly_notified`（每事件每日一次）+ 前端 `localStorage notified_keys`（防同事件多次轮询重复弹）+ `Notification tag`（同 tag 只显示最新）。
+
+- **关键决策：事件 hook 不改状态机**（区域限定遵守）：
+  - 在 `_doOverviewRefresh`（L5262）加 1 行 `document.dispatchEvent(new CustomEvent('ts:overview-refreshed'))`，不改状态机、不改 baseline、不改兜底刷新两态逻辑。
+  - `_checkNotifications` 监听 `ts:overview-refreshed` 事件触发检测，而非侵入 overview 刷新流程。
+  - 未碰 `getCardTimeBadge` / 兜底刷新两态状态机 / 小卡角标 / `addCardTimeBadge`（AZ60 修复区域保持不变）。
+
+- **配置 + 上线**：
+  - `_NO_CACHE_URLS` 加 `notifications` 绕 5min SWR 缓存（通知需实时性）。
+  - sw.js `a58 -> a59`（铁律1：改 app.js 必 bump sw，避免旧 SW 缓存旧 app.min.js 致用户拿不到新代码）。
+  - index.html `?v=43df0499`（bump_asset_version.py md5 前 8 位破缓存）。
+  - 线上 `notifications.json` 200（deploy.sh `git add static-site/data/notifications.json`）。
+
+**今日 commit 清单（3 commit + 1 merge）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `7de49686` | bump_asset_version.py 加 ZoneInfo("Asia/Shanghai") today_version()+bump_sw_version() 正则同步 sw.js 日期(保留vN/aM幂等) 根治手工误写隐患 |
+| `632feb4a` | update_lab.sh 加第12步 simulate_trade --html --output static-site/trade_sim.html(失败不阻塞,git tracked路径不走R2) |
+| `e6422edf` | (AZ59已落档) deploy.sh rebase 数据冲突自动 --theirs=本地最新 export + 非数据冲突保守 abort,根治 futures_backfill push 永久失败 |
+| `4c4be0a8` + `601a9da7` | P2-新-W PC浏览器通知方案A(export_notifications.py 333行6类触发+app.js 230行🔔开关+三层去重+ts:overview-refreshed事件hook不改状态机) sw a58->a59 |
+
+**教训**
+
+1. **bump 脚本时区必须显式 `ZoneInfo("Asia/Shanghai")`**：mac 本地时区受系统设置影响（可能 UTC），脚本若用 `datetime.now()` 不带 tz 在 UTC 凌晨跨日时会取错日期；显式 `ZoneInfo` 保证北京时间准确。context 注入的 `currentDate` 是 session 开始时点，跨日过时，脚本以实时 `ZoneInfo` 为准。
+2. **`--output` 指定 git tracked 路径 vs 走 R2 的选择准则**：单文件非批量（如 `trade_sim.html` 兜底入口）选 git tracked 路径（部署简单 + CF Workers 直接服务）；批量文件（如 412 个 stats JSON）走 R2（git 不适合大量大文件，s.sugas.site 300MB 限制）。准则：批量大文件走 R2，单文件小走 git。
+3. **事件 hook 不改状态机原则**：在 `_doOverviewRefresh` 加 1 行 `dispatchEvent` 而非侵入 overview 刷新流程，是"添加功能不改原逻辑"的标准模式。监听方（`_checkNotifications`）通过事件解耦，原状态机/baseline/兜底两态逻辑保持不变。区域限定遵守（不碰 AZ60 修复区域）。
+4. **launchd StartCalendarInterval 错过时点不立即触发**：plist 创建晚于 `StartCalendarInterval Hour=5` 首触，launchd 不会立即触发（等下一个时点 7-30 05:00），属一次性漏跑非 bug。改 plist 时点后须等下一个时点自然触发，不手动 launchctl kickstart（除非紧急）。
+5. **deploy.sh rebase 二进制冲突不能保守 abort**（AZ59 教训本轮验证）：`static-site/data/*.json.gz` 是 export 最新产物，rebase 撞 .gz 冲突应自动 `--theirs=本地最新 export`；本轮 futures_backfill push 持续 1 天+ 失败根因就是旧版保守 abort，修复后定时任务自然验证即可。

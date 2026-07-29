@@ -8,7 +8,7 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-29 盘中(续19:app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线,见续19行;续18:全站时序优化6项上线+QVIX时点精确化+告警根因修复✓上线;续17:本轮4项修复chip方案D+ETF hover+板块分化按钮+过拟合警示文案✓上线;续16:ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F✓上线;续15:回测精准模拟+滞后提示修复+ETF同类去重3项✓上线;续14 4项:P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min)
+**最后更新**:2026-07-29 晚(续20:usdcnh 7-27验证✅+bump_asset_version日期根治✅+update_lab.sh加simulate_trade --html✅+监控异常深查3类根因✅+P2-新-W PC浏览器通知方案A✅全闭环上线,见续20行;续19:app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线;续18:全站时序优化6项上线+QVIX时点精确化+告警根因修复✓上线;续17:本轮4项修复chip方案D+ETF hover+板块分化按钮+过拟合警示文案✓上线;续16:ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F✓上线;续15:回测精准模拟+滞后提示修复+ETF同类去重3项✓上线;续14 4项:P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min)
 
 **分支**:origin/main = `194c097f`(批次1 提速 `172fe2b6`+docs `194c097f` 已上线)
 - 批次1 commit:`0e916672` feat: B4 C方案(E2去双throttle+并发采集+--full-market) + `172fe2b6` data: etf_score_list 1371只修复(手动rsync trade-data->trade)
@@ -88,6 +88,8 @@
 
 **2026-07-29 续19(app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线)**:今日3项修复全闭环上线+1回退:①修复1a t0兜底拆分(app.js L4124-4137,`getCardTimeBadge` t0兜底分支按场景拆分:盘中dataDate===ptd[T+1性质数据正常]=⏳待盘后更新[t1-pending]/盘中dataDate<ptd[真异常]=⚠滞后[t1-stale]/盘后dataDate<baseline=⚠滞后,删"等盘中刷新或update_all尚未运行"误导文案;ptd在L4060算出t0分支复用;解决ma_alignment/ad_line/volume_ratio/new_high_low/position 5卡片baostock stock_daily盘后才出盘中停T-1被误判⚠滞后)②修复1b回退(`5473bf32`,原实施把5卡片srcClass t0->t1,用户"保证逻辑不变不要只修bug而修bug",回退5卡片保持t0 L6411/6442/6481/6522/6558,走修复1a t0兜底拆分显⏳待盘后更新;t0->t1会改baseline[snapDate->ptd-1]+显示[⏳待盘后更新->📅T+1]+需配T1_COLLECT_DEADLINE违反"逻辑不变")③修复2关键时点1m刷新(`a0b78a18` sw a58,L5118-5136/5217/5346,新增`_INTRADAY_SNAPSHOT_TIMES`[27盘中时点9:25-15:35每10min plist确认]+`_isKeyRefreshMoment`[±2min窗口]+`_overviewRefreshDelay`[关键60s/非关键3min];`_scheduleNextOverviewRefresh`低频兜底delay替换为`_overviewRefreshDelay()`动态返回,debug显示"低频兜底(关键1m)",保留自适应15s高频层,兜底铁律delay最大仍<=3min;解决用户反馈兜底3m太慢别的电脑9:45自己9:35)④修复3小卡角标重绘(L5912-5927,KPI小卡`_badge` const改let+拼装后用临时wrapper解析span打data-badge-date/src/srckey属性[与`addCardTimeBadge` L4139-4141同款命名]+`refreshCardTimeBadges`的.card-time-badge[data-badge-date]选择器能选到KPI小卡重绘+异常badge🚨不打属性避免被重绘成正常badge;根治AZ54 P1-3[commit 4004f231]遗留bug:当时`refreshCardTimeBadges`只覆盖`addCardTimeBadge`大卡路径漏KPI小卡L5878 innerHTML拼接路径[L4147注释自己说"非addCardTimeBadge的badge无data-badge-date不被动"但没意识到KPI小卡就是])。**构建+版本**:`build_min.py`+`bump_asset_version.py`(?v=25ee0e75)+sw.js `CACHE_VERSION` a56->a57->a58(§9铁律1改app.js必bump sw)。**commits**:`a0b78a18`(3修复t0兜底拆分+T+1归位+关键时点1m+小卡角标重绘)+`5473bf32`(回退1b 5卡片保持t0),push feat+main,线上ss.fx8.store+sss.sugas.site验证通过(sw a58+app.min.js?v=25ee0e75)。**主控验收**:grep确认5卡片回t0(L6411/6442/6481/6522/6558全"t0")+修复1a/2/3保留(L4124/L5118/L5912)+sw a58本地线上一致。详见NOTES §48 AZ60
 
+**2026-07-29 续20(usdcnh 7-27验证+bump根治+lab HTML+监控深查3根因+Win通知P2-新-W✅5项全闭环上线)**:今日5项全闭环上线:①usdcnh 7-27验证通过(本地global-all.json extras.usdcnh末值{date:20260727,value:679.11}+线上ssd.fx8.store三源一致,currency_boc_sina主源稳定无需backfill,防复发闭环,TASKS待办标✅)②bump_asset_version.py日期逻辑根治(`7de49686`,关键纠正:a54是sw.js CACHE_VERSION后缀非git commit,20260720是手工误写非脚本bug[原bump只用md5内容哈希无日期逻辑];新增today_version()用ZoneInfo("Asia/Shanghai")显式时区+bump_sw_version()正则同步sw.js日期部分[保留vN/aM幂等]+main()末尾自动调用;单元测试today_version()=20260729;另确认context currentDate 2026/07/20过时真实7-29 CST)③update_lab.sh加第12步simulate_trade --html(`632feb4a`,--output static-site/trade_sim.html指定git tracked路径[默认trade_sim_{index_id}.html被.gitignore走R2],失败不阻塞[echo⚠不exit1],步骤编号[1/11]->[1/12],lab-auto 19:00自动重生;关键决策--output git tracked vs R2:单文件非批量选git tracked部署简单+CF直接服务,批量大文件走R2)④监控异常深查3类根因(①futures_backfill deploy push失败持续1天+:根因旧版deploy.sh rebase撞20+static-site/data/*.json.gz二进制冲突abort+exit1,修复e6422edf已到origin/main+trade-data deploy.sh L306含checkout --theirs[数据冲突取本地最新export]+rebase --continue+重试push,今晚20:05 futures_backfill定时任务自然验证;②美股早采last_run=None:plist 7-29 07:52创建错过StartCalendarInterval Hour=5首触,7-30 05:00自动恢复;③ANOMALY标记:策略实验室已自动消除[eb897914 PUSH_FAIL+PUSH_SUCCESS抑制补丁+intraday重生成]+期货机构持仓随异常①修复消除)⑤P2-新-W PC浏览器通知方案A实施(`4c4be0a8`+merge main `601a9da7`,scripts/export_notifications.py 333行[6类触发:新信号/异常/综合预警/恐贪极值/涨停潮/盘后速递,复用signal_notified/anomaly_notified去重]+app.js~230行[🔔开关initNotifyButton PC显示移动隐藏+requestPermission用户手势合规+localStorage持久化+工具函数showNotification+检测_checkNotifications fetch notifications.json+30s节流+in-flight去重+三层去重:localStorage已读标记+时间窗+Notification tag]+ts:overview-refreshed事件hook _doOverviewRefresh L5262加1行dispatch不改状态机+_NO_CACHE_URLS加notifications绕5min缓存+sw.js a58->a59[铁律1]+index.html ?v=43df0499+线上notifications.json 200;区域限定遵守未碰getCardTimeBadge/兜底刷新两态状态机/小卡角标/addCardTimeBadge)。详见NOTES §48 AZ61
+
 ## 总体大纲
 
 A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECharts，Mac 本地。当前 27 个指标、13 指数、运行在 http://localhost:8000（`--reload`，改文件自动生效，**不要杀进程**）。本轮迭代目标：修回归问题 + 补国债 / 原油白银 / 红利 / A 股十年回溯 / 买卖点优化 / 行业看板 / 概览美化。
@@ -116,12 +118,12 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 🔄 进行中 / 待验证（承接晚续3）
 - ~~**ETF 份额方案 A 零改动 6 天回填**~~：✅ **2026-07-21 验收通过**（commit `d37c2c71`，详见 NOTES §48 小节J）。etf_daily MAX=20260720 / 近 5 日 7-15/16/17/20 各 12 行 / 线上 `overview.json` etf_date="20260720" / 根 `data/` 未 add。
 - ~~**ETF ohlc 隐患**（待 7-21 20:07 槽补齐后复查）：凌晨触发 pipeline 时 mootdx OHLC 未采到，7-20 close/amount 为 NULL（ohlc=0）。7-17 数据完整证明正常时点能采到。需 20:07 槽（`scripts/etf_national_team_backfill.sh`）或 17:50 `update_all.sh` 补 OHLC。待办：7-21 20:07 槽跑完后复查 7-20 close/amount 是否补齐。~~ ✅ **2026-07-22 验收通过**（commit `65610d6b` 换 akshare sina 主源 + 7-21 20:07 槽 ohlc=60 补齐；DB 7-17/7-20/7-21 各 12 ETF bad_close=0/bad_amount=0；线上 `overview.json` etf_date=20260721，ss.fx8.store + sss.sugas.site 双站确认；详见 NOTES §48 小节AJ）。
-- **usdcnh 7-27 周一 curl 验证**（承接 H.3 遗留）：`currency_boc_sina` 主源稳定后，2026-07-27 收盘后 curl `https://ss.fx8.store/data/global-extras-all.json` 确认 `extras.usdcnh` 末值含当日，无需手动 backfill（防复发）。
+- ✅ **usdcnh 7-27 周一 curl 验证**（2026-07-29 验收通过，详见 NOTES §48 AZ61）：`currency_boc_sina` 主源稳定，本地 `global-all.json` extras.usdcnh 末值 `{date:20260727, value:679.11}`，线上 ssd.fx8.store 三源一致，无需手动 backfill，防复发闭环。
 
 ### 🔴 近期
 - ~~**ETF 方案 A 验证**~~：✅ 2026-07-21 验收通过（commit `d37c2c71`，详见 NOTES §48 小节J）。
 - ~~**ETF ohlc 隐患复查**：7-21 20:07 槽跑完后复查 7-20 close/amount 是否补齐。~~ ✅ **2026-07-22 验收通过**（DB 7-17/7-20/7-21 bad_close=0/bad_amount=0，7-21 20:07 槽 ohlc=60，详见 NOTES §48 小节AJ）。
-- **usdcnh 7-27 周一 curl 验证**：防复发，确认 `currency_boc_sina` 主源稳定。
+- ✅ **usdcnh 7-27 周一 curl 验证**（2026-07-29 验收通过）：防复发，确认 `currency_boc_sina` 主源稳定。详见 NOTES §48 AZ61。
 - ~~**生产买入信号优化（特买+备买新增）**~~：✅ **2026-07-22 全量上线 + Supertrend 回测审查验收通过**。方案 2026-07-21 定，代码 signals.py L648/654/880 + 生产统计 signal_stats.json + 前端 app.js chip/图例/合规名 + 第一个止损卖过滤（commit 4e515ebe）全上线，等于灰度运行。Supertrend 审查（agent a5207bb15eb95a5c6）：Don20 参数稳健性 7/7 全盈利碾压现有信号 / 生产实绩 sh buy_special win=70.2% pl=2.14 n=506 mean=+6.48% / buy_backup win=68.3% pl=2.31 n=41 mean=+7.20%。agent 建议观察 1-2 个月确认稳定性，详见 NOTES 小节AS。
   - **保留**：主买 C1_RSI30（红色，"红色的超卖拐点"，RSI 上穿30）/ 辅买 B1_BB_lower_revert（玫红色，"玫红色的下轨拐点"，BB 下轨回升）/ 卖 D1_high20_drop5（绿色，20日高回落）。多轮验证低回撤，不推翻。
   - **新增**：特买 Donchian20_up（金色 `#ffd700`，"金色的上轨突破"，唐奇安20日上轨突破，激进战法高回撤高收益）/ 备买 Supertrend_buy（紫色 `#9c27b0`，"紫色的趋势转向"，Supertrend ATR 趋势翻转）
@@ -191,7 +193,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
 ### 下轮起点
 - ~~7-21 收盘后验证 ETF 方案 A 6 天回填是否自动补 7-20 数据。~~ ✅ 2026-07-21 验收通过（commit `d37c2c71`，etf_daily MAX=20260720，详见 NOTES §48 小节J）。
 - ~~ETF ohlc 隐患复查：7-21 20:07 槽跑完后复查 7-20 close/amount 是否补齐（凌晨 mootdx OHLC=0，需 20:07 槽或 update_all 补）。~~ ✅ **2026-07-22 验收通过，待办关闭**（commit `65610d6b` 换源 + 7-21 20:07 槽 ohlc=60 + 7-22 02:00 backfill 同 ohlc=60 稳定；DB 7-17/7-20/7-21 各 12 ETF close/amount 全非 NULL 非 0；线上 etf_date=20260721，详见 NOTES §48 小节AJ）。
-- usdcnh 7-27 周一 curl 验证防复发。
+- ✅ usdcnh 7-27 周一 curl 验证防复发（2026-07-29 验收通过，详见 NOTES §48 AZ61）。
 - R2 P0/P1 已全闭环，P2 data JSON 迁 R2 阶段1+2+3 全完成（2026-07-22，remote 523M->158M，s.sugas.site 恢复部署，详见小节AK）。
 - C6 预警条已上线，下步观察线上预警准确性。P4 交互式分析已上线（#lab?sub=custom，详见 NOTES §48 小节L）。
 - deadcode + 验锁两条小节H.3 遗留已闭环（晚续4），无遗留。
@@ -561,7 +563,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - **实际实施**：`config/subscriptions.json`（gitignore）+ `.example` 模板；前端指数卡片 h3 末尾 🔔 按钮 + 订阅管理 modal（邮箱/chat_id+标的+6类信号+已订阅列表脱敏+localStorage `sub_user_info` 免重复输入）；后端 `app/main.py` /api/subscribe（GET 脱敏列表/POST 创建更新/DELETE）+ `scripts/check_signals.py` `push_subscriptions`/`load_subscriptions`/`save_subs_notified`（独立去重 `subs_notified.json` 7天清理）+ `scripts/notify.py` `send_to`（email+chat_id）
 - ⚠️**线上限制**：ss.fx8.store 纯静态站（CF Workers 托管 static-site/）无 FastAPI 后端，线上 `/api/*` 全 404（含 /api/subscribe）。订阅管理 UI modal 线上弹得出但保存/列表/删除 API 调用失败。**订阅推送本身可用**（launchd 跑 check_signals 读本地 `config/subscriptions.json` 推送，不依赖线上 API）。线上管理订阅需手动编辑 `config/subscriptions.json`（从 `.example` 复制）
 
-### P2-新-W PC浏览器通知（推送方向7，方案A页面Notification，~230行，待排期）
+### P2-新-W PC浏览器通知（推送方向7，方案A页面Notification，~230行）✅ **2026-07-29 已实施**（commit `4c4be0a8` + merge main `601a9da7`，详见 NOTES §48 AZ61）
 - **场景**：PC模式下用户开着看板，新信号/盘中异常/收盘速递时弹Windows通知（进Windows操作中心）。Web Notifications API全球94.38%支持，Windows Chrome22+/Edge14+/Firefox22+全支持，HTTPS必需(ss.fx8.store满足)，requestPermission须用户手势触发，通知进Windows通知中心（OS原生渲染）
 - **现状**：前端无任何浏览器通知逻辑（grep notif/push/通知 全为array.push）；sw.js已注册(仅缓存无push/showNotification，v2-20260729-a56)；manifest.json已存在(A6 PWA已闭环AZ20 commit a41fb2df)；后端邮件+TG完善(notify.py send/send_to + check_signals + schedule_monitor)无浏览器通知端点；前端轮询intraday 1分钟(L4636)+overview自适应(L4032)可复用挂通知检测
 - **方案A（页面Notification，推荐）**：前端加"🔔浏览器通知"开关+通知工具函数(requestNotifyPermission/showNotification ~80行)，复用intraday 1分钟轮询挂通知检测(~50行)；后端新增export_notifications.py导出notifications.json(复用signal_notified/anomaly_notified去重~100行)。sw.js不改(方案A不依赖SW)。零新依赖
@@ -573,7 +575,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - **风险**：页面关闭不收(PC场景可接受)；移动端new Notification报错需UA检测跳过；denied后需引导用户去浏览器设置恢复(无法代码重置)；fade_notified.json不存在fade-detect去重机制待确认(可能复用signal_notified)
 - **不合并A6 PWA**：A6已闭环(AZ20)，方案A不依赖SW独立做
 - **验收**：开关点击授权->弹测试通知->进Windows通知中心；新信号触发->弹通知；重复事件不重复弹；关闭开关停止轮询
-- **调研落档**：2026-07-29 agent a43eec2cc7d7ac8fb调研完成(完整报告见task-notification)，未改码未commit。等用户拍板排期后实施
+- **调研落档**：2026-07-29 agent a43eec2cc7d7ac8fb调研完成(完整报告见task-notification)。✅ **2026-07-29 晚续20 已实施上线**（commit `4c4be0a8`+merge main `601a9da7`，export_notifications.py 333行6类触发+app.js 230行🔔开关+三层去重+ts:overview-refreshed事件hook不改状态机，sw.js a58->a59，详见 NOTES §48 AZ61）
 
 ### 6方向排期建议
 - **改动量**：F(105行,数据受限) / G(85行,拼装) / H(240行,独特) / I(已实现,可选~40行) / J(250行新文件) / K(410行,空白)
@@ -584,9 +586,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 ### 11方向总览（5+6批，待统一排期）
 - **已实现/0成本**：D DB灾备(只文档) ✅ / I 盘后日报(已实现95%)
 - **快见效小工作量**：B-2a 信号三窗口(30行) ✅已实施(commit `02eae130`) / A 采集健康度小灯(80行) ✅已实施(commit `dd504c21`) / G ETF联动(85行拼装) ✅已实施(commit `02eae130`)
-- **即时价值**：E Telegram(70行) ✅已实施(commit `fc27f631`) / J 异常波动(250行) ✅已实施(commit `97134640`) / F 板块轮动(105行,数据受限) 待实施
+- **即时价值**：E Telegram(70行) ✅已实施(commit `fc27f631`) / J 异常波动(250行) ✅已实施(commit `97134640`) / F 板块轮动(105行,数据受限) 待实施 / W PC浏览器通知(230行) ✅已实施(commit `4c4be0a8`)
 - **大工作量**：B-2b 真pin复盘(200行) 待实施 / C PWA(150行) 待实施 / H 相似形态(240行) ✅已实施第一批(commit `dd504c21`+`935f69da`) / K 订阅推送(410行) 待实施
-- **已实现方向**（DB灾备D/盘后日报I/健康灯A/Telegram E/异常波动J/相似形态H第一批）防以后重复调研
+- **已实现方向**（DB灾备D/盘后日报I/健康灯A/Telegram E/异常波动J/相似形态H第一批/PC浏览器通知W）防以后重复调研
 
 ---
 
@@ -739,3 +741,35 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **主控验收**：grep 确认 5 卡片回 t0（L6411/6442/6481/6522/6558 全"t0"）+修复1a/2/3保留（L4124/L5118/L5912）+sw a58 本地线上一致
 
 **教训**：①AZ54 P1-3 加 `refreshCardTimeBadges` 时漏了 KPI 小卡 innerHTML 路径（L4147 注释自己列举 L5184/L6734/L7113 漏了 L5878 KPI 小卡），badge 渲染有两套路径（大卡走 `addCardTimeBadge` 打 data-badge-date，KPI 小卡走 L5878 innerHTML 拼接无 data-badge-date），下次加被动重绘前要先 grep 出所有 badge 拼接路径逐路径确认是否打 data 属性 ②修 bug 勿改逻辑：t0 兜底拆分能在 t0 分支内解决盘中 T+1 误判，不需 t0->t1 改 srcClass（用户"保证逻辑不变"原则），t0->t1 是"修 bug 而修 bug"改变 baseline/显示/配置 ③a0e2498 调研误报 `signals_today` 末位 BUG（称 L6178 取末位作 dataDate=0717 触发⚠滞后），主控 grep 验收发现实际 L6178 用 `r.date` 不取末位，排除该修复（§0 验收铁律价值） ④实施 agent 第一次没回退修复1b（已 commit+push），主控 SendMessage 二次明确要求才回退（commit `5473bf32`）：派 agent 实施后若用户提出新约束，主控必须显式 SendMessage 传达+要求回退已 commit 部分，不能假设 agent 会自己意识到新约束
+
+---
+
+## ✅ 2026-07-29 晚续20 5项闭环上线（usdcnh验证 + bump根治 + lab HTML + 监控深查3根因 + Win通知P2-新-W）
+
+> 本轮 5 项全闭环上线，主控逐字验收通过。详见 `NOTES.md §48 小节AZ61`。commit 链：`7de49686` / `632feb4a` / `e6422edf`（AZ59已落档）/ `4c4be0a8` + merge main `601a9da7`。sw.js a58->a59。
+
+1. ✅ **usdcnh 7-27 验证通过**（承接 H.3 遗留防复发）：本地 `global-all.json` extras.usdcnh 末值 `{date:20260727, value:679.11}`，线上 ssd.fx8.store 三源（ss.fx8.store / sss.sugas.site / sss.sugas.site 三域名）一致。`currency_boc_sina` 主源稳定，无需手动 backfill。原 TASKS 待办（L119/L124/L194 三处）已标 ✅。
+
+2. ✅ **bump_asset_version.py 日期逻辑根治**（commit `7de49686`）：**关键纠正**——a54 是 sw.js `CACHE_VERSION` 后缀（`v2-20260720-a54` 格式）非 git commit；`20260720` 是手工误写非脚本 bug（原 bump 脚本只用 md5 内容哈希无日期逻辑）。新增 `today_version()` 用 `ZoneInfo("Asia/Shanghai")` 显式时区 + `bump_sw_version()` 正则同步 sw.js 日期部分（保留 `vN/aM`，幂等），main() 末尾自动调用。单元测试 `today_version()=20260729` 通过。另确认 context 注入的 `currentDate 2026/07/20` 过时，真实北京时间 7-29 CST，脚本以 `ZoneInfo` 实时取为准。
+
+3. ✅ **update_lab.sh 加第 12 步 simulate_trade --html**（commit `632feb4a`）：`--output static-site/trade_sim.html` 指定 git tracked 路径（默认 `trade_sim_{index_id}.html` 被 `.gitignore` 走 R2，不带 `--output` 的批量 HTML 仍走 R2 不变）；失败不阻塞（`echo ⚠ 不 exit 1`，lab 流水线幂等）；步骤编号 `[1/11]` -> `[1/12]`，lab-auto 19:00 定时任务自动重生 trade_sim.html。**关键决策**：单文件非批量选 git tracked 路径（部署简单+CF 直接服务），批量大文件走 R2（s.sugas.site 300MB 限制）。
+
+4. ✅ **监控异常深查 3 类根因**：
+   - ① **futures_backfill deploy push 失败持续 1 天+**：根因旧版 deploy.sh rebase 撞 20+ `static-site/data/*.json.gz` 二进制冲突直接 `abort + exit 1`。修复 `e6422edf`（已到 origin/main + trade-data deploy.sh L306）：`git checkout --theirs`（数据文件冲突取本地最新 export）+ `git rebase --continue` + 重试 push。今晚 20:05 futures_backfill 定时任务自然验证。
+   - ② **美股早采 last_run=None**：plist 7-29 07:52 创建错过 `StartCalendarInterval Hour=5` 首触，7-30 05:00 自动恢复（launchd 错过时点不立即触发，等下一个时点）。
+   - ③ **ANOMALY 标记**：策略实验室已自动消除（`eb897914` PUSH_FAIL+PUSH_SUCCESS 抑制补丁 + intraday 重生成覆盖旧 stats）；期货机构持仓随异常 ① 修复消除（deploy push 成功后不再 log_anomaly）。
+
+5. ✅ **P2-新-W PC浏览器通知方案 A 实施**（commit `4c4be0a8` + merge main `601a9da7`）：
+   - **后端 `scripts/export_notifications.py` 333 行**：6 类触发（新信号/异常/综合预警/恐贪极值/涨停潮/盘后速递），复用 `signal_notified`/`anomaly_notified` 去重（与邮件/TG 共享后端 diff，不新增去重文件），输出 `static-site/data/notifications.json`。
+   - **前端 `static-site/app.js` ~230 行**：🔔 开关 `initNotifyButton`（PC 显示移动隐藏 + `requestPermission` 用户手势合规 + `localStorage` 持久化）+ 工具函数 `showNotification` + 检测 `_checkNotifications`（fetch `notifications.json` + 30s 节流 + in-flight 去重）+ **三层去重**（后端 signal_notified/anomaly_notified + 前端 localStorage notified_keys + Notification tag）。
+   - **关键决策：事件 hook 不改状态机**：`_doOverviewRefresh`（L5262）加 1 行 `document.dispatchEvent(new CustomEvent('ts:overview-refreshed'))`，`_checkNotifications` 监听该事件触发检测，不侵入 overview 刷新流程，原状态机/baseline/兜底两态逻辑保持不变。
+   - **配置 + 上线**：`_NO_CACHE_URLS` 加 `notifications` 绕 5min SWR 缓存 + sw.js `a58 -> a59`（铁律1）+ index.html `?v=43df0499` + 线上 `notifications.json` 200。
+   - **区域限定遵守**：未碰 `getCardTimeBadge` / 兜底刷新两态状态机 / 小卡角标 / `addCardTimeBadge`（AZ60 修复区域保持不变）。
+
+**构建+版本**：`build_min.py` + `bump_asset_version.py`（?v=43df0499）+ sw.js `CACHE_VERSION` a58->a59（§9 铁律1改 app.js 必 bump sw）
+
+**commits**：`7de49686`（bump 日期根治）+ `632feb4a`（lab HTML 第12步）+ `4c4be0a8`（Win 通知方案A）+ `601a9da7`（merge main）。push feat+main。线上 notifications.json 200。
+
+**主控验收**：grep 确认 NOTES AZ61 小节存在 + TASKS 5项 ✅ 标记（usdcnh验证 L119/L124/L194 + P2-新-W L564）+ commit 链 + push feat + merge main + push main 全成功。
+
+**教训**：①bump 脚本时区必须显式 `ZoneInfo("Asia/Shanghai")`，mac 本地时区受系统设置影响，context 注入的 `currentDate` 是 session 开始时点跨日过时，脚本以实时 `ZoneInfo` 为准 ②`--output` 指定 git tracked 路径 vs 走 R2 选择准则：单文件非批量选 git tracked（部署简单+CF 直接服务），批量大文件走 R2（git 不适合大量大文件+s.sugas.site 300MB 限制）③事件 hook 不改状态机原则：在 `_doOverviewRefresh` 加 1 行 `dispatchEvent` 而非侵入 overview 刷新流程，监听方通过事件解耦，原状态机/baseline/兜底两态逻辑保持不变，区域限定遵守（不碰 AZ60 修复区域）④launchd `StartCalendarInterval` 错过时点不立即触发，属一次性漏跑非 bug，改 plist 时点后须等下一个时点自然触发，不手动 launchctl kickstart（除非紧急）⑤deploy.sh rebase 二进制冲突不能保守 abort（AZ59 教训本轮验证）：`static-site/data/*.json.gz` 是 export 最新产物，rebase 撞 .gz 冲突应自动 `--theirs=本地最新 export`，未来 .gz 冲突不再阻塞 deploy
