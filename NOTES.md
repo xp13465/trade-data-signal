@@ -4454,3 +4454,28 @@ DB 查询今日（20260728）signal_daily：
 - **监控同步 plist 改动要改两个文件**：schedule_monitor.sh（监控侧）+ gen_schedule_stats.py（统计侧 TASKS/LABEL_MAP），只改监控侧致 schedule_stats.json 缺新任务 metric 二次告警；commit 4425366c 只改 schedule_monitor.sh 漏改 gen，e6422edf 补齐。
 - **deploy.sh rebase 二进制冲突（.gz）不能保守 abort**：static-site/data/*.gz 是 export 最新产物，rebase 撞 .gz 冲突应自动 --theirs=本地最新 export（数据产物本地永远最新），非数据冲突（代码/文档）才保守 abort 等人工；7-28 21:00 保守 abort 致 push 永久失败触发 log_anomaly 告警。
 - **libmini_racer SIGTRAP 防患走 ProcessPool + BrokenProcessPool 重启**：V8 isolate 非线程安全，pipeline_intraday_close 12 只串行改 ProcessPool 进程隔离，BrokenProcessPool 重启 pool 1 次继续剩余仍失败才 fallback 串行（替代 faba0f08 直接 fallback 不重试），既隔离 SIGTRAP 又保留恢复能力。
+
+### 小节AZ60：2026-07-29 app.js 3处修复+回退1b（盘中滞后提示/兜底刷新1m/小卡角标重绘）
+
+**背景**：用户反馈首页盘中大量⚠滞后提示（"等盘中刷新或update_all尚未运行"对盘后 update_all 盘中提示无意义）+兜底刷新3m太慢（别的电脑9:45自己9:35）+小卡角标兜底后不更新（大卡9:45小卡还9:35）。a0e2498+a8b57a38 调研，a7773bc 实施。
+
+**修复1a t0兜底拆分**（app.js L4124-4137）：`getCardTimeBadge` t0 兜底分支按场景拆分。盘中 `dataDate===ptd`（前一交易日）= T+1 性质数据正常等待显"⏳待盘后更新·MM-DD"（class `t1-pending`）/ 盘中 `dataDate<ptd` = 真异常显"⚠滞后"（`t1-stale`）/ 盘后 `dataDate<baseline` 显"⚠滞后"。删除"等盘中刷新或update_all尚未运行"误导文案。ptd 在 L4060 算出 t0 分支复用。解决 ma_alignment/ad_line/volume_ratio/new_high_low/position 等 T+1 性质卡片（baostock stock_daily 盘后才出）盘中停 T-1 被误判⚠滞后。
+
+**修复1b回退**（5卡片保持 t0 不改 t1）：原实施把 ma_alignment/position/ad_line/volume_ratio/new_high_low 5 卡片 srcClass t0->t1。用户反馈"保证逻辑不变，t0能做到么，不要只修bug而修bug"。回退5卡片保持 t0（L6411/6442/6481/6522/6558），走修复1a t0 兜底拆分显⏳待盘后更新。t0->t1 会改 baseline（snapDate->ptd-1）+显示（⏳待盘后更新->📅T+1）+需配 `T1_COLLECT_DEADLINE`，违反"逻辑不变"原则。commit `5473bf32` 回退。
+
+**修复2 关键时点1m刷新**（L5118-5136/5217/5346）：新增 `_INTRADAY_SNAPSHOT_TIMES`（27 盘中时点 9:25-15:35 每 10min，plist 确认）+`_isKeyRefreshMoment`（±2min 窗口）+`_overviewRefreshDelay`（关键 60s/非关键 3min）。`_scheduleNextOverviewRefresh` 低频兜底 delay 替换为 `_overviewRefreshDelay()` 动态返回。debug 显示"低频兜底(关键1m)"。保留自适应 15s 高频层。兜底铁律 delay 最大仍 <=3min。
+
+**修复3 小卡角标重绘**（L5912-5927）：KPI 小卡 `_badge` const 改 let，拼装后用临时 wrapper 解析 span 打 `data-badge-date`/`src`/`srckey` 属性（与 `addCardTimeBadge` L4139-4141 同款命名），`refreshCardTimeBadges` 的 `.card-time-badge[data-badge-date]` 选择器能选到 KPI 小卡重绘。异常 badge🚨不打属性避免被重绘成正常 badge。根治 AZ54 P1-3（commit `4004f231`）遗留 bug：当时 `refreshCardTimeBadges` 只覆盖 `addCardTimeBadge` 大卡路径，漏 KPI 小卡 L5878 innerHTML 拼接路径（L4147 注释自己说"非 addCardTimeBadge 的 badge 无 data-badge-date 不被动"但没意识到 KPI 小卡就是）。
+
+**构建+版本**：`build_min.py` + `bump_asset_version.py`（?v=25ee0e75）+ sw.js `CACHE_VERSION` a56->a57->a58（§9 铁律1改 app.js 必 bump sw）。
+
+**commits**：`a0b78a18`（3修复 t0 兜底拆分+T+1归位+关键时点1m+小卡角标重绘） + `5473bf32`（回退1b 5卡片保持 t0）。push feat+main。线上 ss.fx8.store+sss.sugas.site 验证通过（sw a58+app.min.js?v=25ee0e75）。
+
+**主控验收**：grep 确认5卡片回 t0（L6411/6442/6481/6522/6558 全"t0"）+修复1a/2/3保留（L4124/L5118/L5912）+sw a58 本地线上一致。
+
+**教训**
+
+1. **AZ54 P1-3 加 `refreshCardTimeBadges` 时漏了 KPI 小卡 innerHTML 路径**（L4147 注释自己列举 L5184/L6734/L7113 漏了 L5878 KPI 小卡）：badge 渲染有两套路径，大卡走 `addCardTimeBadge`（L4139-4141 打 data-badge-date），KPI 小卡走 L5878 innerHTML 拼接（无 data-badge-date）。P1-3 加被动重绘只覆盖大卡路径，KPI 小卡永远停在首次渲染时间。下次加被动重绘前要先 grep 出所有 badge 拼接路径（addCardTimeBadge + 内联 innerHTML + template literal），逐路径确认是否打 data 属性。
+2. **修 bug 勿改逻辑**：t0 兜底拆分能在 t0 分支内解决盘中 T+1 误判，不需 t0->t1 改 srcClass（用户"保证逻辑不变"原则）。t0->t1 是"修 bug 而修 bug"改变 baseline/显示/配置：baseline 从 snapDate 改 ptd-1、显示从⏳待盘后更新改📅T+1、需配 `T1_COLLECT_DEADLINE`。能用分支拆分在原 srcClass 内解决就不改 srcClass。
+3. **a0e2498 调研误报 `signals_today` 末位 BUG**（称 L6178 取末位作 dataDate=0717 触发⚠滞后），主控 grep 验收发现实际 L6178 用 `r.date` 不取末位，排除该修复（§0 验收铁律价值：调研 agent 报"BUG"主控必须读代码确认，不信 agent 报告直接改码会引入新 bug）。
+4. **实施 agent 第一次没回退修复1b**（已 commit+push），主控 SendMessage 二次明确要求才回退（commit `5473bf32`）：派 agent 实施后若用户提出新约束（"保证逻辑不变"），主控必须显式 SendMessage 传达新约束 + 要求回退已 commit 部分，不能假设 agent 会自己意识到新约束。
