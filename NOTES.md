@@ -4639,3 +4639,38 @@ T+1 治理分三层闭环：采集侧盘中直采让原 T+1 品种变 T+0 + 前�
 3. **收盘后采集时点紧贴 +2min 非 +5min**：角标时效直接影响用户对"数据是否最新"的感知，11:30 收盘后 11:32 采（非 11:35），15:00 收盘后 15:02 采（非 15:05）。同 AZ59 数据第一时间发布第一准则。
 4. **echarts markLine/markArea label 不随 setOption 自动更新**：切皮肤时 echarts 的 markLine/markArea label color 不会自动跟随主题，需在 `rethemeCharts` 主动重注入 option。下次加 echarts 图表元素时，要在 rethemeCharts 对应补切皮肤逻辑（同 AZ54 badge 两套路径教训：渲染逻辑有几套路径，切皮肤/重绘要覆盖所有路径）。
 5. **通知开关开启后需"试看"闭环**：用户开了通知开关后若无立即反馈，不知道到底能不能收到通知（体验断点）。方案 A（首次开启弹欢迎）+ 方案 B（已开启加试看按钮）双保险，让用户随时可验证通知生效。功能上线不只是"能用"，还要让用户"知道能用"（同 P2-新-W 推送方向设计准则）。
+
+### 小节AZ63：2026-07-29 晚续3 分时图1min刷新同步更新底部涨跌幅+角标（修复卡片元素不同步）
+
+> 用户反馈盘中分时图曲线走到 13:10、右上角 pct +0.31% 更新了，但底部涨跌幅 -9.90 卡住、角标卡 13:05。根因 3 条：底部 spark-foot 仅 renderOverview 渲染一次（intraday/overview refresh 都不更新）+ 底部数值语义错（今日两点价差与右上角 pct 相对昨收不同维度矛盾）+ 角标时间读 snap.datetime（10min 粒度）非腾讯 1min。commit `e9af8c85`，sw.js CACHE_VERSION a63->a64（铁律1：改 app.js 必 bump sw），4 处改动 app.js。
+
+**背景**：盘中分时图卡片四元素不同步（曲线/右上角 pct 是 1min 腾讯源，底部涨跌幅/角标是 10min 快照源），用户视觉看到矛盾数据（曲线走 +0.31% vs 底部卡 -9.90）。
+
+**根因 3 条**：
+
+1. **底部 spark-foot 仅 renderOverview 渲染一次**（L6428）：intraday 1min refresh / overview refresh 都不更新底部 spark-foot，导致底部涨跌幅卡旧值。
+2. **底部数值语义错**：`_chgText = closes[last] - closes[last-2]`（今日两点价差），与右上角 pct（相对昨收）不同维度，两者并存视觉矛盾。
+3. **角标时间读 snap.datetime（10min 粒度）**：非腾讯 1min，导致角标卡 10min。
+
+**修复**（commit `e9af8c85`，sw a63->a64，4 处改动 app.js）：
+
+- **L4816 新增 `_applyDynamicToSparkFoot(results)`**：用腾讯实时价 `price + preClose` 更新底部，语义改为相对昨收（与 pct 同维度），消除矛盾。
+- **L5127 `_doIntradayRefresh` 补调用**：1min 刷新带动底部 spark-foot 更新（原 intraday refresh 只更新曲线/右上角 pct，漏了底部）。
+- **L5128 `_doIntradayRefresh` 补 `refreshCardTimeBadges(curSnap)`**：1min 刷新带动角标更新（原角标只在 overview refresh 时更新）。
+- **L4113-4114 `getCardTimeBadge` 盘中优先读 `_intradayDynamicTime`**：腾讯 1min 时间替代 snap.datetime（10min），角标跟随 1min 刷新；无则回退 snap.datetime 兜底。
+- **L4716 `fetchTencentMinute` 加 `cache:'no-store'` + `?_=Date.now()`**：防御性 cache-busting，避免 SW/HTTP 缓存旧 1min 数据。
+
+**验证**：3 域名 curl 确认 sw.js CACHE_VERSION=a64（`ss.fx8.store` + `sss.sugas.site` + `s.sugas.site`，memory `deploy-verify-3-sites`：3 域名任一验证到新版即算上线 OK）。FF push main（`c280b02d..e9af8c85`），feat rebase 后 force-with-lease（feat 独用，非 main）。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `e9af8c85` | 分时图1min刷新同步更新底部涨跌幅+角标(L4816 _applyDynamicToSparkFoot 腾讯price+preClose / L5127-5128 _doIntradayRefresh 补底部+角标 / L4113-4114 getCardTimeBadge 盘中优先_intradayDynamicTime / L4716 fetchTencentMinute cache-busting); sw a63->a64 |
+
+**教训**
+
+1. **卡片多元素刷新路径必须全覆盖**：分时图卡片有 4 套元素（曲线 / 右上角 pct / 底部 spark-foot / 角标），各元素刷新路径独立（曲线+pct 走 intraday 1min、底部走 renderOverview 一次、角标走 overview refresh），任一路径漏更新就出现"曲线走了 pct 更新了底部卡住"的视觉矛盾。下次加卡片元素时，先 grep 出所有 refresh 路径（intraday / overview / renderOverview / rethemeCharts）逐路径确认是否带动新元素（同 AZ62 echarts markLine/markArea 切皮肤教训、AZ54 badge 两套路径教训：渲染逻辑有几套路径，切皮肤/重绘要覆盖所有路径）。
+2. **同卡片多数值语义必须同维度**：底部涨跌幅原用"今日两点价差"（`closes[last]-closes[last-2]`），右上角 pct 用"相对昨收"，同卡片两个数值不同维度并存视觉矛盾。同一卡片多数值应统一基准（相对昨收），避免用户误判数据错（同 AZ62 前端 T+0/T1 分组对齐采集侧时点教训：前端数值属性必须与基准事实对齐，不能臆改）。
+3. **角标时间源必须与卡片主数据源同粒度**：角标原读 snap.datetime（10min 快照），卡片曲线/数值读腾讯 1min，导致角标滞后 10min 给用户"数据没更新"错觉。角标时间应跟随卡片主数据源（腾讯 1min），同 AZ62 intraday 11:32/15:02 收尾时点紧贴收盘 +2min 教训：角标时效直接影响用户对"数据是否最新"的感知（数据第一时间发布第一准则）。
+4. **fetch 加 cache-busting 防御性兜底**：`fetchTencentMinute` 加 `cache:'no-store'` + `?_=Date.now()`，防御 SW/HTTP 缓存旧 1min 数据。即使 CF Workers Static Assets 无视 `Cache-Control`（memory `cf-workers-static-assets-ignore-cache-control`：CF Workers Static Assets 无视 no-store/private/no-cache 仍 HIT，靠部署自动 purge），浏览器层 `no-store` 仍生效，作兜底保险。

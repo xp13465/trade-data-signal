@@ -8,7 +8,7 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-29 晚续2(续21:T+1治理全套✅[采集侧盘中直采7品种+前端_T0_EXTRAS/_KPI_T1_MOVED+颜色bug]+intraday 11:32/15:02收尾时点✅+Win通知试看逻辑✅[方案A开启弹欢迎+方案B试看按钮 sw a63]+3域名部署验证✅全闭环上线,见续21行;续20:usdcnh 7-27验证✅+bump_asset_version日期根治✅+update_lab.sh加simulate_trade --html✅+监控异常深查3类根因✅+P2-新-W PC浏览器通知方案A✅全闭环上线,见续20行;续19:app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线;续18:全站时序优化6项上线+QVIX时点精确化+告警根因修复✓上线;续17:本轮4项修复chip方案D+ETF hover+板块分化按钮+过拟合警示文案✓上线;续16:ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F✓上线;续15:回测精准模拟+滞后提示修复+ETF同类去重3项✓上线;续14 4项:P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min)
+**最后更新**:2026-07-29 晚续3(续22:分时图1min刷新同步底部涨跌幅+角标✅[spark-foot/preClose同维度+角标用腾讯1min时间+cache-busting sw a64]全闭环上线,见续22行;续21:T+1治理全套✅[采集侧盘中直采7品种+前端_T0_EXTRAS/_KPI_T1_MOVED+颜色bug]+intraday 11:32/15:02收尾时点✅+Win通知试看逻辑✅[方案A开启弹欢迎+方案B试看按钮 sw a63]+3域名部署验证✅全闭环上线,见续21行;续20:usdcnh 7-27验证✅+bump_asset_version日期根治✅+update_lab.sh加simulate_trade --html✅+监控异常深查3类根因✅+P2-新-W PC浏览器通知方案A✅全闭环上线,见续20行;续19:app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线;续18:全站时序优化6项上线+QVIX时点精确化+告警根因修复✓上线;续17:本轮4项修复chip方案D+ETF hover+板块分化按钮+过拟合警示文案✓上线;续16:ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F✓上线;续15:回测精准模拟+滞后提示修复+ETF同类去重3项✓上线;续14 4项:P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min)
 
 **分支**:origin/main = `194c097f`(批次1 提速 `172fe2b6`+docs `194c097f` 已上线)
 - 批次1 commit:`0e916672` feat: B4 C方案(E2去双throttle+并发采集+--full-market) + `172fe2b6` data: etf_score_list 1371只修复(手动rsync trade-data->trade)
@@ -797,3 +797,19 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **主控验收**：grep 确认 NOTES AZ62 小节存在 + TASKS 续21 4项 ✅ 标记 + commit 链 + push feat + merge main + push main 全成功。
 
 **教训**：①bump 脚本时区必须显式 `ZoneInfo("Asia/Shanghai")`，mac 本地时区受系统设置影响，context 注入的 `currentDate` 是 session 开始时点跨日过时，脚本以实时 `ZoneInfo` 为准 ②`--output` 指定 git tracked 路径 vs 走 R2 选择准则：单文件非批量选 git tracked（部署简单+CF 直接服务），批量大文件走 R2（git 不适合大量大文件+s.sugas.site 300MB 限制）③事件 hook 不改状态机原则：在 `_doOverviewRefresh` 加 1 行 `dispatchEvent` 而非侵入 overview 刷新流程，监听方通过事件解耦，原状态机/baseline/兜底两态逻辑保持不变，区域限定遵守（不碰 AZ60 修复区域）④launchd `StartCalendarInterval` 错过时点不立即触发，属一次性漏跑非 bug，改 plist 时点后须等下一个时点自然触发，不手动 launchctl kickstart（除非紧急）⑤deploy.sh rebase 二进制冲突不能保守 abort（AZ59 教训本轮验证）：`static-site/data/*.json.gz` 是 export 最新产物，rebase 撞 .gz 冲突应自动 `--theirs=本地最新 export`，未来 .gz 冲突不再阻塞 deploy
+
+---
+
+## ✅ 2026-07-29 晚续3 1项闭环上线（分时图1min刷新同步底部涨跌幅+角标）
+
+> 本轮 1 项闭环上线，主控逐字验收通过。详见 `NOTES.md §48 小节AZ63`。commit 链：`e9af8c85`。sw.js a63->a64。
+
+1. ✅ **分时图1min刷新同步更新底部涨跌幅+角标**（commit `e9af8c85`，sw a63->a64）：用户反馈盘中分时图曲线走到 13:10、右上角 pct +0.31% 更新了，但底部涨跌幅 -9.90 卡住、角标卡 13:05。根因 3 条：①底部 spark-foot 仅 renderOverview 渲染一次（L6428）intraday/overview refresh 都不更新 ②底部数值语义错（`_chgText=closes[last]-closes[last-2]` 今日两点价差，与右上角 pct 相对昨收不同维度矛盾）③角标读 snap.datetime（10min 粒度）非腾讯 1min。**4 处改动 app.js**：L4816 新增 `_applyDynamicToSparkFoot(results)`（腾讯 price+preClose 更新底部，语义改相对昨收与 pct 同维度）+ L5127 `_doIntradayRefresh` 补调用（1min 刷新带动底部）+ L5128 补 `refreshCardTimeBadges(curSnap)`（1min 刷新带动角标）+ L4113-4114 `getCardTimeBadge` 盘中优先读 `_intradayDynamicTime`（腾讯 1min 替代 snap.datetime 10min，无则回退兜底）+ L4716 `fetchTencentMinute` 加 `cache:'no-store' + ?_=Date.now()`（防御性 cache-busting）。
+
+**构建+版本**：`build_min.py` + `bump_asset_version.py` + sw.js `CACHE_VERSION` a63->a64（§9 铁律1 改 app.js 必 bump sw）
+
+**commits**：`e9af8c85`（分时图1min刷新同步底部涨跌幅+角标 a64）。FF push main（`c280b02d..e9af8c85`），feat rebase 后 force-with-lease（feat 独用非 main）。3 域名验证 a64。
+
+**主控验收**：grep 确认 NOTES AZ63 小节存在 + TASKS 续22 1项 ✅ 标记 + commit 链 + push feat + merge main + push main 全成功。
+
+**教训**：①卡片多元素刷新路径必须全覆盖（4 套元素曲线/右上角 pct/底部 spark-foot/角标各路径独立，任一漏更新就视觉矛盾，同 AZ62 echarts markLine 切皮肤教训、AZ54 badge 两套路径教训）②同卡片多数值语义必须同维度（底部原"今日两点价差"与右上角"相对昨收"矛盾，应统一基准相对昨收，同 AZ62 前端 T+0/T1 对齐采集侧时点教训）③角标时间源必须与卡片主数据源同粒度（原 snap.datetime 10min 滞后腾讯 1min，角标应跟随主数据源，同 AZ62 11:32/15:02 收尾时点紧贴收盘 +2min 教训）④fetch 加 cache-busting 防御性兜底（`cache:'no-store' + ?_=Date.now()`，即使 CF Workers 无视 Cache-Control 浏览器层 no-store 仍生效作兜底）
