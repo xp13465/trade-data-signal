@@ -5048,6 +5048,11 @@ function renderIntradaySection(sparkGrid, snap) {
   if (!isClosed) {
     _startIntradayRefresh();
     _intradayRenderCtx = { sparkGrid, snap };
+    // 立即跑一次：刷新后用腾讯实时价立即更新曲线+底部spark-foot+角标时间，
+    // 不等 _scheduleNextRefresh 的1min首次延迟（否则底部+角标卡 renderOverview 旧snap 1min）。
+    // _doIntradayRefresh 末尾会 _scheduleNextRefresh 清掉 _startIntradayRefresh 设的1min timer 并重设，不重复调度；
+    // _refreshDynamicAll 与 renderOverview L6477 调用共用 fetchTencentMinute in-flight 去重，重复fetch可控。
+    _doIntradayRefresh();
   }
 
   // 连续失败暂停提示（隐藏，3次失败时显示）
