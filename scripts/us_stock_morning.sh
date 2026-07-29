@@ -28,6 +28,16 @@ mkdir -p "$LOGDIR"
 echo "=== us_stock_morning.sh 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee "$LOG"
 echo "REPO=$REPO GIT_REPO=$GIT_REPO" | tee -a "$LOG"
 
+# 刷新 schedule_stats.json：脚本退出时(trap EXIT)调用 gen_schedule_stats.py，
+# 确保 us_stock 的 last_run/last_exit 及时更新。2026-07-30 修复：us_stock_morning.sh
+# 新增时漏调 gen_stats，致 schedule_stats.json us_stock 字段 exit=null/dur=null。
+# 与 rzhb_backfill.sh L56-60 / futures_backfill.sh / lhb_backfill.sh 一致。
+refresh_stats() {
+  "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" | tail -1 \
+    || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
+}
+trap refresh_stats EXIT
+
 # 1) 采集美股 4 指数（新浪实时 gb_$ 主 + 新浪历史兜底），upsert 到 index_daily
 echo "-> 采集美股指数 ..." | tee -a "$LOG"
 "$PY" "$SCRIPT" 2>&1 | tee -a "$LOG"
@@ -36,7 +46,7 @@ echo "采集退出码=$COLLECT_RC" | tee -a "$LOG"
 
 if [ "$COLLECT_RC" != "0" ]; then
   echo "✗ 采集失败（退出码 $COLLECT_RC），跳过 deploy" | tee -a "$LOG"
-  echo "=== us_stock_morning.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
+  echo "=== us_stock_morning.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=$COLLECT_RC ===" | tee -a "$LOG"
   exit "$COLLECT_RC"
 fi
 
@@ -47,6 +57,6 @@ bash "$GIT_REPO/scripts/deploy.sh" 2>&1 | tee -a "$LOG"
 DEPLOY_RC=${PIPESTATUS[0]}
 echo "deploy 退出码=$DEPLOY_RC" | tee -a "$LOG"
 
-echo "=== us_stock_morning.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 采集=$COLLECT_RC deploy=$DEPLOY_RC ===" | tee -a "$LOG"
+echo "=== us_stock_morning.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 采集=$COLLECT_RC deploy=$DEPLOY_RC ===" | tee -a "$LOG"
 # deploy 失败不阻塞（采集已成功，下次 deploy 会带上）
 exit 0
