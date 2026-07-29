@@ -8,7 +8,7 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-29 晚(续20:usdcnh 7-27验证✅+bump_asset_version日期根治✅+update_lab.sh加simulate_trade --html✅+监控异常深查3类根因✅+P2-新-W PC浏览器通知方案A✅全闭环上线,见续20行;续19:app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线;续18:全站时序优化6项上线+QVIX时点精确化+告警根因修复✓上线;续17:本轮4项修复chip方案D+ETF hover+板块分化按钮+过拟合警示文案✓上线;续16:ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F✓上线;续15:回测精准模拟+滞后提示修复+ETF同类去重3项✓上线;续14 4项:P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min)
+**最后更新**:2026-07-29 晚续2(续21:T+1治理全套✅[采集侧盘中直采7品种+前端_T0_EXTRAS/_KPI_T1_MOVED+颜色bug]+intraday 11:32/15:02收尾时点✅+Win通知试看逻辑✅[方案A开启弹欢迎+方案B试看按钮 sw a63]+3域名部署验证✅全闭环上线,见续21行;续20:usdcnh 7-27验证✅+bump_asset_version日期根治✅+update_lab.sh加simulate_trade --html✅+监控异常深查3类根因✅+P2-新-W PC浏览器通知方案A✅全闭环上线,见续20行;续19:app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线;续18:全站时序优化6项上线+QVIX时点精确化+告警根因修复✓上线;续17:本轮4项修复chip方案D+ETF hover+板块分化按钮+过拟合警示文案✓上线;续16:ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F✓上线;续15:回测精准模拟+滞后提示修复+ETF同类去重3项✓上线;续14 4项:P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min)
 
 **分支**:origin/main = `194c097f`(批次1 提速 `172fe2b6`+docs `194c097f` 已上线)
 - 批次1 commit:`0e916672` feat: B4 C方案(E2去双throttle+并发采集+--full-market) + `172fe2b6` data: etf_score_list 1371只修复(手动rsync trade-data->trade)
@@ -771,5 +771,29 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **commits**：`7de49686`（bump 日期根治）+ `632feb4a`（lab HTML 第12步）+ `4c4be0a8`（Win 通知方案A）+ `601a9da7`（merge main）。push feat+main。线上 notifications.json 200。
 
 **主控验收**：grep 确认 NOTES AZ61 小节存在 + TASKS 5项 ✅ 标记（usdcnh验证 L119/L124/L194 + P2-新-W L564）+ commit 链 + push feat + merge main + push main 全成功。
+
+---
+
+## ✅ 2026-07-29 晚续2 4项闭环上线（T+1治理全套 + intraday 11:32/15:02收尾 + Win通知试看逻辑 + 部署验证）
+
+> 本轮 4 项全闭环上线，主控逐字验收通过。详见 `NOTES.md §48 小节AZ62`。commit 链：`67acb836` / `15cbd203` / `ab294860` / `c02078f3` / `dfcedc31`。sw.js a62->a63。
+
+1. ✅ **T+1 治理全套**（采集侧 + 前端 + 颜色 bug，3 层闭环）：
+   - **采集侧 commit `67acb836`**：`intraday_snapshot.py` 新增 `COMMODITY_CODES`（`nf_AU0` 金/`nf_SC0` 原油大写/`hf_CL` WTI/`hf_SI` 白银/`hf_OIL` 布伦特）+ `fx_susdcny` 离岸人民币 + `cn10y_etf`（sh511260 十年国债 ETF）盘中直采写 `daily_metric` 表 `source='intraday'`。**关键发现**：`AU0` 无 `nf_` 前缀返 2024 旧数据废弃用 `nf_AU0`；`sc0` 小写空 `nf_SC0` 大写有效；`hf_TNX` 美债源全空 `us10y` 保持 T+1。`config/indicators.yaml`：`gold` func=`futures_main_sina`（AU0 沪金主连人民币计价）；`usdcnh` 盘中由 intraday `fx_susdcny` 覆盖（历史仍 `currency_boc_sina` T+1）；`cn10y_etf` 新增指标注册。
+   - **前端 commit `15cbd203`**：`_T0_EXTRAS` 7 项（`usdcnh`/`gold`/`oil`/`wti_oil`/`comex_silver`/`brent`）；`_KPI_T1_MOVED` C 组 8 项挪出首屏（资金面/换手率分布分位数/换手率>5% 占比分组）到 A 股指标走势图折叠区 L7959-7963；`T1_COLLECT_DEADLINE` 移除 `gold`。
+   - **前端 commit `ab294860`**：回退 `cn10y`/`us10y`/`cn_us_spread` 到 T+1（采集侧确认国债仍 T+1，前端误改 T+0 修正），`_srcKey` 恢复映射。
+   - **颜色 bug commit `c02078f3`**：`style.css` `.spark-foot` color `var(--text-3)`->`var(--text-1)`（4 皮肤色相明显）；`app.js` `rethemeCharts` 补 `markLine`/`markArea` label 切皮肤重注入。
+
+2. ✅ **intraday 11:32/15:02 收尾时点**（plist 改动）：上午 13 次->14 次加 `11:32`（11:30 收盘后 2min 拿上午最终收盘价，保留 11:25）；下午 `15:05`->`15:02`（15:00 收盘后 2min）；共 27 次。修复用户报"角标卡 11:25 一个多小时看不到上午收盘信息"（原上午最后 11:25 午休前 5min 拿不到收盘价）。今天手动跑更新线上 `collected_at=12:02`（上午收盘价）；明天起 11:32/15:02 自动收尾。
+
+3. ✅ **Win 通知试看逻辑**（commit `dfcedc31`，sw a62->a63）：方案 A 首次开启通知权限（`Notification.requestPermission` granted）后自动 `showNotification('通知已开启✅', '...', 'test-welcome')`；方案 B 已开启状态加试看按钮（`pc-notify-test-btn`）点击 `showNotification('测试通知🔔', '...', 'test-preview-' + 时间戳)`；移除旧 `test_enable`。承接 AZ61 P2-新-W Win 通知方案 A 上线，补"试看"闭环让用户首次开启后立即验证通知生效。
+
+4. ✅ **部署验证**：3 域名（`ss.fx8.store`/`sss.sugas.site`/`s.sugas.site`）验证 sw.js `a63` + `app.min.js?v=608d7237` 含 `test-welcome`/`test-preview`（memory `deploy-verify-3-sites`：3 域名任一验证到新版即算上线 OK）。
+
+**构建+版本**：`build_min.py` + `bump_asset_version.py`（`?v=608d7237`）+ sw.js `CACHE_VERSION` a62->a63（§9 铁律1 改 app.js 必 bump sw）
+
+**commits**：`67acb836`（采集侧 COMMODITY_CODES 盘中直采）+ `15cbd203`（前端 _T0_EXTRAS/_KPI_T1_MOVED）+ `ab294860`（回退国债 T+1）+ `c02078f3`（颜色 bug）+ `dfcedc31`（Win 通知试看 a63）。push feat+main。3 域名验证 a63+?v=608d7237 含 test-welcome/test-preview。
+
+**主控验收**：grep 确认 NOTES AZ62 小节存在 + TASKS 续21 4项 ✅ 标记 + commit 链 + push feat + merge main + push main 全成功。
 
 **教训**：①bump 脚本时区必须显式 `ZoneInfo("Asia/Shanghai")`，mac 本地时区受系统设置影响，context 注入的 `currentDate` 是 session 开始时点跨日过时，脚本以实时 `ZoneInfo` 为准 ②`--output` 指定 git tracked 路径 vs 走 R2 选择准则：单文件非批量选 git tracked（部署简单+CF 直接服务），批量大文件走 R2（git 不适合大量大文件+s.sugas.site 300MB 限制）③事件 hook 不改状态机原则：在 `_doOverviewRefresh` 加 1 行 `dispatchEvent` 而非侵入 overview 刷新流程，监听方通过事件解耦，原状态机/baseline/兜底两态逻辑保持不变，区域限定遵守（不碰 AZ60 修复区域）④launchd `StartCalendarInterval` 错过时点不立即触发，属一次性漏跑非 bug，改 plist 时点后须等下一个时点自然触发，不手动 launchctl kickstart（除非紧急）⑤deploy.sh rebase 二进制冲突不能保守 abort（AZ59 教训本轮验证）：`static-site/data/*.json.gz` 是 export 最新产物，rebase 撞 .gz 冲突应自动 `--theirs=本地最新 export`，未来 .gz 冲突不再阻塞 deploy

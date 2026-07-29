@@ -4568,3 +4568,74 @@ DB 查询今日（20260728）signal_daily：
 3. **事件 hook 不改状态机原则**：在 `_doOverviewRefresh` 加 1 行 `dispatchEvent` 而非侵入 overview 刷新流程，是"添加功能不改原逻辑"的标准模式。监听方（`_checkNotifications`）通过事件解耦，原状态机/baseline/兜底两态逻辑保持不变。区域限定遵守（不碰 AZ60 修复区域）。
 4. **launchd StartCalendarInterval 错过时点不立即触发**：plist 创建晚于 `StartCalendarInterval Hour=5` 首触，launchd 不会立即触发（等下一个时点 7-30 05:00），属一次性漏跑非 bug。改 plist 时点后须等下一个时点自然触发，不手动 launchctl kickstart（除非紧急）。
 5. **deploy.sh rebase 二进制冲突不能保守 abort**（AZ59 教训本轮验证）：`static-site/data/*.json.gz` 是 export 最新产物，rebase 撞 .gz 冲突应自动 `--theirs=本地最新 export`；本轮 futures_backfill push 持续 1 天+ 失败根因就是旧版保守 abort，修复后定时任务自然验证即可。
+
+### 小节AZ62：2026-07-29 晚续2 T+1治理全套(采集侧+前端+颜色bug)+intraday 11:32/15:02收尾时点+Win通知试看逻辑
+
+> 本轮 4 项全闭环上线，含 1 项 T+1 治理全套（采集侧盘中直采 7 品种 + 前端 _T0_EXTRAS/_KPI_T1_MOVED + 颜色 bug 根治）+ 1 项 intraday 收尾时点修复（11:32/15:02）+ 1 项 Win 通知试看逻辑（方案 A 开启后弹欢迎 + 方案 B 试看按钮）+ 1 项部署验证（3 域名）。commit 链：`67acb836`/`15cbd203`/`ab294860`/`c02078f3`/`dfcedc31`。sw.js CACHE_VERSION a62->a63（铁律1：改 app.js 必 bump sw）。
+
+**1. T+1 治理全套**（采集侧 + 前端 + 颜色 bug）
+
+T+1 治理分三层闭环：采集侧盘中直采让原 T+1 品种变 T+0 + 前端首屏卡片调整 + 切皮肤颜色 bug 根治。
+
+- **采集侧 commit `67acb836`**（`intraday_snapshot.py` 盘中直采）：
+  - 新增 `COMMODITY_CODES`：`nf_AU0`（沪金主连）/`nf_SC0`（原油主连大写）/`hf_CL`（WTI 原油）/`hf_SI`（COMEX 白银）/`hf_OIL`（布伦特）+ `fx_susdcny`（离岸人民币）+ `cn10y_etf`（sh511260 十年国债 ETF），盘中直采写 `daily_metric` 表 `source='intraday'`。
+  - **关键发现（新浪期货代码坑）**：
+    - `AU0` 无 `nf_` 前缀返 2024 旧数据废弃，必须用 `nf_AU0`（nf_ 前缀才是实时主力连续合约）。
+    - `sc0` 小写返空，`nf_SC0` 大写有效（大小写敏感，SC 是大写品种代码）。
+    - `hf_TNX` 美债源全空，`us10y` 保持 T+1（新浪无美债实时源，不强采）。
+  - `config/indicators.yaml` 同步：`gold` func=`futures_main_sina`（AU0 沪金主连人民币计价）；`usdcnh` 盘中由 intraday `fx_susdcny` 覆盖（历史仍 `currency_boc_sina` T+1）；`cn10y_etf` 新增指标注册。
+
+- **前端 commit `15cbd203`**（首屏卡片 T+0/T+1 重新分组）：
+  - `_T0_EXTRAS` 7 项：`usdcnh`/`gold`/`oil`/`wti_oil`/`comex_silver`/`brent`（采集侧已盘中直采，前端移出 T+1 列入 T+0 实时刷新）。
+  - `_KPI_T1_MOVED` C 组 8 项挪出首屏：资金面（3 项）/换手率分布分位数/换手率>5% 占比分组等 T+1 指标移到 A 股指标走势图折叠区 L7959-7963（首屏只留 T+0 实时 + A 股核心，T+1 的次要指标收进折叠区不占首屏）。
+  - `T1_COLLECT_DEADLINE` 移除 `gold`（gold 已 T+0，不再走 T+1 截止时间判定）。
+
+- **前端 commit `ab294860`**（回退 3 项国债到 T+1）：
+  - 回退 `cn10y`/`us10y`/`cn_us_spread` 到 T+1（采集侧确认国债仍 T+1：`hf_TNX` 美债源全空 + 十年国债 ETF 511260 日内无意义；前端原误改 T+0 修正回 T+1）。
+  - `_srcKey` 恢复映射（避免前端读 T+0 srcKey 找不到 T+1 数据源）。
+  - **教训**：前端 T+0/T+1 分组必须与采集侧实际时点对齐，不能前端单方面改 T+0 而采集侧无盘中源（同 AZ60 "修 bug 勿改逻辑"原则：时点属性是采集侧决定的事实，前端只反映不臆改）。
+
+- **颜色 bug commit `c02078f3`**（切皮肤 sparkline 角标颜色不跟随）：
+  - `style.css` `.spark-foot` color `var(--text-3)` -> `var(--text-1)`（4 皮肤色相明显，`--text-3` 在红金/浅色等皮肤对比度不够，角标日期看不清）。
+  - `app.js` `rethemeCharts` 补 `markLine`/`markArea` label 切皮肤重注入（echarts markLine/markArea 的 label color 不会随 setOption 自动更新，需在 rethemeCharts 主动重注入 option）。
+
+**2. intraday 11:32/15:02 收尾时点**（plist 改动）
+
+- **背景**：用户报"角标卡 11:25 一个多小时看不到上午收盘信息"。原上午最后采集时点 11:25（午休前 5min），但 A 股 11:30 才收盘，11:25 拿不到上午最终收盘价，致角标停在 11:25 直到 13:00 开盘后才更新。
+- **修复**（plist 改动）：
+  - 上午 13 次 -> 14 次加 `11:32`（11:30 收盘后 2min 拿上午最终收盘价，保留 11:25 不删作冗余兜底）。
+  - 下午 `15:05` -> `15:02`（15:00 收盘后 2min，原 15:05 晚 3min 影响收盘速递时效）。
+  - 共 27 次（上午 14 + 下午 13）。
+- **手动兜底**：今天手动跑更新线上 `collected_at=12:02`（上午收盘价）；明天起 11:32/15:02 自动收尾。
+- **教训**：收盘后采集时点应紧贴收盘 +2min（非 +5min），角标时效直接影响用户对"数据是否最新"的感知（同 AZ59 全站时序优化准则：数据第一时间发布第一）。
+
+**3. Win 通知试看逻辑**（commit `dfcedc31`，sw a62->a63）
+
+承接 AZ61 P2-新-W Win 通知方案 A 上线，本轮加"试看"逻辑让用户首次开启通知后能立即验证通知是否生效（否则用户开了开关不知道到底能不能收到通知，体验断点）：
+
+- **方案 A：首次开启后弹欢迎**：`Notification.requestPermission` 返回 `granted` 后自动 `showNotification('通知已开启✅', '...', 'test-welcome')`，让用户首次开启立即看到一条通知确认生效。
+- **方案 B：已开启状态加试看按钮**：已开启状态显示 `pc-notify-test-btn` 试看按钮，点击 `showNotification('测试通知🔔', '...', 'test-preview-' + 时间戳)`（tag 带时间戳避免去重，每次点击都弹新通知）。
+- **清理**：移除旧 `test_enable`（被方案 A/B 替代）。
+- **构建+版本**：`build_min.py` + `bump_asset_version.py`（`?v=608d7237`）+ sw.js `CACHE_VERSION` a62->a63（§9 铁律1 改 app.js 必 bump sw）。
+
+**4. 部署验证**（3 域名）
+
+- 3 域名（`ss.fx8.store`/`sss.sugas.site`/`s.sugas.site`）验证 sw.js `a63` + `app.min.js?v=608d7237` 含 `test-welcome`/`test-preview`（memory `deploy-verify-3-sites`：3 域名任一验证到新版即算上线 OK，不卡单域名 404）。
+
+**今日 commit 清单（5 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `67acb836` | intraday_snapshot.py 加 COMMODITY_CODES(nf_AU0/nf_SC0/hf_CL/hf_SI/hf_OIL)+fx_susdcny+cn10y_etf 盘中直采写 daily_metric source=intraday; indicators.yaml gold/usdcnh/cn10y_etf 注册 |
+| `15cbd203` | 前端 _T0_EXTRAS 7项(usdcnh/gold/oil/wti_oil/comex_silver/brent)+_KPI_T1_MOVED C组8项挪折叠区 L7959-7963+T1_COLLECT_DEADLINE 移除 gold |
+| `ab294860` | 回退 cn10y/us10y/cn_us_spread 到 T+1(采集侧确认国债仍 T+1 前端误改 T+0 修正)+_srcKey 恢复映射 |
+| `c02078f3` | style.css .spark-foot color var(--text-3)->var(--text-1)+app.js rethemeCharts 补 markLine/markArea label 切皮肤重注入 |
+| `dfcedc31` | Win 通知试看逻辑(方案A开启后弹欢迎 test-welcome+方案B试看按钮 test-preview-时间戳)移除旧 test_enable; sw a62->a63; ?v=608d7237 |
+
+**教训**
+
+1. **新浪期货代码 nf_ 前缀 + 大小写敏感**：`AU0` 无 `nf_` 前缀返 2024 旧数据（必须 `nf_AU0`），`sc0` 小写返空（必须 `nf_SC0` 大写）。采集侧加新品种先 curl 验证返回数据日期是否为当日，不靠代码命名推断（同 §0 验收铁律：不信命名只信实测）。
+2. **前端 T+0/T+1 分组必须与采集侧实际时点对齐**：前端不能单方面把 T+1 品种改 T+0（如国债 `cn10y`/`us10y`），时点属性是采集侧决定的事实（有无盘中源），前端只反映不臆改。改 T+0 前先确认采集侧有盘中直采源，否则回退（同 AZ60 "修 bug 勿改逻辑"）。
+3. **收盘后采集时点紧贴 +2min 非 +5min**：角标时效直接影响用户对"数据是否最新"的感知，11:30 收盘后 11:32 采（非 11:35），15:00 收盘后 15:02 采（非 15:05）。同 AZ59 数据第一时间发布第一准则。
+4. **echarts markLine/markArea label 不随 setOption 自动更新**：切皮肤时 echarts 的 markLine/markArea label color 不会自动跟随主题，需在 `rethemeCharts` 主动重注入 option。下次加 echarts 图表元素时，要在 rethemeCharts 对应补切皮肤逻辑（同 AZ54 badge 两套路径教训：渲染逻辑有几套路径，切皮肤/重绘要覆盖所有路径）。
+5. **通知开关开启后需"试看"闭环**：用户开了通知开关后若无立即反馈，不知道到底能不能收到通知（体验断点）。方案 A（首次开启弹欢迎）+ 方案 B（已开启加试看按钮）双保险，让用户随时可验证通知生效。功能上线不只是"能用"，还要让用户"知道能用"（同 P2-新-W 推送方向设计准则）。
