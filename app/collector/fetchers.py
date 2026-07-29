@@ -6,7 +6,7 @@ import pandas as pd
 import yaml
 
 from .base import safe_call
-from ..calendar import last_trading_day
+from ..calendar import last_trading_day, is_trading_day
 
 CONFIG_PATH = Path(__file__).absolute().parent.parent.parent / "config" / "indicators.yaml"
 
@@ -94,6 +94,57 @@ def _fetch_bond_china_yield(fn, lookback_days=3650):
     return pd.concat(frames, ignore_index=True)
 
 
+# QVIX daily k.csv T+1+ 才出 T 日（滞后 2 天），同源分钟 csv（vix300.csv/vix50.csv）
+# T 盘后 ~15:00 即出 T 日全天 intraday。映射 daily->分钟函数，用于当日补采 fallback。
+QVIX_MIN_FUNCS = {
+    "index_option_300etf_qvix": "index_option_300etf_min_qvix",
+    "index_option_50etf_qvix": "index_option_50etf_min_qvix",
+}
+
+
+def _qvix_min_target_date():
+    """推断分钟 csv 对应的交易日（YYYYMMDD）。
+
+    分钟 csv（vix300.csv/vix50.csv）只含 time 列（如 '9:30:00'），无日期；
+    它在 T 盘后 ~15:00 覆盖写出 T 日全天 intraday，T+1 盘前仍为 T 日（今日未收盘）。
+    推断规则：
+      - 当前 >=15:00 且今日是交易日 → 分钟 csv 是今日
+      - 否则（盘前/盘中/非交易日）→ 分钟 csv 是今日的前一个交易日
+    """
+    import datetime as _dt
+    try:
+        now = _dt.datetime.now()
+        today = now.date()
+        if now.hour >= 15 and is_trading_day(today):
+            return today.strftime("%Y%m%d")
+        return last_trading_day(today - _dt.timedelta(days=1))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _qvix_today_from_min(min_func_name, target_date):
+    """读分钟 csv 算当日 OHLC，返回 (date_str, close) 或 None。
+
+    daily_metric 表只有 value 单列（历史只存 close），故内部算 open/high/low
+    但只返回 close（最后有效 qvix 值，跳过 NaN）。
+    """
+    fn = getattr(ak, min_func_name, None)
+    if fn is None:
+        return None
+    df = safe_call(fn)
+    if isinstance(df, Exception) or df is None or len(df) == 0:
+        return None
+    if "qvix" not in df.columns:
+        return None
+    s = df["qvix"].dropna()
+    if len(s) == 0:
+        return None
+    close = float(s.iloc[-1])
+    if close != close or close == 0:  # NaN 或源占位 0
+        return None
+    return (target_date, close)
+
+
 # ================ 单值指标 ================
 
 def collect_series(metric):
@@ -114,9 +165,18 @@ def collect_series(metric):
             return [], f"{metric['func']} empty"
     else:
         df = safe_call(fn, **params)
-        if isinstance(df, Exception):
-            return [], f"{metric['func']} error: {df}"
-        if df is None or len(df) == 0:
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            # QVIX daily k.csv T+1+ 滞后:源空/错误时 fallback 分钟 csv 补当日
+            min_func = QVIX_MIN_FUNCS.get(metric["func"])
+            if min_func:
+                target = _qvix_min_target_date()
+                if target:
+                    rec = _qvix_today_from_min(min_func, target)
+                    if rec:
+                        d, v = rec
+                        return [(d, v * metric.get("scale", 1.0))], f"{metric['func']} daily empty, min fallback {d}"
+            if isinstance(df, Exception):
+                return [], f"{metric['func']} error: {df}"
             return [], f"{metric['func']} empty"
     # 行过滤（如 bond_china_yield 需筛「中债国债收益率曲线」）
     flt = metric.get("filter")
@@ -143,6 +203,15 @@ def collect_series(metric):
         if drop_zero and v == 0:  # 源占位/解析缺失返回 0.0（如 QVIX 1000 源），当缺失跳过
             continue
         rows.append((_norm_date(r[dc]), v))
+    # QVIX 当日补采:daily k.csv 缺当日(T+1+ 滞后)时, fallback 分钟 csv 算当日 close
+    min_func = QVIX_MIN_FUNCS.get(metric["func"])
+    if min_func:
+        target = _qvix_min_target_date()
+        if target and not any(d == target for d, _ in rows):
+            rec = _qvix_today_from_min(min_func, target)
+            if rec:
+                d, v = rec
+                rows.append((d, v * sc))
     return rows, "ok"
 
 
