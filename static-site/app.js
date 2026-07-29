@@ -4218,8 +4218,8 @@ const T1_COLLECT_DEADLINE = {
   futures_date:  "21:00",   // 期货机构持仓: CFFEX 20:00发当日,futures-backfill 20:05+21:00(兜底)采集
   csi_div_date:  "18:00",   // 中证红利: 中证指数公司盘后发布,update_all 17:50采集,18:00后应已到
   etf_date:      "21:30",   // ETF国家队份额: 交易所盘后发布,etf-national-team 20:07+21:30(兜底)采集
-  gold:          "18:00",   // 商品期货(黄金/原油): 新浪期货盘后发布,update_all 17:50采集
-  cn10y:         "18:00",   // 国债收益率: 中债盘后发布,update_all 17:50采集
+  // 2026-07-29 T+1治理: gold(沪金AU0)/cn10y(10年国债)采集侧改实时源(新浪期货/中债所)后变T+0,不再列入T+1截止时点表
+  // 原 gold: "18:00" / cn10y: "18:00" 已移除(盘后不再判T+1滞后)
   a_qvix_300:    "next_day", // QVIX期权波动率: 源端optbbs T+1日02:00-16:30才发当日值,17:50 update_all常采不到 -> next_day盘中恒放宽,消除18:00后误报红
   industry:      "18:00",   // 申万行业指数: baostock/申万收盘后发布,update_all 17:50采集
   hk_south:      "18:00",   // 港股通净买入: 盘后发布,update_all 17:50采集
@@ -6082,7 +6082,18 @@ async function renderOverview() {
       tag: s.is_freeze ? "冰点" : s.is_overheat ? "过热" : "",
     });
   }
+  // 2026-07-29 T+1治理 实施3: C组8项(确实只能T+1,且非首屏必看)挪出首屏KPI小卡区。
+  // 这8项已在"A股指标走势图"折叠区(资金面/换手率分布分位数/换手率>5%占比 分组)展示,
+  // 数据仍可访问(展开折叠区即可见),不是删除。挪出原因:首屏KPI小卡是散户最先看的速览,
+  // T+1性质的次要资金面/换手率分位指标不应占首屏位置,与T+0/today核心宽度+情绪分卡区分。
+  // 包含: a_fund_margin(两融) / a_fund_main(主力净流入) / a_fund_north(北向,2024-08停更)
+  //       / a_turnover_mean/median/p90/p10/gt5_pct(换手率5项)
+  const _KPI_T1_MOVED = new Set([
+    "a_fund_margin", "a_fund_main", "a_fund_north",
+    "a_turnover_mean", "a_turnover_median", "a_turnover_p90", "a_turnover_p10", "a_turnover_gt5_pct",
+  ]);
   for (const m of r.today.metrics || []) {
+    if (_KPI_T1_MOVED.has(m.id)) continue; // C组8项挪出首屏KPI小卡,见上方说明(折叠区/A股走势图区仍可见)
     // 北向资金等源端长期停更(2024-08 起)：不再隐藏,恢复显示末日值并叠加"数据停更"水印(见 KPI 卡渲染),
     // 恢复更新后 isStaleMetric 自动转 false,水印消失。
     const _stale = isStaleMetric(m.date, r.date);
@@ -6111,6 +6122,7 @@ async function renderOverview() {
   for (const it of _chItems) {
     if (it.status !== "error" && it.status !== "disabled") continue;
     if (_existingKpiIds.has(it.metric_id)) continue;  // 已正常展示的指标不重复加灰态卡
+    if (_KPI_T1_MOVED.has(it.metric_id)) continue; // C组8项已挪出首屏KPI小卡,异常也不在此显示
     kpiCards.push({
       id: it.metric_id,
       title: _DISABLED_METRIC_NAMES[it.metric_id] || it.metric_id,
@@ -6188,10 +6200,12 @@ async function renderOverview() {
       sub = sig || "";
     }
     const _kpiT1 = k.id === "a_fund_margin" || k.id === "a_fund_north" || k.id === "a_qvix_300" || k.id.startsWith("a_turnover_")
-      || k.id === "gold" || k.id === "cn10y" || k.id === "a_fund_main"
+      || k.id === "a_fund_main"
       || k.id === "lhb_count"; // 2026-07-23 修复:这4项实为T+1性质源(盘后次日发布),漏配误走t0分支baseline=今日致盘后误判"滞后",与"数据更新规则"弹窗标T+1不一致
       // 2026-07-24 补配 lhb_count: 龙虎榜T+1(东财18:00发当日,lhb-backfill 18:30+19:30采集),T1_COLLECT_DEADLINE已配19:30但漏配本列表,
       // 致卡片走t0分支判"数据日期<今日=滞后",盘后/盘中误显⚠滞后7-24,与弹窗L3874"📅当日18点后"不一致
+      // 2026-07-29 T+1治理: gold(沪金AU0)/cn10y(10年国债)采集侧改实时源变T+0,从_kpiT1移除(走t0分支,无T1角标)
+      // 注: a_fund_margin/a_fund_north/a_fund_main/a_turnover_* 即便挪出首屏KPI小卡(C组实施3),仍保留T1标记兜底(灰态卡/未来回KPI用)
     let _badge = k.disabled
       ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
       : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
@@ -6227,7 +6241,7 @@ async function renderOverview() {
       a_width_zt_count: "收盘仍封死涨停的股票数,多=追涨情绪强。",
       a_width_dt_count: "收盘仍封死跌停的股票数,多=恐慌抛售强。",
       a_width_zhaban_rate: "当日曾涨停但收盘未封住的比例,高=封板资金不稳。",
-      gold: "沪金现货价,避险资产,恐慌时常涨。",
+      gold: "沪金主力合约(AU0)实时价,避险资产,恐慌时常涨。",
       cn10y: "10年期国债收益率=无风险利率基准,上行=资金偏紧。",
       a_qvix_300: "沪深300期权隐含波动率,类似美国VIX,高=预期大波动。",
       lhb_count: "当日上龙虎榜的个股数,多=游资活跃。",
@@ -8228,10 +8242,13 @@ async function renderGlobal(container = content) {
         const lastDate = data.length ? data[data.length - 1].date : "";
         if (dataStaleDays(lastDate) > STALE_DAYS) addStaleMark(chart.getDom().parentElement, lastDate);
         else {
-          // usdcnh=离岸人民币实时(T+0); 其余 extras=商品/国债/QVIX(T+1)
-          // T+1 srcKey 映射: oil/wti_oil/silver/brent->gold, qvix_1000->a_qvix_300, us10y/spread->cn10y
-          const _t0Extra = id === "usdcnh";
-          const _srcKey = _t0Extra ? "" : ({ oil: "gold", wti_oil: "gold", comex_silver: "gold", brent: "gold", a_qvix_1000: "a_qvix_300", us10y: "cn10y", cn_us_spread: "cn10y" }[id] || id);
+          // usdcnh=离岸人民币实时(T+0);
+          // 2026-07-29 T+1治理: A组6商品(gold/oil/wti_oil/comex_silver/brent)采集侧改新浪/腾讯实时源变T+0;
+          // B组国债(cn10y/us10y/cn_us_spread)采集侧改中债实时源变T+0; 均走t0分支(无T1角标)
+          // 剩余T+1 extras: a_qvix_1000 -> a_qvix_300 (qvix期权波动率optbbs次日发)
+          const _T0_EXTRAS = new Set(["usdcnh", "gold", "oil", "wti_oil", "comex_silver", "brent", "cn10y", "us10y", "cn_us_spread"]);
+          const _t0Extra = _T0_EXTRAS.has(id);
+          const _srcKey = _t0Extra ? "" : ({ a_qvix_1000: "a_qvix_300" }[id] || id);
           addCardTimeBadge(chart.getDom().parentElement, lastDate, snap, _t0Extra ? "t0" : "t1", _srcKey);
         }
         // 标题❓策略弹窗（2026-07-20 方案B1）：global 指标卡 h3 末尾追加❓（如 usdcnh skip买/cn_us_spread skip卖/usdcnh 2σ 去趋势 等 per-index 差异化策略）
