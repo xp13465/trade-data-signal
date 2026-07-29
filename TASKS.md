@@ -923,4 +923,5 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - [ ] A1 check_nt_signals 跨日去重：nt_signal_notified.json 明天首次发一次 7-20（设计，后天起跳过）
 - [ ] B2 intraday notifications 即时 push：notifications 滞后 10min 根治
 - [ ] 未来增强 etf 通知：7-30 有 etf 信号时浏览器弹 🐾 ETF进场/离场/放量，点通知弹汪汪队信号明细 modal
+- [ ] rzhb 08:00 主采 + 19:15 兜底：7-30 两次执行（08:00 主采 SSE T+1 + 19:15 兜底防漏），查 rzhb_backfill_launchd.log
 

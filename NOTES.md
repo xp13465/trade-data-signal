@@ -5019,3 +5019,11 @@ if (!isClosed) {
 - **sw.js a74->a75**：CACHE_VERSION L16 + NetworkFirst 扩大到 notifications.json L88；app.min.js 重建 + index.html ?v=a5d12a48
 - **主站 sw.js a74->a75 一箭双雕**：commit 057fa74f push main 触发 CF Workers deploy 生效（之前 a74 卡 CF Workers deploy 延迟，push main 057fa74f 后 a75）。验收主站+备站 sw.js=a75，线上 notifications generated_at=22:09:07（非旧版10:44）
 - **7-29 etf_signals=0 正常**：fund_share T+1 延迟无新信号，notifications.json 结构含 source='etf' 逻辑即可（未来 7-30 有信号时弹）
+
+### AZ76 rzhb 加 19:15 兜底时点（2026-07-29 23:1X）
+- **背景**：rzhb 7-29 08:00 一次性漏跑（plist 7-29 08:08:56 才改 19:15->08:00 晚于 08:00 时点，launchd StartCalendarInterval 不补跑当日已过时点 + reload 清旧 19:15 = 完全漏跑，commit 29939ade，TASKS 续18 已落档"一次性明天正常"）
+- **根因**：08:00 单时点无兜底，SSE 源延迟（偶尔 >08:00）/ 网络抖动 / 电池休眠有漏跑风险
+- **修复**：plist StartCalendarInterval 改数组 [08:00, 19:15]（08:00 主采 SSE T+1 早晨发布 + 19:15 兜底 17:48 pmset 唤醒后跑）
+- **依据**：memory `backup-strategy-redundant-runs`（重复跑是兜底非冗余，多配一套没问题）+ `optimization-criteria`（数据第一时间发布第一）
+- **验证**：PlistBuddy Print 数组两 dict（Hour=8 Minute=0 + Hour=19 Minute=15）+ launchctl 加载 PID=- exit=0 + plutil -lint OK；plist 非 git tracked（只 ~/Library/LaunchAgents/，未 commit）
+- **明天 7-30 验证**：08:00 主采 + 19:15 兜底，查 data/logs/rzhb_backfill_launchd.log 确认两次执行
