@@ -100,8 +100,13 @@ fi
 COMMIT_MSG="data update [intraday] $(date +%Y-%m-%d_%H:%M)"
 export INTRADAY_COMMIT_MSG="$COMMIT_MSG"
 echo "-> commit + push 数据 JSON 到 main（独立 work tree，持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "${LOG}"
+# 预初始化 PUSH_RC=0（防 set -u 下 bash -c 异常退出后 line 265 外层引用未赋值 PUSH_RC 致 unbound 噪声）
+PUSH_RC=0
 "$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash -c '
   set -euo pipefail
+  # 预初始化 PUSH_RC=0（防 set -u 下兜底分支引用未赋值 PUSH_RC 致 unbound 噪声；
+  # push/rebase 各分支虽都赋值，但预初始化让任何提前引用也安全，消除 err 日志噪声）
+  PUSH_RC=0
   REPO="${REPO:-/Users/linhuichen/code/trade}"
   GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
   # 主脚本 PY 未 export，子 bash -c 不继承非导出变量；此处必须重新定义，
