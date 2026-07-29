@@ -2835,6 +2835,20 @@ main { padding: 16px 24px; }
 .pc-notify-btn.off { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 768px) { .pc-notify-btn { display: none; } }
 
+/* === 通知点击 UI 反馈：高亮闪烁目标板块（Mac Chrome SW notificationclick -> postMessage -> _handleNotifyClick）=== */
+.notify-flash {
+  animation: notify-flash-anim 2.2s ease-out;
+  outline: 2px solid rgba(230, 162, 60, 0.8);
+  outline-offset: 2px;
+}
+@keyframes notify-flash-anim {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(230, 162, 60, 0); }
+  20%, 60% { box-shadow: 0 0 0 6px rgba(230, 162, 60, 0.55); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notify-flash { animation: none; outline-color: #e6a23c; }
+}
+
 .theme-modal { z-index: 120; }
 .theme-modal .modal-body {
   width: min(92vw, 420px); padding: 20px 22px; position: relative;

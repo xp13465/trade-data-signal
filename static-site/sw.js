@@ -13,7 +13,7 @@
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260729-a68';
+const CACHE_VERSION = 'v2-20260729-a69';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -177,4 +177,41 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
+  // SHOW_NOTIFICATION: 客户端委托 SW 弹通知（Mac Chrome 下 SW showNotification 点击比页面 new Notification 可靠：
+  // 页面失焦时 new Notification().onclick 链路丢失 -> 点击无响应；SW registration.showNotification + notificationclick 稳定）
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    const { title, body, tag, data } = event.data.payload || {};
+    event.waitUntil(
+      self.registration.showNotification(title || '', {
+        body: body || '', tag: tag || undefined,
+        icon: '/favicon.svg', badge: '/favicon.svg',
+        requireInteraction: false, data: data || {},
+      })
+    );
+  }
+});
+
+// ============== notificationclick: 通知点击 -> 聚焦已有 tab + postMessage 触发页面 UI 反馈 ==============
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const notifData = event.notification.data || {};
+  const msgType = notifData.msgType || 'NOTIFY_CLICK';
+  const payload = notifData.payload || {};
+  const hash = notifData.hash || '';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      let target = null;
+      for (const c of clientList) {
+        if (c.url.startsWith(self.location.origin)) {
+          target = c;
+          if (hash && c.url.includes(hash)) break;
+        }
+      }
+      if (target) {
+        return target.focus().then(() => target.postMessage({ type: msgType, payload, hash }));
+      }
+      const openUrl = hash ? self.location.origin + '/' + hash : self.location.origin + '/';
+      return self.clients.openWindow(openUrl);
+    })
+  );
 });

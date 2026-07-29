@@ -5638,23 +5638,76 @@ function _markNotifyTimeWindow(category) {
   _saveNotifyDedup(d);
 }
 
-// 弹通知（tag 去重：同 tag 只显最新，进 Windows 通知中心）。10s 自动关闭。
-function showNotification(title, body, tag) {
+// 弹通知（优先走 SW showNotification: Mac Chrome 下点击比页面 new Notification 可靠）
+// clickAction: { msgType, hash?, payload? } 携带点击后期号 UI 反馈动作
+function showNotification(title, body, tag, clickAction) {
   if (!_loadNotifyPref()) return false;
   if (_notifyPerm() !== 'granted') return false;
   if (_isMobileUA()) return false;
+  const notifData = clickAction || {};
   try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SHOW_NOTIFICATION',
+        payload: { title, body, tag, data: notifData }
+      });
+      return true;
+    }
+    // 降级: 无 SW 控制时用页面 new Notification（Win 可用, Mac 点击不可靠但兜底）
     const n = new Notification(title, {
       body: body, tag: tag,
       icon: '/favicon.svg', badge: '/favicon.svg',
-      requireInteraction: false,
+      requireInteraction: false, data: notifData,
     });
-    n.onclick = () => { window.focus(); n.close(); };
+    n.onclick = (e) => {
+      try { e.preventDefault(); } catch (_) {}
+      window.focus();
+      _handleNotifyClick(notifData);
+      n.close();
+    };
     setTimeout(() => { try { n.close(); } catch (e) {} }, 10000);
     return true;
   } catch (e) {
     console.warn('[notify] showNotification failed:', e);
     return false;
+  }
+}
+
+// 通知点击 UI 反馈: 聚焦后滚动到目标板块 + 高亮闪烁
+function _handleNotifyClick(action) {
+  if (!action || !action.msgType) return;
+  const scrollOpts = { behavior: 'smooth', block: 'center' };
+  const flash = (el) => {
+    if (!el) return;
+    el.scrollIntoView(scrollOpts);
+    el.classList.add('notify-flash');
+    setTimeout(() => el.classList.remove('notify-flash'), 2200);
+  };
+  switch (action.msgType) {
+    case 'OPEN_SIGNAL_DETAIL':
+      flash(document.querySelector('.sig-card'));
+      break;
+    case 'OPEN_ANOMALY':
+      flash(document.querySelector('.sig-card'));
+      break;
+    case 'OPEN_ALERT':
+    case 'OPEN_FG':
+      flash(document.querySelector('.fg-dim-card') || document.querySelector('.sig-card'));
+      break;
+    case 'OPEN_ZT':
+      flash(document.querySelector('.sig-card'));
+      break;
+    case 'OPEN_POST_CLOSE':
+      if (typeof openNtDayModal === 'function') {
+        const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        openNtDayModal(today);
+      } else {
+        flash(document.querySelector('.sig-card'));
+      }
+      break;
+    case 'TEST':
+    default:
+      break;
   }
 }
 
@@ -5690,7 +5743,7 @@ function _processNotifications(data) {
         && !_isInNotifyTimeWindow('signal_buy')) {
       const names = newBuys.slice(0, 3).map(s => s.name || s.index_id).join('、');
       const more = newBuys.length > 3 ? `等${newBuys.length}个` : '';
-      showNotification('🔴 新买入信号', `${names}${more} 触发买入`, `signal_buy_${today}`);
+      showNotification('🔴 新买入信号', `${names}${more} 触发买入`, `signal_buy_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' });
       _markNotified(`signal_buy_${today}`);
       _markNotifyTimeWindow('signal_buy');
     }
@@ -5700,7 +5753,7 @@ function _processNotifications(data) {
         && !_isInNotifyTimeWindow('signal_sell')) {
       const names = newSells.slice(0, 3).map(s => s.name || s.index_id).join('、');
       const more = newSells.length > 3 ? `等${newSells.length}个` : '';
-      showNotification('🟢 新卖出信号', `${names}${more} 触发卖出`, `signal_sell_${today}`);
+      showNotification('🟢 新卖出信号', `${names}${more} 触发卖出`, `signal_sell_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' });
       _markNotified(`signal_sell_${today}`);
       _markNotifyTimeWindow('signal_sell');
     }
@@ -5713,7 +5766,7 @@ function _processNotifications(data) {
         && !_isInNotifyTimeWindow('anomaly')) {
       const desc = severe.slice(0, 2).map(a => a.desc || a.name).join('；');
       const more = severe.length > 2 ? `等${severe.length}项` : '';
-      showNotification('⚠️ 盘中异动', `${desc}${more}`, `anomaly_${today}`);
+      showNotification('⚠️ 盘中异动', `${desc}${more}`, `anomaly_${today}`, { msgType: 'OPEN_ANOMALY' });
       _markNotified(`anomaly_${today}`);
       _markNotifyTimeWindow('anomaly');
     }
@@ -5724,13 +5777,13 @@ function _processNotifications(data) {
     if (data.alerts.high && data.alerts.high.triggered
         && !_isNotifyNotified(`alert_high_${today}`)) {
       showNotification('🔴 高位预警',
-        `${data.alerts.high.level}（分数 ${data.alerts.high.score}）`, `alert_high_${today}`);
+        `${data.alerts.high.level}（分数 ${data.alerts.high.score}）`, `alert_high_${today}`, { msgType: 'OPEN_ALERT' });
       _markNotified(`alert_high_${today}`);
     }
     if (data.alerts.low && data.alerts.low.triggered
         && !_isNotifyNotified(`alert_low_${today}`)) {
       showNotification('🔵 低位机会',
-        `${data.alerts.low.level}（分数 ${data.alerts.low.score}）`, `alert_low_${today}`);
+        `${data.alerts.low.level}（分数 ${data.alerts.low.score}）`, `alert_low_${today}`, { msgType: 'OPEN_ALERT' });
       _markNotified(`alert_low_${today}`);
     }
   }
@@ -5742,7 +5795,8 @@ function _processNotifications(data) {
     showNotification(
       isFear ? '😨 恐贪极值：极度恐惧' : '🤑 恐贪极值：极度贪婪',
       `恐贪指数 ${data.fear_greed.value}（${isFear ? '<20' : '>80'}）`,
-      `fg_${data.fear_greed.extreme}_${today}`
+      `fg_${data.fear_greed.extreme}_${today}`,
+      { msgType: 'OPEN_FG' }
     );
     _markNotified(`fg_${data.fear_greed.extreme}_${today}`);
   }
@@ -5751,7 +5805,7 @@ function _processNotifications(data) {
   if (data.limit_up && data.limit_up.spike
       && !_isNotifyNotified(`zt_${today}`) && !_isInNotifyTimeWindow('zt')) {
     showNotification('🔥 涨停潮',
-      `今日涨停 ${data.limit_up.count} 只（5日均 ${data.limit_up.avg}）`, `zt_${today}`);
+      `今日涨停 ${data.limit_up.count} 只（5日均 ${data.limit_up.avg}）`, `zt_${today}`, { msgType: 'OPEN_ZT' });
     _markNotified(`zt_${today}`);
     _markNotifyTimeWindow('zt');
   }
@@ -5760,7 +5814,7 @@ function _processNotifications(data) {
   if (data.post_close && data.signals && data.signals.length
       && !_isNotifyNotified(`post_close_${today}`)) {
     showNotification('📊 收盘速递',
-      `今日 ${data.signals.length} 个信号，点击查看详情`, `post_close_${today}`);
+      `今日 ${data.signals.length} 个信号，点击查看详情`, `post_close_${today}`, { msgType: 'OPEN_POST_CLOSE' });
     _markNotified(`post_close_${today}`);
   }
 }
@@ -5839,7 +5893,7 @@ function initNotifyButton() {
     // 方案A: 首次开启（权限 default->granted）自动弹欢迎测试通知，让用户立即看到效果验证功能正常
     if (!wasGranted) {
       showNotification('通知已开启 ✅',
-        '您将收到盘中信号/异常提醒。本条为测试通知，确认通知功能正常工作', 'test-welcome');
+        '您将收到盘中信号/异常提醒。本条为测试通知，确认通知功能正常工作', 'test-welcome', { msgType: 'TEST' });
     }
     // 立即检测一次（不等下次 overview 刷新）
     _checkNotifications();
@@ -5850,7 +5904,7 @@ function initNotifyButton() {
     if (!_loadNotifyPref() || _notifyPerm() !== 'granted') return;
     showNotification('测试通知 🔔',
       '浏览器通知功能正常工作中 ' + new Date().toLocaleTimeString(),
-      'test-preview-' + Date.now());
+      'test-preview-' + Date.now(), { msgType: 'TEST' });
   });
 
   // 跨标签页同步（storage 事件：另一 tab 开关通知，本 tab 按钮状态同步）
@@ -5864,6 +5918,22 @@ function initNotifyButton() {
     _checkNotifications();
     _maybeRerenderSigCard(_getCachedOverview(), e && e.detail && e.detail.snap);
   });
+
+  // 监听 SW notificationclick 转发的 postMessage -> 触发 UI 反馈
+  // 防重复注册(initNotifyButton 可能被多次调用): 标志位短路
+  if (window._notifySwMsgBound) return;
+  window._notifySwMsgBound = true;
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (!event.data) return;
+      const d = event.data;
+      if (d.type === 'NOTIFY_CLICK' || d.type === 'OPEN_SIGNAL_DETAIL' ||
+          d.type === 'OPEN_ANOMALY' || d.type === 'OPEN_ALERT' ||
+          d.type === 'OPEN_FG' || d.type === 'OPEN_ZT' || d.type === 'OPEN_POST_CLOSE') {
+        _handleNotifyClick({ msgType: d.type, hash: d.hash, payload: d.payload });
+      }
+    });
+  }
 }
 
 // ============ 🐶 汪汪队首页卡片：近期信号列表 + 点击弹 day modal ============
