@@ -130,7 +130,7 @@ A 股 / 港股 / 全球盘后复盘看板。Python 3.11 + FastAPI + SQLite + ECh
   - **重点/弱提示清单**：全部展示（4 重点 北证50/中证1000/科创50/中证500 + 5 弱 上证50/沪深300/上证综指/深证成指/创业板），合规性提示（透明告知备买在不同指数表现差异，不藏弱只标强）。
   - **模拟回测弹窗组合**（指数表现 #market tab，`simulate_trade.py` L1286 SIG_LABELS/SIG_TYPES）：单买 4（主买+卖/辅买+卖/特买+卖/备买+卖）+ 双买 6（主买+辅买+卖[现有]/主买+特买+卖/主买+备买+卖/辅买+特买+卖/辅买+备买+卖/特买+备买+卖）= 10 信号组合 × 3 策略 = 30 场景。单买为主、双买辅助；三买/四买远期规划不做。
   - **固定1w(10%) 命题改进**（本次做非远期）：`simulate_trade.py` 策略路径名"买固定1万+卖清仓"->"买固定1万(10%)+卖清仓"，"固定1万进出（FIFO）"->"固定1万(10%)进出（FIFO）"，明确 10 万本金 10%（否则固定1w进出和全仓进出在不知本金时易混）；全仓进出不变。
-  - **实施待办**（报告通过后）：改 `app/collector/signals.py` 加 Donchian20_up + Supertrend_buy 信号计算 + 前端五色展示 + chip 标注 + legend + 叠加标记逻辑 + `simulate_trade.py` SIG_LABELS/SIG_TYPES 加 6 新组合（特买+卖/备买+卖/主买+特买+卖/主买+备买+卖/辅买+特买+卖/辅买+备买+卖/特买+备买+卖）+ 策略路径名改(10%) + 收盘后跑 simulate_trade.py --all 重生成 94 HTML。
+  - ✅ **实施已完成上线**（commits `2c9b6caa` 阶段1-3 signals.py 加 Donchian20_up+Supertrend_buy + `7d2f5d70` 阶段4 前端五色展示/chip/legend/叠加标记 + `89f8e3c7` simulate_trade 保留 Donchian 止损场景 + `ca4215f7`/`3853a8b9` docs 落档，详见 L123 父条目 2026-07-22 全量上线验收）：signals.py L1012-1096 Donchian20_up(close>max(high[-20:-1]))+Supertrend_buy(ATR10×3 翻多)计算 + L754-755 buy_special/buy_backup detail + L1204-1211 游标扩展 + simulate_trade.py 6 新组合 + 策略路径名改(10%) + 收盘跑 simulate_trade.py --all 重生成 HTML。
   - **阶段计划**（2026-07-21 定，a7e0b2 报告后补充细化行号）：
     - 阶段1 后端 `signals.py`：加 Donchian20_up（close>max(high[-20:-1])）+ Supertrend_buy（ATR(10)×3 翻多）计算，L279 return 扩展输出 buy_special/buy_backup，落 signal_daily（signal 字段字符串不加字段）
     - 阶段2 `signal_stats.py` + `check_signals.py`：加 buy_special/buy_backup 统计+去重+邮件通知
@@ -619,7 +619,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 4. ✅ **A9 板块轮动信号**（commit `b4285988`）：**只做形态频次不做回测**（ind_flow 仅6-7月历史）。指标=最近20交易日 fund_flow.value 方向反转次数。分级：≥8🔥🔥/6-7🔥/≤5低频，样本<10不评级。31板块平均6.4次。展示：板块卡 spark-name 旁 rotTag + 热力图下 Top10 rotation-freq-card。新函数 `_calcRotationFreq`/`_rotationTag`/`_buildRotationFreqList`。对应 P2-新-F ✅
 5. ✅ **A5 真 pin 复盘**（commit `8091db40`）：现有"pin"是 echarts markPoint symbol 非用户钉住，从零实现。localStorage[`pinned_indices`] + 📌按钮（`_appendPinBtn`）+ pin 复盘卡片（`_pinReviewCardHtml`/`_renderPinReview`）四段（📈走势摘要 5/20/60日涨跌+60日波动率+高低点 / 🎯最近信号 / 📊10d 6类信号胜率盈亏比 / 📋专属规则 6类策略desc+per-index filter sh/非sh）+ 跨tab状态隔离 + self-cleanup（`_onPinChanged` 检查 isConnected）+ 数据缓存双轨（signalsCache + _pinDataCache）。对应 P2-新-B 2b ✅
 
-**未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余，前端分页/搜索/持仓输入已完成）/ A6 PWA(P2-新-C) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身（~~C2 64M迁R2~~ 2026-07-24 取消，`ls -lhS static-site/data/` 确认无 64M 文件，最大 industry-3y.json 9.2M，C2 基于错误前提）
+**未完成项保留**：~~B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余，前端分页/搜索/持仓输入已完成）~~ ✅已完成(2026-07-25 AZ20) / ~~A6 PWA(P2-新-C)~~ ✅已完成(AZ20) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身（~~C2 64M迁R2~~ 2026-07-24 取消，`ls -lhS static-site/data/` 确认无 64M 文件，最大 industry-3y.json 9.2M，C2 基于错误前提）
 
 ## ✅ 2026-07-24 工作闭环（futuresbackfill 漏跑排查 + A12 订阅推送 + etf 评分优化/配色 + ai 评分布局 + migration 实施 + C2 取消）
 
@@ -634,7 +634,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 7. ✅ **ai 评分布局**（commit `0ef19bdc`）：`lab.js renderAIScoreListLab` 持仓自查前置 1 列 + 买清单/卖清单左右并排（`.lab-aiscore-grid` grid 1fr 1fr，`@media max-width:900px` 降 1 列）。lab URL：https://ss.fx8.store/#lab -> 策略实验 -> AI 评分
 8. ✅ **migration 实施**（commit `1f95ba2e`）：用户决策"etf 评分暂不迁移（首页保留），custom 下 2 个 3 级 tab [AI预警][AI评分]"。`lab.js` custom 2 级 tab 下加 3 级 tab，仿 `_SCAN_CHILDREN` 机制定义 `_CUSTOM_CHILDREN=["aiwarn","aiscore"]` + `_CUSTOM_CHILD_LABELS`。AI预警(aiwarn)= `renderCustomAnalyzeLab` 原 custom 内容打包；AI评分(aiscore)= `renderAIScoreListLab`（原 2 级 tab 降为 3 级子 tab，渲染函数零改动，`0ef19bdc` 布局保留）。`_LAB_SUB_TABS` 5->4 项（去 aiscore）。旧 `#lab?sub=custom` 兼容跳 aiwarn。etf 评分不迁移（首页底部导航 ETF评分 tab 保留）
 
-**未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余）/ A6 PWA(P2-新-C) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身（~~C2 64M迁R2~~ 取消）
+**未完成项保留**：~~B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余）~~ ✅已完成(2026-07-25 AZ20) / ~~A6 PWA(P2-新-C)~~ ✅已完成(AZ20) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身（~~C2 64M迁R2~~ 取消）
 
 ## ✅ 2026-07-24 晚续闭环（国债波段策略 + hands终极 + intraday修复 + schedule_monitor午休 + 08报告归档）
 
@@ -656,7 +656,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **48h 监控运行中**：caffeinate 48h（07-23 ~08:45 启动，PID 98731，-t 172800 自动退出）运行至 07-25 ~08:44，监控 launchd 计划任务 + schedule_monitor heartbeat。期间 schedule_monitor 每 15min 跑一次，heartbeat 写 /tmp/schedule-monitor-heartbeat.txt
 
-**未完成项保留**：B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余）/ A6 PWA(P2-新-C) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身 / 国债波段策略待 15:35 deploy 上线验证
+**未完成项保留**：~~B4 全市场485扩采集+OHLC（P1-新-C 阶段2 剩余）~~ ✅已完成(2026-07-25 AZ20) / ~~A6 PWA(P2-新-C)~~ ✅已完成(AZ20) / A14 echarts拆core / A15 拆chunk / C1 industry瘦身 / ~~国债波段策略待 15:35 deploy 上线验证~~ ✅已deploy上线(commit `efac8b7b` cherry-pick of `06055972` 在 origin/main，续16 L83 三站验证通过，`ed447c2c` docs 确认 deploy 上线完成)
 
 **教训**：glm-5.2 安全分类器时好时坏（A12 派发两次失败，cron 5 分钟后重试成功）；migration 调研 agent 卡死（jsonl mtime 27 分钟没动），基于进度文件方案 A + 用户确认直接派实施不重派调研；A12 cron 07:14 触发和 etf 优化 agent 撞 app.js（14ce6355 etf 优化 -> c703a584 A12 前端基于 etf 版叠加，两者共存）
 
@@ -674,7 +674,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
    - **参考标准**:夏普>1可用/>2优秀/>3可疑过拟合/>5必过拟合(cgb_idx 3.58触发);参数数<样本量1/10(Bailey 2014);样本<30笔无统计意义;胜率>80%+盈亏比>3几乎必过拟合(div_lowvol PL5.35/sz PL5.98需警惕);PBO≥50%严重过拟合/PSR≥95%夏普可信(López de Prado)
    - **建议(若改进)**:生产 signals.py 引入 walk-forward / per-index 调参收敛为通用规则+1-2个 regime 参数 / trade_sim 加 sharpe 字段>3标红 / 小样本<30笔前端标注仅供参考不进三档 chip / 过拟合度分级<5%绿 5-15%黄 >15%红
 
-**未完成项保留**：~~rzhb/etf 新时点今晚19:15/20:07/21:30 首次触发待验证(周六交易日闸门跳过周一07-27真采)~~ ✅已闭环(AZ49 B节确认etf 20:07 exit=0+1376只ETF+libmini_racer未复现) / 信号拟合度改进建议待用户决策是否实施 / B4 全市场485扩采集+OHLC 已完成(2026-07-25 AZ20)/ A6 PWA 已完成(AZ20)/ A14 echarts拆core / A15 拆chunk / C1 industry瘦身
+**未完成项保留**：~~rzhb/etf 新时点今晚19:15/20:07/21:30 首次触发待验证(周六交易日闸门跳过周一07-27真采)~~ ✅已闭环(AZ49 B节确认etf 20:07 exit=0+1376只ETF+libmini_racer未复现) / ~~信号拟合度改进建议待用户决策是否实施~~ 部分已实施（walk-forward优化 `b24b13e6` csi_div 4.5->3.5通用化去per-index过拟合 + `3255e30f` sh D1a去除 WF夏普0.773->1.602 / 小样本前端标注 _OVERFIT_OR_SMALL_SAMPLE_IDS 7品种 / sharpe>3红线标注 `62e7d19e` 续17，剩过拟合度分级颜色未做）/ ~~B4 全市场485扩采集+OHLC~~ 已完成(2026-07-25 AZ20)/ ~~A6 PWA~~ 已完成(AZ20)/ A14 echarts拆core / A15 拆chunk / C1 industry瘦身
 
 **教训**：①ETF 映射加 INDEX_ETF_MAP 后需全指数复核(bj50 修复未顺带复核 csi_div/div_lowvol 红利指数跨基映射易错,本次补复核 csi_div 修正)②launchd 新时点首次触发前 crash 不写 fallback DONE 行致 exit=None 假象,FINAL_RC 综合退出码+fallback 行根治(afd9b5a8)③生产 signals.py 无 walk-forward 是最大过拟合源(grep 0 命中坐实),小样本<30笔无统计意义需前端标注,夏普>3 触发可疑过拟合红线(cgb_idx 3.58)
 
@@ -685,8 +685,8 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 > 详见 NOTES §48 AZ56。3 异常已自愈非活跃问题（ETF国家队/指数补采兜底/期货机构持仓），4 条修复建议待定优先级。
 
 1. ✅ **ETF libmini_racer 根治**（2026-07-29 方案 A+C3 已实施 commit `3e0676aa`）：7-24 collector 撞 libmini_racer SIGTRAP(133) 致 ETF 国家队 schedule_stats 滞后至 7-27 才自愈。V8 isolate 非线程安全，B4 已用 ProcessPoolExecutor 进程隔离采集（AZ20），但 collector 单进程内仍可能撞 SIGTRAP。**2026-07-29 根治**：etf_national_team.py pipeline_intraday_close 走 ProcessPool（原 12 只串行）+ _run_with_processpool 辅助函数（L116-165，BrokenProcessPool 重启 pool 1 次继续剩余仍失败才 fallback 串行，替代 faba0f08 直接 fallback），三处统一调用消除重复，防 V8 单进程理论 SIGTRAP。详见 NOTES §48 AZ59
-2. **gen_schedule_stats pending_start 读真实退出码**：现 exit=None 掩盖 crash（7-24 ETF collector SIGTRAP 退出码 133 被 None 掩盖，致 schedule_stats 滞后才暴露）。gen_schedule_stats.py 已加 `launchctl_last_exit`（AZ42），但 pending_start 状态仍读 None。需 pending_start 也调 `launchctl_last_exit` 读真实退出码
-3. **deploy.sh rebase 失败 git stash**：7-27 16:35 指数补采兜底 deploy push 失败（non-ff + rebase 失败 abort 退出），7-28 02:00 自愈。deploy.sh L141-160 rebase 段现 abort 退出等人工处理（§8 规定 agent 不得擅自 force）。可加 rebase 失败前 `git stash` 自动暂存 unstaged，rebase 成功后 `git stash pop`
+2. ✅ **gen_schedule_stats pending_start 读真实退出码**（已实施 commit `3a1ba16e`）：原 exit=None 掩盖 crash（7-24 ETF collector SIGTRAP 退出码 133 被 None 掩盖，致 schedule_stats 滞后才暴露）。gen_schedule_stats.py 已加 `launchctl_last_exit`（AZ42），本次补 pending_start 也调 `launchctl_last_exit` 读真实退出码。验收：gen_schedule_stats.py L385-411 "P1 稳定性(2026-07-29): 所有模式(含 etf_nt)pending_start 都读 launchctl_last_exit" + L391 `real_exit = launchctl_last_exit(LABEL_MAP.get(t["task"]))` + pending_crash_retry 标 anomaly
+3. ✅ **deploy.sh rebase 失败 git stash**（已实施 commit `56770911`）：原 7-27 16:35 指数补采兜底 deploy push 失败（non-ff + rebase 失败 abort 退出），7-28 02:00 自愈。deploy.sh L141-160 rebase 段原 abort 退出等人工处理（§8 规定 agent 不得擅自 force）。本次加 rebase 失败前 `git stash` 自动暂存 unstaged，rebase 成功后 `git stash pop`。验收：deploy.sh L261-286 stash 逻辑完整（L265 `git stash push -m "deploy.sh-rebase-..."` + L274-278 `pop_rebase_stash()` helper + L286 push 后调 pop_rebase_stash）+ L290-360 rebase 数据冲突自动 --theirs=本地最新 export（commit `e6422edf` 补）
 4. **futures 非交易日 dur=0s 不改**（确认非 bug，保持现状）：7-26 21:00 期货机构持仓 dur=0s（周日非交易日正常跳过）。非 bug 不需修复
 
 ---
