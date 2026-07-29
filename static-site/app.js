@@ -4069,14 +4069,17 @@ function fetchIntradaySnapshot() {
 // 三色语义角标：绿=最新(数据日期>=基准) / 黄=滞后可接受(未到最晚可得时刻) / 红=异常(过时刻仍未采到) / 灰=停更(>30天)
 // srcClass: "t0"(T+0实时源,基准=snapDate,盘中当日/收盘当日=绿) / "t1"(T+1源,基准=ptd,复用_t1Relax放宽)
 // srcKey: T+1源的标识(查T1_COLLECT_DEADLINE得最晚可得时刻),T+0源传空
+// isIndexSpark: 是否为分时图指数sparkline卡片(.spark-cell内).true时盘中用腾讯1min时间(_intradayDynamicTime),
+//   false时(KPI/ETF/板块/指数图表卡等)用后端快照时间 snap.datetime(10min粒度),不跟1min动态(2026-07-30修复)
 // 判定规则:
 //   - 数据日期 >= 基准 -> 绿(盘中实时⏰/收盘定格📍/T+1已采到最新📅)
 //   - 数据日期 < 基准 且 当前时间 < 该源最晚可得时刻 -> 黄(⚠滞后,采集中/源端尚未发布)
 //   - 数据日期 < 基准 且 当前时间 >= 最晚可得时刻 -> 红(🚨异常,过点未采到)
 // T+0源最晚时刻=收盘后update_all(18:00);T+1源=各源T1_COLLECT_DEADLINE表;周末无update_all,滞后即红
-function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
+function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
   if (srcClass === undefined) srcClass = "t0";
   if (srcKey === undefined) srcKey = "";
+  if (isIndexSpark === undefined) isIndexSpark = false;
   if (!dataDate) return "";
   const mmdd = dataDate.length === 8 ? `${dataDate.slice(4, 6)}-${dataDate.slice(6, 8)}` : dataDate;
   // 源端长期停更(距今>30天)：灰，与 addStaleMark 同口径
@@ -4109,9 +4112,11 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
   // 绿：数据日期 >= 基准(已采到最新可得)
   if (!baseline || dataDate >= baseline) {
     if (intraday && snapDate && dataDate === snapDate) {
-      // 盘中优先用腾讯实时1min时间(_intradayDynamicTime "HH:MM")，无则回退 snap.datetime(10min粒度)
-      const _hh = _intradayDynamicTime ? _intradayDynamicTime.slice(0, 2) : shIdx.datetime.slice(8, 10);
-      const _mm = _intradayDynamicTime ? _intradayDynamicTime.slice(3, 5) : shIdx.datetime.slice(10, 12);
+      // 分时图指数sparkline卡片(isIndexSpark=true)用腾讯实时1min时间(_intradayDynamicTime "HH:MM"),无则回退 snap.datetime;
+      // 其他卡片(isIndexSpark=false: KPI/ETF/板块/指数图表卡等)用后端快照时间 snap.datetime(10min粒度),不跟1min动态
+      const _useDyn = isIndexSpark && _intradayDynamicTime;
+      const _hh = _useDyn ? _intradayDynamicTime.slice(0, 2) : shIdx.datetime.slice(8, 10);
+      const _mm = _useDyn ? _intradayDynamicTime.slice(3, 5) : shIdx.datetime.slice(10, 12);
       if (snap.label && /午休/.test(snap.label)) {
         return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复T+0实时">⏰ 午休·${_hh}:${_mm}</span>`;
       }
@@ -4169,9 +4174,11 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
 // 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
 // 同时加 has-time-badge 类，CSS 据此给标题预留 padding-right 防角标压文字
 // 2026-07-27: badge 元素打 data-badge-date/src/srckey 属性, 供 refreshCardTimeBadges 重绘.
-function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey) {
+// 2026-07-30: 新增 isIndexSpark 参数(分时图指数sparkline卡片=true),打 data-badge-isdyn="1" 标识,
+//   refreshCardTimeBadges 据此判断是否用 _intradayDynamicTime(1min动态) vs snap.datetime(10min粒度).
+function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey, isIndexSpark) {
   if (!cardEl) return;
-  const html = getCardTimeBadge(dataDate, snap, srcClass, srcKey);
+  const html = getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark);
   if (html) {
     // 用临时 wrapper 解析出 badge 元素, 打上 data-* 参数后 append(避免 insertAdjacentHTML 无法加属性)
     const tmp = document.createElement("div");
@@ -4181,15 +4188,18 @@ function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey) {
     badge.setAttribute("data-badge-date", dataDate || "");
     badge.setAttribute("data-badge-src", srcClass || "t0");
     if (srcKey) badge.setAttribute("data-badge-srckey", srcKey);
+    if (isIndexSpark) badge.setAttribute("data-badge-isdyn", "1");
     cardEl.appendChild(badge);
     cardEl.classList.add("has-time-badge");
   }
 }
 
 // overview 轮询拉到新 snap 后, 重绘所有 addCardTimeBadge 添加的角标(根治 Bug2: 轮询不重绘卡片角标).
-// 遍历 .card-time-badge[data-badge-date], 用存的 (dataDate, srcClass, srcKey) + 新 snap 重算 HTML 并替换.
+// 遍历 .card-time-badge[data-badge-date], 用存的 (dataDate, srcClass, srcKey, isIndexSpark) + 新 snap 重算 HTML 并替换.
 // 安全性: T+1 角标走 getCardTimeBadge t1 分支, 永远返回 📅/⏳/🚨 + 自身 dataDate 的 mmdd(非 snap 实时时间),
 // 不会被误刷成实时时间; 只有 t0+intraday 角标会显 ⏰ 盘中·HH:MM(随 snap.datetime 变化, 正是要更新的).
+// 2026-07-30: 仅 data-badge-isdyn="1" 的角标(分时图指数sparkline卡片)用 _intradayDynamicTime(1min动态),
+//   其他角标(KPI/ETF/板块/指数图表卡等)用 snap.datetime(10min粒度),不跟1min动态.
 // 非 addCardTimeBadge 添加的 badge(如 L5184 🚨异常/L6734 半年报/L7113 期货报价时间)无 data-badge-date, 不被动.
 function refreshCardTimeBadges(snap) {
   const _snap = snap || state.intradaySnapshot;
@@ -4197,7 +4207,8 @@ function refreshCardTimeBadges(snap) {
     const dataDate = badge.getAttribute("data-badge-date") || "";
     const srcClass = badge.getAttribute("data-badge-src") || "t0";
     const srcKey = badge.getAttribute("data-badge-srckey") || "";
-    const newHTML = getCardTimeBadge(dataDate, _snap, srcClass, srcKey);
+    const isIndexSpark = badge.getAttribute("data-badge-isdyn") === "1";
+    const newHTML = getCardTimeBadge(dataDate, _snap, srcClass, srcKey, isIndexSpark);
     if (!newHTML) return;
     const tmp = document.createElement("div");
     tmp.innerHTML = newHTML;
@@ -4207,6 +4218,7 @@ function refreshCardTimeBadges(snap) {
     newBadge.setAttribute("data-badge-date", dataDate);
     newBadge.setAttribute("data-badge-src", srcClass);
     if (srcKey) newBadge.setAttribute("data-badge-srckey", srcKey);
+    if (isIndexSpark) newBadge.setAttribute("data-badge-isdyn", "1");
     badge.replaceWith(newBadge);
   });
 }
@@ -6471,7 +6483,7 @@ async function renderOverview() {
       }],
     }));
     charts.push(sc);
-    addCardTimeBadge(cell, idx.last_date, snap, "t0");
+    addCardTimeBadge(cell, idx.last_date, snap, "t0", "", true); // isIndexSpark=true: 分时图指数sparkline卡片用腾讯1min时间
   }
   _dynamicBadgeIds = _sparkDynIds;
 
