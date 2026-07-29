@@ -263,6 +263,51 @@ main { padding: 16px 24px; }
   border-color: rgba(255,120,117,0.40);
   border-left-color: #ff7875;
 }
+/* AZ54 P1-6: 盘中状态全局标识横幅（所有 tab 可见，snap.is_closed===false 时显示）
+   复用 risk-banner 结构，换色用 --primary（蓝/金）区分红色 risk-banner，单行可关闭 */
+.market-status-banner {
+  margin: 8px 24px 0;
+  padding: 7px 14px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 14%, transparent), color-mix(in srgb, var(--primary) 4%, transparent));
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  border-left: 4px solid var(--primary);
+  border-radius: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.market-status-banner .msb-text { flex: 1; min-width: 0; }
+.market-status-banner .msb-pulse {
+  display: inline-block;
+  width: 8px; height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: msb-blink 1.4s ease-in-out infinite;
+}
+@keyframes msb-blink {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.75); }
+}
+.market-status-banner .msb-close {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+.market-status-banner .msb-close:hover {
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+}
 .loading { color: var(--text-3); padding: 40px 20px; text-align: center; }
 /* 加载中状态：spinner + 文字，让用户明确看到正在加载而非卡死 */
 .loading--active, .loading--error { display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -2465,6 +2510,8 @@ main { padding: 16px 24px; }
   /* 内容边距缩 + 底部留空避开底导航 */
   main { padding: 12px; padding-bottom: 76px; }
   .risk-banner { margin: 8px 12px 0; font-size: 12px; }
+  .market-status-banner { margin: 8px 12px 0; font-size: 12px; padding: 6px 10px; gap: 6px; }
+  .market-status-banner .msb-pulse { width: 7px; height: 7px; flex-basis: 7px; }
   .chart-card { padding: 10px 12px; margin-bottom: 12px; }
   .chart-card h3 { font-size: 13px; }
   .chart-latest { padding: 1px 4px; }

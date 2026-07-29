@@ -3983,6 +3983,39 @@ async function fetchCollectTime() {
 // 盘中实时快照独立获取（不依赖当前 tab），用于一句话总结覆盖 T+1 缺失的指数/行业数据。
 // 单例 Promise：多次调用复用同一次请求，避免重复 fetch。
 let _intradaySnapPromise = null;
+// AZ54 P1-6: 盘中状态全局标识横幅(所有 tab 可见).
+//   snap.is_closed===false -> 显示(顶部 risk-banner 下方全局条, 切 tab 不消失)
+//   snap.is_closed===true  -> 隐藏(收盘后自动收起)
+//   午休时段(snap.label 含"午休") -> 换文案"午休时段 · 13:00复牌后恢复实时"
+//   手动关闭 -> 本次 session 隐藏(_marketBannerDismissed=true, 收盘后再开盘会重置)
+// 调用点: fetchIntradaySnapshot 回调内(snap 就绪即更新, 覆盖首屏/轮询/开盘检测/收盘切换全部场景)
+let _marketBannerDismissed = false;
+let _marketBannerBound = false;
+function updateMarketStatusBanner(snap) {
+  const el = document.getElementById("market-status-banner");
+  if (!el) return;
+  if (!_marketBannerBound) {
+    _marketBannerBound = true;
+    el.querySelector(".msb-close")?.addEventListener("click", () => {
+      _marketBannerDismissed = true;
+      el.style.display = "none";
+    });
+  }
+  const intraday = !!(snap && snap.is_closed === false);
+  if (!intraday || _marketBannerDismissed) {
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "";
+  const _lunch = snap && snap.label && /午休/.test(snap.label);
+  const txt = el.querySelector(".msb-text");
+  if (txt) {
+    txt.textContent = _lunch
+      ? "📊 午休时段 · 13:00复牌后恢复实时 · 收盘后17:50同步最终"
+      : "📊 盘中预估中 · 数据实时更新 · 收盘后17:50同步最终";
+  }
+}
+
 function fetchIntradaySnapshot() {
   if (_intradaySnapPromise) return _intradaySnapPromise;
   _intradaySnapPromise = (async () => {
@@ -3990,6 +4023,8 @@ function fetchIntradaySnapshot() {
       const snap = await fetchJSON("./data/intraday_snapshot.json");
       if (snap && snap.indices) {
         state.intradaySnapshot = snap;
+        // AZ54 P1-6: snap 就绪即更新全局盘中状态横幅(显/隐/午休文案)
+        updateMarketStatusBanner(snap);
         // snap 就绪回调启动 overview 自适应轮询(根治 2s 超时竞态, 2026-07-27):
         // 旧版 _initAutoRefresh 用 Promise.race 2s 超时, 弱网/强刷首屏 snap 未就绪 -> 永不启动.
         // 现在 snap 何时就绪何时启动, 无超时卡死. 收盘态(is_closed===true)不启动.
@@ -4076,10 +4111,15 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
   }
   if (srcClass === "t1") {
     // T+1源未到采集时刻显前一交易日属正常设计(非异常/非滞后)，消除"已滞后约X天"误导口径
+    // AZ54 P1-3: 角标 text 直接带具体更新时点(醒目,无需hover tooltip才知何时更新)
+    //   next_day -> "次日盘后"(两融/QVIX类,源端次日才发当日值)
+    //   HH:MM    -> 具体时点(ETF 21:30 / 龙虎榜 19:30 / 期货 21:00 等)
+    //   未配置    -> "盘后"(兜底)
     const _dl = T1_COLLECT_DEADLINE[srcKey];
+    const _dlShort = _dl === "next_day" ? "次日盘后" : (_dl || "盘后");
     const _dlStr = _dl === "next_day" ? "次日盘后" : (_dl ? `当日${_dl}后` : "盘后");
     const ttl = `T+1数据源${_dlStr}才发布当日值，未到采集时刻显示前一交易日(${mmdd})属正常设计(非异常)，预计${_dlStr}更新`;
-    return `<span class="card-time-badge t1-pending" data-tip="${ttl}">⏳ T+1待更新·${mmdd}</span>`;
+    return `<span class="card-time-badge t1-pending" data-tip="${ttl}">⏳ 待${_dlShort}更新·${mmdd}</span>`;
   }
   const ttl = `数据滞后(末日 ${mmdd})，盘中等待刷新或update_all尚未运行`;
   return `<span class="card-time-badge t1-stale" data-tip="${ttl}">⚠ 滞后·${mmdd}</span>`;
