@@ -446,7 +446,7 @@ function _buildSignalMarkData(signals, getValueFn) {
 var _backupChipLoading = {};  // 防并发重复 fetch 同一 index
 // A+B 融合方案（2026-07-23）：跨 5窗口×3路径×11场景=165 回测综合排名，原仅 y5 单窗口 4 单买 2.4% 切片面片。
 // 2026-07-29 方案D 升级：打分单元从「单窗口 entry」改为「策略(path+scen二元组)」聚合 5 窗口指标后打分。
-//   聚合维度：盈利窗口数(profitWins) / 年化中位(medianAnn) / 回撤中位(medianDd) / 最大回撤(maxDdAll,5窗口最差) / 样本总数(totalOpsSum)
+//   聚合维度：盈利窗口数(profitWins) / 年化中位(medianAnn) / 年化均值(meanAnn,展示用不打分) / 回撤中位(medianDd) / 最大回撤(maxDdAll,5窗口最差) / 样本总数(totalOpsSum)
 //   原 steadyScore 单窗口打分(wrNorm*0.4+ddN*0.4+opsNorm*0.2)仅验证 entry 自身窗口，门槛"年化>回撤"不检查同策略其他窗口，
 //   致"近1年·全仓·追买+追止损卖"(年化6.9%回撤4.1%)被推为"最稳健"，但同策略近10年-13.1%回撤84%严重不稳健。
 //   方案D 多窗口综合分彻底根治：盈利窗口数>=3 门槛 + 5窗口中位归一化打分，防单窗口虚高。
@@ -454,7 +454,8 @@ var _backupChipLoading = {};  // 防并发重复 fetch 同一 index
 //   年化最高档 = 综合分最高（年化中位40% + 低回撤中位20% + 盈利窗口数20% + 样本20%）过滤 盈利>=3 AND 年化中位>=TH.ann
 //   最稳健档  = 综合分最高（年化中位40% + 低回撤中位30% + 盈利窗口数20% + 样本10%）过滤 盈利>=3，门槛 steadyScore>=0.5
 //   回撤最小档 = 5窗口最大回撤(maxDdAll)最小 过滤 年化中位>0 AND 样本>=TH.ddMinOps（取最差窗口的回撤，非最好窗口）
-// chip val 两行：首行 {scenario}·{path缩写}；次行 "5窗口盈利X/5 · 年化中位+Y% · 回撤中位Z%"（回撤最小档额外加"最大回撤W%"）
+// chip val 两行：首行 {scenario}·{path缩写}；次行 "5窗口盈利X/5 · 年化中位+Y% · 均值+Z% · 回撤中位W%"（回撤最小档额外加"最大回撤V%"）
+// 2026-07-29 追加年化均值(meanAnn)：与年化中位并列展示，中位防极值偏置/均值反映整体水平，两者并列更直观；meanAnn 只展示不打分
 // 去重粒度：scenario+path 二元组（2026-07-29 方案D：打分单元为策略级，去重粒度从三元组降为二元组）
 var _BACKUP_CHIP_WINS = ["y1", "y3", "y5", "y10", "all"];
 var _BACKUP_CHIP_PATHS = ["买固定1w(10%)+卖清仓", "全仓进出", "固定1w(10%)进出（FIFO）"];
@@ -750,11 +751,15 @@ function _backupSignalChipRender(sd, id) {
       if (sm.annualized > 0) profitWins++;
     }
     if (anns.length === 0) continue;
+    // 2026-07-29 追加年化均值(meanAnn): 与 medianAnn 并列展示更直观(中位防极值偏置,均值反映整体水平)
+    // 阈值过滤(盈利>=3)下均值与中位基于同组窗口算;meanAnn 只展示不打分(打分仍用 medianAnn)
+    var meanAnn = anns.reduce(function (a, b) { return a + b; }, 0) / anns.length;
     strategies.push({
       path: strat.path, scenario: strat.scenario, label: strat.label, pathShort: strat.pathShort,
       winSummaries: ws,
       profitWins: profitWins,
       medianAnn: medianOf(anns),
+      meanAnn: meanAnn,
       medianDd: medianOf(dds),
       maxDdAll: Math.max.apply(null, dds),  // 5 窗口最差回撤
       totalOpsSum: ops.reduce(function (a, b) { return a + b; }, 0),
@@ -898,13 +903,17 @@ function _backupSignalChipRender(sd, id) {
   }
   // 2026-07-29 方案D：chip val 第二行统一改为策略级聚合指标显示
   //   原 line2 反映单窗口（"回撤-X% 胜率Y%" 或 "y1+X% y3+Y%..."），有误导（近1年虚高也能显示"回撤4%胜率66%"）
-  //   新 line2: "5窗口盈利X/5 · 年化中位+Y% · 回撤中位Z%"（三档统一，反映策略整体 5 窗口表现）
-  //   回撤最小档额外加 "最大回撤W%"（该档核心指标是 5 窗口最大回撤，需明示）
+  //   新 line2: "5窗口盈利X/5 · 年化中位+Y% · 均值+Z% · 回撤中位W%"（三档统一，反映策略整体 5 窗口表现）
+  //   2026-07-29 追加年化均值(meanAnn): 与年化中位并列,中位防极值偏置/均值反映整体水平,两者并列更直观
+  //   回撤最小档额外加 "最大回撤V%"（该档核心指标是 5 窗口最大回撤，需明示）
   function formatVal(c) {
     var e = c.entry;
     var line1 = e.label + ' · ' + e.pathShort;
     var annSign = e.medianAnn >= 0 ? '+' : '';
-    var line2 = '5窗口盈利' + e.profitWins + '/5 · 年化中位' + annSign + e.medianAnn.toFixed(1) + '% · 回撤中位' + e.medianDd.toFixed(1) + '%';
+    var meanSign = e.meanAnn >= 0 ? '+' : '';
+    // 2026-07-29 line2 追加年化均值(与中位并列): 中位防极值偏置,均值反映整体水平,两者并列更直观
+    // 年化最高档用户最关心,三档统一显示保持一致性
+    var line2 = '5窗口盈利' + e.profitWins + '/5 · 年化中位' + annSign + e.medianAnn.toFixed(1) + '% · 均值' + meanSign + e.meanAnn.toFixed(1) + '% · 回撤中位' + e.medianDd.toFixed(1) + '%';
     if (c.kind === 'lowdraw') {
       line2 += ' · 最大回撤' + e.maxDdAll.toFixed(1) + '%';  // 回撤最小档明示 5 窗口最大回撤（核心指标）
     }
@@ -964,7 +973,7 @@ function _backupSignalChipTip(sd, scored, chip) {
   var overallRange = winRange.all || winRange.y5 || '';
   if (overallRange) lines.push('回测区间: ' + overallRange);
   // 策略级聚合指标汇总（chip 上的 line2 完整版）
-  lines.push('策略聚合（5 窗口）：盈利' + e.profitWins + '/5 │ 年化中位' + e.medianAnn.toFixed(1) + '% │ 回撤中位' + e.medianDd.toFixed(1) + '% │ 最大回撤' + e.maxDdAll.toFixed(1) + '% │ 样本总数' + e.totalOpsSum);
+  lines.push('策略聚合（5 窗口）：盈利' + e.profitWins + '/5 │ 年化中位' + e.medianAnn.toFixed(1) + '% │ 年化均值' + e.meanAnn.toFixed(1) + '% │ 回撤中位' + e.medianDd.toFixed(1) + '% │ 最大回撤' + e.maxDdAll.toFixed(1) + '% │ 样本总数' + e.totalOpsSum);
   lines.push('该买点+路径在 5 窗口逐窗口表现（' + e.scenario + ' · ' + e.path + '）：');
   for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
     var w = _BACKUP_CHIP_WINS[i];
@@ -991,7 +1000,7 @@ function _backupSignalChipTip(sd, scored, chip) {
   lines.push('全 33 策略（3路径×11场景）· ' + label + ' Top5：');
   for (var i = 0; i < top5.length; i++) {
     var t = top5[i];
-    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '  盈利' + t.profitWins + '/5 │ 年化中位' + t.medianAnn.toFixed(1) + '% │ 回撤中位' + t.medianDd.toFixed(1) + '% │ 最大回撤' + t.maxDdAll.toFixed(1) + '% │ 样本' + t.totalOpsSum);
+    lines.push('  ' + (i + 1) + '. ' + t.label + '·' + t.pathShort + '  盈利' + t.profitWins + '/5 │ 年化中位' + t.medianAnn.toFixed(1) + '% │ 年化均值' + t.meanAnn.toFixed(1) + '% │ 回撤中位' + t.medianDd.toFixed(1) + '% │ 最大回撤' + t.maxDdAll.toFixed(1) + '% │ 样本' + t.totalOpsSum);
   }
   lines.push(SEP);
   // 2026-07-28 回测精准模拟说明：手续费万3 + 滑点千1 + 沪市过户费万0.1，ETF 替代指数含跟踪误差
