@@ -2816,6 +2816,17 @@ main { padding: 16px 24px; }
 .pc-theme-btn:hover { border-color: var(--primary); color: var(--primary); }
 .h5-theme-btn { display: none; }
 
+/* === 🔔 浏览器通知按钮（P2-新-W 方案A）=== */
+.pc-notify-btn {
+  margin-left: 10px; border: 1px solid var(--border-strong); background: var(--bg-card);
+  border-radius: 16px; padding: 5px 12px; font-size: 15px; cursor: pointer; color: var(--text-2);
+  transition: all 0.15s; line-height: 1; user-select: none;
+}
+.pc-notify-btn:hover { border-color: var(--primary); color: var(--primary); }
+.pc-notify-btn.on { border-color: var(--primary); color: var(--primary); }
+.pc-notify-btn.off { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 768px) { .pc-notify-btn { display: none; } }
+
 .theme-modal { z-index: 120; }
 .theme-modal .modal-body {
   width: min(92vw, 420px); padding: 20px 22px; position: relative;

@@ -2567,7 +2567,7 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 2026-07-20: 加 index\/[^/]+-all 排除 kc50-all.json 等 index/{iid}-all.json（走势图源），
 // 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
-const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
+const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|notifications|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 自动 .gz 优先 + DecompressionStream 解压，./data/ 与 https://ssd.fx8.store/ 均生效。
@@ -5258,6 +5258,8 @@ async function _doOverviewRefresh() {
     const snap = state.intradaySnapshot;
     // 重绘卡片角标(snap 更新后, T+0 盘中 HH:MM 变化 / T+1 分级可能变化). 收盘态也会先重绘(盘中->收盘切换).
     if (snap) refreshCardTimeBadges(snap);
+    // P2-新-W: 通知检测钩子（overview 刷新成功后触发自定义事件，通知模块监听）
+    try { window.dispatchEvent(new CustomEvent('ts:overview-refreshed', { detail: { snap } })); } catch(_e) {}
     if (snap && snap.is_closed === true) {
       _stopOverviewRefresh(); // 收盘自停
       return;
@@ -5404,6 +5406,287 @@ async function _initAutoRefresh() {
   }
   // 始终启动开盘检测(幂等): 盘中no-op, 收盘态每3min检测开盘自动启动轮询
   _startMarketOpenCheck();
+}
+
+// ============ 🔔 浏览器通知（P2-新-W 方案A：页面 Notification API）============
+// PC 模式下盘中异动/新信号/预警弹 Windows 通知中心（OS 原生渲染）。Web Notifications API
+// 全球 94.38% 支持（Chrome22+/Edge14+/Firefox22+），HTTPS 必需（ss.fx8.store 满足）。
+// requestPermission 须用户手势触发（首次点 🔔 按钮），granted 后 localStorage 持久化偏好。
+// 移动端 UA 跳过（new Notification 报 TypeError）。
+// 三层去重：Notification tag（同 tag 只显最新）+ localStorage notified_keys（同事件当日只弹一次）
+//           + 时间窗（同类别 60s 内不连弹）。后端 signal_notified/anomaly_notified 已做邮件去重。
+const NOTIFY_STORAGE_KEY = 'ts_notify_enabled';      // '1'/'0' 用户偏好
+const NOTIFY_DEDUP_KEY = 'ts_notify_dedup';          // {key: ts} 当日已弹+时间窗记录
+const NOTIFY_TIME_WINDOW_MS = 60 * 1000;             // 同类别 60s 内不连弹
+const NOTIFY_FETCH_INTERVAL_MS = 30 * 1000;          // 通知 JSON 拉取节流（最小 30s 间隔）
+
+// 移动端 UA 检测（移动端 new Notification 报 TypeError，需跳过）
+function _isMobileUA() {
+  return /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(navigator.userAgent || '');
+}
+
+// 用户偏好读写（localStorage 持久化跨会话）
+function _loadNotifyPref() {
+  try { return localStorage.getItem(NOTIFY_STORAGE_KEY) === '1'; } catch (e) { return false; }
+}
+function _saveNotifyPref(on) {
+  try { localStorage.setItem(NOTIFY_STORAGE_KEY, on ? '1' : '0'); } catch (e) {}
+}
+
+// 当前通知权限状态
+function _notifyPerm() {
+  if (!('Notification' in window)) return 'denied';
+  return Notification.permission;
+}
+
+// 请求通知权限（须用户手势触发，首次点 🔔 按钮时调用）
+async function requestNotifyPermission() {
+  if (!('Notification' in window)) return 'denied';
+  if (_isMobileUA()) return 'denied'; // 移动端跳过
+  try {
+    return await Notification.requestPermission();
+  } catch (e) { return 'denied'; }
+}
+
+// 去重存储读写：{key: timestamp}，key 格式 "YYYY-MM-DD:event_id" 或 "__tw:category"
+function _loadNotifyDedup() {
+  try {
+    const s = localStorage.getItem(NOTIFY_DEDUP_KEY);
+    return s ? JSON.parse(s) : {};
+  } catch (e) { return {}; }
+}
+function _saveNotifyDedup(d) {
+  try { localStorage.setItem(NOTIFY_DEDUP_KEY, JSON.stringify(d)); } catch (e) {}
+}
+
+// 同事件当日是否已弹过（第三层去重：localStorage 已读标记）
+function _isNotifyNotified(eventKey) {
+  const d = _loadNotifyDedup();
+  const today = new Date().toISOString().slice(0, 10);
+  return !!d[`${today}:${eventKey}`];
+}
+
+// 标记事件已弹 + 清理 7 天前旧记录（避免 localStorage 膨胀）
+function _markNotified(eventKey) {
+  const d = _loadNotifyDedup();
+  const today = new Date().toISOString().slice(0, 10);
+  d[`${today}:${eventKey}`] = Date.now();
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  for (const k in d) {
+    if (typeof d[k] === 'number' && d[k] < cutoff) delete d[k];
+  }
+  _saveNotifyDedup(d);
+}
+
+// 同类别时间窗检查（第三层去重：60s 内不连弹同类通知）
+function _isInNotifyTimeWindow(category) {
+  const d = _loadNotifyDedup();
+  const last = d[`__tw:${category}`] || 0;
+  return (Date.now() - last) < NOTIFY_TIME_WINDOW_MS;
+}
+function _markNotifyTimeWindow(category) {
+  const d = _loadNotifyDedup();
+  d[`__tw:${category}`] = Date.now();
+  _saveNotifyDedup(d);
+}
+
+// 弹通知（tag 去重：同 tag 只显最新，进 Windows 通知中心）。10s 自动关闭。
+function showNotification(title, body, tag) {
+  if (!_loadNotifyPref()) return false;
+  if (_notifyPerm() !== 'granted') return false;
+  if (_isMobileUA()) return false;
+  try {
+    const n = new Notification(title, {
+      body: body, tag: tag,
+      icon: '/favicon.svg', badge: '/favicon.svg',
+      requireInteraction: false,
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+    setTimeout(() => { try { n.close(); } catch (e) {} }, 10000);
+    return true;
+  } catch (e) {
+    console.warn('[notify] showNotification failed:', e);
+    return false;
+  }
+}
+
+// 通知检测：fetch notifications.json + 对比 localStorage 去重 + 弹通知
+// 节流 30s（避免 overview 高频轮询 15s 时连查），in-flight 去重防并发
+let _lastNotifyFetch = 0;
+let _notifyFetchInFlight = false;
+async function _checkNotifications() {
+  if (!_loadNotifyPref()) return;
+  if (_notifyPerm() !== 'granted') return;
+  if (_notifyFetchInFlight) return;
+  const now = Date.now();
+  if (now - _lastNotifyFetch < NOTIFY_FETCH_INTERVAL_MS) return;
+  _notifyFetchInFlight = true;
+  _lastNotifyFetch = now;
+  try {
+    const data = await fetchJSON("./data/notifications.json");
+    if (!data || !data.date) return;
+    _processNotifications(data);
+  } catch (e) { /* 静默失败（404/解析错不发通知） */ }
+  finally { _notifyFetchInFlight = false; }
+}
+
+// 处理 notifications.json：6 类触发场景 + 三层去重
+function _processNotifications(data) {
+  const today = data.date;
+
+  // 1+2. 新买入/卖出信号（后端已用 signal_notified.json 去重，前端再做当日去重）
+  if (data.signals && data.signals.length) {
+    const newBuys = data.signals.filter(s =>
+      ['buy', 'buy_aux', 'buy_special', 'buy_backup'].includes(s.signal));
+    if (newBuys.length && !_isNotifyNotified(`signal_buy_${today}`)
+        && !_isInNotifyTimeWindow('signal_buy')) {
+      const names = newBuys.slice(0, 3).map(s => s.name || s.index_id).join('、');
+      const more = newBuys.length > 3 ? `等${newBuys.length}个` : '';
+      showNotification('🔴 新买入信号', `${names}${more} 触发买入`, `signal_buy_${today}`);
+      _markNotified(`signal_buy_${today}`);
+      _markNotifyTimeWindow('signal_buy');
+    }
+    const newSells = data.signals.filter(s =>
+      ['sell', 'sell_stop_loss'].includes(s.signal));
+    if (newSells.length && !_isNotifyNotified(`signal_sell_${today}`)
+        && !_isInNotifyTimeWindow('signal_sell')) {
+      const names = newSells.slice(0, 3).map(s => s.name || s.index_id).join('、');
+      const more = newSells.length > 3 ? `等${newSells.length}个` : '';
+      showNotification('🟢 新卖出信号', `${names}${more} 触发卖出`, `signal_sell_${today}`);
+      _markNotified(`signal_sell_${today}`);
+      _markNotifyTimeWindow('signal_sell');
+    }
+  }
+
+  // 3. 盘中异常（只弹 severe 级：rapid_move/breakout_down）
+  if (data.anomalies && data.anomalies.length) {
+    const severe = data.anomalies.filter(a => a.tier === 'severe');
+    if (severe.length && !_isNotifyNotified(`anomaly_${today}`)
+        && !_isInNotifyTimeWindow('anomaly')) {
+      const desc = severe.slice(0, 2).map(a => a.desc || a.name).join('；');
+      const more = severe.length > 2 ? `等${severe.length}项` : '';
+      showNotification('⚠️ 盘中异动', `${desc}${more}`, `anomaly_${today}`);
+      _markNotified(`anomaly_${today}`);
+      _markNotifyTimeWindow('anomaly');
+    }
+  }
+
+  // 4. 综合预警（high_alert>=72 / low_alert>=85）
+  if (data.alerts) {
+    if (data.alerts.high && data.alerts.high.triggered
+        && !_isNotifyNotified(`alert_high_${today}`)) {
+      showNotification('🔴 高位预警',
+        `${data.alerts.high.level}（分数 ${data.alerts.high.score}）`, `alert_high_${today}`);
+      _markNotified(`alert_high_${today}`);
+    }
+    if (data.alerts.low && data.alerts.low.triggered
+        && !_isNotifyNotified(`alert_low_${today}`)) {
+      showNotification('🔵 低位机会',
+        `${data.alerts.low.level}（分数 ${data.alerts.low.score}）`, `alert_low_${today}`);
+      _markNotified(`alert_low_${today}`);
+    }
+  }
+
+  // 5. 恐贪极值（<20 极度恐惧 / >80 极度贪婪）
+  if (data.fear_greed && data.fear_greed.extreme
+      && !_isNotifyNotified(`fg_${data.fear_greed.extreme}_${today}`)) {
+    const isFear = data.fear_greed.extreme === 'fear';
+    showNotification(
+      isFear ? '😨 恐贪极值：极度恐惧' : '🤑 恐贪极值：极度贪婪',
+      `恐贪指数 ${data.fear_greed.value}（${isFear ? '<20' : '>80'}）`,
+      `fg_${data.fear_greed.extreme}_${today}`
+    );
+    _markNotified(`fg_${data.fear_greed.extreme}_${today}`);
+  }
+
+  // 6. 涨停潮（a_width_zt_count > 5日均×1.8 且 >=50）
+  if (data.limit_up && data.limit_up.spike
+      && !_isNotifyNotified(`zt_${today}`) && !_isInNotifyTimeWindow('zt')) {
+    showNotification('🔥 涨停潮',
+      `今日涨停 ${data.limit_up.count} 只（5日均 ${data.limit_up.avg}）`, `zt_${today}`);
+    _markNotified(`zt_${today}`);
+    _markNotifyTimeWindow('zt');
+  }
+
+  // 7. 盘后速递（post_close=True 且有信号时弹一次）
+  if (data.post_close && data.signals && data.signals.length
+      && !_isNotifyNotified(`post_close_${today}`)) {
+    showNotification('📊 收盘速递',
+      `今日 ${data.signals.length} 个信号，点击查看详情`, `post_close_${today}`);
+    _markNotified(`post_close_${today}`);
+  }
+}
+
+// 初始化 🔔 通知按钮（PC 显示，移动端隐藏）+ 监听 overview 刷新事件触发通知检测
+function initNotifyButton() {
+  // 创建按钮并插入到 theme-btn 前
+  const btn = document.createElement('button');
+  btn.className = 'notify-btn pc-notify-btn';
+  btn.type = 'button';
+  btn.setAttribute('aria-label', '浏览器通知');
+  btn.textContent = '🔔';
+  const themeBtn = document.querySelector('.pc-theme-btn');
+  if (themeBtn && themeBtn.parentNode) {
+    themeBtn.parentNode.insertBefore(btn, themeBtn);
+  } else {
+    document.querySelector('header')?.appendChild(btn);
+  }
+
+  // 状态更新（根据偏好+权限切换图标/样式）
+  function updateBtnState() {
+    const enabled = _loadNotifyPref();
+    const perm = _notifyPerm();
+    if (perm === 'denied') {
+      btn.classList.add('off');
+      btn.classList.remove('on');
+      btn.title = '通知被浏览器屏蔽，去浏览器设置恢复权限后重试';
+      btn.textContent = '🔕';
+    } else if (enabled && perm === 'granted') {
+      btn.classList.add('on');
+      btn.classList.remove('off');
+      btn.title = '浏览器通知已开启（点击关闭）';
+      btn.textContent = '🔔';
+    } else {
+      btn.classList.remove('on', 'off');
+      btn.title = '点击开启浏览器通知（盘中异动/新信号弹 Windows 通知中心）';
+      btn.textContent = '🔔';
+    }
+  }
+  updateBtnState();
+
+  // 点击处理：开启需用户手势触发 requestPermission
+  btn.addEventListener('click', async () => {
+    const enabled = _loadNotifyPref();
+    if (enabled) {
+      _saveNotifyPref(false);
+      updateBtnState();
+      return;
+    }
+    const perm = _notifyPerm();
+    if (perm === 'denied') {
+      alert('浏览器通知已被屏蔽，请在浏览器设置（隐私和安全 -> 通知）中恢复权限后重试。');
+      return;
+    }
+    if (perm !== 'granted') {
+      const p = await requestNotifyPermission();
+      if (p !== 'granted') { updateBtnState(); return; }
+    }
+    _saveNotifyPref(true);
+    updateBtnState();
+    // 弹测试通知确认开启成功
+    showNotification('🔔 通知已开启',
+      '盘中异动/新信号/预警将弹 Windows 通知中心', 'test_enable_' + Date.now());
+    // 立即检测一次（不等下次 overview 刷新）
+    _checkNotifications();
+  });
+
+  // 跨标签页同步（storage 事件：另一 tab 开关通知，本 tab 按钮状态同步）
+  window.addEventListener('storage', (e) => {
+    if (e.key === NOTIFY_STORAGE_KEY) updateBtnState();
+  });
+
+  // 监听 overview 刷新事件 -> 触发通知检测（hook _doOverviewRefresh 自定义事件）
+  window.addEventListener('ts:overview-refreshed', () => { _checkNotifications(); });
 }
 
 // ============ 🐶 汪汪队首页卡片：近期信号列表 + 点击弹 day modal ============
@@ -12361,6 +12644,7 @@ initH5();
 initSimOverlay();
 initShareButton();
 initThemeSwitcher();
+initNotifyButton();
 initOnboarding();
 initUpdateRules();
 
