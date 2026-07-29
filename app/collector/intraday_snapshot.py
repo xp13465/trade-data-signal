@@ -86,6 +86,44 @@ _SNAPSHOT_TO_INDEX_ID = {
     "hkCSHKDIV": "hk_cshkdiv",    # 中证香港红利（buy_special 触发，新浪 rt_ 单独采）
 }
 
+# ============ T+1 治理：商品/外汇/美债实时源（2026-07-29 加）============
+# 背景：gold/oil/wti_oil/comex_silver/brent/usdcnh 原走 futures_main_sina/
+# futures_foreign_hist/currency_boc_sina 日线函数，盘后才出 T+1 数据，盘中无当日值。
+# 新浪 hq.sinajs.cn 实时源盘中直采，覆盖当日 daily_metric（source='intraday'）。
+# 收盘 pipeline（T+1 历史序列）次日覆盖为最终收盘值（UPSERT 幂等）。
+#
+# 源验证（2026-07-29 实测）：
+#   - nf_AU0（沪金主连，nf_前缀国内期货）✓ 返回今日实时
+#   - nf_SC0（INE原油主连，大写SC！小写sc0返回空）✓ 返回今日实时
+#   - hf_CL/hf_SI/hf_OIL（外盘期货）✓ 返回今日实时
+#   - hf_XAU（伦敦金现货）✓ 返回今日实时（辅助参考，不强推前端）
+#   - fx_susdcny（离岸人民币实时汇率）✓ 返回今日实时
+#   - hf_TNX（10年美债收益率）✗ 新浪源全空 -> us10y 保持 bond_zh_us_rate T+1
+# 注意：AU0（无 nf_ 前缀）返回 2024 旧数据已废弃，nf_AU0 才是实时源。
+#       sc0（小写）返回空，nf_SC0（大写）才有效。新浪代码大小写敏感。
+COMMODITY_CODES = [
+    "nf_AU0",   # 沪金主连 -> gold（保持 AU0 口径一致，人民币计价沪金期货）
+    "nf_SC0",   # 上海原油(INE)主连 -> oil（大写SC！小写sc0返回空）
+    "hf_CL",    # WTI原油 -> wti_oil
+    "hf_SI",    # COMEX白银 -> comex_silver
+    "hf_OIL",   # 布伦特原油 -> brent
+    "hf_XAU",   # 伦敦金现货 -> hf_xau（辅助参考，美元计价，与AU0人民币口径不同不强推前端）
+]
+# 实时源 code -> daily_metric.metric_id 映射
+COMMODITY_TO_METRIC = {
+    "nf_AU0": "gold",
+    "nf_SC0": "oil",
+    "hf_CL": "wti_oil",
+    "hf_SI": "comex_silver",
+    "hf_OIL": "brent",
+    "hf_XAU": "hf_xau",  # 辅助参考指标（indicators.yaml 不注册，intraday 直接写）
+}
+# 离岸人民币实时汇率 -> usdcnh（覆盖 currency_boc_sina T+1 当日值）
+FX_CODE = "fx_susdcny"
+# sh511260 十年国债ETF -> cn10y_etf（cn10y 收益率本身保持 T+1，ETF实时价作盘中参考）
+CN10Y_ETF_INDEX_CODE = "sh511260"
+CN10Y_ETF_METRIC_ID = "cn10y_etf"
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat()
@@ -266,6 +304,175 @@ def _fetch_hk_cshkdiv_sina() -> dict | None:
         "datetime": dtstr,
         "amount": None,
     }
+
+
+def _parse_sina_commodity(text: str) -> list[dict]:
+    """解析新浪商品期货实时源（nf_/hf_ 前缀，GBK）。
+
+    各品种字段位置（实测 2026-07-29）：
+    - nf_ 国内期货（nf_AU0/nf_SC0/nf_AG0 等）:
+        [0]=名称 [1]=持仓量 [2]=昨收 [3]=今开 [4]=最高 [5]=最低
+        [6]=买价 [7]=卖价 [8]=最新价 [9]=涨跌 [10]=均价
+        [15]=交易所 [16]=品种 [17]=日期(YYYY-MM-DD) [18]=状态
+    - hf_CL/hf_SI/hf_OIL（外盘期货，格式一致）:
+        [0]=最新价 [1]=空 [2]=昨收 [3]=今开 [4]=最高 [5]=最低
+        [6]=时间(HH:MM:SS) [7]=? [8]=? [9-11]=量 [12]=日期 [13]=名称 [14]=?
+    - hf_XAU（伦敦金现货，格式与前三个不同！）:
+        [0]=最新价 [1]=昨收 [2]=今开 [3]=最高 [4]=最低
+        [5]=时间(HH:MM:SS) [6-8]=? [9-10]=量 [11]=日期 [12]=名称
+
+    返回 list[dict]（code/name/price/pre_close/change/pct_change/datetime），
+    返回空 list 表示无可用数据。失败的 code 不出现。
+    """
+    out = []
+    for line in text.strip().split("\n"):
+        line = line.strip().rstrip(";")
+        if not line.startswith("var hq_str_") or "=" not in line:
+            continue
+        try:
+            code = line.split("=", 1)[0].replace("var hq_str_", "")
+            body = line.split('"', 2)[1]
+            fields = body.split(",")
+            if len(fields) < 6:
+                continue
+        except Exception:  # noqa: BLE001
+            continue
+
+        def f(i):
+            try:
+                return float(fields[i])
+            except (IndexError, ValueError):
+                return None
+
+        price = None
+        pre_close = None
+        name = code
+        date = ""
+
+        if code.startswith("nf_"):
+            # 国内期货：[8]=最新价 [2]=昨收 [17]=日期
+            price = f(8)
+            pre_close = f(2)
+            name = fields[0].strip() if fields[0] else code
+            date = fields[17].strip() if len(fields) > 17 else ""
+        elif code in ("hf_CL", "hf_SI", "hf_OIL"):
+            # 外盘 CL/SI/OIL：[0]=最新价 [2]=昨收 [12]=日期 [13]=名称
+            price = f(0)
+            pre_close = f(2)
+            date = fields[12].strip() if len(fields) > 12 else ""
+            name = fields[13].strip() if len(fields) > 13 else code
+        elif code == "hf_XAU":
+            # 伦敦金现货：[0]=最新价 [1]=昨收 [12]=日期 [13]=名称
+            # 注意 hf_XAU 比 hf_CL 多一个字段（[5]额外位），date/name 索引偏移到 12/13
+            price = f(0)
+            pre_close = f(1)
+            date = fields[12].strip() if len(fields) > 12 else ""
+            name = fields[13].strip() if len(fields) > 13 else code
+        else:
+            continue
+
+        if price is None:
+            continue
+        change = (price - pre_close) if (price and pre_close) else None
+        pct = (change / pre_close * 100) if (change is not None and pre_close) else None
+        dtstr = date.replace("-", "") if date else ""
+        out.append({
+            "code": code,
+            "name": name,
+            "price": price,
+            "pre_close": pre_close,
+            "change": change,
+            "pct_change": pct,
+            "datetime": dtstr,
+        })
+    return out
+
+
+def _parse_sina_fx(text: str) -> dict | None:
+    """解析新浪外汇实时源 fx_susdcny（离岸人民币，GBK）。
+
+    字段（实测 2026-07-29）：
+      [0]=时间(HH:MM:SS) [1]=买入 [2]=卖出 [3]=最新价 [4]=?
+      [5]=? [6]=? [7]=? [8]=昨收价 [9]=名称(显示"在岸人民币"但代码是离岸,新浪命名混乱)
+      [10]=涨跌 [11]=涨跌幅 [12]=? [13]=说明 [17]=日期(YYYY-MM-DD)
+    """
+    for line in text.strip().split("\n"):
+        line = line.strip().rstrip(";")
+        if not line.startswith("var hq_str_fx_susdcny") or "=" not in line:
+            continue
+        try:
+            body = line.split('"', 2)[1]
+            fields = body.split(",")
+            if len(fields) < 4:
+                return None
+        except Exception:  # noqa: BLE001
+            return None
+
+        def f(i):
+            try:
+                return float(fields[i])
+            except (IndexError, ValueError):
+                return None
+
+        price = f(3)  # 最新价
+        if price is None:
+            return None
+        pre_close = f(8)  # 昨收价
+        date = fields[17].strip() if len(fields) > 17 else ""
+        name = fields[9].strip() if len(fields) > 9 else "离岸人民币"
+        change = f(10)
+        pct = f(11)
+        dtstr = date.replace("-", "") if date else ""
+        return {
+            "code": "fx_susdcny",
+            "name": name,
+            "price": price,
+            "pre_close": pre_close,
+            "change": change,
+            "pct_change": pct,
+            "datetime": dtstr,
+        }
+    return None
+
+
+def fetch_commodity_realtime() -> list[dict]:
+    """采集 6 商品实时行情（新浪 hq.sinajs.cn 批量）。
+
+    nf_AU0(沪金)/nf_SC0(INE原油)/hf_CL(WTI)/hf_SI(COMEX白银)/hf_OIL(布伦特)/hf_XAU(伦敦金)。
+    批量请求一次拉全部，返回 list[dict]（失败的 code 不出现）。
+    """
+    try:
+        throttle()
+        r = requests.get(
+            "http://hq.sinajs.cn/list=" + ",".join(COMMODITY_CODES),
+            headers=_SINA_HEADERS, timeout=10)
+        data = _parse_sina_commodity(r.content.decode("gbk"))
+        got = [d["code"] for d in data]
+        miss = [c for c in COMMODITY_CODES if c not in got]
+        print(f"  [intraday] 商品实时采集: {len(data)}/{len(COMMODITY_CODES)} 条"
+              + (f"（缺失 {miss}）" if miss else ""), flush=True)
+        return data
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] 商品实时采集失败: {type(e).__name__} {e}", flush=True)
+        return []
+
+
+def fetch_fx_realtime() -> dict | None:
+    """采集离岸人民币实时汇率（新浪 fx_susdcny）。失败返 None。"""
+    try:
+        throttle()
+        r = requests.get(
+            "http://hq.sinajs.cn/list=" + FX_CODE,
+            headers=_SINA_HEADERS, timeout=10)
+        fx = _parse_sina_fx(r.content.decode("gbk"))
+        if fx:
+            print(f"  [intraday] 离岸人民币实时: {fx['price']} (source=fx_susdcny)", flush=True)
+        else:
+            print(f"  [intraday] fx_susdcny 返回空", flush=True)
+        return fx
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] 离岸人民币实时采集失败: {type(e).__name__} {e}", flush=True)
+        return None
 
 
 def fetch_index_realtime() -> list[dict]:
@@ -795,6 +1002,101 @@ def _backfill_concept_daily(concepts: list[dict]) -> int:
     return n
 
 
+def _backfill_commodity_metrics(commodities: list[dict]) -> int:
+    """把 6 商品实时价格写入 daily_metric（覆盖当日值，source='intraday'）。
+
+    解决 gold/oil/wti_oil/comex_silver/brent 盘中 T+1 滞后问题：
+    原 futures_main_sina/futures_foreign_hist 是日线函数盘后跑，盘中无当日值。
+    新浪 nf_/hf_ 实时源盘中直采，覆盖当日 daily_metric。
+    收盘 pipeline（T+1 历史序列）次日覆盖为最终收盘值（UPSERT 幂等）。
+
+    日期校验：
+    - 国内期货(nf_)日期必须是今日，否则跳过（避免旧数据污染）
+    - 外盘期货(hf_)日期可能是昨日（美盘夜间交易北京时间次日白天），不跳过
+      （实时价仍有效，反映最近交易时段收盘价）
+    非交易日跳过。返回写入条数。
+    """
+    from ..calendar import is_trading_day
+    from .runner import upsert_metric
+
+    today = datetime.now().strftime("%Y%m%d")
+    if not is_trading_day(today):
+        print(f"  [intraday] 非交易日({today})，跳过商品 daily_metric 写入", flush=True)
+        return 0
+
+    n = 0
+    for c in commodities:
+        code = c.get("code", "")
+        metric_id = COMMODITY_TO_METRIC.get(code)
+        if not metric_id:
+            continue
+        price = c.get("price")
+        if price is None:
+            continue
+        dtstr = c.get("datetime", "")
+        snap_date = dtstr[:8] if len(dtstr) >= 8 else ""
+        if snap_date and snap_date != today:
+            # 国内期货日期必须是今日；外盘期货日期可能是昨日（美盘夜间），放行
+            if code.startswith("nf_"):
+                print(f"  [intraday] {code} 快照日期 {snap_date} != 今日 {today}，跳过", flush=True)
+                continue
+        upsert_metric(today, metric_id, price, source="intraday")
+        n += 1
+    print(f"  [intraday] 商品 daily_metric 写入: {n} 条 (source=intraday)", flush=True)
+    return n
+
+
+def _backfill_fx_metric(fx: dict | None) -> int:
+    """把离岸人民币实时汇率写入 daily_metric（覆盖当日 usdcnh 值，source='intraday'）。
+
+    解决 usdcnh 前后端不一致：原 currency_boc_sina（中行日报价 T+1）-> 新浪 fx_susdcny 实时。
+    盘中覆盖当日 usdcnh 值；收盘 pipeline（currency_boc_sina 历史）次日覆盖。
+    非交易日跳过；fx 为 None 跳过。返回写入条数。
+    """
+    from ..calendar import is_trading_day
+    from .runner import upsert_metric
+
+    if not fx:
+        return 0
+    today = datetime.now().strftime("%Y%m%d")
+    if not is_trading_day(today):
+        print(f"  [intraday] 非交易日({today})，跳过 usdcnh daily_metric 写入", flush=True)
+        return 0
+
+    price = fx.get("price")
+    if price is None:
+        return 0
+    upsert_metric(today, "usdcnh", price, source="intraday")
+    print(f"  [intraday] usdcnh daily_metric 写入: {price} (source=fx_susdcny intraday)", flush=True)
+    return 1
+
+
+def _backfill_cn10y_etf_metric(indices: list[dict]) -> int:
+    """把 sh511260 十年国债ETF 实时价格写入 daily_metric（cn10y_etf，source='intraday'）。
+
+    cn10y 收益率本身保持 T+1（bond_china_yield 中债源盘后才出）；
+    盘中用 sh511260 ETF 实时价格作参考指标 cn10y_etf（元），前端可用它显示盘中国债走势。
+    sh511260 已在 INDEX_CODES 采集并反哺 index_daily（cgb_10y_etf），此处额外写 daily_metric。
+    非交易日跳过。返回写入条数。
+    """
+    from ..calendar import is_trading_day
+    from .runner import upsert_metric
+
+    today = datetime.now().strftime("%Y%m%d")
+    if not is_trading_day(today):
+        return 0
+
+    for idx in indices:
+        if idx.get("code") == CN10Y_ETF_INDEX_CODE:
+            price = idx.get("price")
+            if price is None:
+                return 0
+            upsert_metric(today, CN10Y_ETF_METRIC_ID, price, source="intraday")
+            print(f"  [intraday] cn10y_etf daily_metric 写入: {price} (source=intraday)", flush=True)
+            return 1
+    return 0
+
+
 def _collect_intraday_width_metrics() -> dict:
     """盘中采集宽度/成交额指标，写入 daily_metric（source='intraday'）。
 
@@ -1179,6 +1481,9 @@ def build_snapshot() -> dict:
     indices = fetch_index_realtime()
     industries = fetch_industry_realtime()
     concepts = fetch_concept_realtime()
+    # T+1 治理：6 商品 + 离岸人民币盘中实时直采（覆盖 T+1 日线函数的当日空值）
+    commodities = fetch_commodity_realtime()
+    fx = fetch_fx_realtime()
     is_closed, label = is_market_closed(at=collected_dt)
     is_hk_closed, _ = is_hk_market_closed(at=collected_dt)
     # 给每条指数加 is_closed（A 股按 15:00 判断，港股按 16:00 判断）
@@ -1211,6 +1516,8 @@ def build_snapshot() -> dict:
         "industries": industries,
         "concepts": concepts,
         "us_futures": us_futures,
+        "commodities": commodities,
+        "fx": fx,
     }
 
 
@@ -1258,6 +1565,21 @@ def collect_and_save() -> dict:
     # 失败不阻断快照本身（快照已落库落盘，反哺是增强）
     try:
         n_backfill = _backfill_index_daily(snap["indices"])
+        # T+1 治理：6 商品 + 离岸人民币 + cn10y_etf 盘中实时写 daily_metric（覆盖 T+1 当日空值）
+        # 失败不阻断（商品/外汇是增强，不影响指数/行业反哺核心流程）
+        n_comm = n_fx = n_cn10y_etf = 0
+        try:
+            n_comm = _backfill_commodity_metrics(snap.get("commodities", []))
+        except Exception as e:  # noqa: BLE001
+            print(f"[intraday] 商品 daily_metric 写入失败（不阻断）: {type(e).__name__} {e}", flush=True)
+        try:
+            n_fx = _backfill_fx_metric(snap.get("fx"))
+        except Exception as e:  # noqa: BLE001
+            print(f"[intraday] usdcnh daily_metric 写入失败（不阻断）: {type(e).__name__} {e}", flush=True)
+        try:
+            n_cn10y_etf = _backfill_cn10y_etf_metric(snap["indices"])
+        except Exception as e:  # noqa: BLE001
+            print(f"[intraday] cn10y_etf daily_metric 写入失败（不阻断）: {type(e).__name__} {e}", flush=True)
         # 盘中采 width/fund 指标（涨停/跌停/炸板率/成交额/涨跌家数）+ volume_ratio 重算
         # 需在 _backfill_index_daily 之后（volume_ratio 依赖当日 sh pct_change）
         width_res: dict = {}
@@ -1278,7 +1600,8 @@ def collect_and_save() -> dict:
         if n_backfill > 0 or n_ind > 0 or n_concept > 0 or width_n > 0:
             _export_affected_json(is_closed=snap["is_closed"])
             print(f"[intraday] 反哺+width+重算+export 完成"
-                  f"（{n_backfill} 指数 + {n_ind} 行业 + {n_concept} 概念反哺 + {width_n} width 指标）",
+                  f"（{n_backfill} 指数 + {n_ind} 行业 + {n_concept} 概念反哺 + {width_n} width 指标"
+                  f" + {n_comm} 商品 + {n_fx} usdcnh + {n_cn10y_etf} cn10y_etf）",
                   flush=True)
         else:
             print(f"[intraday] 无反哺（非交易日或快照非当日），跳过重算", flush=True)
