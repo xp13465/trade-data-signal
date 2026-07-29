@@ -5046,8 +5046,8 @@ function renderIntradaySection(sparkGrid, snap) {
 
   // 盘中启动1分钟动态刷新（无论展开与否，badge/chips 都需刷新）
   if (!isClosed) {
-    _intradayRenderCtx = { sparkGrid, snap };
     _startIntradayRefresh();
+    _intradayRenderCtx = { sparkGrid, snap };
   }
 
   // 连续失败暂停提示（隐藏，3次失败时显示）
