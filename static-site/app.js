@@ -4121,7 +4121,20 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey) {
     const ttl = `T+1数据源${_dlStr}才发布当日值，未到采集时刻显示前一交易日(${mmdd})属正常设计(非异常)，预计${_dlStr}更新`;
     return `<span class="card-time-badge t1-pending" data-tip="${ttl}">⏳ 待${_dlShort}更新·${mmdd}</span>`;
   }
-  const ttl = `数据滞后(末日 ${mmdd})，盘中等待刷新或update_all尚未运行`;
+  // t0源 dataDate<baseline(=snapDate今日) 的兜底分支: 按场景拆分消除"等盘中刷新或update_all尚未运行"误导
+  if (intraday) {
+    // 盘中: t0源应实时(snapDate=今日), dataDate<今日=该数据停更早
+    if (ptd && dataDate === ptd) {
+      // dataDate=前一交易日(ptd)=该数据实为T+1性质(盘后采集),盘中显示前一交易日属正常等待
+      const ttl = `T+1性质数据盘中显示前一交易日(${mmdd})属正常，盘后17:50 update_all采集后补全`;
+      return `<span class="card-time-badge t1-pending" data-tip="${ttl}">⏳ 待盘后更新·${mmdd}</span>`;
+    }
+    // dataDate<ptd=真异常(实时源已到今日但该数据停更早)
+    const ttl = `数据异常(末日${mmdd})，盘中实时源应已更新到今日，可能采集任务漏跑或数据源停更，请反馈`;
+    return `<span class="card-time-badge t1-stale" data-tip="${ttl}">⚠ 滞后·${mmdd}</span>`;
+  }
+  // 非盘中(盘后): dataDate<baseline=真滞后
+  const ttl = `数据滞后(末日 ${mmdd})，盘后update_all(17:50)采集后补全；过18:00仍未到=异常`;
   return `<span class="card-time-badge t1-stale" data-tip="${ttl}">⚠ 滞后·${mmdd}</span>`;
 }
 // 给卡片右上角追加盘中标注角标（absolute 不占位，pointer-events:none 不挡点击）
@@ -5099,6 +5112,29 @@ const OVERVIEW_PREDICT_TAIL_MS = 3 * 60 * 1000;    // 高频窗口尾部: 预测
 const OVERVIEW_HISTORY_MAX = 8;                     // 历史collected_at保留个数(中位数预测用)
 const OVERVIEW_PERIOD_MIN_MS = 5 * 60 * 1000;       // 周期异常下限(防数据污染): <5min不预测
 const OVERVIEW_PERIOD_MAX_MS = 30 * 60 * 1000;      // 周期异常上限: >30min视为跨天/中断,清空历史重攒
+// 关键时点1m刷新: intraday_snapshot launchd时点(9:25-15:35每10min共27个)±2min窗口内,
+// overview低频兜底从3min缩短到1min, 让盘中关键时点(每次快照推完)后<1min即拉到新数据.
+// 非关键时点保持3min低频(兜底铁律: delay<=3min, 关键时点更短).
+const _INTRADAY_SNAPSHOT_TIMES = [
+  9*60+25, 9*60+35, 9*60+45, 9*60+55,
+  10*60+5, 10*60+15, 10*60+25, 10*60+35, 10*60+45, 10*60+55,
+  11*60+5, 11*60+15, 11*60+25,
+  13*60+5, 13*60+15, 13*60+25, 13*60+35, 13*60+45, 13*60+55,
+  14*60+5, 14*60+15, 14*60+25, 14*60+35, 14*60+45, 14*60+55,
+  15*60+5, 15*60+35
+];
+// 当前北京时间是否在 intraday_snapshot 时点 ±2min 窗口内(关键刷新时刻)
+function _isKeyRefreshMoment() {
+  const bjMin = _bjTimeMin();
+  for (const t of _INTRADAY_SNAPSHOT_TIMES) {
+    if (Math.abs(bjMin - t) <= 2) return true;
+  }
+  return false;
+}
+// overview低频兜底delay: 关键时点1min / 非关键3min(<=3min兜底铁律)
+function _overviewRefreshDelay() {
+  return _isKeyRefreshMoment() ? 60 * 1000 : OVERVIEW_REFRESH_MS;
+}
 let _overviewRefreshTimer = null;
 let _overviewLastFetch = 0;
 let _overviewRefreshActive = false;
@@ -5178,7 +5214,7 @@ function _scheduleNextOverviewRefresh() {
              && (_overviewHighFreqStart - now) <= OVERVIEW_REFRESH_MS) {
     delay = _overviewHighFreqStart - now; // 窗口起点在3min内: 精确等到起点切高频
   } else {
-    delay = OVERVIEW_REFRESH_MS; // 低频兜底: 3min
+    delay = _overviewRefreshDelay(); // 低频兜底: 关键时点1min/非关键3min
   }
   _overviewNextFireAt = now + Math.max(1000, delay); // debug倒计时用
   _overviewRefreshTimer = setTimeout(() => {
@@ -5307,7 +5343,7 @@ function _updateRefreshDebug() {
   } else if (_overviewHighFreqStart && now < _overviewHighFreqStart) {
     status = '等预测窗口';
   } else {
-    status = '低频兜底';
+    status = _isKeyRefreshMoment() ? '低频兜底(关键1m)' : '低频兜底';
   }
   // 倒计时(基于 _overviewNextFireAt 算剩余秒数)
   let countdown;
@@ -5873,9 +5909,23 @@ async function renderOverview() {
       || k.id === "lhb_count"; // 2026-07-23 修复:这4项实为T+1性质源(盘后次日发布),漏配误走t0分支baseline=今日致盘后误判"滞后",与"数据更新规则"弹窗标T+1不一致
       // 2026-07-24 补配 lhb_count: 龙虎榜T+1(东财18:00发当日,lhb-backfill 18:30+19:30采集),T1_COLLECT_DEADLINE已配19:30但漏配本列表,
       // 致卡片走t0分支判"数据日期<今日=滞后",盘后/盘中误显⚠滞后7-24,与弹窗L3874"📅当日18点后"不一致
-    const _badge = k.disabled
+    let _badge = k.disabled
       ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
       : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
+    // 打 data-badge-* 属性, 让 refreshCardTimeBadges 的 .card-time-badge[data-badge-date] 选择器能选到KPI小卡角标并重绘
+    // (异常badge🚨不打属性, 避免被重绘成正常badge; 异常状态由后端恢复后重新渲染整卡)
+    if (_badge && !k.disabled) {
+      const _tmpWrap = document.createElement("div");
+      _tmpWrap.innerHTML = _badge;
+      const _badgeEl = _tmpWrap.firstElementChild;
+      if (_badgeEl) {
+        const _badgeSrc = _kpiT1 ? "t1" : "t0";
+        _badgeEl.setAttribute("data-badge-date", k.date || "");
+        _badgeEl.setAttribute("data-badge-src", _badgeSrc);
+        if (_kpiT1 && k.id) _badgeEl.setAttribute("data-badge-srckey", k.id);
+        _badge = _badgeEl.outerHTML;
+      }
+    }
     const _kpiTips = {
       a_fund_north: "北向资金=借沪深股通买A股的外资。净流入=外资净买入。2024-08起停更,保留历史。",
       a_fund_margin: "沪市融资余额=借钱买A股的杠杆资金。增加=杠杆做多情绪升。T+1。",
@@ -6358,7 +6408,7 @@ async function renderOverview() {
       maCard.innerHTML = maHtml;
       colB2.appendChild(maCard);
       appendPlainTip(maCard, "多头排列=短期均线在长期之上，趋势向上；反之趋势向下");
-      addCardTimeBadge(maCard, d.date, snap, "t0");
+      addCardTimeBadge(maCard, d.date, snap, "t1");
     }
   }).catch((e) => { renderFailCard(colB2, "&#x1F4C8; 均线排列", e); });
 
@@ -6389,7 +6439,7 @@ async function renderOverview() {
       posHtml += `</div>`;
       posCard.innerHTML = posHtml;
       colB2.appendChild(posCard);
-      addCardTimeBadge(posCard, posDates.length ? posDates[posDates.length - 1] : "", snap, "t0");
+      addCardTimeBadge(posCard, posDates.length ? posDates[posDates.length - 1] : "", snap, "t1");
     }
   }).catch((e) => { renderFailCard(colB2, "&#x1F4CD; 大盘位置感", e); });
 
@@ -6428,7 +6478,7 @@ async function renderOverview() {
       ];
       const adc = mkCard("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 300, null, colC1);
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
-      addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
+      addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t1");
       adc.setOption(withTheme({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["涨跌家数比", "腾落线", "腾落线MA20"] },
@@ -6469,7 +6519,7 @@ async function renderOverview() {
       ];
       const vrc = mkCard("📈 成交额与量比（近 120 日）" + termTip("量比=当日成交额/前5日均量。>1.5=放量(交投活跃),<0.7=缩量(清淡)。放量伴随涨跌更可信。") + latestSuffixMulti(vrSeries), 300, null, colC2);
       appendPlainTip(vrc, "量比>1.5为明显放量，<0.5为明显缩量");
-      addCardTimeBadge(vrc.getDom().parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t0");
+      addCardTimeBadge(vrc.getDom().parentElement, vrDates.length ? vrDates[vrDates.length - 1] : "", snap, "t1");
       vrc.setOption(withTheme({
         tooltip: { trigger: "axis", formatter: function(params) {
           const d = vrData[params[0].dataIndex];
@@ -6505,7 +6555,7 @@ async function renderOverview() {
       ];
       const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 280, null, colC1);
       appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
-      addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t0");
+      addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t1");
       nhlCard.setOption(withTheme({
         tooltip: { trigger: "axis" },
         legend: { top: 0, data: ["52周新高", "52周新低", "净新高"] },
