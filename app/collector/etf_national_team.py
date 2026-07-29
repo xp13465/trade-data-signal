@@ -112,6 +112,54 @@ def _fetch_one_backfill_worker(args, _max_retries: int = 2):
           f"{type(last_err).__name__} {last_err}", flush=True)
     return (code, name, [])
 
+
+def _run_with_processpool(worker, worker_args, max_workers: int = 8,
+                          label: str = "etf_nt") -> list:
+    """ProcessPool 执行 worker(args) 列表,返回 list of worker 返回值(顺序不保证)。
+
+    C3 加固(2026-07-29): 替代 faba0f08 直接 fallback 串行。
+    ProcessPool 崩溃(BrokenProcessPool/进程崩溃等)时重启 pool 1 次继续剩余任务,
+    仍失败才 fallback 串行保底(给 V8 单进程理论 SIGTRAP 再留一道重启防线)。
+
+    设计:
+    - 用索引追踪未完成 args,避免 arg 不可哈希/重复
+    - worker 内部已 try/except 全捕获返空,fut.result() 抛只可能是 ProcessPool 级异常
+    - 不用 max_tasks_per_child(Python 3.11 deadlock bug gh-115634,不可行)
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    results: list = []
+    pending_idx = list(range(len(worker_args)))  # 未完成的 args 索引
+
+    for attempt in range(2):  # 初次 + 1 次重启
+        if not pending_idx:
+            break
+        done_idx: set = set()
+        try:
+            with ProcessPoolExecutor(max_workers=max_workers) as _ex:
+                fut_to_idx = {_ex.submit(worker, worker_args[i]): i
+                              for i in pending_idx}
+                for fut in as_completed(fut_to_idx):
+                    idx = fut_to_idx[fut]
+                    # worker 内部已 catch 全异常返空,这里 fut.result() 抛只可能是
+                    # ProcessPool 级异常(BrokenProcessPool/进程崩溃),抛到外层重启 pool
+                    results.append(fut.result())
+                    done_idx.add(idx)
+            pending_idx = []
+            break
+        except Exception as e:  # noqa: BLE001  ProcessPool 级异常(BrokenProcessPool 等)
+            pending_idx = [i for i in pending_idx if i not in done_idx]
+            if attempt == 0:
+                print(f"  [{label}] WARNING ProcessPool 异常({type(e).__name__}: {e}), "
+                      f"重启 pool 继续剩余 {len(pending_idx)} 任务", flush=True)
+            else:
+                print(f"  [{label}] WARNING 重启后仍异常({type(e).__name__}: {e}), "
+                      f"fallback 串行采集 {len(pending_idx)} 只", flush=True)
+                for i in pending_idx:
+                    results.append(worker(worker_args[i]))
+                pending_idx = []
+    return results
+
 # ── 路径与常量 ──────────────────────────────────────────────────────────────────
 _DATA_DIR = Path(__file__).absolute().parent.parent.parent / "data"
 DB_PATH = _DATA_DIR / "etf_national_team.db"
@@ -998,26 +1046,16 @@ def pipeline_daily() -> dict:
     #    ProcessPoolExecutor 每进程独立 V8 isolate 进程隔离不撞;
     #    mootdx client 每进程懒创建(_get_worker_tdx);upsert 串行(SQLite conn 不支持并发写)。
     #    B4 稳定性(2026-07-24):ProcessPool 崩溃(BrokenProcessPool 等)时 fallback 串行采集保底。
-    from concurrent.futures import ProcessPoolExecutor, as_completed
-    from concurrent.futures.process import BrokenProcessPool
     universe = universe_etf_codes(refresh=True)  # 每日刷新清单(新发ETF自动纳入)
     _ohlc_start = (dt.datetime.now() - dt.timedelta(days=15)).strftime("%Y%m%d")
 
     # 并发 fetch(每进程独立 V8 isolate,8 进程=CPU 核数)
+    # C3(2026-07-29): ProcessPool 崩溃重启 pool 1 次,仍失败才 fallback 串行(替代 faba0f08 直接 fallback)
     print(f"  [etf_nt] 并发采集 {len(universe)} 只ETF(ProcessPool max_workers=8)...", flush=True)
     _t_fetch = time.time()
     _worker_args = [(code, name, _mkt, _ohlc_start) for code, name, _mkt in universe]
-    results: list = []
-    try:
-        with ProcessPoolExecutor(max_workers=8) as _ex:
-            futures = [_ex.submit(_fetch_one_ohlc_worker, a) for a in _worker_args]
-            for fut in as_completed(futures):
-                results.append(fut.result())
-    except (BrokenProcessPool, Exception) as e:  # noqa: BLE001
-        # ProcessPool 崩溃(BrokenProcessPool)/submit/result 异常时 fallback 串行保底,不崩 launchd
-        print(f"  [etf_nt] WARNING ProcessPool 异常({type(e).__name__}: {e}), "
-              f"fallback 串行采集 {len(_worker_args)} 只", flush=True)
-        results = [_fetch_one_ohlc_worker(a) for a in _worker_args]
+    results = _run_with_processpool(
+        _fetch_one_ohlc_worker, _worker_args, max_workers=8, label="etf_nt.daily")
     print(f"  [etf_nt] 并发采集完成 {time.time()-_t_fetch:.1f}s", flush=True)
 
     # 串行 upsert(SQLite conn 不支持并发写)
@@ -1092,7 +1130,7 @@ def pipeline_intraday_close() -> dict:
     print(f"  目标日期={ltd}(当日 close,share T+1 未发留 NULL 触发预估)", flush=True)
     stats = {"ohlc": 0, "signals": 0}
 
-    # 复用 mootdx client(fallback 时避免每只ETF重新选服务器)
+    # probe 试探用 mootdx client(主进程单次,不撞 SIGTRAP);剩余 ETF 走 ProcessPool(worker 进程内 _get_worker_tdx 懒创建)
     from .mootdx_daily import tdx_client
     _tdx = tdx_client(market="std")
 
@@ -1128,27 +1166,35 @@ def pipeline_intraday_close() -> dict:
             stats["ohlc"] += n
             print(f"  {PROBE_CODE} {PROBE_NAME}: close={probe_rows[0]['close']:.4f} "
                   f"amount={probe_rows[0]['amount']:.0f} 入库(试探即采)", flush=True)
-        for code, name, _idx, _mkt in ETF_LIST:
-            if probe_rows and code == PROBE_CODE:
-                continue  # 已在试探时入库,跳过省一次重复采集
-            try:
-                rows = fetch_etf_ohlc(code, start_yyyymmdd=ltd, client=_tdx)
-                # 只取当日那一行(fetcher 返回 >=ltd 的全历史,过滤当日)
-                rows = [r for r in rows if r["date"] == ltd]
-                if not rows:
-                    print(f"  {code} {name}: 当日({ltd}) close 未采到(sina/mootdx 未出,跳过)",
-                          flush=True)
-                    continue
-                for r in rows:
-                    r["etf_name"] = name
-                # upsert close/open/high/low/amount;fund_share/share_change 不写保持 NULL
-                n = _upsert_daily(conn, rows,
-                                  ["etf_name", "open", "high", "low", "close", "amount"])
-                stats["ohlc"] += n
-                print(f"  {code} {name}: close={rows[0]['close']:.4f} amount={rows[0]['amount']:.0f} 入库",
+        # 方案A(2026-07-29): 剩余 ETF 走 ProcessPool(进程隔离 V8 isolate,防单进程理论 SIGTRAP)
+        # probe_rows 非空: 跳过 510050(已试探入库); probe_rows 空(异常降级): 全 12 只
+        # 复用 _fetch_one_ohlc_worker(pickle-able + 进程级 _get_worker_tdx 懒创建)
+        # C3: ProcessPool 崩溃重启 pool 1 次,仍失败才 fallback 串行(不撞主进程)
+        _intraday_args = [
+            (code, name, mkt, ltd) for code, name, _idx, mkt in ETF_LIST
+            if not (probe_rows and code == PROBE_CODE)
+        ]
+        print(f"  [etf_nt] intraday 并发采集 {len(_intraday_args)} 只ETF"
+              f"(ProcessPool max_workers=4)...", flush=True)
+        _t_fetch = time.time()
+        _results = _run_with_processpool(
+            _fetch_one_ohlc_worker, _intraday_args, max_workers=4, label="etf_nt.intraday")
+        print(f"  [etf_nt] intraday 并发采集完成 {time.time()-_t_fetch:.1f}s", flush=True)
+        for code, name, rows in _results:
+            # 只取当日那一行(fetcher 返回 >=ltd 的全历史,过滤当日)
+            rows = [r for r in rows if r["date"] == ltd]
+            if not rows:
+                print(f"  {code} {name}: 当日({ltd}) close 未采到(sina/mootdx 未出,跳过)",
                       flush=True)
-            except Exception as e:  # noqa: BLE001
-                print(f"  [ohlc] {code} 失败: {type(e).__name__} {e}", flush=True)
+                continue
+            for r in rows:
+                r["etf_name"] = name
+            # upsert close/open/high/low/amount;fund_share/share_change 不写保持 NULL
+            n = _upsert_daily(conn, rows,
+                              ["etf_name", "open", "high", "low", "close", "amount"])
+            stats["ohlc"] += n
+            print(f"  {code} {name}: close={rows[0]['close']:.4f} amount={rows[0]['amount']:.0f} 入库",
+                  flush=True)
     else:
         print(f"  [probe] {PROBE_CODE} {PROBE_NAME} 当日({ltd}) close 未就绪(sina/mootdx 未出),"
               f"跳过 12 只批量采省~170s,末日仍为昨日(等 20:07 backfill 兜底)", flush=True)
@@ -1217,23 +1263,13 @@ def pipeline_backfill(start: str = DEFAULT_START) -> dict:
     #    B4 稳定性(2026-07-24):ProcessPool 崩溃(BrokenProcessPool 等)时 fallback 串行采集保底。
     universe = universe_etf_codes(refresh=True)
     print(f"[etf_nt] 1/4 OHLC（sina+mootdx, 全市场 {len(universe)} 只 ETF, ProcessPool 并发8）...", flush=True)
-    from concurrent.futures import ProcessPoolExecutor, as_completed
-    from concurrent.futures.process import BrokenProcessPool
 
     # 并发 fetch(每进程独立 V8 isolate,8 进程)
+    # C3(2026-07-29): ProcessPool 崩溃重启 pool 1 次,仍失败才 fallback 串行(替代 faba0f08 直接 fallback)
     _t_fetch = time.time()
     _worker_args = [(code, name, _mkt, start) for code, name, _mkt in universe]
-    results: list = []
-    try:
-        with ProcessPoolExecutor(max_workers=8) as _ex:
-            futures = [_ex.submit(_fetch_one_backfill_worker, a) for a in _worker_args]
-            for fut in as_completed(futures):
-                results.append(fut.result())
-    except (BrokenProcessPool, Exception) as e:  # noqa: BLE001
-        # ProcessPool 崩溃(BrokenProcessPool)/submit/result 异常时 fallback 串行保底,不崩 launchd
-        print(f"[etf_nt] WARNING ProcessPool 异常({type(e).__name__}: {e}), "
-              f"fallback 串行采集 {len(_worker_args)} 只", flush=True)
-        results = [_fetch_one_backfill_worker(a) for a in _worker_args]
+    results = _run_with_processpool(
+        _fetch_one_backfill_worker, _worker_args, max_workers=8, label="etf_nt.backfill")
     print(f"  [etf_nt] 并发采集完成 {time.time()-_t_fetch:.1f}s", flush=True)
 
     # 串行 upsert(SQLite conn 不支持并发写)
