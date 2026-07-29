@@ -5573,6 +5573,12 @@ function _isMobileUA() {
   return /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(navigator.userAgent || '');
 }
 
+// Safari 检测（桌面 Safari 6+ 支持 Notification，但有 permission 不同步 bug + SW message event showNotification 限制）
+function _isSafari() {
+  const ua = navigator.userAgent || '';
+  return /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edge|Edg|FxiOS/i.test(ua);
+}
+
 // 用户偏好读写（localStorage 持久化跨会话）
 function _loadNotifyPref() {
   try { return localStorage.getItem(NOTIFY_STORAGE_KEY) === '1'; } catch (e) { return false; }
@@ -5584,6 +5590,14 @@ function _saveNotifyPref(on) {
 // 当前通知权限状态
 function _notifyPerm() {
   if (!('Notification' in window)) return 'denied';
+  // Safari 已知 bug: Notification.permission 静态属性可能滞后/不同步（站点设置允许但 API 返回 denied）
+  // 优先读 sessionStorage 缓存的最近一次 requestPermission Promise 返回值
+  if (_isSafari()) {
+    try {
+      const cached = sessionStorage.getItem('ts_notify_perm_cache');
+      if (cached === 'granted' || cached === 'denied') return cached;
+    } catch (e) {}
+  }
   return Notification.permission;
 }
 
@@ -5592,7 +5606,12 @@ async function requestNotifyPermission() {
   if (!('Notification' in window)) return 'denied';
   if (_isMobileUA()) return 'denied'; // 移动端跳过
   try {
-    return await Notification.requestPermission();
+    const p = await Notification.requestPermission();
+    // Safari: 缓存 Promise 返回值（静态属性可能不同步）
+    if (_isSafari()) {
+      try { sessionStorage.setItem('ts_notify_perm_cache', p); } catch (e) {}
+    }
+    return p;
   } catch (e) { return 'denied'; }
 }
 
@@ -5646,6 +5665,13 @@ function showNotification(title, body, tag, clickAction) {
   if (_notifyPerm() !== 'granted') { console.warn('[notify] permission非granted，跳过'); return false; }
   if (_isMobileUA()) return false;
   const notifData = clickAction || {};
+  // Safari: 不走 SW message event -> showNotification（Apple 限制仅 push event 支持）
+  // 桌面 Safari 6+ 支持页面级 new Notification()，直接走此路径
+  if (_isSafari()) {
+    console.log('[notify] Safari 走页面 new Notification（绕开 SW message event 限制）');
+    _fallbackNewNotification(title, body, tag, notifData);
+    return true;
+  }
   try {
     if (navigator.serviceWorker) {
       // controller 存在: 直接 postMessage
@@ -5891,7 +5917,9 @@ function initNotifyButton() {
     if (perm === 'denied') {
       btn.classList.add('off');
       btn.classList.remove('on');
-      btn.title = '通知被浏览器屏蔽，去浏览器设置恢复权限后重试';
+      btn.title = _isSafari()
+        ? 'Safari 通知权限不同步（已知 bug）。请到 Safari > 设置 > 网站 > 通知 移除本站后，完全退出 Safari (Cmd+Q) 重开，再点铃铛授权'
+        : '通知被浏览器屏蔽，去浏览器设置恢复权限后重试';
       btn.textContent = '🔕';
     } else if (enabled && perm === 'granted') {
       btn.classList.add('on');
@@ -5918,7 +5946,17 @@ function initNotifyButton() {
     }
     const perm = _notifyPerm();
     if (perm === 'denied') {
-      alert('浏览器通知已被屏蔽，请在浏览器设置（隐私和安全 -> 通知）中恢复权限后重试。');
+      if (_isSafari()) {
+        alert('Safari 通知权限被拒或权限状态不同步。\n\n' +
+              'Safari 已知 bug：即使站点设置允许，Notification.permission 可能仍为 denied。\n\n' +
+              '恢复方法：\n' +
+              '1. Safari > 设置 > 网站 > 通知，找到本站点击"移除"\n' +
+              '2. 完全退出 Safari（Cmd+Q）后重新打开\n' +
+              '3. 重新点击铃铛授权\n\n' +
+              '或建议使用 Chrome 获得更稳定的通知体验。');
+      } else {
+        alert('浏览器通知已被屏蔽，请在浏览器设置（隐私和安全 -> 通知）中恢复权限后重试。');
+      }
       return;
     }
     // 方案A: 记录开启前权限状态，仅 default->granted 首次开启才弹欢迎测试通知（避免每次开关都骚扰）
@@ -5948,7 +5986,7 @@ function initNotifyButton() {
     }
     // 确保 permission
     if (_notifyPerm() !== 'granted') {
-      Notification.requestPermission().then(p => {
+      requestNotifyPermission().then(p => {
         if (p === 'granted') {
           updateBtnState();
           _doTestNotify();
