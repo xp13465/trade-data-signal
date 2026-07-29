@@ -5661,6 +5661,17 @@ function initNotifyButton() {
     document.querySelector('header')?.appendChild(btn);
   }
 
+  // 方案B: 试看按钮（仅开启+granted 状态显示，点击弹测试通知重测功能）
+  // 继承 pc-notify-btn 样式(含 @media 移动端隐藏)，inline 覆盖差异(更小字号+更紧间距)
+  const testBtn = document.createElement('button');
+  testBtn.className = 'notify-btn pc-notify-btn pc-notify-test-btn';
+  testBtn.type = 'button';
+  testBtn.setAttribute('aria-label', '试看测试通知');
+  testBtn.textContent = '试看';
+  testBtn.title = '点击弹一条测试通知，验证浏览器通知功能正常工作';
+  testBtn.style.cssText = 'margin-left:4px;padding:5px 10px;font-size:12px;display:none;';
+  btn.parentNode?.insertBefore(testBtn, btn.nextSibling);
+
   // 状态更新（根据偏好+权限切换图标/样式）
   function updateBtnState() {
     const enabled = _loadNotifyPref();
@@ -5673,13 +5684,15 @@ function initNotifyButton() {
     } else if (enabled && perm === 'granted') {
       btn.classList.add('on');
       btn.classList.remove('off');
-      btn.title = '浏览器通知已开启（点击关闭）';
+      btn.title = '浏览器通知已开启（点击关闭，右侧"试看"可重测通知）';
       btn.textContent = '🔔';
     } else {
       btn.classList.remove('on', 'off');
       btn.title = '点击开启浏览器通知（盘中异动/新信号弹 Windows 通知中心）';
       btn.textContent = '🔔';
     }
+    // 方案B: 试看按钮只在已开启+granted 状态显示（display:'' 回退 CSS, 移动端 @media 仍隐藏）
+    testBtn.style.display = (enabled && perm === 'granted') ? '' : 'none';
   }
   updateBtnState();
 
@@ -5696,17 +5709,29 @@ function initNotifyButton() {
       alert('浏览器通知已被屏蔽，请在浏览器设置（隐私和安全 -> 通知）中恢复权限后重试。');
       return;
     }
+    // 方案A: 记录开启前权限状态，仅 default->granted 首次开启才弹欢迎测试通知（避免每次开关都骚扰）
+    const wasGranted = (perm === 'granted');
     if (perm !== 'granted') {
       const p = await requestNotifyPermission();
       if (p !== 'granted') { updateBtnState(); return; }
     }
     _saveNotifyPref(true);
     updateBtnState();
-    // 弹测试通知确认开启成功
-    showNotification('🔔 通知已开启',
-      '盘中异动/新信号/预警将弹 Windows 通知中心', 'test_enable_' + Date.now());
+    // 方案A: 首次开启（权限 default->granted）自动弹欢迎测试通知，让用户立即看到效果验证功能正常
+    if (!wasGranted) {
+      showNotification('通知已开启 ✅',
+        '您将收到盘中信号/异常提醒。本条为测试通知，确认通知功能正常工作', 'test-welcome');
+    }
     // 立即检测一次（不等下次 overview 刷新）
     _checkNotifications();
+  });
+
+  // 方案B: 试看按钮点击 -> 弹测试通知（tag 用时间戳避免去重，每次点都弹新通知）
+  testBtn.addEventListener('click', () => {
+    if (!_loadNotifyPref() || _notifyPerm() !== 'granted') return;
+    showNotification('测试通知 🔔',
+      '浏览器通知功能正常工作中 ' + new Date().toLocaleTimeString(),
+      'test-preview-' + Date.now());
   });
 
   // 跨标签页同步（storage 事件：另一 tab 开关通知，本 tab 按钮状态同步）
