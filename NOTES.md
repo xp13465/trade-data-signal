@@ -4719,3 +4719,63 @@ if (!isClosed) {
 2. **新功能验证"无痕模式仍不生效"先查 Console 状态变量**：AZ63 上线后用户无痕模式验证不生效，根因不是 AZ63 改动错，而是历史遗留 bug 让 AZ63 改动所在的回调函数永不执行。下次新功能上线验证不生效时，先 Console 打印相关状态变量（`_intradayRenderCtx`/`_overviewRefreshing` 等）确认回调链路是否走到，再排查改动本身，避免误判"自己改动错"反复改正确代码（同 AZ59 deploy.sh rebase 二进制冲突教训：表象与根因常错位，先诊断再动手）。
 3. **历史遗留 bug 的潜伏条件 = 新功能依赖才暴露**：`renderIntradaySection` 顺序 bug 历史遗留，原 `_doIntradayRefresh` 回调里只有曲线/右上角 pct 更新（overview refresh 3min 顺带渲染掩盖了 1min 定时器失效），用户视觉看不出。AZ63 把底部 + 角标更新塞进 `_doIntradayRefresh` 才让 1min 定时器失效暴露（新功能依赖历史 bug 没跑的代码路径）。下次给历史函数加新逻辑前，先 grep 确认该函数的调用链路是否真能跑到（Console 打印验证），避免新逻辑加在死代码上。
 4. **AZ63 + AZ64 两 commit 配合才完整修复**：AZ63 加 4 处改动（语义正确但跑不到）+ AZ64 修顺序 bug（让 AZ63 跑到），缺一不可。单看 AZ63 的 diff 看不出问题（4 处改动语义都对），单看 AZ64 的 diff 只见 2 行顺序交换看不出价值。下次验收"功能不生效"类 bug 修复时，要确认修复 commit 让原不生效的改动真正跑到（Console 验证状态变量 + 视觉验证），不能只看 commit diff 表面。
+
+---
+
+### 小节AZ65：2026-07-29 晚续5 刷新后立即更新分时图底部+角标（不等1min首次 _doIntradayRefresh）
+
+> AZ64 修复顺序 bug 后 `_doIntradayRefresh` 恢复 1min 工作，但用户反馈刷新页面后角标 + 底部先维持在 13:55，要等 1min+ 才开始动态更新。根因是 `_startIntradayRefresh` 首次 `setTimeout(_doIntradayRefresh, 60000)`，刷新后要等 1min 才首次更新。
+
+**背景**：AZ64 上线后用户反馈：刷新页面后分时图角标 + 底部 spark-foot 先维持在上一次快照时间（如 13:55），要等约 1min 才开始 1min 动态更新。说明首次更新延迟过大，刷新瞬间用户看到的是"旧数据 + 静态"，体验割裂。
+
+**根因**：`_startIntradayRefresh` L5067 调 `_scheduleNextRefresh`，首次 `failCount=0` -> `_delay=INTRADAY_REFRESH_MS=1min` -> `setTimeout(_doIntradayRefresh, 60000)`。刷新页面后定时器第一次跑要等满 1min，期间曲线 + 底部 + 角标全是 `renderIntradaySection` 渲染的快照静态值（snap.datetime 10min 滞后），用户看到"旧数据 + 静态"1min 才切到动态。
+
+**修复**（commit `a6907d1d`, sw a66）：`renderIntradaySection` L5048-5056 设 ctx 后立即调 `_doIntradayRefresh()`，用腾讯实时价立即更新曲线 + 底部 spark-foot + 角标时间，不等 1min。`_doIntradayRefresh` 末尾 `_scheduleNextRefresh` 清掉 `_startIntradayRefresh` 设的 1min timer 并重设（避免重复调度）；`_refreshDynamicAll` 与 `renderOverview` L6477 调用共用 `fetchTencentMinute` in-flight 去重，重复 fetch 可控。
+
+修复后刷新页面瞬间即用腾讯实时价更新曲线 + 底部 + 角标，无需等 1min。
+
+**验证**：3 域名 curl 确认 sw.js `CACHE_VERSION=a66`（`ss.fx8.store` + `sss.sugas.site` + `s.sugas.site`，memory `deploy-verify-3-sites`：3 域名任一验证到新版即算上线 OK）。FF push main。
+
+**关联**：AZ63（4处改动语义正确）+ AZ64（顺序 bug 让 AZ63 跑到）+ AZ65（刷新后立即更新）+ AZ66（角标范围限制）= 分时图卡片元素 1min 同步更新完整修复链。AZ63-AZ64-AZ65-AZ66 四 commit 配合。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `a6907d1d` | 刷新后立即更新分时图底部+角标(renderIntradaySection 设ctx后立即调 _doIntradayRefresh 用腾讯实时价,不等1min首次;末尾 _scheduleNextRefresh 清旧timer重设不重复调度;fetchTencentMinute in-flight去重); sw a65->a66 |
+
+**教训**
+
+1. **首次更新延迟应零等待**：定时器设计 `setTimeout(fn, delay)` 首次延迟 delay，但用户刷新页面期望"立即看到最新数据"而非"等满周期才更新"。对实时性强的卡片（分时图），渲染完即调一次 refresh（用实时数据源）消除首帧静态，定时器只负责后续周期。下次设计定时器刷新逻辑时，渲染入口 + 定时器分离，渲染入口立即调一次，定时器只管周期。
+2. **同 fetch 多路径调用走 in-flight 去重**：`_doIntradayRefresh`（1min）+ `_refreshDynamicAll` + `renderOverview`（3min）都可能调 `fetchTencentMinute`，重复请求浪费带宽 + 状态竞争。in-flight 去重（同 URL Promise 共享）是多路径调用的标配防御，不能假设"周期不同不会撞"。
+3. **定时器调度清旧重设防重复**：`_startIntradayRefresh` 设 1min timer 后 `_doIntradayRefresh` 末尾又调 `_scheduleNextRefresh`，若不清旧 timer 会两个 timer 并行（重复调度）。下次"立即调 + 周期调度"组合时，立即调的函数末尾清旧 timer 重设，保证任一时刻只有一个 timer 在跑。
+
+---
+
+### 小节AZ66：2026-07-29 晚续6 角标1min动态只限分时图指数卡片，其他卡片用后端快照时间（AZ65 副作用隔离）
+
+> AZ65 上线后用户反馈"其他卡片角标也跟着分时图 1min 动态更新了"，应该只分时图指数卡片用腾讯 1min 时间，其他卡片用后端快照时间。根因是 `getCardTimeBadge` 方案B `_intradayDynamicTime` 分支对所有 t0 盘中卡片生效 + `refreshCardTimeBadges` 重绘所有 `.card-time-badge`。
+
+**背景**：AZ65 上线后用户反馈：KPI 小卡 / ETF / 板块等所有盘中卡片角标也跟着分时图 1min 动态更新了，应该只分时图指数卡片用腾讯 1min 时间（与曲线主数据源同粒度），其他卡片用后端快照时间（snap.datetime 10min，与各自卡片主数据源同粒度）。说明 AZ63 角标时间切 `_intradayDynamicTime` 改动范围过大。
+
+**根因**：`getCardTimeBadge`（L4077）方案B `_intradayDynamicTime`（L4113）在 `intraday && snapDate && dataDate===snapDate` 分支对所有 t0 盘中卡片生效（不区分卡片类型）+ `refreshCardTimeBadges`（L5128 在 `_doIntradayRefresh` 内）更新所有 `.card-time-badge` -> KPI 小卡 / ETF / 板块等所有盘中卡片角标变 1min 动态，但这些卡片主数据源是后端 10min 快照（非腾讯 1min），角标 1min 动态与主数据 10min 滞后矛盾（视觉上角标频繁变但数据不变）。
+
+**修复**（commit `221c4624`, sw a67）：`getCardTimeBadge` 加 `isIndexSpark` 参数（默认 false），方案B分支改为 `_useDyn = isIndexSpark && _intradayDynamicTime`（只 `isIndexSpark=true` 用 1min，否则用 `snap.datetime` 10min 原逻辑）。`addCardTimeBadge` 加 `isIndexSpark` 参数 + 仅 true 时打 `data-badge-isdyn="1"` 属性。`refreshCardTimeBadges` 从 `data-badge-isdyn` 取 `isIndexSpark` 传给 `getCardTimeBadge` + 重绘保留属性。`spark-cell`（L6486）调 `addCardTimeBadge(...,true)` `isIndexSpark=true`；KPI 小卡 / 指数图表卡 / 行业 `spark-cell`（t1）不传（默认 false）走原逻辑。
+
+修复后只有分时图指数 spark-cell 卡片角标 1min 动态（与曲线同源），其他卡片角标用后端快照时间（与各自主数据同源）。
+
+**验证**：3 域名 curl 确认 sw.js `CACHE_VERSION=a67`（`ss.fx8.store` + `sss.sugas.site` + `s.sugas.site`）。`isIndexSpark` 15 处 / `data-badge-isdyn` 5 处 grep 确认改动范围。FF push main。
+
+**关联**：AZ63-AZ64-AZ65-AZ66 四 commit 配合完整修复分时图卡片元素同步：AZ63 加 4 处改动（语义正确）+ AZ64 修顺序 bug（让 AZ63 跑到）+ AZ65 刷新后立即更新（不等 1min）+ AZ66 角标范围限制（只分时图指数卡片用 1min）。缺一不可。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `221c4624` | 角标1min动态只限分时图指数卡片(getCardTimeBadge/addCardTimeBadge 加 isIndexSpark 参数,方案B分支改 _useDyn=isIndexSpark&&_intradayDynamicTime,仅 true 打 data-badge-isdyn,refreshCardTimeBadges 从属性取值重绘;spark-cell=true 其他卡片默认 false 走原逻辑); sw a66->a67 |
+
+**教训**
+
+1. **角标时间源必须与卡片主数据源同粒度且按卡片类型区分**：AZ63 教训③已提"角标时间源必须与卡片主数据源同粒度"，但 AZ63 实施时把所有 t0 盘中卡片角标都切到腾讯 1min，违反了自己的教训（KPI/ETF/板块主数据是后端 10min 快照，角标 1min 与主数据 10min 矛盾）。下次实施"角标同粒度"时，按卡片类型区分数据源（分时图 spark-cell 主数据是腾讯 1min -> 角标 1min；其他卡片主数据是后端 10min -> 角标 10min），不能一刀切。
+2. **副作用隔离用显式参数标记**：`isIndexSpark` 参数 + `data-badge-isdyn` 属性是显式标记"这个卡片用动态时间"，比隐式按卡片类型判断更可控（属性跟随 DOM 元素，refresh 时从属性取值不会丢失）。下次"某类卡片用特殊逻辑"时，用显式属性标记 + 重绘保留属性，避免按类型隐式判断在 refresh 路径丢失标记。
+3. **AZ63-AZ64-AZ65-AZ66 四 commit 配合才完整修复**：AZ63 加 4 处改动（语义正确但跑不到）+ AZ64 修顺序 bug（让 AZ63 跑到）+ AZ65 刷新后立即更新（消除 1min 首次延迟）+ AZ66 角标范围限制（隔离 1min 动态只到分时图指数卡片）。四 commit 缺一不可，任一缺失都有视觉割裂（AZ63 缺 -> 不更新；AZ64 缺 -> 不生效；AZ65 缺 -> 刷新后等 1min；AZ66 缺 -> 其他卡片角标乱动）。
