@@ -49,12 +49,14 @@ fi
 
 # 0.5 防通配带入工作区残留旧版 intraday 文件（事故 94c79041 直接根因）
 # deploy.sh git add static-site/data/ 通配会带入工作区任何残留文件。
-# 跑 export.py 前先恢复 intraday_snapshot.json/.gz 到 origin/main 版（清工作区残留），再 unstage 保持 index 干净。
+# 跑 export.py 前先恢复 intraday_snapshot.json/.gz + notifications.json/.gz 到 origin/main 版（清工作区残留），再 unstage 保持 index 干净。
 # export.py 随后重新生成覆盖；若 export.py 读滞后 DB 生成旧版（DB 不同步根因），此处无法防，需 symlink 方案。
-echo "-> 恢复 intraday_snapshot.json/.gz 到 origin/main 版（防工作区残留带入通配 add）..." | tee -a "$LOG"
+# 2026-07-29 修复 a74 回归（commit 16110044）：a74 让 intraday_snapshot/export_notifications 生成 notifications.json/.gz，
+# deploy.sh 原只恢复 intraday_snapshot 致 rebase 时 untracked notifications.json.gz checkout 冲突，futures+etf deploy 连续2天失败。
+echo "-> 恢复 intraday_snapshot.json/.gz + notifications.json/.gz 到 origin/main 版（防工作区残留带入通配 add）..." | tee -a "$LOG"
 git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
-git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz 2>/dev/null && \
-  git -C "$GIT_REPO" reset HEAD -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz 2>/dev/null || true
+git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz static-site/data/notifications.json static-site/data/notifications.json.gz 2>/dev/null && \
+  git -C "$GIT_REPO" reset HEAD -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz static-site/data/notifications.json static-site/data/notifications.json.gz 2>/dev/null || true
 
 # 0.8 刷新 board_etf_map.json（P2-新-G ETF 联动 tag 数据源：行业/概念关键词匹配
 # + 10 宽基/红利指数代码精确匹配，akshare fund_etf_spot_em() 联网 ~15s）。
