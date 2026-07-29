@@ -5012,3 +5012,10 @@ if (!isClosed) {
 2. check_nt_signals 无跨日去重是设计缺陷（对比 check_signals 有 signal_notified.json），每次跑发 MAX(date) 旧信号。新发邮件脚本必加跨日去重
 3. export_notifications 只读 sentiment.db.signal_daily（A股指数信号），不读 etf_national_team.db.etf_signal。邮件 etf 信号走 check_nt_signals 独立链路。notifications.json signals 无 etf 是设计（两库两表两脚本），非 bug。如要浏览器通知也弹 etf，需 export_notifications 加读 etf_signal（未来增强）
 4. 7-29 fund_share 全 NULL 是 ETF 份额 T+1 发布正常延迟，非采集 bug。check_nt_signals 标注 "T-N数据" 已正确提示
+
+### AZ75 未来增强闭环 + 主站 sw.js a75（2026-07-29 22:09）
+- **export_notifications 加读 etf_signal**（commit 90b8e1ce）：`_load_etf_signals(date)` L156 读 etf_national_team.db.etf_signal，ETF_SIGNAL_MAP(share_surge->etf_buy/share_outflow->etf_sell/volume_surge->etf_volume) + ETF_NAME_MAP(12只宽基) + 合并到 signals L377（source='etf' 标记）
+- **浏览器通知弹 etf**：app.js L5861-5866 加 etf_buy(🐾进场红)/etf_sell(🐾离场绿)/etf_volume(🐾放量橙) 分支 + _handleNotifyClick L5773 加 OPEN_ETF_DETAIL case（openNtDayModal 弹汪汪队信号明细 modal）
+- **sw.js a74->a75**：CACHE_VERSION L16 + NetworkFirst 扩大到 notifications.json L88；app.min.js 重建 + index.html ?v=a5d12a48
+- **主站 sw.js a74->a75 一箭双雕**：commit 057fa74f push main 触发 CF Workers deploy 生效（之前 a74 卡 CF Workers deploy 延迟，push main 057fa74f 后 a75）。验收主站+备站 sw.js=a75，线上 notifications generated_at=22:09:07（非旧版10:44）
+- **7-29 etf_signals=0 正常**：fund_share T+1 延迟无新信号，notifications.json 结构含 source='etf' 逻辑即可（未来 7-30 有信号时弹）

@@ -913,6 +913,14 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - 明天验证: 浏览器通知a74 + deploy.sh修复 + A1去重(首次发一次7-20后跳过)
 - rzhb schedule T+1 08:00确认(今晚没跑,是改时点还是漏跑)
 - 未来增强: export_notifications加读etf_signal(浏览器通知也弹etf,当前notifications.json signals无etf)
+- ✅ 完成 commit 90b8e1ce + 057fa74f（export_notifications 读 etf + app.js etf_buy/sell/volume + OPEN_ETF_DETAIL + sw.js a75 主站上线）
 
 **主控验收**: grep确认NOTES AZ74+TASKS续28+3 commit链+push全成功
+
+## 明天 7-30 验证清单
+- [ ] 浏览器通知 a75：开盘后 intraday_snapshot 09:35 生成 notifications.json（B2 修复 export_notifications 在 push 前）+ 即时 push，前端 30s 轮询拉取 + showNotification
+- [ ] deploy.sh a74 回归修复：02:00 backfill_evening + 20:05 futures/20:07 etf 首触 deploy 不再冲突
+- [ ] A1 check_nt_signals 跨日去重：nt_signal_notified.json 明天首次发一次 7-20（设计，后天起跳过）
+- [ ] B2 intraday notifications 即时 push：notifications 滞后 10min 根治
+- [ ] 未来增强 etf 通知：7-30 有 etf 信号时浏览器弹 🐾 ETF进场/离场/放量，点通知弹汪汪队信号明细 modal
 
