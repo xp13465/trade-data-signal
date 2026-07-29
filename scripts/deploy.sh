@@ -262,16 +262,23 @@ if [ "$PUSH_RC" -ne 0 ]; then
     # 2026-07-24 stash预防（事故根因：工作区有 tracked M 文件如 signal_stats.json/
     # sw_components.json/TASKS.md 时，rebase 报 "cannot rebase: you have unstaged changes" 失败）：
     # rebase 前自动 stash tracked M 文件，rebase 后两条路径（成功 push 后 / 失败 abort 后）都 pop 恢复。
-    # 只 stash tracked M（不加 -u），不碰 untracked DB（sentiment.db/etf_national_team.db 已 gitignore）。
+    # 只 stash static-site/data/ 目录（pathspec 限定），含 tracked M + untracked（--include-untracked），
+    # 不碰根 data/ 的 DB（sentiment.db/etf_national_team.db 已 gitignore，且不在 pathspec 内）。
+    # 2026-07-29 修复（etf 21:30 兜底 deploy 失败根因）：原 stash 不加 -u，untracked 文件留工作区，
+    # rebase origin/main checkout 撞 origin/main 有 tracked 但工作区 untracked 的同名文件（如
+    # notifications.json.gz：deploy.sh 精确 git add DATA_FILES 列表不含它致 feat commit 里 untracked，
+    # 但 intraday-snapshot 全量 add push 到 origin/main 成 tracked）-> "untracked working tree files
+    # would be overwritten by checkout" -> rebase abort -> push 永久失败。加 -u 根治：rebase 前把
+    # static-site/data/ 下 untracked + tracked M 全 stash 走，工作区该目录干净，rebase 不撞 untracked。
     STASH_CNT_BEFORE=$(git -C "$GIT_REPO" stash list 2>/dev/null | wc -l | tr -d ' ')
-    git -C "$GIT_REPO" stash push -m "deploy.sh-rebase-$(date +%Y%m%d_%H%M%S)" 2>&1 | tee -a "$LOG" || true
+    git -C "$GIT_REPO" stash push --include-untracked -m "deploy.sh-rebase-$(date +%Y%m%d_%H%M%S)" -- static-site/data/ 2>&1 | tee -a "$LOG" || true
     STASH_CNT_AFTER=$(git -C "$GIT_REPO" stash list 2>/dev/null | wc -l | tr -d ' ')
     REBASE_STASHED=0
     if [ "$STASH_CNT_AFTER" -gt "$STASH_CNT_BEFORE" ]; then
       REBASE_STASHED=1
-      echo "✓ rebase 前已 stash 工作区 tracked M 文件（stash@{0}）" | tee -a "$LOG"
+      echo "✓ rebase 前已 stash static-site/data/ 下 tracked M + untracked 文件（stash@{0}）" | tee -a "$LOG"
     else
-      echo "  工作区无 tracked M 文件需 stash（或 stash 无变化跳过）" | tee -a "$LOG"
+      echo "  static-site/data/ 无 tracked M/untracked 文件需 stash（或 stash 无变化跳过）" | tee -a "$LOG"
     fi
     # rebase 后恢复 stash 的 helper（pop 冲突则保留 stash 待手动处理，不阻塞 push）
     pop_rebase_stash() {
