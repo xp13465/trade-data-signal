@@ -4779,3 +4779,44 @@ if (!isClosed) {
 1. **角标时间源必须与卡片主数据源同粒度且按卡片类型区分**：AZ63 教训③已提"角标时间源必须与卡片主数据源同粒度"，但 AZ63 实施时把所有 t0 盘中卡片角标都切到腾讯 1min，违反了自己的教训（KPI/ETF/板块主数据是后端 10min 快照，角标 1min 与主数据 10min 矛盾）。下次实施"角标同粒度"时，按卡片类型区分数据源（分时图 spark-cell 主数据是腾讯 1min -> 角标 1min；其他卡片主数据是后端 10min -> 角标 10min），不能一刀切。
 2. **副作用隔离用显式参数标记**：`isIndexSpark` 参数 + `data-badge-isdyn` 属性是显式标记"这个卡片用动态时间"，比隐式按卡片类型判断更可控（属性跟随 DOM 元素，refresh 时从属性取值不会丢失）。下次"某类卡片用特殊逻辑"时，用显式属性标记 + 重绘保留属性，避免按类型隐式判断在 refresh 路径丢失标记。
 3. **AZ63-AZ64-AZ65-AZ66 四 commit 配合才完整修复**：AZ63 加 4 处改动（语义正确但跑不到）+ AZ64 修顺序 bug（让 AZ63 跑到）+ AZ65 刷新后立即更新（消除 1min 首次延迟）+ AZ66 角标范围限制（隔离 1min 动态只到分时图指数卡片）。四 commit 缺一不可，任一缺失都有视觉割裂（AZ63 缺 -> 不更新；AZ64 缺 -> 不生效；AZ65 缺 -> 刷新后等 1min；AZ66 缺 -> 其他卡片角标乱动）。
+
+---
+
+### 小节AZ67：2026-07-29 晚续7 技术参考点列表加评级/对错筛选+未结算hover+自动更新（解答"角标更新sigCard不更新"质疑）
+
+> 用户提 4 点需求：①评级高/中/低加触发器点击过滤再点恢复+恢复全部按钮 ②总准确率后"X对/X错/X未结算"也是筛选按钮 ③未结算 hover 补说明 ④页面不刷新也要自动更新看到最新信号。调研确认前端无现成筛选机制 + 自动更新存在设计缺陷（overview refresh 只更新角标不重绘 sigCard），后端频率无需改。
+
+**背景**：用户需求 4 点：①评级高/中/低加触发器点击过滤再点恢复 + 恢复全部按钮 ②总准确率后"X对/X错/X未结算"也是筛选按钮 ③未结算 hover 补说明 ④页面不刷新也要自动更新看到最新信号。
+
+**调研**（agent a79561e8a + a3b8c7844）：
+- 代码位置：`_renderSignalGrid`（app.js L1267）/ `_calcSignalAccuracy`（L1223）/ `_accHtml`（L1354）/ sigCard 调用 L6620
+- 数据来源：overview.json 的 `signals_today` 字段（`since_correct: true` 对 / `false` 错 / `null` 未结算），后端 queries.py L357 实时查 `signal_daily` 表无缓存
+- 评级分档：score≥0.75 高 / 0.55-0.75 中 / <0.55 低
+- **无现成筛选机制**
+- **自动更新现状缺陷**：`_doOverviewRefresh`（3min/1min）拉新 overview.json 但只更新角标 + 通知 + 缓存，**不重绘 sigCard**（sigCard 只首屏 renderOverview 渲染一次后静止）-> 角标更新但技术参考点列表不更新（用户质疑"只是更新角标内容实际没自动更新"确认成立）
+- **后端频率**：`signals_today` 每轮 intraday_snapshot（10min）重算 + push main（无 30min 节流）。agent a79561e8a 说的"30min"是误读 `intraday_snapshot.sh` L2 过时注释（实际 plist 10min 调度，2026-07-28 从 15m 升 10m）。a3b8c7844 纠正：`intraday_snapshot.py` L1594-1601 触发条件 `n_backfill>0 or width_n>0` 无时间节流，queries.py L357 实时查 DB，每 10min 重算 + push。**无需改后端**。
+
+**修复**（commit `8f1002cb`, merge `194d55a2`, sw a68，4 部分）：
+
+- **C 未结算 hover**（app.js L1385）：N 未结算包成 button + `data-tip` 说明"未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据)；②波段持有中性状态；③等待收盘价回填。收盘后 update_all 重算 since_correct 后转为对或错。点击只看未结算项"。全局 `_initTermPop` 自动生效。
+- **A 评级筛选**：`state.sigGradeFilter` 新增（L10，null=全部/high/mid/low）+ `_renderSignalGrid` filter 逻辑 L1273（`kind==="signal"` 时按 score 分档过滤）+ 高/中/低 3 段改 button `data-grade-filter` L1380（选中态 `sig-acc-filter-active`）+ 末尾恢复全部按钮 L1383（仅 filter 激活时显示）+ click 委托 toggle L6720（再点同档恢复 null）。`_calcSignalAccuracy` 仍传原始 items（汇总条数字不变显示全量统计）。
+- **B 对错筛选**：`state.sigCorrectFilter` 新增 + 对/错/未结算包 button `data-correct-filter` L1385 + filter 逻辑 L1283（`since_correct` true/false/null 映射）+ click 委托 toggle L6729。
+- **D 自动更新**（解答用户质疑"角标更新 sigCard 不更新"）：`_sigCardRenderedAt` 模块变量 L1397 记录上次渲染 `collected_at` + `_rerenderSigCardContent` L1402（增量替换 `.signal-accuracy-summary` + `.signal-grid`，保留 `.card-time-badge` 角标 + `.sig-intraday-hint`）+ `_maybeRerenderSigCard` L1429（非概览 tab / 无数据 / 同 collected_at 跳过）+ sigCard 加 `sig-card` class L6697 + `ts:overview-refreshed` 监听器 L5863 加 `_maybeRerenderSigCard` 调用。筛选 state 由 `_renderSignalGrid` 内部读，重绘自动保留。
+- **CSS**（style.css L767-773）：`.sig-acc-filter`（去背景边框继承字体 inline）/ `.sig-acc-filter-active`（描边 + 浅背景 + 加粗）/ `.sig-acc-reset`（浅灰小字 + 圆角边框 + hover）。
+
+修复后：评级/对错筛选 toggle（再点恢复）+ 恢复全部按钮（汇总条数字始终全量）；未结算 hover 说明；盘中 sigCard 跟着 overview-refreshed（3min/1min 轮询）增量重绘，后端每 10min 更新 `signals_today` 时前端下次轮询拿到（最迟 10min+3min=13min 可见，通常 10min 内），不刷新页面看到最新信号。
+
+**关联**：解答用户质疑"角标更新 sigCard 不更新"= 前端设计缺陷（overview refresh 不重绘 sigCard），D 方案修；"30min 更新逻辑"是误判（实际后端 10min 重算，无需改后端）。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `8f1002cb` | 技术参考点列表加评级/对错筛选+未结算hover+自动更新(state.sigGradeFilter/sigCorrectFilter 新增+_renderSignalGrid filter逻辑+高/中/低/对/错/未结算包button data-grade/correct-filter+恢复全部按钮+click委托toggle再点恢复+_sigCardRenderedAt记录collected_at+_rerenderSigCardContent增量替换summary+grid保留角标+_maybeRerenderSigCard非概览tab/同collected_at跳过+ts:overview-refreshed hook重绘sigCard+CSS .sig-acc-filter/active/reset); sw a67->a68 |
+
+**教训**
+
+1. **overview refresh 路径要覆盖所有"用户期望自动更新"的卡片**：`_doOverviewRefresh` 拉新 overview.json 只更新角标 + 通知 + 缓存，但 sigCard 首屏渲染一次后静止不动 -> 用户看到角标变但列表不变，质疑"只是更新角标内容实际没自动更新"。下次"页面不刷新也要自动更新"类需求，逐个排查 overview refresh 路径覆盖了哪些卡片（不只看角标），未覆盖的卡片要么在 refresh 路径加重绘调用，要么 hook `ts:overview-refreshed` 事件增量重绘（后者更解耦，避免 refresh 函数膨胀）。
+2. **增量重绘保留兄弟元素而非整卡重建**：`_rerenderSigCardContent` 只替换 `.signal-accuracy-summary` + `.signal-grid` 两子节点，保留 `.card-time-badge` 角标 + `.sig-intraday-hint`（这些已由 refresh 路径独立更新）。整卡重建会丢失角标刚更新的状态 + 引发视觉闪烁。下次"某子区域需要重绘"时，定位最小替换单元（子节点 selector），保留同卡其他已更新的兄弟元素。
+3. **筛选 state 放模块级由 render 内部读，重绘自动保留**：`sigGradeFilter` / `sigCorrectFilter` 放 state 模块变量，`_renderSignalGrid` 内部读并应用 filter，重绘时自动按当前 state 过滤（无需重绘后额外"恢复筛选态"）。下次"列表 + 筛选 + 自动重绘"组合时，筛选 state 放模块级 + render 内部读，比放 DOM data 属性重绘后再读回更可靠。
+4. **agent 调研"X 分钟更新"结论先核对实际调度 plist 而非脚本文件头注释**：a79561e8a 报"30min 更新逻辑"是误读 `intraday_snapshot.sh` L2 过时注释（写 30min 但 plist 实际 10min 调度，2026-07-28 从 15m 升 10m 没改注释），a3b8c7844 纠正。下次调研"某任务多久跑一次"，查 launchd plist `StartCalendarInterval` 或 `StartInterval` 而非脚本文件头注释（注释易过时，plist 是实际调度源）。
