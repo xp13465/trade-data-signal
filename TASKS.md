@@ -924,4 +924,6 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - [ ] B2 intraday notifications 即时 push：notifications 滞后 10min 根治
 - [ ] 未来增强 etf 通知：7-30 有 etf 信号时浏览器弹 🐾 ETF进场/离场/放量，点通知弹汪汪队信号明细 modal
 - [ ] rzhb 08:00 主采 + 19:15 兜底：7-30 两次执行（08:00 主采 SSE T+1 + 19:15 兜底防漏），查 rzhb_backfill_launchd.log
+- [x] 告警轰炸根治（AZ77，commit `51d404f3`）：schedule_monitor exit!=0 路径加 alert_state suppress + 预填 etf active 止血。07:00 实证 `[suppress] etf_national_team 退出失败(exit=1) 持续中, 不重发` + 0 告警 + last_alerted 不更新 ✅ 已验证
+- [ ] 今晚 21:30 etf 兜底成功 exit=0 后：schedule_monitor 检测恢复 -> alert_state etf 转 recovered + 发 1 封 recovery 邮件（不再轰炸 50 次）
 

@@ -5027,3 +5027,16 @@ if (!isClosed) {
 - **依据**：memory `backup-strategy-redundant-runs`（重复跑是兜底非冗余，多配一套没问题）+ `optimization-criteria`（数据第一时间发布第一）
 - **验证**：PlistBuddy Print 数组两 dict（Hour=8 Minute=0 + Hour=19 Minute=15）+ launchctl 加载 PID=- exit=0 + plutil -lint OK；plist 非 git tracked（只 ~/Library/LaunchAgents/，未 commit）
 - **明天 7-30 验证**：08:00 主采 + 19:15 兜底，查 data/logs/rzhb_backfill_launchd.log 确认两次执行
+
+### AZ77 schedule_monitor exit!=0 路径加 alert_state suppress（告警轰炸根治，2026-07-30 06:4X）
+- **背景**：用户反馈"收了一晚上邮件告警，都是 etf_national_team 退出失败"——7-29 21:30 etf 兜底 deploy 失败 exit=1 后，schedule_monitor 每 15min 发一次 SEVERE 邮件，一夜轰炸约 50 次
+- **根因**：schedule_monitor.sh exit!=0 路径**只做 24h stale 去重**（任务 >24h 没跑才不重复 SEVERE），**没走 alert_state.json suppress**。而 log 异常关键词路径（第4盲区）正确走了 alert_state suppress（futures_backfill 被 suppress 不重发），exit!=0 路径漏了对称逻辑。alert_state.json 无 etf key = 从未 suppress etf，每 15min 重复发邮件
+- **修复**（commit `51d404f3`）：schedule_monitor.sh L208-236 exit!=0 路径加 alert_state suppress（与 log关键词路径对称）：
+  - `dedup_key = f"{s['task']}|exit!=0|{exit_code}"`（如 `etf_national_team|exit!=0|1`）
+  - `existing = alert_state.get(dedup_key)`；`existing is None or status != "active"` 才发 SEVERE + 写 state active；已 active 则 `[suppress] ... 持续中, 不重发`
+  - stale（>24h）保持 active 不触发误恢复，等任务真正 exit=0/null 才恢复
+- **止血**：预填 alert_state.json `etf_national_team|exit!=0|1` = active（first_seen=7-29 21:30, last_alerted=06:45:04），让 07:00 schedule_monitor 首跑即 suppress（不等下次 exit!=0 才写 state）
+- **路径链路确认**：plist `EnvironmentVariables REPO=/Users/linhuichen/code/trade-data` -> schedule_monitor L35 读 REPO -> L108 `ALERT_STATE_FILE = REPO/"data"/"alert_state.json"` = trade-data/data/alert_state.json = 预填路径 ✅（trade/data/alert_state.json 无 etf key 但 schedule_monitor 不读该路径）
+- **验证（2026-07-30 07:00 实证）**：07:00 schedule_monitor 跑后日志出现 `[suppress] etf_national_team 退出失败(exit=1) 持续中, last_alerted=2026-07-30 06:45:04, 不重发` + `[2026-07-30 07:00:05] OK 所有任务按计划执行，无漏跑，无退出失败`（0 告警）+ alert_state last_alerted 仍 06:45:04（suppress 不更新，符合预期）。告警轰炸根治 ✅
+- **后续**：今晚 21:30 etf 兜底成功 exit=0 后，schedule_stats 更新 exit=0/null -> schedule_monitor 检测到恢复 -> alert_state etf 转为 recovered + 发 1 封 recovery 邮件（不再轰炸）
+- **关联**：memory `alert-dedup-mechanism`（schedule_monitor alert_state.json 状态去重，同一异常首次发持续 suppress 消失发恢复邮件，15min 周期不轰炸）；与 AZ74 deploy.sh rebase stash -u 修复（a4f48c26）配合——后者治 etf 21:30 deploy 失败根因，前者治告警轰炸症状
