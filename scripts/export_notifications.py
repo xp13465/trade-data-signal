@@ -41,6 +41,7 @@ sys.path.insert(0, str(ROOT))
 from app.db import get_conn  # noqa: E402
 
 DB_PATH = ROOT / "data" / "sentiment.db"
+ETF_DB_PATH = ROOT / "data" / "etf_national_team.db"
 DATA_DIR = ROOT / "static-site" / "data"
 OUT_JSON = DATA_DIR / "notifications.json"
 SIGNAL_NOTIFIED_PATH = ROOT / "data" / "signal_notified.json"
@@ -66,6 +67,29 @@ ANOMALY_TYPE_NAMES = {
     "breakout_up": "向上突破",
     "breakout_down": "向下突破",
     "rapid_move": "急涨急跌",
+}
+
+# ETF 国家队信号（etf_national_team.db.etf_signal）signal_type -> 中文标签
+# 与 check_nt_signals.py NT_LABEL 一致
+ETF_SIGNAL_NAMES = {
+    "share_surge": "进场",
+    "share_outflow": "离场",
+    "volume_surge": "放量",
+}
+
+# ETF signal_type -> 前端 signal 字段映射（前端按 source='etf' + signal 分组弹通知）
+ETF_SIGNAL_MAP = {
+    "share_surge": "etf_buy",      # 份额激增疑似进场 -> 买入语义
+    "share_outflow": "etf_sell",   # 份额缩减疑似离场 -> 卖出语义
+    "volume_surge": "etf_volume",  # 成交额放量(独立信号,非买非卖)
+}
+
+# 12 只宽基 ETF code -> 易记名（与 etf_national_team.py ETF_LIST 一致，硬编码避免 import 副作用）
+ETF_NAME_MAP = {
+    "510050": "50ETF华夏", "510300": "300ETF华泰柏瑞", "510310": "300ETF易方达",
+    "159919": "300ETF嘉实", "510500": "500ETF南方", "159922": "500ETF嘉实",
+    "512100": "1000ETF南方", "159845": "1000ETF华夏", "159915": "创业板ETF易方达",
+    "159952": "创业板ETF广发", "588000": "科创50ETF华夏", "588050": "科创50ETF工银",
 }
 
 # score_daily 中综合分 score_id -> 中文名（与 check_signals.py 一致）
@@ -127,6 +151,68 @@ def _query_signals(conn, date: str) -> list[dict]:
         (date,),
     ).fetchall()
     return [{"index_id": r[0], "signal": r[1], "reason": r[2]} for r in rows]
+
+
+def _load_etf_signals(date: str) -> list[dict]:
+    """读 etf_national_team.db.etf_signal 当日信号（排除 split_suspect 折算日）。
+
+    返回统一结构（与 signal_daily signals 对齐 + source='etf' 标记）：
+      {index_id, signal, reason, name, label, source, etf_code, signal_type,
+       share_change, amount_ratio, intensity}
+
+    signal 字段映射（前端按 source='etf' 分组弹通知，不混入 A股 buy/sell）：
+      share_surge   -> etf_buy   (份额激增疑似进场)
+      share_outflow -> etf_sell  (份额缩减疑似离场)
+      volume_surge  -> etf_volume(成交额放量,独立信号)
+    """
+    if not ETF_DB_PATH.exists():
+        print(f"[export_notifications] ETF DB 不存在：{ETF_DB_PATH}", file=sys.stderr)
+        return []
+    out: list[dict] = []
+    try:
+        etf_conn = sqlite3.connect(ETF_DB_PATH)
+        etf_conn.row_factory = sqlite3.Row
+        rows = etf_conn.execute(
+            "SELECT etf_code, signal_type, share_change, amount_ratio, intensity, note "
+            "FROM etf_signal WHERE date = ? AND signal_type != 'split_suspect' "
+            "ORDER BY signal_type, etf_code",
+            (date,),
+        ).fetchall()
+        etf_conn.close()
+    except Exception as e:
+        print(f"[export_notifications] 读 etf_signal 失败：{e}", file=sys.stderr)
+        return []
+    for r in rows:
+        code = r["etf_code"]
+        sig_type = r["signal_type"]
+        name = ETF_NAME_MAP.get(code, code)
+        label = ETF_SIGNAL_NAMES.get(sig_type, sig_type)
+        signal = ETF_SIGNAL_MAP.get(sig_type, sig_type)
+        # reason: note + 份额变动(亿份) + z-score + 量比
+        parts = []
+        if r["note"]:
+            parts.append(r["note"])
+        if r["share_change"] is not None:
+            parts.append(f"份额{r['share_change'] / 1e8:+.2f}亿")
+        if r["intensity"] is not None:
+            parts.append(f"z={r['intensity']:.2f}")
+        if r["amount_ratio"] is not None:
+            parts.append(f"量比{r['amount_ratio']:.2f}")
+        reason = ",".join(parts) if parts else label
+        out.append({
+            "index_id": code,
+            "signal": signal,
+            "reason": reason,
+            "name": name,
+            "label": label,
+            "source": "etf",
+            "etf_code": code,
+            "signal_type": sig_type,
+            "share_change": r["share_change"],
+            "amount_ratio": r["amount_ratio"],
+            "intensity": r["intensity"],
+        })
+    return out
 
 
 def _high_level(score) -> str:
@@ -274,6 +360,9 @@ def export_notifications(date: str | None = None) -> dict:
     finally:
         conn.close()
 
+    # ETF 国家队信号（独立 DB，与 A股 signal_daily 合并到 signals 列表）
+    etf_signals = _load_etf_signals(date)
+
     # 信号全量导出（不排除已邮件推送的信号）：双通道用户邮件+浏览器两处都该收到，
     # 前端靠 localStorage 当日去重(_markNotified)避免同事件弹两次。
     # 2026-07-30 修复：原 L283 排除 today_notified 致 notifications.json signals 恒空，
@@ -284,6 +373,8 @@ def export_notifications(date: str | None = None) -> dict:
         s2["name"] = _index_name(s["index_id"], name_map)
         s2["label"] = SIGNAL_NAMES.get(s["signal"], s["signal"])
         signals.append(s2)
+    # 追加 ETF 信号（source='etf' 标记，前端按 source 分组弹通知）
+    signals.extend(etf_signals)
 
     # 异动（anomaly_notified.json 已去重，每事件每日只首次）
     anomalies = _load_anomalies_today(date)
@@ -307,6 +398,7 @@ def export_notifications(date: str | None = None) -> dict:
     print(
         f"[export_notifications] 导出 {OUT_JSON.name} "
         f"(date={date} signals={len(signals)} "
+        f"etf_signals={len(etf_signals)} "
         f"anomalies={len(anomalies)} "
         f"alerts_high={alerts.get('high', {}).get('triggered', False)} "
         f"alerts_low={alerts.get('low', {}).get('triggered', False)} "

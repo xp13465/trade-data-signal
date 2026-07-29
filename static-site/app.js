@@ -5770,6 +5770,16 @@ function _handleNotifyClick(action) {
         flash(document.querySelector('.sig-card'));
       }
       break;
+    case 'OPEN_ETF_DETAIL':
+      // ETF 国家队信号通知点击：弹当日汪汪队信号明细 modal（依赖首页 _ntRecentDaily 缓存）
+      // _ntRecentDaily 未加载（非首页/未渲染）时 fallback flash 汪汪队卡片墙
+      if (typeof openNtDayModal === 'function' && typeof _ntRecentDaily !== 'undefined' && _ntRecentDaily) {
+        const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        openNtDayModal(today);
+      } else {
+        flash(document.querySelector('.nt-card-wall') || document.querySelector('.sig-card'));
+      }
+      break;
     case 'TEST':
     default:
       break;
@@ -5840,6 +5850,45 @@ function _processNotifications(data) {
       if (showNotification('🟢 新卖出信号', `${names}${more} 触发卖出`, `signal_sell_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' })) {
         _markNotified(`signal_sell_${today}`);
         _markNotifyTimeWindow('signal_sell');
+      }
+    }
+  }
+
+  // 2b. ETF 国家队信号（source='etf'，与 A股 buy/sell 分开弹通知）
+  // share_surge->etf_buy 进场 / share_outflow->etf_sell 离场 / volume_surge->etf_volume 放量
+  // 注意：同一只 ETF 常同时触发 share_surge+volume_surge，volume 去重排除已有 buy/sell 的 etf_code 避免重复
+  if (data.signals && data.signals.length) {
+    const etfBuys = data.signals.filter(s => s.source === 'etf' && s.signal === 'etf_buy');
+    if (etfBuys.length && !_isNotifyNotified(`etf_buy_${today}`)
+        && !_isInNotifyTimeWindow('etf_buy')) {
+      const names = etfBuys.slice(0, 3).map(s => s.name || s.index_id).join('、');
+      const more = etfBuys.length > 3 ? `等${etfBuys.length}个` : '';
+      if (showNotification('🐾 ETF进场信号', `${names}${more} 份额激增疑似进场`, `etf_buy_${today}`, { msgType: 'OPEN_ETF_DETAIL' })) {
+        _markNotified(`etf_buy_${today}`);
+        _markNotifyTimeWindow('etf_buy');
+      }
+    }
+    const etfSells = data.signals.filter(s => s.source === 'etf' && s.signal === 'etf_sell');
+    if (etfSells.length && !_isNotifyNotified(`etf_sell_${today}`)
+        && !_isInNotifyTimeWindow('etf_sell')) {
+      const names = etfSells.slice(0, 3).map(s => s.name || s.index_id).join('、');
+      const more = etfSells.length > 3 ? `等${etfSells.length}个` : '';
+      if (showNotification('🐾 ETF离场信号', `${names}${more} 份额缩减疑似离场`, `etf_sell_${today}`, { msgType: 'OPEN_ETF_DETAIL' })) {
+        _markNotified(`etf_sell_${today}`);
+        _markNotifyTimeWindow('etf_sell');
+      }
+    }
+    // 放量信号去重：排除已触发进场/离场的 etf_code（同一只 ETF 同时 share_surge+volume_surge 只弹进场）
+    const etfBuySellCodes = new Set([...etfBuys.map(s => s.etf_code), ...etfSells.map(s => s.etf_code)]);
+    const etfVolumes = data.signals.filter(s =>
+      s.source === 'etf' && s.signal === 'etf_volume' && !etfBuySellCodes.has(s.etf_code));
+    if (etfVolumes.length && !_isNotifyNotified(`etf_volume_${today}`)
+        && !_isInNotifyTimeWindow('etf_volume')) {
+      const names = etfVolumes.slice(0, 3).map(s => s.name || s.index_id).join('、');
+      const more = etfVolumes.length > 3 ? `等${etfVolumes.length}个` : '';
+      if (showNotification('🐾 ETF放量信号', `${names}${more} 成交额放量`, `etf_volume_${today}`, { msgType: 'OPEN_ETF_DETAIL' })) {
+        _markNotified(`etf_volume_${today}`);
+        _markNotifyTimeWindow('etf_volume');
       }
     }
   }
