@@ -4674,3 +4674,48 @@ T+1 治理分三层闭环：采集侧盘中直采让原 T+1 品种变 T+0 + 前�
 2. **同卡片多数值语义必须同维度**：底部涨跌幅原用"今日两点价差"（`closes[last]-closes[last-2]`），右上角 pct 用"相对昨收"，同卡片两个数值不同维度并存视觉矛盾。同一卡片多数值应统一基准（相对昨收），避免用户误判数据错（同 AZ62 前端 T+0/T1 分组对齐采集侧时点教训：前端数值属性必须与基准事实对齐，不能臆改）。
 3. **角标时间源必须与卡片主数据源同粒度**：角标原读 snap.datetime（10min 快照），卡片曲线/数值读腾讯 1min，导致角标滞后 10min 给用户"数据没更新"错觉。角标时间应跟随卡片主数据源（腾讯 1min），同 AZ62 intraday 11:32/15:02 收尾时点紧贴收盘 +2min 教训：角标时效直接影响用户对"数据是否最新"的感知（数据第一时间发布第一准则）。
 4. **fetch 加 cache-busting 防御性兜底**：`fetchTencentMinute` 加 `cache:'no-store'` + `?_=Date.now()`，防御 SW/HTTP 缓存旧 1min 数据。即使 CF Workers Static Assets 无视 `Cache-Control`（memory `cf-workers-static-assets-ignore-cache-control`：CF Workers Static Assets 无视 no-store/private/no-cache 仍 HIT，靠部署自动 purge），浏览器层 `no-store` 仍生效，作兜底保险。
+
+### 小节AZ64：2026-07-29 晚续4 修复 renderIntradaySection 顺序bug致 intraday 1min刷新失效（历史遗留 _intradayRenderCtx 被 _stop 清空）
+
+> AZ63（commit `e9af8c85`）加了 4 处改动（`_applyDynamicToSparkFoot` + `refreshCardTimeBadges` + 角标时间切 `_intradayDynamicTime` + cache-busting）想让分时图 1min 刷新同步更新底部 + 角标，但用户验证无痕模式仍不生效。Console 诊断 `_intradayRenderCtx=false` 定位根因。
+
+**背景**：AZ63 上线后用户无痕模式验证底部 + 角标仍不 1min 更新，Console 打印 `_intradayRenderCtx` 为 `false`（即 null）。说明 `_doIntradayRefresh` 的早返回守卫 `if (!_intradayRenderCtx...) return` 命中，AZ63 的 4 处改动（其中两处在 `_doIntradayRefresh` 内部 L5127-5128）永远不执行。
+
+**根因**（历史遗留 bug，非 AZ63 引入）：`renderIntradaySection` L5048-5051 顺序错误：
+
+```js
+if (!isClosed) {
+  _intradayRenderCtx = { sparkGrid, snap };  // 先设 ctx
+  _startIntradayRefresh();                    // 后调 start
+}
+```
+
+`_startIntradayRefresh` L5063 第一行调 `_stopIntradayRefresh()`，后者 L5077 `_intradayRenderCtx = null` 把刚设的 ctx 清空 → `_doIntradayRefresh` L5100 `if (!_intradayRenderCtx...) return` 永远 return → L5127-5128（`_applyDynamicToSparkFoot` + `refreshCardTimeBadges`）永不执行 → 底部 spark-foot + 角标不更新 + 分时图曲线也不 1min 自动更新。用户之前看到的曲线更新是 overview refresh 3min 跑 `renderOverview` 顺带渲染的，非 1min 定时器。
+
+**修复**（commit `0bf65496`, sw a65）：交换 L5049-5050 两行顺序（只改顺序，2 行）：
+
+```js
+if (!isClosed) {
+  _startIntradayRefresh();                    // 先 start（内部 _stop 清旧 ctx + 旧定时器，再调度）
+  _intradayRenderCtx = { sparkGrid, snap };   // 后设新 ctx（不被 _stop 清空）
+}
+```
+
+修复后 `_doIntradayRefresh` 恢复 1min 工作，AZ63 的 4 处改动才真正生效：曲线 + 右上角 pct + 底部 spark-foot + 角标时间全部 1min 同步更新。
+
+**验证**：3 域名 curl 确认 sw.js `CACHE_VERSION=a65`（`ss.fx8.store` + `sss.sugas.site`，memory `deploy-verify-3-sites`：3 域名任一验证到新版即算上线 OK）。FF push main（commit `0bf65496` + merge `a25ebb80`）。`app.min.js?v=5199516b`。
+
+**关联**：AZ63 的 4 处改动因本 bug 没生效，AZ64 修复顺序 bug 后 AZ63 才真正生效。两 commit 配合完整修复分时图卡片元素同步。
+
+**今日 commit 清单（1 commit）**
+
+| commit | 一句话说明 |
+|--------|-----------|
+| `0bf65496` | 修复 renderIntradaySection 顺序 bug 致 intraday 1min 刷新失效(L5049-5050 交换顺序:先 _startIntradayRefresh 后设 _intradayRenderCtx,避免 _startIntradayRefresh 内部 _stopIntradayRefresh 清空 ctx); sw a64->a65 |
+
+**教训**
+
+1. **设状态 + 调启动函数的顺序必须"先启动后设状态"**：当启动函数内部会先调 stop 清理旧状态（含清空 ctx/旧定时器）时，必须先 `start` 再设新 ctx，否则 stop 把刚设的新 ctx 一起清空，启动函数虽然调度了定时器但 ctx 为 null，定时器回调命中早返回守卫永不执行。同 AZ63 教训①"卡片多元素刷新路径必须全覆盖"的延伸：除了覆盖所有 refresh 路径，还要确认 refresh 路径的启动链路本身能跑到回调（启动顺序错=路径形同虚设）。
+2. **新功能验证"无痕模式仍不生效"先查 Console 状态变量**：AZ63 上线后用户无痕模式验证不生效，根因不是 AZ63 改动错，而是历史遗留 bug 让 AZ63 改动所在的回调函数永不执行。下次新功能上线验证不生效时，先 Console 打印相关状态变量（`_intradayRenderCtx`/`_overviewRefreshing` 等）确认回调链路是否走到，再排查改动本身，避免误判"自己改动错"反复改正确代码（同 AZ59 deploy.sh rebase 二进制冲突教训：表象与根因常错位，先诊断再动手）。
+3. **历史遗留 bug 的潜伏条件 = 新功能依赖才暴露**：`renderIntradaySection` 顺序 bug 历史遗留，原 `_doIntradayRefresh` 回调里只有曲线/右上角 pct 更新（overview refresh 3min 顺带渲染掩盖了 1min 定时器失效），用户视觉看不出。AZ63 把底部 + 角标更新塞进 `_doIntradayRefresh` 才让 1min 定时器失效暴露（新功能依赖历史 bug 没跑的代码路径）。下次给历史函数加新逻辑前，先 grep 确认该函数的调用链路是否真能跑到（Console 打印验证），避免新逻辑加在死代码上。
+4. **AZ63 + AZ64 两 commit 配合才完整修复**：AZ63 加 4 处改动（语义正确但跑不到）+ AZ64 修顺序 bug（让 AZ63 跑到），缺一不可。单看 AZ63 的 diff 看不出问题（4 处改动语义都对），单看 AZ64 的 diff 只见 2 行顺序交换看不出价值。下次验收"功能不生效"类 bug 修复时，要确认修复 commit 让原不生效的改动真正跑到（Console 验证状态变量 + 视觉验证），不能只看 commit diff 表面。

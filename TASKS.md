@@ -8,7 +8,7 @@
 
 > compact 后第一动作:读本小节恢复 transient 状态(活跃 agent/cron/commit 链/正在等什么)。详见 memory `compact-recovery-checklist`。
 
-**最后更新**:2026-07-29 晚续3(续22:分时图1min刷新同步底部涨跌幅+角标✅[spark-foot/preClose同维度+角标用腾讯1min时间+cache-busting sw a64]全闭环上线,见续22行;续21:T+1治理全套✅[采集侧盘中直采7品种+前端_T0_EXTRAS/_KPI_T1_MOVED+颜色bug]+intraday 11:32/15:02收尾时点✅+Win通知试看逻辑✅[方案A开启弹欢迎+方案B试看按钮 sw a63]+3域名部署验证✅全闭环上线,见续21行;续20:usdcnh 7-27验证✅+bump_asset_version日期根治✅+update_lab.sh加simulate_trade --html✅+监控异常深查3类根因✅+P2-新-W PC浏览器通知方案A✅全闭环上线,见续20行;续19:app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线;续18:全站时序优化6项上线+QVIX时点精确化+告警根因修复✓上线;续17:本轮4项修复chip方案D+ETF hover+板块分化按钮+过拟合警示文案✓上线;续16:ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F✓上线;续15:回测精准模拟+滞后提示修复+ETF同类去重3项✓上线;续14 4项:P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min)
+**最后更新**:2026-07-29 晚续4(续23:修复renderIntradaySection顺序bug致intraday1min刷新失效✅[历史遗留_intradayRenderCtx被_stop清空,交换L5049-5050顺序先start后设ctx,sw a65]全闭环上线,见续23行;续22:分时图1min刷新同步底部涨跌幅+角标✅[spark-foot/preClose同维度+角标用腾讯1min时间+cache-busting sw a64]全闭环上线,见续22行;续21:T+1治理全套✅[采集侧盘中直采7品种+前端_T0_EXTRAS/_KPI_T1_MOVED+颜色bug]+intraday 11:32/15:02收尾时点✅+Win通知试看逻辑✅[方案A开启弹欢迎+方案B试看按钮 sw a63]+3域名部署验证✅全闭环上线,见续21行;续20:usdcnh 7-27验证✅+bump_asset_version日期根治✅+update_lab.sh加simulate_trade --html✅+监控异常深查3类根因✅+P2-新-W PC浏览器通知方案A✅全闭环上线,见续20行;续19:app.js 3处修复[t0兜底拆分+关键时点1m+小卡角标重绘]+回退1b✓上线;续18:全站时序优化6项上线+QVIX时点精确化+告警根因修复✓上线;续17:本轮4项修复chip方案D+ETF hover+板块分化按钮+过拟合警示文案✓上线;续16:ETF补采治本+回测切窗口bug修复+trade_sim HTML5窗口+撤销方案F✓上线;续15:回测精准模拟+滞后提示修复+ETF同类去重3项✓上线;续14 4项:P0-1 KPI预估点+debug CSS皮肤+封板率derived根因+分时图1min)
 
 **分支**:origin/main = `194c097f`(批次1 提速 `172fe2b6`+docs `194c097f` 已上线)
 - 批次1 commit:`0e916672` feat: B4 C方案(E2去双throttle+并发采集+--full-market) + `172fe2b6` data: etf_score_list 1371只修复(手动rsync trade-data->trade)
@@ -813,3 +813,19 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **主控验收**：grep 确认 NOTES AZ63 小节存在 + TASKS 续22 1项 ✅ 标记 + commit 链 + push feat + merge main + push main 全成功。
 
 **教训**：①卡片多元素刷新路径必须全覆盖（4 套元素曲线/右上角 pct/底部 spark-foot/角标各路径独立，任一漏更新就视觉矛盾，同 AZ62 echarts markLine 切皮肤教训、AZ54 badge 两套路径教训）②同卡片多数值语义必须同维度（底部原"今日两点价差"与右上角"相对昨收"矛盾，应统一基准相对昨收，同 AZ62 前端 T+0/T1 对齐采集侧时点教训）③角标时间源必须与卡片主数据源同粒度（原 snap.datetime 10min 滞后腾讯 1min，角标应跟随主数据源，同 AZ62 11:32/15:02 收尾时点紧贴收盘 +2min 教训）④fetch 加 cache-busting 防御性兜底（`cache:'no-store' + ?_=Date.now()`，即使 CF Workers 无视 Cache-Control 浏览器层 no-store 仍生效作兜底）
+
+---
+
+## ✅ 2026-07-29 晚续4 1项闭环上线（修复 renderIntradaySection 顺序bug致 intraday 1min刷新失效）
+
+> 本轮 1 项闭环上线，主控逐字验收通过。详见 `NOTES.md §48 小节AZ64`。commit 链：`0bf65496` + merge `a25ebb80`。sw.js a64->a65。
+
+1. ✅ **修复 renderIntradaySection 顺序 bug 致 intraday 1min 刷新失效**（commit `0bf65496`，sw a64->a65）：AZ63（commit `e9af8c85`）加了 4 处改动想让分时图 1min 刷新同步更新底部 + 角标，但用户无痕模式验证仍不生效。Console 诊断 `_intradayRenderCtx=false` 定位根因。**根因（历史遗留 bug，非 AZ63 引入）**：`renderIntradaySection` L5048-5051 顺序错误——先设 `_intradayRenderCtx={sparkGrid, snap}` 后调 `_startIntradayRefresh()`，而 `_startIntradayRefresh` L5063 第一行调 `_stopIntradayRefresh()`，后者 L5077 `_intradayRenderCtx=null` 把刚设的 ctx 清空 -> `_doIntradayRefresh` L5100 早返回守卫命中 -> L5127-5128（`_applyDynamicToSparkFoot` + `refreshCardTimeBadges`）永不执行 -> 底部 spark-foot + 角标不更新 + 分时图曲线也不 1min 自动更新（用户之前看到的曲线更新是 overview refresh 3min 跑 `renderOverview` 顺带渲染，非 1min 定时器）。**修复**：交换 L5049-5050 两行顺序（只改顺序，2 行）——先 `_startIntradayRefresh()`（内部 `_stop` 清旧 ctx + 旧定时器再调度）后设新 `_intradayRenderCtx={sparkGrid, snap}`（不被 `_stop` 清空）。修复后 `_doIntradayRefresh` 恢复 1min 工作，AZ63 的 4 处改动才真正生效：曲线 + 右上角 pct + 底部 spark-foot + 角标时间全部 1min 同步更新。
+
+**构建+版本**：`build_min.py` + `bump_asset_version.py`（`?v=5199516b`）+ sw.js `CACHE_VERSION` a64->a65（§9 铁律1 改 app.js 必 bump sw）
+
+**commits**：`0bf65496`（修复 renderIntradaySection 顺序 bug a65）+ merge `a25ebb80`。FF push main。3 域名验证 a65（`ss.fx8.store` + `sss.sugas.site`）。
+
+**主控验收**：grep 确认 NOTES AZ64 小节存在 + TASKS 续23 1项 ✅ 标记 + commit 链 + push feat + merge main + push main 全成功。
+
+**教训**：①设状态 + 调启动函数的顺序必须"先启动后设状态"（启动函数内部会先调 stop 清理旧状态含清空 ctx，必须先 start 再设新 ctx，否则 stop 把刚设的新 ctx 一起清空，定时器回调命中早返回守卫永不执行，同 AZ63 教训①"刷新路径全覆盖"延伸：除覆盖所有 refresh 路径还要确认启动链路本身能跑到回调）②新功能验证"无痕模式仍不生效"先查 Console 状态变量（`_intradayRenderCtx` 等）确认回调链路是否走到，再排查改动本身，避免误判"自己改动错"反复改正确代码（同 AZ59 教训：表象与根因常错位，先诊断再动手）③历史遗留 bug 的潜伏条件 = 新功能依赖才暴露（原 `_doIntradayRefresh` 回调只有曲线/pct 更新，overview refresh 3min 顺带渲染掩盖了 1min 定时器失效，AZ63 把底部 + 角标塞进 `_doIntradayRefresh` 才让失效暴露；下次给历史函数加新逻辑前先 grep + Console 验证该函数调用链路是否真能跑到，避免新逻辑加在死代码上）④AZ63 + AZ64 两 commit 配合才完整修复（AZ63 加 4 处改动语义正确但跑不到 + AZ64 修顺序 bug 让 AZ63 跑到，缺一不可；单看任一 commit diff 看不出完整问题，验收"功能不生效"类 bug 修复要确认修复 commit 让原不生效改动真正跑到）
