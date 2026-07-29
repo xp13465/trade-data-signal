@@ -676,9 +676,11 @@ def _sina_spot_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) 
 def backfill_series_metrics(date):
     """重跑 collect_series 补采晚发布的序列指标。
 
-    SSE 两融余额(stock_margin_sse)盘后 ~18:00-19:00 才发布当日数据，
-    17:50 update_all 跑时源还没出 -> 两融停在 T-1。20:00/02:00 backfill
-    时重跑这些 SERIES_FUNCS 指标，兜底补采当日数据。
+    SSE 两融余额(stock_margin_sse)是 SSE 官方 T+1 早晨发布 T 日数据
+    (非原误判的"盘后 18:00-19:00 发布"；2026-07-29 调研铁证：7-27/7-28
+    19:15 连续采不到 T 日，7-29 07:59 akshare 才有 7-28)。17:50 update_all
+    跑时源还没出 -> 两融停在 T-1。16:35/21:00/02:00 backfill 时重跑这些
+    SERIES_FUNCS 指标，兜底补采当日数据(两融独立 rzhb T+1 08:00 单采为主路径)。
 
     返回 (ok_count, has_today_new)：has_today_new=True 表示至少一个指标
     采到了 date 当日的新数据（需要重算+推送）。
@@ -854,7 +856,7 @@ def backfill_history_gaps(date, verbose=True, strict_global=False):
 
 
 def main():
-    """晚间轻量补采兜底入口（供 backfill_indices.sh / launchd 16:35/20:00/02:00 调用）。
+    """晚间轻量补采兜底入口（供 backfill_metrics.sh / launchd 16:35/21:00/02:00 调用）。
 
     交易日才跑：
       1) 重跑 collect_series 补采晚发布序列指标（两融/QVIX/国债收益率等）

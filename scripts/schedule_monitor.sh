@@ -50,7 +50,7 @@ TASKS = [
     {"task": "update_all",          "log": "update_all_launchd.log",
      "schedules": ["17:50"]},
     {"task": "backfill_evening",    "log": "backfill_evening_launchd.log",
-     "schedules": ["02:00", "16:35"]},  # 2026-07-24 B4 Top2 去重：删 20:00 槽（plist 已删，监控配置同步）
+     "schedules": ["02:00", "16:35", "21:00"]},  # 2026-07-29 加 21:00 槽：csi_div/div_lowvol T日晚发布，21:00 提前采(原仅 02:00 兜底)
     {"task": "intraday_snapshot",   "log": "intraday_snapshot_launchd.log",
      "schedules": [  # 2026-07-28 plist 10m(26次)+15:35/20:35 收盘后(intraday-close ETF 预估修复), 共28时点
          "09:25", "09:35", "09:45", "09:55", "10:05", "10:15", "10:25", "10:35", "10:45", "10:55",
@@ -63,7 +63,7 @@ TASKS = [
     {"task": "lhb_backfill",        "log": "lhb_backfill_launchd.log",
      "schedules": ["18:30", "19:30"]},
     {"task": "rzhb_backfill",       "log": "rzhb_backfill_launchd.log",
-     "schedules": ["19:15"]},  # 2026-07-24 23:00->19:15 紧跟数据发布(18:00-19:00)，避开 lhb 19:30
+     "schedules": ["08:00"]},  # 2026-07-29 19:15->T+1 08:00：SSE官方T+1早晨发布T日(非误判18-19点)，19:15连续采不到T日
     {"task": "etf_national_team",   "log": "etf_national_team_launchd.log",
      "schedules": ["20:07", "21:30"]},
     {"task": "lab_auto",            "log": "update_lab_launchd.log",

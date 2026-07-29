@@ -3,7 +3,8 @@
 # 替代 backfill_indices.sh：原补指数(index_backfill.main 多源校验补采) + 新增 direct
 # metrics 补采(a_fund_main 等;东财封禁时 direct.py 内置 akshare fallback 兜底,7-13/7-17
 # 间歇封禁后 backfill-evening 槽位补回当日值)。
-# launchd 02:00/16:35/20:00 触发(由 com.trade.backfill-evening.plist 调用)。
+# launchd 02:00/16:35/21:00 触发(由 com.trade.backfill-evening.plist 调用)。
+# 2026-07-29 加 21:00 槽：中证红利(csi_div/div_lowvol)T 日晚发布，21:00 提前采(原仅 02:00 兜底)。
 set -uo pipefail
 # 防脚本运行期间 mac 休眠（caffeinate 跟随脚本 PID，退出自动结束）
 caffeinate -i -w $$ >/dev/null 2>&1 &

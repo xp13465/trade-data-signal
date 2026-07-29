@@ -1,11 +1,12 @@
 #!/bin/bash
-# rzhb_backfill.sh - 两融余额当日单采（launchd 19:15 定时，紧跟数据发布根治 a_fund_margin 滞后）
+# rzhb_backfill.sh - 两融余额当日单采（launchd T+1 08:00 定时，根治 a_fund_margin 滞后）
 #
-# 问题：两融余额（a_fund_margin，沪市融资余额）源 stock_margin_sse 盘后 ~18:00-19:00
-#   才发布当日数据，17:50 update_all 采不到（源未出 -> 停在 T-1）。backfill_evening
-#   虽会重跑 SERIES_FUNCS 兜底，但为关键资金面指标设独立 19:15 单采，确保当日值
-#   落库（19:15 紧跟 18:00-19:00 发布窗口尾段，避开 lhb 19:30 兜底防 deploy 锁排队；
-#   原 23:00 采滞后 4-5h，2026-07-24 提前）。
+# 问题：两融余额（a_fund_margin，沪市融资余额）源 stock_margin_sse 是 SSE 官方 T+1 早晨
+#   发布 T 日数据（非原误判的"盘后 18:00-19:00 发布"）。2026-07-29 调研铁证：
+#   7-27/7-28 19:15 连续采不到 T 日（latest=前日），7-29 02:00 backfill 仍缺 7-28，
+#   7-29 07:59 akshare 才有 7-28 -> 源 T+1 早晨（~08:00 前）才出 T 日数据。
+#   T+1 08:00（开盘前 09:30 的 1.5h 前）SSE 已发布 -> 采到则当日上线。
+#   原 19:15 采不到 T 日（源 T+1 早晨才出），原 23:00 更晚，2026-07-29 改 08:00 根治。
 #
 # 只做：单采两融指标（func=stock_margin_sse/szse 的 SERIES_FUNCS，collect_series
 #   拉全量后 upsert，幂等）-> 采到 last_trading_day 当日新数据则重算情绪分 + 持
@@ -71,7 +72,7 @@ fi
 
 # 1) 单采两融当日（func=stock_margin_sse/szse 的 SERIES_FUNCS）
 #    collect_series 拉全量历史逐日入库（幂等 upsert），再判断是否含 last_trading_day
-#    当日行。19:15 紧跟源发布窗口尾段，避开 17:50 的未发布问题。
+#    当日行。T+1 08:00 紧跟源 T+1 早晨发布窗口，避开 17:50 update_all 的 T-1 滞后问题。
 echo "-> 单采两融当日 (func=stock_margin_sse/szse) ..." | tee -a "$LOG"
 "$PY" -c "
 from app.collector import fetchers, runner
