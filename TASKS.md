@@ -902,3 +902,17 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **主控验收**：grep 确认 NOTES AZ73 + TASKS 续27 + commit 链 + push feat + merge main 全成功。
 
+## ✅ 2026-07-29 晚续10 通知系统三修复（AZ74）
+- 修复1: 6项通知修复(a74, 16110044) - 真实信号浏览器通知不弹根治(export_notifications加调度+删邮件排除+独立轮询+SW破缓存+看返回值+bump)
+- 修复2: a74回归修复(fd8fe3a3) - deploy.sh L52-59加notifications.json/.gz恢复(根治untracked rebase冲突,futures+etf+backfill_evening连续2天deploy失败)
+- 修复3: A1 check_nt_signals跨日去重(6dd3faea) - 加nt_signal_notified.json(根治每晚重复发7-20旧etf邮件)
+- 验收: 8处_markNotified if包裹 + sw a74线上 + deploy.sh L52-59恢复 + check_nt_signals去重逻辑 + 3 commit在origin/main
+
+**待办**:
+- B2: intraday_snapshot.sh export_notifications移到push前(notifications滞后10min优化,非紧急)
+- 明天验证: 浏览器通知a74 + deploy.sh修复 + A1去重(首次发一次7-20后跳过)
+- rzhb schedule T+1 08:00确认(今晚没跑,是改时点还是漏跑)
+- 未来增强: export_notifications加读etf_signal(浏览器通知也弹etf,当前notifications.json signals无etf)
+
+**主控验收**: grep确认NOTES AZ74+TASKS续28+3 commit链+push全成功
+

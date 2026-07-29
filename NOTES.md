@@ -4984,3 +4984,31 @@ if (!isClosed) {
 **用户验证搁置**：Safari denied 需手动恢复（移除站点 + Cmd+Q 重启），a73 代码已上线保留，未来用 Safari 时按恢复指引操作即可走 new Notification 路径。
 
 **关联**：AZ68-AZ72 Mac Chrome 修复用 SW showNotification 路径，AZ73 Safari 因 SW message event 限制改走 page new Notification 路径，两浏览器路径不同但共存不冲突（`_isSafari` 分流）。
+
+### 小节AZ74：2026-07-29 晚续10 通知系统三修复（6项通知a74+deploy.sh回归+A1跨日去重）
+
+**AZ74（2026-07-29，3 个修复）**：
+
+**修复1：6项通知修复（commit 16110044, sw a74）** -- 真实信号浏览器通知不弹根治
+- 根因4重：①export_notifications.py 无任何自动调度（notifications.json 盘中不更新）②L283-288 排除已发邮件信号（用户收到邮件=前端 signals:[]空）③document.hidden 跳过轮询+SW 3min缓存+无独立setInterval ④_markNotified 不看 showNotification 返回值
+- 6项修复：intraday_snapshot.sh+update_all.sh 加调 export_notifications / 删 today_notified 排除 / app.js 独立 setInterval 30s / sw.js NetworkFirst 扩大到 notifications.json / 8处 _markNotified 看 showNotification 返回值才标记 / bump sw a74+build_min
+- 验收：8处 _markNotified 全 if 包裹（L5830/5841/5855/5867/5874/5889/5898/5908）+ sw a74 线上双站
+
+**修复2：a74 回归修复（commit fd8fe3a3）** -- deploy.sh rebase 冲突
+- a74 回归点：intraday_snapshot.sh L159 加 `gzip -kf notifications.json` + L180-181 DATA_FILES 加 notifications.json/.gz，生成 untracked notifications.json.gz
+- 根因：deploy.sh L52-57 跑 export 前只恢复 intraday_snapshot.json/.gz 到 origin/main 版，没恢复 notifications.json/.gz；rebase origin/main 时 untracked notifications.json.gz checkout 冲突（"untracked working tree files would be overwritten"）-> rebase 失败 -> push 失败
+- 影响：futures_backfill + etf_national_team + backfill_evening 三个 21:00/21:30 兜底 deploy 连续2天（7-28/7-29）失败
+- 修复：deploy.sh L52-59 恢复列表加 notifications.json/.gz（和 intraday_snapshot 同处理，git checkout origin/main -- 强制覆盖 untracked）
+- 未加 git clean -fd 兜底（风险高于收益：可能误删 R2 托管 .gitignore .gz）
+
+**修复3：A1 check_nt_signals 跨日去重（commit 6dd3faea）** -- 根治每晚重复发 7-20 旧 etf 邮件
+- 根因：check_nt_signals.py L74 读 `SELECT max(date) FROM etf_signal`，main() 无跨日去重，每次 backfill 跑都发 MAX(date) 旧信号邮件。DB etf_signal 最新日期=20260720（7-21~7-29 无信号：z-score 不满足 + 7-29 fund_share 全NULL T+1延迟），7-21~7-29 每晚发 7-20 重复邮件
+- 修复：加 nt_signal_notified.json 跨日去重（load/save_nt_notified + main 发邮件前过滤 signals_to_send，已发跳过，发后记录），对齐 check_signals.py signal_notified.json 风格
+- 边界：首次跑（nt_signal_notified.json 不存在）load 返回 {} 全发不崩；部分已发部分新只发新信号+记录新信号
+- 注意：明天 20:07 etf 跑时 A1 首次发一次 7-20（nt_signal_notified.json 首次创建+记录），后天起跳过（A1 设计正确，首次记录必要）
+
+**关键教训**：
+1. a74 修复引入新文件（notifications.json.gz）进 git，需同步更新 deploy.sh 的"恢复工作区残留"逻辑（L52-57），否则 untracked 新文件致 rebase checkout 冲突。改 intraday_snapshot 生成文件时，检查 deploy.sh 的恢复列表是否覆盖
+2. check_nt_signals 无跨日去重是设计缺陷（对比 check_signals 有 signal_notified.json），每次跑发 MAX(date) 旧信号。新发邮件脚本必加跨日去重
+3. export_notifications 只读 sentiment.db.signal_daily（A股指数信号），不读 etf_national_team.db.etf_signal。邮件 etf 信号走 check_nt_signals 独立链路。notifications.json signals 无 etf 是设计（两库两表两脚本），非 bug。如要浏览器通知也弹 etf，需 export_notifications 加读 etf_signal（未来增强）
+4. 7-29 fund_share 全 NULL 是 ETF 份额 T+1 发布正常延迟，非采集 bug。check_nt_signals 标注 "T-N数据" 已正确提示
