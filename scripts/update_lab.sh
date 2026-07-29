@@ -5,20 +5,21 @@
 # update_all 实测约 49 分钟（17:50->18:39），故 launchd 定 19:00，并在脚本内
 # 等待 update_all 完成（防撞车 + 防读旧数据缺当天）。
 #
-# 步骤（11 步）：
-#   [1/11]  lab_simulate 单信号（128 组 × 9 指数）
-#   [2/11]  lab_simulate --fusion（91 × 9）
-#   [3/11]  lab_matrix 单信号矩阵（lab_backtest_{idx}.json，前端策略矩阵视图）
-#   [4/11]  lab_matrix --fusion（融合矩阵 lab_backtest_fusion_{idx}.json，前端融合矩阵）
-#   [5/11]  lab_retest 二次测试切片（lab_retest_{idx}.json）
-#   [6/11]  lab_retest_honors 荣誉表（lab_retest_honors.json，前端 retest 徽章）
-#   [7/11]  backtest_strategies 全市场聚合（lab_backtest.json，前端策略详情默认视图）
-#   [8/11]  lab_ablation 信号消融（static-site/data/lab_ablation.json，顶层）
-#   [9/11]  lab_cost_compare 手续费对比（static-site/data/lab_cost_compare.json，顶层）
-#   [10/11] lab_param_scan 参数敏感扫描（static-site/data/lab_param_scan.json，顶层）
-#   [11/11] lab_short_symmetry 多空对称（static-site/data/lab_short_symmetry.json，顶层）
+# 步骤（12 步）：
+#   [1/12]  lab_simulate 单信号（128 组 × 9 指数）
+#   [2/12]  lab_simulate --fusion（91 × 9）
+#   [3/12]  lab_matrix 单信号矩阵（lab_backtest_{idx}.json，前端策略矩阵视图）
+#   [4/12]  lab_matrix --fusion（融合矩阵 lab_backtest_fusion_{idx}.json，前端融合矩阵）
+#   [5/12]  lab_retest 二次测试切片（lab_retest_{idx}.json）
+#   [6/12]  lab_retest_honors 荣誉表（lab_retest_honors.json，前端 retest 徽章）
+#   [7/12]  backtest_strategies 全市场聚合（lab_backtest.json，前端策略详情默认视图）
+#   [8/12]  lab_ablation 信号消融（static-site/data/lab_ablation.json，顶层）
+#   [9/12]  lab_cost_compare 手续费对比（static-site/data/lab_cost_compare.json，顶层）
+#   [10/12] lab_param_scan 参数敏感扫描（static-site/data/lab_param_scan.json，顶层）
+#   [11/12] lab_short_symmetry 多空对称（static-site/data/lab_short_symmetry.json，顶层）
+#   [12/12] simulate_trade --html（static-site/trade_sim.html，sh 旧版静态 HTML 兜底入口）
 #   -> upload_r2.py upload-lab 刷 R2 上线（lab/ 子目录 65 文件）
-#   -> git push 顶层 lab_*.json（static-site/data/ 4 顶层文件走 deploy）
+#   -> git push 顶层 lab_*.json + trade_sim.html（static-site/data/ 4 顶层 + static-site/ 根 trade_sim.html 走 deploy）
 #
 # P1-7 修复（2026-07-21）：原脚本只跑 lab_simulate + lab_retest，漏跑 lab_matrix 和
 # backtest_strategies，致 lab_backtest*.json 系列停滞（lab_backtest.json 停 7/10 滞后 11 天，
@@ -85,8 +86,8 @@ while pgrep -f 'update_all\.sh' >/dev/null 2>&1; do
 done
 echo "✓ update_all 已完成（或未运行），开始 lab 回测" | tee -a "$LOG"
 
-# [1/11] lab_simulate 单信号
-echo "-> [1/11] lab_simulate 单信号（128 组 × 9 指数）..." | tee -a "$LOG"
+# [1/12] lab_simulate 单信号
+echo "-> [1/12] lab_simulate 单信号（128 组 × 9 指数）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_simulate.py" 2>&1 | tee -a "$LOG"
 RC1=${PIPESTATUS[0]:-1}
 if [ "$RC1" -ne 0 ]; then
@@ -95,8 +96,8 @@ else
   echo "✓ 单信号完成" | tee -a "$LOG"
 fi
 
-# [2/11] lab_simulate 融合
-echo "-> [2/11] lab_simulate 融合（91 候选 × 9 指数）..." | tee -a "$LOG"
+# [2/12] lab_simulate 融合
+echo "-> [2/12] lab_simulate 融合（91 候选 × 9 指数）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_simulate.py" --fusion 2>&1 | tee -a "$LOG"
 RC2=${PIPESTATUS[0]:-1}
 if [ "$RC2" -ne 0 ]; then
@@ -105,9 +106,9 @@ else
   echo "✓ 融合完成" | tee -a "$LOG"
 fi
 
-# [3/11] lab_matrix 单信号矩阵（生成 lab_backtest_{idx}.json，前端策略矩阵视图）
+# [3/12] lab_matrix 单信号矩阵（生成 lab_backtest_{idx}.json，前端策略矩阵视图）
 # P1-7：前端 lab.js fetchLabMatrixData() 读 lab_backtest_{idx}.json 做策略矩阵，原脚本漏跑致停滞。
-echo "-> [3/11] lab_matrix 单信号矩阵（9 指数，前端策略矩阵 lab_backtest_{idx}.json）..." | tee -a "$LOG"
+echo "-> [3/12] lab_matrix 单信号矩阵（9 指数，前端策略矩阵 lab_backtest_{idx}.json）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_matrix.py" 2>&1 | tee -a "$LOG"
 RC3=${PIPESTATUS[0]:-1}
 if [ "$RC3" -ne 0 ]; then
@@ -116,9 +117,9 @@ else
   echo "✓ 单信号矩阵完成" | tee -a "$LOG"
 fi
 
-# [4/11] lab_matrix 融合矩阵（生成 lab_backtest_fusion_{idx}.json，前端融合矩阵视图）
+# [4/12] lab_matrix 融合矩阵（生成 lab_backtest_fusion_{idx}.json，前端融合矩阵视图）
 # P1-7：前端 lab.js fetchLabFusionMatrixData() 读 lab_backtest_fusion_{idx}.json，原脚本漏跑致停滞。
-echo "-> [4/11] lab_matrix 融合矩阵（9 指数，前端融合矩阵 lab_backtest_fusion_{idx}.json）..." | tee -a "$LOG"
+echo "-> [4/12] lab_matrix 融合矩阵（9 指数，前端融合矩阵 lab_backtest_fusion_{idx}.json）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_matrix.py" --fusion 2>&1 | tee -a "$LOG"
 RC4=${PIPESTATUS[0]:-1}
 if [ "$RC4" -ne 0 ]; then
@@ -127,8 +128,8 @@ else
   echo "✓ 融合矩阵完成" | tee -a "$LOG"
 fi
 
-# [5/11] lab_retest 二次测试
-echo "-> [5/11] lab_retest 二次测试（切片）..." | tee -a "$LOG"
+# [5/12] lab_retest 二次测试
+echo "-> [5/12] lab_retest 二次测试（切片）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_retest.py" 2>&1 | tee -a "$LOG"
 RC5=${PIPESTATUS[0]:-1}
 if [ "$RC5" -ne 0 ]; then
@@ -137,10 +138,10 @@ else
   echo "✓ retest 完成" | tee -a "$LOG"
 fi
 
-# [6/11] lab_retest_honors 荣誉表（生成 lab_retest_honors.json，前端 retest 徽章）
+# [6/12] lab_retest_honors 荣誉表（生成 lab_retest_honors.json，前端 retest 徽章）
 # P1-7b：前端 lab.js fetchLabRetestHonors() 读 lab_retest_honors.json 做 retest 排行徽章，
 # 原脚本漏跑致停滞（7/17）。依赖 lab_retest_*.json + lab_sim_*_stats.json（[1][2][5] 已生成）。
-echo "-> [6/11] lab_retest_honors 荣誉表（lab_retest_honors.json）..." | tee -a "$LOG"
+echo "-> [6/12] lab_retest_honors 荣誉表（lab_retest_honors.json）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_retest_honors.py" 2>&1 | tee -a "$LOG"
 RC_HONORS=${PIPESTATUS[0]:-1}
 if [ "$RC_HONORS" -ne 0 ]; then
@@ -149,11 +150,11 @@ else
   echo "✓ 荣誉表完成" | tee -a "$LOG"
 fi
 
-# [7/11] backtest_strategies 全市场聚合矩阵（生成 lab_backtest.json，前端策略详情默认视图）
+# [7/12] backtest_strategies 全市场聚合矩阵（生成 lab_backtest.json，前端策略详情默认视图）
 # P1-7：前端 lab.js fetchLabData() 读 lab_backtest.json 做策略详情/列表页默认视图，原脚本漏跑
 # 致 lab_backtest.json 停 7/10 滞后 11 天。backtest_strategies.py 硬编码写到
 # a-stock-data/lab_backtest.json（绝对路径），跑完复制到 static-site/data/lab/ 供 upload_r2 上线。
-echo "-> [7/11] backtest_strategies 全市场聚合（lab_backtest.json）..." | tee -a "$LOG"
+echo "-> [7/12] backtest_strategies 全市场聚合（lab_backtest.json）..." | tee -a "$LOG"
 "$PY" "$REPO/a-stock-data/backtest_strategies.py" 2>&1 | tee -a "$LOG"
 RC6=${PIPESTATUS[0]:-1}
 if [ "$RC6" -ne 0 ]; then
@@ -165,9 +166,9 @@ else
   echo "⚠ lab_backtest.json 未生成（backtest_strategies.py 未产出）" | tee -a "$LOG"
 fi
 
-# [8/11] lab_ablation 信号消融（生成 static-site/data/lab_ablation.json，顶层）
+# [8/12] lab_ablation 信号消融（生成 static-site/data/lab_ablation.json，顶层）
 # P1-7b：前端 lab.js fetchLabAblationData() 读 ./data/lab_ablation.json，原脚本漏跑致停滞（7/17）。
-echo "-> [8/11] lab_ablation 信号消融（lab_ablation.json）..." | tee -a "$LOG"
+echo "-> [8/12] lab_ablation 信号消融（lab_ablation.json）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_ablation.py" 2>&1 | tee -a "$LOG"
 RC_ABL=${PIPESTATUS[0]:-1}
 if [ "$RC_ABL" -ne 0 ]; then
@@ -176,9 +177,9 @@ else
   echo "✓ 信号消融完成" | tee -a "$LOG"
 fi
 
-# [9/11] lab_cost_compare 手续费对比（生成 static-site/data/lab_cost_compare.json，顶层）
+# [9/12] lab_cost_compare 手续费对比（生成 static-site/data/lab_cost_compare.json，顶层）
 # P1-7b：前端 lab.js fetchLabCostCompare() 读 ./data/lab_cost_compare.json，原脚本漏跑致停滞（7/17）。
-echo "-> [9/11] lab_cost_compare 手续费对比（lab_cost_compare.json）..." | tee -a "$LOG"
+echo "-> [9/12] lab_cost_compare 手续费对比（lab_cost_compare.json）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_cost_compare.py" 2>&1 | tee -a "$LOG"
 RC_CC=${PIPESTATUS[0]:-1}
 if [ "$RC_CC" -ne 0 ]; then
@@ -187,9 +188,9 @@ else
   echo "✓ 手续费对比完成" | tee -a "$LOG"
 fi
 
-# [10/11] lab_param_scan 参数敏感扫描（生成 static-site/data/lab_param_scan.json，顶层）
+# [10/12] lab_param_scan 参数敏感扫描（生成 static-site/data/lab_param_scan.json，顶层）
 # P1-7b：前端 lab.js 读 ./data/lab_param_scan.json，原脚本漏跑致停滞（7/17）。
-echo "-> [10/11] lab_param_scan 参数敏感扫描（lab_param_scan.json）..." | tee -a "$LOG"
+echo "-> [10/12] lab_param_scan 参数敏感扫描（lab_param_scan.json）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_param_scan.py" 2>&1 | tee -a "$LOG"
 RC_PS=${PIPESTATUS[0]:-1}
 if [ "$RC_PS" -ne 0 ]; then
@@ -198,15 +199,29 @@ else
   echo "✓ 参数扫描完成" | tee -a "$LOG"
 fi
 
-# [11/11] lab_short_symmetry 多空对称（生成 static-site/data/lab_short_symmetry.json，顶层）
+# [11/12] lab_short_symmetry 多空对称（生成 static-site/data/lab_short_symmetry.json，顶层）
 # P1-7b：前端 lab.js 读 ./data/lab_short_symmetry.json，原脚本漏跑致停滞（7/17）。
-echo "-> [11/11] lab_short_symmetry 多空对称（lab_short_symmetry.json）..." | tee -a "$LOG"
+echo "-> [11/12] lab_short_symmetry 多空对称（lab_short_symmetry.json）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/lab/lab_short_symmetry.py" 2>&1 | tee -a "$LOG"
 RC_SS=${PIPESTATUS[0]:-1}
 if [ "$RC_SS" -ne 0 ]; then
   echo "⚠ lab_short_symmetry 失败（退出码 ${RC_SS}），继续后续步骤" | tee -a "$LOG"
 else
   echo "✓ 多空对称完成" | tee -a "$LOG"
+fi
+
+# [12/12] simulate_trade --html（生成 static-site/trade_sim.html，sh 旧版静态 HTML 兜底入口）
+# 2026-07-29 纳入 update_lab.sh：原手动跑，现每日自动重生。
+# --output 指定生成 static-site/trade_sim.html（git tracked，走 git deploy）；
+# 其他品种 trade_sim_*.html 走 R2（upload-trade-sim），此处只重生 sh 主入口。
+# 失败不阻塞：trade_sim.html 过期不影响 lab 主流程（JSON 由 simulate_trade 默认生成，本步骤只补 HTML 兜底）。
+echo "-> [12/12] simulate_trade --html（trade_sim.html，sh 旧版静态 HTML）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/simulate_trade.py" --html --output "$REPO/static-site/trade_sim.html" 2>&1 | tee -a "$LOG"
+RC_TS=${PIPESTATUS[0]:-1}
+if [ "$RC_TS" -ne 0 ]; then
+  echo "⚠ simulate_trade --html 失败（退出码 ${RC_TS}），trade_sim.html 可能过期" | tee -a "$LOG"
+else
+  echo "✓ trade_sim.html 重生完成" | tee -a "$LOG"
 fi
 
 # 上线分两路：
@@ -232,6 +247,11 @@ if [ "$REPO" != "/Users/linhuichen/code/trade" ] && [ -d "$TRADE_LAB" ]; then
     fi
   done
   echo "✓ 同步顶层 lab_*.json $REPO -> trade/（供 git deploy 读取）" | tee -a "$LOG"
+  # C) 同步 trade_sim.html（sh 旧版静态 HTML，根目录）-> git deploy 读取
+  if [ -f "$REPO/static-site/trade_sim.html" ]; then
+    cp "$REPO/static-site/trade_sim.html" "/Users/linhuichen/code/trade/static-site/trade_sim.html"
+    echo "✓ 同步 trade_sim.html $REPO -> trade/（供 git deploy 读取）" | tee -a "$LOG"
+  fi
 fi
 
 # A) upload_r2 刷 R2（lab/ 子目录 65 文件）
@@ -253,6 +273,8 @@ git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
 for f in lab_ablation.json lab_cost_compare.json lab_param_scan.json lab_short_symmetry.json; do
   git -C "$GIT_REPO" add "static-site/data/$f" 2>/dev/null || true
 done
+# trade_sim.html（sh 旧版静态 HTML，根目录，git tracked，[12/12] 重生产物）
+git -C "$GIT_REPO" add static-site/trade_sim.html 2>/dev/null || true
 # 有变更才 commit（幂等：无变更跳过 commit，但仍 push 推未 push commit）
 GIT_DEPLOY_RC=0
 if git -C "$GIT_REPO" diff --cached --quiet 2>/dev/null; then
@@ -295,7 +317,7 @@ END_TS=$(date +%s)
 ELAPSED=$((END_TS - START_TS))
 ELAPSED_MIN=$((ELAPSED / 60))
 echo "=== update_lab.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 耗时 ${ELAPSED}s（${ELAPSED_MIN}min）===" | tee -a "$LOG"
-echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retest=$RC5 honors=$RC_HONORS backtest=$RC6 abl=$RC_ABL cc=$RC_CC ps=$RC_PS ss=$RC_SS r2=$R2_RC git_tl=$GIT_DEPLOY_RC" | tee -a "$LOG"
+echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retest=$RC5 honors=$RC_HONORS backtest=$RC6 abl=$RC_ABL cc=$RC_CC ps=$RC_PS ss=$RC_SS ts=$RC_TS r2=$R2_RC git_tl=$GIT_DEPLOY_RC" | tee -a "$LOG"
 
 # 刷新 schedule_stats.json（2026-07-24 方案A根治：从 deploy.sh:72 移到此处，在"结束"行后调用，
 # gen_stats 能读到完整"开始+结束"对，正确配对当前任务 exit/dur，不再 pending null）
