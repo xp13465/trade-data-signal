@@ -291,11 +291,64 @@ if [ "$PUSH_RC" -ne 0 ]; then
         exit "$PUSH_RC"
       fi
     else
-      git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
-      pop_rebase_stash   # abort 后恢复工作区 M 文件（已回到 rebase 前状态，pop 安全）
-      echo "✗ rebase origin/main 失败（可能数据 JSON 冲突），已 abort 保持工作区干净。" | tee -a "$LOG"
-      echo "  请手动：git -C $GIT_REPO fetch origin && git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
-      exit 1
+      # 2026-07-29 修复：rebase 失败时自动解决 static-site/data/ 数据文件冲突
+      # 根因：并发 deploy push 后本地 rebase origin/main 撞 static-site/data/*.gz
+      # 二进制冲突(git 无法三方合并) -> rebase abort -> push 永久失败 ->
+      # futures_backfill log_anomaly 持续告警(7-28 21:00 事故)。
+      # 数据文件每次 export 全量覆盖不需合并，取 theirs(本地最新)。
+      # rebase 语义：ours=origin/main(基底) theirs=本地commit(重放)=最新数据
+      CONFLICTED=$(git -C "$GIT_REPO" diff --name-only --diff-filter=U 2>/dev/null)
+      if [ -n "$CONFLICTED" ]; then
+        NON_DATA_CONFLICTS=""
+        for f in $CONFLICTED; do
+          case "$f" in
+            static-site/data/*.json|static-site/data/*.gz)
+              git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
+              git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
+              ;;
+            *)
+              NON_DATA_CONFLICTS="$NON_DATA_CONFLICTS $f"
+              ;;
+          esac
+        done
+        if [ -z "$NON_DATA_CONFLICTS" ]; then
+          # 全是数据文件冲突，已用 theirs(本地最新) 解决，continue
+          echo "-> rebase 数据文件冲突已自动解决(--theirs=本地最新 export)，continue..." | tee -a "$LOG"
+          GIT_EDITOR=true git -C "$GIT_REPO" rebase --continue 2>&1 | tee -a "$LOG"
+          CONTINUE_RC=${PIPESTATUS[0]:-1}
+          if [ "$CONTINUE_RC" -eq 0 ]; then
+            git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
+            PUSH_RC=${PIPESTATUS[0]:-1}
+            pop_rebase_stash
+            if [ "$PUSH_RC" -eq 0 ]; then
+              echo "✓ rebase(数据冲突 --theirs) + 重试 push 成功" | tee -a "$LOG"
+            else
+              echo "✗ rebase --continue 后重试 push 仍失败(退出码 $PUSH_RC)" | tee -a "$LOG"
+              exit "$PUSH_RC"
+            fi
+          else
+            git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
+            pop_rebase_stash
+            echo "✗ rebase --continue 失败(退出码 $CONTINUE_RC)，已 abort" | tee -a "$LOG"
+            echo "  请手动：git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
+            exit 1
+          fi
+        else
+          # 有非数据文件冲突，保守 abort
+          git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
+          pop_rebase_stash   # abort 后恢复工作区 M 文件（已回到 rebase 前状态，pop 安全）
+          echo "✗ rebase 有非数据文件冲突($NON_DATA_CONFLICTS)，已 abort 保持工作区干净。" | tee -a "$LOG"
+          echo "  请手动：git -C $GIT_REPO fetch origin && git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
+          exit 1
+        fi
+      else
+        # 无冲突文件信息(可能是其他 rebase 错误)，保守 abort
+        git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
+        pop_rebase_stash   # abort 后恢复工作区 M 文件（已回到 rebase 前状态，pop 安全）
+        echo "✗ rebase origin/main 失败(无冲突文件信息，退出码 $REBASE_RC)，已 abort 保持工作区干净。" | tee -a "$LOG"
+        echo "  请手动：git -C $GIT_REPO fetch origin && git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
+        exit 1
+      fi
     fi
   fi
 fi

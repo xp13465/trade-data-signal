@@ -14,7 +14,7 @@
   {
     "task": "backfill_evening",
     "name": "指数补采兜底",
-    "schedule": "16:35 / 02:00",
+    "schedule": "16:35 / 21:00 / 02:00",
     "est_text": "约19分钟",
     "last_run": "2026-07-29 02:00",
     "last_exit": 0,
@@ -62,11 +62,23 @@
   {
     "task": "rzhb_backfill",
     "name": "两融",
-    "schedule": "19:15",
+    "schedule": "T+1 08:00",
     "est_text": "约1秒",
     "last_run": "2026-07-28 19:15",
     "last_exit": 0,
     "last_duration_sec": 1,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
+  },
+  {
+    "task": "us_stock_morning",
+    "name": "美股早采",
+    "schedule": "05:00",
+    "est_text": "-",
+    "last_run": null,
+    "last_exit": null,
+    "last_duration_sec": null,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null

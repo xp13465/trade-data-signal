@@ -45,6 +45,10 @@ TASKS = [
      "schedule": "18:30 + 19:30(兜底)", "log": "lhb_backfill_launchd.log", "mode": "standard"},
     {"task": "rzhb_backfill", "name": "两融", "script": "rzhb_backfill.sh",
      "schedule": "T+1 08:00", "log": "rzhb_backfill_launchd.log", "mode": "standard"},
+    # us_stock_morning: 2026-07-29 新增美股早采 05:00(commit 4425366c schedule_monitor已加监控，
+    # 此处补齐 gen_schedule_stats 漏同步)。日志格式标准 .sh 开始/结束，mode=standard 可解析。
+    {"task": "us_stock_morning", "name": "美股早采", "script": "us_stock_morning.sh",
+     "schedule": "05:00", "log": "us_stock_morning_launchd.log", "mode": "standard"},
     {"task": "etf_national_team", "name": "ETF国家队", "script": "etf_nt",
      "schedule": "20:07 + 21:30(兜底)", "log": "etf_national_team_launchd.log", "mode": "etf_nt"},
     # lab-auto: 2026-07-23 补入监控范围。launchd com.trade.lab-auto 19:00 跑 update_lab.sh
@@ -77,6 +81,7 @@ LABEL_MAP = {
     "futures_backfill": "com.trade.futures-backfill",
     "lhb_backfill": "com.trade.lhb-backfill",
     "rzhb_backfill": "com.trade.rzhb-backfill",
+    "us_stock_morning": "com.trade.us-stock-morning",
     "etf_national_team": "com.trade.etf-national-team",
     "lab_auto": "com.trade.lab-auto",
 }
