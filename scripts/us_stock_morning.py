@@ -43,7 +43,7 @@ if REPO not in sys.path:
     sys.path.insert(0, REPO)
 
 from app.collector.base import UA  # noqa: E402
-from app.collector.runner import upsert_index_rows  # noqa: E402
+from app.collector.runner import upsert_index_rows, upsert_metrics_many  # noqa: E402
 
 _SINA_URL = "http://hq.sinajs.cn/list=gb_$dji,gb_$ixic,gb_$inx,gb_$ndx"
 _SINA_HEADERS = {"User-Agent": UA, "Referer": "https://finance.sina.com.cn"}
@@ -189,6 +189,32 @@ def _notna(v):
         return v is not None
 
 
+def collect_us10y():
+    """采美国10年国债收益率（akshare bond_zh_us_rate，column='美国国债收益率10年'）。
+
+    美债与美股同时区（北京 04:00 收盘），05:00 早采顺带采掉当日美债，
+    消除 us10y 滞后 2 天的时序错位（原 backfill_evening 02:00 跑早于美股收盘 +
+    bond_zh_us_rate 在 SERIES_FUNCS 走全量拉取，02:00 时源尚未发布当日值）。
+
+    复用 fetchers.collect_series 逻辑（同主 pipeline 采集路径，保证列名/日期/NaN 处理一致）。
+    返回 (rows, latest_date, latest_value, msg)。rows=[(date, value), ...]。
+    """
+    from app.collector.fetchers import collect_series, load_config
+    cfg = load_config()
+    us10y_cfg = None
+    for m in cfg.get("metrics", []):
+        if m.get("id") == "us10y":
+            us10y_cfg = m
+            break
+    if not us10y_cfg:
+        return [], None, None, "us10y metric config not found in indicators.yaml"
+    rows, msg = collect_series(us10y_cfg)
+    if not rows:
+        return [], None, None, f"collect_series: {msg}"
+    # rows 按 date 升序（collect_series 逐行 append），末位为最新
+    return rows, rows[-1][0], rows[-1][1], "ok"
+
+
 def main():
     now = datetime.now()
     today_str = now.strftime("%Y%m%d")
@@ -247,12 +273,27 @@ def main():
                 results.append((idx_id, "fail", fb_msg))
                 print(f"  ✗ {idx_id} 历史兜底失败: {fb_msg}", flush=True)
 
-    # 批量 upsert
+    # 批量 upsert 美股指数
     if rows_to_upsert:
         upsert_index_rows(rows_to_upsert)
-        print(f"=== upsert {len(rows_to_upsert)} 行完成 ===", flush=True)
+        print(f"=== upsert {len(rows_to_upsert)} 行指数完成 ===", flush=True)
     else:
-        print("=== 无数据可 upsert ===", flush=True)
+        print("=== 无指数数据可 upsert ===", flush=True)
+
+    # ── 美债 us10y 采集（与美股同时区，05:00 顺带采掉当日）──
+    print(f"\n-> 采集 us10y 美债 ..." , flush=True)
+    try:
+        us10y_rows, us10y_date, us10y_val, us10y_msg = collect_us10y()
+        if us10y_rows:
+            upsert_metrics_many("us10y", us10y_rows)
+            results.append(("us10y", "ok", f"bond_zh_us_rate date={us10y_date} value={us10y_val}%"))
+            print(f"  ✓ us10y <- bond_zh_us_rate date={us10y_date} value={us10y_val}% ({len(us10y_rows)} rows)", flush=True)
+        else:
+            results.append(("us10y", "fail", us10y_msg))
+            print(f"  ✗ us10y 采集失败: {us10y_msg}", flush=True)
+    except Exception as e:  # noqa: BLE001
+        results.append(("us10y", "fail", f"exception: {type(e).__name__} {e}"))
+        print(f"  ✗ us10y 异常: {type(e).__name__} {e}", flush=True)
 
     # 汇总
     print(f"\n=== us_stock_morning 汇总 ({datetime.now()}) ===", flush=True)
