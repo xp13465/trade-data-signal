@@ -1,8 +1,9 @@
 #!/bin/bash
 # schedule_monitor.sh - 计划任务执行监控（方案B：独立监控脚本 + launchd 每15分钟触发）
 #
-# 8 个 launchd 计划任务：update_all / backfill_evening / intraday_snapshot /
-# futures_backfill / lhb_backfill / rzhb_backfill / etf_national_team / lab_auto。
+# 9 个 launchd 计划任务：update_all / backfill_evening / intraday_snapshot /
+# futures_backfill / lhb_backfill / rzhb_backfill / etf_national_team / lab_auto /
+# us_stock_morning。
 # 每个任务的计划时点表来自 ~/Library/LaunchAgents/com.trade.*.plist 的 StartCalendarInterval。
 #
 # 检查项：
@@ -51,8 +52,12 @@ TASKS = [
     {"task": "backfill_evening",    "log": "backfill_evening_launchd.log",
      "schedules": ["02:00", "16:35"]},  # 2026-07-24 B4 Top2 去重：删 20:00 槽（plist 已删，监控配置同步）
     {"task": "intraday_snapshot",   "log": "intraday_snapshot_launchd.log",
-     "schedules": ["09:35", "09:50", "10:05", "10:20", "10:35", "10:50", "11:05", "11:20", "11:30",
-                   "13:05", "13:20", "13:35", "13:50", "14:05", "14:20", "14:35", "14:50", "15:05"]},
+     "schedules": [  # 2026-07-28 plist 10m(26次)+15:35/20:35 收盘后(intraday-close ETF 预估修复), 共28时点
+         "09:25", "09:35", "09:45", "09:55", "10:05", "10:15", "10:25", "10:35", "10:45", "10:55",
+         "11:05", "11:15", "11:25",
+         "13:05", "13:15", "13:25", "13:35", "13:45", "13:55",
+         "14:05", "14:15", "14:25", "14:35", "14:45", "14:55", "15:05",
+         "15:35", "20:35"]},
     {"task": "futures_backfill",    "log": "futures_backfill_launchd.log",
      "schedules": ["20:05", "21:00"]},
     {"task": "lhb_backfill",        "log": "lhb_backfill_launchd.log",
@@ -63,6 +68,8 @@ TASKS = [
      "schedules": ["20:07", "21:30"]},
     {"task": "lab_auto",            "log": "update_lab_launchd.log",
      "schedules": ["19:00"]},
+    {"task": "us_stock_morning",    "log": "us_stock_morning_launchd.log",
+     "schedules": ["05:00"]},  # 2026-07-29 新增：美股04:00收盘后1h采集+deploy，原监控盲区补齐
 ]
 
 # 标准任务开始行：=== xxx.sh 开始 YYYY-MM-DD HH:MM:SS ===
