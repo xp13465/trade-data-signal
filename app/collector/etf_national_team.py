@@ -1216,6 +1216,86 @@ def pipeline_intraday_close() -> dict:
     return stats
 
 
+# ── Pipeline: intraday 盘中实时价预估（AZ54 P1-5, 2026-07-29）──────────────────────
+# 背景：pipeline_intraday_close 只在 15:00 后跑（sina/mootdx 盘中未出收盘价必采空），
+#   9:35-14:50 的 17 个盘中时点无 ETF 预估，用户盘中看不到国家队市值变化。
+# 修复：盘中用 akshare fund_etf_fund_daily_em（东财实时行情）拉 12 只国家队 ETF 实时市价，
+#   写入 DB etf_daily 末日（close=市价, share_change=NULL 触发前端预估）。
+# 时点：9:35-14:50 跑 realtime（轻量~1s），15:00+ 由 pipeline_intraday_close 覆盖（真实收盘价）。
+# 数据流：写 DB close only（不写 OHLC/amount/share），fund_share/share_change 保持 NULL
+#   -> export 末日 share_change_yi 不存在 -> 前端 chgNull=true 预估触发（复用现有逻辑无需改前端）。
+# 不污染 DB：realtime close 是临时值，15:05 intraday-close 覆盖 + 17:50 update_all 全量覆盖。
+def pipeline_intraday_realtime() -> dict:
+    """盘中实时价预估模式（9:35-14:50）：akshare fund_etf_fund_daily_em 拉 12 只国家队 ETF 实时市价，
+    写入 DB 末日 close（share_change=NULL 触发前端预估）。
+
+    akshare fund_etf_fund_daily_em 返回全市场 ETF 实时行情（~0.5s），含市价字段。
+    盘前返回昨收价（无实时意义），盘中返回实时价。时点 9:35+ 调用确保盘中有效。
+    """
+    import akshare as ak
+    from ..calendar import last_trading_day
+    print(f"[etf_nt] intraday-realtime 开始 {dt.datetime.now():%Y-%m-%d %H:%M:%S}", flush=True)
+    t0 = time.time()
+    conn = get_conn()
+    ltd = last_trading_day()
+    print(f"  目标日期={ltd}(盘中实时市价,share T+1 未发留 NULL 触发预估)", flush=True)
+    stats = {"ohlc": 0, "signals": 0}
+
+    # 拉 akshare 全市场 ETF 实时行情
+    try:
+        df = ak.fund_etf_fund_daily_em()
+    except Exception as e:  # noqa: BLE001
+        print(f"  [akshare] fund_etf_fund_daily_em 拉取失败: {type(e).__name__}: {e},跳过", flush=True)
+        conn.close()
+        return stats
+
+    # 过滤 12 只国家队 ETF
+    codes = [c for c, _, _, _ in ETF_LIST]
+    df["基金代码"] = df["基金代码"].astype(str)
+    hit = df[df["基金代码"].isin(codes)]
+    print(f"  [akshare] 命中 {len(hit)}/{len(codes)} 只国家队 ETF ({time.time()-t0:.1f}s)", flush=True)
+
+    if hit.empty:
+        print(f"  [akshare] 未命中任何国家队 ETF,跳过", flush=True)
+        conn.close()
+        return stats
+
+    # 逐只写入 DB（close=市价, 不写 OHLC/amount/share）
+    for _, row in hit.iterrows():
+        code = str(row["基金代码"])
+        name = ETF_BY_CODE.get(code, (code,))[0]
+        price_str = str(row.get("市价", "")).strip()
+        if not price_str or price_str == "---":
+            print(f"  {code} {name}: 市价为空,跳过", flush=True)
+            continue
+        try:
+            close = float(price_str)
+        except ValueError:
+            print(f"  {code} {name}: 市价={price_str} 解析失败,跳过", flush=True)
+            continue
+        if close <= 0:
+            print(f"  {code} {name}: 市价={close}<=0,跳过", flush=True)
+            continue
+
+        # upsert close only（share_change 保持 NULL 触发预估）
+        rows = [{"date": ltd, "etf_code": code, "etf_name": name, "close": close}]
+        n = _upsert_daily(conn, rows, ["etf_name", "close"])
+        stats["ohlc"] += n
+        print(f"  {code} {name}: 实时市价={close:.4f} 入库(预估模式,share_change=NULL)", flush=True)
+
+    # 重算信号（vol_ratio 因 amount 缺失不触发,share_surge/outflow 因 share_change=NULL 不触发）
+    stats["signals"] = recompute_all_signals(conn)
+    conn.close()
+
+    # 导出 JSON（末日 share_change_yi 不存在 -> 前端 chgNull=true 预估触发）
+    export_json_files()
+
+    dt_sec = time.time() - t0
+    print(f"[etf_nt] intraday-realtime 完成 {dt_sec:.1f}s: ohlc={stats['ohlc']} signals={stats['signals']}",
+          flush=True)
+    return stats
+
+
 _MOOTDX_NAME_CACHE: dict[str, str] = {}
 
 
@@ -1759,9 +1839,9 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "daily"
-    if cmd in ("daily", "backfill", "signals", "holders", "holders_v2", "export", "intraday-close"):
-        # 进程互斥（daily/backfill/holders/intraday-close 持锁跑，signals/export/holders_v2 不需要锁）
-        if cmd in ("daily", "backfill", "holders", "intraday-close"):
+    if cmd in ("daily", "backfill", "signals", "holders", "holders_v2", "export", "intraday-close", "intraday-realtime"):
+        # 进程互斥（daily/backfill/holders/intraday-close/intraday-realtime 持锁跑，signals/export/holders_v2 不需要锁）
+        if cmd in ("daily", "backfill", "holders", "intraday-close", "intraday-realtime"):
             if not _acquire_lock(nonblock=True):
                 print(f"[etf_nt] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
                 return
@@ -1787,12 +1867,15 @@ def main():
             export_json_files()
         elif cmd == "intraday-close":
             pipeline_intraday_close()
+        elif cmd == "intraday-realtime":
+            pipeline_intraday_realtime()
     else:
         print(__doc__)
         print(f"\n用法: python -m app.collector.etf_national_team <command>")
         print(f"  backfill --start 20230101   全量回填")
         print(f"  daily                       当日增量")
         print(f"  intraday-close              15:35 收盘后采 ETF close(末日 share_change=NULL 触发预估)")
+        print(f"  intraday-realtime           9:35-14:50 盘中实时市价预估(akshare fund_etf_fund_daily_em)")
         print(f"  signals                     重算信号")
         print(f"  holders                     只拉持有人(半年一次)")
         print(f"  holders_v2                  v2 cninfo PDF解析汇金/证金具名持有人")
