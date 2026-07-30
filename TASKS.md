@@ -692,7 +692,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
    - **参考标准**:夏普>1可用/>2优秀/>3可疑过拟合/>5必过拟合(cgb_idx 3.58触发);参数数<样本量1/10(Bailey 2014);样本<30笔无统计意义;胜率>80%+盈亏比>3几乎必过拟合(div_lowvol PL5.35/sz PL5.98需警惕);PBO≥50%严重过拟合/PSR≥95%夏普可信(López de Prado)
    - **建议(若改进)**:生产 signals.py 引入 walk-forward / per-index 调参收敛为通用规则+1-2个 regime 参数 / trade_sim 加 sharpe 字段>3标红 / 小样本<30笔前端标注仅供参考不进三档 chip / 过拟合度分级<5%绿 5-15%黄 >15%红
 
-**未完成项保留**：~~rzhb/etf 新时点今晚19:15/20:07/21:30 首次触发待验证(周六交易日闸门跳过周一07-27真采)~~ ✅已闭环(AZ49 B节确认etf 20:07 exit=0+1376只ETF+libmini_racer未复现) / ~~信号拟合度改进建议待用户决策是否实施~~ 部分已实施（walk-forward优化 `b24b13e6` csi_div 4.5->3.5通用化去per-index过拟合 + `3255e30f` sh D1a去除 WF夏普0.773->1.602 / 小样本前端标注 _OVERFIT_OR_SMALL_SAMPLE_IDS 7品种 / sharpe>3红线标注 `62e7d19e` 续17，剩过拟合度分级颜色未做）/ ~~B4 全市场485扩采集+OHLC~~ 已完成(2026-07-25 AZ20)/ ~~A6 PWA~~ 已完成(AZ20)/ A14 echarts拆core / A15 拆chunk / C1 industry瘦身
+**未完成项保留**：~~rzhb/etf 新时点今晚19:15/20:07/21:30 首次触发待验证(周六交易日闸门跳过周一07-27真采)~~ ✅已闭环(AZ49 B节确认etf 20:07 exit=0+1376只ETF+libmini_racer未复现) / ~~信号拟合度改进建议待用户决策是否实施~~ 部分已实施（walk-forward优化 `b24b13e6` csi_div 4.5->3.5通用化去per-index过拟合 + `3255e30f` sh D1a去除 WF夏普0.773->1.602 / 小样本前端标注 _OVERFIT_OR_SMALL_SAMPLE_IDS 7品种 / sharpe>3红线标注 `62e7d19e` 续17 + 过拟合度分级颜色 `408a4c51` AZ81 四档红橙默认灰+符号 全闭环）/ ~~B4 全市场485扩采集+OHLC~~ 已完成(2026-07-25 AZ20)/ ~~A6 PWA~~ 已完成(AZ20)/ A14 echarts拆core / A15 拆chunk / C1 industry瘦身
 
 **教训**：①ETF 映射加 INDEX_ETF_MAP 后需全指数复核(bj50 修复未顺带复核 csi_div/div_lowvol 红利指数跨基映射易错,本次补复核 csi_div 修正)②launchd 新时点首次触发前 crash 不写 fallback DONE 行致 exit=None 假象,FINAL_RC 综合退出码+fallback 行根治(afd9b5a8)③生产 signals.py 无 walk-forward 是最大过拟合源(grep 0 命中坐实),小样本<30笔无统计意义需前端标注,夏普>3 触发可疑过拟合红线(cgb_idx 3.58)
 

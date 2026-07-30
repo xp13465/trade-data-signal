@@ -5077,3 +5077,17 @@ if (!isClosed) {
   4. 位置在 alert_state save（L312）前 + 恢复检测（L295）前，确保 not_loaded 告警也参与去重不轰炸
 - **验收**（主控逐字 grep 4 点全过）：launchctl_loaded/dedup_key/keyword/line_sample 命中 / 10 label 清单不含 schedule-monitor（grep -c=4 全注释防递归）/ alert_state 三段（seen_keys + active + suppress）/ commit d2207fe7 在 origin/main + bash -n OK
 - **闭环**：schedule_monitor 现 5 项全覆盖（漏跑/exit/log_anomaly/ETF耗时/线上时效 + launchctl加载），取消主控 cron 后无监控盲区。下次 :00/:15/:30/:45 跑用新版验证
+
+### AZ81 trade_sim 过拟合度分级颜色（sharpe>3红/2-3橙/<1灰，chip 更直观区分，2026-07-30 07:1X）
+- **背景**：用户选"今天做 B 主动可做"-> 过拟合度分级颜色。AZ49 残留"过拟合度分级颜色未做"（sharpe>3 红线 `82e09ef7`+`62e7d19e` 只两档红/默认，缺中间档分级）。目标：sharpe 4 档颜色 + 符号让用户一眼区分过拟合度
+- **实施**（commit `408a4c51`，app.js + sw.js）：
+  1. 新增 `_tradeSimSharpeColor(sharpe)` (L11396)：>3 红 #c0392b / 2-3 橙 #d97706 / 1-2 默认 var(--text-1) / <1 或非数 灰 var(--text-3)
+  2. 新增 `_tradeSimSharpeSuffix(sharpe)` (L11406)：>3 ⚠ / 2-3 ~ / 其他空（modal 数值后缀）
+  3. modal sim-card 夏普比率卡 (L11767) 用分级函数：`color:_tradeSimSharpeColor(s.sharpe)` + 后缀 `_tradeSimSharpeSuffix`，title 说明分级口径，sub 文字"分级>3红/2-3橙/<1灰"
+  4. chip line3 策略夏普 (L967) 加 2-3 分级符号 ~（>3 已有 ⚠）
+  5. chip tooltip 窗口行夏普 (L1014) 加分级符号（>3⚠/2-3~，tooltip 纯文本无法着色用符号区分）
+  6. 不改 CSS（内联 style + 纯文本符号）/ 不改 lab.js（`_labQualityHTML` 5 指标灰字单行并列，加颜色破坏一致性，lab 是详查场景看具体数值）
+  7. build_min.py（app.min.js 414882B）+ bump_asset_version（index.html app.min.js?v=f90ba5da）+ bump sw.js CACHE_VERSION a75->a76
+- **验收**（主控逐字 grep 7 点全过）：_tradeSimSharpeColor L11396 + _tradeSimSharpeSuffix L11406 / modal sim-card L11767 用分级函数 + title/sub / chip L967 + tooltip L1014 分级符号注释 / sw.js L16 CACHE_VERSION=v2-20260730-a76 / commit 408a4c51 在 origin/main / app.min.js 414882B / **线上 app.min.js?v=f90ba5da 已上线**（ss.fx8.store）
+- **闭环**：AZ49 残留"过拟合度分级颜色未做"完成。sharpe 从两档（红/默认）升级四档（红/橙/默认/灰）+ 符号（⚠/~），trade_sim chip 概览场景一眼区分过拟合度，与 lab 详查场景分工（lab 看数值，trade_sim 看分级）
+- **关联**：AZ49 残留闭环 + commit `82e09ef7`/`62e7d19e` sharpe>3 红线前置 + Bailey 2014 夏普>3 可疑过拟合标准（NOTES L692）
