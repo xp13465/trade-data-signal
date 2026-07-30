@@ -9318,8 +9318,8 @@ function renderFuturesSection(data, snap, container) {
     const accColor = cd.accuracy > 55 ? "#16a34a" : "#dc2626";
     html += `<div class="term-plain futures-stat-sub" style="margin:6px 0;font-size:13px;"><strong style="color:var(--text-1)">同向<span style="color:${accColor}">${cd.accuracy}%</span>(${cd.correct_count}对${cd.wrong_count}错)</strong></div>`;
     html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th></tr></thead><tbody>';
-    // 净加手数：正绿负红（正=净加多=绿，负=净加空=红）
-    const chgColor = (v) => v != null ? (v >= 0 ? "#2e8b57" : "#e6492e") : "var(--text-3)";
+    // 净加手数：正红负绿（正=净加多=红，负=净加空=绿，A股红涨绿跌惯例）
+    const chgColor = (v) => v != null ? (v >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-3)";
     const chgStr = (v) => v != null ? (v >= 0 ? "+" : "") + Math.round(v) : "-";
     // 倒序渲染（最新727当天在上，最旧在下），当日行（next_return=null）高亮淡黄+加粗
     // 3表对齐：优先用传入 sharedDates，缺则用 cd 自身 dates；缺失日期渲染空行保持行对齐
