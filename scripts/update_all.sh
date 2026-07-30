@@ -221,5 +221,8 @@ bash "$REPO/scripts/backup_db.sh" || echo "⚠ backup_db 失败(不影响update_
 "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" \
   || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
 
+# 独立 push schedule_stats.json 到 main（2026-07-30 方案C+R2：gen_stats 后立即 push 绕过 deploy.sh 时序）
+bash "$REPO/scripts/push_schedule_stats.sh" || echo "⚠ push_schedule_stats 失败" | tee -a "$LOG"
+
 # 退出码以 core 为准（核心看板公网状态）
 exit "$RC_CORE"

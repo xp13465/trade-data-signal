@@ -204,7 +204,7 @@ PUSH_RC=0
   for _rng in 1m 3m 6m 1y; do
     DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
   done
-  for _f in intraday_snapshot schedule_stats overview summary summary_history notifications; do
+  for _f in intraday_snapshot overview summary summary_history notifications; do
     DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
   done
   # 部分文件不存在时 git 报 fatal 但 || true 继续，不影响其余 add（参考 deploy.sh L221）
@@ -310,5 +310,13 @@ echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 =
 #    写 REPO static-site/data/schedule_stats.json，下一轮 intraday rsync 进 worktree push（一轮延迟可接受）。
 #    deploy.sh L72 收盘后也调，兜底。失败不阻塞退出。
 "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" | tail -1 || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
+
+# 5) 独立 push schedule_stats.json 到 main（2026-07-30 方案C+R2 选项2，实时性最佳）：
+#    gen_stats 刚刷新本地 schedule_stats.json，立即独立 push 绕过 deploy.sh 时序矛盾，
+#    当轮 schedule_stats 当轮上线（不再滞后一轮等下次 rsync）。
+#    deploy.sh L216 / 本脚本 L207 for 循环均已移除 schedule_stats（避免双写撞 git lock），
+#    此处是 intraday 路径唯一 push 入口。失败不阻塞：gen_stats 已刷新本地，下一轮 intraday
+#    或其他任务脚本（us_stock/rzhb/futures/lhb/etf/update_all/update_lab）结尾会再 push。
+bash "$REPO/scripts/push_schedule_stats.sh" || echo "⚠ push_schedule_stats 失败" | tee -a "$LOG"
 
 exit 0
