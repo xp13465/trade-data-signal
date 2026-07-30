@@ -102,7 +102,7 @@ _CONTENT_TYPE_MAP = {
 def s3_request(method, key, payload=b"", query="", bucket=None, content_type=None):
     """path-style: /BUCKET/key, host = endpoint host。bucket=None 用默认 BUCKET。
 
-    带连接超时(30s)+ 重试(3 次,SSL/连接错退避 1s/2s/4s),防 R2 偶发断连致脚本挂死。
+    带连接超时(30s)+ 重试(5 次,SSL/连接错退避 1s/2s/4s/8s),防 R2 偶发断连致脚本挂死。
     content_type=None 时按 key 扩展名推断(_CONTENT_TYPE_MAP),未知扩展名回退 application/octet-stream。
     """
     if content_type is None:
@@ -110,7 +110,7 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
         content_type = _CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
     bkt = bucket or BUCKET
     last_exc = None
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             now = datetime.datetime.utcnow()
             amz_date = now.strftime("%Y%m%dT%H%M%SZ")
@@ -159,19 +159,19 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
             # HTTP 5xx 重试(R2 S3 API 偶发 InternalError,与网络异常重试对称)。
             # R2 侧偶发 500 InternalError 自愈,重试 1-2 次通常即成功,避免单文件 5xx
             # 致整批 ok!=total -> intraday 告警邮件轰炸(2026-07-30 修复)。
-            # attempt 0/1 重试(sleep 1s/2s),attempt 2(最后一次)return 让调用方记失败。
-            if resp.status >= 500 and attempt < 2:
+            # attempt 0-3 重试(sleep 1s/2s/4s/8s),attempt 4(最后一次)return 让调用方记失败。
+            if resp.status >= 500 and attempt < 4:
                 import time
-                wait = 2 ** attempt  # 1s, 2s
+                wait = 2 ** attempt  # 1s, 2s, 4s, 8s
                 print(f"  ⚠ {method} {key} HTTP {resp.status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
                 time.sleep(wait)
                 continue
             return resp.status, data
         except (ssl.SSLError, OSError, http.client.HTTPException) as e:
             last_exc = e
-            if attempt < 2:
+            if attempt < 4:
                 import time
-                wait = 2 ** attempt  # 1s, 2s
+                wait = 2 ** attempt  # 1s, 2s, 4s, 8s
                 print(f"  ⚠ {method} {key} attempt {attempt+1} 失败({type(e).__name__}: {e}), {wait}s 后重试", file=sys.stderr)
                 time.sleep(wait)
             else:

@@ -40,26 +40,46 @@ echo "临时目录: ${TMPDIR}（只读演练，不动真实 data/*.db）" | tee 
 
 RC=0
 
-# ---- 1. 从 R2 下载最新备份到临时目录 ----
+# ---- 1. 从 R2 下载最新备份到临时目录(失败 60s 后重试 1 次,仍失败才告警)----
+# 下载函数:成功返回 0,失败返回 1;设全局 SENT_BACKUP/ETF_BACKUP。
+# upload_r2.py 内已 5 次指数退避重试(覆盖~15s),这里再加一层 60s 延迟兜底
+# 长抖动(如 R2 SSLEOFError 持续 30s+ 才恢复,upload_r2.py 内 5 次重试不够覆盖)。
+download_backups() {
+  SENT_BACKUP=""
+  ETF_BACKUP=""
+  local rc=0
+  if ! SENT_BACKUP=$("$PY" "$REPO/scripts/upload_r2.py" download-db sentiment "$TMPDIR" 2>>"$LOG"); then
+    echo "✗ sentiment 下载失败" | tee -a "$LOG"
+    rc=1
+  fi
+  if ! ETF_BACKUP=$("$PY" "$REPO/scripts/upload_r2.py" download-db etf_national_team "$TMPDIR" 2>>"$LOG"); then
+    echo "✗ etf_national_team 下载失败" | tee -a "$LOG"
+    rc=1
+  fi
+  return $rc
+}
+
 echo "-> 从 R2(signal-backup) 下载最新备份 ..." | tee -a "$LOG"
-SENT_BACKUP=""
-ETF_BACKUP=""
-if ! SENT_BACKUP=$("$PY" "$REPO/scripts/upload_r2.py" download-db sentiment "$TMPDIR" 2>>"$LOG"); then
-  echo "✗ sentiment 下载失败" | tee -a "$LOG"
-  RC=1
-fi
-if ! ETF_BACKUP=$("$PY" "$REPO/scripts/upload_r2.py" download-db etf_national_team "$TMPDIR" 2>>"$LOG"); then
-  echo "✗ etf_national_team 下载失败" | tee -a "$LOG"
-  RC=1
+download_backups
+DL_RC=$?
+
+# 第1次失败:sleep 60s 后重试 1 次(覆盖 R2 网络抖动/SSLEOFError 瞬时故障)
+if [ "$DL_RC" -ne 0 ]; then
+  echo "=== 第1次下载失败,60s 后重试 1 次(覆盖 R2 网络抖动)===" | tee -a "$LOG"
+  sleep 60
+  echo "-> 重试从 R2(signal-backup) 下载最新备份 ..." | tee -a "$LOG"
+  download_backups
+  DL_RC=$?
 fi
 
-# 下载失败：无法演练，直接告警退出（不跑 integrity/行数）
-if [ "$RC" -ne 0 ]; then
-  echo "=== 下载失败，无法完成演练 ===" | tee -a "$LOG"
+# 第2次仍失败:无法演练,告警退出(不跑 integrity/行数)
+if [ "$DL_RC" -ne 0 ]; then
+  RC=1
+  echo "=== 下载失败(60s 重试后仍失败),无法完成演练 ===" | tee -a "$LOG"
   NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
   DRY_FLAG=""
   [ "${VERIFY_NOTIFY_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"
-  BODY="R2 备份下载失败，无法完成恢复演练。<br>时间：$NOW_STR<br>日志：$LOG<br>请排查 R2 凭证/网络/signal-backup 桶。"
+  BODY="R2 备份下载失败(60s 重试后仍失败),无法完成恢复演练。<br>时间：$NOW_STR<br>日志：$LOG<br>请排查 R2 凭证/网络/signal-backup 桶。"
   [ -f "$REPO/scripts/notify.py" ] && \
     "$PY" "$REPO/scripts/notify.py" "[备份演练失败]verify_backup下载失败" "$BODY" --severe \
       --alert-issue "verify_backup.sh R2下载失败(无法演练恢复)" --alert-log "$LOG" $DRY_FLAG 2>>"$LOG" || true
