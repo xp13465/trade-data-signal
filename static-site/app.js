@@ -1780,7 +1780,7 @@ function latestSuffixMulti(series) {
   return `<span class="chart-latest"> · ${fmtDate(lastDate)} ${parts.join(" ")}</span>`;
 }
 
-// 判断指标是否停更：数据日期距最新交易日超过 days 天视为停更（如北向资金 2024-08 起源端停更）。
+// 判断指标是否停更：数据日期距最新交易日超过 days 天视为停更（用于任何源端停更的指标,如原北向净买额 2024-08 停更;现北向已切 HKEX 成交总额源每日更新,不再触发）。
 // 用于概览 KPI 卡片：停则隐藏，恢复更新后自动显示回来。
 function isStaleMetric(metricDate, latestDate, days = 30) {
   if (!metricDate || !latestDate || metricDate.length < 8 || latestDate.length < 8) return false;
@@ -4494,7 +4494,7 @@ function _buildHealthSources(r, snap) {
     const f = _dataFreshness(margin.date, ptd, _t1Relax("a_fund_margin", intraday), shDate, "a_fund_margin");
     sources.push({ name: "两融", cls: f.cls, text: f.text, hint: "两融余额(沪市融资)T+1,上交所盘后发布较晚(实测22:10仍未出当日),当晚23:00单采+凌晨backfill兜底补齐(逢周末顺延到下一交易日)" });
   }
-  // 北向资金 2024-08 起源端停更。停≤30天提示用户，>30天长期停更不再提醒（避免长期挂红条烦扰）。
+  // 北向资金现用 HKEX 成交总额源每日更新(原净买额 2024-08 停更)。此块为源端停更兜底提示,停≤30天提示用户，>30天长期停更不再提醒。
   // 通用规则：任何源端停更的数据源均按此30天口径（与 isStaleMetric 同源日期差逻辑）。
   const north = findM("a_fund_north");
   if (north && north.date && ptd && north.date.length === 8 && ptd.length === 8) {
@@ -4502,7 +4502,7 @@ function _buildHealthSources(r, snap) {
     const dL = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
     const stoppedDays = Math.round((dL - dN) / 86400000);
     if (stoppedDays > 0 && stoppedDays <= 30) {
-      sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}`, hint: "北向资金2024-08起源端停更,显示为停更前最后日期" });
+      sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}`, hint: "北向资金成交总额(HKEX官方源)每日收盘后更新" });
     }
   }
   // 成交额/涨停数（intraday 源 metrics，盘中实时）
@@ -6567,7 +6567,7 @@ async function renderOverview() {
   // 这8项已在"A股指标走势图"折叠区(资金面/换手率分布分位数/换手率>5%占比 分组)展示,
   // 数据仍可访问(展开折叠区即可见),不是删除。挪出原因:首屏KPI小卡是散户最先看的速览,
   // T+1性质的次要资金面/换手率分位指标不应占首屏位置,与T+0/today核心宽度+情绪分卡区分。
-  // 包含: a_fund_margin(两融) / a_fund_main(主力净流入) / a_fund_north(北向,2024-08停更)
+  // 包含: a_fund_margin(两融) / a_fund_main(主力净流入) / a_fund_north(北向,现HKEX成交总额源每日更新,原净买额2024-08停更)
   //       / a_turnover_mean/median/p90/p10/gt5_pct(换手率5项)
   const _KPI_T1_MOVED = new Set([
     "a_fund_margin", "a_fund_main", "a_fund_north",
@@ -6575,7 +6575,7 @@ async function renderOverview() {
   ]);
   for (const m of r.today.metrics || []) {
     if (_KPI_T1_MOVED.has(m.id)) continue; // C组8项挪出首屏KPI小卡,见上方说明(折叠区/A股走势图区仍可见)
-    // 北向资金等源端长期停更(2024-08 起)：不再隐藏,恢复显示末日值并叠加"数据停更"水印(见 KPI 卡渲染),
+    // 北向资金等源端长期停更兜底逻辑(如原净买额 2024-08 停更;现北向已切 HKEX 成交总额源每日更新,本分支不再触发)：不再隐藏,恢复显示末日值并叠加"数据停更"水印(见 KPI 卡渲染),
     // 恢复更新后 isStaleMetric 自动转 false,水印消失。
     const _stale = isStaleMetric(m.date, r.date);
     kpiCards.push({
@@ -6706,7 +6706,7 @@ async function renderOverview() {
       }
     }
     const _kpiTips = {
-      a_fund_north: "北向资金=借沪深股通买A股的外资。净流入=外资净买入。2024-08起停更,保留历史。",
+      a_fund_north: "北向资金=借沪深股通买A股的外资。现展示成交总额(买+卖合计,HKEX官方源),反映外资交投活跃度;原净买额2024-08港交所新规后停更。",
       a_fund_margin: "沪市融资余额=借钱买A股的杠杆资金。增加=杠杆做多情绪升。T+1。",
       a_fund_main: "主力净流入=大单资金净买入。正值=主力流入做多。",
       a_amount: "沪深京A股成交额。放量=交投活跃,缩量=清淡。",
@@ -8468,7 +8468,7 @@ async function renderAStock(container = content) {
     "解禁/IPO/可转债": ["unlock_amount", "unlock_count", "ipo_count", "ipo_amount", "cov_count", "cov_premium_median"],
   };
   const groupHints = {
-    "资金面": "注：北向资金数据源自 2024 年 8 月起停更（东财停止实时披露），该序列冻结在 2024-08-16，1 年期窗口内为空属正常。",
+    "资金面": "注：北向资金原「净买额」自 2024-08 港交所新规后停更，现改用 HKEX 官方「成交总额」（沪股通+深股通买+卖合计）替代，反映外资交投活跃度而非净流入方向。每日收盘后更新。",
     "龙虎榜": "注：龙虎榜为T+1数据，东财盘后18点后更新当日；机构净额=上榜个股机构买入-卖出。",
     "解禁/IPO/可转债": "注：解禁/IPO/可转债为低频事件型数据，按事件日更新，窗口内多数日期无新增。",
   };
@@ -8801,7 +8801,7 @@ function appendComponentsBlock(data, tipText, container = content) {
     return `<span class="comp-item"><span class="comp-k">${name}</span><span class="comp-v">${_fmtComp(k, comp[k])}</span><span class="comp-w" data-tip="${wt === "等权" ? "等权平均" : "固定权重(缺项按可用重归一化)"}">${wt}</span></span>`;
   }).join("");
   const weightNote = hasFixedWeights
-    ? '<div class="comp-weight-note">权重为名义值；当日缺项时按可用分项重归一化。北向资金自2024-08起停更,保留历史权重。</div>'
+    ? '<div class="comp-weight-note">权重为名义值；当日缺项时按可用分项重归一化。北向资金现用成交总额(HKEX官方源)每日更新,原净买额2024-08停更保留历史权重。</div>'
     : '<div class="comp-weight-note">各分项等权平均。</div>';
   const div = document.createElement("div");
   div.className = "comp-block";
