@@ -4448,8 +4448,8 @@ main { padding: 16px 24px; }
   border-radius: 16px; background: var(--bg-2, var(--bg-card));
   font-size: 12px; line-height: 1.4;
 }
-.etf-hold-chip-buy { border-color: var(--up, #16a34a); }
-.etf-hold-chip-sell { border-color: var(--down, #e6492e); }
+.etf-hold-chip-buy { border-color: var(--up, #e6492e); }
+.etf-hold-chip-sell { border-color: var(--down, #2e8b57); }
 .etf-hold-chip-off { border-style: dashed; opacity: 0.75; }
 .etf-hold-chip-code { font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; }
 .etf-hold-chip-name { color: var(--text-2); }

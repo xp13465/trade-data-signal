@@ -9486,7 +9486,7 @@ function renderFuturesSection(data, snap, container) {
     let html = `<h3>当日净加对照（${fmtDate(latestDate)}）</h3>`;
     html += `<div class="futures-note">中信期货 vs 机构前20 vs 国泰君安 在 ${fmtDate(latestDate)} 当日 上证50/沪深300/中证500/中证1000 4品种净加仓并排对照，一眼看三套数据方向。次日涨跌待收盘后回填统计准确率。</div>`;
     html += '<table class="accuracy-table"><thead><tr><th>角色</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th></tr></thead><tbody>';
-    const cmpChgColor = (v) => v != null ? (v >= 0 ? "#2e8b57" : "#e6492e") : "var(--text-3)";
+    const cmpChgColor = (v) => v != null ? (v >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-3)"; // 正红负绿(当日净加对照,与chgColor一致,A股红涨绿跌)
     const cmpChgStr = (v) => v != null ? (v >= 0 ? "+" : "") + Math.round(v) : "-";
     const renderRow = (roleName, item) => {
       const ihC = cmpChgColor(item.ih_chg), ifC = cmpChgColor(item.if_chg), icC = cmpChgColor(item.ic_chg), imC = cmpChgColor(item.im_chg), totC = cmpChgColor(item.total_chg);
