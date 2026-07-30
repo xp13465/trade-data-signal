@@ -292,6 +292,74 @@ if STATS_FILE.exists():
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
+# 5) launchctl 加载检查（2026-07-20 补缺口，方案D）
+#    11个 com.trade label（9监控任务 + self-heal，不含 schedule-monitor 自己防递归）。
+#    未加载（plist 手动 unload / bootstrap 失败 / 系统重启后未恢复）= launchd 层挂了，
+#    下游 schedule_stats/漏跑检查/退出检查全失效（任务根本不会跑），靠 launchctl print 探测。
+#    复用 self_heal.sh L73 launchctl_state 逻辑：returncode!=0 或无 `state = ` 行 = 未加载。
+#    调用失败（timeout/异常）保守视为未加载（告警），避免 launchctl 故障漏报。
+#    alert_state 去重（与 exit!=0 / log_anomaly 路径对称）：
+#      key=`{label}|not_loaded`，首次发 SEVERE + 写 state active + seen_keys_this_run 标记，
+#      已 active = suppress 不重发，恢复（seen 但 not_loaded 消失）发恢复邮件。
+#    插入位置选在恢复检测(L295)之前：alert_state 修改需在 L312 save 之前完成，
+#    seen_keys_this_run 标记需在 L295 恢复检测之前完成（否则 launchctl key 未 seen 被误报恢复）。
+LAUNCHCTL_LABELS = [
+    "com.trade.update-all",
+    "com.trade.backfill-evening",
+    "com.trade.intraday-snapshot",
+    "com.trade.futures-backfill",
+    "com.trade.lhb-backfill",
+    "com.trade.rzhb-backfill",
+    "com.trade.us-stock-morning",
+    "com.trade.etf-national-team",
+    "com.trade.lab-auto",
+    "com.trade.self-heal",
+    # 不含 com.trade.schedule-monitor 自己（防递归，靠 heartbeat 兜底）
+]
+
+
+def launchctl_loaded(label):
+    """检查 launchd label 是否已加载（复用 self_heal.sh L73 launchctl_state 逻辑）。
+    returncode!=0 或无 `state = ` 行 = 未加载。调用失败（timeout/异常）保守视为未加载（告警）。
+    """
+    try:
+        r = subprocess.run(
+            ["launchctl", "print", f"gui/{os.getuid()}/{label}"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:
+        return False  # 调用失败保守视为未加载（告警）
+    if r.returncode != 0:
+        return False
+    return bool(re.search(r"^\s*state = .+$", r.stdout, re.MULTILINE))
+
+
+for _label in LAUNCHCTL_LABELS:
+    if launchctl_loaded(_label):
+        continue  # 已加载，不 add seen（让恢复检测处理 active->recovered）
+    dedup_key = f"{_label}|not_loaded"
+    seen_keys_this_run.add(dedup_key)
+    _existing = alert_state.get(dedup_key)
+    if _existing is None or _existing.get("status") != "active":
+        # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
+        alerts.append(
+            f"SEVERE: {_label} 未加载，需 launchctl bootstrap "
+            f"~/Library/LaunchAgents/{_label}.plist 恢复"
+        )
+        alert_state[dedup_key] = {
+            "status": "active",
+            "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+            "keyword": "not_loaded",
+            "line_sample": f"launchctl print gui/{os.getuid()}/{_label} 未加载",
+        }
+    else:
+        # 已 active = 抑制不重发,只 log
+        print(
+            f"[suppress] {_label} 未加载持续中, "
+            f"last_alerted={_existing.get('last_alerted')}, 不重发"
+        )
+
 # 恢复检测: state 里 active 但本次未 seen = 异常已消失,发恢复邮件
 # (gen_schedule_stats 每任务只记首个命中,故每 task 至多1个 active key)
 for _key, _info in list(alert_state.items()):
