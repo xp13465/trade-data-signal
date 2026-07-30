@@ -213,7 +213,7 @@ DATA_FILES+=("static-site/data/etf_national_team_holders.json" "static-site/data
 for _f in overview futures ad_line volume_ratio position \
           summary summary_history signal_freq signal_stats \
           rotation new_high_low ma_alignment intraday_snapshot \
-          schedule_stats alert etf_score_list \
+          alert etf_score_list \
           lab_ablation lab_cost_compare lab_param_scan lab_short_symmetry; do
   DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
 done

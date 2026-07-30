@@ -35,6 +35,8 @@ echo "REPO=$REPO GIT_REPO=$GIT_REPO" | tee -a "$LOG"
 refresh_stats() {
   "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" | tail -1 \
     || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
+  # 独立 push schedule_stats.json 到 main（2026-07-30 方案C+R2：gen_stats 后立即 push 绕过 deploy.sh 时序）
+  bash "$REPO/scripts/push_schedule_stats.sh" || echo "⚠ push_schedule_stats 失败" | tee -a "$LOG"
 }
 trap refresh_stats EXIT
 
