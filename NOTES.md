@@ -5164,3 +5164,28 @@ if (!isClosed) {
 3. 期货净加多空配色修复（commit `475b97c7`，merge `14fa2b2f`）：用户反馈期货页面前2个净加多空配色反（正数多但绿色，负数空但红色，美股风格）。A股标准：正数(多/涨)=红 `#e6492e`，负数(空/跌)=绿 `#2e8b57`。修复：app.js L9322 `chgColor = (v) => v != null ? (v >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-3)"`
 4. 全站配色统一A股风格（commit `1aa69a44`，merge `cb8b0515`）：用户反馈当日净加对照也反，要求全站检查正红负绿。全站排查3处反配色修复：①app.js L9489 `cmpChgColor`（当日净加对照）正红负绿 ②style.css L4451 `.etf-hold-chip-buy { border-color: var(--up, #e6492e); }`（原 `#16a34a` 绿->红）③style.css L4452 `.etf-hold-chip-sell { border-color: var(--down, #2e8b57); }`（原 `#e6492e` 红->绿）。其余35处 app.js 正红负绿+多处 style.css 正确不动。build_min（6文件）+bump_asset_version（about/index/privacy.html）+sw.js CACHE_VERSION bump `v2-20260730-color2`。**教训**：A股配色正红负绿，美股风格（正绿负红）需改；`--up`/`--down` 变量未定义走 fallback 故改 fallback 生效
 5. verify_backup R2重试加固（commit `ce471e13` + merge `1e640a41`）：告警 2026-07-30 18:20 verify_backup.sh R2下载失败（无法演练恢复）。根因=R2 endpoint TLS 握手临时抖动 `ssl.SSLEOFError: EOF occurred in violation of protocol`，同一时点 backup_db PUT 也失败（证明 R2 整体不可达非下载逻辑错/凭证/桶错）。原3次重试（1s/2s退避，总3-4s）不足以覆盖抖动窗口。7-27~7-29 全成功，7-30 偶发（用户"7-28也失败"是误判：7-28 backup_db 有1次 TimeoutError 重试后成功，verify 成功）。修复1：upload_r2.py L113 `range(3)`->`range(5)` + L163/L172 `attempt<2`->`attempt<4` + 退避 1s/2s->1s/2s/4s/8s 指数退避（总覆盖~15s，覆盖所有 R2 操作）。修复2：verify_backup.sh L47 封装 `download_backups()` 函数 + L68-69 第1次失败 `sleep 60s` 重试1次才告警（双保险覆盖30s+长抖动）。验证：py_compile PASS + bash -n PASS。alerts/latest.md 清空。**教训**：R2 S3 API 偶发 SSLEOFError 抖动，需指数退避+延迟重试双保险；监控④b grep `*_launchd.log` 漏扫 `verify_backup_*.log`/`backup_db_*.log`（不带 `_launchd` 后缀）是盲区待补
+
+### AZ87 2026-07-30 续2：首页信号准确率分类筛选+sigtype样式修复
+
+**【今日续2项闭环（AZ85 8项+AZ86 5项+本节2项=今日共16项）】**
+
+1. 首页技术参考点准确率按信号分类算+点击筛选（commit `27b365be`）：
+   - **需求**：用户希望准确率按信号分类算 + 点击结果筛选对应信号
+   - **调研**：准确率区块 app.js:7019 sigCard，`_calcSignalAccuracy` L1244 + `_renderSignalGrid` L1299，since_correct true/false/null 按 score 分档 high/mid/low；8种信号 SIGS L1525（buy/buy_aux/buy_special/buy_special_filtered/buy_backup/sell/sell_stop_loss/band_hold）；已有筛选UI sigGradeFilter/sigCorrectFilter 可复用；数据完备（it.signal 字段后端已有）不需后端补
+   - **实施**（纯前端复用现有UI）：
+     - `_calcSignalAccuracy` 加 byType 分组统计（`_SIG_TYPES` L1233 7种，不含 buy_special_filtered）
+     - state 加 `sigTypeFilter: null`（L10）
+     - 筛选逻辑 L1303/L1318 加 signal 类型分支
+     - 汇总条新增分类行 `.sig-acc-by-type`（L1433 `_byTypeRow` 动态生成 chip，只显示当天实际出现的类型）
+     - chip 格式 `● 标签 X% (t/f)`，band_hold 特殊只显示数量（since_correct 恒 null，pct 跳过 L1280-1282）
+     - click handler L7093 加 type-filter toggle（复用 sig-acc-filter-active 选中态）
+     - CSS L784 `.sig-acc-by-type { flex-wrap }`
+   - **方向决策**：A 同行追加（保留评级行+加分类行，正交维度不互斥）/ 保留高/中/低评级 / band_hold 只显示数量 / 只显示有数据的分类
+   - sw.js CACHE_VERSION bump `v2-20260730-sigtype`
+
+2. sigtype 样式修复（commit `012d3a16`）：
+   - **问题**：用户反馈"字很大"
+   - **根因**：`_byTypeRow`（app.js L1433）渲染在 `.signal-accuracy-summary` 的 `</div>` 之外（L1434 `${_byTypeRow}` 在 `</div>` 后），不继承 `.signal-accuracy-summary` 的 `font-size:12px`；`.sig-acc-by-type`（style.css L784）只设 margin/flex/gap 未设 font-size，继承父级更大字体（容器默认 14px+）
+   - **修复**：`.sig-acc-by-type` 加 `font-size: 12px; line-height: 1.6;`（与评级行一致）
+   - **教训**：新增独立于父容器的 div 时，若父容器靠 font-size 控制子元素字体，新 div 需显式设 font-size 不靠继承
+   - sw.js CACHE_VERSION bump `v2-20260730-sigtype2`
