@@ -5051,3 +5051,19 @@ if (!isClosed) {
 - **验收**（主控逐字 grep 6 点全过）：`trap refresh_stats EXIT` L39 / `退出码=$COLLECT_RC` L49（-F grep 避免 $ BRE 锚点）/ `退出码=0 采集=` L60 / `gen_schedule_stats` 命中3次 / commit 28d5c9eb 在 origin/main / `bash -n` 语法 OK + pre-commit lint_scripts.sh 全过
 - **时序矛盾（本次不修，所有任务共同设计局限）**：trap gen_stats 在 deploy.sh push 之后执行，push 的是旧 schedule_stats.json（trap 写的新值没进 commit）。**本地立即更新**（下次 us_stock 05:00 跑完 trap 触发 gen_stats 写新 schedule_stats.json），**线上要等 7-31 17:50 update_all deploy 才显示** us_stock exit=0（滞后约12小时）。如要立即线上显示需 trap 后独立 push schedule_stats.json（像 intraday_snapshot 那样），但其他任务也没这么做，保持一致
 - **关联**：AZ56 gen_schedule_stats pending_start 读真实退出码（commit 3a1ba16e，AZ42 launchctl_last_exit）+ rzhb_backfill.sh L56-60 / futures_backfill.sh L99-105 / lhb_backfill.sh trap 模式参考；memory `commit-timestamp-not-trigger`（commit 时间戳非任务触发时点）
+
+### AZ79 schedule_stats 时序矛盾根治（push_schedule_stats.sh 独立 push 绕过 deploy.sh 时序，2026-07-30 08:0X）
+- **背景**：AZ78 修复 us_stock 漏调 gen_stats，但时序矛盾未修--trap gen_stats 在 deploy.sh push 之后执行，push 的是旧 schedule_stats.json（trap 写的新值没进 commit），线上要等下次 update_all deploy 才显示（滞后 10-24h）。所有任务共同设计局限
+- **根治方案 C+R2**（调研 agent a49f056 评估 8 方案 A-H+R2，推荐 C+R2；用户选超完整 7任务+intraday选项2）：
+  - 方案A/D/E/F 都因"gen_stats 读不到准 exit/dur"不可行（任务没结束 exit/dur 不准）
+  - 方案C：deploy.sh 移除 schedule_stats.json（不再推旧版污染）+ gen_stats 独立 push
+  - R2：新建 push_schedule_stats.sh 封装独立 push（复用 intraday_snapshot worktree+deploy.lock+rebase 兜底机制）
+- **实施**（commit `346f53a4`，10 文件）：
+  1. 新建 `scripts/push_schedule_stats.sh`（持 deploy.lock with_lock.py -> worktree add --detach origin/main -> rsync --checksum schedule_stats.json + gzip -> git add 精确两文件 -> commit + push origin HEAD:main -> non-ff fetch+rebase 兜底 -> 失败 notify.py --severe 告警 + trap cleanup worktree；源文件缺失 exit 1 不 push 旧版）
+  2. deploy.sh L216 移除 schedule_stats（for 循环 add 列表 `schedule_stats alert` -> `alert`，.json+.gz 都不 add 避免双写撞 git lock）
+  3. intraday_snapshot.sh L207 移除 schedule_stats + L320 gen_stats 后加 `bash push_schedule_stats.sh`（选项2 实时性最佳，当轮 schedule_stats 当轮上线）
+  4. 7 任务脚本 gen_stats 后加 push_schedule_stats.sh 调用（us_stock_morning L39 / rzhb L60 trap EXIT 内 + futures L107 / lhb L117 / etf L113 / update_all L225 / update_lab L328 结尾，均 `|| echo ⚠ 失败不阻塞`）
+- **验收**（主控逐字 grep 6 点全过）：push_schedule_stats.sh 存在+chmod +rwx+bash -n OK / deploy.sh for 循环无 schedule_stats（只剩注释）/ intraday_snapshot L207 无+L320 有调用 / 7 任务各命中1处 / commit 346f53a4 在 origin/main / **线上 rzhb=2026-07-30 08:00 exit=0 实时显示**（08:00 主采跑完 -> push_schedule_stats.sh 独立 push -> 立即上线，不再等 17:50 update_all，时序矛盾根治实证 ✅）
+- **监控优化闭环**（同日）：主控每小时亲跑监控 cron 483ce68c 取消（省 token，schedule_monitor 15min 已覆盖 4 项中 3 项）+ schedule_monitor 加 launchctl 加载检查补缺口（afbc333 实施中，第5项 11任务未加载告警）
+- **遗留**：origin/feat 远程是 rebase 前旧 hash（9d3d11ce），本地 feat（346f53a4）分叉，不影响 main（main 已 346f53a4），feat 远程同步需 force-with-lease push feat（§8 feat 分支未禁，本任务未要求未执行）
+- **关联**：AZ78 us_stock trap gen_stats + intraday_snapshot.sh L132-298 独立 push 参考源 + AZ77 schedule_monitor alert_state 去重 + memory `r2-upload-from-trade`（upload_r2 ROOT 回退，push_schedule_stats.sh 从 trade 跑同理）
