@@ -4146,7 +4146,9 @@ function updateMarketStatusBanner(snap) {
       _t = "📊 集合竞价中 · 9:25竞价完成·9:30开盘 · 开盘价待定";
     } else if (/竞价完成/.test(_label)) {
       _t = "📊 竞价完成 · 待9:30开盘 · 开盘价已定";
-    } else if (/午休/.test(_label)) {
+    } else if (_bjMin >= 11*60+30 && _bjMin < 13*60) {
+      // [改] 午休判断改用前端_bjMin(11:30-13:00),不读 snap.label(10min粒度滞后)
+      //   根治13:00复牌后横幅仍显"午休时段":snap.label 13:05才切,但实际13:00已复牌
       _t = "📊 午休时段 · 13:00复牌后恢复实时 · 收盘后17:50同步最终";
     } else {
       _t = "📊 盘中预估中 · 数据实时更新 · 收盘后17:50同步最终";
@@ -4228,6 +4230,15 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
       const _useDyn = isIndexSpark && _intradayDynamicTime;
       const _hh = _useDyn ? _intradayDynamicTime.slice(0, 2) : shIdx.datetime.slice(8, 10);
       const _mm = _useDyn ? _intradayDynamicTime.slice(3, 5) : shIdx.datetime.slice(10, 12);
+      // [新增] 分时图角标(isIndexSpark)优先用自己1min数据时间判断状态,不读 snap.label(10min粒度滞后)
+      //   根治13:00午休结束角标滞后:snap.label 13:05才从"午休"切"盘中",但分时图13:04已拉到午后点
+      //   对称根治9:30开盘边界:snap.label 9:35才从"竞价完成"切"盘中",但分时图9:30已拉到开盘点
+      if (isIndexSpark && _useDyn) {
+        const _dynMin = parseInt(_intradayDynamicTime.slice(0,2))*60 + parseInt(_intradayDynamicTime.slice(3,5));
+        if ((_dynMin >= 9*60+30 && _dynMin <= 11*60+30) || (_dynMin >= 13*60 && _dynMin < 15*60)) {
+          return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${_hh}:${_mm}</span>`;
+        }
+      }
       if (snap.label && /午休/.test(snap.label)) {
         return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复T+0实时">⏰ 午休·${_hh}:${_mm}</span>`;
       }
