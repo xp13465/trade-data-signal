@@ -7980,6 +7980,42 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   setupOneRowToggle(ntGrid, [c1.getDom().parentElement, c2.getDom().parentElement, c3.getDom().parentElement], function (n) { return "更多图表（" + n + "）▼"; });
 }
 
+// 聚合汪汪队全量数据为按日期信号列表（复用 _renderNtSignalList 入参格式），供专区"近期信号按日期"模块。
+// 从 rawData（未切片全量）遍历 etfs[].daily[].signals，按日期合并多ETF多信号，
+// 每日组装 {date, signals:[{code,name,type,label,share_change_yi,amount_ratio,intensity,note}], n_surge, n_outflow, n_volume, total, is_resonance}。
+// is_resonance 口径同首页后端 _NT_THR：进/出≥2只 或 量≥3只宽基同日同步异动。
+// maxDays 限制返回最近N个有信号日（默认14），避免专区页面过长。
+// signals[] 在 etf_national_team-*.json 中缺 code/name/label，从 etf 层级补；share_change_yi 在 daily 层级有则补到 signal。
+function _ntAggregateRecentSignals(rawData, maxDays) {
+  if (!rawData || !rawData.etfs || !rawData.etfs.length) return [];
+  var dayMap = {};
+  rawData.etfs.forEach(function (e) {
+    (e.daily || []).forEach(function (d) {
+      if (!d.signals || !d.signals.length) return;
+      if (!dayMap[d.date]) dayMap[d.date] = { date: d.date, signals: [], n_surge: 0, n_outflow: 0, n_volume: 0 };
+      d.signals.forEach(function (sig) {
+        var s = Object.assign({}, sig);
+        s.code = e.code;
+        s.name = e.name || d.etf_name || e.code;
+        s.label = NT_LABEL[sig.type] || sig.type;
+        if (s.share_change_yi == null && d.share_change_yi != null) s.share_change_yi = d.share_change_yi;
+        dayMap[d.date].signals.push(s);
+        if (sig.type === "share_surge") dayMap[d.date].n_surge++;
+        else if (sig.type === "share_outflow") dayMap[d.date].n_outflow++;
+        else if (sig.type === "volume_surge") dayMap[d.date].n_volume++;
+      });
+    });
+  });
+  var dates = Object.keys(dayMap).sort();
+  if (maxDays && dates.length > maxDays) dates = dates.slice(-maxDays);
+  return dates.map(function (dt) {
+    var item = dayMap[dt];
+    item.total = item.n_surge + item.n_outflow + item.n_volume;
+    item.is_resonance = item.n_surge >= 2 || item.n_outflow >= 2 || item.n_volume >= 3;
+    return item;
+  });
+}
+
 // ── 4层概览首屏：总览摘要条+矩阵热力图+卡片墙+叠加对比折线 ──
 function renderNationalTeamOverview(container, data, qData, hData, rawData, snap) {
   var summary = ntBuildSummary(data, qData);
@@ -8003,6 +8039,37 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData, snap
     '<div class="nt-sum-item"><span class="nt-sum-label">减持</span><span class="nt-sum-val nt-down">' + outflowCount + ' 只</span></div>' +
     '<div class="nt-sum-item"><span class="nt-sum-label">最活跃</span><span class="nt-sum-val">' + mostActive.code + ' ' + mostActive.name + '</span></div>';
   container.appendChild(bar);
+
+  // ▼ 第1.5层：近期汪汪队信号（按日期）-- 复用首页 _renderNtSignalList，修专区无730等按日期信号pin ▼
+  // 从 rawData（未切片全量）聚合，避免被 state.range 切片切掉历史信号（如1m切掉30天前的730信号）
+  // 缓存到 _ntRecentDaily 供 openNtDayModal 弹当日明细（切回首页时 renderOverview L7119 会刷新_ntRecentDaily为首页rc.daily，不串扰）
+  var recentDaily = _ntAggregateRecentSignals(rawData, 14);
+  if (recentDaily.length) {
+    _ntRecentDaily = recentDaily;
+    var rcTodayDate = recentDaily[recentDaily.length - 1].date;
+    var rcTotal = recentDaily.reduce(function (s, d) { return s + d.total; }, 0);
+    var rcSurge = recentDaily.reduce(function (s, d) { return s + d.n_surge; }, 0);
+    var rcOutflow = recentDaily.reduce(function (s, d) { return s + d.n_outflow; }, 0);
+    var rcVolume = recentDaily.reduce(function (s, d) { return s + d.n_volume; }, 0);
+    var rcResonanceDays = recentDaily.filter(function (d) { return d.is_resonance; }).length;
+    var recentSec = document.createElement("section");
+    recentSec.className = "chart-card nt-recent-signals-card";
+    recentSec.innerHTML =
+      '<h3>📅 近期汪汪队信号（按日期） <span class="term-tip" data-tip="近' + recentDaily.length + '个有信号日的汪汪队信号，按日期降序（今日置顶高亮）。每行=日期+共振🐾+chips（进/出/量 各一个chip，显示当日该类型只数+净流入/净流出/放量倍数）。chip hover 看当日该类型ETF明细，点击弹当日全部信号modal。共振=进/出≥2只或量≥3只宽基同日同步异动。">❓</span></h3>' +
+      '<div class="nt-recent-summary"><div class="nt-recent-stats">近' + recentDaily.length + '日 共<b>' + rcTotal + '</b>信号 · ' +
+        '<span class="nt-c-surge">进<b>' + rcSurge + '</b></span> ' +
+        '<span class="nt-c-outflow">出<b>' + rcOutflow + '</b></span> ' +
+        '<span class="nt-c-volume">量<b>' + rcVolume + '</b></span> · 共振<b>' + rcResonanceDays + '</b>日</div></div>' +
+      '<div class="signal-grid nt-signal-grid">' + _renderNtSignalList(recentDaily, rcTodayDate) + '</div>';
+    // chip 点击：弹当日明细 modal（事件委托，复用 openNtDayModal，_ntRecentDaily 已设为聚合后的 recentDaily）
+    recentSec.addEventListener("click", function (e) {
+      var chip = e.target.closest("[data-nt-date]");
+      if (!chip) return;
+      e.stopPropagation();
+      openNtDayModal(chip.dataset.ntDate);
+    });
+    container.appendChild(recentSec);
+  }
 
   // ▼ 第2层：矩阵热力图 ▼
   // 12行×指标列，色阶着色：份额变动红流入/绿流出，机构占比高深色，放量倍数>1.5橙色
