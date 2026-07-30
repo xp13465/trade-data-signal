@@ -5103,3 +5103,16 @@ if (!isClosed) {
 - **P2 评估**（agent `a909b026` 只读，不改）：后端提前到 9:15 **不建议**。铁证：腾讯源 qt.gtimg.cn 9:25 才返开盘价（commit `cc991142` 作者实测 + intraday_snapshot.py L706-709 注释），9:15-9:25 申报段价格不真实（昨收/参考价可撤单波动）。9:15 设 is_closed=False 会污染 index_daily（`_backfill_index_daily` L796 不校验 price==pre_close 昨收当当日 close）+ heatmap（`maybe_override_heatmap` L1706 不完整快照覆盖 DB）。三方案：A 维持 9:25 现状（推荐零改动）/ B 9:20 降级显示 10项改动+需实测 / C 前端盘前提示横幅（零后端风险）。用户待定 A/C
 - **激活**：用户需刷新页面激活新 SW（a77，skipWaiting 自动接管但旧页面旧 SW 需刷新换新），之后自动轮询拉 7-30 新数据不再卡 7-29
 - **关联**：memory `cf-workers-static-assets-ignore-cache-control`（CF Workers 无视 no-store 是 SW fetch 加 no-store 的根因背景）+ `bump-sw-version-with-appjs`（改 app.js 必 bump sw）+ AZ49 残留
+
+### AZ83 P2-C 前端盘前集合竞价提示横幅（9:15-9:25 前端时间判断，零后端风险，2026-07-30 09:5X）
+- **背景**：AZ82 P2 评估后端提前到 9:15 不建议（腾讯源 9:25 才返开盘价铁证）。用户选 A+C：A 维持后端 is_closed 现状（9:25 切竞价完成）不动，C 前端加盘前竞价横幅（9:15-9:25 显示"集合竞价申报中"避免盘前显示"收盘"误导）
+- **实施**（commit `ce55b2c1`，app.js + sw.js，agent `adc4e4f7`）：
+  - `updateMarketStatusBanner` (L4120-4148) 加 `_isAuctionCall` 前端时间分支：`!intraday && _isWeekday && 9*60+15 <= _bjMin < 9*60+25`（北京时间 9:15-9:25 + 周一-周五 + is_closed===true 收盘态）
+  - 复用已有 `_bjTimeMin()`（北京当日分钟数）+ `_bjDayOfWeek()`（0=周日6=周六），getDay 1-5 兜底（节假日误显无害，9:25 后无新数据自然恢复收盘态）
+  - 文案：`"📊 集合竞价申报中 · 9:25定开盘价·9:30开盘 · 开盘价未定暂显昨收"`
+  - 5态分支：P2-C 盘前竞价申报段（前端时间判断）+ 原4态（集合竞价/竞价完成/午休/盘中实时小结，对齐后端 label）
+  - getCardTimeBadge 不动（9:15-9:25 数据为昨收，角标显示"收盘·MM-DD"描述数据日期正确，banner 已提示"暂显昨收"不矛盾，避免过度改动）
+  - bump sw.js CACHE_VERSION a77->a78 + build_min + bump_asset_version（index.html app.min.js?v=f277c8ec）
+- **验收**（主控逐字 grep 5 点全过）：_isAuctionCall 分支条件+5态文案 / sw.js a78 / commit ce55b2c1 在 origin/main / **线上 a78（sss.sugas.site 备站已更新；ss.fx8.store CF Workers deploy 延迟中 push 才2分钟，§8 3域名任一上线即 OK）** / 后端 intraday_snapshot.py 未改（git log 无改动，A 维持现状）
+- **闭环**：AZ82 P2 决策闭环（A+C 选定）。9:15-9:25 盘前不再显示"收盘"误导，显示"集合竞价申报中"提示用户 9:25 后见开盘价。9:25 后端切 is_closed=false 走原4态逻辑
+- **关联**：AZ82 P2 评估（腾讯源 9:25 才返开盘价铁证 cc991142）+ commit `80cdcc2e` AZ82 P1 修复7 的"集合竞价"分支（基于后端 label，未来后端加 9:15 态时触发，与 C 前端时间分支共存）
