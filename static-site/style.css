@@ -2064,7 +2064,7 @@ main { padding: 16px 24px; }
 .summary-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
 .summary-text { flex: 1; color: var(--text-1); }
 .summary-title {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   font-size: 15px;
   font-weight: 600;
@@ -2579,13 +2579,13 @@ main { padding: 16px 24px; }
   /* H5：tab 按钮+搜索框一行放不下时，搜索框换行占满整行 */
   .industry-anchor-bar .anchor-search { flex-basis: 100%; max-width: none; margin-left: 0; }
 
-  /* 收盘分析横幅 H5:行1=日期(text)+meta(收盘小结/更多,靠右),行2=tags(情绪+恐贪标签,靠左独占) */
+  /* 收盘分析横幅 H5:行1=日期(左)+meta(午休小结/1min/更多,右,space-between两端对齐),行2=tags(情绪+恐贪标签,独占整行) */
   .summary-banner { padding: 10px 12px; font-size: 13px; }
-  .summary-top { flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; gap: 4px 10px; }
-  .summary-title { flex-wrap: wrap; flex: 0 1 auto; min-width: 0; max-width: calc(100% - 120px); }   /* 可收缩给meta让位,避免"更多"被挤到第三行 */
+  .summary-top { flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 10px; }
+  .summary-title { flex: 0 1 auto; min-width: 0; }
   .summary-title-text { font-size: 14px; font-weight: 600; }
-  .summary-meta { flex-wrap: nowrap; align-self: flex-start; flex-shrink: 0; }   /* margin-left:auto 承自 base 靠右,与title同处第一行 */
-  .summary-title-tags { flex: 0 0 100%; }   /* 标签独占 summary-title 内第二行 */
+  .summary-meta { flex-wrap: nowrap; flex-shrink: 0; }   /* 状态行内部不换行,作为整体靠右(space-between推到右端) */
+  .summary-title-tags { flex: 0 0 100%; margin-top: 2px; }   /* 情绪标签独占第二行(相对 summary-top 100%宽度,日期+tags不再嵌套同一title容器) */
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
