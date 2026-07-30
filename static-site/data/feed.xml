@@ -5,9 +5,16 @@
     <link>https://ss.fx8.store/</link>
     <description>A股市场情绪、恐贪指数、涨跌家数、量能与板块轮动每日收盘速递</description>
     <language>zh-CN</language>
-    <lastBuildDate>Thu, 30 Jul 2026 05:01:05 +0800</lastBuildDate>
+    <lastBuildDate>Thu, 30 Jul 2026 16:44:08 +0800</lastBuildDate>
     <item>
-      <title>2026-07-29 收盘 | 恐贪指数 46.6 | 乐观积极</title>
+      <title>2026-07-30 收盘 | 恐贪指数 28.2 | 偏谨慎</title>
+      <link>https://ss.fx8.store/</link>
+      <description><![CDATA[涨跌家数:1767涨/3635跌 | 涨停0/跌停0 | 成交额23575亿(温和放量) | 买点0/卖点0 | 上证-0.62%收3805 | 领涨:银行(+2.4%)、食品饮料(+2.3%)、石油石化(+1.2%) | 领跌:电子(-6.5%)、通信(-5.2%)、机械设备(-3.3%) | ❗中证1000情绪冰点(15分)]]></description>
+      <pubDate>Thu, 30 Jul 2026 15:00:00 +0800</pubDate>
+      <guid>https://ss.fx8.store/?date=2026-07-30</guid>
+    </item>
+    <item>
+      <title>2026-07-29 收盘 | 恐贪指数 46.7 | 乐观积极</title>
       <link>https://ss.fx8.store/</link>
       <description><![CDATA[涨跌家数:4252涨/1215跌 | 涨停0/跌停0 | 成交额23110亿(量能平稳) | 买点0/卖点0 | 上证+0.40%收3828 | 领涨:传媒(+3.0%)、食品饮料(+2.9%)、钢铁(+2.5%) | 领跌:电子(-0.5%)、通信(-0.3%)、医药生物(+0.5%)]]></description>
       <pubDate>Wed, 29 Jul 2026 15:00:00 +0800</pubDate>
@@ -208,13 +215,6 @@
       <description><![CDATA[涨跌家数:1929涨/3170跌 | 涨停0/跌停0 | 成交额33096亿(温和放量) | 买点3/卖点0 | 上证-0.43%收4090 | 领涨:通信(+3.8%)、电子(+3.0%)、机械设备(+1.6%) | 领跌:非银金融(-3.9%)、公用事业(-3.0%)、银行(-2.6%)]]></description>
       <pubDate>Thu, 18 Jun 2026 15:00:00 +0800</pubDate>
       <guid>https://ss.fx8.store/?date=2026-06-18</guid>
-    </item>
-    <item>
-      <title>2026-06-17 收盘 | 恐贪指数 59.4 | 情绪回暖</title>
-      <link>https://ss.fx8.store/</link>
-      <description><![CDATA[涨跌家数:1583涨/3560跌 | 涨停0/跌停0 | 成交额30915亿(量能平稳) | 买点0/卖点0 | 上证+0.40%收4108 | 领涨:电子(+4.7%)、建筑材料(+4.3%)、综合(+4.2%) | 领跌:商贸零售(-2.2%)、煤炭(-2.2%)、钢铁(-2.0%)]]></description>
-      <pubDate>Wed, 17 Jun 2026 15:00:00 +0800</pubDate>
-      <guid>https://ss.fx8.store/?date=2026-06-17</guid>
     </item>
   </channel>
 </rss>
