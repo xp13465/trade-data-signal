@@ -52,6 +52,17 @@ if [ "$COLLECT_RC" != "0" ]; then
   exit "$COLLECT_RC"
 fi
 
+# 1.5) 重算 signals + signal_stats 写 signal_daily 表（2026-07-30 修复 ATR pin 渲染不一致根因）：
+#      us_stock_morning 只采 OHLC 不调 compute_runner，致 05:04 deploy 时 signal_daily
+#      滞后缺当日新信号 -> overview.json 与 us_ixic-all.json 都缺；09:25 intraday_snapshot
+#      才补算 -> 此时只更新 overview.json 不更新 us_ixic-all.json（盘中跳过 global 导出）
+#      -> 列表（读 overview）有信号但弹窗/全球 tab pin（读 -all.json）缺失。
+#      在 deploy 前先重算 signals，保证 overview.json 与各指数 -all.json 同步含新信号。
+echo "-> 重算 signals + signal_stats（写 signal_daily 表）..." | tee -a "$LOG"
+"$PY" -c "from app.compute import signals, signal_stats; sigs=signals.compute(); n=signals.store(sigs); stats=signal_stats.compute(); b=signal_stats.store(stats); print(f'  signals={n} 条 signal_stats={b} 字节')" 2>&1 | tee -a "$LOG"
+RECOMPUTE_RC=${PIPESTATUS[0]}
+[ "$RECOMPUTE_RC" -ne 0 ] && echo "⚠ signals 重算失败(退出码 $RECOMPUTE_RC)，不阻塞 deploy（09:25 intraday_snapshot 会兜底重算）" | tee -a "$LOG"
+
 # 2) deploy.sh 全量 export+push（幂等，只 global-all.json/overview.json 变化进 commit）
 #    时段闸门：deploy.sh 内置 09:30-15:30 盘中拒跑（05:00 不触发）
 echo "-> 跑 deploy.sh 全量 export+push ..." | tee -a "$LOG"
