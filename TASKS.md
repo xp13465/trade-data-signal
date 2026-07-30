@@ -930,4 +930,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - [x] schedule_stats 时序矛盾根治（AZ79，commit `346f53a4`）：push_schedule_stats.sh 独立 push 绕过 deploy.sh 时序 + 7任务+intraday选项2。验收6点+线上rzhb=07-30 08:00实时显示 ✅
 - [ ] 7-31 05:00 us_stock 跑后 push_schedule_stats.sh 独立 push 线上立即显示 exit=0（时序根治后不再等17:50 update_all deploy）
 - [x] 取消主控每小时监控 cron 483ce68c（schedule_monitor 15min 覆盖3/4项，省 token）+ schedule_monitor 加 launchctl 加载检查补缺口（AZ80，commit `d2207fe7`，5项全覆盖：漏跑/exit/log_anomaly/ETF耗时/线上时效+launchctl加载）
+- [x] 前端盘中切换 bug 修复（AZ82，commit `80cdcc2e`）：SW fetch 加 no-store 5处 + overview 改 NetworkFirst + bump a77 + 9:15 关键时点 + banner/badge 4态。验收7点全过+线上 a77+160e60d5 ✅
+- [ ] AZ82 激活验证：用户刷新页面激活新 SW a77 后，盘中自动轮询拉 7-30 新数据不再卡 7-29（SW skipWaiting 自动接管但旧页面需刷新换新）
+- [ ] P2 后端提前到 9:15 决策（用户待定）：A 维持 9:25 现状（推荐零改动）/ C 前端盘前提示横幅（零后端风险，9:15-9:25 显示"集合竞价申报中"）。B 9:20 降级不推荐（腾讯源 9:25 才返开盘价铁证 cc991142）
 
