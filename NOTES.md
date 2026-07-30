@@ -5189,3 +5189,24 @@ if (!isClosed) {
    - **修复**：`.sig-acc-by-type` 加 `font-size: 12px; line-height: 1.6;`（与评级行一致）
    - **教训**：新增独立于父容器的 div 时，若父容器靠 font-size 控制子元素字体，新 div 需显式设 font-size 不靠继承
    - sw.js CACHE_VERSION bump `v2-20260730-sigtype2`
+
+### AZ88 2026-07-31 05:00 us_stock_morning deploy=128事故修复 + atr pin根治验证
+
+**【今日闭环：deploy=128事故修复 + atr pin根治验证生效】**
+
+1. **事故**：05:00 `us_stock_morning.sh` 跑 `deploy.sh` git commit 撞 unmerged exit 128（外层 exit=0 吞失败 = 监控盲区，§0 ①"子 bash -c 失败外层 exit0"）。根因：`deploy.sh` 的 `pop_rebase_stash` 函数（L287-293）rebase 后 stash pop 遇 `schedule_stats.json/.gz` 冲突只 echo 不解决，留 unmerged 污染下次 deploy。02:10 backfill deploy rebase 留 unmerged -> 05:00 us_stock_morning 撞 128 -> 730 信号 R2 已上线但 git main 没推（CF Workers/GH Pages 渠道断）。
+
+2. **atr pin 根治验证生效**：commit `a761278e`（us_stock_morning.sh deploy 前重算 signals + signal_stats 写 signal_daily 表）05:00 执行成功（signals=49905 条 RECOMPUTE_RC=0），730 信号 us_ixic buy_aux 正确生成，signal_daily 表最新 20260730。
+
+3. **deploy.sh 修复（commit `3c740dde`）**：双保险方案
+   - **A 方案根治** `pop_rebase_stash`（L315-330）：pop 冲突自动解决 `static-site/data/*` 数据文件冲突取 theirs + add + drop；非数据文件保留 stash 待手动
+   - **B 方案起始 unmerged 清理兜底**（L61-83）：fetch 后检测 unmerged，数据文件强制 reset + checkout origin/main；非数据文件 exit 1 报警
+   - `bash -n` 通过
+
+4. **git main 恢复**：730 数据 commit `d6c54ffd`（push b1906150..d6c54ffd）+ 修复 `3c740dde` merge main（ff d6c54ffd..3c740dde）。线上 CF 主站 overview date=20260730 恢复，R2 `ssd.fx8.store/index/us_ixic-all.json` 775 信号含 730。
+
+5. **stash 清理**：drop 2 条纯数据残留（021011 + schedule_stats residual）；保留 stash@{0}（212759 含 `08-买卖点策略深度回测.md` 396 行文档改动，非纯数据，待用户决定恢复）+ 4 条用户 wip。最终 stash 5 条。
+
+6. **未尽事项**：`notifications.json.gz` 未推 git（intraday-snapshot 定时任务独立 push，待盘中推送）；`schedule_stats.json` 用 05:04 版（`push_schedule_stats.sh` 已独立推）。
+
+7. **教训固化**：监控 ① exit=0 不可信（子 bash -c 失败外层 exit0），须结合 deploy 退出码 / 线上时效确认；deploy.sh rebase stash pop 冲突必须自动解决数据文件（不能只 echo 留 unmerged）。
