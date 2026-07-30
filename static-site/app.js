@@ -5493,19 +5493,21 @@ function _onOverviewVisChange() {
   _updateRefreshDebug();
 }
 
-// ============ debug: 自适应轮询状态条(隐秘右下角, 方便观测) ============
-// 固定定位右下角, 小字灰色半透明, z-index低不抢主界面. 显示: 倒计时/状态/后端时间/样本数/预测.
+// ============ debug: 自适应轮询状态条(PC嵌入tab栏右端吸顶, 移动端右下角fixed) ============
+// PC端作为 .tabs flex 子元素(margin-left:auto)随 sticky tab 栏吸顶; 移动端 fixed 右下角(保持原逻辑).
+// 小字灰色半透明, z-index低不抢主界面. 显示: 倒计时/状态/后端时间/样本数/预测.
 // 倒计时基于 _overviewNextFireAt(下次触发时间戳) 每秒算剩余秒数, 独立1s setInterval更新.
 // 状态判断: !_overviewRefreshActive=已停止(收盘); 高频窗口内=高频追新; 窗口在未来=等预测窗口; 否则=低频兜底.
 function _initRefreshDebugBar() {
   if (_refreshDebugEl) return; // 幂等防重复插入
   const el = document.createElement('div');
   el.id = 'refresh-debug';
-  el.style.cssText = 'position:fixed;bottom:2px;right:6px;z-index:1;font-size:10px;line-height:1.4;' +
-    'color:var(--text-3);background:color-mix(in srgb,var(--bg-card) 45%,transparent);padding:2px 6px;border-radius:3px;' +
-    'pointer-events:none;max-width:280px;font-family:ui-monospace,Menlo,Consolas,monospace;' +
-    'backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-  document.body.appendChild(el);
+  // 定位/皮肤样式由 style.css #refresh-debug 控制(皮肤变量 var(--text-3)+color-mix 跟随15皮肤, 7b179644适配)
+  // PC端嵌入 .tabs 栏右端随吸顶; 移动端 append 到 body 由 @media fixed 右下角(保持原逻辑)
+  const _dbgContainer = window.matchMedia('(max-width: 768px)').matches
+    ? document.body
+    : document.querySelector('.tabs');
+  _dbgContainer.appendChild(el);
   _refreshDebugEl = el;
   _updateRefreshDebug();
   // 倒计时每秒更新(基于 _overviewNextFireAt 算剩余秒数, 不依赖轮询本身触发)
