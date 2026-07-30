@@ -4117,17 +4117,32 @@ function updateMarketStatusBanner(snap) {
     });
   }
   const intraday = !!(snap && snap.is_closed === false);
-  if (!intraday || _marketBannerDismissed) {
+  // P2-C: 盘前集合竞价申报段(9:15-9:25)前端独立时间判断
+  // 后端 is_closed 在 9:15-9:25 仍返 true(收盘快照), 9:25 才切 false(竞价完成)
+  // 此处前端基于北京时间判断, 不依赖后端 label, 避免盘前显示"收盘"误导用户以为没开盘
+  // 节假日前端难判, 盘前提示横幅节假日误显无害(9:25 后无新数据自然恢复收盘态)
+  const _bjMin = _bjTimeMin();
+  const _bjDow = _bjDayOfWeek();
+  const _isWeekday = _bjDow >= 1 && _bjDow <= 5; // 周一-周五兜底(节假日误显无害)
+  const _isAuctionCall = !intraday && _isWeekday && _bjMin >= 9 * 60 + 15 && _bjMin < 9 * 60 + 25;
+  if (_marketBannerDismissed) {
+    el.style.display = "none";
+    return;
+  }
+  if (!intraday && !_isAuctionCall) {
     el.style.display = "none";
     return;
   }
   el.style.display = "";
-  // 4态区分(对齐后端 is_market_closed label): 集合竞价/竞价完成/午休/盘中实时小结
+  // 5态区分: P2-C盘前竞价申报段(前端时间判断) + 4态(对齐后端 is_market_closed label): 集合竞价/竞价完成/午休/盘中实时小结
   const _label = (snap && snap.label) || "";
   const txt = el.querySelector(".msb-text");
   if (txt) {
     let _t;
-    if (/集合竞价/.test(_label)) {
+    if (_isAuctionCall) {
+      // 9:15-9:25 申报段: 后端仍 is_closed=true, 前端独立显示竞价申报中
+      _t = "📊 集合竞价申报中 · 9:25定开盘价·9:30开盘 · 开盘价未定暂显昨收";
+    } else if (/集合竞价/.test(_label)) {
       _t = "📊 集合竞价中 · 9:25竞价完成·9:30开盘 · 开盘价待定";
     } else if (/竞价完成/.test(_label)) {
       _t = "📊 竞价完成 · 待9:30开盘 · 开盘价已定";
