@@ -5064,6 +5064,16 @@ if (!isClosed) {
   3. intraday_snapshot.sh L207 移除 schedule_stats + L320 gen_stats 后加 `bash push_schedule_stats.sh`（选项2 实时性最佳，当轮 schedule_stats 当轮上线）
   4. 7 任务脚本 gen_stats 后加 push_schedule_stats.sh 调用（us_stock_morning L39 / rzhb L60 trap EXIT 内 + futures L107 / lhb L117 / etf L113 / update_all L225 / update_lab L328 结尾，均 `|| echo ⚠ 失败不阻塞`）
 - **验收**（主控逐字 grep 6 点全过）：push_schedule_stats.sh 存在+chmod +rwx+bash -n OK / deploy.sh for 循环无 schedule_stats（只剩注释）/ intraday_snapshot L207 无+L320 有调用 / 7 任务各命中1处 / commit 346f53a4 在 origin/main / **线上 rzhb=2026-07-30 08:00 exit=0 实时显示**（08:00 主采跑完 -> push_schedule_stats.sh 独立 push -> 立即上线，不再等 17:50 update_all，时序矛盾根治实证 ✅）
-- **监控优化闭环**（同日）：主控每小时亲跑监控 cron 483ce68c 取消（省 token，schedule_monitor 15min 已覆盖 4 项中 3 项）+ schedule_monitor 加 launchctl 加载检查补缺口（afbc333 实施中，第5项 11任务未加载告警）
+- **监控优化闭环**（同日）：主控每小时亲跑监控 cron 483ce68c 取消（省 token，schedule_monitor 15min 已覆盖 4 项中 3 项）+ schedule_monitor 加 launchctl 加载检查补缺口（afbc333 已完成见 AZ80，第5项 11任务未加载告警）
 - **遗留**：origin/feat 远程是 rebase 前旧 hash（9d3d11ce），本地 feat（346f53a4）分叉，不影响 main（main 已 346f53a4），feat 远程同步需 force-with-lease push feat（§8 feat 分支未禁，本任务未要求未执行）
 - **关联**：AZ78 us_stock trap gen_stats + intraday_snapshot.sh L132-298 独立 push 参考源 + AZ77 schedule_monitor alert_state 去重 + memory `r2-upload-from-trade`（upload_r2 ROOT 回退，push_schedule_stats.sh 从 trade 跑同理）
+
+### AZ80 schedule_monitor 加 launchctl 加载检查（监控优化闭环第2项完成，2026-07-30 09:1X）
+- **背景**：AZ79 监控优化闭环第2项--取消主控每小时亲跑监控 cron 后（483ce68c），schedule_monitor 15min 覆盖 4 项中 3 项，剩"任务是否加载"缺口需补。launchd 任务未加载（plist 删了/手工 unload/launchctl load 失败）会静默漏跑，schedule_monitor 不查则无人发现
+- **实施**（commit `d2207fe7`，1 文件 schedule_monitor.sh）：
+  1. 加第5项检查：遍历 10 个 launchctl label（9 监控任务 update-all/backfill-evening/intraday-snapshot/futures-backfill/lhb-backfill/rzhb-backfill/us-stock-morning + 等 + self-heal，**不含 schedule-monitor 自己防递归**）
+  2. `launchctl_loaded(label)` 函数复用 self_heal.sh L73 逻辑：`subprocess.run(['launchctl','print',f'gui/{uid}/{label}'], timeout=10)`，returncode!=0 或无 `state = ` 行 = 未加载
+  3. 未加载走 alert_state 去重（dedup_key=`{label}|not_loaded`，keyword=`not_loaded`，line_sample=`launchctl print gui/{uid}/{label} 未加载`），首次发 active 持续 suppress 消失发恢复，复用 AZ77 三段机制
+  4. 位置在 alert_state save（L312）前 + 恢复检测（L295）前，确保 not_loaded 告警也参与去重不轰炸
+- **验收**（主控逐字 grep 4 点全过）：launchctl_loaded/dedup_key/keyword/line_sample 命中 / 10 label 清单不含 schedule-monitor（grep -c=4 全注释防递归）/ alert_state 三段（seen_keys + active + suppress）/ commit d2207fe7 在 origin/main + bash -n OK
+- **闭环**：schedule_monitor 现 5 项全覆盖（漏跑/exit/log_anomaly/ETF耗时/线上时效 + launchctl加载），取消主控 cron 后无监控盲区。下次 :00/:15/:30/:45 跑用新版验证
