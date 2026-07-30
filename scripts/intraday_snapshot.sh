@@ -237,7 +237,11 @@ PUSH_RC=0
   echo "-> 同步 index 到 R2（前端 R2 源，先于 git push）..." | tee -a "$LOG"
   if ! "$PY" "$REPO/scripts/upload_r2.py" upload-index 2>&1 | tee -a "$LOG"; then
     echo "✗ upload-index R2 失败，发告警邮件" | tee -a "$LOG"
-    "$PY" "$REPO/scripts/notify.py" "[intraday告警] upload-index R2 失败" "走势图数据源(kc50-all.json等)未推 R2，卡片(overview)将上线，三处数据不一致，需手动补刷 R2: bash scripts/upload_r2.py upload-index" --severe 2>&1 | tee -a "$LOG" || true
+    # 抓 upload-index 输出的 FAILED_FILES 行(改动2 打印)+ 共上传汇总行,引用到告警 body
+    # tail -1 取最新一条(防 LOG 历史污染)；|| true 防 pipefail 下 grep 无匹配退出非0
+    FAILED_FILES=$(grep "^FAILED_FILES:" "$LOG" | tail -1 | sed 's/^FAILED_FILES: //') || true
+    OK_TOTAL=$(grep "^共上传" "$LOG" | tail -1) || true
+    "$PY" "$REPO/scripts/notify.py" "[intraday告警] upload-index R2 失败" "走势图数据源(kc50-all.json等)未推 R2，卡片(overview)将上线，三处数据不一致，需手动补刷 R2: bash scripts/upload_r2.py upload-index<br>汇总: ${OK_TOTAL}<br>失败文件: ${FAILED_FILES}" --severe --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
   fi
 
   # 2.55) A11 异常波动盘中告警（R2同步后、push前；失败不阻塞快照/推送）

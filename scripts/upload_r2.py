@@ -156,6 +156,16 @@ def s3_request(method, key, payload=b"", query="", bucket=None, content_type=Non
             resp = conn.getresponse()
             data = resp.read()
             conn.close()
+            # HTTP 5xx 重试(R2 S3 API 偶发 InternalError,与网络异常重试对称)。
+            # R2 侧偶发 500 InternalError 自愈,重试 1-2 次通常即成功,避免单文件 5xx
+            # 致整批 ok!=total -> intraday 告警邮件轰炸(2026-07-30 修复)。
+            # attempt 0/1 重试(sleep 1s/2s),attempt 2(最后一次)return 让调用方记失败。
+            if resp.status >= 500 and attempt < 2:
+                import time
+                wait = 2 ** attempt  # 1s, 2s
+                print(f"  ⚠ {method} {key} HTTP {resp.status} attempt {attempt+1}, {wait}s 后重试", file=sys.stderr)
+                time.sleep(wait)
+                continue
             return resp.status, data
         except (ssl.SSLError, OSError, http.client.HTTPException) as e:
             last_exc = e
@@ -245,7 +255,9 @@ def cmd_upload_lab():
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
     """通用 glob 上传：local_dir 下按 patterns 匹配文件，上传到 R2 r2_prefix/。
 
-    R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total)。
+    R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total, failed_rels)。
+    failed_rels = 失败文件的 rel 列表(相对 local_dir 的路径,如 sw_801030-all.json),
+    供调用方(cmd_upload_index)打印 FAILED_FILES 行供 intraday_snapshot.sh 抓取引用到告警 body。
     include_gz=True 时同时上传 .gz（若存在）。
     单文件失败(重试3次仍错)不中断整批,继续上传后续文件。
 
@@ -297,6 +309,7 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
             return (i, False, rel, 0, f"异常({type(e).__name__}: {e})")
 
     ok = 0
+    failed_rels = []
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [pool.submit(_upload_one, (i, f)) for i, f in enumerate(files, 1)]
         done = 0
@@ -308,8 +321,9 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
                 print(f"[{done}/{total}] ✓ {rel} ({size}B)")
             else:
                 print(f"[{done}/{total}] ✗ {rel} {err}")
+                failed_rels.append(str(rel))
     print(f"共上传 {ok}/{total} -> {PUBLIC}/{r2_prefix}/")
-    return ok, total
+    return ok, total, failed_rels
 
 
 def cmd_upload_trade_sim():
@@ -326,7 +340,7 @@ def cmd_upload_trade_sim():
     # 用 exists()(对 broken symlink 返回 False)判断是否真有可上传文件。
     if not any(f.exists() for f in ts_dir.glob("trade_sim_*.html")):
         ts_dir = ROOT / "static-site"
-    ok, total = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
+    ok, total, _ = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
     if total == 0:
         sys.exit(f"无 trade_sim html: {ts_dir}/trade_sim_*.html")
     if ok != total:
@@ -349,7 +363,7 @@ def cmd_upload_trade_sim_json():
     ts_dir = STATIC_DIR / "data/trade_sim"
     if not ts_dir.exists() or not any(ts_dir.glob("*.json")):
         ts_dir = ROOT / "static-site" / "data" / "trade_sim"
-    ok, total = _upload_glob(ts_dir, ["*.json", "*.json.gz"], "trade_sim_data")
+    ok, total, _ = _upload_glob(ts_dir, ["*.json", "*.json.gz"], "trade_sim_data")
     if total == 0:
         sys.exit(f"无 trade_sim json: {ts_dir}")
     if ok != total:
@@ -364,10 +378,13 @@ def cmd_upload_index():
     intraday_snapshot 盘中会重写本地 index/{iid}-all.json，deploy.sh 调本命令同步 R2。
     """
     idx_dir = STATIC_DIR / "data/index"
-    ok, total = _upload_glob(idx_dir, ["*.json", "*.json.gz"], "index")
+    ok, total, failed_rels = _upload_glob(idx_dir, ["*.json", "*.json.gz"], "index")
     if total == 0:
         sys.exit(f"无 index json: {idx_dir}")
     if ok != total:
+        # 打印失败文件清单供 intraday_snapshot.sh 抓取引用到告警 body(改动2)。
+        # 格式: FAILED_FILES: rel1, rel2, ... (rel 是相对 static-site/data/index/ 的路径)
+        print(f"FAILED_FILES: {', '.join(failed_rels)}")
         sys.exit(1)
 
 
@@ -390,7 +407,7 @@ def cmd_upload_industry():
         "industry-3y-indices/*", "industry-3y-indices/*.gz",
         "industry-*.json", "industry-*.json.gz",
     ]
-    ok, total = _upload_glob(data_dir, patterns, "industry")
+    ok, total, _ = _upload_glob(data_dir, patterns, "industry")
     if total == 0:
         sys.exit(f"无 industry 文件: {data_dir}/industry-*")
     if ok != total:

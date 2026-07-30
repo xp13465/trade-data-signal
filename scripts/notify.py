@@ -38,6 +38,10 @@ EMAIL_CONFIG = REPO / "config" / "email.json"
 TELEGRAM_CONFIG = REPO / "config" / "telegram.json"
 ALERTS_DIR = REPO / "data" / "alerts"
 ALERTS_FILE = ALERTS_DIR / "latest.md"
+# notify.py 去重文件(独立于 schedule_monitor 的 alert_state.json,互不污染)。
+# 结构: {"<dedup_key>": {"last_alerted": "YYYY-MM-DD HH:MM:SS"}}。
+# 不进 git(运行时数据,与 alert_state.json 同级 .gitignore 忽略)。
+DEDUP_FILE = REPO / "data" / "notify_dedup.json"
 
 # email.json.example 中的占位密码，识别后跳过实际发送
 PLACEHOLDER_PASSWORD = "<填163邮箱SMTP授权码，非登录密码>"
@@ -284,6 +288,69 @@ Claude 开工时排查此告警：对照日志路径定位根因，修复后删�
         print(f"[notify] 告警写入失败：{e}", file=sys.stderr)
 
 
+def check_dedup(key: str, window: int) -> bool:
+    """检查去重：dedup_key 在 window 秒内已告警过则返回 True（suppress 不重发）。
+
+    读 data/notify_dedup.json（独立于 schedule_monitor 的 alert_state.json，互不污染）。
+    文件不存在/解析失败/key 不存在/last_alerted 缺失 -> 返回 False（不 suppress，正常发送）。
+    用于 intraday_snapshot.sh upload-index R2 失败告警去重：
+    R2 偶发 HTTP 500 自愈但单文件失败已致 ok!=total -> 每轮 intraday(15min)发一次告警邮件轰炸，
+    加 --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 实现 30min 内不重发。
+    """
+    if not key or window <= 0:
+        return False
+    try:
+        if not DEDUP_FILE.exists():
+            return False
+        with open(DEDUP_FILE, encoding="utf-8") as f:
+            state = json.load(f)
+        info = state.get(key)
+        if not info:
+            return False
+        last = info.get("last_alerted")
+        if not last:
+            return False
+        last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+        age = (datetime.now() - last_dt).total_seconds()
+        if age < window:
+            print(f"[notify][dedup] suppress key={key} last_alerted={last} "
+                  f"age={int(age)}s < window={window}s, 不重发", file=sys.stderr)
+            return True
+    except Exception as e:  # noqa: BLE001
+        # 去重检查失败不影响发送（fail-open，宁可多发不漏发）
+        print(f"[notify][dedup] 检查失败(不 suppress，正常发送)：{e}", file=sys.stderr)
+    return False
+
+
+def update_dedup(key: str) -> None:
+    """发送后更新 dedup_key 的 last_alerted 为当前时间（无论发送成败，已尝试即更新）。
+
+    防止发送失败（SMTP 错误等）时每周期重试轰炸：发送失败本身是另一层问题，
+    schedule_monitor 不感知 notify.py 调用（intraday exit 0 只要 git push 成功），
+    故 notify.py 自管去重，尝试发送即更新 last_alerted，window 内不再重试。
+    """
+    if not key:
+        return
+    try:
+        DEDUP_FILE.parent.mkdir(parents=True, exist_ok=True)
+        state: dict = {}
+        if DEDUP_FILE.exists():
+            try:
+                with open(DEDUP_FILE, encoding="utf-8") as f:
+                    state = json.load(f)
+                if not isinstance(state, dict):
+                    state = {}
+            except Exception:  # noqa: BLE001
+                state = {}
+        state[key] = {"last_alerted": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        DEDUP_FILE.write_text(
+            json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"[notify][dedup] 更新 key={key} last_alerted=now", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
+        print(f"[notify][dedup] 更新失败(不影响本次发送)：{e}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="update_all 监控通知（邮件 + Telegram + alerts 文件）"
@@ -293,8 +360,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--severe", action="store_true", help="严重：标题加 [需Claude排查] 前缀")
     parser.add_argument("--alert-issue", help="写 data/alerts/latest.md，值为问题一句话")
     parser.add_argument("--alert-log", help="配合 --alert-issue，日志文件路径")
+    parser.add_argument("--dedup-key", help="去重 key：同 key 在 --dedup-window 秒内不重发（suppress 静默退出 0）。"
+                        "用于 intraday 等 15min 周期任务防 R2 偶发失败轰炸（写入 data/notify_dedup.json）")
+    parser.add_argument("--dedup-window", type=int, default=1800, help="去重窗口秒数（默认 1800=30min）")
     parser.add_argument("--dry-run", action="store_true", help="不真发，只 print 到 stderr")
     args = parser.parse_args(argv)
+
+    # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
+    # dry-run 不走去重（测试用，需看到发送日志）
+    if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
+        return 0
 
     results = send(args.subject, args.body, severe=args.severe, dry_run=args.dry_run)
     ok = [ch for ch, v in results.items() if v]
@@ -304,6 +379,10 @@ def main(argv: list[str] | None = None) -> int:
               + (f"（未发出：{'/'.join(fail)}）" if fail else ""), file=sys.stderr)
     else:
         print(f"[notify] 汇总：全部渠道未发出（{'/'.join(fail) or '无渠道'}）", file=sys.stderr)
+
+    # 发送后更新 dedup（无论成败，已尝试即更新，防发送失败时每周期重试轰炸）
+    if args.dedup_key and not args.dry_run:
+        update_dedup(args.dedup_key)
 
     if args.alert_issue:
         write_alert(args.alert_issue, args.body, log_path=args.alert_log)

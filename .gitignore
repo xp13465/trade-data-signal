@@ -155,4 +155,5 @@ static-site/data/global-extras-all.json.gz
 /data/board_etf_map.json
 /a-stock-data/lab_backtest.json
 /data/alert_state.json
+/data/notify_dedup.json
 /data/baostock_progress.json.lock
