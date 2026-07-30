@@ -37,7 +37,7 @@ KPI_METRIC_IDS = [
     "a_width_down_count",   # 下跌家数
     "a_amount",             # 成交额
     "a_volume_ratio",       # 量比（放量/缩量）
-    "a_fund_north",         # 北向资金（停更，最新非空 20240816）
+    "a_fund_north",         # 北向资金（成交总额,HKEX源,每日更新;原净买额2024-08停更）
     "a_fund_margin",        # 两融余额
     "gold",                 # 商品(沪金) - 供数据时效横幅EXTRA取日期
     "cn10y",                # 10年国债收益率
@@ -313,7 +313,7 @@ def overview(conn, cfg):
         "SELECT score_id, value, is_freeze, is_overheat FROM score_daily WHERE date=?", (score_date,)
     ).fetchall()}
 
-    # KPI 指标今日快照：每个指标取最新非空值（北向停更后仍能取到 20240816）
+    # KPI 指标今日快照：每个指标取最新非空值
     metric_cfg = {m["id"]: m for m in cfg.get("metrics", []) if m.get("enabled")}
     # 量比指标不在 indicators.yaml 中，手动补充
     metric_cfg["a_volume_ratio"] = {"id": "a_volume_ratio", "name": "量比", "unit": ""}
