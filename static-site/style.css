@@ -781,7 +781,7 @@ main { padding: 16px 24px; }
 .signal-accuracy-summary { font-size: 12px; color: var(--text-2); margin: 4px 0; padding: 4px 8px; background: var(--bg-2, var(--bg-hover)); border-radius: 4px; line-height: 1.6; }
 /* 按信号分类行（2026-07-30）：评级行下方独立一行，展示各信号类型的准确率 chip。
    只显示 signals_today 实际出现的类型；band_hold 只显示数量不算 pct。色点复用 .sig-acc-dot。 */
-.sig-acc-by-type { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+.sig-acc-by-type { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; line-height: 1.6; }
 .sig-acc-seg { white-space: nowrap; }
 .sig-acc-dot { font-size: 10px; margin-right: 1px; }
 .sig-acc-dot-high { color: #15803d; }
