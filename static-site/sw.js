@@ -13,7 +13,7 @@
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260730-a83';
+const CACHE_VERSION = 'v2-20260730-ico';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -27,6 +27,7 @@ const PRECACHE_URLS = [
   './qr.js',
   './manifest.json',
   './favicon.svg',
+  './favicon.ico',
   './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png'
