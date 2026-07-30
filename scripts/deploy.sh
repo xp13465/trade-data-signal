@@ -58,6 +58,33 @@ git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
 git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz static-site/data/notifications.json static-site/data/notifications.json.gz 2>/dev/null && \
   git -C "$GIT_REPO" reset HEAD -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz static-site/data/notifications.json static-site/data/notifications.json.gz 2>/dev/null || true
 
+# 0.7 兜底：清理工作区残留 unmerged 状态（2026-07-31 根治，方案B 双保险）
+# 根因：pop_rebase_stash bug（rebase 后 stash pop 冲突只 echo 不解决）曾留 unmerged 污染，
+# 2026-07-31 05:00 us_stock_morning deploy.sh git commit 撞 unmerged exit 128 致 main 没推
+# （730 信号 R2 已上线但 CF Workers ss.fx8.store / GH Pages sss.sugas.site 没拿到 730）。
+# 此兜底在 fetch 后 export 前检测：static-site/data/* 的 unmerged 强制 reset HEAD + checkout origin/main 清理；
+# 非数据文件 unmerged 则 exit 1 报警不继续（避免吞代码冲突）。
+UNMERGED=$(git -C "$GIT_REPO" diff --name-only --diff-filter=U 2>/dev/null)
+if [ -n "$UNMERGED" ]; then
+  NON_DATA_UNMERGED=""
+  for _u in $UNMERGED; do
+    case "$_u" in
+      static-site/data/*.json|static-site/data/*.gz)
+        git -C "$GIT_REPO" reset HEAD -- "$_u" 2>/dev/null || true
+        git -C "$GIT_REPO" checkout origin/main -- "$_u" 2>&1 | tee -a "$LOG"
+        echo "⚠ 清理 unmerged 数据文件: $_u（已 reset HEAD + checkout origin/main）" | tee -a "$LOG"
+        ;;
+      *)
+        NON_DATA_UNMERGED="$NON_DATA_UNMERGED $_u"
+        ;;
+    esac
+  done
+  if [ -n "$NON_DATA_UNMERGED" ]; then
+    echo "✗ 工作区有非数据文件 unmerged: $NON_DATA_UNMERGED，拒绝 deploy（需手动解决代码冲突）" | tee -a "$LOG"
+    exit 1
+  fi
+fi
+
 # 0.8 刷新 board_etf_map.json（P2-新-G ETF 联动 tag 数据源：行业/概念关键词匹配
 # + 10 宽基/红利指数代码精确匹配，akshare fund_etf_spot_em() 联网 ~15s）。
 # 根因修复（2026-07-25）：build_board_etf_map.py 原不在 pipeline，data/board_etf_map.json
@@ -284,11 +311,46 @@ if [ "$PUSH_RC" -ne 0 ]; then
     else
       echo "  工作区无 tracked M/untracked 文件需 stash（或 stash 无变化跳过）" | tee -a "$LOG"
     fi
-    # rebase 后恢复 stash 的 helper（pop 冲突则保留 stash 待手动处理，不阻塞 push）
+    # rebase 后恢复 stash 的 helper
+    # 2026-07-31 根治：原版 pop 失败只 echo 不解决，留 unmerged 状态污染下次 deploy，
+    # 05:00 us_stock_morning deploy.sh git commit 撞 unmerged exit 128 致 main 没推(730 信号 R2 已上线但 CF/GH 主站没拿到)。
+    # 数据文件(schedule_stats.json 有独立 push_schedule_stats.sh 兜底、其他 export.py 重新生成)冲突自动解决：
+    # 取 theirs(stash 内容=rebase 前工作区版本，数据文件会被下次任务脚本重新生成覆盖)+ add + drop；
+    # 非数据文件冲突(如非 static-site/data/ 的代码文件)保留 stash 待手动不自动解决(避免吞代码改动)。
     pop_rebase_stash() {
       if [ "$REBASE_STASHED" = "1" ]; then
-        git -C "$GIT_REPO" stash pop 2>&1 | tee -a "$LOG" \
-          || echo "⚠ stash pop 失败/冲突，保留 stash@{0} 待手动 git stash pop" | tee -a "$LOG"
+        local pop_out pop_rc
+        pop_out=$(git -C "$GIT_REPO" stash pop 2>&1)
+        pop_rc=$?
+        echo "$pop_out" | tee -a "$LOG"
+        if [ "$pop_rc" -ne 0 ]; then
+          local conflicted non_data f
+          conflicted=$(git -C "$GIT_REPO" diff --name-only --diff-filter=U 2>/dev/null)
+          if [ -n "$conflicted" ]; then
+            non_data=""
+            for f in $conflicted; do
+              case "$f" in
+                static-site/data/*.json|static-site/data/*.gz)
+                  git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
+                  git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
+                  ;;
+                *)
+                  non_data="$non_data $f"
+                  ;;
+              esac
+            done
+            if [ -z "$non_data" ]; then
+              # 全是数据文件冲突，已解决；pop 冲突时 stash 仍保留，手动 drop
+              git -C "$GIT_REPO" stash drop 2>&1 | tee -a "$LOG"
+              echo "✓ stash pop 数据文件冲突已自动解决(--theirs)，stash 已 drop" | tee -a "$LOG"
+            else
+              # 有非数据文件冲突，保留 stash 待手动 git stash pop
+              echo "⚠ stash pop 有非数据文件冲突($non_data)，保留 stash@{0} 待手动 git stash pop" | tee -a "$LOG"
+            fi
+          else
+            echo "⚠ stash pop 失败(无冲突文件信息)，保留 stash@{0} 待手动处理" | tee -a "$LOG"
+          fi
+        fi
       fi
     }
     git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"
