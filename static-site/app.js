@@ -7,7 +7,7 @@
 
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null };
+const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1229,7 +1229,20 @@ function _getSignalScore(it) {
 // ☑️(true)/✖️(false)/null(今日/未结算不计分母)，并按 _getSignalScore 的 score 分档
 // （高≥0.75/中0.55-0.75/低<0.55）分别统计。返回 {total, grade:{high,mid,low}}。
 // pct = t/(t+f)*100，t+f=0 时 pct=null（避免 0/0 误导）。无 score 的 item 计入 total 但不计入分档。
+// _SIG_TYPES: byType 分组统计的信号类型清单（不含 buy_special_filtered，该类型不在 signals_today 展示）
+const _SIG_TYPES = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss", "band_hold"];
+// _SIG_TYPE_META: 分类行 chip 渲染元数据（中文标签 + 色点颜色，与 _SIGNAL_HELP_ITEMS 一致）
+const _SIG_TYPE_META = [
+  { key: "buy", label: "主买", color: "#e6492e" },
+  { key: "buy_aux", label: "辅买", color: "#d63384" },
+  { key: "buy_special", label: "追买", color: "#ffd700" },
+  { key: "buy_backup", label: "备买", color: "#9c27b0" },
+  { key: "sell", label: "卖", color: "#2e8b57" },
+  { key: "sell_stop_loss", label: "追止损", color: "#3498db" },
+  { key: "band_hold", label: "波段持有", color: "#ff9800" },
+];
 function _calcSignalAccuracy(items) {
+  const _newBin = () => ({ t: 0, f: 0, n: 0, pct: null });
   const acc = {
     total: { t: 0, f: 0, n: 0, pct: null },
     grade: {
@@ -1237,6 +1250,7 @@ function _calcSignalAccuracy(items) {
       mid: { t: 0, f: 0, n: 0, pct: null },
       low: { t: 0, f: 0, n: 0, pct: null },
     },
+    byType: Object.fromEntries(_SIG_TYPES.map((s) => [s, _newBin()])),
   };
   if (!items || !items.length) return acc;
   const _tally = (bin, it) => {
@@ -1246,6 +1260,8 @@ function _calcSignalAccuracy(items) {
   };
   for (const it of items) {
     _tally(acc.total, it);
+    // 按信号类型分组统计（band_hold 的 since_correct 恒 null，自然只累加 n）
+    if (acc.byType[it.signal]) _tally(acc.byType[it.signal], it);
     const sc = _getSignalScore(it);
     if (!sc || sc.score == null) continue; // 无 score 不计入分档
     const s = sc.score;
@@ -1260,6 +1276,11 @@ function _calcSignalAccuracy(items) {
   acc.grade.high.pct = _pct(acc.grade.high);
   acc.grade.mid.pct = _pct(acc.grade.mid);
   acc.grade.low.pct = _pct(acc.grade.low);
+  // byType pct: band_hold 特殊——since_correct 恒 null（只计 n），pct 保持 null 不算
+  for (const sig of _SIG_TYPES) {
+    if (sig === "band_hold") continue;
+    acc.byType[sig].pct = _pct(acc.byType[sig]);
+  }
   return acc;
 }
 
@@ -1279,7 +1300,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // 列表渲染用 filtered(只显示符合筛选的参考点)。null=不筛; "high"/"mid"/"low"=评级;
   // "true"/"false"/"null"=对/错/未结算。点击汇总条 button toggle 筛选, 再点同档恢复。
   let filtered = items;
-  if (kind === "signal" && (state.sigGradeFilter || state.sigCorrectFilter)) {
+  if (kind === "signal" && (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)) {
     filtered = items.filter((it) => {
       if (state.sigGradeFilter) {
         const sc = _getSignalScore(it);
@@ -1294,6 +1315,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         const k = v === true ? "true" : v === false ? "false" : "null";
         if (k !== state.sigCorrectFilter) return false;
       }
+      if (state.sigTypeFilter && it.signal !== state.sigTypeFilter) return false;
       return true;
     });
   }
@@ -1385,17 +1407,35 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _fmt = (pct) => (pct == null ? "-" : pct.toFixed(0) + "%");
     const _gActive = (g) => (state.sigGradeFilter === g ? " sig-acc-filter-active" : "");
     const _cActive = (k) => (state.sigCorrectFilter === k ? " sig-acc-filter-active" : "");
+    const _tActive = (t) => (state.sigTypeFilter === t ? " sig-acc-filter-active" : "");
     const _seg = (label, bin, dotCls, grade) =>
       `<button class="sig-acc-seg sig-acc-filter${_gActive(grade)}" data-grade-filter="${grade}" data-tip="${_escAttr("点击只看评级" + label + "的参考点")}"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</button>`;
-    const _unsettledTip = '未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②波段持有中性状态;③等待收盘价回填。收盘后update_all重算since_correct后转为“对”或“错”。点击只看未结算项';
-    const _reset = (state.sigGradeFilter || state.sigCorrectFilter)
+    const _unsettledTip = '未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②波段持有中性状态;③等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项';
+    const _reset = (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)
       ? ` <button class="sig-acc-reset" data-grade-filter-reset="1">恢复全部</button>`
       : "";
-    _accHtml = `<div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>`;
+    // 按信号分类行（2026-07-30）：只显示 signals_today 实际出现的类型（byType t+f+n>0），不显示空分类
+    // band_hold 特殊：since_correct 恒 null（只计 n），chip 只显示"波段持有 N个"不算 pct
+    // 色点用 inline color 着色 ● 字符，与评级行 .sig-acc-dot 风格一致
+    const _typeChips = _SIG_TYPE_META
+      .filter((m) => {
+        const b = _acc.byType[m.key];
+        return b && (b.t + b.f + b.n) > 0;
+      })
+      .map((m) => {
+        const b = _acc.byType[m.key];
+        const tip = _escAttr("点击只看" + m.label + "信号");
+        const dot = `<span class="sig-acc-dot" style="color:${m.color}">●</span>`;
+        const body = m.key === "band_hold" ? `${m.label} ${b.n}个` : `${m.label} ${_fmt(b.pct)} (${b.t}/${b.f})`;
+        return `<button class="sig-acc-seg sig-acc-filter${_tActive(m.key)}" data-type-filter="${m.key}" data-tip="${tip}">${dot}${body}</button>`;
+      })
+      .join(" · ");
+    const _byTypeRow = _typeChips ? `<div class="sig-acc-by-type">${_typeChips}</div>` : "";
+    _accHtml = `<div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}`;
   }
   // 筛选后无匹配: 汇总条仍显示(全量统计), 列表区给提示
-  if (kind === "signal" && !rows && (state.sigGradeFilter || state.sigCorrectFilter)) {
-    rows = `<div class="empty-note" style="margin:8px 0">当前筛选无匹配参考点，点击“恢复全部”查看全部</div>`;
+  if (kind === "signal" && !rows && (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)) {
+    rows = `<div class="empty-note" style="margin:8px 0">当前筛选无匹配参考点，点击"恢复全部"查看全部</div>`;
   }
   return `<h3>${title}</h3>${_accHtml}<div class="signal-grid">${rows}</div>`;
 }
@@ -7034,19 +7074,23 @@ async function renderOverview() {
   // 点击买卖点卡片弹窗：展示对应指数/品类走势图+买卖信号标注
   // A/B 方案(2026-07-29): 汇总条 button click 委托 toggle 评级/对错筛选, 优先于 .sig-clickable 弹窗。
   sigCard.addEventListener("click", (e) => {
-    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-grade-filter-reset]");
+    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset]");
     if (filterBtn) {
       e.preventDefault();
       e.stopPropagation();
       if (filterBtn.hasAttribute("data-grade-filter-reset")) {
         state.sigGradeFilter = null;
         state.sigCorrectFilter = null;
+        state.sigTypeFilter = null;
       } else if (filterBtn.dataset.gradeFilter != null) {
         const g = filterBtn.dataset.gradeFilter;
         state.sigGradeFilter = (state.sigGradeFilter === g) ? null : g;  // toggle: 再点同档恢复
       } else if (filterBtn.dataset.correctFilter != null) {
         const k = filterBtn.dataset.correctFilter;
         state.sigCorrectFilter = (state.sigCorrectFilter === k) ? null : k;  // toggle
+      } else if (filterBtn.dataset.typeFilter != null) {
+        const t = filterBtn.dataset.typeFilter;
+        state.sigTypeFilter = (state.sigTypeFilter === t) ? null : t;  // toggle: 再点同分类恢复
       }
       // 用最新 overview + snap 重绘(不依赖闭包 r/snap, 盘中自动更新后筛选也生效)
       _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
