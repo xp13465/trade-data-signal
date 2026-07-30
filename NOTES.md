@@ -5127,3 +5127,30 @@ if (!isClosed) {
 - **验收**（主控逐字 grep 4 点全过）：app.js:8471 含 HKEX 成交总额 + 净买额停更 / sw.js a79 / commit 4887b0ec 在 origin/main + 后端 direct.py 未改（diff 只前端+queries.py 6 文件）/ **线上 a79（sss.sugas.site）+ app.min.js?v=3cc840e4**
 - **闭环**：北向提示事实错误修正。用户看到"成交总额 HKEX 源每日更新"而非"冻结 2024-08-16"，理解 a_fund_north 语义（交投活跃度非净流入）。盘中前端只 push main 不跑 deploy.sh（§8）
 - **关联**：config `indicators.yaml:35` C3 升级 HKEX 源（主源 HKEX csm/DailyStat + fallback 东财 datacenter RPT_MUTUAL_DEAL_HISTORY + kamt/get）+ memory `daily-metric-date-format`（date 字段 YYYYMMDD 无连字符，查 20260729 非 2026-07-29）
+
+### AZ85 2026-07-30 intraday角标/summary布局/R2告警根治/intraday回归事故+监控漏洞补
+
+**【今日8项闭环】**
+
+1. summary布局 a80(commit 7bd60ad3)：titleTags移出summary-title作summary-top直接子级+CSS移动端flex-wrap
+2. debug浮窗移导航栏 a81(commit 09ef2664)：右下角遮视角改导航栏右侧吸顶
+3. summary L6432复查(a8ac5586)：无需改纯SW缓存问题
+4. summary布局fix2 a82(commit 791eb4ec)：CSS order修复titleTags挤meta行3,视觉顺序title->meta->titleTags,行1title+meta同行行2titleTags独占
+5. intraday角标 a83(commit 89cb29fa)：getCardTimeBadge加isIndexSpark&&_useDyn用_dynMin判9:30-11:30/13:00-15:00盘中覆盖+横幅午休判断改_bjMin,分时图角标基于自己1min数据时间切盘中不读snap.label(10min滞后)
+6. atr pin实施(commit a761278e)：us_stock_morning.sh加步骤1.5重算signals(采集后deploy前),明天05:00根治;当前17:50 update_all全量deploy修复
+7. R2告警根治(commit 2f0159c2)：upload_r2.py s3_request加HTTP 5xx重试(1s/2s与网络异常对称)+_upload_glob返回failed_rels+cmd_upload_index打印FAILED_FILES行+notify.py加--dedup-key/--dedup-window(data/notify_dedup.json 30min不重发)+intraday_snapshot.sh告警body引用FAILED_FILES+共上传汇总+.gitignore加notify_dedup.json;治本5xx自愈+失败清单+去重文案三管齐下;用户反馈邮件告警接入监控④b
+8. intraday回归修复(commit 35d7eef3)：L242 sed单引号改双引号(2f0159c2回归)
+
+**【intraday回归事故(2f0159c2->35d7eef3)】**
+
+- 2f0159c2(ab2f3ede R2告警根治)在intraday_snapshot.sh L242加 sed 's/^FAILED_FILES: //' 单引号,该行在L132 bash -c '...' 单引号块内,破坏字符串配对,致 `: -c: line 110: unexpected EOF while looking for matching ')'`
+- 整个bash -c commit+push块执行失败,intraday_snapshot.json生成后没push上线,14:55/15:05两次失败,线上滞留14:45
+- 用户15:11反馈"数据角标停留14:44"才发现,延迟16min
+- 修复:L242 sed单引号改双引号 sed "s/^FAILED_FILES: //" + bash -n验证 + 补跑force恢复collected_at 15:19:43
+- 教训:①验收agent改shell脚本须跑bash -n验证(主控复验),不能只验改动内容;②单引号不能嵌在bash -c '...'单引号块内(改双引号)
+
+**【监控漏洞补(cron 5eed36c3)】**
+
+- 15:07 cron监控4盲区:①exit=0不可信(子bash-c失败外层exit0 schedule_stats记exit=0)②时效阈值30min盘中太松(15:07 lag22min<30min没报)④b扫不到(回归致notify.py没执行告警没发)④a没扫shell语法错误(只扫SIGTRAP/libmini_racer/Traceback)
+- 补法cron 5eed36c3:①注明exit=0不可信须结合②时效确认+②盘中(09:30-15:30)lag>15min阈值查intraday_snapshot时效(非盘中30min)+④a加语法错误扫描(unexpected EOF/syntax error/line[N]+:)+⑥②盘中lag>15min或④a语法错误立即派agent不等反馈
+- memory monitor-blindspot-exit0-syntax-error落档
