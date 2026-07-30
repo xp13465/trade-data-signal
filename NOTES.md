@@ -5091,3 +5091,15 @@ if (!isClosed) {
 - **验收**（主控逐字 grep 7 点全过）：_tradeSimSharpeColor L11396 + _tradeSimSharpeSuffix L11406 / modal sim-card L11767 用分级函数 + title/sub / chip L967 + tooltip L1014 分级符号注释 / sw.js L16 CACHE_VERSION=v2-20260730-a76 / commit 408a4c51 在 origin/main / app.min.js 414882B / **线上 app.min.js?v=f90ba5da 已上线**（ss.fx8.store）
 - **闭环**：AZ49 残留"过拟合度分级颜色未做"完成。sharpe 从两档（红/默认）升级四档（红/橙/默认/灰）+ 符号（⚠/~），trade_sim chip 概览场景一眼区分过拟合度，与 lab 详查场景分工（lab 看数值，trade_sim 看分级）
 - **关联**：AZ49 残留闭环 + commit `82e09ef7`/`62e7d19e` sharpe>3 红线前置 + Bailey 2014 夏普>3 可疑过拟合标准（NOTES L692）
+
+### AZ82 前端盘中切换 bug 修复（SW fetch 加 no-store + overview 改 NetworkFirst + 9:15 时点 + banner 4态，2026-07-30 盘中）
+- **背景**：用户反馈盘中页面卡 7-29"待盘后更新"，线上 intraday_snapshot=7-30 09:35 is_closed=False 盘中实时小结（后端正常），但前端所有界面拿 7-29 旧数据 + 角标统一"待盘后更新"。通知轮询（30s NetworkFirst+cache-busting）能拉新弹通知，唯 intraday/overview 轮询拉旧。主动刷新正常，自动轮询失败
+- **根因**（agent `ad05b3d8` 调研 5 点 + 追加 4 点 bug 线索）：①SW `fetch(req)` 无 `cache:'no-store'`，命中浏览器 HTTP 缓存/CF 边缘缓存拉旧 7-29（memory `cf-workers-static-assets-ignore-cache-control`：CF Workers 无视 no-store）②overview.json 走 SWR 总先返缓存（即使旧）致卡片"待盘后更新 7-29"（app.js L4251 label）③`_marketOpenCheck` 3min 轮询延迟 ④`_INTRADAY_SNAPSHOT_TIMES` 无 9:15（9:25 起）⑤banner 不区分竞价完成/盘中两态
+- **实施**（commit `80cdcc2e`，sw.js + app.js，agent `ab18ab91`）：
+  - **P0 核心 bug**：①sw.js 5 处 `fetch(req)` 全加 `{cache:'no-store'}`（L91 NetworkFirst + L118/126/143/163 SWR/cacheFirst，全文 0 裸 fetch）②sw.js L91 overview.json 从 SWR 改 NetworkFirst（intraday/notifications/overview 三者同策略确保最新）③bump sw CACHE_VERSION a76->a77
+  - **P1 切换延迟**：④`_startMarketOpenCheck` setInterval(3min) -> 递归 setTimeout，9:10-9:35 盘前竞价 60s / 其他 3min ⑤`_INTRADAY_SNAPSHOT_TIMES` 加 `9*60+15`（9:15 关键时点，9:13-9:17 切 1min 高频）⑥`updateMarketStatusBanner` 4态分支（集合竞价/竞价完成/午休/盘中预估）⑦`getCardTimeBadge` 同步 4态
+  - build_min.py（app.min.js 415594B）+ bump_asset_version（index.html app.min.js?v=160e60d5）
+- **验收**（主控逐字 grep 7 点全过）：sw.js 0 裸 fetch + 5 带 no-store / overview 进 NetworkFirst / CACHE_VERSION=a77 / app.js 9*60+15 / banner 4态 / commit 80cdcc2e 在 origin/main / **线上 sw.js a77 + app.min.js?v=160e60d5 已上线**
+- **P2 评估**（agent `a909b026` 只读，不改）：后端提前到 9:15 **不建议**。铁证：腾讯源 qt.gtimg.cn 9:25 才返开盘价（commit `cc991142` 作者实测 + intraday_snapshot.py L706-709 注释），9:15-9:25 申报段价格不真实（昨收/参考价可撤单波动）。9:15 设 is_closed=False 会污染 index_daily（`_backfill_index_daily` L796 不校验 price==pre_close 昨收当当日 close）+ heatmap（`maybe_override_heatmap` L1706 不完整快照覆盖 DB）。三方案：A 维持 9:25 现状（推荐零改动）/ B 9:20 降级显示 10项改动+需实测 / C 前端盘前提示横幅（零后端风险）。用户待定 A/C
+- **激活**：用户需刷新页面激活新 SW（a77，skipWaiting 自动接管但旧页面旧 SW 需刷新换新），之后自动轮询拉 7-30 新数据不再卡 7-29
+- **关联**：memory `cf-workers-static-assets-ignore-cache-control`（CF Workers 无视 no-store 是 SW fetch 加 no-store 的根因背景）+ `bump-sw-version-with-appjs`（改 app.js 必 bump sw）+ AZ49 残留
