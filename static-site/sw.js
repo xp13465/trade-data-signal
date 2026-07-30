@@ -13,7 +13,7 @@
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260730-a76';
+const CACHE_VERSION = 'v2-20260730-a77';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -82,12 +82,15 @@ self.addEventListener('fetch', (event) => {
   //    直接走浏览器默认网络栈,不缓存
   if (url.origin !== self.location.origin) return;
 
-  // 3) intraday_snapshot.json + notifications.json: NetworkFirst (盘中实时性优先,离线回退缓存)
+  // 3) intraday_snapshot.json + notifications.json + overview.json: NetworkFirst (盘中实时性优先,离线回退缓存)
   //    notifications.json 走 NetworkFirst（根因③修复）：原走 SWR 3min 缓存致前端读旧 notifications.json，
   //    真实信号触发后即使后端更新了前端也拿旧缓存不弹通知。改 NetworkFirst 每次走网络拿最新。
-  if (url.pathname.endsWith('/intraday_snapshot.json') || url.pathname.endsWith('/notifications.json')) {
+  //    overview.json 走 NetworkFirst（根因②修复）：原走 SWR 总先返旧缓存, 致盘中卡片等盘后才更新。
+  //    改 NetworkFirst 确保每次拉最新 overview(卡片时间角标/collect_health 即时反映后端最新采集)。
+  //    fetch 加 cache:'no-store'（根因①修复）：避免命中浏览器 HTTP/CF 缓存拉旧数据。
+  if (url.pathname.endsWith('/intraday_snapshot.json') || url.pathname.endsWith('/notifications.json') || url.pathname.endsWith('/overview.json')) {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-store' })
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
@@ -115,7 +118,7 @@ self.addEventListener('fetch', (event) => {
 
   // 其他同源 GET 请求: 默认走网络,失败回退缓存(兜底)
   event.respondWith(
-    fetch(req).catch(() => caches.match(req).then((cached) => cached || Response.error()))
+    fetch(req, { cache: 'no-store' }).catch(() => caches.match(req).then((cached) => cached || Response.error()))
   );
 });
 
@@ -123,7 +126,7 @@ self.addEventListener('fetch', (event) => {
 function cacheFirst(req) {
   return caches.match(req).then((cached) => {
     if (cached) return cached;
-    return fetch(req).then((res) => {
+    return fetch(req, { cache: 'no-store' }).then((res) => {
       if (res && res.status === 200) {
         const copy = res.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
@@ -140,7 +143,7 @@ function staleWhileRevalidate(req, maxAgeMs) {
     cache.match(req).then((cached) => {
       // 无缓存: 必须等网络
       if (!cached) {
-        return fetch(req).then((res) => {
+        return fetch(req, { cache: 'no-store' }).then((res) => {
           if (res && res.status === 200) {
             const copy = res.clone();
             cache.put(req, copy).catch(() => {});
@@ -160,7 +163,7 @@ function staleWhileRevalidate(req, maxAgeMs) {
 
       // 缓存年龄 >= maxAgeMs 或无 date 头: 返回缓存同时后台拉新版更新(SWR)
       // 后台异步拉新版更新缓存(不阻塞返回)
-      fetch(req)
+      fetch(req, { cache: 'no-store' })
         .then((res) => {
           if (res && res.status === 200) {
             const copy = res.clone();

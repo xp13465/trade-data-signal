@@ -4122,12 +4122,21 @@ function updateMarketStatusBanner(snap) {
     return;
   }
   el.style.display = "";
-  const _lunch = snap && snap.label && /午休/.test(snap.label);
+  // 4态区分(对齐后端 is_market_closed label): 集合竞价/竞价完成/午休/盘中实时小结
+  const _label = (snap && snap.label) || "";
   const txt = el.querySelector(".msb-text");
   if (txt) {
-    txt.textContent = _lunch
-      ? "📊 午休时段 · 13:00复牌后恢复实时 · 收盘后17:50同步最终"
-      : "📊 盘中预估中 · 数据实时更新 · 收盘后17:50同步最终";
+    let _t;
+    if (/集合竞价/.test(_label)) {
+      _t = "📊 集合竞价中 · 9:25竞价完成·9:30开盘 · 开盘价待定";
+    } else if (/竞价完成/.test(_label)) {
+      _t = "📊 竞价完成 · 待9:30开盘 · 开盘价已定";
+    } else if (/午休/.test(_label)) {
+      _t = "📊 午休时段 · 13:00复牌后恢复实时 · 收盘后17:50同步最终";
+    } else {
+      _t = "📊 盘中预估中 · 数据实时更新 · 收盘后17:50同步最终";
+    }
+    txt.textContent = _t;
   }
 }
 
@@ -4206,6 +4215,12 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
       const _mm = _useDyn ? _intradayDynamicTime.slice(3, 5) : shIdx.datetime.slice(10, 12);
       if (snap.label && /午休/.test(snap.label)) {
         return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复T+0实时">⏰ 午休·${_hh}:${_mm}</span>`;
+      }
+      if (snap.label && /集合竞价/.test(snap.label)) {
+        return `<span class="card-time-badge intraday" data-tip="集合竞价(9:15-9:25),9:25确定开盘价">⏰ 竞价·${_hh}:${_mm}</span>`;
+      }
+      if (snap.label && /竞价完成/.test(snap.label)) {
+        return `<span class="card-time-badge intraday" data-tip="竞价完成(9:25-9:30),开盘价已定,9:30连续竞价开盘">⏰ 竞价完成·${_hh}:${_mm}</span>`;
       }
       return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${_hh}:${_mm}</span>`;
     }
@@ -5273,6 +5288,7 @@ const OVERVIEW_PERIOD_MAX_MS = 30 * 60 * 1000;      // 周期异常上限: >30mi
 // overview低频兜底从3min缩短到1min, 让盘中关键时点(每次快照推完)后<1min即拉到新数据.
 // 非关键时点保持3min低频(兜底铁律: delay<=3min, 关键时点更短).
 const _INTRADAY_SNAPSHOT_TIMES = [
+  9*60+15,
   9*60+25, 9*60+35, 9*60+45, 9*60+55,
   10*60+5, 10*60+15, 10*60+25, 10*60+35, 10*60+45, 10*60+55,
   11*60+5, 11*60+15, 11*60+25,
@@ -5531,21 +5547,34 @@ function _updateRefreshDebug() {
 }
 
 const MARKET_OPEN_CHECK_MS = 3 * 60 * 1000;          // 收盘态每3min检测一次市场是否开盘
+const MARKET_OPEN_CHECK_PREOPEN_MS = 60 * 1000;       // 盘前竞价时段(9:10-9:35)60s检测(原3min延迟追不上9:25竞价完成/9:30开盘切换)
 
-// 收盘态周期检测市场是否开盘: 每3min重新fetch intraday_snapshot, 若is_closed===false则
+// 收盘态周期检测市场是否开盘: 重新fetch intraday_snapshot, 若is_closed===false则
 // fetchIntradaySnapshot内回调自动触发_startOverviewRefresh(启动轮询+debug状态条).
 // 解决: 盘前打开页面(is_closed=true) -> 轮询不启动 -> debug状态条不出现 -> 开盘后无机制自动启动.
-// 幂等: 已有timer则跳过; 盘中_overviewRefreshActive=true时no-op不发请求.
+// 递归setTimeout(非setInterval): 9:10-9:35盘前竞价时段60s检测, 其他时段3min.
+// 幂等: 已有timer则跳过; 盘中_overviewRefreshActive=true时跳过请求但仍重排下次(保留检测收盘后重新开盘能力).
+// 清理: 无_stopMarketOpenCheck(timer生命周期=页面全程); 若需停 clearTimeout(_marketOpenCheckTimer).
 function _startMarketOpenCheck() {
   if (_marketOpenCheckTimer) return; // 幂等防重复
-  _marketOpenCheckTimer = setInterval(async () => {
-    if (_overviewRefreshActive) return; // 盘中轮询已启动, 无需检测
-    _intradaySnapPromise = null; // 清单例强制重新fetch
-    try { await fetchIntradaySnapshot(); } catch (e) {}
-    // fetchIntradaySnapshot 回调内: if(!_overviewRefreshActive && snap.is_closed===false) _startOverviewRefresh()
-    // 开盘则自动启动轮询+debug状态条, 无需此处手动调
-    _updateRefreshDebug(); // 刷新debug状态条(显示最新状态)
-  }, MARKET_OPEN_CHECK_MS);
+  const _preOpenDelay = () => {
+    const m = _bjTimeMin();
+    return (m >= 9*60+10 && m <= 9*60+35) ? MARKET_OPEN_CHECK_PREOPEN_MS : MARKET_OPEN_CHECK_MS;
+  };
+  const tick = async () => {
+    _marketOpenCheckTimer = null; // 当前timer已触发, 清标记允许重排
+    if (!_overviewRefreshActive) {
+      // 盘中轮询未启动(收盘态/盘前)才检测: fetch看是否开盘
+      _intradaySnapPromise = null; // 清单例强制重新fetch
+      try { await fetchIntradaySnapshot(); } catch (e) {}
+      // fetchIntradaySnapshot 回调内: if(!_overviewRefreshActive && snap.is_closed===false) _startOverviewRefresh()
+      // 开盘则自动启动轮询+debug状态条, 无需此处手动调
+      _updateRefreshDebug(); // 刷新debug状态条(显示最新状态)
+    }
+    // 递归调度下一次(盘中也重排: 保留检测收盘后重新开盘的能力)
+    _marketOpenCheckTimer = setTimeout(tick, _preOpenDelay());
+  };
+  _marketOpenCheckTimer = setTimeout(tick, _preOpenDelay());
 }
 
 // 页面加载后初始化自动刷新: 等snap就绪判断盘中后启动overview轮询
