@@ -2614,8 +2614,8 @@ main { padding: 16px 24px; }
   .summary-top { flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 10px; }
   .summary-title { flex: 0 1 auto; min-width: 0; }
   .summary-title-text { font-size: 14px; font-weight: 600; }
-  .summary-meta { flex-wrap: nowrap; flex-shrink: 0; }   /* 状态行内部不换行,作为整体靠右(space-between推到右端) */
-  .summary-title-tags { flex: 0 0 100%; margin-top: 2px; }   /* 情绪标签独占第二行(相对 summary-top 100%宽度,日期+tags不再嵌套同一title容器) */
+  .summary-meta { flex-wrap: nowrap; flex-shrink: 0; order: 1; }   /* order:1 排在 title(0) 之后 titleTags(2) 之前 */
+  .summary-title-tags { flex: 0 0 100%; margin-top: 2px; order: 2; }   /* order:2 排到 meta 之后,避免 DOM 顺序 title->titleTags->meta 时 titleTags 100% 把 meta 挤到行3;视觉顺序 title->meta->titleTags,行1 title+meta 同行,行2 titleTags 独占 */
   .summary-time-label { display: none; }
 
   /* 弹窗近全宽 */
