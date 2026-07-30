@@ -5116,3 +5116,14 @@ if (!isClosed) {
 - **验收**（主控逐字 grep 5 点全过）：_isAuctionCall 分支条件+5态文案 / sw.js a78 / commit ce55b2c1 在 origin/main / **线上 a78（sss.sugas.site 备站已更新；ss.fx8.store CF Workers deploy 延迟中 push 才2分钟，§8 3域名任一上线即 OK）** / 后端 intraday_snapshot.py 未改（git log 无改动，A 维持现状）
 - **闭环**：AZ82 P2 决策闭环（A+C 选定）。9:15-9:25 盘前不再显示"收盘"误导，显示"集合竞价申报中"提示用户 9:25 后见开盘价。9:25 后端切 is_closed=false 走原4态逻辑
 - **关联**：AZ82 P2 评估（腾讯源 9:25 才返开盘价铁证 cc991142）+ commit `80cdcc2e` AZ82 P1 修复7 的"集合竞价"分支（基于后端 label，未来后端加 9:15 态时触发，与 C 前端时间分支共存）
+
+### AZ84 北向资金提示文案修正（已切 HKEX 成交总额源，原"冻结 2024-08-16"事实错误，2026-07-30 盘中）
+- **背景**：用户反馈首页提示"北向资金数据源自 2024 年 8 月起停更...冻结在 2024-08-16，1 年期窗口内为空属正常"过时不好。北向已有替代源
+- **调研**（agent `a208d135` 只读）：提示在 `app.js:8471` groupHints"资金面"键硬编码 + 6 处其他文案/注释。后端 `app/collector/direct.py:218` `fetch_north_fund_hkex` 已切 HKEX 官方源（`hkex.com.hk/eng/csm/DailyStat/data_tab_daily_{date}e.js`，取沪深股通 Total Turnover 合计 = 成交总额买+卖）。DB `daily_metric` a_fund_north 连续更新到 20260729（2721 行 20141117~20260729），**原提示"冻结 2024-08-16"是事实错误**。config `indicators.yaml:35` "北向资金成交总额(HKEX官方源)"。净买额 2024-08 港交所新规停更是历史事实，但 a_fund_north 语义已变为成交总额（反映外资交投活跃度非净流入）
+- **实施**（commit `4887b0ec`，agent `af7bdf01`）：改文案不删除（保留净买额停更历史 + 说明已切成交总额源）
+  - **P0 用户可见 7 处**：app.js:8471 groupHints 资金面 / app.js:6709 KPI 卡说明 / app.js:8804 复合权重 / app.js:4505 角标 hint / index.html:70 / about.html:168+547。统一改"原净买额 2024-08 港交所新规停更，现改用 HKEX 官方成交总额（沪股通+深股通买+卖合计）替代，反映外资交投活跃度，每日收盘后更新"
+  - **P1 代码注释 3 处**：queries.py:40+316（删"北向停更后仍能取到 20240816"事实错误）+ app.js:1783/4497/6570/6578 四处注释按新口径
+  - build_min（app.min.js 415999B）+ bump_asset_version（index.html app.min.js?v=3cc840e4）+ bump sw.js CACHE_VERSION a78->a79
+- **验收**（主控逐字 grep 4 点全过）：app.js:8471 含 HKEX 成交总额 + 净买额停更 / sw.js a79 / commit 4887b0ec 在 origin/main + 后端 direct.py 未改（diff 只前端+queries.py 6 文件）/ **线上 a79（sss.sugas.site）+ app.min.js?v=3cc840e4**
+- **闭环**：北向提示事实错误修正。用户看到"成交总额 HKEX 源每日更新"而非"冻结 2024-08-16"，理解 a_fund_north 语义（交投活跃度非净流入）。盘中前端只 push main 不跑 deploy.sh（§8）
+- **关联**：config `indicators.yaml:35` C3 升级 HKEX 源（主源 HKEX csm/DailyStat + fallback 东财 datacenter RPT_MUTUAL_DEAL_HISTORY + kamt/get）+ memory `daily-metric-date-format`（date 字段 YYYYMMDD 无连字符，查 20260729 非 2026-07-29）
