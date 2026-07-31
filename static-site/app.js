@@ -5397,6 +5397,9 @@ let _marketOpenCheckTimer = null;   // 收盘态周期检测开盘定时器(盘�
 let _marketOpenCheckActive = false; // _startMarketOpenCheck 是否已启动(页面全程true, 供visibilitychange监听判活)
 let _marketOpenCheckNextFireAt = 0; // 下次开盘检测timer fire的预估时刻(ms), 用于debug bar盘前显示倒计时
 let _checkMarketOpenNow = null;     // 暴露_startMarketOpenCheck内tick, 供_onOverviewVisChange切回前台立即补偿调用
+let _preOpenPrecisionTimer925 = null; // 9:25竞价完成精确触发定时器(到点立即tick, 消除15s tick周期延迟)
+let _preOpenPrecisionTimer930 = null; // 9:30开盘精确触发定时器(到点立即tick, 消除15s tick周期延迟)
+let _preOpenPrecisionNextAt = 0;      // 下次精确触发预估时刻(ms), debug bar盘前显示精确触发时点/倒计时
 
 // 解析 overview.json 的 collected_at("20260727 13:05:05") 为 ms 时间戳; 兜底尝试 ISO 等标准格式
 function _parseCollectAt(s) {
@@ -5632,10 +5635,15 @@ function _updateRefreshDebug() {
   if (_overviewHighFreqStart) {
     predict = ' 预测:' + _fmtHM(_overviewHighFreqStart + OVERVIEW_PREDICT_LEAD_MS);
   }
+  // 精确触发时点(9:25竞价完成/9:30开盘, 盘前显示, 让用户看到精确触发倒计时)
+  let precision = '';
+  if (_preOpenPrecisionNextAt > now) {
+    precision = ' ⏰精确:' + _fmtHM(_preOpenPrecisionNextAt);
+  }
   _refreshDebugEl.textContent =
     '下次:' + countdown + ' | ' + status +
     ' | 后端:' + backend +
-    ' | 样本:' + samples + predict;
+    ' | 样本:' + samples + predict + precision;
 }
 
 const MARKET_OPEN_CHECK_MS = 3 * 60 * 1000;          // 收盘态每3min检测一次市场是否开盘
@@ -5652,7 +5660,7 @@ function _startMarketOpenCheck() {
   if (_marketOpenCheckTimer) return; // 幂等防重复
   const _preOpenDelay = () => {
     const m = _bjTimeMin();
-    return (m >= 9*60+10 && m <= 9*60+35) ? MARKET_OPEN_CHECK_PREOPEN_MS : MARKET_OPEN_CHECK_MS;
+    return ((m >= 9*60+10 && m <= 9*60+35) || (m >= 13*60 && m <= 13*60+10)) ? MARKET_OPEN_CHECK_PREOPEN_MS : MARKET_OPEN_CHECK_MS;
   };
   const tick = async () => {
     _marketOpenCheckTimer = null; // 当前timer已触发, 清标记允许重排
@@ -5681,6 +5689,42 @@ function _startMarketOpenCheck() {
   const initDelay = _preOpenDelay();
   _marketOpenCheckNextFireAt = Date.now() + initDelay;
   _marketOpenCheckTimer = setTimeout(tick, initDelay);
+  _schedulePreOpenPrecisionTriggers(); // 9:25/9:30精确触发(零延迟, 消除15s tick周期间隙)
+}
+
+// 9:25竞价完成/9:30开盘精确触发: 到点立即tick检测, 消除15s tick周期延迟.
+// 解决: 9:25竞价完成/9:30开盘时点若恰在两个15s tick之间, 最坏需等15s才检测到切换.
+// 时区: 与_bjTimeMin同口径 UTC+8; 算今日北京时间9:25/9:30对应的UTC ms(Date.UTC北京日+1:25/1:30).
+// 幂等: 先clear旧timer再设新timer; 若当前已过9:30(盘后启动)则不设(判断now<时点).
+// 清理: timer生命周期=页面全程(同_marketOpenCheckTimer, 无_stopMarketOpenCheck); 本函数内先clear防重排泄漏.
+// 复用_checkMarketOpenNow(=_startMarketOpenCheck内tick): 到点tick立即fetchIntradaySnapshot检测, tick内自动重排下次15s tick.
+function _schedulePreOpenPrecisionTriggers() {
+  if (_preOpenPrecisionTimer925) { clearTimeout(_preOpenPrecisionTimer925); _preOpenPrecisionTimer925 = null; }
+  if (_preOpenPrecisionTimer930) { clearTimeout(_preOpenPrecisionTimer930); _preOpenPrecisionTimer930 = null; }
+  _preOpenPrecisionNextAt = 0;
+  const now = Date.now();
+  // 北京时间Date对象(shift +8h, 取UTC年月日=北京日), 与_bjDayOfWeek同口径
+  const d = new Date(now + 8 * 3600000);
+  const y = d.getUTCFullYear(), mo = d.getUTCMonth(), da = d.getUTCDate();
+  // 北京9:25/9:30 = UTC 1:25/1:30(同日, 北京UTC+8)
+  const t925UtcMs = Date.UTC(y, mo, da, 1, 25, 0);
+  const t930UtcMs = Date.UTC(y, mo, da, 1, 30, 0);
+  let nextAt = 0;
+  if (now < t925UtcMs) {
+    _preOpenPrecisionTimer925 = setTimeout(() => {
+      _preOpenPrecisionTimer925 = null;
+      if (typeof _checkMarketOpenNow === 'function') _checkMarketOpenNow();
+    }, t925UtcMs - now);
+    nextAt = t925UtcMs;
+  }
+  if (now < t930UtcMs) {
+    _preOpenPrecisionTimer930 = setTimeout(() => {
+      _preOpenPrecisionTimer930 = null;
+      if (typeof _checkMarketOpenNow === 'function') _checkMarketOpenNow();
+    }, t930UtcMs - now);
+    nextAt = t930UtcMs; // 9:30晚于9:25, 取较晚的作为"下次精确触发"时点
+  }
+  _preOpenPrecisionNextAt = nextAt;
 }
 
 // 页面加载后初始化自动刷新: 等snap就绪判断盘中后启动overview轮询
