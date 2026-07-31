@@ -4327,7 +4327,14 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
   if (intraday) {
     // 盘中: t0源应实时(snapDate=今日), dataDate<今日=该数据停更早
     if (ptd && dataDate === ptd) {
-      // dataDate=前一交易日(ptd)=该数据实为T+1性质(盘后采集),盘中显示前一交易日属正常等待
+      // 9:15-9:30 竞价空窗期(炸板率/封板率等盘中实时指标此时东财池为空,date 停昨日):
+      //   非T+1,9:30 开盘后 intraday-snapshot 10min 周期即补当日值,不等盘后17:50
+      //   与 L4285-4290 竞价 badge 口径对齐(复用 snap.label)
+      if (snap && snap.label && /竞价完成|集合竞价/.test(snap.label)) {
+        const ttl = `竞价完成时段数据停昨日(${mmdd}),9:30 开盘后 intraday-snapshot 10min 周期采集更新(非等盘后17:50)`;
+        return `<span class="card-time-badge intraday" data-tip="${ttl}">⏰ 待开盘·${mmdd}</span>`;
+      }
+      // 9:30 后罕见 dataDate 仍 ptd(如采集失败): 保留原 T+1 待盘后更新口径
       const ttl = `T+1性质数据盘中显示前一交易日(${mmdd})属正常，盘后17:50 update_all采集后补全`;
       return `<span class="card-time-badge t1-pending" data-tip="${ttl}">⏳ 待盘后更新·${mmdd}</span>`;
     }
