@@ -5504,3 +5504,73 @@ if (!isClosed) {
 **⑤工时估算：~4 天**（后端采集+指标 2 天 / 前端 tab+角标 1.7 天 / 信号灯接入 0.3 天），较原 ~3.5 天 +0.5 天（全量采集脚本 + 断点续采复杂度）
 
 **⑥反爬可行性调研**：详见 `/tmp/agent-progress-fund-research.md`（本机 curl 测 fundf10 子页响应+akshare 限流测试+断点续采方案+延时 retry 策略+全量耗时实测推算+降级路径）。
+
+### AZ91 2026-07-31 续：3项前端 UI 闭环（P1+P2 全球指数角标配套 / IA 重构 sentiment 二级 subtab / grid min-width 650）
+
+**【今日续3项闭环（AZ88 deploy=128事故修复 + AZ89/AZ90 纯调研落档 + 本节3项 UI 实施）】**
+
+AZ89 全球指数时效调研落档后，用户定 P1+P2 一起实施（P1 全球5指数实时 + P2 港股板块8+亚洲其他2）。本节落档今日 3 项前端 UI 实施闭环，全部 3 域名上线。所有改动均不涉及根目录 `data/`（只改 `static-site/` 下 app.js/style.css/index.html/sw.js）。
+
+#### 一、P1+P2 全球指数前端角标配套（commit `1e9d5d43`，后端 `bccef338`，sw ui11->ui12）
+
+**背景**：AZ89 调研结论 P1+P2 一起实施。后端 `bccef338` 在 `intraday_snapshot.py` 加 `_fetch_global_realtime_sina()` 函数 + `_GLOBAL_SPOT_CODES` 清单（15 指数：nikkei225/kospi/ftse100/dax/cac40/asx200/sensex/cesg10/hsmogi/hsmbi/hsmpi/hscci/cshklre/cshklc/cshkdiv），改用新浪 `hq.sinajs.cn` b_/rt_ 前缀批量采（akshare `index_global_spot_em` 走东财 push2.eastmoney.com 本机连接被拒 RemoteDisconnected，与 CLAUDE.md「东财2源被封弃用」一致），写入 `snap['global_realtime']` 字段。失败不阻断快照核心（A股/港股宽基/行业），收盘 pipeline 仍走 `index_global_hist_sina` 补 OHLC。本地测试 15/15 指数成功，datetime 统一 YYYYMMDDHHMMSS。
+
+**前端配套**（`1e9d5d43`）：
+- 新增 `addGlobalRealtimeBadge(cardEl, indexId, snap)`：全球 tab 指数卡片右上角第二行加实时报价角标，读 `intraday_snapshot.global_realtime.<id>` 展示 price + chg_pct% + time
+- 新增 `refreshGlobalRealtimeBadges(snap)`：overview 轮询后重绘角标（同 `refreshCardTimeBadges` 模式）
+- `renderGlobal` @ L9159 调用 `addGlobalRealtimeBadge`
+- 两处 `refreshCardTimeBadges` 调用点（L5532/L5724）后追加 `refreshGlobalRealtimeBadges`
+
+**角标样式**（`.card-realtime-badge` @ style.css L388-420）：
+- 右上 `top:30px right:8px` 避开 `.card-time-badge`（右上 `top:6px`）
+- 涨红 `#e6492e` / 跌绿 `#2e8b57` / 平橙 `#ff9800`（A 股配色，与 `card-time-badge.intraday/closed` 一致）
+- 移动端 `top:26px right:6px font-size:10px`
+
+**数据缺失兜底**：`global_realtime` 无该 indexId 或 snap 未就绪 -> 不渲染角标（卡片照常显示）。
+
+**欧洲指数时点**：ftse100/dax/cac40 A 股盘中可能未开盘（数据为盘前/昨收），不做特殊过滤，角标 time 字段可让用户自行判断（任务约束：或简单展示数据不过滤）。
+
+**上线验证**：3 域名（ss.fx8.store CF 主站 / sss.sugas.site GH Pages / s.sugas.site MaoziYun）ui12 上线。
+
+#### 二、IA 重构：sentiment 加二级 subtab（commit `8f7d124d`，sw ui12->ui13）
+
+**背景**：market tab 原含 4 个 subtab（a-stock/hk/global/futures/national-team），futures 与 national-team 实为情绪维度非行情维度，归类混乱。重构将市场行情与情绪维度分离。
+
+**改动要点**：
+- **market 瘦身**：`_MARKET_SUBTABS=["a-stock","hk","global"]`（移除 futures/national-team 2 项 subtab）
+- **sentiment 加二级 subtab 机制**：`_SENTIMENT_SUBTABS=["market-temp","futures","national-team"]`（仿 market subtab-bar 渲染模式）
+- **renderSentiment 改分发器**：原主体抽取为 `renderSentimentMarketTemp(container)`（默认 market-temp = 原 sentiment 内容移除末尾期货 section）
+- **renderFutures/renderNationalTeam 移 sentiment 二级**：futures 归 `sentiment/futures` subtab，national-team 归 `sentiment/national-team` subtab
+- **hash 路由**：加 `sentiment/{subtab}` 分支，F5 恢复二级 tab
+- **tab 切换校验**：切换时校验 `state.subtab` 合法性（market/sentiment 共享 subtab 状态）
+- **overview 汪汪队右列卡片保留**：overview 页汪汪队右列卡片不动（仅 tab 内归类调整，overview 整体布局不变）
+
+**公募基金持仓 tab**：明日（2026-08-01 白天）加（见 TASKS 会话状态小节明日计划）。
+
+**上线验证**：3 域名 ui13 上线。
+
+#### 三、grid min-width 600->650（commit `dce3eae8`，sw ui13->ui14）
+
+**背景**：indices-grid / industry-grid `minmax(600px,1fr)` 在 1280px 视口下 2 列布局稍挤，提至 650px 改善间距。
+
+**改动要点**：
+- `.indices-grid` / `.industry-grid` `minmax(600px,1fr)` -> `minmax(650px,1fr)`（只改这 2 处）
+- `.astock-top-grid` 700px 保持不变（astock 卡片信息密度更高需更宽）
+- 顺带修 industry 注释 `minmax700px` -> `650px`（indices 上方注释 700 指 astock 保留）
+- `bump style.min.css ?v=`（index/about/privacy html）
+- `bump sw.js CACHE_VERSION ui13->ui14`
+
+**上线验证**：3 域名 ui14 上线。
+
+#### 四、sw.js CACHE_VERSION 连升链
+
+ui11（前置）-> ui12（P1+P2 前端角标 `1e9d5d43`）-> ui13（IA 重构 `8f7d124d`）-> ui14（grid min-width `dce3eae8`）。用户需清 SW 拿最新 ui14。
+
+#### 五、约束遵循
+
+- **不改根目录 `data/`**：3 项均只改 `static-site/` 下文件（app.js/app.min.js/style.css/style.min.css/index.html/about.html/privacy.html/sw.js）
+- **盘中不跑全量 export+deploy**：3 项均 19:00 后收盘后实施（19:08 后端 / 19:12 前端角标 / 19:52 IA 重构 / 19:59 grid min-width），避开 09:30-15:30 盘中窗口
+- **memory `bump-sw-version-with-appjs`**：改 app.js 必 bump sw.js CACHE_VERSION，3 项均执行（ui12/ui13/ui14）
+- **memory `default-theme-redgold`**：角标配色用 A 股红涨绿跌（`#e6492e`/`#2e8b57`）跟随 redgold 默认皮肤
+
+**关联**：AZ89 调研报告（指数清单/数据源/时点/韩日时效分析/实时源优劣对比）+ memory `cf-workers-static-assets-ignore-cache-control`（CF Workers 无视 no-store 靠部署自动 purge，3 域名 push main 触发 deploy）+ memory `bump-sw-version-with-appjs`（改 app.js 必 bump sw）+ memory `default-theme-redgold`（A 股红涨绿跌配色）+ AZ86 全站 A 股配色统一（`cb8b0515`，角标配色与之一致）。
