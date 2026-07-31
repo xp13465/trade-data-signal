@@ -1208,6 +1208,7 @@ const _INDEX_NAME_MAP = {
   sentiment_csi500: '中证500情绪分', sentiment_csi1000: '中证1000情绪分',
   sentiment_cyb: '创业板情绪分', sentiment_kc50: '科创50情绪分',
   fear_greed: '恐贪指数',
+  high_alert: '高位预警',
   low_alert: '低位机会',
   // 申万行业（31个）
   sw_801010: '农林牧渔', sw_801030: '基础化工', sw_801040: '钢铁', sw_801050: '有色金属',
