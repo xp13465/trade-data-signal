@@ -5210,3 +5210,128 @@ if (!isClosed) {
 6. **未尽事项**：`notifications.json.gz` 未推 git（intraday-snapshot 定时任务独立 push，待盘中推送）；`schedule_stats.json` 用 05:04 版（`push_schedule_stats.sh` 已独立推）。
 
 7. **教训固化**：监控 ① exit=0 不可信（子 bash -c 失败外层 exit0），须结合 deploy 退出码 / 线上时效确认；deploy.sh rebase stash pop 冲突必须自动解决数据文件（不能只 echo 留 unmerged）。
+
+### AZ89 2026-07-31 全球指数时效调研（盘中韩日/欧美实时性分析，纯调研落档待排期，不改码）
+
+**【背景】** 用户问首页"指数表现"全球模块盘中（如 7/31）韩国日本和 A 股同时区（亚洲），数据是否一定要实时更新？全球有哪些数据可以更及时/实时？本节纯调研落档，不改任何代码。
+
+#### 一、全球模块指数清单（前端 `static-site/app.js`）
+
+大盘 Tab 二级 Tab `["a-stock","hk","global","futures","national-team"]`（app.js L13522），"全球"子 Tab 走 `renderGlobal`（app.js L7684）读 `global-${range}.json` / `global-all.json`。
+
+| 中文显示名 | 代码 | 数据源 JSON | 前端时效标记 | 分类 |
+|---|---|---|---|---|
+| 道琼斯 | us_dji | global-all.json indices | t1（次日晨） | 美股 |
+| 纳斯达克 | us_ixic | global-all.json indices | t1 | 美股 |
+| 标普500 | us_spx | global-all.json indices | t1 | 美股 |
+| 纳斯达克100 | us_ndx | global-all.json indices | t1 | 美股 |
+| 日经225 | nikkei225 | global-all.json indices | t0（当日） | 亚洲 |
+| 首尔综合 | kospi | global-all.json indices | t0 | 亚洲 |
+| 富时100 | ftse100 | global-all.json indices | t0 | 欧洲 |
+| 德国DAX | dax | global-all.json indices | t0 | 欧洲 |
+| 法国CAC40 | cac40 | global-all.json indices | t0 | 欧洲 |
+
+注：恒生 hsi/恒生科技 hstech/国企 hscei 在独立"港股"子 Tab，不在"全球"Tab；但 `_SHAPE_US_EU`（app.js L11801）把 hsi/hstech/hscei + 9 全球归一组渲染。前端时效标记 app.js L9030 `id.startsWith("us_") ? "t1" : "t0"`，美股标 T+1、其他标 T0。
+
+#### 二、数据源 + 采集时点（后端 `app/collector/`）
+
+| 指数组 | 采集函数（akshare 封装） | 源类型 | launchd 时点 | 盘中实时？ |
+|---|---|---|---|---|
+| 港股 hsi/hstech/hscei（宽基3） | `stock_hk_index_daily_sina`（日K）+ 腾讯 `qt.gtimg.cn` 实时兜底（`_tencent_hk_fallback`） | 新浪日K + 腾讯实时 | intraday-snapshot 9:25-15:02 每10min + 15:35/20:35 + backfill-evening 16:35/21:00/02:00 | ✅ 是（腾讯实时） |
+| 港股板块8个（hk_cesg10/hsmogi/hsmbi/hsmpi/cshklre/cshklc/hscci/cshkdiv） | `stock_hk_index_daily_sina` + 腾讯/sina_spot 兜底 | 新浪日K + 腾讯/sina_spot 兜底 | backfill-evening 16:35/21:00/02:00 | ❌ 否（仅收盘后，无盘中） |
+| 美股4个（us_dji/ixic/spx/ndx） | `index_us_stock_sina`（日K，symbol .DJI/.IXIC/.INX/.NDX） | 新浪日K | us-stock-morning 05:00 + backfill-evening 16:35/21:00/02:00 | ❌ 否（T+1，次日晨05:00采昨日收盘） |
+| 全球5（nikkei225/kospi/ftse100/dax/cac40） | `index_global_hist_sina`（日K，中文 symbol） | 新浪日K | backfill-evening 16:35/21:00/02:00 | ❌ 否（仅收盘后，无盘中） |
+
+关键代码定位：
+- `app/collector/index_backfill.py` L398-428 `HK_GLOBAL_INDICES` 列表（港股3+板块8+美股4+全球5+国债3=23个），L438-507 校验补采循环，`require_today=False`（全球5/美股4/国债3）容忍 3 天滞后覆盖跨周末+源延迟
+- `app/collector/intraday_snapshot.py` L34-51 `INDEX_CODES` 盘中实时清单（9 A股 + 3 港股宽基 + 4 触发指数 cgb_idx/cgb_10y_etf/hk_hsmbi/hk_hsmogi + 1 新浪单独 hk_cshkdiv = 16个），**全球5/美股4不在盘中实时清单**
+- launchd 时点：`com.trade.intraday-snapshot`（9:25-15:02 每10min + 15:35/20:35）、`com.trade.backfill-evening`（16:35/21:00/02:00）、`com.trade.us-stock-morning`（05:00）、`com.trade.update-all`（17:50）
+
+#### 三、韩日时效分析
+
+- 韩 KOSPI 交易时间 09:00-15:30 KST（UTC+9），A股 09:30-15:30 CST（UTC+8），KST 比 CST 早 1 小时
+- 日本日经 09:00-15:00 JST（UTC+9），同 KST（有午休 11:30-12:30 但仍同时段）
+- A股盘中（如 11:00 CST），KOSPI/日经也在交易（10:00-14:00 KST/JST，完全同时段重叠）
+- **当前时效**：nikkei225/kospi 用 `index_global_hist_sina`（日K历史，非实时），只跑 backfill-evening 16:35/21:00/02:00
+- 16:35 时韩日已收盘（15:30/15:00 KST/JST = 14:30/14:00 CST），采到当日收盘价
+- 盘中（09:30-15:00 CST）用户看不到韩日实时涨跌，要等 16:35 后才出当日值
+- 滞后：盘中全程无实时，收盘后 16:35 才出当日（此时 A 股也快收盘/已收盘），21:00/02:00 兜底覆盖源延迟
+- 注释 L418「nikkei225: 7/20 日本海之日假期源无数据」说明源是 T+1 日K，非实时报价
+
+#### 四、实时数据源调研结论（WebFetch akshare 官方文档）
+
+1. **akshare `index_global_spot_em`（东方财富实时）⭐ 推荐**
+   - 覆盖：KS11 韩国KOSPI / N225 日经225 / FTSE 英国富时100 / GDAXI 德国DAX30 / FCHI 法国CAC40 **全覆盖**
+   - 字段：最新价、涨跌额、涨跌幅、开盘、最高、最低、昨收、振幅、最新行情时间
+   - 免费、无需 key、akshare 已封装（项目已用 akshare，实施成本极低，加 1 个函数调用即可）
+   - 额外含 UDI 美元指数、CRB 路透商品、BDI 波罗的海等实时数据
+   - 适合：盘中实时刷新全球5指数
+
+2. **akshare `index_global_hist_sina`（新浪日K，当前用的）**
+   - 日K历史，非实时
+   - 单次返最近 1000 条
+   - 适合：收盘后补完整 OHLC 历史序列（保持现状）
+
+3. **akshare `index_us_stock_sina`（新浪美股日K，当前用的）**
+   - 日K历史（.IXIC/.DJI/.INX/.NDX），非实时
+   - 美股 21:30 开盘（北京），只能次日晨 05:00 采 T-1 收盘
+   - 美股期货 ES/NQ 已有 `app/collector/us_futures.py` 用新浪 `hf_ES/hf_NQ` 实时源（预估当晚方向，app.js L8972 前端有展示），不替代美股收盘价
+
+4. **港股实时 `stock_hk_index_spot_sina/em`**（akshare 封装）
+   - 项目当前用腾讯 `qt.gtimg.cn` 实时源（r_hkHSI 等），已实时，无需换
+   - akshare 接口功能等价，备选
+
+5. **yahoo finance / investing.com / tradingeconomics**
+   - yahoo finance 有非官方 API（query1.finance.yahoo.com/v8/finance/chart/N225），免费但无官方保证，可能限频/封 IP，境外源不稳定
+   - investing.com / tradingeconomics 多需爬虫或付费 API
+   - **不推荐**：东财 `index_global_spot_em` 已够用，无需引入境外源
+
+#### 五、结论与建议（优先级）
+
+**当前时效汇总：**
+- 港股 hsi/hstech/hscei（宽基3）：盘中实时（腾讯）+ 收盘后 16:35 补完整 OHLC ✅
+- 港股板块8个：仅收盘后 16:35 采，无盘中 ❌（滞后半天）
+- 美股4个：T+1（次日晨 05:00 采昨日收盘），盘中无实时 ❌（但美股期货 ES/NQ 实时预估当晚方向）
+- 全球5（nikkei225/kospi/ftse100/dax/cac40）：仅收盘后 16:35/21:00/02:00 采，无盘中 ❌（滞后半天）
+
+**韩日同时区必要性：**
+- KOSPI/日经交易时段与 A 股高度重叠（09:00-15:30/15:00 KST/JST vs 09:30-15:30 CST）
+- 用户看"全球"模块主要是看全球情绪，韩日同时区有强参考价值（亚洲风险偏好联动）
+- 当前盘中看不到韩日实时涨跌，价值打折
+- **建议：P1 加盘中实时采集韩日（nikkei225/kospi）**
+
+**可优化方向 + 优先级：**
+
+- **P0**：无紧急项。全球5指数收盘后 16:35/21:00/02:00 兜底已覆盖，不漏数据；盘中实时是体验优化，非阻塞
+
+- **P1（推荐）：加盘中 intraday_snapshot 采全球5指数实时**
+  - 方案：`intraday_snapshot.py` `INDEX_CODES` 加 nikkei225/kospi/ftse100/dax/cac40，源用 akshare `index_global_spot_em`（单次返全部，无需逐个代码）
+  - 时点：复用现有 9:25-15:02 每10min（亚洲时段覆盖韩日开盘）+ 15:35/20:35（覆盖欧洲开盘）
+  - 注意：ftse100/dax/cac40 欧洲指数盘中（北京 15:00-23:00 才开盘），A 股盘中（09:30-15:00）欧洲未开盘，采到的是昨收；但 A 股收盘后（15:35/20:35）欧洲开盘了，可采欧洲实时
+  - 收盘 pipeline 仍用 `index_global_hist_sina` 补完整 OHLC（实时源只覆盖当日 latest，无历史序列）
+  - 反哺 `index_daily` 当日 close，盘中 signals.compute() 也能读全球5当日值（扩展 buy_special/sell 触发池，当前仅 A 股+港股+国债触发）
+
+- **P2（可选）：港股板块8个加盘中实时**
+  - 当前仅收盘后采，盘中无实时
+  - 但港股板块8个是细分行业（博彩/油气/银行等），用户关注度低于宽基，优先级低
+  - 港股板块腾讯已支持 r_hkCESG10 等（`_HK_CODE_MAP`），加盘中时点即可
+
+- **P2（可选，不建议）：美股4个加盘中实时**
+  - 美股 21:30 开盘（北京），A 股盘中（09:30-15:00）美股未开盘，无实时可采
+  - 已有美股期货 ES/NQ 实时预估当晚方向（`us_futures.py`），够用
+  - 不建议单独加美股指数盘中实时（无意义）
+
+- **P2（可选）：亚洲其他同时区指数（澳股/印度/东南亚）**
+  - 澳大利亚 ASX 200（08:00-14:00 AEST，UTC+10，比 A 股早 2h）
+  - 印度 NIFTY 50 / SENSEX（09:15-15:30 IST，UTC+5:30，比 A 股晚 30min）
+  - 当前未纳入全球模块，`index_global_spot_em` 同样覆盖，可一并加
+  - 优先级低，用户未提需求
+
+**待办动作清单：**
+1. [ ] 评估加 akshare `index_global_spot_em` 实时源到 intraday_snapshot.py（依赖 akshare 版本是否含此函数，需验证）
+2. [ ] 设计盘中全球5指数实时采集时点（复用 9:25-15:02 每10min 还是单独时点）
+3. [ ] 评估反哺 index_daily 当日 close 对 signals.compute() 的影响（扩展 buy_special/sell 触发池）
+4. [ ] 欧洲指数（ftse100/dax/cac40）盘中是否在 A 股收盘后 15:35/20:35 采实时（欧洲 15:00-23:00 开盘）
+5. [ ] 前端"全球"Tab 卡片角标更新逻辑（当前 us_ 标 t1，其他 t0，加实时后是否需要新标记）
+
+**状态**：纯调研落档，待用户排期。详见 TASKS.md 「全球指数时效优化」待办条目。
