@@ -432,13 +432,30 @@ function _buildSignalMarkData(signals, getValueFn) {
     if (daySigs.length === 1) {
       // 单信号：保持单色 pin（原行为）
       const s = daySigs[0];
-      markData.push({
-        coord: [date, y],
-        value: signalLabel(s),
-        reason: s.reason || "",
-        itemStyle: { color: signalColor(s) },
-        label: { color: _autoLabelColor(signalColor(s)) },
-      });
+      if (s.signal === 'band_hold') {
+        // 波段持有 pin(2026-07-31): 默认隐藏 label + 走势线下方(反pin) + 小点半透明
+        // 避免密集 band_hold pin 遮蔽走势线; hover 显示 label 文字
+        const _c = signalColor(s);
+        markData.push({
+          coord: [date, y],
+          value: signalLabel(s),
+          reason: s.reason || "",
+          symbol: 'circle',
+          symbolSize: 6,
+          symbolOffset: [0, 20],
+          itemStyle: { color: _c, opacity: 0.5 },
+          label: { show: false, color: _autoLabelColor(_c) },
+          emphasis: { label: { show: true, color: _autoLabelColor(_c) } },
+        });
+      } else {
+        markData.push({
+          coord: [date, y],
+          value: signalLabel(s),
+          reason: s.reason || "",
+          itemStyle: { color: signalColor(s) },
+          label: { color: _autoLabelColor(signalColor(s)) },
+        });
+      }
     } else {
       // 多信号同日：拼色 pin（金描边+光晕，买+卖/多买/多卖合一展示叠加价值）
       const labels = daySigs.map(signalLabel);
@@ -1237,7 +1254,7 @@ function _getSignalScore(it) {
 // pct = t/(t+f)*100，t+f=0 时 pct=null（避免 0/0 误导）。无 score 的 item 计入 total 但不计入分档。
 // _SIG_TYPES: byType 分组统计的信号类型清单（不含 buy_special_filtered，该类型不在 signals_today 展示）
 // 问题2 fix(2026-07-31): band_hold 从末尾移到买类/卖类之间(中性独立组), 避免紧贴 sell_stop_loss 视觉"归卖"
-const _SIG_TYPES = ["buy", "buy_aux", "buy_special", "buy_backup", "band_hold", "sell", "sell_stop_loss"];
+const _SIG_TYPES = ["buy", "buy_aux", "buy_special", "buy_backup", "band_hold", "band_sell", "sell", "sell_stop_loss"];
 // _SIG_TYPE_META: 分类行 chip 渲染元数据（中文标签 + 色点颜色，与 _SIGNAL_HELP_ITEMS 一致）
 // 顺序: 买类(buy/buy_aux/buy_special/buy_backup) | 中性(band_hold) | 卖类(sell/sell_stop_loss)
 const _SIG_TYPE_META = [
@@ -1246,6 +1263,7 @@ const _SIG_TYPE_META = [
   { key: "buy_special", label: "追买", color: "#ffd700" },
   { key: "buy_backup", label: "备买", color: "#9c27b0" },
   { key: "band_hold", label: "波段持有", color: "#ff9800" },
+  { key: "band_sell", label: "波段减仓", color: "#8bc34a" },
   { key: "sell", label: "卖", color: "#2e8b57" },
   { key: "sell_stop_loss", label: "追止损", color: "#3498db" },
 ];
@@ -1269,7 +1287,9 @@ function _calcSignalAccuracy(items) {
   for (const it of items) {
     _tally(acc.total, it);
     // 按信号类型分组统计（band_hold 的 since_correct 恒 null，自然只累加 n）
-    if (acc.byType[it.signal]) _tally(acc.byType[it.signal], it);
+    // 波段减仓(reason)归 band_sell 中性组，不归 sell 卖类（与 ord/_SIG_TYPES 一致）
+    const _sigKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
+    if (acc.byType[_sigKey]) _tally(acc.byType[_sigKey], it);
     const sc = _getSignalScore(it);
     if (!sc || sc.score == null) continue; // 无 score 不计入分档
     const s = sc.score;
@@ -1378,10 +1398,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       // 问题4 fix(2026-07-31): ord 补全 7 类排序(原只 3 类, band_hold ?? 9 排末尾和 sell_stop_loss 混卖区)
       // 问题2 fix(2026-07-31): band_hold 从 3 改 1.9(买类 1.8 和卖类 2 之间), 与汇总条 chip 顺序一致,
       //   避免紧贴 sell_stop_loss(2.5) 视觉"归卖"; 三档有序: 买类(0~1.8) -> 中性 band_hold(1.9) -> 卖类(2~2.5)
-      const ord = { buy: 0, buy_aux: 1, buy_special: 1.5, buy_backup: 1.8, band_hold: 1.9, sell: 2, sell_stop_loss: 2.5 };
+      const ord = { buy: 0, buy_aux: 1, buy_special: 1.5, buy_backup: 1.8, band_hold: 1.9, band_sell: 1.95, sell: 2, sell_stop_loss: 2.5 };
       dayItems.sort((a, b) => {
-        const oa = ord[a.signal] ?? 9;
-        const ob = ord[b.signal] ?? 9;
+        const oa = ord[(a.reason||'').includes('波段减仓')?'band_sell':a.signal] ?? 9;
+        const ob = ord[(b.reason||'').includes('波段减仓')?'band_sell':b.signal] ?? 9;
         if (oa !== ob) return oa - ob;
         // 同大类内按 score 降序（高分靠前，无 score 视为 -1 排末）
         const sa = _getSignalScore(a)?.score ?? -1;
@@ -1424,7 +1444,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // DOM 顺序(2026-07-28 调整): [信号标签b][⚠][评级高/中/低][☑️/✖️][指数名]
         // 原顺序 [信号标签b][指数名][⚠][评级][对错] 在窄屏下指数名过长把评级+对错挤到右侧被 ellipsis 截掉看不见。
         // 现把评级+对错移到指数名前(紧跟信号标签),指数名放最右,溢出时 ellipsis 只截指数名,评级+对错始终可见。
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
