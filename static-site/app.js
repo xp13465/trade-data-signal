@@ -334,6 +334,9 @@ function signalColor(s) {
   if (s.signal === "band_hold") return "#ff9800";  // 波段持有 橙（国债波段仓位管理，中性状态，2026-07-24）
   if (s.signal === "estimate") return "#909399";  // 盘中预估点 灰（方案A补T日点，非真实信号，视觉区分）
   const r = s.reason || "";
+  // 波段减仓 草绿 #8bc34a（国债波段仓管，减仓非清仓，与卖 #2e8b57 区分体现"没卖重"，2026-07-20）
+  // 注意：波段止损仍走默认 #2e8b57（趋势破位清仓，归卖类）；止盈/趋势转弱/前买失效也不受影响
+  if (r.includes("波段减仓")) return "#8bc34a";
   if (r.includes("止盈")) return "#2e8b57";
   return "#2e8b57";  // 2026-07-20: 卖点统一绿（前买失效/无前买点/趋势转弱均落绿，取消灰橙）
 }
@@ -1065,6 +1068,8 @@ function _signalLegendHtml() {
     + '<span class="signal-legend-item"><i style="background:#d63384"></i>下轨拐点(辅买)</span>'
     + '<span class="signal-legend-item"><i style="background:#ffd700"></i>上轨突破(追买)</span>'
     + '<span class="signal-legend-item"><i style="background:#9c27b0"></i>趋势转向(备买)</span>'
+    + '<span class="signal-legend-item"><i style="background:#ff9800"></i>波段持有(国债)</span>'
+    + '<span class="signal-legend-item"><i style="background:#8bc34a"></i>波段减仓(国债)</span>'
     + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>趋势转弱(卖)</span>'
     + '<span class="signal-legend-item"><i style="background:#3498db"></i>ATR×3.5止损(追止损|卖)</span>'
     + '<span class="term-tip" data-tip="' + _BACKUP_BUYPOINT_TIP.replace(/"/g, '&quot;') + '">❓</span>'
@@ -1625,7 +1630,7 @@ const _SIGNAL_HELP_ITEMS = [
   { sig: "buy_backup", color: "#9c27b0", name: "备买 · 趋势转向", desc: "Supertrend ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
   { sig: "sell", color: "#2e8b57", name: "卖 · 趋势转弱", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈减仓提示。", note: "📌 pin 标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；hover tooltip 的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈减仓非反向信号。配套：走弱概率≈50%接近随机；与追止损|卖共振时减仓信号更强。" },
   { sig: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR×3.5止损", desc: "ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5d win 49.58%->50.23%），backtest 旧 ATR×3 数据保留作历史对比，新参数 stats 见下方 forward 字段。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
-  { sig: "band_hold", color: "#ff9800", name: "波段持有 · 国债波段仓管", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1 卖点对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖点）。四动作联动：减仓(草绿#8bc34a仓位条,触超买减20-30%,pin 头仍 sell#2e8b57)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓)/持有(band_hold橙,无超买超卖维持仓位)。走势图 pin = 历史调仓时点回放，hover 信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
+  { sig: "band_hold", color: "#ff9800", name: "波段持有 · 国债波段仓管", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1 卖点对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖点）。四动作联动：减仓(草绿#8bc34a仓位条+pin头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓)/持有(band_hold橙,无超买超卖维持仓位)。走势图 pin = 历史调仓时点回放，hover 信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
 ];
 
 // 聚合 signal_stats.json（per-index）-> per-sig 概况（5d/10d/20d 三窗口，按样本数 n 加权平均）
