@@ -10,11 +10,15 @@
 - 严重告警额外写 data/alerts/latest.md（覆盖式记最新一次严重），供下轮 Claude 开工优先排查。
 
 用法（CLI）:
-  notify.py <subject> <body> [--severe] [--alert-issue <issue> [--alert-log <path>]] [--dry-run]
+  notify.py <subject> <body> [--severe] [--alert-issue <issue> [--alert-log <path>]]
+             [--from-prefix <prefix>] [--dry-run]
 
-  --severe          标题前缀加 [需Claude排查]（邮件 + Telegram 共用）
+  --severe          2026-07-20 改造：仅用于 write_alert 语义标记（SEVERE_PREFIX 已置空串，
+                    subject 前缀由调用方控制，统一 [告警]/[完成]/[恢复] 模板）。
   --alert-issue     写 data/alerts/latest.md（issue 一句话 + 详情=body + 日志路径）
   --alert-log       配合 --alert-issue，记录日志文件路径
+  --from-prefix     邮件发件人名前缀（如 [告警] -> "From: [告警] 情绪看板 <user>"）。
+                    默认 None 时用 "情绪看板监控"。
   --dry-run         不真发，只 print 到 stderr（自验用）
 
 各渠道发送失败只 print 警告不抛异常（不阻塞调用方，update_all 末尾 || true 双保险）。
@@ -53,7 +57,9 @@ PLACEHOLDER_TG_CHAT = "YOUR_CHAT_ID"
 # Telegram Bot API sendMessage 单条文本上限 4096 字符
 TG_TEXT_LIMIT = 4096
 
-SEVERE_PREFIX = "[需Claude排查] "
+# SEVERE_PREFIX 保留空串（2026-07-20 改造：由调用方在 subject 表达严重程度，统一 [告警] 前缀）。
+# --severe 标记仍用于 write_alert 写 data/alerts/latest.md（独立于 subject 前缀）。
+SEVERE_PREFIX = ""
 
 
 def load_email_config() -> dict | None:
@@ -170,7 +176,7 @@ def send_telegram(subject: str, body: str, dry_run: bool = False,
 
 
 def _send_email(subject: str, body: str, dry_run: bool = False,
-                to: str | None = None) -> bool:
+                to: str | None = None, from_prefix: str | None = None) -> bool:
     """发邮件（内部，由 send()/send_to() 调用）。dry_run=True 只 print 不真发。
 
     发送失败只 print 警告不抛异常。返回 True 表示发出（或 dry_run 模拟成功），
@@ -178,6 +184,10 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
 
     to 参数（A12 订阅推送用）：指定收件人邮箱，覆盖 config 的 to。
       SMTP user/password 仍用 config 全局配置（单一发件邮箱给多收件人推送）。None 时用 config 默认。
+
+    from_prefix 参数（2026-07-20 改造）：发件人名前缀。
+      - None/空：用默认 "情绪看板监控"
+      - 非空（如 "[告警]"）：用 "<prefix> 情绪看板"（前缀后加空格）
     """
     if dry_run:
         print(f"[notify][dry-run] email subject={subject} to={to or '(config默认)'}", file=sys.stderr)
@@ -200,9 +210,15 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
         print(f"[notify] SMTP password 占位符或缺失，跳过发送（subject={subject}）", file=sys.stderr)
         return False
 
+    # 发件人名：from_prefix 非空 -> "<prefix> 情绪看板"；None/空 -> "情绪看板监控"（默认）
+    if from_prefix:
+        from_name = f"{from_prefix} 情绪看板"
+    else:
+        from_name = "情绪看板监控"
+
     msg = MIMEText(body, "html", "utf-8")
     msg["Subject"] = subject
-    msg["From"] = formataddr(("情绪看板监控", user))
+    msg["From"] = formataddr((from_name, user))
     msg["To"] = to_addr
     msg["Date"] = formatdate(localtime=True)
 
@@ -218,25 +234,30 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
         return False
 
 
-def send(subject: str, body: str, severe: bool = False, dry_run: bool = False) -> dict:
+def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
+         from_prefix: str | None = None) -> dict:
     """多渠道分发通知（邮件 + Telegram）。各渠道独立失败不互相阻塞。
 
     先邮件后 Telegram，任一渠道失败不影响另一个。返回聚合结果：
       {"email": bool, "telegram": bool}，True 表示该渠道发出（或 dry_run 模拟成功），
       False 表示未发（配置缺失/占位符/发送失败）。
 
-    severe=True 时标题前缀 [需Claude排查]（两个渠道共用同一标题）。
+    severe=True 时写 data/alerts/latest.md（--alert-issue 配合）。
+      2026-07-20 改造：subject 前缀由调用方控制（统一 [告警]/[完成]/[恢复] 模板），
+      SEVERE_PREFIX 已置空串，--severe 不再修改 subject。
     dry_run=True 两个渠道都只 print 不真发。
+    from_prefix：邮件发件人名前缀（None=默认 "情绪看板监控"，非空如 "[告警]" -> "[告警] 情绪看板"）。
     """
     if severe:
         subject = SEVERE_PREFIX + subject
-    email_ok = _send_email(subject, body, dry_run=dry_run)
+    email_ok = _send_email(subject, body, dry_run=dry_run, from_prefix=from_prefix)
     tg_ok = send_telegram(subject, body, dry_run=dry_run)
     return {"email": email_ok, "telegram": tg_ok}
 
 
 def send_to(subject: str, body: str, email: str | None = None,
-            chat_id: str | None = None, dry_run: bool = False) -> dict:
+            chat_id: str | None = None, dry_run: bool = False,
+            from_prefix: str | None = None) -> dict:
     """A12 订阅推送：指定收件人（email/chat_id）多渠道分发。
 
     与 send() 区别：send() 用 config 全局 to/chat_id（单一管理员）；
@@ -245,8 +266,9 @@ def send_to(subject: str, body: str, email: str | None = None,
 
     email/chat_id 任一为 None/空则跳过该渠道。各渠道独立失败不互相阻塞。
     返回 {"email": bool, "telegram": bool}。
+    from_prefix：邮件发件人名前缀（None=默认 "情绪看板监控"）。
     """
-    email_ok = _send_email(subject, body, dry_run=dry_run, to=email) if email else False
+    email_ok = _send_email(subject, body, dry_run=dry_run, to=email, from_prefix=from_prefix) if email else False
     tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id else False
     return {"email": email_ok, "telegram": tg_ok}
 
@@ -357,13 +379,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("subject", help="主题")
     parser.add_argument("body", help="正文（HTML，邮件原样发送；Telegram 转纯文本）")
-    parser.add_argument("--severe", action="store_true", help="严重：标题加 [需Claude排查] 前缀")
+    parser.add_argument("--severe", action="store_true",
+                        help="严重标记：用于 write_alert 语义（2026-07-20 改造：不再修改 subject 前缀）")
     parser.add_argument("--alert-issue", help="写 data/alerts/latest.md，值为问题一句话")
     parser.add_argument("--alert-log", help="配合 --alert-issue，日志文件路径")
     parser.add_argument("--dedup-key", help="去重 key：同 key 在 --dedup-window 秒内不重发（suppress 静默退出 0）。"
                         "用于 intraday 等 15min 周期任务防 R2 偶发失败轰炸（写入 data/notify_dedup.json）")
     parser.add_argument("--dedup-window", type=int, default=1800, help="去重窗口秒数（默认 1800=30min）")
     parser.add_argument("--dry-run", action="store_true", help="不真发，只 print 到 stderr")
+    parser.add_argument("--from-prefix", default=None,
+                        help="邮件发件人名前缀（如 [告警]/[完成]/[恢复]）；"
+                             "None/空=默认 '情绪看板监控'，非空 -> '<prefix> 情绪看板'")
     args = parser.parse_args(argv)
 
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）
@@ -371,7 +397,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.dedup_key and not args.dry_run and check_dedup(args.dedup_key, args.dedup_window):
         return 0
 
-    results = send(args.subject, args.body, severe=args.severe, dry_run=args.dry_run)
+    results = send(args.subject, args.body, severe=args.severe, dry_run=args.dry_run,
+                   from_prefix=args.from_prefix)
     ok = [ch for ch, v in results.items() if v]
     fail = [ch for ch, v in results.items() if not v]
     if ok:

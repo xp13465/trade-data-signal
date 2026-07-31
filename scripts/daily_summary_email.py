@@ -500,7 +500,7 @@ def send_email(cfg: dict, subject: str, text_body: str, html_body: str) -> bool:
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = formataddr((SITE_NAME, user))
+    msg["From"] = formataddr((f"[收盘速递] {SITE_NAME}", user))
     msg["To"] = ", ".join(to_list)
     msg["Date"] = formatdate(localtime=True)
     msg.attach(MIMEText(text_body, "plain", "utf-8"))

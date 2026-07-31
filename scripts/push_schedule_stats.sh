@@ -147,9 +147,10 @@ PUSH_RC=0
   if [ "$PUSH_RC" -ne 0 ]; then
     echo "✗ git push origin HEAD:main 失败（rebase 重试后仍失败），发告警邮件 + 写 alerts/latest.md" | tee -a "$LOG"
     "$PY" "$REPO/scripts/notify.py" \
-      "[schedule_stats告警] git push origin HEAD:main 失败(非 fast-forward)" \
+      "[告警] schedule_stats push失败(非ff) $(date '+%m-%d %H:%M')" \
       "push_schedule_stats 推 main 失败，rebase 重试后仍失败。线上 schedule_stats.json 滞后上一轮时点，需手动修复。<br>排查：cd $GIT_REPO && git fetch origin && git log --oneline -5 origin/main 看并发推的 commit；本地 worktree commit 已随 worktree 清理丢失，重跑 bash scripts/push_schedule_stats.sh 即可。<br>日志：$LOG" \
       --severe \
+      --from-prefix "[告警]" \
       --alert-issue "push_schedule_stats git push 失败(非 fast-forward, rebase 重试后仍失败)" \
       --alert-log "$LOG" 2>&1 | tail -3 | tee -a "$LOG" || true
     exit "$PUSH_RC"

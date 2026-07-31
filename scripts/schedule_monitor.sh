@@ -499,16 +499,19 @@ if alerts:
     print(f"[{now_str}] 检测到 {len(alerts)} 个告警:")
     for a in alerts:
         print(a)
-    # 复用 notify.py 发邮件 + 写 alerts/latest.md（--severe 加 [需Claude排查] 前缀）
+    # 复用 notify.py 发邮件 + 写 alerts/latest.md（subject 统一模板 [告警] ... MM-DD HH:MM）
+    # --from-prefix "[告警]" -> 发件人名 "[告警] 情绪看板"
     body = "<br>".join(
         a.replace("<", "&lt;").replace(">", "&gt;") for a in alerts
     )
+    _sm_time = NOW.strftime("%m-%d %H:%M")
     subprocess.run(
         [
             sys.executable, str(REPO / "scripts" / "notify.py"),
-            "SEVERE: 计划任务监控告警",
+            f"[告警] {len(alerts)}项计划任务异常 {_sm_time}",
             body,
             "--severe",
+            "--from-prefix", "[告警]",
             "--alert-issue", "计划任务监控告警",
             "--alert-log", str(MONITOR_LOG),
         ],
@@ -524,9 +527,9 @@ if recoveries:
         print(f"  [恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失")
     if len(recoveries) == 1:
         r0 = recoveries[0]
-        subject = f"[恢复] {r0['task']} 异常关键词 {r0['keyword']} 已消失"
+        subject = f"[恢复] {r0['task']} {r0['keyword']} {NOW.strftime('%m-%d %H:%M')}"
     else:
-        subject = f"[恢复] {len(recoveries)}个计划任务异常已消失"
+        subject = f"[恢复] {len(recoveries)}项异常恢复 {NOW.strftime('%m-%d %H:%M')}"
     rec_lines = [
         f"[恢复] {r['task']} 异常关键词<{r['keyword']}> 已消失 "
         f"(首次发现: {r['first_seen']}, 恢复时间: {now_str})"
@@ -540,6 +543,7 @@ if recoveries:
             sys.executable, str(REPO / "scripts" / "notify.py"),
             subject,
             body,
+            "--from-prefix", "[恢复]",
             "--alert-issue", "计划任务监控恢复",
             "--alert-log", str(MONITOR_LOG),
         ],

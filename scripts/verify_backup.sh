@@ -81,7 +81,8 @@ if [ "$DL_RC" -ne 0 ]; then
   [ "${VERIFY_NOTIFY_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"
   BODY="R2 备份下载失败(60s 重试后仍失败),无法完成恢复演练。<br>时间：$NOW_STR<br>日志：$LOG<br>请排查 R2 凭证/网络/signal-backup 桶。"
   [ -f "$REPO/scripts/notify.py" ] && \
-    "$PY" "$REPO/scripts/notify.py" "[备份演练失败]verify_backup下载失败" "$BODY" --severe \
+    "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup R2下载失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \
+      --from-prefix "[告警]" \
       --alert-issue "verify_backup.sh R2下载失败(无法演练恢复)" --alert-log "$LOG" $DRY_FLAG 2>>"$LOG" || true
   exit 1
 fi
@@ -198,7 +199,8 @@ if [ "$VERIFY_OK" != "1" ]; then
   BODY="R2 备份恢复演练失败（integrity 或行数对比异常）。<br>时间：$NOW_STR<br>日志：$LOG<br>临时目录：${TMPDIR}（已清理）<br>请排查：备份是否损坏/本地是否丢数据/R2 上传是否正常。"
   echo "-> 发送演练失败告警邮件 ..." | tee -a "$LOG"
   [ -f "$REPO/scripts/notify.py" ] && \
-    "$PY" "$REPO/scripts/notify.py" "[备份演练失败]verify_backup异常" "$BODY" --severe \
+    "$PY" "$REPO/scripts/notify.py" "[告警] verify_backup 校验失败 $(date '+%m-%d %H:%M')" "$BODY" --severe \
+      --from-prefix "[告警]" \
       --alert-issue "verify_backup.sh 恢复演练失败(integrity/行数异常)" --alert-log "$LOG" \
       $DRY_FLAG 2>>"$LOG" || true
 fi

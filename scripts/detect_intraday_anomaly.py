@@ -269,7 +269,8 @@ def send_alert(alerts: list[dict]) -> None:
 
     try:
         subprocess.run(
-            [sys.executable, str(NOTIFY_PY), subject, body],
+            [sys.executable, str(NOTIFY_PY), subject, body,
+             "--from-prefix", "[盘中异动]"],
             timeout=60, check=False, capture_output=True, text=True,
         )
         print(f"[anomaly] 告警邮件已发：{subject}", flush=True)

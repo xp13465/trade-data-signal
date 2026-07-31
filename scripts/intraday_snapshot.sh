@@ -241,7 +241,7 @@ PUSH_RC=0
     # tail -1 取最新一条(防 LOG 历史污染)；|| true 防 pipefail 下 grep 无匹配退出非0
     FAILED_FILES=$(grep "^FAILED_FILES:" "$LOG" | tail -1 | sed "s/^FAILED_FILES: //") || true
     OK_TOTAL=$(grep "^共上传" "$LOG" | tail -1) || true
-    "$PY" "$REPO/scripts/notify.py" "[intraday告警] upload-index R2 失败" "走势图数据源(kc50-all.json等)未推 R2，卡片(overview)将上线，三处数据不一致，需手动补刷 R2: bash scripts/upload_r2.py upload-index<br>汇总: ${OK_TOTAL}<br>失败文件: ${FAILED_FILES}" --severe --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+    "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 $(date '+%m-%d %H:%M')" "走势图数据源(kc50-all.json等)未推 R2，卡片(overview)将上线，三处数据不一致，需手动补刷 R2: bash scripts/upload_r2.py upload-index<br>汇总: ${OK_TOTAL}<br>失败文件: ${FAILED_FILES}" --severe --from-prefix "[告警]" --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
   fi
 
   # 2.55) A11 异常波动盘中告警（R2同步后、push前；失败不阻塞快照/推送）
@@ -291,9 +291,10 @@ PUSH_RC=0
   if [ "$PUSH_RC" -ne 0 ]; then
     echo "✗ git push origin HEAD:main 失败（rebase 重试后仍失败），发告警邮件 + 写 alerts/latest.md" | tee -a "$LOG"
     "$PY" "$REPO/scripts/notify.py" \
-      "[intraday告警] git push origin HEAD:main 失败(非 fast-forward)" \
+      "[告警] intraday push失败(非ff) $(date '+%m-%d %H:%M')" \
       "intraday_snapshot 推 main 失败，rebase 重试后仍失败。线上 overview/intraday_snapshot 等数据滞后上一轮时点，需手动修复。<br>排查：cd $GIT_REPO && git fetch origin && git log --oneline -5 origin/main 看并发推的 commit；本地 intraday worktree commit 已随 worktree 清理丢失，重跑 bash scripts/intraday_snapshot.sh force 重采+重推即可。<br>日志：$LOG" \
       --severe \
+      --from-prefix "[告警]" \
       --alert-issue "intraday_snapshot git push 失败(非 fast-forward, rebase 重试后仍失败)" \
       --alert-log "$LOG" 2>&1 | tail -3 | tee -a "$LOG" || true
     exit "$PUSH_RC"

@@ -112,7 +112,8 @@ if [ "$RC" -ne 0 ] && [ -f "$REPO/scripts/notify.py" ]; then
   [ "${BACKUP_NOTIFY_DRY_RUN:-0}" = "1" ] && DRY_FLAG="--dry-run"
   BODY="SQLite 热备失败，退出码=${RC}。<br>时间：$NOW_STR<br>失败 DB：${FAILED_DBS}<br>日志：$LOG<br>本地备份目录：$BACKUP_DIR<br>请尽快排查（磁盘满 / DB 锁 / 文件损坏）。"
   echo "-> 发送备份失败告警邮件 ..." | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[备份失败]backup_db退出码$RC" "$BODY" --severe \
+  "$PY" "$REPO/scripts/notify.py" "[告警] backup_db rc=$RC 失败DB=${FAILED_DBS} $(date '+%m-%d %H:%M')" "$BODY" --severe \
+    --from-prefix "[告警]" \
     --alert-issue "backup_db.sh 备份失败(rc=$RC,失败DB=${FAILED_DBS})" \
     --alert-log "$LOG" \
     $DRY_FLAG 2>>"$LOG" || true

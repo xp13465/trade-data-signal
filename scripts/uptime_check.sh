@@ -66,7 +66,8 @@ fi
 
 if [ -n "$ISSUE" ]; then
   BODY="线上可用性探活异常<br>时间：$NOW_STR<br>URL：$URL<br>HTTP：${HTTP_CODE:-N/A}（curl rc=${CURL_RC:-N/A}）<br>问题：$ISSUE"
-  "$PY" "$REPO/scripts/notify.py" "[严重]线上探活异常" "$BODY" --severe \
+  "$PY" "$REPO/scripts/notify.py" "[告警] 线上探活异常 ${ISSUE} $(date '+%m-%d %H:%M')" "$BODY" --severe \
+    --from-prefix "[告警]" \
     --alert-issue "线上探活异常：$ISSUE" --alert-log "$LOG" $DRY_FLAG || true
   echo "✗ ${ISSUE}（已发严重通知）" | tee -a "$LOG"
   rm -f "$RESP" 2>/dev/null

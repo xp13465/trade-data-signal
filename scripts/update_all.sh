@@ -174,6 +174,8 @@ SEVERE=0
 [ "$RC_CORE" -ne 0 ] && SEVERE=1
 [ "$FRESH_OK" != "1" ] && SEVERE=1
 NOW_STR=$(date '+%Y-%m-%d %H:%M:%S')
+# 邮件 subject 统一模板 [类型]关键信息 MM-DD HH:MM（2026-07-20 改造）
+MM_DD_HM=$(date '+%m-%d %H:%M')
 
 # 失败 pipeline 明细（退出码非 0）：名 + rc + 最近一份 pipeline 日志名，并入通知正文
 FAILED_DETAILS=""
@@ -193,9 +195,9 @@ if [ "$SEVERE" -eq 1 ]; then
   [ "$ELAPSED" -gt 3600 ] && ISSUE="${ISSUE}耗时超1h(${ELAPSED_MIN}分钟) "
   [ "$RC_CORE" -ne 0 ] && ISSUE="${ISSUE}core退出码非0($RC_CORE) "
   [ "$FRESH_OK" != "1" ] && ISSUE="${ISSUE}数据时效异常($FRESH_MSG)"
-  "$PY" "$REPO/scripts/notify.py" "[严重]update_all告警" "$NOTIFY_BODY" --severe --alert-issue "$ISSUE" --alert-log "$LOG" || true
+  "$PY" "$REPO/scripts/notify.py" "[告警] update_all ${ISSUE} ${MM_DD_HM}" "$NOTIFY_BODY" --severe --from-prefix "[告警]" --alert-issue "$ISSUE" --alert-log "$LOG" || true
 else
-  "$PY" "$REPO/scripts/notify.py" "[完成]update_all" "$NOTIFY_BODY" || true
+  "$PY" "$REPO/scripts/notify.py" "[完成] update_all ${ELAPSED_MIN}min ${MM_DD_HM}" "$NOTIFY_BODY" --from-prefix "[完成]" || true
 fi
 
 # D10 每日收盘情绪速递邮件（summary_history.json 已由 pipeline deploy 生成就绪）。
@@ -207,8 +209,8 @@ if "$PY" "$REPO/scripts/daily_summary_email.py" >> "$LOG" 2>&1; then
 else
   _DSE_RC=$?
   echo "⚠ daily_summary_email 失败(不阻塞主流程) rc=$_DSE_RC" | tee -a "$LOG"
-  "$PY" "$REPO/scripts/notify.py" "[告警]收盘速递邮件失败" \
-    "daily_summary_email 退出码 $_DSE_RC<br>日志: $LOG" || true
+  "$PY" "$REPO/scripts/notify.py" "[告警] 收盘速递邮件失败 ${MM_DD_HM}" \
+    "daily_summary_email 退出码 $_DSE_RC<br>日志: $LOG" --from-prefix "[告警]" || true
 fi
 
 # 每日 DB 热备 + R2 异地备份（update_all 跑完后 DB 已是最新，此时备份最稳）。
