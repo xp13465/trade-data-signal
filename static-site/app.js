@@ -9332,10 +9332,8 @@ function appendHistoryPos(container, indexId = "a_sentiment") {
 
 async function renderSentiment() {
   content.innerHTML = "";
-  renderPurposeNote(content, PURPOSE_NOTES["sentiment"]);
-  content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看<b>情绪温度计</b>+冰点/过热热力图;想看指数<b>价格走势</b>-> 去<a data-goto="market" role="button" tabindex="0">【指数表现】</a></div>');
-  _bindTabCrosslink(content, "market");
-  // 二级 tab 栏（市场温度/期货风向/汪汪队）
+  // 二级 tab 栏（市场温度/期货风向/汪汪队）—— 共通区只保留 tab 栏 + 容器 + 分发
+  // purpose note / crosslink 已下沉到 renderSentimentMarketTemp（只市场温度 tab 显示，避免期货/汪汪队上方出现"温度计"提示）
   const subtabBar = document.createElement("div");
   subtabBar.className = "subtab-bar";
   const subtabs = [
@@ -9371,6 +9369,10 @@ async function renderSentiment() {
 
 // 市场温度二级 subtab：冰点/过热热力图 + 恐贪/A股情绪分/6宽基/跨市场（原 renderSentiment 主体，期货已归 futures subtab）
 async function renderSentimentMarketTemp(container) {
+  // purpose note + crosslink 只在此 tab 显示（共通区已下沉，避免期货/汪汪队上方出现"温度计"提示）
+  renderPurposeNote(container, PURPOSE_NOTES["sentiment"]);
+  container.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看<b>情绪温度计</b>+冰点/过热热力图;想看指数<b>价格走势</b>-> 去<a data-goto="market" role="button" tabindex="0">【指数表现】</a></div>');
+  _bindTabCrosslink(container, "market");
   const r = await fetchJSON(dataUrl(`sentiment-${state.range}.json`));
   const sig = r.signals || {};
   const stats = r.stats || {};
