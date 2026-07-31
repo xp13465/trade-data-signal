@@ -352,11 +352,11 @@ def overview(conn, cfg):
             today_metrics.append(entry)
 
     # 近期买卖点（近15交易日，含今日）+ 近期冰点日（近30交易日）
-    # 用日历日范围覆盖足够交易日：15交易日≈25天，30交易日≈45天
-    # 前端按日分组（一天一行），故取"最近9个日期"的全部记录而非LIMIT 9条记录
-    sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=25)).strftime("%Y%m%d")
+    # 用日历日范围覆盖足够交易日：15交易日≈35天（含周末+节假日冗余），30交易日≈45天
+    # 前端按日分组（一天一行），故取"最近15个日期"的全部记录而非 LIMIT 15 条记录
+    sig_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=35)).strftime("%Y%m%d")
     sig_dates = [r[0] for r in conn.execute(
-        "SELECT DISTINCT date FROM signal_daily WHERE date >= ? ORDER BY date DESC LIMIT 9",
+        "SELECT DISTINCT date FROM signal_daily WHERE date >= ? ORDER BY date DESC LIMIT 15",
         (sig_start,)
     ).fetchall()]
     sigs = []

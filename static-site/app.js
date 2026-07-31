@@ -7,7 +7,7 @@
 
 // BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null };
+const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15" };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1294,14 +1294,46 @@ function _calcSignalAccuracy(items) {
 // 评分尾缀（2026-07-27）：技术参考点综合把握度 score（10d 窗口），角标[高/中/低]+hover tooltip
 //   详情。score≥0.75 高(绿)/≥0.55 中(橙)/<0.55 低(灰)；≥0.75 pin 加 .sig-item-high 描边高亮。
 //   组内排序：保留大类优先(买>辅买>卖)，同大类内按 score 降序（高分靠前）。
+// E 方案(2026-07-31): 时间窗口筛选标题后缀 - 窗口非 0_15 时追加"·显示X~15日"指示
+// y_15 特殊: 今日不在窗口内, "今日高亮"提示改为"今日已排除"
+function _sigWindowSuffix() {
+  const wf = state.sigWindowFilter;
+  if (!wf || wf === "0_15") return "";
+  const map = { "10_15": "显示10~15日", "7_15": "显示7~15日", "3_15": "显示3~15日", "y_15": "昨日~15日" };
+  return " · " + (map[wf] || "");
+}
+function _sigTodayHint() {
+  return state.sigWindowFilter === "y_15" ? "今日已排除" : "今日高亮";
+}
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
   // 列表渲染用 filtered(只显示符合筛选的参考点)。null=不筛; "high"/"mid"/"low"=评级;
   // "true"/"false"/"null"=对/错/未结算。点击汇总条 button toggle 筛选, 再点同档恢复。
-  let filtered = items;
+  // E 方案(2026-07-31): 时间窗口筛选 - 按日期窗口切片 items, 影响汇总条+列表+总数
+  // sigWindowFilter: "0_15"=全部(默认), "10_15"=第10-15日, "7_15"=第7-15日,
+  // "3_15"=第3-15日, "y_15"=排除今日(昨日~15日)
+  // 窗口筛选特殊: 影响汇总条(基于窗口内 items 算准确率); grade/correct/type 筛选不影响汇总条
+  let windowedItems = items;
+  if (kind === "signal" && state.sigWindowFilter && state.sigWindowFilter !== "0_15") {
+    // 按 date 降序得到 dates 序列, 今日排首(与下方 groups 逻辑一致), 保证 y_15 排除今日
+    const _allDates = [...new Set(items.map((it) => it.date))].sort((a, b) => (a < b ? 1 : -1));
+    let _sortedDates = _allDates;
+    if (todayDate && _allDates.includes(todayDate)) {
+      _sortedDates = [todayDate, ..._allDates.filter((d) => d !== todayDate)];
+    }
+    let _lo = 0;
+    const wf = state.sigWindowFilter;
+    if (wf === "10_15") _lo = 9;       // 第10-15日 = index 9..end
+    else if (wf === "7_15") _lo = 6;   // 第7-15日 = index 6..end
+    else if (wf === "3_15") _lo = 2;   // 第3-15日 = index 2..end
+    else if (wf === "y_15") _lo = 1;   // 排除今日 = index 1..end
+    const _windowDates = new Set(_sortedDates.slice(_lo));
+    windowedItems = items.filter((it) => _windowDates.has(it.date));
+  }
+  let filtered = windowedItems;
   if (kind === "signal" && (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)) {
-    filtered = items.filter((it) => {
+    filtered = windowedItems.filter((it) => {
       if (state.sigGradeFilter) {
         const sc = _getSignalScore(it);
         if (!sc || sc.score == null) return false;
@@ -1403,7 +1435,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   // C 方案(2026-07-29): 未结算 button 带 data-tip 补说明(信号已发出未验证对错, 收盘后转对/错)。
   let _accHtml = "";
   if (kind === "signal") {
-    const _acc = _calcSignalAccuracy(items);
+    // E 方案: 汇总条基于窗口内 items 算准确率(非全量), 窗口筛选影响总数+总准确率
+    const _acc = _calcSignalAccuracy(windowedItems);
     const _fmt = (pct) => (pct == null ? "-" : pct.toFixed(0) + "%");
     const _gActive = (g) => (state.sigGradeFilter === g ? " sig-acc-filter-active" : "");
     const _cActive = (k) => (state.sigCorrectFilter === k ? " sig-acc-filter-active" : "");
@@ -1431,11 +1464,24 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       })
       .join(" · ");
     const _byTypeRow = _typeChips ? `<div class="sig-acc-by-type">${_typeChips}</div>` : "";
-    _accHtml = `<div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}`;
+    // E 方案(2026-07-31): 时间窗口筛选按钮组 - 4 窗口按钮 + 恢复全部(窗口激活时显示)
+    // 再点同窗口按钮 = 恢复 "0_15"(toggle), 与 grade/correct/type 筛选互不影响(正交)
+    const _wfActive = (wf) => (state.sigWindowFilter === wf ? " sig-acc-filter-active" : "");
+    const _wfBtn = (label, wf, tip) =>
+      `<button class="sig-acc-seg sig-acc-filter${_wfActive(wf)}" data-window-filter="${wf}" data-tip="${_escAttr(tip)}">${label}</button>`;
+    const _wfReset = (state.sigWindowFilter && state.sigWindowFilter !== "0_15")
+      ? ` <button class="sig-acc-reset" data-window-filter-reset="1">恢复全部</button>`
+      : "";
+    const _windowRow = `<div class="sig-acc-window">窗口: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</div>`;
+    _accHtml = `<div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}${_windowRow}`;
   }
-  // 筛选后无匹配: 汇总条仍显示(全量统计), 列表区给提示
-  if (kind === "signal" && !rows && (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)) {
-    rows = `<div class="empty-note" style="margin:8px 0">当前筛选无匹配参考点，点击"恢复全部"查看全部</div>`;
+  // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
+  if (kind === "signal" && !rows) {
+    if (!windowedItems.length) {
+      rows = `<div class="empty-note" style="margin:8px 0">当前时间窗口内无参考点，点击下方窗口按钮切换查看</div>`;
+    } else if (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter) {
+      rows = `<div class="empty-note" style="margin:8px 0">当前筛选无匹配参考点，点击"恢复全部"查看全部</div>`;
+    }
   }
   return `<h3>${title}</h3>${_accHtml}<div class="signal-grid">${rows}</div>`;
 }
@@ -1453,7 +1499,7 @@ function _rerenderSigCardContent(r, snap) {
   const sigCard = document.querySelector(".sig-card");
   if (!sigCard) return;
   const isClosed = snap ? snap.is_closed : true;
-  const title = "近期技术分析参考点（近 15 交易日 · 今日高亮）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）");
+  const title = "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）");
   const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed);
   const tmp = document.createElement("div");
   tmp.innerHTML = newHtml;
@@ -7159,7 +7205,7 @@ async function renderOverview() {
   // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
-  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · 今日高亮）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
   addCardTimeBadge(sigCard, r.date, snap, "t0");
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
@@ -7176,8 +7222,9 @@ async function renderOverview() {
   }
   // 点击买卖点卡片弹窗：展示对应指数/品类走势图+买卖信号标注
   // A/B 方案(2026-07-29): 汇总条 button click 委托 toggle 评级/对错筛选, 优先于 .sig-clickable 弹窗。
+  // E 方案(2026-07-31): 加时间窗口筛选 toggle, 与 grade/correct/type 正交(互不影响)。
   sigCard.addEventListener("click", (e) => {
-    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset]");
+    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset], [data-window-filter], [data-window-filter-reset]");
     if (filterBtn) {
       e.preventDefault();
       e.stopPropagation();
@@ -7185,6 +7232,8 @@ async function renderOverview() {
         state.sigGradeFilter = null;
         state.sigCorrectFilter = null;
         state.sigTypeFilter = null;
+      } else if (filterBtn.hasAttribute("data-window-filter-reset")) {
+        state.sigWindowFilter = "0_15";  // 窗口恢复全部(不影响 grade/correct/type)
       } else if (filterBtn.dataset.gradeFilter != null) {
         const g = filterBtn.dataset.gradeFilter;
         state.sigGradeFilter = (state.sigGradeFilter === g) ? null : g;  // toggle: 再点同档恢复
@@ -7194,6 +7243,9 @@ async function renderOverview() {
       } else if (filterBtn.dataset.typeFilter != null) {
         const t = filterBtn.dataset.typeFilter;
         state.sigTypeFilter = (state.sigTypeFilter === t) ? null : t;  // toggle: 再点同分类恢复
+      } else if (filterBtn.dataset.windowFilter != null) {
+        const w = filterBtn.dataset.windowFilter;
+        state.sigWindowFilter = (state.sigWindowFilter === w) ? "0_15" : w;  // toggle: 再点同窗口恢复
       }
       // 用最新 overview + snap 重绘(不依赖闭包 r/snap, 盘中自动更新后筛选也生效)
       _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
