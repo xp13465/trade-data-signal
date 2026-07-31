@@ -126,6 +126,11 @@ echo "-> export_notifications.py（浏览器通知源 JSON）..." | tee -a "$LOG
 #    用环境变量传 commit message，避免 bash -c 引号转义问题。
 COMMIT_MSG="data update [intraday] $(date +%Y-%m-%d_%H:%M)"
 export INTRADAY_COMMIT_MSG="$COMMIT_MSG"
+# ALERT_TIME 在 bash -c 外层预算：bash -c '...' 单引号字符串内不能用单引号
+# （$(date '+%m-%d %H:%M') 的单引号会破坏外层定界，致 L244 后命令解析错乱、
+# git push 步骤不执行，线上 intraday 卡上一轮时点。2026-07-31 事故根因修复）。
+ALERT_TIME=$(date '+%m-%d %H:%M')
+export ALERT_TIME
 echo "-> commit + push 数据 JSON 到 main（独立 work tree，持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "${LOG}"
 # 预初始化 PUSH_RC=0（防 set -u 下 bash -c 异常退出后 line 265 外层引用未赋值 PUSH_RC 致 unbound 噪声）
 PUSH_RC=0
@@ -241,7 +246,7 @@ PUSH_RC=0
     # tail -1 取最新一条(防 LOG 历史污染)；|| true 防 pipefail 下 grep 无匹配退出非0
     FAILED_FILES=$(grep "^FAILED_FILES:" "$LOG" | tail -1 | sed "s/^FAILED_FILES: //") || true
     OK_TOTAL=$(grep "^共上传" "$LOG" | tail -1) || true
-    "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 $(date '+%m-%d %H:%M')" "走势图数据源(kc50-all.json等)未推 R2，卡片(overview)将上线，三处数据不一致，需手动补刷 R2: bash scripts/upload_r2.py upload-index<br>汇总: ${OK_TOTAL}<br>失败文件: ${FAILED_FILES}" --severe --from-prefix "[告警]" --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+    "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 ${ALERT_TIME}" "走势图数据源(kc50-all.json等)未推 R2，卡片(overview)将上线，三处数据不一致，需手动补刷 R2: bash scripts/upload_r2.py upload-index<br>汇总: ${OK_TOTAL}<br>失败文件: ${FAILED_FILES}" --severe --from-prefix "[告警]" --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
   fi
 
   # 2.55) A11 异常波动盘中告警（R2同步后、push前；失败不阻塞快照/推送）
@@ -291,7 +296,7 @@ PUSH_RC=0
   if [ "$PUSH_RC" -ne 0 ]; then
     echo "✗ git push origin HEAD:main 失败（rebase 重试后仍失败），发告警邮件 + 写 alerts/latest.md" | tee -a "$LOG"
     "$PY" "$REPO/scripts/notify.py" \
-      "[告警] intraday push失败(非ff) $(date '+%m-%d %H:%M')" \
+      "[告警] intraday push失败(非ff) ${ALERT_TIME}" \
       "intraday_snapshot 推 main 失败，rebase 重试后仍失败。线上 overview/intraday_snapshot 等数据滞后上一轮时点，需手动修复。<br>排查：cd $GIT_REPO && git fetch origin && git log --oneline -5 origin/main 看并发推的 commit；本地 intraday worktree commit 已随 worktree 清理丢失，重跑 bash scripts/intraday_snapshot.sh force 重采+重推即可。<br>日志：$LOG" \
       --severe \
       --from-prefix "[告警]" \
