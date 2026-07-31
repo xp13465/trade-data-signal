@@ -104,6 +104,55 @@ if [ "$EXPORT_RC" -ne 0 ]; then
 fi
 echo "✓ export.py 完成" | tee -a "$LOG"
 
+# 1.3 intraday_snapshot.json global_realtime 防覆盖（2026-07-31 德法角标三重根因修复）
+# 根因：export.py 调 load_latest_snapshot 从 DB reload 生成 intraday_snapshot.json，
+# 若 DB 镜像滞后（trade/data/sentiment.db 未同步 trade-data 主库）或旧 snapshot 行
+# 无 global_realtime，reload 丢失 global_realtime 致前端德法角标无实时数据。
+# 修复1已让 _save_db/load_latest_snapshot 补 global_realtime，此处加兜底：
+# export.py 后检查 intraday_snapshot.json 是否含 global_realtime，缺失则从 origin/main
+# 版本（intraday_snapshot.sh 推的实时版）提取 global_realtime 注入，防 deploy 覆盖丢失。
+echo "-> 检查 intraday_snapshot.json global_realtime 防覆盖 ..." | tee -a "$LOG"
+"$PY" - "$GIT_REPO" "$LOG" <<'PYEOF' 2>&1 | tee -a "$LOG" || true
+import json, sys, subprocess, tempfile, os
+repo, log = sys.argv[1], sys.argv[2]
+path = os.path.join(repo, "static-site/data/intraday_snapshot.json")
+try:
+    with open(path, encoding="utf-8") as f:
+        snap = json.load(f)
+except Exception as e:
+    print(f"  ⚠ 读取 intraday_snapshot.json 失败: {e}，跳过 global_realtime 检查")
+    sys.exit(0)
+if snap.get("global_realtime"):
+    n = len(snap["global_realtime"])
+    print(f"  ✓ intraday_snapshot.json 已含 global_realtime ({n} 个指数)，无需补")
+    sys.exit(0)
+# 缺失 global_realtime -> 从 origin/main 版提取
+print("  ⚠ intraday_snapshot.json 缺 global_realtime，尝试从 origin/main 版提取注入...", flush=True)
+try:
+    content = subprocess.run(
+        ["git", "-C", repo, "show", "origin/main:static-site/data/intraday_snapshot.json"],
+        capture_output=True, text=True, timeout=30
+    ).stdout
+    origin_snap = json.loads(content)
+except Exception as e:
+    print(f"  ⚠ 无法从 origin/main 提取 intraday_snapshot.json: {e}，跳过（不阻断）")
+    sys.exit(0)
+gr = origin_snap.get("global_realtime")
+if not gr:
+    print("  ⚠ origin/main 版也无 global_realtime，跳过（intraday_snapshot.sh 下次推送时补）")
+    sys.exit(0)
+# 注入 global_realtime 到当前 snap 并写回
+snap["global_realtime"] = gr
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(snap, f, ensure_ascii=False, separators=(",", ":"))
+# 同步 .gz
+import gzip
+gz_path = path + ".gz"
+with gzip.open(gz_path, "wt", encoding="utf-8") as f:
+    json.dump(snap, f, ensure_ascii=False, separators=(",", ":"))
+print(f"  ✓ 已从 origin/main 提取 global_realtime ({len(gr)} 个指数) 注入 intraday_snapshot.json + .gz")
+PYEOF
+
 # 1.4 刷新计划任务执行统计（gen_schedule_stats.py）已移到各任务脚本结尾（2026-07-24 方案A根治）：
 #   原在 deploy.sh:72 跑时，调 deploy 的任务脚本（futures/lhb/etf 等）尚未写"结束"行，
 #   gen_stats 解析当前任务 log 显示 pending（exit=null）。移到各任务脚本"结束"行后调用，

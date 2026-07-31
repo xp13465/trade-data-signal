@@ -4661,6 +4661,10 @@ const T1_COLLECT_DEADLINE = {
   a_turnover_p90:     "18:00",
   a_turnover_p10:     "18:00",
   a_turnover_gt5_pct: "18:00",
+  // 2026-07-31 德法角标修复: 欧洲指数(dax/cac40/ftse100)本质 T+1(欧洲盘收盘北京23:30, OHLC次日采)
+  // 走 t1 分类, srcKey=eu_global, 最晚可得时刻=02:00(次日 index_backfill 02:00 回填兜底采前日欧洲收盘)
+  // 过 02:00 仍未采到 ptd 数据 -> 红(真异常); 未到 02:00 -> 黄(T+1待更新,等backfill)
+  eu_global:     "02:00",   // 欧洲指数(DAX/CAC40/FTSE100): 欧洲盘23:30收盘,次日02:00 backfill采集
 };
 // 是否对该 T+1 源放宽盘中 stale 判定(基准 ptd -> ptd-1 交易日)。intraday=false 一律不放宽。
 function _t1Relax(key, intraday) {
@@ -9151,7 +9155,17 @@ async function renderGlobal(container = content) {
         const idxName = (_INDEX_NAME_MAP && _INDEX_NAME_MAP[id]) ? _INDEX_NAME_MAP[id] : idx.name;
         const chart = indexChart(idxName, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
         if (chart) {
-          addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, id && id.startsWith("us_") ? "t1" : "t0", id && id.startsWith("us_") ? "us_dji_date" : "");
+          // 全球指数 T+1/T+0 分类(2026-07-31 修正德法角标红色异常,三重根因根治):
+          //   欧洲(dax/cac40/ftse100): T+1, 欧洲盘收盘北京23:30 OHLC次日采, 走 t1 + eu_global(02:00 backfill)
+          //   亚洲(nikkei225/kospi/asx200/sensex): T+0, 与A股同时区盘中实时, 走 t0
+          //   美洲(us_*): T+1, 美股收盘北京次日04:00, 走 t1 + us_dji_date(16:35 backfill)
+          // 原 logic: us_->t1, 其余->t0 致德法(本质T+1)走t0, 盘后7-30<今日7-31触发红色"⚠滞后"误报
+          const _EU_GLOBAL_IDS = new Set(["dax", "cac40", "ftse100"]);
+          let _gSrcClass, _gSrcKey;
+          if (id && id.startsWith("us_")) { _gSrcClass = "t1"; _gSrcKey = "us_dji_date"; }
+          else if (_EU_GLOBAL_IDS.has(id)) { _gSrcClass = "t1"; _gSrcKey = "eu_global"; }
+          else { _gSrcClass = "t0"; _gSrcKey = ""; }
+          addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, _gSrcClass, _gSrcKey);
           // AZ89 P1+P2 全球指数实时报价角标(读 intraday_snapshot.global_realtime.<id>)
           addGlobalRealtimeBadge(chart.getDom().parentElement, id, snap);
           // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
