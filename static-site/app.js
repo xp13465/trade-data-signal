@@ -1360,7 +1360,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     windowedItems = items.filter((it) => _windowDates.has(it.date));
   }
   let filtered = windowedItems;
-  if (kind === "signal" && (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)) {
+  if (kind === "signal") {
     filtered = windowedItems.filter((it) => {
       if (state.sigGradeFilter) {
         const sc = _getSignalScore(it);
@@ -1378,6 +1378,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       // 问题fix(2026-07-31): 波段减仓 signal='sell' 但 reason='波段减仓' 应归 band_sell 不进卖列表
       //   与 _sigKey(L1291)/ord(L1401)/chip CSS(L1447) 一致用 reason 判断
       const _sigKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
+      // 默认过滤 band_hold(波段持有非操作项, 首页表格不显示); 点 band_hold chip 后 sigTypeFilter='band_hold' 才显示
+      if (state.sigTypeFilter !== "band_hold" && _sigKey === "band_hold") return false;
       if (state.sigTypeFilter && _sigKey !== state.sigTypeFilter) return false;
       return true;
     });
