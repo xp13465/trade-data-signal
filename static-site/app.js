@@ -7851,27 +7851,32 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   if (lastCloseMissing) missingSuffix += '<span class="chart-latest" style="color:#ff9800">· 末日收盘价待更新(行情源延迟)</span>';
   var lastDate = last.date;
 
-  // 合计层共振信号 markPoint：≥THR 只宽基同步异动（语义：国家队共振）
-  // value 含共振只数，不依赖 hover 即可读出强度
-  // 同日多信号(≥2类)合并成1个拼色pin(分段渐变+金描边+光晕)，不再重叠遮挡
+  // 合计层信号 markPoint(方案B:所有信号日都显示pin,不按共振阈值过滤)
+  // 共振(n≥THR 多只ETF同日同步异动=国家队集体行动)=大pin金边特殊样式;
+  // 单只(n<THR 单只ETF异动)=小pin单色普通样式。用户看样式+标签判断共振
+  // value 含信号只数,不依赖 hover 即可读出强度
+  // 同日多类信号合并成1个拼色pin(分段渐变),不再重叠遮挡
   var mktMarks = [], shareMarks = [];
   var NT_SIG_COLORS = { "进": "#e6492e", "出": "#2e8b57", "量": "#ff9800" };
   series.forEach(function (d) {
     var mktY = +d.mktCap.toFixed(2);
     var shareY = +d.share.toFixed(2);
-    // 按固定顺序收集当日达标信号：进->出->量
+    // 按固定顺序收集当日所有信号:进->出->量(n≥1即收,不按THR过滤)
     var daySigs = [];
-    if (d.nSurge >= THR.surge) daySigs.push({ label: "进" + d.nSurge, color: NT_SIG_COLORS["进"] });
-    if (d.nOutflow >= THR.outflow) daySigs.push({ label: "出" + d.nOutflow, color: NT_SIG_COLORS["出"] });
-    if (d.nVolume >= THR.volume) daySigs.push({ label: "量" + d.nVolume, color: NT_SIG_COLORS["量"] });
+    if (d.nSurge >= 1) daySigs.push({ label: "进" + d.nSurge, color: NT_SIG_COLORS["进"], n: d.nSurge, thr: THR.surge });
+    if (d.nOutflow >= 1) daySigs.push({ label: "出" + d.nOutflow, color: NT_SIG_COLORS["出"], n: d.nOutflow, thr: THR.outflow });
+    if (d.nVolume >= 1) daySigs.push({ label: "量" + d.nVolume, color: NT_SIG_COLORS["量"], n: d.nVolume, thr: THR.volume });
     if (!daySigs.length) return;
-    if (daySigs.length === 1) {
-      // 单信号：保持原样(内置pin、单色、size40)
+    // 共振判断:任一类信号 n≥THR 即共振(多只ETF同日同步异动)
+    var isResonance = daySigs.some(function (s) { return s.n >= s.thr; });
+    if (isResonance && daySigs.length === 1) {
+      // 单类共振:大pin金边单色(size40,金边强调共振特殊样式)
       var sig = daySigs[0];
-      mktMarks.push({ coord: [d.date, mktY], value: sig.label, itemStyle: { color: sig.color }, label: { color: _autoLabelColor(sig.color) } });
-      shareMarks.push({ coord: [d.date, shareY], value: sig.label, itemStyle: { color: sig.color }, label: { color: _autoLabelColor(sig.color) } });
-    } else {
-      // 多信号：合并成1个拼色pin(分段渐变+金描边+光晕,size52)
+      var resStyle = { color: sig.color, borderColor: "#ffd700", borderWidth: 2, shadowBlur: 6, shadowColor: "rgba(255,215,0,0.5)" };
+      mktMarks.push({ coord: [d.date, mktY], value: sig.label, symbolSize: 40, itemStyle: resStyle, label: { color: _autoLabelColor(sig.color) } });
+      shareMarks.push({ coord: [d.date, shareY], value: sig.label, symbolSize: 40, itemStyle: resStyle, label: { color: _autoLabelColor(sig.color) } });
+    } else if (isResonance) {
+      // 多类共振:拼色金边大pin(size64,原多信号样式)
       var valStr = daySigs.map(function (s) { return s.label; }).join("+");
       var segColors = daySigs.map(function (s) { return s.color; });
       var multiStyle = {
@@ -7885,6 +7890,20 @@ function renderNationalTeamTotalPanel(container, data, snap) {
       var multiLabel = { fontSize: 11, color: "#fff", formatter: lblFmt, lineHeight: 13 };
       mktMarks.push({ coord: [d.date, mktY], value: valStr, symbolSize: 64, label: multiLabel, itemStyle: multiStyle });
       shareMarks.push({ coord: [d.date, shareY], value: valStr, symbolSize: 64, label: multiLabel, itemStyle: multiStyle });
+    } else if (daySigs.length === 1) {
+      // 单只单类:小pin单色(size28,无金边,弱信号普通样式)
+      var sig = daySigs[0];
+      mktMarks.push({ coord: [d.date, mktY], value: sig.label, symbolSize: 28, itemStyle: { color: sig.color }, label: { color: _autoLabelColor(sig.color), fontSize: 10 } });
+      shareMarks.push({ coord: [d.date, shareY], value: sig.label, symbolSize: 28, itemStyle: { color: sig.color }, label: { color: _autoLabelColor(sig.color), fontSize: 10 } });
+    } else {
+      // 单只多类:拼色小pin(size36,无金边,弱信号普通样式)
+      var valStr = daySigs.map(function (s) { return s.label; }).join("+");
+      var segColors = daySigs.map(function (s) { return s.color; });
+      var multiStyle = { color: _ntMultiColor(segColors), borderColor: "#666", borderWidth: 1 };
+      var lblFmt = valStr.replace(/\+/g, "\n");
+      var multiLabel = { fontSize: 10, color: "#fff", formatter: lblFmt, lineHeight: 12 };
+      mktMarks.push({ coord: [d.date, mktY], value: valStr, symbolSize: 36, label: multiLabel, itemStyle: multiStyle });
+      shareMarks.push({ coord: [d.date, shareY], value: valStr, symbolSize: 36, label: multiLabel, itemStyle: multiStyle });
     }
   });
 
@@ -7894,7 +7913,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   container.appendChild(ntGrid);
 
   // 图1：合计持仓市值趋势（份额×价合计）+ 共振信号 pin 标注
-  var c1 = mkCard("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(mktData) + missingSuffix, 320, null, ntGrid);
+  var c1 = mkCard("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=所有信号日都标注：共振(进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动=国家队集体行动)用大金边pin，单只ETF异动用小单色pin。进=红/出=绿/量=橙。") + latestSuffix(mktData) + missingSuffix, 320, null, ntGrid);
   addCardTimeBadge(c1.getDom().parentElement, lastDate, snap, "t1", "etf_date");
   c1.setOption(withTheme({
     tooltip: {
@@ -7925,7 +7944,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   }));
 
   // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）+ 共振信号 pin 标注
-  var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。pin=进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动(国家队共振)：进=红/出=绿/量=橙。") + latestSuffix(shareData) + missingSuffix, 320, null, ntGrid);
+  var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。pin=所有信号日都标注：共振(进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动=国家队集体行动)用大金边pin，单只ETF异动用小单色pin。进=红/出=绿/量=橙。") + latestSuffix(shareData) + missingSuffix, 320, null, ntGrid);
   addCardTimeBadge(c2.getDom().parentElement, lastDate, snap, "t1", "etf_date");
   c2.setOption(withTheme({
     tooltip: {
