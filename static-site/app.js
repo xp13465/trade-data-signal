@@ -7092,6 +7092,8 @@ async function renderOverview() {
       a_turnover_p90: "换手率90分位。最活跃的10%个股换手水平。",
       a_turnover_p10: "换手率10分位。最不活跃的10%个股换手水平。",
       a_turnover_gt5_pct: "换手率>5%家数占比。高=市场活跃面广。",
+      high_alert: "A股大盘高位预警分(0-100,越高越危险)。8维加权:情绪过热(max恐贪/A股情绪/跨市场)26%+位置偏高(8宽基1年分位均值)20%+卖点密集13%+汪汪队离场(ETF份额缩减)10%+量价背离/动量衰退/均线转弱/全球走弱各7-8%。≥72触发高位红条预警(回测N10下跌占比56.4%),>75警示、>88高危。综合大盘非单一指数,历史统计参考非操作建议。",
+      low_alert: "A股大盘低位机会分(0-100,越高越接近底)。8维加权:情绪冰点(100-min三情绪)20%+买点密集18%+位置偏低(100-8宽基分位)15%+汪汪队入场(ETF份额激增)15%+量能异动10%+新低极端/波指飙升/价值显现各7-8%。≥85触发低位蓝条预警(回测N10上涨占比65.7%),>75机会、>88机遇。综合大盘非单一指数,历史统计参考非操作建议。",
     };
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
@@ -10638,24 +10640,25 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
       row.innerHTML = `
         <span class="ind-metric-label">宽度</span>
         <div class="ind-metric-chart"></div>
-        <span class="ind-metric-val">涨${lastW.up_count == null ? "-" : lastW.up_count} 跌${lastW.down_count == null ? "-" : lastW.down_count}</span>`;
+        <span class="ind-metric-val" title="行业内成分股涨跌家数">涨${lastW.up_count == null ? "-" : lastW.up_count} 跌${lastW.down_count == null ? "-" : lastW.down_count}</span>`;
       metricsBox.appendChild(row);
       const wc = echarts.init(row.querySelector(".ind-metric-chart"));
       wc.setOption(withTheme({
         grid: { left: 1, right: 1, top: 1, bottom: 1 },
+        legend: { show: false },
         xAxis: { type: "category", show: false, data: widthData.map((d) => d.date) },
         yAxis: { type: "value", show: false },
         tooltip: { trigger: "axis", formatter: (p) => {
           const d = widthData[p[0].dataIndex];
           if (!d) return `${p[0].axisValue}<br/>-`;
           const wd = _indWidthExtra(id, idx, p[0].dataIndex);
-          return `${p[0].axisValue}<br/>涨${d.up_count} 跌${d.down_count} | 涨停${wd.zt_count != null ? wd.zt_count : "-"} 跌停${wd.dt_count != null ? wd.dt_count : "-"} 炸板${wd.zb_count != null ? wd.zb_count : "-"}<br/>封板率${wd.seal_rate != null ? (wd.seal_rate * 100).toFixed(0) + "%" : "-"} | 成交额${wd.amount != null ? wd.amount.toFixed(0) + "亿" : "-"}`;
+          return `${p[0].axisValue}<br/>涨${d.up_count}家(成分股上涨) 跌${d.down_count}家(成分股下跌) | 涨停${wd.zt_count != null ? wd.zt_count : "-"} 跌停${wd.dt_count != null ? wd.dt_count : "-"} 炸板${wd.zb_count != null ? wd.zb_count : "-"}<br/>封板率${wd.seal_rate != null ? (wd.seal_rate * 100).toFixed(0) + "%" : "-"} | 成交额${wd.amount != null ? wd.amount.toFixed(0) + "亿" : "-"}`;
         } },
         series: [
-          { name: "上涨", type: "line", stack: "wd", symbol: "none", smooth: true,
+          { name: "上涨", type: "line", stack: "wd", symbol: "none", smooth: true, color: "#e6492e",
             data: widthData.map((d) => [d.date, d.up_count || 0]),
             lineStyle: { color: "#e6492e", width: 0.8 }, areaStyle: { color: "#e6492e", opacity: 0.35 } },
-          { name: "下跌", type: "line", stack: "wd", symbol: "none", smooth: true,
+          { name: "下跌", type: "line", stack: "wd", symbol: "none", smooth: true, color: "#2e8b57",
             data: widthData.map((d) => [d.date, -(d.down_count || 0)]),
             lineStyle: { color: "#2e8b57", width: 0.8 }, areaStyle: { color: "#2e8b57", opacity: 0.35 } },
         ],
