@@ -101,7 +101,9 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
     // tab 切换到 lab 时按钮已 active，IIFE 的 click 会导致重复渲染竞态，跳过。
     if (b.dataset.tab === "lab" && b.classList.contains("active")) return;
     state.tab = b.dataset.tab;
-    if (state.tab === "market" && !state.subtab) state.subtab = "a-stock";
+    // market/sentiment 共享 state.subtab，切 tab 时校验：非法值回退各自默认
+    if (state.tab === "market") state.subtab = _MARKET_SUBTABS.includes(state.subtab) ? state.subtab : "a-stock";
+    else if (state.tab === "sentiment") state.subtab = _SENTIMENT_SUBTABS.includes(state.subtab) ? state.subtab : "market-temp";
     document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
     updateH5Topbar();
@@ -7780,8 +7782,6 @@ async function renderMarket() {
     ["a-stock", "A股"],
     ["hk", "港股"],
     ["global", "全球"],
-    ["futures", "期货"],
-    ["national-team", "🐶 汪汪队"],
   ];
   subtabs.forEach(([key, label]) => {
     const btn = document.createElement("button");
@@ -7807,8 +7807,6 @@ async function renderMarket() {
   if (state.subtab === "a-stock") await renderAStock(subContent);
   else if (state.subtab === "hk") await renderHK(subContent);
   else if (state.subtab === "global") await renderGlobal(subContent);
-  else if (state.subtab === "futures") await renderFutures(subContent);
-  else if (state.subtab === "national-team") await renderNationalTeam(subContent);
 }
 
 // ============ 期货机构净多空持仓（P0-5 独立入口，原仅嵌在情绪 tab） ============
@@ -9333,15 +9331,47 @@ function appendHistoryPos(container, indexId = "a_sentiment") {
 }
 
 async function renderSentiment() {
-  // 期货数据与情绪数据无依赖，用 Promise.all 并发请求；futures 失败不影响情绪图（独立 .catch）
-  const [r, futures] = await Promise.all([
-    fetchJSON(dataUrl(`sentiment-${state.range}.json`)),
-    fetchJSON("./data/futures.json").catch(() => null),
-  ]);
   content.innerHTML = "";
   renderPurposeNote(content, PURPOSE_NOTES["sentiment"]);
   content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看<b>情绪温度计</b>+冰点/过热热力图;想看指数<b>价格走势</b>-> 去<a data-goto="market" role="button" tabindex="0">【指数表现】</a></div>');
   _bindTabCrosslink(content, "market");
+  // 二级 tab 栏（市场温度/期货风向/汪汪队）
+  const subtabBar = document.createElement("div");
+  subtabBar.className = "subtab-bar";
+  const subtabs = [
+    ["market-temp", "市场温度"],
+    ["futures", "期货风向"],
+    ["national-team", "🐶 汪汪队"],
+  ];
+  subtabs.forEach(([key, label]) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.dataset.subtab = key;
+    if (state.subtab === key) btn.classList.add("active");
+    btn.onclick = () => {
+      state.subtab = key;
+      _setTabHash(state.tab); // 写 #sentiment/{subtab}，F5 刷新恢复二级 tab
+      renderSentiment(); // 重新渲染情绪 tab
+    };
+    subtabBar.appendChild(btn);
+  });
+  content.appendChild(subtabBar);
+
+  // 子内容容器
+  const subContent = document.createElement("div");
+  subContent.className = "sentiment-sub-content";
+  content.appendChild(subContent);
+  renderLoadingState(subContent);
+
+  // 根据 subtab 渲染对应内容
+  if (state.subtab === "futures") await renderFutures(subContent);
+  else if (state.subtab === "national-team") await renderNationalTeam(subContent);
+  else await renderSentimentMarketTemp(subContent); // 默认 market-temp
+}
+
+// 市场温度二级 subtab：冰点/过热热力图 + 恐贪/A股情绪分/6宽基/跨市场（原 renderSentiment 主体，期货已归 futures subtab）
+async function renderSentimentMarketTemp(container) {
+  const r = await fetchJSON(dataUrl(`sentiment-${state.range}.json`));
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
@@ -9350,12 +9380,12 @@ async function renderSentiment() {
   const snap = state.intradaySnapshot;
 
   // 冰点/过热热力图（一眼全局，放最前面）
-  renderSentimentHeatmap(r, snap);
+  renderSentimentHeatmap(r, snap, container);
 
   // 情绪图表区套 .indices-grid 3列网格(与A股/港股/全球同布局)，每张图+组成因子配对一个 grid cell
   const cardGrid = document.createElement("div");
   cardGrid.className = "indices-grid";
-  content.appendChild(cardGrid);
+  container.appendChild(cardGrid);
 
   // 恐贪指数（市场温度计）
   if (r.fear_greed && r.fear_greed.length) {
@@ -9551,12 +9581,11 @@ async function renderSentiment() {
     // 历史位置块：与细分指数/a股一致，补齐卡片高度对齐
     appendHistoryPos(chart.getDom().parentElement, "cross_market");
   }
-  // 期货机构持仓（已在上方与 sentiment 并发拉取，渲染在情绪图之后保持顺序）
-  if (futures && futures.positions && futures.positions.length) renderFuturesSection(futures, snap);
+  // 期货已归入 sentiment 二级 futures subtab（renderFutures），此处不再渲染
 }
 
 // 情绪冰点/过热热力图：X 轴=日期，Y 轴=指数名，色块=蓝(冰点≤20)/红(过热>80)/灰(中性)
-function renderSentimentHeatmap(r, snap) {
+function renderSentimentHeatmap(r, snap, container) {
   const idxNames = [
     { key: 'sentiment_sz50', label: '上证50' },
     { key: 'sentiment_hs300', label: '沪深300' },
@@ -9616,7 +9645,7 @@ function renderSentimentHeatmap(r, snap) {
   }
 
   div.innerHTML = `<h3>🔥 指数情绪冰点/过热热力图${hmSuffix}${termTip("6大宽基指数情绪分的冰点(≤20蓝)/过热(>80红)日历。蓝色密集=多指数同时恐慌(常近底);红色密集=同时亢奋(常近顶)。作逆向参考。")}</h3><div class="chart" style="height:220px"></div>`;
-  content.appendChild(div);
+  container.appendChild(div);
   const c = echarts.init(div.querySelector(".chart"));
   charts.push(c);
   // 热力图为单一大卡容器，右上角加盘中角标（日期取最新一日）
@@ -13656,10 +13685,12 @@ initUpdateRules();
 // 大盘 tab 的二级 tab 也写进 hash：#market/{subtab}（如 #market/national-team=汪汪队），
 // F5 刷新解析恢复二级 tab，避免刷新回退到默认 a 股。
 const _MAIN_TABS = ["overview", "market", "sentiment", "industry", "etf"];
-const _MARKET_SUBTABS = ["a-stock", "hk", "global", "futures", "national-team"];
+const _MARKET_SUBTABS = ["a-stock", "hk", "global"];
+const _SENTIMENT_SUBTABS = ["market-temp", "futures", "national-team"];
 function _setTabHash(tab) {
   let h = "#" + tab;
   if (tab === "market" && state.subtab) h = "#market/" + state.subtab;
+  if (tab === "sentiment" && state.subtab) h = "#sentiment/" + state.subtab;
   if (location.hash === h) return;
   try { history.replaceState(null, "", location.pathname + location.search + h); } catch (e) {}
 }
@@ -13692,6 +13723,10 @@ window.addEventListener("scroll", () => {
     // 解析二级 tab，非法/缺失回退 a 股
     const sub = parts[1];
     state.subtab = _MARKET_SUBTABS.includes(sub) ? sub : "a-stock";
+  } else if (tab === "sentiment") {
+    // 解析二级 tab，非法/缺失回退市场温度
+    const sub = parts[1];
+    state.subtab = _SENTIMENT_SUBTABS.includes(sub) ? sub : "market-temp";
   }
   document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
   const btn = document.querySelector(`button[data-tab="${tab}"]`);
