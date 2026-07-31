@@ -6167,12 +6167,10 @@ function _handleNotifyClick(action) {
       flash(document.querySelector('.sig-card'));
       break;
     case 'OPEN_POST_CLOSE':
-      if (typeof openNtDayModal === 'function') {
-        const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        openNtDayModal(today);
-      } else {
-        flash(document.querySelector('.sig-card'));
-      }
+      // 收盘速递通知的 11 个信号是 A股/指数买卖点，应跳信号卡片区让用户看完整列表
+      // （而非 openNtDayModal 弹汪汪队 ETF 信号明细 modal，那是 OPEN_ETF_DETAIL 的语义）
+      // 与 OPEN_SIGNAL_DETAIL 一致：flash(.sig-card) 滚动+高亮信号卡
+      flash(document.querySelector('.sig-card'));
       break;
     case 'OPEN_ETF_DETAIL':
       // ETF 国家队信号通知点击：弹当日汪汪队信号明细 modal（依赖首页 _ntRecentDaily 缓存）
