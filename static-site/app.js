@@ -5387,6 +5387,9 @@ let _inOverviewRefresh = false;     // _doOverviewRefresh 幂等锁, 防visibili
 let _refreshDebugEl = null;         // debug状态条DOM引用
 let _refreshDebugTimer = null;      // debug状态条1秒更新定时器
 let _marketOpenCheckTimer = null;   // 收盘态周期检测开盘定时器(盘前/收盘后自动启动轮询用)
+let _marketOpenCheckActive = false; // _startMarketOpenCheck 是否已启动(页面全程true, 供visibilitychange监听判活)
+let _marketOpenCheckNextFireAt = 0; // 下次开盘检测timer fire的预估时刻(ms), 用于debug bar盘前显示倒计时
+let _checkMarketOpenNow = null;     // 暴露_startMarketOpenCheck内tick, 供_onOverviewVisChange切回前台立即补偿调用
 
 // 解析 overview.json 的 collected_at("20260727 13:05:05") 为 ms 时间戳; 兜底尝试 ISO 等标准格式
 function _parseCollectAt(s) {
@@ -5525,7 +5528,12 @@ function _onOverviewVisChange() {
     return;
   }
   // visible: 回到前台
-  if (!_overviewRefreshActive) return; // 收盘已停不触发
+  if (!_overviewRefreshActive) {
+    // 盘前/收盘态未启动自适应轮询: 仍补偿一次开盘检测,
+    // 让用户切回前台能立即看到 9:25 竞价完成切换(不等 _startMarketOpenCheck 的 setTimeout 15s/3min)
+    _checkMarketOpenNow && _checkMarketOpenNow();
+    return;
+  }
   const now = Date.now();
   const gap = now - _lastVisibleAt;
   // 后台太久(gap>5min)历史collected_at过期, 中位数预测会偏, 清空重攒
@@ -5580,7 +5588,13 @@ function _updateRefreshDebug() {
   // 状态判断
   let status;
   if (!_overviewRefreshActive) {
-    status = '已停止(收盘)';
+    // 未启动自适应轮询: 区分盘前(9:10-9:35, _startMarketOpenCheck在15s快检测)+真收盘
+    const m = _bjTimeMin();
+    if (m >= 9*60+10 && m <= 9*60+35) {
+      status = '⏱ 开盘检测中'; // 盘前竞价时段, 15s快检测等9:25竞价完成切换
+    } else {
+      status = '已停止(收盘)';
+    }
   } else if (_overviewHighFreqStart && now >= _overviewHighFreqStart && now < _overviewHighFreqEnd) {
     status = '高频追新';
   } else if (_overviewHighFreqStart && now < _overviewHighFreqStart) {
@@ -5594,6 +5608,9 @@ function _updateRefreshDebug() {
     countdown = Math.ceil((_overviewNextFireAt - now) / 1000) + 's';
   } else if (_overviewRefreshActive) {
     countdown = '0s';
+  } else if (_marketOpenCheckNextFireAt > now) {
+    // 盘前/收盘态未启动轮询: 显示距下次开盘检测的倒计时(15s快检测或3min)
+    countdown = Math.ceil((_marketOpenCheckNextFireAt - now) / 1000) + 's';
   } else {
     countdown = '--';
   }
@@ -5615,13 +5632,14 @@ function _updateRefreshDebug() {
 }
 
 const MARKET_OPEN_CHECK_MS = 3 * 60 * 1000;          // 收盘态每3min检测一次市场是否开盘
-const MARKET_OPEN_CHECK_PREOPEN_MS = 60 * 1000;       // 盘前竞价时段(9:10-9:35)60s检测(原3min延迟追不上9:25竞价完成/9:30开盘切换)
+const MARKET_OPEN_CHECK_PREOPEN_MS = 15 * 1000;       // 盘前竞价时段(9:10-9:35)15s检测(2026-07-20改: 原60s延迟追不上9:25竞价完成/9:30开盘切换, 切回前台visibilitychange补偿+15s快检测双保险)
 
 // 收盘态周期检测市场是否开盘: 重新fetch intraday_snapshot, 若is_closed===false则
 // fetchIntradaySnapshot内回调自动触发_startOverviewRefresh(启动轮询+debug状态条).
 // 解决: 盘前打开页面(is_closed=true) -> 轮询不启动 -> debug状态条不出现 -> 开盘后无机制自动启动.
-// 递归setTimeout(非setInterval): 9:10-9:35盘前竞价时段60s检测, 其他时段3min.
+// 递归setTimeout(非setInterval): 9:10-9:35盘前竞价时段15s检测, 其他时段3min.
 // 幂等: 已有timer则跳过; 盘中_overviewRefreshActive=true时跳过请求但仍重排下次(保留检测收盘后重新开盘能力).
+// visibilitychange: 切回前台立即补一次tick(补偿后台setTimeout被throttle, 不等15s/3min).
 // 清理: 无_stopMarketOpenCheck(timer生命周期=页面全程); 若需停 clearTimeout(_marketOpenCheckTimer).
 function _startMarketOpenCheck() {
   if (_marketOpenCheckTimer) return; // 幂等防重复
@@ -5640,9 +5658,22 @@ function _startMarketOpenCheck() {
       _updateRefreshDebug(); // 刷新debug状态条(显示最新状态)
     }
     // 递归调度下一次(盘中也重排: 保留检测收盘后重新开盘的能力)
-    _marketOpenCheckTimer = setTimeout(tick, _preOpenDelay());
+    const delay = _preOpenDelay();
+    _marketOpenCheckNextFireAt = Date.now() + delay; // 记录下次fire预估时刻, debug bar盘前显示倒计时
+    _marketOpenCheckTimer = setTimeout(tick, delay);
   };
-  _marketOpenCheckTimer = setTimeout(tick, _preOpenDelay());
+  _checkMarketOpenNow = tick; // 暴露给 _onOverviewVisChange 切回前台立即补偿调用
+  _marketOpenCheckActive = true;
+  // 切回前台立即触发一次开盘检测(不等 setTimeout, 补偿后台标签页被throttle/pause).
+  // 幂等: tick内先清_marketOpenCheckTimer防与已排timer并发; fetchIntradaySnapshot单例锁防双fetch.
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden && _marketOpenCheckActive) {
+      tick(); // 立即检测一次
+    }
+  });
+  const initDelay = _preOpenDelay();
+  _marketOpenCheckNextFireAt = Date.now() + initDelay;
+  _marketOpenCheckTimer = setTimeout(tick, initDelay);
 }
 
 // 页面加载后初始化自动刷新: 等snap就绪判断盘中后启动overview轮询
