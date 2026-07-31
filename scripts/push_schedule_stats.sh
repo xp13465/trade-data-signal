@@ -54,6 +54,11 @@ echo "源文件：$SRC ($(stat -f '%z' "$SRC") bytes, mtime $(stat -f '%Sm' "$SR
 # 用环境变量传 commit message，避免 bash -c 引号转义问题（参考 intraday_snapshot.sh L127-128）
 COMMIT_MSG="data update [schedule_stats] $(date +%Y-%m-%d_%H:%M)"
 export SCHEDULE_COMMIT_MSG="$COMMIT_MSG"
+# ALERT_TIME 在 bash -c 外层预算：bash -c '...' 单引号字符串内不能用单引号
+# （$(date '+%m-%d %H:%M') 的单引号会破坏外层定界，致 git push 步骤不执行。
+# 2026-07-31 事故根因，与 intraday_snapshot.sh 同类修复）。
+ALERT_TIME=$(date '+%m-%d %H:%M')
+export ALERT_TIME
 echo "-> commit + push schedule_stats.json 到 main（独立 worktree，持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "$LOG"
 # 预初始化 PUSH_RC=0（防 set -u 下 bash -c 异常退出后外层引用未赋值 PUSH_RC 致 unbound 噪声）
 PUSH_RC=0
@@ -147,7 +152,7 @@ PUSH_RC=0
   if [ "$PUSH_RC" -ne 0 ]; then
     echo "✗ git push origin HEAD:main 失败（rebase 重试后仍失败），发告警邮件 + 写 alerts/latest.md" | tee -a "$LOG"
     "$PY" "$REPO/scripts/notify.py" \
-      "[告警] schedule_stats push失败(非ff) $(date '+%m-%d %H:%M')" \
+      "[告警] schedule_stats push失败(非ff) ${ALERT_TIME}" \
       "push_schedule_stats 推 main 失败，rebase 重试后仍失败。线上 schedule_stats.json 滞后上一轮时点，需手动修复。<br>排查：cd $GIT_REPO && git fetch origin && git log --oneline -5 origin/main 看并发推的 commit；本地 worktree commit 已随 worktree 清理丢失，重跑 bash scripts/push_schedule_stats.sh 即可。<br>日志：$LOG" \
       --severe \
       --from-prefix "[告警]" \
