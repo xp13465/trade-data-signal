@@ -5,9 +5,10 @@
 //   3. 其他逻辑（render/ruleBar/signalColor/initBackToTop/initStickyOffset）保持功能一致
 //   4. 手动补录入口已移除（与动态版一致）
 
-// BUG-E：交互增强状态——indexFilter（A 股/港股 指数筛选）/ industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
+// BUG-E：交互增强状态--industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
+// 注：原 indexFilter（A 股/港股 指数筛选 select）已重构为目录锚点 chip(2026-07-20), 始终全部渲染, 点击 chip 跳转吸顶, 不再需要筛选状态
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", indexFilter: "all", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15" };
+const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15" };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -114,6 +115,8 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
 
 function clearCharts() {
   _stopIntradayRefresh();
+  // 切 tab 时 disconnect 所有指数目录锚点 scroll spy, 避免 observer 累积泄漏
+  disconnectAllIndexNavSpies();
   charts.forEach((c) => c && c.dispose());
   charts.length = 0;
   content.innerHTML = "";
@@ -3033,9 +3036,9 @@ function setupOneRowToggle(grid, items, moreTextFn, defaultExpanded = false) {
   return { dispose: () => { clearTimeout(roT); clearTimeout(rsizeT); } };
 }
 
-// ============ BUG-E：交互增强（指数/行业筛选 + 热力图切换）============
-// 纯前端筛选，不影响后端数据。指数筛选条放指数折线区前（紧挨被筛选内容），筛选时局部刷新：
-// 只重渲染指数区（filter bar + 指数折线），不调 renderTab、不 refetch（signals 缓存在闭包内）。
+// ============ BUG-E：交互增强（行业筛选 + 热力图切换 + 指数目录锚点）============
+// 纯前端筛选/锚点，不影响后端数据。指数目录锚点条放指数折线区前(吸顶), 点击 chip 平滑滚动到对应卡片:
+// 始终全部渲染指数(不再单指数筛选), scroll spy 高亮当前可见卡对应 chip, 切 tab disconnect observer。
 // sectionCharts 同步 push 全局 charts（供 window resize），dispose 时从 charts 移除，避免悬空引用。
 // fetcher(id, idx) 返回 { signals, stats }；动态版按 range 走 API，静态版读 all.json 前端过滤。
 // === C7 P4 market 融合:market tab 指数卡接入分数卡 + 深度拆解 modal ===
@@ -3201,7 +3204,7 @@ function closeIndexAnalyzeModal() {
   document.body.style.overflow = "";
 }
 
-function renderIndicesSection(container, indices, fetcher, foldOneRow) {
+function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGroups, anchorBarRef) {
   const entries = Object.entries(indices || {});
   if (!entries.length) return Promise.resolve();
 
@@ -3295,24 +3298,20 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
     pinReviewContainer.className = "pin-review-section";
     pinReviewContainer.style.display = "none";  // 无 pinned 时隐藏
     container.appendChild(pinReviewContainer);
-    // 当前 tab 不含已选 id 时回退"全部"（防跨 tab 状态残留导致空渲染）
-    const filterId = state.indexFilter !== "all" && entries.some(([id]) => id === state.indexFilter) ? state.indexFilter : "all";
-    const bar = document.createElement("div");
-    bar.className = "filter-bar";
-    bar.innerHTML = `<label>指数筛选：</label>`;
-    const sel = document.createElement("select");
-    sel.innerHTML = `<option value="all"${filterId === "all" ? " selected" : ""}>全部指数（${entries.length}）</option>` +
-      entries.map(([id, idx]) => `<option value="${id}"${filterId === id ? " selected" : ""}>${idx.name}</option>`).join("");
-    sel.onchange = async () => {
-      state.indexFilter = sel.value;
-      await doRender(); // 局部刷新：只重渲染指数区，不调 renderTab、不 refetch
-    };
-    bar.appendChild(sel);
-    container.appendChild(bar);
+    // 指数目录锚点(吸顶 + chip 点击跳转 + scroll spy); 复用 .industry-anchor-bar CSS
+    // 默认组"主指数": 本 section 全部 entries; caller 可通过 extraGroups 追加(港股板块8 chip)
+    // 切 tab 时 clearCharts -> disconnectAllIndexNavSpies 统一 disconnect
+    const anchorGroups = [{
+      label: "主指数",
+      items: entries.map(([id, idx]) => ({ key: id, name: idx.name, targetId: "idx-card-" + id }))
+    }];
+    if (extraGroups && extraGroups.length) anchorGroups.push(...extraGroups);
+    const anchorBar = buildIndexAnchorBar(anchorGroups, "指数切换");
+    if (anchorBarRef) anchorBarRef.bar = anchorBar;  // 暴露给 caller(renderHK observe 板块 cell 用)
+    container.appendChild(anchorBar);
     // 6色信号图例（4色买点+卖绿+追止损蓝）+ 备买风险提示（2026-07-21 阶段4）
     container.insertAdjacentHTML("beforeend", _signalLegendHtml());
-    // 改动4（2026-07-23）：筛选切换时先显示 loading 占位，避免数据加载期间空白；
-    // renderOne 首次成功渲染时移除占位；若最终没有任何 chart-card 渲染出来则替换为"该筛选暂无数据"。
+    // 渲染期间显示 loading 占位；renderOne 首次成功渲染时移除占位；若最终没有任何 chart-card 渲染则替换为"暂无数据"。
     const chartLoadingEl = document.createElement("div");
     chartLoadingEl.className = "loading loading--active index-filter-loading";
     chartLoadingEl.innerHTML = `<span class="loading__spinner"></span><span class="loading__text">加载指数数据中…</span>`;
@@ -3328,41 +3327,26 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
         const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
         const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
-        addCardTimeBadge(c.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot, "t0");
+        const cardEl = c.getDom().parentElement;
+        // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
+        cardEl.id = "idx-card-" + id;
+        anchorBar._observeIndexCard(cardEl);
+        addCardTimeBadge(cardEl, idx.data.length ? idx.data[idx.data.length - 1].date : "", state.intradaySnapshot, "t0");
         // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
-        _appendStrategyHint(c.getDom().parentElement, id, idx.strategy);
+        _appendStrategyHint(cardEl, id, idx.strategy);
         // P2-新-G ETF 联动推荐：h3 末尾追加 ETF tag（buy 信号触发时加 .etf-tag-buy-signal 高亮）
-        _appendEtfLinkTag(c.getDom().parentElement, id, idx.etfs, sig.signals);
+        _appendEtfLinkTag(cardEl, id, idx.etfs, sig.signals);
         // 备买 chip 三档（2026-07-23）：标题下换行单独一行展示，h3 之后插入独立 chip-row 容器（异步 fetch+patch）
-        _appendBackupChipRow(c.getDom().parentElement, id);
+        _appendBackupChipRow(cardEl, id);
         // C7 P4 market 融合:图表卡下 append 紧凑分数卡(白名单 iid 才显示)
-        _attachMarketScoreCard(id, idx.name, c.getDom().parentElement);
+        _attachMarketScoreCard(id, idx.name, cardEl);
         // A5 真 pin 复盘：h3 末尾追加 📌 按钮（钉住该指数，顶部显示专属复盘面板）
-        _appendPinBtn(c.getDom().parentElement, id, idx, sig);
+        _appendPinBtn(cardEl, id, idx, sig);
         // A12 订阅推送：h3 末尾追加 🔔 按钮（订阅该指数信号，推送邮件+Telegram）
-        _appendSubscribeBtn(c.getDom().parentElement, id, idx.name);
+        _appendSubscribeBtn(cardEl, id, idx.name);
       }
     }
-    // 选了单个指数：只渲染该指数，不折叠
-    if (filterId !== "all") {
-      // P0-2: 并发预取选中指数填充 signalsCache，再按原顺序渲染（命中 cache 不再发请求）
-      await Promise.all(entries.map(([id, idx]) =>
-        id !== filterId || signalsCache[id] ? Promise.resolve() : fetcher(id, idx).then((s) => { signalsCache[id] = s; })
-      ));
-      for (const [id, idx] of entries) {
-        if (id !== filterId) continue; // 未选指数跳过渲染
-        await renderOne(id, idx, container);
-      }
-      // 改动4：若 loading 占位仍在说明没有任何 chart-card 渲染（如 idx.data 空），替换为 empty state
-      if (chartLoadingEl.parentNode) {
-        chartLoadingEl.className = "trade-sim-empty";
-        chartLoadingEl.innerHTML = "📊 该筛选暂无数据";
-      }
-      // A5: 渲染 pin 复盘面板（signalsCache 已填充，异步补 cache miss）
-      _renderPinReview();
-      return;
-    }
-    // "全部"模式：A股/港股(foldOneRow=true)全部指数直接铺入 .indices-grid 网格(不折叠，无"更多指数"按钮)。
+    // A股/港股(foldOneRow=true)全部指数直接铺入 .indices-grid 网格(不折叠，无"更多指数"按钮)。
     let parent = container;
     if (foldOneRow) {
       const cardGrid = document.createElement("div");
@@ -3380,7 +3364,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow) {
     // 改动4：若 loading 占位仍在（如所有 idx.data 空），替换为 empty state
     if (chartLoadingEl.parentNode) {
       chartLoadingEl.className = "trade-sim-empty";
-      chartLoadingEl.innerHTML = "📊 该筛选暂无数据";
+      chartLoadingEl.innerHTML = "📊 暂无指数数据";
     }
     // A5: 渲染 pin 复盘面板（signalsCache 已填充，异步补 cache miss）
     _renderPinReview();
@@ -9044,16 +9028,23 @@ async function renderHK(container = content) {
     if (chart) addCardTimeBadge(chart.getDom().parentElement, hks.length ? hks[hks.length - 1].date : "", snap, "t1", "hk_south");
   }
   const indices = _injectHkSnapshot(r.indices, snap);
-  // 指数折线区：筛选条移到本区前，筛选时局部刷新
+  // 指数折线区：目录锚点(主指数3 + 板块8 分两组, 共 11 项 chip)
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
   container.appendChild(indicesSection);
+  // 板块8 chip 跳转 industry-cell-<iid>(renderIndustryGrid 内 cell.id = 'industry-cell-'+id)
+  const hkIndEntries = Object.entries(r.hk_industries || {});
+  const extraGroups = hkIndEntries.length ? [{
+    label: "板块",
+    items: hkIndEntries.map(([id, idx]) => ({ key: id, name: idx.name, targetId: "industry-cell-" + id }))
+  }] : [];
+  const anchorBarRef = {};
   await renderIndicesSection(indicesSection, indices, async (id, idx) => {
     const raw = await fetchJSON(`https://ssd.fx8.store/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
-  }, true);
+  }, true, extraGroups, anchorBarRef);
   // 港股板块指数（复用 renderIndustryGrid，与 A 股行业网格一致）
-  if (r.hk_industries && Object.keys(r.hk_industries).length) {
+  if (hkIndEntries.length) {
     const hkIndWrap = document.createElement("div");
     hkIndWrap.className = "sw-grid-wrap";
     container.appendChild(hkIndWrap);
@@ -9062,6 +9053,13 @@ async function renderHK(container = content) {
     hdr.textContent = "港股板块指数";
     hkIndWrap.appendChild(hdr);
     renderIndustryGrid(r.hk_industries, hkIndWrap);
+    // 板块8 cell 渲染完后, 注册到 anchorBar scroll spy(chip 高亮当前可见板块 cell)
+    if (anchorBarRef.bar) {
+      hkIndEntries.forEach(([id]) => {
+        const cell = document.getElementById("industry-cell-" + id);
+        if (cell) anchorBarRef.bar._observeIndexCard(cell);
+      });
+    }
   }
 }
 
@@ -9135,6 +9133,45 @@ async function renderGlobal(container = content) {
   // 纳斯达克/黄金等同处一个 grid 流，PC 宽屏按 3 列顺序排列(避免指数区与 extras 区分两个 grid 致不在一行)
   // 美股期货预期提示条（亚盘实时，放网格上方，美股指数区旁）
   _renderUSFuturesExpect(snap, container);
+  // extras 指标定义(11 项, 提前到锚点条之前以便构造 chip 列表)
+  const extras = {
+    gold: "黄金（元/克）",
+    oil: "原油（元/桶）",
+    wti_oil: "WTI原油（美元/桶）",
+    comex_silver: "COMEX白银（美元/盎司）",
+    usdcnh: "离岸人民币",
+    a_qvix_300: "中国波指300",
+    a_qvix_1000: "中国波指(50ETF期权)",
+    cn10y: "中国10年国债收益率（%）",
+    us10y: "美国10年国债收益率（%）",
+    cn_us_spread: "中美利差(10Y)（%）",
+    brent: "布伦特原油（美元/桶）",
+  };
+  // 全球指数目录锚点: 指数12 + 指标11 共 23 项分两组, 吸顶 + chip 跳转 + scroll spy
+  // 切 tab 时 clearCharts -> disconnectAllIndexNavSpies 统一 disconnect
+  const _GLOBAL_EXTRAS_CHIP_NAME = {
+    gold: "黄金", oil: "原油", wti_oil: "WTI", comex_silver: "白银",
+    usdcnh: "离岸人民币", a_qvix_300: "波指300", a_qvix_1000: "波指50ETF",
+    cn10y: "中10年国债", us10y: "美10年国债", cn_us_spread: "中美利差", brent: "布油",
+  };
+  const _globalAnchorGroups = [];
+  if (idxEntries.length) {
+    _globalAnchorGroups.push({
+      label: "指数",
+      items: idxEntries.map(([id, idx]) => ({
+        key: id,
+        name: (_INDEX_NAME_MAP && _INDEX_NAME_MAP[id]) ? _INDEX_NAME_MAP[id] : idx.name,
+        targetId: "idx-card-" + id,
+      })),
+    });
+  }
+  // 指标 11 项(全列, 无 data 的 chip 点击静默失败)
+  _globalAnchorGroups.push({
+    label: "指标",
+    items: Object.keys(extras).map(id => ({ key: id, name: _GLOBAL_EXTRAS_CHIP_NAME[id] || extras[id], targetId: "idx-card-" + id })),
+  });
+  const globalAnchorBar = buildIndexAnchorBar(_globalAnchorGroups, "全球指数目录");
+  container.appendChild(globalAnchorBar);
   const cardGrid = document.createElement("div");
   cardGrid.className = "indices-grid";
   container.appendChild(cardGrid);
@@ -9157,6 +9194,10 @@ async function renderGlobal(container = content) {
         const idxName = (_INDEX_NAME_MAP && _INDEX_NAME_MAP[id]) ? _INDEX_NAME_MAP[id] : idx.name;
         const chart = indexChart(idxName, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
         if (chart) {
+          const cardEl = chart.getDom().parentElement;
+          // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
+          cardEl.id = "idx-card-" + id;
+          globalAnchorBar._observeIndexCard(cardEl);
           // 全球指数 T+1/T+0 分类(2026-07-31 修正德法角标红色异常,三重根因根治):
           //   欧洲(dax/cac40/ftse100): T+1, 欧洲盘收盘北京23:30 OHLC次日采, 走 t1 + eu_global(02:00 backfill)
           //   亚洲(nikkei225/kospi/asx200/sensex): T+0, 与A股同时区盘中实时, 走 t0
@@ -9167,30 +9208,17 @@ async function renderGlobal(container = content) {
           if (id && id.startsWith("us_")) { _gSrcClass = "t1"; _gSrcKey = "us_dji_date"; }
           else if (_EU_GLOBAL_IDS.has(id)) { _gSrcClass = "t1"; _gSrcKey = "eu_global"; }
           else { _gSrcClass = "t0"; _gSrcKey = ""; }
-          addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, _gSrcClass, _gSrcKey);
+          addCardTimeBadge(cardEl, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, _gSrcClass, _gSrcKey);
           // AZ89 P1+P2 全球指数实时报价角标(读 intraday_snapshot.global_realtime.<id>)
-          addGlobalRealtimeBadge(chart.getDom().parentElement, id, snap);
+          addGlobalRealtimeBadge(cardEl, id, snap);
           // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
-          _appendStrategyHint(chart.getDom().parentElement, id, idx.strategy);
+          _appendStrategyHint(cardEl, id, idx.strategy);
           // C7 P4 market 融合:全球指数卡下 append 紧凑分数卡
-          _attachMarketScoreCard(id, idxName, chart.getDom().parentElement);
+          _attachMarketScoreCard(id, idxName, cardEl);
         }
       }
     });
   }
-  const extras = {
-    gold: "黄金（元/克）",
-    oil: "原油（元/桶）",
-    wti_oil: "WTI原油（美元/桶）",
-    comex_silver: "COMEX白银（美元/盎司）",
-    usdcnh: "离岸人民币",
-    a_qvix_300: "中国波指300",
-    a_qvix_1000: "中国波指(50ETF期权)",
-    cn10y: "中国10年国债收益率（%）",
-    us10y: "美国10年国债收益率（%）",
-    cn_us_spread: "中美利差(10Y)（%）",
-    brent: "布伦特原油（美元/桶）",
-  };
   const extrasSignals = r.extras_signals || {};
   const extrasStats = r.extras_stats || {};
   const extrasStrategy = r.extras_strategy || {};
@@ -9206,8 +9234,12 @@ async function renderGlobal(container = content) {
     if (data.length) {
       const chart = valueChartWithSignals(name + (extrasTermTips[id] ? termTip(extrasTermTips[id]) : "") + latestSuffixPct(data), data, extrasSignals[id] || [], {}, extrasStats[id], extrasStrategy[id], id, cardGrid);
       if (chart) {
+        const cardEl = chart.getDom().parentElement;
+        // 目录锚点跳转目标 id + scroll spy observe
+        cardEl.id = "idx-card-" + id;
+        globalAnchorBar._observeIndexCard(cardEl);
         const lastDate = data.length ? data[data.length - 1].date : "";
-        if (dataStaleDays(lastDate) > STALE_DAYS) addStaleMark(chart.getDom().parentElement, lastDate);
+        if (dataStaleDays(lastDate) > STALE_DAYS) addStaleMark(cardEl, lastDate);
         else {
           // usdcnh=离岸人民币实时(T+0);
           // 2026-07-29 T+1治理: A组6商品(gold/oil/wti_oil/comex_silver/brent)采集侧改新浪/腾讯实时源变T+0,走t0分支(无T1角标)
@@ -9218,10 +9250,10 @@ async function renderGlobal(container = content) {
           const _T0_EXTRAS = new Set(["usdcnh", "gold", "oil", "wti_oil", "comex_silver", "brent"]);
           const _t0Extra = _T0_EXTRAS.has(id);
           const _srcKey = _t0Extra ? "" : ({ us10y: "cn10y", cn_us_spread: "cn10y", a_qvix_1000: "a_qvix_300" }[id] || id);
-          addCardTimeBadge(chart.getDom().parentElement, lastDate, snap, _t0Extra ? "t0" : "t1", _srcKey);
+          addCardTimeBadge(cardEl, lastDate, snap, _t0Extra ? "t0" : "t1", _srcKey);
         }
         // 标题❓策略弹窗（2026-07-20 方案B1）：global 指标卡 h3 末尾追加❓（如 usdcnh skip买/cn_us_spread skip卖/usdcnh 2σ 去趋势 等 per-index 差异化策略）
-        _appendStrategyHint(chart.getDom().parentElement, id, extrasStrategy[id]);
+        _appendStrategyHint(cardEl, id, extrasStrategy[id]);
       }
     }
   }
@@ -10485,6 +10517,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const cell = document.createElement("div");
     cell.className = "spark-cell industry-cell";
     cell.dataset.iid = id; // A9: 供轮动频次 Top N chip 点击滚动定位
+    cell.id = "industry-cell-" + id; // 指数目录锚点跳转目标(港股板块 chip / 行业 chip 跳转用)
     const sign = up ? "+" : "";
     const hint = statsHint(idx.stats, idx.strategy, id);
     // A9: 板块轮动频次标记（fund_flow 方向反转次数，高频🔥🔥/中频🔥）
@@ -10800,6 +10833,66 @@ async function _loadIndustryData(range) {
 let _industryCache = { range: null, r: null };
 // I3：行业锚点 scrollspy observer（切 tab 时 disconnect 旧实例避免泄漏）
 let _industryScrollSpy = null;
+// 指数目录锚点(A股/港股/全球) scroll spy 列表: 切 tab 时统一 disconnect, 避免泄漏
+// 每项是一个 IntersectionObserver 实例, buildIndexAnchorBar 内 push, clearCharts 内统一 disconnect
+let _indexNavSpies = [];
+
+// 构建指数目录锚点条(吸顶 + chip 点击跳转 + scroll spy 高亮当前可见卡)
+// groups: [{ label, items: [{key, name, targetId}] }]
+//   targetId: 卡片 element 的 id 字符串(如 'idx-card-sh' / 'industry-cell-hk_cesg10')
+//   caller 负责给卡片加对应 id, 并在卡片渲染完后调用 anchorBar._observeIndexCard(el) 注册 spy
+// barLabel: 可选, 锚点条开头小标签(如"指数切换："), 不传则无
+// 复用 .industry-anchor-bar CSS(sticky 吸顶 + 按钮样式), 加 .anchor-sep 分组分隔
+function buildIndexAnchorBar(groups, barLabel) {
+  const anchorBar = document.createElement("div");
+  anchorBar.className = "industry-anchor-bar";
+  const parts = [];
+  if (barLabel) parts.push(`<span class="anchor-label">${barLabel}：</span>`);
+  groups.forEach((g, gi) => {
+    if (gi > 0) parts.push('<span class="anchor-sep" aria-hidden="true"></span>');
+    parts.push('<div class="anchor-btn-group">');
+    g.items.forEach(it => {
+      parts.push(`<button type="button" data-idx-target="${it.targetId}" title="${it.name}">${it.name}</button>`);
+    });
+    parts.push('</div>');
+  });
+  anchorBar.innerHTML = parts.join("");
+  // chip 点击: 平滑滚动到目标卡片
+  anchorBar.querySelectorAll("button[data-idx-target]").forEach(btn => {
+    btn.onclick = () => {
+      const targetId = btn.dataset.idxTarget;
+      const tryScroll = () => {
+        const el = document.getElementById(targetId);
+        if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); return true; }
+        return false;
+      };
+      // 卡片可能尚未渲染完(fetch 异步), 下一帧重试一次
+      if (!tryScroll()) requestAnimationFrame(tryScroll);
+      anchorBar.querySelectorAll("button[data-idx-target]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    };
+  });
+  // scroll spy: 当前可见卡片对应 chip 高亮(rootMargin 让"距视口顶部 15%~30%"区段算可见)
+  const spy = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const tid = entry.target.id;
+        anchorBar.querySelectorAll("button[data-idx-target]").forEach(b => {
+          b.classList.toggle("active", b.dataset.idxTarget === tid);
+        });
+      }
+    });
+  }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
+  // 暴露 observe 方法给 caller, 卡片渲染完后调用
+  anchorBar._observeIndexCard = (el) => { if (el) spy.observe(el); };
+  _indexNavSpies.push(spy);
+  return anchorBar;
+}
+// 切 tab 时统一 disconnect 所有指数目录锚点 scroll spy(renderTab->clearCharts 调用)
+function disconnectAllIndexNavSpies() {
+  _indexNavSpies.forEach(s => { try { s.disconnect(); } catch (e) {} });
+  _indexNavSpies = [];
+}
 
 // 释放指定容器内 ECharts 实例并从全局 charts 移除（搜索重渲染前清理）
 function _disposeContainerCharts(container) {

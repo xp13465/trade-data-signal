@@ -346,6 +346,8 @@ main { padding: 16px 24px; }
   box-shadow: 0 1px 3px var(--shadow);
   position: relative;
   min-width: 0;
+  /* 目录锚点跳转时避开吸顶条(tab 栏 + anchor-bar 叠加高度)留白 */
+  scroll-margin-top: calc(var(--tab-h, 41px) + 56px);
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); padding-right: 4px; }
 /* 盘中标注角标：右下角浮动药丸(absolute 不占位)，半透明毛玻璃背景像贴纸浮于内容之上，区分盘中(绿)/午休(黄)/待收盘(灰)/收盘(主题色) */
@@ -2120,6 +2122,26 @@ main { padding: 16px 24px; }
 }
 .industry-anchor-bar .anchor-back-top:hover {
   color: var(--primary);
+}
+/* 目录锚点分组分隔符(主指数|板块 / 指数|指标) */
+.industry-anchor-bar .anchor-sep {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  background: var(--border-strong);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+/* 目录锚点条开头小标签(如"指数切换：") */
+.industry-anchor-bar .anchor-label {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* 目录锚点 chip 过多时移动端横向滚动(避免挤变形) */
+.industry-anchor-bar .anchor-btn-group {
+  flex-wrap: wrap;
 }
 
 /* ---- 一句话总结横幅 ---- */
