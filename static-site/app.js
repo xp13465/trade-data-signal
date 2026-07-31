@@ -13654,8 +13654,36 @@ function showIntroOnce(opts) {
   setTimeout(fire, opts.delay || 900);
 }
 
-// P2-1: 首次访问 onboarding 3 步引导（localStorage 标记后不再弹）
+// P2-1: 次日访问才弹 onboarding 3 步引导
+// 触发规则(2026-07-31 改):首次 ever 访问不弹(等次日),当日重复访问不弹,
+// 次日(及跨多天)首次访问且当日未弹过才弹;每天最多弹 1 次。
+// 通过 last_visit_date(上次访问日期 YYYYMMDD)+ welcome_shown_date(当日已弹日期)双标记控制。
 function initOnboarding() {
+  const d = new Date();
+  const todayStr = d.getFullYear() +
+    String(d.getMonth() + 1).padStart(2, '0') +
+    String(d.getDate()).padStart(2, '0');
+  let lastVisit = null, welcomeShown = null;
+  try {
+    lastVisit = localStorage.getItem('last_visit_date');
+    welcomeShown = localStorage.getItem('welcome_shown_date');
+  } catch (e) { return; }
+
+  const setLastVisitToday = function () {
+    try { localStorage.setItem('last_visit_date', todayStr); } catch (e) {}
+  };
+
+  // 当日已弹过:不弹(只刷新 last_visit_date)
+  if (welcomeShown === todayStr) { setLastVisitToday(); return; }
+  // 首次 ever 访问(无 last_visit_date)或当日重复访问:不弹,等次日
+  if (!lastVisit || lastVisit === todayStr) { setLastVisitToday(); return; }
+
+  // 次日访问(last_visit_date < 今天,YYYYMMDD 字典序=时间序):弹 + 标记当日已弹
+  // 先清 onboarding_done,否则 showIntroOnce 内部首行检查会 return 不弹
+  try { localStorage.removeItem('onboarding_done'); } catch (e) {}
+  setLastVisitToday();
+  try { localStorage.setItem('welcome_shown_date', todayStr); } catch (e) {}
+
   showIntroOnce({
     key: 'onboarding_done',
     title: '👋 新朋友,3 步看懂本站',
