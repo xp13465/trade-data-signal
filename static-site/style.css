@@ -1039,7 +1039,7 @@ main { padding: 16px 24px; }
 /* PC(>768px)：A股指标/指数折线图卡片最小宽度 700px，宽屏每行2图更宽更易读；移动端(≤768px)豁免700维持1列撑满 */
 @media (min-width: 769px) {
   .astock-top-grid { grid-template-columns: repeat(auto-fill, minmax(700px, 1fr)); }
-  .indices-grid { grid-template-columns: repeat(auto-fill, minmax(700px, 1fr)); }
+  .indices-grid { grid-template-columns: repeat(auto-fill, minmax(600px, 1fr)); }
 }
 .empty-note { color: var(--text-3); padding: 14px 0; font-size: 13px; }
 
@@ -1086,7 +1086,7 @@ main { padding: 16px 24px; }
 /* PC(>768px)：板块轮动行业指数折线图自适应(minmax700px auto-fill)，宽屏每行2图，窄屏PC(如1024)降为1列；移动端1列。
    必须在基类之后定义,确保 PC 规则级联覆盖基类 1fr(否则 PC 屏基类 1fr 覆盖 PC minmax 致 PC 1 列) */
 @media (min-width: 769px) {
-  .industry-grid { grid-template-columns: repeat(auto-fill, minmax(700px, 1fr)); }
+  .industry-grid { grid-template-columns: repeat(auto-fill, minmax(600px, 1fr)); }
 }
 .industry-grid .spark-cell .spark-chart { min-height: 120px; }
 .industry-grid .spark-name { font-size: 12px; }
