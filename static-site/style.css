@@ -2070,6 +2070,12 @@ main { padding: 16px 24px; }
   top: var(--tab-h, 41px);
   z-index: 39;
 }
+/* 大盘 tab(A股/港股/全球)指数目录 anchorBar: 在 .market-sub-content 内，上方有二级 subtab-bar 同样 sticky 吸顶，
+   故 anchorBar 的 top 需叠加 subtab-bar 高度(--subtab-h)，吸顶在 subtab-bar 下方而非被其遮挡(z-index 39<40)。
+   行业 tab 的 anchorBar 无 subtab-bar 在前(兼任申万/概念切换)，保持 top:var(--tab-h) 不变。 */
+.market-sub-content .industry-anchor-bar {
+  top: calc(var(--tab-h, 41px) + var(--subtab-h, 46px));
+}
 .industry-anchor-bar .anchor-btn-group {
   display: flex;
   gap: 4px;
@@ -2691,6 +2697,8 @@ main { padding: 16px 24px; }
   .rule-bar { position: static; }
   .industry-anchor-bar { top: 46px; }
   .subtab-bar { top: 46px; }
+  /* H5 大盘 tab 指数目录 anchorBar: top 叠加 subtab-bar 高度，吸顶在二级 tab 栏下方(周期条46px + subtab-bar) */
+  .market-sub-content .industry-anchor-bar { top: calc(46px + var(--subtab-h, 46px)); }
   /* H5：tab 按钮+搜索框一行放不下时，搜索框换行占满整行 */
   .industry-anchor-bar .anchor-search { flex-basis: 100%; max-width: none; margin-left: 0; }
 

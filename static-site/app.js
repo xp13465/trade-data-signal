@@ -3306,7 +3306,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
       items: entries.map(([id, idx]) => ({ key: id, name: idx.name, targetId: "idx-card-" + id }))
     }];
     if (extraGroups && extraGroups.length) anchorGroups.push(...extraGroups);
-    const anchorBar = buildIndexAnchorBar(anchorGroups, "指数切换");
+    const anchorBar = buildIndexAnchorBar(anchorGroups, "指数目录");
     if (anchorBarRef) anchorBarRef.bar = anchorBar;  // 暴露给 caller(renderHK observe 板块 cell 用)
     container.appendChild(anchorBar);
     // 6色信号图例（4色买点+卖绿+追止损蓝）+ 备买风险提示（2026-07-21 阶段4）
@@ -7785,6 +7785,8 @@ async function renderMarket() {
     subtabBar.appendChild(btn);
   });
   content.appendChild(subtabBar);
+  // 量大盘二级 tab 栏(A股/港股/全球)实际高度写入 --subtab-h，供指数目录 anchorBar sticky top 叠加用(吸顶在 subtab-bar 下方而非被遮挡)
+  document.documentElement.style.setProperty('--subtab-h', (subtabBar.offsetHeight || 46) + 'px');
 
   // 子内容容器
   const subContent = document.createElement("div");
@@ -9147,7 +9149,7 @@ async function renderGlobal(container = content) {
     cn_us_spread: "中美利差(10Y)（%）",
     brent: "布伦特原油（美元/桶）",
   };
-  // 全球指数目录锚点: 指数12 + 指标11 共 23 项分两组, 吸顶 + chip 跳转 + scroll spy
+  // 指数目录锚点(全球): 指数12 + 指标11 共 23 项分两组, 吸顶 + chip 跳转 + scroll spy
   // 切 tab 时 clearCharts -> disconnectAllIndexNavSpies 统一 disconnect
   const _GLOBAL_EXTRAS_CHIP_NAME = {
     gold: "黄金", oil: "原油", wti_oil: "WTI", comex_silver: "白银",
@@ -9170,7 +9172,7 @@ async function renderGlobal(container = content) {
     label: "指标",
     items: Object.keys(extras).map(id => ({ key: id, name: _GLOBAL_EXTRAS_CHIP_NAME[id] || extras[id], targetId: "idx-card-" + id })),
   });
-  const globalAnchorBar = buildIndexAnchorBar(_globalAnchorGroups, "全球指数目录");
+  const globalAnchorBar = buildIndexAnchorBar(_globalAnchorGroups, "指数目录");
   container.appendChild(globalAnchorBar);
   const cardGrid = document.createElement("div");
   cardGrid.className = "indices-grid";
@@ -10841,7 +10843,7 @@ let _indexNavSpies = [];
 // groups: [{ label, items: [{key, name, targetId}] }]
 //   targetId: 卡片 element 的 id 字符串(如 'idx-card-sh' / 'industry-cell-hk_cesg10')
 //   caller 负责给卡片加对应 id, 并在卡片渲染完后调用 anchorBar._observeIndexCard(el) 注册 spy
-// barLabel: 可选, 锚点条开头小标签(如"指数切换："), 不传则无
+// barLabel: 可选, 锚点条开头小标签(如"指数目录："), 不传则无
 // 复用 .industry-anchor-bar CSS(sticky 吸顶 + 按钮样式), 加 .anchor-sep 分组分隔
 function buildIndexAnchorBar(groups, barLabel) {
   const anchorBar = document.createElement("div");
@@ -11787,11 +11789,15 @@ function _refreshEtfHoldFilterBtn() {
 // 需要时直接调 API 或另设权限入口。原 modal/handler 代码已删除。
 
 // === UX 优化：sticky 偏移测量 + 右下角回到顶部浮动按钮 ===
-// 测量顶部 tab 栏实际高度写入 CSS 变量 --tab-h（兜底 41px）。
+// 测量顶部 tab 栏实际高度写入 CSS 变量 --tab-h（兜底 41px）;同时量二级 subtab-bar 高度写 --subtab-h（兜底 46px，供大盘 tab 指数目录 anchorBar sticky top 叠加用）。
 function initStickyOffset() {
   const tabs = document.querySelector('.tabs');
   if (!tabs) return;
-  const set = () => document.documentElement.style.setProperty('--tab-h', tabs.offsetHeight + 'px');
+  const set = () => {
+    document.documentElement.style.setProperty('--tab-h', tabs.offsetHeight + 'px');
+    const subtabBar = document.querySelector('.subtab-bar');
+    if (subtabBar) document.documentElement.style.setProperty('--subtab-h', subtabBar.offsetHeight + 'px');
+  };
   set();
   window.addEventListener('resize', set);
   window.addEventListener('load', set);
