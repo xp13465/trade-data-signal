@@ -4378,11 +4378,27 @@ function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey, isIndexSpark
 // 非 addCardTimeBadge 添加的 badge(如 L5184 🚨异常/L6734 半年报/L7113 期货报价时间)无 data-badge-date, 不被动.
 function refreshCardTimeBadges(snap) {
   const _snap = snap || state.intradaySnapshot;
+  // 2026-07-31 修复: 从最新 overview.today.metrics 建 id->date 映射,
+  // 让 KPI 卡角标(炸板率/封板率等)用最新 date 重算, 而非读旧 data-badge-date.
+  // _doOverviewRefresh L5492 已 _setCachedOverview(r) 更新缓存, 此处 _getCachedOverview() 拿到最新.
+  // 根治 9:35 后 overview 拉到新 date=7-31 但角标仍用旧 date=7-30 走 L4339 显"待盘后更新·07-30"的 bug.
+  const _ov = _getCachedOverview();
+  const _metricDateMap = {};
+  if (_ov && _ov.today && Array.isArray(_ov.today.metrics)) {
+    for (const m of _ov.today.metrics) {
+      if (m && m.id && m.date) _metricDateMap[m.id] = m.date;
+    }
+  }
   document.querySelectorAll(".card-time-badge[data-badge-date]").forEach((badge) => {
-    const dataDate = badge.getAttribute("data-badge-date") || "";
+    let dataDate = badge.getAttribute("data-badge-date") || "";
     const srcClass = badge.getAttribute("data-badge-src") || "t0";
     const srcKey = badge.getAttribute("data-badge-srckey") || "";
     const isIndexSpark = badge.getAttribute("data-badge-isdyn") === "1";
+    const kpiId = badge.getAttribute("data-badge-kpiid") || "";
+    // KPI 卡: 用最新 overview 的 metric date 覆盖旧 dataDate (若 overview 已采到新 date)
+    if (kpiId && _metricDateMap[kpiId]) {
+      dataDate = _metricDateMap[kpiId];
+    }
     const newHTML = getCardTimeBadge(dataDate, _snap, srcClass, srcKey, isIndexSpark);
     if (!newHTML) return;
     const tmp = document.createElement("div");
@@ -4394,6 +4410,7 @@ function refreshCardTimeBadges(snap) {
     newBadge.setAttribute("data-badge-src", srcClass);
     if (srcKey) newBadge.setAttribute("data-badge-srckey", srcKey);
     if (isIndexSpark) newBadge.setAttribute("data-badge-isdyn", "1");
+    if (kpiId) newBadge.setAttribute("data-badge-kpiid", kpiId);
     badge.replaceWith(newBadge);
   });
 }
@@ -6837,6 +6854,10 @@ async function renderOverview() {
         _badgeEl.setAttribute("data-badge-date", k.date || "");
         _badgeEl.setAttribute("data-badge-src", _badgeSrc);
         if (_kpiT1 && k.id) _badgeEl.setAttribute("data-badge-srckey", k.id);
+        // 2026-07-31 修复: 所有 KPI 卡(含 T+0 炸板率/封板率)打 data-badge-kpiid,
+        // 供 refreshCardTimeBadges 从最新 overview.today.metrics 查新 date 更新角标,
+        // 根治 9:35 后 overview 拉到新 date 但角标仍读旧 data-badge-date 显"待盘后"的 bug.
+        if (k.id) _badgeEl.setAttribute("data-badge-kpiid", k.id);
         _badge = _badgeEl.outerHTML;
       }
     }
