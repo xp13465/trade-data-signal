@@ -1081,7 +1081,7 @@ function _fmtReason(r) {
 
 // 波段仓位比例可视化（国债波段仓位管理，2026-07-24）：解析 reason 中"波段减仓X%"/"波段接回X%"/"波段止损"/"波段持有"，
 // 返回 HTML 仓位变化进度条（不只文字 reason，直观展示仓位动态调整）。非波段信号返回 ""。
-// 设计：减仓=绿色条减少（100%->80%/70%）；接回=粉紫条增加（80%/70%->100%）；止损=蓝色清仓（100%->0%）；持有=橙色满仓维持。
+// 设计：减仓=草绿条减少（100%->80%/70%，#8bc34a 与 sell #2e8b57 区分，体现"没卖重"）；接回=粉紫条增加（80%/70%->100%）；止损=蓝色清仓（100%->0%）；持有=橙色满仓维持。
 // 国债波段策略是动态仓位管理（非静态 sell）：根据 RSI+乖离+布林三指标超买超卖动态调仓，
 // 减仓(触超买)/接回(超卖回归)/止损(趋势破位)/持有(无信号维持)四动作联动，走势图 pin 即历史调仓时点回放。
 function _bandPositionBar(reason) {
@@ -1090,7 +1090,7 @@ function _bandPositionBar(reason) {
   var m = r.match(/波段减仓(\d+)%/);
   if (m) {
     var pct = parseInt(m[1], 10);
-    return _positionBarHtml(100, 100 - pct, "减仓" + pct + "%", "#2e8b57");
+    return _positionBarHtml(100, 100 - pct, "减仓" + pct + "%", "#8bc34a");
   }
   m = r.match(/波段接回(\d+)%/);
   if (m) {
@@ -1169,7 +1169,8 @@ const _INDEX_NAME_MAP = {
   // 美股
   us_dji: '道琼斯', us_ixic: '纳斯达克', us_spx: '标普500', us_ndx: '纳斯达克100',
   // 全球股指（2026-07-16 上线，中文名以后端 index_backfill.py HK_GLOBAL_INDICES 为准，前端简短化）
-  nikkei225: '日经225', kospi: '首尔综合', ftse100: '富时100', dax: '德国DAX', cac40: '法国CAC40',
+  // kospi 前端覆盖为"韩国 KOSPI"（JSON 里是英文 'KOSPI'，与"德国DAX/法国CAC40"风格统一：地区+缩写）
+  nikkei225: '日经225', kospi: '韩国 KOSPI', ftse100: '富时100', dax: '德国DAX', cac40: '法国CAC40',
   // 红利/低波
   div_lowvol: '红利低波', csi_div: '中证红利', sz_div: '深证红利',
   // 全球指标
@@ -1230,16 +1231,18 @@ function _getSignalScore(it) {
 // （高≥0.75/中0.55-0.75/低<0.55）分别统计。返回 {total, grade:{high,mid,low}}。
 // pct = t/(t+f)*100，t+f=0 时 pct=null（避免 0/0 误导）。无 score 的 item 计入 total 但不计入分档。
 // _SIG_TYPES: byType 分组统计的信号类型清单（不含 buy_special_filtered，该类型不在 signals_today 展示）
-const _SIG_TYPES = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss", "band_hold"];
+// 问题2 fix(2026-07-31): band_hold 从末尾移到买类/卖类之间(中性独立组), 避免紧贴 sell_stop_loss 视觉"归卖"
+const _SIG_TYPES = ["buy", "buy_aux", "buy_special", "buy_backup", "band_hold", "sell", "sell_stop_loss"];
 // _SIG_TYPE_META: 分类行 chip 渲染元数据（中文标签 + 色点颜色，与 _SIGNAL_HELP_ITEMS 一致）
+// 顺序: 买类(buy/buy_aux/buy_special/buy_backup) | 中性(band_hold) | 卖类(sell/sell_stop_loss)
 const _SIG_TYPE_META = [
   { key: "buy", label: "主买", color: "#e6492e" },
   { key: "buy_aux", label: "辅买", color: "#d63384" },
   { key: "buy_special", label: "追买", color: "#ffd700" },
   { key: "buy_backup", label: "备买", color: "#9c27b0" },
+  { key: "band_hold", label: "波段持有", color: "#ff9800" },
   { key: "sell", label: "卖", color: "#2e8b57" },
   { key: "sell_stop_loss", label: "追止损", color: "#3498db" },
-  { key: "band_hold", label: "波段持有", color: "#ff9800" },
 ];
 function _calcSignalAccuracy(items) {
   const _newBin = () => ({ t: 0, f: 0, n: 0, pct: null });
@@ -1368,8 +1371,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // 今日组内部再按信号优先级排（买>辅买>卖）；冰点按值升序（越冷越前）
     if (kind === "signal") {
       // 问题4 fix(2026-07-31): ord 补全 7 类排序(原只 3 类, band_hold ?? 9 排末尾和 sell_stop_loss 混卖区)
-      // 买类(0~1.8) -> 卖类(2~2.5) -> 中性 band_hold(3) 三档有序, band_hold 独立排末
-      const ord = { buy: 0, buy_aux: 1, buy_special: 1.5, buy_backup: 1.8, sell: 2, sell_stop_loss: 2.5, band_hold: 3 };
+      // 问题2 fix(2026-07-31): band_hold 从 3 改 1.9(买类 1.8 和卖类 2 之间), 与汇总条 chip 顺序一致,
+      //   避免紧贴 sell_stop_loss(2.5) 视觉"归卖"; 三档有序: 买类(0~1.8) -> 中性 band_hold(1.9) -> 卖类(2~2.5)
+      const ord = { buy: 0, buy_aux: 1, buy_special: 1.5, buy_backup: 1.8, band_hold: 1.9, sell: 2, sell_stop_loss: 2.5 };
       dayItems.sort((a, b) => {
         const oa = ord[a.signal] ?? 9;
         const ob = ord[b.signal] ?? 9;
@@ -1453,19 +1457,23 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // 按信号分类行（2026-07-30）：只显示 signals_today 实际出现的类型（byType t+f+n>0），不显示空分类
     // band_hold 特殊：since_correct 恒 null（只计 n），chip 只显示"波段持有 N个"不算 pct
     // 色点用 inline color 着色 ● 字符，与评级行 .sig-acc-dot 风格一致
+    // 问题2 fix(2026-07-31): chip 分三组用 | 分隔(买类 | 中性 band_hold | 卖类), 避免 band_hold 紧贴
+    //   sell_stop_loss 视觉"归卖"; 分隔符在 chip 出现时才加(前有 chip 才插 |)
     const _typeChips = _SIG_TYPE_META
       .filter((m) => {
         const b = _acc.byType[m.key];
         return b && (b.t + b.f + b.n) > 0;
       })
-      .map((m) => {
+      .reduce((acc, m) => {
         const b = _acc.byType[m.key];
         const tip = _escAttr("点击只看" + m.label + "信号");
         const dot = `<span class="sig-acc-dot" style="color:${m.color}">●</span>`;
         const body = m.key === "band_hold" ? `${m.label} ${b.n}个` : `${m.label} ${_fmt(b.pct)} (${b.t}/${b.f})`;
-        return `<button class="sig-acc-seg sig-acc-filter${_tActive(m.key)}" data-type-filter="${m.key}" data-tip="${tip}">${dot}${body}</button>`;
-      })
-      .join(" · ");
+        const chip = `<button class="sig-acc-seg sig-acc-filter${_tActive(m.key)}" data-type-filter="${m.key}" data-tip="${tip}">${dot}${body}</button>`;
+        // 分组分隔: band_hold/sell 前插 | (买类 | 中性 | 卖类), 仅前面已有 chip 才插
+        const sep = (m.key === "band_hold" || m.key === "sell") && acc ? ' <span class="sig-acc-sep">|</span> ' : (acc ? " · " : "");
+        return acc + sep + chip;
+      }, "");
     const _byTypeRow = _typeChips ? `<div class="sig-acc-by-type">${_typeChips}</div>` : "";
     // E 方案(2026-07-31): 时间窗口筛选按钮组 - 4 窗口按钮 + 恢复全部(窗口激活时显示)
     // 再点同窗口按钮 = 恢复 "0_15"(toggle), 与 grade/correct/type 筛选互不影响(正交)
@@ -1477,7 +1485,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _wfReset = (state.sigWindowFilter && state.sigWindowFilter !== "0_15")
       ? ` <button class="sig-acc-reset" data-window-filter-reset="1">恢复全部</button>`
       : "";
-    _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">窗口: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
+    _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
     _accHtml = `<div class="sig-acc-wrap"><div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
@@ -1617,7 +1625,7 @@ const _SIGNAL_HELP_ITEMS = [
   { sig: "buy_backup", color: "#9c27b0", name: "备买 · 趋势转向", desc: "Supertrend ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
   { sig: "sell", color: "#2e8b57", name: "卖 · 趋势转弱", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈减仓提示。", note: "📌 pin 标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；hover tooltip 的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈减仓非反向信号。配套：走弱概率≈50%接近随机；与追止损|卖共振时减仓信号更强。" },
   { sig: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR×3.5止损", desc: "ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5d win 49.58%->50.23%），backtest 旧 ATR×3 数据保留作历史对比，新参数 stats 见下方 forward 字段。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
-  { sig: "band_hold", color: "#ff9800", name: "波段持有 · 国债波段仓管", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1 卖点对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖点）。四动作联动：减仓(sell绿,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓)/持有(band_hold橙,无超买超卖维持仓位)。走势图 pin = 历史调仓时点回放，hover 信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
+  { sig: "band_hold", color: "#ff9800", name: "波段持有 · 国债波段仓管", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1 卖点对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖点）。四动作联动：减仓(草绿#8bc34a仓位条,触超买减20-30%,pin 头仍 sell#2e8b57)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓)/持有(band_hold橙,无超买超卖维持仓位)。走势图 pin = 历史调仓时点回放，hover 信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
 ];
 
 // 聚合 signal_stats.json（per-index）-> per-sig 概况（5d/10d/20d 三窗口，按样本数 n 加权平均）
@@ -1626,7 +1634,7 @@ const _SIGNAL_HELP_ITEMS = [
 // 返回 {sig: {5d:{win_rate,pl,mean,n}, 10d:{...}, 20d:{...}}} 或 null
 function _aggregateSignalStats(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const SIGS = ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss", "band_hold"];
+  const SIGS = ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"];
   const WINDOWS = ["5d", "10d", "20d"];
   const agg = {};
   for (const sig of SIGS) {
@@ -2400,7 +2408,7 @@ function _pinStatsBriefHtml(stats) {
   var labels = { buy: "买", buy_aux: "辅买", buy_special: "追买", buy_special_filtered: "追买(过滤)", buy_backup: "备买", sell: "卖", sell_stop_loss: "追止损|卖" , band_hold: "波段持有" };
   var sigClass = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold" };
   var rows = [];
-  var order = ["buy", "buy_aux", "buy_special", "buy_backup", "sell", "sell_stop_loss", "band_hold"];
+  var order = ["buy", "buy_aux", "buy_special", "buy_backup", "band_hold", "sell", "sell_stop_loss"];
   for (var i = 0; i < order.length; i++) {
     var sig = order[i];
     var s = stats[sig];
@@ -2569,7 +2577,7 @@ function statsHint(stats, strategy, indexId) {
   const blocks = [];
   const labels = { buy: "买点", buy_aux: "辅买", buy_special: "追买", buy_special_filtered: "追买(过滤预览)", buy_backup: "备买", sell: "卖点", sell_stop_loss: "追止损|卖" , band_hold: "波段持有" };
   const sigClass = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold" };
-  for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss", "band_hold"]) {
+  for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
     const s = stats[sig];
     if (!s || !s["10d"]) continue;
     const d = s["10d"];
@@ -2612,7 +2620,7 @@ function statsHint(stats, strategy, indexId) {
   // 频率统计区块
   let freqHtml = "";
   const freqBlocks = [];
-  for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss", "band_hold"]) {
+  for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
     const s = stats[sig];
     if (!s || !s.frequency) continue;
     const f = s.frequency;
@@ -3546,7 +3554,7 @@ function initRuleButton() {
           const labels = { buy: "买点", buy_aux: "辅买", buy_special: "追买", buy_special_filtered: "追买(过滤预览)", buy_backup: "备买", sell: "卖点", sell_stop_loss: "追止损|卖" , band_hold: "波段持有" };
           const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold" };
           let html = '<div class="hint-header">📅 全品种信号频率汇总</div><div class="hint-blocks">';
-          for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss", "band_hold"]) {
+          for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
             const f = freq[sig];
             if (!f || !f.total_count) continue;
             html += `<div class="hint-row"><span class="hint-sig ${cls[sig]}">${labels[sig]}</span><span class="hint-stat">今年 <b>${f.year_count}</b> 次</span><span class="hint-stat">总计 <b>${f.total_count}</b> 次</span><span class="hint-stat">月均 <b>${f.monthly_avg}</b> 次</span>${f.active_months ? `<span class="hint-stat muted">今年${f.active_months}月均</span>` : ""}</div>`;
@@ -9018,13 +9026,15 @@ async function renderGlobal(container = content) {
       const sig = sigResults[i] || { signals: [], stats: {} };
       const sigs = filterSignalsByRange(sig.signals, idx.data);
       if (idx.data && idx.data.length) {
-        const chart = indexChart(idx.name, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
+        // 优先用前端 _INDEX_NAME_MAP 中文化（防 JSON name 英文化，如 kospi=KOSPI → 韩国KOSPI）
+        const idxName = (_INDEX_NAME_MAP && _INDEX_NAME_MAP[id]) ? _INDEX_NAME_MAP[id] : idx.name;
+        const chart = indexChart(idxName, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
         if (chart) {
           addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, id && id.startsWith("us_") ? "t1" : "t0", id && id.startsWith("us_") ? "us_dji_date" : "");
           // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
           _appendStrategyHint(chart.getDom().parentElement, id, idx.strategy);
           // C7 P4 market 融合:全球指数卡下 append 紧凑分数卡
-          _attachMarketScoreCard(id, idx.name, chart.getDom().parentElement);
+          _attachMarketScoreCard(id, idxName, chart.getDom().parentElement);
         }
       }
     });
@@ -10014,7 +10024,7 @@ function _freqPopupHtml(stats) {
   const labels = { buy: "买点", buy_aux: "辅买", buy_special: "追买", buy_special_filtered: "追买(过滤预览)", buy_backup: "备买", sell: "卖点", sell_stop_loss: "追止损|卖" , band_hold: "波段持有" };
   const cls = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold" };
   let parts = [];
-  for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "sell", "sell_stop_loss", "band_hold"]) {
+  for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
     const s = stats[sig];
     if (!s || !s.frequency) continue;
     const f = s.frequency;
