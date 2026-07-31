@@ -1375,7 +1375,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         const k = v === true ? "true" : v === false ? "false" : "null";
         if (k !== state.sigCorrectFilter) return false;
       }
-      if (state.sigTypeFilter && it.signal !== state.sigTypeFilter) return false;
+      // 问题fix(2026-07-31): 波段减仓 signal='sell' 但 reason='波段减仓' 应归 band_sell 不进卖列表
+      //   与 _sigKey(L1291)/ord(L1401)/chip CSS(L1447) 一致用 reason 判断
+      const _sigKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
+      if (state.sigTypeFilter && _sigKey !== state.sigTypeFilter) return false;
       return true;
     });
   }
