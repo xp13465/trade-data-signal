@@ -732,6 +732,7 @@ main { padding: 16px 24px; }
 .sig-list b.buy_backup { color: #9c27b0; }
 .sig-list b.sell { color: #2e8b57; }
 .sig-list b.sell_stop_loss { color: #3498db; }
+.sig-list b.band_hold { color: #ff9800; }
 
 /* 首页冰点日/买卖点卡片：按日分组、同日4个/行、今日高亮 */
 .signal-grid { margin-top: 4px; max-height: 300px; overflow-y: auto; }
@@ -750,6 +751,7 @@ main { padding: 16px 24px; }
 .sig-item b.buy_backup { color: #9c27b0; }
 .sig-item b.sell { color: #2e8b57; }
 .sig-item b.sell_stop_loss { color: #3498db; }
+.sig-item b.band_hold { color: #ff9800; }
 .sig-freeze-name { color: var(--text-2); }
 .sig-item b.freeze-val { color: #2563eb; }
 .sig-day-row.today-row { background: #fff4ec; border-radius: 6px; }
@@ -795,6 +797,18 @@ main { padding: 16px 24px; }
 /* 恢复全部按钮: 浅灰小字 + 边框圆角 + hover 高亮 */
 .sig-acc-reset { background: none; border: 1px solid var(--border-strong, #888); border-radius: 10px; padding: 0 8px; font-size: 11px; color: var(--text-3); cursor: pointer; margin-left: 4px; line-height: 1.6; }
 .sig-acc-reset:hover { color: var(--text-1); border-color: var(--text-2); background: var(--bg-hover, rgba(128,128,128,0.1)); }
+/* E 方案 UI(2026-07-31): 时间窗口按钮组移到标题行❓后 - h3 改 flex 布局, 标题文字+❓为一组,
+   窗口按钮组为另一组, 宽度不够自动换行(紧跟标题, 非挤到页面右边)。
+   字体: 继承页面红金中国风默认(body font-family), font-size 12px(略小于标题 14px, 与汇总条一致),
+   font-weight 400(按钮 .sig-acc-filter 已有 font: inherit, 父级显式设定确保继承链完整, 解决原
+   .sig-acc-window 独立 div 无 font-size 继承浏览器默认 16px 与周围 12/14px 不协调问题)。 */
+.chart-card h3.sig-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 0 0 8px; font-size: 14px; color: var(--text-1); }
+.chart-card h3.sig-title-row .sig-title-text { display: inline; }
+.chart-card h3.sig-title-row .sig-acc-window.sig-title-window {
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  font-family: inherit; font-size: 12px; font-weight: 400; color: var(--text-2);
+  margin-left: 4px; line-height: 1.6;
+}
 /* 通用隐藏类（rule-modal 等复用） */
 .hidden { display: none !important; }
 .muted { color: var(--text-3); }
@@ -1269,6 +1283,7 @@ main { padding: 16px 24px; }
 .rule-bar b.buy_backup { color: #9c27b0; }
 .rule-bar b.sell { color: #2e8b57; }
 .rule-bar b.sell_stop_loss { color: #3498db; }
+.rule-bar b.band_hold { color: #ff9800; }
 
 /* === UX：右下角回到顶部浮动按钮 === */
 .back-to-top {
@@ -1746,6 +1761,7 @@ main { padding: 16px 24px; }
 .rule-modal-content b.buy_backup { color: #9c27b0; }
 .rule-modal-content b.sell { color: #2e8b57; }
 .rule-modal-content b.sell_stop_loss { color: #3498db; }
+.rule-modal-content b.band_hold { color: #ff9800; }
 
 /* === BUG-E：筛选/切换控件 === */
 /* 指数筛选下拉 / 行业搜索框：看板顶部条，复用 .periods 按钮配色风格 */
@@ -2335,15 +2351,19 @@ main { padding: 16px 24px; }
 .ma-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); }
 .ma-summary { font-size: 14px; margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
 .ma-count { padding: 2px 10px; border-radius: 10px; font-size: 13px; font-weight: 500; }
-.ma-count.bullish { background: #e8f5e9; color: #2e7d32; }
-.ma-count.bearish { background: #fce4ec; color: #c62828; }
+/* 问题5 fix(2026-07-31): A股约定 涨/多头=红(#e6492e) 跌/空头=绿(#2e8b57), 原为美股配色(多头绿空头红)已交换。
+   用户指示"只改空头红->绿不动多头红",但实际多头原为绿色(#2e7d32)非红,为达成A股约定(多头红空头绿)需同时交换两者。
+   .ma-count.bullish(新高/多头)=红, .ma-count.bearish(新低/空头)=绿, 新高新低卡片(L7594-7595)同源复用也修正。 */
+.ma-count.bullish { background: #fce4ec; color: #e6492e; }
+.ma-count.bearish { background: #e8f5e9; color: #2e8b57; }
 .ma-count.cross { background: var(--bg-hover); color: var(--text-2); }
 .ma-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .ma-table th, .ma-table td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--bg-hover); }
 .ma-table th { background: var(--bg-hover); color: var(--text-2); font-weight: 500; font-size: 11px; }
 .ma-table th:first-child, .ma-table td:first-child { text-align: left; }
-.ma-table td.bullish { color: #2e7d32; font-weight: 600; }
-.ma-table td.bearish { color: #c62828; font-weight: 600; }
+/* 问题5 fix: td 配色同 .ma-count, 多头=红 空头=绿(A股约定) */
+.ma-table td.bullish { color: #e6492e; font-weight: 600; }
+.ma-table td.bearish { color: #2e8b57; font-weight: 600; }
 .ma-table td.cross { color: var(--text-2); }
 
 /* 板块轮动速度卡片 */

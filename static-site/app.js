@@ -1367,7 +1367,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const dayItems = groups[dt];
     // 今日组内部再按信号优先级排（买>辅买>卖）；冰点按值升序（越冷越前）
     if (kind === "signal") {
-      const ord = { buy: 0, buy_aux: 1, sell: 2 };
+      // 问题4 fix(2026-07-31): ord 补全 7 类排序(原只 3 类, band_hold ?? 9 排末尾和 sell_stop_loss 混卖区)
+      // 买类(0~1.8) -> 卖类(2~2.5) -> 中性 band_hold(3) 三档有序, band_hold 独立排末
+      const ord = { buy: 0, buy_aux: 1, buy_special: 1.5, buy_backup: 1.8, sell: 2, sell_stop_loss: 2.5, band_hold: 3 };
       dayItems.sort((a, b) => {
         const oa = ord[a.signal] ?? 9;
         const ob = ord[b.signal] ?? 9;
@@ -1434,6 +1436,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   //   sig-acc-filter-active; 末尾追加"恢复全部"按钮(仅筛选激活时显示)。汇总条数字始终用全量 items。
   // C 方案(2026-07-29): 未结算 button 带 data-tip 补说明(信号已发出未验证对错, 收盘后转对/错)。
   let _accHtml = "";
+  let _windowBtnsHtml = "";  // E 方案 UI: 窗口按钮组(仅 signal), 移到标题行❓后, 不再独立成行
   if (kind === "signal") {
     // E 方案: 汇总条基于窗口内 items 算准确率(非全量), 窗口筛选影响总数+总准确率
     const _acc = _calcSignalAccuracy(windowedItems);
@@ -1466,24 +1469,33 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _byTypeRow = _typeChips ? `<div class="sig-acc-by-type">${_typeChips}</div>` : "";
     // E 方案(2026-07-31): 时间窗口筛选按钮组 - 4 窗口按钮 + 恢复全部(窗口激活时显示)
     // 再点同窗口按钮 = 恢复 "0_15"(toggle), 与 grade/correct/type 筛选互不影响(正交)
+    // UI(2026-07-31): 按钮组改为 span(inline-flex), 移到标题行❓后(h3.sig-title-row flex 布局),
+    //   宽度不够自动换行紧跟标题; 不再作为独立 div 放汇总条下方。字体继承页面红金默认(12px/400)
     const _wfActive = (wf) => (state.sigWindowFilter === wf ? " sig-acc-filter-active" : "");
     const _wfBtn = (label, wf, tip) =>
       `<button class="sig-acc-seg sig-acc-filter${_wfActive(wf)}" data-window-filter="${wf}" data-tip="${_escAttr(tip)}">${label}</button>`;
     const _wfReset = (state.sigWindowFilter && state.sigWindowFilter !== "0_15")
       ? ` <button class="sig-acc-reset" data-window-filter-reset="1">恢复全部</button>`
       : "";
-    const _windowRow = `<div class="sig-acc-window">窗口: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</div>`;
-    _accHtml = `<div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}${_windowRow}`;
+    _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">窗口: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
+    // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
+    //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
+    _accHtml = `<div class="sig-acc-wrap"><div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
   }
   // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
   if (kind === "signal" && !rows) {
     if (!windowedItems.length) {
-      rows = `<div class="empty-note" style="margin:8px 0">当前时间窗口内无参考点，点击下方窗口按钮切换查看</div>`;
+      rows = `<div class="empty-note" style="margin:8px 0">当前时间窗口内无参考点，点击上方窗口按钮切换查看</div>`;
     } else if (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter) {
       rows = `<div class="empty-note" style="margin:8px 0">当前筛选无匹配参考点，点击"恢复全部"查看全部</div>`;
     }
   }
-  return `<h3>${title}</h3>${_accHtml}<div class="signal-grid">${rows}</div>`;
+  // UI(2026-07-31): signal 类把窗口按钮组(_windowBtnsHtml)放进 h3 标题行❓后(flex 布局),
+  //   宽度足够时与标题同一行, 不够时自动换行紧跟标题; freeze 类无窗口按钮保持原样
+  const _h3Html = _windowBtnsHtml
+    ? `<h3 class="sig-title-row"><span class="sig-title-text">${title}</span>${_windowBtnsHtml}</h3>`
+    : `<h3>${title}</h3>`;
+  return `${_h3Html}${_accHtml}<div class="signal-grid">${rows}</div>`;
 }
 
 // D 方案(2026-07-29): sigCard 自动更新 - ts:overview-refreshed hook 增量重绘。
@@ -1491,9 +1503,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
 // collected_at 时自动重绘 sigCard, 用户不刷新也能看到最新信号。重绘保留筛选 state(内部读 state)。
 let _sigCardRenderedAt = null;  // 上次渲染 sigCard 的 overview collected_at(防重复重绘)
 
-// 增量重绘 sigCard 内容: 只替换 .signal-accuracy-summary + .signal-grid 两个子元素,
+// 增量重绘 sigCard 内容: 替换 h3(含窗口按钮) + .sig-acc-wrap(汇总条+分类行) + .signal-grid,
 // 保留 .card-time-badge 角标 + .sig-intraday-hint 盘中提示(不整卡 innerHTML 替换)。
 // 筛选 state(sigGradeFilter/sigCorrectFilter) 由 _renderSignalGrid 内部读取, 重绘自动保留。
+// 问题3 fix: 替换 .sig-acc-wrap(非仅 .signal-accuracy-summary), 确保 byType 各类型数量/准确率随窗口联动
 function _rerenderSigCardContent(r, snap) {
   if (!r) return;
   const sigCard = document.querySelector(".sig-card");
@@ -1503,12 +1516,17 @@ function _rerenderSigCardContent(r, snap) {
   const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed);
   const tmp = document.createElement("div");
   tmp.innerHTML = newHtml;
-  const newSummary = tmp.querySelector(".signal-accuracy-summary");
+  const newH3 = tmp.querySelector("h3");
+  const newAccWrap = tmp.querySelector(".sig-acc-wrap");
   const newGrid = tmp.querySelector(".signal-grid");
-  const oldSummary = sigCard.querySelector(".signal-accuracy-summary");
+  const oldH3 = sigCard.querySelector("h3");
+  const oldAccWrap = sigCard.querySelector(".sig-acc-wrap");
   const oldGrid = sigCard.querySelector(".signal-grid");
-  if (newSummary && newGrid && oldSummary && oldGrid) {
-    oldSummary.replaceWith(newSummary);
+  if (newH3 && newAccWrap && newGrid && oldH3 && oldAccWrap && oldGrid) {
+    // UI(2026-07-31): h3 也增量替换(含窗口按钮 active 态 + 标题后缀, 随筛选切换更新)
+    // 问题3 fix: .sig-acc-wrap 整体替换(summary+byType), 切窗口时 byType 各类型数量/准确率联动更新
+    oldH3.replaceWith(newH3);
+    oldAccWrap.replaceWith(newAccWrap);
     oldGrid.replaceWith(newGrid);
   } else {
     // 兜底: 数据从有变空/空变有 - 保留 badge + hint, 替换其余
