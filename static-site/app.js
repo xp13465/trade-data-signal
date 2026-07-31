@@ -1828,10 +1828,13 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare sina 源全市场快照
   var isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
   // 查找触发 pop 的元素：优先 [data-tip]，回退 [title]（排除 iframe a11y title + [data-no-pop]）。
   // [title] 首次命中时一次性迁移到 data-tip 并移除原生 title，防浏览器原生 tooltip 闪现。
-  function findTipEl(target) {
+  // forClick=true（click 路径）：只认已迁移的 [data-tip]，不 fallback [title]，
+  // 避免移动端点带 title 的别处误开新 pop 而非关闭当前 pop（A2 修复）。
+  function findTipEl(target, forClick) {
     if (!target || !target.closest) return null;
     var el = target.closest("[data-tip]");
     if (el) return el;
+    if (forClick) return null;  // click 路径不 fallback [title]
     el = target.closest("[title]");
     if (!el) return null;
     if (el.tagName === "IFRAME") return null;         // iframe title 是 a11y 语义，不加 pop
@@ -1870,7 +1873,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare sina 源全市场快照
   });
   if (isTouch) {
     document.addEventListener("click", function (e) {
-      var el = findTipEl(e.target);
+      var el = findTipEl(e.target, true);  // forClick=true：click 路径不 fallback [title]（A2）
       if (el) {
         if (popByClick && popEl === el) { hideNow(); return; }  // 同元素再点 -> 关
         show(el, el.getAttribute("data-tip"));
@@ -1879,10 +1882,12 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare sina 源全市场快照
       }
       if (e.target.closest && e.target.closest(".term-pop")) return;  // 点 pop 内容不关
       if (popByClick) hideNow();  // 点别处 -> 关
-    });
+    }, true);  // A1：capture 阶段，先于 row 的 stopPropagation 执行，确保点 stopPropagation 元素也能关 term-pop
   }
   pop.addEventListener("mouseenter", function () { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } });
   pop.addEventListener("mouseleave", hide);
+  // C：移动端滚动时关闭 term-pop（CSS position:fixed 不跟随滚动，capture 捕获所有滚动容器）
+  if (isTouch) window.addEventListener("scroll", hideNow, { passive: true, capture: true });
 })();
 
 // B：卡片底部追加一行 muted 白话小字（最晦涩术语常驻解释，放卡片底部）
@@ -10148,6 +10153,10 @@ function _bindFreqPopupToHintRows(cell, stats) {
       if (e.target.closest && (e.target.closest(".freq-hover-row") || e.target.closest(".freq-popup"))) return;
       document.querySelectorAll(".freq-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
     }, true);
+    // C：移动端滚动时关闭所有 freq-popup（CSS position:absolute 不跟随滚动，capture 捕获所有滚动容器）
+    window.addEventListener("scroll", () => {
+      document.querySelectorAll(".freq-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
+    }, { passive: true, capture: true });
   }
 }
 
@@ -10270,6 +10279,10 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
       if (e.target.closest && (e.target.closest(".etf-tag") || e.target.closest(".etf-popup"))) return;
       document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
     }, true);
+    // C：移动端滚动时关闭所有 etf-popup（CSS position:absolute 不跟随滚动，capture 捕获所有滚动容器）
+    window.addEventListener("scroll", () => {
+      document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
+    }, { passive: true, capture: true });
   }
 }
 
