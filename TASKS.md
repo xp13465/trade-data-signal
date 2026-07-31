@@ -1042,3 +1042,25 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **状态**：✅ 用户已排期 **2026-08-01 白天实施**（周末不开盘无冲突，盘中禁 export+deploy 约束不触发）。**方案修正（2026-07-31 用户定）：采集量改全量（非前500只）+ 日更估算改一步到位（非 P1.5 后续）**，理由：①季度才跑一次 30-50 分钟可接受非瓶颈 ②抱团度/重叠度是计数集中度指标前500只漏小基金重仓股会算偏 ③净资产规模加权小基金不污染平均仓位但完整反映全市场抱团结构 ④日更估算与季度硬数据互补不互斥（季度给绝对值88魔咒/抱团度/净申赎，日更填补15天滞后窗口仓位趋势），一步到位完整不留尾巴。NOTES §48 AZ90 有完整调研摘要（参考性结论/数据源 fundf10+akshare 9 接口/设计方案 5 指标+新 tab+首页角标+4 维共振/优先级风险/实证案例 005827 减仓 17.38pct/方案修正全量+日更一步到位）。完整调研报告 404 行存 `/tmp/public-fund-research.md`（含学术背景/披露规则/数据源对比/采集字段/指标计算/展示 ASCII 示意图/风险缓解/附录调研过程）。反爬可行性调研存 `/tmp/agent-progress-fund-research.md`（fundf10 子页响应测试+akshare 限流测试+断点续采+延时retry+全量耗时实测推算+降级路径）。实施时派 agent：①季度全量采集脚本（全量+断点续采+降级） ②日更轻量采集（一步到位） ③5 核心+3 衍生指标计算 ④前端新 tab ⑤首页角标 ⑥信号灯规则 ⑦4 维资金面共振联动。预计工时 ~4 天（后端 2 + 前端 1.7 + 信号灯 0.3）。风险：全量反爬（延时+retry+断点续采，最坏降级头部1000只覆盖95%+规模）/ 日更±5%误差（88-80阈值仅趋势参考非精确触发，季报披露后校正）。
 
+
+## ✅ 2026-07-31 a_width_dt_count 跌停池空修复 + 单项指标失败自动重采机制（全闭环，详见 NOTES §48 AZ92）
+
+**背景**：7/31 17:50 update_all 采 `stock_zt_pool_dtgc_em` 跌停池空，collect_log error 致 collect_health level=error 线上小红点。7/31 大盘强势反弹（涨4690/跌728），跌停0合理（7/30 跌停74反弹日），9:25 竞价跌停6只开盘后都打开。
+
+**手动修复**（commit `e35b7e06` push main）：
+- DB: `daily_metric a_width_dt_count 20260731` 6.0(intraday 9:25竞价) -> 0.0(akshare); `collect_log` 新增 ok 记录(20:43)
+- overview.json 重生成 + push main（不带 feat 分支 4c324eeb，单独在 main 加 e35b7e06）
+- 上线验证：sss.sugas.site + s.sugas.site collect_health=ok collected_at=20:43:34 ✓（CF 主站部署延迟不卡，3域名任一OK即上线）
+
+**自动修复机制实施**（feat 分支 commit 待 push main）：
+1. ✅ **fetchers.py collect_snapshot 交叉验证**（`app/collector/fetchers.py` L252-273）：zt_pool 系列空时调另一个 zt_pool 函数交叉验证，涨停池有数据 -> 跌停池空=真0（仅 count_rows transform 写0+ok），都空=源失败保留 empty。根治首次采集误报 error
+2. ✅ **新增 scripts/retry_failed_metrics.py**：读 collect_log 当日 error 项，调 collect_snapshot/collect_direct 重采，成功 upsert+清旧error+写ok；失败保留error下次再试。非交易日跳过。sys.path 用 `.absolute()` 不用 `.resolve()`（确保读主库非滞后镜像，§9）
+3. ✅ **self_heal.sh 集成 retry**（`scripts/self_heal.sh` L18-30）：在任务级 force-heal 之前先跑 retry 轻量重采，复用每15分钟时点（Minute=7/22/37/52），不加新 launchd 时点。不受每日3次上限限制
+
+**本地验证**：模拟未修复（删 collect_log ok 保留 error）-> 跑 retry -> 发现 a_width_dt_count error -> 交叉验证涨停池99只 -> 写0+ok -> collect_log 20:52 ok + daily_metric 0.0。自动修复流程闭环。
+
+**自动修复时点**：17:50 update_all 跑后，18:07 self_heal 调 retry 重采当日 error 项；18:07 仍失败 18:22/18:37.../20:52 每15分钟重试；当日内任一时点源恢复即修复；当日全天源失败保留 error 等明日 update_all 兜底。
+
+**约束遵循**：不改根目录 data/（手动修复直接改 DB 非 git add）+ 盘中不跑全量 export+deploy（20:43 收盘后）+ push main 避开 intraday 时点 + non-ff 优先 rebase + 不 force push main + commit msg Co-Authored-By + DB 主库 trade-data/data/sentiment.db。
+
+**状态**：✅ 手动修复已上线（e35b7e06 push main，3域名验证 ok）。✅ 自动修复机制本地验证通过，feat 分支 commit 待 merge main push main（launchd 下次跑 self_heal 用新版，下次 update_all/intraday_snapshot 用 collect_snapshot 交叉验证新版）。

@@ -5574,3 +5574,107 @@ ui11（前置）-> ui12（P1+P2 前端角标 `1e9d5d43`）-> ui13（IA 重构 `8
 - **memory `default-theme-redgold`**：角标配色用 A 股红涨绿跌（`#e6492e`/`#2e8b57`）跟随 redgold 默认皮肤
 
 **关联**：AZ89 调研报告（指数清单/数据源/时点/韩日时效分析/实时源优劣对比）+ memory `cf-workers-static-assets-ignore-cache-control`（CF Workers 无视 no-store 靠部署自动 purge，3 域名 push main 触发 deploy）+ memory `bump-sw-version-with-appjs`（改 app.js 必 bump sw）+ memory `default-theme-redgold`（A 股红涨绿跌配色）+ AZ86 全站 A 股配色统一（`cb8b0515`，角标配色与之一致）。
+
+### AZ92 2026-07-31 续3：a_width_dt_count 跌停池空修复 + 单项指标失败自动重采机制（self_heal 扩展 + collect_snapshot 交叉验证）
+
+**【今日续3项闭环（AZ91 3项 UI 闭环 + 本节手动修复+自动修复机制实施）】**
+
+7/31 17:50 update_all 采 `stock_zt_pool_dtgc_em` 跌停池空，collect_log error `'stock_zt_pool_dtgc_em empty'` 致 `collect_health level=error`，线上小红点。本节手动修复当日 + 实施"单项指标失败自动重采"机制（用户需求：需有自动修复机制，单项指标失败自动重采兜底，除非今天真不行才明天兜底）。
+
+#### 一、根因调研（7/31 东财跌停池当日空，大盘反弹日0跌停）
+
+**DB 状态**（trade-data/data/sentiment.db 主库）：
+- `daily_metric a_width_dt_count 20260731 = 6.0`（source='intraday', updated_at=09:25:54）—— 9:25 集合竞价采到的瞬时跌停6只
+- `collect_log a_width_dt_count 20260731 17:50:17 status=error message='stock_zt_pool_dtgc_em empty'` —— 17:50 update_all 跌停池采集空
+
+**东财 zt_pool 系列交叉验证**（20:40 手动跑 akshare）：
+- `stock_zt_pool_em`（涨停池）rows=99 ✓
+- `stock_zt_pool_dtgc_em`（跌停池）rows=0 ✗（当日空）
+- `stock_zt_pool_zbgc_em`（炸板池）rows=107 ✓
+- `stock_zt_pool_previous_em`（前涨停）rows=52 ✓
+
+**结论**：仅跌停池空，涨停池/炸板池/前涨停都正常。7/31 大盘强势反弹（涨4690/跌728，涨停99），跌停0合理（7/30 跌停74反弹日）。9:25 竞价跌停6只开盘后都打开，非真实封死跌停。17:50/20:35/20:40 复采跌停池均空，东财当日跌停池=0。
+
+**现有自动修复机制覆盖度调研**：
+- `self_heal.sh`（每15分钟 Minute=7/22/37/52）：只看任务整体 `last_exit!=0` force 重跑整个任务。**不覆盖单项指标失败**（update_all 整体 exit=0，内部 a_width_dt_count error，self_heal 不触发）
+- `backfill_metrics.sh`（16:35/21:00/02:00）：只补指数（index_backfill.main）+ direct 指标（a_fund_main 等）。**不含 width 指标**
+- `backfill_width`（app/backfill.py）：只在手动调用时跑，**没有 launchd 时点**。且 `_have` 跳过（已有 zt_count 不重采）
+
+#### 二、手动修复（commit `e35b7e06` push main）
+
+DB 操作（trade-data/data/sentiment.db 主库）：
+- `daily_metric a_width_dt_count 20260731`: 6.0（intraday 9:25竞价）-> 0.0（source='akshare'，可被明日 mootdx close 口径覆盖）
+- `collect_log` 新增 ok 记录（20:43:34）：`'0 东财跌停池当日空(大盘反弹日 涨4690/跌728 0跌停);9:25竞价6只已打开;手动修复'`
+- `collect_log` 17:50 error 保留（`_clear_old_errors` 逻辑等下次 backfill/retry 清；queries.collect_health 取最新一条 ok，level 变 ok）
+
+overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_alert 中文化 commit，单独在 main 加 `e35b7e06`）：
+- 手动跑 `queries.overview(conn, cfg)` 生成 overview.json（collect_health level=ok, items 空）
+- `git checkout main` + `git reset --hard origin/main`（同步 main，origin/main 已含 4c324eeb）
+- `cp overview.json* static-site/data/` + `git add` + `commit` + `push origin main`（`e35b7e06`）
+
+**上线验证**（3 域名任一 OK 即上线，§8 `deploy-verify-3-sites`）：
+- `sss.sugas.site`（GH Pages）：collect_health level=ok, collected_at=20260731 20:43:34 ✓
+- `s.sugas.site`（MaoziYun）：collect_health level=ok, collected_at=20260731 20:43:34 ✓
+- `ss.fx8.store`（CF 主站）：部署延迟仍 error，不卡（3 域名任一 OK 即上线）
+
+#### 三、自动修复机制实施（fetchers.py 交叉验证 + retry_failed_metrics.py + self_heal.sh 集成）
+
+**方案选型**（用户准则：完整正确一步到位终极方案不妥协）：
+- A. backfill_width 加 launchd 时点 —— `backfill_width` 设计是 `_have` 跳过（已有值不重采），需大改；且全量历史回填不适合频繁跑。否
+- B. self_heal 扩展单项指标重采 —— self_heal 每15分钟跑，频率高适合做单项重采；复用 collect_snapshot/collect_direct。**选**
+- C. update_all 内置失败指标重试 —— update_all 已复杂，加这个增加单次耗时；且只在 17:50 跑一次不够"多时点兜底"。否
+- **最终方案 = B + collect_snapshot 交叉验证根治**：self_heal 每15分钟调 retry_failed_metrics.py 做单项重采；collect_snapshot 对 zt_pool 系列空时交叉验证（首次采集就正确，不写 error）
+
+**1) fetchers.py collect_snapshot 交叉验证**（`app/collector/fetchers.py` L252-273）：
+- zt_pool 系列空时（`func_name in DATE_PARAM_FUNCS and startswith("stock_zt_pool_")`），调另一个 zt_pool 函数交叉验证
+- 涨停池（`stock_zt_pool_em`）空 -> 交叉验证跌停池（`stock_zt_pool_dtgc_em`）
+- 跌停池/炸板池/前涨停池空 -> 交叉验证涨停池（`stock_zt_pool_em`）
+- 交叉验证有数据 -> 本池空=真0（仅对 `transform=count_rows` 即 zt_count/dt_count 写0返回 ok）；其他 transform（max/mean/ratio）空=无数据保留 empty
+- 交叉验证也空 -> 源失败，保留 empty error
+- 场景：7/31 跌停池空 + 涨停池99只 -> 真0跌停，写0+ok，不再误报 error
+
+**2) 新增 scripts/retry_failed_metrics.py**（单项指标失败自动重采）：
+- 读 collect_log 当日最新 status=error 的 metric_id（与 queries.collect_health 同逻辑：ORDER BY run_at DESC, _seen 去重取最新）
+- 对每个 error 指标调 `collect_snapshot`/`collect_direct` 重采（复用 fetchers.py 含交叉验证修复）
+- 成功：`upsert_metric` + `_clear_old_errors`（清旧非 ok 记录）+ `log_collect ok`（让 collect_health 变 ok）
+- 失败：保留原 error（不写新记录避免 collect_log 膨胀），下次 self_heal（15分钟后）再试
+- 非交易日跳过；不受 self_heal 每日3次上限限制（轻量重采，不像 force 重跑整个 update_all）
+- sys.path 用 `.absolute()` 不用 `.resolve()`：trade-data/scripts 是 symlink -> trade/scripts，`.resolve()` 解析到 trade 致 sys.path 加 trade，app.db 加载自 trade/app/db.py 读 trade/data/sentiment.db（滞后镜像，§9 事故根因）；`.absolute()` 不解析 symlink，从 trade-data 跑时 `__file__`=trade-data/scripts/retry_...，parent.parent=trade-data，读主库
+
+**3) self_heal.sh 集成 retry**（`scripts/self_heal.sh` L18-30）：
+- 在 python heredoc（任务级 force-heal）之前，先跑 `retry_failed_metrics.py` 轻量重采
+- 输出 tee 到 `self_heal_audit.log`
+- 失败不阻塞（继续任务级 heal）
+- 复用 self_heal 每15分钟时点（Minute=7/22/37/52），**不加新 launchd 时点**
+
+**自动修复流程**（7/31 跌停池空场景，首次采集已由 collect_snapshot 交叉验证根治；retry 兜底历史 error）：
+- 17:50 update_all 采跌停池空 -> collect_snapshot 交叉验证涨停池99只 -> 写0+ok（不再 error）
+- 若首次采集未触发交叉验证（如 update_all 17:50 前 collect_snapshot 旧版跑）-> 18:07 self_heal 调 retry -> 重采交叉验证 -> 写0+ok -> collect_health 变 ok
+- 若东财整个 zt_pool 系列都空（源失败）-> 交叉验证也空 -> 保留 error -> 18:22/18:37... 每15分钟 retry 再试 -> 当日内任一时点源恢复即修复 -> 当日真不行（源全天封禁）保留 error 等明日 update_all 兜底
+
+**本地验证**（retry 自动修复流程）：
+- 模拟未修复：删 collect_log 20:43 ok，保留 17:50 error
+- 跑 retry：`[retry] 20260731 发现 1 个 error 指标: ['a_width_dt_count']` -> `[ok] a_width_dt_count: 0 (ok (cross-check stock_zt_pool_em has 99 rows, stock_zt_pool_dtgc_em 空=真0))`
+- retry 后：collect_log 17:50 error 被删（_clear_old_errors），新增 20:52:25 ok（retry 写的）；daily_metric value=0.0 source='akshare'
+
+#### 四、launchd 时点设计
+
+**不加新 launchd 时点**，复用 self_heal 每15分钟（Minute=7/22/37/52，错开 schedule_monitor 的 0/15/30/45）：
+- 17:50 update_all 跑后，18:07 self_heal 调 retry 重采当日 error 项
+- 18:07 仍失败（源未恢复），18:22/18:37/.../20:52 每15分钟重试
+- 当日内任一时点源恢复即修复（collect_health 变 ok）
+- 当日全天源失败（罕见），保留 error，明日 17:50 update_all 兜底
+
+**为什么不加 backfill_width 时点**：backfill_width 设计是全量历史回填（270天），`_have` 跳过已有值；不适合"当日单项失败重采"场景。retry_failed_metrics.py 只重采当日 error 项，轻量（几秒/指标），复用 self_heal 每15分钟时点足够。
+
+#### 五、约束遵循
+
+- **不改根目录 `data/`**：手动修复直接改 DB（sqlite3 connect，非 git add）；deploy 只 add `static-site/data/overview.json` + `.gz`
+- **盘中不跑全量 export+deploy**：20:43 收盘后操作（手动修复 + push main），避开 09:30-15:30 盘中窗口
+- **push main 避开 intraday 时点**：20:43 push（避 20:35 intraday-snapshot + 21:00 backfill_metrics）
+- **non-ff 优先 rebase**：手动修复 push main 用 `git checkout main + reset --hard origin/main + commit + push`（fast-forward，无 non-ff）
+- **不 force push main**：feat 分支改动 merge main 用 fast-forward
+- **commit msg 末尾 Co-Authored-By**：手动修复 commit `e35b7e06` 含 Co-Authored-By
+- **DB 主库 trade-data/data/sentiment.db**：retry 脚本 sys.path 用 `.absolute()` 不用 `.resolve()`，确保读主库非滞后镜像（§9）
+
+**关联**：AZ85 intraday 角标修复（collect_health 角标滞后）+ memory `backup-strategy-redundant-runs`（重复跑是兜底非冗余，retry 每15分钟重试符合）+ memory `monitor-log-anomaly-blindspot`（self_heal 盘中保护 update_all，retry 轻量不受每日3次上限）+ §9（DB 主库路径，retry sys.path `.absolute()` 不解析 symlink）+ §8（3 域名任一 OK 即上线，CF 主站延迟不卡）。

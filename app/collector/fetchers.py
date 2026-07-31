@@ -250,6 +250,23 @@ def collect_snapshot(metric, date):
         if isinstance(df, Exception):
             return None, f"{func_name} error: {df}"
         if df is None or len(df) == 0:
+            # zt_pool 系列空时交叉验证(2026-07-31 7/31 跌停池空修复):
+            # 场景:大盘反弹日跌停池(stock_zt_pool_dtgc_em)空=真0跌停,但涨停池
+            # (stock_zt_pool_em)有99只 -> 源正常,本池空=真0;涨停池也空 -> 源失败保留 empty。
+            # 仅对 count_rows transform(zt_count/dt_count)写0;其他 transform(max/mean/ratio)
+            # 空=无数据保留 empty(连板高度/炸板率/打板溢价空时不好判0)。
+            if (func_name in DATE_PARAM_FUNCS
+                    and func_name.startswith("stock_zt_pool_")
+                    and metric.get("transform") == "count_rows"):
+                cross_fn = (ak.stock_zt_pool_em
+                            if func_name != "stock_zt_pool_em"
+                            else ak.stock_zt_pool_dtgc_em)
+                cross_df = safe_call(cross_fn, date=date)
+                if (not isinstance(cross_df, Exception)
+                        and cross_df is not None
+                        and len(cross_df) > 0):
+                    return 0, (f"ok (cross-check {cross_fn.__name__} has "
+                               f"{len(cross_df)} rows, {func_name} 空=真0)")
             return None, f"{func_name} empty"
     val = _apply_transform(df, metric, date)
     if val is None:

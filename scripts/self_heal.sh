@@ -21,6 +21,15 @@ GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 cd "$REPO"
 export REPO GIT_REPO
 
+# 单项指标失败自动重采(2026-07-31 自动修复机制,在任务级 force-heal 之前轻量重采):
+# 读 collect_log 当日 error 项,对每个 error 指标调 collect_snapshot/collect_direct 重采。
+# 复用 fetchers.collect_snapshot(含 zt_pool 交叉验证:跌停池空+涨停池有数据=真0跌停,写0+ok)。
+# 不受下方每日3次上限限制(轻量重采,不像 force 重跑整个 update_all);失败保留 error下次再试。
+# 场景:17:50 update_all 跌停池空 error -> 18:07 本脚本重采交叉验证涨停池有数据 -> 写0+ok,collect_health 变 ok。
+echo "=== retry_failed_metrics 开始 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$REPO/data/logs/self_heal_audit.log"
+"$REPO/.venv/bin/python" "$REPO/scripts/retry_failed_metrics.py" 2>&1 | tee -a "$REPO/data/logs/self_heal_audit.log" || echo "⚠ retry_failed_metrics.py 失败(不阻塞,继续任务级 heal)" | tee -a "$REPO/data/logs/self_heal_audit.log"
+echo "=== retry_failed_metrics 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$REPO/data/logs/self_heal_audit.log"
+
 # 用 python heredoc 做决策 + 触发（bash 处理 JSON/launchctl 太繁琐易错）
 "$REPO/.venv/bin/python" <<'PYEOF' 2>&1
 import json
