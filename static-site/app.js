@@ -9369,17 +9369,24 @@ async function renderSentiment() {
 
 // 市场温度二级 subtab：冰点/过热热力图 + 恐贪/A股情绪分/6宽基/跨市场（原 renderSentiment 主体，期货已归 futures subtab）
 async function renderSentimentMarketTemp(container) {
+  let r;
+  try {
+    r = await fetchJSON(dataUrl(`sentiment-${state.range}.json`));
+  } catch (e) {
+    renderErrorState(container, e, () => renderSentimentMarketTemp(container));
+    return;
+  }
+  // 拉取盘中快照，供情绪大卡右上角角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
+  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
+  const snap = state.intradaySnapshot;
+  container.innerHTML = "";  // 清 loading 开始渲染（loading 由 renderSentiment 分发器 L9362 塞入，对齐 renderGlobal L9119 模式）
   // purpose note + crosslink 只在此 tab 显示（共通区已下沉，避免期货/汪汪队上方出现"温度计"提示）
   renderPurposeNote(container, PURPOSE_NOTES["sentiment"]);
   container.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看<b>情绪温度计</b>+冰点/过热热力图;想看指数<b>价格走势</b>-> 去<a data-goto="market" role="button" tabindex="0">【指数表现】</a></div>');
   _bindTabCrosslink(container, "market");
-  const r = await fetchJSON(dataUrl(`sentiment-${state.range}.json`));
   const sig = r.signals || {};
   const stats = r.stats || {};
   const strat = r.strategy || {};
-  // 拉取盘中快照，供情绪大卡右上角角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
-  try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
-  const snap = state.intradaySnapshot;
 
   // 冰点/过热热力图（一眼全局，放最前面）
   renderSentimentHeatmap(r, snap, container);
