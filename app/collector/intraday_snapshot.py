@@ -306,6 +306,134 @@ def _fetch_hk_cshkdiv_sina() -> dict | None:
     }
 
 
+# 全球指数实时采集清单（AZ89 2026-07-31 P1+P2 全球指数时效优化）
+# 新浪 b_ 前缀（全球指数）+ rt_ 前缀（港股指数），GBK 编码，单接口批量采
+# akshare index_global_spot_em 走东财 push2.eastmoney.com 实测本机连接被拒
+# （RemoteDisconnected，与 CLAUDE.md「东财2源被封弃用」一致），改用新浪 b_/rt_ 系列
+# （rt_hkCSHKDIV 已在 _fetch_hk_cshkdiv_sina 验证可用，扩展到全部全球指数）。
+# 收盘 pipeline 仍走 index_global_hist_sina 补完整 OHLC（实时源只覆盖当日 latest）。
+_GLOBAL_SPOT_CODES = {
+    # P1：全球5指数（AZ89 推荐，盘中实时；与 A 股同时区韩日价值最高）
+    "nikkei225": ("b_NKY", "b"),      # 日经225
+    "kospi": ("b_KOSPI", "b"),        # 首尔综合
+    "ftse100": ("b_UKX", "b"),        # 英国富时100
+    "dax": ("b_DAX", "b"),            # 德国DAX
+    "cac40": ("b_CAC", "b"),          # 法国CAC40
+    # P2：亚洲其他同时区（AZ89 可选）
+    "asx200": ("b_AS51", "b"),        # 澳大利亚ASX200
+    "sensex": ("b_SENSEX", "b"),      # 印度孟买SENSEX（NIFTY50 无 b_ 代码，SENSEX 同覆盖）
+    # P2：港股板块8（AZ89 可选，细分行业；3 中证走 rt_，5 恒生/中华走 rt_）
+    "hk_cesg10": ("rt_hkCESG10", "rt"),    # 中华博彩
+    "hk_hsmogi": ("rt_hkHSMOGI", "rt"),    # 恒生内地油气
+    "hk_hsmbi": ("rt_hkHSMBI", "rt"),      # 恒生内地银行
+    "hk_hsmpi": ("rt_hkHSMPI", "rt"),      # 恒生内地房地产
+    "hk_hscci": ("rt_hkHSCCI", "rt"),      # 红筹指数
+    "hk_cshklre": ("rt_hkCSHKLRE", "rt"),  # 中证香港内地地产
+    "hk_cshklc": ("rt_hkCSHKLC", "rt"),    # 中证香港内地消费
+    "hk_cshkdiv": ("rt_hkCSHKDIV", "rt"),  # 中证香港红利
+}
+
+
+def _fetch_global_realtime_sina() -> dict:
+    """新浪 b_/rt_ 前缀全球指数实时批量采集。
+
+    覆盖 AZ89 P1（全球5: nikkei225/kospi/ftse100/dax/cac40）
+    + P2（亚洲其他: asx200/sensex + 港股板块8: cesg10/hsmogi/hsmbi/hsmpi/hscci/cshklre/cshklc/cshkdiv）。
+
+    数据源：新浪 hq.sinajs.cn/list=b_NKY,b_KOSPI,...,rt_hkCESG10,...
+    - b_ 前缀：全球指数（日经/首尔/富时/DAX/CAC/ASX/SENSEX）
+      字段（实测 2026-07-31）：[0]=名称 [1]=最新价 [2]=涨跌额 [3]=涨跌幅
+        [4-5]=杂项日期 [6]=行情日期(YYYY-MM-DD) [7]=行情时间(HH:MM:SS)
+        [9]=昨收 [10]=最高 [11]=最低 [12]=成交量
+      注：b_NIFTY 短格式仅 6 字段（无 date/prev_close/OHLC），b_NIFTY50 无此代码，
+      故印度用 b_SENSEX（完整字段）代表，NIFTY50 暂不采。
+    - rt_ 前缀：港股指数（与 _fetch_hk_cshkdiv_sina 同源同格式）
+      字段：[0]=代码 [1]=名称 [2]=昨收 [3]=今开 [4]=最高 [5]=最低
+        [6]=现价 [7]=涨跌额 [8]=涨跌幅 [17]=日期 [18]=时间
+
+    返回 dict：{index_id: {name, price, chg, chg_pct, pre_close, open, high, low,
+    date, time, datetime}}。失败的 index 不出现（不报错不阻断快照核心）。
+    """
+    out = {}
+    try:
+        codes = [c for c, _ in _GLOBAL_SPOT_CODES.values()]
+        url = "https://hq.sinajs.cn/list=" + ",".join(codes)
+        r = requests.get(url, headers=_SINA_HEADERS, timeout=10)
+        body = r.content.decode("gbk", errors="replace")
+    except Exception as e:  # noqa: BLE001
+        print(f"[intraday] 全球指数实时采集失败（不阻断）: {type(e).__name__} {e}", flush=True)
+        return out
+
+    def _f(i, default=None):
+        try:
+            v = fields[i].strip()
+            return float(v) if v else default
+        except (IndexError, ValueError):
+            return default
+
+    for idx_id, (sina_code, fmt) in _GLOBAL_SPOT_CODES.items():
+        prefix = f'var hq_str_{sina_code}="'
+        i = body.find(prefix)
+        if i < 0:
+            continue
+        j = body.find('"', i + len(prefix))
+        if j < 0:
+            continue
+        content = body[i + len(prefix):j]
+        if not content:
+            continue
+        fields = content.split(",")
+        if len(fields) < 4:
+            continue
+        try:
+            if fmt == "b":
+                name = fields[0].strip()
+                price = _f(1)
+                chg = _f(2)
+                chg_pct = _f(3)
+                if len(fields) >= 8:
+                    date = fields[6].strip()
+                    tm = fields[7].strip()
+                else:
+                    date = tm = ""
+                pre_close = _f(9) if len(fields) > 9 else None
+                open_p = None  # b_ 格式无 open 字段
+                high = _f(10) if len(fields) > 10 else None
+                low = _f(11) if len(fields) > 11 else None
+            else:  # rt
+                name = fields[1].strip() if len(fields) > 1 else ""
+                pre_close = _f(2)
+                open_p = _f(3)
+                high = _f(4)
+                low = _f(5)
+                price = _f(6)
+                chg = _f(7)
+                chg_pct = _f(8)
+                date = fields[17].strip() if len(fields) > 17 else ""
+                tm = fields[18].strip() if len(fields) > 18 else ""
+        except Exception:  # noqa: BLE001
+            continue
+        if price is None or price <= 0:
+            continue
+        # datetime 统一为 YYYYMMDDHHMMSS（与 _fetch_hk_cshkdiv_sina / indices 一致，
+        # 去除 b_ 的 "-" 和 rt_ 的 "/" 分隔符）
+        dtstr = (date.replace("/", "").replace("-", "") + tm.replace(":", "")) if date else ""
+        out[idx_id] = {
+            "name": name,
+            "price": price,
+            "chg": chg,
+            "chg_pct": chg_pct,
+            "pre_close": pre_close,
+            "open": open_p,
+            "high": high,
+            "low": low,
+            "date": date,
+            "time": tm,
+            "datetime": dtstr,
+        }
+    return out
+
+
 def _parse_sina_commodity(text: str) -> list[dict]:
     """解析新浪商品期货实时源（nf_/hf_ 前缀，GBK）。
 
@@ -1507,6 +1635,12 @@ def build_snapshot() -> dict:
                   f"NQ={us_futures.get('hf_NQ', {}).get('chg_pct'):.2f}%", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"[intraday] 美股期货采集失败（不阻断）: {type(e).__name__} {e}", flush=True)
+    # AZ89 P1+P2 全球指数实时：盘中韩日/欧美/港股板块/澳印实时（新浪 b_/rt_ 批量采）
+    # 失败不阻断快照核心（A 股/港股宽基/行业）；收盘 pipeline 仍走 index_global_hist_sina 补 OHLC
+    global_realtime = _fetch_global_realtime_sina()
+    if global_realtime:
+        print(f"[intraday] 全球指数实时采集: {len(global_realtime)} 个"
+              f"（P1 全球5 + P2 港股8 + ASX200/SENSEX）", flush=True)
     return {
         "collected_at": collected_dt.isoformat(),
         "is_closed": is_closed,
@@ -1518,6 +1652,7 @@ def build_snapshot() -> dict:
         "us_futures": us_futures,
         "commodities": commodities,
         "fx": fx,
+        "global_realtime": global_realtime,
     }
 
 
