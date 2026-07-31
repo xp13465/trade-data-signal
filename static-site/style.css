@@ -385,6 +385,38 @@ main { padding: 16px 24px; }
 .card-time-badge.t1-severe { color: #c62828; border-color: rgba(198,40,40,0.6); background: rgba(198,40,40,0.2); }
 /* 数据停更(源端长期停更/公式损坏/半年报,非采集故障)：灰色,区别于滞后(黄)/异常(红) */
 .card-time-badge.stale-mark { color: var(--text-3); border-color: var(--border-strong); background: rgba(128,128,128,0.15); }
+
+/* AZ89 P1+P2 全球指数实时报价角标(2026-07-31)：右上角第二行(top:30px right:8px),避开 .card-time-badge(右上 top:6px)。
+   显示 price + chg_pct% + time, 涨红/跌绿/平橙(A股配色与现有指数涨跌色一致)。
+   仅 .chart-card 上(全球 tab 指数卡), 不影响 spark/kpi/industry 等小卡。 */
+.card-realtime-badge {
+  position: absolute;
+  top: 30px;
+  right: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  z-index: 5;
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+  border: 1px solid var(--border);
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.card-realtime-badge b { font-weight: 600; }
+/* 涨跌色：涨红(A股 #e6492e) / 跌绿(#2e8b57) / 平橙(#ff9800) - 与 card-time-badge.intraday/closed 系列同配色 */
+.card-realtime-badge.up { color: #e6492e; border-color: rgba(230,73,46,0.5); background: rgba(230,73,46,0.18); }
+.card-realtime-badge.down { color: #2e8b57; border-color: rgba(46,139,87,0.5); background: rgba(46,139,87,0.18); }
+.card-realtime-badge.flat { color: #ff9800; border-color: rgba(255,152,0,0.5); background: rgba(255,152,0,0.18); }
+@media (max-width: 640px) {
+  .card-realtime-badge { font-size: 10px; padding: 1px 5px; top: 26px; right: 6px; }
+}
 /* 数据停更水印：北向资金等源端长期停更指标,半透明灰字斜叠卡片中部,叠加不遮蔽数值(点击穿透) */
 .stale-watermark {
   position: absolute; top: 50%; left: 50%;

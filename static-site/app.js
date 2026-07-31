@@ -4485,6 +4485,84 @@ function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey, isIndexSpark
   }
 }
 
+// AZ89 P1+P2 全球指数实时报价角标(2026-07-31)：读 intraday_snapshot.global_realtime.<indexId>
+// 显示 price + chg_pct% + 时间, 涨红/跌绿/平橙(A股配色)。
+// 数据缺失(global_realtime 无该 indexId 或 snap 未就绪)不渲染, 不阻塞卡片。
+// 仅全球 tab 渲染时调用(renderGlobal), 角标定位右上角第二行(top:30px right:8px)避开 .card-time-badge(右上 top:6px)。
+// 欧洲指数(ftse100/dax/cac40) A股盘中可能未开盘, 数据为盘前/昨收, 不做特殊过滤(角标 time 字段可让用户自行判断)。
+function _fmtGlobalPrice(p) {
+  if (p == null || isNaN(p)) return "--";
+  // 大指数(如 nikkei 4万点/SENSEX 8万点)保留整数, 小指数(如 asx200 ~8000)保留2位
+  return Math.abs(p) >= 1000 ? Math.round(p).toLocaleString("en-US") : p.toFixed(2);
+}
+function _fmtGlobalChgPct(cp) {
+  if (cp == null || isNaN(cp)) return "--";
+  const sign = cp > 0 ? "+" : (cp < 0 ? "" : "");  // 涨加+，跌自带-，平不加
+  return `${sign}${cp.toFixed(2)}%`;
+}
+function addGlobalRealtimeBadge(cardEl, indexId, snap) {
+  if (!cardEl || !indexId) return;
+  const gr = snap && snap.global_realtime ? snap.global_realtime[indexId] : null;
+  if (!gr) return;  // 数据缺失不渲染
+  const price = Number(gr.price);
+  const cp = Number(gr.chg_pct);
+  const tm = gr.time || "";
+  const hhmm = tm.length >= 5 ? tm.slice(0, 5) : tm;
+  const cls = isNaN(cp) ? "flat" : (cp > 0 ? "up" : (cp < 0 ? "down" : "flat"));
+  // data-tip 悬停显示完整信息(name/datetime/pre_close/OHLC)
+  const tipParts = [];
+  if (gr.name) tipParts.push(gr.name);
+  if (gr.date) tipParts.push(gr.date + (tm ? " " + tm : ""));
+  if (gr.pre_close != null) tipParts.push("昨收 " + gr.pre_close);
+  if (gr.open != null) tipParts.push("今开 " + gr.open);
+  if (gr.high != null) tipParts.push("高 " + gr.high);
+  if (gr.low != null) tipParts.push("低 " + gr.low);
+  const tip = tipParts.join(" · ");
+  const tmp = document.createElement("div");
+  tmp.innerHTML = `<span class="card-realtime-badge ${cls}" data-tip="${tip.replace(/"/g, "&quot;")}">${_fmtGlobalPrice(price)} <b>${_fmtGlobalChgPct(cp)}</b>${hhmm ? " · " + hhmm : ""}</span>`;
+  const badge = tmp.firstElementChild;
+  if (!badge) return;
+  badge.setAttribute("data-badge-gid", indexId);
+  cardEl.appendChild(badge);
+  cardEl.classList.add("has-realtime-badge");
+}
+
+// overview 轮询拉到新 snap 后, 重绘 addGlobalRealtimeBadge 添加的角标(同 refreshCardTimeBadges 模式)。
+// 遍历 .card-realtime-badge[data-badge-gid], 用存的 indexId + 新 snap 重算 HTML 并替换。
+function refreshGlobalRealtimeBadges(snap) {
+  const _snap = snap || state.intradaySnapshot;
+  if (!_snap || !_snap.global_realtime) return;
+  document.querySelectorAll(".card-realtime-badge[data-badge-gid]").forEach((badge) => {
+    const gid = badge.getAttribute("data-badge-gid");
+    if (!gid) return;
+    const cardEl = badge.parentElement;
+    if (!cardEl) return;
+    const gr = _snap.global_realtime[gid];
+    if (!gr) {
+      // snap 轮询后该指数采集失败, 隐藏角标(不删 DOM 避免后续 snap 恢复时无法重绘)
+      badge.style.display = "none";
+      return;
+    }
+    badge.style.display = "";
+    const price = Number(gr.price);
+    const cp = Number(gr.chg_pct);
+    const tm = gr.time || "";
+    const hhmm = tm.length >= 5 ? tm.slice(0, 5) : tm;
+    const cls = isNaN(cp) ? "flat" : (cp > 0 ? "up" : (cp < 0 ? "down" : "flat"));
+    const tipParts = [];
+    if (gr.name) tipParts.push(gr.name);
+    if (gr.date) tipParts.push(gr.date + (tm ? " " + tm : ""));
+    if (gr.pre_close != null) tipParts.push("昨收 " + gr.pre_close);
+    if (gr.open != null) tipParts.push("今开 " + gr.open);
+    if (gr.high != null) tipParts.push("高 " + gr.high);
+    if (gr.low != null) tipParts.push("低 " + gr.low);
+    const tip = tipParts.join(" · ").replace(/"/g, "&quot;");
+    badge.setAttribute("class", `card-realtime-badge ${cls}`);
+    badge.setAttribute("data-tip", tip);
+    badge.innerHTML = `${_fmtGlobalPrice(price)} <b>${_fmtGlobalChgPct(cp)}</b>${hhmm ? " · " + hhmm : ""}`;
+  });
+}
+
 // overview 轮询拉到新 snap 后, 重绘所有 addCardTimeBadge 添加的角标(根治 Bug2: 轮询不重绘卡片角标).
 // 遍历 .card-time-badge[data-badge-date], 用存的 (dataDate, srcClass, srcKey, isIndexSpark) + 新 snap 重算 HTML 并替换.
 // 安全性: T+1 角标走 getCardTimeBadge t1 分支, 永远返回 📅/⏳/🚨 + 自身 dataDate 的 mmdd(非 snap 实时时间),
@@ -5451,6 +5529,7 @@ async function _doIntradayRefresh() {
   const dynResult = await dynP; // 确保 badge/chips 已更新
   _applyDynamicToSparkFoot(dynResult && dynResult.results); // 补更新底部 spark-foot(用腾讯实时价+昨收，与右上角pct同维度，不再卡 renderOverview 旧值)
   if (curSnap) refreshCardTimeBadges(curSnap); // 补更新角标(1min刷新也带动角标，不再卡 snap.datetime 10min粒度)
+  if (curSnap) refreshGlobalRealtimeBadges(curSnap); // AZ89 全球指数实时报价角标随 snap 更新
   // 判断成功：有分时图渲染成功 OR 动态值拉取成功（分时图全收起时靠动态值判断）
   const anyOk = results.length > 0 ? results.some((r) => r) : (dynResult && dynResult.ok);
   if (anyOk) {
@@ -5643,6 +5722,7 @@ async function _doOverviewRefresh() {
     const snap = state.intradaySnapshot;
     // 重绘卡片角标(snap 更新后, T+0 盘中 HH:MM 变化 / T+1 分级可能变化). 收盘态也会先重绘(盘中->收盘切换).
     if (snap) refreshCardTimeBadges(snap);
+    if (snap) refreshGlobalRealtimeBadges(snap); // AZ89 全球指数实时报价角标随 snap 更新
     // P2-新-W: 通知检测钩子（overview 刷新成功后触发自定义事件，通知模块监听）
     try { window.dispatchEvent(new CustomEvent('ts:overview-refreshed', { detail: { snap } })); } catch(_e) {}
     if (snap && snap.is_closed === true) {
@@ -9075,6 +9155,8 @@ async function renderGlobal(container = content) {
         const chart = indexChart(idxName, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
         if (chart) {
           addCardTimeBadge(chart.getDom().parentElement, idx.data.length ? idx.data[idx.data.length - 1].date : "", snap, id && id.startsWith("us_") ? "t1" : "t0", id && id.startsWith("us_") ? "us_dji_date" : "");
+          // AZ89 P1+P2 全球指数实时报价角标(读 intraday_snapshot.global_realtime.<id>)
+          addGlobalRealtimeBadge(chart.getDom().parentElement, id, snap);
           // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
           _appendStrategyHint(chart.getDom().parentElement, id, idx.strategy);
           // C7 P4 market 融合:全球指数卡下 append 紧凑分数卡
