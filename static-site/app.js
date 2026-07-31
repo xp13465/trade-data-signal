@@ -1285,7 +1285,10 @@ function _calcSignalAccuracy(items) {
     else bin.n++;
   };
   for (const it of items) {
-    _tally(acc.total, it);
+    // band_hold 非操作项(2026-07-31): 不计入 total(尤其不计入未结算 n, 避免未结算 44 含 35 band_hold 误导);
+    //   byType 仍统计 band_hold(chip 显示数量). band_hold since_correct 恒 null, 不影响 total.t/f
+    const _isBH = it.signal === "band_hold";
+    if (!_isBH) _tally(acc.total, it);
     // 按信号类型分组统计（band_hold 的 since_correct 恒 null，自然只累加 n）
     // 波段减仓(reason)归 band_sell 中性组，不归 sell 卖类（与 ord/_SIG_TYPES 一致）
     const _sigKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
@@ -1480,7 +1483,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _tActive = (t) => (state.sigTypeFilter === t ? " sig-acc-filter-active" : "");
     const _seg = (label, bin, dotCls, grade) =>
       `<button class="sig-acc-seg sig-acc-filter${_gActive(grade)}" data-grade-filter="${grade}" data-tip="${_escAttr("点击只看评级" + label + "的参考点")}"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</button>`;
-    const _unsettledTip = '未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②波段持有中性状态;③等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项';
+    const _unsettledTip = '未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项(波段持有非操作项,不计入未结算)';
     const _reset = (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)
       ? ` <button class="sig-acc-reset" data-grade-filter-reset="1">恢复全部</button>`
       : "";
@@ -1497,9 +1500,15 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       .reduce((acc, m) => {
         const b = _acc.byType[m.key];
         const tip = _escAttr("点击只看" + m.label + "信号");
-        const dot = `<span class="sig-acc-dot" style="color:${m.color}">●</span>`;
+        // band_hold chip 特殊(2026-07-31): 默认灰(未选中, 表格默认不含 band_hold);
+        //   选中(sigTypeFilter==='band_hold')才亮橙(#ff9800)+active 描边. 其他 chip 不变(默认亮色)
+        const _isBH = m.key === "band_hold";
+        const _bhOn = state.sigTypeFilter === "band_hold";
+        const _chipColor = _isBH ? (_bhOn ? "#ff9800" : "var(--text-3, #999)") : m.color;
+        const _bhCls = _isBH ? (_bhOn ? " sig-acc-filter-bh-on" : " sig-acc-filter-bh-off") : "";
+        const dot = `<span class="sig-acc-dot" style="color:${_chipColor}">●</span>`;
         const body = m.key === "band_hold" ? `${m.label} ${b.n}个` : `${m.label} ${_fmt(b.pct)} (${b.t}/${b.f})`;
-        const chip = `<button class="sig-acc-seg sig-acc-filter${_tActive(m.key)}" data-type-filter="${m.key}" data-tip="${tip}">${dot}${body}</button>`;
+        const chip = `<button class="sig-acc-seg sig-acc-filter${_tActive(m.key)}${_bhCls}" data-type-filter="${m.key}" data-tip="${tip}">${dot}${body}</button>`;
         // 分组分隔: band_hold/sell 前插 | (买类 | 中性 | 卖类), 仅前面已有 chip 才插
         const sep = (m.key === "band_hold" || m.key === "sell") && acc ? ' <span class="sig-acc-sep">|</span> ' : (acc ? " · " : "");
         return acc + sep + chip;

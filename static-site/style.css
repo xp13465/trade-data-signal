@@ -796,6 +796,10 @@ main { padding: 16px 24px; }
 .sig-acc-filter:hover { text-decoration: underline; }
 /* 选中态: 描边 + 浅背景 + 颜色加粗 */
 .sig-acc-filter.sig-acc-filter-active { font-weight: 700; border: 1px solid var(--border-strong, #888); padding: 0 4px; background: rgba(128,128,128,0.15); }
+/* band_hold chip 特殊(2026-07-31): 默认灰(未选中, 表格默认不含 band_hold), 选中才亮橙(#ff9800);
+   仅 band_hold chip 用, 其他 chip(buy/sell 等)默认亮色不变. 选中态仍叠加 .sig-acc-filter-active 描边 */
+.sig-acc-filter.sig-acc-filter-bh-off { color: var(--text-3, #999); }
+.sig-acc-filter.sig-acc-filter-bh-on { color: #ff9800; }
 /* 恢复全部按钮: 浅灰小字 + 边框圆角 + hover 高亮 */
 .sig-acc-reset { background: none; border: 1px solid var(--border-strong, #888); border-radius: 10px; padding: 0 8px; font-size: 11px; color: var(--text-3); cursor: pointer; margin-left: 4px; line-height: 1.6; }
 .sig-acc-reset:hover { color: var(--text-1); border-color: var(--text-2); background: var(--bg-hover, rgba(128,128,128,0.1)); }
