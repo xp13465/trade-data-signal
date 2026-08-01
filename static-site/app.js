@@ -9851,8 +9851,8 @@ async function renderPublicFund(container) {
   indCard.innerHTML = '<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">'
     + '<span>🏭 行业配置（已合并重复分类，点按钮切换排序维度）</span>'
     + '<button class="pf-ind-sort-btn" data-ind-sort="weight" type="button">权重和</button>'
-    + '<button class="pf-ind-sort-btn" data-ind-sort="avg" type="button">平均权重</button>'
-    + '<button class="pf-ind-sort-btn active" data-ind-sort="value" type="button">持仓市值</button>'
+    + '<button class="pf-ind-sort-btn active" data-ind-sort="avg" type="button">平均权重</button>'
+    + '<button class="pf-ind-sort-btn" data-ind-sort="value" type="button">持仓市值</button>'
     + '</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度(点按钮切换面积维度)；柱状图/TreeMap 切换独立, label 跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；TreeMap 点制造业矩形弹子行业列表</div>'
@@ -9860,8 +9860,8 @@ async function renderPublicFund(container) {
     + '<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:8px">'
     + '<span>🎯 抱团集中度全景（矩形面积随选中维度变化）</span>'
     + '<button class="pf-ind-sort-btn" data-treemap-sort="weight" type="button">权重和</button>'
-    + '<button class="pf-ind-sort-btn" data-treemap-sort="avg" type="button">平均权重</button>'
-    + '<button class="pf-ind-sort-btn active" data-treemap-sort="value" type="button">持仓市值</button>'
+    + '<button class="pf-ind-sort-btn active" data-treemap-sort="avg" type="button">平均权重</button>'
+    + '<button class="pf-ind-sort-btn" data-treemap-sort="value" type="button">持仓市值</button>'
     + '</div>'
     + '<div class="chart pf-ind-treemap" style="height:140px"></div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:4px 0 0 0;line-height:1.5">💡 点击柱状图任一行业条 / TreeMap 任一矩形，弹窗显示该行业全部基金列表（按该行业配置权重降序，每页50只翻页，首次加载约 2MB）</div>';
@@ -9877,7 +9877,7 @@ async function renderPublicFund(container) {
     if (mode === 'value') return d.value;  // m.value = total_value (持仓市值, 万元)
     return d.weight;  // m.weight = total_weight (权重和)
   };
-  let indSort = 'value';  // 默认持仓市值(用户要求 2026-08-01)
+  let indSort = 'avg';  // 默认平均权重(用户要求 2026-08-01)
   let _manufExpanded = false;  // 制造业子行业展开状态(方案C Step4)
   // 按选中维度排序 indData -> Top15 + 其他聚合, 返回 barData
   // 制造业展开时: 在制造业柱后插入 breakdown 子行业柱(缩进+浅色, isBreakdown 标记)
@@ -10003,7 +10003,7 @@ async function renderPublicFund(container) {
   // treemapSort 独立于柱状图 indSort: weight=权重和(total_weight) | avg=平均权重(weight/fundCount) | value=持仓市值(total_value)
   // data 用 object 形式带全字段(totalWeight/fundCount/totalValue/industryCount)避免 tooltip 错位;
   // value(矩形面积)随 treemapSort 切换, tooltip 恒显示3值(从 totalWeight 算, 不依赖 value)
-  let treemapSort = 'value';  // 默认持仓市值(用户要求 2026-08-01)
+  let treemapSort = 'avg';  // 默认平均权重(用户要求 2026-08-01)
   const treemapChart = echarts.init(indCard.querySelector(".pf-ind-treemap"));
   charts.push(treemapChart);
   // 渲染 TreeMap(初次渲染 + 切换重排共用): tooltip 恒显示3值(p.data 模式不回退), label 跟随 treemapSort, value(面积)随 treemapSort
