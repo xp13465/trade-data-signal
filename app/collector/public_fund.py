@@ -74,6 +74,50 @@ LOCK_PATH = _DATA_DIR / "public_fund.lock"
 STATIC_DATA_DIR = Path(__file__).absolute().parent.parent.parent / "static-site" / "data"
 PROGRESS_PATH = Path("/tmp/fund-collect-progress.json")
 
+# 申万一级 31 行业 code -> 名称映射(与 industry_extras.py SW_EM_MAP 注释一致, 申万 2021 标准)
+# 用于 holdings.top100 的 stock_industry 字段: 反查 stock_code 所属申万一级行业名
+SW_INDUSTRY_NAMES: dict[str, str] = {
+    "801010": "农林牧渔", "801030": "基础化工", "801040": "钢铁", "801050": "有色金属",
+    "801080": "电子", "801110": "家用电器", "801120": "食品饮料", "801130": "纺织服饰",
+    "801140": "轻工制造", "801150": "医药生物", "801160": "公用事业", "801170": "交通运输",
+    "801180": "房地产", "801200": "商贸零售", "801210": "社会服务", "801230": "综合",
+    "801710": "建筑材料", "801720": "建筑装饰", "801730": "电力设备", "801740": "国防军工",
+    "801750": "计算机", "801760": "传媒", "801770": "通信", "801780": "银行",
+    "801790": "非银金融", "801880": "汽车", "801890": "机械设备", "801950": "煤炭",
+    "801960": "石油石化", "801970": "环保", "801980": "美容护理",
+}
+
+
+def _load_stock_industry_map() -> dict[str, str]:
+    """加载 sw_components.json 构建 {stock_code: 申万一级名称} 反查字典。
+
+    sw_components.json 结构: {industry_code: [stock_code, ...]}(6位纯数字代码)。
+    路径优先 trade-data/data/(主库), 回退 trade/data/(_DATA_DIR)。
+    映射率实测 100%(top100 全命中, 5210 成分股覆盖全 A 股)。
+    文件不存在或读失败返回空 dict(holdings.stock_industry 留空字符串, 不影响导出)。
+    """
+    # 优先 trade-data/data/(主库, §9 cwd 约定), 回退 _DATA_DIR(trade/data/)
+    candidates = [
+        Path("/Users/linhuichen/code/trade-data/data/sw_components.json"),
+        _DATA_DIR / "sw_components.json",
+    ]
+    sw_path = next((p for p in candidates if p.exists()), None)
+    if not sw_path:
+        print(f"[export] warn: sw_components.json 不存在, stock_industry 留空", flush=True)
+        return {}
+    try:
+        sw_data = json.loads(sw_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"[export] warn: sw_components.json 读取失败: {e}, stock_industry 留空", flush=True)
+        return {}
+    code2ind: dict[str, str] = {}
+    for ind_code, stocks in sw_data.items():
+        ind_name = SW_INDUSTRY_NAMES.get(ind_code, "")
+        for s in stocks:
+            code2ind[s] = ind_name
+    return code2ind
+
+
 DEFAULT_START = "20171201"  # fund_stock_position_lg 最早 2017-12-04
 THROTTLE_SEC = 0.5  # 逐只子页延时（xq/em 限流不严, 0.5s 安全）
 
@@ -1199,12 +1243,15 @@ def export_data() -> tuple[dict, dict, dict, dict, dict, dict]:
         "ORDER BY hold_value_total DESC LIMIT 100",
         (report_date,),
     ).fetchall()
+    # stock_code -> 申万一级名称反查(sw_components.json, 5210成分股覆盖全A股, 映射率100%)
+    stock_ind_map = _load_stock_industry_map()
     holdings = {
         "report_date": report_date,
         "prev_report_date": prev_report,
         "top100": [{"stock_code": r[0], "stock_name": r[1], "fund_count": r[2],
                    "hold_share_total": r[3], "hold_value_total": r[4],
                    "prev_value": prev_map.get(r[0]),
+                   "stock_industry": stock_ind_map.get(r[0], ""),
                    "change_pct": round((r[4] - prev_map.get(r[0], 0)) / prev_map.get(r[0], 1) * 100, 2)
                                  if prev_map.get(r[0]) else None}
                   for r in holding_rows],
