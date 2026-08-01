@@ -9495,6 +9495,21 @@ async function _loadIndustryFundMap() {
   return _industryFundMapCache;
 }
 
+// 制造业子行业->基金详情列表 按需 fetch 缓存(模块级, 跨 re-render 复用)
+// 数据源: https://ssd.fx8.store/public_fund/public_fund_manuf_subind_fund_map.json (方案C Step5, 独立 JSON)
+// 重仓股拆分口径: 每只制造业基金的重仓股按申万一级子行业聚合 weight_pct/hold_value 和
+let _manufSubindFundMapCache = null;
+let _manufSubindFundMapLoading = null;  // Promise 防并发重复 fetch
+async function _loadManufSubindFundMap() {
+  if (_manufSubindFundMapCache) return _manufSubindFundMapCache;
+  if (_manufSubindFundMapLoading) return _manufSubindFundMapLoading;
+  _manufSubindFundMapLoading = fetchJSON("https://ssd.fx8.store/public_fund/public_fund_manuf_subind_fund_map.json")
+    .catch((e) => { console.warn("[pf-subind-map] fetch failed", e?.message || e); return null; })
+    .finally(() => { _manufSubindFundMapLoading = null; });
+  _manufSubindFundMapCache = await _manufSubindFundMapLoading;
+  return _manufSubindFundMapCache;
+}
+
 async function renderPublicFund(container) {
   _disposeContainerCharts(container);
   renderLoadingState(container);
@@ -9584,6 +9599,23 @@ async function renderPublicFund(container) {
 .pf-ind-fund-pager .pf-page-btn:disabled{opacity:0.4;cursor:not-allowed;}
 .pf-ind-fund-pager .pf-page-ellipsis{color:var(--text-4);padding:0 4px;}
 .pf-ind-fund-pager .pf-page-info{font-size:12px;color:var(--text-3);margin-left:8px;}
+/* 制造业 2-tab 弹窗( TreeMap 点击制造业 ): Tab1 子行业列表(可点击下钻) + Tab2 制造业全部基金 */
+.pf-tab-header{display:flex;gap:0;border-bottom:2px solid var(--border-light,var(--border));margin-bottom:0;}
+.pf-tab-btn{flex:1;padding:10px 16px;border:none;background:var(--bg-hover);color:var(--text-3);font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .1s,background .1s,border-color .1s;}
+.pf-tab-btn:hover{color:var(--primary);}
+.pf-tab-btn.active{color:#e6492e;background:var(--bg-card,var(--bg-1));border-bottom-color:#e6492e;}
+.pf-tab-body{display:none;padding:12px 0 0;}
+.pf-tab-body.active{display:block;}
+/* Tab1 子行业表格行可点击下钻: cursor pointer + hover 高亮 */
+.pf-subind-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.pf-subind-table th,.pf-subind-table td{padding:6px 10px;border-bottom:1px solid var(--border-light,var(--border));text-align:left;white-space:nowrap;}
+.pf-subind-table th{background:var(--bg-hover);color:var(--text-2);font-weight:600;position:sticky;top:0;}
+.pf-subind-row{cursor:pointer;transition:background .1s;}
+.pf-subind-row:hover td{background:rgba(230,73,46,0.08);}
+.pf-subind-row:hover .pf-subind-name{color:#e6492e;}
+.pf-subind-name{font-weight:600;cursor:pointer;}
+.pf-subind-arrow{color:#e6492e;font-size:11px;margin-left:4px;}
+.pf-tab-tip{font-size:11px;color:var(--text-3);margin:6px 0 10px;line-height:1.5;}
 `;
     document.head.appendChild(st);
   }
@@ -10086,7 +10118,8 @@ async function renderPublicFund(container) {
   const _PF_FUND_PAGE_SIZE = 50;
   let _pfFundCurName = null;       // 当前弹窗的行业名(防异步过期)
   let _pfFundCurList = null;       // 当前行业的基金列表(翻页切片用, 避免闭包传参)
-  let _pfFundCurPage = 1;          // 当前页码(1-based)
+  let _pfFundCurPage = 1;          // 当前页码(1-based, 兼容保留; 新渲染器用本地闭包)
+  let _pfFundCurTip = null;        // 当前弹窗的 tip 文本(行业/子行业不同口径)
   let _pfFundEscBound = false;     // ESC 监听只绑一次
 
   // 渲染翻页器 HTML(参考 _renderEtfPager: 上一页/页码(带省略号)/下一页 + 页码信息)
@@ -10113,39 +10146,52 @@ async function renderPublicFund(container) {
     return html;
   };
 
-  // 渲染 modal 表格内容(翻页: slice((page-1)*size, page*size), 非追加; 翻页只换 tbody + pager, 不重 fetch)
-  const _renderFundModalPage = (modal) => {
-    const body = modal.querySelector(".rule-modal-content");
-    const list = _pfFundCurList || [];
-    if (list.length === 0) {
-      body.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-3)">📦 ${_pfFundCurName}：暂无基金数据</div>`;
-      return;
-    }
-    const total = list.length;
-    const pages = Math.max(1, Math.ceil(total / _PF_FUND_PAGE_SIZE));
-    const page = Math.min(_pfFundCurPage, pages);
-    const start = (page - 1) * _PF_FUND_PAGE_SIZE;
-    const pageList = list.slice(start, start + _PF_FUND_PAGE_SIZE);
-    // 序号 = 全局序号(start + i + 1), 非页内序号(用户能看懂当前是第几只)
-    const rows = pageList.map((f, i) => {
-      const wp = f.weight_pct != null ? f.weight_pct.toFixed(2) + '%' : '-';
-      const hv = f.hold_value != null ? (f.hold_value).toFixed(2) : '-';
-      return `<tr><td>${start + i + 1}</td><td class="pf-code">${f.fund_code || '-'}</td><td>${f.fund_name || '-'}</td><td class="pf-num">${wp}</td><td class="pf-num">${hv}</td></tr>`;
-    }).join("");
-    body.innerHTML = '<div class="pf-table-wrap"><table class="pf-table">'
-      + '<thead><tr><th>#</th><th>代码</th><th>名称</th><th>该行业权重%</th><th>持仓市值(万)</th></tr></thead>'
-      + `<tbody>${rows}</tbody></table></div>`
-      + _renderFundPager(page, pages, total)
-      + '<div class="pf-modal-tip">💡 按该行业配置权重降序；权重% = 该基金对此行业的仓位占比，持仓市值单位万元</div>';
-    // 翻页按钮事件: 点页码/上一页/下一页 -> 更新 _pfFundCurPage -> 重渲染 tbody + pager(不重 fetch)
-    body.querySelectorAll(".pf-page-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.disabled) return;
-        const p = parseInt(btn.getAttribute("data-page"), 10);
-        if (isNaN(p) || p === _pfFundCurPage) return;
-        _pfFundCurPage = p;
-        _renderFundModalPage(modal);
+  // 自包含基金列表渲染器: 本地 page 闭包, 不依赖共享状态(避免 2-tab Tab2 与 fund list 弹窗冲突)
+  // 渲染表格 + 翻页器到任意 container, 翻页时只重渲染 container 内部(不重 fetch)
+  const _renderFundListInto = (container, list, opts) => {
+    const pageSize = _PF_FUND_PAGE_SIZE;
+    const tip = opts?.tip || '💡 按该行业配置权重降序；权重% = 该基金对此行业的仓位占比，持仓市值单位万元';
+    const emptyName = opts?.emptyName || '';
+    let page = opts?.page || 1;
+    const render = () => {
+      const l = list || [];
+      if (l.length === 0) {
+        container.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-3)">📦 ${emptyName}：暂无基金数据</div>`;
+        return;
+      }
+      const total = l.length;
+      const pages = Math.max(1, Math.ceil(total / pageSize));
+      page = Math.min(page, pages);
+      const start = (page - 1) * pageSize;
+      const pageList = l.slice(start, start + pageSize);
+      const rows = pageList.map((f, i) => {
+        const wp = f.weight_pct != null ? f.weight_pct.toFixed(2) + '%' : '-';
+        const hv = f.hold_value != null ? (f.hold_value).toFixed(2) : '-';
+        return `<tr><td>${start + i + 1}</td><td class="pf-code">${f.fund_code || '-'}</td><td>${f.fund_name || '-'}</td><td class="pf-num">${wp}</td><td class="pf-num">${hv}</td></tr>`;
+      }).join("");
+      container.innerHTML = '<div class="pf-table-wrap"><table class="pf-table">'
+        + '<thead><tr><th>#</th><th>代码</th><th>名称</th><th>该行业权重%</th><th>持仓市值(万)</th></tr></thead>'
+        + `<tbody>${rows}</tbody></table></div>`
+        + _renderFundPager(page, pages, total)
+        + `<div class="pf-modal-tip">${tip}</div>`;
+      container.querySelectorAll(".pf-page-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (btn.disabled) return;
+          const p = parseInt(btn.getAttribute("data-page"), 10);
+          if (isNaN(p) || p === page) return;
+          page = p;
+          render();
+        });
       });
+    };
+    render();
+  };
+
+  // 渲染 #pfIndFundModal 内容(单例 modal, 用共享状态 _pfFundCurList/_pfFundCurName/_pfFundCurTip)
+  const _renderFundModalPage = (modal) => {
+    _renderFundListInto(modal.querySelector(".rule-modal-content"), _pfFundCurList, {
+      emptyName: _pfFundCurName,
+      tip: _pfFundCurTip,
     });
   };
 
@@ -10156,6 +10202,7 @@ async function renderPublicFund(container) {
     _pfFundCurName = null;
     _pfFundCurList = null;
     _pfFundCurPage = 1;
+    _pfFundCurTip = null;
   };
 
   // 点击行业名 -> 创建/复用 modal -> loading -> 异步拉 fund_map -> 渲染表格(翻页, 默认第 1 页)
@@ -10164,6 +10211,7 @@ async function renderPublicFund(container) {
     _pfFundCurName = indName;
     _pfFundCurList = null;
     _pfFundCurPage = 1;  // 重新打开重置到第 1 页
+    _pfFundCurTip = null;  // 用默认 tip(行业配置权重口径)
     // 创建或复用 modal(单例, 避免重复创建堆积 DOM)
     let modal = document.getElementById("pfIndFundModal");
     if (!modal) {
@@ -10188,6 +10236,8 @@ async function renderPublicFund(container) {
         if (e.key === "Escape") {
           const m = document.getElementById("pfIndFundModal");
           if (m && !m.classList.contains("hidden")) _closeFundModal(m);
+          const tm = document.getElementById("pfManufTabModal");
+          if (tm && !tm.classList.contains("hidden")) { tm.classList.add("hidden"); document.body.style.overflow = ""; }
         }
       });
       _pfFundEscBound = true;
@@ -10207,10 +10257,15 @@ async function renderPublicFund(container) {
     _pfFundCurList = list;  // 缓存列表供翻页切片(不重 fetch)
     _renderFundModalPage(modal);
   };
-  // 制造业子行业 breakdown 列表弹窗(方案C Step4, TreeMap 点击制造业用)
-  // 复用 pfIndFundModal 骨架, 内容是 breakdown 表格(子行业/权重/占制造业%/市值/基金数)
-  const _showManufBreakdown = (breakdown) => {
-    if (!breakdown || !breakdown.length) return;
+
+  // 子行业基金弹窗(方案C Step5): 柱状图子行业柱点击 + TreeMap Tab1 子行业项点击 都调此
+  // 复用 #pfIndFundModal 骨架 + _renderFundModalPage 翻页; 数据源 _loadManufSubindFundMap(重仓股拆分口径)
+  const _showManufSubindFunds = async (subIndName) => {
+    if (!subIndName) return;
+    _pfFundCurName = subIndName;
+    _pfFundCurList = null;
+    _pfFundCurPage = 1;
+    _pfFundCurTip = '🔬 重仓股拆分口径：该基金重仓股中属于「' + subIndName + '」子行业的股票汇总（权重%/持仓市值为该子行业重仓股之和，单位万元）';
     let modal = document.getElementById("pfIndFundModal");
     if (!modal) {
       modal = document.createElement("div");
@@ -10218,41 +10273,143 @@ async function renderPublicFund(container) {
       modal.className = "rule-modal hidden pf-ind-fund-modal";
       document.body.appendChild(modal);
     }
-    const totalW = breakdown.reduce((s, b) => s + (b.weight || 0), 0) || 1;
-    const rows = breakdown.map((b, i) => {
-      const pct = ((b.weight || 0) / totalW * 100).toFixed(2);
-      return `<tr><td>${i + 1}</td><td>${b.sub_industry}</td><td class="pf-num">${(b.weight || 0).toFixed(2)}</td><td class="pf-num">${pct}%</td><td class="pf-num">${((b.value || 0) / 1e4).toFixed(2)}</td><td class="pf-num">${b.fund_count || 0}</td></tr>`;
-    }).join("");
     modal.innerHTML = '<div class="rule-modal-overlay"></div>'
       + '<div class="rule-modal-body">'
-      + '<div class="rule-modal-header"><h3>🏭 制造业子行业拆分（基于重仓股, 共 ' + breakdown.length + ' 个子行业）</h3>'
+      + '<div class="rule-modal-header"><h3>📦 ' + subIndName + ' 子行业基金列表（制造业拆分）</h3>'
       + '<button class="rule-modal-close" aria-label="关闭" type="button">&times;</button></div>'
-      + '<div class="rule-modal-content"><div class="pf-table-wrap"><table class="pf-table">'
-      + '<thead><tr><th>#</th><th>申万一级子行业</th><th>权重和</th><th>占制造业%</th><th>持仓市值(亿)</th><th>基金数</th></tr></thead>'
-      + `<tbody>${rows}</tbody></table></div>`
-      + '<div class="pf-modal-tip">🔬 按基金维度拆分: 每只制造业基金的制造业仓位, 按其重仓股中各子行业占比分摊; 未映射重仓股归"制造业-其他"; 非基金直接披露</div>'
+      + '<div class="rule-modal-content"><div style="padding:20px;text-align:center;color:var(--text-3)">⏳ 加载中...</div></div>'
       + '</div>';
-    const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+    const _close = () => _closeFundModal(modal);
     modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
     modal.querySelector(".rule-modal-close").addEventListener("click", _close);
-    // ESC 关闭(守护 _pfFundEscBound, 与 _showIndustryFunds 共用单例 modal)
     if (!_pfFundEscBound) {
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
           const m = document.getElementById("pfIndFundModal");
-          if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); document.body.style.overflow = ""; }
+          if (m && !m.classList.contains("hidden")) _closeFundModal(m);
+          const tm = document.getElementById("pfManufTabModal");
+          if (tm && !tm.classList.contains("hidden")) { tm.classList.add("hidden"); document.body.style.overflow = ""; }
         }
       });
       _pfFundEscBound = true;
     }
     modal.classList.remove("hidden");
     document.body.style.overflow = "hidden";
+    const smap = await _loadManufSubindFundMap();
+    if (_pfFundCurName !== subIndName) return;  // 异步期间用户关了/换了
+    if (!smap || !smap.subind_funds) {
+      modal.querySelector(".rule-modal-content").innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-3)">📦 ${subIndName}：基金列表加载失败</div>`;
+      return;
+    }
+    const list = smap.subind_funds[subIndName] || [];
+    modal.querySelector(".rule-modal-header h3").textContent = `📦 ${subIndName} 的 ${list.length} 只基金（制造业拆分）`;
+    _pfFundCurList = list;
+    _renderFundModalPage(modal);
   };
-  // 柱状图点击: 制造业切换子行业展开, 子行业不弹窗, 其他行业弹基金列表(方案C Step4)
+  // 制造业 2-tab 弹窗(方案C Step5, TreeMap 点击制造业用):
+  //   Tab1 子行业: breakdown 表格(每行子行业名可点击 -> _showManufSubindFunds 新弹窗下钻)
+  //   Tab2 制造业基金: 制造业全部基金列表(复用 _loadIndustryFundMap + _renderFundListInto, 不重复 fetch)
+  // 用独立 modal #pfManufTabModal(和 #pfIndFundModal 单例并存, Tab1 下钻时 #pfIndFundModal 在上层)
+  const _showManufBreakdown = (breakdown) => {
+    if (!breakdown || !breakdown.length) return;
+    let modal = document.getElementById("pfManufTabModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "pfManufTabModal";
+      modal.className = "rule-modal hidden pf-ind-fund-modal";
+      document.body.appendChild(modal);
+    }
+    const totalW = breakdown.reduce((s, b) => s + (b.weight || 0), 0) || 1;
+    // Tab1 子行业表格行: 每行可点击下钻到子行业基金弹窗
+    const rows = breakdown.map((b, i) => {
+      const pct = ((b.weight || 0) / totalW * 100).toFixed(2);
+      return `<tr class="pf-subind-row" data-subind="${b.sub_industry}">`
+        + `<td>${i + 1}</td>`
+        + `<td><span class="pf-subind-name">${b.sub_industry}</span><span class="pf-subind-arrow">查看基金 →</span></td>`
+        + `<td class="pf-num">${(b.weight || 0).toFixed(2)}</td>`
+        + `<td class="pf-num">${pct}%</td>`
+        + `<td class="pf-num">${((b.value || 0) / 1e4).toFixed(2)}</td>`
+        + `<td class="pf-num">${b.fund_count || 0}</td>`
+        + `</tr>`;
+    }).join("");
+    modal.innerHTML = '<div class="rule-modal-overlay"></div>'
+      + '<div class="rule-modal-body">'
+      + '<div class="rule-modal-header"><h3>🏭 制造业子行业拆分（共 ' + breakdown.length + ' 个子行业）</h3>'
+      + '<button class="rule-modal-close" aria-label="关闭" type="button">&times;</button></div>'
+      + '<div class="rule-modal-content">'
+      + '<div class="pf-tab-header">'
+      + '<button class="pf-tab-btn active" data-pf-tab="1">📊 子行业（点击查看基金）</button>'
+      + '<button class="pf-tab-btn" data-pf-tab="2">📦 制造业全部基金</button>'
+      + '</div>'
+      + '<div class="pf-tab-body active" data-pf-tab-body="1">'
+      + '<div class="pf-tab-tip">💡 点击子行业名称查看该子行业的基金列表（重仓股拆分口径）</div>'
+      + '<div class="pf-table-wrap"><table class="pf-subind-table">'
+      + '<thead><tr><th>#</th><th>申万一级子行业</th><th>权重和</th><th>占制造业%</th><th>持仓市值(亿)</th><th>基金数</th></tr></thead>'
+      + `<tbody>${rows}</tbody></table></div>`
+      + '</div>'  // Tab1 body end
+      + '<div class="pf-tab-body" data-pf-tab-body="2">'
+      + '<div style="padding:20px;text-align:center;color:var(--text-3)">⏳ 点击此 Tab 加载制造业全部基金...</div>'
+      + '</div>'  // Tab2 body end (lazy load on tab switch)
+      + '</div>'  // content end
+      + '</div>';
+    const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+    modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+    modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+    // ESC 关闭(守护 _pfFundEscBound, 和 _showIndustryFunds/_showManufSubindFunds 共用)
+    if (!_pfFundEscBound) {
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          const m = document.getElementById("pfIndFundModal");
+          if (m && !m.classList.contains("hidden")) _closeFundModal(m);
+          const tm = document.getElementById("pfManufTabModal");
+          if (tm && !tm.classList.contains("hidden")) { tm.classList.add("hidden"); document.body.style.overflow = ""; }
+        }
+      });
+      _pfFundEscBound = true;
+    }
+    // Tab1 子行业行点击 -> 新弹窗显示子行业基金(不覆盖 2-tab modal)
+    modal.querySelectorAll(".pf-subind-row").forEach((tr) => {
+      tr.addEventListener("click", () => {
+        const sub = tr.getAttribute("data-subind");
+        if (sub) _showManufSubindFunds(sub);
+      });
+    });
+    // Tab 切换: 点 tab 头 -> 切 active + 懒加载 Tab2 内容
+    let tab2Loaded = false;
+    modal.querySelectorAll(".pf-tab-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const tab = btn.getAttribute("data-pf-tab");
+        modal.querySelectorAll(".pf-tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        modal.querySelectorAll(".pf-tab-body").forEach((body) => {
+          body.classList.toggle("active", body.getAttribute("data-pf-tab-body") === tab);
+        });
+        // Tab2 懒加载: 首次切换时拉制造业全部基金, 复用 _loadIndustryFundMap(模块级缓存)
+        if (tab === "2" && !tab2Loaded) {
+          tab2Loaded = true;
+          const tab2Body = modal.querySelector('[data-pf-tab-body="2"]');
+          tab2Body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">⏳ 加载中...</div>';
+          const fmap = await _loadIndustryFundMap();
+          if (!fmap || !fmap.industry_funds || !fmap.industry_funds['制造业']) {
+            tab2Body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">📦 制造业基金列表加载失败</div>';
+            return;
+          }
+          const list = fmap.industry_funds['制造业'] || [];
+          // 用 _renderFundListInto 自包含渲染(本地 page 闭包, 不依赖共享状态, 不和 #pfIndFundModal 冲突)
+          _renderFundListInto(tab2Body, list, {
+            emptyName: '制造业',
+            tip: '💡 制造业全部基金（按行业配置权重降序）；权重% = 该基金对制造业的仓位占比，持仓市值单位万元',
+          });
+        }
+      });
+    });
+    modal.classList.remove("hidden");
+    document.body.style.overflow = "hidden";
+  };
+  // 柱状图点击: 制造业切换子行业展开, 子行业柱弹子行业基金弹窗(方案C Step5), 其他行业弹基金列表
   indChart.on('click', (params) => {
     if (!params || !params.data || !params.data.name) return;
     const d = params.data;
-    if (d.isBreakdown) return;  // 子行业不弹窗(tooltip 已显示详情)
+    if (d.isBreakdown) { _showManufSubindFunds(d.subIndustry); return; }  // 子行业柱 -> 子行业基金弹窗
     if (d.name === '制造业' && d.breakdown) {
       _manufExpanded = !_manufExpanded;
       _renderIndBar(indSort);

@@ -286,9 +286,10 @@ for _rng in 1m 3m 6m 1y; do
 done
 DATA_FILES+=("static-site/data/etf_national_team_quarterly.json" "static-site/data/etf_national_team_quarterly.json.gz")
 DATA_FILES+=("static-site/data/etf_national_team_holders.json" "static-site/data/etf_national_team_holders.json.gz")
-# public_fund 5 个 JSON（export.py L410-424 生成，collector public_fund.py export_json_files 也生成同款；
-# collector 采集后 deploy.sh public-fund 推送上线。仿 etf_national_team 模式，5 类各 .json + .gz）
-for _pf in summary holdings industry top20 asset_alloc; do
+# public_fund 7 个 JSON（export.py L410-424 生成，collector public_fund.py export_json_files 也生成同款；
+# collector 采集后 deploy.sh public-fund 推送上线。仿 etf_national_team 模式，7 类各 .json + .gz）
+# 2026-07-20 补 industry_fund_map(原漏)+ manuf_subind_fund_map(方案C Step5 新增子行业下钻到基金)
+for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map; do
   DATA_FILES+=("static-site/data/public_fund_${_pf}.json" "static-site/data/public_fund_${_pf}.json.gz")
 done
 # 单文件（export.py 生成 + deploy/update_all/update_lab 生成）

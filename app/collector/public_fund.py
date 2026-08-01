@@ -1539,10 +1539,88 @@ def _compute_manuf_breakdown(conn, report_date: str, stock_ind_map: dict[str, st
     return breakdown
 
 
-def export_data() -> tuple[dict, dict, dict, dict, dict, dict]:
-    """导出 6 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map。
+def _compute_manuf_subind_fund_map(conn, report_date: str, stock_ind_map: dict[str, str]) -> dict:
+    """制造业子行业 -> 基金详情列表映射（供前端"子行业下钻到基金"弹窗, 方案C Step5）。
 
-    Returns: (summary, holdings, industry, top20, asset_alloc, industry_fund_map)
+    重仓股拆分口径: 对每只制造业基金, 取其重仓股(fund_portfolio_hold), 按申万一级子行业
+    聚合 weight_pct 和 hold_value 和, 输出每子行业的基金详情列表。
+
+    与 _compute_manuf_breakdown 区别:
+      - breakdown: 按基金维度拆分制造业总仓位(allocated = m_total × w/denom), 输出子行业聚合 weight/value/fund_count
+      - subind_fund_map: 直接按重仓股子行业聚合每只基金的 weight_pct/hold_value 原始和, 输出基金详情列表
+
+    结构: {report_date, subind_funds: {子行业名: [{fund_code, fund_name, weight_pct, hold_value}, ...]}}
+    含18个 MANUF_SUB_INDUSTRIES + "制造业-其他"(未映射重仓股归此项); 非制造业申万一级(银行/房地产等)排除。
+    每子行业基金列表按 weight_pct 降序; fund_name 从 fund_basic JOIN(fund_portfolio_hold 无 fund_name 字段)。
+    """
+    # 1. 制造业基金清单(只拆分持有制造业的基金的重仓股)
+    manuf_rows = conn.execute(
+        "SELECT fund_code FROM fund_industry_alloc "
+        "WHERE report_date=? AND industry_name='制造业'",
+        (report_date,),
+    ).fetchall()
+    manuf_fund_codes = {r[0] for r in manuf_rows}
+    if not manuf_fund_codes:
+        return {"report_date": report_date, "subind_funds": {}}
+
+    # 2. 取制造业基金的重仓股, 按基金×子行业聚合 weight_pct 和 hold_value
+    hold_rows = conn.execute(
+        "SELECT fund_code, stock_code, weight_pct, hold_value FROM fund_portfolio_hold "
+        "WHERE report_date=?",
+        (report_date,),
+    ).fetchall()
+    # fund_code -> {sub_ind: {"weight_pct": sum, "hold_value": sum}}
+    fund_sub_agg: dict[str, dict[str, dict[str, float]]] = {}
+    other_key = "制造业-其他"
+    for fc, sc, wp, hv in hold_rows:
+        if fc not in manuf_fund_codes:
+            continue  # 非制造业基金跳过
+        ind = stock_ind_map.get(sc, "")
+        if ind in MANUF_SUB_INDUSTRIES:
+            sub = ind
+        elif ind == "":
+            sub = other_key  # 未映射归"制造业-其他"
+        else:
+            continue  # 非制造业申万一级(银行/房地产等)排除
+        d = fund_sub_agg.setdefault(fc, {}).setdefault(sub, {"weight_pct": 0.0, "hold_value": 0.0})
+        d["weight_pct"] += (wp or 0)
+        d["hold_value"] += (hv or 0)
+
+    if not fund_sub_agg:
+        return {"report_date": report_date, "subind_funds": {}}
+
+    # 3. fund_name 从 fund_basic JOIN(fund_portfolio_hold 无 fund_name 字段)
+    fund_codes_used = set(fund_sub_agg.keys())
+    name_map: dict[str, str] = {}
+    if fund_codes_used:
+        placeholders = ",".join("?" * len(fund_codes_used))
+        name_rows = conn.execute(
+            f"SELECT fund_code, fund_name FROM fund_basic WHERE fund_code IN ({placeholders})",
+            tuple(fund_codes_used),
+        ).fetchall()
+        name_map = {r[0]: r[1] for r in name_rows}
+
+    # 4. 按子行业聚合基金详情列表
+    subind_funds: dict[str, list[dict]] = {}
+    for fc, sub_map in fund_sub_agg.items():
+        for sub, agg in sub_map.items():
+            subind_funds.setdefault(sub, []).append({
+                "fund_code": fc,
+                "fund_name": name_map.get(fc, "") or "",
+                "weight_pct": round(agg["weight_pct"], 4),
+                "hold_value": round(agg["hold_value"], 4),
+            })
+    # 每子行业基金列表按 weight_pct 降序(和 industry_fund_map 排序一致)
+    for lst in subind_funds.values():
+        lst.sort(key=lambda x: (x["weight_pct"] or 0), reverse=True)
+
+    return {"report_date": report_date, "subind_funds": subind_funds}
+
+
+def export_data() -> tuple[dict, dict, dict, dict, dict, dict, dict]:
+    """导出 7 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map / manuf_subind_fund_map。
+
+    Returns: (summary, holdings, industry, top20, asset_alloc, industry_fund_map, manuf_subind_fund_map)
     """
     conn = get_conn()
     report_date = _latest_report_dates(1)[0]
@@ -1744,13 +1822,17 @@ def export_data() -> tuple[dict, dict, dict, dict, dict, dict]:
         "industry_funds": _groups,
     }
 
+    # 7. manuf_subind_fund_map: 制造业子行业 -> 基金详情列表(前端"子行业下钻到基金"弹窗, 方案C Step5)
+    # 重仓股拆分口径: 每只制造业基金的重仓股按申万一级子行业聚合 weight_pct/hold_value 和
+    manuf_subind_fund_map = _compute_manuf_subind_fund_map(conn, report_date, stock_ind_map)
+
     conn.close()
-    return summary, holdings, industry, top20, asset_alloc, industry_fund_map
+    return summary, holdings, industry, top20, asset_alloc, industry_fund_map, manuf_subind_fund_map
 
 
 def export_json_files() -> None:
-    """写 6 类 JSON 到 static-site/data/。"""
-    summary, holdings, industry, top20, asset_alloc, industry_fund_map = export_data()
+    """写 7 类 JSON 到 static-site/data/。"""
+    summary, holdings, industry, top20, asset_alloc, industry_fund_map, manuf_subind_fund_map = export_data()
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     files = {
         "public_fund_summary.json": summary,
@@ -1759,6 +1841,7 @@ def export_json_files() -> None:
         "public_fund_top20.json": top20,
         "public_fund_asset_alloc.json": asset_alloc,
         "public_fund_industry_fund_map.json": industry_fund_map,
+        "public_fund_manuf_subind_fund_map.json": manuf_subind_fund_map,
     }
     for fname, data in files.items():
         (STATIC_DATA_DIR / fname).write_text(
@@ -1766,7 +1849,7 @@ def export_json_files() -> None:
             encoding="utf-8")
         size = (STATIC_DATA_DIR / fname).stat().st_size
         print(f"  [export] {fname} ({size} bytes)", flush=True)
-    print(f"[export] 6 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
+    print(f"[export] 7 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────────

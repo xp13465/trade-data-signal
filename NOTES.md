@@ -5858,3 +5858,52 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 - 935只基金×27行业 fund_map 2MB 不塞 industry.json（方案D 单独JSON按需fetch，ui64）
 
 **【关联】** AZ96 停 full + AZ94 public_fund .gz 故障先例 + memory pf-fund-screener-real-requirements（筛选器实战需求，但 memory 非持久化以本节为准）+ memory fetchjson-skip-gz（ui49/50 全跳.gz）。
+
+### AZ98 2026-07-20 公募基金"子行业下钻到基金"完整实施（方案C Step5, ui75）
+
+**背景**：AZ97 方案C 制造业拆分 Step1-4 已完成（制造业柱可展开19子行业柱 + TreeMap 点击制造业弹子行业 breakdown 列表），但子行业柱/breakdown 行只能看 fund_count 不能看具体基金。本次 Step5 实现子行业下钻到基金详情列表弹窗，2个入口（柱状图子行业柱点击 + TreeMap 制造业2-tab Tab1子行业行点击）统一调 `_showManufSubindFunds(subIndName)`。
+
+**① 后端 public_fund.py 新增第7个产物 manuf_subind_fund_map**：
+- 新函数 `_compute_manuf_subind_fund_map(conn, report_date, stock_ind_map)` (L1542)：重仓股拆分口径，对每只制造业基金取重仓股按申万一级子行业聚合 weight_pct/hold_value 和
+- 与 `_compute_manuf_breakdown` 区别：breakdown 按基金维度拆分制造业总仓位(allocated = m_total × w/denom)输出子行业聚合；subind_fund_map 直接按重仓股子行业聚合原始 weight_pct/hold_value 和，输出基金详情列表
+- 结构 `{report_date, subind_funds: {子行业名: [{fund_code, fund_name, weight_pct, hold_value}]}}`，含18个 MANUF_SUB_INDUSTRIES + "制造业-其他"（未映射重仓股归此项），非制造业申万一级排除
+- fund_name 从 fund_basic JOIN（fund_portfolio_hold 无 fund_name 字段）
+- `export_data()` 返回 7 元组（L1620），`export_json_files()` 写 7 个 JSON（L1833）
+- 验证：JSON 366KB，19子行业，电子712只/通信431只/制造业-其他53只/总唯一基金926只，与 DB 直查一致
+
+**② 前端 app.js 4处改动（ui74->ui75）**：
+- 新增 `_loadManufSubindFundMap` (L9503)：模块级缓存+防并发，fetch R2 直链 `ssd.fx8.store/public_fund/public_fund_manuf_subind_fund_map.json`
+- 新增 `_showManufSubindFunds(subIndName)` (L10263)：复用 `#pfIndFundModal` 骨架 + `_renderFundModalPage` 翻页，标题"📦 {subIndName} 子行业基金列表（制造业拆分）"，tip 说明重仓股拆分口径
+- 柱状图子行业柱点击 (L10412)：`if(d.isBreakdown) return;` 改为 `if(d.isBreakdown) { _showManufSubindFunds(d.subIndustry); return; }`
+- TreeMap 制造业点击改 2-tab 弹窗 (`_showManufBreakdown` L10313 重写)：独立 modal `#pfManufTabModal`，Tab1 子行业（breakdown 表格每行可点击 -> `_showManufSubindFunds` 新弹窗下钻）+ Tab2 制造业全部基金（懒加载，复用 `_loadIndustryFundMap` 制造业935只 + `_renderFundListInto` 自包含渲染）
+
+**③ 渲染器重构 `_renderFundListInto` (L10151)**：
+- 原 `_renderFundModalPage` 用共享状态 `_pfFundCurList/_pfFundCurPage`，2-tab Tab2 和 fund list 弹窗并存时状态冲突
+- 重构为自包含 `_renderFundListInto(container, list, opts)`：本地 page 闭包，不依赖共享状态
+- `_renderFundModalPage` 改为调 `_renderFundListInto` 的包装器；Tab2 也直接调 `_renderFundListInto`（各管各的 page）
+
+**④ 2-tab 交互设计**：
+- 独立 modal `#pfManufTabModal`（和 `#pfIndFundModal` 并存，Tab1 下钻时 `#pfIndFundModal` 在上层）
+- Tab1 默认显示（新功能入口），Tab2 懒加载（首次切换时 fetch `_loadIndustryFundMap`）
+- ESC 关闭两个 modal（`#pfIndFundModal` 优先，再 `#pfManufTabModal`）
+- Tab1 子行业行 cursor pointer + hover 红色高亮 + "查看基金 ->" 提示
+
+**⑤ deploy.sh 补加 industry_fund_map + manuf_subind_fund_map (L291)**：
+- 原 `for _pf in summary holdings industry top20 asset_alloc` 只有5个，`industry_fund_map`（第6个产物）漏加
+- 改为 `for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map`（7个）
+- 顺带补生成 `public_fund_industry_fund_map.json.gz`（原缺失，collector 不生成 .gz，export.py 批量 gzip 步骤才会生成）
+
+**⑥ 双路径同步（§9衍生）**：
+- export 从 trade-data cwd 跑，JSON 写到 `trade-data/static-site/data/`
+- cp 到 `trade/static-site/data/`（.json + .gz 双份），deploy.sh 从 trade 推 git
+- upload-public-fund 用 glob `public_fund*.json` 自动覆盖新文件，无需改 upload_r2.py
+
+**【教训/要点】**：
+- 共享状态在多 modal 并存时冲突：2-tab Tab2 和 fund list 弹窗同时打开时，共享 `_pfFundCurPage` 会互相覆盖。解法：渲染器自包含本地闭包，各 modal 各管各的 page
+- deploy.sh 精确文件列表易漏：`industry_fund_map` 产物已上线但 deploy.sh DATA_FILES 循环漏加，靠 export.py 批量 gzip + R2 upload 兜底才没出事。新产物必须同步加 deploy.sh DATA_FILES
+- collector `export_json_files` 只写 .json 不写 .gz，.gz 由 export.py 批量 gzip 步骤生成。手动跑 collector export 后需手动生成 .gz 或靠 deploy.sh 的 export.py 步骤补
+
+**【关联】** AZ97 方案C Step1-4 制造业拆分 + memory r2-arch-by-category-not-size（public_fund 走 R2 按类别）+ memory fetchjson-skip-gz（前端全跳.gz，R2 .json 直链）+ memory export-output-path-sync（双路径同步陷阱）。
+
+**git**：feat 分支 commit（app.js + public_fund.py + deploy.sh + sw.js + NOTES + static-site/data/*.json/.gz）。暂不 deploy/merge main（等主控确认时点）。
+
