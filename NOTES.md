@@ -6004,4 +6004,29 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ97 公募基金4功能规划 + AZ100 G功能 _compute_position_backtest 独立计算模式（N功能照搬）+ AZ99 上线链路闭环教训 + memory export-output-path-sync（双路径同步）。
 
+### AZ102 2026-08-02 F功能行业配置历史回填完成（backfill-industry CLI + 50期季度粒度数据）
+
+**背景**：F功能 = 行业轮动时序，需 fund_industry_alloc 多期历史做轮动信号。回填前主库仅3期（2026年），8年历史缺口。F 全量回填 agent 完成 backfill-industry CLI 开发+采集，本节落档回填结果+commit CLI 代码（AZ101 协调节提到的"工作区未commit"状态在此闭环）。
+
+**实施**（commit 339de6fe，merge f3be28a6）：
+
+1. **backfill-industry CLI**（app/collector/public_fund.py main() L2164+，4处改动）：
+   - L2077 cmd 校验白名单加 "backfill-industry"
+   - L2086 帮助文本加 `backfill-industry --years 2017-2024 --top 1000  行业配置历史回填(8年)`
+   - L2090 进程互斥持锁列表加 "backfill-industry"（和 quarterly/full/daily/backfill 同级）
+   - L2164+ elif 块：解析 `--years 2017-2024`（split 成 ["2017",...,"2024"]）+ `--top N`，调 universe_top_funds 取基金池，**排除后端份额**（fund_name 含"后端"的份额行业配置数据恒空），逐只×逐年调 fetch_fund_industry_alloc(code, year)，独立进度文件 `/tmp/fund-industry-backfill-progress.json` 断点续传（key=`{code}|{year}`，无论 ok 还是 empty 都标记 done 避免重跑），每50只回写进度+ETA，throttle THROTTLE_SEC 防限流
+
+2. **回填结果**（F agent 报告）：
+   - 主库 fund_industry_alloc **3期 -> 50期**（2017-2024 季度粒度47期 + 2026原3期）
+   - 总耗时 **1.5h**
+   - 空数据率 **0.77%**（基金数×年数中极少数无行业配置数据）
+   - **0 异常 0 限流**
+   - 季度粒度47期（8年×~6期/年）积极偏差，远超 N功能抱团集中度10期时序，F功能行业轮动信号数据前置就绪
+
+**【协调闭环】** AZ101 协调节提到的"F agent backfill-industry CLI 保留工作区未commit"状态在此闭环：本节 commit 339de6fe + merge f3be28a6 进 main，工作区 public_fund.py clean，为后续 N/F 前端开发（改 app.js）清理出干净工作区。
+
+**【验证】** git log origin/main 含 339de6fe（feat）+ f3be28a6（merge）✓ + git status app/collector/public_fund.py working tree clean ✓ + lint 全通过（pre-commit lint_scripts.sh 29 sh + 29 py OK）✓。
+
+**【关联】** AZ97 公募基金4功能规划（F功能数据前置完成，进入前端开发阶段）+ AZ101 N功能协调节（工作区未commit状态闭环）+ memory r2-arch-by-category-not-size（public_fund 走 R2 upload-public-fund 前缀命令，行业配置时序产物同架构）。
+
 
