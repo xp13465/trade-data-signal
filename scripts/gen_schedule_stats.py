@@ -49,7 +49,7 @@ TASKS = [
     # 此处补齐 gen_schedule_stats 漏同步)。日志格式标准 .sh 开始/结束，mode=standard 可解析。
     {"task": "us_stock_morning", "name": "美股早采", "script": "us_stock_morning.sh",
      "schedule": "05:00", "log": "us_stock_morning_launchd.log", "mode": "standard"},
-    {"task": "etf_national_team", "name": "ETF国家队", "script": "etf_nt",
+    {"task": "etf_national_team", "name": "ETF汪汪队", "script": "etf_nt",
      "schedule": "20:07 + 21:30(兜底)", "log": "etf_national_team_launchd.log", "mode": "etf_nt"},
     # lab-auto: 2026-07-23 补入监控范围。launchd com.trade.lab-auto 19:00 跑 update_lab.sh
     # (策略实验室全量回测+上传 R2)。日志格式标准 .sh 开始/结束(结束带"耗时 Ns"后缀，

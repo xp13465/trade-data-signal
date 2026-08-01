@@ -1,6 +1,6 @@
 """综合 AI 风险预警算法 (8+8 维度加权 0-100)。
 
-设计依据: docs/alert-design.md 第二章(高位预警 8 维)+第三章(低位预警 8 维)
+设计依据: docs/alert-design.md 第二章(高位预警 8 维)+第三章(低位机会 8 维)
         + 第九章(交互式自定义分析,单标的版)。
 - HIGH_ALERT: 顶部风险信号组合, 越高越危险 (0-100)
 - LOW_ALERT : 底部机会信号组合, 越高越接近底 (0-100)
@@ -667,7 +667,7 @@ def _position_tier_for_score_vol(score: float | None, volatility: float | None) 
     """[DEPRECATED 2026-07-24] 旧公式: base=score 分级 + vol 只砍不升。
     保留供向后兼容,新调用用 _compute_hands_multi_dim(多维度综合,有加有砍)。
 
-    base = score 分级(基于 alert.low 低位机会分):
+    base = score 分级(基于 alert.low 低位机会):
       >=70 -> 3(3手) / 60-70 -> 2(2手) / 50-60 -> 1(1手) / <50 -> 0(观望)
     vol 调整(只对高波动降仓,不加分):
       volatility>5.0% -> max(0, base-2)  极高波动砍2档
@@ -757,7 +757,7 @@ def _compute_hands_multi_dim(
 
     Args:
         close/high/low/amount: 对齐的 pd.Series(长度>=35 才算全维度,<35 降级)
-        low_alert: 低位机会分 0-100(None 降级用 50 中性)
+        low_alert: 低位机会 0-100(None 降级用 50 中性)
     Returns:
         (hands 0-3, detail dict 含各维度分+原始值)
     """
@@ -994,7 +994,7 @@ def compute_alert_for_target(target_id: str, target_type: str = "index",
             high_t = pd.to_numeric(ohlc_df["high"], errors="coerce")
             low_t = pd.to_numeric(ohlc_df["low"], errors="coerce")
             amount_t = pd.to_numeric(ohlc_df["amount"], errors="coerce") if "amount" in ohlc_df.columns else None
-            # OHLC 缺失行用 close 填充(国家队宽基历史 OHLC 不全兜底,同回测脚本)
+            # OHLC 缺失行用 close 填充(汪汪队宽基历史 OHLC 不全兜底,同回测脚本)
             if high_t.dropna().empty:
                 high_t = close_t.copy()
             else:

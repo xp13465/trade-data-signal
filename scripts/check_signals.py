@@ -60,7 +60,7 @@ log = logging.getLogger("check_signals")
 
 # score_daily 中的综合分 score_id → 中文名（不入 indicators.yaml，硬编码）
 SCORE_NAME_MAP = {
-    "cross_market": "跨市场综合分",
+    "cross_market": "跨市场综合评分",
     "a_sentiment": "A股综合情绪分",
     "sentiment_sz50": "上证50情绪分",
     "sentiment_hs300": "沪深300情绪分",

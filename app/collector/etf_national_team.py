@@ -1,6 +1,6 @@
-"""v1 国家队宽基 ETF 资金动向追踪（后端采集 + 存储 + 信号 + export）。
+"""v1 汪汪队宽基 ETF 资金动向追踪（后端采集 + 存储 + 信号 + export）。
 
-口径声明：本指标为代理推断，非真实国家队席位数据。基于 ETF 每日份额变动 + 成交额放量，
+口径声明：本指标为代理推断，非真实汪汪队席位数据。基于 ETF 每日份额变动 + 成交额放量，
 结合季度机构持仓占比校准，推断疑似大资金进场/离场。无法精确区分汇金/证金/社保/险资/公募。
 
 4 个 fetcher：
@@ -97,7 +97,7 @@ def _fetch_one_backfill_worker(args, _max_retries: int = 2):
     for attempt in range(_max_retries + 1):  # 初次 + 2 次重试
         try:
             rows = fetch_etf_ohlc(code, start_yyyymmdd=start_yyyymmdd, client=_get_worker_tdx())
-            # ETF 简称:优先 universe fund_etf_fund_daily_em 简称;国家队清单 ETF 用易记名
+            # ETF 简称:优先 universe fund_etf_fund_daily_em 简称;汪汪队清单 ETF 用易记名
             if code in ETF_BY_CODE:
                 name = ETF_BY_CODE[code][0]
             for r in rows:
@@ -211,7 +211,7 @@ def universe_etf_codes(refresh: bool = False) -> list[tuple[str, str, str]]:
 
     用途:
     - export_etf_score_list.py 阶段2 扩到全市场 AI评分清单
-    - pipeline_daily/backfill OHLC 部分遍历此清单（份额/持有人仍走 ETF_LIST 国家队专属）
+    - pipeline_daily/backfill OHLC 部分遍历此清单（份额/持有人仍走 ETF_LIST 汪汪队专属）
 
     refresh=True 强制重拉（用于每日清单更新:新发ETF自动纳入,退市ETF自动剔除）。
     """
@@ -222,7 +222,7 @@ def universe_etf_codes(refresh: bool = False) -> list[tuple[str, str, str]]:
         throttle()
         df = safe_call(ak.fund_etf_fund_daily_em)
         if isinstance(df, Exception) or df is None or len(df) == 0:
-            # 拉失败降级到 ETF_LIST 12 国家队,不阻塞
+            # 拉失败降级到 ETF_LIST 12 汪汪队,不阻塞
             print(f"  [universe] akshare fund_etf_fund_daily_em 返空,降级到 ETF_LIST 12 只",
                   flush=True)
             _UNIVERSE_CACHE = [(c, n, m) for c, n, _, m in ETF_LIST]
@@ -251,7 +251,7 @@ def universe_etf_codes(refresh: bool = False) -> list[tuple[str, str, str]]:
 
 
 def is_national_team(code: str) -> bool:
-    """判断 ETF 代码是否属于 12 国家队宽基清单(ETF_LIST)。"""
+    """判断 ETF 代码是否属于 12 汪汪队宽基清单(ETF_LIST)。"""
     return code in ETF_BY_CODE
 
 # ── v2: cninfo PDF 解析汇金/证金具名持有人 ──────────────────────────────────────
@@ -268,7 +268,7 @@ CNINFO_ETF_ORGID = {
     "159952": "jjjl0000065",  # 创业板ETF广发
 }
 
-# 国家队主体识别关键词（持有人名称包含这些即归类）
+# 汪汪队主体识别关键词（持有人名称包含这些即归类）
 NATIONAL_TEAM_PATTERNS = [
     ("汇金", ["中央汇金投资有限责任公司", "中央汇金资产管理有限责任公司", "中央汇金"]),
     ("证金", ["中国证券金融股份有限公司", "中国证券金融", "中证金融"]),
@@ -793,7 +793,7 @@ def _store_holders_v2(conn, code: str, report_date: str, holders: list[dict], pd
     n = 0
     for h in holders:
         htype = classify_holder(h["holder_name"])
-        # v2 只存国家队 + 前十大（其他机构也存，前端可选择性展示）
+        # v2 只存汪汪队 + 前十大（其他机构也存，前端可选择性展示）
         conn.execute(
             "INSERT OR REPLACE INTO national_team_holders "
             "(report_date, etf_code, holder_name, holder_type, hold_share, hold_pct, rank, source_pdf_url, fetch_date) "
@@ -846,7 +846,7 @@ def fetch_and_parse_holders_v2(code: str, org_id: str, start_year: int = 2015) -
         stats["holders_extracted"] += n
         nt = sum(1 for h in holders if classify_holder(h["holder_name"]) != "其他机构")
         stats["nt_count"] += nt
-        print(f"      解析 {n} 个持有人（国家队 {nt}）", flush=True)
+        print(f"      解析 {n} 个持有人（汪汪队 {nt}）", flush=True)
         # 清理 PDF 释放空间
         try:
             pdf_path.unlink()
@@ -997,7 +997,7 @@ def compute_signals(conn, etf_code: str) -> int:
             notes = [grade]
             if inst_pct is not None:
                 if inst_pct > 85:
-                    notes.append(f"机构占比{inst_pct:.0f}%国家队主导置信×1.5")
+                    notes.append(f"机构占比{inst_pct:.0f}%汪汪队主导置信×1.5")
                 elif inst_pct < 60:
                     notes.append(f"机构占比{inst_pct:.0f}%散户主导置信×0.7")
             note = ",".join(notes)
@@ -1111,11 +1111,11 @@ def pipeline_daily() -> dict:
 #   末日 share_change=NULL(=share_change_yi undefined)才触发预估。
 #   原问题:backfill 只在 20:07/21:30 跑,15:00 收盘到 20:07 这 5 小时 -1m.json 末日还是昨日
 #   (share 已发,share_change 非空),lastChgMissing=false,预估不触发(每天约 20 小时不触发)。
-#   修复:intraday_snapshot.sh 15:35 收盘后顺便采 12 国家队 ETF 当日 close(不采 share,T+1 没发),
+#   修复:intraday_snapshot.sh 15:35 收盘后顺便采 12 汪汪队 ETF 当日 close(不采 share,T+1 没发),
 #   生成末日 share_change=NULL -> export -1m.json -> 前端 lastChgMissing=true -> 预估提前 5 小时触发。
 #   复用 fetch_etf_ohlc(主源 sina,fallback mootdx)+ _upsert_daily + recompute_all_signals + export_json_files。
 def pipeline_intraday_close() -> dict:
-    """15:35 收盘后采 12 国家队 ETF 当日 close(不采 share,T+1 次日才发),
+    """15:35 收盘后采 12 汪汪队 ETF 当日 close(不采 share,T+1 次日才发),
     生成末日 share_change=NULL -> 前端预估触发。
 
     时点:15:35 后跑,sina/mootdx 应已出当日 close;若未出当日 close 不入库,
@@ -1218,15 +1218,15 @@ def pipeline_intraday_close() -> dict:
 
 # ── Pipeline: intraday 盘中实时价预估（AZ54 P1-5, 2026-07-29）──────────────────────
 # 背景：pipeline_intraday_close 只在 15:00 后跑（sina/mootdx 盘中未出收盘价必采空），
-#   9:35-14:50 的 17 个盘中时点无 ETF 预估，用户盘中看不到国家队市值变化。
-# 修复：盘中用 akshare fund_etf_fund_daily_em（东财实时行情）拉 12 只国家队 ETF 实时市价，
+#   9:35-14:50 的 17 个盘中时点无 ETF 预估，用户盘中看不到汪汪队市值变化。
+# 修复：盘中用 akshare fund_etf_fund_daily_em（东财实时行情）拉 12 只汪汪队 ETF 实时市价，
 #   写入 DB etf_daily 末日（close=市价, share_change=NULL 触发前端预估）。
 # 时点：9:35-14:50 跑 realtime（轻量~1s），15:00+ 由 pipeline_intraday_close 覆盖（真实收盘价）。
 # 数据流：写 DB close only（不写 OHLC/amount/share），fund_share/share_change 保持 NULL
 #   -> export 末日 share_change_yi 不存在 -> 前端 chgNull=true 预估触发（复用现有逻辑无需改前端）。
 # 不污染 DB：realtime close 是临时值，15:05 intraday-close 覆盖 + 17:50 update_all 全量覆盖。
 def pipeline_intraday_realtime() -> dict:
-    """盘中实时价预估模式（9:35-14:50）：akshare fund_etf_fund_daily_em 拉 12 只国家队 ETF 实时市价，
+    """盘中实时价预估模式（9:35-14:50）：akshare fund_etf_fund_daily_em 拉 12 只汪汪队 ETF 实时市价，
     写入 DB 末日 close（share_change=NULL 触发前端预估）。
 
     akshare fund_etf_fund_daily_em 返回全市场 ETF 实时行情（~0.5s），含市价字段。
@@ -1249,14 +1249,14 @@ def pipeline_intraday_realtime() -> dict:
         conn.close()
         return stats
 
-    # 过滤 12 只国家队 ETF
+    # 过滤 12 只汪汪队 ETF
     codes = [c for c, _, _, _ in ETF_LIST]
     df["基金代码"] = df["基金代码"].astype(str)
     hit = df[df["基金代码"].isin(codes)]
-    print(f"  [akshare] 命中 {len(hit)}/{len(codes)} 只国家队 ETF ({time.time()-t0:.1f}s)", flush=True)
+    print(f"  [akshare] 命中 {len(hit)}/{len(codes)} 只汪汪队 ETF ({time.time()-t0:.1f}s)", flush=True)
 
     if hit.empty:
-        print(f"  [akshare] 未命中任何国家队 ETF,跳过", flush=True)
+        print(f"  [akshare] 未命中任何汪汪队 ETF,跳过", flush=True)
         conn.close()
         return stats
 
@@ -1480,7 +1480,7 @@ def pipeline_holders_v2(start_year: int = 2015) -> dict:
         for k in total:
             total[k] += stats[k]
     conn = get_conn()
-    # 统计国家队总数
+    # 统计汪汪队总数
     nt_total = conn.execute(
         "SELECT COUNT(*) FROM national_team_holders WHERE holder_type!='其他机构'"
     ).fetchone()[0]
@@ -1488,7 +1488,7 @@ def pipeline_holders_v2(start_year: int = 2015) -> dict:
     dt_sec = time.time() - t0
     print(f"[etf_nt] v2 holders 完成 {dt_sec:.0f}s: reports={total['reports_found']} "
           f"pdfs={total['pdfs_downloaded']} holders={total['holders_extracted']} "
-          f"新国家队={total['nt_count']}（DB累计国家队记录 {nt_total}）", flush=True)
+          f"新汪汪队={total['nt_count']}（DB累计汪汪队记录 {nt_total}）", flush=True)
     return total
 
 
@@ -1587,7 +1587,7 @@ def export_data() -> tuple[dict, dict]:
             if r["hold_share"] is not None:
                 h["hold_share_yi"] = round(r["hold_share"] / 1e8, 2)
             rep["holders"].append(h)
-        # 每期国家队汇总（汇金合计/证金合计）
+        # 每期汪汪队汇总（汇金合计/证金合计）
         reports = []
         for rd in sorted(reports_map.keys(), reverse=True):
             rep = reports_map[rd]
@@ -1608,7 +1608,7 @@ def export_data() -> tuple[dict, dict]:
                 d["total_pct"] = round(d["total_pct"], 2)
             rep["national_team_summary"] = nt_sum
             reports.append(rep)
-        # 最新一期国家队合计
+        # 最新一期汪汪队合计
         latest_nt = reports[0]["national_team_summary"] if reports else {}
         h_etfs.append({
             "code": code, "name": name, "index": index,
@@ -1656,7 +1656,7 @@ def _nt_slice_by_range(daily_json, rng):
     return {"updated_at": daily_json.get("updated_at"), "etfs": out_etfs}
 
 
-# 共振阈值（与前端 app.js:3178 THR 一致）：≥N只宽基同日同步异动=国家队共振
+# 共振阈值（与前端 app.js:3178 THR 一致）：≥N只宽基同日同步异动=汪汪队共振
 _NT_THR = {"surge": 2, "outflow": 2, "volume": 3}
 _NT_SIG_LABEL = {"share_surge": "进", "share_outflow": "出", "volume_surge": "量"}
 

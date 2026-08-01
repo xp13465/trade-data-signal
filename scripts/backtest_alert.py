@@ -2,7 +2,7 @@
 
 验证 alert_score 的高低预警对上证指数未来 N 日涨跌的预测力:
   - 高位预警 (HIGH_ALERT > 阈值, 默认 80) 后 N 日下跌占比, 目标 > 55%
-  - 低位预警 (LOW_ALERT > 阈值, 默认 80) 后 N 日上涨占比, 目标 > 60%
+  - 低位机会 (LOW_ALERT > 阈值, 默认 80) 后 N 日上涨占比, 目标 > 60%
   - 盈亏比 = 平均命中幅度 / 平均未命中幅度, 目标 > 1.2
   - 防过拟合: 样本外验证(前 2/3 训练 / 后 1/3 验证) + 参数稳定性(阈值 ±5)
 
@@ -28,7 +28,7 @@ _HOLDINGS = (5, 10, 20)      # N 日持有期
 _DEFAULT_HIGH = 72           # HIGH_ALERT 触发阈值(约96分位, 调参后最优: N10下跌占比56.4%)
 _DEFAULT_LOW = 85            # LOW_ALERT 触发阈值(约95分位, 调参后最优: N10上涨占比65.7%)
 _TARGET_HIGH_WIN = 0.55      # 高位预警下跌占比目标
-_TARGET_LOW_WIN = 0.60       # 低位预警上涨占比目标
+_TARGET_LOW_WIN = 0.60       # 低位机会上涨占比目标
 _TARGET_PL = 1.2             # 盈亏比目标
 
 
@@ -105,7 +105,7 @@ def run(start: str, end: str | None, high_th: float, low_th: float) -> str:
     out.append("\n  触发频率(按年):")
     out.append(_freq_per_year(ha))
     out.append("")
-    out.append(_fmt_block(f"【低位预警】LOW_ALERT>={low_th} -> 后N日上涨占比(目标>{_TARGET_LOW_WIN*100:.0f}%)",
+    out.append(_fmt_block(f"【低位机会】LOW_ALERT>={low_th} -> 后N日上涨占比(目标>{_TARGET_LOW_WIN*100:.0f}%)",
                           la, fwd, False, _TARGET_LOW_WIN))
     out.append("\n  触发频率(按年):")
     out.append(_freq_per_year(la))

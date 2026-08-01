@@ -1206,7 +1206,7 @@ const _INDEX_NAME_MAP = {
   comex_silver: 'COMEX白银', gold: '伦敦金', oil: '原油', usdcnh: '美元/离岸人民币',
   a_qvix_300: '中国波指300', a_qvix_1000: '中国波指(50ETF期权)', cn_us_spread: '中美利差',
   // 综合情绪
-  cross_market: '跨市场综合分', a_sentiment: 'A股综合情绪分',
+  cross_market: '跨市场综合评分', a_sentiment: 'A股综合情绪分',
   sentiment_sz50: '上证50情绪分', sentiment_hs300: '沪深300情绪分',
   sentiment_csi500: '中证500情绪分', sentiment_csi1000: '中证1000情绪分',
   sentiment_cyb: '创业板情绪分', sentiment_kc50: '科创50情绪分',
@@ -3102,7 +3102,7 @@ function _marketScoreCardHTML(data, alert, humanText) {
     <div class="market-score-summary ${summary.cls}">${summary.text}</div>
     <div class="market-score-grid">
       <div class="market-score-cell ${highLvlCls}">
-        <div class="market-cell-label">高位风险</div>
+        <div class="market-cell-label">高位预警</div>
         <div class="market-cell-score">${high != null ? high.toFixed(2) : "-"}</div>
         <div class="market-cell-level" title="${highTooltip}">${highLvlText}</div>
       </div>
@@ -4631,7 +4631,7 @@ const T1_COLLECT_DEADLINE = {
   lhb_count:     "19:30",   // 龙虎榜: 东财18:00发当日,lhb-backfill 18:30+19:30(兜底)采集
   futures_date:  "21:00",   // 期货机构持仓: CFFEX 20:00发当日,futures-backfill 20:05+21:00(兜底)采集
   csi_div_date:  "18:00",   // 中证红利: 中证指数公司盘后发布,update_all 17:50采集,18:00后应已到
-  etf_date:      "21:30",   // ETF国家队份额: 交易所盘后发布,etf-national-team 20:07+21:30(兜底)采集
+  etf_date:      "21:30",   // ETF汪汪队份额: 交易所盘后发布,etf-national-team 20:07+21:30(兜底)采集
   // 2026-07-29 T+1治理: gold(沪金AU0)采集侧改新浪/腾讯实时源变T+0,不再列入T+1截止时点表(原 gold: "18:00" 已移除)
   // cn10y 保持T+1(中债估值源端T+1,采集侧67acb836确认),恢复 cn10y: "18:00" 项; us10y/cn_us_spread derived 跟随,共用cn10y srcKey
   cn10y:         "18:00",   // 国债收益率: 中债估值盘后T+1发布,update_all 17:50采集
@@ -4786,7 +4786,7 @@ function _buildHealthSources(r, snap) {
     { name: "国债", mid: "cn10y", hint: "国债收益率T+1,中债/美债盘后次日发布,美债更滞后(常停T-3)(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
     { name: "龙虎榜", mid: "lhb_count", hint: "龙虎榜T+1,东财盘后次日发布,当日18点后更新当日(逢周末顺延到下一交易日)", def: "📅 当日18点后" },
     { name: "期货持仓", mid: null, dateKey: "futures_date", hint: "CFFEX期货机构持仓T+1,次日盘后发布,次日20:00后更新当日(逢周末顺延到下一交易日)", def: "📅 次日20点后" },
-    { name: "ETF国家队", mid: null, dateKey: "etf_date", hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日(逢周末顺延到下一交易日)", def: "📅 次日22点+" },
+    { name: "ETF汪汪队", mid: null, dateKey: "etf_date", hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日(逢周末顺延到下一交易日)", def: "📅 次日22点+" },
     { name: "中国波指", mid: "a_qvix_300", hint: "中国波指(期权隐含波动率)T+1,源端盘后次日发布(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
     { name: "红利指数", iid: "csi_div", dateKey: "csi_div_date", hint: "红利指数T+1,中证指数公司盘后次日发布(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
     { name: "美股", iid: "us_dji", dateKey: "us_dji_date", hint: "美股指数时区滞后,美东21:30开盘(北京),次日晨才出当日收盘,当前显示T-1属正常(周末顺延到下一交易日)", def: "📅 次日晨(T-1)" },
@@ -6161,7 +6161,7 @@ function _handleNotifyClick(action) {
       flash(document.querySelector('.sig-card'));
       break;
     case 'OPEN_ETF_DETAIL':
-      // ETF 国家队信号通知点击：弹当日汪汪队信号明细 modal（依赖首页 _ntRecentDaily 缓存）
+      // ETF 汪汪队信号通知点击：弹当日汪汪队信号明细 modal（依赖首页 _ntRecentDaily 缓存）
       // _ntRecentDaily 未加载（非首页/未渲染）时 fallback flash 汪汪队卡片墙
       if (typeof openNtDayModal === 'function' && typeof _ntRecentDaily !== 'undefined' && _ntRecentDaily) {
         const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -6244,7 +6244,7 @@ function _processNotifications(data) {
     }
   }
 
-  // 2b. ETF 国家队信号（source='etf'，与 A股 buy/sell 分开弹通知）
+  // 2b. ETF 汪汪队信号（source='etf'，与 A股 buy/sell 分开弹通知）
   // share_surge->etf_buy 进场 / share_outflow->etf_sell 离场 / volume_surge->etf_volume 放量
   // 注意：同一只 ETF 常同时触发 share_surge+volume_surge，volume 去重排除已有 buy/sell 的 etf_code 避免重复
   if (data.signals && data.signals.length) {
@@ -6953,7 +6953,7 @@ async function renderOverview() {
     });
   }
   // ---- A+B 组合默认排序 + 用户拖拽自定义 ----
-  // B(核心情绪前置): a_sentiment/cross_market/fear_greed 三张情绪温度计排最前
+  // B(核心情绪前置): a_sentiment/cross_market/fear_greed 三张情绪分图表排最前
   // A(异常度优先): 组内带异常 tag(冰点/过热) 或 signal(放量/缩量) 的卡排前
   // 兜底: 原 kpiOrder 顺序
   const _KPI_CORE_SENTIMENT = ["a_sentiment", "cross_market", "fear_greed"];
@@ -6964,7 +6964,7 @@ async function renderOverview() {
     a_turnover_p90: 18, a_turnover_p10: 19, a_turnover_gt5_pct: 20,
   };
   const _kpiIsAbnormal = (k) => {
-    if (k.tag === "冰点" || k.tag === "过热") return true;          // 情绪温度计极值
+    if (k.tag === "冰点" || k.tag === "过热") return true;          // 情绪分极值
     const sig = k.signal || "";                                     // 量比 放量/缩量
     return sig.startsWith("放量") || sig.startsWith("缩量");
   };
@@ -7055,12 +7055,12 @@ async function renderOverview() {
       fear_greed: "综合5类市场情绪等权算的0-100温度计。≤25极度恐惧、≥75极度贪婪。作逆向参考。",
       a_sentiment: "6项A股指标加权算的0-100情绪分。≤20冰点、≥80过热。",
       cross_market: "A股+港股+全球等多维度等权均值0-100。看跨市场整体冷热。",
-      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
-      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_sz50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_hs300: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_csi500: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_csi1000: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_cyb: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
+      sentiment_kc50: "该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。",
       a_width_zt_count: "收盘仍封死涨停的股票数,多=追涨情绪强。",
       a_width_dt_count: "收盘仍封死跌停的股票数,多=恐慌抛售强。",
       a_width_zhaban_rate: "当日曾涨停但收盘未封住的比例,高=封板资金不稳。",
@@ -7076,8 +7076,8 @@ async function renderOverview() {
       a_turnover_p90: "换手率90分位。最活跃的10%个股换手水平。",
       a_turnover_p10: "换手率10分位。最不活跃的10%个股换手水平。",
       a_turnover_gt5_pct: "换手率>5%家数占比。高=市场活跃面广。",
-      high_alert: "A股大盘高位预警分(0-100,越高越危险)。8维加权:情绪过热(max恐贪/A股情绪/跨市场)26%+位置偏高(8宽基1年分位均值)20%+卖点密集13%+汪汪队离场(ETF份额缩减)10%+量价背离/动量衰退/均线转弱/全球走弱各7-8%。≥72触发高位红条预警(回测N10下跌占比56.4%),>75警示、>88高危。综合大盘非单一指数,历史统计参考非操作建议。",
-      low_alert: "A股大盘低位机会分(0-100,越高越接近底)。8维加权:情绪冰点(100-min三情绪)20%+买点密集18%+位置偏低(100-8宽基分位)15%+汪汪队入场(ETF份额激增)15%+量能异动10%+新低极端/波指飙升/价值显现各7-8%。≥85触发低位蓝条预警(回测N10上涨占比65.7%),>75机会、>88机遇。综合大盘非单一指数,历史统计参考非操作建议。",
+      high_alert: "A股大盘高位预警(0-100,越高越危险)。8维加权:情绪过热(max恐贪/A股情绪/跨市场)26%+位置偏高(8宽基1年分位均值)20%+卖点密集13%+汪汪队离场(ETF份额缩减)10%+量价背离/动量衰退/均线转弱/全球走弱各7-8%。≥72触发高位红条预警(回测N10下跌占比56.4%),>75警示、>88高危。综合大盘非单一指数,历史统计参考非操作建议。",
+      low_alert: "A股大盘低位机会(0-100,越高越接近底)。8维加权:情绪冰点(100-min三情绪)20%+买点密集18%+位置偏低(100-8宽基分位)15%+汪汪队入场(ETF份额激增)15%+量能异动10%+新低极端/波指飙升/价值显现各7-8%。≥85触发低位蓝条预警(回测N10上涨占比65.7%),>75机会、>88机遇。综合大盘非单一指数,历史统计参考非操作建议。",
     };
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
@@ -7247,7 +7247,7 @@ async function renderOverview() {
       },
     }, null, colA1);
     if (fgChart) {
-      // 冰点(≤25)/过热(≥75)阈值虚线（与情绪温度tab恐贪图一致）
+      // 冰点(≤25)/过热(≥75)阈值虚线（与盘面温测 tab 恐贪图一致）
       fgChart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
         data: [
@@ -7298,7 +7298,7 @@ async function renderOverview() {
   // 左列：A股综合情绪分折线（近 6 月）
   if (r.a_sentiment_6m && r.a_sentiment_6m.length) {
     const as6 = r.a_sentiment_6m.map((d) => ({ date: d.date, value: d.value }));
-    const asChart = lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的情绪温度计0-100，≤20冰点≥80过热") + latestSuffix(as6), as6, {
+    const asChart = lineChart("A股综合情绪分（近 6 月）" + termTip("综合多项指标算的0-100情绪分，≤20冰点≥80过热") + latestSuffix(as6), as6, {
       visualMap: {
         show: false,
         pieces: [
@@ -7312,7 +7312,7 @@ async function renderOverview() {
       },
     }, null, colA1);
     if (asChart) {
-      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与情绪温度tab一致）
+      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
       asChart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
         data: [
@@ -7399,12 +7399,12 @@ async function renderOverview() {
   });
   colA2.appendChild(sigCard);
 
-  // 右列：🐶 汪汪队信号卡片（ETF国家队资金动向，近期信号列表+hover pop+点击弹modal，不跳专区）
+  // 右列：🐶 汪汪队信号卡片（ETF汪汪队资金动向，近期信号列表+hover pop+点击弹modal，不跳专区）
   const nt = r.nt_signals_today;
   const ntCard = document.createElement("div");
   ntCard.className = "chart-card nt-home-card";
   if (nt && nt.date) {
-    // 共振标记：进/出≥2只、量≥3只宽基同日同步异动=国家队共振
+    // 共振标记：进/出≥2只、量≥3只宽基同日同步异动=汪汪队共振
     const resBadge = nt.is_resonance
       ? '<span class="nt-resonance-badge">🐾 共振</span>' : '';
     // 汇总小标题（一行小字，保留）：近N天共X信号·进X出Y量Z·共振M日
@@ -7520,7 +7520,7 @@ async function renderOverview() {
       },
     }, null, colB1);
     if (cmChart) {
-      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与情绪温度tab一致）
+      // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
       cmChart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
         data: [
@@ -7762,7 +7762,7 @@ async function renderOverview() {
 async function renderMarket() {
   content.innerHTML = "";
   renderPurposeNote(content, PURPOSE_NOTES["market"]);
-  content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看指数<b>价格走势</b>+买卖点信号;想看市场<b>情绪温度</b>(恐贪指数/冰点过热热力图)-> 去<a data-goto="sentiment" role="button" tabindex="0">【情绪温度】</a></div>');
+  content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看指数<b>价格走势</b>+买卖点信号;想看市场<b>盘面温测</b>(恐贪指数/冰点过热热力图)-> 去<a data-goto="sentiment" role="button" tabindex="0">【盘面温测】</a></div>');
   _bindTabCrosslink(content, "sentiment");
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
@@ -7823,8 +7823,8 @@ async function renderFutures(container) {
   }
 }
 
-// ============ 🐶 汪汪队：国家队宽基 ETF 资金动向 ============
-// 口径：代理推断，非真实国家队席位数据。基于 ETF 每日份额变动+成交额放量，结合季度机构持仓占比校准，
+// ============ 🐶 汪汪队：汪汪队宽基 ETF 资金动向 ============
+// 口径：代理推断，非真实汪汪队席位数据。基于 ETF 每日份额变动+成交额放量，结合季度机构持仓占比校准，
 // 推断疑似大资金进场/离场。无法精确区分汇金/证金/社保/险资/公募。详见 REQUIREMENTS.md §8.6。
 // v2 待办（任务#60）：汇金/证金具名识别展示位置 - 等 v2 后端补具名席位数据后，在下方"关键事件"区前加明细卡片。
 // 首屏=4层概览看板（总览摘要条+矩阵热力图+卡片墙+叠加对比折线），点卡片/热力图行/折线进单只详情。
@@ -7846,7 +7846,7 @@ async function renderNationalTeam(container = content) {
   }
   container.innerHTML = "";
 
-  // 拉取盘中快照，供国家队3图角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
+  // 拉取盘中快照，供汪汪队3图角标判断盘中/收盘状态（1.5s 超时兜底，不阻塞渲染）
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
 
@@ -8020,9 +8020,9 @@ function _ntShareReplenishTxt(dataDate) {
   return (d.getMonth() + 1) + "月" + d.getDate() + "日 20:07 后";
 }
 
-// ── 总盘汇总层：12只ETF合计持仓市值+净增持额+份额趋势（看"国家队整体持仓"而非单只）──
+// ── 总盘汇总层：12只ETF合计持仓市值+净增持额+份额趋势（看"汪汪队整体持仓"而非单只）──
 function renderNationalTeamTotalPanel(container, data, snap) {
-  // 合计层共振信号阈值：≥N只宽基ETF同日同步异动=国家队共振
+  // 合计层共振信号阈值：≥N只宽基ETF同日同步异动=汪汪队共振
   // 进/出=份额激增/流出(≥2只)，量=放量(≥3只，放量标准更严因更常见)
   var THR = { surge: 2, outflow: 2, volume: 3 };
   // 聚合12只ETF的daily，按日期合并：合计市值/合计份额/当日净增持 + 信号计数
@@ -8090,7 +8090,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   // cum20 求和用 (d.netAdd || 0),末日 close=null 时 last.netAdd 已置 null 不会误计0
   var cum20 = series.slice(-20).reduce(function (s, d) { return s + (d.netAdd || 0); }, 0);
 
-  // ▼ T+1 提示行：让用户知道国家队份额为何停 T-1 ▼
+  // ▼ T+1 提示行：让用户知道汪汪队份额为何停 T-1 ▼
   var t1Hint = document.createElement("div");
   t1Hint.className = "nt-t1-hint";
   t1Hint.textContent = "⏳ ETF份额数据为T+1：上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日(逢周末顺延到下一交易日)";
@@ -8105,7 +8105,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   }
   container.appendChild(t1Hint);
 
-  // ▼ 第0层 KPI 大字：国家队总市值 + 今日净增持 + 近20日累计净增持 ▼
+  // ▼ 第0层 KPI 大字：汪汪队总市值 + 今日净增持 + 近20日累计净增持 ▼
   var kpi = document.createElement("div");
   kpi.className = "nt-total-kpi";
   // close=null 时 netAdd 已置 null,优先显"行情待更新"(行情源延迟),其次 lastChgMissing 显"份额待公布"(T+1份额延迟)
@@ -8132,7 +8132,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
     mktCapValHtml = '<div class="nt-tk-val">' + last.mktCap.toFixed(0) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·按上日份额预估(' + _ntShareReplenishTxt(last.date) + '补全)</span>' : '') + '</div>';
   }
   kpi.innerHTML =
-    '<div class="nt-tk-item"><div class="nt-tk-label">国家队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '<span class="chart-latest"> · 截至 ' + fmtDate(last.date) + '</span></div>' + mktCapValHtml + '</div>' +
+    '<div class="nt-tk-item"><div class="nt-tk-label">汪汪队合计持仓市值' + termTip("12只宽基ETF当日份额×收盘价合计(亿元)。份额是交易所公布的硬数据，市值随价波动。") + '<span class="chart-latest"> · 截至 ' + fmtDate(last.date) + '</span></div>' + mktCapValHtml + '</div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">净增持额' + (last.netAddEstimated ? '（预估）' : '') + termTip("Σ(各ETF今日份额变动×今日价)。正值=今日净流入，负值=净流出。份额变动是硬数据不受价格波动干扰。" + (last.netAddEstimated ? "当日份额未公布,暂用持仓市值差分预估(含价格波动),待份额公布后更新真实值。" : "")) + '<span class="chart-latest"> · ' + fmtDate(last.date) + '</span></div>' + netValHtml + '</div>' +
     '<div class="nt-tk-item"><div class="nt-tk-label">近20日累计净增持' + termTip("Σ(近20日各ETF每日份额变动×当日价)。看近一个月份额持续扩张还是收缩。") + '<span class="chart-latest"> · 截至 ' + fmtDate(last.date) + '</span></div><div class="nt-tk-val ' + cumCls + '">' + cumSign + cum20.toFixed(2) + ' <span class="nt-tk-unit">亿元</span>' + (lastShareMissing ? ' <span style="font-size:12px;color:#ff9800">份额待公布·按上日份额预估(' + _ntShareReplenishTxt(last.date) + '补全)</span>' : '') + '</div></div>';
   container.appendChild(kpi);
@@ -8146,7 +8146,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   var lastDate = last.date;
 
   // 合计层信号 markPoint(方案B:所有信号日都显示pin,不按共振阈值过滤)
-  // 共振(n≥THR 多只ETF同日同步异动=国家队集体行动)=大pin金边特殊样式;
+  // 共振(n≥THR 多只ETF同日同步异动=汪汪队集体行动)=大pin金边特殊样式;
   // 单只(n<THR 单只ETF异动)=小pin单色普通样式。用户看样式+标签判断共振
   // value 含信号只数,不依赖 hover 即可读出强度
   // 同日多类信号合并成1个拼色pin(分段渐变),不再重叠遮挡
@@ -8207,7 +8207,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   container.appendChild(ntGrid);
 
   // 图1：合计持仓市值趋势（份额×价合计）+ 共振信号 pin 标注
-  var c1 = mkCard("📊 国家队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=所有信号日都标注：共振(进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动=国家队集体行动)用大金边pin，单只ETF异动用小单色pin。进=红/出=绿/量=橙。") + latestSuffix(mktData) + missingSuffix, 320, null, ntGrid);
+  var c1 = mkCard("📊 汪汪队合计持仓市值趋势" + termTip("Σ(各ETF当日份额×收盘价)。看总额变化趋势，份额增+价涨=市值双击。pin=所有信号日都标注：共振(进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动=汪汪队集体行动)用大金边pin，单只ETF异动用小单色pin。进=红/出=绿/量=橙。") + latestSuffix(mktData) + missingSuffix, 320, null, ntGrid);
   addCardTimeBadge(c1.getDom().parentElement, lastDate, snap, "t1", "etf_date");
   c1.setOption(withTheme({
     tooltip: {
@@ -8238,7 +8238,7 @@ function renderNationalTeamTotalPanel(container, data, snap) {
   }));
 
   // 图2：份额合计趋势（纯份额，不含价格波动，份额持续增=真增持）+ 共振信号 pin 标注
-  var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是国家队操作的硬信号。pin=所有信号日都标注：共振(进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动=国家队集体行动)用大金边pin，单只ETF异动用小单色pin。进=红/出=绿/量=橙。") + latestSuffix(shareData) + missingSuffix, 320, null, ntGrid);
+  var c2 = mkCard("📈 份额合计趋势" + termTip("Σ各ETF当日份额(亿份)。份额持续增=真增持(非价格涨跌)，这是汪汪队操作的硬信号。pin=所有信号日都标注：共振(进/出≥" + THR.surge + "只、量≥" + THR.volume + "只宽基同步异动=汪汪队集体行动)用大金边pin，单只ETF异动用小单色pin。进=红/出=绿/量=橙。") + latestSuffix(shareData) + missingSuffix, 320, null, ntGrid);
   addCardTimeBadge(c2.getDom().parentElement, lastDate, snap, "t1", "etf_date");
   c2.setOption(withTheme({
     tooltip: {
@@ -8333,7 +8333,7 @@ function _ntAggregateRecentSignals(rawData, maxDays) {
 function renderNationalTeamOverview(container, data, qData, hData, rawData, snap) {
   var summary = ntBuildSummary(data, qData);
 
-  // ▼ 第0层：国家队总盘（合计持仓市值+净增持+份额趋势，最顶部在摘要条之上）▼
+  // ▼ 第0层：汪汪队总盘（合计持仓市值+净增持+份额趋势，最顶部在摘要条之上）▼
   renderNationalTeamTotalPanel(container, data, snap);
 
   // ▼ 第1层：总览摘要条 ▼
@@ -8389,7 +8389,7 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData, snap
   // 标注就地 hover pop（data-tip 复用 .term-pop 事件委托）+ 点行弹 iframe 式满屏弹窗（不切页，保留滚动）
   var heatSec = document.createElement("div");
   heatSec.className = "chart-card nt-heatmap-card";
-  heatSec.innerHTML = '<h3>12 只 ETF 资金矩阵 <span class="term-tip" data-tip="一屏看全12只：份额变动%(红=流入/绿=流出，色越深变动越大)、最新信号、机构占比%(深色=国家队主导>85%)、放量倍数(橙=成交活跃>1.5倍)。点行进单只详情。">❓</span></h3>';
+  heatSec.innerHTML = '<h3>12 只 ETF 资金矩阵 <span class="term-tip" data-tip="一屏看全12只：份额变动%(红=流入/绿=流出，色越深变动越大)、最新信号、机构占比%(深色=汪汪队主导>85%)、放量倍数(橙=成交活跃>1.5倍)。点行进单只详情。">❓</span></h3>';
   var heatWrap = document.createElement("div");
   heatWrap.className = "nt-heatmap-wrap";
   heatWrap.innerHTML = '<table class="nt-heatmap"><thead><tr>' +
@@ -8427,7 +8427,7 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData, snap
       '<td>' + s.index + '</td>' +
       '<td class="nt-cell-num" style="background:' + scpColor + '"><span data-tip="当日份额变动%，红流入绿流出。点击查看详情">' + scpSign + scp.toFixed(2) + '%</span></td>' +
       '<td>' + sigTxt + '</td>' +
-      '<td class="nt-cell-num" style="background:' + instColor + '"><span data-tip="当季机构持有占比，>85%为国家队主导品种。点击查看详情">' + (inst != null ? inst.toFixed(1) + "%" : "-") + '</span></td>' +
+      '<td class="nt-cell-num" style="background:' + instColor + '"><span data-tip="当季机构持有占比，>85%为汪汪队主导品种。点击查看详情">' + (inst != null ? inst.toFixed(1) + "%" : "-") + '</span></td>' +
       '<td class="nt-cell-num" style="background:' + vrColor + '"><span data-tip="当日成交额/前5日均量，>1.5倍为放量。点击查看详情">' + (vr ? vr.toFixed(2) + "倍" : "-") + '</span></td>';
     tbody.appendChild(tr);
   });
@@ -8807,7 +8807,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     `<div class="nt-banner-body">` +
     `<b>2023年10月汇金增持（历史验证）</b>：2023-10-23 汇金宣布增持 ETF，本系统准确捕捉--510300 当日份额+9.9亿（z=4.62 显著异动）、510310 份额+4.3亿（z=7.47 极端异动）、159919 次日份额+3.8亿（z=9.00 极端异动）。510050 机构占比轨迹：2023年报68% -> 2024年报84% -> 2025年报91%（持续增持）。<br/>` +
     `<b>信号含义</b>：🔴疑似进场=份额增加且 z&gt;2 且放量1.5倍；🟢疑似离场=份额减少且 z&lt;-2 且放量1.5倍；🟠放量=成交额/5日均量&gt;2倍（独立信号）。z≥5 极端 / ≥3 显著 / ≥2 轻度。<br/>` +
-    `<b>季度校准</b>：当季机构占比&gt;85% 置信×1.5（国家队主导品种）；&lt;60% 置信×0.7（散户主导噪声大）。持有人数据半年报+年报，滞后2-3月。` +
+    `<b>季度校准</b>：当季机构占比&gt;85% 置信×1.5（汪汪队主导品种）；&lt;60% 置信×0.7（散户主导噪声大）。持有人数据半年报+年报，滞后2-3月。` +
     `</div>`;
   container.appendChild(evt);
 
@@ -8825,7 +8825,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
       var latestRep = curEtf.reports[0];
       var ntSum = latestRep.national_team_summary || {};
       var ntKeys = Object.keys(ntSum);
-      v2Html += '<b>最新一期（报告期 ' + latestRep.report_date + '）国家队持股</b>：';
+      v2Html += '<b>最新一期（报告期 ' + latestRep.report_date + '）汪汪队持股</b>：';
       if (ntKeys.length) {
         for (var k = 0; k < ntKeys.length; k++) {
           var s = ntSum[ntKeys[k]];
@@ -8833,7 +8833,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
         }
         v2Html = v2Html.replace(/、$/, '');
       } else {
-        v2Html += '<span style="opacity:0.7">前十大持有人中无国家队席位</span>';
+        v2Html += '<span style="opacity:0.7">前十大持有人中无汪汪队席位</span>';
       }
       v2Html += '<br/>';
       var ntHistoryCount = 0;
@@ -8841,7 +8841,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
         rep.holders.forEach(function (h) { if (h.type !== '其他机构') ntHistoryCount++; });
       });
       if (ntHistoryCount > 0) {
-        v2Html += '<details><summary>📜 ' + curEtf.name + ' 国家队持股历史轨迹（' + curEtf.reports.length + '期，' + ntHistoryCount + '条国家队记录）</summary>';
+        v2Html += '<details><summary>📜 ' + curEtf.name + ' 汪汪队持股历史轨迹（' + curEtf.reports.length + '期，' + ntHistoryCount + '条汪汪队记录）</summary>';
         v2Html += '<table class="nt-table"><thead><tr><th>报告期</th><th>持有人</th><th>类型</th><th>份额(亿份)</th><th>占比%</th><th>排名</th></tr></thead><tbody>';
         curEtf.reports.forEach(function (rep) {
           rep.holders.forEach(function (h) {
@@ -9388,7 +9388,7 @@ async function renderSentiment() {
   const subtabs = [
     ["market-temp", "市场温度"],
     ["futures", "期货风向"],
-    ["national-team", "🐶 汪汪队"],
+    ["national-team", "汪汪队"],
   ];
   subtabs.forEach(([key, label]) => {
     const btn = document.createElement("button");
@@ -9431,7 +9431,7 @@ async function renderSentimentMarketTemp(container) {
   container.innerHTML = "";  // 清 loading 开始渲染（loading 由 renderSentiment 分发器 L9362 塞入，对齐 renderGlobal L9119 模式）
   // purpose note + crosslink 只在此 tab 显示（共通区已下沉，避免期货/汪汪队上方出现"温度计"提示）
   renderPurposeNote(container, PURPOSE_NOTES["sentiment"]);
-  container.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看<b>情绪温度计</b>+冰点/过热热力图;想看指数<b>价格走势</b>-> 去<a data-goto="market" role="button" tabindex="0">【指数表现】</a></div>');
+  container.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看<b>市场温度</b>+冰点/过热热力图;想看指数<b>价格走势</b>-> 去<a data-goto="market" role="button" tabindex="0">【指数表现】</a></div>');
   _bindTabCrosslink(container, "market");
   const sig = r.signals || {};
   const stats = r.stats || {};
@@ -9569,7 +9569,7 @@ async function renderSentimentMarketTemp(container) {
     if (r[key] && r[key].length) {
       const data = r[key].map(d => ({date: d.date, value: d.value, components: d.components}));
       const latest = data[data.length - 1] && data[data.length - 1].value;
-      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪温度计(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
+      const title = `${baseTitle}（0-100）` + termTip("该指数RSI+涨跌幅等权算的0-100情绪分(等权,非加权)。≤20冰点≥80过热。比A股综合情绪分更聚焦单只指数。") + (latest != null ? " · " + sentimentTag(latest) + latestSuffixPct(data) : "");
       const cell = document.createElement("div");
       cardGrid.appendChild(cell);
       const chart = valueChartWithSignals(title, data,
@@ -11083,7 +11083,7 @@ async function renderIndustry() {
   if (_industryScrollSpy) _industryScrollSpy.observe(swGridWrap);
 }
 
-// ============ B4: ETF 评分列表（分页+搜索） ============
+// ============ B4: ETF评分列表（分页+搜索） ============
 // 数据源: static-site/data/etf_score_list.json (三分类, 2026-07-25 C2)
 //   buy_list: C2 买入机会(high<60 AND hands>=2 AND amt_pct>60, ~194只), 字段含 hands/amt_pct
 //   sell_list: 过热卖出信号(high>=60, ~96只), 字段含 sell_signal
@@ -11142,7 +11142,7 @@ function _esc(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// ETF 评分行迷你折线(sparkline): 用近30日 close 画 SVG 线, 末点高亮。
+// ETF评分行迷你折线(sparkline): 用近30日 close 画 SVG 线, 末点高亮。
 // ohlc 格式 [[date,o,h,l,c],...] 升序; 取 close(idx=4) 画线。数据<2点返空串。
 // 涨跌色: 末值>=首值用红(up), 反之绿(down), 跟主题涨跌色一致(A股红涨绿跌)。
 function _etfSparkline(ohlc, w, h) {
@@ -11197,7 +11197,7 @@ function _etfScorePages() {
 function _etfSortLabel() {
   const map = {
     score: "评分", hands: "买点手数", amt_pct: "成交额分位",
-    high_alert: "高位预警", low_alert: "低位预警"
+    high_alert: "高位预警", low_alert: "低位机会"
   };
   return map[_etfScoreState.sortKey] || "评分";
 }
@@ -11351,7 +11351,7 @@ function _renderEtfScoreBody() {
       ? '<span class="etf-side-tag etf-side-hold">持有观察</span>'
       : '<span class="etf-side-tag etf-side-sell">卖出信号</span>';
     const tierChip = '<span class="etf-tier-chip etf-tier-chip-' + tier + '">' + (ETF_TIER_LABEL[tier] || '') + '</span>';
-    const ntTag = e.is_national_team ? '<span class="etf-nt-tag" title="国家队宽基ETF">国家队</span>' : '';
+    const ntTag = e.is_national_team ? '<span class="etf-nt-tag" title="汪汪队宽基ETF">汪汪队</span>' : '';
     const signalTxt = e.side === "buy"
       ? (e.hands != null ? '买点 ' + e.hands + ' 手' : '')
       : e.side === "hold"
@@ -11373,7 +11373,7 @@ function _renderEtfScoreBody() {
       + tierChip
       + sideTag
       + (signalTxt ? '<span class="etf-signal">' + signalTxt + '</span>' : '')
-      + '<span class="etf-alert" title="高位/低位预警区间">预警 ' + (e.high_alert != null ? e.high_alert.toFixed(2) : '-') + ' / ' + (e.low_alert != null ? e.low_alert.toFixed(2) : '-') + '</span>'
+      + '<span class="etf-alert" title="高位预警/低位机会区间">预警 ' + (e.high_alert != null ? e.high_alert.toFixed(2) : '-') + ' / ' + (e.low_alert != null ? e.low_alert.toFixed(2) : '-') + '</span>'
       + '</div>'
       + (e.reason_summary ? '<div class="etf-reason">' + _esc(e.reason_summary) + '</div>' : '')
       + '</div>';
@@ -11609,7 +11609,7 @@ async function renderEtfScore() {
     + '<option value="hands-desc"' + (sortVal === "hands-desc" ? " selected" : "") + '>买点手数 多→少</option>'
     + '<option value="amt_pct-desc"' + (sortVal === "amt_pct-desc" ? " selected" : "") + '>成交额分位 高→低</option>'
     + '<option value="high_alert-desc"' + (sortVal === "high_alert-desc" ? " selected" : "") + '>高位预警 高→低</option>'
-    + '<option value="low_alert-desc"' + (sortVal === "low_alert-desc" ? " selected" : "") + '>低位预警 高→低</option>'
+    + '<option value="low_alert-desc"' + (sortVal === "low_alert-desc" ? " selected" : "") + '>低位机会 高→低</option>'
     + '</select>'
     + '<span class="etf-score-updated">更新 ' + (m && m.updated_at ? _esc(m.updated_at.slice(0, 16)) : '-') + (m && m.full_market ? ' · 全市场' : ' · 代表性') + '</span>';
   content.appendChild(bar);
@@ -11967,7 +11967,7 @@ function closeSummaryHistoryModal() {
 // === H5 移动端适配（方案B：底部导航 + 顶部精简条 + 1/2列切换）===
 // matchMedia 驱动 body.h5，@media(max-width:768px) 自动切换布局，PC(>768) 零影响。
 const SUMMARY_URL = "./data/summary.json";
-const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 指数表现", sentiment: "😊 情绪温度", industry: "🏭 板块分化", etf: "💹 ETF评分", lab: "🧪 策略实验" };
+const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 指数表现", sentiment: "😊 盘面温测", industry: "🏭 板块分化", etf: "💹 ETF评分", lab: "🧪 策略实验" };
 
 function updateH5Topbar() {
   if (!document.body.classList.contains("h5")) return;
@@ -13543,7 +13543,7 @@ function updateRulesContentHtml() {
         '<tr><td>18:30 + 19:30(兜底)</td><td>龙虎榜单采</td><td>东财18:00发布后单采当日龙虎榜；19:30二次槽应对网络抖动重采</td></tr>' +
         '<tr><td>20:00</td><td>晚间兜底</td><td>补采晚出的申万/港股等数据</td></tr>' +
         '<tr><td>20:05 + 21:00(兜底)</td><td>期货机构持仓单采</td><td>CFFEX股指期货前20名会员持仓~20:00出后单采；21:00二次槽应对异常重采</td></tr>' +
-        '<tr><td>20:07 + 21:30(兜底)</td><td>ETF国家队份额单采</td><td>SSE/SZSE ETF份额T+1发布单采；21:30二次槽当日兜底重采</td></tr>' +
+        '<tr><td>20:07 + 21:30(兜底)</td><td>ETF汪汪队份额单采</td><td>SSE/SZSE ETF份额T+1发布单采；21:30二次槽当日兜底重采</td></tr>' +
         '<tr><td>23:00</td><td>两融单采</td><td>沪市融资余额源盘后发布较晚(实测22:10仍未出),当晚23:00单采当日(采到则当日上线),配合凌晨兜底补齐</td></tr>' +
         '<tr><td>02:00</td><td>凌晨兜底</td><td>补采遗漏确保次日数据齐全</td></tr>' +
       '</tbody></table>' +

@@ -1022,7 +1022,7 @@ main { padding: 16px 24px; }
   .ov-2col { grid-template-columns: 1fr; }
 }
 
-/* 恐贪分项条卡片：8 项情绪分等权=恐贪指数（首页左列+情绪温度tab恐贪卡片各一份），flex 撑满 + 横条均匀分布 */
+/* 恐贪分项条卡片：8 项情绪分等权=恐贪指数（首页左列+盘面温测 tab 恐贪卡片各一份），flex 撑满 + 横条均匀分布 */
 .fg-dim-card { flex: 1 0 auto; display: flex; flex-direction: column; }
 .fg-dim-card h3 .fg-dim-total { float: right; font-size: 12px; color: var(--text-3); font-weight: normal; margin-left: 8px; }
 .fg-dim-rows { flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 6px 0 2px; }
@@ -1031,7 +1031,7 @@ main { padding: 16px 24px; }
 .fg-dim-track { flex: 1; height: 10px; background: var(--bg-hover); border-radius: 5px; overflow: hidden; }
 .fg-dim-fill { display: block; height: 100%; border-radius: 5px; transition: width 0.4s ease; }
 .fg-dim-val { flex: 0 0 38px; text-align: right; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
-/* 情绪温度tab：恐贪分项合并进恐贪指数卡片（图表下方），子标题区分层级（首页 fg-dim-card 仍独立卡，不受影响） */
+/* 盘面温测 tab：恐贪分项合并进恐贪指数卡片（图表下方），子标题区分层级（首页 fg-dim-card 仍独立卡，不受影响） */
 .fg-dim-merged { margin-top: 10px; }
 .fg-dim-subhead { font-size: 13px; color: var(--text-2); font-weight: 600; margin: 0 0 2px; padding-right: 4px; }
 .fg-dim-subhead .fg-dim-total { float: right; font-size: 12px; color: var(--text-3); font-weight: normal; margin-left: 8px; }
@@ -3012,7 +3012,7 @@ main { padding: 16px 24px; }
   .theme-modal .modal-body { width: 94vw; }
 }
 
-/* === 🐶 汪汪队（国家队 ETF 资金动向）=== */
+/* === 🐶 汪汪队（汪汪队 ETF 资金动向）=== */
 .nt-banner {
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
@@ -3108,13 +3108,13 @@ main { padding: 16px 24px; }
 /* 备注列：限宽+省略号+title 显示完整内容，避免换行撑高行高 */
 .nt-sig-table .nt-note { display: inline-block; max-width: 200px; vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* 国家队份额 T+1 提示行（解释为何份额停 T-1）*/
+/* 汪汪队份额 T+1 提示行（解释为何份额停 T-1）*/
 .nt-t1-hint {
   font-size: 12px; color: var(--text-3); line-height: 1.55;
   background: var(--bg-2, rgba(255,255,255,0.04)); border: 1px dashed var(--border-strong);
   border-radius: 6px; padding: 7px 11px; margin: 0 0 10px 0;
 }
-/* 第0层：国家队总盘 KPI 大字（合计市值/今日净增持/近20日累计，3个大字一屏）*/
+/* 第0层：汪汪队总盘 KPI 大字（合计市值/今日净增持/近20日累计，3个大字一屏）*/
 .nt-total-kpi {
   display: flex; flex-wrap: wrap; gap: 12px;
   background: var(--bg-card); border: 1px solid var(--border-strong);
@@ -4099,7 +4099,7 @@ main { padding: 16px 24px; }
 [data-theme="redgold"] .hold-advice-danger { background: #ff7875; }
 [data-theme="dark"] .hold-advice-warn,
 [data-theme="redgold"] .hold-advice-warn { background: #ffa940; color: #1f2329; }
-/* 国家队标注 */
+/* 汪汪队标注 */
 .lab-aiscore-nt {
   display: inline-block; font-size: 10.5px; font-weight: 700;
   padding: 1px 6px; margin-left: 6px; border-radius: 3px;
@@ -4290,7 +4290,7 @@ main { padding: 16px 24px; }
   border-radius: 10px; padding: 14px 16px;
 }
 
-/* === B4: ETF 评分列表（分页+搜索）=== */
+/* === B4: ETF评分列表（分页+搜索）=== */
 .etf-score-bar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   margin: 12px 0 8px; padding: 0 4px;
@@ -4561,7 +4561,7 @@ main { padding: 16px 24px; }
   .etf-hold-actions { flex-direction: row; }
 }
 
-/* ============ B4 ETF 评分 UX 重构(2026-07-25): 3区分区 + 5档分档色块 ============ */
+/* ============ B4 ETF评分 UX 重构(2026-07-25): 3区分区 + 5档分档色块 ============ */
 /* 3区: 我的持仓(置顶) -> 卖出/持有观察(置顶) -> 买入(默认折叠Top20) */
 .etf-section { margin: 18px 0 24px; padding: 0; }
 .etf-section + .etf-section { margin-top: 28px; }

@@ -80,7 +80,7 @@
         <li>27 项启用指标(宽度/资金/情绪/试采龙虎榜解禁 IPO 可转债)</li>
         <li>13 个 A 股宽基 + 3 个红利 + 8 个港股 + 14 个全球指数 + 31 个申万行业 + 27 个同花顺概念 = ~96 个标的</li>
         <li>综合情绪分(A 股 6 项加权 / 跨市场去极值截尾均值 / 恐贪指数 / 6 宽基情绪分)</li>
-        <li>8+8 维度 AI 风险预警(高位风险 H1-H8 + 低位机会 L1-L8)</li>
+        <li>8+8 维度 AI 风险预警(高位预警 H1-H8 + 低位机会 L1-L8)</li>
         <li>7 种技术分析参考点信号(主买/辅买/追买/备买/卖/止损卖/波段持有)</li>
         <li>100 个品种的配对交易模拟回测(trade_sim)</li>
         <li>22 策略多周期回测矩阵(策略实验室)</li>
@@ -107,25 +107,25 @@
 
     <section id="sec-3">
       <h2>三、核心板块逐个讲(6 个 Tab)</h2>
-      <p>网站顶部导航分 6 个 Tab:<strong>市场全景 / 指数表现 / 情绪温度 / 板块分化 / ETF 评分 / 策略实验</strong>。每个 Tab 的"看什么 + 怎么看 + 怎么用"分述如下。</p>
+      <p>网站顶部导航分 6 个 Tab:<strong>市场全景 / 指数表现 / 盘面温测 / 板块分化 / ETF评分 / 策略实验</strong>。每个 Tab 的"看什么 + 怎么看 + 怎么用"分述如下。</p>
 
       <h3>3.1 市场全景(overview)</h3>
       <p><strong>看什么</strong>:首页一屏看完当日市场全貌。</p>
       <ul>
-        <li>顶部 <strong>风险预警条</strong>:显示当日 8+8 维度 AI 风险预警的 high_alert(高位风险分,0-100,越高越危险)与 low_alert(低位机会分,0-100,越高越接近底)。分级:&gt;88 高危/机遇,&gt;75 警示/机会,&gt;60 关注,&lt;60 中性。</li>
+        <li>顶部 <strong>风险预警条</strong>:显示当日 8+8 维度 AI 风险预警的 high_alert(高位预警,0-100,越高越危险)与 low_alert(低位机会,0-100,越高越接近底)。分级:&gt;88 高危/机遇,&gt;75 警示/机会,&gt;60 关注,&lt;60 中性。</li>
         <li><strong>综合情绪分卡</strong>:A 股综合情绪分(a_sentiment,6 项加权:涨跌家数 25% + 涨停数 20% + 炸板率 15% + 连板高度 15% + 成交额 10% + 北向资金 15%)、跨市场综合评分(cross_market,去极值截尾均值)、恐贪指数(fear_greed)。阈值:&lt;20 冰点,&gt;80 过热。</li>
         <li><strong>当日信号 chips</strong>:显示当日触发的 buy/buy_aux/sell 等信号数量。</li>
         <li><strong>10 指数迷你走势图</strong>:上证/深成/沪深300/上证50/创业板/科创50/北证50/中证500/中证1000/恒生。</li>
         <li><strong>盘中快照 chips</strong>(仅盘中有):30 分钟节奏的急涨急跌 ±3%/±5%/±7% 三档告警 + 放量 + 突破提示。</li>
         <li><strong>31 行业热力图</strong>:申万一级 31 行业当日涨跌幅热力图。</li>
         <li><strong>板块轮动速度卡</strong>:申万行业与概念板块的 5/10/20 日轮动速度(≥60% 快速轮动,≥30% 中等,&lt;30% 缓慢)。</li>
-        <li><strong>国家队 ETF 资金动向</strong>:12 只宽基 ETF 的份额异动 + 放量信号(疑似大资金进场/离场)。</li>
+        <li><strong>汪汪队 ETF 资金动向</strong>:12 只宽基 ETF 的份额异动 + 放量信号(疑似大资金进场/离场)。</li>
       </ul>
       <p><strong>怎么用</strong>:</p>
       <ul>
         <li><strong>冰点区(low_alert≥75)+ 综合情绪分&lt;20</strong>:历史常对应底部区域,可关注买入机会(但需结合信号确认,非直接抄底)。</li>
         <li><strong>过热区(high_alert≥75)+ 综合情绪分&gt;80</strong>:历史常对应顶部区域,注意减仓风险。</li>
-        <li><strong>国家队 ETF 进场信号</strong>:疑似大资金布局,可作中期参考(注意:份额变动≠国家队,可能来自任何机构/大户)。</li>
+        <li><strong>汪汪队 ETF 进场信号</strong>:疑似大资金布局,可作中期参考(注意:份额变动≠汪汪队,可能来自任何机构/大户)。</li>
       </ul>
 
       <h3>3.2 指数表现(market)</h3>
@@ -158,7 +158,7 @@
         <li>⚠️ <strong>卖不是看空</strong>:符合"卖为降风险非趋势放弃"理念--卖出是降风险锁利润,不是趋势看空放弃,底部接回可提高收益率。</li>
       </ul>
 
-      <h3>3.3 情绪温度(sentiment)</h3>
+      <h3>3.3 盘面温测(sentiment)</h3>
       <p><strong>看什么</strong>:市场情绪类指标的折线图。</p>
       <ul>
         <li><strong>恐贪指数(fear_greed)</strong>:综合贪婪/恐惧情绪,0-100。</li>
@@ -171,7 +171,7 @@
         <li><strong>均线排列</strong>:多头/空头排列家数。</li>
         <li><strong>QVIX</strong>:中国波指(300ETF/50ETF 期权波动率),A股的 VIX。</li>
         <li><strong>股息率</strong>:上证 A 股股息率。</li>
-        <li><strong>8+8 维度 AI 风险预警</strong>:高位风险 H1-H8(情绪过热/量价背离/卖点密集/位置偏高/动量衰退/均线转弱/汪汪队离场/全球走弱)+ 低位机会 L1-L8(情绪冰点/买点密集/位置偏低/汪汪队入场/量能异动/新低极端/波指飙升/价值显现),加权合成 high_alert / low_alert。</li>
+        <li><strong>8+8 维度 AI 风险预警</strong>:高位预警 H1-H8(情绪过热/量价背离/卖点密集/位置偏高/动量衰退/均线转弱/汪汪队离场/全球走弱)+ 低位机会 L1-L8(情绪冰点/买点密集/位置偏低/汪汪队入场/量能异动/新低极端/波指飙升/价值显现),加权合成 high_alert / low_alert。</li>
       </ul>
       <p><strong>怎么看</strong>:</p>
       <ul>
@@ -204,12 +204,12 @@
         <li>⚠️ <strong>A9 板块轮动频次只做形态提示不做回测收益</strong>:<code>ind_flow</code> 仅 6-7 个月历史,回测样本不足,文案明确"近 20 交易日统计",不可作为回测收益依据。</li>
       </ul>
 
-      <h3>3.5 ETF 评分(etf)</h3>
+      <h3>3.5 ETF评分(etf)</h3>
       <p><strong>看什么</strong>:代表性 ETF 清单的多维度评分排序。</p>
       <ul>
-        <li><strong>数据源</strong>:<code>etf_score_list.json</code>,聚合 23 只国家队宽基 ETF + 全市场代表性 ETF 的 8+8 维度评分。</li>
-        <li><strong>买入榜(buy_list)</strong>:按 low_alert(低位机会分)排序的 top 8,含 etf_code/name/score/hands(建议仓位 0-3 手)/reason_summary(理由)。</li>
-        <li><strong>卖出榜(sell_list)</strong>:按 high_alert(高位风险分)排序的 top 12,含 sell_signal(减仓/清仓/观察/持有)。</li>
+        <li><strong>数据源</strong>:<code>etf_score_list.json</code>,聚合 23 只汪汪队宽基 ETF + 全市场代表性 ETF 的 8+8 维度评分。</li>
+        <li><strong>买入榜(buy_list)</strong>:按 low_alert(低位机会)排序的 top 8,含 etf_code/name/score/hands(建议仓位 0-3 手)/reason_summary(理由)。</li>
+        <li><strong>卖出榜(sell_list)</strong>:按 high_alert(高位预警)排序的 top 12,含 sell_signal(减仓/清仓/观察/持有)。</li>
         <li><strong>持仓输入</strong>:可输入自己持有的 ETF 代码,高亮显示其在评分榜中的排名位置。</li>
         <li><strong>搜索 + 分页</strong>:支持按代码/名称搜索,分页浏览。</li>
       </ul>
@@ -276,9 +276,9 @@
           <ol>
             <li><strong>市场全景</strong>:看当日 risk_alert / 综合情绪分 / 信号 chips / 行业热力图。</li>
             <li><strong>指数表现</strong>:看持仓/关注指数的买卖点信号 pin,读 reason 详情。</li>
-            <li><strong>ETF 评分</strong>:看买入榜/卖出榜 top,hands 仓位建议,持仓对账。</li>
+            <li><strong>ETF评分</strong>:看买入榜/卖出榜 top,hands 仓位建议,持仓对账。</li>
             <li><strong>板块分化</strong>:看行业资金流主线,轮动速度判断市场状态。</li>
-            <li><strong>情绪温度</strong>:看 8+8 维度预警拆解,判断高位/低位共振。</li>
+            <li><strong>盘面温测</strong>:看 8+8 维度预警拆解,判断高位/低位共振。</li>
           </ol>
         </li>
       </ul>
@@ -592,9 +592,9 @@
         <li>从 55 个预生成 iid 中选标的(9 宽基 + 31 行业 + 3 红利 + 3 港股 + 9 全球)。</li>
         <li>查看分析结果:
           <ul>
-            <li><strong>分数卡</strong>:高位风险分 + 低位机会分 + 建议仓位(0-3 手)+ 波动率。</li>
-            <li><strong>8+8 维度拆解</strong>:H1-H8 高位风险 + L1-L8 低位机会,各维度分值/权重/贡献/命中。</li>
-            <li><strong>历史类比 Top3</strong>:相似特征时段后续 5/10/20 日涨跌统计(高位风险视角 + 低位机会视角)。</li>
+            <li><strong>分数卡</strong>:高位预警 + 低位机会 + 建议仓位(0-3 手)+ 波动率。</li>
+            <li><strong>8+8 维度拆解</strong>:H1-H8 高位预警 + L1-L8 低位机会,各维度分值/权重/贡献/命中。</li>
+            <li><strong>历史类比 Top3</strong>:相似特征时段后续 5/10/20 日涨跌统计(高位预警视角 + 低位机会视角)。</li>
             <li><strong>数据阈值表</strong>:各维度当前值 vs 阈值 vs 状态(命中/未命中/无数据)。</li>
             <li><strong>仓位计算依据</strong>:6 维度综合分 v5 透明化(机会 35% + 趋势 20% + 动量 15% + 波动 15% + 流动性 5% + 回撤 10%)。</li>
           </ul>
@@ -605,7 +605,7 @@
       <p><strong>目标</strong>:查看具体品种的配对交易模拟回测详情。</p>
       <p><strong>操作</strong>:</p>
       <ol>
-        <li>在指数表现/ETF 评分 Tab,点走势图上的"模拟回测"按钮。</li>
+        <li>在指数表现/ETF评分 Tab,点走势图上的"模拟回测"按钮。</li>
         <li>弹窗显示该品种的 trade_sim 详情:
           <ul>
             <li>5 窗口(全史/近10年/近5年/近3年/近1年)× 3 策略路径 × 11 场景。</li>
@@ -616,16 +616,16 @@
         </li>
       </ol>
 
-      <h3>7.4 持仓对账(ETF 评分 Tab)</h3>
+      <h3>7.4 持仓对账(ETF评分 Tab)</h3>
       <p><strong>目标</strong>:输入持仓 ETF,看其在评分榜中的排名位置。</p>
       <p><strong>操作</strong>:</p>
       <ol>
-        <li>进入"ETF 评分"Tab。</li>
+        <li>进入"ETF评分"Tab。</li>
         <li>在持仓输入区输入持仓 ETF 代码(逗号分隔)。</li>
         <li>评分榜中持仓行高亮,显示"代码 名称 #排名"。</li>
         <li>点"只看持仓(N)"chip 仅显示持仓行。</li>
       </ol>
-      <p><strong>学习要点</strong>:持仓 ETF 在买入榜 = 低位机会(可加仓);持仓 ETF 在卖出榜 + sell_signal 含"减仓/清仓" = 高位风险(注意降仓);持仓 ETF 不在榜 = 评分中性(观望)。</p>
+      <p><strong>学习要点</strong>:持仓 ETF 在买入榜 = 低位机会(可加仓);持仓 ETF 在卖出榜 + sell_signal 含"减仓/清仓" = 高位预警(注意降仓);持仓 ETF 不在榜 = 评分中性(观望)。</p>
     </section>
 
     <section id="sec-appendix">
@@ -647,10 +647,10 @@
         <li><code>overview.json</code>:首页概览数据</li>
         <li><code>signal_stats.json</code>:100 品种 × 7 信号 × 3 horizon 的 forward return 胜率</li>
         <li><code>trade_sim/</code>:100 品种 × 5 窗口 × 3 策略 × 11 场景的配对交易回测</li>
-        <li><code>etf_score_list.json</code>:23 国家队 + 全市场代表性 ETF 评分排序</li>
+        <li><code>etf_score_list.json</code>:23 汪汪队 + 全市场代表性 ETF评分排序</li>
         <li><code>alert.json</code> + <code>alert_analyze_*.json</code>:8+8 维度 AI 风险预警(全市场 + 单标的)</li>
         <li><code>industry_heatmap.json</code> + <code>rotation.json</code>:行业热力图 + 轮动速度</li>
-        <li><code>etf_national_team.json</code>:12 宽基 ETF 国家队资金动向</li>
+        <li><code>etf_national_team.json</code>:12 宽基 ETF 汪汪队资金动向</li>
       </ul>
     </section>
 

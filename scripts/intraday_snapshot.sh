@@ -67,7 +67,7 @@ if [ "$SNAP_RC" -ne 0 ]; then
   exit "$SNAP_RC"
 fi
 
-# 1.5) ETF 国家队盘中预估（AZ54 P1-5, 2026-07-29）：
+# 1.5) ETF 汪汪队盘中预估（AZ54 P1-5, 2026-07-29）：
 #      9:35-14:50 跑 intraday-realtime（akshare fund_etf_fund_daily_em 实时市价预估,~1s）
 #      15:00+   跑 intraday-close（sina/mootdx 真实收盘价覆盖预估）
 #      末日 share_change=NULL -> 前端 lastChgMissing=true 预估触发（复用现有逻辑无需改前端）。
@@ -76,12 +76,12 @@ fi
 #      失败不阻塞：快照已采+将 push,ETF 预估触发延迟到下一轮或 20:07 backfill 兜底。
 HOUR_MIN=$(date +%H%M)
 if [ "$HOUR_MIN" -ge "1500" ]; then
-  echo "-> 采 ETF 国家队当日 close(末日 share_change=NULL 触发预估,15:00 后跑)..." | tee -a "$LOG"
+  echo "-> 采 ETF 汪汪队当日 close(末日 share_change=NULL 触发预估,15:00 后跑)..." | tee -a "$LOG"
   "$PY" -m app.collector.etf_national_team intraday-close 2>&1 | tee -a "$LOG"
   ETF_RC=${PIPESTATUS[0]}
   [ "$ETF_RC" -ne 0 ] && echo "⚠ ETF intraday-close 失败(退出码 $ETF_RC),不阻塞快照" | tee -a "$LOG"
 elif [ "$HOUR_MIN" -ge "0935" ]; then
-  echo "-> 采 ETF 国家队盘中实时市价预估(akshare,9:35-14:50 跑)..." | tee -a "$LOG"
+  echo "-> 采 ETF 汪汪队盘中实时市价预估(akshare,9:35-14:50 跑)..." | tee -a "$LOG"
   "$PY" -m app.collector.etf_national_team intraday-realtime 2>&1 | tee -a "$LOG"
   ETF_RC=${PIPESTATUS[0]}
   [ "$ETF_RC" -ne 0 ] && echo "⚠ ETF intraday-realtime 失败(退出码 $ETF_RC),不阻塞快照" | tee -a "$LOG"

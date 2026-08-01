@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """P1-新-C §ETF 买卖清单 AI评分 tab(阶段2: 全市场 A股股票型 ETF 扩采集 + OHLC + H3/L2)。
 
-阶段1(commit b8fbed75): 12 国家队 ETF 评分清单(买8+卖12)。
+阶段1(commit b8fbed75): 12 汪汪队 ETF评分清单(买8+卖12)。
 阶段2(本版,~285 行后端):
   - 扩到全市场 A股股票型 ETF(动态读 akshare fund_etf_fund_daily_em 过滤 类型='指数型-股票')
   - etf_daily 表加 open/high/low 列,fetcher C 返回的 OHLC 全量入库(原只存 close/amount)
@@ -48,7 +48,7 @@ ohlc 字段格式: [[date, open, high, low, close], ...] 升序(旧->新), 近30
 - 数据不足(high_alert=None, ~167只)不进任何 list
 - 三分类互斥(每只ETF只进一个list), 数量闭环 buy+sell+hold+数据不足=universe
 - reason_summary: build_reason human_text.low (buy/hold) / human_text.high (sell) 前 100 字摘要
-- is_national_team: 从 ETF_LIST 12 国家队宽基清单判断(app.collector.etf_national_team.is_national_team)
+- is_national_team: 从 ETF_LIST 12 汪汪队宽基清单判断(app.collector.etf_national_team.is_national_team)
 
 动态采集(自包含,不依赖外部 backfill):
 - 首次跑全市场:对每只 ETF 先 fetch_etf_ohlc + upsert(近252日 OHLC,sina 0.3s/只),
@@ -103,7 +103,7 @@ OHLC_EXPORT_DAYS = 30
 # (全市场数量由 akshare 动态返回,加 --full-market 跑全市场)
 # name 字段为占位,fetch_etf_ohlc 采集时会用 akshare 返回的基金简称覆盖
 REPRESENTATIVE_ETF_CODES: list[tuple[str, str, str]] = [
-    # ── 核心宽基 12(ETF_LIST 国家队)──
+    # ── 核心宽基 12(ETF_LIST 汪汪队)──
     ("510050", "50ETF华夏", "sh"),
     ("510300", "300ETF华泰柏瑞", "sh"),
     ("510310", "300ETF易方达", "sh"),
@@ -242,7 +242,7 @@ def _fetch_recent_ohlc(code: str, conn, days: int = OHLC_EXPORT_DAYS) -> list:
 
 def _has_recent_data(conn, code: str, days: int = 5) -> bool:
     """检查 etf_daily 近 days 日 OHLC 是否完整(open/high/low/close 都非 NULL)。
-    只查 close 会漏 OHLC 缺失(9只国家队宽基历史 pipeline_daily 只拉近15日 OHLC 未回填),
+    只查 close 会漏 OHLC 缺失(9只汪汪队宽基历史 pipeline_daily 只拉近15日 OHLC 未回填),
     改查 OHLC 四列全非空,不齐则上层会触发 fetch_etf_ohlc 补采。
     """
     cutoff = (_dt.datetime.now() - _dt.timedelta(days=days * 2)).strftime("%Y%m%d")
@@ -277,7 +277,7 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | Non
         (code, cutoff),
     ).fetchall()
 
-    # OHLC 完整行不足 20 -> 补采(9只国家队宽基历史 OHLC 缺失走此分支)
+    # OHLC 完整行不足 20 -> 补采(9只汪汪队宽基历史 OHLC 缺失走此分支)
     if len(rows) < 20:
         start_yyyymmdd = (_dt.datetime.now() - _dt.timedelta(days=FETCH_DAYS)).strftime("%Y%m%d")
         try:
@@ -412,7 +412,7 @@ def _process_one_etf_worker(args):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="P1-新-C 阶段2 全市场 ETF 评分清单")
+    parser = argparse.ArgumentParser(description="P1-新-C 阶段2 全市场 ETF评分清单")
     parser.add_argument("--no-fetch", action="store_true",
                         help="跳过动态采集,仅用 DB 已有数据算分(快速验证)")
     parser.add_argument("--buy-top", type=int, default=DEFAULT_BUY_TOP,
@@ -436,7 +436,7 @@ def main() -> None:
               f"(核心宽基12+行业~30+主题~20,加 --full-market 跑全市场)", flush=True)
     if args.limit > 0:
         universe = universe[:args.limit]
-    print(f"-> 预生成 {len(universe)} 只全市场 ETF 评分清单 (etf_score_list.json) ...")
+    print(f"-> 预生成 {len(universe)} 只全市场 ETF评分清单 (etf_score_list.json) ...")
     print(f"   buy_top={args.buy_top} sell_top={args.sell_top} fetch={'skip' if args.no_fetch else 'on'}")
     t_start = time.time()
     buy_list: list[dict] = []

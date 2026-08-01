@@ -172,7 +172,7 @@ def export_intraday_snapshot():
 
 
 def export_etf_national_team(rng="all"):
-    """国家队宽基 ETF 资金动向（12 只宽基 ETF 份额+成交额+信号）。"""
+    """汪汪队宽基 ETF 资金动向（12 只宽基 ETF 份额+成交额+信号）。"""
     return queries.etf_national_team(rng)
 
 

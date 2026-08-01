@@ -1055,7 +1055,7 @@ def main():
     except Exception as _e:  # noqa: BLE001
         print(f"[backfill] futures 补采失败: {_e}")
 
-    # etf 国家队宽基补采(pipeline_daily 内部补近5日幂等,凌晨跑补到昨天)
+    # etf 汪汪队宽基补采(pipeline_daily 内部补近5日幂等,凌晨跑补到昨天)
     try:
         from .etf_national_team import pipeline_daily as _etf_daily, export_json_files as _etf_export
         _etf_stats = _etf_daily()
