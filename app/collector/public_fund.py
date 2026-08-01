@@ -87,6 +87,14 @@ SW_INDUSTRY_NAMES: dict[str, str] = {
     "801960": "石油石化", "801970": "环保", "801980": "美容护理",
 }
 
+# 申万一级中属于"制造业"大类的子行业（用于 export 制造业拆分, 方案C Step3）
+# 申万2021标准: 18个一级属于制造业大类(综合按任务要求归入制造业; 建筑装饰归建筑业非制造业)
+MANUF_SUB_INDUSTRIES: set[str] = {
+    "电子", "通信", "电力设备", "汽车", "机械设备", "国防军工",
+    "家用电器", "食品饮料", "纺织服饰", "轻工制造", "医药生物",
+    "建筑材料", "基础化工", "钢铁", "有色金属", "环保", "美容护理", "综合",
+}
+
 
 def _load_stock_industry_map() -> dict[str, str]:
     """加载 sw_components.json 构建 {stock_code: 申万一级名称} 反查字典。
@@ -1445,6 +1453,92 @@ def pipeline_daily() -> dict:
 
 
 # ── export ──────────────────────────────────────────────────────────────────────
+def _compute_manuf_breakdown(conn, report_date: str, stock_ind_map: dict[str, str]) -> list[dict]:
+    """制造业大类 -> 申万一级子行业拆分（方案C Step3）。
+
+    按基金维度拆分（非简单按重仓股聚合）:
+      对每只制造业基金F:
+        F制造业总仓位 = fund_industry_alloc 里 F 的制造业 weight_pct
+        F重仓股中制造业子行业S的weight和 = Σ(重仓股中属于S的weight_pct)
+        F重仓股中制造业整体(含未映射)的weight和 = Σ(重仓股中属于制造业子行业或未映射的weight_pct)
+        拆分比例 = S子行业weight和 / 制造业整体weight和
+        F拆给S的仓位 = F制造业总仓位 × 拆分比例
+      全市场聚合: 每个S总仓位 = Σ(各基金拆给S的仓位)
+    未映射股票(stock_code 不在 sw_components.json)归"制造业-其他"子项;
+    非制造业申万一级(银行/房地产等)排除, 不参与拆分。
+
+    Returns: [{sub_industry, weight, value, fund_count}, ...] 按 weight 降序;
+             weight=聚合仓位%, value=聚合市值(万元), fund_count=持有该子行业的基金数。
+    """
+    # 1. 制造业基金清单 + 每只基金的制造业 weight + 制造业总仓位/总市值
+    manuf_rows = conn.execute(
+        "SELECT fund_code, weight_pct, hold_value FROM fund_industry_alloc "
+        "WHERE report_date=? AND industry_name='制造业'",
+        (report_date,),
+    ).fetchall()
+    if not manuf_rows:
+        return []
+    manuf_weight_by_fund = {r[0]: (r[1] or 0) for r in manuf_rows}
+    manuf_total_value = sum(r[2] or 0 for r in manuf_rows)
+
+    # 2. 取制造业基金的重仓股, 按基金聚合到申万一级(未映射 stock_code -> "")
+    hold_rows = conn.execute(
+        "SELECT fund_code, stock_code, weight_pct FROM fund_portfolio_hold "
+        "WHERE report_date=?",
+        (report_date,),
+    ).fetchall()
+    fund_hold_by_ind: dict[str, dict[str, float]] = {}
+    for fc, sc, wp in hold_rows:
+        ind = stock_ind_map.get(sc, "")
+        d = fund_hold_by_ind.setdefault(fc, {})
+        d[ind] = d.get(ind, 0) + (wp or 0)
+
+    # 3. 按基金维度拆分
+    sub_weight: dict[str, float] = {}   # {子行业名 or "制造业-其他": 聚合仓位}
+    sub_funds: dict[str, set] = {}      # {子行业名: set(fund_code)}
+    other_key = "制造业-其他"
+    for fc, ind_map in fund_hold_by_ind.items():
+        m_total = manuf_weight_by_fund.get(fc)
+        if not m_total:
+            continue  # 非制造业基金(重仓股表可能含少量跨大类基金)
+        # F重仓股中: 制造业子行业weight和 + 未映射weight和(归其他), 排除非制造业申万一级
+        m_hold_total = 0.0
+        other_hold = 0.0
+        for ind, w in ind_map.items():
+            if ind in MANUF_SUB_INDUSTRIES:
+                m_hold_total += w
+            elif ind == "":  # 未映射
+                other_hold += w
+            # else: 非制造业申万一级(银行/房地产等), 排除
+        denom = m_hold_total + other_hold
+        if denom <= 0:
+            continue
+        for ind, w in ind_map.items():
+            if ind in MANUF_SUB_INDUSTRIES:
+                allocated = m_total * (w / denom)
+                sub_weight[ind] = sub_weight.get(ind, 0) + allocated
+                sub_funds.setdefault(ind, set()).add(fc)
+        if other_hold > 0:
+            sub_weight[other_key] = sub_weight.get(other_key, 0) + m_total * (other_hold / denom)
+            sub_funds.setdefault(other_key, set()).add(fc)
+
+    if not sub_weight:
+        return []
+
+    # 4. value 按权重比例从制造业 total_value 拆
+    total_sub_weight = sum(sub_weight.values())
+    breakdown = []
+    for ind, w in sorted(sub_weight.items(), key=lambda x: -x[1]):
+        value = manuf_total_value * (w / total_sub_weight) if total_sub_weight > 0 else 0
+        breakdown.append({
+            "sub_industry": ind,
+            "weight": round(w, 2),
+            "value": round(value, 2),
+            "fund_count": len(sub_funds.get(ind, set())),
+        })
+    return breakdown
+
+
 def export_data() -> tuple[dict, dict, dict, dict, dict, dict]:
     """导出 6 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map。
 
@@ -1542,11 +1636,22 @@ def export_data() -> tuple[dict, dict, dict, dict, dict, dict]:
         "GROUP BY industry_name ORDER BY total_weight DESC",
         (report_date,),
     ).fetchall()
+    industries_list = [{"industry_name": r[0], "total_weight": r[1],
+                        "total_value": r[2], "fund_count": r[3]}
+                       for r in ind_rows]
+
+    # 制造业子行业拆分（方案C Step3）: 证监会"制造业"大类 -> 申万一级子行业 breakdown
+    # 算法见 _compute_manuf_breakdown() docstring; 按基金维度拆分非简单聚合
+    manuf_breakdown = _compute_manuf_breakdown(conn, report_date, stock_ind_map)
+    if manuf_breakdown:
+        for ind in industries_list:
+            if ind["industry_name"] == "制造业":
+                ind["breakdown"] = manuf_breakdown
+                break
+
     industry = {
         "report_date": report_date,
-        "industries": [{"industry_name": r[0], "total_weight": r[1],
-                        "total_value": r[2], "fund_count": r[3]}
-                       for r in ind_rows],
+        "industries": industries_list,
     }
 
     # 4. top20: Top20 重仓股调仓对比(复用 prev_map; 指标口径保持 LIMIT 20 不变, Q3 要求)

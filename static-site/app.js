@@ -9834,12 +9834,14 @@ async function renderPublicFund(container) {
   const _mergedMap = new Map();
   for (const d of _rawInd) {
     const name = IND_MERGE_MAP[d.industry_name] || d.industry_name;
-    if (!_mergedMap.has(name)) _mergedMap.set(name, { name, weight: 0, value: 0, fundCount: 0, industryCount: 0 });
+    if (!_mergedMap.has(name)) _mergedMap.set(name, { name, weight: 0, value: 0, fundCount: 0, industryCount: 0, breakdown: null });
     const m = _mergedMap.get(name);
     m.weight += d.total_weight || 0;
     m.value += d.total_value || 0;
     m.fundCount += d.fund_count || 0;
     m.industryCount += 1;
+    // 制造业子行业 breakdown 传递(方案C Step4: 仅制造业有 breakdown 来自重仓股拆分, 其他行业 null)
+    if (d.breakdown && d.breakdown.length) m.breakdown = d.breakdown;
   }
   const indData = Array.from(_mergedMap.values()).sort((a, b) => b.weight - a.weight);
   const indTotalWeight = indData.reduce((s, d) => s + d.weight, 0) || 1;
@@ -9853,6 +9855,7 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-ind-sort="value" type="button">持仓市值</button>'
     + '</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度(点按钮切换面积维度)；柱状图/TreeMap 切换独立, label 跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
+    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；TreeMap 点制造业矩形弹子行业列表</div>'
     + '<div class="chart pf-ind-bar" style="height:360px"></div>'
     + '<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:8px">'
     + '<span>🎯 抱团集中度全景（矩形面积随选中维度变化）</span>'
@@ -9875,12 +9878,31 @@ async function renderPublicFund(container) {
     return d.weight;  // m.weight = total_weight (权重和)
   };
   let indSort = 'weight';  // 默认权重和(当前行为不变)
+  let _manufExpanded = false;  // 制造业子行业展开状态(方案C Step4)
   // 按选中维度排序 indData -> Top15 + 其他聚合, 返回 barData
+  // 制造业展开时: 在制造业柱后插入 breakdown 子行业柱(缩进+浅色, isBreakdown 标记)
   const _buildBarData = (mode) => {
     const sorted = indData.slice().sort((a, b) => _indSortKey(b, mode) - _indSortKey(a, mode));
     const _top = sorted.slice(0, TOP_N);
     const _rest = sorted.slice(TOP_N);
-    const bar = _top.slice();
+    const bar = [];
+    for (const d of _top) {
+      bar.push(d);
+      // 制造业展开: 在制造业柱后插入 breakdown 子行业柱(基于重仓股拆分, 非直接披露)
+      if (_manufExpanded && d.name === '制造业' && d.breakdown && d.breakdown.length) {
+        for (const sub of d.breakdown) {
+          bar.push({
+            name: '  └ ' + sub.sub_industry,
+            weight: sub.weight,
+            value: sub.value,
+            fundCount: sub.fund_count,
+            industryCount: 0,
+            isBreakdown: true,
+            subIndustry: sub.sub_industry,
+          });
+        }
+      }
+    }
     if (_rest.length > 0) {
       const _restAgg = _rest.reduce((acc, d) => {
         acc.weight += d.weight; acc.value += d.value; acc.fundCount += d.fundCount; acc.industryCount += d.industryCount;
@@ -9891,11 +9913,12 @@ async function renderPublicFund(container) {
     return bar;
   };
   // label formatter 跟随选中维度: weight->权重和数值; avg->平均权重%; value->持仓市值亿
+  // 用 d.totalWeight(恒定权重和) 算平均权重, 不用 d.value(随 mode 变管柱子长度, 方案C bug 修复)
   const _indLabelFormatter = (p) => {
     const d = p.data;
-    if (indSort === 'avg') return (d.value / d.fundCount).toFixed(1) + '%';
+    if (indSort === 'avg') return (d.fundCount > 0 ? (d.totalWeight / d.fundCount).toFixed(1) : '0') + '%';
     if (indSort === 'value') return (d.totalValue / 1e4).toFixed(2) + '亿';
-    return d.value.toFixed(1);
+    return d.totalWeight.toFixed(1);
   };
   const indChart = echarts.init(indCard.querySelector(".pf-ind-bar"));
   charts.push(indChart);
@@ -9905,33 +9928,61 @@ async function renderPublicFund(container) {
     indChart.setOption({
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (p) => {
         const d = p[0].data;  // series data object, 跟随 .reverse() 后显示顺序, 避免 indData[dataIndex] 用原始降序错位
-        // d.value = weight = SUM(weight_pct) 全市场基金该行业权重%求和(非 0-1 归一化), 用于柱状图排序(抱团集中度)
-        // 平均权重 = d.value / d.fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%)
+        // 方案C bug 修复: d.value 随 mode 变(柱子长度), tooltip 用 d.totalWeight(恒定权重和) 算占比/平均权重
+        // 制造业子行业(breakdown) tooltip 特殊: 显示"基于重仓股拆分"说明
+        if (d.isBreakdown) {
+          const pctOfTotal = (d.totalWeight / indTotalWeight * 100).toFixed(2);
+          return `${d.subIndustry}（制造业子行业）<br/><br/>` +
+            `📌 权重和: <b>${d.totalWeight.toFixed(1)}</b><span style="color:var(--text-3)"> (占全行业 ${pctOfTotal}%)</span><br/>` +
+            `💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><br/>` +
+            `🏦 基金数: <b>${d.fundCount}</b> 只基金重仓该子行业<br/>` +
+            `<span style="color:var(--text-3)">🔬 基于重仓股拆分（非基金直接披露）</span>`;
+        }
+        // d.totalWeight = SUM(weight_pct) 全市场基金该行业权重%求和(非 0-1 归一化), 用于柱状图排序(抱团集中度)
+        // 平均权重 = d.totalWeight / d.fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%)
         // d.totalValue = SUM(hold_value) 单位万元, /1e4 转亿
         // d.industryCount = 合并前原始分类数(>1 说明合并过, tooltip 显示合并说明)
-        const avgPct = (d.value / d.fundCount).toFixed(1);
-        const pctOfTotal = (d.value / indTotalWeight * 100).toFixed(2);
+        const avgPct = (d.fundCount > 0 ? (d.totalWeight / d.fundCount).toFixed(1) : '0');
+        const pctOfTotal = (d.totalWeight / indTotalWeight * 100).toFixed(2);
         const mergeInfo = d.industryCount > 1
           ? (d.name === '其他'
             ? `<br/>📦 其他 = ${d.industryCount} 个长尾行业合计(权重和占全行业 ${pctOfTotal}%)<br/>`
             : `<br/>🔀 已合并 ${d.industryCount} 个原始分类(申万/GICS/带编号)<br/>`)
+          : '';
+        const manufHint = (d.name === '制造业' && d.breakdown)
+          ? `<br/><span style="color:var(--text-3)">🔬 点击此柱展开 ${d.breakdown.length} 个申万一级子行业(基于重仓股拆分)</span>`
           : '';
         return `${d.name}<br/><br/><b style="font-size:13px">📊 平均权重: ${avgPct}%</b><br/>` +
           `<span style="color:var(--text-3)">= 平均每只基金把 ${avgPct}% 仓位配在该行业</span><br/>` +
           `<span style="color:var(--text-3)">(全市场 ${d.fundCount} 只基金该行业权重%的平均值)</span><br/>` +
           `<br/>💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><span style="color:var(--text-3)"> (全市场基金该行业持仓总市值)</span><br/>` +
           `🏦 基金数: <b>${d.fundCount}</b><span style="color:var(--text-3)"> 只基金持有该行业</span><br/>` +
-          `<br/>📌 权重和: <b>${d.value.toFixed(1)}</b><span style="color:var(--text-3)"> (占全行业 ${pctOfTotal}%)</span><br/>` +
+          `<br/>📌 权重和: <b>${d.totalWeight.toFixed(1)}</b><span style="color:var(--text-3)"> (占全行业 ${pctOfTotal}%)</span><br/>` +
           `<span style="color:var(--text-3)">权重和越大 = 越多基金重配 = 抱团越集中</span>` +
-          mergeInfo;
+          mergeInfo + manufHint;
       }},
       grid: { left: 10, right: 30, top: 10, bottom: 10, containLabel: true },
       xAxis: { type: "value", axisLabel: { fontSize: 12 } },
-      yAxis: { type: "category", data: bar.map((d) => d.name).reverse(), axisLabel: { fontSize: 12, width: 120, overflow: "break", lineHeight: 13 } },
+      yAxis: { type: "category", data: bar.map((d) => d.name).reverse(), axisLabel: {
+        fontSize: 12, width: 120, overflow: "break", lineHeight: 13,
+        // 制造业加 ▶/▼ 展开标志(方案C Step4)
+        formatter: (val) => (val === '制造业' ? val + (_manufExpanded ? ' ▼' : ' ▶') : val),
+      } },
       series: [{
-        // data 用 object 形式带 fundCount/name/totalValue/industryCount, 供 label 算平均权重% 和 tooltip 直接取;
-        // tooltip 从 p[0].data 取(跟随 .reverse() 后顺序), 不再用 indData[dataIndex] 原始降序避免错位
-        type: "bar", data: bar.map((d) => ({ value: d.weight, fundCount: d.fundCount, name: d.name, totalValue: d.value, industryCount: d.industryCount })).reverse(), itemStyle: { color: "#e6492e" },
+        // 方案C bug 修复: value 随 mode 变(柱子长度跟着切换维度变), totalWeight 恒定(tooltip/label 算平均权重用)
+        // isBreakdown 子行业用浅色区分; breakdown 传递供点击展开判断
+        type: "bar", data: bar.map((d) => ({
+          value: _indSortKey(d, mode),
+          totalWeight: d.weight,
+          fundCount: d.fundCount,
+          name: d.name,
+          totalValue: d.value,
+          industryCount: d.industryCount,
+          breakdown: d.breakdown || null,
+          isBreakdown: !!d.isBreakdown,
+          subIndustry: d.subIndustry || null,
+          itemStyle: d.isBreakdown ? { color: "#f5b8a8" } : { color: "#e6492e" },
+        })).reverse(),
         label: { show: true, position: "right", formatter: _indLabelFormatter, fontSize: 11 },
       }],
     });
@@ -9962,13 +10013,16 @@ async function renderPublicFund(container) {
         // treemap tooltip 从 p.data 取(同柱状图口径, 不依赖外部 indData 数组避免错位)
         // d.value = 矩形面积值(随 mode 变); tooltip 用 d.totalWeight 算占比/平均权重(恒定不随 mode 变)
         const d = p.data;
-        const avgPct = (d.totalWeight / d.fundCount).toFixed(1);
+        const avgPct = (d.fundCount > 0 ? (d.totalWeight / d.fundCount).toFixed(1) : '0');
         const pctOfTotal = (d.totalWeight / indTotalWeight * 100).toFixed(2);
         const mergeInfo = d.industryCount > 1 ? `<br/>🔀 已合并 ${d.industryCount} 个原始分类` : '';
+        const manufHint = (d.name === '制造业' && d.breakdown)
+          ? `<br/><span style="color:var(--text-3)">🔬 点击查看 ${d.breakdown.length} 个申万一级子行业(基于重仓股拆分)</span>`
+          : '';
         return `${d.name}<br/><br/>📦 权重和: <b>${d.totalWeight.toFixed(1)}</b> (占 ${pctOfTotal}%)<br/>` +
           `📊 平均权重: <b>${avgPct}%</b><br/>` +
           `💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><br/>` +
-          `🏦 基金数: <b>${d.fundCount}</b>${mergeInfo}`;
+          `🏦 基金数: <b>${d.fundCount}</b>${mergeInfo}${manufHint}`;
       }},
       series: [{
         type: "treemap",
@@ -10007,6 +10061,7 @@ async function renderPublicFund(container) {
           return {
             name: d.name, value: sortVal,
             totalWeight, fundCount, totalValue, industryCount: d.industryCount,
+            breakdown: d.breakdown || null,  // 制造业子行业(方案C Step4, 点击弹 breakdown 列表)
           };
         }),
       }],
@@ -10151,9 +10206,69 @@ async function renderPublicFund(container) {
     _pfFundCurList = list;  // 缓存列表供翻页切片(不重 fetch)
     _renderFundModalPage(modal);
   };
-  // 柱状图 + TreeMap 点击事件(echarts on('click'), params.data.name = 合并行业名)
-  indChart.on('click', (params) => { if (params && params.data && params.data.name) _showIndustryFunds(params.data.name); });
-  treemapChart.on('click', (params) => { if (params && params.data && params.data.name) _showIndustryFunds(params.data.name); });
+  // 制造业子行业 breakdown 列表弹窗(方案C Step4, TreeMap 点击制造业用)
+  // 复用 pfIndFundModal 骨架, 内容是 breakdown 表格(子行业/权重/占制造业%/市值/基金数)
+  const _showManufBreakdown = (breakdown) => {
+    if (!breakdown || !breakdown.length) return;
+    let modal = document.getElementById("pfIndFundModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "pfIndFundModal";
+      modal.className = "rule-modal hidden pf-ind-fund-modal";
+      document.body.appendChild(modal);
+    }
+    const totalW = breakdown.reduce((s, b) => s + (b.weight || 0), 0) || 1;
+    const rows = breakdown.map((b, i) => {
+      const pct = ((b.weight || 0) / totalW * 100).toFixed(2);
+      return `<tr><td>${i + 1}</td><td>${b.sub_industry}</td><td class="pf-num">${(b.weight || 0).toFixed(2)}</td><td class="pf-num">${pct}%</td><td class="pf-num">${((b.value || 0) / 1e4).toFixed(2)}</td><td class="pf-num">${b.fund_count || 0}</td></tr>`;
+    }).join("");
+    modal.innerHTML = '<div class="rule-modal-overlay"></div>'
+      + '<div class="rule-modal-body">'
+      + '<div class="rule-modal-header"><h3>🏭 制造业子行业拆分（基于重仓股, 共 ' + breakdown.length + ' 个子行业）</h3>'
+      + '<button class="rule-modal-close" aria-label="关闭" type="button">&times;</button></div>'
+      + '<div class="rule-modal-content"><div class="pf-table-wrap"><table class="pf-table">'
+      + '<thead><tr><th>#</th><th>申万一级子行业</th><th>权重和</th><th>占制造业%</th><th>持仓市值(亿)</th><th>基金数</th></tr></thead>'
+      + `<tbody>${rows}</tbody></table></div>`
+      + '<div class="pf-modal-tip">🔬 按基金维度拆分: 每只制造业基金的制造业仓位, 按其重仓股中各子行业占比分摊; 未映射重仓股归"制造业-其他"; 非基金直接披露</div>'
+      + '</div>';
+    const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+    modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+    modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+    // ESC 关闭(守护 _pfFundEscBound, 与 _showIndustryFunds 共用单例 modal)
+    if (!_pfFundEscBound) {
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          const m = document.getElementById("pfIndFundModal");
+          if (m && !m.classList.contains("hidden")) { m.classList.add("hidden"); document.body.style.overflow = ""; }
+        }
+      });
+      _pfFundEscBound = true;
+    }
+    modal.classList.remove("hidden");
+    document.body.style.overflow = "hidden";
+  };
+  // 柱状图点击: 制造业切换子行业展开, 子行业不弹窗, 其他行业弹基金列表(方案C Step4)
+  indChart.on('click', (params) => {
+    if (!params || !params.data || !params.data.name) return;
+    const d = params.data;
+    if (d.isBreakdown) return;  // 子行业不弹窗(tooltip 已显示详情)
+    if (d.name === '制造业' && d.breakdown) {
+      _manufExpanded = !_manufExpanded;
+      _renderIndBar(indSort);
+      return;
+    }
+    _showIndustryFunds(d.name);
+  });
+  // TreeMap 点击: 制造业弹子行业 breakdown 列表, 其他行业弹基金列表
+  treemapChart.on('click', (params) => {
+    if (!params || !params.data || !params.data.name) return;
+    const d = params.data;
+    if (d.name === '制造业' && d.breakdown) {
+      _showManufBreakdown(d.breakdown);
+      return;
+    }
+    _showIndustryFunds(d.name);
+  });
 
   // ── 区域 4: 头部重仓股调仓 Top100 表(读 holdings.top100 取前100; 排序切换: 按变化率/按金额差; 指标 top20_adjustment 仍按 Top20 口径不变) ──
   const top100AdjCard = document.createElement("div");
