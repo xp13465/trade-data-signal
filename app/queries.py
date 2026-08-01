@@ -595,7 +595,7 @@ def overview(conn, cfg):
     except Exception:  # noqa: BLE001
         pass
 
-    # 数据时效横幅补充源日期：期货/ETF国家队/美股从静态导出 JSON 取末日期
+    # 数据时效横幅补充源日期：期货/ETF汪汪队/美股从静态导出 JSON 取末日期
     extra_dates = {}
     try:
         def _jload(name):
@@ -637,7 +637,7 @@ def overview(conn, cfg):
     except Exception:  # noqa: BLE001
         pass
 
-    # 汪汪队(ETF国家队)最新信号 + 共振聚合：首页🐶卡片展示，点击跳专区
+    # 汪汪队(ETF汪汪队)最新信号 + 共振聚合：首页🐶卡片展示，点击跳专区
     nt_signals_today = None
     try:
         from .collector.etf_national_team import latest_signals_overview, recent_signals_overview
@@ -1315,7 +1315,7 @@ def intraday_snapshot():
 
 
 def etf_national_team(rng="all"):
-    """国家队宽基 ETF 资金动向：12 只宽基 ETF 近份额+成交额+信号。"""
+    """汪汪队宽基 ETF 资金动向：12 只宽基 ETF 近份额+成交额+信号。"""
     from .collector.etf_national_team import export_data, _nt_slice_by_range
     daily, _q, _h = export_data()
     return _nt_slice_by_range(daily, rng)

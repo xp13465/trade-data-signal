@@ -871,25 +871,28 @@ def is_hk_market_closed(at: datetime | None = None) -> tuple[bool, str]:
 
 def _save_db(collected_at: str, is_closed: bool,
              indices: list, industries: list, concepts: list = None,
-             us_futures: dict = None) -> None:
-    """存 DB（单行覆盖，id=1）。concepts/us_futures 可选（向后兼容旧调用）。"""
+             us_futures: dict = None, global_realtime: dict = None) -> None:
+    """存 DB（单行覆盖，id=1）。concepts/us_futures/global_realtime 可选（向后兼容旧调用）。"""
     conn = get_conn()
     if concepts is None:
         concepts = []
     if us_futures is None:
         us_futures = {}
+    if global_realtime is None:
+        global_realtime = {}
     conn.execute(
-        "INSERT INTO intraday_snapshot (id, collected_at, is_closed, indices, industries, concepts, us_futures) "
-        "VALUES (1, ?, ?, ?, ?, ?, ?) "
+        "INSERT INTO intraday_snapshot (id, collected_at, is_closed, indices, industries, concepts, us_futures, global_realtime) "
+        "VALUES (1, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(id) DO UPDATE SET "
         "collected_at=excluded.collected_at, is_closed=excluded.is_closed, "
         "indices=excluded.indices, industries=excluded.industries, concepts=excluded.concepts, "
-        "us_futures=excluded.us_futures",
+        "us_futures=excluded.us_futures, global_realtime=excluded.global_realtime",
         (collected_at, 1 if is_closed else 0,
          json.dumps(indices, ensure_ascii=False),
          json.dumps(industries, ensure_ascii=False),
          json.dumps(concepts, ensure_ascii=False),
-         json.dumps(us_futures, ensure_ascii=False)),
+         json.dumps(us_futures, ensure_ascii=False),
+         json.dumps(global_realtime, ensure_ascii=False)),
     )
     conn.commit()
     conn.close()
@@ -1673,7 +1676,7 @@ def collect_and_save() -> dict:
     # 存 DB
     _save_db(snap["collected_at"], snap["is_closed"],
              snap["indices"], snap["industries"], snap["concepts"],
-             snap.get("us_futures"))
+             snap.get("us_futures"), snap.get("global_realtime"))
 
     # 美股期货 ES/NQ 预期信号落地 daily_metric（供历史回测/统计）。失败不阻断。
     if snap.get("us_futures"):
@@ -1755,7 +1758,7 @@ def load_latest_snapshot() -> dict | None:
     """
     conn = get_conn()
     row = conn.execute(
-        "SELECT collected_at, is_closed, indices, industries, concepts, us_futures "
+        "SELECT collected_at, is_closed, indices, industries, concepts, us_futures, global_realtime "
         "FROM intraday_snapshot WHERE id=1"
     ).fetchone()
     conn.close()
@@ -1790,6 +1793,13 @@ def load_latest_snapshot() -> dict | None:
         us_futures = json.loads(row["us_futures"]) if row["us_futures"] else {}
     except Exception:  # noqa: BLE001
         us_futures = {}
+    # global_realtime 列（2026-07-31 加，全球指数实时报价；旧 DB 迁移前 keys() 不含此列）
+    # row.keys() 兜底：旧 DB 未 ALTER 前查询 SELECT 此列会报错，但 _migrate 已自动加列，
+    # 正常路径都有此列；防御性处理：keys() 不含或值为空返 {}（不阻断快照读）
+    try:
+        global_realtime = json.loads(row["global_realtime"]) if "global_realtime" in row.keys() and row["global_realtime"] else {}
+    except Exception:  # noqa: BLE001
+        global_realtime = {}
     return {
         "collected_at": row["collected_at"],
         "is_closed": is_closed,
@@ -1799,6 +1809,7 @@ def load_latest_snapshot() -> dict | None:
         "industries": industries,
         "concepts": concepts,
         "us_futures": us_futures,
+        "global_realtime": global_realtime,
     }
 
 

@@ -74,7 +74,7 @@ function _labCustomCacheBust() {
 
 // 等级标签配色(按分值区间)
 function _labCustomLevelClass(score, direction) {
-  // direction: "high"=高位风险(分越高越危险) / "low"=低位机会(分越高越冷越有机会)
+  // direction: "high"=高位预警(分越高越危险) / "low"=低位机会(分越高越冷越有机会)
   if (score == null || isNaN(score)) return "lvl-neutral";
   if (direction === "high") {
     return score >= 70 ? "lvl-danger" : score >= 50 ? "lvl-warn" : "lvl-neutral";
@@ -131,7 +131,7 @@ function _labCustomScoreSummary(high, low) {
   return { text: "➡️ 当前中性，观望为主", cls: "sum-neutral" };
 }
 
-// 分数卡(high 高位风险分 + low 低位机会分 + adapt 适配信息)
+// 分数卡(high 高位预警 + low 低位机会 + adapt 适配信息)
 function _labCustomScoreCardHTML(data, alert, humanText) {
   const name = data.target_name || data.target_id || "";
   const date = alert.date || "";
@@ -176,14 +176,14 @@ function _labCustomScoreCardHTML(data, alert, humanText) {
     `<div class="lab-custom-score-summary ${summary.cls}">${summary.text}</div>` +
     `<div class="lab-custom-score-grid">` +
       `<div class="lab-custom-score-cell ${highLvlCls}">` +
-        `<div class="lab-custom-cell-label">高位风险分<span class="lab-custom-cell-sublabel">越高越热，≥70 过热注意减仓</span></div>` +
+        `<div class="lab-custom-cell-label">高位预警<span class="lab-custom-cell-sublabel">越高越热，≥70 过热注意减仓</span></div>` +
         `<div class="lab-custom-cell-score">${high != null ? high.toFixed(2) : "-"}</div>` +
         `<div class="lab-custom-cell-level" title="${highTooltip}">${highLvlText}</div>` +
         `<div class="lab-custom-cell-desc">分越高越接近过热 · 悬浮看区间含义</div>` +
         `<div class="lab-custom-cell-human">${highHuman}</div>` +
       `</div>` +
       `<div class="lab-custom-score-cell ${lowLvlCls}">` +
-        `<div class="lab-custom-cell-label">低位机会分<span class="lab-custom-cell-sublabel">越高机会越大，≥70 机会显现</span></div>` +
+        `<div class="lab-custom-cell-label">低位机会<span class="lab-custom-cell-sublabel">越高机会越大，≥70 机会显现</span></div>` +
         `<div class="lab-custom-cell-score">${low != null ? low.toFixed(2) : "-"}</div>` +
         `<div class="lab-custom-cell-level" title="${lowTooltip}">${lowLvlText}</div>` +
         `<div class="lab-custom-cell-desc">分越高越偏冷有机会 · 悬浮看区间含义</div>` +
@@ -194,7 +194,7 @@ function _labCustomScoreCardHTML(data, alert, humanText) {
   `</div>`;
 }
 
-// 8+8 维度表(H1-H8 高位风险 + L1-L8 低位机会)
+// 8+8 维度表(H1-H8 高位预警 + L1-L8 低位机会)
 function _labCustomDimsTableHTML(dimHits, dims, adapt) {
   dimHits = dimHits || {};
   dims = dims || {};
@@ -239,10 +239,10 @@ function _labCustomDimsTableHTML(dimHits, dims, adapt) {
 
   const head = `<tr><th>维度</th><th>名称</th><th>分值</th><th>权重</th><th>贡献</th><th>命中</th></tr>`;
   return `<div class="lab-custom-dims">` +
-    `<div class="lab-custom-section-title">🔬 8+8 维度拆解（高位风险 H1-H8 + 低位机会 L1-L8）</div>` +
+    `<div class="lab-custom-section-title">🔬 8+8 维度拆解（高位预警 H1-H8 + 低位机会 L1-L8）</div>` +
     `<div class="lab-custom-dims-grid">` +
       `<div class="lab-custom-dims-col">` +
-        `<div class="lab-custom-dims-col-title danger">高位风险维度（分高=危险）</div>` +
+        `<div class="lab-custom-dims-col-title danger">高位预警维度（分高=危险）</div>` +
         `<table class="lab-custom-dims-table"><thead>${head}</thead><tbody>${highRows}</tbody></table>` +
       `</div>` +
       `<div class="lab-custom-dims-col">` +
@@ -315,7 +315,7 @@ function _labCustomHistoryHTML(historyAnalogy, humanText) {
   return `<div class="lab-custom-hist">` +
     `<div class="lab-custom-section-title">📜 历史类比 前3（相似特征时段后续涨跌统计）</div>` +
     `<div class="lab-custom-hist-grid">` +
-      sideHTML("high", "高位风险视角") +
+      sideHTML("high", "高位预警视角") +
       sideHTML("low", "低位机会视角") +
     `</div>` +
   `</div>`;
@@ -346,7 +346,7 @@ function _labCustomThresholdsHTML(dataThresholds) {
     `<div class="lab-custom-thresh-body" style="display:none">` +
       `<div class="lab-custom-thresh-grid">` +
         `<div class="lab-custom-thresh-col">` +
-          `<div class="lab-custom-thresh-col-title danger">高位风险阈值</div>` +
+          `<div class="lab-custom-thresh-col-title danger">高位预警阈值</div>` +
           `<table class="lab-custom-thresh-table"><thead>${head}</thead><tbody>${sideRows("high")}</tbody></table>` +
         `</div>` +
         `<div class="lab-custom-thresh-col">` +
@@ -437,7 +437,7 @@ function _labCustomPositionDetailHTML(pos) {
     `<div class="lab-custom-position-notes">` +
       `<div class="lab-custom-position-sub-title">各维度算法</div>` +
       `<ul>` +
-        `<li><b>机会分</b>(权重35%):low_alert 低位机会分,L1-L8 多维加权(0-100),主导仓位</li>` +
+        `<li><b>机会分</b>(权重35%):low_alert 低位机会,L1-L8 多维加权(0-100),主导仓位</li>` +
         `<li><b>趋势分</b>(20%):close/MA60 偏离度。&gt;1.10→100,&gt;1.05→85,&gt;1.00→70,&gt;0.95→40,&gt;0.90→20,else→0</li>` +
         `<li><b>动量分</b>(15%):MACD hist(DIF-DEA)×2。正且上升→100,正→70,负但上升→40,负→10</li>` +
         `<li><b>波动分</b>(15%):ATR(20)/close×100。≤1.5%→100,≤2.5%→85,≤3.5%→70,≤4.5%→50,≤5.5%→30,&gt;5.5%→10(低波动高分)</li>` +

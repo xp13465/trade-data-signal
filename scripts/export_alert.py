@@ -3,8 +3,8 @@
 
 设计依据: docs/alert-design.md §4.2(存储方案) + §8(原因生成)。
 - 入库: score_daily 表加 high_alert / low_alert 两个 score_id (复用 is_overheat/is_freeze/components)
-  - high_alert: value=高位预警分, is_overheat=1 当 >75 (警示级以上), components=8维度JSON
-  - low_alert : value=低位预警分, is_freeze=1 当 >75 (机会级以上), components=8维度JSON
+  - high_alert: value=高位预警, is_overheat=1 当 >75 (警示级以上), components=8维度JSON
+  - low_alert : value=低位机会, is_freeze=1 当 >75 (机会级以上), components=8维度JSON
 - 导出: static-site/data/alert.json (当日总分+等级+触发维度TopN+原因文案+近期预警历史)
 - 回测阈值: HIGH>=72 / LOW>=85 (scripts/backtest_alert.py 调参最优, N10胜率达标)
 
@@ -84,8 +84,8 @@ _HIGH_REASON = {
     "高危": "🔴 高危预警:多维度过热共振,风险显著,留意追高风险",
     "警示": "⚠️ 过热信号密集,警惕阶段性顶部,逢高谨慎",
     "关注": "市场偏热,部分指标进入高位区,留意风险",
-    "中性": "高位风险指标处于中性区间",
-    "数据不足": "数据不足,暂无法判断高位风险",
+    "中性": "高位预警指标处于中性区间",
+    "数据不足": "数据不足,暂无法判断高位预警",
 }
 _LOW_REASON = {
     "机遇": "🔵 机遇预警:多维度冰点共振,机会显著,关注超跌反弹",

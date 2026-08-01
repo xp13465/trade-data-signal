@@ -125,7 +125,8 @@ CREATE TABLE IF NOT EXISTS futures_accuracy (
 );
 
 -- 盘中实时快照：单行覆盖（id=1 CHECK 强制只保留最新一行）。
--- indices/industries/concepts/us_futures 存 JSON 字符串。每次采集 UPSERT 覆盖，体现"最新快照"语义。
+-- indices/industries/concepts/us_futures/global_realtime 存 JSON 字符串。每次采集 UPSERT 覆盖，体现"最新快照"语义。
+-- global_realtime (2026-07-31 加)：全球指数实时报价(德法DAX/CAC40等)，防 export.py reload 丢失致前端角标无实时数据。
 CREATE TABLE IF NOT EXISTS intraday_snapshot (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   collected_at TEXT NOT NULL,
@@ -133,7 +134,8 @@ CREATE TABLE IF NOT EXISTS intraday_snapshot (
   indices TEXT NOT NULL,
   industries TEXT NOT NULL,
   concepts TEXT,
-  us_futures TEXT
+  us_futures TEXT,
+  global_realtime TEXT
 );
 """
 
@@ -191,6 +193,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "us_futures" not in snap_cols:
         try:
             conn.execute("ALTER TABLE intraday_snapshot ADD COLUMN us_futures TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" in str(e):
+                pass  # 并发首跑竞态，忽略
+            else:
+                raise
+
+    # intraday_snapshot.global_realtime 列（2026-07-31 加，全球指数实时报价入库）
+    # 根因：_save_db INSERT 只写6字段无 global_realtime，export.py reload 读 DB 生成
+    # intraday_snapshot.json 丢失 global_realtime，致前端德法角标无实时数据 + reload 覆盖实时版。
+    # 加列后 _save_db INSERT + load_latest_snapshot SELECT 均补 global_realtime，reload 不再丢失。
+    if "global_realtime" not in snap_cols:
+        try:
+            conn.execute("ALTER TABLE intraday_snapshot ADD COLUMN global_realtime TEXT")
         except sqlite3.OperationalError as e:
             if "duplicate column name" in str(e):
                 pass  # 并发首跑竞态，忽略

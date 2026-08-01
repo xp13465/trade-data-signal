@@ -43,7 +43,7 @@ GLOBAL_INDEX_IDS = [                                          # 全球(美股4+�
     "ftse100", "dax", "cac40",                                # 富时/DAX/CAC
     "cgb_idx", "cgb_10y_etf", "cgb_10y_future",               # 中国国债(上证国债指数/10年国债ETF/10年国债期货)
 ]
-# P1-新-C: 12 国家队宽基 ETF (与 app.collector.etf_national_team.ETF_LIST 对齐;
+# P1-新-C: 12 汪汪队宽基 ETF (与 app.collector.etf_national_team.ETF_LIST 对齐;
 # 此处硬编码避免循环 import akshare/requests 等重依赖)
 NATIONAL_TEAM_ETF_CODES = [
     "510050", "510300", "510310", "159919",  # 上证50 / 沪深300 ×3

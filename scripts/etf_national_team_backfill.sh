@@ -1,5 +1,5 @@
 #!/bin/bash
-# etf_national_team_backfill.sh - ETF国家队当日单采+推送（launchd 20:07 定时）
+# etf_national_team_backfill.sh - ETF汪汪队当日单采+推送（launchd 20:07 定时）
 #
 # 问题：etf_national_team.py daily 只调 export_json_files() 写本地 static-site/data/*.json，
 #   不 git push -> 最坏 ETF 数据等次日 17:50 update_all 才上线（和 cross_market 数据没上线同类隐患）。
@@ -48,17 +48,17 @@ FORCE=0
 IS_TRADING=$("$PY" -c "from app.calendar import is_trading_day; print(1 if is_trading_day() else 0)" 2>/dev/null)
 echo "交易日判断: IS_TRADING=${IS_TRADING:-unknown} FORCE=$FORCE" | tee -a "$LOG"
 if [ "$IS_TRADING" != "1" ] && [ "$FORCE" != "1" ]; then
-  echo "非交易日，跳过ETF国家队采集（force 可绕过）" | tee -a "$LOG"
+  echo "非交易日，跳过ETF汪汪队采集（force 可绕过）" | tee -a "$LOG"
   echo "=== etf_national_team_backfill.sh 结束（非交易日）$(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
   exit 0
 fi
 
-# 1) 采集 ETF 国家队当日（mootdx OHLC + SSE/SZSE 份额 + 重算信号）+ 导出 JSON
+# 1) 采集 ETF 汪汪队当日（mootdx OHLC + SSE/SZSE 份额 + 重算信号）+ 导出 JSON
 #    python 内置 data/etf_national_team.lock 防并发；采集器写 DB + dump static-site/data/*.json。
-echo "-> 采集 ETF 国家队当日 + 导出 JSON ..." | tee -a "$LOG"
+echo "-> 采集 ETF 汪汪队当日 + 导出 JSON ..." | tee -a "$LOG"
 "$PY" -m app.collector.etf_national_team daily 2>&1 | tee -a "$LOG"
 COLLECT_RC=${PIPESTATUS[0]}
-echo "ETF国家队采集退出码=$COLLECT_RC" | tee -a "$LOG"
+echo "ETF汪汪队采集退出码=$COLLECT_RC" | tee -a "$LOG"
 # 2026-07-25: collector crash 时(如 libmini_racer FATAL)不会写 [etf_nt] daily 完成 行,
 # gen_schedule_stats 的 etf_nt 模式找不到 DONE -> 启发式标 exit=143(假 SIGTERM),
 # 与 shell 脚本正常结束矛盾。补 fallback DONE 行让 gen_stats 解析真实 exit code:

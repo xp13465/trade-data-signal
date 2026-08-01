@@ -32,8 +32,8 @@
   <script type="application/ld+json">
   {"@context":"https://schema.org","@type":"WebApplication","name":"信号实验室","alternateName":["tdsignal","A股情绪看板","情绪数据复盘看板"],"url":"https://ss.fx8.store/","description":"A股/港股/全球盘后复盘情绪看板:综合情绪分(0-100)、市场宽度、恐贪指数与技术分析参考点,一屏看懂多市场冷热。","applicationCategory":"FinanceApplication","operatingSystem":"Web","inLanguage":"zh-CN","offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"},"keywords":"A股情绪看板,市场情绪指数,盘后复盘,恐贪指数,市场宽度,综合情绪分,涨跌家数,涨停连板,行业热力图,技术分析参考点,tdsignal"}
   </script>
-  <link rel="preload" href="./style.min.css?v=1ecb2932" as="style" onload="this.onload=null;this.rel='stylesheet'">
-  <noscript><link rel="stylesheet" href="./style.min.css?v=1ecb2932"></noscript>
+  <link rel="preload" href="./style.min.css?v=971d6804" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="./style.min.css?v=971d6804"></noscript>
   <!-- lab.min.css 懒加载：首屏不用 lab- 类（仅 trade_sim 弹窗动态注入 .lab-win-bar 等 5 个类），改 preload 异步加载省首屏阻塞 -->
   <link rel="preload" href="./lab.min.css?v=52047726" as="style" onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="./lab.min.css?v=52047726"></noscript>
@@ -98,10 +98,10 @@
   <nav class="tabs">
     <button data-tab="overview" class="active">市场全景</button>
     <button data-tab="market">指数表现</button>
-    <button data-tab="sentiment">情绪温度</button>
+    <button data-tab="sentiment">盘面温测</button>
     <button data-tab="industry">板块分化</button>
     <button data-tab="etf">ETF评分</button>
-    <button data-tab="lab">🧪 策略实验</button>
+    <button data-tab="lab">策略实验</button>
     <!-- UX：周期选择器移入 tab 栏右端，随 sticky tab 栏一起悬浮顶部，下滚始终可见可操作 -->
     <!-- 默认隐藏防闪烁：概览/实验室 tab 无需周期切换，renderTab 按 tab 控制显隐 -->
     <div class="periods" style="display:none">
@@ -139,7 +139,7 @@
   <nav class="h5-bottomnav">
     <button data-tab="overview" class="active"><span class="bn-icon">📊</span><span class="bn-label">市场全景</span></button>
     <button data-tab="market"><span class="bn-icon">📈</span><span class="bn-label">指数表现</span></button>
-    <button data-tab="sentiment"><span class="bn-icon">😊</span><span class="bn-label">情绪温度</span></button>
+    <button data-tab="sentiment"><span class="bn-icon">😊</span><span class="bn-label">盘面温测</span></button>
     <button data-tab="industry"><span class="bn-icon">🏭</span><span class="bn-label">板块分化</span></button>
     <button data-tab="etf"><span class="bn-icon">💹</span><span class="bn-label">ETF评分</span></button>
     <button data-tab="lab"><span class="bn-icon">🧪</span><span class="bn-label">策略实验</span></button>
@@ -161,11 +161,11 @@
   </footer>
 
   <script src="./qr.js?v=1b721750"></script>
-  <script defer src="./common.min.js?v=f267b465"></script>
-  <script defer src="./purpose-notes.min.js?v=666be462"></script>
-  <script defer src="./app.min.js?v=7ed5930f"></script>
+  <script defer src="./common.min.js?v=39fb7db2"></script>
+  <script defer src="./purpose-notes.min.js?v=cac55f05"></script>
+  <script defer src="./app.min.js?v=c309b406"></script>
   <!-- B5: lab.min.js 不再预加载，切到 lab tab/#lab 直链时由 app.js dynamic 注入 -->
-  <meta name="lab-asset-url" content="./lab.min.js?v=0f64a1bc">
+  <meta name="lab-asset-url" content="./lab.min.js?v=3ef64bfe">
   <!-- P2-5: echarts.min.js 不再预加载（省 615KB 首屏 JS），renderTab 触发时由 app.js dynamic 注入 -->
   <meta name="echarts-asset-url" content="./vendor/echarts.min.js?v=12173341">
 <!-- zz.bdstatic 百度站长已移到 inline-init.js（defer 统一外部化） -->

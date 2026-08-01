@@ -21,7 +21,7 @@ export_etf_score_list.py FETCH_DAYS=252 只采近 252 天 + 只覆盖评分列�
   - 主键 (date, etf_code)
   - ON CONFLICT 时 close/amount/open/high/low 用 COALESCE(etf_daily.X, excluded.X)
     只在原值为 NULL 时补新值，不覆盖已有 close
-  - fund_share/share_change/share_change_pct 等国家队字段完全不动（不在 SET 里）
+  - fund_share/share_change/share_change_pct 等汪汪队字段完全不动（不在 SET 里）
   - etf_name 用 COALESCE(NULLIF(...,''), excluded) 只在空时补
 
 用法：

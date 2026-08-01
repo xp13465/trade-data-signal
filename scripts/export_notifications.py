@@ -69,7 +69,7 @@ ANOMALY_TYPE_NAMES = {
     "rapid_move": "急涨急跌",
 }
 
-# ETF 国家队信号（etf_national_team.db.etf_signal）signal_type -> 中文标签
+# ETF 汪汪队信号（etf_national_team.db.etf_signal）signal_type -> 中文标签
 # 与 check_nt_signals.py NT_LABEL 一致
 ETF_SIGNAL_NAMES = {
     "share_surge": "进场",
@@ -94,7 +94,7 @@ ETF_NAME_MAP = {
 
 # score_daily 中综合分 score_id -> 中文名（与 check_signals.py 一致）
 SCORE_NAME_MAP = {
-    "cross_market": "跨市场综合分", "a_sentiment": "A股综合情绪分",
+    "cross_market": "跨市场综合评分", "a_sentiment": "A股综合情绪分",
     "sentiment_sz50": "上证50情绪分", "sentiment_hs300": "沪深300情绪分",
     "sentiment_csi500": "中证500情绪分", "sentiment_csi1000": "中证1000情绪分",
     "sentiment_cyb": "创业板情绪分", "sentiment_kc50": "科创50情绪分",
@@ -360,7 +360,7 @@ def export_notifications(date: str | None = None) -> dict:
     finally:
         conn.close()
 
-    # ETF 国家队信号（独立 DB，与 A股 signal_daily 合并到 signals 列表）
+    # ETF 汪汪队信号（独立 DB，与 A股 signal_daily 合并到 signals 列表）
     etf_signals = _load_etf_signals(date)
 
     # 信号全量导出（不排除已邮件推送的信号）：双通道用户邮件+浏览器两处都该收到，

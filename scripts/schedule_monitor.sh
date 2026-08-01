@@ -379,7 +379,7 @@ for _key, _info in list(alert_state.items()):
         )
 save_alert_state(alert_state)
 
-# 3) ETF 国家队耗时阈值检查（B4 稳定性 2026-07-24）
+# 3) ETF 汪汪队耗时阈值检查（B4 稳定性 2026-07-24）
 #    daily 正常 ~140s(2.3min), >300s(5min)告警(进程池退化信号, 如 2026-07-23 2032s 事故)
 #    backfill 全量正常 ~15min, >1800s(30min)告警
 #    只检查最近 2 小时内的完成行(避免旧超时重复告警, schedule_monitor 每15min跑)

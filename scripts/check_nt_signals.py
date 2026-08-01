@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""check_nt_signals.py - 检测汪汪队(ETF国家队)当日信号 + 共振 + 发邮件通知。
+"""check_nt_signals.py - 检测汪汪队(ETF汪汪队)当日信号 + 共振 + 发邮件通知。
 
 查询 etf_national_team.db 的 etf_signal 表最新日信号，后端聚合共振
-(复用前端 THR={surge:2,outflow:2,volume:3} 阈值，12只宽基同日同步异动=国家队共振)，
+(复用前端 THR={surge:2,outflow:2,volume:3} 阈值，12只宽基同日同步异动=汪汪队共振)，
 复用 check_signals.py 邮件机制(SMTP 163->QQ, config/email.json)。
 
 ETF份额T+1发布：交易所盘后次日发布，20:07采集通常到T-1，标题注明数据日期避免误导。
@@ -40,7 +40,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("check_nt_signals")
 
-# 共振阈值（与前端 app.js:3178 THR 一致）：≥N只宽基同日同步异动=国家队共振
+# 共振阈值（与前端 app.js:3178 THR 一致）：≥N只宽基同日同步异动=汪汪队共振
 THR = {"surge": 2, "outflow": 2, "volume": 3}
 
 # 信号类型 -> 中文标签
@@ -221,13 +221,13 @@ def build_email(data_date: str, signals: list[dict], agg: dict) -> tuple[str, st
         res_banner = (
             f'<div style="background:linear-gradient(90deg,#fff8e1,#fff3cd);'
             f'border:2px solid #ffd700;border-radius:8px;padding:12px 16px;margin-bottom:16px;">'
-            f'<b style="font-size:16px;color:#b8860b;">🐾 国家队共振信号！</b><br>'
+            f'<b style="font-size:16px;color:#b8860b;">🐾 汪汪队共振信号！</b><br>'
             f'<span style="color:#4e5969;font-size:13px;">'
-            f'{"、".join(res_types)}只宽基ETF同日同步异动，疑似国家队集中操作。</span></div>'
+            f'{"、".join(res_types)}只宽基ETF同日同步异动，疑似汪汪队集中操作。</span></div>'
         )
 
     html_parts = [f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
-<h2 style="margin:0 0 8px 0;color:#1d2129;">🐶 汪汪队信号 - ETF国家队资金动向</h2>
+<h2 style="margin:0 0 8px 0;color:#1d2129;">🐶 汪汪队信号 - ETF汪汪队资金动向</h2>
 <p style="margin:0 0 16px 0;color:#86909c;font-size:13px;">数据日期 {label} · 共 <b>{len(signals)}</b> 个信号（进 {n_surge} / 出 {n_outflow} / 量 {n_volume}）</p>
 {res_banner}"""]
 
@@ -272,8 +272,8 @@ def build_email(data_date: str, signals: list[dict], agg: dict) -> tuple[str, st
 • 进(share_surge)：份额增 + z-score&gt;2 + 量比&gt;1.5（疑似大资金进场）<br>
 • 出(share_outflow)：份额减 + z-score&lt;-2 + 量比&gt;1.5（疑似大资金离场）<br>
 • 量(volume_surge)：成交额 &gt; 近5日均2倍（放量，独立信号）<br>
-• 共振：进/出≥{THR['surge']}只、量≥{THR['volume']}只宽基同日同步异动 = 国家队共振（🐾）<br>
-• 注意：这是代理推断，无法100%确认是国家队，份额变动可能来自任何机构/大户申赎
+• 共振：进/出≥{THR['surge']}只、量≥{THR['volume']}只宽基同日同步异动 = 汪汪队共振（🐾）<br>
+• 注意：这是代理推断，无法100%确认是汪汪队，份额变动可能来自任何机构/大户申赎
 </div>
 <div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;font-size:12px;color:#86909c;line-height:1.8;">
 <div style="font-weight:600;margin-bottom:4px;color:#1d2129;">⚠️ 免责声明</div>
@@ -281,7 +281,7 @@ def build_email(data_date: str, signals: list[dict], agg: dict) -> tuple[str, st
 ETF份额为T+1数据（交易所盘后次日发布），20:07采集通常到T-1，次日补全。<br>
 市场有风险，投资需谨慎。
 </div>
-<p style="color:#c9cdd4;font-size:11px;margin-top:16px;">-- 汪汪队ETF国家队资金动向看板 · 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p style="color:#c9cdd4;font-size:11px;margin-top:16px;">-- 汪汪队ETF汪汪队资金动向看板 · 生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 </body></html>""")
 
     body = "\n".join(html_parts)
@@ -289,7 +289,7 @@ ETF份额为T+1数据（交易所盘后次日发布），20:07采集通常到T-1
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="检测汪汪队(ETF国家队)当日信号 + 共振 + 发邮件")
+    parser = argparse.ArgumentParser(description="检测汪汪队(ETF汪汪队)当日信号 + 共振 + 发邮件")
     parser.add_argument("--date", help="查询日期 YYYYMMDD（默认最新数据日）")
     parser.add_argument("--no-send", action="store_true", help="仅打印不发邮件（测试用）")
     args = parser.parse_args(argv)

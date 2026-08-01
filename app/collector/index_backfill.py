@@ -501,10 +501,27 @@ def verify_and_backfill_indices(date, verbose=True):
                 if verbose:
                     print(f"    ✗ {idx_id} 新浪无当日({msg}), 腾讯/sina_spot 兜底均失败")
         else:
-            fail += 1
-            details.append((idx_id, "fail", f"新浪源空: {msg}"))
-            if verbose:
-                print(f"    ✗ {idx_id} 新浪源空({msg})")
+            # 欧洲指数(dax/cac40/ftse100)兜底: index_global_hist_sina 源端 T+1 延迟
+            # (欧洲盘收盘北京23:30, OHLC 次日才出; 实测 dax/cac40 停7-30 而 ftse100 到7-31, 源不一致)
+            # 用新浪 b_ 实时源拿当日实时价估算 OHLC 写入 index_daily, 解决"德法卡T-1"致前端角标红色
+            # (2026-07-31 三重根因修复: 前端 t1 分类已让7-30数据不报红, 此兜底进一步补当日实时价)
+            if idx_id in ("dax", "cac40", "ftse100"):
+                if rows:
+                    upsert_index_rows(rows)  # 仍 UPSERT 历史数据
+                fixed = _sina_global_realtime_fallback(idx_id, date, conn, verbose)
+                if fixed:
+                    ok += 1
+                    details.append((idx_id, "ok", f"backfill sina_realtime兜底 date={date}"))
+                else:
+                    fail += 1
+                    details.append((idx_id, "fail", f"新浪无当日+sina_realtime兜底失败: {msg}"))
+                    if verbose:
+                        print(f"    ✗ {idx_id} 新浪无当日({msg}), sina_realtime兜底失败")
+            else:
+                fail += 1
+                details.append((idx_id, "fail", f"新浪源空: {msg}"))
+                if verbose:
+                    print(f"    ✗ {idx_id} 新浪源空({msg})")
 
     # 港股美股校验汇总(已齐全的不打印上面跳过了,这里给个汇总行)
     if verbose:
@@ -591,6 +608,107 @@ def _tencent_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) ->
     conn.commit()
     if verbose:
         print(f"    ✓ {idx_id} <- 腾讯兜底 close={price} pct={pct} amount={amount} date={date}")
+    return True
+
+
+# 欧洲指数新浪 b_ 实时源代码映射（与 intraday_snapshot._GLOBAL_SPOT_CODES 一致）
+_EU_GLOBAL_SPOT_CODES = {
+    "ftse100": "b_UKX",   # 英国富时100
+    "dax":     "b_DAX",   # 德国DAX
+    "cac40":   "b_CAC",   # 法国CAC40
+}
+_EU_SINA_HEADERS = {
+    "Referer": "https://finance.sina.com.cn",
+    "User-Agent": "Mozilla/5.0",
+}
+
+
+def _sina_global_realtime_fallback(idx_id: str, date: str, conn, verbose: bool = False) -> bool:
+    """新浪 b_ 实时源欧洲指数兜底：index_global_hist_sina 源端 T+1 延迟未出当日数据时，
+    用新浪 hq.sinajs.cn b_ 实时接口拿当日实时价估算 OHLC 写入 index_daily。
+
+    场景（2026-07-31 实测）：dax/cac40 的 index_global_hist_sina 停 7-30（源端 T+1 延迟），
+    而 ftse100 已到 7-31。前端 t1 分类已让 7-30 数据不报红（德法 T+1 正常），此兜底进一步
+    补当日实时价让卡片显示最新数据（而非停在前日）。
+
+    数据源：新浪 hq.sinajs.cn/list=b_DAX（GBK 编码，与 intraday_snapshot._fetch_global_realtime_sina 同源）
+    b_ 格式字段：[0]=名称 [1]=最新价 [2]=涨跌额 [3]=涨跌幅 [6]=行情日期(YYYY-MM-DD)
+      [7]=行情时间(HH:MM:SS) [9]=昨收 [10]=最高 [11]=最低
+    无 open 字段 -> 用 pre_close 估算 open（昨收=今开近似，欧洲盘开盘价≈昨收）。
+
+    日期校验：实时数据 date 字段必须 == target date（避免旧数据污染）。
+    盘中时段（欧洲盘未收盘）也写入（实时价作为 close，让卡片显当日涨跌；收盘 pipeline
+    跑 index_global_hist_sina 出完整 OHLC 时 upsert 覆盖）。
+
+    返回 True=写入成功, False=未写入（数据异常/日期不匹配/网络失败）。
+    """
+    import requests
+    sina_code = _EU_GLOBAL_SPOT_CODES.get(idx_id)
+    if not sina_code:
+        return False
+    try:
+        url = f"https://hq.sinajs.cn/list={sina_code}"
+        r = requests.get(url, headers=_EU_SINA_HEADERS, timeout=10)
+        body = r.content.decode("gbk", errors="replace")
+    except Exception:  # noqa: BLE001
+        return False
+
+    prefix = f'var hq_str_{sina_code}="'
+    i = body.find(prefix)
+    if i < 0:
+        return False
+    j = body.find('"', i + len(prefix))
+    if j < 0:
+        return False
+    content = body[i + len(prefix):j]
+    if not content:
+        return False
+    fields = content.split(",")
+    if len(fields) < 4:
+        return False
+
+    def f(idx, default=None):
+        try:
+            v = fields[idx].strip()
+            return float(v) if v else default
+        except (IndexError, ValueError):
+            return default
+
+    try:
+        price = f(1)
+        chg_pct = f(3)
+        rt_date = fields[6].strip() if len(fields) > 6 else ""
+        rt_date = rt_date.replace("-", "")  # YYYY-MM-DD -> YYYYMMDD
+        pre_close = f(9) if len(fields) > 9 else None
+        high = f(10) if len(fields) > 10 else None
+        low = f(11) if len(fields) > 11 else None
+    except Exception:  # noqa: BLE001
+        return False
+
+    if price is None or price <= 0:
+        return False
+    # 日期校验：实时数据日期必须 == target date（避免旧数据污染）
+    if rt_date and rt_date != date:
+        if verbose:
+            print(f"    ~ {idx_id} sina_realtime兜底: 实时日期 {rt_date} != {date}，跳过")
+        return False
+    # open 用 pre_close 估算（b_ 格式无 open 字段，欧洲盘开盘价≈昨收）
+    open_ = pre_close
+    # pct 兜底：源端未给则用 price/pre_close 算
+    if pre_close and pre_close != 0 and (chg_pct is None or abs(chg_pct) < 1e-9):
+        chg_pct = (price - pre_close) / pre_close * 100
+
+    conn.execute(
+        "INSERT INTO index_daily (date, index_id, open, high, low, close, pct_change, amount) "
+        "VALUES (?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(date, index_id) DO UPDATE SET "
+        "open=excluded.open, high=excluded.high, low=excluded.low, "
+        "close=excluded.close, pct_change=excluded.pct_change, amount=excluded.amount",
+        (date, idx_id, open_, high, low, price, chg_pct, None),
+    )
+    conn.commit()
+    if verbose:
+        print(f"    ✓ {idx_id} <- sina_realtime兜底 close={price} pct={chg_pct} high={high} low={low} date={date}")
     return True
 
 
@@ -937,7 +1055,7 @@ def main():
     except Exception as _e:  # noqa: BLE001
         print(f"[backfill] futures 补采失败: {_e}")
 
-    # etf 国家队宽基补采(pipeline_daily 内部补近5日幂等,凌晨跑补到昨天)
+    # etf 汪汪队宽基补采(pipeline_daily 内部补近5日幂等,凌晨跑补到昨天)
     try:
         from .etf_national_team import pipeline_daily as _etf_daily, export_json_files as _etf_export
         _etf_stats = _etf_daily()
