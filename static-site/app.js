@@ -9634,6 +9634,12 @@ async function renderPublicFund(container) {
 .pf-nf-card{margin-bottom:12px;}
 .pf-nf-res-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:10px;}
 @media(max-width:900px){.pf-nf-res-grid{grid-template-columns:1fr;}}
+/* F功能: 行业轮动时序堆叠面积图 */
+.pf-rot-card{margin-bottom:12px;}
+.pf-rot-range{display:inline-flex;gap:2px;margin-left:8px;}
+.pf-rot-range-btn{font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:10px;background:transparent;color:var(--text-3);cursor:pointer;line-height:1.4;}
+.pf-rot-range-btn.active{background:#e6492e;color:#fff;border-color:#e6492e;}
+.pf-rot-range-btn:hover:not(.active){color:var(--text-1);border-color:var(--text-3);}
 `;
     document.head.appendChild(st);
   }
@@ -10679,6 +10685,115 @@ async function renderPublicFund(container) {
     }
     _showIndustryFunds(d.name);
   });
+
+  // ── F功能: 行业轮动时序堆叠面积图(34期季报 2017Q1-2026Q2, 13行业平均权重变迁) ──
+  // 数据源: public_fund_industry_rotation_ts.json (R2 直链, 13 canonical 行业, 134原始名合并)
+  // 口径: AVG(weight_pct) 跨基金平均(非SUM), 反映"典型基金"行业配置占比; 过滤 fund_count<50 脏数据期
+  // 本地 range 切换(3y/5y/all): 按日期过滤 series, 不依赖全局 state.range(季频 vs 日频)
+  let _rotTs = null;
+  try {
+    _rotTs = await fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry_rotation_ts.json").catch(() => null);
+  } catch (e) { /* F面板不渲染, 不阻塞后续 Top100 */ }
+
+  if (_rotTs && _rotTs.series && _rotTs.series.length && _rotTs.industries_order && _rotTs.industries_order.length) {
+    const _rotCard = document.createElement("div");
+    _rotCard.className = "chart-card pf-rot-card";
+    const _rotD0 = _pfFmtDate(_rotTs.series[0].date).slice(0, 7);
+    const _rotDN = _pfFmtDate(_rotTs.series[_rotTs.series.length - 1].date).slice(0, 7);
+    _rotCard.innerHTML = '<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">'
+      + '<span>🏭 F功能: 行业轮动时序（' + _rotTs.period_count + '期季度 · ' + _rotTs.industries_count + '行业 · '
+      + _rotD0 + ' ~ ' + _rotDN + '）</span>'
+      + '<div class="pf-rot-range">'
+      + '<button class="pf-rot-range-btn" data-rot-rng="3y" type="button">3年</button>'
+      + '<button class="pf-rot-range-btn" data-rot-rng="5y" type="button">5年</button>'
+      + '<button class="pf-rot-range-btn active" data-rot-rng="all" type="button">全部</button>'
+      + '</div>'
+      + '</div>'
+      + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">'
+      + '堆叠面积图: 13行业平均权重% 跨基金(非SUM), 反映典型基金行业配置占比变迁; 制造业(CSRC超大类)占主导 ~58%, 金融/信息技术/通信服务/能源/材料为次主力'
+      + '</div>'
+      + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">'
+      + '📊 口径: 季报披露 fund_portfolio_industry_allocation_em, 134原始行业名合并为13标准名(GICS+CSRC映射); 已过滤 fund_count&lt;50 脏数据期; 点击图例切换显示'
+      + '</div>'
+      + '<div class="chart pf-rot-chart" style="height:420px"></div>';
+    container.appendChild(_rotCard);
+
+    // 13行业色板(红金主题适配, 制造业主导用深红, 金融用金, 其余分类着色)
+    const _ROT_COLORS = ['#c0392b', '#e67e22', '#f1c40f', '#3498db', '#2ecc71', '#9b59b6',
+                         '#1abc9c', '#e74c3c', '#34495e', '#d35400', '#7f8c8d', '#27ae60', '#8e44ad'];
+    const _rotChart = echarts.init(_rotCard.querySelector(".pf-rot-chart"));
+    charts.push(_rotChart);
+
+    // range 过滤: 按末日回推年数(3y=3年前, 5y=5年前, all=不过滤)
+    const _rotFilter = (rng) => {
+      if (rng === "all" || !_rotTs.series.length) return _rotTs.series;
+      const last = _rotTs.series[_rotTs.series.length - 1].date;
+      const lastY = parseInt(last.slice(0, 4), 10);
+      const years = rng === "3y" ? 3 : 5;
+      const cutoff = String(lastY - years) + last.slice(4);  // 同月同日, 年减
+      return _rotTs.series.filter((s) => s.date >= cutoff);
+    };
+
+    const _renderRot = (rng) => {
+      const filtered = _rotFilter(rng);
+      const dates = filtered.map((s) => _pfFmtDate(s.date).slice(0, 7));
+      // 按 industries_order 顺序构建 series(主导行业在下层, 堆叠从底到顶)
+      const eSeries = _rotTs.industries_order.map((ind, i) => ({
+        name: ind,
+        type: "line",
+        stack: "rot",
+        areaStyle: { opacity: 0.65 },
+        emphasis: { focus: "series" },
+        lineStyle: { width: 1 },
+        symbol: "circle",
+        symbolSize: 5,
+        showSymbol: false,
+        itemStyle: { color: _ROT_COLORS[i % _ROT_COLORS.length] },
+        data: filtered.map((s) => (s.industries[ind] != null ? s.industries[ind] : 0)),
+      }));
+      _rotChart.setOption({
+        tooltip: { trigger: "axis", axisPointer: { type: "cross" },
+          formatter: (params) => {
+            if (!params || !params.length) return "";
+            let html = '<div style="font-weight:600;margin-bottom:4px">' + params[0].axisValue + '</div>'
+              + '<div style="font-size:11px;color:#888;margin-bottom:4px">基金覆盖: '
+              + (filtered[params[0].dataIndex] ? filtered[params[0].dataIndex].fund_count : '-') + ' 只</div>';
+            // 按值降序排
+            const sorted = params.slice().sort((a, b) => b.value - a.value);
+            for (const p of sorted) {
+              if (p.value == null || p.value === 0) continue;
+              html += '<div style="display:flex;align-items:center;gap:6px">'
+                + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + p.color + '"></span>'
+                + '<span style="flex:1">' + p.seriesName + '</span>'
+                + '<b style="font-variant-numeric:tabular-nums">' + p.value.toFixed(2) + '%</b>'
+                + '</div>';
+            }
+            return html;
+          },
+        },
+        legend: { type: "scroll", bottom: 0, left: "center", textStyle: { fontSize: 11, color: "var(--text-2)" },
+          itemWidth: 12, itemHeight: 8, pageIconColor: "#aaa", pageTextStyle: { color: "#888" } },
+        grid: { left: 50, right: 20, top: 20, bottom: 50 },
+        xAxis: { type: "category", boundaryGap: false, data: dates,
+          axisLabel: { fontSize: 10, color: "var(--text-3)", rotate: dates.length > 20 ? 35 : 0 },
+          axisLine: { lineStyle: { color: "var(--border)" } } },
+        yAxis: { type: "value", name: "平均权重%", nameTextStyle: { fontSize: 10, color: "var(--text-3)" },
+          axisLabel: { fontSize: 10, color: "var(--text-3)", formatter: "{value}%" },
+          splitLine: { lineStyle: { color: "var(--border-light,var(--border))", type: "dashed" } } },
+        series: eSeries,
+      }, true);
+    };
+
+    _renderRot("all");
+    // range 切换按钮
+    _rotCard.querySelectorAll("[data-rot-rng]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const rng = btn.dataset.rotRng;
+        _rotCard.querySelectorAll("[data-rot-rng]").forEach((b) => b.classList.toggle("active", b === btn));
+        _renderRot(rng);
+      });
+    });
+  }
 
   // ── 区域 4: 头部重仓股调仓 Top100 表(读 holdings.top100 取前100; 排序切换: 按变化率/按金额差; 指标 top20_adjustment 仍按 Top20 口径不变) ──
   const top100AdjCard = document.createElement("div");

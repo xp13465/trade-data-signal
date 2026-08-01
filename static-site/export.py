@@ -234,6 +234,13 @@ def export_public_fund_scale_change_ts():
     return queries.public_fund_scale_change_ts()
 
 
+def export_public_fund_industry_rotation_ts():
+    """F功能: 全市场行业配置轮动历史时序(50期季报, 27行业合并后平均权重)。
+    独立计算(不走 export_data 7 元组), 复用 fund_industry_alloc 全量时序。
+    行业名应用 IND_MERGE_MAP 合并(67原始名->27标准名, 和 industry_fund_map 一致)。"""
+    return queries.public_fund_industry_rotation_ts()
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -459,6 +466,10 @@ def main():
     counts["public_fund_scale_change_ts.json"] = write_json(
         DATA_DIR / "public_fund_scale_change_ts.json", export_public_fund_scale_change_ts())
     print(f"  public_fund_scale_change_ts.json ({counts['public_fund_scale_change_ts.json']} bytes)")
+    # F功能: 行业配置轮动时序(50期季报, 27行业合并后平均权重, 堆叠面积图)
+    counts["public_fund_industry_rotation_ts.json"] = write_json(
+        DATA_DIR / "public_fund_industry_rotation_ts.json", export_public_fund_industry_rotation_ts())
+    print(f"  public_fund_industry_rotation_ts.json ({counts['public_fund_industry_rotation_ts.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]

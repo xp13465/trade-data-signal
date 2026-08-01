@@ -1854,6 +1854,167 @@ def _compute_scale_change_ts(conn: sqlite3.Connection) -> dict | None:
     }
 
 
+def _compute_industry_rotation_ts(conn: sqlite3.Connection) -> dict | None:
+    """F功能: 全市场行业配置轮动历史时序(50期季报, 2017Q1-2026Q2)。
+
+    输入: fund_industry_alloc 全量(50期 × 900+基金 × 134原始行业名)
+    输出: industry_rotation_ts JSON 产物, 供前端 F 行业轮动时序堆叠面积图。
+
+    每期含:
+    - date: 报告期 YYYYMMDD
+    - fund_count: 该期覆盖基金数(过滤 <50 fund 的脏数据期)
+    - industries: {合并后行业名: 平均权重} (AVG weight_pct 跨基金, 非 SUM)
+
+    口径:
+    - 平均权重 AVG(weight_pct): 跨基金平均, 反映"典型基金"对该行业的配置占比
+      (SUM 会受基金数量影响, AVG 更稳定可比跨期; 同 canonical name 多原始名按 fund_count 加权)
+    - 行业名应用 F_INDUSTRY_MERGE_MAP 合并(134原始名 -> 15标准名, 比 IND_MERGE_MAP 更彻底:
+      合并 GICS中英文/编号变体 + CSRC L1 大类映射到 GICS 等价物, 制造业/综合/农林牧渔保留)
+    - "合计"行排除(是求和行非真实行业, 3 行 avg=58% 会污染图表)
+    - 过滤 fund_count<50 的脏数据期(20170901=1只/20171215=1只/20260601=1只 等单基金误录)
+
+    独立计算, 不走 export_data() 7 元组(避免破坏解包, 参考 _compute_scale_change_ts 模式)。
+    """
+    # F 专用行业合并映射(比 IND_MERGE_MAP 更彻底: 134原始名 -> 15标准名)
+    # 合并策略: GICS中英文/编号变体 -> 11 GICS中文标准名; CSRC L1 大类映射到 GICS 等价物;
+    # 制造业(CSRC超大类)/综合/农林牧渔(GICS无对应)保留独立; "合计"排除
+    F_INDUSTRY_MERGE_MAP = {
+        # 信息技术 (GICS + CSRC 信息传输)
+        '信息技术': '信息技术', '信息传输、软件和信息技术服务业': '信息技术', '信息科技': '信息技术',
+        '45信息技术': '信息技术', '信息技术InformationTechnology': '信息技术',
+        '信息技术Information technology': '信息技术', 'InformationTechnology信息技术': '信息技术',
+        'Information Technology 信息技术': '信息技术', 'H 信息技术': '信息技术', 'H信息技术': '信息技术',
+        '信息技术Information': '信息技术', '科技': '信息技术', '金融信息技术': '信息技术',
+        # 金融业 (GICS + CSRC 金融业)
+        '金融业': '金融业', '金融': '金融业', '40金融': '金融业', 'E金融': '金融业', 'E 金融': '金融业',
+        '金融Financials': '金融业', 'Financials金融': '金融业', 'Financials 金融': '金融业',
+        # 房地产业 (GICS + CSRC 房地产业)
+        '房地产业': '房地产业', '房地产': '房地产业', '房地产RealEstate': '房地产业',
+        '60房地产': '房地产业', '地产业': '房地产业', 'K房地产': '房地产业', 'K 地产业': '房地产业',
+        'RealEstate房地产': '房地产业', 'Real Estate 房地产': '房地产业', '地产建筑业': '房地产业',
+        # 材料 (GICS + CSRC 采矿业/原材料)
+        '材料': '材料', '原材料': '材料', '15原材料': '材料', '材料Materials': '材料',
+        '基础材料': '材料', 'A基础材料': '材料', '原材料Materials': '材料',
+        'Materials原材料': '材料', 'Materials 原材料': '材料', '采矿业': '材料',
+        # 工业 (GICS + CSRC 建筑/交运/租赁/科研)
+        '工业': '工业', '20工业': '工业', 'G工业': '工业', 'G 工业': '工业',
+        '工业Industrials': '工业', 'Industrials工业': '工业', 'Industrials 工业': '工业',
+        '建筑业': '工业', '交通运输、仓储和邮政业': '工业',
+        '租赁和商务服务业': '工业', '科学研究和技术服务业': '工业',
+        # 能源 (GICS)
+        '能源': '能源', 'D能源': '能源', 'D 能源': '能源', '10能源': '能源',
+        'Energy能源': '能源', '能源Energy': '能源', 'Energy 能源': '能源',
+        # 公用事业 (GICS + CSRC 电力/水利)
+        '公用事业': '公用事业', 'J公用事业': '公用事业', 'J 公用事业': '公用事业',
+        '55公用事业': '公用事业', 'Utilities公用事业': '公用事业', 'Utilities 公用事业': '公用事业',
+        '公共事业': '公用事业', '公共事业Utilities': '公用事业', '公用事业Utilities': '公用事业',
+        '电力、热力、燃气及水生产和供应业': '公用事业',
+        '水利、环境和公共设施管理业': '公用事业',
+        # 医疗保健 (GICS + CSRC 卫生)
+        '医疗保健': '医疗保健', '医疗': '医疗保健', '35医疗保健': '医疗保健',
+        '保健HealthCare': '医疗保健', '保健': '医疗保健', 'HealthCare医疗保健': '医疗保健',
+        'Health Care 医疗保健': '医疗保健', 'F医疗保健': '医疗保健', 'F 医疗保健': '医疗保健',
+        '医疗保健Health Care': '医疗保健', '卫生和社会工作': '医疗保健',
+        '卫生和社会工作业': '医疗保健',
+        # 非必需消费品 (GICS + CSRC 批发零售/住宿餐饮/居民服务/教育/文娱)
+        '非日常生活消费品': '非必需消费品', '非必需消费品': '非必需消费品', '25可选消费': '非必需消费品',
+        '非必需消费品ConsumerDiscretionary': '非必需消费品', '消费者非必需品': '非必需消费品',
+        '非周期性消费品': '非必需消费品', 'B消费者非必需品': '非必需消费品',
+        'B 消费者非必需品': '非必需消费品',
+        'ConsumerDiscretionary非日常生活消费品': '非必需消费品',
+        'Consumer Discretionary 非日常生活消费品': '非必需消费品',
+        '非日常生活消费品Consumer Discretionary': '非必需消费品',
+        '可选消费': '非必需消费品', '可选消费品': '非必需消费品',
+        '周期性消费品': '非必需消费品', '消费品,周期性': '非必需消费品',
+        '非必需消费': '非必需消费品',
+        '批发和零售业': '非必需消费品', '住宿和餐饮业': '非必需消费品',
+        '居民服务、修理和其他服务业': '非必需消费品', '教育': '非必需消费品',
+        '文化、体育和娱乐业': '非必需消费品',
+        # 必需消费品 (GICS + CSRC 农林牧渔)
+        '必需消费品': '必需消费品', '日常消费品': '必需消费品', '30日常消费': '必需消费品',
+        '必需消费品ConsumerStaples': '必需消费品', '消费者常用品': '必需消费品',
+        'C消费者常用品': '必需消费品', 'C 消费者常用品': '必需消费品',
+        'ConsumerStaples日常消费品': '必需消费品', 'Consumer Staples 日常消费品': '必需消费品',
+        '日常消费': '必需消费品', '消费品,非周期性': '必需消费品',
+        '必需消费品Consumer': '必需消费品',
+        '农、林、牧、渔业': '必需消费品',
+        # 通信服务 (GICS)
+        '通讯': '通信服务', '通讯业务': '通信服务', '通信服务': '通信服务',
+        '通讯服务': '通信服务',
+        '50电信服务': '通信服务', '电信服务': '通信服务', '电信业务': '通信服务',
+        '通信服务CommunicationServices': '通信服务', '通信服务Communication': '通信服务',
+        'TelecommunicationServices通讯服务': '通信服务',
+        'Telecommunication Services 电信业务': '通信服务',
+        '电信业务Conmmunications': '通信服务', 'I电信服务': '通信服务', 'I 电信服务': '通信服务',
+        # 综合 (CSRC, GICS无对应)
+        '综合': '综合', '综合经营': '综合',
+        # 制造业 (CSRC超大类, GICS无对应, 占比最大 avg=44.86%, 保留独立看趋势)
+        '制造业': '制造业',
+        # "合计" 排除(不在此映射, 下面 filter 掉)
+    }
+    EXCLUDE_NAMES = {'合计'}
+
+    rows = conn.execute(
+        "SELECT report_date, industry_name, AVG(weight_pct), COUNT(DISTINCT fund_code) "
+        "FROM fund_industry_alloc GROUP BY report_date, industry_name "
+        "ORDER BY report_date ASC, AVG(weight_pct) DESC"
+    ).fetchall()
+    if not rows:
+        return None
+
+    # 按期聚合, 应用 F_INDUSTRY_MERGE_MAP 合并行业名(比 IND_MERGE_MAP 更彻底)
+    # 同一 canonical name 多原始名 -> 按 fund_count 加权平均(各原始名覆盖基金数不同, 简单平均会偏差)
+    periods_raw: dict[str, list[tuple[str, float, int]]] = {}
+    period_fund_count: dict[str, int] = {}
+    for date, ind_name, avg_w, fc in rows:
+        if ind_name in EXCLUDE_NAMES:
+            continue  # 排除"合计"求和行
+        canonical = F_INDUSTRY_MERGE_MAP.get(ind_name, ind_name)
+        periods_raw.setdefault(date, []).append((canonical, avg_w or 0.0, fc or 0))
+        # 期覆盖基金数取该期所有行业 fc 的最大值(因为不同行业 fc 不同)
+        if date not in period_fund_count or (fc or 0) > period_fund_count[date]:
+            period_fund_count[date] = fc or 0
+
+    # 过滤脏数据期: fund_count<50 的期(20170901=1只/20171215=1只/20260601=1只 等单基金误录)
+    MIN_FUNDS = 50
+    series = []
+    all_canonical_avg: dict[str, list[float]] = {}  # canonical -> [avg_weights across periods] for ordering
+    for date in sorted(periods_raw.keys()):
+        if period_fund_count[date] < MIN_FUNDS:
+            continue
+        # 同 canonical name 多原始名 -> 按 fund_count 加权平均
+        canonical_groups: dict[str, list[float]] = {}  # name -> [weighted_sum, total_fc]
+        for canonical, avg_w, fc in periods_raw[date]:
+            g = canonical_groups.setdefault(canonical, [0.0, 0])
+            g[0] += avg_w * fc
+            g[1] += fc
+        industries = {name: round(ws / tf, 4) for name, (ws, tf) in canonical_groups.items() if tf > 0}
+        for name, w in industries.items():
+            all_canonical_avg.setdefault(name, []).append(w)
+        series.append({
+            "date": date,
+            "fund_count": period_fund_count[date],
+            "industries": industries,
+        })
+
+    if not series:
+        return None
+
+    # industries_order: 按全期平均权重降序排, 前端画堆叠面积图按此顺序堆叠(主导行业在下)
+    industries_order = sorted(
+        all_canonical_avg.keys(),
+        key=lambda n: -sum(all_canonical_avg[n]) / len(all_canonical_avg[n]),
+    )
+
+    return {
+        "report_date": series[-1]["date"],  # 最新期
+        "period_count": len(series),
+        "industries_count": len(industries_order),
+        "industries_order": industries_order,
+        "series": series,
+    }
+
+
 def export_data() -> tuple[dict, dict, dict, dict, dict, dict, dict]:
     """导出 7 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map / manuf_subind_fund_map。
 
@@ -2093,6 +2254,7 @@ def export_json_files() -> None:
         backtest = _compute_position_backtest(conn)
         concentration_ts = _compute_holding_concentration_timeseries(conn)
         scale_change_ts = _compute_scale_change_ts(conn)
+        industry_rotation_ts = _compute_industry_rotation_ts(conn)
     finally:
         conn.close()
     if backtest:
@@ -2113,6 +2275,12 @@ def export_json_files() -> None:
             encoding="utf-8")
         size = (STATIC_DATA_DIR / "public_fund_scale_change_ts.json").stat().st_size
         print(f"  [export] public_fund_scale_change_ts.json ({size} bytes)", flush=True)
+    if industry_rotation_ts:
+        (STATIC_DATA_DIR / "public_fund_industry_rotation_ts.json").write_text(
+            json.dumps(industry_rotation_ts, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8")
+        size = (STATIC_DATA_DIR / "public_fund_industry_rotation_ts.json").stat().st_size
+        print(f"  [export] public_fund_industry_rotation_ts.json ({size} bytes)", flush=True)
     print(f"[export] 7 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
 
 
