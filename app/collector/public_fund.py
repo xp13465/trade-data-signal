@@ -1617,6 +1617,128 @@ def _compute_manuf_subind_fund_map(conn, report_date: str, stock_ind_map: dict[s
     return {"report_date": report_date, "subind_funds": subind_funds}
 
 
+def _compute_position_backtest(conn: sqlite3.Connection) -> dict | None:
+    """G功能: 88 魔咒历史回测 + 极值标注。
+
+    输入: fund_position_history lg 源(avg_position + close 时序, 445 期周频 2007-2026)
+    输出: position_backtest JSON 产物(extremes + stats + current), 供前端 markPoint + 统计面板。
+
+    算法:
+    1. 遍历每期(avg_position + close), 对每期算 after_30d/60d/90d 上证涨跌:
+       找首条 report_date >= D + N 天的记录, (close_future - close_now) / close_now * 100
+    2. extremes: highs Top5(position>88 按仓位降序) + lows Top5(position<80 按仓位升序)
+    3. stats: 88 魔咒(position>88) + 80 抄底(position<80) 各自 count/win_rate/avg_30d/60d/90d
+       win_rate: 88 魔咒=触发后 30 天下跌占比; 80 抄底=触发后 30 天上涨占比
+    4. current: 最新期仓位 + 区间(88 魔咒/中性/抄底) + 历史分位
+
+    独立计算, 不走 export_data() 7 元组(避免破坏解包, 参考 190c8f7e 7 元组适配教训)。
+    """
+    rows = conn.execute(
+        "SELECT report_date, position_pct, close FROM fund_position_history "
+        "WHERE source='lg' AND position_pct IS NOT NULL AND close IS NOT NULL "
+        "ORDER BY report_date ASC"
+    ).fetchall()
+    if not rows:
+        return None
+
+    # 解析日期, 构建 (date_str, date_obj, position, close) 列表
+    pts: list[dict] = []
+    for r in rows:
+        d_str = r[0]
+        try:
+            d_obj = dt.datetime.strptime(d_str, "%Y%m%d")
+        except ValueError:
+            continue
+        pts.append({"date_str": d_str, "date_obj": d_obj,
+                    "position": r[1], "close": r[2]})
+    if not pts:
+        return None
+
+    # 对每期算 after_30d/60d/90d: 找首条 report_date >= D + N 天
+    HORIZONS = (30, 60, 90)
+    for i, p in enumerate(pts):
+        for h in HORIZONS:
+            target = p["date_obj"] + dt.timedelta(days=h)
+            future_close = None
+            for j in range(i + 1, len(pts)):
+                if pts[j]["date_obj"] >= target:
+                    future_close = pts[j]["close"]
+                    break
+            if future_close is not None and p["close"]:
+                p[f"after_{h}d"] = round(
+                    (future_close - p["close"]) / p["close"] * 100, 2)
+            else:
+                p[f"after_{h}d"] = None
+
+    # 极值: highs Top5 (position>88 降序), lows Top5 (position<80 升序)
+    highs = sorted([p for p in pts if p["position"] > 88],
+                   key=lambda x: x["position"], reverse=True)[:5]
+    lows = sorted([p for p in pts if p["position"] < 80],
+                  key=lambda x: x["position"])[:5]
+
+    def _fmt_date(s: str) -> str:
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+
+    def _ext_fmt(p: dict) -> dict:
+        return {
+            "date": _fmt_date(p["date_str"]),
+            "position": round(p["position"], 2),
+            "close": round(p["close"], 2),
+            "after_30d": p.get("after_30d"),
+            "after_60d": p.get("after_60d"),
+            "after_90d": p.get("after_90d"),
+        }
+
+    # 统计: 88 魔咒(position>88, win=after_30d<0) + 80 抄底(position<80, win=after_30d>0)
+    def _zone_stats(filtered: list[dict], win_dir: str) -> dict:
+        v30 = [p["after_30d"] for p in filtered if p.get("after_30d") is not None]
+        v60 = [p["after_60d"] for p in filtered if p.get("after_60d") is not None]
+        v90 = [p["after_90d"] for p in filtered if p.get("after_90d") is not None]
+        wins = sum(1 for v in v30 if (v < 0 if win_dir == "down" else v > 0))
+        return {
+            "count": len(filtered),  # 全部触发期数(含无 after_30d 的末尾期)
+            "sample_30d": len(v30),   # 有 after_30d 的有效样本
+            "win_rate": round(wins / len(v30), 4) if v30 else None,
+            "avg_30d": round(sum(v30) / len(v30), 2) if v30 else None,
+            "avg_60d": round(sum(v60) / len(v60), 2) if v60 else None,
+            "avg_90d": round(sum(v90) / len(v90), 2) if v90 else None,
+        }
+
+    spell_88 = [p for p in pts if p["position"] > 88]
+    dip_80 = [p for p in pts if p["position"] < 80]
+
+    # 当前状态: 最新期仓位 + 区间 + 历史分位
+    current = pts[-1]
+    cur_pos = current["position"]
+    all_pos = sorted(p["position"] for p in pts)
+    percentile = sum(1 for x in all_pos if x <= cur_pos) / len(all_pos)
+    if cur_pos > 88:
+        zone = "88魔咒"
+    elif cur_pos < 80:
+        zone = "80抄底"
+    else:
+        zone = "中性区"
+
+    return {
+        "report_date": current["date_str"],
+        "extremes": {
+            "highs": [_ext_fmt(p) for p in highs],
+            "lows": [_ext_fmt(p) for p in lows],
+        },
+        "stats": {
+            "spell_88": _zone_stats(spell_88, "down"),
+            "dip_80": _zone_stats(dip_80, "up"),
+        },
+        "current": {
+            "date": _fmt_date(current["date_str"]),
+            "position": round(cur_pos, 2),
+            "close": round(current["close"], 2),
+            "zone": zone,
+            "percentile": round(percentile, 4),
+        },
+    }
+
+
 def export_data() -> tuple[dict, dict, dict, dict, dict, dict, dict]:
     """导出 7 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map / manuf_subind_fund_map。
 
@@ -1849,6 +1971,18 @@ def export_json_files() -> None:
             encoding="utf-8")
         size = (STATIC_DATA_DIR / fname).stat().st_size
         print(f"  [export] {fname} ({size} bytes)", flush=True)
+    # G功能: 88 魔咒历史回测(独立计算, 不走 export_data 7 元组, 避免解包破坏)
+    conn = get_conn()
+    try:
+        backtest = _compute_position_backtest(conn)
+    finally:
+        conn.close()
+    if backtest:
+        (STATIC_DATA_DIR / "public_fund_position_backtest.json").write_text(
+            json.dumps(backtest, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8")
+        size = (STATIC_DATA_DIR / "public_fund_position_backtest.json").stat().st_size
+        print(f"  [export] public_fund_position_backtest.json ({size} bytes)", flush=True)
     print(f"[export] 7 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
 
 

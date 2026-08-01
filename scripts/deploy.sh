@@ -289,7 +289,8 @@ DATA_FILES+=("static-site/data/etf_national_team_holders.json" "static-site/data
 # public_fund 7 个 JSON（export.py L410-441 生成，collector public_fund.py export_json_files 也生成同款；
 # collector 采集后 deploy.sh public-fund 推送上线。仿 etf_national_team 模式，7 类各 .json + .gz）
 # 2026-07-20 补 industry_fund_map(原漏)+ manuf_subind_fund_map(方案C Step5 新增子行业下钻到基金)
-for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map; do
+# 2026-07-24 补 position_backtest(G功能 88 魔咒历史回测+极值标注, 独立计算非 7 元组)
+for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map position_backtest; do
   DATA_FILES+=("static-site/data/public_fund_${_pf}.json" "static-site/data/public_fund_${_pf}.json.gz")
 done
 # 单文件（export.py 生成 + deploy/update_all/update_lab 生成）

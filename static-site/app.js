@@ -9513,13 +9513,15 @@ async function _loadManufSubindFundMap() {
 async function renderPublicFund(container) {
   _disposeContainerCharts(container);
   renderLoadingState(container);
-  let summary, holdings, industry, shIndex;
+  let summary, holdings, industry, shIndex, backtest;
   try {
-    [summary, holdings, industry, shIndex] = await Promise.all([
+    [summary, holdings, industry, shIndex, backtest] = await Promise.all([
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_summary.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_holdings.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/index/sh-all.json").catch(() => null),
+      // G功能: 88魔咒历史回测+极值标注(独立 JSON, 独立计算非 7 元组)
+      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_position_backtest.json").catch(() => null),
     ]);
   } catch (e) {
     renderErrorState(container, e, () => renderPublicFund(container));
@@ -9616,6 +9618,18 @@ async function renderPublicFund(container) {
 .pf-subind-name{font-weight:600;cursor:pointer;}
 .pf-subind-arrow{color:#e6492e;font-size:11px;margin-left:4px;}
 .pf-tab-tip{font-size:11px;color:var(--text-3);margin:6px 0 10px;line-height:1.5;}
+/* G功能: 88魔咒历史回测统计面板 */
+.pf-backtest-card{margin-bottom:12px;}
+.pf-backtest-card .pf-bt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:8px;}
+@media(max-width:900px){.pf-backtest-card .pf-bt-grid{grid-template-columns:1fr;}}
+.pf-bt-section{border:1px solid var(--border-light,var(--border));border-radius:8px;padding:10px 14px;background:var(--bg-card,var(--bg-1));}
+.pf-bt-spell88{border-left:4px solid #e6492e;}
+.pf-bt-dip80{border-left:4px solid #2e8b57;}
+.pf-bt-current{border-left:4px solid #ff9800;}
+.pf-bt-head{font-size:13px;font-weight:700;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border-light,var(--border));}
+.pf-bt-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-3);padding:3px 0;}
+.pf-bt-row b{color:var(--text-1);font-weight:600;font-variant-numeric:tabular-nums;}
+.pf-bt-note{margin-top:8px;padding:6px 10px;background:var(--bg-hover);border-radius:4px;font-size:11px;color:var(--text-3);line-height:1.5;}
 `;
     document.head.appendChild(st);
   }
@@ -9779,6 +9793,25 @@ async function renderPublicFund(container) {
   const shMax = shVals.length ? Math.max(...shVals) : 3500;
   const allDates = [...new Set([...posPoints.map((p) => p[0]), ...shPoints.map((p) => p[0])])].sort();
   const posMap = new Map(posPoints), shMap = new Map(shPoints);
+
+  // G功能: markPoint 标历史极值(88魔咒高点 Top5 + 80抄底低点 Top5)
+  // backtest.extremes.highs/lows 日期格式 "2025-08-15", 需转 "20250815" 匹配 xAxis category
+  const _btDateToCoord = (d) => (d || "").replace(/-/g, "");
+  const _btMarkData = (arr, color, labelPrefix) => {
+    if (!arr || !arr.length) return [];
+    return arr.map((e) => ({
+      coord: [_btDateToCoord(e.date), e.position],
+      value: `${labelPrefix}${e.position.toFixed(2)}%`,
+      itemStyle: { color },
+      label: { color: "#fff", fontSize: 10, formatter: `{b|${e.date}}\n{a|${labelPrefix}${e.position}%}`,
+        rich: { b: { fontSize: 9, color: "#fff", lineHeight: 12 }, a: { fontSize: 11, color: "#fff", fontWeight: 700 } } },
+    }));
+  };
+  const _highsMark = backtest && backtest.extremes && backtest.extremes.highs
+    ? _btMarkData(backtest.extremes.highs, "#e6492e", "高") : [];
+  const _lowsMark = backtest && backtest.extremes && backtest.extremes.lows
+    ? _btMarkData(backtest.extremes.lows, "#2e8b57", "低") : [];
+
   mainChart.setOption({
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
     legend: { data: ["平均仓位%", "上证指数"], top: 5, textStyle: { color: "var(--text-2)" } },
@@ -9800,6 +9833,11 @@ async function renderPublicFund(container) {
             { yAxis: 80, lineStyle: { color: "#2e8b57" }, label: { formatter: "80 抄底", color: "#2e8b57", position: "insideStartBottom", fontSize: 10 } },
           ],
         },
+        // G功能: markPoint 标历史极值(红=88魔咒高点Top5, 绿=80抄底低点Top5)
+        markPoint: {
+          symbol: "pin", symbolSize: 42,
+          data: [..._highsMark, ..._lowsMark],
+        },
       },
       {
         name: "上证指数", type: "line", data: allDates.map((d) => shMap.has(d) ? shMap.get(d) : null), yAxisIndex: 1,
@@ -9807,6 +9845,51 @@ async function renderPublicFund(container) {
       },
     ],
   });
+
+  // ── G功能: 88魔咒历史回测统计面板 ──
+  // backtest.stats: spell_88(>88%触发次数+胜率+30/60/90d平均涨跌) + dip_80(<80%触发次数+...)
+  // backtest.current: 当前仓位+区间+历史分位
+  if (backtest && backtest.stats) {
+    const _s88 = backtest.stats.spell_88 || {};
+    const _s80 = backtest.stats.dip_80 || {};
+    const _cur = backtest.current || {};
+    const _pctFmt = (v) => (v == null ? "-" : `${(v * 100).toFixed(1)}%`);
+    const _retFmt = (v) => (v == null ? "-" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
+    const _retColor = (v) => (v == null ? "var(--text-3)" : v > 0 ? "#e6492e" : v < 0 ? "#2e8b57" : "var(--text-3)");
+    const _zoneColor = _cur.zone === "88魔咒" ? "#e6492e" : _cur.zone === "80抄底" ? "#2e8b57" : "#ff9800";
+    const btCard = document.createElement("div");
+    btCard.className = "chart-card pf-backtest-card";
+    btCard.innerHTML = `
+      <div class="chart-title">🎯 88 魔咒历史回测（${_s88.sample_30d || 0}/${_s88.count || 0} 期有效样本 · 2007-2026 lg 源 ${posHist.length} 期周频）</div>
+      <div class="pf-bt-grid">
+        <div class="pf-bt-section pf-bt-spell88">
+          <div class="pf-bt-head" style="color:#e6492e">⚠ 88 魔咒（仓位 &gt; 88%）</div>
+          <div class="pf-bt-row"><span>触发次数</span><b>${_s88.count || 0} 期</b></div>
+          <div class="pf-bt-row"><span>30 天下跌胜率</span><b style="color:#e6492e">${_pctFmt(_s88.win_rate)}</b></div>
+          <div class="pf-bt-row"><span>后 30 天平均</span><b style="color:${_retColor(_s88.avg_30d)}">${_retFmt(_s88.avg_30d)}</b></div>
+          <div class="pf-bt-row"><span>后 60 天平均</span><b style="color:${_retColor(_s88.avg_60d)}">${_retFmt(_s88.avg_60d)}</b></div>
+          <div class="pf-bt-row"><span>后 90 天平均</span><b style="color:${_retColor(_s88.avg_90d)}">${_retFmt(_s88.avg_90d)}</b></div>
+        </div>
+        <div class="pf-bt-section pf-bt-dip80">
+          <div class="pf-bt-head" style="color:#2e8b57">✓ 80 抄底（仓位 &lt; 80%）</div>
+          <div class="pf-bt-row"><span>触发次数</span><b>${_s80.count || 0} 期</b></div>
+          <div class="pf-bt-row"><span>30 天上涨胜率</span><b style="color:#2e8b57">${_pctFmt(_s80.win_rate)}</b></div>
+          <div class="pf-bt-row"><span>后 30 天平均</span><b style="color:${_retColor(_s80.avg_30d)}">${_retFmt(_s80.avg_30d)}</b></div>
+          <div class="pf-bt-row"><span>后 60 天平均</span><b style="color:${_retColor(_s80.avg_60d)}">${_retFmt(_s80.avg_60d)}</b></div>
+          <div class="pf-bt-row"><span>后 90 天平均</span><b style="color:${_retColor(_s80.avg_90d)}">${_retFmt(_s80.avg_90d)}</b></div>
+        </div>
+        <div class="pf-bt-section pf-bt-current">
+          <div class="pf-bt-head" style="color:${_zoneColor}">📍 当前状态（${_cur.date || "-"}）</div>
+          <div class="pf-bt-row"><span>当前仓位</span><b style="color:${_zoneColor}">${_cur.position != null ? _cur.position.toFixed(2) + "%" : "-"}</b></div>
+          <div class="pf-bt-row"><span>所处区间</span><b style="color:${_zoneColor}">${_cur.zone || "-"}</b></div>
+          <div class="pf-bt-row"><span>历史分位</span><b>${_pctFmt(_cur.percentile)}</b></div>
+          <div class="pf-bt-row"><span>上证收盘</span><b>${_cur.close != null ? _cur.close.toFixed(2) : "-"}</b></div>
+        </div>
+      </div>
+      <div class="pf-bt-note">📌 图表红 pin = 历史仓位 Top5 高点(88 魔咒触发点) · 绿 pin = Top5 低点(80 抄底信号点) · 胜率=触发后 30 天上证下跌(88)/上涨(80)占比</div>
+    `;
+    container.appendChild(btCard);
+  }
 
   // ── 区域 3: Top30 重仓表(左) + 行业柱状图(右) 两栏 ──
   const twoCol = document.createElement("div");

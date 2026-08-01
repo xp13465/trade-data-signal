@@ -1394,6 +1394,18 @@ def public_fund_manuf_subind_fund_map():
     return manuf_subind_fund_map
 
 
+def public_fund_position_backtest():
+    """G功能: 88 魔咒历史回测 + 极值标注。
+    独立计算(不走 export_data 7 元组), 复用 fund_position_history lg 源 avg_position+close 时序。
+    返回 {report_date, extremes{highs,lows Top5}, stats{spell_88,dip_80}, current}。"""
+    from .collector.public_fund import _compute_position_backtest, get_conn
+    conn = get_conn()
+    try:
+        return _compute_position_backtest(conn)
+    finally:
+        conn.close()
+
+
 def position():
     """大盘位置感：8 个 A 股指数的 1年/3年/5年分位 + 标签。"""
     from .compute.position import compute_position
