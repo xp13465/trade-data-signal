@@ -1088,8 +1088,12 @@ main { padding: 16px 24px; }
   display: flex;
   flex-direction: column;
 }
-.astock-top-grid .chart-card { min-height: 200px; margin-bottom: 12px; }
+/* A股第一个板块10张表卡片统一固定高度: 有"注:"备注的卡片, 图表区 flex:1 自动让出备注高度,
+   保持10张卡片总高一致美观(无备注图表区更高, 有备注图表区矮一点但加了备注行)。
+   inline style height:300px 用 !important 覆盖, 仅本区域生效不影响其他图表卡。 */
+.astock-top-grid .chart-card { height: 380px; min-height: 200px; margin-bottom: 12px; }
 .astock-top-grid .chart-card:last-child { margin-bottom: 0; }
+.astock-top-grid .chart-card .chart { flex: 1 1 auto; height: auto !important; min-height: 220px; }
 /* 指数折线区网格(A股)：9个指数全部铺开不折叠；移动端1列撑满，PC 每列最小800px */
 .indices-grid {
   display: grid;
@@ -2675,7 +2679,9 @@ main { padding: 16px 24px; }
   .industry-cell .card-time-badge { top: 4px; right: 5px; bottom: auto; }
   .card.kpi.has-time-badge .card-sub { padding-right: 58px; }
   .ov-2col { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .ov-2col .chart-card, .astock-top-grid .chart-card { min-height: 280px; }
+  .ov-2col .chart-card { min-height: 280px; }
+  /* A股第一个板块移动端: hint文案换行多(资金面注4行), 卡片固定高度放宽到420保证图表区≥220 */
+  .astock-top-grid .chart-card { height: 420px; min-height: 280px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
   .sig-day-date { flex: 0 0 56px; font-size: 11px; }
 
