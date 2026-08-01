@@ -10855,6 +10855,22 @@ let _industryScrollSpy = null;
 // 每项是一个 IntersectionObserver 实例, buildIndexAnchorBar 内 push, clearCharts 内统一 disconnect
 let _indexNavSpies = [];
 
+// 指数目录锚点跳转高亮计时器(模块级, 跨多次 chip 点击共享, 新点击清旧 timer 重启闪烁)
+let _indexNavFlashTimer = null;
+// 给目标卡片加 .index-nav-highlight 闪烁 2s 提示用户跳到哪了(2026-08-01)
+// 多次点击同一/不同 chip: 先 remove 强制 reflow 重启动画, 再 add; 旧 timer 清掉重设
+function _flashIndexNavCard(el) {
+  if (!el) return;
+  el.classList.remove("index-nav-highlight");
+  void el.offsetWidth;  // 强制 reflow, 重启 CSS animation
+  el.classList.add("index-nav-highlight");
+  if (_indexNavFlashTimer) clearTimeout(_indexNavFlashTimer);
+  _indexNavFlashTimer = setTimeout(() => {
+    el.classList.remove("index-nav-highlight");
+    _indexNavFlashTimer = null;
+  }, 2000);
+}
+
 // 构建指数目录锚点条(吸顶 + chip 点击跳转 + scroll spy 高亮当前可见卡)
 // groups: [{ label, items: [{key, name, targetId}] }]
 //   targetId: 卡片 element 的 id 字符串(如 'idx-card-sh' / 'industry-cell-hk_cesg10')
@@ -10881,7 +10897,12 @@ function buildIndexAnchorBar(groups, barLabel) {
       const targetId = btn.dataset.idxTarget;
       const tryScroll = () => {
         const el = document.getElementById(targetId);
-        if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); return true; }
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          // 跳转后高亮目标卡片(闪烁 2s 边框+光晕), 让用户看到跳到哪了(2026-08-01)
+          _flashIndexNavCard(el);
+          return true;
+        }
         return false;
       };
       // 卡片可能尚未渲染完(fetch 异步), 下一帧重试一次

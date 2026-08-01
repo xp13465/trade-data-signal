@@ -349,6 +349,12 @@ main { padding: 16px 24px; }
   /* 目录锚点跳转时避开吸顶条(tab 栏 + anchor-bar 叠加高度)留白 */
   scroll-margin-top: calc(var(--tab-h, 41px) + 56px);
 }
+/* 大盘 tab(A股/港股/全球)内的 chart-card: sticky 吸顶叠加三层(一级 tab 栏 + 二级 subtab-bar + 指数目录 anchorBar),
+   原始 tab-h+56 只覆盖一层 tab + anchorBar, 在 .market-sub-content 内标题被 subtab-bar + anchorBar 遮挡(差 ~subtab-h),
+   需追加 --subtab-h 才能让 scrollIntoView block:'start' 跳到吸顶条下方(2026-08-01 修复纳斯达克100标题被盖问题) */
+.market-sub-content .chart-card {
+  scroll-margin-top: calc(var(--tab-h, 41px) + var(--subtab-h, 46px) + 56px);
+}
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); padding-right: 4px; }
 /* 盘中标注角标：右下角浮动药丸(absolute 不占位)，半透明毛玻璃背景像贴纸浮于内容之上，区分盘中(绿)/午休(黄)/待收盘(灰)/收盘(主题色) */
 /* 角标定位规则（UI-P1-4：评估后保留 absolute，未统一为 flex 标题行）：chart-card 右上 / spark·kpi 右下 / industry 右上 / heatmap 回右下。
@@ -2970,6 +2976,25 @@ main { padding: 16px 24px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .notify-flash { animation: none; outline-color: #e6a23c; }
+}
+
+/* === 指数目录锚点跳转高亮: chip 点击跳转后, 目标卡片闪烁 2s 提示用户跳到哪了(2026-08-01) ===
+   复用 notify-flash 思路但用 var(--primary) 适配所有皮肤(redgold/light/dark),
+   outline + box-shadow 双重视觉(边框 + 光晕), 动画结束自动回退原 box-shadow */
+.chart-card.index-nav-highlight {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  animation: index-nav-flash-anim 2s ease-out;
+  z-index: 2;
+}
+@keyframes index-nav-flash-anim {
+  0% { box-shadow: 0 0 0 0 var(--primary); }
+  20% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 55%, transparent); }
+  60% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 40%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-card.index-nav-highlight { animation: none; outline-color: var(--primary); }
 }
 
 .theme-modal { z-index: 120; }
