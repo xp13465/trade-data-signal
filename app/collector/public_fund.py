@@ -1120,11 +1120,12 @@ def export_data() -> tuple[dict, dict, dict, dict, dict]:
                      "metric_value": r[2],
                      "detail": json.loads(r[3]) if r[3] else None}
                     for r in metric_rows]
-    # 最近 4 期仓位轨迹
+    # 全量仓位轨迹(lg 周频 + cninfo 季报, 含同日双源; 2026-07-20 去 LIMIT 40 截断,
+    # 让 range 切换"全部"档能看到完整 2007-2026 共19年数据)
     pos_rows = conn.execute(
         "SELECT report_date, source, position_pct, bond_pct, cash_pct, other_pct, "
         "fund_count, total_net_asset FROM fund_position_history "
-        "ORDER BY report_date DESC LIMIT 40"
+        "ORDER BY report_date ASC"
     ).fetchall()
     position_history = [{"report_date": r[0], "source": r[1], "position_pct": r[2],
                          "bond_pct": r[3], "cash_pct": r[4], "other_pct": r[5],
