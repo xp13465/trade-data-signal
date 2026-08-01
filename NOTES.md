@@ -6030,3 +6030,36 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **【关联】** AZ97 公募基金4功能规划（F功能数据前置完成，进入前端开发阶段）+ AZ101 N功能协调节（工作区未commit状态闭环）+ memory r2-arch-by-category-not-size（public_fund 走 R2 upload-public-fund 前缀命令，行业配置时序产物同架构）。
 
 
+### AZ103 2026-08-02 N功能多信号共振仪表盘上线（4信号季频叠加+共振标注+统计，ui77）
+
+**背景**：N功能 = 多信号共振仪表盘，4信号（88魔咒avg_position / 净申赎net_purchase_share / 抱团度herfindahl / 规模end_net_asset）季频时序叠加，共振标注+共振时点后续市场表现统计。AZ101 已补 holding_concentration_ts JSON（抱团度10期），本节补 scale_change_ts JSON（净申赎+规模113期全量，summary.scale_change_history 只 LIMIT 20 期不够）+ 前端 app.js N功能面板。
+
+**实施**（commit abb6eb22，merge 284962f4）：
+
+1. **后端补 scale_change_ts JSON 导出**（4处改动）：
+   - `app/collector/public_fund.py`：加 `_compute_scale_change_ts(conn)`（L1817+，仿 `_compute_holding_concentration_timeseries` 独立计算模式，读 fund_scale_change 全量113期 1998Q2-2026Q2，输出 `{report_date, period_count, series:[{date, net_purchase_share, end_net_asset, purchase_share, redeem_share, end_total_share, fund_count}]}`）+ `export_json_files()` 加写盘（L2103+）
+   - `app/queries.py`：加 `public_fund_scale_change_ts()` 薄包装（L1421+，仿 `public_fund_holding_concentration_ts` 模式）
+   - `static-site/export.py`：加 `export_public_fund_scale_change_ts()`（L229+）+ main() 注册（L453+，写 `public_fund_scale_change_ts.json`）
+   - `scripts/deploy.sh`：L294 git add 列表加 `scale_change_ts`（`for _pf in ... holding_concentration_ts scale_change_ts`）
+
+2. **前端 app.js N功能面板**（L9893+，插入88魔咒回测面板之后/Top30重仓表之前）：
+   - fetch 2个R2直链JSON：`public_fund_scale_change_ts.json` + `public_fund_holding_concentration_ts.json`（88魔咒复用 summary.position_history 已fetch的lg源周频，市场表现复用 shIndex.ohlc close 日频）
+   - 季度对齐：抱团度日期(10期 2023Q4-2026Q2)为基准，88魔咒取季末最近一期lg源值(`_pfQuarterAlign`)，净申赎/规模直接用 date
+   - echarts 4 y轴时序叠加图：88魔咒仓位%(左轴 75-100) + 净申赎(右轴1) + 抱团度HHI×1k(右轴2 offset45) + 规模亿(右轴3 offset90)，88/80 markLine + 共振 markPoint(pin)
+   - 共振判断：看顶=88魔咒>88+净申购(散户乐观反向看空)+抱团>中位数+规模>=95%最高；看底=88魔咒<80+净赎回(散户悲观反向看多)+抱团<中位数
+   - 共振时点后续市场表现：复用 shIndex.ohlc close 日频时序算 after_30/60/90d 涨跌%（`_afterReturn` 找 startDate 后最近 close + 目标日期后最近 close）
+   - CSS：`.pf-nf-card` + `.pf-nf-res-grid`（auto-fit minmax(220px,1fr) 网格）
+
+3. **build + bump**：`build_min.py`（app.js 933KB->499KB -46.6%）+ `bump_asset_version.py`（index.html ?v= md5破缓存）+ sw.js CACHE_VERSION `v2-20260720-pf-industry-ui76` -> `v2-20260802-nf-resonance-ui77`
+
+4. **R2上传**：手动跑 `upload_r2.py upload-public-fund`，20/20文件上传成功（含 scale_change_ts.json 19682B + .gz 3968B）
+
+**【双路径同步】** 从 trade-data 跑 `queries.public_fund_scale_change_ts()` 生成JSON落 trade-data/static-site/data/，cp 到 trade/static-site/data/ + gzip 生成 .gz（memory export-output-path-sync 衍生陷阱）。
+
+**【验证】** 3域名 sw.js 全 ui77 ✓：ss.fx8.store = v2-20260802-nf-resonance-ui77 ✓ + sss.sugas.site ✓ + s.sugas.site ✓。R2直链 HTTP200 ✓：ssd.fx8.store/public_fund/public_fund_scale_change_ts.json (19682B) ✓ + public_fund_holding_concentration_ts.json (9615B) ✓。lint 全通过 ✓。
+
+**【数据现状】** fund_scale_change 113期(1998Q2-2026Q2, 早期1998-2004 net_purchase_share 为null, 2005后完整)；fund_position_history lg源445期周频(2017-2026)；fund_holding_stock 10期(2023Q4-2026Q2)。N功能有效共振区间=抱团度10期(2023Q4-2026Q2)。
+
+**【关联】** AZ97 公募基金4功能规划（N功能完成）+ AZ100 G功能 _compute_position_backtest 独立计算模式（N功能照搬）+ AZ101 holding_concentration_ts JSON产物（N功能4信号之一）+ memory r2-arch-by-category-not-size（public_fund 走 R2 upload-public-fund 前缀命令）+ memory export-output-path-sync（双路径同步）+ memory bump-sw-version-with-appjs（改app.js必bump sw）。
+
+
