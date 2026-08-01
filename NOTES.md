@@ -6062,4 +6062,39 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ97 公募基金4功能规划（N功能完成）+ AZ100 G功能 _compute_position_backtest 独立计算模式（N功能照搬）+ AZ101 holding_concentration_ts JSON产物（N功能4信号之一）+ memory r2-arch-by-category-not-size（public_fund 走 R2 upload-public-fund 前缀命令）+ memory export-output-path-sync（双路径同步）+ memory bump-sw-version-with-appjs（改app.js必bump sw）。
 
+### AZ104 2026-08-02 F功能行业轮动时序上线（13行业堆叠面积图+range切换，ui78）
+
+**背景**：F功能 = 行业轮动时序，全市场公募基金行业配置平均权重的季度变迁可视化。AZ102 已回填 fund_industry_alloc 50期历史（2017Q1-2026Q2，每期900+基金×134原始行业名），本节补 industry_rotation_ts JSON 导出 + 前端堆叠面积图。
+
+**实施**（commit 44a8774e，merge f8885a59）：
+
+1. **后端补 industry_rotation_ts JSON 导出**（4处改动）：
+   - `app/collector/public_fund.py`：加 `_compute_industry_rotation_ts(conn)`（L1857+，仿 `_compute_scale_change_ts` 独立计算模式，读 fund_industry_alloc 全量50期，输出 `{report_date, period_count, industries_count, industries_order, series:[{date, fund_count, industries:{合并行业名:平均权重}}]}`）+ `export_json_files()` 加写盘
+   - **F_INDUSTRY_MERGE_MAP**：134原始行业名 -> 13标准名（比 IND_MERGE_MAP 更彻底：GICS中英文/编号变体合并 + CSRC L1大类映射到GICS等价物；制造业/综合/农林牧渔保留独立；排除"合计"求和行）
+   - 口径：AVG(weight_pct) 跨基金平均（非SUM，反映"典型基金"行业配置占比，可比跨期）；同canonical多原始名按fund_count加权平均
+   - 过滤：fund_count<50 脏数据期（20170901=1只/20171215=1只/20260601=1只等单基金误录，50期->34期有效期）
+   - `app/queries.py`：加 `public_fund_industry_rotation_ts()` 薄包装
+   - `static-site/export.py`：加 `export_public_fund_industry_rotation_ts()` + main() 注册
+   - `scripts/deploy.sh`：git add 列表加 `industry_rotation_ts`
+
+2. **前端 app.js F功能面板**（L10689+，插入行业配置柱状图之后/Top100调仓表之前）：
+   - fetch R2直链JSON：`https://ssd.fx8.store/public_fund/public_fund_industry_rotation_ts.json`
+   - echarts 堆叠面积图：13行业×34期季度，x轴=YYYY-MM，y轴=平均权重%，stack="rot"
+   - 13行业色板（红金主题，制造业主导用深红#c0392b，金融用金#f1c40f）
+   - tooltip 按值降序排+显示基金覆盖数，legend scroll可点击切换
+   - 本地 range 切换（3y/5y/all 3按钮，按日期过滤series，不依赖全局state.range季频vs日频）
+   - CSS：`.pf-rot-card` + `.pf-rot-range` + `.pf-rot-range-btn`（红底白字active态）
+
+3. **build + bump + sw**：`build_min.py`（app.js 940KB->503KB -46.5%）+ `bump_asset_version.py`（index.html ?v=）+ sw.js CACHE_VERSION `v2-20260802-nf-resonance-ui77` -> `v2-20260802-industry-rotation-ui78`
+
+4. **R2上传**：手动跑 `upload_r2.py upload-public-fund`，22/22文件上传成功（含 industry_rotation_ts.json 11025B + .gz 2550B）
+
+**【双路径同步】** 从 trade-data 跑 `_compute_industry_rotation_ts(conn)` 生成JSON落 trade-data/static-site/data/，写 trade/static-site/data/ + gzip（memory export-output-path-sync 衍生陷阱）。
+
+**【验证】** 3域名 sw.js 全 ui78 ✓：ss.fx8.store = v2-20260802-industry-rotation-ui78 ✓ + sss.sugas.site ✓ + s.sugas.site ✓。R2直链 HTTP200 ✓：ssd.fx8.store/public_fund/public_fund_industry_rotation_ts.json (11025B, content-type application/json) ✓。lint 全通过 ✓。
+
+**【数据现状】** fund_industry_alloc 50期(2017Q1-2026Q2)，过滤fund_count<50后34期有效(2017Q1-2026Q2连续)；13 canonical行业（制造业~58%主导/金融业~9%/信息技术~6%/通信服务~5%/能源~5%/材料~4%/医疗保健~3%/工业~2%/必需消费品~2%/房地产业~2%/非必需消费品~2%/公用事业~1%/综合~0.6%）。
+
+**【关联】** AZ102 fund_industry_alloc 50期历史回填（F功能数据源）+ AZ97 公募基金4功能规划（F功能完成，4功能G/N/F全上线）+ AZ103 N功能 _compute_scale_change_ts 独立计算模式（F功能照搬）+ memory r2-arch-by-category-not-size（public_fund走R2 upload-public-fund前缀命令）+ memory export-output-path-sync（双路径同步）+ memory bump-sw-version-with-appjs（改app.js必bump sw）。
+
 
