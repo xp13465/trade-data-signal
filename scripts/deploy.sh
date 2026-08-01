@@ -292,10 +292,11 @@ for _pf in summary holdings industry top20 asset_alloc; do
   DATA_FILES+=("static-site/data/public_fund_${_pf}.json" "static-site/data/public_fund_${_pf}.json.gz")
 done
 # 单文件（export.py 生成 + deploy/update_all/update_lab 生成）
+# trade_sim_indices: export.py 生成单文件(非 R2 托管的 trade_sim/ 目录), 需入 git 否则 .gz 404
 for _f in overview futures ad_line volume_ratio position \
           summary summary_history signal_freq signal_stats \
           rotation new_high_low ma_alignment intraday_snapshot \
-          alert etf_score_list \
+          alert etf_score_list trade_sim_indices \
           lab_ablation lab_cost_compare lab_param_scan lab_short_symmetry; do
   DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
 done

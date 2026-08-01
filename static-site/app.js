@@ -9763,16 +9763,18 @@ async function renderPublicFund(container) {
   indChart.setOption({
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (p) => {
       const d = indData[p[0].dataIndex];
-      // weight = SUM(weight_pct) 全市场基金该行业权重求和(非 0-1 归一化), 显式标注语义避免误读
+      // weight = SUM(weight_pct) 全市场基金该行业权重%求和(非 0-1 归一化), 显式标注语义避免误读
+      // 平均权重 = weight / fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%, 信息传输≈5.6%)
       // value = SUM(hold_value) 单位万元, /1e4 转亿
-      return `${d.name}<br/>权重和: ${d.weight.toFixed(1)}<span style="color:var(--text-3)"> (全市场基金该行业权重求和, 非单基金百分比)</span><br/>市值: ${(d.value / 1e4).toFixed(2)} 亿<span style="color:var(--text-3)"> (万元 ÷1e4)</span><br/>基金数: ${d.fundCount}`;
+      return `${d.name}<br/>权重和: ${d.weight.toFixed(1)}<span style="color:var(--text-3)"> (全市场基金该行业权重%求和, 非单基金百分比)</span><br/>平均权重: <b>${(d.weight / d.fundCount).toFixed(1)}%</b><span style="color:var(--text-3)"> (权重和 ÷ 基金数, 即平均每只基金该行业仓位%)</span><br/>持仓市值: ${(d.value / 1e4).toFixed(2)} 亿<br/>基金数: ${d.fundCount}`;
     }},
     grid: { left: 10, right: 30, top: 10, bottom: 10, containLabel: true },
     xAxis: { type: "value", axisLabel: { fontSize: 10 } },
     yAxis: { type: "category", data: indData.map((d) => d.name).reverse(), axisLabel: { fontSize: 10, width: 140, overflow: "break", lineHeight: 12 } },
     series: [{
-      type: "bar", data: indData.map((d) => d.weight).reverse(), itemStyle: { color: "#e6492e" },
-      label: { show: true, position: "right", formatter: (p) => Number(p.value).toFixed(1), fontSize: 10 },
+      // data 用 object 形式带 fundCount, 供 label 算平均权重%; 排序仍按 weight 降序(反映抱团规模)
+      type: "bar", data: indData.map((d) => ({ value: d.weight, fundCount: d.fundCount })).reverse(), itemStyle: { color: "#e6492e" },
+      label: { show: true, position: "right", formatter: (p) => (p.data.value / p.data.fundCount).toFixed(1) + "%", fontSize: 10 },
     }],
   });
 
