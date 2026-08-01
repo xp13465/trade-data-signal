@@ -34,6 +34,11 @@ data/etf_national_team.lock
 data/etf_national_team.db
 data/etf_national_team.db-wal
 data/etf_national_team.db-shm
+# 公募基金独立库（仿 etf_national_team.db 隔离，CLAUDE.md §8 禁推根 data/）
+data/public_fund.lock
+data/public_fund.db
+data/public_fund.db-wal
+data/public_fund.db-shm
 # F 方案（2026-07-21）：check_signals 邮件去重持久化，仅本地跨进程去重用
 data/signal_notified.json
 
