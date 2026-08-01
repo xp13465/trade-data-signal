@@ -9572,10 +9572,16 @@ async function renderPublicFund(container) {
 .pf-ind-fund-modal .rule-modal-body{width:min(92vw,600px);min-height:300px;}
 .pf-ind-fund-modal .rule-modal-header h3{color:#e6492e;}
 .pf-ind-fund-modal .rule-modal-close:hover{color:#e6492e;}
-.pf-ind-fund-modal .pf-ind-fund-more{display:block;width:100%;margin-top:8px;padding:6px 0;text-align:center;border:1px solid var(--border-light,var(--border));border-radius:6px;background:var(--bg-2,var(--bg-1));color:var(--text-2);font-size:12px;line-height:1.4;cursor:pointer;}
-.pf-ind-fund-modal .pf-ind-fund-more:hover{border-color:#e6492e;color:#e6492e;}
 .pf-ind-fund-modal .pf-table-wrap{max-height:60vh;overflow:auto;border:1px solid var(--border-light,var(--border));border-radius:6px;}
 .pf-ind-fund-modal .pf-modal-tip{font-size:11px;color:var(--text-3);margin-top:8px;line-height:1.5;}
+/* 翻页器: 复用 .etf-page-btn 风格, active 态改 #e6492e 红色主题(A股配色) */
+.pf-ind-fund-pager{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;padding:10px 8px 4px;}
+.pf-ind-fund-pager .pf-page-btn{min-width:32px;height:30px;padding:0 10px;border:1px solid var(--border-strong,var(--border));background:var(--bg-card,var(--bg-1));color:var(--text-2);border-radius:6px;cursor:pointer;font-size:13px;}
+.pf-ind-fund-pager .pf-page-btn:hover:not(:disabled):not(.active){border-color:#e6492e;color:#e6492e;}
+.pf-ind-fund-pager .pf-page-btn.active{background:#e6492e;color:#fff;border-color:#e6492e;font-weight:600;}
+.pf-ind-fund-pager .pf-page-btn:disabled{opacity:0.4;cursor:not-allowed;}
+.pf-ind-fund-pager .pf-page-ellipsis{color:var(--text-4);padding:0 4px;}
+.pf-ind-fund-pager .pf-page-info{font-size:12px;color:var(--text-3);margin-left:8px;}
 `;
     document.head.appendChild(st);
   }
@@ -9851,7 +9857,7 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-treemap-sort="value" type="button">持仓市值</button>'
     + '</div>'
     + '<div class="chart pf-ind-treemap" style="height:140px"></div>'
-    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:4px 0 0 0;line-height:1.5">💡 点击柱状图任一行业条 / TreeMap 任一矩形，弹窗显示该行业全部基金列表（按该行业配置权重降序，首次加载约 2MB）</div>';
+    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:4px 0 0 0;line-height:1.5">💡 点击柱状图任一行业条 / TreeMap 任一矩形，弹窗显示该行业全部基金列表（按该行业配置权重降序，每页50只翻页，首次加载约 2MB）</div>';
   twoCol.appendChild(indCard);
 
   // 柱状图: Top15 + 其他聚合(长尾合并为单根"其他"柱), 支持 3 维度排序切换
@@ -10016,31 +10022,71 @@ async function renderPublicFund(container) {
 
   // ── 点击行业弹窗显示基金列表(方案D: 按需 fetch public_fund_industry_fund_map.json, 模块级缓存) ──
   // 复用 .rule-modal 骨架(遮罩+居中+× 关闭+ESC), .pf-ind-fund-modal 覆盖宽度 600px + 红色主题
-  let _pfFundShowCount = 50;     // 已渲染行数(top50 + 分页 "显示更多50")
-  const _PF_FUND_PAGE = 50;
-  let _pfFundCurName = null;     // 当前弹窗的行业名(防异步过期)
-  let _pfFundEscBound = false;   // ESC 监听只绑一次
+  // 翻页(非追加): 每页 50 只, 底部上一页/页码/下一页 + 页码信息(参考 _renderEtfPager 风格)
+  const _PF_FUND_PAGE_SIZE = 50;
+  let _pfFundCurName = null;       // 当前弹窗的行业名(防异步过期)
+  let _pfFundCurList = null;       // 当前行业的基金列表(翻页切片用, 避免闭包传参)
+  let _pfFundCurPage = 1;          // 当前页码(1-based)
+  let _pfFundEscBound = false;     // ESC 监听只绑一次
 
-  // 渲染 modal 表格内容(分页: 已取 list, 渲染前 _pfFundShowCount 条)
-  const _renderFundModalContent = (modal, list) => {
+  // 渲染翻页器 HTML(参考 _renderEtfPager: 上一页/页码(带省略号)/下一页 + 页码信息)
+  const _renderFundPager = (page, pages, total) => {
+    if (pages <= 1) return '';  // 单页不显示翻页器
+    let html = '<div class="pf-ind-fund-pager">';
+    html += '<button class="pf-page-btn" data-page="' + (page > 1 ? page - 1 : 1) + '"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>';
+    const pageBtns = [];
+    const addPage = (p) => { if (pageBtns.indexOf(p) < 0) pageBtns.push(p); };
+    addPage(1); addPage(pages);
+    for (let p = page - 2; p <= page + 2; p++) {
+      if (p > 1 && p < pages) addPage(p);
+    }
+    pageBtns.sort((a, b) => a - b);
+    let prev = 0;
+    pageBtns.forEach((p) => {
+      if (p - prev > 1) html += '<span class="pf-page-ellipsis">…</span>';
+      html += '<button class="pf-page-btn' + (p === page ? " active" : "") + '" data-page="' + p + '">' + p + '</button>';
+      prev = p;
+    });
+    html += '<button class="pf-page-btn" data-page="' + (page < pages ? page + 1 : pages) + '"' + (page >= pages ? ' disabled' : '') + '>下一页</button>';
+    html += '<span class="pf-page-info">' + page + ' / ' + pages + ' 页（' + total + ' 只）</span>';
+    html += '</div>';
+    return html;
+  };
+
+  // 渲染 modal 表格内容(翻页: slice((page-1)*size, page*size), 非追加; 翻页只换 tbody + pager, 不重 fetch)
+  const _renderFundModalPage = (modal) => {
     const body = modal.querySelector(".rule-modal-content");
-    if (!list || list.length === 0) {
+    const list = _pfFundCurList || [];
+    if (list.length === 0) {
       body.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-3)">📦 ${_pfFundCurName}：暂无基金数据</div>`;
       return;
     }
-    const rows = list.slice(0, _pfFundShowCount).map((f, i) => {
+    const total = list.length;
+    const pages = Math.max(1, Math.ceil(total / _PF_FUND_PAGE_SIZE));
+    const page = Math.min(_pfFundCurPage, pages);
+    const start = (page - 1) * _PF_FUND_PAGE_SIZE;
+    const pageList = list.slice(start, start + _PF_FUND_PAGE_SIZE);
+    // 序号 = 全局序号(start + i + 1), 非页内序号(用户能看懂当前是第几只)
+    const rows = pageList.map((f, i) => {
       const wp = f.weight_pct != null ? f.weight_pct.toFixed(2) + '%' : '-';
       const hv = f.hold_value != null ? (f.hold_value).toFixed(2) : '-';
-      return `<tr><td>${i + 1}</td><td class="pf-code">${f.fund_code || '-'}</td><td>${f.fund_name || '-'}</td><td class="pf-num">${wp}</td><td class="pf-num">${hv}</td></tr>`;
+      return `<tr><td>${start + i + 1}</td><td class="pf-code">${f.fund_code || '-'}</td><td>${f.fund_name || '-'}</td><td class="pf-num">${wp}</td><td class="pf-num">${hv}</td></tr>`;
     }).join("");
-    const hasMore = list.length > _pfFundShowCount;
     body.innerHTML = '<div class="pf-table-wrap"><table class="pf-table">'
       + '<thead><tr><th>#</th><th>代码</th><th>名称</th><th>该行业权重%</th><th>持仓市值(万)</th></tr></thead>'
       + `<tbody>${rows}</tbody></table></div>`
-      + (hasMore ? `<button class="pf-ind-fund-more" type="button">显示更多 ${Math.min(_PF_FUND_PAGE, list.length - _pfFundShowCount)} 只（剩余 ${list.length - _pfFundShowCount}）</button>` : '')
+      + _renderFundPager(page, pages, total)
       + '<div class="pf-modal-tip">💡 按该行业配置权重降序；权重% = 该基金对此行业的仓位占比，持仓市值单位万元</div>';
-    const moreBtn = body.querySelector(".pf-ind-fund-more");
-    if (moreBtn) moreBtn.addEventListener("click", () => { _pfFundShowCount += _PF_FUND_PAGE; _renderFundModalContent(modal, list); });
+    // 翻页按钮事件: 点页码/上一页/下一页 -> 更新 _pfFundCurPage -> 重渲染 tbody + pager(不重 fetch)
+    body.querySelectorAll(".pf-page-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (btn.disabled) return;
+        const p = parseInt(btn.getAttribute("data-page"), 10);
+        if (isNaN(p) || p === _pfFundCurPage) return;
+        _pfFundCurPage = p;
+        _renderFundModalPage(modal);
+      });
+    });
   };
 
   // 关闭 modal(加 hidden + 恢复 body 滚动 + 清当前行业)
@@ -10048,13 +10094,16 @@ async function renderPublicFund(container) {
     modal.classList.add("hidden");
     document.body.style.overflow = "";
     _pfFundCurName = null;
+    _pfFundCurList = null;
+    _pfFundCurPage = 1;
   };
 
-  // 点击行业名 -> 创建/复用 modal -> loading -> 异步拉 fund_map -> 渲染表格
+  // 点击行业名 -> 创建/复用 modal -> loading -> 异步拉 fund_map -> 渲染表格(翻页, 默认第 1 页)
   const _showIndustryFunds = async (indName) => {
     if (!indName || indName === '其他') return;  // 长尾聚合不弹窗
     _pfFundCurName = indName;
-    _pfFundShowCount = _PF_FUND_PAGE;
+    _pfFundCurList = null;
+    _pfFundCurPage = 1;  // 重新打开重置到第 1 页
     // 创建或复用 modal(单例, 避免重复创建堆积 DOM)
     let modal = document.getElementById("pfIndFundModal");
     if (!modal) {
@@ -10095,7 +10144,8 @@ async function renderPublicFund(container) {
     const list = fmap.industry_funds[indName] || [];
     // 标题更新为"X 的 N 只基金"(行业名 + 基金数)
     modal.querySelector(".rule-modal-header h3").textContent = `📦 ${indName} 的 ${list.length} 只基金`;
-    _renderFundModalContent(modal, list);
+    _pfFundCurList = list;  // 缓存列表供翻页切片(不重 fetch)
+    _renderFundModalPage(modal);
   };
   // 柱状图 + TreeMap 点击事件(echarts on('click'), params.data.name = 合并行业名)
   indChart.on('click', (params) => { if (params && params.data && params.data.name) _showIndustryFunds(params.data.name); });
