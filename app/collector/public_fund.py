@@ -1131,7 +1131,8 @@ def export_data() -> tuple[dict, dict, dict, dict, dict]:
                          "bond_pct": r[3], "cash_pct": r[4], "other_pct": r[5],
                          "fund_count": r[6], "total_net_asset": r[7]}
                         for r in pos_rows]
-    # 最近 4 期净申赎
+    # 最近 20 期净申赎(先 DESC LIMIT 20 取最近20期, 再 reverse 转升序;
+    # 升序约定与 position_history 一致: 末项=最新期, 前端 _pfCalcChange 取 sch[n-1] 为当前期)
     sc_rows = conn.execute(
         "SELECT report_date, fund_count, purchase_share, redeem_share, "
         "net_purchase_share, end_total_share, end_net_asset "
@@ -1141,6 +1142,7 @@ def export_data() -> tuple[dict, dict, dict, dict, dict]:
                       "purchase_share": r[2], "redeem_share": r[3],
                       "net_purchase_share": r[4], "end_total_share": r[5],
                       "end_net_asset": r[6]} for r in sc_rows]
+    scale_history.reverse()  # DESC->ASC: 末项=最新期, 前端取 sch[n-1] 为当前期
     summary = {
         "report_date": report_date,
         "metrics": metrics_list,
@@ -1218,6 +1220,40 @@ def export_data() -> tuple[dict, dict, dict, dict, dict]:
                                  if prev_map.get(r[0]) else None}
                   for r in cur_rows],
     }
+
+    # B2 修复: top20_adjustment 在此重算, 不依赖 fund_metrics 预计算值(可能 stale None)
+    # 根因: compute_metrics 在数据未齐时跑会写 None 入 fund_metrics, export_data 直读永卡 None
+    # 公式: (cur_top20_value - prev_top20_value) / prev_top20_value * 100
+    # cur_top20_value = 当期 Top20 hold_value_total 之和(cur_rows 已 fetch)
+    # prev_top20_value = 上期 Top20 hold_value_total 之和(独立查询, 与 compute_metrics 同口径)
+    if prev_report:
+        prev_top20_rows = conn.execute(
+            "SELECT hold_value_total FROM fund_holding_stock "
+            "WHERE report_date=? AND hold_value_total IS NOT NULL "
+            "ORDER BY hold_value_total DESC LIMIT 20",
+            (prev_report,),
+        ).fetchall()
+        prev_top20_value = sum(r[0] or 0 for r in prev_top20_rows)
+    else:
+        prev_top20_value = None
+    cur_top20_value = sum(r[3] or 0 for r in cur_rows)
+    top20_adjustment_fresh = None
+    top20_detail_fresh = None
+    if cur_top20_value and prev_top20_value and prev_top20_value != 0:
+        top20_adjustment_fresh = round(
+            (cur_top20_value - prev_top20_value) / prev_top20_value * 100, 4)
+        top20_detail_fresh = {
+            "current_top20_value": cur_top20_value,
+            "prev_top20_value": prev_top20_value,
+            "prev_report_date": prev_report,
+            "note": "export_data 重算(防 fund_metrics 预计算值 stale)",
+        }
+    # patch summary.metrics 中 top20_adjustment(8 指标之一)
+    for m in summary["metrics"]:
+        if m["metric_id"] == "top20_adjustment":
+            m["metric_value"] = top20_adjustment_fresh
+            m["detail"] = top20_detail_fresh
+            break
 
     # 5. asset_alloc: 头部基金资产配置分布（聚合统计）
     aa_rows = conn.execute(
