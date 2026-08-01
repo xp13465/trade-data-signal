@@ -1154,7 +1154,20 @@ def export_data() -> tuple[dict, dict, dict, dict, dict]:
             "SELECT COUNT(DISTINCT fund_code) FROM fund_asset_alloc WHERE report_date=?", (report_date,)).fetchone()[0],
     }
 
-    # 2. holdings: Top50 重仓股
+    # prev_report / prev_map: holdings(top50) 与 top20 调仓对比共用, 只查一次
+    prev_report = conn.execute(
+        "SELECT MAX(report_date) FROM fund_holding_stock WHERE report_date < ?",
+        (report_date,),
+    ).fetchone()[0]
+    prev_map: dict[str, float] = {}
+    if prev_report:
+        prev_rows = conn.execute(
+            "SELECT stock_code, hold_value_total FROM fund_holding_stock WHERE report_date=?",
+            (prev_report,),
+        ).fetchall()
+        prev_map = {r[0]: r[1] for r in prev_rows}
+
+    # 2. holdings: Top50 重仓股(含调仓: 当期 hold_value_total vs 上期 prev_value)
     holding_rows = conn.execute(
         "SELECT stock_code, stock_name, fund_count, hold_share_total, hold_value_total "
         "FROM fund_holding_stock WHERE report_date=? "
@@ -1163,8 +1176,12 @@ def export_data() -> tuple[dict, dict, dict, dict, dict]:
     ).fetchall()
     holdings = {
         "report_date": report_date,
+        "prev_report_date": prev_report,
         "top50": [{"stock_code": r[0], "stock_name": r[1], "fund_count": r[2],
-                   "hold_share_total": r[3], "hold_value_total": r[4]}
+                   "hold_share_total": r[3], "hold_value_total": r[4],
+                   "prev_value": prev_map.get(r[0]),
+                   "change_pct": round((r[4] - prev_map.get(r[0], 0)) / prev_map.get(r[0], 1) * 100, 2)
+                                 if prev_map.get(r[0]) else None}
                   for r in holding_rows],
     }
 
@@ -1183,24 +1200,13 @@ def export_data() -> tuple[dict, dict, dict, dict, dict]:
                        for r in ind_rows],
     }
 
-    # 4. top20: Top20 重仓股调仓对比（当期 vs 上期）
+    # 4. top20: Top20 重仓股调仓对比(复用 prev_map; 指标口径保持 LIMIT 20 不变, Q3 要求)
     cur_rows = conn.execute(
         "SELECT stock_code, stock_name, fund_count, hold_value_total "
         "FROM fund_holding_stock WHERE report_date=? "
         "ORDER BY hold_value_total DESC LIMIT 20",
         (report_date,),
     ).fetchall()
-    prev_report = conn.execute(
-        "SELECT MAX(report_date) FROM fund_holding_stock WHERE report_date < ?",
-        (report_date,),
-    ).fetchone()[0]
-    prev_map: dict[str, float] = {}
-    if prev_report:
-        prev_rows = conn.execute(
-            "SELECT stock_code, hold_value_total FROM fund_holding_stock WHERE report_date=?",
-            (prev_report,),
-        ).fetchall()
-        prev_map = {r[0]: r[1] for r in prev_rows}
     top20 = {
         "report_date": report_date,
         "prev_report_date": prev_report,
