@@ -5678,3 +5678,43 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 - **DB 主库 trade-data/data/sentiment.db**：retry 脚本 sys.path 用 `.absolute()` 不用 `.resolve()`，确保读主库非滞后镜像（§9）
 
 **关联**：AZ85 intraday 角标修复（collect_health 角标滞后）+ memory `backup-strategy-redundant-runs`（重复跑是兜底非冗余，retry 每15分钟重试符合）+ memory `monitor-log-anomaly-blindspot`（self_heal 盘中保护 update_all，retry 轻量不受每日3次上限）+ §9（DB 主库路径，retry sys.path `.absolute()` 不解析 symlink）+ §8（3 域名任一 OK 即上线，CF 主站延迟不卡）。
+
+### AZ93 2026-08-01 公募基金数据新鲜度闸门（check-fresh CLI + quarterly/full 脚本闸门，commit 920f57ed）
+
+**【背景】** 用户需求："采集到了之后重复的跑是没有意义的，也不一定完全是季报的计划任务"。即不是死板按季报日历（1/22,4/22,7/22,10/22）跑，是跑前检查"源最新 report_date vs DB 已采 report_date"判断有无新数据可采。季报披露窗口（如 7/22-8/31）每天有新基金披露就跑采新数据，采全后跳过；非披露窗口（9月-次年1月）数据不变重复跑无意义直接跳过。
+
+**【实施】** commit `920f57ed`（lint 全通过，3 files +150/-2），push feat + push main（ff 安全，origin/main 是 HEAD 祖先，未 force）。
+
+**1) app/collector/public_fund.py 新增 3 处**：
+- `_fetch_source_latest_report_date()`（L417）：调 `ak.fund_report_asset_allocation_cninfo`（cninfo B2 接口，~76 行季度数据）取源最新季报 report_date，**只读不写 DB**。
+- `has_new_data(top_n)`（L441）：返回 `(should_run, reason)`，6 分支逻辑：
+  1. 源查询失败 -> (True, 默认跑) 安全侧不跳过
+  2. DB 无数据(首次跑) -> (True, 应跑)
+  3. 源 > DB(新季报披露) -> (True, 有新季报)
+  4. 源 == DB 且 holding>=4500 且 asset>=top_n*0.95 -> (False, 已采全跳过)
+  5. 源 == DB 但 holding<4500 OR asset<top_n*0.95 -> (True, 补采失败基金)
+  6. 源 < DB(防御性) -> (False, 跳过)
+- CLI `check-fresh [--top N]`（L1342）：exit 0=应跑/补采，1=无新数据跳过；不持锁（只读检查）；--top 默认 1000(quarterly)，full 用 9000。加入 cmd 合法集 + 用法提示 + docstring CLI 列表。
+
+**2) scripts/public_fund_quarterly.sh + public_fund_full.sh 加数据新鲜度闸门**：
+- 交易日闸门后、采集前，调 `check-fresh`（quarterly --top 1000 / full --top 9000），force 可绕过。
+- exit 1（无新数据）则 echo "⏭ 无新数据, 跳过本次采集" + exit 0（正常退出不算失败），跳过时仍跑 gen_schedule_stats + push_schedule_stats 记录本次跳过。
+- exit 0（应跑/补采）则继续采集。
+
+**3) scripts/public_fund_daily.sh 不加闸门**：日更净值（fund_open_fund_daily_em）每天变必须跑，grep 验证 0 处 check-fresh。
+
+**【关键发现】** `fund_position_history` 的 lg 源（ak.fund_stock_position_lg）是**周频**（20260724/0717/0710...），**不能**用于季报新鲜度判断；只有 cninfo B2 源（ak.fund_report_asset_allocation_cninfo，~76 行季度数据）才是季报频。DB 最新季报用 `fund_holding_stock.MAX(report_date)`（重仓股表，季报频），fallback `fund_asset_alloc`。
+
+**【覆盖率阈值设计】** holding_stock < 4500（历史采全约 5285 行/季，85% 阈值）OR asset_alloc DISTINCT fund_code < top_n*0.95 -> 触发补采。阈值依据：历史完整季报约 5285 行重仓股，85%=4500；逐只资产配置期望采全 top_n 只，95% 容错。区分"无新数据跳过"vs"有失败补采"确保失败基金不永远不重试（采集类靠计划任务兜底，符合 memory `backup-strategy-redundant-runs`）。
+
+**【测试】** 真实环境（当前 DB: 20260630 季报未采全 holding=2835/5285 asset_alloc=43/1000）：
+- `check-fresh --top 1000` -> True(补采 holding=2835/4500 asset=43/1000) exit 0 ✓
+- `check-fresh --top 9000` -> True(补采 asset=43/9000) exit 0 ✓
+- 源查询确认成功：ak.fund_report_asset_allocation_cninfo 返回最新 20260630
+- mock 9 分支全 ✓：源失败/首次跑/新季报/已采全/holding未采全/asset未采全/源<DB/full采全/full未采全
+
+**【DB 路径说明】** DB_PATH 实际是 `/Users/linhuichen/code/trade/data/public_fund.db`（代码 `parent.parent.parent/data`），gitignored（切分支安全）；任务约束写的 trade-data 路径是 0 字节空文件，已按代码实际用。
+
+**【约束遵循】** 不 add 根 data/ 下任何文件（只 add 3 个源码/脚本）；改 app/collector/public_fund.py 不涉及前端 sw 版本（无 app.js 改动）；non-ff 优先 fetch+rebase（本次 ff 无需）；commit msg 末尾 Co-Authored-By。
+
+**【关联】** memory `public-fund-fresh-gate`（闸门设计原则）+ memory `backup-strategy-redundant-runs`（重复跑是兜底非冗余，但无新数据重复跑无意义=闸门跳过场景）+ memory `update-all-parallel-pipelines`（采集流水线设计）+ TASKS.md「2026-07-31 公募基金持仓佐证大盘」待办条目（数据新鲜度闸门已实施标注）。
