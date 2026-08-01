@@ -241,6 +241,13 @@ def export_public_fund_industry_rotation_ts():
     return queries.public_fund_industry_rotation_ts()
 
 
+def export_public_fund_position_estimate():
+    """方案A: 今日预估仓位 + 历史预估时序(净值回归反推 + lg 校准)。
+    独立计算(不走 export_data 7 元组), 复用 fund_daily_nav 历史净值 + fund_index_daily 沪深300。
+    供前端 88 魔咒图加"今日预估仓位"点, 不用等 lg 周频更新。"""
+    return queries.public_fund_position_estimate()
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -470,6 +477,10 @@ def main():
     counts["public_fund_industry_rotation_ts.json"] = write_json(
         DATA_DIR / "public_fund_industry_rotation_ts.json", export_public_fund_industry_rotation_ts())
     print(f"  public_fund_industry_rotation_ts.json ({counts['public_fund_industry_rotation_ts.json']} bytes)")
+    # 方案A: 今日预估仓位 + 历史预估时序(净值回归反推 + lg 校准, 88魔咒图"今日预估仓位"点)
+    counts["public_fund_position_estimate.json"] = write_json(
+        DATA_DIR / "public_fund_position_estimate.json", export_public_fund_position_estimate())
+    print(f"  public_fund_position_estimate.json ({counts['public_fund_position_estimate.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]

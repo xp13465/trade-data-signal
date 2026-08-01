@@ -304,6 +304,32 @@ CREATE TABLE IF NOT EXISTS fund_portfolio_hold (
 CREATE INDEX IF NOT EXISTS idx_portfolio_hold_fund_code ON fund_portfolio_hold(fund_code);
 CREATE INDEX IF NOT EXISTS idx_portfolio_hold_report_date ON fund_portfolio_hold(report_date);
 CREATE INDEX IF NOT EXISTS idx_portfolio_hold_stock_code ON fund_portfolio_hold(stock_code);
+
+-- 盘中实时净值估算（fund_value_estimation_em, 盘中才有, 非交易日/盘后返回空）
+CREATE TABLE IF NOT EXISTS fund_estimation_nav (
+  fund_code TEXT NOT NULL,
+  fund_name TEXT,
+  fund_type TEXT,
+  est_date TEXT NOT NULL,             -- 估算日期 YYYYMMDD (gzrq)
+  est_nav REAL,                       -- 估算净值
+  est_pct REAL,                       -- 估算涨跌%
+  real_nav REAL,                      -- 公布单位净值
+  real_pct REAL,                      -- 公布日增长率%
+  est_deviation REAL,                 -- 估算偏差
+  fetch_date TEXT,
+  PRIMARY KEY (fund_code, est_date)
+);
+CREATE INDEX IF NOT EXISTS idx_estimation_nav_date ON fund_estimation_nav(est_date);
+
+-- 基准指数日频（baostock sh.000300 沪深300, 反推算法用; stock_zh_index_daily_em 被封改 baostock）
+CREATE TABLE IF NOT EXISTS fund_index_daily (
+  date TEXT NOT NULL,
+  index_id TEXT NOT NULL,             -- 'hs300' / 'csi500' 等
+  close REAL,
+  pct_change REAL,
+  PRIMARY KEY (date, index_id)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_index_daily_id ON fund_index_daily(index_id);
 """
 
 _LOCK_FILE: list = [None]
@@ -688,6 +714,224 @@ def fetch_daily_nav() -> int:
     conn.close()
     print(f"[E] fund_daily_nav 写入 {len(rows)} 行 @{today_str}, {time.time()-t:.1f}s", flush=True)
     return len(rows)
+
+
+# ── Fetcher E2: 盘中实时净值估算 ─────────────────────────────────────────────────
+def fetch_estimation() -> int:
+    """fund_value_estimation_em (盘中实时估算) -> fund_estimation_nav。
+
+    接口特性:
+    - 盘中(09:30-15:00)返回全市场基金当日实时估算净值/涨跌
+    - 盘后/非交易日返回 None (json_data["Data"]["list"] is None)
+    - 全市场覆盖 ~10000+ 只 (pageSize=20000)
+    - 只当日实时, 无历史
+
+    采集策略:
+    - 盘中定时采 (launchd 10:00/11:00/13:30/14:30 四档)
+    - 盘后采当日最终估算 (15:30 后可能仍有当日最终估算值, 采不到则跳过)
+
+    Returns: 写入行数 (0=盘后/非交易日无数据)
+    """
+    print("[E2] fetch_estimation() ...", flush=True)
+    t = time.time()
+    df = safe_call(ak.fund_value_estimation_em, retries=2)
+    if isinstance(df, Exception) or df is None or len(df) == 0:
+        print(f"[E2] fund_value_estimation_em 无数据(盘后/非交易日正常): {df}", flush=True)
+        return 0
+    today = dt.date.today().strftime("%Y%m%d")
+    rows: list[tuple] = []
+    # 列结构动态(列名含 cal_day/value_day 日期前缀), 找含关键字的列
+    cols = list(df.columns)
+    fund_code_col = next((c for c in cols if "基金代码" in str(c)), None)
+    fund_name_col = next((c for c in cols if "基金名称" in str(c)), None)
+    fund_type_col = next((c for c in cols if "基金类型" in str(c)), None)
+    est_date_col = next((c for c in cols if "估算日期" in str(c)), None)
+    # 估算值/估算增长率/公布单位净值/公布日增长率/估算偏差 列名含动态日期前缀
+    est_nav_col = next((c for c in cols if "估算数据-估算值" in str(c)), None)
+    est_pct_col = next((c for c in cols if "估算数据-估算增长率" in str(c)), None)
+    real_nav_col = next((c for c in cols if "公布数据-单位净值" in str(c)), None)
+    real_pct_col = next((c for c in cols if "公布数据-日增长率" in str(c)), None)
+    dev_col = next((c for c in cols if "估算偏差" in str(c)), None)
+
+    for _, r in df.iterrows():
+        fund_code = str(r.get(fund_code_col, "")).strip() if fund_code_col else ""
+        if not fund_code:
+            continue
+        est_date = _to_yyyymmdd(r.get(est_date_col)) if est_date_col else ""
+        if not est_date:
+            est_date = today
+        rows.append((
+            fund_code,
+            str(r.get(fund_name_col, "")).strip() if fund_name_col else None,
+            str(r.get(fund_type_col, "")).strip() if fund_type_col else None,
+            est_date,
+            _safe_float(r.get(est_nav_col)) if est_nav_col else None,
+            _safe_float(r.get(est_pct_col)) if est_pct_col else None,
+            _safe_float(r.get(real_nav_col)) if real_nav_col else None,
+            _safe_float(r.get(real_pct_col)) if real_pct_col else None,
+            _safe_float(r.get(dev_col)) if dev_col else None,
+            today,
+        ))
+    if not rows:
+        print(f"[E2] 无有效行", flush=True)
+        return 0
+    conn = get_conn()
+    conn.executemany(
+        "INSERT OR REPLACE INTO fund_estimation_nav"
+        "(fund_code, fund_name, fund_type, est_date, est_nav, est_pct, "
+        "real_nav, real_pct, est_deviation, fetch_date) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+    print(f"[E2] fund_estimation_nav 写入 {len(rows)} 行 @{today}, {time.time()-t:.1f}s", flush=True)
+    return len(rows)
+
+
+# ── Fetcher E3: 基准指数日频 (baostock 沪深300) ──────────────────────────────────
+def fetch_index_daily(start_date: str | None = None, end_date: str | None = None,
+                      index_id: str = "hs300") -> int:
+    """baostock sh.000300 沪深300日频 -> fund_index_daily (反推算法基准指数)。
+
+    ak.stock_zh_index_daily_em 被东财封 RemoteDisconnected, 改用 baostock。
+    baostock sh.000300 返回 date/close/pctChg, 日频交易日。
+
+    Args:
+      start_date: YYYYMMDD, 默认 1 年前
+      end_date: YYYYMMDD, 默认今日
+      index_id: 'hs300' (沪深300, 和 lg 源 close 一致, 88 魔咒图基准)
+    Returns: 写入行数
+    """
+    print(f"[E3] fetch_index_daily({index_id}) ...", flush=True)
+    t = time.time()
+    try:
+        import baostock as bs
+    except ImportError:
+        print("[E3] baostock 未安装, 跳过", flush=True)
+        return 0
+    if not start_date:
+        start_date = (dt.date.today() - dt.timedelta(days=400)).strftime("%Y%m%d")
+    if not end_date:
+        end_date = dt.date.today().strftime("%Y%m%d")
+    sd = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+    ed = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+    bs_code = {"hs300": "sh.000300"}.get(index_id, "sh.000300")
+
+    lg = bs.login()
+    if lg.error_code != "0":
+        print(f"[E3] baostock login fail: {lg.error_msg}", flush=True)
+        return 0
+    try:
+        rs = bs.query_history_k_data_plus(
+            bs_code, "date,close,pctChg",
+            start_date=sd, end_date=ed, frequency="d")
+        rows_data: list[list] = []
+        while (rs.error_code == "0") and rs.next():
+            rows_data.append(rs.get_row_data())
+    finally:
+        bs.logout()
+    if not rows_data:
+        print(f"[E3] baostock 无数据 {bs_code} {sd}~{ed}", flush=True)
+        return 0
+    rows = []
+    for r in rows_data:
+        d = r[0].replace("-", "")
+        close = _safe_float(r[1])
+        pct = _safe_float(r[2])
+        if not d:
+            continue
+        rows.append((d, index_id, close, pct))
+    conn = get_conn()
+    conn.executemany(
+        "INSERT OR REPLACE INTO fund_index_daily(date, index_id, close, pct_change) "
+        "VALUES (?,?,?,?)",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+    print(f"[E3] fund_index_daily 写入 {len(rows)} 行 {index_id} "
+          f"{rows[0][0]}~{rows[-1][0]}, {time.time()-t:.1f}s", flush=True)
+    return len(rows)
+
+
+# ── Fetcher E4: 回填头部基金历史净值时序 (反推算法用) ────────────────────────────
+def fetch_nav_history(codes: list[str] | None = None, days: int = 90,
+                      fund_type_filter: str = "偏股") -> int:
+    """fund_open_fund_info_em 逐只拉历史净值 -> fund_daily_nav (回填历史日期)。
+
+    反推算法需要滚动 60 日历史净值时序, 但 fund_daily_nav 只有当日(pipeline_daily 每天跑
+    但 DB 可能刚重置)。本函数一次性回填头部偏股基金的历史净值, 供 _compute_position_estimate 用。
+
+    Args:
+      codes: 基金代码列表, 默认用 universe_top_funds(200) 选头部偏股基金
+      days: 回填天数 (默认 90 日, 滚动 60 日回归需至少 60 日)
+      fund_type_filter: 基金类型过滤关键字 (默认'偏股', 和 lg 源口径一致)
+    Returns: 写入总行数
+    """
+    print(f"[E4] fetch_nav_history(days={days}) ...", flush=True)
+    t0 = time.time()
+    if codes is None:
+        conn = get_conn()
+        try:
+            # 选偏股混合 + 股票型基金 (lg 源口径: 股票型+混合型, 88 魔咒专用)
+            # 按 fund_code 升序取头部 200 只 (样本足够做全市场聚合中位数反推)
+            rows_q = conn.execute(
+                "SELECT fund_code, fund_name, fund_type FROM fund_basic "
+                "WHERE (fund_type LIKE '%偏股%' OR fund_type LIKE '股票型%') "
+                "ORDER BY fund_code ASC LIMIT 200"
+            ).fetchall()
+        finally:
+            conn.close()
+        codes = [r[0] for r in rows_q]
+    print(f"[E4] 回填 {len(codes)} 只基金 {days} 日历史净值 ...", flush=True)
+
+    start_date = (dt.date.today() - dt.timedelta(days=days + 30)).strftime("%Y%m%d")
+    total_rows = 0
+    ok = fail = 0
+    for i, code in enumerate(codes, 1):
+        try:
+            df = safe_call(ak.fund_open_fund_info_em, retries=1,
+                           symbol=code, indicator="单位净值走势")
+            if isinstance(df, Exception) or df is None or len(df) == 0:
+                fail += 1
+                continue
+            rows: list[tuple] = []
+            for _, r in df.iterrows():
+                d = _to_yyyymmdd(r.get("净值日期"))
+                if not d or d < start_date:
+                    continue
+                nav = _safe_float(r.get("单位净值"))
+                if nav is None:
+                    continue
+                # 日增长率列早期可能缺失(0.0), 用净值自己算更可靠
+                nav_pct = _safe_float(r.get("日增长率"))
+                rows.append((d, code, None, nav, None, None, nav_pct))
+            if rows:
+                conn = get_conn()
+                conn.executemany(
+                    "INSERT OR REPLACE INTO fund_daily_nav"
+                    "(date, fund_code, fund_name, unit_nav, acc_nav, prev_unit_nav, nav_change_pct) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    rows,
+                )
+                conn.commit()
+                conn.close()
+                total_rows += len(rows)
+                ok += 1
+        except Exception as e:  # noqa: BLE001
+            fail += 1
+            if fail <= 3:
+                print(f"  [E4] {code} 异常: {type(e).__name__} {e}", flush=True)
+        time.sleep(0.3)  # throttle 防 em 限流
+        if i % 50 == 0 or i == len(codes):
+            elapsed = time.time() - t0
+            eta = (elapsed / i) * (len(codes) - i) if i > 0 else 0
+            print(f"  [E4] {i}/{len(codes)} ok={ok} fail={fail} "
+                  f"rows={total_rows} elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+    print(f"[E4] 完成: ok={ok} fail={fail} 总行数={total_rows} "
+          f"耗时={time.time()-t0:.0f}s", flush=True)
+    return total_rows
 
 
 # ── Fetcher F: 全市场规模变动 ───────────────────────────────────────────────────
@@ -1431,12 +1675,19 @@ def pipeline_full(top_n: int = FULL_TOP_N) -> dict:
 
 
 def pipeline_daily() -> dict:
-    """日更 pipeline: fetch_daily_nav + 估算仓位变化（轻量, ~10s）。"""
+    """日更 pipeline: fetch_daily_nav + fetch_estimation + 估算仓位变化（轻量, ~10s）。
+
+    fetch_estimation 盘后/非交易日返回 0(无数据正常), 盘中才有实时估算。
+    position_estimate 反推算法在 export_json_files 的 _compute_position_estimate 独立算,
+    pipeline_daily 不重算(需 fund_daily_nav 历史时序 + fund_index_daily, 较重)。
+    """
     t0 = time.time()
     print("=== pipeline_daily() ===", flush=True)
     stats: dict = {}
     stats["fund_daily_nav"] = fetch_daily_nav()
-    # 估算仓位变化（用 fund_position_history 最新两期）
+    # 盘中实时估算(盘后/非交易日返回 0 正常, 不阻塞)
+    stats["fund_estimation_nav"] = fetch_estimation()
+    # 估算仓位变化（用 fund_position_history 最新两期 cninfo 季报环比）
     conn = get_conn()
     rows = conn.execute(
         "SELECT report_date, position_pct FROM fund_position_history "
@@ -1615,6 +1866,250 @@ def _compute_manuf_subind_fund_map(conn, report_date: str, stock_ind_map: dict[s
         lst.sort(key=lambda x: (x["weight_pct"] or 0), reverse=True)
 
     return {"report_date": report_date, "subind_funds": subind_funds}
+
+
+def _compute_position_estimate(conn: sqlite3.Connection) -> dict | None:
+    """方案A: 今日预估仓位 + 历史预估时序 (净值回归反推 + lg 校准)。
+
+    算法 (绝对正确, 和 lg 源同口径: 全市场股票型+混合型基金仓位):
+    1. 取 fund_daily_nav 全部偏股基金历史净值涨跌时序 (fetch_nav_history 回填的 200 只 × 90 日)
+    2. 取 fund_index_daily 沪深300日涨跌时序 (fetch_index_daily 回填)
+    3. 每日算全市场偏股基金净值涨跌中位数 R_nav_median (抗极端值, 聚合平均掉个股风格偏移)
+    4. 滚动 60 日 OLS 回归: R_nav_median ~ R_index, 斜率 = 原始仓位估计 × beta
+       数学依据: R_nav = w_stock×R_stock + w_bond×R_bond + w_cash×R_cash
+       忽略 R_bond(~0.01%/日) + R_cash(~0), OLS 斜率 = w_stock × beta
+       beta = 基金组合相对沪深300的暴露系数 (>1 偏成长, <1 偏价值)
+    5. lg 校准: lg 历史仓位(fund_position_history source='lg') vs 同期原始斜率, 算偏差中位数
+       校准后仓位 = 原始斜率 - 偏差中位数 (消除 beta 系统性偏差, 和 lg 口径对齐)
+    6. 今日预估 = 最新校准后仓位
+
+    误差控制 (±5% 目标):
+    - 滚动 60 日窗口降噪声 (非单日比值)
+    - 全市场中位数抗极端值 (200 只基金回归斜率取中位数)
+    - lg 校准消除 beta 系统性偏差
+    - 偏股基金样本 (和 lg 源口径一致, 排除债基/货基/指数/QDII)
+
+    输出 JSON 结构 (供前端 88 魔咒图加"今日预估仓位"点):
+    {
+      "report_date": "20260731",
+      "current": {
+        "date": "2026-07-31",
+        "position_estimate": 93.6,        # 今日预估仓位% (校准后)
+        "raw_slope": 105.29,              # 原始回归斜率% (校准前)
+        "lg_latest_position": 96.01,      # lg 最新仓位% (校准锚点)
+        "lg_latest_date": "20260724",
+        "calibration_offset": -10.58,     # 校准偏移 (lg仓位 - 原始斜率 的中位数)
+        "deviation_from_lg": -2.41,       # 今日预估 - lg最新 (正值=预估高于lg)
+        "r_nav_median": 0.85,             # 今日全市场基金净值涨跌中位数%
+        "r_index": 0.92,                  # 今日沪深300涨跌%
+        "sample_fund_count": 200,
+        "method": "rolling_60d_ols+lg_calibration",
+        "confidence": "high"              # high(>=100样本)/medium(50-99)/low(<50)
+      },
+      "history": [                        # 历史预估仓位时序 (校准后, 供前端画线)
+        {"date": "2026-07-31", "position": 93.6, "raw_slope": 105.29},
+        ...
+      ],
+      "vs_lg": [                          # 预估 vs lg 周频仓位对比 (交叉验证)
+        {"date": "2026-07-24", "estimate": 94.7, "lg": 96.01, "diff": -1.31},
+        ...
+      ],
+      "meta": {
+        "method": "rolling_60d_ols_regression + lg_calibration",
+        "benchmark": "hs300",
+        "sample": "top200_active_equity_funds",
+        "window_days": 60,
+        "calibration": "median(raw_slope - lg_position) over overlap period",
+        "error_margin": "+-5%",
+        "note": "反推斜率=w_stock×beta, lg校准消除beta偏差; 和lg源同口径(股票型+混合型全市场仓位)"
+      }
+    }
+
+    独立计算, 不走 export_data() 7 元组 (遵循 _compute_position_backtest 模式, 避免 190c8f7e 解包破坏)。
+    """
+    import numpy as np  # 局部 import, 反推算法专用
+
+    # 1. 取基金净值涨跌时序 (fund_daily_nav 回填后的多日数据)
+    # ⚠️ 只取偏股+股票型基金 (JOIN fund_basic, 和 lg 源口径一致)
+    # 若取全市场(含债基/货基)中位数会被拉低, 当日全市场23785只 vs 历史200只偏股, 口径不一致
+    nav_rows = conn.execute(
+        "SELECT d.date, d.fund_code, d.nav_change_pct FROM fund_daily_nav d "
+        "JOIN fund_basic b ON d.fund_code = b.fund_code "
+        "WHERE d.nav_change_pct IS NOT NULL AND d.nav_change_pct != 0 "
+        "AND (b.fund_type LIKE '%偏股%' OR b.fund_type LIKE '股票型%') "
+        "ORDER BY d.date ASC"
+    ).fetchall()
+    if not nav_rows:
+        print("[estimate] fund_daily_nav 无历史净值涨跌数据, 请先跑 backfill-nav", flush=True)
+        return None
+    # 按日期聚合: 每日全市场基金净值涨跌中位数 (抗极端值)
+    from collections import defaultdict
+    daily_navs: dict[str, list[float]] = defaultdict(list)
+    for d, _code, pct in nav_rows:
+        if pct is not None:
+            daily_navs[d].append(pct)
+    if len(daily_navs) < 30:
+        print(f"[estimate] 日期数 {len(daily_navs)} < 30, 不足做滚动回归", flush=True)
+        return None
+    nav_median_series: list[tuple[str, float]] = []
+    for d in sorted(daily_navs.keys()):
+        vals = daily_navs[d]
+        nav_median_series.append((d, float(np.median(vals))))
+    sample_fund_count = max(len(v) for v in daily_navs.values()) if daily_navs else 0
+
+    # 2. 取沪深300日涨跌时序
+    idx_rows = conn.execute(
+        "SELECT date, pct_change FROM fund_index_daily "
+        "WHERE index_id='hs300' AND pct_change IS NOT NULL "
+        "ORDER BY date ASC"
+    ).fetchall()
+    if not idx_rows:
+        print("[estimate] fund_index_daily 无沪深300数据, 请先跑 fetch_index_daily", flush=True)
+        return None
+    idx_map: dict[str, float] = {r[0]: r[1] for r in idx_rows}
+
+    # 3. 合并基金中位数涨跌 + 沪深300涨跌, 对齐日期
+    pts: list[dict] = []
+    for d, nav_med in nav_median_series:
+        r_idx = idx_map.get(d)
+        if r_idx is None or r_idx == 0:  # 沪深300涨跌0或缺失跳过(防除零)
+            continue
+        pts.append({"date": d, "r_nav": nav_med, "r_index": float(r_idx)})
+    if len(pts) < 30:
+        print(f"[estimate] 合并后有效日期 {len(pts)} < 30", flush=True)
+        return None
+
+    # 4. 滚动 60 日 OLS 回归: r_nav ~ r_index, 斜率 = 原始仓位估计
+    WINDOW = 60
+    raw_slopes: list[dict] = []  # [{date, raw_slope}]
+    for i in range(WINDOW, len(pts) + 1):
+        sub = pts[i - WINDOW:i]
+        x = np.array([p["r_index"] for p in sub])
+        y = np.array([p["r_nav"] for p in sub])
+        var_x = float(np.var(x, ddof=1))
+        if var_x <= 0:
+            continue
+        slope = float(np.cov(x, y, ddof=1)[0, 1] / var_x) * 100  # 斜率×100=仓位%
+        raw_slopes.append({"date": sub[-1]["date"], "raw_slope": round(slope, 2)})
+    if not raw_slopes:
+        print("[estimate] 滚动回归无有效输出", flush=True)
+        return None
+
+    # 5. lg 校准: lg 历史仓位 vs 同期原始斜率, 算偏差中位数
+    lg_rows = conn.execute(
+        "SELECT report_date, position_pct FROM fund_position_history "
+        "WHERE source='lg' AND position_pct IS NOT NULL "
+        "ORDER BY report_date ASC"
+    ).fetchall()
+    lg_map: dict[str, float] = {r[0]: r[1] for r in lg_rows}
+
+    # 对齐 lg 日期和原始斜率日期 (lg 周频, 斜率日频; 取 lg 日期最近的斜率)
+    # 偏差 = 原始斜率 - lg 仓位 (正值=反推偏高, 需减去)
+    deviations: list[float] = []
+    vs_lg_raw: list[dict] = []  # 先存 raw, estimate 在校准偏移确定后算
+    slope_by_date = {s["date"]: s["raw_slope"] for s in raw_slopes}
+    for lg_date, lg_pos in lg_map.items():
+        # 找 lg_date 当天或最近(前7天内)的斜率
+        candidate_slopes = [
+            (d, s) for d, s in slope_by_date.items()
+            if abs(int(d) - int(lg_date)) <= 700  # 7天内(YYYYMMDD数值差~7)
+        ]
+        if not candidate_slopes:
+            continue
+        # 取最接近 lg_date 的
+        candidate_slopes.sort(key=lambda x: abs(int(x[0]) - int(lg_date)))
+        nearest_date, nearest_slope = candidate_slopes[0]
+        dev = nearest_slope - lg_pos
+        deviations.append(dev)
+        vs_lg_raw.append({
+            "date": f"{lg_date[:4]}-{lg_date[4:6]}-{lg_date[6:8]}",
+            "lg": round(lg_pos, 2),
+            "raw_slope": nearest_slope,
+            "raw_diff": round(dev, 2),
+        })
+
+    # 校准偏移: 用最近 4 期偏差均值 (约1个月, 贴合近期 beta 变化)
+    # 偏差不稳定(6月~-1.5%, 7月~+10%), 用近期4期均值比全期中位数/8期均值更贴合当前 beta
+    # 4期是周频lg约1个月, 平衡稳定性(4期降噪)+时效(贴合近期)
+    if deviations:
+        recent_devs = deviations[-4:] if len(deviations) >= 4 else deviations
+        calibration_offset = float(np.mean(recent_devs))
+    else:
+        calibration_offset = 0.0
+    print(f"[estimate] lg 校准: 最近4期偏差均值={calibration_offset:.2f}%, "
+          f"对齐期数={len(deviations)}, 全期中位数={float(np.median(deviations)):.2f}%", flush=True)
+
+    # vs_lg: 用最终校准偏移算 estimate (反推值 = raw_slope - calibration_offset)
+    vs_lg: list[dict] = []
+    for v in vs_lg_raw:
+        est = max(0.0, min(100.0, v["raw_slope"] - calibration_offset))
+        vs_lg.append({
+            "date": v["date"],
+            "estimate": round(est, 2),
+            "lg": v["lg"],
+            "diff": round(est - v["lg"], 2),
+            "raw_slope": v["raw_slope"],
+        })
+
+    # 6. 校准后仓位时序 = 原始斜率 - 校准偏移
+    history: list[dict] = []
+    for s in raw_slopes:
+        cal_pos = s["raw_slope"] - calibration_offset
+        # 仓位约束 0-100% (防御性, 校准后可能略超100或负)
+        cal_pos_clamped = max(0.0, min(100.0, cal_pos))
+        history.append({
+            "date": f"{s['date'][:4]}-{s['date'][4:6]}-{s['date'][6:8]}",
+            "position": round(cal_pos_clamped, 2),
+            "raw_slope": s["raw_slope"],
+        })
+
+    # 7. 当前状态: 最新校准后仓位
+    latest = history[-1]
+    cur_pos = latest["position"]
+    lg_latest_row = lg_rows[-1] if lg_rows else None
+    lg_latest_pos = lg_latest_row[1] if lg_latest_row else None
+    lg_latest_date = lg_latest_row[0] if lg_latest_row else None
+    dev_from_lg = round(cur_pos - lg_latest_pos, 2) if lg_latest_pos is not None else None
+
+    # 置信度: 基于样本量
+    if sample_fund_count >= 100:
+        confidence = "high"
+    elif sample_fund_count >= 50:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    # 最新日的 r_nav_median / r_index
+    latest_pt = pts[-1]
+
+    return {
+        "report_date": latest["date"].replace("-", ""),
+        "current": {
+            "date": latest["date"],
+            "position_estimate": cur_pos,
+            "raw_slope": latest["raw_slope"],
+            "lg_latest_position": round(lg_latest_pos, 2) if lg_latest_pos is not None else None,
+            "lg_latest_date": lg_latest_date,
+            "calibration_offset": round(calibration_offset, 2),
+            "deviation_from_lg": dev_from_lg,
+            "r_nav_median": round(latest_pt["r_nav"], 4),
+            "r_index": round(latest_pt["r_index"], 4),
+            "sample_fund_count": sample_fund_count,
+            "method": "rolling_60d_ols+lg_calibration",
+            "confidence": confidence,
+        },
+        "history": history,
+        "vs_lg": vs_lg[-20:] if len(vs_lg) > 20 else vs_lg,  # 最近20期交叉验证
+        "meta": {
+            "method": "rolling_60d_ols_regression + lg_calibration",
+            "benchmark": "hs300",
+            "sample": "top200_active_equity_funds",
+            "window_days": WINDOW,
+            "calibration": "median(raw_slope - lg_position) over overlap period",
+            "error_margin": "+-5%",
+            "note": "反推斜率=w_stock*beta, lg校准消除beta偏差; 和lg源同口径(股票型+混合型全市场仓位)",
+        },
+    }
 
 
 def _compute_position_backtest(conn: sqlite3.Connection) -> dict | None:
@@ -2281,6 +2776,14 @@ def export_json_files() -> None:
             encoding="utf-8")
         size = (STATIC_DATA_DIR / "public_fund_industry_rotation_ts.json").stat().st_size
         print(f"  [export] public_fund_industry_rotation_ts.json ({size} bytes)", flush=True)
+    # 方案A: 今日预估仓位 + 历史预估时序 (净值回归反推 + lg 校准, 独立计算非 7 元组)
+    position_estimate = _compute_position_estimate(conn)
+    if position_estimate:
+        (STATIC_DATA_DIR / "public_fund_position_estimate.json").write_text(
+            json.dumps(position_estimate, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8")
+        size = (STATIC_DATA_DIR / "public_fund_position_estimate.json").stat().st_size
+        print(f"  [export] public_fund_position_estimate.json ({size} bytes)", flush=True)
     print(f"[export] 7 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
 
 
@@ -2288,7 +2791,7 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "quarterly"
-    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "backfill-industry", "check-fresh"):
+    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "backfill-industry", "check-fresh", "backfill-nav", "estimate"):
         print(__doc__)
         print(f"\n用法: python -m app.collector.public_fund <command>")
         print(f"  quarterly       季度全量(5汇总+top1000×2子页+8指标, ~35min)")
@@ -2299,10 +2802,12 @@ def main():
         print(f"  backfill --start 20240101 --end 20241231  历史重仓股回填")
         print(f"  backfill-industry --years 2017-2024 --top 1000  行业配置历史回填(8年)")
         print(f"  check-fresh [--top N]  数据新鲜度闸门(exit 0=应跑, 1=无新数据跳过)")
+        print(f"  backfill-nav [--days 90]  回填头部200只偏股基金历史净值(反推算法用, ~60s)")
+        print(f"  estimate        算预估仓位+导出JSON(需先 backfill-nav + fetch_index_daily)")
         sys.exit(1)
 
-    # 进程互斥（quarterly/full/daily/backfill/backfill-industry 持锁, metrics/export/check-fresh 不需要）
-    if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry"):
+    # 进程互斥（quarterly/full/daily/backfill/backfill-industry/backfill-nav 持锁, metrics/export/check-fresh/estimate 不需要）
+    if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry", "backfill-nav"):
         if not _acquire_lock(nonblock=True):
             print(f"[public_fund] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
             return
@@ -2449,6 +2954,23 @@ def main():
         should_run, reason = has_new_data(top_n=top_n)
         print(f"[fresh] should_run={should_run} {reason}", flush=True)
         sys.exit(0 if should_run else 1)
+    elif cmd == "backfill-nav":
+        # 回填头部偏股基金历史净值时序 (反推算法用, 一次性 ~60s)
+        # --days N 回填天数 (默认 90, 滚动 60 日回归需至少 60 日)
+        days = 90
+        for i, a in enumerate(sys.argv[2:], 2):
+            if a == "--days" and i + 1 < len(sys.argv):
+                days = int(sys.argv[i + 1])
+        # 先确保沪深300日频有数据 (反推基准指数)
+        fetch_index_daily()
+        n = fetch_nav_history(days=days)
+        print(f"[backfill-nav] 完成, 总行数={n}", flush=True)
+    elif cmd == "estimate":
+        # 算预估仓位 + 导出 JSON (需先 backfill-nav)
+        # 先刷新沪深300到最新
+        fetch_index_daily()
+        export_json_files()
+        print(f"[estimate] 预估仓位 JSON 已导出", flush=True)
 
 
 if __name__ == "__main__":

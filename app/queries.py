@@ -1419,6 +1419,20 @@ def public_fund_holding_concentration_ts():
         conn.close()
 
 
+def public_fund_position_estimate():
+    """方案A: 今日预估仓位 + 历史预估时序 (净值回归反推 + lg 校准)。
+    独立计算(不走 export_data 7 元组), 复用 fund_daily_nav 历史净值时序 + fund_index_daily 沪深300。
+    返回 {report_date, current{position_estimate,raw_slope,lg_latest_position,...},
+    history:[{date,position,raw_slope}], vs_lg:[{date,estimate,lg,diff}], meta}。
+    需先跑 `python -m app.collector.public_fund backfill-nav` 回填历史净值 + fetch_index_daily 沪深300。"""
+    from .collector.public_fund import _compute_position_estimate, get_conn
+    conn = get_conn()
+    try:
+        return _compute_position_estimate(conn)
+    finally:
+        conn.close()
+
+
 def public_fund_scale_change_ts():
     """N功能: 全市场规模变动历史时序(113期季报, 1998Q2-2026Q2)。
     独立计算(不走 export_data 7 元组), 复用 fund_scale_change 全量时序。
