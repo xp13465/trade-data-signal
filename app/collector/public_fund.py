@@ -1739,6 +1739,82 @@ def _compute_position_backtest(conn: sqlite3.Connection) -> dict | None:
     }
 
 
+def _compute_holding_concentration_timeseries(conn: sqlite3.Connection) -> dict | None:
+    """N功能: 抱团集中度历史时序(10期季报)。
+
+    输入: fund_holding_stock 全部 report_date(当前2期+回填8期=10期)
+    输出: holding_concentration_ts JSON 产物, 供前端 N 多信号共振仪表盘。
+
+    每期算:
+    - concentration_top10: Top10 重仓股 hold_value_total 占全市场比例(持仓市值集中度)
+    - concentration_top20: Top20 重仓股 hold_value_total 占全市场比例
+    - herfindahl: Top100 重仓股基金覆盖家数 Herfindahl 指数(和 compute_metrics 口径一致,
+      H = Σ(fund_count_i / Σfund_count)^2, 值越大抱团越集中)
+    - fund_count: 该期 Top100 总基金覆盖家数
+    - total_stocks: 该期总股票数
+    - total_value_wan: 该期全市场持仓总市值(万元)
+    - top10_stocks: Top10 详情 [{code, name, fund_count, value}]
+
+    独立计算, 不走 export_data() 7 元组(避免破坏解包, 参考 _compute_position_backtest 模式)。
+    """
+    # 取所有 report_date 升序
+    dates = [r[0] for r in conn.execute(
+        "SELECT DISTINCT report_date FROM fund_holding_stock ORDER BY report_date ASC"
+    ).fetchall()]
+    if not dates:
+        return None
+
+    series: list[dict] = []
+    for d in dates:
+        # 取该期全量数据(按 hold_value_total 降序)
+        rows = conn.execute(
+            "SELECT stock_code, stock_name, fund_count, hold_value_total "
+            "FROM fund_holding_stock WHERE report_date=? "
+            "ORDER BY hold_value_total DESC",
+            (d,),
+        ).fetchall()
+        if not rows:
+            continue
+
+        total_value = sum(r[3] or 0 for r in rows) or 1
+        # Top100 基金覆盖家数(和 compute_metrics L1224-1226 口径一致)
+        top100 = rows[:100]
+        total_fund_count_top100 = sum(r[2] or 0 for r in top100) or 1
+
+        # Top10/Top20 持仓市值集中度
+        top10_value = sum(r[3] or 0 for r in rows[:10])
+        top20_value = sum(r[3] or 0 for r in rows[:20])
+        conc_top10 = round(top10_value / total_value, 6) if total_value else None
+        conc_top20 = round(top20_value / total_value, 6) if total_value else None
+
+        # Herfindahl: Top100 基金覆盖家数份额平方和
+        herf = sum(((r[2] or 0) / total_fund_count_top100) ** 2 for r in top100)
+        herf = round(herf, 6) if top100 else None
+
+        series.append({
+            "date": d,
+            "concentration_top10": conc_top10,
+            "concentration_top20": conc_top20,
+            "herfindahl": herf,
+            "fund_count": total_fund_count_top100,
+            "total_stocks": len(rows),
+            "total_value_wan": round(total_value, 2),
+            "top10_stocks": [
+                {"code": r[0], "name": r[1], "fund_count": r[2], "value": r[3]}
+                for r in rows[:10]
+            ],
+        })
+
+    if not series:
+        return None
+
+    return {
+        "report_date": series[-1]["date"],  # 最新期
+        "period_count": len(series),
+        "series": series,
+    }
+
+
 def export_data() -> tuple[dict, dict, dict, dict, dict, dict, dict]:
     """导出 7 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map / manuf_subind_fund_map。
 
@@ -1972,9 +2048,11 @@ def export_json_files() -> None:
         size = (STATIC_DATA_DIR / fname).stat().st_size
         print(f"  [export] {fname} ({size} bytes)", flush=True)
     # G功能: 88 魔咒历史回测(独立计算, 不走 export_data 7 元组, 避免解包破坏)
+    # N功能: 抱团集中度历史时序(独立计算, 同模式, 复用 conn)
     conn = get_conn()
     try:
         backtest = _compute_position_backtest(conn)
+        concentration_ts = _compute_holding_concentration_timeseries(conn)
     finally:
         conn.close()
     if backtest:
@@ -1983,6 +2061,12 @@ def export_json_files() -> None:
             encoding="utf-8")
         size = (STATIC_DATA_DIR / "public_fund_position_backtest.json").stat().st_size
         print(f"  [export] public_fund_position_backtest.json ({size} bytes)", flush=True)
+    if concentration_ts:
+        (STATIC_DATA_DIR / "public_fund_holding_concentration_ts.json").write_text(
+            json.dumps(concentration_ts, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8")
+        size = (STATIC_DATA_DIR / "public_fund_holding_concentration_ts.json").stat().st_size
+        print(f"  [export] public_fund_holding_concentration_ts.json ({size} bytes)", flush=True)
     print(f"[export] 7 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
 
 
