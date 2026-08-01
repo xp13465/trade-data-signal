@@ -351,9 +351,11 @@ main { padding: 16px 24px; }
 }
 /* 大盘 tab(A股/港股/全球)内的 chart-card: sticky 吸顶叠加三层(一级 tab 栏 + 二级 subtab-bar + 指数目录 anchorBar),
    原始 tab-h+56 只覆盖一层 tab + anchorBar, 在 .market-sub-content 内标题被 subtab-bar + anchorBar 遮挡(差 ~subtab-h),
-   需追加 --subtab-h 才能让 scrollIntoView block:'start' 跳到吸顶条下方(2026-08-01 修复纳斯达克100标题被盖问题) */
+   需追加 --subtab-h 才能让 scrollIntoView block:'start' 跳到吸顶条下方(2026-08-01 修复纳斯达克100标题被盖问题)。
+   2026-08-02 二次修复: +56px 余量不够(实测仍盖标题底边), 增到 +100px(anchorBar ~42px + ~58px 呼吸空间),
+   覆盖 anchorBar 在窄屏 flex-wrap 变 2 行的高度波动, 确保 scrollIntoView block:'start' 标题不被吸顶条盖 */
 .market-sub-content .chart-card {
-  scroll-margin-top: calc(var(--tab-h, 41px) + var(--subtab-h, 46px) + 56px);
+  scroll-margin-top: calc(var(--tab-h, 41px) + var(--subtab-h, 46px) + 100px);
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); padding-right: 4px; }
 /* 盘中标注角标：右下角浮动药丸(absolute 不占位)，半透明毛玻璃背景像贴纸浮于内容之上，区分盘中(绿)/午休(黄)/待收盘(灰)/收盘(主题色) */

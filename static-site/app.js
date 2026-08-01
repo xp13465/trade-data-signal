@@ -10855,18 +10855,25 @@ let _industryScrollSpy = null;
 // 每项是一个 IntersectionObserver 实例, buildIndexAnchorBar 内 push, clearCharts 内统一 disconnect
 let _indexNavSpies = [];
 
-// 指数目录锚点跳转高亮计时器(模块级, 跨多次 chip 点击共享, 新点击清旧 timer 重启闪烁)
+// 指数目录锚点跳转高亮计时器+当前高亮卡(模块级, 跨多次 chip 点击共享)
+// 连点 n 个 chip 时, 前 n-1 个 setTimeout 被第 n 个 clearTimeout 覆盖, 旧卡 class 没被移除 -> 残留高亮
+// 修复: 单高亮切换, 新点击立即清旧卡 class + 清旧 timer, 切换高亮到新卡(任意时刻只 1 个卡高亮)
 let _indexNavFlashTimer = null;
+let _indexNavFlashCard = null;
 // 给目标卡片加 .index-nav-highlight 闪烁 2s 提示用户跳到哪了(2026-08-01)
-// 多次点击同一/不同 chip: 先 remove 强制 reflow 重启动画, 再 add; 旧 timer 清掉重设
+// 多次点击同一/不同 chip: 先 remove 旧卡 class + 清旧 timer, 再 add 新卡 class 重启动画
 function _flashIndexNavCard(el) {
+  // 清前一个高亮(连点相邻 chip 时, 旧卡的 setTimeout 会被覆盖致 class 残留, 这里主动清)
+  if (_indexNavFlashTimer) { clearTimeout(_indexNavFlashTimer); _indexNavFlashTimer = null; }
+  if (_indexNavFlashCard) { _indexNavFlashCard.classList.remove("index-nav-highlight"); _indexNavFlashCard = null; }
   if (!el) return;
   el.classList.remove("index-nav-highlight");
   void el.offsetWidth;  // 强制 reflow, 重启 CSS animation
   el.classList.add("index-nav-highlight");
-  if (_indexNavFlashTimer) clearTimeout(_indexNavFlashTimer);
+  _indexNavFlashCard = el;
   _indexNavFlashTimer = setTimeout(() => {
     el.classList.remove("index-nav-highlight");
+    _indexNavFlashCard = null;
     _indexNavFlashTimer = null;
   }, 2000);
 }
