@@ -2894,7 +2894,13 @@ async function fetchJSON(url) {
     : _origQuery;
   // R2 全迁后 ./data/ 与 https://ssd.fx8.store/ 均走 .gz 优先(DecompressionStream 解压)
   // 时效敏感URL跳过.gz(.gz走worker兜底无max-age CF边缘TTL不可控; raw .json有max-age=60)
-  const tryGz = !_isFresh && (_base.startsWith("./data/") || _base.startsWith("https://ssd.fx8.store/")) && _base.endsWith(".json");
+  // public_fund URL 跳过 .gz(2026-08-01 修复"暂无数据"线上故障):
+  //   .gz 走 CF edge cache(max-age=14400 4h),数据更新后 CF 边缘仍可能 serve 旧 .gz;
+  //   .json cf-cache-status=DYNAMIC 每次回源拿最新; CF 对 .json 自动 br 压缩(transfer ~15KB 接近 .gz 8KB);
+  //   牺牲少许带宽换数据新鲜度 + 消除 .gz 解压失败/CF缓存滞后风险。
+  //   注意: b95a3a4c 修复 holdings top50->top100, 但 CF 缓存旧 .gz(含 top50) 致前端读 holdings.top100=undefined -> 空表"暂无数据"。
+  //   跳过 .gz 后直接 fetch .json(CF br 压缩 + DYNAMIC 不缓存), 确保每次拿最新数据。
+  const tryGz = !_isFresh && (_base.startsWith("./data/") || _base.startsWith("https://ssd.fx8.store/")) && _base.endsWith(".json") && !_base.includes("/public_fund/");
   const gzUrl = tryGz ? _base + ".gz" + _bustQuery : null;
   // 实际请求URL(带cache-busting): 时效敏感用_bustQuery, 其他用原query
   const _fetchUrl = _base + _bustQuery;
@@ -2913,6 +2919,8 @@ async function fetchJSON(url) {
         resp = await doFetch(gzUrl);
         // DecompressionStream 96%+ 兼容;不支持时抛错走 catch fallback
         if (typeof DecompressionStream === "undefined") throw new Error("DecompressionStream unsupported");
+        // resp.body 可能为 null(某些浏览器/拦截场景), pipeThrough 会抛 TypeError; 显式抛错走 fallback
+        if (!resp.body) throw new Error("gz response body is null");
         const ds = new DecompressionStream("gzip");
         const decompressed = resp.body.pipeThrough(ds);
         const txt = await new Response(decompressed).text();
@@ -2921,9 +2929,11 @@ async function fetchJSON(url) {
       resp = await doFetch(_fetchUrl);
       return await resp.json();
     } catch (e) {
-      // .gz 失败(404/解压错/不支持) -> fallback 原 .json(只对原本就是 .gz 尝试的 URL)
+      // .gz 失败(404/解压错/不支持/body null) -> fallback 原 .json(只对原本就是 .gz 尝试的 URL)
+      // 用 _fetchUrl(带 cache-busting) 而非 url(原始), 保持与主路径一致的 cache-busting 语义
       if (gzUrl && !(e && e.name === "AbortError")) {
-        resp = await doFetch(url);
+        console.warn("[fetchJSON] .gz failed, fallback to .json: " + url, e?.message || e);
+        resp = await doFetch(_fetchUrl);
         return await resp.json();
       }
       throw e;
@@ -2939,6 +2949,9 @@ async function fetchJSON(url) {
       if (e && e.name === "AbortError") {
         console.error("fetchJSON timeout (15s): " + url);
         if (typeof renderFailCard !== "function") return null;
+      } else {
+        // 非 abort 错误(网络/CORS/解析/HTTP)也记 console, 便于排查"暂无数据"类故障
+        console.error("fetchJSON failed: " + url, e?.message || e);
       }
       throw e;
     })
