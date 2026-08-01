@@ -5907,3 +5907,28 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **git**：feat 分支 commit（app.js + public_fund.py + deploy.sh + sw.js + NOTES + static-site/data/*.json/.gz）。暂不 deploy/merge main（等主控确认时点）。
 
+### AZ99 2026-08-02 export.py 补写 industry_fund_map + manuf_subind_fund_map 2 JSON（AZ98 遗留缺陷根治）
+
+**背景**：AZ98 ⑤ 只补了 deploy.sh DATA_FILES for 循环（5->7 个 public_fund 文件），但 **`static-site/export.py` L410-424 本身仍只写 5 个 JSON**，漏写 industry_fund_map + manuf_subind_fund_map（第 6/7 值）。AZ98 当时靠 collector `export_json_files()` 单独写 7 JSON 兜底上线，但**下次季报（9月底）走 export.py 主流水线时这 2 JSON 不会重新生成 -> 数据滞后**。同理 `app/queries.py` 只有 5 个薄包装（commit 190c8f7e 适配了 5->7 值解包但没加第 6/7 薄包装），export.py 无从调用。
+
+**根因**：commit 0d4ee489 让 `collector.public_fund.export_data()` 返回 7 元组，commit 190c8f7e 修了 queries.py 5 个薄包装的 5->7 值解包（防 unpack 崩），但**两处漏**：
+1. `static-site/export.py` L408-424 只调 5 个 `export_public_fund_*()` helper 写 5 JSON，没加第 6/7 helper + write_json
+2. `app/queries.py` L1338-1377 只有 5 个薄包装，没加 `public_fund_industry_fund_map()` / `public_fund_manuf_subind_fund_map()`
+
+**修复（commit 5a6c3f93）**：
+- `app/queries.py` L1381-1396：加 2 个薄包装 `public_fund_industry_fund_map()` / `public_fund_manuf_subind_fund_map()`，各取 `export_data()` 第 6/7 值；注释 5->7 薄包装
+- `static-site/export.py` L215-222：加 2 个 helper `export_public_fund_industry_fund_map()` / `export_public_fund_manuf_subind_fund_map()`（薄包装 queries）；L436-441 加 2 行 `write_json`；注释 5 类->7 类端点
+- `scripts/deploy.sh` L289：行号范围 L410-424 -> L410-441（注释准确性，for 循环 AZ98 已改）
+
+**验收（cwd=trade-data 读主库跑 queries 薄包装）**：
+- industry_fund_map: report_date=20260630, 27行业, 制造业935只 ✓ (676266 bytes)
+- manuf_subind_fund_map: report_date=20260630, 19子行业, 电子712/通信431 ✓ (366899 bytes)
+- 双路径（trade-data + trade）MD5 一致
+- R2 上传 14/14 成功（含 2 新 JSON）
+- deploy.sh 跑通：commit ab130ad4 data update [all]，push 到 main（rebase 后 bead295e..ab130ad4）
+- 3 域名验证：ss.fx8.store sw=ui75（未改 app.js 不 bump）/ sss.sugas.site sw=ui75 / ssd.fx8.store R2 2 JSON HTTP 200（manuf 初次 404 系 R2 eventual consistency，重试 200）
+
+**【教训】**：AZ98 ⑤ 只补 deploy.sh DATA_FILES 清单不够，export.py 写盘代码本身漏写才是根因。新产物上线 checklist：① collector export_data() 返回值 ② queries.py 薄包装 ③ export.py helper + write_json ④ deploy.sh DATA_FILES for 循环 ⑤ upload_r2 前缀命令，5 处缺一不可。AZ98 只做了 ①④⑤，漏 ②③，本次补 ②③ 根治。
+
+**【关联】** AZ98 方案C Step5（首次上线 manuf_subind_fund_map）+ memory export-output-path-sync（双路径同步陷阱）+ CLAUDE.md §9（cwd=trade-data 读主库铁律）。
+
