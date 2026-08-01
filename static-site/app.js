@@ -9761,42 +9761,136 @@ async function renderPublicFund(container) {
     </table></div>`;
   twoCol.appendChild(top30Card);
 
-  // 右: 行业配置柱状图
+  // 右: 行业配置柱状图(Top15+其他聚合) + TreeMap 全景(合并重复分类后全行业)
+  // 合并映射表: 67 行业 = 申万中文大类 + GICS中文短名 + GICS带编号 + GICS中英文 多套分类混合, 归并为标准名
+  // 合并时 weight/value/fundCount 累加(同基金多分类会重复计 fundCount, 仅作展示用)
+  const IND_MERGE_MAP = {
+    '信息传输、软件和信息技术服务业': '信息技术', '信息技术': '信息技术', '信息科技': '信息技术',
+    '45信息技术': '信息技术', '信息技术InformationTechnology': '信息技术', '科技': '信息技术',
+    '金融业': '金融业', '金融': '金融业', '40金融': '金融业', 'E金融': '金融业', '金融Financials': '金融业',
+    '房地产业': '房地产业', '房地产': '房地产业', '房地产RealEstate': '房地产业', '60房地产': '房地产业', '地产业': '房地产业',
+    '材料': '材料', '原材料': '材料', '15原材料': '材料', '材料Materials': '材料', '基础材料': '材料',
+    '工业': '工业', '20工业': '工业', 'G工业': '工业', '工业Industrials': '工业',
+    '能源': '能源', 'D能源': '能源',
+    '公用事业': '公用事业', 'J公用事业': '公用事业',
+    '医疗保健': '医疗保健', '医疗': '医疗保健', '35医疗保健': '医疗保健', '保健HealthCare': '医疗保健',
+    '非日常生活消费品': '非必需消费品', '非必需消费品': '非必需消费品', '25可选消费': '非必需消费品',
+    '非必需消费品ConsumerDiscretionary': '非必需消费品', '消费者非必需品': '非必需消费品', '非周期性消费品': '非必需消费品',
+    '必需消费品': '必需消费品', '日常消费品': '必需消费品', '30日常消费': '必需消费品',
+    '必需消费品ConsumerStaples': '必需消费品', '消费者常用品': '必需消费品',
+    '通讯': '通信服务', '通讯业务': '通信服务', '通信服务': '通信服务',
+    '50电信服务': '通信服务', '电信服务': '通信服务', '电信业务': '通信服务', '通信服务CommunicationServices': '通信服务',
+  };
+  const _rawInd = (industry && industry.industries ? industry.industries : []);
+  const _mergedMap = new Map();
+  for (const d of _rawInd) {
+    const name = IND_MERGE_MAP[d.industry_name] || d.industry_name;
+    if (!_mergedMap.has(name)) _mergedMap.set(name, { name, weight: 0, value: 0, fundCount: 0, industryCount: 0 });
+    const m = _mergedMap.get(name);
+    m.weight += d.total_weight || 0;
+    m.value += d.total_value || 0;
+    m.fundCount += d.fund_count || 0;
+    m.industryCount += 1;
+  }
+  const indData = Array.from(_mergedMap.values()).sort((a, b) => b.weight - a.weight);
+  const indTotalWeight = indData.reduce((s, d) => s + d.weight, 0) || 1;
+
   const indCard = document.createElement("div");
   indCard.className = "chart-card";
-  indCard.innerHTML = '<div class="chart-title">🏭 行业配置（按抱团集中度降序）</div>'
-    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">权重和 = 全市场基金该行业权重%求和，越大=越多基金重配=抱团越集中；红柱右 label = 平均权重%</div>'
-    + '<div class="chart" style="height:420px"></div>';
+  indCard.innerHTML = '<div class="chart-title">🏭 行业配置（按抱团集中度降序，已合并重复分类）</div>'
+    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">权重和 = 全市场基金该行业权重%求和；Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度；红柱右 label = 平均权重%</div>'
+    + '<div class="chart pf-ind-bar" style="height:500px"></div>'
+    + '<div class="chart-title" style="margin-top:8px">🎯 抱团集中度全景（矩形面积=持仓权重和）</div>'
+    + '<div class="chart pf-ind-treemap" style="height:200px"></div>';
   twoCol.appendChild(indCard);
 
-  const indData = (industry && industry.industries ? industry.industries : [])
-    .map((d) => ({ name: d.industry_name, weight: d.total_weight, value: d.total_value, fundCount: d.fund_count }))
-    .sort((a, b) => b.weight - a.weight);
-  const indChart = echarts.init(indCard.querySelector(".chart"));
+  // 柱状图: Top15 + 其他聚合(长尾合并为单根"其他"柱)
+  const TOP_N = 15;
+  const _top = indData.slice(0, TOP_N);
+  const _rest = indData.slice(TOP_N);
+  const barData = _top.slice();
+  if (_rest.length > 0) {
+    const _restAgg = _rest.reduce((acc, d) => {
+      acc.weight += d.weight; acc.value += d.value; acc.fundCount += d.fundCount; acc.industryCount += d.industryCount;
+      return acc;
+    }, { name: '其他', weight: 0, value: 0, fundCount: 0, industryCount: 0 });
+    barData.push(_restAgg);
+  }
+  const indChart = echarts.init(indCard.querySelector(".pf-ind-bar"));
   charts.push(indChart);
   indChart.setOption({
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (p) => {
       const d = p[0].data;  // series data object, 跟随 .reverse() 后显示顺序, 避免 indData[dataIndex] 用原始降序错位
       // d.value = weight = SUM(weight_pct) 全市场基金该行业权重%求和(非 0-1 归一化), 用于柱状图排序(抱团集中度)
-      // 平均权重 = d.value / d.fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%, 信息传输≈5.6%)
+      // 平均权重 = d.value / d.fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%)
       // d.totalValue = SUM(hold_value) 单位万元, /1e4 转亿
+      // d.industryCount = 合并前原始分类数(>1 说明合并过, tooltip 显示合并说明)
       const avgPct = (d.value / d.fundCount).toFixed(1);
+      const pctOfTotal = (d.value / indTotalWeight * 100).toFixed(2);
+      const mergeInfo = d.industryCount > 1
+        ? (d.name === '其他'
+          ? `<br/>📦 其他 = ${d.industryCount} 个长尾行业合计(权重和占全行业 ${pctOfTotal}%)<br/>`
+          : `<br/>🔀 已合并 ${d.industryCount} 个原始分类(申万/GICS/带编号)<br/>`)
+        : '';
       return `${d.name}<br/><br/><b style="font-size:13px">📊 平均权重: ${avgPct}%</b><br/>` +
         `<span style="color:var(--text-3)">= 平均每只基金把 ${avgPct}% 仓位配在该行业</span><br/>` +
         `<span style="color:var(--text-3)">(全市场 ${d.fundCount} 只基金该行业权重%的平均值)</span><br/>` +
         `<br/>💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><span style="color:var(--text-3)"> (全市场基金该行业持仓总市值)</span><br/>` +
         `🏦 基金数: <b>${d.fundCount}</b><span style="color:var(--text-3)"> 只基金持有该行业</span><br/>` +
-        `<br/>📌 权重和: <b>${d.value.toFixed(1)}</b><span style="color:var(--text-3)"> (用于柱状图排序)</span><br/>` +
-        `<span style="color:var(--text-3)">权重和越大 = 越多基金重配 = 抱团越集中</span>`;
+        `<br/>📌 权重和: <b>${d.value.toFixed(1)}</b><span style="color:var(--text-3)"> (用于柱状图排序, 占全行业 ${pctOfTotal}%)</span><br/>` +
+        `<span style="color:var(--text-3)">权重和越大 = 越多基金重配 = 抱团越集中</span>` +
+        mergeInfo;
     }},
     grid: { left: 10, right: 30, top: 10, bottom: 10, containLabel: true },
-    xAxis: { type: "value", axisLabel: { fontSize: 10 } },
-    yAxis: { type: "category", data: indData.map((d) => d.name).reverse(), axisLabel: { fontSize: 10, width: 140, overflow: "break", lineHeight: 12 } },
+    xAxis: { type: "value", axisLabel: { fontSize: 12 } },
+    yAxis: { type: "category", data: barData.map((d) => d.name).reverse(), axisLabel: { fontSize: 12, width: 120, overflow: "break", lineHeight: 13 } },
     series: [{
-      // data 用 object 形式带 fundCount/name/totalValue, 供 label 算平均权重% 和 tooltip 直接取;
+      // data 用 object 形式带 fundCount/name/totalValue/industryCount, 供 label 算平均权重% 和 tooltip 直接取;
       // tooltip 从 p[0].data 取(跟随 .reverse() 后顺序), 不再用 indData[dataIndex] 原始降序避免错位
-      type: "bar", data: indData.map((d) => ({ value: d.weight, fundCount: d.fundCount, name: d.name, totalValue: d.value })).reverse(), itemStyle: { color: "#e6492e" },
-      label: { show: true, position: "right", formatter: (p) => (p.data.value / p.data.fundCount).toFixed(1) + "%", fontSize: 10 },
+      type: "bar", data: barData.map((d) => ({ value: d.weight, fundCount: d.fundCount, name: d.name, totalValue: d.value, industryCount: d.industryCount })).reverse(), itemStyle: { color: "#e6492e" },
+      label: { show: true, position: "right", formatter: (p) => (p.data.value / p.data.fundCount).toFixed(1) + "%", fontSize: 11 },
+    }],
+  });
+
+  // TreeMap 全景(合并后全行业不截断, 矩形面积=权重和, 颜色深浅=value 大小)
+  const treemapChart = echarts.init(indCard.querySelector(".pf-ind-treemap"));
+  charts.push(treemapChart);
+  treemapChart.setOption({
+    tooltip: { formatter: (p) => {
+      // treemap tooltip 从 p.data 取(同柱状图口径, 不依赖外部 indData 数组避免错位)
+      const d = p.data;
+      const avgPct = (d.value / d.fundCount).toFixed(1);
+      const pctOfTotal = (d.value / indTotalWeight * 100).toFixed(2);
+      const mergeInfo = d.industryCount > 1 ? `<br/>🔀 已合并 ${d.industryCount} 个原始分类` : '';
+      return `${d.name}<br/><br/>📦 权重和: <b>${d.value.toFixed(1)}</b> (占 ${pctOfTotal}%)<br/>` +
+        `📊 平均权重: <b>${avgPct}%</b><br/>` +
+        `💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><br/>` +
+        `🏦 基金数: <b>${d.fundCount}</b>${mergeInfo}`;
+    }},
+    series: [{
+      type: "treemap",
+      width: '100%', height: '100%',
+      roam: false, nodeClick: false,
+      breadcrumb: { show: false },
+      upperLabel: { show: false },
+      // colorMappingBy: 'value' 按兄弟节点 value 排序映射 color 数组, max 大柱深红, 长尾浅色
+      colorMappingBy: 'value',
+      color: ['#fde4d4', '#fac5a5', '#f88b6a', '#f5704d', '#e6492e', '#9a2a18'],
+      label: {
+        show: true,
+        formatter: (p) => {
+          const d = p.data;
+          const pct = (d.value / indTotalWeight * 100).toFixed(1);
+          return `${d.name} ${pct}%`;
+        },
+        fontSize: 10,
+      },
+      itemStyle: { borderColor: '#fff', borderWidth: 1, gapWidth: 1 },
+      emphasis: { label: { fontSize: 12 } },
+      data: indData.map((d) => ({
+        name: d.name, value: d.weight, fundCount: d.fundCount,
+        totalValue: d.value, industryCount: d.industryCount,
+      })),
     }],
   });
 
