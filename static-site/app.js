@@ -4325,9 +4325,11 @@ function fetchIntradaySnapshot() {
         updateMarketStatusBanner(snap);
         // snap 就绪回调启动 overview 自适应轮询(根治 2s 超时竞态, 2026-07-27):
         // 旧版 _initAutoRefresh 用 Promise.race 2s 超时, 弱网/强刷首屏 snap 未就绪 -> 永不启动.
-        // 现在 snap 何时就绪何时启动, 无超时卡死. 收盘态(is_closed===true)不启动.
+        // 现在 snap 何时就绪何时启动, 无超时卡死.
+        // 盘中(is_closed===false)或盘后(is_closed===true)均启动:
+        // _overviewRefreshDelay 内 is_closed===true 分支自动切5min低频拉盘后overview更新.
         // _startOverviewRefresh 内部先 _stopOverviewRefresh 再置 active=true, 幂等可重复调.
-        if (!_overviewRefreshActive && snap.is_closed === false) {
+        if (!_overviewRefreshActive) {
           _startOverviewRefresh();
         }
       }
@@ -5516,8 +5518,10 @@ async function _doIntradayRefresh() {
   const curSnap = state.intradaySnapshot || ctx.snap;
   if (curSnap && curSnap.is_closed === true) {
     _onMarketClosed(); // 先恢复 badge/chips/时间为收盘态（需 _bannerRenderCtx 未置空）
-    _stopIntradayRefresh();
-    _stopOverviewRefresh(); // 联动停止 overview 自适应轮询（收盘数据不变）
+    _stopIntradayRefresh(); // 分时图盘后无新数据, 停 intraday
+    // 盘后不再 _stopOverviewRefresh: 17:50 update_all + 21:00/02:00 backfill 仍更新 overview.json,
+    // 需5min轮询拉最新. _overviewRefreshDelay 内 is_closed===true 自动切5min低频,
+    // _startMarketOpenCheck 仍3min/15s检测开盘, 开盘后 snap.is_closed=false 自动切3min盘中逻辑.
     return;
   }
   ctx.snap = curSnap;
@@ -5570,6 +5574,7 @@ function _onIntradayVisChange() {
 // 最坏滞后近5min. 自适应层用历史collected_at序列中位数预测下一次推完时刻, 提前30s切高频狂拉, 拉到新即转低频.
 // 兜底保证: 任何情况两次轮询间隔<=3min, 自适应层失效(预测偏差/后端延迟/周期异常)不卡死.
 const OVERVIEW_REFRESH_MS = 3 * 60 * 1000;        // 低频兜底3min(原5min,缩短保证最坏滞后3min)
+const AFTER_HOURS_REFRESH_MS = 5 * 60 * 1000;     // 盘后/收盘(is_closed===true)5min低频轮询: 拉17:50 update_all + 21:00/02:00 backfill 等overview更新
 const OVERVIEW_HIGH_FREQ_MS = 15 * 1000;           // 高频15s: 预测窗口内追后端推完
 const OVERVIEW_PREDICT_LEAD_MS = 30 * 1000;        // 高频窗口提前量: 预测推完前30s开始
 const OVERVIEW_PREDICT_TAIL_MS = 3 * 60 * 1000;    // 高频窗口尾部: 预测推完后3min(覆盖后端耗时波动/延迟)
@@ -5596,8 +5601,11 @@ function _isKeyRefreshMoment() {
   }
   return false;
 }
-// overview低频兜底delay: 关键时点1min / 非关键3min(<=3min兜底铁律)
+// overview低频兜底delay: 盘后5min / 关键时点1min / 非关键3min(<=3min兜底铁律, 盘后5min例外因数据更新慢)
 function _overviewRefreshDelay() {
+  // 盘后/收盘(is_closed===true): 5min低频, 拉17:50 update_all + 21:00/02:00 backfill 等overview更新
+  const snap = state.intradaySnapshot;
+  if (snap && snap.is_closed === true) return AFTER_HOURS_REFRESH_MS;
   return _isKeyRefreshMoment() ? 60 * 1000 : OVERVIEW_REFRESH_MS;
 }
 let _overviewRefreshTimer = null;
@@ -5733,7 +5741,11 @@ async function _doOverviewRefresh() {
     // P2-新-W: 通知检测钩子（overview 刷新成功后触发自定义事件，通知模块监听）
     try { window.dispatchEvent(new CustomEvent('ts:overview-refreshed', { detail: { snap } })); } catch(_e) {}
     if (snap && snap.is_closed === true) {
-      _stopOverviewRefresh(); // 收盘自停
+      // 盘后/收盘不自停: overview.json 仍有17:50 update_all + 21:00/02:00 backfill 等更新,
+      // 走5min低频续拉(延迟由 _overviewRefreshDelay is_closed 分支决定).
+      // _startMarketOpenCheck 仍3min/15s检测重新开盘, snap.is_closed=false 自动切3min盘中逻辑.
+      _recomputeOverviewPrediction();
+      _scheduleNextOverviewRefresh();
       return;
     }
   } catch (e) { /* 静默重试, 不弹错 */ }
@@ -5825,6 +5837,8 @@ function _updateRefreshDebug() {
     } else {
       status = '已停止(收盘)';
     }
+  } else if (state.intradaySnapshot && state.intradaySnapshot.is_closed === true) {
+    status = '盘后5min轮询'; // 收盘态仍轮询: 拉17:50 update_all + 21:00/02:00 backfill 等 overview 更新
   } else if (_overviewHighFreqStart && now >= _overviewHighFreqStart && now < _overviewHighFreqEnd) {
     status = '高频追新';
   } else if (_overviewHighFreqStart && now < _overviewHighFreqStart) {
@@ -5884,12 +5898,17 @@ function _startMarketOpenCheck() {
   };
   const tick = async () => {
     _marketOpenCheckTimer = null; // 当前timer已触发, 清标记允许重排
-    if (!_overviewRefreshActive) {
-      // 盘中轮询未启动(收盘态/盘前)才检测: fetch看是否开盘
+    // 检测市场是否开盘(切换 is_closed 状态): fetch看是否开盘
+    // 盘前(无snap或snap.is_closed===true): 15s/3min快检测, 等9:25竞价完成/9:30开盘切换
+    // 盘后(active && is_closed===true): 仍3min检测开盘, 开盘后 snap.is_closed=false 自动切盘中逻辑
+    // 盘中(active && !is_closed): 跳过(_doOverviewRefresh 内部已 fetch snap, 不重复)
+    const curSnap = state.intradaySnapshot;
+    const needCheck = !_overviewRefreshActive || !curSnap || curSnap.is_closed === true;
+    if (needCheck) {
       _intradaySnapPromise = null; // 清单例强制重新fetch
       try { await fetchIntradaySnapshot(); } catch (e) {}
-      // fetchIntradaySnapshot 回调内: if(!_overviewRefreshActive && snap.is_closed===false) _startOverviewRefresh()
-      // 开盘则自动启动轮询+debug状态条, 无需此处手动调
+      // fetchIntradaySnapshot 回调内: if(!_overviewRefreshActive) _startOverviewRefresh()
+      // 盘前/盘后首次启动轮询自动触发, 盘中已active不重启
       _updateRefreshDebug(); // 刷新debug状态条(显示最新状态)
     }
     // 递归调度下一次(盘中也重排: 保留检测收盘后重新开盘的能力)
@@ -5954,13 +5973,13 @@ function _schedulePreOpenPrecisionTriggers() {
 async function _initAutoRefresh() {
   try { await fetchIntradaySnapshot(); } catch (e) {}
   const snap = state.intradaySnapshot;
-  if (snap && snap.is_closed === false && !_overviewRefreshActive) {
-    _startOverviewRefresh(); // 盘中: 启动轮询(内含_initRefreshDebugBar)
-  } else {
-    // 收盘态: 仍创建debug状态条(显示"已停止(收盘)"), 避免盘前打开页面debug区空白
-    _initRefreshDebugBar();
+  if (!_overviewRefreshActive) {
+    // 盘中或盘后均启动轮询(内含_initRefreshDebugBar):
+    // 盘中(is_closed===false): _overviewRefreshDelay 返回1min(关键时点)/3min(低频)
+    // 盘后(is_closed===true): _overviewRefreshDelay 返回5min, 拉17:50 update_all + 21:00/02:00 backfill 等更新
+    _startOverviewRefresh();
   }
-  // 始终启动开盘检测(幂等): 盘中no-op, 收盘态每3min检测开盘自动启动轮询
+  // 始终启动开盘检测(幂等): 盘后3min/盘前15s检测开盘, 开盘后 snap.is_closed=false 自动切盘中逻辑
   _startMarketOpenCheck();
 }
 
@@ -6741,9 +6760,9 @@ async function renderOverview() {
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   // 兜底启动 overview 自适应轮询(覆盖切 tab/重渲染场景, 2026-07-27):
-  // 首屏 _initAutoRefresh 已由 fetchIntradaySnapshot 内回调启动; 但若用户开盘前打开页面(收盘态不启动),
-  // 盘中切回概览 tab 时 renderOverview 兜底补启动. !_overviewRefreshActive 防重复启动.
-  if (snap && snap.is_closed === false && !_overviewRefreshActive) {
+  // 首屏 _initAutoRefresh 已由 fetchIntradaySnapshot 内回调启动(盘中+盘后均启动);
+  // 此处 !_overviewRefreshActive 防重复启动, 仅在异常漏启动时兜底. 盘后也会走5min低频分支.
+  if (!_overviewRefreshActive) {
     _startOverviewRefresh();
   }
   content.innerHTML = "";
