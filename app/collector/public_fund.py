@@ -1815,6 +1815,45 @@ def _compute_holding_concentration_timeseries(conn: sqlite3.Connection) -> dict 
     }
 
 
+def _compute_scale_change_ts(conn: sqlite3.Connection) -> dict | None:
+    """N功能: 全市场规模变动历史时序(113期季报, 1998Q2-2026Q2)。
+
+    输入: fund_scale_change 全量(fund_scale_change_em 113 行)
+    输出: scale_change_ts JSON 产物, 供前端 N 多信号共振仪表盘(净申赎+规模两信号)。
+
+    每期含:
+    - net_purchase_share: 净申赎份额(亿份, =申购-赎回; <0=净赎回散户离场, >0=净申购散户涌入)
+    - end_net_asset: 期末净资产(亿元, 全市场基金总规模)
+    - purchase_share/redeem_share/end_total_share/fund_count: 辅助字段(前端 tooltip 用)
+
+    独立计算, 不走 export_data() 7 元组(避免破坏解包, 参考 _compute_holding_concentration_timeseries 模式)。
+    summary.scale_change_history 只取 LIMIT 20 期不够 N 功能全量时序分析, 故独立导出全量 113 期。
+    """
+    rows = conn.execute(
+        "SELECT report_date, fund_count, purchase_share, redeem_share, "
+        "net_purchase_share, end_total_share, end_net_asset "
+        "FROM fund_scale_change ORDER BY report_date ASC"
+    ).fetchall()
+    if not rows:
+        return None
+
+    series = [{
+        "date": r[0],
+        "fund_count": r[1],
+        "purchase_share": r[2],
+        "redeem_share": r[3],
+        "net_purchase_share": r[4],
+        "end_total_share": r[5],
+        "end_net_asset": r[6],
+    } for r in rows]
+
+    return {
+        "report_date": series[-1]["date"],  # 最新期
+        "period_count": len(series),
+        "series": series,
+    }
+
+
 def export_data() -> tuple[dict, dict, dict, dict, dict, dict, dict]:
     """导出 7 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map / manuf_subind_fund_map。
 
@@ -2053,6 +2092,7 @@ def export_json_files() -> None:
     try:
         backtest = _compute_position_backtest(conn)
         concentration_ts = _compute_holding_concentration_timeseries(conn)
+        scale_change_ts = _compute_scale_change_ts(conn)
     finally:
         conn.close()
     if backtest:
@@ -2067,6 +2107,12 @@ def export_json_files() -> None:
             encoding="utf-8")
         size = (STATIC_DATA_DIR / "public_fund_holding_concentration_ts.json").stat().st_size
         print(f"  [export] public_fund_holding_concentration_ts.json ({size} bytes)", flush=True)
+    if scale_change_ts:
+        (STATIC_DATA_DIR / "public_fund_scale_change_ts.json").write_text(
+            json.dumps(scale_change_ts, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8")
+        size = (STATIC_DATA_DIR / "public_fund_scale_change_ts.json").stat().st_size
+        print(f"  [export] public_fund_scale_change_ts.json ({size} bytes)", flush=True)
     print(f"[export] 7 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
 
 

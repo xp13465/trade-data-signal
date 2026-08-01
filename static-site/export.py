@@ -227,6 +227,13 @@ def export_public_fund_position_backtest():
     return queries.public_fund_position_backtest()
 
 
+def export_public_fund_scale_change_ts():
+    """N功能: 全市场规模变动历史时序(113期季报, 净申赎+规模两信号)。
+    独立计算(不走 export_data 7 元组), 复用 fund_scale_change 全量时序。
+    summary.scale_change_history 只取 LIMIT 20 期不够 N 功能全量分析, 故独立导出。"""
+    return queries.public_fund_scale_change_ts()
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -448,6 +455,10 @@ def main():
     counts["public_fund_position_backtest.json"] = write_json(
         DATA_DIR / "public_fund_position_backtest.json", export_public_fund_position_backtest())
     print(f"  public_fund_position_backtest.json ({counts['public_fund_position_backtest.json']} bytes)")
+    # N功能: 全市场规模变动时序(净申赎+规模, 113期季报; summary.scale_change_history 只20期不够)
+    counts["public_fund_scale_change_ts.json"] = write_json(
+        DATA_DIR / "public_fund_scale_change_ts.json", export_public_fund_scale_change_ts())
+    print(f"  public_fund_scale_change_ts.json ({counts['public_fund_scale_change_ts.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]
