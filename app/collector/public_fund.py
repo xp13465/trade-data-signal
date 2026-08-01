@@ -81,6 +81,28 @@ THROTTLE_SEC = 0.5  # 逐只子页延时（xq/em 限流不严, 0.5s 安全）
 QUARTERLY_TOP_N = 1000
 FULL_TOP_N = 9000
 
+# 行业合并映射表: 67 原始名(申万中文大类 + GICS中文短名 + GICS带编号 + GICS中英文多套分类混合)
+# -> 标准名。⚠️ 必须和前端 static-site/app.js 的 IND_MERGE_MAP 保持 1:1 一致
+# （否则 public_fund_industry_fund_map.json 的 key 和前端点击展开的行业名对不上）。
+# 改动任一处必须同步另一处。
+IND_MERGE_MAP: dict[str, str] = {
+    '信息传输、软件和信息技术服务业': '信息技术', '信息技术': '信息技术', '信息科技': '信息技术',
+    '45信息技术': '信息技术', '信息技术InformationTechnology': '信息技术', '科技': '信息技术',
+    '金融业': '金融业', '金融': '金融业', '40金融': '金融业', 'E金融': '金融业', '金融Financials': '金融业',
+    '房地产业': '房地产业', '房地产': '房地产业', '房地产RealEstate': '房地产业', '60房地产': '房地产业', '地产业': '房地产业',
+    '材料': '材料', '原材料': '材料', '15原材料': '材料', '材料Materials': '材料', '基础材料': '材料',
+    '工业': '工业', '20工业': '工业', 'G工业': '工业', '工业Industrials': '工业',
+    '能源': '能源', 'D能源': '能源',
+    '公用事业': '公用事业', 'J公用事业': '公用事业',
+    '医疗保健': '医疗保健', '医疗': '医疗保健', '35医疗保健': '医疗保健', '保健HealthCare': '医疗保健',
+    '非日常生活消费品': '非必需消费品', '非必需消费品': '非必需消费品', '25可选消费': '非必需消费品',
+    '非必需消费品ConsumerDiscretionary': '非必需消费品', '消费者非必需品': '非必需消费品', '非周期性消费品': '非必需消费品',
+    '必需消费品': '必需消费品', '日常消费品': '必需消费品', '30日常消费': '必需消费品',
+    '必需消费品ConsumerStaples': '必需消费品', '消费者常用品': '必需消费品',
+    '通讯': '通信服务', '通讯业务': '通信服务', '通信服务': '通信服务',
+    '50电信服务': '通信服务', '电信服务': '通信服务', '电信业务': '通信服务', '通信服务CommunicationServices': '通信服务',
+}
+
 # 最新报告期（YYYYMMDD）：默认用最近年末/半年末
 def _latest_report_dates(n: int = 4) -> list[str]:
     """最近 n 个报告期: 季末日期 YYYYMMDD（半年报 0630 / 年报 1231）。"""
@@ -1102,10 +1124,10 @@ def pipeline_daily() -> dict:
 
 
 # ── export ──────────────────────────────────────────────────────────────────────
-def export_data() -> tuple[dict, dict, dict, dict, dict]:
-    """导出 5 类 JSON: summary / holdings / industry / top20 / asset_alloc。
+def export_data() -> tuple[dict, dict, dict, dict, dict, dict]:
+    """导出 6 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map。
 
-    Returns: (summary, holdings, industry, top20, asset_alloc)
+    Returns: (summary, holdings, industry, top20, asset_alloc, industry_fund_map)
     """
     conn = get_conn()
     report_date = _latest_report_dates(1)[0]
@@ -1268,13 +1290,38 @@ def export_data() -> tuple[dict, dict, dict, dict, dict]:
         "avg_cash_pct": aa_rows[2], "fund_count": aa_rows[3],
     }
 
+    # 6. industry_fund_map: 逐只基金-行业映射, 按合并后行业名分组, 供前端"点击展开某行业基金列表"按需 fetch
+    # 结构: {report_date, industry_funds: {合并行业名: [{fund_code,fund_name,weight_pct,hold_value}, ...]}}
+    # 每组按 weight_pct 降序; 行业名应用 IND_MERGE_MAP 合并(和前端 app.js 一致)
+    fmap_rows = conn.execute(
+        "SELECT a.fund_code, b.fund_name, a.industry_name, a.weight_pct, a.hold_value "
+        "FROM fund_industry_alloc a "
+        "LEFT JOIN fund_basic b ON a.fund_code = b.fund_code "
+        "WHERE a.report_date=?",
+        (report_date,),
+    ).fetchall()
+    _groups: dict[str, list[dict]] = {}
+    for fc, fn, ind, wp, hv in fmap_rows:
+        merged = IND_MERGE_MAP.get(ind, ind)
+        _groups.setdefault(merged, []).append({
+            "fund_code": fc, "fund_name": fn or "",
+            "weight_pct": round(wp, 4) if wp is not None else None,
+            "hold_value": round(hv, 4) if hv is not None else None,
+        })
+    for m in _groups.values():
+        m.sort(key=lambda x: (x["weight_pct"] or 0), reverse=True)
+    industry_fund_map = {
+        "report_date": report_date,
+        "industry_funds": _groups,
+    }
+
     conn.close()
-    return summary, holdings, industry, top20, asset_alloc
+    return summary, holdings, industry, top20, asset_alloc, industry_fund_map
 
 
 def export_json_files() -> None:
-    """写 5 类 JSON 到 static-site/data/。"""
-    summary, holdings, industry, top20, asset_alloc = export_data()
+    """写 6 类 JSON 到 static-site/data/。"""
+    summary, holdings, industry, top20, asset_alloc, industry_fund_map = export_data()
     STATIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
     files = {
         "public_fund_summary.json": summary,
@@ -1282,6 +1329,7 @@ def export_json_files() -> None:
         "public_fund_industry.json": industry,
         "public_fund_top20.json": top20,
         "public_fund_asset_alloc.json": asset_alloc,
+        "public_fund_industry_fund_map.json": industry_fund_map,
     }
     for fname, data in files.items():
         (STATIC_DATA_DIR / fname).write_text(
@@ -1289,7 +1337,7 @@ def export_json_files() -> None:
             encoding="utf-8")
         size = (STATIC_DATA_DIR / fname).stat().st_size
         print(f"  [export] {fname} ({size} bytes)", flush=True)
-    print(f"[export] 5 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
+    print(f"[export] 6 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────────
