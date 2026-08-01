@@ -2074,7 +2074,7 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "quarterly"
-    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "check-fresh"):
+    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "backfill-industry", "check-fresh"):
         print(__doc__)
         print(f"\n用法: python -m app.collector.public_fund <command>")
         print(f"  quarterly       季度全量(5汇总+top1000×2子页+8指标, ~35min)")
@@ -2083,11 +2083,12 @@ def main():
         print(f"  metrics         重算8指标")
         print(f"  export          只导出5类JSON")
         print(f"  backfill --start 20240101 --end 20241231  历史重仓股回填")
+        print(f"  backfill-industry --years 2017-2024 --top 1000  行业配置历史回填(8年)")
         print(f"  check-fresh [--top N]  数据新鲜度闸门(exit 0=应跑, 1=无新数据跳过)")
         sys.exit(1)
 
-    # 进程互斥（quarterly/full/daily/backfill 持锁, metrics/export/check-fresh 不需要）
-    if cmd in ("quarterly", "full", "daily", "backfill"):
+    # 进程互斥（quarterly/full/daily/backfill/backfill-industry 持锁, metrics/export/check-fresh 不需要）
+    if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry"):
         if not _acquire_lock(nonblock=True):
             print(f"[public_fund] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
             return
@@ -2160,6 +2161,70 @@ def main():
         for d in dates:
             total += fetch_holding_cninfo(d)
         print(f"[backfill] 完成, 共 {total} 行", flush=True)
+    elif cmd == "backfill-industry":
+        # 行业配置历史回填: --years 2017-2024 --top 1000
+        # 逐只跑 fetch_fund_industry_alloc(code, year) 共8年, 独立进度文件断点续传
+        years_arg = "2017-2024"
+        top_n = QUARTERLY_TOP_N
+        for i, a in enumerate(sys.argv[2:], 2):
+            if a == "--years" and i + 1 < len(sys.argv):
+                years_arg = sys.argv[i + 1]
+            elif a == "--top" and i + 1 < len(sys.argv):
+                top_n = int(sys.argv[i + 1])
+        # 解析 years: "2017-2024" -> ["2017",...,"2024"]
+        if "-" in years_arg:
+            ys = years_arg.split("-")
+            years = [str(y) for y in range(int(ys[0]), int(ys[1]) + 1)]
+        else:
+            years = [years_arg]
+        print(f"[backfill-industry] years={years} top={top_n}", flush=True)
+        funds = universe_top_funds(n=top_n)
+        # 排除后端份额(fund_name 含"后端", 后端份额行业配置数据恒空)
+        funds = [(c, n, ft) for c, n, ft in funds if "后端" not in n]
+        print(f"[backfill-industry] 基金池: {len(funds)} 只(排除后端份额)", flush=True)
+        # 独立进度文件, 避免和 /tmp/fund-collect-progress.json 冲突
+        prog_path = Path("/tmp/fund-industry-backfill-progress.json")
+        done: set[str] = set()
+        if prog_path.exists():
+            try:
+                done = set(json.loads(prog_path.read_text(encoding="utf-8")).get("industry_backfill", []))
+            except Exception:  # noqa: BLE001
+                done = set()
+        ok = empty = fail = 0
+        t0 = time.time()
+        for i, (code, name, _ft) in enumerate(funds, 1):
+            for year in years:
+                key = f"{code}|{year}"
+                if key in done:
+                    ok += 1  # 断点续传, 已完成计 ok
+                    continue
+                try:
+                    n = fetch_fund_industry_alloc(code, year=year)
+                    if n > 0:
+                        ok += 1
+                    else:
+                        empty += 1
+                    done.add(key)  # 无论 ok 还是 empty 都标记完成, 避免重跑
+                except Exception as e:  # noqa: BLE001
+                    fail += 1
+                    print(f"  [H] {code} {name} {year} 异常: {type(e).__name__} {e}", flush=True)
+                time.sleep(THROTTLE_SEC)
+            # 每 50 只回写进度 + ETA
+            if i % 50 == 0 or i == len(funds):
+                try:
+                    prog_path.write_text(
+                        json.dumps({"industry_backfill": sorted(done)}, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    print(f"  [progress] WARN 写入失败: {e}", flush=True)
+                elapsed = time.time() - t0
+                eta = (elapsed / i) * (len(funds) - i) if i > 0 else 0
+                print(f"  [backfill-industry] {i}/{len(funds)} funds "
+                      f"({i*100/len(funds):.1f}%) ok={ok} empty={empty} fail={fail} "
+                      f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+        print(f"[backfill-industry] 完成: ok={ok} empty={empty} fail={fail} "
+              f"总耗时={time.time()-t0:.0f}s", flush=True)
     elif cmd == "check-fresh":
         # 数据新鲜度闸门(只读检查, 不持锁): exit 0=有新数据应跑, 1=无新数据跳过
         # --top N 覆盖率阈值(默认 1000 quarterly, full 用 9000)
