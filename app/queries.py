@@ -1335,6 +1335,45 @@ def etf_national_team_holders():
     return holders
 
 
+# ============ 公募基金 (public_fund) ============
+# 5 个薄包装: 直接复用 collector.export_data() 返回的 5 类 JSON, 避免重复采集。
+# main.py 路由（/api/public-fund-*）与 static-site/export.py 共用。
+
+def public_fund_summary():
+    """公募基金总览: 8 指标 + 仓位轨迹 + 净申赎时序 + 各表行数。"""
+    from .collector.public_fund import export_data
+    summary, _h, _i, _t, _a = export_data()
+    return summary
+
+
+def public_fund_holdings():
+    """Top50 重仓股: 基金覆盖家数 + 持股总数 + 持仓总市值。"""
+    from .collector.public_fund import export_data
+    _s, holdings, _i, _t, _a = export_data()
+    return holdings
+
+
+def public_fund_industry():
+    """行业聚合: 全市场行业配置汇总（按行业 SUM weight_pct 排序）。"""
+    from .collector.public_fund import export_data
+    _s, _h, industry, _t, _a = export_data()
+    return industry
+
+
+def public_fund_top20():
+    """Top20 调仓: 当期 vs 上期持股总市值对比 + 环比变化%。"""
+    from .collector.public_fund import export_data
+    _s, _h, _i, top20, _a = export_data()
+    return top20
+
+
+def public_fund_asset_alloc():
+    """头部基金资产配置分布: AVG 股票/债券/现金 占比 + 覆盖家数。"""
+    from .collector.public_fund import export_data
+    _s, _h, _i, _t, asset_alloc = export_data()
+    return asset_alloc
+
+
 def position():
     """大盘位置感：8 个 A 股指数的 1年/3年/5年分位 + 标签。"""
     from .compute.position import compute_position
