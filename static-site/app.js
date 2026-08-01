@@ -9540,7 +9540,7 @@ async function renderPublicFund(container) {
 .pf-top30-card .pf-table-wrap{flex:1;max-height:510px;min-height:0;}
 .pf-table{width:100%;border-collapse:collapse;font-size:12px;}
 .pf-table th,.pf-table td{padding:5px 8px;border-bottom:1px solid var(--border-light, var(--border));text-align:left;white-space:nowrap;}
-.pf-table th{position:sticky;top:0;background:var(--bg-2, var(--bg-1));color:var(--text-2);font-weight:600;z-index:1;}
+.pf-table th{position:sticky;top:0;background:var(--bg-hover);color:var(--text-2);font-weight:600;z-index:1;box-shadow:inset 0 -1px 0 0 var(--border-light, var(--border));}
 .pf-table tr:hover td{background:var(--bg-hover);}
 .pf-num{text-align:right;font-variant-numeric:tabular-nums;}
 .pf-code{font-family:ui-monospace,monospace;color:var(--text-3);font-size:11px;}
@@ -9559,13 +9559,13 @@ async function renderPublicFund(container) {
 .pf-table-top100{table-layout:fixed;width:100%;}
 .pf-table-top100 td{overflow:hidden;text-overflow:ellipsis;}
 /* 三态排序按钮: 固定 18x18 不随箭头内容变化跳动; active 态红色高亮 */
-.pf-sort-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:3px;padding:0;border:1px solid var(--border-light,var(--border));border-radius:4px;background:var(--bg-2,var(--bg-1));color:var(--text-3);font-size:11px;line-height:1;cursor:pointer;vertical-align:middle;transition:color .1s,border-color .1s,background .1s;}
+.pf-sort-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:3px;padding:0;border:1px solid var(--border-light,var(--border));border-radius:4px;background:var(--bg-hover);color:var(--text-3);font-size:11px;line-height:1;cursor:pointer;vertical-align:middle;transition:color .1s,border-color .1s,background .1s;}
 .pf-sort-btn:hover{border-color:var(--primary);color:var(--primary);}
 .pf-sort-btn.active{border-color:#e6492e;color:#e6492e;background:rgba(230,73,46,0.10);font-weight:700;}
 .pf-sort-arrow{display:inline-block;width:12px;text-align:center;color:#999;}
 .pf-sort-btn.active .pf-sort-arrow{color:#e6492e;}
 /* 行业配置排序切换按钮: 文字胶囊, 3 选 1 互斥, active 红底白字(区别于 .pf-sort-btn 的小方框箭头) */
-.pf-ind-sort-btn{display:inline-block;margin-left:6px;padding:2px 9px;border:1px solid var(--border-light,var(--border));border-radius:11px;background:var(--bg-2,var(--bg-1));color:var(--text-3);font-size:11px;line-height:1.4;cursor:pointer;vertical-align:middle;transition:color .1s,border-color .1s,background .1s;}
+.pf-ind-sort-btn{display:inline-block;margin-left:6px;padding:2px 9px;border:1px solid var(--border-light,var(--border));border-radius:11px;background:var(--bg-hover);color:var(--text-3);font-size:11px;line-height:1.4;cursor:pointer;vertical-align:middle;transition:color .1s,border-color .1s,background .1s;}
 .pf-ind-sort-btn:hover{border-color:var(--primary);color:var(--primary);}
 .pf-ind-sort-btn.active{border-color:#e6492e;color:#fff;background:#e6492e;font-weight:600;}
 /* 行业基金列表 modal: 复用 .rule-modal 骨架, 覆盖宽度 600px + 红色主题(标题/× 关闭按钮 #e6492e) */
