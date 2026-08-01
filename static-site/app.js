@@ -9806,11 +9806,12 @@ async function renderPublicFund(container) {
 
   // G功能: markPoint 标历史极值(88魔咒高点 Top5 + 80抄底低点 Top5)
   // backtest.extremes.highs/lows 日期格式 "2025-08-15", 需转 "20250815" 匹配 xAxis category
-  // label emphasis: hover pin 时 label 展开显示完整说明(trigger:axis 下 markPoint 无独立 tooltip, 用 emphasis label 兜底)
+  // 融合方案A: pin label 只显示精简标识, 完整说明由 axis tooltip formatter 统一展开(查 _pinDateMap), 一套浮窗
   const _btDateToCoord = (d) => (d || "").replace(/-/g, "");
-  const _btMarkData = (arr, color, labelPrefix, desc) => {
+  // 融合方案A: pin label 只显示精简标识(日期+高96%), 完整说明(类型+仓位+沪深300+后30/60/90天)
+  // 统一由 axis tooltip formatter 展开(查 _pinDateMap), 一套浮窗一套样式, 不再用 emphasis label 黑底浮窗
+  const _btMarkData = (arr, color, labelPrefix) => {
     if (!arr || !arr.length) return [];
-    const _retStr = (v) => (v == null ? "-" : (v > 0 ? "+" : "") + v.toFixed(2) + "%");
     return arr.map((e) => ({
       coord: [_btDateToCoord(e.date), e.position],
       value: `${labelPrefix}${e.position.toFixed(2)}%`,
@@ -9819,23 +9820,50 @@ async function renderPublicFund(container) {
         color: "#fff", fontSize: 10,
         formatter: `{b|${e.date}}\n{a|${labelPrefix}${e.position}%}`,
         rich: { b: { fontSize: 9, color: "#fff", lineHeight: 12 }, a: { fontSize: 11, color: "#fff", fontWeight: 700 } },
-        // hover pin 展开: 类型说明 + 日期 + 仓位 + 沪深300 + 后30/60/90天涨跌(trigger:axis 下 markPoint 无 tooltip, emphasis label 是唯一可靠 hover 说明)
-        emphasis: {
-          show: true, color: "#fff", fontSize: 11,
-          backgroundColor: "rgba(0,0,0,0.88)", padding: [6, 8], borderRadius: 4,
-          formatter: `${desc}\n日期: ${e.date}  仓位: ${e.position}%  沪深300: ${e.close}\n后30天: ${_retStr(e.after_30d)}  后60天: ${_retStr(e.after_60d)}  后90天: ${_retStr(e.after_90d)}`,
-          rich: {},
-        },
       },
     }));
   };
   const _highsMark = backtest && backtest.extremes && backtest.extremes.highs
-    ? _btMarkData(backtest.extremes.highs, "#e6492e", "高", "⚠ 88魔咒历史高点 Top5") : [];
+    ? _btMarkData(backtest.extremes.highs, "#e6492e", "高") : [];
   const _lowsMark = backtest && backtest.extremes && backtest.extremes.lows
-    ? _btMarkData(backtest.extremes.lows, "#2e8b57", "低", "✓ 80抄底低点 Top5") : [];
+    ? _btMarkData(backtest.extremes.lows, "#2e8b57", "低") : [];
+
+  // 融合方案A: 建 pin 日期 Map(YYYYMMDD -> pin 完整信息), axis tooltip formatter 查 Map
+  // 命中则追加完整 pin 说明(类型+仓位+沪深300+后30/60/90天), 未命中只显示该日仓位+沪深300
+  const _retStr = (v) => (v == null ? "-" : (v > 0 ? "+" : "") + v.toFixed(2) + "%");
+  const _pinDateMap = new Map();
+  if (backtest && backtest.extremes) {
+    const _fillPin = (arr, desc, color) => {
+      if (!arr) return;
+      arr.forEach((e) => _pinDateMap.set(_btDateToCoord(e.date), { desc, color, date: e.date, position: e.position, close: e.close, after_30d: e.after_30d, after_60d: e.after_60d, after_90d: e.after_90d }));
+    };
+    _fillPin(backtest.extremes.highs, "⚠ 88魔咒历史高点 Top5", "#e6492e");
+    _fillPin(backtest.extremes.lows, "✓ 80抄底低点 Top5", "#2e8b57");
+  }
 
   mainChart.setOption({
-    tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+    tooltip: {
+      trigger: "axis", axisPointer: { type: "cross" },
+      formatter: (params) => {
+        if (!params || !params.length) return "";
+        const dt = params[0].axisValue; // YYYYMMDD
+        let html = `<div style="font-weight:600;margin-bottom:4px">${_pfFmtDate(dt)}</div>`;
+        params.forEach((p) => {
+          if (p.value == null || isNaN(Number(p.value))) return;
+          const unit = p.seriesName === "平均仓位%" ? "%" : "";
+          html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span><span style="flex:1">${p.seriesName}</span><b style="font-variant-numeric:tabular-nums">${Number(p.value).toFixed(2)}${unit}</b></div>`;
+        });
+        // 命中 pin 日期: 追加完整说明(类型+仓位+沪深300+后30/60/90天涨跌), 和普通点共用同一浮窗
+        const pin = _pinDateMap.get(dt);
+        if (pin) {
+          const _retColor = (v) => (v == null ? "#aaa" : v > 0 ? "#e6492e" : v < 0 ? "#2e8b57" : "#aaa");
+          html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);color:${pin.color};font-weight:600;font-size:11px">${pin.desc}</div>`;
+          html += `<div style="font-size:11px;color:#bbb;margin-top:2px">仓位 ${pin.position}%  沪深300 ${pin.close}</div>`;
+          html += `<div style="font-size:11px;color:#bbb;margin-top:2px">后30天 <b style="color:${_retColor(pin.after_30d)}">${_retStr(pin.after_30d)}</b>  后60天 <b style="color:${_retColor(pin.after_60d)}">${_retStr(pin.after_60d)}</b>  后90天 <b style="color:${_retColor(pin.after_90d)}">${_retStr(pin.after_90d)}</b></div>`;
+        }
+        return html;
+      },
+    },
     legend: { data: ["平均仓位%", "沪深300"], top: 5, textStyle: { color: "var(--text-2)" } },
     grid: { left: 60, right: 60, top: 40, bottom: 30 },
     xAxis: { type: "category", data: allDates, axisLabel: { formatter: (v) => _pfFmtDate(v).slice(5), fontSize: 10 } },
