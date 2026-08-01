@@ -9764,7 +9764,9 @@ async function renderPublicFund(container) {
   // 右: 行业配置柱状图
   const indCard = document.createElement("div");
   indCard.className = "chart-card";
-  indCard.innerHTML = '<div class="chart-title">🏭 行业配置（按权重降序）</div><div class="chart" style="height:420px"></div>';
+  indCard.innerHTML = '<div class="chart-title">🏭 行业配置（按抱团集中度降序）</div>'
+    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">权重和 = 全市场基金该行业权重%求和，越大=越多基金重配=抱团越集中；红柱右 label = 平均权重%</div>'
+    + '<div class="chart" style="height:420px"></div>';
   twoCol.appendChild(indCard);
 
   const indData = (industry && industry.industries ? industry.industries : [])
@@ -9775,10 +9777,17 @@ async function renderPublicFund(container) {
   indChart.setOption({
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (p) => {
       const d = indData[p[0].dataIndex];
-      // weight = SUM(weight_pct) 全市场基金该行业权重%求和(非 0-1 归一化), 显式标注语义避免误读
+      // weight = SUM(weight_pct) 全市场基金该行业权重%求和(非 0-1 归一化), 用于柱状图排序(抱团集中度)
       // 平均权重 = weight / fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%, 信息传输≈5.6%)
       // value = SUM(hold_value) 单位万元, /1e4 转亿
-      return `${d.name}<br/>权重和: ${d.weight.toFixed(1)}<span style="color:var(--text-3)"> (全市场基金该行业权重%求和, 非单基金百分比)</span><br/>平均权重: <b>${(d.weight / d.fundCount).toFixed(1)}%</b><span style="color:var(--text-3)"> (权重和 ÷ 基金数, 即平均每只基金该行业仓位%)</span><br/>持仓市值: ${(d.value / 1e4).toFixed(2)} 亿<br/>基金数: ${d.fundCount}`;
+      const avgPct = (d.weight / d.fundCount).toFixed(1);
+      return `${d.name}<br/><br/><b style="font-size:13px">📊 平均权重: ${avgPct}%</b><br/>` +
+        `<span style="color:var(--text-3)">= 平均每只基金把 ${avgPct}% 仓位配在该行业</span><br/>` +
+        `<span style="color:var(--text-3)">(全市场 ${d.fundCount} 只基金该行业权重%的平均值)</span><br/>` +
+        `<br/>💰 持仓市值: <b>${(d.value / 1e4).toFixed(2)} 亿</b><span style="color:var(--text-3)"> (全市场基金该行业持仓总市值)</span><br/>` +
+        `🏦 基金数: <b>${d.fundCount}</b><span style="color:var(--text-3)"> 只基金持有该行业</span><br/>` +
+        `<br/>📌 权重和: <b>${d.weight.toFixed(1)}</b><span style="color:var(--text-3)"> (用于柱状图排序)</span><br/>` +
+        `<span style="color:var(--text-3)">权重和越大 = 越多基金重配 = 抱团越集中</span>`;
     }},
     grid: { left: 10, right: 30, top: 10, bottom: 10, containLabel: true },
     xAxis: { type: "value", axisLabel: { fontSize: 10 } },
