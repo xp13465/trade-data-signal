@@ -11902,7 +11902,8 @@ function _renderEtfScoreBody() {
 }
 
 async function renderEtfScore() {
-  const r = await fetchJSON("./data/etf_score_list.json");
+  // R2 合规修复（2026-07-20）：4.3MB 走 R2 避免双源冗余（upload-data-large 上传 data/ 前缀）
+  const r = await fetchJSON("https://ssd.fx8.store/data/etf_score_list.json");
   _etfScoreState.meta = {
     date: r.date, updated_at: r.updated_at, source: r.source,
     universe_count: r.universe_count, full_market: r.full_market,

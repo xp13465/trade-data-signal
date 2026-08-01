@@ -60,6 +60,16 @@
 - ⚠️ **盘中(09:30-15:30)不跑全量 export + deploy**:全量 export + deploy 限定 15:35 后(收盘后),盘中只跑 intraday-snapshot 定时任务推 intraday_snapshot.json。agent 接"跑全量 export"任务须先确认时点,盘中拒绝或等收盘(撞 intraday-snapshot 定时任务推 main = 互相覆盖事故)
 - ⚠️ **agent 推理"X 文件在 Y commit 里"前先核对**(2026-07-20 事故误判):用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点版本,不靠"Y commit 是 Z 时点跑的所以含 Z 时点数据"推理
 
+### 8.1 R2 存储架构准则(2026-08-01 定,按数据类别不按大小)
+- **R2 是存储架构的结构决策,不按单文件大小临时判断**。新数据类别从第一天就走 R2 架构(upload_r2 清单+前端 dataUrl R2 fallback),不等变大才补
+- **走 R2 的类别(满足任一)**:①全量品种多(100+ index/31 industry/100+ trade_sim/1000+ public_fund) ②有大 range 历史序列(`-all/-5y/-3y` 单文件 >1MB) ③类别整体大(index 48M/industry 54M/trade_sim 268M/lab 109M)
+- **走 CF Workers Static Assets 的小文件**:单文件 <100KB 且类别总量 <5MB 的状态/监控小文件(alert.json/daily_metric.json/schedule_stats.json/alert_analyze_*.json 等),走 R2 反增延迟(.gz 优先对小文件收益小)
+- **upload_r2.py 5 个按前缀命令**(upload-lab/upload-index/upload-industry/upload-trade-sim[-json]/upload-public-fund)+ **1 个大小阈值兜底**(upload-data-large >=1MB,exclude industry-/public_fund)。大小阈值是兜底非主架构,**新数据类别优先按前缀建独立命令**,不依赖大小阈值
+- **前端 dataUrl R2 fallback**:大 range 历史序列 `-(all|5y|3y).json$` 走 R2 `data/` 前缀;其他 R2 类别(industry/index/trade_sim/public_fund)用硬编码 `https://ssd.fx8.store/{prefix}/` URL(和 dataUrl 同模式,不扩展 `_R2_LARGE_RANGE_RE` 避免语义混淆)
+- **本地留引用**:upload_r2 上传后不删本地 `static-site/data/`,CF Workers 兜底+本地开发;大文件可 `.gitignore` 移出 git(本地仍留),和 a-stock-all.json 等同策略
+- **上线流程**:export.py 生成 JSON -> 末尾自动跑 R2 上传(EXPORT_SKIP_R2=1 跳过,deploy.sh 自己跑)-> git push 触发 CF deploy -> 前端 fetch(大 range 走 R2 直链,小文件走 CF)
+- **判断 checklist(扫描 agent 用)**:①该类别是否有 upload-{prefix} 命令? ②前端 fetch 是否用 R2 URL 或 dataUrl 走 R2? ③upload-data-large exclude 是否含该前缀(防双副本)? 三条齐全=架构合规
+
 ## 9. 单版前端铁律(2026-07-15 web/ 弃用)
 - 前端源码统一在 static-site/(web/ 已删,不再双写);app/main.py 挂载 static-site/ 到根 /,/api/* 读 DB 不变
 - 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify,仅 static-site/app.js+lab.js 2对)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
