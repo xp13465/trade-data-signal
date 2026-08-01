@@ -9722,18 +9722,18 @@ async function renderPublicFund(container) {
   twoCol.className = "pf-two-col";
   container.appendChild(twoCol);
 
-  // 左: Top100 重仓表(含调仓: 当期 vs 上期, Q2; Q3: 扩到100)
-  const top100Card = document.createElement("div");
-  top100Card.className = "chart-card";
-  const top100 = (holdings && holdings.top100 ? holdings.top100 : []).slice(0, 100);
+  // 左: Top30 重仓表(按持仓市值排序前30, 原维度保留; 含调仓: 当期 vs 上期, Q2)
+  const top30Card = document.createElement("div");
+  top30Card.className = "chart-card";
+  const top30 = (holdings && holdings.top100 ? holdings.top100 : []).slice(0, 30);
   const holdingsPrevDate = holdings && holdings.prev_report_date ? _pfFmtDate(holdings.prev_report_date) : "";
-  let top100Rows = "";
-  top100.forEach((s, i) => {
+  let top30Rows = "";
+  top30.forEach((s, i) => {
     const chgColor = s.change_pct > 0 ? "#e6492e" : s.change_pct < 0 ? "#2e8b57" : "var(--text-3)";
     const chgArrow = s.change_pct > 0 ? "↑" : s.change_pct < 0 ? "↓" : "->";
     const chgTxt = s.change_pct == null ? "-" : `${chgArrow} ${Math.abs(s.change_pct).toFixed(2)}%`;
     const tip = s.prev_value == null ? "无上期数据" : `当期 ${(s.hold_value_total / 1e4).toFixed(2)} 万 / 上期 ${(s.prev_value / 1e4).toFixed(2)} 万`;
-    top100Rows += `<tr>
+    top30Rows += `<tr>
       <td>${i + 1}</td>
       <td class="pf-code">${s.stock_code}</td>
       <td>${s.stock_name}</td>
@@ -9742,12 +9742,12 @@ async function renderPublicFund(container) {
       <td class="pf-num" style="color:${chgColor};font-weight:600" title="${tip}">${chgTxt}</td>
     </tr>`;
   });
-  top100Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top100（持有基金数 / 持仓市值万元 / 调仓${holdingsPrevDate ? " vs " + holdingsPrevDate : ""}）</div>
+  top30Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top30（持有基金数 / 持仓市值万元 / 调仓${holdingsPrevDate ? " vs " + holdingsPrevDate : ""}）</div>
     <div class="pf-table-wrap"><table class="pf-table">
       <thead><tr><th>#</th><th>代码</th><th>名称</th><th>基金数</th><th>市值(万)</th><th>调仓</th></tr></thead>
-      <tbody>${top100Rows || '<tr><td colspan="6">暂无数据</td></tr>'}</tbody>
+      <tbody>${top30Rows || '<tr><td colspan="6">暂无数据</td></tr>'}</tbody>
     </table></div>`;
-  twoCol.appendChild(top100Card);
+  twoCol.appendChild(top30Card);
 
   // 右: 行业配置柱状图
   const indCard = document.createElement("div");
