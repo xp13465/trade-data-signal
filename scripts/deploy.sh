@@ -291,7 +291,8 @@ DATA_FILES+=("static-site/data/etf_national_team_holders.json" "static-site/data
 # 2026-07-20 补 industry_fund_map(原漏)+ manuf_subind_fund_map(方案C Step5 新增子行业下钻到基金)
 # 2026-07-24 补 position_backtest(G功能 88 魔咒历史回测+极值标注, 独立计算非 7 元组)
 # 2026-07-20 补 holding_concentration_ts(N功能抱团集中度历史时序10期, 独立计算非 7 元组)
-for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map position_backtest holding_concentration_ts; do
+# 2026-08-02 补 scale_change_ts(N功能全量规模变动时序113期, summary.scale_change_history 只20期不够)
+for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map position_backtest holding_concentration_ts scale_change_ts; do
   DATA_FILES+=("static-site/data/public_fund_${_pf}.json" "static-site/data/public_fund_${_pf}.json.gz")
 done
 # 单文件（export.py 生成 + deploy/update_all/update_lab 生成）

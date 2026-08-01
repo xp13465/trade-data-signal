@@ -1419,6 +1419,20 @@ def public_fund_holding_concentration_ts():
         conn.close()
 
 
+def public_fund_scale_change_ts():
+    """N功能: 全市场规模变动历史时序(113期季报, 1998Q2-2026Q2)。
+    独立计算(不走 export_data 7 元组), 复用 fund_scale_change 全量时序。
+    summary.scale_change_history 只取 LIMIT 20 期不够 N 功能全量分析, 故独立导出全量 113 期。
+    返回 {report_date, period_count, series:[{date, net_purchase_share, end_net_asset,
+    purchase_share, redeem_share, end_total_share, fund_count}]}。"""
+    from .collector.public_fund import _compute_scale_change_ts, get_conn
+    conn = get_conn()
+    try:
+        return _compute_scale_change_ts(conn)
+    finally:
+        conn.close()
+
+
 def position():
     """大盘位置感：8 个 A 股指数的 1年/3年/5年分位 + 标签。"""
     from .compute.position import compute_position
