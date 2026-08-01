@@ -9568,12 +9568,14 @@ async function renderPublicFund(container) {
 .pf-ind-sort-btn{display:inline-block;margin-left:6px;padding:2px 9px;border:1px solid var(--border-light,var(--border));border-radius:11px;background:var(--bg-2,var(--bg-1));color:var(--text-3);font-size:11px;line-height:1.4;cursor:pointer;vertical-align:middle;transition:color .1s,border-color .1s,background .1s;}
 .pf-ind-sort-btn:hover{border-color:var(--primary);color:var(--primary);}
 .pf-ind-sort-btn.active{border-color:#e6492e;color:#fff;background:#e6492e;font-weight:600;}
-/* 点击展开行业基金列表容器/按钮 */
-.pf-ind-fund-expand{border:1px solid var(--border-light,var(--border));border-left:4px solid #ff9800;border-radius:8px;padding:10px 12px;background:var(--bg-card,var(--bg-1));}
-.pf-ind-fund-close,.pf-ind-fund-more{padding:3px 10px;border:1px solid var(--border-light,var(--border));border-radius:6px;background:var(--bg-2,var(--bg-1));color:var(--text-2);font-size:12px;line-height:1.4;}
-.pf-ind-fund-close:hover{border-color:#e6492e;color:#e6492e;}
-.pf-ind-fund-more{display:block;width:100%;margin-top:6px;text-align:center;}
-.pf-ind-fund-more:hover{border-color:var(--primary);color:var(--primary);}
+/* 行业基金列表 modal: 复用 .rule-modal 骨架, 覆盖宽度 600px + 红色主题(标题/× 关闭按钮 #e6492e) */
+.pf-ind-fund-modal .rule-modal-body{width:min(92vw,600px);min-height:300px;}
+.pf-ind-fund-modal .rule-modal-header h3{color:#e6492e;}
+.pf-ind-fund-modal .rule-modal-close:hover{color:#e6492e;}
+.pf-ind-fund-modal .pf-ind-fund-more{display:block;width:100%;margin-top:8px;padding:6px 0;text-align:center;border:1px solid var(--border-light,var(--border));border-radius:6px;background:var(--bg-2,var(--bg-1));color:var(--text-2);font-size:12px;line-height:1.4;cursor:pointer;}
+.pf-ind-fund-modal .pf-ind-fund-more:hover{border-color:#e6492e;color:#e6492e;}
+.pf-ind-fund-modal .pf-table-wrap{max-height:60vh;overflow:auto;border:1px solid var(--border-light,var(--border));border-radius:6px;}
+.pf-ind-fund-modal .pf-modal-tip{font-size:11px;color:var(--text-3);margin-top:8px;line-height:1.5;}
 `;
     document.head.appendChild(st);
   }
@@ -9849,8 +9851,7 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-treemap-sort="value" type="button">持仓市值</button>'
     + '</div>'
     + '<div class="chart pf-ind-treemap" style="height:140px"></div>'
-    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:4px 0 0 0;line-height:1.5">💡 点击柱状图任一行业条 / TreeMap 任一矩形，展开该行业全部基金列表（按该行业配置权重降序，首次加载约 2MB）</div>'
-    + '<div class="pf-ind-fund-expand" style="display:none;margin-top:8px"></div>';
+    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:4px 0 0 0;line-height:1.5">💡 点击柱状图任一行业条 / TreeMap 任一矩形，弹窗显示该行业全部基金列表（按该行业配置权重降序，首次加载约 2MB）</div>';
   twoCol.appendChild(indCard);
 
   // 柱状图: Top15 + 其他聚合(长尾合并为单根"其他"柱), 支持 3 维度排序切换
@@ -10013,19 +10014,18 @@ async function renderPublicFund(container) {
     });
   });
 
-  // ── 点击展开某行业基金列表(方案D: 按需 fetch public_fund_industry_fund_map.json, 模块级缓存) ──
-  const fundExpandEl = indCard.querySelector(".pf-ind-fund-expand");
-  let _pfFundCurName = null;     // 当前展开的行业名
+  // ── 点击行业弹窗显示基金列表(方案D: 按需 fetch public_fund_industry_fund_map.json, 模块级缓存) ──
+  // 复用 .rule-modal 骨架(遮罩+居中+× 关闭+ESC), .pf-ind-fund-modal 覆盖宽度 600px + 红色主题
   let _pfFundShowCount = 50;     // 已渲染行数(top50 + 分页 "显示更多50")
   const _PF_FUND_PAGE = 50;
-  // 渲染基金列表(分页: 已取 list, 渲染前 _pfFundShowCount 条)
-  const _renderFundList = (list) => {
+  let _pfFundCurName = null;     // 当前弹窗的行业名(防异步过期)
+  let _pfFundEscBound = false;   // ESC 监听只绑一次
+
+  // 渲染 modal 表格内容(分页: 已取 list, 渲染前 _pfFundShowCount 条)
+  const _renderFundModalContent = (modal, list) => {
+    const body = modal.querySelector(".rule-modal-content");
     if (!list || list.length === 0) {
-      fundExpandEl.innerHTML = '<div class="chart-title" style="display:flex;justify-content:space-between;align-items:center">'
-        + `<span>📦 ${_pfFundCurName}：暂无基金数据</span>`
-        + '<button class="pf-ind-fund-close" type="button" style="cursor:pointer">关闭</button></div>';
-      fundExpandEl.style.display = "block";
-      fundExpandEl.querySelector(".pf-ind-fund-close").addEventListener("click", () => { fundExpandEl.style.display = "none"; _pfFundCurName = null; });
+      body.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-3)">📦 ${_pfFundCurName}：暂无基金数据</div>`;
       return;
     }
     const rows = list.slice(0, _pfFundShowCount).map((f, i) => {
@@ -10034,38 +10034,68 @@ async function renderPublicFund(container) {
       return `<tr><td>${i + 1}</td><td class="pf-code">${f.fund_code || '-'}</td><td>${f.fund_name || '-'}</td><td class="pf-num">${wp}</td><td class="pf-num">${hv}</td></tr>`;
     }).join("");
     const hasMore = list.length > _pfFundShowCount;
-    fundExpandEl.innerHTML = '<div class="chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">'
-      + `<span>📦 ${_pfFundCurName} 的 ${list.length} 只基金（按该行业配置权重降序）</span>`
-      + '<button class="pf-ind-fund-close" type="button" style="cursor:pointer">关闭</button></div>'
-      + '<div class="pf-table-wrap" style="max-height:380px"><table class="pf-table">'
+    body.innerHTML = '<div class="pf-table-wrap"><table class="pf-table">'
       + '<thead><tr><th>#</th><th>代码</th><th>名称</th><th>该行业权重%</th><th>持仓市值(万)</th></tr></thead>'
       + `<tbody>${rows}</tbody></table></div>`
-      + (hasMore ? `<button class="pf-ind-fund-more" type="button" style="margin-top:6px;cursor:pointer">显示更多 ${Math.min(_PF_FUND_PAGE, list.length - _pfFundShowCount)} 只（剩余 ${list.length - _pfFundShowCount}）</button>` : '');
-    fundExpandEl.style.display = "block";
-    fundExpandEl.querySelector(".pf-ind-fund-close").addEventListener("click", () => { fundExpandEl.style.display = "none"; _pfFundCurName = null; });
-    const moreBtn = fundExpandEl.querySelector(".pf-ind-fund-more");
-    if (moreBtn) moreBtn.addEventListener("click", () => { _pfFundShowCount += _PF_FUND_PAGE; _renderFundList(list); });
+      + (hasMore ? `<button class="pf-ind-fund-more" type="button">显示更多 ${Math.min(_PF_FUND_PAGE, list.length - _pfFundShowCount)} 只（剩余 ${list.length - _pfFundShowCount}）</button>` : '')
+      + '<div class="pf-modal-tip">💡 按该行业配置权重降序；权重% = 该基金对此行业的仓位占比，持仓市值单位万元</div>';
+    const moreBtn = body.querySelector(".pf-ind-fund-more");
+    if (moreBtn) moreBtn.addEventListener("click", () => { _pfFundShowCount += _PF_FUND_PAGE; _renderFundModalContent(modal, list); });
   };
-  // 点击行业名 -> 拉取/读缓存 fund_map -> 展开列表
+
+  // 关闭 modal(加 hidden + 恢复 body 滚动 + 清当前行业)
+  const _closeFundModal = (modal) => {
+    modal.classList.add("hidden");
+    document.body.style.overflow = "";
+    _pfFundCurName = null;
+  };
+
+  // 点击行业名 -> 创建/复用 modal -> loading -> 异步拉 fund_map -> 渲染表格
   const _showIndustryFunds = async (indName) => {
-    if (!indName || indName === '其他') return;  // 长尾聚合不展开
-    if (_pfFundCurName === indName && fundExpandEl.style.display === "block") {
-      fundExpandEl.style.display = "none"; _pfFundCurName = null; return;  // 再次点同行业=收起
-    }
+    if (!indName || indName === '其他') return;  // 长尾聚合不弹窗
     _pfFundCurName = indName;
     _pfFundShowCount = _PF_FUND_PAGE;
-    fundExpandEl.innerHTML = '<div class="chart-subtitle" style="font-size:12px">⏳ 加载中...</div>';
-    fundExpandEl.style.display = "block";
+    // 创建或复用 modal(单例, 避免重复创建堆积 DOM)
+    let modal = document.getElementById("pfIndFundModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "pfIndFundModal";
+      modal.className = "rule-modal hidden pf-ind-fund-modal";
+      document.body.appendChild(modal);
+    }
+    // 渲染骨架(标题 + loading 态), 复用 .rule-modal-overlay/.rule-modal-body/.rule-modal-header/.rule-modal-close
+    modal.innerHTML = '<div class="rule-modal-overlay"></div>'
+      + '<div class="rule-modal-body">'
+      + '<div class="rule-modal-header"><h3>📦 ' + indName + ' 行业基金列表</h3>'
+      + '<button class="rule-modal-close" aria-label="关闭" type="button">&times;</button></div>'
+      + '<div class="rule-modal-content"><div style="padding:20px;text-align:center;color:var(--text-3)">⏳ 加载中...</div></div>'
+      + '</div>';
+    const _close = () => _closeFundModal(modal);
+    modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+    modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+    // ESC 关闭(全局 keydown 只绑一次, 关闭当前可见的 modal)
+    if (!_pfFundEscBound) {
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          const m = document.getElementById("pfIndFundModal");
+          if (m && !m.classList.contains("hidden")) _closeFundModal(m);
+        }
+      });
+      _pfFundEscBound = true;
+    }
+    modal.classList.remove("hidden");
+    document.body.style.overflow = "hidden";  // 防背景滚动
+    // 异步拉取 fund_map(模块级缓存, 首次约 2MB)
     const fmap = await _loadIndustryFundMap();
+    if (_pfFundCurName !== indName) return;  // 异步期间用户关了/换了, 丢弃过期结果
     if (!fmap || !fmap.industry_funds) {
-      fundExpandEl.innerHTML = '<div class="chart-title" style="display:flex;justify-content:space-between;align-items:center">'
-        + `<span>📦 ${indName}：基金列表加载失败</span>`
-        + '<button class="pf-ind-fund-close" type="button" style="cursor:pointer">关闭</button></div>';
-      fundExpandEl.querySelector(".pf-ind-fund-close").addEventListener("click", () => { fundExpandEl.style.display = "none"; _pfFundCurName = null; });
+      modal.querySelector(".rule-modal-content").innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-3)">📦 ${indName}：基金列表加载失败</div>`;
       return;
     }
-    if (_pfFundCurName !== indName) return;  // 异步期间用户点了关闭/换行业, 丢弃过期结果
-    _renderFundList(fmap.industry_funds[indName] || []);
+    const list = fmap.industry_funds[indName] || [];
+    // 标题更新为"X 的 N 只基金"(行业名 + 基金数)
+    modal.querySelector(".rule-modal-header h3").textContent = `📦 ${indName} 的 ${list.length} 只基金`;
+    _renderFundModalContent(modal, list);
   };
   // 柱状图 + TreeMap 点击事件(echarts on('click'), params.data.name = 合并行业名)
   indChart.on('click', (params) => { if (params && params.data && params.data.name) _showIndustryFunds(params.data.name); });
