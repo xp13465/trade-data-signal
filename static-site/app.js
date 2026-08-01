@@ -10165,10 +10165,39 @@ async function renderPublicFund(container) {
   //   col='pct' dir='asc'/'desc': 按变化率(带符号)升序/降序
   //   prev_value=null / change_pct=null 的行始终 append 在后(无数据不参与排序)
   const _amtSigned = (s) => s.prev_value != null ? (s.hold_value_total || 0) - (s.prev_value || 0) : null;
-  const _sortTop100Adj = (sortState) => {
+  // 四态分类: new=新进(prev_value=null 上期无当期有) / up=加仓(change_pct>0) / down=减仓(change_pct<0) / flat=持平(=0)
+  const _top100State = (s) => {
+    if (s.prev_value == null) return 'new';
+    if (s.change_pct == null) return 'unknown';
+    if (s.change_pct > 0) return 'up';
+    if (s.change_pct < 0) return 'down';
+    return 'flat';
+  };
+  // 四态标记 badge: A股配色(加仓红 #e6492e / 减仓绿 #2e8b57 / 新进橙 #ff9800 / 持平灰)
+  const _top100StateBadge = (s) => {
+    const st = _top100State(s);
+    const map = {
+      new: { icon: '🆕', label: '新进', color: '#ff9800' },
+      up: { icon: '↑', label: '加仓', color: '#e6492e' },
+      down: { icon: '↓', label: '减仓', color: '#2e8b57' },
+      flat: { icon: '→', label: '持平', color: 'var(--text-3)' },
+      unknown: { icon: '?', label: '未知', color: 'var(--text-3)' },
+    };
+    const m = map[st] || map.unknown;
+    return `<span style="color:${m.color};font-weight:600;white-space:nowrap">${m.icon} ${m.label}</span>`;
+  };
+  // 排序 comparator: 三态 sortState = { col: null|'amt'|'pct', dir: null|'asc'|'desc' }
+  //   col=null 或 dir=null: 原报告顺序(top100AdjRaw 原序, 即按持仓市值降序)
+  //   col='amt' dir='asc'/'desc': 按金额差(当期-上期, 带符号)升序/降序(asc 减仓最多在前; desc 加仓最多在前)
+  //   col='pct' dir='asc'/'desc': 按变化率(带符号)升序/降序
+  //   prev_value=null / change_pct=null 的行始终 append 在后(无数据不参与排序)
+  // filter: 'all'|'new'|'up'|'down' (四态筛选, 'all'=全部); 筛选后排序仅在筛选子集内做
+  const _sortTop100Adj = (sortState, filter) => {
     const { col, dir } = sortState || {};
-    const withChg = top100AdjRaw.filter((s) => s.change_pct != null).slice();
-    const withoutChg = top100AdjRaw.filter((s) => s.change_pct == null);
+    const f = filter || 'all';
+    const base = f === 'all' ? top100AdjRaw.slice() : top100AdjRaw.filter((s) => _top100State(s) === f);
+    const withChg = base.filter((s) => s.change_pct != null).slice();
+    const withoutChg = base.filter((s) => s.change_pct == null);
     if (col && dir) {
       withChg.sort((a, b) => {
         let va, vb;
@@ -10184,9 +10213,9 @@ async function renderPublicFund(container) {
     }
     return withChg.concat(withoutChg);
   };
-  // 渲染 tbody HTML(给定已排序列表); 含"金额差(万)"列 = |当期-上期|, 方向色(加仓红/减仓绿)
+  // 渲染 tbody HTML(给定已排序列表); 含"状态"列(四态标记 badge) + "金额差(万)"列 = |当期-上期|, 方向色(加仓红/减仓绿)
   const _renderTop100AdjRows = (list) => {
-    if (!list.length) return '<tr><td colspan="9">暂无数据</td></tr>';
+    if (!list.length) return '<tr><td colspan="10">暂无数据</td></tr>';
     let rows = "";
     list.forEach((s, i) => {
       const chgColor = s.change_pct > 0 ? "#e6492e" : s.change_pct < 0 ? "#2e8b57" : "var(--text-3)";
@@ -10203,6 +10232,7 @@ async function renderPublicFund(container) {
       const indCell = s.stock_industry ? `<span class="pf-ind-tag">${s.stock_industry}</span>` : '<span style="color:var(--text-3)">-</span>';
       rows += `<tr>
         <td>${i + 1}</td>
+        <td class="pf-top100-state">${_top100StateBadge(s)}</td>
         <td class="pf-code">${s.stock_code}</td>
         <td>${s.stock_name}</td>
         <td>${indCell}</td>
@@ -10218,22 +10248,38 @@ async function renderPublicFund(container) {
   const adjPrevDate = holdings && holdings.prev_report_date ? _pfFmtDate(holdings.prev_report_date) : "";
   // 三态排序状态: { col: null|'amt'|'pct', dir: null|'asc'|'desc' }; null=null = 默认原报告顺序(两列显示 ⇅ 浅灰提示可排序)
   let top100AdjSort = { col: null, dir: null };
-  let top100AdjList = _sortTop100Adj(top100AdjSort);
+  // 四态筛选: 'all'|'new'|'up'|'down'; 'all'=全部(默认); 和排序正交(先筛后排)
+  let top100AdjFilter = 'all';
+  let top100AdjList = _sortTop100Adj(top100AdjSort, top100AdjFilter);
+  // 四态计数(筛选用, 显示各态多少只): all=总数, new/up/down/flat=各态数
+  const _top100Counts = () => {
+    const c = { all: top100AdjRaw.length, new: 0, up: 0, down: 0, flat: 0 };
+    top100AdjRaw.forEach((s) => { const st = _top100State(s); if (c[st] != null) c[st]++; });
+    return c;
+  };
+  const _tc = _top100Counts();
   top100AdjCard.innerHTML = `<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">
       <span>🔄 头部重仓股调仓 Top100（当期 ${_pfFmtDate(reportDate)} vs 上期 ${adjPrevDate}；注: 调仓指标仍按前20大重仓股口径计算；点「金额差/变化」旁按钮三态切换: 默认->正序↑->倒序↓->默认）</span>
+      <span style="display:inline-flex;gap:4px;flex-wrap:wrap;margin-left:auto">
+        <button class="pf-ind-sort-btn pf-top100-filter active" data-filter="all" type="button">全部 ${_tc.all}</button>
+        <button class="pf-ind-sort-btn pf-top100-filter" data-filter="new" type="button">🆕新进 ${_tc.new}</button>
+        <button class="pf-ind-sort-btn pf-top100-filter" data-filter="up" type="button">↑加仓 ${_tc.up}</button>
+        <button class="pf-ind-sort-btn pf-top100-filter" data-filter="down" type="button">↓减仓 ${_tc.down}</button>
+      </span>
     </div>
     <div class="pf-table-wrap"><table class="pf-table pf-table-top100">
       <thead><tr>
-        <th style="width:4%">#</th><th style="width:8%">代码</th><th style="width:17%">名称</th><th style="width:10%">行业</th><th style="width:7%">基金数</th><th style="width:10%">当期(万)</th><th style="width:10%">上期(万)</th>
-        <th style="width:19%;white-space:nowrap">金额差(万)<button class="pf-sort-btn" data-sort="amt" type="button" aria-label="按金额差排序"><span class="pf-sort-arrow"></span></button></th>
+        <th style="width:4%">#</th><th style="width:8%">状态</th><th style="width:7%">代码</th><th style="width:15%">名称</th><th style="width:9%">行业</th><th style="width:6%">基金数</th><th style="width:10%">当期(万)</th><th style="width:10%">上期(万)</th>
+        <th style="width:16%;white-space:nowrap">金额差(万)<button class="pf-sort-btn" data-sort="amt" type="button" aria-label="按金额差排序"><span class="pf-sort-arrow"></span></button></th>
         <th style="width:15%;white-space:nowrap">变化<button class="pf-sort-btn" data-sort="pct" type="button" aria-label="按变化排序"><span class="pf-sort-arrow"></span></button></th>
       </tr></thead>
       <tbody id="pf-top100adj-body">${_renderTop100AdjRows(top100AdjList)}</tbody>
     </table></div>`;
   container.appendChild(top100AdjCard);
   // 三态排序: 重排 tbody + 更新按钮箭头(只动 tbody rows, 不动 thead/容器/列宽, 防布局跳动)
+  // 注: 排序在当前 filter 子集内做(filter 变更由 _applyTop100AdjFilter 处理, 排序只重排已筛列表)
   const _applyTop100AdjSort = (sortState) => {
-    top100AdjList = _sortTop100Adj(sortState);
+    top100AdjList = _sortTop100Adj(sortState, top100AdjFilter);
     const body = top100AdjCard.querySelector("#pf-top100adj-body");
     if (body) body.innerHTML = _renderTop100AdjRows(top100AdjList);
     // 更新两列按钮箭头 + active 态: 选中列有方向显示 ↑/↓ + active 红色, 未选中/默认显示 ⇅ 浅灰(提示可排序)
@@ -10247,6 +10293,17 @@ async function renderPublicFund(container) {
         arrow.textContent = '⇅';
         btn.classList.remove('active');
       }
+    });
+  };
+  // 四态筛选: 重排 tbody(在筛选子集内保留当前排序) + 更新筛选按钮 active 态
+  const _applyTop100AdjFilter = (filter) => {
+    top100AdjFilter = filter;
+    top100AdjList = _sortTop100Adj(top100AdjSort, top100AdjFilter);
+    const body = top100AdjCard.querySelector("#pf-top100adj-body");
+    if (body) body.innerHTML = _renderTop100AdjRows(top100AdjList);
+    top100AdjCard.querySelectorAll(".pf-top100-filter").forEach((btn) => {
+      if (btn.getAttribute("data-filter") === filter) btn.classList.add('active');
+      else btn.classList.remove('active');
     });
   };
   // 点击按钮三态循环:
@@ -10268,6 +10325,12 @@ async function renderPublicFund(container) {
       }
       top100AdjSort = newSort;
       _applyTop100AdjSort(top100AdjSort);
+    });
+  });
+  // 四态筛选按钮点击: 切 filter + 重绘 tbody(保留当前排序)
+  top100AdjCard.querySelectorAll(".pf-top100-filter").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      _applyTop100AdjFilter(btn.getAttribute("data-filter"));
     });
   });
   // 初始化按钮箭头(默认原序显示 ⇅ 浅灰; top100AdjList 已在 innerHTML 渲染, 重绘幂等)
