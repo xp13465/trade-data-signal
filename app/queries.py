@@ -1406,6 +1406,19 @@ def public_fund_position_backtest():
         conn.close()
 
 
+def public_fund_holding_concentration_ts():
+    """N功能: 抱团集中度历史时序(10期季报)。
+    独立计算(不走 export_data 7 元组), 复用 fund_holding_stock 全量 report_date 时序。
+    返回 {report_date, period_count, series:[{date, concentration_top10, concentration_top20,
+    herfindahl, fund_count, total_stocks, total_value_wan, top10_stocks}]}。"""
+    from .collector.public_fund import _compute_holding_concentration_timeseries, get_conn
+    conn = get_conn()
+    try:
+        return _compute_holding_concentration_timeseries(conn)
+    finally:
+        conn.close()
+
+
 def position():
     """大盘位置感：8 个 A 股指数的 1年/3年/5年分位 + 标签。"""
     from .compute.position import compute_position

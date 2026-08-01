@@ -1739,6 +1739,82 @@ def _compute_position_backtest(conn: sqlite3.Connection) -> dict | None:
     }
 
 
+def _compute_holding_concentration_timeseries(conn: sqlite3.Connection) -> dict | None:
+    """N功能: 抱团集中度历史时序(10期季报)。
+
+    输入: fund_holding_stock 全部 report_date(当前2期+回填8期=10期)
+    输出: holding_concentration_ts JSON 产物, 供前端 N 多信号共振仪表盘。
+
+    每期算:
+    - concentration_top10: Top10 重仓股 hold_value_total 占全市场比例(持仓市值集中度)
+    - concentration_top20: Top20 重仓股 hold_value_total 占全市场比例
+    - herfindahl: Top100 重仓股基金覆盖家数 Herfindahl 指数(和 compute_metrics 口径一致,
+      H = Σ(fund_count_i / Σfund_count)^2, 值越大抱团越集中)
+    - fund_count: 该期 Top100 总基金覆盖家数
+    - total_stocks: 该期总股票数
+    - total_value_wan: 该期全市场持仓总市值(万元)
+    - top10_stocks: Top10 详情 [{code, name, fund_count, value}]
+
+    独立计算, 不走 export_data() 7 元组(避免破坏解包, 参考 _compute_position_backtest 模式)。
+    """
+    # 取所有 report_date 升序
+    dates = [r[0] for r in conn.execute(
+        "SELECT DISTINCT report_date FROM fund_holding_stock ORDER BY report_date ASC"
+    ).fetchall()]
+    if not dates:
+        return None
+
+    series: list[dict] = []
+    for d in dates:
+        # 取该期全量数据(按 hold_value_total 降序)
+        rows = conn.execute(
+            "SELECT stock_code, stock_name, fund_count, hold_value_total "
+            "FROM fund_holding_stock WHERE report_date=? "
+            "ORDER BY hold_value_total DESC",
+            (d,),
+        ).fetchall()
+        if not rows:
+            continue
+
+        total_value = sum(r[3] or 0 for r in rows) or 1
+        # Top100 基金覆盖家数(和 compute_metrics L1224-1226 口径一致)
+        top100 = rows[:100]
+        total_fund_count_top100 = sum(r[2] or 0 for r in top100) or 1
+
+        # Top10/Top20 持仓市值集中度
+        top10_value = sum(r[3] or 0 for r in rows[:10])
+        top20_value = sum(r[3] or 0 for r in rows[:20])
+        conc_top10 = round(top10_value / total_value, 6) if total_value else None
+        conc_top20 = round(top20_value / total_value, 6) if total_value else None
+
+        # Herfindahl: Top100 基金覆盖家数份额平方和
+        herf = sum(((r[2] or 0) / total_fund_count_top100) ** 2 for r in top100)
+        herf = round(herf, 6) if top100 else None
+
+        series.append({
+            "date": d,
+            "concentration_top10": conc_top10,
+            "concentration_top20": conc_top20,
+            "herfindahl": herf,
+            "fund_count": total_fund_count_top100,
+            "total_stocks": len(rows),
+            "total_value_wan": round(total_value, 2),
+            "top10_stocks": [
+                {"code": r[0], "name": r[1], "fund_count": r[2], "value": r[3]}
+                for r in rows[:10]
+            ],
+        })
+
+    if not series:
+        return None
+
+    return {
+        "report_date": series[-1]["date"],  # 最新期
+        "period_count": len(series),
+        "series": series,
+    }
+
+
 def export_data() -> tuple[dict, dict, dict, dict, dict, dict, dict]:
     """导出 7 类 JSON: summary / holdings / industry / top20 / asset_alloc / industry_fund_map / manuf_subind_fund_map。
 
@@ -1972,9 +2048,11 @@ def export_json_files() -> None:
         size = (STATIC_DATA_DIR / fname).stat().st_size
         print(f"  [export] {fname} ({size} bytes)", flush=True)
     # G功能: 88 魔咒历史回测(独立计算, 不走 export_data 7 元组, 避免解包破坏)
+    # N功能: 抱团集中度历史时序(独立计算, 同模式, 复用 conn)
     conn = get_conn()
     try:
         backtest = _compute_position_backtest(conn)
+        concentration_ts = _compute_holding_concentration_timeseries(conn)
     finally:
         conn.close()
     if backtest:
@@ -1983,6 +2061,12 @@ def export_json_files() -> None:
             encoding="utf-8")
         size = (STATIC_DATA_DIR / "public_fund_position_backtest.json").stat().st_size
         print(f"  [export] public_fund_position_backtest.json ({size} bytes)", flush=True)
+    if concentration_ts:
+        (STATIC_DATA_DIR / "public_fund_holding_concentration_ts.json").write_text(
+            json.dumps(concentration_ts, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8")
+        size = (STATIC_DATA_DIR / "public_fund_holding_concentration_ts.json").stat().st_size
+        print(f"  [export] public_fund_holding_concentration_ts.json ({size} bytes)", flush=True)
     print(f"[export] 7 个 JSON 写入 -> {STATIC_DATA_DIR}", flush=True)
 
 
@@ -1990,7 +2074,7 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "quarterly"
-    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "check-fresh"):
+    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "backfill-industry", "check-fresh"):
         print(__doc__)
         print(f"\n用法: python -m app.collector.public_fund <command>")
         print(f"  quarterly       季度全量(5汇总+top1000×2子页+8指标, ~35min)")
@@ -1999,11 +2083,12 @@ def main():
         print(f"  metrics         重算8指标")
         print(f"  export          只导出5类JSON")
         print(f"  backfill --start 20240101 --end 20241231  历史重仓股回填")
+        print(f"  backfill-industry --years 2017-2024 --top 1000  行业配置历史回填(8年)")
         print(f"  check-fresh [--top N]  数据新鲜度闸门(exit 0=应跑, 1=无新数据跳过)")
         sys.exit(1)
 
-    # 进程互斥（quarterly/full/daily/backfill 持锁, metrics/export/check-fresh 不需要）
-    if cmd in ("quarterly", "full", "daily", "backfill"):
+    # 进程互斥（quarterly/full/daily/backfill/backfill-industry 持锁, metrics/export/check-fresh 不需要）
+    if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry"):
         if not _acquire_lock(nonblock=True):
             print(f"[public_fund] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
             return
@@ -2076,6 +2161,70 @@ def main():
         for d in dates:
             total += fetch_holding_cninfo(d)
         print(f"[backfill] 完成, 共 {total} 行", flush=True)
+    elif cmd == "backfill-industry":
+        # 行业配置历史回填: --years 2017-2024 --top 1000
+        # 逐只跑 fetch_fund_industry_alloc(code, year) 共8年, 独立进度文件断点续传
+        years_arg = "2017-2024"
+        top_n = QUARTERLY_TOP_N
+        for i, a in enumerate(sys.argv[2:], 2):
+            if a == "--years" and i + 1 < len(sys.argv):
+                years_arg = sys.argv[i + 1]
+            elif a == "--top" and i + 1 < len(sys.argv):
+                top_n = int(sys.argv[i + 1])
+        # 解析 years: "2017-2024" -> ["2017",...,"2024"]
+        if "-" in years_arg:
+            ys = years_arg.split("-")
+            years = [str(y) for y in range(int(ys[0]), int(ys[1]) + 1)]
+        else:
+            years = [years_arg]
+        print(f"[backfill-industry] years={years} top={top_n}", flush=True)
+        funds = universe_top_funds(n=top_n)
+        # 排除后端份额(fund_name 含"后端", 后端份额行业配置数据恒空)
+        funds = [(c, n, ft) for c, n, ft in funds if "后端" not in n]
+        print(f"[backfill-industry] 基金池: {len(funds)} 只(排除后端份额)", flush=True)
+        # 独立进度文件, 避免和 /tmp/fund-collect-progress.json 冲突
+        prog_path = Path("/tmp/fund-industry-backfill-progress.json")
+        done: set[str] = set()
+        if prog_path.exists():
+            try:
+                done = set(json.loads(prog_path.read_text(encoding="utf-8")).get("industry_backfill", []))
+            except Exception:  # noqa: BLE001
+                done = set()
+        ok = empty = fail = 0
+        t0 = time.time()
+        for i, (code, name, _ft) in enumerate(funds, 1):
+            for year in years:
+                key = f"{code}|{year}"
+                if key in done:
+                    ok += 1  # 断点续传, 已完成计 ok
+                    continue
+                try:
+                    n = fetch_fund_industry_alloc(code, year=year)
+                    if n > 0:
+                        ok += 1
+                    else:
+                        empty += 1
+                    done.add(key)  # 无论 ok 还是 empty 都标记完成, 避免重跑
+                except Exception as e:  # noqa: BLE001
+                    fail += 1
+                    print(f"  [H] {code} {name} {year} 异常: {type(e).__name__} {e}", flush=True)
+                time.sleep(THROTTLE_SEC)
+            # 每 50 只回写进度 + ETA
+            if i % 50 == 0 or i == len(funds):
+                try:
+                    prog_path.write_text(
+                        json.dumps({"industry_backfill": sorted(done)}, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    print(f"  [progress] WARN 写入失败: {e}", flush=True)
+                elapsed = time.time() - t0
+                eta = (elapsed / i) * (len(funds) - i) if i > 0 else 0
+                print(f"  [backfill-industry] {i}/{len(funds)} funds "
+                      f"({i*100/len(funds):.1f}%) ok={ok} empty={empty} fail={fail} "
+                      f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+        print(f"[backfill-industry] 完成: ok={ok} empty={empty} fail={fail} "
+              f"总耗时={time.time()-t0:.0f}s", flush=True)
     elif cmd == "check-fresh":
         # 数据新鲜度闸门(只读检查, 不持锁): exit 0=有新数据应跑, 1=无新数据跳过
         # --top N 覆盖率阈值(默认 1000 quarterly, full 用 9000)
