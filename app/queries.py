@@ -1433,6 +1433,20 @@ def public_fund_scale_change_ts():
         conn.close()
 
 
+def public_fund_industry_rotation_ts():
+    """F功能: 全市场行业配置轮动历史时序(50期季报, 2017Q1-2026Q2, 过滤<50 fund 脏数据期)。
+    独立计算(不走 export_data 7 元组), 复用 fund_industry_alloc 全量时序。
+    行业名应用 IND_MERGE_MAP 合并(67原始名->27标准名, 和 industry_fund_map 一致)。
+    返回 {report_date, period_count, industries_order, series:[{date, fund_count,
+    industries:{合并行业名:平均权重}}]}。"""
+    from .collector.public_fund import _compute_industry_rotation_ts, get_conn
+    conn = get_conn()
+    try:
+        return _compute_industry_rotation_ts(conn)
+    finally:
+        conn.close()
+
+
 def position():
     """大盘位置感：8 个 A 股指数的 1年/3年/5年分位 + 标签。"""
     from .compute.position import compute_position
