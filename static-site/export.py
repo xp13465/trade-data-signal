@@ -222,6 +222,11 @@ def export_public_fund_manuf_subind_fund_map():
     return queries.public_fund_manuf_subind_fund_map()
 
 
+def export_public_fund_position_backtest():
+    """G功能: 88 魔咒历史回测 + 极值标注(独立计算, 不走 export_data 7 元组)。"""
+    return queries.public_fund_position_backtest()
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -439,6 +444,10 @@ def main():
     counts["public_fund_manuf_subind_fund_map.json"] = write_json(
         DATA_DIR / "public_fund_manuf_subind_fund_map.json", export_public_fund_manuf_subind_fund_map())
     print(f"  public_fund_manuf_subind_fund_map.json ({counts['public_fund_manuf_subind_fund_map.json']} bytes)")
+    # G功能: 88 魔咒历史回测 + 极值标注(独立计算, 非 export_data 7 元组)
+    counts["public_fund_position_backtest.json"] = write_json(
+        DATA_DIR / "public_fund_position_backtest.json", export_public_fund_position_backtest())
+    print(f"  public_fund_position_backtest.json ({counts['public_fund_position_backtest.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]
