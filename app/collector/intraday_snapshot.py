@@ -1634,8 +1634,10 @@ def build_snapshot() -> dict:
         from ..compute.us_futures_expect import compute_expect
         us_futures = compute_expect(fetch_us_futures())
         if us_futures:
-            print(f"[intraday] 美股期货采集: ES={us_futures.get('hf_ES', {}).get('chg_pct'):.2f}% "
-                  f"NQ={us_futures.get('hf_NQ', {}).get('chg_pct'):.2f}%", flush=True)
+            _parts = [f"{c}={d['chg_pct']:.2f}%" for c, d in us_futures.items()
+                      if d.get("chg_pct") is not None]
+            if _parts:
+                print(f"[intraday] 外盘期货采集: {' '.join(_parts)}", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"[intraday] 美股期货采集失败（不阻断）: {type(e).__name__} {e}", flush=True)
     # AZ89 P1+P2 全球指数实时：盘中韩日/欧美/港股板块/澳印实时（新浪 b_/rt_ 批量采）

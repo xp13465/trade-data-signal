@@ -1,10 +1,14 @@
-"""美股期货 ES/NQ 实时采集（新浪 hf_ 外盘期货，亚盘实时免费）。
+"""外盘指数期货实时采集（新浪 hf_ 外盘期货，亚盘实时免费）。
 
 背景：A 股收盘时美股未开盘（北京时差晚 21:30 才开盘），用户看不到美股当晚方向。
-ES 期货（标普500）↔ 标普500 收盘相关性≈0.95，NQ（纳指100）↔ 纳指100 同理。
-CME GLOBEX 电子盘亚盘（北京白天）仍在交易，ES/NQ 实时价反映美股当晚预期方向。
+ES 期货（标普500）↔ 标普500 收盘相关性≈0.95，NQ（纳指100）↔ 纳指100 同理；
+YM（道指）↔ 道琼斯，HSI（恒指）↔ 恒生指数 同理。
+CME GLOBEX 电子盘亚盘（北京白天）仍在交易，期货实时价反映对应指数当晚/当日开盘预期方向。
 
-数据源：新浪 http://hq.sinajs.cn/list=hf_ES,hf_NQ
+单一配置源：US_FUTURES_META 是唯一配置，采集 URL / 计算映射 / 前端渲染均从此读，
+未来扩充只需加一条 META（前提：新浪 hf_ 接口实测返回非空数据）。
+
+数据源：新浪 http://hq.sinajs.cn/list=hf_ES,hf_NQ,hf_YM,hf_HSI
 - 需 Referer: https://finance.sina.com.cn 头（否则返回空）
 - GBK 解码
 - 字段映射（实测 2026-07-15）：
@@ -30,17 +34,58 @@ import requests
 
 from .base import UA, throttle
 
-_SINA_URL = "http://hq.sinajs.cn/list=hf_ES,hf_NQ"
 _SINA_HEADERS = {"User-Agent": UA, "Referer": "https://finance.sina.com.cn"}
 
-# 期货代码 -> 元信息（展示名 + 对应美股指数 index_id）
+# 预估方向阈值默认值（META 未逐条覆盖时用此）
+EXPECT_THRESHOLD = 0.3
+
+# ── 单一配置源：期货代码 -> 元信息 ─────────────────────────────────────
+# 未来扩充只改这里（前提：新浪 hf_ 接口实测返回非空，curl 验证）。
+# 不可用的 hf_ 代码不要硬塞进配置（会导致采集失败，不如留空等未来实测）。
+# 字段：
+#   index_id:      对应指数 ID（与 index_backfill.HK_GLOBAL_INDICES 对齐）
+#   display_name:  前端卡片展示名（指数名）
+#   futures_name:  期货名（新浪返回的 name 优先，此字段作兜底）
+#   short:         daily_metric metric_id 短名（us_futures_<short>_{price,chg,signal}）
+#   relevance:     期货↔指数收盘相关性（实测的填实测，新增的填理论值）
+#   threshold:     预估方向阈值 |chg%|>threshold 判涨跌（默认 EXPECT_THRESHOLD）
 US_FUTURES_META = {
-    "hf_ES": {"name": "标普500期货", "target": "us_spx", "target_name": "标普500"},
-    "hf_NQ": {"name": "纳指100期货", "target": "us_ndx", "target_name": "纳斯达克100"},
+    "hf_ES": {
+        "index_id": "us_spx",
+        "display_name": "标普500",
+        "futures_name": "标普500期货",
+        "short": "es",
+        "relevance": 0.95,
+        "threshold": 0.3,
+    },
+    "hf_NQ": {
+        "index_id": "us_ndx",
+        "display_name": "纳斯达克100",
+        "futures_name": "纳指100期货",
+        "short": "nq",
+        "relevance": 0.95,
+        "threshold": 0.3,
+    },
+    "hf_YM": {
+        "index_id": "us_dji",
+        "display_name": "道琼斯",
+        "futures_name": "道指期货",
+        "short": "ym",
+        "relevance": 0.95,
+        "threshold": 0.3,
+    },
+    "hf_HSI": {
+        "index_id": "hsi",
+        "display_name": "恒生指数",
+        "futures_name": "恒指期货",
+        "short": "hsi",
+        "relevance": 0.95,
+        "threshold": 0.3,
+    },
 }
 
-# 预估方向阈值：|chg_pct| > 0.3% 判定预涨/预跌，否则持平
-EXPECT_THRESHOLD = 0.3
+# 采集 URL 从 META keys 自动拼（未来扩充只改 META，URL 自动跟上，不再硬编码）
+_SINA_URL = "http://hq.sinajs.cn/list=" + ",".join(US_FUTURES_META.keys())
 
 _LINE_RE = re.compile(r'var\s+hq_str_(hf_\w+)\s*=\s*"([^"]*)"')
 
@@ -78,7 +123,7 @@ def _parse_sina_hf(text: str) -> dict:
         meta = US_FUTURES_META.get(code, {})
         out[code] = {
             "code": code,
-            "name": vals[13].strip() if len(vals) > 13 and vals[13].strip() else meta.get("name", code),
+            "name": vals[13].strip() if len(vals) > 13 and vals[13].strip() else meta.get("futures_name", code),
             "price": price,
             "prev_close": prev_close,
             "open": f(3),
@@ -92,9 +137,9 @@ def _parse_sina_hf(text: str) -> dict:
 
 
 def fetch_us_futures() -> dict:
-    """抓 ES/NQ 期货实时。返回 {hf_ES: {...}, hf_NQ: {...}}。失败返回 {}。
+    """抓外盘指数期货实时。返回 {hf_ES: {...}, ...}。失败返回 {}。
 
-    单次请求同时抓两只（list=hf_ES,hf_NQ），新浪支持批量。
+    单次请求批量抓所有 META 配置的期货（list=hf_ES,hf_NQ,...），新浪支持批量。
     """
     throttle()
     try:

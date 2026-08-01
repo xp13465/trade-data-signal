@@ -9106,14 +9106,16 @@ async function renderHK(container = content) {
   }
 }
 
-// 美股期货 ES/NQ 预期提示条：亚盘实时期货价 + 涨跌幅 + 预估美股当晚方向。
+// 外盘指数期货预期提示条：亚盘实时期货价 + 涨跌幅 + 预估对应指数开盘方向。
 // 读 intraday_snapshot.us_futures（盘中快照采集时注入）。无数据不渲染。
-// ES↔标普500 / NQ↔纳指100，相关性≈0.95；阈值±0.3%判预涨/预跌/持平。
+// 配置源在 app/collector/us_futures.py 的 US_FUTURES_META，前端动态渲染任意条数。
+// 期货↔指数相关性≈0.95；阈值±0.3%判预涨/预跌/持平。
 function _renderUSFuturesExpect(snap, container) {
   const usf = snap && snap.us_futures;
   if (!usf || !Object.keys(usf).length) return;
   const items = [];
-  for (const code of ["hf_ES", "hf_NQ"]) {
+  let time = "";
+  for (const code of Object.keys(usf)) {
     const d = usf[code];
     if (!d || d.price == null) continue;
     const chg = d.chg_pct;
@@ -9121,9 +9123,10 @@ function _renderUSFuturesExpect(snap, container) {
     const chgTxt = (chg != null ? ((chg >= 0 ? "+" : "") + chg.toFixed(2) + "%") : "-");
     const expect = d.expect || "持平";
     const expectCls = expect === "预涨" ? "up" : expect === "预跌" ? "down" : "flat";
+    if (d.time && !time) time = d.time;  // 取第一个有效时间作角标
     items.push(
       `<div class="usf-item">
-        <span class="usf-name">${d.target_name || d.name}</span>
+        <span class="usf-name">${d.display_name || d.name}</span>
         <span class="usf-fname">${d.name || ""}</span>
         <span class="usf-price">${d.price.toFixed(2)}</span>
         <span class="usf-chg ${chgCls}">${chgTxt}</span>
@@ -9132,19 +9135,18 @@ function _renderUSFuturesExpect(snap, container) {
       </div>`);
   }
   if (!items.length) return;
-  const time = (usf.hf_ES && usf.hf_ES.time) || (usf.hf_NQ && usf.hf_NQ.time) || "";
   const div = document.createElement("div");
   div.className = "us-futures-expect";
   div.innerHTML =
     `<div class="usf-head">
-      <span class="usf-title">🇺🇸 美股预期</span>
-      <span class="usf-sub">期货亚盘实时 · 预估美股当晚方向（ES↔标普500 / NQ↔纳指100，相关性≈0.95）</span>
+      <span class="usf-title">🌍 外盘指数预期</span>
+      <span class="usf-sub">期货亚盘实时 · 预估对应指数开盘方向（期货↔指数相关性≈0.95）</span>
     </div>
     <div class="usf-items">${items.join("")}</div>`;
   container.appendChild(div);
-  // 时间角标：ES/NQ 期货报价时间（亚盘实时），参考 addCardTimeBadge 机制用 card-time-badge 角标
+  // 时间角标：期货报价时间（亚盘实时），参考 addCardTimeBadge 机制用 card-time-badge 角标
   if (time) {
-    div.insertAdjacentHTML("beforeend", `<span class="card-time-badge intraday" data-tip="美股期货亚盘实时报价时间">⏰ ${time}</span>`);
+    div.insertAdjacentHTML("beforeend", `<span class="card-time-badge intraday" data-tip="外盘期货亚盘实时报价时间">⏰ ${time}</span>`);
     div.classList.add("has-time-badge");
   }
 }
