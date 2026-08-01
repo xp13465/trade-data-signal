@@ -5858,9 +5858,14 @@ function _updateRefreshDebug() {
   } else {
     countdown = '--';
   }
-  // 最近 collected_at(历史序列末尾)
-  const lastCA = _overviewCollectHistory.length
+  // 后端时间: 优先用 overview collected_at 历史末尾;
+  // 盘后轮询刚启动 _overviewCollectHistory 还空时, 用 intraday_snapshot.collected_at 兜底
+  // (intraday_snapshot 在 _doOverviewRefresh 已 fetch, 盘后 first overview 拉到前用它显示真实后端时间, 不再 --:--)
+  let lastCA = _overviewCollectHistory.length
     ? _overviewCollectHistory[_overviewCollectHistory.length - 1] : NaN;
+  if (isNaN(lastCA) && state.intradaySnapshot && state.intradaySnapshot.collected_at) {
+    lastCA = _parseCollectAt(state.intradaySnapshot.collected_at);
+  }
   const backend = isNaN(lastCA) ? '--:--' : _fmtHM(lastCA);
   // 历史样本数
   const samples = _overviewCollectHistory.length + '/' + OVERVIEW_HISTORY_MAX;
@@ -5874,10 +5879,9 @@ function _updateRefreshDebug() {
   if (_preOpenPrecisionNextAt > now) {
     precision = ' ⏰精确:' + _fmtHM(_preOpenPrecisionNextAt);
   }
-  _refreshDebugEl.textContent =
-    '下次:' + countdown + ' | ' + status +
-    ' | 后端:' + backend +
-    ' | 样本:' + samples + predict + precision;
+  // 常驻只显示倒计时+后端时间(精简); status/samples/predict/precision 移到 hover title 显示
+  _refreshDebugEl.textContent = '下次:' + countdown + ' | 后端:' + backend;
+  _refreshDebugEl.title = status + ' | 样本:' + samples + predict + precision;
 }
 
 const MARKET_OPEN_CHECK_MS = 3 * 60 * 1000;          // 收盘态每3min检测一次市场是否开盘
