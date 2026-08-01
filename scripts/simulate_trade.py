@@ -1869,6 +1869,31 @@ def _generate_one(index_id, name_map, out_dir_static, output=None):
     return True
 
 
+def _generate_indices_list(out_dir_data):
+    """生成 trade_sim_indices.json：列出所有已生成回测数据的 index_id 清单。
+
+    前端 app.js 启动时 fetch 该清单构建 SIM_INDICES（替代硬编码），避免新增回测指数后
+    漏更新前端清单导致按钮误灰（2026-07-20 事故：cac40 等10指数有数据但按钮灰）。
+
+    从 data/trade_sim/trade_sim_*_stats.json 文件名提取 index_id，写 static-site/data/trade_sim_indices.json。
+    在 main() 各生成路径末尾调用（JSON/HTML、单品种/批量均覆盖），保证清单与磁盘文件同步。
+    """
+    sim_dir = os.path.join(out_dir_data, 'trade_sim')
+    if not os.path.isdir(sim_dir):
+        return
+    indices = []
+    prefix = 'trade_sim_'
+    suffix = '_stats.json'
+    for fn in os.listdir(sim_dir):
+        if fn.startswith(prefix) and fn.endswith(suffix):
+            indices.append(fn[len(prefix):-len(suffix)])
+    indices.sort()
+    out_path = os.path.join(out_dir_data, 'trade_sim_indices.json')
+    with open(out_path, 'w', encoding='utf-8') as f:
+        json.dump(indices, f, ensure_ascii=False, separators=(',', ':'))
+    print(f"索引清单已生成: {len(indices)} 个 -> {out_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="技术信号模拟回测")
     parser.add_argument("--index", help="品种 index_id（默认 sh）")
@@ -1898,6 +1923,7 @@ def main():
                     fail += 1
                     print(f"FAIL: {index_id} - {e}", file=sys.stderr)
             print(f"JSON 完成: 成功 {ok} / 跳过 {skip} / 失败 {fail} / 共 {len(ids)}")
+            _generate_indices_list(out_dir_data)
             return
 
         index_id = args.index or "sh"
@@ -1907,6 +1933,7 @@ def main():
         else:
             print(f"无数据: {index_id}", file=sys.stderr)
             sys.exit(1)
+        _generate_indices_list(out_dir_data)
         return
 
     # --html: 旧版静态 HTML 生成（保留兜底过渡）
@@ -1924,6 +1951,7 @@ def main():
                 fail += 1
                 print(f"FAIL: {index_id} - {e}", file=sys.stderr)
         print(f"HTML 完成: 成功 {ok} / 跳过 {skip} / 失败 {fail} / 共 {len(ids)}")
+        _generate_indices_list(out_dir_data)
         return
 
     index_id = args.index or "sh"
@@ -1934,6 +1962,7 @@ def main():
     else:
         print(f"无数据: {index_id}", file=sys.stderr)
         sys.exit(1)
+    _generate_indices_list(out_dir_data)
 
 if __name__ == "__main__":
     main()

@@ -12,27 +12,24 @@ const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: 
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
-const SIM_INDICES = new Set([
-  'sh', 'sz', 'cyb', 'csi500', 'csi1000', 'kc50', 'hs300', 'sz50',
-  'hsi', 'hscei', 'hstech', 'div_lowvol', 'csi_div',
-  'hk_cesg10', 'hk_hsmogi', 'hk_hsmbi', 'hk_hsmpi', 'hk_cshklre', 'hk_cshklc', 'hk_hscci', 'hk_cshkdiv',
-  'us_ixic', 'us_spx', 'us_dji', 'us_ndx',
-  'ftse100', 'dax', 'bj50',
-  'g.gold', 'g.comex_silver', 'g.wti_oil', 'g.us10y', 'g.a_qvix_300', 'g.a_qvix_1000', 'g.brent',
-  'gold', 'comex_silver', 'wti_oil', 'brent', 'us10y', 'a_qvix_300', 'a_qvix_1000',
-  'sw_801010', 'sw_801030', 'sw_801040', 'sw_801050', 'sw_801080',
-  'sw_801110', 'sw_801120', 'sw_801130', 'sw_801140', 'sw_801150', 'sw_801160', 'sw_801170',
-  'sw_801180', 'sw_801200', 'sw_801210', 'sw_801230',
-  'sw_801710', 'sw_801720', 'sw_801730', 'sw_801740', 'sw_801750',
-  'sw_801760', 'sw_801770', 'sw_801780', 'sw_801790',
-  'sw_801880', 'sw_801890', 'sw_801950', 'sw_801960', 'sw_801970', 'sw_801980',
-  'thsc_300816', 'thsc_309119', 'thsc_308700', 'thsc_309049', 'thsc_301085',
-  'thsc_307940', 'thsc_302035', 'thsc_309068', 'thsc_308828', 'thsc_309020',
-  'thsc_309060', 'thsc_300008', 'thsc_301079', 'thsc_300733', 'thsc_306380',
-  'thsc_308294', 'thsc_309115', 'thsc_308014', 'thsc_300082', 'thsc_300830',
-  'thsc_308725', 'thsc_308300', 'thsc_309113', 'thsc_308491', 'thsc_308870',
-  'thsc_308752', 'thsc_309128'
-]);
+// 2026-07-20 根治：从 data/trade_sim_indices.json 动态加载（后端 simulate_trade.py 生成），
+// 替代硬编码清单——避免新增回测指数后漏更新前端清单导致按钮误灰（cac40 等10指数事故）。
+// initSimIndices() 启动时 fetch 填充；renderTab() await _simIndicesPromise 保证首渲前已就绪。
+let SIM_INDICES = new Set();
+let _simIndicesPromise = null;
+function initSimIndices() {
+  _simIndicesPromise = fetchJSON('./data/trade_sim_indices.json')
+    .then(function (list) {
+      SIM_INDICES = new Set(Array.isArray(list) ? list : []);
+      // 别名(gold/us10y 等)映射到 g.* 实际文件，需加入 SIM_INDICES 使按钮亮起
+      Object.keys(SIM_HREF_MAP).forEach(function (k) { SIM_INDICES.add(k); });
+    })
+    .catch(function (err) {
+      console.error('[SIM_INDICES] trade_sim_indices.json 加载失败，按钮将全部灰色:', err);
+      SIM_INDICES = new Set();
+    });
+  return _simIndicesPromise;
+}
 // 全球 tab extras 回的 id 无 g. 前缀（如 gold），需映射到实际文件名（如 g.gold）
 const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 'g.wti_oil', brent: 'g.brent', us10y: 'g.us10y', a_qvix_300: 'g.a_qvix_300', a_qvix_1000: 'g.a_qvix_1000' };
 
@@ -2583,7 +2580,8 @@ function _pinReviewCardHtml(id, idx, sig) {
 // 不再返回空串（用户要求：按钮必须显示，不可用时灰色而非缺失，避免用户以为坏了）。
 function _simBtnHtml(indexId) {
   if (!SIM_INDICES.has(indexId)) {
-    return `<a class="sim-btn sim-btn-disabled" data-index="${indexId}" title="该行业暂未接入模拟回测">📊 模拟回测</a>`;
+    var _label = (indexId.startsWith('sw_') || indexId.startsWith('thsc_')) ? '该行业' : '该指数';
+    return `<a class="sim-btn sim-btn-disabled" data-index="${indexId}" title="${_label}暂未接入模拟回测">📊 模拟回测</a>`;
   }
   return `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`;
 }
@@ -4148,6 +4146,8 @@ async function openKpiDetailModal(kpiId, period = "3m") {
 
 async function renderTab() {
   await loadEcharts();   // P2-5: 懒加载 echarts（所有 tab 图表 + lab.js 都依赖）
+  // 确保 SIM_INDICES 动态清单已加载（initSimIndices 启动时发 fetch），避免首渲按钮全灰
+  if (_simIndicesPromise) { try { await _simIndicesPromise; } catch (e) { /* catch 内已处理 */ } }
   clearCharts();
   // 概览 tab 图表固定近60日、策略实验 tab 全历史，周期切换均无意义，隐藏 .periods 和 .h5-period-bar；切走恢复
   const _hidePeriods = (state.tab === "lab" || state.tab === "overview" || state.tab === "etf");
@@ -12878,6 +12878,8 @@ function initSimOverlay() {
   document.addEventListener('click', function (e) {
     var a = e.target.closest('.sim-btn');
     if (!a) return;
+    // 防御加固：灰色 disabled 按钮不响应点击（即使动态清单漏了某指数，灰按钮也不会误弹窗）
+    if (a.classList.contains('sim-btn-disabled')) return;
     // 仅左键拦截；中键/ctrl+点击放行新标签
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
@@ -13824,6 +13826,7 @@ initStickyOffset();
 initBackToTop();
 initRuleButton();
 initH5();
+initSimIndices();   // 动态加载 SIM_INDICES 清单（fetch trade_sim_indices.json），renderTab 会 await
 initSimOverlay();
 initShareButton();
 initThemeSwitcher();
