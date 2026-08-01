@@ -9664,7 +9664,12 @@ async function renderPublicFund(container) {
   container.appendChild(chartCard);
 
   const posHist = (summary.position_history || []).filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
-  const posPoints = posHist.map((h) => [h.report_date, h.position_pct]);
+  let posPoints = posHist.map((h) => [h.report_date, h.position_pct]);
+
+  // 仓位主图响应全局 state.range(3m/6m/1y/3y/5y/all): 基于仓位数据末日回推 cutoff，
+  // 复用 _signalModalCutoff 逻辑(与首页周期按钮/信号弹窗一致)；null=all/空=不过滤
+  const _pfCutoff = _signalModalCutoff(posPoints.map((p) => ({ date: p[0], value: p[1] })), state.range || "all");
+  if (_pfCutoff) posPoints = posPoints.filter((p) => p[0] >= _pfCutoff);
 
   let shPoints = [];
   if (shIndex && shIndex.ohlc && shIndex.ohlc.length) {
