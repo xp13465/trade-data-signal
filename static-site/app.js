@@ -9776,25 +9776,26 @@ async function renderPublicFund(container) {
   charts.push(indChart);
   indChart.setOption({
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (p) => {
-      const d = indData[p[0].dataIndex];
-      // weight = SUM(weight_pct) 全市场基金该行业权重%求和(非 0-1 归一化), 用于柱状图排序(抱团集中度)
-      // 平均权重 = weight / fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%, 信息传输≈5.6%)
-      // value = SUM(hold_value) 单位万元, /1e4 转亿
-      const avgPct = (d.weight / d.fundCount).toFixed(1);
+      const d = p[0].data;  // series data object, 跟随 .reverse() 后显示顺序, 避免 indData[dataIndex] 用原始降序错位
+      // d.value = weight = SUM(weight_pct) 全市场基金该行业权重%求和(非 0-1 归一化), 用于柱状图排序(抱团集中度)
+      // 平均权重 = d.value / d.fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%, 信息传输≈5.6%)
+      // d.totalValue = SUM(hold_value) 单位万元, /1e4 转亿
+      const avgPct = (d.value / d.fundCount).toFixed(1);
       return `${d.name}<br/><br/><b style="font-size:13px">📊 平均权重: ${avgPct}%</b><br/>` +
         `<span style="color:var(--text-3)">= 平均每只基金把 ${avgPct}% 仓位配在该行业</span><br/>` +
         `<span style="color:var(--text-3)">(全市场 ${d.fundCount} 只基金该行业权重%的平均值)</span><br/>` +
-        `<br/>💰 持仓市值: <b>${(d.value / 1e4).toFixed(2)} 亿</b><span style="color:var(--text-3)"> (全市场基金该行业持仓总市值)</span><br/>` +
+        `<br/>💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><span style="color:var(--text-3)"> (全市场基金该行业持仓总市值)</span><br/>` +
         `🏦 基金数: <b>${d.fundCount}</b><span style="color:var(--text-3)"> 只基金持有该行业</span><br/>` +
-        `<br/>📌 权重和: <b>${d.weight.toFixed(1)}</b><span style="color:var(--text-3)"> (用于柱状图排序)</span><br/>` +
+        `<br/>📌 权重和: <b>${d.value.toFixed(1)}</b><span style="color:var(--text-3)"> (用于柱状图排序)</span><br/>` +
         `<span style="color:var(--text-3)">权重和越大 = 越多基金重配 = 抱团越集中</span>`;
     }},
     grid: { left: 10, right: 30, top: 10, bottom: 10, containLabel: true },
     xAxis: { type: "value", axisLabel: { fontSize: 10 } },
     yAxis: { type: "category", data: indData.map((d) => d.name).reverse(), axisLabel: { fontSize: 10, width: 140, overflow: "break", lineHeight: 12 } },
     series: [{
-      // data 用 object 形式带 fundCount, 供 label 算平均权重%; 排序仍按 weight 降序(反映抱团规模)
-      type: "bar", data: indData.map((d) => ({ value: d.weight, fundCount: d.fundCount })).reverse(), itemStyle: { color: "#e6492e" },
+      // data 用 object 形式带 fundCount/name/totalValue, 供 label 算平均权重% 和 tooltip 直接取;
+      // tooltip 从 p[0].data 取(跟随 .reverse() 后顺序), 不再用 indData[dataIndex] 原始降序避免错位
+      type: "bar", data: indData.map((d) => ({ value: d.weight, fundCount: d.fundCount, name: d.name, totalValue: d.value })).reverse(), itemStyle: { color: "#e6492e" },
       label: { show: true, position: "right", formatter: (p) => (p.data.value / p.data.fundCount).toFixed(1) + "%", fontSize: 10 },
     }],
   });
