@@ -9483,14 +9483,12 @@ async function renderSentiment() {
 async function renderPublicFund(container) {
   _disposeContainerCharts(container);
   renderLoadingState(container);
-  let summary, holdings, industry, top20Data, assetAlloc, shIndex;
+  let summary, holdings, industry, shIndex;
   try {
-    [summary, holdings, industry, top20Data, assetAlloc, shIndex] = await Promise.all([
+    [summary, holdings, industry, shIndex] = await Promise.all([
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_summary.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_holdings.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry.json").catch(() => null),
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_top20.json").catch(() => null),
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_asset_alloc.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/index/sh-all.json").catch(() => null),
     ]);
   } catch (e) {
