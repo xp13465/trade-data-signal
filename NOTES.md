@@ -6123,4 +6123,26 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ100 G功能 _compute_position_backtest（close 字段=沪深300 根因）+ memory bump-sw-version-with-appjs（改app.js必bump sw）+ memory cf-workers-large-json-404-r2-fallback（hs300-all.json 615KB <1MB 走 CF 不走 R2，和 sh-all.json 同架构）。
 
+### AZ105b 2026-08-02 ui79验收2异常修复: pin hover说明+top30高度对齐重做(ui80)
+
+**异常1 pin hover 没介绍提示**：
+- 根因：主 chart `tooltip.trigger:axis` 下，markPoint pin hover 被 axis tooltip 覆盖，不显示 pin 自己的说明
+- 修复：给 markPoint.data 每项的 `label` 加 `emphasis` 状态，hover pin 时 label 展开显示完整说明（ECharts markPoint 在 axis tooltip 下唯一可靠的 hover 显示方式）
+- emphasis 内容：类型说明（⚠88魔咒历史高点Top5 / ✓80抄底低点Top5）+ 日期+仓位+沪深300收盘+后30/60/90天涨跌
+- `_btMarkData` 函数加 `desc` 参数（类型说明文本），highs 传"⚠88魔咒历史高点Top5"，lows 传"✓80抄底低点Top5"
+- 数据来自 backtest.extremes.highs/lows 每项的 after_30d/60d/90d/close 字段（_compute_position_backtest 已产出）
+
+**异常2 top30 高度理解错重做**：
+- 用户原话："top30的卡我说的是在和行业配置的卡高度对齐的情况下 提高表格和滚动条的覆盖率。不是让你展开滚动条 现在展开后 右边的行业配置卡底部留白了"
+- ui79 错误：`max-height:none` 让 top30 表格展开撑高卡片（30行自然高度>indCard），grid stretch 取 max 把 indCard 拉高底部留白
+- 正确需求：两卡高度对齐（同高=indCard 高度），top30 表格在卡内 flex:1+overflow:auto 滚动，不撑高卡片
+- 修复：
+  - CSS `.pf-top30-card` 加 `overflow:hidden`，表格 `flex:1 1 0;min-height:0;max-height:none;overflow:auto`
+  - JS 同步：render 末尾 + _pfResizeHandler 里，`top30Card.style.height = indCard.offsetHeight`（显式 height 让 top30 自然高度=indCard，不撑高 grid cell；grid stretch 取 max 时 top30 自然高度已被显式 height 锁定=indCard 高度，cell 高度=indCard 高度，两卡同高）
+  - `_pfResizeHandler` 加 `.pf-two-col` 遍历同步（rAF 等 echarts resize 完成后测 indCard 高度）
+
+**【上线】** build_min + bump_asset_version + sw.js ui79->ui80 + push feat + merge main + push main。
+
+**【关联】** AZ105（ui79 基础修复）+ memory bump-sw-version-with-appjs。
+
 

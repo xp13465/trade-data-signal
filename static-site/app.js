@@ -9553,8 +9553,8 @@ async function renderPublicFund(container) {
 .pf-main-chart-card{margin-bottom:12px;}
 .pf-table-wrap{max-height:420px;overflow:auto;}
 /* 左侧 Top30 card 跟右侧柱状图+treemap 撑到同高: grid stretch 让 card 撑满 cell, flex column + flex:1 让表格区域吃掉剩余高度, 消除下方空白 */
-.pf-top30-card{display:flex;flex-direction:column;}
-.pf-top30-card .pf-table-wrap{flex:1;max-height:none;min-height:0;}
+.pf-top30-card{display:flex;flex-direction:column;overflow:hidden;}
+.pf-top30-card .pf-table-wrap{flex:1 1 0;max-height:none;min-height:0;overflow:auto;}
 .pf-table{width:100%;border-collapse:collapse;font-size:12px;}
 .pf-table th,.pf-table td{padding:5px 8px;border-bottom:1px solid var(--border-light, var(--border));text-align:left;white-space:nowrap;}
 .pf-table th{position:sticky;top:0;background:var(--bg-hover);color:var(--text-2);font-weight:600;z-index:1;box-shadow:inset 0 -1px 0 0 var(--border-light, var(--border));}
@@ -9806,21 +9806,33 @@ async function renderPublicFund(container) {
 
   // G功能: markPoint 标历史极值(88魔咒高点 Top5 + 80抄底低点 Top5)
   // backtest.extremes.highs/lows 日期格式 "2025-08-15", 需转 "20250815" 匹配 xAxis category
+  // label emphasis: hover pin 时 label 展开显示完整说明(trigger:axis 下 markPoint 无独立 tooltip, 用 emphasis label 兜底)
   const _btDateToCoord = (d) => (d || "").replace(/-/g, "");
-  const _btMarkData = (arr, color, labelPrefix) => {
+  const _btMarkData = (arr, color, labelPrefix, desc) => {
     if (!arr || !arr.length) return [];
+    const _retStr = (v) => (v == null ? "-" : (v > 0 ? "+" : "") + v.toFixed(2) + "%");
     return arr.map((e) => ({
       coord: [_btDateToCoord(e.date), e.position],
       value: `${labelPrefix}${e.position.toFixed(2)}%`,
       itemStyle: { color },
-      label: { color: "#fff", fontSize: 10, formatter: `{b|${e.date}}\n{a|${labelPrefix}${e.position}%}`,
-        rich: { b: { fontSize: 9, color: "#fff", lineHeight: 12 }, a: { fontSize: 11, color: "#fff", fontWeight: 700 } } },
+      label: {
+        color: "#fff", fontSize: 10,
+        formatter: `{b|${e.date}}\n{a|${labelPrefix}${e.position}%}`,
+        rich: { b: { fontSize: 9, color: "#fff", lineHeight: 12 }, a: { fontSize: 11, color: "#fff", fontWeight: 700 } },
+        // hover pin 展开: 类型说明 + 日期 + 仓位 + 沪深300 + 后30/60/90天涨跌(trigger:axis 下 markPoint 无 tooltip, emphasis label 是唯一可靠 hover 说明)
+        emphasis: {
+          show: true, color: "#fff", fontSize: 11,
+          backgroundColor: "rgba(0,0,0,0.88)", padding: [6, 8], borderRadius: 4,
+          formatter: `${desc}\n日期: ${e.date}  仓位: ${e.position}%  沪深300: ${e.close}\n后30天: ${_retStr(e.after_30d)}  后60天: ${_retStr(e.after_60d)}  后90天: ${_retStr(e.after_90d)}`,
+          rich: {},
+        },
+      },
     }));
   };
   const _highsMark = backtest && backtest.extremes && backtest.extremes.highs
-    ? _btMarkData(backtest.extremes.highs, "#e6492e", "高") : [];
+    ? _btMarkData(backtest.extremes.highs, "#e6492e", "高", "⚠ 88魔咒历史高点 Top5") : [];
   const _lowsMark = backtest && backtest.extremes && backtest.extremes.lows
-    ? _btMarkData(backtest.extremes.lows, "#2e8b57", "低") : [];
+    ? _btMarkData(backtest.extremes.lows, "#2e8b57", "低", "✓ 80抄底低点 Top5") : [];
 
   mainChart.setOption({
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
@@ -10980,8 +10992,15 @@ async function renderPublicFund(container) {
   // 响应式 resize: mainChart/indChart/treemapChart 都要 resize(首次加载 grid 容器宽度可能延迟算完, init 拿到 0 宽度时靠这里恢复)
   // 注: treemap 曾不渲染的真根因是 vendor/echarts.min.js 用了 common 精简版(629KB 不含 treemap 组件), setOption 静默失败;
   //     已换完整版 echarts@5.6.0(1MB 含 treemap 组件), 此处 resize 仅兜底首帧 0 宽场景
-  setTimeout(() => { mainChart.resize(); indChart.resize(); treemapChart.resize(); }, 0);
-  requestAnimationFrame(() => { treemapChart.resize(); });
+  // top30 卡高度同步: 显式 height=top30=indCard 高度, 让 top30 自然高度=indCard 不撑高 grid cell(grid stretch 取 max, top30 表格 30 行会撑高 cell 致 indCard 底部留白); 表格 flex:1+overflow:auto 在卡内滚动
+  const _syncTop30H = () => {
+    if (top30Card && indCard) {
+      const h = indCard.offsetHeight;
+      if (h > 0) top30Card.style.height = h + "px";
+    }
+  };
+  setTimeout(() => { mainChart.resize(); indChart.resize(); treemapChart.resize(); _syncTop30H(); }, 0);
+  requestAnimationFrame(() => { treemapChart.resize(); _syncTop30H(); });
   window.addEventListener("resize", _pfResizeHandler);
 }
 
@@ -11267,6 +11286,14 @@ function _pfResizeHandler() {
     document.querySelectorAll(".pf-main-chart-card .chart, .pf-ind-chart-card .chart, .pf-two-col .chart").forEach((dom) => {
       const inst = echarts.getInstanceByDom(dom);
       if (inst) inst.resize();
+    });
+    // top30 卡高度同步 = 行业配置卡高度(echarts resize 后 indCard 高度可能变, rAF 等 resize 完成再测)
+    document.querySelectorAll(".pf-two-col").forEach((row) => {
+      const top30 = row.querySelector(".pf-top30-card");
+      const ind = row.querySelector(".chart-card:not(.pf-top30-card)");
+      if (top30 && ind && ind.offsetHeight > 0) {
+        requestAnimationFrame(() => { top30.style.height = ind.offsetHeight + "px"; });
+      }
     });
   }, 150);
 }
