@@ -1455,7 +1455,21 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // DOM 顺序(2026-07-28 调整): [信号标签b][⚠][评级高/中/低][☑️/✖️][指数名]
         // 原顺序 [信号标签b][指数名][⚠][评级][对错] 在窄屏下指数名过长把评级+对错挤到右侧被 ellipsis 截掉看不见。
         // 现把评级+对错移到指数名前(紧跟信号标签),指数名放最右,溢出时 ellipsis 只截指数名,评级+对错始终可见。
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${it.reason ? it.reason + ' · ' : ''}点击查看走势图"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
+        // hoverpop title: 分类·signalLabel·指数名·reason·至今对错(可选)·点击查看
+        // 2026-07-20 修复: 原只 reason, 补全 _SIG_TYPE_META 分类(主买/辅买/追买/备买/波段持有/波段减仓/卖/追止损)
+        // + signalLabel(超卖拐点/下轨拐点/上轨突破/趋势转向/ATR止损等) + 指数名, 配合 CSS nowrap+ellipsis 4列整洁
+        const _typeKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
+        const _meta = _SIG_TYPE_META.find(m => m.key === _typeKey);
+        const _typeLabel = _meta ? _meta.label : it.signal;
+        const _titleParts = [_typeLabel, signalLabel(it), indexIdToName(it.index_id)];
+        if (it.reason) _titleParts.push(it.reason);
+        if (it.since_correct === true || it.since_correct === false) {
+          const _retS2 = it.since_return != null ? (it.since_return > 0 ? "+" : "") + it.since_return.toFixed(2) + "%" : "";
+          _titleParts.push(`至今${_retS2}·${it.since_correct ? "符合预测" : "不符预测"}`);
+        }
+        _titleParts.push("点击查看走势图");
+        const _hoverTitle = _titleParts.join(" · ");
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -2704,7 +2718,7 @@ function indexChart(title, ohlc, signals, stats, strategy, container = content, 
   const _last = ohlc && ohlc.length ? ohlc[ohlc.length - 1] : null;
   const _pct = _last && _last.pct_change != null ? _last.pct_change : null;
   const _up = (_pct || 0) >= 0;
-  const _closeSuffix = _last && _last.close != null ? `<span class="chart-latest"> · ${fmtDate(_last.date)} ${_last.close.toFixed(2)}</span>` : "";
+  const _closeSuffix = _last && _last.close != null ? `<span class="chart-latest"> · ${fmtDate(_last.date)} ${_last.close.toFixed(2)}<small style="color:var(--text-3)"> 收</small></span>` : "";
   const _pctSuffix = (_pct != null) ? ` <span class="pct-badge" style="color:${_up ? "#e6492e" : "#2e8b57"}">${_up ? "+" : ""}${_pct.toFixed(2)}%</span>` : "";
   const _suffix = _closeSuffix + _pctSuffix;
   const c = mkCard(title + _suffix, 300, hint, container, chartArr);
@@ -4497,7 +4511,8 @@ function addGlobalRealtimeBadge(cardEl, indexId, snap) {
   const hhmm = tm.length >= 5 ? tm.slice(0, 5) : tm;
   const cls = isNaN(cp) ? "flat" : (cp > 0 ? "up" : (cp < 0 ? "down" : "flat"));
   // data-tip 悬停显示完整信息(name/datetime/pre_close/OHLC)
-  const tipParts = [];
+  // 2026-07-20 修复2: 首行加"盘中实时价(标题为最近收盘价)"说明标题收盘价 T+1 与角标实时价 T+0 不同源
+  const tipParts = ["盘中实时价(标题为最近收盘价)"];
   if (gr.name) tipParts.push(gr.name);
   if (gr.date) tipParts.push(gr.date + (tm ? " " + tm : ""));
   if (gr.pre_close != null) tipParts.push("昨收 " + gr.pre_close);
@@ -4506,7 +4521,8 @@ function addGlobalRealtimeBadge(cardEl, indexId, snap) {
   if (gr.low != null) tipParts.push("低 " + gr.low);
   const tip = tipParts.join(" · ");
   const tmp = document.createElement("div");
-  tmp.innerHTML = `<span class="card-realtime-badge ${cls}" data-tip="${tip.replace(/"/g, "&quot;")}">${_fmtGlobalPrice(price)} <b>${_fmtGlobalChgPct(cp)}</b>${hhmm ? " · " + hhmm : ""}</span>`;
+  // 2026-07-20 修复2: 角标内容前加"实"前缀, 与标题收盘价后"收"小标签成对呼应
+  tmp.innerHTML = `<span class="card-realtime-badge ${cls}" data-tip="${tip.replace(/"/g, "&quot;")}">实 ${_fmtGlobalPrice(price)} <b>${_fmtGlobalChgPct(cp)}</b>${hhmm ? " · " + hhmm : ""}</span>`;
   const badge = tmp.firstElementChild;
   if (!badge) return;
   badge.setAttribute("data-badge-gid", indexId);
@@ -4536,7 +4552,7 @@ function refreshGlobalRealtimeBadges(snap) {
     const tm = gr.time || "";
     const hhmm = tm.length >= 5 ? tm.slice(0, 5) : tm;
     const cls = isNaN(cp) ? "flat" : (cp > 0 ? "up" : (cp < 0 ? "down" : "flat"));
-    const tipParts = [];
+    const tipParts = ["盘中实时价(标题为最近收盘价)"];
     if (gr.name) tipParts.push(gr.name);
     if (gr.date) tipParts.push(gr.date + (tm ? " " + tm : ""));
     if (gr.pre_close != null) tipParts.push("昨收 " + gr.pre_close);
@@ -4546,7 +4562,7 @@ function refreshGlobalRealtimeBadges(snap) {
     const tip = tipParts.join(" · ").replace(/"/g, "&quot;");
     badge.setAttribute("class", `card-realtime-badge ${cls}`);
     badge.setAttribute("data-tip", tip);
-    badge.innerHTML = `${_fmtGlobalPrice(price)} <b>${_fmtGlobalChgPct(cp)}</b>${hhmm ? " · " + hhmm : ""}`;
+    badge.innerHTML = `实 ${_fmtGlobalPrice(price)} <b>${_fmtGlobalChgPct(cp)}</b>${hhmm ? " · " + hhmm : ""}`;
   });
 }
 
