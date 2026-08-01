@@ -5932,3 +5932,41 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ98 方案C Step5（首次上线 manuf_subind_fund_map）+ memory export-output-path-sync（双路径同步陷阱）+ CLAUDE.md §9（cwd=trade-data 读主库铁律）。
 
+### AZ100 2026-08-02 公募基金 G功能 88魔咒历史回测+极值标注（ui76）
+
+**背景**：G功能 = 88魔咒历史回测 + 极值标注。数据源 fund_position_history lg源 445期周频（20070930-20260724），自带 close 字段（上证收盘）。avg_position 分布：>88%(88魔咒)308期(69%) / 80-88%中性121期(27%) / <80%抄底16期(4%)。现有实现 app.js L9750-9830 已有 88/80 markLine + 仓位vs上证双轴折线，G功能在此基础上加 markPoint 极值标注 + 回测统计面板。
+
+**实施**（commit 3861538e）：
+
+1. **后端 `_compute_position_backtest(conn)`**（app/collector/public_fund.py L1619，独立计算不走 export_data 7元组，避免解包破坏）：
+   - 输入：fund_position_history lg源 avg_position+close 时序（445期）
+   - 算法：遍历每期，对每期算 after_30d/60d/90d 上证涨跌（找首条 report_date >= D+N天 的记录）
+   - extremes: highs Top5（position>88 降序）+ lows Top5（position<80 升序），每条含 date/position/close/after_30d/60d/90d
+   - stats: spell_88（308期, win_rate 56.44%, avg_30d +0.04%）+ dip_80（16期, win_rate 75%, avg_30d +3.38%, avg_90d +13.07%）
+   - current: 最新期仓位96.01% + 区间88魔咒 + 历史分位95.96%
+   - win_rate: 88魔咒=触发后30天下跌占比；80抄底=触发后30天上涨占比
+
+2. **前端 app.js markPoint + 统计面板**：
+   - 现有88魔咒双轴折线加 markPoint（红pin=Top5高点88魔咒触发点, 绿pin=Top5低点80抄底信号点），日期格式 "2025-08-15" 转 "20250815" 匹配 xAxis category
+   - 图表下方加3栏统计面板（88魔咒/80抄底/当前状态），pf-bt-grid CSS 3列响应式
+   - fetch position_backtest JSON（R2直链 ssd.fx8.store/public_fund/public_fund_position_backtest.json）
+
+3. **上线链路 5处全闭环**（AZ99 教训 checklist）：
+   - ① collector _compute_position_backtest() 独立函数（非 export_data 元组）
+   - ② queries.py public_fund_position_backtest() 薄包装
+   - ③ export.py export_public_fund_position_backtest() + write_json L441
+   - ④ deploy.sh DATA_FILES for 循环加 position_backtest（7->8 个 public_fund 文件）
+   - ⑤ upload_r2 upload-public-fund glob 自动覆盖（无需改，public_fund*.json 匹配）
+   - 额外：collector export_json_files() 也写 position_backtest（`python -m app.collector.public_fund export` 命令也生成）
+
+4. **版本号**：sw CACHE_VERSION ui75->ui76 + build_min.py + bump_asset_version.py
+
+**【关键发现】** 88魔咒 win_rate 仅 56.44%（接近随机），avg_30d/60d/90d 均接近0，说明 88魔咒作为"看跌信号"在 A 股不太可靠（可能因 ETF/被动基金占比上升致仓位常年>88%）。但 80抄底信号强：win_rate 75%，avg_90d +13.07%，是更可靠的"看涨信号"。当前仓位96.01%处于88魔咒区间，历史分位95.96%。
+
+**【协调】** F agent 正在改 public_fund.py 加 backfill-industry CLI（PID 90537在跑采集，代码未commit）。G功能改动在文件不同区域（_compute_position_backtest 在 export_data 前，backfill-industry 在 main()），不冲突。commit 时用 cp+git checkout+重新Edit 方式分离：先保存合并态 -> reset到HEAD -> 只重新apply G功能改动 -> commit -> 恢复合并态（F agent改动保留在工作区）。
+
+**【验证】** 3域名 sw.js ui76 ✓ + R2 position_backtest JSON HTTP 200 ✓ + 数据正确性抽查（2021-02-10 仓位94.82% close5807.72, 30天后close5146.38 跌幅-11.39% ✓）+ F agent backfill-industry 改动保留工作区 ✓。
+
+**【关联】** AZ97 公募基金4功能规划（G功能是其一）+ AZ99 export.py 5处闭环教训 + memory r2-arch-by-category-not-size（public_fund 走R2按类别）。
+
+
