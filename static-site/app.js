@@ -9432,6 +9432,7 @@ async function renderSentiment() {
     ["market-temp", "市场温度"],
     ["futures", "期货风向"],
     ["national-team", "汪汪队"],
+    ["public-fund", "公募基金"],
   ];
   subtabs.forEach(([key, label]) => {
     const btn = document.createElement("button");
@@ -9456,7 +9457,316 @@ async function renderSentiment() {
   // 根据 subtab 渲染对应内容
   if (state.subtab === "futures") await renderFutures(subContent);
   else if (state.subtab === "national-team") await renderNationalTeam(subContent);
+  else if (state.subtab === "public-fund") await renderPublicFund(subContent);
   else await renderSentimentMarketTemp(subContent); // 默认 market-temp
+}
+
+// 公募基金持仓二级 subtab：4 信号灯 + 仓位vs上证主图 + Top30 重仓 + 行业配置 + Top20 调仓
+// 数据源：static-site/data/public_fund_*.json (5 个) + index/sh-all.json (上证指数, 双轴右轴)
+// 口径：lg=股票型+混合型仓位(88魔咒专用, 范围 90%+); cninfo=全市场资产配置(含债基/货基, 范围 20%+)
+async function renderPublicFund(container) {
+  _disposeContainerCharts(container);
+  renderLoadingState(container);
+  let summary, holdings, industry, top20Data, assetAlloc, shIndex;
+  try {
+    [summary, holdings, industry, top20Data, assetAlloc, shIndex] = await Promise.all([
+      fetchJSON(dataUrl("public_fund_summary.json")).catch(() => null),
+      fetchJSON(dataUrl("public_fund_holdings.json")).catch(() => null),
+      fetchJSON(dataUrl("public_fund_industry.json")).catch(() => null),
+      fetchJSON(dataUrl("public_fund_top20.json")).catch(() => null),
+      fetchJSON(dataUrl("public_fund_asset_alloc.json")).catch(() => null),
+      fetchJSON("https://ssd.fx8.store/index/sh-all.json").catch(() => null),
+    ]);
+  } catch (e) {
+    renderErrorState(container, e, () => renderPublicFund(container));
+    return;
+  }
+  if (!summary || !summary.metrics) {
+    container.innerHTML = '<div class="loading">暂无数据</div>';
+    return;
+  }
+  container.innerHTML = "";
+
+  // ── 注入 pf- 样式(自包含, 只注入一次) ──
+  if (!document.getElementById("pf-style")) {
+    const st = document.createElement("style");
+    st.id = "pf-style";
+    st.textContent = `
+.pf-banner{background:linear-gradient(90deg,rgba(255,152,0,0.12),rgba(230,73,46,0.08));border:1px solid #ff9800;border-left:4px solid #ff9800;border-radius:8px;padding:10px 14px;margin:8px 0 12px;font-size:13px;color:var(--text-2);line-height:1.6;}
+.pf-banner b{color:#ff9800;}
+.pf-caliber-note{font-size:12px;color:var(--text-3);background:var(--bg-hover);border-radius:6px;padding:6px 12px;margin:4px 0 12px;border-left:3px solid var(--border-strong);}
+.pf-sig-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px;}
+.pf-sig-card{border:1px solid;border-radius:10px;padding:12px 14px;background:var(--bg-card, var(--bg-1));display:flex;flex-direction:column;gap:4px;}
+.pf-sig-name{font-size:12px;color:var(--text-3);}
+.pf-sig-value{font-size:26px;font-weight:700;line-height:1.1;}
+.pf-sig-status{font-size:11px;color:var(--text-3);}
+.pf-delta{font-size:12px;font-weight:600;}
+.pf-delta-na{color:var(--text-3);font-weight:400;}
+.pf-two-col{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:12px;}
+@media(max-width:900px){.pf-two-col{grid-template-columns:1fr;}}
+.pf-main-chart-card{margin-bottom:12px;}
+.pf-table-wrap{max-height:420px;overflow:auto;}
+.pf-table{width:100%;border-collapse:collapse;font-size:12px;}
+.pf-table th,.pf-table td{padding:5px 8px;border-bottom:1px solid var(--border-light, var(--border));text-align:left;white-space:nowrap;}
+.pf-table th{position:sticky;top:0;background:var(--bg-2, var(--bg-1));color:var(--text-2);font-weight:600;z-index:1;}
+.pf-table tr:hover td{background:var(--bg-hover);}
+.pf-num{text-align:right;font-variant-numeric:tabular-nums;}
+.pf-code{font-family:ui-monospace,monospace;color:var(--text-3);font-size:11px;}
+`;
+    document.head.appendChild(st);
+  }
+
+  const _pfFmtDate = (s) => s && String(s).length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : (s || "");
+
+  // ── 滞后性提示 banner ──
+  const reportDate = summary.report_date || "";
+  const banner = document.createElement("div");
+  banner.className = "pf-banner";
+  banner.innerHTML = `⚠️ 本数据截止 <b>${_pfFmtDate(reportDate)}</b>（季报披露滞后约 15 天），仅作辅助参考，不作主信号`;
+  container.appendChild(banner);
+
+  // ── 提取 4 信号灯指标 ──
+  const metricsMap = {};
+  (summary.metrics || []).forEach((m) => { metricsMap[m.metric_id] = m; });
+  const avgPos = metricsMap["avg_position"];           // 平均仓位 96.01 (lg 口径)
+  const conc = metricsMap["concentration_herfindahl"]; // 抱团度 HHI
+  const overlap = metricsMap["overlap_ratio"];         // 重叠度 (Top30 平均覆盖基金家数)
+  const netRedeem = metricsMap["net_redeem_ratio"];    // 净申赎率 %
+
+  // 计算变化(avg_position 从 position_history 最近两期 lg 差; net_redeem 从 scale_change_history 推)
+  const _pfCalcChange = () => {
+    let avgPosDelta = null, netRedeemDelta = null;
+    if (summary.position_history && summary.position_history.length >= 2) {
+      const lgHist = summary.position_history.filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
+      if (lgHist.length >= 2) {
+        const n = lgHist.length;
+        avgPosDelta = +(lgHist[n-1].position_pct - lgHist[n-2].position_pct).toFixed(2);
+      }
+    }
+    if (summary.scale_change_history && summary.scale_change_history.length >= 2) {
+      const sch = summary.scale_change_history;
+      const n = sch.length;
+      const cur = sch[n-1], prev = sch[n-2];
+      if (cur.end_total_share && prev.end_total_share) {
+        const curRate = cur.net_purchase_share / cur.end_total_share * 100;
+        const prevRate = prev.net_purchase_share / prev.end_total_share * 100;
+        netRedeemDelta = +(curRate - prevRate).toFixed(3);
+      }
+    }
+    return { avgPosDelta, netRedeemDelta };
+  };
+  const { avgPosDelta, netRedeemDelta } = _pfCalcChange();
+
+  // 颜色规则辅助
+  const _pfColorFor = (metricId, value) => {
+    if (value == null) return { color: "var(--text-3)", status: "暂无数据" };
+    if (metricId === "avg_position") {
+      if (value > 88) return { color: "#e6492e", status: "88 魔咒警示（高位）" };
+      if (value >= 80) return { color: "#ff9800", status: "中位" };
+      return { color: "#2e8b57", status: "抄底机会（低位）" };
+    }
+    if (metricId === "concentration_herfindahl") {
+      if (value > 0.1) return { color: "#e6492e", status: "高度抱团" };
+      if (value >= 0.05) return { color: "#ff9800", status: "中度抱团" };
+      return { color: "#2e8b57", status: "分散健康" };
+    }
+    if (metricId === "overlap_ratio") {
+      if (value > 1500) return { color: "#e6492e", status: "高度重叠" };
+      if (value >= 800) return { color: "#ff9800", status: "中度重叠" };
+      return { color: "#2e8b57", status: "重叠度低" };
+    }
+    if (metricId === "net_redeem_ratio") {
+      if (value > 0.5) return { color: "#e6492e", status: "净申购（多头）" };
+      if (value > -0.5) return { color: "#ff9800", status: "申赎平衡" };
+      return { color: "#2e8b57", status: "净赎回（空头）" };
+    }
+    return { color: "var(--text-3)", status: "" };
+  };
+
+  // 变化箭头 HTML（仓位↑红/↓绿；净申赎↑红/↓绿）
+  const _pfDeltaHtml = (delta) => {
+    if (delta == null) return '<span class="pf-delta pf-delta-na">较上季 —</span>';
+    const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
+    const color = delta === 0 ? "var(--text-3)" : (delta > 0 ? "#e6492e" : "#2e8b57");
+    const sign = delta > 0 ? "+" : "";
+    return `<span class="pf-delta" style="color:${color}">较上季 ${arrow} ${sign}${delta.toFixed(2)}</span>`;
+  };
+
+  const _pfCard = (metricId, name, value, delta, unit, fmt) => {
+    const fv = fmt ? fmt(value) : (value != null ? value.toFixed(2) : "—");
+    const { color, status } = _pfColorFor(metricId, value);
+    return `<div class="pf-sig-card" style="border-color:${color}">
+      <div class="pf-sig-name">${name}</div>
+      <div class="pf-sig-value" style="color:${color}">${fv}${value != null ? unit : ""}</div>
+      <div class="pf-sig-status">${status}</div>
+      ${_pfDeltaHtml(delta)}
+    </div>`;
+  };
+
+  const sigGrid = document.createElement("div");
+  sigGrid.className = "pf-sig-grid";
+  container.appendChild(sigGrid);
+  sigGrid.innerHTML =
+    _pfCard("avg_position", "平均股票仓位", avgPos ? avgPos.metric_value : null, avgPosDelta, "%") +
+    _pfCard("concentration_herfindahl", "抱团度 HHI", conc ? conc.metric_value : null, null, "") +
+    _pfCard("overlap_ratio", "重叠度(Top30 均覆盖)", overlap ? overlap.metric_value : null, null, " 家", (v) => v.toFixed(0)) +
+    _pfCard("net_redeem_ratio", "净申赎率", netRedeem ? netRedeem.metric_value : null, netRedeemDelta, "%");
+
+  // 口径说明
+  if (avgPos && avgPos.detail && avgPos.detail.note) {
+    const noteDiv = document.createElement("div");
+    noteDiv.className = "pf-caliber-note";
+    noteDiv.innerHTML = `📊 口径: ${avgPos.detail.note}（当前 lg=${avgPos.detail.lg_position}%，cninfo=${avgPos.detail.cninfo_position}%）`;
+    container.appendChild(noteDiv);
+  }
+
+  // ── 区域 2: 主图 仓位 vs 上证指数 双轴折线 + 88/80 markLine ──
+  const chartCard = document.createElement("div");
+  chartCard.className = "chart-card pf-main-chart-card";
+  chartCard.innerHTML = '<div class="chart-title">📈 平均股票仓位 vs 上证指数（lg=股票型+混合型，88 魔咒专用口径）</div><div class="chart" style="height:380px"></div>';
+  container.appendChild(chartCard);
+
+  const posHist = (summary.position_history || []).filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
+  const posPoints = posHist.map((h) => [h.report_date, h.position_pct]);
+
+  let shPoints = [];
+  if (shIndex && shIndex.ohlc && shIndex.ohlc.length) {
+    if (posPoints.length) {
+      const minDate = posPoints[0][0], maxDate = posPoints[posPoints.length - 1][0];
+      shPoints = shIndex.ohlc.filter((d) => d.date >= minDate && d.date <= maxDate).map((d) => [d.date, d.close]);
+    } else {
+      shPoints = shIndex.ohlc.slice(-100).map((d) => [d.date, d.close]);
+    }
+  }
+
+  const mainChart = echarts.init(chartCard.querySelector(".chart"));
+  charts.push(mainChart);
+  const shVals = shPoints.map((p) => p[1]);
+  const shMin = shVals.length ? Math.min(...shVals) : 3000;
+  const shMax = shVals.length ? Math.max(...shVals) : 3500;
+  const allDates = [...new Set([...posPoints.map((p) => p[0]), ...shPoints.map((p) => p[0])])].sort();
+  const posMap = new Map(posPoints), shMap = new Map(shPoints);
+  mainChart.setOption({
+    tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+    legend: { data: ["平均仓位%", "上证指数"], top: 5, textStyle: { color: "var(--text-2)" } },
+    grid: { left: 60, right: 60, top: 40, bottom: 30 },
+    xAxis: { type: "category", data: allDates, axisLabel: { formatter: (v) => _pfFmtDate(v).slice(5), fontSize: 10 } },
+    yAxis: [
+      { type: "value", name: "仓位%", min: 80, max: 100, position: "left", axisLabel: { formatter: "{value}%" } },
+      { type: "value", name: "上证", min: Math.floor(shMin * 0.95), max: Math.ceil(shMax * 1.05), position: "right", scale: true, axisLabel: { formatter: "{value}" } },
+    ],
+    series: [
+      {
+        name: "平均仓位%", type: "line", data: allDates.map((d) => posMap.has(d) ? posMap.get(d) : null), yAxisIndex: 0,
+        symbol: "circle", symbolSize: 5, connectNulls: true,
+        lineStyle: { color: "#e6492e", width: 2 }, itemStyle: { color: "#e6492e" },
+        markLine: {
+          silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
+          data: [
+            { yAxis: 88, lineStyle: { color: "#e6492e" }, label: { formatter: "88 魔咒", color: "#e6492e", position: "insideStartTop", fontSize: 10 } },
+            { yAxis: 80, lineStyle: { color: "#2e8b57" }, label: { formatter: "80 抄底", color: "#2e8b57", position: "insideStartBottom", fontSize: 10 } },
+          ],
+        },
+      },
+      {
+        name: "上证指数", type: "line", data: allDates.map((d) => shMap.has(d) ? shMap.get(d) : null), yAxisIndex: 1,
+        symbol: "none", connectNulls: true, lineStyle: { color: "#888", width: 1.5 }, itemStyle: { color: "#888" },
+      },
+    ],
+  });
+
+  // ── 区域 3: Top30 重仓表(左) + 行业柱状图(右) 两栏 ──
+  const twoCol = document.createElement("div");
+  twoCol.className = "pf-two-col";
+  container.appendChild(twoCol);
+
+  // 左: Top30 重仓表
+  const top30Card = document.createElement("div");
+  top30Card.className = "chart-card";
+  const top30 = (holdings && holdings.top50 ? holdings.top50 : []).slice(0, 30);
+  let top30Rows = "";
+  top30.forEach((s, i) => {
+    top30Rows += `<tr>
+      <td>${i + 1}</td>
+      <td class="pf-code">${s.stock_code}</td>
+      <td>${s.stock_name}</td>
+      <td class="pf-num">${s.fund_count}</td>
+      <td class="pf-num">${(s.hold_value_total / 1e4).toFixed(2)}</td>
+    </tr>`;
+  });
+  top30Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top30（持有基金数 / 持仓市值万元）</div>
+    <div class="pf-table-wrap"><table class="pf-table">
+      <thead><tr><th>#</th><th>代码</th><th>名称</th><th>基金数</th><th>市值(万)</th></tr></thead>
+      <tbody>${top30Rows || '<tr><td colspan="5">暂无数据</td></tr>'}</tbody>
+    </table></div>`;
+  twoCol.appendChild(top30Card);
+
+  // 右: 行业配置柱状图
+  const indCard = document.createElement("div");
+  indCard.className = "chart-card";
+  indCard.innerHTML = '<div class="chart-title">🏭 行业配置（按权重降序）</div><div class="chart" style="height:420px"></div>';
+  twoCol.appendChild(indCard);
+
+  const indData = (industry && industry.industries ? industry.industries : [])
+    .map((d) => ({ name: d.industry_name, weight: d.total_weight, value: d.total_value, fundCount: d.fund_count }))
+    .sort((a, b) => b.weight - a.weight);
+  const indChart = echarts.init(indCard.querySelector(".chart"));
+  charts.push(indChart);
+  indChart.setOption({
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (p) => {
+      const d = indData[p[0].dataIndex];
+      return `${d.name}<br/>权重: ${d.weight.toFixed(2)}<br/>市值(亿): ${(d.value / 1e4).toFixed(2)}<br/>基金数: ${d.fundCount}`;
+    }},
+    grid: { left: 10, right: 30, top: 10, bottom: 10, containLabel: true },
+    xAxis: { type: "value", axisLabel: { fontSize: 10 } },
+    yAxis: { type: "category", data: indData.map((d) => d.name).reverse(), axisLabel: { fontSize: 10, width: 120, overflow: "truncate" } },
+    series: [{
+      type: "bar", data: indData.map((d) => d.weight).reverse(), itemStyle: { color: "#e6492e" },
+      label: { show: true, position: "right", formatter: "{c:.1f}", fontSize: 10 },
+    }],
+  });
+
+  // ── 区域 4: 头部重仓股调仓 Top20 表 ──
+  const top20Card = document.createElement("div");
+  top20Card.className = "chart-card";
+  const top20List = (top20Data && top20Data.top20 ? top20Data.top20 : []).slice().sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
+  const prevDate = top20Data && top20Data.prev_report_date ? _pfFmtDate(top20Data.prev_report_date) : "";
+  let top20Rows = "";
+  top20List.forEach((s, i) => {
+    const chgColor = s.change_pct > 0 ? "#e6492e" : s.change_pct < 0 ? "#2e8b57" : "var(--text-3)";
+    const chgArrow = s.change_pct > 0 ? "↑" : s.change_pct < 0 ? "↓" : "→";
+    top20Rows += `<tr>
+      <td>${i + 1}</td>
+      <td class="pf-code">${s.stock_code}</td>
+      <td>${s.stock_name}</td>
+      <td class="pf-num">${s.fund_count}</td>
+      <td class="pf-num">${(s.current_value / 1e4).toFixed(2)}</td>
+      <td class="pf-num">${(s.prev_value / 1e4).toFixed(2)}</td>
+      <td class="pf-num" style="color:${chgColor};font-weight:600">${chgArrow} ${Math.abs(s.change_pct).toFixed(2)}%</td>
+    </tr>`;
+  });
+  top20Card.innerHTML = `<div class="chart-title">🔄 头部重仓股调仓 Top20（当期 ${_pfFmtDate(reportDate)} vs 上期 ${prevDate}，按 |变化%| 降序）</div>
+    <div class="pf-table-wrap"><table class="pf-table">
+      <thead><tr><th>#</th><th>代码</th><th>名称</th><th>基金数</th><th>当期(万)</th><th>上期(万)</th><th>变化</th></tr></thead>
+      <tbody>${top20Rows || '<tr><td colspan="7">暂无数据</td></tr>'}</tbody>
+    </table></div>`;
+  container.appendChild(top20Card);
+
+  // 响应式 resize
+  setTimeout(() => { mainChart.resize(); indChart.resize(); }, 0);
+  window.addEventListener("resize", _pfResizeHandler);
+}
+
+let _pfResizeTimer = null;
+function _pfResizeHandler() {
+  if (_pfResizeTimer) clearTimeout(_pfResizeTimer);
+  _pfResizeTimer = setTimeout(() => {
+    // 只 resize 仍挂载的 pf 图表（dispose 的会被 _disposeContainerCharts 清理）
+    document.querySelectorAll(".pf-main-chart-card .chart, .pf-ind-chart-card .chart, .pf-two-col .chart").forEach((dom) => {
+      const inst = echarts.getInstanceByDom(dom);
+      if (inst) inst.resize();
+    });
+  }, 150);
 }
 
 // 市场温度二级 subtab：冰点/过热热力图 + 恐贪/A股情绪分/6宽基/跨市场（原 renderSentiment 主体，期货已归 futures subtab）
@@ -13928,7 +14238,7 @@ initUpdateRules();
 // F5 刷新解析恢复二级 tab，避免刷新回退到默认 a 股。
 const _MAIN_TABS = ["overview", "market", "sentiment", "industry", "etf"];
 const _MARKET_SUBTABS = ["a-stock", "hk", "global"];
-const _SENTIMENT_SUBTABS = ["market-temp", "futures", "national-team"];
+const _SENTIMENT_SUBTABS = ["market-temp", "futures", "national-team", "public-fund"];
 function _setTabHash(tab) {
   let h = "#" + tab;
   if (tab === "market" && state.subtab) h = "#market/" + state.subtab;
