@@ -48,6 +48,7 @@ CLI 子命令:
   python -m app.collector.public_fund metrics          重算8指标
   python -m app.collector.public_fund export           导出JSON产物
   python -m app.collector.public_fund backfill --start 20240101 --end 20241231  历史回填
+  python -m app.collector.public_fund check-fresh [--top N]  数据新鲜度闸门(exit 0=应跑, 1=跳过)
 """
 from __future__ import annotations
 
@@ -410,6 +411,101 @@ def fetch_holding_cninfo(report_date: str | None = None) -> int:
     conn.close()
     print(f"[C] fund_holding_stock 写入 {len(rows)} 行 @ {report_date}, {time.time()-t:.1f}s", flush=True)
     return len(rows)
+
+
+# ── 数据新鲜度闸门 ──────────────────────────────────────────────────────────────
+def _fetch_source_latest_report_date() -> str | None:
+    """查询源(ak.fund_report_asset_allocation_cninfo)最新季报 report_date。
+
+    只读检查, 不写 DB。调 cninfo 全市场资产配置汇总接口(B2, ~76 行季度数据),
+    取最大报告期作为"源最新季报 report_date"。用于 has_new_data() 判断源是否有新季报。
+
+    Returns: YYYYMMDD 字符串, 或 None(查询失败)
+    """
+    try:
+        df = safe_call(ak.fund_report_asset_allocation_cninfo, retries=2)
+        if isinstance(df, Exception) or df is None or len(df) == 0:
+            print(f"[fresh] 源查询失败: {df}", flush=True)
+            return None
+        dates: list[str] = []
+        for _, r in df.iterrows():
+            d = _to_yyyymmdd(r.get("报告期"))
+            if d:
+                dates.append(d)
+        return max(dates) if dates else None
+    except Exception as e:  # noqa: BLE001
+        print(f"[fresh] 源查询异常: {type(e).__name__} {e}", flush=True)
+        return None
+
+
+def has_new_data(top_n: int = QUARTERLY_TOP_N) -> tuple[bool, str]:
+    """数据新鲜度闸门: 跑前检查源是否有新季报数据可采, 无新数据则跳过避免重复跑。
+
+    核心逻辑(非季报日历闸门, 是数据新鲜度判断):
+      - 源最新 report_date > DB 已采 report_date -> 跑(新季报披露了)
+      - 源 == DB 但覆盖率不足(有失败) -> 补采(兜底重试)
+      - 源 == DB 且采全 -> 跳过(无新数据, 重复跑没意义)
+
+    实现:
+      1. 源最新季报 report_date: 调 cninfo B2 接口(全市场资产配置汇总, 季度频, ~76 行)
+         注意: fund_position_history 的 lg 源是周频不能用, cninfo 源才是季报
+      2. DB 最新季报 report_date: fund_holding_stock MAX(report_date)(重仓股表, 季报频)
+         fallback: fund_asset_alloc MAX(report_date); 再 fallback: None(首次跑必采)
+      3. 覆盖率判断(源==DB 时):
+         - fund_holding_stock @ db_latest 行数 < 4500(历史采全约 5285 行, 85% 阈值)
+         - fund_asset_alloc @ db_latest DISTINCT fund_code < top_n * 0.95
+         任一不足 -> 补采
+
+    Args:
+      top_n: 期望采全的基金数(quarterly=1000, full=9000), 用于 asset_alloc 覆盖率阈值
+    Returns:
+      (should_run, reason): should_run=True 应跑/补采, False 跳过
+    """
+    src_latest = _fetch_source_latest_report_date()
+    if src_latest is None:
+        return (True, "源查询失败, 默认跑(安全侧不跳过)")
+
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT MAX(report_date) FROM fund_holding_stock").fetchone()
+        db_latest = row[0] if row else None
+        if db_latest is None:
+            row = conn.execute("SELECT MAX(report_date) FROM fund_asset_alloc").fetchone()
+            db_latest = row[0] if row else None
+    finally:
+        conn.close()
+
+    if db_latest is None:
+        return (True, f"DB 无数据(首次跑), 源最新={src_latest}, 应跑")
+
+    if src_latest > db_latest:
+        return (True, f"有新季报数据 src={src_latest} db={db_latest}, 应跑")
+    if src_latest < db_latest:
+        return (False, f"DB 比源新 db={db_latest} src={src_latest}, 跳过(防御性)")
+
+    # src == db: 检查覆盖率(判断是否有失败基金需补采)
+    holding_threshold = 4500  # 历史采全约 5285 行/季, 85% 阈值
+    asset_threshold = int(top_n * 0.95)
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM fund_holding_stock WHERE report_date=?", (db_latest,)
+        ).fetchone()
+        holding_cnt = row[0] if row else 0
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT fund_code) FROM fund_asset_alloc WHERE report_date=?",
+            (db_latest,),
+        ).fetchone()
+        asset_cnt = row[0] if row else 0
+    finally:
+        conn.close()
+
+    if holding_cnt < holding_threshold or asset_cnt < asset_threshold:
+        return (True, f"补采失败基金 report_date={db_latest} "
+                      f"holding={holding_cnt}/{holding_threshold} "
+                      f"asset_alloc={asset_cnt}/{top_n}, 应跑")
+    return (False, f"无新数据 report_date={db_latest} 已采全 "
+                   f"holding={holding_cnt} asset_alloc={asset_cnt}/{top_n}, 跳过")
 
 
 # ── Fetcher D: 持有人结构 ───────────────────────────────────────────────────────
@@ -1157,7 +1253,7 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "quarterly"
-    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill"):
+    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "check-fresh"):
         print(__doc__)
         print(f"\n用法: python -m app.collector.public_fund <command>")
         print(f"  quarterly       季度全量(5汇总+top1000×2子页+8指标, ~35min)")
@@ -1166,9 +1262,10 @@ def main():
         print(f"  metrics         重算8指标")
         print(f"  export          只导出5类JSON")
         print(f"  backfill --start 20240101 --end 20241231  历史重仓股回填")
+        print(f"  check-fresh [--top N]  数据新鲜度闸门(exit 0=应跑, 1=无新数据跳过)")
         sys.exit(1)
 
-    # 进程互斥（quarterly/full/daily/backfill 持锁, metrics/export 不需要）
+    # 进程互斥（quarterly/full/daily/backfill 持锁, metrics/export/check-fresh 不需要）
     if cmd in ("quarterly", "full", "daily", "backfill"):
         if not _acquire_lock(nonblock=True):
             print(f"[public_fund] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
@@ -1242,6 +1339,16 @@ def main():
         for d in dates:
             total += fetch_holding_cninfo(d)
         print(f"[backfill] 完成, 共 {total} 行", flush=True)
+    elif cmd == "check-fresh":
+        # 数据新鲜度闸门(只读检查, 不持锁): exit 0=有新数据应跑, 1=无新数据跳过
+        # --top N 覆盖率阈值(默认 1000 quarterly, full 用 9000)
+        top_n = QUARTERLY_TOP_N
+        for i, a in enumerate(sys.argv[2:], 2):
+            if a == "--top" and i + 1 < len(sys.argv):
+                top_n = int(sys.argv[i + 1])
+        should_run, reason = has_new_data(top_n=top_n)
+        print(f"[fresh] should_run={should_run} {reason}", flush=True)
+        sys.exit(0 if should_run else 1)
 
 
 if __name__ == "__main__":

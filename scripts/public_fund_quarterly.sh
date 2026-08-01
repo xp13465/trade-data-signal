@@ -52,6 +52,26 @@ if [ "$IS_TRADING" != "1" ] && [ "$FORCE" != "1" ]; then
   exit 0
 fi
 
+# 数据新鲜度闸门(force 可绕过): 源无新季报数据则跳过, 避免重复跑没意义。
+# check-fresh 查源(cninfo B2)最新 report_date vs DB MAX(report_date) + 覆盖率:
+#   - 源 > DB(新季报披露) -> exit 0 跑
+#   - 源 == DB 但未采全(有失败) -> exit 0 补采
+#   - 源 == DB 且采全 -> exit 1 跳过(无新数据)
+if [ "$FORCE" != "1" ]; then
+  echo "-> 数据新鲜度检查 ..." | tee -a "$LOG"
+  "$PY" -m app.collector.public_fund check-fresh --top 1000 2>&1 | tee -a "$LOG"
+  FRESH_RC=${PIPESTATUS[0]}
+  if [ "$FRESH_RC" -ne 0 ]; then
+    echo "⏭ 无新数据, 跳过本次季度采集(check-fresh exit=$FRESH_RC)" | tee -a "$LOG"
+    echo "=== public_fund_quarterly.sh 结束（无新数据）$(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
+    # 仍刷新 schedule_stats 记录本次跳过(与脚本结尾一致)
+    "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" \
+      || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
+    bash "$REPO/scripts/push_schedule_stats.sh" || echo "⚠ push_schedule_stats 失败" | tee -a "$LOG"
+    exit 0
+  fi
+fi
+
 # 1) 季度全量采集（5汇总+top1000×2子页+8指标, ~35min）+ 导出 JSON
 #    python 内 public_fund.lock 防并发；采集器写 DB + dump static-site/data/public_fund_*.json。
 echo "-> 采集公募基金季度（5汇总+top1000+8指标, ~35min）+ 导出 JSON ..." | tee -a "$LOG"
