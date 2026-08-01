@@ -7485,6 +7485,10 @@ async function renderOverview() {
   }
   colA2.appendChild(ntCard);
 
+  // 阶段 J+K: 公募基金信号卡(基金仓位角标 + 4 信号灯 + 4 维资金面共振)
+  // 异步渲染, 不阻塞首页主结构(失败降级隐藏, 不影响其他卡; 与 renderPublicFund 不同, 此处只读 summary 一份)
+  _renderPublicFundHomeCard(colA2, r, snap);
+
   // 汪汪队首次解释：复用 showIntroOnce 弹窗,localStorage[nt_intro_done] 标记后不再弹。
   // 加 _ntIntroScheduled 守卫,确保整页生命周期只调度一次(避免 tab 反复切换重复 setTimeout)。
   if (!window._ntIntroScheduled) {
@@ -9512,6 +9516,15 @@ async function renderPublicFund(container) {
 .pf-table tr:hover td{background:var(--bg-hover);}
 .pf-num{text-align:right;font-variant-numeric:tabular-nums;}
 .pf-code{font-family:ui-monospace,monospace;color:var(--text-3);font-size:11px;}
+.pf-help{margin:8px 0 12px;font-size:13px;}
+.pf-help>summary{cursor:pointer;user-select:none;color:var(--primary);font-size:13px;font-weight:600;display:inline-block;padding:4px 0;}
+.pf-help>summary:hover{color:var(--primary-hover);}
+.pf-help-body{margin-top:6px;padding:10px 14px;background:var(--bg-card,var(--bg-1));border:1px solid var(--border-light,var(--border));border-left:4px solid var(--primary);border-radius:6px;font-size:12.5px;color:var(--text-2);line-height:1.7;}
+.pf-help-body>div{margin:5px 0;}
+.pf-help-body b{color:var(--text-1);font-weight:600;}
+.pf-help-body ul{margin:4px 0 4px 18px;padding:0;}
+.pf-help-body li{margin:3px 0;}
+.pf-help-warn{margin-top:8px;padding:6px 10px;background:rgba(255,152,0,0.08);border-left:3px solid #ff9800;border-radius:4px;color:var(--text-2);font-size:12px;}
 `;
     document.head.appendChild(st);
   }
@@ -9524,6 +9537,30 @@ async function renderPublicFund(container) {
   banner.className = "pf-banner";
   banner.innerHTML = `⚠️ 本数据截止 <b>${_pfFmtDate(reportDate)}</b>（季报披露滞后约 15 天），仅作辅助参考，不作主信号`;
   container.appendChild(banner);
+
+  // ── 板块帮助说明（可折叠，复用 details+summary 模式，参考 hint-kelly-explain）──
+  const helpBox = document.createElement("details");
+  helpBox.className = "pf-help";
+  helpBox.innerHTML = `<summary>📖 这个板块有什么用？（点击展开说明）</summary>
+    <div class="pf-help-body">
+      <div><b>板块作用</b>：公募基金持仓作为<b>第 4 维资金面</b>，补充现有「北向 / 两融 / 产业资本」三维，提供<b>机构资金视角</b>。参考性等级<b>中等</b>，作辅助维度有价值，<b>不作主信号</b>（因季报披露滞后 15 个工作日，披露时点持仓 ≠ 当前持仓）。</div>
+      <div><b>核心指标（4 信号灯卡片 + 4 衍生）</b>：</div>
+      <ul>
+        <li><b>平均股票仓位</b>：基金加权平均股票占净比（净资产规模加权，lg 口径=股票型+混合型）。<b>&gt;88%=88 魔咒见顶警示</b>（加仓空间有限）；<b>&lt;80%=抄底机会</b>（仓位低有加仓空间）；80-88%=中位。</li>
+        <li><b>抱团度 HHI（Herfindahl）</b>：重仓股集中度指数。<b>&gt;0.10=高度抱团</b>（瓦解风险积累）；0.05-0.10=中度抱团；<b>&lt;0.05=分散健康</b>。急升=风险积累，急降=瓦解信号。</li>
+        <li><b>重叠度（Top30 均覆盖）</b>：Top30 重仓股平均被多少家基金持有（家数）。<b>&gt;1500=高度重叠</b>；800-1500=中度重叠；<b>&lt;800=重叠度低</b>。重叠度高=机构共识强但也意味瓦解时共振下跌。</li>
+        <li><b>净申赎率</b>：基金份额变化 / 总规模（%）。<b>&gt;0.5%=净申购（散户乐观，反向看空）</b>；<b>&lt;-0.5%=净赎回（散户悲观，反向看多）</b>；-0.5%~0.5%=申赎平衡。</li>
+        <li><b>行业集中度</b>（衍生）：Top3 行业占比之和，&gt;60%=高度集中。</li>
+        <li><b>加仓/减仓比 / 头部调仓 / Top30 集中度</b>（3 项衍生辅助）：情绪面方向、顶流整体方向、核心资产集中度。</li>
+      </ul>
+      <div><b>88 魔咒 / 80 抄底</b>：基金平均仓位 <b>&gt;88%</b> 时加仓空间有限，历史多对应阶段性顶部（应验 <b>2009/7、2015/5、2021/1</b> 等）；<b>&lt;80%</b> 时仓位低有加仓空间，多对应阶段性底部。<b>反向指标，非精确触发</b>--2020 年仓位持续 90%+ 大盘仍涨，仅作风险提示。</div>
+      <div><b>4 维资金面共振</b>：北向（外资 / 日更）+ 两融（杠杆 / 日更）+ 产业资本（内部人 / 月更）+ 基金持仓（机构 / 季更），<b>4 维同向信号最强</b>。如「北向流出 + 两融下降 + 产业资本减持 + 基金减仓」= 4 维共振看空。</div>
+      <div><b>滞后性与披露规则</b>：季报季末 +15 工作日披露（Q1≈4/22、Q2≈7/22、Q3≈10/22、年报≈3/31 前），季报只披露<b>前十大重仓 + 资产配置 + 行业配置</b>，全部持仓要等中报（60 日内）/年报（90 日内）。</div>
+      <div><b>数据源</b>：东方财富 fundf10 子页（ccmx/jjcc/hytz/zcpz/jbl/cyem/jjjz/fhsp）+ akshare 9 接口（fund_portfolio_hold_em/fund_value_estimation_em 等），免费无需 key。</div>
+      <div><b>学术背景</b>：①中国公募基金存在显著羊群效应（许年行等 2013《经济研究》），加剧「抱团-瓦解」循环 ②基金平均仓位与未来大盘收益负相关（88 魔咒统计显著）③2021/1 白酒新能源抱团瓦解领先沪深 300 见顶（2021/2/18 5930 点）约 1 个月 ④基金净申赎与未来 1-3 个月大盘收益负相关（散户情绪反向）。</div>
+      <div class="pf-help-warn">⚠ 本板块为辅助参考维度，滞后性强不作主信号；88 魔咒为历史规律未必未来应验。研究参考，不构成投资建议，历史回测不代表未来收益。</div>
+    </div>`;
+  container.appendChild(helpBox);
 
   // ── 提取 4 信号灯指标 ──
   const metricsMap = {};
@@ -9755,6 +9792,280 @@ async function renderPublicFund(container) {
   // 响应式 resize
   setTimeout(() => { mainChart.resize(); indChart.resize(); }, 0);
   window.addEventListener("resize", _pfResizeHandler);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// 阶段 J + K: 首页公募基金信号卡
+// ════════════════════════════════════════════════════════════════════
+// 位置: 首页右列(冰点日/买卖点/汪汪队之后), 作为「机构资金视角」补充
+// 内容:
+//   J  角标行: 基金仓位 avg_position% + 较上季变化↑↓ + 88魔咒颜色(>88红/80-88黄/<80绿) + ⚠️警示
+//   K1 信号灯: 4 条规则(88魔咒见顶 / 80抄底 / 抱团瓦解 / 净申赎反向), 触发时显示对应红/绿/橙徽标
+//   K2 4 维共振: 北向 + 两融 + 主力(产业资本代理) + 基金持仓(第4维), 4 维同向看多/看空才标共振
+// 滞后性: 基金数据季报披露滞后15天, 文案带「数据滞后」提示
+// 点击角标/标题跳转 sentiment/public-fund 二级 tab
+async function _renderPublicFundHomeCard(host, r, snap) {
+  const card = document.createElement("div");
+  card.className = "chart-card pf-home-card";
+  card.innerHTML = '<h3>🏦 基金仓位信号 <span class="pf-home-loading">加载中…</span></h3>';
+  host.appendChild(card);
+
+  let summary;
+  try {
+    summary = await fetchJSON("https://ssd.fx8.store/public_fund/public_fund_summary.json").catch(() => null);
+    if (!summary || !summary.metrics) {
+      card.innerHTML = '<h3>🏦 基金仓位信号</h3><div class="empty-note">暂无公募基金数据</div>';
+      return;
+    }
+  } catch (e) {
+    card.innerHTML = '<h3>🏦 基金仓位信号</h3><div class="empty-note">加载失败</div>';
+    return;
+  }
+  // 渲染期间用户切了 tab, 回调不再渲染(防串扰)
+  if (state.tab !== "overview") return;
+
+  const metricsMap = {};
+  (summary.metrics || []).forEach((m) => { metricsMap[m.metric_id] = m; });
+  const avgPos = metricsMap["avg_position"];            // 平均股票仓位%(lg 口径)
+  const conc = metricsMap["concentration_herfindahl"];  // 抱团度 HHI
+  const netRedeem = metricsMap["net_redeem_ratio"];     // 净申赎率%
+  const indConc = metricsMap["industry_concentration"]; // 行业集中度(辅助)
+  const _pfFmtDate = (s) => s && String(s).length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : (s || "");
+
+  // ── 计算仓位较上季变化(lg 口径 position_history 末两点) ──
+  let avgPosDelta = null;
+  if (summary.position_history && summary.position_history.length >= 2) {
+    const lgHist = summary.position_history.filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
+    if (lgHist.length >= 2) {
+      const n = lgHist.length;
+      avgPosDelta = +(lgHist[n-1].position_pct - lgHist[n-2].position_pct).toFixed(2);
+    }
+  }
+  // 抱团度变化(无 history 字段, 用 detail.top10_stocks 估算? 不准 -> 仅用 concentration_herfindahl 当前值判定, 变化方向置 null)
+  // 注:summary 无 conc_history,「抱团瓦解」信号改用 top20_adjustment 环比 + 当前 HHI 综合判定(下文 _pfSignals)
+  const top20Adj = metricsMap["top20_adjustment"];       // Top20 调仓环比%
+
+  const avgPosVal = avgPos ? avgPos.metric_value : null;
+  const concVal = conc ? conc.metric_value : null;
+  const netRedeemVal = netRedeem ? netRedeem.metric_value : null;
+  const reportDate = summary.report_date || "";
+
+  // ── 阶段 J: 角标颜色(88 魔咒) ──
+  const _pfPosColor = (v) => {
+    if (v == null) return "var(--text-3)";
+    if (v > 88) return "#e6492e";  // 红 高位警示
+    if (v >= 80) return "#ff9800"; // 黄 中位
+    return "#2e8b57";              // 绿 低位机会
+  };
+  const posColor = _pfPosColor(avgPosVal);
+  const is88Mazhu = avgPosVal != null && avgPosVal > 88;
+  const is80Chao = avgPosVal != null && avgPosVal < 80;
+  // 变化箭头(仓位↑红 / ↓绿, 与A股配色一致)
+  const _deltaHtml = (delta, unit) => {
+    if (delta == null) return '<span style="color:var(--text-3)">较上季 -</span>';
+    const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
+    const color = delta === 0 ? "var(--text-3)" : (delta > 0 ? "#e6492e" : "#2e8b57");
+    const sign = delta > 0 ? "+" : "";
+    return `<span style="color:${color};font-weight:600">较上季 ${arrow} ${sign}${delta.toFixed(2)}${unit || ""}</span>`;
+  };
+
+  // ── 阶段 K1: 4 条信号灯规则 ──
+  // ① 88魔咒见顶: avg_position >88% -> 红
+  // ② 80抄底: avg_position <80% -> 绿
+  // ③ 抱团瓦解: top20_adjustment 显著负(<-5%) OR concentration_herfindahl 较上季显著下降 -> 红(瓦解风险)
+  //   注: summary 无 conc 历史, 用 top20_adjustment 环比(头部重仓调仓) 作瓦解代理: 大幅减持=瓦解信号
+  // ④ 净申赎反向: net_redeem_ratio 显著负(<-0.5%, 净赎回) + 仓位高位(>88%) -> 橙(散户离场, 反向看多)
+  const _pfSignals = [];
+  if (is88Mazhu) {
+    _pfSignals.push({
+      cls: "pf-sig-red",
+      icon: "⚠️",
+      title: "88 魔咒见顶",
+      desc: `基金仓位 ${avgPosVal.toFixed(2)}% > 88%，加仓空间有限，历史多对应阶段性顶部（2009/7、2015/5、2021/1 等）。数据滞后，仅作风险提示。`,
+    });
+  }
+  if (is80Chao) {
+    _pfSignals.push({
+      cls: "pf-sig-green",
+      icon: "✅",
+      title: "80 抄底机会",
+      desc: `基金仓位 ${avgPosVal.toFixed(2)}% < 80%，仓位低有加仓空间，历史多对应阶段性底部。数据滞后，仅作辅助参考。`,
+    });
+  }
+  if (top20Adj && top20Adj.metric_value != null && top20Adj.metric_value < -5) {
+    _pfSignals.push({
+      cls: "pf-sig-red",
+      icon: "💥",
+      title: "抱团瓦解信号",
+      desc: `头部重仓 Top20 调仓环比 ${top20Adj.metric_value.toFixed(2)}%（显著减持），机构集中减仓龙头，抱团瓦解风险。数据滞后，仅作风险提示。`,
+    });
+  }
+  if (netRedeemVal != null && netRedeemVal < -0.5 && avgPosVal != null && avgPosVal > 88) {
+    _pfSignals.push({
+      cls: "pf-sig-orange",
+      icon: "🔄",
+      title: "净赎回反向（散户离场）",
+      desc: `净申赎率 ${netRedeemVal.toFixed(3)}%（净赎回，散户悲观离场）+ 仓位高位 ${avgPosVal.toFixed(2)}%。散户反向指标，净赎回常对应阶段底部附近。数据滞后。`,
+    });
+  }
+
+  // ── 阶段 K2: 4 维资金面共振 ──
+  // 4 维: 北向(a_fund_north) + 两融(a_fund_margin) + 主力/产业资本(a_fund_main) + 基金持仓(avg_position 环比)
+  // 数据源: overview.json r.today.metrics 的 3 维 + summary.position_history 的基金维度
+  // 方向判定: 北向=成交总额无方向(停更前用净买额, 现仅活跃度) -> 不参与方向共振, 改用主力作产业资本代理
+  // 实际4维(适配数据可得性): 两融余额环比 / 主力净流入正负 / 北向成交额环比 / 基金仓位环比
+  // 说明: 北向原净买额 2024-08 停更, 现成交总额只反映活跃度不反映方向, 此维用「成交额环比」作活跃度方向
+  //      (放量=活跃度升=偏多情绪, 缩量=活跃度降=偏空情绪), 与原净买额方向语义不完全等价, 注释说明
+  const metrics = (r && r.today && r.today.metrics) || [];
+  const _findM = (id) => metrics.find((m) => m.id === id);
+  const north = _findM("a_fund_north");   // 北向成交总额(亿)
+  const margin = _findM("a_fund_margin"); // 两融余额(亿)
+  const main = _findM("a_fund_main");     // 主力净流入(亿)
+
+  // 各维方向需要历史末两点对比 -> 取 a-stock-1m.json(轻量, 已有缓存)
+  // 但首页已加载 overview, 无历史时序 -> 用 main.value 正负(主力净流入正=做多, 负=做空)作方向
+  // 两融/北向无方向值, 只能取环比 -> 暂用单点值 + 涨跌标签(若 metrics 有 signal 字段则用, 否则置 unknown)
+  // 为避免误导, 4 维共振用「明确同向」判定: 4 维都明确看多/看空才共振; 任一 unknown 或方向不一致 -> 不标共振
+  const _dir = {
+    fund: avgPosDelta != null ? (avgPosDelta > 0 ? "多" : avgPosDelta < 0 ? "空" : "平") : "unknown", // 基金加仓=多, 减仓=空
+    main: main && main.value != null ? (main.value > 0 ? "多" : main.value < 0 ? "空" : "平") : "unknown", // 主力净流入正=多, 负=空
+    // 两融/北向单点值无方向, 需历史对比 -> fetch a-stock-1m.json 末两点(下文异步)
+    margin: "unknown",
+    north: "unknown",
+  };
+  // 异步补全两融/北向方向(末两点对比)
+  try {
+    const hist = await fetchJSON("./data/a-stock-1m.json").catch(() => null);
+    if (hist && hist.metrics) {
+      const _last2 = (id) => {
+        const m = hist.metrics[id];
+        if (!m || !m.data || m.data.length < 2) return [null, null];
+        const n = m.data.length;
+        return [m.data[n-2].value, m.data[n-1].value];
+      };
+      const [marginPrev, marginCur] = _last2("a_fund_margin");
+      if (marginPrev != null && marginCur != null) {
+        _dir.margin = marginCur > marginPrev ? "多" : marginCur < marginPrev ? "空" : "平"; // 两融余额增=杠杆做多升=多
+      }
+      const [northPrev, northCur] = _last2("a_fund_north");
+      if (northPrev != null && northCur != null) {
+        _dir.north = northCur > northPrev ? "多" : northCur < northPrev ? "空" : "平"; // 北向成交额放量=活跃度升=偏多(语义弱, 注释)
+      }
+    }
+  } catch {}
+
+  // 共振判定: 4 维都明确(非 unknown 非 平) 且同向
+  const _dirs = [_dir.fund, _dir.main, _dir.margin, _dir.north];
+  const _allKnown = _dirs.every((d) => d === "多" || d === "空");
+  const _allSame = _allKnown && _dirs.every((d) => d === _dirs[0]);
+  const _resonance = _allSame ? (_dirs[0] === "多" ? "看多" : "看空") : null;
+
+  // ── 渲染 ──
+  // 自包含样式(只注入一次)
+  if (!document.getElementById("pf-home-style")) {
+    const st = document.createElement("style");
+    st.id = "pf-home-style";
+    st.textContent = `
+.pf-home-card{cursor:pointer;}
+.pf-home-card h3{display:flex;align-items:center;flex-wrap:wrap;gap:6px;}
+.pf-home-loading{font-size:12px;color:var(--text-3);font-weight:400;}
+.pf-home-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:14px;font-size:13px;font-weight:600;border:1.5px solid;}
+.pf-home-badge .pf-home-val{font-size:15px;}
+.pf-home-badge .pf-home-delta{font-size:11px;opacity:0.85;}
+.pf-home-stale{font-size:11px;color:var(--text-3);margin-left:6px;}
+.pf-sig-list{display:flex;flex-direction:column;gap:6px;margin:8px 0;}
+.pf-sig-item{display:flex;gap:8px;padding:7px 10px;border-radius:6px;font-size:12.5px;line-height:1.5;border-left:3px solid;}
+.pf-sig-item .pf-sig-icon{font-size:15px;flex-shrink:0;}
+.pf-sig-item .pf-sig-text b{font-weight:600;}
+.pf-sig-item .pf-sig-desc{color:var(--text-3);font-size:11.5px;margin-top:2px;}
+.pf-sig-red{background:rgba(230,73,46,0.08);border-color:#e6492e;color:#e6492e;}
+.pf-sig-green{background:rgba(46,139,87,0.08);border-color:#2e8b57;color:#2e8b57;}
+.pf-sig-orange{background:rgba(255,152,0,0.08);border-color:#ff9800;color:#ff9800;}
+.pf-resonance{margin-top:8px;padding:8px 10px;border-radius:6px;font-size:12.5px;line-height:1.6;background:var(--bg-hover);border-left:3px solid var(--border-strong);}
+.pf-resonance-title{font-weight:600;color:var(--text-1);margin-bottom:4px;}
+.pf-resonance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin-top:6px;}
+.pf-resonance-cell{padding:5px 8px;border-radius:4px;background:var(--bg-card,var(--bg-1));font-size:11.5px;border:1px solid var(--border-light,var(--border));}
+.pf-resonance-cell .pf-rc-name{color:var(--text-3);font-size:10.5px;}
+.pf-resonance-cell .pf-rc-dir{font-weight:600;margin-top:2px;}
+.pf-rc-up{color:#e6492e;}
+.pf-rc-down{color:#2e8b57;}
+.pf-rc-flat{color:var(--text-3);}
+.pf-rc-unknown{color:var(--text-3);font-style:italic;}
+.pf-resonance-badge{display:inline-block;padding:3px 10px;border-radius:4px;font-weight:700;font-size:13px;margin-left:6px;}
+.pf-resonance-bull{background:rgba(230,73,46,0.15);color:#e6492e;border:1px solid #e6492e;}
+.pf-resonance-bear{background:rgba(46,139,87,0.15);color:#2e8b57;border:1px solid #2e8b57;}
+.pf-resonance-none{background:var(--bg-hover);color:var(--text-3);border:1px solid var(--border-light,var(--border));font-weight:400;}
+.pf-home-hint{margin-top:6px;font-size:11px;color:var(--text-3);line-height:1.5;}
+`;
+    document.head.appendChild(st);
+  }
+
+  // 角标 HTML
+  const _warnIcon = is88Mazhu ? " ⚠️" : "";
+  const badgeHtml = avgPosVal != null
+    ? `<span class="pf-home-badge" style="color:${posColor};border-color:${posColor};background:${posColor}15">
+         <span>基金仓位</span>
+         <span class="pf-home-val">${avgPosVal.toFixed(2)}%</span>
+         <span class="pf-home-delta">${_deltaHtml(avgPosDelta, "pct")}</span>
+         ${_warnIcon}
+       </span>`
+    : '<span class="pf-home-badge" style="color:var(--text-3);border-color:var(--border)">基金仓位 -</span>';
+
+  // 4 维方向单元格
+  const _dirCell = (name, d) => {
+    const cls = d === "多" ? "pf-rc-up" : d === "空" ? "pf-rc-down" : d === "平" ? "pf-rc-flat" : "pf-rc-unknown";
+    const label = d === "unknown" ? "暂无" : d;
+    return `<div class="pf-resonance-cell"><div class="pf-rc-name">${name}</div><div class="pf-rc-dir ${cls}">${label}</div></div>`;
+  };
+  // 共振徽标
+  const _resBadge = _resonance === "看多"
+    ? '<span class="pf-resonance-badge pf-resonance-bull">4 维共振看多</span>'
+    : _resonance === "看空"
+    ? '<span class="pf-resonance-badge pf-resonance-bear">4 维共振看空</span>'
+    : '<span class="pf-resonance-badge pf-resonance-none">4 维方向不一 · 暂无共振</span>';
+
+  // 信号灯列表 HTML(无触发时显示「中性」提示)
+  const _sigListHtml = _pfSignals.length
+    ? _pfSignals.map((s) => `<div class="pf-sig-item ${s.cls}">
+        <span class="pf-sig-icon">${s.icon}</span>
+        <div class="pf-sig-text"><b>${s.title}</b><div class="pf-sig-desc">${s.desc}</div></div>
+      </div>`).join("")
+    : '<div class="pf-sig-item" style="background:var(--bg-hover);border-left:3px solid var(--border-strong);color:var(--text-3);"><span class="pf-sig-icon">•</span><div class="pf-sig-text">当前无基金信号触发（仓位处于 80-88% 中性区间）</div></div>';
+
+  card.innerHTML =
+    '<h3>🏦 基金仓位信号' +
+      termTip("公募基金持仓作第4维资金面(补充北向/两融/产业资本)。88魔咒=平均仓位>88%见顶警示;80抄底=<80%抄底机会;抱团瓦解=Top20显著减持;净赎回反向=净赎回+高位(散户离场反向看多)。季报披露滞后15天,仅作辅助参考。点击进入公募基金 tab 查看完整持仓。") +
+    '</h3>' +
+    `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:6px 0 8px">
+       ${badgeHtml}
+       <span class="pf-home-stale">📊 数据截止 ${_pfFmtDate(reportDate)}（季报滞后约 15 天）</span>
+     </div>` +
+    `<div class="pf-sig-list">${_sigListHtml}</div>` +
+    `<div class="pf-resonance">
+       <div class="pf-resonance-title">🔀 4 维资金面共振 ${_resBadge}</div>
+       <div style="font-size:11.5px;color:var(--text-3);margin-top:4px">4 维同向(皆多/皆空)才标共振;任一方向不明或不一致则不共振,避免误导。</div>
+       <div class="pf-resonance-grid">
+         ${_dirCell("北向(成交额环比)", _dir.north)}
+         ${_dirCell("两融(余额环比)", _dir.margin)}
+         ${_dirCell("主力(净流入正负)", _dir.main)}
+         ${_dirCell("基金(仓位环比)", _dir.fund)}
+       </div>
+       <div class="pf-home-hint">注:北向原净买额 2024-08 停更,现用成交总额环比作活跃度方向(语义弱于净买额);主力=产业资本代理(大单净流入);基金=季报仓位环比。4 维频率不同(日/日/日/季),基金维更新慢。</div>
+     </div>`;
+
+  // 点击整卡跳转 sentiment/public-fund 二级 tab
+  card.addEventListener("click", (e) => {
+    // 点击 termTip ❓ 不跳转
+    if (e.target.closest(".term-tip")) return;
+    state.tab = "sentiment";
+    state.subtab = "public-fund";
+    document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
+    const btn = document.querySelector('button[data-tab="sentiment"]');
+    if (btn) btn.classList.add("active");
+    updateH5Topbar();
+    _setTabHash(state.tab);
+    renderTab();
+  });
 }
 
 let _pfResizeTimer = null;
