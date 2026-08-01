@@ -5761,3 +5761,24 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **【约束遵循】** 不 add 根 data/ 下任何文件（只 add NOTES.md/TASKS.md/memory）；改 app.js 已由前序 commit bump sw（ui42/ui44）；non-ff 优先 fetch+rebase；commit msg 末尾 Co-Authored-By；盘中（09:30-15:30）不跑全量 export+deploy（本任务不跑 export+deploy，只落档）。
 
 **【关联】** memory `export-output-path-sync`（本轮新增，两路径同步教训）+ memory `public-fund-fresh-gate`（闸门设计，本次 quarterly 跑前 check-fresh 触发）+ memory `r2-upload-from-trade`（同类 trade/trade-data 路径不同步问题，已加 ROOT 回退根治）+ TASKS.md「外盘期货扩充源实施」待办闭环 + TASKS.md「公募基金持仓佐证大盘」待办条目（季度全量+指标+前端 tab 标注完成）。
+
+### AZ95 2026-08-01 fetchJSON 全部跳 .gz 优先，统一走 .json + CF br 压缩（根治 CF .gz 4h edge 缓存滞后）
+
+**背景**：2026-07-31 public_fund "暂无数据"线上故障根因 = `.gz` 走 CF edge cache(max-age=14400 4h)，数据更新后 CF 边缘仍 serve 旧 .gz。commit `b95a3a4c` 修复 holdings top50->top100，但 CF 缓存旧 .gz(含 top50) 致前端读 holdings.top100=undefined -> 空表。commit `97c76143` 先单独跳 public_fund .gz(只加 `!_base.includes("/public_fund/")` 条件)。
+
+**用户定方案(2026-08-01)**：所有数据全部跳 .gz，统一走 .json + CF br 压缩，根治缓存滞后 + 简化架构。.gz 文件本地/R2 保留(不删，避免影响其他引用)，前端只是不再 fetch .gz。
+
+**改动**：
+1. `static-site/app.js` fetchJSON L2902: `const tryGz = false;`（原条件含 `!_base.includes("/public_fund/")` 只跳 public_fund，现全跳）+ 更新 L2862/L12864 两处旧注释
+2. `static-site/lab.js` fetchJSONProgress L1747: `const tryGz = false;`（原 `_base.startsWith("./data/") && _base.endsWith(".json")`）
+3. 两处 .gz fallback 逻辑保留（防御性，万一未来重新启用 .gz），但 tryGz=false 时 gzUrl=null 不触发
+4. export.py/upload_r2 不改：本地 + R2 仍保留 .gz 文件
+
+**Why(根因 + 收益)**：
+- `.gz` 走 CF edge cache，R2 .gz 的 `cache-control: max-age=14400`(4h) 强制缓存，数据更新后 CF 边缘仍 serve 旧 .gz
+- `.json` cf-cache-status=DYNAMIC 每次回源拿最新；CF 对 .json 自动 br 压缩(transfer ~15KB 接近 .gz 8KB)
+- 牺牲少许带宽换数据新鲜度 + 消除 .gz 解压失败/CF 缓存滞后风险 + 简化架构(单一 fetch 路径)
+
+**上线步骤**：build_min.py + bump_asset_version.py + bump sw.js CACHE_VERSION ui49->ui50 + commit + push feat + push main + curl 验证线上 sw=ui50 / app.min.js 含 tryGz=false / public_fund tab 正常。
+
+**【关联】** memory `fetchjson-skip-gz`（本轮新增，决策记录）+ memory `cf-workers-static-assets-ignore-cache-control`（CF Workers Static Assets 无视 Cache-Control）+ memory `bump-sw-version-with-appjs`（改 app.js 必 bump sw）+ AZ94 public_fund .gz 故障先例。

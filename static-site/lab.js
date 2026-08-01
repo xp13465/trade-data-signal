@@ -1739,12 +1739,12 @@ function _labSimFullLoaded(index) {
 // 带 HTTP 进度的 fetch JSON（读 ReadableStream 累计 received/Content-Length 算百分比）
 // 无 Content-Length 或不支持流时降级为普通 fetchJSON，onProgress(-1) 表示无法测算
 async function fetchJSONProgress(url, onProgress, signal) {
-  // JSON gz 方案B/Y: 支持 url 带 query string, .gz 插在 .json 后 query 前
-  // 方案Y: export.py GZ_THRESHOLD=0 全量生成 .gz,.gz 优先不再 404
+  // 2026-08-01 全部跳过 .gz，统一走 .json + CF br 压缩（与 app.js fetchJSON 同步，根治 CF .gz 4h edge 缓存滞后）
+  // .gz fallback 逻辑保留(防御性), 但 tryGz=false 时 gzUrl=null 不触发。
   const _qIdx = url.indexOf("?");
   const _base = _qIdx >= 0 ? url.slice(0, _qIdx) : url;
   const _query = _qIdx >= 0 ? url.slice(_qIdx) : "";
-  const tryGz = _base.startsWith("./data/") && _base.endsWith(".json");
+  const tryGz = false;
   const gzUrl = tryGz ? _base + ".gz" + _query : null;
   try {
     const fetchUrl = gzUrl || url;

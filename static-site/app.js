@@ -2859,7 +2859,7 @@ const _resultCache = new Map(); // url -> { data, ts }
 const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|notifications|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
-// fetchJSON 自动 .gz 优先 + DecompressionStream 解压，./data/ 与 https://ssd.fx8.store/ 均生效。
+// fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
 // 匹配 -(all|5y|3y).json 结尾 -> R2；其余 -> 本地 ./data/。
 const _R2_DATA_BASE = "https://ssd.fx8.store/data/";
 const _R2_LARGE_RANGE_RE = /-(?:all|5y|3y)\.json$/;
@@ -2892,15 +2892,14 @@ async function fetchJSON(url) {
   const _bustQuery = _isFresh
     ? (_origQuery ? _origQuery + "&_=" + Date.now() : "?_=" + Date.now())
     : _origQuery;
-  // R2 全迁后 ./data/ 与 https://ssd.fx8.store/ 均走 .gz 优先(DecompressionStream 解压)
-  // 时效敏感URL跳过.gz(.gz走worker兜底无max-age CF边缘TTL不可控; raw .json有max-age=60)
-  // public_fund URL 跳过 .gz(2026-08-01 修复"暂无数据"线上故障):
-  //   .gz 走 CF edge cache(max-age=14400 4h),数据更新后 CF 边缘仍可能 serve 旧 .gz;
-  //   .json cf-cache-status=DYNAMIC 每次回源拿最新; CF 对 .json 自动 br 压缩(transfer ~15KB 接近 .gz 8KB);
-  //   牺牲少许带宽换数据新鲜度 + 消除 .gz 解压失败/CF缓存滞后风险。
-  //   注意: b95a3a4c 修复 holdings top50->top100, 但 CF 缓存旧 .gz(含 top50) 致前端读 holdings.top100=undefined -> 空表"暂无数据"。
-  //   跳过 .gz 后直接 fetch .json(CF br 压缩 + DYNAMIC 不缓存), 确保每次拿最新数据。
-  const tryGz = !_isFresh && (_base.startsWith("./data/") || _base.startsWith("https://ssd.fx8.store/")) && _base.endsWith(".json") && !_base.includes("/public_fund/");
+  // 2026-08-01 全部跳过 .gz，统一走 .json + CF br 压缩（用户定方案）。
+  //   根因: .gz 走 CF edge cache(max-age=14400 4h), 数据更新后 CF 边缘仍可能 serve 旧 .gz 致"暂无数据"线上故障
+  //   (2026-07-31 public_fund holdings top50->top100 修复被 CF 缓存旧 .gz 抵消, commit 97c76143 先单独跳 public_fund)。
+  //   .json cf-cache-status=DYNAMIC 每次回源拿最新; CF 对 .json 自动 br 压缩(transfer ~15KB 接近 .gz 8KB),
+  //   牺牲少许带宽换数据新鲜度 + 消除 .gz 解压失败/CF 缓存滞后风险 + 简化架构(单一 fetch 路径)。
+  //   本地/R2 仍保留 .gz 文件(export.py/upload_r2 不改), 只是前端不再 fetch .gz。
+  //   .gz fallback 逻辑保留(防御性, 万一未来重新启用 .gz), 但 tryGz=false 时 gzUrl=null 不触发。
+  const tryGz = false;
   const gzUrl = tryGz ? _base + ".gz" + _bustQuery : null;
   // 实际请求URL(带cache-busting): 时效敏感用_bustQuery, 其他用原query
   const _fetchUrl = _base + _bustQuery;
@@ -12862,7 +12861,7 @@ function _tradeSimFmtNum(n) {
 }
 
 async function _tradeSimFetchStats(indexId) {
-  // R2 托管：trade_sim_data/ 前缀避开 trade_sim/ HTML；fetchJSON 自动 .gz 优先 + DecompressionStream 解压（与 lab/index 一致）
+  // R2 托管：trade_sim_data/ 前缀避开 trade_sim/ HTML；fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全跳 .gz）
   return await fetchJSON('https://ssd.fx8.store/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_stats.json');
 }
 
