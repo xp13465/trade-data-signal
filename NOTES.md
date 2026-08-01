@@ -6097,4 +6097,30 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ102 fund_industry_alloc 50期历史回填（F功能数据源）+ AZ97 公募基金4功能规划（F功能完成，4功能G/N/F全上线）+ AZ103 N功能 _compute_scale_change_ts 独立计算模式（F功能照搬）+ memory r2-arch-by-category-not-size（public_fund走R2 upload-public-fund前缀命令）+ memory export-output-path-sync（双路径同步）+ memory bump-sw-version-with-appjs（改app.js必bump sw）。
 
+### AZ105 2026-08-02 88魔咒标注修复(上证->沪深300)+怎么看说明+top30高度自适应(ui79)
+
+**背景**：88魔咒图表的 close 字段实际是沪深300（hs300），不是上证综指。根因：ak.fund_stock_position_lg 接口自带的 close 字段就是沪深300（7/24 close=4649.19=沪深300收盘4649.192，上证7/24约3300点），但后端注释+前端文案都标成"上证"。同时加"怎么看"说明帮助用户理解回测结论（88魔咒不可靠/80抄底才是真信号），并修 top30 滚动条没自适应卡片高度导致底部留白。
+
+**修复1a 标注bug**：
+- 后端 `app/collector/public_fund.py` L200 注释 `上证综指收盘` -> `沪深300收盘(lg only, 辅助; ak.fund_stock_position_lg 自带 close=hs300 非上证)`
+- 后端 `_compute_position_backtest` 函数 L1627 注释 `上证涨跌` -> `沪深300涨跌`
+- 前端 `static-site/app.js` 数据源 `index/sh-all.json` -> `index/hs300-all.json`（让图表显示沪深300，与 backtest close 字段一致）
+- 前端 88魔咒区域所有"上证"文案 -> "沪深300"（chart title/legend/yAxis/series name/统计面板/共振面板共13处）
+- position_backtest JSON 不改（数据本身对，4649.19 就是沪深300）
+- 默认 min/max 从 3000/3500（上证区间）改为 3500/5000（沪深300区间）
+
+**修复1b 怎么看说明**：
+- 在 G功能 88魔咒回测统计面板加 `pf-bt-howto` 说明（浅色小字 note）
+- 动态引用实际回测值（_s88.win_rate / _s80.win_rate / _s80.avg_90d），不硬编码
+- 核心结论：88魔咒(>88%)胜率仅X%接近随机不可靠；80抄底(<80%)看涨胜率X%+90天+X%更可靠；中性区(80-88%)无信号
+
+**修复2 top30高度自适应**：
+- CSS `.pf-top30-card .pf-table-wrap` 从 `max-height:510px` 改为 `max-height:none`
+- 根因：`max-height:510px` 封顶表格区域，当右侧行业图+treemap列高于510px+标题时，grid stretch 把 top30 卡片撑到同高但表格被 510px 封顶，底部留白
+- 修复后 `flex:1` 生效，表格区域吃掉卡片剩余高度，`overflow:auto` 处理滚动，消除底部留白
+
+**【上线】** build_min + bump_asset_version + sw.js ui78->ui79 + push feat + merge main + push main。周末休盘无 intraday-snapshot 撞车。
+
+**【关联】** AZ100 G功能 _compute_position_backtest（close 字段=沪深300 根因）+ memory bump-sw-version-with-appjs（改app.js必bump sw）+ memory cf-workers-large-json-404-r2-fallback（hs300-all.json 615KB <1MB 走 CF 不走 R2，和 sh-all.json 同架构）。
+
 

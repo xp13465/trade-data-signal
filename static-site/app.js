@@ -9477,8 +9477,8 @@ async function renderSentiment() {
   else await renderSentimentMarketTemp(subContent); // 默认 market-temp
 }
 
-// 公募基金持仓二级 subtab：4 信号灯 + 仓位vs上证主图 + Top30 重仓 + 行业配置 + Top20 调仓
-// 数据源：static-site/data/public_fund_*.json (5 个) + index/sh-all.json (上证指数, 双轴右轴)
+// 公募基金持仓二级 subtab：4 信号灯 + 仓位vs沪深300主图 + Top30 重仓 + 行业配置 + Top20 调仓
+// 数据源：static-site/data/public_fund_*.json (5 个) + index/hs300-all.json (沪深300, 双轴右轴; close 字段=hs300 非上证)
 // 口径：lg=股票型+混合型仓位(88魔咒专用, 范围 90%+); cninfo=全市场资产配置(含债基/货基, 范围 20%+)
 
 // 行业配置"点击展开某行业基金列表"按需 fetch 缓存(模块级, 跨 re-render 复用, 避免重复拉 2MB)
@@ -9519,7 +9519,7 @@ async function renderPublicFund(container) {
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_summary.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_holdings.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry.json").catch(() => null),
-      fetchJSON("https://ssd.fx8.store/index/sh-all.json").catch(() => null),
+      fetchJSON("https://ssd.fx8.store/index/hs300-all.json").catch(() => null),
       // G功能: 88魔咒历史回测+极值标注(独立 JSON, 独立计算非 7 元组)
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_position_backtest.json").catch(() => null),
     ]);
@@ -9554,7 +9554,7 @@ async function renderPublicFund(container) {
 .pf-table-wrap{max-height:420px;overflow:auto;}
 /* 左侧 Top30 card 跟右侧柱状图+treemap 撑到同高: grid stretch 让 card 撑满 cell, flex column + flex:1 让表格区域吃掉剩余高度, 消除下方空白 */
 .pf-top30-card{display:flex;flex-direction:column;}
-.pf-top30-card .pf-table-wrap{flex:1;max-height:510px;min-height:0;}
+.pf-top30-card .pf-table-wrap{flex:1;max-height:none;min-height:0;}
 .pf-table{width:100%;border-collapse:collapse;font-size:12px;}
 .pf-table th,.pf-table td{padding:5px 8px;border-bottom:1px solid var(--border-light, var(--border));text-align:left;white-space:nowrap;}
 .pf-table th{position:sticky;top:0;background:var(--bg-hover);color:var(--text-2);font-weight:600;z-index:1;box-shadow:inset 0 -1px 0 0 var(--border-light, var(--border));}
@@ -9772,10 +9772,10 @@ async function renderPublicFund(container) {
     container.appendChild(noteDiv);
   }
 
-  // ── 区域 2: 主图 仓位 vs 上证指数 双轴折线 + 88/80 markLine ──
+  // ── 区域 2: 主图 仓位 vs 沪深300 双轴折线 + 88/80 markLine ──
   const chartCard = document.createElement("div");
   chartCard.className = "chart-card pf-main-chart-card";
-  chartCard.innerHTML = '<div class="chart-title">📈 平均股票仓位 vs 上证指数（lg=股票型+混合型，88 魔咒专用口径）</div><div class="chart" style="height:380px"></div>';
+  chartCard.innerHTML = '<div class="chart-title">📈 平均股票仓位 vs 沪深300（lg=股票型+混合型，88 魔咒专用口径）</div><div class="chart" style="height:380px"></div>';
   container.appendChild(chartCard);
 
   const posHist = (summary.position_history || []).filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
@@ -9799,8 +9799,8 @@ async function renderPublicFund(container) {
   const mainChart = echarts.init(chartCard.querySelector(".chart"));
   charts.push(mainChart);
   const shVals = shPoints.map((p) => p[1]);
-  const shMin = shVals.length ? Math.min(...shVals) : 3000;
-  const shMax = shVals.length ? Math.max(...shVals) : 3500;
+  const shMin = shVals.length ? Math.min(...shVals) : 3500;
+  const shMax = shVals.length ? Math.max(...shVals) : 5000;
   const allDates = [...new Set([...posPoints.map((p) => p[0]), ...shPoints.map((p) => p[0])])].sort();
   const posMap = new Map(posPoints), shMap = new Map(shPoints);
 
@@ -9824,12 +9824,12 @@ async function renderPublicFund(container) {
 
   mainChart.setOption({
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-    legend: { data: ["平均仓位%", "上证指数"], top: 5, textStyle: { color: "var(--text-2)" } },
+    legend: { data: ["平均仓位%", "沪深300"], top: 5, textStyle: { color: "var(--text-2)" } },
     grid: { left: 60, right: 60, top: 40, bottom: 30 },
     xAxis: { type: "category", data: allDates, axisLabel: { formatter: (v) => _pfFmtDate(v).slice(5), fontSize: 10 } },
     yAxis: [
       { type: "value", name: "仓位%", min: 80, max: 100, position: "left", axisLabel: { formatter: "{value}%" } },
-      { type: "value", name: "上证", min: Math.floor(shMin * 0.95), max: Math.ceil(shMax * 1.05), position: "right", scale: true, axisLabel: { formatter: "{value}" } },
+      { type: "value", name: "沪深300", min: Math.floor(shMin * 0.95), max: Math.ceil(shMax * 1.05), position: "right", scale: true, axisLabel: { formatter: "{value}" } },
     ],
     series: [
       {
@@ -9850,7 +9850,7 @@ async function renderPublicFund(container) {
         },
       },
       {
-        name: "上证指数", type: "line", data: allDates.map((d) => shMap.has(d) ? shMap.get(d) : null), yAxisIndex: 1,
+        name: "沪深300", type: "line", data: allDates.map((d) => shMap.has(d) ? shMap.get(d) : null), yAxisIndex: 1,
         symbol: "none", connectNulls: true, lineStyle: { color: "#888", width: 1.5 }, itemStyle: { color: "#888" },
       },
     ],
@@ -9893,10 +9893,11 @@ async function renderPublicFund(container) {
           <div class="pf-bt-row"><span>当前仓位</span><b style="color:${_zoneColor}">${_cur.position != null ? _cur.position.toFixed(2) + "%" : "-"}</b></div>
           <div class="pf-bt-row"><span>所处区间</span><b style="color:${_zoneColor}">${_cur.zone || "-"}</b></div>
           <div class="pf-bt-row"><span>历史分位</span><b>${_pctFmt(_cur.percentile)}</b></div>
-          <div class="pf-bt-row"><span>上证收盘</span><b>${_cur.close != null ? _cur.close.toFixed(2) : "-"}</b></div>
+          <div class="pf-bt-row"><span>沪深300收盘</span><b>${_cur.close != null ? _cur.close.toFixed(2) : "-"}</b></div>
         </div>
       </div>
-      <div class="pf-bt-note">📌 图表红 pin = 历史仓位 Top5 高点(88 魔咒触发点) · 绿 pin = Top5 低点(80 抄底信号点) · 胜率=触发后 30 天上证下跌(88)/上涨(80)占比</div>
+      <div class="pf-bt-note">📌 图表红 pin = 历史仓位 Top5 高点(88 魔咒触发点) · 绿 pin = Top5 低点(80 抄底信号点) · 胜率=触发后 30 天沪深300下跌(88)/上涨(80)占比</div>
+      <div class="pf-bt-note pf-bt-howto">💡 <b>怎么看</b>：<b style="color:#e6492e">88魔咒区(>88%)</b>传统看跌但胜率仅${_pctFmt(_s88.win_rate)}接近随机<b style="color:#e6492e">不可靠</b>；<b style="color:#2e8b57">抄底区(<80%)</b>看涨胜率${_pctFmt(_s80.win_rate)}+90天平均${_retFmt(_s80.avg_90d)}<b style="color:#2e8b57">更可靠</b>；中性区(80-88%)无明确信号。当前${_cur.position != null ? _cur.position.toFixed(2) + "%" : "-"}=${_cur.zone || "-"}·历史分位${_pctFmt(_cur.percentile)}</div>
     `;
     container.appendChild(btCard);
   }
@@ -10052,13 +10053,13 @@ async function renderPublicFund(container) {
             + '<div class="pf-bt-row"><span>净申赎</span><b>' + (rp.netPurchase != null ? rp.netPurchase.toFixed(2) + " 亿份" : "-") + '</b></div>'
             + '<div class="pf-bt-row"><span>抱团度HHI</span><b>' + (rp.herfindahl != null ? rp.herfindahl.toFixed(4) : "-") + '</b></div>'
             + '<div class="pf-bt-row"><span>规模</span><b>' + (rp.endNetAsset != null ? rp.endNetAsset.toFixed(0) + " 亿" : "-") + '</b></div>'
-            + '<div class="pf-bt-row"><span>后30天上证</span><b style="color:' + _retColor(rp.after_30d) + '">' + _retFmt(rp.after_30d) + '</b></div>'
-            + '<div class="pf-bt-row"><span>后60天上证</span><b style="color:' + _retColor(rp.after_60d) + '">' + _retFmt(rp.after_60d) + '</b></div>'
-            + '<div class="pf-bt-row"><span>后90天上证</span><b style="color:' + _retColor(rp.after_90d) + '">' + _retFmt(rp.after_90d) + '</b></div>'
+            + '<div class="pf-bt-row"><span>后30天沪深300</span><b style="color:' + _retColor(rp.after_30d) + '">' + _retFmt(rp.after_30d) + '</b></div>'
+            + '<div class="pf-bt-row"><span>后60天沪深300</span><b style="color:' + _retColor(rp.after_60d) + '">' + _retFmt(rp.after_60d) + '</b></div>'
+            + '<div class="pf-bt-row"><span>后90天沪深300</span><b style="color:' + _retColor(rp.after_90d) + '">' + _retFmt(rp.after_90d) + '</b></div>'
             + '</div>';
         }
         _resHtml += '</div>';
-        _resHtml += '<div class="pf-bt-note">📌 看顶=88魔咒>88%+净申购(散户乐观反向看空)+抱团>中位数('+ _herfMedian.toFixed(4) +')+规模接近最高; 看底=88魔咒<80%+净赎回(散户悲观反向看多)+抱团<中位数 · 后续表现从上证日频close计算(30/60/90天最近收盘价涨跌%)</div>';
+        _resHtml += '<div class="pf-bt-note">📌 看顶=88魔咒>88%+净申购(散户乐观反向看空)+抱团>中位数('+ _herfMedian.toFixed(4) +')+规模接近最高; 看底=88魔咒<80%+净赎回(散户悲观反向看多)+抱团<中位数 · 后续表现从沪深300日频close计算(30/60/90天最近收盘价涨跌%)</div>';
         _resDiv.innerHTML = _resHtml;
       } else {
         _resDiv.innerHTML = '<div class="pf-bt-note">📌 当前' + _alignData.length + '期数据无共振时点(4信号未同时触发看顶/看底条件) · 抱团度HHI中位数=' + _herfMedian.toFixed(4) + ' · 88魔咒平均=' + (_alignData.reduce((s, d) => s + d.avgPosition, 0) / _alignData.length).toFixed(2) + '%</div>';

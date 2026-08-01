@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS fund_position_history (
   other_pct REAL,                    -- 其他% (cninfo only)
   fund_count INTEGER,                -- 基金覆盖家数
   total_net_asset REAL,              -- 基金市场净资产规模(亿)
-  close REAL,                        -- 上证综指收盘(lg only, 辅助)
+  close REAL,                        -- 沪深300收盘(lg only, 辅助; ak.fund_stock_position_lg 自带 close=hs300 非上证)
   fetch_date TEXT,
   PRIMARY KEY (report_date, source)
 );
@@ -1624,7 +1624,7 @@ def _compute_position_backtest(conn: sqlite3.Connection) -> dict | None:
     输出: position_backtest JSON 产物(extremes + stats + current), 供前端 markPoint + 统计面板。
 
     算法:
-    1. 遍历每期(avg_position + close), 对每期算 after_30d/60d/90d 上证涨跌:
+    1. 遍历每期(avg_position + close), 对每期算 after_30d/60d/90d 沪深300涨跌:
        找首条 report_date >= D + N 天的记录, (close_future - close_now) / close_now * 100
     2. extremes: highs Top5(position>88 按仓位降序) + lows Top5(position<80 按仓位升序)
     3. stats: 88 魔咒(position>88) + 80 抄底(position<80) 各自 count/win_rate/avg_30d/60d/90d
