@@ -1336,11 +1336,12 @@ def etf_national_team_holders():
 
 
 # ============ 公募基金 (public_fund) ============
-# 5 个薄包装: 直接复用 collector.export_data() 返回的 7 类 JSON, 避免重复采集。
+# 7 个薄包装: 直接复用 collector.export_data() 返回的 7 类 JSON, 避免重复采集。
 # main.py 路由（/api/public-fund-*）与 static-site/export.py 共用。
 # export_data() 返回 (summary, holdings, industry, top20, asset_alloc,
-# industry_fund_map, manuf_subind_fund_map) 共 7 值, 这里 5 个薄包装各取所需,
-# 末尾 _ifm/_msfm 占位 industry_fund_map/manuf_subind_fund_map(由 export.py 直接写文件)。
+# industry_fund_map, manuf_subind_fund_map) 共 7 值, 这里 7 个薄包装各取所需。
+# 2026-07-20 补 industry_fund_map + manuf_subind_fund_map 薄包装 + export.py 写盘
+# (原仅 5 个薄包装, export.py 也只写 5 JSON, 漏第 6/7 值致下次季报数据滞后)。
 
 def public_fund_summary():
     """公募基金总览: 8 指标 + 仓位轨迹 + 净申赎时序 + 各表行数。"""
@@ -1375,6 +1376,22 @@ def public_fund_asset_alloc():
     from .collector.public_fund import export_data
     _s, _h, _i, _t, asset_alloc, _ifm, _msfm = export_data()
     return asset_alloc
+
+
+def public_fund_industry_fund_map():
+    """逐只基金-行业映射, 按合并后行业名分组(27行业+制造业935只)。
+    供前端"点击展开某行业基金列表"按需 fetch。"""
+    from .collector.public_fund import export_data
+    _s, _h, _i, _t, _a, industry_fund_map, _msfm = export_data()
+    return industry_fund_map
+
+
+def public_fund_manuf_subind_fund_map():
+    """制造业子行业 -> 基金详情列表(19子行业, 电子712/通信431)。
+    前端"子行业下钻到基金"弹窗, 方案C Step5。"""
+    from .collector.public_fund import export_data
+    _s, _h, _i, _t, _a, _ifm, manuf_subind_fund_map = export_data()
+    return manuf_subind_fund_map
 
 
 def position():

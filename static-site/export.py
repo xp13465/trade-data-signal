@@ -186,7 +186,7 @@ def export_etf_national_team_holders():
     return queries.etf_national_team_holders()
 
 
-# ── 公募基金 5 类端点（薄包装 queries 调用）─────────────────────────────────
+# ── 公募基金 7 类端点（薄包装 queries 调用）─────────────────────────────────
 def export_public_fund_summary():
     """公募基金总览: 8 指标 + 仓位轨迹 + 净申赎时序。"""
     return queries.public_fund_summary()
@@ -210,6 +210,16 @@ def export_public_fund_top20():
 def export_public_fund_asset_alloc():
     """头部基金资产配置分布。"""
     return queries.public_fund_asset_alloc()
+
+
+def export_public_fund_industry_fund_map():
+    """逐只基金-行业映射, 按合并后行业名分组(前端"点击展开行业基金列表")。"""
+    return queries.public_fund_industry_fund_map()
+
+
+def export_public_fund_manuf_subind_fund_map():
+    """制造业子行业 -> 基金详情列表(前端"子行业下钻到基金"弹窗, 方案C Step5)。"""
+    return queries.public_fund_manuf_subind_fund_map()
 
 
 # ============ JSON 序列化 + 写盘 ============
@@ -405,8 +415,9 @@ def main():
         DATA_DIR / "etf_national_team_holders.json", _nt_holders)
     print(f"  etf_national_team_holders.json ({counts['etf_national_team_holders.json']} bytes)")
 
-    # 7.15. public_fund 5 类（公募基金 88 魔咒/抱团度/净申赎）
+    # 7.15. public_fund 7 类（公募基金 88 魔咒/抱团度/净申赎 + 行业下钻到基金）
     # collector 独立库 data/public_fund.db, 这里通过 queries 薄包装读最新小样本产物
+    # 2026-07-20 补 industry_fund_map + manuf_subind_fund_map (原仅 5 JSON, 漏第 6/7 值)
     counts["public_fund_summary.json"] = write_json(
         DATA_DIR / "public_fund_summary.json", export_public_fund_summary())
     print(f"  public_fund_summary.json ({counts['public_fund_summary.json']} bytes)")
@@ -422,6 +433,12 @@ def main():
     counts["public_fund_asset_alloc.json"] = write_json(
         DATA_DIR / "public_fund_asset_alloc.json", export_public_fund_asset_alloc())
     print(f"  public_fund_asset_alloc.json ({counts['public_fund_asset_alloc.json']} bytes)")
+    counts["public_fund_industry_fund_map.json"] = write_json(
+        DATA_DIR / "public_fund_industry_fund_map.json", export_public_fund_industry_fund_map())
+    print(f"  public_fund_industry_fund_map.json ({counts['public_fund_industry_fund_map.json']} bytes)")
+    counts["public_fund_manuf_subind_fund_map.json"] = write_json(
+        DATA_DIR / "public_fund_manuf_subind_fund_map.json", export_public_fund_manuf_subind_fund_map())
+    print(f"  public_fund_manuf_subind_fund_map.json ({counts['public_fund_manuf_subind_fund_map.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]
