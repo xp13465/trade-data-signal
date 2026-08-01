@@ -9540,13 +9540,17 @@ async function renderPublicFund(container) {
 .pf-help-body ul{margin:4px 0 4px 18px;padding:0;}
 .pf-help-body li{margin:3px 0;}
 .pf-help-warn{margin-top:8px;padding:6px 10px;background:rgba(255,152,0,0.08);border-left:3px solid #ff9800;border-radius:4px;color:var(--text-2);font-size:12px;}
-/* Top100 调仓表: table-layout fixed 防排序时列宽跳动(内容长度变化不重排列宽) */
-.pf-table-top100{table-layout:fixed;}
+/* TreeMap 容器: 显式 width:100% + height:200px 确保 echarts.init 拿到非 0 尺寸(配合完整版 echarts 含 treemap 组件) */
+.pf-ind-treemap{width:100%;height:200px;}
+/* Top100 调仓表: table-layout fixed + width:100% 撑满容器, 百分比列宽分配(名称列 20% 不再独占剩余致中间空白); td overflow:hidden 防长名称溢出 */
+.pf-table-top100{table-layout:fixed;width:100%;}
+.pf-table-top100 td{overflow:hidden;text-overflow:ellipsis;}
 /* 三态排序按钮: 固定 18x18 不随箭头内容变化跳动; active 态红色高亮 */
 .pf-sort-btn{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:3px;padding:0;border:1px solid var(--border-light,var(--border));border-radius:4px;background:var(--bg-2,var(--bg-1));color:var(--text-3);font-size:11px;line-height:1;cursor:pointer;vertical-align:middle;transition:color .1s,border-color .1s,background .1s;}
 .pf-sort-btn:hover{border-color:var(--primary);color:var(--primary);}
 .pf-sort-btn.active{border-color:#e6492e;color:#e6492e;background:rgba(230,73,46,0.10);font-weight:700;}
-.pf-sort-arrow{display:inline-block;width:12px;text-align:center;}
+.pf-sort-arrow{display:inline-block;width:12px;text-align:center;color:#999;}
+.pf-sort-btn.active .pf-sort-arrow{color:#e6492e;}
 `;
     document.head.appendChild(st);
   }
@@ -9963,7 +9967,7 @@ async function renderPublicFund(container) {
     return rows;
   };
   const adjPrevDate = holdings && holdings.prev_report_date ? _pfFmtDate(holdings.prev_report_date) : "";
-  // 三态排序状态: { col: null|'amt'|'pct', dir: null|'asc'|'desc' }; null=null = 默认原报告顺序(两列无箭头)
+  // 三态排序状态: { col: null|'amt'|'pct', dir: null|'asc'|'desc' }; null=null = 默认原报告顺序(两列显示 ⇅ 浅灰提示可排序)
   let top100AdjSort = { col: null, dir: null };
   let top100AdjList = _sortTop100Adj(top100AdjSort);
   top100AdjCard.innerHTML = `<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">
@@ -9971,9 +9975,9 @@ async function renderPublicFund(container) {
     </div>
     <div class="pf-table-wrap"><table class="pf-table pf-table-top100">
       <thead><tr>
-        <th style="width:32px">#</th><th style="width:64px">代码</th><th>名称</th><th style="width:56px">基金数</th><th style="width:76px">当期(万)</th><th style="width:76px">上期(万)</th>
-        <th style="width:96px;white-space:nowrap">金额差(万)<button class="pf-sort-btn" data-sort="amt" type="button" aria-label="按金额差排序"><span class="pf-sort-arrow"></span></button></th>
-        <th style="width:80px;white-space:nowrap">变化<button class="pf-sort-btn" data-sort="pct" type="button" aria-label="按变化排序"><span class="pf-sort-arrow"></span></button></th>
+        <th style="width:4%">#</th><th style="width:9%">代码</th><th style="width:20%">名称</th><th style="width:8%">基金数</th><th style="width:11%">当期(万)</th><th style="width:11%">上期(万)</th>
+        <th style="width:21%;white-space:nowrap">金额差(万)<button class="pf-sort-btn" data-sort="amt" type="button" aria-label="按金额差排序"><span class="pf-sort-arrow"></span></button></th>
+        <th style="width:16%;white-space:nowrap">变化<button class="pf-sort-btn" data-sort="pct" type="button" aria-label="按变化排序"><span class="pf-sort-arrow"></span></button></th>
       </tr></thead>
       <tbody id="pf-top100adj-body">${_renderTop100AdjRows(top100AdjList)}</tbody>
     </table></div>`;
@@ -9983,7 +9987,7 @@ async function renderPublicFund(container) {
     top100AdjList = _sortTop100Adj(sortState);
     const body = top100AdjCard.querySelector("#pf-top100adj-body");
     if (body) body.innerHTML = _renderTop100AdjRows(top100AdjList);
-    // 更新两列按钮箭头 + active 态: 选中列有方向显示 ↑/↓ + active 红色, 未选中/默认无箭头
+    // 更新两列按钮箭头 + active 态: 选中列有方向显示 ↑/↓ + active 红色, 未选中/默认显示 ⇅ 浅灰(提示可排序)
     top100AdjCard.querySelectorAll(".pf-sort-btn").forEach((btn) => {
       const col = btn.getAttribute("data-sort");
       const arrow = btn.querySelector(".pf-sort-arrow");
@@ -9991,7 +9995,7 @@ async function renderPublicFund(container) {
         arrow.textContent = sortState.dir === 'asc' ? '↑' : '↓';
         btn.classList.add('active');
       } else {
-        arrow.textContent = '';
+        arrow.textContent = '⇅';
         btn.classList.remove('active');
       }
     });
@@ -9999,7 +10003,7 @@ async function renderPublicFund(container) {
   // 点击按钮三态循环:
   //   点击同列(当前 col === 点击列): asc -> desc -> null(回默认原序)
   //   点击另一列(当前 col !== 点击列, 含 null): 切到该列, dir='asc'(正序)
-  //   两列互斥: 点金额差时变化列重置(其按钮无箭头), 反之亦然(由 _applyTop100AdjSort 统一刷新两列按钮)
+  //   两列互斥: 点金额差时变化列重置(其按钮回默认 ⇅), 反之亦然(由 _applyTop100AdjSort 统一刷新两列按钮)
   top100AdjCard.querySelectorAll(".pf-sort-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const col = btn.getAttribute("data-sort");
@@ -10017,12 +10021,13 @@ async function renderPublicFund(container) {
       _applyTop100AdjSort(top100AdjSort);
     });
   });
-  // 初始化按钮箭头(默认原序无箭头; top100AdjList 已在 innerHTML 渲染, 重绘幂等)
+  // 初始化按钮箭头(默认原序显示 ⇅ 浅灰; top100AdjList 已在 innerHTML 渲染, 重绘幂等)
   _applyTop100AdjSort(top100AdjSort);
 
-  // 响应式 resize: mainChart/indChart/treemapChart 都要 resize(首次加载 grid 容器宽度可能延迟算完, init 拿到 0 宽度时靠这里恢复; 漏 treemap 会导致标题下空白)
+  // 响应式 resize: mainChart/indChart/treemapChart 都要 resize(首次加载 grid 容器宽度可能延迟算完, init 拿到 0 宽度时靠这里恢复)
+  // 注: treemap 曾不渲染的真根因是 vendor/echarts.min.js 用了 common 精简版(629KB 不含 treemap 组件), setOption 静默失败;
+  //     已换完整版 echarts@5.6.0(1MB 含 treemap 组件), 此处 resize 仅兜底首帧 0 宽场景
   setTimeout(() => { mainChart.resize(); indChart.resize(); treemapChart.resize(); }, 0);
-  // 双保险: requestAnimationFrame 等下一帧 layout 完成再 resize 一次 treemap(根治 grid minmax(0,1fr) 首帧宽度为 0 致 treemap 0x0 不渲染)
   requestAnimationFrame(() => { treemapChart.resize(); });
   window.addEventListener("resize", _pfResizeHandler);
 }
