@@ -186,6 +186,32 @@ def export_etf_national_team_holders():
     return queries.etf_national_team_holders()
 
 
+# ── 公募基金 5 类端点（薄包装 queries 调用）─────────────────────────────────
+def export_public_fund_summary():
+    """公募基金总览: 8 指标 + 仓位轨迹 + 净申赎时序。"""
+    return queries.public_fund_summary()
+
+
+def export_public_fund_holdings():
+    """Top50 重仓股。"""
+    return queries.public_fund_holdings()
+
+
+def export_public_fund_industry():
+    """行业聚合。"""
+    return queries.public_fund_industry()
+
+
+def export_public_fund_top20():
+    """Top20 调仓。"""
+    return queries.public_fund_top20()
+
+
+def export_public_fund_asset_alloc():
+    """头部基金资产配置分布。"""
+    return queries.public_fund_asset_alloc()
+
+
 # ============ JSON 序列化 + 写盘 ============
 
 def _json_default(o):
@@ -378,6 +404,24 @@ def main():
     counts["etf_national_team_holders.json"] = write_json(
         DATA_DIR / "etf_national_team_holders.json", _nt_holders)
     print(f"  etf_national_team_holders.json ({counts['etf_national_team_holders.json']} bytes)")
+
+    # 7.15. public_fund 5 类（公募基金 88 魔咒/抱团度/净申赎）
+    # collector 独立库 data/public_fund.db, 这里通过 queries 薄包装读最新小样本产物
+    counts["public_fund_summary.json"] = write_json(
+        DATA_DIR / "public_fund_summary.json", export_public_fund_summary())
+    print(f"  public_fund_summary.json ({counts['public_fund_summary.json']} bytes)")
+    counts["public_fund_holdings.json"] = write_json(
+        DATA_DIR / "public_fund_holdings.json", export_public_fund_holdings())
+    print(f"  public_fund_holdings.json ({counts['public_fund_holdings.json']} bytes)")
+    counts["public_fund_industry.json"] = write_json(
+        DATA_DIR / "public_fund_industry.json", export_public_fund_industry())
+    print(f"  public_fund_industry.json ({counts['public_fund_industry.json']} bytes)")
+    counts["public_fund_top20.json"] = write_json(
+        DATA_DIR / "public_fund_top20.json", export_public_fund_top20())
+    print(f"  public_fund_top20.json ({counts['public_fund_top20.json']} bytes)")
+    counts["public_fund_asset_alloc.json"] = write_json(
+        DATA_DIR / "public_fund_asset_alloc.json", export_public_fund_asset_alloc())
+    print(f"  public_fund_asset_alloc.json ({counts['public_fund_asset_alloc.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]
