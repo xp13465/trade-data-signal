@@ -123,6 +123,7 @@ THROTTLE_SEC = 0.5  # 逐只子页延时（xq/em 限流不严, 0.5s 安全）
 
 # 头部基金样本量: 季度 pipeline 默认 1000 只（35min），全量 9000 只（5.25h）
 QUARTERLY_TOP_N = 1000
+# full pipeline 已停调度（2026-07-20 launchctl unload），推荐功能都不需9000+，未来做基金筛选器再 load 恢复
 FULL_TOP_N = 9000
 
 # 行业合并映射表: 67 原始名(申万中文大类 + GICS中文短名 + GICS带编号 + GICS中英文多套分类混合)
@@ -278,6 +279,23 @@ CREATE TABLE IF NOT EXISTS fund_metrics (
   PRIMARY KEY (report_date, metric_id)
 );
 CREATE INDEX IF NOT EXISTS idx_metrics_id ON fund_metrics(metric_id);
+
+-- 逐只基金重仓股明细(自写 fetcher 带 Referer/UA 直爬东财 fundf10, 用于制造业拆分子行业-方案C)
+-- 942 只持有制造业的基金, 只采当期 20260630
+CREATE TABLE IF NOT EXISTS fund_portfolio_hold (
+  report_date TEXT NOT NULL,
+  fund_code TEXT NOT NULL,
+  stock_code TEXT NOT NULL,
+  stock_name TEXT,
+  weight_pct REAL,                   -- 占净值%
+  hold_share REAL,                   -- 持股数(万股)
+  hold_value REAL,                   -- 持仓市值(万元)
+  quarter_label TEXT,                -- 东财原始季度标签(如 '2026年2季度股票投资明细')
+  PRIMARY KEY (report_date, fund_code, stock_code)
+);
+CREATE INDEX IF NOT EXISTS idx_portfolio_hold_fund_code ON fund_portfolio_hold(fund_code);
+CREATE INDEX IF NOT EXISTS idx_portfolio_hold_report_date ON fund_portfolio_hold(report_date);
+CREATE INDEX IF NOT EXISTS idx_portfolio_hold_stock_code ON fund_portfolio_hold(stock_code);
 """
 
 _LOCK_FILE: list = [None]
@@ -792,6 +810,265 @@ def fetch_fund_industry_alloc(code: str, year: str | None = None) -> int:
     conn.commit()
     conn.close()
     return len(rows)
+
+
+# ── 逐只 fetcher I: 重仓股明细(自写直爬东财 fundf10, 制造业拆分子行业-方案C) ──────
+PF_HOLD_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+PF_HOLD_URL = "https://fundf10.eastmoney.com/FundArchivesDatas.aspx"
+PF_HOLD_PROGRESS_PATH = Path("/tmp/pf-hold-collect-progress.json")
+
+
+def _report_date_to_quarter_label(report_date: str) -> str:
+    """YYYYMMDD -> 东财 quarter_label(如 '2026年2季度股票投资明细')。
+
+    东财 jjcc 接口按 year 查返回该年所有季度的重仓股, 每个季度一个 h4 标签 + table。
+    当期筛选: 半年报(0630)->2季度, 三季报(0930)->3季度, 年报(1231)->4季度, 一季报(0331)->1季度。
+    """
+    if not report_date or len(report_date) != 8:
+        return ""
+    y = report_date[:4]
+    m = report_date[4:6]
+    q = {"03": "1", "06": "2", "09": "3", "12": "4"}.get(m, "")
+    if not q:
+        return ""
+    return f"{y}年{q}季度股票投资明细"
+
+
+def fetch_fund_portfolio_hold(code: str, year: str | None = None, retries: int = 2) -> list[dict]:
+    """自写直爬东财 fundf10 重仓股明细, 带 Referer+UA 绕过 akshare 404 问题。
+
+    根因: akshare fund_portfolio_hold_em 不带 Referer 被东财返 404 -> JSONDecodeError。
+    绕过: requests.get 带 Referer=https://fundf10.eastmoney.com/ccmx_{code}.html + 浏览器 UA,
+          60 只样本 100% 成功(试采脚本 /tmp/trial_pf_hold_v2.py 验证)。
+
+    Args:
+      code: 基金代码(纯数字串如 '000073')
+      year: 'YYYY' 年份, 默认最近年末
+      retries: 重试次数(连接类错误指数退避 0.8*(i+1)s)
+    Returns: list[dict], 每条 {stock_code, stock_name, weight_pct, hold_share,
+                              hold_value, quarter_label};
+             异常/空数据返回 [] 不抛
+    """
+    if year is None:
+        year = _latest_report_dates(1)[0][:4]
+    params = {
+        "type": "jjcc",
+        "code": code,
+        "topline": "10000",
+        "year": year,
+        "month": "",
+        "rt": "0.913877030254846",
+    }
+    headers = {
+        "User-Agent": PF_HOLD_UA,
+        "Referer": f"https://fundf10.eastmoney.com/ccmx_{code}.html",
+    }
+    import re
+    from io import StringIO
+    import requests
+    import pandas as pd
+    from bs4 import BeautifulSoup
+    last_err = None
+    for i in range(retries + 1):
+        try:
+            r = requests.get(PF_HOLD_URL, params=params, headers=headers, timeout=15)
+            if r.status_code != 200:
+                last_err = f"HTTP {r.status_code}"
+                time.sleep(0.8 * (i + 1))
+                continue
+            text = r.text
+            # 解析 var apidata={ content:"...",arryear:..., curyear:... };
+            if "{" not in text:
+                last_err = "no { in response"
+                time.sleep(0.8 * (i + 1))
+                continue
+            m = re.search(r'content:"(.+?)",arryear:', text, re.DOTALL)
+            if not m:
+                last_err = "no content field"
+                time.sleep(0.8 * (i + 1))
+                continue
+            content_html = m.group(1).replace('\\"', '"').replace("\\'", "'")
+            # BeautifulSoup 解析 h4(季度标签) + pandas read_html 解析 table
+            soup = BeautifulSoup(content_html, features="lxml")
+            h4s = soup.find_all(name="h4", attrs={"class": "t"})
+            item_labels = [h.text.split("\xa0\xa0")[1] if "\xa0\xa0" in h.text else h.text
+                           for h in h4s]
+            tables = pd.read_html(StringIO(content_html), converters={"股票代码": str})
+            rows: list[dict] = []
+            for idx, tbl in enumerate(tables):
+                label = item_labels[idx] if idx < len(item_labels) else f"table_{idx}"
+                tbl = tbl.copy()
+                if "相关资讯" in tbl.columns:
+                    del tbl["相关资讯"]
+                # 统一列名(东财不同时期列名有空格变体)
+                tbl.rename(columns={
+                    "占净值 比例": "占净值比例",
+                    "持股数（万股）": "持股数",
+                    "持仓市值（万元）": "持仓市值",
+                    "持股数 （万股）": "持股数",
+                    "持仓市值 （万元）": "持仓市值",
+                    "持仓市值（万元人民币）": "持仓市值",
+                    "持仓市值 （万元人民币）": "持仓市值",
+                }, inplace=True)
+                for _, row in tbl.iterrows():
+                    stock_code = str(row.get("股票代码", "")).strip()
+                    stock_name = str(row.get("股票名称", "")).strip()
+                    if not stock_code:
+                        continue
+                    rows.append({
+                        "stock_code": stock_code,
+                        "stock_name": stock_name,
+                        "weight_pct": _safe_float(str(row.get("占净值比例", "")).replace("%", "")),
+                        "hold_share": _safe_float(row.get("持股数")),
+                        "hold_value": _safe_float(row.get("持仓市值")),
+                        "quarter_label": label,
+                    })
+            return rows
+        except Exception as e:  # noqa: BLE001
+            last_err = f"{type(e).__name__}: {e}"
+            time.sleep(0.8 * (i + 1))
+    print(f"[I] {code} FAIL: {last_err}", flush=True)
+    return []
+
+
+def collect_portfolio_hold(report_date: str | None = None) -> dict:
+    """采集持有'制造业'的基金的重仓股明细, 用于制造业拆分子行业(方案C Step1)。
+
+    流程:
+      1. 从 fund_industry_alloc 取 DISTINCT fund_code WHERE industry_name='制造业'(942 只)
+      2. 串联调 fetch_fund_portfolio_hold 拉每只当年重仓股, throttle 0.5s/只
+      3. 按 report_date 对应的 quarter_label 筛选当期(如 20260630->'2026年2季度股票投资明细')
+      4. 批量写入 fund_portfolio_hold 表(每 20 只批量 INSERT + 回写 progress)
+
+    断点续采: /tmp/pf-hold-collect-progress.json 记 {done:[...], fail:[...], total:N},
+    启动时读 progress 跳过 done, 重跑只补失败/未采; total 变化(新增基金)自动重置 progress。
+
+    Args:
+      report_date: YYYYMMDD 报告期(如 '20260630'), 默认最近半年报
+    Returns: {ok, fail, total, rows_written, fail_list}
+    """
+    if report_date is None:
+        report_date = _latest_report_dates(1)[0]
+    year = report_date[:4]
+    target_label = _report_date_to_quarter_label(report_date)
+    print(f"[I-collect] report_date={report_date} year={year} target_label={target_label}", flush=True)
+
+    # 从 DB 取制造业基金清单
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT fund_code FROM fund_industry_alloc "
+            "WHERE industry_name='制造业' ORDER BY fund_code"
+        ).fetchall()
+    finally:
+        conn.close()
+    fund_codes = [r[0] for r in rows]
+    total = len(fund_codes)
+    print(f"[I-collect] 制造业基金 {total} 只", flush=True)
+    if total == 0:
+        return {"ok": 0, "fail": 0, "total": 0, "rows_written": 0, "fail_list": []}
+
+    # 断点续采
+    prog = {"done": [], "fail": [], "total": total}
+    if PF_HOLD_PROGRESS_PATH.exists():
+        try:
+            prog = json.loads(PF_HOLD_PROGRESS_PATH.read_text(encoding="utf-8"))
+            # total 变化(新增基金) -> 重置 progress 避免脏数据
+            if prog.get("total") != total:
+                print(f"[I-collect] progress total {prog.get('total')} != 当前 {total}, 重置 progress",
+                      flush=True)
+                prog = {"done": [], "fail": [], "total": total}
+        except Exception:  # noqa: BLE001
+            prog = {"done": [], "fail": [], "total": total}
+    done_set = set(prog.get("done", []))
+    fail_list: list[str] = list(prog.get("fail", []))
+
+    ok = 0
+    fail = 0
+    rows_written = 0
+    t0 = time.time()
+    BATCH_SIZE = 20
+    pending_rows: list[tuple] = []
+
+    for i, code in enumerate(fund_codes, 1):
+        if code in done_set:
+            ok += 1
+        else:
+            try:
+                data = fetch_fund_portfolio_hold(code, year=year)
+                if not data:
+                    fail += 1
+                    if code not in fail_list:
+                        fail_list.append(code)
+                else:
+                    # 筛选当期 quarter_label
+                    matched = ([r for r in data if r.get("quarter_label") == target_label]
+                               if target_label else data)
+                    if not matched:
+                        # 当期没披露, 算失败(下次重跑可能已披露)
+                        fail += 1
+                        if code not in fail_list:
+                            fail_list.append(code)
+                    else:
+                        for r in matched:
+                            pending_rows.append((
+                                report_date, code, r["stock_code"], r["stock_name"],
+                                r["weight_pct"], r["hold_share"], r["hold_value"],
+                                r["quarter_label"],
+                            ))
+                        ok += 1
+                        rows_written += len(matched)
+                        done_set.add(code)
+                        if code in fail_list:
+                            fail_list.remove(code)
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                if code not in fail_list:
+                    fail_list.append(code)
+                print(f"  [I] {code} 异常: {type(e).__name__} {e}", flush=True)
+            time.sleep(THROTTLE_SEC)
+
+        # 批量写 DB + 回写 progress(每 BATCH_SIZE 只或最后一只)
+        if (len(pending_rows) > 0 and (ok + fail - len(prog.get("done", [])) >= BATCH_SIZE)) or i == total:
+            if pending_rows:
+                conn = get_conn()
+                conn.executemany(
+                    "INSERT OR REPLACE INTO fund_portfolio_hold"
+                    "(report_date, fund_code, stock_code, stock_name, "
+                    "weight_pct, hold_share, hold_value, quarter_label) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    pending_rows,
+                )
+                conn.commit()
+                conn.close()
+                pending_rows = []
+            prog["done"] = sorted(done_set)
+            prog["fail"] = sorted(fail_list)
+            prog["total"] = total
+            try:
+                PF_HOLD_PROGRESS_PATH.write_text(
+                    json.dumps(prog, ensure_ascii=False), encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                print(f"  [progress] WARN 写入失败: {e}", flush=True)
+            elapsed = time.time() - t0
+            processed = ok + fail  # 实际处理的(不含跳过的 done)
+            # ETA 基于实际处理速度(已处理含跳过)
+            eta = (elapsed / i) * (total - i) if i > 0 else 0
+            print(f"  [I-collect] {i}/{total} ({i*100/total:.1f}%) ok={ok} fail={fail} "
+                  f"rows={rows_written} elapsed={elapsed:.0f}s eta={eta:.0f}s "
+                  f"(processed={processed})", flush=True)
+
+    print(f"[I-collect] 完成: ok={ok} fail={fail} total={total} "
+          f"rows_written={rows_written} elapsed={time.time()-t0:.0f}s", flush=True)
+    if fail_list:
+        sample = fail_list[:20]
+        suffix = "..." if len(fail_list) > 20 else ""
+        print(f"[I-collect] 失败 {len(fail_list)} 只: {sample}{suffix}", flush=True)
+    return {"ok": ok, "fail": fail, "total": total,
+            "rows_written": rows_written, "fail_list": fail_list}
 
 
 # ── universe 选择 ───────────────────────────────────────────────────────────────

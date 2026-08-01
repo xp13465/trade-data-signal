@@ -5782,3 +5782,16 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **上线步骤**：build_min.py + bump_asset_version.py + bump sw.js CACHE_VERSION ui49->ui50 + commit + push feat + push main + curl 验证线上 sw=ui50 / app.min.js 含 tryGz=false / public_fund tab 正常。
 
 **【关联】** memory `fetchjson-skip-gz`（本轮新增，决策记录）+ memory `cf-workers-static-assets-ignore-cache-control`（CF Workers Static Assets 无视 Cache-Control）+ memory `bump-sw-version-with-appjs`（改 app.js 必 bump sw）+ AZ94 public_fund .gz 故障先例。
+
+### AZ96 2026-07-20 停 public_fund full pipeline 调度（9000+ 省 5.25h/天，未来做基金筛选器再 load 恢复）
+
+**背景**：public_fund 有两个 pipeline：quarterly（1000 只，35min）覆盖推荐功能所需数据；full（9000+ 只，5.25h）覆盖全市场。推荐功能（持仓佐证大盘/行业配置/Top100 调仓表等）只用 quarterly 1000 只就够，full 9000+ 是冗余浪费 5.25h/天算力。
+
+**改动**：
+1. `launchctl unload ~/Library/LaunchAgents/com.trade.public-fund-full.plist`（停调度，plist 文件保留不删，未来 `load` 即恢复）
+2. `app/collector/public_fund.py` L126 `FULL_TOP_N = 9000` 上方加注释：`# full pipeline 已停调度（2026-07-20 launchctl unload），推荐功能都不需9000+，未来做基金筛选器再 load 恢复`
+3. 验收：`launchctl list | grep public-fund-full` 无输出（已停）；quarterly 和 daily 两个 pipeline 不受影响（仍 `com.trade.public-fund-quarterly` / `com.trade.public-fund-daily` 在跑）
+
+**未删 plist 文件**：保留 `~/Library/LaunchAgents/com.trade.public-fund-full.plist` 不删，未来做基金筛选器（需全市场扫描）时 `launchctl load` 即恢复，不用重写 plist。
+
+**【关联】** memory `public-fund-fresh-gate`（quarterly 闸门设计，full 停后 quarterly 仍是主采源）+ memory `update-all-process-mutex`（进程互斥，full 停后少一个竞争进程）。
