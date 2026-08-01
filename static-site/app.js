@@ -9819,9 +9819,14 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-ind-sort="avg" type="button">平均权重</button>'
     + '<button class="pf-ind-sort-btn" data-ind-sort="value" type="button">持仓市值</button>'
     + '</div>'
-    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度(恒按权重和)；红柱右 label 跟随选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
+    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度(点按钮切换面积维度)；柱状图/TreeMap 切换独立, label 跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
     + '<div class="chart pf-ind-bar" style="height:360px"></div>'
-    + '<div class="chart-title" style="margin-top:8px">🎯 抱团集中度全景（矩形面积=持仓权重和）</div>'
+    + '<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:8px">'
+    + '<span>🎯 抱团集中度全景（矩形面积随选中维度变化）</span>'
+    + '<button class="pf-ind-sort-btn active" data-treemap-sort="weight" type="button">权重和</button>'
+    + '<button class="pf-ind-sort-btn" data-treemap-sort="avg" type="button">平均权重</button>'
+    + '<button class="pf-ind-sort-btn" data-treemap-sort="value" type="button">持仓市值</button>'
+    + '</div>'
     + '<div class="chart pf-ind-treemap" style="height:140px"></div>';
   twoCol.appendChild(indCard);
 
@@ -9909,46 +9914,80 @@ async function renderPublicFund(container) {
     });
   });
 
-  // TreeMap 全景(合并后全行业不截断, 矩形面积=权重和, 颜色深浅=value 大小)
+  // TreeMap 全景(合并后全行业不截断, 矩形面积=选中维度值, 颜色深浅=value 大小)
+  // treemapSort 独立于柱状图 indSort: weight=权重和(total_weight) | avg=平均权重(weight/fundCount) | value=持仓市值(total_value)
+  // data 用 object 形式带全字段(totalWeight/fundCount/totalValue/industryCount)避免 tooltip 错位;
+  // value(矩形面积)随 treemapSort 切换, tooltip 恒显示3值(从 totalWeight 算, 不依赖 value)
+  let treemapSort = 'weight';  // 默认权重和(当前行为不变)
   const treemapChart = echarts.init(indCard.querySelector(".pf-ind-treemap"));
   charts.push(treemapChart);
-  treemapChart.setOption({
-    tooltip: { formatter: (p) => {
-      // treemap tooltip 从 p.data 取(同柱状图口径, 不依赖外部 indData 数组避免错位)
-      const d = p.data;
-      const avgPct = (d.value / d.fundCount).toFixed(1);
-      const pctOfTotal = (d.value / indTotalWeight * 100).toFixed(2);
-      const mergeInfo = d.industryCount > 1 ? `<br/>🔀 已合并 ${d.industryCount} 个原始分类` : '';
-      return `${d.name}<br/><br/>📦 权重和: <b>${d.value.toFixed(1)}</b> (占 ${pctOfTotal}%)<br/>` +
-        `📊 平均权重: <b>${avgPct}%</b><br/>` +
-        `💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><br/>` +
-        `🏦 基金数: <b>${d.fundCount}</b>${mergeInfo}`;
-    }},
-    series: [{
-      type: "treemap",
-      width: '100%', height: '100%',
-      roam: false, nodeClick: false,
-      breadcrumb: { show: false },
-      upperLabel: { show: false },
-      // colorMappingBy: 'value' 按兄弟节点 value 排序映射 color 数组, max 大柱深红, 长尾浅色
-      colorMappingBy: 'value',
-      color: ['#fde4d4', '#fac5a5', '#f88b6a', '#f5704d', '#e6492e', '#9a2a18'],
-      label: {
-        show: true,
-        formatter: (p) => {
-          const d = p.data;
-          const pct = (d.value / indTotalWeight * 100).toFixed(1);
-          return `${d.name} ${pct}%`;
+  // 渲染 TreeMap(初次渲染 + 切换重排共用): tooltip 恒显示3值(p.data 模式不回退), label 跟随 treemapSort, value(面积)随 treemapSort
+  const _renderTreemap = (mode) => {
+    treemapChart.setOption({
+      tooltip: { formatter: (p) => {
+        // treemap tooltip 从 p.data 取(同柱状图口径, 不依赖外部 indData 数组避免错位)
+        // d.value = 矩形面积值(随 mode 变); tooltip 用 d.totalWeight 算占比/平均权重(恒定不随 mode 变)
+        const d = p.data;
+        const avgPct = (d.totalWeight / d.fundCount).toFixed(1);
+        const pctOfTotal = (d.totalWeight / indTotalWeight * 100).toFixed(2);
+        const mergeInfo = d.industryCount > 1 ? `<br/>🔀 已合并 ${d.industryCount} 个原始分类` : '';
+        return `${d.name}<br/><br/>📦 权重和: <b>${d.totalWeight.toFixed(1)}</b> (占 ${pctOfTotal}%)<br/>` +
+          `📊 平均权重: <b>${avgPct}%</b><br/>` +
+          `💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><br/>` +
+          `🏦 基金数: <b>${d.fundCount}</b>${mergeInfo}`;
+      }},
+      series: [{
+        type: "treemap",
+        width: '100%', height: '100%',
+        roam: false, nodeClick: false,
+        breadcrumb: { show: false },
+        upperLabel: { show: false },
+        // colorMappingBy: 'value' 按兄弟节点 value 排序映射 color 数组, max 大柱深红, 长尾浅色
+        colorMappingBy: 'value',
+        color: ['#fde4d4', '#fac5a5', '#f88b6a', '#f5704d', '#e6492e', '#9a2a18'],
+        label: {
+          show: true,
+          // label 跟随 treemapSort: weight->权重和占比%; avg->平均权重%; value->持仓市值亿
+          formatter: (p) => {
+            const d = p.data;
+            if (mode === 'avg') return `${d.name} ${(d.totalWeight / d.fundCount).toFixed(1)}%`;
+            if (mode === 'value') return `${d.name} ${(d.totalValue / 1e4).toFixed(1)}亿`;
+            const pct = (d.totalWeight / indTotalWeight * 100).toFixed(1);
+            return `${d.name} ${pct}%`;
+          },
+          fontSize: 10,
         },
-        fontSize: 10,
-      },
-      itemStyle: { borderColor: '#fff', borderWidth: 1, gapWidth: 1 },
-      emphasis: { label: { fontSize: 12 } },
-      data: indData.map((d) => ({
-        name: d.name, value: d.weight, fundCount: d.fundCount,
-        totalValue: d.value, industryCount: d.industryCount,
-      })),
-    }],
+        itemStyle: { borderColor: '#fff', borderWidth: 1, gapWidth: 1 },
+        emphasis: { label: { fontSize: 12 } },
+        // data 用 object 形式带全字段; value(矩形面积)随 mode 切换:
+        //   weight=totalWeight(权重和) | avg=totalWeight/fundCount(平均权重) | value=totalValue(持仓市值)
+        //   totalWeight/fundCount/totalValue/industryCount 原值保留, tooltip 恒显示3值不随 mode 变
+        data: indData.map((d) => {
+          const totalWeight = d.weight;
+          const totalValue = d.value;
+          const fundCount = d.fundCount;
+          let sortVal;
+          if (mode === 'avg') sortVal = fundCount > 0 ? totalWeight / fundCount : 0;
+          else if (mode === 'value') sortVal = totalValue;
+          else sortVal = totalWeight;
+          return {
+            name: d.name, value: sortVal,
+            totalWeight, fundCount, totalValue, industryCount: d.industryCount,
+          };
+        }),
+      }],
+    });
+  };
+  _renderTreemap(treemapSort);
+  // TreeMap 排序切换按钮: 3 选 1 互斥(独立于柱状图), 点击重排矩形面积 + 更新 active 态 + label 跟随
+  indCard.querySelectorAll("[data-treemap-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.getAttribute("data-treemap-sort");
+      if (mode === treemapSort) return;
+      treemapSort = mode;
+      indCard.querySelectorAll("[data-treemap-sort]").forEach((b) => b.classList.toggle("active", b === btn));
+      _renderTreemap(mode);
+    });
   });
 
   // ── 区域 4: 头部重仓股调仓 Top100 表(读 holdings.top100 取前100; 排序切换: 按变化率/按金额差; 指标 top20_adjustment 仍按 Top20 口径不变) ──
