@@ -9722,18 +9722,18 @@ async function renderPublicFund(container) {
   twoCol.className = "pf-two-col";
   container.appendChild(twoCol);
 
-  // 左: Top30 重仓表(含调仓: 当期 vs 上期, Q2)
-  const top30Card = document.createElement("div");
-  top30Card.className = "chart-card";
-  const top30 = (holdings && holdings.top50 ? holdings.top50 : []).slice(0, 30);
+  // 左: Top100 重仓表(含调仓: 当期 vs 上期, Q2; Q3: 扩到100)
+  const top100Card = document.createElement("div");
+  top100Card.className = "chart-card";
+  const top100 = (holdings && holdings.top100 ? holdings.top100 : []).slice(0, 100);
   const holdingsPrevDate = holdings && holdings.prev_report_date ? _pfFmtDate(holdings.prev_report_date) : "";
-  let top30Rows = "";
-  top30.forEach((s, i) => {
+  let top100Rows = "";
+  top100.forEach((s, i) => {
     const chgColor = s.change_pct > 0 ? "#e6492e" : s.change_pct < 0 ? "#2e8b57" : "var(--text-3)";
     const chgArrow = s.change_pct > 0 ? "↑" : s.change_pct < 0 ? "↓" : "->";
     const chgTxt = s.change_pct == null ? "-" : `${chgArrow} ${Math.abs(s.change_pct).toFixed(2)}%`;
     const tip = s.prev_value == null ? "无上期数据" : `当期 ${(s.hold_value_total / 1e4).toFixed(2)} 万 / 上期 ${(s.prev_value / 1e4).toFixed(2)} 万`;
-    top30Rows += `<tr>
+    top100Rows += `<tr>
       <td>${i + 1}</td>
       <td class="pf-code">${s.stock_code}</td>
       <td>${s.stock_name}</td>
@@ -9742,12 +9742,12 @@ async function renderPublicFund(container) {
       <td class="pf-num" style="color:${chgColor};font-weight:600" title="${tip}">${chgTxt}</td>
     </tr>`;
   });
-  top30Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top30（持有基金数 / 持仓市值万元 / 调仓${holdingsPrevDate ? " vs " + holdingsPrevDate : ""}）</div>
+  top100Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top100（持有基金数 / 持仓市值万元 / 调仓${holdingsPrevDate ? " vs " + holdingsPrevDate : ""}）</div>
     <div class="pf-table-wrap"><table class="pf-table">
       <thead><tr><th>#</th><th>代码</th><th>名称</th><th>基金数</th><th>市值(万)</th><th>调仓</th></tr></thead>
-      <tbody>${top30Rows || '<tr><td colspan="6">暂无数据</td></tr>'}</tbody>
+      <tbody>${top100Rows || '<tr><td colspan="6">暂无数据</td></tr>'}</tbody>
     </table></div>`;
-  twoCol.appendChild(top30Card);
+  twoCol.appendChild(top100Card);
 
   // 右: 行业配置柱状图
   const indCard = document.createElement("div");
@@ -9772,28 +9772,28 @@ async function renderPublicFund(container) {
     yAxis: { type: "category", data: indData.map((d) => d.name).reverse(), axisLabel: { fontSize: 10, width: 140, overflow: "break", lineHeight: 12 } },
     series: [{
       type: "bar", data: indData.map((d) => d.weight).reverse(), itemStyle: { color: "#e6492e" },
-      label: { show: true, position: "right", formatter: "{c:.1f}", fontSize: 10 },
+      label: { show: true, position: "right", formatter: (p) => Number(p.value).toFixed(1), fontSize: 10 },
     }],
   });
 
-  // ── 区域 4: 头部重仓股调仓 Top30 表(读 holdings.top50 取前30; Q3: 展示扩到30, 指标 top20_adjustment 仍按 Top20 口径不变) ──
-  const top30AdjCard = document.createElement("div");
-  top30AdjCard.className = "chart-card";
-  const top30AdjRaw = (holdings && holdings.top50 ? holdings.top50 : []).slice(0, 30);
+  // ── 区域 4: 头部重仓股调仓 Top100 表(读 holdings.top100 取前100; Q3: 展示扩到100, 指标 top20_adjustment 仍按 Top20 口径不变) ──
+  const top100AdjCard = document.createElement("div");
+  top100AdjCard.className = "chart-card";
+  const top100AdjRaw = (holdings && holdings.top100 ? holdings.top100 : []).slice(0, 100);
   // 仅对有 change_pct 的行按 |变化%| 降序; 无上期数据的行 append 在后
-  const top30AdjWith = top30AdjRaw.filter((s) => s.change_pct != null)
+  const top100AdjWith = top100AdjRaw.filter((s) => s.change_pct != null)
     .slice().sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
-  const top30AdjWithout = top30AdjRaw.filter((s) => s.change_pct == null);
-  const top30AdjList = top30AdjWith.concat(top30AdjWithout);
+  const top100AdjWithout = top100AdjRaw.filter((s) => s.change_pct == null);
+  const top100AdjList = top100AdjWith.concat(top100AdjWithout);
   const adjPrevDate = holdings && holdings.prev_report_date ? _pfFmtDate(holdings.prev_report_date) : "";
-  let top30AdjRows = "";
-  top30AdjList.forEach((s, i) => {
+  let top100AdjRows = "";
+  top100AdjList.forEach((s, i) => {
     const chgColor = s.change_pct > 0 ? "#e6492e" : s.change_pct < 0 ? "#2e8b57" : "var(--text-3)";
     const chgArrow = s.change_pct > 0 ? "↑" : s.change_pct < 0 ? "↓" : "->";
     const chgCell = s.change_pct == null
       ? '<span style="color:var(--text-3)">-</span>'
       : `${chgArrow} ${Math.abs(s.change_pct).toFixed(2)}%`;
-    top30AdjRows += `<tr>
+    top100AdjRows += `<tr>
       <td>${i + 1}</td>
       <td class="pf-code">${s.stock_code}</td>
       <td>${s.stock_name}</td>
@@ -9803,12 +9803,12 @@ async function renderPublicFund(container) {
       <td class="pf-num" style="color:${chgColor};font-weight:600">${chgCell}</td>
     </tr>`;
   });
-  top30AdjCard.innerHTML = `<div class="chart-title">🔄 头部重仓股调仓 Top30（当期 ${_pfFmtDate(reportDate)} vs 上期 ${adjPrevDate}，按 |变化%| 降序；注: 指标 top20_adjustment 仍按 Top20 口径）</div>
+  top100AdjCard.innerHTML = `<div class="chart-title">🔄 头部重仓股调仓 Top100（当期 ${_pfFmtDate(reportDate)} vs 上期 ${adjPrevDate}，按 |变化%| 降序；注: 指标 top20_adjustment 仍按 Top20 口径）</div>
     <div class="pf-table-wrap"><table class="pf-table">
       <thead><tr><th>#</th><th>代码</th><th>名称</th><th>基金数</th><th>当期(万)</th><th>上期(万)</th><th>变化</th></tr></thead>
-      <tbody>${top30AdjRows || '<tr><td colspan="7">暂无数据</td></tr>'}</tbody>
+      <tbody>${top100AdjRows || '<tr><td colspan="7">暂无数据</td></tr>'}</tbody>
     </table></div>`;
-  container.appendChild(top30AdjCard);
+  container.appendChild(top100AdjCard);
 
   // 响应式 resize
   setTimeout(() => { mainChart.resize(); indChart.resize(); }, 0);
