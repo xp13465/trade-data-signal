@@ -5969,4 +5969,39 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ97 公募基金4功能规划（G功能是其一）+ AZ99 export.py 5处闭环教训 + memory r2-arch-by-category-not-size（public_fund 走R2按类别）。
 
+### AZ101 2026-08-02 N功能抱团集中度历史时序（回填8期+holding_concentration_ts JSON产物）
+
+**背景**：N功能 = 多信号共振仪表盘，需多源时序指标共振判断。前置数据就绪情况：88魔咒445期（fund_position_history lg源周频）+ 净申赎89期（fund_scale_change）+ 规模113期（fund_scale_change）已就绪，**抱团集中度是唯一缺口**。fund_holding_stock 表原仅2期（20251231+20260630），需回填8期历史形成10期完整时序。数据源 ak.fund_report_stock_cninfo（巨潮，~5285行/季），fetch_holding_cninfo(report_date) 支持历史 date 参数。
+
+**实施**（commit 2a977cec）：
+
+1. **回填8期历史**（从 trade-data cwd 跑写主库，WAL模式与F agent backfill-industry并发安全）：
+   - 8期报告期：20231231/20240331/20240630/**20240930**/20241231/20250331/20250630/20250930
+   - ⚠️ **20240931 是无效日期**（9月只有30天），初版任务清单写错为20240931致akshare KeyError，修正为20240930后成功
+   - 期数 2->10，共39984行。Q1/Q3季报~2800-2900行（只披露前十大重仓股），半年报/年报~5000-5285行（披露全部持仓）
+   - 临时脚本 /tmp/backfill_holding_8q.py 循环调 fetch_holding_cninfo（幂等跳过已采期，>=4500行阈值）
+
+2. **后端 `_compute_holding_concentration_timeseries(conn)`**（app/collector/public_fund.py L1742，独立计算不走 export_data 7元组，仿 _compute_position_backtest 模式）：
+   - 输入：fund_holding_stock 全部 report_date 时序（10期）
+   - 每期算：concentration_top10（Top10持仓市值占比）+ concentration_top20（Top20占比）+ herfindahl（Top100基金覆盖家数Herfindahl指数，和 compute_metrics L1221 口径一致 H=Σ(fund_count_i/Σfund_count)^2）+ fund_count + total_stocks + total_value_wan + top10_stocks详情
+   - 输出 JSON：{report_date, period_count, series:[{date, concentration_top10, concentration_top20, herfindahl, fund_count, total_stocks, total_value_wan, top10_stocks}]}
+   - 产物 9615 bytes，10期时序
+
+3. **上线链路 4处闭环**（AZ99 教训 checklist）：
+   - ① collector _compute_holding_concentration_timeseries() 独立函数（非 export_data 元组）
+   - ② queries.py public_fund_holding_concentration_ts() 薄包装
+   - ③ collector export_json_files() 复用 conn 写 JSON（`python -m app.collector.public_fund export` 生成）
+   - ④ deploy.sh DATA_FILES for 循环加 holding_concentration_ts（8->9 个 public_fund 文件）
+   - ⑤ upload_r2 upload-public-fund glob 自动覆盖（无需改，public_fund*.json 匹配）
+
+4. **双路径同步**：export 写 trade-data/static-site/data/，cp 到 trade/static-site/data/ + 生成 .gz（§9 cwd=trade-data 衍生，export-output-path-sync 教训）
+
+**【关键发现】** Q1/Q3季报 vs 半年报/年报口径差异显著：Q1/Q3 concentration_top10 0.24-0.29（样本~2800只披露前十大），半年报/年报 0.12-0.15（样本~5000+全部持仓）。**herfindahl 指标基于 Top100 基金覆盖家数不受披露规则影响更稳定**（Q1/Q3 0.017-0.022 vs 半年报/年报 0.011-0.012，差异小）。前端展示时需用 total_stocks 字段区分口径。抱团度趋势：herfindahl 从2023Q4的0.0114缓升至2026Q2的0.0215，抱团集中度近3年上升约88%。
+
+**【协调】** F agent 正在改 public_fund.py 加 backfill-industry CLI（PID 90537在跑采集，代码未commit）。N功能改动在文件不同区域（_compute_holding_concentration_timeseries 在 export_data 前 L1742，backfill-industry 在 main() L2074+），不冲突。commit 时用 **cp备份+git checkout HEAD+重新Edit+commit+cp恢复** 方式分离（和 AZ100 G功能同方法）：先 cp 含全部改动的版本到 /tmp -> git checkout HEAD 恢复 -> 只重新apply N功能2处Edit -> commit -> cp 恢复 F agent 改动到工作区。merge origin/main 时3文件冲突（public_fund.py/queries.py/deploy.sh），全是"HEAD有N功能改动 origin/main没有"，git checkout --ours 解决。
+
+**【验证】** 10期数据落地（39984行）✓ + holding_concentration_ts JSON 10期时序 ✓ + G功能 position_backtest 未破坏（report_date=20260724 extremes 5+5 current=96.01）✓ + F agent backfill-industry CLI 保留工作区（9处backfill-industry）✓ + 语法检查通过 ✓ + lint 全通过 ✓。
+
+**【关联】** AZ97 公募基金4功能规划 + AZ100 G功能 _compute_position_backtest 独立计算模式（N功能照搬）+ AZ99 上线链路闭环教训 + memory export-output-path-sync（双路径同步）。
+
 
