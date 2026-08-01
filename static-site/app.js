@@ -2593,9 +2593,9 @@ function _pinReviewCardHtml(id, idx, sig) {
 // 2026-07-20 灰色兜底：SIM_INDICES 之外的指数也生成按钮（灰色 disabled + hover 提示"暂未接入"），
 // 不再返回空串（用户要求：按钮必须显示，不可用时灰色而非缺失，避免用户以为坏了）。
 function _simBtnHtml(indexId) {
-  if (!SIM_INDICES.has(indexId)) {
-    var _label = (indexId.startsWith('sw_') || indexId.startsWith('thsc_')) ? '该行业' : '该指数';
-    return `<a class="sim-btn sim-btn-disabled" data-index="${indexId}" title="${_label}暂未接入模拟回测">📊 模拟回测</a>`;
+  if (!indexId || !SIM_INDICES.has(indexId)) {
+    var _label = (indexId && (indexId.startsWith('sw_') || indexId.startsWith('thsc_'))) ? '该行业' : '该指数';
+    return `<a class="sim-btn sim-btn-disabled" data-index="${indexId || ''}" title="${_label}暂未接入模拟回测">📊 模拟回测</a>`;
   }
   return `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`;
 }
@@ -9817,7 +9817,7 @@ async function renderSentimentMarketTemp(container) {
         ],
         dimension: 1,
       },
-    }, undefined, undefined, undefined, cell);
+    }, undefined, undefined, "fear_greed", cell);
     // 冰点(≤25)/过热(≥75)阈值线 + 最新值标记（保留信号 pin）
     {
       const _fgOpt = chart.getOption();
@@ -9891,7 +9891,7 @@ async function renderSentimentMarketTemp(container) {
         ],
         dimension: 1,
       },
-    }, stats.a_sentiment, strat.a_sentiment, undefined, cell);
+    }, stats.a_sentiment, strat.a_sentiment, "a_sentiment", cell);
     chart.setOption({ series: [{ markLine: {
       silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
       data: [
@@ -9938,7 +9938,7 @@ async function renderSentimentMarketTemp(container) {
             ],
             dimension: 1,
           },
-        }, stats[key], strat[key], undefined, cell);
+        }, stats[key], strat[key], key, cell);
       // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
       chart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
@@ -9976,7 +9976,7 @@ async function renderSentimentMarketTemp(container) {
         ],
         dimension: 1,
       },
-    }, stats.cross_market, strat.cross_market, undefined, cell);
+    }, stats.cross_market, strat.cross_market, "cross_market", cell);
     // 冰点(≤20)/过热(≥80)阈值线（情绪分口径，与恐贪25/75区分）
     chart.setOption({ series: [{ markLine: {
       silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
