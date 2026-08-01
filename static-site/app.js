@@ -10133,6 +10133,32 @@ async function renderPublicFund(container) {
     '通讯': '通信服务', '通讯业务': '通信服务', '通信服务': '通信服务',
     '50电信服务': '通信服务', '电信服务': '通信服务', '电信业务': '通信服务', '通信服务CommunicationServices': '通信服务',
   };
+  // 口径分类映射(合并后标准名 -> 'csrc'|'gics'|'both'): 用于"证监会/GICS双口径切换"
+  // 背景: fund_industry_alloc.industry_name 是多套分类混合--A股基金按证监会门类披露,
+  // QDII/港股基金按GICS披露。合并后标准名按主要来源打口径标签:
+  //   csrc = 证监会门类(制造业/采矿业/批发零售等19大门类, A股基金披露口径)
+  //   gics = GICS 11大类(能源/材料/工业等, QDII基金披露口径)
+  //   both = 合并后标准名同时含CSRC和GICS来源(信息技术/金融业/房地产业; 切换任一视图都显示)
+  // 制造业=纯csrc(证监会门类最粗,涵盖电子/通信/汽车等所有制造类); 通信服务=纯gics(GICS独立大类)
+  // ⚠️ "通信"(制造业子行业,通信设备制造) ≠ "通信服务"(GICS独立大类,通信运营服务), 二者口径不同
+  const IND_CLASSIFICATION = {
+    // CSRC 证监会门类(A股基金披露口径, 19大门类)
+    '制造业': 'csrc', '采矿业': 'csrc', '批发和零售业': 'csrc', '交通运输、仓储和邮政业': 'csrc',
+    '科学研究和技术服务业': 'csrc', '电力、热力、燃气及水生产和供应业': 'csrc',
+    '水利、环境和公共设施管理业': 'csrc', '建筑业': 'csrc', '租赁和商务服务业': 'csrc',
+    '文化、体育和娱乐业': 'csrc', '卫生和社会工作': 'csrc', '农、林、牧、渔业': 'csrc',
+    '住宿和餐饮业': 'csrc', '教育': 'csrc', '综合': 'csrc',
+    '居民服务、修理和其他服务业': 'csrc',
+    // GICS 11大类(QDII/港股基金披露口径)
+    '能源': 'gics', '材料': 'gics', '工业': 'gics', '医疗保健': 'gics',
+    '非必需消费品': 'gics', '必需消费品': 'gics', '通信服务': 'gics', '公用事业': 'gics',
+    // both: 合并后标准名同时含CSRC和GICS来源(切换任一视图都显示, tooltip 标注双口径)
+    '信息技术': 'both',   // CSRC"信息传输、软件和信息技术服务业" + GICS"45信息技术"等
+    '金融业': 'both',     // CSRC"金融业" + GICS"40金融"等
+    '房地产业': 'both',   // CSRC"房地产业" + GICS"60房地产"等
+  };
+  // 兜底: 不在表里的标准名(如动态聚合的"其他")默认 both(切换任一视图都显示, 避免长尾丢失)
+  const _classifyInd = (name) => IND_CLASSIFICATION[name] || 'both';
   const _rawInd = (industry && industry.industries ? industry.industries : []);
   const _mergedMap = new Map();
   for (const d of _rawInd) {
@@ -10146,8 +10172,11 @@ async function renderPublicFund(container) {
     // 制造业子行业 breakdown 传递(方案C Step4: 仅制造业有 breakdown 来自重仓股拆分, 其他行业 null)
     if (d.breakdown && d.breakdown.length) m.breakdown = d.breakdown;
   }
-  const indData = Array.from(_mergedMap.values()).sort((a, b) => b.weight - a.weight);
-  const indTotalWeight = indData.reduce((s, d) => s + d.weight, 0) || 1;
+  const indDataAll = Array.from(_mergedMap.values()).sort((a, b) => b.weight - a.weight);
+  let indData = indDataAll;  // 当前显示的行业(口径切换时过滤: all=全部 / csrc=证监会 / gics=GICS)
+  let indClass = 'all';  // 口径切换状态: all/csrc/gics
+  // indTotalWeight 用全集(切换口径不重算, 保持"占全行业%"稳定, 避免 both 双计)
+  const indTotalWeight = indDataAll.reduce((s, d) => s + d.weight, 0) || 1;
 
   const indCard = document.createElement("div");
   indCard.className = "chart-card";
@@ -10156,6 +10185,12 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-ind-sort="weight" type="button">权重和</button>'
     + '<button class="pf-ind-sort-btn active" data-ind-sort="avg" type="button">平均权重</button>'
     + '<button class="pf-ind-sort-btn" data-ind-sort="value" type="button">持仓市值</button>'
+    + '<span style="flex:1;min-width:8px"></span>'
+    + '<span style="font-size:11px;color:var(--text-3)">口径:</span>'
+    + '<button class="pf-ind-sort-btn active" data-ind-class="all" type="button" title="显示全部行业(证监会+GICS混合)">全部</button>'
+    + '<button class="pf-ind-sort-btn" data-ind-class="csrc" type="button" title="只看证监会门类口径(A股基金披露)">证监会</button>'
+    + '<button class="pf-ind-sort-btn" data-ind-class="gics" type="button" title="只看GICS口径(QDII/港股基金披露)">GICS</button>'
+    + '<span id="pfIndHelpBtn" style="margin-left:6px;cursor:help;color:var(--text-3);font-size:14px;line-height:1;user-select:none" title="行业配置口径说明">❓</span>'
     + '</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度(点按钮切换面积维度)；柱状图/TreeMap 切换独立, label 跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；TreeMap 点制造业矩形弹子行业列表</div>'
@@ -10302,6 +10337,76 @@ async function renderPublicFund(container) {
       _renderIndBar(mode);
     });
   });
+
+  // 口径切换按钮: 全部/证监会/GICS 三档, 按标准名口径过滤 indData (both 两视图都显示)
+  // 切换后柱状图+TreeMap 同步重渲染; 制造业展开状态重置(切换GICS制造业被过滤, 残留展开无意义)
+  const _filterByClass = (cls) => {
+    if (cls === 'all') return indDataAll;
+    return indDataAll.filter((d) => {
+      const c = _classifyInd(d.name);
+      return c === cls || c === 'both';
+    });
+  };
+  indCard.querySelectorAll("[data-ind-class]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cls = btn.getAttribute("data-ind-class");
+      if (cls === indClass) return;
+      indClass = cls;
+      indData = _filterByClass(cls);
+      _manufExpanded = false;  // 重置制造业展开(避免切换到无制造业的口径后残留展开态)
+      indCard.querySelectorAll("[data-ind-class]").forEach((b) => b.classList.toggle("active", b === btn));
+      _renderIndBar(indSort);
+      _renderTreemap(treemapSort);
+    });
+  });
+
+  // ❓ 行业配置口径说明弹窗(复用 .rule-modal 骨架, 内容: 双口径来源+切换说明+制造业占比+通信区别)
+  const _showIndHelpModal = () => {
+    let modal = document.getElementById("pfIndHelpModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "pfIndHelpModal";
+      modal.className = "rule-modal hidden pf-ind-fund-modal";
+      document.body.appendChild(modal);
+    }
+    const helpContent = ''
+      + '<div style="margin-bottom:14px"><b style="font-size:14px;color:#e6492e">📚 双口径来源</b></div>'
+      + '<div style="margin-bottom:12px">公募基金行业配置数据是<b>两套分类标准混合</b>的：</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>证监会门类(CSRC)</b>：A股基金按此披露，19大门类（制造业/金融业/信息传输软件和信息技术服务业/建筑业等）</div>'
+      + '<div style="margin-bottom:12px;padding-left:12px">• <b>GICS</b>：QDII/港股基金按此披露，11大类（能源/材料/工业/医疗保健/通信服务等）</div>'
+      + '<div style="margin-bottom:14px;color:var(--text-3)">合并后你会同时看到"制造业"(CSRC)和"通信服务"(GICS)。</div>'
+      + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🔁 切换功能（标题旁"口径"按钮组）</b></div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>全部</b>：显示所有行业（默认，混合口径）</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>证监会</b>：只看 CSRC 门类（A股基金口径：制造业/金融业/建筑业…）</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>GICS</b>：只看 GICS 大类（QDII基金口径：能源/材料/工业/通信服务…）</div>'
+      + '<div style="margin-bottom:14px;color:var(--text-3)">注：信息技术/金融业/房地产业三行业在两套口径都有（合并自 CSRC+GICS 原始名），切换任一视图都显示。</div>'
+      + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🏭 制造业占比大不是 bug</b></div>'
+      + '<div style="margin-bottom:14px">制造业平均权重≈58%，因为<b>证监会"制造业"门类极粗</b>，涵盖电子/通信/汽车/电力设备/医药生物/食品饮料等所有制造类子行业。GICS 把这些拆成了信息技术/工业/医疗保健/消费品等多个独立大类，所以 GICS 视图下没有"制造业"这一超大类。</div>'
+      + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">⚠️ "通信" ≠ "通信服务"</b></div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>通信</b>：制造业的<b>子行业</b>（通信<b>设备</b>制造，如中兴/烽火），点击制造业柱展开可见</div>'
+      + '<div style="margin-bottom:14px;padding-left:12px">• <b>通信服务</b>：GICS 独立大类（通信<b>运营</b>服务，如中国移动/中国电信），QDII 基金披露</div>'
+      + '<div style="margin-bottom:14px;color:var(--text-3)">二者口径完全不同，勿混淆。</div>'
+      + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🔬 制造业子行业展开</b></div>'
+      + '<div style="margin-bottom:14px">点击柱状图 <b>制造业</b> 条（▶）展开 18 个申万一级子行业（电子/通信/电力设备…），基于重仓股拆分（非基金直接披露）；非制造业口径下此功能不可用。</div>'
+      + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">📊 数值口径</b></div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>权重和</b> = 全市场基金该行业权重%求和（抱团集中度）</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>平均权重</b> = 权重和 ÷ 基金数（平均每只基金该行业仓位%，制造业≈58%）</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>持仓市值</b> = 全市场基金该行业持仓总市值（亿）</div>'
+      + '<div style="color:var(--text-3)">切换口径时数值不变（只过滤显示行业），"占全行业%"相对全集稳定。</div>';
+    modal.innerHTML = '<div class="rule-modal-overlay"></div>'
+      + '<div class="rule-modal-body">'
+      + '<div class="rule-modal-header"><h3>🏭 行业配置口径说明</h3>'
+      + '<button class="rule-modal-close" aria-label="关闭" type="button">&times;</button></div>'
+      + '<div class="rule-modal-content" style="padding:16px 20px;font-size:13px;line-height:1.7;color:var(--text-2);max-height:70vh;overflow:auto">' + helpContent + '</div>'
+      + '</div>';
+    modal.classList.remove("hidden");
+    document.body.style.overflow = "hidden";
+    const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+    modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+    modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  };
+  const _helpBtn = indCard.querySelector("#pfIndHelpBtn");
+  if (_helpBtn) _helpBtn.addEventListener("click", _showIndHelpModal);
 
   // TreeMap 全景(合并后全行业不截断, 矩形面积=选中维度值, 颜色深浅=value 大小)
   // treemapSort 独立于柱状图 indSort: weight=权重和(total_weight) | avg=平均权重(weight/fundCount) | value=持仓市值(total_value)
