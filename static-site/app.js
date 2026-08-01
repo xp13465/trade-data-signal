@@ -9065,7 +9065,9 @@ async function renderHK(container = content) {
   if (hkIndEntries.length) {
     const hkIndWrap = document.createElement("div");
     hkIndWrap.className = "sw-grid-wrap";
-    container.appendChild(hkIndWrap);
+    // 港股板块8卡挂进 indicesSection(非 container): anchorBar 在 indicesSection 内,
+    // sticky 只在 indicesSection 滚动范围生效; 挂 container 会两区分离, 滚进板块区 sticky 失效
+    indicesSection.appendChild(hkIndWrap);
     const hdr = document.createElement("h3");
     hdr.className = "section-title";
     hdr.textContent = "港股板块指数";
@@ -10854,6 +10856,12 @@ let _industryScrollSpy = null;
 // 指数目录锚点(A股/港股/全球) scroll spy 列表: 切 tab 时统一 disconnect, 避免泄漏
 // 每项是一个 IntersectionObserver 实例, buildIndexAnchorBar 内 push, clearCharts 内统一 disconnect
 let _indexNavSpies = [];
+// 点击 chip 跳转后抑制 scroll spy 抢 .active 的截止时刻(毫秒时间戳)。
+// 根因: PC 2列 grid, click scrollIntoView(block:'start') 把同行两张卡同时推进可见带,
+// observer 回调 forEach 对每个 intersecting entry 都执行"全部 chip toggle .active=(匹配当前 entry)",
+// entries 顺序非确定 -> last entry 覆盖 click 设的 .active, 致 chip 高亮错乱(点科创50高亮创业板指)。
+// 修法: click 后 800ms(smooth 动画完成)内 observer 回调直接 return, 保留 click 设的 .active; 冷却期后恢复滚动联动。
+let _indexNavClickSuppressUntil = 0;
 
 // 指数目录锚点跳转高亮计时器+当前高亮卡(模块级, 跨多次 chip 点击共享)
 // 连点 n 个 chip 时, 前 n-1 个 setTimeout 被第 n 个 clearTimeout 覆盖, 旧卡 class 没被移除 -> 残留高亮
@@ -10916,18 +10924,28 @@ function buildIndexAnchorBar(groups, barLabel) {
       if (!tryScroll()) requestAnimationFrame(tryScroll);
       anchorBar.querySelectorAll("button[data-idx-target]").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
+      // 抑制 scroll spy 800ms(等 smooth 动画完成): 防止 PC 2列 grid 下同行另一卡
+      // 同时进可见带致 observer last entry 覆盖 click 设的 .active(chip 高亮错乱)
+      _indexNavClickSuppressUntil = Date.now() + 800;
     };
   });
   // scroll spy: 当前可见卡片对应 chip 高亮(rootMargin 让"距视口顶部 15%~30%"区段算可见)
   const spy = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        const tid = entry.target.id;
-        anchorBar.querySelectorAll("button[data-idx-target]").forEach(b => {
-          b.classList.toggle("active", b.dataset.idxTarget === tid);
-        });
-      }
-    });
+    // 点击 chip 后冷却期内直接 return, 保留 click 设的 .active 不被 scroll spy 覆盖
+    if (Date.now() < _indexNavClickSuppressUntil) return;
+    // 冷却期外: 选可见度最高(intersectionRatio 最大)的 intersecting entry,
+    // 只对该 entry toggle .active; 避免 forEach 全部 entry 都 toggle 致 last entry 覆盖(spec 未规定 entries 顺序)
+    let best = null;
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      if (!best || entry.intersectionRatio > best.intersectionRatio) best = entry;
+    }
+    if (best) {
+      const tid = best.target.id;
+      anchorBar.querySelectorAll("button[data-idx-target]").forEach(b => {
+        b.classList.toggle("active", b.dataset.idxTarget === tid);
+      });
+    }
   }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
   // 暴露 observe 方法给 caller, 卡片渲染完后调用
   anchorBar._observeIndexCard = (el) => { if (el) spy.observe(el); };
