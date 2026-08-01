@@ -9776,39 +9776,83 @@ async function renderPublicFund(container) {
     }],
   });
 
-  // ── 区域 4: 头部重仓股调仓 Top100 表(读 holdings.top100 取前100; Q3: 展示扩到100, 指标 top20_adjustment 仍按 Top20 口径不变) ──
+  // ── 区域 4: 头部重仓股调仓 Top100 表(读 holdings.top100 取前100; 排序切换: 按变化率/按金额差; 指标 top20_adjustment 仍按 Top20 口径不变) ──
   const top100AdjCard = document.createElement("div");
   top100AdjCard.className = "chart-card";
   const top100AdjRaw = (holdings && holdings.top100 ? holdings.top100 : []).slice(0, 100);
-  // 仅对有 change_pct 的行按 |变化%| 降序; 无上期数据的行 append 在后
-  const top100AdjWith = top100AdjRaw.filter((s) => s.change_pct != null)
-    .slice().sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
-  const top100AdjWithout = top100AdjRaw.filter((s) => s.change_pct == null);
-  const top100AdjList = top100AdjWith.concat(top100AdjWithout);
+  // 排序 comparator: 按变化率(|change_pct|降序) / 按金额差(|当期-上期|降序); prev_value=null 的行始终 append 在后
+  const _amtDiff = (s) => Math.abs((s.hold_value_total || 0) - (s.prev_value || 0));
+  const _sortTop100Adj = (mode) => {
+    const withChg = top100AdjRaw.filter((s) => s.change_pct != null).slice();
+    const withoutChg = top100AdjRaw.filter((s) => s.change_pct == null);
+    if (mode === "amt") {
+      withChg.sort((a, b) => _amtDiff(b) - _amtDiff(a));
+    } else {
+      withChg.sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
+    }
+    return withChg.concat(withoutChg);
+  };
+  // 渲染 tbody HTML(给定已排序列表)
+  const _renderTop100AdjRows = (list) => {
+    if (!list.length) return '<tr><td colspan="7">暂无数据</td></tr>';
+    let rows = "";
+    list.forEach((s, i) => {
+      const chgColor = s.change_pct > 0 ? "#e6492e" : s.change_pct < 0 ? "#2e8b57" : "var(--text-3)";
+      const chgArrow = s.change_pct > 0 ? "↑" : s.change_pct < 0 ? "↓" : "->";
+      const chgCell = s.change_pct == null
+        ? '<span style="color:var(--text-3)">-</span>'
+        : `${chgArrow} ${Math.abs(s.change_pct).toFixed(2)}%`;
+      rows += `<tr>
+        <td>${i + 1}</td>
+        <td class="pf-code">${s.stock_code}</td>
+        <td>${s.stock_name}</td>
+        <td class="pf-num">${s.fund_count}</td>
+        <td class="pf-num">${(s.hold_value_total / 1e4).toFixed(2)}</td>
+        <td class="pf-num">${s.prev_value != null ? (s.prev_value / 1e4).toFixed(2) : "-"}</td>
+        <td class="pf-num" style="color:${chgColor};font-weight:600">${chgCell}</td>
+      </tr>`;
+    });
+    return rows;
+  };
   const adjPrevDate = holdings && holdings.prev_report_date ? _pfFmtDate(holdings.prev_report_date) : "";
-  let top100AdjRows = "";
-  top100AdjList.forEach((s, i) => {
-    const chgColor = s.change_pct > 0 ? "#e6492e" : s.change_pct < 0 ? "#2e8b57" : "var(--text-3)";
-    const chgArrow = s.change_pct > 0 ? "↑" : s.change_pct < 0 ? "↓" : "->";
-    const chgCell = s.change_pct == null
-      ? '<span style="color:var(--text-3)">-</span>'
-      : `${chgArrow} ${Math.abs(s.change_pct).toFixed(2)}%`;
-    top100AdjRows += `<tr>
-      <td>${i + 1}</td>
-      <td class="pf-code">${s.stock_code}</td>
-      <td>${s.stock_name}</td>
-      <td class="pf-num">${s.fund_count}</td>
-      <td class="pf-num">${(s.hold_value_total / 1e4).toFixed(2)}</td>
-      <td class="pf-num">${s.prev_value != null ? (s.prev_value / 1e4).toFixed(2) : "-"}</td>
-      <td class="pf-num" style="color:${chgColor};font-weight:600">${chgCell}</td>
-    </tr>`;
-  });
-  top100AdjCard.innerHTML = `<div class="chart-title">🔄 头部重仓股调仓 Top100（当期 ${_pfFmtDate(reportDate)} vs 上期 ${adjPrevDate}，按 |变化%| 降序；注: 指标 top20_adjustment 仍按 Top20 口径）</div>
+  // 默认按变化率降序
+  let top100AdjMode = "pct";
+  let top100AdjList = _sortTop100Adj(top100AdjMode);
+  top100AdjCard.innerHTML = `<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">
+      <span>🔄 头部重仓股调仓 Top100（当期 ${_pfFmtDate(reportDate)} vs 上期 ${adjPrevDate}；注: 指标 top20_adjustment 仍按 Top20 口径）</span>
+      <span class="pf-sort-btns" style="margin-left:auto;display:inline-flex;gap:4px">
+        <button type="button" class="pf-sort-btn" data-sort="pct" style="padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:#e6492e;color:#fff;font-weight:600">按变化率</button>
+        <button type="button" class="pf-sort-btn" data-sort="amt" style="padding:2px 8px;font-size:11px;border:1px solid var(--border);border-radius:4px;cursor:pointer;background:var(--bg-hover);color:var(--text-2)">按金额差</button>
+      </span>
+    </div>
     <div class="pf-table-wrap"><table class="pf-table">
       <thead><tr><th>#</th><th>代码</th><th>名称</th><th>基金数</th><th>当期(万)</th><th>上期(万)</th><th>变化</th></tr></thead>
-      <tbody>${top100AdjRows || '<tr><td colspan="7">暂无数据</td></tr>'}</tbody>
+      <tbody id="pf-top100adj-body">${_renderTop100AdjRows(top100AdjList)}</tbody>
     </table></div>`;
   container.appendChild(top100AdjCard);
+  // 排序按钮点击: 切换模式 + 重新排序 + 重绘 tbody + 切换高亮
+  top100AdjCard.querySelectorAll(".pf-sort-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.getAttribute("data-sort");
+      if (mode === top100AdjMode) return;
+      top100AdjMode = mode;
+      top100AdjList = _sortTop100Adj(mode);
+      const body = top100AdjCard.querySelector("#pf-top100adj-body");
+      if (body) body.innerHTML = _renderTop100AdjRows(top100AdjList);
+      // 切换高亮: 选中红底白字, 未选中灰底
+      top100AdjCard.querySelectorAll(".pf-sort-btn").forEach((b) => {
+        if (b.getAttribute("data-sort") === mode) {
+          b.style.background = "#e6492e";
+          b.style.color = "#fff";
+          b.style.fontWeight = "600";
+        } else {
+          b.style.background = "var(--bg-hover)";
+          b.style.color = "var(--text-2)";
+          b.style.fontWeight = "400";
+        }
+      });
+    });
+  });
 
   // 响应式 resize
   setTimeout(() => { mainChart.resize(); indChart.resize(); }, 0);
