@@ -9967,7 +9967,7 @@ async function renderPublicFund(container) {
   let top100AdjSort = { col: null, dir: null };
   let top100AdjList = _sortTop100Adj(top100AdjSort);
   top100AdjCard.innerHTML = `<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">
-      <span>🔄 头部重仓股调仓 Top100（当期 ${_pfFmtDate(reportDate)} vs 上期 ${adjPrevDate}；注: 指标 top20_adjustment 仍按 Top20 口径；点「金额差/变化」旁按钮三态切换: 默认->正序↑->倒序↓->默认）</span>
+      <span>🔄 头部重仓股调仓 Top100（当期 ${_pfFmtDate(reportDate)} vs 上期 ${adjPrevDate}；注: 调仓指标仍按前20大重仓股口径计算；点「金额差/变化」旁按钮三态切换: 默认->正序↑->倒序↓->默认）</span>
     </div>
     <div class="pf-table-wrap"><table class="pf-table pf-table-top100">
       <thead><tr>
