@@ -9524,7 +9524,7 @@ async function renderPublicFund(container) {
 .pf-table-wrap{max-height:420px;overflow:auto;}
 /* 左侧 Top30 card 跟右侧柱状图+treemap 撑到同高: grid stretch 让 card 撑满 cell, flex column + flex:1 让表格区域吃掉剩余高度, 消除下方空白 */
 .pf-top30-card{display:flex;flex-direction:column;}
-.pf-top30-card .pf-table-wrap{flex:1;max-height:660px;min-height:0;}
+.pf-top30-card .pf-table-wrap{flex:1;max-height:510px;min-height:0;}
 .pf-table{width:100%;border-collapse:collapse;font-size:12px;}
 .pf-table th,.pf-table td{padding:5px 8px;border-bottom:1px solid var(--border-light, var(--border));text-align:left;white-space:nowrap;}
 .pf-table th{position:sticky;top:0;background:var(--bg-2, var(--bg-1));color:var(--text-2);font-weight:600;z-index:1;}
@@ -9541,7 +9541,7 @@ async function renderPublicFund(container) {
 .pf-help-body li{margin:3px 0;}
 .pf-help-warn{margin-top:8px;padding:6px 10px;background:rgba(255,152,0,0.08);border-left:3px solid #ff9800;border-radius:4px;color:var(--text-2);font-size:12px;}
 /* TreeMap 容器: 显式 width:100% + height:200px 确保 echarts.init 拿到非 0 尺寸(配合完整版 echarts 含 treemap 组件) */
-.pf-ind-treemap{width:100%;height:150px;}
+.pf-ind-treemap{width:100%;height:140px;}
 /* Top100 调仓表: table-layout fixed + width:100% 撑满容器, 百分比列宽分配(名称列 20% 不再独占剩余致中间空白); td overflow:hidden 防长名称溢出 */
 .pf-table-top100{table-layout:fixed;width:100%;}
 .pf-table-top100 td{overflow:hidden;text-overflow:ellipsis;}
@@ -9813,9 +9813,9 @@ async function renderPublicFund(container) {
   indCard.className = "chart-card";
   indCard.innerHTML = '<div class="chart-title">🏭 行业配置（按抱团集中度降序，已合并重复分类）</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">权重和 = 全市场基金该行业权重%求和；Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度；红柱右 label = 平均权重%</div>'
-    + '<div class="chart pf-ind-bar" style="height:430px"></div>'
+    + '<div class="chart pf-ind-bar" style="height:360px"></div>'
     + '<div class="chart-title" style="margin-top:8px">🎯 抱团集中度全景（矩形面积=持仓权重和）</div>'
-    + '<div class="chart pf-ind-treemap" style="height:150px"></div>';
+    + '<div class="chart pf-ind-treemap" style="height:140px"></div>';
   twoCol.appendChild(indCard);
 
   // 柱状图: Top15 + 其他聚合(长尾合并为单根"其他"柱)
