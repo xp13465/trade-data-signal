@@ -968,6 +968,17 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
   - 美股 21:30 开盘（北京），A 股盘中美股未开盘，无实时可采
   - 已有美股期货 ES/NQ 实时预估当晚方向（`us_futures.py`），够用
 
+- [ ] **待办：外盘期货扩充源实施（2026-08-01 调研落档，待排期）**
+  - 现状：美股预期板块 ui34 已配置化扩充到 4 只（hf_ES 标普500/hf_NQ 纳指100/hf_YM 道琼斯/hf_HSI 恒指，单一配置源 `US_FUTURES_META` 驱动，未来扩充只改一处）
+  - 短板：新浪 hf_ 接口不覆盖欧洲/日本/罗素等，仅 4 只可采
+  - **可用源（curl 实测 2026-08-01）**：
+    - **新浪 b_ 指数实时（主源扩充）**：b_DAX/b_CAC/b_UKX/b_SX5E/b_SENSEX/b_KOSPI/b_AS51/b_NKY/b_RTY 共 9 只新增，GBK 文本，Referer: finance.sina.com.cn，字段 `[0]名称 [1]最新价 [2]涨跌额 [3]涨跌幅 [6]日期 [7]时间 [9]昨收 [10]最高 [11]最低`（无 open，用昨收近似）
+    - **Yahoo Finance API（备用源+补 NKD=F）**：无鉴权国内 0.55s 可达，期货 ES=F/NQ=F/YM=F/RTY=F/NKD=F + 指数 ^GDAXI/^FTSE/^FCHI/^STOXX50E/^N225/^AXJO/^BSESN/^NSEI/^KS11，JSON 格式仅需 UA
+    - 弃用：腾讯/东财(index_global_spot_em 封 IP)/akshare futures_foreign_hist(仅ES/NQ/YM/HSI 同新浪)/雪球(需token)/英为财情(403)/CME(404)
+  - **推荐方案 B（渐进式）**：①主源扩充 `US_FUTURES_META` 加 9 条 b_ + 新解析器 `_parse_sina_b`（字段格式与 hf_ 不同，不能复用 `_parse_sina_hf`，可复用 `index_backfill._EU_GLOBAL_SPOT_CODES` L615 已有 b_ 解析逻辑）②Yahoo 备用源：META 每条加 `yahoo_symbol` 字段，fetch_us_futures 加 fallback 分支（主源空则 Yahoo 逐个补采，复用 `_sina_global_realtime_fallback` 模式）③A50 放弃（无源支持）
+  - **提醒**：b_ 是指数实时价非严格期货，欧盘时段(北京16:00-23:30)指数≈期货预期价语义可接受；严格期货仅 Yahoo ES=F/NQ=F/YM=F/RTY=F/NKD=F 满足
+  - 实施时派 agent 改 `app/collector/us_futures.py`，改完 bump sw + 上线 3 域名
+
 - [ ] **P2（可选）：亚洲其他同时区指数（澳股 ASX200/印度 NIFTY50）**
   - `index_global_spot_em` 同样覆盖，可一并加
   - 优先级低，用户未提需求
