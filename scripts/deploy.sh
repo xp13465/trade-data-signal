@@ -249,6 +249,7 @@ run_r2_upload "upload-trade-sim" upload-trade-sim || echo "⚠ upload-trade-sim 
 run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-index" upload-index || echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-industry" upload-industry || echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-public-fund" upload-public-fund || echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-data-large" upload-data-large || echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"
 
 # 2. git add 静态数据 + min JS（精确文件列表，根治通配带入残留旧文件）

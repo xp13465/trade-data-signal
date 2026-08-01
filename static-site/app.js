@@ -9470,11 +9470,11 @@ async function renderPublicFund(container) {
   let summary, holdings, industry, top20Data, assetAlloc, shIndex;
   try {
     [summary, holdings, industry, top20Data, assetAlloc, shIndex] = await Promise.all([
-      fetchJSON(dataUrl("public_fund_summary.json")).catch(() => null),
-      fetchJSON(dataUrl("public_fund_holdings.json")).catch(() => null),
-      fetchJSON(dataUrl("public_fund_industry.json")).catch(() => null),
-      fetchJSON(dataUrl("public_fund_top20.json")).catch(() => null),
-      fetchJSON(dataUrl("public_fund_asset_alloc.json")).catch(() => null),
+      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_summary.json").catch(() => null),
+      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_holdings.json").catch(() => null),
+      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry.json").catch(() => null),
+      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_top20.json").catch(() => null),
+      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_asset_alloc.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/index/sh-all.json").catch(() => null),
     ]);
   } catch (e) {
