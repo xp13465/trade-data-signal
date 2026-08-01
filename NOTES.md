@@ -5718,3 +5718,46 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **【约束遵循】** 不 add 根 data/ 下任何文件（只 add 3 个源码/脚本）；改 app/collector/public_fund.py 不涉及前端 sw 版本（无 app.js 改动）；non-ff 优先 fetch+rebase（本次 ff 无需）；commit msg 末尾 Co-Authored-By。
 
 **【关联】** memory `public-fund-fresh-gate`（闸门设计原则）+ memory `backup-strategy-redundant-runs`（重复跑是兜底非冗余，但无新数据重复跑无意义=闸门跳过场景）+ memory `update-all-parallel-pipelines`（采集流水线设计）+ TASKS.md「2026-07-31 公募基金持仓佐证大盘」待办条目（数据新鲜度闸门已实施标注）。
+
+### AZ94 2026-08-01 公募基金 range切换+外盘扩充13只+quarterly全量+LIMIT40修复
+
+**【概览】** 本轮 4 项工作闭环（3 commits 改码 + 1 手动跑全量），均在 feat/iframe-theme-follow 分支 push feat，待 merge main。不 add 根 data/ 下任何文件，不碰 static-site/data/（避开 15:35 deploy.sh public-fund 时点，由 deploy.sh 自行处理上线）。
+
+**1) 公募基金仓位主图 range 切换修复**（commit `4544ffc4`，sw ui41->ui42）
+- **问题**：公募基金 tab 仓位主图不响应顶部全局 range 按钮（3m/6m/1y/3y/5y/all），点 range 后 renderPublicFund 重画但主图仍全量
+- **根因**：`app.js` L9666 `const posPoints` 不读 `state.range`，range 切换后主图无响应
+- **修复**：`const posPoints` 改 `let posPoints`，复用 `_signalModalCutoff(chartData, period)` 基于仓位数据末日回推 cutoff 过滤 posPoints；shPoints 自动跟随 posPoints 范围；`all` 返回 null 不过滤（全量）；数据点过少（如 3m 内周频点少）fallback `shIndex.ohlc.slice(-100)` 正常显示不报错
+- **效果**：range 切换主图跟随，3m/6m 短档只画近期周频点，all 档可见完整 19 年数据
+
+**2) 外盘期货扩充至 13 只**（commit `fe7525f0`，sw ui43->ui44）
+- **原 4 只**：`hf_ES`(标普500)/`hf_NQ`(纳指100)/`hf_YM`(道琼斯)/`hf_HSI`(恒生)
+- **新增 9 只 b_ 源**：`b_DAX`(德国DAX)/`b_CAC`(法国CAC40)/`b_UKX`(英国富时100)/`b_SX5E`(欧洲斯托克50)/`b_SENSEX`(印度Sensex)/`b_KOSPI`(韩国KOSPI)/`b_AS51`(澳洲ASX200)/`b_NKY`(日经225)/`b_RTY`(罗素2000)。index_id 与 `intraday_snapshot._GLOBAL_SPOT_CODES` 对齐（dax/cac40/ftse100/nikkei225/kospi/asx200/sensex），新增 `sx5e`/`us_rty`
+- **Yahoo 备用源**：每条 META 加 `yahoo_symbol` 字段，主源未采到用 Yahoo API 补采（`time.sleep(0.6)` 防限流，无 key 约100/min）。Yahoo Russell 2000 用 `^RUT` 非 `^RTY`（`^RTY` 返 None，`^RUT` 有数据）
+- **单一配置源驱动**：`US_FUTURES_META` 13 条作 key，`us_futures.py` + `us_futures_expect.py` 都从 META 读映射，无硬编码 code_map
+- **新浪 b_ 字段**：`[0]name [1]price [2]chg [3]chg_pct [6]date [7]time [9]prev_close [10]high [11]low`（无 open，用 prev_close 近似）；`b_RTY` 短格式（6 字段）用 `price-chg` 推算 prev_close。新解析器 `_parse_sina_b`（字段格式与 hf_ 不同不能复用 `_parse_sina_hf`，复用 `index_backfill._sina_global_realtime_fallback` 模式）
+- **前端**：`_renderUSFuturesExpect` 动态遍历 `Object.keys(usf)`，CSS `flex-wrap` 自适应 13 卡片，无需改 app.js/style.css
+- **弃用源**：腾讯/东财(index_global_spot_em 封 IP)/akshare futures_foreign_hist(仅ES/NQ/YM/HSI)/雪球(需token)/英为财情(403)/CME(404)；A50 放弃（无源支持）
+- **语义说明**：b_ 是指数实时价非严格期货，欧盘时段(北京16:00-23:30)指数≈期货预期价语义可接受；严格期货仅 Yahoo ES=F/NQ=F/YM=F/RTY=F/NKD=F 满足
+- **关联 TASKS**：TASKS.md「外盘期货扩充源实施」待办闭环
+
+**3) quarterly 全量手动跑完成**（PID 25741，耗时 1666.8s ≈ 28 分钟，无新 commit 纯数据采集）
+- **5 汇总表全完成**：fund_basic 27409 / fund_position_history 521 / fund_holding_stock 2835 / fund_hold_structure 45 / fund_scale_change 113
+- **1000 只逐只跑**：asset_ok 955（fail 27）/ industry_ok 947（fail 35）
+- **8 指标 fund_metrics**：avg_position 96.01 / concentration_herfindahl 0.0215 / overlap_ratio 848.27 / industry_concentration 0.5818 / net_redeem_ratio -0.1741 / position_change_ratio 0.82 / top20_adjustment None / top30_concentration 48.20
+- **position_history 521 期**：cninfo 季报 76 期（20070930~20260630）+ lg 周频 445 期（20171204~20260724）
+- **关联**：数据新鲜度闸门（AZ93 commit `920f57ed`）跑前 check-fresh 判定应跑（holding=2835<4500 触发补采），本次为首次全量跑采全 521 期 + 8 指标
+
+**4) export position_history LIMIT 40 截断修复**（commit `4a0bf58a`）
+- **bug**：`app/collector/public_fund.py` L1127 生成 summary 时 `ORDER BY report_date DESC LIMIT 40` 只取最近 40 期，致线上 summary position_history 只 40 点（20251107~20260724），图表"只到2025"
+- **修复**：去 LIMIT 40 改 `ORDER BY report_date ASC` 全量 521 期，注释"全量仓位轨迹(lg 周频 + cninfo 季报, 含同日双源)"
+- **前端配套**：`app.js` L9577/9666 已 `filter source==="lg"` 按源过滤画图，521 点 ECharts 无压力
+
+**5) 两路径同步教训（重要，落档 memory `export-output-path-sync`）**
+- **现象**：export 修复 agent 在 trade-data 跑 export 写的是 `/Users/linhuichen/code/trade-data/static-site/data/public_fund_summary.json`（521 点），但 deploy.sh L24-25 `GIT_REPO=trade` 从 `/Users/linhuichen/code/trade/static-site/data/` git 推。两个路径不同步，若不手动 cp，15:35 deploy 会推 trade 路径的旧 40 点上线
+- **根因**：§9 cwd=trade-data 是为读主库 DB，但 export 输出 JSON 也落在 `trade-data/static-site/data/`，而 git 仓库在 `trade/static-site/data/`。deploy.sh L185 说"trade-data 跑时 rsync trade-data->trade"但 public-fund 子命令可能没触发 rsync（或 rsync 在 export 之前跑）
+- **修复**：手动 cp trade-data->trade 同步 5 个 JSON
+- **教训**：在 trade-data 跑 export 后，必须确认 `trade/static-site/data/` 也同步了新版（cp 或确认 deploy.sh rsync 生效），否则 deploy 推旧版。这是 §9 cwd=trade-data 的衍生陷阱（§9 只说读 DB，没说写 JSON 输出路径的同步）。memory `r2-upload-from-trade` 是同类问题（upload_r2 写 trade/，deploy.sh rsync 单向不同步回），已加 ROOT 回退根治；但 export 输出 JSON 的同步尚未自动化，需手动 cp 或确认 rsync
+
+**【约束遵循】** 不 add 根 data/ 下任何文件（只 add NOTES.md/TASKS.md/memory）；改 app.js 已由前序 commit bump sw（ui42/ui44）；non-ff 优先 fetch+rebase；commit msg 末尾 Co-Authored-By；盘中（09:30-15:30）不跑全量 export+deploy（本任务不跑 export+deploy，只落档）。
+
+**【关联】** memory `export-output-path-sync`（本轮新增，两路径同步教训）+ memory `public-fund-fresh-gate`（闸门设计，本次 quarterly 跑前 check-fresh 触发）+ memory `r2-upload-from-trade`（同类 trade/trade-data 路径不同步问题，已加 ROOT 回退根治）+ TASKS.md「外盘期货扩充源实施」待办闭环 + TASKS.md「公募基金持仓佐证大盘」待办条目（季度全量+指标+前端 tab 标注完成）。

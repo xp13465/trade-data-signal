@@ -968,16 +968,12 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
   - 美股 21:30 开盘（北京），A 股盘中美股未开盘，无实时可采
   - 已有美股期货 ES/NQ 实时预估当晚方向（`us_futures.py`），够用
 
-- [ ] **待办：外盘期货扩充源实施（2026-08-01 调研落档，待排期）**
-  - 现状：美股预期板块 ui34 已配置化扩充到 4 只（hf_ES 标普500/hf_NQ 纳指100/hf_YM 道琼斯/hf_HSI 恒指，单一配置源 `US_FUTURES_META` 驱动，未来扩充只改一处）
-  - 短板：新浪 hf_ 接口不覆盖欧洲/日本/罗素等，仅 4 只可采
-  - **可用源（curl 实测 2026-08-01）**：
-    - **新浪 b_ 指数实时（主源扩充）**：b_DAX/b_CAC/b_UKX/b_SX5E/b_SENSEX/b_KOSPI/b_AS51/b_NKY/b_RTY 共 9 只新增，GBK 文本，Referer: finance.sina.com.cn，字段 `[0]名称 [1]最新价 [2]涨跌额 [3]涨跌幅 [6]日期 [7]时间 [9]昨收 [10]最高 [11]最低`（无 open，用昨收近似）
-    - **Yahoo Finance API（备用源+补 NKD=F）**：无鉴权国内 0.55s 可达，期货 ES=F/NQ=F/YM=F/RTY=F/NKD=F + 指数 ^GDAXI/^FTSE/^FCHI/^STOXX50E/^N225/^AXJO/^BSESN/^NSEI/^KS11，JSON 格式仅需 UA
-    - 弃用：腾讯/东财(index_global_spot_em 封 IP)/akshare futures_foreign_hist(仅ES/NQ/YM/HSI 同新浪)/雪球(需token)/英为财情(403)/CME(404)
-  - **推荐方案 B（渐进式）**：①主源扩充 `US_FUTURES_META` 加 9 条 b_ + 新解析器 `_parse_sina_b`（字段格式与 hf_ 不同，不能复用 `_parse_sina_hf`，可复用 `index_backfill._EU_GLOBAL_SPOT_CODES` L615 已有 b_ 解析逻辑）②Yahoo 备用源：META 每条加 `yahoo_symbol` 字段，fetch_us_futures 加 fallback 分支（主源空则 Yahoo 逐个补采，复用 `_sina_global_realtime_fallback` 模式）③A50 放弃（无源支持）
-  - **提醒**：b_ 是指数实时价非严格期货，欧盘时段(北京16:00-23:30)指数≈期货预期价语义可接受；严格期货仅 Yahoo ES=F/NQ=F/YM=F/RTY=F/NKD=F 满足
-  - 实施时派 agent 改 `app/collector/us_futures.py`，改完 bump sw + 上线 3 域名
+- [x] **✅ 外盘期货扩充源实施已完成（2026-08-01，commit `fe7525f0`，sw ui44，详见 NOTES §48 AZ94）**
+  - 现状：美股预期板块已配置化扩充到 13 只 = 4 hf_(ES/NQ/YM/HSI) + 9 b_ 新增(DAX/CAC/UKX/SX5E/SENSEX/KOSPI/AS51/NKY/RTY)，单一配置源 `US_FUTURES_META` 驱动
+  - 新解析器 `_parse_sina_b`（b_ 字段格式与 hf_ 不同，复用 `index_backfill._sina_global_realtime_fallback` 模式）；Yahoo 备用源（META 每条加 `yahoo_symbol`，主源空则 Yahoo 逐个补采，sleep 0.6s 防限流）
+  - 弃用：腾讯/东财(封IP)/akshare futures_foreign_hist/雪球(需token)/英为财情(403)/CME(404)；A50 放弃（无源支持）
+  - 前端 `_renderUSFuturesExpect` 动态遍历 `Object.keys(usf)` + CSS flex-wrap 自适应 13 卡片，无需改 app.js/style.css
+  - Yahoo Russell 2000 用 `^RUT` 非 `^RTY`（实测 ^RTY 无数据）
 
 - [ ] **P2（可选）：亚洲其他同时区指数（澳股 ASX200/印度 NIFTY50）**
   - `index_global_spot_em` 同样覆盖，可一并加
@@ -998,49 +994,51 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **待办动作清单**：
 
-- [ ] **采集：季度全量采集脚本**（akshare `fund_portfolio_hold_em` + fundf10 子页爬虫兜底）
+- [x] **✅ 采集：季度全量采集脚本已完成**（akshare `fund_portfolio_hold_em` + fundf10 子页爬虫兜底，commit `10454371` 后端核心 + `920f57ed` 闸门 + 本轮 quarterly 全量手动跑完成）
   - 范围：**全量**（全市场偏股混合+灵活配置+股票型约 4000-5000 只，2026-07-31 用户定改全量非前500只。理由：①季度才跑一次 30-50 分钟可接受非瓶颈 ②抱团度/重叠度是计数集中度指标前500只漏小基金重仓股会算偏 ③净资产规模加权小基金不污染平均仓位但完整反映全市场抱团结构）
   - 字段：fund_code/fund_name/report_date + top10_holdings + industry_allocation + asset_allocation(stock_ratio/bond_ratio/cash_ratio/net_asset) + holding_changes
   - 时点：每年 1/22（Q1）、4/22（Q2）、7/22（Q3）、10/22（Q3）、3/31（年报）后次日 03:00 一次性采集
   - ✅ **数据新鲜度闸门已实施**（2026-08-01，commit `920f57ed`，详见 NOTES §48 AZ93 + memory `public-fund-fresh-gate`）：quarterly.sh/full.sh 跑前调 `check-fresh` 查源(cninfo B2)最新 report_date vs DB MAX(report_date) + 覆盖率(holding<4500 OR asset<top_n*0.95 触发补采)，无新数据跳过避免重复跑，有失败补采。非死板季报日历：披露窗口每天有新基金披露就跑采全后跳过，非披露窗口直接跳过。daily.sh 不加闸门（日更每天变必须跑）。关键：lg 源是周频不能用，只 cninfo B2 是季报频。
+  - ✅ **本轮 quarterly 全量手动跑完成**（2026-08-01，PID 25741，耗时 1666.8s≈28分钟）：5 汇总表全完成（fund_basic 27409/fund_position_history 521/fund_holding_stock 2835/fund_hold_structure 45/fund_scale_change 113）；1000 只逐只跑 asset_ok 955(fail 27)/industry_ok 947(fail 35)；8 指标 fund_metrics 全算（avg_position 96.01/concentration_herfindahl 0.0215/overlap_ratio 848.27/industry_concentration 0.5818/net_redeem_ratio -0.1741/position_change_ratio 0.82/top20_adjustment None/top30_concentration 48.20）；position_history 521 期=cninfo 季报 76 期(20070930~20260630)+lg 周频 445 期(20171204~20260724)
   - 耗时：全量 4000-5000 只 × 7 子页 × 延时，实测推算 30-50 分钟（详见 `/tmp/agent-progress-fund-research.md` 反爬调研）
   - 反爬策略：延时 + retry + 断点续采（记录已采 fund_code 到 `/tmp/fund-collect-progress.json` 重跑跳过已采），最坏降级头部 1000 只（按净资产排序覆盖 95%+ 规模）
 
-- [ ] **采集：日更轻量采集**（盘中估算仓位，2026-07-31 用户定一步到位非 P1.5 后续）
+- [x] **✅ 采集：日更轻量采集已完成**（盘中估算仓位，commit `ea3ff93b` 阶段L 定时任务 3 脚本含 daily，2026-07-31 用户定一步到位非 P1.5 后续）
   - 源：akshare `fund_value_estimation_em()`（一次返回全市场基金估算净值）
   - 字段：fund_code/fund_name/date + estimated_nav/estimated_change_pct + actual_nav(T+1 确认)
   - 时点：每交易日 16:30
   - 用途：估算净值涨跌 vs 实际涨跌反推仓位变化（粗略，误差 ±5%）
   - 与季度硬数据互补不互斥：季度给绝对值（88 魔咒/抱团度/净申赎精准阈值），日更填补 15 天披露滞后窗口的仓位趋势（88-80 阈值仅趋势参考非精确触发，季报披露后校正）
 
-- [ ] **指标：5 核心指标计算**（需历史数据回填）
+- [x] **✅ 指标：5 核心指标计算已完成**（commit `10454371` 后端核心 8 指标，本轮 quarterly 全量跑算出 fund_metrics 全 8 项）
   - 基金平均股票仓位：加权平均 `Σ(stock_ratio×net_asset)/Σ(net_asset)`，>88%=见顶/<80%=见底
   - 重仓股抱团度（Herfindahl）：`Σ(weight²)` 加总全市场基金前十大集中度，急升=风险积累
   - 重仓股重叠度：头部 100 只基金前十大重仓股去重数/1000，<300=高度抱团/>500=分散
   - 行业配置集中度：Top3 行业占比之和，>60%=高度集中
   - 基金净申赎率：`Σ(份额变化×净值)/Σ(总规模)`，净申购激增=见顶/净赎回激增=见底
   - 外加 3 衍生指标：加仓减仓比 / 头部 Top20 调仓方向 / 重仓股 Top30 集中度
+  - 本轮实测值：avg_position 96.01 / concentration_herfindahl 0.0215 / overlap_ratio 848.27 / industry_concentration 0.5818 / net_redeem_ratio -0.1741 / position_change_ratio 0.82 / top20_adjustment None / top30_concentration 48.20
 
-- [ ] **前端：新独立 tab「基金持仓」**（遵循 memory `new-feature-isolated-tab-first`）
+- [x] **✅ 前端：新独立 tab「基金持仓」已完成**（commit `d8ca2855` ui36 新建 tab + `4238f40e` ui41 4项优化 + `4544ffc4` ui42 range切换修复，遵循 memory `new-feature-isolated-tab-first`）
   - 顶部 4 卡片信号灯（平均仓位/抱团度/重叠度/净申赎，颜色 >88% 红 / 80-88% 黄 / <80% 绿）
   - 主图：基金平均仓位 vs 上证指数双轴折线 + 88% 魔咒警戒线 / 80% 抄底线水平虚线
   - 重仓股 Top30 排行（左）+ 行业配置热力图（右）
   - 头部基金调仓 Top20（基金/规模/仓位变化/重仓股变化）
   - 页面醒目滞后性提示：「本数据截止 YYYY-MM-DD，已滞后 N 天」
 
-- [ ] **前端：首页角标接入**（轻量接入现有"资金面"卡片组）
+- [x] **✅ 前端：首页角标接入已完成**（commit `d4e2c7fd` 阶段J+K ui40，轻量接入现有"资金面"卡片组）
   - 显示当前平均仓位（如 `89.2%⚠️`）+ 较上季变化（如 `↑1.2pct`）
   - 颜色 >88% 红（风险）/ 80-88% 黄（中性）/ <80% 绿（机会）
   - 点击跳转「基金持仓」tab 详情
 
-- [ ] **信号灯：规则接入**（首页"信号"模块）
+- [x] **✅ 信号灯：规则接入已完成**（commit `d4e2c7fd` 阶段J+K ui40，首页"信号"模块 4 信号灯）
   - 仓位 >88% -> "基金仓位高位 ⚠️ 88 魔咒见顶信号"
   - 仓位 <80% -> "基金仓位低位 ✅ 80 抄底见底信号"
   - 抱团度 >0.20 且重叠度 <320 -> "重仓股高度抱团 ⚠️ 抱团瓦解风险"
   - 净申赎 >500 亿 -> "基金净申购激增 ⚠️ 散户乐观反向看空"
   - 净申赎 <-500 亿 -> "基金净赎回激增 ✅ 散户悲观反向看多"
 
-- [ ] **4 维资金面共振联动**（北向/两融/产业资本/基金持仓）
+- [x] **✅ 4 维资金面共振联动已完成**（commit `d4e2c7fd` 阶段J+K ui40，北向/两融/产业资本/基金持仓 4 维共振）
   - 加入现有"资金面"模块（北向日更/两融日更/产业资本月更/基金季更）
   - 4 维共振信号最强：例如"北向流出+两融下降+产业资本减持+基金减仓"=4 维共振看空
 
@@ -1052,7 +1050,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - ⚠️ **88 魔咒失效**：历史规律未必未来应验（2020 仓位持续 90%+ 大盘仍涨）。仅作"风险提示"非"卖出信号"，结合其他维度共振
 - ⚠️ **估算仓位误差**：日更估算仓位（净值反推）误差大（±5%）。估算仅作趋势参考，季报披露后校正
 
-**状态**：✅ 用户已排期 **2026-08-01 白天实施**（周末不开盘无冲突，盘中禁 export+deploy 约束不触发）。**方案修正（2026-07-31 用户定）：采集量改全量（非前500只）+ 日更估算改一步到位（非 P1.5 后续）**，理由：①季度才跑一次 30-50 分钟可接受非瓶颈 ②抱团度/重叠度是计数集中度指标前500只漏小基金重仓股会算偏 ③净资产规模加权小基金不污染平均仓位但完整反映全市场抱团结构 ④日更估算与季度硬数据互补不互斥（季度给绝对值88魔咒/抱团度/净申赎，日更填补15天滞后窗口仓位趋势），一步到位完整不留尾巴。NOTES §48 AZ90 有完整调研摘要（参考性结论/数据源 fundf10+akshare 9 接口/设计方案 5 指标+新 tab+首页角标+4 维共振/优先级风险/实证案例 005827 减仓 17.38pct/方案修正全量+日更一步到位）。完整调研报告 404 行存 `/tmp/public-fund-research.md`（含学术背景/披露规则/数据源对比/采集字段/指标计算/展示 ASCII 示意图/风险缓解/附录调研过程）。反爬可行性调研存 `/tmp/agent-progress-fund-research.md`（fundf10 子页响应测试+akshare 限流测试+断点续采+延时retry+全量耗时实测推算+降级路径）。实施时派 agent：①季度全量采集脚本（全量+断点续采+降级） ②日更轻量采集（一步到位） ③5 核心+3 衍生指标计算 ④前端新 tab ⑤首页角标 ⑥信号灯规则 ⑦4 维资金面共振联动。预计工时 ~4 天（后端 2 + 前端 1.7 + 信号灯 0.3）。风险：全量反爬（延时+retry+断点续采，最坏降级头部1000只覆盖95%+规模）/ 日更±5%误差（88-80阈值仅趋势参考非精确触发，季报披露后校正）。
+**状态**：✅ **全部 7 项待办已完成**（2026-08-01 实施闭环）。后端 commit `10454371`(9表+8fetcher+3pipeline+8指标+5类export) + `920f57ed`(数据新鲜度闸门) + `ea3ff93b`(定时任务3脚本)；前端 commit `d8ca2855`(tab ui36) + `4238f40e`(4项优化 ui41) + `d4e2c7fd`(首页角标+4信号灯+4维共振 ui40) + `4544ffc4`(range切换修复 ui42) + `4a0bf58a`(export LIMIT40修复)；本轮 quarterly 全量手动跑完成(5汇总表+8指标+521期 position_history)。NOTES §48 AZ94 有本轮 4 项工作闭环记录。**方案修正（2026-07-31 用户定）：采集量改全量（非前500只）+ 日更估算改一步到位（非 P1.5 后续）**，理由：①季度才跑一次 30-50 分钟可接受非瓶颈 ②抱团度/重叠度是计数集中度指标前500只漏小基金重仓股会算偏 ③净资产规模加权小基金不污染平均仓位但完整反映全市场抱团结构 ④日更估算与季度硬数据互补不互斥（季度给绝对值88魔咒/抱团度/净申赎，日更填补15天滞后窗口仓位趋势），一步到位完整不留尾巴。完整调研报告 404 行存 `/tmp/public-fund-research.md`。
 
 
 ## ✅ 2026-07-31 a_width_dt_count 跌停池空修复 + 单项指标失败自动重采机制（全闭环，详见 NOTES §48 AZ92）
