@@ -9989,12 +9989,13 @@ async function renderPublicFund(container) {
   };
   _renderIndBar(indSort);
   // 排序切换按钮: 3 选 1 互斥, 点击重排柱状图 + 更新 active 态 + label 跟随
-  indCard.querySelectorAll(".pf-ind-sort-btn").forEach((btn) => {
+  // 用 [data-ind-sort] 只选柱状图3按钮(非 .pf-ind-sort-btn 会误含 TreeMap 按钮致联动 active 消失)
+  indCard.querySelectorAll("[data-ind-sort]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const mode = btn.getAttribute("data-ind-sort");
       if (mode === indSort) return;
       indSort = mode;
-      indCard.querySelectorAll(".pf-ind-sort-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      indCard.querySelectorAll("[data-ind-sort]").forEach((b) => b.classList.toggle("active", b === btn));
       _renderIndBar(mode);
     });
   });
