@@ -47,28 +47,42 @@ LAG_TOLERANCE = timedelta(minutes=20)
 # 8 任务计划时点表（与 ~/Library/LaunchAgents/com.trade.*.plist StartCalendarInterval 对齐）
 # 字段：task | launchd log 文件名 | 计划时点列表（HH:MM）
 TASKS = [
+    # trading_day_only: 非交易日跳过漏跑检查(避免周末误报)。
+    #   etf 非交易日脚本不启动 last_run 停周五 < 周末时点 = 误报(必需);
+    #   intraday/update_all/backfill 非交易日启动写"开始"行 last_run 更新不误报,
+    #   但加 trading_day_only=True 额外保险 + 减少无意义检查。
+    #   us_stock_morning 无交易日闸门每天跑(美股周末虽休但脚本仍启动采旧数据) = False。
     {"task": "update_all",          "log": "update_all_launchd.log",
+     "trading_day_only": True,
      "schedules": ["17:50"]},
     {"task": "backfill_evening",    "log": "backfill_evening_launchd.log",
+     "trading_day_only": True,
      "schedules": ["02:00", "16:35", "21:00"]},  # 2026-07-29 加 21:00 槽：csi_div/div_lowvol T日晚发布，21:00 提前采(原仅 02:00 兜底)
     {"task": "intraday_snapshot",   "log": "intraday_snapshot_launchd.log",
-     "schedules": [  # 2026-07-28 plist 10m(26次)+15:35/20:35 收盘后(intraday-close ETF 预估修复), 共28时点
+     "trading_day_only": True,
+     "schedules": [  # 2026-07-29 plist 盘中28次(10m节奏+11:32上午收盘收尾/13:01下午开盘首采/15:02收盘收尾)+15:35/20:35收盘后, 共30时点
          "09:25", "09:35", "09:45", "09:55", "10:05", "10:15", "10:25", "10:35", "10:45", "10:55",
-         "11:05", "11:15", "11:25",
-         "13:05", "13:15", "13:25", "13:35", "13:45", "13:55",
-         "14:05", "14:15", "14:25", "14:35", "14:45", "14:55", "15:05",
+         "11:05", "11:15", "11:25", "11:32",
+         "13:01", "13:05", "13:15", "13:25", "13:35", "13:45", "13:55",
+         "14:05", "14:15", "14:25", "14:35", "14:45", "14:55", "15:02",
          "15:35", "20:35"]},
     {"task": "futures_backfill",    "log": "futures_backfill_launchd.log",
+     "trading_day_only": True,
      "schedules": ["20:05", "21:00"]},
     {"task": "lhb_backfill",        "log": "lhb_backfill_launchd.log",
+     "trading_day_only": True,
      "schedules": ["18:30", "19:30"]},
     {"task": "rzhb_backfill",       "log": "rzhb_backfill_launchd.log",
+     "trading_day_only": True,
      "schedules": ["08:00"]},  # 2026-07-29 19:15->T+1 08:00：SSE官方T+1早晨发布T日(非误判18-19点)，19:15连续采不到T日
     {"task": "etf_national_team",   "log": "etf_national_team_launchd.log",
+     "trading_day_only": True,  # 非交易日脚本不启动(无"开始"行), 必需跳过漏跑检查避免周末误报
      "schedules": ["20:07", "21:30"]},
     {"task": "lab_auto",            "log": "update_lab_launchd.log",
+     "trading_day_only": True,
      "schedules": ["19:00"]},
     {"task": "us_stock_morning",    "log": "us_stock_morning_launchd.log",
+     "trading_day_only": False,  # 无交易日闸门, 每天跑(美股周末休但脚本仍启动采旧数据 exit=0)
      "schedules": ["05:00"]},  # 2026-07-29 新增：美股04:00收盘后1h采集+deploy，原监控盲区补齐
 ]
 
@@ -136,7 +150,22 @@ seen_keys_this_run = set()  # 本次运行仍存在的异常 key(防误报恢复
 
 # 1) 漏跑检查：对每个任务的每个计划时点，若 now 落在 [sch, sch+30min] 窗口内
 #    且 last_run < sch（任务在该计划时点之后没跑过）= 漏跑
+#    非交易日跳过 trading_day_only 任务(避免周末误报: etf 等非交易日脚本不启动,
+#    last_run 停周五 < 周末时点 = 误报漏跑)。
+#    漏跑 suppress(2026-08-01): 同 task 同 sch 同日首次发 SEVERE, 30min 窗口内
+#    后续 suppress 不重发(避免 15:15/15:30 两周期重复 2 封邮件, 2026-08-01 intraday
+#    15:05 schedules 表写错致误报 2 封事故)。key 含日期每天独立; 不走恢复检测(漏跑
+#    补跑不发恢复邮件, 跨日静默清理)。新时点漏跑是不同 key 仍发 SEVERE(不 suppress 新时点)。
+try:
+    from app.calendar import is_trading_day as _is_trading_day
+    _is_today_trading = _is_trading_day()
+except Exception as _e:
+    print(f"[warn] is_trading_day 判断失败(按交易日处理不跳过): {_e}", file=sys.stderr)
+    _is_today_trading = True  # 降级: 按交易日处理(不跳过检查), 避免漏报
 for t in TASKS:
+    # 非交易日跳过交易日任务的漏跑检查(避免周末误报)
+    if t.get("trading_day_only") and not _is_today_trading:
+        continue
     log_path = LOG_DIR / t["log"]
     last_run = parse_last_run(log_path)
     last_run_str = last_run.strftime("%Y-%m-%d %H:%M:%S") if last_run else "无"
@@ -153,10 +182,29 @@ for t in TASKS:
         if sch + timedelta(seconds=60) <= NOW <= sch + TOLERANCE:
             # now 在容忍窗口内，检查任务是否在 sch 之后跑过
             if last_run is None or last_run < sch:
-                alerts.append(
-                    f"SEVERE: {t['task']} 漏跑 计划<{sch_hm}> toler<30min> "
-                    f"now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> last_run<{last_run_str}>"
-                )
+                # 漏跑 suppress: key 含日期, 每天每时点独立(不 suppress 新时点)
+                missed_key = f"missed|{t['task']}|{sch_hm}|{NOW.strftime('%Y-%m-%d')}"
+                seen_keys_this_run.add(missed_key)  # 标记本次仍存在(防误恢复)
+                _existing = alert_state.get(missed_key)
+                if _existing is None or _existing.get("status") != "active":
+                    # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
+                    alerts.append(
+                        f"SEVERE: {t['task']} 漏跑 计划<{sch_hm}> toler<30min> "
+                        f"now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> last_run<{last_run_str}>"
+                    )
+                    alert_state[missed_key] = {
+                        "status": "active",
+                        "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        "keyword": f"missed<{sch_hm}>",
+                        "line_sample": f"last_run<{last_run_str}>",
+                    }
+                else:
+                    # 已 active = suppress 不重发, 只 log
+                    print(
+                        f"[suppress] {t['task']} 漏跑 计划<{sch_hm}> 持续中, "
+                        f"last_alerted={_existing.get('last_alerted')}, 不重发"
+                    )
 
 # 2) 退出失败检查：从 schedule_stats.json 读 last_exit（非 null 且非 0 = 失败）
 #    去重(2026-07-25)：exit!=0 但 last_run 距今 >24h 的旧告警不重复 SEVERE。
@@ -362,8 +410,23 @@ for _label in LAUNCHCTL_LABELS:
 
 # 恢复检测: state 里 active 但本次未 seen = 异常已消失,发恢复邮件
 # (gen_schedule_stats 每任务只记首个命中,故每 task 至多1个 active key)
+# 漏跑 key(missed|...) 特殊处理: 不发恢复邮件(漏跑补跑不需通知, 任务补跑 stats
+# 自更新), 跨日(日期<今天)静默清理(昨天漏跑 key 今天不检查了)。
+# 同日窗口外未 seen 保持 active(任务可能真漏跑未补, 等 next day 跨日清理)。
 for _key, _info in list(alert_state.items()):
-    if _info.get("status") == "active" and _key not in seen_keys_this_run:
+    if _info.get("status") != "active":
+        continue
+    if _key not in seen_keys_this_run:
+        if _key.startswith("missed|"):
+            # 漏跑 key: 不发恢复邮件, 检查是否跨日静默清理
+            # key 格式: missed|{task}|{sch_hm}|{YYYY-MM-DD}
+            parts = _key.split("|")
+            if len(parts) == 4 and parts[3] < NOW.strftime("%Y-%m-%d"):
+                _info["status"] = "recovered"
+                _info["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                print(f"[cleanup] 漏跑 key {_key} 跨日清理(不发恢复邮件)")
+            # 同日: 保持 active(窗口外未 seen, 任务可能真漏跑未补)
+            continue
         _task = _key.split("|", 1)[0] if "|" in _key else _key
         _kw = _info.get("keyword", "?")
         recoveries.append({

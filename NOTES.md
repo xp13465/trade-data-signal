@@ -5782,3 +5782,128 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **上线步骤**：build_min.py + bump_asset_version.py + bump sw.js CACHE_VERSION ui49->ui50 + commit + push feat + push main + curl 验证线上 sw=ui50 / app.min.js 含 tryGz=false / public_fund tab 正常。
 
 **【关联】** memory `fetchjson-skip-gz`（本轮新增，决策记录）+ memory `cf-workers-static-assets-ignore-cache-control`（CF Workers Static Assets 无视 Cache-Control）+ memory `bump-sw-version-with-appjs`（改 app.js 必 bump sw）+ AZ94 public_fund .gz 故障先例。
+
+### AZ96 2026-07-20 停 public_fund full pipeline 调度（9000+ 省 5.25h/天，未来做基金筛选器再 load 恢复）
+
+**背景**：public_fund 有两个 pipeline：quarterly（1000 只，35min）覆盖推荐功能所需数据；full（9000+ 只，5.25h）覆盖全市场。推荐功能（持仓佐证大盘/行业配置/Top100 调仓表等）只用 quarterly 1000 只就够，full 9000+ 是冗余浪费 5.25h/天算力。
+
+**改动**：
+1. `launchctl unload ~/Library/LaunchAgents/com.trade.public-fund-full.plist`（停调度，plist 文件保留不删，未来 `load` 即恢复）
+2. `app/collector/public_fund.py` L126 `FULL_TOP_N = 9000` 上方加注释：`# full pipeline 已停调度（2026-07-20 launchctl unload），推荐功能都不需9000+，未来做基金筛选器再 load 恢复`
+3. 验收：`launchctl list | grep public-fund-full` 无输出（已停）；quarterly 和 daily 两个 pipeline 不受影响（仍 `com.trade.public-fund-quarterly` / `com.trade.public-fund-daily` 在跑）
+
+**未删 plist 文件**：保留 `~/Library/LaunchAgents/com.trade.public-fund-full.plist` 不删，未来做基金筛选器（需全市场扫描）时 `launchctl load` 即恢复，不用重写 plist。
+
+**【关联】** memory `public-fund-fresh-gate`（quarterly 闸门设计，full 停后 quarterly 仍是主采源）+ memory `update-all-process-mutex`（进程互斥，full 停后少一个竞争进程）。
+
+### AZ97 2026-07-20 公募基金模块大轮优化（行业配置/调仓/重仓行业/B1-B3/方案C制造业拆分/4功能规划）
+
+**背景**：2026-07-20（周六休盘）一轮密集优化公募基金模块，从 ui53 迭代到 ui69+，覆盖行业配置图表选型、调仓表交互、重仓股行业展示、3个数据bug修复、方案C制造业拆分采集、4个新功能规划。
+
+**① 行业配置图表改造（ui52→ui63）**：
+- ui52 行业 tooltip 文案优化（commit 7b0acc1a）
+- ui53 调仓Top100 表列头排序+金额差列（commit 596779e5）
+- ui54 修行业 tooltip dataIndex 错位 bug（commit b57c615c）：indData.sort()降序后 yAxis/series .reverse() 但 tooltip 用 indData[dataIndex] 原始顺序致错位，改 series data object 自带 name/totalValue/fundCount + tooltip 从 p[0].data 取
+- ui55 行业配置柱状图优化+TreeMap 全景（commit 3798c520）：IND_MERGE_MAP 合并映射表（11组51原始名→27行业，信息技术类6重复合并/金融类5合并）+ Top15+其他聚合 + TreeMap 红色系渐变
+- ui56 TreeMap resize 兜底（commit 8f16af63，实际无效，根因见 ui58）
+- ui57 调仓Top100 注解中文化（commit 300cf142）：top20_adjustment→"调仓指标"，Top20→"前20大重仓股"
+- ui58 TreeMap 真根因修复（commit fe329b89）：**vendor/echarts.min.js 是 common 精简版不含 treemap 组件**，setOption({type:"treemap"}) 静默失败不报错。换完整版 echarts@5.6.0（629KB→1MB，含 series.treemap 组件）+ 容器显式 width:100%/height:140px
+- ui59-ui60 缩短行业配置卡片高度（commit 65a842ef）：柱状图500→360px + TreeMap200→140px + top30 max-height:510px 滚动条（不全展开）
+- ui61 行业柱状图三维度排序切换（commit d4547e2a）：权重和/平均权重/持仓市值三按钮，_indSortKey/_buildBarData/_renderIndBar/_indLabelFormatter 重排
+- ui63 TreeMap 三维度切换（commit eca6d44d，ui62 是 B1 死请求删除）：TreeMap 独立 treemapSort 状态变量，和柱状图 indSort 互不干扰
+
+**② 调仓表 + 基金列表交互（ui62→ui68）**：
+- ui62 B1 删 top20/asset_alloc 死请求（commit e46dc704）：fetch 从6个减到4个，app.min.js -46.8%
+- ui64 点击展开行业基金列表（commit b797ac1f）：新增 public_fund_industry_fund_map.json（676KB，27行业，制造业935只），后端 IND_MERGE_MAP 和前端1:1一致，前端按需 fetch+缓存+_industryFundMapCache
+- ui65 基金列表改弹窗 modal（commit，pf-ind-fund-modal，复用 .rule-modal 骨架，不影响布局）
+- ui66 弹窗改翻页（commit 2355c575）：_PF_FUND_PAGE_SIZE=50，_renderFundPager 上一页/下一页+页码，slice 替换非追加
+- ui67 表格 thead 滚动透明修复（commit 12f8c62c）：**根因 .pf-table th 用 var(--bg-2,var(--bg-1)) 但两变量从未定义→transparent→sticky thead 透明内容穿透**。改 var(--bg-hover)（4皮肤全不透明）+ box-shadow inset 底线
+- ui68 重仓股显示申万一级行业（commit 8d2dac4a）：holdings.json top100 加 stock_industry 字段，_load_stock_industry_map 读 sw_components.json（5210成分股）反查，映射率100%。top30表+top100表加行业列（.pf-ind-tag 红色标签）
+
+**③ 3个数据bug修复（commit 8bc4c370 统一上线）**：
+- B1 死请求（前端，ui62 已处理）
+- B2 抱团瓦解信号灯 top20_adjustment=None：根因 fund_metrics 表20260630期 top20_adjustment=None 入表（compute_metrics 跑时数据未齐），export_data 直读预计算 stale 值永卡 None。修复：export_data 内用 cur_rows + 独立查 prev Top20 重算 patch summary.metrics，根治 stale。top20_adjustment=-2.8982（链路通，< -5% 时触发红灯）
+- B3 scale_change 末3期2021/2022旧数据：根因 ORDER BY 错误。修复 scale_history.reverse() + 升序约定。末3期=20251231/20260331/20260630
+
+**④ 方案C 制造业拆分（aa786853 跑中，未完成）**：
+- 背景：制造业75.74%是证监会一级C门类太粗（数据源em/cninfo只返一级无二级），非合并映射错误
+- 调研结论：akshare fund_portfolio_hold_em 原版失败根因不带 Referer/UA 被东财返404，自写 fetcher 带 Referer+UA 60只样本100%成功，942只×12分钟
+- 实施4步：Step1 fetcher+建表 fund_portfolio_hold / Step2 跑942只采集 / Step3 export 拆分逻辑 industry.json 制造业加 breakdown / Step4 前端制造业可展开
+- 用户定：只采当期20260630不回填历史（历史采了没展示位=浪费）
+- 状态：Step2 采集中（nohup 后台，cwd=trade-data 读主库避 §9 陷阱），未完成
+
+**⑤ 告警排查+修复**：
+- 4个告警邮件（8-01）：intraday 15:05×2 误报 + etf 20:07×2 真漏跑
+- etf 真漏跑根因：7-31 21:30 etf daily 进程卡死23h（mootdx 采集卡住无超时），主控已 kill 4进程（PID 37704/37710/37735/37736）+ 删 /tmp/trade_etf_nt.lock
+- intraday 误报根因：schedule_monitor.sh schedules 表写"15:05"但 plist 实际15:02，a53c16f1 修 schedules 表对齐 plist（15:05→15:02 + 补11:32/13:01）
+- etf 卡死根治：a7bd9ede 给 etf_national_team.py daily 加全局超时 signal.alarm(600) + mootdx socket 超时兜底 + 超时记日志释放锁 exit 非0
+
+**⑥ 9000+ full 停跑 + 4功能规划（AZ96 已落档停 full）**：
+- aa53cd42 调研9000+用途：8指标里6个不需逐只，2个用1000只够，full 边际价值低
+- a8fd201d 调研15个功能方案：推荐组合4个都不需9000+（G 88魔咒回测/N 多信号共振/D+E 抱团调仓四态/F 行业轮动）
+- 用户定：停 full + 做4功能。D+E 已派 a2f4faa3（事1停full commit cb5bde23 已上线，事2 Top100四态中）
+
+**⑦ 基金筛选器实战需求（用户定，暂不做）**：
+- 简单按行业/仓位筛"没什么用"，实战级筛选要看：历史盈利比例（胜率/正收益期占比）+ 稳定度（波动率/回撤）+ 基金经理稳健程度（任期/历史业绩/换手率）
+- 当前 fund_basic 仅6字段（code/name/type/pinyin），无规模/经理/业绩/成立日，做实战级筛选需先补字段+业绩时序采集+基金经理表，大工程
+- 不进当前4功能组合，未来真要做再按此需求基准做
+- 即便做筛选器也不恢复9000+ full（按规模降序取头部2000-3000只够，非 fund_code ASC 采小基金）
+
+**【教训/要点】**：
+- echarts 组件缺失静默失败不报错（ui58），自定义 series type 不渲染先查 echarts 版本是否含该组件
+- CSS 变量未定义→transparent（ui67 thead 透明），用 var(--x) 要确认 x 在所有皮肤定义
+- tooltip dataIndex 错位（ui54）：series data .reverse() 后 tooltip 不能用原数组 [dataIndex]，要 series data object 自带字段或 reverse 后数组
+- export 直读预计算指标会卡 stale（B2），关键指标 export 时重算 patch
+- mootdx 采集无超时会卡死拖垮后续调度（etf 事故），长采集任务必加全局超时
+- 935只基金×27行业 fund_map 2MB 不塞 industry.json（方案D 单独JSON按需fetch，ui64）
+
+**【关联】** AZ96 停 full + AZ94 public_fund .gz 故障先例 + memory pf-fund-screener-real-requirements（筛选器实战需求，但 memory 非持久化以本节为准）+ memory fetchjson-skip-gz（ui49/50 全跳.gz）。
+
+### AZ98 2026-07-20 公募基金"子行业下钻到基金"完整实施（方案C Step5, ui75）
+
+**背景**：AZ97 方案C 制造业拆分 Step1-4 已完成（制造业柱可展开19子行业柱 + TreeMap 点击制造业弹子行业 breakdown 列表），但子行业柱/breakdown 行只能看 fund_count 不能看具体基金。本次 Step5 实现子行业下钻到基金详情列表弹窗，2个入口（柱状图子行业柱点击 + TreeMap 制造业2-tab Tab1子行业行点击）统一调 `_showManufSubindFunds(subIndName)`。
+
+**① 后端 public_fund.py 新增第7个产物 manuf_subind_fund_map**：
+- 新函数 `_compute_manuf_subind_fund_map(conn, report_date, stock_ind_map)` (L1542)：重仓股拆分口径，对每只制造业基金取重仓股按申万一级子行业聚合 weight_pct/hold_value 和
+- 与 `_compute_manuf_breakdown` 区别：breakdown 按基金维度拆分制造业总仓位(allocated = m_total × w/denom)输出子行业聚合；subind_fund_map 直接按重仓股子行业聚合原始 weight_pct/hold_value 和，输出基金详情列表
+- 结构 `{report_date, subind_funds: {子行业名: [{fund_code, fund_name, weight_pct, hold_value}]}}`，含18个 MANUF_SUB_INDUSTRIES + "制造业-其他"（未映射重仓股归此项），非制造业申万一级排除
+- fund_name 从 fund_basic JOIN（fund_portfolio_hold 无 fund_name 字段）
+- `export_data()` 返回 7 元组（L1620），`export_json_files()` 写 7 个 JSON（L1833）
+- 验证：JSON 366KB，19子行业，电子712只/通信431只/制造业-其他53只/总唯一基金926只，与 DB 直查一致
+
+**② 前端 app.js 4处改动（ui74->ui75）**：
+- 新增 `_loadManufSubindFundMap` (L9503)：模块级缓存+防并发，fetch R2 直链 `ssd.fx8.store/public_fund/public_fund_manuf_subind_fund_map.json`
+- 新增 `_showManufSubindFunds(subIndName)` (L10263)：复用 `#pfIndFundModal` 骨架 + `_renderFundModalPage` 翻页，标题"📦 {subIndName} 子行业基金列表（制造业拆分）"，tip 说明重仓股拆分口径
+- 柱状图子行业柱点击 (L10412)：`if(d.isBreakdown) return;` 改为 `if(d.isBreakdown) { _showManufSubindFunds(d.subIndustry); return; }`
+- TreeMap 制造业点击改 2-tab 弹窗 (`_showManufBreakdown` L10313 重写)：独立 modal `#pfManufTabModal`，Tab1 子行业（breakdown 表格每行可点击 -> `_showManufSubindFunds` 新弹窗下钻）+ Tab2 制造业全部基金（懒加载，复用 `_loadIndustryFundMap` 制造业935只 + `_renderFundListInto` 自包含渲染）
+
+**③ 渲染器重构 `_renderFundListInto` (L10151)**：
+- 原 `_renderFundModalPage` 用共享状态 `_pfFundCurList/_pfFundCurPage`，2-tab Tab2 和 fund list 弹窗并存时状态冲突
+- 重构为自包含 `_renderFundListInto(container, list, opts)`：本地 page 闭包，不依赖共享状态
+- `_renderFundModalPage` 改为调 `_renderFundListInto` 的包装器；Tab2 也直接调 `_renderFundListInto`（各管各的 page）
+
+**④ 2-tab 交互设计**：
+- 独立 modal `#pfManufTabModal`（和 `#pfIndFundModal` 并存，Tab1 下钻时 `#pfIndFundModal` 在上层）
+- Tab1 默认显示（新功能入口），Tab2 懒加载（首次切换时 fetch `_loadIndustryFundMap`）
+- ESC 关闭两个 modal（`#pfIndFundModal` 优先，再 `#pfManufTabModal`）
+- Tab1 子行业行 cursor pointer + hover 红色高亮 + "查看基金 ->" 提示
+
+**⑤ deploy.sh 补加 industry_fund_map + manuf_subind_fund_map (L291)**：
+- 原 `for _pf in summary holdings industry top20 asset_alloc` 只有5个，`industry_fund_map`（第6个产物）漏加
+- 改为 `for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map`（7个）
+- 顺带补生成 `public_fund_industry_fund_map.json.gz`（原缺失，collector 不生成 .gz，export.py 批量 gzip 步骤才会生成）
+
+**⑥ 双路径同步（§9衍生）**：
+- export 从 trade-data cwd 跑，JSON 写到 `trade-data/static-site/data/`
+- cp 到 `trade/static-site/data/`（.json + .gz 双份），deploy.sh 从 trade 推 git
+- upload-public-fund 用 glob `public_fund*.json` 自动覆盖新文件，无需改 upload_r2.py
+
+**【教训/要点】**：
+- 共享状态在多 modal 并存时冲突：2-tab Tab2 和 fund list 弹窗同时打开时，共享 `_pfFundCurPage` 会互相覆盖。解法：渲染器自包含本地闭包，各 modal 各管各的 page
+- deploy.sh 精确文件列表易漏：`industry_fund_map` 产物已上线但 deploy.sh DATA_FILES 循环漏加，靠 export.py 批量 gzip + R2 upload 兜底才没出事。新产物必须同步加 deploy.sh DATA_FILES
+- collector `export_json_files` 只写 .json 不写 .gz，.gz 由 export.py 批量 gzip 步骤生成。手动跑 collector export 后需手动生成 .gz 或靠 deploy.sh 的 export.py 步骤补
+
+**【关联】** AZ97 方案C Step1-4 制造业拆分 + memory r2-arch-by-category-not-size（public_fund 走 R2 按类别）+ memory fetchjson-skip-gz（前端全跳.gz，R2 .json 直链）+ memory export-output-path-sync（双路径同步陷阱）。
+
+**git**：feat 分支 commit（app.js + public_fund.py + deploy.sh + sw.js + NOTES + static-site/data/*.json/.gz）。暂不 deploy/merge main（等主控确认时点）。
+

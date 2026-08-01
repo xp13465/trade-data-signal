@@ -34,6 +34,8 @@ import fcntl
 import json
 import os
 import re
+import signal
+import socket
 import sqlite3
 import sys
 import threading
@@ -437,6 +439,47 @@ def _acquire_lock(nonblock: bool = True) -> bool:
 
 
 _LOCK_FILE = [None]
+
+
+# ── 全局超时机制(2026-08-01 加,防 mootdx 卡死拖垮后续调度)─────────────────────
+# 事故背景:7-31 21:30 etf daily 进程卡死23h未退出(mootdx 采集卡住无超时),
+#   launchd 同名任务不重叠 -> 8-01 20:07/21:30 不启动新进程 -> etf log 8-01 完全空 -> 报漏跑。
+# 修复:signal.alarm 全局超时 + socket.setdefaulttimeout 单次调用兜底,双保险。
+#
+# 超时配置(秒): 持锁 pipeline 防 mootdx/baostock 卡死。
+#   daily/intraday/holders 10min; backfill 全量回填慢(1371只ETF×0.3s≈7min+SSE按日)给30min。
+_TIMEOUT_SEC = {
+    "daily": 600,
+    "intraday-close": 600,
+    "intraday-realtime": 600,
+    "holders": 600,
+    "backfill": 1800,
+}
+# socket 默认超时(秒): 兜底 mootdx/baostock/requests 单次调用卡死。
+# signal.alarm 是主进程级兜底(600s),socket 超时是单次调用级(30s),双保险。
+# mootdx client.bars() 底层 socket 无显式超时 API,setdefaulttimeout 全局生效。
+_SOCKET_TIMEOUT = 30
+
+# 超时 handler 用的全局状态,SIGALRM 触发时读取打印日志。
+# 用全局而非闭包:signal.signal 注册的 handler 签名固定 (signum, frame),无法传额外参数。
+_TIMEOUT_STATE = {"cmd": "", "t_start": 0.0, "timeout_sec": 0}
+
+
+def _timeout_handler(signum, frame):
+    """SIGALRM 触发:打印超时日志后 os._exit(2) 强制退出。
+
+    用 os._exit 而非 raise TimeoutError:ProcessPoolExecutor with block 内抛异常会先触发
+    __exit__ -> shutdown(wait=True) 卡等子进程,超时永远到不了 except(子进程卡死时 shutdown 无限等)。
+    os._exit 跳过 __exit__/finally/缓冲区 flush,直接终止进程释放 fcntl 锁(GC fd),
+    让 launchd 下个时点能启动新进程。非零退出码让 schedule_stats.json 记 exit!=0
+    -> schedule_monitor 退出失败检查(L161)告警。
+    """
+    cmd = _TIMEOUT_STATE["cmd"]
+    timeout_sec = _TIMEOUT_STATE["timeout_sec"]
+    elapsed = time.time() - _TIMEOUT_STATE["t_start"]
+    print(f"[etf_nt] {cmd} 超时({timeout_sec}s)退出: 已运行 {elapsed:.0f}s, "
+          f"强制 os._exit(2) 释放锁(防 mootdx 卡死拖垮后续调度)", file=sys.stderr, flush=True)
+    os._exit(2)
 
 
 # ── Fetcher A: 沪市 ETF 每日份额（上交所）─────────────────────────────────────
@@ -1839,12 +1882,38 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "daily"
-    if cmd in ("daily", "backfill", "signals", "holders", "holders_v2", "export", "intraday-close", "intraday-realtime"):
-        # 进程互斥（daily/backfill/holders/intraday-close/intraday-realtime 持锁跑，signals/export/holders_v2 不需要锁）
-        if cmd in ("daily", "backfill", "holders", "intraday-close", "intraday-realtime"):
-            if not _acquire_lock(nonblock=True):
-                print(f"[etf_nt] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
-                return
+    if cmd not in ("daily", "backfill", "signals", "holders", "holders_v2", "export", "intraday-close", "intraday-realtime"):
+        print(__doc__)
+        print(f"\n用法: python -m app.collector.etf_national_team <command>")
+        print(f"  backfill --start 20230101   全量回填")
+        print(f"  daily                       当日增量")
+        print(f"  intraday-close              15:35 收盘后采 ETF close(末日 share_change=NULL 触发预估)")
+        print(f"  intraday-realtime           9:35-14:50 盘中实时市价预估(akshare fund_etf_fund_daily_em)")
+        print(f"  signals                     重算信号")
+        print(f"  holders                     只拉持有人(半年一次)")
+        print(f"  holders_v2                  v2 cninfo PDF解析汇金/证金具名持有人")
+        print(f"  export                      只导出JSON")
+        sys.exit(1)
+        return
+
+    # 进程互斥（daily/backfill/holders/intraday-close/intraday-realtime 持锁跑，signals/export/holders_v2 不需要锁）
+    locked = cmd in ("daily", "backfill", "holders", "intraday-close", "intraday-realtime")
+    if locked:
+        if not _acquire_lock(nonblock=True):
+            print(f"[etf_nt] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
+            return
+        # 全局超时(防 mootdx 卡死拖垮后续调度) + socket 默认超时兜底
+        # 2026-07-31 事故:7-31 21:30 etf daily 进程卡死23h未退出(mootdx 采集卡住无超时),
+        # launchd 同名任务不重叠 -> 8-01 20:07/21:30 不启动新进程 -> etf log 8-01 完全空 -> 报漏跑。
+        # signal.alarm 超时 -> _timeout_handler os._exit(2) 强制退出释放锁;socket 超时兜底单次调用。
+        timeout_sec = _TIMEOUT_SEC.get(cmd, 600)
+        socket.setdefaulttimeout(_SOCKET_TIMEOUT)
+        signal.signal(signal.SIGALRM, _timeout_handler)
+        _TIMEOUT_STATE.update(cmd=cmd, t_start=time.time(), timeout_sec=timeout_sec)
+        signal.alarm(timeout_sec)
+        print(f"[etf_nt] {cmd} 全局超时 {timeout_sec}s + socket 超时 {_SOCKET_TIMEOUT}s 已设", flush=True)
+
+    try:
         if cmd == "daily":
             stats = pipeline_daily()
             export_json_files()
@@ -1869,18 +1938,11 @@ def main():
             pipeline_intraday_close()
         elif cmd == "intraday-realtime":
             pipeline_intraday_realtime()
-    else:
-        print(__doc__)
-        print(f"\n用法: python -m app.collector.etf_national_team <command>")
-        print(f"  backfill --start 20230101   全量回填")
-        print(f"  daily                       当日增量")
-        print(f"  intraday-close              15:35 收盘后采 ETF close(末日 share_change=NULL 触发预估)")
-        print(f"  intraday-realtime           9:35-14:50 盘中实时市价预估(akshare fund_etf_fund_daily_em)")
-        print(f"  signals                     重算信号")
-        print(f"  holders                     只拉持有人(半年一次)")
-        print(f"  holders_v2                  v2 cninfo PDF解析汇金/证金具名持有人")
-        print(f"  export                      只导出JSON")
-        sys.exit(1)
+    finally:
+        # 正常完成取消 alarm(finally 在 os._exit 时不执行,仅正常路径走;
+        # 超时路径 _timeout_handler 内 os._exit(2) 直接终止,alarm 无所谓)
+        if locked:
+            signal.alarm(0)
 
 
 if __name__ == "__main__":
