@@ -3039,6 +3039,12 @@ main { padding: 16px 24px; }
 }
 .theme-modal-close:hover { color: var(--text-1); }
 
+/* 皮肤弹窗内合规开关区块（复用 .theme-option 布局，新增分隔线/小标题/图标列） */
+.theme-divider { height: 1px; background: var(--border); margin: 14px 0 10px; }
+.theme-section-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--text-1); }
+.compliance-options { display: flex; flex-direction: column; gap: 8px; }
+.compliance-option .compliance-icon { font-size: 18px; flex-shrink: 0; width: 22px; text-align: center; line-height: 1; }
+
 @media (max-width: 768px) {
   .pc-theme-btn { display: none; }
   .h5-theme-btn {

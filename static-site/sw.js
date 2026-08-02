@@ -6,14 +6,14 @@
  *     - 关键静态资源预缓存,离线可用
  *     - 改 CACHE_VERSION 清旧缓存,skipWaiting+clients.claim 立即接管,提示用户刷新拿新版
  *  2. 数据 JSON (除 intraday_snapshot): network-first (正确性优先, 失败回退缓存)
- *     - 2026-08-02 改: 原走 SWR 先返旧缓存后台拉新版, 低频数据(季频 public_fund_*/etf_score_list)更新后用户仍拿旧缓存
+ *     - 2026-08-02 改: 原走 SWR 先返旧缓存后台拉新版, 低频数据(季频 public_fund_* /etf_score_list)更新后用户仍拿旧缓存
  *     - 改 network-first 每次走网络拿最新, 离线/失败回退缓存(牺牲毫秒延迟换正确性)
  *  3. intraday_snapshot.json + notifications.json: NetworkFirst (盘中实时性优先,离线回退缓存)
  *  4. 第三方 (hm.baidu/zz.bdstatic/echarts CDN 等): 跨域不拦截,直接走网络,不缓存
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260802-compliance-phase1-3-ui98-risk-focus-point-dense-fix';
+const CACHE_VERSION = 'v2-20260802-compliance-skin-modal-ui99';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

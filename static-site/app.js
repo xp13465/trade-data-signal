@@ -16035,6 +16035,22 @@ function initThemeSwitcher() {
           );
         }).join("") +
       '</div>' +
+      '<div class="theme-divider"></div>' +
+      '<h4 class="theme-section-title">🛡️ 显示模式</h4>' +
+      '<div class="compliance-options">' +
+        '<button class="theme-option compliance-option" data-compliance-mode="on">' +
+          '<span class="compliance-icon">🛡️</span>' +
+          '<span class="theme-info"><span class="theme-name">合规版（默认）</span>' +
+          '<span class="theme-desc">隐藏买卖点措辞，游客/巡查看到此版</span></span>' +
+          '<span class="theme-check">✓</span>' +
+        '</button>' +
+        '<button class="theme-option compliance-option" data-compliance-mode="off">' +
+          '<span class="compliance-icon">📊</span>' +
+          '<span class="theme-info"><span class="theme-name">详细版</span>' +
+          '<span class="theme-desc">显示完整买卖点，信任用户</span></span>' +
+          '<span class="theme-check">✓</span>' +
+        '</button>' +
+      '</div>' +
     '</div>';
   document.body.appendChild(modal);
 
@@ -16060,12 +16076,21 @@ function initThemeSwitcher() {
   function renderActive() {
     var cur = currentTheme();
     modal.querySelectorAll(".theme-option").forEach(function (opt) {
-      opt.classList.toggle("active", opt.dataset.theme === cur);
+      if (!opt.classList.contains("compliance-option")) {
+        opt.classList.toggle("active", opt.dataset.theme === cur);
+      }
+    });
+  }
+  function renderComplianceActive() {
+    var cur = _t.getMode() === "off" ? "off" : "on";
+    modal.querySelectorAll(".compliance-option").forEach(function (opt) {
+      opt.classList.toggle("active", opt.dataset.complianceMode === cur);
     });
   }
   document.querySelectorAll(".theme-btn").forEach(function (b) {
     b.addEventListener("click", function () {
       renderActive();
+      renderComplianceActive();
       modal.classList.remove("hidden");
     });
   });
@@ -16076,37 +16101,36 @@ function initThemeSwitcher() {
     }
     var opt = e.target.closest(".theme-option");
     if (opt) {
-      applyTheme(opt.dataset.theme);
-      renderActive();
-      setTimeout(function () { modal.classList.add("hidden"); }, 180);
+      if (opt.classList.contains("compliance-option")) {
+        // 合规开关：即时生效（切字典重渲染），不自动关弹窗，用户可继续切皮肤或手动关闭
+        applyCompliance(opt.dataset.complianceMode);
+        renderComplianceActive();
+      } else {
+        applyTheme(opt.dataset.theme);
+        renderActive();
+        setTimeout(function () { modal.classList.add("hidden"); }, 180);
+      }
     }
   });
 }
 
-// === 合规/详细视图切换（🛡️按钮，复用 applyTheme 模式）===
-// mode="on"(合规版,默认,爬虫/巡查看合规词) / "off"(原版买卖点,用户点🛡️切回)
+// === 合规/详细视图切换（皮肤弹窗内开关，复用 applyTheme 模式）===
+// mode="on"(合规版,默认,爬虫/巡查看合规词) / "off"(原版买卖点,用户在皮肤弹窗内切回)
 // i18n.js 的 _t() 根据 mode 返回合规/原版文案；切 mode 后重渲染当前 tab
 function applyCompliance(mode) {
   _t.setMode(mode);
   try { localStorage.setItem("compliance_mode", mode === "off" ? "off" : "on"); } catch (e) {}
   document.documentElement.setAttribute("data-compliance", mode === "off" ? "off" : "on");
-  // 更新 🛡️按钮 on/off 高亮状态（on 合规态高亮 primary 色）
-  document.querySelectorAll("[data-compliance-btn]").forEach(function (b) {
-    b.classList.toggle("on", mode !== "off");
+  // 更新皮肤弹窗内合规开关高亮状态（on 合规版高亮 / off 详细版高亮）
+  var normMode = mode === "off" ? "off" : "on";
+  document.querySelectorAll(".compliance-option").forEach(function (b) {
+    b.classList.toggle("active", b.dataset.complianceMode === normMode);
   });
   // 重渲染当前 tab：用新字典重新渲染所有 DOM 文本 + 图表 pin（renderTab 内部按 state.tab 调对应 render 函数）
   requestAnimationFrame(function () {
     if (typeof renderTab === "function") renderTab();
   });
 }
-// 🛡️按钮 click：切 on/off；初始化按钮 on/off 高亮（on 合规态高亮 primary 色）
-document.querySelectorAll("[data-compliance-btn]").forEach(function (b) {
-  b.addEventListener("click", function () {
-    var newMode = _t.getMode() === "off" ? "on" : "off";
-    applyCompliance(newMode);
-  });
-  b.classList.toggle("on", _t.getMode() !== "off");
-});
 
 // === 数据更新规则 modal（采集时间旁 ℹ️ 图标入口）===
 // 复用 rule-modal 结构/样式（CSS 变量自动适配 4 套皮肤）。事件委托绑定 document，
