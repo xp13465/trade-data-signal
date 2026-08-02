@@ -43,6 +43,7 @@
       detail_sell_name: "风险 · 趋势转弱",
       detail_sell_stop_loss_name: "风控|警示 · ATR×3.5风控",
       detail_band_hold_name: "持有 · 国债波段仓管",
+      detail_band_sell_name: "波段调整 · 国债波段仓管",
       // ETF 5档（app.js L13395 ETF_TIER_LABEL）
       etf_strong_sell: "重点规避",
       etf_sell: "风险提示信号",
@@ -127,6 +128,7 @@
       detail_sell_name: "卖 · 趋势转弱",
       detail_sell_stop_loss_name: "追止损|卖 · ATR×3.5止损",
       detail_band_hold_name: "波段持有 · 国债波段仓管",
+      detail_band_sell_name: "波段减仓 · 国债波段仓管",
       etf_strong_sell: "强卖出",
       etf_sell: "卖出",
       etf_hold: "持有观察",
@@ -220,6 +222,7 @@
     ["备买", "备关注"],
     ["卖出日期", "风险日期"],
     ["卖出价", "风险价"],
+    ["卖点", "风险点"],
     ["卖出", "风险提示"],
     ["首笔买入", "首笔关注"],
     ["买入日期", "关注日期"],
@@ -230,8 +233,10 @@
     ["买入", "关注"],
     ["止损", "风控"],
     ["风控清仓", "风控\x01CLEARED\x01"],
+    ["波段持有", "持有"],
     ["清仓", "防范"],
     ["止盈", "收益兑现"],
+    ["减仓", "调整"],
     ["买", "关注"],
     ["卖", "风险"]
   ];

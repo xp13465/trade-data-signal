@@ -1721,7 +1721,7 @@ main { padding: 16px 24px; }
   line-height: 1.5;
 }
 .badge-buy { background: var(--mx-good-bg); color: var(--mx-good-fg); }
-.badge-aux { background: var(--mx-warn-bg); color: var(--mx-warn-fg); }
+.badge-aux { background: rgba(214, 51, 132, 0.12); color: #d63384; }
 .badge-sell { background: var(--mx-bad-bg); color: var(--mx-bad-fg); }
 
 .rule-table {

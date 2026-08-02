@@ -1687,12 +1687,13 @@ function termTip(text) {
 const _SIGNAL_HELP_ITEMS = [
   { sig: "buy", color: "#e6492e", nameKey: "detail_buy_name", desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
   { sig: "buy_aux", color: "#d63384", nameKey: "detail_buy_aux_name", desc: "布林带下轨回归。价格跌穿布林带(BB)下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
-  { sig: "buy_special", color: "#ffd700", nameKey: "detail_buy_special_name", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配风控|警示(ATR×3.5风控)控制风险，0套牢。" },
-  { sig: "buy_special_filtered", color: "#9e9e9e", nameKey: "detail_buy_special_filtered_name", desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追关注信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追关注，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追关注信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
-  { sig: "buy_backup", color: "#9c27b0", nameKey: "detail_buy_backup_name", desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追关注。配套：仅供参考不单独决策，需结合主关注/辅关注/追关注；诱多风险已用3日二次确认过滤。" },
-  { sig: "sell", color: "#2e8b57", nameKey: "detail_sell_name", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。收益兑现调整提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该风险点 vs 前一个关注点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "收益兑现调整非反向信号。配套：走弱概率≈50%接近随机；与风控|警示共振时调整信号更强。" },
-  { sig: "sell_stop_loss", color: "#3498db", nameKey: "detail_sell_stop_loss_name", desc: "ATR×3.5 风控（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即防范风险。配套：趋势跟踪风控（低胜率大盈）；与风险共振调整信号更强；蓝色与风险绿色区分。" },
-  { sig: "band_hold", color: "#ff9800", nameKey: "detail_band_hold_name", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1风险点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非防范风险风险点）。四动作联动：调整(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/风控(sell_stop_loss蓝,趋势破位防范风险)/持有(band_hold橙,无超买超卖维持仓位)。走势图图钉 = 历史调仓时点回放，悬停信号日看仓位变化进度条，可缩放查看过去调整/接回/风控时点。研究参考，不构成投资建议。" },
+  { sig: "buy_special", color: "#ffd700", nameKey: "detail_buy_special_name", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配止损|警示(ATR×3.5止损)控制风险，0套牢。" },
+  { sig: "buy_special_filtered", color: "#9e9e9e", nameKey: "detail_buy_special_filtered_name", desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追买信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追买，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追买信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
+  { sig: "buy_backup", color: "#9c27b0", nameKey: "detail_buy_backup_name", desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
+  { sig: "sell", color: "#2e8b57", nameKey: "detail_sell_name", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈调整提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈调整非反向信号。配套：走弱概率≈50%接近随机；与止损|警示共振时调整信号更强。" },
+  { sig: "sell_stop_loss", color: "#3498db", nameKey: "detail_sell_stop_loss_name", desc: "ATR×3.5 止损（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪止损）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即清仓卖出。配套：趋势跟踪止损（低胜率大盈）；与卖共振时调整信号更强；蓝色与卖绿色区分。" },
+  { sig: "band_hold", color: "#ff9800", nameKey: "detail_band_hold_name", desc: "国债三品种波段仓位管理策略波段持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1卖点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖出卖点）。四动作联动：减仓(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓卖出)/波段持有(band_hold橙,无超买超卖维持仓位)。走势图图钉 = 历史调仓时点回放，悬停信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
+  { sig: "band_sell", color: "#8bc34a", nameKey: "detail_band_sell_name", desc: "国债波段仓位管理策略减仓动作。触发超买条件(bias20>0.3% AND RSI>rsi_high OR close≥布林上轨)时减仓 20-30% 锁利润。与 sell 区分：减仓非清仓卖出，体现'没卖重'，草绿 #8bc34a 与 sell 绿 #2e8b57 区分。", warn: "国债专属减仓动作(草绿#8bc34a仓位条减少 100%->80%/70%)。触超买减仓 20-30%，非清仓卖出退出。与止损(sell_stop_loss蓝,趋势破位清仓卖出)区分：减仓是主动锁利润，止损是被动防范。研究参考，不构成投资建议。" },
 ];
 
 // 聚合 signal_stats.json（per-index）-> per-sig 概况（5d/10d/20d 三窗口，按样本数 n 加权平均）
@@ -1765,21 +1766,21 @@ function _signalHelpModalHTML(aggStats) {
     }
     // 回测结论（backtest）：全史统计的持有期建议/止损方案对比，淡金色框区分于动态分析概况
     const backtestHtml = it.backtest
-      ? '<div style="font-size:12px;line-height:1.55;margin:4px 0;padding:5px 8px;background:rgba(255,215,0,0.12);border-left:3px solid #ffd700;border-radius:4px">' + it.backtest + '</div>'
+      ? '<div style="font-size:12px;line-height:1.55;margin:4px 0;padding:5px 8px;background:rgba(255,215,0,0.12);border-left:3px solid #ffd700;border-radius:4px">' + _t.tsText(it.backtest) + '</div>'
       : '';
     // 补充说明（note）：pin 标签来源/术语澄清等，淡灰框
     const noteHtml = it.note
-      ? '<div style="font-size:12px;line-height:1.55;margin:4px 0;padding:5px 8px;background:rgba(127,127,127,0.08);border-left:3px solid #888;border-radius:4px">' + it.note + '</div>'
+      ? '<div style="font-size:12px;line-height:1.55;margin:4px 0;padding:5px 8px;background:rgba(127,127,127,0.08);border-left:3px solid #888;border-radius:4px">' + _t.tsText(it.note) + '</div>'
       : '';
     return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(127,127,127,0.18)">' +
       '<span style="flex:0 0 14px;width:14px;height:14px;border-radius:50%;margin-top:4px;background:' + it.color + '"></span>' +
       '<div style="flex:1;min-width:0">' +
       '<div style="font-weight:600;margin-bottom:2px">' + _t(it.nameKey) + '</div>' +
-      '<div style="font-size:13px;line-height:1.55;opacity:0.85">' + it.desc + '</div>' +
+      '<div style="font-size:13px;line-height:1.55;opacity:0.85">' + _t.tsText(it.desc) + '</div>' +
       backtestHtml +
       statHtml +
       noteHtml +
-      '<div style="font-size:12px;line-height:1.55;opacity:0.7;margin-top:3px">⚠ ' + it.warn + '</div>' +
+      '<div style="font-size:12px;line-height:1.55;opacity:0.7;margin-top:3px">⚠ ' + _t.tsText(it.warn) + '</div>' +
       '</div></div>';
   }).join("");
   return '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>📊 6色技术信号参考</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div style="padding:0 4px">' + items + '</div><div style="margin-top:12px;padding:8px 12px;font-size:12px;opacity:0.7;background:rgba(127,127,127,0.1);border-radius:6px">⚠ 以上为研究标注非交易指令，详见右下角浮动 📋 策略说明。过往表现不代表未来收益。</div></div></div>';
@@ -3471,26 +3472,26 @@ function ruleContentHtml() {
       <h4><span class="rule-dot rule-dot-buy"></span>超卖反弹参考点</h4>
 
       <div class="rule-card rule-card-buy">
-        <div class="rule-card-head"><span class="rule-badge badge-buy">主买</span> 超卖反弹（RSI 指标）</div>
+        <div class="rule-card-head"><span class="rule-badge badge-buy">主关注</span> 超卖反弹（RSI 指标）</div>
         <p>当市场<b>短期跌过头了</b>，开始反弹时，作为技术信号参考（超卖反弹）。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>RSI 指标跌到 30 以下（超卖区），然后回升到 30 以上 —— 说明抛压衰竭、买方开始进场</td></tr>
           <tr><td class="rule-td-label">触发</td><td>前一日 RSI ≤ 30，当日回升到 30 以上</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-buy">红色</span> 图表上标记为「买」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-buy">红色</span> 图表上标记为「关注」</td></tr>
           <tr><td class="rule-td-label">胜率</td><td>近 3 年 10 日内盈亏比 <b>1.13</b></td></tr>
           <tr><td class="rule-td-label">特殊</td><td><b>科创50、电力设备、传媒</b> 这 3 个品种波动更大，阈值收紧到 25（RSI ≤ 25 才算超卖），更早捕捉反弹</td></tr>
         </table>
       </div>
 
       <div class="rule-card rule-card-aux">
-        <div class="rule-card-head"><span class="rule-badge badge-aux">辅买</span> 超卖反弹（布林带下轨）</div>
-        <p>价格<b>跌破布林带下轨后弹回来</b>，也是超卖反弹信号，与主买互补。</p>
+        <div class="rule-card-head"><span class="rule-badge badge-aux">辅关注</span> 超卖反弹（布林带下轨）</div>
+        <p>价格<b>跌破布林带下轨后弹回来</b>，也是超卖反弹信号，与主关注互补。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>布林带下轨 = 近 20 日均价 - 2 倍标准差，跌破后收回 = 极端超卖后的反弹</td></tr>
           <tr><td class="rule-td-label">触发</td><td>前一日收盘价跌破布林下轨，当日回升到下轨之上</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-aux">粉紫</span> 图表上标记为「辅买」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-aux">粉紫</span> 图表上标记为「辅关注」</td></tr>
           <tr><td class="rule-td-label">胜率</td><td>近 3 年 10 日内盈亏比 <b>1.18</b></td></tr>
-          <tr><td class="rule-td-label">去重</td><td>如果同一天主买和辅买同时触发，只保留主买（不重复标记）</td></tr>
+          <tr><td class="rule-td-label">去重</td><td>如果同一天主关注和辅关注同时触发，只保留主关注（不重复标记）</td></tr>
         </table>
       </div>
     </div>
