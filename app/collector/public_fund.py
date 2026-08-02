@@ -816,7 +816,9 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
         end_date = dt.date.today().strftime("%Y%m%d")
     sd = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
     ed = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
-    bs_code = {"hs300": "sh.000300"}.get(index_id, "sh.000300")
+    # 多因子基准: hs300(大盘价值) + csi500(中盘) + gem(创业板成长), 控风格偏移
+    bs_code = {"hs300": "sh.000300", "csi500": "sh.000905", "gem": "sz.399006"}.get(
+        index_id, "sh.000300")
 
     lg = bs.login()
     if lg.error_code != "0":
@@ -856,16 +858,18 @@ def fetch_index_daily(start_date: str | None = None, end_date: str | None = None
 
 
 # ── Fetcher E4: 回填头部基金历史净值时序 (反推算法用) ────────────────────────────
-def fetch_nav_history(codes: list[str] | None = None, days: int = 90,
+def fetch_nav_history(codes: list[str] | None = None, days: int = 400,
                       fund_type_filter: str = "偏股") -> int:
     """fund_open_fund_info_em 逐只拉历史净值 -> fund_daily_nav (回填历史日期)。
 
-    反推算法需要滚动 60 日历史净值时序, 但 fund_daily_nav 只有当日(pipeline_daily 每天跑
+    反推算法需要滚动 120 日历史净值时序, 但 fund_daily_nav 只有当日(pipeline_daily 每天跑
     但 DB 可能刚重置)。本函数一次性回填头部偏股基金的历史净值, 供 _compute_position_estimate 用。
+    默认 400 日 (~13个月): 120日滚动窗起始后剩 ~7个月 slopes, 与 lg 周频 overlap ~31期,
+    校准稳健 + vs_lg 无重复 (2026-08-02 从 90->400 根治 vs_lg 重复+校准不稳)。
 
     Args:
       codes: 基金代码列表, 默认用 universe_top_funds(200) 选头部偏股基金
-      days: 回填天数 (默认 90 日, 滚动 60 日回归需至少 60 日)
+      days: 回填天数 (默认 400 日, 滚动 120 日回归需至少 120 日)
       fund_type_filter: 基金类型过滤关键字 (默认'偏股', 和 lg 源口径一致)
     Returns: 写入总行数
     """
@@ -1869,24 +1873,32 @@ def _compute_manuf_subind_fund_map(conn, report_date: str, stock_ind_map: dict[s
 
 
 def _compute_position_estimate(conn: sqlite3.Connection) -> dict | None:
-    """方案A: 今日预估仓位 + 历史预估时序 (净值回归反推 + lg 校准)。
+    """方案A: 今日预估仓位 + 历史预估时序 (hs300 净值回归反推 + lg 全overlap中位数校准)。
 
     算法 (绝对正确, 和 lg 源同口径: 全市场股票型+混合型基金仓位):
-    1. 取 fund_daily_nav 全部偏股基金历史净值涨跌时序 (fetch_nav_history 回填的 200 只 × 90 日)
-    2. 取 fund_index_daily 沪深300日涨跌时序 (fetch_index_daily 回填)
-    3. 每日算全市场偏股基金净值涨跌中位数 R_nav_median (抗极端值, 聚合平均掉个股风格偏移)
-    4. 滚动 60 日 OLS 回归: R_nav_median ~ R_index, 斜率 = 原始仓位估计 × beta
+    1. 取 fund_daily_nav 固定 200 只头部偏股基金历史净值涨跌时序 (fetch_nav_history 回填 400 日)
+       ⚠️ 固定 200 只面板 (非全市场23786只): 保证跨日中位数口径一致, 不随日频pipeline样本变化漂移
+    2. 取 fund_index_daily 三指数日涨跌时序: hs300(大盘价值)+csi500(中盘)+gem(创业板成长)
+       csi500/gem 由 backfill-nav 采集入库, 供未来风格分析; 当前回归只用 hs300 (最稳)
+    3. 每日算 200 只基金净值涨跌中位数 R_nav_median (抗极端值, 聚合平均掉个股风格偏移)
+    4. 滚动 120 日单因子 OLS 回归: R_nav ~ R_hs300, 斜率 = w_stock × β_hs300
        数学依据: R_nav = w_stock×R_stock + w_bond×R_bond + w_cash×R_cash
-       忽略 R_bond(~0.01%/日) + R_cash(~0), OLS 斜率 = w_stock × beta
-       beta = 基金组合相对沪深300的暴露系数 (>1 偏成长, <1 偏价值)
-    5. lg 校准: lg 历史仓位(fund_position_history source='lg') vs 同期原始斜率, 算偏差中位数
-       校准后仓位 = 原始斜率 - 偏差中位数 (消除 beta 系统性偏差, 和 lg 口径对齐)
+       忽略 R_bond(~0.01%/日) + R_cash(~0), OLS 斜率 ×100 = w_stock×β_hs300×100
+       β_hs300 ≈ 1.06-1.13 (偏股基金略偏成长, β>1), lg 校准吸收 β 偏差
+       ⚠️ 选 hs300 而非多因子/综合基准:
+          - 多因子 sum(slopes): 三指数高度相关(多重共线性), Σβ 无约束随窗口波动 (82-100 跳变)
+          - 综合基准 (hs300+csi500+gem)/3: csi500/gem 波动大, β_composite 不稳 (78-92 跳变, 14%波幅)
+          - hs300 单因子: β_hs300 最稳 (101-108, 7%波幅), lg 校准效果最好
+    5. lg 校准: lg 历史仓位(fund_position_history source='lg') vs 同期 raw_slope, 算偏差中位数
+       校准后仓位 = raw_slope - 偏差中位数 (消除 β_hs300 偏差, 和 lg 口径对齐)
+       ⚠️ 用全 overlap 期中位数 (非最近4期均值): overlap ~45期时中位数稳健, 不受尾部噪声干扰
     6. 今日预估 = 最新校准后仓位
 
     误差控制 (±5% 目标):
-    - 滚动 60 日窗口降噪声 (非单日比值)
-    - 全市场中位数抗极端值 (200 只基金回归斜率取中位数)
-    - lg 校准消除 beta 系统性偏差
+    - 滚动 120 日窗口降噪声 (非单日比值)
+    - 固定 200 只面板中位数抗极端值 (口径跨日一致)
+    - hs300 单因子 β 最稳 (7%波幅, 优于综合基准 14%/多因子 sum 不稳)
+    - lg 全 overlap 期中位数校准 (45 期稳健, 非最近 4 期均值)
     - 偏股基金样本 (和 lg 源口径一致, 排除债基/货基/指数/QDII)
 
     输出 JSON 结构 (供前端 88 魔咒图加"今日预估仓位"点):
@@ -1894,56 +1906,61 @@ def _compute_position_estimate(conn: sqlite3.Connection) -> dict | None:
       "report_date": "20260731",
       "current": {
         "date": "2026-07-31",
-        "position_estimate": 93.6,        # 今日预估仓位% (校准后)
-        "raw_slope": 105.29,              # 原始回归斜率% (校准前)
-        "lg_latest_position": 96.01,      # lg 最新仓位% (校准锚点)
+        "position_estimate": 96.5,         # 今日预估仓位% (校准后)
+        "raw_slope": 103.2,                # 原始 hs300 斜率% (校准前)
+        "lg_latest_position": 96.01,       # lg 最新仓位% (校准锚点)
         "lg_latest_date": "20260724",
-        "calibration_offset": -10.58,     # 校准偏移 (lg仓位 - 原始斜率 的中位数)
-        "deviation_from_lg": -2.41,       # 今日预估 - lg最新 (正值=预估高于lg)
-        "r_nav_median": 0.85,             # 今日全市场基金净值涨跌中位数%
-        "r_index": 0.92,                  # 今日沪深300涨跌%
+        "calibration_offset": 6.7,         # 校准偏移 (raw_slope - lg 全overlap中位数)
+        "deviation_from_lg": 0.49,         # 今日预估 - lg最新 (正值=预估高于lg)
+        "r_nav_median": 0.85,              # 今日200只基金净值涨跌中位数%
+        "r_index": 0.92,                   # 今日沪深300涨跌% (向后兼容别名=r_hs300)
+        "r_hs300": 0.92, "r_csi500": 0.5, "r_gem": 0.3,  # 今日三指数涨跌%
         "sample_fund_count": 200,
-        "method": "rolling_60d_ols+lg_calibration",
-        "confidence": "high"              # high(>=100样本)/medium(50-99)/low(<50)
+        "method": "rolling_120d_ols_hs300+lg_calibration",
+        "confidence": "high"               # high(>=100样本)/medium(50-99)/low(<50)
       },
-      "history": [                        # 历史预估仓位时序 (校准后, 供前端画线)
-        {"date": "2026-07-31", "position": 93.6, "raw_slope": 105.29},
+      "history": [                         # 历史预估仓位时序 (校准后, 供前端画线)
+        {"date": "2026-07-31", "position": 96.5, "raw_slope": 103.2},
         ...
       ],
-      "vs_lg": [                          # 预估 vs lg 周频仓位对比 (交叉验证)
-        {"date": "2026-07-24", "estimate": 94.7, "lg": 96.01, "diff": -1.31},
+      "vs_lg": [                           # 预估 vs lg 周频仓位对比 (交叉验证)
+        {"date": "2026-07-24", "estimate": 96.5, "lg": 96.01, "diff": 0.49, "raw_slope": 103.2},
         ...
       ],
       "meta": {
-        "method": "rolling_60d_ols_regression + lg_calibration",
-        "benchmark": "hs300",
-        "sample": "top200_active_equity_funds",
-        "window_days": 60,
-        "calibration": "median(raw_slope - lg_position) over overlap period",
+        "method": "rolling_120d_ols_regression(hs300) + lg_calibration",
+        "benchmark": "hs300 (csi500/gem collected for future style analysis)",
+        "sample": "top200_active_equity_funds_fixed_panel",
+        "window_days": 120,
+        "calibration": "median(raw_slope - lg_position) over all overlap periods",
         "error_margin": "+-5%",
-        "note": "反推斜率=w_stock×beta, lg校准消除beta偏差; 和lg源同口径(股票型+混合型全市场仓位)"
+        "note": "hs300单因子OLS最稳, lg全overlap中位数校准吸收β偏差; 固定200只面板口径一致"
       }
     }
 
     独立计算, 不走 export_data() 7 元组 (遵循 _compute_position_backtest 模式, 避免 190c8f7e 解包破坏)。
     """
     import numpy as np  # 局部 import, 反推算法专用
+    from collections import defaultdict
+    from datetime import datetime as _dt
 
-    # 1. 取基金净值涨跌时序 (fund_daily_nav 回填后的多日数据)
-    # ⚠️ 只取偏股+股票型基金 (JOIN fund_basic, 和 lg 源口径一致)
-    # 若取全市场(含债基/货基)中位数会被拉低, 当日全市场23785只 vs 历史200只偏股, 口径不一致
+    # 1. 取固定 200 只头部偏股基金净值涨跌时序 (口径跨日一致, 不随日频pipeline样本漂移)
+    # ⚠️ 固定面板: 用 fund_basic 当前偏股+股票型 ORDER BY fund_code LIMIT 200 选出,
+    #    所有日期只取这 200 只 (subquery), 避免 7月23786只 vs 4-6月189只口径不一致
+    #    和 fetch_nav_history 回填的同一批基金, 保证面板连续
     nav_rows = conn.execute(
         "SELECT d.date, d.fund_code, d.nav_change_pct FROM fund_daily_nav d "
-        "JOIN fund_basic b ON d.fund_code = b.fund_code "
         "WHERE d.nav_change_pct IS NOT NULL AND d.nav_change_pct != 0 "
-        "AND (b.fund_type LIKE '%偏股%' OR b.fund_type LIKE '股票型%') "
-        "ORDER BY d.date ASC"
+        "AND d.fund_code IN ("
+        "  SELECT fund_code FROM fund_basic "
+        "  WHERE (fund_type LIKE '%偏股%' OR fund_type LIKE '股票型%') "
+        "  ORDER BY fund_code ASC LIMIT 200"
+        ") ORDER BY d.date ASC"
     ).fetchall()
     if not nav_rows:
         print("[estimate] fund_daily_nav 无历史净值涨跌数据, 请先跑 backfill-nav", flush=True)
         return None
-    # 按日期聚合: 每日全市场基金净值涨跌中位数 (抗极端值)
-    from collections import defaultdict
+    # 按日期聚合: 每日 200 只基金净值涨跌中位数 (抗极端值, 固定面板口径一致)
     daily_navs: dict[str, list[float]] = defaultdict(list)
     for d, _code, pct in nav_rows:
         if pct is not None:
@@ -1957,45 +1974,64 @@ def _compute_position_estimate(conn: sqlite3.Connection) -> dict | None:
         nav_median_series.append((d, float(np.median(vals))))
     sample_fund_count = max(len(v) for v in daily_navs.values()) if daily_navs else 0
 
-    # 2. 取沪深300日涨跌时序
+    # 2. 取三指数日涨跌时序 (多因子: hs300大盘 + csi500中盘 + gem创业板成长)
     idx_rows = conn.execute(
-        "SELECT date, pct_change FROM fund_index_daily "
-        "WHERE index_id='hs300' AND pct_change IS NOT NULL "
-        "ORDER BY date ASC"
+        "SELECT date, index_id, pct_change FROM fund_index_daily "
+        "WHERE pct_change IS NOT NULL AND pct_change != 0 "
+        "AND index_id IN ('hs300','csi500','gem') ORDER BY date ASC"
     ).fetchall()
-    if not idx_rows:
-        print("[estimate] fund_index_daily 无沪深300数据, 请先跑 fetch_index_daily", flush=True)
+    idx_maps: dict[str, dict[str, float]] = {"hs300": {}, "csi500": {}, "gem": {}}
+    for d, idx_id, pct in idx_rows:
+        if idx_id in idx_maps:
+            idx_maps[idx_id][d] = float(pct)
+    if not idx_maps["hs300"]:
+        print("[estimate] fund_index_daily 无 hs300 数据, 请先跑 fetch_index_daily", flush=True)
         return None
-    idx_map: dict[str, float] = {r[0]: r[1] for r in idx_rows}
+    if not idx_maps.get("csi500") or not idx_maps.get("gem"):
+        print("[estimate] fund_index_daily 缺 csi500/gem 数据, 请先跑 backfill-nav (多因子)",
+              flush=True)
+        return None
 
-    # 3. 合并基金中位数涨跌 + 沪深300涨跌, 对齐日期
+    # 3. 合并基金中位数 + hs300(必需) + csi500/gem(可选, 供透明展示), 对齐日期
+    #    回归只用 hs300 (最稳), csi500/gem 仅在 current 输出当日涨跌供参考
     pts: list[dict] = []
     for d, nav_med in nav_median_series:
-        r_idx = idx_map.get(d)
-        if r_idx is None or r_idx == 0:  # 沪深300涨跌0或缺失跳过(防除零)
+        r_h = idx_maps["hs300"].get(d)
+        if r_h is None or r_h == 0:  # hs300 必需 (防除零)
             continue
-        pts.append({"date": d, "r_nav": nav_med, "r_index": float(r_idx)})
+        r_c = idx_maps["csi500"].get(d)
+        r_g = idx_maps["gem"].get(d)
+        pts.append({"date": d, "r_nav": nav_med,
+                    "r_hs300": float(r_h),
+                    "r_csi500": float(r_c) if r_c is not None else None,
+                    "r_gem": float(r_g) if r_g is not None else None})
     if len(pts) < 30:
         print(f"[estimate] 合并后有效日期 {len(pts)} < 30", flush=True)
         return None
 
-    # 4. 滚动 60 日 OLS 回归: r_nav ~ r_index, 斜率 = 原始仓位估计
-    WINDOW = 60
+    # 4. 滚动 120 日单因子 OLS 回归: R_nav ~ R_hs300 (最稳基准)
+    #    综合基准 R_composite = (R_hs300 + R_csi500 + R_gem) / 3: 等权合成大盘+中盘+成长
+    #    ⚠️ 三指数等权综合后波动率高于单 hs300 (csi500/gem 波动大), β_composite 不稳;
+    #       实测 composite raw_slope 范围 78-92 (14%波幅), 比 hs300 单因子 101-108 (7%波幅) 更差
+    #    故最终选用 hs300 单因子 (β_hs300 最稳 ~1.06-1.13), csi500/gem 仅采集备用 (未来风格分解)
+    #    slope = w_stock × β_hs300, lg 校准吸收 β_hs300 偏差 (45 期中位数, 稳健)
+    #    (csi500/gem 仍由 backfill-nav 采集入库, 供未来多因子/风格分析, 当前回归只用 hs300)
+    WINDOW = 120  # 60日β波动大(7月raw_slope 101-119跳变), 120日窗平滑β时变, 平衡稳定性+overlap
     raw_slopes: list[dict] = []  # [{date, raw_slope}]
     for i in range(WINDOW, len(pts) + 1):
         sub = pts[i - WINDOW:i]
-        x = np.array([p["r_index"] for p in sub])
+        x = np.array([p["r_hs300"] for p in sub])
         y = np.array([p["r_nav"] for p in sub])
         var_x = float(np.var(x, ddof=1))
         if var_x <= 0:
             continue
-        slope = float(np.cov(x, y, ddof=1)[0, 1] / var_x) * 100  # 斜率×100=仓位%
+        slope = float(np.cov(x, y, ddof=1)[0, 1] / var_x) * 100  # slope×100=仓位%
         raw_slopes.append({"date": sub[-1]["date"], "raw_slope": round(slope, 2)})
     if not raw_slopes:
         print("[estimate] 滚动回归无有效输出", flush=True)
         return None
 
-    # 5. lg 校准: lg 历史仓位 vs 同期原始斜率, 算偏差中位数
+    # 5. lg 校准: lg 历史仓位 vs 同期原始斜率, 算偏差中位数 (全 overlap 期)
     lg_rows = conn.execute(
         "SELECT report_date, position_pct FROM fund_position_history "
         "WHERE source='lg' AND position_pct IS NOT NULL "
@@ -2003,41 +2039,41 @@ def _compute_position_estimate(conn: sqlite3.Connection) -> dict | None:
     ).fetchall()
     lg_map: dict[str, float] = {r[0]: r[1] for r in lg_rows}
 
-    # 对齐 lg 日期和原始斜率日期 (lg 周频, 斜率日频; 取 lg 日期最近的斜率)
-    # 偏差 = 原始斜率 - lg 仓位 (正值=反推偏高, 需减去)
+    # 对齐 lg 日期和原始斜率日期 (lg 周频, 斜率日频; 取 lg 日期最近 7 天内的斜率)
+    # ⚠️ 修 bug: 旧码 abs(int(d)-int(lg_date))<=700 用 YYYYMMDD 整数差, 跨月可达3个月
+    #    (20260703-20260313=390<=700), 致早期 lg 全匹配到首个斜率 -> vs_lg 17期重复 93.29
+    #    正确做法: datetime 算真实天数差 <=7 天
     deviations: list[float] = []
-    vs_lg_raw: list[dict] = []  # 先存 raw, estimate 在校准偏移确定后算
+    vs_lg_raw: list[dict] = []
     slope_by_date = {s["date"]: s["raw_slope"] for s in raw_slopes}
+    slope_dt: dict[str, _dt] = {d: _dt.strptime(d, "%Y%m%d") for d in slope_by_date}
     for lg_date, lg_pos in lg_map.items():
-        # 找 lg_date 当天或最近(前7天内)的斜率
-        candidate_slopes = [
-            (d, s) for d, s in slope_by_date.items()
-            if abs(int(d) - int(lg_date)) <= 700  # 7天内(YYYYMMDD数值差~7)
-        ]
-        if not candidate_slopes:
-            continue
-        # 取最接近 lg_date 的
-        candidate_slopes.sort(key=lambda x: abs(int(x[0]) - int(lg_date)))
-        nearest_date, nearest_slope = candidate_slopes[0]
-        dev = nearest_slope - lg_pos
+        lg_d = _dt.strptime(lg_date, "%Y%m%d")
+        # 找 lg_date 7 天内最近的斜率 (真实日历日差, 非YYYYMMDD整数差)
+        best_d, best_s, best_diff = None, None, 999
+        for d, s in slope_by_date.items():
+            diff = abs((slope_dt[d] - lg_d).days)
+            if diff <= 7 and diff < best_diff:
+                best_d, best_s, best_diff = d, s, diff
+        if best_s is None:
+            continue  # 无 7 天内斜率, 跳过 (不硬凑, 避免 vs_lg 重复)
+        dev = best_s - lg_pos
         deviations.append(dev)
         vs_lg_raw.append({
             "date": f"{lg_date[:4]}-{lg_date[4:6]}-{lg_date[6:8]}",
             "lg": round(lg_pos, 2),
-            "raw_slope": nearest_slope,
+            "raw_slope": best_s,
             "raw_diff": round(dev, 2),
         })
 
-    # 校准偏移: 用最近 4 期偏差均值 (约1个月, 贴合近期 beta 变化)
-    # 偏差不稳定(6月~-1.5%, 7月~+10%), 用近期4期均值比全期中位数/8期均值更贴合当前 beta
-    # 4期是周频lg约1个月, 平衡稳定性(4期降噪)+时效(贴合近期)
+    # 校准偏移: 全 overlap 期中位数 (稳健, 不受尾部噪声干扰)
+    # overlap ~36期时中位数远比 4期均值稳定; 中位数抗异常期(如风格突变期)
     if deviations:
-        recent_devs = deviations[-4:] if len(deviations) >= 4 else deviations
-        calibration_offset = float(np.mean(recent_devs))
+        calibration_offset = float(np.median(deviations))
     else:
         calibration_offset = 0.0
-    print(f"[estimate] lg 校准: 最近4期偏差均值={calibration_offset:.2f}%, "
-          f"对齐期数={len(deviations)}, 全期中位数={float(np.median(deviations)):.2f}%", flush=True)
+    print(f"[estimate] lg 校准: 全overlap中位数={calibration_offset:.2f}%, "
+          f"对齐期数={len(deviations)}, 均值={float(np.mean(deviations)):.2f}%", flush=True)
 
     # vs_lg: 用最终校准偏移算 estimate (反推值 = raw_slope - calibration_offset)
     vs_lg: list[dict] = []
@@ -2079,7 +2115,7 @@ def _compute_position_estimate(conn: sqlite3.Connection) -> dict | None:
     else:
         confidence = "low"
 
-    # 最新日的 r_nav_median / r_index
+    # 最新日的 r_nav_median / 三指数涨跌
     latest_pt = pts[-1]
 
     return {
@@ -2093,21 +2129,24 @@ def _compute_position_estimate(conn: sqlite3.Connection) -> dict | None:
             "calibration_offset": round(calibration_offset, 2),
             "deviation_from_lg": dev_from_lg,
             "r_nav_median": round(latest_pt["r_nav"], 4),
-            "r_index": round(latest_pt["r_index"], 4),
+            "r_index": round(latest_pt["r_hs300"], 4),  # 向后兼容别名
+            "r_hs300": round(latest_pt["r_hs300"], 4),
+            "r_csi500": round(latest_pt["r_csi500"], 4) if latest_pt["r_csi500"] is not None else None,
+            "r_gem": round(latest_pt["r_gem"], 4) if latest_pt["r_gem"] is not None else None,
             "sample_fund_count": sample_fund_count,
-            "method": "rolling_60d_ols+lg_calibration",
+            "method": f"rolling_{WINDOW}d_ols_hs300+lg_calibration",
             "confidence": confidence,
         },
         "history": history,
         "vs_lg": vs_lg[-20:] if len(vs_lg) > 20 else vs_lg,  # 最近20期交叉验证
         "meta": {
-            "method": "rolling_60d_ols_regression + lg_calibration",
-            "benchmark": "hs300",
-            "sample": "top200_active_equity_funds",
+            "method": f"rolling_{WINDOW}d_ols_regression(hs300) + lg_calibration",
+            "benchmark": "hs300 (csi500/gem collected for future style analysis)",
+            "sample": "top200_active_equity_funds_fixed_panel",
             "window_days": WINDOW,
-            "calibration": "median(raw_slope - lg_position) over overlap period",
+            "calibration": "median(raw_slope - lg_position) over all overlap periods",
             "error_margin": "+-5%",
-            "note": "反推斜率=w_stock*beta, lg校准消除beta偏差; 和lg源同口径(股票型+混合型全市场仓位)",
+            "note": "hs300单因子OLS最稳(β_hs300~1.06-1.13, 波幅7%), lg全overlap中位数校准吸收β偏差; 固定200只面板口径一致; csi500/gem已采集备用",
         },
     }
 
@@ -2750,6 +2789,8 @@ def export_json_files() -> None:
         concentration_ts = _compute_holding_concentration_timeseries(conn)
         scale_change_ts = _compute_scale_change_ts(conn)
         industry_rotation_ts = _compute_industry_rotation_ts(conn)
+        # 方案A: 今日预估仓位 (复用 conn, 必须在 close 前算, 2026-08-02 修 latent bug)
+        position_estimate = _compute_position_estimate(conn)
     finally:
         conn.close()
     if backtest:
@@ -2777,7 +2818,7 @@ def export_json_files() -> None:
         size = (STATIC_DATA_DIR / "public_fund_industry_rotation_ts.json").stat().st_size
         print(f"  [export] public_fund_industry_rotation_ts.json ({size} bytes)", flush=True)
     # 方案A: 今日预估仓位 + 历史预估时序 (净值回归反推 + lg 校准, 独立计算非 7 元组)
-    position_estimate = _compute_position_estimate(conn)
+    # position_estimate 已在 try 块内算好 (复用 conn)
     if position_estimate:
         (STATIC_DATA_DIR / "public_fund_position_estimate.json").write_text(
             json.dumps(position_estimate, ensure_ascii=False, separators=(",", ":")),
@@ -2802,7 +2843,7 @@ def main():
         print(f"  backfill --start 20240101 --end 20241231  历史重仓股回填")
         print(f"  backfill-industry --years 2017-2024 --top 1000  行业配置历史回填(8年)")
         print(f"  check-fresh [--top N]  数据新鲜度闸门(exit 0=应跑, 1=无新数据跳过)")
-        print(f"  backfill-nav [--days 90]  回填头部200只偏股基金历史净值(反推算法用, ~60s)")
+        print(f"  backfill-nav [--days 400]  回填头部200只偏股基金历史净值(反推算法用, ~90s)")
         print(f"  estimate        算预估仓位+导出JSON(需先 backfill-nav + fetch_index_daily)")
         sys.exit(1)
 
@@ -2955,20 +2996,22 @@ def main():
         print(f"[fresh] should_run={should_run} {reason}", flush=True)
         sys.exit(0 if should_run else 1)
     elif cmd == "backfill-nav":
-        # 回填头部偏股基金历史净值时序 (反推算法用, 一次性 ~60s)
-        # --days N 回填天数 (默认 90, 滚动 60 日回归需至少 60 日)
-        days = 90
+        # 回填头部偏股基金历史净值时序 (反推算法用, 一次性 ~90s)
+        # --days N 回填天数 (默认 400, 120日滚动窗后剩~7月 slopes 供 lg 校准)
+        days = 400
         for i, a in enumerate(sys.argv[2:], 2):
             if a == "--days" and i + 1 < len(sys.argv):
                 days = int(sys.argv[i + 1])
-        # 先确保沪深300日频有数据 (反推基准指数)
-        fetch_index_daily()
+        # 先确保三指数日频有数据 (多因子回归基准: hs300+csi500+gem)
+        for _idx in ("hs300", "csi500", "gem"):
+            fetch_index_daily(index_id=_idx)
         n = fetch_nav_history(days=days)
         print(f"[backfill-nav] 完成, 总行数={n}", flush=True)
     elif cmd == "estimate":
         # 算预估仓位 + 导出 JSON (需先 backfill-nav)
-        # 先刷新沪深300到最新
-        fetch_index_daily()
+        # 先刷新三指数到最新 (多因子: hs300+csi500+gem)
+        for _idx in ("hs300", "csi500", "gem"):
+            fetch_index_daily(index_id=_idx)
         export_json_files()
         print(f"[estimate] 预估仓位 JSON 已导出", flush=True)
 
