@@ -2857,7 +2857,7 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 2026-07-20: 加 index\/[^/]+-all 排除 kc50-all.json 等 index/{iid}-all.json（走势图源），
 // 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
-const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|notifications|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
+const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|notifications|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
@@ -10119,24 +10119,7 @@ async function renderPublicFund(container) {
     }).filter(Boolean);
 
     if (_alignData.length >= 2) {
-      // 2. 共振判断
-      const _herfVals = _alignData.map((d) => d.herfindahl).filter((v) => v != null).sort((a, b) => a - b);
-      const _herfMedian = _herfVals.length ? _herfVals[Math.floor(_herfVals.length / 2)] : 0.015;
-      let _maxAsset = 0;
-      const _resonancePoints = [];
-      for (const d of _alignData) {
-        if (d.endNetAsset != null && d.endNetAsset > _maxAsset) _maxAsset = d.endNetAsset;
-        // 看顶: 88魔咒>88 + 净申购(散户乐观>0 反向看空) + 抱团>中位数 + 规模接近最高(>95%)
-        const _isTop = d.avgPosition > 88 && d.netPurchase != null && d.netPurchase > 0
-          && d.herfindahl != null && d.herfindahl > _herfMedian
-          && d.endNetAsset != null && _maxAsset > 0 && d.endNetAsset >= _maxAsset * 0.95;
-        // 看底: 88魔咒<80 + 净赎回(散户悲观<0 反向看多) + 抱团<中位数
-        const _isBottom = d.avgPosition < 80 && d.netPurchase != null && d.netPurchase < 0
-          && d.herfindahl != null && d.herfindahl < _herfMedian;
-        if (_isTop || _isBottom) _resonancePoints.push({ ...d, type: _isTop ? "top" : "bottom" });
-      }
-
-      // 3. 共振时点后续市场表现(复用 shIndex.ohlc close 日频时序)
+      // 3. 共振时点后续市场表现(复用 shIndex.ohlc close 日频时序) - 窗口无关, 计算一次
       const _shClose = (shIndex && shIndex.ohlc) ? shIndex.ohlc.map((d) => ({ date: d.date, close: d.close })).filter((d) => d.close != null) : [];
       const _afterReturn = (startDate, days) => {
         if (!_shClose.length) return null;
@@ -10149,22 +10132,18 @@ async function renderPublicFund(container) {
         if (!_end) return null;
         return (_end.close - _start.close) / _start.close * 100;
       };
-      for (const rp of _resonancePoints) {
-        rp.after_30d = _afterReturn(rp.date, 30);
-        rp.after_60d = _afterReturn(rp.date, 60);
-        rp.after_90d = _afterReturn(rp.date, 90);
-      }
 
-      // 4. 渲染面板容器
+      // 4. 渲染面板容器(含时间窗口切换器 - 追加2; 副标题精简不截断 - 追加1)
       const _nfCard = document.createElement("div");
       _nfCard.className = "chart-card pf-nf-card";
-      const _d0 = _pfFmtDate(_alignData[0].date).slice(0, 7);
-      const _dN = _pfFmtDate(_alignData[_alignData.length - 1].date).slice(0, 7);
-      _nfCard.innerHTML = '<div class="chart-title">🎯 多信号共振仪表盘（4信号季频对齐 · '
-        + _alignData.length + ' 期 · ' + _d0 + ' ~ ' + _dN + '）</div>'
-        + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5;word-break:break-word">'
-        + '📊 4信号叠加: <span style="color:#e6492e">88魔咒(仓位%)</span> + <span style="color:#ff9800">净申赎(亿份)</span> + <span style="color:#9c27b0">抱团度HHI(赫芬达尔)×1k</span> + <span style="color:#2196f3">规模(亿)</span>'
-        + ' · 88魔咒周频对齐到季频(取季末最近期值) · 共振: 🔴看顶(仓位>88+净申购+高抱团+规模高位) 🟢看底(仓位<80+净赎回+低抱团)</div>'
+      _nfCard.innerHTML = '<div class="chart-title">🎯 多信号共振仪表盘（4信号季频对齐 · <span class="pf-nf-period">' + _alignData.length + ' 期</span>）'
+        + '<span class="pf-nf-range"><button class="pf-rot-range-btn" data-nf-rng="3m" type="button">3月</button>'
+        + '<button class="pf-rot-range-btn" data-nf-rng="6m" type="button">6月</button>'
+        + '<button class="pf-rot-range-btn" data-nf-rng="1y" type="button">1年</button>'
+        + '<button class="pf-rot-range-btn active" data-nf-rng="all" type="button">全部</button></span></div>'
+        + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 6px 0;line-height:1.6;word-break:break-word;overflow:visible">'
+        + '📊 4信号: <span style="color:#e6492e">88魔咒(仓位%)</span> · <span style="color:#ff9800">净申赎(亿份)</span> · <span style="color:#9c27b0">抱团度HHI(赫芬达尔)×1k</span> · <span style="color:#2196f3">规模(亿)</span><br>'
+        + '共振 🔴看顶(仓位>88+净申购+高抱团+规模高位) 🟢看底(仓位<80+净赎回+低抱团) · 88魔咒周频对齐季频(取季末最近期值)</div>'
         + '<div class="chart" style="height:420px"></div>'
         + '<div class="pf-nf-resonance"></div>';
       container.appendChild(_nfCard);
@@ -10172,78 +10151,122 @@ async function renderPublicFund(container) {
       // 5. echarts 4 y 轴时序叠加
       const _nfChart = echarts.init(_nfCard.querySelector(".chart"));
       charts.push(_nfChart);
-      const _dates = _alignData.map((d) => d.date);
-      const _posData = _alignData.map((d) => d.avgPosition);
-      const _netData = _alignData.map((d) => d.netPurchase);
-      const _herfData = _alignData.map((d) => d.herfindahl != null ? +(d.herfindahl * 1000).toFixed(2) : null);
-      const _assetData = _alignData.map((d) => d.endNetAsset);
-      // 共振 markPoint
-      const _resMark = _resonancePoints.map((rp) => ({
-        coord: [rp.date, rp.avgPosition],
-        value: rp.type === "top" ? "看顶" : "看底",
-        itemStyle: { color: rp.type === "top" ? "#e6492e" : "#2e8b57" },
-        label: { color: "#fff", fontSize: 10, formatter: "{b|" + (rp.type === "top" ? "顶" : "底") + "}",
-          rich: { b: { fontSize: 11, color: "#fff", fontWeight: 700 } } },
-      }));
-      _nfChart.setOption({
-        tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-        legend: { data: ["88魔咒仓位%", "净申赎(亿份)", "抱团度HHI×1k", "规模(亿)"], top: 5, textStyle: { color: "var(--text-2)" } },
-        grid: { left: 60, right: 90, top: 50, bottom: 30 },
-        xAxis: { type: "category", data: _dates, axisLabel: { formatter: (v) => _pfFmtDate(v).slice(2, 7), fontSize: 10 } },
-        yAxis: [
-          { type: "value", name: "仓位%", min: 75, max: 100, position: "left", axisLabel: { formatter: "{value}%" } },
-          { type: "value", name: "净申赎", position: "right", axisLabel: { formatter: "{value}" } },
-          { type: "value", name: "HHI×1k", position: "right", offset: 45, axisLabel: { formatter: "{value}" } },
-          { type: "value", name: "规模亿", position: "right", offset: 90, axisLabel: { formatter: "{value}" } },
-        ],
-        series: [
-          { name: "88魔咒仓位%", type: "line", data: _posData, yAxisIndex: 0,
-            symbol: "circle", symbolSize: 6, connectNulls: true,
-            lineStyle: { color: "#e6492e", width: 2.5 }, itemStyle: { color: "#e6492e" },
-            markLine: { silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 }, data: [
-              { yAxis: 88, lineStyle: { color: "#e6492e" }, label: { formatter: "88", color: "#e6492e", fontSize: 10 } },
-              { yAxis: 80, lineStyle: { color: "#2e8b57" }, label: { formatter: "80", color: "#2e8b57", fontSize: 10 } },
-            ]},
-            markPoint: { symbol: "pin", symbolSize: 42, data: _resMark },
-          },
-          { name: "净申赎(亿份)", type: "line", data: _netData, yAxisIndex: 1,
-            symbol: "diamond", symbolSize: 5, connectNulls: true,
-            lineStyle: { color: "#ff9800", width: 1.5 }, itemStyle: { color: "#ff9800" } },
-          { name: "抱团度HHI×1k", type: "line", data: _herfData, yAxisIndex: 2,
-            symbol: "triangle", symbolSize: 5, connectNulls: true,
-            lineStyle: { color: "#9c27b0", width: 1.5 }, itemStyle: { color: "#9c27b0" } },
-          { name: "规模(亿)", type: "line", data: _assetData, yAxisIndex: 3,
-            symbol: "none", connectNulls: true,
-            lineStyle: { color: "#2196f3", width: 1.5 }, itemStyle: { color: "#2196f3" } },
-        ],
-      });
-
-      // 6. 共振统计面板
+      const _periodEl = _nfCard.querySelector(".pf-nf-period");
       const _resDiv = _nfCard.querySelector(".pf-nf-resonance");
       const _retFmt = (v) => (v == null ? "-" : (v > 0 ? "+" : "") + v.toFixed(2) + "%");
       const _retColor = (v) => (v == null ? "var(--text-3)" : v > 0 ? "#e6492e" : v < 0 ? "#2e8b57" : "var(--text-3)");
-      if (_resonancePoints.length) {
-        let _resHtml = '<div class="pf-nf-res-grid">';
-        for (const rp of _resonancePoints) {
-          const _color = rp.type === "top" ? "#e6492e" : "#2e8b57";
-          const _label = rp.type === "top" ? "🔴 看顶共振" : "🟢 看底共振";
-          _resHtml += '<div class="pf-bt-section" style="border-left:4px solid ' + _color + '">'
-            + '<div class="pf-bt-head" style="color:' + _color + '">' + _label + ' · ' + _pfFmtDate(rp.date).slice(0, 7) + '</div>'
-            + '<div class="pf-bt-row"><span>88魔咒仓位</span><b style="color:' + _color + '">' + rp.avgPosition.toFixed(2) + '%</b></div>'
-            + '<div class="pf-bt-row"><span>净申赎</span><b>' + (rp.netPurchase != null ? rp.netPurchase.toFixed(2) + " 亿份" : "-") + '</b></div>'
-            + '<div class="pf-bt-row"><span>抱团度HHI</span><b>' + (rp.herfindahl != null ? rp.herfindahl.toFixed(4) : "-") + '</b></div>'
-            + '<div class="pf-bt-row"><span>规模</span><b>' + (rp.endNetAsset != null ? rp.endNetAsset.toFixed(0) + " 亿" : "-") + '</b></div>'
-            + '<div class="pf-bt-row"><span>后30天沪深300</span><b style="color:' + _retColor(rp.after_30d) + '">' + _retFmt(rp.after_30d) + '</b></div>'
-            + '<div class="pf-bt-row"><span>后60天沪深300</span><b style="color:' + _retColor(rp.after_60d) + '">' + _retFmt(rp.after_60d) + '</b></div>'
-            + '<div class="pf-bt-row"><span>后90天沪深300</span><b style="color:' + _retColor(rp.after_90d) + '">' + _retFmt(rp.after_90d) + '</b></div>'
-            + '</div>';
+
+      // 追加2: 时间窗口切换 - 按 cutoff 过滤 _alignData 重算共振+重渲染(季频3m≈2期/6m≈3期/1y≈5期/all=全量)
+      function _nfRender(range) {
+        const _cutoff = _signalModalCutoff(_alignData.map((d) => ({ date: d.date, value: d.avgPosition })), range);
+        const _win = _cutoff ? _alignData.filter((d) => d.date >= _cutoff) : _alignData.slice();
+        // 2. 共振判断(基于窗口数据重算中位数+共振)
+        const _herfVals = _win.map((d) => d.herfindahl).filter((v) => v != null).sort((a, b) => a - b);
+        const _herfMedian = _herfVals.length ? _herfVals[Math.floor(_herfVals.length / 2)] : 0.015;
+        let _maxAsset = 0;
+        const _resonancePoints = [];
+        for (const d of _win) {
+          if (d.endNetAsset != null && d.endNetAsset > _maxAsset) _maxAsset = d.endNetAsset;
+          // 看顶: 88魔咒>88 + 净申购(散户乐观>0 反向看空) + 抱团>中位数 + 规模接近最高(>95%)
+          const _isTop = d.avgPosition > 88 && d.netPurchase != null && d.netPurchase > 0
+            && d.herfindahl != null && d.herfindahl > _herfMedian
+            && d.endNetAsset != null && _maxAsset > 0 && d.endNetAsset >= _maxAsset * 0.95;
+          // 看底: 88魔咒<80 + 净赎回(散户悲观<0 反向看多) + 抱团<中位数
+          const _isBottom = d.avgPosition < 80 && d.netPurchase != null && d.netPurchase < 0
+            && d.herfindahl != null && d.herfindahl < _herfMedian;
+          if (_isTop || _isBottom) _resonancePoints.push({ ...d, type: _isTop ? "top" : "bottom" });
         }
-        _resHtml += '</div>';
-        _resHtml += '<div class="pf-bt-note">📌 看顶=88魔咒>88%+净申购(散户乐观反向看空)+抱团>中位数('+ _herfMedian.toFixed(4) +')+规模接近最高; 看底=88魔咒<80%+净赎回(散户悲观反向看多)+抱团<中位数 · 后续表现从沪深300日频收盘价计算(30/60/90天最近收盘价涨跌%)</div>';
+        for (const rp of _resonancePoints) {
+          rp.after_30d = _afterReturn(rp.date, 30);
+          rp.after_60d = _afterReturn(rp.date, 60);
+          rp.after_90d = _afterReturn(rp.date, 90);
+        }
+        // 更新标题期数+区间
+        const _d0 = _pfFmtDate(_win[0].date).slice(0, 7);
+        const _dN = _pfFmtDate(_win[_win.length - 1].date).slice(0, 7);
+        _periodEl.textContent = _win.length + ' 期 · ' + _d0 + ' ~ ' + _dN;
+        // echarts setOption(notMerge=true 全量替换, 切窗口清旧 series/markPoint)
+        const _dates = _win.map((d) => d.date);
+        const _posData = _win.map((d) => d.avgPosition);
+        const _netData = _win.map((d) => d.netPurchase);
+        const _herfData = _win.map((d) => d.herfindahl != null ? +(d.herfindahl * 1000).toFixed(2) : null);
+        const _assetData = _win.map((d) => d.endNetAsset);
+        const _resMark = _resonancePoints.map((rp) => ({
+          coord: [rp.date, rp.avgPosition],
+          value: rp.type === "top" ? "看顶" : "看底",
+          itemStyle: { color: rp.type === "top" ? "#e6492e" : "#2e8b57" },
+          label: { color: "#fff", fontSize: 10, formatter: "{b|" + (rp.type === "top" ? "顶" : "底") + "}",
+            rich: { b: { fontSize: 11, color: "#fff", fontWeight: 700 } } },
+        }));
+        _nfChart.setOption({
+          tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
+          legend: { data: ["88魔咒仓位%", "净申赎(亿份)", "抱团度HHI×1k", "规模(亿)"], top: 5, textStyle: { color: "var(--text-2)" } },
+          grid: { left: 60, right: 90, top: 50, bottom: 30 },
+          xAxis: { type: "category", data: _dates, axisLabel: { formatter: (v) => _pfFmtDate(v).slice(2, 7), fontSize: 10 } },
+          yAxis: [
+            { type: "value", name: "仓位%", min: 75, max: 100, position: "left", axisLabel: { formatter: "{value}%" } },
+            { type: "value", name: "净申赎", position: "right", axisLabel: { formatter: "{value}" } },
+            { type: "value", name: "HHI×1k", position: "right", offset: 45, axisLabel: { formatter: "{value}" } },
+            { type: "value", name: "规模亿", position: "right", offset: 90, axisLabel: { formatter: "{value}" } },
+          ],
+          series: [
+            { name: "88魔咒仓位%", type: "line", data: _posData, yAxisIndex: 0,
+              symbol: "circle", symbolSize: 6, connectNulls: true,
+              lineStyle: { color: "#e6492e", width: 2.5 }, itemStyle: { color: "#e6492e" },
+              markLine: { silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 }, data: [
+                { yAxis: 88, lineStyle: { color: "#e6492e" }, label: { formatter: "88", color: "#e6492e", fontSize: 10 } },
+                { yAxis: 80, lineStyle: { color: "#2e8b57" }, label: { formatter: "80", color: "#2e8b57", fontSize: 10 } },
+              ]},
+              markPoint: { symbol: "pin", symbolSize: 42, data: _resMark },
+            },
+            { name: "净申赎(亿份)", type: "line", data: _netData, yAxisIndex: 1,
+              symbol: "diamond", symbolSize: 5, connectNulls: true,
+              lineStyle: { color: "#ff9800", width: 1.5 }, itemStyle: { color: "#ff9800" } },
+            { name: "抱团度HHI×1k", type: "line", data: _herfData, yAxisIndex: 2,
+              symbol: "triangle", symbolSize: 5, connectNulls: true,
+              lineStyle: { color: "#9c27b0", width: 1.5 }, itemStyle: { color: "#9c27b0" } },
+            { name: "规模(亿)", type: "line", data: _assetData, yAxisIndex: 3,
+              symbol: "none", connectNulls: true,
+              lineStyle: { color: "#2196f3", width: 1.5 }, itemStyle: { color: "#2196f3" } },
+          ],
+        }, true);
+        // 6. 共振统计面板
+        let _resHtml = "";
+        if (_resonancePoints.length) {
+          _resHtml = '<div class="pf-nf-res-grid">';
+          for (const rp of _resonancePoints) {
+            const _color = rp.type === "top" ? "#e6492e" : "#2e8b57";
+            const _label = rp.type === "top" ? "🔴 看顶共振" : "🟢 看底共振";
+            _resHtml += '<div class="pf-bt-section" style="border-left:4px solid ' + _color + '">'
+              + '<div class="pf-bt-head" style="color:' + _color + '">' + _label + ' · ' + _pfFmtDate(rp.date).slice(0, 7) + '</div>'
+              + '<div class="pf-bt-row"><span>88魔咒仓位</span><b style="color:' + _color + '">' + rp.avgPosition.toFixed(2) + '%</b></div>'
+              + '<div class="pf-bt-row"><span>净申赎</span><b>' + (rp.netPurchase != null ? rp.netPurchase.toFixed(2) + " 亿份" : "-") + '</b></div>'
+              + '<div class="pf-bt-row"><span>抱团度HHI</span><b>' + (rp.herfindahl != null ? rp.herfindahl.toFixed(4) : "-") + '</b></div>'
+              + '<div class="pf-bt-row"><span>规模</span><b>' + (rp.endNetAsset != null ? rp.endNetAsset.toFixed(0) + " 亿" : "-") + '</b></div>'
+              + '<div class="pf-bt-row"><span>后30天沪深300</span><b style="color:' + _retColor(rp.after_30d) + '">' + _retFmt(rp.after_30d) + '</b></div>'
+              + '<div class="pf-bt-row"><span>后60天沪深300</span><b style="color:' + _retColor(rp.after_60d) + '">' + _retFmt(rp.after_60d) + '</b></div>'
+              + '<div class="pf-bt-row"><span>后90天沪深300</span><b style="color:' + _retColor(rp.after_90d) + '">' + _retFmt(rp.after_90d) + '</b></div>'
+              + '</div>';
+          }
+          _resHtml += '</div>';
+          _resHtml += '<div class="pf-bt-note">📌 看顶=88魔咒>88%+净申购(散户乐观反向看空)+抱团>中位数('+ _herfMedian.toFixed(4) +')+规模接近最高; 看底=88魔咒<80%+净赎回(散户悲观反向看多)+抱团<中位数 · 后续表现从沪深300日频收盘价计算(30/60/90天最近收盘价涨跌%)</div>';
+        } else {
+          _resHtml = '<div class="pf-bt-note">📌 当前' + _win.length + '期数据无共振时点(4信号未同时触发看顶/看底条件) · 抱团度HHI中位数=' + _herfMedian.toFixed(4) + ' · 88魔咒平均=' + (_win.reduce((s, d) => s + d.avgPosition, 0) / _win.length).toFixed(2) + '%</div>';
+        }
+        if (_win.length < 3) {
+          _resHtml += '<div class="pf-bt-note" style="color:#ff9800">⚠️ 季频数据窗口内仅 ' + _win.length + ' 期, 信号参考性有限, 建议用更长窗口</div>';
+        }
         _resDiv.innerHTML = _resHtml;
-      } else {
-        _resDiv.innerHTML = '<div class="pf-bt-note">📌 当前' + _alignData.length + '期数据无共振时点(4信号未同时触发看顶/看底条件) · 抱团度HHI中位数=' + _herfMedian.toFixed(4) + ' · 88魔咒平均=' + (_alignData.reduce((s, d) => s + d.avgPosition, 0) / _alignData.length).toFixed(2) + '%</div>';
       }
+      _nfRender("all");
+      // 窗口按钮点击(追加2)
+      _nfCard.querySelectorAll('button[data-nf-rng]').forEach((b) => {
+        b.addEventListener("click", () => {
+          _nfCard.querySelectorAll('button[data-nf-rng]').forEach((x) => x.classList.remove("active"));
+          b.classList.add("active");
+          _nfRender(b.dataset.nfRng);
+        });
+      });
     }
   }
 

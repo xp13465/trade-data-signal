@@ -5,15 +5,15 @@
  *  1. App Shell (HTML/CSS/JS/vendor/图标/manifest): CacheFirst
  *     - 关键静态资源预缓存,离线可用
  *     - 改 CACHE_VERSION 清旧缓存,skipWaiting+clients.claim 立即接管,提示用户刷新拿新版
- *  2. 数据 JSON (除 intraday_snapshot): stale-while-revalidate (盘中 3 分钟刷)
- *     - 先返回缓存(毫秒级),后台拉新版更新缓存
- *     - 缓存 < 3 分钟直接返回缓存不发网络(省流量);>= 3 分钟后台拉新版
+ *  2. 数据 JSON (除 intraday_snapshot): network-first (正确性优先, 失败回退缓存)
+ *     - 2026-08-02 改: 原走 SWR 先返旧缓存后台拉新版, 低频数据(季频 public_fund_*/etf_score_list)更新后用户仍拿旧缓存
+ *     - 改 network-first 每次走网络拿最新, 离线/失败回退缓存(牺牲毫秒延迟换正确性)
  *  3. intraday_snapshot.json + notifications.json: NetworkFirst (盘中实时性优先,离线回退缓存)
  *  4. 第三方 (hm.baidu/zz.bdstatic/echarts CDN 等): 跨域不拦截,直接走网络,不缓存
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260802-etf-popup-sell-action-position-cutoff-overlap-distinct-ui96';
+const CACHE_VERSION = 'v2-20260802-etf-popup-sell-action-position-cutoff-overlap-distinct-ui97-sw-json-cache-fix';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -35,9 +35,6 @@ const PRECACHE_URLS = [
 
 // App Shell 静态资源的文件扩展名(CacheFirst 适用)
 const APP_SHELL_ASSET_PATTERN = /\.(?:css|js|svg|png|ico|woff2?|ttf|woff)$/i;
-
-// 数据 JSON 缓存最大年龄(盘中 3 分钟刷)
-const DATA_MAX_AGE_MS = 3 * 60 * 1000;
 
 // ============== install: 预缓存 App Shell + skipWaiting ==============
 self.addEventListener('install', (event) => {
@@ -104,9 +101,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2) 其他数据 JSON (非 intraday): stale-while-revalidate (盘中 3 分钟刷)
+  // 2) 其他数据 JSON (非 intraday): network-first (正确性优先, 失败回退缓存)
+  //    2026-08-02 修复: 原走 SWR 3min 先返旧缓存后台拉新版, 低频数据(季频 public_fund_*/etf_score_list)
+  //    更新后用户仍可能拿到旧缓存(SWR 后台 fetch 也可能命中 CF edge 旧版)。改 network-first 每次走网络拿最新,
+  //    离线/网络失败才回退缓存。牺牲毫秒级延迟换数据正确性(数据更新第一时间反映)。
   if (url.pathname.startsWith('/data/') || url.pathname.endsWith('.json')) {
-    event.respondWith(staleWhileRevalidate(req, DATA_MAX_AGE_MS));
+    event.respondWith(networkFirstJson(req));
     return;
   }
 
@@ -137,44 +137,22 @@ function cacheFirst(req) {
   });
 }
 
-// ============== stale-while-revalidate: 先返回缓存,后台拉新版更新 ==============
-// maxAgeMs: 缓存年龄 < maxAgeMs 直接返回缓存不发网络(省流量);>= maxAgeMs 返回缓存同时后台拉新版
-function staleWhileRevalidate(req, maxAgeMs) {
-  return caches.open(CACHE_NAME).then((cache) =>
-    cache.match(req).then((cached) => {
-      // 无缓存: 必须等网络
-      if (!cached) {
-        return fetch(req, { cache: 'no-store' }).then((res) => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            cache.put(req, copy).catch(() => {});
-          }
-          return res;
-        }).catch(() =>
-          new Response('{"error":"offline"}', { headers: { 'Content-Type': 'application/json' } })
-        );
+// ============== networkFirstJson: 优先网络拿最新, 失败回退缓存(离线兜底) ==============
+// 用于 /data/ JSON: 低频数据(季频/日频)正确性优先, 不返回旧缓存。
+// fetch 加 cache:'no-store' 避免命中浏览器 HTTP/CF 缓存拉旧数据(与 intraday/overview 同模式)。
+// 成功写入缓存供离线兜底; 失败回退缓存, 缓存也无则返 offline 占位。
+function networkFirstJson(req) {
+  return fetch(req, { cache: 'no-store' })
+    .then((res) => {
+      if (res && res.status === 200) {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
       }
-
-      // 缓存年龄 < maxAgeMs: 直接返回缓存,不发网络(省流量)
-      const cacheDate = cached.date || cached.headers.get('date');
-      if (cacheDate) {
-        const age = Date.now() - new Date(cacheDate).getTime();
-        if (age < maxAgeMs) return cached;
-      }
-
-      // 缓存年龄 >= maxAgeMs 或无 date 头: 返回缓存同时后台拉新版更新(SWR)
-      // 后台异步拉新版更新缓存(不阻塞返回)
-      fetch(req, { cache: 'no-store' })
-        .then((res) => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            cache.put(req, copy).catch(() => {});
-          }
-        })
-        .catch(() => {});
-      return cached;
+      return res;
     })
-  );
+    .catch(() => caches.match(req).then((cached) => cached ||
+      new Response('{"error":"offline"}', { headers: { 'Content-Type': 'application/json' } })
+    ));
 }
 
 // ============== message: 接收客户端消息 ==============

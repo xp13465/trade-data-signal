@@ -358,6 +358,10 @@ main { padding: 16px 24px; }
   scroll-margin-top: calc(var(--tab-h, 41px) + var(--subtab-h, 46px) + 100px);
 }
 .chart-card h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-1); padding-right: 4px; }
+/* pf-nf-card: 多信号共振仪表盘(追加1+2) - 副标题自适应高度不截断 + 窗口按钮右浮 */
+.pf-nf-card { overflow: visible; }
+.pf-nf-card .chart-subtitle { overflow: visible; line-height: 1.6; }
+.pf-nf-card .pf-nf-range { float: right; display: inline-flex; gap: 4px; margin-left: 8px; }
 /* 盘中标注角标：右下角浮动药丸(absolute 不占位)，半透明毛玻璃背景像贴纸浮于内容之上，区分盘中(绿)/午休(黄)/待收盘(灰)/收盘(主题色) */
 /* 角标定位规则（UI-P1-4：评估后保留 absolute，未统一为 flex 标题行）：chart-card 右上 / spark·kpi 右下 / industry 右上 / heatmap 回右下。
    因 spark/kpi 无标准 h3、heatmap 特殊布局，统一为 flex 标题行会波及多个渲染函数，风险高于收益，故保留 absolute 覆盖规则。 */
