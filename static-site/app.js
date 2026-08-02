@@ -99,9 +99,10 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
     // tab 切换到 lab 时按钮已 active，IIFE 的 click 会导致重复渲染竞态，跳过。
     if (b.dataset.tab === "lab" && b.classList.contains("active")) return;
     state.tab = b.dataset.tab;
-    // market/sentiment 共享 state.subtab，切 tab 时校验：非法值回退各自默认
+    // market/sentiment/fund 共享 state.subtab，切 tab 时校验：非法值回退各自默认
     if (state.tab === "market") state.subtab = _MARKET_SUBTABS.includes(state.subtab) ? state.subtab : "a-stock";
     else if (state.tab === "sentiment") state.subtab = _SENTIMENT_SUBTABS.includes(state.subtab) ? state.subtab : "market-temp";
+    else if (state.tab === "fund") state.subtab = _FUND_SUBTABS.includes(state.subtab) ? state.subtab : "etf";
     document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
     b.classList.add("active");
     updateH5Topbar();
@@ -4176,7 +4177,7 @@ async function renderTab() {
   if (_simIndicesPromise) { try { await _simIndicesPromise; } catch (e) { /* catch 内已处理 */ } }
   clearCharts();
   // 概览 tab 图表固定近60日、策略实验 tab 全历史，周期切换均无意义，隐藏 .periods 和 .h5-period-bar；切走恢复
-  const _hidePeriods = (state.tab === "lab" || state.tab === "overview" || state.tab === "etf");
+  const _hidePeriods = (state.tab === "lab" || state.tab === "overview" || state.tab === "fund");
   document.querySelectorAll(".periods, .h5-period-bar").forEach((el) => {
     el.style.display = _hidePeriods ? "none" : "";
   });
@@ -4186,7 +4187,7 @@ async function renderTab() {
     else if (state.tab === "market") await renderMarket();
     else if (state.tab === "sentiment") await renderSentiment();
     else if (state.tab === "industry") await renderIndustry();
-    else if (state.tab === "etf") await renderEtfScore();
+    else if (state.tab === "fund") await renderFund();
     else if (state.tab === "lab") {
       await loadLabScript();   // B5: 懒加载 lab.js
       await renderSignalLab();
@@ -13734,7 +13735,9 @@ function _renderEtfScoreBody() {
   });
 }
 
-async function renderEtfScore() {
+async function renderEtfScore(container) {
+  // container 可选：由 renderFund 二级 tab 分发器传入 subContent；直接调用时 fallback 到全局 content
+  const _c = container || content;
   // R2 合规修复（2026-07-20）：4.3MB 走 R2 避免双源冗余（upload-data-large 上传 data/ 前缀）
   const r = await fetchJSON("https://ssd.fx8.store/data/etf_score_list.json");
   _etfScoreState.meta = {
@@ -13805,13 +13808,13 @@ async function renderEtfScore() {
     }
   } catch (e) {}
 
-  content.innerHTML = "";
+  _c.innerHTML = "";
   const m = _etfScoreState.meta;
-  renderPurposeNote(content, PURPOSE_NOTES["etf"]);
+  renderPurposeNote(_c, PURPOSE_NOTES["etf"]);
   // 持仓面板（可折叠输入区 + 持仓 chips 显示评分排名）
   const holdWrap = document.createElement("div");
   holdWrap.id = "etf-holdings-panel";
-  content.appendChild(holdWrap);
+  _c.appendChild(holdWrap);
   _renderEtfHoldingsPanel();
   // 搜索栏 + side 筛选 chip + 排序下拉
   const bar = document.createElement("div");
@@ -13843,7 +13846,7 @@ async function renderEtfScore() {
     + '<option value="low_alert-desc"' + (sortVal === "low_alert-desc" ? " selected" : "") + '>低位机会 高→低</option>'
     + '</select>'
     + '<span class="etf-score-updated">更新 ' + (m && m.updated_at ? _esc(m.updated_at.slice(0, 16)) : '-') + (m && m.full_market ? ' · 全市场' : ' · 代表性') + '</span>';
-  content.appendChild(bar);
+  _c.appendChild(bar);
   const input = bar.querySelector("#etf-score-search");
   let _searchTimer = null;
   input.oninput = () => {
@@ -13902,8 +13905,67 @@ async function renderEtfScore() {
   // 列表容器
   const body = document.createElement("div");
   body.id = "etf-score-body";
-  content.appendChild(body);
+  _c.appendChild(body);
   _renderEtfScoreBody();
+}
+
+// ============ 基金评分 1级 tab 二级分发器（场内ETF / 场外基金） ============
+// ETF 是基金子类，"基金评分"作上位概念收纳：场内ETF（交易所交易）+ 场外基金（申赎型）。
+// 复用 sentiment 二级 subtab 模式（_SENTIMENT_SUBTABS / _setTabHash / _initMainTabHashRestore）。
+// 场内ETF=现有 renderEtfScore 内容整体收纳；场外基金=公募基金筛选器预留位（待补 fund_basic 字段后上线）。
+async function renderFund() {
+  content.innerHTML = "";
+  // 二级 tab 栏（场内ETF/场外基金）
+  const subtabBar = document.createElement("div");
+  subtabBar.className = "subtab-bar";
+  const subtabs = [
+    ["etf", "场内ETF"],
+    ["offshore", "场外基金"],
+  ];
+  subtabs.forEach(([key, label]) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.dataset.subtab = key;
+    if (state.subtab === key) btn.classList.add("active");
+    btn.onclick = () => {
+      state.subtab = key;
+      _setTabHash(state.tab); // 写 #fund/{subtab}，F5 刷新恢复二级 tab
+      renderFund(); // 重新渲染基金评分 tab
+    };
+    subtabBar.appendChild(btn);
+  });
+  content.appendChild(subtabBar);
+
+  // 子内容容器
+  const subContent = document.createElement("div");
+  subContent.className = "fund-sub-content";
+  content.appendChild(subContent);
+  renderLoadingState(subContent);
+
+  // 根据 subtab 渲染对应内容
+  if (state.subtab === "offshore") await renderOffshoreFund(subContent);
+  else await renderEtfScore(subContent); // 默认 场内ETF
+}
+
+// 场外基金筛选器占位（开发中）：待补 fund_basic 字段后上线实战级筛选器。
+// 规划引用 memory `pf-fund-screener-real-requirements`：历史盈利比例/稳定度/基金经理稳健度等。
+async function renderOffshoreFund(container) {
+  container.innerHTML =
+    '<div class="offshore-fund-placeholder">'
+    + '<h3>📊 场外基金筛选器（开发中）</h3>'
+    + '<p>本模块为公募场外基金（申赎型）筛选器预留位，待补齐 fund_basic 字段后上线。</p>'
+    + '<div class="offshore-roadmap">'
+    + '<h4>规划方向（实战级筛选）</h4>'
+    + '<ul>'
+    + '<li>历史盈利比例：近 1/3/5 年滚动收益为正的期间占比</li>'
+    + '<li>收益稳定度：滚动收益波动率、最大回撤、夏普比率</li>'
+    + '<li>基金经理稳健度：任职年限、在管规模、历史业绩一致性</li>'
+    + '<li>基金规模与费率：规模适中（避免清盘/巨额）、费率合理</li>'
+    + '<li>分类筛选：股票型/混合型/债券型/指数型/QDII 等</li>'
+    + '</ul>'
+    + '<p class="offshore-note">当前「盘面温测 → 公募基金」二级 tab 展示的是公募基金持仓监控（88 魔咒/预估仓位/行业配置/重仓股反查），与本筛选器（选基工具）功能互补，保持原位不迁移。</p>'
+    + '</div>'
+    + '</div>';
 }
 
 // ============ B4 持仓面板: 输入/保存/清空 + chips 显示评分排名 ============
@@ -14198,7 +14260,7 @@ function closeSummaryHistoryModal() {
 // === H5 移动端适配（方案B：底部导航 + 顶部精简条 + 1/2列切换）===
 // matchMedia 驱动 body.h5，@media(max-width:768px) 自动切换布局，PC(>768) 零影响。
 const SUMMARY_URL = "./data/summary.json";
-const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 指数表现", sentiment: "😊 盘面温测", industry: "🏭 板块分化", etf: "💹 ETF评分", lab: "🧪 策略实验" };
+const _H5_TAB_NAMES = { overview: "📊 市场全景", market: "📈 指数表现", sentiment: "😊 盘面温测", industry: "🏭 板块分化", fund: "💹 基金评分", lab: "🧪 策略实验" };
 
 function updateH5Topbar() {
   if (!document.body.classList.contains("h5")) return;
@@ -16070,13 +16132,15 @@ initUpdateRules();
 // #lab 开头归 lab.js 的 lab 恢复逻辑（含 #lab/策略key），此模块只管 4 个非 lab 主 tab。
 // 大盘 tab 的二级 tab 也写进 hash：#market/{subtab}（如 #market/national-team=汪汪队），
 // F5 刷新解析恢复二级 tab，避免刷新回退到默认 a 股。
-const _MAIN_TABS = ["overview", "market", "sentiment", "industry", "etf"];
+const _MAIN_TABS = ["overview", "market", "sentiment", "industry", "fund"];
 const _MARKET_SUBTABS = ["a-stock", "hk", "global"];
 const _SENTIMENT_SUBTABS = ["market-temp", "futures", "national-team", "public-fund"];
+const _FUND_SUBTABS = ["etf", "offshore"]; // 场内ETF / 场外基金
 function _setTabHash(tab) {
   let h = "#" + tab;
   if (tab === "market" && state.subtab) h = "#market/" + state.subtab;
   if (tab === "sentiment" && state.subtab) h = "#sentiment/" + state.subtab;
+  if (tab === "fund" && state.subtab) h = "#fund/" + state.subtab;
   if (location.hash === h) return;
   try { history.replaceState(null, "", location.pathname + location.search + h); } catch (e) {}
 }
@@ -16099,8 +16163,13 @@ window.addEventListener("scroll", () => {
 
 // F5 刷新：读 URL hash 恢复主 tab + 大盘二级 tab（#lab 开头归 lab.js 处理）
 (function _initMainTabHashRestore() {
-  const h = location.hash;
+  let h = location.hash;
   if (!h || h.startsWith("#lab")) return;
+  // 旧 #etf 路由兼容：ETF评分已重构为「基金评分」下的「场内ETF」二级 tab，重定向到 #fund/etf
+  if (h === "#etf") {
+    h = "#fund/etf";
+    try { history.replaceState(null, "", location.pathname + location.search + h); } catch (e) {}
+  }
   const parts = h.slice(1).split("/"); // "market/national-team" -> ["market", "national-team"]
   const tab = parts[0];
   if (!_MAIN_TABS.includes(tab)) return;
@@ -16113,6 +16182,10 @@ window.addEventListener("scroll", () => {
     // 解析二级 tab，非法/缺失回退市场温度
     const sub = parts[1];
     state.subtab = _SENTIMENT_SUBTABS.includes(sub) ? sub : "market-temp";
+  } else if (tab === "fund") {
+    // 解析二级 tab，非法/缺失回退场内ETF
+    const sub = parts[1];
+    state.subtab = _FUND_SUBTABS.includes(sub) ? sub : "etf";
   }
   document.querySelectorAll("button[data-tab]").forEach((x) => x.classList.remove("active"));
   const btn = document.querySelector(`button[data-tab="${tab}"]`);
