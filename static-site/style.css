@@ -1673,7 +1673,6 @@ main { padding: 16px 24px; }
 .rule-dot-aux { background: #d63384; }
 .rule-dot-sell { background: #2e8b57; }
 .rule-dot-special { background: #ffd700; }            /* 追关注 金 */
-.rule-dot-special-filtered { background: #9e9e9e; }   /* 过滤预览 灰 */
 .rule-dot-backup { background: #9c27b0; }             /* 备关注 紫 */
 .rule-dot-stop-loss { background: #3498db; }          /* 追风控 蓝 */
 .rule-dot-band-hold { background: #ff9800; }          /* 波段持有 橙 */
@@ -1703,7 +1702,6 @@ main { padding: 16px 24px; }
 .rule-card-aux { border-left: 3px solid #d63384; }
 .rule-card-sell { border-left: 3px solid #2e8b57; }
 .rule-card-special { border-left: 3px solid #ffd700; }            /* 追关注 */
-.rule-card-special-filtered { border-left: 3px solid #9e9e9e; }  /* 过滤预览 */
 .rule-card-backup { border-left: 3px solid #9c27b0; }            /* 备关注 */
 .rule-card-stop-loss { border-left: 3px solid #3498db; }         /* 追风控 */
 .rule-card-band-hold { border-left: 3px solid #ff9800; }         /* 波段持有 */
@@ -1736,7 +1734,6 @@ main { padding: 16px 24px; }
 .badge-buy { background: #e6492e; color: #fff; }                 /* 红 主关注 */
 .badge-aux { background: #d63384; color: #fff; }                 /* 粉紫 辅关注 */
 .badge-special { background: #ffd700; color: #333; }             /* 金 追关注 */
-.badge-special-filtered { background: #9e9e9e; color: #fff; }    /* 灰 过滤预览 */
 .badge-backup { background: #9c27b0; color: #fff; }              /* 紫 备关注 */
 .badge-sell { background: #2e8b57; color: #fff; }                /* 绿 风险提醒 */
 .badge-stop-loss { background: #3498db; color: #fff; }           /* 蓝 追风控 */
@@ -1769,6 +1766,7 @@ main { padding: 16px 24px; }
   text-align: center;
   padding: 8px 6px;
   font-size: 12px;
+  width: 50%;
 }
 .rule-table-color td:first-child { border-right: 1px solid var(--border); }
 .rule-table-color td:last-child { border-left: 1px solid var(--border); }
@@ -1829,6 +1827,70 @@ main { padding: 16px 24px; }
   color: var(--text-4);
   margin: 16px 0 4px 0;
 }
+
+/* === 信号弹窗(_signalHelpModalHTML / _strategyModalHTML)复用框 === */
+/* 分析概况灰框（_signalHelpModalHTML 动态统计 + _strategyModalHTML 参数/过滤行）*/
+.rule-stat-box {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 4px 0;
+  padding: 4px 8px;
+  background: rgba(127, 127, 127, 0.1);
+  border-radius: 4px;
+}
+.rule-stat-row {
+  display: flex;
+  align-items: baseline;
+  margin-left: 8px;
+}
+.rule-stat-label {
+  flex: 0 0 3.5em;
+  white-space: nowrap;
+}
+.rule-stat-empty { opacity: 0.5; }
+.rule-freq-pending {
+  margin-top: 3px;
+  color: #ff9800;
+}
+.rule-freq-note {
+  margin-top: 2px;
+  opacity: 0.6;
+  font-size: 11px;
+}
+/* 回测结论淡金框（_signalHelpModalHTML backtest）*/
+.rule-backtest-box {
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 4px 0;
+  padding: 5px 8px;
+  background: rgba(255, 215, 0, 0.12);
+  border-left: 3px solid #ffd700;
+  border-radius: 4px;
+}
+/* 补充说明淡灰框（_signalHelpModalHTML note）*/
+.rule-note-box {
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 4px 0;
+  padding: 5px 8px;
+  background: rgba(127, 127, 127, 0.08);
+  border-left: 3px solid #888;
+  border-radius: 4px;
+}
+/* 弹窗底部合规声明框 */
+.rule-modal-footer {
+  margin-top: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  opacity: 0.7;
+  background: rgba(127, 127, 127, 0.1);
+  border-radius: 6px;
+}
+/* 信号弹窗内 rule-card 间距微调（卡间 gap，覆盖默认 10px）*/
+.rule-modal-content .rule-card { margin-bottom: 12px; }
+.rule-modal-content .rule-card:last-child { margin-bottom: 0; }
+/* _strategyModalHTML 已 skip 信号卡片置灰 */
+.rule-card-disabled { opacity: 0.5; text-decoration: line-through; }
 
 /* keep old b color classes for backward compat */
 .rule-modal-content b.buy { color: #e6492e; }

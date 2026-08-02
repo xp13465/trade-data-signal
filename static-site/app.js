@@ -1688,7 +1688,6 @@ const _SIGNAL_HELP_ITEMS = [
   { sig: "buy", color: "#e6492e", nameKey: "detail_buy_name", desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
   { sig: "buy_aux", color: "#d63384", nameKey: "detail_buy_aux_name", desc: "布林带下轨回归。价格跌穿布林带(BB)下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
   { sig: "buy_special", color: "#ffd700", nameKey: "detail_buy_special_name", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配追止损卖(ATR×3.5止损)控制风险，0套牢。" },
-  { sig: "buy_special_filtered", color: "#9e9e9e", nameKey: "detail_buy_special_filtered_name", desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追买信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追买，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追买信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
   { sig: "buy_backup", color: "#9c27b0", nameKey: "detail_buy_backup_name", desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
   { sig: "sell", color: "#2e8b57", nameKey: "detail_sell_name", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈调整提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈调整非反向信号。配套：走弱概率≈50%接近随机；与追止损卖共振时调整信号更强。" },
   { sig: "sell_stop_loss", color: "#3498db", nameKey: "detail_sell_stop_loss_name", desc: "ATR×3.5 止损（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪止损）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即清仓卖出。配套：趋势跟踪止损（低胜率大盈）；与卖共振时调整信号更强；蓝色与卖绿色区分。" },
@@ -1739,51 +1738,64 @@ function _aggregateSignalStats(raw) {
   return agg;
 }
 
-// 渲染6色信号 modal（每信号三段：逻辑描述 + 分析概况[动态] + 配套警示）
+// 信号 -> badge/rule-card class 映射（_signalHelpModalHTML / _strategyModalHTML 共用）
+// badge-* / rule-card-* 实色与统计基准对齐，见 style.css .badge-* / .rule-card-* 注释
+const _SIG_CLASS_MAP = {
+  buy: { card: "rule-card-buy", badge: "badge-buy" },
+  buy_aux: { card: "rule-card-aux", badge: "badge-aux" },
+  buy_special: { card: "rule-card-special", badge: "badge-special" },
+  buy_backup: { card: "rule-card-backup", badge: "badge-backup" },
+  sell: { card: "rule-card-sell", badge: "badge-sell" },
+  sell_stop_loss: { card: "rule-card-stop-loss", badge: "badge-stop-loss" },
+  band_hold: { card: "rule-card-band-hold", badge: "badge-band-hold" },
+  band_sell: { card: "rule-card-band-sell", badge: "badge-band-sell" },
+};
+
+// 渲染技术信号 modal（每信号：标题 badge + 描述 + 回测 + 分析概况[动态] + 补充 + 警示）
 // aggStats: _aggregateSignalStats 返回值；null/某信号无数据 -> "数据待补"
+// 复用 rule-card / rule-badge / badge-* / rule-stat-box 等 class，与 ruleContentHtml 风格统一
 function _signalHelpModalHTML(aggStats) {
   const items = _SIGNAL_HELP_ITEMS.map((it) => {
+    const cls = _SIG_CLASS_MAP[it.sig] || { card: "", badge: "" };
     const s = aggStats && aggStats[it.sig];
     let statHtml;
     if (s) {
-      // 三窗口对比行（5d/10d/20d），按样本数 n 加权聚合；某窗口无数据显示 "—"
+      // 三窗口对比行（5d/10d/20d），按样本数 n 加权聚合；某窗口无数据显示 "-"
       const hasWin = !!(s["5d"] || s["10d"] || s["20d"]);
       const freqTotal = s.frequency_total || 0;
-      // flex布局：标签 flex:0 0 3.5em 固定宽度(足够"10日："+余量)+white-space:nowrap 防标签内换行,
+      // .rule-stat-row flex 布局：.rule-stat-label flex:0 0 3.5em 固定宽度 + white-space:nowrap 防标签内换行,
       // 内容 flex 自适应, align-items:baseline 基线对齐。修原 width:3em inline-block "10日："约3em填满溢出致行间错位。
       const winRows = [["5日", s["5d"]], ["10日", s["10d"]], ["20日", s["20d"]]].map(([label, w]) => {
-        const lbl = '<span style="flex:0 0 3.5em;white-space:nowrap">' + label + '：</span>';
-        if (!w) return '<div style="margin-left:8px;display:flex;align-items:baseline">' + lbl + '<span style="opacity:0.5">- 累积中</span></div>';
-        return '<div style="margin-left:8px;display:flex;align-items:baseline">' + lbl + '<span>胜率 <b>' + (w.win_rate * 100).toFixed(0) + '%</b> · 盈亏比 <b>' + w.pl.toFixed(2) + '</b> · 均收益 <b>' + w.mean.toFixed(2) + '%</b> · 样本 <b>' + w.n + '</b></span></div>';
+        const lbl = '<span class="rule-stat-label">' + label + '：</span>';
+        if (!w) return '<div class="rule-stat-row">' + lbl + '<span class="rule-stat-empty">- 累积中</span></div>';
+        return '<div class="rule-stat-row">' + lbl + '<span>胜率 <b>' + (w.win_rate * 100).toFixed(0) + '%</b> · 盈亏比 <b>' + w.pl.toFixed(2) + '</b> · 均收益 <b>' + w.mean.toFixed(2) + '%</b> · 样本 <b>' + w.n + '</b></span></div>';
       }).join("");
       // 无窗口数据但有 frequency(刚上线窗口未到) -> "已生成N例,窗口统计累积中"; 有窗口数据 -> 附"累计N例"
       const freqNote = (!hasWin && freqTotal > 0)
-        ? '<div style="margin-top:3px;color:#ff9800">⏳ 已生成 <b>' + freqTotal + '</b> 例，窗口统计(5d/10d/20d)待未来交易日到位后累积</div>'
-        : (freqTotal > 0 ? '<div style="margin-top:2px;opacity:0.6;font-size:11px">累计已生成 ' + freqTotal + ' 例</div>' : '');
-      statHtml = '<div style="font-size:12px;line-height:1.6;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px">📈 <b>分析概况</b>（全品种加权·按样本数加权）：<div style="margin-top:2px">' + winRows + '</div>' + freqNote + '</div>';
+        ? '<div class="rule-freq-pending">⏳ 已生成 <b>' + freqTotal + '</b> 例，窗口统计(5d/10d/20d)待未来交易日到位后累积</div>'
+        : (freqTotal > 0 ? '<div class="rule-freq-note">累计已生成 ' + freqTotal + ' 例</div>' : '');
+      statHtml = '<div class="rule-stat-box">📈 <b>分析概况</b>（全品种加权·按样本数加权）：<div style="margin-top:2px">' + winRows + '</div>' + freqNote + '</div>';
     } else {
-      statHtml = '<div style="font-size:12px;line-height:1.5;margin:4px 0;padding:4px 8px;background:rgba(127,127,127,0.1);border-radius:4px;color:#ff9800">📈 分析概况：数据待补（signal_stats 未含此信号统计）</div>';
+      statHtml = '<div class="rule-stat-box" style="color:#ff9800">📈 分析概况：数据待补（signal_stats 未含此信号统计）</div>';
     }
     // 回测结论（backtest）：全史统计的持有期建议/止损方案对比，淡金色框区分于动态分析概况
     const backtestHtml = it.backtest
-      ? '<div style="font-size:12px;line-height:1.55;margin:4px 0;padding:5px 8px;background:rgba(255,215,0,0.12);border-left:3px solid #ffd700;border-radius:4px">' + _t.tsText(it.backtest) + '</div>'
+      ? '<div class="rule-backtest-box">' + _t.tsText(it.backtest) + '</div>'
       : '';
     // 补充说明（note）：pin 标签来源/术语澄清等，淡灰框
     const noteHtml = it.note
-      ? '<div style="font-size:12px;line-height:1.55;margin:4px 0;padding:5px 8px;background:rgba(127,127,127,0.08);border-left:3px solid #888;border-radius:4px">' + _t.tsText(it.note) + '</div>'
+      ? '<div class="rule-note-box">' + _t.tsText(it.note) + '</div>'
       : '';
-    return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(127,127,127,0.18)">' +
-      '<span style="flex:0 0 14px;width:14px;height:14px;border-radius:50%;margin-top:4px;background:' + it.color + '"></span>' +
-      '<div style="flex:1;min-width:0">' +
-      '<div style="font-weight:600;margin-bottom:2px">' + _t(it.nameKey) + '</div>' +
-      '<div style="font-size:13px;line-height:1.55;opacity:0.85">' + _t.tsText(it.desc) + '</div>' +
+    return '<div class="rule-card ' + cls.card + '">' +
+      '<div class="rule-card-head"><span class="rule-badge ' + cls.badge + '">' + _t(it.nameKey) + '</span></div>' +
+      '<p>' + _t.tsText(it.desc) + '</p>' +
       backtestHtml +
       statHtml +
       noteHtml +
-      '<div style="font-size:12px;line-height:1.55;opacity:0.7;margin-top:3px">⚠ ' + _t.tsText(it.warn) + '</div>' +
-      '</div></div>';
+      '<p class="rule-note">⚠ ' + _t.tsText(it.warn) + '</p>' +
+      '</div>';
   }).join("");
-  return '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>📊 6色技术信号参考</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content"><div style="padding:0 4px">' + items + '</div><div style="margin-top:12px;padding:8px 12px;font-size:12px;opacity:0.7;background:rgba(127,127,127,0.1);border-radius:6px">⚠ 以上为研究标注非交易指令，详见右下角浮动 📋 策略说明。过往表现不代表未来收益。</div></div></div>';
+  return '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>📊 技术信号参考</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + items + '<div class="rule-modal-footer">⚠ 以上为研究标注非交易指令，详见右下角浮动 📋 策略说明。过往表现不代表未来收益。</div></div></div>';
 }
 
 // 打开6色信号 modal：异步 fetch signal_stats.json 聚合后渲染（每次打开重新渲染含最新统计）
@@ -1991,7 +2003,8 @@ function strategyDesc(strategy) {
 }
 
 // === 标题❓策略弹窗（方案 B1 紧凑版，2026-07-20）===
-// 6 类信号顺序 + 颜色圆点 + 名称（与 _SIGNAL_HELP_ITEMS 一致，便于用户对齐 6 色信号图例）
+// 信号顺序 + 颜色 badge + 名称（与 _SIGNAL_HELP_ITEMS 一致，便于用户对齐信号图例）
+// 8 类信号：buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss/band_hold/band_sell
 var _STRATEGY_DETAIL_KEYS = [
   { key: "buy", color: "#e6492e", nameKey: "detail_buy_name" },
   { key: "buy_aux", color: "#d63384", nameKey: "detail_buy_aux_name" },
@@ -2000,9 +2013,11 @@ var _STRATEGY_DETAIL_KEYS = [
   { key: "sell", color: "#2e8b57", nameKey: "detail_sell_name" },
   { key: "sell_stop_loss", color: "#3498db", nameKey: "sig_meta_stop_loss_name" },
   { key: "band_hold", color: "#ff9800", nameKey: "detail_band_hold_name" },
+  { key: "band_sell", color: "#8bc34a", nameKey: "detail_band_sell_name" },
 ];
-// 渲染策略 modal：6 行（颜色圆点+信号名+该指数策略描述+参数+过滤），skip 标灰删除线，末尾合规声明。
-// strategy._detail 6 字段，每字段 {desc, params, filter, enabled}。
+// 渲染策略 modal：每信号 rule-card（badge + 描述 + 参数 + 过滤 + skip 警示），末尾合规声明。
+// strategy._detail 字段，每字段 {desc, params, filter, enabled}。
+// 复用 rule-card / rule-badge / badge-* / rule-stat-box 等 class，与 ruleContentHtml / _signalHelpModalHTML 风格统一。
 function _strategyModalHTML(strategy, indexId) {
   var detail = strategy && strategy._detail;
   var rows = [];
@@ -2011,36 +2026,33 @@ function _strategyModalHTML(strategy, indexId) {
     var d = detail && detail[k.key];
     if (!d) continue;
     var enabled = d.enabled !== false;
-    var rowStyle = enabled
-      ? ""
-      : "opacity:0.5;text-decoration:line-through;";
+    var cls = _SIG_CLASS_MAP[k.key] || { card: "", badge: "" };
     var paramHtml = (d.params && d.params !== "-")
-      ? '<div style="font-size:12px;line-height:1.55;margin:3px 0;padding:4px 8px;background:rgba(127,127,127,0.08);border-radius:4px">⚙ 参数：<b>' + d.params + '</b></div>'
+      ? '<div class="rule-stat-box">⚙ 参数：<b>' + d.params + '</b></div>'
       : "";
     var filterHtml = (d.filter && d.filter !== "-")
-      ? '<div style="font-size:12px;line-height:1.55;margin:3px 0;padding:4px 8px;background:rgba(127,127,127,0.08);border-radius:4px">🔍 过滤：<b>' + d.filter + '</b></div>'
+      ? '<div class="rule-stat-box">🔍 过滤：<b>' + d.filter + '</b></div>'
       : "";
     rows.push(
-      '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(127,127,127,0.18);' + rowStyle + '">' +
-      '<span style="flex:0 0 14px;width:14px;height:14px;border-radius:50%;margin-top:4px;background:' + k.color + '"></span>' +
-      '<div style="flex:1;min-width:0">' +
-      '<div style="font-weight:600;margin-bottom:2px">' + _t(k.nameKey) + '</div>' +
-      '<div style="font-size:13px;line-height:1.55;opacity:0.85">' + d.desc + '</div>' +
+      '<div class="rule-card ' + cls.card + (enabled ? '' : ' rule-card-disabled') + '">' +
+      '<div class="rule-card-head"><span class="rule-badge ' + cls.badge + '">' + _t(k.nameKey) + '</span></div>' +
+      '<p>' + d.desc + '</p>' +
       paramHtml +
       filterHtml +
-      (enabled ? '' : '<div style="font-size:12px;color:#ff9800;margin-top:3px">⚠ 此信号在该指数已 skip（不触发）</div>') +
-      '</div></div>'
+      (enabled ? '' : '<p class="rule-note">⚠ 此信号在该指数已 skip（不触发）</p>') +
+      '</div>'
     );
   }
-  var rowsHtml = rows.join("") || '<div style="padding:16px 0;opacity:0.6">该指数暂无策略详情数据。</div>';
+  var rowsHtml = rows.join("") || '<div class="rule-stat-box">该指数暂无策略详情数据。</div>';
   return '<div class="rule-modal-overlay"></div>' +
     '<div class="rule-modal-body"><div class="rule-modal-header">' +
     '<h3>📋 本指数策略详情' + (indexId ? ' · ' + indexId : '') + '</h3>' +
     '<button class="rule-modal-close" aria-label="关闭">&times;</button></div>' +
-    '<div class="rule-modal-content"><div style="padding:0 4px">' + rowsHtml +
-    '<div style="margin-top:12px;padding:8px 12px;font-size:12px;opacity:0.7;background:rgba(127,127,127,0.1);border-radius:6px">⚠ 以上为研究标注非交易指令，过往表现不代表未来收益。详见右下角浮动 📋 策略说明与 6 色信号参考 ❓。</div>' +
-    '</div></div></div></div>';
+    '<div class="rule-modal-content">' + rowsHtml +
+    '<div class="rule-modal-footer">⚠ 以上为研究标注非交易指令，过往表现不代表未来收益。详见右下角浮动 📋 策略说明与 📊 技术信号参考 ❓。</div>' +
+    '</div></div></div>';
 }
+
 // 打开策略 modal：从 statsHint 闭包/全局 strategyDesc 兜底取 strat，渲染 modal 并绑定关闭事件。
 function _openStrategyModal(indexId, strategy) {
   var strat = strategyDesc(strategy);
@@ -3548,17 +3560,6 @@ function ruleContentHtml() {
         </table>
         <p class="rule-note">⚠️ <b>稳健性弱于追关注</b>。配套：仅供参考不单独决策，需结合主关注/辅关注/追关注；诱多风险已用 3 日二次确认过滤。</p>
       </div>
-
-      <div class="rule-card rule-card-special-filtered">
-        <div class="rule-card-head"><span class="rule-badge badge-special-filtered">追关注·过滤预览</span> h5 高波动过滤档</div>
-        <p>命中 h5(高波动过滤档) 平衡档过滤条件（ATR(14)/收盘价&gt;0.03 OR 量价背离）的追关注信号，<b>灰色图钉标记展示不删除</b>。预览模式：用户看后决定是否真过滤。</p>
-        <table class="rule-table">
-          <tr><td class="rule-td-label">含义</td><td>预览模式，标记"会被过滤的追关注信号"，用户看后决定是否真过滤，未来直接删除即可</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge badge-special-filtered">灰色</span> 图钉（区别于追关注金色）</td></tr>
-          <tr><td class="rule-td-label">回测</td><td>h5 过滤回测：过滤率 ~29%，过滤后 10d 均 +1.66-&gt;+1.84、套牢 12.83-&gt;11.77；核心反直觉：套牢来自高波动假突破而非顶部追关注，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%</td></tr>
-        </table>
-        <p class="rule-note">⚠️ <b>灰色图钉</b> = 会被过滤的追关注信号（预览模式，暂不删除）。用户观察后决定是否真过滤。</p>
-      </div>
     </div>
 
     <div class="rule-section">
@@ -3593,7 +3594,7 @@ function ruleContentHtml() {
       <p class="rule-subtitle">盈亏标注（风险提醒颜色含义）</p>
       <table class="rule-table rule-table-color">
         <tr>
-          <td style="width:50%"><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 收益兑现</b></td>
+          <td><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 收益兑现</b></td>
           <td><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 趋势转弱</b></td>
         </tr>
         <tr>
