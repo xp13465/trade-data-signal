@@ -7127,8 +7127,8 @@ async function renderOverview() {
       a_turnover_p90: "换手率90分位。最活跃的10%个股换手水平。",
       a_turnover_p10: "换手率10分位。最不活跃的10%个股换手水平。",
       a_turnover_gt5_pct: "换手率>5%家数占比。高=市场活跃面广。",
-      high_alert: "A股大盘高位预警(0-100,越高越危险)。8维加权:情绪过热(max恐贪/A股情绪/跨市场)26%+位置偏高(8宽基1年分位均值)20%+卖点密集13%+汪汪队离场(ETF份额缩减)10%+量价背离/动量衰退/均线转弱/全球走弱各7-8%。≥72触发高位红条预警(回测N10下跌占比56.4%),>75警示、>88高危。综合大盘非单一指数,历史统计参考非操作建议。",
-      low_alert: "A股大盘低位机会(0-100,越高越接近底)。8维加权:情绪冰点(100-min三情绪)20%+买点密集18%+位置偏低(100-8宽基分位)15%+汪汪队入场(ETF份额激增)15%+量能异动10%+新低极端/波指飙升/价值显现各7-8%。≥85触发低位蓝条预警(回测N10上涨占比65.7%),>75机会、>88机遇。综合大盘非单一指数,历史统计参考非操作建议。",
+      high_alert: "A股大盘高位预警(0-100,越高越危险)。8维加权:情绪过热(max恐贪/A股情绪/跨市场)26%+位置偏高(8宽基1年分位均值)20%+风险点密集13%+汪汪队离场(ETF份额缩减)10%+量价背离/动量衰退/均线转弱/全球走弱各7-8%。≥72触发高位红条预警(回测N10下跌占比56.4%),>75警示、>88高危。综合大盘非单一指数,历史统计参考非操作建议。",
+      low_alert: "A股大盘低位机会(0-100,越高越接近底)。8维加权:情绪冰点(100-min三情绪)20%+关注点密集18%+位置偏低(100-8宽基分位)15%+汪汪队入场(ETF份额激增)15%+量能异动10%+新低极端/波指飙升/价值显现各7-8%。≥85触发低位蓝条预警(回测N10上涨占比65.7%),>75机会、>88机遇。综合大盘非单一指数,历史统计参考非操作建议。",
     };
     const _widthTip = _kpiTips[k.id] ? termTip(_kpiTips[k.id]) : (k.id === "a_width_up_count" || k.id === "a_width_down_count") ? termTip(_WIDTH_CALIBER_TIP) : "";
     const _hasHist = !!KPI_HISTORY_SOURCE[k.id];
@@ -15002,7 +15002,7 @@ function _tradeSimLedgerHTML(ledger, indexName, etfCode) {
       : entry.op.indexOf('追买') >= 0 ? 'buy_special'
       : entry.op.indexOf('备买') >= 0 ? 'buy_backup'
       : entry.op.indexOf('辅买') >= 0 ? 'buy_aux' : 'buy';
-    var opBadge = '<span class="ledger-op ' + opClass + '">' + entry.op + '</span>';
+    var opBadge = '<span class="ledger-op ' + opClass + '">' + _t.tsText(entry.op) + '</span>';
     var pctStr = (entry.return_pct >= 0 ? '+' : '') + entry.return_pct.toFixed(2) + '%';
     var pctColor = _tradeSimColorPct(entry.return_pct);
     var closeStr = entry.close.toFixed(2);

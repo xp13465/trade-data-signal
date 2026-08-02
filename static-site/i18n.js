@@ -205,5 +205,44 @@
   _t.getMode = function () { return currentMode; };
   _t.isCompliance = function () { return currentMode !== "off"; };
 
+  // trade_sim entry.op 动态文本合规化（与 simulate_trade.py _ts_text_compliance 对齐）
+  // JSON 保留原词（_BUY_LABELS: 主买/辅买/追买/备买/卖/追止损卖/清仓卖出 等），显示侧按 mode 转换
+  // off mode 原样返回（切回原版买卖点）；on mode 按长度降序替换，风控清仓复合词用占位符保护
+  var _TS_COMPLIANCE_MAP = [
+    ["止损清仓卖出", "风控\x01CLEARED\x01"],
+    ["止损清仓", "风控\x01CLEARED\x01"],
+    ["止损卖出", "风控"],
+    ["清仓卖出", "防范风险"],
+    ["追止损卖", "追风控"],
+    ["主买", "主关注"],
+    ["辅买", "辅关注"],
+    ["追买", "追关注"],
+    ["备买", "备关注"],
+    ["卖出日期", "风险日期"],
+    ["卖出价", "风险价"],
+    ["卖出", "风险提示"],
+    ["首笔买入", "首笔关注"],
+    ["买入日期", "关注日期"],
+    ["买入价", "关注价"],
+    ["买入成本", "关注成本"],
+    ["卖份额", "退份额"],
+    ["可卖", "可退"],
+    ["买入", "关注"],
+    ["止损", "风控"],
+    ["清仓", "防范"],
+    ["止盈", "收益兑现"],
+    ["买", "关注"],
+    ["卖", "风险"]
+  ];
+  _t.tsText = function (text) {
+    if (currentMode === "off" || !text) return text;
+    var out = text;
+    for (var i = 0; i < _TS_COMPLIANCE_MAP.length; i++) {
+      out = out.split(_TS_COMPLIANCE_MAP[i][0]).join(_TS_COMPLIANCE_MAP[i][1]);
+    }
+    // 还原占位符 -> 清仓（"风控清仓"合规复合词保留清仓，与 i18n.js position_stop_loss_clear 对齐）
+    return out.split("\x01CLEARED\x01").join("清仓");
+  };
+
   window._t = _t;
 })();
