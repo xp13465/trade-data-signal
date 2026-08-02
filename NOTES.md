@@ -6576,3 +6576,29 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **遗留**：i18n.js position_stop_loss_clear compliance="风控清仓"含"清仓"敏感词，巡查 grep"清仓"会命中。主控建议改"风控退出"彻底无敏感词（影响 i18n.js + simulate_trade.py + 7HTML，小改动），待用户定夺
 
 
+### AZ126 - 2026-08-02 trade_sim 场景名合规漏改修复 + 首页卡片内部底部留白修复（ui101->ui102，已上线）
+
+**任务1：trade_sim 场景名合规漏改**（commit 7113bedd，ui101）
+- 用户报：合规版(on)下点开模拟回测弹窗，场景选择器按钮仍显示"主买+卖"/"辅买+卖"原词，没转合规词
+- 根因：trade_sim JSON 的 `scenarios` 字段是原词 `_SIG_LABELS=["主买+卖",...]`（scripts/simulate_trade.py L1710，JSON 保留原词用于 off 切回），前端 modal 渲染时直接拼场景名显示，没套 `_t.tsText()` 转合规词
+- 9处显示点全套 `_t.tsText()`（变量赋值/key查找/indexOf 匹配保留原词未改）：
+  - trade_sim modal：L15376 sub-tabs 场景选择器按钮 `s` / L15224 对比表 sig 列 `r.sig`
+  - 首页备买 chip：L719/L720/L945 srcStr `src.scenarioLabel` / L962 formatVal line1 `e.label` / L1024 tooltip header `e.label` / L1030 tooltip 5窗口行 `e.scenario` / L1063 tooltip top5 `t.label`
+- _t.tsText 转换验证（用 i18n.js 真实 _TS_COMPLIANCE_MAP）：主买+卖->主关注+风险 / 辅买+卖->辅关注+风险 / 追买+追止损卖->追关注+追风控 / 主买+辅买+卖->主关注+辅关注+风险 ✓
+- §0 验收：app.js _t.tsText 10处（9新+1原 entry.op）/ 7113bedd 在 main / 线上 ss.fx8.store+sss.sugas.site 两站 sw.js ui101 + app.min.js?v=72aea4e8 含 _t.tsText 10处 ✓
+
+**任务2：首页卡片内部底部留白修复**（commit f37c3c3e，ui102，CSS-only）
+- 用户报：首页 ov-2col 容器内几张卡片（A股综合情绪分/均线排列/成交额与两融/指数新高新低）内部底部有多余留白，"感觉去掉也差不多左右对齐"
+- 根因（§0 核对 style.css L1019-1032 真实规则）：`.ov-2col { align-items: stretch }` 强制同行两列等高 + `.ov-2col .chart-card { flex: 1 0 auto }` 强制单卡撑满列高 -> 矮卡片内容区下方留白
+  - ⚠️ a7bfc143 调研报告说"stretch 是为消除矮列底部留白"不准确：§0 核对真实 CSS 注释显示 stretch 是历史上从 flex-start 改来"消除左右列底部不齐"，但用户报的是"卡片**内部**底部留白"（内容没填满卡片高度），是 flex:1 0 auto 撑列高所致，方向不同
+- 修复（CSS-only 改 style.css 2 处）：
+  - L1024 `.ov-2col { align-items: stretch -> flex-start }`（卡片各自贴合内容高度，不再强制等高）
+  - L1031 `.ov-2col .chart-card { flex: 1 0 auto -> 0 0 auto }`（卡片不再撑满列高，贴合内容）
+- 用户已接受"同行左右列底部不齐"的副作用
+- §0 验收：f37c3c3e 在 main / 线上 ss.fx8.store+sss.sugas.site 两站 sw.js ui102 + style.min.css?v=b4a0a91d 含 align-items:flex-start + flex:0 0 auto ✓
+
+**commit 链**：7113bedd（场景名合规+ui101）-> f37c3c3e（卡片留白+ui102），均 push feat + push feat:main fast-forward，未 force
+
+**遗留**：trade_sim 弹窗的 `flow_desc`（app.js L14976 s.flow_desc，含"买/卖/买入/可卖/清仓"原词）和 path 显示（L15373 main-tabs 的 p / L15223 对比表 r.path，含"买固定...+卖清仓"）仍未套 _t.tsText（a8f63b58 任务限定"场景名显示点"未含）。后端 simulate_trade.py L1282 离线模板已用 _ts_text_compliance 包装 flow_desc，但前端 modal JS 渲染侧未套。如需一并修可后续派单
+
+
