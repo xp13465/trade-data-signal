@@ -6238,4 +6238,69 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ106（行业配置口径切换，本 AZ109 是其补强：再加申万一级第四档）+ AZ108（预估仓位，同属"非公开洞察"理念：反推/重构口径得 alpha）+ AZ97（公募基金模块大轮优化首版）。
 
+### AZ110 2026-08-03 88魔咒图加今日预估点位(ui84,commit bd19a81b,已上线)
+
+**背景**：承接 AZ108 预估仓位方案A(已 push feat ddf613ea+d4c08e93)。AZ109 申万一级实施完成后避撞 app.js 解除，本 AZ110 把"今日预估 95.01%"点接入 88 魔咒图。目标：不用等 lg 周频（末端 20260724）更新，前端直接读 `public_fund_position_estimate.json` 显示日频预估线 + 末端点。
+
+**方案C（预估线 + 末端 markPoint 双重标注）**：预估 history 147 期时序画日频预估线显示变动趋势，末端 markPoint 醒目标当前位置。
+
+**实施（app.js renderPublicFund）**：
+- fetch 加第 6 个 `public_fund_position_estimate.json`（L9518 Promise.all 解构 estimate，原 5 个:position_estimate 在 AZ108 已备好 JSON 产物）
+- 主图标题加副标注"今日预估 95.01%（日频 OLS，vs lg 96.01% 偏差-1.0%）"橙色 span（L9780）
+- 预估数据处理：estPoints/estMap（history 147 期 date 转 YYYYMMDD）+ _estCurDate（末端点）+ allDates 并入预估日期延伸到 20260731（L9812-9817）
+- tooltip formatter 扩展：预估 series 加 % 单位 + 末端点（dt===_estCurDate）追加"📌 今日预估 X%（日频 OLS confidence=high）+ vs lg 周频 96.01%（20260724）· 偏差-1.0%"（L9866-9872）
+- legend 加"今日预估仓位%"（L9885）
+- series 加第 3 条"今日预估仓位%"：橙 #ff9800 虚线 width 2 symbol none + 末端 markPoint（pin48 label"今日预估 95.01%" + 副标注"vs lg 96.01% 偏差-1.0%"）（L9909-9933）
+
+**视觉区分**：lg 线红 #e6492e 实线 symbol circle（不变）vs 预估线橙 #ff9800 虚线 symbol none。预估线 2025-12-22~2026-07-31 日频 147 期，lg 线 2007-2026 周频末端 20260724，重叠期可视觉对比日频细密 vs 周频稀疏，预估延伸到 7/31 体现时效差。
+
+**关键发现**：任务约束"push feat 触发 CF deploy"是误判，实际 `.github/workflows/deploy-cf.yml` 触发条件 `branches:[main]`，feat 不触发。按 §8 补 `git push origin feat:main` fast-forward 触发 CF deploy。
+
+**【关联】** AZ108（预估仓位方案A 数据源+算法，本 AZ110 前端接入）+ AZ105（88 魔咒标注修复 close=沪深300，本图同口径用 hs300）+ AZ100（公募基金持仓佐证大盘调研，88 魔咒体系首调研）。
+
+### AZ111 2026-08-03 预估仓位每日自动更新闭环(commit 96807ff1,已 push feat)
+
+**背景**：AZ108 预估仓位 JSON 手动跑一次后即停旧值，需每日自动闭环。8/2 周日发现 current.date 仍 7/31，agent 调研 4 条根因。
+
+**根因（agent 调研发现）**：
+1. **pipeline_daily 不调 fetch_index_daily 是核心根因**（docstring 写"较重"过时，实际 baostock 三指数 ~5s 不重）。交易日收盘后 fund_index_daily 停旧日期，`_compute_position_estimate` 缺当日 r_hs300 跳过，JSON 停旧交易日。
+2. **没有盘中 launchd 采 fund_value_estimation_em**（fetch_estimation docstring 设计了 10:00/11:00/13:30/14:30 四档但从未实现 launchd，fund_estimation_nav 表 0 行）。
+3. **8/1 非交易日是 sina 源正确返回**（trade_dates.txt 含 8/3 不含 8/1），非 bug。7/31 是最后交易日 JSON 停 7/31 正确。
+4. **双路径同步已 OK**（deploy.sh L184-186 rsync trade-data->trade 内置，position_estimate 在 git add 列表 L296）。
+
+**改动**：
+- `app/collector/public_fund.py`：`pipeline_daily()` 加 `fetch_index_daily(三指数 hs300/csi500/gem)` L1693-1696；`main()` 加 `fetch-estimation` CLI 命令 L3108（盘中实时估算不持锁轻量 ~5s）
+- `scripts/public_fund_daily.sh`：注释更新（~8s -> ~15s 加三指数刷新说明）
+- `scripts/public_fund_estimation.sh`（新）：盘中采集脚本只调 fetch-estimation 不跑 export/deploy（避撞 intraday-snapshot）
+- `~/Library/LaunchAgents/com.trade.public-fund-estimation.plist`（新不进 git）：10:00/11:00/13:30/14:30 四档，已 launchctl load 成功（`launchctl list` 确认 com.trade.public-fund-estimation 在列，`plutil -lint` OK）
+
+**8/3 周一收盘后预期闭环**：16:30 daily.sh pipeline_daily 采 8/3 净值 + fetch_index_daily 采 8/3 三指数 + export 重算 position_estimate(current.date=2026-08-03) + deploy.sh rsync + git push 上线；10:00/11:00/13:30/14:30 estimation.sh 盘中采 fund_value_estimation_em 入 fund_estimation_nav 表。
+
+**验收**（主控逐字）：pipeline_daily 调用链完整（fetch_daily_nav+fetch_estimation+fetch_index_daily 三指数+position_change_estimate）+ export_json_files 调 _compute_position_estimate（L2883）+ main() fetch-estimation 命令分支（L3108）+ fetch-estimation 实测（周日 force）akshare 返回空正常处理 exit=0 + launchd plist 加载 + 语法 OK。
+
+**【状态】** 已 push feat（96807ff1），未 merge main。待 8/3 收盘后自然验证（current.date 从 7/31 -> 8/3 即闭环）。
+
+**【关联】** AZ108（预估仓位方案A 算法+JSON 产物，本 AZ111 补每日自动更新闭环）+ AZ110（前端接入，配合本 AZ111 JSON 自动更新才有意义）+ memory `rzhb-dur-1s-t1-normal`（同属 T+1 源时点认知：8/1 非交易日源正确返回非 bug）。
+
+### AZ112 2026-08-03 行业配置柱状图tooltip移动端超屏修复(ui85,commit 1d91a9e7,已上线)
+
+**问题**：用户反馈"行业配置里移动端点击横向柱状条后这个提示超出屏幕导致看不全了"。
+
+**根因（3 条全部坐实）**：`indChart.setOption`（L10359）直接 setOption 没走 `withTheme()` 包裹，全局 `chartThemeOpts()` L155-156 的 `confine:true` + `extraCssText max-width` 没合并进来。
+1. 缺 `confine:true` tooltip 不限制在图表容器内，移动端窄屏 375px 右侧空间不够超屏。
+2. 缺 `extraCssText max-width` formatter 多行长中文（行业名+平均权重%+说明+持仓市值+基金数+权重和+合并说明）撑宽超屏。
+3. 缺 position 回调默认鼠标右侧定位，移动端右侧不够超屏。
+
+用户说的"提示"是 tooltip（不是 modal 基金列表弹窗）。
+
+**修复（复用全局 proven 模板 L155-156）**：L10360 tooltip 配置加 `confine:true`（限制在 .pf-ind-bar 容器 343px x 360px 内不超屏）+ `extraCssText "max-width: min(300px, 82vw); white-space: normal; overflow-wrap: anywhere; word-break: break-word;"`（300px 封顶小于容器 343px 留余量，82vw 窄屏兜底强制换行防长中文撑宽）。不加 position 回调（confine+max-width 已够，避免桌面端副作用）。
+
+**sw.js bump ui84 -> ui85**（AZ110 预估点位 agent 已 bump ui84，串行 ui85）。
+
+**commit 1d91a9e7** 只 stage 4 文件（app.js/app.min.js/index.html/sw.js），不含 daily-update agent 的 public_fund.py（AZ111 独立 commit）。
+
+**线上验证**：ss.fx8.store sw=ui85，app.min.js 含 `confine:!0`。
+
+**【关联】** AZ106（行业配置口径切换，本 AZ112 修同一 indChart 的 tooltip 移动端超屏）+ AZ97（公募基金模块大轮优化首版，indChart 首版建立）+ memory `default-theme-redgold`（移动端窄屏场景，复用全局 chartThemeOpts 模板保证多皮肤一致）。
+
 
