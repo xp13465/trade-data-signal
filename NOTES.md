@@ -6816,7 +6816,30 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **commit 链**：f42c301c（AZ133 ui110）-> 58c543a1（AZ134 ui111），push feat + push feat:main fast-forward，未 force push main
 
-**遗留**：首页排版左右层次不齐+卡片间空行（a1ac710eea5f8b2e3 调研完成，方案C改DOM彻底根治，用户已定，待实施 AZ135）
+**遗留**：首页排版左右层次不齐+卡片间空行（a1ac710eea5f8b2e3 调研完成，方案C改DOM彻底根治，用户已定，待实施 AZ135）-> **AZ135 已闭环**
+
+
+
+### AZ135 - 2026-08-03 首页.ov-2col排版方案C(改DOM根治左右层次不齐+卡片空行)（ui112，已上线）
+
+**背景**：用户报"首页排版还是左右层次不齐，左边卡片和卡片上下中间会有空行，右侧的也是"。a1ac710eea5f8b2e3 调研坐实根因：2列grid+flex col下"左右等高"和"卡片贴合内容"数学上不可同时满足，AZ126(flex-start)↔AZ130(stretch)横跳没根治本质矛盾。"空行"=stretch+flex:0 0 auto致矮列底部留白；"层次不齐"=左右列卡片高度不同gap位置y坐标错开(左列gap在y=354右列在y=134错位220px)。用户选方案C(改DOM彻底根治,§5一步到位不偷懒)。
+
+**修复**（commit 0682705f，ui112）：去掉 col1/col2 中间层，卡片直接进 .ov-2col grid，用 .ov-col-1/.ov-col-2 指定列归属：
+- **app.js 3处ov-2col改动**（ov2ColA @7337/ov2ColB @7587/ov2ColC @7714）：伪容器 _ovCol 拦截 appendChild，设 grid-column class（.ov-col-1=左/.ov-col-2=右），卡片直接进 grid 不再套 col1/col2 flex 中间层。异步卡（均线/位置感/公募基金 fetch后append）也正确设 grid-column
+- **style.css .ov-2col 改动**（L1024-1034）：grid-auto-rows:auto + align-items:start（行内卡片贴合内容不stretch，消除矮列底部留白"空行"）+ .ov-col-1{grid-column:1}/.ov-col-2{grid-column:2} 指定列 + @media(max-width:768px) 单列重置 .ov-col-1/.ov-col-2{grid-column:1} 按DOM顺序排
+- 效果：每行grid item等高，卡贴内容，无stretch矛盾，无空行，无层次不齐，不再flex-start/stretch横跳
+- sw.js ui111->ui112
+
+**§0 验收**（2026-08-03 00:09）：
+- app.js _ovCol/ov-col 命中9处（3处ov-2col×伪容器拦截+class）✓
+- style.css L1024 grid-auto-rows:auto + L1025 align-items:start + L1030/1031 .ov-col-1/.ov-col-2 grid-column + L1034 移动端单列重置 ✓
+- sw.js 本地+线上 ss.fx8.store 均 ui112 ✓
+- 线上 app.min.js 含 _ovCol/ov-col ✓
+- commit 0682705f 在 origin/main ✓
+
+**commit 链**：58c543a1（AZ134 ui111）-> 0682705f（AZ135 ui112），push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：用户需浏览器验证排版效果（模型禁图片，主控/agent无法视觉确认，需用户看实际页面）。若仍有问题可微调 gap/align
 
 
 
