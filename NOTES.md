@@ -6303,4 +6303,65 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ106（行业配置口径切换，本 AZ112 修同一 indChart 的 tooltip 移动端超屏）+ AZ97（公募基金模块大轮优化首版，indChart 首版建立）+ memory `default-theme-redgold`（移动端窄屏场景，复用全局 chartThemeOpts 模板保证多皮肤一致）。
 
+### AZ113 2026-08-02 公募基金补修2处英文残留+help数据源中文化(ui87,commit 1066489c)
+
+**问题**：§0 验收发现全面中文化（AZ未编号，1f1cf698 ui86）漏2处英文残留：①L10978 行业轮动副标题 `fund_portfolio_industry_allocation_em`（akshare接口技术名）+ CSRC 缩写 ②L9871 今日预估pin hover `可信度：${_estCur.confidence}` 的 confidence 值 high/medium/low 未映射中文。
+
+**修复**：①L10978 副标题改「季报披露(基金行业配置), 134原始行业名合并为13标准名(GICS+证监会映射)」去接口名+CSRC->证监会 ②L9781 加 `_confZh = (c) => ({ high: "高", medium: "中", low: "低" })[c] || (c || "-")` 映射函数，L9872 pin hover confidence 用 `_confZh` ③help 数据源段中文化（fundf10/ccmx/jjcc 等子页路径码->持仓/重仓/行业，fund_portfolio_hold_em/fund_value_estimation_em 接口名->基金持仓/基金估值，key->密钥，保留东方财富/akshare 库名）。
+
+**sw.js ui86 -> ui87**。commit 1066489c。线上 ss.fx8.store 验证通过。
+
+### AZ114 2026-08-02 行业配置❓弹窗数据口径补申万一级三套口径(ui88,commit 84d3a153)
+
+**问题**：用户反馈"行业配置❓弹窗里数据口径没有申万一级"。根因：❓弹窗第一个 section「📚 双口径来源」只说"两套分类标准混合"(CSRC+GICS)，没提申万一级是第三套，误导用户以为只有两套（虽下面有独立「🧬 申万一级反查口径」章节详细介绍）。
+
+**修复**：第一个 section「📚 双口径来源」->「📚 三套口径来源」，引言"两套分类标准混合"->"三套口径构成"，圆点项从2条(CSRC+GICS)扩为3条，新增第3条**申万一级**（基于前10大重仓股反查、非基金直接披露、揭示真实风格暴露、独立数据源、覆盖率约42%仓位、仅最新一期无时序，指路下文「🧬 申万一级反查口径」章节）。前两条CSRC/GICS补"基金季报直接披露"说明。下方独立章节不动。
+
+**sw.js ui87 -> ui88**。commit 84d3a153。线上 ss.fx8.store `v=06ef04c1` 含"三套口径来源"。
+
+### AZ115 2026-08-02 88魔咒图lg/cninfo数据源缩写中文化(ui89,commit c072f933)
+
+**问题**：用户反馈"今日预估文案和hover文案里 lg源 lg周频 是什么意思没有中文么"。lg=乐咕乐股(legulegu.com周频)/cninfo=巨潮资讯网(深交所官方)。之前补修agent误判"lg在图表标题有解释所以hover/pin用缩写当短标签复用合理"，实际hover/pin是独立浮窗用户不看标题就完全不懂。
+
+**修复（7处用户可见）**：①L9666 help「lg口径」->「乐咕乐股口径」②L9773 noteDiv「lg源/cninfo源」->「乐咕乐股源/巨潮资讯源」③L9783 今日预估pin标题「较lg源」->「较乐咕乐股源」④L9785 图表标题「lg源=股票型+混合型」->「乐咕乐股源=...」⑤L9873 hover「较lg周频」->「较乐咕乐股周频」⑥L9925 markPoint label「较lg源」->「较乐咕乐股源」⑦L9955 回测标题「lg源...期周频」->「乐咕乐股源...」。代码注释里的lg/cninfo保留（开发者用），L8877汇金证金块已有"巨潮资讯网(cninfo)"解释不动。
+
+**sw.js ui88 -> ui89**。commit c072f933。线上 ss.fx8.store `v=af3db4b7`。
+
+### AZ116 2026-08-02 全站英文残留38条全面中文化(ui90,commit 35a94d1e)
+
+**问题**：用户反馈"公募基金里都检查下好几个地方还有英文"。全站扫描（agent a33671985f9cf5c88，排除公募基金L9480-11300已做3轮）发现38条残留：接口技术名0/英文字段值2/裸英文缩写11/裸英文字段名标签4/裸英文术语21。最密集区是app.js信号模块(L720-1684,3517-3522)tooltip/警告条/说明卡。
+
+**修复（4文件app.js/lab.js/index.html/purpose-notes.js，本次确立译法统一表）**：UI术语 modal->弹窗/hover->悬停/pin->图钉/chip->标签；数据源 HKEX->港交所(HKEX)/CFFEX->中金所(CFFEX)/sina->新浪(sina)/KPI->关键指标(KPI)；技术指标 Supertrend->超级趋势(Supertrend)/Donchian->唐奇安20日/BB->布林带(BB)/OHLC->OHLC(开高低收)；回测术语 walk-forward->滚动测试/Bailey 2014->Bailey(2014)学术红线/equity_curve->净值曲线/sqrt(252)->√252；字段名 score/hands/high_alert/low_alert去英文留中文/iid->指数ID(iid)/orgId->机构ID(orgId)/actual_return->实际涨跌幅/regime->场景/top1->最相似1个/top8->前8/winsorize->缩尾处理(winsorize)/ES/NQ->ES标普/NQ纳指。首次注解+后续复用。补改4处同类遗漏(L7101/L9362/L8963/L8810/L15723)。代码注释和逻辑值(如source==="lg")不动。
+
+**sw.js ui89 -> ui90**。commit 35a94d1e。8文件+96-28。线上 ss.fx8.store `v=ca709892`。agent中途撞429(12:13恢复)，配额恢复后SendMessage resume原会话(a6708457a2dc0fe3a)继续，§11优先resume不重派。
+
+### AZ117 2026-08-02 公募基金5项修复(ui91,commit baaac2e2)
+
+**5项修复**（调研agent a9139fd049095d631只读报告 `/tmp/agent-progress-pf-4issues.md`）：
+1. **88魔咒回测卡补"今日预估"行**(app.js L10030)：在"当前仓位"和"所处区间"间插入橙色#ff9800行读`_estCur.position_estimate`，消除当前仓位96.1%(lg周频)与顶部pin今日预估95.01%(日频OLS)歧义。用户定推荐方案。
+2. **抱团度/重叠度 delta_vs_last**(public_fund.py L1487-1526 + app.js L9765-9766)：后端compute_metrics补查上期prev_report(20251231)Top100算prev_herf/prev_overlap，delta=当期-上期写入detail.delta_vs_last；前端从detail读。实测conc delta=+0.009866，overlap delta=-752.9。**overlap delta偏大隐患**：20260630中报(2835只)vs 20251231年报(5285只)披露范围差异致fund_count基数不同，非计算错误(数学验证prev=1601.17 cur=848.27)，后续AZ待排可比口径优化。
+3. **副标题截断+HHI注解**(app.js L10122-10123)：加`word-break:break-word`防窄屏截断；`抱团度HHI×1k`->`抱团度HHI(赫芬达尔)×1k`首次注解。
+4. **note中文化**(public_fund.py L1473)：`lg=`->`乐咕乐股=`，`cninfo=`->`巨潮资讯=`（后端hardcoded note字段，前端L9773已转中文但note本身没转）。
+5. **4卡片弹窗**(app.js L9770 _pfDetailModal + public_fund.py L1502)：抱团度Top10+重叠度Top30重仓股明细弹窗（复用rule-modal样式）；后端去`top30[:10]`截断存完整30只+补value字段。**848家真相**：848不是848家基金，是Top30重仓股平均每只被848家基金持有(中际旭创2717/宁德2151/新易盛1976...)。
+
+**附带重构**：top20_adjustment复用prev_report_row+prev_rows（去重复查询3次SQL->1次）。**sw.js ui90 -> ui91**。commit baaac2e2。6文件+96-28。线上 ss.fx8.store `v=b31bb99c`。
+
+### AZ118 2026-08-02 ETF评分重构为基金评分(场内ETF/场外基金二级tab)(ui92,commit a1c8315f)
+
+**用户规划**：1级tab"ETF评分"->"基金评分"，现有ETF内容归纳为二级tab"场内ETF"，未来新增二级tab"场外基金"(待办公募基金筛选器占位)。理由：ETF是基金子类，"基金评分"做上位概念收纳"场内ETF"(交易所交易)+"场外基金"(申赎型)是标准分类，符合memory `new-feature-isolated-tab-first`。
+
+**关键决策**：①1级tab key "etf"->"fund"(非保留key只改显示名)，语义清晰(1级=基金评分fund，2级=场内ETF etf/场外基金 offshore)，改动范围可控(app.js 4处key引用+index.html 2处data-tab+_H5_TAB_NAMES 1处)，§5一步到位。②renderEtfScore加container参数(5处content引用改_c=container||content)，让renderFund分发器传subContent隔离二级tab bar与子内容。③**不迁移sentiment/public-fund**：按用户决策"现有公募基金不动"，已上线公募基金持仓监控(88魔咒/仓位/重仓股，AZ97+)保持原位。观察：sentiment/public-fund(持仓监控)与新"场外基金"(选基筛选器)功能互补不冲突，"公募基金"概念虽重叠但用途不同，保持原位合理。
+
+**实施**：复用sentiment二级subtab模式——`_FUND_SUBTABS=["etf","offshore"]`+hash `#fund/etf`/`#fund/offshore`+路由解析+L105 state初始化校验+F5恢复；新增renderFund()分发器+renderOffshoreFund()占位("📊 场外基金筛选器(开发中,待补fund_basic字段后上线)"+简述实战级规划)；旧`#etf`路由重定向到`#fund/etf`保书签兼容(L16168-16170)；1级tab显示名"ETF评分"->"基金评分"(index.html L103+L144 PC+H5)。字数相同4字导航宽度不变。
+
+**sw.js ui91 -> ui92**。commit a1c8315f。线上 ss.fx8.store `v=9e7ab75f`+sss.sugas.site双站验证。
+
+### AZ119 2026-08-02 88魔咒图红绿标记说明优化(ui93,commit 7f32faf7)
+
+**问题**：用户反馈"红图钉绿图钉图钉是什么 表里的pin么 但是对应的图钉图标📌好像和走势图不一样所以我没直观理解"。根因：L10037说明文字用📌emoji(标准图钉)示意，但走势图实际是ECharts `symbol:"pin"`(水滴形圆头尖底)，形状不一致致用户对不上。
+
+**修复（4管齐下）**：①L10037说明文字去📌emoji(误导)，改红绿色块●+"红色水滴标记/绿色水滴标记"描述实际形状(和走势图水滴形对得上，不叫"图钉")：`●红色水滴标记=历史仓位Top5高点(88魔咒触发点) · ●绿色水滴标记=Top5低点(80抄底信号点)...` ②markPoint label加标注(L9896/9898 `_btMarkData` labelPrefix "高"/"低"->"88高"/"80低")，不靠颜色单一区分(色弱友好)+`show:true`保险显示 ③markPoint symbolSize 42->48(L9962，对齐今日预估pin L9974本就48，更醒目) ④hover desc L9909/9910补"(红色标记)"/"(绿色标记)"呼应说明文字。
+
+**sw.js ui92 -> ui93**。commit 7f32faf7。线上 ss.fx8.store `v=97b8a9af`含"水滴标记/88高/80低"。
+
 
