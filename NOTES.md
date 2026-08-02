@@ -6908,3 +6908,60 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 
 
+
+### AZ138 - 2026-08-03 阶段2 Phase A 场外基金评分排行列表(R2直链Top100+排序搜索筛选)（ui117，已上线）
+**背景**：AZ132（commit f522a545）阶段1评分引擎已实施（fund_score 表+6维度+5风险+经理6维+半凯利+市场乘数+final_suggestion），export_fund_score.py 生成 fund_score.json（头部2000，1.5MB）+ fund_score_top.json（Top100，83KB），R2 已传 ssd.fx8.store/fund_score/。前期调研落档 /tmp/agent-progress-fund-score-frontend-audit.md（34 字段 curl 确认/ETF 评分成熟模式可复用/R2+CF 双源 200/推荐方案独立评分排行列表+点行开详情弹窗）。Phase A 任务：替换场外基金 tab 静态占位符 -> R2 直链 fetchJSON Top100 评分列表 + 排序/搜索/筛选。
+
+**改动**：
+1. `static-site/app.js` L14278-L14297：删占位 HTML（"📊 场外基金筛选器（开发中）"），改为评分排行列表渲染逻辑
+   - 新增常量：`FUND_SCORE_TOP_URL_R2`（ssd.fx8.store/fund_score/fund_score_top.json）/ `FUND_SCORE_TOP_URL_CF`（./data/fund_score_top.json 兜底）/ `FUND_SCORE_PAGE_SIZE=50`
+   - 新增状态对象 `_fundScoreState`（all/filtered/page/search/meta/fundTypeFilter/sortKey/sortDir/loaded/loading/error），参考 `_etfScoreState` L13462 模式
+   - 新增函数：`_fundScoreTier`（5档分档 ≥85 strong-buy / 75-85 buy / 65-75 hold / 50-65 sell / <50 strong-sell）/ `_fundScoreColor`（与 ETF 同色板）/ `_fundScorePages` / `_fundScoreSortLabel` / `_sortFundScoreList` / `_applyFundScoreFilter`（搜索+类型筛选+排序）/ `_renderFundScoreRow`（rank/code/name/star/composite_score + tierChip + fund_type + kelly_tier + ½凯利 + 建议仓位 + 夏普 + 经理评分）/ `_renderFundScorePager`（与 ETF 同模式 class 前缀 fund-）/ `_renderFundScoreBody`（统计条+列表+分页器）
+   - `renderOffshoreFund(container)` 重写：renderPurposeNote(offline note) -> loading 状态 -> fetchJSON R2 失败 fallback CF -> 填充 state -> 工具栏（搜索框+类型下拉+排序下拉+数据日期）-> 列表容器 -> _applyFundScoreFilter
+   - 排序键：composite_score（默认降序）/ half_kelly_position / final_suggestion / sharpe / manager_score / star_rating / score_drawdown / score_stability（localStorage key `fund_score_sort` 持久化）
+   - 搜索：fund_code/fund_name 模糊匹配（180ms 防抖）
+   - 筛选：fund_type 动态下拉（按出现次数降序生成 option，兼容新类型）
+   - 分页：50/页（Top100 共 2 页，移动端单列友好）
+   - renderFund 二级分发器注释同步更新（L14243 "场外基金=公募基金筛选器预留位" -> "场外基金=评分排行列表"）
+2. `static-site/i18n.js`：双字典（compliance/original）同步新增 28 个 `fund_score_*` 键（指标名非交易指令词，两版同文案）：fund_score_loading/load_failed/search_placeholder/fund_type/all_types/sort_label_title/composite_score/half_kelly/final_suggestion/manager_score/sharpe/star/d3_drawdown/d4_stability/count_unit/data_label/sort_dir_suffix/empty/sort_composite/sort_composite_asc/sort_half_kelly/sort_final_suggestion/sort_sharpe/sort_manager_score/sort_star/sort_drawdown/sort_stability
+3. `static-site/purpose-notes.js`：新增 `PURPOSE_NOTES["offshore"]`（说明 6维度+5风险+经理6维+半凯利+市场乘数口径 + Top100 范围 + 排序/搜索/筛选交互 + 历史统计参考非投资建议合规声明）
+4. `static-site/style.css` L4770 后新增 141 行 `.fund-score-*` / `.fund-tier-chip-*` 样式（复用 ETF 视觉规范同色板：strong-sell 灰蓝 / sell 浅灰蓝 / hold 金黄 / buy 浅粉 / strong-buy 暗红；dark/redgold 主题变体；移动端响应式 @media 768px/640px）
+5. `static-site/sw.js` L16：`CACHE_VERSION = 'v2-20260803-move-fund-position-to-colA1-ui116'` -> `'v2-20260803-fund-score-phaseA-ui117'`（手动 sed，bump_asset_version.py 不匹配 sw 格式）
+
+**R2 直链配置**：参考 public_fund 模式（app.js L9554/L9582 硬编码 R2 URL），不扩展 `_R2_LARGE_RANGE_RE` 正则（§8.1 明确"不扩展避免语义混淆"）。fund_score_top.json 83KB 走 R2 优先 + CF fallback（§8.1 R2 架构准则按类别非按大小，新数据类别从第一天走 R2 架构）。
+
+**5档阈值选择依据**：Top100 实测 star_rating 全 4 星、kelly_tier 均衡/保守、composite_score 范围待验证。基金评分分布偏中高（已筛 Top100），阈值比 ETF 更严（≥85 strong-buy 而非 ETF 的 ≥76），避免 Top100 全挤到 strong-buy 档。
+
+**硬约束遵守**：
+- 不 add 根目录 data/ 下任何文件 ✓（git status 确认 data/etf_index_map.json/offshore_fund_*.json 等未跟踪文件未被 add）
+- 手动 `git add` 11 个改的文件（app.js/app.min.js/i18n.js/purpose-notes.js/purpose-notes.min.js/style.css/style.min.css/sw.js/about.html/index.html/privacy.html），不跑 deploy.sh 通配 ✓
+- commit message 末尾 `Co-Authored-By: Claude <noreply@anthropic.com>` ✓
+- 不 force push main，push feat:main fast-forward（a7561a14..88e05006）✓
+- 改 app.js/i18n.js/style.css 后 bump sw.js CACHE_VERSION ui116->ui117 ✓
+- em dash 陷阱：renderOffshoreFund 占位符 Edit 首次失败（line 14294 含 U+2014 "→"），改用 Read 精确复制后 Edit 成功 ✓
+- 模型禁图片操作 ✓（全程未 Read 图片）
+
+**§0 验收**（2026-08-03 00:43）：
+- `grep "开发中" static-site/app.js` 在 renderOffshoreFund 函数 = 0（占位符已替换）✓
+- fetchJSON R2 直链 `ssd.fx8.store/fund_score/fund_score_top.json` + CF fallback `./data/fund_score_top.json` ✓（app.js L14284/L14285）
+- Top100 列表渲染（rank/code/name/star/composite_score/tierChip/fund_type/kelly_tier/half_kelly/final_suggestion/sharpe/manager_score）✓
+- 排序（composite_score 默认降序 + 表头切换 8 键）+ 搜索（code/name 180ms 防抖）+ 筛选（fund_type 动态下拉）交互 ✓
+- 配色复用 ETF tier chip 5档色板 + i18n 套 _t()（28 新键）✓
+- `_fundScoreState` 状态管理 ✓
+- sw.js CACHE_VERSION = ui117 ✓
+- 3 域名 curl 验证：
+  - `curl https://ss.fx8.store/sw.js | grep CACHE_VERSION` = `v2-20260803-fund-score-phaseA-ui117` ✓
+  - `curl -sI https://ssd.fx8.store/fund_score/fund_score_top.json` = 200, 83457 bytes, JSON head `{"date":"20260802","count":100,"method":"v1.0_20260720","data":[{"fund_code":"013579"...` ✓
+  - `curl -sI https://ss.fx8.store/data/fund_score_top.json` = 200 (CF Static Assets HIT) ✓
+  - `curl https://sss.sugas.site/sw.js | grep CACHE_VERSION` = ui117 ✓（备站 GitHub Pages 同步）
+- commit 88e05006 在 origin/feat/iframe-theme-follow + origin/main ✓
+- 线上 app.min.js 含 `_fundScoreState`/`fund-score-row`/`FUND_SCORE_TOP_URL_R2` ✓
+- 线上 i18n.js 含 `fund_score_loading`/`fund_score_composite_score`/`fund_score_half_kelly` ✓
+- index.html 资源版本号 bump：app.min.js?v=983730e4 / i18n.js?v=279ae6c4 / purpose-notes.min.js?v=5d6976e4 / style.min.css?v=0493c142 ✓
+
+**commit 链**：12b302ed（AZ137 ui116）-> 88e05006（AZ138 ui117），push feat + push feat:main fast-forward（a7561a14..88e05006），未 force push main
+
+**遗留（Phase B/C）**：
+- Phase B：详情弹窗 5 区块（决策头/6维度条形图/5风险指标网格/半凯利仓位进度条/经理6维）—— `openFundScoreDetailModal(code)` 复用 `openEtfScoreDetailModal` L13659 模式，预计半天-1天
+- Phase C：6维度雷达图（Canvas/SVG）+ 实战级筛选器（需后端补 fund_basic 字段：历史盈利比例/稳定度/经理稳健度，memory `pf-fund-screener-real-requirements`）+ 展开全量2000（1.5MB fund_score.json 惰性加载）—— 预计 2-3 天
+- 用户需浏览器验证场外基金 tab Top100 列表渲染效果（模型禁图片无法视觉确认；可点表头排序/输入搜索/选类型筛选验证交互）
