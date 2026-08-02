@@ -6654,7 +6654,32 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **commit 链**：763f5fab（ui103）-> 68827338（ui104）-> ad409b12（ui105），均 push feat + push feat:main fast-forward，未 force push main
 
-**遗留**：策略说明弹窗（about.html 86处原词漏改 + _SIGNAL_HELP_ITEMS desc 套 _t.tsText + 辅买/追买颜色错配 + 备买/波段补全）a26eec55 429 中断 jsonl 已清理无法 resume，重派新 agent 接 about.html 半成品继续（AZ129）
+**遗留**：策略说明弹窗（about.html 86处原词漏改 + _SIGNAL_HELP_ITEMS desc 套 _t.tsText + 辅买/追买颜色错配 + 备买/波段补全）a26eec55 429 中断 jsonl 已清理无法 resume，重派新 agent 接 about.html 半成品继续（AZ129）-> **AZ129 已闭环**
+
+
+
+### AZ129 - 2026-08-02 策略说明弹窗4项修复(合规词改全+辅买紫色+补band_sell+套_t.tsText)（ui106，已上线）
+
+**背景**：用户报策略说明弹窗4问题：①合规版还显示"主买/辅买"原词没改全（追关注改了）②辅买文字应紫色不是金色（描述写粉紫但文字染金）③备买/波段持有/波段减仓没补全同步 ④_SIGNAL_HELP_ITEMS desc 套 _t.tsText。a26eec55 429 中断 jsonl 已清理，重派 a76d3f019c6e5246d 接 about.html 半成品 diff 接着做（复用上下文，§11 铁律）。
+
+**修复**（commit 87931c97，ui106）：
+- **about.html**：L84 "7种"->"8种"+补"波段调整"；L143 band_hold 补"橙 #ff9800"+动作说明；新增 band_sell(波段调整 草绿#8bc34a) 行；原词全清零（grep "主买|辅买|追买|备买"=0）
+- **app.js ruleContentHtml()**（L3467-3590 📋浮动按钮策略说明）：L3470-3496 段硬编码"主买/辅买/买"5处全改合规词"主关注/辅关注/关注"（前 agent 只改 L3513-3536 追关注段，主买辅买段漏）
+- **app.js _SIGNAL_HELP_ITEMS**（L1687-1696）：7字段改原词版本(用于off切回)：buy_special.warn/buy_special_filtered.desc/backtest/warn/buy_backup.warn/sell.desc/note/warn/sell_stop_loss.desc/warn/band_hold.desc/warn。渲染处 L1768/1772/1778/1782 套 _t.tsText()（it.backtest/it.note/it.desc/it.warn）动态切换 on合规/off原词
+- **style.css L1724 .badge-aux**：`background rgba(214,51,132,0.12) 浅紫半透明 + color #d63384 深紫`（金色->紫色，与 buy_aux 数据色 #d63384 一致，与 L125 注释"数据语义色硬编码不变"对齐）
+- **i18n.js _TS_COMPLIANCE_MAP 扩展 4 映射**：["波段持有","持有"]/["减仓","调整"](含"波段减仓"->"波段调整")/["卖点","风险点"]/["卖点"...]；新增 detail_band_sell_name key（compliance"波段调整·国债波段仓管"/original"波段减仓·国债波段仓管"）
+- **sw.js CACHE_VERSION**：ui105->ui106
+
+**§0 验收**（2026-08-02 22:39）：
+- about.html grep "主买|辅买|追买|备买" = 0 ✓（连"不荐股"声明也无命中）
+- style.css .badge-aux color=#d63384 ✓
+- sw.js 本地 + 线上 ss.fx8.store 均 ui106 ✓（CF 部署 15s 延迟后命中）
+- commit 87931c97 在 origin/main ✓
+- 线上 about.html 原词 grep = 0 ✓
+
+**commit 链**：ad409b12（ui105）-> 87931c97（ui106），push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：首页卡片排版混乱（a1fd1a08 调研完成方案 align-items flex-start->stretch 保留 flex:0 0 auto，待派实施）
 
 
 
