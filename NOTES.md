@@ -6723,7 +6723,77 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **commit 链**：17f7f7cc（ui107）-> f5fd4b3e（ui108），push feat + push feat:main fast-forward，未 force push main
 
-**遗留**：阶段1评分引擎调研完成（a795b342bbdb4cf7d，方案 /tmp/stage1-scoring-engine-proposal.md 47.6KB），用户定4决策（全市场评分/半凯利独立+市场乘数/补采fund_fee_detail/每日头部2000+周日全量），待派实施（AZ132）
+**遗留**：阶段1评分引擎调研完成（a795b342bbdb4cf7d，方案 /tmp/stage1-scoring-engine-proposal.md 47.6KB），用户定4决策（全市场评分/半凯利独立+市场乘数/补采fund_fee_detail/每日头部2000+周日全量），待派实施（AZ132）-> **AZ132 已闭环**
+
+
+
+### AZ132 - 2026-08-02 阶段1公募基金评分引擎完整实施（6维度+5风险+经理6维+半凯利+市场乘数，已上线）
+
+**背景**：阶段0场外基金数据采集补全（commit 08c514f1）后，进入阶段1评分引擎。a795b342bbdb4cf7d 调研产出完整方案（/tmp/stage1-scoring-engine-proposal.md 47.6KB 1010行），用户定4决策：①全市场评分（27409只全评，按基金类型分基准）②半凯利独立+市场乘数调节（half_kelly×market_adjustment）③补挂 launchd 全量采 fund_fee_detail ④每日头部2000+周日全量。aa702a9966928c83f 实施完整版12步 ~17h。
+
+**实施**（commit f522a545，app/collector/public_fund.py +1068行）：
+- **fund_score schema 新表**（PK=fund_code+score_date，6维度子分+5风险指标+经理6维+凯利+市场乘数+完整度+3索引）
+- **_compute_risk_from_nav 补 IR+Alpha**（fund_index_daily hs300 基准回归+excess_daily+TE年化+CAPM回归，fetch_fund_risk_indicator xq分支也补）
+- **_compute_kelly_inputs 月频3年胜率赔率**（fund_daily_nav 月末净值聚合->月收益率->近36月->p胜率b赔率f*半凯利 clamp0-90%分档保守/均衡/激进，无stage0依赖可立即算）
+- **_compute_dimension_scores 6维度**（D1业绩0.25/D2风险调整0.25/D3回撤0.15/D4稳定性0.15/D5规模流动性0.10/D6费率0.10，百分位归一化+缺失处理+data_completeness降权）
+- **_compute_manager_score 6维**（M1任职年限/M2规模/M3业绩稳定/M4回撤/M5连贯/M6精力，含过渡proxy：work_days+best_return+data_completeness降权）
+- **_compute_composite_score 加权+星级**（>=85五星/70-85四星/50-70三星/30-50二星/<30一星）+ 熵权法校验
+- **_compute_fund_score 单只汇总**（dims+mgr+kelly+market_adjustment，final_suggestion=half_kelly×market_adj clamp0-90）
+- **compute_all_scores 批量+断点续采**（全市场按基金类型分基准 _pick_benchmark 解析fund_basic.benchmark/tracking_target，BATCH=50 INSERT OR REPLACE + /tmp/pf-score-progress.json）
+- **export_fund_score.py** 导出 fund_score.json（头部2000，1.5MB）+ fund_score_top.json（Top100，83KB）
+- **upload_r2.py 加 upload-fund-score 命令** + exclude_prefixes 加 fund_score 防双副本（§8.1 新类别按前缀建命令）
+- **update_all.sh 接入** compute_all_scores(top_n=2000, resume=True) + export_fund_score + upload-fund-score
+- **launchd pf-score-daily/pf-score-weekly** plist 加载（每日16:00头部2000+周日全量，fcntl互斥锁+caffeinate 仿 pf-stage0-*）
+- **queries.py 薄包装** public_fund_score(top_n) + public_fund_score_detail(code, 表里无现算)
+- **main.py 路由** /api/public-fund-score + /api/public-fund-score/{code}
+
+**测试结果**（3只样本+头部2000只）：
+- 161725 composite=30.6二星 half_kelly=0%保守（熊市合理）/ 000001 composite=65.02三星 half_kelly=8.03% final=5.62% / 110011 composite=38.92二星
+- fund_score 表 2000行 score_date=20260802，星级分布：4星314/3星608/2星388/1星690（无5星因市场熊市综合分<85）
+- 完整度：100%有658只(偏股完整)/83%+有365只/50%+有262只/<50%有715只(货币/指数无净值历史正常)
+- 半凯利档位：保守883/均衡140/None977(货币基金361+指数316等无fund_daily_nav无法算月收益正常)
+- 基准分布：hs300 1953/csi500 34/gem 13（_pick_benchmark 工作正常）
+- Top10都是债基（近3年债牛股熊符合市场）
+- API /api/public-fund-score + /detail 测试通过
+
+**§0 验收**（2026-08-02 23:50）：
+- fund_score 表 2000行 score_date=20260802 ✓
+- fund_score.json 1.5MB + fund_score_top.json 83KB 导出 ✓
+- R2 https://ssd.fx8.store/fund_score/fund_score.json 200 ✓
+- launchd com.trade.pf-score-daily.plist + pf-score-weekly.plist 加载 ✓
+- /api/public-fund-score 路由 L496 + /{code} L509 ✓
+- commit f522a545 在 origin/main ✓
+- ⚠️ CF https://ss.fx8.store/fund_score.json 404（1.5MB 超 CF Workers Static Assets 单文件限制，R2 200 OK 兜底，前端阶段2需配 R2 直链 ssd.fx8.store/fund_score/，memory cf-workers-large-json-404-r2-fallback）
+
+**commit 链**：eb4e570f（AZ131落档）-> f522a545（阶段1实施），push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：①前端阶段2（场外基金tab评分展示，需配 fund_score.json R2 直链）②stage0-risk/manager 跑完后评分维度自动完整（当前过渡proxy+data_completeness降权）③fund_fee_detail 全量补采 launchd（D6第一版用fund_basic字段替代）
+
+
+
+### AZ133 - 2026-08-02 i18n.js 6处名词残留修正(风险->风险提醒/追风控->追风控|警示)（ui110，已上线）
+
+**背景**：AZ131 全局修正后用户再报残留：策略弹窗"趋势转弱(风险)"应"风险提醒"、"ATR×3.5风控(风控|警示)"应"追风控|警示"；首页技术参考"●风险"应"风险提醒"、"●追风控"应"追风控|警示"。§0 定位 i18n.js DICTS.compliance 6处残留（AZ131 漏改）：L22 sell_short/L35 type_sell_stop_loss/L43 detail_sell_name/L84 sig_meta_stop_loss_label/L104 trade_sim_ops_sell/L242 _TS_COMPLIANCE_MAP["卖","风险"]。a6c02a78ae795e7a4 扩展任务未处理（会话结束），主控直接 Edit 6处修正。
+
+**修复**（commit f42c301c，ui110）：
+- L22 sell_short "风险"->"风险提醒"
+- L35 type_sell_stop_loss "追风控"->"追风控|警示"
+- L43 detail_sell_name "风险·趋势转弱"->"风险提醒·趋势转弱"
+- L84 sig_meta_stop_loss_label "追风控警示"->"追风控|警示"（补 `|`）
+- L104 trade_sim_ops_sell "风险"->"风险提醒"
+- L242 _TS_COMPLIANCE_MAP ["卖","风险"]->["卖","风险提醒"]
+- DICTS.original（L110/121/128等）保留原词用于 off 切回
+- sw.js ui109->ui110
+
+**§0 验收**：
+- i18n.js 6处 compliance 全改对（L22/35/43/84/104/242），original 保留 ✓
+- 线上 ss.fx8.store + sss.sugas.site sw.js 均 ui110 ✓
+- 线上 i18n.js grep "风险提醒"/"追风控|警示" 命中 ✓
+- commit f42c301c 在 origin/main ✓
+
+**commit 链**：f522a545（AZ132阶段1）-> f42c301c（AZ133名词残留 ui110），push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：①策略弹窗配色不统一（ruleContentHtml 追关注/追风控/备关注/波段持有/波段调整用内联style硬编码，主关注/辅关注/风险提醒用CSS class，2套并存，待统一）②策略弹窗格式统一 ③首页排版左右层次不齐+卡片间空行（a1ac710eea5f8b2e3 调研中）
 
 
 
