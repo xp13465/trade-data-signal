@@ -9513,15 +9513,17 @@ async function _loadManufSubindFundMap() {
 async function renderPublicFund(container) {
   _disposeContainerCharts(container);
   renderLoadingState(container);
-  let summary, holdings, industry, shIndex, backtest;
+  let summary, holdings, industry, shIndex, backtest, estimate;
   try {
-    [summary, holdings, industry, shIndex, backtest] = await Promise.all([
+    [summary, holdings, industry, shIndex, backtest, estimate] = await Promise.all([
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_summary.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_holdings.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry.json").catch(() => null),
       fetchJSON("https://ssd.fx8.store/index/hs300-all.json").catch(() => null),
       // G功能: 88魔咒历史回测+极值标注(独立 JSON, 独立计算非 7 元组)
       fetchJSON("https://ssd.fx8.store/public_fund/public_fund_position_backtest.json").catch(() => null),
+      // 今日预估仓位(日频 OLS 预估, 补 lg 周频滞后): 主图加第3条 series + 末端 markPoint 标 current
+      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_position_estimate.json").catch(() => null),
     ]);
   } catch (e) {
     renderErrorState(container, e, () => renderPublicFund(container));
@@ -9775,7 +9777,11 @@ async function renderPublicFund(container) {
   // ── 区域 2: 主图 仓位 vs 沪深300 双轴折线 + 88/80 markLine ──
   const chartCard = document.createElement("div");
   chartCard.className = "chart-card pf-main-chart-card";
-  chartCard.innerHTML = '<div class="chart-title">📈 平均股票仓位 vs 沪深300（lg=股票型+混合型，88 魔咒专用口径）</div><div class="chart" style="height:380px"></div>';
+  const _estCur = estimate && estimate.current ? estimate.current : null;
+  const _estTitleSuffix = _estCur
+    ? `<span style="font-size:12px;color:#ff9800;margin-left:8px;font-weight:600">今日预估 ${_estCur.position_estimate}%（日频 OLS，vs lg ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%）</span>`
+    : "";
+  chartCard.innerHTML = `<div class="chart-title">📈 平均股票仓位 vs 沪深300（lg=股票型+混合型，88 魔咒专用口径）${_estTitleSuffix}</div><div class="chart" style="height:380px"></div>`;
   container.appendChild(chartCard);
 
   const posHist = (summary.position_history || []).filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
@@ -9801,7 +9807,14 @@ async function renderPublicFund(container) {
   const shVals = shPoints.map((p) => p[1]);
   const shMin = shVals.length ? Math.min(...shVals) : 3500;
   const shMax = shVals.length ? Math.max(...shVals) : 5000;
-  const allDates = [...new Set([...posPoints.map((p) => p[0]), ...shPoints.map((p) => p[0])])].sort();
+  // 今日预估仓位 series(日频 OLS 预估, 补 lg 周频滞后): history 147期时序 + 末端 markPoint 标 current
+  // 预估 history date="2025-12-22" 需转 "20251222" 匹配 xAxis category(和 _btDateToCoord 同逻辑, 此处提前用)
+  // 预估线只画有数据的部分(2025-12-22 起), 和 lg 线(2007 起)在 2025-12-22~2026-07-24 重叠期可视觉对比日频vs周频
+  const _estHist = (estimate && Array.isArray(estimate.history)) ? estimate.history : [];
+  const estPoints = _estHist.map((h) => [(h.date || "").replace(/-/g, ""), h.position]);
+  const estMap = new Map(estPoints);
+  const _estCurDate = _estCur ? (_estCur.date || "").replace(/-/g, "") : "";  // 末端点日期 YYYYMMDD, tooltip 追加偏差
+  const allDates = [...new Set([...posPoints.map((p) => p[0]), ...shPoints.map((p) => p[0]), ...estPoints.map((p) => p[0])])].sort();
   const posMap = new Map(posPoints), shMap = new Map(shPoints);
 
   // G功能: markPoint 标历史极值(88魔咒高点 Top5 + 80抄底低点 Top5)
@@ -9850,9 +9863,14 @@ async function renderPublicFund(container) {
         let html = `<div style="font-weight:600;margin-bottom:4px">${_pfFmtDate(dt)}</div>`;
         params.forEach((p) => {
           if (p.value == null || isNaN(Number(p.value))) return;
-          const unit = p.seriesName === "平均仓位%" ? "%" : "";
+          const unit = (p.seriesName === "平均仓位%" || p.seriesName === "今日预估仓位%") ? "%" : "";
           html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color}"></span><span style="flex:1">${p.seriesName}</span><b style="font-variant-numeric:tabular-nums">${Number(p.value).toFixed(2)}${unit}</b></div>`;
         });
+        // 末端预估点: 追加偏差说明(vs lg + confidence), 和 pin 共用同一浮窗
+        if (_estCur && dt === _estCurDate) {
+          html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);color:#ff9800;font-weight:600;font-size:11px">📌 今日预估 ${_estCur.position_estimate}%（日频 OLS，confidence=${_estCur.confidence || "-"}）</div>`;
+          html += `<div style="font-size:11px;color:#bbb;margin-top:2px">vs lg 周频 ${_estCur.lg_latest_position}%（${_estCur.lg_latest_date}）· 偏差 ${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%</div>`;
+        }
         // 命中 pin 日期: 追加完整说明(类型+仓位+沪深300+后30/60/90天涨跌), 和普通点共用同一浮窗
         const pin = _pinDateMap.get(dt);
         if (pin) {
@@ -9864,7 +9882,7 @@ async function renderPublicFund(container) {
         return html;
       },
     },
-    legend: { data: ["平均仓位%", "沪深300"], top: 5, textStyle: { color: "var(--text-2)" } },
+    legend: { data: ["平均仓位%", "今日预估仓位%", "沪深300"], top: 5, textStyle: { color: "var(--text-2)" } },
     grid: { left: 60, right: 60, top: 40, bottom: 30 },
     xAxis: { type: "category", data: allDates, axisLabel: { formatter: (v) => _pfFmtDate(v).slice(5), fontSize: 10 } },
     yAxis: [
@@ -9888,6 +9906,29 @@ async function renderPublicFund(container) {
           symbol: "pin", symbolSize: 42,
           data: [..._highsMark, ..._lowsMark],
         },
+      },
+      // 今日预估仓位%(日频 OLS 预估, 补 lg 周频滞后): history 147期时序虚线 + 末端 markPoint 标 current
+      // 橙色虚线区别于 lg 红实线; 末端 markPoint 醒目标"今日预估 95.01%" + 副标注"vs lg 96.01% 偏差-1.0%"
+      {
+        name: "今日预估仓位%", type: "line",
+        data: allDates.map((d) => estMap.has(d) ? estMap.get(d) : null), yAxisIndex: 0,
+        symbol: "none", connectNulls: true,
+        lineStyle: { color: "#ff9800", width: 2, type: "dashed" }, itemStyle: { color: "#ff9800" },
+        markPoint: _estCur ? {
+          symbol: "pin", symbolSize: 48,
+          data: [{
+            coord: [_estCurDate, _estCur.position_estimate],
+            itemStyle: { color: "#ff9800" },
+            label: {
+              color: "#fff", fontSize: 11,
+              formatter: `{a|今日预估 ${_estCur.position_estimate}%}\n{b|vs lg ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%}`,
+              rich: {
+                a: { fontSize: 11, color: "#fff", fontWeight: 700, lineHeight: 14 },
+                b: { fontSize: 9, color: "#fff", lineHeight: 12 },
+              },
+            },
+          }],
+        } : undefined,
       },
       {
         name: "沪深300", type: "line", data: allDates.map((d) => shMap.has(d) ? shMap.get(d) : null), yAxisIndex: 1,
