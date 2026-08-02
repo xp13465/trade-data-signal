@@ -64,9 +64,9 @@
     "name": "两融",
     "schedule": "T+1 08:00",
     "est_text": "约1秒",
-    "last_run": "2026-08-01 19:15",
+    "last_run": "2026-08-02 08:00",
     "last_exit": 0,
-    "last_duration_sec": 0,
+    "last_duration_sec": 1,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
