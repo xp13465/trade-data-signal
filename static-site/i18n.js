@@ -19,7 +19,7 @@
     compliance: {
       // 短标签（走势图pin，app.js L2470 _pinStatsBriefHtml）
       buy_short: "关注",
-      sell_short: "风险",
+      sell_short: "风险提醒",
       buy_aux: "辅关注",
       buy_special: "追关注",
       buy_special_filtered_short: "追关注(过滤)",
@@ -32,7 +32,7 @@
       sell_long: "风险提醒",
       // _SIG_TYPE_META 分类chip（app.js L1265-1272）
       type_buy: "主关注",
-      type_sell_stop_loss: "追风控",
+      type_sell_stop_loss: "追风控|警示",
       type_band_sell: "波段调整",
       // _SIG_DETAIL 弹窗详情 name（app.js L1678-1685 _SIGNAL_HELP_ITEMS）
       detail_buy_name: "主关注 · 超卖拐点",
@@ -40,7 +40,7 @@
       detail_buy_special_name: "追关注 · 上轨突破",
       detail_buy_special_filtered_name: "追关注(过滤预览) · h5灰图钉",
       detail_buy_backup_name: "备关注 · 趋势转向",
-      detail_sell_name: "风险 · 趋势转弱",
+      detail_sell_name: "风险提醒 · 趋势转弱",
       detail_sell_stop_loss_name: "追风控|警示 · ATR×3.5风控",
       detail_band_hold_name: "持有 · 国债波段仓管",
       detail_band_sell_name: "波段调整 · 国债波段仓管",
@@ -81,7 +81,7 @@
       position_reduce_prefix: "调整",
       position_stop_loss_clear: "风控退出",
       sig_meta_stop_loss_name: "追风控|警示 · ATR风控",
-      sig_meta_stop_loss_label: "追风控警示",
+      sig_meta_stop_loss_label: "追风控|警示",
       weak_no_buypoint: "暂无优质关注点优选",
       buypoint_path_label: "该关注点+路径",
       subscribe_title: "订阅该指数信号（有关注/风险点时推送邮件/Telegram）",
@@ -101,7 +101,7 @@
       trade_sim_sell_date: "风险日期",
       trade_sim_sell_price: "风险价",
       trade_sim_ops_buy: "关注",
-      trade_sim_ops_sell: "风险",
+      trade_sim_ops_sell: "风险提醒",
       trade_sim_skip_tooltip: "仓位已满/现金不足/无持仓可退时跳过不执行"
     },
     // 原版（🛡️ off）：用户点按钮切回的详细买卖点版本
@@ -239,7 +239,7 @@
     ["止盈", "收益兑现"],
     ["减仓", "调整"],
     ["买", "关注"],
-    ["卖", "风险"]
+    ["卖", "风险提醒"]
   ];
   _t.tsText = function (text) {
     if (currentMode === "off" || !text) return text;
