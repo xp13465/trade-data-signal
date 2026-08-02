@@ -1,0 +1,183 @@
+/*!
+ * i18n.js - 全站合规名词替换字典 + _t() 翻译函数
+ * 方案B: JS文案替换 + localStorage（源码默认合规词，爬虫/巡查看合规版；🛡️按钮切回原版）
+ * 复用 app/alert_reason.py:77-82 禁用词映射 + 5点拍板（88魔咒保留/图表pin文字版"关注/风险/风控"）
+ *
+ * 默认 mode="on"（合规版）；🛡️按钮切 mode="off"（原版买卖点）
+ * localStorage key: "compliance_mode"，值 "on"（默认/合规）/"off"（原版）
+ *
+ * 第1阶段（本文件）：核心骨架，仅覆盖 app.js 集中点（6处labels + _SIG_TYPE_META + _SIG_DETAIL + signalLabel + ETF5档）
+ * 第2-4阶段：app.js分散点 + lab.js + about.html + trade_sim + common.js + purpose-notes.js + 邮件
+ */
+(function () {
+  "use strict";
+  var STORAGE_KEY = "compliance_mode";
+
+  // ===== 双字典：compliance（默认合规）/ original（🛡️ off 原版）=====
+  var DICTS = {
+    // 合规版（默认）：爬虫/巡查机器人看此版本，去交易指令词保留语义
+    compliance: {
+      // 短标签（走势图pin，app.js L2470 _pinStatsBriefHtml）
+      buy_short: "关注",
+      sell_short: "风险",
+      buy_aux: "辅关注",
+      buy_special: "追关注",
+      buy_special_filtered_short: "追关注(过滤)",
+      buy_special_filtered_long: "追关注(过滤预览)",
+      buy_backup: "备关注",
+      sell_stop_loss: "风控|警示",
+      band_hold: "持有",
+      // 长标签（信号卡/频率汇总，app.js L2641 statsHint / L3610 频率modal / L12489 _freqPopupHtml）
+      buy_long: "关注点",
+      sell_long: "风险点",
+      // _SIG_TYPE_META 分类chip（app.js L1265-1272）
+      type_buy: "主关注",
+      type_sell_stop_loss: "风控",
+      type_band_sell: "波段调整",
+      // _SIG_DETAIL 弹窗详情 name（app.js L1678-1685 _SIGNAL_HELP_ITEMS）
+      detail_buy_name: "主关注 · 超卖拐点",
+      detail_buy_aux_name: "辅关注 · 下轨拐点",
+      detail_buy_special_name: "追关注 · 上轨突破",
+      detail_buy_special_filtered_name: "追关注(过滤预览) · h5灰图钉",
+      detail_buy_backup_name: "备关注 · 趋势转向",
+      detail_sell_name: "风险 · 趋势转弱",
+      detail_sell_stop_loss_name: "风控|警示 · ATR×3.5风控",
+      detail_band_hold_name: "持有 · 国债波段仓管",
+      // ETF 5档（app.js L13395 ETF_TIER_LABEL）
+      etf_strong_sell: "重点规避",
+      etf_sell: "风险提示信号",
+      etf_hold: "持有观察",
+      etf_buy: "关注机会",
+      etf_strong_buy: "重点留意",
+      // signalLabel（app.js L380）动态拼接用词
+      sl_buy_special_filtered: "特关注(过滤预览)",
+      word_stop_loss: "风控",
+      word_band_reduce: "调整",
+      // 第2阶段分散点：通知/ETF明细/标题等
+      notify_buy_title: "新关注信号",
+      notify_sell_title: "新风险提示",
+      notify_buy_body: "触发关注",
+      notify_sell_body: "触发风险提示",
+      etf_side_buy: "关注机会",
+      etf_side_sell: "风险提示信号",
+      etf_side_hold: "持有观察",
+      etf_buy_section: "📐 关注建议",
+      etf_sell_section: "🔻 风险提示建议",
+      etf_sellhold_section: "风险提示 / 持有观察",
+      etf_chip_buy: "关注",
+      etf_chip_sell: "风险提示",
+      etf_sort_hands: "关注点档数 多->少",
+      etf_no_buy: "🟡 最近信号非关注点",
+      etf_score_hands: "关注点档数",
+      etf_buypoint_prefix: "关注点",
+      etf_hands_unit: "档",
+      // 图例/tooltip 短词
+      legend_band_reduce: "波段调整(国债)",
+      legend_stop_loss: "ATR×3.5风控(风控|警示)",
+      legend_buy_diff: "⚠ 关注点回测差异提示",
+      legend_band_hold: "持有(国债)",
+      legend_sell: "趋势转弱(风险)",
+      position_reduce_prefix: "调整",
+      position_stop_loss_clear: "风控清仓",
+      sig_meta_stop_loss_name: "风控|警示 · ATR风控",
+      sig_meta_stop_loss_label: "风控警示",
+      weak_no_buypoint: "暂无优质关注点优选",
+      buypoint_path_label: "该关注点+路径",
+      subscribe_title: "订阅该指数信号（有关注/风险点时推送邮件/Telegram）",
+      crosslink_signal: "关注/风险点信号",
+      concept_title_signal: "含关注/风险点",
+      etf_not_qualified: "不够格关注(C2)但不过热, 持有观察等待信号",
+      etf_high_alert_rule: "≥85防范风险/≥75调3-4/≥70调1-2/≥60调1-4/<60持有观察",
+      rule_modal_title: "关注/风险点策略说明"
+    },
+    // 原版（🛡️ off）：用户点按钮切回的详细买卖点版本
+    original: {
+      buy_short: "买",
+      sell_short: "卖",
+      buy_aux: "辅买",
+      buy_special: "追买",
+      buy_special_filtered_short: "追买(过滤)",
+      buy_special_filtered_long: "追买(过滤预览)",
+      buy_backup: "备买",
+      sell_stop_loss: "追止损|卖",
+      band_hold: "波段持有",
+      buy_long: "买点",
+      sell_long: "卖点",
+      type_buy: "主买",
+      type_sell_stop_loss: "追止损",
+      type_band_sell: "波段减仓",
+      detail_buy_name: "主买 · 超卖拐点",
+      detail_buy_aux_name: "辅买 · 下轨拐点",
+      detail_buy_special_name: "追买 · 上轨突破",
+      detail_buy_special_filtered_name: "追买(过滤预览) · h5灰图钉",
+      detail_buy_backup_name: "备买 · 趋势转向",
+      detail_sell_name: "卖 · 趋势转弱",
+      detail_sell_stop_loss_name: "追止损|卖 · ATR×3.5止损",
+      detail_band_hold_name: "波段持有 · 国债波段仓管",
+      etf_strong_sell: "强卖出",
+      etf_sell: "卖出",
+      etf_hold: "持有观察",
+      etf_buy: "买入",
+      etf_strong_buy: "强买入",
+      sl_buy_special_filtered: "特买(过滤预览)",
+      word_stop_loss: "止损",
+      word_band_reduce: "减仓",
+      // 第2阶段分散点：通知/ETF明细/标题等
+      notify_buy_title: "新买入信号",
+      notify_sell_title: "新卖出信号",
+      notify_buy_body: "触发买入",
+      notify_sell_body: "触发卖出",
+      etf_side_buy: "买入机会",
+      etf_side_sell: "卖出信号",
+      etf_side_hold: "持有观察",
+      etf_buy_section: "📐 买点建议",
+      etf_sell_section: "🔻 卖出建议",
+      etf_sellhold_section: "卖出 / 持有观察",
+      etf_chip_buy: "买入",
+      etf_chip_sell: "卖出",
+      etf_sort_hands: "买点手数 多->少",
+      etf_no_buy: "🟡 最近信号非买点",
+      etf_score_hands: "买点手数",
+      etf_buypoint_prefix: "买点",
+      etf_hands_unit: "手",
+      // 图例/tooltip 短词
+      legend_band_reduce: "波段减仓(国债)",
+      legend_stop_loss: "ATR×3.5止损(追止损|卖)",
+      legend_buy_diff: "⚠ 买点回测差异提示",
+      legend_band_hold: "波段持有(国债)",
+      legend_sell: "趋势转弱(卖)",
+      position_reduce_prefix: "减仓",
+      position_stop_loss_clear: "止损清仓",
+      sig_meta_stop_loss_name: "追止损|卖 · ATR止损",
+      sig_meta_stop_loss_label: "追止损卖",
+      weak_no_buypoint: "暂无优质买点推荐",
+      buypoint_path_label: "该买点+路径",
+      subscribe_title: "订阅该指数信号（有买卖点时推送邮件/Telegram）",
+      crosslink_signal: "买卖点信号",
+      concept_title_signal: "含买卖点",
+      etf_not_qualified: "不够格买入(C2)但不过热, 持有观察等待信号",
+      etf_high_alert_rule: "≥85清仓/≥75减3-4/≥70减1-2/≥60减1-4/<60持有观察",
+      rule_modal_title: "买卖点策略说明"
+    }
+  };
+
+  // ===== 当前 mode（同步读 localStorage，避免异步导致首屏用错字典）=====
+  var currentMode = "on";
+  try {
+    var m = localStorage.getItem(STORAGE_KEY);
+    if (m === "off") currentMode = "off";
+  } catch (e) {}
+
+  function _t(key) {
+    var dict = DICTS[currentMode === "off" ? "original" : "compliance"];
+    return Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : key;
+  }
+  _t.setMode = function (mode) {
+    currentMode = (mode === "off") ? "off" : "on";
+    try { localStorage.setItem(STORAGE_KEY, currentMode); } catch (e) {}
+  };
+  _t.getMode = function () { return currentMode; };
+  _t.isCompliance = function () { return currentMode !== "off"; };
+
+  window._t = _t;
+})();

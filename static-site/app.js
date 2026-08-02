@@ -912,7 +912,7 @@ function _backupSignalChipRender(sd, id) {
     // 三档全 null（弱标的整体不达标）：显示兜底文案，区别于三色档中性灰
     // 小样本品种仍前置标注 chip（让用户知道样本量限制，即便三档全不达标）
     // 2026-07-27 sharpe 红线品种仍前置红线 chip（即便三档全不达标，夏普越线信息仍需透明）
-    return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测弹窗，历史表现不代表未来</span></div>' + sharpeRedlinePrefix + smallSamplePrefix;
+    return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，' + _t("weak_no_buypoint") + '（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测弹窗，历史表现不代表未来</span></div>' + sharpeRedlinePrefix + smallSamplePrefix;
   }
   // 2026-07-20 chip 警示文案优化(方案C): 三档推荐算完后, 重新生成 sharpeRedlinePrefix 完整版
   //   加 topTierMaxSharpe(三档推荐策略各自 maxSharpe 的最大值) + 区分全局max来源是否在三档推荐内
@@ -1027,7 +1027,7 @@ function _backupSignalChipTip(sd, scored, chip) {
   if (overallRange) lines.push('回测区间: ' + overallRange);
   // 策略级聚合指标汇总（chip 上的 line2 完整版）
   lines.push('策略聚合（5 窗口）：盈利' + e.profitWins + '/5 │ 年化中位' + e.medianAnn.toFixed(1) + '% │ 年化均值' + e.meanAnn.toFixed(1) + '% │ 回撤中位' + e.medianDd.toFixed(1) + '% │ 最大回撤' + e.maxDdAll.toFixed(1) + '% │ 样本总数' + e.totalOpsSum);
-  lines.push('该买点+路径在 5 窗口逐窗口表现（' + e.scenario + ' · ' + e.path + '）：');
+  lines.push(_t("buypoint_path_label") + '在 5 窗口逐窗口表现（' + e.scenario + ' · ' + e.path + '）：');
   for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
     var w = _BACKUP_CHIP_WINS[i];
     var s = e.winSummaries && e.winSummaries[w];
@@ -1080,20 +1080,20 @@ function _backupSignalChipTip(sd, scored, chip) {
 // 同日多买点信号合并拼色 pin（金描边+光晕），图例不单独列拼色（用户从 pin 视觉即可辨识）。
 // 三档 chip（年化最高/最稳健/回撤最小）在每个指数卡片内 chip-row 单独一行展示，chip 自带档位标签+买点名+数值，
 // 不再在图例条重复展示 mini-legend（消除"分2处"）。图例末尾保留 ❓ termTip 解释 4 买点（重点备买=Supertrend翻多确认的备选买点）。
-var _BACKUP_LEGEND_TIP = "4 买点（主买/辅买/追买/备买）历史回测表现差异较大，每个指数标题下方的三档 chip 标注该指数近5年全仓进出回测中表现最优的买点（年化最高/最稳健/回撤最小）。研究参考，不构成投资建议，历史回测不代表未来。";
-var _BACKUP_BUYPOINT_TIP = "4 买点：主买=RSI(14)上穿30超卖拐点；辅买=布林下轨回归左侧布局；追买=唐奇安20日上轨突破+5日确认；备买=超级趋势(Supertrend) ATR×3翻多+3日二次确认的趋势反转备选买点（稳健性弱于追买，仅供参考不单独决策）。";
+var _BACKUP_LEGEND_TIP = "4 关注点（主关注/辅关注/追关注/备关注）历史回测表现差异较大，每个指数标题下方的三档 chip 标注该指数近5年全仓进出回测中表现最优的关注点（年化最高/最稳健/回撤最小）。研究参考，不构成投资建议，历史回测不代表未来。";
+var _BACKUP_BUYPOINT_TIP = "4 关注点：主关注=RSI(14)上穿30超卖拐点；辅关注=布林下轨回归左侧布局；追关注=唐奇安20日上轨突破+5日确认；备关注=超级趋势(Supertrend) ATR×3翻多+3日二次确认的趋势反转备选关注点（稳健性弱于追关注，仅供参考不单独决策）。";
 function _signalLegendHtml() {
   return '<div class="signal-legend">'
-    + '<span class="signal-legend-item"><i style="background:#e6492e"></i>超卖拐点(主买)</span>'
-    + '<span class="signal-legend-item"><i style="background:#d63384"></i>下轨拐点(辅买)</span>'
-    + '<span class="signal-legend-item"><i style="background:#ffd700"></i>上轨突破(追买)</span>'
-    + '<span class="signal-legend-item"><i style="background:#9c27b0"></i>趋势转向(备买)</span>'
-    + '<span class="signal-legend-item"><i style="background:#ff9800"></i>波段持有(国债)</span>'
-    + '<span class="signal-legend-item"><i style="background:#8bc34a"></i>波段减仓(国债)</span>'
-    + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>趋势转弱(卖)</span>'
-    + '<span class="signal-legend-item"><i style="background:#3498db"></i>ATR×3.5止损(追止损|卖)</span>'
+    + '<span class="signal-legend-item"><i style="background:#e6492e"></i>超卖拐点(' + _t("type_buy") + ')</span>'
+    + '<span class="signal-legend-item"><i style="background:#d63384"></i>下轨拐点(' + _t("buy_aux") + ')</span>'
+    + '<span class="signal-legend-item"><i style="background:#ffd700"></i>上轨突破(' + _t("buy_special") + ')</span>'
+    + '<span class="signal-legend-item"><i style="background:#9c27b0"></i>趋势转向(' + _t("buy_backup") + ')</span>'
+    + '<span class="signal-legend-item"><i style="background:#ff9800"></i>' + _t("legend_band_hold") + '</span>'
+    + '<span class="signal-legend-item"><i style="background:#8bc34a"></i>' + _t("legend_band_reduce") + '</span>'
+    + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>' + _t("legend_sell") + '</span>'
+    + '<span class="signal-legend-item"><i style="background:#3498db"></i>' + _t("legend_stop_loss") + '</span>'
     + '<span class="term-tip" data-tip="' + _BACKUP_BUYPOINT_TIP.replace(/"/g, '&quot;') + '">❓</span>'
-    + '<span class="signal-legend-note" data-tip="' + _BACKUP_LEGEND_TIP + '">⚠ 买点回测差异提示</span>'
+    + '<span class="signal-legend-note" data-tip="' + _BACKUP_LEGEND_TIP + '">' + _t("legend_buy_diff") + '</span>'
     + '</div>';
 }
 
@@ -1115,7 +1115,7 @@ function _bandPositionBar(reason) {
   var m = r.match(/波段减仓(\d+)%/);
   if (m) {
     var pct = parseInt(m[1], 10);
-    return _positionBarHtml(100, 100 - pct, "减仓" + pct + "%", "#8bc34a");
+    return _positionBarHtml(100, 100 - pct, _t("position_reduce_prefix") + pct + "%", "#8bc34a");
   }
   m = r.match(/波段接回(\d+)%/);
   if (m) {
@@ -1123,7 +1123,7 @@ function _bandPositionBar(reason) {
     return _positionBarHtml(100 - pct, 100, "接回" + pct + "%", "#d63384");
   }
   if (r.includes("波段止损")) {
-    return _positionBarHtml(100, 0, "止损清仓", "#3498db");
+    return _positionBarHtml(100, 0, _t("position_stop_loss_clear"), "#3498db");
   }
   if (r.includes("波段持有")) {
     return _positionBarHtml(100, 100, "持有·仓位不变", "#ff9800");
@@ -1677,12 +1677,12 @@ function termTip(text) {
 const _SIGNAL_HELP_ITEMS = [
   { sig: "buy", color: "#e6492e", name: _t("detail_buy_name"), desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
   { sig: "buy_aux", color: "#d63384", name: _t("detail_buy_aux_name"), desc: "布林带下轨回归。价格跌穿布林带(BB)下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
-  { sig: "buy_special", color: "#ffd700", name: _t("detail_buy_special_name"), desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配追止损|卖(ATR×3.5止损)控制风险，0套牢。" },
-  { sig: "buy_special_filtered", color: "#9e9e9e", name: _t("detail_buy_special_filtered_name"), desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追买信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追买，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追买信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
-  { sig: "buy_backup", color: "#9c27b0", name: _t("detail_buy_backup_name"), desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
-  { sig: "sell", color: "#2e8b57", name: _t("detail_sell_name"), desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈减仓提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈减仓非反向信号。配套：走弱概率≈50%接近随机；与追止损|卖共振时减仓信号更强。" },
-  { sig: "sell_stop_loss", color: "#3498db", name: _t("detail_sell_stop_loss_name"), desc: "ATR×3.5 止损（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
-  { sig: "band_hold", color: "#ff9800", name: _t("detail_band_hold_name"), desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1卖点(趋势转弱卖)对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖点）。四动作联动：减仓(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓)/持有(band_hold橙,无超买超卖维持仓位)。走势图图钉 = 历史调仓时点回放，悬停信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
+  { sig: "buy_special", color: "#ffd700", name: _t("detail_buy_special_name"), desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配风控|警示(ATR×3.5风控)控制风险，0套牢。" },
+  { sig: "buy_special_filtered", color: "#9e9e9e", name: _t("detail_buy_special_filtered_name"), desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追关注信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追关注，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追关注信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
+  { sig: "buy_backup", color: "#9c27b0", name: _t("detail_buy_backup_name"), desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追关注。配套：仅供参考不单独决策，需结合主关注/辅关注/追关注；诱多风险已用3日二次确认过滤。" },
+  { sig: "sell", color: "#2e8b57", name: _t("detail_sell_name"), desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。收益兑现调整提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该风险点 vs 前一个关注点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "收益兑现调整非反向信号。配套：走弱概率≈50%接近随机；与风控|警示共振时调整信号更强。" },
+  { sig: "sell_stop_loss", color: "#3498db", name: _t("detail_sell_stop_loss_name"), desc: "ATR×3.5 风控（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即防范风险。配套：趋势跟踪风控（低胜率大盈）；与风险共振调整信号更强；蓝色与风险绿色区分。" },
+  { sig: "band_hold", color: "#ff9800", name: _t("detail_band_hold_name"), desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1风险点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非防范风险风险点）。四动作联动：调整(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/风控(sell_stop_loss蓝,趋势破位防范风险)/持有(band_hold橙,无超买超卖维持仓位)。走势图图钉 = 历史调仓时点回放，悬停信号日看仓位变化进度条，可缩放查看过去调整/接回/风控时点。研究参考，不构成投资建议。" },
 ];
 
 // 聚合 signal_stats.json（per-index）-> per-sig 概况（5d/10d/20d 三窗口，按样本数 n 加权平均）
@@ -1987,7 +1987,7 @@ var _STRATEGY_DETAIL_KEYS = [
   { key: "buy_special", color: "#ffd700", name: _t("detail_buy_special_name") },
   { key: "buy_backup", color: "#9c27b0", name: _t("detail_buy_backup_name") },
   { key: "sell", color: "#2e8b57", name: _t("detail_sell_name") },
-  { key: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR止损" },
+  { key: "sell_stop_loss", color: "#3498db", name: _t("sig_meta_stop_loss_name") },
   { key: "band_hold", color: "#ff9800", name: _t("detail_band_hold_name") },
 ];
 // 渲染策略 modal：6 行（颜色圆点+信号名+该指数策略描述+参数+过滤），skip 标灰删除线，末尾合规声明。
@@ -2177,7 +2177,7 @@ var _SUB_SIGNAL_LABELS = [
   { key: "buy_special", label: "追买", color: "#ffd700" },
   { key: "buy_backup", label: "备买", color: "#9c27b0" },
   { key: "sell", label: "卖", color: "#2e8b57" },
-  { key: "sell_stop_loss", label: "追止损卖", color: "#3498db" },
+  { key: "sell_stop_loss", label: _t("sig_meta_stop_loss_label"), color: "#3498db" },
 ];
 
 function _loadSubUserInfo() {
@@ -2227,7 +2227,7 @@ function _appendSubscribeBtn(cardEl, indexId, indexName) {
   btn.className = "subscribe-btn";
   btn.setAttribute("role", "button");
   btn.setAttribute("aria-label", "订阅该指数信号");
-  btn.setAttribute("title", "订阅该指数信号（有买卖点时推送邮件/Telegram）");
+  btn.setAttribute("title", _t("subscribe_title"));
   btn.textContent = "🔔";
   btn.addEventListener("click", function (e) {
     e.preventDefault();
@@ -2673,7 +2673,7 @@ function statsHint(stats, strategy, indexId) {
     }
     // 卖点诚实声明：止盈减仓提示，非高胜率反向信号（详见凯利说明 + 规则说明条）
     const honestTag = (sig === "sell" || sig === "sell_stop_loss")
-      ? `<span class="hint-note">止盈减仓提示，非高胜率反向信号</span>`
+      ? `<span class="hint-note">收益兑现调整提示，非高胜率反向信号</span>`
       : "";
     // 卖点胜率语义是"走弱概率"（卖后 10 日下跌概率），与买点"胜率"语义对称但口径不同
     const wrLabel = (sig === "sell" || sig === "sell_stop_loss") ? "走弱概率" : "胜率";
@@ -2704,9 +2704,9 @@ function statsHint(stats, strategy, indexId) {
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
     `<div class="hint-kelly-body">` +
     `<div><b>公式</b>：f* = max(0, (盈亏比 × 胜率 − (1 − 胜率)) ÷ 盈亏比) —— 根据该信号的胜率与盈亏比，算出每次下注的最优资金比例。</div>` +
-    `<div><b>"凯利 X%"是什么</b>：理论上每次用总资金的 X% 买入（或做空）是数学上的理论参考比例——长期复合增长较快、破产风险较低的资金配置模型。</div>` +
-    `<div><b>"凯利公式≤0"是什么意思</b>：公式算出 ≤0，说明这个信号<b>长期期望为负</b>（亏得多赢得少），按公式不应下注。卖点凯利为 0 通常因胜率接近 50% 且盈亏比&lt;1。</div>` +
-    `<div><b>卖点语义</b>：D1 卖点是<b>止盈减仓提示</b>，不是高胜率反向交易指令——卖点后 10 日走弱概率≈50% 接近随机，不可作为独立卖出依据（详见规则说明条）。</div>` +
+    `<div><b>"凯利 X%"是什么</b>：理论上每次用总资金的 X% 关注低位机会（或留意高位预警）是数学上的理论参考比例——长期复合增长较快、破产风险较低的资金配置模型。</div>` +
+    `<div><b>"凯利公式≤0"是什么意思</b>：公式算出 ≤0，说明这个信号<b>长期期望为负</b>（亏得多赢得少），按公式不应下注。风险点凯利为 0 通常因胜率接近 50% 且盈亏比&lt;1。</div>` +
+    `<div><b>风险点语义</b>：D1 风险点是<b>收益兑现调整提示</b>，不是高胜率反向交易指令——风险点后 10 日走弱概率≈50% 接近随机，不可作为独立风险依据（详见规则说明条）。</div>` +
     `<div><b>重要提醒</b>：凯利公式假设胜率/盈亏比稳定已知，但回测统计本身有波动且含幸存者偏差；<b>请把凯利 X% 当参考上限，实战建议大幅打折</b>（如 1/2 凯利甚至 1/4 凯利）。</div>` +
     `</div></details>` +
     `<div class="hint-disclaimer">⚠ 以上为历史回测统计与数学公式参考仓位，非投资建议；过往表现不代表未来收益。</div>`;
@@ -3489,60 +3489,60 @@ function ruleContentHtml() {
       <h4><span class="rule-dot rule-dot-sell"></span>趋势转弱参考点</h4>
 
       <div class="rule-card rule-card-sell">
-        <div class="rule-card-head"><span class="rule-badge badge-sell">卖点</span> 趋势转弱参考 · 止盈减仓提示（非卖出指令）</div>
+        <div class="rule-card-head"><span class="rule-badge badge-sell">风险提示点</span> 趋势转弱参考 · 收益兑现调整提示（非风险指令）</div>
         <p>价格从<b>近期高点回落</b>，且动量转弱时，作为技术信号参考（趋势转弱）。三个条件<b>同时满足</b>才触发：</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">① 价格回落</td><td>从近 20 个交易日的<b>最高价</b>回落超过 <b>5%</b>（用最高价而非收盘价，更能捕捉盘中真实高点）</td></tr>
-          <tr><td class="rule-td-label">② 趋势过滤</td><td>收盘价仍在 <b>60 日均线</b> 之上（只在多头趋势中提示卖出，下跌趋势中不制造噪音）</td></tr>
+          <tr><td class="rule-td-label">② 趋势过滤</td><td>收盘价仍在 <b>60 日均线</b> 之上（只在多头趋势中提示风险，下跌趋势中不制造噪音）</td></tr>
           <tr><td class="rule-td-label">③ 动量确认</td><td><b>MACD 死叉</b> —— 短期动量线（DIF）下穿长期动量线（DEA），确认上涨动能减弱</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>重要</b>：这是止盈减仓提示，<b>不是做空信号</b>。在单边上涨市中可能出现假信号（趋势跟踪类指标的固有代价）。震荡/下跌市中止盈提示更有效。近 3 年 10 日胜率 <b>55%</b>。</p>
+        <p class="rule-note">⚠️ <b>重要</b>：这是收益兑现调整提示，<b>不是风险信号</b>。在单边上涨市中可能出现假信号（趋势跟踪类指标的固有代价）。震荡/下跌市中收益兑现提示更有效。近 3 年 10 日胜率 <b>55%</b>。</p>
       </div>
     </div>
 
     <div class="rule-section">
-      <h4><span class="rule-dot" style="background:#ffd700"></span>追买与止损参考点</h4>
+      <h4><span class="rule-dot" style="background:#ffd700"></span>追关注与风控参考点</h4>
 
       <div class="rule-card" style="border-left:3px solid #ffd700">
-        <div class="rule-card-head"><span class="rule-badge" style="background:#fff3cc;color:#8a6d00">追买</span> 上轨突破（唐奇安 20 日）</div>
+        <div class="rule-card-head"><span class="rule-badge" style="background:#fff3cc;color:#8a6d00">追关注</span> 上轨突破（唐奇安 20 日）</div>
         <p>唐奇安 20 日上轨突破 + 5 日确认。<b>趋势跟随</b>思路，突破后惯性上行。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>收盘价突破近 20 日最高价（不含当日），5 日内确认有效</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#ffd700;color:#000">金色</span> 图表上标记为「追买」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#ffd700;color:#000">金色</span> 图表上标记为「追关注」</td></tr>
           <tr><td class="rule-td-label">回测持有期建议</td><td>5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（<b>风险调整最优</b>）；30d 59.06%/+3.44%（<b>分水岭</b>，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（<b>纯收益最优</b>，但回撤大）</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>趋势跟踪策略</b>：低胜率靠大盈拉均值，区别于主买/辅买的均值回归（高胜率小赚）。必须配「追止损|卖」控制风险，0 套牢。</p>
+        <p class="rule-note">⚠️ <b>趋势跟踪策略</b>：低胜率靠大盈拉均值，区别于主关注/辅关注的均值回归（高胜率小赚）。必须配「风控|警示」控制风险，0 套牢。</p>
       </div>
 
       <div class="rule-card" style="border-left:3px solid #3498db">
-        <div class="rule-card-head"><span class="rule-badge" style="background:#e8f4fd;color:#1c6dbf">追止损|卖</span> ATR×3.5 止损</div>
-        <p>价格跌破 <b>ATR×3.5 动态止损线</b>（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）。趋势反转下行最后防线。</p>
+        <div class="rule-card-head"><span class="rule-badge" style="background:#e8f4fd;color:#1c6dbf">风控|警示</span> ATR×3.5 风控</div>
+        <p>价格跌破 <b>ATR×3.5 动态风控线</b>（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）。趋势反转下行最后防线。</p>
         <table class="rule-table">
-          <tr><td class="rule-td-label">含义</td><td>ATR（平均真实波幅）×3.5 作为止损距离，波动大时止损宽、波动小时止损窄，自适应市场节奏</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#3498db;color:#fff">蓝色</span> 图表上标记为「追止损|卖」</td></tr>
+          <tr><td class="rule-td-label">含义</td><td>ATR（平均真实波幅）×3.5 作为风控距离，波动大时风控宽、波动小时风控窄，自适应市场节奏</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#3498db;color:#fff">蓝色</span> 图表上标记为「风控|警示」</td></tr>
           <tr><td class="rule-td-label">回测对比</td><td>现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日（胜率44.33%/均值+1.56%，2008股灾-10.5%最差）。2026-07-21 调 ATR×3.5 降频后 hs300 触发 -18%/5日胜率 49.58%->50.23%</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>最后防线</b>：跌破即止损，趋势反转下行。与「卖」共振时减仓信号更强。蓝色与卖绿色区分。</p>
+        <p class="rule-note">⚠️ <b>最后防线</b>：跌破即防范风险，趋势反转下行。与「风险」共振时调整信号更强。蓝色与风险绿色区分。</p>
       </div>
     </div>
 
     <div class="rule-section">
       <h4><span class="rule-dot rule-dot-read"></span>如何解读信号</h4>
 
-      <p class="rule-subtitle">盈亏标注（卖点颜色含义）</p>
+      <p class="rule-subtitle">盈亏标注（风险点颜色含义）</p>
       <table class="rule-table rule-table-color">
         <tr>
-          <td style="width:50%"><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 止盈</b></td>
+          <td style="width:50%"><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 收益兑现</b></td>
           <td><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 趋势转弱</b></td>
         </tr>
         <tr>
-          <td>卖点价格 &gt; 前一个买点价格<br><span class="muted">→ 历史多为止盈/减仓情形</span></td>
-          <td>卖点价格 &le; 前一个买点价格 / 附近无前买参考<br><span class="muted">-> 含前买失效/无前买点，统一落趋势转弱（非操作建议）</span></td>
+          <td>风险点价格 &gt; 前一个关注点价格<br><span class="muted">→ 历史多为收益兑现/调整情形</span></td>
+          <td>风险点价格 &le; 前一个关注点价格 / 附近无前买参考<br><span class="muted">-> 含前关注失效/无前关注点，统一落趋势转弱（非操作建议）</span></td>
         </tr>
       </table>
 
       <p class="rule-subtitle">pin「盈亏X%」标签来源</p>
-      <p class="muted">卖点图钉上的「盈亏X%」标签 = sell 信号 reason 中「vs前买+X%」的<b>单次配对实现涨幅</b>（该卖点 vs 前一个买点的实际涨跌），<b>非统计期望值</b>。悬停提示的「盈亏比Y」才是历史统计值。二者勿混。</p>
+      <p class="muted">风险点图钉上的「盈亏X%」标签 = sell 信号 reason 中「vs前买+X%」的<b>单次配对实现涨幅</b>（该风险点 vs 前一个关注点的实际涨跌），<b>非统计期望值</b>。悬停提示的「盈亏比Y」才是历史统计值。二者勿混。</p>
 
       <p class="rule-subtitle">情绪背景标签</p>
       <p class="muted">趋势转弱参考点会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
@@ -3557,18 +3557,18 @@ function ruleContentHtml() {
       </table>
 
       <p class="rule-subtitle">超卖反弹参考点示例</p>
-      <div class="rule-example"><span class="muted">主买：</span>RSI上穿30(29→34), 情绪=8[冰点]</div>
-      <div class="rule-example"><span class="muted">辅买：</span>布林下轨回归(下轨3852,收盘3870), RSI=41, 情绪=47[偏冷]</div>
+      <div class="rule-example"><span class="muted">主关注：</span>RSI上穿30(29→34), 情绪=8[冰点]</div>
+      <div class="rule-example"><span class="muted">辅关注：</span>布林下轨回归(下轨3852,收盘3870), RSI=41, 情绪=47[偏冷]</div>
 
       <p class="rule-subtitle">趋势转弱参考点示例</p>
-      <div class="rule-example"><span class="muted">卖点：</span>20日高回落5%(高4259→阈4046,收盘4028), RSI=40, 情绪=53[中性], MA60=4000[趋势过滤], MACD=死叉确认, 较前买+2.30%[止盈]</div>
+      <div class="rule-example"><span class="muted">风险点：</span>20日高回落5%(高4259→阈4046,收盘4028), RSI=40, 情绪=53[中性], MA60=4000[趋势过滤], MACD=死叉确认, 较前关注+2.30%[收益兑现]</div>
     </div>
 
     <div class="rule-section rule-section-sm">
       <h4><span class="rule-dot rule-dot-stat"></span>当前信号统计</h4>
       <table class="rule-table rule-table-stat">
-        <tr><td class="rule-td-label">主买</td><td><b>3,673</b> 个</td><td class="rule-td-label">辅买</td><td><b>3,918</b> 个</td></tr>
-        <tr><td class="rule-td-label">卖点</td><td><b>3,185</b> 个</td><td class="rule-td-label">卖买比</td><td><b>0.42</b>（买卖平衡）</td></tr>
+        <tr><td class="rule-td-label">主关注</td><td><b>3,673</b> 个</td><td class="rule-td-label">辅关注</td><td><b>3,918</b> 个</td></tr>
+        <tr><td class="rule-td-label">风险点</td><td><b>3,185</b> 个</td><td class="rule-td-label">风险/关注比</td><td><b>0.42</b>（风险/关注平衡）</td></tr>
       </table>
     </div>
 
@@ -3593,7 +3593,7 @@ function initRuleButton() {
   // 创建 modal
   const modal = document.createElement('div');
   modal.className = 'rule-modal hidden';
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>&#128203; 买卖点策略说明</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + ruleContentHtml() + '</div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>&#128203; ' + _t("rule_modal_title") + '</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + ruleContentHtml() + '</div></div>';
   document.body.appendChild(modal);
 
   const overlay = modal.querySelector('.rule-modal-overlay');
@@ -6277,7 +6277,7 @@ function _processNotifications(data) {
         && !_isInNotifyTimeWindow('signal_buy')) {
       const names = newBuys.slice(0, 3).map(s => s.name || s.index_id).join('、');
       const more = newBuys.length > 3 ? `等${newBuys.length}个` : '';
-      if (showNotification('🔴 新买入信号', `${names}${more} 触发买入`, `signal_buy_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' })) {
+      if (showNotification('🔴 ' + _t("notify_buy_title"), `${names}${more} ` + _t("notify_buy_body"), `signal_buy_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' })) {
         _markNotified(`signal_buy_${today}`);
         _markNotifyTimeWindow('signal_buy');
       }
@@ -6288,7 +6288,7 @@ function _processNotifications(data) {
         && !_isInNotifyTimeWindow('signal_sell')) {
       const names = newSells.slice(0, 3).map(s => s.name || s.index_id).join('、');
       const more = newSells.length > 3 ? `等${newSells.length}个` : '';
-      if (showNotification('🟢 新卖出信号', `${names}${more} 触发卖出`, `signal_sell_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' })) {
+      if (showNotification('🟢 ' + _t("notify_sell_title"), `${names}${more} ` + _t("notify_sell_body"), `signal_sell_${today}`, { msgType: 'OPEN_SIGNAL_DETAIL' })) {
         _markNotified(`signal_sell_${today}`);
         _markNotifyTimeWindow('signal_sell');
       }
@@ -7817,7 +7817,7 @@ async function renderOverview() {
 async function renderMarket() {
   content.innerHTML = "";
   renderPurposeNote(content, PURPOSE_NOTES["market"]);
-  content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看指数<b>价格走势</b>+买卖点信号;想看市场<b>盘面温测</b>(恐贪指数/冰点过热热力图)-> 去<a data-goto="sentiment" role="button" tabindex="0">【盘面温测】</a></div>');
+  content.insertAdjacentHTML("beforeend", '<div class="tab-crosslink-note">ℹ️ 本页看指数<b>价格走势</b>+' + _t("crosslink_signal") + ';想看市场<b>盘面温测</b>(恐贪指数/冰点过热热力图)-> 去<a data-goto="sentiment" role="button" tabindex="0">【盘面温测】</a></div>');
   _bindTabCrosslink(content, "sentiment");
   // 二级 tab 栏
   const subtabBar = document.createElement("div");
@@ -12668,7 +12668,7 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
   if (latestDate) {
     sigLine = isBuy
       ? `<div class="etf-pop-sig etf-pop-sig-buy">🔴 最近买类信号(${latestDate})</div>`
-      : `<div class="etf-pop-sig etf-pop-sig-no">🟡 最近信号非买点(${latestDate})</div>`;
+      : `<div class="etf-pop-sig etf-pop-sig-no">` + _t("etf_no_buy") + `(${latestDate})</div>`;
   }
   popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` + sigLine +
     etfs.map((e) => `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span></div>`).join("");
@@ -13280,7 +13280,7 @@ async function renderIndustry(container = content) {
 
     conceptTitle = document.createElement("div");
     conceptTitle.className = "section-title";
-    conceptTitle.textContent = `概念板块指数折线（${conceptCount}/${conceptCount} 个，含买卖点 + 回测统计）`;
+    conceptTitle.textContent = `概念板块指数折线（${conceptCount}/${conceptCount} 个，` + _t("concept_title_signal") + ` + 回测统计）`;
     thscSection.appendChild(conceptTitle);
 
     conceptGridWrap = document.createElement("div");
@@ -13296,7 +13296,7 @@ async function renderIndustry(container = content) {
     const total = Object.keys(r.indices || {}).length;
     const filtered = filterIndicesByName(r.indices, state.industrySearch);
     const shown = Object.keys(filtered).length;
-    title.textContent = `申万行业指数折线（${shown}/${total} 个，含买卖点 + 资金流/成交额/换手率 + 行业内宽度）`;
+    title.textContent = `申万行业指数折线（${shown}/${total} 个，` + _t("concept_title_signal") + ` + 资金流/成交额/换手率 + 行业内宽度）`;
     swGridWrap.appendChild(title);
     renderIndustryGrid(filtered, swGridWrap);
     // I2：概念板块共用搜索条筛选
@@ -13307,7 +13307,7 @@ async function renderIndustry(container = content) {
       const conceptShown = Object.keys(conceptFiltered).length;
       const conceptTotal = Object.keys(r.concepts || {}).length;
       if (conceptTitle) {
-        conceptTitle.textContent = `概念板块指数折线（${conceptShown}/${conceptTotal} 个，含买卖点 + 回测统计）`;
+        conceptTitle.textContent = `概念板块指数折线（${conceptShown}/${conceptTotal} 个，` + _t("concept_title_signal") + ` + 回测统计）`;
       }
       renderIndustryGrid(conceptFiltered, conceptGridWrap, "暂无概念板块数据");
     }
@@ -13493,7 +13493,7 @@ function _etfScorePages() {
 // 排序标签(中文, 用于 section-head 副标题)
 function _etfSortLabel() {
   const map = {
-    score: "评分", hands: "买点手数", amt_pct: "成交额分位",
+    score: "评分", hands: _t("etf_score_hands"), amt_pct: "成交额分位",
     high_alert: "高位预警", low_alert: "低位机会"
   };
   return map[_etfScoreState.sortKey] || "评分";
@@ -13628,7 +13628,7 @@ function openEtfScoreDetailModal(code) {
   // === 5区块渲染 ===
   const tier = _etfScoreTier(e);
   const tierLabel = ETF_TIER_LABEL[tier] || "";
-  const sideLabel = e.side === "buy" ? "买入机会" : e.side === "hold" ? "持有观察" : "卖出信号";
+  const sideLabel = e.side === "buy" ? _t("etf_side_buy") : e.side === "hold" ? _t("etf_side_hold") : _t("etf_side_sell");
   const sideCls = e.side === "buy" ? "etf-side-buy" : e.side === "hold" ? "etf-side-hold" : "etf-side-sell";
   const col = _etfScoreColor(e.score, e.side);
 
@@ -13666,9 +13666,9 @@ function openEtfScoreDetailModal(code) {
     const volTxt = e.volatility != null ? e.volatility.toFixed(2) + "%" : "-";
     const amtTxt = e.amt_pct != null ? e.amt_pct.toFixed(0) : "-";
     actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
-      <div class="lab-custom-section-title">📐 买点建议</div>
+      <div class="lab-custom-section-title">` + _t("etf_buy_section") + `</div>
       <div class="lab-custom-score-grid">
-        <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">建议手数</div><div class="lab-custom-cell-score">${handsTxt}</div></div>
+        <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">建议档数</div><div class="lab-custom-cell-score">${handsTxt}</div></div>
         <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">波动率</div><div class="lab-custom-cell-score">${volTxt}</div></div>
         <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">流动性分位</div><div class="lab-custom-cell-score">${amtTxt}</div></div>
       </div>
@@ -13679,20 +13679,20 @@ function openEtfScoreDetailModal(code) {
     const pct = sa.pct || 0;
     const barColor = pct >= 75 ? "#e6492e" : pct >= 50 ? "#ff9800" : pct > 0 ? "#ffc107" : "#2e8b57";
     actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
-      <div class="lab-custom-section-title">🔻 卖出建议</div>
+      <div class="lab-custom-section-title">` + _t("etf_sell_section") + `</div>
       <div class="lab-custom-score-summary" style="margin:8px 0;font-size:15px">建议 <b>${_esc(sa.label || "")}</b></div>
       <div style="background:var(--bg-2,rgba(128,128,128,0.1));border-radius:6px;height:24px;overflow:hidden;margin:8px 0;position:relative">
         <div style="width:${pct}%;height:100%;background:${barColor};transition:width .3s"></div>
-        <span style="position:absolute;right:8px;top:3px;font-size:12px;font-weight:600;color:var(--text-1)">减仓 ${pct}%</span>
+        <span style="position:absolute;right:8px;top:3px;font-size:12px;font-weight:600;color:var(--text-1)">` + _t("position_reduce_prefix") + ` ${pct}%</span>
       </div>
-      <div style="font-size:11px;color:var(--text-3);line-height:1.5">基于高位预警分 ${e.high_alert != null ? e.high_alert.toFixed(2) : "-"}（≥85清仓/≥75减3-4/≥70减1-2/≥60减1-4/<60持有观察）</div>
+      <div style="font-size:11px;color:var(--text-3);line-height:1.5">基于高位预警分 ${e.high_alert != null ? e.high_alert.toFixed(2) : "-"}（` + _t("etf_high_alert_rule") + `）</div>
     </div>`;
   } else {
     // hold: 持有观察说明
     actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
       <div class="lab-custom-section-title">⏸ 持有观察</div>
       <div class="lab-custom-score-summary">${_esc(e.sell_signal || "持有观察")}</div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:6px">不够格买入(C2)但不过热, 持有观察等待信号</div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:6px">` + _t("etf_not_qualified") + `</div>
     </div>`;
   }
 
@@ -13800,7 +13800,7 @@ function _renderEtfScoreBody() {
   const holdingInList = holdings.length;
   let html = '<div class="etf-score-stat">共 ' + st.all.length + ' 只'
     + (st.meta && st.meta.full_market ? '（全市场）' : '（代表性清单）')
-    + ' · 买入机会 ' + buyN + ' · 持有观察 ' + holdN + ' · 卖出信号 ' + sellN
+    + ' · ' + _t("etf_side_buy") + ' ' + buyN + ' · ' + _t("etf_side_hold") + ' ' + holdN + ' · ' + _t("etf_side_sell") + ' ' + sellN
     + (holdingInList > 0 ? ' · <b class="etf-stat-hold">我的持仓 ' + holdingInList + '</b>' : '')
     + (st.search ? ' · 搜索命中 ' + filtered.length : '')
     + (st.holdingOnly ? ' · 只看持仓' : '') + '</div>';
@@ -13816,14 +13816,14 @@ function _renderEtfScoreBody() {
     const tier = _etfScoreTier(e);
     const col = _etfScoreColor(e.score, e.side);
     const sideTag = e.side === "buy"
-      ? '<span class="etf-side-tag etf-side-buy">买入机会</span>'
+      ? '<span class="etf-side-tag etf-side-buy">' + _t("etf_side_buy") + '</span>'
       : e.side === "hold"
-      ? '<span class="etf-side-tag etf-side-hold">持有观察</span>'
-      : '<span class="etf-side-tag etf-side-sell">卖出信号</span>';
+      ? '<span class="etf-side-tag etf-side-hold">' + _t("etf_side_hold") + '</span>'
+      : '<span class="etf-side-tag etf-side-sell">' + _t("etf_side_sell") + '</span>';
     const tierChip = '<span class="etf-tier-chip etf-tier-chip-' + tier + '">' + (ETF_TIER_LABEL[tier] || '') + '</span>';
     const ntTag = e.is_national_team ? '<span class="etf-nt-tag" title="汪汪队宽基ETF">汪汪队</span>' : '';
     const signalTxt = e.side === "buy"
-      ? (e.hands != null ? '买点 ' + e.hands + ' 手' : '')
+      ? (e.hands != null ? _t("etf_buypoint_prefix") + ' ' + e.hands + ' ' + _t("etf_hands_unit") : '')
       : e.side === "hold"
       // hold 侧保留 hold_reason(sell_signal 字段)显示, 信息更具体(含"未达买入阈值")
       ? (e.sell_signal ? _esc(e.sell_signal) : '继续持有')
@@ -13875,9 +13875,9 @@ function _renderEtfScoreBody() {
       const sideList = st.sideFilter === "buy" ? buys
         : st.sideFilter === "sell" ? sellHold.filter((e) => e.side === "sell")
         : sellHold.filter((e) => e.side === "hold");
-      const sideLabel = st.sideFilter === "buy" ? "买入机会"
-        : st.sideFilter === "sell" ? "卖出信号"
-        : "持有观察";
+      const sideLabel = st.sideFilter === "buy" ? _t("etf_side_buy")
+        : st.sideFilter === "sell" ? _t("etf_side_sell")
+        : _t("etf_side_hold");
       const sideIcon = st.sideFilter === "buy" ? "🔺" : st.sideFilter === "sell" ? "🔻" : "⏸";
       const secClass = st.sideFilter === "buy" ? "etf-section-buy"
         : st.sideFilter === "sell" ? "etf-section-sellhold"
@@ -13906,8 +13906,8 @@ function _renderEtfScoreBody() {
         const strongBuyN = buys.filter((e) => _etfScoreTier(e) === "strong-buy").length;
         const buyN2 = buys.length - strongBuyN;
         html += '<div class="etf-section etf-section-buy">';
-        html += '<div class="etf-section-head"><span class="etf-section-icon">🔺</span> 买入机会 <span class="etf-section-count">' + buys.length + '</span>'
-          + '<span class="etf-section-sub">强买入 ' + strongBuyN + ' · 买入 ' + buyN2 + ' · 按' + _etfSortLabel() + '排序' + (st.dedup ? ' · 同类去重后 ' + buys.length + ' 只' : '') + '</span></div>';
+        html += '<div class="etf-section-head"><span class="etf-section-icon">🔺</span> ' + _t("etf_side_buy") + ' <span class="etf-section-count">' + buys.length + '</span>'
+          + '<span class="etf-section-sub">' + _t("etf_strong_buy") + ' ' + strongBuyN + ' · ' + _t("etf_buy") + ' ' + buyN2 + ' · 按' + _etfSortLabel() + '排序' + (st.dedup ? ' · 同类去重后 ' + buys.length + ' 只' : '') + '</span></div>';
         if (st.buyExpanded) {
           // 展开态: 50/页分页
           const bPages = Math.max(1, Math.ceil(buys.length / ETF_SCORE_PAGE_SIZE));
@@ -13940,8 +13940,8 @@ function _renderEtfScoreBody() {
         const sellN2 = sellHold.filter((e) => e.side === "sell").length;
         const holdN2 = sellHold.filter((e) => e.side === "hold").length;
         html += '<div class="etf-section etf-section-sellhold">';
-        html += '<div class="etf-section-head"><span class="etf-section-icon">🔻</span> 卖出 / 持有观察 <span class="etf-section-count">' + sellHold.length + '</span>'
-          + '<span class="etf-section-sub">卖出信号 ' + sellN2 + ' · 持有观察 ' + holdN2 + ' · 按' + _etfSortLabel() + '排序</span></div>';
+        html += '<div class="etf-section-head"><span class="etf-section-icon">🔻</span> ' + _t("etf_sellhold_section") + ' <span class="etf-section-count">' + sellHold.length + '</span>'
+          + '<span class="etf-section-sub">' + _t("etf_side_sell") + ' ' + sellN2 + ' · ' + _t("etf_side_hold") + ' ' + holdN2 + ' · 按' + _etfSortLabel() + '排序</span></div>';
         html += '<div class="etf-score-list">';
         shSlice.forEach((e, i) => { html += renderRow(e, shStart + i + 1); });
         html += '</div>';
@@ -14096,16 +14096,16 @@ async function renderEtfScore(container) {
     '<input id="etf-score-search" type="search" placeholder="搜 ETF 代码或名称（如 515030 / 新能源车）" autocomplete="off" value="' + _esc(_etfScoreState.search) + '">'
     + '<div class="etf-side-chips" role="tablist" aria-label="ETF 分类筛选">'
     + '<button type="button" class="etf-side-chip' + (sf === "all" ? " active" : "") + '" data-side="all">全部 ' + allN + '</button>'
-    + '<button type="button" class="etf-side-chip etf-chip-buy' + (sf === "buy" ? " active" : "") + '" data-side="buy">买入 ' + buyNChip + '</button>'
-    + '<button type="button" class="etf-side-chip etf-chip-sell' + (sf === "sell" ? " active" : "") + '" data-side="sell">卖出 ' + sellNChip + '</button>'
+    + '<button type="button" class="etf-side-chip etf-chip-buy' + (sf === "buy" ? " active" : "") + '" data-side="buy">' + _t("etf_chip_buy") + ' ' + buyNChip + '</button>'
+    + '<button type="button" class="etf-side-chip etf-chip-sell' + (sf === "sell" ? " active" : "") + '" data-side="sell">' + _t("etf_chip_sell") + ' ' + sellNChip + '</button>'
     + '<button type="button" class="etf-side-chip etf-chip-hold' + (sf === "hold" ? " active" : "") + '" data-side="hold">持有 ' + holdNChip + '</button>'
     + '</div>'
     + '<button id="etf-hold-filter" class="etf-hold-filter' + (_etfScoreState.holdingOnly ? ' active' : '') + '"' + (holdN === 0 ? ' disabled' : '') + '>只看持仓' + (holdN > 0 ? ' (' + holdN + ')' : '') + '</button>'
-    + '<button id="etf-dedup-filter" class="etf-hold-filter' + (_etfScoreState.dedup ? ' active' : '') + '" title="同类买入ETF（同行业/同指数）只保留评分最高的一只">同类去重</button>'
+    + '<button id="etf-dedup-filter" class="etf-hold-filter' + (_etfScoreState.dedup ? ' active' : '') + '" title="同类' + _t("etf_chip_buy") + 'ETF（同行业/同指数）只保留评分最高的一只">同类去重</button>'
     + '<select id="etf-score-sort" class="etf-score-sort" title="排序方式" aria-label="排序方式">'
     + '<option value="score-desc"' + (sortVal === "score-desc" ? " selected" : "") + '>评分 高→低</option>'
     + '<option value="score-asc"' + (sortVal === "score-asc" ? " selected" : "") + '>评分 低→高</option>'
-    + '<option value="hands-desc"' + (sortVal === "hands-desc" ? " selected" : "") + '>买点手数 多→少</option>'
+    + '<option value="hands-desc"' + (sortVal === "hands-desc" ? " selected" : "") + '>" + _t("etf_sort_hands") + "</option>'
     + '<option value="amt_pct-desc"' + (sortVal === "amt_pct-desc" ? " selected" : "") + '>成交额分位 高→低</option>'
     + '<option value="high_alert-desc"' + (sortVal === "high_alert-desc" ? " selected" : "") + '>高位预警 高→低</option>'
     + '<option value="low_alert-desc"' + (sortVal === "low_alert-desc" ? " selected" : "") + '>低位机会 高→低</option>'

@@ -219,7 +219,7 @@ function computeKDJLab(ohlc, n) {
   const d = _ewmLab(k, 1 / 3);
   return { k, d };
 }
-// ATR(14) 追踪止损：trail = 近20日最高close - 3×ATR(14)
+// ATR(14) 追踪风控：trail = 近20日最高close - 3×ATR(14)
 // 复刻 backtest_strategies: close < hc20 - 3*atr 且 前日未破
 function computeATRTrailLab(ohlc) {
   const closes = ohlc.map((d) => d.close);
@@ -407,19 +407,19 @@ function renderLabChart(title, ohlc, bb, signals, container, chartArr) {
 }
 
 // === 22策略元数据注册表（分区/状态/触发/结论/理论/场景/注意/回测报告结论）===
-// 文案来源：买卖点策略深度回测.md（重跑于 2026-07-11，244资产全史/近10年/近5年/近3年/近1年 × 5d/10d/20d/60d）
-// zone: buy=候选买点 / sell=候选卖点 / excluded=已排除 / prod=生产参考
+// 文案来源：买风险点策略深度回测.md（重跑于 2026-07-11，244资产全史/近10年/近5年/近3年/近1年 × 5d/10d/20d/60d）
+// zone: buy=候选关注点 / sell=候选风险点 / excluded=已排除 / prod=生产参考
 // status: live=已上线生产 / experimental=实验中 / dev=开发中 / excluded=已排除
 const LAB_STRATEGIES = {
-  // --- 候选买点区（7个） ---
+  // --- 候选关注点区（7个） ---
   BB_lower_revert: {
     name: "下轨拐点买", side: "buy", zone: "prod", status: "partial",
     trigger: "前一日收盘价跌破布林带下轨，当日收盘价收回下轨之上（超卖反弹）",
     conclusion: "3/4窗口达标并列靠前，近3年60d盈亏比1.84较高，与C1语义互补",
     theory: "布林带下轨回归。价格跌破下轨后收回，意味超卖极端已过、反弹拐点出现。与C1同为「超卖反弹」语义，但用价格穿越布林带下轨而非相对强弱指标(RSI)阈值，强势市更敏感。",
     scenario: "震荡市/下跌市超卖反弹；强势市中相对强弱指标未到30但价格已破下轨时补C1盲区。",
-    note: "近1年是唯一达标买点（52.1%/1.23），与C1互补性较高。实验中：已实现图表（收盘价+布林带轨道+绿色实验买标注），未写入signal_daily。",
-    report: "回测报告：布林下轨回归买达标数3/4（近10年/近3年/近1年），与C1并列靠前。近3年60d盈亏比1.79、均值+4.7%为买点较高。近1年（强势单边市）是唯一达标买点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs 相对强弱阈值），适合做互补买点。",
+    note: "近1年是唯一达标关注点（52.1%/1.23），与C1互补性较高。实验中：已实现图表（收盘价+布林带轨道+绿色实验买标注），未写入signal_daily。",
+    report: "回测报告：布林下轨回归买达标数3/4（近10年/近3年/近1年），与C1并列靠前。近3年60d盈亏比1.79、均值+4.7%为关注点较高。近1年（强势单边市）是唯一达标关注点，补强C1在强势市的盲区。语义与C1正交（价格穿越 vs 相对强弱阈值），适合做互补关注点。",
   },
   Supertrend_buy: {
     name: "趋势转向买", side: "buy", zone: "buy", status: "experimental",
@@ -450,7 +450,7 @@ const LAB_STRATEGIES = {
   },
   MA_golden_5_20: {
     name: "均线5/20金叉买", side: "buy", zone: "buy", status: "experimental",
-    trigger: "5日均线上穿20日均线（短期金叉买点）",
+    trigger: "5日均线上穿20日均线（短期金叉关注点）",
     conclusion: "1/4达标，信号密集胜率平庸",
     theory: "双均线金叉。短期均线上穿长期均线意味短期动量转强，经典趋势确认信号。",
     scenario: "趋势确认入场；震荡市频繁假金叉。",
@@ -459,7 +459,7 @@ const LAB_STRATEGIES = {
   },
   MA_golden_10_60: {
     name: "均线10/60金叉买", side: "buy", zone: "buy", status: "experimental",
-    trigger: "10日均线上穿60日均线（中长期金叉买点）",
+    trigger: "10日均线上穿60日均线（中长期金叉关注点）",
     conclusion: "2/4达标，滞后严重",
     theory: "中长期双均线金叉。10日均线上穿60日均线确认中长期趋势转多，但60日均线滞后严重。",
     scenario: "中长期趋势确认；信号滞后，入场点偏晚。",
@@ -468,38 +468,38 @@ const LAB_STRATEGIES = {
   },
   MACD_golden: {
     name: "MACD金叉买", side: "buy", zone: "buy", status: "experimental",
-    trigger: "差离值(DIF)上穿信号线(DEA)（MACD金叉买点）",
+    trigger: "差离值(DIF)上穿信号线(DEA)（MACD金叉关注点）",
     conclusion: "1/4达标，信号最多但平庸",
     theory: "MACD金叉。差离值(DIF)上穿信号线(DEA)意味短期动量强于长期，经典趋势确认。MACD(12,26,9)业界标准参数。",
     scenario: "趋势确认入场；震荡市假金叉多。",
     note: "信号全史最多（38930），但近3年胜率49.1%接近随机。",
     report: "回测报告：MACD金叉买仅全史达标（1/4），近3年10d胜率49.1%接近随机。信号全史最多（38930个），但胜率平庸。近3年60d盈亏比1.76、均值+4.6%。",
   },
-  // --- 候选卖点区（7个） ---
+  // --- 候选风险点区（7个） ---
   BB_upper_revert: {
     name: "布林上轨回落卖", side: "sell", zone: "sell", status: "experimental",
-    trigger: "前一日收盘价突破布林带上轨，当日收盘价回落至上轨下方（短周期止盈）",
+    trigger: "前一日收盘价突破布林带上轨，当日收盘价回落至上轨下方（短周期收益兑现）",
     conclusion: "近3年5d/10d胜率居前(57%/54%)，与D1(20d较强)时间维度互补",
-    theory: "布林带上轨回归。价格从上轨上方回落至下方，意味超买极端已过、短周期止盈拐点。与D1的「20日高回落5%」时间维度互补。",
-    scenario: "短周期止盈/减仓提示；与D1（20d较强）双重确认。",
+    theory: "布林带上轨回归。价格从上轨上方回落至下方，意味超买极端已过、短周期收益兑现拐点。与D1的「20日高回落5%」时间维度互补。",
+    scenario: "短周期收益兑现/调整提示；与D1（20d较强）双重确认。",
     note: "实验中，已实现图表（收盘价折线+布林带轨道+紫色实验卖标注）。未写入signal_daily。",
-    report: "回测报告：布林上轨回落卖近3年5d胜率56.8%/10d胜率54.1%为卖点较高，短周期止盈较强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（卖点结构性问题），但方向胜率居前。",
+    report: "回测报告：布林上轨回落卖近3年5d胜率56.8%/10d胜率54.1%为风险点较高，短周期收益兑现较强。但样本仅5549（D1一半），20d后衰减。适合做D1的短周期互补（候选C）。全史PL0.87<1（风险点结构性问题），但方向胜率居前。",
   },
   MA_death_5_20: {
     name: "均线5/20死叉卖", side: "sell", zone: "sell", status: "experimental",
-    trigger: "5日均线下穿20日均线（短期死叉卖点）",
+    trigger: "5日均线下穿20日均线（短期死叉风险点）",
     conclusion: "近3年20d胜率56.3%较高，短周期偏弱但中周期强",
     theory: "双均线死叉。短期均线下穿长期均线意味短期动量转弱，经典趋势转弱确认。",
-    scenario: "趋势转弱减仓；震荡市频繁假死叉。",
+    scenario: "趋势转弱调整；震荡市频繁假死叉。",
     note: "近3年20d胜率54.8%较高，但5d/10d偏弱。PL0.90<1。实验中：已实现图表（收盘价+5日/20日均线+紫色实验卖标注），未写入signal_daily。",
-    report: "回测报告：均线5/20死叉卖近3年20d胜率54.8%为卖点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（卖点结构性问题）。",
+    report: "回测报告：均线5/20死叉卖近3年20d胜率54.8%为风险点较高，10d胜率53.2%。均值-0.1%（方向正确）。但5d/10d偏弱，PL0.90<1（风险点结构性问题）。",
   },
   BB_middle_break: {
     name: "跌破布林中轨卖", side: "sell", zone: "sell", status: "experimental",
     trigger: "收盘价跌破布林中轨（20日均线），中轨破位卖",
     conclusion: "中规中矩，PL偏低",
     theory: "布林中轨破位。中轨=20日均线，跌破意味价格回到均线下方，趋势转弱确认。",
-    scenario: "趋势转弱确认减仓；信号密集。",
+    scenario: "趋势转弱确认调整；信号密集。",
     note: "近3年10d胜率52.6%，PL0.82偏低。样本最大（10177）。",
     report: "回测报告：跌破布林中轨卖近3年10d胜率52.6%、PL0.82。样本10177最大。中规中矩，无突出优势。",
   },
@@ -517,27 +517,27 @@ const LAB_STRATEGIES = {
     trigger: "收盘价跌破近20日最低价（通道下破卖）",
     conclusion: "PL相对高但平庸",
     theory: "唐奇安通道下破。跌破20日低点意味中期趋势已破，比10日更滞后但更可靠。",
-    scenario: "中期趋势破位减仓；信号较稀疏。",
+    scenario: "中期趋势破位调整；信号较稀疏。",
     note: "近3年10d胜率51.8%、PL0.88。全史PL0.94相对高。",
-    report: "回测报告：跌破20日最低卖近3年10d胜率51.8%、PL0.88。全史PL0.94为卖点相对高，但整体平庸。样本7533。",
+    report: "回测报告：跌破20日最低卖近3年10d胜率51.8%、PL0.88。全史PL0.94为风险点相对高，但整体平庸。样本7533。",
   },
   MACD_death: {
     name: "MACD死叉卖", side: "sell", zone: "sell", status: "experimental",
-    trigger: "差离值(DIF)下穿信号线(DEA)（MACD死叉卖点）",
+    trigger: "差离值(DIF)下穿信号线(DEA)（MACD死叉风险点）",
     conclusion: "PL0.79偏低",
     theory: "MACD死叉。差离值(DIF)下穿信号线(DEA)意味短期动量弱于长期，经典趋势转弱确认。MACD(12,26,9)业界标准。",
-    scenario: "趋势转弱减仓；震荡市假死叉多。",
+    scenario: "趋势转弱调整；震荡市假死叉多。",
     note: "近3年10d胜率51.8%，PL0.83偏低。样本6844较大。",
-    report: "回测报告：MACD死叉卖近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，卖点结构性问题突出。",
+    report: "回测报告：MACD死叉卖近3年10d胜率51.8%、PL0.83偏低。样本6844。信号密集但PL偏低，风险点结构性问题突出。",
   },
   ATR_trail_stop: {
-    name: "真实波幅追踪止损卖", side: "sell", zone: "sell", status: "experimental",
-    trigger: "收盘价 < 近20日最高收盘价 − 3×真实波幅ATR(14)（追踪止损）",
+    name: "真实波幅追踪风控卖", side: "sell", zone: "sell", status: "experimental",
+    trigger: "收盘价 < 近20日最高收盘价 − 3×真实波幅ATR(14)（追踪风控）",
     conclusion: "胜率刚过50%",
-    theory: "真实波幅(ATR)追踪止损。基于波动率的动态止损线，价格跌破意味趋势已反转。真实波幅(ATR)自适应波动率。",
-    scenario: "趋势跟踪止损；波动率大时止损线更宽。",
+    theory: "真实波幅(ATR)追踪风控。基于波动率的动态风控线，价格跌破意味趋势已反转。真实波幅(ATR)自适应波动率。",
+    scenario: "趋势跟踪风控；波动率大时风控线更宽。",
     note: "近3年10d胜率51.1%，PL0.86。全史PL0.96相对高。",
-    report: "回测报告：真实波幅追踪止损卖近3年10d胜率51.1%、PL0.86。全史PL0.96为卖点较高之一。追踪止损型信号，胜率刚过50%。",
+    report: "回测报告：真实波幅追踪风控卖近3年10d胜率51.1%、PL0.86。全史PL0.96为风险点较高之一。追踪风控型信号，胜率刚过50%。",
   },
   // --- 已排除反面教材区（6个） ---
   BB_upper_break: {
@@ -574,7 +574,7 @@ const LAB_STRATEGIES = {
     theory: "相对强弱指标(RSI)超买结束。相对强弱指标(RSI)从≥70回落意味超买结束，但回测显示方向相反（信号后价格仍涨）。",
     scenario: "不推荐使用。已弃用，改用D1。",
     note: "已排除。全史PL0.84最差，旧基线。已被“20日高回落5%卖”替代。",
-    report: "回测报告：相对强弱下穿70卖 0/4达标，全史10d胜率48.7%/PL0.84/均值+0.9%（方向相反，信号后价格仍涨）。是所有卖点中最差的，旧基线已弃，改用D1。",
+    report: "回测报告：相对强弱下穿70卖 0/4达标，全史10d胜率48.7%/PL0.84/均值+0.9%（方向相反，信号后价格仍涨）。是所有风险点中最差的，旧基线已弃，改用D1。",
   },
   KDJ_death_overbought: {
     name: "KDJ超买死叉卖", side: "sell", zone: "excluded", status: "excluded",
@@ -592,26 +592,26 @@ const LAB_STRATEGIES = {
     theory: "超级趋势(Supertrend)翻空。趋势线翻空意味趋势已反转，但近年A股向上漂移致失效。",
     scenario: "不推荐使用。近年失效。",
     note: "已排除。全史PL0.95（接近1），但近3年胜率48.9%<50%失效。",
-    report: "回测报告：超级趋势翻空卖 全史唯一PL≥1（0.95接近1，胜率51.9%），但近3年10d胜率48.9%/PL0.85失效。近年A股向上漂移致趋势跟踪卖点失效，明确排除。",
+    report: "回测报告：超级趋势翻空卖 全史唯一PL≥1（0.95接近1，胜率51.9%），但近3年10d胜率48.9%/PL0.85失效。近年A股向上漂移致趋势跟踪风险点失效，明确排除。",
   },
   // --- 生产参考区（2个） ---
   C1_RSI30: {
     name: "超卖拐点买", side: "buy", zone: "prod", status: "live",
     trigger: "RSI(14) 从 ≤30 升回 >30 那天（超卖结束、价格有望反弹）",
-    conclusion: "3/4达标，结构较稳健，当前主买点",
+    conclusion: "3/4达标，结构较稳健，当前主关注点",
     theory: "相对强弱指标(RSI)经典超卖回归。相对强弱指标(RSI)≤30表示超卖，升回30之上意味空头力量衰竭、反弹拐点出现。事件化（仅穿越当日标）。",
-    scenario: "震荡市/下跌市超卖反弹；通用主买点。按指数可收紧阈值至相对强弱指标上穿25（kc50/电力设备/传媒已配）。",
+    scenario: "震荡市/下跌市超卖反弹；通用主关注点。按指数可收紧阈值至相对强弱指标上穿25（kc50/电力设备/传媒已配）。",
     note: "已上线生产。signal='buy'。近3年全持有期胜率>50%，盈亏比随持有期单调上升。",
-    report: "回测报告：相对强弱上穿30买 达标数3/4（全史/近10年/近3年）并列靠前。近3年全持有期胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随持有期单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构较稳健，当前主用买点（回测表现较稳）。",
+    report: "回测报告：相对强弱上穿30买 达标数3/4（全史/近10年/近3年）并列靠前。近3年全持有期胜率>50%（5d54.2%/10d52.6%/20d56.5%/60d55.0%），盈亏比随持有期单调上升（1.38->1.17->1.52->1.68），60d均值+5.3%。结构较稳健，当前主用关注点（回测表现较稳）。",
   },
   D1_high20_drop5: {
     name: "趋势转弱卖", side: "sell", zone: "prod", status: "live",
     trigger: "收盘价从近20日最高价回落 5%（前日≥阈 且 当日<阈），且收盘价>60日均线，且差离值<信号线",
-    conclusion: "20d胜率55.7%样本最大，当前主卖点",
-    theory: "基于最高价的回落止盈。从20日最高价回落5%意味趋势转弱，叠加60日均线多头过滤+MACD死叉确认。反应型信号（不预测顶部，反应已发生的弱势）。",
-    scenario: "趋势转弱/止盈减仓提示；非做空/反向交易指令。胜率≈50%接近随机，不可作独立卖出指令。",
-    note: "已上线生产。signal='sell'。卖点本质难预测（PL<1），D1是「最不坏」方案非「好」方案。",
-    report: "回测报告：20日高回落5%卖 近3年20d胜率55.9%为卖点较高，样本9873最大（统计最稳）。10d均值-0.1%（方向正确）。盈亏比0.86<1（卖点结构性问题：A股向上漂移），但在所有卖点中PL仍属前列。维持现状合理，是「最不坏」方案。",
+    conclusion: "20d胜率55.7%样本最大，当前主风险点",
+    theory: "基于最高价的回落收益兑现。从20日最高价回落5%意味趋势转弱，叠加60日均线多头过滤+MACD死叉确认。反应型信号（不预测顶部，反应已发生的弱势）。",
+    scenario: "趋势转弱/收益兑现调整提示；非做空/反向交易指令。胜率≈50%接近随机，不可作独立留意高位预警指令。",
+    note: "已上线生产。signal='sell'。风险点本质难预测（PL<1），D1是「最不坏」方案非「好」方案。",
+    report: "回测报告：20日高回落5%卖 近3年20d胜率55.9%为风险点较高，样本9873最大（统计最稳）。10d均值-0.1%（方向正确）。盈亏比0.86<1（风险点结构性问题：A股向上漂移），但在所有风险点中PL仍属前列。维持现状合理，是「最不坏」方案。",
   },
 };
 
@@ -620,7 +620,7 @@ const _LAB_STRAT_EN = {
   Supertrend_buy: "趋势转向买", Supertrend_sell: "超级趋势翻空卖",
   B0_RSI70: "相对强弱下穿70卖", C1_RSI30: "超卖拐点买",
   MA_golden_5_20: "均线5/20金叉买", MA_golden_10_60: "均线10/60金叉买",
-  MA_death_5_20: "均线5/20死叉卖", ATR_trail_stop: "真实波幅追踪止损卖",
+  MA_death_5_20: "均线5/20死叉卖", ATR_trail_stop: "真实波幅追踪风控卖",
   BB_lower_revert: "下轨拐点买", BB_upper_revert: "布林上轨回落卖",
   BB_middle_break: "跌破布林中轨卖", BB_upper_break: "突破布林上轨买",
   Donchian20_up: "上轨突破买", Donchian55_up: "海龟55日突破买",
@@ -664,11 +664,11 @@ const LAB_FUSION_STRATEGIES = {
     name: "D1回落5%+60日均线多头+MACD死叉 融合卖", side: "sell", zone: "prod", status: "live",
     conditions: ["20日高回落5%", "60日均线多头", "MACD死叉"],
     trigger: "同日同时满足：20日高回落5% + 60日均线多头 + MACD死叉",
-    conclusion: "主项目生产卖点核心。降噪39%（卖点59830→36289），加MACD后历史回测正期望强度18.3%→43.3%",
-    theory: "多信号融合卖点。20日高回落5%捕捉趋势转弱，叠加60日均线多头过滤（确保在上升趋势中止盈而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日同时满足，大幅降噪。",
-    scenario: "上升趋势中回落止盈/减仓；三条件共振过滤假信号。非做空指令。",
-    note: "主项目生产卖点核心。加MACD后降噪39%（卖点59830→36289），历史回测正期望强度18.3%→43.3%。已上线signal_daily。",
-    report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），历史回测正期望强度从18.3%升至43.3%，信号质量显著提升。主项目生产卖点“20日高回落5%卖”的融合形态。",
+    conclusion: "主项目生产风险点核心。降噪39%（风险点59830→36289），加MACD后历史回测正期望强度18.3%→43.3%",
+    theory: "多信号融合风险点。20日高回落5%捕捉趋势转弱，叠加60日均线多头过滤（确保在上升趋势中收益兑现而非下跌中加空）和MACD死叉确认（动量转弱）。三条件同日同时满足，大幅降噪。",
+    scenario: "上升趋势中回落收益兑现/调整；三条件共振过滤假信号。非做空指令。",
+    note: "主项目生产风险点核心。加MACD后降噪39%（风险点59830→36289），历史回测正期望强度18.3%→43.3%。已上线signal_daily。",
+    report: "回测：加MACD死叉后信号从59830降至36289（降噪39%），历史回测正期望强度从18.3%升至43.3%，信号质量显著提升。主项目生产风险点“20日高回落5%卖”的融合形态。",
   },
   F_D1_S1: {
     name: "D1回落5%+60日均线多头（豁免MACD） 融合卖", side: "sell", zone: "prod", status: "live",
@@ -676,19 +676,19 @@ const LAB_FUSION_STRATEGIES = {
     trigger: "同日同时满足：20日高回落5% + 60日均线多头（豁免MACD）",
     conclusion: "主项目s.*情绪分变体。对比“D1回落5%+60日均线多头+MACD死叉融合卖”可看MACD过滤的增益",
     theory: "D1回落5%+60日均线多头双条件融合。豁免MACD条件，因s.*情绪分序列加MACD后样本从106降至7，不足统计。用于对比“D1回落5%+60日均线多头+MACD死叉融合卖”可单独看MACD过滤的增益。",
-    scenario: "s.*情绪分变体的融合卖点；与“D1回落5%+60日均线多头+MACD死叉融合卖”对比MACD过滤增益。",
+    scenario: "s.*情绪分变体的融合风险点；与“D1回落5%+60日均线多头+MACD死叉融合卖”对比MACD过滤增益。",
     note: "主项目s.*情绪分变体。加MACD后样本n=106→7不足，故豁免MACD。",
     report: "回测：s.*情绪分变体的基础形态（不含MACD）。对比“D1回落5%+60日均线多头+MACD死叉融合卖”可看MACD过滤的增益效果。",
   },
-  // --- 候选买点区（3个） ---
+  // --- 候选关注点区（3个） ---
   F_B1_RSI40: {
     name: "布林下轨回归+相对强弱上穿40 融合买", side: "buy", zone: "candidate_buy", status: "partial",
     conditions: ["布林下轨回归", "相对强弱上穿40"],
     trigger: "同日同时满足：布林下轨回归 + 相对强弱上穿40",
     conclusion: "主项目10指数已配置 buy_aux rsi_cross_40。正期望强度 -38.5%->+16.2%转正（家电/轻工回测），胜率44.8%->54.5%，盈亏比0.66->1.19",
-    theory: "多信号融合买点。布林下轨回归捕捉超卖反弹拐点，叠加相对强弱上穿40确认动量转强。两条件同日同时满足，过滤单一布林下轨穿越的假信号。",
+    theory: "多信号融合关注点。布林下轨回归捕捉超卖反弹拐点，叠加相对强弱上穿40确认动量转强。两条件同日同时满足，过滤单一布林下轨穿越的假信号。",
     scenario: "超卖反弹+动量确认共振入场；震荡市/下跌市效果好。",
-    note: "已作为 buy_aux 辅买点（per-index 增强）上线于 10 个指数：中证1000/创业板指/家电/轻工/医药/公用事业/房地产/社会服务/传媒/通信。非全局融合信号生产实现（B1基线+相对强弱上穿40过滤，signals.py:312-314）.",
+    note: "已作为 buy_aux 辅关注点（per-index 增强）上线于 10 个指数：中证1000/创业板指/家电/轻工/医药/公用事业/房地产/社会服务/传媒/通信。非全局融合信号生产实现（B1基线+相对强弱上穿40过滤，signals.py:312-314）.",
     report: "回测：加相对强弱上穿40后正期望强度从-38.5%转正至+16.2%（家电/轻工样本），胜率44.8%->54.5%，盈亏比0.66->1.19。已扩展至10指数配置。",
   },
   F_B1_rebound2pct: {
@@ -696,9 +696,9 @@ const LAB_FUSION_STRATEGIES = {
     conditions: ["布林下轨回归", "反弹2%"],
     trigger: "同日同时满足：布林下轨回归 + 反弹2%（收盘价高于下轨2%）",
     conclusion: "主项目8指数已配置 buy_aux close_above_bl_2pct。正期望强度 -21%->+20%转正（基础化工回测），5d/10d/20d三horizon一致，n=19<30样本警示",
-    theory: "多信号融合买点。布林下轨回归捕捉超卖反弹，叠加反弹2%过滤（close>下轨*1.02），过滤勉强穿越假信号和死猫反弹。",
+    theory: "多信号融合关注点。布林下轨回归捕捉超卖反弹，叠加反弹2%过滤（close>下轨*1.02），过滤勉强穿越假信号和死猫反弹。",
     scenario: "超卖反弹确认入场；过滤假突破/死猫反弹。",
-    note: "已作为 buy_aux 辅买点（per-index 增强）上线于 8 个指数：农林牧渔/基础化工/电子/纺织服饰/交通运输/机械设备/国防军工/计算机。非全局融合信号生产实现（B1基线+反弹2%过滤，signals.py:315-318）.",
+    note: "已作为 buy_aux 辅关注点（per-index 增强）上线于 8 个指数：农林牧渔/基础化工/电子/纺织服饰/交通运输/机械设备/国防军工/计算机。非全局融合信号生产实现（B1基线+反弹2%过滤，signals.py:315-318）.",
     report: "回测：加反弹2%过滤后正期望强度从-21%转正至+20%（基础化工样本），5d/10d/20d三horizon一致。样本n=19<30偏小，需持续观察。已扩展至8指数配置。",
   },
   F_C1_MACD_golden: {
@@ -711,14 +711,14 @@ const LAB_FUSION_STRATEGIES = {
     note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
     report: "实验性新组合，暂无回测数据。阶段二将验证超卖反弹+动量确认共振的有效性。",
   },
-  // --- 候选卖点区（1个） ---
+  // --- 候选风险点区（1个） ---
   F_D1_MA_death: {
     name: "D1回落5%+均线5/20死叉 融合卖（实验性新组合）", side: "sell", zone: "candidate_sell", status: "experimental",
     conditions: ["20日高回落5%", "均线5/20死叉"],
     trigger: "同日同时满足：20日高回落5% + 均线5/20死叉",
     conclusion: "实验性新组合。回落+均线死叉共振，待回测验证",
     theory: "实验性新组合。20日高回落5%捕捉趋势转弱，叠加均线5/20死叉确认均线转弱。两条件同日同时满足共振。",
-    scenario: "趋势转弱+均线死叉共振减仓；实验性，待回测验证。",
+    scenario: "趋势转弱+均线死叉共振调整；实验性，待回测验证。",
     note: "实验室新组合，非主项目提取。需阶段二回测验证是否有价值。",
     report: "实验性新组合，暂无回测数据。阶段二将验证回落+均线死叉共振的有效性。",
   },
@@ -729,15 +729,15 @@ const LAB_FUSION_STRATEGIES = {
 const _LAB_GLOSSARY = {
   co_resonance: {
     name: "同向共振（双买/双卖共振）",
-    desc: "两个同方向（都买或都卖）的信号在同一天同时触发才算有效。双买共振=两个买点同日触发，买点更可靠；双卖共振=两个卖点同日触发，卖点更确认。与“配对”（一买一卖组完整交易）不同，共振是同向叠加增强。本实验室把7个候选买点两两组合（C(7,2)=21对）、7个候选卖点两两组合（21对）自动回测。",
+    desc: "两个同方向（都买或都卖）的信号在同一天同时触发才算有效。双买共振=两个关注点同日触发，关注点更可靠；双卖共振=两个风险点同日触发，风险点更确认。与“配对”（一买一卖组完整交易）不同，共振是同向叠加增强。本实验室把7个候选关注点两两组合（C(7,2)=21对）、7个候选风险点两两组合（21对）自动回测。",
   },
   fusion_signal: {
     name: "融合信号（F_ 前缀）",
     desc: "把多个单一信号用“同日同时满足”组合成一个新信号——所有条件同日都满足才触发，用多条件共振过滤假信号。分两类：①6个预定义（F_开头，主项目提取已验证）；②运行时自动两两组合的候选（待回测）。与同向共振区别：融合是异向多条件同时满足成新策略，同向共振是同向两信号叠加。",
   },
   pair: {
-    name: "配对（买点+卖点）",
-    desc: "一个买点信号+一个卖点信号组成一对完整交易（买入→卖出算一笔）。7买×7卖=49对。配对回测=按这对信号模拟历史交易，算净值曲线/胜率/回撤。",
+    name: "配对（关注点+风险点）",
+    desc: "一个关注点信号+一个风险点信号组成一对完整交易（关注低位机会→留意高位预警算一笔）。7买×7卖=49对。配对回测=按这对信号模拟历史交易，算净值曲线/胜率/回撤。",
   },
   score: {
     name: "综合评分（0-100）",
@@ -913,12 +913,12 @@ const FUSION_CHART_BASE = {
 };
 
 // === 候选融合信号生成器（自动两两组合）===
-// 从 LAB_STRATEGIES 取候选买点7个 + 候选卖点7个，生成三类候选：
+// 从 LAB_STRATEGIES 取候选关注点7个 + 候选风险点7个，生成三类候选：
 // 1) 买×卖配对：7×7=49，zone=candidate_buy
 // 2) 买×买共振：C(7,2)=21，zone=candidate_buy
 // 3) 卖×卖共振：C(7,2)=21，zone=candidate_sell
 function _generateFusionCandidates() {
-  // 提取候选买点和卖点
+  // 提取候选关注点和风险点
   const buyCandidates = Object.entries(LAB_STRATEGIES)
     .filter(([k, v]) => v.zone === "buy" && v.status === "experimental")
     .map(([k, v]) => ({ key: k, ...v }));
@@ -944,7 +944,7 @@ function _generateFusionCandidates() {
     if (n.includes("跌破布林中轨")) return "布林中轨";
     if (n.includes("跌破10日")) return "破10日低";
     if (n.includes("跌破20日")) return "破20日低";
-    if (n.includes("真实波幅")) return "真实波幅止损";
+    if (n.includes("真实波幅")) return "真实波幅风控";
     return n.substring(0, 6);
   };
 
@@ -962,7 +962,7 @@ function _generateFusionCandidates() {
         status: "pending",
         conditions: [buy.name, sell.name],
         trigger: `同日同时满足：${buy.trigger} 且 ${sell.trigger}`,
-        conclusion: `配对候选：${buy.name} 作为买点 + ${sell.name} 作为卖点，待回测验证效果`,
+        conclusion: `配对候选：${buy.name} 作为关注点 + ${sell.name} 作为风险点，待回测验证效果`,
         _isPending: true,
         _pairType: "buy_sell",
         _buyKey: buy.key,
@@ -1112,10 +1112,10 @@ function _labModalWinTabsHTML(win) {
 
 // 有图表实现的策略 key（仅这4个有指标+信号图表）
 const LAB_CHART_KEYS = {
-  // 候选买点
+  // 候选关注点
   BB_lower_revert: 1, Supertrend_buy: 1, Donchian20_up: 1, Donchian55_up: 1,
   MA_golden_5_20: 1, MA_golden_10_60: 1, MACD_golden: 1,
-  // 候选卖点
+  // 候选风险点
   BB_upper_revert: 1, MA_death_5_20: 1, BB_middle_break: 1, Donchian10_down: 1,
   Donchian20_down: 1, MACD_death: 1, ATR_trail_stop: 1,
   // 已排除（反面教材仍出图便于直观对比）
@@ -1147,8 +1147,8 @@ const LAB_INDICATOR_PLAIN = {
   MACD: { name: "MACD", en: "MACD", plain: "动量指标。DIF上穿DEA=金叉看多，DIF下穿DEA=死叉看空。" },
   KDJ: { name: "KDJ", en: "KDJ", plain: "超买超卖指标。K线上穿D线=金叉(低位更准)，K线下穿D线=死叉(高位更准)。" },
   RSI: { name: "相对强弱", en: "Relative Strength Index", plain: "0-100的强弱指标。<30超卖(跌多了可能反弹)，>70超买(涨多了可能回落)。" },
-  ATR: { name: "真实波幅", en: "Average True Range", plain: "衡量波动剧烈程度，数值越大波动越猛。追踪止损线=近期高点-3倍ATR，跌破即止损。" },
-  Drop5: { name: "20日高回落5%", plain: "近20日最高价下跌5%触发止盈。回落阈值线会随创新高而上移。" },
+  ATR: { name: "真实波幅", en: "Average True Range", plain: "衡量波动剧烈程度，数值越大波动越猛。追踪风控线=近期高点-3倍ATR，跌破即风控。" },
+  Drop5: { name: "20日高回落5%", plain: "近20日最高价下跌5%触发收益兑现。回落阈值线会随创新高而上移。" },
   Vol: { name: "量比 成交额比值", plain: "今日成交额除以近20日平均成交额。>2=放量（资金涌入），<1=缩量。指数无成交量字段，用成交额代理。" },
 };
 
@@ -1162,7 +1162,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
   const name = indexName || "";
   const isBuy = meta.side === "buy";
   const sigColor = isBuy ? "#2e7d32" : "#9c27b0";   // 买绿卖紫（单策略详情图）
-  const statLabel = isBuy ? "买点" : "卖点";
+  const statLabel = isBuy ? "关注点" : "风险点";
 
   if (key === "BB_upper_revert") {
     const bb = computeBBLab(ohlc);
@@ -1172,7 +1172,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
         { name: "布林下轨", data: bb.bl, color: cssVar('--text-4'), dash: true },
       ],
       signals: bb.signals, signalLabel, signalColor: "#9c27b0",
-      chartTitle: `${name} · 布林上轨回落实验`, statLabel: "实验卖点",
+      chartTitle: `${name} · 布林上轨回落实验`, statLabel: "实验风险点",
     };
   } else if (key === "BB_lower_revert") {
     const r2 = computeBBLowerRevertLab(ohlc);
@@ -1182,7 +1182,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
         { name: "布林下轨", data: r2.bl, color: cssVar('--text-4'), dash: true },
       ],
       signals: r2.signals, signalLabel, signalColor: "#2e7d32",
-      chartTitle: `${name} · 布林下轨回归实验`, statLabel: "实验买点",
+      chartTitle: `${name} · 布林下轨回归实验`, statLabel: "实验关注点",
     };
   } else if (key === "Supertrend_buy") {
     const r2 = computeSupertrendLab(ohlc);
@@ -1192,7 +1192,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
         { name: "趋势线(空)", data: r2.stBear, color: "#c92a2a", dash: false },
       ],
       signals: r2.signals, signalLabel, signalColor: "#2e7d32",
-      chartTitle: `${name} · 趋势转向实验`, statLabel: "实验买点",
+      chartTitle: `${name} · 趋势转向实验`, statLabel: "实验关注点",
     };
   } else if (key === "MA_death_5_20") {
     const r2 = computeMADeathCrossLab(ohlc);
@@ -1202,7 +1202,7 @@ function _labBuildChartConfig(key, ohlc, indexName) {
         { name: "20日均线", data: r2.ma20, color: "#f0883e", dash: false },
       ],
       signals: r2.signals, signalLabel, signalColor: "#9c27b0",
-      chartTitle: `${name} · 均线5/20死叉实验`, statLabel: "实验卖点",
+      chartTitle: `${name} · 均线5/20死叉实验`, statLabel: "实验风险点",
     };
   }
 
@@ -1368,13 +1368,13 @@ function _labBuildChartConfig(key, ohlc, indexName) {
     };
   }
 
-  // --- ATR 追踪止损 ---
+  // --- ATR 追踪风控 ---
   if (key === "ATR_trail_stop") {
     const r = computeATRTrailLab(ohlc);
     return {
-      indicators: [{ name: "真实波幅追踪止损线", data: r.trail, color: "#c92a2a", dash: true }],
+      indicators: [{ name: "真实波幅追踪风控线", data: r.trail, color: "#c92a2a", dash: true }],
       signals: r.signals, signalLabel, signalColor: sigColor,
-      chartTitle: `${name} · 真实波幅追踪止损`, statLabel,
+      chartTitle: `${name} · 真实波幅追踪风控`, statLabel,
     };
   }
 
@@ -1495,7 +1495,7 @@ function _labBuildFusionChartConfig(meta, ohlc, idxName, isHardcoded, components
       signalLabel: fmeta.name || '融合信号',
       signalColor: isBuy ? '#2e7d32' : '#9c27b0',
       chartTitle: `${idxName} · ${fmeta.name || '融合信号'}（同时满足共振）`,
-      statLabel: isBuy ? '融合买点' : '融合卖点',
+      statLabel: isBuy ? '融合关注点' : '融合风险点',
     };
   }
   // 91候选：合并双策略指标(indMap 去重) + 双色信号（复用 _labSignalOpenModal 合并逻辑）
@@ -1988,7 +1988,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
   }).join("");
 
   // A方案:未平仓持仓行 -- 读 open_positions,展示当前仍持有的仓位(浮盈亏按收盘价重估)
-  // 字段对齐已成交行12列:品种/#/买入日/买入价/卖出日/卖出价/收益率/持有/账户资金/累计盈亏/累计收益率/较上次
+  // 字段对齐已成交行12列:品种/#/关注低位机会日/关注价/留意高位预警日/风险价/收益率/持有/账户资金/累计盈亏/累计收益率/较上次
   const openPositions = winData.openPositions || [];
   // 持仓中行账户资金/累计收益率/较上次: 以末次已成交 at 为 baseAt, 逐笔累加 unrealized_pnl。
   // 末笔账户资金 = baseAt + sum(unrealized_pnl) ≈ stats.final_total(顶部期末资金, 含未平仓重估),
@@ -2045,7 +2045,7 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
 
   const tradesBody = isOpen
     ? `<div class="lab-sim-trades-body">` +
-      `<div class="lab-sim-table-wrap"><table><thead><tr><th>品种</th><th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
+      `<div class="lab-sim-table-wrap"><table><thead><tr><th>品种</th><th>#</th><th>关注日期</th><th>关注价</th><th>风险日期</th><th>风险价</th><th>收益率</th><th>持有</th><th>账户总资金</th><th>累计盈亏</th><th>累计收益率</th><th data-tip="本笔累计收益率/累计盈亏相较上一笔的差值，红赚绿亏">较上次</th></tr></thead><tbody>` +
       (tradeRows || '<tr><td colspan="12" style="text-align:center;color:var(--text-4)">无交易记录</td></tr>') +
       holdingRows +
       `</tbody></table></div>${pagerHTML}</div>`
@@ -2114,8 +2114,8 @@ function _labSimModeBlock(mode, winData, initCapital, page, isOpen, signalBtnHTM
 function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair, initCapital, pairSideLabel) {
   const modeName = mode === "full_in" ? "全仓交易策略" : "定额（10%）交易策略";
   const modeDesc = mode === "full_in"
-    ? "每次全仓买入卖出，本金复利滚动，收益和风险都放大"
-    : "每次固定买入1万元分批建仓，卖信号清仓，风险更分散";
+    ? "每次全仓关注低位机会留意高位预警，本金复利滚动，收益和风险都放大"
+    : "每次固定关注低位机会1万元分批建仓，卖信号防范风险，风险更分散";
   const win = state.labSimWindow || "y5";
   const idx = (simData && simData.index_id) || state.labSimIdx || "sh";
 
@@ -2167,7 +2167,7 @@ function _labSimSectionHTML(mode, simData, mainKey, side, pairKeys, defaultPair,
   const pairData = _labGetPair(simData, buyKey, sellKey);
   const winData = _labPairWinData(pairData, mode, win, simData);
 
-  // 配对买卖点描述（策略卡与数据卡片之间的内容隔断 + 当前配对标注）
+  // 配对买风险点描述（策略卡与数据卡片之间的内容隔断 + 当前配对标注）
   const buyMeta = LAB_STRATEGIES[buyKey] || {};
   const sellMeta = LAB_STRATEGIES[sellKey] || {};
   const buyName = buyMeta.name || buyKey;
@@ -2221,7 +2221,7 @@ function _labSimCardHTML(key, simData) {
   // 默认配对：买策略配 D1 卖，卖策略配 C1 买
   const defaultPair = side === "buy" ? "D1_high20_drop5" : "C1_RSI30";
   const initCapital = simData.initial_capital || 100000;
-  const pairSideLabel = side === "buy" ? "卖点" : "买点";
+  const pairSideLabel = side === "buy" ? "风险点" : "关注点";
 
   // 上区：全仓交易策略 / 下区：定额（10%）交易策略（各自独立配对切换+详情）
   const fiSection = _labSimSectionHTML("full_in", simData, key, side, pairKeys, defaultPair, initCapital, pairSideLabel);
@@ -2468,7 +2468,7 @@ async function renderLabDetail(key, container) {
   header.className = "lab-detail-header";
   header.innerHTML = `<h2 class="lab-detail-title">${_labStratNameHTML(key, meta.name)}</h2>` +
     `<span class="lab-tag ${tag.cls}">${tag.label}</span>` +
-    `<span class="lab-tag-side">${meta.side === "buy" ? "买点" : "卖点"}</span>`;
+    `<span class="lab-tag-side">${meta.side === "buy" ? "关注点" : "风险点"}</span>`;
   target.appendChild(header);
 
   // 实验室自白黄块（所有策略都显示，通用介绍 + 抖音号）
@@ -2632,8 +2632,8 @@ async function renderLabDetail(key, container) {
     '<div class="lab-matrix-tip">⚠ 以上为单次操作平均收益，非连续复利；信号触发不定期，不可直接相乘。</div>' +
     '<div class="lab-matrix-wrap"><div class="lab-matrix-loading">加载中…</div></div>' +
     '<div class="lab-matrix-foot">' +
-    '<div class="lab-matrix-source">数据来源：买卖点策略深度回测（基于历史数据验证）</div>' +
-    '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价买入，持有 N 个交易日后按收盘价卖出，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>买点胜率</b>=信号后上涨占比；<b>卖点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见下方模拟回测。</div>' +
+    '<div class="lab-matrix-source">数据来源：买风险点策略深度回测（基于历史数据验证）</div>' +
+    '<div class="lab-matrix-note"><b>这张表怎么测的：</b>信号触发当天按收盘价关注低位机会，持有 N 个交易日后按收盘价留意高位预警，统计所有历史信号的平均效果。5d/10d/20d/60d = 持有 5/10/20/60 个交易日。<b>关注点胜率</b>=信号后上涨占比；<b>风险点胜率</b>=信号后下跌占比（方向相反）。<b>这是单边统计</b>（每个信号独立看 N 日后涨跌），不是配对交易；真实配对实战收益见下方模拟回测。</div>' +
     '<div class="lab-matrix-legend-color"><span class="lab-matrix-good">红=好</span><span class="lab-matrix-warn">黄=一般</span><span class="lab-matrix-bad">绿=差</span></div>' +
     '</div>';
   target.appendChild(matrixCard);
@@ -2646,7 +2646,7 @@ async function renderLabDetail(key, container) {
     const mGenAt = mData ? mData.generated_at : "";
     matrixWrap.innerHTML = renderLabMatrix(mStratData);
     const srcEl = matrixCard.querySelector(".lab-matrix-source");
-    if (srcEl) srcEl.textContent = '数据来源：买卖点策略深度回测（' + _matrixIdxName(mIdx) + '，基于历史数据验证' + (mGenAt ? '，重跑于 ' + mGenAt : '') + '）';
+    if (srcEl) srcEl.textContent = '数据来源：买风险点策略深度回测（' + _matrixIdxName(mIdx) + '，基于历史数据验证' + (mGenAt ? '，重跑于 ' + mGenAt : '') + '）';
     _labUpdateMatrixRowHighlight();
   };
   renderMatrix();
@@ -2661,7 +2661,7 @@ async function renderLabDetail(key, container) {
     };
   });
 
-  // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 买点切换 + 模式切换 + 分页 + 指数切换）
+  // 模拟回测卡片（配对交易 + 净值曲线 + 交易记录 + 关注点切换 + 模式切换 + 分页 + 指数切换）
   // lab_simulate_{index}.json 按指数拆分，前端按 state.labSimIdx 按需加载
   // 局部刷新：切指数只重渲染 simCard，不整页 reload（保留 tab/配对/模式/窗口上下文）
   state.labSimPairFi = null;
@@ -3777,7 +3777,7 @@ async function renderFusionLab() {
     `<button type="button" class="lab-idx-tab${x.id === _curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
   ).join("");
   rankSection.innerHTML = '<h3>🏆 回测配对对比榜' + _labHelpIcon("pair") + '</h3>' +
-    '<div class="lab-rank-sub-note">一个买点+一个卖点组成一对完整交易，7买×7卖=49对</div>' +
+    '<div class="lab-rank-sub-note">一个关注点+一个风险点组成一对完整交易，7买×7卖=49对</div>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
     `<div class="lab-win-bar lab-shape-bar"><span class="lab-win-bar-label">形态分析</span><button type="button" class="lab-shape-btn" title="取近20日归一化日收益率，在全历史中滑窗匹配最相似时段">🔮 当前指数相似形态匹配</button><span class="lab-shape-hint">A10 · 历史相似时段 + 最相似1个延伸走势参考</span></div>` +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载配对排行数据中…</div></div>';
@@ -4990,8 +4990,8 @@ async function _labFusionPairModalRender(overlay) {
       // 买红卖绿（对齐 A 股习惯 + 现有融合合并图配色 BUY_C/SELL_C）
       const color1 = side1 === 'sell' ? '#2e7d32' : '#c92a2a';
       const color2 = side2 === 'sell' ? '#2e7d32' : '#c92a2a';
-      const statLabel1 = side1 === 'buy' ? '买点' : '卖点';
-      const statLabel2 = side2 === 'buy' ? '买点' : '卖点';
+      const statLabel1 = side1 === 'buy' ? '关注点' : '风险点';
+      const statLabel2 = side2 === 'buy' ? '关注点' : '风险点';
       chartCfgA = LAB_CHART_KEYS[k1] ? _labBuildChartConfig(k1, chartData.ohlc, idxName) : null;
       chartCfgB = LAB_CHART_KEYS[k2] ? _labBuildChartConfig(k2, chartData.ohlc, idxName) : null;
       if (chartCfgA) chartSlicedA = _labChartSlice(chartData.ohlc, chartCfgA.indicators, chartCfgA.signals, win);
@@ -5104,7 +5104,7 @@ async function _labFusionPairModalRender(overlay) {
     if (isHardcoded && partners.length > 1) {
       // 配对卡片列表
       if (!m.pair || partners.indexOf(m.pair) < 0) m.pair = partners[0];
-      const pairSideLabel = fSide === "buy" ? "卖点" : "买点";
+      const pairSideLabel = fSide === "buy" ? "风险点" : "关注点";
       const pairCards = partners.map((pk) => {
         const buyKey = fSide === "buy" ? pairId : pk;
         const sellKey = fSide === "buy" ? pk : pairId;
@@ -5933,7 +5933,7 @@ async function renderSignalLab() {
     `<button type="button" class="lab-idx-tab${x.id === _curIdx ? " active" : ""}" data-idx="${x.id}">${x.name}</button>`
   ).join("");
   rankSection.innerHTML = '<h3>🏆 回测配对对比榜' + _labHelpIcon("pair") + '</h3>' +
-    '<div class="lab-rank-sub-note">一个买点+一个卖点组成一对完整交易，7买×7卖=49对</div>' +
+    '<div class="lab-rank-sub-note">一个关注点+一个风险点组成一对完整交易，7买×7卖=49对</div>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载配对排行数据中…</div></div>';
   rightCol.appendChild(rankSection);
@@ -6303,7 +6303,7 @@ async function renderAIScoreListLab() {
   const sellListRaw = Array.isArray(data.sell_list) ? data.sell_list : [];
   // 持有建议:从 data.hold_list 读(原 sellListRaw.filter("持有") 因 sell_list 全是过热项永远空)
   const holdItems = Array.isArray(data.hold_list) ? data.hold_list : [];
-  // 卖清单:sell_list 全是过热卖出信号(high>=60), hold 已拆独立字段, 直接用
+  // 卖清单:sell_list 全是过热风险提示信号(high>=60), hold 已拆独立字段, 直接用
   const sellListFiltered = sellListRaw;
   // 缓存到 state, 翻页/展开/收起时不重新 fetch, 只重渲染对应区
   _labAiscoreState.data = data;
@@ -6379,7 +6379,7 @@ function _renderLabAiscoreBuySection(buyHost, buyList, codeToIid, dateStr) {
   buyHost.innerHTML =
     `<div class="lab-aiscore-section-head">` +
       `<div class="lab-aiscore-section-title">📈 AI买清单 <span class="lab-aiscore-date">📅 ${dateStr || "未注明日期"}</span></div>` +
-      `<div class="lab-aiscore-section-sub">按低位机会降序 · 手数 3/2/1 建议买入量 · 0手不入清单</div>` +
+      `<div class="lab-aiscore-section-sub">按低位机会降序 · 手数 3/2/1 建议关注量 · 0手不入清单</div>` +
     `</div>` +
     `<div class="lab-aiscore-table-wrap">` +
       `<table class="lab-aiscore-table">` +
@@ -6517,8 +6517,8 @@ function _renderAIScoreSellSection(host, sellList, codeToIid) {
     const high = it.high_alert != null ? Number(it.high_alert).toFixed(1) : "-";
     const low = it.low_alert != null ? Number(it.low_alert).toFixed(1) : "-";
     const sig = it.sell_signal || "-";
-    // 危险词:含"减仓/卖出/清仓"等明确卖出动作;中性词:含"持有/观望";其余(如"偏热留意")=warn
-    // 注意:"持有(未过热)"含"过热"但语义中性,故只匹配"减仓/卖/清仓"动作词
+    // 危险词:含"调整/留意高位预警/防范风险"等明确留意高位预警动作;中性词:含"持有/观望";其余(如"偏热留意")=warn
+    // 注意:"持有(未过热)"含"过热"但语义中性,故只匹配"调整/卖/防范风险"动作词
     const sigCls = /减仓|卖出|清仓|卖/.test(sig) ? "sig-danger" : /持有|观望/.test(sig) ? "sig-neutral" : "sig-warn";
     const nt = it.is_national_team ? `<span class="lab-aiscore-nt">汪汪队</span>` : "";
     const reason = it.reason_summary ? `<span class="lab-aiscore-reason" title="${it.reason_summary}">${it.reason_summary}</span>` : "";
@@ -6535,11 +6535,11 @@ function _renderAIScoreSellSection(host, sellList, codeToIid) {
   const empty = sortedSell.length === 0 ? `<tr><td colspan="7" class="lab-aiscore-empty">暂无卖清单数据（等后端生成）</td></tr>` : "";
   host.innerHTML =
     `<div class="lab-aiscore-section-head">` +
-      `<div class="lab-aiscore-section-title">📉 AI卖清单 <span class="lab-aiscore-section-sub-inline">按高位预警降序 · 卖出信号=持有/减仓建议</span></div>` +
+      `<div class="lab-aiscore-section-title">📉 AI卖清单 <span class="lab-aiscore-section-sub-inline">按高位预警降序 · 风险提示信号=持有/调整建议</span></div>` +
     `</div>` +
     `<div class="lab-aiscore-table-wrap">` +
       `<table class="lab-aiscore-table lab-aiscore-table-sell">` +
-        `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>高位预警</th><th>低位机会</th><th>卖出信号</th><th>理由摘要</th></tr></thead>` +
+        `<thead><tr><th>#</th><th>代码</th><th>名称</th><th>高位预警</th><th>低位机会</th><th>风险提示信号</th><th>理由摘要</th></tr></thead>` +
         `<tbody>${rowsHTML}${empty}</tbody>` +
       `</table>` +
     `</div>`;
@@ -6568,7 +6568,7 @@ function _renderAIScoreQuerySection(host, codeToIid, etfList, dateStr) {
   host.innerHTML =
     `<div class="lab-aiscore-section-head">` +
       `<div class="lab-aiscore-section-title">🔍 持仓自查（输入任意 ETF 代码查 AI 评分 / 高位预警）</div>` +
-      `<div class="lab-aiscore-section-sub">输入持仓 ETF 代码（如 510300 / 515030）查 AI 评分 + 高位预警 + 卖出建议 + 完整维度拆解</div>` +
+      `<div class="lab-aiscore-section-sub">输入持仓 ETF 代码（如 510300 / 515030）查 AI 评分 + 高位预警 + 风险提示建议 + 完整维度拆解</div>` +
     `</div>` +
     `<div class="lab-aiscore-sell-input-wrap">` +
       `<input type="text" class="lab-aiscore-sell-input" placeholder="ETF代码(如510300/515030)" autocomplete="off" inputmode="numeric">` +
@@ -6630,9 +6630,9 @@ function _renderAIScoreQuerySection(host, codeToIid, etfList, dateStr) {
     const highLvl = alert.high_level || "";
     const highTooltip = _labCustomLevelTooltip(high, "high");
     const highCls = _labCustomLevelClass(high, "high");
-    // sell_signal: high >= 70 建议减仓 / 50-70 偏热留意 / <50 暂无卖出信号
+    // sell_signal: high >= 70 建议调整 / 50-70 偏热留意 / <50 暂无风险提示信号
     const sellSignal = (high != null && !isNaN(high)) ?
-      (high >= 70 ? "🔴 建议减仓" : high >= 50 ? "🟡 偏热留意" : "🟢 暂无卖出信号") : "无数据";
+      (high >= 70 ? "🔴 建议调整" : high >= 50 ? "🟡 偏热留意" : "🟢 暂无风险提示信号") : "无数据";
     const highHuman = (reason.human_text && reason.human_text.high) || _labCustomDefaultHuman("high", high);
     // 评分 badge(若 matched):顶部显示 AI评分 + hands + reason_summary
     const scoreBadgeHTML = matched ? _buildEtfScoreBadgeHTML(matched) : "";
@@ -6648,10 +6648,10 @@ function _renderAIScoreQuerySection(host, codeToIid, etfList, dateStr) {
             `<div class="lab-aiscore-sell-cell-label">高位预警</div>` +
             `<div class="lab-aiscore-sell-cell-score">${high != null ? Number(high).toFixed(2) : "-"}</div>` +
             `<div class="lab-aiscore-sell-cell-level" title="${highTooltip}">${highLvl}</div>` +
-            `<div class="lab-aiscore-sell-cell-desc">分越高越接近过热 · ≥70 建议减仓</div>` +
+            `<div class="lab-aiscore-sell-cell-desc">分越高越接近过热 · ≥70 建议调整</div>` +
           `</div>` +
           `<div class="lab-aiscore-sell-cell">` +
-            `<div class="lab-aiscore-sell-cell-label">卖出建议</div>` +
+            `<div class="lab-aiscore-sell-cell-label">风险提示建议</div>` +
             `<div class="lab-aiscore-sell-cell-signal">${sellSignal}</div>` +
             `<div class="lab-aiscore-sell-cell-desc">基于高位预警阈值(70/50)派生,仅作参考</div>` +
           `</div>` +
@@ -6680,7 +6680,7 @@ function _buildEtfScoreOnlyCardHTML(item, dateStr, warnMsg) {
   const handsCls = `hands-${[3, 2, 1, 0].includes(hands) ? hands : 0}`;
   const sellSignalCell = sig ?
     `<div class="lab-aiscore-sell-cell">` +
-      `<div class="lab-aiscore-sell-cell-label">卖出建议</div>` +
+      `<div class="lab-aiscore-sell-cell-label">风险提示建议</div>` +
       `<div class="lab-aiscore-sell-cell-signal">${sig}</div>` +
       `<div class="lab-aiscore-sell-cell-desc">后端基于高位预警阈值派生</div>` +
     `</div>` : "";
@@ -6707,7 +6707,7 @@ function _buildEtfScoreOnlyCardHTML(item, dateStr, warnMsg) {
       `<div class="lab-aiscore-sell-cell">` +
         `<div class="lab-aiscore-sell-cell-label">高位预警</div>` +
         `<div class="lab-aiscore-sell-cell-score">${high}</div>` +
-        `<div class="lab-aiscore-sell-cell-desc">≥70 建议减仓</div>` +
+        `<div class="lab-aiscore-sell-cell-desc">≥70 建议调整</div>` +
       `</div>` +
       `<div class="lab-aiscore-sell-cell">` +
         `<div class="lab-aiscore-sell-cell-label">低位机会</div>` +

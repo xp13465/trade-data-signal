@@ -91,7 +91,7 @@ function _labCustomLevelText(level) {
 function _labCustomLevelTooltip(score, direction) {
   if (score == null || isNaN(score)) return "无数据";
   if (direction === "high") {
-    if (score >= 70) return "≥70 过热减仓";
+    if (score >= 70) return "≥70 过热逢高谨慎";
     if (score >= 50) return "50-70 偏热留意";
     return "<50 暂无过热";
   }
@@ -104,7 +104,7 @@ function _labCustomLevelTooltip(score, direction) {
 function _labCustomDefaultHuman(direction, score) {
   if (score == null || isNaN(score)) return "数据不足，无法判断";
   if (direction === "high") {
-    if (score >= 70) return "多处指标过热，注意减仓风险";
+    if (score >= 70) return "多处指标过热，注意调整风险";
     if (score >= 50) return "部分指标偏热，留意回调风险";
     return "暂无明显过热信号";
   }
@@ -123,7 +123,7 @@ function _labCustomScoreSummary(high, low) {
   const lowOpp = hasL && low >= 70;
   const lowWarm = hasL && low >= 50 && low < 70;
   if (highHot && lowOpp) return { text: "⚠️ 高位过热+低位机会并存，分化严重，谨慎操作", cls: "sum-warn" };
-  if (highHot) return { text: "⚠️ 当前偏热，注意减仓风险", cls: "sum-danger" };
+  if (highHot) return { text: "⚠️ 当前偏热，注意调整风险", cls: "sum-danger" };
   if (lowOpp) return { text: "💡 当前偏冷，关注企稳机会", cls: "sum-good" };
   if (highWarm && lowWarm) return { text: "➡️ 当前分化，部分偏热部分偏冷，观望为主", cls: "sum-warn" };
   if (highWarm) return { text: "➡️ 部分指标偏热，留意回调风险", cls: "sum-warn" };
@@ -176,7 +176,7 @@ function _labCustomScoreCardHTML(data, alert, humanText) {
     `<div class="lab-custom-score-summary ${summary.cls}">${summary.text}</div>` +
     `<div class="lab-custom-score-grid">` +
       `<div class="lab-custom-score-cell ${highLvlCls}">` +
-        `<div class="lab-custom-cell-label">高位预警<span class="lab-custom-cell-sublabel">越高越热，≥70 过热注意减仓</span></div>` +
+        `<div class="lab-custom-cell-label">高位预警<span class="lab-custom-cell-sublabel">越高越热，≥70 过热注意调整</span></div>` +
         `<div class="lab-custom-cell-score">${high != null ? high.toFixed(2) : "-"}</div>` +
         `<div class="lab-custom-cell-level" title="${highTooltip}">${highLvlText}</div>` +
         `<div class="lab-custom-cell-desc">分越高越接近过热 · 悬浮看区间含义</div>` +
