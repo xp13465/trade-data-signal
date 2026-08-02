@@ -1191,16 +1191,19 @@ def fetch_fund_portfolio_hold(code: str, year: str | None = None, retries: int =
 
 
 def collect_portfolio_hold(report_date: str | None = None) -> dict:
-    """采集持有'制造业'的基金的重仓股明细, 用于制造业拆分子行业(方案C Step1)。
+    """采集头部主动权益基金的重仓股明细, 用于申万一级口径行业配置 + 制造业拆分子行业(方案C Step1)。
 
     流程:
-      1. 从 fund_industry_alloc 取 DISTINCT fund_code WHERE industry_name='制造业'(942 只)
+      1. 从 fund_industry_alloc 取 DISTINCT fund_code(头部主动权益基金 ~973 只, 原 L1220
+         硬编码 WHERE industry_name='制造业' 已于 2026-08-02 去除: 语义误导且无实际过滤效果,
+         因头部基金几乎全部配置制造业, WHERE 等同全表; 去除后语义清晰, 采全市场头部基金重仓股)
       2. 串联调 fetch_fund_portfolio_hold 拉每只当年重仓股, throttle 0.5s/只
       3. 按 report_date 对应的 quarter_label 筛选当期(如 20260630->'2026年2季度股票投资明细')
       4. 批量写入 fund_portfolio_hold 表(每 20 只批量 INSERT + 回写 progress)
 
     断点续采: /tmp/pf-hold-collect-progress.json 记 {done:[...], fail:[...], total:N},
-    启动时读 progress 跳过 done, 重跑只补失败/未采; total 变化(新增基金)自动重置 progress。
+    启动时读 progress 跳过 done, 重跑只补失败/未采; total 变化(新增基金)保留仍在新清单的 done,
+    只补采新增基金(不重置丢已有进度)。
 
     Args:
       report_date: YYYYMMDD 报告期(如 '20260630'), 默认最近半年报
@@ -1212,18 +1215,18 @@ def collect_portfolio_hold(report_date: str | None = None) -> dict:
     target_label = _report_date_to_quarter_label(report_date)
     print(f"[I-collect] report_date={report_date} year={year} target_label={target_label}", flush=True)
 
-    # 从 DB 取制造业基金清单
+    # 从 DB 取头部基金清单(去制造业硬编码, 采全市场头部主动权益基金)
     conn = get_conn()
     try:
         rows = conn.execute(
             "SELECT DISTINCT fund_code FROM fund_industry_alloc "
-            "WHERE industry_name='制造业' ORDER BY fund_code"
+            "ORDER BY fund_code"
         ).fetchall()
     finally:
         conn.close()
     fund_codes = [r[0] for r in rows]
     total = len(fund_codes)
-    print(f"[I-collect] 制造业基金 {total} 只", flush=True)
+    print(f"[I-collect] 头部基金 {total} 只", flush=True)
     if total == 0:
         return {"ok": 0, "fail": 0, "total": 0, "rows_written": 0, "fail_list": []}
 
@@ -1232,11 +1235,15 @@ def collect_portfolio_hold(report_date: str | None = None) -> dict:
     if PF_HOLD_PROGRESS_PATH.exists():
         try:
             prog = json.loads(PF_HOLD_PROGRESS_PATH.read_text(encoding="utf-8"))
-            # total 变化(新增基金) -> 重置 progress 避免脏数据
+            # total 变化(新增基金) -> 保留仍在新清单的 done, 只补采新增(不重置丢已有进度)
             if prog.get("total") != total:
-                print(f"[I-collect] progress total {prog.get('total')} != 当前 {total}, 重置 progress",
+                old_done = set(prog.get("done", []))
+                retained = old_done & set(fund_codes)
+                new_count = total - len(retained)
+                print(f"[I-collect] progress total {prog.get('total')} != 当前 {total}, "
+                      f"保留已采 {len(retained)} 只, 补采新增 {new_count} 只",
                       flush=True)
-                prog = {"done": [], "fail": [], "total": total}
+                prog = {"done": sorted(retained), "fail": [], "total": total}
         except Exception:  # noqa: BLE001
             prog = {"done": [], "fail": [], "total": total}
     done_set = set(prog.get("done", []))
@@ -1870,6 +1877,81 @@ def _compute_manuf_subind_fund_map(conn, report_date: str, stock_ind_map: dict[s
         lst.sort(key=lambda x: (x["weight_pct"] or 0), reverse=True)
 
     return {"report_date": report_date, "subind_funds": subind_funds}
+
+
+def _compute_sw_industry_alloc(conn, report_date: str, stock_ind_map: dict[str, str]) -> dict:
+    """申万一级行业配置(反查口径): 基金 top10 重仓股按申万一级聚合, 揭示真实风格暴露。
+
+    与证监会口径 industry(19 大类, 基金直接披露) 区别:
+      - 申万一级: 31 个细分行业, 基于重仓股反查 sw_components.json(非基金直接披露)
+      - 证监会口径: 19 个粗门类, 基金直接披露全仓位行业配置(含非重仓股)
+
+    3 个硬限制(前端诚实标注):
+      1. 时序不可用: fund_portfolio_hold 仅 1 期(最新季报 20260630), 无历史对比
+      2. 覆盖率 ~42%: top10 重仓股平均占净值 42.39%, 仅反映重仓股部分行业暴露, 非完整行业配置
+      3. 反查口径: 基于重仓股反查申万一级(非基金直接披露), 有信息差价值但非官方披露
+
+    聚合口径(和证监会 industry JSON 字段对齐便于前端复用):
+      - total_weight: SUM(weight_pct) 所有基金重仓股在该行业的占净值比例之和
+      - total_value: SUM(hold_value) 实际持仓市值(更准确反映资金暴露)
+      - fund_count: COUNT(DISTINCT fund_code) 有多少基金的重仓股落入该行业
+      - avg_weight: total_weight / fund_count 基金平均配置该行业的比例
+
+    未映射股票(港股代码等不在 sw_components.json)归 "未分类" 项。
+    排序按 total_weight DESC(和证监会口径 industry 一致)。
+    """
+    hold_rows = conn.execute(
+        "SELECT fund_code, stock_code, weight_pct, hold_value FROM fund_portfolio_hold "
+        "WHERE report_date=?",
+        (report_date,),
+    ).fetchall()
+    if not hold_rows:
+        return {
+            "report_date": report_date, "coverage_pct": None,
+            "coverage_note": "无重仓股数据", "period_count": 0,
+            "industries": [],
+        }
+
+    # 按申万一级聚合(未映射归"未分类")
+    agg: dict[str, dict] = {}
+    unmapped_key = "未分类"
+    fund_total_weight: dict[str, float] = {}  # 每基金 top10 weight_pct 之和(算 coverage_pct)
+    for fc, sc, wp, hv in hold_rows:
+        ind = stock_ind_map.get(sc, "")
+        key = ind if ind else unmapped_key
+        d = agg.setdefault(key, {"total_weight": 0.0, "total_value": 0.0, "funds": set()})
+        d["total_weight"] += (wp or 0)
+        d["total_value"] += (hv or 0)
+        d["funds"].add(fc)
+        fund_total_weight[fc] = fund_total_weight.get(fc, 0) + (wp or 0)
+
+    # coverage_pct: 平均重仓集中度(top10 占净值比例的基金平均值)
+    coverage_pct = (round(sum(fund_total_weight.values()) / len(fund_total_weight), 2)
+                    if fund_total_weight else None)
+
+    industries_list = []
+    for name, d in agg.items():
+        fc_count = len(d["funds"])
+        total_weight = round(d["total_weight"], 4)
+        avg_weight = round(total_weight / fc_count, 4) if fc_count else 0
+        industries_list.append({
+            "industry_name": name,
+            "total_weight": total_weight,
+            "total_value": round(d["total_value"], 4),
+            "fund_count": fc_count,
+            "avg_weight": avg_weight,
+        })
+    industries_list.sort(key=lambda x: x["total_weight"], reverse=True)
+
+    return {
+        "report_date": report_date,
+        "coverage_pct": coverage_pct,
+        "coverage_note": (f"基于top10重仓股反查申万一级, 覆盖约{coverage_pct}%仓位, "
+                          f"仅最新一期无历史时序, 反查口径非基金直接披露"),
+        "period_count": 1,
+        "fund_count": len(fund_total_weight),
+        "industries": industries_list,
+    }
 
 
 def _compute_position_estimate(conn: sqlite3.Connection) -> dict | None:
