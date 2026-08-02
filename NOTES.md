@@ -6364,4 +6364,26 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **sw.js ui92 -> ui93**。commit 7f32faf7。线上 ss.fx8.store `v=97b8a9af`含"水滴标记/88高/80低"。
 
+### AZ120 2026-08-02 overlap/HHI delta可比口径优化(ui94,commit 13705c70)
+
+**问题**：AZ117 公募5项修复给抱团度/重叠度加了 delta_vs_last，实测 overlap delta=-752.9 偏大，HHI delta=+0.009866 看似小但 HHI 实际从0.0116涨到0.0215接近翻倍。原以为"中报vs年报披露范围差异"。
+
+**根因（调研agent aac067bbc6e29125c 推翻原假设）**：真正根因是 **20260630 期中报采集未完成**。2026-08-02真实系统日期，中报披露截止8月31日，8月2日只采到部分基金：
+- SQL证据：20260630 stocks=2835 vs 历年0630期5000+(20240630=5066/20250630=5206)；sum_fund_count 20260630=85433 vs 20250630=714861(仅12%)
+- delta=-752失真机理：20260630采集未完成(Top30 overlap=848偏低) vs 20251231已采全(1601)
+- HHI同样失真：分母sum_fc偏低致market_share偏大致HHI虚高(0.0215 vs 历年0.011)
+- 头部股票fund_count量级正常(中际旭创2717 vs 20251231的2581)，反映真实市场结构(AI抱团加剧/白酒缓解)非采集问题
+- 临时缓解：9月1日中报披露完成后重跑export，20260630期数据自然修复
+
+**修复（方案A+B组合）**：
+1. **方案A采集完成度闸门**(public_fund.py L1498-1499)：算delta前查当期stocks数对比历年同期阈值(`_INCOMPLETE_THRESHOLDS` 0331≈2200/0630≈4000/0930≈2100/1231≈4100，取min*0.8留余量)。`is_incomplete=True`时delta=null+`detail.incomplete=True`+`detail.current_stocks=N`
+2. **方案B同披露类型对比**(public_fund.py L1512-1527)：prev_report SQL加披露类型过滤(0630/1231全披露 vs 0331/0930前十大)。同类型prev为空但未过滤prev存在时`is_cross_type=True`，delta=null+`detail.cross_type=True`
+3. **前端配套**(app.js L9742-9834)：`_pfDeltaHtml(delta,status)` status="incomplete"显示"较上季 数据采集中"，"cross_type"显示"较上季 跨期不可比"；新增`_pfDeltaStatus(d)`从detail提取状态；`_pfCard`加deltaStatus参数；弹窗dlt文本+subtitle区分状态
+
+**验收**：20260630期overlap+conc detail都`incomplete=True, delta_vs_last=None, current_stocks=2835`，前端显示"数据采集中"而非-752/+0.0099。线上ss.fx8.store+sss.sugas.site双站JSON含incomplete=True。
+
+**教训**：①`_DATA_DIR`用`Path(__file__).absolute().parent.parent.parent/"data"`从trade跑会写到trade/data/滞后镜像，必须从trade-data跑+sys.path加trade-data让`__file__`解析到symlink路径(memory `export-output-path-sync`的public_fund.db版本)②app.js含em dash(U+2014)，Edit工具用ASCII"-"匹配失败，Python `str.replace`也失败，改用regex替换成功(后续改app.js遇到"-"优先用regex)。
+
+**sw.js ui93 -> ui94**。commit 13705c70。138 files changed。详见 `/tmp/agent-progress-overlap-delta.md`(调研178行) + `/tmp/agent-progress-overlap-delta-impl.md`(实施53行)。
+
 
