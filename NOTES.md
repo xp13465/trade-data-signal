@@ -6386,4 +6386,39 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **sw.js ui93 -> ui94**。commit 13705c70。138 files changed。详见 `/tmp/agent-progress-overlap-delta.md`(调研178行) + `/tmp/agent-progress-overlap-delta-impl.md`(实施53行)。
 
+### AZ121 - 2026-08-02 阶段0场外基金数据采集补全 + 4件实施上线ui96 + 88时效标注
+
+**1. 阶段0场外基金数据采集补全（后端，commit 08c514f1）**
+- fund_basic 扩15列(6->21列)：fund_company/fund_manager/setup_date/scale/management_fee/custody_fee/purchase_fee/custodian/strategy/benchmark/tracking_target/issue_date/share_scale/service_fee/dividend_total，_migrate_fund_basic() ALTER TABLE幂等迁移
+- 新增6表：fund_manager(经理+任职历史)/fund_performance(9区间收益)/fund_risk_indicator(6指标3周期)/fund_rating(4家评级)/fund_purchase_status(申赎)/fund_fee_detail(费率分档)
+- 7个fetch函数：fetch_fund_performance(金矿rank_em 2.5s拿2万只)/fetch_fund_rating/fetch_fund_purchase_status/fund_fund_manager(自爬fundf10补任职历史)/fetch_fund_overview(18字段金矿)/fetch_fund_risk_indicator(xq+降级自算)/fetch_fund_fee_detail
+- 小样本3只(161725/000001/110011)7表入库验证通过，fund_basic 15新列有值，fund_risk_indicator 9行6指标完整(mixed=xq+自算/self_calc=纯自算)
+- 补fund_daily_nav 5年历史(原仅1年稀疏)，161725补全1234行20210705~20260731
+- CLI 6个子命令：stage0-daily(22s)/stage0-overview(6.2h)/stage0-risk(4.5h)/stage0-manager(3h)/stage0-nav(5年)/stage0-sample
+- 调度接入update_all.sh(L129-141)：stage0-daily+export_offshore_fund+rsync+upload-offshore-fund，失败不阻塞主流程
+- export_offshore_fund.py导出7个JSON(basic 13MB/performance 5.8MB/rating 2.4MB/purchase 4.9MB/manager 6.7MB/risk_indicator/fee_detail)
+- upload_r2.py加upload-offshore-fund命令(§8.1新类别按前缀建独立命令)，exclude_prefixes加offshore_fund防双副本
+- 全量采集(27409只)挂凌晨launchd自动跑，不阻塞核心update_all
+- bug修复：fund_basic断点续采progress跳过致None(清progress重跑)；fund_risk_indicator xq分支补自算sortino/calmar/downside_risk(data_source=mixed)；NaT strftime bug；_upload_glob返回值3值一致
+
+**2. 4件前端+后端实施（commit 1c0a5502，ui96已上线）**
+- 任务1 仓位红线3m/6m断线修复：app.js L9905-9908 estHistory按_pfCutoff过滤(根因:estPoints未切片把allDates起点拉到20251222,红线posMap只含cutoff后lg点致整段null,connectNulls救不了全段null)
+- 任务2 ETF评分弹窗5区块：后端export_etf_score_list.py补导出dims/adapt/dim_hits/data_thresholds/history_analogy/confidence/sell_action(L465-471,各list item L613-664)+_compute_confidence(数据完整度60%+信号一致性40%,L228)；前端openEtfScoreDetailModal(L13574)5区块(决策头/手数or卖出动作进度条/置信度/8维度明细/历史类比)+renderRow data-etf-code click(L13812)
+- 任务3 卖出明确化：_sell_action_for_high(L207)减仓比例%(>=85清仓/>=75减3-4/>=70减1-2/>=60减1-4/<60持有观察)，sell行显示sell_action.label替代sell_signal(L13806)+弹窗pct进度条
+- 任务4 抱团/重叠度弹窗区分：_pfDetailModal加grayFirstN参数(L9784)，重叠度Top30前10条标灰(同抱团度)+11-30高亮橙色"新增"标+subtitle明确"前10与抱团相同,11-30为重叠度独有"
+- 额外bug修复：alert_reason.py L213 _load_target_close_amount返回3值只解2值致history_analogy一直error，修后指数+ETF历史类比恢复
+- 上线：build_min(app.js 989KB->534KB)+bump_asset_version+sw.js CACHE_VERSION ui96；全量export 1385只ETF buy193/sell150/hold868；R2上传etf_score_list.json.gz 17987KB；3域名验证(ss.fx8.store+sss.sugas.site sw=ui96+R2 JSON 17字段)
+
+**3. 88魔咒每行时效标注（commit 229686b3，ui95已上线，前序工作）**
+- app.js L10049-10053 5行时效标注(当前仓位·lg周频/今日预估·今日实时/所处区间·同仓位/历史分位·截至/沪深300收盘·收盘)
+
+**关键文件**
+- app/collector/public_fund.py（阶段0 schema+7fetcher+CLI）
+- scripts/export_offshore_fund.py（7 JSON导出）
+- scripts/upload_r2.py（upload-offshore-fund命令）
+- scripts/update_all.sh L129-141（调度接入）
+- app/export_etf_score_list.py（ETF评分弹窗后端补导出7字段）
+- app/alert_reason.py L213（history_analogy bug修复）
+- static-site/app.js L9905-9908/L9784/L10049-10053/L13574/L13806/L13812（4件实施前端）
+
 
