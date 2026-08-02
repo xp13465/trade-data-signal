@@ -295,17 +295,6 @@ function mkCard(title, height = 300, hint = null, container = content, chartArr 
   return c;
 }
 
-// 方案C(2026-07-20): ov-2col 去掉 col1/col2 中间层, 卡片直接进 grid
-// _ovCol 返回伪容器(拦截 appendChild 设 .ov-col-{1|2} class), 兼容现有 container 参数传递
-// auto-placement 按 DOM 顺序把指定列的卡片放入最早可用行, align-self:start 保贴合内容
-const _ovCol = (ov2col, colNum) => ({
-  appendChild: (node) => {
-    if (node && node.classList) node.classList.add('ov-col-' + colNum);
-    ov2col.appendChild(node);
-    return node;
-  },
-});
-
 // 通用折线：series = [{name, data:[{date,value}]}] 或单条 [{date,value}]
 function lineChart(title, series, opts = {}, hint = null, container = content) {
   const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
@@ -7348,10 +7337,11 @@ async function renderOverview() {
   // ---- 2. 首屏两列：左=恐贪指数+情绪分，右=冰点日+买卖点 ----
   const ov2ColA = document.createElement("div");
   ov2ColA.className = "ov-2col";
+  const colA1 = document.createElement("div");
+  const colA2 = document.createElement("div");
+  ov2ColA.appendChild(colA1);
+  ov2ColA.appendChild(colA2);
   content.appendChild(ov2ColA);
-  // 方案C: colA1/colA2 为伪容器, appendChild 时设 .ov-col-1/.ov-col-2, 卡片直接进 grid(无中间层)
-  const colA1 = _ovCol(ov2ColA, 1);
-  const colA2 = _ovCol(ov2ColA, 2);
   // 左列：恐贪指数折线（近 6 月，visualMap 分段着色）
   if (r.fear_greed_6m && r.fear_greed_6m.length) {
     const fg6 = r.fear_greed_6m.map((d) => ({ date: d.date, value: d.value }));
@@ -7597,9 +7587,11 @@ async function renderOverview() {
   // ---- 3. 信号强度两列：左=市场宽度+跨市场，右=均线排列+位置感 ----
   const ov2ColB = document.createElement("div");
   ov2ColB.className = "ov-2col";
+  const colB1 = document.createElement("div");
+  const colB2 = document.createElement("div");
+  ov2ColB.appendChild(colB1);
+  ov2ColB.appendChild(colB2);
   content.appendChild(ov2ColB);
-  const colB1 = _ovCol(ov2ColB, 1); // 方案C: 伪容器, 卡片直接进 grid
-  const colB2 = _ovCol(ov2ColB, 2);
 
   // 左列：市场宽度图（上涨/下跌家数堆叠面积，近 1 月）
   const w = r.width_1m || { up: [], down: [] };
@@ -7722,9 +7714,11 @@ async function renderOverview() {
   // ---- 4. AD Line 腾落线 + 成交量对比（全宽，横跨两列）----
   const ov2ColC = document.createElement("div");
   ov2ColC.className = "ov-2col";
+  const colC1 = document.createElement("div");
+  const colC2 = document.createElement("div");
+  ov2ColC.appendChild(colC1);
+  ov2ColC.appendChild(colC2);
   content.appendChild(ov2ColC);
-  const colC1 = _ovCol(ov2ColC, 1); // 方案C: 伪容器, 卡片直接进 grid
-  const colC2 = _ovCol(ov2ColC, 2);
 
   // 并行拉取 AD Line / 成交量对比 / 新高新低（3 个独立 fetch，allSettled 互不影响，失败各自降级）
   const [adLineP, volRatioP, newHighLowP] = await Promise.allSettled([

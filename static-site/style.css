@@ -1019,19 +1019,19 @@ main { padding: 16px 24px; }
 .ov-2col {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px 16px; /* row 12px 卡片间垂直间距 / column 16px 左右列间距 */
+  gap: 16px;
   margin-bottom: 16px;
-  grid-auto-rows: auto;
-  align-items: start; /* 方案C(2026-07-20): 行内卡片贴合内容不 stretch, 消除矮列底部留白("空行") */
+  align-items: stretch; /* 两列等高，消除矮列底部留白（原 flex-start 致左右列底部不齐） */
 }
-/* 方案C(2026-07-20): 去掉 col1/col2 中间层, 卡片直接进 grid, 用 .ov-col-1/.ov-col-2 指定列(1=左 2=右) */
-.ov-2col .chart-card { margin-bottom: 0; align-self: start; } /* 卡贴合内容不被行高拉伸 */
+.ov-2col > * {
+  display: flex;
+  flex-direction: column;
+  gap: 12px; /* 卡片间距用 gap 统一，替代下方 margin-bottom */
+}
+.ov-2col .chart-card { margin-bottom: 0; flex: 1 0 auto; } /* 卡撑满列高，可拉伸不收缩，消除卡间/列底留白 */
 .ov-2col .chart-card:last-child { margin-bottom: 0; }
-.ov-col-1 { grid-column: 1; }
-.ov-col-2 { grid-column: 2; }
 @media (max-width: 768px) {
   .ov-2col { grid-template-columns: 1fr; }
-  .ov-col-1, .ov-col-2 { grid-column: 1; } /* 单列: 所有卡回第1列按DOM顺序排 */
 }
 
 /* 恐贪分项条卡片：8 项情绪分等权=恐贪指数（首页左列+盘面温测 tab 恐贪卡片各一份），flex 撑满 + 横条均匀分布 */
