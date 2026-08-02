@@ -1672,6 +1672,12 @@ main { padding: 16px 24px; }
 .rule-dot-buy { background: #e6492e; }
 .rule-dot-aux { background: #d63384; }
 .rule-dot-sell { background: #2e8b57; }
+.rule-dot-special { background: #ffd700; }            /* 追关注 金 */
+.rule-dot-special-filtered { background: #9e9e9e; }   /* 过滤预览 灰 */
+.rule-dot-backup { background: #9c27b0; }             /* 备关注 紫 */
+.rule-dot-stop-loss { background: #3498db; }          /* 追风控 蓝 */
+.rule-dot-band-hold { background: #ff9800; }          /* 波段持有 橙 */
+.rule-dot-band-sell { background: #8bc34a; }          /* 波段调整 草绿 */
 .rule-dot-read { background: #5b8ff9; }
 .rule-dot-stat { background: var(--text-3); }
 
@@ -1696,6 +1702,12 @@ main { padding: 16px 24px; }
 .rule-card-buy { border-left: 3px solid #e6492e; }
 .rule-card-aux { border-left: 3px solid #d63384; }
 .rule-card-sell { border-left: 3px solid #2e8b57; }
+.rule-card-special { border-left: 3px solid #ffd700; }            /* 追关注 */
+.rule-card-special-filtered { border-left: 3px solid #9e9e9e; }  /* 过滤预览 */
+.rule-card-backup { border-left: 3px solid #9c27b0; }            /* 备关注 */
+.rule-card-stop-loss { border-left: 3px solid #3498db; }         /* 追风控 */
+.rule-card-band-hold { border-left: 3px solid #ff9800; }         /* 波段持有 */
+.rule-card-band-sell { border-left: 3px solid #8bc34a; }         /* 波段调整 */
 
 .rule-card-head {
   font-weight: 600;
@@ -1720,9 +1732,16 @@ main { padding: 16px 24px; }
   border-radius: 3px;
   line-height: 1.5;
 }
-.badge-buy { background: var(--mx-good-bg); color: var(--mx-good-fg); }
-.badge-aux { background: rgba(214, 51, 132, 0.12); color: #d63384; }
-.badge-sell { background: var(--mx-bad-bg); color: var(--mx-bad-fg); }
+/* 信号 badge 配色与统计基准 .hint-sig.* 实色对齐（硬编码信号品牌色，不随主题变）*/
+.badge-buy { background: #e6492e; color: #fff; }                 /* 红 主关注 */
+.badge-aux { background: #d63384; color: #fff; }                 /* 粉紫 辅关注 */
+.badge-special { background: #ffd700; color: #333; }             /* 金 追关注 */
+.badge-special-filtered { background: #9e9e9e; color: #fff; }    /* 灰 过滤预览 */
+.badge-backup { background: #9c27b0; color: #fff; }              /* 紫 备关注 */
+.badge-sell { background: #2e8b57; color: #fff; }                /* 绿 风险提醒 */
+.badge-stop-loss { background: #3498db; color: #fff; }           /* 蓝 追风控 */
+.badge-band-hold { background: #ff9800; color: #fff; }           /* 橙 波段持有 */
+.badge-band-sell { background: #8bc34a; color: #fff; }           /* 草绿 波段调整 */
 
 .rule-table {
   width: 100%;
