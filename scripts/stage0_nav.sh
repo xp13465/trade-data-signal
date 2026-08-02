@@ -24,7 +24,14 @@ mkdir -p "$(dirname "$LOG")"
 cd "$REPO"
 
 # fcntl 互斥锁(非阻塞, 持不到=已有在跑=跳过)
-"$PY" -c "import fcntl,sys; f=open('$LOCK','w'); sys.exit(0 if fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)==0 else 1)" \
+# 注意: fcntl.flock 成功返回 None(非 0), 用 try/except BlockingIOError 判断
+"$PY" -c "import fcntl,sys
+f=open('$LOCK','w')
+try:
+    fcntl.flock(f, fcntl.LOCK_EX|fcntl.LOCK_NB)
+    sys.exit(0)
+except BlockingIOError:
+    sys.exit(1)" \
   || { echo "=== $(date '+%F %T') stage0-nav lock busy, skip ===" >>"$LOG"; exit 0; }
 
 {
