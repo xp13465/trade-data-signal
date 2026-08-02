@@ -1687,10 +1687,10 @@ function termTip(text) {
 const _SIGNAL_HELP_ITEMS = [
   { sig: "buy", color: "#e6492e", nameKey: "detail_buy_name", desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
   { sig: "buy_aux", color: "#d63384", nameKey: "detail_buy_aux_name", desc: "布林带下轨回归。价格跌穿布林带(BB)下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
-  { sig: "buy_special", color: "#ffd700", nameKey: "detail_buy_special_name", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配止损|警示(ATR×3.5止损)控制风险，0套牢。" },
+  { sig: "buy_special", color: "#ffd700", nameKey: "detail_buy_special_name", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配追止损卖(ATR×3.5止损)控制风险，0套牢。" },
   { sig: "buy_special_filtered", color: "#9e9e9e", nameKey: "detail_buy_special_filtered_name", desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追买信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追买，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追买信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
   { sig: "buy_backup", color: "#9c27b0", nameKey: "detail_buy_backup_name", desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
-  { sig: "sell", color: "#2e8b57", nameKey: "detail_sell_name", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈调整提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈调整非反向信号。配套：走弱概率≈50%接近随机；与止损|警示共振时调整信号更强。" },
+  { sig: "sell", color: "#2e8b57", nameKey: "detail_sell_name", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈调整提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈调整非反向信号。配套：走弱概率≈50%接近随机；与追止损卖共振时调整信号更强。" },
   { sig: "sell_stop_loss", color: "#3498db", nameKey: "detail_sell_stop_loss_name", desc: "ATR×3.5 止损（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪止损）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即清仓卖出。配套：趋势跟踪止损（低胜率大盈）；与卖共振时调整信号更强；蓝色与卖绿色区分。" },
   { sig: "band_hold", color: "#ff9800", nameKey: "detail_band_hold_name", desc: "国债三品种波段仓位管理策略波段持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1卖点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖出卖点）。四动作联动：减仓(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓卖出)/波段持有(band_hold橙,无超买超卖维持仓位)。走势图图钉 = 历史调仓时点回放，悬停信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
   { sig: "band_sell", color: "#8bc34a", nameKey: "detail_band_sell_name", desc: "国债波段仓位管理策略减仓动作。触发超买条件(bias20>0.3% AND RSI>rsi_high OR close≥布林上轨)时减仓 20-30% 锁利润。与 sell 区分：减仓非清仓卖出，体现'没卖重'，草绿 #8bc34a 与 sell 绿 #2e8b57 区分。", warn: "国债专属减仓动作(草绿#8bc34a仓位条减少 100%->80%/70%)。触超买减仓 20-30%，非清仓卖出退出。与止损(sell_stop_loss蓝,趋势破位清仓卖出)区分：减仓是主动锁利润，止损是被动防范。研究参考，不构成投资建议。" },
@@ -3500,7 +3500,7 @@ function ruleContentHtml() {
       <h4><span class="rule-dot rule-dot-sell"></span>趋势转弱参考点</h4>
 
       <div class="rule-card rule-card-sell">
-        <div class="rule-card-head"><span class="rule-badge badge-sell">风险提示点</span> 趋势转弱参考 · 收益兑现调整提示（非风险指令）</div>
+        <div class="rule-card-head"><span class="rule-badge badge-sell">风险提醒</span> 趋势转弱参考 · 收益兑现调整提示（非风险指令）</div>
         <p>价格从<b>近期高点回落</b>，且动量转弱时，作为技术信号参考（趋势转弱）。三个条件<b>同时满足</b>才触发：</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">① 价格回落</td><td>从近 20 个交易日的<b>最高价</b>回落超过 <b>5%</b>（用最高价而非收盘价，更能捕捉盘中真实高点）</td></tr>
@@ -3522,15 +3522,15 @@ function ruleContentHtml() {
           <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#ffd700;color:#000">金色</span> 图表上标记为「追关注」</td></tr>
           <tr><td class="rule-td-label">回测持有期建议</td><td>5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（<b>风险调整最优</b>）；30d 59.06%/+3.44%（<b>分水岭</b>，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（<b>纯收益最优</b>，但回撤大）</td></tr>
         </table>
-        <p class="rule-note">⚠️ <b>趋势跟踪策略</b>：低胜率靠大盈拉均值，区别于主关注/辅关注的均值回归（高胜率小赚）。必须配「风控|警示」控制风险，0 套牢。</p>
+        <p class="rule-note">⚠️ <b>趋势跟踪策略</b>：低胜率靠大盈拉均值，区别于主关注/辅关注的均值回归（高胜率小赚）。必须配「追风控|警示」控制风险，0 套牢。</p>
       </div>
 
       <div class="rule-card" style="border-left:3px solid #3498db">
-        <div class="rule-card-head"><span class="rule-badge" style="background:#e8f4fd;color:#1c6dbf">风控|警示</span> ATR×3.5 风控</div>
+        <div class="rule-card-head"><span class="rule-badge" style="background:#e8f4fd;color:#1c6dbf">追风控|警示</span> ATR×3.5 风控</div>
         <p>价格跌破 <b>ATR×3.5 动态风控线</b>（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）。趋势反转下行最后防线。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>ATR（平均真实波幅）×3.5 作为风控距离，波动大时风控宽、波动小时风控窄，自适应市场节奏</td></tr>
-          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#3498db;color:#fff">蓝色</span> 图表上标记为「风控|警示」</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#3498db;color:#fff">蓝色</span> 图表上标记为「追风控|警示」</td></tr>
           <tr><td class="rule-td-label">回测对比</td><td>现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日（胜率44.33%/均值+1.56%，2008股灾-10.5%最差）。2026-07-21 调 ATR×3.5 降频后 hs300 触发 -18%/5日胜率 49.58%->50.23%</td></tr>
         </table>
         <p class="rule-note">⚠️ <b>最后防线</b>：跌破即防范风险，趋势反转下行。与「风险」共振时调整信号更强。蓝色与风险绿色区分。</p>
@@ -3540,20 +3540,20 @@ function ruleContentHtml() {
     <div class="rule-section">
       <h4><span class="rule-dot rule-dot-read"></span>如何解读信号</h4>
 
-      <p class="rule-subtitle">盈亏标注（风险点颜色含义）</p>
+      <p class="rule-subtitle">盈亏标注（风险提醒颜色含义）</p>
       <table class="rule-table rule-table-color">
         <tr>
           <td style="width:50%"><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 收益兑现</b></td>
           <td><span class="rule-dot-sm rule-dot-profit"></span> <b>绿色 = 趋势转弱</b></td>
         </tr>
         <tr>
-          <td>风险点价格 &gt; 前一个关注点价格<br><span class="muted">→ 历史多为收益兑现/调整情形</span></td>
-          <td>风险点价格 &le; 前一个关注点价格 / 附近无前买参考<br><span class="muted">-> 含前关注失效/无前关注点，统一落趋势转弱（非操作建议）</span></td>
+          <td>风险提醒价格 &gt; 前一个关注点价格<br><span class="muted">→ 历史多为收益兑现/调整情形</span></td>
+          <td>风险提醒价格 &le; 前一个关注点价格 / 附近无前关注参考<br><span class="muted">-> 含前关注失效/无前关注点，统一落趋势转弱（非操作建议）</span></td>
         </tr>
       </table>
 
       <p class="rule-subtitle">pin「盈亏X%」标签来源</p>
-      <p class="muted">风险点图钉上的「盈亏X%」标签 = sell 信号 reason 中「vs前买+X%」的<b>单次配对实现涨幅</b>（该风险点 vs 前一个关注点的实际涨跌），<b>非统计期望值</b>。悬停提示的「盈亏比Y」才是历史统计值。二者勿混。</p>
+      <p class="muted">风险提醒图钉上的「盈亏X%」标签 = sell 信号 reason 中「vs前买+X%」的<b>单次配对实现涨幅</b>（该风险提醒 vs 前一个关注点的实际涨跌），<b>非统计期望值</b>。悬停提示的「盈亏比Y」才是历史统计值。二者勿混。</p>
 
       <p class="rule-subtitle">情绪背景标签</p>
       <p class="muted">趋势转弱参考点会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
@@ -3572,14 +3572,14 @@ function ruleContentHtml() {
       <div class="rule-example"><span class="muted">辅关注：</span>布林下轨回归(下轨3852,收盘3870), RSI=41, 情绪=47[偏冷]</div>
 
       <p class="rule-subtitle">趋势转弱参考点示例</p>
-      <div class="rule-example"><span class="muted">风险点：</span>20日高回落5%(高4259→阈4046,收盘4028), RSI=40, 情绪=53[中性], MA60=4000[趋势过滤], MACD=死叉确认, 较前关注+2.30%[收益兑现]</div>
+      <div class="rule-example"><span class="muted">风险提醒：</span>20日高回落5%(高4259→阈4046,收盘4028), RSI=40, 情绪=53[中性], MA60=4000[趋势过滤], MACD=死叉确认, 较前关注+2.30%[收益兑现]</div>
     </div>
 
     <div class="rule-section rule-section-sm">
       <h4><span class="rule-dot rule-dot-stat"></span>当前信号统计</h4>
       <table class="rule-table rule-table-stat">
         <tr><td class="rule-td-label">主关注</td><td><b>3,673</b> 个</td><td class="rule-td-label">辅关注</td><td><b>3,918</b> 个</td></tr>
-        <tr><td class="rule-td-label">风险点</td><td><b>3,185</b> 个</td><td class="rule-td-label">风险/关注比</td><td><b>0.42</b>（风险/关注平衡）</td></tr>
+        <tr><td class="rule-td-label">风险提醒</td><td><b>3,185</b> 个</td><td class="rule-td-label">风险/关注比</td><td><b>0.42</b>（风险/关注平衡）</td></tr>
       </table>
     </div>
 
