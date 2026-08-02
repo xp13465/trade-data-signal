@@ -9746,11 +9746,11 @@ async function renderPublicFund(container) {
     return `<span class="pf-delta" style="color:${color}">较上季 ${arrow} ${sign}${delta.toFixed(2)}</span>`;
   };
 
-  const _pfCard = (metricId, name, value, delta, unit, fmt) => {
+  const _pfCard = (metricId, name, value, delta, unit, fmt, clickable) => {
     const fv = fmt ? fmt(value) : (value != null ? value.toFixed(2) : "—");
     const { color, status } = _pfColorFor(metricId, value);
-    return `<div class="pf-sig-card" style="border-color:${color}">
-      <div class="pf-sig-name">${name}</div>
+    return `<div class="pf-sig-card" data-metric-id="${metricId}" style="border-color:${color}${clickable ? ";cursor:pointer" : ""}">
+      <div class="pf-sig-name">${name}${clickable ? ' <span style="font-size:10px;color:var(--text-3)">📋</span>' : ""}</div>
       <div class="pf-sig-value" style="color:${color}">${fv}${value != null ? unit : ""}</div>
       <div class="pf-sig-status">${status}</div>
       ${_pfDeltaHtml(delta)}
@@ -9762,9 +9762,63 @@ async function renderPublicFund(container) {
   container.appendChild(sigGrid);
   sigGrid.innerHTML =
     _pfCard("avg_position", "平均股票仓位", avgPos ? avgPos.metric_value : null, avgPosDelta, "%") +
-    _pfCard("concentration_herfindahl", "抱团度 HHI", conc ? conc.metric_value : null, null, "") +
-    _pfCard("overlap_ratio", "重叠度(Top30 均覆盖)", overlap ? overlap.metric_value : null, null, " 家", (v) => v.toFixed(0)) +
+    _pfCard("concentration_herfindahl", "抱团度 HHI", conc ? conc.metric_value : null, conc && conc.detail && conc.detail.delta_vs_last != null ? conc.detail.delta_vs_last : null, "", null, true) +
+    _pfCard("overlap_ratio", "重叠度(Top30 均覆盖)", overlap ? overlap.metric_value : null, overlap && overlap.detail && overlap.detail.delta_vs_last != null ? overlap.detail.delta_vs_last : null, " 家", (v) => v.toFixed(0), true) +
     _pfCard("net_redeem_ratio", "净申赎率", netRedeem ? netRedeem.metric_value : null, netRedeemDelta, "%");
+
+  // 4卡片弹窗(抱团度Top10 + 重叠度Top30 重仓股明细, 复用 .rule-modal 样式)
+  const _pfDetailModal = (title, stocks, subtitle) => {
+    const existing = document.getElementById("pf-detail-modal");
+    if (existing) existing.remove();
+    const rows = (stocks || []).map((s, i) => `<tr style="border-bottom:1px solid var(--border)">
+      <td style="text-align:center;color:var(--text-3);padding:3px 4px">${i + 1}</td>
+      <td style="padding:3px 4px"><b>${s.name || "-"}</b> <span style="color:var(--text-3);font-size:10px">${s.code || ""}</span></td>
+      <td style="text-align:right;padding:3px 8px">${s.fund_count != null ? s.fund_count + " 家" : "-"}</td>
+      <td style="text-align:right;padding:3px 8px">${s.value != null ? (s.value / 1e8).toFixed(2) + " 亿" : "-"}</td>
+    </tr>`).join("");
+    const modal = document.createElement("div");
+    modal.id = "pf-detail-modal";
+    modal.className = "rule-modal";
+    modal.innerHTML = `<div class="rule-modal-overlay"></div>
+      <div class="rule-modal-body" style="max-width:560px">
+        <div class="rule-modal-header"><h3>${title}</h3>
+          <button class="rule-modal-close" aria-label="关闭">&times;</button></div>
+        <div class="rule-modal-content">
+          ${subtitle ? `<div style="font-size:11px;color:var(--text-3);margin-bottom:8px;line-height:1.5">${subtitle}</div>` : ""}
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="border-bottom:2px solid var(--border)">
+              <th style="padding:4px;text-align:center">#</th>
+              <th style="padding:4px;text-align:left">股票</th>
+              <th style="padding:4px;text-align:right">持有基金数</th>
+              <th style="padding:4px;text-align:right">持仓市值</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.classList.remove("hidden");
+    const _close = () => modal.remove();
+    modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+    modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  };
+
+  sigGrid.addEventListener("click", (e) => {
+    const card = e.target.closest(".pf-sig-card[data-metric-id]");
+    if (!card) return;
+    const mid = card.dataset.metricId;
+    if (mid === "concentration_herfindahl" && conc && conc.detail && conc.detail.top10_stocks) {
+      const d = conc.detail;
+      const dlt = d.delta_vs_last != null ? (d.delta_vs_last > 0 ? "+" : "") + d.delta_vs_last.toFixed(6) : "-";
+      _pfDetailModal("📊 抱团度 HHI · Top10 重仓股", d.top10_stocks,
+        `HHI=${conc.metric_value}（0-1, 值越大抱团越集中）· 较上季 ${dlt} · 上期 ${d.prev_report_date || "-"}`);
+    } else if (mid === "overlap_ratio" && overlap && overlap.detail && overlap.detail.top30_stocks) {
+      const d = overlap.detail;
+      const dlt = d.delta_vs_last != null ? (d.delta_vs_last > 0 ? "+" : "") + d.delta_vs_last.toFixed(2) + " 家" : "-";
+      _pfDetailModal("🎯 重叠度 · Top30 重仓股持有基金数", d.top30_stocks,
+        `平均每只被 ${overlap.metric_value} 家基金持有 · 较上季 ${dlt} · 上期 ${d.prev_report_date || "-"}`);
+    }
+  });
 
   // 口径说明
   if (avgPos && avgPos.detail && avgPos.detail.note) {
@@ -9973,6 +10027,7 @@ async function renderPublicFund(container) {
         <div class="pf-bt-section pf-bt-current">
           <div class="pf-bt-head" style="color:${_zoneColor}">📍 当前状态（${_cur.date || "-"}）</div>
           <div class="pf-bt-row"><span>当前仓位</span><b style="color:${_zoneColor}">${_cur.position != null ? _cur.position.toFixed(2) + "%" : "-"}</b></div>
+          <div class="pf-bt-row"><span>今日预估</span><b style="color:#ff9800">${_estCur && _estCur.position_estimate != null ? _estCur.position_estimate.toFixed(2) + "%" : "-"}</b></div>
           <div class="pf-bt-row"><span>所处区间</span><b style="color:${_zoneColor}">${_cur.zone || "-"}</b></div>
           <div class="pf-bt-row"><span>历史分位</span><b>${_pctFmt(_cur.percentile)}</b></div>
           <div class="pf-bt-row"><span>沪深300收盘</span><b>${_cur.close != null ? _cur.close.toFixed(2) : "-"}</b></div>
@@ -10064,8 +10119,8 @@ async function renderPublicFund(container) {
       const _dN = _pfFmtDate(_alignData[_alignData.length - 1].date).slice(0, 7);
       _nfCard.innerHTML = '<div class="chart-title">🎯 多信号共振仪表盘（4信号季频对齐 · '
         + _alignData.length + ' 期 · ' + _d0 + ' ~ ' + _dN + '）</div>'
-        + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">'
-        + '📊 4信号叠加: <span style="color:#e6492e">88魔咒(仓位%)</span> + <span style="color:#ff9800">净申赎(亿份)</span> + <span style="color:#9c27b0">抱团度HHI×1k</span> + <span style="color:#2196f3">规模(亿)</span>'
+        + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5;word-break:break-word">'
+        + '📊 4信号叠加: <span style="color:#e6492e">88魔咒(仓位%)</span> + <span style="color:#ff9800">净申赎(亿份)</span> + <span style="color:#9c27b0">抱团度HHI(赫芬达尔)×1k</span> + <span style="color:#2196f3">规模(亿)</span>'
         + ' · 88魔咒周频对齐到季频(取季末最近期值) · 共振: 🔴看顶(仓位>88+净申购+高抱团+规模高位) 🟢看底(仓位<80+净赎回+低抱团)</div>'
         + '<div class="chart" style="height:420px"></div>'
         + '<div class="pf-nf-resonance"></div>';

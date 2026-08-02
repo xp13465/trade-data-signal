@@ -1470,7 +1470,7 @@ def compute_metrics(report_date: str | None = None) -> dict:
         "lg_date": row_lg[1] if row_lg else None,
         "cninfo_position": row_cn[0] if row_cn else None,
         "cninfo_date": row_cn[1] if row_cn else None,
-        "note": "lg=股票型+混合型仓位(88魔咒专用); cninfo=全市场资产配置(含债基/货基)",
+        "note": "乐咕乐股=股票型+混合型仓位(88魔咒专用); 巨潮资讯=全市场资产配置(含债基/货基)",
     }
 
     # 2. concentration_herfindahl 抱团度: 重仓股基金覆盖家数 Herfindahl
@@ -1484,10 +1484,28 @@ def compute_metrics(report_date: str | None = None) -> dict:
     total_fund_count = sum(r[2] or 0 for r in rows) or 1
     herf = sum(((r[2] or 0) / total_fund_count) ** 2 for r in rows)
     results["concentration_herfindahl"] = round(herf, 6) if rows else None
+    # 上期 Top100(算抱团度/重叠度 delta_vs_last, 复用给 top20_adjustment prev 查询, 避免重复查询)
+    prev_report_row = conn.execute(
+        "SELECT MAX(report_date) FROM fund_holding_stock WHERE report_date < ?",
+        (report_date,),
+    ).fetchone()
+    prev_rows = []
+    if prev_report_row and prev_report_row[0]:
+        prev_rows = conn.execute(
+            "SELECT stock_code, stock_name, fund_count, hold_value_total "
+            "FROM fund_holding_stock WHERE report_date=? ORDER BY hold_value_total DESC LIMIT 100",
+            (prev_report_row[0],),
+        ).fetchall()
+    # delta_vs_last: 抱团度 Herfindahl 环比(当期 - 上期), 上期不存在则 null
+    prev_total_fund_count = sum(r[2] or 0 for r in prev_rows) or 1
+    prev_herf = sum(((r[2] or 0) / prev_total_fund_count) ** 2 for r in prev_rows) if prev_rows else None
+    delta_herf = round(herf - prev_herf, 6) if (rows and prev_rows and prev_herf is not None) else None
     detail["concentration_herfindahl"] = {
         "top10_stocks": [{"code": r[0], "name": r[1], "fund_count": r[2], "value": r[3]}
                           for r in rows[:10]],
         "total_fund_count": total_fund_count,
+        "delta_vs_last": delta_herf,
+        "prev_report_date": prev_report_row[0] if (prev_report_row and prev_report_row[0]) else None,
     }
 
     # 3. overlap_ratio 重叠度: Top30 重仓股平均基金覆盖家数
@@ -1497,10 +1515,16 @@ def compute_metrics(report_date: str | None = None) -> dict:
     else:
         overlap = None
     results["overlap_ratio"] = round(overlap, 2) if overlap is not None else None
+    # delta_vs_last: 重叠度环比(当期 - 上期), 上期不存在则 null
+    prev_top30 = prev_rows[:30] if len(prev_rows) >= 30 else prev_rows
+    prev_overlap = (sum(r[2] or 0 for r in prev_top30) / len(prev_top30)) if prev_top30 else None
+    delta_overlap = round(overlap - prev_overlap, 2) if (overlap is not None and prev_overlap is not None) else None
     detail["overlap_ratio"] = {
         "top30_avg_fund_count": overlap,
-        "top30_stocks": [{"code": r[0], "name": r[1], "fund_count": r[2]}
-                          for r in top30[:10]],
+        "top30_stocks": [{"code": r[0], "name": r[1], "fund_count": r[2], "value": r[3]}
+                          for r in top30],
+        "delta_vs_last": delta_overlap,
+        "prev_report_date": prev_report_row[0] if (prev_report_row and prev_report_row[0]) else None,
     }
 
     # 4. industry_concentration 行业集中度: 全市场行业配置 Herfindahl
@@ -1561,26 +1585,15 @@ def compute_metrics(report_date: str | None = None) -> dict:
 
     # 7. top20_adjustment 头部 Top20 调仓: Top20 重仓股环比持股总市值变化%
     cur_top20_value = sum(r[3] or 0 for r in rows[:20]) if len(rows) >= 20 else sum(r[3] or 0 for r in rows)
-    # 上一期
-    prev_report_row = conn.execute(
-        "SELECT MAX(report_date) FROM fund_holding_stock WHERE report_date < ?",
-        (report_date,),
-    ).fetchone()
-    prev_top20_value = None
-    if prev_report_row and prev_report_row[0]:
-        prev_rows = conn.execute(
-            "SELECT hold_value_total FROM fund_holding_stock "
-            "WHERE report_date=? ORDER BY hold_value_total DESC LIMIT 20",
-            (prev_report_row[0],),
-        ).fetchall()
-        prev_top20_value = sum(r[0] or 0 for r in prev_rows)
+    # 上一期(复用上方 concentration_herfindahl 块已查的 prev_report_row + prev_rows Top100)
+    prev_top20_value = sum(r[3] or 0 for r in prev_rows[:20]) if prev_rows else None
     if cur_top20_value and prev_top20_value and prev_top20_value != 0:
         top20_change = (cur_top20_value - prev_top20_value) / prev_top20_value * 100
         results["top20_adjustment"] = round(top20_change, 4)
         detail["top20_adjustment"] = {
             "current_top20_value": cur_top20_value,
             "prev_top20_value": prev_top20_value,
-            "prev_report_date": prev_report_row[0] if prev_report_row else None,
+            "prev_report_date": prev_report_row[0] if (prev_report_row and prev_report_row[0]) else None,
         }
     else:
         results["top20_adjustment"] = None
