@@ -6546,3 +6546,33 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **最终commit hash**：aba5d3cd（push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main fast-forward）
 
 
+### AZ125 - 2026-08-02 合规🛡️开关移入皮肤弹窗 + trade_sim 弹窗合规切换修复（ui99→ui100，已上线）
+
+**背景**：AZ124 第4阶段上线后用户两点反馈：①合规🛡️独立按钮想移入皮肤弹窗（不要独立占位）②模拟回测弹窗打开后切合规/详细模式，弹窗内文本不跟着变（没继承合规按钮效果）。
+
+**任务1：合规开关移入皮肤弹窗**（commit c6cbebd3，ui99）
+- 皮肤弹窗(🎨)内新增"显示模式"区块：合规版(默认)/详细版两个并排选项，复用 .theme-option 布局，新增 .compliance-icon/.theme-divider/.theme-section-title CSS
+- 切换即时生效（applyCompliance 重渲染），不自动关弹窗（可继续切皮肤），renderComplianceActive 按 _t.getMode() 高亮当前模式
+- 删除独立🛡️按钮：index.html PC L109/H5 L117 + .pc-compliance-btn/.h5-compliance-btn 样式 + click 绑定；保留 applyCompliance 函数（弹窗内开关调用）
+- 保留防闪烁 inline script（index.html L53-65，同步读 compliance_mode 设 data-compliance 属性，默认 on）
+- sw.js：bump ui98→ui99 + 修 block comment 内 `public_fund_*/` 提前闭合 bug（aba5d3cd 引入，ui98 SW 实际已坏，顺带修）
+
+**任务2：trade_sim 弹窗合规切换修复**（commit 359a568b，ui100）
+- 根因：applyCompliance(mode) 切换时只调 `requestAnimationFrame(renderTab)` 重渲染当前 tab，但 trade_sim modal 是独立 overlay（不在 tab 内），渲染一次后状态固定——所以"打开弹窗后切合规/详细"看不到变化
+- 修复：applyCompliance 的 rAF 回调内新增 5 行——若 `_tradeSimOverlay.classList.contains('show')`（modal 已打开），调 `_tradeSimModalRender(_tradeSimOverlay)` 重渲染（复用 _tradeSimState 缓存的 statsData/fullData，不重新 fetch）
+- _tradeSimState 全局已保存当前 indexId/view，_tradeSimModalRender 是纯渲染函数，直接调即可
+- sw.js：bump ui99→ui100（标识符 compliance-modal-rerender）
+
+**§0 验收全过**：
+- c6cbebd3 commit 内容：index.html 无 data-compliance-btn（0处）✓ / app.js 有 compliance-option（7处）✓ / applyCompliance 保留 ✓
+- 359a568b commit 内容：app.js applyCompliance rAF 回调含 `_tradeSimModalRender(_tradeSimOverlay)`（1处）✓ / 代码逻辑正确（typeof 守卫+try/catch）✓
+- 线上 curl（3域名）：
+  - ss.fx8.store + sss.sugas.site sw.js 均 `v2-20260802-compliance-modal-rerender-ui100` ✓
+  - app.min.js?v=5d080f5a 两站均含 `_tradeSimModalRender(_tradeSimOverlay)` ✓
+  - index.html 无独立🛡️（data-compliance-btn=0）✓ / app.min.js 含 compliance-option ✓
+
+**commit 链**：c6cbebd3（皮肤弹窗+ui99）→ 359a568b（modal 重渲染+ui100），均 push feat + push feat:main fast-forward，未 force
+
+**遗留**：i18n.js position_stop_loss_clear compliance="风控清仓"含"清仓"敏感词，巡查 grep"清仓"会命中。主控建议改"风控退出"彻底无敏感词（影响 i18n.js + simulate_trade.py + 7HTML，小改动），待用户定夺
+
+

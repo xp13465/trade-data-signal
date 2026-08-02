@@ -1200,3 +1200,8 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - 第3阶段：trade_sim modal + simulate_trade.py + 7HTML + 邮件（commit 339d0f01）
 - 第4阶段：build + deploy + grep 兜底修复2处真漏改（app.js L7130/7131 卖点密集/买点密集->风险点密集/关注点密集；L15005 entry.op 显示加 _t.tsText() 合规转换）+ R2 trade_sim 上传 + 3域名curl验证全通过（commit aba5d3cd）
 - sw.js CACHE_VERSION: ui97 -> ui98；仅前端commit+push（不跑export.py避免干扰stage0+intraday_snapshot.json带入）；3域名(ss.fx8.store/sss.sugas.site/ssd.fx8.store)验证合规词全通过
+
+**后续收尾**（AZ125，2026-08-02）：
+- ✅ 合规🛡️开关移入皮肤弹窗：皮肤弹窗(🎨)内"显示模式"区块两选项（合规版/详细版），删独立🛡️按钮，保留防闪烁+applyCompliance（commit c6cbebd3，ui99）
+- ✅ trade_sim 弹窗合规切换修复：applyCompliance rAF 回调加 modal 重渲染（_tradeSimOverlay.classList 含 show 时调 _tradeSimModalRender 复用缓存），修 modal 是独立 overlay 不在 tab 内 renderTab 不触及的 bug（commit 359a568b，ui100）
+- ⏳ 遗留：i18n.js position_stop_loss_clear compliance="风控清仓"含"清仓"敏感词，建议改"风控退出"彻底无敏感词，待用户定夺
