@@ -10500,11 +10500,12 @@ async function renderPublicFund(container) {
       document.body.appendChild(modal);
     }
     const helpContent = ''
-      + '<div style="margin-bottom:14px"><b style="font-size:14px;color:#e6492e">📚 双口径来源</b></div>'
-      + '<div style="margin-bottom:12px">公募基金行业配置数据是<b>两套分类标准混合</b>的：</div>'
-      + '<div style="margin-bottom:6px;padding-left:12px">• <b>证监会门类(CSRC)</b>：A股基金按此披露，19大门类（制造业/金融业/信息传输软件和信息技术服务业/建筑业等）</div>'
-      + '<div style="margin-bottom:12px;padding-left:12px">• <b>全球行业分类标准(GICS)</b>：合格境内机构投资者(QDII)/港股基金按此披露，11大类（能源/材料/工业/医疗保健/通信服务等）</div>'
-      + '<div style="margin-bottom:14px;color:var(--text-3)">合并后你会同时看到"制造业"(CSRC)和"通信服务"(GICS)。</div>'
+      + '<div style="margin-bottom:14px"><b style="font-size:14px;color:#e6492e">📚 三套口径来源</b></div>'
+      + '<div style="margin-bottom:12px">公募基金行业配置数据由<b>三套口径</b>构成：</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>证监会门类(CSRC)</b>：A股基金直接披露，19大门类（制造业/金融业/信息传输软件和信息技术服务业/建筑业等），基金季报直接披露</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>全球行业分类标准(GICS)</b>：合格境内机构投资者(QDII)/港股基金直接披露，11大类（能源/材料/工业/医疗保健/通信服务等），基金季报直接披露</div>'
+      + '<div style="margin-bottom:12px;padding-left:12px">• <b>申万一级</b>：基于基金前10大重仓股<b>反查</b>申万一级行业（<b>非基金直接披露</b>），揭示真实风格暴露，独立数据源，覆盖率约42%仓位，仅最新一期无时序——详见下文「🧬 申万一级反查口径」章节</div>'
+      + '<div style="margin-bottom:14px;color:var(--text-3)">前两套(CSRC/GICS)为基金直接披露、合并展示，你会同时看到"制造业"(CSRC)和"通信服务"(GICS)；第三套申万一级为反查独立口径，切换"申万一级"按钮重渲染。</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🔁 切换功能（标题旁"口径"按钮组）</b></div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>全部</b>：显示所有行业（默认，混合口径）</div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>证监会</b>：只看 CSRC 门类（A股基金口径：制造业/金融业/建筑业…）</div>'
