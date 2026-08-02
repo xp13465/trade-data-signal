@@ -716,8 +716,8 @@ function _backupSignalChipRender(sd, id) {
   if (sharpeInfo.isRedline) {
     var shVal = sharpeInfo.maxSharpe.toFixed(2);
     var src = sharpeInfo.maxSource || {};
-    var srcStr = src.scenarioLabel ? ('来自' + _t.tsText(src.scenarioLabel) + '·' + src.pathShort + '·' + src.winLabel + ', ') : '';
-    var tipSrcStr = src.scenarioLabel ? ('来自' + _t.tsText(src.scenarioLabel) + '·' + src.pathShort + '·' + src.winLabel + ', ') : '';
+    var srcStr = src.scenarioLabel ? ('来自' + _t.tsText(src.scenarioLabel) + '·' + _t.tsText(src.pathShort) + '·' + src.winLabel + ', ') : '';
+    var tipSrcStr = src.scenarioLabel ? ('来自' + _t.tsText(src.scenarioLabel) + '·' + _t.tsText(src.pathShort) + '·' + src.winLabel + ', ') : '';
     sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种165回测中夏普比率最高 ' + shVal + ' (' + tipSrcStr + 'Bailey(2014)学术可疑过拟合红线&gt;3)。交易模拟夏普为事件稀疏 净值曲线 收益率 √252 年化近似值(与 lab 同口径),值偏高;高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治)。非必过拟合判定,详见完整回测弹窗,历史表现不代表未来">⚠ 夏普比率红线提示: 该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStr + 'Bailey(2014)学术可疑过拟合红线&gt;3); 交易模拟夏普为事件稀疏 √252 年化近似值, 值偏高, 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); 非必过拟合判定<span class="warn-tip">交易模拟夏普为事件稀疏 净值曲线 √252 年化近似(与 lab 同口径), 值偏高; 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); 非必过拟合判定, 详见完整回测弹窗</span></div>';
   }
   // 2026-07-25 方向D 黑名单分级：
@@ -942,7 +942,7 @@ function _backupSignalChipRender(sd, id) {
     var topTierMaxSharpe = tierSharps.length > 0 ? Math.max.apply(null, tierSharps) : null;
     var srcInTier = src.pathScenKey && tierKeys[src.pathScenKey];
     var srcTierLabel = srcInTier ? '三档推荐策略' : '非三档推荐策略';
-    var srcStrFull = src.scenarioLabel ? ('来自' + srcTierLabel + ' ' + _t.tsText(src.scenarioLabel) + '·' + src.pathShort + '·' + src.winLabel + ', ') : '';
+    var srcStrFull = src.scenarioLabel ? ('来自' + srcTierLabel + ' ' + _t.tsText(src.scenarioLabel) + '·' + _t.tsText(src.pathShort) + '·' + src.winLabel + ', ') : '';
     var tierStr = '';
     if (topTierMaxSharpe !== null) {
       var tierMaxStr = topTierMaxSharpe.toFixed(2);
@@ -959,7 +959,7 @@ function _backupSignalChipRender(sd, id) {
   //   回撤最小档额外加 "最大回撤V%"（该档核心指标是 5 窗口最大回撤，需明示）
   function formatVal(c) {
     var e = c.entry;
-    var line1 = _t.tsText(e.label) + ' · ' + e.pathShort;
+    var line1 = _t.tsText(e.label) + ' · ' + _t.tsText(e.pathShort);
     var annSign = e.medianAnn >= 0 ? '+' : '';
     var meanSign = e.meanAnn >= 0 ? '+' : '';
     // 2026-07-29 line2 追加年化均值(与中位并列): 中位防极值偏置,均值反映整体水平,两者并列更直观
@@ -1021,13 +1021,13 @@ function _backupSignalChipTip(sd, scored, chip) {
   }
   var SEP = '────────────────────';
   // 2026-07-29 方案D：策略级（path+scen 二元组）打分，tooltip 显示 5 窗口聚合指标 + 33 策略 Top5
-  var lines = ['【' + chip.tier + '】' + _t.tsText(e.label) + ' · ' + e.pathShort + ' · 5窗口综合分胜出'];
+  var lines = ['【' + chip.tier + '】' + _t.tsText(e.label) + ' · ' + _t.tsText(e.pathShort) + ' · 5窗口综合分胜出'];
   // 顶部显示整体回测区间（all 窗口 s~e，覆盖最长历史；缺失则用 y5 兜底）
   var overallRange = winRange.all || winRange.y5 || '';
   if (overallRange) lines.push('回测区间: ' + overallRange);
   // 策略级聚合指标汇总（chip 上的 line2 完整版）
   lines.push('策略聚合（5 窗口）：盈利' + e.profitWins + '/5 │ 年化中位' + e.medianAnn.toFixed(1) + '% │ 年化均值' + e.meanAnn.toFixed(1) + '% │ 回撤中位' + e.medianDd.toFixed(1) + '% │ 最大回撤' + e.maxDdAll.toFixed(1) + '% │ 样本总数' + e.totalOpsSum);
-  lines.push(_t("buypoint_path_label") + '在 5 窗口逐窗口表现（' + _t.tsText(e.scenario) + ' · ' + e.path + '）：');
+  lines.push(_t("buypoint_path_label") + '在 5 窗口逐窗口表现（' + _t.tsText(e.scenario) + ' · ' + _t.tsText(e.path) + '）：');
   for (var i = 0; i < _BACKUP_CHIP_WINS.length; i++) {
     var w = _BACKUP_CHIP_WINS[i];
     var s = e.winSummaries && e.winSummaries[w];
@@ -1060,7 +1060,7 @@ function _backupSignalChipTip(sd, scored, chip) {
   lines.push('全 33 策略（3路径×11场景）· ' + label + ' Top5：');
   for (var i = 0; i < top5.length; i++) {
     var t = top5[i];
-    lines.push('  ' + (i + 1) + '. ' + _t.tsText(t.label) + '·' + t.pathShort + '  盈利' + t.profitWins + '/5 │ 年化中位' + t.medianAnn.toFixed(1) + '% │ 年化均值' + t.meanAnn.toFixed(1) + '% │ 回撤中位' + t.medianDd.toFixed(1) + '% │ 最大回撤' + t.maxDdAll.toFixed(1) + '% │ 样本' + t.totalOpsSum);
+    lines.push('  ' + (i + 1) + '. ' + _t.tsText(t.label) + '·' + _t.tsText(t.pathShort) + '  盈利' + t.profitWins + '/5 │ 年化中位' + t.medianAnn.toFixed(1) + '% │ 年化均值' + t.meanAnn.toFixed(1) + '% │ 回撤中位' + t.medianDd.toFixed(1) + '% │ 最大回撤' + t.maxDdAll.toFixed(1) + '% │ 样本' + t.totalOpsSum);
   }
   lines.push(SEP);
   // 2026-07-28 回测精准模拟说明：手续费万3 + 滑点千1 + 沪市过户费万0.1，ETF 替代指数含跟踪误差
@@ -14973,7 +14973,7 @@ function _tradeSimCardsHTML(s, initCap, etfCode) {
   var signalTotal = totalOps + skippedTotal;
   // 2026-07-20 总资产卡片副标题加 ETF 代码标注（ETF 替代 vs 纯指数模拟）
   var _assetSub = etfCode ? ' · ETF ' + etfCode : ' · 纯指数模拟';
-  return '<div class="sim-flow">' + s.flow_desc + '</div>' +
+  return '<div class="sim-flow">' + _t.tsText(s.flow_desc) + '</div>' +
     '<div class="sim-cards">' +
     '<div class="sim-card"><span class="k">总资产变化</span><span class="v">' + _tradeSimFmtNum(s.total_capital) + ' -> ' + _tradeSimFmtNum(s.final_total) + ' 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 ' + _tradeSimFmtNum(s.final_holdings) + ' 元' + _assetSub + '</div></span></div>' +
     '<div class="sim-card"><span class="k">最大持仓</span><span class="v">' + _tradeSimFmtNum(s.max_holding) + ' 元（' + s.max_holding_pct + '%）<div class="sub">' + s.max_holding_date + '</div></span></div>' +
@@ -15220,7 +15220,7 @@ function _tradeSimComparisonTableHTML(sd, win) {
   }
   var body = rows.map(function (r) {
     return '<tr>' +
-      '<td>' + r.path + '</td>' +
+      '<td>' + _t.tsText(r.path) + '</td>' +
       '<td>' + _t.tsText(r.sig) + '</td>' +
       '<td>' + cmpCell(r.final_total, bestFinal, worstFinal, false, false) + ' 元</td>' +
       '<td>' + cmpCell(r.total_return_pct, bestReturn, worstReturn, true, true) + '</td>' +
@@ -15370,7 +15370,7 @@ function _tradeSimModalRender(ov) {
     '</div>';
   var cmpTable = _tradeSimComparisonTableHTML(sd, win);
   var mainTabs = '<div class="sim-main-tabs">' + sd.paths.map(function (p, i) {
-    return '<button class="sim-main-tab' + (i === pathIdx ? ' active' : '') + '" data-path="' + i + '">' + p + '</button>';
+    return '<button class="sim-main-tab' + (i === pathIdx ? ' active' : '') + '" data-path="' + i + '">' + _t.tsText(p) + '</button>';
   }).join('') + '</div>';
   var subTabs = '<div class="sim-sub-tabs">' + sd.scenarios.map(function (s, i) {
     return '<button class="sim-sub-tab' + (i === scenIdx ? ' active' : '') + '" data-sig="' + i + '">' + _t.tsText(s) + '</button>';
