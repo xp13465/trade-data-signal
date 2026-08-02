@@ -6,7 +6,7 @@
 配置发送。非交易日或当日数据未生成时优雅跳过(只 log,不发邮件,不报错)。
 
 数据源:static-site/data/summary_history.json(由 deploy.sh 部署流水线生成,
-含恐贪指数 / 情绪分 / 涨跌家数 / 涨停跌停 / 成效额 / 买卖点 / 领涨领跌板块 /
+含恐贪指数 / 情绪分 / 涨跌家数 / 涨停跌停 / 成效额 / 关注风险点 / 领涨领跌板块 /
 冰点等)。字段以实际为准,缺字段优雅跳过。
 
 用法:
@@ -196,10 +196,10 @@ def build_text(it: dict, subs: list[dict] | None = None) -> str:
     if vol is not None:
         lines.append(f"成交额:{vol:.0f}亿" + (f"({vol_label})" if vol_label else ""))
 
-    # 买卖点
+    # 关注/风险点
     buy, sell = it.get("buy_count"), it.get("sell_count")
     if buy is not None and sell is not None:
-        lines.append(f"买卖点:买{buy} / 卖{sell}")
+        lines.append(f"关注/风险点:关注{buy} / 风险{sell}")
 
     # 新高新低 + 均线多空
     nh, nl = it.get("nh_count"), it.get("nl_count")
@@ -280,7 +280,7 @@ def build_html(it: dict, subs: list[dict] | None = None) -> str:
 
     buy, sell = it.get("buy_count"), it.get("sell_count")
     if buy is not None and sell is not None:
-        add("买卖点", f"买{buy} / 卖{sell}")
+        add("关注/风险点", f"关注{buy} / 风险{sell}")
 
     nh, nl = it.get("nh_count"), it.get("nl_count")
     if nh is not None and nl is not None:
@@ -352,14 +352,14 @@ def _esc(s) -> str:
 
 
 # ---------------------------------------------------------------- 订阅列表段
-# 信号 key -> 中文标签（与 app.js _SUB_SIGNAL_LABELS 保持一致）
+# 信号 key -> 中文标签（合规版，与 app.js _SUB_SIGNAL_LABELS + i18n.js compliance dict 对齐）
 _SUB_SIGNAL_LABELS = {
-    "buy": "主买",
-    "buy_aux": "辅买",
-    "buy_special": "追买",
-    "buy_backup": "备买",
-    "sell": "卖",
-    "sell_stop_loss": "追止损卖",
+    "buy": "主关注",
+    "buy_aux": "辅关注",
+    "buy_special": "追关注",
+    "buy_backup": "备关注",
+    "sell": "风险提示",
+    "sell_stop_loss": "追风控",
 }
 
 

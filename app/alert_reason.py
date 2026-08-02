@@ -29,13 +29,13 @@ from .alert_score import (
     _WINDOW,
 )
 
-# 维度中文名 (与 export_alert.py 对齐)
+# 维度中文名 (与 export_alert.py 对齐) - 合规版（与 i18n.js compliance dict 对齐）
 HIGH_DIM_NAMES = {
-    "H1": "情绪过热", "H2": "量价背离", "H3": "卖点密集", "H4": "位置偏高",
+    "H1": "情绪过热", "H2": "量价背离", "H3": "风险点密集", "H4": "位置偏高",
     "H5": "动量衰退", "H6": "均线转弱", "H7": "汪汪队离场", "H8": "全球走弱",
 }
 LOW_DIM_NAMES = {
-    "L1": "情绪冰点", "L2": "买点密集", "L3": "位置偏低", "L4": "汪汪队入场",
+    "L1": "情绪冰点", "L2": "关注点密集", "L3": "位置偏低", "L4": "汪汪队入场",
     "L5": "量能异动", "L6": "新低极端", "L7": "波指飙升", "L8": "价值显现",
 }
 
@@ -43,14 +43,14 @@ LOW_DIM_NAMES = {
 DIM_THRESHOLDS = {
     "H1": {"threshold": 60, "unit": "分", "desc": "情绪过热线(RSI或综合情绪分百分位)"},
     "H2": {"threshold": 60, "unit": "分", "desc": "量价背离(缩量上涨+高位)"},
-    "H3": {"threshold": 60, "unit": "分", "desc": "卖点密集(近10日sell信号)"},
+    "H3": {"threshold": 60, "unit": "分", "desc": "风险点密集(近10日sell信号)"},
     "H4": {"threshold": 60, "unit": "%", "desc": "1年位置分位"},
     "H5": {"threshold": 60, "unit": "分", "desc": "动量衰退(新高回落)"},
     "H6": {"threshold": 60, "unit": "分", "desc": "均线转弱(空头排列)"},
     "H7": {"threshold": 60, "unit": "分", "desc": "汪汪队离场(近30日share_outflow)"},
     "H8": {"threshold": 60, "unit": "分", "desc": "全球走弱(不适用单标的)"},
     "L1": {"threshold": 60, "unit": "分", "desc": "情绪冰点(100-RSI百分位)"},
-    "L2": {"threshold": 60, "unit": "分", "desc": "买点密集(近10日buy信号)"},
+    "L2": {"threshold": 60, "unit": "分", "desc": "关注点密集(近10日buy信号)"},
     "L3": {"threshold": 60, "unit": "%", "desc": "1年位置低位(100-分位)"},
     "L4": {"threshold": 60, "unit": "分", "desc": "汪汪队入场(近30日share_surge)"},
     "L5": {"threshold": 60, "unit": "分", "desc": "量能异动(地量分高)"},

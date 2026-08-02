@@ -88,7 +88,20 @@
       concept_title_signal: "含关注/风险点",
       etf_not_qualified: "不够格关注(C2)但不过热, 持有观察等待信号",
       etf_high_alert_rule: "≥85防范风险/≥75调3-4/≥70调1-2/≥60调1-4/<60持有观察",
-      rule_modal_title: "关注/风险点策略说明"
+      rule_modal_title: "关注/风险点策略说明",
+      // 第3阶段：trade_sim modal 字符串（app.js L14981-15129）
+      trade_sim_cagr_title: "首笔关注至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。",
+      trade_sim_first_buy: "首笔关注至今",
+      trade_sim_years_unit: "年",
+      trade_sim_buy_hint_prefix: "💡 关注：固定金额 -> 得份额；风险提示：退份额 -> 得市值（金额 ≠ 关注成本）。份额变动 +红/-绿，持仓市值 = 份额 × ",
+      trade_sim_buy_hint_suffix: "收盘价。",
+      trade_sim_buy_date: "关注日期",
+      trade_sim_buy_price: "关注价",
+      trade_sim_sell_date: "风险日期",
+      trade_sim_sell_price: "风险价",
+      trade_sim_ops_buy: "关注",
+      trade_sim_ops_sell: "风险",
+      trade_sim_skip_tooltip: "仓位已满/现金不足/无持仓可退时跳过不执行"
     },
     // 原版（🛡️ off）：用户点按钮切回的详细买卖点版本
     original: {
@@ -157,7 +170,20 @@
       concept_title_signal: "含买卖点",
       etf_not_qualified: "不够格买入(C2)但不过热, 持有观察等待信号",
       etf_high_alert_rule: "≥85清仓/≥75减3-4/≥70减1-2/≥60减1-4/<60持有观察",
-      rule_modal_title: "买卖点策略说明"
+      rule_modal_title: "买卖点策略说明",
+      // 第3阶段：trade_sim modal 字符串（app.js L14981-15129）
+      trade_sim_cagr_title: "首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。",
+      trade_sim_first_buy: "首笔买入至今",
+      trade_sim_years_unit: "年",
+      trade_sim_buy_hint_prefix: "💡 买入：固定金额 -> 得份额；卖出：卖份额 -> 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × ",
+      trade_sim_buy_hint_suffix: "收盘价。",
+      trade_sim_buy_date: "买入日期",
+      trade_sim_buy_price: "买入价",
+      trade_sim_sell_date: "卖出日期",
+      trade_sim_sell_price: "卖出价",
+      trade_sim_ops_buy: "买",
+      trade_sim_ops_sell: "卖",
+      trade_sim_skip_tooltip: "仓位已满/现金不足/无持仓可卖时跳过不执行"
     }
   };
 

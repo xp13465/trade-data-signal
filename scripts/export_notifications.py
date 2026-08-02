@@ -5,8 +5,8 @@
 导出 static-site/data/notifications.json。
 
 6 类触发场景（对应 TASKS.md P2-新-W）：
-  1. 新买入信号 (buy/buy_aux/buy_special/buy_backup)
-  2. 新卖出信号 (sell/sell_stop_loss)
+  1. 新关注信号 (buy/buy_aux/buy_special/buy_backup)
+  2. 新风险提示信号 (sell/sell_stop_loss)
   3. 盘中异常 (volume_surge/breakout/rapid_move) - 从 anomaly_notified.json 读
   4. 综合预警 (high_alert>=72 / low_alert>=85)
   5. 恐贪极值 (fear_greed <20 极度恐惧 / >80 极度贪婪)
@@ -55,10 +55,10 @@ FEAR_GREED_HIGH = 80.0      # 极度贪婪
 ZT_SPIKE_RATIO = 1.8        # 涨停数 > 5日均×1.8 = 异动
 ZT_SPIKE_MIN = 50           # 涨停数绝对值下限（避免低基数误报）
 
-# 信号类型中文标签
+# 信号类型中文标签（合规版，与 i18n.js compliance dict 对齐）
 SIGNAL_NAMES = {
-    "buy": "主买", "buy_aux": "辅买", "buy_special": "追买", "buy_backup": "备买",
-    "sell": "卖", "sell_stop_loss": "追止损卖", "band_hold": "波段持有",
+    "buy": "主关注", "buy_aux": "辅关注", "buy_special": "追关注", "buy_backup": "备关注",
+    "sell": "风险提示", "sell_stop_loss": "追风控", "band_hold": "波段持有",
 }
 
 # 异动类型中文标签

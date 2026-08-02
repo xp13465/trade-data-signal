@@ -14978,12 +14978,12 @@ function _tradeSimCardsHTML(s, initCap, etfCode) {
     '<div class="sim-card"><span class="k">总资产变化</span><span class="v">' + _tradeSimFmtNum(s.total_capital) + ' -> ' + _tradeSimFmtNum(s.final_total) + ' 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 ' + _tradeSimFmtNum(s.final_holdings) + ' 元' + _assetSub + '</div></span></div>' +
     '<div class="sim-card"><span class="k">最大持仓</span><span class="v">' + _tradeSimFmtNum(s.max_holding) + ' 元（' + s.max_holding_pct + '%）<div class="sub">' + s.max_holding_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k">总收益</span><span class="v" style="color:' + _tradeSimColorPct(s.total_return) + '">' + _tradeSimFmtNum(s.total_return) + ' 元（' + (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct.toFixed(2) + '%）</span></div>' +
-    '<div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">首笔买入至今 ' + s.years + ' 年</div></span></div>' +
+    '<div class="sim-card"><span class="k" title="' + _t('trade_sim_cagr_title') + '">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">' + _t('trade_sim_first_buy') + ' ' + s.years + ' ' + _t('trade_sim_years_unit') + '</div></span></div>' +
     '<div class="sim-card"><span class="k" title="年化夏普(无风险0)=净值曲线相邻点收益率 mean/std × √252。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey(2014)学术红线)。颜色分级: >3红(可疑过拟合)/2-3橙(中等警示)/1-2默认(正常)/<1灰(弱)">夏普比率</span><span class="v" style="color:' + _tradeSimSharpeColor(s.sharpe) + '">' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + _tradeSimSharpeSuffix(s.sharpe) + '<div class="sub">事件稀疏 √252 年化 · 分级&gt;3红/2-3橙/&lt;1灰</div></span></div>' +
     '<div class="sim-card"><span class="k">总资产峰值</span><span class="v">' + _tradeSimFmtNum(s.total_assets_peak) + ' 元<div class="sub">' + s.total_assets_peak_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:' + _tradeSimColorPct(-s.max_drawdown) + '">' + ddStr + '<div class="sub">' + ddDate + '</div></span></div>' +
     '<div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:' + _tradeSimColorPct(-s.median_drawdown) + '">' + s.median_drawdown.toFixed(1) + '% / ' + s.trimmed_mean_drawdown.toFixed(1) + '%</span></div>' +
-    '<div class="sim-card"><span class="k">总操作</span><span class="v">' + s.buy_count + '买/' + s.sell_count + '卖（' + totalOps + '次）<div class="sub">共 ' + signalTotal + ' 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 ' + skippedTotal + ' 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 ' + s.max_positions_ever + ' 笔</span></div></span></div>' +
+    '<div class="sim-card"><span class="k">总操作</span><span class="v">' + s.buy_count + _t('trade_sim_ops_buy') + '/' + s.sell_count + _t('trade_sim_ops_sell') + '（' + totalOps + '次）<div class="sub">共 ' + signalTotal + ' 次信号 · <span title="' + _t('trade_sim_skip_tooltip') + '">跳过 ' + skippedTotal + ' 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 ' + s.max_positions_ever + ' 笔</span></div></span></div>' +
     '<div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">' + s.win_rate + '%（' + s.win_count + '胜/' + s.lose_count + '负）</span></div>' +
     '<div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">' + s.max_win_streak + ' 轮 / ' + s.max_lose_streak + ' 轮</span></div>' +
     '<div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">' + _tradeSimFmtNum(s.avg_pl_ratio) + '（均盈' + _tradeSimFmtNum(s.avg_win_pct) + '% / 均亏' + _tradeSimFmtNum(s.avg_loss_pct) + '%）</span></div>' +
@@ -15042,7 +15042,7 @@ function _tradeSimLedgerHTML(ledger, indexName, etfCode) {
       '</tr>';
   }).join('');
   return '<h3 style="margin:20px 0 2px;font-size:15px;">📒 交易记录清单' + (etfCode ? ' · ETF ' + etfCode : '') + '（' + ledger.length + ' 笔，按时间轴）</h3>' +
-    '<p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 -> 得份额；卖出：卖份额 -> 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × ' + _priceColName + '收盘价。</p>' +
+    '<p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">' + _t('trade_sim_buy_hint_prefix') + _priceColName + _t('trade_sim_buy_hint_suffix') + '</p>' +
     '<div class="sim-table-wrap"><table><thead><tr>' +
     '<th>#</th><th>日期</th><th>' + _priceColName + '收盘</th><th>较上条涨跌</th><th>操作</th><th>交易金额</th><th>份额变动</th><th>持仓份额</th><th>持仓市值</th><th>当前总资产</th><th>累计收益率</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
@@ -15063,7 +15063,7 @@ function _tradeSimOpenPositionsHTML(openPositions, s) {
       '</tr>';
   }).join('');
   return '<h3 style="margin:20px 0 10px;font-size:15px;">📌 未平仓持仓（' + s.open_count + ' 笔，按最后交易日收盘价估值）</h3>' +
-    '<div class="sim-table-wrap"><table><thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>份额</th><th>浮动盈亏%</th><th>当前市值</th><th>浮动盈亏</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    '<div class="sim-table-wrap"><table><thead><tr><th>#</th><th>' + _t('trade_sim_buy_date') + '</th><th>' + _t('trade_sim_buy_price') + '</th><th>份额</th><th>浮动盈亏%</th><th>当前市值</th><th>浮动盈亏</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 
 // 已完成回合表（10列，含子回合展开）
@@ -15112,7 +15112,7 @@ function _tradeSimRoundsHTML(rounds) {
   }).join('');
   return '<h3 style="margin:20px 0 10px;font-size:15px;">📋 已完成回合（' + rounds.length + ' 轮）</h3>' +
     '<div class="sim-table-wrap"><table><thead><tr>' +
-    '<th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th><th>持有时长</th><th>盈亏%</th><th>投入</th><th>回收</th><th>净利润</th>' +
+    '<th>#</th><th>' + _t('trade_sim_buy_date') + '</th><th>' + _t('trade_sim_buy_price') + '</th><th>' + _t('trade_sim_sell_date') + '</th><th>' + _t('trade_sim_sell_price') + '</th><th>持有时长</th><th>盈亏%</th><th>投入</th><th>回收</th><th>净利润</th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 
@@ -15126,7 +15126,7 @@ var _TRADE_SIM_CMP_COLS = [
   { key: 'sig', label: '信号', type: 'str', defaultDir: 'asc', title: '' },
   { key: 'final_total', label: '最终资产', type: 'num', defaultDir: 'desc', title: '' },
   { key: 'total_return_pct', label: '总收益率', type: 'num', defaultDir: 'desc', title: '' },
-  { key: 'annualized', label: '年化', type: 'num', defaultDir: 'desc', title: '首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。' },
+  { key: 'annualized', label: '年化', type: 'num', defaultDir: 'desc', title: _t('trade_sim_cagr_title') },
   { key: 'max_drawdown', label: '最大回撤', type: 'num', defaultDir: 'asc', title: '历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。' },
   { key: 'median_drawdown', label: '回撤中位数', type: 'num', defaultDir: 'asc', title: '' },
   { key: 'trimmed_mean_drawdown', label: '回撤去极均值', type: 'num', defaultDir: 'asc', title: '' },
@@ -16398,7 +16398,7 @@ function initOnboarding() {
       },
       {
         icon: '🧪', title: '看策略实验室(进阶)',
-        body: '想深入?策略实验室提供 <b>82 品种买卖点回测</b>、信号消融分析、蒙特卡洛模拟,帮你理解每个信号的历史表现与稳健性。'
+        body: '想深入?策略实验室提供 <b>82 品种关注点/风险点回测</b>、信号消融分析、蒙特卡洛模拟,帮你理解每个信号的历史表现与稳健性。'
       }
     ]
   });

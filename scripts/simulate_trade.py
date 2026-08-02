@@ -64,7 +64,59 @@ WINDOW_DEFS = [
 MAX_CURVE_POINTS = 100  # equity_curve 采样点数（照搬 lab_simulate.py:88）
 
 # 买信号类型 -> ledger op 中文标签（主买/辅买/追买/备买）
+# ⚠️ 保留原词：JSON 产物用此 dict，app.js L14999 entry.op.indexOf('止损'/'卖'/'追买'/'备买'/'辅买') 匹配原词
+# HTML 静态产物显示时调 _ts_text_compliance() 转合规词
 _BUY_LABELS = {"buy": "主买", "buy_aux": "辅买", "buy_special": "追买", "buy_backup": "备买"}
+
+# trade_sim HTML 静态产物合规替换映射（按长度降序，避免子串误替换）
+# 与 i18n.js compliance dict 对齐：买->关注/卖->风险/止损->风控/清仓->防范
+# JSON 保留原词（app.js L14999 entry.op 匹配 + off 切回需原版数据），HTML 显示时调 _ts_text_compliance
+_TS_COMPLIANCE_MAP = [
+    # 操作标签复合（最长优先）
+    # ⚠️ "风控清仓" 是合规复合词（与 i18n.js position_stop_loss_clear 对齐），
+    # 用 \x01CLEARED\x01 占位符保护其中的"清仓"不被后续 catch-all("清仓"->"防范") 误替换
+    ("止损清仓卖出", "风控\x01CLEARED\x01"),
+    ("止损清仓", "风控\x01CLEARED\x01"),
+    ("止损卖出", "风控"),
+    ("清仓卖出", "防范风险"),
+    ("追止损卖", "追风控"),
+    # 买信号标签（多字优先于单字）
+    ("主买", "主关注"),
+    ("辅买", "辅关注"),
+    ("追买", "追关注"),
+    ("备买", "备关注"),
+    # 卖信号标签 + 含"卖出"的复合词优先于"卖出"
+    ("卖出日期", "风险日期"),
+    ("卖出价", "风险价"),
+    ("卖出", "风险提示"),
+    # 描述性复合词（含"买入"的复合词优先于"买入"）
+    ("首笔买入", "首笔关注"),
+    ("买入日期", "关注日期"),
+    ("买入价", "关注价"),
+    ("买入成本", "关注成本"),
+    ("卖份额", "退份额"),
+    ("可卖", "可退"),
+    ("买入", "关注"),
+    ("止损", "风控"),
+    ("清仓", "防范"),
+    ("止盈", "收益兑现"),
+    # 单字兜底（最后处理）
+    ("买", "关注"),
+    ("卖", "风险"),
+]
+
+
+def _ts_text_compliance(text):
+    """trade_sim HTML 静态产物合规化（始终合规，无 toggle）。
+
+    覆盖：操作标签/表头/提示/路径描述/信号组合标签/footer。
+    与 i18n.js compliance dict 对齐：买->关注/卖->风险/止损->风控/清仓->防范。
+    JSON 保留原词（_BUY_LABELS 不改），仅 HTML 显示侧调用本函数。
+    """
+    for bad, good in _TS_COMPLIANCE_MAP:
+        text = text.replace(bad, good)
+    # 还原占位符 -> 清仓（"风控清仓"合规复合词保留清仓，与 i18n.js 对齐）
+    return text.replace("\x01CLEARED\x01", "清仓")
 
 
 def _compute_w_start(last_date, years):
@@ -1136,7 +1188,9 @@ def _scenario_panel(data, index_name="上证指数"):
                     else "buy_backup" if "备买" in entry["op"]
                     else "buy_aux" if "辅买" in entry["op"]
                     else "buy")
-        op_badge = f'<span class="ledger-op {op_class}">{entry["op"]}</span>'
+        # HTML 静态产物合规化显示（entry["op"] 原词用于 op_class 匹配，显示用合规词）
+        op_display = _ts_text_compliance(entry["op"])
+        op_badge = f'<span class="ledger-op {op_class}">{op_display}</span>'
         pct_str = f'{entry["return_pct"]:+.2f}%'
         pct_color = color_for_pct(entry["return_pct"])
         # 收盘价
@@ -1187,7 +1241,7 @@ def _scenario_panel(data, index_name="上证指数"):
 
     ledger_html = f"""
     <h3 style="margin: 20px 0 2px; font-size: 15px;">📒 交易记录清单（{s['ledger_count']} 笔，按时间轴）</h3>
-    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × {index_name}收盘价。</p>
+    <p style="margin:0 0 8px;font-size:11px;color:var(--text-3)">{_ts_text_compliance('💡 买入：固定金额 → 得份额；卖出：卖份额 → 得市值（金额 ≠ 买入成本）。份额变动 +红/-绿，持仓市值 = 份额 × ' + index_name + '收盘价。')}</p>
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
@@ -1216,7 +1270,7 @@ def _scenario_panel(data, index_name="上证指数"):
         <h3 style="margin: 20px 0 10px; font-size: 15px;">📌 未平仓持仓（{s['open_count']} 笔，按最后交易日收盘价估值）</h3>
         <div class="sim-table-wrap">
           <table>
-            <thead><tr><th>#</th><th>买入日期</th><th>买入价</th><th>份额</th><th>浮动盈亏%</th><th>当前市值</th><th>浮动盈亏</th></tr></thead>
+            <thead><tr><th>#</th><th>{_ts_text_compliance('买入日期')}</th><th>{_ts_text_compliance('买入价')}</th><th>份额</th><th>浮动盈亏%</th><th>当前市值</th><th>浮动盈亏</th></tr></thead>
             <tbody>{open_rows}</tbody>
           </table>
         </div>"""
@@ -1225,17 +1279,17 @@ def _scenario_panel(data, index_name="上证指数"):
     dd_str = f"{s['max_drawdown']:.1f}%"
     dd_date = s.get("max_drawdown_date", "N/A")
     cards = f"""
-    <div class="sim-flow">{s['flow_desc']}</div>
+    <div class="sim-flow">{_ts_text_compliance(s['flow_desc'])}</div>
     <div class="sim-cards">
       <div class="sim-card"><span class="k">总资产变化</span><span class="v">{format_num(s['total_capital'])} → {format_num(s['final_total'])} 元<div class="sub" style="font-size:11px;color:var(--text-3);">期末持仓 {format_num(s['final_holdings'])} 元</div></span></div>
       <div class="sim-card"><span class="k">最大持仓</span><span class="v">{format_num(s['max_holding'])} 元（{s['max_holding_pct']}%）<div class="sub">{s['max_holding_date']}</div></span></div>
       <div class="sim-card"><span class="k">总收益</span><span class="v" style="color:{color_for_pct(s['total_return'])}">{format_num(s['total_return'])} 元（{s['total_return_pct']:+.2f}%）</span></div>
-      <div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">首笔买入至今 {s['years']} 年</div></span></div>
+      <div class="sim-card"><span class="k" title="{_ts_text_compliance('首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。')}">年化收益率</span><span class="v" style="color:{color_for_pct(s['annualized'])}">{s['annualized']:+.1f}%<div class="sub">{_ts_text_compliance('首笔买入至今')} {s['years']} 年</div></span></div>
       <div class="sim-card"><span class="k" title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普比率</span><span class="v" style="color:{'#c0392b' if s.get('sharpe') is not None and s['sharpe'] > 3 else 'var(--text-1)'}">{s['sharpe']:.2f}{(' ⚠>3' if s.get('sharpe') is not None and s['sharpe'] > 3 else '')}<div class="sub">事件稀疏 sqrt(252) 年化</div></span></div>
       <div class="sim-card"><span class="k">总资产峰值</span><span class="v">{format_num(s['total_assets_peak'])} 元<div class="sub">{s['total_assets_peak_date']}</div></span></div>
       <div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:{color_for_pct(-s['max_drawdown'])}">{dd_str}<div class="sub">{dd_date}</div></span></div>
       <div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:{color_for_pct(-s['median_drawdown'])}">{s['median_drawdown']:.1f}% / {s['trimmed_mean_drawdown']:.1f}%</span></div>
-      <div class="sim-card"><span class="k">总操作</span><span class="v">{s['buy_count']}买/{s['sell_count']}卖（{s['buy_count'] + s['sell_count']}次）<div class="sub">共 {s['total_ops'] + s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次信号 · <span title="仓位已满/现金不足/无持仓可卖时跳过不执行">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 {s['max_positions_ever']} 笔</span></div></span></div>
+      <div class="sim-card"><span class="k">总操作</span><span class="v">{_ts_text_compliance(str(s['buy_count']) + '买/' + str(s['sell_count']) + '卖')}（{s['buy_count'] + s['sell_count']}次）<div class="sub">共 {s['total_ops'] + s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次信号 · <span title="{_ts_text_compliance('仓位已满/现金不足/无持仓可卖时跳过不执行')}">跳过 {s['skipped_full'] + s['skipped_no_cash'] + s['skipped_no_position']} 次</span> · <span title="同时持有的最大未平仓笔数">峰值并发 {s['max_positions_ever']} 笔</span></div></span></div>
       <div class="sim-card"><span class="k" title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</span><span class="v">{s['win_rate']}%（{s['win_count']}胜/{s['lose_count']}负）</span></div>
       <div class="sim-card"><span class="k">最长连胜/连败</span><span class="v">{s['max_win_streak']} 轮 / {s['max_lose_streak']} 轮</span></div>
       <div class="sim-card"><span class="k" title="平均每笔盈利÷平均每笔亏损。>1=赚的时候比亏的时候赚得多。">平均盈亏比</span><span class="v">{format_num(s['avg_pl_ratio'])}（均盈{format_num(s['avg_win_pct'])}% / 均亏{format_num(s['avg_loss_pct'])}%）</span></div>
@@ -1278,7 +1332,7 @@ def _scenario_panel(data, index_name="上证指数"):
     <div class="sim-table-wrap">
       <table>
         <thead><tr>
-          <th>#</th><th>买入日期</th><th>买入价</th><th>卖出日期</th><th>卖出价</th>
+          <th>#</th><th>{_ts_text_compliance('买入日期')}</th><th>{_ts_text_compliance('买入价')}</th><th>{_ts_text_compliance('卖出日期')}</th><th>{_ts_text_compliance('卖出价')}</th>
           <th>持有时长</th><th>盈亏%</th><th>投入</th><th>回收</th><th>净利润</th>
         </tr></thead>
         <tbody>{rows}</tbody>
@@ -1358,8 +1412,8 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
         for r in wrows:
             rows_html += f"""
         <tr>
-          <td>{r['path']}</td>
-          <td>{r['sig']}</td>
+          <td>{_ts_text_compliance(r['path'])}</td>
+          <td>{_ts_text_compliance(r['sig'])}</td>
           <td>{cmp_cell(r['final_total'], b_final, w_final, ',.0f', suffix=' 元')}</td>
           <td>{cmp_cell(r['total_return_pct'], b_return, w_return, '.2f', is_pct=True, signed=True)}</td>
           <td>{cmp_cell(r['annualized'], b_annual, w_annual, '.1f', is_pct=True, signed=True)}</td>
@@ -1374,7 +1428,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     <div class="sim-cmp-table">
       <table>
         <thead><tr>
-          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化</th><th title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>
+          <th>策略</th><th>信号</th><th>最终资产</th><th>总收益率</th><th title="{_ts_text_compliance('首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。')}">年化</th><th title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)">夏普</th><th title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</th><th>回撤中位数</th><th>回撤去极均值</th><th title="盈利交易笔数÷总交易笔数。越高=胜出的交易占比越大。">胜率</th><th>交易笔数</th>
         </tr></thead>
         <tbody>{rows_html}</tbody>
       </table>
@@ -1410,7 +1464,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
     main_tabs = ""
     for pi, plabel in enumerate(path_labels):
         active = "active" if pi == 0 else ""
-        main_tabs += f'<button class="sim-main-tab {active}" data-path="{pi}">{plabel}</button>\n'
+        main_tabs += f'<button class="sim-main-tab {active}" data-path="{pi}">{_ts_text_compliance(plabel)}</button>\n'
 
     groups_html = ""
     for pi, plabel in enumerate(path_labels):
@@ -1420,7 +1474,7 @@ def build_html(groups, index_id="sh", index_name="上证指数", signal_first_da
         sub_scenarios = groups[plabel]
         for si, slabel in enumerate(sig_labels):
             active_sub = "active" if si == 0 else ""
-            sub_tabs += f'<button class="sim-sub-tab {active_sub}" data-path="{pi}" data-sig="{si}">{slabel}</button>\n'
+            sub_tabs += f'<button class="sim-sub-tab {active_sub}" data-path="{pi}" data-sig="{si}">{_ts_text_compliance(slabel)}</button>\n'
             data = sub_scenarios[slabel]
             panel = _scenario_panel(data, index_name)
             sub_panels += f'<div class="sim-scenario {active_sub}" data-path="{pi}" data-sig="{si}">{panel}</div>\n'
@@ -1523,7 +1577,7 @@ td {{ padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: no
 tr:nth-child(even) td {{ background: var(--bg-hover); }}
 tr:hover td {{ background: var(--bg-hover); }}
 
-/* 交易记录操作标签（涨红/辅买紫/卖出绿为数据语义色，保持硬编码）*/
+/* 交易记录操作标签（涨红/辅关注紫/风险提示绿为数据语义色，保持硬编码）*/
 .ledger-op {{ display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; color: #fff; }}
 .ledger-op.buy {{ background: #e6492e; }}
 .ledger-op.buy_aux {{ background: #d63384; }}
@@ -1589,7 +1643,7 @@ tr:hover td {{ background: var(--bg-hover); }}
   <p><a href="./">← 返回看板</a></p>
   <div style="margin-top: 12px; padding: 10px 14px; background: rgba(212,56,13,0.08); border: 1px solid rgba(212,56,13,0.25); border-left: 4px solid #d4380d; border-radius: 8px; font-size: 12px; line-height: 1.7; color: var(--text-1);">
     <b style="color:#d4380d;">⚠ 教育研究工具 · 非投资建议</b><br>
-    本页为个人学习/研究用途的技术信号模拟回测，非持牌证券投资咨询机构。所有信号与回测结果均为历史数据统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。模拟说明：三种策略路径 × 十一种信号组合（单买 4 + 双买 6 + 止损 1），共 33 个场景。总资金 10 万元。买固定 1w(10%) + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1w(10%) 进出（FIFO，最多同时 10 笔）。主买=红色，辅买=玫红色，追买=金色，备买=紫色，卖出=绿色，追止损卖=蓝色。连续同向信号跳过（避免重复操作）。此为历史模拟，过往表现不代表未来收益，实盘收益通常低于回测。投资有风险，决策需谨慎。
+    {_ts_text_compliance('本页为个人学习/研究用途的技术信号模拟回测，非持牌证券投资咨询机构。所有信号与回测结果均为历史数据统计与技术分析参考，<b>不构成任何投资建议或交易指令</b>。模拟说明：三种策略路径 × 十一种信号组合（单买 4 + 双买 6 + 止损 1），共 33 个场景。总资金 10 万元。买固定 1w(10%) + 卖清仓全部；全仓进出（一次一笔，买全部现金，卖清仓）；固定 1w(10%) 进出（FIFO，最多同时 10 笔）。主买=红色，辅买=玫红色，追买=金色，备买=紫色，卖出=绿色，追止损卖=蓝色。连续同向信号跳过（避免重复操作）。此为历史模拟，过往表现不代表未来收益，实盘收益通常低于回测。投资有风险，决策需谨慎。')}
   </div>
   <p style="margin-top: 12px; font-size: 12px; color: var(--text-3);">
     <a href="/privacy.html" style="color: var(--primary);">隐私政策</a>

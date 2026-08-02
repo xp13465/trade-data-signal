@@ -38,13 +38,13 @@ _SENT_DB = ROOT / "data" / "sentiment.db"
 DATA_DIR = ROOT / "static-site" / "data"
 ALERT_JSON = DATA_DIR / "alert.json"
 
-# 维度中文名 (docs/alert-design.md §2.2 / §3.2)
+# 维度中文名 (docs/alert-design.md §2.2 / §3.2) - 合规版（与 i18n.js compliance dict 对齐）
 HIGH_DIM_NAMES = {
-    "H1": "情绪过热", "H2": "量价背离", "H3": "卖点密集", "H4": "位置偏高",
+    "H1": "情绪过热", "H2": "量价背离", "H3": "风险点密集", "H4": "位置偏高",
     "H5": "动量衰退", "H6": "均线转弱", "H7": "汪汪队离场", "H8": "全球走弱",
 }
 LOW_DIM_NAMES = {
-    "L1": "情绪冰点", "L2": "买点密集", "L3": "位置偏低", "L4": "汪汪队入场",
+    "L1": "情绪冰点", "L2": "关注点密集", "L3": "位置偏低", "L4": "汪汪队入场",
     "L5": "量能异动", "L6": "新低极端", "L7": "波指飙升", "L8": "价值显现",
 }
 
