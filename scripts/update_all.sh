@@ -140,6 +140,18 @@ rsync -a --checksum "$REPO/static-site/data/offshore_fund"* "/Users/linhuichen/c
 "$PY" "$REPO/scripts/upload_r2.py upload-offshore-fund" >> "$LOG" 2>&1 || \
   echo "⚠ upload-offshore-fund R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 
+# 阶段1 评分引擎: 头部2000只评分 + 导出 fund_score*.json + R2 上传
+# 全量27409只挂 launchd pf-score-weekly 周日跑, 不进 update_all(2.3h太长阻塞核心)
+# 头部2000只~2min(实测, 大部分基金无fund_daily_nav快速返回None), 失败不阻塞主流程
+echo "-> 公募基金评分引擎（compute_all_scores top_n=2000 + export）..." | tee -a "$LOG"
+"$PY" -c "from app.collector.public_fund import compute_all_scores; compute_all_scores(top_n=2000, resume=True)" >> "$LOG" 2>&1 || \
+  echo "⚠ compute_all_scores 失败（不阻塞主流程）" | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_fund_score.py" --top-n 2000 >> "$LOG" 2>&1 || \
+  echo "⚠ export_fund_score 失败（不阻塞主流程）" | tee -a "$LOG"
+rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
+"$PY" "$REPO/scripts/upload_r2.py upload-fund-score" >> "$LOG" 2>&1 || \
+  echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
 

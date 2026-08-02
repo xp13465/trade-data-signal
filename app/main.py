@@ -492,6 +492,32 @@ def alert_analyze(target: str, type: str | None = None, limit: int = 20):
     return {"query": q, "candidates": cands, "result": result}
 
 
+# ── 阶段1 公募基金评分引擎 API (2026-07-20 新增) ───────────────────────────────
+@app.get("/api/public-fund-score")
+def public_fund_score(top_n: int = 100):
+    """公募基金综合评分头部N只(按综合分降序)。
+    独立计算(不走 export_data 7元组), 复用 fund_score 表(compute_all_scores 写入)。
+    返回 {date, count, method, data:[{fund_code, fund_name, composite_score, star_rating,
+    score_return, ..., half_kelly_position, final_suggestion, ...}]}。
+    """
+    from . import queries
+    if top_n < 1 or top_n > 5000:
+        top_n = 100
+    return queries.public_fund_score(top_n=top_n)
+
+
+@app.get("/api/public-fund-score/{fund_code}")
+def public_fund_score_detail(fund_code: str):
+    """单只基金评分详情(6维度+5指标+经理6维+凯利+市场乘数完整字段)。
+    优先读 fund_score 表(已评分), 没有则现算一次(单只~0.1s)。
+    """
+    from . import queries
+    code = (fund_code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="fund_code 不能为空")
+    return queries.public_fund_score_detail(code)
+
+
 def _render_index():
     """读 static-site/index.html 返回（?v= 已由 bump_asset_version.py 注入）；mtime 变化才重读。"""
     idx = WEB_DIR / "index.html"

@@ -441,6 +441,47 @@ CREATE TABLE IF NOT EXISTS fund_fee_detail (
   PRIMARY KEY (fund_code, fee_type, tier_index)
 );
 CREATE INDEX IF NOT EXISTS idx_fund_fee_detail_code ON fund_fee_detail(fund_code);
+
+-- ── 阶段1 评分引擎: fund_score 综合评分表（2026-07-20 新增）──────────────────────
+-- PK=fund_code+score_date, 每日重算头部2000 + 周日全量27409只
+-- 6维度子分 + 5风险指标 + 经理6维 + 半凯利仓位 + 市场乘数 + 数据完整度
+-- 独立计算模式不走 export_data() 7元组（遵循 commit 190c8f7e 教训, 仿 _compute_position_estimate）
+CREATE TABLE IF NOT EXISTS fund_score (
+  fund_code TEXT NOT NULL,
+  score_date TEXT NOT NULL,            -- 评分日期 YYYYMMDD
+  composite_score REAL,                -- 综合分 0-100
+  star_rating INTEGER,                 -- 星级 1-5
+  -- 6 维度子分 (0-100)
+  score_return REAL,                   -- D1 历史业绩
+  score_risk_adjusted REAL,            -- D2 风险调整后收益
+  score_drawdown REAL,                 -- D3 回撤控制
+  score_stability REAL,                -- D4 业绩稳定性
+  score_scale REAL,                    -- D5 规模与流动性
+  score_fee REAL,                      -- D6 费率
+  -- 5 风险指标 (3y 周期原始值)
+  sharpe REAL, sortino REAL, calmar REAL,
+  information_ratio REAL, alpha REAL,
+  -- 经理稳健度 6 维 (0-100) + 综合分
+  manager_score REAL,
+  m1_tenure REAL, m2_scale REAL, m3_perf_stability REAL,
+  m4_drawdown REAL, m5_coherence REAL, m6_focus REAL,
+  -- 半凯利仓位
+  kelly_fraction REAL,                 -- 凯利比例 f* (0-1)
+  half_kelly_position REAL,            -- 半凯利建议仓位% (0-90)
+  kelly_win_rate REAL,                 -- 胜率 p
+  kelly_win_loss_ratio REAL,           -- 赔率 b
+  kelly_tier TEXT,                     -- 保守/均衡/激进
+  market_adjustment REAL,              -- 市场乘数 (基于预估仓位)
+  final_suggestion REAL,               -- 最终建议仓位% = half_kelly × market_adjustment
+  -- 元数据
+  benchmark TEXT,                      -- 基准指数 (hs300/csi500/gem)
+  score_method TEXT,                   -- 评分方法版本 (如 'v1.0_20260720')
+  data_completeness REAL,              -- 数据完整度% (缺数据降权)
+  update_date TEXT,
+  PRIMARY KEY (fund_code, score_date)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_score_date ON fund_score(score_date);
+CREATE INDEX IF NOT EXISTS idx_fund_score_composite ON fund_score(composite_score DESC);
 """
 
 _LOCK_FILE: list = [None]
@@ -2082,15 +2123,16 @@ PERIOD_DAYS = {"1y": 365, "3y": 1095, "5y": 1825}
 RF_ANNUAL = 2.0  # 无风险利率年化%(简化, 用2%)
 
 
-def _compute_risk_from_nav(fund_code: str, period: str) -> dict | None:
+def _compute_risk_from_nav(fund_code: str, period: str, benchmark: str = "hs300") -> dict | None:
     """从 fund_daily_nav 净值时序自算风险指标(降级用)。
 
-    算: sharpe/sortino/calmar/max_drawdown/annual_volatility/downside_risk
-    不算: information_ratio/alpha(需基准回归, 第一版留 None)
+    算: sharpe/sortino/calmar/max_drawdown/annual_volatility/downside_risk/information_ratio/alpha
+    阶段1 Step2(2026-07-20): 补 IR + Alpha (需 fund_index_daily 基准回归)
 
     Args:
       fund_code: 基金代码
       period: '1y'/'3y'/'5y'
+      benchmark: 'hs300'/'csi500'/'gem'
     Returns: dict 或 None(数据不足)
     """
     import math
@@ -2105,14 +2147,22 @@ def _compute_risk_from_nav(fund_code: str, period: str) -> dict | None:
             "WHERE fund_code=? AND date>=? AND unit_nav IS NOT NULL "
             "ORDER BY date", (fund_code, start_date)
         ).fetchall()
+        # 同时取基准指数日涨跌（IR + Alpha 回归用）
+        bench_rows = conn.execute(
+            "SELECT date, pct_change FROM fund_index_daily "
+            "WHERE index_id=? AND date>=? AND pct_change IS NOT NULL "
+            "ORDER BY date", (benchmark, start_date)
+        ).fetchall() if benchmark else []
     finally:
         conn.close()
     if len(nav_rows) < 30:
         return None
 
     navs = [r[1] for r in nav_rows]
+    nav_dates = [r[0] for r in nav_rows]
     returns = [(navs[i] - navs[i - 1]) / navs[i - 1]
                for i in range(1, len(navs)) if navs[i - 1] > 0]
+    ret_dates = nav_dates[1:len(returns) + 1]  # 对齐收益日期 (收益是 i vs i-1, 用 i 的日期)
     if len(returns) < 20:
         return None
 
@@ -2144,6 +2194,39 @@ def _compute_risk_from_nav(fund_code: str, period: str) -> dict | None:
     max_drawdown = max_dd * 100
     calmar = annual_ret / max_drawdown if max_drawdown > 0 else 0.0
 
+    # ── IR + Alpha (Step2 新增, 需基准回归) ─────────────────────────────────────
+    # IR = (R_p - R_b) / TE, TE = stdev(R_fund_daily - R_bench_daily) × √252 × 100
+    # Alpha: CAPM 回归 R_fund - R_f = α + β × (R_bench - R_f) + ε, α 年化 = α_daily × 252
+    information_ratio = None
+    alpha = None
+    if bench_rows and len(bench_rows) >= 20:
+        bench_map = {d: float(p) for d, p in bench_rows}
+        # 对齐基金日收益 + 基准日涨跌 (基准 pct_change 是 %, 转小数)
+        aligned = [(rd, fr, bench_map[rd] / 100.0)
+                   for rd, fr in zip(ret_dates, returns) if rd in bench_map]
+        if len(aligned) >= 20:
+            fund_rets = [a[1] for a in aligned]
+            bench_rets = [a[2] for a in aligned]
+            excess_daily = [f - b for f, b in zip(fund_rets, bench_rets)]
+            if len(excess_daily) > 1:
+                te_daily = stdev(excess_daily)
+                te_annual = te_daily * math.sqrt(252) * 100  # 跟踪误差年化%
+                # 年化超额收益 = (mean(fund_daily) - mean(bench_daily)) × 252 × 100 (转%)
+                excess_annual = (mean(fund_rets) - mean(bench_rets)) * 252 * 100
+                if te_annual > 0:
+                    information_ratio = excess_annual / te_annual
+                # CAPM 回归: R_fund - R_f = α + β × (R_bench - R_f) + ε
+                rf_daily = RF_ANNUAL / 100.0 / 252.0  # 日频无风险（小数）
+                fund_excess = [f - rf_daily for f in fund_rets]
+                bench_excess = [b - rf_daily for b in bench_rets]
+                var_b = sum((b - mean(bench_excess)) ** 2 for b in bench_excess) / (len(bench_excess) - 1)
+                if var_b > 0:
+                    cov_fb = sum((f - mean(fund_excess)) * (b - mean(bench_excess))
+                                 for f, b in zip(fund_excess, bench_excess)) / (len(bench_excess) - 1)
+                    beta = cov_fb / var_b
+                    alpha_daily = mean(fund_excess) - beta * mean(bench_excess)
+                    alpha = alpha_daily * 252 * 100  # 年化转%
+
     return {
         "sharpe": sharpe,
         "sortino": sortino,
@@ -2151,8 +2234,8 @@ def _compute_risk_from_nav(fund_code: str, period: str) -> dict | None:
         "max_drawdown": max_drawdown,
         "annual_volatility": annual_vol,
         "downside_risk": downside_risk,
-        "information_ratio": None,
-        "alpha": None,
+        "information_ratio": information_ratio,
+        "alpha": alpha,
         "risk_return_rank": None,
         "anti_risk_rank": None,
         "data_source": "self_calc",
@@ -2224,12 +2307,14 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                         period = XQ_PERIOD_MAP.get(period_cn, "")
                         if not period:
                             continue
-                        # xq 提供 5 指标, 补自算 sortino/calmar/downside_risk(xq不提供)
+                        # xq 提供 5 指标, 补自算 sortino/calmar/downside_risk/IR/alpha(xq不提供)
                         # 有 fund_daily_nav 净值时补全, 无则留 None
                         calc = _compute_risk_from_nav(code, period)
                         sortino_v = calc["sortino"] if calc else None
                         calmar_v = calc["calmar"] if calc else None
                         downside_v = calc["downside_risk"] if calc else None
+                        ir_v = calc["information_ratio"] if calc else None
+                        alpha_v = calc["alpha"] if calc else None
                         src = "mixed" if calc else "xq"
                         pending.append((
                             code, period,
@@ -2239,8 +2324,8 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
                             _safe_float(r.get("最大回撤")),
                             _safe_float(r.get("年化波动率")),
                             downside_v,  # downside_risk 自算补
-                            None,  # information_ratio 需基准
-                            None,  # alpha 需基准回归
+                            ir_v,        # information_ratio 自算补(Step2 升级, 需基准回归)
+                            alpha_v,     # alpha 自算补(Step2 升级, CAPM 回归)
                             _safe_float(r.get("较同类风险收益比")),
                             _safe_float(r.get("较同类抗风险波动")),
                             src, today,
@@ -2288,7 +2373,972 @@ def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
     return total_rows
 
 
-# ── universe 选择 ───────────────────────────────────────────────────────────────
+# ── 阶段1 评分引擎: 半凯利仓位 + 6维度 + 经理 + 综合分 ───────────────────────────
+# 独立计算模式不走 export_data() 7元组 (遵循 commit 190c8f7e 教训, 仿 _compute_position_estimate)
+# Step3-7 完整实现: _compute_kelly_inputs/_compute_dimension_scores/_compute_manager_score/
+# _compute_composite_score/_compute_fund_score; Step8 批量 compute_all_scores
+
+# 评分方法版本号 (用于 fund_score.score_method 字段, 升级公式时 bump)
+SCORE_METHOD_VERSION = "v1.0_20260720"
+
+# 6维度主观赋权 (方案 §2.3 推荐基线, 业绩+风险共50%, 回撤+稳定性30%, 规模+费率20%)
+SCORE_WEIGHTS: dict[str, float] = {
+    "score_return": 0.25,         # D1 历史业绩
+    "score_risk_adjusted": 0.25,  # D2 风险调整后收益
+    "score_drawdown": 0.15,       # D3 回撤控制
+    "score_stability": 0.15,      # D4 业绩稳定性
+    "score_scale": 0.10,          # D5 规模与流动性
+    "score_fee": 0.10,            # D6 费率
+}
+
+# 基准映射: 解析 fund_basic.benchmark/tracking_target 字段选对应指数
+# fund_index_daily 仅含 hs300/csi500/gem 3指数, 其他类型兜底 hs300
+BENCHMARK_KEYWORD_MAP: list[tuple[str, str]] = [
+    # (关键字, 指数id) — 按 fund_basic.benchmark 或 tracking_target 文本匹配
+    ("沪深300", "hs300"), ("沪深 300", "hs300"), ("hs300", "hs300"), ("000300", "hs300"),
+    ("中证500", "csi500"), ("中证 500", "csi500"), ("csi500", "csi500"), ("000905", "csi500"),
+    ("创业板", "gem"), ("科创50", "gem"), ("科创 50", "gem"),
+]
+
+
+def _pick_benchmark(benchmark_text: str | None, tracking_target: str | None = None) -> str:
+    """从 fund_basic.benchmark 或 tracking_target 文本识别对应指数 id。
+    匹配不到返回 'hs300' (默认基准, 全市场统一兜底)。
+    """
+    for text in (benchmark_text or "", tracking_target or ""):
+        for kw, idx_id in BENCHMARK_KEYWORD_MAP:
+            if kw in text:
+                return idx_id
+    return "hs300"
+
+
+def _compute_kelly_inputs(fund_code: str, period_months: int = 36) -> dict | None:
+    """从 fund_daily_nav 月频算凯利胜率赔率 (方案 §5.2 推荐方案B 月频3年)。
+
+    算法:
+      1. fund_daily_nav 按月聚合(每月最后交易日 unit_nav), 算月收益率
+      2. 取近 period_months 个月收益
+      3. p = 胜率 = len(wins)/len(samples)
+      4. b = 赔率 = mean(wins)/abs(mean(losses)) (无亏损=999)
+      5. f* = (p*b - q)/b = p - q/b (q=1-p)
+      6. half_kelly = f*/2 * 100 (转%), clamp 0-90% (绝不 All in)
+      7. 分档: <30 保守, 30-60 均衡, >=60 激进
+
+    Args:
+      fund_code: 基金代码
+      period_months: 月数(默认36=3年)
+    Returns: dict {win_rate, win_loss_ratio, kelly_fraction, half_kelly_position, tier, sample_count}
+             或 None(数据不足)
+    """
+    from statistics import mean
+    # 取近 period_months+1 月末日净值(多1个用于算首个月收益)
+    # 估算起始日期: period_months 月 ≈ period_months*30.5 天, 加 buffer 60 天
+    start_date = (dt.date.today() - dt.timedelta(days=period_months * 31 + 60)).strftime("%Y%m%d")
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT date, unit_nav FROM fund_daily_nav "
+            "WHERE fund_code=? AND date>=? AND unit_nav IS NOT NULL AND unit_nav > 0 "
+            "ORDER BY date", (fund_code, start_date)
+        ).fetchall()
+    finally:
+        conn.close()
+    if len(rows) < 20:
+        return None
+
+    # 月频聚合: 按 YYYYMM 分组, 每月取最后交易日的 unit_nav
+    monthly: dict[str, float] = {}  # YYYYMM -> 月末净值
+    for d, nav in rows:
+        ym = d[:6]  # YYYYMM
+        monthly[ym] = float(nav)  # 后写覆盖 = 月末最后一天
+    month_keys = sorted(monthly.keys())
+    if len(month_keys) < 4:  # 至少4个月才能算3个月收益
+        return None
+
+    # 算月收益率
+    monthly_returns = []
+    for i in range(1, len(month_keys)):
+        prev_nav = monthly[month_keys[i - 1]]
+        curr_nav = monthly[month_keys[i]]
+        if prev_nav > 0:
+            monthly_returns.append((curr_nav - prev_nav) / prev_nav)
+
+    # 取近 period_months 个月
+    samples = monthly_returns[-period_months:] if len(monthly_returns) >= period_months else monthly_returns
+    if len(samples) < 6:  # 至少6个月样本
+        return None
+
+    wins = [r for r in samples if r > 0]
+    losses = [r for r in samples if r < 0]
+    n = len(samples)
+    p = len(wins) / n  # 胜率
+    if losses:
+        avg_win = mean(wins) if wins else 0.0
+        avg_loss_abs = abs(mean(losses))
+        b = avg_win / avg_loss_abs if avg_loss_abs > 0 else 999.0
+    elif wins:
+        # 全胜无亏损: 赔率设999 (凯利公式退化, f* 接近1)
+        b = 999.0
+    else:
+        # 全部为0收益(货币基金可能): 胜率0.5, 赔率1
+        p = 0.5
+        b = 1.0
+    q = 1 - p
+    # 凯利比例 f* = p - q/b
+    f_star = p - q / b if b > 0 else 0.0
+    f_star = max(0.0, min(1.0, f_star))  # clamp 0-1 (负凯利=不参与, 超1=理论全仓)
+    half_kelly = f_star / 2 * 100  # 半凯利转%
+    half_kelly = max(0.0, min(90.0, half_kelly))  # 0-90% clamp, 绝不 All in
+
+    # 分档
+    if half_kelly < 30:
+        tier = "保守"
+    elif half_kelly < 60:
+        tier = "均衡"
+    else:
+        tier = "激进"
+
+    return {
+        "win_rate": round(p, 4),
+        "win_loss_ratio": round(b, 4),
+        "kelly_fraction": round(f_star, 4),
+        "half_kelly_position": round(half_kelly, 2),
+        "tier": tier,
+        "sample_count": n,
+    }
+
+
+# ── 百分位工具 (横截面归一化, 抗极端值, 无正态假设) ─────────────────────────────
+def _percentile(value: float, all_values: list[float], reverse: bool = False) -> float:
+    """算 value 在 all_values 中的百分位 (0-100)。
+    reverse=False 越大越好(收益/夏普/胜率), reverse=True 越小越好(回撤/std/费率)。
+    缺失数据返回 50 (中性分, 不偏不倚)。
+    """
+    if value is None or not all_values:
+        return 50.0
+    valid = [v for v in all_values if v is not None]
+    if not valid:
+        return 50.0
+    n = len(valid)
+    # 排序后找 value 的位置
+    sorted_v = sorted(valid)
+    # 二分查找位置
+    import bisect
+    pos = bisect.bisect_left(sorted_v, value)
+    pct = pos / n * 100 if n > 0 else 50.0
+    if reverse:
+        pct = 100 - pct
+    return round(pct, 2)
+
+
+def _compute_dimension_scores(conn: sqlite3.Connection, fund_code: str,
+                              benchmark: str = "hs300",
+                              bench_returns_3y: float | None = None) -> tuple[dict, float]:
+    """算 6 维度子分 (0-100) + data_completeness (方案 §2)。
+
+    D1 历史业绩(0.25): fund_performance return_3y/ytd/since_inception + hs300 超额
+    D2 风险调整(0.25): fund_risk_indicator 3y sharpe/sortino/calmar (缺用 _compute_risk_from_nav 现算)
+    D3 回撤控制(0.15): max_drawdown(3y) 反向 + 修复时长(fund_daily_nav 现算)
+    D4 业绩稳定性(0.15): 月胜率 + 跑赢基准月率 + 月收益std
+    D5 规模流动性(0.10): scale 钟形 + purchase_status
+    D6 费率(0.10): management+custody+service+purchase 总持有成本反向
+
+    Args:
+      conn: DB 连接
+      fund_code: 基金代码
+      benchmark: 基准指数 id
+      bench_returns_3y: 基准3年累计收益率% (外部预算好避免重复查)
+    Returns: (dimension_scores dict, data_completeness 0-1)
+    """
+    import math
+    from statistics import mean, stdev
+    today = dt.date.today().strftime("%Y%m%d")
+    dims = {
+        "score_return": None, "score_risk_adjusted": None,
+        "score_drawdown": None, "score_stability": None,
+        "score_scale": None, "score_fee": None,
+    }
+    ready_count = 0
+
+    # ── D1 历史业绩 ──────────────────────────────────────────────────────────
+    perf = conn.execute(
+        "SELECT return_3y, return_ytd, return_since_inception, return_1y, return_2y "
+        "FROM fund_performance WHERE fund_code=? ORDER BY update_date DESC LIMIT 1",
+        (fund_code,)
+    ).fetchone()
+    if perf:
+        r3y = _safe_float(perf["return_3y"])
+        rytd = _safe_float(perf["return_ytd"])
+        rsince = _safe_float(perf["return_since_inception"])
+        r1y = _safe_float(perf["return_1y"])
+        # 缺3年用1年×1.5替代(降权通过 data_completeness)
+        r3y_eff = r3y if r3y is not None else (r1y * 1.5 if r1y is not None else None)
+        # 子分: 绝对收益(0.4*3y + 0.2*ytd + 0.4*since) 简化用绝对值映射 (收益好分数高)
+        # 横截面百分位需全市场样本, 第一版用绝对阈值映射 (避免每只都查全市场)
+        def _ret_to_score(r):
+            if r is None:
+                return None
+            # 收益率->分数映射: 50%收益=100分, 0%=50分, -30%=0分 (线性插值)
+            if r >= 50:
+                return 100.0
+            if r >= 0:
+                return 50.0 + r  # 0->50, 50->100
+            if r >= -50:
+                return 50.0 + r  # -50->0
+            return 0.0
+        abs_score = None
+        if r3y_eff is not None or rytd is not None or rsince is not None:
+            parts = []
+            if r3y_eff is not None:
+                parts.append((_ret_to_score(r3y_eff), 0.4))
+            if rytd is not None:
+                parts.append((_ret_to_score(rytd), 0.2))
+            if rsince is not None:
+                parts.append((_ret_to_score(rsince), 0.4))
+            total_w = sum(w for _, w in parts)
+            if total_w > 0:
+                abs_score = sum(s * w for s, w in parts) / total_w
+        # 超额收益子分 (vs hs300 3年累计)
+        excess_score = None
+        if r3y_eff is not None and bench_returns_3y is not None:
+            excess = r3y_eff - bench_returns_3y
+            excess_score = _ret_to_score(excess)
+        if abs_score is not None and excess_score is not None:
+            dims["score_return"] = round(abs_score * 0.5 + excess_score * 0.5, 2)
+        elif abs_score is not None:
+            dims["score_return"] = round(abs_score, 2)
+        if dims["score_return"] is not None:
+            ready_count += 1
+
+    # ── D2 风险调整 ──────────────────────────────────────────────────────────
+    risk = conn.execute(
+        "SELECT sharpe, sortino, calmar, information_ratio, alpha, max_drawdown "
+        "FROM fund_risk_indicator WHERE fund_code=? AND period='3y' LIMIT 1",
+        (fund_code,)
+    ).fetchone()
+    risk_data = dict(risk) if risk else {}
+    # 缺3y风险用 _compute_risk_from_nav 现算 (stage0 未就绪过渡)
+    if not risk or risk_data.get("sharpe") is None:
+        calc = _compute_risk_from_nav(fund_code, "3y", benchmark=benchmark)
+        if calc:
+            for k in ("sharpe", "sortino", "calmar", "information_ratio", "alpha", "max_drawdown"):
+                if risk_data.get(k) is None:
+                    risk_data[k] = calc[k]
+    sharpe = _safe_float(risk_data.get("sharpe"))
+    sortino = _safe_float(risk_data.get("sortino"))
+    calmar = _safe_float(risk_data.get("calmar"))
+    if sharpe is not None or sortino is not None or calmar is not None:
+        # 夏普->分数映射: 2.0=100分, 0=50分, -1=0分 (夏普负=不及格)
+        def _sharpe_to_score(s):
+            if s is None:
+                return None
+            if s >= 2.0:
+                return 100.0
+            if s >= 0:
+                return 50.0 + s * 25  # 0->50, 2->100
+            if s >= -2.0:
+                return 50.0 + s * 25  # -2->0
+            return 0.0
+        parts = []
+        if sharpe is not None:
+            parts.append((_sharpe_to_score(sharpe), 0.4))
+        if sortino is not None:
+            parts.append((_sharpe_to_score(sortino), 0.3))
+        if calmar is not None:
+            parts.append((_sharpe_to_score(calmar), 0.3))
+        total_w = sum(w for _, w in parts)
+        if total_w > 0:
+            dims["score_risk_adjusted"] = round(sum(s * w for s, w in parts) / total_w, 2)
+            ready_count += 1
+
+    # ── D3 回撤控制 ──────────────────────────────────────────────────────────
+    max_dd = _safe_float(risk_data.get("max_drawdown"))
+    if max_dd is None:
+        # 再试1y
+        risk1y = conn.execute(
+            "SELECT max_drawdown FROM fund_risk_indicator WHERE fund_code=? AND period='1y' LIMIT 1",
+            (fund_code,)
+        ).fetchone()
+        max_dd = _safe_float(risk1y["max_drawdown"]) if risk1y else None
+    if max_dd is not None:
+        # max_dd 反向: 0%=100分, 30%=50分, 60%=0分
+        def _dd_to_score(dd):
+            if dd is None:
+                return None
+            if dd <= 0:
+                return 100.0
+            if dd >= 60:
+                return 0.0
+            return 100.0 - dd * (100.0 / 60.0)
+        max_dd_score = _dd_to_score(max_dd)
+        # 修复时长子分 (fund_daily_nav 自算)
+        recovery_score = None
+        try:
+            nav_rows = conn.execute(
+                "SELECT date, unit_nav FROM fund_daily_nav "
+                "WHERE fund_code=? AND unit_nav IS NOT NULL AND unit_nav > 0 "
+                "ORDER BY date DESC LIMIT 800",
+                (fund_code,)
+            ).fetchall()
+            if len(nav_rows) >= 60:
+                # 倒序变正序
+                navs = [r[1] for r in reversed(nav_rows)]
+                # 找最大回撤区间 + 修复时长
+                peak = navs[0]
+                max_dd_idx = 0
+                cur_dd = 0.0
+                cur_max_dd = 0.0
+                cur_peak = navs[0]
+                for i, nav in enumerate(navs):
+                    if nav > cur_peak:
+                        cur_peak = nav
+                    dd = (cur_peak - nav) / cur_peak if cur_peak > 0 else 0
+                    if dd > cur_max_dd:
+                        cur_max_dd = dd
+                        max_dd_idx = i
+                # 从 max_dd_idx 往后找首次 >= cur_peak(回撤前高)
+                trough_nav = navs[max_dd_idx]
+                pre_peak = max(navs[:max_dd_idx + 1]) if max_dd_idx > 0 else navs[0]
+                recovery_days = None
+                for j in range(max_dd_idx + 1, len(navs)):
+                    if navs[j] >= pre_peak:
+                        recovery_days = j - max_dd_idx
+                        break
+                if recovery_days is not None:
+                    # 修复时长->分数: 0天=100, 250天(1年)=50, 500天=0
+                    if recovery_days >= 500:
+                        recovery_score = 0.0
+                    else:
+                        recovery_score = 100.0 - recovery_days * (100.0 / 500.0)
+                else:
+                    # 未修复 = 0分
+                    recovery_score = 0.0
+        except Exception:  # noqa: BLE001
+            pass
+        if max_dd_score is not None and recovery_score is not None:
+            dims["score_drawdown"] = round(max_dd_score * 0.7 + recovery_score * 0.3, 2)
+        elif max_dd_score is not None:
+            dims["score_drawdown"] = round(max_dd_score, 2)
+        if dims["score_drawdown"] is not None:
+            ready_count += 1
+
+    # ── D4 业绩稳定性 ────────────────────────────────────────────────────────
+    try:
+        # fund_daily_nav 月频 + 基准月频
+        start_d = (dt.date.today() - dt.timedelta(days=36 * 31 + 60)).strftime("%Y%m%d")
+        nav_rows = conn.execute(
+            "SELECT date, unit_nav FROM fund_daily_nav "
+            "WHERE fund_code=? AND date>=? AND unit_nav IS NOT NULL AND unit_nav > 0 "
+            "ORDER BY date", (fund_code, start_d)
+        ).fetchall()
+        bench_rows = conn.execute(
+            "SELECT date, pct_change FROM fund_index_daily "
+            "WHERE index_id=? AND date>=? AND pct_change IS NOT NULL "
+            "ORDER BY date", (benchmark, start_d)
+        ).fetchall() if benchmark else []
+        if len(nav_rows) >= 60:
+            # 月频聚合
+            monthly_nav: dict[str, float] = {}
+            for d, nav in nav_rows:
+                monthly_nav[d[:6]] = float(nav)
+            m_keys = sorted(monthly_nav.keys())
+            m_returns = []
+            for i in range(1, len(m_keys)):
+                prev = monthly_nav[m_keys[i - 1]]
+                curr = monthly_nav[m_keys[i]]
+                if prev > 0:
+                    m_returns.append((m_keys[i], (curr - prev) / prev))
+            # 基准月频
+            bench_monthly: dict[str, float] = {}
+            for d, pct in bench_rows:
+                ym = d[:6]
+                bench_monthly.setdefault(ym, 0.0)
+                # 月收益 = 累乘 (1+r1)(1+r2)...(1+rn)-1, 简化为日涨跌累加(误差小)
+                bench_monthly[ym] = (1 + bench_monthly[ym] / 100) * (1 + float(pct) / 100) - 1
+            # 月胜率
+            wins = sum(1 for _, r in m_returns if r > 0)
+            win_rate = wins / len(m_returns) if m_returns else 0.5
+            # 跑赢基准月率
+            beat_count = 0
+            beat_total = 0
+            for ym, r in m_returns:
+                if ym in bench_monthly:
+                    beat_total += 1
+                    if r > bench_monthly[ym]:
+                        beat_count += 1
+            beat_rate = beat_count / beat_total if beat_total > 0 else 0.5
+            # 月收益 std
+            rets = [r for _, r in m_returns]
+            std_monthly = stdev(rets) if len(rets) > 1 else 0.0
+            # 子分: 胜率*0.4 + 跑赢率*0.4 + (100-std百分位)*0.2
+            # std 映射: 0%=100分, 10%=50分, 20%=0分
+            std_score = 100.0 - min(std_monthly * 1000, 100.0) if std_monthly else 50.0
+            dims["score_stability"] = round(
+                win_rate * 100 * 0.4 + beat_rate * 100 * 0.4 + std_score * 0.2, 2)
+            ready_count += 1
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── D5 规模与流动性 ─────────────────────────────────────────────────────
+    basic = conn.execute(
+        "SELECT scale FROM fund_basic WHERE fund_code=?", (fund_code,)
+    ).fetchone()
+    scale = _safe_float(basic["scale"]) if basic else None
+    # 规模钟形: <2亿=0, 2-10亿=50, 10-100亿=100, 100-500亿=70, >500亿=40
+    if scale is not None:
+        if scale < 2:
+            scale_score = 0.0
+        elif scale < 10:
+            scale_score = 50.0
+        elif scale < 100:
+            scale_score = 100.0
+        elif scale < 500:
+            scale_score = 70.0
+        else:
+            scale_score = 40.0
+    else:
+        scale_score = 50.0
+    # 流动性: 申购状态
+    ps = conn.execute(
+        "SELECT purchase_status FROM fund_purchase_status WHERE fund_code=? "
+        "ORDER BY update_date DESC LIMIT 1", (fund_code,)
+    ).fetchone()
+    ps_str = ps["purchase_status"] if ps else ""
+    if "开放申购" in (ps_str or ""):
+        liquid_score = 100.0
+    elif "限制大额" in (ps_str or "") or "限大额" in (ps_str or ""):
+        liquid_score = 50.0
+    elif "暂停" in (ps_str or ""):
+        liquid_score = 0.0
+    else:
+        liquid_score = 50.0  # 未知
+    dims["score_scale"] = round(scale_score * 0.6 + liquid_score * 0.4, 2)
+    ready_count += 1
+
+    # ── D6 费率 ─────────────────────────────────────────────────────────────
+    basic_full = conn.execute(
+        "SELECT management_fee, custody_fee, service_fee, purchase_fee "
+        "FROM fund_basic WHERE fund_code=?", (fund_code,)
+    ).fetchone()
+    if basic_full:
+        mgmt = _safe_float(basic_full["management_fee"]) or 0.0
+        cust = _safe_float(basic_full["custody_fee"]) or 0.0
+        svc = _safe_float(basic_full["service_fee"]) or 0.0
+        purch = _safe_float(basic_full["purchase_fee"]) or 0.0
+        # 总成本 = (年费率*3) + 申购费*0.5 (3年摊薄)
+        total_cost = (mgmt + cust + svc) * 3 + purch * 0.5
+        # 反向映射: 0%=100分, 5%=50分, 10%=0分
+        if total_cost >= 10:
+            dims["score_fee"] = 0.0
+        else:
+            dims["score_fee"] = round(100.0 - total_cost * 10, 2)
+        ready_count += 1
+
+    data_completeness = ready_count / 6.0
+    return dims, data_completeness
+
+
+def _compute_manager_score(conn: sqlite3.Connection, fund_code: str) -> dict:
+    """算经理稳健度 6 维 (0-100) + 综合分 (方案 §4)。
+
+    M1 任职年限: fund_manager.tenure_days (缺用 work_days proxy)
+    M2 管理规模: managed_scale 钟形分箱
+    M3 历史业绩稳定性: best_return (缺 managed_history std 时单维)
+    M4 回撤控制: managed_history 缺时用 best_return 反向 proxy
+    M5 任职连贯性: managed_history 缺时跳过, 重分配权重
+    M6 精力分散: managed_count 反向
+
+    Returns: {manager_score, m1_tenure, m2_scale, m3_perf_stability, m4_drawdown,
+              m5_coherence, m6_focus, data_completeness}
+    """
+    # 取该基金所有经理 (多经理取均值或最资深)
+    mgr_rows = conn.execute(
+        "SELECT manager_name, appoint_date, managed_count, managed_scale, "
+        "best_return, managed_history, tenure_days, work_days "
+        "FROM fund_manager WHERE fund_code=?",
+        (fund_code,)
+    ).fetchall()
+    if not mgr_rows:
+        return {
+            "manager_score": None, "m1_tenure": None, "m2_scale": None,
+            "m3_perf_stability": None, "m4_drawdown": None,
+            "m5_coherence": None, "m6_focus": None,
+            "data_completeness": 0.0,
+        }
+
+    # 多经理取均值(各维分别取均值)
+    import json as _json
+    from statistics import mean as _mean, stdev as _stdev
+
+    # M1 任职年限 (tenure_days 缺用 work_days/365 proxy)
+    m1_vals = []
+    has_real_tenure = False
+    for r in mgr_rows:
+        td = r["tenure_days"]
+        if td is not None and td > 0:
+            m1_vals.append(float(td) / 365.0)  # 年
+            has_real_tenure = True
+        elif r["work_days"]:
+            m1_vals.append(float(r["work_days"]) / 365.0)  # 从业年限 proxy
+    m1 = None
+    if m1_vals:
+        m1_years = _mean(m1_vals)
+        # 阈值: >5年=90+, 3-5年=70-90, 1-3年=50-70, <1年=<50
+        if m1_years >= 5:
+            m1 = 90.0 + min(10, (m1_years - 5) * 2)
+        elif m1_years >= 3:
+            m1 = 70.0 + (m1_years - 3) * 10
+        elif m1_years >= 1:
+            m1 = 50.0 + (m1_years - 1) * 10
+        else:
+            m1 = max(0, 50.0 - (1 - m1_years) * 50)
+
+    # M2 管理规模 (钟形: <10亿=40, 10-50=70, 50-300=100, 300-800=80, >800=60)
+    m2_vals = [_safe_float(r["managed_scale"]) for r in mgr_rows if r["managed_scale"]]
+    m2 = None
+    if m2_vals:
+        avg_scale = _mean(m2_vals)
+        if avg_scale < 10:
+            m2 = 40.0
+        elif avg_scale < 50:
+            m2 = 70.0
+        elif avg_scale < 300:
+            m2 = 100.0
+        elif avg_scale < 800:
+            m2 = 80.0
+        else:
+            m2 = 60.0
+
+    # M3 历史业绩稳定性 (best_return + managed_history std)
+    m3_vals = []
+    has_history = False
+    for r in mgr_rows:
+        br = _safe_float(r["best_return"])
+        mh_str = r["managed_history"]
+        history_returns = []
+        if mh_str:
+            try:
+                mh = _json.loads(mh_str)
+                if isinstance(mh, list):
+                    for h in mh:
+                        ret = h.get("return") if isinstance(h, dict) else None
+                        if ret is not None:
+                            history_returns.append(float(ret))
+                    if history_returns:
+                        has_history = True
+            except (ValueError, TypeError):
+                pass
+        if br is not None:
+            # best_return -> 分数: >100%=100, 50%=80, 0%=50, -30%=0
+            if br >= 100:
+                br_score = 100.0
+            elif br >= 0:
+                br_score = 50.0 + br * 0.5
+            else:
+                br_score = max(0, 50.0 + br)
+            if history_returns:
+                # 稳定性 = 100 - std百分位 (std大扣分)
+                std_h = _stdev(history_returns) if len(history_returns) > 1 else 0.0
+                # std映射: 0=100, 50=50, 100=0
+                std_score = max(0, 100.0 - std_h)
+                m3_vals.append(br_score * 0.5 + std_score * 0.5)
+            else:
+                m3_vals.append(br_score)  # 单维 proxy
+    m3 = _mean(m3_vals) if m3_vals else None
+
+    # M4 回撤控制 (managed_history 各基金回撤均值缺, 用 best_return 反向 proxy)
+    # best_return 高者通常回撤控制好 (过渡方案, 方案 §4.4)
+    m4_vals = []
+    for r in mgr_rows:
+        br = _safe_float(r["best_return"])
+        if br is not None:
+            # best_return 高->回撤控制好 (proxy): >100=100, 50=80, 0=50, -30=0
+            if br >= 100:
+                m4_vals.append(100.0)
+            elif br >= 0:
+                m4_vals.append(50.0 + br * 0.5)
+            else:
+                m4_vals.append(max(0, 50.0 + br))
+    m4 = _mean(m4_vals) if m4_vals else None
+
+    # M5 任职连贯性 (managed_history 缺跳过)
+    m5_vals = []
+    for r in mgr_rows:
+        mh_str = r["managed_history"]
+        if not mh_str:
+            continue
+        try:
+            mh = _json.loads(mh_str)
+            if isinstance(mh, list) and len(mh) > 0:
+                # 平均任职天数 + 换基频率
+                tenures = []
+                for h in mh:
+                    td = h.get("tenure_days") if isinstance(h, dict) else None
+                    if td:
+                        tenures.append(float(td))
+                if tenures:
+                    avg_tenure_years = _mean(tenures) / 365.0
+                    work_years = (r["work_days"] or 0) / 365.0
+                    switch_freq = len(mh) / work_years if work_years > 0 else 0
+                    # 子分: 平均任职长*0.6 + (100-换基频率百分位)*0.4
+                    tenure_score = min(100, avg_tenure_years * 20)  # 5年=100
+                    # 换基频率: 0次/年=100, 2次/年=50, 4次/年=0
+                    freq_score = max(0, 100.0 - switch_freq * 25)
+                    m5_vals.append(tenure_score * 0.6 + freq_score * 0.4)
+        except (ValueError, TypeError):
+            pass
+    m5 = _mean(m5_vals) if m5_vals else None
+
+    # M6 精力分散 (managed_count 反向)
+    m6_vals = []
+    for r in mgr_rows:
+        mc = r["managed_count"]
+        if mc is not None:
+            mc = int(mc)
+            # 1-3只=90+, 4-6只=70-90, 7-10只=50-70, >10只=<50
+            if mc <= 3:
+                m6_vals.append(90.0 + (3 - mc) * 3.33)
+            elif mc <= 6:
+                m6_vals.append(70.0 + (6 - mc) * 6.67)
+            elif mc <= 10:
+                m6_vals.append(50.0 + (10 - mc) * 5)
+            else:
+                m6_vals.append(max(0, 50.0 - (mc - 10) * 5))
+    m6 = _mean(m6_vals) if m6_vals else None
+
+    # 加权汇总 (方案 §4.3): M1*0.2 + M2*0.15 + M3*0.2 + M4*0.2 + M5*0.15 + M6*0.1
+    # 缺数据时: 重分配权重到就绪维度 (M5 普遍缺, 重分配到 M1/M2/M6)
+    weights = {"m1": 0.2, "m2": 0.15, "m3": 0.2, "m4": 0.2, "m5": 0.15, "m6": 0.1}
+    values = {"m1": m1, "m2": m2, "m3": m3, "m4": m4, "m5": m5, "m6": m6}
+    ready = {k: v for k, v in values.items() if v is not None}
+    if not ready:
+        manager_score = None
+        completeness = 0.0
+    else:
+        total_w = sum(weights[k] for k in ready)
+        manager_score = round(sum(ready[k] * weights[k] for k in ready) / total_w, 2)
+        completeness = len(ready) / 6.0
+    return {
+        "manager_score": manager_score,
+        "m1_tenure": round(m1, 2) if m1 is not None else None,
+        "m2_scale": round(m2, 2) if m2 is not None else None,
+        "m3_perf_stability": round(m3, 2) if m3 is not None else None,
+        "m4_drawdown": round(m4, 2) if m4 is not None else None,
+        "m5_coherence": round(m5, 2) if m5 is not None else None,
+        "m6_focus": round(m6, 2) if m6 is not None else None,
+        "data_completeness": round(completeness, 4),
+    }
+
+
+def _compute_composite_score(dims: dict, data_completeness: float,
+                              weights: dict | None = None) -> tuple[float | None, int | None]:
+    """6 维度加权汇总 + data_completeness 降权 + 星级映射 (方案 §2.5)。
+
+    composite_score = Σ(D_i × w_i) × data_completeness
+    星级: >=85五星 / 70-85四星 / 50-70三星 / 30-50二星 / <30一星
+    """
+    w = weights or SCORE_WEIGHTS
+    ready = {k: v for k, v in dims.items() if v is not None and k in w}
+    if not ready:
+        return None, None
+    total_w = sum(w[k] for k in ready)
+    raw = sum(ready[k] * w[k] for k in ready) / total_w if total_w > 0 else 0
+    composite = raw * data_completeness
+    composite = round(composite, 2)
+    # 星级映射
+    if composite >= 85:
+        star = 5
+    elif composite >= 70:
+        star = 4
+    elif composite >= 50:
+        star = 3
+    elif composite >= 30:
+        star = 2
+    else:
+        star = 1
+    return composite, star
+
+
+def _get_market_adjustment() -> float:
+    """从 public_fund_position_estimate.json 读预估仓位, 算市场乘数 (方案 §5.4)。
+    预估仓位 >88% 高位减仓 ×0.7, 80-88% 中性 ×1.0, <80% 低位加仓 ×1.2。
+    JSON 不存在或读取失败默认 1.0 (中性)。
+    """
+    try:
+        p = STATIC_DATA_DIR / "public_fund_position_estimate.json"
+        if not p.exists():
+            return 1.0
+        data = json.loads(p.read_text(encoding="utf-8"))
+        pos = data.get("current", {}).get("position_estimate")
+        if pos is None:
+            return 1.0
+        if pos > 88:
+            return 0.7
+        if pos >= 80:
+            return 1.0
+        return 1.2
+    except Exception:  # noqa: BLE001
+        return 1.0
+
+
+def _compute_fund_score(conn: sqlite3.Connection, fund_code: str,
+                        benchmark: str | None = None) -> dict | None:
+    """单只基金完整评分 (Step7, 方案 §7.3)。
+    整合 dims + mgr + kelly + market_adjustment + final_suggestion。
+
+    Args:
+      conn: DB 连接
+      fund_code: 基金代码
+      benchmark: 基准指数 id (None 自动从 fund_basic.benchmark/tracking_target 解析)
+    Returns: dict 对应 fund_score 表一行字段, 或 None(数据严重不足无法评)
+    """
+    # 取 fund_basic
+    basic = conn.execute(
+        "SELECT fund_name, fund_type, benchmark as bench_text, tracking_target, scale "
+        "FROM fund_basic WHERE fund_code=?", (fund_code,)
+    ).fetchone()
+    if not basic:
+        return None
+    # 基准解析
+    if benchmark is None:
+        benchmark = _pick_benchmark(basic["bench_text"], basic["tracking_target"])
+
+    # 算基准3年累计收益率 (D1 超额用)
+    bench_returns_3y = None
+    try:
+        start_d = (dt.date.today() - dt.timedelta(days=365 * 3 + 30)).strftime("%Y%m%d")
+        bench_rows = conn.execute(
+            "SELECT date, close, pct_change FROM fund_index_daily "
+            "WHERE index_id=? AND date>=? AND close IS NOT NULL ORDER BY date",
+            (benchmark, start_d)
+        ).fetchall()
+        if len(bench_rows) >= 100:
+            first_close = float(bench_rows[0]["close"])
+            last_close = float(bench_rows[-1]["close"])
+            if first_close > 0:
+                bench_returns_3y = (last_close / first_close - 1) * 100
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 6维度 + data_completeness
+    dims, completeness = _compute_dimension_scores(
+        conn, fund_code, benchmark=benchmark, bench_returns_3y=bench_returns_3y)
+    # 经理6维
+    mgr = _compute_manager_score(conn, fund_code)
+    # 半凯利
+    kelly = _compute_kelly_inputs(fund_code)
+    # 综合分 + 星级
+    composite, star = _compute_composite_score(dims, completeness)
+    if composite is None:
+        return None  # 6维全缺无法评分
+
+    # 市场乘数 + 最终建议
+    market_adj = _get_market_adjustment()
+    half_kelly = kelly["half_kelly_position"] if kelly else 0.0
+    final_suggestion = round(half_kelly * market_adj, 2)
+    final_suggestion = max(0.0, min(90.0, final_suggestion))
+
+    # 风险指标原始值 (3y)
+    risk_row = conn.execute(
+        "SELECT sharpe, sortino, calmar, information_ratio, alpha "
+        "FROM fund_risk_indicator WHERE fund_code=? AND period='3y' LIMIT 1",
+        (fund_code,)
+    ).fetchone()
+    if risk_row is None or risk_row["sharpe"] is None:
+        # 用 _compute_risk_from_nav 现算补
+        calc = _compute_risk_from_nav(fund_code, "3y", benchmark=benchmark)
+        if calc:
+            sharpe_v = calc["sharpe"]
+            sortino_v = calc["sortino"]
+            calmar_v = calc["calmar"]
+            ir_v = calc["information_ratio"]
+            alpha_v = calc["alpha"]
+        else:
+            sharpe_v = sortino_v = calmar_v = ir_v = alpha_v = None
+    else:
+        sharpe_v = _safe_float(risk_row["sharpe"])
+        sortino_v = _safe_float(risk_row["sortino"])
+        calmar_v = _safe_float(risk_row["calmar"])
+        ir_v = _safe_float(risk_row["information_ratio"])
+        alpha_v = _safe_float(risk_row["alpha"])
+        # 表里缺 IR/alpha 时也用现算补
+        if ir_v is None or alpha_v is None:
+            calc = _compute_risk_from_nav(fund_code, "3y", benchmark=benchmark)
+            if calc:
+                ir_v = ir_v if ir_v is not None else calc["information_ratio"]
+                alpha_v = alpha_v if alpha_v is not None else calc["alpha"]
+
+    today = dt.date.today().strftime("%Y%m%d")
+    return {
+        "fund_code": fund_code,
+        "score_date": today,
+        "composite_score": composite,
+        "star_rating": star,
+        "score_return": dims["score_return"],
+        "score_risk_adjusted": dims["score_risk_adjusted"],
+        "score_drawdown": dims["score_drawdown"],
+        "score_stability": dims["score_stability"],
+        "score_scale": dims["score_scale"],
+        "score_fee": dims["score_fee"],
+        "sharpe": sharpe_v, "sortino": sortino_v, "calmar": calmar_v,
+        "information_ratio": ir_v, "alpha": alpha_v,
+        "manager_score": mgr["manager_score"],
+        "m1_tenure": mgr["m1_tenure"], "m2_scale": mgr["m2_scale"],
+        "m3_perf_stability": mgr["m3_perf_stability"], "m4_drawdown": mgr["m4_drawdown"],
+        "m5_coherence": mgr["m5_coherence"], "m6_focus": mgr["m6_focus"],
+        "kelly_fraction": kelly["kelly_fraction"] if kelly else None,
+        "half_kelly_position": half_kelly,
+        "kelly_win_rate": kelly["win_rate"] if kelly else None,
+        "kelly_win_loss_ratio": kelly["win_loss_ratio"] if kelly else None,
+        "kelly_tier": kelly["tier"] if kelly else None,
+        "market_adjustment": market_adj,
+        "final_suggestion": final_suggestion,
+        "benchmark": benchmark,
+        "score_method": SCORE_METHOD_VERSION,
+        "data_completeness": round(completeness, 4),
+        "update_date": today,
+    }
+
+
+# ── Step8: 批量评分 + 断点续采 ────────────────────────────────────────────────
+SCORE_PROGRESS_PATH = Path("/tmp/pf-score-progress.json")
+
+
+def _load_score_progress() -> dict:
+    if not SCORE_PROGRESS_PATH.exists():
+        return {"done": [], "fail": [], "total": 0, "score_date": ""}
+    try:
+        return json.loads(SCORE_PROGRESS_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {"done": [], "fail": [], "total": 0, "score_date": ""}
+
+
+def _save_score_progress(prog: dict) -> None:
+    try:
+        SCORE_PROGRESS_PATH.write_text(
+            json.dumps(prog, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        print(f"  [score-progress] WARN 写入失败: {e}", flush=True)
+
+
+def compute_all_scores(top_n: int | None = 2000, benchmark: str | None = None,
+                       resume: bool = True) -> int:
+    """全市场批量评分写入 fund_score 表 (Step8, 方案 §7.3)。
+
+    评分宇宙: 全市场所有基金 (用户决策1, 不排除债基/货基/QDII/指数, 按基金类型分基准)
+    benchmark=None 时逐只从 fund_basic.benchmark/tracking_target 解析
+
+    Args:
+      top_n: 头部N只(按 scale 降序), None=全量27409只
+      benchmark: 统一基准(默认None逐只解析)
+      resume: True 断点续采(从 /tmp/pf-score-progress.json 接着跑)
+    Returns: 写入行数
+    """
+    print(f"[score] compute_all_scores(top_n={top_n}, benchmark={benchmark}, resume={resume})", flush=True)
+    t0 = time.time()
+    conn = get_conn()
+    try:
+        # 选评分宇宙: 全市场所有基金, 按 scale 降序取头部N只 (规模大优先, 用户决策全市场)
+        if top_n:
+            rows = conn.execute(
+                "SELECT fund_code FROM fund_basic "
+                "WHERE fund_code IS NOT NULL "
+                "ORDER BY COALESCE(scale, 0) DESC, fund_code ASC LIMIT ?",
+                (top_n,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT fund_code FROM fund_basic ORDER BY fund_code").fetchall()
+        all_codes = [r[0] for r in rows]
+    finally:
+        conn.close()
+    total = len(all_codes)
+    today = dt.date.today().strftime("%Y%m%d")
+    print(f"[score] 评分宇宙: {total} 只 (top_n={top_n})", flush=True)
+
+    # 断点续采: 同一 score_date 且 resume=True 时跳过已完成的
+    prog = _load_score_progress() if resume else {"done": [], "fail": [], "total": 0, "score_date": ""}
+    if resume and prog.get("score_date") == today and prog.get("total") == total:
+        done_set = set(prog.get("done", []))
+        pending = [c for c in all_codes if c not in done_set]
+        print(f"[score] 断点续采: 已完成 {len(done_set)}/{total}, 待评 {len(pending)}", flush=True)
+    else:
+        done_set = set()
+        pending = list(all_codes)
+        prog = {"done": [], "fail": [], "total": total, "score_date": today}
+
+    BATCH = 50  # 每50只批量 INSERT + 回写进度
+    pending_rows: list[tuple] = []
+    ok = fail = 0
+    conn = get_conn()
+    try:
+        for i, code in enumerate(pending, 1):
+            try:
+                score = _compute_fund_score(conn, code, benchmark=benchmark)
+                if score is None:
+                    fail += 1
+                else:
+                    # 转 INSERT tuple (字段顺序对应 fund_score 表)
+                    pending_rows.append((
+                        score["fund_code"], score["score_date"],
+                        score["composite_score"], score["star_rating"],
+                        score["score_return"], score["score_risk_adjusted"],
+                        score["score_drawdown"], score["score_stability"],
+                        score["score_scale"], score["score_fee"],
+                        score["sharpe"], score["sortino"], score["calmar"],
+                        score["information_ratio"], score["alpha"],
+                        score["manager_score"],
+                        score["m1_tenure"], score["m2_scale"], score["m3_perf_stability"],
+                        score["m4_drawdown"], score["m5_coherence"], score["m6_focus"],
+                        score["kelly_fraction"], score["half_kelly_position"],
+                        score["kelly_win_rate"], score["kelly_win_loss_ratio"],
+                        score["kelly_tier"], score["market_adjustment"],
+                        score["final_suggestion"], score["benchmark"],
+                        score["score_method"], score["data_completeness"],
+                        score["update_date"],
+                    ))
+                    ok += 1
+                    done_set.add(code)
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                if fail <= 5:
+                    print(f"  [score] {code} 异常: {type(e).__name__} {e}", flush=True)
+
+            # 批量 INSERT + 回写进度
+            if len(pending_rows) >= BATCH or i == len(pending):
+                if pending_rows:
+                    conn.executemany(
+                        "INSERT OR REPLACE INTO fund_score"
+                        "(fund_code, score_date, composite_score, star_rating, "
+                        "score_return, score_risk_adjusted, score_drawdown, score_stability, "
+                        "score_scale, score_fee, sharpe, sortino, calmar, "
+                        "information_ratio, alpha, manager_score, "
+                        "m1_tenure, m2_scale, m3_perf_stability, m4_drawdown, "
+                        "m5_coherence, m6_focus, kelly_fraction, half_kelly_position, "
+                        "kelly_win_rate, kelly_win_loss_ratio, kelly_tier, "
+                        "market_adjustment, final_suggestion, benchmark, "
+                        "score_method, data_completeness, update_date) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        pending_rows,
+                    )
+                    conn.commit()
+                    pending_rows = []
+                prog["done"] = sorted(done_set)
+                prog["fail"] = []
+                prog["total"] = total
+                prog["score_date"] = today
+                _save_score_progress(prog)
+                elapsed = time.time() - t0
+                done_count = len(done_set)
+                eta = (elapsed / max(done_count, 1)) * (total - done_count) if done_count > 0 else 0
+                print(f"  [score] {i}/{len(pending)} ({done_count*100/total:.1f}%) "
+                      f"ok={ok} fail={fail} elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+    finally:
+        conn.close()
+    print(f"[score] 完成: ok={ok} fail={fail} total={total} 耗时={time.time()-t0:.0f}s", flush=True)
+    return ok
+
+
 def universe_top_funds(n: int = QUARTERLY_TOP_N, conn=None) -> list[tuple[str, str, str]]:
     """头部基金清单: 优先按 fund_basic 选, 当前实现按 fund_code 升序前 n 只（排除指数股票型）。
 

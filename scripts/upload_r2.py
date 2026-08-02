@@ -447,6 +447,21 @@ def cmd_upload_offshore_fund():
         sys.exit(1)
 
 
+def cmd_upload_fund_score():
+    """上传 static-site/data/fund_score*.json + .gz 到 R2 fund_score/ 前缀。
+
+    阶段1 评分引擎(2026-07-20 新增): fund_score.json(头部2000) + fund_score_top.json(Top100)。
+    按类别走 R2(§8.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
+    """
+    data_dir = STATIC_DIR / "data"
+    ok, total, _ = _upload_glob(data_dir, ["fund_score*.json", "fund_score*.json.gz"], "fund_score")
+    if total == 0:
+        print(f"⚠ 无 fund_score json: {data_dir}/fund_score*.json")
+        return
+    if ok != total:
+        sys.exit(1)
+
+
 def cmd_upload_data_large():
     """上传 static-site/data/ 顶层 >1MB 的 .json + .gz 到 R2 data/ 前缀。
 
@@ -462,8 +477,8 @@ def cmd_upload_data_large():
     """
     data_dir = STATIC_DIR / "data"
     LARGE_THRESHOLD = 1 * 1024 * 1024  # 1MB
-    # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund 由各自命令处理）
-    exclude_prefixes = ("industry-", "public_fund", "offshore_fund")
+    # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund/fund_score 由各自命令处理）
+    exclude_prefixes = ("industry-", "public_fund", "offshore_fund", "fund_score")
     files = []
     for f in sorted(data_dir.glob("*.json")):
         if any(f.name.startswith(p) for p in exclude_prefixes):
@@ -734,6 +749,8 @@ if __name__ == "__main__":
         cmd_upload_public_fund()
     elif cmd == "upload-offshore-fund":
         cmd_upload_offshore_fund()
+    elif cmd == "upload-fund-score":
+        cmd_upload_fund_score()
     elif cmd == "upload-data-large":
         cmd_upload_data_large()
     elif cmd == "upload-db":
@@ -755,6 +772,6 @@ if __name__ == "__main__":
         sys.exit(
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
-            "upload-offshore-fund|upload-data-large|upload-db|"
+            "upload-offshore-fund|upload-fund-score|upload-data-large|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup]"
         )

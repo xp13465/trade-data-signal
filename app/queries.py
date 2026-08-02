@@ -1485,6 +1485,95 @@ def public_fund_sw_industry_alloc():
         conn.close()
 
 
+def public_fund_score(top_n: int = 100):
+    """阶段1: 公募基金综合评分头部N只(按综合分降序)。
+    独立计算(不走 export_data 7元组), 复用 fund_score 表(由 compute_all_scores 写入)。
+    返回 {date, count, method, data:[{fund_code, fund_name, fund_type, composite_score,
+    star_rating, score_return, ..., half_kelly_position, final_suggestion, ...}]}。
+    """
+    import sqlite3
+    from .collector.public_fund import DB_PATH, SCORE_METHOD_VERSION
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT MAX(score_date) as latest FROM fund_score"
+        ).fetchone()
+        latest = row["latest"]
+        if not latest:
+            return {"date": None, "count": 0, "method": SCORE_METHOD_VERSION, "data": []}
+        rows = conn.execute(
+            "SELECT s.fund_code, b.fund_name, b.fund_type, "
+            "s.composite_score, s.star_rating, "
+            "s.score_return, s.score_risk_adjusted, s.score_drawdown, "
+            "s.score_stability, s.score_scale, s.score_fee, "
+            "s.sharpe, s.sortino, s.calmar, s.information_ratio, s.alpha, "
+            "s.manager_score, s.m1_tenure, s.m2_scale, s.m3_perf_stability, "
+            "s.m4_drawdown, s.m5_coherence, s.m6_focus, "
+            "s.kelly_fraction, s.half_kelly_position, s.kelly_win_rate, "
+            "s.kelly_win_loss_ratio, s.kelly_tier, s.market_adjustment, "
+            "s.final_suggestion, s.benchmark, s.data_completeness, s.update_date "
+            "FROM fund_score s LEFT JOIN fund_basic b ON s.fund_code=b.fund_code "
+            "WHERE s.score_date=? AND s.composite_score IS NOT NULL "
+            "ORDER BY s.composite_score DESC LIMIT ?",
+            (latest, top_n)
+        ).fetchall()
+        data = []
+        for r in rows:
+            d = {}
+            for k in r.keys():
+                v = r[k]
+                d[k] = v if v != "" else None
+            data.append(d)
+        return {"date": latest, "count": len(data), "method": SCORE_METHOD_VERSION, "data": data}
+    finally:
+        conn.close()
+
+
+def public_fund_score_detail(fund_code: str):
+    """阶段1: 单只基金评分详情(6维度+5指标+经理6维+凯利+市场乘数完整字段)。
+    返回 {fund_code, fund_name, fund_type, composite_score, star_rating, ...} 或
+    {error: 'fund_score 表无此基金评分'}。
+    """
+    import sqlite3
+    from .collector.public_fund import DB_PATH, _compute_fund_score, get_conn
+    # 优先读 fund_score 表(已评分), 没有则现算
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT s.*, b.fund_name, b.fund_type FROM fund_score s "
+            "LEFT JOIN fund_basic b ON s.fund_code=b.fund_code "
+            "WHERE s.fund_code=? ORDER BY s.score_date DESC LIMIT 1",
+            (fund_code,)
+        ).fetchone()
+        if row:
+            d = {}
+            for k in row.keys():
+                v = row[k]
+                d[k] = v if v != "" else None
+            return d
+    finally:
+        conn.close()
+    # 表里无, 现算一次(单只~0.1s, 不写表)
+    conn = get_conn()
+    try:
+        score = _compute_fund_score(conn, fund_code)
+        if score is None:
+            return {"error": f"基金 {fund_code} 无 fund_basic 记录或数据严重不足无法评分"}
+        # 补 fund_name/fund_type
+        from .collector.public_fund import _safe_float
+        basic = conn.execute(
+            "SELECT fund_name, fund_type FROM fund_basic WHERE fund_code=?",
+            (fund_code,)
+        ).fetchone()
+        score["fund_name"] = basic["fund_name"] if basic else None
+        score["fund_type"] = basic["fund_type"] if basic else None
+        return score
+    finally:
+        conn.close()
+
+
 def position():
     """大盘位置感：8 个 A 股指数的 1年/3年/5年分位 + 标签。"""
     from .compute.position import compute_position
