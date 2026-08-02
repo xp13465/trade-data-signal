@@ -10357,7 +10357,11 @@ async function renderPublicFund(container) {
   const _renderIndBar = (mode) => {
     const bar = _buildBarData(mode);
     indChart.setOption({
-      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: (p) => {
+      // 移动端超屏修复(2026-08-02): 本图直接 setOption 没走 withTheme(),全局 chartThemeOpts() L155-156 的
+      // confine:true + extraCssText max-width 没合并进来,致移动端窄屏(375px)点击柱状条 tooltip 超屏看不全。
+      // 手动补 confine:true(限制 tooltip 在 .pf-ind-bar 容器 343px x 360px 内不超屏)
+      // + extraCssText max-width(300px 封顶小于容器 343px 留余量, 82vw 窄屏兜底, 强制换行防长中文撑宽)。
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, confine: true, extraCssText: "max-width: min(300px, 82vw); white-space: normal; overflow-wrap: anywhere; word-break: break-word;", formatter: (p) => {
         const d = p[0].data;  // series data object, 跟随 .reverse() 后显示顺序, 避免 indData[dataIndex] 用原始降序错位
         // 方案C bug 修复: d.value 随 mode 变(柱子长度), tooltip 用 d.totalWeight(恒定权重和) 算占比/平均权重
         // 制造业子行业(breakdown) tooltip 特殊: 显示"基于重仓股拆分"说明
