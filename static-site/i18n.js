@@ -78,7 +78,7 @@
       legend_band_hold: "持有(国债)",
       legend_sell: "趋势转弱(风险)",
       position_reduce_prefix: "调整",
-      position_stop_loss_clear: "风控清仓",
+      position_stop_loss_clear: "风控退出",
       sig_meta_stop_loss_name: "风控|警示 · ATR风控",
       sig_meta_stop_loss_label: "风控警示",
       weak_no_buypoint: "暂无优质关注点优选",
@@ -207,7 +207,7 @@
 
   // trade_sim entry.op 动态文本合规化（与 simulate_trade.py _ts_text_compliance 对齐）
   // JSON 保留原词（_BUY_LABELS: 主买/辅买/追买/备买/卖/追止损卖/清仓卖出 等），显示侧按 mode 转换
-  // off mode 原样返回（切回原版买卖点）；on mode 按长度降序替换，风控清仓复合词用占位符保护
+  // off mode 原样返回（切回原版买卖点）；on mode 按长度降序替换，风控退出复合词用占位符保护
   var _TS_COMPLIANCE_MAP = [
     ["止损清仓卖出", "风控\x01CLEARED\x01"],
     ["止损清仓", "风控\x01CLEARED\x01"],
@@ -229,6 +229,7 @@
     ["可卖", "可退"],
     ["买入", "关注"],
     ["止损", "风控"],
+    ["风控清仓", "风控\x01CLEARED\x01"],
     ["清仓", "防范"],
     ["止盈", "收益兑现"],
     ["买", "关注"],
@@ -240,8 +241,8 @@
     for (var i = 0; i < _TS_COMPLIANCE_MAP.length; i++) {
       out = out.split(_TS_COMPLIANCE_MAP[i][0]).join(_TS_COMPLIANCE_MAP[i][1]);
     }
-    // 还原占位符 -> 清仓（"风控清仓"合规复合词保留清仓，与 i18n.js position_stop_loss_clear 对齐）
-    return out.split("\x01CLEARED\x01").join("清仓");
+    // 还原占位符 -> 退出（"风控退出"合规复合词，与 i18n.js position_stop_loss_clear 对齐）
+    return out.split("\x01CLEARED\x01").join("退出");
   };
 
   window._t = _t;

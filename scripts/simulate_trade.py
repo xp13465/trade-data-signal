@@ -73,8 +73,8 @@ _BUY_LABELS = {"buy": "主买", "buy_aux": "辅买", "buy_special": "追买", "b
 # JSON 保留原词（app.js L14999 entry.op 匹配 + off 切回需原版数据），HTML 显示时调 _ts_text_compliance
 _TS_COMPLIANCE_MAP = [
     # 操作标签复合（最长优先）
-    # ⚠️ "风控清仓" 是合规复合词（与 i18n.js position_stop_loss_clear 对齐），
-    # 用 \x01CLEARED\x01 占位符保护其中的"清仓"不被后续 catch-all("清仓"->"防范") 误替换
+    # ⚠️ "风控退出" 是合规复合词（与 i18n.js position_stop_loss_clear 对齐），
+    # 用 \x01CLEARED\x01 占位符标记还原点（最终还原为"退出"，避开 catch-all 误替换）
     ("止损清仓卖出", "风控\x01CLEARED\x01"),
     ("止损清仓", "风控\x01CLEARED\x01"),
     ("止损卖出", "风控"),
@@ -98,6 +98,7 @@ _TS_COMPLIANCE_MAP = [
     ("可卖", "可退"),
     ("买入", "关注"),
     ("止损", "风控"),
+    ("风控清仓", "风控\x01CLEARED\x01"),
     ("清仓", "防范"),
     ("止盈", "收益兑现"),
     # 单字兜底（最后处理）
@@ -115,8 +116,8 @@ def _ts_text_compliance(text):
     """
     for bad, good in _TS_COMPLIANCE_MAP:
         text = text.replace(bad, good)
-    # 还原占位符 -> 清仓（"风控清仓"合规复合词保留清仓，与 i18n.js 对齐）
-    return text.replace("\x01CLEARED\x01", "清仓")
+    # 还原占位符 -> 退出（"风控退出"合规复合词，与 i18n.js position_stop_loss_clear 对齐）
+    return text.replace("\x01CLEARED\x01", "退出")
 
 
 def _compute_w_start(last_date, years):
