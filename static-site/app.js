@@ -9632,6 +9632,7 @@ async function renderPublicFund(container) {
 .pf-bt-head{font-size:13px;font-weight:700;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border-light,var(--border));}
 .pf-bt-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--text-3);padding:3px 0;}
 .pf-bt-row b{color:var(--text-1);font-weight:600;font-variant-numeric:tabular-nums;}
+.pf-bt-time{color:var(--text-3);font-size:11px;font-weight:400;margin-left:6px;white-space:nowrap;}
 .pf-bt-note{margin-top:8px;padding:6px 10px;background:var(--bg-hover);border-radius:4px;font-size:11px;color:var(--text-3);line-height:1.5;}
 /* N功能: 多信号共振仪表盘 */
 .pf-nf-card{margin-bottom:12px;}
@@ -10020,6 +10021,8 @@ async function renderPublicFund(container) {
     const _retFmt = (v) => (v == null ? "-" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
     const _retColor = (v) => (v == null ? "var(--text-3)" : v > 0 ? "#e6492e" : v < 0 ? "#2e8b57" : "var(--text-3)");
     const _zoneColor = _cur.zone === "88魔咒" ? "#e6492e" : _cur.zone === "80抄底" ? "#2e8b57" : "#ff9800";
+    // 时效标注: 把 "2026-07-24" 格式化成 "07/24" 供每行小字标注数据时点(当前仓位/历史分位/沪深300收盘用 _cur.date lg周频; 今日预估用 _estCur.date 当日实时)
+    const _fmtMd = (s) => { if (!s) return ""; const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s); return m ? `${m[2]}/${m[3]}` : s; };
     const btCard = document.createElement("div");
     btCard.className = "chart-card pf-backtest-card";
     btCard.innerHTML = `
@@ -10043,11 +10046,11 @@ async function renderPublicFund(container) {
         </div>
         <div class="pf-bt-section pf-bt-current">
           <div class="pf-bt-head" style="color:${_zoneColor}">📍 当前状态（${_cur.date || "-"}）</div>
-          <div class="pf-bt-row"><span>当前仓位</span><b style="color:${_zoneColor}">${_cur.position != null ? _cur.position.toFixed(2) + "%" : "-"}</b></div>
-          <div class="pf-bt-row"><span>今日预估</span><b style="color:#ff9800">${_estCur && _estCur.position_estimate != null ? _estCur.position_estimate.toFixed(2) + "%" : "-"}</b></div>
-          <div class="pf-bt-row"><span>所处区间</span><b style="color:${_zoneColor}">${_cur.zone || "-"}</b></div>
-          <div class="pf-bt-row"><span>历史分位</span><b>${_pctFmt(_cur.percentile)}</b></div>
-          <div class="pf-bt-row"><span>沪深300收盘</span><b>${_cur.close != null ? _cur.close.toFixed(2) : "-"}</b></div>
+          <div class="pf-bt-row"><span>当前仓位</span><b style="color:${_zoneColor}">${_cur.position != null ? _cur.position.toFixed(2) + "%" : "-"}<small class="pf-bt-time">·lg周频 ${_fmtMd(_cur.date)}</small></b></div>
+          <div class="pf-bt-row"><span>今日预估</span><b style="color:#ff9800">${_estCur && _estCur.position_estimate != null ? _estCur.position_estimate.toFixed(2) + `%<small class="pf-bt-time">·今日实时${_estCur.date ? " " + _fmtMd(_estCur.date) : ""}</small>` : "-"}</b></div>
+          <div class="pf-bt-row"><span>所处区间</span><b style="color:${_zoneColor}">${_cur.zone || "-"}<small class="pf-bt-time">·同仓位 ${_fmtMd(_cur.date)}</small></b></div>
+          <div class="pf-bt-row"><span>历史分位</span><b>${_pctFmt(_cur.percentile)}<small class="pf-bt-time">·截至 ${_fmtMd(_cur.date)}</small></b></div>
+          <div class="pf-bt-row"><span>沪深300收盘</span><b>${_cur.close != null ? _cur.close.toFixed(2) : "-"}<small class="pf-bt-time">·${_fmtMd(_cur.date)}收盘</small></b></div>
         </div>
       </div>
       <div class="pf-bt-note"><span style="color:#e6492e;font-size:14px;vertical-align:middle">●</span> 红色水滴标记 = 历史仓位 Top5 高点(88 魔咒触发点) · <span style="color:#2e8b57;font-size:14px;vertical-align:middle">●</span> 绿色水滴标记 = Top5 低点(80 抄底信号点) · 胜率=触发后 30 天沪深300下跌(88)/上涨(80)占比</div>
