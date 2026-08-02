@@ -6412,11 +6412,30 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **3. 88魔咒每行时效标注（commit 229686b3，ui95已上线，前序工作）**
 - app.js L10049-10053 5行时效标注(当前仓位·lg周频/今日预估·今日实时/所处区间·同仓位/历史分位·截至/沪深300收盘·收盘)
 
+**4. stage0全量launchd调度挂载实施（2026-08-02，commit 待补）**
+- 背景：AZ121 第1点 L6401 原计划"全量采集挂凌晨launchd自动跑"，但 stage0-daily(22s) 已跟 update_all.sh 跑，overview(6.2h)/nav(5年)/risk(4.5h)/manager(3h) 4 个全量命令未挂 launchd 不会自动跑，本次补挂
+- 4 个 shell wrapper 脚本（scripts/ 目录，trade 仓库）：
+  - `scripts/stage0_overview.sh` → `python -m app.collector.public_fund stage0-overview`（fund_overview_em 全量补 fund_basic 15 新列，~6.2h）
+  - `scripts/stage0_nav.sh` → `stage0-nav --days 1825`（5 年净值 27409 只分批断点续采，可中断续跑累计完成）
+  - `scripts/stage0_risk.sh` → `stage0-risk`（季报后 risk_indicator+fee_detail，~4.5h；脚本内 case 判断只有 1/4/7/10 月才真跑，其他月份 exit 0）
+  - `scripts/stage0_manager.sh` → `stage0-manager`（自爬 fundf10 补任职历史，~3h）
+- 4 脚本统一结构：`set -uo pipefail` + `caffeinate -i -w $$` 防休眠（长任务必须）+ `cd trade-data` + Python 一行式 fcntl.flock 互斥锁（/tmp/stage0-*.lock，非阻塞持不到=跳过 exit 0）+ 日志 append 到 `data/logs/stage0-*.log`；双层互斥（shell fcntl + python 内 `_acquire_lock` public_fund.lock 共用防撞 quarterly/full/daily）
+- 4 个 launchd plist（~/Library/LaunchAgents/com.trade.pf-stage0-*.plist，不进 git）：
+  - `pf-stage0-overview`：Weekday 0（周日）02:17，ExitTimeOut 25200（7h）
+  - `pf-stage0-nav`：Weekday 5（周五）01:43，ExitTimeOut 21600（6h；周五凌晨市场关闭净值不变，断点续采可多次跑累计完成）
+  - `pf-stage0-risk`：Day 15 02:33，ExitTimeOut 18000（5h；launchd 每月15日触发，脚本内判断季度月）
+  - `pf-stage0-manager`：Day 1 02:47，ExitTimeOut 12600（3.5h）
+- 调度策略：非整点错峰（02:17/01:43/02:33/02:47 避开集群拥堵）+ 避开 update_all 17:50 + 避开盘中 09:30-15:30 + 避开 intraday-snapshot 每10min 推 main 时点；RunAtLoad=false（不立即跑，长任务）
+- plist 结构参考 com.trade.public-fund-full.plist：EnvironmentVariables(GIT_REPO/PATH/REPO) + ProgramArguments(/bin/bash 脚本) + WorkingDirectory(trade-data) + StandardOut/ErrorPath(data/logs/stage0-*-launchd.log)
+- launchctl load 4 任务全部 loaded（状态 0 待调度），`launchctl list | grep pf-stage0` 可见 4 条
+- ⚠️ 已知偏差：AZ121 L6401 原文写"全量采集挂凌晨launchd自动跑"，但截至本次实施前只有 stage0-daily 跟 update_all.sh 跑，4 全量命令未挂；本次补挂后该描述才真正成立
+
 **关键文件**
 - app/collector/public_fund.py（阶段0 schema+7fetcher+CLI）
 - scripts/export_offshore_fund.py（7 JSON导出）
 - scripts/upload_r2.py（upload-offshore-fund命令）
 - scripts/update_all.sh L129-141（调度接入）
+- scripts/stage0_overview.sh / stage0_nav.sh / stage0_risk.sh / stage0_manager.sh（stage0 全量4任务 launchd wrapper，2026-08-02 新增）
 - app/export_etf_score_list.py（ETF评分弹窗后端补导出7字段）
 - app/alert_reason.py L213（history_analogy bug修复）
 - static-site/app.js L9905-9908/L9784/L10049-10053/L13574/L13806/L13812（4件实施前端）

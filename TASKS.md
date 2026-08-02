@@ -30,7 +30,12 @@
 - 阶段1评分引擎：C调研综合分公式(6维度加权)+风险调整5指标+经理稳健度6维+半凯利仓位
 - 阶段2前端UI：场外基金tab
 - 阶段3场内外联动：ETF联接跟踪误差
-- 全量采集挂凌晨launchd自动跑(27409只: stage0-overview 6.2h/stage0-risk 4.5h/stage0-manager 3h/stage0-nav 5年)
+- ✅ 全量采集挂凌晨launchd自动跑(2026-08-02 完成,27409只 4任务)
+  - pf-stage0-overview: 周日02:17 stage0-overview(~6.2h补fund_basic 15新列) scripts/stage0_overview.sh
+  - pf-stage0-nav: 周五01:43 stage0-nav --days 1825(5年净值断点续采) scripts/stage0_nav.sh
+  - pf-stage0-risk: 每月15日02:33 stage0-risk(~4.5h,脚本判断1/4/7/10月才跑) scripts/stage0_risk.sh
+  - pf-stage0-manager: 每月1日02:47 stage0-manager(~3h补经理任职历史) scripts/stage0_manager.sh
+  - 4脚本fcntl互斥锁+caffeinate防休眠+双层锁(shell fcntl+python _acquire_lock),4 plist已launchctl load
 
 **2026-08-03 公募基金7块工作(ui81-ui85已上线+预估仓位每日闭环待8/3收盘后验证)**:本次会话7块工作落档 NOTES §48 AZ106-AZ112(前4块 AZ106-AZ109 上一段落档,本次补 AZ110-AZ112 最后3块):
 1. **ui81 行业配置口径切换+❓介绍**(`1d11bf14` 已上线):用户疑问"制造业占比57%为什么这么大/制造业算行业吗/制造业里有通信外面也有通信服务"。解惑:fund_industry_alloc.industry_name 是多套口径混合(证监会CSRC门类+GICS大类)非股票申万一级;制造业是证监会门类(19大门类之一)非行业占比大是口径粗;"通信"(制造业子项通信设备制造)vs"通信服务"(GICS独立大类通信运营)不同东西。实施纯前端app.js:IND_CLASSIFICATION映射(16 CSRC+8 GICS+3 both)+三档切换(全部/证监会/GICS)+❓弹窗(pfIndHelpBtn双口径来源+制造业占比大原因+通信vs通信服务区别)。terser mangle常量名,线上验证用字符串字面量pfIndHelpBtn/data-ind-class非源码名。详见NOTES §48 AZ106。
