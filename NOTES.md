@@ -6440,4 +6440,109 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 - app/alert_reason.py L213（history_analogy bug修复）
 - static-site/app.js L9905-9908/L9784/L10049-10053/L13574/L13806/L13812（4件实施前端）
 
+### AZ122 - 2026-08-02 留言箱功能方案 + 板块分化移位方案（待实施）
+
+**1. 留言箱功能方案（用户提，完整构思+实现方案，待实施）**
+- 功能定位：收集用户需求/建议/bug/数据纠错，作为后续完善方向输入。轻量低维护防滥用有参与感（建议上墙）
+- 架构（复用订阅C方案，零新架构）：CF Workers Function（worker/headers.js 已有 Worker `run_worker_first:true`）+ KV namespace（新建 FEEDBACK_KV 仿 SUBSCRIBE_KV）+ secret（FEEDBACK_ADMIN_PASSWORD 仿 SUBSCRIBE_PASSWORD）+ MailChannels API（CF Workers 免费内置发邮件，不依赖本地 notify.py 线上跑不到）
+- 关键约束澄清：调研 agent 漏读 wrangler.jsonc 误报"线上纯静态站无后端收POST必须外链或大改"，主控实测 wrangler.jsonc 已有 Worker+KV+secret 先例（订阅C方案 `SUBSCRIBE_KV`+`SUBSCRIBE_PASSWORD`），留言箱零架构改动复用
+- 数据模型（KV）：key=`fb:{YYYYMMDD}:{uuid8}`，value={nickname, contact, category(需求/建议/bug/数据纠错/其他), content(50-2000字), page_url, ua, ip_hash(SHA256+salt前16位), status(pending/approved/rejected), created_at}
+- API（worker/headers.js 加路由）：POST /api/feedback（公开+频控提交，写pending+MailChannels通知） / GET /api/feedback/list（公开拉approved上墙） / GET /api/feedback/admin（密码拉全含pending） / POST /api/feedback/admin/{id}（审核approve/reject） / DELETE（删除）
+- 前端UI：右下角浮动按钮📬（不占1级tab，6个已满H5底部刚够）+页脚链接；留言弹窗（昵称/联系/分类/内容/URL自动填充只读）；留言墙（已审核分类筛选最新N条）；管理员审核页 static-site/admin/feedback.html（密码登录+pending列表+approve/reject）
+- 防滥用四层：频控（KV `rate:{ip_hash}:{10min窗口}` 同IP 10min≤1条）+ honeypot（隐藏website字段人填了=机器人丢弃）+ 内容约束（50-2000字+分类必选+IP hash不存原IP）+ 审核闸门（pending默认不上墙管理员审核后才展示）
+- 邮件通知：Worker 内 fetch `https://api.mailchannels.net/tx/v1/send` 发管理员邮箱；备选 launchd 定时拉 KV pending 汇总发邮件
+- 工作量：~550行（worker 180+前端 250+审核页 120），~1.5天
+- 上线步骤：`wrangler kv namespace create FEEDBACK_KV` + `wrangler secret put FEEDBACK_ADMIN_PASSWORD` + worker 加路由 + 前端浮动按钮弹窗留言墙 + admin 审核页 + build_min+bump_asset_version+bump sw CACHE_VERSION + deploy + 3域名验证提交审核上墙闭环
+
+**2. 板块分化移位方案（用户提，征询命名，待拍板实施）**
+- 用户判断：板块分化1级tab本质是指数表现的一种（板块的），移到指数表现下做二级tab放A股港股中间
+- 调研确认：industry 是第4个1级tab（index.html L102 PC + L143 H5 + `_H5_TAB_NAMES` L14504），renderIndustry() L13208 不接收 container 参数（用全局 content），market 二级tab机制现成（`_MARKET_SUBTABS=["a-stock","hk","global"]` L16400，renderMarket L7818 subtab-bar 模板）
+- 数据同质：industry 数据 `industry-${range}.json`（申万行业指数+概念板块指数）vs market 数据 a-stock/hk/global，不同源但同质（都是指数类，申万行业也是指数有 pct_change/ohlc/买卖点）。用户判断成立
+- 移位9处改动：①`_MARKET_SUBTABS` L16400 加 `industry` 放 a-stock/hk 间 ②renderMarket L7826 subtabs 数组加 `["industry","板块分化"]` ③L7854 加 `else if industry 调 renderIndustry(subContent)` ④renderIndustry L13208 加 container 参数（仿 renderAStock(container) L8938）函数体10+处 content 改 container ⑤index.html L102 删 PC industry 按钮 ⑥L143 删 H5 industry 按钮 ⑦`_H5_TAB_NAMES` L14504 删 industry ⑧renderTab 主路由 L4189 删 industry 分支（或保留兼容旧hash redirect）⑨state.tab 校验 L103 删 industry 分支
+- 命名推荐：保留"板块分化"不换名。理由：①用户已叫熟 ②"分化"二字点出核心价值（板块间涨跌分化程度，区别于A股/港股/全球宽基指数列表）③备选"行业板块"更并列但丢差异化卖点 ④tab key `industry` 保留（换key动更多处无收益）
+- 副作用处理：renderIndustry 130+行 10+处 content 引用需逐行改 container 漏一处渲染错位；旧 `#industry` 直链失效（保留兼容分支 redirect 到 `#market/industry`）；搜索框 `state.industrySearch` 切 subtab 时消失（subtab 重渲染可接受）；1级tab 6->5 H5 底部自动重排
+- 主控推荐：移位 + 保留"板块分化"名，等用户拍板派实施 agent
+
+**关键文件**
+- wrangler.jsonc（已有 Worker+KV+secret 先例，留言箱复用基础）
+- worker/headers.js（留言箱加 /api/feedback* 路由）
+- app/main.py L248/L350/L406（写库端点模式参考，POST /api/manual + /api/subscribe + DELETE）
+- scripts/notify.py L243/L258（邮件通知参考，但线上 Worker 用 MailChannels 非本地 notify）
+- static-site/app.js L16400（_MARKET_SUBTABS）/ L7818（renderMarket）/ L13208（renderIndustry）/ L4189（renderTab 主路由）/ L14504（_H5_TAB_NAMES）
+- static-site/index.html L102/L143（1级 tab 按钮）
+
+### AZ123 - 2026-08-02 全站敏感合规词替换 + 🛡️ 按钮切换方案（调研完成，待实施）
+
+**需求**：全站"买点/卖点/强买入/强卖出/减仓/清仓/抄底/逃顶/止损/止盈"等敏感合规词，默认显示合规版（游客/巡查机器人/搜索引擎看合规词），信任用户可点 🛡️ 按钮切回原版（买卖点壮观易懂）。开关放皮肤切换旁。调研6维度完整报告存 /tmp/agent-progress-compliance-research.md。
+
+**Step1 敏感词全量盘点**（static-site/ grep）：买点93/卖点118/买入1076/卖出2162/强买4/强卖3/加仓20/减仓80/清仓804/建仓2/止盈35/止损425/抄底17/逃顶0；二级：信号770(泛用不全改)/预警44(中性保留)/推荐36/建议买入2。按文件：app.js 260命中(114注释+146字符串必改)/lab.js 102(19注释+83字符串必改)/about.html 60处(静态爬虫直看)/trade_sim.html×7 共~3800处(2.5MB静态预渲染爬虫直看)/common.js 4/purpose-notes.js 5/index.html 2个"荐股"是"不荐股"声明保留
+
+**Step2 合规词映射表**（复用 app/alert_reason.py:77-82 已验证映射 _FORBIDDEN_REPLACE + L85-89 _filter_forbidden + L11 中性白名单）：
+- 买点->关注点 | 买入->关注低位机会 | 强买入->重点留意 | 买入机会->关注机会 | 买入榜->关注榜 | 买点X手->关注(X档)
+- 卖点->风险提示点 | 卖出->留意高位预警 | 强卖出->重点规避 | 卖出信号->风险提示信号 | 卖出榜->风险提示榜
+- 减仓->逢高谨慎 | 清仓->防范风险 | 加仓->逢低关注 | 抄底->关注超跌反弹 | 止损->风险控制 | 止盈->收益兑现
+- 推荐->优选 | 88魔咒->保留(专有名词27处+已配免责) | 追止损|卖->风控|警示 | 波段减仓->波段调整 | 波段止损->波段风控
+- 图表 markPoint label（6处labels对象 L2470/2641/3610/12489 + _SIG_TYPE_META L1265 + _SIG_DETAIL L1678 + signalLabel L380 + ETF5档 L13395）：合规版 {buy:"关注", sell:"风险", buy_aux:"辅关注", buy_special:"追关注", buy_backup:"备关注", sell_stop_loss:"风控", band_hold:"持有"}
+- 声明白名单不可替换：index.html L130/L150 + about.html L7/L62/L73/L102/L569 的"不荐股"声明
+
+**Step3 切换机制3方案对比 + 推荐方案B**：
+- 关键前提：本站 CF Workers Static Assets 纯静态无 SSR，爬虫抓 HTML 源码非渲染 DOM。CSS 隐藏(方案A)对爬虫无效--"买点"仍在源码
+- 方案A CSS class 切换：HTML 两套文案 class 控制显隐。✗ 源码两套都在爬虫看原词，不推荐
+- **方案B JS文案替换+localStorage ★推荐**：源码(app.js/lab.js)默认合规词(_t(key)+compliance字典) + localStorage compliance_mode=on(默认)/off + off时JS切original字典重渲染 + 静态HTML手改合规词 + 后端reason字段保留原词(爬虫不直接看JSON)。✓ 唯一满足"爬虫看合规版"核心需求
+- 方案C 双JSON产物：后端生成compliance/original两套JSON。✗ 字段名buy_list/sell_list是前后端契约改名牵连太大，不推荐作主方案
+
+**Step4 开关UI**（复用 applyTheme L16024-16060 模式）：PC index.html L87 + H5 L94 皮肤按钮旁加 `<button class="compliance-btn">🛡️</button>`；applyCompliance(mode) 设 data-compliance 属性 + localStorage compliance_mode + _t.setMode(mode) 切字典 + rAF 重渲染当前tab(参考 rethemeCharts L200-282)；防闪烁 inline script 同步读 compliance_mode 默认 on；on 态高亮 off 态灰
+
+**Step5 影响面**：①app.js 25-30渲染区域146字符串行改_t() ②lab.js 83字符串行 ③about.html 60处手改 ④trade_sim.html×7改 scripts/simulate_trade.py:31 重生 ⑤common.js 4+purpose-notes.js 5 ⑥export JSON字段名(buy_list/sell_list/sell_signal/hands)保留前后端契约不改 ⑦后端reason字段(signals.py L225/232)保留原词前端解析正则不变 ⑧邮件/通知文案(export_notifications.py L8-9/61 + daily_summary_email.py L199/202/283/362)复用 _filter_forbidden ⑨SW缓存必bump CACHE_VERSION
+
+**Step6 工作量+落地+风险**：
+- 工作量约7-8天（含测试）：i18n.js基础设施0.5天 + app.js 146行2-3天 + lab.js 83行1天 + about.html 0.5天 + common/purpose-notes 0.2天 + simulate_trade.py+7HTML 0.5天 + 开关UI 1天 + 邮件复用0.3天 + build/bump 0.1天 + 测试1.5天
+- 落地11步：先建i18n.js基础设施 -> 改app.js集中点(6labels+signalLabel+_SIG_DETAIL+ETF5档) -> 改app.js分散点(通知/规则说明/ETF明细/88魔咒) -> 改lab.js -> 改about.html -> 改simulate_trade.py重生7HTML -> 改common/purpose-notes -> 加开关UI -> 邮件复用_filter_forbidden -> build+bump -> 测试(3域名curl验证源码合规+grep兜底扫0+切换即时生效+图表pin重渲染)
+- 风险10点：①漏改致合规版漏词=合规失败必grep兜底扫0(排除注释+声明白名单) ②trade_sim 7HTML漏重生 ③reason字段正则不可断(后端保留原词) ④声明白名单"不荐股"误替换 ⑤88魔咒27处保留与否 ⑥图表pin canvas重注入(参考rethemeCharts L246) ⑦SW缓存必bump ⑧noscript区已合规 ⑨"信号"770处泛用不全改只改复合词 ⑩ETF字段名vs显示文案(字段名保留显示文案改)
+- 不确定5点（2026-08-02 用户已拍板）：①about.html 始终合规off不切回（公开说明页巡查直看，原版价值低JS化成本高）②trade_sim.html×7 off切回（用户明确要，弹窗+模拟回测详情信任用户看原版，方案需先调研弹窗机制：双版本fetch/JS替换/JS化渲染三选一）③88魔咒保留（市场惯用专有名词+已配免责+非买卖指令词）④图表pin文字版"关注/风险/风控"（符号▲▼丢失语义和风控vs风险区分）⑤"推荐"只改标题级"三档优选"+描述级"关注点"，中性"推荐配置"类保留
+
+**关键文件**
+- app/alert_reason.py L77-89（禁用词映射表+_filter_forbidden，前端复用基础）
+- static-site/app.js L2470/2641/3610/12489（labels对象×4）/L1265（_SIG_TYPE_META）/L1678（_SIG_DETAIL）/L380（signalLabel）/L13395（ETF5档）/L16024（applyTheme复用模式）/L200-282（rethemeCharts图表重渲染）
+- static-site/index.html L87/L94（皮肤按钮位置）/L40-52（防闪烁inline script）/L130/L150（"不荐股"声明白名单）
+- static-site/about.html L7/L62/L73/L102/L569（"不荐股"声明）+ L71-640（60处敏感词body）
+- static-site/lab.js（83字符串行）/static-site/common.js（4处）/static-site/purpose-notes.js（5处）
+- scripts/simulate_trade.py L31（trade_sim.html生成逻辑）+ scripts/update_lab.sh L219（调用）
+- app/compute/signals.py L225/232/1416（reason字段生成，保留原词）
+- scripts/export_notifications.py L8-9/61 + scripts/daily_summary_email.py L199/202/283/362 + scripts/export_alert.py L43/47（邮件通知文案，复用_filter_forbidden）
+
+### AZ124 - 2026-08-02 合规名词替换4阶段实施完成（build+deploy+grep兜底修复+R2+3域名验证）
+
+**4阶段实施commit链**：99bfea22(板块分化+第1阶段i18n骨架+开关UI+集中点_t()) + 0549ae74(第2阶段分散点app.js+lab.js+about.html+common/purpose-notes) + 339d0f01(第3阶段trade_sim modal+simulate_trade.py+7HTML+邮件) + aba5d3cd(第4阶段build+deploy+grep兜底修复)
+
+**第4阶段grep兜底扫漏词发现2处真漏改（现场修复）**：
+1. app.js L7130 high_alert desc `卖点密集13%` -> `风险点密集13%`（后端 alert_reason.py H3 已是"风险点密集"，前端漏改；同类 L7131 low_alert desc `买点密集18%` -> `关注点密集18%`，后端 L2 已是"关注点密集"）
+2. app.js L15005 trade_sim modal `entry.op` 显示漏加合规转换：JSON 保留原 _BUY_LABELS（主买/辅买/追买/备买/卖/追止损卖）用于 L14999-15004 indexOf 匹配（rule ⑤），但 L15005 `opBadge` 直接显示 `entry.op` 原词未走合规转换；simulate_trade.py HTML 生成侧 L1192 已调 `_ts_text_compliance(entry["op"])`，modal 漏改。修复：i18n.js 新增 `_t.tsText(text)` 函数（24映射+`\x01CLEARED\x01`占位符保护风控清仓复合词，与 simulate_trade.py `_ts_text_compliance` 完全对齐；off mode 原样返回支持 on/off toggle），app.js L15005 `entry.op` -> `_t.tsText(entry.op)`
+
+**grep兜底残留分类（排除项 vs 真漏改）**：
+- 真漏改：上述2处（已修）
+- 排除项：①注释行 ②"不荐股"声明白名单 ③88魔咒板块 app.js L9483-11594（抄底12/减仓16/止损6/止盈2/清仓3 均在此区间，含"80抄底"指标名+基金加仓/减仓行为描述非荐股）④reason正则匹配 app.js L392/399/15000-15004（数据字段保留原词）⑤trade_sim entry.op indexOf L14999-15004（JSON数据字段匹配）⑥"风控清仓"合规复合词（i18n.js position_stop_loss_clear + 6个trade_sim HTML）⑦"净买入/净加仓"金融术语（港股通净买入/主力净流入/基金加仓减仓比，非荐股）⑧lab.js L6522 `/减仓|卖出|清仓|卖/.test(sig)` 正则匹配后端 sell_signal 数据字段
+- 6个 trade_sim HTML（gitignored）：仅含"风控清仓"合规复合词（rule ⑥），无真漏改
+
+**build + bump**：
+- build_min.py：6个min文件重建（app/lab/common/purpose-notes JS + style/lab CSS）
+- bump_asset_version.py：index.html 4个 ?v= hash 刷新（common.min.js/purpose-notes.min.js/app.min.js/lab.min.js）
+- sw.js CACHE_VERSION：ui97 -> ui98（`v2-20260802-compliance-phase1-3-ui98-risk-focus-point-dense-fix`），硬约束：改app.js必bump sw.js否则旧SW CacheFirst缓存旧app.min.js
+
+**deploy方式：仅前端commit+push（不跑deploy.sh全量export）**：
+- 决策原因：①stage0 进程 PID 77048 在跑（public_fund stage0-overview），deploy.sh 跑 export.py 可能覆盖 stage0 产出 ②工作区有 intraday_snapshot.json（17:50），deploy.sh `git add static-site/data/` 通配会带入覆盖线上新版 ③export.py 从 trade/data/ 滞后DB读（§9 cwd 陷阱）
+- 实施：只 git add 8个前端文件（app.js/app.min.js/i18n.js/sw.js/common.min.js/purpose-notes.min.js/lab.min.js/index.html），不 add static-site/data/ 任何文件，不碰根 data/，不跑 export.py
+- push feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main（fast-forward 1634e65d..aba5d3cd，无 force）
+
+**R2 trade_sim HTML上传**：`upload_r2.py upload-trade-sim` 6/6 成功 -> https://ssd.fx8.store/trade_sim/（trade_sim_cac40/g.cn10y/g.oil/g.usdcnh/kospi/nikkei225.html）
+
+**3域名curl验证（CF传播~45秒后全通过）**：
+- ss.fx8.store/sw.js：CACHE_VERSION = `v2-20260802-compliance-phase1-3-ui98-risk-focus-point-dense-fix` ✓
+- sss.sugas.site/sw.js：同上 ✓
+- ss.fx8.store/app.min.js：含"风险点密集"/"关注点密集"各1，无"卖点密集"/"买点密集" ✓
+- ss.fx8.store/i18n.js：含 `_t.tsText` + `_TS_COMPLIANCE_MAP` ✓
+- ssd.fx8.store/trade_sim/trade_sim_cac40.html：合规词 主关注122/辅关注154/追关注323/备关注93/追风控19/风控清仓30/风险提示66，无原词主买/辅买/追买/备买 ✓
+
+**最终commit hash**：aba5d3cd（push origin feat/iframe-theme-follow + push origin feat/iframe-theme-follow:main fast-forward）
+
 

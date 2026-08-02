@@ -1117,3 +1117,86 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **约束遵循**：不改根目录 data/（手动修复直接改 DB 非 git add）+ 盘中不跑全量 export+deploy（20:43 收盘后）+ push main 避开 intraday 时点 + non-ff 优先 rebase + 不 force push main + commit msg Co-Authored-By + DB 主库 trade-data/data/sentiment.db。
 
 **状态**：✅ 手动修复已上线（e35b7e06 push main，3域名验证 ok）。✅ 自动修复机制本地验证通过，feat 分支 commit 待 merge main push main（launchd 下次跑 self_heal 用新版，下次 update_all/intraday_snapshot 用 collect_snapshot 交叉验证新版）。
+
+---
+
+## 📋 2026-08-02 留言箱功能（待实施，完整方案见 NOTES §48 AZ122）
+
+**目标**：收集用户需求/建议/bug/数据纠错，作为后续完善方向输入；建议上墙增加参与感。
+
+**架构**（复用订阅C方案，零新架构）：
+- CF Workers Function（worker/headers.js 已有 Worker）+ KV `FEEDBACK_KV`（仿 SUBSCRIBE_KV）+ secret `FEEDBACK_ADMIN_PASSWORD`（仿 SUBSCRIBE_PASSWORD）+ MailChannels API（CF Workers 免费发邮件）
+- 关键：线上 ss.fx8.store 已是 Workers Static Assets + Worker Function，POST 可直接 Worker 接收写 KV，无需后端 app/main.py 无需外链第三方
+
+**模块**：
+1. worker/headers.js 加 `/api/feedback*` 路由（POST 提交 / GET list 上墙 / GET+POST admin 审核 / DELETE）
+2. 前端右下角浮动按钮📬 + 留言弹窗（昵称/联系/分类/内容/URL自动）+ 留言墙（不占1级tab，6个已满）
+3. static-site/admin/feedback.html 管理员审核页（密码登录 + pending列表 + approve/reject）
+4. 防滥用四层：频控（同IP 10min≤1条）+ honeypot + 内容约束（50-2000字+IP hash）+ 审核闸门（pending不上墙）
+5. MailChannels 邮件通知管理员新留言
+
+**工作量**：~550行，~1.5天
+
+**上线**：`wrangler kv namespace create FEEDBACK_KV` + `wrangler secret put FEEDBACK_ADMIN_PASSWORD` + worker 路由 + 前端 + admin 页 + build_min + bump_asset_version + bump sw CACHE_VERSION + deploy + 3域名验证提交审核上墙闭环
+
+**状态**：⏳ 方案已定（NOTES AZ122），待派实施 agent
+
+---
+
+## 📋 2026-08-02 板块分化移到指数表现二级 tab（待用户拍板，方案见 NOTES §48 AZ122）
+
+**用户判断**：板块分化1级tab本质是指数表现的一种（板块的），移到指数表现下做二级tab放A股港股中间。
+
+**9处改动**：
+1. `_MARKET_SUBTABS` L16400 加 `industry` 放 a-stock/hk 间
+2. renderMarket L7826 subtabs 数组加 `["industry","板块分化"]`
+3. L7854 加 `else if industry 调 renderIndustry(subContent)`
+4. renderIndustry L13208 加 container 参数（仿 renderAStock），函数体10+处 content 改 container
+5. index.html L102 删 PC industry 按钮
+6. L143 删 H5 industry 按钮
+7. `_H5_TAB_NAMES` L14504 删 industry
+8. renderTab 主路由 L4189 删 industry 分支（或保留兼容旧hash redirect）
+9. state.tab 校验 L103 删 industry 分支
+
+**命名**：主控推荐保留"板块分化"（用户已叫熟+"分化"点出核心价值），tab key `industry` 保留
+
+**副作用**：旧 `#industry` 直链失效（redirect 兼容）+ 搜索框切 subtab 消失（可接受）+ 1级tab 6->5
+
+**状态**：⏳ 等用户拍板（移位 + 命名），定后派实施 agent
+
+---
+
+## 📋 2026-08-02 全站敏感合规词替换 + 🛡️ 按钮切换（待实施，完整方案见 NOTES §48 AZ123）
+
+**需求**：全站"买点/卖点/强买入/强卖出/减仓/清仓/抄底/逃顶/止损/止盈"等敏感合规词，默认显示合规版（游客/巡查机器人看合规词），信任用户可点 🛡️ 按钮切回原版（买卖点壮观易懂）。开关放皮肤切换旁。
+
+**方案**：方案B JS文案替换+localStorage（源码默认合规词，爬虫看合规版）
+- 复用 app/alert_reason.py:77-82 已验证的禁用词映射表（买入->关注低位机会 等 8词）
+- 新建 static-site/i18n.js：`_t(key)` 函数 + 双字典（compliance/original）+ `_t.setMode(mode)`
+- app.js 146行 + lab.js 83行字符串改 `_t()` 调用（6处labels对象 L2470/2641/3610/12489/1265/13395 + signalLabel L380 + _SIG_DETAIL L1678 是集中的）
+- about.html 60处手改合规词（静态默认合规，off不切回；保留"不荐股"声明白名单 index.html L130/L150 + about.html L7/L62/L73/L102/L569）
+- trade_sim.html×7（~3800处）：改 scripts/simulate_trade.py:31 生成合规词，重生7个HTML
+- 后端 reason 字段保留原词（signals.py L225/232，爬虫不直接看JSON），前端解析正则不变，显示时套 `_t()`
+- 后端 JSON 字段名 buy_list/sell_list/sell_signal/hands 保留（前后端契约，改名牵连太大）
+- 开关 UI：复用 applyTheme 模式（app.js L16024），index.html L87/L94 皮肤按钮旁加🛡️，L40-52 旁加防闪烁读 compliance_mode，默认 on
+- 邮件/通知文案复用 alert_reason.py `_filter_forbidden`（export_notifications.py / daily_summary_email.py）
+
+**合规词映射**（复用 alert_reason.py L77-82）：
+- 买点->关注点 | 买入->关注低位机会 | 强买入->重点留意 | 买入机会->关注机会
+- 卖点->风险提示点 | 卖出->留意高位预警 | 强卖出->重点规避 | 卖出信号->风险提示信号
+- 减仓->逢高谨慎 | 清仓->防范风险 | 加仓->逢低关注 | 抄底->关注超跌反弹 | 止损->风险控制 | 止盈->收益兑现
+- 推荐->优选 | 88魔咒->保留（专有名词+已配免责） | 图表pin: {buy:"关注", sell:"风险", sell_stop_loss:"风控"}
+- 声明白名单："不荐股"声明不可替换
+
+**工作量**：约 7-8 天（含测试）
+**风险**：①漏改致合规版漏词=合规失败，改完必 grep 兜底扫0 ②trade_sim 7个HTML漏重生 ③reason字段正则不可断（后端保留原词）④SW缓存必bump ⑤图表pin canvas重注入
+**硬约束**：改 app.js/lab.js 后必跑 build_min.py + bump_asset_version.py + bump sw.js CACHE_VERSION
+**待用户拍板5点**（2026-08-02 已拍板）：①about.html 始终合规off不切回 ②trade_sim.html×7 off切回（用户明确要，方案先调研弹窗机制）③88魔咒保留 ④图表pin文字版"关注/风险/风控" ⑤"推荐"只改标题级"三档优选"+描述级"关注点"
+**调研报告**：/tmp/agent-progress-compliance-research.md（6维度完整，主控§0验收alert_reason.py L77-82禁用词映射表真实存在）
+
+**状态**：✅ **2026-08-02 全部4阶段实施完成上线**（commit 链 99bfea22+0549ae74+339d0f01+aba5d3cd，详见 NOTES AZ124）
+- 第1阶段：i18n.js 骨架 + 开关 UI + 集中点 _t()（commit 99bfea22）
+- 第2阶段：app.js 分散点 + lab.js + about.html + common/purpose-notes（commit 0549ae74）
+- 第3阶段：trade_sim modal + simulate_trade.py + 7HTML + 邮件（commit 339d0f01）
+- 第4阶段：build + deploy + grep 兜底修复2处真漏改（app.js L7130/7131 卖点密集/买点密集->风险点密集/关注点密集；L15005 entry.op 显示加 _t.tsText() 合规转换）+ R2 trade_sim 上传 + 3域名curl验证全通过（commit aba5d3cd）
+- sw.js CACHE_VERSION: ui97 -> ui98；仅前端commit+push（不跑export.py避免干扰stage0+intraday_snapshot.json带入）；3域名(ss.fx8.store/sss.sugas.site/ssd.fx8.store)验证合规词全通过
