@@ -6602,3 +6602,27 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **遗留**：trade_sim 弹窗的 `flow_desc`（app.js L14976 s.flow_desc，含"买/卖/买入/可卖/清仓"原词）和 path 显示（L15373 main-tabs 的 p / L15223 对比表 r.path，含"买固定...+卖清仓"）仍未套 _t.tsText（a8f63b58 任务限定"场景名显示点"未含）。后端 simulate_trade.py L1282 离线模板已用 _ts_text_compliance 包装 flow_desc，但前端 modal JS 渲染侧未套。如需一并修可后续派单
 
 
+### AZ127 - 2026-08-02 trade_sim flow_desc + path 前端套 _t.tsText 合规转换（ui103，已上线）
+
+**背景**：AZ126 遗留，trade_sim 弹窗 flow_desc + path 显示（含"买/卖/清仓"原词）前端 JS 渲染侧未套 _t.tsText（后端离线 HTML 模板已转，前端 modal 漏）。用户要求先办这个。
+
+**修复**（commit 763f5fab，ui103）：10 处显示点套 _t.tsText（变量赋值/indexOf/key 查找保留原词未改）
+- modal 3 处（主控定位）：L14976 `s.flow_desc`（12卡 sim-flow）/ L15223 `r.path`（对比表 path 列）/ L15373 `p`（main-tabs path button）
+- chip 7 处（排查发现 pathShort 值"1w清仓"/"全仓"等含原词）：L719/720/945 `src.pathShort` / L962/1024 `e.pathShort` / L1030 `e.path` / L1063 `t.pathShort`
+
+**_t.tsText 转换验证**（i18n.js 真实 _TS_COMPLIANCE_MAP）：
+- "买固定1w(10%)+卖清仓" -> "关注固定1w(10%)+风险防范" ✓
+- "1w清仓" -> "1w防范" ✓
+- "全仓进出" / "固定1w(10%)进出（FIFO）" -> 不变（无关键词）✓
+
+**§0 验收**：app.js _t.tsText 13处（含 modal 3处 + chip 7处 + 原 3处 entry.op/scenario）✓ / 763f5fab 在 main ✓ / 线上 ss.fx8.store+sss.sugas.site 两站 sw.js ui103 + app.min.js?v=a7c51053 含 _t.tsText 20次（flow_desc/path/pathShort 各模式）✓
+
+**commit 链**：7113bedd（场景名+ui101）-> f37c3c3e（卡片留白+ui102）-> 763f5fab（flow_desc+path+ui103），均 push feat + push feat:main fast-forward（763f5fab non-ff 用 rebase origin/main 后 fast-forward，未 force），未 force push main
+
+**遗留**：
+- "风控清仓"合规词含"清仓"敏感词（i18n.js L81 position_stop_loss_clear + L212-213/243 _TS_COMPLIANCE_MAP 占位符还原 + simulate_trade.py L78-79/101/118 + 7 HTML cac40/kospi/nikkei225 等），巡查 grep"清仓"会命中合规版。建议改"风控退出"彻底无敏感词，待用户定夺（小改动但需同步前后端+重生 HTML）
+
+
+
+
+
