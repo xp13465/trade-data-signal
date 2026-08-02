@@ -6412,7 +6412,7 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **3. 88魔咒每行时效标注（commit 229686b3，ui95已上线，前序工作）**
 - app.js L10049-10053 5行时效标注(当前仓位·lg周频/今日预估·今日实时/所处区间·同仓位/历史分位·截至/沪深300收盘·收盘)
 
-**4. stage0全量launchd调度挂载实施（2026-08-02，commit 待补）**
+**4. stage0全量launchd调度挂载实施（2026-08-02，commit b7ab2de4）**
 - 背景：AZ121 第1点 L6401 原计划"全量采集挂凌晨launchd自动跑"，但 stage0-daily(22s) 已跟 update_all.sh 跑，overview(6.2h)/nav(5年)/risk(4.5h)/manager(3h) 4 个全量命令未挂 launchd 不会自动跑，本次补挂
 - 4 个 shell wrapper 脚本（scripts/ 目录，trade 仓库）：
   - `scripts/stage0_overview.sh` → `python -m app.collector.public_fund stage0-overview`（fund_overview_em 全量补 fund_basic 15 新列，~6.2h）
