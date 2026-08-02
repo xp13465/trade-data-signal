@@ -202,6 +202,13 @@ def export_public_fund_industry():
     return queries.public_fund_industry()
 
 
+def export_public_fund_sw_industry_alloc():
+    """申万一级行业配置(反查口径): 基金 top10 重仓股按申万一级聚合, 揭示真实风格暴露。
+    独立计算(不走 export_data 7 元组), 复用 fund_portfolio_hold + sw_components.json 反查。
+    供前端"行业配置"卡第四档 'sw' 切换(vs 证监会口径 industry 19 大类)。"""
+    return queries.public_fund_sw_industry_alloc()
+
+
 def export_public_fund_top20():
     """Top20 调仓。"""
     return queries.public_fund_top20()
@@ -481,6 +488,11 @@ def main():
     counts["public_fund_position_estimate.json"] = write_json(
         DATA_DIR / "public_fund_position_estimate.json", export_public_fund_position_estimate())
     print(f"  public_fund_position_estimate.json ({counts['public_fund_position_estimate.json']} bytes)")
+    # 申万一级行业配置(反查口径): 基金 top10 重仓股按申万一级聚合(独立计算, 非 export_data 7 元组)
+    # 前端"行业配置"卡第四档 'sw' 切换, vs 证监会口径 industry 19 大类
+    counts["public_fund_sw_industry_alloc.json"] = write_json(
+        DATA_DIR / "public_fund_sw_industry_alloc.json", export_public_fund_sw_industry_alloc())
+    print(f"  public_fund_sw_industry_alloc.json ({counts['public_fund_sw_industry_alloc.json']} bytes)")
 
     # 8. index/{id}-all.json（44 个指数）
     all_indices = [i["id"] for i in cfg.get("indices", []) if i.get("enabled", True)]

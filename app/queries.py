@@ -1461,6 +1461,30 @@ def public_fund_industry_rotation_ts():
         conn.close()
 
 
+def public_fund_sw_industry_alloc():
+    """申万一级行业配置(反查口径): 基金 top10 重仓股按申万一级聚合, 揭示真实风格暴露。
+
+    独立计算(不走 export_data 7 元组, 遵循 commit 190c8f7e 教训), 复用 fund_portfolio_hold
+    + sw_components.json 反查。返回 {report_date, coverage_pct, coverage_note, period_count,
+    fund_count, industries:[{industry_name, total_weight, total_value, fund_count, avg_weight}]}。
+
+    3 个硬限制(前端诚实标注):
+      1. 时序不可用: fund_portfolio_hold 仅 1 期(最新季报), 无历史对比
+      2. 覆盖率 ~42%: top10 重仓股平均占净值 42.39%, 仅反映重仓股部分行业暴露
+      3. 反查口径: 基于重仓股反查申万一级(非基金直接披露), 有信息差价值但非官方披露
+
+    供前端"行业配置"卡第四档 'sw' 切换( vs 证监会口径 industry 19 大类)。"""
+    from .collector.public_fund import (
+        _compute_sw_industry_alloc, _load_stock_industry_map, _latest_report_dates, get_conn)
+    conn = get_conn()
+    try:
+        report_date = _latest_report_dates(1)[0]
+        stock_ind_map = _load_stock_industry_map()
+        return _compute_sw_industry_alloc(conn, report_date, stock_ind_map)
+    finally:
+        conn.close()
+
+
 def position():
     """大盘位置感：8 个 A 股指数的 1年/3年/5年分位 + 标签。"""
     from .compute.position import compute_position

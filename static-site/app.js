@@ -10204,7 +10204,29 @@ async function renderPublicFund(container) {
   let indData = indDataAll;  // 当前显示的行业(口径切换时过滤: all=全部 / csrc=证监会 / gics=GICS)
   let indClass = 'all';  // 口径切换状态: all/csrc/gics
   // indTotalWeight 用全集(切换口径不重算, 保持"占全行业%"稳定, 避免 both 双计)
-  const indTotalWeight = indDataAll.reduce((s, d) => s + d.weight, 0) || 1;
+  // 'sw' 申万一级档换数据源, 切换时重算 indTotalWeight(sw 数据总和)
+  let indTotalWeight = indDataAll.reduce((s, d) => s + d.weight, 0) || 1;
+  // 申万一级反查口径数据(惰性加载, 切换到 'sw' 档时 fetch public_fund_sw_industry_alloc.json)
+  let swDataLoaded = null;  // {data:[{name,weight,value,fundCount,industryCount,breakdown:null,avgWeight}], coverage_pct, coverage_note}
+  const _loadSwIndData = async () => {
+    if (swDataLoaded) return swDataLoaded;
+    const data = await fetchJSON("https://ssd.fx8.store/public_fund/public_fund_sw_industry_alloc.json").catch(() => null);
+    if (!data || !data.industries) return null;
+    swDataLoaded = {
+      data: data.industries.map((d) => ({
+        name: d.industry_name,
+        weight: d.total_weight || 0,
+        value: d.total_value || 0,
+        fundCount: d.fund_count || 0,
+        industryCount: 1,
+        breakdown: null,  // 申万一级已是细分口径, 无下钻
+        avgWeight: d.avg_weight,
+      })).sort((a, b) => b.weight - a.weight),
+      coverage_pct: data.coverage_pct,
+      coverage_note: data.coverage_note,
+    };
+    return swDataLoaded;
+  };
 
   const indCard = document.createElement("div");
   indCard.className = "chart-card";
@@ -10218,10 +10240,12 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn active" data-ind-class="all" type="button" title="显示全部行业(证监会+GICS混合)">全部</button>'
     + '<button class="pf-ind-sort-btn" data-ind-class="csrc" type="button" title="只看证监会门类口径(A股基金披露)">证监会</button>'
     + '<button class="pf-ind-sort-btn" data-ind-class="gics" type="button" title="只看GICS口径(QDII/港股基金披露)">GICS</button>'
+    + '<button class="pf-ind-sort-btn" data-ind-class="sw" type="button" title="申万一级反查口径(基于重仓股反查, 揭示真实风格暴露, 覆盖约42%仓位仅最新一期)">申万一级</button>'
     + '<span id="pfIndHelpBtn" style="margin-left:6px;cursor:help;color:var(--text-3);font-size:14px;line-height:1;user-select:none" title="行业配置口径说明">❓</span>'
     + '</div>'
     + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度(点按钮切换面积维度)；柱状图/TreeMap 切换独立, label 跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
-    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；TreeMap 点制造业矩形弹子行业列表</div>'
+    + '<div class="chart-subtitle pf-ind-sub-default" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；TreeMap 点制造业矩形弹子行业列表</div>'
+    + '<div class="chart-subtitle pf-ind-sub-sw" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5;display:none">🔬 <b>申万一级反查口径</b>: 基于基金top10重仓股反查申万一级(非基金直接披露), 揭示真实风格暴露 vs 官方证监会粗门类; <b>覆盖约42%仓位</b>(重仓股部分), 仅最新一期无历史时序; 31个细分行业(电子/通信/医药生物…), 申万一级已是细分口径无下钻</div>'
     + '<div class="chart pf-ind-bar" style="height:360px"></div>'
     + '<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:8px">'
     + '<span>🎯 抱团集中度全景（矩形面积随选中维度变化）</span>'
@@ -10366,8 +10390,11 @@ async function renderPublicFund(container) {
     });
   });
 
-  // 口径切换按钮: 全部/证监会/GICS 三档, 按标准名口径过滤 indData (both 两视图都显示)
+  // 口径切换按钮: 全部/证监会/GICS/申万一级 四档
+  //   all/csrc/gics: 按标准名口径过滤 indDataAll (both 两视图都显示)
+  //   sw: 换数据源, fetch public_fund_sw_industry_alloc.json(申万一级反查口径, 独立计算)
   // 切换后柱状图+TreeMap 同步重渲染; 制造业展开状态重置(切换GICS制造业被过滤, 残留展开无意义)
+  // 'sw' 档: 申万一级已是细分口径, 制造业 breakdown 无意义(禁用); indTotalWeight 重算为 sw 数据总和
   const _filterByClass = (cls) => {
     if (cls === 'all') return indDataAll;
     return indDataAll.filter((d) => {
@@ -10375,16 +10402,45 @@ async function renderPublicFund(container) {
       return c === cls || c === 'both';
     });
   };
+  const _toggleSwSubtitle = (isSw) => {
+    const subDefault = indCard.querySelector(".pf-ind-sub-default");
+    const subSw = indCard.querySelector(".pf-ind-sub-sw");
+    if (subDefault) subDefault.style.display = isSw ? "none" : "";
+    if (subSw) subSw.style.display = isSw ? "" : "none";
+  };
   indCard.querySelectorAll("[data-ind-class]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const cls = btn.getAttribute("data-ind-class");
       if (cls === indClass) return;
       indClass = cls;
-      indData = _filterByClass(cls);
       _manufExpanded = false;  // 重置制造业展开(避免切换到无制造业的口径后残留展开态)
       indCard.querySelectorAll("[data-ind-class]").forEach((b) => b.classList.toggle("active", b === btn));
-      _renderIndBar(indSort);
-      _renderTreemap(treemapSort);
+      if (cls === 'sw') {
+        // 申万一级反查口径: fetch 新 JSON 换数据源
+        const sw = await _loadSwIndData();
+        if (sw && sw.data && sw.data.length) {
+          indData = sw.data;
+          indTotalWeight = sw.data.reduce((s, d) => s + d.weight, 0) || 1;
+          _toggleSwSubtitle(true);
+          _renderIndBar(indSort);
+          _renderTreemap(treemapSort);
+        } else {
+          // fetch 失败回退到 all
+          indClass = 'all';
+          indData = indDataAll;
+          indTotalWeight = indDataAll.reduce((s, d) => s + d.weight, 0) || 1;
+          _toggleSwSubtitle(false);
+          indCard.querySelectorAll("[data-ind-class]").forEach((b) => b.classList.toggle("active", b.getAttribute("data-ind-class") === 'all'));
+          _renderIndBar(indSort);
+          _renderTreemap(treemapSort);
+        }
+      } else {
+        indData = _filterByClass(cls);
+        indTotalWeight = indDataAll.reduce((s, d) => s + d.weight, 0) || 1;
+        _toggleSwSubtitle(false);
+        _renderIndBar(indSort);
+        _renderTreemap(treemapSort);
+      }
     });
   });
 
@@ -10407,7 +10463,8 @@ async function renderPublicFund(container) {
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>全部</b>：显示所有行业（默认，混合口径）</div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>证监会</b>：只看 CSRC 门类（A股基金口径：制造业/金融业/建筑业…）</div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>GICS</b>：只看 GICS 大类（QDII基金口径：能源/材料/工业/通信服务…）</div>'
-      + '<div style="margin-bottom:14px;color:var(--text-3)">注：信息技术/金融业/房地产业三行业在两套口径都有（合并自 CSRC+GICS 原始名），切换任一视图都显示。</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>申万一级</b>：基于基金 top10 重仓股<b>反查</b>申万一级（非基金直接披露，揭示真实风格暴露，详见下文）</div>'
+      + '<div style="margin-bottom:14px;color:var(--text-3)">注：信息技术/金融业/房地产业三行业在两套口径都有（合并自 CSRC+GICS 原始名），切换任一视图都显示。申万一级为独立数据源，切换时重渲染。</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🏭 制造业占比大不是 bug</b></div>'
       + '<div style="margin-bottom:14px">制造业平均权重≈58%，因为<b>证监会"制造业"门类极粗</b>，涵盖电子/通信/汽车/电力设备/医药生物/食品饮料等所有制造类子行业。GICS 把这些拆成了信息技术/工业/医疗保健/消费品等多个独立大类，所以 GICS 视图下没有"制造业"这一超大类。</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">⚠️ "通信" ≠ "通信服务"</b></div>'
@@ -10416,6 +10473,14 @@ async function renderPublicFund(container) {
       + '<div style="margin-bottom:14px;color:var(--text-3)">二者口径完全不同，勿混淆。</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🔬 制造业子行业展开</b></div>'
       + '<div style="margin-bottom:14px">点击柱状图 <b>制造业</b> 条（▶）展开 18 个申万一级子行业（电子/通信/电力设备…），基于重仓股拆分（非基金直接披露）；非制造业口径下此功能不可用。</div>'
+      + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🧬 申万一级反查口径（第四档"申万一级"按钮）</b></div>'
+      + '<div style="margin-bottom:6px"><b>数据来源</b>：基于基金 top10 重仓股（fund_portfolio_hold）反查申万一级行业（sw_components.json 5210 成分股），<b>非基金直接披露</b>。</div>'
+      + '<div style="margin-bottom:6px"><b>价值</b>：揭示基金<b>真实风格暴露</b>（vs 证监会口径的粗门类"制造业"涵盖18个子行业）。证监会口径下制造业≈58%是大类堆叠；申万一级拆出电子/通信/电力设备/医药生物等31个细分行业，能看到基金真正重仓哪个细分赛道，是<b>反查口径有信息差价值</b>。</div>'
+      + '<div style="margin-bottom:6px"><b>和制造业 breakdown 区别</b>：breakdown 只展开证监会"制造业"门类下18个子项（仍属证监会口径视图）；申万一级是<b>全市场31行业视角</b>（含银行/房地产/非银金融等非制造业），独立数据源。</div>'
+      + '<div style="margin-bottom:6px"><b>3个硬限制（诚实标注）</b>：</div>'
+      + '<div style="margin-bottom:4px;padding-left:12px">① <b>时序不可用</b>：fund_portfolio_hold 仅1期（最新季报），无历史对比，不能看轮动</div>'
+      + '<div style="margin-bottom:4px;padding-left:12px">② <b>覆盖率约42%</b>：top10重仓股平均占净值42%，仅反映重仓股部分行业暴露，非完整行业配置（vs 证监会口径含全仓位）</div>'
+      + '<div style="margin-bottom:14px;padding-left:12px">③ <b>反查口径</b>：基于重仓股反查（非基金直接披露），未映射股票（港股等）归"未分类"</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">📊 数值口径</b></div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>权重和</b> = 全市场基金该行业权重%求和（抱团集中度）</div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>平均权重</b> = 权重和 ÷ 基金数（平均每只基金该行业仓位%，制造业≈58%）</div>'
@@ -10810,8 +10875,10 @@ async function renderPublicFund(container) {
     document.body.style.overflow = "hidden";
   };
   // 柱状图点击: 制造业切换子行业展开, 子行业柱弹子行业基金弹窗(方案C Step5), 其他行业弹基金列表
+  // 'sw' 申万一级档: 数据源不同(重仓股反查非 fund_industry_alloc), 不支持基金列表下钻, 跳过
   indChart.on('click', (params) => {
     if (!params || !params.data || !params.data.name) return;
+    if (indClass === 'sw') return;  // 申万一级反查口径无下钻(副标题已说明)
     const d = params.data;
     if (d.isBreakdown) { _showManufSubindFunds(d.subIndustry); return; }  // 子行业柱 -> 子行业基金弹窗
     if (d.name === '制造业' && d.breakdown) {
@@ -10822,8 +10889,10 @@ async function renderPublicFund(container) {
     _showIndustryFunds(d.name);
   });
   // TreeMap 点击: 制造业弹子行业 breakdown 列表, 其他行业弹基金列表
+  // 'sw' 申万一级档: 同柱状图, 不支持下钻
   treemapChart.on('click', (params) => {
     if (!params || !params.data || !params.data.name) return;
+    if (indClass === 'sw') return;
     const d = params.data;
     if (d.name === '制造业' && d.breakdown) {
       _showManufBreakdown(d.breakdown);

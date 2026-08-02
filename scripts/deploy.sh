@@ -294,7 +294,8 @@ DATA_FILES+=("static-site/data/etf_national_team_holders.json" "static-site/data
 # 2026-08-02 补 scale_change_ts(N功能全量规模变动时序113期, summary.scale_change_history 只20期不够)
 # 2026-08-02 补 industry_rotation_ts(F功能行业轮动时序50期27行业, 独立计算非 7 元组)
 # 2026-08-02 补 position_estimate(方案A 今日预估仓位+历史时序, 净值回归反推+lg校准, 88魔咒图"今日预估"点)
-for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map position_backtest holding_concentration_ts scale_change_ts industry_rotation_ts position_estimate; do
+# 2026-08-02 补 sw_industry_alloc(申万一级反查口径行业配置, 前端"行业配置"卡第四档 'sw' 切换, 独立计算非 7 元组)
+for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map position_backtest holding_concentration_ts scale_change_ts industry_rotation_ts position_estimate sw_industry_alloc; do
   DATA_FILES+=("static-site/data/public_fund_${_pf}.json" "static-site/data/public_fund_${_pf}.json.gz")
 done
 # 单文件（export.py 生成 + deploy/update_all/update_lab 生成）
