@@ -6145,4 +6145,97 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **【关联】** AZ105（ui79 基础修复）+ memory bump-sw-version-with-appjs。
 
+### AZ106 2026-08-03 F功能行业配置口径切换+❓介绍(ui81,commit 1d11bf14)
+
+**背景**：用户疑问"制造业占比57%为什么这么大"+"制造业算行业吗"+"制造业里有通信,外面也有通信服务"。根因解惑：`fund_industry_alloc.industry_name` 是多套口径混合（证监会门类 CSRC + GICS 大类），不是股票的申万一级行业。制造业是证监会门类（19大门类之一）不是行业，占比大是口径粗（涵盖电子/通信/汽车等所有制造类）。"通信"（制造业子项，通信设备制造）vs "通信服务"（GICS 独立大类，通信运营服务）是不同东西。
+
+**实施（纯前端 app.js，不改后端）**：
+- `IND_CLASSIFICATION` 映射表：16 CSRC门类=csrc + 8 GICS大类=gics + 3 both（信息技术/金融业/房地产业，两口径都含）。
+- 三档切换 UI：全部 / 证监会 / GICS，用 `data-ind-class` 属性标记 chip。
+- ❓弹窗（`pfIndHelpBtn`）：双口径来源说明 + 制造业占比大原因 + 通信 vs 通信服务区别。
+- terser minify 会 mangle 常量名，线上验证用字符串字面量（`pfIndHelpBtn` / `data-ind-class`）非源码常量名。
+
+**【上线】** build_min + bump_asset_version + sw.js ui80->ui81 + push feat + merge main + push main。
+
+**【关联】** AZ97（公募基金模块大轮优化，行业配置首版）+ memory bump-sw-version-with-appjs。
+
+### AZ107 2026-08-03 88魔咒图 pin+tooltip 融合(ui82,commit 1f769deb)
+
+**背景**：88魔咒图 pin 用 emphasis label 黑底浮窗，图表用 tooltip axis cross 白底，两套浮窗割裂视觉不统一。
+
+**融合方案A**：
+- tooltip `trigger:axis` formatter 统一处理，建 `_pinDateMap`（YYYYMMDD -> pin 信息）。
+- formatter 查命中则追加 pin 完整说明（类型 desc + 仓位 + 沪深300 + 后30/60/90天涨跌带涨红跌绿色），未命中显示普通点（日期 + 仓位 + 沪深300）。
+- pin label 简化为精简标识（日期 + 高96% / 低82%），去掉 emphasis 黑底浮窗。
+- 保留十字线 `axisPointer type:cross`。
+- 一个统一浮窗一套样式，不再割裂。
+
+**【上线】** build_min + bump_asset_version + sw.js ui81->ui82 + push feat + merge main + push main。
+
+**【关联】** AZ105/AZ105b（ui79/ui80 pin hover emphasis 方案的演进，本次回归到统一 tooltip formatter）+ memory bump-sw-version-with-appjs。
+
+### AZ108 2026-08-03 预估仓位方案A(88魔咒图今日预估仓位点,commit ddf613ea 初版+d4c08e93 修复)
+
+**目标**：88魔咒图加"今日预估仓位"点，不用等 lg 周频更新（lg 周频 7-10 天延迟，用户盘中想看实时仓位）。
+
+**数据源**：
+- `fund_value_estimation_em`（盘中实时估算，非交易日/盘后空，只当日无历史）。
+- `fund_open_fund_info_em` 回填头部 200 只偏股基金 400 日历史净值。
+- `baostock sh.000300` 沪深300日频（东财接口被封弃用）。
+
+**反推算法**：`R_nav = w_stock×R_stock + w_bond×R_bond + R_cash`，忽略债券/现金，OLS 回归 `R_nav_median ~ R_index`，斜率 = `w_stock×beta`，lg 校准消除 beta 系统性偏差。
+
+**初版bug1**（ddf613ea）：vs_lg 17 期 estimate 全 93.29 重复。
+- 根因：L2015 `abs(int(d)-int(lg_date))<=700` 用 YYYYMMDD 整数差（注释说7天但跨月达3月），slopes 只 7/3-7/31 共21期（nav 只 backfill 90日），早期 lg 全匹配到 7/3 的 101.04。
+
+**初版bug2**（ddf613ea）：current.position_estimate=100% clamp 自 100.35%。
+- 根因：nav 只 90 日 -> overlap 只 4 期 -> 校准 4 期均值 offset=7.75 不稳，未充分吸收 beta 偏差。
+
+**修复（方案B演进，d4c08e93）**：
+- nav 回填 90 -> 400 日（slopes 21 -> 147 期，overlap 4 -> 31 期）。
+- 修 matching 用 datetime 真实日历日差 <=7（非 YYYYMMDD 整数差）。
+- 校准用全 overlap 中位数（非 4 期均值）。
+- 窗口 60 -> 120 日（平滑 β 时变）。
+- 固定 200 只面板（subquery 非 JOIN 全市场，consistent universe，跨日口径一致不随 pipeline 样本漂移）。
+
+**算法演进关键教训**：
+- 多因子 `sum(slopes)` 不可用：三指数高度相关多重共线性，Σβ 无约束随窗口波动 82-100 跳变。
+- 综合基准 `(hs300+csi500+gem)/3` 差：csi500/gem 波动大 β_composite 不稳 78-92。
+- **hs300 单因子最稳**：β_hs300 106-115 7% 波幅，lg 校准效果最好。csi500/gem 仍采集入库供未来风格分析。
+
+**额外修**：`export_json_files` latent bug（conn 在 finally 关闭后 `_compute_position_estimate` 用 closed conn，移入 try 块）。
+
+**结果**：current 95.01（dev=-1.0 vs lg 96.01），vs_lg 17/20 within ±5%，3 outliers（6/26-7/10 diff -6.3~-6.6）是 7 月市场波动 β 压缩效应 2 周自愈（7/17:-2.95, 7/24:-3.25, 7/31:-1.0），时变 β 固有限制非校准问题。
+
+**架构**：独立计算模式（不走 `export_data()` 7 元组，遵循 commit 190c8f7e 教训），`queries.py` 薄包装 `public_fund_position_estimate()` 调 `_compute_position_estimate(conn)`。
+
+**JSON 产物**：`public_fund_position_estimate.json`（current + history 147 期 + vs_lg 20 期）。
+
+**【状态】** 已 push feat（ddf613ea + d4c08e93），未 merge main。前端"今日预估95.01%点"待 AZ109 申万一级实施完成后接入（避免撞 app.js）。
+
+**【关联】** AZ100（公募基金持仓佐证大盘调研，88魔咒体系）+ AZ105（88魔咒标注修复 close=沪深300 非上证，本预估点位同口径用 hs300）+ commit 190c8f7e（独立计算模式教训）。
+
+### AZ109 2026-08-03 申万一级口径调研(验收完成)+实施(进行中,agent ab7b0002af598d5c7)
+
+**背景**：用户认知"反查很麻烦但非公开信息更有价值"（公开数据 + 重构口径/反向推算 = 非公开洞察，信息差是 alpha 来源）。在 AZ106 揭示 fund_industry_alloc 多口径混合问题后，用户希望补申万一级真实行业暴露口径。
+
+**调研验收数据**（主控逐字验收）：
+- `fund_portfolio_hold` 1 期（20260630）/ 937 基金 / 9337 行 / 每基金 ~10 条重仓股 / 平均集中度 42.37%（范围 0.19-93.64%）。
+- `sw_components.json` 31 个申万一级行业 / 5210 成分股 / 重仓股反查命中率 94.6%（未命中 69 只主要是港股代码）。
+
+**3 个硬限制**（诚实标注，不掩盖）：
+1. **时序不可用**：`fund_portfolio_hold` 只 1 期，做不了历史对比。
+2. **采集偏制造业**：`collect_portfolio_hold` L1220 硬编码 `WHERE industry_name='制造业'`，937 只里 935 只制造业基金，非制造业主题基金重仓股没采。
+3. **仓位覆盖率 42%**：top10 重仓股平均占净值 42.37%，只反映 42% 仓位的行业暴露（其余 58% 仓位行业暴露未知）。
+
+**实施（进行中，agent ab7b0002af598d5c7）**：
+- 去 `collect_portfolio_hold` L1220 制造业硬编码，采全市场。
+- 新增 `_compute_sw_industry_alloc()` 全市场重仓股反查 31 行业。
+- 第四档 sw 切换（fetch 新 JSON 换数据源）。
+- 诚实标注 3 硬限制（副标题 + ❓弹窗，强调反查价值：揭示真实风格暴露 vs 官方口径）。
+- 制造业 breakdown 在 sw 档禁用（申万一级已是真行业，不需制造业拆分）。
+- bump sw ui83。
+
+**【关联】** AZ106（行业配置口径切换，本 AZ109 是其补强：再加申万一级第四档）+ AZ108（预估仓位，同属"非公开洞察"理念：反推/重构口径得 alpha）+ AZ97（公募基金模块大轮优化首版）。
+
 
