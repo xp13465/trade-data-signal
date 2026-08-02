@@ -200,6 +200,59 @@ def _sell_signal_for_high(high_alert: float | None) -> str:
     return "持有(未过热)"
 
 
+# 任务3: 卖出明确化 - 减仓比例% (2026-08-02)
+# high_alert -> {pct, label}: 清仓/减仓3/4/1/2/1/4/持有观察/数据不足
+# pct=减仓比例(0-100), label=中文动作。前端 sell 行显示 label 替代旧 sell_signal 文案,
+# 弹窗用 pct 画进度条明确"减多少"。阈值 85清仓/75减3/4/70减1/2/60减1/4/<60持有观察
+def _sell_action_for_high(high_alert: float | None) -> dict:
+    """high_alert -> 减仓动作 {pct, label}。pct=建议减仓比例%, label=动作文案。"""
+    if high_alert is None:
+        return {"pct": 0, "label": "数据不足"}
+    if high_alert >= 85:
+        return {"pct": 100, "label": "清仓（建议全卖）"}
+    if high_alert >= 75:
+        return {"pct": 75, "label": "减仓3/4"}
+    if high_alert >= 70:
+        return {"pct": 50, "label": "减仓1/2"}
+    if high_alert >= 60:
+        return {"pct": 25, "label": "减仓1/4"}
+    return {"pct": 0, "label": "持有观察"}
+
+
+# 任务2: 置信度算法 - 数据完整度(60%) + 信号一致性(40%) (2026-08-02)
+# data_completeness = (avail_h + avail_l) / 16 * 100  (16=8高位+8低位维度)
+# signal_consistency = 命中维度数(dims值>=60) / 16 * 100
+# confidence_score = completeness*0.6 + consistency*0.4  (0-100)
+# level: high>=75 / medium>=50 / low<50
+# 对齐 88魔咒 _confZh(L9781) 高/中/低三档显示
+def _compute_confidence(dims: dict, adapt: dict) -> dict:
+    """dims/adapt -> confidence {score, level, avail_h, avail_l, missing}。"""
+    adapt = adapt or {}
+    avail_h = int(adapt.get("available_high", 0) or 0)
+    avail_l = int(adapt.get("available_low", 0) or 0)
+    missing = adapt.get("missing", []) or []
+    data_completeness = (avail_h + avail_l) / 16 * 100
+    # 命中维度数: dims 值非 None 且 >=60 (HIT_THRESHOLD)
+    hit_count = 0
+    for v in (dims or {}).values():
+        try:
+            if v is not None and float(v) >= 60:
+                hit_count += 1
+        except (TypeError, ValueError):
+            continue
+    signal_consistency = hit_count / 16 * 100
+    score = data_completeness * 0.6 + signal_consistency * 0.4
+    level = "high" if score >= 75 else ("medium" if score >= 50 else "low")
+    return {
+        "score": round(score, 1),
+        "level": level,
+        "avail_h": avail_h,
+        "avail_l": avail_l,
+        "missing": missing,
+        "hit_count": hit_count,
+    }
+
+
 def _fetch_and_upsert_ohlc(code: str, name: str, conn) -> int:
     """动态采集单只 ETF 近 FETCH_DAYS 日 OHLC 并 upsert 入 etf_daily(含 open/high/low)。
     返回入库行数。失败返 0。自包含:不依赖外部 backfill 命令。
@@ -346,6 +399,9 @@ def _process_one_etf_worker(args):
         "low_text": "", "high_text": "",
         "fetch_count": 0, "skip_count": 0,
         "ohlc": [],  # 近 OHLC_EXPORT_DAYS 日 K线 [[date,o,h,l,c],...] 升序
+        # 任务2/3(2026-08-02): 决策依据明细 + 置信度 + 卖出动作(供前端弹窗5区块)
+        "dims": {}, "adapt": {}, "dim_hits": {}, "data_thresholds": {},
+        "history_analogy": None, "confidence": None, "sell_action": None,
     }
     try:
         init_db()  # 幂等:子进程首次跑加 open/high/low 列
@@ -403,6 +459,16 @@ def _process_one_etf_worker(args):
                 human = reason.get("human_text", {})
                 res["low_text"] = _summarize(human.get("low"))
                 res["high_text"] = _summarize(human.get("high"))
+                # 任务2/3(2026-08-02): 取结构化明细供前端弹窗
+                # alert 已有 dims/adapt, build_reason 已返回 dim_hits/data_thresholds/history_analogy,
+                # 此前未取致前端只能显示 reason_summary 摘要, 现补全供 openEtfScoreDetailModal 5区块渲染
+                res["dims"] = alert.get("dims", {}) or {}
+                res["adapt"] = alert.get("adapt", {}) or {}
+                res["dim_hits"] = reason.get("dim_hits", {}) or {}
+                res["data_thresholds"] = reason.get("data_thresholds", {}) or {}
+                res["history_analogy"] = reason.get("history_analogy")
+                res["confidence"] = _compute_confidence(res["dims"], res["adapt"])
+                res["sell_action"] = _sell_action_for_high(high_alert)
         finally:
             conn.close()
     except Exception as e:  # noqa: BLE001
@@ -478,6 +544,10 @@ def main() -> None:
                             "in_hold": False, "amt_pct": None,
                             "low_text": "", "high_text": "",
                             "fetch_count": 0, "skip_count": 0,
+                            # 任务2/3: 兜底 stub 补齐新字段(None/空), 防组装时 KeyError
+                            "dims": {}, "adapt": {}, "dim_hits": {},
+                            "data_thresholds": {}, "history_analogy": None,
+                            "confidence": None, "sell_action": None,
                         })
                     done += 1
                     if done % 100 == 0:
@@ -539,6 +609,14 @@ def main() -> None:
                 "volatility": out_vol,
                 "reason_summary": res["low_text"],
                 "ohlc": res["ohlc"],
+                # 任务2/3: 决策依据明细(弹窗5区块用) + 置信度 + 卖出动作
+                "dims": res["dims"],
+                "adapt": res["adapt"],
+                "dim_hits": res["dim_hits"],
+                "data_thresholds": res["data_thresholds"],
+                "history_analogy": res["history_analogy"],
+                "confidence": res["confidence"],
+                "sell_action": res["sell_action"],
             })
 
         if res["in_sell"]:
@@ -552,6 +630,14 @@ def main() -> None:
                 "is_national_team": is_nt,
                 "reason_summary": res["high_text"],
                 "ohlc": res["ohlc"],
+                # 任务2/3: 决策依据明细 + 置信度 + 卖出动作(sell 行显示 sell_action.label 替代旧文案)
+                "dims": res["dims"],
+                "adapt": res["adapt"],
+                "dim_hits": res["dim_hits"],
+                "data_thresholds": res["data_thresholds"],
+                "history_analogy": res["history_analogy"],
+                "confidence": res["confidence"],
+                "sell_action": res["sell_action"],
             })
 
         if res["in_hold"]:
@@ -568,6 +654,14 @@ def main() -> None:
                 "is_national_team": is_nt,
                 "reason_summary": res["low_text"] or res["high_text"],
                 "ohlc": res["ohlc"],
+                # 任务2/3: 决策依据明细 + 置信度 + 卖出动作(hold 也有, 保持三分类字段一致便于前端统一渲染)
+                "dims": res["dims"],
+                "adapt": res["adapt"],
+                "dim_hits": res["dim_hits"],
+                "data_thresholds": res["data_thresholds"],
+                "history_analogy": res["history_analogy"],
+                "confidence": res["confidence"],
+                "sell_action": res["sell_action"],
             })
 
     # 排序 + 取 top N (0=全量导出, 前端分页处理)

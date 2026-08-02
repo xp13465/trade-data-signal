@@ -9779,15 +9779,28 @@ async function renderPublicFund(container) {
     _pfCard("net_redeem_ratio", "净申赎率", netRedeem ? netRedeem.metric_value : null, netRedeemDelta, "%");
 
   // 4卡片弹窗(抱团度Top10 + 重叠度Top30 重仓股明细, 复用 .rule-modal 样式)
-  const _pfDetailModal = (title, stocks, subtitle) => {
+  // 任务4(2026-08-02): grayFirstN 参数区分两弹窗。重叠度 Top30 前10与抱团度 Top10 相同,
+  // 标灰(避免用户误解"两弹窗内容一样"), 11-30 高亮(重叠度独有, mark-new 角标)
+  const _pfDetailModal = (title, stocks, subtitle, grayFirstN) => {
     const existing = document.getElementById("pf-detail-modal");
     if (existing) existing.remove();
-    const rows = (stocks || []).map((s, i) => `<tr style="border-bottom:1px solid var(--border)">
-      <td style="text-align:center;color:var(--text-3);padding:3px 4px">${i + 1}</td>
-      <td style="padding:3px 4px"><b>${s.name || "-"}</b> <span style="color:var(--text-3);font-size:10px">${s.code || ""}</span></td>
+    const grayN = grayFirstN || 0;
+    const rows = (stocks || []).map((s, i) => {
+      const isDup = i < grayN;  // 前 N 条与抱团度重复
+      const rowStyle = isDup
+        ? "border-bottom:1px solid var(--border);opacity:0.5;background:var(--bg-2,rgba(128,128,128,0.05))"
+        : "border-bottom:1px solid var(--border)";
+      const rankCell = isDup
+        ? `<td style="text-align:center;color:var(--text-3);padding:3px 4px">${i + 1}<span style="display:block;font-size:9px;color:var(--text-3)">同抱团</span></td>`
+        : `<td style="text-align:center;color:var(--text-3);padding:3px 4px">${i + 1}<span style="display:block;font-size:9px;color:#ff9800;font-weight:600">新增</span></td>`;
+      const nameStyle = isDup ? "padding:3px 4px;color:var(--text-3)" : "padding:3px 4px";
+      return `<tr style="${rowStyle}">
+      ${rankCell}
+      <td style="${nameStyle}"><b>${s.name || "-"}</b> <span style="color:var(--text-3);font-size:10px">${s.code || ""}</span></td>
       <td style="text-align:right;padding:3px 8px">${s.fund_count != null ? s.fund_count + " 家" : "-"}</td>
       <td style="text-align:right;padding:3px 8px">${s.value != null ? (s.value / 1e8).toFixed(2) + " 亿" : "-"}</td>
-    </tr>`).join("");
+    </tr>`;
+    }).join("");
     const modal = document.createElement("div");
     modal.id = "pf-detail-modal";
     modal.className = "rule-modal";
@@ -9833,8 +9846,12 @@ async function renderPublicFund(container) {
         : (d.incomplete ? "数据采集中" : (d.cross_type ? "跨期不可比" : "-"));
       const _statNote = d.incomplete ? " · 当期采集未完成(中报披露期8/31截止, stocks数偏低), delta暂不显示"
         : (d.cross_type ? " · 当期与上期披露类型不同(全披露vs前十大), 跨期不可比" : "");
+      // 任务4(2026-08-02): 重叠度 Top30 弹窗前10条标灰(与抱团度 Top10 相同), 11-30 高亮(重叠度独有新增)
+      // subtitle 明确"前10与抱团度相同, 11-30为新增", 避免用户误解两弹窗内容一样
       _pfDetailModal("🎯 重叠度 · Top30 重仓股持有基金数", d.top30_stocks,
-        `平均每只被 ${overlap.metric_value} 家基金持有 · 较上季 ${_dltTxt} · 上期 ${d.prev_report_date || "-"}${_statNote}`);
+        `平均每只被 ${overlap.metric_value} 家基金持有 · 较上季 ${_dltTxt} · 上期 ${d.prev_report_date || "-"}${_statNote}<br>` +
+        `<b style="color:#ff9800">注: 前 10 条(灰色)与抱团度 Top10 相同, 第 11-30 条(橙色"新增"标)为重叠度独有</b>`,
+        10);
     }
   });
 
@@ -9883,7 +9900,13 @@ async function renderPublicFund(container) {
   // 今日预估仓位 series(日频 OLS 预估, 补 lg 周频滞后): history 147期时序 + 末端 markPoint 标 current
   // 预估 history date="2025-12-22" 需转 "20251222" 匹配 xAxis category(和 _btDateToCoord 同逻辑, 此处提前用)
   // 预估线只画有数据的部分(2025-12-22 起), 和 lg 线(2007 起)在 2025-12-22~2026-07-24 重叠期可视觉对比日频vs周频
-  const _estHist = (estimate && Array.isArray(estimate.history)) ? estimate.history : [];
+  // 任务1(2026-08-02): estHistory 也按 _pfCutoff 过滤, 否则 3m/6m 窗口 allDates 起点被拉到 20251222,
+  // 而红线 posMap 只含 cutoff 后 lg 点, [20251222~cutoff后首lg点] 整段全 null 致视觉断线(connectNulls 救不了全段null)
+  const _estHistRaw = (estimate && Array.isArray(estimate.history)) ? estimate.history : [];
+  const _estHist = _estHistRaw.filter((h) => {
+    const d = (h.date || "").replace(/-/g, "");
+    return !_pfCutoff || d >= _pfCutoff;
+  });
   const estPoints = _estHist.map((h) => [(h.date || "").replace(/-/g, ""), h.position]);
   const estMap = new Map(estPoints);
   const _estCurDate = _estCur ? (_estCur.date || "").replace(/-/g, "") : "";  // 末端点日期 YYYYMMDD, tooltip 追加偏差
@@ -13544,6 +13567,179 @@ function _renderEtfPager(scope, page, pages, total) {
   return html;
 }
 
+// 任务2(2026-08-02): ETF 评分明细弹窗 - 5区块决策依据(档位/手数or卖出/8维度/置信度/历史类比)
+// 复用 openIndexAnalyzeModal 模式(rule-modal 骨架 + _labCustom* HTML 函数)
+// 数据来自 etf_score_list.json list item 的 dims/adapt/dim_hits/data_thresholds/history_analogy/confidence/sell_action
+// 不再额外 fetch alert_analyze_*.json(后端已把结构化明细内联进 list item, 单次加载即可弹窗)
+function openEtfScoreDetailModal(code) {
+  // 从 _etfScoreState.all 查 item(已合并 buy/sell/hold, 含新字段)
+  const e = (_etfScoreState.all || []).find((x) => x.etf_code === code);
+  if (!e) return;
+  let modal = document.getElementById("etfScoreDetailModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "etfScoreDetailModal";
+    modal.className = "rule-modal hidden";
+    modal.innerHTML = `<div class="rule-modal-overlay"></div>
+      <div class="rule-modal-body signal-chart-modal-body">
+        <div class="rule-modal-header">
+          <h3 class="etf-detail-title">🔬 ETF 决策依据</h3>
+          <button class="rule-modal-close" aria-label="关闭">&times;</button>
+        </div>
+        <div class="rule-modal-content etf-detail-content"></div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector(".rule-modal-overlay").onclick = closeEtfScoreDetailModal;
+    modal.querySelector(".rule-modal-close").onclick = closeEtfScoreDetailModal;
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && !modal.classList.contains("hidden")) closeEtfScoreDetailModal();
+    });
+  }
+  modal.querySelector(".etf-detail-title").textContent = "🔬 " + (e.name || code) + " 决策依据";
+  const body = modal.querySelector(".etf-detail-content");
+  body.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+
+  // === 5区块渲染 ===
+  const tier = _etfScoreTier(e);
+  const tierLabel = ETF_TIER_LABEL[tier] || "";
+  const sideLabel = e.side === "buy" ? "买入机会" : e.side === "hold" ? "持有观察" : "卖出信号";
+  const sideCls = e.side === "buy" ? "etf-side-buy" : e.side === "hold" ? "etf-side-hold" : "etf-side-sell";
+  const col = _etfScoreColor(e.score, e.side);
+
+  // 区块1: 决策结论头(档位chip + side tag + 评分 + 数据时点)
+  // 复用 ETF 评分行的 chip/side 样式, 加 score + high/low alert + 数据日期
+  const headHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+    <div class="lab-custom-score-head">
+      <div class="lab-custom-score-title">${_esc(e.name || "")} <span class="lab-custom-score-date">📅 ${_esc(e.etf_code || "")}</span></div>
+      <div class="lab-custom-adapt">
+        <span class="etf-tier-chip etf-tier-chip-${tier}">${tierLabel}</span>
+        <span class="etf-side-tag ${sideCls}" style="margin-left:6px">${sideLabel}</span>
+      </div>
+    </div>
+    <div class="lab-custom-score-grid">
+      <div class="lab-custom-score-cell">
+        <div class="lab-custom-cell-label">评分<span class="lab-custom-cell-sublabel">${sideLabel}主分</span></div>
+        <div class="lab-custom-cell-score" style="color:${col}">${e.score != null ? e.score.toFixed(2) : "-"}</div>
+      </div>
+      <div class="lab-custom-score-cell">
+        <div class="lab-custom-cell-label">高位预警<span class="lab-custom-cell-sublabel">≥70 过热</span></div>
+        <div class="lab-custom-cell-score">${e.high_alert != null ? e.high_alert.toFixed(2) : "-"}</div>
+      </div>
+      <div class="lab-custom-score-cell">
+        <div class="lab-custom-cell-label">低位机会<span class="lab-custom-cell-sublabel">≥70 机会</span></div>
+        <div class="lab-custom-cell-score">${e.low_alert != null ? e.low_alert.toFixed(2) : "-"}</div>
+      </div>
+    </div>
+  </div>`;
+
+  // 区块2: 手数/卖出动作(buy 显示买点手数 + 卖出动作; sell 显示 sell_action.label + pct 进度条)
+  let actionHTML = "";
+  if (e.side === "buy") {
+    // buy: 买点 X 手 + 6维分(如果有). ETF list item 无 position.detail 6维分, 显示手数+波动率+amt_pct
+    const handsTxt = e.hands != null ? e.hands + " 手" : "-";
+    const volTxt = e.volatility != null ? e.volatility.toFixed(2) + "%" : "-";
+    const amtTxt = e.amt_pct != null ? e.amt_pct.toFixed(0) : "-";
+    actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+      <div class="lab-custom-section-title">📐 买点建议</div>
+      <div class="lab-custom-score-grid">
+        <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">建议手数</div><div class="lab-custom-cell-score">${handsTxt}</div></div>
+        <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">波动率</div><div class="lab-custom-cell-score">${volTxt}</div></div>
+        <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">流动性分位</div><div class="lab-custom-cell-score">${amtTxt}</div></div>
+      </div>
+    </div>`;
+  } else if (e.side === "sell" && e.sell_action) {
+    // sell: sell_action.label + pct 进度条(明确减仓比例)
+    const sa = e.sell_action;
+    const pct = sa.pct || 0;
+    const barColor = pct >= 75 ? "#e6492e" : pct >= 50 ? "#ff9800" : pct > 0 ? "#ffc107" : "#2e8b57";
+    actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+      <div class="lab-custom-section-title">🔻 卖出建议</div>
+      <div class="lab-custom-score-summary" style="margin:8px 0;font-size:15px">建议 <b>${_esc(sa.label || "")}</b></div>
+      <div style="background:var(--bg-2,rgba(128,128,128,0.1));border-radius:6px;height:24px;overflow:hidden;margin:8px 0;position:relative">
+        <div style="width:${pct}%;height:100%;background:${barColor};transition:width .3s"></div>
+        <span style="position:absolute;right:8px;top:3px;font-size:12px;font-weight:600;color:var(--text-1)">减仓 ${pct}%</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-3);line-height:1.5">基于高位预警分 ${e.high_alert != null ? e.high_alert.toFixed(2) : "-"}（≥85清仓/≥75减3-4/≥70减1-2/≥60减1-4/<60持有观察）</div>
+    </div>`;
+  } else {
+    // hold: 持有观察说明
+    actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+      <div class="lab-custom-section-title">⏸ 持有观察</div>
+      <div class="lab-custom-score-summary">${_esc(e.sell_signal || "持有观察")}</div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:6px">不够格买入(C2)但不过热, 持有观察等待信号</div>
+    </div>`;
+  }
+
+  // 区块4: 置信度(数据完整度60% + 信号一致性40%, 对齐 88魔咒 _confZh 高/中/低)
+  let confHTML = "";
+  if (e.confidence) {
+    const c = e.confidence;
+    const confZh = ({ high: "高", medium: "中", low: "低" })[c.level] || "-";
+    const confColor = c.level === "high" ? "#2e8b57" : c.level === "medium" ? "#ff9800" : "#e6492e";
+    const missingTxt = (c.missing || []).length ? (c.missing || []).join(", ") : "无";
+    const completePct = ((c.avail_h + c.avail_l) / 16 * 100).toFixed(0);
+    const consistencyPct = ((c.hit_count || 0) / 16 * 100).toFixed(0);
+    confHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+      <div class="lab-custom-section-title">🎯 置信度</div>
+      <div class="lab-custom-score-grid">
+        <div class="lab-custom-score-cell">
+          <div class="lab-custom-cell-label">置信等级</div>
+          <div class="lab-custom-cell-score" style="color:${confColor}">${confZh}</div>
+          <div class="lab-custom-cell-desc">综合分 ${c.score != null ? c.score.toFixed(1) : "-"}/100</div>
+        </div>
+        <div class="lab-custom-score-cell">
+          <div class="lab-custom-cell-label">数据完整度<span class="lab-custom-cell-sublabel">权重 60%</span></div>
+          <div class="lab-custom-cell-score">${completePct}%</div>
+          <div class="lab-custom-cell-desc">高位 ${c.avail_h}/8 + 低位 ${c.avail_l}/8 = ${c.avail_h + c.avail_l}/16 维度</div>
+        </div>
+        <div class="lab-custom-score-cell">
+          <div class="lab-custom-cell-label">信号一致性<span class="lab-custom-cell-sublabel">权重 40%</span></div>
+          <div class="lab-custom-cell-score">${consistencyPct}%</div>
+          <div class="lab-custom-cell-desc">命中(≥60) ${c.hit_count || 0}/16 维度</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:6px" title="缺失维度: ${_esc(missingTxt)}">缺失维度: ${_esc(missingTxt)}</div>
+    </div>`;
+  }
+
+  // 区块3: 8维度明细(复用 _labCustomDimsTableHTML: H1-H8/L1-L8 分值+权重+贡献+命中)
+  const dimsHTML = (typeof _labCustomDimsTableHTML === "function")
+    ? _labCustomDimsTableHTML(e.dim_hits, e.dims, e.adapt) : "";
+
+  // 区块5: 历史类比(复用 _labCustomHistoryHTML: Top3相似日 + 后续涨跌统计)
+  const histHTML = (typeof _labCustomHistoryHTML === "function")
+    ? _labCustomHistoryHTML(e.history_analogy, {}) : "";
+
+  // 附加: 数据阈值表(折叠, 复用 _labCustomThresholdsHTML: 当前值+阈值+命中状态+desc)
+  const threshHTML = (typeof _labCustomThresholdsHTML === "function")
+    ? _labCustomThresholdsHTML(e.data_thresholds) : "";
+
+  // 合规底栏
+  const footerHTML = (typeof _labCustomFooterHTML === "function")
+    ? _labCustomFooterHTML(null, null) : "";
+
+  body.innerHTML = headHTML + actionHTML + confHTML + dimsHTML + histHTML + threshHTML + footerHTML;
+
+  // 折叠阈值表交互(同 openIndexAnalyzeModal)
+  const toggle = body.querySelector(".lab-custom-thresh-toggle");
+  if (toggle) {
+    toggle.onclick = () => {
+      const tBody = body.querySelector(".lab-custom-thresh-body");
+      const open = tBody && tBody.style.display !== "none";
+      if (tBody) tBody.style.display = open ? "none" : "block";
+      toggle.textContent = open ? "展开数据阈值表 ▾" : "收起数据阈值表 ▴";
+    };
+  }
+}
+
+function closeEtfScoreDetailModal() {
+  const modal = document.getElementById("etfScoreDetailModal");
+  if (modal) modal.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
 function _renderEtfScoreBody() {
   const body = document.getElementById("etf-score-body");
   if (!body) return;
@@ -13605,13 +13801,20 @@ function _renderEtfScoreBody() {
     const signalTxt = e.side === "buy"
       ? (e.hands != null ? '买点 ' + e.hands + ' 手' : '')
       : e.side === "hold"
+      // hold 侧保留 hold_reason(sell_signal 字段)显示, 信息更具体(含"未达买入阈值")
       ? (e.sell_signal ? _esc(e.sell_signal) : '继续持有')
-      : (e.sell_signal ? _esc(e.sell_signal) : '');
+      // 任务3(2026-08-02): sell 行优先显示 sell_action.label(含减仓比例语义)替代旧 sell_signal 文案
+      : (e.sell_action && e.sell_action.label ? _esc(e.sell_action.label) : (e.sell_signal ? _esc(e.sell_signal) : ''));
     const isHolding = !!hset[e.etf_code];
     const holdTag = isHolding ? '<span class="etf-hold-tag" title="我的持仓">⭐ 持仓</span>' : '';
     const spark = _etfSparkline(e.ohlc, 60, 20);
     const sparkTag = spark ? '<span class="etf-spark-wrap" title="近30日走势">' + spark + '</span>' : '';
-    return '<div class="etf-score-row etf-side-' + e.side + ' etf-tier-' + tier + (isHolding ? ' is-holding' : '') + '">'
+    // 任务2(2026-08-02): 行可点击打开 ETF 评分明细弹窗(data-etf-code + clickable cursor)
+    // 仅当有 dims/confidence 等结构化明细时才可点(后端已全量补, 旧数据兜底不可点)
+    const hasDetail = !!(e.dims || e.confidence || e.dim_hits);
+    const clickAttr = hasDetail ? ' data-etf-code="' + _esc(e.etf_code) + '"' : '';
+    const clickCls = hasDetail ? ' etf-score-row-clickable' : '';
+    return '<div class="etf-score-row etf-side-' + e.side + ' etf-tier-' + tier + (isHolding ? ' is-holding' : '') + clickCls + '"' + clickAttr + '>'
       + '<div class="etf-row-main">'
       + '<span class="etf-rank">#' + rank + '</span>'
       + '<span class="etf-code">' + _esc(e.etf_code) + '</span>'
@@ -13626,6 +13829,7 @@ function _renderEtfScoreBody() {
       + '<span class="etf-alert" title="高位预警/低位机会区间">预警 ' + (e.high_alert != null ? e.high_alert.toFixed(2) : '-') + ' / ' + (e.low_alert != null ? e.low_alert.toFixed(2) : '-') + '</span>'
       + '</div>'
       + (e.reason_summary ? '<div class="etf-reason">' + _esc(e.reason_summary) + '</div>' : '')
+      + (hasDetail ? '<div class="etf-detail-hint" style="font-size:10px;color:var(--text-3);margin-top:2px">💡 点击查看决策依据明细</div>' : '')
       + '</div>';
   };
 
@@ -13752,6 +13956,12 @@ function _renderEtfScoreBody() {
       _renderEtfScoreBody();
     };
   });
+  // 任务2(2026-08-02): 行 click 委托打开 ETF 评分明细弹窗(5区块决策依据)
+  // 覆盖式绑定(body 不变, 每次渲染覆盖 onclick 无重复绑定问题)
+  body.querySelectorAll(".etf-score-row-clickable[data-etf-code]").forEach((row) => {
+    row.style.cursor = "pointer";
+    row.onclick = () => openEtfScoreDetailModal(row.dataset.etfCode);
+  });
 }
 
 async function renderEtfScore(container) {
@@ -13773,6 +13983,10 @@ async function renderEtfScore(container) {
     high_alert: e.high_alert, low_alert: e.low_alert,
     is_national_team: e.is_national_team, reason_summary: e.reason_summary,
     sell_signal: null, ohlc: e.ohlc || [],
+    // 任务2/3(2026-08-02): 决策依据明细 + 置信度 + 卖出动作(弹窗5区块用)
+    dims: e.dims, adapt: e.adapt, dim_hits: e.dim_hits,
+    data_thresholds: e.data_thresholds, history_analogy: e.history_analogy,
+    confidence: e.confidence, sell_action: e.sell_action,
   }));
   (r.sell_list || []).forEach((e) => {
     // sell_list 只含过热(high_alert>=60), 统一 side="sell"(不再按 sell_signal 拆 hold)
@@ -13782,6 +13996,10 @@ async function renderEtfScore(container) {
       high_alert: e.high_alert, low_alert: e.low_alert,
       is_national_team: e.is_national_team, reason_summary: e.reason_summary,
       sell_signal: e.sell_signal, ohlc: e.ohlc || [],
+      // 任务2/3: 决策依据明细 + 置信度 + 卖出动作
+      dims: e.dims, adapt: e.adapt, dim_hits: e.dim_hits,
+      data_thresholds: e.data_thresholds, history_analogy: e.history_analogy,
+      confidence: e.confidence, sell_action: e.sell_action,
     });
   });
   (r.hold_list || []).forEach((e) => {
@@ -13793,6 +14011,10 @@ async function renderEtfScore(container) {
       high_alert: e.high_alert, low_alert: e.low_alert,
       is_national_team: e.is_national_team, reason_summary: e.reason_summary,
       sell_signal: e.hold_reason || "持有观察", ohlc: e.ohlc || [],
+      // 任务2/3: 决策依据明细 + 置信度 + 卖出动作(hold 也带, 弹窗统一渲染)
+      dims: e.dims, adapt: e.adapt, dim_hits: e.dim_hits,
+      data_thresholds: e.data_thresholds, history_analogy: e.history_analogy,
+      confidence: e.confidence, sell_action: e.sell_action,
     });
   });
   _etfScoreState.all = all;

@@ -210,7 +210,7 @@ def build_history_analogy(target_id: str, target_type: str, cur_date: str,
     if dims_df.empty:
         return {"cur_date": cur_date, "top_n": 0, "matches": [],
                 "window_days": 0, "stats": {}}
-    close, _ = _load_target_close_amount(target_id, target_type)
+    close, _, _ = _load_target_close_amount(target_id, target_type)
     if close.empty:
         return {"cur_date": cur_date, "top_n": 0, "matches": [],
                 "window_days": 0, "stats": {}}
