@@ -1021,14 +1021,14 @@ main { padding: 16px 24px; }
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-bottom: 16px;
-  align-items: flex-start; /* 卡片各自贴合内容高度，消除矮列内部底部留白（接受同行左右列底部不齐） */
+  align-items: stretch; /* 恢复 stretch 让左右列等高，消除"中间隔开"（flex-start 致矮列底部留白视觉分隔）；配合 .chart-card flex:0 0 auto 保卡片贴合内容 */
 }
 .ov-2col > * {
   display: flex;
   flex-direction: column;
   gap: 12px; /* 卡片间距用 gap 统一，替代下方 margin-bottom */
 }
-.ov-2col .chart-card { margin-bottom: 0; flex: 0 0 auto; } /* 卡贴合内容高度不撑列高，消除内部底部留白（配合 align-items: flex-start） */
+.ov-2col .chart-card { margin-bottom: 0; flex: 0 0 auto; } /* 卡贴合内容高度不撑列高（配合 align-items: stretch：列等高+卡贴合内容，消除"中间隔开"） */
 .ov-2col .chart-card:last-child { margin-bottom: 0; }
 @media (max-width: 768px) {
   .ov-2col { grid-template-columns: 1fr; }
