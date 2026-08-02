@@ -9,6 +9,7 @@
   python3 scripts/upload_r2.py upload-index               # 上传 data/index/*.json+.gz -> index/
   python3 scripts/upload_r2.py upload-industry            # 上传 data/industry-* -> industry/
   python3 scripts/upload_r2.py upload-public-fund         # 上传 data/public_fund* -> public_fund/
+  python3 scripts/upload_r2.py upload-offshore-fund       # 上传 data/offshore_fund* -> offshore_fund/ (筛选器阶段0)
   python3 scripts/upload_r2.py upload-data-large          # 上传 data/ 顶层 >1MB .json+.gz -> data/
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
@@ -285,7 +286,7 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
         files = [f for f in files if f.exists()]
     if not files:
         print(f"⚠ {local_dir} 下 {glob_patterns} 无匹配文件")
-        return 0, 0
+        return 0, 0, []
     total = len(files)
 
     def _upload_one(idx_f):
@@ -430,6 +431,22 @@ def cmd_upload_public_fund():
         sys.exit(1)
 
 
+def cmd_upload_offshore_fund():
+    """上传 static-site/data/offshore_fund*.json + .gz 到 R2 offshore_fund/ 前缀。
+
+    筛选器阶段0(2026-08-02 新增): 7 类 JSON(5 大文件 >1MB + 2 小文件, 全量后均大)。
+    按类别走 R2(§8.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
+    offshore_fund_basic 13MB / performance 5.8MB / manager 6.7MB / purchase_status 4.9MB / rating 2.4MB。
+    """
+    data_dir = STATIC_DIR / "data"
+    ok, total, _ = _upload_glob(data_dir, ["offshore_fund*.json", "offshore_fund*.json.gz"], "offshore_fund")
+    if total == 0:
+        print(f"⚠ 无 offshore_fund json: {data_dir}/offshore_fund*.json")
+        return
+    if ok != total:
+        sys.exit(1)
+
+
 def cmd_upload_data_large():
     """上传 static-site/data/ 顶层 >1MB 的 .json + .gz 到 R2 data/ 前缀。
 
@@ -445,8 +462,8 @@ def cmd_upload_data_large():
     """
     data_dir = STATIC_DIR / "data"
     LARGE_THRESHOLD = 1 * 1024 * 1024  # 1MB
-    # 排除已走独立 R2 前缀的（industry-/public_fund 由各自命令处理）
-    exclude_prefixes = ("industry-", "public_fund")
+    # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund 由各自命令处理）
+    exclude_prefixes = ("industry-", "public_fund", "offshore_fund")
     files = []
     for f in sorted(data_dir.glob("*.json")):
         if any(f.name.startswith(p) for p in exclude_prefixes):
@@ -715,6 +732,8 @@ if __name__ == "__main__":
         cmd_upload_industry()
     elif cmd == "upload-public-fund":
         cmd_upload_public_fund()
+    elif cmd == "upload-offshore-fund":
+        cmd_upload_offshore_fund()
     elif cmd == "upload-data-large":
         cmd_upload_data_large()
     elif cmd == "upload-db":
@@ -736,6 +755,6 @@ if __name__ == "__main__":
         sys.exit(
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
-            "upload-data-large|upload-db|"
+            "upload-offshore-fund|upload-data-large|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup]"
         )

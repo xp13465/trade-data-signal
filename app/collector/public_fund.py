@@ -330,6 +330,117 @@ CREATE TABLE IF NOT EXISTS fund_index_daily (
   PRIMARY KEY (date, index_id)
 );
 CREATE INDEX IF NOT EXISTS idx_fund_index_daily_id ON fund_index_daily(index_id);
+
+-- ── 筛选器阶段0: 6 张新表（2026-08-02 新增, 为评分引擎提供数据地基）──────────────
+-- fund_basic 扩 15 列由 _migrate_fund_basic() 用 ALTER TABLE ADD COLUMN 处理
+-- (CREATE TABLE IF NOT EXISTS 不会改已有表结构, 故用迁移函数动态加列)
+
+-- 表10: fund_manager 基金经理（PK=fund_code+manager_name）
+-- fund_manager_em 拿关系+经理档案(8列), 自爬fundf10补 appoint_date + managed_history
+-- 经理级别属性(managed_count/managed_scale/best_return)在每条关系记录冗余, 采集时全量刷新
+CREATE TABLE IF NOT EXISTS fund_manager (
+  fund_code TEXT NOT NULL,
+  manager_name TEXT NOT NULL,
+  appoint_date TEXT,              -- 任职起始日 YYYYMMDD(自爬fundf10 manager页)
+  managed_count INTEGER,          -- 在管基金数
+  managed_scale REAL,             -- 在管规模(亿元)
+  best_return REAL,               -- 历史最佳回报%
+  managed_history TEXT,           -- 任职历史 JSON(管过哪些基金 [{code,name,start,end}])
+  tenure_days INTEGER,            -- 任职天数(从 appoint_date 算到今天)
+  work_days INTEGER,              -- 累计从业天数(fund_manager_em "累计从业时间")
+  update_date TEXT,
+  PRIMARY KEY (fund_code, manager_name)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_manager_name ON fund_manager(manager_name);
+CREATE INDEX IF NOT EXISTS idx_fund_manager_company ON fund_manager(fund_code);
+
+-- 表11: fund_performance 9区间收益率+快照（PK=fund_code+update_date）
+-- fund_open_fund_rank_em("全部") 一次拿全市场20070只 9区间收益率(金矿, 2.5s)
+CREATE TABLE IF NOT EXISTS fund_performance (
+  fund_code TEXT NOT NULL,
+  update_date TEXT NOT NULL,      -- 日期 YYYYMMDD
+  unit_nav REAL,                  -- 单位净值快照
+  acc_nav REAL,                   -- 累计净值快照
+  day_growth REAL,                -- 日增长率%
+  return_1w REAL,                 -- 近1周%
+  return_1m REAL,                 -- 近1月%
+  return_3m REAL,                 -- 近3月%
+  return_6m REAL,                 -- 近6月%
+  return_1y REAL,                 -- 近1年%
+  return_2y REAL,                 -- 近2年%
+  return_3y REAL,                 -- 近3年%
+  return_ytd REAL,                -- 今年来%
+  return_since_inception REAL,    -- 成立来%
+  fee_rate REAL,                  -- 手续费%(rank_em 自带)
+  PRIMARY KEY (fund_code, update_date)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_performance_date ON fund_performance(update_date);
+
+-- 表12: fund_risk_indicator 风险指标（PK=fund_code+period）
+-- fund_individual_analysis_xq 拿5指标(3周期:1y/3y/5y), 失败降级用 fetch_nav_history 净值自算
+-- xq 提供: annual_volatility/sharpe/max_drawdown/risk_return_rank/anti_risk_rank
+-- 自算补: sortino/calmar/downside_risk/information_ratio/alpha(需5年净值, 回撤依赖 fund_daily_nav)
+CREATE TABLE IF NOT EXISTS fund_risk_indicator (
+  fund_code TEXT NOT NULL,
+  period TEXT NOT NULL,           -- '1y'/'3y'/'5y'
+  sharpe REAL,                    -- 年化夏普比率
+  sortino REAL,                   -- 索提诺比率(自算)
+  calmar REAL,                    -- 卡玛比率(自算)
+  max_drawdown REAL,              -- 最大回撤%
+  annual_volatility REAL,         -- 年化波动率%
+  downside_risk REAL,             -- 下行风险%(自算)
+  information_ratio REAL,         -- 信息比率(自算, 需基准)
+  alpha REAL,                     -- alpha(自算, 需基准回归)
+  risk_return_rank INTEGER,       -- 较同类风险收益比%(xq, 0-100)
+  anti_risk_rank INTEGER,         -- 较同类抗风险波动%(xq, 0-100)
+  data_source TEXT,               -- 'xq'/'self_calc'/'mixed'
+  update_date TEXT,
+  PRIMARY KEY (fund_code, period)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_risk_indicator_period ON fund_risk_indicator(period);
+
+-- 表13: fund_rating 4家评级（PK=fund_code+rating_date）
+-- fund_rating_all 一次拿全市场18096只
+-- 4家: 上海证券/招商证券/济安金信/晨星(任务描述"银河"实测是"上海证券")
+CREATE TABLE IF NOT EXISTS fund_rating (
+  fund_code TEXT NOT NULL,
+  rating_date TEXT NOT NULL,      -- 评级日期 YYYYMMDD
+  shanghai_securities REAL,       -- 上海证券评级(1-5)
+  cms REAL,                       -- 招商证券评级(1-5)
+  jajx REAL,                      -- 济安金信评级(1-5)
+  morningstar REAL,               -- 晨星评级(1-5)
+  five_star_count INTEGER,        -- 5星评级家数
+  update_date TEXT,
+  PRIMARY KEY (fund_code, rating_date)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_rating_date ON fund_rating(rating_date);
+
+-- 表14: fund_purchase_status 申赎状态（PK=fund_code+update_date）
+-- fund_purchase_em 一次拿全市场27115只
+CREATE TABLE IF NOT EXISTS fund_purchase_status (
+  fund_code TEXT NOT NULL,
+  update_date TEXT NOT NULL,      -- 采集日期 YYYYMMDD
+  purchase_status TEXT,           -- 申购状态(开放申购/暂停申购/限制大额)
+  redeem_status TEXT,             -- 赎回状态(开放赎回/暂停赎回)
+  next_open_date TEXT,            -- 下一开放日 YYYYMMDD
+  purchase_min REAL,              -- 购买起点(元)
+  daily_limit REAL,               -- 日累计限定金额(元)
+  PRIMARY KEY (fund_code, update_date)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_purchase_status_date ON fund_purchase_status(update_date);
+
+-- 表15: fund_fee_detail 费率分档（PK=fund_code+fee_type+tier_index）
+-- fund_individual_detail_info_xq 逐只拿买入/卖出/其他费用分档(9行/只)
+CREATE TABLE IF NOT EXISTS fund_fee_detail (
+  fund_code TEXT NOT NULL,
+  fee_type TEXT NOT NULL,         -- 'purchase'(买入)/'redeem'(卖出)/'other'(其他)
+  tier_index INTEGER NOT NULL,    -- 档位序号(0,1,2...)
+  condition_desc TEXT,            -- 条件描述(如"0.0万<买入金额<50.0万")
+  fee_rate REAL,                  -- 费率(%或元, 买入100万+可能是固定元)
+  update_date TEXT,
+  PRIMARY KEY (fund_code, fee_type, tier_index)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_fee_detail_code ON fund_fee_detail(fund_code);
 """
 
 _LOCK_FILE: list = [None]
@@ -348,8 +459,42 @@ def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
     conn.commit()
+    _migrate_fund_basic(conn)
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     conn.close()
+
+
+# fund_basic 扩 15 列（11 任务要求 + 4 金矿补充, 覆盖 fund_overview_em 18 字段金矿）
+# CREATE TABLE IF NOT EXISTS 不改已有表结构, 用 ALTER TABLE ADD COLUMN 动态加列
+# SQLite ADD COLUMN 无 IF NOT EXISTS, 用 PRAGMA table_info 检查避免重复添加
+FUND_BASIC_NEW_COLUMNS: list[tuple[str, str]] = [
+    # (列名, 列定义) —— 11 任务要求
+    ("fund_company", "TEXT"),        # 基金管理人
+    ("fund_manager", "TEXT"),        # 基金经理人
+    ("setup_date", "TEXT"),          # 成立日期 YYYYMMDD(从"成立日期/规模"解析)
+    ("scale", "REAL"),               # 净资产规模(亿元, 解析数字)
+    ("management_fee", "REAL"),      # 管理费率%
+    ("custody_fee", "REAL"),         # 托管费率%
+    ("purchase_fee", "REAL"),        # 最高认购费率%
+    ("custodian", "TEXT"),           # 基金托管人
+    ("strategy", "TEXT"),            # 基金全称(含策略描述, fund_overview_em 无独立"投资策略"字段)
+    ("benchmark", "TEXT"),           # 业绩比较基准
+    ("tracking_target", "TEXT"),     # 跟踪标的
+    # 4 金矿补充(完整覆盖18字段, 不丢信息)
+    ("issue_date", "TEXT"),          # 发行日期 YYYYMMDD
+    ("share_scale", "REAL"),         # 份额规模(亿份)
+    ("service_fee", "REAL"),         # 销售服务费率%(C类份额关键指标)
+    ("dividend_total", "TEXT"),      # 成立来分红(原文)
+]
+
+
+def _migrate_fund_basic(conn: sqlite3.Connection) -> None:
+    """fund_basic ALTER TABLE ADD COLUMN 迁移: 幂等加 15 列(已存在跳过)。"""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(fund_basic)")}
+    for col, col_def in FUND_BASIC_NEW_COLUMNS:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE fund_basic ADD COLUMN {col} {col_def}")
+    conn.commit()
 
 
 def _acquire_lock(nonblock: bool = True) -> bool:
@@ -1332,6 +1477,815 @@ def collect_portfolio_hold(report_date: str | None = None) -> dict:
         print(f"[I-collect] 失败 {len(fail_list)} 只: {sample}{suffix}", flush=True)
     return {"ok": ok, "fail": fail, "total": total,
             "rows_written": rows_written, "fail_list": fail_list}
+
+
+# ── 筛选器阶段0: 7 个 fetcher (2026-08-02 新增, 为评分引擎提供数据地基) ────────
+PF_STAGE0_PROGRESS_PATH = Path("/tmp/pf-stage0-collect-progress.json")
+PF_STAGE0_THROTTLE = 0.4  # 逐只接口延时(秒), 反爬低加保险
+
+
+def _load_stage0_progress(fetcher_name: str) -> dict:
+    """读断点续采进度: {fetcher_name: {done:[], fail:[], total:N}}"""
+    if not PF_STAGE0_PROGRESS_PATH.exists():
+        return {"done": [], "fail": [], "total": 0}
+    try:
+        data = json.loads(PF_STAGE0_PROGRESS_PATH.read_text(encoding="utf-8"))
+        return data.get(fetcher_name, {"done": [], "fail": [], "total": 0})
+    except Exception:  # noqa: BLE001
+        return {"done": [], "fail": [], "total": 0}
+
+
+def _save_stage0_progress(fetcher_name: str, prog: dict) -> None:
+    """写断点续采进度(按 fetcher_name 分区, 互不干扰)。"""
+    try:
+        data = {}
+        if PF_STAGE0_PROGRESS_PATH.exists():
+            data = json.loads(PF_STAGE0_PROGRESS_PATH.read_text(encoding="utf-8"))
+        data[fetcher_name] = prog
+        PF_STAGE0_PROGRESS_PATH.write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        print(f"  [progress] WARN 写入失败: {e}", flush=True)
+
+
+def _parse_overview_date(s: str) -> str:
+    """解析 fund_overview_em 日期字段 'YYYY年MM月DD日' -> 'YYYYMMDD'。"""
+    if not s:
+        return ""
+    import re
+    m = re.search(r'(\d{4})年(\d{2})月(\d{2})日', str(s))
+    return f"{m.group(1)}{m.group(2)}{m.group(3)}" if m else ""
+
+
+def _parse_overview_scale(s: str) -> float | None:
+    """解析 fund_overview_em 规模字段 '197.40亿元（截止至：2026年06月30日）' -> 197.40。"""
+    if not s:
+        return None
+    import re
+    m = re.search(r'([\d.]+)\s*亿', str(s))
+    return _safe_float(m.group(1)) if m else None
+
+
+def _parse_overview_fee(s: str) -> float | None:
+    """解析 fund_overview_em 费率字段 '1.00%（每年）' / '0.80%（前端）' -> 1.00。"""
+    if not s:
+        return None
+    import re
+    m = re.search(r'([\d.]+)\s*%', str(s))
+    return _safe_float(m.group(1)) if m else None
+
+
+def _parse_setup_date_scale(s: str) -> tuple[str, float | None]:
+    """解析 fund_overview_em '成立日期/规模' 合并字段。
+    '2015年05月27日 / 3.965亿份' -> ('20150527', 3.965)
+    """
+    if not s:
+        return "", None
+    import re
+    setup = ""
+    m = re.search(r'(\d{4})年(\d{2})月(\d{2})日', str(s))
+    if m:
+        setup = f"{m.group(1)}{m.group(2)}{m.group(3)}"
+    m2 = re.search(r'([\d.]+)\s*亿份', str(s))
+    share = _safe_float(m2.group(1)) if m2 else None
+    return setup, share
+
+
+# ── Fetcher J: 9区间收益率(金矿, 一次拿全市场) ─────────────────────────────────
+def fetch_fund_performance() -> int:
+    """fund_open_fund_rank_em('全部') 一次拿全市场20070只9区间收益率 -> fund_performance。
+
+    金矿接口: 2.5s 拿全市场, 9区间收益率(近1周/1月/3月/6月/1年/2年/3年/今年/成立来)。
+    """
+    print("[J] fetch_fund_performance() ...", flush=True)
+    t = time.time()
+    df = safe_call(ak.fund_open_fund_rank_em, retries=2, symbol="全部")
+    if isinstance(df, Exception) or df is None or len(df) == 0:
+        print(f"[J] FAIL: {df}", flush=True)
+        return 0
+    today = dt.date.today().strftime("%Y%m%d")
+    rows = []
+    for _, r in df.iterrows():
+        code = str(r.get("基金代码", "")).strip()
+        if not code:
+            continue
+        rows.append((
+            code, today,
+            _safe_float(r.get("单位净值")),
+            _safe_float(r.get("累计净值")),
+            _safe_float(r.get("日增长率")),
+            _safe_float(r.get("近1周")),
+            _safe_float(r.get("近1月")),
+            _safe_float(r.get("近3月")),
+            _safe_float(r.get("近6月")),
+            _safe_float(r.get("近1年")),
+            _safe_float(r.get("近2年")),
+            _safe_float(r.get("近3年")),
+            _safe_float(r.get("今年来")),
+            _safe_float(r.get("成立来")),
+            _safe_float(str(r.get("手续费", "")).replace("%", "")),
+        ))
+    conn = get_conn()
+    conn.executemany(
+        "INSERT OR REPLACE INTO fund_performance"
+        "(fund_code, update_date, unit_nav, acc_nav, day_growth, "
+        "return_1w, return_1m, return_3m, return_6m, return_1y, return_2y, "
+        "return_3y, return_ytd, return_since_inception, fee_rate) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+    print(f"[J] fund_performance 写入 {len(rows)} 行, {time.time()-t:.1f}s", flush=True)
+    return len(rows)
+
+
+# ── Fetcher K: 4家评级(汇总, 一次拿全市场) ─────────────────────────────────────
+def fetch_fund_rating() -> int:
+    """fund_rating_all 一次拿全市场18096只4家评级 -> fund_rating。
+
+    4家: 上海证券/招商证券/济安金信/晨星(任务描述'银河'实测是'上海证券')。
+    """
+    print("[K] fetch_fund_rating() ...", flush=True)
+    t = time.time()
+    df = safe_call(ak.fund_rating_all, retries=2)
+    if isinstance(df, Exception) or df is None or len(df) == 0:
+        print(f"[K] FAIL: {df}", flush=True)
+        return 0
+    today = dt.date.today().strftime("%Y%m%d")
+    rows = []
+    for _, r in df.iterrows():
+        code = str(r.get("代码", "")).strip()
+        if not code:
+            continue
+        rows.append((
+            code, today,
+            _safe_float(r.get("上海证券")),
+            _safe_float(r.get("招商证券")),
+            _safe_float(r.get("济安金信")),
+            _safe_float(r.get("晨星评级")),
+            _safe_float(r.get("5星评级家数")),
+            today,
+        ))
+    conn = get_conn()
+    conn.executemany(
+        "INSERT OR REPLACE INTO fund_rating"
+        "(fund_code, rating_date, shanghai_securities, cms, jajx, "
+        "morningstar, five_star_count, update_date) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+    print(f"[K] fund_rating 写入 {len(rows)} 行, {time.time()-t:.1f}s", flush=True)
+    return len(rows)
+
+
+# ── Fetcher L: 申赎状态(汇总, 一次拿全市场) ─────────────────────────────────────
+def fetch_fund_purchase_status() -> int:
+    """fund_purchase_em 一次拿全市场27115只申赎状态 -> fund_purchase_status。"""
+    print("[L] fetch_fund_purchase_status() ...", flush=True)
+    t = time.time()
+    df = safe_call(ak.fund_purchase_em, retries=2)
+    if isinstance(df, Exception) or df is None or len(df) == 0:
+        print(f"[L] FAIL: {df}", flush=True)
+        return 0
+    today = dt.date.today().strftime("%Y%m%d")
+    rows = []
+    for _, r in df.iterrows():
+        code = str(r.get("基金代码", "")).strip()
+        if not code:
+            continue
+        next_open = r.get("下一开放日")
+        next_open_str = ""
+        if next_open is not None:
+            try:
+                next_open_str = _to_yyyymmdd(next_open)
+            except (ValueError, TypeError):
+                next_open_str = ""  # NaT 等异常值留空
+        rows.append((
+            code, today,
+            str(r.get("申购状态", "")).strip(),
+            str(r.get("赎回状态", "")).strip(),
+            next_open_str,
+            _safe_float(r.get("购买起点")),
+            _safe_float(r.get("日累计限定金额")),
+        ))
+    conn = get_conn()
+    conn.executemany(
+        "INSERT OR REPLACE INTO fund_purchase_status"
+        "(fund_code, update_date, purchase_status, redeem_status, "
+        "next_open_date, purchase_min, daily_limit) "
+        "VALUES (?,?,?,?,?,?,?)",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+    print(f"[L] fund_purchase_status 写入 {len(rows)} 行, {time.time()-t:.1f}s", flush=True)
+    return len(rows)
+
+
+# ── Fetcher M: 基金经理(汇总 + 自爬fundf10补任职历史) ──────────────────────────
+PF_MANAGER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+PF_MANAGER_URL_TMPL = "https://fundf10.eastmoney.com/jjjl_{code}.html"
+
+
+def _scrape_fundf10_manager(code: str, retries: int = 2) -> dict | None:
+    """自爬 fundf10 manager 页, 返回 {appoint_date, managed_history}。
+
+    解析:
+      table[1](任职历史): 取"截止期"=="至今"行的"起始期"作为 appoint_date
+      table[2](经理管过的基金): 构建 managed_history JSON [{code,name,type,start,end,return}]
+
+    Args: code 基金代码
+    Returns: {appoint_date: str, managed_history: str(JSON)} 或 None(失败)
+    """
+    import re
+    from io import StringIO
+    import pandas as pd
+    from bs4 import BeautifulSoup
+    import requests
+
+    url = PF_MANAGER_URL_TMPL.format(code=code)
+    headers = {"User-Agent": PF_MANAGER_UA, "Referer": "https://fundf10.eastmoney.com/"}
+    last_err = None
+    for i in range(retries + 1):
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+            if r.status_code != 200:
+                last_err = f"HTTP {r.status_code}"
+                time.sleep(0.8 * (i + 1))
+                continue
+            soup = BeautifulSoup(r.text, features="lxml")
+            tables = soup.find_all("table")
+            appoint_date = ""
+            # table[1]: 任职历史, 找"至今"行的起始期
+            for tbl in tables:
+                rows_html = tbl.find_all("tr")
+                if not rows_html:
+                    continue
+                header = [td.get_text(strip=True) for td in rows_html[0].find_all(["th", "td"])]
+                if "起始期" in header and "截止期" in header:
+                    for tr in rows_html[1:]:
+                        cells = [td.get_text(strip=True) for td in tr.find_all(["th", "td"])]
+                        if len(cells) >= 4 and cells[1] == "至今":
+                            appoint_date = _to_yyyymmdd(cells[0])
+                            break
+                    if appoint_date:
+                        break
+            # table[2]: 经理管过的基金 -> managed_history JSON
+            managed_history: list[dict] = []
+            for tbl in tables:
+                rows_html = tbl.find_all("tr")
+                if not rows_html:
+                    continue
+                header = [td.get_text(strip=True) for td in rows_html[0].find_all(["th", "td"])]
+                if "基金代码" in header and "任职天数" in header:
+                    for tr in rows_html[1:]:
+                        cells = [td.get_text(strip=True) for td in tr.find_all(["th", "td"])]
+                        if len(cells) >= 7:
+                            managed_history.append({
+                                "code": cells[0],
+                                "name": cells[1],
+                                "type": cells[2],
+                                "start": _to_yyyymmdd(cells[3]),
+                                "end": cells[4] if cells[4] != "至今" else "",
+                                "tenure_days": cells[5],
+                                "return": _safe_float(cells[6].replace("%", "")),
+                            })
+                    break
+            if not appoint_date and not managed_history:
+                return None
+            return {
+                "appoint_date": appoint_date,
+                "managed_history": json.dumps(managed_history, ensure_ascii=False),
+            }
+        except Exception as e:  # noqa: BLE001
+            last_err = f"{type(e).__name__}: {e}"
+            time.sleep(0.8 * (i + 1))
+    return None
+
+
+def fetch_fund_manager(scrape: bool = True, codes: list[str] | None = None) -> int:
+    """fund_manager_em 全市场 + 自爬fundf10补任职历史 -> fund_manager。
+
+    流程:
+      1. fund_manager_em 拿全市场35436行经理-基金关系(姓名/公司/基金代码/累计从业时间/资产规模/最佳回报)
+      2. 批量写入 fund_manager 表基础信息(managed_count/managed_scale/best_return/work_days)
+      3. (可选) 逐只自爬 fundf10 manager 页补 appoint_date + managed_history + tenure_days
+      4. 断点续采: 自爬部分用 PF_STAGE0_PROGRESS_PATH["fund_manager"]
+
+    Args:
+      scrape: 是否自爬fundf10补任职历史(全量27409只~3h, 小样本验证可限codes)
+      codes: 限制自爬的基金代码列表(小样本验证用), None=全市场
+    Returns: 写入行数
+    """
+    print("[M] fetch_fund_manager() ...", flush=True)
+    t0 = time.time()
+    # M1: fund_manager_em 拿全市场经理-基金关系
+    df = safe_call(ak.fund_manager_em, retries=2)
+    if isinstance(df, Exception) or df is None or len(df) == 0:
+        print(f"[M] fund_manager_em FAIL: {df}", flush=True)
+        return 0
+    today = dt.date.today().strftime("%Y%m%d")
+    base_rows: list[tuple] = []
+    for _, r in df.iterrows():
+        code = str(r.get("现任基金代码", "")).strip()
+        name = str(r.get("姓名", "")).strip()
+        if not code or not name:
+            continue
+        work_days = _safe_float(r.get("累计从业时间"))
+        managed_scale = _safe_float(r.get("现任基金资产总规模"))
+        best_return = _safe_float(r.get("现任基金最佳回报"))
+        # 9列: fund_code, manager_name, managed_count(待反算), managed_scale,
+        #      best_return, managed_history(None,自爬补), tenure_days(None,自爬补),
+        #      work_days, update_date
+        base_rows.append((code, name, None, managed_scale, best_return,
+                          None, None, int(work_days) if work_days else None, today))
+    # 反算 managed_count: 每个经理出现的基金数
+    from collections import Counter
+    mgr_count = Counter(r[1] for r in base_rows)
+    base_rows = [(r[0], r[1], mgr_count[r[1]], r[3], r[4], r[5], r[6], r[7], r[8])
+                 for r in base_rows]
+    conn = get_conn()
+    conn.executemany(
+        "INSERT OR REPLACE INTO fund_manager"
+        "(fund_code, manager_name, managed_count, managed_scale, best_return, "
+        "managed_history, tenure_days, work_days, update_date) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        base_rows,
+    )
+    conn.commit()
+    conn.close()
+    print(f"[M1] fund_manager_em 写入 {len(base_rows)} 行, {time.time()-t0:.1f}s", flush=True)
+
+    if not scrape:
+        return len(base_rows)
+
+    # M2: 逐只自爬 fundf10 补 appoint_date + managed_history + tenure_days
+    if codes is None:
+        codes = sorted(set(r[0] for r in base_rows))
+    total = len(codes)
+    print(f"[M2] 自爬 fundf10 {total} 只补任职历史 ...", flush=True)
+    prog = _load_stage0_progress("fund_manager")
+    if prog.get("total") != total:
+        old_done = set(prog.get("done", []))
+        retained = old_done & set(codes)
+        prog = {"done": sorted(retained), "fail": [], "total": total}
+    done_set = set(prog.get("done", []))
+    ok = fail = 0
+    BATCH = 20
+    pending: list[tuple] = []
+    for i, code in enumerate(codes, 1):
+        if code in done_set:
+            ok += 1
+        else:
+            try:
+                result = _scrape_fundf10_manager(code)
+                if result:
+                    appoint = result["appoint_date"]
+                    history = result["managed_history"]
+                    tenure = None
+                    if appoint:
+                        ad = dt.datetime.strptime(appoint, "%Y%m%d").date()
+                        tenure = (dt.date.today() - ad).days
+                    pending.append((appoint, history, tenure, code))
+                    ok += 1
+                    done_set.add(code)
+                else:
+                    fail += 1
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                if fail <= 3:
+                    print(f"  [M2] {code} 异常: {type(e).__name__} {e}", flush=True)
+            time.sleep(PF_STAGE0_THROTTLE)
+        if (len(pending) >= BATCH) or i == total:
+            if pending:
+                conn = get_conn()
+                conn.executemany(
+                    "UPDATE fund_manager SET appoint_date=?, managed_history=?, "
+                    "tenure_days=? WHERE fund_code=?",
+                    pending,
+                )
+                conn.commit()
+                conn.close()
+                pending = []
+            prog["done"] = sorted(done_set)
+            prog["fail"] = []
+            prog["total"] = total
+            _save_stage0_progress("fund_manager", prog)
+            elapsed = time.time() - t0
+            eta = (elapsed / i) * (total - i) if i > 0 else 0
+            print(f"  [M2] {i}/{total} ({i*100/total:.1f}%) ok={ok} fail={fail} "
+                  f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+    print(f"[M2] 自爬完成: ok={ok} fail={fail} total={total} "
+          f"耗时={time.time()-t0:.0f}s", flush=True)
+    return len(base_rows)
+
+
+# ── Fetcher N: fund_basic 补全(逐只 fund_overview_em) ─────────────────────────
+def fetch_fund_overview(codes: list[str] | None = None) -> int:
+    """fund_overview_em 逐只补 fund_basic 15新列(18字段金矿)。
+
+    解析 fund_overview_em 18字段, UPDATE fund_basic 的 15 新列:
+      fund_company/fund_manager/setup_date/scale/management_fee/custody_fee/
+      purchase_fee/custodian/strategy/benchmark/tracking_target/
+      issue_date/share_scale/service_fee/dividend_total
+
+    Args:
+      codes: 基金代码列表, None=全市场(fund_basic 全量27409只, ~6.2h挂凌晨)
+    Returns: 成功更新行数
+    """
+    print("[N] fetch_fund_overview() ...", flush=True)
+    t0 = time.time()
+    if codes is None:
+        conn = get_conn()
+        try:
+            rows_q = conn.execute("SELECT fund_code FROM fund_basic ORDER BY fund_code").fetchall()
+        finally:
+            conn.close()
+        codes = [r[0] for r in rows_q]
+    total = len(codes)
+    print(f"[N] 逐只 fund_overview_em {total} 只 ...", flush=True)
+
+    prog = _load_stage0_progress("fund_overview")
+    if prog.get("total") != total:
+        old_done = set(prog.get("done", []))
+        retained = old_done & set(codes)
+        prog = {"done": sorted(retained), "fail": [], "total": total}
+    done_set = set(prog.get("done", []))
+    ok = fail = 0
+    BATCH = 20
+    pending: list[tuple] = []
+    today = dt.date.today().strftime("%Y%m%d")
+
+    for i, code in enumerate(codes, 1):
+        if code in done_set:
+            ok += 1
+        else:
+            try:
+                df = safe_call(ak.fund_overview_em, retries=1, symbol=code)
+                if isinstance(df, Exception) or df is None or len(df) == 0:
+                    fail += 1
+                else:
+                    r = df.iloc[0]
+                    setup, share = _parse_setup_date_scale(r.get("成立日期/规模", ""))
+                    pending.append((
+                        str(r.get("基金管理人", "")).strip(),     # fund_company
+                        str(r.get("基金经理人", "")).strip(),      # fund_manager
+                        setup,                                     # setup_date
+                        _parse_overview_scale(r.get("净资产规模", "")),  # scale
+                        _parse_overview_fee(r.get("管理费率", "")),      # management_fee
+                        _parse_overview_fee(r.get("托管费率", "")),      # custody_fee
+                        _parse_overview_fee(r.get("最高认购费率", "")),   # purchase_fee
+                        str(r.get("基金托管人", "")).strip(),      # custodian
+                        str(r.get("基金全称", "")).strip(),        # strategy
+                        str(r.get("业绩比较基准", "")).strip(),    # benchmark
+                        str(r.get("跟踪标的", "")).strip(),        # tracking_target
+                        _parse_overview_date(r.get("发行日期", "")),  # issue_date
+                        share,                                     # share_scale
+                        _parse_overview_fee(r.get("销售服务费率", "")),  # service_fee
+                        str(r.get("成立来分红", "")).strip(),      # dividend_total
+                        today,                                     # update_date
+                        code,                                      # WHERE fund_code
+                    ))
+                    ok += 1
+                    done_set.add(code)
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                if fail <= 3:
+                    print(f"  [N] {code} 异常: {type(e).__name__} {e}", flush=True)
+            time.sleep(PF_STAGE0_THROTTLE)
+
+        if (len(pending) >= BATCH) or i == total:
+            if pending:
+                conn = get_conn()
+                conn.executemany(
+                    "UPDATE fund_basic SET fund_company=?, fund_manager=?, setup_date=?, "
+                    "scale=?, management_fee=?, custody_fee=?, purchase_fee=?, custodian=?, "
+                    "strategy=?, benchmark=?, tracking_target=?, issue_date=?, share_scale=?, "
+                    "service_fee=?, dividend_total=?, update_date=? WHERE fund_code=?",
+                    pending,
+                )
+                conn.commit()
+                conn.close()
+                pending = []
+            prog["done"] = sorted(done_set)
+            prog["fail"] = []
+            prog["total"] = total
+            _save_stage0_progress("fund_overview", prog)
+            elapsed = time.time() - t0
+            eta = (elapsed / i) * (total - i) if i > 0 else 0
+            print(f"  [N] {i}/{total} ({i*100/total:.1f}%) ok={ok} fail={fail} "
+                  f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+    print(f"[N] 完成: ok={ok} fail={fail} total={total} "
+          f"耗时={time.time()-t0:.0f}s", flush=True)
+    return ok
+
+
+# ── Fetcher P: 费率分档(逐只 fund_individual_detail_info_xq) ───────────────────
+def fetch_fund_fee_detail(codes: list[str] | None = None) -> int:
+    """fund_individual_detail_info_xq 逐只拿费率分档 -> fund_fee_detail。
+
+    每只9行: 买入规则3档/卖出规则4档/其他费用2档。
+    fee_type映射: 买入规则->purchase, 卖出规则->redeem, 其他费用->other。
+
+    Args:
+      codes: 基金代码列表, None=全市场(27409只~4.5h挂凌晨)
+    Returns: 写入行数
+    """
+    print("[P] fetch_fund_fee_detail() ...", flush=True)
+    t0 = time.time()
+    if codes is None:
+        conn = get_conn()
+        try:
+            rows_q = conn.execute("SELECT fund_code FROM fund_basic ORDER BY fund_code").fetchall()
+        finally:
+            conn.close()
+        codes = [r[0] for r in rows_q]
+    total = len(codes)
+    print(f"[P] 逐只 fund_individual_detail_info_xq {total} 只 ...", flush=True)
+
+    prog = _load_stage0_progress("fund_fee_detail")
+    if prog.get("total") != total:
+        old_done = set(prog.get("done", []))
+        retained = old_done & set(codes)
+        prog = {"done": sorted(retained), "fail": [], "total": total}
+    done_set = set(prog.get("done", []))
+    ok = fail = 0
+    total_rows = 0
+    BATCH = 50
+    pending: list[tuple] = []
+    today = dt.date.today().strftime("%Y%m%d")
+    FEE_TYPE_MAP = {"买入规则": "purchase", "卖出规则": "redeem", "其他费用": "other"}
+
+    for i, code in enumerate(codes, 1):
+        if code in done_set:
+            ok += 1
+        else:
+            try:
+                df = safe_call(ak.fund_individual_detail_info_xq, retries=1, symbol=code)
+                if isinstance(df, Exception) or df is None or len(df) == 0:
+                    fail += 1
+                else:
+                    rows_written = 0
+                    for idx, (_, r) in enumerate(df.iterrows()):
+                        fee_type_cn = str(r.get("费用类型", "")).strip()
+                        fee_type = FEE_TYPE_MAP.get(fee_type_cn, "other")
+                        condition = str(r.get("条件或名称", "")).strip()
+                        fee = _safe_float(r.get("费用"))
+                        pending.append((code, fee_type, idx, condition, fee, today))
+                        rows_written += 1
+                    if rows_written:
+                        ok += 1
+                        total_rows += rows_written
+                        done_set.add(code)
+                    else:
+                        fail += 1
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                if fail <= 3:
+                    print(f"  [P] {code} 异常: {type(e).__name__} {e}", flush=True)
+            time.sleep(PF_STAGE0_THROTTLE)
+
+        if (len(pending) >= BATCH) or i == total:
+            if pending:
+                conn = get_conn()
+                conn.executemany(
+                    "INSERT OR REPLACE INTO fund_fee_detail"
+                    "(fund_code, fee_type, tier_index, condition_desc, fee_rate, update_date) "
+                    "VALUES (?,?,?,?,?,?)",
+                    pending,
+                )
+                conn.commit()
+                conn.close()
+                pending = []
+            prog["done"] = sorted(done_set)
+            prog["fail"] = []
+            prog["total"] = total
+            _save_stage0_progress("fund_fee_detail", prog)
+            elapsed = time.time() - t0
+            eta = (elapsed / i) * (total - i) if i > 0 else 0
+            print(f"  [P] {i}/{total} ({i*100/total:.1f}%) ok={ok} fail={fail} "
+                  f"rows={total_rows} elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+    print(f"[P] 完成: ok={ok} fail={fail} total={total} rows={total_rows} "
+          f"耗时={time.time()-t0:.0f}s", flush=True)
+    return total_rows
+
+
+# ── Fetcher O: 风险指标(逐只 xq + 失败降级净值自算) ────────────────────────────
+XQ_PERIOD_MAP = {"近1年": "1y", "近3年": "3y", "近5年": "5y"}
+PERIOD_DAYS = {"1y": 365, "3y": 1095, "5y": 1825}
+RF_ANNUAL = 2.0  # 无风险利率年化%(简化, 用2%)
+
+
+def _compute_risk_from_nav(fund_code: str, period: str) -> dict | None:
+    """从 fund_daily_nav 净值时序自算风险指标(降级用)。
+
+    算: sharpe/sortino/calmar/max_drawdown/annual_volatility/downside_risk
+    不算: information_ratio/alpha(需基准回归, 第一版留 None)
+
+    Args:
+      fund_code: 基金代码
+      period: '1y'/'3y'/'5y'
+    Returns: dict 或 None(数据不足)
+    """
+    import math
+    from statistics import stdev, mean
+
+    days = PERIOD_DAYS.get(period, 365)
+    start_date = (dt.date.today() - dt.timedelta(days=days + 30)).strftime("%Y%m%d")
+    conn = get_conn()
+    try:
+        nav_rows = conn.execute(
+            "SELECT date, unit_nav FROM fund_daily_nav "
+            "WHERE fund_code=? AND date>=? AND unit_nav IS NOT NULL "
+            "ORDER BY date", (fund_code, start_date)
+        ).fetchall()
+    finally:
+        conn.close()
+    if len(nav_rows) < 30:
+        return None
+
+    navs = [r[1] for r in nav_rows]
+    returns = [(navs[i] - navs[i - 1]) / navs[i - 1]
+               for i in range(1, len(navs)) if navs[i - 1] > 0]
+    if len(returns) < 20:
+        return None
+
+    avg_ret = mean(returns)
+    vol_daily = stdev(returns) if len(returns) > 1 else 0.0
+    annual_vol = vol_daily * math.sqrt(252) * 100  # 转%
+
+    # 年化收益率(几何)
+    total_ret = (navs[-1] / navs[0] - 1) if navs[0] > 0 else 0.0
+    years = len(returns) / 252.0
+    annual_ret = ((1 + total_ret) ** (1 / years) - 1) * 100 if years > 0 else 0.0
+
+    sharpe = (annual_ret - RF_ANNUAL) / annual_vol if annual_vol > 0 else 0.0
+
+    neg_returns = [r for r in returns if r < 0]
+    downside_daily = stdev(neg_returns) if len(neg_returns) > 1 else 0.0
+    downside_risk = downside_daily * math.sqrt(252) * 100
+    sortino = (annual_ret - RF_ANNUAL) / downside_risk if downside_risk > 0 else 0.0
+
+    # 最大回撤
+    peak = navs[0]
+    max_dd = 0.0
+    for nav in navs:
+        if nav > peak:
+            peak = nav
+        dd = (peak - nav) / peak if peak > 0 else 0.0
+        if dd > max_dd:
+            max_dd = dd
+    max_drawdown = max_dd * 100
+    calmar = annual_ret / max_drawdown if max_drawdown > 0 else 0.0
+
+    return {
+        "sharpe": sharpe,
+        "sortino": sortino,
+        "calmar": calmar,
+        "max_drawdown": max_drawdown,
+        "annual_volatility": annual_vol,
+        "downside_risk": downside_risk,
+        "information_ratio": None,
+        "alpha": None,
+        "risk_return_rank": None,
+        "anti_risk_rank": None,
+        "data_source": "self_calc",
+    }
+
+
+def fetch_fund_risk_indicator(codes: list[str] | None = None) -> int:
+    """fund_individual_analysis_xq 逐只, 失败降级净值自算 -> fund_risk_indicator。
+
+    xq 返回 3 周期(近1年/3年/5年) x 5 指标(夏普/波动率/最大回撤/风险收益比/抗风险波动)。
+    xq 失败(LOF/ETF 等)降级用 _compute_risk_from_nav 从 fund_daily_nav 自算。
+    自算补: 索提诺/卡玛/下行风险(xq 不提供)。
+    不算: 信息比率/alpha(需基准回归, 第一版留 None)。
+
+    Args:
+      codes: 基金代码列表, None=全市场(27409只~4.5h挂凌晨)
+    Returns: 写入行数
+    """
+    print("[O] fetch_fund_risk_indicator() ...", flush=True)
+    t0 = time.time()
+    if codes is None:
+        conn = get_conn()
+        try:
+            rows_q = conn.execute("SELECT fund_code FROM fund_basic ORDER BY fund_code").fetchall()
+        finally:
+            conn.close()
+        codes = [r[0] for r in rows_q]
+    total = len(codes)
+    print(f"[O] 逐只 fund_individual_analysis_xq {total} 只 ...", flush=True)
+
+    prog = _load_stage0_progress("fund_risk_indicator")
+    if prog.get("total") != total:
+        old_done = set(prog.get("done", []))
+        retained = old_done & set(codes)
+        prog = {"done": sorted(retained), "fail": [], "total": total}
+    done_set = set(prog.get("done", []))
+    ok = fail = xq_ok = self_calc_ok = 0
+    total_rows = 0
+    BATCH = 20
+    pending: list[tuple] = []
+    today = dt.date.today().strftime("%Y%m%d")
+
+    for i, code in enumerate(codes, 1):
+        if code in done_set:
+            ok += 1
+        else:
+            rows_this = 0
+            try:
+                df = safe_call(ak.fund_individual_analysis_xq, retries=1, symbol=code)
+                if isinstance(df, Exception) or df is None or len(df) == 0:
+                    # 降级: 净值自算
+                    for period in ("1y", "3y", "5y"):
+                        result = _compute_risk_from_nav(code, period)
+                        if result:
+                            pending.append((
+                                code, period, result["sharpe"], result["sortino"],
+                                result["calmar"], result["max_drawdown"],
+                                result["annual_volatility"], result["downside_risk"],
+                                result["information_ratio"], result["alpha"],
+                                result["risk_return_rank"], result["anti_risk_rank"],
+                                result["data_source"], today,
+                            ))
+                            rows_this += 1
+                    if rows_this:
+                        self_calc_ok += 1
+                else:
+                    for _, r in df.iterrows():
+                        period_cn = str(r.get("周期", "")).strip()
+                        period = XQ_PERIOD_MAP.get(period_cn, "")
+                        if not period:
+                            continue
+                        # xq 提供 5 指标, 补自算 sortino/calmar/downside_risk(xq不提供)
+                        # 有 fund_daily_nav 净值时补全, 无则留 None
+                        calc = _compute_risk_from_nav(code, period)
+                        sortino_v = calc["sortino"] if calc else None
+                        calmar_v = calc["calmar"] if calc else None
+                        downside_v = calc["downside_risk"] if calc else None
+                        src = "mixed" if calc else "xq"
+                        pending.append((
+                            code, period,
+                            _safe_float(r.get("年化夏普比率")),
+                            sortino_v,   # sortino 自算补(xq不提供)
+                            calmar_v,    # calmar 自算补
+                            _safe_float(r.get("最大回撤")),
+                            _safe_float(r.get("年化波动率")),
+                            downside_v,  # downside_risk 自算补
+                            None,  # information_ratio 需基准
+                            None,  # alpha 需基准回归
+                            _safe_float(r.get("较同类风险收益比")),
+                            _safe_float(r.get("较同类抗风险波动")),
+                            src, today,
+                        ))
+                        rows_this += 1
+                    if rows_this:
+                        xq_ok += 1
+                if rows_this:
+                    ok += 1
+                    total_rows += rows_this
+                    done_set.add(code)
+                else:
+                    fail += 1
+            except Exception as e:  # noqa: BLE001
+                fail += 1
+                if fail <= 3:
+                    print(f"  [O] {code} 异常: {type(e).__name__} {e}", flush=True)
+            time.sleep(PF_STAGE0_THROTTLE)
+
+        if (len(pending) >= BATCH) or i == total:
+            if pending:
+                conn = get_conn()
+                conn.executemany(
+                    "INSERT OR REPLACE INTO fund_risk_indicator"
+                    "(fund_code, period, sharpe, sortino, calmar, max_drawdown, "
+                    "annual_volatility, downside_risk, information_ratio, alpha, "
+                    "risk_return_rank, anti_risk_rank, data_source, update_date) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    pending,
+                )
+                conn.commit()
+                conn.close()
+                pending = []
+            prog["done"] = sorted(done_set)
+            prog["fail"] = []
+            prog["total"] = total
+            _save_stage0_progress("fund_risk_indicator", prog)
+            elapsed = time.time() - t0
+            eta = (elapsed / i) * (total - i) if i > 0 else 0
+            print(f"  [O] {i}/{total} ({i*100/total:.1f}%) ok={ok} fail={fail} "
+                  f"xq={xq_ok} self_calc={self_calc_ok} "
+                  f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+    print(f"[O] 完成: ok={ok} fail={fail} total={total} xq={xq_ok} "
+          f"self_calc={self_calc_ok} 耗时={time.time()-t0:.0f}s", flush=True)
+    return total_rows
 
 
 # ── universe 选择 ───────────────────────────────────────────────────────────────
@@ -2972,7 +3926,8 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "quarterly"
-    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "backfill-industry", "check-fresh", "backfill-nav", "estimate", "fetch-estimation"):
+    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "backfill-industry", "check-fresh", "backfill-nav", "estimate", "fetch-estimation",
+                   "stage0-daily", "stage0-overview", "stage0-risk", "stage0-manager", "stage0-nav", "stage0-sample"):
         print(__doc__)
         print(f"\n用法: python -m app.collector.public_fund <command>")
         print(f"  quarterly       季度全量(5汇总+top1000×2子页+8指标, ~35min)")
@@ -2986,10 +3941,18 @@ def main():
         print(f"  backfill-nav [--days 400]  回填头部200只偏股基金历史净值(反推算法用, ~90s)")
         print(f"  estimate        算预估仓位+导出JSON(需先 backfill-nav + fetch_index_daily)")
         print(f"  fetch-estimation  盘中实时估算(fund_value_estimation_em, 盘后/非交易日返回0)")
+        print(f"  ── 筛选器阶段0 (2026-08-02 新增, 挂凌晨不阻塞核心) ──")
+        print(f"  stage0-daily    日更4汇总接口~22s(performance/rating/purchase/manager_em)")
+        print(f"  stage0-overview 周月更fund_overview_em全量~6.2h(补fund_basic 15新列)")
+        print(f"  stage0-risk     季报后risk_indicator+fee_detail~4.5h(逐只xq+费率)")
+        print(f"  stage0-manager  自爬fundf10补任职历史~3h(appoint_date+managed_history)")
+        print(f"  stage0-nav [--days 1825]  补5年净值历史(27409只, 分批断点续采)")
+        print(f"  stage0-sample   小样本验证3只(161725/000001/110011全流程)")
         sys.exit(1)
 
-    # 进程互斥（quarterly/full/daily/backfill/backfill-industry/backfill-nav 持锁, metrics/export/check-fresh/estimate/fetch-estimation 不需要）
-    if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry", "backfill-nav"):
+    # 进程互斥（quarterly/full/daily/backfill/backfill-industry/backfill-nav/stage0-* 持锁, metrics/export/check-fresh/estimate/fetch-estimation 不需要）
+    if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry", "backfill-nav",
+               "stage0-daily", "stage0-overview", "stage0-risk", "stage0-manager", "stage0-nav"):
         if not _acquire_lock(nonblock=True):
             print(f"[public_fund] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
             return
@@ -3160,6 +4123,73 @@ def main():
         # 供盘中 launchd 定时采调用, 不持锁(轻量~5s, 不和 daily/quarterly/full 撞)
         n = fetch_estimation()
         print(f"[fetch-estimation] 写入 {n} 行", flush=True)
+    elif cmd == "stage0-daily":
+        # 日更4汇总接口 ~22s (金矿+全市场汇总, 不逐只)
+        nj = fetch_fund_performance()  # J 金矿 2.5s
+        nk = fetch_fund_rating()  # K 1.8s
+        nl = fetch_fund_purchase_status()  # L 6.7s
+        nm = fetch_fund_manager(scrape=False)  # M em部分(不自爬) 10s
+        print(f"[stage0-daily] J={nj} K={nk} L={nl} M={nm}", flush=True)
+    elif cmd == "stage0-overview":
+        # 周月更 fund_overview_em 全量补 fund_basic 15新列 ~6.2h (27409只×0.4s)
+        n = fetch_fund_overview()
+        print(f"[stage0-overview] ok={n}", flush=True)
+    elif cmd == "stage0-risk":
+        # 季报后 risk_indicator + fee_detail ~4.5h (逐只xq+费率, 含降级自算)
+        no = fetch_fund_risk_indicator()
+        np_ = fetch_fund_fee_detail()
+        print(f"[stage0-risk] O={no} P={np_}", flush=True)
+    elif cmd == "stage0-manager":
+        # 自爬 fundf10 补任职历史 ~3h (27409只×0.4s, appoint_date+managed_history)
+        # 先确保 fund_manager_em 基础数据在(全市场35436行), 再逐只自爬
+        n = fetch_fund_manager(scrape=True)
+        print(f"[stage0-manager] base={n}", flush=True)
+    elif cmd == "stage0-nav":
+        # 补5年净值历史(分批, 断点续采) -- 27409只×1825天, 大工程挂凌晨
+        days = 1825
+        for i, a in enumerate(sys.argv[2:], 2):
+            if a == "--days" and i + 1 < len(sys.argv):
+                days = int(sys.argv[i + 1])
+        conn = get_conn()
+        try:
+            rows_q = conn.execute("SELECT fund_code FROM fund_basic ORDER BY fund_code").fetchall()
+        finally:
+            conn.close()
+        all_codes = [r[0] for r in rows_q]
+        prog = _load_stage0_progress("nav")
+        done_set = set(prog.get("done", []))
+        pending = [c for c in all_codes if c not in done_set]
+        total = len(all_codes)
+        print(f"[stage0-nav] 全市场{total}只 days={days}, 已完成{len(done_set)}, "
+              f"待采{len(pending)}", flush=True)
+        BATCH = 500
+        t0 = time.time()
+        for bi, i in enumerate(range(0, len(pending), BATCH)):
+            batch = pending[i:i + BATCH]
+            n = fetch_nav_history(codes=batch, days=days, fund_type_filter="")
+            done_set.update(batch)
+            prog["done"] = sorted(done_set)
+            prog["total"] = total
+            _save_stage0_progress("nav", prog)
+            elapsed = time.time() - t0
+            done_count = len(done_set)
+            eta = (elapsed / done_count) * (total - done_count) if done_count > 0 else 0
+            print(f"[stage0-nav] batch {bi+1}/{(len(pending)-1)//BATCH+1} "
+                  f"done={done_count}/{total} ({done_count*100/total:.1f}%) "
+                  f"elapsed={elapsed:.0f}s eta={eta:.0f}s", flush=True)
+        print(f"[stage0-nav] 完成, 已采{len(done_set)}/{total}", flush=True)
+    elif cmd == "stage0-sample":
+        # 小样本验证3只(161725/000001/110011全流程)
+        codes = ["161725", "000001", "110011"]
+        print("[stage0-sample] 3只基金全流程验证 ...", flush=True)
+        fetch_fund_performance()  # J 全市场(含3只)
+        fetch_fund_rating()  # K 全市场(含3只)
+        fetch_fund_purchase_status()  # L 全市场(含3只)
+        fetch_fund_manager(scrape=True, codes=codes)  # M em全量+自爬3只
+        fetch_fund_overview(codes=codes)  # N 补3只fund_basic
+        fetch_fund_risk_indicator(codes=codes)  # O 3只xq+降级自算
+        fetch_fund_fee_detail(codes=codes)  # P 3只费率分档
+        print("[stage0-sample] 完成, 查DB验证7表数据", flush=True)
 
 
 if __name__ == "__main__":

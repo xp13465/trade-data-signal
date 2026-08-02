@@ -125,6 +125,21 @@ echo "-> 浏览器通知源（notifications.json post_close）..." | tee -a "$LO
 "$PY" "$REPO/scripts/export_notifications.py" >> "$LOG" 2>&1 || \
   echo "⚠ export_notifications 失败（不阻塞主流程）" | tee -a "$LOG"
 
+# 筛选器阶段0: 日更4汇总接口~22s(performance/rating/purchase/manager_em)
+# 全量采集(overview/risk/fee/manager自爬/nav 5年净值)挂凌晨launchd, 不进update_all
+# 采集后导出 offshore_fund_*.json + R2 上传(§8.1新类别按前缀命令)
+echo "-> 公募基金筛选器日更（stage0-daily 4汇总接口~22s）..." | tee -a "$LOG"
+"$PY" -m app.collector.public_fund stage0-daily >> "$LOG" 2>&1 || \
+  echo "⚠ stage0-daily 失败（不阻塞主流程）" | tee -a "$LOG"
+echo "-> 公募基金筛选器导出JSON（offshore_fund_*.json）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/export_offshore_fund.py" >> "$LOG" 2>&1 || \
+  echo "⚠ export_offshore_fund 失败（不阻塞主流程）" | tee -a "$LOG"
+# export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 trade/static-site/data/ 供 upload_r2 + deploy
+# (deploy.sh rsync 在 pipeline 内跑, export 在 pipeline 后跑, 需单独同步; trade 跑时 no-op)
+rsync -a --checksum "$REPO/static-site/data/offshore_fund"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
+"$PY" "$REPO/scripts/upload_r2.py upload-offshore-fund" >> "$LOG" 2>&1 || \
+  echo "⚠ upload-offshore-fund R2上传失败（不阻塞主流程）" | tee -a "$LOG"
+
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"
 echo "core=$RC_CORE width=$RC_WIDTH futures=$RC_FUTURES turnover=$RC_TURNOVER check_signals=$SIGNAL_RC" | tee -a "$LOG"
 
