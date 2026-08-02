@@ -9673,7 +9673,7 @@ async function renderPublicFund(container) {
       <div><b>88 魔咒 / 80 抄底</b>：基金平均仓位 <b>&gt;88%</b> 时加仓空间有限，历史多对应阶段性顶部（应验 <b>2009/7、2015/5、2021/1</b> 等）；<b>&lt;80%</b> 时仓位低有加仓空间，多对应阶段性底部。<b>反向指标，非精确触发</b>--2020 年仓位持续 90%+ 大盘仍涨，仅作风险提示。</div>
       <div><b>4 维资金面共振</b>：北向（外资 / 日更）+ 两融（杠杆 / 日更）+ 产业资本（内部人 / 月更）+ 基金持仓（机构 / 季更），<b>4 维同向信号最强</b>。如「北向流出 + 两融下降 + 产业资本减持 + 基金减仓」= 4 维共振看空。</div>
       <div><b>滞后性与披露规则</b>：季报季末 +15 工作日披露（Q1≈4/22、Q2≈7/22、Q3≈10/22、年报≈3/31 前），季报只披露<b>前十大重仓 + 资产配置 + 行业配置</b>，全部持仓要等中报（60 日内）/年报（90 日内）。</div>
-      <div><b>数据源</b>：东方财富 fundf10 子页（ccmx/jjcc/hytz/zcpz/jbl/cyem/jjjz/fhsp）+ akshare 9 接口（fund_portfolio_hold_em/fund_value_estimation_em 等），免费无需 key。</div>
+      <div><b>数据源</b>：东方财富基金详情页（持仓/重仓/行业/资产/经理/净值/分红等子页）+ akshare 9 个接口（基金持仓/基金估值等），免费无需密钥。</div>
       <div><b>学术背景</b>：①中国公募基金存在显著羊群效应（许年行等 2013《经济研究》），加剧「抱团-瓦解」循环 ②基金平均仓位与未来大盘收益负相关（88 魔咒统计显著）③2021/1 白酒新能源抱团瓦解领先沪深 300 见顶（2021/2/18 5930 点）约 1 个月 ④基金净申赎与未来 1-3 个月大盘收益负相关（散户情绪反向）。</div>
       <div class="pf-help-warn">⚠ 本板块为辅助参考维度，滞后性强不作主信号；88 魔咒为历史规律未必未来应验。研究参考，不构成投资建议，历史回测不代表未来收益。</div>
     </div>`;
@@ -9778,6 +9778,7 @@ async function renderPublicFund(container) {
   const chartCard = document.createElement("div");
   chartCard.className = "chart-card pf-main-chart-card";
   const _estCur = estimate && estimate.current ? estimate.current : null;
+  const _confZh = (c) => ({ high: "高", medium: "中", low: "低" })[c] || (c || "-");
   const _estTitleSuffix = _estCur
     ? `<span style="font-size:12px;color:#ff9800;margin-left:8px;font-weight:600">今日预估 ${_estCur.position_estimate}%（日频线性回归，较 lg 源 ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%）</span>`
     : "";
@@ -9868,7 +9869,7 @@ async function renderPublicFund(container) {
         });
         // 末端预估点: 追加偏差说明(vs lg + confidence), 和 pin 共用同一浮窗
         if (_estCur && dt === _estCurDate) {
-          html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);color:#ff9800;font-weight:600;font-size:11px">📌 今日预估 ${_estCur.position_estimate}%（日频线性回归，可信度：${_estCur.confidence || "-"}）</div>`;
+          html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);color:#ff9800;font-weight:600;font-size:11px">📌 今日预估 ${_estCur.position_estimate}%（日频线性回归，可信度：${_confZh(_estCur.confidence)}）</div>`;
           html += `<div style="font-size:11px;color:#bbb;margin-top:2px">较 lg 周频 ${_estCur.lg_latest_position}%（${_estCur.lg_latest_date}）· 偏差 ${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%</div>`;
         }
         // 命中 pin 日期: 追加完整说明(类型+仓位+沪深300+后30/60/90天涨跌), 和普通点共用同一浮窗
@@ -10973,7 +10974,7 @@ async function renderPublicFund(container) {
       + '堆叠面积图: 13行业平均权重% 跨基金(非求和), 反映典型基金行业配置占比变迁; 制造业(证监会超大类)占主导 ~58%, 金融/信息技术/通信服务/能源/材料为次主力'
       + '</div>'
       + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">'
-      + '📊 口径: 季报披露 fund_portfolio_industry_allocation_em, 134原始行业名合并为13标准名(GICS+CSRC映射); 已过滤基金数&lt;50的脏数据期; 点击图例切换显示'
+      + '📊 口径: 季报披露(基金行业配置), 134原始行业名合并为13标准名(GICS+证监会映射); 已过滤基金数&lt;50的脏数据期; 点击图例切换显示'
       + '</div>'
       + '<div class="chart pf-rot-chart" style="height:420px"></div>';
     container.appendChild(_rotCard);
