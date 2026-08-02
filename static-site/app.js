@@ -9663,7 +9663,7 @@ async function renderPublicFund(container) {
       <div><b>板块作用</b>：公募基金持仓作为<b>第 4 维资金面</b>，补充现有「北向 / 两融 / 产业资本」三维，提供<b>机构资金视角</b>。参考性等级<b>中等</b>，作辅助维度有价值，<b>不作主信号</b>（因季报披露滞后 15 个工作日，披露时点持仓 ≠ 当前持仓）。</div>
       <div><b>核心指标（4 信号灯卡片 + 4 衍生）</b>：</div>
       <ul>
-        <li><b>平均股票仓位</b>：基金加权平均股票占净比（净资产规模加权，lg 口径=股票型+混合型）。<b>&gt;88%=88 魔咒见顶警示</b>（加仓空间有限）；<b>&lt;80%=抄底机会</b>（仓位低有加仓空间）；80-88%=中位。</li>
+        <li><b>平均股票仓位</b>：基金加权平均股票占净比（净资产规模加权，乐咕乐股口径=股票型+混合型）。<b>&gt;88%=88 魔咒见顶警示</b>（加仓空间有限）；<b>&lt;80%=抄底机会</b>（仓位低有加仓空间）；80-88%=中位。</li>
         <li><b>抱团度 HHI（赫芬达尔指数）</b>：重仓股集中度指数。<b>&gt;0.10=高度抱团</b>（瓦解风险积累）；0.05-0.10=中度抱团；<b>&lt;0.05=分散健康</b>。急升=风险积累，急降=瓦解信号。</li>
         <li><b>重叠度（Top30 均覆盖）</b>：Top30 重仓股平均被多少家基金持有（家数）。<b>&gt;1500=高度重叠</b>；800-1500=中度重叠；<b>&lt;800=重叠度低</b>。重叠度高=机构共识强但也意味瓦解时共振下跌。</li>
         <li><b>净申赎率</b>：基金份额变化 / 总规模（%）。<b>&gt;0.5%=净申购（散户乐观，反向看空）</b>；<b>&lt;-0.5%=净赎回（散户悲观，反向看多）</b>；-0.5%~0.5%=申赎平衡。</li>
@@ -9770,7 +9770,7 @@ async function renderPublicFund(container) {
   if (avgPos && avgPos.detail && avgPos.detail.note) {
     const noteDiv = document.createElement("div");
     noteDiv.className = "pf-caliber-note";
-    noteDiv.innerHTML = `📊 口径: ${avgPos.detail.note}（当前 lg 源=${avgPos.detail.lg_position}%，cninfo 源=${avgPos.detail.cninfo_position}%）`;
+    noteDiv.innerHTML = `📊 口径: ${avgPos.detail.note}（当前乐咕乐股源=${avgPos.detail.lg_position}%，巨潮资讯源=${avgPos.detail.cninfo_position}%）`;
     container.appendChild(noteDiv);
   }
 
@@ -9780,9 +9780,9 @@ async function renderPublicFund(container) {
   const _estCur = estimate && estimate.current ? estimate.current : null;
   const _confZh = (c) => ({ high: "高", medium: "中", low: "低" })[c] || (c || "-");
   const _estTitleSuffix = _estCur
-    ? `<span style="font-size:12px;color:#ff9800;margin-left:8px;font-weight:600">今日预估 ${_estCur.position_estimate}%（日频线性回归，较 lg 源 ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%）</span>`
+    ? `<span style="font-size:12px;color:#ff9800;margin-left:8px;font-weight:600">今日预估 ${_estCur.position_estimate}%（日频线性回归，较乐咕乐股源 ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%）</span>`
     : "";
-  chartCard.innerHTML = `<div class="chart-title">📈 平均股票仓位与沪深300（lg 源=股票型+混合型，88 魔咒专用口径）${_estTitleSuffix}</div><div class="chart" style="height:380px"></div>`;
+  chartCard.innerHTML = `<div class="chart-title">📈 平均股票仓位与沪深300（乐咕乐股源=股票型+混合型，88 魔咒专用口径）${_estTitleSuffix}</div><div class="chart" style="height:380px"></div>`;
   container.appendChild(chartCard);
 
   const posHist = (summary.position_history || []).filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
@@ -9870,7 +9870,7 @@ async function renderPublicFund(container) {
         // 末端预估点: 追加偏差说明(vs lg + confidence), 和 pin 共用同一浮窗
         if (_estCur && dt === _estCurDate) {
           html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);color:#ff9800;font-weight:600;font-size:11px">📌 今日预估 ${_estCur.position_estimate}%（日频线性回归，可信度：${_confZh(_estCur.confidence)}）</div>`;
-          html += `<div style="font-size:11px;color:#bbb;margin-top:2px">较 lg 周频 ${_estCur.lg_latest_position}%（${_estCur.lg_latest_date}）· 偏差 ${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%</div>`;
+          html += `<div style="font-size:11px;color:#bbb;margin-top:2px">较乐咕乐股周频 ${_estCur.lg_latest_position}%（${_estCur.lg_latest_date}）· 偏差 ${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%</div>`;
         }
         // 命中 pin 日期: 追加完整说明(类型+仓位+沪深300+后30/60/90天涨跌), 和普通点共用同一浮窗
         const pin = _pinDateMap.get(dt);
@@ -9922,7 +9922,7 @@ async function renderPublicFund(container) {
             itemStyle: { color: "#ff9800" },
             label: {
               color: "#fff", fontSize: 11,
-              formatter: `{a|今日预估 ${_estCur.position_estimate}%}\n{b|较 lg 源 ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%}`,
+              formatter: `{a|今日预估 ${_estCur.position_estimate}%}\n{b|较乐咕乐股源 ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%}`,
               rich: {
                 a: { fontSize: 11, color: "#fff", fontWeight: 700, lineHeight: 14 },
                 b: { fontSize: 9, color: "#fff", lineHeight: 12 },
@@ -9952,7 +9952,7 @@ async function renderPublicFund(container) {
     const btCard = document.createElement("div");
     btCard.className = "chart-card pf-backtest-card";
     btCard.innerHTML = `
-      <div class="chart-title">🎯 88 魔咒历史回测（${_s88.sample_30d || 0}/${_s88.count || 0} 期有效样本 · 2007-2026 lg 源 ${posHist.length} 期周频）</div>
+      <div class="chart-title">🎯 88 魔咒历史回测（${_s88.sample_30d || 0}/${_s88.count || 0} 期有效样本 · 2007-2026 乐咕乐股源 ${posHist.length} 期周频）</div>
       <div class="pf-bt-grid">
         <div class="pf-bt-section pf-bt-spell88">
           <div class="pf-bt-head" style="color:#e6492e">⚠ 88 魔咒（仓位 &gt; 88%）</div>
