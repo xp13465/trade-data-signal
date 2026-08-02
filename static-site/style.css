@@ -3023,7 +3023,7 @@ main { padding: 16px 24px; }
   transition: all 0.15s; font-family: inherit; width: 100%;
 }
 .theme-option:hover { border-color: var(--primary); background: var(--bg-hover); }
-.theme-option.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+.theme-option.active { border-color: var(--primary); background: var(--primary-bg); box-shadow: 0 0 0 2px var(--primary); }
 .theme-swatch { display: flex; gap: 3px; flex-shrink: 0; }
 .theme-swatch span {
   width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border-strong);
@@ -3031,7 +3031,7 @@ main { padding: 16px 24px; }
 .theme-info { flex: 1; min-width: 0; }
 .theme-info .theme-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
 .theme-info .theme-desc { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-.theme-check { font-size: 16px; color: var(--primary); opacity: 0; flex-shrink: 0; }
+.theme-check { font-size: 18px; font-weight: bold; color: var(--primary); opacity: 0; flex-shrink: 0; }
 .theme-option.active .theme-check { opacity: 1; }
 .theme-modal-close {
   position: absolute; top: 12px; right: 14px;
