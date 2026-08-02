@@ -1080,8 +1080,14 @@ function _backupSignalChipTip(sd, scored, chip) {
 // 同日多买点信号合并拼色 pin（金描边+光晕），图例不单独列拼色（用户从 pin 视觉即可辨识）。
 // 三档 chip（年化最高/最稳健/回撤最小）在每个指数卡片内 chip-row 单独一行展示，chip 自带档位标签+买点名+数值，
 // 不再在图例条重复展示 mini-legend（消除"分2处"）。图例末尾保留 ❓ termTip 解释 4 买点（重点备买=Supertrend翻多确认的备选买点）。
-var _BACKUP_LEGEND_TIP = "4 关注点（主关注/辅关注/追关注/备关注）历史回测表现差异较大，每个指数标题下方的三档 chip 标注该指数近5年全仓进出回测中表现最优的关注点（年化最高/最稳健/回撤最小）。研究参考，不构成投资建议，历史回测不代表未来。";
-var _BACKUP_BUYPOINT_TIP = "4 关注点：主关注=RSI(14)上穿30超卖拐点；辅关注=布林下轨回归左侧布局；追关注=唐奇安20日上轨突破+5日确认；备关注=超级趋势(Supertrend) ATR×3翻多+3日二次确认的趋势反转备选关注点（稳健性弱于追关注，仅供参考不单独决策）。";
+// _BACKUP_LEGEND_TIP / _BACKUP_BUYPOINT_TIP: 改为函数动态拼 _t()，避免 var 在加载时固化合规词，
+// off 模式仍显"主关注"不切"主买"（与 _SIG_TYPE_META 同类 bug）。buy_long=关注点/买点。
+function _backupLegendTip() {
+  return "4 " + _t("buy_long") + "（" + _t("type_buy") + "/" + _t("buy_aux") + "/" + _t("buy_special") + "/" + _t("buy_backup") + "）历史回测表现差异较大，每个指数标题下方的三档 chip 标注该指数近5年全仓进出回测中表现最优的" + _t("buy_long") + "（年化最高/最稳健/回撤最小）。研究参考，不构成投资建议，历史回测不代表未来。";
+}
+function _backupBuypointTip() {
+  return "4 " + _t("buy_long") + "：" + _t("type_buy") + "=RSI(14)上穿30超卖拐点；" + _t("buy_aux") + "=布林下轨回归左侧布局；" + _t("buy_special") + "=唐奇安20日上轨突破+5日确认；" + _t("buy_backup") + "=超级趋势(Supertrend) ATR×3翻多+3日二次确认的趋势反转备选" + _t("buy_long") + "（稳健性弱于" + _t("buy_special") + "，仅供参考不单独决策）。";
+}
 function _signalLegendHtml() {
   return '<div class="signal-legend">'
     + '<span class="signal-legend-item"><i style="background:#e6492e"></i>超卖拐点(' + _t("type_buy") + ')</span>'
@@ -1092,8 +1098,8 @@ function _signalLegendHtml() {
     + '<span class="signal-legend-item"><i style="background:#8bc34a"></i>' + _t("legend_band_reduce") + '</span>'
     + '<span class="signal-legend-item"><i style="background:#2e8b57"></i>' + _t("legend_sell") + '</span>'
     + '<span class="signal-legend-item"><i style="background:#3498db"></i>' + _t("legend_stop_loss") + '</span>'
-    + '<span class="term-tip" data-tip="' + _BACKUP_BUYPOINT_TIP.replace(/"/g, '&quot;') + '">❓</span>'
-    + '<span class="signal-legend-note" data-tip="' + _BACKUP_LEGEND_TIP + '">' + _t("legend_buy_diff") + '</span>'
+    + '<span class="term-tip" data-tip="' + _backupBuypointTip().replace(/"/g, '&quot;') + '">❓</span>'
+    + '<span class="signal-legend-note" data-tip="' + _backupLegendTip() + '">' + _t("legend_buy_diff") + '</span>'
     + '</div>';
 }
 
@@ -1261,15 +1267,18 @@ function _getSignalScore(it) {
 const _SIG_TYPES = ["buy", "buy_aux", "buy_special", "buy_backup", "band_hold", "band_sell", "sell", "sell_stop_loss"];
 // _SIG_TYPE_META: 分类行 chip 渲染元数据（中文标签 + 色点颜色，与 _SIGNAL_HELP_ITEMS 一致）
 // 顺序: 买类(buy/buy_aux/buy_special/buy_backup) | 中性(band_hold) | 卖类(sell/sell_stop_loss)
+// ⚠️ label 存 i18n key（labelKey）而非 _t() 求值结果：_t() 在 JS 加载时只求值一次，
+//    切合规模式后 applyCompliance 调 renderTab 重渲染时拿到的还是加载时固化的值，
+//    导致 off 模式仍显示"主关注"。改存 key + 使用时 _t(labelKey) 动态求值，切模式即更新。
 const _SIG_TYPE_META = [
-  { key: "buy", label: _t("type_buy"), color: "#e6492e" },
-  { key: "buy_aux", label: _t("buy_aux"), color: "#d63384" },
-  { key: "buy_special", label: _t("buy_special"), color: "#ffd700" },
-  { key: "buy_backup", label: _t("buy_backup"), color: "#9c27b0" },
-  { key: "band_hold", label: _t("band_hold"), color: "#ff9800" },
-  { key: "band_sell", label: _t("type_band_sell"), color: "#8bc34a" },
-  { key: "sell", label: _t("sell_short"), color: "#2e8b57" },
-  { key: "sell_stop_loss", label: _t("type_sell_stop_loss"), color: "#3498db" },
+  { key: "buy", labelKey: "type_buy", color: "#e6492e" },
+  { key: "buy_aux", labelKey: "buy_aux", color: "#d63384" },
+  { key: "buy_special", labelKey: "buy_special", color: "#ffd700" },
+  { key: "buy_backup", labelKey: "buy_backup", color: "#9c27b0" },
+  { key: "band_hold", labelKey: "band_hold", color: "#ff9800" },
+  { key: "band_sell", labelKey: "type_band_sell", color: "#8bc34a" },
+  { key: "sell", labelKey: "sell_short", color: "#2e8b57" },
+  { key: "sell_stop_loss", labelKey: "type_sell_stop_loss", color: "#3498db" },
 ];
 function _calcSignalAccuracy(items) {
   const _newBin = () => ({ t: 0, f: 0, n: 0, pct: null });
@@ -1461,7 +1470,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // + signalLabel(超卖拐点/下轨拐点/上轨突破/趋势转向/ATR止损等) + 指数名, 配合 CSS nowrap+ellipsis 4列整洁
         const _typeKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
         const _meta = _SIG_TYPE_META.find(m => m.key === _typeKey);
-        const _typeLabel = _meta ? _meta.label : it.signal;
+        const _typeLabel = _meta ? _t(_meta.labelKey) : it.signal;
         const _titleParts = [_typeLabel, signalLabel(it), indexIdToName(it.index_id)];
         if (it.reason) _titleParts.push(it.reason);
         if (it.since_correct === true || it.since_correct === false) {
@@ -1517,7 +1526,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       })
       .reduce((acc, m) => {
         const b = _acc.byType[m.key];
-        const tip = _escAttr("点击只看" + m.label + "信号");
+        const tip = _escAttr("点击只看" + _t(m.labelKey) + "信号");
         // band_hold chip 特殊(2026-07-31): 默认灰(未选中, 表格默认不含 band_hold);
         //   选中(sigTypeFilter==='band_hold')才亮橙(#ff9800)+active 描边. 其他 chip 不变(默认亮色)
         const _isBH = m.key === "band_hold";
@@ -1525,7 +1534,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         const _chipColor = _isBH ? (_bhOn ? "#ff9800" : "var(--text-3, #999)") : m.color;
         const _bhCls = _isBH ? (_bhOn ? " sig-acc-filter-bh-on" : " sig-acc-filter-bh-off") : "";
         const dot = `<span class="sig-acc-dot" style="color:${_chipColor}">●</span>`;
-        const body = m.key === "band_hold" ? `${m.label} ${b.n}个` : `${m.label} ${_fmt(b.pct)} (${b.t}/${b.f})`;
+        const _lbl = _t(m.labelKey);
+        const body = m.key === "band_hold" ? `${_lbl} ${b.n}个` : `${_lbl} ${_fmt(b.pct)} (${b.t}/${b.f})`;
         const chip = `<button class="sig-acc-seg sig-acc-filter${_tActive(m.key)}${_bhCls}" data-type-filter="${m.key}" data-tip="${tip}">${dot}${body}</button>`;
         // 分组分隔: band_hold/sell 前插 | (买类 | 中性 | 卖类), 仅前面已有 chip 才插
         const sep = (m.key === "band_hold" || m.key === "sell") && acc ? ' <span class="sig-acc-sep">|</span> ' : (acc ? " · " : "");
@@ -1675,14 +1685,14 @@ function termTip(text) {
 // hover pop 简短提示 + click 弹窗6色信号详细解释（主买/辅买/追买/备买/卖/追止损卖）
 // 复用 .rule-modal 样式 + 内联 style（不改 CSS），与 📋 策略说明 modal 风格一致。
 const _SIGNAL_HELP_ITEMS = [
-  { sig: "buy", color: "#e6492e", name: _t("detail_buy_name"), desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
-  { sig: "buy_aux", color: "#d63384", name: _t("detail_buy_aux_name"), desc: "布林带下轨回归。价格跌穿布林带(BB)下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
-  { sig: "buy_special", color: "#ffd700", name: _t("detail_buy_special_name"), desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配风控|警示(ATR×3.5风控)控制风险，0套牢。" },
-  { sig: "buy_special_filtered", color: "#9e9e9e", name: _t("detail_buy_special_filtered_name"), desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追关注信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追关注，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追关注信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
-  { sig: "buy_backup", color: "#9c27b0", name: _t("detail_buy_backup_name"), desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追关注。配套：仅供参考不单独决策，需结合主关注/辅关注/追关注；诱多风险已用3日二次确认过滤。" },
-  { sig: "sell", color: "#2e8b57", name: _t("detail_sell_name"), desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。收益兑现调整提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该风险点 vs 前一个关注点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "收益兑现调整非反向信号。配套：走弱概率≈50%接近随机；与风控|警示共振时调整信号更强。" },
-  { sig: "sell_stop_loss", color: "#3498db", name: _t("detail_sell_stop_loss_name"), desc: "ATR×3.5 风控（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即防范风险。配套：趋势跟踪风控（低胜率大盈）；与风险共振调整信号更强；蓝色与风险绿色区分。" },
-  { sig: "band_hold", color: "#ff9800", name: _t("detail_band_hold_name"), desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1风险点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非防范风险风险点）。四动作联动：调整(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/风控(sell_stop_loss蓝,趋势破位防范风险)/持有(band_hold橙,无超买超卖维持仓位)。走势图图钉 = 历史调仓时点回放，悬停信号日看仓位变化进度条，可缩放查看过去调整/接回/风控时点。研究参考，不构成投资建议。" },
+  { sig: "buy", color: "#e6492e", nameKey: "detail_buy_name", desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
+  { sig: "buy_aux", color: "#d63384", nameKey: "detail_buy_aux_name", desc: "布林带下轨回归。价格跌穿布林带(BB)下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
+  { sig: "buy_special", color: "#ffd700", nameKey: "detail_buy_special_name", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配风控|警示(ATR×3.5风控)控制风险，0套牢。" },
+  { sig: "buy_special_filtered", color: "#9e9e9e", nameKey: "detail_buy_special_filtered_name", desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追关注信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追关注，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追关注信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
+  { sig: "buy_backup", color: "#9c27b0", nameKey: "detail_buy_backup_name", desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追关注。配套：仅供参考不单独决策，需结合主关注/辅关注/追关注；诱多风险已用3日二次确认过滤。" },
+  { sig: "sell", color: "#2e8b57", nameKey: "detail_sell_name", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。收益兑现调整提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该风险点 vs 前一个关注点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "收益兑现调整非反向信号。配套：走弱概率≈50%接近随机；与风控|警示共振时调整信号更强。" },
+  { sig: "sell_stop_loss", color: "#3498db", nameKey: "detail_sell_stop_loss_name", desc: "ATR×3.5 风控（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即防范风险。配套：趋势跟踪风控（低胜率大盈）；与风险共振调整信号更强；蓝色与风险绿色区分。" },
+  { sig: "band_hold", color: "#ff9800", nameKey: "detail_band_hold_name", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1风险点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非防范风险风险点）。四动作联动：调整(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/风控(sell_stop_loss蓝,趋势破位防范风险)/持有(band_hold橙,无超买超卖维持仓位)。走势图图钉 = 历史调仓时点回放，悬停信号日看仓位变化进度条，可缩放查看过去调整/接回/风控时点。研究参考，不构成投资建议。" },
 ];
 
 // 聚合 signal_stats.json（per-index）-> per-sig 概况（5d/10d/20d 三窗口，按样本数 n 加权平均）
@@ -1764,7 +1774,7 @@ function _signalHelpModalHTML(aggStats) {
     return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(127,127,127,0.18)">' +
       '<span style="flex:0 0 14px;width:14px;height:14px;border-radius:50%;margin-top:4px;background:' + it.color + '"></span>' +
       '<div style="flex:1;min-width:0">' +
-      '<div style="font-weight:600;margin-bottom:2px">' + it.name + '</div>' +
+      '<div style="font-weight:600;margin-bottom:2px">' + _t(it.nameKey) + '</div>' +
       '<div style="font-size:13px;line-height:1.55;opacity:0.85">' + it.desc + '</div>' +
       backtestHtml +
       statHtml +
@@ -1982,13 +1992,13 @@ function strategyDesc(strategy) {
 // === 标题❓策略弹窗（方案 B1 紧凑版，2026-07-20）===
 // 6 类信号顺序 + 颜色圆点 + 名称（与 _SIGNAL_HELP_ITEMS 一致，便于用户对齐 6 色信号图例）
 var _STRATEGY_DETAIL_KEYS = [
-  { key: "buy", color: "#e6492e", name: _t("detail_buy_name") },
-  { key: "buy_aux", color: "#d63384", name: _t("detail_buy_aux_name") },
-  { key: "buy_special", color: "#ffd700", name: _t("detail_buy_special_name") },
-  { key: "buy_backup", color: "#9c27b0", name: _t("detail_buy_backup_name") },
-  { key: "sell", color: "#2e8b57", name: _t("detail_sell_name") },
-  { key: "sell_stop_loss", color: "#3498db", name: _t("sig_meta_stop_loss_name") },
-  { key: "band_hold", color: "#ff9800", name: _t("detail_band_hold_name") },
+  { key: "buy", color: "#e6492e", nameKey: "detail_buy_name" },
+  { key: "buy_aux", color: "#d63384", nameKey: "detail_buy_aux_name" },
+  { key: "buy_special", color: "#ffd700", nameKey: "detail_buy_special_name" },
+  { key: "buy_backup", color: "#9c27b0", nameKey: "detail_buy_backup_name" },
+  { key: "sell", color: "#2e8b57", nameKey: "detail_sell_name" },
+  { key: "sell_stop_loss", color: "#3498db", nameKey: "sig_meta_stop_loss_name" },
+  { key: "band_hold", color: "#ff9800", nameKey: "detail_band_hold_name" },
 ];
 // 渲染策略 modal：6 行（颜色圆点+信号名+该指数策略描述+参数+过滤），skip 标灰删除线，末尾合规声明。
 // strategy._detail 6 字段，每字段 {desc, params, filter, enabled}。
@@ -2013,7 +2023,7 @@ function _strategyModalHTML(strategy, indexId) {
       '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid rgba(127,127,127,0.18);' + rowStyle + '">' +
       '<span style="flex:0 0 14px;width:14px;height:14px;border-radius:50%;margin-top:4px;background:' + k.color + '"></span>' +
       '<div style="flex:1;min-width:0">' +
-      '<div style="font-weight:600;margin-bottom:2px">' + k.name + '</div>' +
+      '<div style="font-weight:600;margin-bottom:2px">' + _t(k.nameKey) + '</div>' +
       '<div style="font-size:13px;line-height:1.55;opacity:0.85">' + d.desc + '</div>' +
       paramHtml +
       filterHtml +
@@ -2085,7 +2095,7 @@ function _appendStrategyHint(cardEl, indexId, strategy) {
     var k = _STRATEGY_DETAIL_KEYS[i];
     var d = detail && detail[k.key];
     if (!d) continue;
-    var name = k.name.split(" · ")[0];
+    var name = _t(k.nameKey).split(" · ")[0];
     var en = d.enabled !== false;
     // 2026-07-24 hoverpop 专属规则修复：hover 摘要原本只读 d.desc，sh/sz 一样；
     // 追加 d.filter 末段 per-index 部分（sh 专属 / 非 sh 方案B），让 hover 显差异（click modal 仍读完整 d.filter）。
@@ -2172,12 +2182,12 @@ function _appendPinBtn(cardEl, indexId, idx, sig) {
 // localStorage：存用户邮箱/chat_id 免重复输入（key: sub_user_info）。
 var _SUB_USER_INFO_LS_KEY = "sub_user_info";
 var _SUB_SIGNAL_LABELS = [
-  { key: "buy", label: "主买", color: "#e6492e" },
-  { key: "buy_aux", label: "辅买", color: "#d63384" },
-  { key: "buy_special", label: "追买", color: "#ffd700" },
-  { key: "buy_backup", label: "备买", color: "#9c27b0" },
-  { key: "sell", label: "卖", color: "#2e8b57" },
-  { key: "sell_stop_loss", label: _t("sig_meta_stop_loss_label"), color: "#3498db" },
+  { key: "buy", labelKey: "type_buy", color: "#e6492e" },
+  { key: "buy_aux", labelKey: "buy_aux", color: "#d63384" },
+  { key: "buy_special", labelKey: "buy_special", color: "#ffd700" },
+  { key: "buy_backup", labelKey: "buy_backup", color: "#9c27b0" },
+  { key: "sell", labelKey: "sell_short", color: "#2e8b57" },
+  { key: "sell_stop_loss", labelKey: "sig_meta_stop_loss_label", color: "#3498db" },
 ];
 
 function _loadSubUserInfo() {
@@ -2258,7 +2268,7 @@ function _openSubscribeModal(indexId, indexName) {
   // 信号类型 checkbox（默认全选）
   var sigCheckboxes = _SUB_SIGNAL_LABELS.map(function (s) {
     return '<label class="sub-sig-check"><input type="checkbox" value="' + s.key + '" checked>'
-      + '<span class="hint-sig" style="background:' + s.color + '">' + s.label + '</span></label>';
+      + '<span class="hint-sig" style="background:' + s.color + '">' + _t(s.labelKey) + '</span></label>';
   }).join("");
   modal.innerHTML =
     '<div class="rule-modal-overlay"></div>' +
@@ -2364,7 +2374,7 @@ function _renderSubscriptionsList() {
       var sigsText = s.signals && s.signals.length
         ? s.signals.map(function (sig) {
             var found = _SUB_SIGNAL_LABELS.filter(function (x) { return x.key === sig; })[0];
-            return '<span class="hint-sig" style="background:' + (found ? found.color : '#86909c') + '">' + (found ? found.label : sig) + '</span>';
+            return '<span class="hint-sig" style="background:' + (found ? found.color : '#86909c') + '">' + (found ? _t(found.labelKey) : sig) + '</span>';
           }).join("")
         : '<span class="sub-sig-all">全部</span>';
       var targetsText = (s.targets || []).join(", ");
@@ -2502,7 +2512,7 @@ function _pinStrategyHtml(strategy, indexId) {
     var k = _STRATEGY_DETAIL_KEYS[i];
     var d = detail[k.key];
     if (!d) continue;
-    var name = k.name.split(" · ")[0];
+    var name = _t(k.nameKey).split(" · ")[0];
     var en = d.enabled !== false;
     if (!en) { lines.push('<div class="pin-strat-line skip"><span class="pin-strat-dot" style="background:' + k.color + '"></span>' + name + '：skip（本指数不启用）</div>'); continue; }
     var filt = d.filter || "";
