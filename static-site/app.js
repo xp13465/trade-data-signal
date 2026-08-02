@@ -3535,6 +3535,54 @@ function ruleContentHtml() {
         </table>
         <p class="rule-note">⚠️ <b>最后防线</b>：跌破即防范风险，趋势反转下行。与「风险」共振时调整信号更强。蓝色与风险绿色区分。</p>
       </div>
+
+      <div class="rule-card" style="border-left:3px solid #9c27b0">
+        <div class="rule-card-head"><span class="rule-badge" style="background:#f3e5f5;color:#6a1b9a">备关注</span> 超级趋势翻多（ATR×3 + 3 日确认）</div>
+        <p>超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认，<b>趋势反转确认</b>。与追关注（唐奇安突破）互补，作为趋势类信号的备选参考。</p>
+        <table class="rule-table">
+          <tr><td class="rule-td-label">含义</td><td>Supertrend 指标翻多（ATR×3 乘数），3 日内二次确认有效，过滤诱多</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#9c27b0;color:#fff">紫色</span> 图表上标记为「备关注」</td></tr>
+          <tr><td class="rule-td-label">稳健性</td><td>弱于追关注（唐奇安突破），仅供参考不单独决策</td></tr>
+        </table>
+        <p class="rule-note">⚠️ <b>稳健性弱于追关注</b>。配套：仅供参考不单独决策，需结合主关注/辅关注/追关注；诱多风险已用 3 日二次确认过滤。</p>
+      </div>
+
+      <div class="rule-card" style="border-left:3px solid #9e9e9e">
+        <div class="rule-card-head"><span class="rule-badge" style="background:#f5f5f5;color:#616161">追关注·过滤预览</span> h5 高波动过滤档</div>
+        <p>命中 h5(高波动过滤档) 平衡档过滤条件（ATR(14)/收盘价&gt;0.03 OR 量价背离）的追关注信号，<b>灰色图钉标记展示不删除</b>。预览模式：用户看后决定是否真过滤。</p>
+        <table class="rule-table">
+          <tr><td class="rule-td-label">含义</td><td>预览模式，标记"会被过滤的追关注信号"，用户看后决定是否真过滤，未来直接删除即可</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#9e9e9e;color:#fff">灰色</span> 图钉（区别于追关注金色）</td></tr>
+          <tr><td class="rule-td-label">回测</td><td>h5 过滤回测：过滤率 ~29%，过滤后 10d 均 +1.66-&gt;+1.84、套牢 12.83-&gt;11.77；核心反直觉：套牢来自高波动假突破而非顶部追关注，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%</td></tr>
+        </table>
+        <p class="rule-note">⚠️ <b>灰色图钉</b> = 会被过滤的追关注信号（预览模式，暂不删除）。用户观察后决定是否真过滤。</p>
+      </div>
+    </div>
+
+    <div class="rule-section">
+      <h4><span class="rule-dot" style="background:#ff9800"></span>国债波段仓位管理参考点</h4>
+
+      <div class="rule-card" style="border-left:3px solid #ff9800">
+        <div class="rule-card-head"><span class="rule-badge" style="background:#fff3e0;color:#e65100">波段持有</span> 国债仓位维持（无超买超卖）</div>
+        <p>国债三品种波段仓位管理策略·<b>波段持有状态</b>。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1卖点(趋势转弱风险)对国债完全失效（sell=0 无理由）的问题。</p>
+        <table class="rule-table">
+          <tr><td class="rule-td-label">含义</td><td>国债专属动态仓位管理·维持仓位动作（非清仓卖出卖点，非静态 sell）</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#ff9800;color:#fff">橙色</span> 仓位条维持 + 图钉</td></tr>
+          <tr><td class="rule-td-label">回测依据</td><td>cgb_idx 降风险(回撤-10.4%-&gt;-4.8%,夏普2.80-&gt;3.58)；cgb_10y_etf 放宽双赢(夏普1.31-&gt;1.52)；cgb_10y_future 双赢(年化1.30%-&gt;1.63%,夏普0.42-&gt;1.58)</td></tr>
+        </table>
+        <p class="rule-note">⚠️ <b>国债专属动态仓位管理</b>（非静态 sell，非清仓卖出卖点）。四动作联动：减仓(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓卖出)/波段持有(band_hold橙,无超买超卖维持仓位)。研究参考，不构成投资建议。</p>
+      </div>
+
+      <div class="rule-card" style="border-left:3px solid #8bc34a">
+        <div class="rule-card-head"><span class="rule-badge" style="background:#f1f8e9;color:#558b2f">波段调整</span> 国债减仓（触超买锁利润）</div>
+        <p>国债波段仓位管理策略·<b>减仓动作</b>。触发超买条件(bias20&gt;0.3% AND RSI&gt;rsi_high OR close≥布林上轨)时减仓 20-30% 锁利润。与风险提醒区分：减仓非清仓卖出，体现"没卖重"。</p>
+        <table class="rule-table">
+          <tr><td class="rule-td-label">含义</td><td>国债专属减仓动作（减仓 20-30%，非清仓卖出退出）</td></tr>
+          <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#8bc34a;color:#fff">草绿色</span> 仓位条减少 100%-&gt;80%/70% + 图钉头（与风险提醒绿 #2e8b57 区分）</td></tr>
+          <tr><td class="rule-td-label">触发</td><td>bias20&gt;0.3% AND RSI&gt;rsi_high OR close≥布林上轨，减仓 20-30%</td></tr>
+        </table>
+        <p class="rule-note">⚠️ <b>国债专属减仓动作</b>(草绿#8bc34a仓位条减少 100%-&gt;80%/70%)。触超买减仓 20-30%，非清仓卖出退出。与止损(sell_stop_loss蓝,趋势破位清仓卖出)区分：减仓是主动锁利润，止损是被动防范。研究参考，不构成投资建议。</p>
+      </div>
     </div>
 
     <div class="rule-section">
