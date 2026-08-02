@@ -6874,6 +6874,36 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **遗留**：用户需浏览器验证3弹窗视觉效果（模型禁图片，主控/agent无法视觉确认配色/卡片化效果，需用户看实际弹窗）
 
+### AZ137 - 2026-08-03 首页基金仓位信号卡从右列移到左列综合情绪分下方（ui116，已上线）
+**背景**：用户诉求"首页把右边的'基金仓位信号'卡片移到左边'A股综合情绪分'卡片下面"。任务描述 grep 假设基金仓位卡在 ov2ColB，实际读代码 L7562-7564 发现基金仓位卡通过 `_renderPublicFundHomeCard(colA2, r, snap)` appendChild 到 **ov2ColA 的 colA2**（右列），不在 ov2ColB。
+
+**首页 ov-2col 结构**（app.js renderOverview）：
+- ov2ColA colA1（左列）3 卡：恐贪指数折线(L7361) / 恐贪分项条(L7407) / A股综合情绪分折线(L7426)
+- ov2ColA colA2（右列）4 卡：冰点日(L7457) / 买卖点(L7513) / 汪汪队(L7560) / **基金仓位信号(L7564)**
+- ov2ColB colB1（左列）2 卡：市场宽度图(L7605) / 跨市场综合评分(L7638)
+- ov2ColB colB2（右列）2 卡：均线排列(L7678) / 位置感(L7710)
+
+**改动**：app.js L7564 `_renderPublicFundHomeCard(colA2, r, snap)` -> `_renderPublicFundHomeCard(colA1, r, snap)`（1 行 + 注释）。`_renderPublicFundHomeCard` 函数体(L11450)内部 `host.appendChild(card)`(L11454) 同步执行（async 第一个 await 之前），调用时立即把"加载中"卡 append 到 colA1 末尾 = 综合情绪分卡之后。
+
+**移动后**：
+- colA1 变 4 卡：恐贪折线 / 恐贪分项条 / 综合情绪分折线 / **基金仓位信号**
+- colA2 变 3 卡：冰点日 / 买卖点 / 汪汪队（不空列）
+- 移动端单列顺序：恐贪折线->恐贪分项条->综合情绪分->**基金仓位信号**->冰点日->买卖点->汪汪队->ov2ColB 卡（综合情绪分紧接基金仓位信号，符合诉求）
+
+**只改 DOM appendChild 目标，卡片内部渲染逻辑未动**。
+
+**§0 验收**（2026-08-03 00:40）：
+- app.js L7565 `_renderPublicFundHomeCard(colA1, r, snap)` ✓（grep 确认）
+- _renderPublicFundHomeCard 函数体 L11450-11454 `host.appendChild(card)` 未改 ✓
+- index.html app.min.js?v= 86f2dfee->983730e4（bump_asset_version.py 自动）✓
+- sw.js CACHE_VERSION ui115->ui116 ✓
+- 线上 ss.fx8.store sw.js=ui116 / sss.sugas.site sw.js=ui116 ✓（2域名验证 OK）
+- commit 12b302ed 在 origin/main + origin/feat/iframe-theme-follow ✓
+
+**commit 链**：066e612b（AZ136 ui114）-> daa3b618（AZ136 后 data update）-> 12b302ed（AZ137 ui116），push feat + push feat:main fast-forward（daa3b618..12b302ed），未 force push main
+
+**遗留**：用户需浏览器验证首页排版（colA1 4卡 vs colA2 3卡 列高差异，模型禁图片无法视觉确认；ov-2col grid 布局两列独立高度不影响视觉，但 colA1 会比 colA2 高一截）
+
 
 
 
