@@ -13,7 +13,7 @@
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260802-lg-cninfo-zh-ui89';
+const CACHE_VERSION = 'v2-20260802-i18n-fullscan-ui90';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

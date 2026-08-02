@@ -741,7 +741,7 @@ const _LAB_GLOSSARY = {
   },
   score: {
     name: "综合评分（0-100）",
-    desc: "0-100分=收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，收益/胜率/回撤/风险调整先winsorize(前后1%截断)抗极端值再min-max归一化到[0,1]，样本量用凹函数1-exp(-n/30)抗大样本线性通胀，加权后×100，越高越综合优秀。",
+    desc: "0-100分=收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，收益/胜率/回撤/风险调整先缩尾处理(winsorize,前后1%截断)抗极端值再min-max归一化到[0,1]，样本量用凹函数1-exp(-n/30)抗大样本线性通胀，加权后×100，越高越综合优秀。",
   },
   windows: {
     name: "5窗口（时间窗口）",
@@ -789,7 +789,7 @@ const _LAB_GLOSSARY = {
   },
   retest: {
     name: "二次测试（稳健性三件套）",
-    desc: "稳健性验证三件套：①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心，成本低结论明确。⭐️进入规则:近5/3/1年三窗口最大回撤均≤10%且交易≥10次，且(综合评分≥0.6 且 胜率≥55% 且 风险调整≥1.5)三者同时满足(AND收紧)。",
+    desc: "稳健性验证三件套：①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各场景回撤。优先做这3种因其为验证核心，成本低结论明确。⭐️进入规则:近5/3/1年三窗口最大回撤均≤10%且交易≥10次，且(综合评分≥0.6 且 胜率≥55% 且 风险调整≥1.5)三者同时满足(AND收紧)。",
   },
 };
 
@@ -2429,7 +2429,7 @@ function _labNewbieGuideHTML() {
     `</div></div>` +
     `<div class="lab-newbie-step">` +
     `<span class="lab-newbie-step-no">3</span>` +
-    `<div><b>看「二次测试」三切片是否稳健</b>：标⭐️的配对可进入二次测试，看①分年回测（防某年暴利拉高）②样本外（防过拟合）③极端行情（2015股灾/2018熊/2020疫情/2024反弹各regime回撤），三者都稳才是真稳健，非偶然。` +
+    `<div><b>看「二次测试」三切片是否稳健</b>：标⭐️的配对可进入二次测试，看①分年回测（防某年暴利拉高）②样本外（防过拟合）③极端行情（2015股灾/2018熊/2020疫情/2024反弹各场景回撤），三者都稳才是真稳健，非偶然。` +
     `</div></div>` +
     `<div class="lab-newbie-tip">💡 融合实验中 <b>n&lt;30</b> 的候选已标灰「样本不足，仅供参考」——样本量小统计意义弱，收益/胜率易被极端值拉偏，谨慎参考。</div>` +
     `</div></details>`;
@@ -2972,7 +2972,7 @@ function _labRankHTML(simData) {
     `<button type="button" class="lab-rank-tab${t.key === tab ? " active" : ""}" data-tab="${t.key}">${t.label}</button>`
   ).join("");
   const legend = tab === "composite"
-    ? "综合评分 = 收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，收益/胜率/回撤/风险调整先winsorize(前后1%截断)抗极端值再min-max归一化，样本量用凹函数1-exp(-n/30)抗大样本通胀，加权×100越高越好。" + _labHelpIcon("score")
+    ? "综合评分 = 收益率(35%)+胜率(25%)+回撤倒数(15%)+风险调整(15%)+样本量(10%)，收益/胜率/回撤/风险调整先缩尾处理(winsorize,前后1%截断)抗极端值再min-max归一化，样本量用凹函数1-exp(-n/30)抗大样本通胀，加权×100越高越好。" + _labHelpIcon("score")
     : tab === "risk_adj"
       ? "风险调整 = 年化收益 ÷ 最大回撤（类 Calmar 比率），衡量每承担1%回撤换来多少年化收益，越高越好。" + _labHelpIcon("risk_adjust")
       : tab === "stable"
@@ -2995,7 +2995,7 @@ function _labRankHTML(simData) {
 // === 二次测试 tab 渲染（分年回测 / 样本外 / 极端行情三件套）===
 // 数据源 lab_retest_{index}.json，per-index 缓存到 state.labRetestDataMap
 // ret/dd/win 为小数(0.xxxx)，显示时 ×100 加 %；null 显示 "-"
-const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各regime回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=近5/3/1年三窗口回撤均≤10%且交易≥10,且(综合分≥0.6 且 胜率≥55% 且 风险调整≥1.5 三者同时满足)" + _labHelpIcon("retest");
+const _LAB_RETEST_RULE = "🔬 二次测试(稳健性验证三件套):①分年回测-防某年暴利拉高整体 ②样本外-前70%训练后30%验证防过拟合 ③极端行情-2015股灾/2018熊/2020疫情/2024反弹各场景回撤。优先做这3种因其为验证核心(通过/筛掉),成本低结论明确;其余7方向(蒙特卡洛/参数敏感/消融/手续费/多空/标的泛化)属优化/归因靠后。⭐️候选=近5/3/1年三窗口回撤均≤10%且交易≥10,且(综合分≥0.6 且 胜率≥55% 且 风险调整≥1.5 三者同时满足)" + _labHelpIcon("retest");
 
 function _labRetestPct(v) {
   if (v == null) return "-";
@@ -3070,7 +3070,7 @@ function _labRetestPairSlicesHTML(pd) {
   };
   const oosHTML = '<div class="lab-retest-section">' +
     '<div class="lab-retest-section-title">② 样本外测试（前70%训练 -> 后30%验证，防过拟合）</div>' +
-    '<table class="lab-retest-oos"><thead><tr><th>指标</th><th>训练集 (train)</th><th>测试集 (test)</th></tr></thead>' +
+    '<table class="lab-retest-oos"><thead><tr><th>指标</th><th>训练集</th><th>测试集</th></tr></thead>' +
     "<tbody>" + oosRow("收益率", "ret") + oosRow("胜率", "win") + oosRow("回撤", "dd") + oosRow("交易数", "n") + "</tbody>" +
     "</table></div>";
 
@@ -3091,7 +3091,7 @@ function _labRetestPairSlicesHTML(pd) {
       "</div>";
   }).join("");
   const regimesHTML = '<div class="lab-retest-section">' +
-    '<div class="lab-retest-section-title">③ 极端行情回撤（各 regime 表现）</div>' +
+    '<div class="lab-retest-section-title">③ 极端行情回撤（各场景表现）</div>' +
     `<div class="lab-retest-regimes">${regCards}</div></div>`;
 
   return yearlyHTML + oosHTML + regimesHTML;
@@ -3779,7 +3779,7 @@ async function renderFusionLab() {
   rankSection.innerHTML = '<h3>🏆 回测配对对比榜' + _labHelpIcon("pair") + '</h3>' +
     '<div class="lab-rank-sub-note">一个买点+一个卖点组成一对完整交易，7买×7卖=49对</div>' +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${rankIdxBtns}</div></div>` +
-    `<div class="lab-win-bar lab-shape-bar"><span class="lab-win-bar-label">形态分析</span><button type="button" class="lab-shape-btn" title="取近20日归一化日收益率，在全历史中滑窗匹配最相似时段">🔮 当前指数相似形态匹配</button><span class="lab-shape-hint">A10 · 历史相似时段 + top1 延伸走势参考</span></div>` +
+    `<div class="lab-win-bar lab-shape-bar"><span class="lab-win-bar-label">形态分析</span><button type="button" class="lab-shape-btn" title="取近20日归一化日收益率，在全历史中滑窗匹配最相似时段">🔮 当前指数相似形态匹配</button><span class="lab-shape-hint">A10 · 历史相似时段 + 最相似1个延伸走势参考</span></div>` +
     '<div class="lab-rank-body"><div class="lab-rank-loading">⏳ 加载配对排行数据中…</div></div>';
   rightCol.appendChild(rankSection);
   // 组装2栏
@@ -4150,7 +4150,7 @@ function _labRetestRankItemHTML(row, rank, tab) {
   } else if (tab === "yearly") {
     extra = `<span class="lab-rank-dim-sub">最差年${_labRetestPct(row.minYearRet)} · 盈利${row.profitYears}/${row.yearCount}年 · 波动${_labRetestPct(row.yearVol)}${_labRetestSmallTag(row.yearSmall)}</span>`;
   } else if (tab === "oos") {
-    extra = `<span class="lab-rank-dim-sub">test${_labRetestPct(row.testRet)} · 过拟合${_labRetestPct(row.overfit)} · test胜${_labRetestPct(row.testWin)}${_labRetestSmallTag(row.oosSmall)}</span>`;
+    extra = `<span class="lab-rank-dim-sub">测试集${_labRetestPct(row.testRet)} · 过拟合${_labRetestPct(row.overfit)} · 测试集胜率${_labRetestPct(row.testWin)}${_labRetestSmallTag(row.oosSmall)}</span>`;
   } else if (tab === "regimes") {
     const covidNote = row.covidNull
       ? ' · <span class="lab-rank-small">疫情无交易</span>'
@@ -5479,7 +5479,7 @@ async function renderSymmetryLab() {
 
   const phaseNote = document.createElement("div");
   phaseNote.className = "lab-fusion-phase-note";
-  phaseNote.innerHTML = "📌 <b>多空对称测试</b>：top8配对做多/做空对比。A股向上漂移致做多盈利、做空亏损属正常不对称。";
+  phaseNote.innerHTML = "📌 <b>多空对称测试</b>：前8配对做多/做空对比。A股向上漂移致做多盈利、做空亏损属正常不对称。";
   leftCol.appendChild(phaseNote);
 
   const rankSection = document.createElement("div");
@@ -6394,7 +6394,7 @@ function _renderLabAiscoreBuySection(buyHost, buyList, codeToIid, dateStr) {
       const code = tr.dataset.code;
       const name = tr.dataset.name;
       if (!iid) {
-        _labAIScoreOpenModal(`<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 无 iid 映射</div><div class="lab-custom-error-detail">ETF ${code}(${name}) 未配置 iid,无法加载 8+8 维度拆解。可去 🎯自定义分析 tab 手动选标的查看。</div></div>`);
+        _labAIScoreOpenModal(`<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 无指数ID(iid)映射</div><div class="lab-custom-error-detail">ETF ${code}(${name}) 未配置 iid,无法加载 8+8 维度拆解。可去 🎯自定义分析 tab 手动选标的查看。</div></div>`);
         return;
       }
       _labAIScoreOpenDetailModal(code, name, iid);
@@ -6487,7 +6487,7 @@ function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
       const code = tr.dataset.code;
       const name = tr.dataset.name;
       if (!iid) {
-        _labAIScoreOpenModal(`<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 无 iid 映射</div><div class="lab-custom-error-detail">ETF ${code}(${name}) 未配置 iid,无法加载 8+8 维度拆解。可去 🎯自定义分析 tab 手动选标的查看。</div></div>`);
+        _labAIScoreOpenModal(`<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 无指数ID(iid)映射</div><div class="lab-custom-error-detail">ETF ${code}(${name}) 未配置 iid,无法加载 8+8 维度拆解。可去 🎯自定义分析 tab 手动选标的查看。</div></div>`);
         return;
       }
       _labAIScoreOpenDetailModal(code, name, iid);
@@ -6549,7 +6549,7 @@ function _renderAIScoreSellSection(host, sellList, codeToIid) {
       const code = tr.dataset.code;
       const name = tr.dataset.name;
       if (!iid) {
-        _labAIScoreOpenModal(`<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 无 iid 映射</div><div class="lab-custom-error-detail">ETF ${code}(${name}) 未配置 iid,无法加载 8+8 维度拆解。可去 🎯自定义分析 tab 手动选标的查看。</div></div>`);
+        _labAIScoreOpenModal(`<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 无指数ID(iid)映射</div><div class="lab-custom-error-detail">ETF ${code}(${name}) 未配置 iid,无法加载 8+8 维度拆解。可去 🎯自定义分析 tab 手动选标的查看。</div></div>`);
         return;
       }
       _labAIScoreOpenDetailModal(code, name, iid);
@@ -6640,7 +6640,7 @@ function _renderAIScoreQuerySection(host, codeToIid, etfList, dateStr) {
       `<div class="lab-aiscore-sell-card">` +
         scoreBadgeHTML +
         `<div class="lab-aiscore-sell-head">` +
-          `<div class="lab-aiscore-sell-title">${data.target_name || matchedCode} <span class="lab-aiscore-sell-code">${matchedCode}</span> <span class="lab-aiscore-sell-iid">iid=${iid}</span></div>` +
+          `<div class="lab-aiscore-sell-title">${data.target_name || matchedCode} <span class="lab-aiscore-sell-code">${matchedCode}</span> <span class="lab-aiscore-sell-iid">iid(指数ID)=${iid}</span></div>` +
           `<div class="lab-aiscore-sell-date">📅 ${alert.date || dateStr || ""}</div>` +
         `</div>` +
         `<div class="lab-aiscore-sell-grid">` +
@@ -6688,29 +6688,29 @@ function _buildEtfScoreOnlyCardHTML(item, dateStr, warnMsg) {
   const iidCount = Object.keys(_LAB_AISCORE_ETF_TO_IID).length;
   return `<div class="lab-aiscore-sell-card">` +
     `<div class="lab-aiscore-sell-head">` +
-      `<div class="lab-aiscore-sell-title">${name} <span class="lab-aiscore-sell-code">${code}</span> <span class="lab-aiscore-sell-iid">无iid(评分降级)</span></div>` +
+      `<div class="lab-aiscore-sell-title">${name} <span class="lab-aiscore-sell-code">${code}</span> <span class="lab-aiscore-sell-iid">无iid(指数ID,评分降级)</span></div>` +
       `<div class="lab-aiscore-sell-date">📅 ${dateStr || ""}</div>` +
     `</div>` +
     `<div class="lab-aiscore-sell-grid">` +
       `<div class="lab-aiscore-sell-cell">` +
-        `<div class="lab-aiscore-sell-cell-label">AI 评分 score</div>` +
+        `<div class="lab-aiscore-sell-cell-label">AI评分</div>` +
         `<div class="lab-aiscore-sell-cell-score">${score}</div>` +
         `<div class="lab-aiscore-sell-cell-desc">低位机会 · 越高越接近冰点反弹</div>` +
       `</div>` +
       `<div class="lab-aiscore-sell-cell">` +
-        `<div class="lab-aiscore-sell-cell-label">建议手数 hands</div>` +
+        `<div class="lab-aiscore-sell-cell-label">建议手数</div>` +
         `<div class="lab-aiscore-sell-cell-signal"><span class="hands-badge ${handsCls}">${hands}手</span></div>` +
         `<div class="lab-aiscore-sell-cell-desc">3手=机会最强 / 2手=关注 / 1手=少量</div>` +
       `</div>` +
     `</div>` +
     `<div class="lab-aiscore-sell-grid">` +
       `<div class="lab-aiscore-sell-cell">` +
-        `<div class="lab-aiscore-sell-cell-label">高位预警 high_alert</div>` +
+        `<div class="lab-aiscore-sell-cell-label">高位预警</div>` +
         `<div class="lab-aiscore-sell-cell-score">${high}</div>` +
         `<div class="lab-aiscore-sell-cell-desc">≥70 建议减仓</div>` +
       `</div>` +
       `<div class="lab-aiscore-sell-cell">` +
-        `<div class="lab-aiscore-sell-cell-label">低位机会 low_alert</div>` +
+        `<div class="lab-aiscore-sell-cell-label">低位机会</div>` +
         `<div class="lab-aiscore-sell-cell-score">${low}</div>` +
         `<div class="lab-aiscore-sell-cell-desc">越高越接近底部机会</div>` +
       `</div>` +
@@ -6718,7 +6718,7 @@ function _buildEtfScoreOnlyCardHTML(item, dateStr, warnMsg) {
     (sellSignalCell ? `<div class="lab-aiscore-sell-grid">${sellSignalCell}</div>` : "") +
     (reason ? `<div class="lab-aiscore-sell-human">${reason}</div>` : "") +
     warnHTML +
-    `<div class="lab-aiscore-sell-human" style="border-left-color:#59a9ff">ℹ️ 该 ETF 有 AI 评分,但暂无 8+8 维度拆解快照(仅汪汪队等 ${iidCount} 只 ETF 有 iid 映射)。如需完整拆解可去 🎯自定义分析 tab 选标的。</div>` +
+    `<div class="lab-aiscore-sell-human" style="border-left-color:#59a9ff">ℹ️ 该 ETF 有 AI 评分,但暂无 8+8 维度拆解快照(仅汪汪队等 ${iidCount} 只 ETF 有指数ID(iid)映射)。如需完整拆解可去 🎯自定义分析 tab 选标的。</div>` +
   `</div>`;
 }
 

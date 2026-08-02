@@ -717,17 +717,17 @@ function _backupSignalChipRender(sd, id) {
     var src = sharpeInfo.maxSource || {};
     var srcStr = src.scenarioLabel ? ('来自' + src.scenarioLabel + '·' + src.pathShort + '·' + src.winLabel + ', ') : '';
     var tipSrcStr = src.scenarioLabel ? ('来自' + src.scenarioLabel + '·' + src.pathShort + '·' + src.winLabel + ', ') : '';
-    sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种165回测中夏普比率最高 ' + shVal + ' (' + tipSrcStr + 'Bailey 2014 可疑过拟合红线&gt;3)。trade_sim 夏普为事件稀疏 equity_curve 收益率 sqrt(252) 年化近似值(与 lab 同口径),值偏高;高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治)。非必过拟合判定,详见完整回测 modal,历史表现不代表未来">⚠ 夏普比率红线提示: 该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStr + 'Bailey 2014 可疑过拟合红线&gt;3); trade_sim 夏普为事件稀疏 sqrt(252) 年化近似值, 值偏高, 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); 非必过拟合判定<span class="warn-tip">trade_sim 夏普为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径), 值偏高; 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); 非必过拟合判定, 详见完整回测 modal</span></div>';
+    sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种165回测中夏普比率最高 ' + shVal + ' (' + tipSrcStr + 'Bailey(2014)学术可疑过拟合红线&gt;3)。交易模拟夏普为事件稀疏 净值曲线 收益率 √252 年化近似值(与 lab 同口径),值偏高;高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治)。非必过拟合判定,详见完整回测弹窗,历史表现不代表未来">⚠ 夏普比率红线提示: 该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStr + 'Bailey(2014)学术可疑过拟合红线&gt;3); 交易模拟夏普为事件稀疏 √252 年化近似值, 值偏高, 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); 非必过拟合判定<span class="warn-tip">交易模拟夏普为事件稀疏 净值曲线 √252 年化近似(与 lab 同口径), 值偏高; 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); 非必过拟合判定, 详见完整回测弹窗</span></div>';
   }
   // 2026-07-25 方向D 黑名单分级：
   //   _OVERFIT_FAILED_IDS（WF 确凿失效）：维持屏蔽，仅显示过拟合标注 chip，不进三档
   //   _SMALL_SAMPLE_IDS（小样本 n<30）：不屏蔽，三档 chip 正常计算 + 前置"样本不足"标注 chip 提醒
   var smallSamplePrefix = '';
   if (id && _OVERFIT_FAILED_IDS.has(id)) {
-    return sharpeRedlinePrefix + '<div class="overfit-warn-row overfit-warn-failed">⚠ 过拟合/测试段失效: 信号在 walk-forward 测试段反向退化(WF夏普 &lt; 未过滤全样本), 不进三档推荐<span class="warn-tip">该品种信号在 WF 测试段反向退化(WF夏普 &lt; 未过滤全样本), 不进三档推荐; 详见完整回测 modal, 历史表现不代表未来</span></div>';
+    return sharpeRedlinePrefix + '<div class="overfit-warn-row overfit-warn-failed">⚠ 过拟合/测试段失效: 信号在滚动测试(walk-forward)段反向退化(滚动测试夏普 &lt; 未过滤全样本), 不进三档推荐<span class="warn-tip">该品种信号在滚动测试段反向退化(滚动测试夏普 &lt; 未过滤全样本), 不进三档推荐; 详见完整回测弹窗, 历史表现不代表未来</span></div>';
   }
   if (id && _SMALL_SAMPLE_IDS.has(id)) {
-    smallSamplePrefix = '<div class="overfit-warn-row overfit-warn-sample" data-tip="该品种 C1 主买信号在 walk-forward 测试段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测 modal">📜 样本不足提示: C1 主买测试段样本量 n&lt;30, 统计意义弱, 三档推荐仅供谨慎参考<span class="warn-tip">WF 测试段 n&lt;30 统计意义弱; 详见完整回测 modal</span></div>';
+    smallSamplePrefix = '<div class="overfit-warn-row overfit-warn-sample" data-tip="该品种 C1主买(超卖拐点)信号在滚动测试(walk-forward)段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测弹窗">📜 样本不足提示: C1主买(超卖拐点)测试段样本量 n&lt;30, 统计意义弱, 三档推荐仅供谨慎参考<span class="warn-tip">滚动测试段 n&lt;30 统计意义弱; 详见完整回测弹窗</span></div>';
   }
   // 窗口 key -> 中文 label 映射（优先用后端 sd.windows.l，缺失兜底硬编码；2026-07-23 chip 英文中文化）
   var winLabel = Object.assign(
@@ -911,7 +911,7 @@ function _backupSignalChipRender(sd, id) {
     // 三档全 null（弱标的整体不达标）：显示兜底文案，区别于三色档中性灰
     // 小样本品种仍前置标注 chip（让用户知道样本量限制，即便三档全不达标）
     // 2026-07-27 sharpe 红线品种仍前置红线 chip（即便三档全不达标，夏普越线信息仍需透明）
-    return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测 modal，历史表现不代表未来</span></div>' + sharpeRedlinePrefix + smallSamplePrefix;
+    return '<div class="signal-chip chip-weak-placeholder">📉 该标的回测表现均较弱，暂无优质买点推荐（年化均<' + TH.ann + '%或样本不足）<span class="chip-tip">详见完整回测弹窗，历史表现不代表未来</span></div>' + sharpeRedlinePrefix + smallSamplePrefix;
   }
   // 2026-07-20 chip 警示文案优化(方案C): 三档推荐算完后, 重新生成 sharpeRedlinePrefix 完整版
   //   加 topTierMaxSharpe(三档推荐策略各自 maxSharpe 的最大值) + 区分全局max来源是否在三档推荐内
@@ -949,7 +949,7 @@ function _backupSignalChipRender(sd, id) {
         ? '三档推荐策略夏普也均&gt;3(最高 ' + tierMaxStr + ', 详见各档标注), '
         : '三档推荐策略夏普均&lt;=3(最高 ' + tierMaxStr + ', 详见各档标注), ';
     }
-    sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStrFull + 'Bailey 2014 可疑过拟合红线&gt;3)。trade_sim 夏普为事件稀疏 equity_curve 收益率 sqrt(252) 年化近似值(与 lab 同口径),值偏高;高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治)。' + tierStr + '非必过拟合判定,详见完整回测 modal,历史表现不代表未来">⚠ 夏普比率红线提示: 该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStrFull + 'Bailey 2014 可疑过拟合红线&gt;3); trade_sim 夏普为事件稀疏 sqrt(252) 年化近似值, 值偏高, 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); ' + tierStr + '数据透明供判断, 非必过拟合判定<span class="warn-tip">trade_sim 夏普为事件稀疏 equity_curve sqrt(252) 年化近似(与 lab 同口径), 值偏高; 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); ' + tierStr + '非必过拟合判定, 详见完整回测 modal</span></div>';
+    sharpeRedlinePrefix = '<div class="overfit-warn-row overfit-warn-sharpe" data-tip="该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStrFull + 'Bailey(2014)学术可疑过拟合红线&gt;3)。交易模拟夏普为事件稀疏 净值曲线 收益率 √252 年化近似值(与 lab 同口径),值偏高;高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治)。' + tierStr + '非必过拟合判定,详见完整回测弹窗,历史表现不代表未来">⚠ 夏普比率红线提示: 该品种165回测中夏普比率最高 ' + shVal + ' (' + srcStrFull + 'Bailey(2014)学术可疑过拟合红线&gt;3); 交易模拟夏普为事件稀疏 √252 年化近似值, 值偏高, 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); ' + tierStr + '数据透明供判断, 非必过拟合判定<span class="warn-tip">交易模拟夏普为事件稀疏 净值曲线 √252 年化近似(与 lab 同口径), 值偏高; 高夏普常源于低波动/小样本而非参数过拟合(参数侧已 AZ26-AZ38 整治); ' + tierStr + '非必过拟合判定, 详见完整回测弹窗</span></div>';
   }
   // 2026-07-29 方案D：chip val 第二行统一改为策略级聚合指标显示
   //   原 line2 反映单窗口（"回撤-X% 胜率Y%" 或 "y1+X% y3+Y%..."），有误导（近1年虚高也能显示"回撤4%胜率66%"）
@@ -1080,7 +1080,7 @@ function _backupSignalChipTip(sd, scored, chip) {
 // 三档 chip（年化最高/最稳健/回撤最小）在每个指数卡片内 chip-row 单独一行展示，chip 自带档位标签+买点名+数值，
 // 不再在图例条重复展示 mini-legend（消除"分2处"）。图例末尾保留 ❓ termTip 解释 4 买点（重点备买=Supertrend翻多确认的备选买点）。
 var _BACKUP_LEGEND_TIP = "4 买点（主买/辅买/追买/备买）历史回测表现差异较大，每个指数标题下方的三档 chip 标注该指数近5年全仓进出回测中表现最优的买点（年化最高/最稳健/回撤最小）。研究参考，不构成投资建议，历史回测不代表未来。";
-var _BACKUP_BUYPOINT_TIP = "4 买点：主买=RSI(14)上穿30超卖拐点；辅买=布林下轨回归左侧布局；追买=Donchian20日上轨突破+5日确认；备买=Supertrend ATR×3翻多+3日二次确认的趋势反转备选买点（稳健性弱于追买，仅供参考不单独决策）。";
+var _BACKUP_BUYPOINT_TIP = "4 买点：主买=RSI(14)上穿30超卖拐点；辅买=布林下轨回归左侧布局；追买=唐奇安20日上轨突破+5日确认；备买=超级趋势(Supertrend) ATR×3翻多+3日二次确认的趋势反转备选买点（稳健性弱于追买，仅供参考不单独决策）。";
 function _signalLegendHtml() {
   return '<div class="signal-legend">'
     + '<span class="signal-legend-item"><i style="background:#e6492e"></i>超卖拐点(主买)</span>'
@@ -1675,13 +1675,13 @@ function termTip(text) {
 // 复用 .rule-modal 样式 + 内联 style（不改 CSS），与 📋 策略说明 modal 风格一致。
 const _SIGNAL_HELP_ITEMS = [
   { sig: "buy", color: "#e6492e", name: "主买 · 超卖拐点", desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
-  { sig: "buy_aux", color: "#d63384", name: "辅买 · 下轨拐点", desc: "布林带下轨回归。价格跌穿 BB 下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
+  { sig: "buy_aux", color: "#d63384", name: "辅买 · 下轨拐点", desc: "布林带下轨回归。价格跌穿布林带(BB)下轨后回归，偏左侧布局。", warn: "左侧布局偏激进。配套：配合主买共振时较强；单独出现风险高。" },
   { sig: "buy_special", color: "#ffd700", name: "追买 · 上轨突破", desc: "唐奇安 20 日上轨突破 + 5 日确认。趋势跟随思路，突破后惯性上行。", backtest: "🔬 回测持有期建议（全史统计）：5d 胜率59.65%/均值+0.87%/回撤2.65%；10d 60.24%/+1.66%/4.26%（风险调整最优）；30d 59.06%/+3.44%（分水岭，风险/收益拐点）；90d 60.83%/+9.42%/回撤16.53%（纯收益最优，但回撤大）。", warn: "趋势跟随追高信号。配套：需配合量能确认，假突破风险；必须配追止损|卖(ATR×3.5止损)控制风险，0套牢。" },
-  { sig: "buy_special_filtered", color: "#9e9e9e", name: "追买(过滤预览) · h5灰pin", desc: "命中 h5 平衡档过滤条件（ATR(14)/close>0.03 OR 量价背离）的追买信号，灰色 pin 标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接 drop 即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追买，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色 pin = 会被过滤的追买信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
-  { sig: "buy_backup", color: "#9c27b0", name: "备买 · 趋势转向", desc: "Supertrend ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
-  { sig: "sell", color: "#2e8b57", name: "卖 · 趋势转弱", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈减仓提示。", note: "📌 pin 标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；hover tooltip 的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈减仓非反向信号。配套：走弱概率≈50%接近随机；与追止损|卖共振时减仓信号更强。" },
-  { sig: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR×3.5止损", desc: "ATR×3.5 止损（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5d win 49.58%->50.23%），backtest 旧 ATR×3 数据保留作历史对比，新参数 stats 见下方 forward 字段。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
-  { sig: "band_hold", color: "#ff9800", name: "波段持有 · 国债波段仓管", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1 卖点对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖点）。四动作联动：减仓(草绿#8bc34a仓位条+pin头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓)/持有(band_hold橙,无超买超卖维持仓位)。走势图 pin = 历史调仓时点回放，hover 信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
+  { sig: "buy_special_filtered", color: "#9e9e9e", name: "追买(过滤预览) · h5灰图钉", desc: "命中 h5(高波动过滤档)平衡档过滤条件（ATR(14)/收盘价>0.03 OR 量价背离）的追买信号，灰色图钉标记展示不删除。预览模式：用户看后决定是否真过滤，未来直接删除即可。", backtest: "🔬 h5 过滤回测（/tmp/peak_filter_combos.py）：过滤率 ~29%，过滤后 10d 均 +1.66->+1.84、套牢 12.83->11.77；核心反直觉：套牢来自高波动假突破而非顶部追买，传统顶部过滤（偏离/RSI/距前高）误杀 49-81%。", warn: "灰色图钉 = 会被过滤的追买信号（预览模式，暂不删除）。用户观察后决定是否真过滤。" },
+  { sig: "buy_backup", color: "#9c27b0", name: "备买 · 趋势转向", desc: "超级趋势(Supertrend) ATR×3 翻多 + 3 日二次确认。趋势反转确认。", warn: "稳健性弱于追买。配套：仅供参考不单独决策，需结合主买/辅买/追买；诱多风险已用3日二次确认过滤。" },
+  { sig: "sell", color: "#2e8b57", name: "卖 · 趋势转弱", desc: "MA60 多头 + MACD 死叉 + 20 日高回落 5%。止盈减仓提示。", note: "📌 图钉标签「盈亏X%」来源：sell 信号 reason 中「vs前买+X%」的单次配对实现涨幅（该卖点 vs 前一个买点的实际涨跌），非统计期望值；悬停提示的「盈亏比Y」才是历史统计值，二者勿混。" , warn: "止盈减仓非反向信号。配套：走弱概率≈50%接近随机；与追止损|卖共振时减仓信号更强。" },
+  { sig: "sell_stop_loss", color: "#3498db", name: "追止损|卖 · ATR×3.5止损", desc: "ATR×3.5 止损（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频，趋势跟踪风控）。趋势反转下行最后防线。", backtest: "🔬 回测对比（全史）：现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日(胜率44.33%/均值+1.56%，2008股灾-10.5%最差)。ATR×3=趋势跟踪策略（低胜率靠大盈拉均值），区别于固定持有的均值回归（高胜率小赚）。⚠️ 2026-07-21 调 ATR×3.5 降频后（hs300 触发 -18%/5日胜率 49.58%->50.23%），回测旧 ATR×3 数据保留作历史对比，新参数统计值见下方前瞻字段。", warn: "最后防线跌破即止损。配套：趋势跟踪风控（低胜率大盈）；与卖共振减仓信号更强；蓝色与卖绿色区分。" },
+  { sig: "band_hold", color: "#ff9800", name: "波段持有 · 国债波段仓管", desc: "国债三品种波段仓位管理策略持有状态（2026-07-24）。RSI+乖离+布林三指标无超买超卖信号，维持当前仓位。替代原 D1卖点(趋势转弱卖)对国债完全失效（sell=0 无理由）的问题。", backtest: "🔬 回测依据 /tmp/backtest_cgb_band.py + /tmp/cgb_band_results.json：cgb_idx 降风险(回撤-10.4%->-4.8%,夏普2.80->3.58)；cgb_10y_etf 放宽双赢(夏普1.31->1.52)；cgb_10y_future 双赢(年化1.30%->1.63%,夏普0.42->1.58)。", warn: "国债专属动态仓位管理（非静态 sell，非清仓卖点）。四动作联动：减仓(草绿#8bc34a仓位条+图钉头,触超买减20-30%)/接回(buy_aux粉紫,超卖回归接回)/止损(sell_stop_loss蓝,趋势破位清仓)/持有(band_hold橙,无超买超卖维持仓位)。走势图图钉 = 历史调仓时点回放，悬停信号日看仓位变化进度条，可缩放查看过去减仓/接回/止损时点。研究参考，不构成投资建议。" },
 ];
 
 // 聚合 signal_stats.json（per-index）-> per-sig 概况（5d/10d/20d 三窗口，按样本数 n 加权平均）
@@ -1825,8 +1825,8 @@ function signalHelpTip(tipText) {
   document.head.appendChild(style);
 })();
 
-// 涨跌家数数据口径（akshare sina 源全市场快照，与东财等 APP 覆盖范围略有差异，非数据错误）
-const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare sina 源全市场快照，涨跌幅为负计为跌、平盘不计入。不同数据源覆盖范围略有差异（如东财多1只），非数据错误。";
+// 涨跌家数数据口径（akshare 新浪(sina)源全市场快照，与东财等 APP 覆盖范围略有差异，非数据错误）
+const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市场快照，涨跌幅为负计为跌、平盘不计入。不同数据源覆盖范围略有差异（如东财多1只），非数据错误。";
 
 // ❓ 问号 hover pop 浮层（替代浏览器原生 title，pop 风格：圆角/阴影/主题色/小箭头）
 // 事件委托：document mouseover/mouseout 检查 target.closest('[data-tip]')，
@@ -1973,7 +1973,7 @@ function strategyDesc(strategy) {
   if (strategy) return strategy;
   return {
     buy: "RSI(14)上穿30",
-    buy_aux: "BB下轨回归",
+    buy_aux: "布林带(BB)下轨回归",
     sell: "20日高回落5%+MA60多头+MACD死叉",
   };
 }
@@ -3515,11 +3515,11 @@ function ruleContentHtml() {
 
       <div class="rule-card" style="border-left:3px solid #3498db">
         <div class="rule-card-head"><span class="rule-badge" style="background:#e8f4fd;color:#1c6dbf">追止损|卖</span> ATR×3.5 止损</div>
-        <p>价格跌破 <b>ATR×3.5 动态止损线</b>（底层规则从 Donchian20 下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）。趋势反转下行最后防线。</p>
+        <p>价格跌破 <b>ATR×3.5 动态止损线</b>（底层规则从唐奇安20日下轨改为 ATR×3，2026-07-21 调 ATR×3.5 降频）。趋势反转下行最后防线。</p>
         <table class="rule-table">
           <tr><td class="rule-td-label">含义</td><td>ATR（平均真实波幅）×3.5 作为止损距离，波动大时止损宽、波动小时止损窄，自适应市场节奏</td></tr>
           <tr><td class="rule-td-label">颜色</td><td><span class="rule-badge" style="background:#3498db;color:#fff">蓝色</span> 图表上标记为「追止损|卖」</td></tr>
-          <tr><td class="rule-td-label">回测对比</td><td>现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原 Don20（胜率44.33%/均值+1.56%，2008股灾-10.5%最差）。2026-07-21 调 ATR×3.5 降频后 hs300 触发 -18%/5d win 49.58%->50.23%</td></tr>
+          <tr><td class="rule-td-label">回测对比</td><td>现 ATR×3 胜率46.91%/均值+1.76%/盈亏比1.82，全维度略优原唐奇安20日（胜率44.33%/均值+1.56%，2008股灾-10.5%最差）。2026-07-21 调 ATR×3.5 降频后 hs300 触发 -18%/5日胜率 49.58%->50.23%</td></tr>
         </table>
         <p class="rule-note">⚠️ <b>最后防线</b>：跌破即止损，趋势反转下行。与「卖」共振时减仓信号更强。蓝色与卖绿色区分。</p>
       </div>
@@ -3541,7 +3541,7 @@ function ruleContentHtml() {
       </table>
 
       <p class="rule-subtitle">pin「盈亏X%」标签来源</p>
-      <p class="muted">卖点 pin 上的「盈亏X%」标签 = sell 信号 reason 中「vs前买+X%」的<b>单次配对实现涨幅</b>（该卖点 vs 前一个买点的实际涨跌），<b>非统计期望值</b>。hover tooltip 的「盈亏比Y」才是历史统计值。二者勿混。</p>
+      <p class="muted">卖点图钉上的「盈亏X%」标签 = sell 信号 reason 中「vs前买+X%」的<b>单次配对实现涨幅</b>（该卖点 vs 前一个买点的实际涨跌），<b>非统计期望值</b>。悬停提示的「盈亏比Y」才是历史统计值。二者勿混。</p>
 
       <p class="rule-subtitle">情绪背景标签</p>
       <p class="muted">趋势转弱参考点会附带当前市场情绪分，帮你判断「技术拐点 + 情绪背景」的强弱：</p>
@@ -3887,7 +3887,7 @@ function _kpiDetailModalEl() {
   modal = document.createElement("div");
   modal.id = "kpiDetailModal";
   modal.className = "rule-modal hidden";
-  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body kpi-detail-modal-body"><div class="rule-modal-header"><h3 class="kpi-detail-title">KPI 走势</h3><div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content kpi-detail-content"></div></div>';
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body kpi-detail-modal-body"><div class="rule-modal-header"><h3 class="kpi-detail-title">关键指标(KPI)走势</h3><div class="signal-chart-periods"><button class="lab-signal-period-btn active" data-period="3m">3月</button><button class="lab-signal-period-btn" data-period="6m">6月</button><button class="lab-signal-period-btn" data-period="1y">1年</button><button class="lab-signal-period-btn" data-period="3y">3年</button><button class="lab-signal-period-btn" data-period="5y">5年</button><button class="lab-signal-period-btn" data-period="all">全部</button></div><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content kpi-detail-content"></div></div>';
   modal.querySelectorAll('.lab-signal-period-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       modal.querySelectorAll('.lab-signal-period-btn').forEach(b => b.classList.remove('active'));
@@ -4792,7 +4792,7 @@ function _buildHealthSources(r, snap) {
     const dL = new Date(+ptd.slice(0, 4), +ptd.slice(4, 6) - 1, +ptd.slice(6, 8));
     const stoppedDays = Math.round((dL - dN) / 86400000);
     if (stoppedDays > 0 && stoppedDays <= 30) {
-      sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}`, hint: "北向资金成交总额(HKEX官方源)每日收盘后更新" });
+      sources.push({ name: "北向", cls: "t1-stale", text: `⚠ 停更·${mmdd(north.date)}`, hint: "北向资金成交总额(港交所(HKEX)官方源)每日收盘后更新" });
     }
   }
   // 成交额/涨停数（intraday 源 metrics，盘中实时）
@@ -4815,7 +4815,7 @@ function _buildHealthSources(r, snap) {
     { name: "商品", mid: "gold", hint: "黄金/原油等商品期货T+1,源端(新浪期货)次日盘后发布,15:30收盘后显示昨日属正常,次日盘后更新当日(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
     { name: "国债", mid: "cn10y", hint: "国债收益率T+1,中债/美债盘后次日发布,美债更滞后(常停T-3)(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
     { name: "龙虎榜", mid: "lhb_count", hint: "龙虎榜T+1,东财盘后次日发布,当日18点后更新当日(逢周末顺延到下一交易日)", def: "📅 当日18点后" },
-    { name: "期货持仓", mid: null, dateKey: "futures_date", hint: "CFFEX期货机构持仓T+1,次日盘后发布,次日20:00后更新当日(逢周末顺延到下一交易日)", def: "📅 次日20点后" },
+    { name: "期货持仓", mid: null, dateKey: "futures_date", hint: "中金所(CFFEX)期货机构持仓T+1,次日盘后发布,次日20:00后更新当日(逢周末顺延到下一交易日)", def: "📅 次日20点后" },
     { name: "ETF汪汪队", mid: null, dateKey: "etf_date", hint: "ETF份额T+1,上交所/深交所盘后次日发布,实测源端常晚于22:00,当日20:07采集通常只到T-1,次日20:07后补全当日(逢周末顺延到下一交易日)", def: "📅 次日22点+" },
     { name: "中国波指", mid: "a_qvix_300", hint: "中国波指(期权隐含波动率)T+1,源端盘后次日发布(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
     { name: "红利指数", iid: "csi_div", dateKey: "csi_div_date", hint: "红利指数T+1,中证指数公司盘后次日发布(逢周末顺延到下一交易日)", def: "📅 次日盘后" },
@@ -7098,7 +7098,7 @@ async function renderOverview() {
       }
     }
     const _kpiTips = {
-      a_fund_north: "北向资金=借沪深股通买A股的外资。现展示成交总额(买+卖合计,HKEX官方源),反映外资交投活跃度;原净买额2024-08港交所新规后停更。",
+      a_fund_north: "北向资金=借沪深股通买A股的外资。现展示成交总额(买+卖合计,港交所(HKEX)官方源),反映外资交投活跃度;原净买额2024-08港交所新规后停更。",
       a_fund_margin: "沪市融资余额=借钱买A股的杠杆资金。增加=杠杆做多情绪升。T+1。",
       a_fund_main: "主力净流入=大单资金净买入。正值=主力流入做多。",
       a_amount: "沪深京A股成交额。放量=交投活跃,缩量=清淡。",
@@ -7914,7 +7914,7 @@ async function renderNationalTeam(container = content) {
   const banner = document.createElement("div");
   banner.className = "nt-banner";
   banner.innerHTML =
-    `<h3>🐶 汪汪队 - 宽基 ETF 资金动向 <span class="term-tip" data-tip="宽基ETF份额变动跟踪;观察份额增减与成交放量。追踪12只宽基ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动+成交额放量。份额异动z-score>2且放量1.5倍以上=份额扩张(红)，反之为份额收缩(绿)。注意：这是份额变动统计，无法确认具体资金来源，份额变动可能来自任何机构/大户申赎。">❓</span></h3>` +
+    `<h3>🐶 汪汪队 - 宽基 ETF 资金动向 <span class="term-tip" data-tip="宽基ETF份额变动跟踪;观察份额增减与成交放量。追踪12只宽基ETF(上证50/沪深300/中证500/1000/创业板/科创50)的份额变动+成交额放量。份额异动标准分(z-score)>2且放量1.5倍以上=份额扩张(红)，反之为份额收缩(绿)。注意：这是份额变动统计，无法确认具体资金来源，份额变动可能来自任何机构/大户申赎。">❓</span></h3>` +
     `<div class="nt-banner-body">追踪 12 只宽基 ETF 的<span style="color:var(--primary)">份额变动+成交额放量</span>，观察份额增减与成交放量。<b>口径声明</b>：本指标为份额变动代理统计，非真实资金席位数据，无法精确区分汇金/证金/社保/险资/公募等来源。份额变动可能来自任何机构/大户申赎，不等于特定机构操作。当季机构占比&gt;85% 时置信度×1.5（机构主导品种）。</div>`;
   container.appendChild(banner);
 
@@ -8423,7 +8423,7 @@ function renderNationalTeamOverview(container, data, qData, hData, rawData, snap
     var recentSec = document.createElement("section");
     recentSec.className = "chart-card nt-recent-signals-card";
     recentSec.innerHTML =
-      '<h3>📅 近期汪汪队信号（按日期） <span class="term-tip" data-tip="近' + recentDaily.length + '个有信号日的汪汪队信号，按日期降序（今日置顶高亮）。每行=日期+共振🐾+chips（进/出/量 各一个chip，显示当日该类型只数+净流入/净流出/放量倍数）。chip hover 看当日该类型ETF明细，点击弹当日全部信号modal。共振=进/出≥2只或量≥3只宽基同日同步异动。">❓</span></h3>' +
+      '<h3>📅 近期汪汪队信号（按日期） <span class="term-tip" data-tip="近' + recentDaily.length + '个有信号日的汪汪队信号，按日期降序（今日置顶高亮）。每行=日期+共振🐾+标签（进/出/量 各一个标签，显示当日该类型只数+净流入/净流出/放量倍数）。悬停标签看当日该类型ETF明细，点击弹当日全部信号弹窗。共振=进/出≥2只或量≥3只宽基同日同步异动。">❓</span></h3>' +
       '<div class="nt-recent-summary"><div class="nt-recent-stats">近' + recentDaily.length + '日 共<b>' + rcTotal + '</b>信号 · ' +
         '<span class="nt-c-surge">进<b>' + rcSurge + '</b></span> ' +
         '<span class="nt-c-outflow">出<b>' + rcOutflow + '</b></span> ' +
@@ -8807,7 +8807,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
         scatterByType[s.type].push([s.date, +s.intensity.toFixed(2)]);
       }
     });
-    const intTitle = `${cur.code} ${cur.name} 信号强度分布（z-score）` +
+    const intTitle = `${cur.code} ${cur.name} 信号强度分布（标准分(z-score)）` +
       termTip("每条信号的z强度散点，z>=5极端>=3显著>=2轻度，越高越异常");
     const c5 = mkCard(intTitle, 260, null, grid);
     c5.setOption(withTheme({
@@ -8874,7 +8874,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
     for (var i = 0; i < hData.etfs.length; i++) {
       if (hData.etfs[i].code === state.ntEtf) { curEtf = hData.etfs[i]; break; }
     }
-    var v2Html = '<h3>📊 汇金/证金具名持有人 <span class="term-tip" data-tip="数据来自巨潮资讯网(cninfo)年报/半年报PDF的§9.2期末上市基金前十名持有人表格,用pdfplumber解析。持有人类型按名称关键词识别:含中央汇金=汇金,含中国证券金融=证金,含全国社保基金=社保。仅深市5只ETF有cninfo orgId,沪市7只待补。">❓</span></h3>';
+    var v2Html = '<h3>📊 汇金/证金具名持有人 <span class="term-tip" data-tip="数据来自巨潮资讯网(cninfo)年报/半年报PDF的§9.2期末上市基金前十名持有人表格,用pdfplumber(PDF解析库)解析。持有人类型按名称关键词识别:含中央汇金=汇金,含中国证券金融=证金,含全国社保基金=社保。仅深市5只ETF有cninfo机构ID(orgId),沪市7只待补。">❓</span></h3>';
     v2Html += '<div class="nt-banner-body">';
     if (curEtf && curEtf.has_data && curEtf.reports && curEtf.reports.length) {
       var latestRep = curEtf.reports[0];
@@ -8908,7 +8908,7 @@ function renderNationalTeamDetail(container, data, qData, hData, opts) {
         v2Html += '</tbody></table></details>';
       }
     } else {
-      v2Html += '<b>' + (curEtf ? curEtf.name : state.ntEtf) + ' 暂无具名数据</b>：' + (curEtf ? curEtf.note || 'cninfo未收录该ETF的orgId' : '未找到') + '。<br/>';
+      v2Html += '<b>' + (curEtf ? curEtf.name : state.ntEtf) + ' 暂无具名数据</b>：' + (curEtf ? curEtf.note || 'cninfo未收录该ETF的机构ID(orgId)' : '未找到') + '。<br/>';
       var hasData = hData.etfs.filter(function (e) { return e.has_data; });
       if (hasData.length) {
         v2Html += '其他有具名数据的ETF：';
@@ -8960,7 +8960,7 @@ async function renderAStock(container = content) {
     "解禁/IPO/可转债": ["unlock_amount", "unlock_count", "ipo_count", "ipo_amount", "cov_count", "cov_premium_median"],
   };
   const groupHints = {
-    "资金面": "注：北向资金原「净买额」自 2024-08 港交所新规后停更，现改用 HKEX 官方「成交总额」（沪股通+深股通买+卖合计）替代，反映外资交投活跃度而非净流入方向。每日收盘后更新。",
+    "资金面": "注：北向资金原「净买额」自 2024-08 港交所新规后停更，现改用 港交所(HKEX) 官方「成交总额」（沪股通+深股通买+卖合计）替代，反映外资交投活跃度而非净流入方向。每日收盘后更新。",
     "龙虎榜": "注：龙虎榜为T+1数据，东财盘后18点后更新当日；机构净额=上榜个股机构买入-卖出。",
     "解禁/IPO/可转债": "注：解禁/IPO/可转债为低频事件型数据，按事件日更新，窗口内多数日期无新增。",
   };
@@ -9359,7 +9359,7 @@ function appendComponentsBlock(data, tipText, container = content) {
     return `<span class="comp-item"><span class="comp-k">${name}</span><span class="comp-v">${_fmtComp(k, comp[k])}</span><span class="comp-w" data-tip="${wt === "等权" ? "等权平均" : "固定权重(缺项按可用重归一化)"}">${wt}</span></span>`;
   }).join("");
   const weightNote = hasFixedWeights
-    ? '<div class="comp-weight-note">权重为名义值；当日缺项时按可用分项重归一化。北向资金现用成交总额(HKEX官方源)每日更新,原净买额2024-08停更保留历史权重。</div>'
+    ? '<div class="comp-weight-note">权重为名义值；当日缺项时按可用分项重归一化。北向资金现用成交总额(港交所(HKEX)官方源)每日更新,原净买额2024-08停更保留历史权重。</div>'
     : '<div class="comp-weight-note">各分项等权平均。</div>';
   const div = document.createElement("div");
   div.className = "comp-block";
@@ -12092,7 +12092,7 @@ function renderFuturesSection(data, snap, container) {
       html += '</tr>';
     }
     // 当期方向+实际涨跌行：net_direction(红多绿空) + actual_return(涨跌)
-    html += `<tr><td class="sym-name"><span class="term-tip" data-tip="机构最新持仓方向(多/空)及对应指数实际涨跌幅。多+涨/空+跌=赌对方向，反之赌错。actual_return待收盘次日更新">当期方向❓</span></td>`;
+    html += `<tr><td class="sym-name"><span class="term-tip" data-tip="机构最新持仓方向(多/空)及对应指数实际涨跌幅。多+涨/空+跌=赌对方向，反之赌错。实际涨跌幅(actual_return)待收盘次日更新">当期方向❓</span></td>`;
     for (const role of roles) {
       const acc = data.accuracy[role] || {};
       let dir = acc.net_direction;
@@ -12274,7 +12274,7 @@ function renderFuturesSection(data, snap, container) {
   {
     const div = document.createElement("div");
     div.className = "chart-card futures-table-card";
-    div.innerHTML = '<h3>说明</h3><div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。折线图为净多空手数（正=净多，负=净空），hover 可查看比例。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
+    div.innerHTML = '<h3>说明</h3><div class="term-plain">机构=中金所前20会员汇总。中信/国君为单独席位。折线图为净多空手数（正=净多，负=净空），悬停可查看比例。历史准确率基于次工作日涨跌方向统计，不构成未来预测。</div>';
     fgGrid.appendChild(div);
   }
 }
@@ -14597,7 +14597,7 @@ function _tradeSimCardsHTML(s, initCap, etfCode) {
     '<div class="sim-card"><span class="k">最大持仓</span><span class="v">' + _tradeSimFmtNum(s.max_holding) + ' 元（' + s.max_holding_pct + '%）<div class="sub">' + s.max_holding_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k">总收益</span><span class="v" style="color:' + _tradeSimColorPct(s.total_return) + '">' + _tradeSimFmtNum(s.total_return) + ' 元（' + (s.total_return_pct >= 0 ? '+' : '') + s.total_return_pct.toFixed(2) + '%）</span></div>' +
     '<div class="sim-card"><span class="k" title="首笔买入至今的复合年化收益。正值=平均每年赚这么多,可与银行理财/通胀对比。">年化收益率</span><span class="v" style="color:' + _tradeSimColorPct(s.annualized) + '">' + (s.annualized >= 0 ? '+' : '') + s.annualized.toFixed(1) + '%<div class="sub">首笔买入至今 ' + s.years + ' 年</div></span></div>' +
-    '<div class="sim-card"><span class="k" title="年化夏普(无风险0)=equity_curve 相邻点收益率 mean/std × sqrt(252)。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey 2014)。颜色分级: >3红(可疑过拟合)/2-3橙(中等警示)/1-2默认(正常)/<1灰(弱)">夏普比率</span><span class="v" style="color:' + _tradeSimSharpeColor(s.sharpe) + '">' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + _tradeSimSharpeSuffix(s.sharpe) + '<div class="sub">事件稀疏 sqrt(252) 年化 · 分级&gt;3红/2-3橙/&lt;1灰</div></span></div>' +
+    '<div class="sim-card"><span class="k" title="年化夏普(无风险0)=净值曲线相邻点收益率 mean/std × √252。事件稀疏序列近似年化值(与 lab 同口径),值偏高。>3 可疑过拟合(Bailey(2014)学术红线)。颜色分级: >3红(可疑过拟合)/2-3橙(中等警示)/1-2默认(正常)/<1灰(弱)">夏普比率</span><span class="v" style="color:' + _tradeSimSharpeColor(s.sharpe) + '">' + (typeof s.sharpe === 'number' ? s.sharpe.toFixed(2) : '-') + _tradeSimSharpeSuffix(s.sharpe) + '<div class="sub">事件稀疏 √252 年化 · 分级&gt;3红/2-3橙/&lt;1灰</div></span></div>' +
     '<div class="sim-card"><span class="k">总资产峰值</span><span class="v">' + _tradeSimFmtNum(s.total_assets_peak) + ' 元<div class="sub">' + s.total_assets_peak_date + '</div></span></div>' +
     '<div class="sim-card"><span class="k" title="历史从最高点到最低点的最大跌幅。衡量最坏情况下的亏损幅度。">最大回撤</span><span class="v" style="color:' + _tradeSimColorPct(-s.max_drawdown) + '">' + ddStr + '<div class="sub">' + ddDate + '</div></span></div>' +
     '<div class="sim-card"><span class="k">回撤中位数 / 回撤去极均值</span><span class="v" style="color:' + _tradeSimColorPct(-s.median_drawdown) + '">' + s.median_drawdown.toFixed(1) + '% / ' + s.trimmed_mean_drawdown.toFixed(1) + '%</span></div>' +
@@ -15709,7 +15709,7 @@ function updateRulesContentHtml() {
     '<div class="rule-section">' +
       '<h4>📊 各数据源实时时效</h4>' +
       '<div id="ur-freshness" class="ur-freshness"><p class="ur-note">打开弹窗时加载…</p></div>' +
-      '<p class="ur-note">绿=实时/收盘最新，灰=T+1正常待更新，黄=滞后，红=异常(>15天)。hover 单项查看源说明。</p>' +
+      '<p class="ur-note">绿=实时/收盘最新，灰=T+1正常待更新，黄=滞后，红=异常(>15天)。悬停单项查看源说明。</p>' +
     '</div>' +
     '<div class="rule-section">' +
       '<h4>📅 更新时间表</h4>' +
@@ -15720,7 +15720,7 @@ function updateRulesContentHtml() {
         '<tr><td>17:50</td><td>收盘全量</td><td>baostock等T+1源出数据后全量采集</td></tr>' +
         '<tr><td>18:30 + 19:30(兜底)</td><td>龙虎榜单采</td><td>东财18:00发布后单采当日龙虎榜；19:30二次槽应对网络抖动重采</td></tr>' +
         '<tr><td>20:00</td><td>晚间兜底</td><td>补采晚出的申万/港股等数据</td></tr>' +
-        '<tr><td>20:05 + 21:00(兜底)</td><td>期货机构持仓单采</td><td>CFFEX股指期货前20名会员持仓~20:00出后单采；21:00二次槽应对异常重采</td></tr>' +
+        '<tr><td>20:05 + 21:00(兜底)</td><td>期货机构持仓单采</td><td>中金所(CFFEX)股指期货前20名会员持仓~20:00出后单采；21:00二次槽应对异常重采</td></tr>' +
         '<tr><td>20:07 + 21:30(兜底)</td><td>ETF汪汪队份额单采</td><td>SSE/SZSE ETF份额T+1发布单采；21:30二次槽当日兜底重采</td></tr>' +
         '<tr><td>23:00</td><td>两融单采</td><td>沪市融资余额源盘后发布较晚(实测22:10仍未出),当晚23:00单采当日(采到则当日上线),配合凌晨兜底补齐</td></tr>' +
         '<tr><td>02:00</td><td>凌晨兜底</td><td>补采遗漏确保次日数据齐全</td></tr>' +
@@ -15730,11 +15730,11 @@ function updateRulesContentHtml() {
       '<h4>⏱️ 各数据时效</h4>' +
       '<ul class="ur-list">' +
         '<li>📈 <b>A股指数涨跌幅/热点板块/一句话总结</b>：盘中前端动态拉取腾讯分时数据（约1分钟刷新）；30分钟服务器快照仅用于收盘归档与情绪分计算</li>' +
-        '<li>🇭🇰 <b>港股指数（恒生/恒生科技/国企）</b>：盘中实时快照（9:30-16:00），16:35 补完整收盘 OHLC</li>' +
+        '<li>🇭🇰 <b>港股指数（恒生/恒生科技/国企）</b>：盘中实时快照（9:30-16:00），16:35 补完整收盘 OHLC(开高低收)</li>' +
         '<li>🇭🇰 <b>港股板块指数</b>：腾讯备源兜底（cesg10/hsmogi/hsmbi/hsmpi/hscci 5个有腾讯兜底）；cshklre/cshklc/cshkdiv 3个仅新浪无备源</li>' +
         '<li>🇺🇸 <b>美股指数</b>：北京时差晚 21:30 开盘，A 股交易日看美股最新是 T-1 或 T-2（跨周末），属正常</li>' +
         '<li>🇺🇸 <b>美股期货 ES/NQ（新浪 hf_ES/hf_NQ）</b>：盘中亚盘时段实时，预估美股当晚开盘方向（ES↔标普500 / NQ↔纳指100），不替代美股收盘价</li>' +
-        '<li>📊 <b>指数历史走势 OHLC</b>：T+1（申万/baostock 收盘后次日补全）</li>' +
+        '<li>📊 <b>指数历史走势 OHLC(开高低收)</b>：T+1（申万/baostock 收盘后次日补全）</li>' +
         '<li>😐 <b>恐贪指数 / per-index 情绪分</b>：快照反哺后当日可用，否则停 T-1</li>' +
         '<li>📋 <b>A股综合情绪分</b>：当日（mootdx 实时算）</li>' +
       '</ul>' +
@@ -15745,7 +15745,7 @@ function updateRulesContentHtml() {
         '<li>📅 <b>T+1·MM-DD（灰）</b>：正常。数据源盘后T+1公布，公开平台（行情软件）也才到这个日期，下一交易日才更新（逢周末/节假日顺延）</li>' +
         '<li>⏰ <b>盘中·HH:MM（绿）/ 午休（黄）</b>：实时。A股/港股指数盘中动态拉取，约1分钟刷新</li>' +
         '<li>📍 <b>收盘·MM-DD（主题色）</b>：收盘后归档，数据正常时显示；若滞后则切换为⚠/🚨</li>' +
-        '<li>⚠ <b>滞后·MM-DD（黄）</b>：异常。该数据应T+1更新但已滞后（hover 可见天数），公开平台已有更新但我们没采到</li>' +
+        '<li>⚠ <b>滞后·MM-DD（黄）</b>：异常。该数据应T+1更新但已滞后（悬停可见天数），公开平台已有更新但我们没采到</li>' +
         '<li>🚨 <b>异常·MM-DD（红）</b>：严重滞后（>15天），请反馈</li>' +
         '<li>本弹窗顶部"📊 各数据源实时时效"区块汇总各数据源最新状态，可一眼区分正常T+1 vs 异常滞后</li>' +
       '</ul>' +
@@ -15764,7 +15764,7 @@ function updateRulesContentHtml() {
       '<ul class="ur-list">' +
         '<li>实时快照源（腾讯/同花顺）秒级出当日 -> 这些数据是当天的</li>' +
         '<li>T+1 源（申万/baostock）收盘后次日才发布当日 -> 历史走势/部分情绪分可能停在 T-1</li>' +
-        '<li>港股 16:00 收盘（比 A 股晚 1 小时），盘中快照采实时价，16:35 后补完整收盘 OHLC</li>' +
+        '<li>港股 16:00 收盘（比 A 股晚 1 小时），盘中快照采实时价，16:35 后补完整收盘 OHLC(开高低收)</li>' +
         '<li>美股北京时差晚 21:30 才开盘，A 股交易日看美股最新通常是 T-1 或 T-2（跨周末更久），属正常</li>' +
         '<li>收盘后约 2 小时（17:50 update_all）T+1 源出数据后会补全</li>' +
         '<li>晚 20:00 再兜底补一次，凌晨 02:00 也会兜底一次</li>' +
