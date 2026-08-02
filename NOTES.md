@@ -6698,7 +6698,32 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **commit 链**：87931c97（ui106）-> 17f7f7cc（ui107），push feat + push feat:main fast-forward，未 force push main
 
-**遗留**：用户给完整名词对照表要求全局检查修正（主买=主关注/辅买=辅关注/追买=追关注/备买=备关注/追止损|卖=追风控|警示/卖点=风险提醒），§0 已定位 i18n.js 3处错误映射（L31 buy_long"关注点"应"主关注"/L32 sell_long"风险点"应"风险提醒"/L44 detail_sell_stop_loss_name"风控|警示"缺"追"字），abfdcb77a507ee155 调研全局清单中，完成后派实施 agent（AZ131）
+**遗留**：用户给完整名词对照表要求全局检查修正（主买=主关注/辅买=辅关注/追买=追关注/备买=备关注/追止损|卖=追风控|警示/卖点=风险提醒），§0 已定位 i18n.js 3处错误映射（L31 buy_long"关注点"应"主关注"/L32 sell_long"风险点"应"风险提醒"/L44 detail_sell_stop_loss_name"风控|警示"缺"追"字），abfdcb77a507ee155 调研全局清单中，完成后派实施 agent（AZ131）-> **AZ131 已闭环**
+
+
+
+### AZ131 - 2026-08-02 全站名词修正(主关注/风险提醒/追风控|警示)+策略说明格式统一（ui108，已上线）
+
+**背景**：用户给完整名词对照表要求全局检查修正：主买=主关注/辅买=辅关注/追买=追关注/备买=备关注/追止损|卖=追风控|警示/卖点=风险提醒/ATR×3.5风控不变。用户报核心 bug"全站的主关注在统计基准下文案错误变成了关注点"。§0 已定位根因：i18n.js DICTS.compliance L31 buy_long="关注点"（应是"主关注"），L32 sell_long="风险点"（应"风险提醒"），L44 detail_sell_stop_loss_name="风控|警示"（缺"追"字）。abfdcb77a507ee155 调研全局清单（jsonl 清理但结论在进度文件），派 a5dccb2d852954bc4 实施。
+
+**修复**（commit f5fd4b3e，ui108）：
+- **i18n.js 3 处错误映射**：L31 buy_long "关注点"->"主关注"（统计基准根因）/ L32 sell_long "风险点"->"风险提醒" / L44 detail_sell_stop_loss_name "风控|警示"->"追风控|警示"（补追字）
+- **_TS_COMPLIANCE_MAP 扩展**：追止损卖->追风控|警示 / 卖点->风险提醒 / 新增买点->关注点
+- **5 区域显示词核查**：首页技术参考/指数chip/模拟回测/统计基准/策略说明，app.min.js 含主关注7/风险提醒8/追风控|警示3，原词清零（off 切回的原版 DICTS.original 保留）
+- **策略说明格式统一**：ruleContentHtml 各信号统计基准块 statsHint 同模板统一
+- **R2 trade_sim 6 文件重生**：追风控|警示 19处/文件
+- **sw.js** ui107->ui108
+
+**§0 验收**（2026-08-02 23:10）：
+- i18n.js L31 buy_long="主关注" / L32 sell_long="风险提醒" / L44 detail_sell_stop_loss_name="追风控|警示 · ATR×3.5风控" ✓
+- DICTS.original L118/119/129 保留原词（买点/卖点/追止损|卖）用于 off 切回 ✓
+- sw.js 本地+线上 ss.fx8.store 均 ui108 ✓
+- 线上 about.html 原词 grep = 0 ✓
+- commit f5fd4b3e 在 origin/main ✓
+
+**commit 链**：17f7f7cc（ui107）-> f5fd4b3e（ui108），push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：阶段1评分引擎调研完成（a795b342bbdb4cf7d，方案 /tmp/stage1-scoring-engine-proposal.md 47.6KB），用户定4决策（全市场评分/半凯利独立+市场乘数/补采fund_fee_detail/每日头部2000+周日全量），待派实施（AZ132）
 
 
 
