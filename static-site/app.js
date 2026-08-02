@@ -9664,7 +9664,7 @@ async function renderPublicFund(container) {
       <div><b>核心指标（4 信号灯卡片 + 4 衍生）</b>：</div>
       <ul>
         <li><b>平均股票仓位</b>：基金加权平均股票占净比（净资产规模加权，lg 口径=股票型+混合型）。<b>&gt;88%=88 魔咒见顶警示</b>（加仓空间有限）；<b>&lt;80%=抄底机会</b>（仓位低有加仓空间）；80-88%=中位。</li>
-        <li><b>抱团度 HHI（Herfindahl）</b>：重仓股集中度指数。<b>&gt;0.10=高度抱团</b>（瓦解风险积累）；0.05-0.10=中度抱团；<b>&lt;0.05=分散健康</b>。急升=风险积累，急降=瓦解信号。</li>
+        <li><b>抱团度 HHI（赫芬达尔指数）</b>：重仓股集中度指数。<b>&gt;0.10=高度抱团</b>（瓦解风险积累）；0.05-0.10=中度抱团；<b>&lt;0.05=分散健康</b>。急升=风险积累，急降=瓦解信号。</li>
         <li><b>重叠度（Top30 均覆盖）</b>：Top30 重仓股平均被多少家基金持有（家数）。<b>&gt;1500=高度重叠</b>；800-1500=中度重叠；<b>&lt;800=重叠度低</b>。重叠度高=机构共识强但也意味瓦解时共振下跌。</li>
         <li><b>净申赎率</b>：基金份额变化 / 总规模（%）。<b>&gt;0.5%=净申购（散户乐观，反向看空）</b>；<b>&lt;-0.5%=净赎回（散户悲观，反向看多）</b>；-0.5%~0.5%=申赎平衡。</li>
         <li><b>行业集中度</b>（衍生）：Top3 行业占比之和，&gt;60%=高度集中。</li>
@@ -9770,7 +9770,7 @@ async function renderPublicFund(container) {
   if (avgPos && avgPos.detail && avgPos.detail.note) {
     const noteDiv = document.createElement("div");
     noteDiv.className = "pf-caliber-note";
-    noteDiv.innerHTML = `📊 口径: ${avgPos.detail.note}（当前 lg=${avgPos.detail.lg_position}%，cninfo=${avgPos.detail.cninfo_position}%）`;
+    noteDiv.innerHTML = `📊 口径: ${avgPos.detail.note}（当前 lg 源=${avgPos.detail.lg_position}%，cninfo 源=${avgPos.detail.cninfo_position}%）`;
     container.appendChild(noteDiv);
   }
 
@@ -9779,9 +9779,9 @@ async function renderPublicFund(container) {
   chartCard.className = "chart-card pf-main-chart-card";
   const _estCur = estimate && estimate.current ? estimate.current : null;
   const _estTitleSuffix = _estCur
-    ? `<span style="font-size:12px;color:#ff9800;margin-left:8px;font-weight:600">今日预估 ${_estCur.position_estimate}%（日频 OLS，vs lg ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%）</span>`
+    ? `<span style="font-size:12px;color:#ff9800;margin-left:8px;font-weight:600">今日预估 ${_estCur.position_estimate}%（日频线性回归，较 lg 源 ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%）</span>`
     : "";
-  chartCard.innerHTML = `<div class="chart-title">📈 平均股票仓位 vs 沪深300（lg=股票型+混合型，88 魔咒专用口径）${_estTitleSuffix}</div><div class="chart" style="height:380px"></div>`;
+  chartCard.innerHTML = `<div class="chart-title">📈 平均股票仓位与沪深300（lg 源=股票型+混合型，88 魔咒专用口径）${_estTitleSuffix}</div><div class="chart" style="height:380px"></div>`;
   container.appendChild(chartCard);
 
   const posHist = (summary.position_history || []).filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
@@ -9868,8 +9868,8 @@ async function renderPublicFund(container) {
         });
         // 末端预估点: 追加偏差说明(vs lg + confidence), 和 pin 共用同一浮窗
         if (_estCur && dt === _estCurDate) {
-          html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);color:#ff9800;font-weight:600;font-size:11px">📌 今日预估 ${_estCur.position_estimate}%（日频 OLS，confidence=${_estCur.confidence || "-"}）</div>`;
-          html += `<div style="font-size:11px;color:#bbb;margin-top:2px">vs lg 周频 ${_estCur.lg_latest_position}%（${_estCur.lg_latest_date}）· 偏差 ${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%</div>`;
+          html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);color:#ff9800;font-weight:600;font-size:11px">📌 今日预估 ${_estCur.position_estimate}%（日频线性回归，可信度：${_estCur.confidence || "-"}）</div>`;
+          html += `<div style="font-size:11px;color:#bbb;margin-top:2px">较 lg 周频 ${_estCur.lg_latest_position}%（${_estCur.lg_latest_date}）· 偏差 ${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%</div>`;
         }
         // 命中 pin 日期: 追加完整说明(类型+仓位+沪深300+后30/60/90天涨跌), 和普通点共用同一浮窗
         const pin = _pinDateMap.get(dt);
@@ -9921,7 +9921,7 @@ async function renderPublicFund(container) {
             itemStyle: { color: "#ff9800" },
             label: {
               color: "#fff", fontSize: 11,
-              formatter: `{a|今日预估 ${_estCur.position_estimate}%}\n{b|vs lg ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%}`,
+              formatter: `{a|今日预估 ${_estCur.position_estimate}%}\n{b|较 lg 源 ${_estCur.lg_latest_position}% 偏差${_estCur.deviation_from_lg > 0 ? "+" : ""}${_estCur.deviation_from_lg}%}`,
               rich: {
                 a: { fontSize: 11, color: "#fff", fontWeight: 700, lineHeight: 14 },
                 b: { fontSize: 9, color: "#fff", lineHeight: 12 },
@@ -9977,7 +9977,7 @@ async function renderPublicFund(container) {
           <div class="pf-bt-row"><span>沪深300收盘</span><b>${_cur.close != null ? _cur.close.toFixed(2) : "-"}</b></div>
         </div>
       </div>
-      <div class="pf-bt-note">📌 图表红 pin = 历史仓位 Top5 高点(88 魔咒触发点) · 绿 pin = Top5 低点(80 抄底信号点) · 胜率=触发后 30 天沪深300下跌(88)/上涨(80)占比</div>
+      <div class="pf-bt-note">📌 图表红图钉 = 历史仓位 Top5 高点(88 魔咒触发点) · 绿图钉 = Top5 低点(80 抄底信号点) · 胜率=触发后 30 天沪深300下跌(88)/上涨(80)占比</div>
       <div class="pf-bt-note pf-bt-howto">💡 <b>怎么看</b>：<b style="color:#e6492e">88魔咒区(>88%)</b>传统看跌但胜率仅${_pctFmt(_s88.win_rate)}接近随机<b style="color:#e6492e">不可靠</b>；<b style="color:#2e8b57">抄底区(<80%)</b>看涨胜率${_pctFmt(_s80.win_rate)}+90天平均${_retFmt(_s80.avg_90d)}<b style="color:#2e8b57">更可靠</b>；中性区(80-88%)无明确信号。当前${_cur.position != null ? _cur.position.toFixed(2) + "%" : "-"}=${_cur.zone || "-"}·历史分位${_pctFmt(_cur.percentile)}</div>
     `;
     container.appendChild(btCard);
@@ -10061,7 +10061,7 @@ async function renderPublicFund(container) {
       _nfCard.className = "chart-card pf-nf-card";
       const _d0 = _pfFmtDate(_alignData[0].date).slice(0, 7);
       const _dN = _pfFmtDate(_alignData[_alignData.length - 1].date).slice(0, 7);
-      _nfCard.innerHTML = '<div class="chart-title">🎯 N功能: 多信号共振仪表盘（4信号季频对齐 · '
+      _nfCard.innerHTML = '<div class="chart-title">🎯 多信号共振仪表盘（4信号季频对齐 · '
         + _alignData.length + ' 期 · ' + _d0 + ' ~ ' + _dN + '）</div>'
         + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">'
         + '📊 4信号叠加: <span style="color:#e6492e">88魔咒(仓位%)</span> + <span style="color:#ff9800">净申赎(亿份)</span> + <span style="color:#9c27b0">抱团度HHI×1k</span> + <span style="color:#2196f3">规模(亿)</span>'
@@ -10140,7 +10140,7 @@ async function renderPublicFund(container) {
             + '</div>';
         }
         _resHtml += '</div>';
-        _resHtml += '<div class="pf-bt-note">📌 看顶=88魔咒>88%+净申购(散户乐观反向看空)+抱团>中位数('+ _herfMedian.toFixed(4) +')+规模接近最高; 看底=88魔咒<80%+净赎回(散户悲观反向看多)+抱团<中位数 · 后续表现从沪深300日频close计算(30/60/90天最近收盘价涨跌%)</div>';
+        _resHtml += '<div class="pf-bt-note">📌 看顶=88魔咒>88%+净申购(散户乐观反向看空)+抱团>中位数('+ _herfMedian.toFixed(4) +')+规模接近最高; 看底=88魔咒<80%+净赎回(散户悲观反向看多)+抱团<中位数 · 后续表现从沪深300日频收盘价计算(30/60/90天最近收盘价涨跌%)</div>';
         _resDiv.innerHTML = _resHtml;
       } else {
         _resDiv.innerHTML = '<div class="pf-bt-note">📌 当前' + _alignData.length + '期数据无共振时点(4信号未同时触发看顶/看底条件) · 抱团度HHI中位数=' + _herfMedian.toFixed(4) + ' · 88魔咒平均=' + (_alignData.reduce((s, d) => s + d.avgPosition, 0) / _alignData.length).toFixed(2) + '%</div>';
@@ -10175,7 +10175,7 @@ async function renderPublicFund(container) {
       <td class="pf-num" style="color:${chgColor};font-weight:600" title="${tip}">${chgTxt}</td>
     </tr>`;
   });
-  top30Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top30（持有基金数 / 持仓市值万元 / 调仓${holdingsPrevDate ? " vs " + holdingsPrevDate : ""}）</div>
+  top30Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top30（持有基金数 / 持仓市值万元 / 调仓${holdingsPrevDate ? " 较 " + holdingsPrevDate : ""}）</div>
     <div class="pf-table-wrap"><table class="pf-table">
       <thead><tr><th>#</th><th>代码</th><th>名称</th><th>行业</th><th>基金数</th><th>市值(万)</th><th>调仓</th></tr></thead>
       <tbody>${top30Rows || '<tr><td colspan="7">暂无数据</td></tr>'}</tbody>
@@ -10284,9 +10284,9 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-ind-class="sw" type="button" title="申万一级反查口径(基于重仓股反查, 揭示真实风格暴露, 覆盖约42%仓位仅最新一期)">申万一级</button>'
     + '<span id="pfIndHelpBtn" style="margin-left:6px;cursor:help;color:var(--text-3);font-size:14px;line-height:1;user-select:none" title="行业配置口径说明">❓</span>'
     + '</div>'
-    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方 TreeMap 看全景集中度(点按钮切换面积维度)；柱状图/TreeMap 切换独立, label 跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
-    + '<div class="chart-subtitle pf-ind-sub-default" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；TreeMap 点制造业矩形弹子行业列表</div>'
-    + '<div class="chart-subtitle pf-ind-sub-sw" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5;display:none">🔬 <b>申万一级反查口径</b>: 基于基金top10重仓股反查申万一级(非基金直接披露), 揭示真实风格暴露 vs 官方证监会粗门类; <b>覆盖约42%仓位</b>(重仓股部分), 仅最新一期无历史时序; 31个细分行业(电子/通信/医药生物…), 申万一级已是细分口径无下钻</div>'
+    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">Top15 + 其他聚合(柱状图)；下方矩形树图看全景集中度(点按钮切换面积维度)；柱状图/矩形树图切换独立, 标签跟随各自选中维度: 权重和数值 / 平均权重% / 持仓市值亿</div>'
+    + '<div class="chart-subtitle pf-ind-sub-default" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">🔬 点击<b>制造业</b>柱展开申万一级子行业(电子/通信/电力设备…, 基于重仓股拆分非直接披露)；矩形树图点制造业矩形弹子行业列表</div>'
+    + '<div class="chart-subtitle pf-ind-sub-sw" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5;display:none">🔬 <b>申万一级反查口径</b>: 基于基金前10大重仓股反查申万一级(非基金直接披露), 揭示真实风格暴露较官方证监会粗门类; <b>覆盖约42%仓位</b>(重仓股部分), 仅最新一期无历史时序; 31个细分行业(电子/通信/医药生物…), 申万一级已是细分口径无下钻</div>'
     + '<div class="chart pf-ind-bar" style="height:360px"></div>'
     + '<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:8px">'
     + '<span>🎯 抱团集中度全景（矩形面积随选中维度变化）</span>'
@@ -10295,7 +10295,7 @@ async function renderPublicFund(container) {
     + '<button class="pf-ind-sort-btn" data-treemap-sort="value" type="button">持仓市值</button>'
     + '</div>'
     + '<div class="chart pf-ind-treemap" style="height:140px"></div>'
-    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:4px 0 0 0;line-height:1.5">💡 点击柱状图任一行业条 / TreeMap 任一矩形，弹窗显示该行业全部基金列表（按该行业配置权重降序，每页50只翻页，首次加载约 2MB）</div>';
+    + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:4px 0 0 0;line-height:1.5">💡 点击柱状图任一行业条 / 矩形树图任一矩形，弹窗显示该行业全部基金列表（按该行业配置权重降序，每页50只翻页，首次加载约 2MB）</div>';
   twoCol.appendChild(indCard);
 
   // 柱状图: Top15 + 其他聚合(长尾合并为单根"其他"柱), 支持 3 维度排序切换
@@ -10502,15 +10502,15 @@ async function renderPublicFund(container) {
       + '<div style="margin-bottom:14px"><b style="font-size:14px;color:#e6492e">📚 双口径来源</b></div>'
       + '<div style="margin-bottom:12px">公募基金行业配置数据是<b>两套分类标准混合</b>的：</div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>证监会门类(CSRC)</b>：A股基金按此披露，19大门类（制造业/金融业/信息传输软件和信息技术服务业/建筑业等）</div>'
-      + '<div style="margin-bottom:12px;padding-left:12px">• <b>GICS</b>：QDII/港股基金按此披露，11大类（能源/材料/工业/医疗保健/通信服务等）</div>'
+      + '<div style="margin-bottom:12px;padding-left:12px">• <b>全球行业分类标准(GICS)</b>：合格境内机构投资者(QDII)/港股基金按此披露，11大类（能源/材料/工业/医疗保健/通信服务等）</div>'
       + '<div style="margin-bottom:14px;color:var(--text-3)">合并后你会同时看到"制造业"(CSRC)和"通信服务"(GICS)。</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🔁 切换功能（标题旁"口径"按钮组）</b></div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>全部</b>：显示所有行业（默认，混合口径）</div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>证监会</b>：只看 CSRC 门类（A股基金口径：制造业/金融业/建筑业…）</div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>GICS</b>：只看 GICS 大类（QDII基金口径：能源/材料/工业/通信服务…）</div>'
-      + '<div style="margin-bottom:6px;padding-left:12px">• <b>申万一级</b>：基于基金 top10 重仓股<b>反查</b>申万一级（非基金直接披露，揭示真实风格暴露，详见下文）</div>'
+      + '<div style="margin-bottom:6px;padding-left:12px">• <b>申万一级</b>：基于基金前10大重仓股<b>反查</b>申万一级（非基金直接披露，揭示真实风格暴露，详见下文）</div>'
       + '<div style="margin-bottom:14px;color:var(--text-3)">注：信息技术/金融业/房地产业三行业在两套口径都有（合并自 CSRC+GICS 原始名），切换任一视图都显示。申万一级为独立数据源，切换时重渲染。</div>'
-      + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🏭 制造业占比大不是 bug</b></div>'
+      + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🏭 制造业占比大不是缺陷</b></div>'
       + '<div style="margin-bottom:14px">制造业平均权重≈58%，因为<b>证监会"制造业"门类极粗</b>，涵盖电子/通信/汽车/电力设备/医药生物/食品饮料等所有制造类子行业。GICS 把这些拆成了信息技术/工业/医疗保健/消费品等多个独立大类，所以 GICS 视图下没有"制造业"这一超大类。</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">⚠️ "通信" ≠ "通信服务"</b></div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>通信</b>：制造业的<b>子行业</b>（通信<b>设备</b>制造，如中兴/烽火），点击制造业柱展开可见</div>'
@@ -10519,12 +10519,12 @@ async function renderPublicFund(container) {
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🔬 制造业子行业展开</b></div>'
       + '<div style="margin-bottom:14px">点击柱状图 <b>制造业</b> 条（▶）展开 18 个申万一级子行业（电子/通信/电力设备…），基于重仓股拆分（非基金直接披露）；非制造业口径下此功能不可用。</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">🧬 申万一级反查口径（第四档"申万一级"按钮）</b></div>'
-      + '<div style="margin-bottom:6px"><b>数据来源</b>：基于基金 top10 重仓股（fund_portfolio_hold）反查申万一级行业（sw_components.json 5210 成分股），<b>非基金直接披露</b>。</div>'
-      + '<div style="margin-bottom:6px"><b>价值</b>：揭示基金<b>真实风格暴露</b>（vs 证监会口径的粗门类"制造业"涵盖18个子行业）。证监会口径下制造业≈58%是大类堆叠；申万一级拆出电子/通信/电力设备/医药生物等31个细分行业，能看到基金真正重仓哪个细分赛道，是<b>反查口径有信息差价值</b>。</div>'
-      + '<div style="margin-bottom:6px"><b>和制造业 breakdown 区别</b>：breakdown 只展开证监会"制造业"门类下18个子项（仍属证监会口径视图）；申万一级是<b>全市场31行业视角</b>（含银行/房地产/非银金融等非制造业），独立数据源。</div>'
+      + '<div style="margin-bottom:6px"><b>数据来源</b>：基于基金前10大重仓股（fund_portfolio_hold）反查申万一级行业（sw_components.json 5210 成分股），<b>非基金直接披露</b>。</div>'
+      + '<div style="margin-bottom:6px"><b>价值</b>：揭示基金<b>真实风格暴露</b>（较证监会口径的粗门类"制造业"涵盖18个子行业）。证监会口径下制造业≈58%是大类堆叠；申万一级拆出电子/通信/电力设备/医药生物等31个细分行业，能看到基金真正重仓哪个细分赛道，是<b>反查口径有信息差价值</b>。</div>'
+      + '<div style="margin-bottom:6px"><b>和制造业拆分的区别</b>：拆分只展开证监会"制造业"门类下18个子项（仍属证监会口径视图）；申万一级是<b>全市场31行业视角</b>（含银行/房地产/非银金融等非制造业），独立数据源。</div>'
       + '<div style="margin-bottom:6px"><b>3个硬限制（诚实标注）</b>：</div>'
       + '<div style="margin-bottom:4px;padding-left:12px">① <b>时序不可用</b>：fund_portfolio_hold 仅1期（最新季报），无历史对比，不能看轮动</div>'
-      + '<div style="margin-bottom:4px;padding-left:12px">② <b>覆盖率约42%</b>：top10重仓股平均占净值42%，仅反映重仓股部分行业暴露，非完整行业配置（vs 证监会口径含全仓位）</div>'
+      + '<div style="margin-bottom:4px;padding-left:12px">② <b>覆盖率约42%</b>：前10大重仓股平均占净值42%，仅反映重仓股部分行业暴露，非完整行业配置（较证监会口径含全仓位）</div>'
       + '<div style="margin-bottom:14px;padding-left:12px">③ <b>反查口径</b>：基于重仓股反查（非基金直接披露），未映射股票（港股等）归"未分类"</div>'
       + '<div style="margin-bottom:10px"><b style="font-size:14px;color:#e6492e">📊 数值口径</b></div>'
       + '<div style="margin-bottom:6px;padding-left:12px">• <b>权重和</b> = 全市场基金该行业权重%求和（抱团集中度）</div>'
@@ -10961,7 +10961,7 @@ async function renderPublicFund(container) {
     const _rotD0 = _pfFmtDate(_rotTs.series[0].date).slice(0, 7);
     const _rotDN = _pfFmtDate(_rotTs.series[_rotTs.series.length - 1].date).slice(0, 7);
     _rotCard.innerHTML = '<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px">'
-      + '<span>🏭 F功能: 行业轮动时序（' + _rotTs.period_count + '期季度 · ' + _rotTs.industries_count + '行业 · '
+      + '<span>🏭 行业轮动时序（' + _rotTs.period_count + '期季度 · ' + _rotTs.industries_count + '行业 · '
       + _rotD0 + ' ~ ' + _rotDN + '）</span>'
       + '<div class="pf-rot-range">'
       + '<button class="pf-rot-range-btn" data-rot-rng="3y" type="button">3年</button>'
@@ -10970,10 +10970,10 @@ async function renderPublicFund(container) {
       + '</div>'
       + '</div>'
       + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">'
-      + '堆叠面积图: 13行业平均权重% 跨基金(非SUM), 反映典型基金行业配置占比变迁; 制造业(CSRC超大类)占主导 ~58%, 金融/信息技术/通信服务/能源/材料为次主力'
+      + '堆叠面积图: 13行业平均权重% 跨基金(非求和), 反映典型基金行业配置占比变迁; 制造业(证监会超大类)占主导 ~58%, 金融/信息技术/通信服务/能源/材料为次主力'
       + '</div>'
       + '<div class="chart-subtitle" style="font-size:11px;color:var(--text-3);margin:0 0 4px 0;line-height:1.5">'
-      + '📊 口径: 季报披露 fund_portfolio_industry_allocation_em, 134原始行业名合并为13标准名(GICS+CSRC映射); 已过滤 fund_count&lt;50 脏数据期; 点击图例切换显示'
+      + '📊 口径: 季报披露 fund_portfolio_industry_allocation_em, 134原始行业名合并为13标准名(GICS+CSRC映射); 已过滤基金数&lt;50的脏数据期; 点击图例切换显示'
       + '</div>'
       + '<div class="chart pf-rot-chart" style="height:420px"></div>';
     container.appendChild(_rotCard);
@@ -11159,7 +11159,7 @@ async function renderPublicFund(container) {
   };
   const _tc = _top100Counts();
   top100AdjCard.innerHTML = `<div class="chart-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px">
-      <span>🔄 头部重仓股调仓 Top100（当期 ${_pfFmtDate(reportDate)} vs 上期 ${adjPrevDate}；注: 调仓指标仍按前20大重仓股口径计算；点「金额差/变化」旁按钮三态切换: 默认->正序↑->倒序↓->默认）</span>
+      <span>🔄 头部重仓股调仓 Top100（当期 ${_pfFmtDate(reportDate)} 较 上期 ${adjPrevDate}；注: 调仓指标仍按前20大重仓股口径计算；点「金额差/变化」旁按钮三态切换: 默认->正序↑->倒序↓->默认）</span>
       <span style="display:inline-flex;gap:4px;flex-wrap:wrap;margin-left:auto">
         <button class="pf-ind-sort-btn pf-top100-filter active" data-filter="all" type="button">全部 ${_tc.all}</button>
         <button class="pf-ind-sort-btn pf-top100-filter" data-filter="new" type="button">🆕新进 ${_tc.new}</button>
