@@ -6841,6 +6841,39 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **遗留**：用户需浏览器验证排版效果（模型禁图片，主控/agent无法视觉确认，需用户看实际页面）。若仍有问题可微调 gap/align
 
+### AZ136 - 2026-08-03 策略说明弹窗美化(删buy_special_filtered中间产物描述+3弹窗格式配色统一)（ui114，已上线）
+
+**背景**：用户要求删 buy_special_filtered 中间产物描述（后端 app/compute/signals.py L1110 已废弃真 drop，前端无展示点）+ 3个独立弹窗格式/配色统一（ruleContentHtml 已全 class，_signalHelpModalHTML/_strategyModalHTML 全内联 style 不统一是混乱根源）。
+
+**修复**（commit 066e612b，ui114）：
+- **P1 删 buy_special_filtered 中间产物描述**：
+  - app.js ruleContentHtml 删 rule-card-special-filtered 整块（"追关注·过滤预览"h5 高波动过滤档说明）
+  - app.js _SIGNAL_HELP_ITEMS 删 buy_special_filtered 条目（剩8种信号：buy/buy_aux/buy_special/buy_backup/sell/sell_stop_loss/band_hold/band_sell）
+  - style.css 删3个无引用 class：.rule-dot-special-filtered / .rule-card-special-filtered / .badge-special-filtered
+  - 后端 signal_stats.py L251/L256 保留 buy_special_filtered（防御性，前端 SIGS 数组仍含它做聚合兜底）
+  - 兜底引用保留：signalColor L334 / signalShortLabel L389 / SIGS 循环数组 L1704 / labels/sigClass map 多处 / i18n key（detail_buy_special_filtered_name 等）
+- **P2.1 _signalHelpModalHTML 内联 style 改 class + 卡片化**：新增 _SIG_CLASS_MAP 常量（sig->card/badge class 映射，2弹窗共用），复用 rule-card/rule-badge/badge-*/rule-stat-box/rule-backtest-box/rule-note-box/rule-modal-footer 等 class，style 从~15个减到2个残留（color:#ff9800 数据待补强调色 + margin-top:2px 小间距）。标题 "📊 6色技术信号参考"->"📊 技术信号参考"（含国债2色共8种）
+- **P2.2 _strategyModalHTML 内联 style 改 class + _STRATEGY_DETAIL_KEYS 补 band_sell**：复用 _SIG_CLASS_MAP + rule-card/rule-badge/badge-*/rule-stat-box/rule-card-disabled 等 class，style= 归零。_STRATEGY_DETAIL_KEYS 从7 key 补到8 key（加 band_sell detail_band_sell_name），与 ruleContentHtml 8卡对齐
+- **P2.3 ruleContentHtml 残留 style="width:50%" 改 CSS**：style.css .rule-table-color td 加 width:50%，app.js 删内联 style
+- **新增 CSS class**：.rule-stat-box/.rule-stat-row/.rule-stat-label/.rule-stat-empty/.rule-freq-pending/.rule-freq-note/.rule-backtest-box/.rule-note-box/.rule-modal-footer/.rule-card-disabled + .rule-modal-content .rule-card 间距微调
+- sw.js CACHE_VERSION ui113->ui114
+
+**§0 验收**（2026-08-03 00:30）：
+- buy_special_filtered 在3弹窗函数(ruleContentHtml/_signalHelpModalHTML/_strategyModalHTML)=0 ✓
+- _SIGNAL_HELP_ITEMS buy_special_filtered=0 ✓
+- 3个无引用 class(style.css+app.js)=0 ✓
+- _signalHelpModalHTML style=2（合理残留）/ _strategyModalHTML style=0 / ruleContentHtml style=0 ✓
+- badge- class 引用24 / _SIG_CLASS_MAP 引用3 ✓
+- _STRATEGY_DETAIL_KEYS 含 band_sell ✓
+- 兜底引用保留(signalColor/signalShortLabel/SIGS/labels/sigClass map) ✓
+- 本地 app.min.js _SIG_CLASS_MAP=1 / rule-card-special-filtered=0 / badge-special-filtered=0 ✓
+- 线上 ss.fx8.store sw.js=ui114 / app.min.js _SIG_CLASS_MAP=1 / rule-card-special-filtered=0 ✓
+- commit 066e612b 在 origin/main + origin/feat/iframe-theme-follow ✓
+
+**commit 链**：0682705f（AZ135 ui112）-> a2aeb9aa（中间）-> 066e612b（AZ136 ui114），push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：用户需浏览器验证3弹窗视觉效果（模型禁图片，主控/agent无法视觉确认配色/卡片化效果，需用户看实际弹窗）
+
 
 
 
