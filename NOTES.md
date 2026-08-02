@@ -6679,7 +6679,26 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **commit 链**：ad409b12（ui105）-> 87931c97（ui106），push feat + push feat:main fast-forward，未 force push main
 
-**遗留**：首页卡片排版混乱（a1fd1a08 调研完成方案 align-items flex-start->stretch 保留 flex:0 0 auto，待派实施）
+**遗留**：首页卡片排版混乱（a1fd1a08 调研完成方案 align-items flex-start->stretch 保留 flex:0 0 auto，待派实施）-> **AZ130 已闭环**
+
+
+
+### AZ130 - 2026-08-02 首页.ov-2col align-items flex-start回退stretch修中间隔开（ui107，已上线）
+
+**背景**：AZ126（f37c3c3e ui102）为修"首页卡片内部底部留白"把 .ov-2col align-items stretch->flex-start + .chart-card flex 1 0 auto->0 0 auto。但用户反馈新问题"排版混乱/卡片中间隔开"。a1fd1a08 调研结论：flex-start 致左右列不等高，矮列底部留白造成视觉分隔"中间隔开"；回退 align-items stretch 让列等高即可，flex 0 0 auto 保留（保卡片贴合内容不撑列高）。
+
+**修复**（commit 17f7f7cc，ui107）：style.css L1024 `.ov-2col` align-items: flex-start -> stretch（回退），L1031 `.ov-2col .chart-card` flex: 0 0 auto 保留不动。注释更新说明"stretch 列等高 + flex 0 0 auto 卡贴合内容"配合消除中间隔开。
+
+**§0 验收**（2026-08-02 22:57）：
+- style.css L1024 align-items: stretch ✓（flex-start 已清除）
+- style.css L1031 .ov-2col .chart-card flex: 0 0 auto 保留 ✓（未回退 1 0 auto）
+- sw.js 本地+线上 ss.fx8.store 均 ui107 ✓
+- commit 17f7f7cc 在 origin/main ✓
+- 3 域名验证：ss.fx8.store + sss.sugas.site style.min.css 含 align-items:stretch + sw.js ui107 ✓
+
+**commit 链**：87931c97（ui106）-> 17f7f7cc（ui107），push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：用户给完整名词对照表要求全局检查修正（主买=主关注/辅买=辅关注/追买=追关注/备买=备关注/追止损|卖=追风控|警示/卖点=风险提醒），§0 已定位 i18n.js 3处错误映射（L31 buy_long"关注点"应"主关注"/L32 sell_long"风险点"应"风险提醒"/L44 detail_sell_stop_loss_name"风控|警示"缺"追"字），abfdcb77a507ee155 调研全局清单中，完成后派实施 agent（AZ131）
 
 
 
