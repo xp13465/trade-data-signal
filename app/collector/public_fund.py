@@ -1686,11 +1686,16 @@ def pipeline_full(top_n: int = FULL_TOP_N) -> dict:
 
 
 def pipeline_daily() -> dict:
-    """日更 pipeline: fetch_daily_nav + fetch_estimation + 估算仓位变化（轻量, ~10s）。
+    """日更 pipeline: fetch_daily_nav + fetch_estimation + fetch_index_daily + 估算仓位变化（~15s）。
 
     fetch_estimation 盘后/非交易日返回 0(无数据正常), 盘中才有实时估算。
+    fetch_index_daily 刷新 hs300/csi500/gem 三指数日频(baostock ~5s), 供
+    _compute_position_estimate 反推算法用——每日必采, 否则 fund_index_daily 滞后
+    致 position_estimate.json 算不出最新交易日仓位(2026-08-02 根治: 原 pipeline_daily
+    不调 fetch_index_daily, 靠 backfill-nav/estimate 命令一次性刷新, 交易日收盘后
+    fund_index_daily 停在旧日期, _compute_position_estimate 缺当日 r_hs300 跳过)。
     position_estimate 反推算法在 export_json_files 的 _compute_position_estimate 独立算,
-    pipeline_daily 不重算(需 fund_daily_nav 历史时序 + fund_index_daily, 较重)。
+    pipeline_daily 只保证输入数据(fund_daily_nav + fund_index_daily)每日更新。
     """
     t0 = time.time()
     print("=== pipeline_daily() ===", flush=True)
@@ -1698,6 +1703,9 @@ def pipeline_daily() -> dict:
     stats["fund_daily_nav"] = fetch_daily_nav()
     # 盘中实时估算(盘后/非交易日返回 0 正常, 不阻塞)
     stats["fund_estimation_nav"] = fetch_estimation()
+    # 三指数日频刷新(反推算法基准, baostock ~5s, 每日必采避免 fund_index_daily 滞后)
+    for _idx in ("hs300", "csi500", "gem"):
+        stats[f"index_{_idx}"] = fetch_index_daily(index_id=_idx)
     # 估算仓位变化（用 fund_position_history 最新两期 cninfo 季报环比）
     conn = get_conn()
     rows = conn.execute(
@@ -2914,12 +2922,12 @@ def export_json_files() -> None:
 def main():
     init_db()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "quarterly"
-    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "backfill-industry", "check-fresh", "backfill-nav", "estimate"):
+    if cmd not in ("quarterly", "full", "daily", "metrics", "export", "backfill", "backfill-industry", "check-fresh", "backfill-nav", "estimate", "fetch-estimation"):
         print(__doc__)
         print(f"\n用法: python -m app.collector.public_fund <command>")
         print(f"  quarterly       季度全量(5汇总+top1000×2子页+8指标, ~35min)")
         print(f"  full            全量9000只×2子页(~5.25h, 凌晨解耦)")
-        print(f"  daily           日更净值+估算仓位变化(~10s)")
+        print(f"  daily           日更净值+估算仓位变化+三指数刷新(~15s)")
         print(f"  metrics         重算8指标")
         print(f"  export          只导出5类JSON")
         print(f"  backfill --start 20240101 --end 20241231  历史重仓股回填")
@@ -2927,9 +2935,10 @@ def main():
         print(f"  check-fresh [--top N]  数据新鲜度闸门(exit 0=应跑, 1=无新数据跳过)")
         print(f"  backfill-nav [--days 400]  回填头部200只偏股基金历史净值(反推算法用, ~90s)")
         print(f"  estimate        算预估仓位+导出JSON(需先 backfill-nav + fetch_index_daily)")
+        print(f"  fetch-estimation  盘中实时估算(fund_value_estimation_em, 盘后/非交易日返回0)")
         sys.exit(1)
 
-    # 进程互斥（quarterly/full/daily/backfill/backfill-industry/backfill-nav 持锁, metrics/export/check-fresh/estimate 不需要）
+    # 进程互斥（quarterly/full/daily/backfill/backfill-industry/backfill-nav 持锁, metrics/export/check-fresh/estimate/fetch-estimation 不需要）
     if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry", "backfill-nav"):
         if not _acquire_lock(nonblock=True):
             print(f"[public_fund] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
@@ -3096,6 +3105,11 @@ def main():
             fetch_index_daily(index_id=_idx)
         export_json_files()
         print(f"[estimate] 预估仓位 JSON 已导出", flush=True)
+    elif cmd == "fetch-estimation":
+        # 盘中实时估算 (fund_value_estimation_em, 盘后/非交易日返回0)
+        # 供盘中 launchd 定时采调用, 不持锁(轻量~5s, 不和 daily/quarterly/full 撞)
+        n = fetch_estimation()
+        print(f"[fetch-estimation] 写入 {n} 行", flush=True)
 
 
 if __name__ == "__main__":

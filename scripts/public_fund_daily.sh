@@ -1,12 +1,14 @@
 #!/bin/bash
 # public_fund_daily.sh - 公募基金日更（launchd 16:30 定时）
 #
-# 调 python -m app.collector.public_fund daily（日更净值+估算仓位变化, ~8s）
+# 调 python -m app.collector.public_fund daily（日更净值+盘中估算+三指数刷新+估算仓位变化, ~15s）
 # + 持 deploy 锁推送 static-site/data/public_fund_*.json
 #
 # 时点: 每交易日 16:30（主槽，收盘后 1h）+ 17:00（兜槽）。
 # akshare fund_open_fund_daily_em 约 16:00-17:00 发布当日净值，16:30 采可能部分，
-# 17:00 兜槽补完整。轻量 8s，幂等覆盖重采。
+# 17:00 兜槽补完整。轻量 15s，幂等覆盖重采。
+# pipeline_daily 含 fetch_index_daily(三指数baostock ~5s), 确保 fund_index_daily 每日更新,
+# _compute_position_estimate 有最新指数算当日预估仓位(2026-08-02 根治: 原不调致算法缺当日r_hs300跳过)。
 #
 # 进程互斥:
 #   - daily 锁 /tmp/trade_public_fund_daily.lock（--nb 非阻塞）: 防自身重复并发
