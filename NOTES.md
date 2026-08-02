@@ -6620,7 +6620,41 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 **commit 链**：7113bedd（场景名+ui101）-> f37c3c3e（卡片留白+ui102）-> 763f5fab（flow_desc+path+ui103），均 push feat + push feat:main fast-forward（763f5fab non-ff 用 rebase origin/main 后 fast-forward，未 force），未 force push main
 
 **遗留**：
-- "风控清仓"合规词含"清仓"敏感词（i18n.js L81 position_stop_loss_clear + L212-213/243 _TS_COMPLIANCE_MAP 占位符还原 + simulate_trade.py L78-79/101/118 + 7 HTML cac40/kospi/nikkei225 等），巡查 grep"清仓"会命中合规版。建议改"风控退出"彻底无敏感词，待用户定夺（小改动但需同步前后端+重生 HTML）
+- "风控清仓"合规词含"清仓"敏感词（i18n.js L81 position_stop_loss_clear + L212-213/243 _TS_COMPLIANCE_MAP 占位符还原 + simulate_trade.py L78-79/101/118 + 7 HTML cac40/kospi/nikkei225 等），巡查 grep"清仓"会命中合规版。建议改"风控退出"彻底无敏感词，待用户定夺（小改动但需同步前后端+重生 HTML）→ **AZ128 已闭环**
+
+
+
+### AZ128 - 2026-08-02 风控清仓->风控退出 彻底消除敏感词 + 信号标签 labelKey 动态求值修复 off 模式不恢复原词 + 皮肤弹窗打勾可见（ui104->ui105，已上线）
+
+**背景**：AZ127 遗留"风控清仓"合规词仍含"清仓"敏感词（grep 巡查命中合规版），用户定夺改"风控退出"彻底无敏感词。同期用户报两 bug：①详细版(off)首页技术参考第三行信号标签"主关注 65%"未恢复原词"主买"（_SIG_TYPE_META 等 const 常量加载时求值一次，切模式不重求值）②皮肤弹窗打勾+背景色都黄色，hover 才能看清选中态。
+
+**修复1 - 风控清仓->风控退出（commit 68827338，ui104）**：彻底消除"清仓"敏感词
+- i18n.js L81 compliance dict `position_stop_loss_clear`: "风控清仓"->"风控退出"
+- L212-213 _TS_COMPLIANCE_MAP 占位符还原从"清仓"改"退出"：`["止损清仓卖出","风控\x01CLEARED\x01"],["止损清仓","风控\x01CLEARED\x01"]`
+- L232 新增保护规则 `["风控清仓", "风控\x01CLEARED\x01"]`（防风控清仓被 catch-all 误转风险防范）
+- L244-245 占位符还原：`return out.split("\x01CLEARED\x01").join("退出");`
+- simulate_trade.py L78-79/101/118-119 同步改"退出"（JSON 保留原词用于 off 切回）
+- 重生 7 个 trade_sim*.html：sh=70/cac40=30/kospi=24/nikkei225=22 含风控退出信号，g.cn10y/g.oil/g.usdcnh=0 无止损清仓信号
+
+**修复2 - 信号标签 labelKey 动态求值（commit ad409b12，ui105）**：根因 _SIG_TYPE_META 等 const 数组 `label: _t("xxx")` 在 JS 加载时仅求值一次，切 off 模式后不重新求值，_typeChips L1513 拿到还是"主关注"。改 labelKey/nameKey 存 key + 使用点 `_t(m.labelKey)` 动态求值：
+- _SIG_TYPE_META（L1264-1273）label->labelKey，使用点 L1463/L1513 改 `_t(m.labelKey)`
+- _SIGNAL_HELP_ITEMS（L1689+）name->nameKey
+- _BACKUP_LEGEND_TIP/_BACKUP_BUYPOINT_TIP 改 function 动态拼 _t()
+- 同类排查 _STRATEGY_DETAIL_KEYS/_SUB_SIGNAL_LABELS 一并修
+
+**修复3 - 皮肤弹窗打勾可见（commit ad409b12，ui105）**：
+- .theme-option.active 选中态：`background var(--primary-bg)` + `box-shadow var(--primary)` ring
+- .theme-check `font-size 16->18px` + `font-weight bold`
+
+**§0 验收**：
+- i18n.js grep"风控清仓"=1（L232 保护规则，是映射 key 非显示值，线上 DOM grep 不到，无副作用）✓
+- simulate_trade.py grep"退出"命中 L79/101/119 ✓
+- _SIG_TYPE_META labelKey + 使用点 _t(m.labelKey) ✓
+- 68827338/ad409b12 在 main ✓ / 线上 sw.js ui105 ✓
+
+**commit 链**：763f5fab（ui103）-> 68827338（ui104）-> ad409b12（ui105），均 push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：策略说明弹窗（about.html 86处原词漏改 + _SIGNAL_HELP_ITEMS desc 套 _t.tsText + 辅买/追买颜色错配 + 备买/波段补全）a26eec55 429 中断 jsonl 已清理无法 resume，重派新 agent 接 about.html 半成品继续（AZ129）
 
 
 
