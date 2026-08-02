@@ -16129,6 +16129,10 @@ function applyCompliance(mode) {
   // 重渲染当前 tab：用新字典重新渲染所有 DOM 文本 + 图表 pin（renderTab 内部按 state.tab 调对应 render 函数）
   requestAnimationFrame(function () {
     if (typeof renderTab === "function") renderTab();
+    // 2026-07-20 修复：切换合规/详细模式时重渲染已打开的 trade_sim modal（modal 是独立 overlay 不在 tab 内，renderTab 不触及）
+    if (typeof _tradeSimOverlay !== 'undefined' && _tradeSimOverlay && _tradeSimOverlay.classList.contains('show') && typeof _tradeSimModalRender === 'function') {
+      try { _tradeSimModalRender(_tradeSimOverlay); } catch (e) {}
+    }
   });
 }
 
