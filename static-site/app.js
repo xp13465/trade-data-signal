@@ -9886,16 +9886,16 @@ async function renderPublicFund(container) {
       value: `${labelPrefix}${e.position.toFixed(2)}%`,
       itemStyle: { color },
       label: {
-        color: "#fff", fontSize: 10,
+        show: true, color: "#fff", fontSize: 10,
         formatter: `{b|${e.date}}\n{a|${labelPrefix}${e.position}%}`,
         rich: { b: { fontSize: 9, color: "#fff", lineHeight: 12 }, a: { fontSize: 11, color: "#fff", fontWeight: 700 } },
       },
     }));
   };
   const _highsMark = backtest && backtest.extremes && backtest.extremes.highs
-    ? _btMarkData(backtest.extremes.highs, "#e6492e", "高") : [];
+    ? _btMarkData(backtest.extremes.highs, "#e6492e", "88高") : [];
   const _lowsMark = backtest && backtest.extremes && backtest.extremes.lows
-    ? _btMarkData(backtest.extremes.lows, "#2e8b57", "低") : [];
+    ? _btMarkData(backtest.extremes.lows, "#2e8b57", "80低") : [];
 
   // 融合方案A: 建 pin 日期 Map(YYYYMMDD -> pin 完整信息), axis tooltip formatter 查 Map
   // 命中则追加完整 pin 说明(类型+仓位+沪深300+后30/60/90天), 未命中只显示该日仓位+沪深300
@@ -9906,8 +9906,8 @@ async function renderPublicFund(container) {
       if (!arr) return;
       arr.forEach((e) => _pinDateMap.set(_btDateToCoord(e.date), { desc, color, date: e.date, position: e.position, close: e.close, after_30d: e.after_30d, after_60d: e.after_60d, after_90d: e.after_90d }));
     };
-    _fillPin(backtest.extremes.highs, "⚠ 88魔咒历史高点 Top5", "#e6492e");
-    _fillPin(backtest.extremes.lows, "✓ 80抄底低点 Top5", "#2e8b57");
+    _fillPin(backtest.extremes.highs, "⚠ 88魔咒历史高点 Top5(红色标记)", "#e6492e");
+    _fillPin(backtest.extremes.lows, "✓ 80抄底低点 Top5(绿色标记)", "#2e8b57");
   }
 
   mainChart.setOption({
@@ -9959,7 +9959,7 @@ async function renderPublicFund(container) {
         },
         // G功能: markPoint 标历史极值(红=88魔咒高点Top5, 绿=80抄底低点Top5)
         markPoint: {
-          symbol: "pin", symbolSize: 42,
+          symbol: "pin", symbolSize: 48,
           data: [..._highsMark, ..._lowsMark],
         },
       },
@@ -10034,7 +10034,7 @@ async function renderPublicFund(container) {
           <div class="pf-bt-row"><span>沪深300收盘</span><b>${_cur.close != null ? _cur.close.toFixed(2) : "-"}</b></div>
         </div>
       </div>
-      <div class="pf-bt-note">📌 图表红图钉 = 历史仓位 Top5 高点(88 魔咒触发点) · 绿图钉 = Top5 低点(80 抄底信号点) · 胜率=触发后 30 天沪深300下跌(88)/上涨(80)占比</div>
+      <div class="pf-bt-note"><span style="color:#e6492e;font-size:14px;vertical-align:middle">●</span> 红色水滴标记 = 历史仓位 Top5 高点(88 魔咒触发点) · <span style="color:#2e8b57;font-size:14px;vertical-align:middle">●</span> 绿色水滴标记 = Top5 低点(80 抄底信号点) · 胜率=触发后 30 天沪深300下跌(88)/上涨(80)占比</div>
       <div class="pf-bt-note pf-bt-howto">💡 <b>怎么看</b>：<b style="color:#e6492e">88魔咒区(>88%)</b>传统看跌但胜率仅${_pctFmt(_s88.win_rate)}接近随机<b style="color:#e6492e">不可靠</b>；<b style="color:#2e8b57">抄底区(<80%)</b>看涨胜率${_pctFmt(_s80.win_rate)}+90天平均${_retFmt(_s80.avg_90d)}<b style="color:#2e8b57">更可靠</b>；中性区(80-88%)无明确信号。当前${_cur.position != null ? _cur.position.toFixed(2) + "%" : "-"}=${_cur.zone || "-"}·历史分位${_pctFmt(_cur.percentile)}</div>
     `;
     container.appendChild(btCard);
