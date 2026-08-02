@@ -6793,7 +6793,30 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 
 **commit 链**：f522a545（AZ132阶段1）-> f42c301c（AZ133名词残留 ui110），push feat + push feat:main fast-forward，未 force push main
 
-**遗留**：①策略弹窗配色不统一（ruleContentHtml 追关注/追风控/备关注/波段持有/波段调整用内联style硬编码，主关注/辅关注/风险提醒用CSS class，2套并存，待统一）②策略弹窗格式统一 ③首页排版左右层次不齐+卡片间空行（a1ac710eea5f8b2e3 调研中）
+**遗留**：①策略弹窗配色不统一（ruleContentHtml 追关注/追风控/备关注/波段持有/波段调整用内联style硬编码，主关注/辅关注/风险提醒用CSS class，2套并存，待统一）②策略弹窗格式统一 ③首页排版左右层次不齐+卡片间空行（a1ac710eea5f8b2e3 调研中）-> ①② AZ134 已闭环，③ AZ135 待实施
+
+
+
+### AZ134 - 2026-08-02 策略说明弹窗ruleContentHtml配色统一+格式统一（ui111，已上线）
+
+**背景**：用户报策略弹窗"每个信号格式不一样，有的有颜色有的没，颜色和统计基准配色不一样，像独立一套"。§0 确认根因：ruleContentHtml 配色2套并存（主关注/辅关注/风险提醒用CSS class，追关注/追风控/备关注/波段持有/波段调整用内联style硬编码），与_SIGNAL_HELP_ITEMS标准色不一致。af0f244997c8c21ce 实施。
+
+**修复**（commit 58c543a1，ui111）：
+- **style.css 新增 6 badge class**（L1738-1744）：.badge-special(#ffd700金)/.badge-special-filtered(#9e9e9e灰)/.badge-backup(#9c27b0紫)/.badge-stop-loss(#3498db蓝)/.badge-band-hold(#ff9800橙)/.badge-band-sell(#8bc34a草绿)，实色对齐 _SIGNAL_HELP_ITEMS 标准数据色 + .hint-sig.* 统计基准配色（solid-bg 风格统一）
+- **style.css 新增 6 rule-card class**（rule-card-special/filtered/backup/stop-loss/band-hold/band-sell，左边框色对齐）+ 6 rule-dot class
+- **app.js ruleContentHtml 所有6卡片内联style改class**（追关注/追风控/备关注/过滤预览/波段持有/波段调整），9 badge + 9 rule-card + 2 rule-dot 全 class 引用
+- **格式统一**：风险提醒卡补"颜色+胜率"行，9卡格式对齐（标题badge+信号名+简介+table含义/触发/颜色/胜率或回测/特殊）
+- sw.js ui110->ui111
+
+**§0 验收**（2026-08-03 00:01）：
+- ruleContentHtml 内联 style grep = 0 ✓（全改 CSS class）
+- style.css 6 新 badge class 实色对齐标准色 ✓
+- sw.js 本地+线上 ss.fx8.store 均 ui111 ✓
+- commit 58c543a1 在 origin/main ✓
+
+**commit 链**：f42c301c（AZ133 ui110）-> 58c543a1（AZ134 ui111），push feat + push feat:main fast-forward，未 force push main
+
+**遗留**：首页排版左右层次不齐+卡片间空行（a1ac710eea5f8b2e3 调研完成，方案C改DOM彻底根治，用户已定，待实施 AZ135）
 
 
 
