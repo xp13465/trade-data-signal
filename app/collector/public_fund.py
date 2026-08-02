@@ -1485,10 +1485,34 @@ def compute_metrics(report_date: str | None = None) -> dict:
     herf = sum(((r[2] or 0) / total_fund_count) ** 2 for r in rows)
     results["concentration_herfindahl"] = round(herf, 6) if rows else None
     # 上期 Top100(算抱团度/重叠度 delta_vs_last, 复用给 top20_adjustment prev 查询, 避免重复查询)
+    # 方案A: 采集完成度闸门 -- 当期 stocks 数 < 历年同期阈值 -> 采集未完成, delta=null
+    # 方案B: 同披露类型对比 -- prev_report 加披露类型过滤(全披露06/12 vs 前十大03/09), 跨类型 delta=null
+    cur_stocks_count = conn.execute(
+        "SELECT COUNT(*) FROM fund_holding_stock WHERE report_date=?",
+        (report_date,),
+    ).fetchone()[0]
+    _report_month = report_date[4:6]
+    is_full_disclosure = _report_month in ("06", "12")  # 0630中报/1231年报=全披露; 0331/0930=前十大
+    # 历年同期 stocks 阈值(SQL证据: 0331≈2800/0630≈5000+/0930≈2600/1231≈5100, 取 min*0.8 留余量)
+    _INCOMPLETE_THRESHOLDS = {"03": 2200, "06": 4000, "09": 2100, "12": 4100}
+    _incomplete_threshold = _INCOMPLETE_THRESHOLDS.get(_report_month, 0)
+    is_incomplete = bool(_incomplete_threshold and cur_stocks_count < _incomplete_threshold)
+    # prev_report 加披露类型过滤(方案B): 全披露(06/12)只和全披露比, 前十大(03/09)只和前十大比
+    _prev_type_months = ("06", "12") if is_full_disclosure else ("03", "09")
     prev_report_row = conn.execute(
+        "SELECT MAX(report_date) FROM fund_holding_stock "
+        "WHERE report_date < ? AND substr(report_date,5,2) IN (?,?)",
+        (report_date, _prev_type_months[0], _prev_type_months[1]),
+    ).fetchone()
+    # 未过滤类型的上一期(用来判断跨期不可比: 同类型prev为空但未过滤prev存在 -> 跨类型被排除)
+    prev_report_unfiltered = conn.execute(
         "SELECT MAX(report_date) FROM fund_holding_stock WHERE report_date < ?",
         (report_date,),
     ).fetchone()
+    is_cross_type = (
+        not (prev_report_row and prev_report_row[0])
+        and bool(prev_report_unfiltered and prev_report_unfiltered[0])
+    )
     prev_rows = []
     if prev_report_row and prev_report_row[0]:
         prev_rows = conn.execute(
@@ -1496,16 +1520,23 @@ def compute_metrics(report_date: str | None = None) -> dict:
             "FROM fund_holding_stock WHERE report_date=? ORDER BY hold_value_total DESC LIMIT 100",
             (prev_report_row[0],),
         ).fetchall()
-    # delta_vs_last: 抱团度 Herfindahl 环比(当期 - 上期), 上期不存在则 null
+    # delta_vs_last: 抱团度 Herfindahl 环比(当期 - 上期)
+    # 采集未完成(方案A)或跨披露类型(方案B)时不计算 delta
     prev_total_fund_count = sum(r[2] or 0 for r in prev_rows) or 1
     prev_herf = sum(((r[2] or 0) / prev_total_fund_count) ** 2 for r in prev_rows) if prev_rows else None
-    delta_herf = round(herf - prev_herf, 6) if (rows and prev_rows and prev_herf is not None) else None
+    if is_incomplete or is_cross_type or not (rows and prev_rows and prev_herf is not None):
+        delta_herf = None
+    else:
+        delta_herf = round(herf - prev_herf, 6)
     detail["concentration_herfindahl"] = {
         "top10_stocks": [{"code": r[0], "name": r[1], "fund_count": r[2], "value": r[3]}
                           for r in rows[:10]],
         "total_fund_count": total_fund_count,
         "delta_vs_last": delta_herf,
         "prev_report_date": prev_report_row[0] if (prev_report_row and prev_report_row[0]) else None,
+        "incomplete": is_incomplete or None,
+        "cross_type": is_cross_type or None,
+        "current_stocks": cur_stocks_count,
     }
 
     # 3. overlap_ratio 重叠度: Top30 重仓股平均基金覆盖家数
@@ -1515,16 +1546,22 @@ def compute_metrics(report_date: str | None = None) -> dict:
     else:
         overlap = None
     results["overlap_ratio"] = round(overlap, 2) if overlap is not None else None
-    # delta_vs_last: 重叠度环比(当期 - 上期), 上期不存在则 null
+    # delta_vs_last: 重叠度环比(当期 - 上期), 采集未完成或跨披露类型时不计算
     prev_top30 = prev_rows[:30] if len(prev_rows) >= 30 else prev_rows
     prev_overlap = (sum(r[2] or 0 for r in prev_top30) / len(prev_top30)) if prev_top30 else None
-    delta_overlap = round(overlap - prev_overlap, 2) if (overlap is not None and prev_overlap is not None) else None
+    if is_incomplete or is_cross_type or not (overlap is not None and prev_overlap is not None):
+        delta_overlap = None
+    else:
+        delta_overlap = round(overlap - prev_overlap, 2)
     detail["overlap_ratio"] = {
         "top30_avg_fund_count": overlap,
         "top30_stocks": [{"code": r[0], "name": r[1], "fund_count": r[2], "value": r[3]}
                           for r in top30],
         "delta_vs_last": delta_overlap,
         "prev_report_date": prev_report_row[0] if (prev_report_row and prev_report_row[0]) else None,
+        "incomplete": is_incomplete or None,
+        "cross_type": is_cross_type or None,
+        "current_stocks": cur_stocks_count,
     }
 
     # 4. industry_concentration 行业集中度: 全市场行业配置 Herfindahl

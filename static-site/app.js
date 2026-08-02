@@ -9739,23 +9739,33 @@ async function renderPublicFund(container) {
   };
 
   // 变化箭头 HTML（仓位↑红/↓绿；净申赎↑红/↓绿）
-  const _pfDeltaHtml = (delta) => {
-    if (delta == null) return '<span class="pf-delta pf-delta-na">较上季 —</span>';
-    const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
+  // status: "incomplete"=当期采集未完成 / "cross_type"=跨披露类型不可比 / null=正常显示 delta
+  const _pfDeltaHtml = (delta, status) => {
+    if (status === "incomplete") return '<span class="pf-delta pf-delta-na">较上季 数据采集中</span>';
+    if (status === "cross_type") return '<span class="pf-delta pf-delta-na">较上季 跨期不可比</span>';
+    if (delta == null) return '<span class="pf-delta pf-delta-na">较上季 -</span>';    const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
     const color = delta === 0 ? "var(--text-3)" : (delta > 0 ? "#e6492e" : "#2e8b57");
     const sign = delta > 0 ? "+" : "";
     return `<span class="pf-delta" style="color:${color}">较上季 ${arrow} ${sign}${delta.toFixed(2)}</span>`;
   };
 
-  const _pfCard = (metricId, name, value, delta, unit, fmt, clickable) => {
+  const _pfCard = (metricId, name, value, delta, unit, fmt, clickable, deltaStatus) => {
     const fv = fmt ? fmt(value) : (value != null ? value.toFixed(2) : "—");
     const { color, status } = _pfColorFor(metricId, value);
     return `<div class="pf-sig-card" data-metric-id="${metricId}" style="border-color:${color}${clickable ? ";cursor:pointer" : ""}">
       <div class="pf-sig-name">${name}${clickable ? ' <span style="font-size:10px;color:var(--text-3)">📋</span>' : ""}</div>
       <div class="pf-sig-value" style="color:${color}">${fv}${value != null ? unit : ""}</div>
       <div class="pf-sig-status">${status}</div>
-      ${_pfDeltaHtml(delta)}
+      ${_pfDeltaHtml(delta, deltaStatus)}
     </div>`;
+  };
+
+  // 从 detail 提取 delta 状态: incomplete(采集未完成) / cross_type(跨披露类型) / null
+  const _pfDeltaStatus = (d) => {
+    if (!d) return null;
+    if (d.incomplete) return "incomplete";
+    if (d.cross_type) return "cross_type";
+    return null;
   };
 
   const sigGrid = document.createElement("div");
@@ -9763,8 +9773,8 @@ async function renderPublicFund(container) {
   container.appendChild(sigGrid);
   sigGrid.innerHTML =
     _pfCard("avg_position", "平均股票仓位", avgPos ? avgPos.metric_value : null, avgPosDelta, "%") +
-    _pfCard("concentration_herfindahl", "抱团度 HHI", conc ? conc.metric_value : null, conc && conc.detail && conc.detail.delta_vs_last != null ? conc.detail.delta_vs_last : null, "", null, true) +
-    _pfCard("overlap_ratio", "重叠度(Top30 均覆盖)", overlap ? overlap.metric_value : null, overlap && overlap.detail && overlap.detail.delta_vs_last != null ? overlap.detail.delta_vs_last : null, " 家", (v) => v.toFixed(0), true) +
+    _pfCard("concentration_herfindahl", "抱团度 HHI", conc ? conc.metric_value : null, conc && conc.detail && conc.detail.delta_vs_last != null ? conc.detail.delta_vs_last : null, "", null, true, _pfDeltaStatus(conc && conc.detail)) +
+    _pfCard("overlap_ratio", "重叠度(Top30 均覆盖)", overlap ? overlap.metric_value : null, overlap && overlap.detail && overlap.detail.delta_vs_last != null ? overlap.detail.delta_vs_last : null, " 家", (v) => v.toFixed(0), true, _pfDeltaStatus(overlap && overlap.detail)) +
     _pfCard("net_redeem_ratio", "净申赎率", netRedeem ? netRedeem.metric_value : null, netRedeemDelta, "%");
 
   // 4卡片弹窗(抱团度Top10 + 重叠度Top30 重仓股明细, 复用 .rule-modal 样式)
@@ -9810,14 +9820,20 @@ async function renderPublicFund(container) {
     const mid = card.dataset.metricId;
     if (mid === "concentration_herfindahl" && conc && conc.detail && conc.detail.top10_stocks) {
       const d = conc.detail;
-      const dlt = d.delta_vs_last != null ? (d.delta_vs_last > 0 ? "+" : "") + d.delta_vs_last.toFixed(6) : "-";
+      const _dltTxt = d.delta_vs_last != null ? (d.delta_vs_last > 0 ? "+" : "") + d.delta_vs_last.toFixed(6)
+        : (d.incomplete ? "数据采集中" : (d.cross_type ? "跨期不可比" : "-"));
+      const _statNote = d.incomplete ? " · 当期采集未完成(中报披露期8/31截止, stocks数偏低), delta暂不显示"
+        : (d.cross_type ? " · 当期与上期披露类型不同(全披露vs前十大), 跨期不可比" : "");
       _pfDetailModal("📊 抱团度 HHI · Top10 重仓股", d.top10_stocks,
-        `HHI=${conc.metric_value}（0-1, 值越大抱团越集中）· 较上季 ${dlt} · 上期 ${d.prev_report_date || "-"}`);
+        `HHI=${conc.metric_value}（0-1, 值越大抱团越集中）· 较上季 ${_dltTxt} · 上期 ${d.prev_report_date || "-"}${_statNote}`);
     } else if (mid === "overlap_ratio" && overlap && overlap.detail && overlap.detail.top30_stocks) {
       const d = overlap.detail;
-      const dlt = d.delta_vs_last != null ? (d.delta_vs_last > 0 ? "+" : "") + d.delta_vs_last.toFixed(2) + " 家" : "-";
+      const _dltTxt = d.delta_vs_last != null ? (d.delta_vs_last > 0 ? "+" : "") + d.delta_vs_last.toFixed(2) + " 家"
+        : (d.incomplete ? "数据采集中" : (d.cross_type ? "跨期不可比" : "-"));
+      const _statNote = d.incomplete ? " · 当期采集未完成(中报披露期8/31截止, stocks数偏低), delta暂不显示"
+        : (d.cross_type ? " · 当期与上期披露类型不同(全披露vs前十大), 跨期不可比" : "");
       _pfDetailModal("🎯 重叠度 · Top30 重仓股持有基金数", d.top30_stocks,
-        `平均每只被 ${overlap.metric_value} 家基金持有 · 较上季 ${dlt} · 上期 ${d.prev_report_date || "-"}`);
+        `平均每只被 ${overlap.metric_value} 家基金持有 · 较上季 ${_dltTxt} · 上期 ${d.prev_report_date || "-"}${_statNote}`);
     }
   });
 
