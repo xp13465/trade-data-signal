@@ -7561,7 +7561,8 @@ async function renderOverview() {
 
   // 阶段 J+K: 公募基金信号卡(基金仓位角标 + 4 信号灯 + 4 维资金面共振)
   // 异步渲染, 不阻塞首页主结构(失败降级隐藏, 不影响其他卡; 与 renderPublicFund 不同, 此处只读 summary 一份)
-  _renderPublicFundHomeCard(colA2, r, snap);
+  // 2026-07-20 按用户诉求从右列(colA2)移到左列(colA1)综合情绪分卡下方(移动端单列顺序: 综合情绪分->基金仓位信号)
+  _renderPublicFundHomeCard(colA1, r, snap);
 
   // 汪汪队首次解释：复用 showIntroOnce 弹窗,localStorage[nt_intro_done] 标记后不再弹。
   // 加 _ntIntroScheduled 守卫,确保整页生命周期只调度一次(避免 tab 反复切换重复 setTimeout)。
