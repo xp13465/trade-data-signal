@@ -2159,9 +2159,11 @@ main { padding: 16px 24px; }
   font-size: 13px;
 }
 .futures-conclusion-item.futures-conclusion-triggered {
-  border-color: var(--border-strong, #e6492e);
-  background: rgba(230, 73, 46, 0.05);
-  box-shadow: 0 0 0 1px rgba(230, 73, 46, 0.2);
+  /* 修复2: "已触发"高亮加强（2026-08-03）-- 原 0.05 极淡背景 + 0.2 极淡阴影不明显，
+     改 0.14 背景 + 2px 实边 + 双层阴影（外发光+投影），让"已触发"一眼可见 */
+  border: 2px solid #e6492e;
+  background: rgba(230, 73, 46, 0.14);
+  box-shadow: 0 0 0 1px rgba(230, 73, 46, 0.35), 0 2px 8px rgba(230, 73, 46, 0.18);
 }
 @media (max-width: 768px) {
   .futures-conclusion-grid {

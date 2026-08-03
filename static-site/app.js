@@ -12489,62 +12489,9 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
     _mergedCard.className = "chart-card futures-acc-merged-card";
     wrapper2x2.appendChild(_mergedCard);
 
-    // --- 子区块1: 规律结论区 ---
-    if (_hasConc) {
-      const _concSub = document.createElement("div");
-      _concSub.className = "futures-acc-sub futures-acc-sub-conc";
-      _mergedCard.appendChild(_concSub);
-      const _concDate = accConclusion.as_of_date || "";
-      const _concDateSuffix = _concDate ? `<span class="chart-latest"> · ${fmtDate(_concDate)}</span>` : "";
-      let _concHtml = `<h3>期货同向准确度规律结论${_concDateSuffix}</h3>`;
-      _concHtml += `<div class="futures-note">基于历史${accConclusion.streak_history ? Object.keys(accConclusion.streak_history).length : 0}角色时序总结的4条规律，每日自动刷新。当前触发的结论高亮置顶。同向准确度=15日同向天数占比，极端值触发抄底/顶部预警。</div>`;
-      // 当前状态摘要：3角色 同向准确度 + 连续段天数（给结论提供上下文）
-      if (accConclusion.current_state) {
-        const _csRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
-        _concHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">';
-        for (const [roleKey, roleLabel] of _csRoles) {
-          const cs = accConclusion.current_state[roleKey];
-          if (!cs) continue;
-          const _fr = cs.follow_ratio;
-          const _frColor = _fr != null ? (_fr <= 30 ? "#16a34a" : _fr >= 80 ? "#dc2626" : "var(--text-1)") : "var(--text-3)";
-          const _dirText = cs.dominant_dir === "同向" ? "同向" : cs.dominant_dir === "逆向" ? "逆向" : "-";
-          const _dirColor = cs.dominant_dir === "同向" ? "#e6492e" : cs.dominant_dir === "逆向" ? "#2e8b57" : "var(--text-3)";
-          _concHtml += `<div style="flex:1;min-width:100px;text-align:center;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);font-size:11px">`;
-          _concHtml += `<div style="color:var(--text-3)">${roleLabel} · <span style="color:${_dirColor};font-weight:600">${_dirText}${cs.streak_days}日</span></div>`;
-          _concHtml += `<div style="font-size:16px;font-weight:bold;color:${_frColor}">${_fr != null ? _fr.toFixed(1) + "%" : "-"}</div>`;
-          _concHtml += `</div>`;
-        }
-        _concHtml += '</div>';
-      }
-      // 4条结论卡片：触发置顶 + 按级别排序
-      const _levelOrder = { "最强": 0, "次强": 1, "中等": 2, "辅助": 3 };
-      const _sortedConcs = [...accConclusion.conclusions].sort((a, b) => {
-        if (a.triggered !== b.triggered) return a.triggered ? -1 : 1;
-        return (_levelOrder[a.level] ?? 9) - (_levelOrder[b.level] ?? 9);
-      });
-      _concHtml += '<div class="futures-conclusion-grid">';
-      for (const c of _sortedConcs) {
-        const _levelColor = c.level === "最强" ? "#dc2626" : c.level === "次强" ? "#e67e22" : c.level === "中等" ? "#2563eb" : "#6b7280";
-        const _triggeredCls = c.triggered ? " futures-conclusion-triggered" : "";
-        _concHtml += `<div class="futures-conclusion-item${_triggeredCls}" style="border-left:3px solid ${_levelColor}">`;
-        _concHtml += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">`;
-        _concHtml += `<span style="background:${_levelColor};color:#fff;font-size:11px;padding:1px 6px;border-radius:3px;font-weight:600">${c.level}</span>`;
-        _concHtml += `<strong style="color:var(--text-1)">${c.signal}</strong>`;
-        if (c.triggered) _concHtml += `<span style="color:#dc2626;font-size:11px;font-weight:600">● 已触发</span>`;
-        _concHtml += `</div>`;
-        _concHtml += `<div style="font-size:12px;color:var(--text-2);margin:2px 0">触发: ${c.trigger}</div>`;
-        _concHtml += `<div style="font-size:12px;color:var(--text-1);margin:2px 0">当前: ${c.current_status}</div>`;
-        _concHtml += `<div style="font-size:11px;color:var(--text-3);margin:2px 0">统计: ${c.stats}</div>`;
-        _concHtml += `<div style="font-size:12px;font-weight:600;color:${_levelColor};margin-top:4px">建议: ${c.action}</div>`;
-        _concHtml += `</div>`;
-      }
-      _concHtml += '</div>';
-      _concHtml += '<div class="term-plain">规律基于 futures_ih_detail_acc 表历史统计，仅作参考不构成投资建议。同向准确度<=30%为抄底信号(淡绿)，>=80%为顶部预警(淡红)。</div>';
-      _concSub.innerHTML = _concHtml;
-      addCardTimeBadge(_concSub, _concDate, snap, "t1", "futures_date");
-    }
-
-    // --- 子区块2: 同向准确度趋势图区（近125日） ---
+    // --- 子区块1: 同向准确度趋势图区（上） ---
+    // 修复1: 趋势图置上、规律结论置下（原 conc 在上 chart 在下，2026-08-03 对调）
+    // 修复4: 按 state.range 切片（3月=90/6月=180/1年=365/3年=1095/5年=1825/全部=全量），原硬编码 slice(-125) 致 3月/6月 切换无效
     if (_hasAccTrend) {
       const _frDate = accTrend.latest.date || "";
 
@@ -12554,6 +12501,9 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
         _mergedCard.appendChild(_chartSub);
         const _frDates = accTrend.dates;
         const _frSeriesConfig = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
+        // 修复4: 按 state.range 决定显示天数（与持仓走势图一致），all/未知回退全量
+        const _accRangeDays = { "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825 };
+        const _accDays = _accRangeDays[state.range] || _frDates.length;
         // 连续3日<50%标记
         const _warnMarks = [];
         for (const [roleKey, roleLabel] of _frSeriesConfig) {
@@ -12569,11 +12519,11 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
           }
         }
         const _hasWarn = _warnMarks.length > 0;
-        const _frChartTitle = "同向准确度趋势（近" + Math.min(_frDates.length, 125) + "日）" +
+        const _frChartTitle = "同向准确度趋势（近" + Math.min(_frDates.length, _accDays) + "日）" +
           termTip("同向准确度=同向天数/15日总天数。跌破50%(红区)=同向失效，机构风格转逆向。连续3日<50%标记⚠。50%虚线=随机基准，55%虚线=同向有效线。") +
           (_hasWarn ? ' <span style="color:#e6492e;font-size:13px">⚠ 存在连续3日<50%</span>' : "");
-        // 取最近125个交易日（约6月）显示
-        const _showDates = _frDates.slice(-125);
+        // 修复4: 按 state.range 切片显示（原 slice(-125) 硬编码致切换无效）
+        const _showDates = _frDates.slice(-_accDays);
         // 手动创建 chart 容器（避免 mkCard 产生嵌套 chart-card）
         const _chartTitleEl = document.createElement("h3");
         _chartTitleEl.innerHTML = _frChartTitle;
@@ -12657,6 +12607,66 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
         }));
         addCardTimeBadge(_chartSub, _frDate, snap, "t1", "futures_date");
       }
+    }
+
+    // --- 子区块2: 规律结论区（下） ---
+    // 修复1: 规律结论置下（原在上，2026-08-03 对调）
+    // 修复2: "已触发" badge 加强高亮（红底白字 pill + 阴影，原仅小红字）
+    // 修复3: 英文名词中文化（futures_ih_detail_acc -> 期货同向准确度明细表）
+    if (_hasConc) {
+      const _concSub = document.createElement("div");
+      _concSub.className = "futures-acc-sub futures-acc-sub-conc";
+      _mergedCard.appendChild(_concSub);
+      const _concDate = accConclusion.as_of_date || "";
+      const _concDateSuffix = _concDate ? `<span class="chart-latest"> · ${fmtDate(_concDate)}</span>` : "";
+      let _concHtml = `<h3>期货同向准确度规律结论${_concDateSuffix}</h3>`;
+      _concHtml += `<div class="futures-note">基于历史${accConclusion.streak_history ? Object.keys(accConclusion.streak_history).length : 0}角色时序总结的4条规律，每日自动刷新。当前触发的结论高亮置顶。同向准确度=15日同向天数占比，极端值触发抄底/顶部预警。</div>`;
+      // 当前状态摘要：3角色 同向准确度 + 连续段天数（给结论提供上下文）
+      if (accConclusion.current_state) {
+        const _csRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
+        _concHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">';
+        for (const [roleKey, roleLabel] of _csRoles) {
+          const cs = accConclusion.current_state[roleKey];
+          if (!cs) continue;
+          const _fr = cs.follow_ratio;
+          const _frColor = _fr != null ? (_fr <= 30 ? "#16a34a" : _fr >= 80 ? "#dc2626" : "var(--text-1)") : "var(--text-3)";
+          const _dirText = cs.dominant_dir === "同向" ? "同向" : cs.dominant_dir === "逆向" ? "逆向" : "-";
+          const _dirColor = cs.dominant_dir === "同向" ? "#e6492e" : cs.dominant_dir === "逆向" ? "#2e8b57" : "var(--text-3)";
+          _concHtml += `<div style="flex:1;min-width:100px;text-align:center;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);font-size:11px">`;
+          _concHtml += `<div style="color:var(--text-3)">${roleLabel} · <span style="color:${_dirColor};font-weight:600">${_dirText}${cs.streak_days}日</span></div>`;
+          _concHtml += `<div style="font-size:16px;font-weight:bold;color:${_frColor}">${_fr != null ? _fr.toFixed(1) + "%" : "-"}</div>`;
+          _concHtml += `</div>`;
+        }
+        _concHtml += '</div>';
+      }
+      // 4条结论卡片：触发置顶 + 按级别排序
+      const _levelOrder = { "最强": 0, "次强": 1, "中等": 2, "辅助": 3 };
+      const _sortedConcs = [...accConclusion.conclusions].sort((a, b) => {
+        if (a.triggered !== b.triggered) return a.triggered ? -1 : 1;
+        return (_levelOrder[a.level] ?? 9) - (_levelOrder[b.level] ?? 9);
+      });
+      _concHtml += '<div class="futures-conclusion-grid">';
+      for (const c of _sortedConcs) {
+        const _levelColor = c.level === "最强" ? "#dc2626" : c.level === "次强" ? "#e67e22" : c.level === "中等" ? "#2563eb" : "#6b7280";
+        const _triggeredCls = c.triggered ? " futures-conclusion-triggered" : "";
+        _concHtml += `<div class="futures-conclusion-item${_triggeredCls}" style="border-left:3px solid ${_levelColor}">`;
+        _concHtml += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">`;
+        _concHtml += `<span style="background:${_levelColor};color:#fff;font-size:11px;padding:1px 6px;border-radius:3px;font-weight:600">${c.level}</span>`;
+        _concHtml += `<strong style="color:var(--text-1)">${c.signal}</strong>`;
+        // 修复2: "已触发" badge 加强 - 红底白字 pill + 白点 + 阴影，一眼可见（原仅 color:#dc2626 小红字）
+        if (c.triggered) _concHtml += `<span style="background:#dc2626;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;box-shadow:0 1px 4px rgba(220,38,38,0.5);letter-spacing:0.5px;display:inline-flex;align-items:center;gap:3px"><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#fff"></span>已触发</span>`;
+        _concHtml += `</div>`;
+        _concHtml += `<div style="font-size:12px;color:var(--text-2);margin:2px 0">触发: ${c.trigger}</div>`;
+        _concHtml += `<div style="font-size:12px;color:var(--text-1);margin:2px 0">当前: ${c.current_status}</div>`;
+        _concHtml += `<div style="font-size:11px;color:var(--text-3);margin:2px 0">统计: ${c.stats}</div>`;
+        _concHtml += `<div style="font-size:12px;font-weight:600;color:${_levelColor};margin-top:4px">建议: ${c.action}</div>`;
+        _concHtml += `</div>`;
+      }
+      _concHtml += '</div>';
+      // 修复3: futures_ih_detail_acc -> 期货同向准确度明细表（英文名词中文化）
+      _concHtml += '<div class="term-plain">规律基于期货同向准确度明细表历史统计，仅作参考不构成投资建议。同向准确度<=30%为抄底信号(淡绿)，>=80%为顶部预警(淡红)。</div>';
+      _concSub.innerHTML = _concHtml;
+      addCardTimeBadge(_concSub, _concDate, snap, "t1", "futures_date");
     }
   }
 
@@ -12803,11 +12813,16 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   _renderDailyNetCompareCard(data.citic_ih_detail, data.inst_ih_detail, data.guotai_ih_detail);
 
   // 3. 四张折线图：net_position 手数趋势
+  // 修复4: 按 state.range 切片 positions（3月=90/6月=180/1年=365/3年=1095/5年=1825/全部=全量）
+  // 原用全量 data.positions 致 3月/6月 切换按钮无效果（图表重画但数据时间范围不变）
+  const _posRangeDays = { "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825 };
+  const _posDays = _posRangeDays[state.range];
+  const _slicedPositions = (_posDays && data.positions.length > _posDays) ? data.positions.slice(-_posDays) : data.positions;
 
 // 图1：综合净多空手数 — 3 条线（机构/中信/国君的综合品种）
   const chart1Series = roles.map((role) => ({
     name: role,
-    data: data.positions.map((d) => {
+    data: _slicedPositions.map((d) => {
       const r = d[role];
       return r ? { date: d.date, value: r["综合"] } : { date: d.date, value: null };
     }).filter((d) => d.value != null),
@@ -12870,7 +12885,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   for (const role of roles) {
     const prodSeries = products.map((prod) => ({
       name: prod,
-      data: data.positions.map((d) => {
+      data: _slicedPositions.map((d) => {
         const r = d[role];
         return r ? { date: d.date, value: r[prod] } : { date: d.date, value: null };
       }).filter((d) => d.value != null),

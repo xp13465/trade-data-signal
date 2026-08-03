@@ -199,9 +199,9 @@ def export_futures_acc_conclusion(conn):
     生成结构化结论 JSON 供前端卡片化展示。
 
     4条规律（调研 agent 验证，附数据支撑）:
-    1. 【最强】抄底: 中信 follow_ratio <=30% -> 34次中33次(97%)后20日正收益，avg +3.68%
-    2. 【次强】顶部预警: 中信 follow_ratio >=80% -> 22次中15次(68%)后20日负收益，avg -2.37%
-    3. 【中等】转跟随看多: 中信转同向(SAME) -> 14次切换后60日 avg +3.27%
+    1. 【最强】抄底: 中信同向准确度 <=30% -> 34次中33次(97%)后20日正收益，平均 +3.68%
+    2. 【次强】顶部预警: 中信同向准确度 >=80% -> 22次中15次(68%)后20日负收益，平均 -2.37%
+    3. 【中等】转跟随看多: 中信转同向 -> 14次切换后60日平均 +3.27%
     4. 【辅助】季节性: 4月/10月逆向（年报/三季报披露），2月/7-8月同向（春季躁动/夏季行情）
     """
     rows = conn.execute(
@@ -325,28 +325,28 @@ def export_futures_acc_conclusion(conn):
         {
             "level": "最强",
             "signal": "抄底",
-            "trigger": "中信 follow_ratio <=30%",
+            "trigger": "中信同向准确度 <=30%",
             "current_status": p1_status,
             "triggered": p1_triggered,
-            "stats": "历史34次中33次(97%)后20日正收益，avg +3.68%",
+            "stats": "历史34次中33次(97%)后20日正收益，平均 +3.68%",
             "action": "关注抄底机会",
         },
         {
             "level": "次强",
             "signal": "顶部预警",
-            "trigger": "中信 follow_ratio >=80%",
+            "trigger": "中信同向准确度 >=80%",
             "current_status": p2_status,
             "triggered": p2_triggered,
-            "stats": "历史22次中15次(68%)后20日负收益，avg -2.37%",
+            "stats": "历史22次中15次(68%)后20日负收益，平均 -2.37%",
             "action": "警惕回调",
         },
         {
             "level": "中等",
             "signal": "转跟随看多",
-            "trigger": "中信转同向(SAME)",
+            "trigger": "中信转同向",
             "current_status": p3_status,
             "triggered": p3_triggered,
-            "stats": "14次切换后60日 avg +3.27%",
+            "stats": "14次切换后60日平均 +3.27%",
             "action": "看多",
         },
         {
