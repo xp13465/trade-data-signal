@@ -6965,3 +6965,13 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 - Phase B：详情弹窗 5 区块（决策头/6维度条形图/5风险指标网格/半凯利仓位进度条/经理6维）—— `openFundScoreDetailModal(code)` 复用 `openEtfScoreDetailModal` L13659 模式，预计半天-1天
 - Phase C：6维度雷达图（Canvas/SVG）+ 实战级筛选器（需后端补 fund_basic 字段：历史盈利比例/稳定度/经理稳健度，memory `pf-fund-screener-real-requirements`）+ 展开全量2000（1.5MB fund_score.json 惰性加载）—— 预计 2-3 天
 - 用户需浏览器验证场外基金 tab Top100 列表渲染效果（模型禁图片无法视觉确认；可点表头排序/输入搜索/选类型筛选验证交互）
+
+**AA. 2026-08-04 凌晨 stage0 全量采集跑完 + OAuth/登录gating/fetch错误修复**
+
+- **stage0 全量采集跑完（AZ121 真正闭环）**：risk P 27418只 ok=19783 fail=7224 rows=152720 elapsed 9.7h 2026-08-04 00:17:52 rc=0；manager M2 27116只 ok=27116 fail=0 total=27116 elapsed 5h 05:16:18 rc=0；4表最终 basic 27418/nav 21410936/risk 61458/manager 35438。AZ121 从"挂凌晨launchd待跑"补全为"实际全量跑完4表灌满"。数据进DB，前端读JSON（fund_score.json已上线200，offshore_fund*.json前端不fetch留待Phase B/C筛选器用时再export）。轮询：risk P 30min一次（eta~7.5h慢省token），manager出现缩10min，cron `1c67e038` 4,14,24,34,44,54。
+- **OAuth state 校验修复（commit 9f2ddcc8）**：根因 CF KV 最终一致性 login 写后 callback 立即读跨边缘节点读不到；改造 state 改无状态 HMAC-SHA256 签名校验（random.base64url(HMAC) hmacSign/hmacVerify Web Crypto），KV get 失败不阻断仅防重放；Gitee+GitHub 两路同改。用户确认 GitHub 登录成功。
+- **登录/退出 UI（commit 2af2b066）**：登录按钮红金渐变突出+移动端退出按钮可见+退出确认弹窗 openConfirmLogout()；sw.js -> v2-20260804-login-logout-ui。
+- **4 功能登录 gating（commit 801b00a4）**：通用 openLoginPromptForFeature(featureName,tip) 复用 _authLoginModalHtml；4入口 gating 模拟回测(trade_sim)/订阅(subscribe)/钉住=对比(compare)/基金评分tab(fund_score，applyAuthState隐藏+tab onclick拦截+renderFund兜底防F5 hash绕过三道)；后端 worker/auth.js PRIVILEGES_LOGGED_IN 补5特权 ['detailed_view','trade_sim','subscribe','compare','fund_score']；退出 logout reload 整页刷新自动重置游客态；sw.js -> v2-20260804-feature-gating。
+- **fetch 错误修复（commit 279cc8d5）**：根因 sentiment-3y.json(962KB<1MB阈值)被移出git依赖R2，upload-data-large 1MB阈值漏传，前端 _R2_LARGE_RANGE_RE 强制走R2 -> 404加载失败；根治 upload_r2.py 加 _LARGE_RANGE_RE(与app.js同规则)大range文件无大小限制上传；线上 R2 200 size=985443。a8b1cd2d 全量排查确认其余 fetch 文件全200，唯一404源即 sentiment-3y。
+- **用户决策记录**：对比按钮=📌钉住(口误"叮嘱比较"，钉住=对比复盘)；gating方式=点击提示登录(不破坏L2619"按钮必须显示不可用非缺失"铁律)；Google登录远期待办占位按钮隐藏。
+- **全量测试**：用户睡前交代今晚跑完后做全量测试排查别留异常导致明天开盘，stage0 跑完后派 agent 端到端回归（OAuth登录退出/4gating/核心tab数据加载/sw版本3域名验证）。
