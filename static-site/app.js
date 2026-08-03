@@ -17018,7 +17018,8 @@ function applyAuthState() {
     var pcHtml = '<span class="auth-avatar"' + avatarStyle + '></span>' +
                  '<span class="auth-name">' + _escAttr(name) + '</span>' +
                  '<span class="auth-logout" title="退出登录" role="button" aria-label="退出登录">⎋</span>';
-    var h5Html = '<span class="auth-avatar"' + avatarStyle + '></span>';
+    var h5Html = '<span class="auth-avatar"' + avatarStyle + '></span>' +
+                 '<span class="auth-logout" title="退出登录" role="button" aria-label="退出登录">⎋</span>';
     if (pcBtn) { pcBtn.innerHTML = pcHtml; pcBtn.classList.add('logged-in'); pcBtn.setAttribute('title', (u.name || '账户') + '（点击退出）'); }
     if (h5Btn) { h5Btn.innerHTML = h5Html; h5Btn.classList.add('logged-in'); h5Btn.setAttribute('title', (u.name || '账户') + '（点击退出）'); }
   } else {
@@ -17079,13 +17080,55 @@ function logout() {
     .then(function () { window.location.reload(); })
     .catch(function () { window.location.reload(); });
 }
-// 绑定登录按钮点击：未登录弹登录框，已登录点退出按钮触发 logout
+// 退出确认弹窗：点退出按钮先弹确认，用户点「确认退出」才真正调 logout，点「取消」关闭不退出
+function openConfirmLogout() {
+  // 避免重复弹出
+  var existing = document.querySelector('.auth-logout-modal');
+  if (existing) { existing.classList.remove('hidden'); return; }
+  var modal = document.createElement('div');
+  modal.className = 'modal auth-login-modal auth-logout-modal hidden';
+  modal.innerHTML = '<div class="modal-body">' +
+    '<button class="theme-modal-close" title="关闭" aria-label="关闭">×</button>' +
+    '<h3>确认退出登录？</h3>' +
+    '<p class="auth-login-tip">退出后将无法使用「详细版」等登录特权功能，需重新登录后才能恢复。</p>' +
+    '<div class="auth-login-options">' +
+      '<button class="auth-login-btn auth-cancel-btn" data-action="cancel">' +
+        '<span class="auth-login-text">取消</span>' +
+      '</button>' +
+      '<button class="auth-login-btn auth-confirm-logout-btn" data-action="confirm">' +
+        '<span class="auth-login-text">确认退出</span>' +
+      '</button>' +
+    '</div>' +
+  '</div>';
+  document.body.appendChild(modal);
+  function closeModal() {
+    modal.classList.add('hidden');
+    setTimeout(function () { if (modal.parentNode) modal.parentNode.removeChild(modal); }, 200);
+  }
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal || e.target.classList.contains('theme-modal-close')) {
+      closeModal();
+      return;
+    }
+    var btn = e.target.closest('.auth-login-btn');
+    if (btn) {
+      if (btn.dataset.action === 'confirm') {
+        closeModal();
+        logout();
+      } else {
+        closeModal();
+      }
+    }
+  });
+  modal.classList.remove('hidden');
+}
+// 绑定登录按钮点击：未登录弹登录框，已登录点退出按钮触发确认弹窗
 function initAuthButton() {
   document.querySelectorAll('.pc-auth-btn, .h5-auth-btn').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
       if (e.target.classList.contains('auth-logout')) {
         e.stopPropagation();
-        logout();
+        openConfirmLogout();
         return;
       }
       if (window.__authState && window.__authState.logged_in) {
