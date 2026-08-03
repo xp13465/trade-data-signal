@@ -1206,14 +1206,14 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - ✅ trade_sim 弹窗合规切换修复：applyCompliance rAF 回调加 modal 重渲染（_tradeSimOverlay.classList 含 show 时调 _tradeSimModalRender 复用缓存），修 modal 是独立 overlay 不在 tab 内 renderTab 不触及的 bug（commit 359a568b，ui100）
 - ⏳ 遗留：i18n.js position_stop_loss_clear compliance="风控清仓"含"清仓"敏感词，建议改"风控退出"彻底无敏感词，待用户定夺
 
-## 📋 2026-08-03 站点 OAuth 登录（GitHub/Google 一键登录 + 特权功能 gating，纯调研落档，待排期）
+## 📋 2026-08-03 站点 OAuth 登录（Gitee+GitHub 一键登录 + 特权功能 gating，实施中 2026-08-04）
 
-**需求**：站点加 OAuth 登录，支持 GitHub/Google 一键登录；模拟回测/订阅/对比/详细版切换作为登录用户特权，登录后才显示。
+**需求**：站点加 OAuth 登录，支持 Gitee+GitHub 一键登录；模拟回测/订阅/对比/详细版切换作为登录用户特权，登录后才显示。**Google 登录暂时取消，留作远期待办，前端占位按钮隐藏**（2026-08-04 用户定）。
 
-**调研结论：推荐方案A（CF Workers + OAuth Provider 直连）**
-- 完美适配现有架构：生产=CF Workers Static Assets（run_worker_first=true），已有 /api/* 路由分发（worker/headers.js L91-108），已有 KV namespace SUBSCRIBE_KV + 已有密码认证（X-Sub-Pwd vs SUBSCRIBE_PASSWORD secret）
-- OAuth 复用现有架构加 /api/auth/* 分发，零成本零新增基础设施
-- 无现成用户系统（grep 全 app/ 无 login/auth/user/session）-> 从零搭建
+**方案：A CF Workers 自自建 OAuth（用户定 2026-08-04）**
+- 生产 ss.fx8.store/api/* 全走 CF Workers 不回源 FastAPI，故 OAuth 必须 Workers 实现（非 FastAPI）
+- 复用现有 KV namespace + /api/* 路由分发，零新增基础设施
+- worker/auth.js 新建：Web Crypto HMAC 签名 cookie + KV 存 users/oauth_state + Gitee+GitHub 完整接入 + Google 占位 501（远期复用，前端按钮隐藏）
 
 **4 特权功能入口已定位（app.js）**：
 | 功能 | 入口 | gating 点 |
@@ -1231,10 +1231,16 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **CF 免费版限制**（已查官方文档）：Workers 10ms CPU/请求（OAuth callback 网络IO不计CPU）、100k 请求/天；KV 1000 writes/天（500用户登录/天够用，超量$5/月升级）
 
-**工作量**：MVP（GitHub 登录 + 详细版 gating）1-2 天；完整版（GitHub+Google + 4特权全 gating + 订阅叠加 OAuth）3-5 天
+**工作量**：MVP（Gitee+GitHub 登录 + 详细版 gating）1-2 天；完整版（+订阅/对比/模拟回测 gating）3-5 天
 
-**待定**：①MVP 先做 GitHub 还是 GitHub+Google 一起 ②未登录用户看特权入口（隐藏 vs 显示锁图标点击提示登录）③用户数据存 KV 还是新建 users.db ④付费用户角色预留
+**实施进度（2026-08-04）**：
+- ✅ 后端 FastAPI 框架（app/auth.py，commit 4d6f7dcd，本地可跑，生产不走 FastAPI 留作开发参考）
+- ✅ Workers 实现（worker/auth.js，commit 604928d6，Gitee完整+me+logout+GitHub/Google占位）
+- 🔄 GitHub 完整接入（agent a40a10ac 跑中，补 login+callback 完整流程）
+- ⏳ wrangler secrets 配置（待：GITEE_CLIENT_ID/SECRET/REDIRECT_URI + GITHUB_CLIENT_ID/SECRET/REDIRECT_URI + SESSION_SECRET，凭证已收）
+- ⏳ 前端（登录按钮 Gitee+GitHub / 登录态 / 详细版 gating / Google 占位按钮隐藏）
+- ⏳ 上线 + 端到端测试
 
-**完整调研报告**：/tmp/oauth-research-report.md（10章节：架构+方案对比+特权定位+KV key设计+JWT cookie+安全合规+风险依赖+关键文件路径）
+**待定**：①未登录用户看特权入口（隐藏 vs 显示锁图标点击提示登录）②付费用户角色预留
 
-**状态**：纯调研落档，待用户排期实施
+**Google 登录远期待办**：worker/auth.js 的 /api/auth/login/google 占位 501 路由保留（远期复用），前端登录按钮先只放 Gitee+GitHub，Google 占位按钮隐藏。Google OAuth 需创建 GCP 项目 + OAuth consent screen，流程繁琐，Gitee+GitHub 跑通后再排。
