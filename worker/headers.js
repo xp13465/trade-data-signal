@@ -5,6 +5,8 @@
 // 安全头（原 _headers /* 块内容，对非 HTML 响应浏览器自动忽略，无副作用）
 // 订阅接口 handler（C 方案 2026-07-24：/api/* 路由分发到此，KV 存储+密码认证）
 import subscribeHandler from './subscribe.js';
+// OAuth 接口 handler（2026-08-03：/api/auth/* 分发到此，Web Crypto HMAC session + KV users）
+import authHandler from './auth.js';
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
@@ -91,8 +93,11 @@ function cacheControlFor(pathname) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    // /api/* 路由分发到订阅 handler（生产无 FastAPI，CRUD 走 KV）
+    // /api/* 路由分发（生产无 FastAPI：/api/auth/* -> authHandler，其余 /api/* -> subscribeHandler）
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname.startsWith('/api/auth/')) {
+        return authHandler(request, env);
+      }
       return subscribeHandler(request, env);
     }
     const response = await env.ASSETS.fetch(request);
