@@ -98,6 +98,11 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
     // B5: lab.js 动态加载后其末尾 IIFE 会 click labBtn 恢复 #lab 直链；
     // tab 切换到 lab 时按钮已 active，IIFE 的 click 会导致重复渲染竞态，跳过。
     if (b.dataset.tab === "lab" && b.classList.contains("active")) return;
+    // gating：基金评分 tab 为登录特权 fund_score，未登录点击弹提示不切换（双保险：applyAuthState 已隐藏按钮，此处防按钮被显示后绕过）
+    if (b.dataset.tab === "fund" && !hasPrivilege('fund_score')) {
+      openLoginPromptForFeature('基金评分', '基金评分为登录用户特权，登录后可查看 ETF/场外基金评分排行');
+      return;
+    }
     state.tab = b.dataset.tab;
     // market/sentiment/fund 共享 state.subtab，切 tab 时校验：非法值回退各自默认
     if (state.tab === "market") state.subtab = _MARKET_SUBTABS.includes(state.subtab) ? state.subtab : "a-stock";
@@ -2182,6 +2187,11 @@ function _appendPinBtn(cardEl, indexId, idx, sig) {
   btn.addEventListener("click", function (e) {
     e.preventDefault();
     e.stopPropagation();
+    // gating：未登录 compare 特权 -> 弹登录提示，不切换 pin 状态（钉住=对比复盘）
+    if (!hasPrivilege('compare')) {
+      openLoginPromptForFeature('钉住', '钉住指数复盘为登录用户特权，登录后可钉住多个指数在顶部对比复盘');
+      return;
+    }
     var newPinned = _togglePin(indexId);
     btn.classList.toggle("active", newPinned);
     btn.setAttribute("aria-label", newPinned ? "取消钉住" : "钉住指数");
@@ -2257,6 +2267,11 @@ function _appendSubscribeBtn(cardEl, indexId, indexName) {
   btn.addEventListener("click", function (e) {
     e.preventDefault();
     e.stopPropagation();
+    // gating：未登录 subscribe 特权 -> 弹登录提示，不打开订阅弹窗
+    if (!hasPrivilege('subscribe')) {
+      openLoginPromptForFeature('订阅', '信号订阅推送为登录用户特权，登录后可订阅关注的标的');
+      return;
+    }
     _openSubscribeModal(indexId, indexName);
   });
   target.appendChild(btn);
@@ -2623,6 +2638,10 @@ function _simBtnHtml(indexId) {
     var _label = (indexId && (indexId.startsWith('sw_') || indexId.startsWith('thsc_'))) ? '该行业' : '该指数';
     return `<a class="sim-btn sim-btn-disabled" data-index="${indexId || ''}" title="${_label}暂未接入模拟回测">📊 模拟回测</a>`;
   }
+  // gating：未登录 trade_sim 特权 -> 灰色 disabled + data-need-login（_prependSimBtn 注入后绑 click 弹登录提示）
+  if (!hasPrivilege('trade_sim')) {
+    return `<a class="sim-btn sim-btn-disabled" data-index="${indexId}" data-need-login="trade_sim" title="🔒 模拟回测为登录用户特权，点击登录">📊 模拟回测</a>`;
+  }
   return `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`;
 }
 // 把 sim-btn 注入 h3 末尾（标题行内排列，排在❓之后）；h3 不存在时退到 chart-hint 前独立兄弟 DOM。
@@ -2634,6 +2653,15 @@ function _prependSimBtn(cardEl, indexId) {
   var wrap = document.createElement("span");
   wrap.className = "sim-btn-wrap";
   wrap.innerHTML = html;
+  // gating：未登录 trade_sim 时 _simBtnHtml 返回 data-need-login 灰色版本，此处绑 click 拦截弹登录提示
+  var needLoginBtn = wrap.querySelector('[data-need-login="trade_sim"]');
+  if (needLoginBtn) {
+    needLoginBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openLoginPromptForFeature('模拟回测', '模拟回测为登录用户特权，登录后可查看完整回测详情');
+    });
+  }
   var h3 = cardEl.querySelector("h3");
   if (h3) {
     // 若❓已存在(data-strategy-help)，插在❓之后；否则追加末尾（❓后续由 _appendStrategyHint 插到 sim-btn 前）
@@ -14712,6 +14740,16 @@ async function renderEtfScore(container) {
 // 复用 sentiment 二级 subtab 模式（_SENTIMENT_SUBTABS / _setTabHash / _initMainTabHashRestore）。
 // 场内ETF=现有 renderEtfScore 内容整体收纳；场外基金=评分排行列表（Phase A Top100 + 排序/搜索/筛选）。
 async function renderFund() {
+  // gating 兜底：未登录 fund_score 特权 -> 回退 overview + 弹登录提示（防 F5 hash #fund/#fund/etf 绕过 tab 按钮拦截和 applyAuthState 隐藏）
+  if (!hasPrivilege('fund_score')) {
+    state.tab = "overview";
+    document.querySelectorAll("button[data-tab]").forEach(function (x) { x.classList.remove("active"); });
+    var ovBtn = document.querySelector('button[data-tab="overview"]');
+    if (ovBtn) ovBtn.classList.add("active");
+    openLoginPromptForFeature('基金评分', '基金评分为登录用户特权，登录后可查看 ETF/场外基金评分排行');
+    renderTab();
+    return;
+  }
   content.innerHTML = "";
   // 二级 tab 栏（场内ETF/场外基金）
   const subtabBar = document.createElement("div");
@@ -17026,6 +17064,11 @@ function applyAuthState() {
     if (pcBtn) { pcBtn.innerHTML = '👤 登录'; pcBtn.classList.remove('logged-in'); pcBtn.setAttribute('title', '登录 / 账户'); }
     if (h5Btn) { h5Btn.innerHTML = '👤'; h5Btn.classList.remove('logged-in'); h5Btn.setAttribute('title', '登录 / 账户'); }
   }
+  // gating：基金评分 tab 为登录特权 fund_score，未登录隐藏 PC+H5 两个 fund tab 按钮（applyAuthState 每次 fetchAuthState 后调用，reload 后自动重判）
+  var _fundVisible = st.logged_in && hasPrivilege('fund_score');
+  document.querySelectorAll('button[data-tab="fund"]').forEach(function (b) {
+    b.style.display = _fundVisible ? '' : 'none';
+  });
 }
 // 登录方式选择弹窗：Gitee + GitHub 两按钮（不渲染 Google 占位）
 function _authLoginModalHtml(title, tip) {
@@ -17072,6 +17115,16 @@ function openLoginPromptForDetailed() {
   var modal = document.createElement('div');
   modal.className = 'modal auth-login-modal hidden';
   modal.innerHTML = _authLoginModalHtml('🔒 详细版需登录', '详细版为登录用户特权，登录后可显示完整买卖点措辞');
+  document.body.appendChild(modal);
+  _bindAuthLoginModal(modal);
+}
+// 通用 gating 入口：未登录点击受特权保护的功能按钮时弹提示+登录入口
+// featureName: 功能中文名（如"模拟回测"/"订阅"/"钉住"/"基金评分"），用于拼 title
+// tip: 自定义提示文案（不传用默认"X为登录用户特权，登录后可使用"）
+function openLoginPromptForFeature(featureName, tip) {
+  var modal = document.createElement('div');
+  modal.className = 'modal auth-login-modal hidden';
+  modal.innerHTML = _authLoginModalHtml('🔒 ' + featureName + '需登录', tip || (featureName + '为登录用户特权，登录后可使用'));
   document.body.appendChild(modal);
   _bindAuthLoginModal(modal);
 }

@@ -29,7 +29,7 @@ const SESSION_COOKIE_NAME = 'session';
 const STATE_COOKIE_NAME = 'oauth_state';
 const SESSION_MAX_AGE = 30 * 24 * 3600;  // 30 天
 const STATE_TTL = 300;  // 5 分钟（KV expirationTtl 最小 60s）
-const PRIVILEGES_LOGGED_IN = ['detailed_view'];
+const PRIVILEGES_LOGGED_IN = ['detailed_view', 'trade_sim', 'subscribe', 'compare', 'fund_score'];
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
