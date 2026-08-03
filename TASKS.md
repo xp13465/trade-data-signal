@@ -1205,3 +1205,36 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - ✅ 合规🛡️开关移入皮肤弹窗：皮肤弹窗(🎨)内"显示模式"区块两选项（合规版/详细版），删独立🛡️按钮，保留防闪烁+applyCompliance（commit c6cbebd3，ui99）
 - ✅ trade_sim 弹窗合规切换修复：applyCompliance rAF 回调加 modal 重渲染（_tradeSimOverlay.classList 含 show 时调 _tradeSimModalRender 复用缓存），修 modal 是独立 overlay 不在 tab 内 renderTab 不触及的 bug（commit 359a568b，ui100）
 - ⏳ 遗留：i18n.js position_stop_loss_clear compliance="风控清仓"含"清仓"敏感词，建议改"风控退出"彻底无敏感词，待用户定夺
+
+## 📋 2026-08-03 站点 OAuth 登录（GitHub/Google 一键登录 + 特权功能 gating，纯调研落档，待排期）
+
+**需求**：站点加 OAuth 登录，支持 GitHub/Google 一键登录；模拟回测/订阅/对比/详细版切换作为登录用户特权，登录后才显示。
+
+**调研结论：推荐方案A（CF Workers + OAuth Provider 直连）**
+- 完美适配现有架构：生产=CF Workers Static Assets（run_worker_first=true），已有 /api/* 路由分发（worker/headers.js L91-108），已有 KV namespace SUBSCRIBE_KV + 已有密码认证（X-Sub-Pwd vs SUBSCRIBE_PASSWORD secret）
+- OAuth 复用现有架构加 /api/auth/* 分发，零成本零新增基础设施
+- 无现成用户系统（grep 全 app/ 无 login/auth/user/session）-> 从零搭建
+
+**4 特权功能入口已定位（app.js）**：
+| 功能 | 入口 | gating 点 |
+|---|---|---|
+| 模拟回测 | L2626 sim-btn + L15287 _tradeSimOverlay | 按钮渲染+弹窗打开 |
+| 订阅 | L2244 _appendSubscribeBtn + L2276 _openSubscribeModal | _openSubscribeModal 调用时 |
+| 对比 | L15850 全局对比表（在 trade_sim 弹窗内） | 跟随 trade_sim |
+| 详细版 | L16778 compliance-option + L16851 applyCompliance | applyCompliance('off') 前 |
+
+**方案对比**：
+- ✅ A CF Workers 自建 OAuth：复用 KV+/api/*，零成本，特权细粒度可控
+- ❌ B CF Access：免费50用户上限 + 登录页跳 cloudflareaccess.com UX割裂 + 全站 gating 不匹配
+- ❌ C 第三方 Auth（Auth0/Clerc/Supabase）：过度设计，SDK 依赖+bundle 加大+用户数据外流
+- ❌ D FastAPI 自建：需后端上线（CF Workers 跑不了 Python），架构倒退
+
+**CF 免费版限制**（已查官方文档）：Workers 10ms CPU/请求（OAuth callback 网络IO不计CPU）、100k 请求/天；KV 1000 writes/天（500用户登录/天够用，超量$5/月升级）
+
+**工作量**：MVP（GitHub 登录 + 详细版 gating）1-2 天；完整版（GitHub+Google + 4特权全 gating + 订阅叠加 OAuth）3-5 天
+
+**待定**：①MVP 先做 GitHub 还是 GitHub+Google 一起 ②未登录用户看特权入口（隐藏 vs 显示锁图标点击提示登录）③用户数据存 KV 还是新建 users.db ④付费用户角色预留
+
+**完整调研报告**：/tmp/oauth-research-report.md（10章节：架构+方案对比+特权定位+KV key设计+JWT cookie+安全合规+风险依赖+关键文件路径）
+
+**状态**：纯调研落档，待用户排期实施
