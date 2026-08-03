@@ -2080,6 +2080,12 @@ main { padding: 16px 24px; }
 .futures-triple-grid .futures-note {
   min-height: auto;
 }
+/* 期货风向3表日期列不换行：窄列(340px卡/7列≈48px)下"07-31"在连字符处断行撑高行高+卡片，
+   nowrap 压缩行高；scope 到 futures-triple-grid 避免误伤其他 accuracy-table(滚动窗口表/角色对照表) */
+.futures-triple-grid .accuracy-table td.sym-name,
+.futures-triple-grid .accuracy-table thead th:first-child {
+  white-space: nowrap;
+}
 /* 窄屏(≤768px)：3表改上下排列(覆盖自适应，移动端强制1列全宽，与 indices-grid 移动端一致) */
 @media (max-width: 768px) {
   .futures-triple-grid {
