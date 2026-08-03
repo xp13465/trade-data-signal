@@ -14,7 +14,7 @@
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
-import os, sys, hashlib, hmac, http.client, datetime, ssl
+import os, sys, re, hashlib, hmac, http.client, datetime, ssl
 from pathlib import Path
 from urllib.parse import urlparse, quote
 
@@ -463,7 +463,7 @@ def cmd_upload_fund_score():
 
 
 def cmd_upload_data_large():
-    """上传 static-site/data/ 顶层 >1MB 的 .json + .gz 到 R2 data/ 前缀。
+    """上传 static-site/data/ 顶层 >=1MB 或大 range(-all/-5y/-3y) 的 .json + .gz 到 R2 data/ 前缀。
 
     双源备份策略（2026-07-20 R2 优化根治 300MB）：
     - 前端暂未全改 R2 URL 的（a-stock/hk/global/sentiment/etf_national_team 大 range）：
@@ -472,11 +472,16 @@ def cmd_upload_data_large():
     - public_fund* 已走 upload-public-fund（public_fund/ 前缀），此处排除避免重复。
     - index/industry-*-indices/lab/trade_sim 已各自独立命令，不在此上传。
 
-    阈值 1MB：小于此留 git 即可（小 JSON 上传 R2 收益小于增加的请求延迟）。
-    新增大文件自动覆盖（glob + 大小过滤，无需维护硬编码清单）。
+    上传条件（满足任一）：
+    1. 大 range 文件(all/5y/3y): 前端 dataUrl(_R2_LARGE_RANGE_RE) 强制走 R2,
+       无大小限制上传(架构一致性; 2026-08-03 sentiment-3y 962KB<1MB 漏传致线上 404 修复)。
+    2. >=1MB 的大文件: 阈值兜底,小文件留 git 减 R2 请求延迟。
+    新增大文件自动覆盖（glob + 过滤，无需维护硬编码清单）。
     """
     data_dir = STATIC_DIR / "data"
     LARGE_THRESHOLD = 1 * 1024 * 1024  # 1MB
+    # 大 range 文件前端 dataUrl 必走 R2(与 app.js _R2_LARGE_RANGE_RE 同规则), 无大小限制上传
+    _LARGE_RANGE_RE = re.compile(r'-(?:all|5y|3y)\.json$')
     # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund/fund_score 由各自命令处理）
     exclude_prefixes = ("industry-", "public_fund", "offshore_fund", "fund_score")
     files = []
@@ -487,7 +492,8 @@ def cmd_upload_data_large():
             sz = f.stat().st_size
         except OSError:
             continue
-        if sz >= LARGE_THRESHOLD:
+        # 大 range 文件(前端强制走 R2)或 >=1MB 的大文件才上传 R2
+        if sz >= LARGE_THRESHOLD or _LARGE_RANGE_RE.search(f.name):
             files.append(f)
             gz = f.with_suffix(".json.gz")
             if gz.exists():
