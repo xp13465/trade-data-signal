@@ -16,7 +16,8 @@
 //   注：比 FastAPI 多存 provider_uid，因 KV 无按 user_id 查询，me 需 provider+provider_uid 直取 user record
 // users：KV key=user:<provider>:<provider_uid>，value=JSON{id,provider,provider_uid,name,avatar,email,created_at,last_login_at}
 //   id 用 crypto.randomUUID()（KV 无自增）；登录时 upsert：存在更新 last_login_at，不存在新建
-// state：KV key=oauth_state:<state>，value=1，TTL 300s；callback 校验 KV 存在 + cookie 匹配（双校验防 CSRF）
+// state：无状态校验 = HMAC 签名 + cookie 匹配（state=random.base64url(HMAC-SHA256(random, SESSION_SECRET))）防 CSRF/防伪造
+//   KV 仅作防重放辅助：login put，callback get 到就 delete，get 不到不阻断（容忍 CF KV 最终一致性 up to 60s 跨边缘节点传播延迟）
 //
 // env 变量（wrangler secret put 配置，不进 wrangler.jsonc）：
 //   GITEE_CLIENT_ID / GITEE_CLIENT_SECRET / GITEE_REDIRECT_URI（生产=https://ss.fx8.store/api/auth/callback/gitee）/ SESSION_SECRET
@@ -204,8 +205,12 @@ async function loginGitee(request, env) {
   const redirectUri = env.GITEE_REDIRECT_URI || '';
   if (!clientId) return jsonResponse({ detail: 'Gitee OAuth 未配置（GITEE_CLIENT_ID 环境变量为空）' }, 503);
   if (!redirectUri) return jsonResponse({ detail: 'GITEE_REDIRECT_URI 未配置' }, 503);
-  const state = crypto.randomUUID();
-  // state 存 KV（TTL 5min）+ cookie，回调双校验
+  const sessionSecret = env.SESSION_SECRET || '';
+  if (!sessionSecret) return jsonResponse({ detail: 'SESSION_SECRET 未配置' }, 503);
+  const stateRandom = crypto.randomUUID();
+  const stateSig = await hmacSign(sessionSecret, stateRandom);
+  const state = `${stateRandom}.${stateSig}`;
+  // state 存 KV 仅作防重放辅助（callback 容忍 get 不到，不依赖 KV 最终一致性）
   await env.SUBSCRIBE_KV.put(`oauth_state:${state}`, '1', { expirationTtl: STATE_TTL });
   const loginUrl = (
     'https://gitee.com/oauth/authorize'
@@ -231,18 +236,27 @@ async function callbackGitee(request, env, url) {
   const state = url.searchParams.get('state') || '';
   if (!code || !state) return jsonResponse({ detail: '回调缺少 code/state 参数' }, 400);
 
-  // state 双校验：KV 存在 + cookie 匹配（防 CSRF）
-  const kvState = await env.SUBSCRIBE_KV.get(`oauth_state:${state}`);
-  if (!kvState) {
-    return jsonResponse({ detail: 'state 校验失败（KV 中不存在，可能已过期或重放）' }, 400);
+  // state 校验：HMAC 签名 + cookie 匹配（无状态校验，不依赖 KV 最终一致性）
+  const stateParts = state.split('.');
+  if (stateParts.length !== 2) {
+    return jsonResponse({ detail: 'state 格式无效' }, 400);
+  }
+  const [stateRandom, stateSig] = stateParts;
+  if (!sessionSecret) return jsonResponse({ detail: 'SESSION_SECRET 未配置' }, 503);
+  const sigOk = await hmacVerify(sessionSecret, stateRandom, stateSig);
+  if (!sigOk) {
+    return jsonResponse({ detail: 'state 签名校验失败（HMAC 不匹配，可能被篡改）' }, 400);
   }
   const cookies = getCookies(request);
   const cookieState = cookies[STATE_COOKIE_NAME] || '';
   if (!cookieState || cookieState !== state) {
     return jsonResponse({ detail: 'state 校验失败（cookie 不匹配，可能跨站请求伪造）' }, 400);
   }
-  // 用完即删（防重放）
-  await env.SUBSCRIBE_KV.delete(`oauth_state:${state}`);
+  // KV 仅作防重放辅助：get 到就 delete（用完即废），get 不到不阻断（容忍 KV 最终一致性）
+  try {
+    const kvState = await env.SUBSCRIBE_KV.get(`oauth_state:${state}`);
+    if (kvState) await env.SUBSCRIBE_KV.delete(`oauth_state:${state}`);
+  } catch {}
 
   // 换 access_token（form-urlencoded，对齐 FastAPI httpx data=）
   const tokenBody = new URLSearchParams({
@@ -314,8 +328,12 @@ async function loginGithub(request, env) {
   if (!clientId || !clientSecret || !redirectUri) {
     return jsonResponse({ detail: 'GitHub OAuth 未配置（GITHUB_CLIENT_ID/SECRET/REDIRECT_URI 任一缺失）' }, 503);
   }
-  const state = crypto.randomUUID();
-  // state 存 KV（TTL 5min）+ cookie，回调双校验
+  const sessionSecret = env.SESSION_SECRET || '';
+  if (!sessionSecret) return jsonResponse({ detail: 'SESSION_SECRET 未配置' }, 503);
+  const stateRandom = crypto.randomUUID();
+  const stateSig = await hmacSign(sessionSecret, stateRandom);
+  const state = `${stateRandom}.${stateSig}`;
+  // state 存 KV 仅作防重放辅助（callback 容忍 get 不到，不依赖 KV 最终一致性）
   await env.SUBSCRIBE_KV.put(`oauth_state:${state}`, '1', { expirationTtl: STATE_TTL });
   const loginUrl = (
     'https://github.com/login/oauth/authorize'
@@ -340,18 +358,27 @@ async function callbackGithub(request, env, url) {
   const state = url.searchParams.get('state') || '';
   if (!code || !state) return jsonResponse({ detail: '回调缺少 code/state 参数' }, 400);
 
-  // state 双校验：KV 存在 + cookie 匹配（防 CSRF）
-  const kvState = await env.SUBSCRIBE_KV.get(`oauth_state:${state}`);
-  if (!kvState) {
-    return jsonResponse({ detail: 'state 校验失败（KV 中不存在，可能已过期或重放）' }, 400);
+  // state 校验：HMAC 签名 + cookie 匹配（无状态校验，不依赖 KV 最终一致性）
+  const stateParts = state.split('.');
+  if (stateParts.length !== 2) {
+    return jsonResponse({ detail: 'state 格式无效' }, 400);
+  }
+  const [stateRandom, stateSig] = stateParts;
+  if (!sessionSecret) return jsonResponse({ detail: 'SESSION_SECRET 未配置' }, 503);
+  const sigOk = await hmacVerify(sessionSecret, stateRandom, stateSig);
+  if (!sigOk) {
+    return jsonResponse({ detail: 'state 签名校验失败（HMAC 不匹配，可能被篡改）' }, 400);
   }
   const cookies = getCookies(request);
   const cookieState = cookies[STATE_COOKIE_NAME] || '';
   if (!cookieState || cookieState !== state) {
     return jsonResponse({ detail: 'state 校验失败（cookie 不匹配，可能跨站请求伪造）' }, 400);
   }
-  // 用完即删（防重放）
-  await env.SUBSCRIBE_KV.delete(`oauth_state:${state}`);
+  // KV 仅作防重放辅助：get 到就 delete（用完即废），get 不到不阻断（容忍 KV 最终一致性）
+  try {
+    const kvState = await env.SUBSCRIBE_KV.get(`oauth_state:${state}`);
+    if (kvState) await env.SUBSCRIBE_KV.delete(`oauth_state:${state}`);
+  } catch {}
 
   // 换 access_token（GitHub 必须带 Accept: application/json 否则返回 url-encoded string）
   // body JSON 含 client_id/client_secret/code/redirect_uri（GitHub 不需 grant_type，默认 authorization_code）
