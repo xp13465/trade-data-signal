@@ -28,12 +28,12 @@
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
     "est_text": "约2分钟",
-    "last_run": "2026-08-03 14:05",
+    "last_run": "2026-08-03 14:15",
     "last_exit": 0,
-    "last_duration_sec": 134,
-    "log_anomaly": true,
-    "log_anomaly_keyword": "TimeoutError:",
-    "log_anomaly_line": "⚠ PUT index/thsc_309119-all.json.gz attempt 1 失败(TimeoutError: timed out), 1s 后重试"
+    "last_duration_sec": 114,
+    "log_anomaly": false,
+    "log_anomaly_keyword": null,
+    "log_anomaly_line": null
   },
   {
     "task": "futures_backfill",
