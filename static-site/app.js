@@ -296,11 +296,12 @@ function mkCard(title, height = 300, hint = null, container = content, chartArr 
 }
 
 // 通用折线：series = [{name, data:[{date,value}]}] 或单条 [{date,value}]
-function lineChart(title, series, opts = {}, hint = null, container = content) {
+// height 可选（第6参数，默认 300），用于单独压缩某张卡片图表高度。
+function lineChart(title, series, opts = {}, hint = null, container = content, height = 300) {
   const multi = Array.isArray(series) && series.length && series[0] && series[0].data;
   const arr = multi ? series : [{ name: stripHtml(title), data: series }];
   const dates = [...new Set(arr.flatMap((s) => s.data.map((d) => d.date)))].sort();
-  const c = mkCard(title, 300, hint, container);
+  const c = mkCard(title, height, hint, container);
   c.setOption(withTheme({
     tooltip: { trigger: "axis" },
     legend: { top: 0, type: "scroll" },
@@ -1206,7 +1207,7 @@ const _INDEX_NAME_MAP = {
   div_lowvol: '红利低波', csi_div: '中证红利', sz_div: '深证红利',
   // 全球指标
   cn10y: '中国10年国债', us10y: '美国10年国债', wti_oil: 'WTI原油', brent: '布伦特原油',
-  cgb_idx: '中证国债', cgb_10y_etf: '10年国债ETF', cgb_10y_future: '10年国债期货',
+  cgb_idx: '上证国债指数', cgb_10y_etf: '10年国债ETF', cgb_10y_future: '10年国债期货',
   comex_silver: 'COMEX白银', gold: '伦敦金', oil: '原油', usdcnh: '美元/离岸人民币',
   a_qvix_300: '中国波指300', a_qvix_1000: '中国波指(50ETF期权)', cn_us_spread: '中美利差',
   // 综合情绪
@@ -1846,6 +1847,7 @@ function signalHelpTip(tipText) {
   const style = document.createElement("style");
   style.textContent = ".chart-hint .hint-sig.sell-stop-loss { background: #3498db; color: #fff; }";
   style.textContent += ".chart-hint .hint-sig.band-hold { background: #ff9800; color: #fff; }";  // 波段持有 橙（国债波段仓管，2026-07-24）
+  style.textContent += ".chart-hint .hint-sig.band-sell { background: #8bc34a; color: #fff; }";  // 波段减仓 草绿（国债波段仓管，2026-07-20 任务6+7）
   document.head.appendChild(style);
 })();
 
@@ -2660,18 +2662,44 @@ function statsHint(stats, strategy, indexId) {
   const strat = strategyDesc(strategy);
   const stratHtml = strat ? `<div class="hint-strategy">📋 策略｜买: ${strat.buy} · 辅买: ${strat.buy_aux} · 卖: ${strat.sell}</div>` : "";
   if (!stats) return stratHtml || null;
+  // 任务6+7(2026-07-20): 指数类别加强展示 + 国债冲突提示 + 信号概念说明(不替用户下结论,让用户自己判断)
+  const _idxName = indexId ? indexIdToName(indexId) : "";
+  const _idxCatHtml = _idxName ? `<div class="hint-index-cat">📊 ${_idxName} · 信号统计</div>` : "";
+  const _isCgb = !!(indexId && indexId.startsWith("cgb_"));
+  // 信号概念说明(一句话含义,不替用户下结论)
+  const _sigConcept = {
+    buy: "RSI上穿30·超卖拐头(均值回归)",
+    buy_aux: "布林下轨回归(左侧布局)",
+    buy_special: "唐奇安上轨突破(趋势跟随)",
+    buy_special_filtered: "追关注(h5过滤预览)",
+    buy_backup: "Supertrend翻多(趋势反转)",
+    sell: "MA60多头+MACD死叉(止盈调整)",
+    sell_stop_loss: "ATR×3.5止损(趋势破位)",
+    band_hold: "国债波段仓管·持有(无超买超卖)",
+    band_sell: "国债波段仓管·减仓(触超买锁利润)",
+  };
+  // 国债品种信号排序: band 体系主信号(band_hold/band_sell/buy_aux/sell_stop_loss)排前, buy_special 排后标"次要·参考"
+  const _sigOrder = _isCgb
+    ? ["band_hold", "band_sell", "buy_aux", "sell_stop_loss", "buy", "buy_backup", "sell", "buy_special"]
+    : ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"];
+  // 国债冲突提示: buy_special(追关注·通用趋势信号) 与 band 体系(波段仓管) 方向相反, 国债上参考意义有限
+  const _hasCgbConflict = _isCgb && stats.buy_special && stats.buy_special["10d"] && stats.band_hold && stats.band_hold["10d"];
   const blocks = [];
-  const labels = { buy: _t("buy_long"), buy_aux: _t("buy_aux"), buy_special: _t("buy_special"), buy_special_filtered: _t("buy_special_filtered_long"), buy_backup: _t("buy_backup"), sell: _t("sell_long"), sell_stop_loss: _t("sell_stop_loss") , band_hold: _t("band_hold") };
-  const sigClass = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold" };
-  for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
+  const labels = { buy: _t("buy_long"), buy_aux: _t("buy_aux"), buy_special: _t("buy_special"), buy_special_filtered: _t("buy_special_filtered_long"), buy_backup: _t("buy_backup"), sell: _t("sell_long"), sell_stop_loss: _t("sell_stop_loss") , band_hold: _t("band_hold"), band_sell: _t("type_band_sell") };
+  const sigClass = { buy: "buy", buy_aux: "buy-aux", buy_special: "buy-special", buy_special_filtered: "buy-special-filtered", buy_backup: "buy-backup", sell: "sell", sell_stop_loss: "sell-stop-loss" , band_hold: "band-hold", band_sell: "band-sell" };
+  for (const sig of _sigOrder) {
     const s = stats[sig];
     if (!s || !s["10d"]) continue;
     const d = s["10d"];
     const n = d.n || 0;
-    const label = labels[sig];
+    let label = labels[sig];
     const cls = sigClass[sig];
+    // 国债上 buy_special 标"次要·参考"(通用趋势信号,国债上参考意义有限)
+    const _isMinor = _isCgb && sig === "buy_special";
+    if (_isMinor) label = label + `<span class="hint-minor-tag">${_t("treasury_buy_special_minor")}</span>`;
+    const _concept = _sigConcept[sig] ? `<span class="hint-concept">${_sigConcept[sig]}</span>` : "";
     if (n < 10) {
-      blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-warn">样本不足（仅 ${n} 例），仅供参考，不计凯利</span></div>`);
+      blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span>${_concept}<span class="hint-warn">样本不足（仅 ${n} 例），仅供参考，不计凯利</span></div>`);
       continue;
     }
     const wr = Math.round((d.win_rate || 0) * 100);
@@ -2700,13 +2728,13 @@ function statsHint(stats, strategy, indexId) {
       : "";
     // 卖点胜率语义是"走弱概率"（卖后 10 日下跌概率），与买点"胜率"语义对称但口径不同
     const wrLabel = (sig === "sell" || sig === "sell_stop_loss") ? "走弱概率" : "胜率";
-    blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span><span class="hint-stat">${wrLabel} <b class="wr ${wrCls}">${wr}%</b></span><span class="hint-stat">盈亏比 ${pl}</span><span class="hint-stat">样本 ${n}</span>${kellyHtml}${honestTag}</div>`);
+    blocks.push(`<div class="hint-row"><span class="hint-sig ${cls}">${label}</span>${_concept}<span class="hint-stat">${wrLabel} <b class="wr ${wrCls}">${wr}%</b></span><span class="hint-stat">盈亏比 ${pl}</span><span class="hint-stat">样本 ${n}</span>${kellyHtml}${honestTag}</div>`);
   }
-  if (!blocks.length) return stratHtml || null;
+  if (!blocks.length) return _idxCatHtml + stratHtml || null;
   // 频率统计区块
   let freqHtml = "";
   const freqBlocks = [];
-  for (const sig of ["buy", "buy_aux", "buy_special", "buy_special_filtered", "buy_backup", "band_hold", "sell", "sell_stop_loss"]) {
+  for (const sig of _sigOrder) {
     const s = stats[sig];
     if (!s || !s.frequency) continue;
     const f = s.frequency;
@@ -2718,12 +2746,15 @@ function statsHint(stats, strategy, indexId) {
   if (freqBlocks.length) {
     freqHtml = `<div class="hint-header">📅 信号频率</div><div class="hint-blocks">${freqBlocks.join("")}</div>`;
   }
+  // 国债冲突提示行(buy_special 追关注 vs band 体系 波段仓管, 方向相反)
+  const _conflictHtml = _hasCgbConflict ? `<div class="hint-conflict">⚠ ${_t("treasury_conflict_hint")}</div>` : "";
   // 模拟回测按钮已从 statsHint 移出（2026-07-23 改动3）：原塞在 hint 最前属"策略区块内"，
   // 现由调用方（indexChart / valueChartWithSignals / KPI详情 / 网格）通过 _prependSimBtn
   // 注入 h3 末尾排在❓后（改动4），语义上"真正挪出策略区块"且与❓行内排列。
-  return stratHtml + `<div class="hint-header">统计基准：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
+  return _idxCatHtml + stratHtml + `<div class="hint-header">统计基准：全历史信号 · 信号触发后 10 个交易日收益统计</div>` +
     `<div class="hint-blocks">${blocks.join("")}</div>` +
     freqHtml +
+    _conflictHtml +
     `<details class="hint-kelly-explain"><summary>凯利公式是什么？这个数怎么看？</summary>` +
     `<div class="hint-kelly-body">` +
     `<div><b>公式</b>：f* = max(0, (盈亏比 × 胜率 − (1 − 胜率)) ÷ 盈亏比) —— 根据该信号的胜率与盈亏比，算出每次下注的最优资金比例。</div>` +
@@ -4544,7 +4575,7 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
 // 2026-07-27: badge 元素打 data-badge-date/src/srckey 属性, 供 refreshCardTimeBadges 重绘.
 // 2026-07-30: 新增 isIndexSpark 参数(分时图指数sparkline卡片=true),打 data-badge-isdyn="1" 标识,
 //   refreshCardTimeBadges 据此判断是否用 _intradayDynamicTime(1min动态) vs snap.datetime(10min粒度).
-function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey, isIndexSpark) {
+function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey, isIndexSpark, useOverviewDate) {
   if (!cardEl) return;
   const html = getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark);
   if (html) {
@@ -4557,6 +4588,9 @@ function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey, isIndexSpark
     badge.setAttribute("data-badge-src", srcClass || "t0");
     if (srcKey) badge.setAttribute("data-badge-srckey", srcKey);
     if (isIndexSpark) badge.setAttribute("data-badge-isdyn", "1");
+    // 2026-07-20 任务1: freezeCard/sigCard 用首屏 r.date 固化, 轮询后需用最新 overview.date 覆盖.
+    // 打 data-badge-ovdate="1" 标识, refreshCardTimeBadges 据此用 _ov.date 覆盖 dataDate(不误伤 kpiId/序列卡).
+    if (useOverviewDate) badge.setAttribute("data-badge-ovdate", "1");
     cardEl.appendChild(badge);
     cardEl.classList.add("has-time-badge");
   }
@@ -4668,9 +4702,16 @@ function refreshCardTimeBadges(snap) {
     const srcKey = badge.getAttribute("data-badge-srckey") || "";
     const isIndexSpark = badge.getAttribute("data-badge-isdyn") === "1";
     const kpiId = badge.getAttribute("data-badge-kpiid") || "";
+    // 2026-07-20 任务1: freezeCard/sigCard 角标用首屏 r.date 固化, 轮询拉到新 overview 后需覆盖.
+    // 打了 data-badge-ovdate="1" 的角标, 用最新 overview.date 覆盖 dataDate(不误伤 kpiId 卡/6月序列卡).
+    const ovdate = badge.getAttribute("data-badge-ovdate") === "1";
     // KPI 卡: 用最新 overview 的 metric date 覆盖旧 dataDate (若 overview 已采到新 date)
     if (kpiId && _metricDateMap[kpiId]) {
       dataDate = _metricDateMap[kpiId];
+    }
+    // overview date 覆盖(freezeCard/sigCard: 首屏 r.date -> 最新 overview.date, 9:35 后角标不再卡"待盘后更新·旧日期")
+    if (ovdate && _ov && _ov.date) {
+      dataDate = _ov.date;
     }
     const newHTML = getCardTimeBadge(dataDate, _snap, srcClass, srcKey, isIndexSpark);
     if (!newHTML) return;
@@ -4684,6 +4725,7 @@ function refreshCardTimeBadges(snap) {
     if (srcKey) newBadge.setAttribute("data-badge-srckey", srcKey);
     if (isIndexSpark) newBadge.setAttribute("data-badge-isdyn", "1");
     if (kpiId) newBadge.setAttribute("data-badge-kpiid", kpiId);
+    if (ovdate) newBadge.setAttribute("data-badge-ovdate", "1");
     badge.replaceWith(newBadge);
   });
 }
@@ -5668,8 +5710,12 @@ const _INTRADAY_SNAPSHOT_TIMES = [
   15*60+5, 15*60+35
 ];
 // 当前北京时间是否在 intraday_snapshot 时点 ±2min 窗口内(关键刷新时刻)
+// 2026-07-20: 开盘关键期 9:15-9:35 全程 60s(独立判断,不依赖±2min窗口),
+//   解决 9:25 intraday首采后 9:27 窗口就关, 9:28-9:34 走 3min 低频错过 9:25 数据要等 3min 的问题.
 function _isKeyRefreshMoment() {
   const bjMin = _bjTimeMin();
+  // 9:15-9:35 开盘关键期全程 60s(竞价+首采+连续竞价开盘,数据切换密集)
+  if (bjMin >= 9*60+15 && bjMin <= 9*60+35) return true;
   for (const t of _INTRADAY_SNAPSHOT_TIMES) {
     if (Math.abs(bjMin - t) <= 2) return true;
   }
@@ -5948,10 +5994,20 @@ function _updateRefreshDebug() {
   if (_overviewHighFreqStart) {
     predict = ' 预测:' + _fmtHM(_overviewHighFreqStart + OVERVIEW_PREDICT_LEAD_MS);
   }
-  // 精确触发时点(9:25竞价完成/9:30开盘, 盘前显示, 让用户看到精确触发倒计时)
+  // 精确触发时点(9:25首采/9:30开盘, 盘前显示, 让用户看到精确触发倒计时)
+  // 2026-07-20: 改显示 9:25首采/9:30开盘(原取较晚9:30显示, 9:25首采被隐藏误导用户)
   let precision = '';
   if (_preOpenPrecisionNextAt > now) {
-    precision = ' ⏰精确:' + _fmtHM(_preOpenPrecisionNextAt);
+    const _bjMin = _bjTimeMin();
+    const _before925 = _bjMin < 9*60+25;
+    const _before930 = _bjMin < 9*60+30;
+    if (_before925 && _before930) {
+      precision = ' ⏰精确9:25首采/9:30开盘';
+    } else if (_before930) {
+      precision = ' ⏰精确9:30开盘';
+    } else {
+      precision = ' ⏰精确:' + _fmtHM(_preOpenPrecisionNextAt);
+    }
   }
   // 常驻只显示倒计时+后端时间(精简); status/samples/predict/precision 移到 hover title 显示
   _refreshDebugEl.textContent = '下次:' + countdown + ' | 后端:' + backend;
@@ -6032,14 +6088,14 @@ function _schedulePreOpenPrecisionTriggers() {
       _preOpenPrecisionTimer925 = null;
       if (typeof _checkMarketOpenNow === 'function') _checkMarketOpenNow();
     }, t925UtcMs - now);
-    nextAt = t925UtcMs;
+    nextAt = t925UtcMs;  // 9:25 较早, 优先作为"下次精确触发"时点(倒计时显示)
   }
   if (now < t930UtcMs) {
     _preOpenPrecisionTimer930 = setTimeout(() => {
       _preOpenPrecisionTimer930 = null;
       if (typeof _checkMarketOpenNow === 'function') _checkMarketOpenNow();
     }, t930UtcMs - now);
-    nextAt = t930UtcMs; // 9:30晚于9:25, 取较晚的作为"下次精确触发"时点
+    if (!nextAt) nextAt = t930UtcMs;  // 9:25 已过才用 9:30 作下次时点(取最早 upcoming)
   }
   _preOpenPrecisionNextAt = nextAt;
 }
@@ -7446,7 +7502,7 @@ async function renderOverview() {
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";
   freezeCard.innerHTML = _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）" + termTip("近120日情绪冰点日(恐贪指数<20)，常对应阶段性底部"), "freeze", "无近期冰点日");
-  addCardTimeBadge(freezeCard, r.date, snap, "t0");
+  addCardTimeBadge(freezeCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 覆盖
   // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
   freezeCard.addEventListener("click", (e) => {
     const item = e.target.closest(".sig-clickable");
@@ -7460,7 +7516,7 @@ async function renderOverview() {
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
-  addCardTimeBadge(sigCard, r.date, snap, "t0");
+  addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 覆盖
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
   // (_SNAPSHOT_TO_INDEX_ID 只12个),盘中它们的 -all.json 不更新,首页看到的当日 buy/sell pin
@@ -7603,7 +7659,7 @@ async function renderOverview() {
     const wUpV = (w.up.find((x) => x.date === wLast) || {}).value;
     const wDnV = (w.down.find((x) => x.date === wLast) || {}).value;
     const wSuffix = wLast ? `<span class="chart-latest"> · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}</span>` : "";
-    const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix + termTip(_WIDTH_CALIBER_TIP), 260, null, colB1);
+    const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix + termTip(_WIDTH_CALIBER_TIP), 182, null, colB1);
     appendPlainTip(wc, "上涨家数远多于下跌=普涨行情；两者接近=市场分化");
     addCardTimeBadge(wc.getDom().parentElement, wLast, snap, "t0");
     wc.setOption(withTheme({
@@ -7636,7 +7692,7 @@ async function renderOverview() {
         ],
         dimension: 1,
       },
-    }, null, colB1);
+    }, null, colB1, 210);
     if (cmChart) {
       // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
       cmChart.setOption({ series: [{ markLine: {
@@ -7746,7 +7802,7 @@ async function renderOverview() {
         { name: "腾落线", data: adData.map(d => ({ date: d.date, value: d.ad_line })), label: "腾落线" },
         { name: "腾落线MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
       ];
-      const adc = mkCard("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 300, null, colC1);
+      const adc = mkCard("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 210, null, colC1);
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
       addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       adc.setOption(withTheme({
@@ -7823,7 +7879,7 @@ async function renderOverview() {
         { name: "52周新低", data: nhlData.map(d => ({ date: d.date, value: d.nl_52w })), label: "新低" },
         { name: "净新高", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "净新高" },
       ];
-      const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 280, null, colC1);
+      const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 196, null, colC1);
       appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
       addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t0");
       nhlCard.setOption(withTheme({
@@ -9745,6 +9801,69 @@ async function renderPublicFund(container) {
     </div>`;
   container.appendChild(helpBox);
 
+  // 任务10 改动2(2026-07-20): 4维资金面共振区块(复用首页 _renderPublicFundHomeCard 的4维逻辑, 自包含样式)
+  // 数据来源同首页: overview.json r.today.metrics 3维 + a-stock-3m.json 末两点算环比 + summary.position_history 基金维
+  try {
+    if (!document.getElementById("pf-resonance-style")) {
+      const _rs = document.createElement("style");
+      _rs.id = "pf-resonance-style";
+      _rs.textContent = ".pf-resonance-card{margin-bottom:12px;}.pf-resonance-card .pf-resonance{margin-top:4px;padding:8px 10px;border-radius:6px;font-size:12.5px;line-height:1.6;background:var(--bg-hover);border-left:3px solid var(--border-strong);}.pf-resonance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin-top:6px;}.pf-resonance-cell{padding:5px 8px;border-radius:4px;background:var(--bg-card,var(--bg-1));font-size:11.5px;border:1px solid var(--border-light,var(--border));}.pf-resonance-cell .pf-rc-name{color:var(--text-3);font-size:10.5px;}.pf-resonance-cell .pf-rc-dir{font-weight:600;margin-top:2px;}.pf-rc-up{color:#e6492e;}.pf-rc-down{color:#2e8b57;}.pf-rc-flat{color:var(--text-3);}.pf-rc-unknown{color:var(--text-3);font-style:italic;}.pf-resonance-badge{display:inline-block;padding:3px 10px;border-radius:4px;font-weight:700;font-size:13px;margin-left:6px;}.pf-resonance-bull{background:rgba(230,73,46,0.15);color:#e6492e;border:1px solid #e6492e;}.pf-resonance-bear{background:rgba(46,139,87,0.15);color:#2e8b57;border:1px solid #2e8b57;}.pf-resonance-none{background:var(--bg-hover);color:var(--text-3);border:1px solid var(--border-light,var(--border));font-weight:400;}";
+      document.head.appendChild(_rs);
+    }
+    let _pfR = _getCachedOverview();
+    if (!_pfR) { _pfR = await fetchJSON("./data/overview.json").catch(() => null); }
+    if (_pfR && _pfR.today && _pfR.today.metrics) {
+      const _pfMetrics = _pfR.today.metrics || [];
+      const _pfFindM = (id) => _pfMetrics.find((m) => m.id === id);
+      const _pfNorth = _pfFindM("a_fund_north");
+      const _pfMargin = _pfFindM("a_fund_margin");
+      const _pfMain = _pfFindM("a_fund_main");
+      let _pfAvgPosDelta = null;
+      if (summary.position_history && summary.position_history.length >= 2) {
+        const lgHist = summary.position_history.filter((h) => h.source === "lg").sort((a, b) => a.report_date.localeCompare(b.report_date));
+        if (lgHist.length >= 2) { const n = lgHist.length; _pfAvgPosDelta = +(lgHist[n-1].position_pct - lgHist[n-2].position_pct).toFixed(2); }
+      }
+      const _pfDir = {
+        fund: _pfAvgPosDelta != null ? (_pfAvgPosDelta > 0 ? "多" : _pfAvgPosDelta < 0 ? "空" : "平") : "unknown",
+        main: _pfMain && _pfMain.value != null ? (_pfMain.value > 0 ? "多" : _pfMain.value < 0 ? "空" : "平") : "unknown",
+        margin: "unknown",
+        north: "unknown",
+      };
+      try {
+        const _pfHist = await fetchJSON("./data/a-stock-3m.json").catch(() => null);
+        if (_pfHist && _pfHist.metrics) {
+          const _pfLast2 = (id) => { const m = _pfHist.metrics[id]; if (!m || !m.data || m.data.length < 2) return [null, null]; const n = m.data.length; return [m.data[n-2].value, m.data[n-1].value]; };
+          const [mp, mc] = _pfLast2("a_fund_margin"); if (mp != null && mc != null) _pfDir.margin = mc > mp ? "多" : mc < mp ? "空" : "平";
+          const [np, nc] = _pfLast2("a_fund_north"); if (np != null && nc != null) _pfDir.north = nc > np ? "多" : nc < np ? "空" : "平";
+        }
+      } catch {}
+      const _pfDirs = [_pfDir.fund, _pfDir.main, _pfDir.margin, _pfDir.north];
+      const _pfAllKnown = _pfDirs.every((d) => d === "多" || d === "空");
+      const _pfAllSame = _pfAllKnown && _pfDirs.every((d) => d === _pfDirs[0]);
+      const _pfRes = _pfAllSame ? (_pfDirs[0] === "多" ? "看多" : "看空") : null;
+      const _pfResBadge = _pfRes === "看多" ? '<span class="pf-resonance-badge pf-resonance-bull">4 维共振看多</span>'
+        : _pfRes === "看空" ? '<span class="pf-resonance-badge pf-resonance-bear">4 维共振看空</span>'
+        : '<span class="pf-resonance-badge pf-resonance-none">4 维方向不一 · 暂无共振</span>';
+      const _pfDirCell = (name, d) => {
+        const cls = d === "多" ? "pf-rc-up" : d === "空" ? "pf-rc-down" : d === "平" ? "pf-rc-flat" : "pf-rc-unknown";
+        const label = d === "unknown" ? "暂无" : d;
+        return '<div class="pf-resonance-cell"><div class="pf-rc-name">' + name + '</div><div class="pf-rc-dir ' + cls + '">' + label + '</div></div>';
+      };
+      const _pfResBlock = document.createElement("div");
+      _pfResBlock.className = "chart-card pf-resonance-card";
+      _pfResBlock.innerHTML = '<h3>🔀 4 维资金面共振 ' + _pfResBadge + '</h3>' +
+        '<div class="pf-resonance"><div style="font-size:12px;color:var(--text-3);margin:4px 0 8px">4维同向(皆多/皆空)才标共振;任一方向不明或不一致则不共振。北向=外资/两融=杠杆/主力=产业资本/基金=机构。</div>' +
+        '<div class="pf-resonance-grid">' +
+          _pfDirCell("北向(成交额环比)", _pfDir.north) +
+          _pfDirCell("两融(余额环比)", _pfDir.margin) +
+          _pfDirCell("主力(净流入正负)", _pfDir.main) +
+          _pfDirCell("基金(仓位环比)", _pfDir.fund) +
+        '</div>' +
+        '<div style="margin-top:6px;font-size:11px;color:var(--text-3);line-height:1.5">注:北向原净买额 2024-08 停更,现用成交总额环比;主力=大单净流入;基金=季报仓位环比。4维频率不同(日/日/日/季),基金维更新慢。</div></div>';
+      container.appendChild(_pfResBlock);
+    }
+  } catch (e) { /* 4维共振区块失败不影响其他渲染 */ }
+
   // ── 提取 4 信号灯指标 ──
   const metricsMap = {};
   (summary.metrics || []).forEach((m) => { metricsMap[m.metric_id] = m; });
@@ -11566,20 +11685,20 @@ async function _renderPublicFundHomeCard(host, r, snap) {
   const margin = _findM("a_fund_margin"); // 两融余额(亿)
   const main = _findM("a_fund_main");     // 主力净流入(亿)
 
-  // 各维方向需要历史末两点对比 -> 取 a-stock-1m.json(轻量, 已有缓存)
+  // 各维方向需要历史末两点对比 -> 取 a-stock-3m.json(EXPORT_RANGES 含 3m, 有 62 点可算环比; 1m 不在 EXPORT_RANGES 会 404)
   // 但首页已加载 overview, 无历史时序 -> 用 main.value 正负(主力净流入正=做多, 负=做空)作方向
   // 两融/北向无方向值, 只能取环比 -> 暂用单点值 + 涨跌标签(若 metrics 有 signal 字段则用, 否则置 unknown)
   // 为避免误导, 4 维共振用「明确同向」判定: 4 维都明确看多/看空才共振; 任一 unknown 或方向不一致 -> 不标共振
   const _dir = {
     fund: avgPosDelta != null ? (avgPosDelta > 0 ? "多" : avgPosDelta < 0 ? "空" : "平") : "unknown", // 基金加仓=多, 减仓=空
     main: main && main.value != null ? (main.value > 0 ? "多" : main.value < 0 ? "空" : "平") : "unknown", // 主力净流入正=多, 负=空
-    // 两融/北向单点值无方向, 需历史对比 -> fetch a-stock-1m.json 末两点(下文异步)
+    // 两融/北向单点值无方向, 需历史对比 -> fetch a-stock-3m.json 末两点(下文异步)
     margin: "unknown",
     north: "unknown",
   };
   // 异步补全两融/北向方向(末两点对比)
   try {
-    const hist = await fetchJSON("./data/a-stock-1m.json").catch(() => null);
+    const hist = await fetchJSON("./data/a-stock-3m.json").catch(() => null);
     if (hist && hist.metrics) {
       const _last2 = (id) => {
         const m = hist.metrics[id];
@@ -11697,9 +11816,30 @@ async function _renderPublicFundHomeCard(host, r, snap) {
        <div class="pf-home-hint">注:北向原净买额 2024-08 停更,现用成交总额环比作活跃度方向(语义弱于净买额);主力=产业资本代理(大单净流入);基金=季报仓位环比。4 维频率不同(日/日/日/季),基金维更新慢。</div>
      </div>`;
 
-  // 点击整卡跳转 sentiment/public-fund 二级 tab
+  // 任务10(2026-07-20): 4维共振区块 + 信号灯 click -> 弹窗(不跳转), stopPropagation 防触发整卡跳转
+  const _resonanceEl = card.querySelector(".pf-resonance");
+  if (_resonanceEl) {
+    _resonanceEl.style.cursor = "pointer";
+    _resonanceEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _openPfHomeModal("🔀 4 维资金面共振", _pfResonanceModalHtml(_dir, _resonance, _resBadge, { north, margin, main, avgPosVal, avgPosDelta }));
+    });
+  }
+  // 信号灯(88魔咒/80抄底/抱团瓦解/净赎回反向) click -> 弹窗(不跳转)
+  const _sigItems = card.querySelectorAll(".pf-sig-item");
+  _sigItems.forEach((el, i) => {
+    const _sig = _pfSignals[i];
+    if (!_sig) return;  // 中性提示项(无数据)不绑
+    el.style.cursor = "pointer";
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _openPfHomeModal(`${_sig.icon} ${_sig.title}`, _pfSignalModalHtml(_sig, { avgPosVal, reportDate }));
+    });
+  });
+
+  // 点击整卡跳转 sentiment/public-fund 二级 tab(4维共振/信号灯已 stopPropagation 不触发此 handler)
   card.addEventListener("click", (e) => {
-    // 点击 termTip ❓ 不跳转
+    // 点击 termTip ❓ / 4维共振 / 信号灯 不跳转(已 stopPropagation 兜底)
     if (e.target.closest(".term-tip")) return;
     state.tab = "sentiment";
     state.subtab = "public-fund";
@@ -11710,6 +11850,75 @@ async function _renderPublicFundHomeCard(host, r, snap) {
     _setTabHash(state.tab);
     renderTab();
   });
+}
+
+// 任务10(2026-07-20): 首页基金卡弹窗(4维共振/信号灯详情, 不跳转公募基金页, 复用 rule-modal 框架)
+function _openPfHomeModal(title, contentHtml) {
+  let modal = document.getElementById("pfHomeModal");
+  const isFirst = !modal;
+  if (isFirst) {
+    modal = document.createElement("div");
+    modal.id = "pfHomeModal";
+    modal.className = "rule-modal hidden";
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>' + title + '</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + contentHtml + '</div></div>';
+  const _close = () => { modal.classList.add("hidden"); document.body.style.overflow = ""; };
+  modal.querySelector(".rule-modal-overlay").addEventListener("click", _close);
+  modal.querySelector(".rule-modal-close").addEventListener("click", _close);
+  if (isFirst) {
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.classList.contains("hidden")) _close(); });
+  }
+  modal.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+// 4维共振弹窗内容(方向详情 + 共振徽标 + 概念说明)
+function _pfResonanceModalHtml(_dir, _resonance, _resBadge, data) {
+  const _dirDetail = (name, d, val, source) => {
+    const cls = d === "多" ? "pf-rc-up" : d === "空" ? "pf-rc-down" : d === "平" ? "pf-rc-flat" : "pf-rc-unknown";
+    const label = d === "unknown" ? "暂无" : d;
+    return '<div class="pf-resonance-cell" style="text-align:left">' +
+      '<div class="pf-rc-name">' + name + '</div>' +
+      '<div class="pf-rc-dir ' + cls + '" style="font-size:14px">' + label + '</div>' +
+      '<div style="font-size:10.5px;color:var(--text-3);margin-top:2px">当前值: ' + (val || "-") + ' · ' + source + '</div>' +
+    '</div>';
+  };
+  const _northVal = data.north && data.north.value != null ? data.north.value.toFixed(2) + "亿" : "-";
+  const _marginVal = data.margin && data.margin.value != null ? data.margin.value.toFixed(2) + "亿" : "-";
+  const _mainVal = data.main && data.main.value != null ? data.main.value.toFixed(2) + "亿" : "-";
+  const _fundVal = data.avgPosVal != null ? data.avgPosVal.toFixed(2) + "%" : "-";
+  return '<div style="margin-bottom:12px">' + _resBadge + '</div>' +
+    '<div class="pf-resonance-grid" style="margin-bottom:12px">' +
+      _dirDetail("北向(成交额环比)", _dir.north, _northVal, "HKEX T+1") +
+      _dirDetail("两融(余额环比)", _dir.margin, _marginVal, "上交所 T+1") +
+      _dirDetail("主力(净流入正负)", _dir.main, _mainVal, "akshare 盘中实时") +
+      _dirDetail("基金(仓位环比)", _dir.fund, _fundVal, "lg 季报滞后15天") +
+    '</div>' +
+    '<div class="pf-help-body" style="margin-bottom:12px">' +
+      '<div><b>概念说明</b>：4维资金面共振 = 北向(外资) + 两融(杠杆) + 主力(产业资本代理) + 基金(机构) 4维同向才共振。</div>' +
+      '<ul>' +
+        '<li><b>北向</b>：沪深股通成交总额(原净买额2024-08停更,现用成交额环比作活跃度方向)。T+1披露,放量=活跃度升=偏多。</li>' +
+        '<li><b>两融</b>：融资余额(杠杆资金)。T+1披露,余额增=杠杆做多升=多。</li>' +
+        '<li><b>主力</b>：大单净流入(产业资本代理)。盘中实时,正=多负=空。</li>' +
+        '<li><b>基金</b>：平均股票仓位环比(机构)。季频,季报滞后15天,加仓=多减仓=空。</li>' +
+      '</ul>' +
+      '<div>4维同向(皆多/皆空)才标共振;任一方向不明或不一致则不共振,避免误导。4维频率不同(日/日/日/季),基金维更新慢。</div>' +
+    '</div>' +
+    '<div class="pf-modal-tip">💡 点击卡片标题/仓位角标可跳转公募基金页查看完整持仓。</div>';
+}
+
+// 信号灯弹窗内容(88魔咒/80抄底/抱团瓦解/净赎回反向 详情 + 概念说明)
+function _pfSignalModalHtml(sig, data) {
+  return '<div class="pf-sig-item ' + sig.cls + '" style="margin-bottom:12px">' +
+      '<span class="pf-sig-icon">' + sig.icon + '</span>' +
+      '<div class="pf-sig-text"><b>' + sig.title + '</b><div class="pf-sig-desc">' + sig.desc + '</div></div>' +
+    '</div>' +
+    '<div class="pf-help-body" style="margin-bottom:12px">' +
+      '<div><b>当前仓位</b>：' + (data.avgPosVal != null ? data.avgPosVal.toFixed(2) + '%' : '-') + '（数据截止 ' + (data.reportDate || '-') + '，季报滞后约15天）</div>' +
+      '<div class="pf-help-warn">⚠ 本信号为辅助参考维度，滞后性强不作主信号；88魔咒为历史规律未必未来应验。研究参考，不构成投资建议。</div>' +
+    '</div>' +
+    '<div class="pf-modal-tip">💡 点击卡片标题/仓位角标可跳转公募基金页查看完整持仓。</div>';
 }
 
 let _pfResizeTimer = null;
@@ -16583,6 +16792,16 @@ function updateRulesContentHtml() {
         '<li>收盘后约 2 小时（17:50 update_all）T+1 源出数据后会补全</li>' +
         '<li>晚 20:00 再兜底补一次，凌晨 02:00 也会兜底一次</li>' +
       '</ul>' +
+    '</div>' +
+    '<div class="rule-section">' +
+      '<h4>📈 公募基金底座采集（stage0）</h4>' +
+      '<table class="ur-table"><thead><tr><th>任务</th><th>调度时点</th><th>内容</th><th>频率</th></tr></thead><tbody>' +
+        '<tr><td>overview</td><td>周日 02:17</td><td>补 fund_basic 15 列（规模/经理/成立日等）</td><td>每周</td></tr>' +
+        '<tr><td>nav</td><td>周五 01:43</td><td>5 年净值断点续采</td><td>每周</td></tr>' +
+        '<tr><td>risk</td><td>每月 15 日 02:33</td><td>风险指标 + 费率</td><td>季报月（1/4/7/10）才真跑，增量</td></tr>' +
+        '<tr><td>manager</td><td>每月 1 日 02:47</td><td>任职历史</td><td>每月</td></tr>' +
+      '</tbody></table>' +
+      '<p class="ur-note">公募基金底座数据（fund_basic/净值/风险/经理）独立采集，为场外基金评分排行（Phase A）提供数据基础。</p>' +
     '</div>' +
     '<div class="rule-section">' +
       '<h4>📊 近期执行统计</h4>' +

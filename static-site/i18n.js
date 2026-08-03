@@ -131,7 +131,10 @@
       fund_score_sort_manager_score: "经理评分 高->低",
       fund_score_sort_star: "星级 高->低",
       fund_score_sort_drawdown: "回撤评分 高->低",
-      fund_score_sort_stability: "稳定性评分 高->低"
+      fund_score_sort_stability: "稳定性评分 高->低",
+      // 任务6+7(2026-07-20): 国债冲突提示 + 次要参考标注(非交易指令词,两版同文案)
+      treasury_conflict_hint: "国债走波段仓位管理，波段调整优先；追关注为通用趋势信号，国债上参考意义有限",
+      treasury_buy_special_minor: "次要·参考"
     },
     // 原版（🛡️ off）：用户点按钮切回的详细买卖点版本
     original: {
@@ -242,7 +245,10 @@
       fund_score_sort_manager_score: "经理评分 高->低",
       fund_score_sort_star: "星级 高->低",
       fund_score_sort_drawdown: "回撤评分 高->低",
-      fund_score_sort_stability: "稳定性评分 高->低"
+      fund_score_sort_stability: "稳定性评分 高->低",
+      // 任务6+7(2026-07-20): 国债冲突提示 + 次要参考标注(非交易指令词,两版同文案)
+      treasury_conflict_hint: "国债走波段仓位管理，波段调整优先；追关注为通用趋势信号，国债上参考意义有限",
+      treasury_buy_special_minor: "次要·参考"
     }
   };
 

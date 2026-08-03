@@ -6260,8 +6260,8 @@ async function renderAIScoreListLab() {
   content.appendChild(wrapper);
 
   // fetch etf_score_list.json（后端生成,不存在时兜底）
-  const v = _labCustomCacheBust();
-  const url = `./data/etf_score_list.json?v=${v}`;
+  // R2 直链(对齐 app.js:14059, .gitignore 已踢出 git 线上 ./data/ 三域名全 404)
+  const url = "https://ssd.fx8.store/data/etf_score_list.json";
   let data = null;
   try {
     data = await fetchJSON(url);

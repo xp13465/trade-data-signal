@@ -645,6 +645,7 @@ main { padding: 16px 24px; }
   font-size: 11px;
   color: #fff;
   flex-shrink: 0;
+  border-left: 3px solid rgba(255,255,255,0.4);  /* 任务6+7: 左边框加强视觉区分 */
 }
 .chart-hint .hint-sig.buy { background: #e6492e; }
 .chart-hint .hint-sig.buy-aux { background: #d63384; }
@@ -653,6 +654,11 @@ main { padding: 16px 24px; }
 .chart-hint .hint-sig.buy-backup { background: #9c27b0; }
 .chart-hint .hint-sig.sell { background: #2e8b57; }
 .chart-hint .hint-sig.sell-stop-loss { background: #3498db; color: #fff; }
+/* 任务6+7(2026-07-20): 指数类别头部 + 信号概念说明 + 国债冲突提示 + 次要参考标注 */
+.chart-hint .hint-index-cat { font-size: 12px; font-weight: 700; color: var(--text-1); padding: 4px 8px; margin-bottom: 6px; background: var(--primary-bg); border-left: 3px solid var(--primary); border-radius: 2px; }
+.chart-hint .hint-concept { font-size: 10.5px; color: var(--text-3); font-weight: 400; }
+.chart-hint .hint-minor-tag { display: inline-block; margin-left: 4px; padding: 0 4px; font-size: 9.5px; font-weight: 600; color: #fff; background: var(--text-4, #999); border-radius: 2px; vertical-align: middle; }
+.chart-hint .hint-conflict { margin: 6px 0; padding: 6px 10px; font-size: 11.5px; line-height: 1.5; color: #d4380d; background: rgba(212,56,13,0.08); border-left: 3px solid #d4380d; border-radius: 3px; }
 .chart-hint .hint-stat { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .chart-hint .hint-stat b { font-weight: 600; }
 .chart-hint .hint-kelly { color: var(--primary); }
