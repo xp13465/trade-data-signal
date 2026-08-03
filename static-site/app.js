@@ -7615,10 +7615,7 @@ async function renderOverview() {
   }
   colA2.appendChild(ntCard);
 
-  // 阶段 J+K: 公募基金信号卡(基金仓位角标 + 4 信号灯 + 4 维资金面共振)
-  // 异步渲染, 不阻塞首页主结构(失败降级隐藏, 不影响其他卡; 与 renderPublicFund 不同, 此处只读 summary 一份)
-  // 2026-07-20 按用户诉求从右列(colA2)移到左列(colA1)综合情绪分卡下方(移动端单列顺序: 综合情绪分->基金仓位信号)
-  _renderPublicFundHomeCard(colA1, r, snap);
+  // 公募基金信号卡调用已移至下方合并 ov2ColB 左列 colB1 (5:4 布局 ui120, 2026-07-20 用户方案)
 
   // 汪汪队首次解释：复用 showIntroOnce 弹窗,localStorage[nt_intro_done] 标记后不再弹。
   // 加 _ntIntroScheduled 守卫,确保整页生命周期只调度一次(避免 tab 反复切换重复 setTimeout)。
@@ -7771,14 +7768,11 @@ async function renderOverview() {
     }
   }).catch((e) => { renderFailCard(colB2, "&#x1F4CD; 大盘位置感", e); });
 
-  // ---- 4. AD Line 腾落线 + 成交量对比（全宽，横跨两列）----
-  const ov2ColC = document.createElement("div");
-  ov2ColC.className = "ov-2col";
-  const colC1 = document.createElement("div");
-  const colC2 = document.createElement("div");
-  ov2ColC.appendChild(colC1);
-  ov2ColC.appendChild(colC2);
-  content.appendChild(ov2ColC);
+  // ---- 4. AD Line 腾落线 + 成交量对比（合并到 ov2ColB, 5:4 布局 ui120, 2026-07-20 用户方案）----
+  // 第2+3个 ov-2col 合并为1个(左5右4), ov2ColC 不再新建, 复用 ov2ColB/colB1/colB2
+  const ov2ColC = ov2ColB;  // 合并容器(复用 ov2ColB)
+  const colC1 = colB1;      // 复用左列(基金仓位卡稍后 append 为第5位)
+  const colC2 = colB2;      // 复用右列
 
   // 并行拉取 AD Line / 成交量对比 / 新高新低（3 个独立 fetch，allSettled 互不影响，失败各自降级）
   const [adLineP, volRatioP, newHighLowP] = await Promise.allSettled([
@@ -7921,6 +7915,13 @@ async function renderOverview() {
       }
     }
   } catch (e) { /* new_high_low 失败不影响主流程，静默降级 */ }
+
+  // 阶段 J+K: 公募基金信号卡(基金仓位角标 + 4 信号灯 + 4 维资金面共振)
+  // 异步渲染, 不阻塞首页主结构(失败降级隐藏, 不影响其他卡; 与 renderPublicFund 不同, 此处只读 summary 一份)
+  // 2026-07-20 ui120 用户方案: 从原 colA1(第1个ov-2col左列)移到合并后 ov2ColB 左列 colB1 作第5卡
+  // 放在 Promise.allSettled(ADLine/新高新低)之后调用, 确保占位卡 append 为 colB1 第5位(市场宽度->跨市场->ADLine->新高新低->基金仓位)
+  // 移动端单列顺序: 综合情绪分(第1ov-2col) -> 冰点/买卖点/汪汪队 -> 市场宽度/跨市场/均线/位置感/ADLine/成交额/新高新低/明细/基金仓位
+  _renderPublicFundHomeCard(colB1, r, snap);
 
   // ---- 5. 申万行业涨跌幅热力图 ----
   if (r.industry_heatmap && r.industry_heatmap.length) {
