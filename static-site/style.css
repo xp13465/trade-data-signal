@@ -2142,6 +2142,22 @@ main { padding: 16px 24px; }
   }
 }
 
+/* 期货同向准确度合并卡（规律结论 + 准确度表 + 趋势图 三区块合一） */
+.futures-acc-merged-card {
+  grid-column: 1 / -1;
+}
+.futures-acc-sub {
+  position: relative;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.futures-acc-sub:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
 /* 期货净多空概览表 */
 .futures-summary-table {
   width: 100%;

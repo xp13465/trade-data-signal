@@ -12314,8 +12314,8 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   const _fmtFrCell = (fr) => {
     if (fr == null) return { text: "-", cls: "", title: "" };
     let cls = "", suffix = "", title = "";
-    if (fr <= 30) { cls = "acc-cell-low"; suffix = "<br><small>抄底信号</small>"; title = "follow_ratio<=30%：历史34次中33次(97%)后20日正收益"; }
-    else if (fr >= 80) { cls = "acc-cell-high"; suffix = "<br><small>顶部预警</small>"; title = "follow_ratio>=80%：历史22次中15次(68%)后20日负收益"; }
+    if (fr <= 30) { cls = "acc-cell-low"; suffix = "<br><small>抄底信号</small>"; title = "同向准确度<=30%：历史34次中33次(97%)后20日正收益"; }
+    else if (fr >= 80) { cls = "acc-cell-high"; suffix = "<br><small>顶部预警</small>"; title = "同向准确度>=80%：历史22次中15次(68%)后20日负收益"; }
     return { text: fr.toFixed(1) + "%" + suffix, cls, title };
   };
 
@@ -12349,7 +12349,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
     };
     html += `<div class="term-plain futures-stat-sub" style="margin:6px 0;font-size:13px;">中信 <strong style="color:var(--text-1)">${fmtStat(citicCd)}</strong> · 机构 <strong style="color:var(--text-1)">${fmtStat(instCd)}</strong></div>`;
     // 合并表7列，用 .accuracy-table-scroll 滚动容器
-    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>中信方向</th><th>中信次日涨跌</th><th>中信对错</th><th>机构方向</th><th>机构次日涨跌</th><th>机构对错</th><th>中信follow%</th><th>机构follow%</th></tr></thead><tbody>';
+    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>中信方向</th><th>中信同向%</th><th>中信次日涨跌</th><th>中信对错</th><th>机构方向</th><th>机构同向%</th><th>机构次日涨跌</th><th>机构对错</th></tr></thead><tbody>';
     // 按 date join 两份 details（并集，缺则该角色留空"-"）
     const citicMap = {};
     if (citicCd && citicCd.details) citicCd.details.forEach(d => { citicMap[d.date] = d; });
@@ -12389,7 +12389,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
       const _iFrCell = _fmtFrCell(_iFr);
       const _cFrTd = `<td class="${_cFrCell.cls}" title="${_cFrCell.title}">${_cFrCell.text}</td>`;
       const _iFrTd = `<td class="${_iFrCell.cls}" title="${_iFrCell.title}">${_iFrCell.text}</td>`;
-      html += `<tr${rowStyle}><td class="sym-name">${fmtDate(date)}</td><td style="color:${cD.color};font-weight:bold">${cD.text}</td><td style="color:${cR.color}">${cR.str}</td><td style="color:${cJ.color};font-weight:bold">${cJ.text}</td><td style="color:${iD.color};font-weight:bold">${iD.text}</td><td style="color:${iR.color}">${iR.str}</td><td style="color:${iJ.color};font-weight:bold">${iJ.text}</td>${_cFrTd}${_iFrTd}</tr>`;
+      html += `<tr${rowStyle}><td class="sym-name">${fmtDate(date)}</td><td style="color:${cD.color};font-weight:bold">${cD.text}</td>${_cFrTd}<td style="color:${cR.color}">${cR.str}</td><td style="color:${cJ.color};font-weight:bold">${cJ.text}</td><td style="color:${iD.color};font-weight:bold">${iD.text}</td>${_iFrTd}<td style="color:${iR.color}">${iR.str}</td><td style="color:${iJ.color};font-weight:bold">${iJ.text}</td></tr>`;
     }
     html += '</tbody></table></div>';
     html += '<div class="term-plain">多+涨/空+跌=同向(✓)；多+跌/空+涨=逆向(✗)。按各自主导方向统计历史准确率，不构成未来预测。</div>';
@@ -12409,7 +12409,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
     // 统计副标题（与准确率合并表结构对齐，保证3表表格起始位置一致）— X%按准确率着色(>55%绿/#16a34a, <=55%红/#dc2626)
     const accColor = cd.accuracy > 55 ? "#16a34a" : "#dc2626";
     html += `<div class="term-plain futures-stat-sub" style="margin:6px 0;font-size:13px;"><strong style="color:var(--text-1)">同向<span style="color:${accColor}">${cd.accuracy}%</span>(${cd.correct_count}对${cd.wrong_count}错)</strong></div>`;
-    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th><th>15日follow%</th></tr></thead><tbody>';
+    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th><th>15日同向%</th></tr></thead><tbody>';
     // 净加手数：正红负绿（正=净加多=红，负=净加空=绿，A股红涨绿跌惯例）
     const chgColor = (v) => v != null ? (v >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-3)";
     const chgStr = (v) => v != null ? (v >= 0 ? "+" : "") + Math.round(v) : "-";
@@ -12464,194 +12464,216 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   };
   _renderTripleCards(data.citic_ih_detail, data.inst_ih_detail);
 
-  // 同向准确度徽章行 + 趋势图（follow_ratio = same_count/total，可跌破50%反映"同向失效=风格转逆向"）
-  // accuracy 恒>=50%（取 same/contrarian 较大者为基准）看不出失效，follow_ratio 直接反映同向占比
-  if (accTrend && accTrend.latest && accTrend.latest.roles) {
-    const _frRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
-    const _frTip = "follow_ratio=同向天数/总天数。可跌破50%（accuracy恒>=50%取较大者为基准看不出失效）。<50%(红)=同向失效风格转逆向，50-55%(黄)=临界，>55%(绿)=同向有效。箭头=对比昨日变化。";
-    const _frBadgeDiv = document.createElement("div");
-    _frBadgeDiv.className = "chart-card futures-table-card";
-    const _frDate = accTrend.latest.date || "";
-    const _frDateSuffix = _frDate ? `<span class="chart-latest"> · ${fmtDate(_frDate)}</span>` : "";
-    let _frHtml = `<h3>同向准确度（follow_ratio）${_frDateSuffix}</h3>`;
-    _frHtml += `<div class="futures-note">follow_ratio = 同向天数 / 15日总天数。可跌破50%，直接反映"同向越来越不准=风格转逆向"。accuracy恒>=50%（取同向/逆向较大者为基准）看不出失效，follow_ratio才是关键。箭头=对比昨日变化。</div>`;
-    _frHtml += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0">';
-    for (const [roleKey, roleLabel] of _frRoles) {
-      const r = accTrend.latest.roles[roleKey];
-      if (!r) continue;
-      const fr = r.follow_ratio;
-      const prev = r.yesterday_follow_ratio;
-      const color = fr < 50 ? "#e6492e" : fr < 55 ? "#f59e0b" : "#16a34a";
-      const arrow = prev != null ? (fr > prev ? "↑" : fr < prev ? "↓" : "→") : "";
-      const arrowColor = prev != null ? (fr > prev ? "#16a34a" : fr < prev ? "#e6492e" : "var(--text-3)") : "var(--text-3)";
-      const dirText = r.dominant_dir === "同向" ? "同向主导" : r.dominant_dir === "逆向" ? "逆向主导" : "-";
-      const warn = fr < 50 ? " ⚠" : "";
-      _frHtml += `<div style="flex:1;min-width:120px;text-align:center;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-2)">`;
-      _frHtml += `<div style="font-size:12px;color:var(--text-3)">${roleLabel} · ${dirText}</div>`;
-      _frHtml += `<div style="font-size:22px;font-weight:bold;color:${color}">${fr != null ? fr.toFixed(1) + "%" : "-"}<span style="font-size:14px;margin-left:4px;color:${arrowColor}">${arrow}</span>${warn}</div>`;
-      if (prev != null) _frHtml += `<div style="font-size:11px;color:var(--text-3)">昨日 ${prev.toFixed(1)}%</div>`;
-      _frHtml += `</div>`;
-    }
-    _frHtml += '</div>';
-    _frHtml += `<div class="term-plain">${_frTip}</div>`;
-    _frBadgeDiv.innerHTML = _frHtml;
-    fgGrid.appendChild(_frBadgeDiv);
-    addCardTimeBadge(_frBadgeDiv, _frDate, snap, "t1", "futures_date");
 
-    // 趋势折线图：3条 follow_ratio 曲线 + 50%基准线 + 55%有效线 + <50%标红
-    if (accTrend.dates && accTrend.dates.length && accTrend.series) {
-      const _frDates = accTrend.dates;
-      const _frSeriesConfig = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
-      // 连续3日<50%标记
-      const _warnMarks = [];
-      for (const [roleKey, roleLabel] of _frSeriesConfig) {
-        const pts = accTrend.series[roleKey] || [];
-        let streak = 0;
-        for (const p of pts) {
-          if (p.follow_ratio != null && p.follow_ratio < 50) {
-            streak++;
-            if (streak >= 3) _warnMarks.push({ date: p.date, role: roleLabel });
-          } else {
-            streak = 0;
-          }
+  // === 合并卡：规律结论 + 同向准确度表 + 同向准确度趋势（近125日）三区块合一 ===
+  // 原本分散在 3 个独立 chart-card（结论卡/徽章卡/趋势图卡），现合并为同一外层 card 内 3 个子区块
+  // 子区块顺序：结论区 -> 准确度表区(徽章) -> 趋势图区，子区块间用 border-top 分隔
+  const _hasAccTrend = accTrend && accTrend.latest && accTrend.latest.roles;
+  const _hasConc = accConclusion && accConclusion.conclusions && accConclusion.conclusions.length;
+  if (_hasAccTrend || _hasConc) {
+    const _mergedCard = document.createElement("div");
+    _mergedCard.className = "chart-card futures-acc-merged-card";
+    fgGrid.appendChild(_mergedCard);
+
+    // --- 子区块1: 规律结论区 ---
+    if (_hasConc) {
+      const _concSub = document.createElement("div");
+      _concSub.className = "futures-acc-sub futures-acc-sub-conc";
+      _mergedCard.appendChild(_concSub);
+      const _concDate = accConclusion.as_of_date || "";
+      const _concDateSuffix = _concDate ? `<span class="chart-latest"> · ${fmtDate(_concDate)}</span>` : "";
+      let _concHtml = `<h3>期货同向准确度规律结论${_concDateSuffix}</h3>`;
+      _concHtml += `<div class="futures-note">基于历史${accConclusion.streak_history ? Object.keys(accConclusion.streak_history).length : 0}角色时序总结的4条规律，每日自动刷新。当前触发的结论高亮置顶。同向准确度=15日同向天数占比，极端值触发抄底/顶部预警。</div>`;
+      // 当前状态摘要：3角色 同向准确度 + 连续段天数（给结论提供上下文）
+      if (accConclusion.current_state) {
+        const _csRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
+        _concHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">';
+        for (const [roleKey, roleLabel] of _csRoles) {
+          const cs = accConclusion.current_state[roleKey];
+          if (!cs) continue;
+          const _fr = cs.follow_ratio;
+          const _frColor = _fr != null ? (_fr <= 30 ? "#16a34a" : _fr >= 80 ? "#dc2626" : "var(--text-1)") : "var(--text-3)";
+          const _dirText = cs.dominant_dir === "同向" ? "同向" : cs.dominant_dir === "逆向" ? "逆向" : "-";
+          const _dirColor = cs.dominant_dir === "同向" ? "#e6492e" : cs.dominant_dir === "逆向" ? "#2e8b57" : "var(--text-3)";
+          _concHtml += `<div style="flex:1;min-width:100px;text-align:center;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);font-size:11px">`;
+          _concHtml += `<div style="color:var(--text-3)">${roleLabel} · <span style="color:${_dirColor};font-weight:600">${_dirText}${cs.streak_days}日</span></div>`;
+          _concHtml += `<div style="font-size:16px;font-weight:bold;color:${_frColor}">${_fr != null ? _fr.toFixed(1) + "%" : "-"}</div>`;
+          _concHtml += `</div>`;
         }
+        _concHtml += '</div>';
       }
-      const _hasWarn = _warnMarks.length > 0;
-      const _frChartTitle = "同向准确度趋势（follow_ratio，近" + Math.min(_frDates.length, 125) + "日）" +
-        termTip("follow_ratio=同向天数/15日总天数。跌破50%(红区)=同向失效，机构风格转逆向。连续3日<50%标记⚠。50%虚线=随机基准，55%虚线=同向有效线。") +
-        (_hasWarn ? ' <span style="color:#e6492e;font-size:13px">⚠ 存在连续3日<50%</span>' : "");
-      // 取最近125个交易日（约6月）显示
-      const _showDates = _frDates.slice(-125);
-      const _frChart = mkCard(_frChartTitle, 300, null, fgGrid);
-      const _frChartSeries = _frSeriesConfig.map(([roleKey, roleLabel]) => {
-        const pts = accTrend.series[roleKey] || [];
-        const ptMap = {};
-        pts.forEach(p => { ptMap[p.date] = p.follow_ratio; });
-        return {
-          name: roleLabel,
-          type: "line",
-          smooth: true,
-          symbol: "none",
-          connectNulls: true,
-          data: _showDates.map(d => ptMap[d] != null ? ptMap[d] : null),
-        };
+      // 4条结论卡片：触发置顶 + 按级别排序
+      const _levelOrder = { "最强": 0, "次强": 1, "中等": 2, "辅助": 3 };
+      const _sortedConcs = [...accConclusion.conclusions].sort((a, b) => {
+        if (a.triggered !== b.triggered) return a.triggered ? -1 : 1;
+        return (_levelOrder[a.level] ?? 9) - (_levelOrder[b.level] ?? 9);
       });
-      // <50% 标红 markArea：找每条线<50%的日期区间（合并为整体区间，按角色分别标）
-      const _markAreas = [];
-      for (const [roleKey, roleLabel] of _frSeriesConfig) {
-        const pts = accTrend.series[roleKey] || [];
-        const ptMap = {};
-        pts.forEach(p => { ptMap[p.date] = p.follow_ratio; });
-        let inZone = false;
-        let zoneStart = null;
-        for (const d of _showDates) {
-          const v = ptMap[d];
-          if (v != null && v < 50) {
-            if (!inZone) { zoneStart = d; inZone = true; }
-          } else {
-            if (inZone && zoneStart) { _markAreas.push([{ xAxis: zoneStart }, { xAxis: d }]); inZone = false; }
-          }
-        }
-        if (inZone && zoneStart) _markAreas.push([{ xAxis: zoneStart }, { xAxis: _showDates[_showDates.length - 1] }]);
-      }
-      _frChart.setOption(withTheme({
-        tooltip: {
-          trigger: "axis",
-          formatter: function (params) {
-            if (!params || !params.length) return "";
-            let html = '<strong>' + params[0].axisValue + '</strong><br/>';
-            params.forEach(p => {
-              const v = p.data;
-              const frStr = v != null ? v.toFixed(1) + "%" : "-";
-              const cls = v != null && v < 50 ? 'color:#e6492e' : v != null && v < 55 ? 'color:#f59e0b' : 'color:#16a34a';
-              html += p.marker + ' ' + p.seriesName + ': <span style="' + cls + ';font-weight:bold">' + frStr + '</span><br/>';
-            });
-            return html;
-          },
-        },
-        legend: { top: 0, type: "scroll" },
-        grid: { left: 50, right: 20, top: 35, bottom: 35 },
-        xAxis: { type: "category", data: _showDates },
-        yAxis: {
-          type: "value", min: 0, max: 100,
-          axisLabel: { color: cssVar("--text-1"), formatter: "{value}%" },
-          nameTextStyle: { color: cssVar("--text-1") },
-        },
-        dataZoom: dzOpts(),
-        series: _frChartSeries.map((s, idx) => ({
-          ...s,
-          markLine: idx === 0 ? {
-            silent: true, symbol: "none",
-            data: [
-              { yAxis: 50, lineStyle: { color: "#999", type: "dashed", width: 1 }, label: { formatter: "50%随机", fontSize: 10, color: "#999" } },
-              { yAxis: 55, lineStyle: { color: "#e6492e", type: "dashed", width: 1 }, label: { formatter: "55%有效", fontSize: 10, color: "#e6492e" } },
-            ],
-          } : undefined,
-          markArea: idx === 0 && _markAreas.length ? {
-            silent: true,
-            itemStyle: { color: "rgba(230,73,46,0.08)" },
-            data: _markAreas,
-          } : undefined,
-        })),
-      }));
-      addCardTimeBadge(_frChart.getDom().parentElement, _frDate, snap, "t1", "futures_date");
-    }
-  }
-
-  // 规律结论卡片：4条规律（抄底/顶部预警/转跟随看多/季节性）+ 当前触发状态，每日刷新
-  // 和趋势图同容器展示（规律本就由趋势总结，合并看更直观）；当前触发的结论高亮置顶
-  if (accConclusion && accConclusion.conclusions && accConclusion.conclusions.length) {
-    const _concDiv = document.createElement("div");
-    _concDiv.className = "chart-card futures-conclusion-card";
-    const _concDate = accConclusion.as_of_date || "";
-    const _concDateSuffix = _concDate ? `<span class="chart-latest"> · ${fmtDate(_concDate)}</span>` : "";
-    let _concHtml = `<h3>期货同向准确度规律结论${_concDateSuffix}</h3>`;
-    _concHtml += `<div class="futures-note">基于历史${accConclusion.streak_history ? Object.keys(accConclusion.streak_history).length : 0}角色时序总结的4条规律，每日自动刷新。当前触发的结论高亮置顶。follow_ratio=15日同向天数占比，极端值触发抄底/顶部预警。</div>`;
-    // 当前状态摘要：3角色 follow_ratio + 连续段天数（给结论提供上下文）
-    if (accConclusion.current_state) {
-      const _csRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
-      _concHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">';
-      for (const [roleKey, roleLabel] of _csRoles) {
-        const cs = accConclusion.current_state[roleKey];
-        if (!cs) continue;
-        const _fr = cs.follow_ratio;
-        const _frColor = _fr != null ? (_fr <= 30 ? "#16a34a" : _fr >= 80 ? "#dc2626" : "var(--text-1)") : "var(--text-3)";
-        const _dirText = cs.dominant_dir === "同向" ? "同向" : cs.dominant_dir === "逆向" ? "逆向" : "-";
-        const _dirColor = cs.dominant_dir === "同向" ? "#e6492e" : cs.dominant_dir === "逆向" ? "#2e8b57" : "var(--text-3)";
-        _concHtml += `<div style="flex:1;min-width:100px;text-align:center;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);font-size:11px">`;
-        _concHtml += `<div style="color:var(--text-3)">${roleLabel} · <span style="color:${_dirColor};font-weight:600">${_dirText}${cs.streak_days}日</span></div>`;
-        _concHtml += `<div style="font-size:16px;font-weight:bold;color:${_frColor}">${_fr != null ? _fr.toFixed(1) + "%" : "-"}</div>`;
+      _concHtml += '<div class="futures-conclusion-grid">';
+      for (const c of _sortedConcs) {
+        const _levelColor = c.level === "最强" ? "#dc2626" : c.level === "次强" ? "#e67e22" : c.level === "中等" ? "#2563eb" : "#6b7280";
+        const _triggeredCls = c.triggered ? " futures-conclusion-triggered" : "";
+        _concHtml += `<div class="futures-conclusion-item${_triggeredCls}" style="border-left:3px solid ${_levelColor}">`;
+        _concHtml += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">`;
+        _concHtml += `<span style="background:${_levelColor};color:#fff;font-size:11px;padding:1px 6px;border-radius:3px;font-weight:600">${c.level}</span>`;
+        _concHtml += `<strong style="color:var(--text-1)">${c.signal}</strong>`;
+        if (c.triggered) _concHtml += `<span style="color:#dc2626;font-size:11px;font-weight:600">● 已触发</span>`;
+        _concHtml += `</div>`;
+        _concHtml += `<div style="font-size:12px;color:var(--text-2);margin:2px 0">触发: ${c.trigger}</div>`;
+        _concHtml += `<div style="font-size:12px;color:var(--text-1);margin:2px 0">当前: ${c.current_status}</div>`;
+        _concHtml += `<div style="font-size:11px;color:var(--text-3);margin:2px 0">统计: ${c.stats}</div>`;
+        _concHtml += `<div style="font-size:12px;font-weight:600;color:${_levelColor};margin-top:4px">建议: ${c.action}</div>`;
         _concHtml += `</div>`;
       }
       _concHtml += '</div>';
+      _concHtml += '<div class="term-plain">规律基于 futures_ih_detail_acc 表历史统计，仅作参考不构成投资建议。同向准确度<=30%为抄底信号(淡绿)，>=80%为顶部预警(淡红)。</div>';
+      _concSub.innerHTML = _concHtml;
+      addCardTimeBadge(_concSub, _concDate, snap, "t1", "futures_date");
     }
-    // 4条结论卡片：触发置顶 + 按级别排序
-    const _levelOrder = { "最强": 0, "次强": 1, "中等": 2, "辅助": 3 };
-    const _sortedConcs = [...accConclusion.conclusions].sort((a, b) => {
-      if (a.triggered !== b.triggered) return a.triggered ? -1 : 1;
-      return (_levelOrder[a.level] ?? 9) - (_levelOrder[b.level] ?? 9);
-    });
-    _concHtml += '<div class="futures-conclusion-grid">';
-    for (const c of _sortedConcs) {
-      const _levelColor = c.level === "最强" ? "#dc2626" : c.level === "次强" ? "#e67e22" : c.level === "中等" ? "#2563eb" : "#6b7280";
-      const _triggeredCls = c.triggered ? " futures-conclusion-triggered" : "";
-      _concHtml += `<div class="futures-conclusion-item${_triggeredCls}" style="border-left:3px solid ${_levelColor}">`;
-      _concHtml += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">`;
-      _concHtml += `<span style="background:${_levelColor};color:#fff;font-size:11px;padding:1px 6px;border-radius:3px;font-weight:600">${c.level}</span>`;
-      _concHtml += `<strong style="color:var(--text-1)">${c.signal}</strong>`;
-      if (c.triggered) _concHtml += `<span style="color:#dc2626;font-size:11px;font-weight:600">● 已触发</span>`;
-      _concHtml += `</div>`;
-      _concHtml += `<div style="font-size:12px;color:var(--text-2);margin:2px 0">触发: ${c.trigger}</div>`;
-      _concHtml += `<div style="font-size:12px;color:var(--text-1);margin:2px 0">当前: ${c.current_status}</div>`;
-      _concHtml += `<div style="font-size:11px;color:var(--text-3);margin:2px 0">统计: ${c.stats}</div>`;
-      _concHtml += `<div style="font-size:12px;font-weight:600;color:${_levelColor};margin-top:4px">建议: ${c.action}</div>`;
-      _concHtml += `</div>`;
+
+    // --- 子区块2: 同向准确度表区（徽章行） ---
+    if (_hasAccTrend) {
+      const _badgeSub = document.createElement("div");
+      _badgeSub.className = "futures-acc-sub futures-acc-sub-badge";
+      _mergedCard.appendChild(_badgeSub);
+      const _frRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
+      const _frTip = "同向准确度=同向天数/总天数。可跌破50%（accuracy恒>=50%取较大者为基准看不出失效）。<50%(红)=同向失效风格转逆向，50-55%(黄)=临界，>55%(绿)=同向有效。箭头=对比昨日变化。";
+      const _frDate = accTrend.latest.date || "";
+      const _frDateSuffix = _frDate ? `<span class="chart-latest"> · ${fmtDate(_frDate)}</span>` : "";
+      let _frHtml = `<h3>同向准确度${_frDateSuffix}</h3>`;
+      _frHtml += `<div class="futures-note">同向准确度 = 同向天数 / 15日总天数。可跌破50%，直接反映"同向越来越不准=风格转逆向"。accuracy恒>=50%（取同向/逆向较大者为基准）看不出失效，同向准确度才是关键。箭头=对比昨日变化。</div>`;
+      _frHtml += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0">';
+      for (const [roleKey, roleLabel] of _frRoles) {
+        const r = accTrend.latest.roles[roleKey];
+        if (!r) continue;
+        const fr = r.follow_ratio;
+        const prev = r.yesterday_follow_ratio;
+        const color = fr < 50 ? "#e6492e" : fr < 55 ? "#f59e0b" : "#16a34a";
+        const arrow = prev != null ? (fr > prev ? "↑" : fr < prev ? "↓" : "->") : "";
+        const arrowColor = prev != null ? (fr > prev ? "#16a34a" : fr < prev ? "#e6492e" : "var(--text-3)") : "var(--text-3)";
+        const dirText = r.dominant_dir === "同向" ? "同向主导" : r.dominant_dir === "逆向" ? "逆向主导" : "-";
+        const warn = fr < 50 ? " ⚠" : "";
+        _frHtml += `<div style="flex:1;min-width:120px;text-align:center;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-2)">`;
+        _frHtml += `<div style="font-size:12px;color:var(--text-3)">${roleLabel} · ${dirText}</div>`;
+        _frHtml += `<div style="font-size:22px;font-weight:bold;color:${color}">${fr != null ? fr.toFixed(1) + "%" : "-"}<span style="font-size:14px;margin-left:4px;color:${arrowColor}">${arrow}</span>${warn}</div>`;
+        if (prev != null) _frHtml += `<div style="font-size:11px;color:var(--text-3)">昨日 ${prev.toFixed(1)}%</div>`;
+        _frHtml += `</div>`;
+      }
+      _frHtml += '</div>';
+      _frHtml += `<div class="term-plain">${_frTip}</div>`;
+      _badgeSub.innerHTML = _frHtml;
+      addCardTimeBadge(_badgeSub, _frDate, snap, "t1", "futures_date");
+
+      // --- 子区块3: 同向准确度趋势图区（近125日） ---
+      if (accTrend.dates && accTrend.dates.length && accTrend.series) {
+        const _chartSub = document.createElement("div");
+        _chartSub.className = "futures-acc-sub futures-acc-sub-chart";
+        _mergedCard.appendChild(_chartSub);
+        const _frDates = accTrend.dates;
+        const _frSeriesConfig = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
+        // 连续3日<50%标记
+        const _warnMarks = [];
+        for (const [roleKey, roleLabel] of _frSeriesConfig) {
+          const pts = accTrend.series[roleKey] || [];
+          let streak = 0;
+          for (const p of pts) {
+            if (p.follow_ratio != null && p.follow_ratio < 50) {
+              streak++;
+              if (streak >= 3) _warnMarks.push({ date: p.date, role: roleLabel });
+            } else {
+              streak = 0;
+            }
+          }
+        }
+        const _hasWarn = _warnMarks.length > 0;
+        const _frChartTitle = "同向准确度趋势（近" + Math.min(_frDates.length, 125) + "日）" +
+          termTip("同向准确度=同向天数/15日总天数。跌破50%(红区)=同向失效，机构风格转逆向。连续3日<50%标记⚠。50%虚线=随机基准，55%虚线=同向有效线。") +
+          (_hasWarn ? ' <span style="color:#e6492e;font-size:13px">⚠ 存在连续3日<50%</span>' : "");
+        // 取最近125个交易日（约6月）显示
+        const _showDates = _frDates.slice(-125);
+        // 手动创建 chart 容器（避免 mkCard 产生嵌套 chart-card）
+        const _chartTitleEl = document.createElement("h3");
+        _chartTitleEl.innerHTML = _frChartTitle;
+        _chartSub.appendChild(_chartTitleEl);
+        const _chartDiv = document.createElement("div");
+        _chartDiv.className = "chart";
+        _chartDiv.style.height = "300px";
+        _chartSub.appendChild(_chartDiv);
+        const _frChart = echarts.init(_chartDiv);
+        charts.push(_frChart);
+        const _frChartSeries = _frSeriesConfig.map(([roleKey, roleLabel]) => {
+          const pts = accTrend.series[roleKey] || [];
+          const ptMap = {};
+          pts.forEach(p => { ptMap[p.date] = p.follow_ratio; });
+          return {
+            name: roleLabel,
+            type: "line",
+            smooth: true,
+            symbol: "none",
+            connectNulls: true,
+            data: _showDates.map(d => ptMap[d] != null ? ptMap[d] : null),
+          };
+        });
+        // <50% 标红 markArea：找每条线<50%的日期区间（合并为整体区间，按角色分别标）
+        const _markAreas = [];
+        for (const [roleKey, roleLabel] of _frSeriesConfig) {
+          const pts = accTrend.series[roleKey] || [];
+          const ptMap = {};
+          pts.forEach(p => { ptMap[p.date] = p.follow_ratio; });
+          let inZone = false;
+          let zoneStart = null;
+          for (const d of _showDates) {
+            const v = ptMap[d];
+            if (v != null && v < 50) {
+              if (!inZone) { zoneStart = d; inZone = true; }
+            } else {
+              if (inZone && zoneStart) { _markAreas.push([{ xAxis: zoneStart }, { xAxis: d }]); inZone = false; }
+            }
+          }
+          if (inZone && zoneStart) _markAreas.push([{ xAxis: zoneStart }, { xAxis: _showDates[_showDates.length - 1] }]);
+        }
+        _frChart.setOption(withTheme({
+          tooltip: {
+            trigger: "axis",
+            formatter: function (params) {
+              if (!params || !params.length) return "";
+              let html = '<strong>' + params[0].axisValue + '</strong><br/>';
+              params.forEach(p => {
+                const v = p.data;
+                const frStr = v != null ? v.toFixed(1) + "%" : "-";
+                const cls = v != null && v < 50 ? 'color:#e6492e' : v != null && v < 55 ? 'color:#f59e0b' : 'color:#16a34a';
+                html += p.marker + ' ' + p.seriesName + ': <span style="' + cls + ';font-weight:bold">' + frStr + '</span><br/>';
+              });
+              return html;
+            },
+          },
+          legend: { top: 0, type: "scroll" },
+          grid: { left: 50, right: 20, top: 35, bottom: 35 },
+          xAxis: { type: "category", data: _showDates },
+          yAxis: {
+            type: "value", min: 0, max: 100,
+            axisLabel: { color: cssVar("--text-1"), formatter: "{value}%" },
+            nameTextStyle: { color: cssVar("--text-1") },
+          },
+          dataZoom: dzOpts(),
+          series: _frChartSeries.map((s, idx) => ({
+            ...s,
+            markLine: idx === 0 ? {
+              silent: true, symbol: "none",
+              data: [
+                { yAxis: 50, lineStyle: { color: "#999", type: "dashed", width: 1 }, label: { formatter: "50%随机", fontSize: 10, color: "#999" } },
+                { yAxis: 55, lineStyle: { color: "#e6492e", type: "dashed", width: 1 }, label: { formatter: "55%有效", fontSize: 10, color: "#e6492e" } },
+              ],
+            } : undefined,
+            markArea: idx === 0 && _markAreas.length ? {
+              silent: true,
+              itemStyle: { color: "rgba(230,73,46,0.08)" },
+              data: _markAreas,
+            } : undefined,
+          })),
+        }));
+        addCardTimeBadge(_chartSub, _frDate, snap, "t1", "futures_date");
+      }
     }
-    _concHtml += '</div>';
-    _concHtml += '<div class="term-plain">规律基于 futures_ih_detail_acc 表历史统计，仅作参考不构成投资建议。follow_ratio<=30%为抄底信号(淡绿)，>=80%为顶部预警(淡红)。</div>';
-    _concDiv.innerHTML = _concHtml;
-    fgGrid.appendChild(_concDiv);
-    addCardTimeBadge(_concDiv, _concDate, snap, "t1", "futures_date");
   }
 
   // 第456卡片(昨日净多空/历史准确率/当日净加对照)3列并排，和前3一样复用 futures-triple-grid 3列布局
