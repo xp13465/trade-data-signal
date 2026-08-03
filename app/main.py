@@ -17,8 +17,11 @@ from .collector.fetchers import load_config
 from .compute import signal_stats as sigstats
 from .db import get_conn
 from . import queries
+from . import auth
 
 app = FastAPI(title="市场温度看板")
+# OAuth 路由（/api/auth/*）：Gitee 完整接入 + GitHub/Google 占位 + session + /me
+app.include_router(auth.router)
 # 单版架构：前端统一在 static-site/，动态版挂载到根 /（/api/* 读 DB 不变）。
 WEB_DIR = Path(__file__).absolute().parent.parent / "static-site"
 
