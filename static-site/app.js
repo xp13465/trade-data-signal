@@ -7660,6 +7660,7 @@ async function renderOverview() {
     const wDnV = (w.down.find((x) => x.date === wLast) || {}).value;
     const wSuffix = wLast ? `<span class="chart-latest"> · ${fmtDate(wLast)} 涨${wUpV != null ? wUpV : "-"} 跌${wDnV != null ? wDnV : "-"}</span>` : "";
     const wc = mkCard("市场宽度（涨跌家数，近 1 月）" + termTip("上涨家数占比反映市场广度，普涨时宽度大") + wSuffix + termTip(_WIDTH_CALIBER_TIP), 182, null, colB1);
+    wc.getDom().closest(".chart-card").classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
     appendPlainTip(wc, "上涨家数远多于下跌=普涨行情；两者接近=市场分化");
     addCardTimeBadge(wc.getDom().parentElement, wLast, snap, "t0");
     wc.setOption(withTheme({
@@ -7694,6 +7695,7 @@ async function renderOverview() {
       },
     }, null, colB1, 210);
     if (cmChart) {
+      cmChart.getDom().closest(".chart-card").classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
       // 冰点(≤20)/过热(≥80)阈值虚线（情绪分口径，与盘面温测 tab 一致）
       cmChart.setOption({ series: [{ markLine: {
         silent: true, symbol: "none", lineStyle: { type: "dashed", width: 1.5 },
@@ -7803,6 +7805,7 @@ async function renderOverview() {
         { name: "腾落线MA20", data: adData.map(d => ({ date: d.date, value: d.ad_line_ma20 })), label: "MA20" },
       ];
       const adc = mkCard("📊 腾落线（AD Line）" + termTip("腾落线=累积每日上涨家数-下跌家数。持续上升=广度健康(多数股票涨),与指数背离常预示拐点。累计值绝对值无意义,看趋势。") + latestSuffixMulti(adSeries), 210, null, colC1);
+      adc.getDom().closest(".chart-card").classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
       appendPlainTip(adc, "AD线持续上行=多数股票在涨，大盘涨势健康");
       addCardTimeBadge(adc.getDom().parentElement, adDates.length ? adDates[adDates.length - 1] : "", snap, "t0");
       adc.setOption(withTheme({
@@ -7880,6 +7883,7 @@ async function renderOverview() {
         { name: "净新高", data: nhlData.map(d => ({ date: d.date, value: d.nhnl_52w })), label: "净新高" },
       ];
       const nhlCard = mkCard("🔬 新高新低家数（52 周）" + termTip("近52周创新高/新低的股票家数，新高多=强势新低多=弱势") + latestSuffixMulti(nhlSeries), 196, null, colC1);
+      nhlCard.getDom().closest(".chart-card").classList.add("chart-card--no-stretch"); // 图表缩30%后容器配套缩小(ui119)
       appendPlainTip(nhlCard, "新高多于新低=市场偏强；新低多于新高=市场偏弱");
       addCardTimeBadge(nhlCard.getDom().parentElement, nhlDates.length ? nhlDates[nhlDates.length - 1] : "", snap, "t0");
       nhlCard.setOption(withTheme({

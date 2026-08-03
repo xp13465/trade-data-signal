@@ -1036,6 +1036,9 @@ main { padding: 16px 24px; }
 }
 .ov-2col .chart-card { margin-bottom: 0; flex: 1 0 auto; } /* 卡撑满列高，可拉伸不收缩，消除卡间/列底留白 */
 .ov-2col .chart-card:last-child { margin-bottom: 0; }
+/* 图表缩小后容器不撑列高（flex:0 0 auto=按内容高度），避免卡片内图表下方留白；
+   用于首页4卡（市场宽度/跨市场/腾落线/新高新低）图表缩30%后容器配套缩小（ui119） */
+.ov-2col .chart-card.chart-card--no-stretch { flex: 0 0 auto; }
 @media (max-width: 768px) {
   .ov-2col { grid-template-columns: 1fr; }
 }
