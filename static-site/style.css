@@ -2148,11 +2148,11 @@ main { padding: 16px 24px; }
 .futures-conclusion-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 10px;
-  margin: 6px 0;
+  gap: 8px;
+  margin: 4px 0;
 }
 .futures-conclusion-item {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-2);
@@ -2177,8 +2177,8 @@ main { padding: 16px 24px; }
    该规则会让卡撑满 2 列变单独一行，删除以回归 grid auto-flow：第1行右格 */
 .futures-acc-sub {
   position: relative;
-  padding-top: 14px;
-  margin-top: 14px;
+  padding-top: 10px;
+  margin-top: 10px;
   border-top: 1px solid var(--border);
 }
 .futures-acc-sub:first-child {

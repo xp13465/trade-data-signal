@@ -12530,7 +12530,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
         _chartSub.appendChild(_chartTitleEl);
         const _chartDiv = document.createElement("div");
         _chartDiv.className = "chart";
-        _chartDiv.style.height = "300px";
+        _chartDiv.style.height = "260px";
         _chartSub.appendChild(_chartDiv);
         const _frChart = echarts.init(_chartDiv);
         charts.push(_frChart);
@@ -12624,7 +12624,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
       // 当前状态摘要：3角色 同向准确度 + 连续段天数（给结论提供上下文）
       if (accConclusion.current_state) {
         const _csRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
-        _concHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">';
+        _concHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 6px">';
         for (const [roleKey, roleLabel] of _csRoles) {
           const cs = accConclusion.current_state[roleKey];
           if (!cs) continue;
