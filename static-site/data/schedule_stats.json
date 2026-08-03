@@ -27,10 +27,10 @@
     "task": "intraday_snapshot",
     "name": "盘中快照",
     "schedule": "盘中 09:35-15:35",
-    "est_text": "约59秒",
-    "last_run": "2026-08-03 10:15",
+    "est_text": "约1分钟",
+    "last_run": "2026-08-03 10:25",
     "last_exit": 0,
-    "last_duration_sec": 103,
+    "last_duration_sec": 111,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
