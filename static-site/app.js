@@ -16952,7 +16952,14 @@ function initThemeSwitcher() {
     if (opt) {
       if (opt.classList.contains("compliance-option")) {
         // 合规开关：即时生效（切字典重渲染），不自动关弹窗，用户可继续切皮肤或手动关闭
-        applyCompliance(opt.dataset.complianceMode);
+        // gating：详细版（off）为登录特权 hasPrivilege("detailed_view")，未登录弹提示+登录入口不切换
+        var _mode = opt.dataset.complianceMode;
+        if (_mode === "off" && !hasPrivilege("detailed_view")) {
+          modal.classList.add("hidden");
+          openLoginPromptForDetailed();
+          return;
+        }
+        applyCompliance(_mode);
         renderComplianceActive();
       } else {
         applyTheme(opt.dataset.theme);
@@ -16961,6 +16968,134 @@ function initThemeSwitcher() {
       }
     }
   });
+}
+
+// === OAuth 登录态管理（2026-08-04 前端接入，后端 worker/auth.js）===
+// 全局状态：window.__authState = { logged_in, user:{name,avatar,provider}|null, privileges:[] }
+// 工具函数：isLoggedIn() / hasPrivilege(name)（供详细版 gating 等场景调用）
+// 详细版（compliance_mode=off）为登录特权 hasPrivilege("detailed_view")，未登录点击弹提示+登录入口
+// 其他特权（模拟回测/订阅/对比）MVP 不 gating，预留 hasPrivilege 接口供后续扩展
+window.__authState = { logged_in: false, user: null, privileges: [] };
+function isLoggedIn() {
+  return !!(window.__authState && window.__authState.logged_in);
+}
+function hasPrivilege(name) {
+  var p = window.__authState && window.__authState.privileges;
+  return Array.isArray(p) && p.indexOf(name) !== -1;
+}
+// 拉取登录态：/api/auth/me 返回 {logged_in, user, privileges}
+// 未登录且 localStorage compliance_mode=off -> 强制回 on（防 localStorage 残留绕过详细版 gating）
+function fetchAuthState() {
+  return fetch('/api/auth/me', { credentials: 'include' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (d && d.logged_in) {
+        window.__authState = { logged_in: true, user: d.user || null, privileges: Array.isArray(d.privileges) ? d.privileges : [] };
+      } else {
+        window.__authState = { logged_in: false, user: null, privileges: [] };
+        try {
+          if (localStorage.getItem('compliance_mode') === 'off') {
+            if (typeof _t !== 'undefined' && _t.setMode) _t.setMode('on');
+            localStorage.setItem('compliance_mode', 'on');
+            document.documentElement.setAttribute('data-compliance', 'on');
+          }
+        } catch (e) {}
+      }
+      applyAuthState();
+    })
+    .catch(function () { applyAuthState(); });
+}
+// 渲染登录按钮：未登录「👤 登录」，已登录头像+名字+退出
+function applyAuthState() {
+  var st = window.__authState || { logged_in: false, user: null, privileges: [] };
+  var pcBtn = document.querySelector('.pc-auth-btn');
+  var h5Btn = document.querySelector('.h5-auth-btn');
+  if (st.logged_in && st.user) {
+    var u = st.user;
+    var name = (u.name || '已登录');
+    var avatar = u.avatar || '';
+    var avatarStyle = avatar ? ' style="background-image:url(\'' + avatar.replace(/'/g, '%27') + '\');background-size:cover;background-position:center;"' : '';
+    var pcHtml = '<span class="auth-avatar"' + avatarStyle + '></span>' +
+                 '<span class="auth-name">' + _escAttr(name) + '</span>' +
+                 '<span class="auth-logout" title="退出登录" role="button" aria-label="退出登录">⎋</span>';
+    var h5Html = '<span class="auth-avatar"' + avatarStyle + '></span>';
+    if (pcBtn) { pcBtn.innerHTML = pcHtml; pcBtn.classList.add('logged-in'); pcBtn.setAttribute('title', (u.name || '账户') + '（点击退出）'); }
+    if (h5Btn) { h5Btn.innerHTML = h5Html; h5Btn.classList.add('logged-in'); h5Btn.setAttribute('title', (u.name || '账户') + '（点击退出）'); }
+  } else {
+    if (pcBtn) { pcBtn.innerHTML = '👤 登录'; pcBtn.classList.remove('logged-in'); pcBtn.setAttribute('title', '登录 / 账户'); }
+    if (h5Btn) { h5Btn.innerHTML = '👤'; h5Btn.classList.remove('logged-in'); h5Btn.setAttribute('title', '登录 / 账户'); }
+  }
+}
+// 登录方式选择弹窗：Gitee + GitHub 两按钮（不渲染 Google 占位）
+function _authLoginModalHtml(title, tip) {
+  return '<div class="modal-body">' +
+    '<button class="theme-modal-close" title="关闭" aria-label="关闭">×</button>' +
+    '<h3>' + _escAttr(title) + '</h3>' +
+    (tip ? '<p class="auth-login-tip">' + _escAttr(tip) + '</p>' : '') +
+    '<div class="auth-login-options">' +
+      '<button class="auth-login-btn auth-login-gitee" data-provider="gitee">' +
+        '<span class="auth-login-icon">🐱</span>' +
+        '<span class="auth-login-text">Gitee 登录</span>' +
+      '</button>' +
+      '<button class="auth-login-btn auth-login-github" data-provider="github">' +
+        '<span class="auth-login-icon">🐙</span>' +
+        '<span class="auth-login-text">GitHub 登录</span>' +
+      '</button>' +
+    '</div>' +
+    '<p class="auth-login-note">登录即同意本站仅用于学习研究，不构成投资建议</p>' +
+  '</div>';
+}
+function _bindAuthLoginModal(modal) {
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal || e.target.classList.contains('theme-modal-close')) {
+      modal.classList.add('hidden');
+      setTimeout(function () { if (modal.parentNode) modal.parentNode.removeChild(modal); }, 200);
+      return;
+    }
+    var btn = e.target.closest('.auth-login-btn');
+    if (btn) {
+      window.location.href = '/api/auth/login/' + btn.dataset.provider;
+    }
+  });
+  modal.classList.remove('hidden');
+}
+function openLoginModal() {
+  var modal = document.createElement('div');
+  modal.className = 'modal auth-login-modal hidden';
+  modal.innerHTML = _authLoginModalHtml('登录', '登录后可使用「详细版」等特权功能');
+  document.body.appendChild(modal);
+  _bindAuthLoginModal(modal);
+}
+// 未登录点详细版：弹提示+登录入口（不切换模式）
+function openLoginPromptForDetailed() {
+  var modal = document.createElement('div');
+  modal.className = 'modal auth-login-modal hidden';
+  modal.innerHTML = _authLoginModalHtml('🔒 详细版需登录', '详细版为登录用户特权，登录后可显示完整买卖点措辞');
+  document.body.appendChild(modal);
+  _bindAuthLoginModal(modal);
+}
+function logout() {
+  fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    .then(function () { window.location.reload(); })
+    .catch(function () { window.location.reload(); });
+}
+// 绑定登录按钮点击：未登录弹登录框，已登录点退出按钮触发 logout
+function initAuthButton() {
+  document.querySelectorAll('.pc-auth-btn, .h5-auth-btn').forEach(function (btn) {
+    btn.addEventListener('click', function (e) {
+      if (e.target.classList.contains('auth-logout')) {
+        e.stopPropagation();
+        logout();
+        return;
+      }
+      if (window.__authState && window.__authState.logged_in) {
+        // 已登录：MVP 不弹用户信息框（后续可扩展），点已登录区域无操作
+        return;
+      }
+      openLoginModal();
+    });
+  });
+  fetchAuthState();
 }
 
 // === 合规/详细视图切换（皮肤弹窗内开关，复用 applyTheme 模式）===
@@ -17300,6 +17435,7 @@ initSimIndices();   // 动态加载 SIM_INDICES 清单（fetch trade_sim_indices
 initSimOverlay();
 initShareButton();
 initThemeSwitcher();
+initAuthButton();
 initNotifyButton();
 initOnboarding();
 initUpdateRules();

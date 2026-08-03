@@ -5339,3 +5339,105 @@ main { padding: 16px 24px; }
 }
 
 
+
+/* === OAuth 登录入口（2026-08-04）=== */
+/* PC 登录按钮：复用 pc-theme-btn 风格（圆角胶囊），H5 默认隐藏 @media 显示 */
+.pc-auth-btn {
+  margin-left: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-2);
+  border-radius: 16px;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.pc-auth-btn:hover { border-color: var(--primary); color: var(--primary); }
+.pc-auth-btn.logged-in { padding: 3px 10px 3px 4px; gap: 6px; }
+.h5-auth-btn { display: none; }
+/* 头像 + 名字 + 退出（已登录态） */
+.auth-avatar {
+  display: inline-block;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--bg-hover) var(--primary);
+  background-blend-mode: overlay;
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+}
+.pc-auth-btn .auth-name {
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-logout {
+  font-size: 14px;
+  color: var(--text-3);
+  padding: 0 2px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.auth-logout:hover { color: var(--mx-good-fg, #c92a2a); }
+
+/* 登录方式选择弹窗（复用 theme-modal 结构/层级，CSS 变量自动适配 4 套皮肤） */
+.auth-login-modal { z-index: 130; }
+.auth-login-modal .modal-body {
+  width: 340px;
+  max-width: 92vw;
+  padding: 22px 22px 18px;
+}
+.auth-login-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--text-1); }
+.auth-login-tip { margin: 0 0 16px; font-size: 13px; color: var(--text-3); line-height: 1.5; }
+.auth-login-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.auth-login-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-1);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+  width: 100%;
+  text-align: left;
+}
+.auth-login-btn:hover { border-color: var(--primary); background: var(--primary-bg); }
+.auth-login-icon { font-size: 20px; line-height: 1; flex-shrink: 0; }
+.auth-login-text { flex: 1; }
+.auth-login-note { margin: 6px 0 0; font-size: 11px; color: var(--text-4, var(--text-3)); line-height: 1.5; text-align: center; }
+
+/* H5：PC auth-btn 隐藏，H5 auth-btn 显示（复用 h5-theme-btn 风格） */
+@media (max-width: 768px) {
+  .pc-auth-btn { display: none; }
+  .h5-auth-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 3px 10px;
+    font-size: 15px;
+    cursor: pointer;
+    color: var(--text-2);
+    line-height: 1;
+    width: auto;
+    overflow: hidden;
+  }
+  .h5-auth-btn:active { background: var(--bg-hover); }
+  .h5-auth-btn .auth-avatar { width: 18px; height: 18px; }
+  .auth-login-modal .modal-body { width: 94vw; }
+}
