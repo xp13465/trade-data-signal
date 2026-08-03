@@ -2,13 +2,14 @@
 // 移植自 app/auth.py（FastAPI），生产 ss.fx8.store/api/auth/* 走此 Worker 不回源。
 // 本地开发走 uvicorn app/auth.py（FastAPI + sentiment.db users 表），生产走此 Worker。
 //
-// 路由（6 个，和 FastAPI 一致）：
-// - GET  /api/auth/login/gitee    生成 state（KV TTL 5min）+ 307 跳 Gitee 授权页 + Set-Cookie oauth_state
-// - GET  /api/auth/callback/gitee 校验 state（KV + cookie 双校验）+ 换 token + 拉用户 + upsert KV users + 发 session cookie + 307 回 /
-// - GET  /api/auth/me             返回 {logged_in, user, privileges}
-// - POST /api/auth/logout         清 session cookie
-// - GET  /api/auth/login/github   占位 501
-// - GET  /api/auth/login/google   占位 501
+// 路由（7 个：gitee 完整 + github 完整 + google 占位）：
+// - GET  /api/auth/login/gitee     生成 state（KV TTL 5min）+ 307 跳 Gitee 授权页 + Set-Cookie oauth_state
+// - GET  /api/auth/callback/gitee  校验 state（KV + cookie 双校验）+ 换 token + 拉用户 + upsert KV users + 发 session cookie + 307 回 /
+// - GET  /api/auth/login/github    生成 state + 307 跳 GitHub 授权页（scope=read:user）+ Set-Cookie oauth_state
+// - GET  /api/auth/callback/github 校验 state + 换 token（POST github.com/login/oauth/access_token）+ 拉用户（GET api.github.com/user Bearer）+ upsert KV users + 发 session cookie + 307 回 /
+// - GET  /api/auth/me              返回 {logged_in, user, privileges}
+// - POST /api/auth/logout          清 session cookie
+// - GET  /api/auth/login/google    占位 501
 //
 // session：Web Crypto HMAC-SHA256 签名 cookie，格式 base64url(payload).base64url(hmac)
 //   payload={exp, provider, provider_uid, user_id}（字母序插入，对齐 Python sort_keys）
@@ -305,6 +306,115 @@ async function callbackGitee(request, env, url) {
   return redirect307('/', [sessionCookie, clearState]);
 }
 
+async function loginGithub(request, env) {
+  const clientId = env.GITHUB_CLIENT_ID || '';
+  const clientSecret = env.GITHUB_CLIENT_SECRET || '';
+  const redirectUri = env.GITHUB_REDIRECT_URI || '';
+  if (!clientId || !clientSecret || !redirectUri) {
+    return jsonResponse({ detail: 'GitHub OAuth 未配置（GITHUB_CLIENT_ID/SECRET/REDIRECT_URI 任一缺失）' }, 503);
+  }
+  const state = crypto.randomUUID();
+  // state 存 KV（TTL 5min）+ cookie，回调双校验
+  await env.SUBSCRIBE_KV.put(`oauth_state:${state}`, '1', { expirationTtl: STATE_TTL });
+  const loginUrl = (
+    'https://github.com/login/oauth/authorize'
+    + `?client_id=${encodeURIComponent(clientId)}`
+    + `&redirect_uri=${encodeURIComponent(redirectUri)}`
+    + '&scope=read:user'
+    + `&state=${encodeURIComponent(state)}`
+  );
+  const stateCookie = makeCookie(STATE_COOKIE_NAME, state, STATE_TTL);
+  return redirect307(loginUrl, [stateCookie]);
+}
+
+async function callbackGithub(request, env, url) {
+  const clientId = env.GITHUB_CLIENT_ID || '';
+  const clientSecret = env.GITHUB_CLIENT_SECRET || '';
+  const redirectUri = env.GITHUB_REDIRECT_URI || '';
+  const sessionSecret = env.SESSION_SECRET || '';
+  if (!clientId || !clientSecret || !redirectUri) {
+    return jsonResponse({ detail: 'GitHub OAuth 未配置' }, 503);
+  }
+  const code = url.searchParams.get('code') || '';
+  const state = url.searchParams.get('state') || '';
+  if (!code || !state) return jsonResponse({ detail: '回调缺少 code/state 参数' }, 400);
+
+  // state 双校验：KV 存在 + cookie 匹配（防 CSRF）
+  const kvState = await env.SUBSCRIBE_KV.get(`oauth_state:${state}`);
+  if (!kvState) {
+    return jsonResponse({ detail: 'state 校验失败（KV 中不存在，可能已过期或重放）' }, 400);
+  }
+  const cookies = getCookies(request);
+  const cookieState = cookies[STATE_COOKIE_NAME] || '';
+  if (!cookieState || cookieState !== state) {
+    return jsonResponse({ detail: 'state 校验失败（cookie 不匹配，可能跨站请求伪造）' }, 400);
+  }
+  // 用完即删（防重放）
+  await env.SUBSCRIBE_KV.delete(`oauth_state:${state}`);
+
+  // 换 access_token（GitHub 必须带 Accept: application/json 否则返回 url-encoded string）
+  // body 含 client_id/client_secret/code/redirect_uri（GitHub 不需 grant_type，默认 authorization_code）
+  const tokenBody = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    code,
+    redirect_uri: redirectUri,
+  });
+  let accessToken;
+  try {
+    const tokResp = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenBody.toString(),
+    });
+    if (tokResp.status !== 200) {
+      const text = await tokResp.text();
+      return jsonResponse({ detail: `换 access_token 失败: ${tokResp.status} ${text}` }, 400);
+    }
+    const tokJson = await tokResp.json();
+    accessToken = tokJson.access_token;
+  } catch (e) {
+    return jsonResponse({ detail: `换 access_token 异常: ${e.message || String(e)}` }, 500);
+  }
+  if (!accessToken) return jsonResponse({ detail: 'GitHub 未返回 access_token' }, 400);
+
+  // 拉用户信息（GitHub 要求 Authorization: Bearer <token>）
+  let u;
+  try {
+    const userResp = await fetch('https://api.github.com/user', {
+      headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+    });
+    if (userResp.status !== 200) {
+      return jsonResponse({ detail: `拉 GitHub 用户信息失败: ${userResp.status}` }, 400);
+    }
+    u = await userResp.json();
+  } catch (e) {
+    return jsonResponse({ detail: `拉用户信息异常: ${e.message || String(e)}` }, 500);
+  }
+  const providerUid = String(u.id || '');
+  if (!providerUid) return jsonResponse({ detail: 'GitHub 用户信息缺 id 字段' }, 400);
+  // GitHub name 字段可空（用户未设 profile name），login 一定有；优先 name 退化 login
+  const name = u.name || u.login || '';
+  const avatar = u.avatar_url || '';
+  const email = u.email || '';
+
+  // upsert users（KV）
+  const user = await upsertUser(env, 'github', providerUid, name, avatar, email);
+
+  // 签发 session cookie（payload 按字母序：exp, provider, provider_uid, user_id）
+  const payload = {
+    exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE,
+    provider: 'github',
+    provider_uid: providerUid,
+    user_id: user.id,
+  };
+  const token = await signSession(payload, sessionSecret);
+  if (!token) return jsonResponse({ detail: 'SESSION_SECRET 未配置' }, 503);
+  const sessionCookie = makeCookie(SESSION_COOKIE_NAME, token, SESSION_MAX_AGE);
+  const clearState = clearCookie(STATE_COOKIE_NAME);
+  return redirect307('/', [sessionCookie, clearState]);
+}
+
 async function me(request, env) {
   const sessionSecret = env.SESSION_SECRET || '';
   const cookies = getCookies(request);
@@ -373,7 +483,10 @@ export default async function authHandler(request, env) {
     return logout();
   }
   if (request.method === 'GET' && pathname === '/api/auth/login/github') {
-    return notImplemented('github');
+    return loginGithub(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/auth/callback/github') {
+    return callbackGithub(request, env, url);
   }
   if (request.method === 'GET' && pathname === '/api/auth/login/google') {
     return notImplemented('google');
