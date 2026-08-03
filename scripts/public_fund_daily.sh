@@ -62,21 +62,28 @@ if [ "$COLLECT_RC" -ne 0 ]; then
   echo "[public_fund_daily] daily 失败 exit=$COLLECT_RC" | tee -a "$LOG"
 fi
 
-# 2) 导出 5 类 JSON（daily 不自动 export，手动调 export 写 public_fund_*.json）
-if [ "$COLLECT_RC" -eq 0 ]; then
+# 2) 导出 5 类 JSON + 3) deploy 推送
+# 修复a(2026-08-03): daily 撞锁(python sys.exit(2))或其他失败时, 不 export+deploy,
+# 避免推旧数据上线(原 bug: 撞锁 exit0 当成功, 继续 export+deploy 旧 position_estimate.json)
+EXPORT_RC=0
+DEPLOY_RC=0
+if [ "$COLLECT_RC" -ne 0 ]; then
+  echo "[public_fund_daily] daily 失败/撞锁跳过 exit=$COLLECT_RC, 跳过 export+deploy 避免推旧数据上线" | tee -a "$LOG"
+else
   echo "-> 导出 5 类 JSON ..." | tee -a "$LOG"
   "$PY" -m app.collector.public_fund export 2>&1 | tee -a "$LOG"
   EXPORT_RC=${PIPESTATUS[0]}
   echo "导出退出码=$EXPORT_RC" | tee -a "$LOG"
-else
-  EXPORT_RC=0
+  if [ "$EXPORT_RC" -eq 0 ]; then
+    # 持 deploy 锁推送（deploy.sh public-fund 重新 export + git push + R2 上传）
+    echo "-> 持 deploy 锁推送（串行化 git）..." | tee -a "$LOG"
+    "$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
+    DEPLOY_RC=${PIPESTATUS[0]}
+    [ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
+  else
+    echo "[public_fund_daily] export 失败 exit=$EXPORT_RC, 跳过 deploy" | tee -a "$LOG"
+  fi
 fi
-
-# 3) 持 deploy 锁推送（deploy.sh public-fund 重新 export + git push + R2 上传）
-echo "-> 持 deploy 锁推送（串行化 git）..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash "$REPO/scripts/deploy.sh" public-fund 2>&1 | tee -a "$LOG"
-DEPLOY_RC=${PIPESTATUS[0]}
-[ "$DEPLOY_RC" -ne 0 ] && echo "✗ deploy 失败 (rc=$DEPLOY_RC)" | tee -a "$LOG"
 
 # 综合退出码
 FINAL_RC=0

@@ -538,9 +538,16 @@ def _migrate_fund_basic(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _acquire_lock(nonblock: bool = True) -> bool:
-    """fcntl.flock 进程互斥（macOS 用 fcntl 非 flock 命令）。"""
-    f = open(LOCK_PATH, "w")
+def _acquire_lock(nonblock: bool = True, lock_name: str = "public_fund") -> bool:
+    """fcntl.flock 进程互斥（macOS 用 fcntl 非 flock 命令）。
+
+    lock_name: 锁名(对应 data/<lock_name>.lock), 默认 public_fund.lock。
+    stage0-* 用 public_fund_stage0.lock 独立锁, 不阻塞 daily/quarterly/full
+    (stage0 写 risk_indicator/fee_detail/manager/overview/nav_history,
+     daily 写 daily_nav/index_daily/estimation_nav, 不同表无 DB 写冲突)。
+    """
+    lock_path = _DATA_DIR / f"{lock_name}.lock"
+    f = open(lock_path, "w")
     flags = fcntl.LOCK_EX | (fcntl.LOCK_NB if nonblock else 0)
     try:
         fcntl.flock(f, flags)
@@ -920,59 +927,68 @@ def fetch_estimation() -> int:
     """
     print("[E2] fetch_estimation() ...", flush=True)
     t = time.time()
-    df = safe_call(ak.fund_value_estimation_em, retries=2)
-    if isinstance(df, Exception) or df is None or len(df) == 0:
-        print(f"[E2] fund_value_estimation_em 无数据(盘后/非交易日正常): {df}", flush=True)
-        return 0
-    today = dt.date.today().strftime("%Y%m%d")
-    rows: list[tuple] = []
-    # 列结构动态(列名含 cal_day/value_day 日期前缀), 找含关键字的列
-    cols = list(df.columns)
-    fund_code_col = next((c for c in cols if "基金代码" in str(c)), None)
-    fund_name_col = next((c for c in cols if "基金名称" in str(c)), None)
-    fund_type_col = next((c for c in cols if "基金类型" in str(c)), None)
-    est_date_col = next((c for c in cols if "估算日期" in str(c)), None)
-    # 估算值/估算增长率/公布单位净值/公布日增长率/估算偏差 列名含动态日期前缀
-    est_nav_col = next((c for c in cols if "估算数据-估算值" in str(c)), None)
-    est_pct_col = next((c for c in cols if "估算数据-估算增长率" in str(c)), None)
-    real_nav_col = next((c for c in cols if "公布数据-单位净值" in str(c)), None)
-    real_pct_col = next((c for c in cols if "公布数据-日增长率" in str(c)), None)
-    dev_col = next((c for c in cols if "估算偏差" in str(c)), None)
+    try:
+        df = safe_call(ak.fund_value_estimation_em, retries=2)
+        if isinstance(df, Exception):
+            # 修复c(2026-08-03): akshare API 故障(如 NoneType subscriptable)优雅降级返回0, 不抛异常
+            print(f"[E2] fund_value_estimation_em API 故障(优雅降级返回0): {type(df).__name__}: {df}", flush=True)
+            return 0
+        if df is None or len(df) == 0:
+            print(f"[E2] fund_value_estimation_em 无数据(盘后/非交易日正常): {df}", flush=True)
+            return 0
+        today = dt.date.today().strftime("%Y%m%d")
+        rows: list[tuple] = []
+        # 列结构动态(列名含 cal_day/value_day 日期前缀), 找含关键字的列
+        cols = list(df.columns)
+        fund_code_col = next((c for c in cols if "基金代码" in str(c)), None)
+        fund_name_col = next((c for c in cols if "基金名称" in str(c)), None)
+        fund_type_col = next((c for c in cols if "基金类型" in str(c)), None)
+        est_date_col = next((c for c in cols if "估算日期" in str(c)), None)
+        # 估算值/估算增长率/公布单位净值/公布日增长率/估算偏差 列名含动态日期前缀
+        est_nav_col = next((c for c in cols if "估算数据-估算值" in str(c)), None)
+        est_pct_col = next((c for c in cols if "估算数据-估算增长率" in str(c)), None)
+        real_nav_col = next((c for c in cols if "公布数据-单位净值" in str(c)), None)
+        real_pct_col = next((c for c in cols if "公布数据-日增长率" in str(c)), None)
+        dev_col = next((c for c in cols if "估算偏差" in str(c)), None)
 
-    for _, r in df.iterrows():
-        fund_code = str(r.get(fund_code_col, "")).strip() if fund_code_col else ""
-        if not fund_code:
-            continue
-        est_date = _to_yyyymmdd(r.get(est_date_col)) if est_date_col else ""
-        if not est_date:
-            est_date = today
-        rows.append((
-            fund_code,
-            str(r.get(fund_name_col, "")).strip() if fund_name_col else None,
-            str(r.get(fund_type_col, "")).strip() if fund_type_col else None,
-            est_date,
-            _safe_float(r.get(est_nav_col)) if est_nav_col else None,
-            _safe_float(r.get(est_pct_col)) if est_pct_col else None,
-            _safe_float(r.get(real_nav_col)) if real_nav_col else None,
-            _safe_float(r.get(real_pct_col)) if real_pct_col else None,
-            _safe_float(r.get(dev_col)) if dev_col else None,
-            today,
-        ))
-    if not rows:
-        print(f"[E2] 无有效行", flush=True)
+        for _, r in df.iterrows():
+            fund_code = str(r.get(fund_code_col, "")).strip() if fund_code_col else ""
+            if not fund_code:
+                continue
+            est_date = _to_yyyymmdd(r.get(est_date_col)) if est_date_col else ""
+            if not est_date:
+                est_date = today
+            rows.append((
+                fund_code,
+                str(r.get(fund_name_col, "")).strip() if fund_name_col else None,
+                str(r.get(fund_type_col, "")).strip() if fund_type_col else None,
+                est_date,
+                _safe_float(r.get(est_nav_col)) if est_nav_col else None,
+                _safe_float(r.get(est_pct_col)) if est_pct_col else None,
+                _safe_float(r.get(real_nav_col)) if real_nav_col else None,
+                _safe_float(r.get(real_pct_col)) if real_pct_col else None,
+                _safe_float(r.get(dev_col)) if dev_col else None,
+                today,
+            ))
+        if not rows:
+            print(f"[E2] 无有效行", flush=True)
+            return 0
+        conn = get_conn()
+        conn.executemany(
+            "INSERT OR REPLACE INTO fund_estimation_nav"
+            "(fund_code, fund_name, fund_type, est_date, est_nav, est_pct, "
+            "real_nav, real_pct, est_deviation, fetch_date) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
+        conn.commit()
+        conn.close()
+        print(f"[E2] fund_estimation_nav 写入 {len(rows)} 行 @{today}, {time.time()-t:.1f}s", flush=True)
+        return len(rows)
+    except Exception as e:
+        # 修复c(2026-08-03): 防御性兜底, 任何意外异常(列名解析/iterrows/写DB)都不抛出, 优雅返回0
+        print(f"[E2] fetch_estimation 意外异常(优雅降级返回0): {type(e).__name__}: {e}", flush=True)
         return 0
-    conn = get_conn()
-    conn.executemany(
-        "INSERT OR REPLACE INTO fund_estimation_nav"
-        "(fund_code, fund_name, fund_type, est_date, est_nav, est_pct, "
-        "real_nav, real_pct, est_deviation, fetch_date) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        rows,
-    )
-    conn.commit()
-    conn.close()
-    print(f"[E2] fund_estimation_nav 写入 {len(rows)} 行 @{today}, {time.time()-t:.1f}s", flush=True)
-    return len(rows)
 
 
 # ── Fetcher E3: 基准指数日频 (baostock 沪深300) ──────────────────────────────────
@@ -5000,12 +5016,23 @@ def main():
         print(f"  stage0-sample   小样本验证3只(161725/000001/110011全流程)")
         sys.exit(1)
 
-    # 进程互斥（quarterly/full/daily/backfill/backfill-industry/backfill-nav/stage0-* 持锁, metrics/export/check-fresh/estimate/fetch-estimation 不需要）
-    if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry", "backfill-nav",
-               "stage0-daily", "stage0-overview", "stage0-risk", "stage0-manager", "stage0-nav"):
+    # 进程互斥:
+    #   - quarterly/full/daily/backfill/backfill-industry/backfill-nav 持 public_fund.lock(默认)
+    #   - stage0-* 持 public_fund_stage0.lock 独立锁, 不阻塞 daily/quarterly/full
+    #     修复b(2026-08-03): 原 stage0 持公共锁 15h+ 阻塞 daily, daily 撞锁 exit0 当成功
+    #     继续 export+deploy 旧数据上线; stage0 写 risk_indicator/fee_detail/manager/overview,
+    #     daily 写 daily_nav/index_daily/estimation_nav, 不同表无 DB 写冲突, 可独立锁
+    #   - metrics/export/check-fresh/estimate/fetch-estimation 不需要锁
+    # 修复a(2026-08-03): 撞锁 sys.exit(2) 而非 return, 让 daily.sh 检测 RC!=0 跳过 export+deploy
+    STAGE0_CMDS = ("stage0-daily", "stage0-overview", "stage0-risk", "stage0-manager", "stage0-nav")
+    if cmd in ("quarterly", "full", "daily", "backfill", "backfill-industry", "backfill-nav"):
         if not _acquire_lock(nonblock=True):
-            print(f"[public_fund] 已有进程在跑（{LOCK_PATH}），跳过", file=sys.stderr)
-            return
+            print(f"[public_fund] 已有进程在跑（{_DATA_DIR}/public_fund.lock），跳过", file=sys.stderr)
+            sys.exit(2)
+    elif cmd in STAGE0_CMDS:
+        if not _acquire_lock(nonblock=True, lock_name="public_fund_stage0"):
+            print(f"[public_fund] stage0 已有进程在跑（{_DATA_DIR}/public_fund_stage0.lock），跳过", file=sys.stderr)
+            sys.exit(2)
 
     if cmd == "quarterly":
         # 支持 --top N 覆盖默认 1000（小样本验证用）
