@@ -12530,7 +12530,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
         _chartSub.appendChild(_chartTitleEl);
         const _chartDiv = document.createElement("div");
         _chartDiv.className = "chart";
-        _chartDiv.style.height = "260px";
+        _chartDiv.style.height = "180px";
         _chartSub.appendChild(_chartDiv);
         const _frChart = echarts.init(_chartDiv);
         charts.push(_frChart);
