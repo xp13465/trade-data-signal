@@ -2017,6 +2017,26 @@ main { padding: 16px 24px; }
   color: #e67e22;
   font-weight: 600;
 }
+/* follow_ratio 极端值预警：<=30% 淡绿(抄底信号) / >=80% 淡红(顶部预警)
+   用于期货前3表 follow_ratio 列单元格着色（表①②各1列 + 表③2列） */
+.accuracy-table td.acc-cell-low {
+  background-color: rgba(46, 139, 87, 0.15);
+  color: #2e8b57;
+  font-weight: 600;
+}
+.accuracy-table td.acc-cell-low small {
+  font-size: 10px;
+  font-weight: 500;
+}
+.accuracy-table td.acc-cell-high {
+  background-color: rgba(230, 73, 46, 0.15);
+  color: #dc2626;
+  font-weight: 600;
+}
+.accuracy-table td.acc-cell-high small {
+  font-size: 10px;
+  font-weight: 500;
+}
 
 /* 准确率/净加表纵向滚动容器：固定高度 + 表头 sticky（用于 _renderRoleAccuracyCard / _renderRoleNetChgCard 15天明细表）*/
 .accuracy-table-scroll {
@@ -2089,6 +2109,35 @@ main { padding: 16px 24px; }
 /* 窄屏(≤768px)：3表改上下排列(覆盖自适应，移动端强制1列全宽，与 indices-grid 移动端一致) */
 @media (max-width: 768px) {
   .futures-triple-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 期货同向准确度规律结论卡片（4条规律+当前触发状态，和趋势图同容器展示）
+   自适应2列网格：宽屏2列、窄屏1列；触发结论高亮边框+背景 */
+.futures-conclusion-card {
+  grid-column: 1 / -1;
+}
+.futures-conclusion-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin: 6px 0;
+}
+.futures-conclusion-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  font-size: 13px;
+}
+.futures-conclusion-item.futures-conclusion-triggered {
+  border-color: var(--border-strong, #e6492e);
+  background: rgba(230, 73, 46, 0.05);
+  box-shadow: 0 0 0 1px rgba(230, 73, 46, 0.2);
+}
+@media (max-width: 768px) {
+  .futures-conclusion-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -192,6 +192,182 @@ def export_futures_acc_trend(conn):
     return {"dates": dates_set, "series": series, "latest": latest}
 
 
+def export_futures_acc_conclusion(conn):
+    """期货同向准确度规律结论（每日刷新，幂等覆盖）。
+
+    基于 futures_ih_detail_acc 表最新日 follow_ratio + 历史连续段统计 + 4条规律模板，
+    生成结构化结论 JSON 供前端卡片化展示。
+
+    4条规律（调研 agent 验证，附数据支撑）:
+    1. 【最强】抄底: 中信 follow_ratio <=30% -> 34次中33次(97%)后20日正收益，avg +3.68%
+    2. 【次强】顶部预警: 中信 follow_ratio >=80% -> 22次中15次(68%)后20日负收益，avg -2.37%
+    3. 【中等】转跟随看多: 中信转同向(SAME) -> 14次切换后60日 avg +3.27%
+    4. 【辅助】季节性: 4月/10月逆向（年报/三季报披露），2月/7-8月同向（春季躁动/夏季行情）
+    """
+    rows = conn.execute(
+        "SELECT date, role, dominant_dir, total, same_count, contrarian_count, "
+        "correct_count, wrong_count, accuracy, follow_ratio, sample_start, sample_end "
+        "FROM futures_ih_detail_acc ORDER BY date, role"
+    ).fetchall()
+    if not rows:
+        return {"as_of_date": "", "current_state": {}, "conclusions": [], "streak_history": {}}
+
+    role_map = {"中信期货": "中信期货", "top20": "机构前20", "国泰君安": "国泰君安"}
+
+    # Group by role label
+    by_role: dict[str, list] = {}
+    all_dates: list[str] = []
+    seen_dates: set = set()
+    for r in rows:
+        d = r["date"]
+        if d not in seen_dates:
+            seen_dates.add(d)
+            all_dates.append(d)
+        role_label = role_map.get(r["role"], r["role"])
+        by_role.setdefault(role_label, []).append(dict(r))
+
+    all_dates.sort()
+    as_of_date = all_dates[-1] if all_dates else ""
+
+    # Compute current state + streak history for each role
+    current_state: dict = {}
+    streak_history: dict = {}
+    for role_label, role_rows in by_role.items():
+        role_rows.sort(key=lambda x: x["date"])
+        latest = role_rows[-1]
+        cur_dir = latest["dominant_dir"] or "-"
+        # Current streak: consecutive days with same dominant_dir ending at latest
+        streak = 0
+        for r in reversed(role_rows):
+            if (r["dominant_dir"] or "-") == cur_dir:
+                streak += 1
+            else:
+                break
+        current_state[role_label] = {
+            "follow_ratio": latest["follow_ratio"],
+            "dominant_dir": latest["dominant_dir"] or "-",
+            "accuracy": latest["accuracy"],
+            "streak_days": streak,
+            "streak_type": cur_dir,
+            "sample_start": latest["sample_start"],
+            "sample_end": latest["sample_end"],
+        }
+        # Historical streak averages (all completed + current streak)
+        same_streaks: list[int] = []
+        contra_streaks: list[int] = []
+        prev_dir = None
+        cur_s = 0
+        for r in role_rows:
+            d = r["dominant_dir"] or "-"
+            if d == prev_dir:
+                cur_s += 1
+            else:
+                if prev_dir == "同向":
+                    same_streaks.append(cur_s)
+                elif prev_dir == "逆向":
+                    contra_streaks.append(cur_s)
+                prev_dir = d
+                cur_s = 1
+        if prev_dir == "同向":
+            same_streaks.append(cur_s)
+        elif prev_dir == "逆向":
+            contra_streaks.append(cur_s)
+        streak_history[role_label] = {
+            "avg_same_streak": round(sum(same_streaks) / len(same_streaks), 1) if same_streaks else 0,
+            "avg_contra_streak": round(sum(contra_streaks) / len(contra_streaks), 1) if contra_streaks else 0,
+            "current_streak": streak,
+            "current_type": cur_dir,
+        }
+
+    # Build 4 conclusions with current status
+    citic = current_state.get("中信期货", {})
+    citic_fr = citic.get("follow_ratio")
+    citic_streak = citic.get("streak_days", 0)
+    citic_dir = citic.get("dominant_dir", "-")
+
+    def _fr_str(fr):
+        return f"{fr:.1f}%" if fr is not None else "N/A"
+
+    # Pattern 1: 抄底 (中信 <=30%)
+    p1_triggered = citic_fr is not None and citic_fr <= 30
+    p1_status = (f"已触发（当前{_fr_str(citic_fr)}）" if p1_triggered
+                 else f"未触发（当前{_fr_str(citic_fr)}）" if citic_fr is not None else "数据不足")
+
+    # Pattern 2: 顶部预警 (中信 >=80%)
+    p2_triggered = citic_fr is not None and citic_fr >= 80
+    p2_status = (f"已触发（当前{_fr_str(citic_fr)}）" if p2_triggered
+                 else f"未触发（当前{_fr_str(citic_fr)}）" if citic_fr is not None else "数据不足")
+
+    # Pattern 3: 转跟随看多 (中信刚切换到同向, streak 1-5 日视为"刚切换")
+    p3_triggered = citic_dir == "同向" and 1 <= citic_streak <= 5
+    if citic_dir == "同向":
+        p3_status = (f"刚切换同向{citic_streak}日（关注看多）" if citic_streak <= 5
+                     else f"已同向{citic_streak}日（非刚切换）")
+    else:
+        p3_status = f"当前{citic_dir}（需转同向才触发）"
+
+    # Pattern 4: 季节性 (4月/10月逆向季, 2月/7-8月同向季)
+    cur_month = int(as_of_date[4:6]) if len(as_of_date) >= 6 else 0
+    if cur_month in (4, 10):
+        p4_status = f"当前{cur_month}月（逆向季：年报/三季报披露期）"
+        p4_action = "参考逆向倾向"
+        p4_triggered = True
+    elif cur_month == 2 or cur_month in (7, 8):
+        p4_status = f"当前{cur_month}月（同向季：春季躁动/夏季行情）"
+        p4_action = "参考同向倾向"
+        p4_triggered = True
+    else:
+        p4_status = f"当前{cur_month}月（非季节性关键月）"
+        p4_action = "季节性不显著"
+        p4_triggered = False
+
+    conclusions = [
+        {
+            "level": "最强",
+            "signal": "抄底",
+            "trigger": "中信 follow_ratio <=30%",
+            "current_status": p1_status,
+            "triggered": p1_triggered,
+            "stats": "历史34次中33次(97%)后20日正收益，avg +3.68%",
+            "action": "关注抄底机会",
+        },
+        {
+            "level": "次强",
+            "signal": "顶部预警",
+            "trigger": "中信 follow_ratio >=80%",
+            "current_status": p2_status,
+            "triggered": p2_triggered,
+            "stats": "历史22次中15次(68%)后20日负收益，avg -2.37%",
+            "action": "警惕回调",
+        },
+        {
+            "level": "中等",
+            "signal": "转跟随看多",
+            "trigger": "中信转同向(SAME)",
+            "current_status": p3_status,
+            "triggered": p3_triggered,
+            "stats": "14次切换后60日 avg +3.27%",
+            "action": "看多",
+        },
+        {
+            "level": "辅助",
+            "signal": "季节性",
+            "trigger": "4月/10月逆向，2月/7-8月同向",
+            "current_status": p4_status,
+            "triggered": p4_triggered,
+            "stats": "历史月级规律",
+            "action": p4_action,
+        },
+    ]
+
+    return {
+        "as_of_date": as_of_date,
+        "current_state": current_state,
+        "conclusions": conclusions,
+        "streak_history": streak_history,
+    }
+
+
 def export_ad_line(conn):
     """复刻 /api/ad_line。"""
     return queries.ad_line(conn)
@@ -469,6 +645,11 @@ def main():
     counts["futures_acc_trend.json"] = write_json(
         DATA_DIR / "futures_acc_trend.json", export_futures_acc_trend(conn))
     print(f"  futures_acc_trend.json ({counts['futures_acc_trend.json']} bytes)")
+
+    # 7.5.2 futures_acc_conclusion（期货同向准确度规律结论，4条规律+当前触发状态，每日刷新）
+    counts["futures_acc_conclusion.json"] = write_json(
+        DATA_DIR / "futures_acc_conclusion.json", export_futures_acc_conclusion(conn))
+    print(f"  futures_acc_conclusion.json ({counts['futures_acc_conclusion.json']} bytes)")
 
     # 7.6. ad_line
     counts["ad_line.json"] = write_json(DATA_DIR / "ad_line.json", export_ad_line(conn))

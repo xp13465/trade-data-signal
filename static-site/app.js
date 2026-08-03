@@ -7997,12 +7997,15 @@ async function renderFutures(container) {
   // 同向准确度趋势（follow_ratio 可跌破50%，反映"同向失效=风格转逆向"）；失败不阻塞期货主渲染
   let accTrend = null;
   try { accTrend = await fetchJSON("./data/futures_acc_trend.json"); } catch {}
+  // 规律结论（4条规律+当前触发状态，每日刷新）；失败不阻塞
+  let accConclusion = null;
+  try { accConclusion = await fetchJSON("./data/futures_acc_conclusion.json"); } catch {}
   try { await Promise.race([fetchIntradaySnapshot(), new Promise((r) => setTimeout(r, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
   container.innerHTML = "";
   renderPurposeNote(container, PURPOSE_NOTES["market.futures"]);
   if (futures && futures.positions && futures.positions.length) {
-    renderFuturesSection(futures, snap, container, accTrend);
+    renderFuturesSection(futures, snap, container, accTrend, accConclusion);
   } else {
     container.insertAdjacentHTML("beforeend", '<div class="empty-note">暂无期货持仓数据</div>');
   }
@@ -12286,13 +12289,35 @@ function renderSentimentHeatmap(r, snap, container) {
 }
 
 // 期货机构持仓：净持仓比例折线图 + 方向准确率表格
-function renderFuturesSection(data, snap, container, accTrend) {
+function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   if (!data || !data.positions || !data.positions.length) return;
   // P0-5: container 可选，默认 content（兼容情绪 tab 内嵌调用）；期货独立 subtab 传入 subContent
   const _fgHost = container || content;
 
   const roles = ["机构(前20)", "中信期货", "国泰君安"];
   const products = ["沪深300期货", "中证500期货", "上证50期货", "中证1000期货", "综合"];
+
+  // follow_ratio 列 join 用的辅助映射：role_key -> {date -> follow_ratio}
+  // accTrend.series 结构 {中信期货:[{date,follow_ratio,...}], 机构前20:[...], 国泰君安:[...]}
+  // 表①②③按 date join 展示当日15日follow_ratio%，极端值(<=30%/>=80%)高亮预警
+  const _accFrMap = {};
+  if (accTrend && accTrend.series) {
+    for (const [roleKey, pts] of Object.entries(accTrend.series)) {
+      const m = {};
+      if (Array.isArray(pts)) pts.forEach(p => { if (p && p.date != null) m[p.date] = p.follow_ratio; });
+      _accFrMap[roleKey] = m;
+    }
+  }
+  // 表①② titlePrefix -> accTrend role key 映射
+  const _prefixToRoleKey = { "中信": "中信期货", "机构": "机构前20", "国君": "国泰君安" };
+  // 格式化 follow_ratio 单元格：<=30% 淡绿(抄底信号) / >=80% 淡红(顶部预警) / 正常不着色
+  const _fmtFrCell = (fr) => {
+    if (fr == null) return { text: "-", cls: "", title: "" };
+    let cls = "", suffix = "", title = "";
+    if (fr <= 30) { cls = "acc-cell-low"; suffix = "<br><small>抄底信号</small>"; title = "follow_ratio<=30%：历史34次中33次(97%)后20日正收益"; }
+    else if (fr >= 80) { cls = "acc-cell-high"; suffix = "<br><small>顶部预警</small>"; title = "follow_ratio>=80%：历史22次中15次(68%)后20日负收益"; }
+    return { text: fr.toFixed(1) + "%" + suffix, cls, title };
+  };
 
   // 期货区统一套 .indices-grid 3列网格(最小宽度700)：表格卡+折线图+说明卡同网格，视觉统一
   const fgGrid = document.createElement("div");
@@ -12324,7 +12349,7 @@ function renderFuturesSection(data, snap, container, accTrend) {
     };
     html += `<div class="term-plain futures-stat-sub" style="margin:6px 0;font-size:13px;">中信 <strong style="color:var(--text-1)">${fmtStat(citicCd)}</strong> · 机构 <strong style="color:var(--text-1)">${fmtStat(instCd)}</strong></div>`;
     // 合并表7列，用 .accuracy-table-scroll 滚动容器
-    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>中信方向</th><th>中信次日涨跌</th><th>中信对错</th><th>机构方向</th><th>机构次日涨跌</th><th>机构对错</th></tr></thead><tbody>';
+    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>中信方向</th><th>中信次日涨跌</th><th>中信对错</th><th>机构方向</th><th>机构次日涨跌</th><th>机构对错</th><th>中信follow%</th><th>机构follow%</th></tr></thead><tbody>';
     // 按 date join 两份 details（并集，缺则该角色留空"-"）
     const citicMap = {};
     if (citicCd && citicCd.details) citicCd.details.forEach(d => { citicMap[d.date] = d; });
@@ -12357,7 +12382,14 @@ function renderFuturesSection(data, snap, container, accTrend) {
       const rowStyle = isToday ? ' style="background-color:rgba(255,235,59,0.22);font-weight:bold"' : '';
       const cD = fmtDir(citicItem), cR = fmtRet(citicItem), cJ = fmtJudge(citicItem);
       const iD = fmtDir(instItem), iR = fmtRet(instItem), iJ = fmtJudge(instItem);
-      html += `<tr${rowStyle}><td class="sym-name">${fmtDate(date)}</td><td style="color:${cD.color};font-weight:bold">${cD.text}</td><td style="color:${cR.color}">${cR.str}</td><td style="color:${cJ.color};font-weight:bold">${cJ.text}</td><td style="color:${iD.color};font-weight:bold">${iD.text}</td><td style="color:${iR.color}">${iR.str}</td><td style="color:${iJ.color};font-weight:bold">${iJ.text}</td></tr>`;
+      // follow_ratio 列：按 date join accTrend，中信+机构各1列（极端值预警着色）
+      const _cFr = _accFrMap["中信期货"] ? _accFrMap["中信期货"][date] : null;
+      const _iFr = _accFrMap["机构前20"] ? _accFrMap["机构前20"][date] : null;
+      const _cFrCell = _fmtFrCell(_cFr);
+      const _iFrCell = _fmtFrCell(_iFr);
+      const _cFrTd = `<td class="${_cFrCell.cls}" title="${_cFrCell.title}">${_cFrCell.text}</td>`;
+      const _iFrTd = `<td class="${_iFrCell.cls}" title="${_iFrCell.title}">${_iFrCell.text}</td>`;
+      html += `<tr${rowStyle}><td class="sym-name">${fmtDate(date)}</td><td style="color:${cD.color};font-weight:bold">${cD.text}</td><td style="color:${cR.color}">${cR.str}</td><td style="color:${cJ.color};font-weight:bold">${cJ.text}</td><td style="color:${iD.color};font-weight:bold">${iD.text}</td><td style="color:${iR.color}">${iR.str}</td><td style="color:${iJ.color};font-weight:bold">${iJ.text}</td>${_cFrTd}${_iFrTd}</tr>`;
     }
     html += '</tbody></table></div>';
     html += '<div class="term-plain">多+涨/空+跌=同向(✓)；多+跌/空+涨=逆向(✗)。按各自主导方向统计历史准确率，不构成未来预测。</div>';
@@ -12377,7 +12409,7 @@ function renderFuturesSection(data, snap, container, accTrend) {
     // 统计副标题（与准确率合并表结构对齐，保证3表表格起始位置一致）— X%按准确率着色(>55%绿/#16a34a, <=55%红/#dc2626)
     const accColor = cd.accuracy > 55 ? "#16a34a" : "#dc2626";
     html += `<div class="term-plain futures-stat-sub" style="margin:6px 0;font-size:13px;"><strong style="color:var(--text-1)">同向<span style="color:${accColor}">${cd.accuracy}%</span>(${cd.correct_count}对${cd.wrong_count}错)</strong></div>`;
-    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th></tr></thead><tbody>';
+    html += '<div class="accuracy-table-scroll"><table class="accuracy-table"><thead><tr><th>日期</th><th>上证50净加</th><th>沪深300净加</th><th>中证500净加</th><th>中证1000净加</th><th>合计净加</th><th>方向</th><th>15日follow%</th></tr></thead><tbody>';
     // 净加手数：正红负绿（正=净加多=红，负=净加空=绿，A股红涨绿跌惯例）
     const chgColor = (v) => v != null ? (v >= 0 ? "#e6492e" : "#2e8b57") : "var(--text-3)";
     const chgStr = (v) => v != null ? (v >= 0 ? "+" : "") + Math.round(v) : "-";
@@ -12390,9 +12422,14 @@ function renderFuturesSection(data, snap, container, accTrend) {
       : [...cd.details].sort((a, b) => String(b.date).localeCompare(String(a.date))).map(d => d.date);
     for (const date of sortedDates) {
       const item = detailMap[date];
+      // follow_ratio 列：按 date join accTrend，titlePrefix 映射到 role key（中信->中信期货/机构->机构前20）
+      const _roleKey = _prefixToRoleKey[titlePrefix];
+      const _fr = (_roleKey && _accFrMap[_roleKey]) ? _accFrMap[_roleKey][date] : null;
+      const _frCell = _fmtFrCell(_fr);
+      const _frTd = `<td class="${_frCell.cls}" title="${_frCell.title}">${_frCell.text}</td>`;
       if (!item) {
         // 该日期在本角色缺失，渲染空行保持3表行对齐
-        html += `<tr><td class="sym-name">${fmtDate(date)}</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="color:var(--text-3)">-</td></tr>`;
+        html += `<tr><td class="sym-name">${fmtDate(date)}</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="text-align:right;color:var(--text-3)">-</td><td style="color:var(--text-3)">-</td>${_frTd}</tr>`;
         continue;
       }
       const isToday = item.next_return == null;
@@ -12400,7 +12437,7 @@ function renderFuturesSection(data, snap, container, accTrend) {
       const ihC = chgColor(item.ih_chg), ifC = chgColor(item.if_chg), icC = chgColor(item.ic_chg), imC = chgColor(item.im_chg), totC = chgColor(item.total_chg);
       const dirText = item.citic_dir === "多" ? "多" : item.citic_dir === "空" ? "空" : "-";
       const dirColor = item.citic_dir === "多" ? "#e6492e" : item.citic_dir === "空" ? "#2e8b57" : "var(--text-3)";
-      html += `<tr${rowStyle}><td class="sym-name">${fmtDate(item.date)}</td><td style="color:${ihC};text-align:right">${chgStr(item.ih_chg)}</td><td style="color:${ifC};text-align:right">${chgStr(item.if_chg)}</td><td style="color:${icC};text-align:right">${chgStr(item.ic_chg)}</td><td style="color:${imC};text-align:right">${chgStr(item.im_chg)}</td><td style="color:${totC};text-align:right;font-weight:bold">${chgStr(item.total_chg)}</td><td style="color:${dirColor};font-weight:bold">${dirText}</td></tr>`;
+      html += `<tr${rowStyle}><td class="sym-name">${fmtDate(item.date)}</td><td style="color:${ihC};text-align:right">${chgStr(item.ih_chg)}</td><td style="color:${ifC};text-align:right">${chgStr(item.if_chg)}</td><td style="color:${icC};text-align:right">${chgStr(item.ic_chg)}</td><td style="color:${imC};text-align:right">${chgStr(item.im_chg)}</td><td style="color:${totC};text-align:right;font-weight:bold">${chgStr(item.total_chg)}</td><td style="color:${dirColor};font-weight:bold">${dirText}</td>${_frTd}</tr>`;
     }
     html += '</tbody></table></div>';
     html += '<div class="term-plain">净加=多头增减-空头增减(手)。合计=上证50+沪深300+中证500+中证1000。多(红)/空(绿)按当日合计净加方向。次日涨跌待收盘后回填统计准确率。</div>';
@@ -12559,6 +12596,62 @@ function renderFuturesSection(data, snap, container, accTrend) {
       }));
       addCardTimeBadge(_frChart.getDom().parentElement, _frDate, snap, "t1", "futures_date");
     }
+  }
+
+  // 规律结论卡片：4条规律（抄底/顶部预警/转跟随看多/季节性）+ 当前触发状态，每日刷新
+  // 和趋势图同容器展示（规律本就由趋势总结，合并看更直观）；当前触发的结论高亮置顶
+  if (accConclusion && accConclusion.conclusions && accConclusion.conclusions.length) {
+    const _concDiv = document.createElement("div");
+    _concDiv.className = "chart-card futures-conclusion-card";
+    const _concDate = accConclusion.as_of_date || "";
+    const _concDateSuffix = _concDate ? `<span class="chart-latest"> · ${fmtDate(_concDate)}</span>` : "";
+    let _concHtml = `<h3>期货同向准确度规律结论${_concDateSuffix}</h3>`;
+    _concHtml += `<div class="futures-note">基于历史${accConclusion.streak_history ? Object.keys(accConclusion.streak_history).length : 0}角色时序总结的4条规律，每日自动刷新。当前触发的结论高亮置顶。follow_ratio=15日同向天数占比，极端值触发抄底/顶部预警。</div>`;
+    // 当前状态摘要：3角色 follow_ratio + 连续段天数（给结论提供上下文）
+    if (accConclusion.current_state) {
+      const _csRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
+      _concHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">';
+      for (const [roleKey, roleLabel] of _csRoles) {
+        const cs = accConclusion.current_state[roleKey];
+        if (!cs) continue;
+        const _fr = cs.follow_ratio;
+        const _frColor = _fr != null ? (_fr <= 30 ? "#16a34a" : _fr >= 80 ? "#dc2626" : "var(--text-1)") : "var(--text-3)";
+        const _dirText = cs.dominant_dir === "同向" ? "同向" : cs.dominant_dir === "逆向" ? "逆向" : "-";
+        const _dirColor = cs.dominant_dir === "同向" ? "#e6492e" : cs.dominant_dir === "逆向" ? "#2e8b57" : "var(--text-3)";
+        _concHtml += `<div style="flex:1;min-width:100px;text-align:center;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);font-size:11px">`;
+        _concHtml += `<div style="color:var(--text-3)">${roleLabel} · <span style="color:${_dirColor};font-weight:600">${_dirText}${cs.streak_days}日</span></div>`;
+        _concHtml += `<div style="font-size:16px;font-weight:bold;color:${_frColor}">${_fr != null ? _fr.toFixed(1) + "%" : "-"}</div>`;
+        _concHtml += `</div>`;
+      }
+      _concHtml += '</div>';
+    }
+    // 4条结论卡片：触发置顶 + 按级别排序
+    const _levelOrder = { "最强": 0, "次强": 1, "中等": 2, "辅助": 3 };
+    const _sortedConcs = [...accConclusion.conclusions].sort((a, b) => {
+      if (a.triggered !== b.triggered) return a.triggered ? -1 : 1;
+      return (_levelOrder[a.level] ?? 9) - (_levelOrder[b.level] ?? 9);
+    });
+    _concHtml += '<div class="futures-conclusion-grid">';
+    for (const c of _sortedConcs) {
+      const _levelColor = c.level === "最强" ? "#dc2626" : c.level === "次强" ? "#e67e22" : c.level === "中等" ? "#2563eb" : "#6b7280";
+      const _triggeredCls = c.triggered ? " futures-conclusion-triggered" : "";
+      _concHtml += `<div class="futures-conclusion-item${_triggeredCls}" style="border-left:3px solid ${_levelColor}">`;
+      _concHtml += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">`;
+      _concHtml += `<span style="background:${_levelColor};color:#fff;font-size:11px;padding:1px 6px;border-radius:3px;font-weight:600">${c.level}</span>`;
+      _concHtml += `<strong style="color:var(--text-1)">${c.signal}</strong>`;
+      if (c.triggered) _concHtml += `<span style="color:#dc2626;font-size:11px;font-weight:600">● 已触发</span>`;
+      _concHtml += `</div>`;
+      _concHtml += `<div style="font-size:12px;color:var(--text-2);margin:2px 0">触发: ${c.trigger}</div>`;
+      _concHtml += `<div style="font-size:12px;color:var(--text-1);margin:2px 0">当前: ${c.current_status}</div>`;
+      _concHtml += `<div style="font-size:11px;color:var(--text-3);margin:2px 0">统计: ${c.stats}</div>`;
+      _concHtml += `<div style="font-size:12px;font-weight:600;color:${_levelColor};margin-top:4px">建议: ${c.action}</div>`;
+      _concHtml += `</div>`;
+    }
+    _concHtml += '</div>';
+    _concHtml += '<div class="term-plain">规律基于 futures_ih_detail_acc 表历史统计，仅作参考不构成投资建议。follow_ratio<=30%为抄底信号(淡绿)，>=80%为顶部预警(淡红)。</div>';
+    _concDiv.innerHTML = _concHtml;
+    fgGrid.appendChild(_concDiv);
+    addCardTimeBadge(_concDiv, _concDate, snap, "t1", "futures_date");
   }
 
   // 第456卡片(昨日净多空/历史准确率/当日净加对照)3列并排，和前3一样复用 futures-triple-grid 3列布局
