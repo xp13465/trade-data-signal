@@ -4132,6 +4132,15 @@ main { padding: 16px 24px; }
   .lab-custom-hist-table td { padding: 4px 6px; }
   .lab-custom-score-summary { font-size: 12.5px; padding: 6px 10px; margin-bottom: 6px; }
   .lab-custom-block-gap { margin-bottom: 4px; }
+
+  /* ETF 弹窗移动端 3 列(对齐 PC scoped 规则 L4159,根除移动端 1 列堆叠->3 行问题);
+     scoped #etfScoreDetailModal 前缀特异性 (1,1,0) > 移动端默认 (0,1,0),确保覆盖 1fr;
+     只改 ETF 弹窗,其他入口(market 深度/lab 自定义分析)移动端 1 列布局不动;
+     窄屏(375px)预算: 343 - 2*8 gap = 327 / 3 = 109px/cell - 20 padding = 89px 内容,
+     "12.34"@20px≈54px / "流动性分位"@13px≈70px 都放下;gap 8px+padding 8px 10px+score 20px 微缩防 5 字 label 溢出 */
+  #etfScoreDetailModal .lab-custom-score-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #etfScoreDetailModal .lab-custom-score-cell { padding: 8px 10px; }
+  #etfScoreDetailModal .lab-custom-cell-score { font-size: 20px; }
 }
 @media (max-width: 480px) {
   .lab-custom-selector { flex-direction: column; align-items: stretch; }
