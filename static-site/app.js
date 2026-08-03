@@ -7763,10 +7763,10 @@ async function renderOverview() {
       }
       posHtml += `</div>`;
       posCard.innerHTML = posHtml;
-      colB2.appendChild(posCard);
+      colB1.appendChild(posCard);
       addCardTimeBadge(posCard, posDates.length ? posDates[posDates.length - 1] : "", snap, "t0");
     }
-  }).catch((e) => { renderFailCard(colB2, "&#x1F4CD; 大盘位置感", e); });
+  }).catch((e) => { renderFailCard(colB1, "&#x1F4CD; 大盘位置感", e); });
 
   // ---- 4. AD Line 腾落线 + 成交量对比（合并到 ov2ColB, 5:4 布局 ui120, 2026-07-20 用户方案）----
   // 第2+3个 ov-2col 合并为1个(左5右4), ov2ColC 不再新建, 复用 ov2ColB/colB1/colB2
@@ -7920,8 +7920,9 @@ async function renderOverview() {
   // 异步渲染, 不阻塞首页主结构(失败降级隐藏, 不影响其他卡; 与 renderPublicFund 不同, 此处只读 summary 一份)
   // 2026-07-20 ui120 用户方案: 从原 colA1(第1个ov-2col左列)移到合并后 ov2ColB 左列 colB1 作第5卡
   // 放在 Promise.allSettled(ADLine/新高新低)之后调用, 确保占位卡 append 为 colB1 第5位(市场宽度->跨市场->ADLine->新高新低->基金仓位)
-  // 移动端单列顺序: 综合情绪分(第1ov-2col) -> 冰点/买卖点/汪汪队 -> 市场宽度/跨市场/均线/位置感/ADLine/成交额/新高新低/明细/基金仓位
-  _renderPublicFundHomeCard(colB1, r, snap);
+  // ui121(2026-07-20): 与大盘位置感互换, 基金仓位移到右列 colB2(均线排列->基金仓位->成交额->新高新低明细), 大盘位置感移到左列 colB1
+  // 移动端单列顺序: 综合情绪分(第1ov-2col) -> 冰点/买卖点/汪汪队 -> 市场宽度/跨市场/均线/基金仓位/ADLine/成交额/新高新低/明细/位置感
+  _renderPublicFundHomeCard(colB2, r, snap);
 
   // ---- 5. 申万行业涨跌幅热力图 ----
   if (r.industry_heatmap && r.industry_heatmap.length) {
