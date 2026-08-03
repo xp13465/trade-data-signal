@@ -4137,6 +4137,24 @@ main { padding: 16px 24px; }
   .lab-custom-thresh-table td { padding: 4px 5px; }
 }
 
+/* === ETF评分弹窗 PC 端紧凑优化(min-width:769px) === */
+/* 全局 PC 优化无前缀:4 处弹窗同向受益(ETF/market深度拆解/lab自定义分析/lab单标的 共用 lab-custom 类族) */
+/* score-grid 3列 + modal-body 88vh 用 ETF 弹窗 scoped 前缀(.etf-detail-content 是 content 区,作 score-grid 祖先成立;rule-modal-body 是 content 父级,改用 #etfScoreDetailModal 前缀) */
+@media (min-width: 769px) {
+  .rule-modal-content { padding: 16px 20px; line-height: 1.6; }
+  .lab-custom-cell-score { font-size: 24px; }
+  .lab-custom-score-title { font-size: 15px; }
+  .lab-custom-section-title { font-size: 14px; }
+  .lab-custom-score-card,
+  .lab-custom-dims,
+  .lab-custom-hist,
+  .lab-custom-thresh { padding: 12px 14px; }
+
+  /* ETF 弹窗专属 scoped:score-grid 2列->3列(区块1+2 各3 cell 一行排完消除留白);modal-body 少滚动 */
+  .etf-detail-content .lab-custom-score-grid { grid-template-columns: repeat(3, 1fr); }
+  #etfScoreDetailModal .rule-modal-body { max-height: 88vh; }
+}
+
 /* === C7 P4 market:.market-score-card-* 紧凑版分数卡(market tab 指数卡图表下方用)=== */
 .market-score-card {
   margin-top: 10px; padding: 10px 12px;
