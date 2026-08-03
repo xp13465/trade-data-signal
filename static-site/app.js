@@ -12465,9 +12465,9 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   _renderTripleCards(data.citic_ih_detail, data.inst_ih_detail);
 
 
-  // === 合并卡：规律结论 + 同向准确度表 + 同向准确度趋势（近125日）三区块合一 ===
-  // 原本分散在 3 个独立 chart-card（结论卡/徽章卡/趋势图卡），现合并为同一外层 card 内 3 个子区块
-  // 子区块顺序：结论区 -> 准确度表区(徽章) -> 趋势图区，子区块间用 border-top 分隔
+  // === 合并卡：规律结论 + 同向准确度趋势（近125日）二区块合一 ===
+  // 原本分散在 3 个独立 chart-card（结论卡/徽章卡/趋势图卡），2026-07-20 起删除徽章表区，现合并为同一外层 card 内 2 个子区块
+  // 子区块顺序：结论区 -> 趋势图区，子区块间用 border-top 分隔
   const _hasAccTrend = accTrend && accTrend.latest && accTrend.latest.roles;
   const _hasConc = accConclusion && accConclusion.conclusions && accConclusion.conclusions.length;
   if (_hasAccTrend || _hasConc) {
@@ -12530,40 +12530,10 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
       addCardTimeBadge(_concSub, _concDate, snap, "t1", "futures_date");
     }
 
-    // --- 子区块2: 同向准确度表区（徽章行） ---
+    // --- 子区块2: 同向准确度趋势图区（近125日） ---
     if (_hasAccTrend) {
-      const _badgeSub = document.createElement("div");
-      _badgeSub.className = "futures-acc-sub futures-acc-sub-badge";
-      _mergedCard.appendChild(_badgeSub);
-      const _frRoles = [["中信期货", "中信"], ["机构前20", "机构"], ["国泰君安", "国君"]];
-      const _frTip = "同向准确度=同向天数/总天数。可跌破50%（accuracy恒>=50%取较大者为基准看不出失效）。<50%(红)=同向失效风格转逆向，50-55%(黄)=临界，>55%(绿)=同向有效。箭头=对比昨日变化。";
       const _frDate = accTrend.latest.date || "";
-      const _frDateSuffix = _frDate ? `<span class="chart-latest"> · ${fmtDate(_frDate)}</span>` : "";
-      let _frHtml = `<h3>同向准确度${_frDateSuffix}</h3>`;
-      _frHtml += `<div class="futures-note">同向准确度 = 同向天数 / 15日总天数。可跌破50%，直接反映"同向越来越不准=风格转逆向"。accuracy恒>=50%（取同向/逆向较大者为基准）看不出失效，同向准确度才是关键。箭头=对比昨日变化。</div>`;
-      _frHtml += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0">';
-      for (const [roleKey, roleLabel] of _frRoles) {
-        const r = accTrend.latest.roles[roleKey];
-        if (!r) continue;
-        const fr = r.follow_ratio;
-        const prev = r.yesterday_follow_ratio;
-        const color = fr < 50 ? "#e6492e" : fr < 55 ? "#f59e0b" : "#16a34a";
-        const arrow = prev != null ? (fr > prev ? "↑" : fr < prev ? "↓" : "->") : "";
-        const arrowColor = prev != null ? (fr > prev ? "#16a34a" : fr < prev ? "#e6492e" : "var(--text-3)") : "var(--text-3)";
-        const dirText = r.dominant_dir === "同向" ? "同向主导" : r.dominant_dir === "逆向" ? "逆向主导" : "-";
-        const warn = fr < 50 ? " ⚠" : "";
-        _frHtml += `<div style="flex:1;min-width:120px;text-align:center;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-2)">`;
-        _frHtml += `<div style="font-size:12px;color:var(--text-3)">${roleLabel} · ${dirText}</div>`;
-        _frHtml += `<div style="font-size:22px;font-weight:bold;color:${color}">${fr != null ? fr.toFixed(1) + "%" : "-"}<span style="font-size:14px;margin-left:4px;color:${arrowColor}">${arrow}</span>${warn}</div>`;
-        if (prev != null) _frHtml += `<div style="font-size:11px;color:var(--text-3)">昨日 ${prev.toFixed(1)}%</div>`;
-        _frHtml += `</div>`;
-      }
-      _frHtml += '</div>';
-      _frHtml += `<div class="term-plain">${_frTip}</div>`;
-      _badgeSub.innerHTML = _frHtml;
-      addCardTimeBadge(_badgeSub, _frDate, snap, "t1", "futures_date");
 
-      // --- 子区块3: 同向准确度趋势图区（近125日） ---
       if (accTrend.dates && accTrend.dates.length && accTrend.series) {
         const _chartSub = document.createElement("div");
         _chartSub.className = "futures-acc-sub futures-acc-sub-chart";

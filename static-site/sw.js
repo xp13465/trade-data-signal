@@ -13,7 +13,7 @@
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260803-futures-acc-merge';
+const CACHE_VERSION = 'v2-20260803-futures-acc-drop-badge';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
