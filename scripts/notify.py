@@ -17,8 +17,8 @@
                     subject 前缀由调用方控制，统一 [告警]/[完成]/[恢复] 模板）。
   --alert-issue     写 data/alerts/latest.md（issue 一句话 + 详情=body + 日志路径）
   --alert-log       配合 --alert-issue，记录日志文件路径
-  --from-prefix     邮件发件人名前缀（如 [告警] -> "From: [告警] 情绪看板 <user>"）。
-                    默认 None 时用 "情绪看板监控"。
+  --from-prefix     邮件发件人名前缀（如 [告警] -> "From: [告警] 信号实验室 <user>"）。
+                    默认 None 时用 "信号实验室监控"。
   --dry-run         不真发，只 print 到 stderr（自验用）
 
 各渠道发送失败只 print 警告不抛异常（不阻塞调用方，update_all 末尾 || true 双保险）。
@@ -186,8 +186,8 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
       SMTP user/password 仍用 config 全局配置（单一发件邮箱给多收件人推送）。None 时用 config 默认。
 
     from_prefix 参数（2026-07-20 改造）：发件人名前缀。
-      - None/空：用默认 "情绪看板监控"
-      - 非空（如 "[告警]"）：用 "<prefix> 情绪看板"（前缀后加空格）
+      - None/空：用默认 "信号实验室监控"
+      - 非空（如 "[告警]"）：用 "<prefix> 信号实验室"（前缀后加空格）
     """
     if dry_run:
         print(f"[notify][dry-run] email subject={subject} to={to or '(config默认)'}", file=sys.stderr)
@@ -210,11 +210,11 @@ def _send_email(subject: str, body: str, dry_run: bool = False,
         print(f"[notify] SMTP password 占位符或缺失，跳过发送（subject={subject}）", file=sys.stderr)
         return False
 
-    # 发件人名：from_prefix 非空 -> "<prefix> 情绪看板"；None/空 -> "情绪看板监控"（默认）
+    # 发件人名：from_prefix 非空 -> "<prefix> 信号实验室"；None/空 -> "信号实验室监控"（默认）
     if from_prefix:
-        from_name = f"{from_prefix} 情绪看板"
+        from_name = f"{from_prefix} 信号实验室"
     else:
-        from_name = "情绪看板监控"
+        from_name = "信号实验室监控"
 
     msg = MIMEText(body, "html", "utf-8")
     msg["Subject"] = subject
@@ -246,7 +246,7 @@ def send(subject: str, body: str, severe: bool = False, dry_run: bool = False,
       2026-07-20 改造：subject 前缀由调用方控制（统一 [告警]/[完成]/[恢复] 模板），
       SEVERE_PREFIX 已置空串，--severe 不再修改 subject。
     dry_run=True 两个渠道都只 print 不真发。
-    from_prefix：邮件发件人名前缀（None=默认 "情绪看板监控"，非空如 "[告警]" -> "[告警] 情绪看板"）。
+    from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"，非空如 "[告警]" -> "[告警] 信号实验室"）。
     """
     if severe:
         subject = SEVERE_PREFIX + subject
@@ -266,7 +266,7 @@ def send_to(subject: str, body: str, email: str | None = None,
 
     email/chat_id 任一为 None/空则跳过该渠道。各渠道独立失败不互相阻塞。
     返回 {"email": bool, "telegram": bool}。
-    from_prefix：邮件发件人名前缀（None=默认 "情绪看板监控"）。
+    from_prefix：邮件发件人名前缀（None=默认 "信号实验室监控"）。
     """
     email_ok = _send_email(subject, body, dry_run=dry_run, to=email, from_prefix=from_prefix) if email else False
     tg_ok = send_telegram(subject, body, dry_run=dry_run, chat_id=chat_id) if chat_id else False
@@ -389,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="不真发，只 print 到 stderr")
     parser.add_argument("--from-prefix", default=None,
                         help="邮件发件人名前缀（如 [告警]/[完成]/[恢复]）；"
-                             "None/空=默认 '情绪看板监控'，非空 -> '<prefix> 情绪看板'")
+                             "None/空=默认 '信号实验室监控'，非空 -> '<prefix> 信号实验室'")
     args = parser.parse_args(argv)
 
     # 去重检查：window 内已告警过则 suppress 静默退出（返回 0，不阻塞调用方）

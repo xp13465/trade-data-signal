@@ -563,7 +563,7 @@ if alerts:
     for a in alerts:
         print(a)
     # 复用 notify.py 发邮件 + 写 alerts/latest.md（subject 统一模板 [告警] ... MM-DD HH:MM）
-    # --from-prefix "[告警]" -> 发件人名 "[告警] 情绪看板"
+    # --from-prefix "[告警]" -> 发件人名 "[告警] 信号实验室"
     body = "<br>".join(
         a.replace("<", "&lt;").replace(">", "&gt;") for a in alerts
     )

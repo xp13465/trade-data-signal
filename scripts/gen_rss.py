@@ -126,7 +126,7 @@ def main():
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<rss version="2.0">',
            "  <channel>",
-           "    <title>A股情绪看板每日收盘</title>",
+           "    <title>信号实验室每日收盘</title>",
            f"    <link>{SITE}</link>",
            "    <description>A股市场情绪、恐贪指数、涨跌家数、量能与板块轮动每日收盘速递</description>",
            "    <language>zh-CN</language>",

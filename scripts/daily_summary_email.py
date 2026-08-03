@@ -57,7 +57,7 @@ REPO = Path(__file__).absolute().parent.parent
 SUMMARY_SRC = REPO / "static-site" / "data" / "summary_history.json"
 SUBSCRIPTIONS_SRC = REPO / "config" / "subscriptions.json"
 EMAIL_CONFIG = REPO / "config" / "email.json"
-SITE_NAME = "A股情绪看板"
+SITE_NAME = "信号实验室"
 SITE_DOMAIN = "s.sugas.site"
 
 # email.json.example 中的占位密码,识别后跳过实际发送
