@@ -2169,10 +2169,10 @@ main { padding: 16px 24px; }
   }
 }
 
-/* 期货同向准确度合并卡（规律结论 + 趋势图 二区块合一） */
-.futures-acc-merged-card {
-  grid-column: 1 / -1;
-}
+/* 期货同向准确度合并卡（规律结论 + 趋势图 二区块合一）
+   原含 grid-column:1/-1 跨满父级 indices-grid 全宽（早期不在 2x2 grid 里），
+   2026-07-20 起已迁入 futures-2x2 grid（app.js wrapper2x2.appendChild），
+   该规则会让卡撑满 2 列变单独一行，删除以回归 grid auto-flow：第1行右格 */
 .futures-acc-sub {
   position: relative;
   padding-top: 14px;
