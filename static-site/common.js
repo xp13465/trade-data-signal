@@ -238,7 +238,7 @@ function _labCustomDimsTableHTML(dimHits, dims, adapt) {
   for (let i = 1; i <= 8; i++) lowRows += rowHTML("L" + i, "low");
 
   const head = `<tr><th>维度</th><th>名称</th><th>分值</th><th>权重</th><th>贡献</th><th>命中</th></tr>`;
-  return `<div class="lab-custom-dims">` +
+  return `<div class="lab-custom-dims lab-custom-block-gap">` +
     `<div class="lab-custom-section-title">🔬 8+8 维度拆解（高位预警 H1-H8 + 低位机会 L1-L8）</div>` +
     `<div class="lab-custom-dims-grid">` +
       `<div class="lab-custom-dims-col">` +
@@ -312,7 +312,7 @@ function _labCustomHistoryHTML(historyAnalogy, humanText) {
     `</div>`;
   }
 
-  return `<div class="lab-custom-hist">` +
+  return `<div class="lab-custom-hist lab-custom-block-gap">` +
     `<div class="lab-custom-section-title">📜 历史类比 前3（相似特征时段后续涨跌统计）</div>` +
     `<div class="lab-custom-hist-grid">` +
       sideHTML("high", "高位预警视角") +
@@ -341,7 +341,7 @@ function _labCustomThresholdsHTML(dataThresholds) {
     }).join("");
   }
   const head = `<tr><th>维度</th><th>名称</th><th>当前值</th><th>阈值</th><th>状态</th><th>说明</th></tr>`;
-  return `<div class="lab-custom-thresh">` +
+  return `<div class="lab-custom-thresh lab-custom-block-gap">` +
     `<button type="button" class="lab-custom-thresh-toggle">展开数据阈值表 ▾</button>` +
     `<div class="lab-custom-thresh-body" style="display:none">` +
       `<div class="lab-custom-thresh-grid">` +
@@ -361,7 +361,7 @@ function _labCustomThresholdsHTML(dataThresholds) {
 // 合规底栏
 function _labCustomFooterHTML(complianceFooter, noDataHint) {
   const foot = complianceFooter || "⚠️ 本分析基于历史数据统计，仅供学习参考，不构成投资建议或交易指令，市场有风险，决策需谨慎。";
-  return `<div class="lab-custom-footer">` +
+  return `<div class="lab-custom-footer lab-custom-block-gap">` +
     `<div class="lab-custom-footer-text">${foot}</div>` +
     (noDataHint ? `<div class="lab-custom-footer-hint">${noDataHint}</div>` : "") +
   `</div>`;

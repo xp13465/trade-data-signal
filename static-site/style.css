@@ -3753,9 +3753,11 @@ main { padding: 16px 24px; }
   background: var(--bg-card); border: 1px solid var(--border-strong);
   border-radius: 10px; padding: 14px 16px;
 }
+/* ETF评分弹窗区块间距根治(2026-08-03):替代内联 margin-bottom:12px,PC 6px/移动 4px */
+.lab-custom-block-gap { margin-bottom: 6px; }
 .lab-custom-score-head {
   display: flex; justify-content: space-between; align-items: center;
-  flex-wrap: wrap; gap: 8px; margin-bottom: 12px;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 8px;
 }
 .lab-custom-score-title { font-size: 17px; font-weight: 700; color: var(--text-1); }
 .lab-custom-score-date { font-size: 13px; font-weight: 500; color: var(--text-3); margin-left: 8px; }
@@ -3799,7 +3801,7 @@ main { padding: 16px 24px; }
 /* C7 P4: 分数卡顶部总判断条 */
 .lab-custom-score-summary {
   font-size: 13.5px; font-weight: 600; line-height: 1.6;
-  padding: 8px 12px; margin-bottom: 12px; border-radius: 6px;
+  padding: 8px 12px; margin-bottom: 8px; border-radius: 6px;
   border-left: 3px solid var(--text-4);
   background: var(--bg-hover); color: var(--text-2);
 }
@@ -3836,7 +3838,7 @@ main { padding: 16px 24px; }
   border-radius: 10px; padding: 14px 16px;
 }
 .lab-custom-section-title {
-  font-size: 15px; font-weight: 700; color: var(--text-1); margin-bottom: 10px;
+  font-size: 15px; font-weight: 700; color: var(--text-1); margin-bottom: 6px;
   padding-bottom: 6px; border-bottom: 1px solid var(--border-strong);
 }
 .lab-custom-dims-grid {
@@ -4114,19 +4116,20 @@ main { padding: 16px 24px; }
 
   /* === ETF评分弹窗移动端紧凑化(lab-custom 全 tab 共享) === */
   .lab-custom-score-title { font-size: 15px; }
-  .lab-custom-section-title { font-size: 13.5px; margin-bottom: 6px; padding-bottom: 4px; }
+  .lab-custom-section-title { font-size: 13.5px; margin-bottom: 4px; padding-bottom: 4px; }
   .lab-custom-dims-col-title,
   .lab-custom-thresh-col-title { font-size: 12px; padding: 3px 8px; margin-bottom: 4px; }
   .lab-custom-hist-col-title { font-size: 12.5px; margin-bottom: 4px; }
   .lab-custom-score-card,
   .lab-custom-dims,
   .lab-custom-hist,
-  .lab-custom-thresh { padding: 10px 12px; }
+  .lab-custom-thresh { padding: 8px 10px; }
   .lab-custom-score-cell { padding: 10px 12px; }
   .lab-custom-dims-table td,
   .lab-custom-thresh-table td,
   .lab-custom-hist-table td { padding: 4px 6px; }
-  .lab-custom-score-summary { font-size: 12.5px; padding: 6px 10px; margin-bottom: 8px; }
+  .lab-custom-score-summary { font-size: 12.5px; padding: 6px 10px; margin-bottom: 6px; }
+  .lab-custom-block-gap { margin-bottom: 4px; }
 }
 @media (max-width: 480px) {
   .lab-custom-selector { flex-direction: column; align-items: stretch; }
@@ -4148,7 +4151,7 @@ main { padding: 16px 24px; }
   .lab-custom-score-card,
   .lab-custom-dims,
   .lab-custom-hist,
-  .lab-custom-thresh { padding: 12px 14px; }
+  .lab-custom-thresh { padding: 10px 12px; }
 
   /* ETF 弹窗专属 scoped:score-grid 2列->3列(区块1+2 各3 cell 一行排完消除留白);modal-body 少滚动 */
   .etf-detail-content .lab-custom-score-grid { grid-template-columns: repeat(3, 1fr); }

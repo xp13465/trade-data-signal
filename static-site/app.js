@@ -14152,7 +14152,7 @@ function openEtfScoreDetailModal(code) {
 
   // 区块1: 决策结论头(档位chip + side tag + 评分 + 数据时点)
   // 复用 ETF 评分行的 chip/side 样式, 加 score + high/low alert + 数据日期
-  const headHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+  const headHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
     <div class="lab-custom-score-head">
       <div class="lab-custom-score-title">${_esc(e.name || "")} <span class="lab-custom-score-date">📅 ${_esc(e.etf_code || "")}</span></div>
       <div class="lab-custom-adapt">
@@ -14183,7 +14183,7 @@ function openEtfScoreDetailModal(code) {
     const handsTxt = e.hands != null ? e.hands + " 手" : "-";
     const volTxt = e.volatility != null ? e.volatility.toFixed(2) + "%" : "-";
     const amtTxt = e.amt_pct != null ? e.amt_pct.toFixed(0) : "-";
-    actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+    actionHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
       <div class="lab-custom-section-title">` + _t("etf_buy_section") + `</div>
       <div class="lab-custom-score-grid">
         <div class="lab-custom-score-cell"><div class="lab-custom-cell-label">建议档数</div><div class="lab-custom-cell-score">${handsTxt}</div></div>
@@ -14196,10 +14196,10 @@ function openEtfScoreDetailModal(code) {
     const sa = e.sell_action;
     const pct = sa.pct || 0;
     const barColor = pct >= 75 ? "#e6492e" : pct >= 50 ? "#ff9800" : pct > 0 ? "#ffc107" : "#2e8b57";
-    actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+    actionHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
       <div class="lab-custom-section-title">` + _t("etf_sell_section") + `</div>
-      <div class="lab-custom-score-summary" style="margin:8px 0;font-size:15px">建议 <b>${_esc(sa.label || "")}</b></div>
-      <div style="background:var(--bg-2,rgba(128,128,128,0.1));border-radius:6px;height:24px;overflow:hidden;margin:8px 0;position:relative">
+      <div class="lab-custom-score-summary" style="margin:4px 0;font-size:15px">建议 <b>${_esc(sa.label || "")}</b></div>
+      <div style="background:var(--bg-2,rgba(128,128,128,0.1));border-radius:6px;height:24px;overflow:hidden;margin:4px 0;position:relative">
         <div style="width:${pct}%;height:100%;background:${barColor};transition:width .3s"></div>
         <span style="position:absolute;right:8px;top:3px;font-size:12px;font-weight:600;color:var(--text-1)">` + _t("position_reduce_prefix") + ` ${pct}%</span>
       </div>
@@ -14207,7 +14207,7 @@ function openEtfScoreDetailModal(code) {
     </div>`;
   } else {
     // hold: 持有观察说明
-    actionHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+    actionHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
       <div class="lab-custom-section-title">⏸ 持有观察</div>
       <div class="lab-custom-score-summary">${_esc(e.sell_signal || "持有观察")}</div>
       <div style="font-size:11px;color:var(--text-3);margin-top:6px">` + _t("etf_not_qualified") + `</div>
@@ -14223,7 +14223,7 @@ function openEtfScoreDetailModal(code) {
     const missingTxt = (c.missing || []).length ? (c.missing || []).join(", ") : "无";
     const completePct = ((c.avail_h + c.avail_l) / 16 * 100).toFixed(0);
     const consistencyPct = ((c.hit_count || 0) / 16 * 100).toFixed(0);
-    confHTML = `<div class="lab-custom-score-card" style="margin-bottom:12px">
+    confHTML = `<div class="lab-custom-score-card lab-custom-block-gap">
       <div class="lab-custom-section-title">🎯 置信度</div>
       <div class="lab-custom-score-grid">
         <div class="lab-custom-score-cell">
