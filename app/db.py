@@ -124,6 +124,27 @@ CREATE TABLE IF NOT EXISTS futures_accuracy (
   PRIMARY KEY (date, variety, role, index_id, window)
 );
 
+-- 期货同向准确度每日趋势（2026-07-20 加）：追踪 compute_role_ih_detail 的15日窗口
+-- accuracy/dominant_dir 恒>=50%（取 same/contrarian 较大者为基准），看不出"同向失效"；
+-- follow_ratio = same_count/total*100 可跌破50%，直接反映"同向越来越不准=风格转逆向"。
+-- 每日每角色一行（INSERT OR REPLACE 按 date+role 去重，同日重算覆盖）。
+CREATE TABLE IF NOT EXISTS futures_ih_detail_acc (
+  date TEXT NOT NULL,
+  role TEXT NOT NULL,
+  dominant_dir TEXT,
+  total INTEGER,
+  same_count INTEGER,
+  contrarian_count INTEGER,
+  correct_count INTEGER,
+  wrong_count INTEGER,
+  accuracy REAL,
+  follow_ratio REAL,
+  sample_start TEXT,
+  sample_end TEXT,
+  PRIMARY KEY (date, role)
+);
+CREATE INDEX IF NOT EXISTS idx_futures_ih_detail_acc_date ON futures_ih_detail_acc(date);
+
 -- 盘中实时快照：单行覆盖（id=1 CHECK 强制只保留最新一行）。
 -- indices/industries/concepts/us_futures/global_realtime 存 JSON 字符串。每次采集 UPSERT 覆盖，体现"最新快照"语义。
 -- global_realtime (2026-07-31 加)：全球指数实时报价(德法DAX/CAC40等)，防 export.py reload 丢失致前端角标无实时数据。

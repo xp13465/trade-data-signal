@@ -248,7 +248,8 @@ def compute_all():
     return compute_accuracy(date=None)
 
 
-def compute_role_ih_detail(role: str = "中信期货", n_days: int = 15, index_id: str = "sh") -> dict:
+def compute_role_ih_detail(role: str = "中信期货", n_days: int = 15, index_id: str = "sh",
+                           as_of_date: str | None = None) -> dict:
     """指定角色4品种合计净加仓方向 vs 上证指数(sh)次日涨跌（最近 n_days + 当天）。
 
     算法：
@@ -262,8 +263,13 @@ def compute_role_ih_detail(role: str = "中信期货", n_days: int = 15, index_i
       - 每日对错按主导方向判定
       - details 含最近 n_days 个有 next_return 的交易日 + 当天（next_return=null）
 
+    Args:
+      as_of_date: 回溯快照日期(YYYYMMDD)。None=用最新数据(实时路径)；
+        指定时只取 <= as_of_date 的数据计算15日窗口(backfill 路径，date=as_of_date)。
+
     Returns:
-        {dominant_dir, total, correct_count, wrong_count, accuracy,
+        {dominant_dir, total, same_count, contrarian_count, correct_count, wrong_count,
+         accuracy, sample_start, sample_end,
          details:[{date, ih_chg, if_chg, ic_chg, im_chg, total_chg, citic_dir, next_return, correct}]}
         或 None（数据不足）
     """
@@ -339,6 +345,12 @@ def compute_role_ih_detail(role: str = "中信期货", n_days: int = 15, index_i
     if not all_daily:
         return None
 
+    # as_of_date 回溯过滤：只取 <= as_of_date 的数据(backfill 路径)
+    if as_of_date is not None:
+        all_daily = [x for x in all_daily if x["date"] <= as_of_date]
+        if not all_daily:
+            return None
+
     # 当天 = 最新日期（next_return 通常为 null，次日未收盘）
     current_day = all_daily[-1]
 
@@ -408,15 +420,64 @@ def compute_role_ih_detail(role: str = "中信期货", n_days: int = 15, index_i
         })
 
     accuracy = round(correct_count / total * 100, 1) if total > 0 else 0
+    follow_ratio = round(same_count / total * 100, 1) if total > 0 else 0
+
+    # 样本区间 = judged 明细的首末日（不含当天 next_return=null 行）
+    sample_start = last_judged[0]["date"] if last_judged else None
+    sample_end = last_judged[-1]["date"] if last_judged else None
 
     return {
         "dominant_dir": dominant_dir,
         "total": total,
+        "same_count": same_count,
+        "contrarian_count": contrarian_count,
         "correct_count": correct_count,
         "wrong_count": wrong_count,
         "accuracy": accuracy,
+        "follow_ratio": follow_ratio,
+        "sample_start": sample_start,
+        "sample_end": sample_end,
         "details": details,
     }
+
+
+def record_ih_detail_acc(role: str, result: dict, conn=None) -> bool:
+    """将 compute_role_ih_detail 结果写入 futures_ih_detail_acc 表（每日快照）。
+
+    快照日期 = result["details"] 最后一行的 date（当天行，next_return=null）。
+    若最后一行有 next_return（非当天，回溯边界），用其 date 作快照日期。
+    INSERT OR REPLACE 按 (date, role) 去重，同日重算覆盖。
+
+    Args:
+      role: 角色名（中信期货/top20/国泰君安 等，与 compute_role_ih_detail 入参一致）
+      result: compute_role_ih_detail 返回 dict
+      conn: 可选连接（backfill 批量场景复用，None 时自建）
+    Returns:
+      True=写入成功，False=数据不足跳过
+    """
+    if not result or not result.get("total") or not result.get("details"):
+        return False
+    snapshot_date = result["details"][-1]["date"]
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO futures_ih_detail_acc "
+            "(date, role, dominant_dir, total, same_count, contrarian_count, "
+            "correct_count, wrong_count, accuracy, follow_ratio, sample_start, sample_end) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (snapshot_date, role, result["dominant_dir"], result["total"],
+             result["same_count"], result["contrarian_count"],
+             result["correct_count"], result["wrong_count"], result["accuracy"],
+             result["follow_ratio"], result["sample_start"], result["sample_end"]),
+        )
+        if own_conn:
+            conn.commit()
+        return True
+    finally:
+        if own_conn:
+            conn.close()
 
 
 def compute_net_position():

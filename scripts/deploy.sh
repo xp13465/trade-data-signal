@@ -300,7 +300,9 @@ for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_s
 done
 # 单文件（export.py 生成 + deploy/update_all/update_lab 生成）
 # trade_sim_indices: export.py 生成单文件(非 R2 托管的 trade_sim/ 目录), 需入 git 否则 .gz 404
-for _f in overview futures ad_line volume_ratio position \
+# futures_acc_trend: 期货同向准确度每日趋势(方案A, export_futures_acc_trend 生成,
+#   读 futures_ih_detail_acc 表 1851 行 ~370KB, 单文件无 -all/-5y/-3y 拆分, 走 CF 不走 R2)
+for _f in overview futures futures_acc_trend ad_line volume_ratio position \
           summary summary_history signal_freq signal_stats \
           rotation new_high_low ma_alignment intraday_snapshot \
           alert etf_score_list trade_sim_indices \

@@ -114,8 +114,82 @@ def export_index_detail(conn, cfg, index_id):
 
 
 def export_futures(conn):
-    """复刻 /api/futures。"""
-    return queries.futures_data(conn)
+    """复刻 /api/futures。同时记录当日同向准确度快照到 futures_ih_detail_acc（写入 hook）。"""
+    data = queries.futures_data(conn)
+    # 写入 hook：记录当日3角色的 follow_ratio 快照（INSERT OR REPLACE 幂等）
+    # 仅在 export 路径写（不在 API 路径写，避免每次页面加载写 DB 致锁竞争）
+    try:
+        from app.compute.futures_position import record_ih_detail_acc
+        for role_key, detail_key in [("中信期货", "citic_ih_detail"),
+                                      ("top20", "inst_ih_detail"),
+                                      ("国泰君安", "guotai_ih_detail")]:
+            result = data.get(detail_key)
+            if result and result.get("total"):
+                record_ih_detail_acc(role=role_key, result=result, conn=conn)
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ record_ih_detail_acc 失败(不阻塞): {e}")
+    return data
+
+
+def export_futures_acc_trend(conn):
+    """期货同向准确度每日趋势（futures_ih_detail_acc 表）。
+
+    返回 {dates:[...], series:{中信期货:[...], 机构前20:[...], 国泰君安:[...]}, latest:{...}}
+    每点 {date, accuracy, follow_ratio, dominant_dir}。
+    用于前端趋势图：识别"同向越来越不准=风格转逆向"（follow_ratio 跌破50%）。
+
+    role key 映射：top20→机构前20（与 queries.futures_data 的角色标签对齐）。
+    """
+    rows = conn.execute(
+        "SELECT date, role, dominant_dir, total, same_count, contrarian_count, "
+        "correct_count, wrong_count, accuracy, follow_ratio, sample_start, sample_end "
+        "FROM futures_ih_detail_acc ORDER BY date, role"
+    ).fetchall()
+    if not rows:
+        return {"dates": [], "series": {}, "latest": {}}
+
+    role_map = {"中信期货": "中信期货", "top20": "机构前20", "国泰君安": "国泰君安"}
+    dates_set: list[str] = []
+    series: dict[str, list] = {v: [] for v in role_map.values()}
+    by_date_role: dict[tuple, dict] = {}
+    for r in rows:
+        d = r["date"]
+        if d not in dates_set:
+            dates_set.append(d)
+        role_label = role_map.get(r["role"], r["role"])
+        pt = {
+            "date": d,
+            "accuracy": r["accuracy"],
+            "follow_ratio": r["follow_ratio"],
+            "dominant_dir": r["dominant_dir"],
+            "total": r["total"],
+            "same_count": r["same_count"],
+            "contrarian_count": r["contrarian_count"],
+            "sample_start": r["sample_start"],
+            "sample_end": r["sample_end"],
+        }
+        series[role_label].append(pt)
+        by_date_role[(d, role_label)] = pt
+
+    # latest = 最新日每角色的 follow_ratio + yesterday 对比（供前3张表角标用）
+    latest_date = dates_set[-1]
+    prev_date = dates_set[-2] if len(dates_set) >= 2 else None
+    latest: dict = {"date": latest_date, "prev_date": prev_date, "roles": {}}
+    for role_label in series.keys():
+        cur = by_date_role.get((latest_date, role_label))
+        prev = by_date_role.get((prev_date, role_label)) if prev_date else None
+        if cur:
+            latest["roles"][role_label] = {
+                "follow_ratio": cur["follow_ratio"],
+                "yesterday_follow_ratio": prev["follow_ratio"] if prev else None,
+                "dominant_dir": cur["dominant_dir"],
+                "accuracy": cur["accuracy"],
+                "sample_start": cur["sample_start"],
+                "sample_end": cur["sample_end"],
+            }
+
+    return {"dates": dates_set, "series": series, "latest": latest}
 
 
 def export_ad_line(conn):
@@ -390,6 +464,11 @@ def main():
     # 7.5. futures
     counts["futures.json"] = write_json(DATA_DIR / "futures.json", export_futures(conn))
     print(f"  futures.json ({counts['futures.json']} bytes)")
+
+    # 7.5.1 futures_acc_trend（期货同向准确度每日趋势，follow_ratio 可跌破50%反映同向失效）
+    counts["futures_acc_trend.json"] = write_json(
+        DATA_DIR / "futures_acc_trend.json", export_futures_acc_trend(conn))
+    print(f"  futures_acc_trend.json ({counts['futures_acc_trend.json']} bytes)")
 
     # 7.6. ad_line
     counts["ad_line.json"] = write_json(DATA_DIR / "ad_line.json", export_ad_line(conn))
