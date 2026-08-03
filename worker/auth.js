@@ -20,7 +20,8 @@
 //
 // env 变量（wrangler secret put 配置，不进 wrangler.jsonc）：
 //   GITEE_CLIENT_ID / GITEE_CLIENT_SECRET / GITEE_REDIRECT_URI（生产=https://ss.fx8.store/api/auth/callback/gitee）/ SESSION_SECRET
-//   GitHub/Google 未实现，占位
+//   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / GITHUB_REDIRECT_URI（生产=https://ss.fx8.store/api/auth/callback/github）
+//   Google 未实现，占位
 // KV binding 复用 SUBSCRIBE_KV（见 wrangler.jsonc kv_namespaces）。
 
 const SESSION_COOKIE_NAME = 'session';
@@ -353,8 +354,8 @@ async function callbackGithub(request, env, url) {
   await env.SUBSCRIBE_KV.delete(`oauth_state:${state}`);
 
   // 换 access_token（GitHub 必须带 Accept: application/json 否则返回 url-encoded string）
-  // body 含 client_id/client_secret/code/redirect_uri（GitHub 不需 grant_type，默认 authorization_code）
-  const tokenBody = new URLSearchParams({
+  // body JSON 含 client_id/client_secret/code/redirect_uri（GitHub 不需 grant_type，默认 authorization_code）
+  const tokenBody = JSON.stringify({
     client_id: clientId,
     client_secret: clientSecret,
     code,
@@ -364,8 +365,8 @@ async function callbackGithub(request, env, url) {
   try {
     const tokResp = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
-      headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: tokenBody.toString(),
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: tokenBody,
     });
     if (tokResp.status !== 200) {
       const text = await tokResp.text();
@@ -378,11 +379,15 @@ async function callbackGithub(request, env, url) {
   }
   if (!accessToken) return jsonResponse({ detail: 'GitHub 未返回 access_token' }, 400);
 
-  // 拉用户信息（GitHub 要求 Authorization: Bearer <token>）
+  // 拉用户信息（GitHub 要求 Authorization: Bearer <token>；API 强制要求 User-Agent 否则 403）
   let u;
   try {
     const userResp = await fetch('https://api.github.com/user', {
-      headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${accessToken}` },
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'signal-lab-oauth',
+      },
     });
     if (userResp.status !== 200) {
       return jsonResponse({ detail: `拉 GitHub 用户信息失败: ${userResp.status}` }, 400);
