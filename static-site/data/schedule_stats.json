@@ -16,9 +16,9 @@
     "name": "指数补采兜底",
     "schedule": "16:35 / 21:00 / 02:00",
     "est_text": "约18分钟",
-    "last_run": "2026-08-03 21:00",
+    "last_run": "2026-08-04 02:00",
     "last_exit": 0,
-    "last_duration_sec": 1039,
+    "last_duration_sec": 999,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
