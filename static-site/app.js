@@ -12304,18 +12304,35 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   if (accTrend && accTrend.series) {
     for (const [roleKey, pts] of Object.entries(accTrend.series)) {
       const m = {};
-      if (Array.isArray(pts)) pts.forEach(p => { if (p && p.date != null) m[p.date] = p.follow_ratio; });
+      if (Array.isArray(pts)) pts.forEach(p => { if (p && p.date != null) m[p.date] = p; });
       _accFrMap[roleKey] = m;
     }
   }
   // 表①② titlePrefix -> accTrend role key 映射
   const _prefixToRoleKey = { "中信": "中信期货", "机构": "机构前20", "国君": "国泰君安" };
-  // 格式化 follow_ratio 单元格：<=30% 淡绿(抄底信号) / >=80% 淡红(顶部预警) / 正常不着色
-  const _fmtFrCell = (fr) => {
-    if (fr == null) return { text: "-", cls: "", title: "" };
-    let cls = "", suffix = "", title = "";
-    if (fr <= 30) { cls = "acc-cell-low"; suffix = "<br><small>抄底信号</small>"; title = "同向准确度<=30%：历史34次中33次(97%)后20日正收益"; }
-    else if (fr >= 80) { cls = "acc-cell-high"; suffix = "<br><small>顶部预警</small>"; title = "同向准确度>=80%：历史22次中15次(68%)后20日负收益"; }
+  // 格式化 follow_ratio 单元格：所有非空单元格都有 hover 明细（同向准确度/主导方向/历史准确率/样本区间），
+  // 极端值(<=30%/>=80%)追加抄底/顶部预警历史统计 + 着色 acc-cell-low/high + <small> 标签
+  const _fmtFrCell = (pt) => {
+    if (!pt || pt.follow_ratio == null) return { text: "-", cls: "", title: "" };
+    const fr = pt.follow_ratio;
+    let cls = "", suffix = "";
+    const dir = pt.dominant_dir || "-";
+    const same = pt.same_count != null ? pt.same_count : "-";
+    const contra = pt.contrarian_count != null ? pt.contrarian_count : "-";
+    const tot = pt.total != null ? pt.total : "-";
+    const acc = pt.accuracy != null ? pt.accuracy.toFixed(1) : "-";
+    const ss = pt.sample_start || "-";
+    const se = pt.sample_end || "-";
+    let title = `同向准确度 ${fr.toFixed(1)}%(${same}同向/${contra}逆向,共${tot}日)\n主导方向：${dir}\n历史准确率：${acc}%\n样本区间：${ss}-${se}`;
+    if (fr <= 30) {
+      cls = "acc-cell-low";
+      suffix = "<br><small>抄底信号</small>";
+      title += "\n⚠ 抄底信号：历史34次中33次(97%)后20日正收益";
+    } else if (fr >= 80) {
+      cls = "acc-cell-high";
+      suffix = "<br><small>顶部预警</small>";
+      title += "\n⚠ 顶部预警：历史22次中15次(68%)后20日负收益";
+    }
     return { text: fr.toFixed(1) + "%" + suffix, cls, title };
   };
 
@@ -12445,24 +12462,21 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
     (host || fgGrid).appendChild(div);
     addCardTimeBadge(div, latestDetailDate, snap, "t1", "futures_date");
   };
-  // 需求3布局: 3张表（中信净加表 + 机构净加表 + 准确率合并表）横向并排，等高+日期行对齐 -- 期货tab前3位置
-  const _renderTripleCards = (citicCd, instCd) => {
-    if (!citicCd && !instCd) return;
-    // 3表共享日期并集（升序），保证3表同日期同一行水平对齐
-    const citicDates = (citicCd && citicCd.details) ? citicCd.details.map(d => d.date).filter(Boolean) : [];
-    const instDates = (instCd && instCd.details) ? instCd.details.map(d => d.date).filter(Boolean) : [];
-    const sharedDates = [...new Set([...citicDates, ...instDates])].sort();
-    // 3列 grid 容器（align-items:stretch 等高）
-    const wrapper = document.createElement("div");
-    wrapper.className = "futures-triple-grid";
-    fgGrid.appendChild(wrapper);
-    // 3张表渲染到同一 wrapper（横向并排），共享 sharedDates 保证行对齐
-    // 顺序：①中信净加多空 ②机构净加多空 ③中信/机构多空单同向准确率合并表
-    _renderRoleNetChgCard(citicCd, "中信", "最近15个交易日中信期货4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天(727)置顶高亮。", wrapper, sharedDates);
-    _renderRoleNetChgCard(instCd, "机构", "最近15个交易日机构(前20会员)4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天(727)置顶高亮。", wrapper, sharedDates);
-    _renderMergedAccuracyCard(citicCd, instCd, wrapper, sharedDates);
-  };
-  _renderTripleCards(data.citic_ih_detail, data.inst_ih_detail);
+  // 需求3布局: 2行2列 grid（表③准确率合并表 + 规律结论卡 + 中信净加表 + 机构净加表），共享 sharedDates 保证行对齐
+  // grid auto-flow 行优先：appendChild 顺序 = 第1行左(表③) -> 第1行右(规律结论卡) -> 第2行左(中信净加) -> 第2行右(机构净加)
+  const _citicCd = data.citic_ih_detail;
+  const _instCd = data.inst_ih_detail;
+  const _citicDates = (_citicCd && _citicCd.details) ? _citicCd.details.map(d => d.date).filter(Boolean) : [];
+  const _instDates = (_instCd && _instCd.details) ? _instCd.details.map(d => d.date).filter(Boolean) : [];
+  const sharedDates = [...new Set([..._citicDates, ..._instDates])].sort();
+  // 2x2 grid 容器（align-items:start 避免规律结论卡撑高表③留白）
+  const wrapper2x2 = document.createElement("div");
+  wrapper2x2.className = "futures-2x2-grid";
+  fgGrid.appendChild(wrapper2x2);
+  // 第1行左：表③ 中信/机构多空单同向准确率合并表
+  _renderMergedAccuracyCard(_citicCd, _instCd, wrapper2x2, sharedDates);
+  // 第1行右：_mergedCard 整块（规律结论+趋势图，下文 appendChild 到 wrapper2x2）
+  // 第2行左/右：中信/机构净加多空表（下文 _mergedCard 块后调用，保证 grid 顺序）
 
 
   // === 合并卡：规律结论 + 同向准确度趋势（近125日）二区块合一 ===
@@ -12473,7 +12487,7 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
   if (_hasAccTrend || _hasConc) {
     const _mergedCard = document.createElement("div");
     _mergedCard.className = "chart-card futures-acc-merged-card";
-    fgGrid.appendChild(_mergedCard);
+    wrapper2x2.appendChild(_mergedCard);
 
     // --- 子区块1: 规律结论区 ---
     if (_hasConc) {
@@ -12645,6 +12659,10 @@ function renderFuturesSection(data, snap, container, accTrend, accConclusion) {
       }
     }
   }
+
+  // 第2行左/右：中信/机构净加多空表（过去15天），appendChild 到 wrapper2x2 保证 grid auto-flow 行优先落第2行
+  _renderRoleNetChgCard(_citicCd, "中信", "最近15个交易日中信期货4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天置顶高亮。", wrapper2x2, sharedDates);
+  _renderRoleNetChgCard(_instCd, "机构", "最近15个交易日机构(前20会员)4品种(上证50/沪深300/中证500/中证1000)净加仓(多头增减-空头增减)手数及方向。首行为当天置顶高亮。", wrapper2x2, sharedDates);
 
   // 第456卡片(昨日净多空/历史准确率/当日净加对照)3列并排，和前3一样复用 futures-triple-grid 3列布局
   const tripleGrid2 = document.createElement("div");

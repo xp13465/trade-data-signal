@@ -2057,6 +2057,25 @@ main { padding: 16px 24px; }
   box-shadow: inset 0 -1px 0 0 var(--bg-hover);
 }
 
+/* 期货风向页前3表+规律结论卡 2行2列布局：表③(准确率合并表) + 规律结论卡 + 中信净加表 + 机构净加表
+   align-items:start 避免规律结论卡(含趋势图较高)撑高表③留白；
+   grid auto-flow 行优先，appendChild 顺序决定落格(第1行左/右 + 第2行左/右) */
+.futures-2x2-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto;
+  gap: 12px;
+  grid-column: 1 / -1;
+  margin-bottom: 12px;
+  align-items: start;
+}
+/* 窄屏(≤1044px)：2x2 改上下1列，避免表格挤压 */
+@media (max-width: 1044px) {
+  .futures-2x2-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 3张表横向并排（准确率合并表 + 中信净加表 + 机构净加表）：等高 + 日期行对齐
    自适应切列(auto-fit)：宽屏(>1044px)3列、中屏(692-1043px)2列、窄屏(<692px或≤768px)1列；
    auto-fit 而非 auto-fill：futures-triple-grid 固定3卡，auto-fill 宽屏会留空轨道右侧空白，auto-fit 折叠空轨让3卡均匀撑满 */
@@ -2070,38 +2089,46 @@ main { padding: 16px 24px; }
 }
 /* 第456卡片(昨日净多空/历史准确率/当日净加对照)已移入 futures-triple-grid wrapper 3列并排(app.js _renderTripleCards 后 tripleGrid2)；
    说明卡(无表格)仍留 indices-grid 自然流，不再强制跨满全宽(a25 副作用已修) */
-/* 3表卡片由 grid gap 统一间距，去掉单卡 margin-bottom */
+/* 表格卡片由 grid gap 统一间距，去掉单卡 margin-bottom（2x2 + triple 共用） */
+.futures-2x2-grid .chart-card,
 .futures-triple-grid .chart-card {
   margin-bottom: 0;
   display: flex;
   flex-direction: column;
 }
-/* 3表去独立滚动（日期对齐优先于滚动），显示全部行 */
+/* 去独立滚动（日期对齐优先于滚动），显示全部行（2x2 + triple 共用） */
+.futures-2x2-grid .accuracy-table-scroll,
 .futures-triple-grid .accuracy-table-scroll {
   max-height: none;
   overflow-y: visible;
   border-bottom: none;
-  flex: 1; /* tbody 撑满剩余空间，3卡片底部空白等高 */
+  flex: 1; /* tbody 撑满剩余空间，卡片底部空白等高 */
 }
-/* 固定表头行高 + note 区 min-height，3表表格起始位置一致，日期行严格对齐 */
+/* 固定表头行高 + note 区 min-height，表格起始位置一致，日期行严格对齐（2x2 + triple 共用） */
+.futures-2x2-grid .accuracy-table thead th,
 .futures-triple-grid .accuracy-table thead th {
   position: static;
   height: 44px;
   vertical-align: middle;
   box-shadow: none;
 }
-/* 标题统一2行高度(44px=14px*1.5*2+2px buffer)：合并表h3字数多(31字)在窄列换2行(42px)，净加表h3短(16字)单行(21px)，min-height强制等高避免thead起始位置错位 */
+/* 标题统一2行高度(44px=14px*1.5*2+2px buffer)：合并表h3字数多(31字)在窄列换2行(42px)，净加表h3短(16字)单行(21px)，min-height强制等高避免thead起始位置错位（2x2 + triple 共用） */
+.futures-2x2-grid .chart-card h3,
 .futures-triple-grid .chart-card h3 {
   min-height: 44px;
 }
 /* 副标题(futures-stat-sub)/说明(futures-note) 去掉强制 min-height：贴合实际内容高度(1-2行)，消除多余空白；
-   标题 h3 仍 min-height:44px 保证3表标题等高对齐(a26 核心修复保留)；描述行不再强制等高，短内容不留空白、长内容自然撑高 */
+   标题 h3 仍 min-height:44px 保证标题等高对齐(a26 核心修复保留)；描述行不再强制等高，短内容不留空白、长内容自然撑高（2x2 + triple 共用） */
+.futures-2x2-grid .futures-stat-sub,
+.futures-2x2-grid .futures-note,
 .futures-triple-grid .futures-stat-sub,
 .futures-triple-grid .futures-note {
   min-height: auto;
 }
-/* 期货风向3表日期列不换行：窄列(340px卡/7列≈48px)下"07-31"在连字符处断行撑高行高+卡片，
-   nowrap 压缩行高；scope 到 futures-triple-grid 避免误伤其他 accuracy-table(滚动窗口表/角色对照表) */
+/* 期货风向表格日期列不换行：窄列(340px卡/7列≈48px)下"07-31"在连字符处断行撑高行高+卡片，
+   nowrap 压缩行高；scope 到 futures-2x2-grid/futures-triple-grid 避免误伤其他 accuracy-table(滚动窗口表/角色对照表) */
+.futures-2x2-grid .accuracy-table td.sym-name,
+.futures-2x2-grid .accuracy-table thead th:first-child,
 .futures-triple-grid .accuracy-table td.sym-name,
 .futures-triple-grid .accuracy-table thead th:first-child {
   white-space: nowrap;
