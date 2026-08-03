@@ -2922,7 +2922,7 @@ main { padding: 16px 24px; }
   .modal-body { width: 94vw; }
   .summary-history-body { max-width: 94vw; }
   .summary-history-list { max-height: 70vh; }
-  .rule-modal-content { padding: 16px; }
+  .rule-modal-content { padding: 12px; }
   /* 历史弹窗分页器 H5 触控目标增大（44px touch target）+ 页码多时横向滚动 */
   .summary-history-pager { gap: 6px; }
   .summary-history-pager button {
@@ -4107,10 +4107,26 @@ main { padding: 16px 24px; }
   .lab-custom-score-head {
     flex-direction: column; align-items: flex-start;
   }
-  .lab-custom-cell-score { font-size: 26px; }
+  .lab-custom-cell-score { font-size: 22px; margin: 1px 0; }
   .lab-custom-dims-table,
   .lab-custom-thresh-table { font-size: 12px; }
   .lab-custom-thresh-table .th-desc { max-width: 120px; }
+
+  /* === ETF评分弹窗移动端紧凑化(lab-custom 全 tab 共享) === */
+  .lab-custom-score-title { font-size: 15px; }
+  .lab-custom-section-title { font-size: 13.5px; margin-bottom: 6px; padding-bottom: 4px; }
+  .lab-custom-dims-col-title,
+  .lab-custom-thresh-col-title { font-size: 12px; padding: 3px 8px; margin-bottom: 4px; }
+  .lab-custom-hist-col-title { font-size: 12.5px; margin-bottom: 4px; }
+  .lab-custom-score-card,
+  .lab-custom-dims,
+  .lab-custom-hist,
+  .lab-custom-thresh { padding: 10px 12px; }
+  .lab-custom-score-cell { padding: 10px 12px; }
+  .lab-custom-dims-table td,
+  .lab-custom-thresh-table td,
+  .lab-custom-hist-table td { padding: 4px 6px; }
+  .lab-custom-score-summary { font-size: 12.5px; padding: 6px 10px; margin-bottom: 8px; }
 }
 @media (max-width: 480px) {
   .lab-custom-selector { flex-direction: column; align-items: stretch; }
