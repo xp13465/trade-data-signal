@@ -2958,8 +2958,11 @@ main { padding: 16px 24px; }
   .sig-items { grid-template-columns: repeat(2, 1fr); }
   .sig-day-date { flex: 0 0 56px; font-size: 11px; }
 
-  /* 表格横向滚动（display:block + overflow-x:auto，保留表格内对齐）*/
-  .accuracy-table, .futures-summary-table, .ma-table {
+  /* 表格横向滚动（display:block + overflow-x:auto，保留表格内对齐）
+     注意: .ma-table 不加入此规则——display:block 会让 table 脱离 table-layout 算法,
+     内部 th/td 列宽按内容收缩, 虽 table 本身 width:100% 占满容器但 cell 没占满,
+     视觉上表格右侧留白(新高新低明细/均线排列列少, 撑满容器即可, 不需横向滚动) */
+  .accuracy-table, .futures-summary-table {
     display: block; overflow-x: auto; -webkit-overflow-scrolling: touch;
   }
   /* 大盘位置感卡片：缩固定列宽，避免 bar 被挤没 */
