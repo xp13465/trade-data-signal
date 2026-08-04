@@ -117,7 +117,7 @@ metrics:
 # ============ 指数（入 index_daily）============
 indices:
   - {id: sh,       name: 上证指数, market: a, func: stock_zh_index_daily, symbol: "sh000001"}
-  - {id: sz,       name: 深成指,   market: a, func: stock_zh_index_daily, symbol: "sz399001"}
+  - {id: sz,       name: 深证成指, market: a, func: stock_zh_index_daily, symbol: "sz399001"}
   - {id: hs300,    name: 沪深300,  market: a, func: stock_zh_index_daily, symbol: "sh000300"}
   - {id: sz50,     name: 上证50,   market: a, func: stock_zh_index_daily, symbol: "sh000016"}
   - {id: csi500,   name: 中证500,  market: a, func: stock_zh_index_daily, symbol: "sh000905"}
@@ -161,12 +161,12 @@ indices:
   # 申万一级行业指数（31 个）—— F1。源 swsresearch.com（本地 DNS 失败，base.py 已 monkey-patch
   # socket.getaddrinfo 走 8.8.8.8 解析的 IP）。index_hist_sw 返全量历史（1999 起），无 start/end 参数。
   # market=industry 进 /api/industry；signals.py 自动遍历 cfg["indices"] 算 E1 买卖点。
-  - {id: sw_801010, name: "SW 农林牧渔", market: industry, func: index_hist_sw, symbol: "801010", buy_aux_filter: close_above_bl_2pct}
-  - {id: sw_801030, name: "SW 基础化工", market: industry, func: index_hist_sw, symbol: "801030", buy_aux_filter: close_above_bl_2pct}
-  - {id: sw_801040, name: "SW 钢铁",     market: industry, func: index_hist_sw, symbol: "801040"}
-  - {id: sw_801050, name: "SW 有色金属", market: industry, func: index_hist_sw, symbol: "801050"}
-  - {id: sw_801080, name: "SW 电子",     market: industry, func: index_hist_sw, symbol: "801080", buy_aux_filter: close_above_bl_2pct}
-  - {id: sw_801880, name: "SW 汽车",     market: industry, func: index_hist_sw, symbol: "801880"}
+  - {id: sw_801010, name: "农林牧渔", market: industry, func: index_hist_sw, symbol: "801010", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801030, name: "基础化工", market: industry, func: index_hist_sw, symbol: "801030", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801040, name: "钢铁",     market: industry, func: index_hist_sw, symbol: "801040"}
+  - {id: sw_801050, name: "有色金属", market: industry, func: index_hist_sw, symbol: "801050"}
+  - {id: sw_801080, name: "电子",     market: industry, func: index_hist_sw, symbol: "801080", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801880, name: "汽车",     market: industry, func: index_hist_sw, symbol: "801880"}
   # buy_aux_filter（可选）= 该指数 buy_aux 辅买点的 per-index 增强过滤（2026-07-05 加）。
   # 当前 18/32 品类已配置。未配置的走基线 B1（BB 下轨回归）。
   # 取值：
@@ -179,31 +179,31 @@ indices:
   # 未配置的走基线 C1（RSI 上穿 30）。取值：
   #   'rsi_cross_25' = RSI(14) 上穿 25（3 品类）：kc50 科创50 / sw_801730 电力设备 / sw_801760 传媒
   # 详见报告 22-buy收紧RSI回测-21个不建议.md 及 REQUIREMENTS.md §7.4。
-  - {id: sw_801110, name: "SW 家用电器", market: industry, func: index_hist_sw, symbol: "801110", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801120, name: "SW 食品饮料", market: industry, func: index_hist_sw, symbol: "801120"}
-  - {id: sw_801130, name: "SW 纺织服饰", market: industry, func: index_hist_sw, symbol: "801130", buy_aux_filter: close_above_bl_2pct}
-  - {id: sw_801140, name: "SW 轻工制造", market: industry, func: index_hist_sw, symbol: "801140", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801150, name: "SW 医药生物", market: industry, func: index_hist_sw, symbol: "801150", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801160, name: "SW 公用事业", market: industry, func: index_hist_sw, symbol: "801160", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801170, name: "SW 交通运输", market: industry, func: index_hist_sw, symbol: "801170", buy_aux_filter: close_above_bl_2pct}
-  - {id: sw_801180, name: "SW 房地产",   market: industry, func: index_hist_sw, symbol: "801180", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801200, name: "SW 商贸零售", market: industry, func: index_hist_sw, symbol: "801200"}
-  - {id: sw_801210, name: "SW 社会服务", market: industry, func: index_hist_sw, symbol: "801210", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801780, name: "SW 银行",     market: industry, func: index_hist_sw, symbol: "801780"}
-  - {id: sw_801790, name: "SW 非银金融", market: industry, func: index_hist_sw, symbol: "801790"}
-  - {id: sw_801230, name: "SW 综合",     market: industry, func: index_hist_sw, symbol: "801230"}
-  - {id: sw_801710, name: "SW 建筑材料", market: industry, func: index_hist_sw, symbol: "801710"}
-  - {id: sw_801720, name: "SW 建筑装饰", market: industry, func: index_hist_sw, symbol: "801720"}
-  - {id: sw_801730, name: "SW 电力设备", market: industry, func: index_hist_sw, symbol: "801730", buy_filter: rsi_cross_25}
-  - {id: sw_801890, name: "SW 机械设备", market: industry, func: index_hist_sw, symbol: "801890", buy_aux_filter: close_above_bl_2pct}
-  - {id: sw_801740, name: "SW 国防军工", market: industry, func: index_hist_sw, symbol: "801740", buy_aux_filter: close_above_bl_2pct}
-  - {id: sw_801750, name: "SW 计算机",   market: industry, func: index_hist_sw, symbol: "801750", buy_aux_filter: close_above_bl_2pct}
-  - {id: sw_801760, name: "SW 传媒",     market: industry, func: index_hist_sw, symbol: "801760", buy_aux_filter: rsi_cross_40, buy_filter: rsi_cross_25}
-  - {id: sw_801770, name: "SW 通信",     market: industry, func: index_hist_sw, symbol: "801770", buy_aux_filter: rsi_cross_40}
-  - {id: sw_801950, name: "SW 煤炭",     market: industry, func: index_hist_sw, symbol: "801950"}
-  - {id: sw_801960, name: "SW 石油石化", market: industry, func: index_hist_sw, symbol: "801960"}
-  - {id: sw_801970, name: "SW 环保",     market: industry, func: index_hist_sw, symbol: "801970"}
-  - {id: sw_801980, name: "SW 美容护理", market: industry, func: index_hist_sw, symbol: "801980"}
+  - {id: sw_801110, name: "家用电器", market: industry, func: index_hist_sw, symbol: "801110", buy_aux_filter: rsi_cross_40}
+  - {id: sw_801120, name: "食品饮料", market: industry, func: index_hist_sw, symbol: "801120"}
+  - {id: sw_801130, name: "纺织服饰", market: industry, func: index_hist_sw, symbol: "801130", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801140, name: "轻工制造", market: industry, func: index_hist_sw, symbol: "801140", buy_aux_filter: rsi_cross_40}
+  - {id: sw_801150, name: "医药生物", market: industry, func: index_hist_sw, symbol: "801150", buy_aux_filter: rsi_cross_40}
+  - {id: sw_801160, name: "公用事业", market: industry, func: index_hist_sw, symbol: "801160", buy_aux_filter: rsi_cross_40}
+  - {id: sw_801170, name: "交通运输", market: industry, func: index_hist_sw, symbol: "801170", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801180, name: "房地产",   market: industry, func: index_hist_sw, symbol: "801180", buy_aux_filter: rsi_cross_40}
+  - {id: sw_801200, name: "商贸零售", market: industry, func: index_hist_sw, symbol: "801200"}
+  - {id: sw_801210, name: "社会服务", market: industry, func: index_hist_sw, symbol: "801210", buy_aux_filter: rsi_cross_40}
+  - {id: sw_801780, name: "银行",     market: industry, func: index_hist_sw, symbol: "801780"}
+  - {id: sw_801790, name: "非银金融", market: industry, func: index_hist_sw, symbol: "801790"}
+  - {id: sw_801230, name: "综合",     market: industry, func: index_hist_sw, symbol: "801230"}
+  - {id: sw_801710, name: "建筑材料", market: industry, func: index_hist_sw, symbol: "801710"}
+  - {id: sw_801720, name: "建筑装饰", market: industry, func: index_hist_sw, symbol: "801720"}
+  - {id: sw_801730, name: "电力设备", market: industry, func: index_hist_sw, symbol: "801730", buy_filter: rsi_cross_25}
+  - {id: sw_801890, name: "机械设备", market: industry, func: index_hist_sw, symbol: "801890", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801740, name: "国防军工", market: industry, func: index_hist_sw, symbol: "801740", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801750, name: "计算机",   market: industry, func: index_hist_sw, symbol: "801750", buy_aux_filter: close_above_bl_2pct}
+  - {id: sw_801760, name: "传媒",     market: industry, func: index_hist_sw, symbol: "801760", buy_aux_filter: rsi_cross_40, buy_filter: rsi_cross_25}
+  - {id: sw_801770, name: "通信",     market: industry, func: index_hist_sw, symbol: "801770", buy_aux_filter: rsi_cross_40}
+  - {id: sw_801950, name: "煤炭",     market: industry, func: index_hist_sw, symbol: "801950"}
+  - {id: sw_801960, name: "石油石化", market: industry, func: index_hist_sw, symbol: "801960"}
+  - {id: sw_801970, name: "环保",     market: industry, func: index_hist_sw, symbol: "801970"}
+  - {id: sw_801980, name: "美容护理", market: industry, func: index_hist_sw, symbol: "801980"}
 
   # 同花顺概念板块指数（27 个）—— F1。源 akshare stock_board_concept_index_ths，
   # market=concept 进 /api/industry；signals.py 自动遍历 cfg["indices"] 算 E1 买卖点。
@@ -235,13 +235,13 @@ indices:
   - {id: thsc_308752, name: "元宇宙", market: concept, func: index_hist_ths_concept, symbol: "元宇宙", enabled: true}
   - {id: thsc_309128, name: "军工信息化", market: concept, func: index_hist_ths_concept, symbol: "军工信息化", enabled: true}
   - {id: nikkei225, name: 日经225, market: global, func: index_global_hist_sina, symbol: "日经225指数", enabled: true}
-  - {id: kospi, name: KOSPI, market: global, func: index_global_hist_sina, symbol: "首尔综合指数", enabled: true}
+  - {id: kospi, name: 韩国 KOSPI, market: global, func: index_global_hist_sina, symbol: "首尔综合指数", enabled: true}
   - {id: ftse100, name: 富时100, market: global, func: index_global_hist_sina, symbol: "英国富时100指数", enabled: true}
   - {id: dax, name: 德国DAX, market: global, func: index_global_hist_sina, symbol: "德国DAX 30种股价指数", enabled: true}
   - {id: cac40, name: 法国CAC40, market: global, func: index_global_hist_sina, symbol: "法CAC40指数", enabled: true}
   # 中国国债指数表现观察(2026-07-20 china-bond-feasibility 验收后加入,3标的:国债指数/10年国债ETF/10年国债期货主力)
   - {id: cgb_idx,        name: 上证国债指数,    market: global, func: stock_zh_index_daily_tx, symbol: "sh000012", enabled: true}
-  - {id: cgb_10y_etf,    name: 十年国债ETF,    market: global, func: fund_etf_hist_sina,       symbol: "sh511260", enabled: true}
+  - {id: cgb_10y_etf,    name: 10年国债ETF,    market: global, func: fund_etf_hist_sina,       symbol: "sh511260", enabled: true}
   - {id: cgb_10y_future, name: 10年国债期货,   market: global, func: futures_main_sina,        symbol: "T0",        enabled: true}
 
 # ============ 板块（入 board_daily）—— 东财端点反爬封，待直爬实现 ============

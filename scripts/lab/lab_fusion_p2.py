@@ -38,7 +38,7 @@ from fusion_signals import _gen_filter_masks
 
 # 9 A股宽基指数(与 lab_simulate SIM_INDEXES 一致)
 INDICES = [
-    ('sh', '上证指数'), ('sz', '深成指'), ('cyb', '创业板指'), ('kc50', '科创50'),
+    ('sh', '上证指数'), ('sz', '深证成指'), ('cyb', '创业板指'), ('kc50', '科创50'),
     ('bj50', '北证50'), ('sz50', '上证50'), ('hs300', '沪深300'),
     ('csi500', '中证500'), ('csi1000', '中证1000'),
 ]

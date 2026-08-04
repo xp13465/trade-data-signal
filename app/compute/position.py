@@ -18,7 +18,7 @@ from .normalize import load_index_close
 POSITION_INDICES = ["sh", "sz", "hs300", "sz50", "csi500", "csi1000", "cyb", "kc50"]
 
 INDEX_NAMES = {
-    "sh": "上证指数", "sz": "深成指", "hs300": "沪深300",
+    "sh": "上证指数", "sz": "深证成指", "hs300": "沪深300",
     "sz50": "上证50", "csi500": "中证500", "csi1000": "中证1000",
     "cyb": "创业板指", "kc50": "科创50",
 }
