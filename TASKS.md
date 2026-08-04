@@ -1413,3 +1413,25 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - §14 生产稳定性 P0：实施 P0-2（改 export）/ P0-4（新建 worker）/ P1-8（改 export）需避开盘后定时任务时点（15:35/16:00/17:50/20:35 push main），放 23:00+ 安全窗口
 - 改 app.js/style.css 后必跑 `scripts/build_min.py` + `scripts/bump_asset_version.py` + bump sw.js CACHE_VERSION（铁律1）
 - P0-1 改 renderTab 是高风险点（17 处 echarts.init 路径需逐一确认），建议派独立 agent 实施 + 单测覆盖
+
+## 📋 2026-08-04 跌停池采集失败根治 + 角标文案修正（明晚8-5 23:00+ 实施，排查见 /tmp/agent-stale-badge-debug.md）
+
+**根因**：a_width_dt_count（跌停数）8-4 采集失败，intraday_snapshot.py L1305-1318 跌停池 stock_zt_pool_dtgc_em 失败分支只 print 不写 collect_log，无交叉验证（update_all 路径 fetchers.py:321-337 有，intraday 路径没复用），监控漏报 level=ok retry 永不触发。角标 getCardTimeBadge L4739 t0 源盘中 dataDate=ptd 兜底显示"⏳ 待盘后更新·08-03"误导（实际采集失败非待更新）。
+
+**修复方案**（用户3决策已定：A根治+改文案+明晚实施）：
+1. **采集侧根治** intraday_snapshot.py L1305-1318：
+   - 跌停池失败时复用 fetchers.py:321-337 交叉验证（涨停池有数据+跌停池空=真0跌停写0，source="intraday_cross"）
+   - 降级源：从 stock_zh_a_spot（已采 L1266）算跌停数（涨跌幅≤-9.8% 近似）
+   - 失败写 collect_log error（log_collect），让 retry_failed_metrics + collect_health 可见
+2. **角标文案** app.js L4739 t0 源盘中 dataDate=ptd 分支改"⚠ 采集异常·{mmdd}"，区分 T+1 正常等待 vs t0 采集失败（注意 L4733 竞价时段 9:25-9:30 t0 停昨日正常不动）
+3. **监控** intraday_snapshot 跌停池失败写 collect_health，让监控可见（现 level=ok 漏报）
+
+**实施时点**：明晚 8-5 23:00+ 安全窗口（盘中改采集脚本有风险，等收盘后改+明早 09:25 intraday 验证）
+
+**关键约束**：
+- 改 intraday_snapshot.py 采集脚本，盘中 intraday-snapshot 每10分钟调它，必须 23:00+ 改 + 明早验证
+- 改 app.js 角标后 bump sw.js CACHE_VERSION（铁律1）+ build_min + bump_asset_version
+- §14 生产稳定性 P0：push main 避开 intraday-snapshot 盘后 20:35/22:00 时点
+- 补采 8-4 跌停数（DB 无 8-4 行）：修复后明早 09:25 intraday 自动采 8-5，8-4 历史数据可手动 backfill 或留空
+
+**状态**：⏳ 待派实施 agent（明晚8-5 23:00+），durable cron 已设提醒
