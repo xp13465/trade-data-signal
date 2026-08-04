@@ -4440,7 +4440,7 @@ async function openKpiDetailModal(kpiId, period = "3m") {
 
 
 async function renderTab() {
-  await loadEcharts();   // P2-5: 懒加载 echarts（所有 tab 图表 + lab.js 都依赖）
+  loadEcharts();   // P0-1: 启动 echarts 加载（不 await 阻塞，子 render 按需 await loadEcharts；loadEcharts 内部缓存 Promise 不重复加载）
   // 确保 SIM_INDICES 动态清单已加载（initSimIndices 启动时发 fetch），避免首渲按钮全灰
   if (_simIndicesPromise) { try { await _simIndicesPromise; } catch (e) { /* catch 内已处理 */ } }
   clearCharts();
@@ -4457,6 +4457,7 @@ async function renderTab() {
     else if (state.tab === "fund") await renderFund();
     else if (state.tab === "lab") {
       await loadLabScript();   // B5: 懒加载 lab.js
+      await loadEcharts();   // P0-1: lab.js 图表依赖 echarts（renderTab 顶层已 fire-and-forget 启动，此处 await 确保 lab 渲染前就绪）
       await renderSignalLab();
     }
   } catch (e) {
@@ -7514,6 +7515,7 @@ async function renderOverview() {
   content.appendChild(cards);
 
   // 指数 sparkline 网格
+  await loadEcharts();   // P0-1: sparkline 用 echarts，fetch+KPI DOM 已先行渲染（echarts 并行加载，此处按需 await）
   const grid = document.createElement("div");
   grid.className = "spark-grid";
   content.appendChild(grid);
@@ -8152,6 +8154,7 @@ async function renderMarket() {
   renderLoadingState(subContent);
 
   // 根据 subtab 渲染对应内容
+  await loadEcharts();   // P0-1: 子 render（renderAStock/renderIndustry 等）用 mkCard+echarts，按需 await（subtab bar+loading 已先行显示）
   if (state.subtab === "a-stock") await renderAStock(subContent);
   else if (state.subtab === "industry") await renderIndustry(subContent);
   else if (state.subtab === "hk") await renderHK(subContent);
@@ -9780,6 +9783,7 @@ async function renderSentiment() {
   renderLoadingState(subContent);
 
   // 根据 subtab 渲染对应内容
+  await loadEcharts();   // P0-1: 子 render（renderFutures/renderPublicFund/renderSentimentHeatmap 等）用 mkCard+echarts，按需 await
   if (state.subtab === "futures") await renderFutures(subContent);
   else if (state.subtab === "national-team") await renderNationalTeam(subContent);
   else if (state.subtab === "public-fund") await renderPublicFund(subContent);
@@ -14927,6 +14931,7 @@ async function renderFund() {
   renderLoadingState(subContent);
 
   // 根据 subtab 渲染对应内容
+  await loadEcharts();   // P0-1: 子 render（renderEtfScore/renderOffshoreFund）用 mkCard+echarts，按需 await
   if (state.subtab === "offshore") await renderOffshoreFund(subContent);
   else await renderEtfScore(subContent); // 默认 场内ETF
 }
