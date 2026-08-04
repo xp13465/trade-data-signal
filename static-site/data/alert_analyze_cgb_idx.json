@@ -3,20 +3,20 @@
   "target_type": "index",
   "target_name": "上证国债指数",
   "alert": {
-    "date": "20260803",
+    "date": "20260804",
     "target_id": "cgb_idx",
     "target_type": "index",
-    "high": 84.31,
+    "high": 84.74,
     "low": 21.49,
     "high_level": "警示",
     "low_level": "中性",
     "dims": {
       "H1": 100.0,
       "H2": null,
-      "H3": 95.0,
+      "H3": 97.08,
       "H4": 100.0,
-      "H5": 20.0,
-      "H6": 41.04,
+      "H5": 20.42,
+      "H6": 41.25,
       "H7": null,
       "H8": null,
       "L1": 0.0,
@@ -51,9 +51,9 @@
       "label": "观望",
       "detail": {
         "opp": 21.49,
-        "ma60_ratio": 1.006,
+        "ma60_ratio": 1.0062,
         "trend": 70.0,
-        "macd_hist": 0.1034,
+        "macd_hist": 0.108,
         "mom": 100.0,
         "vol": 100.0,
         "volatility": 0.05,
@@ -96,27 +96,27 @@
         {
           "k": "H3",
           "name": "风险点密集",
-          "score": 95.0,
+          "score": 97.08,
           "weight": 0.13,
-          "contribution": 12.35,
+          "contribution": 12.62,
           "hit": true,
           "direction": "high"
         },
         {
           "k": "H6",
           "name": "均线转弱",
-          "score": 41.04,
+          "score": 41.25,
           "weight": 0.08,
-          "contribution": 3.28,
+          "contribution": 3.3,
           "hit": false,
           "direction": "high"
         },
         {
           "k": "H5",
           "name": "动量衰退",
-          "score": 20.0,
+          "score": 20.42,
           "weight": 0.08,
-          "contribution": 1.6,
+          "contribution": 1.63,
           "hit": false,
           "direction": "high"
         }
@@ -185,7 +185,7 @@
         {
           "k": "H3",
           "name": "风险点密集",
-          "value": 95.0,
+          "value": 97.08,
           "threshold": 60,
           "unit": "分",
           "desc": "风险点密集(近10日sell信号)",
@@ -205,7 +205,7 @@
         {
           "k": "H5",
           "name": "动量衰退",
-          "value": 20.0,
+          "value": 20.42,
           "threshold": 60,
           "unit": "分",
           "desc": "动量衰退(新高回落)",
@@ -215,7 +215,7 @@
         {
           "k": "H6",
           "name": "均线转弱",
-          "value": 41.04,
+          "value": 41.25,
           "threshold": 60,
           "unit": "分",
           "desc": "均线转弱(空头排列)",
@@ -328,13 +328,13 @@
     },
     "history_analogy": {
       "high": {
-        "cur_date": "20260803",
+        "cur_date": "20260804",
         "top_n": 3,
         "matches": [
           {
-            "date": "20260731",
+            "date": "20260803",
             "jaccard": 1.0,
-            "cosine": 0.9999,
+            "cosine": 1.0,
             "combined": 1.0,
             "hit_overlap": [
               "H1",
@@ -350,7 +350,7 @@
           {
             "date": "20240227",
             "jaccard": 1.0,
-            "cosine": 0.9997,
+            "cosine": 0.9998,
             "combined": 0.9999,
             "hit_overlap": [
               "H1",
@@ -391,13 +391,13 @@
         }
       },
       "low": {
-        "cur_date": "20260803",
+        "cur_date": "20260804",
         "top_n": 3,
         "matches": [
           {
-            "date": "20260731",
+            "date": "20260803",
             "jaccard": 1.0,
-            "cosine": 0.9999,
+            "cosine": 1.0,
             "combined": 1.0,
             "hit_overlap": [
               "H1",
@@ -413,7 +413,7 @@
           {
             "date": "20240227",
             "jaccard": 1.0,
-            "cosine": 0.9997,
+            "cosine": 0.9998,
             "combined": 0.9999,
             "hit_overlap": [
               "H1",
