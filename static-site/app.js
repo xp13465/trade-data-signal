@@ -6805,6 +6805,11 @@ function initNotifyButton() {
       btn.classList.remove('off');
       btn.title = '浏览器通知已开启（点击关闭，hover 弹"试看"可重测通知）';
       btn.querySelector('.notify-icon').textContent = '🔔';
+    } else if (perm === 'granted') {
+      // fix3: 已授权但用户关闭，用 🔕 明确反馈"已关闭可重开"
+      btn.classList.remove('on', 'off');
+      btn.title = '通知已关闭（点击重新开启）';
+      btn.querySelector('.notify-icon').textContent = '🔕';
     } else {
       btn.classList.remove('on', 'off');
       btn.title = '点击开启浏览器通知（盘中异动/新信号弹 Windows 通知中心）';
@@ -6822,6 +6827,7 @@ function initNotifyButton() {
       _saveNotifyPref(false);
       updateBtnState();
       _stopNotifyPolling();  // 关闭时停独立轮询
+      pop.style.display = 'none';  // fix3: 关闭后立即隐藏 popup，否则 pop 仍 display:block 用户以为"关闭没用"
       return;
     }
     const perm = _notifyPerm();
