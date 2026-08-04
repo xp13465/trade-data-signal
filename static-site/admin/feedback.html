@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>留言箱管理端</title>
+<style>
+  :root {
+    --primary: #c0392b;
+    --primary-bg: rgba(192, 57, 43, 0.1);
+    --bg: #f5f5f5;
+    --bg-card: #ffffff;
+    --text-1: #2c3e50;
+    --text-2: #5a6c7d;
+    --text-3: #95a5a6;
+    --border: #e8e8e8;
+    --border-strong: #d0d0d0;
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-strong: 0 8px 32px rgba(0,0,0,0.12);
+    --warn: #e74c3c;
+    --ok: #27ae60;
+    --pending: #f39c12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a1a;
+      --bg-card: #2c2c2c;
+      --text-1: #e8e8e8;
+      --text-2: #b0b0b0;
+      --text-3: #808080;
+      --border: #3a3a3a;
+      --border-strong: #4a4a4a;
+      --shadow: 0 2px 8px rgba(0,0,0,0.3);
+      --shadow-strong: 0 8px 32px rgba(0,0,0,0.4);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text-1); line-height: 1.6; min-height: 100vh;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  header {
+    background: var(--bg-card); padding: 16px 24px; box-shadow: var(--shadow);
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+  }
+  header h1 { font-size: 18px; color: var(--text-1); }
+  header h1 span { color: var(--primary); }
+  .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .filter-group { display: flex; gap: 6px; }
+  .filter-btn {
+    padding: 5px 14px; border: 1px solid var(--border-strong); background: var(--bg-card);
+    color: var(--text-2); border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .filter-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn {
+    padding: 6px 16px; border: 1px solid var(--border-strong); background: var(--bg-card);
+    color: var(--text-2); border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit;
+    transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-sm { padding: 3px 10px; font-size: 12px; }
+  .btn-approve { border-color: var(--ok); color: var(--ok); }
+  .btn-approve:hover { background: var(--ok); color: #fff; }
+  .btn-reject { border-color: var(--pending); color: var(--pending); }
+  .btn-reject:hover { background: var(--pending); color: #fff; }
+  .btn-delete { border-color: var(--warn); color: var(--warn); }
+  .btn-delete:hover { background: var(--warn); color: #fff; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* 登录页 */
+  .login-wrap {
+    display: flex; justify-content: center; align-items: center; min-height: 80vh; padding: 20px;
+  }
+  .login-card {
+    background: var(--bg-card); padding: 32px 36px; border-radius: 12px; box-shadow: var(--shadow-strong);
+    width: 100%; max-width: 380px;
+  }
+  .login-card h2 { font-size: 20px; margin-bottom: 8px; color: var(--text-1); }
+  .login-card p { font-size: 13px; color: var(--text-3); margin-bottom: 20px; }
+  .login-card input {
+    width: 100%; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: 8px;
+    background: var(--bg); color: var(--text-1); font-size: 14px; font-family: inherit; margin-bottom: 12px;
+  }
+  .login-card input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+  .login-card .btn-login {
+    width: 100%; padding: 11px; background: var(--primary); color: #fff; border: none;
+    border-radius: 8px; font-size: 14px; cursor: pointer; font-family: inherit;
+  }
+  .login-card .btn-login:hover { opacity: 0.9; }
+  .login-tip { font-size: 12px; color: var(--warn); margin-top: 10px; min-height: 16px; }
+
+  /* 留言列表 */
+  .stats-bar {
+    display: flex; gap: 16px; padding: 12px 0; font-size: 13px; color: var(--text-3);
+  }
+  .stats-bar span strong { color: var(--text-1); }
+  .feedback-table-wrap {
+    background: var(--bg-card); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; margin-top: 12px;
+  }
+  .feedback-row {
+    display: grid; grid-template-columns: 1fr 200px; gap: 16px; padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .feedback-row:last-child { border-bottom: none; }
+  .feedback-row:hover { background: var(--bg); }
+  .fb-main { min-width: 0; }
+  .fb-content {
+    font-size: 14px; color: var(--text-1); line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+    margin-bottom: 8px;
+  }
+  .fb-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-3); }
+  .fb-meta .label { color: var(--text-3); }
+  .fb-meta .value { color: var(--text-2); }
+  .fb-status {
+    display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 500;
+  }
+  .fb-status.pending { background: rgba(243, 156, 18, 0.15); color: var(--pending); }
+  .fb-status.approved { background: rgba(39, 174, 96, 0.15); color: var(--ok); }
+  .fb-status.rejected { background: rgba(231, 76, 60, 0.15); color: var(--warn); }
+  .fb-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; justify-content: center; }
+  .empty {
+    padding: 60px 20px; text-align: center; color: var(--text-3); font-size: 14px;
+  }
+  .loading { padding: 40px 20px; text-align: center; color: var(--text-3); font-size: 14px; }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--text-1); color: var(--bg-card); padding: 10px 20px; border-radius: 8px;
+    font-size: 13px; box-shadow: var(--shadow-strong); opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    z-index: 1000;
+  }
+  .toast.show { opacity: 1; }
+  @media (max-width: 768px) {
+    .feedback-row { grid-template-columns: 1fr; }
+    .fb-actions { flex-direction: row; flex-wrap: wrap; }
+    header { flex-direction: column; align-items: stretch; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var PWD_KEY = 'feedback_admin_pwd';
+  var API = '/api/feedback/admin';
+  var app = document.getElementById('app');
+  var toastEl = document.getElementById('toast');
+  var currentFilter = 'all';
+
+  function getPwd() { return sessionStorage.getItem(PWD_KEY) || localStorage.getItem(PWD_KEY) || ''; }
+  function setPwd(p, remember) {
+    if (remember) { localStorage.setItem(PWD_KEY, p); sessionStorage.removeItem(PWD_KEY); }
+    else { sessionStorage.setItem(PWD_KEY, p); localStorage.removeItem(PWD_KEY); }
+  }
+  function clearPwd() { localStorage.removeItem(PWD_KEY); sessionStorage.removeItem(PWD_KEY); }
+  function authHeaders() { return { 'Content-Type': 'application/json', 'X-Admin-Pwd': getPwd() }; }
+
+  function toast(msg) {
+    toastEl.textContent = msg; toastEl.classList.add('show');
+    setTimeout(function () { toastEl.classList.remove('show'); }, 2500);
+  }
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    var p = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function maskHash(h) {
+    if (!h) return '-';
+    return h.slice(0, 4) + '****' + h.slice(-4);
+  }
+  function statusLabel(s) {
+    return s === 'approved' ? '已通过' : (s === 'rejected' ? '未通过' : '审核中');
+  }
+  function truncate(s, n) {
+    if (!s) return '';
+    return s.length > n ? s.slice(0, n) + '...' : s;
+  }
+
+  function renderLogin(errMsg) {
+    app.innerHTML =
+      '<div class="login-wrap">' +
+        '<div class="login-card">' +
+          '<h2>💬 留言箱管理端</h2>' +
+          '<p>输入管理密码查看并审核用户留言</p>' +
+          '<input type="password" id="pwd-input" placeholder="管理密码" autocomplete="current-password">' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3);margin-bottom:12px;">' +
+            '<input type="checkbox" id="remember"> 记住密码（localStorage）' +
+          '</label>' +
+          '<button class="btn-login" id="login-btn">登录</button>' +
+          '<div class="login-tip" id="login-tip">' + (errMsg || '') + '</div>' +
+        '</div>' +
+      '</div>';
+    var input = document.getElementById('pwd-input');
+    var btn = document.getElementById('login-btn');
+    var tipEl = document.getElementById('login-tip');
+    function doLogin() {
+      var pwd = input.value.trim();
+      if (!pwd) { tipEl.textContent = '请输入密码'; return; }
+      var remember = document.getElementById('remember').checked;
+      setPwd(pwd, remember);
+      loadList();
+    }
+    btn.addEventListener('click', doLogin);
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+    input.focus();
+  }
+
+  function renderLayout() {
+    app.innerHTML =
+      '<header>' +
+        '<h1>💬 留言箱<span> 管理端</span></h1>' +
+        '<div class="header-actions">' +
+          '<div class="filter-group">' +
+            '<button class="filter-btn active" data-filter="all">全部</button>' +
+            '<button class="filter-btn" data-filter="pending">审核中</button>' +
+            '<button class="filter-btn" data-filter="approved">已通过</button>' +
+            '<button class="filter-btn" data-filter="rejected">未通过</button>' +
+          '</div>' +
+          '<button class="btn" id="refresh-btn">刷新</button>' +
+          '<button class="btn" id="logout-btn">退出</button>' +
+        '</div>' +
+      '</header>' +
+      '<div class="container">' +
+        '<div class="stats-bar" id="stats-bar">加载中...</div>' +
+        '<div class="feedback-table-wrap" id="list-wrap"><div class="loading">加载中...</div></div>' +
+      '</div>';
+    document.querySelectorAll('.filter-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        document.querySelectorAll('.filter-btn').forEach(function (x) { x.classList.remove('active'); });
+        b.classList.add('active');
+        currentFilter = b.dataset.filter;
+        loadList();
+      });
+    });
+    document.getElementById('refresh-btn').addEventListener('click', loadList);
+    document.getElementById('logout-btn').addEventListener('click', function () {
+      clearPwd(); renderLogin();
+    });
+  }
+
+  function renderList(feedbacks) {
+    var wrap = document.getElementById('list-wrap');
+    var stats = document.getElementById('stats-bar');
+    if (!feedbacks || !feedbacks.length) {
+      stats.innerHTML = '共 0 条留言';
+      wrap.innerHTML = '<div class="empty">没有留言</div>';
+      return;
+    }
+    // 统计各状态数（基于当前 filter 后的总数显示在 stats，全量状态需另算，此处简化显示当前列表数）
+    var pCount = 0, aCount = 0, rCount = 0;
+    feedbacks.forEach(function (f) {
+      var st = f.status || 'pending';
+      if (st === 'approved') aCount++; else if (st === 'rejected') rCount++; else pCount++;
+    });
+    stats.innerHTML = '<span>共 <strong>' + feedbacks.length + '</strong> 条</span>' +
+      '<span>审核中 <strong>' + pCount + '</strong></span>' +
+      '<span>已通过 <strong>' + aCount + '</strong></span>' +
+      '<span>未通过 <strong>' + rCount + '</strong></span>';
+    wrap.innerHTML = feedbacks.map(function (f) {
+      var st = f.status || 'pending';
+      var actions = '';
+      if (st !== 'approved') {
+        actions += '<button class="btn btn-sm btn-approve" data-action="approve" data-key="' + escapeHtml(f.kv_key) + '">通过</button>';
+      }
+      if (st !== 'rejected') {
+        actions += '<button class="btn btn-sm btn-reject" data-action="reject" data-key="' + escapeHtml(f.kv_key) + '">驳回</button>';
+      }
+      actions += '<button class="btn btn-sm btn-delete" data-action="delete" data-key="' + escapeHtml(f.kv_key) + '">删除</button>';
+      return '<div class="feedback-row">' +
+        '<div class="fb-main">' +
+          '<div class="fb-content">' + escapeHtml(f.content) + '</div>' +
+          '<div class="fb-meta">' +
+            '<span><span class="label">用户:</span> <span class="value">' + escapeHtml(truncate(f.user_id, 24)) + '</span></span>' +
+            '<span><span class="label">来源:</span> <span class="value">' + escapeHtml(f.provider) + '</span></span>' +
+            '<span><span class="label">IP:</span> <span class="value">' + escapeHtml(maskHash(f.ip_hash)) + '</span></span>' +
+            '<span><span class="label">时间:</span> <span class="value">' + escapeHtml(fmtDate(f.created_at)) + '</span></span>' +
+            '<span class="fb-status ' + st + '">' + statusLabel(st) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="fb-actions">' + actions + '</div>' +
+      '</div>';
+    }).join('');
+    // 绑定操作按钮
+    wrap.querySelectorAll('[data-action]').forEach(function (btn) {
+      btn.addEventListener('click', function () { doAction(btn.dataset.action, btn.dataset.key); });
+    });
+  }
+
+  function loadList() {
+    if (!getPwd()) { renderLogin(); return; }
+    if (!document.querySelector('header')) renderLayout();
+    var wrap = document.getElementById('list-wrap');
+    if (wrap) wrap.innerHTML = '<div class="loading">加载中...</div>';
+    var url = API + '?status=' + encodeURIComponent(currentFilter);
+    fetch(url, { headers: authHeaders() })
+      .then(function (r) {
+        if (r.status === 401) { clearPwd(); renderLogin('密码错误或已失效，请重新输入'); return null; }
+        if (r.status === 503) { clearPwd(); renderLogin('管理端未配置密码（FEEDBACK_ADMIN_PASSWORD secret 未设置）'); return null; }
+        if (!r.ok) { toast('加载失败（' + r.status + '）'); return null; }
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        renderList(data.feedbacks || []);
+      })
+      .catch(function () { toast('网络错误'); });
+  }
+
+  function doAction(action, key) {
+    if (!confirm('确认 ' + (action === 'approve' ? '通过' : action === 'reject' ? '驳回' : '删除') + ' 这条留言？')) return;
+    fetch(API, {
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify({ action: action, key: key })
+    })
+      .then(function (r) {
+        if (r.status === 401) { clearPwd(); renderLogin('密码已失效，请重新登录'); return null; }
+        if (!r.ok) {
+          return r.json().catch(function () { return null; }).then(function (d) {
+            toast((d && d.detail) || '操作失败（' + r.status + '）');
+            return null;
+          });
+        }
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        toast(action === 'approve' ? '已通过' : action === 'reject' ? '已驳回' : '已删除');
+        loadList();
+      })
+      .catch(function () { toast('网络错误'); });
+  }
+
+  // 启动
+  if (getPwd()) { renderLayout(); loadList(); }
+  else { renderLogin(); }
+})();
+</script>
+</body>
+</html>

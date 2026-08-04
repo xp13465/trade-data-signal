@@ -720,9 +720,13 @@ function notImplemented(provider, request) {
 // ============ 留言箱 ============
 // 复用 session cookie（主站）+ Bearer token（备站跨域）双模式认证，与 me 函数同模式，KV 存储：
 //   key   = feedback:<provider>:<provider_uid>:<timestamp_ms>
-//   value = JSON{id, user_id, provider, content, created_at}
+//   value = JSON{id, user_id, provider, content, created_at, status, ip_hash}
 // 用户身份主键用 provider+provider_uid（session/bearer payload 必带，稳定唯一），user_id 作冗余字段
+// 防滥用四层：①频控(同IP 10min≤1, KV feedback:rate:<hash>:<window> TTL 600s)
+//   ②honeypot(body.website 非空=机器人,返200假成功) ③内容约束 50-2000 字 ④审核闸门 status=pending
+// 频控 key 前缀 feedback:rate: 与留言 key feedback:<provider>: 隔离，admin list 时排除 rate 前缀
 // 路由：POST /api/feedback 提交留言；GET /api/feedback 列当前用户留言（倒序）
+//   GET/POST /api/feedback/admin 管理端审核（X-Admin-Pwd + env.FEEDBACK_ADMIN_PASSWORD 认证）
 
 async function getSessionUser(request, env) {
   const sessionSecret = env.SESSION_SECRET || '';
@@ -767,13 +771,32 @@ async function submitFeedback(request, env) {
   try { body = await request.json(); } catch {
     return jsonResponse({ detail: '请求体不是有效 JSON' }, 400, { request });
   }
+  // ② honeypot：website 隐藏字段非空 = 机器人，返 200 假成功不报错（防探测）
+  const website = body && typeof body.website === 'string' ? body.website.trim() : '';
+  if (website) {
+    return jsonResponse({ ok: true }, 200, { request });
+  }
   const content = (body && typeof body.content === 'string') ? body.content.trim() : '';
   if (!content) {
     return jsonResponse({ detail: '留言内容不能为空' }, 400, { request });
   }
-  if (content.length > 1000) {
-    return jsonResponse({ detail: '留言内容不能超过 1000 字' }, 400, { request });
+  // ③ 内容约束 50-2000 字（trim 后校验）
+  if (content.length < 50) {
+    return jsonResponse({ detail: '留言内容至少 50 字（请详细描述便于我们理解）' }, 400, { request });
   }
+  if (content.length > 2000) {
+    return jsonResponse({ detail: '留言内容不能超过 2000 字' }, 400, { request });
+  }
+  // ① 频控：同 IP 10min ≤1 条（固定窗口 bucket）
+  const ipHash = await getIpHash(request);
+  const windowBucket = Math.floor(Date.now() / 600000); // 10min 窗口
+  const rateKey = `feedback:rate:${ipHash}:${windowBucket}`;
+  try {
+    const existing = await env.SUBSCRIBE_KV.get(rateKey);
+    if (existing) {
+      return jsonResponse({ detail: '提交过于频繁，请 10 分钟后再试' }, 429, { request });
+    }
+  } catch {}
   const userKey = `${session.provider}:${session.providerUid}`;
   const ts = Date.now();
   const id = crypto.randomUUID();
@@ -784,14 +807,32 @@ async function submitFeedback(request, env) {
     provider: session.provider,
     content,
     created_at,
+    // ④ 审核闸门：新留言 pending，管理端 approve 后 approved / reject 后 rejected
+    status: 'pending',
+    ip_hash: ipHash,
   };
   const kvKey = `feedback:${userKey}:${ts}`;
   try {
     await env.SUBSCRIBE_KV.put(kvKey, JSON.stringify(feedback));
+    // 频控通过后写 rate key TTL 600s
+    await env.SUBSCRIBE_KV.put(rateKey, String(ts), { expirationTtl: 600 });
   } catch (e) {
     return jsonResponse({ detail: '留言保存失败' }, 500, { request });
   }
   return jsonResponse({ ok: true, id, created_at }, 200, { request });
+}
+
+// IP hash（脱敏）：取 CF-Connecting-IP 或 x-forwarded-for 首段，SHA-256 取前 16 hex 字符
+// 用于频控 key 隔离 + admin 列表展示（不存原始 IP，隐私保护）
+async function getIpHash(request) {
+  const ip = (request.headers.get('CF-Connecting-IP') || '')
+    || ((request.headers.get('x-forwarded-for') || '').split(',')[0].trim())
+    || 'unknown';
+  const data = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ip));
+  const bytes = new Uint8Array(data);
+  let hex = '';
+  for (const b of bytes) hex += b.toString(16).padStart(2, '0');
+  return hex.slice(0, 16);
 }
 
 async function listFeedback(request, env) {
@@ -819,6 +860,7 @@ async function listFeedback(request, env) {
             id: fb.id,
             content: fb.content,
             created_at: fb.created_at,
+            status: fb.status || 'pending',
           });
         } catch {}
       }
@@ -830,6 +872,105 @@ async function listFeedback(request, env) {
   }
   feedbacks.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
   return jsonResponse({ feedbacks }, 200, { request });
+}
+
+// ============ 留言管理端（admin 审核） ============
+// 认证：X-Admin-Pwd header 对比 Workers secret FEEDBACK_ADMIN_PASSWORD（仿 subscribe.js checkPwd 模式）
+// 路由：GET /api/feedback/admin?status=pending|approved|rejected|all  列全部留言（跨用户）
+//       POST /api/feedback/admin {action:"approve"|"reject"|"delete", key:"<kvKey>"}  改/删 KV
+
+function checkAdminPwd(request, env) {
+  const provided = request.headers.get('X-Admin-Pwd') || '';
+  const expected = env.FEEDBACK_ADMIN_PASSWORD || '';
+  if (!expected) {
+    return { ok: false, resp: jsonResponse({ detail: '留言管理端未配置密码（FEEDBACK_ADMIN_PASSWORD secret 未设置）' }, 503, { request }) };
+  }
+  if (!provided || provided !== expected) {
+    return { ok: false, resp: jsonResponse({ detail: '密码错误' }, 401, { request }) };
+  }
+  return { ok: true };
+}
+
+async function adminListFeedback(request, env, url) {
+  const auth = checkAdminPwd(request, env);
+  if (!auth.ok) return auth.resp;
+  const statusFilter = (url.searchParams.get('status') || 'all').toLowerCase();
+  const feedbacks = [];
+  let cursor;
+  try {
+    do {
+      const listOpts = { prefix: 'feedback:', limit: 1000 };
+      if (cursor) listOpts.cursor = cursor;
+      const result = await env.SUBSCRIBE_KV.list(listOpts);
+      // 排除频控 key（feedback:rate: 前缀）
+      const keys = (result.keys || []).filter((k) => !k.name.startsWith('feedback:rate:'));
+      const gets = keys.map((k) => env.SUBSCRIBE_KV.get(k.name).then((v) => ({ k: k.name, v })).catch(() => null));
+      const pairs = await Promise.all(gets);
+      for (const p of pairs) {
+        if (!p || !p.v) continue;
+        try {
+          const fb = JSON.parse(p.v);
+          const st = fb.status || 'pending';
+          if (statusFilter !== 'all' && st !== statusFilter) continue;
+          feedbacks.push({
+            id: fb.id,
+            kv_key: p.k,
+            user_id: fb.user_id || '',
+            provider: fb.provider || '',
+            content: fb.content || '',
+            created_at: fb.created_at || '',
+            status: st,
+            ip_hash: fb.ip_hash || '',
+          });
+        } catch {}
+      }
+      cursor = result.list_complete ? null : result.cursor;
+    } while (cursor);
+  } catch (e) {
+    return jsonResponse({ detail: '读取留言失败' }, 500, { request });
+  }
+  feedbacks.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  return jsonResponse({ feedbacks, total: feedbacks.length }, 200, { request });
+}
+
+async function adminActionFeedback(request, env) {
+  const auth = checkAdminPwd(request, env);
+  if (!auth.ok) return auth.resp;
+  let body;
+  try { body = await request.json(); } catch {
+    return jsonResponse({ detail: '请求体不是有效 JSON' }, 400, { request });
+  }
+  const action = body && typeof body.action === 'string' ? body.action : '';
+  const kvKey = body && typeof body.key === 'string' ? body.key : '';
+  // key 安全校验：必须 feedback: 前缀且非 rate 前缀
+  if (!kvKey || !kvKey.startsWith('feedback:') || kvKey.startsWith('feedback:rate:')) {
+    return jsonResponse({ detail: '无效的留言 key' }, 400, { request });
+  }
+  if (!['approve', 'reject', 'delete'].includes(action)) {
+    return jsonResponse({ detail: '无效操作（approve/reject/delete）' }, 400, { request });
+  }
+  let raw;
+  try { raw = await env.SUBSCRIBE_KV.get(kvKey); } catch {}
+  if (!raw) {
+    return jsonResponse({ detail: '留言不存在或已删除' }, 404, { request });
+  }
+  if (action === 'delete') {
+    try { await env.SUBSCRIBE_KV.delete(kvKey); } catch (e) {
+      return jsonResponse({ detail: '删除失败' }, 500, { request });
+    }
+    return jsonResponse({ ok: true, action: 'delete' }, 200, { request });
+  }
+  let fb;
+  try { fb = JSON.parse(raw); } catch {
+    return jsonResponse({ detail: '留言数据损坏' }, 500, { request });
+  }
+  fb.status = action === 'approve' ? 'approved' : 'rejected';
+  try {
+    await env.SUBSCRIBE_KV.put(kvKey, JSON.stringify(fb));
+  } catch (e) {
+    return jsonResponse({ detail: '更新失败' }, 500, { request });
+  }
+  return jsonResponse({ ok: true, action, status: fb.status }, 200, { request });
 }
 
 // ============ 主 handler ============
@@ -872,6 +1013,12 @@ export default async function authHandler(request, env) {
   }
   if (request.method === 'GET' && pathname === '/api/feedback') {
     return listFeedback(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/feedback/admin') {
+    return adminListFeedback(request, env, url);
+  }
+  if (request.method === 'POST' && pathname === '/api/feedback/admin') {
+    return adminActionFeedback(request, env);
   }
   return jsonResponse({ detail: 'Not Found' }, 404, { request });
 }

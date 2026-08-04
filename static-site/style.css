@@ -3381,7 +3381,17 @@ main { padding: 16px 24px; }
 .feedback-item-content {
   font-size: 13px; color: var(--text-1); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
 }
-.feedback-item-time { font-size: 11px; color: var(--text-3); margin-top: 6px; }
+.feedback-item-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; gap: 8px; }
+.feedback-item-time { font-size: 11px; color: var(--text-3); }
+.feedback-item-status { font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: 500; white-space: nowrap; }
+.feedback-st-pending { background: rgba(243, 156, 18, 0.15); color: #f39c12; }
+.feedback-st-approved { background: rgba(39, 174, 96, 0.15); color: #27ae60; }
+.feedback-st-rejected { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
+/* honeypot 隐藏字段：视觉隐藏 + 屏幕阅读器忽略，机器人自动填充会触发 */
+.feedback-honeypot {
+  position: absolute; left: -9999px; top: -9999px; width: 1px; height: 1px;
+  opacity: 0; pointer-events: none; tab-index: -1;
+}
 @media (max-width: 768px) {
   .feedback-modal .modal-body { width: 94vw; }
 }

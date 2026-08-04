@@ -93,9 +93,9 @@ function cacheControlFor(pathname) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    // /api/* 路由分发（生产无 FastAPI：/api/auth/* 与 /api/feedback -> authHandler 复用 session 认证，其余 /api/* -> subscribeHandler）
+    // /api/* 路由分发（生产无 FastAPI：/api/auth/* 与 /api/feedback* -> authHandler 复用 session 认证，其余 /api/* -> subscribeHandler）
     if (url.pathname.startsWith('/api/')) {
-      if (url.pathname.startsWith('/api/auth/') || url.pathname === '/api/feedback') {
+      if (url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/feedback')) {
         return authHandler(request, env);
       }
       return subscribeHandler(request, env);

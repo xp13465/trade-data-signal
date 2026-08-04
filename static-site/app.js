@@ -17478,10 +17478,12 @@ function openFeedbackModal() {
   modal.innerHTML = '<div class="modal-body">' +
     '<button class="theme-modal-close" title="关闭" aria-label="关闭">×</button>' +
     '<h3>💬 留言箱</h3>' +
-    '<p class="feedback-sub">留下你的建议/反馈/bug 报告，我们会认真阅读。</p>' +
-    '<textarea class="feedback-textarea" placeholder="留下你的建议/反馈..." maxlength="1000" rows="4"></textarea>' +
+    '<p class="feedback-sub">留下你的建议/反馈/bug 报告，我们会认真阅读。留言 50-2000 字，提交后进入审核队列。</p>' +
+    // honeypot 隐藏字段：正常用户看不到，机器人自动填充 -> 后端识别为机器人返 200 假成功
+    '<input name="website" class="feedback-honeypot" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">' +
+    '<textarea class="feedback-textarea" placeholder="请详细描述你的建议/反馈/bug（50-2000 字）..." maxlength="2000" rows="4"></textarea>' +
     '<div class="feedback-actions">' +
-      '<span class="feedback-count">0/1000</span>' +
+      '<span class="feedback-count">0/2000</span>' +
       '<button class="feedback-submit" data-action="submit">提交</button>' +
     '</div>' +
     '<div class="feedback-tip"></div>' +
@@ -17514,9 +17516,15 @@ function openFeedbackModal() {
       return;
     }
     list.innerHTML = feedbacks.map(function (fb) {
+      var st = fb.status || 'pending';
+      var stLabel = st === 'approved' ? '已通过' : (st === 'rejected' ? '未通过' : '审核中');
+      var stClass = st === 'approved' ? 'feedback-st-approved' : (st === 'rejected' ? 'feedback-st-rejected' : 'feedback-st-pending');
       return '<div class="feedback-item">' +
         '<div class="feedback-item-content">' + _esc(fb.content) + '</div>' +
-        '<div class="feedback-item-time">' + _esc(fmtDate(fb.created_at)) + '</div>' +
+        '<div class="feedback-item-meta">' +
+          '<span class="feedback-item-time">' + _esc(fmtDate(fb.created_at)) + '</span>' +
+          '<span class="feedback-item-status ' + stClass + '">' + stLabel + '</span>' +
+        '</div>' +
       '</div>';
     }).join('');
   }
@@ -17539,16 +17547,21 @@ function openFeedbackModal() {
     var ta = modal.querySelector('.feedback-textarea');
     var content = ta ? ta.value.trim() : '';
     if (!content) { showTip('留言内容不能为空', true); return; }
-    if (content.length > 1000) { showTip('留言内容不能超过 1000 字', true); return; }
+    if (content.length < 50) { showTip('留言内容至少 50 字（当前 ' + content.length + ' 字）', true); return; }
+    if (content.length > 2000) { showTip('留言内容不能超过 2000 字', true); return; }
     var btn = modal.querySelector('.feedback-submit');
     if (btn) { btn.disabled = true; btn.textContent = '提交中...'; }
     showTip('');
+    // honeypot：取隐藏字段值（正常用户为空，机器人会填充）
+    var hp = modal.querySelector('.feedback-honeypot');
+    var website = hp ? hp.value : '';
     fetch(base + '/api/feedback', {
       method: 'POST', credentials: credentials, headers: headers,
-      body: JSON.stringify({ content: content })
+      body: JSON.stringify({ content: content, website: website })
     })
       .then(function (r) {
         if (r.status === 401) { showTip('登录已失效，请重新登录', true); return null; }
+        if (r.status === 429) { showTip('提交过于频繁，请 10 分钟后再试', true); return null; }
         if (!r.ok) {
           return r.json().catch(function () { return null; }).then(function (d) {
             showTip((d && d.detail) || '提交失败', true);
@@ -17560,9 +17573,10 @@ function openFeedbackModal() {
       .then(function (data) {
         if (!data) return;
         if (ta) ta.value = '';
+        if (hp) hp.value = '';
         var cnt = modal.querySelector('.feedback-count');
-        if (cnt) cnt.textContent = '0/1000';
-        showTip('已提交，感谢反馈');
+        if (cnt) cnt.textContent = '0/2000';
+        showTip('已提交，进入审核队列，感谢反馈');
         loadList();
       })
       .catch(function () { showTip('提交失败', true); })
@@ -17583,7 +17597,7 @@ function openFeedbackModal() {
   if (ta) {
     ta.addEventListener('input', function () {
       var cnt = modal.querySelector('.feedback-count');
-      if (cnt) cnt.textContent = ta.value.length + '/1000';
+      if (cnt) cnt.textContent = ta.value.length + '/2000';
     });
     ta.addEventListener('keydown', function (e) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
