@@ -3269,6 +3269,8 @@ main { padding: 16px 24px; }
 .notify-pop-item:hover { background: var(--bg-hover); color: var(--primary); }
 .notify-pop-item.disabled { color: var(--text-3); cursor: default; }
 .notify-pop-item.disabled:hover { background: transparent; color: var(--text-3); }
+/* 方案2: 两 item 之间分隔线 */
+.notify-pop-item + .notify-pop-item { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 2px; }
 @media (max-width: 768px) { .notify-pop { display: none !important; } }
 
 /* === 通知点击 UI 反馈：高亮闪烁目标板块（Mac Chrome SW notificationclick -> postMessage -> _handleNotifyClick）=== */

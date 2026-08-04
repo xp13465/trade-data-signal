@@ -6763,30 +6763,45 @@ function initNotifyButton() {
   // popup 作 wrap 子元素(btn 的 sibling), 绝对定位到 btn 下方右对齐
   const pop = document.createElement('div');
   pop.className = 'notify-pop';
-  pop.innerHTML = '<div class="notify-pop-item" data-action="test">🔔 试看测试通知</div>';
+  // 方案2: pop 含两项 - toggle(开关通知, 文字动态) + test(试看)
+  pop.innerHTML = '<div class="notify-pop-item" data-action="toggle"></div><div class="notify-pop-item" data-action="test">🔔 试看测试通知</div>';
   wrap.appendChild(pop);
 
   // hover 显示/隐藏（200ms 延时避免抖动；wrap 包含 btn+pop, 移到 popup 上不关）
   let popHideTimer = null;
+  let _popPinned = false;  // 方案2: click pin 住 popup, hover mouseleave 不隐藏; click/点item/点外复位
   const showPop = () => {
     if (popHideTimer) { clearTimeout(popHideTimer); popHideTimer = null; }
     updatePopState();  // 每次显示前刷新状态（跟随开关/权限变化）
     pop.style.display = 'block';
   };
   const hidePop = () => {
+    if (_popPinned) return;  // 方案2: click pin 住时 mouseleave 不隐藏
     popHideTimer = setTimeout(() => { pop.style.display = 'none'; }, 200);
   };
   // 方案A: hover 绑 wrap(btn+pop 都是 wrap 后代, 互相移动不触发 mouseleave)
   wrap.addEventListener('mouseenter', showPop);
   wrap.addEventListener('mouseleave', hidePop);
 
-  // popup 状态更新（方案A fix2: 始终可点, 点击自动开启 pref+测试, 不再灰显"开启通知后可测试".
-  //   原 disabled 灰显 + pop click 的 `disabled return` 互斥, 致未开启用户点试看无反应 = Bug2)
+  // popup 状态更新（方案2: 动态设置 toggle item 文字 + disabled, 跟随开关/权限变化）
   function updatePopState() {
-    const item = pop.querySelector('.notify-pop-item');
-    if (!item) return;
-    item.classList.remove('disabled');
-    item.textContent = '🔔 试看测试通知';
+    const toggleItem = pop.querySelector('.notify-pop-item[data-action="toggle"]');
+    if (!toggleItem) return;
+    const enabled = _loadNotifyPref();
+    const perm = _notifyPerm();
+    toggleItem.classList.remove('disabled');
+    if (perm === 'denied') {
+      toggleItem.textContent = '🔕 通知被屏蔽';
+      toggleItem.classList.add('disabled');  // 灰显不可点
+    } else if (enabled && perm === 'granted') {
+      toggleItem.textContent = '🔕 关闭通知';
+    } else if (perm === 'granted') {
+      // 已授权但用户关闭
+      toggleItem.textContent = '🔔 开启通知';
+    } else {
+      // default 未授权
+      toggleItem.textContent = '🔔 开启通知';
+    }
   }
 
   // 状态更新（根据偏好+权限切换图标/样式）
@@ -6803,16 +6818,16 @@ function initNotifyButton() {
     } else if (enabled && perm === 'granted') {
       btn.classList.add('on');
       btn.classList.remove('off');
-      btn.title = '浏览器通知已开启（点击关闭，hover 弹"试看"可重测通知）';
+      btn.title = '浏览器通知已开启（点击弹开关/试看选项）';
       btn.querySelector('.notify-icon').textContent = '🔔';
     } else if (perm === 'granted') {
       // fix3: 已授权但用户关闭，用 🔕 明确反馈"已关闭可重开"
       btn.classList.remove('on', 'off');
-      btn.title = '通知已关闭（点击重新开启）';
+      btn.title = '通知已关闭（点击弹开关/试看选项）';
       btn.querySelector('.notify-icon').textContent = '🔕';
     } else {
       btn.classList.remove('on', 'off');
-      btn.title = '点击开启浏览器通知（盘中异动/新信号弹 Windows 通知中心）';
+      btn.title = '点击弹通知开关/试看选项（盘中异动/新信号弹 Windows 通知中心）';
       btn.querySelector('.notify-icon').textContent = '🔔';
     }
     // 方案B(2026-08-04): 试看移到 hover popup，同步刷新 popup 状态
@@ -6820,76 +6835,99 @@ function initNotifyButton() {
   }
   updateBtnState();
 
-  // 点击处理：开启需用户手势触发 requestPermission
-  btn.addEventListener('click', async () => {
-    const enabled = _loadNotifyPref();
-    if (enabled) {
-      _saveNotifyPref(false);
-      updateBtnState();
-      _stopNotifyPolling();  // 关闭时停独立轮询
-      pop.style.display = 'none';  // fix3: 关闭后立即隐藏 popup，否则 pop 仍 display:block 用户以为"关闭没用"
-      return;
+  // 方案2: btn click 改 toggle popup(不直接开关), 开关逻辑搬到 pop toggle item click.
+  // 阻止冒泡到 document click(否则点 btn 立即触发"点外关闭"把刚弹的 pop 关掉)
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (pop.style.display === 'block') {
+      pop.style.display = 'none';
+      _popPinned = false;
+    } else {
+      updatePopState();  // 刷新 toggle item 文字(跟随开关/权限)
+      pop.style.display = 'block';
+      _popPinned = true;  // pin 住, hover mouseleave 不隐藏
     }
-    const perm = _notifyPerm();
-    if (perm === 'denied') {
-      if (_isSafari()) {
-        alert('Safari 通知权限被拒或权限状态不同步。\n\n' +
-              'Safari 已知 bug：即使站点设置允许，Notification.permission 可能仍为 denied。\n\n' +
-              '恢复方法：\n' +
-              '1. Safari > 设置 > 网站 > 通知，找到本站点击"移除"\n' +
-              '2. 完全退出 Safari（Cmd+Q）后重新打开\n' +
-              '3. 重新点击铃铛授权\n\n' +
-              '或建议使用 Chrome 获得更稳定的通知体验。');
-      } else {
-        alert('浏览器通知已被屏蔽，请在浏览器设置（隐私和安全 -> 通知）中恢复权限后重试。');
-      }
-      return;
-    }
-    // 方案A: 记录开启前权限状态，仅 default->granted 首次开启才弹欢迎测试通知（避免每次开关都骚扰）
-    const wasGranted = (perm === 'granted');
-    if (perm !== 'granted') {
-      const p = await requestNotifyPermission();
-      if (p !== 'granted') { updateBtnState(); return; }
-    }
-    _saveNotifyPref(true);
-    updateBtnState();
-    _startNotifyPolling();  // 开启时启独立轮询（后台标签页也能弹通知，根因③修复）
-    // 方案A: 首次开启（权限 default->granted）自动弹欢迎测试通知，让用户立即看到效果验证功能正常
-    if (!wasGranted) {
-      showNotification('通知已开启 ✅',
-        '您将收到盘中信号/异常提醒。本条为测试通知，确认通知功能正常工作', 'test-welcome', { msgType: 'TEST' });
-    }
-    // 立即检测一次（不等下次 overview 刷新）
-    _checkNotifications();
   });
 
-  // 方案A(2026-08-04 fix2): popup"试看" click -> 自动开启 pref + 确保 permission + 弹测试通知(一键开启+测试).
-  // pop 是 btn 的 sibling(非子元素), click 不冒泡到 btn, 无需 stopPropagation;
-  // 不再检查 disabled(始终可点), 未开启用户点击即自动开启+授权+测试.
-  pop.addEventListener('click', (e) => {
+  // 方案2: pop click 分流 toggle/test. toggle 搬自原 btn click(开关逻辑), test 保留原试看(一键开启+测试).
+  // e.stopPropagation 防冒泡到 document click(否则点 item 会触发"点外关闭"二次关, 无害但冗余)
+  pop.addEventListener('click', async (e) => {
     const item = e.target.closest('.notify-pop-item');
     if (!item) return;  // 点到 pop 空白区域才忽略
-    // 自动开启通知偏好（如果未开启）
-    if (!_loadNotifyPref()) {
-      _saveNotifyPref(true);
-      console.log('[notify] 试看自动开启通知偏好');
-      updateBtnState();
-    }
-    // 确保 permission
-    if (_notifyPerm() !== 'granted') {
-      requestNotifyPermission().then(p => {
-        if (p === 'granted') {
-          updateBtnState();
-          _doTestNotify();
+    e.stopPropagation();
+    const action = item.dataset.action;
+    if (action === 'toggle') {
+      // denied 灰显不可点
+      if (item.classList.contains('disabled')) return;
+      const enabled = _loadNotifyPref();
+      if (enabled) {
+        _saveNotifyPref(false);
+        updateBtnState();
+        _stopNotifyPolling();
+      } else {
+        const perm = _notifyPerm();
+        if (perm === 'denied') {
+          // denied 走 alert 提示恢复方法(toggleItem 已 disabled, 理论上点不到, 兜底)
+          if (_isSafari()) {
+            alert('Safari 通知权限被拒或权限状态不同步。\n\n' +
+                  'Safari 已知 bug：即使站点设置允许，Notification.permission 可能仍为 denied。\n\n' +
+                  '恢复方法：\n' +
+                  '1. Safari > 设置 > 网站 > 通知，找到本站点击"移除"\n' +
+                  '2. 完全退出 Safari（Cmd+Q）后重新打开\n' +
+                  '3. 重新点击铃铛授权\n\n' +
+                  '或建议使用 Chrome 获得更稳定的通知体验。');
+          } else {
+            alert('浏览器通知已被屏蔽，请在浏览器设置（隐私和安全 -> 通知）中恢复权限后重试。');
+          }
         } else {
-          console.warn('[notify] 通知权限被拒绝，请在 Chrome 站点设置授权');
+          // 记录开启前权限状态，仅 default->granted 首次开启才弹欢迎测试通知（避免每次开关都骚扰）
+          const wasGranted = (perm === 'granted');
+          if (perm !== 'granted') {
+            const p = await requestNotifyPermission();
+            if (p !== 'granted') { updateBtnState(); pop.style.display = 'none'; _popPinned = false; return; }
+          }
+          _saveNotifyPref(true);
+          updateBtnState();
+          _startNotifyPolling();  // 开启时启独立轮询（后台标签页也能弹通知，根因③修复）
+          if (!wasGranted) {
+            showNotification('通知已开启 ✅',
+              '您将收到盘中信号/异常提醒。本条为测试通知，确认通知功能正常工作', 'test-welcome', { msgType: 'TEST' });
+          }
+          _checkNotifications();  // 立即检测一次（不等下次 overview 刷新）
         }
-      });
-    } else {
-      _doTestNotify();
+      }
+      pop.style.display = 'none';
+      _popPinned = false;
+    } else if (action === 'test') {
+      // 试看：自动开启 pref + 确保 permission + 弹测试通知(一键开启+测试)
+      if (!_loadNotifyPref()) {
+        _saveNotifyPref(true);
+        console.log('[notify] 试看自动开启通知偏好');
+        updateBtnState();
+      }
+      if (_notifyPerm() !== 'granted') {
+        requestNotifyPermission().then(p => {
+          if (p === 'granted') {
+            updateBtnState();
+            _doTestNotify();
+          } else {
+            console.warn('[notify] 通知权限被拒绝，请在 Chrome 站点设置授权');
+          }
+        });
+      } else {
+        _doTestNotify();
+      }
+      pop.style.display = 'none';
+      _popPinned = false;
     }
-    // 点击后关闭 popup
+  });
+
+  // 方案2: 点 pop 外区域关闭 pop(document click 委托; wrap 内点击由 btn/pop 各自 stopPropagation 拦截)
+  document.addEventListener('click', (e) => {
+    if (pop.style.display !== 'block') return;
+    if (wrap.contains(e.target)) return;  // 点 wrap 内不关
     pop.style.display = 'none';
+    _popPinned = false;
   });
 
   // 跨标签页同步（storage 事件：另一 tab 开关通知，本 tab 按钮状态同步）
