@@ -105,5 +105,15 @@
 - 子 agent 撞 400 "Model only support text input" = 尝试了图片输入。若其调研已基本完成,读进度文件 + 主控补完剩余即可,无需重派从头
 - **2026-07-16 教训**:P2-4 og.png 压缩 agent 在"开始写报告"时疑似 Read og.png 验证压缩效果,撞 400 终止。但 P0-1 压缩调研已完成(坐实不可行),og.png 主控手动 magick 256色压缩补完(67KB->36KB),无损失
 
+## 14. 生产稳定性 P0(2026-08-04 计入,最高优先级)
+- **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
+- **任务冲突检查不应由用户提醒才做**。每次派任务/设 cron/推 main 前**必须主动查 launchd 定时任务清单**(`launchctl list | grep trade` + 查 plist `StartCalendarInterval`),列当日盘后任务时点,确认新任务不撞,并**主动给用户时点建议**(不等用户问"会不会冲突")
+- **核心冲突类型**:① 推 main(intraday-snapshot 15:35/20:35 + update-all 17:50 + deploy)vs 另一推 main = 互相覆盖事故(§8 已有 2026-07-20 gz方案B事故) ② 写 DB(评分/采集)vs 同 DB 任务 = DB锁/progress撞 ③ 采集脚本并发 = 限流空转
+- **盘后定时任务时点(15:35/16:00/17:50/20:35/22:00)不推 main 不写 public_fund.db**;**盘中(09:30-15:30)不跑全量 export+deploy**(§8 已有)
+- **安全窗口:23:00 后**无推 main/评分/采集任务(3:17 weekly 周日才跑,5:00 us-stock-morning 不写 public_fund.db),大型实施任务放此窗口
+- **agent 自己 push feat:main 也要避开**盘后定时任务时点,不只 cron 任务。agent prompt 须写明"避开 15:35/16:00/17:50/20:35 push main,撞 intraday-snapshot/update-all 推 main = 互相覆盖事故"
+- **盘中 push 前端代码 main 也避开 intraday-snapshot 每10分钟时点**(:25/:35/:45/:55/:05/:15,09:25-15:02 共27次推 intraday_snapshot.json 到 main)。agent 改 app.js/style.css 后 push feat:main 虽改不同文件 rebase 能合并,但 git push 竞争 non-ff 重试有风险,尽量错开。**盘中 push main 选 :00/:10/:20/:30/:40/:50 之外的安全分钟,或等盘后 23:00+ 窗口**
+- 2026-08-04 教训:方案C盘后实施 cron 我直接定 15:35 没查 launchd,用户主动提醒才查,发现撞 5 个定时任务。改 23:03 启动避开。详见 memory `production-stability-p0`
+
 ## 验收铁律
 逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报"完成"不等于真完成。

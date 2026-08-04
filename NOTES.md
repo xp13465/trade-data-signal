@@ -7066,3 +7066,71 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 - 待新建 API：`/api/trade_sim_recalc`（worker 路由或 app FastAPI）
 
 **落档**：本次只落档 NOTES §48 小节AC + TASKS 待办区，不改代码不跑 deploy。commit 后 push feat + main。详见 TASKS.md「模拟回测费率可配置」待办条目。
+
+---
+
+## §48 小节AD：场外基金方案C全量化技术蓝图（2026-08-04 调研落档）
+
+### 背景
+用户发现场外基金只显示 100 只（fund_score_top.json Top100），DB 采了 27418 只但评分引擎只跑 2000 只且前端只读 Top100。用户选方案 C 终极方案：评分引擎扩全量 27418 + 服务端分页 API + 前端改 fetch 模式。盘后 15:35+ 启动实施，晚上跑（约 7.8h 一晚够）。
+
+### 调研关键发现（4 个）
+1. **fund_score 表只 4000 行**（2 期 × 2000 只），daily 跑的，weekly 从没跑过（plist 8/2 23:42 才创建晚于本周日 03:17，下次 8/9 周日 03:17 首次跑）
+2. **upload_r2 调用 bug 3 处**：`pf_score_daily.sh:42` / `pf_score_weekly.sh:42` / `update_all.sh:140(offshore)/152(fund-score)` 都把 `upload_r2.py upload-fund-score` 当单文件名传，R2 上传一直失败不阻塞。立即修恢复 R2 直链（独立小修复已派 agent aedb9f06 盘中做）
+3. **main.py 已有 `/api/public-fund-score` 框架**（L499/512，C2 部署基础已就绪）
+4. **评分引擎无需改代码**：`compute_all_scores(top_n=None, resume=True)` (L3240) 已支持全量，daily 实测 2000 只 39 秒，全量 27418 只约 9 分钟（偏股基金有完整 NAV 历史会算 D3/D4 耗时，保守 15-30 分钟）
+
+### 推荐 C1（CF Workers + D1）
+- 用户方案 C 本意"服务端分页 API"，C1 符合现有 CF Workers 架构（已有 worker/headers.js + KV + wrangler.jsonc）
+- C2 需新部署服务器违反架构；C3 R2 分片伪分页非真 API
+- D1 是 CF 原生 SQLite，SQL 分页/筛选/排序/搜索查询 <100ms，Workers CPU 30s 足够
+
+### 8 步实施（bite-sized）
+0. **修 upload_r2 bug 3+1 处**（0.3h，立即收益，盘中已派 agent 做）
+1. **export_fund_score.py 补 fund_basic 扩展字段**（0.5h）：L62 `_query_top_funds` SELECT 加 fund_company/fund_manager/setup_date/scale/management_fee/custody_fee/purchase_fee/strategy/benchmark（点击弹窗用）
+2. **手动触发 weekly 全量评分**（等收盘后）：`compute_all_scores(top_n=None, resume=True)` 从 trade-data 跑，验证 fund_score 表最新期 count ≈ 27418，预计 15-30 分钟
+3. **D1 创建 + 表结构 + 同步脚本**（1.5h）：`wrangler d1 create trade-fund-score` + wrangler.jsonc 加 d1_databases binding(FUND_SCORE_DB) + 新建 scripts/sync_fund_score_to_d1.sh 导出 SQL upsert + pf_score daily/weekly 末尾加调用
+4. **Worker 路由 fund_score.js**（2h）：新建 worker/fund_score.js 分页/筛选/排序/搜索 + 鉴权(复用 auth.js session) + headers.js 加分发 /api/fund_score
+5. **前端 renderOffshoreFund 改分页 fetch**（1.5h）：app.js L15014 改 _fetchFundScorePage async fetch /api/fund_score?page=&size=&type=&sort=&dir=&search=，_fundScoreState 加 total 字段，pager 用 total 算页数(549页)
+6. **点击弹窗 openFundScoreDetailModal 5 区块**（1.5h）：参考 openEtfScoreDetailModal L14180，决策头/凯利仓位推导/6维度雷达SVG/5风险指标+经理6维/基础信息
+7. **build_min + bump_asset_version + deploy**（0.5h）：bump sw.js CACHE_VERSION！
+8. **调度确认 + 线上验证**（0.5h）：手动 launchctl start com.trade.pf-score-weekly 测一次 + curl /api/fund_score 验证
+
+### 数据产物设计
+| 文件 | 大小 | 用途 |
+|---|---|---|
+| fund_score_all.json | 27MB | D1 同步源 + R2 兜底（必走 R2，27MB CF Workers 404）|
+| fund_score_top.json | 82KB | 首页 Top100 快览（保留现有）|
+| fund_score.json | 1.5MB | 头部 2000（保留现有，CF 直接 serve）|
+| /api/fund_score/{code} | - | 点击弹窗详情（D1 查询，省分片）|
+
+### 风险 + 兜底
+- weekly 全量跑超 4h（ExitTimeOut）：低概率，实测 39s/2000 只外推 9min；兜底调 ExitTimeOut=86400 或 top_n=10000 分批
+- D1 同步失败：前端 fallback 读 R2 fund_score_all.json（19.7MB 慢但有数据）
+- 前端改 fetch 后 API 未就绪白屏：保留 fund_score_top.json fallback
+
+### 调度
+| 任务 | 时点 | 内容 | 改动 |
+|---|---|---|---|
+| pf-score-daily | 16:00 | 头部2000评分+export+R2+D1同步 | 加 D1 同步调用 |
+| pf-score-weekly | 周日 03:17 | 全量27418评分+export全量+R2+D1同步 | 改 export --top-n 27418 + 加 D1 同步 |
+| update_all.sh L143-153 | 17:50 | 头部2000重复 daily | 修 upload_r2 bug |
+
+### 线上验证口径
+- API：`curl -H 'Cookie: session=xxx' 'https://ss.fx8.store/api/fund_score?page=1&size=10&sort=composite_score&dir=desc'` 返回 `{date,page,size,total:27418,data:[10条]}`
+- 详情：`curl 'https://ss.fx8.store/api/fund_score/013579'` 返回单只完整字段含 fund_company
+- 页面：ss.fx8.store 场外基金 tab 显示 27418 只，翻页/搜索/筛选/排序正常，点击弹窗 5 区块完整
+- R2 兜底：`curl https://ssd.fx8.store/fund_score/fund_score_top.json` 200
+
+### 关键文件清单
+- app/collector/public_fund.py L3240 compute_all_scores（已支持全量无需改）
+- scripts/export_fund_score.py L62 _query_top_funds（改：补 fund_basic 扩展字段）
+- worker/headers.js（改：加 /api/fund_score 分发）
+- worker/auth.js L42（fund_score 特权已配，复用 session 校验）
+- wrangler.jsonc（改：加 d1_databases binding）
+- static-site/app.js L15014 renderOffshoreFund（改：分页 fetch）
+- static-site/app.js L14945 _renderFundScorePager（改：用 total 算页数）
+- static-site/app.js L14180 openEtfScoreDetailModal（参考：5 区块弹窗结构）
+- trade-data/scripts/pf_score_daily.sh L42 / pf_score_weekly.sh L38,42 / update_all.sh L140,152（改：修 upload_r2 bug + 加 D1 同步）
+
+**落档**：本次只落档 NOTES §48 小节AD + TASKS 待办，盘后 15:35+ 启动实施 agent 按 8 步蓝图干。upload_r2 bug 立即修（独立小修复盘中做）。
