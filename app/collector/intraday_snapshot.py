@@ -43,7 +43,7 @@ INDEX_CODES = [
     "bj899050",  # 北证50
     "r_hkHSI",   # 恒生指数（港股）
     "r_hkHSTECH",  # 恒生科技指数（港股）
-    "r_hkHSCEI",   # 国企指数（港股）
+    "r_hkHSCEI",   # 恒生国企（港股）
     "sh000012",    # 上证国债指数 -> cgb_idx（buy_special/sell 触发）
     "sh511260",    # 十年国债ETF -> cgb_10y_etf（预防性加，band_hold 触发）
     "r_hkHSMBI",   # 恒生内地银行 -> hk_hsmbi（buy_special 触发）
@@ -78,7 +78,7 @@ _SNAPSHOT_TO_INDEX_ID = {
     "bj899050": "bj50",    # 北证50
     "hkHSI": "hsi",        # 恒生指数（港股）
     "hkHSTECH": "hstech",  # 恒生科技（港股）
-    "hkHSCEI": "hscei",    # 国企指数（港股）
+    "hkHSCEI": "hscei",    # 恒生国企（港股）
     "sh000012": "cgb_idx",        # 上证国债指数（buy_special/sell 触发）
     "sh511260": "cgb_10y_etf",    # 十年国债ETF（预防性加，band_hold 触发）
     "hkHSMBI": "hk_hsmbi",        # 恒生内地银行（buy_special 触发）

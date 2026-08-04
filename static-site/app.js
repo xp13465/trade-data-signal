@@ -1198,7 +1198,7 @@ const _INDEX_NAME_MAP = {
   sh: '上证指数', sz: '深证成指', cyb: '创业板指', csi500: '中证500', csi1000: '中证1000',
   kc50: '科创50', bj50: '北证50', hs300: '沪深300', sz50: '上证50',
   // 港股
-  hsi: '恒生指数', hscei: '国企指数', hstech: '恒生科技',
+  hsi: '恒生指数', hscei: '恒生国企', hstech: '恒生科技',
   // 港股板块指数（来自 hk-5y.json，i18n 中文化 2026-07-20）
   hk_cesg10: '中华博彩业', hk_hsmogi: '恒生内地油气', hk_hsmbi: '恒生内地银行',
   hk_hsmpi: '恒生内地地产', hk_cshklre: '中证香港地产', hk_cshklc: '中证香港消费',
@@ -1917,7 +1917,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         return _esc(p);
       }).join(" · ");
       // 定位路径：告知用户完整数据在哪个 tab，点击切 tab + 滚动高亮卡片
-      // s.* -> "📍 完整数据：盘面温测"；其他 -> "📍 完整数据：指数表现 > 港股 > 国企指数"（一级tab > 二级sub-tab > 指数名）
+      // s.* -> "📍 完整数据：盘面温测"；其他 -> "📍 完整数据：指数表现 > 港股 > 恒生国企"（一级tab > 二级sub-tab > 指数名）
       if (idx && typeof indexToMarketSubtab === "function") {
         var loc = indexToMarketSubtab(idx);
         if (loc && loc.tab && loc.tabName) {
@@ -3487,7 +3487,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
     // 切 tab 时 clearCharts -> disconnectAllIndexNavSpies 统一 disconnect
     const anchorGroups = [{
       label: "主指数",
-      items: entries.map(([id, idx]) => ({ key: id, name: idx.name, targetId: "idx-card-" + id }))
+      items: entries.map(([id, idx]) => ({ key: id, name: (_INDEX_NAME_MAP[id] || idx.name), targetId: "idx-card-" + id }))
     }];
     if (extraGroups && extraGroups.length) anchorGroups.push(...extraGroups);
     const anchorBar = buildIndexAnchorBar(anchorGroups, "指数目录");
@@ -3509,7 +3509,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
       if (idx.data && idx.data.length) {
         // 港股盘中实时标注（快照注入 _snap_intraday=true 时显示）
         const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
-        const c = indexChart(idx.name + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
+        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
         const cardEl = c.getDom().parentElement;
         // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
@@ -3523,11 +3523,11 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
         // 备买 chip 三档（2026-07-23）：标题下换行单独一行展示，h3 之后插入独立 chip-row 容器（异步 fetch+patch）
         _appendBackupChipRow(cardEl, id);
         // C7 P4 market 融合:图表卡下 append 紧凑分数卡(白名单 iid 才显示)
-        _attachMarketScoreCard(id, idx.name, cardEl);
+        _attachMarketScoreCard(id, (_INDEX_NAME_MAP[id] || idx.name), cardEl);
         // A5 真 pin 复盘：h3 末尾追加 📌 按钮（钉住该指数，顶部显示专属复盘面板）
         _appendPinBtn(cardEl, id, idx, sig);
         // A12 订阅推送：h3 末尾追加 🔔 按钮（订阅该指数信号，推送邮件+Telegram）
-        _appendSubscribeBtn(cardEl, id, idx.name);
+        _appendSubscribeBtn(cardEl, id, (_INDEX_NAME_MAP[id] || idx.name));
       }
     }
     // A股/港股(foldOneRow=true)全部指数直接铺入 .indices-grid 网格(不折叠，无"更多指数"按钮)。
@@ -17735,7 +17735,7 @@ const _MAIN_TABS = ["overview", "market", "sentiment", "fund"];
 const _MARKET_SUBTABS = ["a-stock", "industry", "hk", "global"];
 const _SENTIMENT_SUBTABS = ["market-temp", "futures", "national-team", "public-fund"];
 // 信号弹窗定位路径：指数 id -> 所属 tab + subtab + 中文名（告知用户完整数据去哪个 tab）
-// 返回 {tab:"market"|"sentiment", subtab:"hk"|...|null, tabName:"指数表现"|..., name:"港股"|...|null, idxName:"国企指数"|""}
+// 返回 {tab:"market"|"sentiment", subtab:"hk"|...|null, tabName:"指数表现"|..., name:"港股"|...|null, idxName:"恒生国企"|""}
 // tabName=一级 tab 中文名（指数表现/盘面温测），name=二级 sub-tab 中文名（港股/A股/...）
 // s.* 情绪分 -> 盘面温测 tab（sentiment/market-temp，subtab=null 让默认逻辑接手）
 const _MARKET_SUBTAB_CN = { "a-stock": "A股", industry: "行业", hk: "港股", global: "全球" };

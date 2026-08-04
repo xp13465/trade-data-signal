@@ -545,11 +545,11 @@ def _tencent_hk_fallback(idx_id: str, date: str, conn, verbose: bool = False) ->
     # /r_hkCSHKLC/r_hkCSHKDIV 等多种格式均 v_pv_none_match)，不在此映射，保持新浪单点。
     _HK_CODE_MAP = {
         "hsi": "r_hkHSI", "hstech": "r_hkHSTECH", "hscei": "r_hkHSCEI",
-        "hk_cesg10": "r_hkCESG10",   # 中华博彩
+        "hk_cesg10": "r_hkCESG10",   # 中华博彩业
         "hk_hsmogi": "r_hkHSMOGI",   # 恒生内地油气
         "hk_hsmbi":  "r_hkHSMBI",    # 恒生内地银行
-        "hk_hsmpi":  "r_hkHSMPI",    # 恒生内地房地产
-        "hk_hscci":  "r_hkHSCCI",    # 红筹指数
+        "hk_hsmpi":  "r_hkHSMPI",    # 恒生内地地产
+        "hk_hscci":  "r_hkHSCCI",    # 恒生中资企业
     }
     tencent_code = _HK_CODE_MAP.get(idx_id)
     if not tencent_code:

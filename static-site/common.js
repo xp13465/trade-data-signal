@@ -46,7 +46,7 @@ var _LAB_CUSTOM_DIV = [
 var _LAB_CUSTOM_HK = [
   { iid: "hsi", name: "恒生指数" },
   { iid: "hstech", name: "恒生科技" },
-  { iid: "hscei", name: "国企指数" },
+  { iid: "hscei", name: "恒生国企" },
 ];
 var _LAB_CUSTOM_GLOBAL = [
   { iid: "us_dji", name: "道琼斯" },
