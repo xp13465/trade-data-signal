@@ -403,17 +403,48 @@ def export_summary():
     return queries.summary()
 
 
-def export_summary_history(days: int = 365):
-    """复刻 /api/summary/history：最近 N 天一句话总结（时间倒序）。
+def export_summary_history():
+    """历史一句话总结（增量追加，不丢历史）。
 
-    静态站无后端，预生成 summary_history.json 供前端"更多"弹窗本地分页。
-    扩展到 365 天 12 页（前端每页 30 条，maxPage=ceil(365/30)-1=11 共 12 页）。
-    回算 365 天 ~30s 可接受（每天 generate_summary ~12 SQL <1s）；2562 天全量 3-6 分钟太慢故不取。
-    total 字段置为实际 items 条数，避免前端取 DB 全量 total=2562 算出 85 页而 cache 只 12 页致第 4 页起空。
+    读已有 summary_history.json 保留历史，重算最近 7 天确保最新（含新天），
+    7 天前的历史保留不丢。每天增量 +1 累计增长（366/367...），不回填全量历史。
+    首次跑基于已有 365 天 JSON（B 方案起点），后续只增不减。
+
+    - 重算最近 7 天：确保最新数据覆盖（含新天）；~7s 可接受（7 天 × ~12 SQL）
+    - 历史 7 天前：保留已有 JSON 不重算（不丢历史，不更新）
+    - 漏跑补算：update_all 漏跑几天，下次重算最近 7 天补回（7 天窗口内）
+    - total = 实际条数（累计增长，非 DB 全量 2562，避免前端算 85 页而 cache 不足致第 4 页起空）
     """
-    data = queries.summary_history(get_conn(), 0, days)
-    data["total"] = len(data["items"])  # 静态站只生成 N 天，total=实际条数非 DB 全量
-    return data
+    conn = get_conn()
+    # 1. 读已有 JSON（保留历史，不丢）
+    existing_path = DATA_DIR / "summary_history.json"
+    if existing_path.exists():
+        existing = json.loads(existing_path.read_text(encoding="utf-8"))
+    else:
+        existing = {"items": []}
+    existing_items = existing.get("items", [])
+
+    # 2. DB 所有 a_sentiment 交易日倒序（与 queries.summary_history 同源）
+    all_dates = [r["date"] for r in conn.execute(
+        "SELECT DISTINCT date FROM score_daily WHERE score_id='a_sentiment' "
+        "ORDER BY date DESC"
+    ).fetchall()]
+
+    # 3. 重算最近 7 天（确保最新数据覆盖，含新天；~7s 可接受）
+    RECALC_RECENT = 7
+    recent_dates = all_dates[:RECALC_RECENT]
+    recent_items = [queries.summary_brief(queries.generate_summary(d))
+                    for d in recent_dates]
+    recent_date_set = set(recent_dates)
+
+    # 4. 历史 = 已有 JSON 中 7 天前的（保留不丢，不重算）
+    history_items = [it for it in existing_items if it.get("date") not in recent_date_set]
+
+    # 5. 合并：重算最近 7 天 + 历史（均倒序，recent 在前）
+    items = recent_items + history_items
+
+    # 6. total = 实际条数（累计增长）
+    return {"items": items, "total": len(items), "offset": 0, "limit": len(items)}
 
 
 def export_signal_freq():
