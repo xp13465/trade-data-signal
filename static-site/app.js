@@ -17356,9 +17356,12 @@ function applyAuthState() {
     // 2026-08-04 曾新增"切换皮肤"项,但已有 .h5-theme-btn 🎨 按钮入口,菜单项冗余,同日移除
     // 2026-08-04 导航吸顶开关从 header 独立按钮迁入此处（登录用户可见，移动端也能切）
     var navStickyLabel = isNavStickyOff() ? '📌 导航吸顶（关）' : '📌 导航吸顶（开）';
+    // 2026-08-04 新增管理端入口：仅 is_admin=true 账号头像菜单显示「🔧 管理端」项，点击跳 /admin/feedback.html
+    var adminItemHtml = u.is_admin ? '<div class="auth-dropdown-item" data-action="admin-panel" role="menuitem" tabindex="0">🔧 管理端</div>' : '';
     var dropdownHtml = '<div class="auth-dropdown" role="menu">' +
                        '<div class="auth-dropdown-item" data-action="feedback" role="menuitem" tabindex="0">💬 留言箱</div>' +
                        '<div class="auth-dropdown-item" data-action="nav-sticky" role="menuitem" tabindex="0">' + navStickyLabel + '</div>' +
+                       adminItemHtml +
                        '<div class="auth-dropdown-item" data-action="logout" role="menuitem" tabindex="0">退出登录</div>' +
                      '</div>';
     var pcHtml = '<span class="auth-user-wrap">' +
@@ -17677,6 +17680,15 @@ function initAuthButton() {
           try { localStorage.setItem('navStickyOff_ts', String(Date.now())); } catch(e){}
         }
         applyNavStickyState();
+        return;
+      }
+      if (item && item.dataset.action === 'admin-panel') {
+        e.stopPropagation();
+        e.preventDefault();
+        var ddAp = btn.querySelector('.auth-dropdown');
+        if (ddAp) ddAp.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+        window.location.href = '/admin/feedback.html';
         return;
       }
       if (item && item.dataset.action === 'logout') {

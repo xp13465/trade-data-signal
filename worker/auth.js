@@ -654,12 +654,16 @@ async function me(request, env) {
   }
   const user = await getUserByProviderUid(env, provider, providerUid);
   if (!user) return jsonResponse({ logged_in: false, user: null, privileges: [] }, 200, { request });
+  // is_admin：env.ADMIN_USERS 逗号分隔 provider:uid 列表判断（secret 不写死代码，未来加管理员改 secret）
+  const adminList = env.ADMIN_USERS ? env.ADMIN_USERS.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
+  const isAdmin = adminList.indexOf(user.provider + ':' + user.provider_uid) !== -1;
   return jsonResponse({
     logged_in: true,
     user: {
       name: user.name,
       avatar: user.avatar,
       provider: user.provider,
+      is_admin: isAdmin,
     },
     privileges: PRIVILEGES_LOGGED_IN,
   }, 200, { request });
