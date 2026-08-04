@@ -6741,28 +6741,32 @@ function _processNotifications(data) {
 
 // 初始化 🔔 通知按钮（PC 显示，移动端隐藏）+ 监听 overview 刷新事件触发通知检测
 function initNotifyButton() {
+  // 方案A(2026-08-04 fix2): 试看 popup 作铃铛 sibling(包在 .notify-wrap 内),
+  // 不再作 btn 子元素(div-in-button 无效 HTML + 事件耦合 + 原 btn.textContent 清 pop 隐患).
+  // wrap 设 relative 给 popup 绝对定位基准, popup 作 wrap 子元素(btn 的 sibling) 定位到下方右对齐.
+  const wrap = document.createElement('div');
+  wrap.className = 'notify-wrap';
   // 创建按钮并插入到 theme-btn 前
   const btn = document.createElement('button');
   btn.className = 'notify-btn pc-notify-btn';
   btn.type = 'button';
   btn.setAttribute('aria-label', '浏览器通知');
   btn.innerHTML = '<span class="notify-icon">🔔</span>';
+  wrap.appendChild(btn);
   const themeBtn = document.querySelector('.pc-theme-btn');
   if (themeBtn && themeBtn.parentNode) {
-    themeBtn.parentNode.insertBefore(btn, themeBtn);
+    themeBtn.parentNode.insertBefore(wrap, themeBtn);
   } else {
-    document.querySelector('header')?.appendChild(btn);
+    document.querySelector('header')?.appendChild(wrap);
   }
 
-  // 方案B(2026-08-04): 试看从独立按钮改为铃铛 hover popup 选项（省 header 空间）
-  // btn 设 relative，popup 作为 btn 子元素绝对定位到下方右对齐
-  btn.style.position = 'relative';
+  // popup 作 wrap 子元素(btn 的 sibling), 绝对定位到 btn 下方右对齐
   const pop = document.createElement('div');
   pop.className = 'notify-pop';
   pop.innerHTML = '<div class="notify-pop-item" data-action="test">🔔 试看测试通知</div>';
-  btn.appendChild(pop);
+  wrap.appendChild(pop);
 
-  // hover 显示/隐藏（200ms 延时避免抖动；移到 popup 上不关）
+  // hover 显示/隐藏（200ms 延时避免抖动；wrap 包含 btn+pop, 移到 popup 上不关）
   let popHideTimer = null;
   const showPop = () => {
     if (popHideTimer) { clearTimeout(popHideTimer); popHideTimer = null; }
@@ -6772,24 +6776,17 @@ function initNotifyButton() {
   const hidePop = () => {
     popHideTimer = setTimeout(() => { pop.style.display = 'none'; }, 200);
   };
-  btn.addEventListener('mouseenter', showPop);
-  btn.addEventListener('mouseleave', hidePop);
-  pop.addEventListener('mouseenter', showPop);
-  pop.addEventListener('mouseleave', hidePop);
+  // 方案A: hover 绑 wrap(btn+pop 都是 wrap 后代, 互相移动不触发 mouseleave)
+  wrap.addEventListener('mouseenter', showPop);
+  wrap.addEventListener('mouseleave', hidePop);
 
-  // popup 状态更新（和原 testBtn 显示逻辑一致：仅 enabled && granted 时"试看"可点，否则灰显提示）
+  // popup 状态更新（方案A fix2: 始终可点, 点击自动开启 pref+测试, 不再灰显"开启通知后可测试".
+  //   原 disabled 灰显 + pop click 的 `disabled return` 互斥, 致未开启用户点试看无反应 = Bug2)
   function updatePopState() {
-    const enabled = _loadNotifyPref();
-    const perm = _notifyPerm();
     const item = pop.querySelector('.notify-pop-item');
     if (!item) return;
-    if (enabled && perm === 'granted') {
-      item.classList.remove('disabled');
-      item.textContent = '🔔 试看测试通知';
-    } else {
-      item.classList.add('disabled');
-      item.textContent = '开启通知后可测试';
-    }
+    item.classList.remove('disabled');
+    item.textContent = '🔔 试看测试通知';
   }
 
   // 状态更新（根据偏好+权限切换图标/样式）
@@ -6860,12 +6857,12 @@ function initNotifyButton() {
     _checkNotifications();
   });
 
-  // 方案B(2026-08-04): popup"试看"选项 click -> 确保pref开启+permission granted -> 弹测试通知
-  // stopPropagation 防冒泡到 btn click 触发开关通知
+  // 方案A(2026-08-04 fix2): popup"试看" click -> 自动开启 pref + 确保 permission + 弹测试通知(一键开启+测试).
+  // pop 是 btn 的 sibling(非子元素), click 不冒泡到 btn, 无需 stopPropagation;
+  // 不再检查 disabled(始终可点), 未开启用户点击即自动开启+授权+测试.
   pop.addEventListener('click', (e) => {
-    e.stopPropagation();
     const item = e.target.closest('.notify-pop-item');
-    if (!item || item.classList.contains('disabled')) return;
+    if (!item) return;  // 点到 pop 空白区域才忽略
     // 自动开启通知偏好（如果未开启）
     if (!_loadNotifyPref()) {
       _saveNotifyPref(true);
