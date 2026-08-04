@@ -133,7 +133,7 @@ function _labCustomScoreSummary(high, low) {
 
 // 分数卡(high 高位预警 + low 低位机会 + adapt 适配信息)
 function _labCustomScoreCardHTML(data, alert, humanText) {
-  const name = data.target_name || data.target_id || "";
+  const name = (_INDEX_NAME_MAP[data.target_id] || data.target_name || data.target_id || "");
   const date = alert.date || "";
   const dateStr = date && date.length === 8 ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : date;
   const high = alert.high, low = alert.low;

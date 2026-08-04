@@ -1913,7 +1913,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       var idxName = idx && typeof indexIdToName === "function" ? indexIdToName(idx) : "";
       var html = parts.map(function (p, i) {
         if (i === 0 || i === 1) return '<b class="term-pop-sig-label">' + _esc(p) + '</b>';
-        if (idxName && p === idxName) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
+        if (idxName && (p === idxName || p === idx)) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
       // 定位路径：告知用户完整数据在哪个 tab，点击切 tab + 滚动高亮卡片
@@ -2630,7 +2630,7 @@ function _pinStrategyHtml(strategy, indexId) {
 }
 // 单个 pin 复盘卡片 HTML
 function _pinReviewCardHtml(id, idx, sig) {
-  var name = idx && idx.name ? idx.name : id;
+  var name = (_INDEX_NAME_MAP[id] || (idx && idx.name) || id);
   var ohlc = (idx && idx.data) || [];
   var last = ohlc.length ? ohlc[ohlc.length - 1] : null;
   var lastClose = last && last.close != null ? last.close : null;
@@ -3595,7 +3595,7 @@ function filterIndicesByName(indices, query) {
   const q = query.toLowerCase();
   const out = {};
   for (const [id, idx] of Object.entries(indices || {})) {
-    const name = (idx.name || "").toLowerCase();
+    const name = ((_INDEX_NAME_MAP[id] || idx.name || "")).toLowerCase();
     if (name.includes(q) || id.toLowerCase().includes(q)) out[id] = idx;
   }
   return out;
@@ -7479,7 +7479,7 @@ async function renderOverview() {
     const _chgText = _chgPts == null ? "- " : ((_chgUp ? "+" : "") + _chgPts.toFixed(2));
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${idx.name}</span>
+        <span class="spark-name">${_INDEX_NAME_MAP[sparkId] || idx.name}</span>
         <span class="pct-badge" data-spark-id="${sparkId}" style="color:${color}">${sign}${(idx.pct_change || 0).toFixed(2)}%</span>
       </div>
       <div class="spark-chart"></div>
@@ -13443,7 +13443,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     const pctSuffix = (pct != null) ? ` <span class="pct-badge" style="color:${color}">${sign}${pct.toFixed(2)}%</span>` : "";
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${idx.name}${closeSuffix}${pctSuffix}${rotTag}</span>
+        <span class="spark-name">${_INDEX_NAME_MAP[id] || idx.name}${closeSuffix}${pctSuffix}${rotTag}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
@@ -13460,7 +13460,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     // 2026-07-20 板分化三按钮补齐：📌 钉住 + 🔔 订阅（与指数表现 L2967-2969 一致顺序：[etf-tag][📌][🔔]）
     // sig 构造 {signals, stats} 对齐指数表现 sig = signalsCache[id] 结构
     _appendPinBtn(cell, id, idx, { signals: signals, stats: idx.stats });
-    _appendSubscribeBtn(cell, id, idx.name);
+    _appendSubscribeBtn(cell, id, (_INDEX_NAME_MAP[id] || idx.name));
     // B2：视口懒加载行业 detail（tooltip 专属字段），进视口即预取
     // 2026-07-20 板分化 chip：同步懒加载 _appendBackupChipRow，避免循环里同步调触发 58 并发 stats.json fetch
     const _io = new IntersectionObserver((entries) => {
@@ -13478,7 +13478,7 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     // 非 last_valid_close(=07-13)，避免盘中误判滞后(预期显 📅 T+1·07-14 绿色最新)
     addCardTimeBadge(cell, last.date, state.intradaySnapshot, "t1", "industry");
     // C7 P4 market 融合:行业 spark 卡 append 紧凑分数卡(白名单 iid 才显示)
-    _attachMarketScoreCard(id, idx.name, cell);
+    _attachMarketScoreCard(id, (_INDEX_NAME_MAP[id] || idx.name), cell);
     // 行业绿色(最新)档专属 tip（补充申万/baostock 源说明）；滞后/异常档保留通用 tip
     const _indBdg = cell.querySelector(".card-time-badge.intraday");
     if (_indBdg) _indBdg.setAttribute("data-tip", "行业指数T+1(申万/baostock收盘后次日补全,逢周末顺延到下一交易日),已更新到最新交易日");
@@ -13716,7 +13716,7 @@ function _rotationTag(freq) {
 // A9 Top N 轮动频次板块列表（用于板块分化区独立卡片）
 function _buildRotationFreqList(indices) {
   return Object.entries(indices || {})
-    .map(([id, idx]) => ({ id, name: idx.name, freq: _calcRotationFreq(idx.fund_flow) }))
+    .map(([id, idx]) => ({ id, name: (_INDEX_NAME_MAP[id] || idx.name), freq: _calcRotationFreq(idx.fund_flow) }))
     .filter((x) => x.freq.sample >= ROTATION_MIN_SAMPLE) // 样本不足不参与排名
     .sort((a, b) => b.freq.reversals - a.freq.reversals);
 }
@@ -15644,15 +15644,15 @@ async function _shapeLoadSeries(indexId) {
     if (_SHAPE_A_STOCK.has(indexId)) {
       _astockAllCache = _astockAllCache || await fetchJSON(dataUrl("a-stock-all.json"));
       var idx = _astockAllCache.indices && _astockAllCache.indices[indexId];
-      if (idx) result = { name: idx.name, data: (idx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
+      if (idx) result = { name: (_INDEX_NAME_MAP[indexId] || idx.name), data: (idx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
     } else if (_SHAPE_HK.has(indexId)) {
       _hkAllCache = _hkAllCache || await fetchJSON(dataUrl("hk-all.json"));
       var hidx = _hkAllCache.indices && _hkAllCache.indices[indexId];
-      if (hidx) result = { name: hidx.name, data: (hidx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
+      if (hidx) result = { name: (_INDEX_NAME_MAP[indexId] || hidx.name), data: (hidx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
     } else if (_SHAPE_US_EU.has(indexId)) {
       _globalAllCache = _globalAllCache || await fetchJSON(dataUrl("global-all.json"));
       var gidx = _globalAllCache.indices && _globalAllCache.indices[indexId];
-      if (gidx) result = { name: gidx.name, data: (gidx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
+      if (gidx) result = { name: (_INDEX_NAME_MAP[indexId] || gidx.name), data: (gidx.data || []).map(function (d) { return { date: d.date, close: d.close }; }) };
     } else if (_SHAPE_COMMODITY[indexId]) {
       _globalAllCache = _globalAllCache || await fetchJSON(dataUrl("global-all.json"));
       var exKey = _SHAPE_COMMODITY[indexId];
@@ -15840,7 +15840,7 @@ async function _tradeSimShapeViewHTML(indexId) {
   if (!result) {
     return '<div class="trade-sim-shape-empty">数据不足：需要至少 ' + (CUR_LEN + FORECAST_LEN + 5) + ' 个交易日，当前 ' + closes.length + ' 个。</div>';
   }
-  var idxName = series.name || indexId;
+  var idxName = (_INDEX_NAME_MAP[indexId] || series.name || indexId);
   var svg = _shapeMatchSVG(result, TOP_PLOT);
   // top5 列表
   var listRows = result.matches.map(function (m, i) {

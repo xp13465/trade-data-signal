@@ -2207,7 +2207,7 @@ function _labSimCardHTML(key, simData) {
   ).join("");
   const idxBarHTML = `<div class="lab-win-bar"><span class="lab-win-bar-label">选择指数</span><div class="lab-win-tabs">${idxBtns}</div></div>`;
   if (!simData || !simData.strategies || !simData.strategies[key] || !simData.pairs) {
-    const idxName = (simData && simData.index_name) || "该指数";
+    const idxName = (_INDEX_NAME_MAP[simIdxId] || (simData && simData.index_name) || "该指数");
     return `<h3>💰 模拟回测（${idxName} · 配对交易）</h3>` + idxBarHTML +
       `<div class="lab-sim-empty">${simData ? "该策略暂无模拟回测数据" : "暂无模拟回测数据"}</div>`;
   }
@@ -2229,7 +2229,7 @@ function _labSimCardHTML(key, simData) {
 
   // 窗口切换 tabs（默认近1年）
   const winLabel = LAB_WIN_DEFS.find((w) => w.k === (state.labSimWindow || "y5"));
-  const idxName = simData.index_name || "";
+  const idxName = (_INDEX_NAME_MAP[simIdxId] || simData.index_name || "");
   return `<h3>💰 模拟回测（${idxName} · 配对交易）</h3>` +
     idxBarHTML +
     `<div class="lab-win-bar"><span class="lab-win-bar-label">时间窗口</span>${_labWinTabsHTML()}<span class="lab-win-bar-cur">${winLabel ? winLabel.l : ""}</span></div>` +
@@ -3031,7 +3031,7 @@ function _labRetestContentHTML(simData) {
     : "";
   const pairsHTML = pks.map((pk) => _labRetestPairHTML(pk, rd.pairs[pk])).join("");
   return `<div class="lab-retest-rule">${_LAB_RETEST_RULE}</div>` +
-    `<div class="lab-retest-meta">指数: ${rd.index_name || idx} · 生成: ${rd.generated_at || "-"} · ⭐️候选: ${starN} · 🔵替补: ${subN}${exhNote}</div>` +
+    `<div class="lab-retest-meta">指数: ${_INDEX_NAME_MAP[idx] || rd.index_name || idx} · 生成: ${rd.generated_at || "-"} · ⭐️候选: ${starN} · 🔵替补: ${subN}${exhNote}</div>` +
     `<div class="lab-retest-pairs">${pairsHTML}</div>`;
 }
 
@@ -4161,7 +4161,7 @@ function _labRetestRankItemHTML(row, rank, tab) {
   const subBadge = row.substitute
     ? `<span class="lab-retest-rank-sub" title="${row.subReason || "未达标"}">🔵替补</span>`
     : "";
-  const idxTag = row.index_name ? `<span class="lab-idx-tag">${row.index_name}</span>` : "";
+  const idxTag = row.index_name ? `<span class="lab-idx-tag">${_INDEX_NAME_MAP[row.index] || row.index_name}</span>` : "";
   return `<button type="button" class="lab-rank-item clickable-card" data-pk="${row.pk}" data-idx="${row.index || ""}" data-cardid="${row.cardid || ""}" data-mode="${row.mode}">` +
     `<span class="lab-rank-no">${medal || "#" + rank}</span>` +
     `<span class="lab-rank-name">${row.cn} · ${row.modeCn}</span>` +
@@ -4395,7 +4395,7 @@ function _labRetestRenderCards(list, allPairs) {
     const winCn = _labRetestWinCN(meta.window);
     const score = meta.score != null ? (meta.score * 100).toFixed(0) : "-";
     const starBadge = item.substitute ? "🔵" : "⭐️";
-    const idxTag = `<span class="lab-idx-tag">${item.index_name}</span>`;
+    const idxTag = `<span class="lab-idx-tag">${_INDEX_NAME_MAP[item.index] || item.index_name}</span>`;
     return `<div class="lab-strategy-card lab-retest-card clickable-card" data-pk="${item.pk}" data-idx="${item.index}" data-cardid="${item.cardid}">` +
       `<div class="lab-card-top">` +
       `<span class="lab-card-name">${starBadge} ${cn} ${idxTag}</span>` +
@@ -4522,7 +4522,7 @@ async function renderRetestLab() {
     retestList.forEach((rd) => {
       if (!rd || !rd.pairs) return;
       const index = rd.index_id;
-      const index_name = rd.index_name || _labIdxName(index);
+      const index_name = (_INDEX_NAME_MAP[index] || rd.index_name || _labIdxName(index));
       Object.keys(rd.pairs).forEach((pk) => {
         const pd = rd.pairs[pk];
         allPairs.push({
@@ -5343,7 +5343,7 @@ async function renderAblationLab() {
   leftCol.appendChild(essayWarn);
 
   const data = await fetchLabAblationData();
-  const idxList = (data && data.indexes) ? data.indexes.map((x) => ({ id: x.index_id, name: x.index_name })) : [];
+  const idxList = (data && data.indexes) ? data.indexes.map((x) => ({ id: x.index_id, name: (_INDEX_NAME_MAP[x.index_id] || x.index_name) })) : [];
   const curIdx = state.labAblationIdx || (idxList[0] && idxList[0].id) || "sh";
   state.labAblationIdx = curIdx;
   const idxBar = document.createElement("div");
@@ -5464,7 +5464,7 @@ async function renderSymmetryLab() {
   leftCol.appendChild(essayWarn);
 
   const data = await fetchLabSymmetryData();
-  const idxList = (data && data.indexes) ? data.indexes.map((x) => ({ id: x.index_id, name: x.index_name })) : LAB_SIM_INDEXES;
+  const idxList = (data && data.indexes) ? data.indexes.map((x) => ({ id: x.index_id, name: (_INDEX_NAME_MAP[x.index_id] || x.index_name) })) : LAB_SIM_INDEXES;
   const curIdx = state.labSymmetryIdx || (idxList[0] && idxList[0].id) || "sh";
   state.labSymmetryIdx = curIdx;
   const idxBar = document.createElement("div");
@@ -5554,7 +5554,7 @@ function _labSymmetryChart(container, data) {
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
     legend: { top: 0, data: ["做多平均收益", "做空平均收益"] },
     grid: { left: 60, right: 20, top: 40, bottom: 70 },
-    xAxis: { type: "category", data: items.map((x) => x.index_name), axisLabel: { rotate: 30, fontSize: 10 } },
+    xAxis: { type: "category", data: items.map((x) => (_INDEX_NAME_MAP[x.index_id] || x.index_name)), axisLabel: { rotate: 30, fontSize: 10 } },
     yAxis: { type: "value", name: "收益(%)" },
     series: [
       { name: "做多平均收益", type: "bar", barMaxWidth: 26, data: items.map((x) => x.avg_long_ret), itemStyle: { color: cssVar("--mx-good-fg") } },
@@ -5593,7 +5593,7 @@ async function renderParamScanLab() {
 
   // 指数选择器（sh/hs300/cyb，从首个 scan 的 per_index 派生）
   const firstScan = scans[0];
-  const idxList = firstScan ? firstScan.per_index.map((x) => ({ id: x.index_id, name: x.index_name })) : [];
+  const idxList = firstScan ? firstScan.per_index.map((x) => ({ id: x.index_id, name: (_INDEX_NAME_MAP[x.index_id] || x.index_name) })) : [];
   const curIdx = state.labParamScanIdx || (idxList[0] && idxList[0].id) || "sh";
   state.labParamScanIdx = curIdx;
   const idxBar = document.createElement("div");
@@ -5678,7 +5678,7 @@ function _labParamScanChart(container, data, stratKey, idx) {
   const vColor = pi.verdict === "robust_profitable" ? _UP : _DOWN;
   const hint = document.createElement("div");
   hint.className = "lab-zone-desc";
-  hint.innerHTML = `${stratName} · ${pi.index_name} · 默认收益 <b style="color:${_retFg(pi.default_ret)}">${pi.default_ret.toFixed(1)}%</b> · 回测最优 <b style="color:${_retFg(pi.best_ret)}">${pi.best_ret.toFixed(1)}%</b> · <span style="color:${vColor};font-weight:600">${pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰(过拟合风险)"}</span>${pi.best_is_default ? " · 默认即回测最优✓" : ""}`;
+  hint.innerHTML = `${stratName} · ${_INDEX_NAME_MAP[pi.index_id] || pi.index_name} · 默认收益 <b style="color:${_retFg(pi.default_ret)}">${pi.default_ret.toFixed(1)}%</b> · 回测最优 <b style="color:${_retFg(pi.best_ret)}">${pi.best_ret.toFixed(1)}%</b> · <span style="color:${vColor};font-weight:600">${pi.verdict === "robust_profitable" ? "稳健高原" : "尖锐尖峰(过拟合风险)"}</span>${pi.best_is_default ? " · 默认即回测最优✓" : ""}`;
   body.appendChild(hint);
 
   const dims = scan.param_dims || [];
