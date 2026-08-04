@@ -5705,7 +5705,11 @@ function _renderIntradayInSparkCells(sparkGrid, snap) {
 // 三态：collapsed(仅日图,只日K) / intraday-only(仅分时,隐藏日K) / expanded(全展开,日K+分时)
 function renderIntradaySection(sparkGrid, snap) {
   const isClosed = !snap || snap.is_closed !== false;
-  // 默认：盘中=expanded 盘后=collapsed；localStorage intraday-chart-mode 记忆覆盖
+  // 默认逻辑(用户定 2026-08-04):
+  //   交易日盘中(9:30-15:00 含午休) -> intraday-only(仅分时)
+  //   交易日盘后(15:00 后)         -> expanded(全展开)
+  //   其他(非交易日/盘前 9:30 前)  -> collapsed(仅日图)
+  // localStorage intraday-chart-mode 记忆覆盖(用户手动选过优先, 新默认仅对无记忆的首次访问生效)
   // 兼容旧键 intraday-chart-expanded: "1"->expanded "0"->collapsed
   let mode = null;
   try {
@@ -5716,7 +5720,17 @@ function renderIntradaySection(sparkGrid, snap) {
     }
   } catch (e) {}
   if (mode !== "collapsed" && mode !== "intraday-only" && mode !== "expanded") {
-    mode = isClosed ? "collapsed" : "expanded";
+    // 新默认: 复用 _bjTimeMin/_bjDayOfWeek(北京时间 UTC+8 判断, 周末=非交易日, 节假日前端难判按周末兜底)
+    const _bjMin = _bjTimeMin();
+    const _dow = _bjDayOfWeek();
+    const _isWeekday = _dow >= 1 && _dow <= 5; // 周一-周五兜底(节假日误显无害, 收盘后无新数据自然恢复)
+    if (_isWeekday && _bjMin >= 9 * 60 + 30 && _bjMin < 15 * 60) {
+      mode = "intraday-only";   // 盘中(9:30-15:00 含午休) -> 仅分时
+    } else if (_isWeekday && _bjMin >= 15 * 60) {
+      mode = "expanded";        // 盘后(15:00 后) -> 全展开
+    } else {
+      mode = "collapsed";       // 非交易日 / 盘前 9:30 前 -> 仅日图
+    }
   }
 
   // 全局三态分段控件（控制所有 .spark-intraday 显隐 + .spark-cell.hide-daily）
