@@ -17317,6 +17317,7 @@ function applyAuthState() {
     // 头像 hover/click 弹下拉菜单含"退出登录"项（替代不明显的 ⎋ 按钮）
     // 2026-08-04 曾新增"切换皮肤"项,但已有 .h5-theme-btn 🎨 按钮入口,菜单项冗余,同日移除
     var dropdownHtml = '<div class="auth-dropdown" role="menu">' +
+                       '<div class="auth-dropdown-item" data-action="feedback" role="menuitem" tabindex="0">💬 留言箱</div>' +
                        '<div class="auth-dropdown-item" data-action="logout" role="menuitem" tabindex="0">退出登录</div>' +
                      '</div>';
     var pcHtml = '<span class="auth-user-wrap">' +
@@ -17462,14 +17463,152 @@ function openConfirmLogout() {
   });
   modal.classList.remove('hidden');
 }
+// 留言箱弹窗：登录用户提交留言 + 看自己的留言列表（倒序）
+// 认证：主站 session cookie（credentials:include）/ 备站 Bearer token（Authorization header），与 /api/auth/me 同模式
+function openFeedbackModal() {
+  // 避免重复弹出
+  var existing = document.querySelector('.feedback-modal');
+  if (existing) { existing.classList.remove('hidden'); return; }
+  var base = _authApiBase();
+  var token = _getAuthToken();
+  var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+  var credentials = _isMainSite() ? 'include' : 'omit';
+  var modal = document.createElement('div');
+  modal.className = 'modal feedback-modal hidden';
+  modal.innerHTML = '<div class="modal-body">' +
+    '<button class="theme-modal-close" title="关闭" aria-label="关闭">×</button>' +
+    '<h3>💬 留言箱</h3>' +
+    '<p class="feedback-sub">留下你的建议/反馈/bug 报告，我们会认真阅读。</p>' +
+    '<textarea class="feedback-textarea" placeholder="留下你的建议/反馈..." maxlength="1000" rows="4"></textarea>' +
+    '<div class="feedback-actions">' +
+      '<span class="feedback-count">0/1000</span>' +
+      '<button class="feedback-submit" data-action="submit">提交</button>' +
+    '</div>' +
+    '<div class="feedback-tip"></div>' +
+    '<div class="feedback-list-title">我的留言</div>' +
+    '<div class="feedback-list"><div class="feedback-empty">加载中...</div></div>' +
+  '</div>';
+  document.body.appendChild(modal);
+  function closeModal() {
+    modal.classList.add('hidden');
+    setTimeout(function () { if (modal.parentNode) modal.parentNode.removeChild(modal); }, 200);
+  }
+  function showTip(msg, isErr) {
+    var tip = modal.querySelector('.feedback-tip');
+    if (!tip) return;
+    tip.textContent = msg || '';
+    tip.style.color = isErr ? 'var(--warn, #e74c3c)' : 'var(--text-3)';
+  }
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    var p = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function renderList(feedbacks) {
+    var list = modal.querySelector('.feedback-list');
+    if (!list) return;
+    if (!feedbacks || !feedbacks.length) {
+      list.innerHTML = '<div class="feedback-empty">还没有留言</div>';
+      return;
+    }
+    list.innerHTML = feedbacks.map(function (fb) {
+      return '<div class="feedback-item">' +
+        '<div class="feedback-item-content">' + _esc(fb.content) + '</div>' +
+        '<div class="feedback-item-time">' + _esc(fmtDate(fb.created_at)) + '</div>' +
+      '</div>';
+    }).join('');
+  }
+  function loadList() {
+    var listEl = modal.querySelector('.feedback-list');
+    if (listEl) listEl.innerHTML = '<div class="feedback-empty">加载中...</div>';
+    fetch(base + '/api/feedback', { credentials: credentials, headers: headers })
+      .then(function (r) {
+        if (r.status === 401) { showTip('登录已失效，请重新登录', true); return null; }
+        if (!r.ok) { showTip('加载留言失败', true); return null; }
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        renderList(data.feedbacks || []);
+      })
+      .catch(function () { showTip('加载留言失败', true); });
+  }
+  function submit() {
+    var ta = modal.querySelector('.feedback-textarea');
+    var content = ta ? ta.value.trim() : '';
+    if (!content) { showTip('留言内容不能为空', true); return; }
+    if (content.length > 1000) { showTip('留言内容不能超过 1000 字', true); return; }
+    var btn = modal.querySelector('.feedback-submit');
+    if (btn) { btn.disabled = true; btn.textContent = '提交中...'; }
+    showTip('');
+    fetch(base + '/api/feedback', {
+      method: 'POST', credentials: credentials, headers: headers,
+      body: JSON.stringify({ content: content })
+    })
+      .then(function (r) {
+        if (r.status === 401) { showTip('登录已失效，请重新登录', true); return null; }
+        if (!r.ok) {
+          return r.json().catch(function () { return null; }).then(function (d) {
+            showTip((d && d.detail) || '提交失败', true);
+            return null;
+          });
+        }
+        return r.json();
+      })
+      .then(function (data) {
+        if (!data) return;
+        if (ta) ta.value = '';
+        var cnt = modal.querySelector('.feedback-count');
+        if (cnt) cnt.textContent = '0/1000';
+        showTip('已提交，感谢反馈');
+        loadList();
+      })
+      .catch(function () { showTip('提交失败', true); })
+      .finally(function () {
+        if (btn) { btn.disabled = false; btn.textContent = '提交'; }
+      });
+  }
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal || e.target.classList.contains('theme-modal-close')) {
+      closeModal();
+      return;
+    }
+    var btn = e.target.closest('.feedback-submit');
+    if (btn && btn.dataset.action === 'submit') { submit(); return; }
+  });
+  // textarea 字数统计 + Ctrl/Cmd+Enter 提交
+  var ta = modal.querySelector('.feedback-textarea');
+  if (ta) {
+    ta.addEventListener('input', function () {
+      var cnt = modal.querySelector('.feedback-count');
+      if (cnt) cnt.textContent = ta.value.length + '/1000';
+    });
+    ta.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
+    });
+  }
+  modal.classList.remove('hidden');
+  loadList();
+}
 // 绑定登录按钮点击：未登录弹登录框，已登录 hover/click 弹下拉菜单，"退出登录"项调确认弹窗
 function initAuthButton() {
   // 多站点方案G：启动时接收主站 OAuth 回跳的 #auth_token=<token>，存 localStorage 后清 hash
   _receiveAuthToken();
   document.querySelectorAll('.pc-auth-btn, .h5-auth-btn').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
-      // 下拉菜单项点击：logout -> 退出确认弹窗（复用 openConfirmLogout）
+      // 下拉菜单项点击：feedback -> 留言箱弹窗；logout -> 退出确认弹窗（复用 openConfirmLogout）
       var item = e.target.closest('.auth-dropdown-item');
+      if (item && item.dataset.action === 'feedback') {
+        e.stopPropagation();
+        e.preventDefault();
+        var ddFb = btn.querySelector('.auth-dropdown');
+        if (ddFb) ddFb.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+        openFeedbackModal();
+        return;
+      }
       if (item && item.dataset.action === 'logout') {
         e.stopPropagation();
         e.preventDefault();

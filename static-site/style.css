@@ -3340,6 +3340,52 @@ main { padding: 16px 24px; }
   .theme-modal .modal-body { width: 94vw; }
 }
 
+/* === 💬 留言箱弹窗（复用 .theme-modal 风格，走皮肤变量） === */
+.feedback-modal { z-index: 125; }
+.feedback-modal .modal-body {
+  width: min(92vw, 540px); padding: 20px 22px; position: relative;
+  box-shadow: 0 8px 32px var(--shadow-strong);
+}
+.feedback-modal h3 { margin: 0 0 6px; font-size: 16px; color: var(--text-1); }
+.feedback-sub { margin: 0 0 12px; font-size: 12px; color: var(--text-3); line-height: 1.5; }
+.feedback-textarea {
+  width: 100%; box-sizing: border-box; padding: 10px 12px;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  background: var(--bg-card); color: var(--text-1);
+  font-family: inherit; font-size: 14px; line-height: 1.5; resize: vertical;
+  min-height: 80px;
+}
+.feedback-textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+.feedback-actions {
+  display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 10px;
+}
+.feedback-count { font-size: 11px; color: var(--text-3); }
+.feedback-submit {
+  padding: 7px 20px; border: 1px solid var(--primary); background: var(--primary); color: #fff;
+  border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit;
+  transition: opacity 0.15s;
+}
+.feedback-submit:hover { opacity: 0.9; }
+.feedback-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+.feedback-tip { font-size: 12px; color: var(--text-3); min-height: 16px; margin-top: 6px; line-height: 1.4; }
+.feedback-list-title { margin: 14px 0 8px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.feedback-list {
+  max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  padding-right: 2px;
+}
+.feedback-empty { font-size: 13px; color: var(--text-3); padding: 16px 0; text-align: center; }
+.feedback-item {
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card);
+}
+.feedback-item-content {
+  font-size: 13px; color: var(--text-1); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}
+.feedback-item-time { font-size: 11px; color: var(--text-3); margin-top: 6px; }
+@media (max-width: 768px) {
+  .feedback-modal .modal-body { width: 94vw; }
+}
+
 /* === 🐶 汪汪队（汪汪队 ETF 资金动向）=== */
 .nt-banner {
   background: var(--bg-card);

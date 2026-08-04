@@ -717,6 +717,121 @@ function notImplemented(provider, request) {
   return jsonResponse({ detail: `${provider} 登录即将支持` }, 501, { request });
 }
 
+// ============ 留言箱 ============
+// 复用 session cookie（主站）+ Bearer token（备站跨域）双模式认证，与 me 函数同模式，KV 存储：
+//   key   = feedback:<provider>:<provider_uid>:<timestamp_ms>
+//   value = JSON{id, user_id, provider, content, created_at}
+// 用户身份主键用 provider+provider_uid（session/bearer payload 必带，稳定唯一），user_id 作冗余字段
+// 路由：POST /api/feedback 提交留言；GET /api/feedback 列当前用户留言（倒序）
+
+async function getSessionUser(request, env) {
+  const sessionSecret = env.SESSION_SECRET || '';
+  if (!sessionSecret) return null;
+  // 1) Bearer token 模式（备站跨域 fetch，与 me 同模式）
+  const bearerToken = getBearerToken(request);
+  if (bearerToken) {
+    const payload = await verifyBearer(bearerToken, sessionSecret);
+    if (!payload) return null;
+    // 查 KV 确认 token 未被撤销（logout 会 delete KV）
+    let kvPayload = null;
+    try {
+      const raw = await env.SUBSCRIBE_KV.get(BEARER_TOKEN_PREFIX + bearerToken);
+      if (raw) kvPayload = JSON.parse(raw);
+    } catch {}
+    if (!kvPayload) return null;
+    const provider = kvPayload.provider || payload.provider || '';
+    const providerUid = kvPayload.provider_uid || payload.provider_uid || '';
+    const userId = kvPayload.user_id || payload.user_id || '';
+    if (!provider || !providerUid) return null;
+    return { provider, providerUid, userId };
+  }
+  // 2) session cookie 模式（主站同源）
+  const cookies = getCookies(request);
+  const token = cookies[SESSION_COOKIE_NAME] || '';
+  if (!token) return null;
+  const payload = await verifySession(token, sessionSecret);
+  if (!payload) return null;
+  const provider = payload.provider || '';
+  const providerUid = payload.provider_uid || '';
+  const userId = payload.user_id || '';
+  if (!provider || !providerUid) return null;
+  return { provider, providerUid, userId };
+}
+
+async function submitFeedback(request, env) {
+  const session = await getSessionUser(request, env);
+  if (!session) {
+    return jsonResponse({ detail: '未登录（需 session cookie 认证）' }, 401, { request });
+  }
+  let body;
+  try { body = await request.json(); } catch {
+    return jsonResponse({ detail: '请求体不是有效 JSON' }, 400, { request });
+  }
+  const content = (body && typeof body.content === 'string') ? body.content.trim() : '';
+  if (!content) {
+    return jsonResponse({ detail: '留言内容不能为空' }, 400, { request });
+  }
+  if (content.length > 1000) {
+    return jsonResponse({ detail: '留言内容不能超过 1000 字' }, 400, { request });
+  }
+  const userKey = `${session.provider}:${session.providerUid}`;
+  const ts = Date.now();
+  const id = crypto.randomUUID();
+  const created_at = new Date(ts).toISOString();
+  const feedback = {
+    id,
+    user_id: session.userId || userKey,
+    provider: session.provider,
+    content,
+    created_at,
+  };
+  const kvKey = `feedback:${userKey}:${ts}`;
+  try {
+    await env.SUBSCRIBE_KV.put(kvKey, JSON.stringify(feedback));
+  } catch (e) {
+    return jsonResponse({ detail: '留言保存失败' }, 500, { request });
+  }
+  return jsonResponse({ ok: true, id, created_at }, 200, { request });
+}
+
+async function listFeedback(request, env) {
+  const session = await getSessionUser(request, env);
+  if (!session) {
+    return jsonResponse({ detail: '未登录（需 session cookie 认证）' }, 401, { request });
+  }
+  const userKey = `${session.provider}:${session.providerUid}`;
+  const prefix = `feedback:${userKey}:`;
+  const feedbacks = [];
+  let cursor;
+  try {
+    do {
+      const listOpts = { prefix, limit: 100 };
+      if (cursor) listOpts.cursor = cursor;
+      const result = await env.SUBSCRIBE_KV.list(listOpts);
+      const keys = result.keys || [];
+      const gets = keys.map((k) => env.SUBSCRIBE_KV.get(k.name).catch(() => null));
+      const values = await Promise.all(gets);
+      for (const raw of values) {
+        if (!raw) continue;
+        try {
+          const fb = JSON.parse(raw);
+          feedbacks.push({
+            id: fb.id,
+            content: fb.content,
+            created_at: fb.created_at,
+          });
+        } catch {}
+      }
+      cursor = result.list_complete ? null : result.cursor;
+      if (feedbacks.length >= 100) break;
+    } while (cursor);
+  } catch (e) {
+    return jsonResponse({ detail: '读取留言失败' }, 500, { request });
+  }
+  feedbacks.sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+  return jsonResponse({ feedbacks }, 200, { request });
+}
+
 // ============ 主 handler ============
 
 export default async function authHandler(request, env) {
@@ -751,6 +866,12 @@ export default async function authHandler(request, env) {
   }
   if (request.method === 'GET' && pathname === '/api/auth/login/google') {
     return notImplemented('google', request);
+  }
+  if (request.method === 'POST' && pathname === '/api/feedback') {
+    return submitFeedback(request, env);
+  }
+  if (request.method === 'GET' && pathname === '/api/feedback') {
+    return listFeedback(request, env);
   }
   return jsonResponse({ detail: 'Not Found' }, 404, { request });
 }
