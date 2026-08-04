@@ -3261,6 +3261,22 @@ main { padding: 16px 24px; }
 .pc-notify-btn.off { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 768px) { .pc-notify-btn { display: none; } }
 
+/* === 🔔 通知铃铛 hover popup（试看选项，2026-08-04 从独立按钮移入省 header 空间）=== */
+.notify-pop {
+  display: none; position: absolute; z-index: 100; right: 0; top: 100%; margin-top: 4px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px; box-shadow: 0 4px 12px var(--shadow-strong);
+  font-size: 13px; white-space: nowrap; min-width: 150px;
+}
+.notify-pop-item {
+  padding: 6px 12px; border-radius: 6px; cursor: pointer; color: var(--text-1);
+  transition: background 0.12s;
+}
+.notify-pop-item:hover { background: var(--bg-hover); color: var(--primary); }
+.notify-pop-item.disabled { color: var(--text-3); cursor: default; }
+.notify-pop-item.disabled:hover { background: transparent; color: var(--text-3); }
+@media (max-width: 768px) { .notify-pop { display: none !important; } }
+
 /* === 通知点击 UI 反馈：高亮闪烁目标板块（Mac Chrome SW notificationclick -> postMessage -> _handleNotifyClick）=== */
 .notify-flash {
   animation: notify-flash-anim 2.2s ease-out;

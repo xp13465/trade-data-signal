@@ -6745,16 +6745,43 @@ function initNotifyButton() {
     document.querySelector('header')?.appendChild(btn);
   }
 
-  // 方案B: 试看按钮（仅开启+granted 状态显示，点击弹测试通知重测功能）
-  // 继承 pc-notify-btn 样式(含 @media 移动端隐藏)，inline 覆盖差异(更小字号+更紧间距)
-  const testBtn = document.createElement('button');
-  testBtn.className = 'notify-btn pc-notify-btn pc-notify-test-btn';
-  testBtn.type = 'button';
-  testBtn.setAttribute('aria-label', '试看测试通知');
-  testBtn.textContent = '试看';
-  testBtn.title = '点击弹一条测试通知，验证浏览器通知功能正常工作';
-  testBtn.style.cssText = 'margin-left:4px;padding:5px 10px;font-size:12px;display:none;';
-  btn.parentNode?.insertBefore(testBtn, btn.nextSibling);
+  // 方案B(2026-08-04): 试看从独立按钮改为铃铛 hover popup 选项（省 header 空间）
+  // btn 设 relative，popup 作为 btn 子元素绝对定位到下方右对齐
+  btn.style.position = 'relative';
+  const pop = document.createElement('div');
+  pop.className = 'notify-pop';
+  pop.innerHTML = '<div class="notify-pop-item" data-action="test">🔔 试看测试通知</div>';
+  btn.appendChild(pop);
+
+  // hover 显示/隐藏（200ms 延时避免抖动；移到 popup 上不关）
+  let popHideTimer = null;
+  const showPop = () => {
+    if (popHideTimer) { clearTimeout(popHideTimer); popHideTimer = null; }
+    updatePopState();  // 每次显示前刷新状态（跟随开关/权限变化）
+    pop.style.display = 'block';
+  };
+  const hidePop = () => {
+    popHideTimer = setTimeout(() => { pop.style.display = 'none'; }, 200);
+  };
+  btn.addEventListener('mouseenter', showPop);
+  btn.addEventListener('mouseleave', hidePop);
+  pop.addEventListener('mouseenter', showPop);
+  pop.addEventListener('mouseleave', hidePop);
+
+  // popup 状态更新（和原 testBtn 显示逻辑一致：仅 enabled && granted 时"试看"可点，否则灰显提示）
+  function updatePopState() {
+    const enabled = _loadNotifyPref();
+    const perm = _notifyPerm();
+    const item = pop.querySelector('.notify-pop-item');
+    if (!item) return;
+    if (enabled && perm === 'granted') {
+      item.classList.remove('disabled');
+      item.textContent = '🔔 试看测试通知';
+    } else {
+      item.classList.add('disabled');
+      item.textContent = '开启通知后可测试';
+    }
+  }
 
   // 状态更新（根据偏好+权限切换图标/样式）
   function updateBtnState() {
@@ -6770,15 +6797,15 @@ function initNotifyButton() {
     } else if (enabled && perm === 'granted') {
       btn.classList.add('on');
       btn.classList.remove('off');
-      btn.title = '浏览器通知已开启（点击关闭，右侧"试看"可重测通知）';
+      btn.title = '浏览器通知已开启（点击关闭，hover 弹"试看"可重测通知）';
       btn.textContent = '🔔';
     } else {
       btn.classList.remove('on', 'off');
       btn.title = '点击开启浏览器通知（盘中异动/新信号弹 Windows 通知中心）';
       btn.textContent = '🔔';
     }
-    // 方案B: 试看按钮只在已开启+granted 状态显示（display:'' 回退 CSS, 移动端 @media 仍隐藏）
-    testBtn.style.display = (enabled && perm === 'granted') ? '' : 'none';
+    // 方案B(2026-08-04): 试看移到 hover popup，同步刷新 popup 状态
+    updatePopState();
   }
   updateBtnState();
 
@@ -6824,8 +6851,12 @@ function initNotifyButton() {
     _checkNotifications();
   });
 
-  // 方案B: 试看按钮点击 -> 确保pref开启+permission granted -> 弹测试通知（一键开启+测试，不静默return）
-  testBtn.addEventListener('click', () => {
+  // 方案B(2026-08-04): popup"试看"选项 click -> 确保pref开启+permission granted -> 弹测试通知
+  // stopPropagation 防冒泡到 btn click 触发开关通知
+  pop.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const item = e.target.closest('.notify-pop-item');
+    if (!item || item.classList.contains('disabled')) return;
     // 自动开启通知偏好（如果未开启）
     if (!_loadNotifyPref()) {
       _saveNotifyPref(true);
@@ -6845,6 +6876,8 @@ function initNotifyButton() {
     } else {
       _doTestNotify();
     }
+    // 点击后关闭 popup
+    pop.style.display = 'none';
   });
 
   // 跨标签页同步（storage 事件：另一 tab 开关通知，本 tab 按钮状态同步）
