@@ -403,12 +403,17 @@ def export_summary():
     return queries.summary()
 
 
-def export_summary_history(days: int = 90):
+def export_summary_history(days: int = 365):
     """复刻 /api/summary/history：最近 N 天一句话总结（时间倒序）。
 
     静态站无后端，预生成 summary_history.json 供前端"更多"弹窗本地分页。
+    扩展到 365 天 12 页（前端每页 30 条，maxPage=ceil(365/30)-1=11 共 12 页）。
+    回算 365 天 ~30s 可接受（每天 generate_summary ~12 SQL <1s）；2562 天全量 3-6 分钟太慢故不取。
+    total 字段置为实际 items 条数，避免前端取 DB 全量 total=2562 算出 85 页而 cache 只 12 页致第 4 页起空。
     """
-    return queries.summary_history(get_conn(), 0, days)
+    data = queries.summary_history(get_conn(), 0, days)
+    data["total"] = len(data["items"])  # 静态站只生成 N 天，total=实际条数非 DB 全量
+    return data
 
 
 def export_signal_freq():
