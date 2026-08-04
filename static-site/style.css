@@ -1097,7 +1097,7 @@ main { padding: 16px 24px; }
 }
 .intraday-seg:last-child { border-right: none; }
 .intraday-seg:hover { background: var(--bg-hover); }
-.intraday-seg.active { background: var(--up, #e6492e); color: #fff; font-weight: 600; }
+.intraday-seg.active { background: var(--primary); color: #fff; font-weight: 600; }
 .intraday-seg .dyn-pulse { margin-left: 2px; }
 /* 分时图容器：嵌入 spark-cell 内 spark-chart 下方 */
 .spark-intraday { width: 100%; height: 100px; margin-top: 4px; }
