@@ -7017,3 +7017,52 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 4. 备站 s.sugas.site 当前已超 300MB 限制自 2026-07-22 停止拉取，方案G 是否仍需覆盖该站？还是只覆盖 sss.sugas.site
 
 **落档**：本次只落档 NOTES §48 小节AB + TASKS 待办区（方案E 短期 + 方案G 长期），不改代码不跑 deploy。commit 后 push feat + main。
+
+**AC. 2026-08-04 模拟回测费率可配置调研（已落档，待实施，用户3决策已定）**
+
+> 用户反馈：模拟回测弹窗费率写死不可配，且调研发现回测引擎漏算印花税+过户费旧规则两处 bug。派只读调研 agent（不改码只落档），完整评估现状+bug+费率含义+终极方案。用户已定夺3决策点。完整报告 `/tmp/agent-fee-config-research.md`。
+
+**现状（grep + 读代码实测）**：
+- 弹窗：app.js L15465 `_tradeSimOpenModal` -> L16184 `_tradeSimModalRender`，数据读 R2 `trade_sim_{idx}_stats.json` + `_full.json`
+- 回测引擎 100% 后端：`scripts/simulate_trade.py`（2019行），前端无回测计算
+- 费率写死：simulate_trade.py L44-47 模块级常量 `COMMISSION_RATE=0.0003 / SLIPPAGE=0.001 / MIN_COMMISSION=5.0 / TRANSFER_FEE_RATE_SH=0.00001`，扣费 L374 `_buy_with_fees` / L409 `_sell_with_fees`
+- JSON 顶层已含费率字段（L1812-1815），前端 L16202-16205 只读展示不可配
+
+**重大遗漏（bug，非 feature）**：
+1. 印花税完全缺失：A股卖出应收 0.05%（2023.8.28 现行标准），当前回测印花税=0
+2. 过户费按旧规则：当前仅沪市 ETF 收万0.1，2024 起沪深统一 0.001%（万0.1）买卖都收
+3. 佣金买卖不分、滑点固定百分比（无可选模式）
+
+**费率真实含义**：
+
+| 费率 | 谁收 | 买卖 | 现行标准 | 当前回测 |
+|------|------|------|----------|----------|
+| 佣金 | 券商 | 买卖都收 | 万2.5-万3最低5元 | 万3 ✓ |
+| 印花税 | 国家税务 | 仅卖收 | 0.05%(万5) | 0(缺失) ✗ |
+| 过户费 | 中登公司 | 买卖都收 | 0.001%(万0.1)沪深统一 | 万0.1仅沪市ETF ✗ |
+| 滑点 | 市场摩擦 | 买卖对称 | 千1-千5 | 千1固定 |
+
+往返成本：当前默认≈万0.6+千2滑点；真实完整≈万1.12+千2滑点，漏算约万5印花税。
+
+**用户决策（2026-08-04 已定）**：
+1. 印花税默认万5（0.05% 卖出收，2023.8.28 现行标准）
+2. 滑点固定百分比（简单透明可观测，不用波动率模型）
+3. 全量重生 R2 trade_sim JSON 修正印花税+过户费 bug（bug 非 feature 需根治，不是可选项）
+
+**终极完整方案（§5 一步到位）**：
+- **架构**：后端加实时回测 API `/api/trade_sim_recalc`（传 fee_config 任意自定义费率），弃预生成多档 JSON
+- **后端**：simulate_trade.py 抽核心为可调用函数（传 fee_config）+ 加印花税 + 过户费3模式（沪/深/沪深统一）+ 滑点固定百分比 + 费率对比函数 + FastAPI 路由（缓存5分钟+限流10次/分）
+- **前端**：弹窗内嵌"⚙ 费率配置"面板（6 input+2 select+说明文案+localStorage 持久化）+ "重新回测"按钮调 API + 底部"费率影响对比"区块（对比表+成本明细+双曲线叠加图）
+- **数据结构**：9字段 fee_config JSON（买佣金/卖佣金/印花税/过户费/过户费模式/滑点/滑点模式/滑点sigma/最低佣金）
+- **可观测区别**：对比表显示默认vs当前配置的收益/年化/回撤/胜率/费率成本/费率占比差异 + 双净值曲线叠加
+- **全量重生**：修正 bug 后全量重生 R2 trade_sim JSON（印花税万5+过户费沪深统一），bug 根治非可选
+
+**工时**：总 11-16h（2-3天）：后端 4-6h + 前端 5-7h + 测试联调 2-3h
+
+**关键文件路径**：
+- 回测引擎：`scripts/simulate_trade.py`（L44-47 费率常量 / L374 `_buy_with_fees` / L409 `_sell_with_fees` / L1812-1815 JSON 费率字段）
+- 前端弹窗：`static-site/app.js`（L15465 `_tradeSimOpenModal` / L16184 `_tradeSimModalRender` / L16202-16205 费率只读展示）
+- R2 数据：`trade_sim_{idx}_stats.json` + `trade_sim_{idx}_full.json`（ssd.fx8.store/trade_sim_data/）
+- 待新建 API：`/api/trade_sim_recalc`（worker 路由或 app FastAPI）
+
+**落档**：本次只落档 NOTES §48 小节AC + TASKS 待办区，不改代码不跑 deploy。commit 后 push feat + main。详见 TASKS.md「模拟回测费率可配置」待办条目。

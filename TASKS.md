@@ -1283,3 +1283,51 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 2. 是否接受备站登录跳主站再回跳（方案G 用户体验：点登录 -> 跳主站 OAuth -> 自动回备站）？还是要求备站全程不离开备站（只能方案F 第三方 cookie 长期不可持续）
 3. token 存储位置：localStorage（方案G 默认）vs sessionStorage（关闭标签即失效更安全但体验差）
 4. 备站 s.sugas.site 当前已超 300MB 限制自 2026-07-22 停止拉取，方案G 是否仍需覆盖该站？还是只覆盖 sss.sugas.site
+
+## 📋 2026-08-04 模拟回测费率可配置（待实施，用户3决策已定，完整方案见 NOTES §48 小节AC）
+
+**需求**：模拟回测弹窗费率写死不可配，且调研发现回测引擎漏算印花税（应0.05%卖出收，当前0）+ 过户费旧规则（应沪深统一0.001%买卖都收，当前仅沪市ETF）两处 bug。用户要求费率可配 + bug 根治。
+
+**用户决策（已定，无需再问）**：
+1. 印花税默认万5（0.05% 卖出收，2023.8.28 现行标准）
+2. 滑点固定百分比（简单透明可观测，不用波动率模型）
+3. 全量重生 R2 trade_sim JSON 修正印花税+过户费 bug（bug 非 feature 需根治，不是可选项）
+
+**实施清单**：
+
+### 后端 API（4-6h）
+- [ ] simulate_trade.py 抽核心为可调用函数（传 fee_config 参数，去掉模块级常量依赖）
+- [ ] 加印花税：卖出收 0.05%（万5，默认值，可配）
+- [ ] 过户费3模式：沪市/深市/沪深统一（默认沪深统一 0.001% 买卖都收，2024 现行标准）
+- [ ] 滑点固定百分比（默认千1，可配，不用波动率模型）
+- [ ] 费率对比函数：默认配置 vs 自定义配置 双回测结果对比
+- [ ] FastAPI 路由 `/api/trade_sim_recalc`（POST，body 含 index_id + fee_config，缓存5分钟+限流10次/分）
+
+### 前端配置面板（5-7h）
+- [ ] 弹窗内嵌"⚙ 费率配置"面板：6 input（买佣金/卖佣金/印花税/过户费/滑点/最低佣金）+ 2 select（过户费模式/滑点模式）+ 说明文案
+- [ ] fee_config localStorage 持久化（用户配置跨会话保留）
+- [ ] "重新回测"按钮调 `/api/trade_sim_recalc` API
+- [ ] 底部"费率影响对比"区块：对比表（默认vs当前 收益/年化/回撤/胜率/费率成本/费率占比）+ 成本明细 + 双净值曲线叠加图
+- [ ] bump sw.js + build_min + bump_asset_version + deploy + 3 域名验证
+
+### 全量重生 R2 trade_sim JSON（bug 根治，必做）
+- [ ] 修正 simulate_trade.py 印花税万5 + 过户费沪深统一 bug
+- [ ] 全量重生 103 个 trade_sim_{idx}_stats.json + _full.json（印花税万5+过户费沪深统一）
+- [ ] upload_r2 上传 trade_sim/ + trade_sim_data/ 前缀
+- [ ] 验证线上 R2 JSON 含印花税字段
+
+### 测试联调（2-3h）
+- [ ] 默认配置 vs 自定义费率对比正确性
+- [ ] 双净值曲线叠加渲染
+- [ ] 3 域名验证（ss.fx8.store / sss.sugas.site / ssd.fx8.store R2）
+
+**数据结构**：9字段 fee_config JSON（buy_commission / sell_commission / stamp_tax / transfer_fee / transfer_fee_mode / slippage / slippage_mode / slippage_sigma / min_commission）
+
+**工时**：总 11-16h（2-3天）：后端 4-6h + 前端 5-7h + 测试联调 2-3h
+
+**关键文件**：
+- 回测引擎 `scripts/simulate_trade.py`（L44-47 费率常量 / L374 `_buy_with_fees` / L409 `_sell_with_fees` / L1812-1815 JSON 费率字段）
+- 前端弹窗 `static-site/app.js`（L15465 `_tradeSimOpenModal` / L16184 `_tradeSimModalRender` / L16202-16205 费率只读展示）
+- R2 数据 trade_sim_{idx}_stats.json + _full.json（ssd.fx8.store/trade_sim_data/）
+
+**完整调研报告**：`/tmp/agent-fee-config-research.md`（费率含义表+bug详情+终极方案+工时）
