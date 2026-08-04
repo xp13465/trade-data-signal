@@ -6941,6 +6941,23 @@ function _escAttr(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
+// 汪汪队 day modal 顶部插入定位路径 span（复用 hoverpop L1914 + 信号弹窗 L3990 .term-pop-locate 模式 + document 级 click 委托 L1982）。
+// 文案用 L1914 完整版（sentiment 分支带 subtab 判断 -> "📍 完整数据：盘面温测 > 汪汪队"），非 L3995 简化版（丢 "> 汪汪队"）。
+// data-locate-idx="national-team"：document 委托点击切 sentiment tab + national-team subtab + 滚动高亮汪汪队卡片。
+function _appendNtLocatePath(body) {
+  if (typeof indexToMarketSubtab !== "function") return;
+  var loc = indexToMarketSubtab("national-team");
+  if (!loc || !loc.tab || !loc.tabName) return;
+  var txt = loc.tab === "sentiment"
+    ? "📍 完整数据：" + loc.tabName + (loc.subtab ? " > " + (loc.name || "") : "")
+    : "📍 完整数据：" + loc.tabName + " > " + (loc.name || "") + " > " + (loc.idxName || "");
+  var el = document.createElement("span");
+  el.className = "term-pop-locate term-pop-locate--modal";
+  el.setAttribute("data-locate-idx", "national-team");
+  el.textContent = txt;
+  body.insertBefore(el, body.firstChild);
+}
+
 // 首页🐶卡片近期信号列表：每日一行=日期+共振🐾+chips（进/出/量 各一个 chip，显示当日该类型只数）。
 // chip 带 data-tip（当日该类型 ETF 明细，hover pop 全局 _initTermPop 自动生效）+
 // data-nt-date/data-nt-type（点击弹 openNtDayModal）。daily 升序传入，内部降序渲染，今日高亮。
@@ -7039,6 +7056,7 @@ function openNtDayModal(date) {
   if (!day) {
     titleEl.textContent = "🐶 汪汪队信号明细";
     body.innerHTML = '<div class="empty-note">暂无 ' + fmtDate(date) + ' 的信号明细</div>';
+    _appendNtLocatePath(body);
   } else {
     titleEl.innerHTML = '🐶 汪汪队信号明细 · ' + fmtDate(date) +
       (day.is_resonance ? ' <span class="nt-resonance-badge">🐾 共振</span>' : '') +
@@ -7068,6 +7086,7 @@ function openNtDayModal(date) {
     }
     if (!html) html = '<div class="empty-note">该日无信号明细</div>';
     body.innerHTML = html;
+    _appendNtLocatePath(body);
   }
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
