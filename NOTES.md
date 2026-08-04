@@ -7134,3 +7134,161 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 - trade-data/scripts/pf_score_daily.sh L42 / pf_score_weekly.sh L38,42 / update_all.sh L140,152（改：修 upload_r2 bug + 加 D1 同步）
 
 **落档**：本次只落档 NOTES §48 小节AD + TASKS 待办，盘后 15:35+ 启动实施 agent 按 8 步蓝图干。upload_r2 bug 立即修（独立小修复盘中做）。
+
+---
+
+## §48 小节AE：全站性能优化调研（2026-08-04）
+
+**背景**：用户反馈站点功能多了后流畅度变差，派前端+后端两 agent 并行调研，综合 19 个瓶颈（前端 11 + 后端 8，去重后约 16 个）。CF Workers 主站已上线（br 压缩 + immutable 缓存 + CSP/HSTS 全生效，详见小节 AR/AK），本次聚焦 CF 上线后剩余瓶颈（echarts 实例数、大 JSON 体积、R2 缓存、请求数）。区别于 2026-07-21 小节 O 扫描（MaoziYun 时代，已闭环迁 CF + 压缩 + CSP），本次是 CF 上线后的新一轮深度调研。
+
+**两份调研报告原文**：
+- 前端：`/tmp/perf-research-frontend.md`（11 瓶颈，含基线数据/缓存策略/sparkline/echarts 实例数/CSS 审计）
+- 后端：`/tmp/perf-research-backend.md`（8 瓶颈，含架构澄清/R2 缓存/请求合并/Worker CPU/DB 索引）
+
+### 综合瓶颈清单（按优先级）
+
+#### P0（首屏体感最大，先做）
+
+1. **renderTab 顶层 `await loadEcharts()` 阻塞所有 tab 渲染**（前端瓶颈1）
+   - 证据：`app.js:4388` renderTab 第一行 `await loadEcharts();`，echarts.min.js 1.0MB，即使首屏 overview tab 只用 echarts 画 1 个行业热力图，也要等 echarts 下载+解析完成才能开始渲染。index.html L184 已把 echarts 改懒加载（meta 标签），但 renderTab 仍在入口处强制 await
+   - 影响：首屏渲染延迟 +300~1500ms（视网络/缓存），移动端 4G 下更明显，用户感知"白屏->突然全出来"
+   - 方案：renderTab 移除顶层 `await loadEcharts()`，改为在真正需要 echarts 的子 render（行业热力图/分时图/sparkline）内部 await。renderOverview 先渲染文字内容（KPI/信号卡/横幅），行业热力图异步加载 echarts 后再画。首屏文字内容立刻可见
+   - 工作量：中（1-2h）| 收益：首屏 -300~1500ms | 风险：中（需确认 17 处 echarts.init 都在 loadEcharts 后调用，漏一处报 `echarts is not defined`）
+
+2. **etf_score_list.json 18MB 阻塞主线程 JSON.parse**（前端瓶颈2 = 后端瓶颈2，去重项）
+   - 证据：`app.js:14649` `fetchJSON("https://ssd.fx8.store/data/etf_score_list.json")` 18MB（br 1.2MB），结构 buy_list 190 只(1.6MB) + sell_list 150 只(1.3MB) + hold_list 871 只(7.4MB)。前端 `JSON.parse(18MB)` 阻塞主线程，点"基金"tab->"场内ETF"子 tab 触发
+   - 影响：点基金 tab 卡顿 1-2s（网络 920ms + 解析 500ms + 渲染 1211 只分页），期间主线程冻结无法交互
+   - 方案（A 推荐）：export.py 拆 3 JSON：`etf_score_buy.json`(1.6MB) + `etf_score_sell.json`(1.3MB) + `etf_score_hold.json`(7.4MB)。首屏只加载 buy+sell=2.9MB，hold 点"持有观察"子分类才加载。省 60% 体积+解析时间
+   - 工作量：中（2-4h）| 收益：基金 tab -1~2s，首屏 975KB -> <100KB | 风险：中（跨分片搜索需合并逻辑，3 文件需同时生成保数据一致性）
+
+3. **11 个 sparkline 用 echarts（line+area）而非轻量 SVG**（前端瓶颈3）
+   - 证据：`app.js:7493-7504` 指数 sparkline 网格循环 `Object.entries(r.indices_sparkline)`，每个指数 `echarts.init(chartDom)` + `setOption`。overview.json 实测 `indices_sparkline` 11 个。首屏 renderOverview 创建 11 个 echarts 实例 + 1 个行业热力图 = 12 个 echarts.init 串行。对比 `ntSparkline`（L8205）已用 SVG 画汪汪队份额折线，证明 SVG 可行
+   - 影响：首屏 12 个 echarts.init+setOption 串行，卡顿 200-500ms（中端设备），echarts.init 要初始化 canvas/事件系统/坐标系，11 次累计可观
+   - 方案：sparkline 改用纯 SVG（复用 ntSparkline 模式 L8205-8219，~15 行代码）。SVG path+circle，无 tooltip（或 CSS title 兜底）。保留行业热力图用 echarts（treemap 组件复杂）。省 11 个 echarts.init
+   - 工作量：中（2-3h）| 收益：首屏 -200~500ms | 风险：低（视觉等价，失去 echarts tooltip 改 CSS title，主题切换 SVG 颜色更新复用 ntSparkline currentColor）
+
+4. **R2 直链大文件未边缘缓存，每次回源 1-2s**（后端瓶颈1）
+   - 证据：`curl -sI https://ssd.fx8.store/data/etf_score_list.json` 三次请求 `cf-cache-status: DYNAMIC`（未边缘缓存），`content-length: 18439430`；`industry-3y.json` 9.6MB 同样 DYNAMIC。`curl -o /dev/null -w "%{time_total}"` = 1.2s / 1.6s。R2 直链（public bucket）不经 CF Workers，无法用 Cache API，默认每次回源 R2 Singapore 节点
+   - 影响：ETF 评分 tab 切换 +1.2s（975KB 传输），行业 3y tab +1.6s，高频 tab 切换累积明显卡顿
+   - 方案（A 推荐）：把 R2 直链改为经 CF Workers 代理（Worker `env.R2_BUCKET.get()` + `caches.default.put()` 边缘缓存）。新建 `worker/r2-proxy.js`，路由 `/r2/{prefix}/{file}` -> Worker fetch R2 + Cache API 边缘缓存 1h（大 range 历史）/ 60s（实时）。前端改 `ssd.fx8.store/data/` -> `ss.fx8.store/r2/data/`。边缘缓存命中后 <50ms
+   - 工作量：中（2-4h）| 收益：大文件 1-2s -> <50ms，省 95%+ | 风险：需 cache-busting 兼容，Worker CPU 限额 10ms（免费版）/50ms（付费版）够用
+
+#### P1（首屏次要 + 后台优化）
+
+5. **_checkNotifications 30s 独立轮询后台标签页不暂停**（前端瓶颈4）
+   - 证据：`app.js:6496` `_notifyCheckTimer = setInterval(_checkNotifications, NOTIFY_FETCH_INTERVAL_MS);` 30s 一次，注释明说"独立 setInterval 不受 document.hidden 影响，后台也能弹通知"。用户开多 tab 挂着，每个 tab 30s 一次请求 notifications.json（4.5KB）
+   - 方案：visibilitychange 切后台时暂停轮询或降频到 5min，切回前台立即补偿 fetch 一次。用户回前台立即拉新，延迟可接受（后台标签页用户本就看不到通知弹窗）
+   - 工作量：小（1h）| 收益：后台省流量 | 风险：低（需确认切回前台立即 fetch 一次补偿，不依赖 30s 等待）
+
+6. **首屏 fetch 部分串行（overview -> signal_stats -> intraday -> summary）**（前端瓶颈5）
+   - 证据：`app.js:6998-7034` renderOverview 路径：L6998 `await fetchJSON("./data/overview.json")` (89KB) -> L7006 `await Promise.race([fetchJSON("./data/signal_stats.json"), timeout(1500)])` (258KB) -> L7014 `await fetchIntradaySnapshot()` (20KB) -> L7030 `fetchJSON("./data/summary.json").then(...)` 异步。3 个 await 部分串行，overview 必须先就绪才能启动后续
+   - 方案：用 `Promise.all` 并行发起 overview+intraday+signal_stats+summary，各自 race 超时，banner 渲染等最慢一个
+   - 工作量：小（1-2h）| 收益：首屏 -300~500ms | 风险：低（并行不改数据依赖逻辑，只改时序，各 fetch 失败独立 catch）
+
+7. **无 preconnect 预热 R2/腾讯分时域名**（前端瓶颈6）
+   - 证据：index.html L17-39 无 `<link rel="preconnect">`。首屏会连 `ssd.fx8.store`（R2，大 JSON 直链）+ `web.ifzq.gtimg.cn`（腾讯分时 API，11 指数共用）。首次请求要新建 DNS+TCP+TLS，CF Workers 主站已 HIT 但 R2/腾讯是不同源
+   - 方案：index.html `<head>` 加 `<link rel="preconnect" href="https://ssd.fx8.store">` + `<link rel="preconnect" href="https://web.ifzq.gtimg.cn" crossorigin>` + `<link rel="dns-prefetch" href="https://hm.baidu.com">`
+   - 工作量：小（<0.5h）| 收益：首次请求 -100~300ms | 风险：极低（纯加 link 标签，无逻辑改动）
+
+8. **首页 22 个 JSON 请求，请求数多**（后端瓶颈3）
+   - 证据：`grep -cE "fetchJSON\(" app.js` = 83 处调用，首屏必加载 22 个（21 个本地 + 1 个 etf_score_list R2）。总传输 ~290KB（本地）+ 975KB（etf_score_list R2）= 1.26MB 首屏。HTTP/2 多路复用但仍需 22 次 TLS + Worker 处理（run_worker_first 每请求 +1-3ms）
+   - 方案（A 推荐）：export 合并首屏小 JSON 为 `boot.json`（overview+summary+ad_line+new_high_low+position+volume_ratio+ma_alignment+rotation+signal_freq+signal_stats+schedule_stats+summary_history+futures+etf_national_team_holders/quarterly+intraday_snapshot+alert+notifications+fund_score_top，合并 ~250KB br）。前端首屏 1 请求 + 后续 tab 懒加载
+   - 工作量：中（2-3h）| 收益：请求数 22 -> 1，省 21 次 TLS+Worker 开销 | 风险：合并文件需处理更新频率不同（overview 60s vs signal_stats 1h），可统一 60s 刷新
+
+9. **CF Workers 节点新加坡（SIN），国内访问延迟高**（后端瓶颈4）
+   - 证据：`curl -sI https://ss.fx8.store/data/overview.json` 返回 `cf-ray: a25a79fc5bffe01-SIN`（Singapore 节点），本地 curl overview 0.42s（含 TLS + 新加坡回源），国内用户实测可能 200-500ms RTT。对比 sss.sugas.site（GH Pages）2.63s / s.sugas.site（MaoziYun）3.29s，CF 已是最快，但 SIN 节点非国内最优
+   - 方案：维持现状，靠减请求降影响（国内 CDN 需备案付费 ROI 低）
+   - 工作量：零 | 风险：无
+
+#### P2（按需，滚动优化）
+
+10. **app.js 17845 行/569KB 无 code-splitting**（前端瓶颈7）
+    - 证据：app.min.js 569KB（br 167KB），378 个函数，含 trade_sim modal(900行)/分享图(470行)/OAuth(180行)/场外基金(340行)/模拟回测等所有功能。首屏只需要 overview 渲染逻辑(~2000 行)
+    - 方案：短期用 `requestIdleCallback` 把非首屏初始化（initSimOverlay/initShareButton/initOnboarding 等）延迟到空闲；长期按 tab 拆 chunk（overview/market/sentiment/fund/lab 各自 chunk），用 `import()` 动态加载
+    - 工作量：短期小（2-3h）/ 长期大（8-16h 重构）| 收益：首屏 -100~300ms | 风险：短期低 / 长期中（共享状态拆分易出 bug）
+
+11. **大盘 tab renderAStock 30+ echarts 实例**（前端瓶颈8）
+    - 证据：`app.js:9191` renderAStock 10 分组（涨停/资金面/情绪/换手率/龙虎榜等），每组多指标，每个指标 echarts.init。切到 A 股 tab 估算创建 30+ echarts 实例。同理 renderHK/renderGlobal/renderIndustry 也会创建多个
+    - 方案：A 指标图改 SVG sparkline（复用 ntSparkline 模式）/ B IntersectionObserver 滚动可见才 init / C 合并多指标到单 echarts（grid 多子图）
+    - 工作量：中-大（3-6h）| 收益：切 tab -500~1000ms | 风险：中
+
+12. **9 个 sticky + 3 个 IntersectionObserver 叠加影响滚动**（前端瓶颈9）
+    - 证据：style.css 9 处 `position: sticky`（tab 栏/二级 tab/ruleBar/锚点条/弹窗内等），app.js 3 个 `new IntersectionObserver`（scroll spy）。多层 sticky 叠加（tab+二级tab+ruleBar+锚点条=4 层吸顶），滚动时每帧重算 sticky 位置 + observer 回调
+    - 方案：observer 加 `rootMargin` 减少触发频率 / 卡片加 `contain: layout style paint`（CSS containment 隔离重排重绘）/ 保守不动 sticky 层数
+    - 工作量：小（1-2h）| 收益：滚动更流畅 | 风险：低
+
+13. **CSS 1792 选择器/72 transition/79 box-shadow，无 will-change/contain**（前端瓶颈10）
+    - 证据：style.css 5648 行，1792 选择器，72 transition（多为 0.1-0.4s 短动画），79 box-shadow，23 transform。无 `will-change`（0 处），无 `contain`（0 处）。transition 多用 `all`（L151/L762）而非指定属性，触发非必要过渡
+    - 方案：`transition: all` 改指定属性 / 频繁动画元素加 `will-change: transform`（dyn-pulse-dot/tab 按钮 hover）/ 独立卡片加 `contain: layout style paint` / 审计未用 CSS purge
+    - 工作量：小（2-4h）| 收益：滚动/交互更流畅 | 风险：低（will-change 滥用反而耗内存，只对真动画元素加）
+
+14. **分时图 11 个 echarts（盘中展开时）+ 腾讯 API 跨域**（前端瓶颈11）
+    - 证据：`app.js:5636` `_renderIntradayInSparkCells` 遍历 11 个 `.spark-intraday` 容器，每个 `_renderIntradayChart` echarts.init。盘中展开分时图 = 11 个 echarts 实例。加上 sparkline 网格 11 个 = 22 个 echarts 同时存在。腾讯分时 API 跨域，11 指数共用 in-flight 去重（只发 1 次请求，好）
+    - 方案：分时图改 SVG（腾讯返回分钟数据 SVG path 画）/ IntersectionObserver 按需渲染 / 合并 11 个分时图为单 echarts（grid 11 子图）
+    - 工作量：中（2-3h）| 收益：展开分时图 -300~600ms | 风险：低
+
+15. **offshore_fund_* 大文件本地 dead weight 85MB**（后端瓶颈6）
+    - 证据：`ls -lhSh static-site/data/` top 6 全是 offshore_fund_*：risk_indicator 21M / basic 19M / fee_detail 13M / performance 11M / purchase_status 9.3M / manager 6.4M / rating 4.6M。`git ls-files` = 0（不在 git 不 deploy），`grep -rE "offshore_fund" static-site/` 无前端引用。总占用 ~85MB 本地磁盘
+    - 方案：确认 offshore_fund 是否未来要用（场外基金功能？）。若不用，export_offshore_fund.py 停跑 + 删本地文件；若用，移 R2 upload-offshore-fund 不占本地
+    - 工作量：小（1h）| 收益：省 85MB 本地 + export 时间 | 风险：需确认场外基金功能路线图，误删影响后续
+
+16. **update_all core pipeline 20 分钟（东财封 IP）**（后端瓶颈7）
+    - 证据：`logs/update_all_20260803_1750.log` 17:50:05 启动，core pipeline 18:09:41 结束（19分36秒）。`ind_turn_sw_801150/160/170` 连续 3 次 `HTTPSConnectionPool RemoteDisconnected`（东财封 IP），提前结束剩余 18 个行业换手率。采集退出码 ok=136 fail=34（东财源失败 34 个）
+    - 方案：启动 industry 换源（memory `industry-source-switch-trigger` 解除暂缓），东财 -> 同花顺/新浪，根因解决采集失败 / 采集失败重试 + 指数退避，连续 3 次失败切备用源（不提前结束剩余）
+    - 工作量：中（2-4h 换源适配）| 收益：采集失败 34 -> 0，流水线提速 | 风险：换源需测试新源数据格式 + 字段映射
+
+### 后端非瓶颈确认（避免误判）
+
+- **生产无 FastAPI**：`wrangler.jsonc` 配置 `run_worker_first: true`，`worker/headers.js` 只分发 `/api/auth/*` 和 `/api/subscribe`，其余 `/api/*` 在生产不存在。前端 83 处 `fetchJSON` 全读静态 JSON（`./data/*.json` 或 R2 直链 `ssd.fx8.store`）。**API 响应慢不是瓶颈（根本没走 API），真正瓶颈是静态 JSON 体积 + R2 缓存 + 请求数 + echarts 实例数**
+- **DB 索引完善**：所有关键表（index_daily/signal_daily/score_daily/futures_accuracy/futures_position/industry_width_daily/daily_metric）都有合理的复合主键，EXPLAIN 全走索引，**DB 查询不是瓶颈**
+- **Worker run_worker_first 每请求过 Worker**：22 个首屏请求 = 22 次 Worker 调用，累积 22-66ms CPU，相对网络延迟占比小。改回 _headers 会丢分层缓存 + 安全头统一管理，得不偿失，维持现状
+- **intraday 每 10 分钟推 main**：文件小（5.8KB br）不构成传输瓶颈，git push 竞争靠 flock 串行化（update_all.sh L10）。维持现状（用户定的 10 分钟，memory `intraday-snapshot-schedule`）
+
+### 建议实施顺序
+
+- **第一批 P0（5-8h，首屏提速 60-80%）**：瓶颈 1/2/3/4
+  - 瓶颈 1：renderTab 移除顶层 `await loadEcharts()`，子 render 按需加载。验收：首屏 DOM 在 100ms 内出现（非白屏）
+  - 瓶颈 3：11 个 sparkline 改 SVG。验收：首屏 sparkline 视觉等价，echarts 实例数从 12 降到 1（仅行业热力图）
+  - 瓶颈 2：后端 export.py 拆 etf_score_list 为 buy/sell/hold 3 JSON，前端改 3 次 fetch。验收：基金 tab 首屏加载 <3MB（原 18MB），解析时间 <200ms
+  - 瓶颈 4：建 `worker/r2-proxy.js`，路由 `/r2/*` -> R2 get + Cache API 边缘缓存。验收：`cf-cache-status: HIT` 二次请求，1-2s -> <50ms
+- **第二批 P1（2-3h，请求数减 95%）**：瓶颈 5/6/7/8
+  - 瓶颈 5：notify visibilitychange 切后台暂停。验收：后台标签页 30s 不发请求，切回前台立即拉新
+  - 瓶颈 6：首屏 fetch Promise.all 并行。验收：首屏 3 个 JSON 并行，总耗时 = max(单个) 而非 sum
+  - 瓶颈 7：index.html 加 preconnect。验收：首次请求 R2/腾讯无 DNS/TLS 延迟
+  - 瓶颈 8：export 合并首屏 21 个小 JSON 为 boot.json。验收：首屏请求数 22 -> 1
+- **第三批 P2（按需，滚动优化）**：瓶颈 9-16
+  - 瓶颈 4 CF SIN 节点维持现状，靠减请求降影响
+  - 其余按需：app.js code-splitting / 大盘 30+ echarts 改 SVG / 9 sticky+3 observer / CSS will-change+contain / offshore_fund 清理 / industry 换源
+
+### 验收数据基线（实施前可复测对比）
+
+| 指标 | 当前值 | 目标值 |
+|------|--------|--------|
+| 首屏请求数 | 22 | 1-3 |
+| 首屏传输量 | 1.26MB | <300KB |
+| etf_score_list 传输 | 975KB（br） | <100KB |
+| R2 大文件 cf-cache-status | DYNAMIC（每次回源） | HIT（边缘缓存） |
+| R2 大文件二次请求耗时 | 1.2-1.6s | <50ms |
+| 首屏 echarts.init 实例数 | 12 | 1（仅行业热力图） |
+| 首屏 DOM 出现时间 | 300-1500ms（白屏） | <100ms |
+| update_all 耗时 | 20min（core pipeline） | 15min（换源后） |
+
+### 额外发现（已做得好，避免回归）
+
+- echarts/lab.js 已懒加载（index.html meta 标签 + app.js dynamic inject），首屏不下载 1.4MB
+- fetchJSON 有 5min `_resultCache` + `_inflightFetch` 去重（88 处调用不重复请求）
+- `_NO_CACHE_URLS` 时效敏感 URL 用 no-store + cache-busting，避免 CF 缓存旧数据
+- clearCharts 切 tab 时 dispose 所有 echarts + innerHTML=""，无内存泄漏
+- sparkline 网格用 SVG（ntSparkline/_etfSparkline）而非 echarts，汪汪队/ETF 评分行已是 SVG
+- ETF/基金分页 50/100，不一次性渲染 1211 只
+- scroll 事件多用 passive，resize 有 150ms 节流（_resizeTimer）
+- CSP/HSTS/Permissions-Policy/_headers 已上线，安全头完整（小节 AR）
+- CF Workers br 压缩生效，静态资源 max-age=31536000 immutable
+
+### 潜在风险点（监控）
+
+- `_inflightFetch` / `_resultCache` 无上限，极端场景（频繁切 tab+弱网）可能累积。建议加 LRU 上限（如 100 条）
+- charts 全局数组 15 处 push，若某 render 异常未 dispose 可能泄漏。已有 clearCharts 兜底但建议单测覆盖
+- 百度统计/百度站长在 inline-init.js 同步加载，虽 defer 但仍占主线程。可改 requestIdleCallback 延迟
+
+**落档**：本次只落档 NOTES §48 小节AE + TASKS 待办 + memory perf-optimization-backlog，不改代码不跑 deploy。commit 后 push feat + main。详见 TASKS.md「全站性能优化（2026-08-04 调研落档）」待办条目。两份调研报告原文留底 `/tmp/perf-research-frontend.md` + `/tmp/perf-research-backend.md`。

@@ -1355,3 +1355,53 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - D1 表 fund_score_full 只同步评分+基础关键字段（不同步 2GB 全库），27418只×1KB=27MB 免费额度够
 - 前端 fallback 保留 fund_score_top.json（API 未就绪白屏兜底）
 - 盘后 15:35+ 启动（盘中不跑全量评分避免撞 intraday-snapshot 定时任务）
+
+## 📋 2026-08-04 全站性能优化（调研落档，见 NOTES §48 小节AE）
+
+> 用户反馈站点功能多了后流畅度变差，派前端+后端两 agent 并行调研，综合 19 个瓶颈（前端 11 + 后端 8，去重后约 16 个）。CF Workers 主站已上线（br + immutable + CSP/HSTS 全生效），本次聚焦 CF 上线后剩余瓶颈（echarts 实例数、大 JSON 体积、R2 缓存、请求数）。两份报告原文：`/tmp/perf-research-frontend.md` + `/tmp/perf-research-backend.md`。
+
+**核心结论（后端非瓶颈确认）**：生产无 FastAPI（Worker 只分发 auth/subscribe，83 处 fetchJSON 全读静态 JSON）+ DB 索引完善（全走索引）。真正瓶颈 = 静态 JSON 体积 + R2 缓存 + 请求数 + echarts 实例数。
+
+### P0（首屏体感最大，5-8h 提速 60-80%）
+- [ ] P0-1: renderTab 移除顶层 `await loadEcharts()`，子 render 按需加载（1-2h，首屏 -300~1500ms）。证据 `app.js:4388`，17 处 echarts.init 需确认在 loadEcharts 后调用
+- [ ] P0-2: etf_score_list.json 18MB 按 buy/sell/hold 拆分 + 懒加载（2-4h，基金 tab -1~2s，975KB -> <100KB）。证据 `app.js:14649`，export.py 拆 3 JSON，hold 点"持有观察"才加载
+- [ ] P0-3: 11 个 sparkline echarts 改 SVG 复用 ntSparkline L8205（2-3h，首屏 -200~500ms）。证据 `app.js:7493-7504`，省 11 个 echarts.init，仅留行业热力图用 echarts
+- [ ] P0-4: R2 大文件 Worker 代理 + Cache API 边缘缓存（2-4h，大文件 1-2s -> <50ms）。新建 `worker/r2-proxy.js`，路由 `/r2/*` -> R2 get + Cache API，前端改 `ssd.fx8.store/data/` -> `ss.fx8.store/r2/data/`
+
+### P1（首屏次要 + 后台优化，2-3h 请求数减 95%）
+- [ ] P1-5: _checkNotifications 后台 visibilitychange 暂停（1h）。证据 `app.js:6496` 30s 独立 setInterval，后台标签页持续 fetch
+- [ ] P1-6: 首屏 fetch Promise.all 并行（1-2h，首屏 -300~500ms）。证据 `app.js:6998-7034` overview->signal_stats->intraday 3 个 await 串行
+- [ ] P1-7: index.html 加 preconnect ssd.fx8.store/腾讯分时（<0.5h，首次请求 -100~300ms）
+- [ ] P1-8: 首页 22 JSON 合并 boot.json（2-3h，请求数 22 -> 1）。export 合并首屏 21 个小 JSON ~250KB br
+- [ ] P1-9: CF Workers SIN 节点维持现状（零工作量，国内 CDN 需备案付费 ROI 低，靠减请求降影响）
+
+### P2（按需，滚动优化）
+- [ ] P2-10: app.js 17845 行无 code-splitting（短期 requestIdleCallback 延迟非首屏 init 2-3h / 长期按 tab 拆 chunk 8-16h）
+- [ ] P2-11: 大盘 tab renderAStock 30+ echarts 改 SVG 或 IntersectionObserver 懒渲染（3-6h，切 tab -500~1000ms）
+- [ ] P2-12: 9 个 sticky + 3 个 IntersectionObserver 加 rootMargin + 卡片加 contain（1-2h，滚动更流畅）
+- [ ] P2-13: CSS transition all 改指定属性 + will-change + contain（2-4h）
+- [ ] P2-14: 分时图 11 个 echarts 改 SVG（2-3h，展开分时图 -300~600ms）
+- [ ] P2-15: offshore_fund_* 85MB 本地 dead weight 清理（1h，确认场外基金路线图后停跑 export_offshore_fund.py + 删本地，或移 R2 upload-offshore-fund）
+- [ ] P2-16: update_all core pipeline 20 分钟东财封 IP，启动 industry 换源（2-4h，memory `industry-source-switch-trigger` 解除暂缓，东财 -> 同花顺/新浪）
+
+### 实施顺序建议
+1. 第一批 P0（瓶颈 1/2/3/4，5-8h，首屏提速 60-80%）
+2. 第二批 P1（瓶颈 5/6/7/8，2-3h，请求数减 95%）
+3. 第三批 P2（按需滚动）
+
+### 验收数据基线（实施前可复测对比）
+| 指标 | 当前值 | 目标值 |
+|------|--------|--------|
+| 首屏请求数 | 22 | 1-3 |
+| 首屏传输量 | 1.26MB | <300KB |
+| etf_score_list 传输 | 975KB（br） | <100KB |
+| R2 大文件 cf-cache-status | DYNAMIC（每次回源） | HIT（边缘缓存） |
+| R2 大文件二次请求耗时 | 1.2-1.6s | <50ms |
+| 首屏 echarts.init 实例数 | 12 | 1（仅行业热力图） |
+| 首屏 DOM 出现时间 | 300-1500ms（白屏） | <100ms |
+| update_all 耗时 | 20min（core pipeline） | 15min（换源后） |
+
+**关键约束**：
+- §14 生产稳定性 P0：实施 P0-2（改 export）/ P0-4（新建 worker）/ P1-8（改 export）需避开盘后定时任务时点（15:35/16:00/17:50/20:35 push main），放 23:00+ 安全窗口
+- 改 app.js/style.css 后必跑 `scripts/build_min.py` + `scripts/bump_asset_version.py` + bump sw.js CACHE_VERSION（铁律1）
+- P0-1 改 renderTab 是高风险点（17 处 echarts.init 路径需逐一确认），建议派独立 agent 实施 + 单测覆盖
