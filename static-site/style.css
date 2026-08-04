@@ -569,20 +569,21 @@ main { padding: 16px 24px; }
 /* 信号 pop 配色强化(2026-08-04)：触发元素带 data-sig-type(信号网格 pin)。
    浮层左边框 + 首段(信号标签)跟着信号配色加粗；纳斯达克100(us_ndx)整体强化(背景+描边+指数名强化蓝)。
    8 类信号色复用 _SIG_TYPE_META/_SIGNAL_HELP_ITEMS：buy红/buy_aux粉紫/buy_special金/buy_backup紫/
-   band_hold橙/band_sell草绿/sell绿/sell_stop_loss蓝。金色在浅底对比低，文字色用深金#b8860b 保可读性。 */
+   band_hold橙/band_sell草绿/sell绿/sell_stop_loss蓝。label色对齐信号本身色(与外面信号卡.sig-item b.*一致),
+   不用深色变体(原buy_special用#b8860b/band_sell用#5d9e2f致hover pop与信号卡不一,2026-08-08改对齐)。 */
 .term-pop--sig .term-pop-sig-label { font-weight: 700; }
 .term-pop--sig-buy { border-left-color: #e6492e; }
 .term-pop--sig-buy .term-pop-sig-label { color: #e6492e; }
 .term-pop--sig-buy_aux { border-left-color: #d63384; }
 .term-pop--sig-buy_aux .term-pop-sig-label { color: #d63384; }
 .term-pop--sig-buy_special { border-left-color: #ffd700; }
-.term-pop--sig-buy_special .term-pop-sig-label { color: #b8860b; }
+.term-pop--sig-buy_special .term-pop-sig-label { color: #ffd700; }
 .term-pop--sig-buy_backup { border-left-color: #9c27b0; }
 .term-pop--sig-buy_backup .term-pop-sig-label { color: #9c27b0; }
 .term-pop--sig-band_hold { border-left-color: #ff9800; }
 .term-pop--sig-band_hold .term-pop-sig-label { color: #ff9800; }
 .term-pop--sig-band_sell { border-left-color: #8bc34a; }
-.term-pop--sig-band_sell .term-pop-sig-label { color: #5d9e2f; }
+.term-pop--sig-band_sell .term-pop-sig-label { color: #8bc34a; }
 .term-pop--sig-sell { border-left-color: #2e8b57; }
 .term-pop--sig-sell .term-pop-sig-label { color: #2e8b57; }
 .term-pop--sig-sell_stop_loss { border-left-color: #3498db; }
