@@ -172,7 +172,7 @@ header h1 { font-size: 18px; margin: 0; }
   .pc-nav-sticky-toggle { display: none; }
   .h5-share-btn {
     display: inline-flex; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 12px;
-    padding: 3px 10px; font-size: 16px; cursor: pointer; color: var(--text-2); line-height: 1;
+    padding: 3px 6px; font-size: 13px; cursor: pointer; color: var(--text-2); line-height: 1;
   }
   .h5-share-btn:active { background: var(--bg-hover); }
   .share-img { max-width: 100%; }
@@ -2903,10 +2903,11 @@ main { padding: 16px 24px; }
   header { padding: 8px 12px; }
   header h1 { display: none; }
   .h5-topbar { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
+  .h5-topbar-left { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; overflow: hidden; }
   .h5-tab-name { font-size: 15px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
-  .h5-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+  .h5-meta { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
   .pc-collect-time { display: none; }
-  .h5-collect-time { display: inline; font-size: 10px; color: var(--text-3); white-space: nowrap; }
+  .h5-collect-time { display: inline; font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
   /* PC tab 栏隐藏（4 tab 移到底部导航）；周期选择器移到 H5 周期条 */
   nav.tabs { display: none; }
@@ -3332,7 +3333,7 @@ main { padding: 16px 24px; }
   .pc-theme-btn { display: none; }
   .h5-theme-btn {
     display: inline-flex; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 12px;
-    padding: 3px 10px; font-size: 15px; cursor: pointer; color: var(--text-2); line-height: 1;
+    padding: 3px 6px; font-size: 13px; cursor: pointer; color: var(--text-2); line-height: 1;
   }
   .h5-theme-btn:active { background: var(--bg-hover); }
   .theme-modal .modal-body { width: 94vw; }
@@ -5628,8 +5629,8 @@ main { padding: 16px 24px; }
     border: 1px solid var(--border-strong);
     background: var(--bg-card);
     border-radius: 12px;
-    padding: 3px 10px;
-    font-size: 15px;
+    padding: 3px 6px;
+    font-size: 13px;
     cursor: pointer;
     color: var(--text-2);
     line-height: 1;
@@ -5656,7 +5657,7 @@ main { padding: 16px 24px; }
     color: #fff;
   }
   /* H5 已登录态：头像（不显示名字，节省窄屏空间，点击弹下拉菜单） */
-  .h5-auth-btn.logged-in { padding: 3px 8px; overflow: visible; }
+  .h5-auth-btn.logged-in { padding: 3px 6px; overflow: visible; }
   .h5-auth-btn .auth-user-wrap { gap: 0; }
   /* H5 禁用 PC 的 ::after 透明桥接（移动端无 hover 不需桥接，且 ::after 无 pointer-events:none
      会拦截 .auth-dropdown 上方 ~2px 点击）。PC ::after 在 @media 外保留。*/

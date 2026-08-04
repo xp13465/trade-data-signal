@@ -17300,8 +17300,10 @@ function applyAuthState() {
     var name = (u.name || '已登录');
     var avatar = u.avatar || '';
     var avatarStyle = avatar ? ' style="background-image:url(\'' + avatar.replace(/'/g, '%27') + '\');background-size:cover;background-position:center;"' : '';
-    // 头像 hover/click 弹下拉菜单含"退出登录"项（替代不明显的 ⎋ 按钮）
+    // 头像 hover/click 弹下拉菜单含"切换皮肤"+"退出登录"项（替代不明显的 ⎋ 按钮）
+    // 2026-08-04 新增"切换皮肤"项：移动端右上角 🎨 入口和 📤/时效/👤 挤一排不显眼，已登录用户易忽略，头像菜单更易发现
     var dropdownHtml = '<div class="auth-dropdown" role="menu">' +
+                       '<div class="auth-dropdown-item" data-action="theme" role="menuitem" tabindex="0">🎨 切换皮肤</div>' +
                        '<div class="auth-dropdown-item" data-action="logout" role="menuitem" tabindex="0">退出登录</div>' +
                      '</div>';
     var pcHtml = '<span class="auth-user-wrap">' +
@@ -17453,8 +17455,18 @@ function initAuthButton() {
   _receiveAuthToken();
   document.querySelectorAll('.pc-auth-btn, .h5-auth-btn').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
-      // 下拉菜单"退出登录"项点击 -> 退出确认弹窗（复用 openConfirmLogout，不直接退出）
+      // 下拉菜单项点击：theme -> 打开主题弹窗（复用 .theme-btn 已绑定 handler）；logout -> 退出确认弹窗（复用 openConfirmLogout）
       var item = e.target.closest('.auth-dropdown-item');
+      if (item && item.dataset.action === 'theme') {
+        e.stopPropagation();
+        e.preventDefault();
+        var ddT = btn.querySelector('.auth-dropdown');
+        if (ddT) ddT.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+        var _themeBtn = document.querySelector('.theme-btn');
+        if (_themeBtn) _themeBtn.click();
+        return;
+      }
       if (item && item.dataset.action === 'logout') {
         e.stopPropagation();
         e.preventDefault();
