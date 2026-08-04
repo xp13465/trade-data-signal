@@ -47,6 +47,7 @@
 - **两条规则互不冲突**：memory 里的待办/方案，也要同步落档 NOTES/TASKS（2026-07-23 教训：前买失效取消灰橙只在 memory 队列没落档 TASKS，被 chip 三档跳过致漏做）。memory 不是"只作暂存可不要"，落档不是"只持久不读取"，两者配合
 - 不要把规范/决策只放 memory（memory 读快但非持久化，落档才是写保障）
 - **NOTES.md/TASKS.md 已拆分历史章节**(2026-07-21):历史章节(§1-§47,2026-07-06~07-20)归档到 `docs/archive/NOTES-history.md`;已完成项(22任务全done+晚续3及更早交接状态+综合AI风险预警P1/P2/P4全闭环)归档到 `docs/archive/TASKS-done.md`。主文件只保留 §48 近期章节+晚续4活跃待办+工作约定+R2/全站性能待办。查历史在此二档
+- **任务/cron 默认持久化(2026-08-04 用户定)**："任何事我都希望默认持久化，会话和 memory 不可靠"。CronCreate 默认 `durable:true`(写 .claude/scheduled_tasks.json,会话关了不丢,重启补跑 missed 一次性任务);进度文件优先进 git(`.superpowers/sdd/progress.md` 或 NOTES/TASKS 会话状态小节)而非 `/tmp`(/tmp 重启丢);任务状态/待办/决策/验收结论落 NOTES/TASKS commit git,不只放 memory 或口头报。任何不依赖会话内存或 session-only cron 才算数,落盘+落 git 是默认
 
 ## 8. 改完必须推送
 - 每次改完 commit + push feat + merge main + push main(不推=白干,别人无法验收)
