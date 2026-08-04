@@ -3,10 +3,10 @@
     "task": "update_all",
     "name": "收盘全量",
     "schedule": "17:50",
-    "est_text": "约20分钟",
-    "last_run": "2026-08-03 17:50",
+    "est_text": "约23分钟",
+    "last_run": "2026-08-04 17:50",
     "last_exit": 0,
-    "last_duration_sec": 1987,
+    "last_duration_sec": 2308,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
