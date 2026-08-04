@@ -1144,7 +1144,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 ---
 
-## 📋 2026-08-02 板块分化移到指数表现二级 tab（待用户拍板，方案见 NOTES §48 AZ122）
+## ✅ 2026-08-02 板块分化移到指数表现二级 tab（已上线，commit 99bfea223）
+
+> commit 99bfea223 feat: 板块分化移到指数表现二级tab(A股港股中间)。app.js L8130 `["industry","板块分化"]` 已是 subtab 放 A股/港股间，index.html 删 1级 industry 按钮，旧 `#industry` 直链 redirect 兼容。
 
 **用户判断**：板块分化1级tab本质是指数表现的一种（板块的），移到指数表现下做二级tab放A股港股中间。
 
@@ -1167,7 +1169,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 ---
 
-## 📋 2026-08-02 全站敏感合规词替换 + 🛡️ 按钮切换（待实施，完整方案见 NOTES §48 AZ123）
+## ✅ 2026-08-02 全站敏感合规词替换 + 🛡️ 按钮切换（已上线，commit 链 99bfea22+0549ae74+339d0f01+aba5d3cd，后续 a3aa25d14 改名精简版/完整版）
+
+> 4阶段实施完成：①i18n.js 骨架+开关 UI+集中点 _t()（99bfea22）②app.js 分散点+lab.js+about.html（0549ae74）③trade_sim modal+simulate_trade.py+7HTML+邮件（339d0f01）④build+deploy+grep 兜底修复2处真漏改+R2 trade_sim 上传+3域名验证（aba5d3cd）。后续收尾：🛡️开关移入皮肤弹窗（c6cbebd3）+ trade_sim 弹窗合规切换修复（359a568b）+ 版本切换改名精简版/完整版+提示文字合规中性化（a3aa25d14）。详见正文实施进度段。
 
 **需求**：全站"买点/卖点/强买入/强卖出/减仓/清仓/抄底/逃顶/止损/止盈"等敏感合规词，默认显示合规版（游客/巡查机器人看合规词），信任用户可点 🛡️ 按钮切回原版（买卖点壮观易懂）。开关放皮肤切换旁。
 
@@ -1207,7 +1211,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - ✅ trade_sim 弹窗合规切换修复：applyCompliance rAF 回调加 modal 重渲染（_tradeSimOverlay.classList 含 show 时调 _tradeSimModalRender 复用缓存），修 modal 是独立 overlay 不在 tab 内 renderTab 不触及的 bug（commit 359a568b，ui100）
 - ⏳ 遗留：i18n.js position_stop_loss_clear compliance="风控清仓"含"清仓"敏感词，建议改"风控退出"彻底无敏感词，待用户定夺
 
-## 📋 2026-08-03 站点 OAuth 登录（Gitee+GitHub 一键登录 + 特权功能 gating，实施中 2026-08-04）
+## ✅ 2026-08-03 站点 OAuth 登录（已上线，commit 链 4d6f7dcd+604928d6+46b742fd5+97b2a0157+9f2ddcc8d）
+
+> 5 commit 闭环：①后端 FastAPI 框架 app/auth.py（4d6f7dcd，生产不走 FastAPI 留作开发参考）②Workers 实现 worker/auth.js 6路由+Web Crypto HMAC session+KV（604928d6）③GitHub 完整接入 login+callback 7路由（46b742fd5）④前端登录按钮 Gitee+GitHub+登录态+详细版 gating+Google 占位隐藏（97b2a0157）⑤OAuth state 改无状态 HMAC 签名校验根治 KV 最终一致性问题（9f2ddcc8d）。worker/auth.js 756 行，app.js L17287+ 登录按钮+gating 完整。
 
 **需求**：站点加 OAuth 登录，支持 Gitee+GitHub 一键登录；模拟回测/订阅/对比/详细版切换作为登录用户特权，登录后才显示。**Google 登录暂时取消，留作远期待办，前端占位按钮隐藏**（2026-08-04 用户定）。
 
@@ -1246,7 +1252,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **Google 登录远期待办**：worker/auth.js 的 /api/auth/login/google 占位 501 路由保留（远期复用），前端登录按钮先只放 Gitee+GitHub，Google 占位按钮隐藏。Google OAuth 需创建 GCP 项目 + OAuth consent screen，流程繁琐，Gitee+GitHub 跑通后再排。
 
-## 📋 2026-08-04 多站点 OAuth 登录（备站 redirect_uri 只配主站致备站点登录 404，待实施，完整方案见 NOTES §48 小节AB）
+## ✅ 2026-08-04 多站点 OAuth 登录（已上线，commit 272115382，方案E+G 备站跳主站+Bearer token+CORS）
+
+> commit 272115382 feat: 多站点OAuth方案E+G(备站跳主站登录+token回备站localStorage+Bearer认证+CORS)。worker/auth.js signBearer/isAllowedRedirect（L210/L266）+ login_token 一次性交换 session_token + Allow-Origin 动态白名单；app.js _isMainSite（L17186）+ 主站 cookie 模式/备站 Bearer token 模式（L17221-17235）+ #auth_token= hash 处理。详见正文方案E+G 实施清单。
 
 **需求**：项目 1 主站 + 多备站（ss.fx8.store 主 CF Workers / sss.sugas.site GitHub Pages 备 / s.sugas.site MaoziYun 备），OAuth redirect_uri 只配主站，用户在备站点登录异常（备站纯静态无 Worker，/api/auth/* 全 404）。
 
