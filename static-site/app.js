@@ -15507,6 +15507,11 @@ function applyNavStickyState() {
     b.classList.toggle('off', off);
     b.textContent = off ? '导航吸顶 关' : '导航吸顶';
   });
+  // 头像下拉菜单内"导航吸顶"项文案同步（登录后才有，未渲染时 querySelector 为 null 安全跳过）
+  var navStickyItem = document.querySelector('.auth-dropdown-item[data-action="nav-sticky"]');
+  if (navStickyItem) {
+    navStickyItem.textContent = off ? '📌 导航吸顶（关）' : '📌 导航吸顶（开）';
+  }
 }
 function initNavStickyToggle() {
   document.querySelectorAll('.nav-sticky-toggle').forEach(function(b){
@@ -17349,8 +17354,11 @@ function applyAuthState() {
     var avatarStyle = avatar ? ' style="background-image:url(\'' + avatar.replace(/'/g, '%27') + '\');background-size:cover;background-position:center;"' : '';
     // 头像 hover/click 弹下拉菜单含"退出登录"项（替代不明显的 ⎋ 按钮）
     // 2026-08-04 曾新增"切换皮肤"项,但已有 .h5-theme-btn 🎨 按钮入口,菜单项冗余,同日移除
+    // 2026-08-04 导航吸顶开关从 header 独立按钮迁入此处（登录用户可见，移动端也能切）
+    var navStickyLabel = isNavStickyOff() ? '📌 导航吸顶（关）' : '📌 导航吸顶（开）';
     var dropdownHtml = '<div class="auth-dropdown" role="menu">' +
                        '<div class="auth-dropdown-item" data-action="feedback" role="menuitem" tabindex="0">💬 留言箱</div>' +
+                       '<div class="auth-dropdown-item" data-action="nav-sticky" role="menuitem" tabindex="0">' + navStickyLabel + '</div>' +
                        '<div class="auth-dropdown-item" data-action="logout" role="menuitem" tabindex="0">退出登录</div>' +
                      '</div>';
     var pcHtml = '<span class="auth-user-wrap">' +
@@ -17645,7 +17653,7 @@ function initAuthButton() {
   _receiveAuthToken();
   document.querySelectorAll('.pc-auth-btn, .h5-auth-btn').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
-      // 下拉菜单项点击：feedback -> 留言箱弹窗；logout -> 退出确认弹窗（复用 openConfirmLogout）
+      // 下拉菜单项点击：feedback -> 留言箱弹窗；nav-sticky -> 切换吸顶；logout -> 退出确认弹窗（复用 openConfirmLogout）
       var item = e.target.closest('.auth-dropdown-item');
       if (item && item.dataset.action === 'feedback') {
         e.stopPropagation();
@@ -17654,6 +17662,21 @@ function initAuthButton() {
         if (ddFb) ddFb.classList.remove('open');
         btn.setAttribute('aria-expanded', 'false');
         openFeedbackModal();
+        return;
+      }
+      if (item && item.dataset.action === 'nav-sticky') {
+        e.stopPropagation();
+        e.preventDefault();
+        var ddNs = btn.querySelector('.auth-dropdown');
+        if (ddNs) ddNs.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+        // 复用现有 navSticky toggle 逻辑（localStorage navStickyOff_ts + applyNavStickyState 切 .nav-no-sticky）
+        if (isNavStickyOff()) {
+          try { localStorage.removeItem('navStickyOff_ts'); } catch(e){}
+        } else {
+          try { localStorage.setItem('navStickyOff_ts', String(Date.now())); } catch(e){}
+        }
+        applyNavStickyState();
         return;
       }
       if (item && item.dataset.action === 'logout') {

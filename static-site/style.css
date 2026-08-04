@@ -139,20 +139,12 @@ header {
 header h1 { font-size: 18px; margin: 0; }
 /* 分享按钮：PC header 右上角 */
 .pc-share-btn {
-  margin-left: 8px;
+  margin-left: auto;
   border: 1px solid var(--primary); background: var(--primary); color: #fff;
   border-radius: 16px; padding: 5px 14px; font-size: 13px; cursor: pointer;
   transition: opacity 0.15s;
 }
 .pc-share-btn:hover { opacity: 0.88; }
-/* 导航吸顶开关（分享按钮左侧，PC header 右上角） */
-.pc-nav-sticky-toggle {
-  margin-left: auto; border:1px solid var(--border-strong); background:var(--bg-card);
-  color:var(--text-2); border-radius:16px; padding:5px 12px; font-size:13px;
-  cursor:pointer; transition:all .15s; user-select:none;
-}
-.pc-nav-sticky-toggle.off { border-color:var(--text-4); opacity:.6; }
-.pc-nav-sticky-toggle:hover { background:var(--bg-hover); }
 /* H5 隐藏 PC 分享按钮（H5 用顶部条内的图标按钮） */
 .h5-share-btn { display: none; }
 /* 采集时间（分享按钮旁）；PC 显示完整，H5 默认隐藏、@media 显示精简版 */
@@ -170,7 +162,6 @@ header h1 { font-size: 18px; margin: 0; }
 .share-download-btn:hover { opacity: 0.9; }
 @media (max-width: 768px) {
   .pc-share-btn { display: none; }
-  .pc-nav-sticky-toggle { display: none; }
   .h5-share-btn {
     display: inline-flex; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 12px;
     padding: 3px 6px; font-size: 13px; cursor: pointer; color: var(--text-2); line-height: 1;
