@@ -1485,7 +1485,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         }
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -1894,7 +1894,31 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
   }
   function show(el, text) {
     if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
-    pop.textContent = text;
+    // 清上次的 modifier class（--up 由 below/above 逻辑重新加，--sig-*/--ndx 这里清防残留）
+    pop.className = "term-pop";
+    // 信号 pop 配色强化(2026-08-04)：触发元素带 data-sig-type(信号网格 pin)。
+    // 浮层文字跟着信号配色（主关注红/趋势反转紫/风险绿/止损蓝…），首段(信号标签)加粗着色；
+    // 纳斯达克100(us_ndx)特殊强化：指数名段加粗强化色 + pop 加背景高亮 + 描边强化。
+    var sigType = el.getAttribute("data-sig-type");
+    var idx = el.getAttribute("data-idx");
+    var isNdx = idx === "us_ndx";
+    if (sigType) {
+      pop.classList.add("term-pop--sig", "term-pop--sig-" + sigType);
+      if (isNdx) pop.classList.add("term-pop--ndx");
+      // 文本结构: [信号标签, signalLabel, 指数名, reason..., 点击查看走势图] join(" · ")
+      // 首段(信号标签)+指数名段着色加粗，其他段保持默认色
+      var _esc = function (s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); };
+      var parts = String(text == null ? "" : text).split(" · ");
+      var idxName = idx && typeof indexIdToName === "function" ? indexIdToName(idx) : "";
+      var html = parts.map(function (p, i) {
+        if (i === 0) return '<b class="term-pop-sig-label">' + _esc(p) + '</b>';
+        if (idxName && p === idxName) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
+        return _esc(p);
+      }).join(" · ");
+      pop.innerHTML = html;
+    } else {
+      pop.textContent = text;
+    }
     pop.style.display = "block";
     popEl = el;
     var r = el.getBoundingClientRect();

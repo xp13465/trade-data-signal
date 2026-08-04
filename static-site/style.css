@@ -566,6 +566,36 @@ main { padding: 16px 24px; }
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* 信号 pop 配色强化(2026-08-04)：触发元素带 data-sig-type(信号网格 pin)。
+   浮层左边框 + 首段(信号标签)跟着信号配色加粗；纳斯达克100(us_ndx)整体强化(背景+描边+指数名强化蓝)。
+   8 类信号色复用 _SIG_TYPE_META/_SIGNAL_HELP_ITEMS：buy红/buy_aux粉紫/buy_special金/buy_backup紫/
+   band_hold橙/band_sell草绿/sell绿/sell_stop_loss蓝。金色在浅底对比低，文字色用深金#b8860b 保可读性。 */
+.term-pop--sig .term-pop-sig-label { font-weight: 700; }
+.term-pop--sig-buy { border-left-color: #e6492e; }
+.term-pop--sig-buy .term-pop-sig-label { color: #e6492e; }
+.term-pop--sig-buy_aux { border-left-color: #d63384; }
+.term-pop--sig-buy_aux .term-pop-sig-label { color: #d63384; }
+.term-pop--sig-buy_special { border-left-color: #ffd700; }
+.term-pop--sig-buy_special .term-pop-sig-label { color: #b8860b; }
+.term-pop--sig-buy_backup { border-left-color: #9c27b0; }
+.term-pop--sig-buy_backup .term-pop-sig-label { color: #9c27b0; }
+.term-pop--sig-band_hold { border-left-color: #ff9800; }
+.term-pop--sig-band_hold .term-pop-sig-label { color: #ff9800; }
+.term-pop--sig-band_sell { border-left-color: #8bc34a; }
+.term-pop--sig-band_sell .term-pop-sig-label { color: #5d9e2f; }
+.term-pop--sig-sell { border-left-color: #2e8b57; }
+.term-pop--sig-sell .term-pop-sig-label { color: #2e8b57; }
+.term-pop--sig-sell_stop_loss { border-left-color: #3498db; }
+.term-pop--sig-sell_stop_loss .term-pop-sig-label { color: #3498db; }
+/* 指数名段强化：普通信号 pop 的指数名略加粗(从默认色凸显)，纳斯达克100 强化蓝+微背景 */
+.term-pop--sig .term-pop-idx { font-weight: 600; }
+.term-pop-idx-ndx { color: #1d4ed8; background: #dbeafe; padding: 0 4px; border-radius: 3px; }
+/* 纳斯达克100 整体强化：背景高亮 + 描边加粗 + 箭头强化色 */
+.term-pop--ndx { background: var(--bg-hover); border-width: 2px; border-left-width: 4px; font-weight: 500; box-shadow: 0 6px 18px var(--shadow-strong); }
+.term-pop--ndx::before { border-bottom-color: #1d4ed8; }
+.term-pop--ndx.term-pop--up::before { border-top-color: #1d4ed8; border-bottom-color: transparent; }
+[data-theme="dark"] .term-pop-idx-ndx,
+[data-theme="redgold"] .term-pop-idx-ndx { background: rgba(29, 78, 216, 0.22); color: #93c5fd; }
 /* B：卡片底部 muted 白话小字（最晦涩术语常驻解释，区别于橙色 chart-hint） */
 .term-plain {
   font-size: 11px;
