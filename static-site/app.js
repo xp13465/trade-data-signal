@@ -1905,13 +1905,14 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     if (sigType) {
       pop.classList.add("term-pop--sig", "term-pop--sig-" + sigType);
       if (isNdx) pop.classList.add("term-pop--ndx");
-      // 文本结构: [信号标签, signalLabel, 指数名, reason..., 点击查看走势图] join(" · ")
-      // 首段(信号标签)+指数名段着色加粗，其他段保持默认色
+      // 文本结构: [信号标签(_typeLabel), signalLabel(子描述), 指数名, reason..., 点击查看走势图] join(" · ")
+      // 信号标签 + 子描述(超卖拐点/下轨拐点/上轨突破/趋势转向/ATR止损 等)同属"信号描述区",
+      // 都用 term-pop-sig-label 着色加粗跟信号配色, 视觉连贯; 指数名段单独 chip 强化; 非信号段(日期/数值)默认色
       var _esc = function (s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); };
       var parts = String(text == null ? "" : text).split(" · ");
       var idxName = idx && typeof indexIdToName === "function" ? indexIdToName(idx) : "";
       var html = parts.map(function (p, i) {
-        if (i === 0) return '<b class="term-pop-sig-label">' + _esc(p) + '</b>';
+        if (i === 0 || i === 1) return '<b class="term-pop-sig-label">' + _esc(p) + '</b>';
         if (idxName && p === idxName) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");

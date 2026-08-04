@@ -587,9 +587,23 @@ main { padding: 16px 24px; }
 .term-pop--sig-sell .term-pop-sig-label { color: #2e8b57; }
 .term-pop--sig-sell_stop_loss { border-left-color: #3498db; }
 .term-pop--sig-sell_stop_loss .term-pop-sig-label { color: #3498db; }
-/* 指数名段强化：普通信号 pop 的指数名略加粗(从默认色凸显)，纳斯达克100 强化蓝+微背景 */
-.term-pop--sig .term-pop-idx { font-weight: 600; }
-.term-pop-idx-ndx { color: #1d4ed8; background: #dbeafe; padding: 0 4px; border-radius: 3px; }
+/* 指数名段 chip 强化：所有指数名做成小标签 chip(加粗+主题主色+bg-hover 底+border-strong 边框+padding+圆角),
+   一眼从描述文字中跳出来; 纳斯达克100(us_ndx)额外强化蓝(深蓝文字+淡蓝底+蓝边框, 覆盖普通 chip) */
+.term-pop--sig .term-pop-idx {
+  font-weight: 700;
+  color: var(--primary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-strong);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.term-pop-idx-ndx {
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-color: #93c5fd;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
 /* 纳斯达克100 整体强化：背景高亮 + 描边加粗 + 箭头强化色 */
 .term-pop--ndx { background: var(--bg-hover); border-width: 2px; border-left-width: 4px; font-weight: 500; box-shadow: 0 6px 18px var(--shadow-strong); }
 .term-pop--ndx::before { border-bottom-color: #1d4ed8; }
