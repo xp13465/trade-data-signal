@@ -16952,14 +16952,14 @@ function initThemeSwitcher() {
       '<div class="compliance-options">' +
         '<button class="theme-option compliance-option" data-compliance-mode="on">' +
           '<span class="compliance-icon">🛡️</span>' +
-          '<span class="theme-info"><span class="theme-name">合规版（默认）</span>' +
-          '<span class="theme-desc">隐藏买卖点措辞，游客/巡查看到此版</span></span>' +
+          '<span class="theme-info"><span class="theme-name">精简版（默认）</span>' +
+          '<span class="theme-desc">简化信号表述</span></span>' +
           '<span class="theme-check">✓</span>' +
         '</button>' +
         '<button class="theme-option compliance-option" data-compliance-mode="off">' +
           '<span class="compliance-icon">📊</span>' +
-          '<span class="theme-info"><span class="theme-name">详细版</span>' +
-          '<span class="theme-desc">显示完整买卖点，信任用户</span></span>' +
+          '<span class="theme-info"><span class="theme-name">完整版</span>' +
+          '<span class="theme-desc">显示完整信号详情</span></span>' +
           '<span class="theme-check">✓</span>' +
         '</button>' +
       '</div>' +
@@ -17015,7 +17015,7 @@ function initThemeSwitcher() {
     if (opt) {
       if (opt.classList.contains("compliance-option")) {
         // 合规开关：即时生效（切字典重渲染），不自动关弹窗，用户可继续切皮肤或手动关闭
-        // gating：详细版（off）为登录特权 hasPrivilege("detailed_view")，未登录弹提示+登录入口不切换
+        // gating：完整版（off）为登录特权 hasPrivilege("detailed_view")，未登录弹提示+登录入口不切换
         var _mode = opt.dataset.complianceMode;
         if (_mode === "off" && !hasPrivilege("detailed_view")) {
           modal.classList.add("hidden");
@@ -17035,8 +17035,8 @@ function initThemeSwitcher() {
 
 // === OAuth 登录态管理（2026-08-04 前端接入，后端 worker/auth.js）===
 // 全局状态：window.__authState = { logged_in, user:{name,avatar,provider}|null, privileges:[] }
-// 工具函数：isLoggedIn() / hasPrivilege(name)（供详细版 gating 等场景调用）
-// 详细版（compliance_mode=off）为登录特权 hasPrivilege("detailed_view")，未登录点击弹提示+登录入口
+// 工具函数：isLoggedIn() / hasPrivilege(name)（供完整版 gating 等场景调用）
+// 完整版（compliance_mode=off）为登录特权 hasPrivilege("detailed_view")，未登录点击弹提示+登录入口
 // 其他特权（模拟回测/订阅/对比）MVP 不 gating，预留 hasPrivilege 接口供后续扩展
 //
 // 多站点方案E+G（2026-08-04）：备站(sss.sugas.site/s.sugas.site/localhost)无 Worker，
@@ -17087,7 +17087,7 @@ function _receiveAuthToken() {
   return true;
 }
 // 拉取登录态：/api/auth/me 返回 {logged_in, user, privileges}
-// 未登录且 localStorage compliance_mode=off -> 强制回 on（防 localStorage 残留绕过详细版 gating）
+// 未登录且 localStorage compliance_mode=off -> 强制回 on（防 localStorage 残留绕过完整版 gating）
 // 主站：cookie 认证（credentials:include）；备站：Bearer token 认证（credentials:omit + Authorization header）
 function fetchAuthState() {
   var base = _authApiBase();
@@ -17195,15 +17195,15 @@ function _bindAuthLoginModal(modal) {
 function openLoginModal() {
   var modal = document.createElement('div');
   modal.className = 'modal auth-login-modal hidden';
-  modal.innerHTML = _authLoginModalHtml('登录', '登录后可使用「详细版」等特权功能');
+  modal.innerHTML = _authLoginModalHtml('登录', '登录后可使用「完整版」等特权功能');
   document.body.appendChild(modal);
   _bindAuthLoginModal(modal);
 }
-// 未登录点详细版：弹提示+登录入口（不切换模式）
+// 未登录点完整版：弹提示+登录入口（不切换模式）
 function openLoginPromptForDetailed() {
   var modal = document.createElement('div');
   modal.className = 'modal auth-login-modal hidden';
-  modal.innerHTML = _authLoginModalHtml('🔒 详细版需登录', '详细版为登录用户特权，登录后可显示完整买卖点措辞');
+  modal.innerHTML = _authLoginModalHtml('🔒 完整版需登录', '完整版为登录用户特权，登录后可显示完整信号详情');
   document.body.appendChild(modal);
   _bindAuthLoginModal(modal);
 }
@@ -17236,7 +17236,7 @@ function openConfirmLogout() {
   modal.innerHTML = '<div class="modal-body">' +
     '<button class="theme-modal-close" title="关闭" aria-label="关闭">×</button>' +
     '<h3>确认退出登录？</h3>' +
-    '<p class="auth-login-tip">退出后将无法使用「详细版」等登录特权功能，需重新登录后才能恢复。</p>' +
+    '<p class="auth-login-tip">退出后将无法使用「完整版」等登录特权功能，需重新登录后才能恢复。</p>' +
     '<div class="auth-login-options">' +
       '<button class="auth-login-btn auth-cancel-btn" data-action="cancel">' +
         '<span class="auth-login-text">取消</span>' +
@@ -17313,14 +17313,14 @@ function initAuthButton() {
   fetchAuthState();
 }
 
-// === 合规/详细视图切换（皮肤弹窗内开关，复用 applyTheme 模式）===
-// mode="on"(合规版,默认,爬虫/巡查看合规词) / "off"(原版买卖点,用户在皮肤弹窗内切回)
-// i18n.js 的 _t() 根据 mode 返回合规/原版文案；切 mode 后重渲染当前 tab
+// === 合规/完整视图切换（皮肤弹窗内开关，复用 applyTheme 模式）===
+// mode="on"(精简版,默认,简化表述) / "off"(完整版,显示完整信号详情,用户在皮肤弹窗内切回)
+// i18n.js 的 _t() 根据 mode 返回精简/完整版文案；切 mode 后重渲染当前 tab
 function applyCompliance(mode) {
   _t.setMode(mode);
   try { localStorage.setItem("compliance_mode", mode === "off" ? "off" : "on"); } catch (e) {}
   document.documentElement.setAttribute("data-compliance", mode === "off" ? "off" : "on");
-  // 更新皮肤弹窗内合规开关高亮状态（on 合规版高亮 / off 详细版高亮）
+  // 更新皮肤弹窗内合规开关高亮状态（on 精简版高亮 / off 完整版高亮）
   var normMode = mode === "off" ? "off" : "on";
   document.querySelectorAll(".compliance-option").forEach(function (b) {
     b.classList.toggle("active", b.dataset.complianceMode === normMode);
@@ -17328,7 +17328,7 @@ function applyCompliance(mode) {
   // 重渲染当前 tab：用新字典重新渲染所有 DOM 文本 + 图表 pin（renderTab 内部按 state.tab 调对应 render 函数）
   requestAnimationFrame(function () {
     if (typeof renderTab === "function") renderTab();
-    // 2026-07-20 修复：切换合规/详细模式时重渲染已打开的 trade_sim modal（modal 是独立 overlay 不在 tab 内，renderTab 不触及）
+    // 2026-07-20 修复：切换合规/完整模式时重渲染已打开的 trade_sim modal（modal 是独立 overlay 不在 tab 内，renderTab 不触及）
     if (typeof _tradeSimOverlay !== 'undefined' && _tradeSimOverlay && _tradeSimOverlay.classList.contains('show') && typeof _tradeSimModalRender === 'function') {
       try { _tradeSimModalRender(_tradeSimOverlay); } catch (e) {}
     }

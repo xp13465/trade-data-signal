@@ -1,10 +1,10 @@
 /*!
  * i18n.js - 全站合规名词替换字典 + _t() 翻译函数
- * 方案B: JS文案替换 + localStorage（源码默认合规词，爬虫/巡查看合规版；🛡️按钮切回原版）
+ * 方案B: JS文案替换 + localStorage（默认精简版表述；🛡️按钮切回完整版）
  * 复用 app/alert_reason.py:77-82 禁用词映射 + 5点拍板（88魔咒保留/图表pin文字版"关注/风险/风控"）
  *
- * 默认 mode="on"（合规版）；🛡️按钮切 mode="off"（原版买卖点）
- * localStorage key: "compliance_mode"，值 "on"（默认/合规）/"off"（原版）
+ * 默认 mode="on"（精简版）；🛡️按钮切 mode="off"（完整版）
+ * localStorage key: "compliance_mode"，值 "on"（默认/精简）/"off"（完整）
  *
  * 第1阶段（本文件）：核心骨架，仅覆盖 app.js 集中点（6处labels + _SIG_TYPE_META + _SIG_DETAIL + signalLabel + ETF5档）
  * 第2-4阶段：app.js分散点 + lab.js + about.html + trade_sim + common.js + purpose-notes.js + 邮件
@@ -13,9 +13,9 @@
   "use strict";
   var STORAGE_KEY = "compliance_mode";
 
-  // ===== 双字典：compliance（默认合规）/ original（🛡️ off 原版）=====
+  // ===== 双字典：compliance（默认精简版）/ original（🛡️ off 完整版）=====
   var DICTS = {
-    // 合规版（默认）：爬虫/巡查机器人看此版本，去交易指令词保留语义
+    // 精简版（默认）：简化表述，去交易指令词保留语义
     compliance: {
       // 短标签（走势图pin，app.js L2470 _pinStatsBriefHtml）
       buy_short: "关注",
@@ -78,7 +78,7 @@
       legend_buy_diff: "⚠ 关注点回测差异提示",
       legend_band_hold: "持有(国债)",
       legend_sell: "趋势转弱(风险)",
-      // 期货同向准确度趋势（分析术语，无买卖指令词，合规版与原版一致）
+      // 期货同向准确度趋势（分析术语，无买卖指令词，精简版与完整版一致）
       futures_acc_title: "同向准确度趋势",
       futures_acc_follow_ratio: "同向准确度",
       futures_acc_warn_streak: "连续3日<50%同向失效",
@@ -142,7 +142,7 @@
       treasury_conflict_hint: "国债走波段仓位管理，波段调整优先；追关注为通用趋势信号，国债上参考意义有限",
       treasury_buy_special_minor: "次要·参考"
     },
-    // 原版（🛡️ off）：用户点按钮切回的详细买卖点版本
+    // 完整版（🛡️ off）：用户点按钮切回的完整买卖点版本
     original: {
       buy_short: "买",
       sell_short: "卖",
@@ -199,7 +199,7 @@
       legend_buy_diff: "⚠ 买点回测差异提示",
       legend_band_hold: "波段持有(国债)",
       legend_sell: "趋势转弱(卖)",
-      // 期货同向准确度趋势（分析术语，无买卖指令词，合规版与原版一致）
+      // 期货同向准确度趋势（分析术语，无买卖指令词，精简版与完整版一致）
       futures_acc_title: "同向准确度趋势",
       futures_acc_follow_ratio: "同向准确度",
       futures_acc_warn_streak: "连续3日<50%同向失效",
@@ -284,7 +284,7 @@
 
   // trade_sim entry.op 动态文本合规化（与 simulate_trade.py _ts_text_compliance 对齐）
   // JSON 保留原词（_BUY_LABELS: 主买/辅买/追买/备买/卖/追止损卖/清仓卖出 等），显示侧按 mode 转换
-  // off mode 原样返回（切回原版买卖点）；on mode 按长度降序替换，风控退出复合词用占位符保护
+  // off mode 原样返回（切回完整版买卖点）；on mode 按长度降序替换，风控退出复合词用占位符保护
   var _TS_COMPLIANCE_MAP = [
     ["止损清仓卖出", "风控\x01CLEARED\x01"],
     ["止损清仓", "风控\x01CLEARED\x01"],
