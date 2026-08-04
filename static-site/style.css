@@ -123,6 +123,7 @@
 html { scrollbar-gutter: stable; overflow-x: hidden; }
 body {
   margin: 0;
+  overflow-x: hidden;
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   background: var(--bg-page);
   color: var(--text-1);
@@ -3758,9 +3759,11 @@ main { padding: 16px 24px; }
   border-top: 1px solid var(--border);
 }
 .site-disclaimer p { margin: 0; }
-/* H5 底部固定导航占位,页脚不被遮挡留白(96->128 根治 iOS 回弹遮挡;bottomnav 含 safe area 后 90px,128+16padding=144 余量 54px) */
+/* H5 底部固定导航占位,页脚不被遮挡留白(96->128->160 根治 iOS 回弹+动态工具栏遮挡;
+   viewport-fit=cover 让 env(safe-area-inset-bottom) 生效,bottomnav 含 safe area 后约 90px,
+   160+16padding=176 余量约 86px,应对 iOS Safari 底部工具栏+全面屏手势条叠加遮挡) */
 @media (max-width: 768px) {
-  .site-disclaimer { margin-bottom: 128px; }
+  .site-disclaimer { margin-bottom: 160px; }
 }
 
 /* === C7 P4 market 融合:从 lab.css 移入的 .lab-custom-* 公共样式(全 tab 共享,market tab modal 深度拆解用)=== */
