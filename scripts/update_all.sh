@@ -137,7 +137,7 @@ echo "-> 公募基金筛选器导出JSON（offshore_fund_*.json）..." | tee -a 
 # export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 trade/static-site/data/ 供 upload_r2 + deploy
 # (deploy.sh rsync 在 pipeline 内跑, export 在 pipeline 后跑, 需单独同步; trade 跑时 no-op)
 rsync -a --checksum "$REPO/static-site/data/offshore_fund"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
-"$PY" "$REPO/scripts/upload_r2.py upload-offshore-fund" >> "$LOG" 2>&1 || \
+"$PY" "$REPO/scripts/upload_r2.py" upload-offshore-fund >> "$LOG" 2>&1 || \
   echo "⚠ upload-offshore-fund R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 
 # 阶段1 评分引擎: 头部2000只评分 + 导出 fund_score*.json + R2 上传
@@ -149,7 +149,7 @@ echo "-> 公募基金评分引擎（compute_all_scores top_n=2000 + export）...
 "$PY" "$REPO/scripts/export_fund_score.py" --top-n 2000 >> "$LOG" 2>&1 || \
   echo "⚠ export_fund_score 失败（不阻塞主流程）" | tee -a "$LOG"
 rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
-"$PY" "$REPO/scripts/upload_r2.py upload-fund-score" >> "$LOG" 2>&1 || \
+"$PY" "$REPO/scripts/upload_r2.py" upload-fund-score >> "$LOG" 2>&1 || \
   echo "⚠ upload-fund-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 
 echo "=== update_all.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') ===" | tee -a "$LOG"

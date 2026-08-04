@@ -39,7 +39,7 @@ RC1=$?
 "$PY" "$REPO/scripts/export_fund_score.py" --top-n 2000
 RC2=$?
 rsync -a --checksum "$REPO/static-site/data/fund_score"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
-"$PY" "$REPO/scripts/upload_r2.py upload-fund-score"
+"$PY" "$REPO/scripts/upload_r2.py" upload-fund-score
 RC3=$?
 echo "=== $(date '+%F %T') pf-score-weekly end compute=$RC1 export=$RC2 upload=$RC3 ==="
 exit $RC1
