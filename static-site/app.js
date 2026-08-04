@@ -17038,6 +17038,12 @@ function initThemeSwitcher() {
 // 工具函数：isLoggedIn() / hasPrivilege(name)（供详细版 gating 等场景调用）
 // 详细版（compliance_mode=off）为登录特权 hasPrivilege("detailed_view")，未登录点击弹提示+登录入口
 // 其他特权（模拟回测/订阅/对比）MVP 不 gating，预留 hasPrivilege 接口供后续扩展
+//
+// 多站点方案E+G（2026-08-04）：备站(sss.sugas.site/s.sugas.site/localhost)无 Worker，
+// /api/auth/* 走主站 ss.fx8.store 跨域 fetch（Bearer token 认证，token 存 localStorage）。
+// 登录流程：备站点登录按钮 -> 跳主站 /api/auth/login/{provider}?redirect=<备站URL>
+//   -> OAuth callback -> 生成 Bearer token -> 307 跳 ${备站}#auth_token=<token>
+//   -> 备站 app.js 启动检测 #auth_token= -> 存 localStorage -> 清 hash -> fetchAuthState 带 Bearer
 window.__authState = { logged_in: false, user: null, privileges: [] };
 function isLoggedIn() {
   return !!(window.__authState && window.__authState.logged_in);
@@ -17046,16 +17052,57 @@ function hasPrivilege(name) {
   var p = window.__authState && window.__authState.privileges;
   return Array.isArray(p) && p.indexOf(name) !== -1;
 }
+// 多站点：主站 ss.fx8.store 走相对路径 + cookie；备站走主站域名 + Bearer token
+function _isMainSite() {
+  return location.hostname === 'ss.fx8.store';
+}
+function _authApiBase() {
+  return _isMainSite() ? '' : 'https://ss.fx8.store';
+}
+function _getAuthToken() {
+  try { return localStorage.getItem('auth_token') || ''; } catch (e) { return ''; }
+}
+function _setAuthToken(t) {
+  try {
+    if (t) localStorage.setItem('auth_token', t);
+    else localStorage.removeItem('auth_token');
+  } catch (e) {}
+}
+// 接收主站 OAuth 回跳的 #auth_token=<token>：存 localStorage 后清 hash（保留其他 hash 片段如 #market/xxx）
+function _receiveAuthToken() {
+  var h = location.hash || '';
+  var m = h.match(/auth_token=([^&]+)/);
+  if (!m) return false;
+  _setAuthToken(decodeURIComponent(m[1]));
+  // 清掉 auth_token 片段，保留其他 hash
+  var newHash = h;
+  // 先去掉 #auth_token=xxx 或 &auth_token=xxx
+  newHash = newHash.replace(/[#&]auth_token=[^&]*/, '');
+  // 修正开头：若开头是空（原 # 已被删）则无 hash；若开头是 & 补回 #
+  if (newHash.charAt(0) === '&') newHash = '#' + newHash.slice(1);
+  if (newHash === '#') newHash = '';
+  try {
+    history.replaceState(null, '', location.pathname + location.search + newHash);
+  } catch (e) {}
+  return true;
+}
 // 拉取登录态：/api/auth/me 返回 {logged_in, user, privileges}
 // 未登录且 localStorage compliance_mode=off -> 强制回 on（防 localStorage 残留绕过详细版 gating）
+// 主站：cookie 认证（credentials:include）；备站：Bearer token 认证（credentials:omit + Authorization header）
 function fetchAuthState() {
-  return fetch('/api/auth/me', { credentials: 'include' })
+  var base = _authApiBase();
+  var token = _getAuthToken();
+  var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+  var credentials = _isMainSite() ? 'include' : 'omit';
+  return fetch(base + '/api/auth/me', { credentials: credentials, headers: headers })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
       if (d && d.logged_in) {
         window.__authState = { logged_in: true, user: d.user || null, privileges: Array.isArray(d.privileges) ? d.privileges : [] };
       } else {
         window.__authState = { logged_in: false, user: null, privileges: [] };
+        // 备站 Bearer 失效（过期/被撤销）-> 清 localStorage 防止下次请求仍带过期 token
+        if (!_isMainSite() && token) _setAuthToken(null);
         try {
           if (localStorage.getItem('compliance_mode') === 'off') {
             if (typeof _t !== 'undefined' && _t.setMode) _t.setMode('on');
@@ -17131,7 +17178,16 @@ function _bindAuthLoginModal(modal) {
     }
     var btn = e.target.closest('.auth-login-btn');
     if (btn) {
-      window.location.href = '/api/auth/login/' + btn.dataset.provider;
+      var provider = btn.dataset.provider;
+      var base = _authApiBase();
+      // 主站：直接跳 /api/auth/login/{provider}（callback 设 cookie 跳 /）
+      // 备站：跳主站 /api/auth/login/{provider}?redirect=<备站URL>（callback 生成 Bearer token 跳回备站 #auth_token=）
+      if (_isMainSite()) {
+        window.location.href = base + '/api/auth/login/' + provider;
+      } else {
+        var redirect = location.origin + location.pathname;
+        window.location.href = base + '/api/auth/login/' + provider + '?redirect=' + encodeURIComponent(redirect);
+      }
     }
   });
   modal.classList.remove('hidden');
@@ -17162,9 +17218,13 @@ function openLoginPromptForFeature(featureName, tip) {
   _bindAuthLoginModal(modal);
 }
 function logout() {
-  fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
-    .then(function () { window.location.reload(); })
-    .catch(function () { window.location.reload(); });
+  var base = _authApiBase();
+  var token = _getAuthToken();
+  var headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+  var credentials = _isMainSite() ? 'include' : 'omit';
+  fetch(base + '/api/auth/logout', { method: 'POST', credentials: credentials, headers: headers })
+    .then(function () { _setAuthToken(null); window.location.reload(); })
+    .catch(function () { _setAuthToken(null); window.location.reload(); });
 }
 // 退出确认弹窗：点退出按钮先弹确认，用户点「确认退出」才真正调 logout，点「取消」关闭不退出
 function openConfirmLogout() {
@@ -17210,6 +17270,8 @@ function openConfirmLogout() {
 }
 // 绑定登录按钮点击：未登录弹登录框，已登录 hover/click 弹下拉菜单，"退出登录"项调确认弹窗
 function initAuthButton() {
+  // 多站点方案G：启动时接收主站 OAuth 回跳的 #auth_token=<token>，存 localStorage 后清 hash
+  _receiveAuthToken();
   document.querySelectorAll('.pc-auth-btn, .h5-auth-btn').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
       // 下拉菜单"退出登录"项点击 -> 退出确认弹窗（复用 openConfirmLogout，不直接退出）

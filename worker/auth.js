@@ -19,6 +19,16 @@
 // state：无状态校验 = HMAC 签名 + cookie 匹配（state=random.base64url(HMAC-SHA256(random, SESSION_SECRET))）防 CSRF/防伪造
 //   KV 仅作防重放辅助：login put，callback get 到就 delete，get 不到不阻断（容忍 CF KV 最终一致性 up to 60s 跨边缘节点传播延迟）
 //
+// 多站点 OAuth 方案E+G（2026-08-04）：
+//   备站(sss.sugas.site/s.sugas.site/localhost)无 Worker，/api/auth/* 走主站 ss.fx8.store 跨域 fetch。
+//   登录流程：备站点登录按钮 -> 跳主站 /api/auth/login/{provider}?redirect=<备站URL>
+//     -> OAuth 完成 callback -> 若 redirect 为备站白名单 -> 生成 Bearer token -> 307 跳 ${redirect}#auth_token=<token>
+//     -> 备站 app.js 启动检测 #auth_token= -> 存 localStorage -> 清 hash -> 后续 fetch /api/auth/me 带 Authorization: Bearer
+//   Bearer token：HMAC 签名 payload={exp,provider,provider_uid,user_id,type:'bearer'}，TTL 7 天，KV 存 auth_token:${token} -> payload（提供撤销能力，logout 时 delete）
+//   /api/auth/token 路由：用 session cookie 换 Bearer token（主站用户/API 调用场景，备站场景由 callback 直接签发）
+//   /api/auth/me 支持 Bearer：优先读 Authorization header，无则读 cookie
+//   CORS：动态 Allow-Origin（备站白名单），Allow-Credentials true，Allow-Headers Authorization, Content-Type
+//
 // env 变量（wrangler secret put 配置，不进 wrangler.jsonc）：
 //   GITEE_CLIENT_ID / GITEE_CLIENT_SECRET / GITEE_REDIRECT_URI（生产=https://ss.fx8.store/api/auth/callback/gitee）/ SESSION_SECRET
 //   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / GITHUB_REDIRECT_URI（生产=https://ss.fx8.store/api/auth/callback/github）
@@ -31,19 +41,56 @@ const SESSION_MAX_AGE = 30 * 24 * 3600;  // 30 天
 const STATE_TTL = 300;  // 5 分钟（KV expirationTtl 最小 60s）
 const PRIVILEGES_LOGGED_IN = ['detailed_view', 'trade_sim', 'subscribe', 'compare', 'fund_score'];
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Max-Age': '86400',
-};
+// Bearer token（多站点方案G）：TTL 7 天，存 KV 提供撤销能力
+const BEARER_TOKEN_TTL = 7 * 24 * 3600;  // 7 天
+const BEARER_TOKEN_PREFIX = 'auth_token:';
+const OAUTH_REDIRECT_PREFIX = 'oauth_redirect:';  // state -> redirect URL（TTL 同 state）
+
+// 备站白名单：Allow-Origin 动态返回 + callback redirect 校验
+// 主站 ss.fx8.store 自身也含（同源无需 CORS，但统一处理逻辑）
+const ALLOWED_ORIGINS = new Set([
+  'https://ss.fx8.store',
+  'https://sss.sugas.site',
+  'https://s.sugas.site',
+  'http://localhost:8000',
+  'http://127.0.0.1:8000',
+]);
+
+// 备站 hostname 白名单：callback redirect 校验（防开放重定向）
+const ALLOWED_REDIRECT_HOSTS = new Set([
+  'ss.fx8.store',
+  'sss.sugas.site',
+  's.sugas.site',
+  'localhost',
+  '127.0.0.1',
+]);
+
+function corsHeaders(request) {
+  const origin = request ? (request.headers.get('Origin') || '') : '';
+  const h = {
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400',
+  };
+  // 白名单 Origin：回显具体 Origin + Allow-Credentials（支持 cookie + Authorization）
+  // 非白名单/无 Origin（同源/非浏览器）：Allow-Origin: *（不带 Allow-Credentials，因 * 和 credentials 不兼容）
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    h['Access-Control-Allow-Origin'] = origin;
+    h['Access-Control-Allow-Credentials'] = 'true';
+    h['Vary'] = 'Origin';
+  } else {
+    h['Access-Control-Allow-Origin'] = '*';
+  }
+  return h;
+}
 
 // ============ helpers ============
 
 function jsonResponse(body, status = 200, opts = {}) {
   const h = new Headers();
   h.set('Content-Type', 'application/json; charset=utf-8');
-  for (const [k, v] of Object.entries(CORS_HEADERS)) h.set(k, v);
+  const cors = corsHeaders(opts.request || null);
+  for (const [k, v] of Object.entries(cors)) h.set(k, v);
   if (opts.cookies) {
     for (const c of opts.cookies) h.append('Set-Cookie', c);
   }
@@ -157,6 +204,75 @@ async function verifySession(token, sessionSecret) {
   }
 }
 
+// Bearer token（多站点方案G）：格式同 session = base64url(payload).base64url(hmac)
+// payload={exp, provider, provider_uid, user_id, type:'bearer'}（type 字段区分 session cookie）
+// TTL 7 天，存 KV auth_token:${token} -> payload JSON（提供撤销能力，logout delete KV）
+async function signBearer(payload, sessionSecret) {
+  if (!sessionSecret) return null;
+  const body = b64urlStr(JSON.stringify(payload));
+  const sig = await hmacSign(sessionSecret, body);
+  return `${body}.${sig}`;
+}
+
+async function verifyBearer(token, sessionSecret) {
+  if (!token || !sessionSecret || !token.includes('.')) return null;
+  try {
+    const idx = token.lastIndexOf('.');
+    const body = token.slice(0, idx);
+    const sig = token.slice(idx + 1);
+    const ok = await hmacVerify(sessionSecret, body, sig);
+    if (!ok) return null;
+    const payload = JSON.parse(unb64urlStr(body));
+    if (!payload || typeof payload !== 'object') return null;
+    if (payload.type !== 'bearer') return null;  // 必须是 bearer 类型
+    const exp = payload.exp || 0;
+    if (exp && exp < Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// 签发 Bearer token 并存 KV（TTL 7 天），返回 token 字符串
+// 用于 callback 跳备站 + /api/auth/token 路由
+async function issueBearerToken(env, provider, providerUid, userId) {
+  const sessionSecret = env.SESSION_SECRET || '';
+  if (!sessionSecret) return null;
+  const payload = {
+    exp: Math.floor(Date.now() / 1000) + BEARER_TOKEN_TTL,
+    provider,
+    provider_uid: providerUid,
+    user_id: userId,
+    type: 'bearer',
+  };
+  const token = await signBearer(payload, sessionSecret);
+  if (!token) return null;
+  await env.SUBSCRIBE_KV.put(
+    BEARER_TOKEN_PREFIX + token,
+    JSON.stringify(payload),
+    { expirationTtl: BEARER_TOKEN_TTL },
+  );
+  return token;
+}
+
+// 从 request 提取 Bearer token（Authorization: Bearer xxx）
+function getBearerToken(request) {
+  const auth = request.headers.get('Authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : '';
+}
+
+// redirect URL 安全校验：hostname 在白名单内（防开放重定向）
+function isAllowedRedirect(redirectUrl) {
+  if (!redirectUrl) return false;
+  try {
+    const u = new URL(redirectUrl);
+    return ALLOWED_REDIRECT_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 // ============ KV helpers ============
 
 async function upsertUser(env, provider, providerUid, name, avatar, email) {
@@ -212,6 +328,12 @@ async function loginGitee(request, env) {
   const state = `${stateRandom}.${stateSig}`;
   // state 存 KV 仅作防重放辅助（callback 容忍 get 不到，不依赖 KV 最终一致性）
   await env.SUBSCRIBE_KV.put(`oauth_state:${state}`, '1', { expirationTtl: STATE_TTL });
+  // 多站点方案G：存 redirect 参数到 KV（callback 跳回备站用），白名单校验防开放重定向
+  const url = new URL(request.url);
+  const redirect = url.searchParams.get('redirect') || '';
+  if (redirect && isAllowedRedirect(redirect)) {
+    await env.SUBSCRIBE_KV.put(OAUTH_REDIRECT_PREFIX + state, redirect, { expirationTtl: STATE_TTL });
+  }
   const loginUrl = (
     'https://gitee.com/oauth/authorize'
     + `?client_id=${encodeURIComponent(clientId)}`
@@ -318,6 +440,22 @@ async function callbackGitee(request, env, url) {
   if (!token) return jsonResponse({ detail: 'SESSION_SECRET 未配置' }, 503);
   const sessionCookie = makeCookie(SESSION_COOKIE_NAME, token, SESSION_MAX_AGE);
   const clearState = clearCookie(STATE_COOKIE_NAME);
+
+  // 多站点方案G：读 redirect 参数，若备站白名单 -> 签发 Bearer token 跳 ${redirect}#auth_token=<token>
+  // 否则正常跳主站首页（设 session cookie）
+  let redirect;
+  try {
+    redirect = await env.SUBSCRIBE_KV.get(OAUTH_REDIRECT_PREFIX + state);
+    if (redirect) await env.SUBSCRIBE_KV.delete(OAUTH_REDIRECT_PREFIX + state);
+  } catch {}
+  if (redirect && isAllowedRedirect(redirect)) {
+    const bearer = await issueBearerToken(env, 'gitee', providerUid, user.id);
+    if (bearer) {
+      const sep = redirect.includes('#') ? '&' : '#';
+      return redirect307(`${redirect}${sep}auth_token=${encodeURIComponent(bearer)}`, [clearState]);
+    }
+    // Bearer 签发失败，降级走主站 cookie 流程
+  }
   return redirect307('/', [sessionCookie, clearState]);
 }
 
@@ -335,6 +473,12 @@ async function loginGithub(request, env) {
   const state = `${stateRandom}.${stateSig}`;
   // state 存 KV 仅作防重放辅助（callback 容忍 get 不到，不依赖 KV 最终一致性）
   await env.SUBSCRIBE_KV.put(`oauth_state:${state}`, '1', { expirationTtl: STATE_TTL });
+  // 多站点方案G：存 redirect 参数到 KV（callback 跳回备站用），白名单校验防开放重定向
+  const url = new URL(request.url);
+  const redirect = url.searchParams.get('redirect') || '';
+  if (redirect && isAllowedRedirect(redirect)) {
+    await env.SUBSCRIBE_KV.put(OAUTH_REDIRECT_PREFIX + state, redirect, { expirationTtl: STATE_TTL });
+  }
   const loginUrl = (
     'https://github.com/login/oauth/authorize'
     + `?client_id=${encodeURIComponent(clientId)}`
@@ -444,30 +588,72 @@ async function callbackGithub(request, env, url) {
   if (!token) return jsonResponse({ detail: 'SESSION_SECRET 未配置' }, 503);
   const sessionCookie = makeCookie(SESSION_COOKIE_NAME, token, SESSION_MAX_AGE);
   const clearState = clearCookie(STATE_COOKIE_NAME);
+
+  // 多站点方案G：读 redirect 参数，若备站白名单 -> 签发 Bearer token 跳 ${redirect}#auth_token=<token>
+  // 否则正常跳主站首页（设 session cookie）
+  let redirect;
+  try {
+    redirect = await env.SUBSCRIBE_KV.get(OAUTH_REDIRECT_PREFIX + state);
+    if (redirect) await env.SUBSCRIBE_KV.delete(OAUTH_REDIRECT_PREFIX + state);
+  } catch {}
+  if (redirect && isAllowedRedirect(redirect)) {
+    const bearer = await issueBearerToken(env, 'github', providerUid, user.id);
+    if (bearer) {
+      const sep = redirect.includes('#') ? '&' : '#';
+      return redirect307(`${redirect}${sep}auth_token=${encodeURIComponent(bearer)}`, [clearState]);
+    }
+    // Bearer 签发失败，降级走主站 cookie 流程
+  }
   return redirect307('/', [sessionCookie, clearState]);
 }
 
+// me：优先 Authorization Bearer token（备站跨域场景），无则读 session cookie（主站同源场景）
 async function me(request, env) {
   const sessionSecret = env.SESSION_SECRET || '';
-  const cookies = getCookies(request);
-  const token = cookies[SESSION_COOKIE_NAME] || '';
-  if (!token) return jsonResponse({ logged_in: false, user: null, privileges: [] });
-  const payload = await verifySession(token, sessionSecret);
-  if (!payload) {
-    // cookie 无效/过期，清掉
-    return jsonResponse(
-      { logged_in: false, user: null, privileges: [] },
-      200,
-      { cookies: [clearCookie(SESSION_COOKIE_NAME)] },
-    );
-  }
-  const provider = payload.provider || '';
-  const providerUid = payload.provider_uid || '';
-  if (!provider || !providerUid) {
-    return jsonResponse({ logged_in: false, user: null, privileges: [] });
+  let provider = '';
+  let providerUid = '';
+
+  // 1) Bearer token 模式（备站跨域 fetch）
+  const bearerToken = getBearerToken(request);
+  if (bearerToken) {
+    const payload = await verifyBearer(bearerToken, sessionSecret);
+    if (payload) {
+      // 查 KV 确认 token 未被撤销（logout 会 delete KV）
+      let kvPayload = null;
+      try {
+        const raw = await env.SUBSCRIBE_KV.get(BEARER_TOKEN_PREFIX + bearerToken);
+        if (raw) kvPayload = JSON.parse(raw);
+      } catch {}
+      if (kvPayload) {
+        provider = kvPayload.provider || payload.provider || '';
+        providerUid = kvPayload.provider_uid || payload.provider_uid || '';
+      }
+    }
+    if (!provider || !providerUid) {
+      return jsonResponse({ logged_in: false, user: null, privileges: [] }, 200, { request });
+    }
+  } else {
+    // 2) session cookie 模式（主站同源）
+    const cookies = getCookies(request);
+    const token = cookies[SESSION_COOKIE_NAME] || '';
+    if (!token) return jsonResponse({ logged_in: false, user: null, privileges: [] }, 200, { request });
+    const payload = await verifySession(token, sessionSecret);
+    if (!payload) {
+      // cookie 无效/过期，清掉
+      return jsonResponse(
+        { logged_in: false, user: null, privileges: [] },
+        200,
+        { cookies: [clearCookie(SESSION_COOKIE_NAME)], request },
+      );
+    }
+    provider = payload.provider || '';
+    providerUid = payload.provider_uid || '';
+    if (!provider || !providerUid) {
+      return jsonResponse({ logged_in: false, user: null, privileges: [] }, 200, { request });
+    }
   }
   const user = await getUserByProviderUid(env, provider, providerUid);
-  if (!user) return jsonResponse({ logged_in: false, user: null, privileges: [] });
+  if (!user) return jsonResponse({ logged_in: false, user: null, privileges: [] }, 200, { request });
   return jsonResponse({
     logged_in: true,
     user: {
@@ -476,27 +662,67 @@ async function me(request, env) {
       provider: user.provider,
     },
     privileges: PRIVILEGES_LOGGED_IN,
-  });
+  }, 200, { request });
 }
 
-function logout() {
-  return jsonResponse(
-    { logged_out: true },
-    200,
-    { cookies: [clearCookie(SESSION_COOKIE_NAME)] },
-  );
+// token 路由（GET /api/auth/token）：用 session cookie 换 Bearer token
+// 用途：主站用户/API 调用生成 Bearer token（备站场景由 callback 直接签发，不走此路由）
+async function tokenRoute(request, env) {
+  const sessionSecret = env.SESSION_SECRET || '';
+  const cookies = getCookies(request);
+  const token = cookies[SESSION_COOKIE_NAME] || '';
+  if (!token) {
+    return jsonResponse({ detail: '未登录（需 session cookie 认证）' }, 401, { request });
+  }
+  const payload = await verifySession(token, sessionSecret);
+  if (!payload) {
+    return jsonResponse(
+      { detail: 'session 无效或过期' },
+      401,
+      { cookies: [clearCookie(SESSION_COOKIE_NAME)], request },
+    );
+  }
+  const provider = payload.provider || '';
+  const providerUid = payload.provider_uid || '';
+  const userId = payload.user_id || '';
+  if (!provider || !providerUid) {
+    return jsonResponse({ detail: 'session 缺 provider/provider_uid' }, 400, { request });
+  }
+  const bearer = await issueBearerToken(env, provider, providerUid, userId);
+  if (!bearer) {
+    return jsonResponse({ detail: 'SESSION_SECRET 未配置或签发失败' }, 503, { request });
+  }
+  return jsonResponse({
+    token: bearer,
+    token_type: 'Bearer',
+    expires_in: BEARER_TOKEN_TTL,
+  }, 200, { request });
 }
 
-function notImplemented(provider) {
-  return jsonResponse({ detail: `${provider} 登录即将支持` }, 501);
+// logout：支持 Bearer token（备站）和 session cookie（主站）
+// Bearer 模式 delete KV 撤销 token；cookie 模式清 cookie；两者皆有可能同时存在（主站用户也生成了 Bearer）
+function logout(request, env) {
+  const cookies = [];
+  // 1) Bearer token：delete KV 撤销
+  const bearerToken = getBearerToken(request);
+  if (bearerToken) {
+    try { env.SUBSCRIBE_KV.delete(BEARER_TOKEN_PREFIX + bearerToken); } catch {}
+  }
+  // 2) session cookie：清掉
+  cookies.push(clearCookie(SESSION_COOKIE_NAME));
+  return jsonResponse({ logged_out: true }, 200, { cookies, request });
+}
+
+function notImplemented(provider, request) {
+  return jsonResponse({ detail: `${provider} 登录即将支持` }, 501, { request });
 }
 
 // ============ 主 handler ============
 
 export default async function authHandler(request, env) {
-  // CORS preflight
+  // CORS preflight：动态 Allow-Origin（白名单回显 + Allow-Credentials）
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+    return new Response(null, { status: 204, headers: corsHeaders(request) });
   }
 
   const url = new URL(request.url);
@@ -511,8 +737,11 @@ export default async function authHandler(request, env) {
   if (request.method === 'GET' && pathname === '/api/auth/me') {
     return me(request, env);
   }
+  if (request.method === 'GET' && pathname === '/api/auth/token') {
+    return tokenRoute(request, env);
+  }
   if (request.method === 'POST' && pathname === '/api/auth/logout') {
-    return logout();
+    return logout(request, env);
   }
   if (request.method === 'GET' && pathname === '/api/auth/login/github') {
     return loginGithub(request, env);
@@ -521,7 +750,7 @@ export default async function authHandler(request, env) {
     return callbackGithub(request, env, url);
   }
   if (request.method === 'GET' && pathname === '/api/auth/login/google') {
-    return notImplemented('google');
+    return notImplemented('google', request);
   }
-  return jsonResponse({ detail: 'Not Found' }, 404);
+  return jsonResponse({ detail: 'Not Found' }, 404, { request });
 }
