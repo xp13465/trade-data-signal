@@ -1917,13 +1917,13 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         return _esc(p);
       }).join(" · ");
       // 定位路径：告知用户完整数据在哪个 tab，点击切 tab + 滚动高亮卡片
-      // s.* -> "📍 完整数据：盘面温测 tab"；其他 -> "📍 完整数据：[港股/A股/...] > [指数名]"
+      // s.* -> "📍 完整数据：盘面温测"；其他 -> "📍 完整数据：指数表现 > 港股 > 国企指数"（一级tab > 二级sub-tab > 指数名）
       if (idx && typeof indexToMarketSubtab === "function") {
         var loc = indexToMarketSubtab(idx);
-        if (loc && loc.tab && loc.name) {
+        if (loc && loc.tab && loc.tabName) {
           var locTxt = loc.tab === "sentiment"
-            ? "📍 完整数据：" + loc.name + " tab"
-            : "📍 完整数据：" + loc.name + " > " + (loc.idxName || "");
+            ? "📍 完整数据：" + loc.tabName
+            : "📍 完整数据：" + loc.tabName + " > " + (loc.name || "") + " > " + (loc.idxName || "");
           html += '<span class="term-pop-locate" data-locate-idx="' + _esc(idx) + '">' + _esc(locTxt) + '</span>';
         }
       }
@@ -3978,6 +3978,21 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       sigs = [...sigs, ...freezePts];
     }
     body.innerHTML = "";
+    // 信号弹窗定位路径(2026-08-04)：复用 hoverpop 同款 .term-pop-locate + document 级 click 委托
+    // 告知用户指数完整数据在哪个 tab，点击切 tab + 滚动高亮卡片（hoverpop 里那份保留不动）
+    if (indexId && typeof indexToMarketSubtab === "function") {
+      var _modalLoc = indexToMarketSubtab(indexId);
+      if (_modalLoc && _modalLoc.tab && _modalLoc.tabName) {
+        var _modalLocTxt = _modalLoc.tab === "sentiment"
+          ? "📍 完整数据：" + _modalLoc.tabName
+          : "📍 完整数据：" + _modalLoc.tabName + " > " + (_modalLoc.name || "") + " > " + (_modalLoc.idxName || "");
+        var _modalLocEl = document.createElement("span");
+        _modalLocEl.className = "term-pop-locate term-pop-locate--modal";
+        _modalLocEl.setAttribute("data-locate-idx", indexId);
+        _modalLocEl.textContent = _modalLocTxt;
+        body.appendChild(_modalLocEl);
+      }
+    }
     // B2 方案B(2026-07-27): 走势图数据未同步到 T 日时提示 - 盘中 sw_/thsc_/cgb_ 等行业概念指数
     // 的 -all.json 不更新(末日停 T-1),用户点首页 T 日 pin 弹窗看不到 T 日 K 线/pin。
     // 触发: chartData 末日 < overview.date(T 日) = 数据未同步; 末日==T 日(已同步)不显示。
@@ -17718,29 +17733,32 @@ const _MAIN_TABS = ["overview", "market", "sentiment", "fund"];
 const _MARKET_SUBTABS = ["a-stock", "industry", "hk", "global"];
 const _SENTIMENT_SUBTABS = ["market-temp", "futures", "national-team", "public-fund"];
 // 信号弹窗定位路径：指数 id -> 所属 tab + subtab + 中文名（告知用户完整数据去哪个 tab）
-// 返回 {tab:"market"|"sentiment", subtab:"hk"|...|null, name:"港股"|...|null, idxName:"国企指数"|""}
+// 返回 {tab:"market"|"sentiment", subtab:"hk"|...|null, tabName:"指数表现"|..., name:"港股"|...|null, idxName:"国企指数"|""}
+// tabName=一级 tab 中文名（指数表现/盘面温测），name=二级 sub-tab 中文名（港股/A股/...）
 // s.* 情绪分 -> 盘面温测 tab（sentiment/market-temp，subtab=null 让默认逻辑接手）
 const _MARKET_SUBTAB_CN = { "a-stock": "A股", industry: "行业", hk: "港股", global: "全球" };
+// 一级 tab 中文名（无 emoji，定位路径用；_H5_TAB_NAMES 带 emoji 给顶部条用，语义不同）
+const _MAIN_TAB_CN = { market: "指数表现", sentiment: "盘面温测" };
 const _A_STOCK_INDEX_IDS = new Set(["sh","sz","hs300","sz50","csi500","csi1000","cyb","kc50","bj50","csi_div","div_lowvol","sz_div"]);
 const _HK_INDEX_IDS = new Set(["hsi","hstech","hscei","hk_cesg10","hk_cshkdiv","hk_cshklc","hk_cshklre","hk_hscci","hk_hsmbi","hk_hsmogi","hk_hsmpi"]);
 const _GLOBAL_INDEX_IDS = new Set(["us_dji","us_ixic","us_spx","us_ndx","nikkei225","kospi","ftse100","dax","cac40","cgb_idx","cgb_10y_etf","cgb_10y_future"]);
 function indexToMarketSubtab(indexId) {
-  if (!indexId) return { tab: null, subtab: null, name: null, idxName: "" };
+  if (!indexId) return { tab: null, subtab: null, tabName: null, name: null, idxName: "" };
   // s.* 情绪分 -> 盘面温测 tab
   if (indexId.startsWith("s.")) {
-    return { tab: "sentiment", subtab: null, name: "盘面温测", idxName: "" };
+    return { tab: "sentiment", subtab: null, tabName: _MAIN_TAB_CN["sentiment"], name: _MAIN_TAB_CN["sentiment"], idxName: "" };
   }
   // 去前缀（g.=全球指标 wti_oil/gold 等）
   const bare = indexId.startsWith("g.") ? indexId.slice(2) : indexId;
   const idxName = (typeof indexIdToName === "function") ? indexIdToName(bare) : bare;
-  if (_A_STOCK_INDEX_IDS.has(bare)) return { tab: "market", subtab: "a-stock", name: _MARKET_SUBTAB_CN["a-stock"], idxName: idxName };
-  if (_HK_INDEX_IDS.has(bare)) return { tab: "market", subtab: "hk", name: _MARKET_SUBTAB_CN["hk"], idxName: idxName };
-  if (_GLOBAL_INDEX_IDS.has(bare)) return { tab: "market", subtab: "global", name: _MARKET_SUBTAB_CN["global"], idxName: idxName };
+  if (_A_STOCK_INDEX_IDS.has(bare)) return { tab: "market", subtab: "a-stock", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["a-stock"], idxName: idxName };
+  if (_HK_INDEX_IDS.has(bare)) return { tab: "market", subtab: "hk", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["hk"], idxName: idxName };
+  if (_GLOBAL_INDEX_IDS.has(bare)) return { tab: "market", subtab: "global", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["global"], idxName: idxName };
   // g.* 全球指标兜底（cn10y/us10y/wti_oil/gold/comex_silver/usdcnh/a_qvix_*/brent/cn_us_spread 等）
-  if (indexId.startsWith("g.")) return { tab: "market", subtab: "global", name: _MARKET_SUBTAB_CN["global"], idxName: idxName };
+  if (indexId.startsWith("g.")) return { tab: "market", subtab: "global", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["global"], idxName: idxName };
   // 申万(sw_*)/同花顺(thsc_*)行业 -> industry
-  if (bare.startsWith("sw_") || bare.startsWith("thsc_")) return { tab: "market", subtab: "industry", name: _MARKET_SUBTAB_CN["industry"], idxName: idxName };
-  return { tab: null, subtab: null, name: null, idxName: "" };
+  if (bare.startsWith("sw_") || bare.startsWith("thsc_")) return { tab: "market", subtab: "industry", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["industry"], idxName: idxName };
+  return { tab: null, subtab: null, tabName: null, name: null, idxName: "" };
 }
 const _FUND_SUBTABS = ["etf", "offshore"]; // 场内ETF / 场外基金
 function _setTabHash(tab) {

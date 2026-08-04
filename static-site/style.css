@@ -625,6 +625,20 @@ main { padding: 16px 24px; }
   text-overflow: ellipsis;
 }
 .term-pop-locate:hover { color: var(--primary); }
+/* 信号弹窗 modal 内的定位路径(2026-08-04)：复用 .term-pop-locate 点击逻辑，样式适配 modal 顶部 */
+.term-pop-locate--modal {
+  display: block;
+  margin: 0 0 10px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  border-top: 1px solid var(--border);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.term-pop-locate--modal:hover { color: var(--primary); border-color: var(--primary); }
 /* 定位跳转后目标卡片高亮闪烁 2s（背景扫一下主色） */
 .idx-card-locate-flash { animation: idx-card-flash 2s ease-out; }
 @keyframes idx-card-flash {
