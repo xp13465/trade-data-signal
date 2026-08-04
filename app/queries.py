@@ -53,7 +53,7 @@ KPI_METRIC_IDS = [
     "a_turnover_gt5_pct",   # 换手率>5%占比
 ]
 # sparkline 网格所需指数（按展示顺序）
-SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech"]
+SPARKLINE_INDEX_IDS = ["sh", "sz", "hs300", "sz50", "cyb", "kc50", "bj50", "csi500", "csi1000", "hsi", "hstech", "hscei"]
 
 _DATE_RE = re.compile(r"^\d{8}$")
 
