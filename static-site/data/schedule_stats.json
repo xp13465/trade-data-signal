@@ -76,9 +76,9 @@
     "name": "美股早采",
     "schedule": "05:00",
     "est_text": "约5分钟",
-    "last_run": "2026-08-04 05:00",
+    "last_run": "2026-08-05 05:00",
     "last_exit": 0,
-    "last_duration_sec": 302,
+    "last_duration_sec": 287,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
