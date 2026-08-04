@@ -1916,6 +1916,17 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         if (idxName && p === idxName) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
+      // 定位路径：告知用户完整数据在哪个 tab，点击切 tab + 滚动高亮卡片
+      // s.* -> "📍 完整数据：盘面温测 tab"；其他 -> "📍 完整数据：[港股/A股/...] > [指数名]"
+      if (idx && typeof indexToMarketSubtab === "function") {
+        var loc = indexToMarketSubtab(idx);
+        if (loc && loc.tab && loc.name) {
+          var locTxt = loc.tab === "sentiment"
+            ? "📍 完整数据：" + loc.name + " tab"
+            : "📍 完整数据：" + loc.name + " > " + (loc.idxName || "");
+          html += '<span class="term-pop-locate" data-locate-idx="' + _esc(idx) + '">' + _esc(locTxt) + '</span>';
+        }
+      }
       pop.innerHTML = html;
     } else {
       pop.textContent = text;
@@ -1957,6 +1968,47 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       if (popByClick) hideNow();  // 点别处 -> 关
     }, true);  // A1：capture 阶段，先于 row 的 stopPropagation 执行，确保点 stopPropagation 元素也能关 term-pop
   }
+  // 定位路径点击委托（PC + 移动端通用）：切 tab + 滚动到对应卡片 + 高亮 2s
+  // 优先于 isTouch click 委托在 capture 阶段处理 .term-pop-locate，stopPropagation 防误关
+  document.addEventListener("click", function (e) {
+    var locEl = e.target.closest && e.target.closest(".term-pop-locate");
+    if (!locEl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var locateIdx = locEl.getAttribute("data-locate-idx");
+    if (!locateIdx) return;
+    var loc = (typeof indexToMarketSubtab === "function") ? indexToMarketSubtab(locateIdx) : null;
+    if (!loc || !loc.tab) return;
+    hideNow();
+    state.tab = loc.tab;
+    if (loc.tab === "market") {
+      state.subtab = loc.subtab || "a-stock";
+    } else if (loc.tab === "sentiment") {
+      state.subtab = loc.subtab || "market-temp";
+    }
+    if (typeof _setTabHash === "function") _setTabHash(loc.tab);
+    // 顶部 tab 按钮高亮同步（renderTab 内部也会同步，这里先视觉更新避免闪烁）
+    document.querySelectorAll("button[data-tab]").forEach(function (x) { x.classList.remove("active"); });
+    var tabBtn = document.querySelector('button[data-tab="' + loc.tab + '"]');
+    if (tabBtn) tabBtn.classList.add("active");
+    if (typeof updateH5Topbar === "function") updateH5Topbar();
+    // renderTab 异步完成后滚动 + 高亮卡片
+    if (typeof renderTab === "function") {
+      renderTab().then(function () {
+        setTimeout(function () {
+          // 优先找 idx-card-{id}（A股/港股/全球/全球extras），其次 industry-cell-{id}（行业）
+          var bareId = locateIdx.replace(/^(g|s)\./, "");
+          var cardEl = document.getElementById("idx-card-" + bareId) ||
+                       document.getElementById("industry-cell-" + bareId);
+          if (cardEl && cardEl.scrollIntoView) {
+            cardEl.scrollIntoView({ behavior: "smooth", block: "center" });
+            cardEl.classList.add("idx-card-locate-flash");
+            setTimeout(function () { cardEl.classList.remove("idx-card-locate-flash"); }, 2000);
+          }
+        }, 200);
+      }).catch(function () {});
+    }
+  }, true);
   pop.addEventListener("mouseenter", function () { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } });
   pop.addEventListener("mouseleave", hide);
   // C：移动端滚动时关闭 term-pop（CSS position:fixed 不跟随滚动，capture 捕获所有滚动容器）
@@ -17665,6 +17717,31 @@ initUpdateRules();
 const _MAIN_TABS = ["overview", "market", "sentiment", "fund"];
 const _MARKET_SUBTABS = ["a-stock", "industry", "hk", "global"];
 const _SENTIMENT_SUBTABS = ["market-temp", "futures", "national-team", "public-fund"];
+// 信号弹窗定位路径：指数 id -> 所属 tab + subtab + 中文名（告知用户完整数据去哪个 tab）
+// 返回 {tab:"market"|"sentiment", subtab:"hk"|...|null, name:"港股"|...|null, idxName:"国企指数"|""}
+// s.* 情绪分 -> 盘面温测 tab（sentiment/market-temp，subtab=null 让默认逻辑接手）
+const _MARKET_SUBTAB_CN = { "a-stock": "A股", industry: "行业", hk: "港股", global: "全球" };
+const _A_STOCK_INDEX_IDS = new Set(["sh","sz","hs300","sz50","csi500","csi1000","cyb","kc50","bj50","csi_div","div_lowvol","sz_div"]);
+const _HK_INDEX_IDS = new Set(["hsi","hstech","hscei","hk_cesg10","hk_cshkdiv","hk_cshklc","hk_cshklre","hk_hscci","hk_hsmbi","hk_hsmogi","hk_hsmpi"]);
+const _GLOBAL_INDEX_IDS = new Set(["us_dji","us_ixic","us_spx","us_ndx","nikkei225","kospi","ftse100","dax","cac40","cgb_idx","cgb_10y_etf","cgb_10y_future"]);
+function indexToMarketSubtab(indexId) {
+  if (!indexId) return { tab: null, subtab: null, name: null, idxName: "" };
+  // s.* 情绪分 -> 盘面温测 tab
+  if (indexId.startsWith("s.")) {
+    return { tab: "sentiment", subtab: null, name: "盘面温测", idxName: "" };
+  }
+  // 去前缀（g.=全球指标 wti_oil/gold 等）
+  const bare = indexId.startsWith("g.") ? indexId.slice(2) : indexId;
+  const idxName = (typeof indexIdToName === "function") ? indexIdToName(bare) : bare;
+  if (_A_STOCK_INDEX_IDS.has(bare)) return { tab: "market", subtab: "a-stock", name: _MARKET_SUBTAB_CN["a-stock"], idxName: idxName };
+  if (_HK_INDEX_IDS.has(bare)) return { tab: "market", subtab: "hk", name: _MARKET_SUBTAB_CN["hk"], idxName: idxName };
+  if (_GLOBAL_INDEX_IDS.has(bare)) return { tab: "market", subtab: "global", name: _MARKET_SUBTAB_CN["global"], idxName: idxName };
+  // g.* 全球指标兜底（cn10y/us10y/wti_oil/gold/comex_silver/usdcnh/a_qvix_*/brent/cn_us_spread 等）
+  if (indexId.startsWith("g.")) return { tab: "market", subtab: "global", name: _MARKET_SUBTAB_CN["global"], idxName: idxName };
+  // 申万(sw_*)/同花顺(thsc_*)行业 -> industry
+  if (bare.startsWith("sw_") || bare.startsWith("thsc_")) return { tab: "market", subtab: "industry", name: _MARKET_SUBTAB_CN["industry"], idxName: idxName };
+  return { tab: null, subtab: null, name: null, idxName: "" };
+}
 const _FUND_SUBTABS = ["etf", "offshore"]; // 场内ETF / 场外基金
 function _setTabHash(tab) {
   let h = "#" + tab;

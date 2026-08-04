@@ -611,6 +611,26 @@ main { padding: 16px 24px; }
 .term-pop--ndx.term-pop--up::before { border-top-color: #1d4ed8; border-bottom-color: transparent; }
 [data-theme="dark"] .term-pop-idx-ndx,
 [data-theme="redgold"] .term-pop-idx-ndx { background: rgba(29, 78, 216, 0.22); color: #93c5fd; }
+/* 信号弹窗定位路径(2026-08-10)：告知用户指数完整数据在哪个 tab，点击切 tab + 滚动高亮卡片 */
+.term-pop-locate {
+  display: block;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-strong);
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.term-pop-locate:hover { color: var(--primary); }
+/* 定位跳转后目标卡片高亮闪烁 2s（背景扫一下主色） */
+.idx-card-locate-flash { animation: idx-card-flash 2s ease-out; }
+@keyframes idx-card-flash {
+  0%, 100% { background: transparent; }
+  30% { background: var(--primary); }
+}
 /* B：卡片底部 muted 白话小字（最晦涩术语常驻解释，区别于橙色 chart-hint） */
 .term-plain {
   font-size: 11px;
