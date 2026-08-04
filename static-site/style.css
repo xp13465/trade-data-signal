@@ -3759,11 +3759,15 @@ main { padding: 16px 24px; }
   border-top: 1px solid var(--border);
 }
 .site-disclaimer p { margin: 0; }
-/* H5 底部固定导航占位,页脚不被遮挡留白(96->128->160 根治 iOS 回弹+动态工具栏遮挡;
-   viewport-fit=cover 让 env(safe-area-inset-bottom) 生效,bottomnav 含 safe area 后约 90px,
-   160+16padding=176 余量约 86px,应对 iOS Safari 底部工具栏+全面屏手势条叠加遮挡) */
+/* 根治底部链接被 h5-bottomnav 遮挡(2026-08-04):
+   旧方案 footer margin-bottom 72->96->128->160 共 4 次失败,根因 = footer 是 body 最后流内子元素,
+   margin-bottom 与 body margin(0)折叠穿透到 body 外,iOS Safari + viewport-fit=cover 下 body margin-bottom
+   不被可靠计入 html scrollHeight,加再大 margin 也不增滚动高度。
+   改 body padding-bottom:padding 不折叠,直接撑高 body 内容区 -> html scrollHeight 必增 -> 滚动到底 footer 露出 nav 之下。
+   100px 覆盖 bottomnav(~58px+safe) + 余量应对 iOS 动态工具栏/回弹。footer margin-bottom 恢复 8px(margin 折叠无害但不必要)。 */
 @media (max-width: 768px) {
-  .site-disclaimer { margin-bottom: 160px; }
+  body { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+  .site-disclaimer { margin-bottom: 8px; }
 }
 
 /* === C7 P4 market 融合:从 lab.css 移入的 .lab-custom-* 公共样式(全 tab 共享,market tab modal 深度拆解用)=== */
