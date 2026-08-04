@@ -1245,3 +1245,41 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **待定**：①未登录用户看特权入口（隐藏 vs 显示锁图标点击提示登录）②付费用户角色预留
 
 **Google 登录远期待办**：worker/auth.js 的 /api/auth/login/google 占位 501 路由保留（远期复用），前端登录按钮先只放 Gitee+GitHub，Google 占位按钮隐藏。Google OAuth 需创建 GCP 项目 + OAuth consent screen，流程繁琐，Gitee+GitHub 跑通后再排。
+
+## 📋 2026-08-04 多站点 OAuth 登录（备站 redirect_uri 只配主站致备站点登录 404，待实施，完整方案见 NOTES §48 小节AB）
+
+**需求**：项目 1 主站 + 多备站（ss.fx8.store 主 CF Workers / sss.sugas.site GitHub Pages 备 / s.sugas.site MaoziYun 备），OAuth redirect_uri 只配主站，用户在备站点登录异常（备站纯静态无 Worker，/api/auth/* 全 404）。
+
+**根因**：前端 app.js 全用相对路径 fetch /api/auth/* 无域名区分；备站纯静态无 Worker /api/auth/* 全 404；OAuth redirect_uri 只配主站；跨域 3 重障碍（CORS Allow-Origin:* 和 credentials 不兼容 + Cookie SameSite=Lax 跨站 fetch 不带 + 第三方 cookie 限制）。
+
+**推荐分阶段实施 E -> G**（6 方案完整评估见 NOTES §48 小节AB，报告 /tmp/agent-multisite-oauth-research.md）：
+
+### 短期方案E（止血，立即可做，~15 行前端，不改后端不改 OAuth）
+- [ ] app.js 新增 `isMainSite()` 函数：`location.hostname === 'ss.fx8.store'`
+- [ ] `openLoginModal` / `openLoginPromptForFeature` / `openLoginPromptForDetailed` 三入口：非主站弹提示"请在主站登录后使用此功能"+ 按钮 `location.href = 'https://ss.fx8.store/'`
+- [ ] `fetchAuthState`：非主站跳过 fetch（避免 404 噪音），直接 applyAuthState 渲染未登录态
+- [ ] bump sw.js CACHE_VERSION + build_min.py + bump_asset_version.py
+- [ ] deploy + 3 域名验证
+
+### 长期方案G（完整登录态，不依赖第三方 cookie，不依赖 iframe）
+- [ ] worker/auth.js `loginGitee`/`loginGithub`：读 `?redirect=` 参数，白名单校验（sss.sugas.site/s.sugas.site），存 KV `oauth_redirect:<state>` -> redirect URL
+- [ ] worker/auth.js `callbackGitee`/`callbackGithub`：读 KV redirect，签发 session cookie + 生成一次性 login_token（存 KV `login_token:<token>` -> {user_id, exp}，TTL 60s），`redirect307(redirect + '?token=login_token')`
+- [ ] worker/auth.js 新增 `POST /api/auth/exchange`：body {login_token} -> 换长期 session_token（存 KV `session_token:<token>` -> {user_id, exp}，TTL 30天）-> 返回 {session_token, user, privileges}
+- [ ] worker/auth.js `me`：支持 `Authorization: Bearer session_token`（token 模式）+ cookie（主站模式）双路径
+- [ ] worker/auth.js `logout`：支持 token 模式（delete KV session_token）
+- [ ] worker/auth.js CORS：Allow-Origin 动态匹配请求 Origin（白名单内才允许）+ Allow-Credentials: true
+- [ ] 前端 app.js：检测域名，主站 cookie 模式（现状不变），备站 token 模式（localStorage 存 session_token + fetch 带 Authorization + URL ?token= 处理 exchange）
+- [ ] 安全：redirect 白名单（只允许 sss/s.sugas）、login_token 一次性（exchange 后 delete）、state 防 CSRF 保留
+- [ ] 测试：主站 cookie 流程不回归 + 备站 token 流程完整 + token 过期/撤销
+- [ ] bump sw + build_min + deploy + 3 域名验证
+
+**不推荐方案**：
+- ❌ 方案F（跨域 fetch + CORS + 第三方 cookie）：第三方 cookie 限制是趋势性硬约束（Chrome 2024+ 逐步禁、Safari ITP/Firefox ETP），SameSite=None 长期失效，投入后未来要重做
+- ❌ 方案C（OAuth redirect_uri 配多域名）：GitHub OAuth 主机名完全匹配是平台硬约束（ss.fx8.store callback 无法 redirect 到 sss.sugas.site 主机名不同），Gitee 按惯例单个，不可行
+- ⚠️ 方案A/B 单独不完整：需配合 token 回传（即方案G）才解决备站登录态
+
+**待用户确认 4 决策点**：
+1. 备站定位：灾备/镜像（主站可用时备站只读可接受 -> 只做 E）还是平等入口（备站也需完整登录态 -> E 短期 + G 长期）
+2. 是否接受备站登录跳主站再回跳（方案G 用户体验：点登录 -> 跳主站 OAuth -> 自动回备站）？还是要求备站全程不离开备站（只能方案F 第三方 cookie 长期不可持续）
+3. token 存储位置：localStorage（方案G 默认）vs sessionStorage（关闭标签即失效更安全但体验差）
+4. 备站 s.sugas.site 当前已超 300MB 限制自 2026-07-22 停止拉取，方案G 是否仍需覆盖该站？还是只覆盖 sss.sugas.site

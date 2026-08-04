@@ -6975,3 +6975,45 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 - **fetch 错误修复（commit 279cc8d5）**：根因 sentiment-3y.json(962KB<1MB阈值)被移出git依赖R2，upload-data-large 1MB阈值漏传，前端 _R2_LARGE_RANGE_RE 强制走R2 -> 404加载失败；根治 upload_r2.py 加 _LARGE_RANGE_RE(与app.js同规则)大range文件无大小限制上传；线上 R2 200 size=985443。a8b1cd2d 全量排查确认其余 fetch 文件全200，唯一404源即 sentiment-3y。
 - **用户决策记录**：对比按钮=📌钉住(口误"叮嘱比较"，钉住=对比复盘)；gating方式=点击提示登录(不破坏L2619"按钮必须显示不可用非缺失"铁律)；Google登录远期待办占位按钮隐藏。
 - **全量测试**：用户睡前交代今晚跑完后做全量测试排查别留异常导致明天开盘，stage0 跑完后派 agent 端到端回归（OAuth登录退出/4gating/核心tab数据加载/sw版本3域名验证）。
+
+**AB. 2026-08-04 多站点 OAuth 登录方案调研（备站 redirect_uri 只配主站致备站点登录 404）**
+
+> 用户反馈：项目 1 主站 + 多备站（ss.fx8.store 主 CF Workers / sss.sugas.site GitHub Pages 备 / s.sugas.site MaoziYun 备），OAuth redirect_uri 只配主站，用户在备站点登录异常。派只读调研 agent（不改码只落档），6 方案完整评估 + 推荐分阶段实施 E->G。完整报告 `/tmp/agent-multisite-oauth-research.md`。
+
+**现状（curl + grep 实测）**：
+- 主站 ss.fx8.store：worker/headers.js 分发 `/api/auth/*` -> worker/auth.js（7 路由正常）；GET /api/auth/me 实测 200 `{"logged_in":false,...}`；GET /api/auth/login/gitee 实测 307 跳 Gitee 授权页；env secret GITEE/GITHUB_REDIRECT_URI 生产只配 `https://ss.fx8.store/api/auth/callback/{gitee,github}`，无备站
+- 备站 sss.sugas.site（GitHub Pages）：纯静态无 Worker，GET /api/auth/me 实测 404（server: GitHub.com），GET /api/auth/login/gitee 实测 404；首页 200 无 CSP 无安全头
+- 备站 s.sugas.site（MaoziYun/3.17.0）：纯静态无 Worker，GET /api/auth/me 实测 404，GET /api/auth/login/gitee 实测 404；首页 200 无 CSP 有 HSTS；注意已超 300MB 限制自 2026-07-22 停止拉取
+- 前端 app.js：fetchAuthState L17050 `fetch('/api/auth/me',{credentials:'include'})` 相对路径；登录按钮 L17133 `location.href='/api/auth/login/'+provider` 相对路径；登出 L17164 相对路径；**无域名检测逻辑**（grep location.hostname/isMainSite 均无）
+- Cookie 配置：`Path=/; HttpOnly; Secure; SameSite=Lax`（跨站 fetch 不带，跨站顶级 GET 导航带）
+- CORS_HEADERS：`Access-Control-Allow-Origin: *`（通配，和 credentials:'include' 不兼容，浏览器规范要求带 credentials 时 Allow-Origin 必须具体域名）
+- callback 跳回：固定 `redirect307('/', [sessionCookie, clearState])`，**不读 redirect/next/returnTo 参数**（只读 code/state）
+- X-Frame-Options: SAMEORIGIN（备站 iframe 主站被拒）
+- 主站 CSP（worker/headers.js）：`connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com https://ssd.fx8.store`（备站无 CSP，备站发起跨域 fetch 不受主站 CSP 约束）
+
+**备站登录异常根因**：
+- 直接根因：备站纯静态无 Worker，`/api/auth/*` 全 404。备站点登录按钮跳 `https://sss.sugas.site/api/auth/login/gitee` -> 404；fetchAuthState fetch 备站域名 /api/auth/me -> 404 -> r.ok=false -> null -> 始终未登录态
+- 深层根因：前端 app.js 全用相对路径无域名区分；OAuth redirect_uri 只配主站
+- 跨域 3 重障碍（即使备站 fetch 指主站 API）：①CORS Allow-Origin:* 和 credentials:include 不兼容 ②Cookie SameSite=Lax 跨站 fetch 不带；改 None 撞第三方 cookie 限制（Chrome 2024+ 逐步禁、Safari ITP/Firefox ETP）③CSP connect-src 不含备站域名（备站无 CSP 实际不拦，但主站自限）
+
+**6 方案评估**：
+- **A 跳转主站**：检测非主站跳主站。改动极小但用户停主站回不到备站，备站无登录态。单独不完整
+- **B 备站按钮指主站 OAuth**：href=`https://ss.fx8.store/api/auth/login/gitee`。改动 1 行但同方案A，OAuth 回调主站设 cookie 用户停主站，备站无登录态
+- **C 多 redirect_uri**：**GitHub 不支持**（官方文档：OAuth App 配一个 callback URL，redirect_uri 参数主机名+端口必须完全匹配，ss.fx8.store callback 无法 redirect 到 sss.sugas.site 主机名不同）；Gitee 文档查不到按惯例单个。**不可行**（GitHub 主机名完全匹配硬约束）
+- **D 新窗口 postMessage 传 token**：window.open 主站登录页 -> postMessage 传 token 给备站 opener -> 存 localStorage + Authorization header。绕过 X-Frame-Options 不依赖第三方 cookie。需改 worker 支持 token 模式 + 前端双模式。复杂度中高
+- **E 备站只读引导跳主站**：检测非主站 -> 登录/特权功能弹提示"请在主站登录"+ 跳主站按钮。**最简单**前端 ~15 行不改后端不改 OAuth 立即可用。备站无登录态功能（gating 不可用）。适合短期止血 + 备站灾备定位
+- **F 跨域 fetch + CORS + 第三方 cookie**：备站 fetch 主站 API + CORS 具体域名 + cookie SameSite=None。**第三方 cookie 限制是趋势性硬约束**（Chrome 2024+ 逐步禁、Safari/Firefox 早已有），SameSite=None 长期失效，投入后未来要重做。**不推荐**
+- **G（推荐组合）跳主站 OAuth + 带 token 回备站**：①备站点登录跳 `https://ss.fx8.store/api/auth/login/gitee?redirect=https://sss.sugas.site/` ②worker login 读 redirect 白名单校验透传 KV ③OAuth 回调主站签发 session cookie + 生成一次性 login_token（短 TTL 60s 存 KV）-> redirect307(redirect + '?token=xxx') 跳回备站 ④备站收到 token -> fetch /api/auth/exchange 换长期 session_token -> 存 localStorage ⑤备站后续 fetch 主站 API 带 Authorization: Bearer session_token ⑥worker me/logout 支持 Authorization（token 模式）+ cookie（主站自用）双路径 ⑦CORS Allow-Origin 动态匹配请求 Origin 白名单。**不依赖第三方 cookie（token 在 localStorage）** + **不依赖 iframe（纯 HTTP redirect 绕过 X-Frame-Options）** + 用户体验好（点登录->跳主站OAuth->自动回备站->已登录）+ 主站 cookie 模式不变（主站用户无感）+ 备站完整登录态所有 gating 可用 + 一次性 token KV 防重放安全。复杂度中高但是最完整正确的终极方案
+
+**推荐：分阶段实施 E -> G**：
+- 短期（止血立即可用）：方案E - 备站只读引导跳主站，~15 行前端，不改后端不改 OAuth，备站灾备/镜像定位主站可用时备站只读可接受
+- 长期（完整登录态）：方案G - 跳主站 OAuth + token 回备站，完整登录态不依赖第三方 cookie 未来可持续，不依赖 iframe 绕过 X-Frame-Options
+- 不推荐方案F（第三方 cookie 趋势性硬约束长期失效要重做）；不推荐方案C（GitHub 主机名完全匹配平台硬约束不可行）；方案A/B 单独不完整需配合 token 回传（即方案G）
+
+**待用户确认 4 决策点**：
+1. 备站定位：灾备/镜像（主站可用时备站只读可接受 -> 只做 E）还是平等入口（备站也需完整登录态 -> E 短期 + G 长期）
+2. 是否接受备站登录跳主站再回跳（方案G 用户体验：点登录->跳主站OAuth->自动回备站）？还是要求备站全程不离开备站（只能方案F 第三方 cookie 长期不可持续）
+3. token 存储位置：localStorage（方案G 默认）vs sessionStorage（关闭标签即失效更安全但体验差）
+4. 备站 s.sugas.site 当前已超 300MB 限制自 2026-07-22 停止拉取，方案G 是否仍需覆盖该站？还是只覆盖 sss.sugas.site
+
+**落档**：本次只落档 NOTES §48 小节AB + TASKS 待办区（方案E 短期 + 方案G 长期），不改代码不跑 deploy。commit 后 push feat + main。
