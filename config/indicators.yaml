@@ -45,13 +45,13 @@ metrics:
   # 数据源：www3.hkexnews.hk/sdw/search/mutualmarket.aspx?t=sh|sz（ASP.NET WebForm POST）
   # 收盘价：stock_daily.db（mootdx/baostock）+ baostock 逐只补缺失。
   # 季度任务，每季度末+20 天后 CCASS 发布数据才可反算。覆盖率<50% 或异常值（万亿级）跳过。
-  - {id: a_fund_margin,  name: 两融余额(沪市融资), group: a_fund, type: simple, func: stock_margin_sse,       column: 融资余额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
+  - {id: a_fund_margin,  name: 两融余额(沪市融资), group: a_fund, type: simple, func: stock_margin_sse,       column: 融资余额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, spike_guard: 5.0, enabled: true}
   - {id: a_fund_main,    name: 主力净流入,     group: a_fund, type: simple, func: direct:market_fund_flow, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
 
   # ============ A股 · 情绪指数 ============
   - {id: a_qvix_300,        name: 中国波指300,   group: a_sentiment, type: simple, func: index_option_300etf_qvix,    column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
   - {id: a_qvix_1000,       name: 中国波指(50ETF期权),  group: a_sentiment, type: simple, func: index_option_50etf_qvix, column: close, unit: 点, direction: negative, drop_zero: true, enabled: true}
-  - {id: a_amount,          name: 成交额(沪深京),   group: a_sentiment, type: simple, func: stock_zh_a_spot,            column: 成交额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, enabled: true}
+  - {id: a_amount,          name: 成交额(沪深京),   group: a_sentiment, type: simple, func: stock_zh_a_spot,            column: 成交额, transform: sum, scale: 1.0e-8, unit: 亿元, direction: positive, spike_guard: 5.0, enabled: true}
   # a_sentiment_score / cross_market_score 是综合分，写入 score_daily，经 /api/sentiment 出，不在此处登记
   # 以下待源：sina 无换手率；legulegu.com 不稳定；东财情绪接口待验
   - {id: a_turnover_rate,     name: 换手率,       group: a_sentiment, type: simple, func: tencent:index_turnover, params: {code: '000001'}, unit: "%", direction: neutral, enabled: true}

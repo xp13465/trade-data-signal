@@ -4190,8 +4190,43 @@ async function _loadKpiHistory(kpiId, cfg, period) {
       };
     }
     // 成交额：主线 + 叠加 MA5/MA20（from volume_ratio.json，仅250条，长周期覆盖尾部）
+    // intraday 半日值(source='intraday')视觉区分：拆 series，intraday 段虚线 + 半透明 + tooltip 标"盘中半日值"
+    // 避免 2026-08-04 半日值混入日频序列尾部下掉 37% 误导
     if (kpiId === "a_amount") {
-      const series = [{ name: "成交额", data: _get("a_amount") }];
+      const rawAmount = (metrics["a_amount"] && metrics["a_amount"].data) || [];
+      const closedData = rawAmount.filter(d => d.source !== "intraday").map(d => ({ date: d.date, value: d.value }));
+      const intradayData = rawAmount.filter(d => d.source === "intraday").map(d => ({ date: d.date, value: d.value }));
+      const series = [{ name: "成交额", data: closedData }];
+      // intraday 段：单点 symbol + markLine 虚线半透明连接最后收盘点（visual 区分盘中半日值）
+      if (intradayData.length && closedData.length) {
+        const lastClose = closedData[closedData.length - 1];
+        const firstIntra = intradayData[0];
+        series.push({
+          name: "成交额(盘中)",
+          data: intradayData,
+          color: "#e6492e",
+          lineStyle: { type: "dashed", opacity: 0.5 },
+          itemStyle: { opacity: 0.5 },
+          symbol: "circle",
+          symbolSize: 6,
+          markLine: {
+            silent: true,
+            symbol: "none",
+            lineStyle: { type: "dashed", color: "#e6492e", opacity: 0.5 },
+            data: [[{ coord: [lastClose.date, lastClose.value] }, { coord: [firstIntra.date, firstIntra.value] }]],
+          },
+        });
+      } else if (intradayData.length) {
+        series.push({
+          name: "成交额(盘中)",
+          data: intradayData,
+          color: "#e6492e",
+          lineStyle: { type: "dashed", opacity: 0.5 },
+          itemStyle: { opacity: 0.5 },
+          symbol: "circle",
+          symbolSize: 6,
+        });
+      }
       try {
         const vr = await fetchJSON("./data/volume_ratio.json");
         const vrData = vr.data || [];
@@ -4205,7 +4240,7 @@ async function _loadKpiHistory(kpiId, cfg, period) {
       return {
         series,
         yLabel: "{value}亿",
-        hint: "沪深京A股成交额。放量=交投活跃，缩量=清淡。MA5/MA20为均量线。",
+        hint: "沪深京A股成交额。放量=交投活跃，缩量=清淡。MA5/MA20为均量线。虚线半透明段=盘中半日值，收盘后覆盖为全天值。",
       };
     }
     // 两融余额
@@ -4354,21 +4389,41 @@ async function openKpiDetailModal(kpiId, period = "3m") {
         itemStyle: { color: "#909399" },
         data: [{ coord: [est.date, est.value], value: "预估" }],
       } : undefined;
+      // 合并 lineStyle：s.color 提供默认色，s.lineStyle（如 intraday 虚线/半透明）可覆盖/扩展
+      const _lineStyle = { ...(s.color ? { color: s.color } : {}), ...(s.lineStyle || {}) };
       return {
         name: s.name,
         type: "line",
         smooth: true,
-        symbol: "none",
+        symbol: s.symbol != null ? s.symbol : "none",
+        ...(s.symbolSize != null ? { symbolSize: s.symbolSize } : {}),
         connectNulls: true,
         data: dates.map(d => { const p = (s.data || []).find(x => x.date === d); return p ? p.value : null; }),
-        ...(s.color ? { color: s.color, lineStyle: { color: s.color } } : {}),
+        ...(s.color ? { color: s.color } : {}),
+        ...(Object.keys(_lineStyle).length ? { lineStyle: _lineStyle } : {}),
+        ...(s.itemStyle ? { itemStyle: s.itemStyle } : {}),
         ...(s.areaStyle ? { areaStyle: s.areaStyle } : {}),
         ...(s.markLine ? { markLine: s.markLine } : {}),
         ...(markPoint ? { markPoint } : {}),
       };
     });
+    // tooltip formatter：从 yLabel "{value}亿" 提取单位后缀；series 名含"盘中"标注"盘中半日值"
+    const _unit = result.yLabel ? (String(result.yLabel).match(/\{value\}([\s\S]*)/) || [])[1] || "" : "";
     chart.setOption(withTheme({
-      tooltip: { trigger: "axis" },
+      tooltip: {
+        trigger: "axis",
+        formatter: (params) => {
+          if (!Array.isArray(params) || !params.length) return "";
+          const lines = [fmtDate(params[0].axisValueLabel || params[0].name)];
+          for (const p of params) {
+            if (p.value == null) continue;
+            const isHalfDay = p.seriesName && p.seriesName.indexOf("盘中") >= 0;
+            const val = typeof p.value === "number" ? p.value.toFixed(2) : p.value;
+            lines.push(`${p.marker}${p.seriesName}: ${val}${_unit}${isHalfDay ? " (盘中半日值)" : ""}`);
+          }
+          return lines.join("<br/>");
+        },
+      },
       legend: { top: 0, type: "scroll" },
       grid: { left: 65, right: 25, top: 35, bottom: 45 },
       xAxis: { type: "category", data: dates },
@@ -16910,6 +16965,8 @@ const _KPI_COMPANION = {
 const _KPI_RATE_X100 = { a_width_seal_rate: true, a_width_fengban_rate: true };
 async function _appendKpiEstimate(result, kpiId, todayDate) {
   if (!result || !result.series || !result.series.length || !todayDate) return [];
+  // a_amount 已有 intraday 段(source='intraday' 盘中半日值)覆盖 T日，跳过预估避免与盘中点重叠
+  if (kpiId === "a_amount") return [];
   const mainSeries = result.series[0];
   if (!mainSeries || !mainSeries.data || !mainSeries.data.length) return [];
   if (mainSeries.data[mainSeries.data.length - 1].date >= todayDate) return []; // 末日已==T日

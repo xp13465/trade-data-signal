@@ -133,7 +133,9 @@ def run(date=None, verbose=True, steps=None):
                         upsert_metrics_many(mid, rows)
                         ok += 1
                         details.append((mid, "ok", f"{len(rows)} rows"))
-                        log_collect(date, mid, "ok", f"{len(rows)} rows")
+                        # msg 非 "ok" 时带 spike_guard 告警等，记入 collect_log 便于排查
+                        log_msg = f"{len(rows)} rows" if not msg or msg == "ok" else f"{len(rows)} rows; {msg}"
+                        log_collect(date, mid, "ok", log_msg)
                     else:
                         fail += 1
                         details.append((mid, "fail", msg))
@@ -144,7 +146,8 @@ def run(date=None, verbose=True, steps=None):
                         upsert_metric(date, mid, val)
                         ok += 1
                         details.append((mid, "ok", f"{val:.4g}"))
-                        log_collect(date, mid, "ok", str(val))
+                        log_msg = str(val) if not msg or msg == "ok" else f"{val}; {msg}"
+                        log_collect(date, mid, "ok", log_msg)
                     else:
                         fail += 1
                         details.append((mid, "fail", msg))

@@ -681,6 +681,17 @@ def a_stock(conn, cfg, start, end, *, cache=None, include_etf=False):
     metrics = {}
     for m in metrics_for_groups(cfg, *groups):
         metrics[m["id"]] = {"name": m["name"], "unit": m.get("unit"), "data": metric_series(conn, m["id"], start, end, cache=cache)}
+    # a_amount 补 source 字段：盘中 intraday 半日值(source='intraday')需前端视觉区分，
+    # 避免半日值混入日频序列尾部下掉(2026-08-04 事故)。绕过 cache 直接查带 source。
+    if "a_amount" in metrics:
+        amt_rows = conn.execute(
+            "SELECT date, value, source FROM daily_metric WHERE metric_id='a_amount' "
+            "AND date BETWEEN ? AND ? ORDER BY date",
+            (start, end),
+        ).fetchall()
+        metrics["a_amount"]["data"] = [
+            {"date": r["date"], "value": r["value"], "source": r["source"]} for r in amt_rows
+        ]
     indices = {}
     for i in indices_for_market(cfg, "a"):
         entry = {

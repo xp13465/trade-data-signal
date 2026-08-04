@@ -7,6 +7,7 @@ import yaml
 
 from .base import safe_call
 from ..calendar import last_trading_day, is_trading_day
+from ..db import get_conn
 
 CONFIG_PATH = Path(__file__).absolute().parent.parent.parent / "config" / "indicators.yaml"
 
@@ -73,6 +74,65 @@ def _scale(metric, v):
     if v is None:
         return None
     return v * metric.get("scale", 1.0)
+
+
+# ================ 突跳检测（spike_guard） ================
+# 防源端数值层面放大（如 2026-08-04 两融余额源端放大 1000 倍，scale 挡不住）。
+# 在 indicators.yaml 给指标配 spike_guard: <倍数阈值>（如 5.0），不配则不检测
+# （避免误伤合理跳变如新股上市）。检测在入库前：序列型逐日比对前一日值，
+# 快照型查 DB 前一交易日值。触发则拒绝入库 + runner 写 collect_log 告警。
+
+
+def _spike_guard_filter_series(metric, rows):
+    """序列型突跳检测：对 rows=[(date,value),...] 逐日比对前一日值。
+    配 metric['spike_guard']（倍数阈值，如 5.0）；prev!=0 且 abs(v/prev)>阈值 时剔除该行。
+    返回 (filtered_rows, rejected)，rejected=[(date,v,prev,ratio),...]。
+    被剔除行不更新 prev（避免被放大的值连锁误剔后续正常行）。
+    """
+    threshold = metric.get("spike_guard")
+    if not threshold:
+        return rows, []
+    filtered = []
+    rejected = []
+    prev = None
+    for d, v in rows:
+        if prev is not None and prev != 0 and v != 0:
+            ratio = abs(v / prev)
+            if ratio > threshold:
+                rejected.append((d, v, prev, ratio))
+                continue  # 跳过此行，不更新 prev
+        filtered.append((d, v))
+        prev = v
+    return filtered, rejected
+
+
+def _spike_guard_check_snapshot(metric, date, value):
+    """快照型突跳检测：查 DB 取 date 前一交易日值比对。
+    返回 (blocked, prev_value, ratio, prev_date)。
+    未配 spike_guard / value 为 0 或 None / DB 无 prev 时 blocked=False。
+    """
+    threshold = metric.get("spike_guard")
+    if not threshold or value is None or value == 0:
+        return False, None, None, None
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            "SELECT date, value FROM daily_metric WHERE metric_id=? "
+            "AND date < ? AND value IS NOT NULL AND value != 0 "
+            "ORDER BY date DESC LIMIT 1",
+            (metric["id"], date),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False, None, None, None
+    prev = float(row["value"])
+    if prev == 0:
+        return False, prev, None, row["date"]
+    ratio = abs(value / prev)
+    if ratio > threshold:
+        return True, prev, ratio, row["date"]
+    return False, prev, ratio, row["date"]
 
 
 def _fetch_bond_china_yield(fn, lookback_days=3650):
@@ -212,6 +272,14 @@ def collect_series(metric):
             if rec:
                 d, v = rec
                 rows.append((d, v * sc))
+    # 突跳检测:配 spike_guard 的指标(如 a_fund_margin)，值跳变超阈值(倍)则剔除该行
+    # (防源端数值层面放大，如 2026-08-04 两融余额源端放大 1000 倍，scale 挡不住)
+    rows, spike_rejected = _spike_guard_filter_series(metric, rows)
+    if spike_rejected:
+        rej_str = "; ".join(
+            f"{d}:{v:.4g}(prev={p:.4g},{r:.1f}x)" for d, v, p, r in spike_rejected
+        )
+        return rows, f"ok (spike_guard rejected {len(spike_rejected)}): {rej_str}"
     return rows, "ok"
 
 
@@ -271,7 +339,13 @@ def collect_snapshot(metric, date):
     val = _apply_transform(df, metric, date)
     if val is None:
         return None, f"{func_name} transform None (cols={list(df.columns)[:8]})"
-    return _scale(metric, val), "ok"
+    scaled = _scale(metric, val)
+    # 突跳检测:配 spike_guard 的指标(如 a_amount)，与前一交易日值比对，跳变超阈值拒绝入库
+    blocked, prev, ratio, prev_date = _spike_guard_check_snapshot(metric, date, scaled)
+    if blocked:
+        return None, (f"spike_guard blocked: {scaled:.4g} vs prev {prev:.4g} "
+                      f"({prev_date}), ratio={ratio:.1f}x > {metric['spike_guard']}")
+    return scaled, "ok"
 
 
 def collect_direct(metric):
