@@ -5701,31 +5701,49 @@ function _renderIntradayInSparkCells(sparkGrid, snap) {
   });
 }
 
-// 分时图主入口：分时图嵌入 spark-cell 内，全局切换按钮控制显隐
+// 分时图主入口：分时图嵌入 spark-cell 内，三态分段控件(收起/仅分时/展开)控制显隐
+// 三态：collapsed(收起,只日K) / intraday-only(仅分时,隐藏日K) / expanded(展开,日K+分时)
 function renderIntradaySection(sparkGrid, snap) {
   const isClosed = !snap || snap.is_closed !== false;
-  // 默认展开：盘中=true 盘后=false；localStorage 记忆覆盖
-  let lsExpanded = null;
-  try { lsExpanded = localStorage.getItem("intraday-chart-expanded"); } catch (e) {}
-  const defaultExpanded = isClosed ? false : true;
-  const expanded = lsExpanded === null ? defaultExpanded : lsExpanded === "1";
+  // 默认：盘中=expanded 盘后=collapsed；localStorage intraday-chart-mode 记忆覆盖
+  // 兼容旧键 intraday-chart-expanded: "1"->expanded "0"->collapsed
+  let mode = null;
+  try {
+    mode = localStorage.getItem("intraday-chart-mode");
+    if (mode === null) {
+      const old = localStorage.getItem("intraday-chart-expanded");
+      if (old !== null) mode = old === "1" ? "expanded" : "collapsed";
+    }
+  } catch (e) {}
+  if (mode !== "collapsed" && mode !== "intraday-only" && mode !== "expanded") {
+    mode = isClosed ? "collapsed" : "expanded";
+  }
 
-  // 全局切换按钮（控制所有 .spark-intraday 显隐）
-  const toggle = document.createElement("button");
-  toggle.className = "intraday-toggle" + (expanded ? " expanded" : "");
+  // 全局三态分段控件（控制所有 .spark-intraday 显隐 + .spark-cell.hide-daily）
+  const seg = document.createElement("div");
+  seg.className = "intraday-seg-group";
   const pulseHtml = isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
-  toggle.innerHTML = (expanded ? "📊 收起分时图" : "📊 显示分时图") + pulseHtml;
-  sparkGrid.parentElement.insertBefore(toggle, sparkGrid);
+  const segDefs = [
+    { key: "collapsed",     label: "收起" },
+    { key: "intraday-only", label: "仅分时" },
+    { key: "expanded",      label: "展开" + pulseHtml },
+  ];
+  seg.innerHTML = segDefs.map((s) =>
+    `<button type="button" class="intraday-seg${s.key === mode ? " active" : ""}" data-mode="${s.key}">${s.label}</button>`
+  ).join("");
+  sparkGrid.parentElement.insertBefore(seg, sparkGrid);
 
-  toggle.onclick = () => {
-    const nowExpanded = !toggle.classList.contains("expanded");
-    toggle.classList.toggle("expanded", nowExpanded);
-    toggle.innerHTML = (nowExpanded ? "📊 收起分时图" : "📊 显示分时图") +
-      (isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>1min</span>');
+  function applyMode(newMode) {
+    mode = newMode;
+    seg.querySelectorAll(".intraday-seg").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-mode") === newMode);
+    });
+    const showIntraday = newMode !== "collapsed";     // 仅分时/展开 显示分时
+    const showDaily    = newMode !== "intraday-only"; // 收起/展开 显示日K
     sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]").forEach((el) => {
-      el.classList.toggle("collapsed", !nowExpanded);
-      // 展开时若容器为空才渲染（避免重复渲染）
-      if (nowExpanded && !el.querySelector("div")) {
+      el.classList.toggle("collapsed", !showIntraday);
+      // 显示分时且容器为空才渲染（避免重复渲染）
+      if (showIntraday && !el.querySelector("div")) {
         const code = el.getAttribute("data-intraday-code");
         if (code && _INDEX_TO_TENCENT_MINUTE[code]) {
           const preClose = _snapPreClose(snap, code);
@@ -5734,17 +5752,20 @@ function renderIntradaySection(sparkGrid, snap) {
         }
       }
     });
-    try { localStorage.setItem("intraday-chart-expanded", nowExpanded ? "1" : "0"); } catch (e) {}
-  };
-
-  // 初始状态：collapsed 类控制显隐
-  if (!expanded) {
-    sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]").forEach((el) => el.classList.add("collapsed"));
-  } else {
-    _renderIntradayInSparkCells(sparkGrid, snap);
+    sparkGrid.querySelectorAll(".spark-cell").forEach((cell) => {
+      cell.classList.toggle("hide-daily", !showDaily);
+    });
+    try { localStorage.setItem("intraday-chart-mode", newMode); } catch (e) {}
   }
 
-  // 盘中启动1分钟动态刷新（无论展开与否，badge/chips 都需刷新）
+  seg.querySelectorAll(".intraday-seg").forEach((b) => {
+    b.onclick = () => applyMode(b.getAttribute("data-mode"));
+  });
+
+  // 初始状态应用（applyMode 内处理分时渲染与 collapsed/hide-daily 类）
+  applyMode(mode);
+
+  // 盘中启动1分钟动态刷新（无论何种状态，badge/chips 都需刷新）
   if (!isClosed) {
     _startIntradayRefresh();
     _intradayRenderCtx = { sparkGrid, snap };

@@ -1082,17 +1082,27 @@ main { padding: 16px 24px; }
   50% { opacity: 0.45; transform: scale(0.8); box-shadow: 0 0 0 4px rgba(46,139,87,0); }
 }
 @media (prefers-reduced-motion: reduce) { .dyn-pulse-dot { animation: none; } }
-.intraday-toggle {
-  display: flex; align-items: center; justify-content: center; gap: 6px;
-  width: 100%; padding: 8px 14px; margin-bottom: 10px;
+/* 三态分段控件：收起 / 仅分时 / 展开（全局控制所有 spark-cell） */
+.intraday-seg-group {
+  display: flex; width: 100%; margin-bottom: 10px;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text-1); font-size: 13px; cursor: pointer; text-align: center;
-  transition: border-color 0.2s;
+  overflow: hidden;
 }
-.intraday-toggle:hover { border-color: var(--border-strong); }
+.intraday-seg {
+  flex: 1; padding: 8px 10px; border: none; border-right: 1px solid var(--border);
+  background: transparent; color: var(--text-1); font-size: 13px; cursor: pointer;
+  text-align: center; transition: background 0.15s, color 0.15s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.intraday-seg:last-child { border-right: none; }
+.intraday-seg:hover { background: var(--bg-hover); }
+.intraday-seg.active { background: var(--up, #e6492e); color: #fff; font-weight: 600; }
+.intraday-seg .dyn-pulse { margin-left: 2px; }
 /* 分时图容器：嵌入 spark-cell 内 spark-chart 下方 */
 .spark-intraday { width: 100%; height: 100px; margin-top: 4px; }
 .spark-intraday.collapsed { display: none; }
+/* 仅分时态：隐藏日K(spark-chart)只留分时图 */
+.spark-cell.hide-daily .spark-chart { display: none; }
 .intraday-fail {
   height: 100%; display: flex; align-items: center; justify-content: center;
   font-size: 12px; color: var(--text-3); text-align: center;
