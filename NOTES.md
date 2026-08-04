@@ -7292,3 +7292,17 @@ overview.json 重生成 + push main（不带 feat 分支的 `4c324eeb` high_aler
 - 百度统计/百度站长在 inline-init.js 同步加载，虽 defer 但仍占主线程。可改 requestIdleCallback 延迟
 
 **落档**：本次只落档 NOTES §48 小节AE + TASKS 待办 + memory perf-optimization-backlog，不改代码不跑 deploy。commit 后 push feat + main。详见 TASKS.md「全站性能优化（2026-08-04 调研落档）」待办条目。两份调研报告原文留底 `/tmp/perf-research-frontend.md` + `/tmp/perf-research-backend.md`。
+
+## §48 小节AF：2026-08-04 通知铃铛 fix3（hover pop 可点 + 关闭隐藏 pop + 🔕 图标）
+
+fix2（commit 29452e202，小节AZ74 通知系统三修复）后用户反馈 2 个新问题：① 鼠标 hover 铃铛弹出的 pop 和「试看一键开启」按钮叠在一起，鼠标移过去 pop 就消失，点不到试看按钮 ② 已授权状态下点 🔔 想关闭通知，看似「没用」。
+
+**根因 1（CSS 几何 + 事件冒泡）**：`.notify-wrap` 是 inline-flex，高度 = 铃铛 btn 高度；pop 用 `position:absolute; top:100%; margin-top:4px` 定位，这 4px gap 落在 wrap 几何外。鼠标从 btn 移到 pop 时跨越 4px gap，触发 `wrap.mouseleave`（mouseleave 不冒泡但 wrap 是注册目标），pop 走 200ms hideNow 兜底分支消失，所以点不到试看按钮。
+
+**根因 2（视觉反馈非逻辑 bug）**：`_checkNotifications`（app.js L6574 附近）有 pref gate，关闭逻辑正确（不会弹新通知）；但 btn click 的关闭分支（L6820-6825）只 setPref + updateBtnState，**没写 `pop.style.display='none'`**，关闭后 pop 仍 `display:block` 用户以为「没用」；且 updateBtnState 关闭分支图标还是 🔔 反馈不明显。
+
+**fix3 4 改动（commit 5efc3cb2e）**：① `style.css .notify-wrap` 加 `padding-bottom:10px; margin-bottom:-10px`，把 4px gap 纳入 wrap 几何内（padding 不触发 mouseleave），`margin-bottom:-10px` 抵消布局影响 ② `.notify-pop` `margin-top:4px` -> `8px`，视觉上更分离 ③ `app.js` btn click 关闭分支加 `pop.style.display='none'`（点关闭立即收起 pop） ④ `updateBtnState` 拆分：已授权 + 关闭 用 🔕 + `title="通知已关闭（点击重新开启）"`，已授权 + 开启 用 🔔。
+
+**上线**：21:43 push main（赶 21:59 前避撞 22:00 launchd etf-national-team/intraday/public-fund-full 推 main），3 域名验证通过：`ss.fx8.store/sw.js` = `v2-20260804-notify-fix3`、`app.min.js` 含「通知已关闭」、`style.min.css` `.notify-wrap` 含 `padding-bottom:10px`。
+
+**教训**：fix3 agent 用 `git reset --hard origin/main` 重建 feat + force-with-lease feat（非 main，§8 允许 feat 分支 force-with-lease 但应先说明）。丢 feat-only 7 commits：代码/docs 都有 main 同内容版本丢了 OK，backfill/futures 是 .gz 前端不 fetch + launchd 继续推丢了 OK。但工作区残留 3 个 UU 冲突（stash pop data 冲突），已 `git checkout origin/main -- <3 files>` 清理。后续 feat 分支重建优先 `git stash` + reset，避免 stash pop 撞 data 冲突。
