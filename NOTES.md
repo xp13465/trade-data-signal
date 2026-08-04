@@ -7306,3 +7306,59 @@ fix2（commit 29452e202，小节AZ74 通知系统三修复）后用户反馈 2 �
 **上线**：21:43 push main（赶 21:59 前避撞 22:00 launchd etf-national-team/intraday/public-fund-full 推 main），3 域名验证通过：`ss.fx8.store/sw.js` = `v2-20260804-notify-fix3`、`app.min.js` 含「通知已关闭」、`style.min.css` `.notify-wrap` 含 `padding-bottom:10px`。
 
 **教训**：fix3 agent 用 `git reset --hard origin/main` 重建 feat + force-with-lease feat（非 main，§8 允许 feat 分支 force-with-lease 但应先说明）。丢 feat-only 7 commits：代码/docs 都有 main 同内容版本丢了 OK，backfill/futures 是 .gz 前端不 fetch + launchd 继续推丢了 OK。但工作区残留 3 个 UU 冲突（stash pop data 冲突），已 `git checkout origin/main -- <3 files>` 清理。后续 feat 分支重建优先 `git stash` + reset，避免 stash pop 撞 data 冲突。
+
+
+## §48 小节AG：2026-08-04 23:44 资金面修复上线 + 通知铃铛融合版上线 + P0-3 sparkline 状态确认 + 3 active 告警清除
+
+### 资金面修复 a_fund_margin /1000 上线
+
+8fc98382 资金面 agent（22:58-23:44，46 分钟）修复 a_fund_margin 20260804 单位错误：DB 原值 13089996（元）应为 13089.996（亿元，/1000）。修复链路：
+
+1. **DB UPDATE**：主库 trade-data/data/sentiment.db + 镜像 trade/data/sentiment.db 同步 UPDATE a_fund_margin 13089996 -> 13089.996
+2. **export 重跑**：发现 export.py L38-39 `sys.path.insert(0, str(ROOT=trade/))` 导致 `import app` 找 trade/app（非 symlink），DB_PATH 解析到 trade/data/sentiment.db（镜像旧值）而非 trade-data/data/sentiment.db（主库新值）。这是 §9 cwd=trade-data 衍生陷阱的根因。修复方式：DB UPDATE 同时写镜像，export 读镜像也能拿到新值
+3. **deploy.sh 被 5min timeout kill**（R2 上传阶段 trade_sim 大文件超时），手动 `git add/commit/push origin HEAD:main` 补完，commit c9361fc9b fast-forward 5efc3cb2e..c9361fc9b
+4. **R2 大文件补传**：export upload-data-large 被 kill，手动 `python scripts/upload_r2.py upload-data-large` 补传 34 文件（含 a-stock-all/5y/3y），R2 a-stock-all.json size 7066987 = 本地 ✓
+5. **线上验证**：CF a-stock-3m.json a_fund_margin 20260804 = 13089.996277130751 ✓，R2 a-stock-all.json size 一致 ✓
+
+### 通知铃铛融合版上线（commit f6cd8bdc4）
+
+融合版（小节AF fix3 基础上）commit f6cd8bdc4：hover/click 都弹 pop + 开关试看两 item。8fc98382 agent push origin HEAD:main 时把 feat 的 f6cd8bdc4 + cc319845f + c9361fc9b 一起推到 main，feat 和 main 同步在 c9361fc9b。
+
+3 域名验证：
+- `ss.fx8.store/sw.js` = `v2-20260804-notify-merge` ✓
+- `sss.sugas.site/sw.js` = `v2-20260804-notify-merge` ✓
+- `s.sugas.site/sw.js` = `v2-20260804-notify-merge` ✓
+- `ss.fx8.store/app.min.js` 含 `data-action="toggle"` ✓（融合版）
+- `ss.fx8.store/data/a-stock-3m.json` a_fund_margin 20260804 = 13089.996 ✓
+
+### P0-3 sparkline 状态确认（commit 丢失但代码存活）
+
+P0-3 commit 064f114a9（13:03 push feat）不在 feat 当前历史 - 被 fix3 agent（小节AF）`git reset --hard origin/main` 重建 feat 时丢了。reflog 确认 064f114a9 在 `feat/iframe-theme-follow@{56}`。
+
+但 **P0-3 代码 ntIndexSparkline 仍存活在 app.js**（当前 8408 行定义 + 7686 行调用 `chartDom.innerHTML = ntIndexSparkline(...)`），fix3 agent 重建 feat 时保留了 P0-3 的 SVG 实现。app.js mtime 22:25:30（后续通知铃铛修改时仍保留 ntIndexSparkline）。
+
+P0-3 ntIndexSparkline 实现完整：SVG polyline + polygon 面积（fill-opacity 0.12）+ 末点 circle + 每点 hover circle（透明，触发原生 `<title>` tooltip）+ preserveAspectRatio=none + vector-effect=non-scaling-stroke。随融合版 f6cd8bdc4 一起上线，**不需重做**。
+
+### 3 active 告警清除
+
+`alert_state.json` 3 条 active 告警（均为 8fc98382 推 main 撞 non-ff 期间 futures_backfill/backfill_evening/etf_national_team push 失败）：
+1. `futures_backfill|error: failed to push|5605ff9b` - active -> recovered
+2. `backfill_evening|error: failed to push|5605ff9b` - active -> recovered
+3. `etf_national_team|exit!=0|1` - active -> recovered
+
+main 已更新到 c9361fc9b，下次这些任务跑会 fast-forward 成功。备份 `alert_state.json.bak-68c51a59-20260804-234731`。改 status=recovered 保留历史记录（比删除安全）。active remaining: 0。
+
+### 8fc98382 教训
+
+1. **deploy.sh 5min timeout kill R2 上传**：deploy.sh 跑 export + build_min + R2 上传，R2 上传到 trade_sim 大文件时超 5min 被 kill，git push 未执行。需手动 `git push origin HEAD:main` 补完 + `python scripts/upload_r2.py upload-data-large` 补传 R2 大文件。后续 deploy.sh 可考虑加长 timeout 或拆分 R2 上传为独立步骤
+2. **export.py sys.path.insert 读镜像非主库**：export.py L38-39 `sys.path.insert(0, str(ROOT=trade/))` 导致 `import app` 找 trade/app（非 symlink trade-data/app），DB_PATH 解析到 trade/data/sentiment.db（镜像）。§9 cwd=trade-data 的根治（commit f0f6df78）需 cwd 切 trade-data 才生效，但 export.py 自己 sys.path.insert 绕过了 cwd。修复：DB UPDATE 同时写主库+镜像，两路径都拿新值
+3. **agent push origin HEAD:main 等价 push feat:main**：8fc98382 在 feat 分支跑，push origin HEAD:main 把 feat 所有 commit（含融合版 f6cd8bdc4 + docs cc319845f + 资金面 c9361fc9b）推到 main。68c51a59 接手时 feat 和 main 已同步，无需再 push
+
+### 上线 commit 链
+
+- `c9361fc9b` data update [all] 2026-08-04_23:36（资金面修复 a_fund_margin 13089.996）- 8fc98382 push main
+- `f6cd8bdc4` feat: 通知铃铛融合（hover/click 都弹 pop + 开关试看两item）- 8fc98382 push main
+- `cc319845f` docs: 落档 fix3 通知铃铛修复 + 管理端看板待办 - 8fc98382 push main
+- feat = main = c9361fc9b（同步）
+
+68c51a59 agent 任务：验证 8fc98382 完成 + P0-3 状态 + 3 域名 + 清告警 + 落档本节。无需再 push feat:main（已同步）。
