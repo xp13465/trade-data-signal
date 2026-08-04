@@ -2904,7 +2904,7 @@ main { padding: 16px 24px; }
   header h1 { display: none; }
   .h5-topbar { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
   .h5-tab-name { font-size: 15px; font-weight: 600; color: var(--text-1); white-space: nowrap; }
-  .h5-meta { display: flex; align-items: center; gap: 6px; }
+  .h5-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
   .pc-collect-time { display: none; }
   .h5-collect-time { display: inline; font-size: 10px; color: var(--text-3); white-space: nowrap; }
 
@@ -3759,7 +3759,7 @@ main { padding: 16px 24px; }
 .site-disclaimer p { margin: 0; }
 /* H5 底部固定导航占位,页脚不被遮挡留白 */
 @media (max-width: 768px) {
-  .site-disclaimer { margin-bottom: 72px; }
+  .site-disclaimer { margin-bottom: 96px; }
 }
 
 /* === C7 P4 market 融合:从 lab.css 移入的 .lab-custom-* 公共样式(全 tab 共享,market tab modal 深度拆解用)=== */
