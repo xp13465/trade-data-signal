@@ -1902,13 +1902,27 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     var sigType = el.getAttribute("data-sig-type");
     var idx = el.getAttribute("data-idx");
     var isNdx = idx === "us_ndx";
+    // 定位路径 HTML（提出 if(sigType) 外：技术参考点信号(sigType+data-idx) + 汪汪队 chip(仅 data-idx 无 sigType) 共用）
+    // 有 data-idx 即生成 .term-pop-locate span，点击切 tab + 滚动高亮卡片（委托在下方 L1973 附近）
+    var _esc = function (s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); };
+    var locateHtml = "";
+    if (idx && typeof indexToMarketSubtab === "function") {
+      var loc = indexToMarketSubtab(idx);
+      if (loc && loc.tab && loc.tabName) {
+        // sentiment 分支：s.* 情绪分(subtab=null)只显示 tabName；汪汪队(subtab=national-team)显示 tabName > name
+        // 其他 tab(market)：一级tab > 二级sub-tab > 指数名
+        var locTxt = loc.tab === "sentiment"
+          ? "📍 完整数据：" + loc.tabName + (loc.subtab ? " > " + (loc.name || "") : "")
+          : "📍 完整数据：" + loc.tabName + " > " + (loc.name || "") + " > " + (loc.idxName || "");
+        locateHtml = '<span class="term-pop-locate" data-locate-idx="' + _esc(idx) + '">' + _esc(locTxt) + '</span>';
+      }
+    }
     if (sigType) {
       pop.classList.add("term-pop--sig", "term-pop--sig-" + sigType);
       if (isNdx) pop.classList.add("term-pop--ndx");
       // 文本结构: [信号标签(_typeLabel), signalLabel(子描述), 指数名, reason..., 点击查看走势图] join(" · ")
       // 信号标签 + 子描述(超卖拐点/下轨拐点/上轨突破/趋势转向/ATR止损 等)同属"信号描述区",
       // 都用 term-pop-sig-label 着色加粗跟信号配色, 视觉连贯; 指数名段单独 chip 强化; 非信号段(日期/数值)默认色
-      var _esc = function (s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); };
       var parts = String(text == null ? "" : text).split(" · ");
       var idxName = idx && typeof indexIdToName === "function" ? indexIdToName(idx) : "";
       var html = parts.map(function (p, i) {
@@ -1916,20 +1930,15 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         if (idxName && (p === idxName || p === idx)) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
-      // 定位路径：告知用户完整数据在哪个 tab，点击切 tab + 滚动高亮卡片
-      // s.* -> "📍 完整数据：盘面温测"；其他 -> "📍 完整数据：指数表现 > 港股 > 恒生国企"（一级tab > 二级sub-tab > 指数名）
-      if (idx && typeof indexToMarketSubtab === "function") {
-        var loc = indexToMarketSubtab(idx);
-        if (loc && loc.tab && loc.tabName) {
-          var locTxt = loc.tab === "sentiment"
-            ? "📍 完整数据：" + loc.tabName
-            : "📍 完整数据：" + loc.tabName + " > " + (loc.name || "") + " > " + (loc.idxName || "");
-          html += '<span class="term-pop-locate" data-locate-idx="' + _esc(idx) + '">' + _esc(locTxt) + '</span>';
-        }
-      }
+      if (locateHtml) html += locateHtml;
       pop.innerHTML = html;
     } else {
-      pop.textContent = text;
+      // 汪汪队 chip（无 sigType 仅 data-idx）：text 纯文本 escape 后追加 locate span（有 data-idx 时）
+      if (locateHtml) {
+        pop.innerHTML = _esc(text) + locateHtml;
+      } else {
+        pop.textContent = text;
+      }
     }
     pop.style.display = "block";
     popEl = el;
@@ -6978,6 +6987,7 @@ function _renderNtSignalList(daily, todayDate) {
       }
       chips +=
         '<span class="sig-item sig-clickable" data-nt-date="' + d.date + '" data-nt-type="' + st + '" ' +
+        'data-idx="national-team" ' +
         'data-tip="' + _escAttr(tip) + '" title="点击查看当日明细">' +
         '<b class="' + NT_SIG_CLASS[st] + '">' + NT_LABEL[st] + cnt + suffix + '</b></span>';
     }
@@ -18090,6 +18100,10 @@ const _HK_INDEX_IDS = new Set(["hsi","hstech","hscei","hk_cesg10","hk_cshkdiv","
 const _GLOBAL_INDEX_IDS = new Set(["us_dji","us_ixic","us_spx","us_ndx","nikkei225","kospi","ftse100","dax","cac40","cgb_idx","cgb_10y_etf","cgb_10y_future"]);
 function indexToMarketSubtab(indexId) {
   if (!indexId) return { tab: null, subtab: null, tabName: null, name: null, idxName: "" };
+  // 汪汪队 chip（data-idx="national-team"，无 sigType）-> 盘面温测 tab > 汪汪队 subtab
+  if (indexId === "national-team") {
+    return { tab: "sentiment", subtab: "national-team", tabName: _MAIN_TAB_CN["sentiment"], name: "汪汪队", idxName: "" };
+  }
   // s.* 情绪分 -> 盘面温测 tab
   if (indexId.startsWith("s.")) {
     return { tab: "sentiment", subtab: null, tabName: _MAIN_TAB_CN["sentiment"], name: _MAIN_TAB_CN["sentiment"], idxName: "" };
