@@ -5497,6 +5497,17 @@ main { padding: 16px 24px; }
   align-items: center;
   gap: 6px;
 }
+/* 透明桥接：覆盖 .auth-dropdown margin-top:6px 间隙，鼠标从头像移到菜单时
+   :hover 链不断裂（::after 是 wrap 伪元素，hover ::after = hover wrap，保持 dropdown 显示）。
+   修复"离开焦点菜单消失"(2026-07-20)。*/
+.auth-user-wrap::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
 /* 下拉菜单（PC :hover 显示 / H5 .open 显示） */
 .auth-dropdown {
   position: absolute;

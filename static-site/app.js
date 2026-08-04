@@ -17207,11 +17207,13 @@ function applyAuthState() {
                  '</span>';
     // title 改 aria-label：避免 _initTermPop 把 [title] 迁移到 data-tip 后 show .term-pop 浮层
     // (z-index 9999 > .auth-dropdown z-index 60) 盖住下拉菜单致点不到「退出登录」(2026-08-10 修复)
-    if (pcBtn) { pcBtn.innerHTML = pcHtml; pcBtn.classList.add('logged-in'); pcBtn.setAttribute('aria-label', (u.name || '账户') + '（悬停查看菜单）'); pcBtn.setAttribute('aria-haspopup', 'true'); pcBtn.setAttribute('aria-expanded', 'false'); }
-    if (h5Btn) { h5Btn.innerHTML = h5Html; h5Btn.classList.add('logged-in'); h5Btn.setAttribute('aria-label', (u.name || '账户') + '（点击查看菜单）'); h5Btn.setAttribute('aria-haspopup', 'true'); h5Btn.setAttribute('aria-expanded', 'false'); }
+    // 2026-07-20 根治：index.html 硬编码 title 已改 aria-label + 此处 removeAttribute('title') 双保险
+    // 清掉任何残留 title（HTML 初始/别处动态加的），只留 aria-label（_initTermPop 不识别 aria-label）
+    if (pcBtn) { pcBtn.removeAttribute('title'); pcBtn.innerHTML = pcHtml; pcBtn.classList.add('logged-in'); pcBtn.setAttribute('aria-label', (u.name || '账户') + '（悬停查看菜单）'); pcBtn.setAttribute('aria-haspopup', 'true'); pcBtn.setAttribute('aria-expanded', 'false'); }
+    if (h5Btn) { h5Btn.removeAttribute('title'); h5Btn.innerHTML = h5Html; h5Btn.classList.add('logged-in'); h5Btn.setAttribute('aria-label', (u.name || '账户') + '（点击查看菜单）'); h5Btn.setAttribute('aria-haspopup', 'true'); h5Btn.setAttribute('aria-expanded', 'false'); }
   } else {
-    if (pcBtn) { pcBtn.innerHTML = '👤 登录'; pcBtn.classList.remove('logged-in'); pcBtn.setAttribute('aria-label', '登录 / 账户'); }
-    if (h5Btn) { h5Btn.innerHTML = '👤'; h5Btn.classList.remove('logged-in'); h5Btn.setAttribute('aria-label', '登录 / 账户'); }
+    if (pcBtn) { pcBtn.removeAttribute('title'); pcBtn.innerHTML = '👤 登录'; pcBtn.classList.remove('logged-in'); pcBtn.setAttribute('aria-label', '登录 / 账户'); }
+    if (h5Btn) { h5Btn.removeAttribute('title'); h5Btn.innerHTML = '👤'; h5Btn.classList.remove('logged-in'); h5Btn.setAttribute('aria-label', '登录 / 账户'); }
   }
   // gating：基金评分 tab 为登录特权 fund_score，未登录隐藏 PC+H5 两个 fund tab 按钮（applyAuthState 每次 fetchAuthState 后调用，reload 后自动重判）
   var _fundVisible = st.logged_in && hasPrivilege('fund_score');
