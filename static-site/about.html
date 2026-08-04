@@ -114,7 +114,7 @@
       <ul>
         <li>顶部 <strong>风险预警条</strong>:显示当日 8+8 维度 AI 风险预警的 high_alert(高位预警,0-100,越高越危险)与 low_alert(低位机会,0-100,越高越接近底)。分级:&gt;88 高危/机遇,&gt;75 警示/机会,&gt;60 关注,&lt;60 中性。</li>
         <li><strong>综合情绪分卡</strong>:A 股综合情绪分(a_sentiment,6 项加权:涨跌家数 25% + 涨停数 20% + 炸板率 15% + 连板高度 15% + 成交额 10% + 北向资金 15%)、跨市场综合评分(cross_market,去极值截尾均值)、恐贪指数(fear_greed)。阈值:&lt;20 冰点,&gt;80 过热。</li>
-        <li><strong>当日信号 chips</strong>:显示当日触发的 buy/buy_aux/sell 等信号数量。</li>
+        <li><strong>当日信号 chips</strong>:显示当日触发的主关注/辅关注/风险 等信号数量。</li>
         <li><strong>10 指数迷你走势图</strong>:上证/深成/沪深300/上证50/创业板/科创50/北证50/中证500/中证1000/恒生。</li>
         <li><strong>盘中快照 chips</strong>(仅盘中有):30 分钟节奏的急涨急跌 ±3%/±5%/±7% 三档告警 + 放量 + 突破提示。</li>
         <li><strong>31 行业热力图</strong>:申万一级 31 行业当日涨跌幅热力图。</li>
@@ -134,14 +134,14 @@
       <table>
         <thead><tr><th>信号类型</th><th>颜色</th><th>触发条件</th><th>语义</th></tr></thead>
         <tbody>
-          <tr><td>buy(主关注)</td><td>红 #e6492e</td><td>RSI(14) 上穿 30(基线)或 25(科创50/电力设备/传媒)</td><td>超卖拐点,均值回归思路</td></tr>
-          <tr><td>buy_aux(辅关注)</td><td>粉紫 #d63384</td><td>BB 下轨回归(+部分品类叠加 RSI 上穿40 / 反弹2%)</td><td>超卖反弹,强势市更敏感,互补 C1 盲区</td></tr>
-          <tr><td>buy_special(追关注)</td><td>金 #ffd700</td><td>唐奇安 20 日上轨突破 + 5 日站稳确认 + h5/R2 真过滤</td><td>趋势跟踪,激进型,高回撤高收益</td></tr>
-          <tr><td>buy_backup(备关注)</td><td>紫 #9c27b0</td><td>Supertrend ATR(10)×3 翻多 + 3 日二次确认</td><td>趋势转向,实验性</td></tr>
-          <tr><td>sell(风险)</td><td>绿/灰/橙</td><td>20 日高回落 5% + MA60 多头 + MACD 止叉</td><td>趋势转弱/收益兑现逢高谨慎提示(非做空)</td></tr>
-          <tr><td>sell_stop_loss(风控)</td><td>蓝</td><td>ATR×3.5 Chandelier Exit 首次跌破(csi_div=4.5)</td><td>移动风险控制,从高点回撤 3.5×ATR</td></tr>
-          <tr><td>band_hold(持有)</td><td>橙 #ff9800</td><td>国债波段:无超买超卖(维持仓位)</td><td>国债专属,详见 §3.6</td></tr>
-          <tr><td>band_sell(波段调整)</td><td>草绿 #8bc34a</td><td>国债波段:触超买减仓 20-30%</td><td>国债专属,与 sell 区分"没卖重"</td></tr>
+          <tr><td>主关注</td><td>红 #e6492e</td><td>RSI(14) 上穿 30(基线)或 25(科创50/电力设备/传媒)</td><td>超卖拐点,均值回归思路</td></tr>
+          <tr><td>辅关注</td><td>粉紫 #d63384</td><td>BB 下轨回归(+部分品类叠加 RSI 上穿40 / 反弹2%)</td><td>超卖反弹,强势市更敏感,互补 C1 盲区</td></tr>
+          <tr><td>追关注</td><td>金 #ffd700</td><td>唐奇安 20 日上轨突破 + 5 日站稳确认 + h5/R2 真过滤</td><td>趋势跟踪,激进型,高回撤高收益</td></tr>
+          <tr><td>备关注</td><td>紫 #9c27b0</td><td>Supertrend ATR(10)×3 翻多 + 3 日二次确认</td><td>趋势转向,实验性</td></tr>
+          <tr><td>风险</td><td>绿/灰/橙</td><td>20 日高回落 5% + MA60 多头 + MACD 止叉</td><td>趋势转弱/收益兑现逢高谨慎提示(非做空)</td></tr>
+          <tr><td>风控</td><td>蓝</td><td>ATR×3.5 Chandelier Exit 首次跌破(csi_div=4.5)</td><td>移动风险控制,从高点回撤 3.5×ATR</td></tr>
+          <tr><td>持有</td><td>橙 #ff9800</td><td>国债波段:无超买超卖(维持仓位)</td><td>国债专属,详见 §3.6</td></tr>
+          <tr><td>波段调整</td><td>草绿 #8bc34a</td><td>国债波段:触超买减仓 20-30%</td><td>国债专属,与风险区分"没卖重"</td></tr>
         </tbody>
       </table>
       <p><strong>怎么看</strong>:</p>
@@ -209,8 +209,8 @@
       <p><strong>看什么</strong>:代表性 ETF 清单的多维度评分排序。</p>
       <ul>
         <li><strong>数据源</strong>:<code>etf_score_list.json</code>,聚合 23 只汪汪队宽基 ETF + 全市场代表性 ETF 的 8+8 维度评分。</li>
-        <li><strong>关注榜(buy_list)</strong>:按 low_alert(低位机会)排序的 top 8,含 etf_code/name/score/hands(建议仓位 0-3 手)/reason_summary(理由)。</li>
-        <li><strong>风险提示榜(sell_list)</strong>:按 high_alert(高位预警)排序的 top 12,含 sell_signal(逢高谨慎/防范风险/观察/持有)。</li>
+        <li><strong>关注榜</strong>:按 low_alert(低位机会)排序的 top 8,含 etf_code/name/score/hands(建议仓位 0-3 手)/reason_summary(理由)。</li>
+        <li><strong>风险提示榜</strong>:按 high_alert(高位预警)排序的 top 12,含 风险提示字段(逢高谨慎/防范风险/观察/持有)。</li>
         <li><strong>持仓输入</strong>:可输入自己持有的 ETF 代码,高亮显示其在评分榜中的排名位置。</li>
         <li><strong>搜索 + 分页</strong>:支持按代码/名称搜索,分页浏览。</li>
       </ul>
@@ -222,7 +222,7 @@
       <p><strong>怎么用</strong>:</p>
       <ul>
         <li><strong>关注低位机会参考</strong>:关注榜 top + hands≥2 手的 ETF,可分批关注(非一次性满仓)。</li>
-        <li><strong>逢高谨慎参考</strong>:风险提示榜 top + sell_signal 含"逢高谨慎/防范风险"的 ETF,注意降仓锁利润。</li>
+        <li><strong>逢高谨慎参考</strong>:风险提示榜 top + 风险提示字段 含"逢高谨慎/防范风险"的 ETF,注意降仓锁利润。</li>
         <li><strong>持仓对账</strong>:输入持仓 ETF 看其在评分榜中的位置,判断当前持仓的强弱。</li>
         <li>⚠️ 仓位建议为研究参考,非投资建议;hands=3 手不等于"全仓关注低位机会",应根据自身风险承受能力调整。</li>
       </ul>
@@ -231,7 +231,7 @@
       <p><strong>看什么</strong>:3 个国债品种的波段仓位管理信号(2026-07-24 上线)。</p>
       <ul>
         <li><strong>3 个品种</strong>:上证国债指数(cgb_idx)/ 10年国债ETF(cgb_10y_etf)/ 10 年国债期货主力(cgb_10y_future)。</li>
-        <li><strong>4 种信号</strong>:逢高谨慎 / 接回 / 风险控制 / 持有(band_hold)。</li>
+        <li><strong>4 种信号</strong>:逢高谨慎 / 接回 / 风险控制 / 持有。</li>
         <li><strong>指标</strong>:MA20/MA60 乖离 + RSI14 + 布林带(20, 2σ)。</li>
       </ul>
       <p><strong>触发条件</strong>:</p>
@@ -241,7 +241,7 @@
         <li>风险控制:close&lt;MA60×0.98</li>
         <li>持有:无以上</li>
       </ul>
-      <p><strong>为什么单独做国债波段</strong>:原 D1 风险提醒(20 日高回落 5%)对国债完全失效(国债波动小,D1 从未触发,sell=0 无理由)。波段策略用 RSI+乖离+布林三指标,逢高谨慎/接回/风险控制三动作,实盘化每日独立判断。</p>
+      <p><strong>为什么单独做国债波段</strong>:原 D1 风险提醒(20 日高回落 5%)对国债完全失效(国债波动小,D1 从未触发,风险=0 无理由)。波段策略用 RSI+乖离+布林三指标,逢高谨慎/接回/风险控制三动作,实盘化每日独立判断。</p>
 
       <h3>3.7 策略实验(lab)</h3>
       <p><strong>看什么</strong>:22 策略多周期回测矩阵 + 自定义标的分析。</p>
@@ -259,7 +259,7 @@
       <h3>4.1 盘前(09:00-09:30)</h3>
       <ul>
         <li>打开网站 -&gt; 市场全景 Tab,看昨日的<strong>风险预警条</strong>与<strong>综合情绪分</strong>。</li>
-        <li>看<strong>当日信号 chips</strong>(昨日盘后计算的 buy/buy_aux/sell 信号)。</li>
+        <li>看<strong>当日信号 chips</strong>(昨日盘后计算的主关注/辅关注/风险 信号)。</li>
         <li>看<strong>美股隔夜表现</strong>(道琼斯/纳斯达克/标普500 迷你图)判断外围情绪。</li>
         <li>制定当日计划:有无触发关注点参考(关注)/风险提醒参考(检查仓位)/风险控制位调整。</li>
       </ul>
@@ -310,12 +310,12 @@
       <p><strong>口径</strong>:信号触发后 5/10/20 日的 forward return 胜率(非配对交易收益)。</p>
       <p><strong>主关注</strong>(近3年 10d 胜率,基线 RSI 上穿 30):</p>
       <ul>
-        <li>沪深300 buy: 近3年 10d 胜率约 50-55%,盈亏比 1.0-1.2(REQUIREMENTS §7.7:近3年 10日 C1 盈亏比 1.13,B1_dual 1.18)。</li>
-        <li>科创50 buy_filter=rsi_cross_25: 凯利 f 15.92%-&gt;57.56%(收紧后),胜率 57.1%-&gt;84.6%,n=13(样本小,§7.4)。</li>
-        <li>电力设备 buy_filter=rsi_cross_25: 凯利 f 0%-&gt;29.55%,胜率 48.0%-&gt;60.9%,n=23。</li>
-        <li>传媒 buy_filter=rsi_cross_25: 凯利 f 0%-&gt;41.74%,胜率 44.6%-&gt;60.9%,n=23。</li>
+        <li>沪深300 主关注: 近3年 10d 胜率约 50-55%,盈亏比 1.0-1.2(REQUIREMENTS §7.7:近3年 10日 C1 盈亏比 1.13,B1_dual 1.18)。</li>
+        <li>科创50 主关注过滤=rsi_cross_25: 凯利 f 15.92%-&gt;57.56%(收紧后),胜率 57.1%-&gt;84.6%,n=13(样本小,§7.4)。</li>
+        <li>电力设备 主关注过滤=rsi_cross_25: 凯利 f 0%-&gt;29.55%,胜率 48.0%-&gt;60.9%,n=23。</li>
+        <li>传媒 主关注过滤=rsi_cross_25: 凯利 f 0%-&gt;41.74%,胜率 44.6%-&gt;60.9%,n=23。</li>
       </ul>
-      <p><strong>辅关注 buy_aux</strong>(per-index 增强后):</p>
+      <p><strong>辅关注</strong>(per-index 增强后):</p>
       <ul>
         <li>家用电器(rsi_cross_40): 凯利 f -38.5%-&gt;+16.2% 转正,胜率 44.8%-&gt;54.5%,盈亏比 0.66-&gt;1.19,n=33。</li>
         <li>基础化工(close_above_bl_2pct): 凯利 f -21%-&gt;+20% 转正,胜率 42.5%-&gt;57.9%,盈亏比 0.91-&gt;1.12,n=19&lt;30 样本警示。</li>
@@ -331,7 +331,7 @@
         <li>D1+S1+MACD(当前生产): 凯利建议率 18.3%-&gt;43.3%。</li>
         <li>⚠️ <strong>风险提醒本质难预测</strong>:指数向上漂移,S1 近3年盈亏比仍&lt;1,胜率≈50% 接近随机,<strong>不可作为独立留意高位预警指令</strong>,定位"趋势转弱/收益兑现逢高谨慎提示"。</li>
       </ul>
-      <p><strong>风控 sell_stop_loss</strong>(ATR×3.5 Chandelier Exit):</p>
+      <p><strong>风控</strong>(ATR×3.5 Chandelier Exit):</p>
       <ul>
         <li>回测胜率 46.91%,均值 +1.76%(回测口径,entry 配 ATR×3 出场)。</li>
         <li>第一个风控过滤后:盈亏比 5/5 全升(hs300 0.961-&gt;1.098,sh 0.919-&gt;1.038 突破 1.0)。</li>
@@ -480,7 +480,7 @@
           <tr><td>20 日</td><td class="num">hands=3 &lt; hands=1</td><td class="num">-</td><td>代理局限</td></tr>
         </tbody>
       </table>
-      <p><strong>核心价值</strong>:区分度(buy_list 3 手占比 80%-&gt;15%,有加有砍),非预测未来收益。历史回测用 position 分位+RSI 代理 low_alert(真实历史未存),实际效果应优于回测。</p>
+      <p><strong>核心价值</strong>:区分度(关注榜 3 手占比 80%-&gt;15%,有加有砍),非预测未来收益。历史回测用 position 分位+RSI 代理 low_alert(真实历史未存),实际效果应优于回测。</p>
 
       <h3>5.5 22 策略实验室回测矩阵(lab.js)</h3>
       <p><strong>口径</strong>:244 资产(13 指数 + 31 行业 + 200 抽样个股)× 5 窗口 × 4 horizon(5d/10d/20d/60d)。</p>
@@ -504,8 +504,8 @@
 
       <h3>5.6 无回测数据或回测失效的品种(诚实说明)</h3>
       <ul>
-        <li><strong>离岸人民币(usdcnh)</strong>:近3年 0 信号(干预市单边上行,RSI 超卖后继续跌,skip_buy)。不可用 RSI 关注/风险提醒策略,仅作宏观参考指标。</li>
-        <li><strong>中美利差(cn_us_spread)</strong>:风险提醒完全反向(风险提醒后涨 15-25%,skip_sell)。不可用风险提醒策略。</li>
+        <li><strong>离岸人民币(usdcnh)</strong>:近3年 0 信号(干预市单边上行,RSI 超卖后继续跌,跳过主关注)。不可用 RSI 关注/风险提醒策略,仅作宏观参考指标。</li>
+        <li><strong>中美利差(cn_us_spread)</strong>:风险提醒完全反向(风险提醒后涨 15-25%,跳过风险)。不可用风险提醒策略。</li>
         <li><strong>中国10年国债收益率(g.cn10y)/ 美国10年国债收益率(g.us10y)</strong>:作为指标序列用 RSI 关注/风险不适用,近3年主关注年化 -10.6% / -2.4%(全负)。⚠️ 注意:这是 g.cn10y/g.us10y <strong>收益率序列</strong>的回测,不是 §5.3 的国债波段策略(cgb_idx/cgb_10y_etf/cgb_10y_future),两者不同。</li>
         <li><strong>板块轮动 A9 信号</strong>:仅形态频次非回测(<code>ind_flow</code> 仅 6-7 月历史,样本不足),文案明确"近 20 交易日统计",不可作为回测收益依据。</li>
         <li><strong>行业资金流(ind_flow)/ 行业换手率(ind_turn)</strong>:历史仅 6-7 个月(东财 fflow 接口~121 天历史),不支持长期回测。</li>
@@ -634,7 +634,7 @@
         <li>评分榜中持仓行高亮,显示"代码 名称 #排名"。</li>
         <li>点"只看持仓(N)"chip 仅显示持仓行。</li>
       </ol>
-      <p><strong>学习要点</strong>:持仓 ETF 在关注榜 = 低位机会(可逢低关注);持仓 ETF 在风险提示榜 + sell_signal 含"逢高谨慎/防范风险" = 高位预警(注意降仓);持仓 ETF 不在榜 = 评分中性(观望)。</p>
+      <p><strong>学习要点</strong>:持仓 ETF 在关注榜 = 低位机会(可逢低关注);持仓 ETF 在风险提示榜 + 风险提示字段 含"逢高谨慎/防范风险" = 高位预警(注意降仓);持仓 ETF 不在榜 = 评分中性(观望)。</p>
     </section>
 
     <section id="sec-appendix">
