@@ -5701,8 +5701,8 @@ function _renderIntradayInSparkCells(sparkGrid, snap) {
   });
 }
 
-// 分时图主入口：分时图嵌入 spark-cell 内，三态分段控件(收起/仅分时/展开)控制显隐
-// 三态：collapsed(收起,只日K) / intraday-only(仅分时,隐藏日K) / expanded(展开,日K+分时)
+// 分时图主入口：分时图嵌入 spark-cell 内，三态分段控件(仅日图/仅分时/全展开)控制显隐
+// 三态：collapsed(仅日图,只日K) / intraday-only(仅分时,隐藏日K) / expanded(全展开,日K+分时)
 function renderIntradaySection(sparkGrid, snap) {
   const isClosed = !snap || snap.is_closed !== false;
   // 默认：盘中=expanded 盘后=collapsed；localStorage intraday-chart-mode 记忆覆盖
@@ -5724,9 +5724,9 @@ function renderIntradaySection(sparkGrid, snap) {
   seg.className = "intraday-seg-group";
   const pulseHtml = isClosed ? "" : '<span class="dyn-pulse"><span class="dyn-pulse-dot"></span>1min</span>';
   const segDefs = [
-    { key: "collapsed",     label: "收起" },
+    { key: "collapsed",     label: "仅日图" },
     { key: "intraday-only", label: "仅分时" },
-    { key: "expanded",      label: "展开" + pulseHtml },
+    { key: "expanded",      label: "全展开" + pulseHtml },
   ];
   seg.innerHTML = segDefs.map((s) =>
     `<button type="button" class="intraday-seg${s.key === mode ? " active" : ""}" data-mode="${s.key}">${s.label}</button>`
@@ -5738,8 +5738,8 @@ function renderIntradaySection(sparkGrid, snap) {
     seg.querySelectorAll(".intraday-seg").forEach((b) => {
       b.classList.toggle("active", b.getAttribute("data-mode") === newMode);
     });
-    const showIntraday = newMode !== "collapsed";     // 仅分时/展开 显示分时
-    const showDaily    = newMode !== "intraday-only"; // 收起/展开 显示日K
+    const showIntraday = newMode !== "collapsed";     // 仅分时/全展开 显示分时
+    const showDaily    = newMode !== "intraday-only"; // 仅日图/全展开 显示日K
     sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]").forEach((el) => {
       el.classList.toggle("collapsed", !showIntraday);
       // 显示分时且容器为空才渲染（避免重复渲染）
