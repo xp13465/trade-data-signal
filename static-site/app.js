@@ -6746,7 +6746,7 @@ function initNotifyButton() {
   btn.className = 'notify-btn pc-notify-btn';
   btn.type = 'button';
   btn.setAttribute('aria-label', '浏览器通知');
-  btn.textContent = '🔔';
+  btn.innerHTML = '<span class="notify-icon">🔔</span>';
   const themeBtn = document.querySelector('.pc-theme-btn');
   if (themeBtn && themeBtn.parentNode) {
     themeBtn.parentNode.insertBefore(btn, themeBtn);
@@ -6802,16 +6802,16 @@ function initNotifyButton() {
       btn.title = _isSafari()
         ? 'Safari 通知权限不同步（已知 bug）。请到 Safari > 设置 > 网站 > 通知 移除本站后，完全退出 Safari (Cmd+Q) 重开，再点铃铛授权'
         : '通知被浏览器屏蔽，去浏览器设置恢复权限后重试';
-      btn.textContent = '🔕';
+      btn.querySelector('.notify-icon').textContent = '🔕';
     } else if (enabled && perm === 'granted') {
       btn.classList.add('on');
       btn.classList.remove('off');
       btn.title = '浏览器通知已开启（点击关闭，hover 弹"试看"可重测通知）';
-      btn.textContent = '🔔';
+      btn.querySelector('.notify-icon').textContent = '🔔';
     } else {
       btn.classList.remove('on', 'off');
       btn.title = '点击开启浏览器通知（盘中异动/新信号弹 Windows 通知中心）';
-      btn.textContent = '🔔';
+      btn.querySelector('.notify-icon').textContent = '🔔';
     }
     // 方案B(2026-08-04): 试看移到 hover popup，同步刷新 popup 状态
     updatePopState();
@@ -17698,7 +17698,7 @@ function initAuthButton() {
         var ddAp = btn.querySelector('.auth-dropdown');
         if (ddAp) ddAp.classList.remove('open');
         btn.setAttribute('aria-expanded', 'false');
-        window.location.href = '/admin/feedback.html';
+        window.open('/admin/feedback.html', '_blank');
         return;
       }
       if (item && item.dataset.action === 'logout') {
