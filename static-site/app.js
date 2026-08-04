@@ -7515,7 +7515,7 @@ async function renderOverview() {
   content.appendChild(cards);
 
   // 指数 sparkline 网格
-  await loadEcharts();   // P0-1: sparkline 用 echarts，fetch+KPI DOM 已先行渲染（echarts 并行加载，此处按需 await）
+  await loadEcharts();   // P0-3: sparkline 已改 SVG 不依赖 echarts；此处 await 为后续 lineChart(恐贪/A股情绪分)+盘中分时图(renderIntradaySection)就绪
   const grid = document.createElement("div");
   grid.className = "spark-grid";
   content.appendChild(grid);
@@ -7545,20 +7545,7 @@ async function renderOverview() {
       <div class="spark-foot">${_lastClose.toFixed(2)} <span style="color:${_chgColor}">${_chgText}</span></div>`;
     grid.appendChild(cell);
     const chartDom = cell.querySelector(".spark-chart");
-    const exist = echarts.getInstanceByDom(chartDom);
-    if (exist) exist.dispose();
-    const sc = echarts.init(chartDom);
-    sc.setOption(withTheme({
-      grid: { left: 2, right: 2, top: 4, bottom: 4 },
-      xAxis: { type: "category", show: false, data: idx.dates },
-      yAxis: { type: "value", show: false, scale: true },
-      tooltip: { trigger: "axis", formatter: (p) => `${p[0].axisValue}<br/>${(p[0].value == null || isNaN(Number(p[0].value))) ? "-" : Number(p[0].value).toFixed(2)}` },
-      series: [{
-        type: "line", smooth: true, symbol: "none", data: idx.closes,
-        lineStyle: { color, width: 1.5 }, areaStyle: { color, opacity: 0.12 },
-      }],
-    }));
-    charts.push(sc);
+    chartDom.innerHTML = ntIndexSparkline(idx.closes, idx.dates, color, 300, 72);
     addCardTimeBadge(cell, idx.last_date, snap, "t0", "", true); // isIndexSpark=true: 分时图指数sparkline卡片用腾讯1min时间
   }
   _dynamicBadgeIds = _sparkDynIds;
@@ -8275,6 +8262,43 @@ function ntSparkline(daily, w, h) {
   return '<svg class="nt-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
     '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
     '<circle cx="' + w.toFixed(1) + '" cy="' + lastY.toFixed(1) + '" r="2.2" fill="currentColor"/></svg>';
+}
+
+// 首页指数 sparkline（近N日收盘价迷你折线）：纯 SVG 不走 ECharts，省 11 个 echarts.init 开销（P0-3）。
+// 等价 echarts line+areaStyle+tooltip：polygon 面积填充 + polyline 折线 + 末点 circle + 每点 <title> 原生 hover tooltip。
+// preserveAspectRatio="none" + vector-effect="non-scaling-stroke"：横向拉伸填满容器宽度，stroke 保持 1.5px 不变粗。
+function ntIndexSparkline(closes, dates, color, w, h) {
+  if (!closes || closes.length < 2) return "";
+  w = w || 300; h = h || 72;
+  var vals = closes.map(function (v) { return Number(v); }).filter(function (v) { return !isNaN(v); });
+  if (vals.length < 2) return "";
+  var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+  var range = max - min || 1;
+  var n = closes.length;
+  var pad = 2;
+  var pts = closes.map(function (v, i) {
+    var x = (i / (n - 1)) * w;
+    var y = h - pad - ((Number(v) - min) / range) * (h - pad * 2);
+    if (isNaN(y)) y = h - pad;
+    return [x, y];
+  });
+  var polyStr = pts.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ");
+  var lastY = pts[n - 1][1];
+  // 面积 polygon：折线点闭合到底部两端
+  var areaPts = "0," + h + " " + polyStr + " " + w.toFixed(1) + "," + h;
+  // 每点 hover circle（透明，仅触发原生 <title> tooltip）
+  var hoverCircles = pts.map(function (p, i) {
+    var d = (dates && dates[i]) ? dates[i] : "";
+    var raw = closes[i];
+    var val = (raw != null && !isNaN(Number(raw))) ? Number(raw).toFixed(2) : "-";
+    return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="4" fill="transparent"><title>' + d + " " + val + '</title></circle>';
+  }).join("");
+  return '<svg class="idx-spark" width="100%" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' +
+    '<polygon points="' + areaPts + '" fill="' + color + '" fill-opacity="0.12" stroke="none"/>' +
+    '<polyline points="' + polyStr + '" fill="none" stroke="' + color + '" stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
+    '<circle cx="' + w.toFixed(1) + '" cy="' + lastY.toFixed(1) + '" r="2.2" fill="' + color + '"/>' +
+    hoverCircles +
+    '</svg>';
 }
 
 // 首页🐶卡片7天总况：堆叠迷你柱状图（红进/绿出/橙量），柱底标MM-DD，金点=共振日

@@ -1046,6 +1046,7 @@ main { padding: 16px 24px; }
   width: 100%;
   min-height: 72px;
 }
+.spark-chart .idx-spark { display: block; } /* P0-3: 指数 sparkline SVG，消除 inline baseline 间隙 */
 .spark-cell {
   background: var(--bg-card);
   border-radius: 8px;
