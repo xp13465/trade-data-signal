@@ -5411,15 +5411,53 @@ main { padding: 16px 24px; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.auth-logout {
-  font-size: 14px;
-  color: var(--text-3);
-  padding: 0 2px;
-  line-height: 1;
-  cursor: pointer;
-  transition: color 0.15s;
+/* 头像区外包容器：相对定位承载下拉菜单 */
+.auth-user-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
-.auth-logout:hover { color: var(--mx-good-fg, #c92a2a); }
+/* 下拉菜单（PC :hover 显示 / H5 .open 显示） */
+.auth-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  min-width: 140px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  z-index: 60;
+  display: none;
+}
+.pc-auth-btn .auth-user-wrap:hover .auth-dropdown,
+.pc-auth-btn .auth-user-wrap:focus-within .auth-dropdown {
+  display: block;
+}
+.h5-auth-btn .auth-dropdown.open { display: block; }
+.auth-dropdown-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-1);
+  cursor: pointer;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  text-align: center;
+}
+.auth-dropdown-item:hover,
+.auth-dropdown-item:focus {
+  background: var(--bg-hover);
+  color: var(--mx-good-fg, #c92a2a);
+  outline: none;
+}
+[data-theme="redgold"] .auth-dropdown-item:hover,
+[data-theme="redgold"] .auth-dropdown-item:focus {
+  color: #e6492e;
+}
 
 /* 登录方式选择弹窗（复用 theme-modal 结构/层级，CSS 变量自动适配 4 套皮肤） */
 .auth-login-modal { z-index: 130; }
@@ -5510,14 +5548,11 @@ main { padding: 16px 24px; }
     border-color: #e6492e;
     color: #fff;
   }
-  /* H5 已登录态：头像 + 退出符号（不显示名字，节省窄屏空间，退出按钮可见可点） */
-  .h5-auth-btn.logged-in { gap: 4px; padding: 3px 8px; }
-  .h5-auth-btn .auth-logout {
-    font-size: 15px;
-    color: var(--text-2);
-    padding: 0 2px;
-    line-height: 1;
-  }
-  .h5-auth-btn .auth-logout:active { color: var(--mx-good-fg, #c92a2a); }
+  /* H5 已登录态：头像（不显示名字，节省窄屏空间，点击弹下拉菜单） */
+  .h5-auth-btn.logged-in { padding: 3px 8px; }
+  .h5-auth-btn .auth-user-wrap { gap: 0; }
+  /* H5 下拉菜单右对齐避免溢出窄屏 */
+  .h5-auth-btn .auth-dropdown { right: 0; left: auto; min-width: 120px; }
+  .h5-auth-btn .auth-dropdown-item { font-size: 14px; padding: 9px 12px; }
   .auth-login-modal .modal-body { width: 94vw; }
 }

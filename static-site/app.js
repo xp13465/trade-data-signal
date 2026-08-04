@@ -17053,13 +17053,21 @@ function applyAuthState() {
     var name = (u.name || '已登录');
     var avatar = u.avatar || '';
     var avatarStyle = avatar ? ' style="background-image:url(\'' + avatar.replace(/'/g, '%27') + '\');background-size:cover;background-position:center;"' : '';
-    var pcHtml = '<span class="auth-avatar"' + avatarStyle + '></span>' +
-                 '<span class="auth-name">' + _escAttr(name) + '</span>' +
-                 '<span class="auth-logout" title="退出登录" role="button" aria-label="退出登录">⎋</span>';
-    var h5Html = '<span class="auth-avatar"' + avatarStyle + '></span>' +
-                 '<span class="auth-logout" title="退出登录" role="button" aria-label="退出登录">⎋</span>';
-    if (pcBtn) { pcBtn.innerHTML = pcHtml; pcBtn.classList.add('logged-in'); pcBtn.setAttribute('title', (u.name || '账户') + '（点击退出）'); }
-    if (h5Btn) { h5Btn.innerHTML = h5Html; h5Btn.classList.add('logged-in'); h5Btn.setAttribute('title', (u.name || '账户') + '（点击退出）'); }
+    // 头像 hover/click 弹下拉菜单含"退出登录"项（替代不明显的 ⎋ 按钮）
+    var dropdownHtml = '<div class="auth-dropdown" role="menu">' +
+                       '<div class="auth-dropdown-item" data-action="logout" role="menuitem" tabindex="0">退出登录</div>' +
+                     '</div>';
+    var pcHtml = '<span class="auth-user-wrap">' +
+                   '<span class="auth-avatar"' + avatarStyle + '></span>' +
+                   '<span class="auth-name">' + _escAttr(name) + '</span>' +
+                   dropdownHtml +
+                 '</span>';
+    var h5Html = '<span class="auth-user-wrap">' +
+                   '<span class="auth-avatar"' + avatarStyle + '></span>' +
+                   dropdownHtml +
+                 '</span>';
+    if (pcBtn) { pcBtn.innerHTML = pcHtml; pcBtn.classList.add('logged-in'); pcBtn.setAttribute('title', (u.name || '账户') + '（悬停查看菜单）'); pcBtn.setAttribute('aria-haspopup', 'true'); pcBtn.setAttribute('aria-expanded', 'false'); }
+    if (h5Btn) { h5Btn.innerHTML = h5Html; h5Btn.classList.add('logged-in'); h5Btn.setAttribute('title', (u.name || '账户') + '（点击查看菜单）'); h5Btn.setAttribute('aria-haspopup', 'true'); h5Btn.setAttribute('aria-expanded', 'false'); }
   } else {
     if (pcBtn) { pcBtn.innerHTML = '👤 登录'; pcBtn.classList.remove('logged-in'); pcBtn.setAttribute('title', '登录 / 账户'); }
     if (h5Btn) { h5Btn.innerHTML = '👤'; h5Btn.classList.remove('logged-in'); h5Btn.setAttribute('title', '登录 / 账户'); }
@@ -17175,20 +17183,44 @@ function openConfirmLogout() {
   });
   modal.classList.remove('hidden');
 }
-// 绑定登录按钮点击：未登录弹登录框，已登录点退出按钮触发确认弹窗
+// 绑定登录按钮点击：未登录弹登录框，已登录 hover/click 弹下拉菜单，"退出登录"项调确认弹窗
 function initAuthButton() {
   document.querySelectorAll('.pc-auth-btn, .h5-auth-btn').forEach(function (btn) {
     btn.addEventListener('click', function (e) {
-      if (e.target.classList.contains('auth-logout')) {
+      // 下拉菜单"退出登录"项点击 -> 退出确认弹窗（复用 openConfirmLogout，不直接退出）
+      var item = e.target.closest('.auth-dropdown-item');
+      if (item && item.dataset.action === 'logout') {
         e.stopPropagation();
+        e.preventDefault();
+        var dd = btn.querySelector('.auth-dropdown');
+        if (dd) dd.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
         openConfirmLogout();
         return;
       }
       if (window.__authState && window.__authState.logged_in) {
-        // 已登录：MVP 不弹用户信息框（后续可扩展），点已登录区域无操作
+        // 已登录：PC 用 CSS :hover 显示下拉，JS 不干预；H5 无 hover，click toggle 下拉
+        if (btn.classList.contains('h5-auth-btn')) {
+          var dd2 = btn.querySelector('.auth-dropdown');
+          if (dd2) {
+            var willOpen = !dd2.classList.contains('open');
+            dd2.classList.toggle('open');
+            btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+          }
+        }
         return;
       }
       openLoginModal();
+    });
+  });
+  // H5：点击下拉外部关闭（移动端无 hover，需主动关闭）
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('.h5-auth-btn .auth-dropdown.open').forEach(function (dd) {
+      var wrap = dd.closest('.h5-auth-btn');
+      if (wrap && !wrap.contains(e.target)) {
+        dd.classList.remove('open');
+        wrap.setAttribute('aria-expanded', 'false');
+      }
     });
   });
   fetchAuthState();
