@@ -7403,3 +7403,26 @@ main 已更新到 c9361fc9b，下次这些任务跑会 fast-forward 成功。备
 **调研结论**（a7076427c 角标根因 agent）：非 SW 缓存（SW 9:05 版已 NetworkFirst + `cache:'no-store'`），是 L4748 兜底口径误显 + CF edge 缓存延迟（CF Workers Static Assets 无视 `cache:'no-store'`/cache-busting query，靠部署 purge，有延迟，详见 [[cf-workers-static-assets-ignore-cache-control]]）。
 
 **落档**：本次只落档 NOTES §48 小节AH + 3 个 memory（notify-mobile-panel-design / ios-safe-area-fix / badge-t0-intraday-fix），不改代码不跑 deploy。盘中只 push feat，不 push main（避撞 intraday-snapshot 每 10min 推 main）。
+
+### 5. 分时图多源批量方案（同花顺批量10+东财push2delay 2 = 3请求根治，a11439db9 实施中）
+
+**背景**：12 分时图（9 A股 + 3 港股）当前每图 1 请求 `fetchTencentMinute`，`Promise.all` 12 并发（app.js L5499 `_fetchDynamicPcts`）。1 个 wifi 下 2 电脑 + 1 手机 = 3 设备 × 12 = 36 次/min，触发腾讯 WAF **频率风控**（非 IP 黑名单，腾讯 API 间歇恢复证实）。用户要求"减少并发请求量才是根治"（批量 > 分流）。
+
+**调研结论**（ac892e6877e958b0c，主控 curl 验收通过）：
+- **同花顺批量分时 API**（最优主源）：`d.10jqka.com.cn/v6/time/{code1},{code2},.../last.js` 支持 10 只一次请求，CORS `Access-Control-Allow-Origin: *`，10/10 稳定，实时无延迟。实测 HTTP 200 size 54KB body 含 10 指数。
+- **东财 push2delay**（稳定补充）：`push2delay.eastmoney.com/api/qt/stock/trends2/get` bj50(0.899050) + hstech(124.HSTECH) 单只，10/10 稳定 CORS *。push2（非 delay）间歇 0/10 不稳定，主用 push2delay。
+- 东财单 secid 不支持批量（trends2 多 secid 返回 null，ulist 仅报价无分时）
+- **同花顺代码映射**：sh=zs_1A0001 / sz=zs_399001 / hs300=zs_1B0300(非000300) / sz50=zs_1B0016 / cyb=zs_399006 / kc50=zs_1B0688 / csi500=zs_1B0905 / csi1000=zs_1B0852 / hsi=hk_HSI / hscei=hk_HSCEI。bj50/hstech 同花顺无代码走东财。
+- 腾讯 ifzq 间歇 501（按 IP 时段风控），保留 L4 兜底。新浪/雪球不可用（scale=1 null / 需 cookie）。
+
+**方案 A**（12 图 -> 3 请求，降 75% 并发根治）：
+1. 同花顺批量 10 只 1 请求（sh/sz/hs300/sz50/cyb/kc50/csi500/csi1000/hsi/hscei）
+2. 东财 push2delay bj50 1 请求
+3. 东财 push2delay hstech 1 请求
+`Promise.all` 3 请求
+
+**Fallback 层级**：L1 同花顺批量失败拆 8 A股 + 2 港股批量 / L2 全转东财 push2delay 12 单只 / L3 东财 push2 多 host / L4 snap 兜底
+
+**实施风险**：①同花顺 JSONP 解析（函数名随 code 变，用正则 `\((\{.*\})\)` 提 body 非 `JSON.parse(jsonp)`）②分时点字段顺序（同花顺 5 字段 `时间,价格,额,均价,量` vs 东财 8 字段 `开,高,低,收,量,额,均价`）③批量任一 code 404 整批 404（代码映射必须精确）④bj50 secid=0.899050 push2delay 已验过
+
+**实施**：a11439db9 resume 改批量方案 A（基于 64a5f7a92 东财单源），sw.js bump `v2-20260805-intraday-batch`。盘中只 commit feat 不 push main。详见 [[intraday-multisource-batch]]
