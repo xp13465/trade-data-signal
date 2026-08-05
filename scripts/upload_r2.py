@@ -500,8 +500,10 @@ def cmd_upload_data_large():
     LARGE_THRESHOLD = 1 * 1024 * 1024  # 1MB
     # 大 range 文件前端 dataUrl 必走 R2(与 app.js _R2_LARGE_RANGE_RE 同规则), 无大小限制上传
     _LARGE_RANGE_RE = re.compile(r'-(?:all|5y|3y)\.json$')
-    # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund/fund_score/etf_score_list_ 由各自命令处理）
-    exclude_prefixes = ("industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list_")
+    # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund/fund_score/etf_score_list 由各自命令处理）
+    # P0-2: etf_score_list (无下划线)同时排除旧单文件 etf_score_list.json 和新拆分 etf_score_list_*.json,
+    # 旧文件不再生成但本地可能残留, upload-etf-score 只上传 etf_score_list_*.json(下划线 glob)
+    exclude_prefixes = ("industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list")
     files = []
     for f in sorted(data_dir.glob("*.json")):
         if any(f.name.startswith(p) for p in exclude_prefixes):
