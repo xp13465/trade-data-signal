@@ -7362,3 +7362,44 @@ main 已更新到 c9361fc9b，下次这些任务跑会 fast-forward 成功。备
 - feat = main = c9361fc9b（同步）
 
 68c51a59 agent 任务：验证 8fc98382 完成 + P0-3 状态 + 3 域名 + 清告警 + 落档本节。无需再 push feat:main（已同步）。
+
+## §48 小节AH：2026-08-05 上午 通知铃铛hover恢复+移动端通知面板+iOS安全区+L4748角标
+
+### 1. 通知铃铛 hover pop 恢复 + 删原生 tooltip（commit 6f822ed0c）
+
+**背景**：fix3（小节AF）后改方案1（去 hover 改 click）的 agent（a508c5f39）保留了 `btn.title` 原生 tooltip，用户反馈"原生 tooltip 盖住 click pop"。
+
+**修复**：① `btn.title` 4 处设空删原生 tooltip ② 恢复方案2 hover 弹 pop（`_popPinned/showPop/hidePop/popHideTimer` + `wrap.mouseenter/mouseleave`）③ `style.css .notify-wrap` 恢复 `padding-bottom:10px / margin-bottom:-10px`（4px gap 防 mouseleave）。
+- sw.js：`v2-20260805-notify-hover-no-tooltip`
+- 关键：删 tooltip 后 hover pop 不再被原生 tooltip 盖，重叠消除。
+
+### 2. 移动端通知入口迁移独立小铃铛 + 通知设置面板 + 解禁移动端通知（commit becfbbb07）
+
+**用户决策**：①未登录移动端走独立 `.h5-notify-btn` 小铃铛（与🎨主题按钮同风格）②桌面端仅保留铃铛（不在头像菜单加通知项）。
+
+**改动**：
+- `index.html .h5-meta` 加 `.h5-notify-btn`（移动端 only）
+- `app.js` 新增 `_isIOS()` + `_isStandalone()` 检测（`navigator.standalone` / `matchMedia display-mode:standalone/minimal-ui`）
+- **解开 `_isMobileUA` 一刀切**（L6389 `requestNotifyPermission` + L6448 `showNotification`）：原 `if (_isMobileUA()) return 'denied'` 改 `if (_isIOS() && !_isStandalone()) return 'denied'`（iOS 非 standalone 才拒，Android/桌面解禁）
+- `openNotifySettingsModal()` 面板 5 分支引导：A.未添加主屏幕(iOS引导步骤) / B.已添加未授权(授权按钮) / C.已授权(开关+试看) / D.被拒(恢复方法) / E.非iOS跳过引导走B/C/D
+- `style.css .h5-notify-btn`（复用 `.h5-theme-btn`）+ `.notify-settings-modal` 面板样式
+- sw.js：`v2-20260805-notify-mobile-panel`
+- 关键：PWA 基础设施完整（manifest standalone + apple-touch-icon + sw.js），iOS 16.4+ 添加主屏幕即可 Web Push。原 `_isMobileUA` 一刀切把 Android 也禁了不合理，解开让 iOS standalone + Android 都能用。
+
+### 3. iOS PWA 顶部安全区修复 + L4748 角标误显修复（commit 5562373f5）
+
+**用户反馈**：①iPhone 添加主屏幕打开后顶部栏顶到通知栏无法点击 ②9:41 盘中看好多少待盘后更新 08-04 角标（盯了好多天）。
+
+**修复1 iOS 安全区**：
+- 根因：`viewport-fit=cover` + `status-bar-style=black-translucent` 让内容延伸到状态栏，但 header `padding-top` 固定 8px 没留 `env(safe-area-inset-top)`（底部有 `safe-area-inset-bottom`，顶部漏了）
+- 修复：`style.css L2898` header padding 改 `calc(8px + env(safe-area-inset-top)) 12px 8px 12px` + `.h5-period-bar sticky top` 改 `env(safe-area-inset-top)`（额外根治 sticky 滚动也顶到状态栏）
+
+**修复2 L4748 角标误显**：
+- 根因：9:30 开盘 snap label 切"盘中实时小结"，但 t0 源（封板率/炸板率）KPI `date` 停 `ptd=08-04`（等 9:35 snap 10min 周期采集，非盘后 17:50），走 L4748 兜底分支误显"⏳ 待盘后更新·08-04"。注释说"罕见"但实际是 10min 周期常态
+- 修复：`app.js L4746-4762` t0 源盘中分支（`srcClass==='t0' && shIdx.datetime && !snap.is_closed`）显「⏰ 盘中·HH:MM」（HH:MM 复用 `shIdx.datetime.slice(8,10)/slice(10,12)`，与绿色盘中分支同口径），非盘中才显"待盘后更新"。t1 源不改（T+1 盘中显示 T-1 正常）
+- 关键：t0 源盘中数据延迟是 snap 10min 周期非盘后 17:50，应显"盘中"非"待盘后更新"。不刷新页面也不困惑
+- sw.js：`v2-20260805-ios-safearea-badge`
+
+**调研结论**（a7076427c 角标根因 agent）：非 SW 缓存（SW 9:05 版已 NetworkFirst + `cache:'no-store'`），是 L4748 兜底口径误显 + CF edge 缓存延迟（CF Workers Static Assets 无视 `cache:'no-store'`/cache-busting query，靠部署 purge，有延迟，详见 [[cf-workers-static-assets-ignore-cache-control]]）。
+
+**落档**：本次只落档 NOTES §48 小节AH + 3 个 memory（notify-mobile-panel-design / ios-safe-area-fix / badge-t0-intraday-fix），不改代码不跑 deploy。盘中只 push feat，不 push main（避撞 intraday-snapshot 每 10min 推 main）。
