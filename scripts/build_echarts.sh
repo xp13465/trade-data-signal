@@ -14,7 +14,7 @@
 # 用法：bash scripts/build_echarts.sh
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade}"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 SPIKE="${ECHARTS_BUILD_DIR:-/tmp/echarts-spike}"
 mkdir -p "$SPIKE"
 cd "$SPIKE"

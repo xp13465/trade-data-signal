@@ -21,7 +21,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade}"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 PY="$REPO/.venv/bin/python"
 URL="${SITE_URL:-https://ss.fx8.store/data/overview.json}"
 DRY_FLAG=""

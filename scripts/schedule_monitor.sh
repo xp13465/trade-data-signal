@@ -13,7 +13,7 @@
 # 告警链路：复用 scripts/notify.py（邮件 + data/alerts/latest.md），告警不阻塞、不重试。
 # launchd 每15分钟(Minute=0,15,30,45)由 com.trade.schedule-monitor.plist 触发。
 set -uo pipefail
-REPO="${REPO:-/Users/linhuichen/code/trade}"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 cd "$REPO"
 
 # 注：launchd plist 设 REPO=/Users/linhuichen/code/trade-data，trade-data/scripts 是

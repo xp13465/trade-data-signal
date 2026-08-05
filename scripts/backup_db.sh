@@ -14,7 +14,7 @@
 # 退出码：0=全部成功；1=部分/全部失败（仍继续跑完所有 DB，最后报）。
 set -u
 
-REPO="${REPO:-/Users/linhuichen/code/trade}"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 PY="$REPO/.venv/bin/python"
 DBDIR="$REPO/data"
 BACKUP_DIR="${BACKUP_DIR:-$DBDIR/backups}"

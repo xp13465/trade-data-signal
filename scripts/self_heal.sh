@@ -16,7 +16,7 @@
 #   的 0/15/30/45，让 monitor 先告警 self_heal 后自愈，避免撞 deploy.lock）。
 # 告警链路：复用 scripts/notify.py（邮件 + alerts/latest.md），达到上限时发 SEVERE。
 set -uo pipefail
-REPO="${REPO:-/Users/linhuichen/code/trade}"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 cd "$REPO"
 export REPO GIT_REPO

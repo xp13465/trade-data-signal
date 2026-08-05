@@ -28,7 +28,7 @@ set -uo pipefail
 # 防脚本运行期间 mac 休眠（caffeinate 跟随脚本 PID，退出自动结束）
 caffeinate -i -w $$ >/dev/null 2>&1 &
 
-REPO="${REPO:-/Users/linhuichen/code/trade}"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
 PY="$REPO/.venv/bin/python"
 LOGDIR="$REPO/data/logs"
@@ -66,7 +66,7 @@ PUSH_RC=0
   set -euo pipefail
   # 预初始化 PUSH_RC=0（防 set -u 下兜底分支引用未赋值 PUSH_RC 致 unbound 噪声）
   PUSH_RC=0
-  REPO="${REPO:-/Users/linhuichen/code/trade}"
+  REPO="${REPO:-/Users/linhuichen/code/trade-data}"
   GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
   # 主脚本 PY 未 export，子 bash -c 不继承非导出变量；此处必须重新定义
   # （参考 intraday_snapshot.sh L140-141，set -u 下 "$PY" 触发 unbound 致整个 commit+push 失败）

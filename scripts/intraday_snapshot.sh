@@ -22,7 +22,7 @@ set -uo pipefail
 # 防脚本运行期间 mac 休眠（caffeinate 跟随脚本 PID，退出自动结束）
 caffeinate -i -w $$ >/dev/null 2>&1 &
 
-REPO="${REPO:-/Users/linhuichen/code/trade}"
+REPO="${REPO:-/Users/linhuichen/code/trade-data}"
 GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"   # git 始终在 trade 仓库(trade-data 不 git init)
 export REPO   # 让子 bash -c (commit+push 段) 继承 REPO，trade-data 跑时采集路径用 trade-data
 export GIT_REPO   # 让子 bash -c 继承 GIT_REPO，git worktree 操作在 trade 仓库
@@ -139,7 +139,7 @@ PUSH_RC=0
   # 预初始化 PUSH_RC=0（防 set -u 下兜底分支引用未赋值 PUSH_RC 致 unbound 噪声；
   # push/rebase 各分支虽都赋值，但预初始化让任何提前引用也安全，消除 err 日志噪声）
   PUSH_RC=0
-  REPO="${REPO:-/Users/linhuichen/code/trade}"
+  REPO="${REPO:-/Users/linhuichen/code/trade-data}"
   GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
   # 主脚本 PY 未 export，子 bash -c 不继承非导出变量；此处必须重新定义，
   # 否则 set -u 下 "$PY" 触发 unbound variable 致整个 commit+push 失败（2026-07-17 15:35 事故根因）。
