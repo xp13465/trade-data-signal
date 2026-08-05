@@ -6806,6 +6806,20 @@ function _markNotified(eventKey) {
   _saveNotifyDedup(d);
 }
 
+// 清除已弹标记（SW NOTIFY_FAILED 回调防死锁：SW 弹失败时清除标记，下次轮询重试，避免漏通知）
+function _clearNotified(eventKey) {
+  const d = _loadNotifyDedup();
+  const today = new Date().toISOString().slice(0, 10);
+  delete d[`${today}:${eventKey}`];
+  _saveNotifyDedup(d);
+}
+// 清除时间窗（NOTIFY_FAILED 时连同清除，避免 60s 窗口阻塞重试）
+function _clearNotifyTimeWindow(category) {
+  const d = _loadNotifyDedup();
+  delete d[`__tw:${category}`];
+  _saveNotifyDedup(d);
+}
+
 // 同类别时间窗检查（第三层去重：60s 内不连弹同类通知）
 function _isInNotifyTimeWindow(category) {
   const d = _loadNotifyDedup();
@@ -6821,7 +6835,8 @@ function _markNotifyTimeWindow(category) {
 // 弹通知（优先走 SW showNotification: Mac Chrome 下点击比页面 new Notification 可靠）
 // clickAction: { msgType, hash?, payload? } 携带点击后期号 UI 反馈动作
 // controller null 时（硬刷后 SW 刚 register 时序问题）等 navigator.serviceWorker.ready 再 postMessage
-function showNotification(title, body, tag, clickAction) {
+// failClearKeys: SW 弹失败(NOTIFY_FAILED)时需清除的 _markNotified key 列表(防死锁重试)，默认空数组=不清除(其他调用点保持原行为)
+function showNotification(title, body, tag, clickAction, failClearKeys) {
   if (!_loadNotifyPref()) { console.warn('[notify] pref未开启，跳过'); return false; }
   if (_notifyPerm() !== 'granted') { console.warn('[notify] permission非granted，跳过'); return false; }
   // iOS 非 standalone 才跳过（未添加主屏幕无法弹通知）；Android/桌面/iOS standalone 均允许
@@ -6840,7 +6855,7 @@ function showNotification(title, body, tag, clickAction) {
       if (navigator.serviceWorker.controller) {
         navigator.serviceWorker.controller.postMessage({
           type: 'SHOW_NOTIFICATION',
-          payload: { title, body, tag, data: notifData }
+          payload: { title, body, tag, data: notifData, failClearKeys: failClearKeys || [] }
         });
         console.log('[notify] 走SW postMessage (controller存在)');
         return true;
@@ -6852,7 +6867,7 @@ function showNotification(title, body, tag, clickAction) {
         if (sw) {
           sw.postMessage({
             type: 'SHOW_NOTIFICATION',
-            payload: { title, body, tag, data: notifData }
+            payload: { title, body, tag, data: notifData, failClearKeys: failClearKeys || [] }
           });
           const via = navigator.serviceWorker.controller ? 'controller' : 'reg.active';
           console.log('[notify] 走SW postMessage (' + via + ')');
@@ -7056,12 +7071,17 @@ function _processNotifications(data) {
   // 3. 盘中异常（只弹 severe 级：rapid_move/breakout_down）
   if (data.anomalies && data.anomalies.length) {
     const severe = data.anomalies.filter(a => a.tier === 'severe');
-    if (severe.length && !_isNotifyNotified(`anomaly_${today}`)
-        && !_isInNotifyTimeWindow('anomaly')) {
-      const desc = severe.slice(0, 2).map(a => a.desc || a.name).join('；');
-      const more = severe.length > 2 ? `等${severe.length}项` : '';
-      if (showNotification('⚠️ 盘中异动', `${desc}${more}`, `anomaly_${today}`, { msgType: 'OPEN_ANOMALY' })) {
-        _markNotified(`anomaly_${today}`);
+    // 去重粒度对齐后端_alert_key(type|kind|name),当天同标的同类型只弹1次(原anomaly_${today}全天1次太粗漏通知)
+    const _anomalyKey = a => `anomaly_${a.type}_${a.kind}_${a.name}_${today}`;
+    const newSevere = severe.filter(a => !_isNotifyNotified(_anomalyKey(a)));
+    if (newSevere.length && !_isInNotifyTimeWindow('anomaly')) {
+      const desc = newSevere.slice(0, 2).map(a => a.desc || a.name).join('；');
+      const more = newSevere.length > 2 ? `等${newSevere.length}项` : '';
+      // tag用anomaly_${today}(SW端同tag替换避免堆叠);_markNotified按_alert_key逐条标记(去重粒度对齐后端)
+      // failClearKeys传_alert_key列表: SW弹失败回NOTIFY_FAILED时清除这些标记下次轮询重试(防死锁)
+      const failClearKeys = newSevere.map(_anomalyKey);
+      if (showNotification('⚠️ 盘中异动', `${desc}${more}`, `anomaly_${today}`, { msgType: 'OPEN_ANOMALY' }, failClearKeys)) {
+        newSevere.forEach(a => _markNotified(_anomalyKey(a)));
         _markNotifyTimeWindow('anomaly');
       }
     }
@@ -7487,6 +7507,17 @@ function initNotifyButton() {
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (!event.data) return;
       const d = event.data;
+      // SW showNotification 失败回调: 清除已弹标记+时间窗,下次轮询重试(防死锁漏通知)
+      if (d.type === 'NOTIFY_FAILED') {
+        console.warn('[notify] SW弹通知失败,清除标记重试 | tag=', d.tag, '| failClearKeys=', d.failClearKeys);
+        const keys = Array.isArray(d.failClearKeys) ? d.failClearKeys : [];
+        keys.forEach(k => _clearNotified(k));
+        // tag 前缀推断 category 清时间窗(anomaly_${today} -> anomaly)
+        if (typeof d.tag === 'string' && d.tag.indexOf('anomaly_') === 0) {
+          _clearNotifyTimeWindow('anomaly');
+        }
+        return;
+      }
       if (d.type === 'NOTIFY_CLICK' || d.type === 'OPEN_SIGNAL_DETAIL' ||
           d.type === 'OPEN_ANOMALY' || d.type === 'OPEN_ALERT' ||
           d.type === 'OPEN_FG' || d.type === 'OPEN_ZT' || d.type === 'OPEN_POST_CLOSE') {

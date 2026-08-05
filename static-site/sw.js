@@ -13,7 +13,7 @@
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260805-dt-pool-fix';
+const CACHE_VERSION = 'v2-20260805-notify-fix';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -164,7 +164,7 @@ self.addEventListener('message', (event) => {
   // SHOW_NOTIFICATION: 客户端委托 SW 弹通知（Mac Chrome 下 SW showNotification 点击比页面 new Notification 可靠：
   // 页面失焦时 new Notification().onclick 链路丢失 -> 点击无响应；SW registration.showNotification + notificationclick 稳定）
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    const { title, body, tag, data } = event.data.payload || {};
+    const { title, body, tag, data, failClearKeys } = event.data.payload || {};
     console.log('[sw] 收到SHOW_NOTIFICATION', title, '| tag=', tag);
     event.waitUntil(
       self.registration.showNotification(title || '', {
@@ -175,6 +175,11 @@ self.addEventListener('message', (event) => {
         console.log('[sw] showNotification 成功', title);
       }).catch((err) => {
         console.warn('[sw] showNotification 失败', err?.message || err, '| title=', title);
+        // 回传 NOTIFY_FAILED 到所有 client: 清除已弹标记+时间窗,下次轮询重试(防死锁漏通知)
+        const keys = Array.isArray(failClearKeys) ? failClearKeys : [];
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+          clientList.forEach(c => c.postMessage({ type: 'NOTIFY_FAILED', tag, failClearKeys: keys }));
+        });
       })
     );
   }
