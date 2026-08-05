@@ -457,24 +457,72 @@ if [ "$PUSH_RC" -ne 0 ]; then
           esac
         done
         if [ -z "$NON_DATA_CONFLICTS" ]; then
-          # 全是数据文件冲突，已用 theirs(本地最新) 解决，continue
+          # 全是数据文件冲突，已用 theirs(本地最新) 解决，进入循环处理后续连续冲突
+          # 根因(2026-08-05)：feat 长期跑定时任务积累 data commit，origin/main 有
+          # intraday/futures data commit，rebase 多个连续 .gz 冲突，单次 --continue
+          # 后下个 commit 又冲突 -> 直接 abort -> deploy 永久失败。
+          # 修复：while 循环 checkout --theirs + git add + rebase --continue，直到
+          # rebase 完成或遇非数据冲突(代码文件)才 abort，最大 10 次防死循环。
           echo "-> rebase 数据文件冲突已自动解决(--theirs=本地最新 export)，continue..." | tee -a "$LOG"
-          GIT_EDITOR=true git -C "$GIT_REPO" rebase --continue 2>&1 | tee -a "$LOG"
-          CONTINUE_RC=${PIPESTATUS[0]:-1}
-          if [ "$CONTINUE_RC" -eq 0 ]; then
+          REBASE_DONE=0
+          ATTEMPT=0
+          MAX_ATTEMPTS=10
+          while [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; do
+            ATTEMPT=$((ATTEMPT + 1))
+            GIT_EDITOR=true git -C "$GIT_REPO" rebase --continue 2>&1 | tee -a "$LOG"
+            CONTINUE_RC=${PIPESTATUS[0]:-1}
+            if [ "$CONTINUE_RC" -eq 0 ]; then
+              REBASE_DONE=1
+              break
+            fi
+            # rebase --continue 失败：检查是否又是纯数据文件冲突
+            CONFLICTED2=$(git -C "$GIT_REPO" diff --name-only --diff-filter=U 2>/dev/null)
+            if [ -z "$CONFLICTED2" ]; then
+              # 非冲突类失败(可能是编辑器/其他错误)，保守 abort 等人工处理
+              git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
+              pop_rebase_stash
+              echo "✗ rebase --continue 失败(无冲突文件信息，退出码 $CONTINUE_RC)，已 abort" | tee -a "$LOG"
+              echo "  请手动：git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
+              exit 1
+            fi
+            NON_DATA2=""
+            for f in $CONFLICTED2; do
+              case "$f" in
+                static-site/data/*.json|static-site/data/*.gz)
+                  git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
+                  git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
+                  ;;
+                *)
+                  NON_DATA2="$NON_DATA2 $f"
+                  ;;
+              esac
+            done
+            if [ -n "$NON_DATA2" ]; then
+              # 遇非数据冲突(代码文件冲突)，保守 abort 等人工处理
+              git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
+              pop_rebase_stash
+              echo "✗ rebase --continue 后遇非数据文件冲突($NON_DATA2)，已 abort" | tee -a "$LOG"
+              echo "  请手动：git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
+              exit 1
+            fi
+            # 纯数据冲突已用 theirs 解决，循环继续 rebase --continue
+            echo "-> 第 $ATTEMPT 次循环：数据冲突已解决(--theirs=本地最新)，继续 rebase..." | tee -a "$LOG"
+          done
+          if [ "$REBASE_DONE" -eq 1 ]; then
             git -C "$GIT_REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
             PUSH_RC=${PIPESTATUS[0]:-1}
             pop_rebase_stash
             if [ "$PUSH_RC" -eq 0 ]; then
-              echo "✓ rebase(数据冲突 --theirs) + 重试 push 成功" | tee -a "$LOG"
+              echo "✓ rebase(数据冲突 --theirs, 循环 $ATTEMPT 次) + 重试 push 成功" | tee -a "$LOG"
             else
               echo "✗ rebase --continue 后重试 push 仍失败(退出码 $PUSH_RC)" | tee -a "$LOG"
               exit "$PUSH_RC"
             fi
           else
+            # 循环达上限仍失败，保守 abort
             git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
             pop_rebase_stash
-            echo "✗ rebase --continue 失败(退出码 $CONTINUE_RC)，已 abort" | tee -a "$LOG"
+            echo "✗ rebase --continue 循环达上限($MAX_ATTEMPTS 次)仍失败，已 abort" | tee -a "$LOG"
             echo "  请手动：git -C $GIT_REPO rebase origin/main，解决冲突后重跑 deploy.sh" | tee -a "$LOG"
             exit 1
           fi
