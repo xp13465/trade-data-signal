@@ -1274,6 +1274,36 @@ main { padding: 16px 24px; }
   border-top: 1px solid var(--border);
 }
 .kpi-forecast-pop .kfp-time .kfp-val { font-weight: 400; color: var(--text-3); }
+/* 移动端 (hover:none) KPI 卡 tap 交互方案B' (2026-08-05):
+   tap 卡片 toggle .hover-active 显示 hover pop(6m分位+分项构成), pop 内"📈 查看走势图"按钮弹 modal;
+   PC (hover:hover) 保持 :hover 显示 pop + click 弹 modal 原逻辑不动。
+   按钮 .kst-view-chart PC 端默认 display:none, 仅移动端 @media(hover:none) 显示 */
+.kpi-sent-tooltip .kst-view-chart,
+.kpi-fg-tooltip .kst-view-chart,
+.kpi-forecast-pop .kst-view-chart { display: none; }
+@media (hover: none) {
+  /* tap 触发 pop: 复用 :hover 的 opacity/visibility 显示逻辑, 加 .hover-active class 触发 */
+  .card.kpi.has-sent-tooltip.hover-active .kpi-sent-tooltip,
+  .card.kpi.has-fg-tooltip.hover-active .kpi-fg-tooltip,
+  .card.kpi.has-forecast-pop.hover-active .kpi-forecast-pop {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto; /* 允许 tap pop 内"查看走势"按钮 */
+  }
+  /* pop 底部"📈 查看走势图"引导按钮(JS 注入 .kst-view-chart) */
+  .kpi-sent-tooltip .kst-view-chart,
+  .kpi-fg-tooltip .kst-view-chart,
+  .kpi-forecast-pop .kst-view-chart {
+    display: block;
+    margin-top: auto;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--primary);
+    text-align: center;
+    border-top: 1px solid var(--border);
+    cursor: pointer;
+  }
+}
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; display: flex; align-items: baseline; gap: 6px; }
 .card.kpi .card-value .cv-val { min-width: 0; }
 .card.kpi .card-value .cv-tags { margin-left: auto; flex-shrink: 0; }

@@ -8163,7 +8163,7 @@ async function renderOverview() {
           const _m = String(_snapFc.collected_at).match(/T(\d{2}):(\d{2})/);
           if (_m) _fcTime = `${_m[1]}:${_m[2]}`;
         }
-        _forecastPopHtml = `<div class="kpi-forecast-pop"><div class="kfp-title">预估 vs 实际</div><div class="kfp-row"><span class="kfp-label">预估</span><span class="kfp-val kfp-forecast">${_fcStr}</span></div><div class="kfp-row"><span class="kfp-label">实际</span><span class="kfp-val kfp-actual">${_actStr}</span></div><div class="kfp-row"><span class="kfp-label">偏差</span><span class="kfp-val" style="color:${_devColor}">${_devStr}<span class="kfp-dev-label">${_devLabel}</span></span></div>${_fcTime ? `<div class="kfp-row kfp-time"><span class="kfp-label">预估时点</span><span class="kfp-val">${_fcTime}</span></div>` : ""}</div>`;
+        _forecastPopHtml = `<div class="kpi-forecast-pop"><div class="kfp-title">预估 vs 实际</div><div class="kfp-row"><span class="kfp-label">预估</span><span class="kfp-val kfp-forecast">${_fcStr}</span></div><div class="kfp-row"><span class="kfp-label">实际</span><span class="kfp-val kfp-actual">${_actStr}</span></div><div class="kfp-row"><span class="kfp-label">偏差</span><span class="kfp-val" style="color:${_devColor}">${_devStr}<span class="kfp-dev-label">${_devLabel}</span></span></div>${_fcTime ? `<div class="kfp-row kfp-time"><span class="kfp-label">预估时点</span><span class="kfp-val">${_fcTime}</span></div>` : ""}<div class="kst-view-chart">📈 查看走势图</div></div>`;
       }
     }
     if (k.id === "a_volume_ratio") {
@@ -8406,7 +8406,7 @@ async function renderOverview() {
           // 合并到现有 fg-tooltip(标题+当前值), 追加分隔线+6m分位行, 避免两 overlay 叠加
           _fgMerge6m = `<div class="kst-sep"></div>` + _tooltipBody;
         } else {
-          _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip">${_tooltipBody}</div>`;
+          _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip">${_tooltipBody}${_hasHist ? `<div class="kst-view-chart">📈 查看走势图</div>` : ""}</div>`;
         }
       }
     } else if (_KPI_COMP_ONLY_IDS.has(k.id) && k.valueNum != null) {
@@ -8454,17 +8454,62 @@ async function renderOverview() {
     }
     if (_fgMerge6m && _fgTooltipHtml) {
       // 把6m分位行插入 .kpi-fg-tooltip 容器闭合前
-      _fgTooltipHtml = _fgTooltipHtml.replace(/<\/div>$/, _fgMerge6m + "</div>");
+      _fgTooltipHtml = _fgTooltipHtml.replace(/<\/div>$/, _fgMerge6m + (_hasHist ? `<div class="kst-view-chart">📈 查看走势图</div>` : "") + "</div>");
     }
     cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}${_fgTooltipHtml ? " has-fg-tooltip" : ""}${_forecastPopHtml ? " has-forecast-pop" : ""}${_kpiSentTooltipHtml ? " has-sent-tooltip" : ""}" data-kpi-key="${k.id}" data-state="${_kpiState}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div>${_kpiSparkHtml}<div class="card-sub" title="${sub}">${sub}</div>${_forecastPopHtml}${_fgTooltipHtml}${_kpiSentTooltipHtml}</div>`;
   }
-  // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
+  // 容器级事件委托：移动端(tap) + PC(click) KPI 卡交互 (方案B', 2026-08-05)
+  // PC (hover:hover): hover 显示 pop + click 弹 modal(原逻辑)
+  // 移动端 (hover:none): tap 卡 toggle .hover-active 显示 pop(不弹 modal); pop 内"📈 查看走势图"按钮 tap 弹 modal; tap 别处/滚动关 pop
+  const _isTouchKpi = window.matchMedia && window.matchMedia("(hover: none)").matches;
   cards.addEventListener("click", (e) => {
-    const c = e.target.closest(".card.kpi[data-kpi-id]");
+    const c = e.target.closest(".card.kpi");
     if (!c) return;
-    e.preventDefault();
-    openKpiDetailModal(c.dataset.kpiId);
+    // 移动端 pop 内"📈 查看走势图"按钮 -> 弹 modal + 关 pop
+    if (e.target.closest(".kst-view-chart")) {
+      e.preventDefault();
+      c.classList.remove("hover-active");
+      if (c.dataset.kpiId) openKpiDetailModal(c.dataset.kpiId);
+      return;
+    }
+    // 移动端: 有 hover pop 的卡, tap toggle pop(不弹 modal)
+    if (_isTouchKpi && (c.classList.contains("has-sent-tooltip") ||
+                        c.classList.contains("has-fg-tooltip") ||
+                        c.classList.contains("has-forecast-pop"))) {
+      // ❓ term-tip 冒泡: tap ❓ 只弹含义 pop(term-pop capture 委托已处理), 不 toggle hover-active
+      if (e.target.closest("[data-tip]")) return;
+      e.preventDefault();
+      // tap pop 自身(非按钮)不关 pop(让用户读分位/分项构成)
+      if (e.target.closest(".kpi-sent-tooltip, .kpi-fg-tooltip, .kpi-forecast-pop")) return;
+      if (c.classList.contains("hover-active")) {
+        c.classList.remove("hover-active");
+      } else {
+        // 关其他卡的 pop
+        cards.querySelectorAll(".card.kpi.hover-active").forEach(x => x.classList.remove("hover-active"));
+        c.classList.add("hover-active");
+      }
+      return; // 不弹 modal
+    }
+    // 无 pop 的卡 / PC 端: 有 data-kpi-id 直接弹 modal
+    if (c.dataset.kpiId) {
+      e.preventDefault();
+      openKpiDetailModal(c.dataset.kpiId);
+    }
   });
+
+  // 移动端一次性绑定: tap 别处关 pop + 滚动关 pop (document/window 持久, guard 防多次 render 累加)
+  if (!window._kpiTouchPopBound) {
+    window._kpiTouchPopBound = true;
+    const _closeAllKpiPops = () => {
+      document.querySelectorAll(".card.kpi.hover-active").forEach(x => x.classList.remove("hover-active"));
+    };
+    // capture 阶段: tap 非 KPI 卡区域 -> 关所有 pop
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest || !e.target.closest(".card.kpi")) _closeAllKpiPops();
+    }, true);
+    // 滚动关 pop(和 term-pop @2069 一致, capture 捕获所有滚动容器)
+    window.addEventListener("scroll", _closeAllKpiPops, { passive: true, capture: true });
+  }
 
   // ---- 重置排序按钮(仅在有自定义顺序时显示) ----
   const kpiHead = document.createElement("div");
