@@ -6157,6 +6157,13 @@ function renderIntradaySection(sparkGrid, snap) {
     sparkGrid.querySelectorAll(".spark-cell").forEach((cell) => {
       cell.classList.toggle("hide-daily", !showDaily);
     });
+    // 方案A: echarts sparkline 需 resize 才能在 display:none->visible 后正确渲染
+    if (showDaily && typeof echarts !== "undefined") {
+      sparkGrid.querySelectorAll(".nt-spark-ech").forEach((el) => {
+        var inst = echarts.getInstanceByDom(el);
+        if (inst) inst.resize();
+      });
+    }
     try { localStorage.setItem("intraday-chart-mode", newMode); } catch (e) {}
   }
 
@@ -8608,7 +8615,7 @@ async function renderOverview() {
   content.appendChild(cards);
 
   // 指数 sparkline 网格
-  await loadEcharts();   // P0-3: sparkline 已改 SVG 不依赖 echarts；此处 await 为后续 lineChart(恐贪/A股情绪分)+盘中分时图(renderIntradaySection)就绪
+  await loadEcharts();   // 方案A: sparkline 改 echarts 需就绪；亦为后续 lineChart(恐贪/A股情绪分)+盘中分时图(renderIntradaySection)就绪
   const grid = document.createElement("div");
   grid.className = "spark-grid";
   content.appendChild(grid);
@@ -8641,6 +8648,7 @@ async function renderOverview() {
     chartDom.innerHTML = ntIndexSparkline(idx.closes, idx.dates, color, 300, 72);
     addCardTimeBadge(cell, idx.last_date, snap, "t0", "", true); // isIndexSpark=true: 分时图指数sparkline卡片用腾讯1min时间
   }
+  _flushNtSpark();  // 方案A: init echarts on 指数 spark-cell + KPI 卡 sparkline（KPI 卡已在 DOM，echarts 已 loadEcharts 就绪）
   _dynamicBadgeIds = _sparkDynIds;
 
   // ---- 1b. 当日分时图（嵌入 spark-cell，腾讯分时API直拉，盘中1分钟动态刷新）----
@@ -9362,41 +9370,56 @@ function ntSparkline(daily, w, h) {
     '<circle cx="' + w.toFixed(1) + '" cy="' + lastY.toFixed(1) + '" r="2.2" fill="currentColor"/></svg>';
 }
 
-// 首页指数 sparkline（近N日收盘价迷你折线）：纯 SVG 不走 ECharts，省 11 个 echarts.init 开销（P0-3）。
-// 等价 echarts line+areaStyle+tooltip：polygon 面积填充 + polyline 折线 + 末点 circle + 每点 <title> 原生 hover tooltip。
-// preserveAspectRatio="none" + vector-effect="non-scaling-stroke"：横向拉伸填满容器宽度，stroke 保持 1.5px 不变粗。
+// 首页指数 sparkline + KPI 卡 sparkline：echarts line+areaStyle+tooltip（方案A，体验和行业 spark-cell/分时图一致）。
+// 接受 P0-3 首屏 11 echarts.init 回退（200~500ms），换 hover tooltip 即时浮层（日期+收盘+涨跌%）体验一致性。
+// 返回占位 div，由 _flushNtSpark() 统一 init（KPI 卡 HTML 字符串构建时 DOM 尚未插入，需延后 init）。
+var _ntSparkPending = new Map();
+var _ntSparkSeq = 0;
 function ntIndexSparkline(closes, dates, color, w, h) {
   if (!closes || closes.length < 2) return "";
-  w = w || 300; h = h || 72;
-  var vals = closes.map(function (v) { return Number(v); }).filter(function (v) { return !isNaN(v); });
-  if (vals.length < 2) return "";
-  var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
-  var range = max - min || 1;
-  var n = closes.length;
-  var pad = 2;
-  var pts = closes.map(function (v, i) {
-    var x = (i / (n - 1)) * w;
-    var y = h - pad - ((Number(v) - min) / range) * (h - pad * 2);
-    if (isNaN(y)) y = h - pad;
-    return [x, y];
+  var sid = "nt-spark-" + (++_ntSparkSeq);
+  _ntSparkPending.set(sid, { closes: closes, dates: dates || [], color: color, w: w || 300, h: h || 72 });
+  return '<div class="nt-spark-ech" data-sid="' + sid + '" style="width:100%;height:' + (h || 72) + 'px"></div>';
+}
+// 统一 init 所有待渲染 nt-spark echarts 实例（renderOverview KPI 卡 + 指数 spark-cell 循环结束后调）。
+// tooltip 配置复用行业 spark-cell (trigger:axis + formatter 显示日期+收盘+涨跌%)。
+function _flushNtSpark() {
+  if (typeof echarts === "undefined") return;
+  document.querySelectorAll(".nt-spark-ech").forEach(function (el) {
+    var sid = el.getAttribute("data-sid");
+    var p = _ntSparkPending.get(sid);
+    if (!p) return;
+    _ntSparkPending.delete(sid);
+    var exist = echarts.getInstanceByDom(el);
+    if (exist) exist.dispose();
+    var inst = echarts.init(el);
+    var closes = p.closes.map(function (v) { return Number(v); });
+    var dates = p.dates;
+    inst.setOption(withTheme({
+      grid: { left: 1, right: 1, top: 2, bottom: 2 },
+      xAxis: { type: "category", show: false, data: dates },
+      yAxis: { type: "value", show: false, scale: true },
+      tooltip: { trigger: "axis", formatter: function (params) {
+        var i = params[0].dataIndex;
+        var d = dates[i] || "";
+        var v = closes[i];
+        if (v == null || isNaN(v)) return d + "<br/>-";
+        var lines = [d, "收盘 " + Number(v).toFixed(2)];
+        if (i > 0 && closes[i - 1] != null && !isNaN(Number(closes[i - 1]))) {
+          var pct = (Number(v) - Number(closes[i - 1])) / Number(closes[i - 1]) * 100;
+          lines.push("涨跌 " + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%");
+        }
+        return lines.join("<br/>");
+      } },
+      series: [{
+        type: "line", smooth: true, symbol: "none",
+        data: closes,
+        lineStyle: { color: p.color, width: 1.5 },
+        areaStyle: { color: p.color, opacity: 0.12 },
+      }],
+    }));
+    charts.push(inst);
   });
-  var polyStr = pts.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ");
-  var lastY = pts[n - 1][1];
-  // 面积 polygon：折线点闭合到底部两端
-  var areaPts = "0," + h + " " + polyStr + " " + w.toFixed(1) + "," + h;
-  // 每点 hover circle（透明，仅触发原生 <title> tooltip）
-  var hoverCircles = pts.map(function (p, i) {
-    var d = (dates && dates[i]) ? dates[i] : "";
-    var raw = closes[i];
-    var val = (raw != null && !isNaN(Number(raw))) ? Number(raw).toFixed(2) : "-";
-    return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="4" fill="transparent"><title>' + d + " " + val + '</title></circle>';
-  }).join("");
-  return '<svg class="idx-spark" width="100%" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' +
-    '<polygon points="' + areaPts + '" fill="' + color + '" fill-opacity="0.12" stroke="none"/>' +
-    '<polyline points="' + polyStr + '" fill="none" stroke="' + color + '" stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
-    '<circle cx="' + w.toFixed(1) + '" cy="' + lastY.toFixed(1) + '" r="2.2" fill="' + color + '"/>' +
-    hoverCircles +
-    '</svg>';
 }
 
 // 首页🐶卡片7天总况：堆叠迷你柱状图（红进/绿出/橙量），柱底标MM-DD，金点=共振日

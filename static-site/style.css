@@ -1042,7 +1042,7 @@ main { padding: 16px 24px; }
 .card.kpi[data-state="hot"] { background-image: linear-gradient(180deg, rgba(230,162,60,0.14), transparent 65%); }
 .card.kpi[data-state="strong"] { background-image: linear-gradient(180deg, var(--bg-best), transparent 70%); }
 /* P1-④ KPI卡内嵌迷你 sparkline (30px 高, pointer-events:none 不挡点击) */
-.card.kpi .kpi-spark { height: 30px; margin: 2px 0 0; pointer-events: none; }
+.card.kpi .kpi-spark { height: 30px; margin: 2px 0 0; }
 .card.kpi .kpi-spark svg { height: 30px; display: block; }
 .card.kpi .kpi-spark .idx-spark { display: block; }
 /* P2-⑦ 3情绪分卡数字字号+布局与其他卡统一(方向C, 2026-08-05):
