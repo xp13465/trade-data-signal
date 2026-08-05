@@ -7712,3 +7712,64 @@ KPI 小卡新颖 UI 设计 P0+P1+P2 全套（commit `71e8ef605`）在 feat/ifram
 - memory `production-stability-p0` / `deploy-verify-3-sites` / `bump-sw-version-with-appjs`（关联）
 
 **落档**：NOTES §48 小节 AM。KPI 小卡 P0+P1+P2 全套已 push main 上线，2 域名验证新版 OK。merge commit `2cb23c39b` 已在 main。
+
+## §48 小节AN：2026-08-05 晚 KPI sparkline 全卡扩展 + hover 特效 + 预估成交额盘后 hover + 预估后端 bug 修复 + 信号邮件中文化 + 大卡完全统一（6 项落档）
+
+### 0. 总览
+本次会话（2026-08-05 下午~晚上）在 feat/iframe-theme-follow 分支完成 6 项工作。前 4 项已通过 17:50 update-all 定时任务跑 deploy.sh push main 自动带上线（§48 小节 AL 机制），第 5 项（方向 C 大卡统一）agent 跑中 commit hash 待补，第 6 项（信号邮件中文化 commit `f42490af9`）待 23:00+ 安全窗口或后续定时任务带上推 main。
+
+### 1. KPI 小卡 sparkline 全卡扩展 + hover 特效（commit `a88aa7262`，已上线✓）
+- **后端 app/queries.py L510**：补 24 个 `*_6m` 字段（`KPI_SPARK_METRIC_IDS` 18 个 daily_metric 类 + `KPI_SPARK_SCORE_IDS` 6 个 score_daily 类），复用 `six_m_start` 210 天窗口，零额外 DB 查询成本
+- **前端 app.js `_kpiSparkHtml` 通用化**：所有 KPI 卡 `${k.id}_6m` 都能渲染 sparkline（不只 3 情绪分大卡），`_KPI_STATE_COLORS` 状态色统一（方案 A：情绪分卡用 fearGreedColor，其他卡用状态色和左色条统一）
+- **hover 特效扩展**：`.chart-card:not(.nt-home-card):hover` 加 `translateY(-0.5px)` + 阴影 + primary 描边，克制大容器效果（避免过度）
+- **布局和谐**：所有能加的卡都加 sparkline，`flex-wrap` 换行后每行统一高度
+- **sw.js** bump `v2-20260805-sparkline-hover`（铁律：改 app.js 必 bump sw 防旧 SW CacheFirst 缓存）
+- **验证**：线上 overview.json 27 个 `*_6m` 字段 ✓；本地 `overview()` 返回 27 字段 + `a_amount_6m` 140 点 ✓
+
+### 2. 预估成交额盘后 hover 对比（commit `32a23a5f9`，代码已上线）
+- **盘后逻辑**：`is_closed || hm >= 1500` 时 hover a_amount 卡 pop 预估 vs 实际对比（预估值 / 实际值 / 偏差% / 预估时点）
+- **方案 A**：CSS hover + 独立 tooltip 浮层（数据已在 state，无需额外 fetch）
+- **偏差色阶**：`<5%` 绿 / `<15%` 橙 / `>=15%` 红；正=预估偏低 / 负=预估偏高
+- **盘中保持**：预估角标常驻（app.js L8083-8105 不动）
+- **数据缺失防御**：`amount_forecast={}` 空对象时不显示 pop
+- **sw.js** bump `v2-20260805b-forecast-hover`
+- **依赖**：待 20:35 intraday 生成 amount_forecast 数值后，盘后 hover pop 才有数据
+
+### 3. 预估成交额后端 bug 修复（commit `e4e265a2a`）
+- **根因**：15:35 跑了 `be49e0064`（16:03）之前的 bug 中间版本（`snap["amount_forecast"]={}` 赋空 dict），该版本未 commit，rebase 后丢失
+- **修复**：`conn` 覆盖隐患（app 中 L1363 -> `_fc_conn` 局部变量隔离）
+- **验证**：手动跑 `collect_and_save`，snap `amount_forecast=26794.63` 数值 ✓ + DB 写入 ✓
+- **生效路径**：20:35 intraday 跑新代码后线上 amount_forecast 自动变数值，8/6 盘中 9:35 后预估角标显示
+
+### 4. 信号邮件英文改中文（commit `f42490af9`，待推 main）
+- **check_signals.py**：规则说明（主买 / 辅买 / 追买 / 备买 / 追止损卖 / 波段持有）+ intraday banner + help 中文化
+- **check_nt_signals.py**：表头 `z-score` -> `异常分数(z)` + 规则说明去括号英文
+- **detect_intraday_anomaly.py**：update_all 最终版 -> 系统将发送
+- **app/compute/signals.py**：`reason` 字段 ~15 处（`value` -> 当前值 / `close` -> 收盘价 / `cross` -> 情绪分= / `vs前买` -> 对比前买）+ docstring 示例同步
+- **验证**：`check_signals --dry-run` 邮件正文全中文 ✓；下次 update_all 重算 reason 全中文
+- **保留**：技术指标缩写 RSI / MA60 / MACD 等不翻译
+
+### 5. KPI 情绪分大卡完全统一 + 进度条 hover tooltip（方向 C，commit 待补，agent a1253c5e18a9098fd 跑中）
+- **用户反馈**：前 3 张卡数字大小不一 + 第 3 张进度条含义不明
+- **方向 C（用户定）**：完全去掉 `.kpi-sentiment-big` 类（`font-size:28px` + `flex-basis:200px` 全删），3 情绪分卡和其他卡完全统一 + 恐贪进度条改 hover tooltip（默认隐藏，hover 显示进度条 + `0 极度恐惧` - `100 极度贪婪` 刻度 + 当前位置文字）
+- **一致性**：和预估成交额盘后 hover 设计一致（debug 式说明）
+- **commit hash**：待补（agent 跑中）
+
+### 6. 定时任务 push main 带上线功能 commit（§48 小节 AL 机制再次验证）
+- 17:50 update-all 在 feat 分支跑 deploy.sh push main，把 feat 功能 commit 带上线
+- **17:50 后验证**：线上 overview.json 27 个 `*_6m` 字段 ✓ + `signals_today` `s.*=0` ✓ + sw `v2-20260805b-forecast-hover` ✓
+- **3 个 feat 功能 commit 已通过定时任务 push main 上线**：`a88aa7262`（sparkline+hover）+ `32a23a5f9`（预估 hover）+ `e4e265a2a`（预估后端修复）
+
+### 7. 待推 main 清单（23:00+ 安全窗口或后续定时任务带上）
+- `f42490af9` 信号邮件中文化（代码已 commit feat，待 push main）
+- 方向 C 大卡统一 commit（待补，agent 完成后加入待推清单）
+
+### 8. 关联
+- §48 小节 AL（feat 分支 push main 机制：定时任务 deploy.sh 自动带功能 commit 上线）
+- §48 小节 AM（KPI 小卡 P0+P1+P2 全套，本次小节 AN 在其基础上扩展 sparkline 到所有卡 + 大卡完全统一）
+- §8 改完必须推送 + §14 生产稳定性 P0（待推 main 项避让盘后定时任务时点，等 23:00+ 安全窗口）
+- memory `bump-sw-version-with-appjs` / `feat-branch-deploy-pushes-func-commits` / `verify-feature-live-not-code-in-main`（关联）
+- memory `amount-forecast-hover-design`（预估成交额 hover 设计，本次实施）
+- memory `card-hover-pop-effect-preference`（hover 蹦出特效偏好，本次扩展到 chart-card）
+
+**落档**：NOTES §48 小节 AN + TASKS 更新。前 4 项已上线，第 5 项 agent 跑中 commit 待补，第 6 项为定时任务上线机制验证。`f42490af9` + 方向 C commit 待 23:00+ 推 main。

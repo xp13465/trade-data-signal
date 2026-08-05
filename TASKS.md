@@ -1450,7 +1450,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **明天验证**：盘中异动验证浏览器弹通知（去重粒度对齐后新标的能弹）。详见 NOTES §48 小节AJ
 
-## 📋 2026-08-05 预估成交额实施（A+C共存，已验收✓ commit be49e0064 + f81a31bda，待23:00+推main）
+## 📋 2026-08-05 预估成交额实施（A+C共存，已上线✓ commit be49e0064 + f81a31bda + 32a23a5f9 盘后hover + e4e265a2a 后端bug修复）
 
 **方案**（用户确认显示：预估全天成交额跟着成交额卡片后面对照看）：
 - A线性外推带时间加权（立即生效）：A股分时成交节奏经验占比（9:30=2%->15:00=100%），预估=当前累计/经验累计占比
@@ -1472,6 +1472,21 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **约束遵循**：3保证不影响采集（try-except隔离+改intraday_snapshot.py避开:25/:35/:45/:55/:05/:15时点+ast语法检查）✓ / commit feat不推main ✓ / 改app.js后bump sw.js ✓
 
 **明天验证**：盘中验证 intraday_snapshot.json 含 amount_forecast 字段，KPI 卡片显橙色预估 tag + 主值万亿/亿切换。详见 NOTES §48 小节AK
+
+**盘后 hover 对比**（commit `32a23a5f9`，已上线✓）：
+- 盘后（`is_closed || hm >= 1500`）hover a_amount 卡 pop 预估 vs 实际对比（预估值 / 实际值 / 偏差% / 预估时点）
+- 方案 A：CSS hover + 独立 tooltip 浮层（数据已在 state，无需额外 fetch）
+- 偏差色阶：`<5%` 绿 / `<15%` 橙 / `>=15%` 红；正=预估偏低 / 负=预估偏高
+- 盘中保持预估角标常驻（app.js L8083-8105 不动）；数据缺失防御 `amount_forecast={}` 空对象时不显示 pop
+- sw.js bump `v2-20260805b-forecast-hover`；待 20:35 intraday 生成 amount_forecast 数值后盘后 hover pop 才有数据
+
+**后端 bug 修复**（commit `e4e265a2a`）：
+- 根因：15:35 跑了 `be49e0064`（16:03）之前的 bug 中间版本（`snap["amount_forecast"]={}` 赋空 dict），该版本未 commit，rebase 后丢失
+- 修复：`conn` 覆盖隐患（app 中 L1363 -> `_fc_conn` 局部变量隔离）
+- 验证：手动跑 `collect_and_save`，snap `amount_forecast=26794.63` 数值 ✓ + DB 写入 ✓
+- 20:35 intraday 跑新代码后线上 amount_forecast 自动变数值，8/6 盘中 9:35 后预估角标显示
+
+**上线状态**：3 commits（`be49e0064`+`f81a31bda`+`32a23a5f9`+`e4e265a2a`）已通过 17:50 定时任务 push main 自动带上线（§48 小节 AL 机制）。详见 NOTES §48 小节AN
 
 ## 📋 2026-08-05 8/5 R2无数据根治（commit faf109e57，待23:00+推main）
 
@@ -1500,7 +1515,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **明天验证**：signals_today s.* 0 条（已验收，明天数据复现）。详见 NOTES §48 小节AK
 
-## 📋 2026-08-05 KPI小卡新颖设计全套（P0+P1+P2，待实施）
+## 📋 2026-08-05 KPI小卡新颖设计全套（P0+P1+P2，已上线✓ commit 71e8ef605 + a88aa7262，方向C commit待补）
 
 **背景**：用户反馈首页KPI小卡颜色单调。调研agent（aadbc93ed20adc5ec）验收5根因坐实：
 1. 数字无状态色（.card-value L977无显式color，所有数字#f0e6c4暖米同色）
@@ -1522,4 +1537,22 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - 23:00+推main（和跌停池根治+通知修复+性能优化+预估成交额+信号方案B+8/5 R2根治一起）
 - 改app.js后build_min+bump_asset_version+bump sw.js（铁律1）
 
-**状态**：⏳ 待派实施agent（预估成交额已完成无冲突，推main后可派）
+**状态**：✅ 已上线（commit `71e8ef605` P0+P1+P2 全套 + merge `2cb23c39b` push main，详见 NOTES §48 小节AM）+ sparkline 全卡扩展 + hover 特效（commit `a88aa7262`，17:50 定时任务 push main 自动带上线，详见 NOTES §48 小节AN）+ 方向C 大卡完全统一（commit 待补，agent a1253c5e18a9098fd 跑中：去掉 .kpi-sentiment-big 类，3 情绪分卡和其他卡完全统一 + 恐贪进度条改 hover tooltip）
+
+**待推 main**：方向C commit（待补，agent 完成后等 23:00+ 安全窗口或后续定时任务带上）
+
+## 📋 2026-08-05 信号邮件英文改中文（commit f42490af9，待推main）
+
+**背景**：信号邮件（收盘信号 / 异常波动 / 国家队信号）正文含大量英文标签和字段名（value/close/cross/vs前买/z-score 等），用户阅读不直观。
+
+**实施**（commit `f42490af9`，4 文件，已验收✓）：
+- `check_signals.py`：规则说明（主买 / 辅买 / 追买 / 备买 / 追止损卖 / 波段持有）+ intraday banner + help 中文化
+- `check_nt_signals.py`：表头 `z-score` -> `异常分数(z)` + 规则说明去括号英文
+- `detect_intraday_anomaly.py`：update_all 最终版 -> 系统将发送
+- `app/compute/signals.py`：`reason` 字段 ~15 处（`value` -> 当前值 / `close` -> 收盘价 / `cross` -> 情绪分= / `vs前买` -> 对比前买）+ docstring 示例同步
+
+**保留**：技术指标缩写 RSI / MA60 / MACD 等不翻译
+
+**验证**：`check_signals --dry-run` 邮件正文全中文 ✓；下次 update_all 重算 reason 全中文
+
+**待推 main**：`f42490af9` 待 23:00+ 安全窗口或后续定时任务带上（§48 小节 AL 机制）。详见 NOTES §48 小节AN
