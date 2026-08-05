@@ -4139,6 +4139,7 @@ const KPI_HISTORY_SOURCE = {
   a_width_dt_count:    { src: "astock" },
   a_width_zhaban_rate: { src: "astock" },
   a_amount:            { src: "astock" },
+  a_amount_forecast:   { src: "astock" },
   a_fund_margin:       { src: "astock" },
   lhb_count:           { src: "astock" },
   a_width_zb_count:    { src: "astock" },
@@ -8080,6 +8081,18 @@ async function renderOverview() {
     const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
     let sub = k.sub || "";
     let valueHtml = k.value;
+    // 成交额KPI：盘中显示预估全天角标（从 intraday_snapshot.amount_forecast 读）
+    if (k.id === "a_amount") {
+      const _snap = state.intradaySnapshot;
+      const _forecast = _snap && _snap.amount_forecast;
+      if (_forecast && !_snap.is_closed) {
+        const now = new Date();
+        const hm = now.getHours() * 100 + now.getMinutes();
+        if (hm < 1500) {
+          valueHtml = `${k.value}<span class="forecast-tag" style="color:#888;font-size:11px;margin-left:6px;">预估全天 ${Math.round(_forecast)}亿</span>`;
+        }
+      }
+    }
     if (k.id === "a_volume_ratio") {
       const sig = k.signal || "";
       const isFangliang = sig.startsWith("放量");

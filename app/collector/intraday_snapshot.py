@@ -898,6 +898,81 @@ def _save_db(collected_at: str, is_closed: bool,
     conn.close()
 
 
+def _ensure_amount_history_table() -> None:
+    """确保 intraday_amount_history 表存在（正确 schema：date/time_hhmm/cum_amount）。"""
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS intraday_amount_history (
+            date TEXT NOT NULL,
+            time_hhmm TEXT NOT NULL,
+            cum_amount REAL NOT NULL,
+            source TEXT DEFAULT 'intraday',
+            run_at TEXT,
+            PRIMARY KEY (date, time_hhmm)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def _forecast_amount(today: str, hhmm: str, cum_amount: float):
+    """预估全天成交额。方案 A 经验加权立即 + 方案 C 历史占比校准如果数据足够(>=5天)。
+    
+    A 股分时成交节奏经验占比(累计，截至该时点占全天):
+    9:30=0%, 10:00=18%, 10:30=25%, 11:00=32%, 11:30=40%,
+    13:00=40%, 13:30=48%, 14:00=58%, 14:30=72%, 15:00=100%
+    """
+    # 方案 C：查历史占比（>=5天数据时用历史校准）
+    try:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT date, MAX(cum_amount) as full_day FROM intraday_amount_history "
+            "WHERE date < ? GROUP BY date ORDER BY date DESC LIMIT 10",
+            (today,),
+        ).fetchall()
+        if len(rows) >= 5:
+            hist_ratios = []
+            for r in rows:
+                h_row = conn.execute(
+                    "SELECT cum_amount FROM intraday_amount_history WHERE date=? AND time_hhmm <= ? "
+                    "ORDER BY time_hhmm DESC LIMIT 1",
+                    (r["date"], hhmm),
+                ).fetchone()
+                if h_row and r["full_day"] and r["full_day"] > 0:
+                    hist_ratios.append(h_row["cum_amount"] / r["full_day"])
+            if hist_ratios:
+                avg_ratio = sum(hist_ratios) / len(hist_ratios)
+                if 0.05 < avg_ratio < 0.99:
+                    conn.close()
+                    return cum_amount / avg_ratio
+        conn.close()
+    except Exception:
+        pass
+    # 方案 A：经验加权（无历史数据或数据不足时）
+    exp_ratio = _exp_cum_ratio(hhmm)
+    if exp_ratio and exp_ratio > 0:
+        return cum_amount / exp_ratio
+    return None
+
+
+_EXP_RATIOS = {
+    "09:30": 0.02, "09:35": 0.06, "09:45": 0.12, "09:55": 0.16,
+    "10:00": 0.18, "10:30": 0.25, "11:00": 0.32, "11:30": 0.40,
+    "13:00": 0.40, "13:30": 0.48, "14:00": 0.58, "14:30": 0.72,
+    "14:55": 0.92, "15:00": 1.00,
+}
+
+
+def _exp_cum_ratio(hhmm: str) -> float:
+    times = sorted(_EXP_RATIOS.keys())
+    prev_ratio = 0.0
+    for t in times:
+        if hhmm <= t:
+            return prev_ratio
+        prev_ratio = _EXP_RATIOS[t]
+    return 1.0
+
+
 def _backfill_index_daily(indices: list[dict]) -> int:
     """把盘中快照的当日指数 OHLC 反哺 index_daily 表（UPSERT，幂等）。
 
@@ -1276,6 +1351,30 @@ def _collect_intraday_width_metrics() -> dict:
             upsert_metric(today, "a_width_down_count", down, source="intraday")
             upsert_metric(today, "a_amount", amount, source="intraday")
             results.update(up_count=up, down_count=down, amount=round(amount, 2))
+            # 预估全天成交额 + 历史分时数据积累（独立 try-except，失败不影响现有采集）
+            try:
+                from datetime import datetime as _dt
+                _now = _dt.now()
+                _hhmm = _now.strftime("%H:%M")
+                # 1) 建表 + 存历史分时数据（方案 C 积累）
+                _ensure_amount_history_table()
+                conn = get_conn()
+                conn.execute(
+                    "INSERT OR REPLACE INTO intraday_amount_history (date, time_hhmm, cum_amount, source, run_at) "
+                    "VALUES (?,?,?,?,?)",
+                    (today, _hhmm, amount, "intraday", _now.isoformat()),
+                )
+                conn.commit()
+                conn.close()
+                # 2) 算预估全天成交额（方案 A 经验加权立即 + 方案 C 历史占比校准如果数据足够）
+                forecast = _forecast_amount(today, _hhmm, amount)
+                if forecast is not None:
+                    upsert_metric(today, "a_amount_forecast", round(forecast, 2), source="intraday")
+                    results["amount_forecast"] = round(forecast, 2)
+                    print(f"  [intraday] amount_forecast: {forecast:.0f}亿 (cum={amount:.0f}亿 at {_hhmm})", flush=True)
+            except Exception as e:  # noqa: BLE001
+                log_collect(today, "a_amount_forecast", "error", f"预估成交额计算异常: {type(e).__name__} {e}")
+                print(f"  [intraday] amount_forecast 异常（不影响采集）: {type(e).__name__} {e}", flush=True)
             print(f"  [intraday] spot: up={up} down={down} amount={amount:.0f}亿 "
                   f"({time.time()-t0:.1f}s)", flush=True)
     except Exception as e:  # noqa: BLE001
@@ -1763,6 +1862,15 @@ def collect_and_save() -> dict:
         except Exception as e:  # noqa: BLE001
             print(f"[intraday] width 指标采集失败（不阻断）: {type(e).__name__} {e}", flush=True)
         width_n = len(width_res)
+        # 预估成交额写入 snap 并重新 dump intraday_snapshot.json（前端从 a_amount_forecast 字段读）
+        if width_res.get("amount_forecast") is not None:
+            snap["amount_forecast"] = width_res["amount_forecast"]
+            try:
+                _snap_text = json.dumps(snap, ensure_ascii=False, separators=(",", ":"))
+                out_path.write_text(_snap_text, encoding="utf-8")
+                print(f"  [intraday] intraday_snapshot.json 重新 dump（含 amount_forecast={width_res['amount_forecast']}）", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"  [intraday] 重新 dump intraday_snapshot.json 失败（不阻断）: {type(e).__name__} {e}", flush=True)
         n_ind = _backfill_industry_daily(snap["industries"])
         n_concept = _backfill_concept_daily(snap["concepts"])
         # 重算：指数反哺 或 width 指标采集 都触发（width 有当日值后 a_sentiment/cross_market 能出分）
