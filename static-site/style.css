@@ -1011,6 +1011,7 @@ main { padding: 16px 24px; }
 .chart-card { transition: transform .15s ease, box-shadow .15s ease; }
 .chart-card:not(.nt-home-card):hover {
   transform: translateY(-0.5px);
+  border-color: var(--primary);
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
 }
 /* P0-② data-state 左侧色条着色 */
@@ -1053,7 +1054,7 @@ main { padding: 16px 24px; }
 .card.kpi .kpi-fg-tooltip {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1113,7 +1114,7 @@ main { padding: 16px 24px; }
 .card.kpi .kpi-sent-tooltip {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -1126,6 +1127,10 @@ main { padding: 16px 24px; }
   transition: opacity 0.15s ease, visibility 0.15s ease;
   pointer-events: none;
   overflow: hidden;
+}
+/* 内容少(无分项构成.kst-comp-row)时垂直居中,避免下方留白 (2026-08-05) */
+.card.kpi .kpi-sent-tooltip:not(:has(.kst-comp-row)) {
+  justify-content: center;
 }
 .card.kpi.has-sent-tooltip:hover .kpi-sent-tooltip {
   opacity: 1;
@@ -1156,11 +1161,13 @@ main { padding: 16px 24px; }
   align-items: baseline;
   font-size: 11px;
   gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .kpi-sent-tooltip .kst-label,
-.kpi-fg-tooltip .kst-label { color: var(--text-3); flex-shrink: 0; }
+.kpi-fg-tooltip .kst-label { color: var(--text-3); flex-shrink: 0; white-space: nowrap; }
 .kpi-sent-tooltip .kst-val,
-.kpi-fg-tooltip .kst-val { color: var(--text-1); font-weight: 600; text-align: right; }
+.kpi-fg-tooltip .kst-val { color: var(--text-1); font-weight: 600; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .kpi-sent-tooltip .kst-meaning,
 .kpi-fg-tooltip .kst-meaning {
   font-size: 10px;
@@ -1200,7 +1207,7 @@ main { padding: 16px 24px; }
 .kpi-sent-tooltip .kst-comp-label {
   color: var(--text-3);
   flex-shrink: 0;
-  width: 48px;
+  width: 56px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1232,7 +1239,7 @@ main { padding: 16px 24px; }
 .card.kpi .kpi-forecast-pop {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -3749,7 +3756,7 @@ main { padding: 16px 24px; }
 
 /* 首页🐶汪汪队信号卡片 */
 .nt-home-card { transition: border-color .2s, box-shadow .2s; }
-.nt-home-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.nt-home-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(0,0,0,.08); transform: translateY(-1px); }
 .nt-date-tag { font-size: 11px; color: var(--text-3); font-weight: normal; margin-left: 4px; }
 .nt-resonance-badge {
   display: inline-block; margin-left: 6px; padding: 1px 7px; font-size: 11px; font-weight: 600;

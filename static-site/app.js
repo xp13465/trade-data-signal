@@ -8103,6 +8103,8 @@ async function renderOverview() {
     "a_width_zt_count", "a_width_dt_count", "a_width_up_count", "a_width_down_count", "a_width_zhaban_rate", "a_width_fengban_rate",
     "gold", "cn10y", "a_qvix_300", "a_volume_ratio",
   ]);
+  // P1+ high_alert/low_alert 无6m分位但有components分项构成,单独集合 (2026-08-05)
+  const _KPI_COMP_ONLY_IDS = new Set(["high_alert", "low_alert"]);
   for (const k of _orderedCards) {
     const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : k.disabled ? "disabled" : "stale";
     const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
@@ -8407,6 +8409,48 @@ async function renderOverview() {
           _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip">${_tooltipBody}</div>`;
         }
       }
+    } else if (_KPI_COMP_ONLY_IDS.has(k.id) && k.valueNum != null) {
+      // P1+ high_alert/low_alert: 无6m分位,显示当前值+阈值级别+top4分项构成 (2026-08-05)
+      const _isHigh = k.id === "high_alert";
+      // 阈值从高到低判断(修正方案遍历bug:原低到高v=80误判"预警"实应"警示")
+      const _thresholds = _isHigh
+        ? [{v:88, label:"高危"}, {v:75, label:"警示"}, {v:72, label:"预警"}]
+        : [{v:88, label:"机遇"}, {v:85, label:"预警"}, {v:75, label:"机会"}];
+      const _v = k.valueNum;
+      let _level = _isHigh ? "安全" : "中性";
+      for (const th of _thresholds) {
+        if (_v >= th.v) { _level = th.label; break; }
+      }
+      const _levelColor = _v >= 88 ? "#e6492e" : _v >= 75 ? "#e6a23c" : _v >= (_isHigh ? 72 : 85) ? "#faad14" : "var(--text-2)";
+      // 分项构成 (复用 _compBarsHtml 逻辑,按固定权重降序取top4)
+      const _compSrc = r.today && r.today.scores && r.today.scores[k.id] && r.today.scores[k.id].components;
+      let _compBarsHtml = "";
+      if (_compSrc && typeof _compSrc === "object") {
+        const _compKeys = Object.keys(_compSrc).filter(kk => {
+          const vv = _compSrc[kk];
+          return typeof vv === "number" && !isNaN(vv);
+        });
+        if (_compKeys.length) {
+          const _sortedKeys = _compKeys.slice().sort((a, b) => {
+            const _wa = parseFloat((_ALERT_WEIGHTS[a] || "0").replace("%", ""));
+            const _wb = parseFloat((_ALERT_WEIGHTS[b] || "0").replace("%", ""));
+            return _wb - _wa;
+          });
+          const _showKeys = _sortedKeys.slice(0, 4);
+          const _compRows = _showKeys.map(kk => {
+            const _cname = _COMP_NAMES[kk] || kk;
+            const _cv = Number(_compSrc[kk]);
+            const _cpct = Math.max(0, Math.min(100, _cv));
+            const _ccolor = fearGreedColor(_cv);
+            return `<div class="kst-comp-row"><span class="kst-comp-label" title="${_cname}">${_cname}</span><div class="kst-comp-bar"><div class="kst-comp-fill" style="width:${_cpct.toFixed(1)}%;background:${_ccolor}"></div></div><span class="kst-comp-val" style="color:${_ccolor}">${_cv.toFixed(1)}</span></div>`;
+          }).join("");
+          _compBarsHtml = `<div class="kst-sep"></div>${_compRows}`;
+        }
+      }
+      const _tooltipBody =
+        `<div class="kst-headline">当前 <b style="color:${_levelColor}">${k.value}</b> · <b style="color:${_levelColor}">${_level}</b></div>` +
+        _compBarsHtml;
+      _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip">${_tooltipBody}</div>`;
     }
     if (_fgMerge6m && _fgTooltipHtml) {
       // 把6m分位行插入 .kpi-fg-tooltip 容器闭合前
@@ -10653,11 +10697,22 @@ const _COMP_NAMES = {
   a_width: "A股宽度", a_fund: "资金面", a_sentiment: "A股情绪",
   hk: "港股", global: "全球", lhb: "龙虎榜", unlock: "解禁", ipo: "IPO", cov: "可转债",
   north: "北向资金",
+  // high_alert 8维 (alert_reason.py L33-36, 权重 alert_score.py L39-40)
+  H1: "情绪过热", H2: "量价背离", H3: "风险点密集", H4: "位置偏高",
+  H5: "动量衰退", H6: "均线转弱", H7: "汪汪队离场", H8: "全球走弱",
+  // low_alert 8维 (alert_reason.py L37-40, 权重 alert_score.py L42-43)
+  L1: "情绪冰点", L2: "关注点密集", L3: "位置偏低", L4: "汪汪队入场",
+  L5: "量能异动", L6: "新低极端", L7: "波指飙升", L8: "价值显现",
 };
 // 各分项权重（A股综合情绪分 a_sentiment 为固定加权,缺项按可用重归一化;
 //  per-index 情绪分/跨市场评分/恐贪指数为等权,未列入的 key 显示"等权"）
 const _COMP_WEIGHTS = {
   ratio: "25%", zt: "20%", zhaban: "15%", lianban: "15%", amount: "10%", north: "15%",
+};
+// high_alert/low_alert 固定权重 (alert_score.py L39-43, 2026-08-05 hover分项构成top4排序用)
+const _ALERT_WEIGHTS = {
+  H1: "26%", H2: "8%", H3: "13%", H4: "20%", H5: "8%", H6: "8%", H7: "10%", H8: "7%",
+  L1: "20%", L2: "18%", L3: "15%", L4: "15%", L5: "10%", L6: "8%", L7: "7%", L8: "7%",
 };
 function _fmtComp(k, v) {
   if (k === "label") return String(v); // 恐贪标签为中文（极度恐惧/恐惧/中性/贪婪/极度贪婪），原样返回不走数字格式
