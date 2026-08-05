@@ -8107,7 +8107,22 @@ async function renderOverview() {
   const _KPI_COMP_ONLY_IDS = new Set(["high_alert", "low_alert"]);
   for (const k of _orderedCards) {
     const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : k.disabled ? "disabled" : "stale";
-    const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
+    let tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
+    // high_alert/low_alert 卡面级别标签(复用 tag 机制,与 _kpiState 状态色联动)
+    if (k.id === "high_alert" || k.id === "low_alert") {
+      const _av = k.valueNum;
+      const _isHigh = k.id === "high_alert";
+      let _lvl = "", _lvlCls = "";
+      if (_isHigh) {
+        if (_av >= 88) { _lvl = "高危"; _lvlCls = "overheat"; }
+        else if (_av >= 75) { _lvl = "警示"; _lvlCls = "hot"; }
+        else if (_av >= 72) { _lvl = "预警"; _lvlCls = "warn"; }
+      } else {
+        if (_av >= 88) { _lvl = "机遇"; _lvlCls = "freeze"; }
+        else if (_av >= 85) { _lvl = "预警"; _lvlCls = "cold"; }
+      }
+      if (_lvl) tagHtml = ` <span class="tag ${_lvlCls}">${_lvl}</span>`;
+    }
     const sentTag = (k.id === "a_sentiment" || k.id === "cross_market") && !k.tag ? ` <span class="sentiment-label">${sentimentTag(k.valueNum)}</span>` : "";
     const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
     let sub = k.sub || "";
@@ -8270,6 +8285,21 @@ async function renderOverview() {
         if (_v <= 60) return "neutral";
         if (_v <= 80) return "hot";
         return "overheat";
+      }
+      if (k.id === "high_alert") {
+        const _v = k.valueNum;
+        if (_v == null) return "neutral";
+        if (_v >= 88) return "overheat";   // 高危 深红
+        if (_v >= 75) return "hot";        // 警示 橙
+        if (_v >= 72) return "warn";       // 预警 黄
+        return "neutral";                  // 安全 灰
+      }
+      if (k.id === "low_alert") {
+        const _v = k.valueNum;
+        if (_v == null) return "neutral";
+        if (_v >= 88) return "freeze";     // 机遇 深蓝
+        if (_v >= 85) return "cold";       // 预警 浅蓝
+        return "neutral";                  // 中性 灰
       }
       if (k.tag === "冰点") return "freeze";
       if (k.tag === "过热") return "overheat";

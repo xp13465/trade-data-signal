@@ -1278,6 +1278,8 @@ main { padding: 16px 24px; }
   }
 }
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; display: flex; align-items: baseline; gap: 6px; }
+.card.kpi[data-kpi-key="high_alert"] .card-value,
+.card.kpi[data-kpi-key="low_alert"] .card-value { font-size: 34px; }
 .card.kpi .card-value .cv-val { min-width: 0; }
 .card.kpi .card-value .cv-tags { margin-left: auto; flex-shrink: 0; }
 .card.kpi .card-value .cv-tags .tag,
@@ -1289,7 +1291,7 @@ main { padding: 16px 24px; }
 /* KPI 标题❓绝对定位右上角,脱离文档流不撑高整行(❓emoji的inline-block盒高>标题13px行高,致flex align-items:stretch整行撑高);
    padding-right:18px 覆盖通用.card-title的4px留❓位,所有KPI标题右边对齐更整齐;仅限KPI卡,不影响图表卡h3/summary-chips等 */
 .card.kpi .card-title { position: relative; padding-right: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card.kpi .card-title .term-tip { position: absolute; top: 1px; right: 0; margin-left: 0; }
+.card.kpi .card-title .term-tip { position: absolute; top: 1px; right: 0; margin-left: 0; z-index: 20; }
 .tag.stale { background: #faad14; }
 /* P0-1 数据诚信：采集异常指标灰态卡片（不静默隐藏，让用户明确知道该指标当前数据源中断） */
 .tag.disabled { background: #909399; }
@@ -1351,6 +1353,11 @@ main { padding: 16px 24px; }
   box-shadow: 0 1px 3px var(--shadow);
   position: relative;
   min-width: 0;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.spark-cell:hover {
+  transform: translateY(-0.5px);
+  box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
 }
 .spark-head {
   display: flex;

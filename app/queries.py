@@ -533,6 +533,7 @@ def overview(conn, cfg):
     KPI_SPARK_SCORE_IDS = (
         "sentiment_sz50", "sentiment_hs300", "sentiment_csi500",
         "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50",
+        "high_alert", "low_alert",   # 新增: sparkline + 数据积累
     )
     kpi_spark_6m = {}
     for _mid in KPI_SPARK_METRIC_IDS:
