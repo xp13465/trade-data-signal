@@ -6797,23 +6797,21 @@ function initNotifyButton() {
     if (perm === 'denied') {
       btn.classList.add('off');
       btn.classList.remove('on');
-      btn.title = _isSafari()
-        ? 'Safari 通知权限不同步（已知 bug）。请到 Safari > 设置 > 网站 > 通知 移除本站后，完全退出 Safari (Cmd+Q) 重开，再点铃铛授权'
-        : '通知被浏览器屏蔽，去浏览器设置恢复权限后重试';
+      btn.title = '';  // 2026-08-05 去原生tooltip避免盖住click弹出的pop菜单
       btn.querySelector('.notify-icon').textContent = '🔕';
     } else if (enabled && perm === 'granted') {
       btn.classList.add('on');
       btn.classList.remove('off');
-      btn.title = '浏览器通知已开启（点击弹开关/试看选项）';
+      btn.title = '';
       btn.querySelector('.notify-icon').textContent = '🔔';
     } else if (perm === 'granted') {
       // fix3: 已授权但用户关闭，用 🔕 明确反馈"已关闭可重开"
       btn.classList.remove('on', 'off');
-      btn.title = '通知已关闭（点击弹开关/试看选项）';
+      btn.title = '';
       btn.querySelector('.notify-icon').textContent = '🔕';
     } else {
       btn.classList.remove('on', 'off');
-      btn.title = '点击弹通知开关/试看选项（盘中异动/新信号弹 Windows 通知中心）';
+      btn.title = '';
       btn.querySelector('.notify-icon').textContent = '🔔';
     }
     // 方案1(2026-08-05): 试看在 click popup 内, 同步刷新 popup 状态
