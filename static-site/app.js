@@ -6925,17 +6925,36 @@ async function _checkNotifications() {
 // document.hidden 时 overview 轮询被跳过(L5372)致 _checkNotifications 不触发，
 // 后台标签页收不到通知。独立 setInterval 不受 document.hidden 影响，后台也能弹通知。
 // _checkNotifications 内部有 pref/permission/30s 节流三层短路，关闭时 return 不发请求。）
+// P1-5(2026-08-05): 后台标签页暂停 setInterval 省请求(用户没在看), 切回前台恢复 + 立即检查一次.
+// 30s 节流仍生效: 后台<30s 切回不重复查, >30s 切回立即查; 通知延迟最多=后台时长, 用户切回即见.
 let _notifyCheckTimer = null;
+let _notifyVisBound = false;
 function _startNotifyPolling() {
   if (_notifyCheckTimer) return;  // 防重复启动（initNotifyButton 可能多次调用）
   _notifyCheckTimer = setInterval(_checkNotifications, NOTIFY_FETCH_INTERVAL_MS);
   console.log('[notify] 独立轮询已启动 (每' + NOTIFY_FETCH_INTERVAL_MS / 1000 + 's)');
+  // P1-5: 绑定 visibilitychange (只绑一次), 后台暂停/前台恢复
+  if (!_notifyVisBound) {
+    _notifyVisBound = true;
+    document.addEventListener('visibilitychange', _onNotifyVisChange);
+  }
 }
 function _stopNotifyPolling() {
   if (_notifyCheckTimer) {
     clearInterval(_notifyCheckTimer);
     _notifyCheckTimer = null;
     console.log('[notify] 独立轮询已停止');
+  }
+}
+// P1-5: 后台标签页暂停通知轮询省请求, 切回前台恢复 + 立即检查一次(补偿后台期间)
+function _onNotifyVisChange() {
+  if (document.hidden) {
+    // 后台暂停: 用户没在看, 省请求(setInterval 30s 一次, 后台1h省120次)
+    if (_notifyCheckTimer) { clearInterval(_notifyCheckTimer); _notifyCheckTimer = null; }
+  } else if (!_notifyCheckTimer) {
+    // 切回前台: 恢复轮询 + 立即检查一次(30s 节流决定是否真查)
+    _notifyCheckTimer = setInterval(_checkNotifications, NOTIFY_FETCH_INTERVAL_MS);
+    _checkNotifications();
   }
 }
 
@@ -7674,24 +7693,35 @@ async function renderAlertBar(host) {
 }
 
 async function renderOverview() {
+  // P1-6(2026-08-05): 首屏3个独立fetch并行(overview/signal_stats/intraday无相互依赖),
+  // 原串行 await 总时延≈三者和(overview+signal_stats 1.5s超时+intraday 1.5s超时≈3s),
+  // 改 Promise.all 后≈max(三者,约1.5s), 省约1.5s. 依赖确认(逐一核对3个fetch返回值是否被后续fetch使用):
+  //  - overview.json: r 用于 applyCollectTime + 后续渲染(无依赖其他两个, 独立URL)
+  //  - signal_stats.json: 写 state.signalStats, 首屏 sigCard 评分尾缀用(无依赖其他两个, 独立URL)
+  //  - intraday_snapshot: 写 state.intradaySnapshot, snap 用于角标/chips(无依赖其他两个, 独立URL)
+  // 三者URL独立无依赖; fetchIntradaySnapshot 单例锁(L4623)幂等可安全并行;
+  // overview 失败应中断(原行为,不加catch让Promise.all reject); signal_stats/intraday 失败静默(原try/catch,加.catch)
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
-  const r = _getCachedOverview() || await fetchJSON("./data/overview.json");
-  _setCachedOverview(r);
+  const cachedOverview = _getCachedOverview();
+  const overviewPromise = cachedOverview ? Promise.resolve(cachedOverview) : fetchJSON("./data/overview.json");
   // 预 fetch signal_stats.json 缓存到 state.signalStats（_renderSignalGrid 评分尾缀用）
   // 2026-07-20 修复(a28 bug):改 await + Promise.race 超时,确保首屏 sigCard 渲染前 signalStats 就绪,
   // 否则 _getSignalScore L1004 `if(!state.signalStats) return null` 致首屏无评分(切tab再切回才有)
-  if (!state.signalStats) {
-    try {
-      await Promise.race([
+  const signalStatsPromise = (!state.signalStats)
+    ? Promise.race([
         fetchJSON("./data/signal_stats.json").then((raw) => { state.signalStats = raw; }),
         new Promise((res) => setTimeout(res, 1500))
-      ]);
-    } catch {}
-  }
+      ]).catch(() => {})
+    : Promise.resolve();
+  // 盘中标注：等快照就绪（最多 1.5s），让每张卡片角标判断 714 实时 vs 713 待收盘
+  const intradayPromise = Promise.race([
+    fetchIntradaySnapshot(),
+    new Promise((res) => setTimeout(res, 1500))
+  ]).catch(() => {});
+  const [r] = await Promise.all([overviewPromise, signalStatsPromise, intradayPromise]);
+  _setCachedOverview(r);
   // 分享按钮旁显示数据采集时间（来自 collect_log 最新 run_at）+ A4 健康灯（collect_health）
   applyCollectTime(r.collected_at, r.collect_health);
-  // 盘中标注：等快照就绪（最多 1.5s），让每张卡片角标判断 714 实时 vs 713 待收盘
-  try { await Promise.race([fetchIntradaySnapshot(), new Promise((res) => setTimeout(res, 1500))]); } catch {}
   const snap = state.intradaySnapshot;
   _renderCollectTime(); // snap 就绪后更新采集时间后缀（动态/收盘）
   // 兜底启动 overview 自适应轮询(覆盖切 tab/重渲染场景, 2026-07-27):
