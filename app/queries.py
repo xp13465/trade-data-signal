@@ -502,6 +502,43 @@ def overview(conn, cfg):
                     "WHERE score_id='fear_greed' AND date>=? ORDER BY date",
                     (six_m_start,))]
 
+    # P1-④+ KPI 小卡 sparkline 扩展：所有有数据的卡统一加 *_6m 字段（布局和谐，
+    # flex-wrap 换行后每行统一高度，动态展示）。a_sentiment/cross_market/fear_greed
+    # 已有独立字段（上面 asent_6m/cross_6m/fg_6m），此处补其余 18 metric + 6 score。
+    # daily_metric 类（18 个）：成交额/量比/宽度计数/炸板封板率/金债/QVIX/融资融券/换手率5项
+    # score_daily 类（6 个）：5 大宽基 + 创业板/科创50 情绪分（0-100，含 is_freeze/is_overheat 标记）
+    KPI_SPARK_METRIC_IDS = (
+        "a_amount", "a_volume_ratio",
+        "a_width_zt_count", "a_width_dt_count", "a_width_up_count", "a_width_down_count",
+        "a_width_zhaban_rate", "a_width_fengban_rate",
+        "gold", "cn10y", "a_qvix_300",
+        "a_fund_margin", "a_fund_main",
+        "a_turnover_mean", "a_turnover_median", "a_turnover_p90", "a_turnover_p10", "a_turnover_gt5_pct",
+    )
+    KPI_SPARK_SCORE_IDS = (
+        "sentiment_sz50", "sentiment_hs300", "sentiment_csi500",
+        "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50",
+    )
+    kpi_spark_6m = {}
+    for _mid in KPI_SPARK_METRIC_IDS:
+        _rows = conn.execute(
+            "SELECT date, value FROM daily_metric WHERE metric_id=? AND date>=? ORDER BY date",
+            (_mid, six_m_start),
+        ).fetchall()
+        if len(_rows) >= 2:
+            kpi_spark_6m[f"{_mid}_6m"] = [{"date": r["date"], "value": r["value"]} for r in _rows]
+    for _sid in KPI_SPARK_SCORE_IDS:
+        _rows = conn.execute(
+            "SELECT date, value, is_freeze, is_overheat FROM score_daily "
+            "WHERE score_id=? AND date>=? ORDER BY date",
+            (_sid, six_m_start),
+        ).fetchall()
+        if len(_rows) >= 2:
+            kpi_spark_6m[f"{_sid}_6m"] = [
+                {"date": r["date"], "value": r["value"], "is_freeze": r["is_freeze"], "is_overheat": r["is_overheat"]}
+                for r in _rows
+            ]
+
     # 采集时间 + 数据健康度：collect_log 最新一次 run（run_date 取当天全部记录）
     _last = conn.execute(
         "SELECT run_date, run_at FROM collect_log ORDER BY run_at DESC LIMIT 1"
@@ -677,6 +714,8 @@ def overview(conn, cfg):
         "us_dji_date": extra_dates.get("us_dji_date", ""),
         "csi_div_date": extra_dates.get("csi_div_date", ""),
         "nt_signals_today": nt_signals_today,
+        # P1-④+ KPI 小卡 sparkline 扩展：20 个 *_6m 字段扁平化合并（a_amount_6m/sentiment_sz50_6m 等）
+        **kpi_spark_6m,
     }
 
 

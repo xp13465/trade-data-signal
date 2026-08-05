@@ -1003,6 +1003,16 @@ main { padding: 16px 24px; }
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
   transform: translateY(-1px);
 }
+/* P1-⑥+ hover 动效扩展到图表大卡(分时图/宽窄度/指数图/MA/持仓/信号卡等)，克制效果：
+   大容器面积大 translateY 不宜过大(-0.5px)，避免和 ECharts 鼠标事件冲突；
+   用 box-shadow 0 0 0 1px 模拟描边(不改 border-width 避免布局抖动)。
+   排除 .nt-home-card(已有自己 hover 定义)；market-score-card 非 chart-card 不受影响。
+   fg-dim-card/sig-card/ma-card/position-card 等子类共享此 hover，统一交互反馈。 */
+.chart-card { transition: transform .15s ease, box-shadow .15s ease; }
+.chart-card:not(.nt-home-card):hover {
+  transform: translateY(-0.5px);
+  box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
+}
 /* P0-② data-state 左侧色条着色 */
 .card.kpi[data-state="up"] { border-left-color: #e6492e; }
 .card.kpi[data-state="down"] { border-left-color: #2e8b57; }

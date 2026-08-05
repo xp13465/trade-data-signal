@@ -8211,18 +8211,24 @@ async function renderOverview() {
       if (k.tag === "过热") return "overheat";
       return "neutral";
     })();
-    // P1-④ 内嵌迷你 sparkline：3情绪分卡用 overview.json 已有 6m 数据(零额外请求)，其他 KPI 不嵌(避免 N 个 fetch)
-    // 复用 ntIndexSparkline(L9028 SVG生成器, function declaration hoist 可前向引用) + fearGreedColor(L1196 0-100通用色阶)
-    const _sparkSrc = k.id === "a_sentiment" ? "a_sentiment_6m"
-      : k.id === "cross_market" ? "cross_market_6m"
-      : k.id === "fear_greed" ? "fear_greed_6m" : null;
+    // P1-④+ KPI 小卡 sparkline 扩展：所有有数据的卡统一用 ${k.id}_6m（overview.json 已含，
+    // 零额外请求）。色阶方案A（状态色，和卡片左色条统一视觉）：
+    // 9 情绪分卡(0-100) 用 fearGreedColor 通用色阶；其他卡用 _KPI_STATE_COLORS[_kpiState] 状态色。
+    // 复用 ntIndexSparkline(L9077 SVG生成器, function declaration hoist 可前向引用) + fearGreedColor(L1196 0-100通用色阶)
+    const _KPI_STATE_COLORS = {
+      freeze: "#42a5f5", cold: "#4fc3f7", neutral: "#86909c",
+      hot: "#e6a23c", overheat: "#e6492e",
+      up: "#e6492e", down: "#2e8b57", warn: "#faad14", strong: "#f0b90b", disabled: "#909399",
+    };
+    const _sparkSrc = `${k.id}_6m`;
     let _kpiSparkHtml = "";
-    if (_sparkSrc && r[_sparkSrc] && r[_sparkSrc].length >= 2) {
+    if (r[_sparkSrc] && r[_sparkSrc].length >= 2) {
       const _sData = r[_sparkSrc];
       const _closes = _sData.map(d => d.value);
       const _dates = _sData.map(d => d.date);
       const _lastV = _closes[_closes.length - 1];
-      const _sparkColor = fearGreedColor(_lastV);  // 0-100 通用色阶: 冰点蓝->过热红
+      const _isScore = k.id === "a_sentiment" || k.id === "cross_market" || k.id === "fear_greed" || String(k.id).startsWith("sentiment_");
+      const _sparkColor = _isScore ? fearGreedColor(_lastV) : (_KPI_STATE_COLORS[_kpiState] || "#86909c");
       _kpiSparkHtml = `<div class="kpi-spark">${ntIndexSparkline(_closes, _dates, _sparkColor, 200, 30)}</div>`;
     }
     // P2-⑦ 情绪分专属大卡标识 + 恐贪指数 0-100 进度条(蓝->红渐变标当前位置)
