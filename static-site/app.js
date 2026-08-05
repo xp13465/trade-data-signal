@@ -8318,13 +8318,13 @@ async function renderOverview() {
         const _pctColor = _stat.percentile < 33.34 ? "#4fc3f7" : _stat.percentile > 66.66 ? "#e6a23c" : "var(--text-2)";
         const _fmt6mV = (v) => {
           if (v == null) return "-";
-          if (k.id === "a_width_zhaban_rate" || k.id === "a_width_fengban_rate") return (v * 100).toFixed(1) + "%";
+          if (k.id === "a_width_zhaban_rate" || k.id === "a_width_fengban_rate") return (v * 100).toFixed(0) + "%";
           if (k.id === "a_width_zt_count" || k.id === "a_width_dt_count" || k.id === "a_width_up_count" || k.id === "a_width_down_count") return v.toFixed(0);
-          if (k.id === "a_volume_ratio") return v.toFixed(2) + "x";
-          if (k.id === "gold") return v.toFixed(2);
-          if (k.id === "cn10y") return v.toFixed(3) + "%";
-          if (k.id === "a_qvix_300") return v.toFixed(2);
-          return v.toFixed(1);
+          if (k.id === "a_volume_ratio") return v.toFixed(1) + "x";
+          if (k.id === "gold") return v.toFixed(0);
+          if (k.id === "cn10y") return v.toFixed(2) + "%";
+          if (k.id === "a_qvix_300") return v.toFixed(0);
+          return v.toFixed(0);
         };
         let _extraRows = "";
         if (_isScore) {
@@ -8380,7 +8380,7 @@ async function renderOverview() {
                 }
                 return Math.abs(Number(_compSrc[b]) - 50) - Math.abs(Number(_compSrc[a]) - 50);
               });
-              const _showKeys = _sortedKeys.slice(0, 4);
+              const _showKeys = _sortedKeys.slice(0, 3);
               const _compRows = _showKeys.map(kk => {
                 const _cname = _COMP_NAMES[kk] || kk;
                 const _cv = Number(_compSrc[kk]);
@@ -8394,10 +8394,10 @@ async function renderOverview() {
         }
         // 极值合并1行(仅非情绪分卡; 情绪分卡靠分项构成, 无极值行) + 去 kst-title(headline 已含分位%)
         const _extremeRow = !_isScore
-          ? `<div class="kst-row"><span class="kst-label">6m高/低/均</span><span class="kst-val">${_fmt6mV(_stat.max)}/${_fmt6mV(_stat.min)}/${_fmt6mV(_stat.mean)}</span></div>`
+          ? `<div class="kst-row"><span class="kst-label">6m高/低/均</span><span class="kst-val">${_fmt6mV(_stat.max)} / ${_fmt6mV(_stat.min)} / ${_fmt6mV(_stat.mean)}</span></div>`
           : "";
         const _tooltipBody =
-          `<div class="kst-headline">当前 <b style="color:${_isScore ? fearGreedColor(k.valueNum) : "var(--text-1)"}">${k.value}</b> · <b style="color:${_pctColor}">${_stat.percentile.toFixed(0)}%分位(${_pctTag})</b></div>` +
+          `<div class="kst-headline"><b style="color:${_isScore ? fearGreedColor(k.valueNum) : "var(--text-1)"}">${k.value}</b> · <b style="color:${_pctColor}">${_stat.percentile.toFixed(0)}% ${_pctTag}</b></div>` +
           _extremeRow +
           _extraRows +
           _meaningRow +
@@ -8410,7 +8410,7 @@ async function renderOverview() {
         }
       }
     } else if (_KPI_COMP_ONLY_IDS.has(k.id) && k.valueNum != null) {
-      // P1+ high_alert/low_alert: 无6m分位,显示当前值+阈值级别+top4分项构成 (2026-08-05)
+      // P1+ high_alert/low_alert: 无6m分位,显示当前值+阈值级别+top3分项构成 (2026-08-05)
       const _isHigh = k.id === "high_alert";
       // 阈值从高到低判断(修正方案遍历bug:原低到高v=80误判"预警"实应"警示")
       const _thresholds = _isHigh
@@ -8422,7 +8422,7 @@ async function renderOverview() {
         if (_v >= th.v) { _level = th.label; break; }
       }
       const _levelColor = _v >= 88 ? "#e6492e" : _v >= 75 ? "#e6a23c" : _v >= (_isHigh ? 72 : 85) ? "#faad14" : "var(--text-2)";
-      // 分项构成 (复用 _compBarsHtml 逻辑,按固定权重降序取top4)
+      // 分项构成 (复用 _compBarsHtml 逻辑,按固定权重降序取top3)
       const _compSrc = r.today && r.today.scores && r.today.scores[k.id] && r.today.scores[k.id].components;
       let _compBarsHtml = "";
       if (_compSrc && typeof _compSrc === "object") {
@@ -8436,7 +8436,7 @@ async function renderOverview() {
             const _wb = parseFloat((_ALERT_WEIGHTS[b] || "0").replace("%", ""));
             return _wb - _wa;
           });
-          const _showKeys = _sortedKeys.slice(0, 4);
+          const _showKeys = _sortedKeys.slice(0, 3);
           const _compRows = _showKeys.map(kk => {
             const _cname = _COMP_NAMES[kk] || kk;
             const _cv = Number(_compSrc[kk]);
@@ -8448,7 +8448,7 @@ async function renderOverview() {
         }
       }
       const _tooltipBody =
-        `<div class="kst-headline">当前 <b style="color:${_levelColor}">${k.value}</b> · <b style="color:${_levelColor}">${_level}</b></div>` +
+        `<div class="kst-headline"><b style="color:${_levelColor}">${k.value}</b> · <b style="color:${_levelColor}">${_level}</b></div>` +
         _compBarsHtml;
       _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip">${_tooltipBody}</div>`;
     }
@@ -10709,7 +10709,7 @@ const _COMP_NAMES = {
 const _COMP_WEIGHTS = {
   ratio: "25%", zt: "20%", zhaban: "15%", lianban: "15%", amount: "10%", north: "15%",
 };
-// high_alert/low_alert 固定权重 (alert_score.py L39-43, 2026-08-05 hover分项构成top4排序用)
+// high_alert/low_alert 固定权重 (alert_score.py L39-43, 2026-08-05 hover分项构成top3排序用)
 const _ALERT_WEIGHTS = {
   H1: "26%", H2: "8%", H3: "13%", H4: "20%", H5: "8%", H6: "8%", H7: "10%", H8: "7%",
   L1: "20%", L2: "18%", L3: "15%", L4: "15%", L5: "10%", L6: "8%", L7: "7%", L8: "7%",

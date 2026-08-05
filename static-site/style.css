@@ -1077,6 +1077,8 @@ main { padding: 16px 24px; }
   text-align: center;
   margin-bottom: 2px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .kpi-fg-tooltip .kfg-bar {
   position: relative;
@@ -1105,6 +1107,8 @@ main { padding: 16px 24px; }
   font-size: 12px;
   color: var(--text-2);
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .kpi-fg-tooltip .kfg-cur b { font-weight: 600; }
 /* P0 19张KPI卡 hover 6m分位+极值 tooltip (方案A+E+G+H, 2026-08-05)
@@ -1151,6 +1155,8 @@ main { padding: 16px 24px; }
   color: var(--text-2);
   text-align: center;
   margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .kpi-sent-tooltip .kst-headline b,
 .kpi-fg-tooltip .kst-headline b { font-weight: 600; }
@@ -1161,13 +1167,13 @@ main { padding: 16px 24px; }
   align-items: baseline;
   font-size: 11px;
   gap: 8px;
-  white-space: nowrap;
-  overflow: hidden;
 }
 .kpi-sent-tooltip .kst-label,
 .kpi-fg-tooltip .kst-label { color: var(--text-3); flex-shrink: 0; white-space: nowrap; }
+/* val 去 ellipsis: 内容超宽自然换行(可见)而非省略号(不可见); min-width:0 允许 flex 收缩留空间给 label */
 .kpi-sent-tooltip .kst-val,
-.kpi-fg-tooltip .kst-val { color: var(--text-1); font-weight: 600; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.kpi-fg-tooltip .kst-val { color: var(--text-1); font-weight: 600; text-align: right; min-width: 0; overflow-wrap: break-word; }
+/* meaning 去 nowrap/ellipsis: 长解释文案自然换行(可见),不用省略号截断 */
 .kpi-sent-tooltip .kst-meaning,
 .kpi-fg-tooltip .kst-meaning {
   font-size: 10px;
@@ -1176,9 +1182,8 @@ main { padding: 16px 24px; }
   margin-top: 3px;
   padding-top: 3px;
   border-top: 1px solid var(--border);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
 }
 /* fear_greed 合并分隔线 + P1 分项条形图分隔线(.kpi-sent-tooltip 分项区也用) */
 .kpi-fg-tooltip .kst-sep,
@@ -1209,8 +1214,6 @@ main { padding: 16px 24px; }
   flex-shrink: 0;
   width: 56px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .kpi-sent-tooltip .kst-comp-bar {
   flex: 1;
