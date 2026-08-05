@@ -8068,9 +8068,12 @@ async function renderOverview() {
       // 2026-07-29 T+1治理: gold(沪金AU0)采集侧改新浪/腾讯实时源变T+0,从_kpiT1移除(走t0分支,无T1角标)
       // 2026-07-29 T+1治理修正: cn10y保持T+1(中债估值源端T+1,采集侧67acb836确认),恢复_kpiT1标记; us10y/cn_us_spread derived跟随T+1
       // 注: a_fund_margin/a_fund_north/a_fund_main/a_turnover_* 即便挪出首屏KPI小卡(C组实施3),仍保留T1标记兜底(灰态卡/未来回KPI用)
-    let _badge = k.disabled
-      ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
-      : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "");
+    const _errItem = _chItems.find(it => it.metric_id === k.id && it.status === "error");
+    let _badge = _errItem
+      ? `<span class="card-time-badge t1-severe" data-tip="${_errItem.message || '采集失败,恢复后自动显示'}">🚨 采集失败</span>`
+      : (k.disabled
+          ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
+          : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : ""));
     // 打 data-badge-* 属性, 让 refreshCardTimeBadges 的 .card-time-badge[data-badge-date] 选择器能选到KPI小卡角标并重绘
     // (异常badge🚨不打属性, 避免被重绘成正常badge; 异常状态由后端恢复后重新渲染整卡)
     if (_badge && !k.disabled) {

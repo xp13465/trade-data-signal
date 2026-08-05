@@ -21,7 +21,7 @@ from pathlib import Path
 import requests
 
 from ..db import get_conn
-from .base import UA, throttle
+from .base import UA, throttle, log_collect
 from .industry_extras import THS_TO_SW
 
 # 9 核心 A 股指数 + 3 港股宽基 + 4 signals 触发指数（腾讯 qt 支持混合请求）
@@ -1249,6 +1249,7 @@ def _collect_intraday_width_metrics() -> dict:
     from ..calendar import is_trading_day
     import akshare as ak
     from .base import safe_call
+    from .fetchers import cross_check_zt_pool
     from .runner import upsert_metric
     from ..compute import volume_ratio
 
@@ -1287,6 +1288,15 @@ def _collect_intraday_width_metrics() -> dict:
         df = safe_call(ak.stock_zt_pool_em, date=today)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             print(f"  [intraday] stock_zt_pool_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
+            # 交叉验证:涨停池也空=源失败(error);跌停池有数据=本池空=真0(ok写0)
+            cross_count, cross_msg = cross_check_zt_pool("stock_zt_pool_em", today)
+            if cross_count == 0:
+                upsert_metric(today, "a_width_zt_count", 0, source="intraday")
+                log_collect(today, "a_width_zt_count", "ok",
+                            f"cross-check 真0: {cross_msg}")
+            else:
+                log_collect(today, "a_width_zt_count", "error",
+                            f"stock_zt_pool_em 失败/空: {cross_msg}")
         else:
             zt = int(len(df))
             lianban = None
@@ -1296,11 +1306,17 @@ def _collect_intraday_width_metrics() -> dict:
             if lianban is not None:
                 upsert_metric(today, "a_width_max_lianban", lianban, source="intraday")
             results.update(zt_count=zt, max_lianban=lianban)
+            log_collect(today, "a_width_zt_count", "ok", f"zt={zt}")
+            if lianban is not None:
+                log_collect(today, "a_width_max_lianban", "ok",
+                            f"max_lianban={lianban}")
             print(f"  [intraday] zt_pool: zt={zt} max_lianban={lianban} "
                   f"({time.time()-t0:.1f}s)", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] stock_zt_pool_em 异常（不阻断）: {type(e).__name__} {e} "
               f"({time.time()-t0:.1f}s)", flush=True)
+        log_collect(today, "a_width_zt_count", "error",
+                    f"stock_zt_pool_em 异常: {type(e).__name__} {e}")
 
     # 3) stock_zt_pool_dtgc_em -> dt_count（跌停池）
     t0 = time.time()
@@ -1308,14 +1324,26 @@ def _collect_intraday_width_metrics() -> dict:
         df = safe_call(ak.stock_zt_pool_dtgc_em, date=today)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             print(f"  [intraday] stock_zt_pool_dtgc_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
+            # 交叉验证:跌停池也空=源失败(error);涨停池有数据=本池空=真0(ok写0)
+            cross_count, cross_msg = cross_check_zt_pool("stock_zt_pool_dtgc_em", today)
+            if cross_count == 0:
+                upsert_metric(today, "a_width_dt_count", 0, source="intraday")
+                log_collect(today, "a_width_dt_count", "ok",
+                            f"cross-check 真0: {cross_msg}")
+            else:
+                log_collect(today, "a_width_dt_count", "error",
+                            f"stock_zt_pool_dtgc_em 失败/空: {cross_msg}")
         else:
             dt = int(len(df))
             upsert_metric(today, "a_width_dt_count", dt, source="intraday")
             results["dt_count"] = dt
+            log_collect(today, "a_width_dt_count", "ok", f"dt={dt}")
             print(f"  [intraday] dt_pool: dt={dt} ({time.time()-t0:.1f}s)", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] stock_zt_pool_dtgc_em 异常（不阻断）: {type(e).__name__} {e} "
               f"({time.time()-t0:.1f}s)", flush=True)
+        log_collect(today, "a_width_dt_count", "error",
+                    f"stock_zt_pool_dtgc_em 异常: {type(e).__name__} {e}")
 
     # 4) stock_zt_pool_zbgc_em -> zhaban_rate = 炸板数/(涨停数+炸板数)（ratio 0-1，与收盘口径一致）
     t0 = time.time()
@@ -1323,6 +1351,9 @@ def _collect_intraday_width_metrics() -> dict:
         df = safe_call(ak.stock_zt_pool_zbgc_em, date=today)
         if isinstance(df, Exception) or df is None or len(df) == 0:
             print(f"  [intraday] stock_zt_pool_zbgc_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
+            # 炸板率空=无数据不好判0,不交叉验证,只 log error
+            log_collect(today, "a_width_zhaban_rate", "error",
+                        "stock_zt_pool_zbgc_em 失败/空")
         else:
             zhaban_n = int(len(df))
             zt_n = results.get("zt_count")
@@ -1341,11 +1372,15 @@ def _collect_intraday_width_metrics() -> dict:
             results.update(zhaban_count=zhaban_n,
                           zhaban_rate=round(zhaban_rate, 4) if zhaban_rate is not None else None)
             rate_str = f"{zhaban_rate:.4f}" if zhaban_rate is not None else "n/a"
+            log_collect(today, "a_width_zhaban_rate", "ok",
+                        f"zhaban={zhaban_n} rate={zhaban_rate}")
             print(f"  [intraday] zhaban_pool: zhaban={zhaban_n} zt={zt_n} "
                   f"rate={rate_str} ({time.time()-t0:.1f}s)", flush=True)
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] stock_zt_pool_zbgc_em 异常（不阻断）: {type(e).__name__} {e} "
               f"({time.time()-t0:.1f}s)", flush=True)
+        log_collect(today, "a_width_zhaban_rate", "error",
+                    f"stock_zt_pool_zbgc_em 异常: {type(e).__name__} {e}")
 
     # 采完zhaban后立即重算derived(封板率=1-炸板率), 避免fengban停昨日致KPI角标滞后
     try:
