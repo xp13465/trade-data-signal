@@ -1274,7 +1274,8 @@ main { padding: 16px 24px; }
   .card.kpi.has-forecast-pop.hover-active .kpi-forecast-pop {
     opacity: 1;
     visibility: visible;
-    pointer-events: auto; /* 允许 tap pop 内容(读分位/分项构成) */
+    /* 不设 pointer-events:auto: 让 tap 穿透 pop 命中卡本体, 由 L8504 toggle 统一处理二次 tap (第一次显示 pop, 第二次关 pop+弹 modal).
+       方案B 删了 pop 内"查看走势"按钮, pop 只读无交互元素, 穿透安全. 2026-08-05 修复 a126f8daa 二次点击失效 bug. */
   }
 }
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; display: flex; align-items: baseline; gap: 6px; }
