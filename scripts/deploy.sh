@@ -307,7 +307,7 @@ done
 #   每日刷新幂等覆盖, 单文件~2KB 走 CF 不走 R2)
 # P0-2 (2026-08-05): etf_score_list 拆 3 JSON (buy/sell/hold), .json 走 R2(.gitignore),
 #   .gz 留 git(CF 兜底/备份); 原 etf_score_list 单文件已废弃
-for _f in overview futures futures_acc_trend futures_acc_conclusion ad_line volume_ratio position \
+for _f in boot overview futures futures_acc_trend futures_acc_conclusion ad_line volume_ratio position \
           summary summary_history signal_freq signal_stats \
           rotation new_high_low ma_alignment intraday_snapshot \
           alert etf_score_list_buy etf_score_list_sell etf_score_list_hold trade_sim_indices \

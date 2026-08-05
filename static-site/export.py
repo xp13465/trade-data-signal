@@ -568,6 +568,57 @@ def write_json(path: Path, data):
     return len(text)
 
 
+# ============ boot.json：首屏 11 JSON 合并（P1-8 性能优化）============
+# 首屏原 22 个 fetch（renderOverview + init 阶段），合并后 1 个 fetch boot.json 分发到各模块。
+# 首屏请求数减 95%，首屏体感最大。boot.json ~524KB 未压缩 / ~130-175KB br，走 CF Workers Static Assets
+# （§8.1：小文件 <5MB 总量走 CF 非 R2；upload-data-large 兜底 >=1MB 不会上传 boot.json）。
+# 合并的 11 个 JSON（均首屏必需，<300KB 单文件）：
+#   overview/signal_stats/intraday_snapshot/summary/alert/ma_alignment/position/
+#   ad_line/volume_ratio/new_high_low/trade_sim_indices
+# alert.json 由 scripts/export_alert.py 生成（非 export.py），trade_sim_indices.json 由
+# scripts/simulate_trade.py 生成（非 export.py）；二者容错读取，失败则 null（前端 fallback fetch）。
+# 时序：17:50 update_all 跑完 pipeline+export_alert 后，alert.json/intraday_snapshot.json 均是当日最新；
+#       23:00+ 跑 export.py 时 boot.json 读到的 11 个 JSON 均是当日最新。
+def export_boot():
+    """合并首屏 11 个小 JSON 到 boot.json，供前端首屏单 fetch 分发。"""
+    # (字段名, 文件名) — 字段名用 JSON 文件名去 .json 后缀
+    boot_files = [
+        ("overview", "overview.json"),
+        ("signal_stats", "signal_stats.json"),
+        ("intraday_snapshot", "intraday_snapshot.json"),
+        ("summary", "summary.json"),
+        ("alert", "alert.json"),
+        ("ma_alignment", "ma_alignment.json"),
+        ("position", "position.json"),
+        ("ad_line", "ad_line.json"),
+        ("volume_ratio", "volume_ratio.json"),
+        ("new_high_low", "new_high_low.json"),
+        ("trade_sim_indices", "trade_sim_indices.json"),
+    ]
+    boot = {}
+    missing = []
+    for key, fname in boot_files:
+        fpath = DATA_DIR / fname
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                boot[key] = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            # 容错：alert.json/trade_sim_indices.json 可能尚未生成（其他脚本负责）
+            # 前端检测 null 则 fallback fetch 对应 JSON
+            boot[key] = None
+            missing.append(f"{fname}({type(e).__name__})")
+    # boot.json 元信息（生成时间 + 合并的文件清单，供前端调试/版本核对）
+    boot["_meta"] = {
+        "generated_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "files": [f for _, f in boot_files],
+        "missing": missing,
+    }
+    boot_size = write_json(DATA_DIR / "boot.json", boot)
+    print(f"  boot.json ({boot_size} bytes, 合并 {len(boot_files)} 个首屏 JSON"
+          f"{f', 缺失: {missing}' if missing else ''})")
+    return boot_size
+
+
 def write_industry_split(conn, cfg, rng="all") -> tuple[dict, int, int]:
     """导出 industry-{rng} 拆分文件并返回 (counts, n_indices, n_concepts)。
 
@@ -808,6 +859,10 @@ def main():
     print(f"  - metrics: 1")
     print(f"  - index detail: {len(all_indices)} (all range, full history)")
     print(f"输出目录: {DATA_DIR}")
+
+    # P1-8: 合并首屏 11 个小 JSON 到 boot.json（在 gzip 批量之前，确保 boot.json 也被生成 .gz）
+    # 前端首屏单 fetch boot.json 分发，请求数 22 -> 1。详见 export_boot() 注释。
+    export_boot()
 
     # 批量 gzip DATA_DIR 下所有 *.json（含非本脚本导出的，如 alert.json / lab_*.json /
     # schedule_stats.json / etf_national_team-1m.json 等）。

@@ -18,16 +18,26 @@ const charts = [];
 let SIM_INDICES = new Set();
 let _simIndicesPromise = null;
 function initSimIndices() {
-  _simIndicesPromise = fetchJSON('./data/trade_sim_indices.json')
-    .then(function (list) {
-      SIM_INDICES = new Set(Array.isArray(list) ? list : []);
+  _simIndicesPromise = (async () => {
+    // P1-8: 优先用 boot.json 的 trade_sim_indices（首屏单 fetch 合并，省 1 请求）
+    // fetchBoot 单例 Promise，boot 失败则 fallback 独立 fetch trade_sim_indices.json
+    const boot = await fetchBoot().catch(() => null);
+    if (boot && Array.isArray(boot.trade_sim_indices)) {
+      SIM_INDICES = new Set(boot.trade_sim_indices);
       // 别名(gold/us10y 等)映射到 g.* 实际文件，需加入 SIM_INDICES 使按钮亮起
       Object.keys(SIM_HREF_MAP).forEach(function (k) { SIM_INDICES.add(k); });
-    })
-    .catch(function (err) {
+      return;
+    }
+    // boot 无则 fallback fetch
+    try {
+      const list = await fetchJSON('./data/trade_sim_indices.json');
+      SIM_INDICES = new Set(Array.isArray(list) ? list : []);
+      Object.keys(SIM_HREF_MAP).forEach(function (k) { SIM_INDICES.add(k); });
+    } catch (err) {
       console.error('[SIM_INDICES] trade_sim_indices.json 加载失败，按钮将全部灰色:', err);
       SIM_INDICES = new Set();
-    });
+    }
+  })();
   return _simIndicesPromise;
 }
 // 全球 tab extras 回的 id 无 g. 前缀（如 gold），需映射到实际文件名（如 g.gold）
@@ -3040,7 +3050,7 @@ const _resultCache = new Map(); // url -> { data, ts }
 // 2026-07-20: 加 index\/[^/]+-all 排除 kc50-all.json 等 index/{iid}-all.json（走势图源），
 // 让走势图与 overview 同级实时（跳过 5min 缓存），避免"卡片有信号但走势图无 pin"的窗口期不一致。
 // 只排除 *-all.json（走势图源），不排除 industry-*-indices/* 等静态少变文件（保留缓存）。
-const _NO_CACHE_URLS = /(?:^|\/)(?:overview|intraday_snapshot|metrics|notifications|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
+const _NO_CACHE_URLS = /(?:^|\/)(?:boot|overview|intraday_snapshot|metrics|notifications|public_fund_\w+|summary(?:_history|\/history)?|index\/[^/]+-all)(?:\.json)?(?:$|[?])/;
 const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
@@ -3141,6 +3151,36 @@ async function fetchJSON(url) {
     .finally(() => { clearTimeout(slowTimer); _inflightFetch.delete(url); });
   _inflightFetch.set(url, p);
   return p;
+}
+
+// P1-8(2026-08-05): boot.json 首屏单 fetch 合并 11 个 JSON（请求数 22 -> 2）。
+// boot.json 含 overview/signal_stats/intraday_snapshot/summary/alert/ma_alignment/position/
+// ad_line/volume_ratio/new_high_low/trade_sim_indices，首屏单 fetch 分发到各模块。
+// intraday_snapshot 仍单独 fetch（盘中实时性，fetchIntradaySnapshot 获取最新覆盖 boot 初始值）。
+// 各模块优先读 _bootData，boot 失败则 fallback 独立 fetch（原行为，保证健壮）。
+let _bootPromise = null;
+let _bootData = null;
+function fetchBoot() {
+  if (_bootPromise) return _bootPromise;
+  _bootPromise = (async () => {
+    try {
+      const boot = await fetchJSON("./data/boot.json");
+      if (boot) {
+        _bootData = boot;
+        // 分发到 state/缓存（各模块优先读 boot，fallback fetch）
+        if (boot.overview) _setCachedOverview(boot.overview);
+        if (boot.signal_stats) state.signalStats = boot.signal_stats;
+        // intraday_snapshot 只在 state.intradaySnapshot 为空时设（boot 的作初始值），
+        // 避免覆盖 fetchIntradaySnapshot 已 fetch 到的最新值（盘中实时性，fetch 可能先于 boot 完成）
+        if (boot.intraday_snapshot && !state.intradaySnapshot) state.intradaySnapshot = boot.intraday_snapshot;
+      }
+      return boot;
+    } catch (e) {
+      console.warn("[fetchBoot] boot.json 加载失败，降级到独立 fetch", e?.message || e);
+      return null;
+    }
+  })();
+  return _bootPromise;
 }
 
 // 加载失败占位卡片：统一错误兜底（X4）。失败时显示"加载失败"而非空白，与空数据 empty-note 区分。
@@ -4552,7 +4592,12 @@ function _renderCollectHealthDot(health) {
 }
 async function fetchCollectTime() {
   try {
-    const r = await fetchJSON("./data/overview.json");
+    // P1-8: 优先用 boot.json 的 overview（首屏单 fetch 合并，fetchBoot 已分发到 _bootData/缓存）
+    // await fetchBoot 确保 _bootData 就绪（单例 Promise，initSimIndices 已触发则不重复 fetch）
+    // boot 失败则 fallback fetch overview.json
+    const boot = await fetchBoot().catch(() => null);
+    const cached = _getCachedOverview();
+    const r = cached ? cached : (boot && boot.overview) ? boot.overview : await fetchJSON("./data/overview.json");
     applyCollectTime(r.collected_at, r.collect_health);
   } catch (e) { /* 兜底不崩，保持空 */ }
 }
@@ -7626,7 +7671,10 @@ function openNtDayModal(date) {
 // 在首页 purpose-note 之前插入预警条(等级+原因+命中维度TopN),可折叠/关闭,移动端适配。
 async function renderAlertBar(host) {
   let a;
-  try { a = await fetchJSON("./data/alert.json"); } catch { return; }
+  // P1-8: 优先用 boot.json 的 alert（首屏单 fetch 合并），fallback fetch
+  try {
+    a = (_bootData && _bootData.alert) ? _bootData.alert : await fetchJSON("./data/alert.json");
+  } catch { return; }
   if (!a || !a.date) return;
   const showHigh = a.high && a.high.triggered;
   const showLow = a.low && a.low.triggered;
@@ -7674,6 +7722,15 @@ async function renderAlertBar(host) {
 }
 
 async function renderOverview() {
+  // P1-8(2026-08-05): 首屏单 fetch boot.json 合并 11 个 JSON（请求数 22 -> 2）。
+  // boot.json 含 overview/signal_stats/intraday_snapshot/summary/alert/ma_alignment/position/
+  // ad_line/volume_ratio/new_high_low/trade_sim_indices。fetchBoot 在启动时已由 initSimIndices
+  // 触发（单例 Promise），此处 await 确保 _bootData 就绪后，overview/signal_stats 走 boot 缓存
+  // 分支（Promise.resolve，不重复 fetch），summary/alert/ma_alignment/position/ad_line/volume_ratio/
+  // new_high_low 也从 _bootData 读（fallback 独立 fetch，见各 fetchJSON 改动）。
+  // intraday_snapshot 仍单独 fetch（盘中实时性，fetchIntradaySnapshot 获取最新覆盖 boot 初始值）。
+  // boot 失败则 fallback 独立 fetch（原 P1-6 行为：Promise.all 三 fetch）。
+  await fetchBoot().catch(() => null);
   // P1-6(2026-08-05): 首屏3个独立fetch并行(overview/signal_stats/intraday无相互依赖),
   // 原串行 await 总时延≈三者和(overview+signal_stats 1.5s超时+intraday 1.5s超时≈3s),
   // 改 Promise.all 后≈max(三者,约1.5s), 省约1.5s. 依赖确认(逐一核对3个fetch返回值是否被后续fetch使用):
@@ -7683,6 +7740,9 @@ async function renderOverview() {
   // 三者URL独立无依赖; fetchIntradaySnapshot 单例锁(L4623)幂等可安全并行;
   // overview 失败应中断(原行为,不加catch让Promise.all reject); signal_stats/intraday 失败静默(原try/catch,加.catch)
   // O3：复用 overview 缓存，避免概览/采集时间/分享图重复请求
+  // P1-8: boot.json 成功时 cachedOverview/state.signalStats 已由 fetchBoot 分发就绪，
+  //       overviewPromise/signalStatsPromise 走 Promise.resolve 分支（不重复 fetch）；
+  //       boot 失败或 5min 缓存过期则 fallback fetch（原行为）。
   const cachedOverview = _getCachedOverview();
   const overviewPromise = cachedOverview ? Promise.resolve(cachedOverview) : fetchJSON("./data/overview.json");
   // 预 fetch signal_stats.json 缓存到 state.signalStats（_renderSignalGrid 评分尾缀用）
@@ -7718,7 +7778,9 @@ async function renderOverview() {
   // 数据时效栏已移入"数据更新规则"弹窗（ℹ️ 图标入口），首页不再展示健康横幅。
 
   // ---- 0. 一句话总结横幅 ----
-  fetchJSON("./data/summary.json").then(async (s) => {
+  // P1-8: 优先用 boot.json 的 summary（首屏单 fetch 合并），fallback fetch
+  const _summaryP = (_bootData && _bootData.summary) ? Promise.resolve(_bootData.summary) : fetchJSON("./data/summary.json");
+  _summaryP.then(async (s) => {
     if (s && s.summary) {
       if (state.tab !== 'overview') return; // A2: await 期间用户切了 tab，回调回来不再渲染 overview 横幅
       // 等快照就绪（已在 bootstrap 发起，最多等 1.5s 避免阻塞渲染），保证 T+1 缺数据时能覆盖
@@ -8506,7 +8568,9 @@ async function renderOverview() {
   }
 
   // 右列：均线排列卡片（独立 fetch，失败不影响位置感卡片 O1）
-  fetchJSON("./data/ma_alignment.json").then((maData) => {
+  // P1-8: 优先用 boot.json 的 ma_alignment（首屏单 fetch 合并），fallback fetch
+  const _maAlignP = (_bootData && _bootData.ma_alignment) ? Promise.resolve(_bootData.ma_alignment) : fetchJSON("./data/ma_alignment.json");
+  _maAlignP.then((maData) => {
     const d = (maData.data || []).slice(-1)[0];
     if (d) {
       const maCard = document.createElement("div");
@@ -8538,7 +8602,9 @@ async function renderOverview() {
   }).catch((e) => { renderFailCard(colB2, "&#x1F4C8; 均线排列", e); });
 
   // 位置感卡片（独立 fetch，与均线排列互不依赖 O1）
-  fetchJSON("./data/position.json").then((posData) => {
+  // P1-8: 优先用 boot.json 的 position（首屏单 fetch 合并），fallback fetch
+  const _positionP = (_bootData && _bootData.position) ? Promise.resolve(_bootData.position) : fetchJSON("./data/position.json");
+  _positionP.then((posData) => {
     if (posData && posData.positions && posData.positions.length) {
       const posCard = document.createElement("div");
       posCard.className = "chart-card position-card";
@@ -8575,10 +8641,11 @@ async function renderOverview() {
   const colC2 = colB2;      // 复用右列
 
   // 并行拉取 AD Line / 成交量对比 / 新高新低（3 个独立 fetch，allSettled 互不影响，失败各自降级）
+  // P1-8: 优先用 boot.json 的 ad_line/volume_ratio/new_high_low（首屏单 fetch 合并），fallback fetch
   const [adLineP, volRatioP, newHighLowP] = await Promise.allSettled([
-    fetchJSON("./data/ad_line.json"),
-    fetchJSON("./data/volume_ratio.json"),
-    fetchJSON("./data/new_high_low.json"),
+    (_bootData && _bootData.ad_line) ? Promise.resolve(_bootData.ad_line) : fetchJSON("./data/ad_line.json"),
+    (_bootData && _bootData.volume_ratio) ? Promise.resolve(_bootData.volume_ratio) : fetchJSON("./data/volume_ratio.json"),
+    (_bootData && _bootData.new_high_low) ? Promise.resolve(_bootData.new_high_low) : fetchJSON("./data/new_high_low.json"),
   ]);
 
   // 左：AD Line 腾落线
