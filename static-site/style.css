@@ -1150,18 +1150,6 @@ main { padding: 16px 24px; }
 /* val 去 ellipsis: 内容超宽自然换行(可见)而非省略号(不可见); min-width:0 允许 flex 收缩留空间给 label */
 .kpi-sent-tooltip .kst-val,
 .kpi-fg-tooltip .kst-val { color: var(--text-1); font-weight: 600; text-align: right; min-width: 0; overflow-wrap: break-word; }
-/* meaning 去 nowrap/ellipsis: 长解释文案自然换行(可见),不用省略号截断 */
-.kpi-sent-tooltip .kst-meaning,
-.kpi-fg-tooltip .kst-meaning {
-  font-size: 10px;
-  color: var(--text-3);
-  line-height: 1.35;
-  margin-top: 3px;
-  padding-top: 3px;
-  border-top: 1px solid var(--border);
-  white-space: normal;
-  word-break: break-word;
-}
 /* fear_greed 合并分隔线 + P1 分项条形图分隔线(.kpi-sent-tooltip 分项区也用) */
 .kpi-fg-tooltip .kst-sep,
 .kpi-sent-tooltip .kst-sep {

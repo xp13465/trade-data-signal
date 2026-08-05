@@ -8351,9 +8351,6 @@ async function renderOverview() {
           const _vrState = _vr > 1.5 ? "放量" : _vr < 0.7 ? "缩量" : "正常";
           _extraRows = `<div class="kst-row"><span class="kst-label">量能状态</span><span class="kst-val">${_vrState}</span></div>`;
         }
-        // 含义(非情绪分卡): 从 _kpiTips 取一句话
-        const _tipText = _kpiTips[k.id];
-        const _meaningRow = (_tipText && !_isScore) ? `<div class="kst-meaning">${_tipText}</div>` : "";
         // P1 方案B: 情绪分卡 hover 分项构成条形图 (2026-08-05)
         // 回答"为什么70分": 拆解 components 各维度子分值(0-100归一化)
         // a_sentiment 6维(ratio/zt/zhaban/lianban/amount/north) + cross_market 9维 + 6宽基2-3维(rsi/pct_change[/qvix])
@@ -8400,7 +8397,6 @@ async function renderOverview() {
           `<div class="kst-headline"><b style="color:${_isScore ? fearGreedColor(k.valueNum) : "var(--text-1)"}">${k.value}</b> · <b style="color:${_pctColor}">${_stat.percentile.toFixed(0)}% ${_pctTag}</b></div>` +
           _extremeRow +
           _extraRows +
-          _meaningRow +
           _compBarsHtml;
         if (k.id === "fear_greed") {
           // 合并到现有 fg-tooltip(标题+当前值), 追加分隔线+6m分位行, 避免两 overlay 叠加
