@@ -1435,4 +1435,17 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - §14 生产稳定性 P0：push main 避开 intraday-snapshot 盘后 20:35/22:00 时点
 - 补采 8-4 跌停数（DB 无 8-4 行）：修复后明早 09:25 intraday 自动采 8-5，8-4 历史数据可手动 backfill 或留空
 
-**状态**：⏳ 待派实施 agent（明晚8-5 23:00+），durable cron 已设提醒
+**状态**：✅ 已实施 commit 17966eb7e（feat，待23:00+推main）。实际实施：fetchers.py提取cross_check_zt_pool公共函数（L286定义+L353调用）+ intraday三池log_collect（13处）+ 交叉验证（涨停/跌停用cross_check区分真0vs源失败，炸板只error）+ app.js L8071 _errItem显"🚨 采集失败"（比原方案改L4739更准确，直接读collect_health error状态）。未做降级源stock_zh_a_spot（交叉验证已足够）。明天盘中intraday-snapshot跑新代码验证collect_health显示error状态。详见 NOTES §48 小节AJ
+
+## 📋 2026-08-05 通知根因根治（commit 9e7c0f616，待23:00+推main）
+
+**根因**（用户反馈"13点多收到盘中异动邮件但浏览器没通知"）：
+1. 前端anomaly去重粒度太粗：app.js L7057去重key=`anomaly_${today}`（全天1次），上午9:26第一批异动弹过后13:16/13:26新异动全被去重跳过；后端邮件去重key=`type|kind|name`（标的级）新标的去重通过发邮件 = 邮件发了浏览器没通知
+2. showNotification异步标记死锁：return true在postMessage后（异步），_markNotified立即执行不管SW是否真弹出 = SW没弹也标记后续全跳过
+
+**实施**（commit 9e7c0f616，4文件+49/-13，已验收✓）：
+- P0主修复：app.js L7075去重key改`anomaly_${type}_${kind}_${name}_${today}`对齐后端_alert_key；多条新异动合并1条通知弹但每条单独_markNotified；60s时间窗保留
+- P1辅助1 SW回调防死锁（通知即时性优先）：showNotification加failClearKeys参数+postMessage后立即return true保留即时性；sw.js SHOW_NOTIFICATION失败catch回NOTIFY_FAILED+failClearKeys到所有client；app.js收NOTIFY_FAILED清_clearNotified+时间窗下次轮询重试；新增_clearNotified/_clearNotifyTimeWindow（L6810/L6817）
+- sw.js CACHE_VERSION bump v2-20260805-notify-fix
+
+**明天验证**：盘中异动验证浏览器弹通知（去重粒度对齐后新标的能弹）。详见 NOTES §48 小节AJ

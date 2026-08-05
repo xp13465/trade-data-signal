@@ -7501,3 +7501,54 @@ feat分支 ahead 2（d2f5ddeba兜底 + 36150ab7b hover pop），c59fc975今晚23
    - **大改**：引入 VAPID + Web Push（后端真正推，但 iOS 仍需 standalone）
 
 **落档**：本次只落档 NOTES + memory（notify-email-vs-push），不改代码。详见 [[notify-mobile-panel-design]] [[ios-safe-area-fix]]
+
+## §48 小节AJ：2026-08-05 下午 跌停池根治 + 通知根因根治实施（commit 17966eb7e + 9e7c0f616，待23:00+推main）
+
+### 1. 跌停池根治（commit 17966eb7e，已验收✓）
+**根因**：intraday_snapshot.py 三池（涨停/跌停/炸板）失败时只 print 不写 collect_log，致 collect_health（queries.py L526-529 读 collect_log）读不到 error 状态，监控盲区，用户看到"⏳ 待盘后更新"误导。
+
+**实施**（agent a456bd67804cf48f5，6文件+70/-16）：
+- `fetchers.py` L286 提取 `cross_check_zt_pool(func_name, date)` 公共函数（从 L320-338 交叉验证逻辑提取，zt<->dt 互查区分真0 vs 源失败），L353 原位置改调用
+- `intraday_snapshot.py` L24 imports 加 `log_collect`+`cross_check_zt_pool`；三池加 log_collect（共13处：涨停5+跌停4+炸板3+import1）：成功 ok / 失败交叉验证（涨停/跌停用 cross_check，cross_count==0 写0+ok"真0"，否则 error；炸板只 error 不交叉验证因炸板率空=无数据不好判0）/ except error
+- `app.js` L8071 KPI badge 加 `_errItem = _chItems.find(it => it.metric_id===k.id && it.status==="error")`，命中显"🚨 采集失败"（data-tip=message），否则走原 k.disabled 分支
+- `sw.js` CACHE_VERSION bump v2-20260805-dt-pool-fix
+
+**验收**：log_collect 13处 ✓ / cross_check_zt_pool L286定义+L353调用 ✓ / _errItem L8071 ✓ / ast语法ok ✓
+
+### 2. 通知根因根治（commit 9e7c0f616，已验收✓）
+**背景**：用户反馈"13点多收到盘中异动邮件，但浏览器一直开着没通知"。
+
+**根因坐实**（agent a3a16472535b0eef7 调研，主控验收4点通过）：
+1. **前端anomaly去重粒度太粗**：app.js L7057 `_processNotifications` 第3步去重key=`anomaly_${today}`（全天1次），上午9:26第一批异动弹过 `_markNotified` 后，13:16/13:26 新异动（中证1000/人形机器人/中证500/东数西算）全被去重跳过。但后端邮件去重key=`type|kind|name`（detect_intraday_anomaly.py L217 `_alert_key` 标的级），新标的去重通过发邮件 = 邮件发了浏览器没通知
+2. **showNotification异步标记死锁**：app.js L6824-6875 `return true` 在 `postMessage` 之后（异步fire-and-forget），`_processNotifications` L7065 立即 `_markNotified`，不管SW是否真弹出 = SW没弹也标记，后续全跳过
+3. **邮件日志坐实**：13:15日志"告警邮件已发 2项异动 13:16"、13:25日志"告警邮件已发 2项异动 13:26"
+4. **线上数据已最新**：ss.fx8.store+sss.sugas.site notifications.json 14:36:11版含13:16/13:26异动（数据没问题，是前端去重逻辑问题）
+
+**实施**（agent a195282a5f1620866，4文件+49/-13）：
+- **P0主修复**：app.js L7075 去重key从 `anomaly_${today}` 改为 `anomaly_${type}_${kind}_${name}_${today}` 对齐后端 `_alert_key`；多条新异动合并1条通知弹（避免轰炸）但每条单独 `_markNotified`（去重粒度对齐）；60s时间窗口保留防同秒连弹；`anomaly_${today}` 仅保留作 SW tag（同tag替换防堆叠）
+- **P1辅助1 SW回调防死锁**（通知即时性优先，宁可重复弹不能漏）：
+  - `showNotification` 加 `failClearKeys` 参数（第5参，默认空数组，其他调用点保持原行为）
+  - postMessage payload 带 `failClearKeys`；return true 立即返回保留即时性（不阻塞）
+  - sw.js `SHOW_NOTIFICATION` 失败 catch 回传 `{type:'NOTIFY_FAILED', tag, failClearKeys}` 到所有 client（`self.clients.matchAll().forEach`）
+  - app.js message 监听器加 NOTIFY_FAILED 分支：遍历 failClearKeys 调 `_clearNotified` + 清 anomaly 时间窗，下次轮询30s后重试
+  - 新增 `_clearNotified`/`_clearNotifyTimeWindow`（L6810/L6817，load-delete-save 非removeItem，因dedup是单key `ts_notify_dedup` L6711 内JSON对象）
+- `sw.js` CACHE_VERSION bump v2-20260805-notify-fix
+
+**验收**：_anomalyKey L7075 对齐_alert_key ✓ / 无残留旧key ✓ / NOTIFY_FAILED+failClearKeys sw.js4处+app.js12处 ✓ / _clearNotified L6810 ✓ / node语法ok ✓
+
+**纠正调研agent一处**：调研报告"_isNotifyNotified localStorage key=`${today}:${eventKey}`"，实际是单key `ts_notify_dedup`（L6711）内JSON对象。实施agent按实际实现做 `_clearNotified`（load-delete-save），正确。
+
+### 3. 待23:00+推main（feat commit链）
+当前 feat/iframe-theme-follow commit链（待23:00+安全窗口 merge origin/main 同步data新版后推main）：
+- `9e7c0f616` 通知根因根治（P0去重粒度对齐+P1 SW回调防死锁）
+- `17966eb7e` 跌停池根治（三池log_collect+交叉验证+前端采集失败badge）
+- `643c7dd31` P1-8 首屏22 JSON合并boot.json（请求数22->2）
+- `aa180ee04` upload-data-large exclude etf_score_list
+- `b5aee7a95`+`8a82cb2ae` P0-2 etf_score_list拆3 JSON+懒加载
+- `ef0969498` P1-5回滚（通知即时性优先）+P1-6 fetch并行+P1-7 preconnect
+
+**推main前必做**：①merge origin/main 同步 intraday-snapshot/update-all 定时任务推的 data 新版（§8事故根因：feat从旧merge-base分出static-site/data/停旧版，push feat:main覆盖main新版data）②跑export生成etf_score_list 3 JSON + boot.json + R2上传 ③3域名验证（ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2）
+
+**明天验证**：跌停池根治需明天盘中 intraday-snapshot 跑新代码验证 collect_health 显示error状态；通知修复需明天盘中异动验证浏览器弹通知（去重粒度对齐后新标的能弹）。
+
+**落档**：NOTES §48 小节AJ + memory（notify-email-vs-push 更新根因根治结论）。详见 [[notify-email-vs-push]] [[notify-instant-over-resource]] [[optimization-criteria]]
