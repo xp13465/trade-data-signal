@@ -7469,6 +7469,10 @@ main 已更新到 c9361fc9b，下次这些任务跑会 fast-forward 成功。备
 
 feat分支 ahead 2（d2f5ddeba兜底 + 36150ab7b hover pop），c59fc975今晚23:03一起merge feat->main上线。详见 [[intraday-multisource-batch]] [[source-reliability-needs-stress-test]] [[backup-strategy-redundant-runs]]
 
+**上线（2026-08-05 12:37 午休窗口，提前于23:03）**：用户提示"现在没开盘13点才开盘"，午休11:32-13:05安全窗口（intraday不推main）。**merge origin/main到feat解决data覆盖事故风险**（feat从merge-base 64a5f7a92分出static-site/data/停旧版，origin/main被定时任务推了11:33新版intraday_snapshot，直接push feat:main会用旧版覆盖新版=§8事故；merge后feat旧data被main新版覆盖，feat前端代码保留，diff确认无data改动）+ push HEAD:main（fast-forward `5eb89e163..affd6788a`）+ CF deploy。3域名验证通过：ss.fx8.store/sss.sugas.site/s.sugas.site 都 = `v2-20260805-intraday-batch-qq-fallback` ✓（ss.fx8.store CF purge延迟约2分钟，12:40验证通过）。c59fc975 cron已删除（已上线）。13:00开盘后验证分时图方案A+兜底+hover pop效果。
+
+**教训**：feat分支从旧merge-base分出时static-site/data/停旧版，push main前必须先merge origin/main同步data（或rebase），否则覆盖定时任务推的新版intraday_snapshot=§8事故。`git push origin feat:main`的`feat`是本地分支名简称，本地分支名`feat/iframe-theme-follow`不匹配需用`HEAD:main`
+
 ## §48 小节AI：2026-08-05 邮件 vs 浏览器通知差异调研（a170ded4 报告，主控验收3点通过）
 
 **背景**：用户反馈"收到邮件挺多（买卖点信号+盘中异动），但浏览器通知没几个"。
