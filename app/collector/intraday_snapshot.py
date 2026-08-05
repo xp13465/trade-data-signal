@@ -1359,15 +1359,18 @@ def _collect_intraday_width_metrics() -> dict:
                 _now = _dt.now()
                 _hhmm = _now.strftime("%H:%M")
                 # 1) 建表 + 存历史分时数据（方案 C 积累）
+                # 用 _fc_conn 局部连接，不覆盖外层 conn（L1339）：
+                # 外层 conn 在 L1463 zhaban 块 fallback 查 zt_count 仍要用，
+                # 若此处覆盖+close 会导致 L1463 "Cannot operate on a closed database"。
                 _ensure_amount_history_table()
-                conn = get_conn()
-                conn.execute(
+                _fc_conn = get_conn()
+                _fc_conn.execute(
                     "INSERT OR REPLACE INTO intraday_amount_history (date, time_hhmm, cum_amount, source, run_at) "
                     "VALUES (?,?,?,?,?)",
                     (today, _hhmm, amount, "intraday", _now.isoformat()),
                 )
-                conn.commit()
-                conn.close()
+                _fc_conn.commit()
+                _fc_conn.close()
                 # 2) 算预估全天成交额（方案 A 经验加权立即 + 方案 C 历史占比校准如果数据足够）
                 forecast = _forecast_amount(today, _hhmm, amount)
                 if forecast is not None:
