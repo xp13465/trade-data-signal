@@ -1517,6 +1517,20 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _seg = (label, bin, dotCls, grade) =>
       `<button class="sig-acc-seg sig-acc-filter${_gActive(grade)}" data-grade-filter="${grade}" data-tip="${_escAttr("点击只看评级" + label + "的参考点")}"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</button>`;
     const _unsettledTip = '未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项(波段持有非操作项,不计入未结算)';
+    // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补)
+    // 口径:近15交易日 signals_today 的 since_correct 至今盈亏方向命中率
+    const _wfLabel = { "0_15": "近15交易日全部(默认)", "10_15": "第10-15交易日", "7_15": "第7-15交易日", "3_15": "第3-15交易日", "y_15": "排除今日(昨日~15日)" }[state.sigWindowFilter] || "近15交易日";
+    const _todayFmt = todayDate ? fmtDate(todayDate) : "最新交易日";
+    const _totalTip =
+      `总准确率统计口径\n` +
+      `范围：${_wfLabel}技术分析参考点\n` +
+      `公式：命中率 = 对数 / (对+错) × 100%（排除未结算+波段持有）\n` +
+      `对错判定：看多信号(主买/辅买/特买/备买)至今涨=对；看空信号(卖/止损)至今跌=对；波段持有=中性不计\n` +
+      `基准：信号日收盘价 -> 今日收盘价 涨跌方向\n` +
+      `当前：${_acc.total.t}对 / ${_acc.total.f}错 / ${_acc.total.n}未结算，命中率 ${_fmt(_acc.total.pct)}\n` +
+      `数据基准日：${_todayFmt}\n` +
+      `分评级：高 ${_fmt(_acc.grade.high.pct)}(${_acc.grade.high.t}/${_acc.grade.high.f}) · 中 ${_fmt(_acc.grade.mid.pct)}(${_acc.grade.mid.t}/${_acc.grade.mid.f}) · 低 ${_fmt(_acc.grade.low.pct)}(${_acc.grade.low.t}/${_acc.grade.low.f})\n` +
+      `注：未结算=今日新信号+待收盘回填，收盘后 update_all 重算 since_correct 转为对/错；评级 score=历史10d窗口胜率/盈亏比/样本加权（非本汇总条口径）`;
     const _reset = (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)
       ? ` <button class="sig-acc-reset" data-grade-filter-reset="1">恢复全部</button>`
       : "";
@@ -1561,7 +1575,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
-    _accHtml = `<div class="sig-acc-wrap"><div class="signal-accuracy-summary">总准确率 ${_fmt(_acc.total.pct)} (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
+    _accHtml = `<div class="sig-acc-wrap"><div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
   }
   // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
   if (kind === "signal" && !rows) {
