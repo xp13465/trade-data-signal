@@ -159,7 +159,9 @@ static-site/data/global-extras-all.json.gz
 # R2 阶段4 续3（2026-07-20 R2 合规修复）：etf_score_list.json 4.3MB 前端改从 R2 data/ 读
 # （app.js renderEtfScore L11905 走 https://ssd.fx8.store/data/），git 带是冗余。
 # upload-data-large 每日刷 R2 data/ 前缀。本地保留供 upload_r2 上传。
+# P0-2 (2026-08-05): 原单文件已废弃(拆 3 JSON), .json + .gz 都 .gitignore 移出 git
 static-site/data/etf_score_list.json
+static-site/data/etf_score_list.json.gz
 # P0-2 (2026-08-05): etf_score_list 拆 3 JSON (buy/sell/hold) + 懒加载, .json 走 R2(.gitignore),
 # .gz 留 git(deploy.sh DATA_FILES 加 .gz 供 CF 兜底/备份)。upload-etf-score 独立命令上传 data/ 前缀。
 static-site/data/etf_score_list_buy.json
