@@ -7473,6 +7473,10 @@ feat分支 ahead 2（d2f5ddeba兜底 + 36150ab7b hover pop），c59fc975今晚23
 
 **教训**：feat分支从旧merge-base分出时static-site/data/停旧版，push main前必须先merge origin/main同步data（或rebase），否则覆盖定时任务推的新版intraday_snapshot=§8事故。`git push origin feat:main`的`feat`是本地分支名简称，本地分支名`feat/iframe-theme-follow`不匹配需用`HEAD:main`
 
+**上线（2026-08-05 12:52 午休窗口）**：2改造合并实施 commit e67a8759f，push HEAD:main fast-forward `affd6788a..e67a8759f`，3域名验证通过（ss.fx8.store/sss.sugas.site/s.sugas.site 都=`v2-20260805-lunch-pause-compliance-hoverpop`）。
+①**分时定时器午休停请求(方案B)**：新增`_isLunchPause()`(L5032，11:35-12:55判断)+`_scheduleNextRefresh`(L6157)+`_doIntradayRefresh`入口(L6166)双拦截，午休省160次无意义请求(2次/min×80min)，防腾讯WAF频率风控。方案B(定时器回调内判断跳过)非方案A(彻底停定时器)，理由：改动最小最安全+CPU浪费可忽略(1min空setTimeout)+避免_resumeTimer状态机复杂度+现有document.hidden跳过同模式。**不改**：_overviewRefreshTimer/_marketOpenCheckTimer/_notifyCheckTimer/_refreshDebugTimer（午休该继续的保留）
+②**hover pop文案接入compliance切换**：`_totalTip`(L1524)+`_unsettledTip`(L1519)+`smallSamplePrefix`(L737)用`_t.tsText()`包裹(on模式自动转主关注/辅关注等，off原样)+修正`_totalTip`笔误"特买"->"追买"(L1528，_TS_COMPLIANCE_MAP无特买映射会残留)。`_SIGNAL_HELP_ITEMS`渲染(L1802)已存在_t.tsText包裹无需改
+
 ## §48 小节AI：2026-08-05 邮件 vs 浏览器通知差异调研（a170ded4 报告，主控验收3点通过）
 
 **背景**：用户反馈"收到邮件挺多（买卖点信号+盘中异动），但浏览器通知没几个"。
