@@ -8183,7 +8183,56 @@ async function renderOverview() {
     const _disabledTip = k.disabled ? termTip("该指标当前采集异常（数据源中断），暂无数据。恢复后自动显示。") : "";
     // 源端停更水印：半透明"数据停更"叠在卡片中部,不遮蔽数值(pointer-events:none 点击穿透到卡片)
     const _staleWm = k.stale ? '<span class="stale-watermark">数据停更</span>' : "";
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}" data-kpi-key="${k.id}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div><div class="card-sub" title="${sub}">${sub}</div></div>`;
+    // P0+P1+P2 KPI小卡新颖设计 (2026-08-05, TASKS L1503)
+    // P0-①② 状态着色+左侧3px色条：按 kpi 类型+value 算 data-state，CSS 按属性着色 border-left + .cv-val
+    const _kpiState = (() => {
+      if (k.disabled) return "disabled";
+      if (k.id === "a_width_zt_count" || k.id === "a_width_up_count") return "up";      // 涨停/上涨 红
+      if (k.id === "a_width_dt_count" || k.id === "a_width_down_count") return "down";  // 跌停/下跌 绿
+      if (k.id === "a_width_zhaban_rate") return "warn";                                 // 炸板率高=警示
+      if (k.id === "a_width_fengban_rate" || k.id === "a_width_seal_rate") return "strong"; // 封板率高=强 金
+      if (k.id === "a_amount" || k.id === "a_volume_ratio") {
+        const _sig = k.signal || "";
+        if (_sig.startsWith("放量")) return "up";
+        if (_sig.startsWith("缩量")) return "down";
+        return "neutral";
+      }
+      // 9 情绪分卡(0-100)色阶: 冰点蓝->偏冷浅蓝->中性灰->偏热橙->过热红
+      if (k.id === "a_sentiment" || k.id === "cross_market" || k.id === "fear_greed" || String(k.id).startsWith("sentiment_")) {
+        const _v = k.valueNum;
+        if (_v == null) return "neutral";
+        if (_v <= 20) return "freeze";
+        if (_v <= 40) return "cold";
+        if (_v <= 60) return "neutral";
+        if (_v <= 80) return "hot";
+        return "overheat";
+      }
+      if (k.tag === "冰点") return "freeze";
+      if (k.tag === "过热") return "overheat";
+      return "neutral";
+    })();
+    // P1-④ 内嵌迷你 sparkline：3情绪分卡用 overview.json 已有 6m 数据(零额外请求)，其他 KPI 不嵌(避免 N 个 fetch)
+    // 复用 ntIndexSparkline(L9028 SVG生成器, function declaration hoist 可前向引用) + fearGreedColor(L1196 0-100通用色阶)
+    const _sparkSrc = k.id === "a_sentiment" ? "a_sentiment_6m"
+      : k.id === "cross_market" ? "cross_market_6m"
+      : k.id === "fear_greed" ? "fear_greed_6m" : null;
+    let _kpiSparkHtml = "";
+    if (_sparkSrc && r[_sparkSrc] && r[_sparkSrc].length >= 2) {
+      const _sData = r[_sparkSrc];
+      const _closes = _sData.map(d => d.value);
+      const _dates = _sData.map(d => d.date);
+      const _lastV = _closes[_closes.length - 1];
+      const _sparkColor = fearGreedColor(_lastV);  // 0-100 通用色阶: 冰点蓝->过热红
+      _kpiSparkHtml = `<div class="kpi-spark">${ntIndexSparkline(_closes, _dates, _sparkColor, 200, 30)}</div>`;
+    }
+    // P2-⑦ 情绪分专属大卡标识 + 恐贪指数 0-100 进度条(蓝->红渐变标当前位置)
+    const _isSentBig = (k.id === "a_sentiment" || k.id === "cross_market" || k.id === "fear_greed");
+    let _fgBarHtml = "";
+    if (k.id === "fear_greed" && k.valueNum != null) {
+      const _pct = Math.max(0, Math.min(100, k.valueNum));
+      _fgBarHtml = `<div class="kpi-fg-bar" title="0(极度恐惧) -> 100(极度贪婪) 当前位置"><div class="kpi-fg-marker" style="left:${_pct}%"></div></div>`;
+    }
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}${_isSentBig ? " kpi-sentiment-big" : ""}" data-kpi-key="${k.id}" data-state="${_kpiState}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div>${_kpiSparkHtml}${_fgBarHtml}<div class="card-sub" title="${sub}">${sub}</div></div>`;
   }
   // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
   cards.addEventListener("click", (e) => {

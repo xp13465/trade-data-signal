@@ -973,7 +973,90 @@ main { padding: 16px 24px; }
 /* KPI 卡片行：flex+flex-wrap 让末尾行 flex-grow 拉伸填满(优于 grid auto-fit：auto-fit 的 1fr 只拉列宽不重分配末尾行 item，末尾行仍占前 K 列右边留白)。
    .card.kpi 的 flex:1 1 150px(grow=1)使末尾行不足满列时 item 均分整行宽度填满，不留白；窄屏 flex-wrap 自动少列。 */
 .cards.kpi-row { display: flex; flex-wrap: wrap; gap: 12px; }
-.card.kpi { min-width: 150px; padding: 12px 16px; flex: 1 1 150px; }
+.card.kpi {
+  min-width: 150px;
+  padding: 12px 16px;
+  flex: 1 1 150px;
+  /* P0-② 左侧3px状态色条(默认灰, data-state覆盖) + P2-⑧ 玻璃拟态(半透明+backdrop-filter+多层阴影) */
+  border-left: 3px solid var(--border-strong);
+  overflow: hidden;
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.1s, background-color 0.15s;
+  background-color: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 1px 3px var(--shadow), 0 0 0 1px color-mix(in srgb, var(--border) 50%, transparent);
+}
+/* P0-③ 默认金色顶条：渐变金条 linear-gradient(90deg,transparent,var(--primary),transparent) */
+.card.kpi::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 1;
+}
+/* P1-⑥ hover动效扩展所有KPI(不只kpi-clickable)：背景变深+上浮+阴影 */
+.card.kpi:hover {
+  background-color: color-mix(in srgb, var(--bg-hover) 88%, transparent);
+  box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
+  transform: translateY(-1px);
+}
+/* P0-② data-state 左侧色条着色 */
+.card.kpi[data-state="up"] { border-left-color: #e6492e; }
+.card.kpi[data-state="down"] { border-left-color: #2e8b57; }
+.card.kpi[data-state="freeze"] { border-left-color: #42a5f5; }
+.card.kpi[data-state="cold"] { border-left-color: #4fc3f7; }
+.card.kpi[data-state="hot"] { border-left-color: #e6a23c; }
+.card.kpi[data-state="overheat"] { border-left-color: #e6492e; }
+.card.kpi[data-state="warn"] { border-left-color: #faad14; }
+.card.kpi[data-state="strong"] { border-left-color: #f0b90b; }
+.card.kpi[data-state="neutral"] { border-left-color: var(--border-strong); }
+.card.kpi[data-state="disabled"] { border-left-color: #909399; }
+/* P0-① 数字状态着色：.cv-val 按 data-state 着色 */
+.card.kpi[data-state="up"] .cv-val,
+.card.kpi[data-state="overheat"] .cv-val { color: #e6492e; }
+.card.kpi[data-state="down"] .cv-val { color: #2e8b57; }
+.card.kpi[data-state="freeze"] .cv-val { color: #42a5f5; }
+.card.kpi[data-state="cold"] .cv-val { color: #4fc3f7; }
+.card.kpi[data-state="hot"] .cv-val { color: #e6a23c; }
+.card.kpi[data-state="strong"] .cv-val { color: #f0b90b; }
+.card.kpi[data-state="warn"] .cv-val { color: #faad14; }
+/* P1-⑤ 状态背景渐变(半透明叠加, backdrop-filter 仍可见)：强势金/冰点蓝/过热红/偏热橙 */
+.card.kpi[data-state="freeze"] { background-image: linear-gradient(180deg, rgba(66,165,245,0.16), transparent 65%); }
+.card.kpi[data-state="cold"] { background-image: linear-gradient(180deg, rgba(79,195,247,0.12), transparent 65%); }
+.card.kpi[data-state="overheat"] { background-image: linear-gradient(180deg, rgba(230,73,46,0.18), transparent 65%); }
+.card.kpi[data-state="hot"] { background-image: linear-gradient(180deg, rgba(230,162,60,0.14), transparent 65%); }
+.card.kpi[data-state="strong"] { background-image: linear-gradient(180deg, var(--bg-best), transparent 70%); }
+/* P1-④ KPI卡内嵌迷你 sparkline (30px 高, pointer-events:none 不挡点击) */
+.card.kpi .kpi-spark { height: 30px; margin: 2px 0 0; pointer-events: none; }
+.card.kpi .kpi-spark svg { height: 30px; display: block; }
+.card.kpi .kpi-spark .idx-spark { display: block; }
+/* P2-⑦ 3情绪分专属大卡：更大尺寸(flex 200px) + sparkline 36px 高 */
+.card.kpi.kpi-sentiment-big { flex: 1 1 200px; min-width: 200px; padding: 14px 18px; }
+.card.kpi.kpi-sentiment-big .card-value { font-size: 28px; }
+.card.kpi.kpi-sentiment-big .kpi-spark { height: 36px; }
+.card.kpi.kpi-sentiment-big .kpi-spark svg { height: 36px; }
+/* P2-⑦ 恐贪指数 0-100 进度条：蓝(冰点)->灰(中性)->红(过热) 渐变 + 当前位置标记 */
+.card.kpi .kpi-fg-bar {
+  position: relative;
+  height: 6px;
+  margin: 6px 0 2px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #42a5f5 0%, #4fc3f7 25%, #86909c 50%, #e6a23c 75%, #e6492e 100%);
+  overflow: visible;
+}
+.card.kpi .kpi-fg-marker {
+  position: absolute;
+  top: -3px;
+  width: 4px;
+  height: 12px;
+  background: var(--text-1);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 1.5px var(--bg-card);
+}
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; display: flex; align-items: baseline; gap: 6px; }
 .card.kpi .card-value .cv-val { min-width: 0; }
 .card.kpi .card-value .cv-tags { margin-left: auto; flex-shrink: 0; }
