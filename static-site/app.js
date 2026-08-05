@@ -6925,36 +6925,17 @@ async function _checkNotifications() {
 // document.hidden 时 overview 轮询被跳过(L5372)致 _checkNotifications 不触发，
 // 后台标签页收不到通知。独立 setInterval 不受 document.hidden 影响，后台也能弹通知。
 // _checkNotifications 内部有 pref/permission/30s 节流三层短路，关闭时 return 不发请求。）
-// P1-5(2026-08-05): 后台标签页暂停 setInterval 省请求(用户没在看), 切回前台恢复 + 立即检查一次.
-// 30s 节流仍生效: 后台<30s 切回不重复查, >30s 切回立即查; 通知延迟最多=后台时长, 用户切回即见.
 let _notifyCheckTimer = null;
-let _notifyVisBound = false;
 function _startNotifyPolling() {
   if (_notifyCheckTimer) return;  // 防重复启动（initNotifyButton 可能多次调用）
   _notifyCheckTimer = setInterval(_checkNotifications, NOTIFY_FETCH_INTERVAL_MS);
   console.log('[notify] 独立轮询已启动 (每' + NOTIFY_FETCH_INTERVAL_MS / 1000 + 's)');
-  // P1-5: 绑定 visibilitychange (只绑一次), 后台暂停/前台恢复
-  if (!_notifyVisBound) {
-    _notifyVisBound = true;
-    document.addEventListener('visibilitychange', _onNotifyVisChange);
-  }
 }
 function _stopNotifyPolling() {
   if (_notifyCheckTimer) {
     clearInterval(_notifyCheckTimer);
     _notifyCheckTimer = null;
     console.log('[notify] 独立轮询已停止');
-  }
-}
-// P1-5: 后台标签页暂停通知轮询省请求, 切回前台恢复 + 立即检查一次(补偿后台期间)
-function _onNotifyVisChange() {
-  if (document.hidden) {
-    // 后台暂停: 用户没在看, 省请求(setInterval 30s 一次, 后台1h省120次)
-    if (_notifyCheckTimer) { clearInterval(_notifyCheckTimer); _notifyCheckTimer = null; }
-  } else if (!_notifyCheckTimer) {
-    // 切回前台: 恢复轮询 + 立即检查一次(30s 节流决定是否真查)
-    _notifyCheckTimer = setInterval(_checkNotifications, NOTIFY_FETCH_INTERVAL_MS);
-    _checkNotifications();
   }
 }
 
