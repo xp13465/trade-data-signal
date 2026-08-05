@@ -3254,7 +3254,7 @@ main { padding: 16px 24px; }
 
 /* === 🔔 通知铃铛 hover popup（试看选项，2026-08-04 从独立按钮移入省 header 空间）=== */
 /* 方案A(fix2): wrap 包铃铛+popup, 给 popup 绝对定位基准; popup 不再作 button 子元素(div-in-button 无效HTML) */
-.notify-wrap { position: relative; display: inline-flex; align-items: center; padding-bottom: 10px; margin-bottom: -10px; }
+.notify-wrap { position: relative; display: inline-flex; align-items: center; }
 @media (max-width: 768px) { .notify-wrap { display: none; } }
 .notify-pop {
   display: none; position: absolute; z-index: 100; right: 0; top: 100%; margin-top: 8px;
