@@ -14,6 +14,8 @@
   非交易日不反哺；快照 datetime 非当日不写（避免旧快照污染）。
 """
 import json
+import subprocess
+import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1646,6 +1648,40 @@ def _export_affected_json(is_closed: bool = False) -> None:
     for rng in export_mod.EXPORT_RANGES:
         export_mod.write_json(export_mod.DATA_DIR / f"sentiment-{rng}.json",
                               export_mod.export_sentiment(conn, cfg, rng))
+
+    # sentiment 5 ranges 上传 R2（盘中即时可见，不依赖17:50 update-all）
+    # 根因修复2026-07-20: intraday_snapshot 盘中生成 sentiment-{rng}.json 到主库但不上传R2，
+    # 前端 app.js dataUrl 对 -all.json 走 R2(ssd.fx8.store/data/)，R2 停在昨日致盘中无数据。
+    # 复用 upload_r2.py upload <local> <key>（只依赖 stdlib，自己加载 .env 获取 R2 凭证）。
+    # 独立 try-except：失败不阻断采集，log_collect error 让监控发现。
+    # REPO=trade-data 时 export_mod.DATA_DIR 指主库（有当日数据），sys.executable 即当前 .venv python。
+    try:
+        _script = Path(__file__).absolute().parent.parent.parent / "scripts" / "upload_r2.py"
+        _ok, _total = 0, 0
+        for _rng in export_mod.EXPORT_RANGES:
+            _local = export_mod.DATA_DIR / f"sentiment-{_rng}.json"
+            if not _local.exists():
+                continue
+            _total += 1
+            _r = subprocess.run(
+                [sys.executable, str(_script), "upload", str(_local), f"data/sentiment-{_rng}.json"],
+                capture_output=True, text=True, timeout=60)
+            if _r.returncode == 0 and "✓" in _r.stdout:
+                _ok += 1
+            else:
+                print(f"  [intraday] sentiment-{_rng}.json R2上传失败: rc={_r.returncode} "
+                      f"stdout={_r.stdout[:200]} stderr={_r.stderr[:200]}", flush=True)
+        print(f"  [intraday] sentiment R2上传 {_ok}/{_total}", flush=True)
+        if _ok < _total:
+            log_collect(datetime.now().strftime("%Y%m%d"), "sentiment_r2_upload", "error",
+                        f"sentiment R2上传 {_ok}/{_total} 失败")
+    except Exception as _e:  # noqa: BLE001
+        print(f"  [intraday] sentiment R2上传异常(不阻断采集): {type(_e).__name__} {_e}", flush=True)
+        try:
+            log_collect(datetime.now().strftime("%Y%m%d"), "sentiment_r2_upload", "error",
+                        f"sentiment R2上传异常: {type(_e).__name__} {_e}")
+        except Exception:
+            pass
 
     # summary + summary_history（恐贪/情绪分变了，收盘分析横幅与历史弹窗也要更新）
     export_mod.write_json(export_mod.DATA_DIR / "summary.json",
