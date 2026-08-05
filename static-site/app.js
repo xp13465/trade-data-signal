@@ -8081,7 +8081,9 @@ async function renderOverview() {
     const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
     let sub = k.sub || "";
     let valueHtml = k.value;
-    // 成交额KPI：盘中显示预估全天角标（从 intraday_snapshot.amount_forecast 读）
+    // 成交额KPI：盘中主值显示预估全天成交额 + 橙色"预估"tag，副值显示当前累计成交额
+    // 数据来源: intraday_snapshot.amount_forecast (数值，亿元)，盘中每10分钟刷新
+    // 收盘后或无预估值: 保持原 a_amount 卡片显示(主值=k.value当前累计, 副值=k.sub单位)
     if (k.id === "a_amount") {
       const _snap = state.intradaySnapshot;
       const _forecast = _snap && _snap.amount_forecast;
@@ -8089,7 +8091,14 @@ async function renderOverview() {
         const now = new Date();
         const hm = now.getHours() * 100 + now.getMinutes();
         if (hm < 1500) {
-          valueHtml = `${k.value}<span class="forecast-tag" style="color:#888;font-size:11px;margin-left:6px;">预估全天 ${Math.round(_forecast)}亿</span>`;
+          // 预估主值格式：>=1万亿用"X.XX万亿"，否则"X亿"
+          const _fcStr = _forecast >= 10000
+            ? `${(_forecast / 10000).toFixed(2)}万亿`
+            : `${Math.round(_forecast)}亿`;
+          const _fcTag = `<span class="tag forecast-tag" style="background:#ff9800;color:#fff;font-size:10px;padding:1px 4px;margin-left:4px;">预估</span>`;
+          valueHtml = `${_fcStr}${_fcTag}`;
+          // 副值显示当前累计成交额(对照看)：k.value已含数值, k.sub为单位(亿)
+          sub = `当前 ${k.value}${k.sub || "亿"}`;
         }
       }
     }
