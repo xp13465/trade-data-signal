@@ -7615,3 +7615,54 @@ feat分支 ahead 2（d2f5ddeba兜底 + 36150ab7b hover pop），c59fc975今晚23
 **明天验证**：①预估成交额明天盘中验证 intraday_snapshot.json 含 amount_forecast 字段，KPI 卡片显橙色预估 tag + 主值万亿/亿切换 ②8/5 R2 根治明天盘中验证 R2 sentiment-all.json 含 8/6 最新日期 ③信号方案B明天验证 signals_today s.* 0 条（已验收，明天数据复现）
 
 **落档**：NOTES §48 小节AK + TASKS 预估成交额+信号设计+8/5 R2 状态更新为已完成。关联 memory [[intraday-snapshot-schedule]] [[fetchjson-skip-gz]] [[r2-arch-by-category-not-size]]
+
+## §48 小节AL：2026-08-05 16:50 定时任务feat分支push main带上线功能commit机制（验证落档）
+
+### 1. 背景（重要发现）
+定时任务（如 backfill-evening 16:48）在 `feat/iframe-theme-follow` 分支跑 `deploy.sh` 时，`deploy.sh` 内部 `git push origin main` 会把 **feat 分支当前 HEAD 的所有 commit**（功能 commit + 定时任务自己推的 data commit）一起 push 到 main 上线，不只是 data commit。
+
+**这是"功能自动上线"的好事**：feat 分支开发完的功能 commit 不需要手动 `git push feat:main`，定时任务跑 deploy.sh 时自动带上线。前提是 feat 分支 HEAD 已包含该功能 commit。
+
+### 2. 验证结论（已逐字验收，2026-08-05 16:50）
+1. **feat 与 origin/main 完全同步**：
+   - `origin/main` HEAD = `bdb09952d`（`data update [backfill] 2026-08-05_16:48`）
+   - `git log origin/main..HEAD` 空 + `git log HEAD..origin/main` 空 = feat 和 origin/main 完全同步，feat HEAD 即 origin/main HEAD
+2. **feat HEAD commit 链**（含定时任务推的 data commit + 功能 commit，按时间倒序）：
+   - `bdb09952d` data update [backfill] 2026-08-05_16:48（定时任务推）
+   - `1fd547327` fix: schedule_monitor 时效滞后 3 域名误报修复
+   - `7a00ff63b` data update [schedule_stats] 2026-08-05_16:35（定时任务推）
+   - `d41baf26b` data update [public-fund] 2026-08-05_16:35（定时任务推）
+   - `d5426146f` docs: 落档 2026-08-05 下午预估成交额 UI + 8/5 R2 根治 + 信号方案 B
+   - `d7f0133c2` fix: intraday_snapshot 盘中上传 sentiment-{rng}.json 到 R2（8/5 无数据根治）
+   - `fcc7b4267` fix: signals_today 过滤 s.* 情绪分信号（方案 B）
+   - `aa3f4b35f` feat: a_amount 卡片预估角标 UI
+   - `241e6760a` feat: 预估成交额功能（方案 C 后端，AK 小节原记 `be49e0064` 已被 rebase 为 `241e6760a`）
+3. **3 域名验证上线**：
+   - `ss.fx8.store` sw.js `CACHE_VERSION = 'v2-20260805-amount-forecast-ui'` ✓
+   - `ssd.fx8.store` sentiment-all.json `a_sentiment` 最后 = `{'date':'20260805','value':73.78,...}` ✓
+4. **信号过滤残留（已知）**：`overview.json` collected_at=15:35:51（信号过滤 commit `fcc7b4267`=16:15:43 之前生成），残留 1 条 `s.sentiment_cyb sell`。17:50 update-all 重新生成 overview.json 后生效（signals_today 无 s.*）。
+
+### 3. 风险提示（§8 事故根因关联）
+**当前安全的原因**：feat 分支 `static-site/data/` 是定时任务（intraday-snapshot/update-all/backfill）在 feat 分支跑时创建的新版 data commit，feat HEAD 的 data 是最新版，push feat:main 不会覆盖 main 新版 data。
+
+**潜在风险（§8 事故根因重申）**：若 feat 分支从旧 merge-base 分出后，`static-site/data/` 还停在旧版本（定时任务没在 feat 分支跑过 / feat 分支落后 main 多个 data commit），此时跑 deploy.sh `git push origin main` 会把 feat 的旧版 data 覆盖 main 上定时任务推的新版 data，复现 2026-07-20 gz 方案 B intraday 回退事故。
+
+**安全使用前提**：
+- ① feat 分支 HEAD 已包含定时任务最新推的 data commit（`git log origin/main..HEAD` 空 = feat 已同步 main = data 已是新版）
+- ② 或 feat 分支从最新 main merge-base 分出后未改 `static-site/data/`（data commit 都是 main 上的，push 不引入旧版）
+- ③ 不满足上述两条时，跑 deploy.sh 前必须先 `git fetch origin && git merge origin/main`（或 rebase）同步 data 新版
+
+### 4. 如何判断"功能已自动上线"
+```bash
+git log origin/main..HEAD --oneline    # 空 = feat 已同步 main = feat 功能 commit 已上线
+git log HEAD..origin/main --oneline    # 空 = main 没有比 feat 更新的 commit = 无 data 滞后风险
+```
+两条都空 = feat 和 origin/main 完全同步 = feat 所有功能 commit 已自动上线（无需再手动 push main）。
+
+### 5. 关联
+- §8 改完必须推送（含 2026-07-20 gz 方案 B 事故根因：feat 旧版 data 覆盖 main 新版 data）
+- §14 生产稳定性 P0（任务冲突检查 + 推 main 时点避让）
+- memory `feat-branch-deploy-pushes-func-commits`（本次新增）
+- memory `production-stability-p0` / `deploy-verify-3-sites`（关联）
+
+**落档**：NOTES §48 小节 AL + memory `feat-branch-deploy-pushes-func-commits`。当前 feat 已与 origin/main 同步，功能已自动上线，无需再 push main。
