@@ -734,7 +734,7 @@ function _backupSignalChipRender(sd, id) {
     return sharpeRedlinePrefix + '<div class="overfit-warn-row overfit-warn-failed">⚠ 过拟合/测试段失效: 信号在滚动测试(walk-forward)段反向退化(滚动测试夏普 &lt; 未过滤全样本), 不进三档推荐<span class="warn-tip">该品种信号在滚动测试段反向退化(滚动测试夏普 &lt; 未过滤全样本), 不进三档推荐; 详见完整回测弹窗, 历史表现不代表未来</span></div>';
   }
   if (id && _SMALL_SAMPLE_IDS.has(id)) {
-    smallSamplePrefix = '<div class="overfit-warn-row overfit-warn-sample" data-tip="该品种 C1主买(超卖拐点)信号在滚动测试(walk-forward)段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测弹窗">📜 样本不足提示: C1主买(超卖拐点)测试段样本量 n&lt;30, 统计意义弱, 三档推荐仅供谨慎参考<span class="warn-tip">滚动测试段 n&lt;30 统计意义弱; 详见完整回测弹窗</span></div>';
+    smallSamplePrefix = _t.tsText('<div class="overfit-warn-row overfit-warn-sample" data-tip="该品种 C1主买(超卖拐点)信号在滚动测试(walk-forward)段样本量 n&lt;30,统计意义弱,三档推荐仅供谨慎参考;详见完整回测弹窗">📜 样本不足提示: C1主买(超卖拐点)测试段样本量 n&lt;30, 统计意义弱, 三档推荐仅供谨慎参考<span class="warn-tip">滚动测试段 n&lt;30 统计意义弱; 详见完整回测弹窗</span></div>');
   }
   // 窗口 key -> 中文 label 映射（优先用后端 sd.windows.l，缺失兜底硬编码；2026-07-23 chip 英文中文化）
   var winLabel = Object.assign(
@@ -1516,21 +1516,22 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _tActive = (t) => (state.sigTypeFilter === t ? " sig-acc-filter-active" : "");
     const _seg = (label, bin, dotCls, grade) =>
       `<button class="sig-acc-seg sig-acc-filter${_gActive(grade)}" data-grade-filter="${grade}" data-tip="${_escAttr("点击只看评级" + label + "的参考点")}"><span class="sig-acc-dot ${dotCls}">●</span>${label} ${_fmt(bin.pct)} (${bin.t}/${bin.f})</button>`;
-    const _unsettledTip = '未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项(波段持有非操作项,不计入未结算)';
+    const _unsettledTip = _t.tsText('未结算=信号已发出但尚未验证对错。含：①今日新信号(无至今走势数据);②等待收盘价回填。收盘后update_all重算since_correct后转为"对"或"错"。点击只看未结算项(波段持有非操作项,不计入未结算)');
     // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补)
     // 口径:近15交易日 signals_today 的 since_correct 至今盈亏方向命中率
     const _wfLabel = { "0_15": "近15交易日全部(默认)", "10_15": "第10-15交易日", "7_15": "第7-15交易日", "3_15": "第3-15交易日", "y_15": "排除今日(昨日~15日)" }[state.sigWindowFilter] || "近15交易日";
     const _todayFmt = todayDate ? fmtDate(todayDate) : "最新交易日";
-    const _totalTip =
+    const _totalTip = _t.tsText(
       `总准确率统计口径\n` +
       `范围：${_wfLabel}技术分析参考点\n` +
       `公式：命中率 = 对数 / (对+错) × 100%（排除未结算+波段持有）\n` +
-      `对错判定：看多信号(主买/辅买/特买/备买)至今涨=对；看空信号(卖/止损)至今跌=对；波段持有=中性不计\n` +
+      `对错判定：看多信号(主买/辅买/追买/备买)至今涨=对；看空信号(卖/止损)至今跌=对；波段持有=中性不计\n` +
       `基准：信号日收盘价 -> 今日收盘价 涨跌方向\n` +
       `当前：${_acc.total.t}对 / ${_acc.total.f}错 / ${_acc.total.n}未结算，命中率 ${_fmt(_acc.total.pct)}\n` +
       `数据基准日：${_todayFmt}\n` +
       `分评级：高 ${_fmt(_acc.grade.high.pct)}(${_acc.grade.high.t}/${_acc.grade.high.f}) · 中 ${_fmt(_acc.grade.mid.pct)}(${_acc.grade.mid.t}/${_acc.grade.mid.f}) · 低 ${_fmt(_acc.grade.low.pct)}(${_acc.grade.low.t}/${_acc.grade.low.f})\n` +
-      `注：未结算=今日新信号+待收盘回填，收盘后 update_all 重算 since_correct 转为对/错；评级 score=历史10d窗口胜率/盈亏比/样本加权（非本汇总条口径）`;
+      `注：未结算=今日新信号+待收盘回填，收盘后 update_all 重算 since_correct 转为对/错；评级 score=历史10d窗口胜率/盈亏比/样本加权（非本汇总条口径）`
+    );
     const _reset = (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter)
       ? ` <button class="sig-acc-reset" data-grade-filter-reset="1">恢复全部</button>`
       : "";
@@ -5026,6 +5027,12 @@ function _bjTimeMin() {
 function _bjDayOfWeek() {
   return new Date(Date.now() + 8 * 3600000).getUTCDay();
 }
+// 午休停请求窗口: 11:35后停止, 12:55前恢复(留5min缓冲收上午尾盘+准备下午开盘)
+// 11:30收盘走到11:35停(收上午尾盘数据), 12:55开始恢复(准备13:00开盘)
+function _isLunchPause() {
+  const m = _bjTimeMin();
+  return m >= 11*60+35 && m < 12*60+55;
+}
 // 是否已过该 T+1 源的最晚可得时刻(北京时间)。过时刻仍未采到基准日期 -> 红(异常)。
 // 仅对 T+1 源(有 T1_COLLECT_DEADLINE 表项)调用；T+0 源走 pastDeadline=!intraday 判定。
 // 未配置的 T+1 源默认 18:00(update_all 17:50 采集时刻)。
@@ -6146,6 +6153,8 @@ function _scheduleNextRefresh() {
     _intradayRefreshTimer = null;
     if (!_intradayActive) return;
     if (document.hidden) { _scheduleNextRefresh(); return; } // 页面不可见时跳过
+    // [新增] 午休时段(11:35-12:55)跳过请求(无新数据,避免腾讯WAF频率风控), 仅重新调度
+    if (_isLunchPause()) { _scheduleNextRefresh(); return; }
     _doIntradayRefresh();
   }, _delay);
 }
@@ -6153,6 +6162,8 @@ function _scheduleNextRefresh() {
 // 执行一轮刷新：并行refetch所有图表，跟踪成功/失败
 async function _doIntradayRefresh() {
   if (!_intradayRenderCtx || !_intradayRenderCtx.sparkGrid) { _scheduleNextRefresh(); return; }
+  // [新增] 兜底: visibilitychange 切回前台触发的 _doIntradayRefresh 不走 _scheduleNextRefresh, 需在此拦
+  if (_isLunchPause()) { _scheduleNextRefresh(); return; }
   const ctx = _intradayRenderCtx;
   _intradayLastFetch = Date.now();
   // 刷新snap检查是否收盘（2s超时避免阻塞）
