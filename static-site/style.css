@@ -1043,30 +1043,87 @@ main { padding: 16px 24px; }
 .card.kpi .kpi-spark { height: 30px; margin: 2px 0 0; pointer-events: none; }
 .card.kpi .kpi-spark svg { height: 30px; display: block; }
 .card.kpi .kpi-spark .idx-spark { display: block; }
-/* P2-⑦ 3情绪分专属大卡：更大尺寸(flex 200px) + sparkline 36px 高 */
-.card.kpi.kpi-sentiment-big { flex: 1 1 200px; min-width: 200px; padding: 14px 18px; }
-.card.kpi.kpi-sentiment-big .card-value { font-size: 28px; }
-.card.kpi.kpi-sentiment-big .kpi-spark { height: 36px; }
-.card.kpi.kpi-sentiment-big .kpi-spark svg { height: 36px; }
-/* P2-⑦ 恐贪指数 0-100 进度条：蓝(冰点)->灰(中性)->红(过热) 渐变 + 当前位置标记 */
-.card.kpi .kpi-fg-bar {
+/* P2-⑦ 3情绪分卡数字字号+布局与其他卡统一(方向C, 2026-08-05):
+   原 kpi-sentiment-big (font-size:28px + flex 200px + sparkline 36px) 已移除,
+   所有 KPI 卡完全统一(符合"一行都高都低"布局和谐), sparkline 30px 通用高度 */
+/* P2-⑦ 恐贪指数 0-100 进度条改 hover tooltip(方向C, 2026-08-05):
+   默认隐藏, hover 卡片显示进度条+0极度恐惧-100极度贪婪刻度+当前位置文字
+   和预估成交额盘后hover pop(kpi-forecast-pop)风格协调(overlay 覆盖整卡)
+   解决用户反馈: 进度条含义不明 */
+.card.kpi .kpi-fg-tooltip {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border-radius: inherit;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+}
+.card.kpi.has-fg-tooltip:hover .kpi-fg-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+/* has-fg-tooltip 卡片右上角小标, 提示可 hover 看刻度说明(同 has-forecast-pop) */
+.card.kpi.has-fg-tooltip::after {
+  content: "?";
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 4;
+  font-size: 10px;
+  line-height: 14px;
+  width: 14px;
+  height: 14px;
+  text-align: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary);
+  pointer-events: none;
+  opacity: 0.7;
+}
+.kpi-fg-tooltip .kfg-title {
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+.kpi-fg-tooltip .kfg-bar {
   position: relative;
-  height: 6px;
-  margin: 6px 0 2px;
-  border-radius: 3px;
+  height: 8px;
+  border-radius: 4px;
   background: linear-gradient(90deg, #42a5f5 0%, #4fc3f7 25%, #86909c 50%, #e6a23c 75%, #e6492e 100%);
   overflow: visible;
 }
-.card.kpi .kpi-fg-marker {
+.kpi-fg-tooltip .kfg-marker {
   position: absolute;
   top: -3px;
   width: 4px;
-  height: 12px;
+  height: 14px;
   background: var(--text-1);
   border-radius: 2px;
   transform: translateX(-50%);
   box-shadow: 0 0 0 1.5px var(--bg-card);
 }
+.kpi-fg-tooltip .kfg-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.kpi-fg-tooltip .kfg-cur {
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: center;
+}
+.kpi-fg-tooltip .kfg-cur b { font-weight: 600; }
 /* 盘后 hover 预估 vs 实际对比 pop (debug, 2026-08-05)
    仅 a_amount 卡盘后(is_closed||hm>=1500)且有 amount_forecast 数值时注入 .kpi-forecast-pop
    overlay 覆盖整卡(.card.kpi overflow:hidden 裁剪圆角), hover 显示对比数据

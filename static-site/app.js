@@ -8264,14 +8264,16 @@ async function renderOverview() {
       const _sparkColor = _isScore ? fearGreedColor(_lastV) : (_KPI_STATE_COLORS[_kpiState] || "#86909c");
       _kpiSparkHtml = `<div class="kpi-spark">${ntIndexSparkline(_closes, _dates, _sparkColor, 200, 30)}</div>`;
     }
-    // P2-⑦ 情绪分专属大卡标识 + 恐贪指数 0-100 进度条(蓝->红渐变标当前位置)
-    const _isSentBig = (k.id === "a_sentiment" || k.id === "cross_market" || k.id === "fear_greed");
-    let _fgBarHtml = "";
+    // P2-⑦ 恐贪指数 0-100 进度条改 hover tooltip(方向C, 2026-08-05):
+    // 默认隐藏, hover 卡片显示进度条+0极度恐惧-100极度贪婪刻度+当前位置文字
+    // 和预估成交额盘后hover pop(kpi-forecast-pop)风格一致(debug式说明)
+    // 解决用户反馈: 数字大小不一破坏行内和谐+进度条含义不明
+    let _fgTooltipHtml = "";
     if (k.id === "fear_greed" && k.valueNum != null) {
       const _pct = Math.max(0, Math.min(100, k.valueNum));
-      _fgBarHtml = `<div class="kpi-fg-bar" title="0(极度恐惧) -> 100(极度贪婪) 当前位置"><div class="kpi-fg-marker" style="left:${_pct}%"></div></div>`;
+      _fgTooltipHtml = `<div class="kpi-fg-tooltip"><div class="kfg-title">恐贪指数刻度</div><div class="kfg-bar"><div class="kfg-marker" style="left:${_pct}%"></div></div><div class="kfg-scale"><span>0 极度恐惧</span><span>100 极度贪婪</span></div><div class="kfg-cur">当前 <b style="color:${fearGreedColor(k.valueNum)}">${k.valueNum}</b> · ${fearGreedLabel(k.valueNum)}</div></div>`;
     }
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}${_isSentBig ? " kpi-sentiment-big" : ""}${_forecastPopHtml ? " has-forecast-pop" : ""}" data-kpi-key="${k.id}" data-state="${_kpiState}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div>${_kpiSparkHtml}${_fgBarHtml}<div class="card-sub" title="${sub}">${sub}</div>${_forecastPopHtml}</div>`;
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}${_fgTooltipHtml ? " has-fg-tooltip" : ""}${_forecastPopHtml ? " has-forecast-pop" : ""}" data-kpi-key="${k.id}" data-state="${_kpiState}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div>${_kpiSparkHtml}<div class="card-sub" title="${sub}">${sub}</div>${_forecastPopHtml}${_fgTooltipHtml}</div>`;
   }
   // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
   cards.addEventListener("click", (e) => {
