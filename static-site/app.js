@@ -5383,6 +5383,18 @@ const _INDEX_TO_EASTMONEY_SECID = {
   csi500: "1.000905", csi1000: "1.000852",
   hsi: "100.HSI", hstech: "124.HSTECH", hscei: "100.HSCEI",
 };
+// 指数ID -> 同花顺分时代码映射（2026-08-06 批量方案A：同花顺 1 请求批量拉 10 只，省 10->1 并发）
+// bj50/hstech 无同花顺代码，走东财 push2delay 单只（2 请求）
+// 同花顺批量API: https://d.10jqka.com.cn/v6/time/{code1},{code2},.../last.js
+//   CORS Access-Control-Allow-Origin:* 已验收 10/10 稳定
+//   JSONP 包装 quotebridge_v6_time_{codes_with_underscore}_last({...})，函数名随 code 变
+//   data 字段 5 段: 时间(0930无冒号),价格,成交额,均价,成交量; 分号分隔
+const _INDEX_TO_THS_CODE = {
+  sh: "zs_1A0001", sz: "zs_399001", hs300: "zs_1B0300", sz50: "zs_1B0016",
+  cyb: "zs_399006", kc50: "zs_1B0688", csi500: "zs_1B0905", csi1000: "zs_1B0852",
+  hsi: "hk_HSI", hscei: "hk_HSCEI",
+  // bj50/hstech 无同花顺代码，走东财 push2delay 单只
+};
 // 指数ID -> 市场类型（cn=A股 9:30-11:30/13:00-15:00，hk=港股 9:30-12:00/13:00-16:00）
 const _INDEX_MARKET = {};
 ["sh","sz","hs300","sz50","cyb","kc50","bj50","csi500","csi1000"].forEach((k) => _INDEX_MARKET[k] = "cn");
@@ -5433,7 +5445,9 @@ let _collectTimeBase = { ct: "", health: null };
 // 东农push2负载均衡: 不同子域间歇不支持某些secid(124.HSTECH/1.000016等), 多host重试。
 // 异常（fetch失败/解析失败/rc!=0/空数据）返回null，调用方走降级。
 // 注: 函数名保留fetchTencentMinute避免改所有调用点, 实际走东农API(2026-08-05腾讯WAF拦截501)。
-const _EM_HOSTS = ["push2.eastmoney.com", "2.push2.eastmoney.com", "10.push2.eastmoney.com", "20.push2.eastmoney.com"];
+// 2026-08-06: _EM_HOSTS 首位改 push2delay.eastmoney.com（验收 36/36 稳定，push2 间歇 0/10），
+//             push2 多 host 保留作 L3 兜底（push2delay 失败才转 push2）。
+const _EM_HOSTS = ["push2delay.eastmoney.com", "push2.eastmoney.com", "2.push2.eastmoney.com", "10.push2.eastmoney.com", "20.push2.eastmoney.com"];
 async function fetchTencentMinute(code) {
   const secid = _INDEX_TO_EASTMONEY_SECID[code];
   if (!secid) return null;
@@ -5480,7 +5494,62 @@ async function fetchTencentMinute(code) {
   return p;
 }
 
-// 从snap提取HH:MM时间（取sh000001的datetime末尾4位）
+// ============ 批量分时方案A (2026-08-06): 12图 -> 3请求 ============
+// 同花顺批量 10 只 1 请求（A股8+港股2）+ 东财 push2delay 单只 bj50/hstech 2 请求 = 3 请求
+// 原东财单源 12 并发 -> 3 请求，降并发 12->3（4x 提速 + 避频率风控）
+// 批量拉取结果填入 _batchMinuteCache，_renderIntradayChart 优先查此缓存复用，不再重复请求
+const _batchMinuteCache = new Map(); // code -> result（批量拉取后填充，_renderIntradayChart 优先查此缓存）
+
+// 同花顺批量分时API: 一次拉多个指数分时数据
+// thsCodes: ["zs_1A0001","zs_399001",...] (最多 10 只)
+// 返回 {results: {[thsCode]: {name,price,preClose,pct,date,points}}, ok: bool}
+// 异常整批返回 {results:{}, ok:false}，调用方走 L1 拆批 / L2 东财单只 fallback
+async function fetchTHSBatchMinute(thsCodes) {
+  if (!thsCodes || !thsCodes.length) return { results: {}, ok: false };
+  const codes = thsCodes.slice(0, 10); // 同花顺批量上限 10 只
+  try {
+    const url = "https://d.10jqka.com.cn/v6/time/" + codes.join(",") + "/last.js?_=" + Date.now();
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) return { results: {}, ok: false };
+    const text = await resp.text();
+    // JSONP 包装: quotebridge_v6_time_{codes_with_underscore}_last({...})
+    // 函数名随 code 变，不能用固定名 match，用通用正则提取最外层 ( {...} )
+    const m = text.match(/\((\{[\s\S]*\})\)\s*;?\s*$/);
+    if (!m) return { results: {}, ok: false };
+    const json = JSON.parse(m[1]);
+    const results = {};
+    for (const tc of codes) {
+      const d = json[tc];
+      if (!d || !d.data) continue;
+      // data 字段: "0930,3815.12,成交额,均价,成交量;0931,..." (5 段，分号分隔，时间无冒号)
+      const points = [];
+      for (const seg of String(d.data).split(";")) {
+        if (!seg) continue;
+        const p = seg.split(",");
+        if (p.length < 5) continue;
+        const t = p[0]; // "0930"
+        // 时间转 HH:MM（同花顺 4 位无冒号 -> 加冒号）
+        const time = t.length === 4 ? t.slice(0, 2) + ":" + t.slice(2) : t;
+        const price = parseFloat(p[1]);
+        if (isNaN(price)) continue;
+        const amount = parseFloat(p[2]) || 0;  // 成交额
+        const volume = parseInt(p[4], 10) || 0; // 成交量
+        points.push({ time, price, volume, amount });
+      }
+      if (!points.length) continue;
+      const preClose = d.pre != null ? parseFloat(d.pre) : null;
+      const curPrice = points[points.length - 1].price;
+      const pct = preClose && curPrice ? ((curPrice - preClose) / preClose) * 100 : null;
+      const date = d.date || "";
+      const name = d.name || "";
+      results[tc] = { name, price: curPrice, preClose, pct, date, points };
+    }
+    return { results, ok: Object.keys(results).length > 0 };
+  } catch (e) {
+    return { results: {}, ok: false };
+  }
+}
+
 function _snapTimeStr(snap) {
   if (!snap || !snap.indices) return "";
   const sh = snap.indices.find((i) => i.code === "sh000001");
@@ -5505,24 +5574,89 @@ function _dynPrice(id) {
   return d && d.price != null ? d.price : null;
 }
 
-// 并行拉取多个指数的腾讯动态值（复用 fetchTencentMinute 的 in-flight 去重，不重复请求）。
-// 成功更新 _intradayDynamicPct/_intradayDynamicTime，返回 {results, ok}。
+// 批量拉取多个指数的动态值（方案A 2026-08-06: 12图 -> 3请求）
+// 架构: 同花顺批量 10 只 1 请求 + 东财 push2delay 单只 bj50/hstech 2 请求 = 3 请求
+// Fallback 层级:
+//   L1: 同花顺整批失败 -> 拆 8 A股 + 2 港股批量（2 请求）重试
+//   L2: 拆批仍失败 -> 全转东财 push2delay 12 单只（in-flight 去重，复用 _inflightMinute）
+//   L3: 东财 push2delay 失败 -> 东财 push2 多 host（fetchTencentMinute 内置 _EM_HOSTS 兜底）
+//   L4: 全失败 -> snap 兜底（_renderIntradayFail 现有机制）
+// 成功更新 _intradayDynamicPct/_intradayTime + _batchMinuteCache（_renderIntradayChart 复用避免重复请求）
+// 返回 {results, ok}
+// in-flight 去重: renderOverview L8018 与 _doIntradayRefresh 可能并发调 _refreshDynamicAll,
+//   复用同一 Promise 避免双倍批量请求（同 _inflightMinute 机制）
+let _inflightBatchP = null;
 async function _fetchDynamicPcts(ids) {
   const valid = (ids || []).filter((id) => _INDEX_TO_TENCENT_MINUTE[id]);
   if (!valid.length) return { results: {}, ok: false };
-  const pairs = await Promise.all(valid.map((id) => fetchTencentMinute(id).then((r) => [id, r])));
-  const results = {};
-  for (const [id, r] of pairs) {
-    if (r && r.pct != null) {
-      results[id] = r;
+  // in-flight 去重: 并发调用复用同一 Promise（ids 相近时结果可复用，避免双倍批量请求）
+  if (_inflightBatchP) return _inflightBatchP;
+  _inflightBatchP = (async () => {
+    // 每轮刷新清空批量缓存（避免上一轮残留数据污染本轮渲染）
+    _batchMinuteCache.clear();
+    // 分离: thsIds 走同花顺批量, emIds 走东财 push2delay 单只
+    const thsIds = valid.filter((id) => _INDEX_TO_THS_CODE[id]);
+    const emIds = valid.filter((id) => !_INDEX_TO_THS_CODE[id]); // bj50, hstech
+    const results = {};
+
+    // ---- 同花顺批量（L0 主路径）----
+    let thsResults = {};
+    if (thsIds.length) {
+      const thsCodes = thsIds.map((id) => _INDEX_TO_THS_CODE[id]);
+      const batch = await fetchTHSBatchMinute(thsCodes);
+      if (batch.ok) {
+        thsResults = batch.results;
+      } else {
+        // L1: 整批失败 -> 拆 8 A股 + 2 港股批量重试（2 请求）
+        const cnIds = thsIds.filter((id) => _INDEX_MARKET[id] === "cn");
+        const hkIds = thsIds.filter((id) => _INDEX_MARKET[id] === "hk");
+        const tries = [];
+        if (cnIds.length) tries.push(fetchTHSBatchMinute(cnIds.map((id) => _INDEX_TO_THS_CODE[id])));
+        if (hkIds.length) tries.push(fetchTHSBatchMinute(hkIds.map((id) => _INDEX_TO_THS_CODE[id])));
+        const splitRes = await Promise.all(tries);
+        for (const r of splitRes) {
+          if (r.ok) Object.assign(thsResults, r.results);
+        }
+      }
+    }
+    // 映射 thsCode -> id 填入 results + _batchMinuteCache
+    for (const id of thsIds) {
+      const tc = _INDEX_TO_THS_CODE[id];
+      const r = thsResults[tc];
+      if (r && r.pct != null) {
+        results[id] = r;
+        _batchMinuteCache.set(id, r);
+      }
+    }
+
+    // ---- 东财 push2delay 单只 bj50/hstech（L0 主路径，2 请求）----
+    // L2/L3 fallback: 同花顺未命中的 id（拆批仍失败的 A股/港股）也走东财单只兜底
+    const emFallbackIds = emIds.concat(thsIds.filter((id) => !results[id]));
+    if (emFallbackIds.length) {
+      const pairs = await Promise.all(
+        emFallbackIds.map((id) => fetchTencentMinute(id).then((r) => [id, r]))
+      );
+      for (const [id, r] of pairs) {
+        if (r && r.pct != null) {
+          results[id] = r;
+          _batchMinuteCache.set(id, r);
+        }
+      }
+    }
+
+    // 更新 _intradayDynamicPct + _intradayDynamicTime
+    for (const id in results) {
+      const r = results[id];
       _intradayDynamicPct[id] = { pct: r.pct, price: r.price };
       if (id === "sh" && r.points && r.points.length) {
         const t = r.points[r.points.length - 1].time;
         if (t) _intradayDynamicTime = t;
       }
     }
-  }
-  return { results, ok: Object.keys(results).length > 0 };
+    return { results, ok: Object.keys(results).length > 0 };
+  })();
+  _inflightBatchP.finally(() => { _inflightBatchP = null; });
+  return _inflightBatchP;
 }
 
 // 更新所有 spark-grid 卡片涨跌幅 badge 为腾讯动态值（无动态值时保持原值不闪烁，静默回退）
@@ -5636,9 +5770,14 @@ function _renderIntradayFail(container, snapTime) {
 }
 
 // 渲染单个指数分时图。返回 Promise<boolean>（true=成功 false=失败）
+// 方案A 2026-08-06: 优先查 _batchMinuteCache 复用批量拉取结果（3请求架构），
+//                   缓存未命中才 fallback 调 fetchTencentMinute 单只（renderIntradaySection 初始展开单卡时）
 function _renderIntradayChart(container, code, preClose, snapTime) {
   if (!container || !container.isConnected) return Promise.resolve(false);
-  return fetchTencentMinute(code).then((result) => {
+  // 优先用批量缓存（_fetchDynamicPcts 已批量拉取填入），避免重复请求
+  const cached = _batchMinuteCache.get(code);
+  const p = cached ? Promise.resolve(cached) : fetchTencentMinute(code);
+  return p.then((result) => {
     if (!container.isConnected) return false;
     if (!result || !result.points || !result.points.length) {
       _renderIntradayFail(container, snapTime);
@@ -5887,9 +6026,10 @@ async function _doIntradayRefresh() {
   }
   ctx.snap = curSnap;
   const snapTime = _snapTimeStr(curSnap);
-  // 并发：动态值拉取（badge/chips/时间用）与分时图重绘
-  // （共用 fetchTencentMinute in-flight 去重，11 指数只发一次请求，不重复）
-  const dynP = _refreshDynamicAll(curSnap);
+  // 方案A 2026-08-06: 先 await 批量拉取填 _batchMinuteCache（3 请求），
+  // 再遍历 chartEls 渲染（命中缓存零网络请求，miss 才 fallback 单只）
+  // 原并发架构（dynP 不 await + 立刻渲染）会导致缓存未填就查 = miss = fallback 12 并发，批量架构失效
+  const dynResult = await _refreshDynamicAll(curSnap);
   const promises = [];
   const chartEls = ctx.sparkGrid.querySelectorAll(".spark-intraday[data-intraday-code]:not(.collapsed)");
   chartEls.forEach((chartEl) => {
@@ -5898,7 +6038,6 @@ async function _doIntradayRefresh() {
     promises.push(_renderIntradayChart(chartEl, code, preClose, snapTime));
   });
   const results = await Promise.all(promises);
-  const dynResult = await dynP; // 确保 badge/chips 已更新
   _applyDynamicToSparkFoot(dynResult && dynResult.results); // 补更新底部 spark-foot(用腾讯实时价+昨收，与右上角pct同维度，不再卡 renderOverview 旧值)
   if (curSnap) refreshCardTimeBadges(curSnap); // 补更新角标(1min刷新也带动角标，不再卡 snap.datetime 10min粒度)
   if (curSnap) refreshGlobalRealtimeBadges(curSnap); // AZ89 全球指数实时报价角标随 snap 更新
