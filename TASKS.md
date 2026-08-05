@@ -1449,3 +1449,40 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - sw.js CACHE_VERSION bump v2-20260805-notify-fix
 
 **明天验证**：盘中异动验证浏览器弹通知（去重粒度对齐后新标的能弹）。详见 NOTES §48 小节AJ
+
+## 📋 2026-08-05 预估成交额实施（A+C共存，agent a70c4fb461004f00c 实施中）
+
+**方案**（用户确认显示：预估全天成交额跟着成交额卡片后面对照看）：
+- A线性外推带时间加权（立即生效）：A股分时成交节奏经验占比（9:30=2%->15:00=100%），预估=当前累计/经验累计占比
+- C历史分时占比（积累5-10交易日后校准）：新表intraday_amount_history每10分钟存一行，积累后查历史同时段占比平均值校准
+- C数据足够（>=5天）自动切换，否则fallback A
+
+**改动**：①新表intraday_amount_history（CREATE TABLE IF NOT EXISTS）②intraday_snapshot.py L1264采完a_amount后加a_amount_forecast预估计算（独立try-except隔离，失败只log_collect error不影响现有采集）+历史数据积累 ③app.js成交额卡片加预估角标"当前累计XXXX亿/预估全天YYYY亿"对照（预估灰色区分）
+
+**约束**：3保证不影响采集（try-except隔离+改intraday_snapshot.py避开:25/:35/:45/:55/:05/:15时点+ast语法检查）+commit feat不推main+改app.js后bump sw.js=v2-20260805-amount-forecast
+
+**状态**：⏳ 实施中（agent a70c4fb461004f00c，1/7 db.py建表完成）
+
+## 📋 2026-08-05 KPI小卡新颖设计全套（P0+P1+P2，待实施）
+
+**背景**：用户反馈首页KPI小卡颜色单调。调研agent（aadbc93ed20adc5ec）验收5根因坐实：
+1. 数字无状态色（.card-value L977无显式color，所有数字#f0e6c4暖米同色）
+2. 卡片无border（.card L833-840只background+box-shadow）
+3. 背景统一无层次（全var(--bg-card) #252836）
+4. 金色仅hover（--primary #f0b90b默认不出现，[data-theme=redgold] .card.kpi无覆盖）
+5. 状态色只在tag/角标（主区域无编码）
+
+**方案**（用户选全部P0+P1+P2，5-7h）：
+- **P0核心3项**：①数字状态着色（.cv-val按涨跌/情绪分色阶class，涨停红#e6492e/跌停绿#2e8b57/成交额放量红缩量绿/情绪分色阶）②左侧3px状态色条（.card.kpi border-left:3px solid+data-state属性）③默认金色顶条（.card.kpi::before渐变金条linear-gradient(90deg,transparent,var(--primary),transparent)）
+- **P1增强3项**：④KPI卡内嵌迷你sparkline（复用P0-1基础设施，.kpi-spark 30px高）⑤状态背景渐变（强势半透明金var(--bg-best)/异常淡红/冰点淡蓝/过热淡红）⑥hover动效扩展所有KPI（不只kpi-clickable，.card.kpi:hover背景变深+上浮+阴影）
+- **P2高级2项**：⑦3情绪分专属大卡（a_sentiment/cross_market/fear_greed更大尺寸+渐变背景+恐贪指数0-100进度条蓝->红渐变标当前位置）⑧玻璃拟态（.card.kpi半透明rgba(37,40,54,0.85)+backdrop-filter:blur(8px)+多层阴影）
+
+**已有可复用**：sparkline基础设施（P0-1在独立.spark-grid L1033，可嵌入KPI卡）/红金主题色变量（--primary #f0b90b金/--bg-best半透明金/--bg-active暖棕/--primary-bg深棕金）/角标10状态色/hover动效（.kpi-clickable L1737-1742）/情绪分emoji标签（🔵冰点/🟦偏冷/⚪中性/🟠偏热/🔴过热 app.js L1176-1183）
+
+**实施约束**：
+- 等预估成交额agent（a70c4fb461004f00c）完成验收后派实施agent（两者都改app.js KPI渲染段L7935-8172+sw.js，区域重叠需串行）
+- 改app.js KPI渲染（L7935-8172）+ style.css（L832-1031 KPI样式）+ critical-css（index.html L70可能加变量）+ sw.js CACHE_VERSION bump=v2-20260805-kpi-design
+- 23:00+推main（和跌停池根治+通知修复+性能优化+预估成交额一起）
+- 改app.js后build_min+bump_asset_version+bump sw.js（铁律1）
+
+**状态**：⏳ 待派实施agent（等预估成交额agent完成后，避免app.js冲突）
