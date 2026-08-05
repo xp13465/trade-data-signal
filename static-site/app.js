@@ -6767,7 +6767,22 @@ function initNotifyButton() {
   pop.innerHTML = '<div class="notify-pop-item" data-action="toggle"></div><div class="notify-pop-item" data-action="test">🔔 试看测试通知</div>';
   wrap.appendChild(pop);
 
-  // 方案1(2026-08-05): 仅 click toggle pop, 不 hover 弹(避免 hover 时原生 tooltip 和 pop 菜单重叠)
+  // 方案2(2026-08-05 恢复): hover/click 都弹 pop, 删原生tooltip(btn.title空)后hover pop不再被盖
+  // hover 显示/隐藏（200ms 延时避免抖动；wrap 包含 btn+pop, 移到 popup 上不关）
+  let popHideTimer = null;
+  let _popPinned = false;  // click pin 住 popup, hover mouseleave 不隐藏; click/点item/点外复位
+  const showPop = () => {
+    if (popHideTimer) { clearTimeout(popHideTimer); popHideTimer = null; }
+    updatePopState();  // 每次显示前刷新状态（跟随开关/权限变化）
+    pop.style.display = 'block';
+  };
+  const hidePop = () => {
+    if (_popPinned) return;  // click pin 住时 mouseleave 不隐藏
+    popHideTimer = setTimeout(() => { pop.style.display = 'none'; }, 200);
+  };
+  // hover 绑 wrap(btn+pop 都是 wrap 后代, 互相移动不触发 mouseleave)
+  wrap.addEventListener('mouseenter', showPop);
+  wrap.addEventListener('mouseleave', hidePop);
 
   // popup 状态更新（动态设置 toggle item 文字 + disabled, 跟随开关/权限变化）
   function updatePopState() {
@@ -6819,15 +6834,17 @@ function initNotifyButton() {
   }
   updateBtnState();
 
-  // 方案1: btn click 简单 toggle pop(不直接开关), 开关逻辑在 pop toggle item click.
+  // 方案2: btn click 也 toggle pop(与 hover 共用), click 后 pin 住(hover mouseleave 不隐藏)
   // 阻止冒泡到 document click(否则点 btn 立即触发"点外关闭"把刚弹的 pop 关掉)
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (pop.style.display === 'block') {
       pop.style.display = 'none';
+      _popPinned = false;
     } else {
       updatePopState();  // 刷新 toggle item 文字(跟随开关/权限)
       pop.style.display = 'block';
+      _popPinned = true;  // pin 住, hover mouseleave 不隐藏
     }
   });
 
@@ -6866,7 +6883,7 @@ function initNotifyButton() {
           const wasGranted = (perm === 'granted');
           if (perm !== 'granted') {
             const p = await requestNotifyPermission();
-            if (p !== 'granted') { updateBtnState(); pop.style.display = 'none'; return; }
+            if (p !== 'granted') { updateBtnState(); pop.style.display = 'none'; _popPinned = false; return; }
           }
           _saveNotifyPref(true);
           updateBtnState();
@@ -6879,6 +6896,7 @@ function initNotifyButton() {
         }
       }
       pop.style.display = 'none';
+      _popPinned = false;
     } else if (action === 'test') {
       // 试看：自动开启 pref + 确保 permission + 弹测试通知(一键开启+测试)
       if (!_loadNotifyPref()) {
@@ -6899,14 +6917,16 @@ function initNotifyButton() {
         _doTestNotify();
       }
       pop.style.display = 'none';
+      _popPinned = false;
     }
   });
 
-  // 方案1: 点 pop 外区域关闭 pop(document click 委托; wrap 内点击由 btn/pop 各自 stopPropagation 拦截)
+  // 方案2: 点 pop 外区域关闭 pop(document click 委托; wrap 内点击由 btn/pop 各自 stopPropagation 拦截)
   document.addEventListener('click', (e) => {
     if (pop.style.display !== 'block') return;
     if (wrap.contains(e.target)) return;  // 点 wrap 内不关
     pop.style.display = 'none';
+    _popPinned = false;
   });
 
   // 跨标签页同步（storage 事件：另一 tab 开关通知，本 tab 按钮状态同步）
