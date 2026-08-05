@@ -8327,9 +8327,10 @@ async function renderOverview() {
         let _extraRows = "";
         if (_isScore) {
           // 9 情绪分卡: 距冰点(20)/过热(80)距离, 与 appendHistoryPos 同口径
+          // 合并1行省空间(原2行->1行), toFixed(0) 紧凑
           const _distFreeze = Math.max(0, k.valueNum - 20);
           const _distHeat = Math.max(0, 80 - k.valueNum);
-          _extraRows = `<div class="kst-row"><span class="kst-label">距冰点20</span><span class="kst-val">${_distFreeze.toFixed(1)}</span></div><div class="kst-row"><span class="kst-label">距过热80</span><span class="kst-val">${_distHeat.toFixed(1)}</span></div>`;
+          _extraRows = `<div class="kst-row"><span class="kst-label">距冰点/过热</span><span class="kst-val">${_distFreeze.toFixed(0)} / ${_distHeat.toFixed(0)}</span></div>`;
         } else if (k.id === "gold" || k.id === "cn10y" || k.id === "a_qvix_300") {
           // 3 商品/利率/波动率: 日涨跌(6m末两点算)
           if (_arr6m && _arr6m.length >= 2) {
@@ -8366,22 +8367,36 @@ async function renderOverview() {
               return typeof vv === "number" && !isNaN(vv); // 只要0-100数值分项(label/available_scores等非数值跳过)
             });
             if (_compKeys.length) {
-              const _compRows = _compKeys.map(kk => {
+              // 排序取 top4(精简内容, 容纳卡片高度): a_sentiment 按权重降序; 其余按 |value-50| 降序(偏离中性越多越有解释力)
+              // 6宽基仅2-3维, slice(0,4) 不截断返回全部
+              const _sortByWeight = k.id === "a_sentiment";
+              const _sortedKeys = _compKeys.slice().sort((a, b) => {
+                if (_sortByWeight) {
+                  const _wa = parseFloat((_COMP_WEIGHTS[a] || "0").replace("%", ""));
+                  const _wb = parseFloat((_COMP_WEIGHTS[b] || "0").replace("%", ""));
+                  return _wb - _wa;
+                }
+                return Math.abs(Number(_compSrc[b]) - 50) - Math.abs(Number(_compSrc[a]) - 50);
+              });
+              const _showKeys = _sortedKeys.slice(0, 4);
+              const _compRows = _showKeys.map(kk => {
                 const _cname = _COMP_NAMES[kk] || kk;
                 const _cv = Number(_compSrc[kk]);
                 const _cpct = Math.max(0, Math.min(100, _cv));
                 const _ccolor = fearGreedColor(_cv);
                 return `<div class="kst-comp-row"><span class="kst-comp-label" title="${_cname}">${_cname}</span><div class="kst-comp-bar"><div class="kst-comp-fill" style="width:${_cpct.toFixed(1)}%;background:${_ccolor}"></div></div><span class="kst-comp-val" style="color:${_ccolor}">${_cv.toFixed(1)}</span></div>`;
               }).join("");
-              _compBarsHtml = `<div class="kst-sep"></div><div class="kst-comp-title">分项构成</div>${_compRows}`;
+              _compBarsHtml = `<div class="kst-sep"></div>${_compRows}`;
             }
           }
         }
+        // 极值合并1行(仅非情绪分卡; 情绪分卡靠分项构成, 无极值行) + 去 kst-title(headline 已含分位%)
+        const _extremeRow = !_isScore
+          ? `<div class="kst-row"><span class="kst-label">6m高/低/均</span><span class="kst-val">${_fmt6mV(_stat.max)}/${_fmt6mV(_stat.min)}/${_fmt6mV(_stat.mean)}</span></div>`
+          : "";
         const _tooltipBody =
           `<div class="kst-headline">当前 <b style="color:${_isScore ? fearGreedColor(k.valueNum) : "var(--text-1)"}">${k.value}</b> · <b style="color:${_pctColor}">${_stat.percentile.toFixed(0)}%分位(${_pctTag})</b></div>` +
-          `<div class="kst-row"><span class="kst-label">6m最高</span><span class="kst-val">${_fmt6mV(_stat.max)}</span></div>` +
-          `<div class="kst-row"><span class="kst-label">6m最低</span><span class="kst-val">${_fmt6mV(_stat.min)}</span></div>` +
-          `<div class="kst-row"><span class="kst-label">6m均值</span><span class="kst-val">${_fmt6mV(_stat.mean)}</span></div>` +
+          _extremeRow +
           _extraRows +
           _meaningRow +
           _compBarsHtml;
@@ -8389,7 +8404,7 @@ async function renderOverview() {
           // 合并到现有 fg-tooltip(进度条+刻度), 追加分隔线+6m分位行, 避免两 overlay 叠加
           _fgMerge6m = `<div class="kst-sep"></div>` + _tooltipBody;
         } else {
-          _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip"><div class="kst-title">6月历史分位</div>${_tooltipBody}</div>`;
+          _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip">${_tooltipBody}</div>`;
         }
       }
     }

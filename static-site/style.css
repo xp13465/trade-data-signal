@@ -1117,39 +1117,19 @@ main { padding: 16px 24px; }
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 3px;
-  padding: 10px 14px;
+  gap: 2px;
+  padding: 8px 12px;
   background: var(--bg-card);
   border-radius: inherit;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.15s ease, visibility 0.15s ease;
   pointer-events: none;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 .card.kpi.has-sent-tooltip:hover .kpi-sent-tooltip {
   opacity: 1;
   visibility: visible;
-}
-/* has-sent-tooltip 卡片右上角小标, 提示可 hover 看6m分位(和 has-forecast-pop 风格一致) */
-.card.kpi.has-sent-tooltip::after {
-  content: "6m";
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  z-index: 4;
-  font-size: 9px;
-  line-height: 14px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  text-align: center;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--primary) 20%, transparent);
-  color: var(--primary);
-  pointer-events: none;
-  opacity: 0.7;
 }
 /* 共享 .kst-* 行样式(同时作用于 .kpi-sent-tooltip 和 fear_greed 合并的 .kpi-fg-tooltip) */
 .kpi-sent-tooltip .kst-title,
@@ -1189,6 +1169,9 @@ main { padding: 16px 24px; }
   margin-top: 3px;
   padding-top: 3px;
   border-top: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* fear_greed 合并分隔线 + P1 分项条形图分隔线(.kpi-sent-tooltip 分项区也用) */
 .kpi-fg-tooltip .kst-sep,
@@ -1212,7 +1195,7 @@ main { padding: 16px 24px; }
   align-items: center;
   gap: 6px;
   font-size: 10px;
-  line-height: 14px;
+  line-height: 13px;
 }
 .kpi-sent-tooltip .kst-comp-label {
   color: var(--text-3);
@@ -1265,24 +1248,6 @@ main { padding: 16px 24px; }
 .card.kpi.has-forecast-pop:hover .kpi-forecast-pop {
   opacity: 1;
   visibility: visible;
-}
-/* has-forecast-pop 卡片右上角小标, 提示可 hover 看 debug 对比 */
-.card.kpi.has-forecast-pop::after {
-  content: "?";
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  z-index: 4;
-  font-size: 10px;
-  line-height: 14px;
-  width: 14px;
-  height: 14px;
-  text-align: center;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--primary) 20%, transparent);
-  color: var(--primary);
-  pointer-events: none;
-  opacity: 0.7;
 }
 .kpi-forecast-pop .kfp-title {
   font-size: 11px;
