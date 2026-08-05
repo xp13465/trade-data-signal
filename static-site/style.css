@@ -3252,6 +3252,9 @@ main { padding: 16px 24px; }
 .pc-notify-btn.off { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 768px) { .pc-notify-btn { display: none; } }
 
+/* H5 移动端独立通知小铃铛（与 .h5-theme-btn 同风格，未登录+已登录都显示，移动端 only） */
+.h5-notify-btn { display: none; }
+
 /* === 🔔 通知铃铛 hover popup（试看选项，2026-08-04 从独立按钮移入省 header 空间）=== */
 /* 方案A(fix2): wrap 包铃铛+popup, 给 popup 绝对定位基准; popup 不再作 button 子元素(div-in-button 无效HTML) */
 .notify-wrap { position: relative; display: inline-flex; align-items: center; padding-bottom: 10px; margin-bottom: -10px; }
@@ -3349,6 +3352,11 @@ main { padding: 16px 24px; }
     padding: 3px 6px; font-size: 13px; cursor: pointer; color: var(--text-2); line-height: 1;
   }
   .h5-theme-btn:active { background: var(--bg-hover); }
+  .h5-notify-btn {
+    display: inline-flex; border: 1px solid var(--border-strong); background: var(--bg-card); border-radius: 12px;
+    padding: 3px 6px; font-size: 13px; cursor: pointer; color: var(--text-2); line-height: 1; user-select: none;
+  }
+  .h5-notify-btn:active { background: var(--bg-hover); }
   .theme-modal .modal-body { width: 94vw; }
 }
 
@@ -5693,6 +5701,73 @@ main { padding: 16px 24px; }
   border-color: #b02323;
   color: #fff;
 }
+
+/* === 🔔 通知设置引导面板（移动端小铃铛 click 弹出，5 分支动态渲染）=== */
+/* 复用 .auth-login-modal 结构（modal 遮罩 + 居中卡片 + 头部标题 + 关闭× + body） */
+.notify-settings-modal { z-index: 128; }
+.notify-settings-modal .modal-body {
+  width: 360px;
+  max-width: 92vw;
+  padding: 22px 22px 18px;
+}
+.notify-settings-modal h3 { margin: 0 0 10px; font-size: 16px; color: var(--text-1); }
+.notify-settings-desc { margin: 0 0 14px; font-size: 13px; color: var(--text-3); line-height: 1.6; }
+.notify-settings-desc.ok { color: var(--text-2); }
+.notify-settings-desc.bad { color: #c92a2a; }
+/* 步骤项（iOS 添加主屏幕引导） */
+.notify-step {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 10px; margin-bottom: 6px;
+  background: var(--bg-hover); border-radius: 6px;
+  font-size: 13px; color: var(--text-2); line-height: 1.5;
+}
+.notify-step-num {
+  flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--primary); color: #fff; font-size: 12px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+}
+.notify-step-text { flex: 1; }
+/* 行动按钮（授权/试看/重新检测等） */
+.notify-btn-action {
+  display: block; width: 100%;
+  padding: 11px 16px; margin-top: 4px;
+  border: 1px solid var(--primary); background: var(--primary); color: #fff;
+  border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500;
+  transition: all 0.15s; text-align: center;
+}
+.notify-btn-action:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.notify-btn-action.ghost {
+  background: var(--bg-card); color: var(--text-2); border-color: var(--border-strong);
+}
+.notify-btn-action.ghost:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-1); }
+/* 已授权分支的开关 toggle（复用 .notify-step 布局风格） */
+.notify-toggle-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; margin-bottom: 10px;
+  background: var(--bg-hover); border-radius: 6px;
+  font-size: 14px; color: var(--text-1);
+}
+.notify-toggle-label { flex: 1; }
+.notify-toggle-switch {
+  position: relative; width: 40px; height: 22px; flex-shrink: 0;
+  background: var(--border-strong); border-radius: 999px; cursor: pointer;
+  transition: background 0.15s; border: none; padding: 0;
+}
+.notify-toggle-switch.on { background: var(--primary); }
+.notify-toggle-switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px; border-radius: 50%; background: #fff;
+  transition: transform 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.notify-toggle-switch.on::after { transform: translateX(18px); }
+/* 状态提示（重新检测后反馈） */
+.notify-status {
+  margin-top: 8px; padding: 8px 10px; border-radius: 6px;
+  font-size: 12px; line-height: 1.5; display: none;
+}
+.notify-status.show { display: block; }
+.notify-status.err { background: var(--mx-good-bg); color: var(--mx-good-fg); }
+.notify-status.ok { background: var(--mx-bad-bg); color: var(--mx-bad-fg); }
 
 /* H5：PC auth-btn 隐藏，H5 auth-btn 显示（复用 h5-theme-btn 风格） */
 @media (max-width: 768px) {

@@ -6355,6 +6355,21 @@ function _isMobileUA() {
   return /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(navigator.userAgent || '');
 }
 
+// iOS 检测（含 iPadOS 13+ 伪装桌面 UA 的 iPad：platform=MacIntel + 触屏）
+function _isIOS() {
+  const ua = navigator.userAgent || '';
+  return /iPhone|iPad|iPod/i.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS 13+
+}
+
+// PWA standalone 模式检测（iOS Safari 添加到主屏幕 / Android Chrome 安装 PWA / 桌面 PWA）
+function _isStandalone() {
+  if (window.navigator.standalone === true) return true;
+  if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+  if (window.matchMedia && window.matchMedia('(display-mode: minimal-ui)').matches) return true;
+  return false;
+}
+
 // Safari 检测（桌面 Safari 6+ 支持 Notification，但有 permission 不同步 bug + SW message event showNotification 限制）
 function _isSafari() {
   const ua = navigator.userAgent || '';
@@ -6386,7 +6401,9 @@ function _notifyPerm() {
 // 请求通知权限（须用户手势触发，首次点 🔔 按钮时调用）
 async function requestNotifyPermission() {
   if (!('Notification' in window)) return 'denied';
-  if (_isMobileUA()) return 'denied'; // 移动端跳过
+  // iOS 非 standalone（未添加主屏幕）才拒：Apple 限制 Web Push 仅 PWA standalone 模式可用（iOS 16.4+）
+  // Android Chrome / 桌面浏览器 / iOS standalone PWA 均允许请求权限
+  if (_isIOS() && !_isStandalone()) return 'denied';
   try {
     const p = await Notification.requestPermission();
     // Safari: 缓存 Promise 返回值（静态属性可能不同步）
@@ -6445,7 +6462,8 @@ function _markNotifyTimeWindow(category) {
 function showNotification(title, body, tag, clickAction) {
   if (!_loadNotifyPref()) { console.warn('[notify] pref未开启，跳过'); return false; }
   if (_notifyPerm() !== 'granted') { console.warn('[notify] permission非granted，跳过'); return false; }
-  if (_isMobileUA()) return false;
+  // iOS 非 standalone 才跳过（未添加主屏幕无法弹通知）；Android/桌面/iOS standalone 均允许
+  if (_isIOS() && !_isStandalone()) return false;
   const notifData = clickAction || {};
   // Safari: 不走 SW message event -> showNotification（Apple 限制仅 push event 支持）
   // 桌面 Safari 6+ 支持页面级 new Notification()，直接走此路径
@@ -6739,6 +6757,150 @@ function _processNotifications(data) {
   }
 }
 
+// === 🔔 通知设置引导面板（移动端小铃铛 click 弹出，5 分支动态渲染）===
+// 分支A: iOS 非 standalone -> 未添加主屏幕引导
+// 分支B: 非 iOS 或已 standalone + perm=default -> 已可接收，未授权
+// 分支C: perm=granted -> 已授权（开关 + 试看）
+// 分支D: perm=denied -> 被拒恢复引导
+// 分支E: 非 iOS 直接走 B/C/D（无主屏幕限制）
+function openNotifySettingsModal() {
+  // 避免重复弹出
+  var existing = document.querySelector('.notify-settings-modal');
+  if (existing) { existing.classList.remove('hidden'); return; }
+  var modal = document.createElement('div');
+  modal.className = 'modal notify-settings-modal hidden';
+  document.body.appendChild(modal);
+
+  function closeModal() {
+    modal.classList.add('hidden');
+    setTimeout(function () { if (modal.parentNode) modal.parentNode.removeChild(modal); }, 200);
+  }
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal || (e.target.classList && e.target.classList.contains('theme-modal-close'))) {
+      closeModal();
+    }
+  });
+
+  // 渲染分支：根据 iOS/standalone/permission 动态切换面板内容
+  function render() {
+    var perm = _notifyPerm();
+    var isIOS = _isIOS();
+    var isStandalone = _isStandalone();
+    var html = '<div class="modal-body">' +
+      '<button class="theme-modal-close" title="关闭" aria-label="关闭">×</button>';
+
+    if (isIOS && !isStandalone) {
+      // 分支A: iOS 未添加主屏幕
+      html += '<h3>🔔 通知设置</h3>' +
+        '<p class="notify-settings-desc">iPhone/iPad 需添加到主屏幕才能接收通知（Apple 限制，需 iOS 16.4+）</p>' +
+        '<div class="notify-step"><span class="notify-step-num">1</span><span class="notify-step-text">点 Safari 底部分享按钮 ▭</span></div>' +
+        '<div class="notify-step"><span class="notify-step-num">2</span><span class="notify-step-text">选「添加到主屏幕」</span></div>' +
+        '<div class="notify-step"><span class="notify-step-num">3</span><span class="notify-step-text">回主屏幕点「信号实验室」图标打开</span></div>' +
+        '<div class="notify-step"><span class="notify-step-num">4</span><span class="notify-step-text">回到此面板授权通知</span></div>' +
+        '<button class="notify-btn-action" data-action="recheck-ios">我已经添加到主屏幕 →</button>' +
+        '<div class="notify-status"></div>';
+    } else if (perm === 'default') {
+      // 分支B: 已添加主屏幕 / 非 iOS，但未授权
+      html += '<h3>🔔 通知设置</h3>' +
+        '<p class="notify-settings-desc ok">✅ 已可接收通知</p>' +
+        '<p class="notify-settings-desc">授权后可收到盘中信号 / 异常提醒 / 收盘速递</p>' +
+        '<button class="notify-btn-action" data-action="grant">🔔 授权通知</button>' +
+        '<div class="notify-status"></div>';
+    } else if (perm === 'granted') {
+      // 分支C: 已授权
+      var enabled = _loadNotifyPref();
+      html += '<h3>🔔 通知设置</h3>' +
+        '<p class="notify-settings-desc ok">✅ 通知已授权</p>' +
+        '<div class="notify-toggle-row">' +
+          '<span class="notify-toggle-label">接收盘中信号通知</span>' +
+          '<button class="notify-toggle-switch ' + (enabled ? 'on' : '') + '" data-action="toggle" aria-label="开关通知"></button>' +
+        '</div>' +
+        '<button class="notify-btn-action" data-action="test">🔔 试看测试通知</button>' +
+        '<div class="notify-status"></div>';
+    } else {
+      // 分支D: perm=denied
+      html += '<h3>🔕 通知权限被拒</h3>' +
+        '<p class="notify-settings-desc bad">通知权限已被拒绝，需在浏览器/系统设置中恢复后才能接收通知。</p>';
+      if (isIOS) {
+        html += '<div class="notify-step"><span class="notify-step-num">1</span><span class="notify-step-text">设置 > Safari > 通知 > 找到本站 > 允许</span></div>' +
+          '<div class="notify-step"><span class="notify-step-num">2</span><span class="notify-step-text">或长按主屏幕图标 > 删除重新添加（重置权限）</span></div>';
+      } else {
+        html += '<div class="notify-step"><span class="notify-step-num">1</span><span class="notify-step-text">浏览器设置 > 隐私和安全 > 通知 > 找到本站 > 允许</span></div>';
+      }
+      html += '<button class="notify-btn-action ghost" data-action="recheck">我已恢复，重新检测</button>' +
+        '<div class="notify-status"></div>';
+    }
+    html += '</div>';
+    modal.innerHTML = html;
+  }
+  render();
+
+  function showStatus(msg, isErr) {
+    var s = modal.querySelector('.notify-status');
+    if (!s) return;
+    s.textContent = msg || '';
+    s.classList.remove('err', 'ok', 'show');
+    if (msg) {
+      s.classList.add(isErr ? 'err' : 'ok', 'show');
+    }
+  }
+
+  // 事件委托（每次 render 后 innerHTML 重建，委托到 modal 一次绑定即可）
+  modal.addEventListener('click', async function (e) {
+    var btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    e.stopPropagation();
+    var action = btn.dataset.action;
+    if (action === 'recheck-ios') {
+      if (_isStandalone()) {
+        render();  // 已 standalone -> 切到 B/C 分支
+      } else {
+        showStatus('未检测到主屏幕模式，请确认从主屏幕图标打开本站', true);
+      }
+    } else if (action === 'grant') {
+      var p = await requestNotifyPermission();
+      if (p === 'granted') {
+        _saveNotifyPref(true);
+        _startNotifyPolling();
+        render();  // 切到分支C
+      } else if (p === 'denied') {
+        render();  // 切到分支D
+      } else {
+        showStatus('授权未完成，请重试', true);
+      }
+    } else if (action === 'toggle') {
+      var enabled = _loadNotifyPref();
+      _saveNotifyPref(!enabled);
+      if (!enabled) {
+        _startNotifyPolling();
+      } else {
+        _stopNotifyPolling();
+      }
+      render();  // 刷新开关状态
+    } else if (action === 'test') {
+      // 确保 pref 开启 + permission granted 后试看
+      if (!_loadNotifyPref()) {
+        _saveNotifyPref(true);
+        _startNotifyPolling();
+      }
+      if (_notifyPerm() !== 'granted') {
+        var pp = await requestNotifyPermission();
+        if (pp !== 'granted') {
+          showStatus('通知权限未授权，无法试看', true);
+          return;
+        }
+        render();
+      }
+      _doTestNotify();
+      showStatus('已发送测试通知，请查看系统通知中心', false);
+    } else if (action === 'recheck') {
+      render();  // 重新读 perm 切对应分支
+    }
+  });
+
+  modal.classList.remove('hidden');
+}
+
 // 初始化 🔔 通知按钮（PC 显示，移动端隐藏）+ 监听 overview 刷新事件触发通知检测
 function initNotifyButton() {
   // 方案A(2026-08-04 fix2): 试看 popup 作铃铛 sibling(包在 .notify-wrap 内),
@@ -6945,6 +7107,14 @@ function initNotifyButton() {
   // pref 已开启 + permission granted 时启动；否则等用户点击开启时启动
   if (_loadNotifyPref() && _notifyPerm() === 'granted') {
     _startNotifyPolling();
+  }
+
+  // 移动端独立小铃铛（.h5-notify-btn，移动端 only，桌面 display:none 不触发）
+  // click 弹通知设置引导面板（5 分支动态渲染：iOS 未添加主屏幕 / 未授权 / 已授权 / 被拒 / 非 iOS）
+  const h5NotifyBtn = document.querySelector('.h5-notify-btn');
+  if (h5NotifyBtn && !h5NotifyBtn._notifyBound) {
+    h5NotifyBtn._notifyBound = true;
+    h5NotifyBtn.addEventListener('click', openNotifySettingsModal);
   }
 
   // 监听 SW notificationclick 转发的 postMessage -> 触发 UI 反馈
