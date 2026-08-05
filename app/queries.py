@@ -309,9 +309,24 @@ def overview(conn, cfg):
     # 最新分数日期（作为「今日」基准；指数/部分指标可能滞后于该日）
     row = conn.execute("SELECT max(date) FROM score_daily").fetchone()
     score_date = row[0] if row and row[0] else last_trading_day()
-    scores = {r["score_id"]: dict(r) for r in conn.execute(
-        "SELECT score_id, value, is_freeze, is_overheat FROM score_daily WHERE date=?", (score_date,)
-    ).fetchall()}
+    # P1 hover 分项构成：components 是 JSON string，parse 成 dict 供前端直接读。
+    # a_sentiment 6维(ratio/zt/zhaban/lianban/amount/north)
+    # cross_market 9维(a_width/a_fund/a_sentiment/hk/global/lhb/unlock/ipo/cov)
+    # 6宽基: sz50/csi500/cyb/kc50 各2维(rsi/pct_change); hs300/csi1000 各3维(+qvix)
+    # fear_greed: {label, available_scores}
+    # high_alert/low_alert 8维(H1-H8/L1-L8)亦一并 parse，P2 方案J 前端渲染时直接可用
+    scores = {}
+    for _r in conn.execute(
+        "SELECT score_id, value, is_freeze, is_overheat, components FROM score_daily WHERE date=?",
+        (score_date,)
+    ).fetchall():
+        _d = dict(_r)
+        _comp_raw = _d.get("components")
+        try:
+            _d["components"] = json.loads(_comp_raw) if _comp_raw else None
+        except (ValueError, TypeError):
+            _d["components"] = None
+        scores[_r["score_id"]] = _d
 
     # KPI 指标今日快照：每个指标取最新非空值
     metric_cfg = {m["id"]: m for m in cfg.get("metrics", []) if m.get("enabled")}
