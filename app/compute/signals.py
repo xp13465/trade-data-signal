@@ -7,7 +7,7 @@
   区反弹回下轨之上）。语义与 C1 同为「超卖反弹」，强势市更敏感，互补 C1 盲区。
   - BB：mid=close.rolling(20).mean(), sd=close.rolling(20).std(ddof=0), bu=mid+2σ, bl=mid-2σ。
   - C1 与 BB 同日触发时去重：保留 C1（主买优先），不重复发 buy_aux。
-  - buy_aux 也算买点：更新 last_buy_close 游标 + 参与 vs前买 标注。
+  - buy_aux 也算买点：更新 last_buy_close 游标 + 参与 对比前买 标注。
 
 卖点（D1 + S1 MA60 多头过滤 + MACD 死叉确认，2026-07-05 方案 B）：
 - D1 触发逻辑保留：close 从近 20 日最高价（high-based）回落 5%。
@@ -43,15 +43,15 @@ D1 变更（2026-07-06）：C1 卖点用 RSI 下穿70，回测显示全史 10日
 （high-based），2016+ 10日胜率 50.6%/盈亏比 1.04，是回测 12 方案中唯一在 2016+
 窗口达标的卖点。RSI 在卖点降级为参考标签附在 reason（不作触发）；买点 RSI 不动。
 
-方案 B 标注（2026-07-06）：卖点 reason 附 `vs前买{±X.XX%}[分类]` 标签，标注相对
+方案 B 标注（2026-07-06）：卖点 reason 附 `对比前买{±X.XX%}[分类]` 标签，标注相对
 最近一次前置买点 close 的盈亏，便于用户判断卖点质量与操作建议。**只加标注，不改
 触发条件**。B1+S1 后 buy_aux 也更新 last_buy_close 游标（buy_aux 也是买点）。
 - 维护 `last_buy_close` 游标（每个 index_id 独立，按 date 升序遍历）：遇到 buy 或
   buy_aux 信号时更新 last_buy_close=该买点 close。
-- 卖点触发时：close > 前买点 close → `vs前买+X.XX%[止盈]`（前端绿）；close < 前买点
-  close → `vs前买-X.XX%[买点失败]`（前端灰，操作建议止损观望）；窗口内无前置买点
+- 卖点触发时：close > 前买点 close → `对比前买+X.XX%[止盈]`（前端绿）；close < 前买点
+  close → `对比前买-X.XX%[买点失败]`（前端灰，操作建议止损观望）；窗口内无前置买点
   → `无前买点[趋势中]`（前端橙）。
-- 例：`20日高回落5%(高8864->阈8421,close8300), RSI=33, cross=55[中性], MA60=8200[趋势过滤], vs前买-2.32%[买点失败]`
+- 例：`20日高回落5%(高8864->阈8421,收盘价8300), RSI=33, 情绪分=55[中性], MA60=8200[趋势过滤], 对比前买-2.32%[买点失败]`
 
 B1+S1 变更（2026-07-05）：买点加 BB 下轨回归辅买点（buy_aux，与 C1 互补，回测买点
 15007→38547 翻 2.57×）；卖点叠加 MA60 多头过滤（砍下跌趋势假卖点，回测卖点
@@ -220,7 +220,7 @@ def compute_band_signal(index_id: str, params: dict) -> list[dict]:
             ratio = ratio3
             drop_pct = (c - m60) / m60 * 100
             reason = (f"波段止损{int(ratio * 100)}%: 跌破MA60支撑"
-                      f"(MA60={m60:.2f},close={c:.2f},跌幅{drop_pct:.2f}%)")
+                      f"(MA60={m60:.2f},收盘价={c:.2f},跌幅{drop_pct:.2f}%)")
         elif reduce_sig:
             signal = "减仓"
             ratio = ratio1
@@ -446,7 +446,7 @@ def _cross_tag(cross_val) -> str:
 
 
 def _buy_type_cn(buy_type) -> str:
-    """买点类型 key 转中文（sell reason 的 vs前买[类型] 标注用，2026-07-22）。
+    """买点类型 key 转中文（sell reason 的 对比前买[类型] 标注用，2026-07-22）。
 
     buy_special_filtered 是 buy_special 被 h5 标灰的预览，类型算"追买"。
     None/未知 -> 空串（调用方应保证 last_buy_type 非 None 才调用）。
@@ -768,7 +768,7 @@ def strategy_desc(index_id: str, cfg: dict) -> dict:
 #   **s.* 情绪分序列豁免 MACD 过滤**（a_sentiment 加 MACD 后 n=106→7 样本不足），保留 D1+S1。
 # a_sentiment 买规则失效（RSI 结构性≥40，0 信号）→ skip_buy，仅算卖（buy_aux 也跳过）。
 # signal_daily index_id 前缀：g.<metric_id> / s.<score_id>（区分指数/指标/分数）。
-# 卖点 reason 附 vs前买 标注，分母用 |last_buy_value| 兼容负数序列（如 cn_us_spread）。
+# 卖点 reason 附 对比前买 标注，分母用 |last_buy_value| 兼容负数序列（如 cn_us_spread）。
 GLOBAL_METRIC_IDS = (
     "cn10y", "us10y", "wti_oil", "brent", "comex_silver", "gold", "oil",
     "usdcnh", "a_qvix_300", "a_qvix_1000", "cn_us_spread",
@@ -862,7 +862,7 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
     if skip_sell:
         sell = pd.Series(False, index=value.index)
 
-    # B 标注（vs前买）：分母用 |last_buy_value| 兼容负数序列
+    # B 标注（对比前买）：分母用 |last_buy_value| 兼容负数序列
     # buy_aux 与 C1 同日时去重（保留 C1 主买）；buy_aux 也算买点，更新 last_buy_value
     buy_set = set(buy[buy].index)
     buy_aux_set = set(buy_aux[buy_aux].index) - buy_set  # 去重：C1 主买优先
@@ -887,7 +887,7 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
             r = rsi.get(date)
             parts = []
             if pd.notna(v):
-                parts.append(f"布林下轨回归(下轨{bl_.get(date):.4g},value{v:.4g})")
+                parts.append(f"布林下轨回归(下轨{bl_.get(date):.4g},当前值{v:.4g})")
             else:
                 parts.append("布林下轨回归")
             if pd.notna(r):
@@ -904,7 +904,7 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
             m = ma60.get(date)
             parts = []
             if pd.notna(h) and pd.notna(t) and pd.notna(v):
-                parts.append(f"{sell_label}(高{h:.4g}->阈{t:.4g},value{v:.4g})")
+                parts.append(f"{sell_label}(高{h:.4g}->阈{t:.4g},当前值{v:.4g})")
             else:
                 parts.append(sell_label)
             rv = rsi.get(date)
@@ -920,7 +920,7 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
                 ev = dea.get(date)
                 if pd.notna(dv) and pd.notna(ev):
                     parts.append(f"MACD=DIF{dv:.4g}/DEA{ev:.4g}[死叉确认]")
-            # vs前买 标注：分母 |last_buy_value| 兼容负数（cn_us_spread 可 -3~2），标 [买点类型] 前缀
+            # 对比前买 标注：分母 |last_buy_value| 兼容负数（cn_us_spread 可 -3~2），标 [买点类型] 前缀
             # （2026-07-22 加 last_buy_type 游标，类型来自前买点：buy->主买/buy_aux->辅买）
             if last_buy_value is not None and pd.notna(v):
                 denom = abs(last_buy_value)
@@ -929,7 +929,7 @@ def _compute_value_signals(value: pd.Series, sid: str, skip_buy: bool = False, k
                     sign = "+" if pct >= 0 else ""
                     tag = "止盈" if pct > 0 else "买点失败"
                     type_cn = _buy_type_cn(last_buy_type)
-                    parts.append(f"vs前买[{type_cn}]{sign}{pct:.2f}%[{tag}]")
+                    parts.append(f"对比前买[{type_cn}]{sign}{pct:.2f}%[{tag}]")
                 else:
                     parts.append("无前买点[趋势中]")
             else:
@@ -1191,7 +1191,7 @@ def compute():
                     (dist_from_high >= 0.15)                    # C1 距高点远
                 ).fillna(False)
 
-        # 方案 B 标注（2026-07-06）：卖点 reason 附 vs前买 标签 + 分类（止盈/买点失败/无前买点）。
+        # 方案 B 标注（2026-07-06）：卖点 reason 附 对比前买 标签 + 分类（止盈/买点失败/无前买点）。
         # B1+S1（2026-07-05）：buy_aux 也算买点，更新 last_buy_close 游标。
         #   - 遇到 buy 信号：更新 last_buy_close = 该买点 close
         #   - 遇到 buy_aux 信号：也更新 last_buy_close（buy_aux 是辅买点）
@@ -1235,7 +1235,7 @@ def compute():
                     reason = f"RSI上穿30({rp:.0f}->{r:.0f})" if pd.notna(r) and pd.notna(rp) else "RSI=NA"
                 cv = cross_aligned.get(date)
                 if pd.notna(cv):
-                    reason += f",cross={cv:.0f}[{_cross_tag(cv)}]"
+                    reason += f",情绪分={cv:.0f}[{_cross_tag(cv)}]"
                 signals.append((date, iid, "buy", reason + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
             if date in buy_aux_set:
                 # B1 辅买点：BB 下轨回归。也算买点 → 更新 last_buy_close 游标。
@@ -1246,7 +1246,7 @@ def compute():
                 r = rsi.get(date)
                 parts = []
                 if pd.notna(bl_v) and pd.notna(c):
-                    parts.append(f"布林下轨回归(下轨{bl_v:.0f},close{c:.0f})")
+                    parts.append(f"布林下轨回归(下轨{bl_v:.0f},收盘价{c:.0f})")
                 else:
                     parts.append("布林下轨回归")
                 if pd.notna(r):
@@ -1257,7 +1257,7 @@ def compute():
                     parts.append("反弹[2%]")
                 cv = cross_aligned.get(date)
                 if pd.notna(cv):
-                    parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
+                    parts.append(f"情绪分={cv:.0f}[{_cross_tag(cv)}]")
                 signals.append((date, iid, "buy_aux", ", ".join(parts) + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
             if date in buy_special_set:
                 # 特买/追买也算前买点 -> 更新游标（reason 标注走独立 append 循环 L872-899）。
@@ -1282,14 +1282,14 @@ def compute():
                 r = rsi.get(date)
                 parts = []
                 if pd.notna(h) and pd.notna(t) and pd.notna(c):
-                    parts.append(f"20日高回落5%(高{h:.0f}->阈{t:.0f},close{c:.0f})")
+                    parts.append(f"20日高回落5%(高{h:.0f}->阈{t:.0f},收盘价{c:.0f})")
                 else:
                     parts.append("20日高回落5%")
                 if pd.notna(r):
                     parts.append(f"RSI={r:.0f}")  # RSI 降级为参考标签，不作触发
                 cv = cross_aligned.get(date)
                 if pd.notna(cv):
-                    parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")  # cross 软分级参考
+                    parts.append(f"情绪分={cv:.0f}[{_cross_tag(cv)}]")  # cross 软分级参考
                 # S1 趋势过滤标签
                 if pd.notna(m):
                     parts.append(f"MA60={m:.0f}[趋势过滤]")
@@ -1298,14 +1298,14 @@ def compute():
                 ev = dea.get(date)
                 if pd.notna(dv) and pd.notna(ev):
                     parts.append(f"MACD=DIF{dv:.0f}/DEA{ev:.0f}[死叉确认]")
-                # vs前买 标注（方案 B）：按 close vs last_buy_close 分类，标 [买点类型] 前缀
+                # 对比前买 标注（方案 B）：按 close vs last_buy_close 分类，标 [买点类型] 前缀
                 # （2026-07-22 加 last_buy_type 游标，类型来自前买点：buy->主买/buy_aux->辅买）
                 if last_buy_close is not None and pd.notna(c):
                     pct = (float(c) - last_buy_close) / last_buy_close * 100
                     sign = "+" if pct >= 0 else ""
                     tag = "止盈" if pct > 0 else "买点失败"
                     type_cn = _buy_type_cn(last_buy_type)
-                    parts.append(f"vs前买[{type_cn}]{sign}{pct:.2f}%[{tag}]")
+                    parts.append(f"对比前买[{type_cn}]{sign}{pct:.2f}%[{tag}]")
                 else:
                     parts.append("无前买点[趋势中]")
                 signals.append((date, iid, "sell", ", ".join(parts)))
@@ -1352,15 +1352,15 @@ def compute():
             c_break = close_shift5.get(date)  # 突破日 close
             parts = []
             if pd.notna(du) and pd.notna(c_break):
-                parts.append(f"唐奇安20日上轨突破(前高{du:.0f},close{c_break:.0f})")
+                parts.append(f"唐奇安20日上轨突破(前高{du:.0f},收盘价{c_break:.0f})")
             else:
                 parts.append("唐奇安20日上轨突破")
             parts.append("+5日站稳确认")  # B4_hold5d 过滤（close+2%容差）
             if pd.notna(c_now):
-                parts.append(f"确认日close{c_now:.0f}")
+                parts.append(f"确认日收盘价{c_now:.0f}")
             cv = cross_aligned.get(date)
             if pd.notna(cv):
-                parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
+                parts.append(f"情绪分={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
             reason = ", ".join(parts)
             # 方案A(2026-07-22):同日触发 ATR 止损 -> 追加弱势反弹预警
@@ -1375,15 +1375,15 @@ def compute():
             c_flip = close_shift3.get(date)  # 翻多日 close
             parts = []
             if pd.notna(sv) and pd.notna(c_flip):
-                parts.append(f"Supertrend ATR(10)×3 翻多(ST支撑{sv:.0f},close{c_flip:.0f})")
+                parts.append(f"Supertrend ATR(10)×3 翻多(ST支撑{sv:.0f},收盘价{c_flip:.0f})")
             else:
                 parts.append("Supertrend ATR(10)×3 翻多")
             parts.append("+3日二次确认")  # 二次确认过滤
             if pd.notna(c_now):
-                parts.append(f"确认日close{c_now:.0f}")
+                parts.append(f"确认日收盘价{c_now:.0f}")
             cv = cross_aligned.get(date)
             if pd.notna(cv):
-                parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
+                parts.append(f"情绪分={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
             signals.append((date, iid, "buy_backup", ", ".join(parts) + (" [同日触发ATR止损·弱势反弹]" if date in raw_sell_stop_set else "")))
         for date in sorted(sell_stop_set):
@@ -1394,12 +1394,12 @@ def compute():
             av = atr14.get(date)
             parts = []
             if pd.notna(al) and pd.notna(c) and pd.notna(av):
-                parts.append(f"ATR×{atr_mult:g}止损(ATR={av:.2f}, 线={al:.0f}, close={c:.0f})")
+                parts.append(f"ATR×{atr_mult:g}止损(ATR={av:.2f}, 线={al:.0f}, 收盘价={c:.0f})")
             else:
                 parts.append(f"ATR×{atr_mult:g}止损")
             cv = cross_aligned.get(date)
             if pd.notna(cv):
-                parts.append(f"cross={cv:.0f}[{_cross_tag(cv)}]")
+                parts.append(f"情绪分={cv:.0f}[{_cross_tag(cv)}]")
             parts.append("[指数]")
             signals.append((date, iid, "sell_stop_loss", ", ".join(parts)))
 

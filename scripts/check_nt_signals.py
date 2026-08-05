@@ -241,7 +241,7 @@ def build_email(data_date: str, signals: list[dict], agg: dict) -> tuple[str, st
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;width:48px;">类型</th>
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;text-align:right;">份额变动(亿份)</th>
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;text-align:right;">量比</th>
-<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;text-align:right;">z-score</th>
+<th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;text-align:right;">异常分数(z)</th>
 <th style="padding:8px 10px;border-bottom:2px solid #e5e6eb;">备注</th>
 </tr></thead><tbody>""")
         # 按 SIG_ORDER 分组展示
@@ -269,9 +269,9 @@ def build_email(data_date: str, signals: list[dict], agg: dict) -> tuple[str, st
     # 规则说明 + 免责
     html_parts.append(f"""<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#4e5969;line-height:1.8;">
 <div style="font-weight:600;margin-bottom:4px;color:#1d2129;">📋 信号规则</div>
-• 进(share_surge)：份额增 + z-score&gt;2 + 量比&gt;1.5（疑似大资金进场）<br>
-• 出(share_outflow)：份额减 + z-score&lt;-2 + 量比&gt;1.5（疑似大资金离场）<br>
-• 量(volume_surge)：成交额 &gt; 近5日均2倍（放量，独立信号）<br>
+• 进：份额增 + 异常分数(z)&gt;2 + 量比&gt;1.5（疑似大资金进场）<br>
+• 出：份额减 + 异常分数(z)&lt;-2 + 量比&gt;1.5（疑似大资金离场）<br>
+• 量：成交额 &gt; 近5日均2倍（放量，独立信号）<br>
 • 共振：进/出≥{THR['surge']}只、量≥{THR['volume']}只宽基同日同步异动 = 汪汪队共振（🐾）<br>
 • 注意：这是代理推断，无法100%确认是汪汪队，份额变动可能来自任何机构/大户申赎
 </div>

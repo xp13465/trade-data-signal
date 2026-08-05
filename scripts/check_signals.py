@@ -75,14 +75,14 @@ _PREFIX_RE = re.compile(r"^(?:g|s)\.(.+)$")
 
 # 邮件正文中的买卖点规则摘要（HTML）
 RULE_SUMMARY = """【买卖点规则说明】
-• 主买（buy）：RSI 上穿 30（超卖反弹启动）。
-• 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）。
-• 追买（buy_special）：唐奇安20日上轨突破 + B4_hold5d 过滤（close 突破前20日最高价且延后5日站稳确认，激进战法高回撤高收益，趋势跟踪类）。
-• 备买（buy_backup）：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日 close 确认仍站稳，趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）。
-• 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）。
-• 追止损卖（sell_stop_loss）：A1 Donchian20 下轨止损（close 跌破前20日最低价，与追买上轨突破对称，独立止损卖点）。
-• 波段持有（band_hold）：当前处于波段持有状态（无超买超卖触发，非买卖操作，中性持有信号，供参考持仓状态）。
-  附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注。</div>"""
+• 主买：RSI 上穿 30（超卖反弹启动）。
+• 辅买：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）。
+• 追买：唐奇安20日上轨突破 + B4_hold5d 过滤（收盘价突破前20日最高价且延后5日站稳确认，激进战法高回撤高收益，趋势跟踪类）。
+• 备买：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日收盘价确认仍站稳，趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）。
+• 卖：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）。
+• 追止损卖：A1 Donchian20 下轨止损（收盘价跌破前20日最低价，与追买上轨突破对称，独立止损卖点）。
+• 波段持有：当前处于波段持有状态（无超买超卖触发，非买卖操作，中性持有信号，供参考持仓状态）。
+  附 RSI 当前值、综合情绪分金叉/死叉状态、相对前一买点盈亏标注。</div>"""
 
 DISCLAIMER = """【免责声明】
 本信号由历史数据量化回测生成，仅供研究参考，不构成任何投资建议。
@@ -724,7 +724,7 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
             '<div style="background:#fff7e6;border:1px solid #ffd591;border-radius:6px;'
             'padding:10px 14px;margin:0 0 14px 0;font-size:13px;color:#d46b08;line-height:1.6;">'
             '<b>⚠️ 盘中实时快照</b>：本邮件基于盘中行情快照生成，<b>信号可能随后续行情变化</b>'
-            '（如 buy_aux 消失/重现）。此为快照非最终，<b>收盘后 17:50 update_all 仍发最终版邮件</b>，'
+            '（如辅买信号消失/重现）。此为快照非最终，<b>收盘后 17:50 仍发送最终版邮件</b>，'
             '请以收盘最终版为准。</div>'
         )
     html_parts = [f"""<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1d2129;max-width:720px;">
@@ -789,14 +789,14 @@ def build_email(date: str, signals: list[dict], name_map: dict[str, str],
     # 规则说明 + 免责
     html_parts.append(f"""<div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;margin-bottom:12px;font-size:12px;color:#4e5969;line-height:1.8;">
 <div style="font-weight:600;margin-bottom:4px;color:#1d2129;">📋 规则说明</div>
-• 主买（buy）：RSI 上穿 30（超卖反弹启动）<br>
-• 辅买（buy_aux）：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）<br>
-• 追买（buy_special）：唐奇安20日上轨突破 + B4_hold5d 过滤（close 突破前20日最高价且延后5日站稳确认，激进战法高回撤高收益，趋势跟踪类）<br>
-• 备买（buy_backup）：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日 close 确认仍站稳，趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）<br>
-• 卖（sell）：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
-• 追止损卖（sell_stop_loss）：A1 Donchian20 下轨止损（close 跌破前20日最低价，与追买上轨突破对称，独立止损卖点）<br>
-• 波段持有（band_hold）：当前处于波段持有状态（无超买超卖触发，非买卖操作，中性持有信号，供参考持仓状态）<br>
-• 附 RSI 当前值、综合情绪分 cross 状态、相对前一买点盈亏标注
+• 主买：RSI 上穿 30（超卖反弹启动）<br>
+• 辅买：布林下轨回归（超卖反弹，强势市更敏感，互补主买盲区）<br>
+• 追买：唐奇安20日上轨突破 + B4_hold5d 过滤（收盘价突破前20日最高价且延后5日站稳确认，激进战法高回撤高收益，趋势跟踪类）<br>
+• 备买：Supertrend ATR(10)×3 翻多 + 二次确认过滤（延后3日收盘价确认仍站稳，趋势转向，与主买/辅买均值回归类互补，趋势跟踪类）<br>
+• 卖：20 日高点回落 5% + MA60 多头过滤 + MACD 死叉确认（止盈减仓提示）<br>
+• 追止损卖：A1 Donchian20 下轨止损（收盘价跌破前20日最低价，与追买上轨突破对称，独立止损卖点）<br>
+• 波段持有：当前处于波段持有状态（无超买超卖触发，非买卖操作，中性持有信号，供参考持仓状态）<br>
+• 附 RSI 当前值、综合情绪分金叉/死叉状态、相对前一买点盈亏标注
 </div>
 <div style="background:#f7f8fa;border-radius:6px;padding:12px 16px;font-size:12px;color:#86909c;line-height:1.8;">
 <div style="font-weight:600;margin-bottom:4px;color:#1d2129;">⚠️ 免责声明</div>
@@ -824,7 +824,7 @@ def main(argv: list[str] | None = None) -> int:
         "--intraday",
         action="store_true",
         help="盘中实时模式：邮件标题加【盘中实时】+ 正文加风险提示横幅"
-        "（盘中快照非最终，收盘 17:50 update_all 仍发最终版）。不走去重，仍用默认去重。",
+        "（盘中快照非最终，收盘 17:50 仍发最终版）。不走去重，仍用默认去重。",
     )
     parser.add_argument(
         "--fade-detect",

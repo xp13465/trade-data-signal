@@ -264,7 +264,7 @@ def send_alert(alerts: list[dict]) -> None:
         lines.append(f"<li>{badge} {a['desc']}</li>")
     lines.append("</ul>")
     lines.append("<p style='color:#888;font-size:12px;'>盘中30分钟节奏检测，"
-                 "同日同标的同类型只报一次。收盘后 update_all 最终版以信号邮件为准。</p>")
+                 "同日同标的同类型只报一次。收盘后系统将发送最终版信号邮件，请以最终版为准。</p>")
     body = "\n".join(lines)
 
     try:
