@@ -2892,7 +2892,10 @@ main { padding: 16px 24px; }
 
 @media (max-width: 768px) {
   /* header 精简：隐藏 PC h1，显示 H5 顶部条（当前 tab 名 + 时效 + 列切换 + 历史）*/
-  header { padding: 8px 12px; }
+  /* padding-top 加 env(safe-area-inset-top)：iOS PWA standalone 状态栏透明覆盖时，
+     内容延伸到状态栏下方(顶到通知栏无法点击)；env() 非 PWA 普通浏览时=0 不影响。
+     底部已有 env(safe-area-inset-bottom) 顶部此前漏配(2026-08-05 修复) */
+  header { padding: calc(8px + env(safe-area-inset-top)) 12px 8px 12px; }
   header h1 { display: none; }
   .h5-topbar { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 8px; }
   .h5-topbar-left { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; overflow: hidden; }
@@ -2913,7 +2916,7 @@ main { padding: 16px 24px; }
     align-self: auto;
   }
   .h5-period-bar {
-    display: block; position: sticky; top: 0; z-index: 50;
+    display: block; position: sticky; top: env(safe-area-inset-top); z-index: 50;
     background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 8px 12px;
     box-shadow: 0 1px 3px var(--shadow);
   }

@@ -4743,7 +4743,19 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
         const ttl = `竞价完成时段数据停昨日(${mmdd}),9:30 开盘后 intraday-snapshot 10min 周期采集更新(非等盘后17:50)`;
         return `<span class="card-time-badge intraday" data-tip="${ttl}">⏰ 待开盘·${mmdd}</span>`;
       }
-      // 9:30 后罕见 dataDate 仍 ptd(如采集失败): 保留原 T+1 待盘后更新口径
+      // [2026-08-05 修复] 9:30 开盘后 snap label 切"盘中实时小结", 但 t0源(封板率/炸板率等)KPI date
+      //   可能仍停 ptd(等 9:35 snap 10min 周期采集补当日值, 非盘后17:50)。原注释"罕见"实为 10min 周期常态。
+      //   t0源盘中应显"盘中·HH:MM"(数据延迟是 snap 周期非盘后17:50);
+      //   t1源盘中显示 T-1 是正常设计(T+1源), 上面 srcClass==='t1' 分支已处理, 不会走到这里
+      if (srcClass === "t0" && shIdx && shIdx.datetime) {
+        const _hh = shIdx.datetime.slice(8, 10);
+        const _mm = shIdx.datetime.slice(10, 12);
+        if (_hh && _mm) {
+          const ttl = `盘中T+0源数据停昨日(${mmdd}),intraday-snapshot 10min 周期采集后将补当日值(非等盘后17:50),当前快照 ${_hh}:${_mm}`;
+          return `<span class="card-time-badge intraday" data-tip="${ttl}">⏰ 盘中·${_hh}:${_mm}</span>`;
+        }
+      }
+      // shIdx.datetime 缺失(异常兜底): 保留原 T+1 待盘后更新口径
       const ttl = `T+1性质数据盘中显示前一交易日(${mmdd})属正常，盘后17:50 update_all采集后补全`;
       return `<span class="card-time-badge t1-pending" data-tip="${ttl}">⏳ 待盘后更新·${mmdd}</span>`;
     }
