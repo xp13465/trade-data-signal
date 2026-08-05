@@ -7666,3 +7666,49 @@ git log HEAD..origin/main --oneline    # 空 = main 没有比 feat 更新的 com
 - memory `production-stability-p0` / `deploy-verify-3-sites`（关联）
 
 **落档**：NOTES §48 小节 AL + memory `feat-branch-deploy-pushes-func-commits`。当前 feat 已与 origin/main 同步，功能已自动上线，无需再 push main。
+
+## §48 小节AM：2026-08-05 17:16 KPI小卡P0+P1+P2全套 push main 上线（验证落档）
+
+### 1. 背景
+KPI 小卡新颖 UI 设计 P0+P1+P2 全套（commit `71e8ef605`）在 feat/iframe-theme-follow 分支开发完成，需 push main 上线。feat 与 origin/main 已分叉（各有1个对方没有的 commit），需 merge 同步后 push。当前 17:14 在 15:40-17:49 安全窗口内（17:50 update-all 前），无 running 定时任务。
+
+### 2. 执行步骤与结论（已逐字验收，2026-08-05 17:16-17:20）
+1. **fetch + status 确认**：
+   - feat HEAD = `71e8ef605`（KPI 小卡 P0+P1+P2 全套：数字状态着色+左侧色条+金色顶条+sparkline+状态背景渐变+hover扩展+3情绪分大卡+恐贪进度条+玻璃拟态）
+   - origin/main HEAD = `397095cf7`（data update [schedule_stats] 2026-08-05_17:05，定时任务推）
+   - 已分叉，feat 和 origin/main 各多1个 commit，需 merge
+   - 工作区有大量 `static-site/data/` 改动（定时任务生成的，不能 add 不能碰）
+2. **stash 工作区 data 改动**（避免 merge 冲突）：
+   - `git stash push -- static-site/data/` 成功，工作区干净（只剩 untracked 的 `data/` 和 `boot.json`，不 add）
+3. **merge origin/main**（同步 schedule_stats 17:05 data 到 feat）：
+   - `git merge origin/main` 成功，**无冲突**，merge commit = `2cb23c39b`
+   - 只改了 `static-site/data/schedule_stats.json` + `.gz`（397095cf7 带入）
+4. **push feat 到 main**：
+   - `git push origin HEAD:main` 成功，**fast-forward** `397095cf7..2cb23c39b`（merge 后 feat HEAD 包含 origin/main，故 ff）
+   - 无 non-ff 问题，无 force-with-lease/force push
+   - 17:16:11 完成，在 15:40-17:49 安全窗口内（17:50 update-all 前 33 分钟）
+
+### 3. 3 域名验证上线（2 域名验证到新版，上线 OK）
+- **ss.fx8.store（CF 主站）** ✓
+  - `sw.js` `CACHE_VERSION = 'v2-20260805-kpi-design'` ✓（commit 71e8ef605 bump 的版本）
+  - `app.min.js` 含 `kpi-sentiment-big` / `kpi-fg-bar` / `data-state` 三个 KPI 关键标识 ✓
+- **sss.sugas.site（GitHub Pages 备站）** ✓
+  - `sw.js` `CACHE_VERSION = 'v2-20260805-kpi-design'` ✓
+  - `app.min.js` 含 KPI 3 标识 ✓
+- 按约束"3 域名任一验证到新版即算上线 OK，不卡单域名 404"，两域名均新版，上线完全 OK
+- s.sugas.site（MaoziYun 备站，300MB 限制）未验证（不卡上线）
+
+### 4. KPI 小卡 commit 71e8ef605 内容回顾
+- **P0 核心3项**：① 数字按 data-state 着色（涨停红/下跌绿/冰点蓝/偏冷浅蓝/偏热橙/过热红/强势金/警示黄）② 左侧3px状态色条 ③ 默认金色顶条渐变
+- **P1 增强3项**：④ KPI卡内嵌sparkline（3情绪分卡用overview.json已有6m数据140点，零额外请求）⑤ 状态背景渐变（强势半透明金/冰点淡蓝等）⑥ hover动效扩展所有KPI（背景变深+上浮+阴影+primary描边）
+- **P2 高级2项**：⑦ 3情绪分专属大卡（a_sentiment/cross_market/fear_greed flex 200px+28px字号+sparkline 36px高；恐贪指数0-100进度条蓝->灰->红渐变标当前位置）⑧ 玻璃拟态（color-mix 88%半透明+backdrop-filter:blur(8px)+多层阴影）
+- **data-state 9态**：up/down/freeze/cold/hot/overheat/warn/strong/neutral/disabled
+- build_min.py terser（app.js 1144923B->610215B -46.7% / style.css 276085B->197164B -28.6%）+ bump_asset_version.py（?v=f251a78e/53c6de2c）+ sw.js CACHE_VERSION bump（v2-20260805-amount-forecast-ui -> v2-20260805-kpi-design，铁律1：改 app.js 必 bump sw 防旧 SW CacheFirst 缓存旧 app.min.js）
+
+### 5. 关联
+- §8 改完必须推送（本次按规范 fetch+merge+push，未 force，避让盘后定时任务时点）
+- §14 生产稳定性 P0（17:14 确认无 running 定时任务 + 15:40-17:49 安全窗口 + 17:50 update-all 前 33 分钟）
+- §48 小节 AL（feat 分支 push main 机制：定时任务 deploy.sh 自动带功能 commit 上线，但本次功能 commit 是手动 push main 带上线）
+- memory `production-stability-p0` / `deploy-verify-3-sites` / `bump-sw-version-with-appjs`（关联）
+
+**落档**：NOTES §48 小节 AM。KPI 小卡 P0+P1+P2 全套已 push main 上线，2 域名验证新版 OK。merge commit `2cb23c39b` 已在 main。
