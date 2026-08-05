@@ -8301,8 +8301,8 @@ async function renderOverview() {
     // 解决用户反馈: 数字大小不一破坏行内和谐+进度条含义不明
     let _fgTooltipHtml = "";
     if (k.id === "fear_greed" && k.valueNum != null) {
-      const _pct = Math.max(0, Math.min(100, k.valueNum));
-      _fgTooltipHtml = `<div class="kpi-fg-tooltip"><div class="kfg-title">恐贪指数刻度</div><div class="kfg-bar"><div class="kfg-marker" style="left:${_pct}%"></div></div><div class="kfg-scale"><span>0 极度恐惧</span><span>100 极度贪婪</span></div><div class="kfg-cur">当前 <b style="color:${fearGreedColor(k.valueNum)}">${k.valueNum}</b> · ${fearGreedLabel(k.valueNum)}</div></div>`;
+      // 去进度条(用户审美决定 2026-08-05): 删 .kfg-bar/.kfg-marker/.kfg-scale, 保留标题+当前值; 6m分位通过 _fgMerge6m 合并
+      _fgTooltipHtml = `<div class="kpi-fg-tooltip"><div class="kfg-title">恐贪指数</div><div class="kfg-cur">当前 <b style="color:${fearGreedColor(k.valueNum)}">${k.valueNum}</b> · ${fearGreedLabel(k.valueNum)}</div></div>`;
     }
     // P0 19张KPI卡 6m分位+极值 tooltip 注入 (2026-08-05):
     // fear_greed 合并到现有 fg-tooltip(两 inset:0 overlay 叠加冲突, 合并避免); 其余18卡用 .kpi-sent-tooltip
@@ -8392,9 +8392,9 @@ async function renderOverview() {
             }
           }
         }
-        // 极值合并1行(仅非情绪分卡; 情绪分卡靠分项构成, 无极值行) + 去 kst-title(headline 已含分位%)
+        // 极值多行布局(用户审美决定 2026-08-05): 高/低/均各一行, 不一行紧凑
         const _extremeRow = !_isScore
-          ? `<div class="kst-row"><span class="kst-label">6m高/低/均</span><span class="kst-val">${_fmt6mV(_stat.max)} / ${_fmt6mV(_stat.min)} / ${_fmt6mV(_stat.mean)}</span></div>`
+          ? `<div class="kst-row"><span class="kst-label">6m最高</span><span class="kst-val">${_fmt6mV(_stat.max)}</span></div><div class="kst-row"><span class="kst-label">6m最低</span><span class="kst-val">${_fmt6mV(_stat.min)}</span></div><div class="kst-row"><span class="kst-label">6m均值</span><span class="kst-val">${_fmt6mV(_stat.mean)}</span></div>`
           : "";
         const _tooltipBody =
           `<div class="kst-headline"><b style="color:${_isScore ? fearGreedColor(k.valueNum) : "var(--text-1)"}">${k.value}</b> · <b style="color:${_pctColor}">${_stat.percentile.toFixed(0)}% ${_pctTag}</b></div>` +
@@ -8403,7 +8403,7 @@ async function renderOverview() {
           _meaningRow +
           _compBarsHtml;
         if (k.id === "fear_greed") {
-          // 合并到现有 fg-tooltip(进度条+刻度), 追加分隔线+6m分位行, 避免两 overlay 叠加
+          // 合并到现有 fg-tooltip(标题+当前值), 追加分隔线+6m分位行, 避免两 overlay 叠加
           _fgMerge6m = `<div class="kst-sep"></div>` + _tooltipBody;
         } else {
           _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip">${_tooltipBody}</div>`;

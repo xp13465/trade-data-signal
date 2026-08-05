@@ -1075,40 +1075,17 @@ main { padding: 16px 24px; }
   font-size: 11px;
   color: var(--text-3);
   text-align: center;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.kpi-fg-tooltip .kfg-bar {
-  position: relative;
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, #42a5f5 0%, #4fc3f7 25%, #86909c 50%, #e6a23c 75%, #e6492e 100%);
-  overflow: visible;
-}
-.kpi-fg-tooltip .kfg-marker {
-  position: absolute;
-  top: -3px;
-  width: 4px;
-  height: 14px;
-  background: var(--text-1);
-  border-radius: 2px;
-  transform: translateX(-50%);
-  box-shadow: 0 0 0 1.5px var(--bg-card);
-}
-.kpi-fg-tooltip .kfg-scale {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  color: var(--text-3);
+  white-space: normal;
+  word-break: break-word;
 }
 .kpi-fg-tooltip .kfg-cur {
   font-size: 12px;
   color: var(--text-2);
   text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
 }
 .kpi-fg-tooltip .kfg-cur b { font-weight: 600; }
 /* P0 19张KPI卡 hover 6m分位+极值 tooltip (方案A+E+G+H, 2026-08-05)
@@ -1122,8 +1099,8 @@ main { padding: 16px 24px; }
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 2px;
-  padding: 8px 12px;
+  gap: 4px;
+  padding: 10px 14px;
   background: var(--bg-card);
   border-radius: inherit;
   opacity: 0;
@@ -1154,9 +1131,9 @@ main { padding: 16px 24px; }
   font-size: 12px;
   color: var(--text-2);
   text-align: center;
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
+  margin-bottom: 4px;
+  white-space: normal;
+  word-break: break-word;
 }
 .kpi-sent-tooltip .kst-headline b,
 .kpi-fg-tooltip .kst-headline b { font-weight: 600; }
@@ -1169,7 +1146,7 @@ main { padding: 16px 24px; }
   gap: 8px;
 }
 .kpi-sent-tooltip .kst-label,
-.kpi-fg-tooltip .kst-label { color: var(--text-3); flex-shrink: 0; white-space: nowrap; }
+.kpi-fg-tooltip .kst-label { color: var(--text-3); flex-shrink: 0; white-space: normal; word-break: break-word; }
 /* val 去 ellipsis: 内容超宽自然换行(可见)而非省略号(不可见); min-width:0 允许 flex 收缩留空间给 label */
 .kpi-sent-tooltip .kst-val,
 .kpi-fg-tooltip .kst-val { color: var(--text-1); font-weight: 600; text-align: right; min-width: 0; overflow-wrap: break-word; }
