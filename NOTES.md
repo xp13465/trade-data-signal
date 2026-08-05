@@ -7946,3 +7946,36 @@ KPI 小卡新颖 UI 设计 P0+P1+P2 全套（commit `71e8ef605`）在 feat/ifram
 - 本小节 §7 桌面端控制其他方法调研（easytrader 以外，2026-08-05 补充，源文件 `/tmp/desktop-trade-methods.md`）
 
 **落档**：NOTES §48 小节 AN + TASKS 更新。前 4 项已上线，第 5 项 agent 跑中 commit 待补，第 6 项为定时任务上线机制验证。`f42490af9` + 方向 C commit 待 23:00+ 推 main。
+
+## §48 小节AP：2026-08-05 晚 通知机制改进（SendMessage to 'main' 标准流程 + 轮询兜底）
+
+**背景**：用户质疑"通知老丢除了兜底没标准流程么"。之前 §11 方案（改进兜底/redis）都是轮询，漏了 `SendMessage to 'main'` 原生标准流程。
+
+**决策**（2026-08-05 用户定）：
+- **标准流程**：agent prompt 末尾加 `SendMessage to: 'main', summary: '完成', message: '<结论摘要+关键验收点>'`。harness "Messages from teammates are delivered automatically" 自动送达，不需轮询。比 task-notification（came to rest 自动触发，被动，会丢）更可靠（agent 主动控制发送时机和内容）。
+- **兜底**：CronCreate 10min 轮询进度文件 `grep DONE`（防 SendMessage 极端丢，主控不能 BLPOP 阻塞只能轮询）。
+- **不选 redis**：redis 不比 done 文件可靠（都靠主控 CronCreate 轮询，主控不能常驻 BLPOP 阻塞实时订阅），单机单主控 done 文件/grep DONE 够用，redis 额外依赖（brew+launchd+redis-cli）过度。
+
+**落档**：CLAUDE.md §11 第一条更新（标准流程 SendMessage + 轮询兜底）+ memory `agent-sendmessage-to-main-notify`。B（lhb_count 回填）派时加 `SendMessage to 'main'` 测试效果，验证主控是否即时收到不等 10min 轮询。
+
+## §48 小节AQ：2026-08-05 晚 夜间数据时点调研（黄金/全球/美股最早更新时点）
+
+**背景**：用户问"黄金和全球这些夜间开盘的数据，最早什么时候更新，是早上5点吗"。调研 agent af89bb5144572e1ca 完成，结论：**不全是5点，分三类**。
+
+**结论**：
+| 类别 | 品种 | 最早采集 | 上线 | 是否5点 |
+|---|---|---|---|---|
+| 美股指数 | us_dji/ixic/spx/ndx + us10y | 05:00 | 05:04 | ✅ 是 |
+| 全球/欧洲指数 | dax/cac40/ftse100/nikkei/kospi | 02:00 | 02:10 | ❌ 更早 |
+| 黄金 | 沪金 nf_AU0 | 09:25(次日) | -- | ❌ 5点只推日盘旧值 |
+
+**依据**：
+1. **美指 5 点**：`com.trade.us-stock-morning` plist 05:00 触发 us_stock_morning.sh，采 4 美指（新浪 gb_$ 实时）+ us10y美债 -> deploy 全量。美股 04:00 北京收盘(DST)，05:00=收盘后1h余量。02:00 backfill 不采美指（早于04:00收盘源无当日）。git 实证 08-05 05:04:36 commit `5aca0dac8 [all]`。
+2. **欧洲全球指数 2 点**：`com.trade.backfill-evening` 02:00 槽调 index_backfill，欧洲盘 22:30-23:30 北京收盘，02:00 已收盘，新浪 b_ 实时兜底拿收盘价。git 实证 08-05 02:10:45 commit `cd71dd09d [backfill]`。亚洲(nikkei/kospi)14:00收盘，16:35/17:50采。
+3. **黄金不是5点**：intraday_snapshot 用 nf_AU0 实时采，最后一槽 20:35 在夜盘开盘(21:00)前，拿到的是日盘收盘价(15:00)。02:00 backfill 和 05:00 us_stock_morning 都不采 gold，05:00 deploy 导出 20:35 旧值。**沪金夜盘 21:00-02:30（含02:30收盘价）无任何任务采集，要到次日 09:25 intraday_snapshot 才反映** -- 数据缺口。
+
+**关键文件**：scripts/us_stock_morning.sh（05:00）、trade-data/scripts/backfill_metrics.sh（02:00/16:35/21:00）、app/collector/index_backfill.py L398-530、app/collector/intraday_snapshot.py L107(nf_AU0->gold)/L317/L1806、config/indicators.yaml L85。
+
+**决策**：用户定补黄金夜盘缺口（02:35 采集任务）。调研 agent abe6ebd3202723159 跑中（数据源可行性+实施方案）。待可行性确认后派实施 agent 新增 com.trade.gold-night plist（02:35，避撞 02:10 backfill 完成 + 03:17 pf-score-weekly）。
+
+**附**：us_futures（ES/NQ/YM/HSI+9全球b_指数）仅被 intraday_snapshot 调用（09:25-20:35），无夜盘采集。

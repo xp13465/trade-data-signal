@@ -1587,3 +1587,68 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - Mac 需虚拟机（QMT/Ptrade/easytrader 均为 Windows 平台）
 
 **状态**：⏸ 远期低优先级，待用户主动启动。阶段 2/3 启动前须先确认合规报备完成。详见 NOTES §48 小节AO。
+
+## 🔄 2026-08-05 lhb_count 回填（待 8-10 配额恢复后续派 agent）
+
+**状态**：⏸ 撞 429 weekly quota 超限（8-10 00:00 重置）挂起，前置检查已完成（agent aa1c925fae47fd615），无代码半成品。
+
+**前置检查结论**（2026-08-05 23:34，/tmp/agent-progress-lhb-backfill.md）：
+- launchd: lhb-backfill 18:30/19:30, backfill-evening 16:35/21:00/02:00, update-all 17:50
+- DB trade-data/data/sentiment.db daily_metric 表 EAV 模式 (date, metric_id, value, source, updated_at) PK(date,metric_id)
+- lhb_count 历史 21 天 (20260703-20260805) source='akshare'，需回填6m
+- queries.py L525-532 KPI_SPARK_METRIC_IDS 18个 不含 lhb_count
+- app.js L8100-8105 _KPI_6M_TOOLTIP_IDS 19个 不含 lhb_count
+- sw.js CACHE_VERSION='v2-20260805p-spark-help-highlow' 待 bump
+- indicators.yaml: lhb_count=stock_lhb_detail_em+count_rows, lhb_inst_net=stock_lhb_jgmmtj_em+sum(机构买入净额)*1e-8
+- 实测列名: stock_lhb_detail_em="上榜日", stock_lhb_jgmmtj_em="上榜日期" (格式 YYYY-MM-DD)
+
+**待执行步骤**（8-10 配额恢复后派 agent 接着做，prompt 见 NOTES §48 小节AQ）：
+- [ ] A. 新建 scripts/lhb_history_backfill.py 回填 lhb_count 6m 历史（ak.stock_lhb_detail_em start_date/end_date）
+- [ ] B. queries.py KPI_SPARK_METRIC_IDS 加 "lhb_count"
+- [ ] C. app.js _KPI_6M_TOOLTIP_IDS 加 "lhb_count"
+- [ ] D. build_min + bump_asset_version + bump sw.js CACHE_VERSION（铁律1）
+- [ ] E. export + deploy + push main（§14 避开 23:33 cron + 盘后定时任务时点）
+- [ ] F. 验证 curl ss.fx8.store/data/overview.json 含 lhb_count_6m（10条6m历史）
+
+**用户定方案**：回填（推荐），2026-08-05 23:32 定。完整调研 /tmp/lhb-count-full-analysis.md（16KB，双重根因+回填方案 A/B/C/D）。
+
+## 🔄 2026-08-05 夜间数据时点调研（待 8-10 配额恢复后续派 agent）
+
+**状态**：⏸ 撞 429 挂起，第一步没跑。
+
+**用户问**：黄金和全球指数（夜间开盘）数据最早什么时候更新，是早上5点吗。
+
+**已知 launchd 凌晨时点**（主控查清，精确数据源待调研）：
+- 02:00 backfill-evening（回填，黄金2:30收盘 02:00采不全）
+- 01:43-02:47 pf-stage0-*（公募基金净值，非夜间盘）
+- 03:17 pf-score-weekly（周日）
+- 05:00 us-stock-morning（美股早晨，昨晚美股4:00北京收盘后5点采最稳）
+- 17:50 update-all（盘后全量）
+
+**待调研**：黄金/全球指数具体哪个任务采、数据源（akshare/yahoo/新浪/腾讯）几点发布、前端 JSON 几点上线。
+
+## 🔄 2026-08-05 日图 hover 调研（agent ad5a51555497b93a4 跑中）
+
+**状态**：🔄 调研中（未撞 429，23:41 还活）。
+
+**用户反馈**：分时图趋势线 hover 有对应时间点数据提示，日图曲线 hover 没效果，要一样 hover 有对应日期数据。
+
+**已定位方向**（agent grep 到的代码）：
+- 日图 = ntIndexSparkline 生成的纯 SVG 缩略图（app.js L9393），无 hover 交互
+- 分时图 = echarts（有 tooltip trigger:axis + formatter）
+- 根因方向：日图 SVG 无 tooltip，需加 hover 交互或改 echarts tooltip
+
+**待结论**：根因 + 哪个图 + 实施方案，agent 完成时 SendMessage to 'main' 通知。
+
+### 日图 hover 决策（2026-08-05 23:45 用户定）
+**用户定方案A（echarts，体验最一致）**，非推荐方案B。代价接受：P0-3 首屏优化回退（11 个 echarts.init +200~500ms）。
+
+**实施方案A**（8-10 配额恢复后派 agent）：
+- 日图 ntIndexSparkline (app.js L9367-9399) 改 echarts line chart
+- 复用行业 spark-cell tooltip 配置 (app.js L14677, trigger:axis + formatter 显示日期+收盘+涨跌%)
+- 删原生 <title> 标签 + <circle r=4> 命中区域
+- 同步改 KPI 卡 sparkline (L8326) 同函数同问题
+- 不改：行业 spark-cell（已 echarts 有 tooltip）、分时图 echarts（已有 tooltip）
+- build_min + bump_asset_version + bump sw.js CACHE_VERSION + export + deploy + push main
+
+**调研报告** /tmp/agent-progress-daily-chart-hover.md（agent ad5a51555497b93a4 完成）。
