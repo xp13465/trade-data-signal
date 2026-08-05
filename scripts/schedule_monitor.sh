@@ -416,6 +416,10 @@ for _label in LAUNCHCTL_LABELS:
 for _key, _info in list(alert_state.items()):
     if _info.get("status") != "active":
         continue
+    if _key == "overview_lag_3domain":
+        # overview 时效滞后的去重+恢复由 L546 overview 检查块内联处理
+        # （该块在恢复检测循环之后运行，不能复用此循环，否则未 seen 被误报恢复）
+        continue
     if _key not in seen_keys_this_run:
         if _key.startswith("missed|"):
             # 漏跑 key: 不发恢复邮件, 检查是否跨日静默清理
@@ -482,11 +486,14 @@ if etf_log.exists():
 
 # 4) 产物时效检查：线上 overview.json collected_at vs NOW
 #    intraday push 失败就是线上滞后（schedule_stats 只看任务跑了没，不查产物上线=盲区）。
-#    仅交易日盘中 09:50-15:30 检查（intraday 每15min推一次，首次 09:35 完成于 ~09:42），
+#    仅交易日盘中 09:50-15:05 检查（intraday 每10min推一次，盘中最后 15:02，盘后 15:35/20:35），
 #    09:50 起检避开开盘空窗期 overview.json 仍是凌晨旧版导致的误报；避免非交易时段误报。
+#    15:05 上限：15:05 时 intraday 15:02 刚推完（完成~15:05）lag≈0-3min 安全；15:15/15:30 是
+#    intraday 空窗期（15:02 已推、15:35 未推）检查必误报，故窗口不含 15:15/15:30。
+#    2026-07-20 15:30 误报事故根因：窗口含 15:30，overview 停在 15:02 lag=27min>20min 阈值必报。
 #    多域名容错：依次试 ss.fx8.store/sss.sugas.site/s.sugas.site，任一不 lag 即 OK，
 #    规避 CF Workers cache 滞后单域名误报。滞后 > 20min（3域名全 lag）告警 SEVERE
-#    （intraday 15min 频率 + 5min buffer；2026-07-24 从 30min 改 20min 适配 15min 频率）。
+#    （intraday 10min 频率 + 10min buffer；2026-07-24 从 30min 改 20min 适配 10min 频率）。
 #    curl 超时 8s（subprocess timeout 12s 兜底）不阻塞 launchd 15min 周期。
 #    用 /usr/bin/curl 而非 urllib：venv python 缺系统 CA 证书会 SSL 校验失败，curl 走系统证书更稳。
 try:
@@ -494,13 +501,13 @@ try:
     now_hm = NOW.strftime("%H%M")
     # 0950 起检：intraday 第一次 09:35，dur 约 7min（任务2优化后），09:42 才完成 push。
     # 0930-0942 开盘空窗期 overview.json 必然是凌晨 02:38 旧版，必触发误报。
-    # 0950 检查避开空窗，覆盖盘中其余时点（intraday 每 15min 推一次）。
+    # 0950 检查避开空窗，覆盖盘中其余时点（intraday 每 10min 推一次）。
     # 1130-1315 排除午休窗口：A股午休 11:30-13:00 无交易，overview.json collected_at
     # 停在上午 11:30 快照(完成于 ~11:37)，直到 13:05 快照完成(~13:12)才更新。
     # 此窗口内 lag 必然 >20min 但属正常(午休没交易)，排除避免误报。
     # 2026-07-24 12:30 误报事故根因：午休未排除，12:15 起 lag>30min 触发 SEVERE。
     # 非交易日已由 is_trading_day() 排除（周末/节假日 overview 滞后正常）。
-    if is_trading_day() and "0950" <= now_hm <= "1530" and not ("1130" <= now_hm < "1315"):
+    if is_trading_day() and "0950" <= now_hm <= "1505" and not ("1130" <= now_hm < "1315"):
         # 多域名容错：CF Workers Static Assets 靠部署自动 purge，但 intraday push
         # main 不触发 CF wrangler redeploy，ss.fx8.store cache 可能滞后；依次试 3 域名，
         # 任一 collected_at 在 30min 内即 OK（不 lag），都滞后才告警。
@@ -543,16 +550,52 @@ try:
                 all_lag = False
                 print(f"[ok] 线上 overview collected_at={collected_at} lag={lag_min}min (via {base})")
                 break
+        dedup_key = "overview_lag_3domain"
         if all_lag:
+            seen_keys_this_run.add(dedup_key)
             now_full = NOW.strftime("%Y-%m-%d %H:%M:%S")
             detail = "; ".join(
                 f"{b}={ca or 'N/A'} lag={lm if lm is not None else '?'}min [{st}]"
                 for b, ca, lm, st in lag_results
             )
-            alerts.append(
-                f"SEVERE: 线上 overview.json 时效滞后(3域名全lag) "
-                f"threshold<20min> now<{now_full}> 详情: {detail}"
-            )
+            _existing = alert_state.get(dedup_key)
+            if _existing is None or _existing.get("status") != "active":
+                # 首次发现 或 恢复后再次出现 = 发 SEVERE + 写 state
+                alerts.append(
+                    f"SEVERE: 线上 overview.json 时效滞后(3域名全lag) "
+                    f"threshold<20min> now<{now_full}> 详情: {detail}"
+                )
+                alert_state[dedup_key] = {
+                    "status": "active",
+                    "first_seen": now_full,
+                    "last_alerted": now_full,
+                    "keyword": "overview_lag",
+                    "line_sample": detail,
+                }
+            else:
+                # 已 active = 抑制不重发, 只 log
+                print(
+                    f"[suppress] overview 时效滞后持续中, "
+                    f"last_alerted={_existing.get('last_alerted')}, 不重发"
+                )
+        else:
+            # 时效恢复: was active -> resolved, 发恢复邮件(内联, 不复用 L416 恢复循环
+            # 因 overview 检查在恢复循环之后运行, 复用会被误报恢复)
+            _existing = alert_state.get(dedup_key)
+            if _existing is not None and _existing.get("status") == "active":
+                recoveries.append({
+                    "task": "overview_lag",
+                    "keyword": "overview_lag",
+                    "first_seen": _existing.get("first_seen", "?"),
+                })
+                _existing["status"] = "recovered"
+                _existing["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                print(
+                    f"[recovery] overview 时效滞后已恢复 "
+                    f"(首次发现: {_existing.get('first_seen')})"
+                )
+        # overview 检查在 save_alert_state(L443) 之后运行, 需补存防状态丢失
+        save_alert_state(alert_state)
 except Exception as e:
     print(f"[warn] 线上 overview.json 时效检查失败: {e}", file=sys.stderr)
 
