@@ -1067,6 +1067,86 @@ main { padding: 16px 24px; }
   transform: translateX(-50%);
   box-shadow: 0 0 0 1.5px var(--bg-card);
 }
+/* 盘后 hover 预估 vs 实际对比 pop (debug, 2026-08-05)
+   仅 a_amount 卡盘后(is_closed||hm>=1500)且有 amount_forecast 数值时注入 .kpi-forecast-pop
+   overlay 覆盖整卡(.card.kpi overflow:hidden 裁剪圆角), hover 显示对比数据
+   盘中保持预估角标常驻(L8087-8104), 不注入 pop */
+.card.kpi .kpi-forecast-pop {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border-radius: inherit;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+}
+.card.kpi.has-forecast-pop:hover .kpi-forecast-pop {
+  opacity: 1;
+  visibility: visible;
+}
+/* has-forecast-pop 卡片右上角小标, 提示可 hover 看 debug 对比 */
+.card.kpi.has-forecast-pop::after {
+  content: "?";
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 4;
+  font-size: 10px;
+  line-height: 14px;
+  width: 14px;
+  height: 14px;
+  text-align: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary);
+  pointer-events: none;
+  opacity: 0.7;
+}
+.kpi-forecast-pop .kfp-title {
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+.kpi-forecast-pop .kfp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  gap: 8px;
+}
+.kpi-forecast-pop .kfp-label {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.kpi-forecast-pop .kfp-val {
+  color: var(--text-1);
+  font-weight: 600;
+  text-align: right;
+}
+.kpi-forecast-pop .kfp-forecast { color: #ff9800; }
+.kpi-forecast-pop .kfp-actual { color: var(--primary); }
+.kpi-forecast-pop .kfp-dev-label {
+  font-size: 10px;
+  font-weight: 400;
+  margin-left: 4px;
+  opacity: 0.8;
+}
+.kpi-forecast-pop .kfp-time {
+  font-size: 11px;
+  margin-top: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.kpi-forecast-pop .kfp-time .kfp-val { font-weight: 400; color: var(--text-3); }
 .card.kpi .card-value { font-size: 24px; margin: 2px 0; white-space: nowrap; overflow: hidden; display: flex; align-items: baseline; gap: 6px; }
 .card.kpi .card-value .cv-val { min-width: 0; }
 .card.kpi .card-value .cv-tags { margin-left: auto; flex-shrink: 0; }

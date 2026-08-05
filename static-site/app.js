@@ -8102,6 +8102,39 @@ async function renderOverview() {
         }
       }
     }
+    // 盘后(is_closed || hm>=1500) hover a_amount 卡 pop 预估 vs 实际对比 (debug, 2026-08-05)
+    // 盘中(hm<1500 && !is_closed)保持预估角标常驻(上方L8087-8104不动), 不显示hover pop
+    // 数据来源: state.intradaySnapshot.amount_forecast(预估数值,亿元) + k.valueNum(实际成交额,亿元)
+    // amount_forecast无值(盘后snapshot为{}空对象)时不显示pop(数据pipeline问题,非UI任务)
+    let _forecastPopHtml = "";
+    if (k.id === "a_amount") {
+      const _snapFc = state.intradaySnapshot;
+      const _fcVal = _snapFc && _snapFc.amount_forecast;
+      const _nowFc = new Date();
+      const _hmFc = _nowFc.getHours() * 100 + _nowFc.getMinutes();
+      const _isAfterClose = _snapFc && (_snapFc.is_closed || _hmFc >= 1500);
+      // _fcVal 必须是数字(盘中snapshot写入数值; 盘后可能为{}空对象, typeof='object'跳过)
+      if (typeof _fcVal === "number" && _fcVal > 0 && _isAfterClose && k.valueNum != null && k.valueNum > 0) {
+        const _fcStr = _fcVal >= 10000
+          ? `${(_fcVal / 10000).toFixed(2)}万亿`
+          : `${Math.round(_fcVal)}亿`;
+        const _actStr = k.valueNum >= 10000
+          ? `${(k.valueNum / 10000).toFixed(2)}万亿`
+          : `${Math.round(k.valueNum)}亿`;
+        const _devPct = ((k.valueNum - _fcVal) / _fcVal) * 100;
+        const _devStr = (_devPct >= 0 ? "+" : "") + _devPct.toFixed(1) + "%";
+        const _devLabel = _devPct >= 0 ? "预估偏低" : "预估偏高";
+        const _absDev = Math.abs(_devPct);
+        const _devColor = _absDev < 5 ? "#2e8b57" : _absDev < 15 ? "#e6a23c" : "#e6492e";
+        // 预估时点: 从 collected_at 提取 HH:MM (amount_forecast 在 snapshot 采集时生成)
+        let _fcTime = "";
+        if (_snapFc.collected_at) {
+          const _m = String(_snapFc.collected_at).match(/T(\d{2}):(\d{2})/);
+          if (_m) _fcTime = `${_m[1]}:${_m[2]}`;
+        }
+        _forecastPopHtml = `<div class="kpi-forecast-pop"><div class="kfp-title">预估 vs 实际</div><div class="kfp-row"><span class="kfp-label">预估</span><span class="kfp-val kfp-forecast">${_fcStr}</span></div><div class="kfp-row"><span class="kfp-label">实际</span><span class="kfp-val kfp-actual">${_actStr}</span></div><div class="kfp-row"><span class="kfp-label">偏差</span><span class="kfp-val" style="color:${_devColor}">${_devStr}<span class="kfp-dev-label">${_devLabel}</span></span></div>${_fcTime ? `<div class="kfp-row kfp-time"><span class="kfp-label">预估时点</span><span class="kfp-val">${_fcTime}</span></div>` : ""}</div>`;
+      }
+    }
     if (k.id === "a_volume_ratio") {
       const sig = k.signal || "";
       const isFangliang = sig.startsWith("放量");
@@ -8238,7 +8271,7 @@ async function renderOverview() {
       const _pct = Math.max(0, Math.min(100, k.valueNum));
       _fgBarHtml = `<div class="kpi-fg-bar" title="0(极度恐惧) -> 100(极度贪婪) 当前位置"><div class="kpi-fg-marker" style="left:${_pct}%"></div></div>`;
     }
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}${_isSentBig ? " kpi-sentiment-big" : ""}" data-kpi-key="${k.id}" data-state="${_kpiState}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div>${_kpiSparkHtml}${_fgBarHtml}<div class="card-sub" title="${sub}">${sub}</div></div>`;
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}${_isSentBig ? " kpi-sentiment-big" : ""}${_forecastPopHtml ? " has-forecast-pop" : ""}" data-kpi-key="${k.id}" data-state="${_kpiState}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div>${_kpiSparkHtml}${_fgBarHtml}<div class="card-sub" title="${sub}">${sub}</div>${_forecastPopHtml}</div>`;
   }
   // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
   cards.addEventListener("click", (e) => {
