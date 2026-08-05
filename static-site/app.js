@@ -5508,6 +5508,63 @@ async function fetchTencentMinute(code) {
   return p;
 }
 
+// ============ 腾讯 ifzq 分时单只 API (2026-08-05 L2 三源分散兜底) ============
+// 调研 a737aa573198aff09 结论: 腾讯分时批量API不存在, 但单只API完全可用
+// web.ifzq.gtimg.cn/appstock/app/minute/query?code={code} 3 host 冗余, CORS Access-Control-Allow-Origin:*
+// 12/12 指数支持(含bj899050/hkHSTECH), 36次压测0 WAF, 作 L2 三源分散兜底(每源 ≤4 次 < 风控边界 40)
+// 数据格式: data.{code}.data.data[]=["0930 3815.12 4605103 10182511845.20", ...] (空格分隔4段: 时间/价格/成交量/成交额)
+// 时间格式 "0930" (4位 HHMM 无冒号), 有 date 字段, 无 preClose (返回 null, 由调用方从 snap 补)
+// proxy.finance.qq.com/ifzq 路径含 /ifzq, 直接拼 host+path 即可
+const _QQ_HOSTS = ["web.ifzq.gtimg.cn", "proxy.finance.qq.com/ifzq", "ifzq.finance.qq.com"];
+const _QQ_PATH = "/appstock/app/minute/query?code=";
+async function fetchQQMinute(code) {
+  const qqCode = _INDEX_TO_TENCENT_MINUTE[code];
+  if (!qqCode) return null;
+  const cacheKey = "qq_minute_" + qqCode;
+  const cached = _inflightMinute.get(cacheKey);
+  if (cached) return cached;
+  const p = (async () => {
+    for (let hi = 0; hi < _QQ_HOSTS.length; hi++) {
+      const host = _QQ_HOSTS[hi];
+      try {
+        // cache-busting: 加 _=Date.now() + cache:no-store, 绕过浏览器/CDN HTTP缓存拿1min最新
+        const url = "https://" + host + _QQ_PATH + qqCode + "&_=" + Date.now();
+        const resp = await fetch(url, { cache: 'no-store' });
+        if (!resp.ok) continue;
+        const json = await resp.json();
+        if (!json || json.code !== 0 || !json.data) continue;
+        const d = json.data[qqCode];
+        if (!d || !d.data || !d.data.data) continue;
+        const points = [];
+        for (const seg of d.data.data) {
+          // 格式: "0930 3815.12 4605103 10182511845.20" (空格分隔4段: 时间/价格/成交量/成交额)
+          const parts = String(seg).split(" ");
+          if (parts.length < 4) continue;
+          const t = parts[0];
+          // 时间 "0930" (4位 HHMM 无冒号) -> "09:30"
+          const time = t.length === 4 ? t.slice(0, 2) + ":" + t.slice(2) : t;
+          const price = parseFloat(parts[1]);
+          if (isNaN(price)) continue;
+          const volume = parseInt(parts[2], 10) || 0;
+          const amount = parseFloat(parts[3]) || 0;
+          points.push({ time, price, volume, amount });
+        }
+        if (!points.length) continue; // 换 host 重试
+        const curPrice = points[points.length - 1].price;
+        // date 可能在 d.data.date 或 d.date
+        const date = (d.data && d.data.date) || d.date || "";
+        const name = d.title || d.name || "";
+        // 腾讯无 preClose, 返回 null 由调用方从 _snapPreClose(snap, id) 补 + 重算 pct
+        return { name, price: curPrice, preClose: null, pct: null, date, points };
+      } catch (e) { continue; }
+    }
+    return null;
+  })();
+  _inflightMinute.set(cacheKey, p);
+  p.finally(() => _inflightMinute.delete(cacheKey));
+  return p;
+}
+
 // ============ 批量分时方案A (2026-08-06): 12图 -> 3请求 ============
 // 同花顺批量 10 只 1 请求（A股8+港股2）+ 东财 push2delay 单只 bj50/hstech 2 请求 = 3 请求
 // 原东财单源 12 并发 -> 3 请求，降并发 12->3（4x 提速 + 避频率风控）
@@ -5588,19 +5645,24 @@ function _dynPrice(id) {
   return d && d.price != null ? d.price : null;
 }
 
-// 批量拉取多个指数的动态值（方案A 2026-08-06: 12图 -> 3请求）
+// 批量拉取多个指数的动态值（方案A 2026-08-06: 12图 -> 3请求; 2026-08-05 加腾讯ifzq三源分散兜底）
 // 架构: 同花顺批量 10 只 1 请求 + 东财 push2delay 单只 bj50/hstech 2 请求 = 3 请求
-// Fallback 层级:
-//   L1: 同花顺整批失败 -> 拆 8 A股 + 2 港股批量（2 请求）重试
-//   L2: 拆批仍失败 -> 全转东财 push2delay 12 单只（in-flight 去重，复用 _inflightMinute）
-//   L3: 东财 push2delay 失败 -> 东财 push2 多 host（fetchTencentMinute 内置 _EM_HOSTS 兜底）
+// Fallback 层级（五层 L0-L4，三源互备: 同花顺/东财/腾讯ifzq）:
+//   L0: 同花顺批量 10 + 东财 push2delay bj50/hstech 2 = 3 请求（主路径）
+//   L1: 同花顺整批失败 -> 拆 8 A股 + 2 港股批量重试（2 请求）
+//   L2: 三源分散兜底（关键改进）-> 拆批/L0 仍失败的 ids 按源能力分配:
+//       thsIds 失败的 -> 轮询分到 ths/em/qq 三 bucket（同花顺有代码）
+//       emIds 失败的（bj50/hstech）-> 只分到 em/qq 两 bucket（同花顺无代码，不能进 ths）
+//       每源 ≤4 次 < 风控边界（同花顺<30/东财<60/腾讯<40）
+//   L3: 动态负载均衡 -> L2 后仍失败的 ids 转其他两源各半（toEm+toQq，不含 ths 避免 bj50/hstech 问题）
 //   L4: 全失败 -> snap 兜底（_renderIntradayFail 现有机制）
+// 腾讯 ifzq 无 preClose, 从 _snapPreClose(snap, id) 补 + 重算 pct
 // 成功更新 _intradayDynamicPct/_intradayTime + _batchMinuteCache（_renderIntradayChart 复用避免重复请求）
 // 返回 {results, ok}
 // in-flight 去重: renderOverview L8018 与 _doIntradayRefresh 可能并发调 _refreshDynamicAll,
 //   复用同一 Promise 避免双倍批量请求（同 _inflightMinute 机制）
 let _inflightBatchP = null;
-async function _fetchDynamicPcts(ids) {
+async function _fetchDynamicPcts(ids, snap) {
   const valid = (ids || []).filter((id) => _INDEX_TO_TENCENT_MINUTE[id]);
   if (!valid.length) return { results: {}, ok: false };
   // in-flight 去重: 并发调用复用同一 Promise（ids 相近时结果可复用，避免双倍批量请求）
@@ -5643,18 +5705,85 @@ async function _fetchDynamicPcts(ids) {
       }
     }
 
-    // ---- 东财 push2delay 单只 bj50/hstech（L0 主路径，2 请求）----
-    // L2/L3 fallback: 同花顺未命中的 id（拆批仍失败的 A股/港股）也走东财单只兜底
-    const emFallbackIds = emIds.concat(thsIds.filter((id) => !results[id]));
-    if (emFallbackIds.length) {
-      const pairs = await Promise.all(
-        emFallbackIds.map((id) => fetchTencentMinute(id).then((r) => [id, r]))
-      );
-      for (const [id, r] of pairs) {
-        if (r && r.pct != null) {
-          results[id] = r;
-          _batchMinuteCache.set(id, r);
+    // ---- L2 三源分散兜底（2026-08-05 改进）: 拆批/L0 仍失败的 ids 按源能力分配 ----
+    // thsIds 失败的（同花顺有代码的 10 只）-> 轮询分到 ths/em/qq 三 bucket
+    // emIds 失败的（bj50/hstech，同花顺无代码）-> 只分到 em/qq 两 bucket
+    //   ⚠️ bj50/hstech 不能进 ths，否则 _INDEX_TO_THS_CODE[id]=undefined 致 fetchTHSBatchMinute 失败
+    // 每源 ≤4 次 < 风控边界（同花顺<30/东财<60/腾讯<40）
+    const failedThsIds = thsIds.filter((id) => !results[id]);
+    const failedEmIds = emIds.filter((id) => !results[id]);
+    const toThs = [], toEm = [], toQq = [];
+    failedThsIds.forEach((id, i) => {
+      const bucket = i % 3; // 0=ths, 1=em, 2=qq
+      if (bucket === 0) toThs.push(id);
+      else if (bucket === 1) toEm.push(id);
+      else toQq.push(id);
+    });
+    failedEmIds.forEach((id, i) => {
+      const bucket = i % 2; // 0=em, 1=qq（不能进 ths）
+      if (bucket === 0) toEm.push(id);
+      else toQq.push(id);
+    });
+
+    // 辅助: 应用单只结果（腾讯 ifzq 无 preClose 时从 snap 补 + 重算 pct）
+    const applyResult = (id, r) => {
+      if (!r) return false;
+      let res = r;
+      if (res.preClose == null && snap) {
+        const snapPre = _snapPreClose(snap, id);
+        if (snapPre != null && res.price != null) {
+          res = Object.assign({}, res, {
+            preClose: snapPre,
+            pct: ((res.price - snapPre) / snapPre) * 100
+          });
         }
+      }
+      if (res.pct != null) {
+        results[id] = res;
+        _batchMinuteCache.set(id, res);
+        return true;
+      }
+      return false;
+    };
+
+    // L2 并发三源拉取（同花顺批量 + 东财单只 + 腾讯单只）
+    const l2Promises = [];
+    if (toThs.length) l2Promises.push(fetchTHSBatchMinute(toThs.map((id) => _INDEX_TO_THS_CODE[id])));
+    toEm.forEach((id) => l2Promises.push(fetchTencentMinute(id).then((r) => [id, r])));
+    toQq.forEach((id) => l2Promises.push(fetchQQMinute(id).then((r) => [id, r])));
+    const l2Results = await Promise.all(l2Promises);
+    const stillFailed = new Set();
+    l2Results.forEach((res) => {
+      if (Array.isArray(res)) {
+        // [id, r] 单只结果（东财/腾讯）
+        const [id, r] = res;
+        if (!applyResult(id, r)) stillFailed.add(id);
+      } else if (res && res.ok) {
+        // 同花顺批量结果 {results: {tcCode: ...}, ok}
+        for (const id of toThs) {
+          const tc = _INDEX_TO_THS_CODE[id];
+          if (!applyResult(id, res.results[tc])) stillFailed.add(id);
+        }
+      } else {
+        // 同花顺批量失败，所有 toThs ids 标记失败
+        toThs.forEach((id) => stillFailed.add(id));
+      }
+    });
+
+    // ---- L3 动态负载均衡: L2 后仍失败的 ids 转其他两源各半（toEm+toQq，不含 ths 避免 bj50/hstech 问题）----
+    const l3Ids = Array.from(stillFailed).filter((id) => results[id] == null);
+    if (l3Ids.length) {
+      const l3ToEm = [], l3ToQq = [];
+      l3Ids.forEach((id, i) => {
+        if (i % 2 === 0) l3ToEm.push(id);
+        else l3ToQq.push(id);
+      });
+      const l3Promises = [];
+      l3ToEm.forEach((id) => l3Promises.push(fetchTencentMinute(id).then((r) => [id, r])));
+      l3ToQq.forEach((id) => l3Promises.push(fetchQQMinute(id).then((r) => [id, r])));
+      const l3Results = await Promise.all(l3Promises);
+      for (const [id, r] of l3Results) {
+        applyResult(id, r);
       }
     }
 
@@ -5746,7 +5875,7 @@ async function _refreshDynamicAll(snap) {
   const ids = _dynamicBadgeIds && _dynamicBadgeIds.length
     ? _dynamicBadgeIds
     : _INTRADAY_INDICES.map((i) => i.id);
-  const { results } = await _fetchDynamicPcts(ids);
+  const { results } = await _fetchDynamicPcts(ids, snap);
   _applyDynamicToBadges(results);
   _applyDynamicToChips(snap);
   _applyDynamicToBannerTime(snap);
