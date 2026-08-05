@@ -1070,24 +1070,6 @@ main { padding: 16px 24px; }
   opacity: 1;
   visibility: visible;
 }
-/* has-fg-tooltip 卡片右上角小标, 提示可 hover 看刻度说明(同 has-forecast-pop) */
-.card.kpi.has-fg-tooltip::after {
-  content: "?";
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  z-index: 4;
-  font-size: 10px;
-  line-height: 14px;
-  width: 14px;
-  height: 14px;
-  text-align: center;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--primary) 20%, transparent);
-  color: var(--primary);
-  pointer-events: none;
-  opacity: 0.7;
-}
 .kpi-fg-tooltip .kfg-title {
   font-size: 11px;
   color: var(--text-3);
