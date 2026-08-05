@@ -8351,13 +8351,40 @@ async function renderOverview() {
         // 含义(非情绪分卡): 从 _kpiTips 取一句话
         const _tipText = _kpiTips[k.id];
         const _meaningRow = (_tipText && !_isScore) ? `<div class="kst-meaning">${_tipText}</div>` : "";
+        // P1 方案B: 情绪分卡 hover 分项构成条形图 (2026-08-05)
+        // 回答"为什么70分": 拆解 components 各维度子分值(0-100归一化)
+        // a_sentiment 6维(ratio/zt/zhaban/lianban/amount/north) + cross_market 9维 + 6宽基2-3维(rsi/pct_change[/qvix])
+        // fear_greed 只有{label,available_scores}无0-100分项, 跳过(保留现有进度条+6m分位合并)
+        // 数据: r.today.scores[k.id].components (P1后端 627aa03ea parse JSON string->dict)
+        // 复用 _COMP_NAMES(L10606 中文名) + fearGreedColor(L1196 色阶); 权重不显示(太挤, 组成因子折叠区已有)
+        let _compBarsHtml = "";
+        if (_isScore && k.id !== "fear_greed") {
+          const _compSrc = r.today && r.today.scores && r.today.scores[k.id] && r.today.scores[k.id].components;
+          if (_compSrc && typeof _compSrc === "object") {
+            const _compKeys = Object.keys(_compSrc).filter(kk => {
+              const vv = _compSrc[kk];
+              return typeof vv === "number" && !isNaN(vv); // 只要0-100数值分项(label/available_scores等非数值跳过)
+            });
+            if (_compKeys.length) {
+              const _compRows = _compKeys.map(kk => {
+                const _cname = _COMP_NAMES[kk] || kk;
+                const _cv = Number(_compSrc[kk]);
+                const _cpct = Math.max(0, Math.min(100, _cv));
+                const _ccolor = fearGreedColor(_cv);
+                return `<div class="kst-comp-row"><span class="kst-comp-label" title="${_cname}">${_cname}</span><div class="kst-comp-bar"><div class="kst-comp-fill" style="width:${_cpct.toFixed(1)}%;background:${_ccolor}"></div></div><span class="kst-comp-val" style="color:${_ccolor}">${_cv.toFixed(1)}</span></div>`;
+              }).join("");
+              _compBarsHtml = `<div class="kst-sep"></div><div class="kst-comp-title">分项构成</div>${_compRows}`;
+            }
+          }
+        }
         const _tooltipBody =
           `<div class="kst-headline">当前 <b style="color:${_isScore ? fearGreedColor(k.valueNum) : "var(--text-1)"}">${k.value}</b> · <b style="color:${_pctColor}">${_stat.percentile.toFixed(0)}%分位(${_pctTag})</b></div>` +
           `<div class="kst-row"><span class="kst-label">6m最高</span><span class="kst-val">${_fmt6mV(_stat.max)}</span></div>` +
           `<div class="kst-row"><span class="kst-label">6m最低</span><span class="kst-val">${_fmt6mV(_stat.min)}</span></div>` +
           `<div class="kst-row"><span class="kst-label">6m均值</span><span class="kst-val">${_fmt6mV(_stat.mean)}</span></div>` +
           _extraRows +
-          _meaningRow;
+          _meaningRow +
+          _compBarsHtml;
         if (k.id === "fear_greed") {
           // 合并到现有 fg-tooltip(进度条+刻度), 追加分隔线+6m分位行, 避免两 overlay 叠加
           _fgMerge6m = `<div class="kst-sep"></div>` + _tooltipBody;
