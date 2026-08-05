@@ -1003,15 +1003,16 @@ main { padding: 16px 24px; }
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
   transform: translateY(-1px);
 }
-/* P1-⑥+ hover 动效扩展到图表大卡(分时图/宽窄度/指数图/MA/持仓/信号卡等)，克制效果：
-   大容器面积大 translateY 不宜过大(-0.5px)，避免和 ECharts 鼠标事件冲突；
-   用 box-shadow 0 0 0 1px 模拟描边(不改 border-width 避免布局抖动)。
+/* P1-⑥+ hover 动效扩展到图表大卡(分时图/宽窄度/指数图/MA/持仓/信号卡等)：
+   translateY -2px 蹦出效果，compositor 层纯视觉变换不影响 ECharts getBoundingClientRect 坐标；
+   用 box-shadow 0 0 0 1px 模拟描边(不改 border-width 避免布局抖动) + 背景变深对齐 KPI。
    排除 .nt-home-card(已有自己 hover 定义)；market-score-card 非 chart-card 不受影响。
    fg-dim-card/sig-card/ma-card/position-card 等子类共享此 hover，统一交互反馈。 */
-.chart-card { transition: transform .15s ease, box-shadow .15s ease; }
+.chart-card { transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease; }
 .chart-card:not(.nt-home-card):hover {
-  transform: translateY(-0.5px);
+  transform: translateY(-2px);
   border-color: var(--primary);
+  background-color: color-mix(in srgb, var(--bg-hover) 88%, transparent);
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
 }
 /* P0-② data-state 左侧色条着色 */
@@ -3737,8 +3738,8 @@ main { padding: 16px 24px; }
 .nt-banner-body b { color: var(--text-1); }
 
 /* 首页🐶汪汪队信号卡片 */
-.nt-home-card { transition: border-color .2s, box-shadow .2s; }
-.nt-home-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(0,0,0,.08); transform: translateY(-1px); }
+.nt-home-card { transition: border-color .2s, box-shadow .2s, transform .15s ease; }
+.nt-home-card:hover { border-color: var(--primary); box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary); transform: translateY(-2px); }
 .nt-date-tag { font-size: 11px; color: var(--text-3); font-weight: normal; margin-left: 4px; }
 .nt-resonance-badge {
   display: inline-block; margin-left: 6px; padding: 1px 7px; font-size: 11px; font-weight: 600;
