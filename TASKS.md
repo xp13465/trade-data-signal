@@ -1450,18 +1450,55 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **明天验证**：盘中异动验证浏览器弹通知（去重粒度对齐后新标的能弹）。详见 NOTES §48 小节AJ
 
-## 📋 2026-08-05 预估成交额实施（A+C共存，agent a70c4fb461004f00c 实施中）
+## 📋 2026-08-05 预估成交额实施（A+C共存，已验收✓ commit be49e0064 + f81a31bda，待23:00+推main）
 
 **方案**（用户确认显示：预估全天成交额跟着成交额卡片后面对照看）：
 - A线性外推带时间加权（立即生效）：A股分时成交节奏经验占比（9:30=2%->15:00=100%），预估=当前累计/经验累计占比
 - C历史分时占比（积累5-10交易日后校准）：新表intraday_amount_history每10分钟存一行，积累后查历史同时段占比平均值校准
 - C数据足够（>=5天）自动切换，否则fallback A
 
-**改动**：①新表intraday_amount_history（CREATE TABLE IF NOT EXISTS）②intraday_snapshot.py L1264采完a_amount后加a_amount_forecast预估计算（独立try-except隔离，失败只log_collect error不影响现有采集）+历史数据积累 ③app.js成交额卡片加预估角标"当前累计XXXX亿/预估全天YYYY亿"对照（预估灰色区分）
+**实施**（commit `be49e0064` + `f81a31bda`，已验收✓）：
+- `be49e0064`（后端+前端基础版，5文件+124/-3）：
+  - 后端 `intraday_snapshot.py`（+108行）：新表 `intraday_amount_history` 正确 schema（date/time_hhmm/cum_amount/source/run_at），DROP 旧错 schema 表（ts_code/trade_date 旧 agent 遗留）；新增 `_forecast_amount` 方案A经验加权（`_EXP_RATIOS`+`_exp_cum_ratio`）+方案C历史占比校准（>=5天切换）；在 `_collect_intraday_width_metrics` 的 a_amount upsert 后加预估计算，独立 try-except 隔离失败只 `log_collect error`；width 采集后重新 dump `intraday_snapshot.json` 含 `amount_forecast` 字段
+  - 前端 `app.js`：metricId 配置添加 `a_amount_forecast`，成交额 KPI 卡片盘中显示预估全天角标（forecast-tag），收盘后（15:00 后）隐藏
+  - 主库：DROP 旧错 schema 表 + 建正确 schema 表
+- `f81a31bda`（UI优化，4文件+14/-5）：`be49e0064` 前端旧版只显示灰色"预估全天 X亿"后缀不符合"对照看"需求，本次改 `app.js` L8083-8104：
+  - 主值 `valueHtml`：预估全天（>=1万亿用"X.XX万亿"，否则"X亿"）+ 橙色"预估"tag（background:#ff9800;color:#fff;font-size:10px;padding:1px 4px）
+  - 副值 `sub`：`当前 {k.value}{k.sub}` 对照看当前累计成交额
+  - 时间门控 `hm<1500` 才显示；`build_min` app.min.js 重生成（-46.7%）；`bump_asset_version` app.min.js?v=f4aa6347->7ed6f578；`sw.js` CACHE_VERSION v2-20260805-amount-forecast -> v2-20260805-amount-forecast-ui
 
-**约束**：3保证不影响采集（try-except隔离+改intraday_snapshot.py避开:25/:35/:45/:55/:05/:15时点+ast语法检查）+commit feat不推main+改app.js后bump sw.js=v2-20260805-amount-forecast
+**语义错位bug修复**：旧 agent（9a904f948）用 `indices` 单指数预估数值差4倍（语义错位，把指数当全市场成交额算），主控验收发现后改用全市场 `a_amount` 重新实施 `be49e0064`。
 
-**状态**：⏳ 实施中（agent a70c4fb461004f00c，1/7 db.py建表完成）
+**约束遵循**：3保证不影响采集（try-except隔离+改intraday_snapshot.py避开:25/:35/:45/:55/:05/:15时点+ast语法检查）✓ / commit feat不推main ✓ / 改app.js后bump sw.js ✓
+
+**明天验证**：盘中验证 intraday_snapshot.json 含 amount_forecast 字段，KPI 卡片显橙色预估 tag + 主值万亿/亿切换。详见 NOTES §48 小节AK
+
+## 📋 2026-08-05 8/5 R2无数据根治（commit faf109e57，待23:00+推main）
+
+**根因**：`intraday_snapshot.py` 盘中每 10 分钟生成 `sentiment-{rng}.json` 到主库但不上传 R2，前端 `app.js` dataUrl 对 `-all.json` 走 R2（ssd.fx8.store/data/），R2 只在 `export.py`（17:50）上传，盘中 R2 停在昨日致前端读旧数据（8/5 无数据事故）。**非 trade 镜像滞后**（曾误判，实际是 R2 上传滞后--盘中根本不上传 R2）。
+
+**实施**（commit `faf109e57`，1文件+36行）：
+- `intraday_snapshot.py` L1655-1667：在 sentiment 5 ranges 生成循环后（L1648），`subprocess` 调用 `upload_r2.py upload` 上传 5 个 `sentiment-{rng}.json` 到 R2（`data/sentiment-{rng}.json`）
+- 独立 try-except 失败不阻断采集，`log_collect error` `func_name=sentiment_r2_upload` 让监控发现（L1676/1681）
+- 复用 `upload_r2.py`（只依赖 stdlib，自己加载 `.env` 获取 R2 凭证）
+- 即时修复：已手动上传 `sentiment-all.json` 到 R2（主库 trade-data，有 8/5）
+
+**验收**：curl R2 `a_sentiment` 最后 20260805 73.78 ✓ / upload_r2 调用 L1655-1667 ✓ / log_collect error L1676/1681 ✓
+
+**明天验证**：盘中验证 R2 `sentiment-all.json` 含 8/6 最新日期。详见 NOTES §48 小节AK
+
+## 📋 2026-08-05 信号设计方案B（commit 9df46887f，待23:00+推main）
+
+**背景**：`sentiment_cyb` 在 `SCORE_IDS` 被当 close 算买卖点，但情绪分是 0-100 衍生指标非可交易标的，混入首页买卖点列表易误导且无 ETF 参考（`trade_sim`/`board_etf_map` 无 `s.` 前缀映射）。
+
+**方案B**（commit `9df46887f`，1文件，已验收✓）：
+- `app/queries.py` L370：只在 `overview()` 的 `signals_today` 生成 SQL 加 `AND index_id NOT LIKE 's.%%'` 过滤
+- `signal_daily` 表保留 `s.*` 记录（情绪分 KPI 卡片/弹窗仍经 `signals()` 函数按 index_id 查 `s.*` 画走势+pin，L761-769 9 个情绪分 KPI 不受影响）
+- 不改 app.js（避免和前端 agent 撞 app.js）
+
+**验收**：grep L370 `NOT LIKE 's.%%'` ✓ / `signals_today` 201 条 `s.*` 0 条（过滤生效）✓ / `signal_daily` 保留 1 条 `s.sentiment_cyb sell`（表未过滤）✓ / ast 语法 queries.py/signals.py OK ✓
+
+**明天验证**：signals_today s.* 0 条（已验收，明天数据复现）。详见 NOTES §48 小节AK
 
 ## 📋 2026-08-05 KPI小卡新颖设计全套（P0+P1+P2，待实施）
 
@@ -1480,9 +1517,9 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **已有可复用**：sparkline基础设施（P0-1在独立.spark-grid L1033，可嵌入KPI卡）/红金主题色变量（--primary #f0b90b金/--bg-best半透明金/--bg-active暖棕/--primary-bg深棕金）/角标10状态色/hover动效（.kpi-clickable L1737-1742）/情绪分emoji标签（🔵冰点/🟦偏冷/⚪中性/🟠偏热/🔴过热 app.js L1176-1183）
 
 **实施约束**：
-- 等预估成交额agent（a70c4fb461004f00c）完成验收后派实施agent（两者都改app.js KPI渲染段L7935-8172+sw.js，区域重叠需串行）
+- 预估成交额已验收✓（commit be49e0064+f81a31bda），app.js KPI渲染段不再冲突，可直接派实施agent（改 app.js KPI渲染段 L7935-8172+sw.js）
 - 改app.js KPI渲染（L7935-8172）+ style.css（L832-1031 KPI样式）+ critical-css（index.html L70可能加变量）+ sw.js CACHE_VERSION bump=v2-20260805-kpi-design
-- 23:00+推main（和跌停池根治+通知修复+性能优化+预估成交额一起）
+- 23:00+推main（和跌停池根治+通知修复+性能优化+预估成交额+信号方案B+8/5 R2根治一起）
 - 改app.js后build_min+bump_asset_version+bump sw.js（铁律1）
 
-**状态**：⏳ 待派实施agent（等预估成交额agent完成后，避免app.js冲突）
+**状态**：⏳ 待派实施agent（预估成交额已完成无冲突，推main后可派）

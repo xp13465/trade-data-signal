@@ -7552,3 +7552,66 @@ feat分支 ahead 2（d2f5ddeba兜底 + 36150ab7b hover pop），c59fc975今晚23
 **明天验证**：跌停池根治需明天盘中 intraday-snapshot 跑新代码验证 collect_health 显示error状态；通知修复需明天盘中异动验证浏览器弹通知（去重粒度对齐后新标的能弹）。
 
 **落档**：NOTES §48 小节AJ + memory（notify-email-vs-push 更新根因根治结论）。详见 [[notify-email-vs-push]] [[notify-instant-over-resource]] [[optimization-criteria]]
+
+## §48 小节AK：2026-08-05 下午 预估成交额UI+8/5 R2根治+信号方案B（4 commits 待23:00+推main）
+
+### 1. 预估成交额方案C实施+UI（commit be49e0064 + f81a31bda，已验收✓）
+**背景**：用户诉求"预估全天成交额跟着成交额卡片后面对照看"。
+
+**语义错位bug修复**：旧 agent（9a904f948）用 `indices` 单指数预估数值差4倍（语义错位，把指数当全市场成交额算），主控验收发现后改用全市场 `a_amount` 重新实施。`be49e0064` 严格按原始规格实施：
+- 后端 `intraday_snapshot.py`（+108 行）：
+  - 新表 `intraday_amount_history` 正确 schema（date/time_hhmm/cum_amount/source/run_at），DROP 旧错 schema 表（ts_code/trade_date 旧 agent 遗留）
+  - 新增 `_forecast_amount`：方案A经验加权（`_EXP_RATIOS` + `_exp_cum_ratio` A股分时成交节奏占比表，9:30=2%->15:00=100%）+ 方案C历史占比校准（>=5天自动切换，否则 fallback A）
+  - 在 `_collect_intraday_width_metrics` 的 `a_amount` upsert 后加预估计算，独立 try-except 隔离失败只 `log_collect error` 不影响现有采集
+  - width 采集后重新 dump `intraday_snapshot.json` 含 `amount_forecast` 字段
+- 前端 `app.js`：metricId 配置添加 `a_amount_forecast`，成交额 KPI 卡片盘中显示预估全天角标（forecast-tag），收盘后（15:00 后）隐藏
+- 主库：DROP 旧错 schema 表 + 建正确 schema 表
+
+**UI 优化**（commit `f81a31bda`）：`be49e0064` 前端旧版只显示灰色"预估全天 X亿"后缀，不符合"对照看"需求。本次改 `app.js` L8083-8104：
+- 盘中且有 `snap.amount_forecast` 时：
+  - 主值 `valueHtml`：预估全天（>=1万亿用"X.XX万亿"，否则"X亿"）+ 橙色"预估"tag（background:#ff9800;color:#fff;font-size:10px;padding:1px 4px）
+  - 副值 `sub`：`当前 {k.value}{k.sub}` 对照看当前累计成交额
+- 收盘后或无预估值：保持原 `a_amount` 卡片显示逻辑（主值=k.value，副值=k.sub）
+- 时间门控：`hm<1500`（15:00 前盘中）才显示，与原逻辑一致
+- `build_min.py` app.min.js 重生成（-46.7%）；`bump_asset_version` app.min.js?v=f4aa6347->7ed6f578；`sw.js` CACHE_VERSION v2-20260805-amount-forecast -> v2-20260805-amount-forecast-ui（改 app.js 必须 bump sw，铁律1）
+
+**验收**：log_collect error 分支 ✓ / schema 正确（date+time_hhmm+cum_amount，DROP 旧 ts_code/trade_date）✓ / 主值万亿/亿切换 ✓ / 橙色预估tag ✓ / 副值当前累计对照 ✓ / sw.js bump ✓
+
+### 2. 8/5 无数据根因根治（commit faf109e57，已验收✓）
+**根因**：`intraday_snapshot.py` 盘中每 10 分钟生成 `sentiment-{rng}.json` 到主库但不上传 R2，前端 `app.js` dataUrl 对 `-all.json` 走 R2（ssd.fx8.store/data/），R2 只在 `export.py`（17:50）上传，盘中 R2 停在昨日致前端读旧数据（8/5 无数据事故）。**非 trade 镜像滞后**（曾误判，实际是 R2 上传滞后——盘中根本不上传 R2）。
+
+**根治**（`intraday_snapshot.py` L1655-1667，+36 行）：
+- 在 sentiment 5 ranges 生成循环后（L1648），`subprocess` 调用 `upload_r2.py upload` 上传 5 个 `sentiment-{rng}.json` 到 R2（`data/sentiment-{rng}.json`）
+- 独立 try-except 失败不阻断采集，`log_collect error` `func_name=sentiment_r2_upload` 让监控发现（L1676/1681）
+- 复用 `upload_r2.py`（只依赖 stdlib，自己加载 `.env` 获取 R2 凭证）
+- 即时修复：已手动上传 `sentiment-all.json` 到 R2（主库 trade-data，有 8/5）
+
+**验收**：curl R2 `a_sentiment` 最后 20260805 73.78 ✓ / upload_r2 调用 L1655-1667 ✓ / log_collect error L1676/1681 ✓
+
+### 3. 信号设计方案B（commit 9df46887f，已验收✓）
+**背景**：`sentiment_cyb` 在 `SCORE_IDS` 被当 close 算买卖点，但情绪分是 0-100 衍生指标非可交易标的，混入首页买卖点列表易误导且无 ETF 参考（`trade_sim`/`board_etf_map` 无 `s.` 前缀映射）。
+
+**方案B**（`app/queries.py` L370，不改 app.js 避免和前端 agent 撞）：
+- 只在 `overview()` 的 `signals_today` 生成 SQL 加 `AND index_id NOT LIKE 's.%%'` 过滤
+- `signal_daily` 表保留 `s.*` 记录（情绪分 KPI 卡片/弹窗仍经 `signals()` 函数按 index_id 查 `s.*` 画走势+pin，L761-769 9 个情绪分 KPI 不受影响）
+
+**验收**：grep L370 `NOT LIKE 's.%%'` ✓ / `signals_today` 201 条 `s.*` 0 条（过滤生效）✓ / `signal_daily` 保留 1 条 `s.sentiment_cyb sell`（表未过滤）✓ / ast 语法 queries.py/signals.py OK ✓
+
+### 4. 待23:00+推main（feat commit链）
+当前 `feat/iframe-theme-follow` commit 链（待 23:00+ 安全窗口 merge origin/main 同步 data 新版后推 main）：
+- `faf109e57` intraday_snapshot 盘中上传 sentiment-{rng}.json 到 R2（根治8/5无数据）
+- `9df46887f` signals_today 过滤 s.* 情绪分信号（方案B）
+- `f81a31bda` a_amount 卡片预估角标 UI（橙色预估tag+主值万亿/亿+副值当前累计对照）
+- `be49e0064` 预估成交额功能（方案C后端，_forecast_amount 方案A经验加权+C历史占比校准，schema date+time_hhmm+cum_amount，全市场 a_amount 语义正确，log_collect error）
+- `9e7c0f616` 通知根因根治（P0去重粒度对齐+P1 SW回调防死锁）
+- `17966eb7e` 跌停池根治（三池 log_collect+交叉验证+前端采集失败 badge）
+- `643c7dd31` P1-8 首屏22 JSON合并 boot.json（请求数22->2）
+- `aa180ee04` upload-data-large exclude etf_score_list
+- `b5aee7a95`+`8a82cb2ae` P0-2 etf_score_list 拆3 JSON+懒加载
+- `ef0969498` P1-5 回滚（通知即时性优先）+P1-6 fetch 并行+P1-7 preconnect
+
+**推main前必做**：①merge origin/main 同步 intraday-snapshot/update-all 定时任务推的 data 新版（§8事故根因：feat从旧merge-base分出static-site/data/停旧版，push feat:main覆盖main新版data）②跑 export 生成 etf_score_list 3 JSON + boot.json + R2 上传 ③3 域名验证（ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2）
+
+**明天验证**：①预估成交额明天盘中验证 intraday_snapshot.json 含 amount_forecast 字段，KPI 卡片显橙色预估 tag + 主值万亿/亿切换 ②8/5 R2 根治明天盘中验证 R2 sentiment-all.json 含 8/6 最新日期 ③信号方案B明天验证 signals_today s.* 0 条（已验收，明天数据复现）
+
+**落档**：NOTES §48 小节AK + TASKS 预估成交额+信号设计+8/5 R2 状态更新为已完成。关联 memory [[intraday-snapshot-schedule]] [[fetchjson-skip-gz]] [[r2-arch-by-category-not-size]]
