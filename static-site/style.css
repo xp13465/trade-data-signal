@@ -1106,6 +1106,95 @@ main { padding: 16px 24px; }
   text-align: center;
 }
 .kpi-fg-tooltip .kfg-cur b { font-weight: 600; }
+/* P0 19张KPI卡 hover 6m分位+极值 tooltip (方案A+E+G+H, 2026-08-05)
+   复用 has-fg-tooltip overlay CSS 模式(position:absolute inset:0 opacity:0->1 hover显示)
+   和 kpi-fg-tooltip / kpi-forecast-pop 风格协调, overlay 覆盖整卡(.card.kpi overflow:hidden 裁剪)
+   18卡用 .kpi-sent-tooltip; fear_greed 合并行复用 .kpi-fg-tooltip 内 .kst-* 样式 */
+.card.kpi .kpi-sent-tooltip {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border-radius: inherit;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+  overflow: hidden;
+}
+.card.kpi.has-sent-tooltip:hover .kpi-sent-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+/* has-sent-tooltip 卡片右上角小标, 提示可 hover 看6m分位(和 has-forecast-pop 风格一致) */
+.card.kpi.has-sent-tooltip::after {
+  content: "6m";
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 4;
+  font-size: 9px;
+  line-height: 14px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  text-align: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--primary);
+  pointer-events: none;
+  opacity: 0.7;
+}
+/* 共享 .kst-* 行样式(同时作用于 .kpi-sent-tooltip 和 fear_greed 合并的 .kpi-fg-tooltip) */
+.kpi-sent-tooltip .kst-title,
+.kpi-fg-tooltip .kst-title {
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: center;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+.kpi-sent-tooltip .kst-headline,
+.kpi-fg-tooltip .kst-headline {
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: center;
+  margin-bottom: 2px;
+}
+.kpi-sent-tooltip .kst-headline b,
+.kpi-fg-tooltip .kst-headline b { font-weight: 600; }
+.kpi-sent-tooltip .kst-row,
+.kpi-fg-tooltip .kst-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  gap: 8px;
+}
+.kpi-sent-tooltip .kst-label,
+.kpi-fg-tooltip .kst-label { color: var(--text-3); flex-shrink: 0; }
+.kpi-sent-tooltip .kst-val,
+.kpi-fg-tooltip .kst-val { color: var(--text-1); font-weight: 600; text-align: right; }
+.kpi-sent-tooltip .kst-meaning,
+.kpi-fg-tooltip .kst-meaning {
+  font-size: 10px;
+  color: var(--text-3);
+  line-height: 1.35;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border);
+}
+/* fear_greed 合并分隔线(.kpi-sent-tooltip 不用, 容器自带gap) */
+.kpi-fg-tooltip .kst-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0 1px;
+}
 /* 盘后 hover 预估 vs 实际对比 pop (debug, 2026-08-05)
    仅 a_amount 卡盘后(is_closed||hm>=1500)且有 amount_forecast 数值时注入 .kpi-forecast-pop
    overlay 覆盖整卡(.card.kpi overflow:hidden 裁剪圆角), hover 显示对比数据

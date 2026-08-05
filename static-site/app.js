@@ -1202,6 +1202,26 @@ function fearGreedColor(value) {
   return "#e6492e";
 }
 
+// P0 KPI hover 6m分位计算 (2026-08-05): 共享分位+极值算法, 参考 appendHistoryPos 近1年分位+6m极值
+// 输入: 6m数组[{date,value,...}]+当前值; 输出: {percentile,max,min,mean} 或 null
+// percentile = (小于当前值的点数/总点数)*100, 与 appendHistoryPos 近1年分位同口径
+function _calc6mPercentile(arr, curVal) {
+  if (!Array.isArray(arr) || !arr.length || curVal == null || Number.isNaN(curVal)) return null;
+  const vals = [];
+  for (const d of arr) {
+    if (d && d.value != null && !Number.isNaN(d.value)) vals.push(d.value);
+  }
+  if (!vals.length) return null;
+  let less = 0, mx = vals[0], mn = vals[0], sum = 0;
+  for (const v of vals) {
+    if (v < curVal) less++;
+    if (v > mx) mx = v;
+    if (v < mn) mn = v;
+    sum += v;
+  }
+  return { percentile: less / vals.length * 100, max: mx, min: mn, mean: sum / vals.length };
+}
+
 // index_id → 中文名 转译（散户友好，去除代码前缀，查不到保留原值）
 const _INDEX_NAME_MAP = {
   // A股宽基
@@ -8074,6 +8094,15 @@ async function renderOverview() {
   const _orderedCards = _orderedIds.map(id => _idToCard.get(id)).filter(Boolean);
   const cards = document.createElement("div");
   cards.className = "cards kpi-row";
+  // P0 19张KPI卡 hover 显示6m分位+极值 (方案A+E+G+H, 2026-08-05):
+  // 9情绪分(a_sentiment/cross_market/fear_greed/sentiment_*) + 6宽度(a_width_*) + 3商品/利率/波动率(gold/cn10y/a_qvix_300) + 1量比(a_volume_ratio)
+  // 数据来自 overview.json 的 {id}_6m 字段(sparkline 同源, 零额外请求)
+  const _KPI_6M_TOOLTIP_IDS = new Set([
+    "a_sentiment", "cross_market", "fear_greed",
+    "sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50",
+    "a_width_zt_count", "a_width_dt_count", "a_width_up_count", "a_width_down_count", "a_width_zhaban_rate", "a_width_fengban_rate",
+    "gold", "cn10y", "a_qvix_300", "a_volume_ratio",
+  ]);
   for (const k of _orderedCards) {
     const tagCls = k.tag === "冰点" ? "freeze" : k.tag === "过热" ? "overheat" : k.disabled ? "disabled" : "stale";
     const tagHtml = k.tag ? ` <span class="tag ${tagCls}">${k.tag}</span>` : "";
@@ -8273,7 +8302,75 @@ async function renderOverview() {
       const _pct = Math.max(0, Math.min(100, k.valueNum));
       _fgTooltipHtml = `<div class="kpi-fg-tooltip"><div class="kfg-title">恐贪指数刻度</div><div class="kfg-bar"><div class="kfg-marker" style="left:${_pct}%"></div></div><div class="kfg-scale"><span>0 极度恐惧</span><span>100 极度贪婪</span></div><div class="kfg-cur">当前 <b style="color:${fearGreedColor(k.valueNum)}">${k.valueNum}</b> · ${fearGreedLabel(k.valueNum)}</div></div>`;
     }
-    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}${_fgTooltipHtml ? " has-fg-tooltip" : ""}${_forecastPopHtml ? " has-forecast-pop" : ""}" data-kpi-key="${k.id}" data-state="${_kpiState}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div>${_kpiSparkHtml}<div class="card-sub" title="${sub}">${sub}</div>${_forecastPopHtml}${_fgTooltipHtml}</div>`;
+    // P0 19张KPI卡 6m分位+极值 tooltip 注入 (2026-08-05):
+    // fear_greed 合并到现有 fg-tooltip(两 inset:0 overlay 叠加冲突, 合并避免); 其余18卡用 .kpi-sent-tooltip
+    // 格式: 当前值+6m分位(偏热/偏冷/中性)+6m最高/最低/均值 + (情绪分:距冰点/过热 | 商品:日涨跌 | 量比:量能状态) + (非情绪分:含义)
+    let _kpiSentTooltipHtml = "";
+    let _fgMerge6m = "";
+    if (_KPI_6M_TOOLTIP_IDS.has(k.id) && k.valueNum != null) {
+      const _arr6m = r[`${k.id}_6m`];
+      const _stat = _calc6mPercentile(_arr6m, k.valueNum);
+      if (_stat) {
+        const _isScore = k.id === "a_sentiment" || k.id === "cross_market" || k.id === "fear_greed" || String(k.id).startsWith("sentiment_");
+        const _pctTag = _stat.percentile < 33.34 ? (_isScore ? "偏冷" : "偏低") : _stat.percentile > 66.66 ? (_isScore ? "偏热" : "偏高") : "中性";
+        const _pctColor = _stat.percentile < 33.34 ? "#4fc3f7" : _stat.percentile > 66.66 ? "#e6a23c" : "var(--text-2)";
+        const _fmt6mV = (v) => {
+          if (v == null) return "-";
+          if (k.id === "a_width_zhaban_rate" || k.id === "a_width_fengban_rate") return (v * 100).toFixed(1) + "%";
+          if (k.id === "a_width_zt_count" || k.id === "a_width_dt_count" || k.id === "a_width_up_count" || k.id === "a_width_down_count") return v.toFixed(0);
+          if (k.id === "a_volume_ratio") return v.toFixed(2) + "x";
+          if (k.id === "gold") return v.toFixed(2);
+          if (k.id === "cn10y") return v.toFixed(3) + "%";
+          if (k.id === "a_qvix_300") return v.toFixed(2);
+          return v.toFixed(1);
+        };
+        let _extraRows = "";
+        if (_isScore) {
+          // 9 情绪分卡: 距冰点(20)/过热(80)距离, 与 appendHistoryPos 同口径
+          const _distFreeze = Math.max(0, k.valueNum - 20);
+          const _distHeat = Math.max(0, 80 - k.valueNum);
+          _extraRows = `<div class="kst-row"><span class="kst-label">距冰点20</span><span class="kst-val">${_distFreeze.toFixed(1)}</span></div><div class="kst-row"><span class="kst-label">距过热80</span><span class="kst-val">${_distHeat.toFixed(1)}</span></div>`;
+        } else if (k.id === "gold" || k.id === "cn10y" || k.id === "a_qvix_300") {
+          // 3 商品/利率/波动率: 日涨跌(6m末两点算)
+          if (_arr6m && _arr6m.length >= 2) {
+            const _prev = _arr6m[_arr6m.length - 2].value;
+            const _last = _arr6m[_arr6m.length - 1].value;
+            if (_prev != null && _last != null && _prev !== 0) {
+              const _chg = ((_last - _prev) / _prev) * 100;
+              const _chgStr = (_chg >= 0 ? "+" : "") + _chg.toFixed(2) + "%";
+              const _chgColor = _chg >= 0 ? "#e6492e" : "#2e8b57";
+              _extraRows = `<div class="kst-row"><span class="kst-label">日涨跌</span><span class="kst-val" style="color:${_chgColor}">${_chgStr}</span></div>`;
+            }
+          }
+        } else if (k.id === "a_volume_ratio") {
+          // 量比: 放量(>1.5)/缩量(<0.7)/正常 状态
+          const _vr = k.valueNum;
+          const _vrState = _vr > 1.5 ? "放量" : _vr < 0.7 ? "缩量" : "正常";
+          _extraRows = `<div class="kst-row"><span class="kst-label">量能状态</span><span class="kst-val">${_vrState}</span></div>`;
+        }
+        // 含义(非情绪分卡): 从 _kpiTips 取一句话
+        const _tipText = _kpiTips[k.id];
+        const _meaningRow = (_tipText && !_isScore) ? `<div class="kst-meaning">${_tipText}</div>` : "";
+        const _tooltipBody =
+          `<div class="kst-headline">当前 <b style="color:${_isScore ? fearGreedColor(k.valueNum) : "var(--text-1)"}">${k.value}</b> · <b style="color:${_pctColor}">${_stat.percentile.toFixed(0)}%分位(${_pctTag})</b></div>` +
+          `<div class="kst-row"><span class="kst-label">6m最高</span><span class="kst-val">${_fmt6mV(_stat.max)}</span></div>` +
+          `<div class="kst-row"><span class="kst-label">6m最低</span><span class="kst-val">${_fmt6mV(_stat.min)}</span></div>` +
+          `<div class="kst-row"><span class="kst-label">6m均值</span><span class="kst-val">${_fmt6mV(_stat.mean)}</span></div>` +
+          _extraRows +
+          _meaningRow;
+        if (k.id === "fear_greed") {
+          // 合并到现有 fg-tooltip(进度条+刻度), 追加分隔线+6m分位行, 避免两 overlay 叠加
+          _fgMerge6m = `<div class="kst-sep"></div>` + _tooltipBody;
+        } else {
+          _kpiSentTooltipHtml = `<div class="kpi-sent-tooltip"><div class="kst-title">6月历史分位</div>${_tooltipBody}</div>`;
+        }
+      }
+    }
+    if (_fgMerge6m && _fgTooltipHtml) {
+      // 把6m分位行插入 .kpi-fg-tooltip 容器闭合前
+      _fgTooltipHtml = _fgTooltipHtml.replace(/<\/div>$/, _fgMerge6m + "</div>");
+    }
+    cards.innerHTML += `<div class="card kpi${_badge ? " has-time-badge" : ""}${_hasHist ? " kpi-clickable" : ""}${k.disabled ? " kpi-disabled" : ""}${k.stale ? " kpi-stale" : ""}${_fgTooltipHtml ? " has-fg-tooltip" : ""}${_forecastPopHtml ? " has-forecast-pop" : ""}${_kpiSentTooltipHtml ? " has-sent-tooltip" : ""}" data-kpi-key="${k.id}" data-state="${_kpiState}"${_hasHist ? ` data-kpi-id="${k.id}"` : ""}>${_badge}${_staleWm}<div class="card-title" title="${k.title}">${k.title}${_widthTip}${_disabledTip}</div><div class="card-value"><span class="cv-val">${valueHtml}</span><span class="cv-tags">${tagHtml}${sentTag}${fgTag}</span></div>${_kpiSparkHtml}<div class="card-sub" title="${sub}">${sub}</div>${_forecastPopHtml}${_fgTooltipHtml}${_kpiSentTooltipHtml}</div>`;
   }
   // 容器级事件委托：点击有历史走势的 KPI 卡弹窗
   cards.addEventListener("click", (e) => {
