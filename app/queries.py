@@ -361,9 +361,14 @@ def overview(conn, cfg):
     ).fetchall()]
     sigs = []
     if sig_dates:
+        # 过滤 s.* 情绪分信号（方案B 2026-07-20）：情绪分是 0-100 衍生指标非可交易标的，
+        # 混入首页买卖点列表易误导且无 ETF 参考。只在 signals_today（首页信号列表）排除，
+        # signal_daily 表保留 s.* 记录，KPI 卡片/弹窗仍经 signals() 函数按 index_id 查 s.*
+        # 画走势+pin（见 L761-769）。
         sigs = [dict(r) for r in conn.execute(
             "SELECT date, index_id, signal, reason FROM signal_daily "
-            "WHERE date IN (%s) ORDER BY date DESC, index_id" % ",".join("?" * len(sig_dates)),
+            "WHERE date IN (%s) AND index_id NOT LIKE 's.%%' "
+            "ORDER BY date DESC, index_id" % ",".join("?" * len(sig_dates)),
             sig_dates
         ).fetchall()]
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
