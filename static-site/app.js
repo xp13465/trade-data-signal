@@ -8102,6 +8102,7 @@ async function renderOverview() {
     "sentiment_sz50", "sentiment_hs300", "sentiment_csi500", "sentiment_csi1000", "sentiment_cyb", "sentiment_kc50",
     "a_width_zt_count", "a_width_dt_count", "a_width_up_count", "a_width_down_count", "a_width_zhaban_rate", "a_width_fengban_rate",
     "gold", "cn10y", "a_qvix_300", "a_volume_ratio",
+    "lhb_count",  // 龙虎榜上榜家数（回填6m历史后，2026-08-05）
   ]);
   // P1+ high_alert/low_alert 无6m分位但有components分项构成,单独集合 (2026-08-05)
   const _KPI_COMP_ONLY_IDS = new Set(["high_alert", "low_alert"]);

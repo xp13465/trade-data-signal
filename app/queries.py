@@ -529,6 +529,7 @@ def overview(conn, cfg):
         "gold", "cn10y", "a_qvix_300",
         "a_fund_margin", "a_fund_main",
         "a_turnover_mean", "a_turnover_median", "a_turnover_p90", "a_turnover_p10", "a_turnover_gt5_pct",
+        "lhb_count",  # 龙虎榜上榜家数（回填6m历史后，2026-08-05）
     )
     KPI_SPARK_SCORE_IDS = (
         "sentiment_sz50", "sentiment_hs300", "sentiment_csi500",
