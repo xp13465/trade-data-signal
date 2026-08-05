@@ -5369,12 +5369,19 @@ function renderIntradayChips(snap) {
 // 盘中每1分钟刷新分时走势；收盘后默认收起，点按钮按需展开。
 // 海外指数盘中无分时（时差），维持T+1现状不动态。
 
-// 指数ID -> 腾讯分时API code 映射（复用现有指数ID体系：sh/sz/hs300/cyb 等）
+// 指数ID -> snap.indices code 映射（原腾讯代码，现仅用于snap查preClose + 判断是否支持分时）
 const _INDEX_TO_TENCENT_MINUTE = {
   sh: "sh000001", sz: "sz399001", hs300: "sh000300", sz50: "sh000016",
   cyb: "sz399006", kc50: "sh000688", bj50: "bj899050",
   csi500: "sh000905", csi1000: "sh000852",
   hsi: "hkHSI", hstech: "hkHSTECH", hscei: "hkHSCEI",
+};
+// 指数ID -> 东财分时API secid 映射（2026-08-05 腾讯web.ifzq.gtimg.cn被WAF拦截501，换东农push2）
+const _INDEX_TO_EASTMONEY_SECID = {
+  sh: "1.000001", sz: "0.399001", hs300: "1.000300", sz50: "1.000016",
+  cyb: "0.399006", kc50: "1.000688", bj50: "0.899050",
+  csi500: "1.000905", csi1000: "1.000852",
+  hsi: "100.HSI", hstech: "124.HSTECH", hscei: "100.HSCEI",
 };
 // 指数ID -> 市场类型（cn=A股 9:30-11:30/13:00-15:00，hk=港股 9:30-12:00/13:00-16:00）
 const _INDEX_MARKET = {};
@@ -5421,50 +5428,55 @@ let _dynamicBadgeIds = [];        // spark-grid 中可映射腾讯code的指数i
 let _bannerRenderCtx = null;      // {el, s, snap, type:"intraday"|"summary"} 横幅渲染上下文，刷新时复用
 let _collectTimeBase = { ct: "", health: null };
 
-// fetch腾讯分时API，解析返回 {name,price,preClose,pct,date,points:[{time,price,volume,amount}]}
-// code参数是项目内指数ID（sh/sz/cyb 等），内部映射到腾讯code（sh000001 等）。
-// 异常（fetch失败/解析失败/code!=0/空数据）返回null，调用方走降级。
+// fetch东财分时API，解析返回 {name,price,preClose,pct,date,points:[{time,price,volume,amount}]}
+// code参数是项目内指数ID（sh/sz/cyb 等），内部映射到东财secid（1.000001 等）。
+// 东农push2负载均衡: 不同子域间歇不支持某些secid(124.HSTECH/1.000016等), 多host重试。
+// 异常（fetch失败/解析失败/rc!=0/空数据）返回null，调用方走降级。
+// 注: 函数名保留fetchTencentMinute避免改所有调用点, 实际走东农API(2026-08-05腾讯WAF拦截501)。
+const _EM_HOSTS = ["push2.eastmoney.com", "2.push2.eastmoney.com", "10.push2.eastmoney.com", "20.push2.eastmoney.com"];
 async function fetchTencentMinute(code) {
-  const tcCode = _INDEX_TO_TENCENT_MINUTE[code];
-  if (!tcCode) return null;
-  const url = "https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=" + tcCode;
-  const cached = _inflightMinute.get(url);
+  const secid = _INDEX_TO_EASTMONEY_SECID[code];
+  if (!secid) return null;
+  const cacheKey = "em_minute_" + secid;
+  const cached = _inflightMinute.get(cacheKey);
   if (cached) return cached;
   const p = (async () => {
-    try {
-      // cache-busting: 腾讯分时API加 _=Date.now() + cache:no-store，绕过浏览器/CDN HTTP缓存拿1min最新
-      const _url = url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + Date.now();
-      const resp = await fetch(_url, { cache: 'no-store' });
-      const json = await resp.json();
-      if (!json || json.code !== 0 || !json.data) return null;
-      const node = json.data[tcCode];
-      if (!node || !node.data || !node.data.data) return null;
-      const rawPts = node.data.data;
-      const date = node.data.date || "";
-      const points = [];
-      for (const line of rawPts) {
-        const parts = String(line).split(" ");
-        if (parts.length < 2) continue;
-        const hhmm = parts[0];
-        const time = hhmm.length === 4 ? hhmm.slice(0, 2) + ":" + hhmm.slice(2) : hhmm;
-        const price = parseFloat(parts[1]);
-        if (isNaN(price)) continue;
-        const volume = parts[2] ? parseInt(parts[2], 10) || 0 : 0;
-        const amount = parts[3] ? parseFloat(parts[3]) || 0 : 0;
-        points.push({ time, price, volume, amount });
-      }
-      if (!points.length) return null;
-      // qt: [1]=名称 [3]=当前价 [4]=昨收
-      const qt = node.qt && node.qt[tcCode];
-      const name = qt && qt[1] ? qt[1] : "";
-      const curPrice = qt && qt[3] ? parseFloat(qt[3]) : points[points.length - 1].price;
-      const preClose = qt && qt[4] ? parseFloat(qt[4]) : null;
-      const pct = preClose && curPrice ? ((curPrice - preClose) / preClose) * 100 : null;
-      return { name, price: curPrice, preClose, pct, date, points };
-    } catch (e) { return null; }
+    const path = "/api/qt/stock/trends2/get?secid=" + secid + "&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&iscr=0&ndays=1";
+    for (let hi = 0; hi < _EM_HOSTS.length; hi++) {
+      try {
+        // cache-busting: 加 _=Date.now() + cache:no-store，绕过浏览器/CDN HTTP缓存拿1min最新
+        const url = "https://" + _EM_HOSTS[hi] + path + "&_=" + Date.now();
+        const resp = await fetch(url, { cache: 'no-store' });
+        if (!resp.ok) continue;
+        const json = await resp.json();
+        if (!json || json.rc !== 0 || !json.data || !json.data.trends) continue;
+        const d = json.data;
+        const points = [];
+        for (const line of d.trends) {
+          // 格式: "日期 HH:MM,开,高,低,收,量,额,均价" (parts[4]=收 parts[5]=量 parts[6]=额)
+          const parts = String(line).split(",");
+          if (parts.length < 6) continue;
+          const dt = parts[0].split(" ");
+          const time = dt[1] || "";
+          const price = parseFloat(parts[4]);
+          if (isNaN(price)) continue;
+          const volume = parseInt(parts[5], 10) || 0;
+          const amount = parseFloat(parts[6]) || 0;
+          points.push({ time, price, volume, amount });
+        }
+        if (!points.length) continue; // 换host重试
+        const name = d.name || "";
+        const curPrice = points[points.length - 1].price;
+        const preClose = d.preClose != null ? d.preClose : null;
+        const pct = preClose && curPrice ? ((curPrice - preClose) / preClose) * 100 : null;
+        const date = (String(d.trends[0] || "").split(",")[0] || "").split(" ")[0] || "";
+        return { name, price: curPrice, preClose, pct, date, points };
+      } catch (e) { continue; }
+    }
+    return null;
   })();
-  _inflightMinute.set(url, p);
-  p.finally(() => _inflightMinute.delete(url));
+  _inflightMinute.set(cacheKey, p);
+  p.finally(() => _inflightMinute.delete(cacheKey));
   return p;
 }
 
