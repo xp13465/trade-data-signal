@@ -829,7 +829,7 @@ def main():
     # EXPORT_SKIP_R2=1 时跳过（deploy.sh/intraday_snapshot.sh 自己跑 R2，避免重复）
     if os.environ.get("EXPORT_SKIP_R2") != "1":
         print("\n-> 自动上传 R2 (EXPORT_SKIP_R2=1 可跳过)...", flush=True)
-        for _cmd in ["upload-lab", "upload-trade-sim-json", "upload-index", "upload-industry", "upload-public-fund", "upload-data-large"]:
+        for _cmd in ["upload-lab", "upload-trade-sim-json", "upload-index", "upload-industry", "upload-public-fund", "upload-etf-score", "upload-data-large"]:
             try:
                 _r = subprocess.run(
                     [sys.executable, str(ROOT / "scripts/upload_r2.py"), _cmd],

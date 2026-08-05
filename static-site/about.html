@@ -17,7 +17,7 @@
   <meta property="og:url" content="https://ss.fx8.store/about.html">
   <meta property="og:image" content="https://ss.fx8.store/og.png">
   <meta property="og:locale" content="zh_CN">
-  <link rel="stylesheet" href="./style.min.css?v=5b0e0c23">
+  <link rel="stylesheet" href="./style.min.css?v=003b611b">
   <link rel="stylesheet" href="./lab.min.css?v=52047726">
   <!-- 防闪烁:CSS 加载后、body 渲染前读 localStorage 提前设 data-theme -->
   <script>
@@ -208,7 +208,7 @@
       <h3>3.5 ETF评分(etf)</h3>
       <p><strong>看什么</strong>:代表性 ETF 清单的多维度评分排序。</p>
       <ul>
-        <li><strong>数据源</strong>:<code>etf_score_list.json</code>,聚合 23 只汪汪队宽基 ETF + 全市场代表性 ETF 的 8+8 维度评分。</li>
+        <li><strong>数据源</strong>:<code>etf_score_list_{buy,sell,hold}.json</code>(P0-2 拆分懒加载),聚合 23 只汪汪队宽基 ETF + 全市场代表性 ETF 的 8+8 维度评分。</li>
         <li><strong>关注榜</strong>:按 low_alert(低位机会)排序的 top 8,含 etf_code/name/score/hands(建议仓位 0-3 手)/reason_summary(理由)。</li>
         <li><strong>风险提示榜</strong>:按 high_alert(高位预警)排序的 top 12,含 风险提示字段(逢高谨慎/防范风险/观察/持有)。</li>
         <li><strong>持仓输入</strong>:可输入自己持有的 ETF 代码,高亮显示其在评分榜中的排名位置。</li>
@@ -656,7 +656,7 @@
         <li><code>overview.json</code>:首页概览数据</li>
         <li><code>signal_stats.json</code>:100 品种 × 7 信号 × 3 horizon 的 forward return 胜率</li>
         <li><code>trade_sim/</code>:100 品种 × 5 窗口 × 3 策略 × 11 场景的配对交易回测</li>
-        <li><code>etf_score_list.json</code>:23 汪汪队 + 全市场代表性 ETF评分排序</li>
+        <li><code>etf_score_list_{buy,sell,hold}.json</code>:23 汪汪队 + 全市场代表性 ETF评分排序(P0-2 拆分懒加载)</li>
         <li><code>alert.json</code> + <code>alert_analyze_*.json</code>:8+8 维度 AI 风险预警(全市场 + 单标的)</li>
         <li><code>industry_heatmap.json</code> + <code>rotation.json</code>:行业热力图 + 轮动速度</li>
         <li><code>etf_national_team.json</code>:12 宽基 ETF 汪汪队资金动向</li>

@@ -6188,11 +6188,13 @@ function _labAIScoreCode(it) {
 const _LAB_AISCORE_PAGE_SIZE = 50;        // buy/hold 区页大小
 const _LAB_AISCORE_COLLAPSE_TOP = 20;     // buy 区折叠态显 Top N(按 score 降序)
 const _labAiscoreState = {
-  data: null,        // 缓存 etf_score_list.json, 翻页/展开不重新 fetch
+  data: null,        // 缓存 etf_score_list buy+sell 合并(含空 hold_list, 懒加载后填充), 翻页/展开不重新 fetch
   codeToIid: {},     // ETF code -> iid 映射缓存
   buyPage: 1,        // buy 区当前页(展开态)
   buyExpanded: false,// buy 区展开状态(折叠Top20 / 展开50页)
   holdPage: 1,       // hold 区当前页
+  holdLoaded: false, // P0-2: hold JSON 懒加载状态(初始 false, 点"加载持有观察"后 true)
+  holdLoading: null, // P0-2: hold 懒加载进行中 promise(防并发重复 fetch)
 };
 // buyExpanded 从 localStorage 恢复(记忆用户偏好)
 try { if (localStorage.getItem("lab_aiscore_buy_expanded") === "1") _labAiscoreState.buyExpanded = true; } catch (e) {}
@@ -6259,17 +6261,22 @@ async function renderAIScoreListLab() {
   content.querySelectorAll(".lab-aiscore-wrap").forEach((el) => el.remove());
   content.appendChild(wrapper);
 
-  // fetch etf_score_list.json（后端生成,不存在时兜底）
-  // R2 直链(对齐 app.js:14059, .gitignore 已踢出 git 线上 ./data/ 三域名全 404)
-  const url = "https://ssd.fx8.store/data/etf_score_list.json";
-  let data = null;
+  // fetch etf_score_list_{buy,sell}.json (P0-2 2026-08-05 拆分懒加载, 原单文件 18MB -> buy+sell ~2.6MB)
+  // R2 直链(对齐 app.js, .gitignore 已踢出 git 线上 ./data/ 三域名全 404)
+  // hold JSON (~13MB) 懒加载: 初始 holdHost 显示"加载持有观察"按钮, 点后才 fetch
+  const urlBuy = "https://ssd.fx8.store/data/etf_score_list_buy.json";
+  const urlSell = "https://ssd.fx8.store/data/etf_score_list_sell.json";
+  let dataBuy = null, dataSell = null;
   try {
-    data = await fetchJSON(url);
+    [dataBuy, dataSell] = await Promise.all([
+      fetchJSON(urlBuy),
+      fetchJSON(urlSell),
+    ]);
   } catch (e) {
     buyHost.innerHTML = `<div class="lab-custom-error">` +
       `<div class="lab-custom-error-title">⚠️ 买清单数据加载失败</div>` +
       `<div class="lab-custom-error-detail">${e.message || e}</div>` +
-      `<div class="lab-custom-error-hint">etf_score_list.json 不存在或网络异常。后端生成后自动恢复（每日收盘后更新）。</div>` +
+      `<div class="lab-custom-error-hint">etf_score_list_buy/sell.json 不存在或网络异常。后端生成后自动恢复（每日收盘后更新）。</div>` +
       `<button type="button" class="lab-custom-retry">重试</button></div>`;
     buyHost.querySelector(".lab-custom-retry").onclick = () => renderAIScoreListLab();
     _renderAIScoreHoldSection(holdHost, [], {});
@@ -6277,10 +6284,20 @@ async function renderAIScoreListLab() {
     _renderAIScoreQuerySection(queryHost, {});
     return;
   }
+  // buy JSON 含完整 meta(buy_count/sell_count/hold_count); sell JSON 同 meta
+  // 合并成兼容旧 data 结构(buy_list + sell_list + hold_list=空 + meta 字段), 复用下游渲染
+  const data = {
+    date: dataBuy.date, updated_at: dataBuy.updated_at, source: dataBuy.source,
+    universe_count: dataBuy.universe_count, full_market: dataBuy.full_market,
+    buy_count: dataBuy.buy_count, sell_count: dataBuy.sell_count, hold_count: dataBuy.hold_count,
+    buy_list: Array.isArray(dataBuy.buy_list) ? dataBuy.buy_list : [],
+    sell_list: Array.isArray(dataSell.sell_list) ? dataSell.sell_list : [],
+    hold_list: [],  // P0-2: hold 懒加载, 初始空
+  };
   if (!data || data.error || !Array.isArray(data.buy_list)) {
     buyHost.innerHTML = `<div class="lab-custom-error">` +
       `<div class="lab-custom-error-title">⚠️ 买清单暂未生成</div>` +
-      `<div class="lab-custom-error-detail">${(data && data.error) || "etf_score_list.json 结构异常或为空"}</div>` +
+      `<div class="lab-custom-error-detail">${(data && data.error) || "etf_score_list_buy.json 结构异常或为空"}</div>` +
       `<div class="lab-custom-error-hint">后端未生成买清单数据,收盘后跑完评分即自动恢复。可先去 🎯自定义分析 tab 看单标的分析。</div>` +
       `<button type="button" class="lab-custom-retry">重试</button></div>`;
     buyHost.querySelector(".lab-custom-retry").onclick = () => renderAIScoreListLab();
@@ -6301,8 +6318,9 @@ async function renderAIScoreListLab() {
   // 后端 export_etf_score_list.py:558 已将 hold 拆独立字段, sell_list 31只全是过热项(high>=60)不含"持有"
   const buyListRaw = Array.isArray(data.buy_list) ? data.buy_list : [];
   const sellListRaw = Array.isArray(data.sell_list) ? data.sell_list : [];
-  // 持有建议:从 data.hold_list 读(原 sellListRaw.filter("持有") 因 sell_list 全是过热项永远空)
+  // P0-2: hold_list 懒加载, 初始空(hold_count 从 buy JSON meta 取, 显示"加载持有观察 X 只"按钮)
   const holdItems = Array.isArray(data.hold_list) ? data.hold_list : [];
+  const holdCount = (data.hold_count != null) ? data.hold_count : 0;
   // 卖清单:sell_list 全是过热风险提示信号(high>=60), hold 已拆独立字段, 直接用
   const sellListFiltered = sellListRaw;
   // 缓存到 state, 翻页/展开/收起时不重新 fetch, 只重渲染对应区
@@ -6310,6 +6328,8 @@ async function renderAIScoreListLab() {
   _labAiscoreState.codeToIid = codeToIid;
   _labAiscoreState.buyPage = 1;
   _labAiscoreState.holdPage = 1;
+  _labAiscoreState.holdLoaded = false;  // P0-2: hold 懒加载状态
+  _labAiscoreState.holdLoading = null;
   // 日期字符串(用于 section-head)
   const date = data.date || "";
   const dateStr = date && date.length === 8 ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : date;
@@ -6317,14 +6337,41 @@ async function renderAIScoreListLab() {
   // === 买清单渲染(折叠Top20+展开50/页, 参照 app.js ETF评分模式) ===
   _renderLabAiscoreBuySection(buyHost, buyListRaw, codeToIid, dateStr);
 
-  // === 持有建议渲染（用户持有的ETF,从买/卖清单分离）===
-  _renderAIScoreHoldSection(holdHost, holdItems, codeToIid, dateStr);
+  // === 持有建议渲染（P0-2: hold 懒加载, 初始显示"加载持有观察"按钮）===
+  _renderAIScoreHoldSection(holdHost, holdItems, codeToIid, dateStr, holdCount);
 
   // === 卖清单渲染（直接渲染 sell_list 表格 + 持仓自查）===
   _renderAIScoreSellSection(sellHost, sellListFiltered, codeToIid);
   // 持仓自查:传入 buy+sell 全量清单(含持仓标的,便于查任意ETF)+ dateStr
   // 修复2026-07-24:515030等非汪汪队ETF在etf_score_list有评分但无iid,原逻辑报"未识别",现先查etf_score_list降级显示评分卡片
   _renderAIScoreQuerySection(queryHost, codeToIid, buyListRaw.concat(sellListRaw), dateStr);
+}
+
+// P0-2 (2026-08-05): 懒加载 hold JSON -- lab AI评分 tab 点"加载持有观察"按钮触发
+// fetch etf_score_list_hold.json (~13MB, br~783KB), 解析 hold_list 后重渲染 hold 区
+// _labAiscoreState.holdLoaded 跟踪状态, holdLoading 缓存进行中 promise 防并发重复 fetch
+async function _ensureLabHoldLoaded(holdHost, codeToIid, dateStr, holdCount) {
+  const st = _labAiscoreState;
+  if (st.holdLoaded) return true;
+  if (st.holdLoading) return st.holdLoading;
+  st.holdLoading = (async () => {
+    try {
+      const r = await fetchJSON("https://ssd.fx8.store/data/etf_score_list_hold.json");
+      const holdItems = Array.isArray(r.hold_list) ? r.hold_list : [];
+      if (st.data) st.data.hold_list = holdItems;
+      st.holdLoaded = true;
+      _renderAIScoreHoldSection(holdHost, holdItems, codeToIid, dateStr, holdItems.length);
+      return true;
+    } catch (e) {
+      console.error("[lab ensureHoldLoaded] fetch hold JSON failed:", e);
+      // 重渲染显示错误 + 重试按钮
+      _renderAIScoreHoldSection(holdHost, [], codeToIid, dateStr, holdCount, (e && e.message) || String(e));
+      return false;
+    } finally {
+      st.holdLoading = null;
+    }
+  })();
+  return st.holdLoading;
 }
 
 // buy 区渲染:折叠Top20+展开50/页(参照 app.js _renderEtfScoreBody buy 区)
@@ -6431,12 +6478,31 @@ function _renderLabAiscoreBuySection(buyHost, buyList, codeToIid, dateStr) {
 // 持有建议渲染:从 data.hold_list 读(951只, 50/页分页), 按 high_alert 降序
 // 2026-07-27 修复双重bug: ①从 data.hold_list 读(原 sellListRaw.filter 永远空) ②读 hold_reason(原 sell_signal 字段在 hold_list 不存在)
 // 每项展示:ETF代码/名称 + 高位预警 + 低位机会 + 持有建议(hold_reason 文本) + 理由
-function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
+// P0-2 (2026-08-05): holdCount + errorMsg 参数支持懒加载(holdItems 空时显示"加载持有观察"按钮)
+function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr, holdCount, errorMsg) {
   holdItems = holdItems || [];
   codeToIid = codeToIid || {};
+  holdCount = (holdCount != null) ? holdCount : holdItems.length;
+  const st = _labAiscoreState;
+  // P0-2: hold 未加载(holdItems 空且 holdLoaded=false)时显示懒加载按钮, 不走表格渲染
+  if (holdItems.length === 0 && !st.holdLoaded) {
+    host.innerHTML =
+      `<div class="lab-aiscore-section-head">` +
+        `<div class="lab-aiscore-section-title">💼 未过热持有建议 <span class="lab-aiscore-section-sub-inline">未加载(懒加载)${holdCount ? ` · ${holdCount}只` : ""}</span></div>` +
+      `</div>` +
+      `<div class="lab-aiscore-hold-placeholder">` +
+        (errorMsg ? `<div class="lab-custom-error-detail" style="margin-bottom:8px">⚠️ ${_esc(errorMsg)}</div>` : "") +
+        `<button type="button" class="lab-aiscore-load-hold-btn">📥 加载持有观察 ${holdCount} 只(约 800KB)</button>` +
+      `</div>`;
+    host.querySelector(".lab-aiscore-load-hold-btn").onclick = async () => {
+      const btn = host.querySelector(".lab-aiscore-load-hold-btn");
+      if (btn) { btn.textContent = "⏳ 加载中…"; btn.disabled = true; }
+      await _ensureLabHoldLoaded(host, codeToIid, dateStr, holdCount);
+    };
+    return;
+  }
   // 排序:按 high_alert 降序(风险高的排前)
   const sortedHold = holdItems.slice().sort((a, b) => (b.high_alert || 0) - (a.high_alert || 0));
-  const st = _labAiscoreState;
   // 单行 HTML 生成(hold 区共用)
   const rowHTML = (it, idx) => {
     const code = _labAIScoreCode(it);
@@ -6458,21 +6524,21 @@ function _renderAIScoreHoldSection(host, holdItems, codeToIid, dateStr) {
       `<td class="aiscore-reason-cell">${reason}</td>` +
     `</tr>`;
   };
-  const holdCount = sortedHold.length;
+  const hc = sortedHold.length;  // 已加载后的实际 hold 数量(覆盖入参 holdCount)
   // 50/页分页(951只用50/页约20页, 避免一次性渲染卡顿)
-  const pages = Math.max(1, Math.ceil(holdCount / _LAB_AISCORE_PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(hc / _LAB_AISCORE_PAGE_SIZE));
   if (st.holdPage > pages) st.holdPage = pages;
   if (st.holdPage < 1) st.holdPage = 1;
   const start = (st.holdPage - 1) * _LAB_AISCORE_PAGE_SIZE;
   const slice = sortedHold.slice(start, start + _LAB_AISCORE_PAGE_SIZE);
   const rowsHTML = slice.map((it, idx) => rowHTML(it, start + idx)).join("");
-  const empty = holdCount === 0
+  const empty = hc === 0
     ? `<tr><td colspan="7" class="lab-aiscore-empty">暂无未过热持有项</td></tr>`
     : "";
-  const pagerHTML = (holdCount > 0 && pages > 1) ? _labAiscorePager("hold", st.holdPage, pages, holdCount) : "";
+  const pagerHTML = (hc > 0 && pages > 1) ? _labAiscorePager("hold", st.holdPage, pages, hc) : "";
   host.innerHTML =
     `<div class="lab-aiscore-section-head">` +
-      `<div class="lab-aiscore-section-title">💼 未过热持有建议 <span class="lab-aiscore-section-sub-inline">未过热持有项${holdCount ? ` · ${holdCount}只` : ""}</span></div>` +
+      `<div class="lab-aiscore-section-title">💼 未过热持有建议 <span class="lab-aiscore-section-sub-inline">未过热持有项${hc ? ` · ${hc}只` : ""}</span></div>` +
     `</div>` +
     `<div class="lab-aiscore-table-wrap">` +
       `<table class="lab-aiscore-table lab-aiscore-table-hold">` +

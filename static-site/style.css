@@ -5062,6 +5062,30 @@ main { padding: 16px 24px; }
 }
 .etf-section-collapse:hover { border-color: var(--primary); color: var(--primary); border-style: solid; }
 
+/* P0-2 (2026-08-05): 持有观察懒加载按钮(hold JSON 13MB 按需加载) */
+.etf-load-hold-placeholder { text-align: center; padding: 16px 12px; }
+.etf-load-hold-placeholder.etf-load-hold-in-section { padding: 12px 0 4px; }
+.etf-load-hold-btn {
+  padding: 10px 24px; border: 1px dashed var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-2);
+  font-size: 13px; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.etf-load-hold-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); border-style: solid; }
+.etf-load-hold-btn:disabled { opacity: 0.6; cursor: default; }
+.etf-load-hold-error { color: #c92a2a; font-size: 12px; margin-bottom: 8px; }
+[data-theme="dark"] .etf-load-hold-error, [data-theme="redgold"] .etf-load-hold-error { color: #ff6b6b; }
+/* lab AI评分 tab hold 懒加载占位 */
+.lab-aiscore-hold-placeholder { padding: 24px 12px; text-align: center; }
+.lab-aiscore-load-hold-btn {
+  padding: 10px 24px; border: 1px dashed var(--border-strong, var(--border));
+  border-radius: 8px; background: var(--bg-card); color: var(--text-2);
+  font-size: 13px; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.lab-aiscore-load-hold-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); border-style: solid; }
+.lab-aiscore-load-hold-btn:disabled { opacity: 0.6; cursor: default; }
+
 /* 5档分档色块(行底色+左边框, 覆盖原 etf-side-* 细分) */
 .etf-score-row.etf-tier-strong-sell { border-left-color: #3d5a6a; background: linear-gradient(135deg, #e8eef2 0%, var(--bg-card) 55%); }
 .etf-score-row.etf-tier-sell { border-left-color: #5a7a8a; background: linear-gradient(135deg, #eef3f6 0%, var(--bg-card) 55%); }

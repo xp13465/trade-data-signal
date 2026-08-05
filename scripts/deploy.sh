@@ -250,6 +250,7 @@ run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || echo "⚠ upload-
 run_r2_upload "upload-index" upload-index || echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-industry" upload-industry || echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-public-fund" upload-public-fund || echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"
+run_r2_upload "upload-etf-score" upload-etf-score || echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"
 run_r2_upload "upload-data-large" upload-data-large || echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"
 
 # 2. git add 静态数据 + min JS（精确文件列表，根治通配带入残留旧文件）
@@ -304,10 +305,12 @@ done
 #   读 futures_ih_detail_acc 表 1851 行 ~370KB, 单文件无 -all/-5y/-3y 拆分, 走 CF 不走 R2)
 # futures_acc_conclusion: 期货同向准确度规律结论(4条规律+当前触发状态, export_futures_acc_conclusion 生成,
 #   每日刷新幂等覆盖, 单文件~2KB 走 CF 不走 R2)
+# P0-2 (2026-08-05): etf_score_list 拆 3 JSON (buy/sell/hold), .json 走 R2(.gitignore),
+#   .gz 留 git(CF 兜底/备份); 原 etf_score_list 单文件已废弃
 for _f in overview futures futures_acc_trend futures_acc_conclusion ad_line volume_ratio position \
           summary summary_history signal_freq signal_stats \
           rotation new_high_low ma_alignment intraday_snapshot \
-          alert etf_score_list trade_sim_indices \
+          alert etf_score_list_buy etf_score_list_sell etf_score_list_hold trade_sim_indices \
           lab_ablation lab_cost_compare lab_param_scan lab_short_symmetry; do
   DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
 done

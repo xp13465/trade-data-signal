@@ -13,27 +13,30 @@
 复用 compute_alert_for_target(target_type="etf") (app/alert_score.py L527 已支持 ETF)
 + build_reason (app/alert_reason.py L363) 取 human_text 摘要。
 
-输出: static-site/data/etf_score_list.json (+ .json.gz)
+输出: static-site/data/ 下 3 个 JSON (+ 各自 .json.gz), 2026-08-05 P0-2 拆分(原单文件 18MB 懒加载):
+  - etf_score_list_buy.json  (~1.4MB, br~80KB): meta + counts + buy_list
+  - etf_score_list_sell.json (~1.2MB, br~73KB): meta + counts + sell_list
+  - etf_score_list_hold.json (~13MB,  br~783KB): meta + counts + hold_list
+  前端 app.js renderEtfScore 初始只加载 buy+sell (~153KB br), hold 点"持有观察"才懒加载。
+  每 JSON 含完整 meta(date/updated_at/source/universe_count/buy_count/sell_count/hold_count等),
+  前端从 buy JSON 取 meta+counts 即可显示 chips("持有 X 只")无需加载 hold。
+
+  etf_score_list_buy.json:
   {
     "date": "20260722",
     "updated_at": "...",
     "source": "全市场 A股股票型 ETF (XXXX 只) - 阶段2 扩采集+OHLC",
     "universe_count": XXXX,
+    "buy_count": N, "sell_count": N, "hold_count": N,  # 三分类计数(前端 chip 显示)
     "ohlc_days": 30,
     "buy_list": [
-      {etf_code, name, score, hands, amt_pct, high_alert, low_alert, is_national_team, volatility, reason_summary, ohlc},
+      {etf_code, name, score, hands, amt_pct, high_alert, low_alert, is_national_team, volatility, reason_summary, ohlc,
+       dims, adapt, dim_hits, data_thresholds, history_analogy, confidence, sell_action},
       ... (0=全量, 按 low_alert DESC; --buy-top N 取 top N)
-    ],
-    "sell_list": [
-      {etf_code, name, score, high_alert, low_alert, sell_signal, is_national_team, reason_summary, ohlc},
-      ... (0=全量, 按 high_alert DESC; --sell-top N 取 top N)
-    ],
-    "hold_list": [
-      {etf_code, name, score, high_alert, low_alert, hold_reason, is_national_team, reason_summary, ohlc},
-      ... (0=全量, 按 low_alert DESC; 持有观察, 不够格buy但不过热)
-    ],
-    "errors": [...]
+    ]
   }
+  etf_score_list_sell.json: 同 meta + sell_list(过热 high>=60, 按 high_alert DESC)
+  etf_score_list_hold.json: 同 meta + hold_list(持有观察, 按 low_alert DESC)
 
 ohlc 字段格式: [[date, open, high, low, close], ...] 升序(旧->新), 近30交易日。
   数据不足(新ETF/采失败)为空列表 [], 前端 sparkline 不渲染。
@@ -673,7 +676,11 @@ def main() -> None:
     if args.sell_top > 0:
         sell_list = sell_list[:args.sell_top]
 
-    payload = {
+    # P0-2 (2026-08-05): 拆 3 JSON (buy/sell/hold) + 懒加载, 替换原单文件 etf_score_list.json
+    # 每 JSON 含完整 meta + 三分类计数(buy_count/sell_count/hold_count), 前端从 buy JSON 取
+    # meta+counts 即可显示 chips("持有 X 只")无需加载 hold JSON(13MB br~783KB 懒加载)
+    # errors 进 buy JSON(前端 renderEtfScore 从 buy JSON 读 meta, errors 跟随)
+    meta = {
         "date": payload_date,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "source": (f"全市场 A股股票型 ETF ({len(universe)} 只) - 阶段2 扩采集+OHLC"
@@ -689,19 +696,33 @@ def main() -> None:
         "ohlc_days": OHLC_EXPORT_DAYS,  # 每只 ETF 导出近 N 日 OHLC K线(前端 sparkline)
         "fetch_count": fetch_count,
         "skip_count": skip_count,
-        "buy_list": buy_list,
-        "sell_list": sell_list,
-        "hold_list": hold_list,
+        "buy_count": len(buy_list),
+        "sell_count": len(sell_list),
+        "hold_count": len(hold_list),
     }
-    if errors:
-        payload["errors"] = errors
 
-    out_path = DATA_DIR / "etf_score_list.json"
-    _write_json_gz(out_path, payload)
+    # 3 个拆分 JSON (各自 meta + list), 替换原单文件
+    payload_buy = dict(meta)
+    payload_buy["buy_list"] = buy_list
+    if errors:
+        payload_buy["errors"] = errors
+    out_buy = DATA_DIR / "etf_score_list_buy.json"
+    _write_json_gz(out_buy, payload_buy)
+
+    payload_sell = dict(meta)
+    payload_sell["sell_list"] = sell_list
+    out_sell = DATA_DIR / "etf_score_list_sell.json"
+    _write_json_gz(out_sell, payload_sell)
+
+    payload_hold = dict(meta)
+    payload_hold["hold_list"] = hold_list
+    out_hold = DATA_DIR / "etf_score_list_hold.json"
+    _write_json_gz(out_hold, payload_hold)
+
     elapsed = time.time() - t_start
     print(f"\n✓ 完成: universe={len(universe)} buy={len(buy_list)} sell={len(sell_list)} "
           f"hold={len(hold_list)} err={len(errors)} fetch={fetch_count} skip={skip_count} 耗时={elapsed:.1f}s")
-    print(f"  输出: {out_path}")
+    print(f"  输出: {out_buy} + {out_sell} + {out_hold}")
 
 
 if __name__ == "__main__":

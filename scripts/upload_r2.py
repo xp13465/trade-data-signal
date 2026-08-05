@@ -462,6 +462,24 @@ def cmd_upload_fund_score():
         sys.exit(1)
 
 
+def cmd_upload_etf_score():
+    """上传 static-site/data/etf_score_list_*.json + .gz 到 R2 data/ 前缀。
+
+    P0-2 (2026-08-05): 原 18MB 单文件 etf_score_list.json 拆 3 JSON (buy/sell/hold),
+    前端懒加载 hold (初始只加载 buy+sell ~153KB br, hold 783KB br 点"持有观察"才加载)。
+    3 文件均走 R2 data/ 前缀(前端硬编码 ssd.fx8.store/data/ URL), 不依赖 upload-data-large 阈值。
+    §8.1 新类别按前缀建独立命令; upload-data-large exclude etf_score_list_ 防双副本。
+    etf_score_list_buy.json ~1.4MB / sell ~1.2MB / hold ~13MB, 均 >1MB 但走独立命令非阈值兜底。
+    """
+    data_dir = STATIC_DIR / "data"
+    ok, total, _ = _upload_glob(data_dir, ["etf_score_list_*.json", "etf_score_list_*.json.gz"], "data")
+    if total == 0:
+        print(f"⚠ 无 etf_score_list_* json: {data_dir}/etf_score_list_*.json")
+        return
+    if ok != total:
+        sys.exit(1)
+
+
 def cmd_upload_data_large():
     """上传 static-site/data/ 顶层 >=1MB 或大 range(-all/-5y/-3y) 的 .json + .gz 到 R2 data/ 前缀。
 
@@ -482,8 +500,8 @@ def cmd_upload_data_large():
     LARGE_THRESHOLD = 1 * 1024 * 1024  # 1MB
     # 大 range 文件前端 dataUrl 必走 R2(与 app.js _R2_LARGE_RANGE_RE 同规则), 无大小限制上传
     _LARGE_RANGE_RE = re.compile(r'-(?:all|5y|3y)\.json$')
-    # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund/fund_score 由各自命令处理）
-    exclude_prefixes = ("industry-", "public_fund", "offshore_fund", "fund_score")
+    # 排除已走独立 R2 前缀的（industry-/public_fund/offshore_fund/fund_score/etf_score_list_ 由各自命令处理）
+    exclude_prefixes = ("industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list_")
     files = []
     for f in sorted(data_dir.glob("*.json")):
         if any(f.name.startswith(p) for p in exclude_prefixes):
@@ -757,6 +775,8 @@ if __name__ == "__main__":
         cmd_upload_offshore_fund()
     elif cmd == "upload-fund-score":
         cmd_upload_fund_score()
+    elif cmd == "upload-etf-score":
+        cmd_upload_etf_score()
     elif cmd == "upload-data-large":
         cmd_upload_data_large()
     elif cmd == "upload-db":
@@ -778,6 +798,6 @@ if __name__ == "__main__":
         sys.exit(
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
-            "upload-offshore-fund|upload-fund-score|upload-data-large|upload-db|"
+            "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-data-large|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup]"
         )

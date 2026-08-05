@@ -14753,7 +14753,7 @@ async function renderIndustry(container = content) {
 }
 
 // ============ B4: ETF评分列表（分页+搜索） ============
-// 数据源: static-site/data/etf_score_list.json (三分类, 2026-07-25 C2)
+// 数据源: static-site/data/etf_score_list_{buy,sell,hold}.json (P0-2 2026-08-05 三分类拆分+懒加载)
 //   buy_list: C2 买入机会(high<60 AND hands>=2 AND amt_pct>60, ~194只), 字段含 hands/amt_pct
 //   sell_list: 过热卖出信号(high>=60, ~96只), 字段含 sell_signal
 //   hold_list: 持有观察(不够格buy但不过热 high<60 AND not C2, ~919只), 字段含 hold_reason
@@ -14761,6 +14761,9 @@ async function renderIndustry(container = content) {
 // 合并成统一列表 + side(buy/sell/hold) 字段, 分区渲染(持仓置顶 -> 卖出/持有观察 -> 买入折叠)
 // 三分类互斥(每只ETF出现一次), 数据不足(high_alert=None)不进任何list
 // 4项 UX(2026-07-25): ①卖出/持有置顶区 ②买入默认折叠Top20 ③持仓永远置顶高亮 ④5档分档色块
+// P0-2 懒加载(2026-08-05): 初始只 fetch buy+sell JSON (~153KB br), hold JSON (783KB br) 点
+//   "持有"chip 或 "加载持有观察"按钮才 lazy fetch。meta(buy_count/sell_count/hold_count)从 buy JSON
+//   取, chips 显示"持有 X 只"无需加载 hold。原单文件 18MB (975KB br) -> 初始 ~153KB br。
 const ETF_SCORE_PAGE_SIZE = 50;       // 买入区展开后页大小
 const ETF_SELLHOLD_PAGE_SIZE = 100;   // 卖出/持有观察区页大小(145只大页少翻页)
 const ETF_BUY_COLLAPSE_TOP = 20;      // 买入区折叠态显 Top N(按score降序)
@@ -14770,7 +14773,8 @@ const ETF_TIER_LABEL = {
 };
 // sideFilter: "all"/"buy"/"sell"/"hold" 快速过滤(默认 all, 买入区在前首屏可见)
 // sortKey/sortDir: 排序键("score"/"hands"/"amt_pct"/"high_alert")与方向("desc"/"asc"), 默认 score 降序
-const _etfScoreState = { all: [], filtered: [], page: 1, pageSellHold: 1, search: "", meta: null, holdingOnly: false, buyExpanded: false, sideFilter: "all", sortKey: "score", sortDir: "desc", dedup: false };
+// P0-2: holdLoaded/holdLoading 跟踪 hold JSON 懒加载状态; holdLoading 缓存进行中 promise 防重复 fetch
+const _etfScoreState = { all: [], filtered: [], page: 1, pageSellHold: 1, search: "", meta: null, holdingOnly: false, buyExpanded: false, sideFilter: "all", sortKey: "score", sortDir: "desc", dedup: false, holdLoaded: false, holdLoading: null, holdError: null };
 
 // ============ B4 持仓: localStorage 读写（纯前端本地存，不传后端） ============
 // 存储格式: localStorage["etf_holdings"] = JSON.stringify(["510300","159915",...]) 6位ETF代码数组
@@ -14920,6 +14924,44 @@ function _applyEtfScoreFilter() {
   if (_etfScoreState.pageSellHold > shPages) _etfScoreState.pageSellHold = shPages;
   if (_etfScoreState.pageSellHold < 1) _etfScoreState.pageSellHold = 1;
   _renderEtfScoreBody();
+}
+
+// P0-2 (2026-08-05): 懒加载 hold JSON -- 点"持有"chip 或"加载持有观察"按钮触发
+// 初次调用 fetch etf_score_list_hold.json (~13MB, br~783KB), 解析 hold_list 合并进 _etfScoreState.all
+// 后续调用直接 resolve(holdLoaded=true), 不重复 fetch。holdLoading 缓存进行中 promise 防并发重复 fetch。
+// fetch 失败设 holdError 供 UI 显示重试按钮, holdLoaded 保持 false 允许重试。
+async function _ensureHoldLoaded() {
+  if (_etfScoreState.holdLoaded) return true;
+  if (_etfScoreState.holdLoading) return _etfScoreState.holdLoading;
+  _etfScoreState.holdLoading = (async () => {
+    try {
+      const r = await fetchJSON("https://ssd.fx8.store/data/etf_score_list_hold.json");
+      // hold_list item -> 统一格式(同 renderEtfScore 合并逻辑, side="hold")
+      const holdItems = (r.hold_list || []).map((e) => ({
+        etf_code: e.etf_code, name: e.name, score: e.score, side: "hold",
+        hands: null, amt_pct: null,
+        high_alert: e.high_alert, low_alert: e.low_alert,
+        is_national_team: e.is_national_team, reason_summary: e.reason_summary,
+        // sell_signal 字段复用存 hold_reason 文本(前端 renderRow hold side 读 sell_signal 显示)
+        sell_signal: e.hold_reason || "持有观察", ohlc: e.ohlc || [],
+        dims: e.dims, adapt: e.adapt, dim_hits: e.dim_hits,
+        data_thresholds: e.data_thresholds, history_analogy: e.history_analogy,
+        confidence: e.confidence, sell_action: e.sell_action,
+      }));
+      // 合并进 all (在现有 buy+sell 之后追加 hold)
+      _etfScoreState.all = _etfScoreState.all.concat(holdItems);
+      _etfScoreState.holdLoaded = true;
+      _etfScoreState.holdError = null;
+      return true;
+    } catch (e) {
+      console.error("[ensureHoldLoaded] fetch hold JSON failed:", e);
+      _etfScoreState.holdError = (e && e.message) || String(e) || "网络异常";
+      return false;
+    } finally {
+      _etfScoreState.holdLoading = null;
+    }
+  })();
+  return _etfScoreState.holdLoading;
 }
 
 // 排序工具: 按 sortKey/sortDir 排序数组(返回新数组, 不改原数组)
@@ -15168,16 +15210,20 @@ function _renderEtfScoreBody() {
   // 统计条
   const buyN = st.all.filter((e) => e.side === "buy").length;
   const sellN = st.all.filter((e) => e.side === "sell").length;
-  const holdN = st.all.filter((e) => e.side === "hold").length;
+  // P0-2: hold 未加载时从 meta.hold_count 取, 加载后从 all 取
+  const holdN = st.holdLoaded
+    ? st.all.filter((e) => e.side === "hold").length
+    : ((st.meta && st.meta.hold_count != null) ? st.meta.hold_count : 0);
+  const totalN = buyN + sellN + holdN;
   const holdingInList = holdings.length;
-  let html = '<div class="etf-score-stat">共 ' + st.all.length + ' 只'
+  let html = '<div class="etf-score-stat">共 ' + totalN + ' 只'
     + (st.meta && st.meta.full_market ? '（全市场）' : '（代表性清单）')
     + ' · ' + _t("etf_side_buy") + ' ' + buyN + ' · ' + _t("etf_side_hold") + ' ' + holdN + ' · ' + _t("etf_side_sell") + ' ' + sellN
     + (holdingInList > 0 ? ' · <b class="etf-stat-hold">我的持仓 ' + holdingInList + '</b>' : '')
     + (st.search ? ' · 搜索命中 ' + filtered.length : '')
     + (st.holdingOnly ? ' · 只看持仓' : '') + '</div>';
 
-  if (filtered.length === 0) {
+  if (filtered.length === 0 && !(st.sideFilter === "hold" && !st.holdLoaded)) {
     html += '<div class="etf-score-empty">未命中任何 ETF，换个代码或名称试试</div>';
     body.innerHTML = html;
     return;
@@ -15267,6 +15313,22 @@ function _renderEtfScoreBody() {
         html += '</div>';
         if (pages > 1) html += _renderEtfPager("buy", st.page, pages, sideList.length);
         html += '</div>';
+      } else if (st.sideFilter === "hold" && !st.holdLoaded) {
+        // P0-2: hold 懒加载 -- sideFilter=hold 但 hold JSON 未加载时显示加载按钮(非空列表)
+        // 正常情况下点"持有"chip 已在 chip.onclick 触发 _ensureHoldLoaded, 此分支是兜底
+        // (如 hold 加载失败 holdLoaded=false, 用户切回 hold side 看到重试按钮)
+        const hc = (st.meta && st.meta.hold_count != null) ? st.meta.hold_count : 0;
+        html += '<div class="etf-section ' + secClass + '">';
+        html += '<div class="etf-section-head"><span class="etf-section-icon">' + sideIcon + '</span> ' + sideLabel + ' <span class="etf-section-count">' + hc + '</span>'
+          + '<span class="etf-section-sub">未加载(懒加载)</span></div>';
+        html += '<div class="etf-score-list">';
+        html += '<div class="etf-load-hold-placeholder">';
+        if (st.holdError) {
+          html += '<div class="etf-load-hold-error">⚠️ 加载持有观察失败: ' + _esc(st.holdError) + '</div>';
+        }
+        html += '<button class="etf-load-hold-btn" data-action="load-hold">加载持有观察 ' + hc + ' 只(约 800KB)</button>';
+        html += '</div>';
+        html += '</div></div>';
       } else {
         html += '<div class="etf-score-empty">当前筛选下无 ' + sideLabel + ' ETF</div>';
       }
@@ -15304,20 +15366,36 @@ function _renderEtfScoreBody() {
         html += '</div>';
       }
       // 区C: 卖出/持有观察(100/页大页少翻页)
-      if (sellHold.length > 0) {
-        const shPages = Math.max(1, Math.ceil(sellHold.length / ETF_SELLHOLD_PAGE_SIZE));
+      // P0-2: hold 未加载时 sellHold 只含 sell, 末尾加"加载持有观察"按钮(hold 加载后 sellHold 含 sell+hold)
+      const sellOnly = sellHold.filter((e) => e.side === "sell");
+      const holdInList = sellHold.filter((e) => e.side === "hold");
+      const shList = st.holdLoaded ? sellHold : sellOnly;
+      if (shList.length > 0 || !st.holdLoaded) {
+        const shPages = Math.max(1, Math.ceil(shList.length / ETF_SELLHOLD_PAGE_SIZE));
         if (st.pageSellHold > shPages) st.pageSellHold = shPages;
         const shStart = (st.pageSellHold - 1) * ETF_SELLHOLD_PAGE_SIZE;
-        const shSlice = sellHold.slice(shStart, shStart + ETF_SELLHOLD_PAGE_SIZE);
-        const sellN2 = sellHold.filter((e) => e.side === "sell").length;
-        const holdN2 = sellHold.filter((e) => e.side === "hold").length;
+        const shSlice = shList.slice(shStart, shStart + ETF_SELLHOLD_PAGE_SIZE);
+        const sellN2 = shList.filter((e) => e.side === "sell").length;
+        const holdN2 = st.holdLoaded ? shList.filter((e) => e.side === "hold").length
+          : ((st.meta && st.meta.hold_count != null) ? st.meta.hold_count : 0);
+        const shCount = st.holdLoaded ? shList.length : (sellN2 + holdN2);
         html += '<div class="etf-section etf-section-sellhold">';
-        html += '<div class="etf-section-head"><span class="etf-section-icon">🔻</span> ' + _t("etf_sellhold_section") + ' <span class="etf-section-count">' + sellHold.length + '</span>'
-          + '<span class="etf-section-sub">' + _t("etf_side_sell") + ' ' + sellN2 + ' · ' + _t("etf_side_hold") + ' ' + holdN2 + ' · 按' + _etfSortLabel() + '排序</span></div>';
+        html += '<div class="etf-section-head"><span class="etf-section-icon">🔻</span> ' + _t("etf_sellhold_section") + ' <span class="etf-section-count">' + shCount + '</span>'
+          + '<span class="etf-section-sub">' + _t("etf_side_sell") + ' ' + sellN2 + ' · ' + _t("etf_side_hold") + ' ' + holdN2 + (st.holdLoaded ? '' : ' (未加载)') + ' · 按' + _etfSortLabel() + '排序</span></div>';
         html += '<div class="etf-score-list">';
         shSlice.forEach((e, i) => { html += renderRow(e, shStart + i + 1); });
         html += '</div>';
-        if (shPages > 1) html += _renderEtfPager("sh", st.pageSellHold, shPages, sellHold.length);
+        if (shPages > 1) html += _renderEtfPager("sh", st.pageSellHold, shPages, shList.length);
+        // P0-2: hold 未加载时, sellHold 区末尾加"加载持有观察"按钮(点后 lazy fetch hold, 合并重渲染)
+        if (!st.holdLoaded) {
+          const hc = (st.meta && st.meta.hold_count != null) ? st.meta.hold_count : 0;
+          html += '<div class="etf-load-hold-placeholder etf-load-hold-in-section">';
+          if (st.holdError) {
+            html += '<div class="etf-load-hold-error">⚠️ 加载持有观察失败: ' + _esc(st.holdError) + '</div>';
+          }
+          html += '<button class="etf-load-hold-btn" data-action="load-hold">📥 加载持有观察 ' + hc + ' 只(约 800KB)</button>';
+          html += '</div>';
+        }
         html += '</div>';
       }
     }
@@ -15352,6 +15430,25 @@ function _renderEtfScoreBody() {
       _renderEtfScoreBody();
     };
   });
+  // P0-2: 绑定"加载持有观察"按钮(懒加载 hold JSON, 加载后合并进 all 重渲染)
+  body.querySelectorAll(".etf-load-hold-btn[data-action='load-hold']").forEach((b) => {
+    b.onclick = async () => {
+      if (b.disabled) return;
+      const origText = b.textContent;
+      b.textContent = "⏳ 加载中…";
+      b.disabled = true;
+      const ok = await _ensureHoldLoaded();
+      if (ok) {
+        // hold 加载成功: 重新应用 filter(合并 hold 进 filtered) + 重渲染
+        _applyEtfScoreFilter();
+      } else {
+        // 加载失败: 恢复按钮显示重试(holdError 已设, body 渲染会显示错误信息)
+        b.textContent = origText;
+        b.disabled = false;
+        _renderEtfScoreBody();
+      }
+    };
+  });
   // 任务2(2026-08-02): 行 click 委托打开 ETF 评分明细弹窗(5区块决策依据)
   // 覆盖式绑定(body 不变, 每次渲染覆盖 onclick 无重复绑定问题)
   body.querySelectorAll(".etf-score-row-clickable[data-etf-code]").forEach((row) => {
@@ -15363,17 +15460,24 @@ function _renderEtfScoreBody() {
 async function renderEtfScore(container) {
   // container 可选：由 renderFund 二级 tab 分发器传入 subContent；直接调用时 fallback 到全局 content
   const _c = container || content;
-  // R2 合规修复（2026-07-20）：4.3MB 走 R2 避免双源冗余（upload-data-large 上传 data/ 前缀）
-  const r = await fetchJSON("https://ssd.fx8.store/data/etf_score_list.json");
+  // P0-2 (2026-08-05): 拆 3 JSON 懒加载, 初始并行 fetch buy+sell (~153KB br), hold 懒加载
+  // R2 直链(ssd.fx8.store/data/), 原 18MB 单文件 -> buy 1.4MB + sell 1.2MB + hold 13MB(懒加载)
+  // buy/sell JSON 各含完整 meta + 三分类计数(buy_count/sell_count/hold_count), 从 buy 取 meta 即可
+  const [rBuy, rSell] = await Promise.all([
+    fetchJSON("https://ssd.fx8.store/data/etf_score_list_buy.json"),
+    fetchJSON("https://ssd.fx8.store/data/etf_score_list_sell.json"),
+  ]);
+  const r = rBuy; // meta 从 buy JSON 取(buy/sell 同源同 meta)
   _etfScoreState.meta = {
     date: r.date, updated_at: r.updated_at, source: r.source,
     universe_count: r.universe_count, full_market: r.full_market,
     buy_top: r.buy_top, sell_top: r.sell_top, fetch_count: r.fetch_count, skip_count: r.skip_count,
+    buy_count: r.buy_count, sell_count: r.sell_count, hold_count: r.hold_count,
   };
-  // 合并 buy_list + sell_list + hold_list 成统一列表(三分类, 2026-07-25 C2)
-  // buy=C2买入机会 / sell=过热卖出信号 / hold=不够格buy但不过热持有观察
+  // 合并 buy_list + sell_list 成统一列表(hold 懒加载, 初次不合并)
+  // buy=C2买入机会 / sell=过热卖出信号 / hold=不够格buy但不过热持有观察(点"持有"chip 才加载)
   const all = [];
-  (r.buy_list || []).forEach((e) => all.push({
+  (rBuy.buy_list || []).forEach((e) => all.push({
     etf_code: e.etf_code, name: e.name, score: e.score, side: "buy",
     hands: e.hands, amt_pct: e.amt_pct,
     high_alert: e.high_alert, low_alert: e.low_alert,
@@ -15384,7 +15488,7 @@ async function renderEtfScore(container) {
     data_thresholds: e.data_thresholds, history_analogy: e.history_analogy,
     confidence: e.confidence, sell_action: e.sell_action,
   }));
-  (r.sell_list || []).forEach((e) => {
+  (rSell.sell_list || []).forEach((e) => {
     // sell_list 只含过热(high_alert>=60), 统一 side="sell"(不再按 sell_signal 拆 hold)
     all.push({
       etf_code: e.etf_code, name: e.name, score: e.score, side: "sell",
@@ -15398,22 +15502,11 @@ async function renderEtfScore(container) {
       confidence: e.confidence, sell_action: e.sell_action,
     });
   });
-  (r.hold_list || []).forEach((e) => {
-    // hold_list: 不够格buy但不过热, side="hold"(新数据源, 原从 sell_list 拆)
-    // sell_signal 字段复用存 hold_reason 文本(前端 renderRow hold side 读 sell_signal 显示)
-    all.push({
-      etf_code: e.etf_code, name: e.name, score: e.score, side: "hold",
-      hands: null, amt_pct: null,
-      high_alert: e.high_alert, low_alert: e.low_alert,
-      is_national_team: e.is_national_team, reason_summary: e.reason_summary,
-      sell_signal: e.hold_reason || "持有观察", ohlc: e.ohlc || [],
-      // 任务2/3: 决策依据明细 + 置信度 + 卖出动作(hold 也带, 弹窗统一渲染)
-      dims: e.dims, adapt: e.adapt, dim_hits: e.dim_hits,
-      data_thresholds: e.data_thresholds, history_analogy: e.history_analogy,
-      confidence: e.confidence, sell_action: e.sell_action,
-    });
-  });
   _etfScoreState.all = all;
+  // P0-2: hold 懒加载状态重置(切 tab/重新 renderEtfScore 时清 holdLoaded, 重新触发懒加载)
+  _etfScoreState.holdLoaded = false;
+  _etfScoreState.holdLoading = null;
+  _etfScoreState.holdError = null;
   _etfScoreState.filtered = all.slice();
   _etfScoreState.page = 1;
   _etfScoreState.pageSellHold = 1;
@@ -15458,10 +15551,14 @@ async function renderEtfScore(container) {
   bar.className = "etf-score-bar";
   const holdN = _getEtfHoldings().length;
   // 统计各 side 数量(用于 chip 标签显示)
-  const allN = _etfScoreState.all.length;
+  // P0-2: hold 未加载时从 meta.hold_count 取(buy JSON 含三分类计数), 加载后从 all 取(已合并)
+  const _m = _etfScoreState.meta || {};
   const buyNChip = _etfScoreState.all.filter((e) => e.side === "buy").length;
   const sellNChip = _etfScoreState.all.filter((e) => e.side === "sell").length;
-  const holdNChip = _etfScoreState.all.filter((e) => e.side === "hold").length;
+  const holdNChip = _etfScoreState.holdLoaded
+    ? _etfScoreState.all.filter((e) => e.side === "hold").length
+    : (_m.hold_count != null ? _m.hold_count : 0);
+  const allN = buyNChip + sellNChip + holdNChip;
   const sf = _etfScoreState.sideFilter;
   const sortVal = _etfScoreState.sortKey + "-" + _etfScoreState.sortDir;
   bar.innerHTML =
@@ -15497,9 +15594,24 @@ async function renderEtfScore(container) {
   };
   // side chip 切换
   bar.querySelectorAll(".etf-side-chip[data-side]").forEach((chip) => {
-    chip.onclick = () => {
+    chip.onclick = async () => {
       const side = chip.dataset.side;
       if (!side || side === _etfScoreState.sideFilter) return;
+      // P0-2: 点"持有"chip 时懒加载 hold JSON(首次), 加载完再切 side 渲染
+      if (side === "hold" && !_etfScoreState.holdLoaded) {
+        const origText = chip.textContent;
+        chip.textContent = "加载中…";
+        chip.disabled = true;
+        const ok = await _ensureHoldLoaded();
+        chip.textContent = origText;
+        chip.disabled = false;
+        if (!ok) {
+          // 加载失败: 不切 side, 留在当前视图(holdError 在 body 区显示重试按钮)
+          _renderEtfScoreBody();
+          return;
+        }
+        // hold 加载成功, 继续切 side(下方 _applyEtfScoreFilter 会合并 hold 进 filtered 再渲染)
+      }
       _etfScoreState.sideFilter = side;
       try { localStorage.setItem("etf_side_filter", side); } catch (e) {}
       bar.querySelectorAll(".etf-side-chip[data-side]").forEach((c) => {

@@ -111,12 +111,18 @@ echo "-> 预警分析快照（alert_analyze 40 宽基+行业）..." | tee -a "$L
 "$PY" "$REPO/scripts/export_alert_analyze.py" >> "$LOG" 2>&1 || \
   echo "⚠ export_alert_analyze 失败（不阻塞主流程）" | tee -a "$LOG"
 
-# P1-新-C ETF买卖清单：全市场 ETF评分排序 -> etf_score_list.json (+ .gz)
+# P1-新-C ETF买卖清单：全市场 ETF评分排序 -> etf_score_list_{buy,sell,hold}.json (+ .gz)
 # B4 并发改造(2026-07-24):加 --full-market 跑全市场1371只(原62只代表性),
 # 跟随 alert 每日重算（买卖清单应每日最新），失败不阻塞；口径同 export_alert
-echo "-> ETF评分清单（etf_score_list --full-market 全市场）..." | tee -a "$LOG"
+# P0-2 (2026-08-05): 拆 3 JSON (buy/sell/hold) + 懒加载, 原 18MB 单文件 -> buy+sell ~2.6MB + hold 13MB(懒加载)
+echo "-> ETF评分清单（etf_score_list --full-market 全市场, 拆 3 JSON）..." | tee -a "$LOG"
 "$PY" "$REPO/scripts/export_etf_score_list.py" --full-market >> "$LOG" 2>&1 || \
   echo "⚠ export_etf_score_list 失败（不阻塞主流程）" | tee -a "$LOG"
+# export 写 JSON 到 $REPO/static-site/data/(trade-data), 同步到 trade/static-site/data/ 供 upload_r2 + deploy
+# (deploy.sh rsync 在 pipeline 内跑, export 在 pipeline 后跑, 需单独同步; trade 跑时 no-op)
+rsync -a --checksum "$REPO/static-site/data/etf_score_list_"* "/Users/linhuichen/code/trade/static-site/data/" 2>/dev/null || true
+"$PY" "$REPO/scripts/upload_r2.py" upload-etf-score >> "$LOG" 2>&1 || \
+  echo "⚠ upload-etf-score R2上传失败（不阻塞主流程）" | tee -a "$LOG"
 
 # P2-新-W 浏览器通知源 JSON（根因①修复：收盘全量后导出 notifications.json，覆盖 post_close 场景）
 # 读 DB 当日信号/预警/恐贪/异动 + post_close=True 标志（18:00 后），前端弹"收盘速递"通知。

@@ -1372,10 +1372,10 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **核心结论（后端非瓶颈确认）**：生产无 FastAPI（Worker 只分发 auth/subscribe，83 处 fetchJSON 全读静态 JSON）+ DB 索引完善（全走索引）。真正瓶颈 = 静态 JSON 体积 + R2 缓存 + 请求数 + echarts 实例数。
 
 ### P0（首屏体感最大，5-8h 提速 60-80%）
-- [ ] P0-1: renderTab 移除顶层 `await loadEcharts()`，子 render 按需加载（1-2h，首屏 -300~1500ms）。证据 `app.js:4388`，17 处 echarts.init 需确认在 loadEcharts 后调用
-- [ ] P0-2: etf_score_list.json 18MB 按 buy/sell/hold 拆分 + 懒加载（2-4h，基金 tab -1~2s，975KB -> <100KB）。证据 `app.js:14649`，export.py 拆 3 JSON，hold 点"持有观察"才加载
-- [ ] P0-3: 11 个 sparkline echarts 改 SVG 复用 ntSparkline L8205（2-3h，首屏 -200~500ms）。证据 `app.js:7493-7504`，省 11 个 echarts.init，仅留行业热力图用 echarts
-- [ ] P0-4: R2 大文件 Worker 代理 + Cache API 边缘缓存（2-4h，大文件 1-2s -> <50ms）。新建 `worker/r2-proxy.js`，路由 `/r2/*` -> R2 get + Cache API，前端改 `ssd.fx8.store/data/` -> `ss.fx8.store/r2/data/`
+- [x] P0-1: renderTab 移除顶层 `await loadEcharts()`，子 render 按需加载（1-2h，首屏 -300~1500ms）。**已上线 commit 89d29b607**（L4467 fire-and-forget + 5处子render await L4484/8142/8768/10434/15582，16处echarts.init调用路径全部确认有保障）
+- [ ] P0-2: etf_score_list.json 18MB 按 buy/sell/hold 拆分 + 懒加载（2-4h，基金 tab -1~2s，975KB -> <100KB）。证据 `app.js:14649`，export.py 拆 3 JSON，hold 点"持有观察"才加载。**代码已实现(待commit): export_etf_score_list.py 拆3JSON + app.js/lab.js 懒加载 + upload-etf-score 命令, 等23:00+跑export**
+- [x] P0-3: 11 个 sparkline echarts 改 SVG 复用 ntIndexSparkline L8894（2-3h，首屏 -200~500ms）。**已上线 commit 7506aa0c7**（L8172 调用 ntIndexSparkline，省11个echarts.init，仅留行业热力图L13779用echarts。NOTES §48 小节AG 落档）
+- [ ] P0-4: R2 大文件 Worker 代理 + Cache API 边缘缓存（2-4h，大文件 1-2s -> <50ms）。新建 `worker/r2-proxy.js`，路由 `/r2/*` -> R2 get + Cache API，前端改 `ssd.fx8.store/data/` -> `ss.fx8.store/r2/data/`。**等23:00+ wrangler deploy**
 
 ### P1（首屏次要 + 后台优化，2-3h 请求数减 95%）
 - [ ] P1-5: _checkNotifications 后台 visibilitychange 暂停（1h）。证据 `app.js:6496` 30s 独立 setInterval，后台标签页持续 fetch
