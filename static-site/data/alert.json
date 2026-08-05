@@ -1,33 +1,33 @@
 {
-  "date": "20260804",
-  "generated_at": "2026-08-04 18:19:39",
+  "date": "20260805",
+  "generated_at": "2026-08-05 18:19:17",
   "high": {
-    "score": 49.22,
+    "score": 50.06,
     "level": "中性",
     "triggered": false,
     "dims": [
       {
         "k": "H1",
         "name": "情绪过热",
-        "score": 72.15,
+        "score": 70.71,
         "weight": 0.26,
-        "contribution": 18.76,
+        "contribution": 18.38,
         "hit": true
       },
       {
         "k": "H4",
         "name": "位置偏高",
-        "score": 42.96,
+        "score": 52.83,
         "weight": 0.2,
-        "contribution": 8.59,
+        "contribution": 10.57,
         "hit": false
       },
       {
         "k": "H6",
         "name": "均线转弱",
-        "score": 85.42,
+        "score": 82.5,
         "weight": 0.08,
-        "contribution": 6.83,
+        "contribution": 6.6,
         "hit": true
       },
       {
@@ -41,90 +41,90 @@
       {
         "k": "H3",
         "name": "风险点密集",
-        "score": 25.83,
+        "score": 22.08,
         "weight": 0.13,
-        "contribution": 3.36,
-        "hit": false
-      },
-      {
-        "k": "H7",
-        "name": "汪汪队离场",
-        "score": 17.92,
-        "weight": 0.1,
-        "contribution": 1.79,
+        "contribution": 2.87,
         "hit": false
       },
       {
         "k": "H2",
         "name": "量价背离",
-        "score": 17.18,
+        "score": 21.13,
         "weight": 0.08,
-        "contribution": 1.37,
+        "contribution": 1.69,
+        "hit": false
+      },
+      {
+        "k": "H7",
+        "name": "汪汪队离场",
+        "score": 13.75,
+        "weight": 0.1,
+        "contribution": 1.38,
         "hit": false
       }
     ],
     "reason": "高位预警指标处于中性区间"
   },
   "low": {
-    "score": 64.74,
-    "level": "关注",
+    "score": 57.84,
+    "level": "中性",
     "triggered": false,
     "dims": [
       {
         "k": "L4",
         "name": "汪汪队入场",
-        "score": 97.08,
+        "score": 96.67,
         "weight": 0.15,
-        "contribution": 14.56,
+        "contribution": 14.5,
         "hit": true
       },
       {
         "k": "L2",
         "name": "关注点密集",
-        "score": 56.25,
+        "score": 55.83,
         "weight": 0.18,
-        "contribution": 10.12,
+        "contribution": 10.05,
         "hit": false
       },
       {
         "k": "L1",
         "name": "情绪冰点",
-        "score": 43.54,
+        "score": 44.26,
         "weight": 0.2,
-        "contribution": 8.71,
+        "contribution": 8.85,
         "hit": false
       },
       {
         "k": "L3",
         "name": "位置偏低",
-        "score": 57.04,
+        "score": 47.17,
         "weight": 0.15,
-        "contribution": 8.56,
+        "contribution": 7.08,
         "hit": false
       },
       {
-        "k": "L5",
-        "name": "量能异动",
-        "score": 75.83,
-        "weight": 0.1,
-        "contribution": 7.58,
+        "k": "L8",
+        "name": "价值显现",
+        "score": 66.25,
+        "weight": 0.07,
+        "contribution": 4.64,
         "hit": true
       },
       {
         "k": "L7",
         "name": "波指飙升",
-        "score": 81.25,
+        "score": 65.83,
         "weight": 0.07,
-        "contribution": 5.69,
+        "contribution": 4.61,
         "hit": true
       },
       {
-        "k": "L8",
-        "name": "价值显现",
-        "score": 78.33,
-        "weight": 0.07,
-        "contribution": 5.48,
-        "hit": true
+        "k": "L5",
+        "name": "量能异动",
+        "score": 40.83,
+        "weight": 0.1,
+        "contribution": 4.08,
+        "hit": false
       },
       {
         "k": "L6",
@@ -135,7 +135,7 @@
         "hit": false
       }
     ],
-    "reason": "市场偏冷(汪汪队入场+量能异动),部分指标进入低位区,关注企稳信号"
+    "reason": "低位机会指标处于中性区间"
   },
   "history": [
     {
