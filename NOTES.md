@@ -7976,6 +7976,34 @@ KPI 小卡新颖 UI 设计 P0+P1+P2 全套（commit `71e8ef605`）在 feat/ifram
 
 **关键文件**：scripts/us_stock_morning.sh（05:00）、trade-data/scripts/backfill_metrics.sh（02:00/16:35/21:00）、app/collector/index_backfill.py L398-530、app/collector/intraday_snapshot.py L107(nf_AU0->gold)/L317/L1806、config/indicators.yaml L85。
 
-**决策**：用户定补黄金夜盘缺口（02:35 采集任务）。调研 agent abe6ebd3202723159 跑中（数据源可行性+实施方案）。待可行性确认后派实施 agent 新增 com.trade.gold-night plist（02:35，避撞 02:10 backfill 完成 + 03:17 pf-score-weekly）。
+**决策**：用户定补黄金夜盘缺口（02:35 采集任务）。调研 agent abe6ebd3202723159 完成，方案可行。
+
+**调研结论**（2026-08-06 00:05 完成）：
+- **唯一可行源：nf_AU0 新浪实时源**（intraday_snapshot.py L568 fetch_commodity_realtime 已用）。实测 23:56 夜盘交易中 [17]=2026-08-05 [8]=921.5 ✓；00:01 跨日后 [17]=2026-08-06=今日 [8]=921.66 ✓（跨日后日期=今日，_backfill 日期校验不跳过）；02:35 收盘后预期返回收盘价（99% 成立，后台任务 bnq3ajhdd 02:36 验证中）。
+- 不可行源：futures_main_sina（gold 当前 T+1 日线源，返回日盘15:00收盘价910.4，夜盘次日才更新）；akshare 备选（futures_zh_daily_sina/黄金ETF/SGE现货）均无夜盘或 T+1。
+
+**实施方案**：
+1. 新增 launchd plist com.trade.gold-night **02:40 触发**（02:35 改 02:40 给 backfill-evening 02:00-02:17 更多裕量；§14 安全：pf-score-weekly 03:17 周日才跑，us-stock-morning 05:00，intraday 09:25-20:35）
+2. 采集脚本 scripts/gold_night.sh（参考 intraday_snapshot.sh 部署模式）：闸门 is_trading_day(昨日)（昨晚有夜盘才跑，覆盖周五夜盘周六02:40跑，不用 is_trading_day(today) 避免周六跳过漏周五夜盘）；fetch_commodity_realtime() 拿 nf_AU0；upsert_metric(date=today, gold, 夜盘收盘价, source=gold_night)
+3. 导出 export_global 生成 global-3m/6m/1y/3y/5y/all.json（gold 在 global-*.json）；部署持 deploy.lock + git add+commit+push global-*.json + upload_r2 upload-data-large（global-3y/5y/all>=1MB 走 R2）
+4. 不改 indicators.yaml：gold 仍走 futures_main_sina（T+1 收盘历史值），次日盘后覆盖。新任务额外补采夜盘收盘价独立脚本
+5. 可选扩展：同时采 oil(nf_SC0)，INE 原油夜盘同 21:00-02:30 同缺口
+
+**关键边界**：周六 02:40 采周五夜盘（属下周一交易日），nf_AU0[17]=周六(自然日)写 date=周六，周六非交易日 futures_main_sina 不覆盖值保留（前端 global 含 date=周六点可接受，或实施时改 date=next_trading_day）。02:35-09:25 前端显示夜盘收盘价，09:25 intraday 覆盖为日盘开盘价（用户要的效果）。
+
+**待验证**：后台任务 bnq3ajhdd 02:36 测 nf_AU0 02:30 收盘后行为。若失败（nf_AU0 02:30 后不返回收盘价）则无备选源方案不成立，但 99% 概率成功。
+
+**02:36 验证完成**（2026-08-06 02:40 cron ec5aa50f 确认）：✓ 方案成立。nf_AU0 02:36价=928.100 / 02:38价=928.100 / 02:40价=928.100 三次一致价格定格（对比 00:01 夜盘交易中 921.56 变动，02:30 收盘后定格 928.100 不再变动）。[17]=2026-08-06(今日) [8]=928.100(夜盘收盘价)。04:30 cron 6401b939 实施黄金补采（不取消）。验证结果文件 /tmp/nf_au0_night_result.txt + /tmp/nf_au0_afterclose_v2_result.txt。
+
+**实施时点**：04:30 durable cron 6401b939 派 agent 实施（避 02:00-04:00 backfill deploy 锁 + pf-stage0 链）。
+
+**关键文件**：app/collector/intraday_snapshot.py(L568/L440/L1213) | config/indicators.yaml(L85) | static-site/export.py(L91) | app/collector/runner.py(L33 upsert_metric)。
 
 **附**：us_futures（ES/NQ/YM/HSI+9全球b_指数）仅被 intraday_snapshot 调用（09:25-20:35），无夜盘采集。
+
+**实施完成**（2026-08-06 04:36，agent 04:30 cron 6401b939 派单实施）：
+- 新增文件：`app/collector/gold_night.py`（采集 nf_AU0/nf_SC0 + 导出 global，闸门 is_trading_day(昨日)，写 date=today source=gold_night）+ `scripts/gold_night.sh`（worktree + deploy.lock + rebase 兜底 + upload_r2 upload-data-large）+ `~/Library/LaunchAgents/com.trade.gold-night.plist`（02:40 触发，ExitTimeOut 600s）。
+- launchctl load 成功（com.trade.gold-night 已注册，02:40 单次触发）。
+- 手动跑 gold_night.sh 验证（04:36:16-04:37:34，78s）：采集 gold=928.1 / oil=510.0 写 daily_metric date=20260806 source=gold_night ✓；导出 global 6 range + extras-all ✓；commit c830493f5 push main（global-3m/6m/1y.json+.gz，6 files）✓；upload_r2 upload-data-large 32/32 ✓（含 global-3y/5y/all/extras-all）。
+- 线上验证（3 域名）：sss.sugas.site global-1y gold date=20260806 value=928.1 ✓ | ss.fx8.store global-3m gold=928.1 ✓ | ssd.fx8.store R2 global-all gold=928.1 ✓。ss.fx8.store global-1y CF edge cache 延迟（停在 20260805），已知现象会自愈（下次 deploy purge / cache TTL），不阻塞（memory `deploy-verify-3-sites` 任一域名验证即上线 OK）。
+- 日期归属确认：周二-周五 02:40 写 date=today 夜盘收盘价，09:25 intraday 覆盖为日盘开盘价（用户要的效果）；周六 02:40 写 date=周六 周五夜盘收盘价（非交易日 intraday 跳过值保留）；futures_main_sina 次日盘后覆盖 date=交易日（不动 date=周六点）。
