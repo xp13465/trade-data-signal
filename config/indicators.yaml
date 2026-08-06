@@ -234,6 +234,12 @@ indices:
   - {id: thsc_308870, name: "数字经济", market: concept, func: index_hist_ths_concept, symbol: "数字经济", enabled: true}
   - {id: thsc_308752, name: "元宇宙", market: concept, func: index_hist_ths_concept, symbol: "元宇宙", enabled: true}
   - {id: thsc_309128, name: "军工信息化", market: concept, func: index_hist_ths_concept, symbol: "军工信息化", enabled: true}
+  # 国证主题指数（非同花顺概念，但 market=concept 进概念板块区展示，与 thsc 互补）
+  # gz_399417: 国证新能源汽车指数（深交所 399417）。160225 国泰国证新能源汽车LOF 跟踪该指数，
+  # 纳入后 160225 可精准匹配（被动指数基金对跟踪指数 max_err<1%）。
+  # 源 stock_zh_index_daily（新浪，同 sh/sz/cyb 宽基源），symbol=sz399417（深交所前缀 sz）。
+  # 返 close/open/high/low/volume 无 amount（amount=None，与 sz_div 等同源一致）。
+  - {id: gz_399417, name: "国证新能源汽车", market: concept, func: stock_zh_index_daily, symbol: "sz399417", enabled: true}
   - {id: nikkei225, name: 日经225, market: global, func: index_global_hist_sina, symbol: "日经225指数", enabled: true}
   - {id: kospi, name: 韩国 KOSPI, market: global, func: index_global_hist_sina, symbol: "首尔综合指数", enabled: true}
   - {id: ftse100, name: 富时100, market: global, func: index_global_hist_sina, symbol: "英国富时100指数", enabled: true}
