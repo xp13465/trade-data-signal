@@ -2099,7 +2099,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       var idxName = idx && typeof indexIdToName === "function" ? indexIdToName(idx) : "";
       var html = parts.map(function (p, i) {
         if (i === 0 || i === 1) return '<b class="term-pop-sig-label">' + _esc(p) + '</b>';
-        if (idxName && (p === idxName || p === idx)) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
+        if (idxName && (p === idxName || p === idx || p.startsWith(idxName + " ("))) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
       if (locateHtml || idxRetHtml || etfHtml) html += locateHtml + idxRetHtml + etfHtml;
@@ -4137,12 +4137,15 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   _signalModalCharts = [];
   renderLoadingState(body);
   const name = indexIdToName(indexId);
+  const _sigIdxCode = indexIdToCode(indexId);
   const isFreeze = signal === "freeze";
   // 2026-07-20: 删除硬编码三元链，复用 signalLabel（L310-335 已覆盖 7 种信号 + 默认 fallback "趋势转弱"）。
   // 修复 sell_stop_loss / buy_special_filtered 等漏分支落英文原值的 bug（原末尾 `: signal` 返回英文）。
   // reason 传空串：sell_stop_loss fallback 返回 "ATR止损"（L318），buy_special_filtered 返回 "特买(过滤预览)"。
   const sigLabel = isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signalLabel({signal: signal, reason: ""});
-  titleEl.textContent = `${name} · ${sigLabel} · ${fmtDate(date)}`;
+  // 2026-08-07 标题追加同花顺板块代码(885xxx/886xxx)标签，和图表卡标题(L3732-3734)及信号格(L1603)风格统一。
+  const _idxCodeTag = _sigIdxCode ? ` <span class="idx-code-tag" title="同花顺板块代码：${_sigIdxCode}（站点 ${indexId} = 同花顺 ${_sigIdxCode}，同一概念指数）">${_sigIdxCode}</span>` : "";
+  titleEl.innerHTML = `${_esc(name)}${_idxCodeTag} · ${_esc(sigLabel)} · ${fmtDate(date)}`;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
   modal._ctx = { indexId, signal, date, freezeVal };
