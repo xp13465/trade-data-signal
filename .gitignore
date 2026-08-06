@@ -171,6 +171,12 @@ static-site/data/etf_score_list_buy.json
 static-site/data/etf_score_list_sell.json
 static-site/data/etf_score_list_hold.json
 
+# P0 (2026-08-05): offshore_fund_*.json 全量100370只灌满后合计130MB，单文件最大28MB
+# 超 CF Workers Static Assets 25MB 限制致构建失败。前端走 R2 直链 ssd.fx8.store/offshore_fund/
+# （app.js/lab.js 不读 CF 版），upload-offshore-fund 命令每日刷 R2。本地保留供 upload_r2 上传源。
+static-site/data/offshore_fund*.json
+static-site/data/offshore_fund*.json.gz
+
 # 运行时数据产物/状态(本地保留不推)
 /data/board_etf_map.json
 /a-stock-data/lab_backtest.json
