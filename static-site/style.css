@@ -1201,10 +1201,10 @@ main { padding: 16px 24px; }
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-/* 盘后 hover 预估 vs 实际对比 pop (debug, 2026-08-05)
-   仅 a_amount 卡盘后(is_closed||hm>=1500)且有 amount_forecast 数值时注入 .kpi-forecast-pop
+/* 成交额 hover 预估 vs 实际/当前累计对比 pop (2026-08-06)
+   a_amount 卡有 amount_forecast 数值时注入 .kpi-forecast-pop(盘中+盘后均注入)
    overlay 覆盖整卡(.card.kpi overflow:hidden 裁剪圆角), hover 显示对比数据
-   盘中保持预估角标常驻(L8087-8104), 不注入 pop */
+   盘中: 预估全天 vs 当前累计 + 完成度%; 盘后: 预估 vs 实际 + 偏差% */
 .card.kpi .kpi-forecast-pop {
   position: absolute;
   inset: 0;

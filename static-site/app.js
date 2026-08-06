@@ -8192,31 +8192,13 @@ async function renderOverview() {
     const fgTag = k.id === "fear_greed" ? ` <span class="sentiment-label" style="color:${fearGreedColor(k.valueNum)}">${fearGreedLabel(k.valueNum)}</span>` : "";
     let sub = k.sub || "";
     let valueHtml = k.value;
-    // 成交额KPI：盘中主值显示预估全天成交额 + 橙色"预估"tag，副值显示当前累计成交额
-    // 数据来源: intraday_snapshot.amount_forecast (数值，亿元)，盘中每10分钟刷新
-    // 收盘后或无预估值: 保持原 a_amount 卡片显示(主值=k.value当前累计, 副值=k.sub单位)
-    if (k.id === "a_amount") {
-      const _snap = state.intradaySnapshot;
-      const _forecast = _snap && _snap.amount_forecast;
-      if (_forecast && !_snap.is_closed) {
-        const now = new Date();
-        const hm = now.getHours() * 100 + now.getMinutes();
-        if (hm < 1500) {
-          // 预估主值格式：>=1万亿用"X.XX万亿"，否则"X亿"
-          const _fcStr = _forecast >= 10000
-            ? `${(_forecast / 10000).toFixed(2)}万亿`
-            : `${Math.round(_forecast)}亿`;
-          const _fcTag = `<span class="tag forecast-tag" style="background:#ff9800;color:#fff;font-size:10px;padding:1px 4px;margin-left:4px;">预估</span>`;
-          valueHtml = `${_fcStr}${_fcTag}`;
-          // 副值显示当前累计成交额(对照看)：k.value已含数值, k.sub为单位(亿)
-          sub = `当前 ${k.value}${k.sub || "亿"}`;
-        }
-      }
-    }
-    // 盘后(is_closed || hm>=1500) hover a_amount 卡 pop 预估 vs 实际对比 (debug, 2026-08-05)
-    // 盘中(hm<1500 && !is_closed)保持预估角标常驻(上方L8087-8104不动), 不显示hover pop
-    // 数据来源: state.intradaySnapshot.amount_forecast(预估数值,亿元) + k.valueNum(实际成交额,亿元)
-    // amount_forecast无值(盘后snapshot为{}空对象)时不显示pop(数据pipeline问题,非UI任务)
+    // 成交额KPI: 主值始终显示实际成交额(历史模式,与其他KPI一致), 预估不替代主值
+    // 预估成交额改为 hover pop 显示"预估 vs 实际/当前累计"对比 (2026-08-06 用户定:
+    //   原预估替代主值交互不佳, 改回1个成交额历史模式 + hover vs 比较, 盘中+盘后都支持)
+    // 数据来源: intraday_snapshot.amount_forecast(预估数值,亿元) + k.valueNum(实际/当前累计,亿元)
+    // 盘中(未收盘): 实际=当前累计(半日值), 显示"完成度%"=当前累计/预估;
+    // 盘后(已收盘): 实际=全天值, 显示"偏差%"=(预估-实际)/实际*100
+    // amount_forecast无值(snapshot为{}空对象,数据pipeline问题)时不显示pop
     let _forecastPopHtml = "";
     if (k.id === "a_amount") {
       const _snapFc = state.intradaySnapshot;
@@ -8225,25 +8207,42 @@ async function renderOverview() {
       const _hmFc = _nowFc.getHours() * 100 + _nowFc.getMinutes();
       const _isAfterClose = _snapFc && (_snapFc.is_closed || _hmFc >= 1500);
       // _fcVal 必须是数字(盘中snapshot写入数值; 盘后可能为{}空对象, typeof='object'跳过)
-      if (typeof _fcVal === "number" && _fcVal > 0 && _isAfterClose && k.valueNum != null && k.valueNum > 0) {
+      if (typeof _fcVal === "number" && _fcVal > 0 && k.valueNum != null && k.valueNum > 0) {
         const _fcStr = _fcVal >= 10000
           ? `${(_fcVal / 10000).toFixed(2)}万亿`
           : `${Math.round(_fcVal)}亿`;
         const _actStr = k.valueNum >= 10000
           ? `${(k.valueNum / 10000).toFixed(2)}万亿`
           : `${Math.round(k.valueNum)}亿`;
-        const _devPct = ((k.valueNum - _fcVal) / _fcVal) * 100;
-        const _devStr = (_devPct >= 0 ? "+" : "") + _devPct.toFixed(1) + "%";
-        const _devLabel = _devPct >= 0 ? "预估偏低" : "预估偏高";
-        const _absDev = Math.abs(_devPct);
-        const _devColor = _absDev < 5 ? "#2e8b57" : _absDev < 15 ? "#e6a23c" : "#e6492e";
         // 预估时点: 从 collected_at 提取 HH:MM (amount_forecast 在 snapshot 采集时生成)
         let _fcTime = "";
         if (_snapFc.collected_at) {
           const _m = String(_snapFc.collected_at).match(/T(\d{2}):(\d{2})/);
           if (_m) _fcTime = `${_m[1]}:${_m[2]}`;
         }
-        _forecastPopHtml = `<div class="kpi-forecast-pop"><div class="kfp-title">预估 vs 实际</div><div class="kfp-row"><span class="kfp-label">预估</span><span class="kfp-val kfp-forecast">${_fcStr}</span></div><div class="kfp-row"><span class="kfp-label">实际</span><span class="kfp-val kfp-actual">${_actStr}</span></div><div class="kfp-row"><span class="kfp-label">偏差</span><span class="kfp-val" style="color:${_devColor}">${_devStr}<span class="kfp-dev-label">${_devLabel}</span></span></div>${_fcTime ? `<div class="kfp-row kfp-time"><span class="kfp-label">预估时点</span><span class="kfp-val">${_fcTime}</span></div>` : ""}</div>`;
+        let _popBody;
+        if (_isAfterClose) {
+          // 盘后: 预估 vs 实际(全天) + 偏差% = (预估-实际)/实际*100
+          const _devPct = ((_fcVal - k.valueNum) / k.valueNum) * 100;
+          const _devStr = (_devPct >= 0 ? "+" : "") + _devPct.toFixed(1) + "%";
+          const _devLabel = _devPct >= 0 ? "预估偏高" : "预估偏低";
+          const _absDev = Math.abs(_devPct);
+          const _devColor = _absDev < 5 ? "#2e8b57" : _absDev < 15 ? "#e6a23c" : "#e6492e";
+          _popBody =
+            `<div class="kfp-row"><span class="kfp-label">预估</span><span class="kfp-val kfp-forecast">${_fcStr}</span></div>` +
+            `<div class="kfp-row"><span class="kfp-label">实际</span><span class="kfp-val kfp-actual">${_actStr}</span></div>` +
+            `<div class="kfp-row"><span class="kfp-label">偏差</span><span class="kfp-val" style="color:${_devColor}">${_devStr}<span class="kfp-dev-label">${_devLabel}</span></span></div>`;
+        } else {
+          // 盘中: 预估(全天) vs 当前累计 + 完成度% = 当前累计/预估*100
+          const _progPct = (k.valueNum / _fcVal) * 100;
+          const _progStr = _progPct.toFixed(1) + "%";
+          const _progColor = _progPct >= 100 ? "#2e8b57" : _progPct >= 50 ? "#e6a23c" : "#4fc3f7";
+          _popBody =
+            `<div class="kfp-row"><span class="kfp-label">预估全天</span><span class="kfp-val kfp-forecast">${_fcStr}</span></div>` +
+            `<div class="kfp-row"><span class="kfp-label">当前累计</span><span class="kfp-val kfp-actual">${_actStr}</span></div>` +
+            `<div class="kfp-row"><span class="kfp-label">完成度</span><span class="kfp-val" style="color:${_progColor}">${_progStr}</span></div>`;
+        }
+        _forecastPopHtml = `<div class="kpi-forecast-pop"><div class="kfp-title">${_isAfterClose ? "预估 vs 实际" : "预估 vs 当前累计"}</div>${_popBody}${_fcTime ? `<div class="kfp-row kfp-time"><span class="kfp-label">预估时点</span><span class="kfp-val">${_fcTime}</span></div>` : ""}</div>`;
       }
     }
     if (k.id === "a_volume_ratio") {
@@ -8491,7 +8490,7 @@ async function renderOverview() {
         }
         // 极值多行布局(用户审美决定 2026-08-05): 高/低/均各一行, 不一行紧凑
         const _extremeRow = !_isScore
-          ? `<div class="kst-row"><span class="kst-label">6m最高</span><span class="kst-val">${_fmt6mV(_stat.max)}</span></div><div class="kst-row"><span class="kst-label">6m最低</span><span class="kst-val">${_fmt6mV(_stat.min)}</span></div><div class="kst-row"><span class="kst-label">6m均值</span><span class="kst-val">${_fmt6mV(_stat.mean)}</span></div>`
+          ? `<div class="kst-row"><span class="kst-label">近6月最高</span><span class="kst-val">${_fmt6mV(_stat.max)}</span></div><div class="kst-row"><span class="kst-label">近6月最低</span><span class="kst-val">${_fmt6mV(_stat.min)}</span></div><div class="kst-row"><span class="kst-label">近6月均值</span><span class="kst-val">${_fmt6mV(_stat.mean)}</span></div>`
           : "";
         const _tooltipBody =
           `<div class="kst-headline"><b style="color:${_isScore ? fearGreedColor(k.valueNum) : "var(--text-1)"}">${k.value}</b> · <b style="color:${_pctColor}">${_stat.percentile.toFixed(0)}% ${_pctTag}</b></div>` +
