@@ -1478,10 +1478,23 @@ def _collect_intraday_width_metrics() -> dict:
     try:
         df = safe_call(ak.stock_zt_pool_zbgc_em, date=today)
         if isinstance(df, Exception) or df is None or len(df) == 0:
-            print(f"  [intraday] stock_zt_pool_zbgc_em 失败/空 ({time.time()-t0:.1f}s)", flush=True)
-            # 炸板率空=无数据不好判0,不交叉验证,只 log error
-            log_collect(today, "a_width_zhaban_rate", "error",
-                        "stock_zt_pool_zbgc_em 失败/空")
+            # 炸板池（zbgc=炸板专用）空窗时点判断:
+            #   - 竞价时段(9:25-9:30)/午休(11:30-13:00)/收盘后(15:00后): 连续竞价未运行或已停,
+            #     无炸板产生, 池空=正常空窗, 不 upsert 当日值(保持昨日值, 等 9:30 连续竞价后补),
+            #     不交叉验证(空=无数据不好判0), 不 log error 消除 collect_health 红点误判
+            #   - 连续竞价时段(9:30-11:30 / 13:00-15:00): 池空=可能真采集失败, 保留原 error 逻辑
+            _, mkt_label = is_market_closed()
+            is_continuous = (mkt_label == "盘中实时小结")
+            if is_continuous:
+                print(f"  [intraday] stock_zt_pool_zbgc_em 失败/空 (连续竞价时段, 疑似采集失败, "
+                      f"{time.time()-t0:.1f}s)", flush=True)
+                log_collect(today, "a_width_zhaban_rate", "error",
+                            "stock_zt_pool_zbgc_em 失败/空（连续竞价时段, 疑似采集失败）")
+            else:
+                print(f"  [intraday] stock_zt_pool_zbgc_em 空（{mkt_label}, 正常空窗, "
+                      f"保持昨日值, {time.time()-t0:.1f}s)", flush=True)
+                log_collect(today, "a_width_zhaban_rate", "ok",
+                            f"stock_zt_pool_zbgc_em 空（{mkt_label}, 正常空窗, 保持昨日值）")
         else:
             zhaban_n = int(len(df))
             zt_n = results.get("zt_count")
