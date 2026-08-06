@@ -8256,11 +8256,10 @@ async function renderOverview() {
     let sub = k.sub || "";
     let valueHtml = k.value;
     // 成交额KPI: 主值始终显示实际成交额(历史模式,与其他KPI一致), 预估不替代主值
-    // hover pop: 盘中显示"预估 vs 当前累计"(完成度%), 收盘后显示"收盘实际成交额"(无预估对比).
-    // 数据来源: intraday_snapshot.amount_forecast(预估数值,亿元) + k.valueNum(实际/当前累计,亿元)
+    // hover pop: 盘中显示"预估 vs 当前累计"(完成度%), 收盘后显示近6日迷你柱状图+5日均对比.
+    // 数据来源: intraday_snapshot.amount_forecast(盘中预估) + overview.a_amount_6m(收盘历史,零额外请求)
     // 盘中(未收盘): 实际=当前累计(半日值), 显示"完成度%"=当前累计/预估;
-    // 收盘后(已收盘): 实际=全天定格值, 只显示实际(后端收盘snapshot清空amount_forecast=null,
-    //   前端可能持盘中旧snapshot的stale amount_forecast, 不再显示预估避免旧值, 2026-08-06 修复)
+    // 收盘后(已收盘): 显示今日实际+近5交易日柱状图(今日高亮)+5日均±%(不显示预估,避免stale旧预估)
     // amount_forecast无值(盘中snapshot为{}空对象/数据pipeline问题)时不显示pop
     let _forecastPopHtml = "";
     if (k.id === "a_amount") {
@@ -8275,12 +8274,47 @@ async function renderOverview() {
       //   预估 vs 当前累计对比. _isAfterClose 含 _hmFc>=1500 时钟判定, 即便 snap 仍 stale(is_closed=false)
       //   也能在 15:00 后正确切收盘分支, 不依赖 snap 刷新到位.
       if (_isAfterClose && k.valueNum != null && k.valueNum > 0) {
-        // 收盘后: 只显示实际成交额, 不显示预估行(避免 stale 旧预估)
-        const _actStr = k.valueNum >= 10000
-          ? `${(k.valueNum / 10000).toFixed(2)}万亿`
-          : `${Math.round(k.valueNum)}亿`;
-        _forecastPopHtml = `<div class="kpi-forecast-pop"><div class="kfp-title">📍 收盘实际成交额</div>` +
-          `<div class="kfp-row"><span class="kfp-label">实际</span><span class="kfp-val kfp-actual">${_actStr}</span></div></div>`;
+        // 收盘后: 显示实际成交额 + 近6日迷你柱状图(今日高亮) + 5日均对比.
+        // 不显示预估行(避免 stale 旧预估). 数据源 overview.json 的 a_amount_6m(零额外请求).
+        // 用迷你柱状图而非文本行: KPI 小卡高度~116px(pop 内容区~96px), 5 行文本会溢出被裁剪,
+        // 柱状图紧凑(今日+近5交易日6条柱)+2行摘要可容纳, 且视觉趋势更直观.
+        const _fmtAmtFc = (v) => v >= 10000 ? `${(v / 10000).toFixed(2)}万亿` : `${Math.round(v)}亿`;
+        const _actStr = _fmtAmtFc(k.valueNum);
+        const _arr6m = r["a_amount_6m"];
+        let _barsHtml = "";
+        let _summaryHtml = `<div class="kfp-row" style="font-size:11px;"><span class="kfp-label">实际</span><span class="kfp-val kfp-actual">${_actStr}</span></div>`;
+        if (Array.isArray(_arr6m) && _arr6m.length >= 2) {
+          const _todayDate = k.date || (_arr6m[_arr6m.length - 1] && _arr6m[_arr6m.length - 1].date) || "";
+          // 近5交易日(排除今日), 取末5条
+          const _hist = _arr6m.filter(d => d.date && d.date < _todayDate && d.value != null && d.value > 0).slice(-5);
+          if (_hist.length >= 1) {
+            const _maxV = Math.max(k.valueNum, ..._hist.map(d => d.value)) || 1;
+            const _chartH = 26;
+            const _fmtBarLbl = (dt) => dt && dt.length === 8 ? dt.slice(4, 6) + "-" + dt.slice(6, 8) : "";
+            const _barEl = (val, lbl, isToday) => {
+              const _h = Math.max(2, (val / _maxV) * _chartH);
+              const _color = isToday ? "var(--primary)" : "var(--border-strong)";
+              const _lblColor = isToday ? "var(--primary)" : "var(--text-3)";
+              const _lblW = isToday ? "600" : "400";
+              const _glow = isToday ? "box-shadow:0 0 4px var(--primary);" : "";
+              const _txt = isToday ? "今日" : _fmtBarLbl(lbl);
+              return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;min-width:0;"><div style="width:100%;max-width:14px;height:${_h.toFixed(1)}px;background:${_color};border-radius:2px 2px 0 0;${_glow}"></div><span style="font-size:8px;color:${_lblColor};font-weight:${_lblW};white-space:nowrap;">${_txt}</span></div>`;
+            };
+            let _bars = _hist.map(d => _barEl(d.value, d.date, false)).join("");
+            _bars += _barEl(k.valueNum, _todayDate, true);
+            _barsHtml = `<div style="display:flex;align-items:flex-end;gap:3px;height:${_chartH + 13}px;margin:3px 0 1px;">${_bars}</div>`;
+            // 5日均对比: (今日-5日均)/5日均*100
+            const _avg = _hist.reduce((s, d) => s + d.value, 0) / _hist.length;
+            const _avgPct = ((k.valueNum - _avg) / _avg) * 100;
+            const _avgStr = _fmtAmtFc(_avg);
+            const _avgPctStr = (_avgPct >= 0 ? "+" : "") + _avgPct.toFixed(1) + "%";
+            const _avgPctColor = _avgPct >= 0 ? "#e6492e" : "#2e8b57";
+            _summaryHtml =
+              `<div class="kfp-row" style="font-size:11px;"><span class="kfp-label">今日</span><span class="kfp-val kfp-actual">${_actStr}</span></div>` +
+              `<div class="kfp-row" style="font-size:11px;"><span class="kfp-label">5日均</span><span class="kfp-val">${_avgStr} <span style="color:${_avgPctColor};font-weight:600;">${_avgPctStr}</span></span></div>`;
+          }
+        }
+        _forecastPopHtml = `<div class="kpi-forecast-pop" style="padding:7px 11px;gap:3px;"><div class="kfp-title" style="font-size:10px;margin-bottom:1px;">📍 近6日成交额</div>${_barsHtml}${_summaryHtml}</div>`;
       } else if (typeof _fcVal === "number" && _fcVal > 0 && k.valueNum != null && k.valueNum > 0) {
         // 盘中: 预估(全天) vs 当前累计 + 完成度% = 当前累计/预估*100
         const _fcStr = _fcVal >= 10000
