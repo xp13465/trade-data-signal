@@ -75,10 +75,10 @@
     "task": "us_stock_morning",
     "name": "美股早采",
     "schedule": "05:00",
-    "est_text": "约5分钟",
-    "last_run": "2026-08-06 05:00",
+    "est_text": "约6分钟",
+    "last_run": "2026-08-07 05:00",
     "last_exit": 0,
-    "last_duration_sec": 431,
+    "last_duration_sec": 536,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
