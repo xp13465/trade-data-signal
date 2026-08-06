@@ -1649,6 +1649,9 @@ main { padding: 16px 24px; }
 .etf-pop-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--primary); min-width: 54px; }
 .etf-pop-name { color: var(--text-1); }
 .etf-pop-amt { color: var(--text-3); margin-left: auto; }
+/* 2026-08-05 ETF 至今盈亏：popup 候选行内盈亏 + tag 后盈亏 + hoverpop 内联盈亏（红涨绿跌内联 color） */
+.etf-pop-pnl { margin-left: 8px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.etf-tag-pnl { font-size: 11px; font-weight: 600; margin-left: 4px; white-space: nowrap; }
 
 /* 2026-08-05 信号 cell ETF 筛选行（cell tag 已删，筛选按钮保留）
    2026-08-06 删 color:var(--text-3) 让整行继承深色 text-1，和 byType 行一致；选中态 .sig-acc-filter-active 不受影响 */

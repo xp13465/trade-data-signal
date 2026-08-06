@@ -388,8 +388,9 @@ def overview(conn, cfg):
         ).fetchall()]
     # 2026-08-05 注入 ETF 候选到每条信号（前端信号 cell 展示 ETF tag + 真实ETF/概念标的筛选）。
     # etf_for 已 lru_cache 零开销；etfs=[] 表示概念标的（无跟踪ETF，前端显"无ETF"灰标）。
+    # 深拷贝 etfs 列表：_etf_map() lru_cache 返回共享对象，不同信号日需独立 etf_since_return（L461+）。
     for _s in sigs:
-        _s.update(etf_for(_s["index_id"]))
+        _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
     # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
     # 用传入 conn 查（不调 normalize.load_* 避免新建连接，遵守模块无状态原则）。
@@ -454,6 +455,54 @@ def overview(conn, cfg):
             else:
                 _is_sell = _sig_type in _SELL_SIGNALS
                 _s["since_correct"] = (_since_ret < 0) if _is_sell else (_since_ret > 0)
+
+        # ETF 至今盈亏（2026-08-05）：基于 ETF 价格算信号日至今涨跌幅，注入 etfs[] 每个候选。
+        # 和指数 since_return（L449）口径一致：信号日收盘 vs 最新 ETF 收盘。今日信号无"至今"语义=None。
+        # 跨库查 etf_national_team.db（etf_daily 表，不复权），1万本金算绝对盈亏（POSITION_SIZE=10000）。
+        # ETF 信号日无数据（停牌/未上市）-> None，前端跳过不显。
+        _etf_codes = set()
+        for _s in sigs:
+            for _e in (_s.get("etfs") or []):
+                if _e.get("code"):
+                    _etf_codes.add(_e["code"])
+        _etf_close_cache: dict[str, dict[str, float]] = {}
+        if _etf_codes:
+            try:
+                from .collector.etf_national_team import get_conn as _etf_get_conn
+                _ec = _etf_get_conn()
+                for _r in _ec.execute(
+                    "SELECT etf_code, date, close FROM etf_daily "
+                    "WHERE etf_code IN (%s) AND close IS NOT NULL" % ",".join("?" * len(_etf_codes)),
+                    tuple(_etf_codes),
+                ).fetchall():
+                    _etf_close_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["close"]
+                _ec.close()
+            except Exception:  # noqa: BLE001
+                pass
+        _ETF_POSITION_SIZE = 10_000  # 对齐 simulate_trade POSITION_SIZE（L34）
+        for _s in sigs:
+            _sig_date = _s.get("date")
+            for _e in (_s.get("etfs") or []):
+                _e["etf_since_return"] = None
+                _e["etf_pnl_abs"] = None
+                _code = _e.get("code")
+                # 今日信号(date==score_date)无"至今"语义，对齐 L446-447 指数口径
+                if not _code or _sig_date == score_date:
+                    continue
+                _cm = _etf_close_cache.get(_code)
+                if not _cm:
+                    continue
+                _sig_close = _cm.get(_sig_date)
+                if _sig_close is None:
+                    continue
+                # 今日 = 最新 etf_daily.date（per-ETF 最大日期，不同 ETF 末日可能不同）
+                _today_close = _cm.get(max(_cm.keys()))
+                if _today_close is None:
+                    continue
+                _ret = round((_today_close - _sig_close) / _sig_close * 100, 2)
+                _e["etf_since_return"] = _ret
+                _e["etf_pnl_abs"] = round(_ETF_POSITION_SIZE * _ret / 100, 2)
+
     freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_dates = [r[0] for r in conn.execute(
         "SELECT DISTINCT date FROM score_daily WHERE is_freeze=1 AND date >= ? ORDER BY date DESC LIMIT 9",
