@@ -71,7 +71,7 @@ KW: dict[str, list[str]] = {
     "thsc_308828": ["算力", "数据中心", "IDC"],
     "thsc_309020": ["信创", "信息技术应用"],
     "thsc_309060": ["数据"],
-    "thsc_300008": ["新能源车", "新能源", "汽车"],
+    "thsc_300008": ["新能源车", "汽车"],  # 收紧：去掉"新能源"(命中创业板新能源/科创新能源等非汽车主题，误差大)；保留"新能源车"(515030等直接新能源车ETF)+"汽车"(159565汽车零部件等贴合走势)
     "thsc_301079": ["光伏"],
     "thsc_300733": ["电池", "锂电"],
     "thsc_306380": ["储能"],
@@ -85,9 +85,87 @@ KW: dict[str, list[str]] = {
     "thsc_309113": ["eVTOL", "飞行汽车", "通用航空"],
     "thsc_308491": ["氢能", "氢"],
     "thsc_308870": ["数字经济"],
-    "thsc_308752": ["元宇宙", "虚拟现实", "VR", "增强现实", "AR"],
+    "thsc_308752": ["元宇宙", "虚拟现实", "VR", "增强现实", "AR", "游戏"],  # 加"游戏"：159869游戏ETF华夏(8.13亿)归申万传媒(sw_801760)但贴合元宇宙走势，误差0.08%；不加"传媒"避免命中泛传媒ETF
     "thsc_309128": ["军工", "国防", "信息化"],
 }
+
+# ───────────────────────────────────────────────────────────────────
+# track_index_name 关键词匹配（fundf10 抓取的 ETF 跟踪指数名，比 ETF 名称更精准）。
+# 优先级：track_index_name > overlap 成分股 > KW 名称子串。
+# 行业/概念匹配均标 approx=true（ETF 跟踪中证/国证指数，非申万一级/同花顺概念精准跟踪）。
+#
+# track_index_name 例：515880 track_index="中证全指通信设备指数"，比 ETF 名"通信ETF国泰"
+# 更精准（暴露实际跟踪的中证全指指数，非申万通信 sw_801770）。
+#
+# include：track_index_name 命中任一即候选；
+# exclude：命中任一排除（精度过滤，如 sw_801880 汽车 排除"新能源汽车/智能汽车"）。
+# ───────────────────────────────────────────────────────────────────
+TRACK_INDEX_KW: dict[str, dict] = {
+    # ---- 申万一级行业 ----
+    "sw_801010": {"include": ["农业", "农牧", "养殖", "渔业", "牧渔"], "exclude": []},
+    "sw_801030": {"include": ["化工"], "exclude": []},
+    "sw_801040": {"include": ["钢铁"], "exclude": []},
+    "sw_801050": {"include": ["有色金属"], "exclude": []},
+    "sw_801080": {"include": ["电子"], "exclude": ["消费电子"]},  # 申万电子 vs 消费电子
+    "sw_801880": {"include": ["汽车"], "exclude": ["新能源汽车", "智能汽车", "新能源车"]},
+    "sw_801110": {"include": ["家电"], "exclude": []},
+    "sw_801120": {"include": ["食品", "酒", "饮料"], "exclude": []},
+    "sw_801130": {"include": ["纺织", "服装", "服饰"], "exclude": []},
+    "sw_801140": {"include": ["轻工", "家居", "造纸", "文娱"], "exclude": []},
+    "sw_801150": {"include": ["医药", "医疗", "生物", "创新药", "中药"], "exclude": []},
+    "sw_801160": {"include": ["公用事业"], "exclude": []},
+    "sw_801170": {"include": ["交通", "运输"], "exclude": []},
+    "sw_801180": {"include": ["房地产", "地产"], "exclude": []},
+    "sw_801200": {"include": ["商贸", "零售", "商业", "百货"], "exclude": []},
+    "sw_801210": {"include": ["旅游", "社服"], "exclude": []},
+    "sw_801780": {"include": ["银行"], "exclude": []},
+    "sw_801790": {"include": ["证券", "保险", "非银"], "exclude": []},
+    "sw_801710": {"include": ["建筑材料", "建材"], "exclude": []},
+    "sw_801720": {"include": ["建筑", "基建"], "exclude": ["建筑材料", "建材"]},
+    "sw_801730": {"include": ["电力设备", "光伏", "风电", "储能", "电池", "新能源"],
+                  "exclude": ["新能源汽车", "新能源车"]},
+    "sw_801890": {"include": ["机械", "工程机械", "机床"], "exclude": []},
+    "sw_801740": {"include": ["军工", "国防"], "exclude": []},
+    "sw_801750": {"include": ["计算机", "软件", "信息技术"], "exclude": []},
+    "sw_801760": {"include": ["传媒", "游戏", "动漫"], "exclude": []},
+    "sw_801770": {"include": ["通信"], "exclude": []},
+    "sw_801950": {"include": ["煤炭"], "exclude": []},
+    "sw_801960": {"include": ["石油", "石化"], "exclude": []},
+    "sw_801970": {"include": ["环保"], "exclude": []},
+    "sw_801980": {"include": ["美容", "护理", "化妆品"], "exclude": []},
+    "sw_801230": {"include": [], "exclude": []},  # 综合行业无 ETF，留空
+    # ---- 同花顺概念 ----
+    "thsc_300816": {"include": ["机器人"], "exclude": []},
+    "thsc_309119": {"include": ["机器人"], "exclude": []},
+    "thsc_308700": {"include": ["半导体", "芯片", "碳化硅", "氮化镓", "宽禁带"], "exclude": []},
+    "thsc_309049": {"include": ["光通信", "光模块", "CPO", "光子"], "exclude": []},
+    "thsc_301085": {"include": ["芯片", "半导体"], "exclude": []},
+    "thsc_307940": {"include": ["存储芯片", "存储"], "exclude": []},
+    "thsc_302035": {"include": ["人工智能"], "exclude": []},
+    "thsc_309068": {"include": ["算力", "云计算", "数据中心"], "exclude": []},
+    "thsc_308828": {"include": ["算力", "云计算", "数据中心"], "exclude": []},
+    "thsc_309020": {"include": ["信创", "信息技术创新"], "exclude": []},
+    "thsc_309060": {"include": ["数据", "大数据"], "exclude": []},
+    "thsc_300008": {"include": ["新能源汽车"], "exclude": []},
+    "thsc_301079": {"include": ["光伏"], "exclude": []},
+    "thsc_300733": {"include": ["电池", "锂电"], "exclude": []},
+    "thsc_306380": {"include": ["储能"], "exclude": []},
+    "thsc_308294": {"include": ["固态电池", "电池"], "exclude": []},
+    "thsc_309115": {"include": ["低空", "通用航空", "eVTOL"], "exclude": []},
+    "thsc_308014": {"include": ["创新药", "医药"], "exclude": []},
+    "thsc_300082": {"include": ["军工", "国防"], "exclude": []},
+    "thsc_300830": {"include": ["量子"], "exclude": []},  # 大概率无 ETF，fallback overlap
+    "thsc_308725": {"include": ["汽车芯片"], "exclude": []},
+    "thsc_308300": {"include": ["MCU", "单片机"], "exclude": []},
+    "thsc_309113": {"include": ["eVTOL", "飞行汽车", "通用航空"], "exclude": []},
+    "thsc_308491": {"include": ["氢能", "氢"], "exclude": []},
+    "thsc_308870": {"include": ["数字经济"], "exclude": []},
+    "thsc_308752": {"include": ["元宇宙", "虚拟现实", "动漫游戏", "游戏"], "exclude": []},
+    "thsc_309128": {"include": ["军工", "国防"], "exclude": []},
+}
+
+# ETF track_index 缓存路径（fundf10 抓取，scripts/fetch_etf_track_index.py 生成）
+ETF_TRACK_INDEX_PATH = ROOT / "data" / "etf_track_index.json"
 
 # 排除词：跨境/债券/商品/货币等非 A 股行业主题 ETF
 EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "日本", "德国",
@@ -257,6 +335,79 @@ def _akshare_name_fallback(df_by_code: dict) -> dict[str, list[dict]]:
     return result
 
 
+def _load_etf_track_index() -> dict[str, dict]:
+    """读 data/etf_track_index.json（fundf10 抓取的 ETF 跟踪指数名），返回 {etf_code: info}。
+
+    info 结构：{name, track_index, amount, fetched_at, status?}（status='no_track' 表示页面无"跟踪标的"字段）。
+    读不到返回空 dict（track_index 匹配 fallback 到 overlap/KW）。
+    """
+    if not ETF_TRACK_INDEX_PATH.exists():
+        print(f"⚠ etf_track_index.json 不存在: {ETF_TRACK_INDEX_PATH}，track_index 匹配 fallback overlap/KW")
+        return {}
+    try:
+        with open(ETF_TRACK_INDEX_PATH, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception as e:
+        print(f"⚠ etf_track_index.json 读取失败: {e}，track_index 匹配 fallback overlap/KW")
+        return {}
+    out: dict[str, dict] = {}
+    for k, v in d.items():
+        if k.startswith("_") or not isinstance(v, dict):
+            continue
+        if not v.get("track_index"):
+            continue  # 跳过 no_track
+        out[k] = v
+    return out
+
+
+def _match_by_track_index(
+    iid: str,
+    track_idx_map: dict[str, dict],
+    df_by_code: dict,
+) -> list[dict]:
+    """用 track_index_name 关键词匹配 ETF，返回候选列表。
+
+    流程：对全量 ETF 的 track_index_name 做 include/exclude 关键词匹配，
+    命中的 ETF 按成交额降序排，每个 ETF 携带 track_index_name 字段。
+
+    返回 [{code, name, amount, approx, track_index_name, match_method}, ...]。
+    """
+    rule = TRACK_INDEX_KW.get(iid)
+    if not rule or not rule.get("include"):
+        return []  # 无 include 关键词（如 sw_801230 综合行业），返空
+    inc = rule["include"]
+    exc = rule.get("exclude", [])
+    etfs = []
+    for code, info in track_idx_map.items():
+        tin = info.get("track_index", "") or ""
+        if not tin:
+            continue
+        # include 任一命中 + exclude 都不命中
+        if any(k in tin for k in inc) and not any(k in tin for k in exc):
+            # ETF 名称优先用 akshare 实时值（df_by_code），查不到用 cache name
+            r = df_by_code.get(code) if df_by_code else None
+            if r is not None:
+                try:
+                    rname = str(r["名称"])
+                    amount = round(float(r["成交额"]) / 1e8, 2)
+                except (TypeError, ValueError, KeyError):
+                    rname = info.get("name", code)
+                    amount = round((info.get("amount", 0) or 0) / 1e8, 2)
+            else:
+                rname = info.get("name", code)
+                amount = round((info.get("amount", 0) or 0) / 1e8, 2)
+            etfs.append({
+                "code": code,
+                "name": rname,
+                "amount": amount,
+                "approx": True,  # 行业/概念 ETF 跟踪中证/国证指数，非申万/同花顺精准跟踪
+                "track_index_name": tin,
+                "match_method": "track_index",
+            })
+    etfs.sort(key=lambda x: x["amount"], reverse=True)
+    return etfs
+
+
 def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: dict) -> dict[str, list[dict]]:
     """自动采集生成指数->ETF候选映射: {index_id: [{code, name, amount, approx}, ...]}。
 
@@ -320,48 +471,77 @@ def main():
         for _, r in df.iterrows():
             df_by_code[str(r["代码"])] = r
 
-    out: dict = {"_meta": {"source": "akshare fund_etf_spot_em",
+    out: dict = {"_meta": {"source": "akshare fund_etf_spot_em + fundf10 track_index",
                            "sort_by": "成交额(亿元,降序)",
-                           "note": "匹配不到为空数组；前端按成交额排序展示，用户自选"}}
+                           "match_priority": "track_index > overlap > kw_name",
+                           "note": "匹配不到为空数组；前端按成交额排序展示，用户自选；"
+                                   "行业/概念 ETF 跟踪中证/国证指数非申万/同花顺精准跟踪，approx=true"}}
     empty_boards = []
+    # 加载 fundf10 抓取的 ETF track_index 缓存
+    track_idx_map = _load_etf_track_index()
+    if track_idx_map:
+        print(f"\ntrack_index 匹配：加载 {len(track_idx_map)} 只 ETF 的 track_index 缓存")
+
+    # ── 行业/概念匹配（优先级：track_index > overlap > KW 名称）──
+    # 第1层：track_index_name 关键词匹配（fundf10 抓取的 ETF 跟踪指数名，最精准）
+    track_matched = {}  # {iid: etfs} 记录 track_index 匹配结果（含空列表），避免后续 overlap/KW 覆盖
     for iid in board_ids:
+        etfs = _match_by_track_index(iid, track_idx_map, df_by_code)
+        track_matched[iid] = etfs
+        if etfs:
+            out[iid] = etfs
+        else:
+            out[iid] = []  # 占位，等下面 overlap/KW 兜底
+
+    # 第2层：overlap 成分股匹配（track_index 未命中的 thsc 概念用成分股重叠补充）
+    empty_thsc = [iid for iid in board_ids
+                  if iid.startswith("thsc_") and not out.get(iid)]
+    if empty_thsc:
+        print(f"\n成分股重叠算法：{len(empty_thsc)} 个 track_index 未命中的 thsc 概念尝试重叠匹配")
+        try:
+            overlap_result = _overlap_match(df, df_by_code, excl_mask)
+            for iid, etfs in overlap_result.items():
+                if etfs and not out.get(iid):
+                    # 给 overlap 匹配的 ETF 加 match_method + approx=true
+                    for e in etfs:
+                        e.setdefault("approx", True)
+                        e["match_method"] = "overlap"
+                    out[iid] = etfs
+        except Exception as e:
+            print(f"  [overlap] ⚠ 重叠算法异常,保留空数组: {e}")
+
+    # 第3层：KW 名称子串匹配（track_index + overlap 都未命中的兜底）
+    # KW 匹配是名称子串，精度最差，作为最后兜底（如 track_index 缓存缺失或 fundf10 抓取失败时）
+    for iid in board_ids:
+        if out.get(iid):
+            continue  # 已有 track_index 或 overlap 匹配
         kws = KW.get(iid, [])
         if not kws:
-            out[iid] = []
-            empty_boards.append(f"{iid} {name_by_id.get(iid)}")
             continue
         mask = ~excl_mask & names.apply(lambda n: any(k in n for k in kws))
         hit = df[mask].sort_values("成交额", ascending=False)
         etfs = []
         for _, r in hit.iterrows():
+            # 尝试从 track_idx_map 拿 track_index_name
+            tin = ""
+            ti_info = track_idx_map.get(str(r["代码"]))
+            if ti_info:
+                tin = ti_info.get("track_index", "") or ""
             etfs.append({
                 "code": str(r["代码"]),
                 "name": str(r["名称"]),
-                "amount": round(float(r["成交额"]) / 1e8, 2),  # 亿元
-                "approx": False,  # 行业/概念关键词匹配均为精准跟踪
+                "amount": round(float(r["成交额"]) / 1e8, 2),
+                "approx": True,  # KW 名称匹配兜底，approx=true
+                "track_index_name": tin,
+                "match_method": "kw",
             })
-        out[iid] = etfs
-        if not etfs:
-            empty_boards.append(f"{iid} {name_by_id.get(iid)}")
+        if etfs:
+            out[iid] = etfs
 
-    # 成分股重叠算法：KW 匹配为空的 thsc 概念用成分股重叠补充匹配。
-    # 算法：概念成分股(push2delay BK) ∩ ETF跟踪指数成分股(index_stock_cons)，
-    # Jaccard 重叠度排序取 Top5。push2delay 被封 -> 返回空列表 -> 保留 KW 空数组（兜底）。
-    # 覆盖 9 个 KW 匹配为空的 thsc 概念：MCU/CPO/算力/东数西算/三代半/氢能/量子/汽车芯片/存储芯片。
-    empty_thsc = [iid for iid in board_ids
-                  if iid.startswith("thsc_") and not out.get(iid)]
-    if empty_thsc:
-        print(f"\n成分股重叠算法：{len(empty_thsc)} 个空 thsc 概念尝试重叠匹配")
-        try:
-            overlap_result = _overlap_match(df, df_by_code, excl_mask)
-            for iid, etfs in overlap_result.items():
-                if etfs:
-                    out[iid] = etfs
-                    label = f"{iid} {name_by_id.get(iid)}"
-                    if label in empty_boards:
-                        empty_boards.remove(label)
-        except Exception as e:
-            print(f"  [overlap] ⚠ 重叠算法异常,保留 KW 空数组: {e}")
+    # 记录留空板块
+    for iid in board_ids:
+        if not out.get(iid):
+            empty_boards.append(f"{iid} {name_by_id.get(iid)}")
 
     # P2-新-G: 宽基/红利/综合/港股指数 -> 跟踪 ETF 候选（自动采集，按成交额降序）
     # 从 data/etf_index_map.json 自动采集替代原硬编码 INDEX_ETF_MAP（2026-07-28 方案D第二阶段）。
@@ -431,7 +611,25 @@ def main():
         if etfs:
             e = etfs[0]
             extra = f" +{len(etfs)-1}" if len(etfs) > 1 else ""
-            print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra}")
+            method = e.get("match_method", "?")
+            tin = e.get("track_index_name", "")
+            tin_tag = f" [{tin}]" if tin else ""
+            print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra} <{method}>{tin_tag}")
+
+    # 匹配方式统计（行业/概念）
+    method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "empty": 0}
+    for iid in board_ids:
+        etfs = out.get(iid, [])
+        if not etfs:
+            method_cnt["empty"] += 1
+        else:
+            m = etfs[0].get("match_method", "kw")
+            method_cnt[m] = method_cnt.get(m, 0) + 1
+    print(f"\n匹配方式统计（行业/概念 {total} 个）:")
+    print(f"  track_index 精准: {method_cnt['track_index']}")
+    print(f"  overlap 成分股: {method_cnt['overlap']}")
+    print(f"  kw 名称兜底: {method_cnt['kw']}")
+    print(f"  留空: {method_cnt['empty']}")
 
 
 if __name__ == "__main__":
