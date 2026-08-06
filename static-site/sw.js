@@ -13,7 +13,8 @@
  *
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
-const CACHE_VERSION = 'v2-20260806d-amount-hover-6mcn';
+
+const CACHE_VERSION = 'v2-20260806e-amount-3fix-7a3f';
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
@@ -80,13 +81,29 @@ self.addEventListener('fetch', (event) => {
   //    直接走浏览器默认网络栈,不缓存
   if (url.origin !== self.location.origin) return;
 
-  // 3) intraday_snapshot.json + notifications.json + overview.json: NetworkFirst (盘中实时性优先,离线回退缓存)
+  // 3) overview.json: networkOnly (盘中实时数据强制网络优先,不让SW缓存兜底)
+  //    根因③修复: 旧版SW缓存兜底致用户看到昨日overview(a_amount=昨日全天值)而非今日实时值。
+  //    改 networkOnly: 网络成功返最新overview,失败返 offline 占位(不回退缓存,避免盘中网络
+  //    抖动时返旧缓存致误判)。fetchJSON 已加 ?_=Date.now() cache-busting + no-store。
+  //    仍写入缓存(cache.put)供离线页重载兜底,但 fetch 时不读取(网络优先无回退)。
+  if (url.pathname.endsWith('/overview.json')) {
+    event.respondWith(
+      fetch(req, { cache: 'no-store' })
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy)).catch(() => {});
+          return res;
+        })
+        .catch(() => new Response('{"error":"offline"}', { headers: { 'Content-Type': 'application/json' } }))
+    );
+    return;
+  }
+  //    intraday_snapshot.json + notifications.json: NetworkFirst (盘中实时性优先,离线回退缓存)
   //    notifications.json 走 NetworkFirst（根因③修复）：原走 SWR 3min 缓存致前端读旧 notifications.json，
   //    真实信号触发后即使后端更新了前端也拿旧缓存不弹通知。改 NetworkFirst 每次走网络拿最新。
-  //    overview.json 走 NetworkFirst（根因②修复）：原走 SWR 总先返旧缓存, 致盘中卡片等盘后才更新。
-  //    改 NetworkFirst 确保每次拉最新 overview(卡片时间角标/collect_health 即时反映后端最新采集)。
+  //    overview.json 已拆出走 networkOnly（上方），此处仅处理 intraday_snapshot + notifications。
   //    fetch 加 cache:'no-store'（根因①修复）：避免命中浏览器 HTTP/CF 缓存拉旧数据。
-  if (url.pathname.endsWith('/intraday_snapshot.json') || url.pathname.endsWith('/notifications.json') || url.pathname.endsWith('/overview.json')) {
+  if (url.pathname.endsWith('/intraday_snapshot.json') || url.pathname.endsWith('/notifications.json')) {
     event.respondWith(
       fetch(req, { cache: 'no-store' })
         .then((res) => {

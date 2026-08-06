@@ -4739,10 +4739,11 @@ function fetchIntradaySnapshot() {
 //   - 数据日期 < 基准 且 当前时间 < 该源最晚可得时刻 -> 黄(⚠滞后,采集中/源端尚未发布)
 //   - 数据日期 < 基准 且 当前时间 >= 最晚可得时刻 -> 红(🚨异常,过点未采到)
 // T+0源最晚时刻=收盘后update_all(18:00);T+1源=各源T1_COLLECT_DEADLINE表;周末无update_all,滞后即红
-function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
+function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark, kpiId) {
   if (srcClass === undefined) srcClass = "t0";
   if (srcKey === undefined) srcKey = "";
   if (isIndexSpark === undefined) isIndexSpark = false;
+  if (kpiId === undefined) kpiId = "";
   if (!dataDate) return "";
   const mmdd = dataDate.length === 8 ? `${dataDate.slice(4, 6)}-${dataDate.slice(6, 8)}` : dataDate;
   // 源端长期停更(距今>30天)：灰，与 addStaleMark 同口径
@@ -4803,6 +4804,11 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
         return `<span class="card-time-badge t1-latest" data-tip="T+1数据源已采到今日(${mmdd}),属今天最新(已追平收盘日,非待更新)">📅 T+1·${mmdd}</span>`;
       }
       return `<span class="card-time-badge t1" data-tip="T+1数据源已采到最新可得日期(${mmdd}),属正常(数据最新可得${mmdd},T+1源下一交易日盘后补全,逢周末/节假日顺延)">📅 T+1·${mmdd}</span>`;
+    }
+    // a_amount 盘前/盘中初: overview 昨晚版 a_amount=昨日全天值, 9:46 intraday 首跑才更新今日值
+    // dataDate < 今日(北京时间)时显式标"昨日收盘",避免把昨日全天值误认为今日实时
+    if (kpiId === "a_amount" && dataDate && dataDate < _bjTodayStr()) {
+      return `<span class="card-time-badge t1-pending" data-tip="成交额为昨日全天收盘值,今日9:46 intraday首跑后更新">📅 昨日收盘·${mmdd}</span>`;
     }
     return `<span class="card-time-badge intraday" data-tip="收盘后定格,显示当日收盘数据(最新)">📍 收盘·${mmdd}</span>`;
   }
@@ -5012,7 +5018,7 @@ function refreshCardTimeBadges(snap) {
     if (ovdate && _ov && _ov.date) {
       dataDate = _ov.date;
     }
-    const newHTML = getCardTimeBadge(dataDate, _snap, srcClass, srcKey, isIndexSpark);
+    const newHTML = getCardTimeBadge(dataDate, _snap, srcClass, srcKey, isIndexSpark, kpiId);
     if (!newHTML) return;
     const tmp = document.createElement("div");
     tmp.innerHTML = newHTML;
@@ -5113,6 +5119,11 @@ function _bjTimeMin() {
 // 北京时间星期几(0=周日 6=周六)，用于周末 T+0 滞后判定(周末无 update_all，滞后即异常)
 function _bjDayOfWeek() {
   return new Date(Date.now() + 8 * 3600000).getUTCDay();
+}
+// 北京时间(UTC+8)当日 YYYYMMDD 字符串,用于判数据是否昨日(盘前 overview 仍昨日值)
+function _bjTodayStr() {
+  const _d = new Date(Date.now() + 8 * 3600000);
+  return _d.getUTCFullYear() + String(_d.getUTCMonth() + 1).padStart(2, "0") + String(_d.getUTCDate()).padStart(2, "0");
 }
 // 统一盘中状态机(步骤3): 7态 pre_open/auction_call/auction_done/morning/lunch/afternoon/closed
 // 优先级: snap.is_closed(后端交易日历权威,判 intraday vs closed) + _bjTimeMin(细分时段,消除 snap.label 10min 滞后)
@@ -8270,7 +8281,7 @@ async function renderOverview() {
       ? `<span class="card-time-badge t1-severe" data-tip="${_errItem.message || '采集异常,恢复后自动显示'}">⚠ 采集异常·${_errMmdd}</span>`
       : (k.disabled
           ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
-          : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "", !_kpiT1));
+          : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "", !_kpiT1, k.id));
       // 步骤5: T+0 KPI 卡传 isIndexSpark=true(! _kpiT1), 用 _intradayDynamicTime(1min腾讯,和分时图同源)
       //   替代 snap.datetime(10min粒度), KPI 卡角标时间与分时图一致(1min粒度)
     // 打 data-badge-* 属性, 让 refreshCardTimeBadges 的 .card-time-badge[data-badge-date] 选择器能选到KPI小卡角标并重绘

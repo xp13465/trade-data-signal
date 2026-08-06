@@ -947,6 +947,11 @@ def _forecast_amount(today: str, hhmm: str, cum_amount: float):
     if hhmm >= "15:00":
         return None
 
+    # 开盘初样本不足不预估: 9:30-9:45 cum 极小分时占比也极小,外推易爆炸(9:35 曾现 15.47 万亿)
+    # 时点 < 9:45 或 cum < 100 亿(数据异常/尚未放量)均返 None,等 9:45 后样本稳定再预估
+    if hhmm < "09:45" or cum_amount < 100:
+        return None
+
     hist_avg = None
     hist_ratios = []  # 方案 C: 各完整历史日的 cum_T/full_day
     conn = None
