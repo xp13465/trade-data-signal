@@ -8007,3 +8007,29 @@ KPI 小卡新颖 UI 设计 P0+P1+P2 全套（commit `71e8ef605`）在 feat/ifram
 - 手动跑 gold_night.sh 验证（04:36:16-04:37:34，78s）：采集 gold=928.1 / oil=510.0 写 daily_metric date=20260806 source=gold_night ✓；导出 global 6 range + extras-all ✓；commit c830493f5 push main（global-3m/6m/1y.json+.gz，6 files）✓；upload_r2 upload-data-large 32/32 ✓（含 global-3y/5y/all/extras-all）。
 - 线上验证（3 域名）：sss.sugas.site global-1y gold date=20260806 value=928.1 ✓ | ss.fx8.store global-3m gold=928.1 ✓ | ssd.fx8.store R2 global-all gold=928.1 ✓。ss.fx8.store global-1y CF edge cache 延迟（停在 20260805），已知现象会自愈（下次 deploy purge / cache TTL），不阻塞（memory `deploy-verify-3-sites` 任一域名验证即上线 OK）。
 - 日期归属确认：周二-周五 02:40 写 date=today 夜盘收盘价，09:25 intraday 覆盖为日盘开盘价（用户要的效果）；周六 02:40 写 date=周六 周五夜盘收盘价（非交易日 intraday 跳过值保留）；futures_main_sina 次日盘后覆盖 date=交易日（不动 date=周六点）。
+
+## §48 小节AR：2026-08-06 期货同向准确度"按月切换风格"规律（用户口头讨论落档）
+
+> 用户 2026-08-06 下午会话(34b81f6c 行99843+100118)口头讨论的期货风格切换规律，**之前从未落档** NOTES/TASKS/memory/git（调研 agent aec8c331f0293b515 四渠道深挖确认）。本节首次落档，防再丢。
+
+### 用户原话语义
+- **"中心走势"** = 中信期货同向准确度的走势（"中信"口语化，或"中心趋势"=主导方向走势）
+- **规律A（1月1切换同向/逆向）**：中信期货同向准确度有"按月切换同向/逆向"规律，每月切换一次（1月同向 -> 下月逆向 -> 再下月同向）
+- **规律B（切换不顺畅三段式）**：切换不顺畅时出现"1月同向 -> 1月震荡 -> 1月逆向"（中间夹震荡月，非干净双向切换）
+
+### 和当前线上 P4 的区别
+- **当前 P4**（futures_acc_conclusion.json 第4条）：固定月份映射（4/10月逆向，2/7-8月同向），**静态**
+- **用户要的**：按月序列的**动态切换规律**（每月看主导方向是否切换，动态识别同向/震荡/逆向三态轮转），比 P4 更动态
+
+### 实施方向（待派实施 agent）
+1. 数据基础：`futures_ih_detail_acc` 表已有每日 follow_ratio/dominant_dir（算法2，long_chg/short_chg 连续值，写表 L460-475）。按月聚合 dominant_dir 序列，识别切换模式
+2. 规律A 检测：按月统计 dominant_dir，若每月切换（同向<->逆向）则触发"按月切换"规律
+3. 规律B 检测：若序列出现"同向->震荡->逆向"三段式（震荡月=同向逆向交替或follow_ratio≈50%），触发"切换不顺畅"规律
+4. 震荡月定义待定：follow_ratio 在 45-55% 区间？或当月同向天数/逆向天数接近？需实施 agent 定阈值
+5. 生成代码：static-site/export.py L195-368 `export_futures_acc_conclusion`，conclusions 列表（L324-361）加 Pattern 5/6（规律A/B），triggered 逻辑基于按月序列判断。前端零改（app.js L14025-14199 通用渲染）
+6. 统计验证：历史 `futures_ih_detail_acc` 表（20240110~今 1863行）按月聚合，验证规律A/B 在历史数据中是否成立（命中率/触发次数），附 stats 证据
+
+### 待办
+- 派实施 agent：按月聚合 dominant_dir 序列 + 识别规律A/B + 加进 conclusions + 历史验证
+- 阈值（震荡月定义、切换判定）实施 agent 调研后给默认值
+- 和 P4 关系：P4 保留（静态季节性）还是替换为动态规律A/B，实施时定（倾向保留P4+新增A/B，信息更全）
