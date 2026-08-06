@@ -8033,3 +8033,43 @@ KPI 小卡新颖 UI 设计 P0+P1+P2 全套（commit `71e8ef605`）在 feat/ifram
 - 派实施 agent：按月聚合 dominant_dir 序列 + 识别规律A/B + 加进 conclusions + 历史验证
 - 阈值（震荡月定义、切换判定）实施 agent 调研后给默认值
 - 和 P4 关系：P4 保留（静态季节性）还是替换为动态规律A/B，实施时定（倾向保留P4+新增A/B，信息更全）
+
+## §48 小节AS：2026-08-06 晚 ETF至今盈亏展示 + offshore超限修复CF构建恢复 + 多agent方向振荡教训
+
+### 一、offshore_fund 超限修复（P0阻塞解除）
+- **根因**：offshore_fund_performance.json 28MB 超 CF Workers Static Assets 25MB 限制，阻塞 CF 构建，致 1月规律(P5/P6)+概念标的ETF匹配 等已 push main 的功能无法 deploy
+- **修复**（commit d5bd289d4，21:00）：git rm --cached 14个 offshore_fund 文件（7json+7gz，本地保留）+ .gitignore 加2行 + deploy.sh 补 upload-offshore-fund。前端 grep offshore_fund=0 命中（前端不读CF版，走R2 ssd.fx8.store/offshore_fund/）
+- **验收**：CF构建恢复 ss.fx8.store 200，1月规律P5/P6随之真正上线，futures_acc_conclusion.json 6条conclusions含triggered=True的P5按月切换
+
+### 二、ETF至今盈亏展示（功能上线，commit b5ed725ef）
+**用户需求**：信号卡ETF相关，hover名称(代码)后+弹窗tag后显示至今盈亏=ETF信号日至今涨跌幅（百分比+绝对值）
+
+**口径定稿**（用户原话"信号日1.0今日1.012增长是0.012"）：
+- `etf_since_return` = (今日close-信号日close)/信号日close×100，round 2位（如+1.20，百分比）
+- `etf_price_diff` = 今日close-信号日close，round 3位（如+0.012，**价格差元/份**，非金额盈亏）
+- **etf_pnl_abs（1万本金=10000×ret/100）是已否决口径**，用户从未要
+- 展示：`至今 +1.20% (+0.012)`，红涨(#e6492e)绿跌(#2e8b57)，None不显
+
+**后端**（app/queries.py L458-505）：etfs[]每个候选加两字段，跨库查 etf_national_team.db etf_daily（仿 _close_map_cache 模式），今日信号(date==score_date) None，ETF信号日无数据 None，跨库异常 try/except 兜底 None。指数 since_return/since_correct L393-456 不动
+
+**前端**（app.js）：3处展示①hover名称(代码)后 L2030 ②走势图弹窗tag后 L14751 ③etf-popup候选列表每行 L14796；hover title L1550 显ETF优先None退回指数since_return。展示格式 _etfPnlText L1393-1397
+
+**错配修复**（app.js L1435/L2025）：_sigEtfCache 双键 index_id|date（per-signal精确）+ index_id（latest），hoverpop按cell的data-date匹配_popEtfKey，避免多信号日恒显最旧信号值（reviewer发现的UX缺陷，commit 720989481修）
+
+**reviewer 7项全PASS**：字段名五层一致（queries.py/app.js/app.min.js/overview.json/boot.json）/计算正确/展示格式/错配修复保留/老功能回归(指数since_return未破坏)/P0 smoke/上线就绪。21:42 FF push main（避22:00定时任务），curl验证线上overview.json含etf_price_diff无etf_pnl_abs+站点200+app.min.js?v=a294ca90
+
+### 三、多agent方向振荡教训（memory midflight-pivot-stop-old-agent）
+ETF盈亏一个功能连续派4个agent接力（abefa6a05实施->a110e1933修错配->a3e3c33ae修数据->aadc6ef29最终修），中间SendMessage改口径2次（1万本金->价格差），致方向在etf_pnl_abs↔etf_price_diff间反复3次：
+1. abefa6a05 收SendMessage纠正改etf_price_diff，但带着最初etf_pnl_abs上下文，反commit caaf30630改回已否决1万本金口径还误称"对齐任务规格"已push main
+2. a3e3c33ae 见caaf30630误判成"用户并发动作需裁决"，报方向冲突。实际是旧agent误操作被当用户意图
+3. 用户察觉"几个子agent死锁"（实际非死锁，是方向振荡+并发改同批文件）
+
+**教训**：中途改口径/方向必须①TaskStop停旧agent（fresh context已被旧规格污染）②派新agent带**完整全新规格**（不引用"之前说的"，直接给最终定稿）③prompt明确"不要质疑方向照做"。不要SendMessage让旧agent改方向（旧规格上下文致误操作反向）。多agent接力改同批文件（queries.py/app.js/git）尤其危险。用户察觉"死锁/乱"= 收敛信号，应立即停多余agent只留一个fresh context独立收尾
+
+### 四、commit链
+- d5bd289d4 offshore移出CF走R2（修28MB超25MB构建失败）
+- 720989481 ETF盈亏字段etf_price_diff+hoverpop/tag错配修复
+- 11760ab9d build app.min.js+bump sw
+- 22206d068 overview.json误用etf_pnl_abs重新生成（错误）
+- caaf30630 代码改回etf_pnl_abs（误读任务规格，已push main）
+- b5ed725ef 修回etf_price_diff（最终正确版，21:42 push main上线）
