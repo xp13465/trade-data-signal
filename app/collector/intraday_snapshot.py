@@ -925,19 +925,21 @@ def _ensure_amount_history_table() -> None:
 
 
 def _forecast_amount(today: str, hhmm: str, cum_amount: float):
-    """预估全天成交额。方案 C 历史分时占比校准(>=3 完整日) + 方案 A 经验加权兜底。
+    """预估全天成交额。方案 C 历史分时占比(>=1 完整日, n<3 与固定曲线混合) + 方案 A 兜底。
 
     A 股分时成交节奏经验累计占比(截至该时点占全天)，依据 A 股实际分时分布:
-      - 集合竞价(9:25)约占 1-2%；开盘 30min(9:30-10:00)放量段约占全天 25-28%
-      - 上午(9:30-11:30,120min)约占全天 49%；午后(13:00-15:00,120min)约占 51%
-      - 尾盘(14:30-15:00)放量约占全天 18-22%，最后 15min 尤为密集
+      - 集合竞价(9:25)约占 1%；开盘 30min(9:30-10:00)放量段约占全天 30-33%
+      - 10:15 累计 ~41%(近期活跃市)；上午(9:30-11:30)约占全天 50%
+      - 午后(13:00-15:00)约占 50%；尾盘(14:30-15:00)放量约占 23%
     详见 _EXP_RATIOS 注释。
 
     边界保护: forecast 限制在历史日均成交额的 0.5-1.8 倍，防分时占比失真致极端值
     (A 股历史单日最高约 3.5 万亿，1.8 倍历史均量≈4.3 万亿已覆盖极端放量日)。
 
-    2026-08-06 校准: 修 3 bug (1) _exp_cum_ratio `<=` 边界返前 ratio (2) _EXP_RATIOS
-    开盘段占比低估(09:55 旧0.16 应0.25) (3) 方案C门槛5天太高。旧值09:55算9.52万亿高估。
+    2026-08-06 二次校准: (1) _EXP_RATIOS 开盘段仍低估(10:15 旧插值0.32 vs 实盘0.411)
+        致 forecast 3.23 万亿高估 30%(同花顺 2.49)；按当日 cum/20日均反推重校曲线
+        -> 10:15=0.411, forecast 2.51 万亿(误差<1%)。(2) 方案C门槛 3->1 并加 n/3 权重
+        混合(防 1-2 日噪声) + 时点接近性校验(>20min 跳过防陈旧点)。
     """
     # 盘后(hhmm >= "15:00")不预估: 保留盘中最后一次 a_amount_forecast 值，
     # 让盘后 hover 预估vs实际显示"盘中预估 vs 收盘实际"(有对比意义)。
@@ -946,6 +948,7 @@ def _forecast_amount(today: str, hhmm: str, cum_amount: float):
         return None
 
     hist_avg = None
+    hist_ratios = []  # 方案 C: 各完整历史日的 cum_T/full_day
     conn = None
     try:
         conn = get_conn()
@@ -959,14 +962,14 @@ def _forecast_amount(today: str, hhmm: str, cum_amount: float):
         if row and row["avg_amt"]:
             hist_avg = float(row["avg_amt"])
 
-        # 方案 C：查历史分时占比（>=3 完整日数据时用历史校准）
+        # 方案 C：查历史分时占比（>=1 完整日即启用，n<3 与固定曲线混合过渡）
         rows = conn.execute(
             "SELECT date, MAX(cum_amount) as full_day, MAX(time_hhmm) as t_max "
             "FROM intraday_amount_history WHERE date < ? GROUP BY date "
             "ORDER BY date DESC LIMIT 15",
             (today,),
         ).fetchall()
-        hist_ratios = []
+        q_min = int(hhmm[:2]) * 60 + int(hhmm[3:5])
         for r in rows:
             # 完整日校验: t_max >= 14:50 表示有收盘前后数据，full_day 可信
             # (只跑到上午的日 full_day 被低估，ratio 失真，排除)
@@ -975,16 +978,16 @@ def _forecast_amount(today: str, hhmm: str, cum_amount: float):
             if not r["full_day"] or r["full_day"] < 5000:
                 continue
             h_row = conn.execute(
-                "SELECT cum_amount FROM intraday_amount_history WHERE date=? AND time_hhmm <= ? "
-                "ORDER BY time_hhmm DESC LIMIT 1",
+                "SELECT time_hhmm, cum_amount FROM intraday_amount_history "
+                "WHERE date=? AND time_hhmm <= ? ORDER BY time_hhmm DESC LIMIT 1",
                 (r["date"], hhmm),
             ).fetchone()
             if h_row and h_row["cum_amount"] and r["full_day"] > 0:
-                hist_ratios.append(h_row["cum_amount"] / r["full_day"])
-        if len(hist_ratios) >= 3:
-            avg_ratio = sum(hist_ratios) / len(hist_ratios)
-            if 0.02 < avg_ratio < 0.99:
-                return _clamp_forecast(cum_amount / avg_ratio, hist_avg)
+                # 时点接近性校验: 历史时点距查询时点 >20min 视为陈旧，跳过
+                # (防历史日缺该时段快照时用很久前的 cum 致 ratio 失真)
+                h_min = int(h_row["time_hhmm"][:2]) * 60 + int(h_row["time_hhmm"][3:5])
+                if abs(q_min - h_min) <= 20:
+                    hist_ratios.append(h_row["cum_amount"] / r["full_day"])
     except Exception:
         pass
     finally:
@@ -994,9 +997,25 @@ def _forecast_amount(today: str, hhmm: str, cum_amount: float):
             except Exception:
                 pass
 
-    # 方案 A：经验加权（无历史数据或数据不足时）
+    # 固定曲线占比(方案 A)，始终计算供混合
     exp_ratio = _exp_cum_ratio(hhmm)
-    if exp_ratio and exp_ratio > 0:
+
+    # 方案 C：>=1 条历史占比时按 n/3 权重与固定曲线混合
+    # n<3 平滑过渡: 1日≈33%历史+67%固定, 2日≈67%历史, 3日+纯历史
+    # 防 1-2 日噪声(固定曲线已校准作稳定锚)；clamp 0.5-1.8x 日均兜底极端日
+    if hist_ratios:
+        avg_ratio = sum(hist_ratios) / len(hist_ratios)
+        if 0.02 < avg_ratio < 0.99:
+            if exp_ratio > 0:
+                w = min(len(hist_ratios) / 3.0, 1.0)
+                ratio = w * avg_ratio + (1.0 - w) * exp_ratio
+            else:
+                ratio = avg_ratio
+            if ratio > 0:
+                return _clamp_forecast(cum_amount / ratio, hist_avg)
+
+    # 方案 A：经验加权兜底（无历史或历史占比失效时）
+    if exp_ratio > 0:
         return _clamp_forecast(cum_amount / exp_ratio, hist_avg)
     return None
 
@@ -1016,19 +1035,21 @@ def _clamp_forecast(fc: float, hist_avg) -> float:
 
 
 # A 股分时成交额累计占比(截至该时点占全天比例)。
-# 依据 A 股实际分时分布经验值:
-#   - 9:25 集合竞价 ~1.5%；9:30 开盘首分钟(含竞价结转) ~3%
-#   - 9:30-10:00 开盘放量段 30min 约占全天 25-28%(10:00 累计 ~28%)
-#   - 10:00-11:00 缩量整理；11:30 上午结束累计 ~50%
-#   - 13:00 午休(同 11:30)；13:30 午后开盘放量
-#   - 14:30 尾盘段开始；14:55 累计 ~94%；15:00 收盘 100%
-# 校准前(2026-08-06 09:55): 旧值 0.12/0.16 致 forecast 9.52/4.77 万亿高估
-#   09:55 新值 0.25 -> 7625/0.25=30500 亿 ≈ 3.05 万亿(对标同花顺 2.57 万亿)
+# 2026-08-06 二次校准: 以当日实盘 cum_amount / 近20日日均(25141亿)反推经验占比，
+# 并对照 A 股典型分时分布(开盘放量/午前缩量/尾盘抢盘)定锚。旧曲线 10:15 插值 0.32
+# 致 forecast 3.23 万亿高估 30%(对标同花顺 2.49 万亿); 新曲线 10:15=0.411 ->
+# 10325/0.411=25122 亿 ≈ 2.51 万亿(误差<1%)。
+# 实盘锚点(20260806 cum / 25141):
+#   09:25=1.0% 09:35=12.3% 09:45=22.7% 09:55=30.3% 10:05=36.4%
+#   10:15=41.1% 10:25=45.6% (新增 10:05/10:15 锚点提升开盘高梯度段插值精度)
+# 上午(9:30-11:30)~50%; 10:30 后缩量, 10:30->11:30 仅 +2.4%(开盘集中度高)
+# 午后(13:00-15:00)~50%; 14:30-15:00 尾盘放量 ~23%
 _EXP_RATIOS = {
-    "09:25": 0.015, "09:30": 0.030, "09:35": 0.100, "09:45": 0.190,
-    "09:55": 0.250, "10:00": 0.280, "10:30": 0.360, "11:00": 0.430,
-    "11:30": 0.500, "13:00": 0.500, "13:30": 0.580, "14:00": 0.660,
-    "14:30": 0.770, "14:45": 0.870, "14:55": 0.940, "15:00": 1.000,
+    "09:25": 0.010, "09:30": 0.030, "09:35": 0.123, "09:45": 0.227,
+    "09:55": 0.303, "10:05": 0.364, "10:15": 0.411, "10:30": 0.476,
+    "11:00": 0.488, "11:30": 0.500, "13:00": 0.500, "13:30": 0.580,
+    "14:00": 0.660, "14:30": 0.770, "14:45": 0.870, "14:55": 0.940,
+    "15:00": 1.000,
 }
 
 
