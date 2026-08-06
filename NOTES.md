@@ -8171,3 +8171,30 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - queries.py etf_for docstring更新(非阻断，说"按成交额降序"实际max_err升序)
 - 有ETF拆分的ETF(如515880) max_err偏大(etf_daily close未前复权)，后续可优化检测拆分点+前复权
 - thsc_300008线上etfs数8(本地13)，可能amount=0的LOF被过滤(160225 amount=0)，2d前端防御性sort兜底
+
+## §48 小节AW：2026-08-07 凌晨 路B完整实施完成（62国证/中证行业主题指数+41交叉泄漏修复）
+
+### 一、路B实施（62指数全量，E组6待查跳过）
+- 调研 agent a629b326c390d93b8：415 unique track_index top30分布，62个明确可采（A组7国证gz_399xxx+B组18中证深交所csi_399xxx+C组15中证上交所csi_000xxx+D组22中证指数公司csi_930xxx/H30xxx）
+- 实施 agent a42b7da2a5c2bc647：config/indicators.yaml L243-312 +62条（A新浪stock_zh_index_daily/B腾讯stock_zh_index_daily_tx/C新浪/D csindex stock_zh_index_hist_csindex symbol纯数字）；build_board_etf_map.py TRACK_INDEX_KW +62 include +15申万exclude更新+4额外防交叉；新采集脚本collect_roadb_indices.py三源采集62全成功ok:62 fail:0
+- 采集写DB index_daily表行数870-7301；build_board_etf_map track_index精准100/overlap6/kw3/留空12；export 349 JSON 215.6MB index/*.json 156文件 R2上传7命令全rc=0
+- 自校验：board_etf_map.json 62新key 54有候选8空(无跟踪ETF: gz_399368/gz_399431/gz_399439/csi_000680/csi_000698/csi_000699/csi_931892/csi_932456)；check_data_integrity 23 ok/0 warn/0 fail
+
+### 二、reviewer两轮（§15 回归门禁）
+- 第一轮 ae0faf6e133597651 Verdict FAIL(条件性)：核心9项通过+6代表ETF归属OK，但41交叉泄漏（A类24明确bug exclude不精准+kw兜底不走exclude + B类17语义重叠）
+- 修复 agent aedd27a682b81838d 7处Edit：Bug1 sw_801160 exclude'中证电力公用事业'->'电力公用事业'(16个) / Bug2 sw_801790 exclude加'中证证券公司'+csi_399975 include去宽泛'证券公司'(4个) / Bug3 sw_801150 exclude加'互联网医疗'(2个) / Bug4+5 kw兜底L886加exclude过滤(代码修复检查track_index_name+ETF名称双路径) / Bug6 sw_801010 exclude加'畜牧养殖'(14个) / Bug7 sw_801140 exclude加'智能家居'(3个)；重新build+export+upload_r2
+- 第二轮 adfcf6e523d5d0a26 Verdict PASS：交叉=0独立验证✓ / 申万候选下降合理(本行业ETF保留)✓ / kw兜底exclude未误排老ETF✓ / check_data_integrity 23 ok✓ / P0 smoke正常✓ / 7处Edit代码质量正确(exclude追加非覆盖)✓ / R2 8代表指数HTTP200+etfs非空+similarity/grade完整✓
+
+### 三、申万候选数变化（排除中证细分ETF，本行业ETF保留）
+- 不变：sw_801780银行4/sw_801050有色12/sw_801730电力22（本行业ETF保留）
+- 下降合理：sw_801790证券10->6 / sw_801010农牧25->11 / sw_801160公用18->2 / sw_801140轻工4->1 / sw_801150医药72->70 / sw_801970环保1->0/sw_801950煤炭1->0（ETF全在csi_000827/csi_399998，申万无专属ETF正常指数K线不受影响）
+
+### 四、WARN + 既有问题（非阻断）
+- 4小众证券ETF(516980/159016/516730/159692 跟踪'中证证券公司30指数'/'中证证券公司先锋策略指数')无归属：Bug2修复后被sw_801790排除且csi_399975不匹配(不同指数)，空归属是精准化代价，主流证券ETF28个覆盖充分，影响小(成交额<0.99亿)
+- sh000001-all.json R2 404：既有问题非路B引入(sh000001走INDEX_TRACK_MAP非TRACK_INDEX_KW)，另派agent排查
+- E组6待查(科创板AI/芯片设计/芯片/创业板新能源/创业板AI/国证自由现金流)需上交所官网查代码，本次跳过
+
+### 五、上线
+- intraday_snapshot.json本地=线上同版(20260806 20:35)，deploy.sh带入无害（§8教训规避）
+- deploy.sh push main(代码commit+static-site/data/) + CF deploy + upload_r2
+- 线上验证：3域名 curl R2 index/csi_399986等HTTP200+etfs含similarity+grade

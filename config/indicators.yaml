@@ -240,6 +240,75 @@ indices:
   # 源 stock_zh_index_daily（新浪，同 sh/sz/cyb 宽基源），symbol=sz399417（深交所前缀 sz）。
   # 返 close/open/high/low/volume 无 amount（amount=None，与 sz_div 等同源一致）。
   - {id: gz_399417, name: "国证新能源汽车", market: concept, func: stock_zh_index_daily, symbol: "sz399417", enabled: true}
+  # ===== 路B新增 62 个国证/中证行业主题指数（2026-08-07）=====
+  # 行业ETF精准匹配用：被动指数基金对跟踪指数 max_err<1%=excellent / 1-5%=good。
+  # 分3源：新浪 stock_zh_index_daily(国证+中证sh) / 腾讯 stock_zh_index_daily_tx(中证sz) / 中证指数公司 stock_zh_index_hist_csindex(930xxx/H30xxx)
+  # ─ A组 国证指数(7个, 新浪, symbol=sz399xxx) ─
+  - {id: gz_399368, name: "国证军工", market: concept, func: stock_zh_index_daily, symbol: "sz399368", enabled: true}
+  - {id: gz_399395, name: "国证有色", market: concept, func: stock_zh_index_daily, symbol: "sz399395", enabled: true}
+  - {id: gz_399396, name: "国证食品饮料", market: concept, func: stock_zh_index_daily, symbol: "sz399396", enabled: true}
+  - {id: gz_399431, name: "国证银行", market: concept, func: stock_zh_index_daily, symbol: "sz399431", enabled: true}
+  - {id: gz_399439, name: "国证油气", market: concept, func: stock_zh_index_daily, symbol: "sz399439", enabled: true}
+  - {id: gz_399440, name: "国证钢铁", market: concept, func: stock_zh_index_daily, symbol: "sz399440", enabled: true}
+  - {id: gz_399365, name: "国证粮食", market: concept, func: stock_zh_index_daily, symbol: "sz399365", enabled: true}
+  # ─ B组 中证-深交所(18个, 腾讯 stock_zh_index_daily_tx, symbol=sz399xxx) ─
+  - {id: csi_399975, name: "中证全指证券公司", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399975", enabled: true}
+  - {id: csi_399986, name: "中证银行", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399986", enabled: true}
+  - {id: csi_399989, name: "中证医疗", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399989", enabled: true}
+  - {id: csi_399976, name: "中证新能源汽车", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399976", enabled: true}
+  - {id: csi_399967, name: "中证军工", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399967", enabled: true}
+  - {id: csi_399971, name: "中证传媒", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399971", enabled: true}
+  - {id: csi_399998, name: "中证煤炭", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399998", enabled: true}
+  - {id: csi_399808, name: "中证新能源", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399808", enabled: true}
+  - {id: csi_399803, name: "中证工业4.0", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399803", enabled: true}
+  - {id: csi_399806, name: "中证环境治理", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399806", enabled: true}
+  - {id: csi_399807, name: "中证高铁产业", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399807", enabled: true}
+  - {id: csi_399970, name: "中证移动互联网", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399970", enabled: true}
+  - {id: csi_399991, name: "中证一带一路", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399991", enabled: true}
+  - {id: csi_399994, name: "中证信息安全", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399994", enabled: true}
+  - {id: csi_399995, name: "中证基建工程", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399995", enabled: true}
+  - {id: csi_399996, name: "中证智能家居", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399996", enabled: true}
+  - {id: csi_399707, name: "中证申万证券行业", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399707", enabled: true}
+  - {id: csi_399811, name: "中证申万电子行业", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399811", enabled: true}
+  # ─ C组 中证-上交所/深交所(15个, 新浪 stock_zh_index_daily, sh/sz 前缀) ─
+  - {id: csi_000510, name: "中证A500", market: concept, func: stock_zh_index_daily, symbol: "sh000510", enabled: true}
+  - {id: csi_000903, name: "中证A100", market: concept, func: stock_zh_index_daily, symbol: "sh000903", enabled: true}
+  - {id: csi_000827, name: "中证环保", market: concept, func: stock_zh_index_daily, symbol: "sh000827", enabled: true}
+  - {id: csi_000935, name: "中证信息技术", market: concept, func: stock_zh_index_daily, symbol: "sh000935", enabled: true}
+  - {id: csi_000998, name: "中证TMT", market: concept, func: stock_zh_index_daily, symbol: "sh000998", enabled: true}
+  - {id: csi_000961, name: "中证上游资源", market: concept, func: stock_zh_index_daily, symbol: "sh000961", enabled: true}
+  - {id: csi_000805, name: "A股资源", market: concept, func: stock_zh_index_daily, symbol: "sh000805", enabled: true}
+  - {id: csi_000813, name: "细分化工", market: concept, func: stock_zh_index_daily, symbol: "sh000813", enabled: true}
+  - {id: csi_000010, name: "上证180", market: concept, func: stock_zh_index_daily, symbol: "sh000010", enabled: true}
+  - {id: csi_000330, name: "深证100", market: concept, func: stock_zh_index_daily, symbol: "sz399330", enabled: true}
+  - {id: csi_000673, name: "创业板50", market: concept, func: stock_zh_index_daily, symbol: "sz399673", enabled: true}
+  - {id: csi_000102, name: "创业板综", market: concept, func: stock_zh_index_daily, symbol: "sz399102", enabled: true}
+  - {id: csi_000680, name: "科创综合", market: concept, func: stock_zh_index_daily, symbol: "sh000680", enabled: true}
+  - {id: csi_000698, name: "科创100", market: concept, func: stock_zh_index_daily, symbol: "sh000698", enabled: true}
+  - {id: csi_000699, name: "科创200", market: concept, func: stock_zh_index_daily, symbol: "sh000699", enabled: true}
+  # ─ D组 中证指数公司(22个, stock_zh_index_hist_csindex, symbol=纯数字无前缀) ─
+  - {id: csi_931151, name: "中证光伏产业", market: concept, func: stock_zh_index_hist_csindex, symbol: "931151", enabled: true}
+  - {id: csi_930050, name: "中证A50", market: concept, func: stock_zh_index_hist_csindex, symbol: "930050", enabled: true}
+  - {id: csi_932000, name: "中证2000", market: concept, func: stock_zh_index_hist_csindex, symbol: "932000", enabled: true}
+  - {id: csi_930986, name: "中证金融科技", market: concept, func: stock_zh_index_hist_csindex, symbol: "930986", enabled: true}
+  - {id: csi_H30590, name: "中证机器人", market: concept, func: stock_zh_index_hist_csindex, symbol: "H30590", enabled: true}
+  - {id: csi_931643, name: "中证科创创业50", market: concept, func: stock_zh_index_hist_csindex, symbol: "931643", enabled: true}
+  - {id: csi_931719, name: "中证电池主题", market: concept, func: stock_zh_index_hist_csindex, symbol: "931719", enabled: true}
+  - {id: csi_930632, name: "中证稀有金属", market: concept, func: stock_zh_index_hist_csindex, symbol: "930632", enabled: true}
+  - {id: csi_931892, name: "中证有色矿业", market: concept, func: stock_zh_index_hist_csindex, symbol: "931892", enabled: true}
+  - {id: csi_930713, name: "中证人工智能", market: concept, func: stock_zh_index_hist_csindex, symbol: "930713", enabled: true}
+  - {id: csi_930721, name: "中证智能汽车", market: concept, func: stock_zh_index_hist_csindex, symbol: "930721", enabled: true}
+  - {id: csi_930851, name: "中证云计算", market: concept, func: stock_zh_index_hist_csindex, symbol: "930851", enabled: true}
+  - {id: csi_932365, name: "中证自由现金流", market: concept, func: stock_zh_index_hist_csindex, symbol: "932365", enabled: true}
+  - {id: csi_932315, name: "中证红利质量", market: concept, func: stock_zh_index_hist_csindex, symbol: "932315", enabled: true}
+  - {id: csi_931752, name: "中证工程机械", market: concept, func: stock_zh_index_hist_csindex, symbol: "931752", enabled: true}
+  - {id: csi_931946, name: "中证畜牧养殖", market: concept, func: stock_zh_index_hist_csindex, symbol: "931946", enabled: true}
+  - {id: csi_H11059, name: "中证工业有色", market: concept, func: stock_zh_index_hist_csindex, symbol: "H11059", enabled: true}
+  - {id: csi_932456, name: "中证科创创业AI", market: concept, func: stock_zh_index_hist_csindex, symbol: "932456", enabled: true}
+  - {id: csi_930820, name: "中证高端制造", market: concept, func: stock_zh_index_hist_csindex, symbol: "930820", enabled: true}
+  - {id: csi_930997, name: "中证新能源汽车产业", market: concept, func: stock_zh_index_hist_csindex, symbol: "930997", enabled: true}
+  - {id: csi_H30535, name: "中证互联网", market: concept, func: stock_zh_index_hist_csindex, symbol: "H30535", enabled: true}
+  - {id: csi_H30199, name: "中证电力公用事业", market: concept, func: stock_zh_index_hist_csindex, symbol: "H30199", enabled: true}
   - {id: nikkei225, name: 日经225, market: global, func: index_global_hist_sina, symbol: "日经225指数", enabled: true}
   - {id: kospi, name: 韩国 KOSPI, market: global, func: index_global_hist_sina, symbol: "首尔综合指数", enabled: true}
   - {id: ftse100, name: 富时100, market: global, func: index_global_hist_sina, symbol: "英国富时100指数", enabled: true}
