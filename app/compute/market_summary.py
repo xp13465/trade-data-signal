@@ -169,11 +169,11 @@ def generate_summary(date: str | None = None) -> dict:
         width_desc = "涨跌未知"
 
     zt_row = conn.execute(
-        "SELECT value FROM daily_metric WHERE metric_id='a_zt_count' AND date=?",
+        "SELECT value FROM daily_metric WHERE metric_id='a_width_zt_count' AND date=?",
         (date,),
     ).fetchone()
     dt_row = conn.execute(
-        "SELECT value FROM daily_metric WHERE metric_id='a_dt_count' AND date=?",
+        "SELECT value FROM daily_metric WHERE metric_id='a_width_dt_count' AND date=?",
         (date,),
     ).fetchone()
     zt_count = int(zt_row["value"]) if zt_row and zt_row["value"] is not None else 0
