@@ -167,6 +167,11 @@ TRACK_INDEX_KW: dict[str, dict] = {
 # ETF track_index 缓存路径（fundf10 抓取，scripts/fetch_etf_track_index.py 生成）
 ETF_TRACK_INDEX_PATH = ROOT / "data" / "etf_track_index.json"
 
+# LOF track_index 缓存路径（fundf10 抓取，scripts/fetch_lof_track_index.py 生成）
+# LOF（上市开放式基金）如 160225 国泰国证新能源汽车LOF，fund_etf_spot_em 不含，
+# 需独立采集 fundf10 跟踪标的 + fund_open_fund_rank_em 预筛，纳入候选池
+LOF_TRACK_INDEX_PATH = ROOT / "data" / "lof_track_index.json"
+
 # 排除词：跨境/债券/商品/货币等非 A 股行业主题 ETF
 EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "日本", "德国",
            "法国", "英国", "韩国", "中韩", "亚太", "纳斯达克", "纳指", "标普", "日经",
@@ -356,6 +361,35 @@ def _load_etf_track_index() -> dict[str, dict]:
             continue
         if not v.get("track_index"):
             continue  # 跳过 no_track
+        v.setdefault("fund_type", "etf")  # ETF 默认 fund_type=etf
+        out[k] = v
+    return out
+
+
+def _load_lof_track_index() -> dict[str, dict]:
+    """读 data/lof_track_index.json（fundf10 抓取的 LOF 跟踪指数），返回 {lof_code: info}。
+
+    info 结构：{name, fullname, track_index, fund_type='lof', fund_subtype, amount, fetched_at, status?}。
+    只保留 fund_type='lof' 且 track_index 非空的条目（status=no_track/not_lof 跳过）。
+    读不到返回空 dict（LOF 不纳入候选，fallback 到 ETF 三层匹配）。
+    """
+    if not LOF_TRACK_INDEX_PATH.exists():
+        print(f"⚠ lof_track_index.json 不存在: {LOF_TRACK_INDEX_PATH}，LOF 不纳入候选（跑 scripts/fetch_lof_track_index.py 生成）")
+        return {}
+    try:
+        with open(LOF_TRACK_INDEX_PATH, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception as e:
+        print(f"⚠ lof_track_index.json 读取失败: {e}，LOF 不纳入候选")
+        return {}
+    out: dict[str, dict] = {}
+    for k, v in d.items():
+        if k.startswith("_") or not isinstance(v, dict):
+            continue
+        if v.get("fund_type") != "lof":
+            continue  # 只取 fund_type=lof
+        if not v.get("track_index"):
+            continue  # 跳过 no_track
         out[k] = v
     return out
 
@@ -403,6 +437,7 @@ def _match_by_track_index(
                 "approx": True,  # 行业/概念 ETF 跟踪中证/国证指数，非申万/同花顺精准跟踪
                 "track_index_name": tin,
                 "match_method": "track_index",
+                "fund_type": info.get("fund_type", "etf"),  # etf 或 lof
             })
     etfs.sort(key=lambda x: x["amount"], reverse=True)
     return etfs
@@ -481,6 +516,11 @@ def main():
     track_idx_map = _load_etf_track_index()
     if track_idx_map:
         print(f"\ntrack_index 匹配：加载 {len(track_idx_map)} 只 ETF 的 track_index 缓存")
+    # 加载 LOF track_index 缓存（fundf10 抓取，含 160225 等 LOF，纳入候选池）
+    lof_track_map = _load_lof_track_index()
+    if lof_track_map:
+        print(f"  + LOF track_index 缓存 {len(lof_track_map)} 只（fund_type=lof，纳入候选池）")
+        track_idx_map.update(lof_track_map)  # 合并，LOF 已标 fund_type=lof
 
     # ── 行业/概念匹配（优先级：track_index > overlap > KW 名称）──
     # 第1层：track_index_name 关键词匹配（fundf10 抓取的 ETF 跟踪指数名，最精准）
