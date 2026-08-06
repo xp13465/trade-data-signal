@@ -8073,3 +8073,43 @@ ETF盈亏一个功能连续派4个agent接力（abefa6a05实施->a110e1933修错
 - 22206d068 overview.json误用etf_pnl_abs重新生成（错误）
 - caaf30630 代码改回etf_pnl_abs（误读任务规格，已push main）
 - b5ed725ef 修回etf_price_diff（最终正确版，21:42 push main上线）
+
+## §48 小节AT：2026-08-07 凌晨 track_index根治 + hoverpop两行对比 + ETF负盈亏bug修复 + 全量相似度验证 + deploy上线
+
+### 一、全量ETF×指数相似度验证（用户验收要求"不能只看100条信号，要全量排查"）
+审计口径：67个有ETF的指数，多周期（ret_60d/1y/3y等）涨跌幅 max_err + direction_mismatch 判 grade。
+- **修复前**（旧 board_etf_map KW匹配）：优10/良4/警告9/错误44，错误率 **65.7%**
+- **修复后**（track_index根治）：优10/良7/警告8/错误42，错误率 **62.7%**
+- 改善：-2错 +3良，错误率降3.0个百分点
+- max_err 修复后：整体均18.72% 中位11.13% 最大128.20%；优1.58%[0.7,2.6] / 良3.99% / 警告7.52% / 错误42条均**27.40%**[4.2,128.2]
+- direction_mismatch 32/67（47.8%），多在 ret_1y 周期（行业ETF跟中证/国证非申万，approx=true，方向天然不一致）
+- **结论**：相似度改善有限（-2错），但语义精准度大幅提升（元宇宙旧VRETF0.13亿->新159869游戏ETF8.13亿60x流动性 / 新能源汽车旧创业板泛新能源->新515030精准中证新能源汽车 / 量子515880 overlap兜底）
+
+### 二、track_index根治（commit 446e73710）
+- 新增 scripts/fetch_etf_track_index.py（349行）：fundf10.eastmoney.com/jbgk_<code>.html HTML抓取，utf-8/gbk/gb18030三级解码，sleep 0.4-0.7s防限流，增量更新+每50只写盘，抓1199只A股ETF ok=1199
+- 改造 scripts/build_board_etf_map.py（+228/-30）：3层匹配优先级 track_index精准 > overlap成分股Jaccard > KW名称子串；每项标 match_method+approx；14宽基校验 exit 1 防静默失败；etf_track_index.json缺失graceful fallback
+- data/etf_track_index.json（193KB 1199 ETF，不进git中间产物）/ data/board_etf_map.json（180KB 72板块67有ETF）
+
+### 三、hoverpop两行对比（commit ba5831f21）
+- app.js L2021-2034 hoverpop show() 新增 idxRetHtml 指数至今收益行（红涨#e6492e绿跌#2e8b57，带符合/不符预测方向）
+- L1546-1558 cell构建加 data-idx-ret/data-idx-correct 属性传 since_return/since_correct，移除 title"至今"段
+- L1529-1536 correctBadge 移除 data-tip（统一到 cell hoverpop，badge hover冒泡到cell）
+- 新布局：第一行"指数至今 +1.20% · 符合预测"，第二行"🔗 沪深300ETF(510300) 至今 +1.50% (+0.012)"
+- sw.js CACHE_VERSION v6-20260806-a1->a2，index.html app.min.js?v=8899fdd2
+
+### 四、ETF负盈亏bug修复（用户反馈"❌信号ETF没负数盈亏"）
+- **根因**：app/collector/etf_national_team.py L233 universe 过滤 `== "指数型-股票"` 排除"指数型-海外股票"86只港股ETF，510900/159920不采集，DB max=20260728，queries.py 信号日close找不到->etf_since_return=None。渲染层正确（_etfPnlText负数绿显），不需改app.js
+- **修复**：L233 改 isin(["指数型-股票","指数型-海外股票"])，universe 1386->1464只；backfill补采86只海外ETF 178s入库13054行；export重算
+- 验收DB 510900/159920 max=20260806；线上 ss.fx8.store hscei 510900=-0.94/-1.32、hsi 159920=-1.83/-1.96，❌信号None 4->0
+
+### 五、deploy上线（commit 0c4eac96d + 3cd58ea3f）
+- ba5831f21 hoverpop+ETF bug代码 -> 0c4eac96d deploy.sh data update [all]（149 files push main fast-forward 865096029..0c4eac96d）+ R2（public_fund 26/offshore_fund 14/data 6+32）-> 3cd58ea3f feat push
+- feat分叉处理：local 32 ahead origin/feat 16 ahead（non-ff），rebase -X theirs origin/feat 跳过16重复+重放17独有，-X theirs 自动解数据冲突；4个.gz（fund_score/fund_score_top/notifications/schedule_stats会话前modified）stash后rebase再pop，push feat fast-forward成功无force-push
+- 3域名验证：ss.fx8.store✓（overview 20260806 21:18:01，hscei/hsi负盈亏上线，app.min.js含"指数至今"，sw.js v6-a2）/ ssd.fx8.store✓（R2 index/sh-all.json etfs=7 track_index映射正确）/ sss.sugas.site△（GitHub Pages延迟旧版overview，主站已新版即上线OK）
+
+### 六、遗留待办
+- **P1**：fetch_etf_track_index.py 未接 deploy.sh/update_all/launchd 管道，etf_track_index.json 不自动刷新（建议 deploy.sh L101前加调用或 launchd 周任务）
+- **P2**：sw_801140轻工误匹配516190传媒ETF（"文娱"关键词命中，exclude加"传媒"）；广义关键词过匹配（半导体46/芯片46/医药57/电力设备51，前端cap展示数）；宽基etfs缺match_method/track_index_name（by design app.js处理undefined）
+- **M1 cosmetic**：hoverpop 0%前缀不一致（idxRetHtml `>0` vs _etfPnlText `>=0`）
+- **待用户确认**：hoverpop UI视觉（模型只文本，已curl确认app.min.js含"指数至今"代码上线，两行对比视觉布局需用户打开页面确认）
+- 520940恒生科技ETF etf_since_return=None（上市晚/数据缺，非本次bug范围）
