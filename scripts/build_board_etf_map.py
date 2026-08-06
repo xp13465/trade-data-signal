@@ -141,7 +141,7 @@ TRACK_INDEX_KW: dict[str, dict] = {
     "thsc_309049": {"include": ["光通信", "光模块", "CPO", "光子"], "exclude": []},
     "thsc_301085": {"include": ["芯片", "半导体"], "exclude": ["科创板芯片"]},  # E组: 排除"上证科创板芯片指数/设计主题指数"ETF(588200/588780, 属 sse_000685)
     "thsc_307940": {"include": ["存储芯片", "存储"], "exclude": []},
-    "thsc_302035": {"include": ["人工智能"], "exclude": []},
+    "thsc_302035": {"include": ["人工智能"], "exclude": ["创业板人工智能"]},  # E组: 排除"创业板人工智能指数"ETF(159242等, 属 csi_970070)
     "thsc_309068": {"include": ["算力", "云计算", "数据中心"], "exclude": []},
     "thsc_308828": {"include": ["算力", "云计算", "数据中心"], "exclude": []},
     "thsc_309020": {"include": ["信创", "信息技术创新"], "exclude": []},
@@ -236,6 +236,7 @@ TRACK_INDEX_KW: dict[str, dict] = {
     "csi_H30199": {"include": ["中证电力公用事业", "电力公用事业"], "exclude": []},
     # ─ E组 ETF跟踪指数补采（上证科创板主题指数） ─
     "sse_000685": {"include": ["科创板芯片指数"], "exclude": []},  # "科创板芯片指数"精准命中track_index"上证科创板芯片指数"(588200等11只), 不命中"上证科创板芯片设计主题指数"(588780等, 属另一指数)
+    "csi_970070": {"include": ["创业板人工智能"], "exclude": []},  # "创业板人工智能"精准命中track_index"创业板人工智能指数"(159242等), 不命中"中证人工智能指数"(属csi_930713)/"上证科创板人工智能指数"(未查到代码)
 }
 
 # ETF track_index 缓存路径（fundf10 抓取，scripts/fetch_etf_track_index.py 生成）
