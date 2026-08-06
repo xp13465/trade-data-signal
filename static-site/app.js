@@ -1318,11 +1318,20 @@ function indexIdToName(indexId) {
   return _INDEX_NAME_MAP[key] || indexId;
 }
 
-// 返回 index_id 对应的同花顺板块代码（无映射返回空串）。
-// 概念指数(thsc_300xxx)返回885xxx/886xxx；宽基/行业 index_id 本身是代码，返回空串（不重复显示）。
-function indexIdToCode(indexId) {
+// 返回 index_id 对应的展示代码（无映射返回空串）。
+// 优先级：thsc_300xxx -> 885xxx/886xxx（_INDEX_CODE_MAP 人工对照同花顺）；
+// 否则用后端注入的 symbol（indicators.yaml 单一来源）按 index_id 前缀派生展示代码：
+//   csi_932315 -> 932315, gz_399417 -> 399417（剥前缀+剥交易所前缀 sh/sz/bj）；
+//   hk_*/us_*/global 展示 symbol 原值（HSI/.DJI 等）；
+//   宽基(sh/sz/cyb/...)/行业(sw_801xxx) index_id 本身即代码，返回空串不重复展示。
+// symbol 缺省（旧数据/非 signals_today 调用点）退回 _INDEX_CODE_MAP 或空串，保持向后兼容。
+function indexIdToCode(indexId, symbol) {
   const key = indexId.replace(/^(g|s)\./, '');
-  return _INDEX_CODE_MAP[key] || '';
+  if (_INDEX_CODE_MAP[key]) return _INDEX_CODE_MAP[key];
+  if (!symbol) return '';
+  if (/^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000|sw_)/.test(key)) return '';
+  if (/^(csi_|gz_)/.test(key)) return symbol.replace(/^(sh|sz|bj)/, '');
+  return symbol;
 }
 
 // 按 index_id + signal 关联 state.signalStats 取 10d 窗口 stats（含 score）。
@@ -1589,8 +1598,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         const _meta = _SIG_TYPE_META.find(m => m.key === _typeKey);
         const _typeLabel = _meta ? _t(_meta.labelKey) : it.signal;
         // 2026-08-05 概念指数(thsc_300xxx)信号格加同花顺板块代码(885xxx/886xxx)，方便用户对照同花顺App。
-        const _sigIdxCode = indexIdToCode(it.index_id);
-        const _titleParts = [_typeLabel, signalLabel(it), indexIdToName(it.index_id) + (_sigIdxCode ? ` (${_sigIdxCode})` : "")];
+        // 2026-08-07 指数名/代码优先后端注入（indicators.yaml 单一来源，覆盖 csi_*/gz_* 等43个 _INDEX_NAME_MAP 漏的概念指数）；
+        // it.name/it.symbol 缺省时退回 _INDEX_NAME_MAP/indexIdToCode 兜底（其他调用点未传 symbol 不受影响）。
+        const _sigIdxCode = indexIdToCode(it.index_id, it.symbol);
+        const _idxName = it.name || indexIdToName(it.index_id);
+        const _titleParts = [_typeLabel, signalLabel(it), _idxName + (_sigIdxCode ? ` (${_sigIdxCode})` : "")];
         if (it.reason) _titleParts.push(it.reason);
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
@@ -1602,7 +1614,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 2026-08-06 ETF tag 从 cell 移除（cell 只留 [信号标签][⚠][评级][☑️/✖️][指数名]）。
         // 主ETF 名称(代码) 改放 hoverpop（_initTermPop.show 内 _sigEtfCache 取 top1），弹窗标题复用 _appendEtfLinkTag。
         // 概念标的（无ETF）hoverpop 不显 ETF 段；ETF 筛选按钮计数仍区分有/无，不依赖 cell 标记。
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}${_sigIdxCode ? ` <span class="idx-code-tag">${_sigIdxCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_idxName}${_sigIdxCode ? ` <span class="idx-code-tag">${_sigIdxCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
