@@ -128,5 +128,40 @@
 - **smoke 清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git(非 memory),reviewer agent 读取执行
 - 模型只文本不能看 UI,回归验证用 curl JSON 数据层 + 关键交互文字描述 + 让用户确认显示三层
 
+## 16. agent 角色画像与协作规范(2026-08-06 计入)
+主控 + 子 agent 分工 + 通知兜底 + prompt 写作,集中规范(§2/§11/§15 细节互参,本节为总览)
+
+### 主控(主 agent)职责
+- 只做三件事:①派发任务(目标+约束+验收口径)②收子 agent 总结③逐字验证关键结论(§0 验收铁律,验1-2点点到即止)
+- **不亲干调研/实施/分析活**(§2):grep 遍历/读代码结构/定位根因/方案分析全派子 agent;验收只确认 agent 已报的某个具体结论
+- 监工 loop:派(run_in_background:true)->立即返回待命->收报告->验收->派下一个。用户随时插话,优先响应
+- 不问 yes/no("要我跑吗/要不要验"自己定),只在真·方向分叉(A/B/C 选型)给选项附推荐(§4)
+
+### 子 agent 角色(按职责分,fresh context 跑,不占主控上下文)
+1. **调研 agent**:定位根因/查证/方案分析/盘点。**只读不改**。产出结论+证据(grep/SQL/读代码结果),主控验收。如 etf_index_map 丢失深挖、app.js 85模块盘点
+2. **实施 agent**:写代码改文件。prompt 含目标+约束+验收口径+上线流程。如 Task1 宽基映射修复、收盘 hover 修复
+3. **验收 agent**:主控轻量验收(grep/读单点验1-2点)够用时**不派**;需全面验证(多文件/多场景/跨模块)时派独立验收 agent
+4. **reviewer agent**(§15 核心):独立看"改动影响哪些老功能",**批判性找问题,不改代码**。每次代码改动 push main 前必派,通过才上线。读 docs/smoke-checklist.md 跑 P0 smoke + grep 改动文件被谁引用
+5. **测试 agent**:跑回归 smoke 清单/压测/边界测试。可由 reviewer 兼任或独立派(大改动时)
+6. **综合 agent**:汇总多 sub-agent 结果产出文档。如 4 盘点 sub-agent -> 综合 agent 产出 docs/smoke-checklist.md
+- **角色可兼任**:小任务一个 agent 调研+实施;大任务拆多角色(实施->reviewer->测试流水线)
+
+### 通知与兜底机制(§11 细节,本节总览)
+- **标准流程(主动通知)**:agent 完成 `SendMessage to: 'main'` 主动通知(harness 自动送达),比 task-notification(被动会丢)可靠。prompt 末尾要求此动作
+- **进度文件**:agent 每步 echo 回写 `/tmp/agent-progress-<名>.md`(每个 grep/Edit 都回写,非每大步骤),主控 Bash 查(轻量不 overflow)
+- **兜底轮询**:SendMessage 极端丢时,CronCreate 每10分钟(`7,17,27,37,47,57` 避 :00/:30)grep DONE 进度文件;`stat -L` 查 jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)
+- **卡死**(jsonl mtime>600秒没动):先 SendMessage 唤醒原会话(成本低,可能卡在长工具没退出)-> 下次轮询仍卡死=进程已死,重派新会话读遗留(`/tmp/agent-progress-*` + 工作区半成品)接着做,避免从头返工
+- **429 配额失败**:配额恢复后**优先 SendMessage resume 原会话**(保留上下文比重派高效);resume 不响应/状态乱才重派。底线:不重复犯错(曾误判 429 原会话终止重派从头,浪费已查上下文)
+- **came to rest**(agent 完成一阶段停了等指令,非卡死非429):可随时 SendMessage 推进,不严格等480秒
+- **默认持久化**(§7):CronCreate 默认 durable:true;长任务进度落 git(`.superpowers/sdd/progress.md` 或 NOTES/TASKS)非 /tmp(/tmp 重启丢)
+
+### agent prompt 写作规范
+- **必含**:目标 + 约束(引用 CLAUDE.md 章节不重复全文,§4 减 token)+ 验收口径 + 上线流程(如适用)+ 进度文件路径 + 完成时 SendMessage to 'main'
+- **约束引用**:"见 §8/§14" 而非重述全文;只写本次任务特有约束
+- **禁止图片操作**(§13):模型只文本,Read 图片触发 400 终止 agent;需视觉验证用文字+ASCII 示意图或让用户看
+- commit message 末尾加 `Co-Authored-By: Claude <noreply@anthropic.com>`
+- push feat **普通推送,不 force-with-lease**(§8);non-ff 优先 `git fetch + rebase origin/main + 重试`,rebase 失败 abort 等人工,agent 不强推
+- 避开定时任务时点(§14):盘中 push main 避开 intraday 每10分钟(:25/:35/:45/:55/:05/:15)+ 盘后(15:35/16:00/17:50/20:35/22:00),安全窗口 23:00+ 或午休 11:30-13:00
+
 ## 验收铁律
 逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报"完成"不等于真完成。
