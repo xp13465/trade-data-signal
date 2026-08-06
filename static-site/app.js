@@ -8,7 +8,7 @@
 // BUG-E：交互增强状态--industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 注：原 indexFilter（A 股/港股 指数筛选 select）已重构为目录锚点 chip(2026-07-20), 始终全部渲染, 点击 chip 跳转吸顶, 不再需要筛选状态
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilter: "all" };
+const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilter: "real_etf" };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1637,7 +1637,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含真实ETF标的+概念标的）")} · ${_etfBtn("真实ETF " + _realEtfCnt, "real_etf", "只看有跟踪ETF的指数（如沪深300/创业板指等宽基+行业指数），可点击 ETF 代码查看候选")} · ${_etfBtn("概念标的 " + _conceptCnt, "concept", "只看无跟踪ETF的概念标的（如部分综合指数），显灰色无ETF标")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
-    _accHtml = `<div class="sig-acc-wrap"><div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}${_etfFilterRow}</div>`;
+    _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
   }
   // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
   if (kind === "signal" && !rows) {

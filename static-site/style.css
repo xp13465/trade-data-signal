@@ -1650,8 +1650,8 @@ main { padding: 16px 24px; }
 .etf-pop-name { color: var(--text-1); }
 .etf-pop-amt { color: var(--text-3); margin-left: auto; }
 
-/* 2026-08-05 信号 cell ETF 筛选行（cell tag 已删，筛选按钮保留）*/
-.sig-acc-etf-filter { color: var(--text-3); }
+/* 2026-08-05 信号 cell ETF 筛选行（cell tag 已删，筛选按钮保留）
+   2026-08-06 删 color:var(--text-3) 让整行继承深色 text-1，和 byType 行一致；选中态 .sig-acc-filter-active 不受影响 */
 /* 2026-08-06 hoverpop 内主ETF 名称(代码)段（_initTermPop.show 注入，和 .term-pop-locate 协调）*/
 .term-pop-etf { display: block; margin-top: 4px; font-size: 12px; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
