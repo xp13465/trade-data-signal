@@ -171,16 +171,19 @@ def _load_etf_index_map_reverse() -> dict[str, list[dict]]:
 
     返回 {track_index_code: [{code, name, amount, track_index_name}, ...]}（只含 status=ok 的 ETF）。
     resolve() 解析 symlink：从 trade-data 跑时读 trade/data/etf_index_map.json（真实路径）。
-    读不到返回空 dict（自动采集退化为空，指数ETF候选全空，不影响行业/概念关键词匹配）。
+
+    读不到返回空 dict（非静默失败：调用方 main() 会走 _akshare_name_fallback 名称匹配兜底；
+    若 akshare 也失败则 main() 末尾 14 宽基校验 exit 1，不静默覆盖空数组）。
+    etf_index_map.json 由 scripts/gen_etf_index_map.py 生成，deploy.sh 前置调用刷新。
     """
     if not ETF_INDEX_MAP_PATH.exists():
-        print(f"⚠ etf_index_map.json 不存在: {ETF_INDEX_MAP_PATH}，指数ETF自动采集退化为空")
+        print(f"⚠ etf_index_map.json 不存在: {ETF_INDEX_MAP_PATH}，走 akshare 名称匹配兜底")
         return {}
     try:
         with open(ETF_INDEX_MAP_PATH, encoding="utf-8") as f:
             d = json.load(f)
     except Exception as e:
-        print(f"⚠ etf_index_map.json 读取失败: {e}，指数ETF自动采集退化为空")
+        print(f"⚠ etf_index_map.json 读取失败: {e}，走 akshare 名称匹配兜底")
         return {}
     rev: dict[str, list[dict]] = {}
     for etf_code, info in d.items():
@@ -198,6 +201,59 @@ def _load_etf_index_map_reverse() -> dict[str, list[dict]]:
             "track_index_name": info.get("track_index_name", ""),
         })
     return rev
+
+
+# akshare 名称匹配兜底规则（etf_index_map.json 缺失时用 fund_etf_spot_em 名称反推 track_index_code）。
+# 与 gen_etf_index_map.py INDEX_NAME_RULES 同源，覆盖 14 指数（sz_div 主动留空）。
+# akshare fund_etf_spot_em 不返回 track_index_code 字段，名称匹配是唯一反推方式。
+_AKSHARE_NAME_RULES: dict[str, dict] = {
+    "sh":        {"code": "000001", "include": ["上证指数", "上证综指", "上证综合"], "exclude": []},
+    "sz":        {"code": "399001", "include": ["深成", "深证成指"], "exclude": ["深成长", "深成成长"]},
+    "hs300":     {"code": "000300", "include": ["沪深300"], "exclude": []},
+    "sz50":      {"code": "000016", "include": ["上证50"], "exclude": []},
+    "csi500":    {"code": "000905", "include": ["中证500"], "exclude": ["A500"]},
+    "csi1000":   {"code": "000852", "include": ["中证1000"], "exclude": []},
+    "cyb":       {"code": "399006", "include": ["创业板ETF", "创业板增强"], "exclude": []},
+    "kc50":      {"code": "000688", "include": ["科创50"], "exclude": []},
+    "csi_div":    {"code": "000922", "include": ["中证红利"], "exclude": ["低波"]},
+    "div_lowvol": {"code": "930955", "include": ["红利低波"],
+                   "exclude": ["50", "100", "300", "800", "恒生", "港股"]},
+    "sz_div":     {"code": "399324", "include": [], "exclude": []},  # 名称无法区分，留空
+    "hsi":     {"code": "HSI", "include": ["恒生ETF", "恒生指数"],
+                "exclude": ["科技", "中国企业", "互联", "医疗"]},
+    "hstech":  {"code": "HSTECH", "include": ["恒生科技"], "exclude": []},
+    "hscei":   {"code": "HSCEI", "include": ["恒生中国企业", "恒生国企"], "exclude": []},
+}
+
+
+def _akshare_name_fallback(df_by_code: dict) -> dict[str, list[dict]]:
+    """akshare 名称匹配兜底：etf_index_map.json 缺失时，用 fund_etf_spot_em 名称反推 track_index_code。
+    返回 {index_id: [{code, name, amount, approx}, ...]}（与 _build_index_etf_map_auto 输出同构）。
+    df_by_code: {etf_code: row}（fund_etf_spot_em 行，含 名称/成交额）。
+    """
+    print("⚠ 走 akshare 名称匹配兜底（etf_index_map.json 缺失）")
+    result: dict[str, list[dict]] = {}
+    for iid, rule in _AKSHARE_NAME_RULES.items():
+        inc = rule["include"]
+        exc = rule["exclude"]
+        if not inc:
+            result[iid] = []
+            continue
+        etfs = []
+        for code, r in df_by_code.items():
+            try:
+                rname = str(r["名称"])
+            except (KeyError, TypeError):
+                continue
+            if any(k in rname for k in inc) and not any(k in rname for k in exc):
+                try:
+                    amount = round(float(r["成交额"]) / 1e8, 2)
+                except (TypeError, ValueError, KeyError):
+                    amount = 0.0
+                etfs.append({"code": code, "name": rname, "amount": amount, "approx": "增强" in rname})
+        etfs.sort(key=lambda x: x["amount"], reverse=True)
+        result[iid] = etfs
+    return result
 
 
 def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: dict) -> dict[str, list[dict]]:
@@ -293,7 +349,11 @@ def main():
     # （bj50 北证50 无活跃跟踪ETF，留空）。
     # 修正原硬编码 bug：hscei 原 513900 实跟踪"中华港股通精选100"非 HSCEI，自动采集修正为 510900 居首。
     reverse_map = _load_etf_index_map_reverse()
-    index_etf_map = _build_index_etf_map_auto(reverse_map, df_by_code)
+    if reverse_map:
+        index_etf_map = _build_index_etf_map_auto(reverse_map, df_by_code)
+    else:
+        # etf_index_map.json 缺失 -> akshare 名称匹配兜底（防静默失败，不退化为全空）
+        index_etf_map = _akshare_name_fallback(df_by_code)
     for iid, etfs in index_etf_map.items():
         out[iid] = etfs
         if not etfs:
@@ -301,6 +361,19 @@ def main():
 
     # 写盘
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # 防静默失败校验（§15 防复现）：14 宽基/红利/港股指数中，除 sz_div（名称无法区分，主动留空）
+    # 和 bj50（无活跃跟踪ETF）外，其余 12 个必须非空。空则 exit 1，让 deploy.sh 捕获失败用旧 map，
+    # 不静默覆盖线上 board_etf_map.json 为空数组（2026-08-06 事故根因：etf_index_map.json 缺失
+    # 致 14 宽基全空，_load_etf_index_map_reverse 只 warning + exit 0 静默失败）。
+    BROAD_MUST_NONEMPTY = ["sh", "sz", "hs300", "sz50", "csi500", "csi1000", "cyb", "kc50",
+                           "csi_div", "div_lowvol", "hsi", "hstech", "hscei"]
+    broad_empty_unexpected = [iid for iid in BROAD_MUST_NONEMPTY if not out.get(iid)]
+    if broad_empty_unexpected:
+        print(f"\n✗ 校验失败：宽基/红利/港股指数 ETF 全空 {broad_empty_unexpected}"
+              f"（etf_index_map.json 缺失且 akshare 名称匹配兜底失败？），exit 1 不覆盖线上 map",
+              file=sys.stderr)
+        sys.exit(1)
 
     # 摘要
     total = len(board_ids)

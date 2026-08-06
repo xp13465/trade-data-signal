@@ -166,12 +166,15 @@ def check_board_etf_map(repo_data_dir: Path) -> CheckResult:
     if ratio >= BOARD_ETF_EMPTY_FAIL_RATIO:
         return _fail(name, f"空数组占比 {ratio:.1%} ({empty_count}/{len(index_keys)}) >= "
                       f"{BOARD_ETF_EMPTY_FAIL_RATIO:.0%}，近全空（事故级）")
+    # broad 核心宽基指数全空 = FAIL（2026-08-06 升级：原仅 WARN 不阻断致 14 宽基全空事故上线）。
+    # 事故根因：etf_index_map.json 缺失 -> build_board_etf_map.py 静默退化全空 -> broad 8 指数全空。
+    # 现升级 FAIL 让 --deploy-mode 阻断 deploy，防静默覆盖线上 map。
+    if broad_empty and len(broad_empty) == len(broad_present):
+        return _fail(name, f"broad 核心宽基指数全空 {broad_empty}（{len(broad_empty)}/{len(broad_present)}"
+                      f" present），etf_index_map.json 缺失或 build_board_etf_map.py 兜底失败")
     if ratio >= BOARD_ETF_EMPTY_WARN_RATIO:
-        broad_msg = ""
-        if broad_empty and len(broad_empty) == len(broad_present):
-            broad_msg = f"；broad 指数全空 {broad_empty}（etf_index_map.json 缺失?）"
         return _warn(name, f"空数组占比 {ratio:.1%} ({empty_count}/{len(index_keys)}) >= "
-                     f"{BOARD_ETF_EMPTY_WARN_RATIO:.0%}{broad_msg}")
+                     f"{BOARD_ETF_EMPTY_WARN_RATIO:.0%}")
 
     return _ok(name, f"空数组占比 {ratio:.1%} ({empty_count}/{len(index_keys)})")
 

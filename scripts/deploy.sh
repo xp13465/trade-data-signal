@@ -85,14 +85,25 @@ if [ -n "$UNMERGED" ]; then
   fi
 fi
 
-# 0.8 刷新 board_etf_map.json（P2-新-G ETF 联动 tag 数据源：行业/概念关键词匹配
-# + 10 宽基/红利指数代码精确匹配，akshare fund_etf_spot_em() 联网 ~15s）。
-# 根因修复（2026-07-25）：build_board_etf_map.py 原不在 pipeline，data/board_etf_map.json
-# 滞后致 export.py 生成 index/*-all.json etfs 字段为空，前端 ETF 联动 tag 不渲染。
-# 失败不阻塞（akshare 反爬/周末时 ETF tag 暂用旧 map，下次 deploy 再刷新）。
+# 0.8 刷新 etf_index_map.json + board_etf_map.json（P2-新-G ETF 联动 tag 数据源）。
+# gen_etf_index_map.py：akshare fund_etf_spot_em() 名称匹配反推 track_index_code，生成
+#   data/etf_index_map.json（build_board_etf_map.py 输入，2026-08-06 事故修复新增）。
+# build_board_etf_map.py：行业/概念关键词匹配 + 14 宽基/红利/港股指数代码精确匹配。
+# 根因修复（2026-08-06）：etf_index_map.json 从未成功生成（生成脚本不存在），_load_etf_index_map_reverse
+#   读不到只 warning + exit 0 静默失败，致 board_etf_map.json 14 宽基全空，首页"全部无 ETF"。
+#   现前置 gen_etf_index_map.py 刷新输入，build_board_etf_map.py 失败 exit 1 阻断 deploy
+#   （不再"继续用旧 map"静默覆盖空数组），且内置 akshare 名称匹配兜底 + 14 宽基校验。
+echo "-> 刷新 etf_index_map.json (gen 名称匹配反推 track_index_code) ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/gen_etf_index_map.py" >> "$LOG" 2>&1 || {
+  echo "⚠ gen_etf_index_map.py 失败(akshare 反爬/网络?)，build_board_etf_map.py 将走名称匹配兜底" | tee -a "$LOG"
+}
 echo "-> 刷新 board_etf_map.json (ETF 联动 tag 数据源) ..." | tee -a "$LOG"
-"$PY" "$REPO/scripts/build_board_etf_map.py" >> "$LOG" 2>&1 || \
-  echo "⚠ build_board_etf_map.py 失败(akshare 反爬/网络?)，继续用旧 map（ETF tag 可能滞后）" | tee -a "$LOG"
+"$PY" "$REPO/scripts/build_board_etf_map.py" >> "$LOG" 2>&1
+BUILD_RC=$?
+if [ "$BUILD_RC" -ne 0 ]; then
+  echo "✗ build_board_etf_map.py 失败(退出码 $BUILD_RC，14 宽基校验未过/akshare 兜底也失败)，终止 deploy（防静默覆盖空 map）" | tee -a "$LOG"
+  exit "$BUILD_RC"
+fi
 
 # 1. 导出 JSON
 echo "→ 运行 export.py 生成静态 JSON ..." | tee -a "$LOG"
