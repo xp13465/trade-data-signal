@@ -8236,3 +8236,20 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - 4小众证券ETF无归属（小节AW四节，精准化代价）
 - sh000001-all.json R2 404既有问题（小节AW四节，另派agent排查）
 - queries.py etf_for docstring更新（非阻断）
+
+### 六、thsc概念指数宽泛include错配调研（选C不修，概念匹配approx是设计）
+- agent a2f588209调研thsc_302035（同花顺AI概念）：40候选全warn（excellent=0/good=0/warn=39/direction_mismatch=39/best_sim=0.9064），无ETF精准跟踪
+- 对比10个thsc概念指数全warn（best sim 0.57-0.94），csi跟踪指数才有excellent/good（csi_930713 2excellent/1good/2warn best_sim=0.9944）
+- build_board_etf_map.py L511注释"行业/概念ETF跟踪中证/国证指数，非申万/同花顺精准跟踪，grade=good/warn属正常"确认概念匹配approx是设计
+- 选A模拟（exclude跨族后40->19仍全warn最高0.864，排除589410 best_sim 0.9064反降质量）
+- 选C（不修）7条理由：概念指数approx设计/thsc全warn常态/无excellent可替代/warn标记诚实/588790/159363 AI主题概念相关/路A-2b既有(commit 8178b49fd)路B未改/选A/B副作用大（B全局过滤致thsc概念指数大量留空）
+- thsc_302035保持现状40候选全warn按max_err升序排589410(best_sim 0.9064)居首
+- 结论：thsc概念指数warn是设计行为非错配，588790/159363在thsc_302035是概念相关匹配非跟踪，warn标记让用户判断非精准
+
+### 七、路B完整收尾总结
+- 路B 62国证/中证行业主题指数（小节AW）+ E组6 sh000685（小节AX）= 63指数上线
+- D组宽泛关键词错配修复（4 ETF跨族错配消除：588790/159363不再错配csi_930713/159387不再错配sw_801730/159201不再错配csi_932365）
+- 遗留1反查5个ETF代码全部查不到（7种渠道穷尽，2024-2025新指数新浪/腾讯未收录），确认留空（588790/159363/159387/159201/588780）
+- thsc概念指数warn是设计行为（选C不修）
+- 数据流端到端：build_board_etf_map.py TRACK_INDEX_KW -> board_etf_map.json -> queries.etf_for() L224 -> export.py index/*-all.json etfs -> 前端_bindEtfPopup
+- 语义差异（明早向用户说明）：160225 vs gz_399417=2.19% grade=good真实跟踪误差(5%现金拖累+0.7%年费)非bug，同花顺"跟踪度100%"用R²相关性非涨跌幅误差，语义不同
