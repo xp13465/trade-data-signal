@@ -902,6 +902,10 @@ main { padding: 16px 24px; }
    2026-07-28: 评级+对错移到指数名前,指数名放最右被 ellipsis 优先截断,评级+对错始终可见。 */
 .sig-correct { font-size: 10px; vertical-align: super; line-height: 0; margin-left: 2px; cursor: help; }
 .sig-idx-name { color: var(--text-2); }
+/* 2026-08-05 同花顺板块代码标签（概念指数 thsc_300xxx -> 885xxx/886xxx 对照同花顺App用）。
+   显示在指数名后，小字淡色，hover 提示站点代码与同花顺代码的对应关系。
+   用于指数表现图表标题 + 信号格 sig-idx-name 内。 */
+.idx-code-tag { font-size: 0.85em; color: var(--text-3); font-variant-numeric: tabular-nums; cursor: help; }
 /* B方案(2026-07-28): 技术分析参考点准确率汇总条。显示在标题下、signal-grid 上方。
    总准确率+三档(高/中/低)分档准确率，每档前带色点(高绿/中橙/低灰)。
    高档0样本(t+f=0) pct=null 显示"-"避免0/0误导。 */

@@ -1274,10 +1274,53 @@ const _INDEX_NAME_MAP = {
   thsc_309115: '低空经济', thsc_309119: '人形机器人', thsc_309128: '军工信息化',
 };
 
+// index_id -> 同花顺板块代码（用户对照同花顺App用，27个 thsc_300xxx 概念 -> 885xxx/886xxx 板块代码）
+// thsc_300xxx 是站点内部ID（THS Concept 缩写+概念代码300xxx），同花顺App/网站显示的是885xxx/886xxx板块代码。
+// 两套代码指向同一概念指数（数值一致），用户对照同花顺时需知道 thsc_300008 = 885431。
+// 宽基(sh/sz)/行业(sw_801xxx)的 index_id 本身即同花顺可查代码，不在此映射。
+// 数据来源：/tmp/index_code_map.json 27映射（人工对照同花顺App建表，2026-08-05）。
+const _INDEX_CODE_MAP = {
+  // 同花顺概念 thsc_300xxx -> 885xxx/886xxx 板块代码
+  thsc_300008: '885431',  // 新能源汽车
+  thsc_300082: '885700',  // 军工
+  thsc_300733: '885710',  // 锂电池概念
+  thsc_300816: '885517',  // 机器人概念
+  thsc_300830: '885730',  // 量子科技
+  thsc_301079: '885531',  // 光伏概念
+  thsc_301085: '885756',  // 芯片概念
+  thsc_302035: '885728',  // 人工智能
+  thsc_306380: '885921',  // 储能
+  thsc_307940: '886042',  // 存储芯片
+  thsc_308014: '886015',  // 创新药
+  thsc_308294: '886032',  // 固态电池
+  thsc_308300: '885925',  // MCU芯片
+  thsc_308491: '885823',  // 氢能源
+  thsc_308700: '885908',  // 第三代半导体
+  thsc_308725: '885945',  // 汽车芯片
+  thsc_308752: '885934',  // 元宇宙
+  thsc_308828: '885957',  // 东数西算(算力)
+  thsc_308870: '885976',  // 数字经济
+  thsc_309020: '886013',  // 信创
+  thsc_309049: '886033',  // 共封装光学(CPO)
+  thsc_309060: '886041',  // 数据要素
+  thsc_309068: '886050',  // 算力租赁
+  thsc_309113: '886066',  // 飞行汽车(eVTOL)
+  thsc_309115: '886067',  // 低空经济
+  thsc_309119: '886069',  // 人形机器人
+  thsc_309128: '886076',  // 军工信息化
+};
+
 function indexIdToName(indexId) {
   // 去掉 g./s. 前缀后查表
   const key = indexId.replace(/^(g|s)\./, '');
   return _INDEX_NAME_MAP[key] || indexId;
+}
+
+// 返回 index_id 对应的同花顺板块代码（无映射返回空串）。
+// 概念指数(thsc_300xxx)返回885xxx/886xxx；宽基/行业 index_id 本身是代码，返回空串（不重复显示）。
+function indexIdToCode(indexId) {
+  const key = indexId.replace(/^(g|s)\./, '');
+  return _INDEX_CODE_MAP[key] || '';
 }
 
 // 按 index_id + signal 关联 state.signalStats 取 10d 窗口 stats（含 score）。
@@ -1543,7 +1586,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         const _typeKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
         const _meta = _SIG_TYPE_META.find(m => m.key === _typeKey);
         const _typeLabel = _meta ? _t(_meta.labelKey) : it.signal;
-        const _titleParts = [_typeLabel, signalLabel(it), indexIdToName(it.index_id)];
+        // 2026-08-05 概念指数(thsc_300xxx)信号格加同花顺板块代码(885xxx/886xxx)，方便用户对照同花顺App。
+        const _sigIdxCode = indexIdToCode(it.index_id);
+        const _titleParts = [_typeLabel, signalLabel(it), indexIdToName(it.index_id) + (_sigIdxCode ? ` (${_sigIdxCode})` : "")];
         if (it.reason) _titleParts.push(it.reason);
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
@@ -1555,7 +1600,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 2026-08-06 ETF tag 从 cell 移除（cell 只留 [信号标签][⚠][评级][☑️/✖️][指数名]）。
         // 主ETF 名称(代码) 改放 hoverpop（_initTermPop.show 内 _sigEtfCache 取 top1），弹窗标题复用 _appendEtfLinkTag。
         // 概念标的（无ETF）hoverpop 不显 ETF 段；ETF 筛选按钮计数仍区分有/无，不依赖 cell 标记。
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}${_sigIdxCode ? ` <span class="idx-code-tag">${_sigIdxCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -3682,7 +3727,11 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
       if (idx.data && idx.data.length) {
         // 港股盘中实时标注（快照注入 _snap_intraday=true 时显示）
         const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
-        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
+        // 2026-08-05 概念指数(thsc_300xxx)标题追加同花顺板块代码(885xxx/886xxx)标签，方便用户对照同花顺App。
+        // 宽基/行业 index_id 本身是代码不重复显示（indexIdToCode 返回空串）。
+        const _idxCodeForTitle = indexIdToCode(id);
+        const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="同花顺板块代码：${_idxCodeForTitle}（站点 ${id} = 同花顺 ${_idxCodeForTitle}，同一概念指数）">${_idxCodeForTitle}</span>` : "";
+        const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
         const cardEl = c.getDom().parentElement;
         // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
