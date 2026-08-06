@@ -137,9 +137,9 @@ TRACK_INDEX_KW: dict[str, dict] = {
     # ---- 同花顺概念 ----
     "thsc_300816": {"include": ["机器人"], "exclude": []},
     "thsc_309119": {"include": ["机器人"], "exclude": []},
-    "thsc_308700": {"include": ["半导体", "芯片", "碳化硅", "氮化镓", "宽禁带"], "exclude": []},
+    "thsc_308700": {"include": ["半导体", "芯片", "碳化硅", "氮化镓", "宽禁带"], "exclude": ["科创板芯片"]},  # E组: 排除科创芯片ETF(属 sse_000685)
     "thsc_309049": {"include": ["光通信", "光模块", "CPO", "光子"], "exclude": []},
-    "thsc_301085": {"include": ["芯片", "半导体"], "exclude": []},
+    "thsc_301085": {"include": ["芯片", "半导体"], "exclude": ["科创板芯片"]},  # E组: 排除"上证科创板芯片指数/设计主题指数"ETF(588200/588780, 属 sse_000685)
     "thsc_307940": {"include": ["存储芯片", "存储"], "exclude": []},
     "thsc_302035": {"include": ["人工智能"], "exclude": []},
     "thsc_309068": {"include": ["算力", "云计算", "数据中心"], "exclude": []},
@@ -234,6 +234,8 @@ TRACK_INDEX_KW: dict[str, dict] = {
     "csi_930997": {"include": ["中证新能源汽车产业", "新能源汽车产业"], "exclude": []},
     "csi_H30535": {"include": ["中证互联网", "互联网"], "exclude": []},
     "csi_H30199": {"include": ["中证电力公用事业", "电力公用事业"], "exclude": []},
+    # ─ E组 ETF跟踪指数补采（上证科创板主题指数） ─
+    "sse_000685": {"include": ["科创板芯片指数"], "exclude": []},  # "科创板芯片指数"精准命中track_index"上证科创板芯片指数"(588200等11只), 不命中"上证科创板芯片设计主题指数"(588780等, 属另一指数)
 }
 
 # ETF track_index 缓存路径（fundf10 抓取，scripts/fetch_etf_track_index.py 生成）
