@@ -14856,11 +14856,23 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
       ? `<div class="etf-pop-sig etf-pop-sig-buy">🔴 最近买类信号(${latestDate})</div>`
       : `<div class="etf-pop-sig etf-pop-sig-no">` + _t("etf_no_buy") + `(${latestDate})</div>`;
   }
-  popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` + sigLine +
-    etfs.map((e) => {
+  // 2d 同花顺模式: 候选列表按跟踪度(similarity)降序, 最相似在前; 每行显跟踪度% + 分级颜色 + fund_type(ETF/LOF)
+  // board_etf_map.json 已按 max_err 升序(similarity 降序)排好, 此处 slice().sort() 防御性兜底(混合源 hk/global ETF 无 similarity 排末尾, 保持原序)
+  var _popEtfs = etfs.slice().sort(function(a, b) {
+    var sa = typeof a.similarity === "number" ? a.similarity : -1;
+    var sb = typeof b.similarity === "number" ? b.similarity : -1;
+    return sb - sa;
+  });
+  popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按跟踪度排序 · 点击复制</div>` + sigLine +
+    _popEtfs.map((e) => {
       var _pnlText = _etfPnlText(e.etf_since_return, e.etf_price_diff);
       var _pnl = _pnlText ? '<span class="etf-pop-pnl" style="color:' + _etfPnlColor(e.etf_since_return) + '">' + _pnlText + '</span>' : "";
-      return `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span>${_pnl}</div>`;
+      // 2d 跟踪度% (similarity*100) + 分级颜色(excellent<1%绿/good1-5%橙/warn>5%灰); 无 similarity(hk/global ETF) 不显
+      var _track = typeof e.similarity === "number"
+        ? '<span class="etf-pop-track etf-pop-grade-' + (e.grade || "warn") + '">' + (e.similarity * 100).toFixed(1) + '%</span>'
+        : "";
+      var _type = e.fund_type ? '<span class="etf-pop-type">' + e.fund_type.toUpperCase() + '</span>' : "";
+      return `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span>${_type}${_track}<span class="etf-pop-amt">${e.amount}亿</span>${_pnl}</div>`;
     }).join("");
   tag.appendChild(popup);
   const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;

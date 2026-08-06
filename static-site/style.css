@@ -1617,7 +1617,7 @@ main { padding: 16px 24px; }
   display: none; position: absolute; z-index: 100; left: 0; top: 100%; margin-top: 3px;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
   padding: 4px 0; box-shadow: 0 4px 12px var(--shadow-strong);
-  font-size: 11px; white-space: nowrap; max-height: 320px; overflow-y: auto; min-width: 210px;
+  font-size: 11px; white-space: nowrap; max-height: 320px; overflow-y: auto; min-width: 260px;
 }
 .etf-popup::before {
   content: "";
@@ -1653,6 +1653,12 @@ main { padding: 16px 24px; }
 .etf-pop-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--primary); min-width: 54px; }
 .etf-pop-name { color: var(--text-1); }
 .etf-pop-amt { color: var(--text-3); margin-left: auto; }
+/* 2d 同花顺模式: 跟踪度% (similarity*100) + 分级颜色 + fund_type(ETF/LOF) */
+.etf-pop-track { font-size: 10px; font-weight: 600; min-width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
+.etf-pop-track.etf-pop-grade-excellent { color: #2e8b57; }
+.etf-pop-track.etf-pop-grade-good { color: #d97706; }
+.etf-pop-track.etf-pop-grade-warn { color: var(--text-3); }
+.etf-pop-type { font-size: 9px; color: var(--text-3); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; line-height: 14px; }
 /* 2026-08-05 ETF 至今盈亏：popup 候选行内盈亏 + tag 后盈亏 + hoverpop 内联盈亏（红涨绿跌内联 color） */
 .etf-pop-pnl { margin-left: 8px; font-size: 10px; font-weight: 600; white-space: nowrap; }
 .etf-tag-pnl { font-size: 11px; font-weight: 600; margin-left: 4px; white-space: nowrap; }
