@@ -21,6 +21,7 @@ import akshare as ak
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
 from app.collector.fetchers import load_config
+from app.collector.overlap_fetcher import match_overlap as _overlap_match
 
 OUT = ROOT / "data" / "board_etf_map.json"
 
@@ -342,6 +343,25 @@ def main():
         out[iid] = etfs
         if not etfs:
             empty_boards.append(f"{iid} {name_by_id.get(iid)}")
+
+    # 成分股重叠算法：KW 匹配为空的 thsc 概念用成分股重叠补充匹配。
+    # 算法：概念成分股(push2delay BK) ∩ ETF跟踪指数成分股(index_stock_cons)，
+    # Jaccard 重叠度排序取 Top5。push2delay 被封 -> 返回空列表 -> 保留 KW 空数组（兜底）。
+    # 覆盖 9 个 KW 匹配为空的 thsc 概念：MCU/CPO/算力/东数西算/三代半/氢能/量子/汽车芯片/存储芯片。
+    empty_thsc = [iid for iid in board_ids
+                  if iid.startswith("thsc_") and not out.get(iid)]
+    if empty_thsc:
+        print(f"\n成分股重叠算法：{len(empty_thsc)} 个空 thsc 概念尝试重叠匹配")
+        try:
+            overlap_result = _overlap_match(df, df_by_code, excl_mask)
+            for iid, etfs in overlap_result.items():
+                if etfs:
+                    out[iid] = etfs
+                    label = f"{iid} {name_by_id.get(iid)}"
+                    if label in empty_boards:
+                        empty_boards.remove(label)
+        except Exception as e:
+            print(f"  [overlap] ⚠ 重叠算法异常,保留 KW 空数组: {e}")
 
     # P2-新-G: 宽基/红利/综合/港股指数 -> 跟踪 ETF 候选（自动采集，按成交额降序）
     # 从 data/etf_index_map.json 自动采集替代原硬编码 INDEX_ETF_MAP（2026-07-28 方案D第二阶段）。
