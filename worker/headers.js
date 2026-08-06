@@ -40,13 +40,22 @@ const CACHE_RULES = [
       p === '/data/feed.xml',
     cc: 'no-store, max-age=0',
   },
+  // 2.5) 盘中高频实时数据(overview/intraday_snapshot): no-store 彻底禁CF edge缓存
+  //   根因: max-age=60 时 CF edge 60s窗口内用户命中旧版edge节点看到昨日overview(a_amount=昨日全天值)
+  //   强刷Cmd+Shift+R无效(只清浏览器不清CF edge), fetchJSON加?_=Date.now()无效(CF忽略query string仍HIT)
+  //   no-store让CF edge不缓存每次回源拿最新, overview 240KB(br后37KB)回源成本可接受(盘中用户量小)
+  {
+    match: p => p === '/data/overview.json' || p === '/data/intraday_snapshot.json',
+    cc: 'no-store, max-age=0',
+  },
   // 3) 实时数据 JSON（盘中/每日更新，需分钟级刷新）：60 秒
   //    global-extras-all 含 usdcnh 等实时指标，必须在历史规则前命中，否则会被 -all 匹配到 1h 致滞后。
+  //    overview/intraday_snapshot 已拆到规则2.5 no-store（盘中高频更新根治看到旧版）。
   {
     match: p =>
       p === '/data/futures.json' || p === '/data/ad_line.json' ||
-      p === '/data/summary.json' || p === '/data/overview.json' ||
-      p === '/data/global-extras-all.json' || p === '/data/intraday_snapshot.json' ||
+      p === '/data/summary.json' ||
+      p === '/data/global-extras-all.json' ||
       p === '/data/new_high_low.json' || p === '/data/position.json' ||
       p === '/data/rotation.json' || p === '/data/volume_ratio.json' ||
       p === '/data/ma_alignment.json' || p === '/data/signal_freq.json' ||
