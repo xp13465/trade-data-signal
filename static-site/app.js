@@ -12019,7 +12019,7 @@ async function renderPublicFund(container) {
     const chgColor = s.change_pct > 0 ? "#e6492e" : s.change_pct < 0 ? "#2e8b57" : "var(--text-3)";
     const chgArrow = s.change_pct > 0 ? "↑" : s.change_pct < 0 ? "↓" : "->";
     const chgTxt = s.change_pct == null ? "-" : `${chgArrow} ${Math.abs(s.change_pct).toFixed(2)}%`;
-    const tip = s.prev_value == null ? "无上期数据" : `当期 ${(s.hold_value_total / 1e4).toFixed(2)} 万 / 上期 ${(s.prev_value / 1e4).toFixed(2)} 万`;
+    const tip = s.prev_value == null ? "无上期数据" : `当期 ${(s.hold_value_total / 1e4).toFixed(2)} 亿 / 上期 ${(s.prev_value / 1e4).toFixed(2)} 亿`;
     const indTxt = s.stock_industry ? `<span class="pf-ind-tag">${s.stock_industry}</span>` : '<span style="color:var(--text-3)">-</span>';
     top30Rows += `<tr>
       <td>${i + 1}</td>
@@ -12031,9 +12031,9 @@ async function renderPublicFund(container) {
       <td class="pf-num" style="color:${chgColor};font-weight:600" title="${tip}">${chgTxt}</td>
     </tr>`;
   });
-  top30Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top30（持有基金数 / 持仓市值万元 / 调仓${holdingsPrevDate ? " 较 " + holdingsPrevDate : ""}）</div>
+  top30Card.innerHTML = `<div class="chart-title">🏆 重仓股 Top30（持有基金数 / 持仓市值亿元 / 调仓${holdingsPrevDate ? " 较 " + holdingsPrevDate : ""}）</div>
     <div class="pf-table-wrap"><table class="pf-table">
-      <thead><tr><th>#</th><th>代码</th><th>名称</th><th>行业</th><th>基金数</th><th>市值(万)</th><th>调仓</th></tr></thead>
+      <thead><tr><th>#</th><th>代码</th><th>名称</th><th>行业</th><th>基金数</th><th>市值(亿)</th><th>调仓</th></tr></thead>
       <tbody>${top30Rows || '<tr><td colspan="7">暂无数据</td></tr>'}</tbody>
     </table></div>`;
   twoCol.appendChild(top30Card);
@@ -12970,7 +12970,7 @@ async function renderPublicFund(container) {
     }
     return withChg.concat(withoutChg);
   };
-  // 渲染 tbody HTML(给定已排序列表); 含"状态"列(四态标记 badge) + "金额差(万)"列 = |当期-上期|, 方向色(加仓红/减仓绿)
+  // 渲染 tbody HTML(给定已排序列表); 含"状态"列(四态标记 badge) + "金额差(亿)"列 = |当期-上期|, 方向色(加仓红/减仓绿)
   const _renderTop100AdjRows = (list) => {
     if (!list.length) return '<tr><td colspan="10">暂无数据</td></tr>';
     let rows = "";
@@ -12980,7 +12980,7 @@ async function renderPublicFund(container) {
       const chgCell = s.change_pct == null
         ? '<span style="color:var(--text-3)">-</span>'
         : `${chgArrow} ${Math.abs(s.change_pct).toFixed(2)}%`;
-      // 金额差 = 当期 - 上期(带符号判方向); 显示绝对值(万元); prev_value=null 显示"-"
+      // 金额差 = 当期 - 上期(带符号判方向); 显示绝对值(亿元); prev_value=null 显示"-"
       const amtSigned = _amtSigned(s);
       const amtColor = amtSigned != null ? (amtSigned > 0 ? "#e6492e" : amtSigned < 0 ? "#2e8b57" : "var(--text-3)") : "var(--text-3)";
       const amtCell = amtSigned != null
@@ -13026,8 +13026,8 @@ async function renderPublicFund(container) {
     </div>
     <div class="pf-table-wrap"><table class="pf-table pf-table-top100">
       <thead><tr>
-        <th style="width:4%">#</th><th style="width:8%">状态</th><th style="width:7%">代码</th><th style="width:15%">名称</th><th style="width:9%">行业</th><th style="width:6%">基金数</th><th style="width:10%">当期(万)</th><th style="width:10%">上期(万)</th>
-        <th style="width:16%;white-space:nowrap">金额差(万)<button class="pf-sort-btn" data-sort="amt" type="button" aria-label="按金额差排序"><span class="pf-sort-arrow"></span></button></th>
+        <th style="width:4%">#</th><th style="width:8%">状态</th><th style="width:7%">代码</th><th style="width:15%">名称</th><th style="width:9%">行业</th><th style="width:6%">基金数</th><th style="width:10%">当期(亿)</th><th style="width:10%">上期(亿)</th>
+        <th style="width:16%;white-space:nowrap">金额差(亿)<button class="pf-sort-btn" data-sort="amt" type="button" aria-label="按金额差排序"><span class="pf-sort-arrow"></span></button></th>
         <th style="width:15%;white-space:nowrap">变化<button class="pf-sort-btn" data-sort="pct" type="button" aria-label="按变化排序"><span class="pf-sort-arrow"></span></button></th>
       </tr></thead>
       <tbody id="pf-top100adj-body">${_renderTop100AdjRows(top100AdjList)}</tbody>
