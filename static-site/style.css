@@ -1645,13 +1645,14 @@ main { padding: 16px 24px; }
 .etf-pop-row { display: flex; gap: 6px; padding: 3px 10px; cursor: pointer; align-items: center; }
 .etf-pop-row:hover { background: var(--primary-bg); }
 .etf-pop-row.copied { background: #e8f5e9; }
+.etf-pop-row .etf-approx-mark { font-size: 9px; margin-left: 4px; color: #e67e22; font-weight: 600; }
 .etf-pop-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--primary); min-width: 54px; }
 .etf-pop-name { color: var(--text-1); }
 .etf-pop-amt { color: var(--text-3); margin-left: auto; }
 
 /* 2026-08-05 信号 cell ETF 筛选行 + popup（fixed 绕开 .sig-item overflow:hidden 裁剪）*/
 .sig-acc-etf-filter { color: var(--text-3); }
-.sig-etf-pop { position: fixed; }  /* 覆盖 .etf-popup absolute，绕开 .sig-item overflow:hidden 裁剪 */
+.sig-etf-pop { position: fixed; z-index: 10001; }  /* 覆盖 .etf-popup absolute+z:100，且高于 term-pop(9999) 防主ETF pop 被盖 */
 
 /* F2：行业资金流 / 成交额 / 换手率 mini sparklines */
 .industry-cell { padding: 8px 10px; }

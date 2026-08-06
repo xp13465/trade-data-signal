@@ -1421,34 +1421,41 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       if (it.index_id && it.etfs) _sigEtfCache[it.index_id] = it.etfs;
     }
   }
-  let filtered = windowedItems;
+  // 列表子筛选谓词（grade/correct/type）：只影响列表显示，不影响汇总条（汇总条显人口全量便于对比）。
+  // 提取为谓词供 popItems->filtered 与 ETF 按钮计数基线(_etfBaseItems)复用，确保 5 个筛选正交联动：
+  // 汇总条随人口筛选(window+ETF)更新；ETF 按钮计数随列表子筛选(grade/correct/type)更新；反之亦然。
+  const _listFilter = (it) => {
+    if (state.sigGradeFilter) {
+      const sc = _getSignalScore(it);
+      if (!sc || sc.score == null) return false;
+      const s = sc.score;
+      if (state.sigGradeFilter === "high" && !(s >= 0.75)) return false;
+      if (state.sigGradeFilter === "mid" && !(s >= 0.55 && s < 0.75)) return false;
+      if (state.sigGradeFilter === "low" && !(s < 0.55)) return false;
+    }
+    if (state.sigCorrectFilter) {
+      const v = it.since_correct;
+      const k = v === true ? "true" : v === false ? "false" : "null";
+      if (k !== state.sigCorrectFilter) return false;
+    }
+    // 问题fix(2026-07-31): 波段减仓 signal='sell' 但 reason='波段减仓' 应归 band_sell 不进卖列表
+    //   与 _sigKey(L1291)/ord(L1401)/chip CSS(L1447) 一致用 reason 判断
+    const _sigKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
+    // 默认过滤 band_hold(波段持有非操作项, 首页表格不显示); 点 band_hold chip 后 sigTypeFilter='band_hold' 才显示
+    if (state.sigTypeFilter !== "band_hold" && _sigKey === "band_hold") return false;
+    if (state.sigTypeFilter && _sigKey !== state.sigTypeFilter) return false;
+    return true;
+  };
+  // 人口筛选（window+ETF）：定义汇总条统计人口。ETF 视为人口筛选(同 window)，汇总条随 ETF 切换更新。
+  let popItems = windowedItems;
   if (kind === "signal") {
-    filtered = windowedItems.filter((it) => {
-      if (state.sigGradeFilter) {
-        const sc = _getSignalScore(it);
-        if (!sc || sc.score == null) return false;
-        const s = sc.score;
-        if (state.sigGradeFilter === "high" && !(s >= 0.75)) return false;
-        if (state.sigGradeFilter === "mid" && !(s >= 0.55 && s < 0.75)) return false;
-        if (state.sigGradeFilter === "low" && !(s < 0.55)) return false;
-      }
-      if (state.sigCorrectFilter) {
-        const v = it.since_correct;
-        const k = v === true ? "true" : v === false ? "false" : "null";
-        if (k !== state.sigCorrectFilter) return false;
-      }
-      // 问题fix(2026-07-31): 波段减仓 signal='sell' 但 reason='波段减仓' 应归 band_sell 不进卖列表
-      //   与 _sigKey(L1291)/ord(L1401)/chip CSS(L1447) 一致用 reason 判断
-      const _sigKey = (it.reason||'').includes('波段减仓') ? 'band_sell' : it.signal;
-      // 默认过滤 band_hold(波段持有非操作项, 首页表格不显示); 点 band_hold chip 后 sigTypeFilter='band_hold' 才显示
-      if (state.sigTypeFilter !== "band_hold" && _sigKey === "band_hold") return false;
-      if (state.sigTypeFilter && _sigKey !== state.sigTypeFilter) return false;
-      // 2026-08-05 ETF 筛选：real_etf=只看有跟踪ETF的真实ETF标的；concept=只看概念标的(无ETF)
-      if (state.sigEtfFilter === "real_etf" && !(it.etfs && it.etfs.length > 0)) return false;
-      if (state.sigEtfFilter === "concept" && (it.etfs && it.etfs.length > 0)) return false;
-      return true;
-    });
+    if (state.sigEtfFilter === "real_etf") popItems = windowedItems.filter((it) => it.etfs && it.etfs.length > 0);
+    else if (state.sigEtfFilter === "concept") popItems = windowedItems.filter((it) => !(it.etfs && it.etfs.length > 0));
   }
+  // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
+  let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
+  // ETF 按钮计数基线 = window ∩ 列表子筛选(不含 ETF 自身维度)，使 ETF 计数随 grade/correct/type 联动
+  const _etfBaseItems = (kind === "signal") ? windowedItems.filter(_listFilter) : windowedItems;
   // 按 date 分组（降序），今日组单独提到最前
   const groups = {};
   for (const it of filtered) {
@@ -1528,18 +1535,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         }
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
-        // 2026-08-05 ETF tag：真实ETF显 top1 代码+"+N"（buy类高亮），概念标的显"无ETF"灰标。
-        // 放 sig-idx-name 前（.sig-item overflow:hidden+ellipsis 截最右，ETF tag 在前确保可见）。
-        // data-etf-idx 供 _bindSigEtfTag 从 _sigEtfCache 取 etfs 绑定 popup（hover显top1/click弹全候选）。
+        // 2026-08-06 ETF tag：cell 只显极简"ETF"小标（不显代码+N+近似），详情（top1代码+全部候选）放 hover pop/click 弹窗。
+        // data-etf-idx 供 _bindSigEtfTag 绑定 popup（hover 显 top1 主ETF / click 弹全候选）。
+        // 概念标的（无ETF）不显 tag（列表更简洁；ETF 筛选按钮计数仍可区分有/无，不依赖 cell 标记）。
         let _etfTagHtml = "";
         if (it.etfs && it.etfs.length > 0) {
-          const _top = it.etfs[0];
-          const _more = it.etfs.length > 1 ? `<span class="etf-more">+${it.etfs.length - 1}</span>` : "";
           const _buyCls = { buy:1, buy_aux:1, buy_special:1, buy_special_filtered:1, buy_backup:1 }[it.signal] ? " etf-tag-buy-signal" : "";
-          const _approxMark = _top.approx ? '<span class="etf-approx-mark">⚠近似</span>' : "";
-          _etfTagHtml = `<span class="etf-tag${_buyCls}" data-no-pop="" data-etf-idx="${it.index_id}">${_top.code}${_more}${_approxMark}</span>`;
-        } else {
-          _etfTagHtml = '<span class="etf-tag etf-tag-empty" data-no-pop="">无ETF</span>';
+          _etfTagHtml = `<span class="etf-tag${_buyCls}" data-no-pop="" data-etf-idx="${it.index_id}">ETF</span>`;
         }
         return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} ${_etfTagHtml}<span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
       }
@@ -1564,8 +1566,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
   let _accHtml = "";
   let _windowBtnsHtml = "";  // E 方案 UI: 窗口按钮组(仅 signal), 移到标题行❓后, 不再独立成行
   if (kind === "signal") {
-    // E 方案: 汇总条基于窗口内 items 算准确率(非全量), 窗口筛选影响总数+总准确率
-    const _acc = _calcSignalAccuracy(windowedItems);
+    // E 方案 + ETF 人口筛选: 汇总条基于人口(window+ETF)算准确率(非全量), 窗口/ETF 筛选影响总数+总准确率
+    const _acc = _calcSignalAccuracy(popItems);
     const _fmt = (pct) => (pct == null ? "-" : pct.toFixed(0) + "%");
     const _gActive = (g) => (state.sigGradeFilter === g ? " sig-acc-filter-active" : "");
     const _cActive = (k) => (state.sigCorrectFilter === k ? " sig-acc-filter-active" : "");
@@ -1576,10 +1578,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补)
     // 口径:近15交易日 signals_today 的 since_correct 至今盈亏方向命中率
     const _wfLabel = { "0_15": "近15交易日全部(默认)", "10_15": "第10-15交易日", "7_15": "第7-15交易日", "3_15": "第3-15交易日", "y_15": "排除今日(昨日~15日)" }[state.sigWindowFilter] || "近15交易日";
+    const _etfScopeLabel = state.sigEtfFilter === "real_etf" ? "（真实ETF标的）" : state.sigEtfFilter === "concept" ? "（概念标的）" : "";
     const _todayFmt = todayDate ? fmtDate(todayDate) : "最新交易日";
     const _totalTip = _t.tsText(
       `总准确率统计口径\n` +
-      `范围：${_wfLabel}技术分析参考点\n` +
+      `范围：${_wfLabel}技术分析参考点${_etfScopeLabel}\n` +
       `公式：命中率 = 对数 / (对+错) × 100%（排除未结算+波段持有）\n` +
       `对错判定：看多信号(主买/辅买/追买/备买)至今涨=对；看空信号(卖/止损)至今跌=对；波段持有=中性不计\n` +
       `基准：信号日收盘价 -> 今日收盘价 涨跌方向\n` +
@@ -1634,8 +1637,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _eActive = (f) => (state.sigEtfFilter === f ? " sig-acc-filter-active" : "");
     const _etfBtn = (label, f, tip) =>
       `<button class="sig-acc-seg sig-acc-filter${_eActive(f)}" data-etf-filter="${f}" data-tip="${_escAttr(tip)}">${label}</button>`;
-    const _realEtfCnt = windowedItems.filter((it) => it.etfs && it.etfs.length > 0).length;
-    const _conceptCnt = windowedItems.length - _realEtfCnt;
+    const _realEtfCnt = _etfBaseItems.filter((it) => it.etfs && it.etfs.length > 0).length;
+    const _conceptCnt = _etfBaseItems.length - _realEtfCnt;
     const _etfReset = state.sigEtfFilter !== "all" ? ` <button class="sig-acc-reset" data-etf-filter-reset="1">恢复全部</button>` : "";
     const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含真实ETF标的+概念标的）")} · ${_etfBtn("真实ETF " + _realEtfCnt, "real_etf", "只看有跟踪ETF的指数（如沪深300/创业板指等宽基+行业指数），可点击 ETF 代码查看候选")} · ${_etfBtn("概念标的 " + _conceptCnt, "concept", "只看无跟踪ETF的概念标的（如部分综合指数），显灰色无ETF标")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
@@ -1960,6 +1963,10 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
   // 避免移动端点带 title 的别处误开新 pop 而非关闭当前 pop（A2 修复）。
   function findTipEl(target, forClick) {
     if (!target || !target.closest) return null;
+    // 2026-08-06: target 在 [data-no-pop] 内（如信号 cell 的 .etf-tag 自带 pop 系统）时不触发 term-pop。
+    // 否则 target 冒泡到父级 .sig-item 的 [title] 命中后 term-pop(z:9999) 会盖住 .etf-popup(z:100)，
+    // 致 hover 主ETF pop（512710）看不见。data-no-pop 元素自管 pop，term-pop 应让位。
+    if (target.closest("[data-no-pop]")) return null;
     var el = target.closest("[data-tip]");
     if (el) return el;
     if (forClick) return null;  // click 路径不 fallback [title]
@@ -14794,14 +14801,18 @@ function _bindSigEtfTag(tag, etfs) {
   function buildMini() {
     const p = document.createElement("div");
     p.className = "etf-popup etf-popup-mini sig-etf-pop";
-    p.innerHTML = `<div class="etf-pop-row"><span class="etf-pop-code">${top.code}</span><span class="etf-pop-name">${top.name}</span><span class="etf-pop-amt">${top.amount}亿</span></div>`;
+    const _approxMark = top.approx ? '<span class="etf-approx-mark">⚠近似</span>' : "";
+    p.innerHTML = `<div class="etf-pop-title">主ETF（成交额最大）· 点击查全部${etfs.length > 1 ? ' ' + etfs.length + ' 只' : ''}</div><div class="etf-pop-row"><span class="etf-pop-code">${top.code}</span><span class="etf-pop-name">${top.name}</span><span class="etf-pop-amt">${top.amount}亿</span>${_approxMark}</div>`;
     return p;
   }
   function buildFull() {
     const p = document.createElement("div");
     p.className = "etf-popup etf-popup-full sig-etf-pop";
     p.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` +
-      etfs.map((e) => `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span></div>`).join("");
+      etfs.map((e) => {
+        const _ap = e.approx ? '<span class="etf-approx-mark">⚠近似</span>' : "";
+        return `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span>${_ap}</div>`;
+      }).join("");
     return p;
   }
   tag.addEventListener("click", (e) => {
