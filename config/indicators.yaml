@@ -253,6 +253,8 @@ indices:
   - {id: gz_399365, name: "国证粮食", market: concept, func: stock_zh_index_daily, symbol: "sz399365", enabled: true}
   # ─ E组 ETF跟踪指数补采（新浪 stock_zh_index_daily，sh 前缀，上证科创板主题指数） ─
   - {id: sse_000685, name: "上证科创板芯片指数", market: concept, func: stock_zh_index_daily, symbol: "sh000685", enabled: true}
+  # ─ E组 ETF跟踪指数补采（新浪 stock_zh_index_daily，sz 前缀，深交所970xxx新代码系列） ─
+  - {id: csi_970070, name: "创业板人工智能指数", market: concept, func: stock_zh_index_daily, symbol: "sz970070", enabled: true}
   # ─ B组 中证-深交所(18个, 腾讯 stock_zh_index_daily_tx, symbol=sz399xxx) ─
   - {id: csi_399975, name: "中证全指证券公司", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399975", enabled: true}
   - {id: csi_399986, name: "中证银行", market: concept, func: stock_zh_index_daily_tx, symbol: "sz399986", enabled: true}
