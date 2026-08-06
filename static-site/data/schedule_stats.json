@@ -63,10 +63,10 @@
     "task": "rzhb_backfill",
     "name": "两融",
     "schedule": "T+1 08:00",
-    "est_text": "约3秒",
-    "last_run": "2026-08-06 08:00",
+    "est_text": "约4秒",
+    "last_run": "2026-08-06 19:15",
     "last_exit": 0,
-    "last_duration_sec": 1,
+    "last_duration_sec": 3,
     "log_anomaly": false,
     "log_anomaly_keyword": null,
     "log_anomaly_line": null
