@@ -65,6 +65,9 @@ config/subscriptions.json
 # C 方案（2026-07-24）：CF Workers 订阅接口密码（回流同步用，敏感）
 config/sub_pwd.json
 
+# easytrader 本地配置（含真实 Token，敏感 -- 不进 git；config.json 是模板留空，见 easytrader_deploy/README.md 第6节）
+easytrader_deploy/easytrader_local.json
+
 # 系统
 .DS_Store
 data/.cninfo_pdf/

@@ -37,12 +37,13 @@ netsh advfirewall firewall add rule name="easytrader" dir=in action=allow protoc
 - 健康检查（免 Token）： http://localhost:1430/health
 
 ## 6. 鉴权
-- 默认 Token： `easytrader-secret-2024`
-- **改 Token 首选改 `config.json`**（与脚本同目录，首次启动自动生成）：把 `"token"` 字段改成你自己的随机字符串。
+- **真实 Token 放 `easytrader_local.json`**（与脚本同目录，**不进 git**，已加入 `.gitignore`）：把 `"token"` 字段改成你自己的随机字符串。
   ```json
-  { "token": "你的密钥", "host": "0.0.0.0", "port": 1430, "exe_path": "D:\\路径\\xiadan.exe" }
+  { "token": "你的密钥" }
   ```
-- 也可用环境变量覆盖（优先级高于 `config.json`）： `set EASYTRADER_TOKEN=你的密钥`
+- `config.json` 是**模板**（进 git），`token` 字段留空；`easytrader_local.json` 覆盖它。
+- 也可用环境变量覆盖（优先级最高）： `set EASYTRADER_TOKEN=你的密钥`
+- 优先级：**环境变量 > `easytrader_local.json`(本地, 不进 git) > `config.json`(模板, 空)**
 - 调用方式：请求头 `X-Token: <token>` 或查询参数 `?token=<token>`
 - 免鉴权路由： `/`、`/test`、`/health`（面板与健康检查）
 

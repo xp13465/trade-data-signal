@@ -11,7 +11,7 @@
 |---|---|
 | 默认地址 | `http://<交易电脑IP>:1430` |
 | 本地面板 | `http://localhost:1430/` |
-| 默认 Token | `easytrader-secret-2024`（配置文件 `config.json` 或环境变量 `EASYTRADER_TOKEN` 覆盖） |
+| 默认 Token | 无（真实 Token 放 `easytrader_local.json`，不进 git；见下方「自定义 Token」） |
 | 交易客户端 | 同花顺 `xiadan.exe`（单进程、内置多账户） |
 | 架构 | 1 个 `ClientTrader` 连接 + 多账户标签，切换只改活跃标签 |
 
@@ -36,20 +36,17 @@
 
 ### 自定义 Token
 
-Token 已从代码中抽出，统一由 **`config.json`**（与脚本同目录）管理。**首次启动会自动生成该文件**，直接改 `"token"` 字段即可，无需碰代码。
+Token 已从代码中抽出，真实 Token 放 **`easytrader_local.json`**（与脚本同目录，**不进 git**，已加入 `.gitignore`），`config.json` 是**模板**（进 git，`token` 留空）。直接改 `easytrader_local.json` 的 `"token"` 字段即可，无需碰代码：
 
 ```json
 {
-  "token": "easytrader-secret-2024",
-  "host": "0.0.0.0",
-  "port": 1430,
-  "exe_path": "D:\\路径\\xiadan.exe"
+  "token": "你的密钥"
 }
 ```
 
-其他配置项：`host` / `port` 监听地址与端口，`exe_path` 为 xiadan.exe 默认路径（首次 `prepare` 也可通过请求体覆盖）。
+`config.json`（模板）保留 `host` / `port` / `exe_path` 等非敏感默认值：`exe_path` 为 xiadan.exe 默认路径（首次 `prepare` 也可通过请求体覆盖）。
 
-优先级：**环境变量 > `config.json` > 代码默认值**。环境变量覆盖写法：
+优先级：**环境变量 > `easytrader_local.json`(本地, 不进 git) > `config.json`(模板, 空)**。环境变量覆盖写法：
 - Windows (cmd)：`set EASYTRADER_TOKEN=你的新密钥`
 - Windows (PowerShell)：`$env:EASYTRADER_TOKEN="你的新密钥"`
 - Linux / macOS：`export EASYTRADER_TOKEN=你的新密钥`

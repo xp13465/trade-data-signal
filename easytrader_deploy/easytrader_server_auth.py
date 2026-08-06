@@ -44,31 +44,55 @@ ClientTrader.connect = _patched_connect
 ClientTrader.prepare = _patched_connect
 
 # ==================== 配置区 ====================
-# 配置优先级: 环境变量 > config.json > 默认值
-# 首次运行会自动生成同目录下的 config.json 模板, 改 token 等即可, 无需改代码.
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+# 配置优先级: 环境变量 > easytrader_local.json(本地, 不进 git) > config.json(模板, 进 git) > 默认值
+# 真实 token 放 easytrader_local.json (已 .gitignore), config.json 的 token 留空作模板.
+# 首次运行若 config.json 不存在会自动生成模板(此时 token 为空, 需在 easytrader_local.json 配置).
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(_BASE_DIR, "config.json")
+LOCAL_CONFIG_PATH = os.path.join(_BASE_DIR, "easytrader_local.json")
+
+
+def _read_json(path):
+    """读 JSON 文件, 失败返回空 dict 并告警."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print("[warn] 读取 %s 失败: %s" % (path, e))
+        return {}
 
 
 def load_config():
-    """读取同目录 config.json. 不存在时自动生成模板; 解析失败回退默认值."""
+    """读取配置.
+
+    优先级: easytrader_local.json(本地, 不进 git) > config.json(模板, 进 git) > 默认值.
+    token 在 config.json 里是空模板, 真实 token 放 easytrader_local.json 覆盖.
+    首次运行会自动生成 config.json 模板(若不存在).
+    """
     defaults = {
-        "token": "easytrader-secret-2024",
+        "token": "",
         "host": "0.0.0.0",
         "port": 1430,
         "exe_path": r"D:\同花顺软件\同花顺\同花顺\同花顺\xiadan.exe",
     }
     cfg = dict(defaults)
-    try:
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            cfg.update({k: v for k, v in data.items() if k in defaults})
-        else:
+    # 1. config.json (模板, 进 git)
+    if not os.path.exists(CONFIG_PATH):
+        try:
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(defaults, f, ensure_ascii=False, indent=2)
-            print("[info] 已生成配置模板:", CONFIG_PATH, "(请按需修改 token)")
-    except Exception as e:
-        print("[warn] 读取 config.json 失败, 使用默认值:", e)
+            print("[info] 已生成配置模板:", CONFIG_PATH,
+                  "(token 为空模板, 请在 easytrader_local.json 配置真实 token)")
+        except Exception as e:
+            print("[warn] 生成 config.json 模板失败:", e)
+    cfg.update({k: v for k, v in _read_json(CONFIG_PATH).items() if k in defaults})
+    # 2. easytrader_local.json (本地真实配置, 不进 git) 覆盖模板
+    if os.path.exists(LOCAL_CONFIG_PATH):
+        cfg.update({k: v for k, v in _read_json(LOCAL_CONFIG_PATH).items() if k in defaults})
+        print("[info] 已加载本地配置:", LOCAL_CONFIG_PATH)
+    else:
+        print("[info] 未找到 easytrader_local.json (本地配置, 不进 git). "
+              "token 将为空, 请创建该文件配置真实 token, 见 README 第 6 节.")
     return cfg
 
 
@@ -77,6 +101,11 @@ TOKEN = os.environ.get("EASYTRADER_TOKEN", CONFIG["token"])
 HOST = os.environ.get("EASYTRADER_HOST", CONFIG["host"])
 PORT = int(os.environ.get("EASYTRADER_PORT", CONFIG["port"]))
 EXE_PATH = os.environ.get("EASYTRADER_EXE_PATH", CONFIG["exe_path"])
+
+if not TOKEN:
+    print("[error] 未配置 Token: config.json 为空模板, 请在 easytrader_local.json (本地, 不进 git) "
+          "设置 \"token\" 字段, 或用环境变量 EASYTRADER_TOKEN. 见 README 第 6 节. "
+          "(未配置前所有鉴权接口将返回 401)")
 HTML_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "easytrader_test.html",
