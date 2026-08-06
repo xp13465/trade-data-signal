@@ -1,33 +1,33 @@
 {
-  "date": "20260805",
-  "generated_at": "2026-08-05 18:19:17",
+  "date": "20260806",
+  "generated_at": "2026-08-06 18:30:05",
   "high": {
-    "score": 50.06,
+    "score": 49.18,
     "level": "中性",
     "triggered": false,
     "dims": [
       {
         "k": "H1",
         "name": "情绪过热",
-        "score": 70.71,
+        "score": 63.52,
         "weight": 0.26,
-        "contribution": 18.38,
+        "contribution": 16.52,
         "hit": true
       },
       {
         "k": "H4",
         "name": "位置偏高",
-        "score": 52.83,
+        "score": 53.03,
         "weight": 0.2,
-        "contribution": 10.57,
+        "contribution": 10.61,
         "hit": false
       },
       {
         "k": "H6",
         "name": "均线转弱",
-        "score": 82.5,
+        "score": 75.83,
         "weight": 0.08,
-        "contribution": 6.6,
+        "contribution": 6.07,
         "hit": true
       },
       {
@@ -41,74 +41,74 @@
       {
         "k": "H3",
         "name": "风险点密集",
-        "score": 22.08,
+        "score": 34.58,
         "weight": 0.13,
-        "contribution": 2.87,
+        "contribution": 4.5,
         "hit": false
       },
       {
         "k": "H2",
         "name": "量价背离",
-        "score": 21.13,
+        "score": 21.21,
         "weight": 0.08,
-        "contribution": 1.69,
+        "contribution": 1.7,
         "hit": false
       },
       {
         "k": "H7",
         "name": "汪汪队离场",
-        "score": 13.75,
+        "score": 12.92,
         "weight": 0.1,
-        "contribution": 1.38,
+        "contribution": 1.29,
         "hit": false
       }
     ],
     "reason": "高位预警指标处于中性区间"
   },
   "low": {
-    "score": 57.84,
+    "score": 54.76,
     "level": "中性",
     "triggered": false,
     "dims": [
       {
         "k": "L4",
         "name": "汪汪队入场",
-        "score": 96.67,
+        "score": 91.67,
         "weight": 0.15,
-        "contribution": 14.5,
+        "contribution": 13.75,
         "hit": true
-      },
-      {
-        "k": "L2",
-        "name": "关注点密集",
-        "score": 55.83,
-        "weight": 0.18,
-        "contribution": 10.05,
-        "hit": false
       },
       {
         "k": "L1",
         "name": "情绪冰点",
-        "score": 44.26,
+        "score": 46.63,
         "weight": 0.2,
-        "contribution": 8.85,
+        "contribution": 9.33,
         "hit": false
       },
       {
         "k": "L3",
         "name": "位置偏低",
-        "score": 47.17,
+        "score": 46.97,
         "weight": 0.15,
-        "contribution": 7.08,
+        "contribution": 7.05,
         "hit": false
       },
       {
-        "k": "L8",
-        "name": "价值显现",
-        "score": 66.25,
-        "weight": 0.07,
-        "contribution": 4.64,
-        "hit": true
+        "k": "L2",
+        "name": "关注点密集",
+        "score": 37.5,
+        "weight": 0.18,
+        "contribution": 6.75,
+        "hit": false
+      },
+      {
+        "k": "L5",
+        "name": "量能异动",
+        "score": 54.17,
+        "weight": 0.1,
+        "contribution": 5.42,
+        "hit": false
       },
       {
         "k": "L7",
@@ -117,14 +117,6 @@
         "weight": 0.07,
         "contribution": 4.61,
         "hit": true
-      },
-      {
-        "k": "L5",
-        "name": "量能异动",
-        "score": 40.83,
-        "weight": 0.1,
-        "contribution": 4.08,
-        "hit": false
       },
       {
         "k": "L6",
