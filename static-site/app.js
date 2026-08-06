@@ -2025,7 +2025,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     if (_idxRetRaw != null && _idxRetRaw !== "") {
       var _idxRet = parseFloat(_idxRetRaw);
       if (isFinite(_idxRet)) {
-        var _idxRetStr = (_idxRet > 0 ? "+" : "") + _idxRet.toFixed(2) + "%";
+        var _idxRetStr = (_idxRet >= 0 ? "+" : "") + _idxRet.toFixed(2) + "%";
         var _idxCorrectRaw = el.getAttribute("data-idx-correct");
         var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
         var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";

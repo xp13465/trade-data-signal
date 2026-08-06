@@ -91,7 +91,7 @@ def main():
     if OUT.exists() and not args.force:
         try:
             cache = json.loads(OUT.read_text(encoding='utf-8'))
-            print(f"-> 加载已有缓存 {len(cache)} 条（增量更新，已抓且 fetched_at={today} 的跳过）")
+            print(f"-> 加载已有缓存 {len(cache)} 条（增量更新，已有 track_index 的跳过，仅抓新增/缺失）")
         except Exception as e:
             print(f"⚠ 缓存读取失败 {e}，全量重抓")
             cache = {}
@@ -126,7 +126,8 @@ def main():
     total = len(df_keep)
     cache_meta = cache.pop('_meta', {}) if isinstance(cache.get('_meta'), dict) else {}
 
-    # 已抓且 fetched_at=today 的跳过
+    # 已有 track_index 的跳过（不重抓，仅抓新增/缺失；--force 强制重抓）
+    # track_index（跟踪标的）ETF 上市后基本不变，无需每日重抓；--force 可强制全量刷新
     to_fetch = []
     for _, r in df_keep.iterrows():
         code = str(r['代码'])
@@ -134,7 +135,6 @@ def main():
         amount = float(r['成交额']) or 0.0
         existing = cache.get(code)
         if (not args.force and isinstance(existing, dict)
-                and existing.get('fetched_at') == today
                 and existing.get('track_index')):
             skipped += 1
             # 更新 amount（实时值）
