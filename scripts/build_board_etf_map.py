@@ -102,36 +102,36 @@ KW: dict[str, list[str]] = {
 # ───────────────────────────────────────────────────────────────────
 TRACK_INDEX_KW: dict[str, dict] = {
     # ---- 申万一级行业 ----
-    "sw_801010": {"include": ["农业", "农牧", "养殖", "渔业", "牧渔"], "exclude": []},
-    "sw_801030": {"include": ["化工"], "exclude": []},
-    "sw_801040": {"include": ["钢铁"], "exclude": []},
-    "sw_801050": {"include": ["有色金属"], "exclude": []},
-    "sw_801080": {"include": ["电子"], "exclude": ["消费电子"]},  # 申万电子 vs 消费电子
-    "sw_801880": {"include": ["汽车"], "exclude": ["新能源汽车", "智能汽车", "新能源车"]},
+    "sw_801010": {"include": ["农业", "农牧", "养殖", "渔业", "牧渔"], "exclude": ["畜牧养殖"]},  # Bug6: 排除"中证畜牧养殖指数"ETF(属csi_931946)
+    "sw_801030": {"include": ["化工"], "exclude": ["细分化工"]},
+    "sw_801040": {"include": ["钢铁"], "exclude": ["国证钢铁"]},
+    "sw_801050": {"include": ["有色金属"], "exclude": ["国证有色", "中证稀有金属", "中证工业有色", "中证有色矿业"]},
+    "sw_801080": {"include": ["电子"], "exclude": ["消费电子", "中证申万电子"]},  # 申万电子 vs 消费电子/中证申万电子行业
+    "sw_801880": {"include": ["汽车"], "exclude": ["新能源汽车", "智能汽车", "新能源车", "中证新能源汽车"]},
     "sw_801110": {"include": ["家电"], "exclude": []},
-    "sw_801120": {"include": ["食品", "酒", "饮料"], "exclude": []},
+    "sw_801120": {"include": ["食品", "酒", "饮料"], "exclude": ["国证食品饮料", "国证粮食"]},
     "sw_801130": {"include": ["纺织", "服装", "服饰"], "exclude": []},
-    "sw_801140": {"include": ["轻工", "家居", "造纸", "文娱"], "exclude": ["传媒"]},  # 排除传媒(516190 中证文娱传媒指数误匹配)
-    "sw_801150": {"include": ["医药", "医疗", "生物", "创新药", "中药"], "exclude": []},
-    "sw_801160": {"include": ["公用事业"], "exclude": []},
+    "sw_801140": {"include": ["轻工", "家居", "造纸", "文娱"], "exclude": ["传媒", "智能家居"]},  # Bug7: 加"智能家居"排除"中证智能家居指数"ETF(属csi_399996)
+    "sw_801150": {"include": ["医药", "医疗", "生物", "创新药", "中药"], "exclude": ["中证医疗", "互联网医疗"]},  # Bug3: 加"互联网医疗"排除"中证互联网医疗主题指数"
+    "sw_801160": {"include": ["公用事业"], "exclude": ["电力公用事业", "中证环境治理"]},  # Bug1: "电力公用事业"通用匹配"中证全指电力公用事业指数"(原"中证电力公用事业"漏匹配"全指")
     "sw_801170": {"include": ["交通", "运输"], "exclude": []},
     "sw_801180": {"include": ["房地产", "地产"], "exclude": []},
     "sw_801200": {"include": ["商贸", "零售", "商业", "百货"], "exclude": []},
     "sw_801210": {"include": ["旅游", "社服"], "exclude": []},
-    "sw_801780": {"include": ["银行"], "exclude": []},
-    "sw_801790": {"include": ["证券", "保险", "非银"], "exclude": []},
+    "sw_801780": {"include": ["银行"], "exclude": ["中证银行", "国证银行"]},
+    "sw_801790": {"include": ["证券", "保险", "非银"], "exclude": ["中证全指证券公司", "中证申万证券", "中证证券公司"]},  # Bug2: 加"中证证券公司"排除"中证证券公司30/先锋策略"
     "sw_801710": {"include": ["建筑材料", "建材"], "exclude": []},
-    "sw_801720": {"include": ["建筑", "基建"], "exclude": ["建筑材料", "建材"]},
+    "sw_801720": {"include": ["建筑", "基建"], "exclude": ["建筑材料", "建材", "中证基建工程"]},
     "sw_801730": {"include": ["电力设备", "光伏", "风电", "储能", "电池", "新能源"],
-                  "exclude": ["新能源汽车", "新能源车"]},
-    "sw_801890": {"include": ["机械", "工程机械", "机床"], "exclude": []},
-    "sw_801740": {"include": ["军工", "国防"], "exclude": []},
-    "sw_801750": {"include": ["计算机", "软件", "信息技术"], "exclude": []},
-    "sw_801760": {"include": ["传媒", "游戏", "动漫"], "exclude": []},
-    "sw_801770": {"include": ["通信"], "exclude": []},
-    "sw_801950": {"include": ["煤炭"], "exclude": []},
-    "sw_801960": {"include": ["石油", "石化"], "exclude": []},
-    "sw_801970": {"include": ["环保"], "exclude": []},
+                  "exclude": ["新能源汽车", "新能源车", "中证新能源", "中证电池", "中证光伏"]},
+    "sw_801890": {"include": ["机械", "工程机械", "机床"], "exclude": ["中证工程机械"]},
+    "sw_801740": {"include": ["军工", "国防"], "exclude": ["中证军工", "国证军工"]},
+    "sw_801750": {"include": ["计算机", "软件", "信息技术"], "exclude": ["中证信息技术", "中证TMT", "中证云计算", "中证人工智能", "中证金融科技", "中证移动互联网", "中证信息安全"]},
+    "sw_801760": {"include": ["传媒", "游戏", "动漫"], "exclude": ["中证传媒"]},
+    "sw_801770": {"include": ["通信"], "exclude": ["中证移动互联网"]},
+    "sw_801950": {"include": ["煤炭"], "exclude": ["中证煤炭"]},
+    "sw_801960": {"include": ["石油", "石化"], "exclude": ["国证油气"]},
+    "sw_801970": {"include": ["环保"], "exclude": ["中证环保"]},
     "sw_801980": {"include": ["美容", "护理", "化妆品"], "exclude": []},
     "sw_801230": {"include": [], "exclude": []},  # 综合行业无 ETF，留空
     # ---- 同花顺概念 ----
@@ -166,6 +166,74 @@ TRACK_INDEX_KW: dict[str, dict] = {
     # gz_399417 国证新能源汽车指数：160225 国泰国证新能源汽车LOF 跟踪"国证新能源汽车指数"
     # 用"国证新能源汽车"精准命中（排除"中证新能源汽车"的515030等ETF），160225 vs gz_399417 max_err<1%=excellent
     "gz_399417": {"include": ["国证新能源汽车"], "exclude": []},
+    # ===== 路B新增 62 个国证/中证行业主题指数（2026-08-07）=====
+    # include 用指数名关键词，让跟踪该指数的ETF/LOF精准命中。
+    # ─ A组 国证指数(7个) ─
+    "gz_399368": {"include": ["国证军工"], "exclude": []},
+    "gz_399395": {"include": ["国证有色"], "exclude": []},
+    "gz_399396": {"include": ["国证食品饮料"], "exclude": []},
+    "gz_399431": {"include": ["国证银行"], "exclude": []},
+    "gz_399439": {"include": ["国证油气"], "exclude": []},
+    "gz_399440": {"include": ["国证钢铁"], "exclude": []},
+    "gz_399365": {"include": ["国证粮食"], "exclude": []},
+    # ─ B组 中证-深交所(18个) ─
+    "csi_399975": {"include": ["中证全指证券公司"], "exclude": []},  # Bug2: 去掉宽泛"证券公司",只精准匹配"中证全指证券公司指数"ETF
+    "csi_399986": {"include": ["中证银行"], "exclude": []},
+    "csi_399989": {"include": ["中证医疗"], "exclude": []},
+    "csi_399976": {"include": ["中证新能源汽车"], "exclude": []},
+    "csi_399967": {"include": ["中证军工"], "exclude": []},
+    "csi_399971": {"include": ["中证传媒"], "exclude": []},
+    "csi_399998": {"include": ["中证煤炭"], "exclude": []},
+    "csi_399808": {"include": ["中证新能源"], "exclude": ["中证新能源汽车"]},
+    "csi_399803": {"include": ["中证工业4.0", "工业4.0"], "exclude": []},
+    "csi_399806": {"include": ["中证环境治理", "环境治理"], "exclude": []},
+    "csi_399807": {"include": ["中证高铁产业", "高铁产业"], "exclude": []},
+    "csi_399970": {"include": ["中证移动互联网", "移动互联网"], "exclude": []},
+    "csi_399991": {"include": ["中证一带一路", "一带一路"], "exclude": []},
+    "csi_399994": {"include": ["中证信息安全", "信息安全"], "exclude": []},
+    "csi_399995": {"include": ["中证基建工程", "基建工程"], "exclude": []},
+    "csi_399996": {"include": ["中证智能家居", "智能家居"], "exclude": []},
+    "csi_399707": {"include": ["中证申万证券行业", "申万证券"], "exclude": []},
+    "csi_399811": {"include": ["中证申万电子行业", "申万电子"], "exclude": []},
+    # ─ C组 中证-上交所/深交所(15个) ─
+    "csi_000510": {"include": ["中证A500", "A500"], "exclude": []},
+    "csi_000903": {"include": ["中证A100", "A100"], "exclude": []},
+    "csi_000827": {"include": ["中证环保"], "exclude": []},
+    "csi_000935": {"include": ["中证信息技术"], "exclude": []},
+    "csi_000998": {"include": ["中证TMT", "TMT"], "exclude": []},
+    "csi_000961": {"include": ["中证上游资源", "上游资源"], "exclude": []},
+    "csi_000805": {"include": ["A股资源", "中证资源"], "exclude": []},
+    "csi_000813": {"include": ["细分化工"], "exclude": []},
+    "csi_000010": {"include": ["上证180"], "exclude": []},
+    "csi_000330": {"include": ["深证100"], "exclude": []},
+    "csi_000673": {"include": ["创业板50"], "exclude": []},
+    "csi_000102": {"include": ["创业板综"], "exclude": []},
+    "csi_000680": {"include": ["科创综合", "科创综指"], "exclude": []},
+    "csi_000698": {"include": ["科创100"], "exclude": []},
+    "csi_000699": {"include": ["科创200"], "exclude": []},
+    # ─ D组 中证指数公司(22个) ─
+    "csi_931151": {"include": ["中证光伏产业", "光伏产业"], "exclude": []},
+    "csi_930050": {"include": ["中证A50", "A50"], "exclude": []},
+    "csi_932000": {"include": ["中证2000"], "exclude": []},
+    "csi_930986": {"include": ["中证金融科技", "金融科技"], "exclude": []},
+    "csi_H30590": {"include": ["中证机器人", "机器人"], "exclude": []},
+    "csi_931643": {"include": ["中证科创创业50", "科创创业50"], "exclude": []},
+    "csi_931719": {"include": ["中证电池主题", "电池主题"], "exclude": []},
+    "csi_930632": {"include": ["中证稀有金属", "稀有金属"], "exclude": []},
+    "csi_931892": {"include": ["中证有色矿业", "有色矿业"], "exclude": []},
+    "csi_930713": {"include": ["中证人工智能", "人工智能"], "exclude": []},
+    "csi_930721": {"include": ["中证智能汽车", "智能汽车"], "exclude": []},
+    "csi_930851": {"include": ["中证云计算", "云计算"], "exclude": []},
+    "csi_932365": {"include": ["中证自由现金流", "自由现金流"], "exclude": []},
+    "csi_932315": {"include": ["中证红利质量", "红利质量"], "exclude": []},
+    "csi_931752": {"include": ["中证工程机械"], "exclude": []},
+    "csi_931946": {"include": ["中证畜牧养殖", "畜牧养殖"], "exclude": []},
+    "csi_H11059": {"include": ["中证工业有色", "工业有色"], "exclude": []},
+    "csi_932456": {"include": ["中证科创创业AI", "科创创业AI"], "exclude": []},
+    "csi_930820": {"include": ["中证高端制造", "高端制造"], "exclude": []},
+    "csi_930997": {"include": ["中证新能源汽车产业", "新能源汽车产业"], "exclude": []},
+    "csi_H30535": {"include": ["中证互联网", "互联网"], "exclude": []},
+    "csi_H30199": {"include": ["中证电力公用事业", "电力公用事业"], "exclude": []},
 }
 
 # ETF track_index 缓存路径（fundf10 抓取，scripts/fetch_etf_track_index.py 生成）
@@ -815,12 +883,21 @@ def main():
         mask = ~excl_mask & names.apply(lambda n: any(k in n for k in kws))
         hit = df[mask].sort_values("成交额", ascending=False)
         etfs = []
+        # Bug4/Bug5: TRACK_INDEX_KW exclude 过滤防 kw 兜底纳入应属其他指数的 ETF
+        # (如 515220 中证煤炭应属 csi_399998, 512580 中证环保应属 csi_000827)
+        # 只影响有 exclude 的申万 board, thsc 概念 exclude=[] 不受影响
+        exc_ti = TRACK_INDEX_KW.get(iid, {}).get("exclude", [])
         for _, r in hit.iterrows():
             # 尝试从 track_idx_map 拿 track_index_name
             tin = ""
             ti_info = track_idx_map.get(str(r["代码"]))
             if ti_info:
                 tin = ti_info.get("track_index", "") or ""
+            # exclude 检查：track_index_name 或 ETF名称 命中 exclude 关键词则跳过
+            if exc_ti:
+                rname_tmp = str(r["名称"])
+                if (tin and any(k in tin for k in exc_ti)) or any(k in rname_tmp for k in exc_ti):
+                    continue
             etfs.append({
                 "code": str(r["代码"]),
                 "name": str(r["名称"]),
