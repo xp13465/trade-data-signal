@@ -1,0 +1,6 @@
+# easytrader 交易服务端部署依赖
+# 运行在装有券商客户端 (同花顺 xiadan.exe) 的 Windows 交易电脑上
+easytrader>=0.23.7
+flask>=2.3
+pywinauto>=0.6.6
+requests>=2.25
