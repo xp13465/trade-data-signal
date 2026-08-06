@@ -1339,6 +1339,8 @@ def _collect_intraday_width_metrics() -> dict:
     conn = get_conn()
 
     # 1) stock_zh_a_spot -> up_count / down_count / amount（一次调用拿 3 个，~20s）
+    #    spot_df 保留供 step3 跌停池失败时降级源兜底（筛 涨跌幅<=-9.8 算跌停数）
+    spot_df = None
     t0 = time.time()
     try:
         df = safe_call(ak.stock_zh_a_spot)
@@ -1346,6 +1348,7 @@ def _collect_intraday_width_metrics() -> dict:
             print(f"  [intraday] stock_zh_a_spot 失败/空: "
                   f"{df if isinstance(df, Exception) else 'empty'} ({time.time()-t0:.1f}s)", flush=True)
         else:
+            spot_df = df  # 保留供 step3 跌停池降级源兜底
             up = int((df["涨跌幅"] > 0).sum())
             down = int((df["涨跌幅"] < 0).sum())
             amount = float(df["成交额"].sum()) / 1.0e8  # 元 -> 亿元
@@ -1395,7 +1398,7 @@ def _collect_intraday_width_metrics() -> dict:
             # 交叉验证:涨停池也空=源失败(error);跌停池有数据=本池空=真0(ok写0)
             cross_count, cross_msg = cross_check_zt_pool("stock_zt_pool_em", today)
             if cross_count == 0:
-                upsert_metric(today, "a_width_zt_count", 0, source="intraday")
+                upsert_metric(today, "a_width_zt_count", 0, source="intraday_cross")
                 log_collect(today, "a_width_zt_count", "ok",
                             f"cross-check 真0: {cross_msg}")
             else:
@@ -1431,12 +1434,23 @@ def _collect_intraday_width_metrics() -> dict:
             # 交叉验证:跌停池也空=源失败(error);涨停池有数据=本池空=真0(ok写0)
             cross_count, cross_msg = cross_check_zt_pool("stock_zt_pool_dtgc_em", today)
             if cross_count == 0:
-                upsert_metric(today, "a_width_dt_count", 0, source="intraday")
+                upsert_metric(today, "a_width_dt_count", 0, source="intraday_cross")
                 log_collect(today, "a_width_dt_count", "ok",
                             f"cross-check 真0: {cross_msg}")
             else:
-                log_collect(today, "a_width_dt_count", "error",
-                            f"stock_zt_pool_dtgc_em 失败/空: {cross_msg}")
+                # 降级源: 跌停池+交叉验证均失败(源端故障),用 step1 的 stock_zh_a_spot
+                # 筛 涨跌幅<=-9.8 近似跌停数(主板-10%口径;创业板/科创板-20%会多算,属兜底近似)
+                if spot_df is not None and "涨跌幅" in spot_df.columns and len(spot_df) > 0:
+                    dt_fb = int((spot_df["涨跌幅"] <= -9.8).sum())
+                    upsert_metric(today, "a_width_dt_count", dt_fb, source="intraday_fallback")
+                    results["dt_count"] = dt_fb
+                    log_collect(today, "a_width_dt_count", "ok",
+                                f"fallback stock_zh_a_spot: dt={dt_fb} (pctChg<=-9.8, {cross_msg})")
+                    print(f"  [intraday] dt_pool fallback spot: dt={dt_fb} "
+                          f"(source=intraday_fallback, {time.time()-t0:.1f}s)", flush=True)
+                else:
+                    log_collect(today, "a_width_dt_count", "error",
+                                f"stock_zt_pool_dtgc_em 失败/空: {cross_msg} (fallback spot 不可用)")
         else:
             dt = int(len(df))
             upsert_metric(today, "a_width_dt_count", dt, source="intraday")
@@ -1446,8 +1460,18 @@ def _collect_intraday_width_metrics() -> dict:
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] stock_zt_pool_dtgc_em 异常（不阻断）: {type(e).__name__} {e} "
               f"({time.time()-t0:.1f}s)", flush=True)
-        log_collect(today, "a_width_dt_count", "error",
-                    f"stock_zt_pool_dtgc_em 异常: {type(e).__name__} {e}")
+        # 降级源: 异常时也尝试 spot_df 兜底
+        if spot_df is not None and "涨跌幅" in spot_df.columns and len(spot_df) > 0:
+            dt_fb = int((spot_df["涨跌幅"] <= -9.8).sum())
+            upsert_metric(today, "a_width_dt_count", dt_fb, source="intraday_fallback")
+            results["dt_count"] = dt_fb
+            log_collect(today, "a_width_dt_count", "ok",
+                        f"fallback stock_zh_a_spot (after exception): dt={dt_fb} (pctChg<=-9.8)")
+            print(f"  [intraday] dt_pool fallback spot (after exc): dt={dt_fb} "
+                  f"(source=intraday_fallback)", flush=True)
+        else:
+            log_collect(today, "a_width_dt_count", "error",
+                        f"stock_zt_pool_dtgc_em 异常: {type(e).__name__} {e} (fallback spot 不可用)")
 
     # 4) stock_zt_pool_zbgc_em -> zhaban_rate = 炸板数/(涨停数+炸板数)（ratio 0-1，与收盘口径一致）
     t0 = time.time()
