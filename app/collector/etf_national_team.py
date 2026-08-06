@@ -206,9 +206,9 @@ def _etf_market(code: str) -> str:
 
 
 def universe_etf_codes(refresh: bool = False) -> list[tuple[str, str, str]]:
-    """阶段2: 全市场 A股股票型 ETF 清单（排除跨境/固收/商品/海外）。
+    """阶段2: 全市场 A股股票型 ETF 清单（含跨境港股ETF，排除固收/商品/其他）。
     数据源: akshare.fund_etf_fund_daily_em() 返回全市场 ETF 实时列表,
-    过滤 类型=='指数型-股票' (排除 '指数型-海外股票'/'指数型-固收'/'指数型-其他')。
+    过滤 类型 in ['指数型-股票','指数型-海外股票'] (纳入跨境ETF供港股指数映射,510900 hscei/159920 hsi)。
     返回 [(code, name, mkt)] 列表,首次调用缓存后续复用。
 
     用途:
@@ -229,8 +229,8 @@ def universe_etf_codes(refresh: bool = False) -> list[tuple[str, str, str]]:
                   flush=True)
             _UNIVERSE_CACHE = [(c, n, m) for c, n, _, m in ETF_LIST]
             return _UNIVERSE_CACHE
-        # 过滤 A股股票型 ETF
-        df = df[df["类型"].astype(str).str.strip() == "指数型-股票"].copy()
+        # 过滤 A股股票型 ETF (含跨境港股ETF,510900/159920 等供港股指数映射)
+        df = df[df["类型"].astype(str).str.strip().isin(["指数型-股票", "指数型-海外股票"])].copy()
         out: list[tuple[str, str, str]] = []
         for _, row in df.iterrows():
             code = str(row["基金代码"]).strip()

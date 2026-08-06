@@ -1527,12 +1527,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           if (s >= 0.75) scoreCls = " sig-item-high";
         }
         // 信号至今对错角标：至今走势符合预测☑️ / 不符✖️（since_correct=null 今日信号/band_hold中性不显示）
+        // 2026-08-06 ☑️/✖️ 的 data-tip 移除：指数至今收益统一到 cell hoverpop 两行对比块（指数行+ETF行），
+        // hover badge 时冒泡到 cell data-tip 显完整 hoverpop，避免指数收益分散在 badge 单独 popup。
         let correctBadge = "";
         if (it.since_correct === true || it.since_correct === false) {
           const _mark = it.since_correct ? "☑️" : "✖️";
-          const _retS = it.since_return != null ? (it.since_return > 0 ? "+" : "") + it.since_return.toFixed(2) + "%" : "";
-          const _dir = it.since_correct ? "符合预测" : "不符预测";
-          correctBadge = `<sup class="sig-correct" data-tip="至今${_retS}·${_dir}">${_mark}</sup>`;
+          correctBadge = `<sup class="sig-correct">${_mark}</sup>`;
         }
         // DOM 顺序(2026-07-28 调整): [信号标签b][⚠][评级高/中/低][☑️/✖️][指数名]
         // 原顺序 [信号标签b][指数名][⚠][评级][对错] 在窄屏下指数名过长把评级+对错挤到右侧被 ellipsis 截掉看不见。
@@ -1545,19 +1545,17 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         const _typeLabel = _meta ? _t(_meta.labelKey) : it.signal;
         const _titleParts = [_typeLabel, signalLabel(it), indexIdToName(it.index_id)];
         if (it.reason) _titleParts.push(it.reason);
-        // 2026-08-05 至今盈亏优先显 ETF etf_since_return（可交易标的，更有实战意义），无则退回指数 since_return。
-        var _topEtf = (it.etfs && it.etfs.length) ? it.etfs[0] : null;
-        var _titleRet = (_topEtf && _topEtf.etf_since_return != null) ? _topEtf.etf_since_return : it.since_return;
-        if (it.since_correct === true || it.since_correct === false) {
-          const _retS2 = _titleRet != null ? (_titleRet > 0 ? "+" : "") + _titleRet.toFixed(2) + "%" : "";
-          _titleParts.push(`至今${_retS2}·${it.since_correct ? "符合预测" : "不符预测"}`);
-        }
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
+        // 2026-08-06 至今收益（指数 since_return + ETF etf_since_return）从 title 文本流移到 hoverpop 专属两行对比块：
+        // cell 加 data-idx-ret/data-idx-correct 传指数 since_return/since_correct，hoverpop show() 渲染"指数至今"行，
+        // 紧接 etfHtml"ETF 至今"行，两行对比方便查看指数信号 vs 相关 ETF 至今走势（原 title 里 ETF-preferred return 与 etfHtml 重复）。
+        var _idxRetAttr = (it.since_return != null && isFinite(it.since_return)) ? ` data-idx-ret="${it.since_return}"` : "";
+        var _idxCorrectAttr = (it.since_correct === true || it.since_correct === false) ? ` data-idx-correct="${it.since_correct}"` : "";
         // 2026-08-06 ETF tag 从 cell 移除（cell 只留 [信号标签][⚠][评级][☑️/✖️][指数名]）。
         // 主ETF 名称(代码) 改放 hoverpop（_initTermPop.show 内 _sigEtfCache 取 top1），弹窗标题复用 _appendEtfLinkTag。
         // 概念标的（无ETF）hoverpop 不显 ETF 段；ETF 筛选按钮计数仍区分有/无，不依赖 cell 标记。
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -2020,6 +2018,20 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     // 2026-08-06 主ETF 名称(代码)：从 _sigEtfCache 取 top1（_renderSignalGrid 填充 signals_today 的 index_id）。
     // 2026-08-05 优先用 index_id|date 精确匹配当前 cell 的信号日（多信号日不错配），无 date 回退 index_id（最新信号）。
     // 只技术参考点列表的 index_id 有 cache；汪汪队 chip 等非 signals_today 的 hover cache 空，跳过不显。
+    // 2026-08-06 指数至今收益行：cell 的 data-idx-ret/data-idx-correct 传入（_renderSignalGrid 填充），
+    // 与下方 etfHtml"ETF 至今"组成两行对比，红涨绿跌，带符合/不符预测方向（since_correct 有值才显）。
+    var idxRetHtml = "";
+    var _idxRetRaw = el.getAttribute("data-idx-ret");
+    if (_idxRetRaw != null && _idxRetRaw !== "") {
+      var _idxRet = parseFloat(_idxRetRaw);
+      if (isFinite(_idxRet)) {
+        var _idxRetStr = (_idxRet > 0 ? "+" : "") + _idxRet.toFixed(2) + "%";
+        var _idxCorrectRaw = el.getAttribute("data-idx-correct");
+        var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
+        var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";
+        idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:' + _idxColor + '">指数至今 ' + _idxRetStr + _idxDirS + '</span>';
+      }
+    }
     var etfHtml = "";
     var _popDate = el.getAttribute("data-date");
     var _popEtfKey = (idx && _popDate && _sigEtfCache[idx + "|" + _popDate]) ? (idx + "|" + _popDate) : idx;
@@ -2045,12 +2057,12 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         if (idxName && (p === idxName || p === idx)) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
-      if (locateHtml || etfHtml) html += locateHtml + etfHtml;
+      if (locateHtml || idxRetHtml || etfHtml) html += locateHtml + idxRetHtml + etfHtml;
       pop.innerHTML = html;
     } else {
       // 汪汪队 chip（无 sigType 仅 data-idx）：text 纯文本 escape 后追加 locate span（有 data-idx 时）
-      if (locateHtml || etfHtml) {
-        pop.innerHTML = _esc(text) + locateHtml + etfHtml;
+      if (locateHtml || idxRetHtml || etfHtml) {
+        pop.innerHTML = _esc(text) + locateHtml + idxRetHtml + etfHtml;
       } else {
         pop.textContent = text;
       }
