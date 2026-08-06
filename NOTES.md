@@ -8198,3 +8198,41 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - intraday_snapshot.json本地=线上同版(20260806 20:35)，deploy.sh带入无害（§8教训规避）
 - deploy.sh push main(代码commit+static-site/data/) + CF deploy + upload_r2
 - 线上验证：3域名 curl R2 index/csi_399986等HTTP200+etfs含similarity+grade
+
+## §48 小节AX：2026-08-07 凌晨 路B-E组6 sh000685 + D组宽泛关键词错配修复 上线
+
+### 一、E组6 sh000685 上证科创板芯片指数（路B第63个指数）
+- 调研 agent a37e46136f9d1aabb/aadac844defce4d1d4：3次重派（前2次卡死 stock_zh_index_spot_sina 拉全量+WebFetch jsonl 17分钟没动），第3次用 sina hq.sinajs.cn 单代码curl拿name，查到 sh000685='上证科创板芯片指数'（1/6），5个查不到代码（科创板AI/芯片设计/创业板新能源/创业板AI/国证自由现金流 track_index_name查到但代码NOT FOUND，留空）
+- 实施 commit 459df7293：indicators.yaml L255 sse_000685(stock_zh_index_daily 新浪源 sh000685) + build_board_etf_map.py TRACK_INDEX_KW sse_000685 include=['科创板芯片指数'] + thsc_301085/308700 exclude追加'科创板芯片'（追加非覆盖）
+- 采集1598行 20200102-20260806 + export sse_000685-all.json etfs=11 top1 588890 sim=0.9951 excellent
+- reviewer abf196cd2 PASS：无新增交叉泄漏+integrity 23 ok+P0 smoke+代码质量(include/exclude精准)
+
+### 二、D组宽泛关键词错配修复（reviewer发现D组include太宽泛致4ETF跨族错配）
+- reviewer abf196cd2(E组6复核)发现：588790/159363(科创/创业板AI错配csi_930713 sim=0.61/0.72)+159387(创业板新能源错配sw_801730 sim=0.40)+159201(国证自由现金流错配csi_932365 sim=0.96) sim<0.99 warn，这些ETF正确指数代码查不到应留空但被D组宽泛include错配
+- D组修 agent aa96a1bd9 4处Edit commit e75d7897f：
+  1. csi_930713 include删'人工智能'只留'中证人工智能' + exclude加'产业'(排除中证人工智能产业指数sim=0.15跨族)
+  2. csi_932365 include删'自由现金流'只留'中证自由现金流'(159201不再错配)
+  3. sw_801730 TRACK_INDEX_KW include删'电池/光伏/风电/储能/新能源'只留'电力设备' + exclude追加'创业板/国证/科创板'(159387不再错配)
+  4. sw_801730 KW L52同步删跨族词只留'电力设备'(避免KW兜底纳入跨族ETF)
+- reviewer a90386f88 PASS：4处Edit正确+匹配函数L484逻辑正确(include任一命中+exclude全不命中)+4ETF错配消除+本行业ETF保留(csi_930713 561460/159819 excellent)+无新增交叉泄漏(csi_931719/csi_931151未受影响)+integrity 23 ok+P0 smoke+数据流确认(纠正agent误判'不需export': export.py L112调queries.index_detail注入etfs, deploy.sh跑export重新生成index/*-all.json+upload_r2)
+
+### 三、上线 deploy.sh 06:40
+- deploy.sh push main：build_board_etf_map.py重新生成board_etf_map.json + export.py重新生成index/*-all.json(含etfs字段) + upload_r2上传R2 + rsync trade-data->trade + git add精确文件列表 + rebase(--theirs数据冲突循环1次)+push成功
+- R2数据层验证（§0 验数据层非代码在main，memory verify-feature-live-not-code-in-main）：
+  - sse_000685-all.json: etfs=11 top1=588890 ohlc=1598（R2 404修复✓）
+  - csi_930713-all.json: etfs=5 [561460,159819,159248,515070,512930] 本行业，588790/159363消除✓（7候选->5etfs是export过滤amount=0 LOF，同csi_399986设计非bug）
+  - csi_932365-all.json: etfs=0 159201消除✓（留空，前端显"无ETF"灰标）
+  - sw_801730-all.json: etfs=0 159387消除✓（留空）
+- 主站 ss.fx8.store overview.json: date=20260806 scores=11 signals_today=280 P0 smoke正常（主功能未受影响）
+
+### 四、路B完整收尾总结
+- 路B 62国证/中证行业主题指数（小节AW已上线）+ E组6 sh000685（小节AX上线）= 63指数上线
+- D组宽泛关键词错配修复（4 ETF跨族错配消除）
+- 数据流端到端：build_board_etf_map.py TRACK_INDEX_KW -> board_etf_map.json -> queries.etf_for() L224 -> export.py index/*-all.json etfs -> 前端_bindEtfPopup
+- 语义差异（明早向用户说明）：160225 vs gz_399417=2.19% grade=good真实跟踪误差(5%现金拖累+0.7%年费)非bug，同花顺"跟踪度100%"用R²相关性非涨跌幅误差，语义不同
+
+### 五、遗留（非阻断）
+- 5个E组6查不到代码的指数（科创板AI/芯片设计/创业板新能源/创业板AI/国证自由现金流）：track_index_name查到但代码NOT FOUND，588790/159363/159387/159201 被D组修回到留空（不再错配），588780(科创芯片设计ETF)真留空。建议另派agent用akshare fund_etf_fund_info_em或东财API反查代码（禁WebFetch禁拉全量）
+- 4小众证券ETF无归属（小节AW四节，精准化代价）
+- sh000001-all.json R2 404既有问题（小节AW四节，另派agent排查）
+- queries.py etf_for docstring更新（非阻断）
