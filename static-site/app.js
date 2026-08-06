@@ -1331,6 +1331,7 @@ function indexIdToCode(indexId, symbol) {
   if (!symbol) return '';
   if (/^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000|sw_)/.test(key)) return '';
   if (/^(csi_|gz_)/.test(key)) return symbol.replace(/^(sh|sz|bj)/, '');
+  if (/[一-龥]/.test(symbol)) return '';  // global 中文搜索词非代码（dax/ftse100/kospi/nikkei225/cac40，新浪 fetcher 需中文搜索词但非展示代码）
   return symbol;
 }
 
@@ -1611,10 +1612,14 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // 紧接 etfHtml"ETF 至今"行，两行对比方便查看指数信号 vs 相关 ETF 至今走势（原 title 里 ETF-preferred return 与 etfHtml 重复）。
         var _idxRetAttr = (it.since_return != null && isFinite(it.since_return)) ? ` data-idx-ret="${it.since_return}"` : "";
         var _idxCorrectAttr = (it.since_correct === true || it.since_correct === false) ? ` data-idx-correct="${it.since_correct}"` : "";
+        // 2026-08-06 hoverpop 指数至今行加指数名+代码前缀（复用 L1603-1604 _idxName/_sigIdxCode）；
+        // name 含中文/空格/括号（如"德国DAX"/"汽车芯片"）用 _escAttr 转义防属性截断，code 同理。
+        var _idxNameAttr = _idxName ? ` data-idx-name="${_escAttr(_idxName)}"` : "";
+        var _idxCodeAttr = _sigIdxCode ? ` data-idx-code="${_escAttr(_sigIdxCode)}"` : "";
         // 2026-08-06 ETF tag 从 cell 移除（cell 只留 [信号标签][⚠][评级][☑️/✖️][指数名]）。
         // 主ETF 名称(代码) 改放 hoverpop（_initTermPop.show 内 _sigEtfCache 取 top1），弹窗标题复用 _appendEtfLinkTag。
         // 概念标的（无ETF）hoverpop 不显 ETF 段；ETF 筛选按钮计数仍区分有/无，不依赖 cell 标记。
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_idxName}${_sigIdxCode ? ` <span class="idx-code-tag">${_sigIdxCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_idxName}${_sigIdxCode ? ` <span class="idx-code-tag">${_sigIdxCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -2088,7 +2093,15 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         var _idxCorrectRaw = el.getAttribute("data-idx-correct");
         var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
         var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";
-        idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:' + _idxColor + '">指数至今 ' + _idxRetStr + _idxDirS + '</span>';
+        // 2026-08-06 指数至今行加指数名+代码前缀（cell data-idx-name/data-idx-code 传入，复用方案A indexIdToName/indexIdToCode）：
+        // 有 name+code -> "汽车芯片 (885945)指数至今 +13.56% · 符合预测"
+        // 有 name 无 code（宽基/行业/global 中文 symbol -> indexIdToCode 返回空）-> "德国DAX指数至今 +X%"
+        // 无 name（汪汪队 chip 等无 data-idx-name 调用点）-> 保持原"指数至今 +X%"
+        // getAttribute 返回浏览器反转义后的原文，注入 innerHTML 前用 _esc 重转义防 XSS/属性截断。
+        var _idxNameRaw = el.getAttribute("data-idx-name");
+        var _idxCodeRaw = el.getAttribute("data-idx-code");
+        var _idxPrefix = _idxNameRaw ? (_esc(_idxNameRaw) + (_idxCodeRaw ? " (" + _esc(_idxCodeRaw) + ")" : "")) : "";
+        idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:' + _idxColor + '">' + _idxPrefix + '指数至今 ' + _idxRetStr + _idxDirS + '</span>';
       }
     }
     var etfHtml = "";
