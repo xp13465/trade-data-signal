@@ -458,7 +458,8 @@ def overview(conn, cfg):
 
         # ETF 至今盈亏（2026-08-05）：基于 ETF 价格算信号日至今涨跌幅，注入 etfs[] 每个候选。
         # 和指数 since_return（L449）口径一致：信号日收盘 vs 最新 ETF 收盘。今日信号无"至今"语义=None。
-        # 跨库查 etf_national_team.db（etf_daily 表，不复权），1万本金算绝对盈亏（POSITION_SIZE=10000）。
+        # 跨库查 etf_national_team.db（etf_daily 表，不复权）：
+        # etf_since_return=涨跌幅%(2位小数)，etf_price_diff=今日close-信号日close(3位小数，元/份)。
         # ETF 信号日无数据（停牌/未上市）-> None，前端跳过不显。
         _etf_codes = set()
         for _s in sigs:
@@ -479,12 +480,11 @@ def overview(conn, cfg):
                 _ec.close()
             except Exception:  # noqa: BLE001
                 pass
-        _ETF_POSITION_SIZE = 10_000  # 对齐 simulate_trade POSITION_SIZE（L34）
         for _s in sigs:
             _sig_date = _s.get("date")
             for _e in (_s.get("etfs") or []):
                 _e["etf_since_return"] = None
-                _e["etf_pnl_abs"] = None
+                _e["etf_price_diff"] = None
                 _code = _e.get("code")
                 # 今日信号(date==score_date)无"至今"语义，对齐 L446-447 指数口径
                 if not _code or _sig_date == score_date:
@@ -501,7 +501,7 @@ def overview(conn, cfg):
                     continue
                 _ret = round((_today_close - _sig_close) / _sig_close * 100, 2)
                 _e["etf_since_return"] = _ret
-                _e["etf_pnl_abs"] = round(_ETF_POSITION_SIZE * _ret / 100, 2)
+                _e["etf_price_diff"] = round(_today_close - _sig_close, 3)
 
     freeze_start = (datetime.strptime(score_date, "%Y%m%d") - timedelta(days=120)).strftime("%Y%m%d")
     freeze_dates = [r[0] for r in conn.execute(
