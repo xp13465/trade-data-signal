@@ -116,12 +116,13 @@
 - **盘中 push 前端代码 main 也避开 intraday-snapshot 每10分钟时点**(:25/:35/:45/:55/:05/:15,09:25-15:02 共27次推 intraday_snapshot.json 到 main)。agent 改 app.js/style.css 后 push feat:main 虽改不同文件 rebase 能合并,但 git push 竞争 non-ff 重试有风险,尽量错开。**盘中 push main 选 :00/:10/:20/:30/:40/:50 之外的安全分钟,或等盘后 23:00+ 窗口**
 - 2026-08-04 教训:方案C盘后实施 cron 我直接定 15:35 没查 launchd,用户主动提醒才查,发现撞 5 个定时任务。改 23:03 启动避开。详见 memory `production-stability-p0`
 
-## 15. 主功能回归复查(2026-08-06 计入)
+## 15. 主功能回归复查(2026-08-06 计入,2026-08-06 强化)
 - **核心一句话:新功能绝对不可以影响老功能**。站点功能日益庞大,改动影响面是网状的(一个数据文件被多模块读),单靠"改的人自己测 + 主控验关键点"覆盖不到跨模块回归
+- **⚠️ 每次代码改动都要独立 review + 回归测试(2026-08-06 用户强化标准)**:不只大改动,**任何**改 app.js/lab.js/style.css/后端逻辑/数据产物脚本的改动,push 上线前必须:①派独立 task-reviewer 子 agent(grep 改动文件被谁引用+跑 P0 smoke)②reviewer 通过才 push main。流程:实施 agent 改完 -> reviewer agent review -> 通过 -> 主控 push main。"改的人自己测"不算 review,必须额外一双眼睛。今天(8/6)收盘hover/Task1/预估校准上线时没派 reviewer(执行不到位,已补派回归 review),此后严格执行
 - **大阶段回归必行**:当天开发功能多后/大阶段结束/上线前,必须做主功能快速全量回归,不等用户发现再修(那都晚了)
 - **回归机制三层**:
-  ① **数据产物完整性校验**:被多模块读的关键 JSON(`board_etf_map.json`空key占比<30% / `overview.json` a_amount非空 / `intraday_snapshot.json` collected_at今日 等)生成脚本跑完自动校验,超标 fail 不让 deploy。扩展 `collect_health` 到数据产物
-  ② **task-reviewer 子 agent**:大改动 push 前派独立 reviewer agent,不看新功能,专看"改动可能影响哪些老功能"(grep 改动文件被谁引用 + 跑关键老功能点),不占主控上下文(§12 superpowers 借鉴)
+  ① **数据产物完整性校验**:被多模块读的关键 JSON(`board_etf_map.json`空key占比<30% / `overview.json` a_amount非空 / `intraday_snapshot.json` collected_at今日 等)生成脚本跑完自动校验,超标 fail 不让 deploy(check_data_integrity.py deploy.sh 前置,已接入)。扩展 `collect_health` 到数据产物
+  ② **task-reviewer 子 agent**:每次代码改动 push 前派独立 reviewer agent,不看新功能,专看"改动可能影响哪些老功能"(grep 改动文件被谁引用 + 跑关键老功能点),不占主控上下文(§12 superpowers 借鉴)
   ③ **关键功能 smoke 清单**:维护 P0/P1 主功能点清单(首页KPI角标/指数表现ETF/分时图hover/情绪分/信号/策略实验室入口等),每次上线前 reviewer agent 跑一遍 curl 数据层 + 关键交互文字描述验证,失败项立即修
 - **2026-08-06 教训**:`board_etf_map.json` 因 `etf_index_map.json` 缺失常 27/72 空数组,致指数表现模块 ETF 展示全失效("全部无ETF"),用户发现时已上线。根因是某改动让数据产物损坏但无校验拦截。此 bug 触发本规范建立
 - **smoke 清单落档**:主功能清单+数据校验规则放 `docs/smoke-checklist.md` 进 git(非 memory),reviewer agent 读取执行
