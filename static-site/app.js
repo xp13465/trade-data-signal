@@ -1385,8 +1385,7 @@ function _sigWindowSuffix() {
 function _sigTodayHint() {
   return state.sigWindowFilter === "y_15" ? "今日已排除" : "今日高亮";
 }
-// 2026-08-05 信号 cell ETF tag 数据缓存：index_id -> etfs。
-// _renderSignalGrid 渲染时从 items 填充，_bindSigEtfTags 绑定 popup 时按 data-etf-idx 取。
+// 2026-08-05 信号 ETF 数据缓存：index_id -> etfs（_renderSignalGrid 填充，hoverpop 取 top1 显名称代码）。
 let _sigEtfCache = {};
 
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
@@ -1535,15 +1534,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         }
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
-        // 2026-08-06 ETF tag：cell 只显极简"ETF"小标（不显代码+N+近似），详情（top1代码+全部候选）放 hover pop/click 弹窗。
-        // data-etf-idx 供 _bindSigEtfTag 绑定 popup（hover 显 top1 主ETF / click 弹全候选）。
-        // 概念标的（无ETF）不显 tag（列表更简洁；ETF 筛选按钮计数仍可区分有/无，不依赖 cell 标记）。
-        let _etfTagHtml = "";
-        if (it.etfs && it.etfs.length > 0) {
-          const _buyCls = { buy:1, buy_aux:1, buy_special:1, buy_special_filtered:1, buy_backup:1 }[it.signal] ? " etf-tag-buy-signal" : "";
-          _etfTagHtml = `<span class="etf-tag${_buyCls}" data-no-pop="" data-etf-idx="${it.index_id}">ETF</span>`;
-        }
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} ${_etfTagHtml}<span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
+        // 2026-08-06 ETF tag 从 cell 移除（cell 只留 [信号标签][⚠][评级][☑️/✖️][指数名]）。
+        // 主ETF 名称(代码) 改放 hoverpop（_initTermPop.show 内 _sigEtfCache 取 top1），弹窗标题复用 _appendEtfLinkTag。
+        // 概念标的（无ETF）hoverpop 不显 ETF 段；ETF 筛选按钮计数仍区分有/无，不依赖 cell 标记。
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -1699,7 +1693,6 @@ function _rerenderSigCardContent(r, snap) {
     if (badge) sigCard.appendChild(badge);
     if (hint) sigCard.appendChild(hint);
   }
-  _bindSigEtfTags(sigCard);  // 2026-08-05 增量重绘后重新绑定信号 cell ETF tag 交互
 }
 
 // ts:overview-refreshed hook: collected_at 变化时增量重绘 sigCard(非概览 tab / 无数据 / 同 collected_at 跳过)
@@ -2004,6 +1997,15 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         locateHtml = '<span class="term-pop-locate" data-locate-idx="' + _esc(idx) + '">' + _esc(locTxt) + '</span>';
       }
     }
+    // 2026-08-06 主ETF 名称(代码)：从 _sigEtfCache[idx] 取 top1（_renderSignalGrid 填充 signals_today 的 index_id）。
+    // 只技术参考点列表的 index_id 有 cache；汪汪队 chip 等非 signals_today 的 hover cache 空，跳过不显。
+    var etfHtml = "";
+    if (idx && _sigEtfCache[idx] && _sigEtfCache[idx].length) {
+      var _top = _sigEtfCache[idx][0];
+      if (_top && _top.name && _top.code) {
+        etfHtml = '<span class="term-pop-etf">🔗 ' + _esc(_top.name) + '(' + _esc(_top.code) + ')</span>';
+      }
+    }
     if (sigType) {
       pop.classList.add("term-pop--sig", "term-pop--sig-" + sigType);
       if (isNdx) pop.classList.add("term-pop--ndx");
@@ -2017,12 +2019,12 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         if (idxName && (p === idxName || p === idx)) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
-      if (locateHtml) html += locateHtml;
+      if (locateHtml || etfHtml) html += locateHtml + etfHtml;
       pop.innerHTML = html;
     } else {
       // 汪汪队 chip（无 sigType 仅 data-idx）：text 纯文本 escape 后追加 locate span（有 data-idx 时）
-      if (locateHtml) {
-        pop.innerHTML = _esc(text) + locateHtml;
+      if (locateHtml || etfHtml) {
+        pop.innerHTML = _esc(text) + locateHtml + etfHtml;
       } else {
         pop.textContent = text;
       }
@@ -4100,6 +4102,10 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
         chartData = chartData.filter(d => d.date >= filterDate);
         sigs = sigs.filter(d => d.date >= filterDate);
       }
+      // 2026-08-06 弹窗标题后追加相关 ETF tag（复用指数表现 _appendEtfLinkTag 样式+交互）。
+      // period 切换重载时 titleEl.textContent 已清空 h3 子节点（含旧 etf-tag），_appendEtfLinkTag 防重复 return 不触发，重新注入 OK。
+      // r.etfs 空（海外/国债无跟踪ETF）显示"无ETF"灰占位（同指数表现）；g./s. 分支无 etfs 字段不进入此分支。
+      _appendEtfLinkTag(titleEl.parentElement, indexId, r.etfs || [], sigs);
     }
     if (!chartData || !chartData.length) {
       body.innerHTML = `<div class="empty-note">暂无「${name}」走势数据</div>`;
@@ -8979,7 +8985,6 @@ async function renderOverview() {
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
-  _bindSigEtfTags(sigCard);  // 2026-08-05 绑定信号 cell ETF tag 交互
   addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 覆盖
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
@@ -14778,104 +14783,6 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
       document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
     }, { passive: true, capture: true });
   }
-}
-
-// 2026-08-05 信号 cell ETF tag 交互（hover 显 top1 mini / click 弹全部候选 full）。
-// 与指数表现 _bindEtfPopup（popup 挂 tag 内 absolute）不同：信号 .sig-item 有 overflow:hidden+ellipsis，
-// 会裁剪挂在其内的 absolute popup，故 popup 挂 document.body + position:fixed 绕开裁剪。
-// 单例 _sigEtfPop：同时只显一个 popup（hover mini 或 click full），切 tag 自动关前一个。
-let _sigEtfPop = null;  // 当前显示的 popup 元素（mini 或 full）
-function _closeSigEtfPop() {
-  if (_sigEtfPop) { _sigEtfPop.remove(); _sigEtfPop = null; }
-}
-function _positionSigEtfPop(tag, pop) {
-  const r = tag.getBoundingClientRect();
-  pop.style.left = r.left + "px";
-  pop.style.top = (r.bottom + 3) + "px";
-  pop.style.display = "block";
-}
-function _bindSigEtfTag(tag, etfs) {
-  if (!etfs || !etfs.length) return;
-  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
-  const top = etfs[0];
-  function buildMini() {
-    const p = document.createElement("div");
-    p.className = "etf-popup etf-popup-mini sig-etf-pop";
-    const _approxMark = top.approx ? '<span class="etf-approx-mark">⚠近似</span>' : "";
-    p.innerHTML = `<div class="etf-pop-title">主ETF（成交额最大）· 点击查全部${etfs.length > 1 ? ' ' + etfs.length + ' 只' : ''}</div><div class="etf-pop-row"><span class="etf-pop-code">${top.code}</span><span class="etf-pop-name">${top.name}</span><span class="etf-pop-amt">${top.amount}亿</span>${_approxMark}</div>`;
-    return p;
-  }
-  function buildFull() {
-    const p = document.createElement("div");
-    p.className = "etf-popup etf-popup-full sig-etf-pop";
-    p.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` +
-      etfs.map((e) => {
-        const _ap = e.approx ? '<span class="etf-approx-mark">⚠近似</span>' : "";
-        return `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span>${_ap}</div>`;
-      }).join("");
-    return p;
-  }
-  tag.addEventListener("click", (e) => {
-    if (e.target.closest(".etf-pop-row")) return;  // 点候选行复制，不 toggle
-    e.stopPropagation();  // 阻止冒泡到 sigCard -> openSignalChartModal
-    // toggle full：若当前显的是该 tag 的 full 则关闭，否则关前一个并显该 tag full
-    if (_sigEtfPop && _sigEtfPop.classList.contains("etf-popup-full") && _sigEtfPop._owner === tag) {
-      _closeSigEtfPop();
-      return;
-    }
-    _closeSigEtfPop();
-    const pop = buildFull();
-    pop._owner = tag;
-    document.body.appendChild(pop);
-    _positionSigEtfPop(tag, pop);
-    _sigEtfPop = pop;
-    pop.querySelectorAll(".etf-pop-row").forEach((row) => {
-      row.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        _copyEtfCode(row, row.dataset.code);
-        if (isTouch) _closeSigEtfPop();
-      });
-    });
-  });
-  if (!isTouch) {
-    tag.addEventListener("mouseenter", () => {
-      // full 打开时不显 mini（避免重叠）；切 tag 时关前一个显该 tag mini
-      if (_sigEtfPop && _sigEtfPop.classList.contains("etf-popup-full")) return;
-      _closeSigEtfPop();
-      const pop = buildMini();
-      pop._owner = tag;
-      document.body.appendChild(pop);
-      _positionSigEtfPop(tag, pop);
-      _sigEtfPop = pop;
-    });
-    tag.addEventListener("mouseleave", () => {
-      // 仅关自己触发的 mini（full 不随 mouseleave 关，需 click/点别处关）
-      if (_sigEtfPop && _sigEtfPop.classList.contains("etf-popup-mini") && _sigEtfPop._owner === tag) {
-        _closeSigEtfPop();
-      }
-    });
-  }
-}
-// 遍历 container 内信号 cell 的 ETF tag 绑定交互（_renderSignalGrid 后调用）。
-// 单次 document 绑定：点别处/滚动关 popup（full 需主动关，mini 随 mouseleave 关）。
-function _bindSigEtfTags(container) {
-  if (!container) return;
-  if (!document._sigEtfDocBound) {
-    document._sigEtfDocBound = true;
-    document.addEventListener("click", (e) => {
-      if (!_sigEtfPop) return;
-      if (e.target.closest && (e.target.closest(".etf-tag") || e.target.closest(".sig-etf-pop"))) return;
-      _closeSigEtfPop();
-    }, true);
-    window.addEventListener("scroll", () => { _closeSigEtfPop(); }, { passive: true, capture: true });
-  }
-  const tags = container.querySelectorAll(".sig-item .etf-tag[data-etf-idx]");
-  tags.forEach((tag) => {
-    if (tag._sigEtfBound) return;  // 避免重复绑定
-    tag._sigEtfBound = true;
-    const etfs = _sigEtfCache[tag.dataset.etfIdx];
-    if (etfs) _bindSigEtfTag(tag, etfs);
-  });
 }
 
 // B2 折中：行业 tooltip detail 按需加载（静态版瘦身主文件，detail 存 tooltip 专属字段）
