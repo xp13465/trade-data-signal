@@ -162,6 +162,10 @@ TRACK_INDEX_KW: dict[str, dict] = {
     "thsc_308870": {"include": ["数字经济"], "exclude": []},
     "thsc_308752": {"include": ["元宇宙", "虚拟现实", "动漫游戏", "游戏"], "exclude": []},
     "thsc_309128": {"include": ["军工", "国防"], "exclude": []},
+    # ---- 国证指数（2c 新增）----
+    # gz_399417 国证新能源汽车指数：160225 国泰国证新能源汽车LOF 跟踪"国证新能源汽车指数"
+    # 用"国证新能源汽车"精准命中（排除"中证新能源汽车"的515030等ETF），160225 vs gz_399417 max_err<1%=excellent
+    "gz_399417": {"include": ["国证新能源汽车"], "exclude": []},
 }
 
 # ETF track_index 缓存路径（fundf10 抓取，scripts/fetch_etf_track_index.py 生成）
@@ -443,6 +447,253 @@ def _match_by_track_index(
     return etfs
 
 
+# ───────────────────────────────────────────────────────────────────
+# 路 A-2b：实测相似度计算（涨跌幅 max_err 分级）
+# 校验标准：max_err<1%=excellent(精准) / 1-5%=good(近似) / >5%=warn
+# 数据源：index_daily(指数close) + etf_daily(ETF close) + fund_open_fund_info_em(LOF累计净值)
+# 算法：5周期涨幅(ret_5d/20d/60d/ytd/1y) 日期对齐取交集，max_err=最大|候选涨幅-指数涨幅|
+# ───────────────────────────────────────────────────────────────────
+PERIODS = ["ret_5d", "ret_20d", "ret_60d", "ret_ytd", "ret_1y"]
+# 涨幅回看交易日数（ret_ytd 单独按年份算）
+PERIOD_NBACK = {"ret_5d": 5, "ret_20d": 20, "ret_60d": 60, "ret_1y": 252}
+
+
+def _get_sent_db_path() -> Path:
+    """sentiment.db 路径：优先 trade-data/data/sentiment.db（主库，launchd 写），
+    回退 trade/data/sentiment.db（镜像）。与 _get_etf_db_path 策略一致。"""
+    base = Path(__file__).resolve().parent.parent  # trade/
+    main = base.parent / "trade-data" / "data" / "sentiment.db"
+    if main.exists():
+        return main
+    return base / "data" / "sentiment.db"
+
+
+def _load_index_close_series() -> dict[str, list[tuple]]:
+    """批量读 index_daily，返回 {index_id: [(date, close), ...]} 按日期升序。
+    用于相似度计算（指数 close 序列）。读不到返回空 dict。"""
+    db = _get_sent_db_path()
+    if not db.exists():
+        print(f"⚠ sentiment.db 不存在: {db}，相似度计算将跳过")
+        return {}
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT index_id, date, close FROM index_daily ORDER BY index_id, date")
+    series: dict[str, list[tuple]] = {}
+    for r in cur:
+        if r["close"] is None:
+            continue
+        series.setdefault(r["index_id"], []).append((r["date"], r["close"]))
+    conn.close()
+    return series
+
+
+def _load_etf_close_series() -> dict[str, list[tuple]]:
+    """批量读 etf_daily，返回 {etf_code: [(date, close), ...]} 按日期升序。
+    用于相似度计算（ETF close 序列）。读不到返回空 dict。"""
+    db = _get_etf_db_path()
+    if not db.exists():
+        print(f"⚠ etf_national_team.db 不存在: {db}，相似度计算将跳过")
+        return {}
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT etf_code, date, close FROM etf_daily ORDER BY etf_code, date")
+    series: dict[str, list[tuple]] = {}
+    for r in cur:
+        if r["close"] is None:
+            continue
+        series.setdefault(r["etf_code"], []).append((r["date"], r["close"]))
+    conn.close()
+    return series
+
+
+# LOF 累计净值序列缓存（同一次运行内避免重复取 akshare）
+_LOF_NAV_CACHE: dict[str, list[tuple]] = {}
+
+
+def _fetch_lof_nav_series(lof_code: str) -> list[tuple]:
+    """从 akshare fund_open_fund_info_em 取 LOF 累计净值序列（稳定，0.7s/只）。
+    返回 [(date_yyyymmdd, nav), ...] 按日期升序。fund_lof_spot_em/stock_zh_a_hist 不稳定已弃用。
+    缓存避免重复取；失败重试1次，仍失败返空列表（该 LOF similarity=None）。
+    """
+    if lof_code in _LOF_NAV_CACHE:
+        return _LOF_NAV_CACHE[lof_code]
+    series: list[tuple] = []
+    for attempt in range(2):  # 重试1次
+        try:
+            df = ak.fund_open_fund_info_em(symbol=lof_code, indicator="累计净值走势")
+            for _, row in df.iterrows():
+                dt = str(row["净值日期"]).replace("-", "")  # YYYY-MM-DD -> YYYYMMDD
+                nav = float(row["累计净值"])
+                series.append((dt, nav))
+            series.sort(key=lambda x: x[0])
+            break
+        except Exception as e:
+            if attempt == 0:
+                continue  # 重试
+            print(f"  [LOF净值] ⚠ {lof_code} 取失败: {e}")
+    _LOF_NAV_CACHE[lof_code] = series
+    return series
+
+
+def _calc_returns(series: list[tuple]) -> dict:
+    """算5周期涨幅%。series: [(date, close), ...] 按日期升序（已日期对齐）。
+    返回 {ret_5d: x, ret_20d: y, ret_60d: z, ret_ytd: w, ret_1y: v}，数据不足的周期为 None。
+    复用 /tmp/etf_full_audit.py 算法：用交易日倒数第N个到最新涨跌幅。
+    """
+    if not series or len(series) < 2:
+        return {}
+    latest_date, latest_close = series[-1]
+    if latest_close is None or latest_close <= 0:
+        return {}
+    results = {}
+    for period, n_back in PERIOD_NBACK.items():
+        if len(series) > n_back:
+            start_close = series[-(n_back + 1)][1]
+            if start_close and start_close > 0:
+                results[period] = (latest_close - start_close) / start_close * 100
+            else:
+                results[period] = None
+        else:
+            # 不够 N 天，取最早可得
+            start_close = series[0][1]
+            if start_close and start_close > 0 and len(series) > 1:
+                results[period] = (latest_close - start_close) / start_close * 100
+            else:
+                results[period] = None
+    # YTD：2026年第一个交易日到最新
+    ytd_start = None
+    for dt, cl in series:
+        if dt.startswith("2026"):
+            ytd_start = cl
+            break
+    if ytd_start and ytd_start > 0:
+        results["ret_ytd"] = (latest_close - ytd_start) / ytd_start * 100
+    else:
+        results["ret_ytd"] = None
+    return results
+
+
+def _calc_similarity(
+    idx_id: str,
+    cand_code: str,
+    fund_type: str,
+    idx_series_all: dict[str, list[tuple]],
+    etf_series_all: dict[str, list[tuple]],
+) -> dict | None:
+    """算候选 vs 指数的相似度。
+
+    日期对齐：取 index 和候选的共同日期交集，按日期升序，再算5周期涨幅。
+    （比审计脚本"各自倒数第N个"更准确，消除交易日历差异）
+    返回 {similarity, max_err, max_err_period, grade, direction_mismatch} 或 None（数据不足）。
+
+    分级（用户标准）：
+      max_err < 1%  -> excellent（精准跟踪）
+      max_err < 5%  -> good（近似跟踪）
+      max_err >= 5% -> warn（误差大）
+    similarity = 1 - max_err/100（近似跟踪度%）
+    """
+    idx_series = idx_series_all.get(idx_id, [])
+    if fund_type == "lof":
+        cand_series = _fetch_lof_nav_series(cand_code)
+    else:
+        cand_series = etf_series_all.get(cand_code, [])
+    if not idx_series or not cand_series:
+        return None
+    # 日期对齐：取交集（消除交易日历差异）
+    idx_map = {d: c for d, c in idx_series}
+    cand_map = {d: c for d, c in cand_series}
+    common_dates = sorted(set(idx_map.keys()) & set(cand_map.keys()))
+    if len(common_dates) < 10:  # 至少10个共同交易日，否则数据不足
+        return None
+    aligned_idx = [(d, idx_map[d]) for d in common_dates]
+    aligned_cand = [(d, cand_map[d]) for d in common_dates]
+    idx_ret = _calc_returns(aligned_idx)
+    cand_ret = _calc_returns(aligned_cand)
+    if not idx_ret or not cand_ret:
+        return None
+    max_err = 0.0
+    max_err_period = None
+    direction_mismatch = False
+    has_any = False
+    for p in PERIODS:
+        ir = idx_ret.get(p)
+        cr = cand_ret.get(p)
+        if ir is None or cr is None:
+            continue
+        has_any = True
+        err = abs(cr - ir)
+        # 方向：同涨同跌为 consistent，否则 mismatch
+        if (ir > 0 and cr > 0) or (ir < 0 and cr < 0) or (abs(ir) < 0.01 and abs(cr) < 0.01):
+            pass
+        else:
+            direction_mismatch = True
+        if err > max_err:
+            max_err = err
+            max_err_period = p
+    if not has_any:
+        return None
+    # 分级
+    if max_err < 1:
+        grade = "excellent"
+    elif max_err < 5:
+        grade = "good"
+    else:
+        grade = "warn"
+    return {
+        "similarity": round(1 - max_err / 100, 4),
+        "max_err": round(max_err, 4),
+        "max_err_period": max_err_period,
+        "grade": grade,
+        "direction_mismatch": direction_mismatch,
+    }
+
+
+def _enrich_with_similarity(
+    out: dict,
+    idx_series_all: dict[str, list[tuple]],
+    etf_series_all: dict[str, list[tuple]],
+) -> tuple[int, int, int]:
+    """对所有指数的候选列表加 similarity/max_err/grade 字段，并按 max_err 升序排序。
+    返回 (sim_ok, sim_fail, lof_fetched) 统计数。
+    """
+    sim_ok = 0
+    sim_fail = 0
+    lof_fetched = 0
+    for iid in list(out.keys()):
+        if iid == "_meta":
+            continue
+        cands = out.get(iid, [])
+        if not cands:
+            continue
+        for c in cands:
+            code = c.get("code", "")
+            ft = c.get("fund_type", "etf")  # 宽基candidates无fund_type，默认etf
+            c.setdefault("fund_type", ft)
+            if ft == "lof" and code not in _LOF_NAV_CACHE:
+                lof_fetched += 1
+            sim = _calc_similarity(iid, code, ft, idx_series_all, etf_series_all)
+            if sim:
+                c.update(sim)
+                sim_ok += 1
+            else:
+                c["similarity"] = None
+                c["max_err"] = None
+                c["max_err_period"] = None
+                c["grade"] = "n/a"
+                c["direction_mismatch"] = None
+                sim_fail += 1
+        # 按 max_err 升序排（最相似在前）；None 排最后
+        cands.sort(
+            key=lambda x: (
+                x.get("max_err") is None,
+                x.get("max_err") if x.get("max_err") is not None else float("inf"),
+            )
+        )
+    return sim_ok, sim_fail, lof_fetched
+
+
 def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: dict) -> dict[str, list[dict]]:
     """自动采集生成指数->ETF候选映射: {index_id: [{code, name, amount, approx}, ...]}。
 
@@ -483,7 +734,9 @@ def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: di
             else:
                 amount = round(c["amount"] / 1e8, 2)
                 etf_name = etf_name_src
-            etfs.append({"code": code, "name": etf_name, "amount": amount, "approx": approx})
+            etfs.append({"code": code, "name": etf_name, "amount": amount, "approx": approx,
+                         "fund_type": "etf", "track_index_name": c.get("track_index_name", ""),
+                         "match_method": "track_index"})
         result[iid] = etfs
     return result
 
@@ -507,10 +760,11 @@ def main():
             df_by_code[str(r["代码"])] = r
 
     out: dict = {"_meta": {"source": "akshare fund_etf_spot_em + fundf10 track_index",
-                           "sort_by": "成交额(亿元,降序)",
-                           "match_priority": "track_index > overlap > kw_name",
-                           "note": "匹配不到为空数组；前端按成交额排序展示，用户自选；"
-                                   "行业/概念 ETF 跟踪中证/国证指数非申万/同花顺精准跟踪，approx=true"}}
+                           "sort_by": "max_err(升序,最相似在前); LOF净值取自fund_open_fund_info_em",
+                           "match_priority": "track_index > overlap > kw_name + similarity_calc",
+                           "similarity_fields": "similarity(1-max_err/100) / max_err(5周期最大误差%) / grade(excellent<1%/good<5%/warn>=5%) / fund_type(etf|lof)",
+                           "note": "候选列表含所有track_index匹配ETF+LOF; 按相似度(max_err升序)排序; "
+                                   "行业/概念ETF跟踪中证/国证指数非申万/同花顺精准跟踪,grade=good/warn属正常"}}
     empty_boards = []
     # 加载 fundf10 抓取的 ETF track_index 缓存
     track_idx_map = _load_etf_track_index()
@@ -599,6 +853,16 @@ def main():
         if not etfs:
             empty_boards.append(f"{iid} {name_by_id.get(iid, iid)}（宽基/红利/综合/港股）")
 
+    # ── 路 A-2b：实测相似度计算 + 按相似度排序 ──
+    # 每候选 vs 指数算多周期 max_err（5周期涨跌幅最大误差%），加 similarity/max_err/grade 字段
+    # 排序改为按 max_err 升序（最相似在前），替代原 amount 降序
+    print("\n=== 路 A-2b 相似度计算（实测涨跌幅 max_err 分级）===")
+    idx_series_all = _load_index_close_series()
+    etf_series_all = _load_etf_close_series()
+    print(f"  index_daily: {len(idx_series_all)} 个指数, etf_daily: {len(etf_series_all)} 只 ETF")
+    sim_ok, sim_fail, lof_fetched = _enrich_with_similarity(out, idx_series_all, etf_series_all)
+    print(f"  相似度计算完成: {sim_ok} 成功, {sim_fail} 数据不足(grade=n/a), {lof_fetched} 只LOF净值实时取")
+
     # 写盘
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -644,8 +908,8 @@ def main():
     print(f"\n留空板块（{n_empty}，无相关ETF/主动留空）:")
     for b in empty_boards:
         print(f"  {b}")
-    # 抽样展示 top1
-    print("\n各板块 top1（成交额最大）抽样:")
+    # 抽样展示 top1（相似度最高，max_err 最小）
+    print("\n各板块 top1（相似度最高 max_err最小）抽样:")
     for iid in board_ids:
         etfs = out.get(iid, [])
         if etfs:
@@ -654,7 +918,11 @@ def main():
             method = e.get("match_method", "?")
             tin = e.get("track_index_name", "")
             tin_tag = f" [{tin}]" if tin else ""
-            print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra} <{method}>{tin_tag}")
+            grade = e.get("grade", "?")
+            max_err = e.get("max_err")
+            err_tag = f" <max_err={max_err}% {grade}>" if max_err is not None else " <n/a>"
+            ft = e.get("fund_type", "etf")
+            print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra} <{method}>{tin_tag}{err_tag} [{ft}]")
 
     # 匹配方式统计（行业/概念）
     method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "empty": 0}
