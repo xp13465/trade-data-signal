@@ -8234,7 +8234,7 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 ### 五、遗留（非阻断）
 - 5个E组6查不到代码的指数（科创板AI/芯片设计/创业板新能源/创业板AI/国证自由现金流）：track_index_name查到但代码NOT FOUND，588790/159363/159387/159201 被D组修回到留空（不再错配），588780(科创芯片设计ETF)真留空。建议另派agent用akshare fund_etf_fund_info_em或东财API反查代码（禁WebFetch禁拉全量）
 - 4小众证券ETF无归属（小节AW四节，精准化代价）
-- sh000001-all.json R2 404既有问题（小节AW四节，另派agent排查）
+- sh000001-all.json R2 404是误判：indicators.yaml L119 id=sh（非sh000001），文件名是sh-all.json，R2 200 ohlc=4029 etfs=7正常（前端读intraday_snapshot indices sh000001 + sh-all.json详情）
 - queries.py etf_for docstring更新（非阻断）
 
 ### 六、thsc概念指数宽泛include错配调研（选C不修，概念匹配approx是设计）
