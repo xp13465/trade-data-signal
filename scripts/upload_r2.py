@@ -12,6 +12,7 @@
   python3 scripts/upload_r2.py upload-offshore-fund       # 上传 data/offshore_fund* -> offshore_fund/ (筛选器阶段0)
   python3 scripts/upload_r2.py upload-data-large          # 上传 data/ 顶层 >1MB .json+.gz -> data/
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
+  python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
 import os, sys, re, hashlib, hmac, http.client, datetime, ssl
@@ -713,6 +714,39 @@ def cmd_upload_db():
         sys.exit(1)
 
 
+def cmd_upload_claude_backup(local_path=None):
+    """上传 Claude 自我备份 tar.gz 到 R2 signal-backup 私有桶 claude-backup/ 前缀。
+
+    backup_claude_self.sh(launchd 03:17)tar 打包后调本命令推云端异地备份。
+    local_path=None 时取 ~/.claude/backups/daily/ 最新 claude-self-YYYYMMDD.tar.gz。
+    R2 key = claude-backup/claude-self-YYYYMMDD.tar.gz(独立前缀,与 backup/ 的 .db.gz 区分)。
+    按用户定"简单起见先不删 R2 旧的",R2 端不做滚动清理(R2 存储便宜,本地 30 天滚动已够)。
+    content_type 显式 application/gzip(.tar.gz 不在 _CONTENT_TYPE_MAP,否则回退 octet-stream)。
+    """
+    import re
+    if local_path:
+        src = Path(local_path)
+    else:
+        backup_dir = Path.home() / ".claude/backups/daily"
+        files = sorted(backup_dir.glob("claude-self-*.tar.gz"))
+        if not files:
+            sys.exit(f"无 claude-self 备份: {backup_dir}/claude-self-*.tar.gz")
+        src = files[-1]
+    if not src.exists():
+        sys.exit(f"备份文件不存在: {src}")
+    m = re.search(r"claude-self-(\d{8})\.tar\.gz$", src.name)
+    if not m:
+        sys.exit(f"文件名日期解析失败: {src.name}")
+    date_str = m.group(1)
+    key = f"claude-backup/claude-self-{date_str}.tar.gz"
+    payload = src.read_bytes()
+    status, data = s3_request("PUT", key, payload, bucket=BACKUP_BUCKET, content_type="application/gzip")
+    if status == 200:
+        print(f"✓ {src.name} ({len(payload) // 1024}KB) -> {BACKUP_BUCKET}/{key} (私有桶)")
+    else:
+        sys.exit(f"✗ 上传失败 status={status} {data.decode('utf-8', errors='replace')[:300]}")
+
+
 def cmd_download_latest_db(name, out_dir=None):
     """从 BACKUP_BUCKET 下载 backup/<name>_YYYYMMDD.db[.gz] 最新一份，返回解压后 .db 路径。
 
@@ -783,6 +817,10 @@ if __name__ == "__main__":
         cmd_upload_data_large()
     elif cmd == "upload-db":
         cmd_upload_db()
+    elif cmd == "upload-claude-backup":
+        # upload-claude-backup [local_path]  Claude 自我备份 tar.gz -> signal-backup/claude-backup/
+        local_path = sys.argv[2] if len(sys.argv) > 2 else None
+        cmd_upload_claude_backup(local_path)
     elif cmd == "download-db":
         # download-db <name> [out_dir]  从 signal-backup 下载最新 backup/<name>_YYYYMMDD.db[.gz]
         # 返回解压后 .db 路径(stdout)。用于 verify_backup.sh 恢复演练。
@@ -801,5 +839,6 @@ if __name__ == "__main__":
             "用法: upload_r2.py [list [prefix]|upload-lab|upload-trade-sim|"
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
             "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-data-large|upload-db|"
-            "upload <local> <key>|delete <key> [bucket]|clean-data-backup]"
+            "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
+            "upload-claude-backup [path]]"
         )
