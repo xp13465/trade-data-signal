@@ -389,7 +389,16 @@ def overview(conn, cfg):
     # 2026-08-05 注入 ETF 候选到每条信号（前端信号 cell 展示 ETF tag + 真实ETF/概念标的筛选）。
     # etf_for 已 lru_cache 零开销；etfs=[] 表示概念标的（无跟踪ETF，前端显"无ETF"灰标）。
     # 深拷贝 etfs 列表：_etf_map() lru_cache 返回共享对象，不同信号日需独立 etf_since_return（L461+）。
+    # 2026-08-07 注入指数中文名+代码（从 indicators.yaml 单一来源，遵守"一个指数一个名字"原则），
+    # 前端 signals_today 展示"中文名（代码）"优先后端注入，_INDEX_NAME_MAP 仅作兜底。
+    # _idx_meta 在循环外建一次（避免每条 signal 重建），循环内只查 map。
+    _idx_meta = {i["id"]: {"name": i.get("name"), "symbol": i.get("symbol")}
+                 for i in cfg.get("indices", []) if i.get("enabled", True)}
     for _s in sigs:
+        _meta = _idx_meta.get(_s["index_id"])
+        if _meta:
+            _s["name"] = _meta["name"]
+            _s["symbol"] = _meta["symbol"]
         _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
     # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
