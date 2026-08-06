@@ -189,6 +189,8 @@ PUSH_RC=0
   gzip -kf static-site/data/sentiment-all.json
   # notifications.json（浏览器通知源，export_notifications.py 生成；同轮若未生成则跳过不影响其余）
   gzip -kf static-site/data/notifications.json 2>/dev/null || true
+  # boot.json（export_boot 生成 raw+.gz，rsync 已带入 .gz，gzip -kf 兜底确保新鲜）
+  gzip -kf static-site/data/boot.json 2>/dev/null || true
   # etf_national_team daily 全 range gzip(末日 close 更新影响所有 range 末行;
   # 前端默认下 1y,但用户切换 3m/6m 等时按需 fetch .gz,不 gzip 则读旧 .gz = 读旧数据)
   for f in static-site/data/etf_national_team-*.json; do gzip -kf "$f" || true; done
@@ -209,7 +211,10 @@ PUSH_RC=0
   for _rng in 1m 3m 6m 1y; do
     DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
   done
-  for _f in intraday_snapshot overview summary summary_history notifications; do
+  # boot.json：intraday _export_affected_json 末尾调 export_boot() 重新生成
+  # （commit f43016e40），保证 boot.overview.date=今日。不 push 则前端 fetchBoot
+  # 缓存旧 overview 致成交额卡显示昨日值（2026-08-06 事故根因）。
+  for _f in intraday_snapshot overview summary summary_history notifications boot; do
     DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
   done
   # 部分文件不存在时 git 报 fatal 但 || true 继续，不影响其余 add（参考 deploy.sh L221）

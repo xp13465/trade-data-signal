@@ -104,6 +104,19 @@ if [ "$EXPORT_RC" -ne 0 ]; then
 fi
 echo "✓ export.py 完成" | tee -a "$LOG"
 
+# 1.1 数据产物校验（4 类事故拦截：board_etf_map 全空 / boot.date 不一致 /
+# amount_forecast 爆炸 / 关键文件丢失）。--deploy-mode 仅 fail 阻断（exit 1），
+# warn 不阻断（exit 0），避免预存在 warn（etf_index_map 缺失等）阻塞所有 deploy。
+# 2026-08-06 加：拦 "成交额卡显示昨日值"(boot 嵌旧 overview) / "9.52万亿爆炸" / "ETF 全空" 等事故。
+echo "-> 运行 check_data_integrity.py 数据产物校验 ..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/check_data_integrity.py" --deploy-mode --data-dir "$REPO/static-site/data" 2>&1 | tee -a "$LOG"
+CHECK_RC=${PIPESTATUS[0]}
+if [ "$CHECK_RC" -ne 0 ]; then
+  echo "✗ 数据产物校验失败(退出码 $CHECK_RC)，终止部署（4 类事故拦截）" | tee -a "$LOG"
+  exit "$CHECK_RC"
+fi
+echo "✓ 数据产物校验通过" | tee -a "$LOG"
+
 # 1.3 intraday_snapshot.json global_realtime 防覆盖（2026-07-31 德法角标三重根因修复）
 # 根因：export.py 调 load_latest_snapshot 从 DB reload 生成 intraday_snapshot.json，
 # 若 DB 镜像滞后（trade/data/sentiment.db 未同步 trade-data 主库）或旧 snapshot 行
