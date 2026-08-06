@@ -8113,3 +8113,31 @@ ETF盈亏一个功能连续派4个agent接力（abefa6a05实施->a110e1933修错
 - **M1 cosmetic**：hoverpop 0%前缀不一致（idxRetHtml `>0` vs _etfPnlText `>=0`）
 - **待用户确认**：hoverpop UI视觉（模型只文本，已curl确认app.min.js含"指数至今"代码上线，两行对比视觉布局需用户打开页面确认）
 - 520940恒生科技ETF etf_since_return=None（上市晚/数据缺，非本次bug范围）
+
+## §48 小节AU：2026-08-07 凌晨 前端显示概念指数885代码（用户"配合显示出来对照同花顺"）
+
+### 一、需求背景
+用户看指数表现模块（如新能源汽车 thsc_300008，数值4428），要看到 885431 代码对照同花顺。用户原话："thsc_300008 我同花顺查不出...885431 更靠谱。同花顺毕也是主流标杆"。thsc_300xxx（同花顺概念代码）= 885/886xxx（同花顺板块代码）同一指数两套代码，用户更认885。
+
+### 二、方案选择（前端硬编码，非后端数据驱动）
+- /tmp/index_code_map.json 27 thsc_300xxx->885/886xxx 映射（a368dcc3 产，akshare无直接885接口，复刻stock_board_concept_index_ths抓q.10jqka.com.cn解析<input id="clid">）
+- **前端硬编码方案**（选定）：app.js 加 _INDEX_CODE_MAP（27映射）+ indexIdToCode() 函数。理由：前端 _INDEX_NAME_MAP 已硬编码27 thsc 映射，加 _INDEX_CODE_MAP 同模式扩展；27映射静态；数据驱动（后端config+export+前端读）改动面大且前端多处只传 indexId 不传 idx 仍需 _INDEX_CODE_MAP 兜底。改动面最小回归风险最低
+
+### 三、实施（commit 01d539483 + 329427c96，push feat:main fast-forward bd976d965..329427c96）
+- app.js 加 _INDEX_CODE_MAP（27 thsc_300xxx->885xxx/886xxx）+ indexIdToCode()（无映射返回空串，宽基/行业不重复显示）
+- 3处显示层：①L3685 指数表现图表标题"新能源汽车 885431"+hover提示"站点thsc_300008=同花顺885431同一概念指数" ②L1546 信号hover title加(885xxx) ③L1558 信号格sig-idx-name加885代码标签
+- style.css .idx-code-tag（0.85em + var(--text-3) + tabular-nums + cursor:help）
+- build_min + bump_asset_version + sw.js CACHE_VERSION a2->a3->a4
+- **问题1修复**（reviewer发现§15回归）：L2102 _initTermPop.show `p === idxName` 精确匹配，hover title含885代码后缀"指数名 (885代码)"致匹配失败hoverpop指数名段不加粗。改 `p === idxName || p === idx || p.startsWith(idxName + " (")`（` (` 分隔符避免reason文本误匹配）
+- **问题2修复**（增强一致性）：L4140 openSignalChartModal 标题加 indexIdToCode + idx-code-tag span，innerHTML + _esc 防 XSS，和图表卡L3733/信号格L1603风格统一
+- reviewer aedff18f63496219c 两轮review：第一轮PASS+2问题，第二轮（修复后resume复核）PASS
+
+### 四、上线验证（ss.fx8.store ✓）
+- push feat:main fast-forward，CF Workers自动deploy
+- ss.fx8.store app.min.js?v=eb3d4add 含 idx-code-tag=1 + 885431=1 ✓
+- sss.sugas.site（GitHub Pages）延迟deploy，按 memory deploy-verify-3-sites "3域名任一验证到新版即算上线OK"不卡
+- 模型只文本不能看UI，视觉布局需用户打开页面确认
+
+### 五、遗留待办（路A根治，串行）
+- 路A根治（用户"串行做，路b完整最末"）：2a 纳入LOF数据源(akshare fund_lof_spot_em采600只，160225是LOF不在fund_etf_spot_em候选池) / 2b build_board_etf_map候选列表+实测相似度+分级<1%/1-5%/>5%+board_etf_map.json增similarity/max_err/fund_type字段 / 2c 纳入399417国证新能源车(config gz_399417+ak.index_zh_a_hist采集存index_daily，让160225有精准匹配) / 2d 前端展示候选列表+跟踪度%(同花顺模式)
+- 完整路B（所有行业/概念对应国证中证指数，15h+）排最末
