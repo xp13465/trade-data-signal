@@ -4644,39 +4644,27 @@ function updateMarketStatusBanner(snap) {
       el.style.display = "none";
     });
   }
-  const intraday = !!(snap && snap.is_closed === false);
-  // P2-C: 盘前集合竞价申报段(9:15-9:25)前端独立时间判断
-  // 后端 is_closed 在 9:15-9:25 仍返 true(收盘快照), 9:25 才切 false(竞价完成)
-  // 此处前端基于北京时间判断, 不依赖后端 label, 避免盘前显示"收盘"误导用户以为没开盘
-  // 节假日前端难判, 盘前提示横幅节假日误显无害(9:25 后无新数据自然恢复收盘态)
-  const _bjMin = _bjTimeMin();
-  const _bjDow = _bjDayOfWeek();
-  const _isWeekday = _bjDow >= 1 && _bjDow <= 5; // 周一-周五兜底(节假日误显无害)
-  const _isAuctionCall = !intraday && _isWeekday && _bjMin >= 9 * 60 + 15 && _bjMin < 9 * 60 + 25;
   if (_marketBannerDismissed) {
     el.style.display = "none";
     return;
   }
-  if (!intraday && !_isAuctionCall) {
+  // 步骤6: 统一用 getState 状态机, 消除 _isAuctionCall/_bjMin/label 3处独立判断
+  //   getState 用 _bjTimeMin 细分时段 + snap.is_closed 判交易日, 消除 snap.label 10min 滞后
+  const _st = getState(snap);
+  // pre_open/closed: 非盘中, 隐藏横幅
+  if (_st === "pre_open" || _st === "closed") {
     el.style.display = "none";
     return;
   }
   el.style.display = "";
-  // 5态区分: P2-C盘前竞价申报段(前端时间判断) + 4态(对齐后端 is_market_closed label): 集合竞价/竞价完成/午休/盘中实时小结
-  const _label = (snap && snap.label) || "";
   const txt = el.querySelector(".msb-text");
   if (txt) {
     let _t;
-    if (_isAuctionCall) {
-      // 9:15-9:25 申报段: 后端仍 is_closed=true, 前端独立显示竞价申报中
+    if (_st === "auction_call") {
       _t = "📊 集合竞价申报中 · 9:25定开盘价·9:30开盘 · 开盘价未定暂显昨收";
-    } else if (/集合竞价/.test(_label)) {
-      _t = "📊 集合竞价中 · 9:25竞价完成·9:30开盘 · 开盘价待定";
-    } else if (/竞价完成/.test(_label)) {
+    } else if (_st === "auction_done") {
       _t = "📊 竞价完成 · 待9:30开盘 · 开盘价已定";
-    } else if (_bjMin >= 11*60+30 && _bjMin < 13*60) {
-      // [改] 午休判断改用前端_bjMin(11:30-13:00),不读 snap.label(10min粒度滞后)
-      //   根治13:00复牌后横幅仍显"午休时段":snap.label 13:05才切,但实际13:00已复牌
+    } else if (_st === "lunch") {
       _t = "📊 午休时段 · 13:00复牌后恢复实时 · 收盘后17:50同步最终";
     } else {
       _t = "📊 盘中预估中 · 数据实时更新 · 收盘后17:50同步最终";
@@ -4685,13 +4673,45 @@ function updateMarketStatusBanner(snap) {
   }
 }
 
+// 步骤7: sessionStorage 持久化 snap, 刷新后立即恢复显示(不等 fetch, 避免 CF edge cache 60s 窗口状态回退)
+// sessionStorage 跨刷新保留(同 tab), 关 tab 清空(下次开新 tab 重新 fetch, 不用旧 snap)
+const _SNAP_STORAGE_KEY = "intraday_snap_v1";
+function _saveSnapToStorage(snap) {
+  try { sessionStorage.setItem(_SNAP_STORAGE_KEY, JSON.stringify(snap)); } catch (e) { /* quota 超限忽略 */ }
+}
+function _loadSnapFromStorage() {
+  try {
+    const raw = sessionStorage.getItem(_SNAP_STORAGE_KEY);
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap || !snap.indices) return null;
+    // 仅恢复今日 snap(旧 snap 不恢复, 避免跨日显示昨日状态)
+    const shIdx = snap.indices.find((i) => i.code === "sh000001");
+    const snapDate = shIdx ? (shIdx.datetime || "").slice(0, 8) : "";
+    const d = new Date(Date.now() + 8 * 3600000);
+    const todayStr = d.getUTCFullYear() + String(d.getUTCMonth() + 1).padStart(2, "0") + String(d.getUTCDate()).padStart(2, "0");
+    if (snapDate !== todayStr) return null;
+    return snap;
+  } catch (e) { return null; }
+}
+
 function fetchIntradaySnapshot() {
   if (_intradaySnapPromise) return _intradaySnapPromise;
+  // 步骤7: 先从 sessionStorage 恢复 snap(刷新后立即显示, 不等 fetch 避 CF edge cache 60s 窗口状态回退)
+  // 状态判断用 getState(_bjTimeMin 当前时钟), 即便 snap 数据时间略旧, 状态/banner 仍显当前正确时段
+  if (!state.intradaySnapshot) {
+    const _restored = _loadSnapFromStorage();
+    if (_restored) {
+      state.intradaySnapshot = _restored;
+      updateMarketStatusBanner(_restored);
+    }
+  }
   _intradaySnapPromise = (async () => {
     try {
       const snap = await fetchJSON("./data/intraday_snapshot.json");
       if (snap && snap.indices) {
         state.intradaySnapshot = snap;
+        _saveSnapToStorage(snap); // 步骤7: 持久化供下次刷新恢复
         // AZ54 P1-6: snap 就绪即更新全局盘中状态横幅(显/隐/午休文案)
         updateMarketStatusBanner(snap);
         // snap 就绪回调启动 overview 自适应轮询(根治 2s 超时竞态, 2026-07-27):
@@ -4760,22 +4780,18 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
       const _useDyn = isIndexSpark && _intradayDynamicTime;
       const _hh = _useDyn ? _intradayDynamicTime.slice(0, 2) : shIdx.datetime.slice(8, 10);
       const _mm = _useDyn ? _intradayDynamicTime.slice(3, 5) : shIdx.datetime.slice(10, 12);
-      // [新增] 分时图角标(isIndexSpark)优先用自己1min数据时间判断状态,不读 snap.label(10min粒度滞后)
-      //   根治13:00午休结束角标滞后:snap.label 13:05才从"午休"切"盘中",但分时图13:04已拉到午后点
-      //   对称根治9:30开盘边界:snap.label 9:35才从"竞价完成"切"盘中",但分时图9:30已拉到开盘点
-      if (isIndexSpark && _useDyn) {
-        const _dynMin = parseInt(_intradayDynamicTime.slice(0,2))*60 + parseInt(_intradayDynamicTime.slice(3,5));
-        if ((_dynMin >= 9*60+30 && _dynMin <= 11*60+30) || (_dynMin >= 13*60 && _dynMin < 15*60)) {
-          return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${_hh}:${_mm}</span>`;
-        }
-      }
-      if (snap.label && /午休/.test(snap.label)) {
+      // 统一用 getState 状态机(步骤3/4): 消除 snap.label 10min 滞后
+      //   13:00复牌立即切"盘中"(不等13:05 snap), 9:30开盘立即切"盘中"(不等9:35 snap)
+      //   getState 用 _bjTimeMin(当前时钟)细分时段, 比 snap.label(10min粒度)更实时
+      //   isIndexSpark/kpiDynamic 仅控制时间显示(_useDyn 1min动态 vs snap.datetime 10min), 不影响状态判断
+      const _st = getState(snap);
+      if (_st === "lunch") {
         return `<span class="card-time-badge lunch" data-tip="午休时段(11:30-13:00),13:00复牌后恢复T+0实时">⏰ 午休·${_hh}:${_mm}</span>`;
       }
-      if (snap.label && /集合竞价/.test(snap.label)) {
+      if (_st === "auction_call") {
         return `<span class="card-time-badge intraday" data-tip="集合竞价(9:15-9:25),9:25确定开盘价">⏰ 竞价·${_hh}:${_mm}</span>`;
       }
-      if (snap.label && /竞价完成/.test(snap.label)) {
+      if (_st === "auction_done") {
         return `<span class="card-time-badge intraday" data-tip="竞价完成(9:25-9:30),开盘价已定,9:30连续竞价开盘">⏰ 竞价完成·${_hh}:${_mm}</span>`;
       }
       return `<span class="card-time-badge intraday" data-tip="盘中实时刷新(T+0),约30秒一次">⏰ 盘中·${_hh}:${_mm}</span>`;
@@ -4817,21 +4833,26 @@ function getCardTimeBadge(dataDate, snap, srcClass, srcKey, isIndexSpark) {
   if (intraday) {
     // 盘中: t0源应实时(snapDate=今日), dataDate<今日=该数据停更早
     if (ptd && dataDate === ptd) {
-      // 9:15-9:30 竞价空窗期(炸板率/封板率等盘中实时指标此时东财池为空,date 停昨日):
+      // 竞价空窗期(炸板率/封板率等盘中实时指标此时东财池为空,date 停昨日):
       //   非T+1,9:30 开盘后 intraday-snapshot 10min 周期即补当日值,不等盘后17:50
-      //   与 L4285-4290 竞价 badge 口径对齐(复用 snap.label)
-      if (snap && snap.label && /竞价完成|集合竞价/.test(snap.label)) {
-        const ttl = `竞价完成时段数据停昨日(${mmdd}),9:30 开盘后 intraday-snapshot 10min 周期采集更新(非等盘后17:50)`;
+      //   用 getState(步骤4) 判断时段, 消除 snap.label 10min 滞后
+      const _st2 = getState(snap);
+      if (_st2 === "auction_call" || _st2 === "auction_done") {
+        const ttl = `竞价时段数据停昨日(${mmdd}),9:30 开盘后 intraday-snapshot 10min 周期采集更新(非等盘后17:50)`;
         return `<span class="card-time-badge intraday" data-tip="${ttl}">⏰ 待开盘·${mmdd}</span>`;
       }
-      // [2026-08-05 修复] 9:30 开盘后 snap label 切"盘中实时小结", 但 t0源(封板率/炸板率等)KPI date
-      //   可能仍停 ptd(等 9:35 snap 10min 周期采集补当日值, 非盘后17:50)。原注释"罕见"实为 10min 周期常态。
-      //   t0源盘中应显"盘中·HH:MM"(数据延迟是 snap 周期非盘后17:50);
+      // 9:30 开盘后(morning/afternoon/lunch): t0源(封板率/炸板率等)KPI date 可能仍停 ptd
+      //   (等 9:35 snap 10min 周期采集补当日值, 非盘后17:50)
+      //   t0源盘中应显"盘中·HH:MM"/"午休·HH:MM"(数据延迟是 snap 周期非盘后17:50);
       //   t1源盘中显示 T-1 是正常设计(T+1源), 上面 srcClass==='t1' 分支已处理, 不会走到这里
       if (srcClass === "t0" && shIdx && shIdx.datetime) {
         const _hh = shIdx.datetime.slice(8, 10);
         const _mm = shIdx.datetime.slice(10, 12);
         if (_hh && _mm) {
+          if (_st2 === "lunch") {
+            const ttl = `午休时段T+0源数据停昨日(${mmdd}),13:00复牌后10min周期采集补当日值`;
+            return `<span class="card-time-badge lunch" data-tip="${ttl}">⏰ 午休·${_hh}:${_mm}</span>`;
+          }
           const ttl = `盘中T+0源数据停昨日(${mmdd}),intraday-snapshot 10min 周期采集后将补当日值(非等盘后17:50),当前快照 ${_hh}:${_mm}`;
           return `<span class="card-time-badge intraday" data-tip="${ttl}">⏰ 盘中·${_hh}:${_mm}</span>`;
         }
@@ -5093,11 +5114,47 @@ function _bjTimeMin() {
 function _bjDayOfWeek() {
   return new Date(Date.now() + 8 * 3600000).getUTCDay();
 }
-// 午休停请求窗口: 11:35后停止, 12:55前恢复(留5min缓冲收上午尾盘+准备下午开盘)
-// 11:30收盘走到11:35停(收上午尾盘数据), 12:55开始恢复(准备13:00开盘)
+// 统一盘中状态机(步骤3): 7态 pre_open/auction_call/auction_done/morning/lunch/afternoon/closed
+// 优先级: snap.is_closed(后端交易日历权威,判 intraday vs closed) + _bjTimeMin(细分时段,消除 snap.label 10min 滞后)
+// snap 旧时(昨天收盘 snap,今天已开盘): snapDate!=today 识别, 用 _bjTimeMin 兜底切盘中态
+// 节假日前端难判, 旧 snap + 交易日时段误显盘中无害(9:15 后 snap 更新为今日收盘态自然恢复,见 L4651 注释)
+// now 参数: 传入 Date 时按该时刻算北京时间(测试用), 不传默认当前时钟
+function getState(snap, now) {
+  const _min = (now instanceof Date)
+    ? ((now.getUTCHours() + 8) % 24) * 60 + now.getUTCMinutes()
+    : _bjTimeMin();
+  const _dow = (now instanceof Date)
+    ? new Date(now.getTime() + 8 * 3600000).getUTCDay()
+    : _bjDayOfWeek();
+  const _isWeekday = _dow >= 1 && _dow <= 5;
+  if (!_isWeekday) return "closed"; // 周末(节假日前端难判, 兜底按周末)
+  const _snapClosed = snap ? (snap.is_closed === true) : true;
+  // snap 是否今日: sh000001.datetime 前8位 === 今日(判断旧 snap 兜底)
+  const _shIdx = snap && snap.indices ? snap.indices.find((i) => i.code === "sh000001") : null;
+  const _snapDate = _shIdx ? (_shIdx.datetime || "").slice(0, 8) : "";
+  const _d = new Date(Date.now() + 8 * 3600000);
+  const _todayStr = _d.getUTCFullYear() + String(_d.getUTCMonth() + 1).padStart(2, "0") + String(_d.getUTCDate()).padStart(2, "0");
+  const _snapIsToday = _snapDate === _todayStr;
+  // 收盘态(is_closed===true)且 snap 是今天 = 节假日/盘后(后端交易日历确认非盘中)
+  // 收盘态但 snap 非今天(昨天收盘) = 旧 snap, 今天可能已开盘 -> 用时间兜底
+  const _treatAsIntraday = !_snapClosed || (_snapClosed && !_snapIsToday);
+  if (_treatAsIntraday) {
+    if (_min >= 9 * 60 + 30 && _min <= 11 * 60 + 30) return "morning";     // 9:30-11:30
+    if (_min > 11 * 60 + 30 && _min < 13 * 60) return "lunch";              // 11:31-12:59
+    if (_min >= 13 * 60 && _min < 15 * 60) return "afternoon";              // 13:00-14:59
+    if (_min >= 9 * 60 + 15 && _min < 9 * 60 + 25) return "auction_call";   // 9:15-9:24
+    if (_min >= 9 * 60 + 25 && _min < 9 * 60 + 30) return "auction_done";   // 9:25-9:29
+    if (_min < 9 * 60 + 15) return "pre_open";                              // 0:00-9:14
+  }
+  // 今日收盘 snap(节假日/盘后): 盘前显 pre_open, 其余 closed
+  if (_min < 9 * 60 + 15) return "pre_open";
+  return "closed";
+}
+// 午休停请求窗口(步骤6): 统一用 getState 状态机, 口径 11:30-13:00(对齐显示态)
+// 原口径 11:35-12:55(5min缓冲) -> 11:30-13:00(消除独立 _bjTimeMin 判断, 午休无新数据暂停请求防WAF风控)
+// 11:30 收盘即停(上午尾盘由 11:32 launchd 快照捕获), 13:00 复牌即恢复(13:01 快照+腾讯分时午后点)
 function _isLunchPause() {
-  const m = _bjTimeMin();
-  return m >= 11*60+35 && m < 12*60+55;
+  return getState(state.intradaySnapshot) === "lunch";
 }
 // 是否已过该 T+1 源的最晚可得时刻(北京时间)。过时刻仍未采到基准日期 -> 红(异常)。
 // 仅对 T+1 源(有 T1_COLLECT_DEADLINE 表项)调用；T+0 源走 pastDeadline=!intraday 判定。
@@ -8214,7 +8271,9 @@ async function renderOverview() {
       ? `<span class="card-time-badge t1-severe" data-tip="${_errItem.message || '采集异常,恢复后自动显示'}">⚠ 采集异常·${_errMmdd}</span>`
       : (k.disabled
           ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
-          : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : ""));
+          : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "", !_kpiT1));
+      // 步骤5: T+0 KPI 卡传 isIndexSpark=true(! _kpiT1), 用 _intradayDynamicTime(1min腾讯,和分时图同源)
+      //   替代 snap.datetime(10min粒度), KPI 卡角标时间与分时图一致(1min粒度)
     // 打 data-badge-* 属性, 让 refreshCardTimeBadges 的 .card-time-badge[data-badge-date] 选择器能选到KPI小卡角标并重绘
     // (异常badge🚨不打属性, 避免被重绘成正常badge; 异常状态由后端恢复后重新渲染整卡)
     if (_badge && !k.disabled) {
@@ -8226,6 +8285,8 @@ async function renderOverview() {
         _badgeEl.setAttribute("data-badge-date", k.date || "");
         _badgeEl.setAttribute("data-badge-src", _badgeSrc);
         if (_kpiT1 && k.id) _badgeEl.setAttribute("data-badge-srckey", k.id);
+        // 步骤5: T+0 KPI 卡打 data-badge-isdyn="1", 供 refreshCardTimeBadges 用 _intradayDynamicTime(1min) 重绘
+        if (!_kpiT1) _badgeEl.setAttribute("data-badge-isdyn", "1");
         // 2026-07-31 修复: 所有 KPI 卡(含 T+0 炸板率/封板率)打 data-badge-kpiid,
         // 供 refreshCardTimeBadges 从最新 overview.today.metrics 查新 date 更新角标,
         // 根治 9:35 后 overview 拉到新 date 但角标仍读旧 data-badge-date 显"待盘后"的 bug.
