@@ -925,61 +925,143 @@ def _ensure_amount_history_table() -> None:
 
 
 def _forecast_amount(today: str, hhmm: str, cum_amount: float):
-    """预估全天成交额。方案 A 经验加权立即 + 方案 C 历史占比校准如果数据足够(>=5天)。
-    
-    A 股分时成交节奏经验占比(累计，截至该时点占全天):
-    9:30=0%, 10:00=18%, 10:30=25%, 11:00=32%, 11:30=40%,
-    13:00=40%, 13:30=48%, 14:00=58%, 14:30=72%, 15:00=100%
+    """预估全天成交额。方案 C 历史分时占比校准(>=3 完整日) + 方案 A 经验加权兜底。
+
+    A 股分时成交节奏经验累计占比(截至该时点占全天)，依据 A 股实际分时分布:
+      - 集合竞价(9:25)约占 1-2%；开盘 30min(9:30-10:00)放量段约占全天 25-28%
+      - 上午(9:30-11:30,120min)约占全天 49%；午后(13:00-15:00,120min)约占 51%
+      - 尾盘(14:30-15:00)放量约占全天 18-22%，最后 15min 尤为密集
+    详见 _EXP_RATIOS 注释。
+
+    边界保护: forecast 限制在历史日均成交额的 0.5-1.8 倍，防分时占比失真致极端值
+    (A 股历史单日最高约 3.5 万亿，1.8 倍历史均量≈4.3 万亿已覆盖极端放量日)。
+
+    2026-08-06 校准: 修 3 bug (1) _exp_cum_ratio `<=` 边界返前 ratio (2) _EXP_RATIOS
+    开盘段占比低估(09:55 旧0.16 应0.25) (3) 方案C门槛5天太高。旧值09:55算9.52万亿高估。
     """
-    # 方案 C：查历史占比（>=5天数据时用历史校准）
+    # 盘后(hhmm >= "15:00")不预估: 保留盘中最后一次 a_amount_forecast 值，
+    # 让盘后 hover 预估vs实际显示"盘中预估 vs 收盘实际"(有对比意义)。
+    # 盘后 exp_ratio=1.0 致 forecast=actual, 写入会覆盖盘中预估成 actual(偏差0%无意义)。
+    if hhmm >= "15:00":
+        return None
+
+    hist_avg = None
+    conn = None
     try:
         conn = get_conn()
+        # 历史日均成交额(全天锚，用于边界保护) - 最近 20 个交易日
+        row = conn.execute(
+            "SELECT AVG(value) as avg_amt FROM (SELECT value FROM daily_metric "
+            "WHERE metric_id='a_amount' AND date < ? AND value > 5000 "
+            "ORDER BY date DESC LIMIT 20)",
+            (today,),
+        ).fetchone()
+        if row and row["avg_amt"]:
+            hist_avg = float(row["avg_amt"])
+
+        # 方案 C：查历史分时占比（>=3 完整日数据时用历史校准）
         rows = conn.execute(
-            "SELECT date, MAX(cum_amount) as full_day FROM intraday_amount_history "
-            "WHERE date < ? GROUP BY date ORDER BY date DESC LIMIT 10",
+            "SELECT date, MAX(cum_amount) as full_day, MAX(time_hhmm) as t_max "
+            "FROM intraday_amount_history WHERE date < ? GROUP BY date "
+            "ORDER BY date DESC LIMIT 15",
             (today,),
         ).fetchall()
-        if len(rows) >= 5:
-            hist_ratios = []
-            for r in rows:
-                h_row = conn.execute(
-                    "SELECT cum_amount FROM intraday_amount_history WHERE date=? AND time_hhmm <= ? "
-                    "ORDER BY time_hhmm DESC LIMIT 1",
-                    (r["date"], hhmm),
-                ).fetchone()
-                if h_row and r["full_day"] and r["full_day"] > 0:
-                    hist_ratios.append(h_row["cum_amount"] / r["full_day"])
-            if hist_ratios:
-                avg_ratio = sum(hist_ratios) / len(hist_ratios)
-                if 0.05 < avg_ratio < 0.99:
-                    conn.close()
-                    return cum_amount / avg_ratio
-        conn.close()
+        hist_ratios = []
+        for r in rows:
+            # 完整日校验: t_max >= 14:50 表示有收盘前后数据，full_day 可信
+            # (只跑到上午的日 full_day 被低估，ratio 失真，排除)
+            if not r["t_max"] or r["t_max"] < "14:50":
+                continue
+            if not r["full_day"] or r["full_day"] < 5000:
+                continue
+            h_row = conn.execute(
+                "SELECT cum_amount FROM intraday_amount_history WHERE date=? AND time_hhmm <= ? "
+                "ORDER BY time_hhmm DESC LIMIT 1",
+                (r["date"], hhmm),
+            ).fetchone()
+            if h_row and h_row["cum_amount"] and r["full_day"] > 0:
+                hist_ratios.append(h_row["cum_amount"] / r["full_day"])
+        if len(hist_ratios) >= 3:
+            avg_ratio = sum(hist_ratios) / len(hist_ratios)
+            if 0.02 < avg_ratio < 0.99:
+                return _clamp_forecast(cum_amount / avg_ratio, hist_avg)
     except Exception:
         pass
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     # 方案 A：经验加权（无历史数据或数据不足时）
     exp_ratio = _exp_cum_ratio(hhmm)
     if exp_ratio and exp_ratio > 0:
-        return cum_amount / exp_ratio
+        return _clamp_forecast(cum_amount / exp_ratio, hist_avg)
     return None
 
 
+def _clamp_forecast(fc: float, hist_avg) -> float:
+    """边界保护: forecast 限制在历史日均成交额 0.5-1.8 倍区间。
+    hist_avg 为 None 时(历史数据缺失)跳过限制，直接返回原值。"""
+    if hist_avg is None or hist_avg <= 0:
+        return round(fc, 2)
+    lo = hist_avg * 0.5
+    hi = hist_avg * 1.8
+    if fc < lo:
+        return round(lo, 2)
+    if fc > hi:
+        return round(hi, 2)
+    return round(fc, 2)
+
+
+# A 股分时成交额累计占比(截至该时点占全天比例)。
+# 依据 A 股实际分时分布经验值:
+#   - 9:25 集合竞价 ~1.5%；9:30 开盘首分钟(含竞价结转) ~3%
+#   - 9:30-10:00 开盘放量段 30min 约占全天 25-28%(10:00 累计 ~28%)
+#   - 10:00-11:00 缩量整理；11:30 上午结束累计 ~50%
+#   - 13:00 午休(同 11:30)；13:30 午后开盘放量
+#   - 14:30 尾盘段开始；14:55 累计 ~94%；15:00 收盘 100%
+# 校准前(2026-08-06 09:55): 旧值 0.12/0.16 致 forecast 9.52/4.77 万亿高估
+#   09:55 新值 0.25 -> 7625/0.25=30500 亿 ≈ 3.05 万亿(对标同花顺 2.57 万亿)
 _EXP_RATIOS = {
-    "09:30": 0.02, "09:35": 0.06, "09:45": 0.12, "09:55": 0.16,
-    "10:00": 0.18, "10:30": 0.25, "11:00": 0.32, "11:30": 0.40,
-    "13:00": 0.40, "13:30": 0.48, "14:00": 0.58, "14:30": 0.72,
-    "14:55": 0.92, "15:00": 1.00,
+    "09:25": 0.015, "09:30": 0.030, "09:35": 0.100, "09:45": 0.190,
+    "09:55": 0.250, "10:00": 0.280, "10:30": 0.360, "11:00": 0.430,
+    "11:30": 0.500, "13:00": 0.500, "13:30": 0.580, "14:00": 0.660,
+    "14:30": 0.770, "14:45": 0.870, "14:55": 0.940, "15:00": 1.000,
 }
 
 
 def _exp_cum_ratio(hhmm: str) -> float:
-    times = sorted(_EXP_RATIOS.keys())
-    prev_ratio = 0.0
-    for t in times:
-        if hhmm <= t:
-            return prev_ratio
-        prev_ratio = _EXP_RATIOS[t]
-    return 1.0
+    """按 _EXP_RATIOS 线性插值计算截至 hhmm 的累计占比(精确到分钟)。
+
+    修复旧逻辑 `hhmm <= t` 边界 bug: 旧逻辑 hhmm 命中锚点时返回前一个 ratio
+    (如 09:55 返回 09:45 的 0.12 而非 0.16)，且只取下界不插值。
+    线性插值: hhmm 落在 (t1, t2) 之间时按分钟线性插值，命中锚点返回锚点值。
+    hhmm < 最早锚点(09:25)时返回 0(竞价前无成交)；> 最晚锚点(15:00)返回 1.0。
+    """
+    if not hhmm:
+        return 0.0
+    items = sorted(_EXP_RATIOS.items())  # [(time, ratio), ...]
+    if hhmm < items[0][0]:
+        return 0.0
+    for t, r in items:
+        if hhmm == t:
+            return r
+    if hhmm > items[-1][0]:
+        return 1.0
+    # 线性插值: 找 hhmm 落在哪两个锚点之间
+    for i in range(len(items) - 1):
+        t1, r1 = items[i]
+        t2, r2 = items[i + 1]
+        if t1 < hhmm < t2:
+            m1 = int(t1[:2]) * 60 + int(t1[3:5])
+            m2 = int(t2[:2]) * 60 + int(t2[3:5])
+            mh = int(hhmm[:2]) * 60 + int(hhmm[3:5])
+            if m2 <= m1:
+                return r1
+            return r1 + (r2 - r1) * (mh - m1) / (m2 - m1)
+    return 0.0
 
 
 def _backfill_index_daily(indices: list[dict]) -> int:
