@@ -321,6 +321,142 @@ def export_futures_acc_conclusion(conn):
         p4_action = "季节性不显著"
         p4_triggered = False
 
+    # === 按月聚合 dominant_dir 序列（规律 A/B 用） ===
+    # 中信期货每日 dominant_dir 取 same/contrarian 较大者，follow_ratio=same/total*100
+    # 可跌破 50%。按月聚合判定月风格：同向月 / 逆向月 / 震荡月（占比接近或月均 fr≈50%）。
+    month_rows = conn.execute(
+        "SELECT substr(date,1,6) as month, dominant_dir, COUNT(*) as cnt, "
+        "AVG(follow_ratio) as avg_fr "
+        "FROM futures_ih_detail_acc WHERE role='中信期货' "
+        "GROUP BY month, dominant_dir ORDER BY month, dominant_dir"
+    ).fetchall()
+    month_dir_count = {}   # month -> {'同向':n, '逆向':n}
+    month_fr_sum = {}      # month -> sum(follow_ratio * cnt)
+    month_total = {}       # month -> total days
+    for r in month_rows:
+        m = r["month"]
+        d = r["dominant_dir"]
+        c = r["cnt"]
+        fr = r["avg_fr"] or 0
+        month_dir_count.setdefault(m, {"同向": 0, "逆向": 0})
+        if d in ("同向", "逆向"):
+            month_dir_count[m][d] = c
+        month_fr_sum[m] = month_fr_sum.get(m, 0) + fr * c
+        month_total[m] = month_total.get(m, 0) + c
+
+    # 按月判定风格：同向 / 逆向 / 震荡
+    month_seq = []  # list of (month, judge)
+    for m in sorted(month_dir_count.keys()):
+        same = month_dir_count[m]["同向"]
+        contra = month_dir_count[m]["逆向"]
+        total = month_total[m]
+        avg_fr = month_fr_sum[m] / total if total else 0
+        diff = abs(same - contra)
+        # 震荡月：同向/逆向天数差<=2，或月均 follow_ratio 落在 45-55% 区间
+        if diff <= 2 or 45 <= avg_fr <= 55:
+            judge = "震荡"
+        elif same > contra:
+            judge = "同向"
+        else:
+            judge = "逆向"
+        month_seq.append((m, judge))
+
+    # 规律 A：按月切换同向/逆向（连续同向/逆向段长度统计，震荡月打断连续段）
+    segments = []  # (direction, length, start_month, end_month)
+    cur_dir_seg = None
+    cur_len_seg = 0
+    cur_start_seg = None
+    prev_m_seg = None
+    for m, judge in month_seq:
+        if judge == "震荡":
+            # 震荡月风格不明确，结束当前连续方向段
+            if cur_dir_seg is not None:
+                segments.append((cur_dir_seg, cur_len_seg, cur_start_seg, prev_m_seg))
+                cur_dir_seg = None
+                cur_len_seg = 0
+                cur_start_seg = None
+            continue
+        if judge == cur_dir_seg:
+            cur_len_seg += 1
+        else:
+            if cur_dir_seg is not None:
+                segments.append((cur_dir_seg, cur_len_seg, cur_start_seg, prev_m_seg))
+            cur_dir_seg = judge
+            cur_len_seg = 1
+            cur_start_seg = m
+        prev_m_seg = m
+    if cur_dir_seg is not None:
+        segments.append((cur_dir_seg, cur_len_seg, cur_start_seg, prev_m_seg))
+
+    seg_lengths = [s[1] for s in segments]
+    seg_count = len(seg_lengths)
+    max_seg = max(seg_lengths) if seg_lengths else 0
+    avg_seg = round(sum(seg_lengths) / seg_count, 1) if seg_count else 0
+    seg_le2 = sum(1 for l in seg_lengths if l <= 2)
+    seg_le2_pct = round(seg_le2 / seg_count * 100) if seg_count else 0
+
+    cur_seg = segments[-1] if segments else None
+    cur_seg_dir = cur_seg[0] if cur_seg else "-"
+    cur_seg_len = cur_seg[1] if cur_seg else 0
+
+    # 规律 A triggered：当前连续段已达历史上限，下月预期切换风格
+    p5_triggered = cur_seg_len >= 2
+    if cur_seg:
+        if cur_seg_len >= max_seg and max_seg > 0:
+            p5_status = (f"当前连续{cur_seg_len}月{cur_seg_dir}"
+                         f"（达历史最长{max_seg}月），下月预期切换风格")
+        else:
+            p5_status = (f"当前{cur_seg_dir}持续{cur_seg_len}月"
+                         f"（历史平均{avg_seg}月切换一次）")
+    else:
+        p5_status = "数据不足"
+    p5_stats = (f"近{seg_count}个连续段，平均{avg_seg}月切换一次，"
+                f"最长{max_seg}月，{seg_le2_pct}%段长≤2月")
+
+    # 规律 B：切换不顺畅三段式（同向-震荡-逆向 / 逆向-震荡-同向）
+    # 严格三段式：中间恰好 1 个震荡月，两端方向相反
+    triples_strict = 0
+    for i in range(1, len(month_seq) - 1):
+        prev_j = month_seq[i - 1][1]
+        cur_j = month_seq[i][1]
+        next_j = month_seq[i + 1][1]
+        if (cur_j == "震荡" and prev_j in ("同向", "逆向")
+                and next_j in ("同向", "逆向") and prev_j != next_j):
+            triples_strict += 1
+
+    # 宽泛震荡过渡切换：方向切换事件中，两段之间隔>=1 个震荡月的次数
+    switch_events = 0
+    osc_transition = 0
+    last_non_osc = None  # (month, judge, seq_index)
+    for idx, (m, judge) in enumerate(month_seq):
+        if judge in ("同向", "逆向"):
+            if last_non_osc is not None and judge != last_non_osc[1]:
+                switch_events += 1
+                between = month_seq[last_non_osc[2] + 1:idx]
+                if any(j == "震荡" for _, j in between):
+                    osc_transition += 1
+            last_non_osc = (m, judge, idx)
+
+    osc_pct = round(osc_transition / switch_events * 100) if switch_events else 0
+
+    # 规律 B triggered：当前正处于震荡过渡月（上月方向月，本月震荡）
+    p6_triggered = False
+    if len(month_seq) >= 2:
+        last_j = month_seq[-1][1]
+        prev_j = month_seq[-2][1]
+        if last_j == "震荡" and prev_j in ("同向", "逆向"):
+            p6_triggered = True
+            flip = "逆向" if prev_j == "同向" else "同向"
+            p6_status = (f"当前处于震荡过渡月（上月{prev_j}->本月震荡），"
+                         f"按规律下月可能切换为{flip}")
+        else:
+            p6_status = f"当前{last_j}（非震荡过渡期）"
+    else:
+        p6_status = "数据不足"
+    p6_stats = (f"历史{switch_events}次方向切换中{osc_transition}次经震荡过渡"
+                f"（{osc_pct}%），其中{triples_strict}次为严格"
+                f"'1月同向-1月震荡-1月逆向'三段式")
+
     conclusions = [
         {
             "level": "最强",
@@ -357,6 +493,24 @@ def export_futures_acc_conclusion(conn):
             "triggered": p4_triggered,
             "stats": "历史月级规律",
             "action": p4_action,
+        },
+        {
+            "level": "中等",
+            "signal": "按月切换风格",
+            "trigger": "中信同向/逆向按月切换，连续段平均1-2月",
+            "current_status": p5_status,
+            "triggered": p5_triggered,
+            "stats": p5_stats,
+            "action": "连续段达上限后关注风格切换",
+        },
+        {
+            "level": "辅助",
+            "signal": "切换不顺畅三段式",
+            "trigger": "切换不顺畅时出现 同向-震荡-逆向 三段式",
+            "current_status": p6_status,
+            "triggered": p6_triggered,
+            "stats": p6_stats,
+            "action": "震荡月后关注方向切换",
         },
     ]
 
