@@ -8,7 +8,7 @@
 // BUG-E：交互增强状态--industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 注：原 indexFilter（A 股/港股 指数筛选 select）已重构为目录锚点 chip(2026-07-20), 始终全部渲染, 点击 chip 跳转吸顶, 不再需要筛选状态
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15" };
+const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilter: "all" };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1385,6 +1385,10 @@ function _sigWindowSuffix() {
 function _sigTodayHint() {
   return state.sigWindowFilter === "y_15" ? "今日已排除" : "今日高亮";
 }
+// 2026-08-05 信号 cell ETF tag 数据缓存：index_id -> etfs。
+// _renderSignalGrid 渲染时从 items 填充，_bindSigEtfTags 绑定 popup 时按 data-etf-idx 取。
+let _sigEtfCache = {};
+
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
@@ -1411,6 +1415,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     const _windowDates = new Set(_sortedDates.slice(_lo));
     windowedItems = items.filter((it) => _windowDates.has(it.date));
   }
+  // 2026-08-05 填充 ETF 缓存（index_id -> etfs），供 cellHtml 的 ETF tag 绑定 popup 时取数据
+  if (kind === "signal") {
+    for (const it of items) {
+      if (it.index_id && it.etfs) _sigEtfCache[it.index_id] = it.etfs;
+    }
+  }
   let filtered = windowedItems;
   if (kind === "signal") {
     filtered = windowedItems.filter((it) => {
@@ -1433,6 +1443,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       // 默认过滤 band_hold(波段持有非操作项, 首页表格不显示); 点 band_hold chip 后 sigTypeFilter='band_hold' 才显示
       if (state.sigTypeFilter !== "band_hold" && _sigKey === "band_hold") return false;
       if (state.sigTypeFilter && _sigKey !== state.sigTypeFilter) return false;
+      // 2026-08-05 ETF 筛选：real_etf=只看有跟踪ETF的真实ETF标的；concept=只看概念标的(无ETF)
+      if (state.sigEtfFilter === "real_etf" && !(it.etfs && it.etfs.length > 0)) return false;
+      if (state.sigEtfFilter === "concept" && (it.etfs && it.etfs.length > 0)) return false;
       return true;
     });
   }
@@ -1515,7 +1528,20 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         }
         _titleParts.push("点击查看走势图");
         const _hoverTitle = _titleParts.join(" · ");
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
+        // 2026-08-05 ETF tag：真实ETF显 top1 代码+"+N"（buy类高亮），概念标的显"无ETF"灰标。
+        // 放 sig-idx-name 前（.sig-item overflow:hidden+ellipsis 截最右，ETF tag 在前确保可见）。
+        // data-etf-idx 供 _bindSigEtfTag 从 _sigEtfCache 取 etfs 绑定 popup（hover显top1/click弹全候选）。
+        let _etfTagHtml = "";
+        if (it.etfs && it.etfs.length > 0) {
+          const _top = it.etfs[0];
+          const _more = it.etfs.length > 1 ? `<span class="etf-more">+${it.etfs.length - 1}</span>` : "";
+          const _buyCls = { buy:1, buy_aux:1, buy_special:1, buy_special_filtered:1, buy_backup:1 }[it.signal] ? " etf-tag-buy-signal" : "";
+          const _approxMark = _top.approx ? '<span class="etf-approx-mark">⚠近似</span>' : "";
+          _etfTagHtml = `<span class="etf-tag${_buyCls}" data-no-pop="" data-etf-idx="${it.index_id}">${_top.code}${_more}${_approxMark}</span>`;
+        } else {
+          _etfTagHtml = '<span class="etf-tag etf-tag-empty" data-no-pop="">无ETF</span>';
+        }
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}" title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} ${_etfTagHtml}<span class="sig-idx-name">${indexIdToName(it.index_id)}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -1604,15 +1630,23 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       ? ` <button class="sig-acc-reset" data-window-filter-reset="1">恢复全部</button>`
       : "";
     _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
+    // 2026-08-05 ETF 筛选按钮行：all/real_etf/concept 三档 toggle（与 grade/correct/type/window 正交）
+    const _eActive = (f) => (state.sigEtfFilter === f ? " sig-acc-filter-active" : "");
+    const _etfBtn = (label, f, tip) =>
+      `<button class="sig-acc-seg sig-acc-filter${_eActive(f)}" data-etf-filter="${f}" data-tip="${_escAttr(tip)}">${label}</button>`;
+    const _realEtfCnt = windowedItems.filter((it) => it.etfs && it.etfs.length > 0).length;
+    const _conceptCnt = windowedItems.length - _realEtfCnt;
+    const _etfReset = state.sigEtfFilter !== "all" ? ` <button class="sig-acc-reset" data-etf-filter-reset="1">恢复全部</button>` : "";
+    const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含真实ETF标的+概念标的）")} · ${_etfBtn("真实ETF " + _realEtfCnt, "real_etf", "只看有跟踪ETF的指数（如沪深300/创业板指等宽基+行业指数），可点击 ETF 代码查看候选")} · ${_etfBtn("概念标的 " + _conceptCnt, "concept", "只看无跟踪ETF的概念标的（如部分综合指数），显灰色无ETF标")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
-    _accHtml = `<div class="sig-acc-wrap"><div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
+    _accHtml = `<div class="sig-acc-wrap"><div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}${_etfFilterRow}</div>`;
   }
   // 筛选后无匹配: 汇总条仍显示(窗口内统计), 列表区给提示
   if (kind === "signal" && !rows) {
     if (!windowedItems.length) {
       rows = `<div class="empty-note" style="margin:8px 0">当前时间窗口内无参考点，点击上方窗口按钮切换查看</div>`;
-    } else if (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter) {
+    } else if (state.sigGradeFilter || state.sigCorrectFilter || state.sigTypeFilter || state.sigEtfFilter !== "all") {
       rows = `<div class="empty-note" style="margin:8px 0">当前筛选无匹配参考点，点击"恢复全部"查看全部</div>`;
     }
   }
@@ -1662,6 +1696,7 @@ function _rerenderSigCardContent(r, snap) {
     if (badge) sigCard.appendChild(badge);
     if (hint) sigCard.appendChild(hint);
   }
+  _bindSigEtfTags(sigCard);  // 2026-08-05 增量重绘后重新绑定信号 cell ETF tag 交互
 }
 
 // ts:overview-refreshed hook: collected_at 变化时增量重绘 sigCard(非概览 tab / 无数据 / 同 collected_at 跳过)
@@ -8937,6 +8972,7 @@ async function renderOverview() {
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
   sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
+  _bindSigEtfTags(sigCard);  // 2026-08-05 绑定信号 cell ETF tag 交互
   addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 覆盖
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
@@ -8955,7 +8991,7 @@ async function renderOverview() {
   // A/B 方案(2026-07-29): 汇总条 button click 委托 toggle 评级/对错筛选, 优先于 .sig-clickable 弹窗。
   // E 方案(2026-07-31): 加时间窗口筛选 toggle, 与 grade/correct/type 正交(互不影响)。
   sigCard.addEventListener("click", (e) => {
-    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset], [data-window-filter], [data-window-filter-reset]");
+    const filterBtn = e.target.closest("[data-grade-filter], [data-correct-filter], [data-type-filter], [data-grade-filter-reset], [data-window-filter], [data-window-filter-reset], [data-etf-filter], [data-etf-filter-reset]");
     if (filterBtn) {
       e.preventDefault();
       e.stopPropagation();
@@ -8965,6 +9001,8 @@ async function renderOverview() {
         state.sigTypeFilter = null;
       } else if (filterBtn.hasAttribute("data-window-filter-reset")) {
         state.sigWindowFilter = "0_15";  // 窗口恢复全部(不影响 grade/correct/type)
+      } else if (filterBtn.hasAttribute("data-etf-filter-reset")) {
+        state.sigEtfFilter = "all";  // 2026-08-05 ETF 恢复全部
       } else if (filterBtn.dataset.gradeFilter != null) {
         const g = filterBtn.dataset.gradeFilter;
         state.sigGradeFilter = (state.sigGradeFilter === g) ? null : g;  // toggle: 再点同档恢复
@@ -8977,6 +9015,9 @@ async function renderOverview() {
       } else if (filterBtn.dataset.windowFilter != null) {
         const w = filterBtn.dataset.windowFilter;
         state.sigWindowFilter = (state.sigWindowFilter === w) ? "0_15" : w;  // toggle: 再点同窗口恢复
+      } else if (filterBtn.dataset.etfFilter != null) {
+        const f = filterBtn.dataset.etfFilter;
+        state.sigEtfFilter = (state.sigEtfFilter === f) ? "all" : f;  // 2026-08-05 toggle: 再点同档恢复 all
       }
       // 用最新 overview + snap 重绘(不依赖闭包 r/snap, 盘中自动更新后筛选也生效)
       _rerenderSigCardContent(_getCachedOverview(), state.intradaySnapshot);
@@ -14730,6 +14771,100 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
       document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
     }, { passive: true, capture: true });
   }
+}
+
+// 2026-08-05 信号 cell ETF tag 交互（hover 显 top1 mini / click 弹全部候选 full）。
+// 与指数表现 _bindEtfPopup（popup 挂 tag 内 absolute）不同：信号 .sig-item 有 overflow:hidden+ellipsis，
+// 会裁剪挂在其内的 absolute popup，故 popup 挂 document.body + position:fixed 绕开裁剪。
+// 单例 _sigEtfPop：同时只显一个 popup（hover mini 或 click full），切 tag 自动关前一个。
+let _sigEtfPop = null;  // 当前显示的 popup 元素（mini 或 full）
+function _closeSigEtfPop() {
+  if (_sigEtfPop) { _sigEtfPop.remove(); _sigEtfPop = null; }
+}
+function _positionSigEtfPop(tag, pop) {
+  const r = tag.getBoundingClientRect();
+  pop.style.left = r.left + "px";
+  pop.style.top = (r.bottom + 3) + "px";
+  pop.style.display = "block";
+}
+function _bindSigEtfTag(tag, etfs) {
+  if (!etfs || !etfs.length) return;
+  const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;
+  const top = etfs[0];
+  function buildMini() {
+    const p = document.createElement("div");
+    p.className = "etf-popup etf-popup-mini sig-etf-pop";
+    p.innerHTML = `<div class="etf-pop-row"><span class="etf-pop-code">${top.code}</span><span class="etf-pop-name">${top.name}</span><span class="etf-pop-amt">${top.amount}亿</span></div>`;
+    return p;
+  }
+  function buildFull() {
+    const p = document.createElement("div");
+    p.className = "etf-popup etf-popup-full sig-etf-pop";
+    p.innerHTML = `<div class="etf-pop-title">相关ETF · 按成交额排序 · 点击复制</div>` +
+      etfs.map((e) => `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span><span class="etf-pop-amt">${e.amount}亿</span></div>`).join("");
+    return p;
+  }
+  tag.addEventListener("click", (e) => {
+    if (e.target.closest(".etf-pop-row")) return;  // 点候选行复制，不 toggle
+    e.stopPropagation();  // 阻止冒泡到 sigCard -> openSignalChartModal
+    // toggle full：若当前显的是该 tag 的 full 则关闭，否则关前一个并显该 tag full
+    if (_sigEtfPop && _sigEtfPop.classList.contains("etf-popup-full") && _sigEtfPop._owner === tag) {
+      _closeSigEtfPop();
+      return;
+    }
+    _closeSigEtfPop();
+    const pop = buildFull();
+    pop._owner = tag;
+    document.body.appendChild(pop);
+    _positionSigEtfPop(tag, pop);
+    _sigEtfPop = pop;
+    pop.querySelectorAll(".etf-pop-row").forEach((row) => {
+      row.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        _copyEtfCode(row, row.dataset.code);
+        if (isTouch) _closeSigEtfPop();
+      });
+    });
+  });
+  if (!isTouch) {
+    tag.addEventListener("mouseenter", () => {
+      // full 打开时不显 mini（避免重叠）；切 tag 时关前一个显该 tag mini
+      if (_sigEtfPop && _sigEtfPop.classList.contains("etf-popup-full")) return;
+      _closeSigEtfPop();
+      const pop = buildMini();
+      pop._owner = tag;
+      document.body.appendChild(pop);
+      _positionSigEtfPop(tag, pop);
+      _sigEtfPop = pop;
+    });
+    tag.addEventListener("mouseleave", () => {
+      // 仅关自己触发的 mini（full 不随 mouseleave 关，需 click/点别处关）
+      if (_sigEtfPop && _sigEtfPop.classList.contains("etf-popup-mini") && _sigEtfPop._owner === tag) {
+        _closeSigEtfPop();
+      }
+    });
+  }
+}
+// 遍历 container 内信号 cell 的 ETF tag 绑定交互（_renderSignalGrid 后调用）。
+// 单次 document 绑定：点别处/滚动关 popup（full 需主动关，mini 随 mouseleave 关）。
+function _bindSigEtfTags(container) {
+  if (!container) return;
+  if (!document._sigEtfDocBound) {
+    document._sigEtfDocBound = true;
+    document.addEventListener("click", (e) => {
+      if (!_sigEtfPop) return;
+      if (e.target.closest && (e.target.closest(".etf-tag") || e.target.closest(".sig-etf-pop"))) return;
+      _closeSigEtfPop();
+    }, true);
+    window.addEventListener("scroll", () => { _closeSigEtfPop(); }, { passive: true, capture: true });
+  }
+  const tags = container.querySelectorAll(".sig-item .etf-tag[data-etf-idx]");
+  tags.forEach((tag) => {
+    if (tag._sigEtfBound) return;  // 避免重复绑定
+    tag._sigEtfBound = true;
+    const etfs = _sigEtfCache[tag.dataset.etfIdx];
+    if (etfs) _bindSigEtfTag(tag, etfs);
+  });
 }
 
 // B2 折中：行业 tooltip detail 按需加载（静态版瘦身主文件，detail 存 tooltip 专属字段）

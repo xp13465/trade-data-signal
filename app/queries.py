@@ -386,6 +386,10 @@ def overview(conn, cfg):
             "ORDER BY date DESC, index_id" % ",".join("?" * len(sig_dates)),
             sig_dates
         ).fetchall()]
+    # 2026-08-05 注入 ETF 候选到每条信号（前端信号 cell 展示 ETF tag + 真实ETF/概念标的筛选）。
+    # etf_for 已 lru_cache 零开销；etfs=[] 表示概念标的（无跟踪ETF，前端显"无ETF"灰标）。
+    for _s in sigs:
+        _s.update(etf_for(_s["index_id"]))
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
     # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
     # 用传入 conn 查（不调 normalize.load_* 避免新建连接，遵守模块无状态原则）。

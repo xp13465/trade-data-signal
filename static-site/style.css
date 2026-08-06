@@ -1649,6 +1649,10 @@ main { padding: 16px 24px; }
 .etf-pop-name { color: var(--text-1); }
 .etf-pop-amt { color: var(--text-3); margin-left: auto; }
 
+/* 2026-08-05 信号 cell ETF 筛选行 + popup（fixed 绕开 .sig-item overflow:hidden 裁剪）*/
+.sig-acc-etf-filter { color: var(--text-3); }
+.sig-etf-pop { position: fixed; }  /* 覆盖 .etf-popup absolute，绕开 .sig-item overflow:hidden 裁剪 */
+
 /* F2：行业资金流 / 成交额 / 换手率 mini sparklines */
 .industry-cell { padding: 8px 10px; }
 /* 行业卡片角标放右上角(pct-badge已内联到标题,右上空出);覆盖 .spark-cell 默认右下 */
