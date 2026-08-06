@@ -3188,7 +3188,14 @@ function fetchBoot() {
       if (boot) {
         _bootData = boot;
         // 分发到 state/缓存（各模块优先读 boot，fallback fetch）
-        if (boot.overview) _setCachedOverview(boot.overview);
+        // 方案A(2026-08-06): boot.json 盘中不重新生成时, boot.overview 可能是昨夜旧版
+        // (a_amount=昨日全天值). date < 今日(北京时间)则不存缓存, 让 renderOverview 独立
+        // fetch 最新 overview.json, 避免首屏成交额卡显示昨日值(根治 boot 缓存陈旧 overview).
+        if (boot.overview) {
+          if (!boot.overview.date || boot.overview.date >= _bjTodayStr()) {
+            _setCachedOverview(boot.overview);
+          }
+        }
         if (boot.signal_stats) state.signalStats = boot.signal_stats;
         // intraday_snapshot 只在 state.intradaySnapshot 为空时设（boot 的作初始值），
         // 避免覆盖 fetchIntradaySnapshot 已 fetch 到的最新值（盘中实时性，fetch 可能先于 boot 完成）
@@ -5035,6 +5042,72 @@ function refreshCardTimeBadges(snap) {
   });
 }
 
+// 方案C(2026-08-06): KPI 主值格式化（从 renderOverview.fmtMetric 提取到模块级复用）.
+// renderOverview 的 fmtMetric 和 _refreshKpiMainValues 共用，保证主值/重绘口径一致。
+function _fmtKpiValue(id, v) {
+  if (v == null) return "-";
+  switch (id) {
+    case "a_width_zhaban_rate":
+    case "a_width_seal_rate":
+    case "a_width_fengban_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
+    case "a_width_zt_count":
+    case "a_width_dt_count":
+    case "a_width_up_count":
+    case "a_width_down_count":
+    case "a_width_zb_count": return v.toFixed(0);
+    case "a_amount":
+    case "a_fund_margin": return v.toFixed(0);
+    case "a_fund_north":
+    case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1);
+    case "a_volume_ratio": return v.toFixed(2) + "x";
+    case "a_turnover_mean":
+    case "a_turnover_median":
+    case "a_turnover_p90":
+    case "a_turnover_p10": return v.toFixed(2) + "%";
+    case "a_turnover_gt5_pct": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
+    default: return v.toFixed(2);
+  }
+}
+
+// 方案C(2026-08-06): overview 3min 刷新缓存后, 原地重绘关键 KPI 主值(不全量 re-render).
+// 根因: _doOverviewRefresh 更新缓存+角标但不重绘主值, 致成交额等盘中实时指标卡在首屏旧值,
+// 需切 tab 才更新. 此函数从最新 overview 提取 metrics/scores, 原地更新 .cv-val.
+// a_volume_ratio 的 signal 标签(放量/缩量)随主值一起重建; a_amount 预估 pop 为 hover 次要元素,
+// 留待下次全量 render 同步(主值已更新即修复核心 bug).
+function _refreshKpiMainValues(r) {
+  if (!r || !r.today) return;
+  const map = {};
+  if (Array.isArray(r.today.metrics)) {
+    for (const m of r.today.metrics) {
+      if (m && m.id && m.value != null) map[m.id] = { v: m.value, signal: m.signal || "" };
+    }
+  }
+  if (r.today.scores) {
+    for (const [id, s] of Object.entries(r.today.scores)) {
+      if (s && s.value != null) map[id] = { v: s.value, isScore: true };
+    }
+  }
+  document.querySelectorAll(".card.kpi[data-kpi-key]").forEach((card) => {
+    const id = card.getAttribute("data-kpi-key");
+    const info = map[id];
+    if (!info) return;
+    const valEl = card.querySelector(".cv-val");
+    if (!valEl) return;
+    let newHtml;
+    if (id === "a_volume_ratio") {
+      const sig = info.signal || "";
+      const sigCls = sig.startsWith("放量") ? "fangliang" : sig.startsWith("缩量") ? "suoliang" : "";
+      const sigHtml = sig ? ` <span class="tag ${sigCls}" title="${sig}">${sig}</span>` : "";
+      newHtml = info.v.toFixed(2) + "x" + sigHtml;
+    } else if (info.isScore) {
+      newHtml = info.v.toFixed(1);
+    } else {
+      newHtml = _fmtKpiValue(id, info.v);
+    }
+    if (valEl.innerHTML.trim() !== newHtml) valEl.innerHTML = newHtml;
+  });
+}
+
 // 数据停更标记：指标末日距今>STALE_DAYS 天，判为源端长期停更（非我们采集故障），灰色提示区别于滞后(黄)/异常(红)
 // 适用源端停更/计算公式损坏等无法修复的长期停滞（如 QVIX(1000) 源端 optbbs 公式损坏，数据停在历史日期）
 const STALE_DAYS = 30;
@@ -6537,6 +6610,9 @@ async function _doOverviewRefresh() {
     // 重绘卡片角标(snap 更新后, T+0 盘中 HH:MM 变化 / T+1 分级可能变化). 收盘态也会先重绘(盘中->收盘切换).
     if (snap) refreshCardTimeBadges(snap);
     if (snap) refreshGlobalRealtimeBadges(snap); // AZ89 全球指数实时报价角标随 snap 更新
+    // 方案C(2026-08-06): 缓存已更新但主值未重绘, 致成交额等盘中实时卡卡在首屏旧值.
+    // 原地重绘关键 KPI 主值(不全量 re-render), 解决"3min刷新缓存但主值不更新, 需切tab才更新".
+    if (r) _refreshKpiMainValues(r);
     // P2-新-W: 通知检测钩子（overview 刷新成功后触发自定义事件，通知模块监听）
     try { window.dispatchEvent(new CustomEvent('ts:overview-refreshed', { detail: { snap } })); } catch(_e) {}
     if (snap && snap.is_closed === true) {
@@ -8028,32 +8104,8 @@ async function renderOverview() {
     content.appendChild(h);
   };
 
-  // KPI 指标值格式化
-  const fmtMetric = (m) => {
-    if (m.value == null) return "-";
-    const v = m.value;
-    switch (m.id) {
-      case "a_width_zhaban_rate":
-      case "a_width_seal_rate":
-      case "a_width_fengban_rate": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
-      case "a_width_zt_count":
-      case "a_width_dt_count":
-      case "a_width_up_count":
-      case "a_width_down_count":
-      case "a_width_zb_count": return v.toFixed(0);
-      case "a_amount":
-      case "a_fund_margin": return v.toFixed(0);
-      case "a_fund_north":
-      case "a_fund_main": return (v >= 0 ? "+" : "") + v.toFixed(1);
-      case "a_volume_ratio": return v.toFixed(2) + "x";
-      case "a_turnover_mean":
-      case "a_turnover_median":
-      case "a_turnover_p90":
-      case "a_turnover_p10": return v.toFixed(2) + "%";
-      case "a_turnover_gt5_pct": return (v * 100).toFixed(1) + "%"; // 存储为 0-1 小数
-      default: return v.toFixed(2);
-    }
-  };
+  // KPI 指标值格式化（方案C: 复用模块级 _fmtKpiValue，保证主值渲染/3min重绘口径一致）
+  const fmtMetric = (m) => _fmtKpiValue(m.id, m.value);
 
   // ---- 1. 基础数据区（置顶）：KPI 卡片行 + 指数 sparkline 网格 ----
   // 散户最先看的行情速览：涨停/跌停/成交额/情绪分 等 KPI + 10 大指数迷你走势

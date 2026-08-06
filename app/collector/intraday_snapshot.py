@@ -1918,6 +1918,16 @@ def _export_affected_json(is_closed: bool = False) -> None:
     except Exception as e:  # noqa: BLE001
         print(f"  [intraday] rotation 导出失败（不阻断）: {type(e).__name__} {e}", flush=True)
 
+    # 方案B(2026-08-06): 重新生成 boot.json, 保证 boot.overview 始终最新.
+    # 根因: boot.json 只在 export.py(17:50/23:00) 生成, 盘中 intraday 每10min 刷新了
+    # overview.json/intraday_snapshot.json/summary.json 但未刷新 boot.json, 致 boot.overview
+    # 嵌的是昨夜旧版(a_amount=昨日全天值), 前端 fetchBoot 缓存旧 overview 致成交额卡显示昨日值.
+    # 此处 overview/summary/intraday_snapshot 均已刷新落盘, export_boot() 读最新版合并即可.
+    try:
+        export_mod.export_boot()
+    except Exception as e:  # noqa: BLE001
+        print(f"  [intraday] boot.json 重新生成失败（不阻断）: {type(e).__name__} {e}", flush=True)
+
     conn.close()
     _g_cnt = len(export_mod.EXPORT_RANGES) if is_closed else 0
     print(f"  [intraday] 静态 JSON dump 完成：overview + sentiment×5 + index detail×{len(affected)} "
