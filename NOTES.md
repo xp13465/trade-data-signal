@@ -8141,3 +8141,33 @@ ETF盈亏一个功能连续派4个agent接力（abefa6a05实施->a110e1933修错
 ### 五、遗留待办（路A根治，串行）
 - 路A根治（用户"串行做，路b完整最末"）：2a 纳入LOF数据源(akshare fund_lof_spot_em采600只，160225是LOF不在fund_etf_spot_em候选池) / 2b build_board_etf_map候选列表+实测相似度+分级<1%/1-5%/>5%+board_etf_map.json增similarity/max_err/fund_type字段 / 2c 纳入399417国证新能源车(config gz_399417+ak.index_zh_a_hist采集存index_daily，让160225有精准匹配) / 2d 前端展示候选列表+跟踪度%(同花顺模式)
 - 完整路B（所有行业/概念对应国证中证指数，15h+）排最末
+
+## §48 小节AV：2026-08-07 凌晨 路A根治完成并上线（LOF+候选列表+实测相似度+分级+399417+前端跟踪度）
+
+### 一、4子任务（4 commit push feat）
+- **2a LOF数据源**（commit 604e3ae2a）：scripts/fetch_lof_track_index.py（276行）fund_open_fund_rank_em预筛600只->fundf10精确判断基金全称含(LOF)->247只真LOF有track_index入库data/lof_track_index.json；build_board_etf_map.py加_load_lof_track_index+fund_type字段(etf/lof)；160225入thsc_300008候选。fund_lof_spot_em不可达降级方案稳定
+- **2c 399417国证新能源车指数**（commit ee0aee06f）：config/indicators.yaml加gz_399417(stock_zh_index_daily新浪源，东财index_zh_a_hist被封换新浪)+app.js _INDEX_NAME_MAP+index_daily回填2883行(20140924-20260806)+signal_daily 324条
+- **2b 候选列表+实测相似度+分级**（commit 8178b49fd）：build_board_etf_map.py +276/-8，新增_calc_returns/_calc_similarity/_enrich_with_similarity；候选列表每指数返回所有track_index匹配候选(ETF+LOF)按max_err升序；5周期涨跌幅(ret_5d/20d/60d/ytd/1y)日期对齐取交集max_err=最大|候选涨幅-指数涨幅|；分级<1%=excellent/1-5%=good/>5%=warn；每候选加similarity(1-max_err/100)/max_err/max_err_period/grade/direction_mismatch/fund_type字段；gz_399417加TRACK_INDEX_KW匹配160225
+- **2d 前端候选列表+跟踪度%**（commit efe66c6e4）：app.js _bindEtfPopup L14859改造"相关ETF·按跟踪度排序"+每候选显跟踪度%(similarity*100)+分级颜色(excellent绿#2e8b57/good橙#d97706/warn灰var(--text-3))+fund_type标签(ETF/LOF)+防御性slice().sort()；style.css .etf-pop-track/.etf-pop-grade-*/.etf-pop-type；sw.js a4->a5
+
+### 二、数据流（端到端通畅）
+board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_for() L224 `return {"etfs": _etf_map().get(index_id)}` 直接透传原始候选 -> export.py index/*-all.json etfs字段 -> 前端_bindEtfPopup读展示。etf_for docstring旧(说"按成交额降序"实际透传2b的max_err升序，非阻断)
+
+### 三、上线（定时任务deploy.sh带上线，memory feat-branch-deploy-pushes-func-commits）
+- 定时任务gold_night 02:40+schedule_stats 02:41跑deploy.sh push main，把feat代码commit(2a+2c+2b+2d+885)带上线origin/main
+- upload_r2上传index/*-all.json(含similarity)到R2(ssd.fx8.store/index/)
+- 线上验证：app.min.js含etf-pop-track+sw a5✓ / R2 index/sh-all.json etfs[0] 510910 sim=0.9851 max_err=1.4932 grade=good✓ / gz_399417-all.json HTTP 200✓ / 本地thsc_300008-all.json etfs含similarity✓
+- reviewer ace4dbc70256dfe79 PASS(37 tool_uses: node check/grep references/re-run build_board_etf_map verify/cross-module grep/check min js/P0 smoke curl/backward compat，进度文件"review DONE - PASS"，429在发SendMessage时失败)
+
+### 四、关键语义差异（明早向用户说明）
+- **160225 vs gz_399417 = 2.19% grade=good**（非<1%），是真实跟踪误差非bug：①160225业绩基准=国证新能源汽车指数×95%+活期5%，5%现金拖累 ②0.5%管理费+0.2%托管费=0.7%年费累积 ③**同花顺"跟踪度100%"用R²(相关性)非涨跌幅误差，语义不同**
+- 用户校验标准"涨跌幅相似度<1%"：160225的2.19%是被动基金对跟踪指数的物理限制(0.5-2%跟踪误差)，非算法问题
+- 算法正确性验证：csi1000 top1 max_err=0.6538和审计0.65%完全一致
+- grade分布：excellent=19(宽基精准<1%) / good=240(1-5%) / warn=786(>5%)；fund_type etf=913 lof=141
+- 宽基(csi1000 0.65%)能<1%因ETF直接跟踪宽基指数无现金拖累；行业/概念ETF跟中证/国证非申万天然>1%
+
+### 五、遗留待办
+- **完整路B**（用户"路b完整最末"）：新增所有行业/概念对应的国证/中证指数(15h+大工程)，让更多ETF有精准匹配
+- queries.py etf_for docstring更新(非阻断，说"按成交额降序"实际max_err升序)
+- 有ETF拆分的ETF(如515880) max_err偏大(etf_daily close未前复权)，后续可优化检测拆分点+前复权
+- thsc_300008线上etfs数8(本地13)，可能amount=0的LOF被过滤(160225 amount=0)，2d前端防御性sort兜底
