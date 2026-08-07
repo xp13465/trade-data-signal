@@ -2101,13 +2101,13 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         var _idxCorrectRaw = el.getAttribute("data-idx-correct");
         var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
         var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";
-        idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:' + _idxColor + '">' + _idxPrefix + '指数至今 ' + _idxRetStr + _idxDirS + '</span>';
+        idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:' + _idxColor + '">指数至今 ' + _idxRetStr + _idxDirS + '</span>';
       }
     }
     // 2026-08-07 今日信号未结算提示（since_return=null -> cell data-idx-unsettled，收盘后更新）
     var _idxUnsettled = el.getAttribute("data-idx-unsettled");
     if (_idxUnsettled === "1" && _idxPrefix) {
-      idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">' + _idxPrefix + '指数至今: 今日信号未结算（收盘后更新）</span>';
+      idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">指数至今: 今日信号未结算（收盘后更新）</span>';
     }
     var etfHtml = "";
     var _popDate = el.getAttribute("data-date");
