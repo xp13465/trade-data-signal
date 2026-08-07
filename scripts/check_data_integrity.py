@@ -468,6 +468,58 @@ def check_etf_index_map(repo_data_dir: Path) -> CheckResult:
     return _warn(name, f"etf_index_map.json 结构异常: {type(data).__name__}")
 
 
+def check_signal_kelly_backtest(data_dir: Path) -> CheckResult:
+    """校验 signal_kelly_backtest.json：6象限×3周期×4模式=72组合完整。
+
+    事故场景：脚本异常/ETF价格缺失 -> quadrants 为空或组合不完整 -> 前端 lab tab 全空。
+    """
+    name = "signal_kelly_backtest"
+    path = data_dir / "signal_kelly_backtest.json"
+    data, err = _load_json(path)
+    if err:
+        return _warn(name, err)  # 首次部署前文件不存在，WARN 不阻断
+    if not isinstance(data, dict):
+        return _fail(name, f"signal_kelly_backtest.json 不是 dict: {type(data).__name__}")
+
+    quadrants = data.get("quadrants")
+    if not isinstance(quadrants, dict):
+        return _fail(name, "无 quadrants 字段或不是 dict")
+
+    expected_quads = {"rating_high", "rating_mid", "rating_low",
+                      "etf_strong", "etf_related", "etf_approx"}
+    missing = expected_quads - set(quadrants.keys())
+    if missing:
+        return _fail(name, f"缺少象限: {missing}")
+
+    # 验证 6×3×4=72 组合完整 + 非零象限有样本
+    total_n = 0
+    empty_quads = []
+    for qk, qv in quadrants.items():
+        if not isinstance(qv, dict) or "periods" not in qv:
+            return _fail(name, f"象限 {qk} 结构异常")
+        periods = qv["periods"]
+        if not isinstance(periods, dict) or set(periods.keys()) != {"y1", "y3", "all"}:
+            return _fail(name, f"象限 {qk} 周期不完整: {set(periods.keys()) if isinstance(periods, dict) else 'N/A'}")
+        for pk, pv in periods.items():
+            if not isinstance(pv, dict) or set(pv.keys()) != {"A", "B", "C", "D"}:
+                return _fail(name, f"象限 {qk} 周期 {pk} 模式不完整")
+            for mk, mv in pv.items():
+                if isinstance(mv, dict) and "n" in mv:
+                    total_n += mv["n"]
+        # all 周期 A 模式样本数
+        n_all_a = _get_nested(qv, "periods", "all", "A", "n", default=0)
+        if n_all_a == 0:
+            empty_quads.append(qk)
+
+    if total_n == 0:
+        return _fail(name, "所有象限所有组合样本数=0（脚本异常或数据缺失）")
+
+    msg = f"72组合完整, all/A 总样本={total_n}"
+    if empty_quads:
+        msg += f", 零样本象限: {empty_quads}"
+    return _ok(name, msg)
+
+
 # ── 关键文件存在性校验 ────────────────────────────────────────────────────────
 
 def check_key_files(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
@@ -510,6 +562,7 @@ def run_all_checks(data_dir: Path, repo_data_dir: Path) -> list[CheckResult]:
     results.append(check_ad_line(data_dir))
     results.append(check_a_stock(data_dir))
     results.append(check_etf_index_map(repo_data_dir))
+    results.append(check_signal_kelly_backtest(data_dir))
 
     # 关键文件存在性
     results.extend(check_key_files(data_dir, repo_data_dir))

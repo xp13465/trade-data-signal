@@ -336,7 +336,7 @@ for _f in boot overview futures futures_acc_trend futures_acc_conclusion ad_line
           summary summary_history signal_freq signal_stats \
           rotation new_high_low ma_alignment intraday_snapshot \
           alert etf_score_list_buy etf_score_list_sell etf_score_list_hold trade_sim_indices \
-          lab_ablation lab_cost_compare lab_param_scan lab_short_symmetry; do
+          lab_ablation lab_cost_compare lab_param_scan lab_short_symmetry signal_kelly_backtest; do
   DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
 done
 # feed.xml（gen_rss.py 生成，非 .json）+ min JS/CSS（build_min.py 生成的全部 6 个 min 文件，

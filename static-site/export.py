@@ -917,6 +917,23 @@ def main():
     counts["signal_stats.json"] = write_json(DATA_DIR / "signal_stats.json", _get_stats())
     print(f"  signal_stats.json ({counts['signal_stats.json']} bytes)")
 
+    # 7.9.2 signal_kelly_backtest（信号凯利回测: 6象限×4模式×3周期, 读 signal_stats+board_etf_map+etf_daily）
+    # 独立脚本 scripts/signal_kelly_backtest.py, subprocess 调用(隔离 import 副作用)。
+    # 失败不阻塞 export(前端 fallback null); signal_stats.json 刚写入, 脚本优先读 static-site/data/ 版。
+    try:
+        _sk = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "signal_kelly_backtest.py"),
+             "--output", str(DATA_DIR / "signal_kelly_backtest.json")],
+            capture_output=True, text=True, timeout=120, cwd=str(ROOT))
+        _sk_path = DATA_DIR / "signal_kelly_backtest.json"
+        if _sk.returncode == 0 and _sk_path.exists():
+            counts["signal_kelly_backtest.json"] = _sk_path.stat().st_size
+            print(f"  signal_kelly_backtest.json ({counts['signal_kelly_backtest.json']} bytes)")
+        else:
+            print(f"  signal_kelly_backtest.json: 失败 rc={_sk.returncode} stderr={_sk.stderr[:200]}")
+    except Exception as _e:  # noqa: BLE001
+        print(f"  signal_kelly_backtest.json: 异常 {_e}")
+
     # 7.10. rotation
     counts["rotation.json"] = write_json(DATA_DIR / "rotation.json", export_rotation(conn))
     print(f"  rotation.json ({counts['rotation.json']} bytes)")
