@@ -1385,9 +1385,9 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **接入简单✓**: 扩board_etf_map.json每ETF加track_score/track_tier/track_avg_dev/track_te/track_ir/track_r2/track_roll_std/track_n字段;queries.py透传(裁剪只留track_score+track_tier减体积);前端_etfMatchTags并列展示(🟢·良好·1.1%·跟踪85)+排序改track_score降序+_etfTier改track_tier。走现有deploy(CF Static Assets,无R2无新cron无新upload)。
 - **工时~13h(1.5-2天)**: 后端_calc_tracking_score()4h+数据产物1h+前端4h+归类2h+测试上线2h。
 
-### 待用户定3处优化(agent建议偏离用户原方案,理由充分)
+### 3处优化已定✅(用户2026-08-08确认按主控推荐:rank✓/权重TE30方案✓/每日✓;board-index语义按推荐接受)
 1. **归一化**: 用户原min-max → agent建议**百分位rank**(防一个跨境ETF TE=40%拉大range致其他挤中段失区分度;跨ETF相对比较比绝对阈值公平,因board-index语境绝对TE天然偏高)。主控推荐采纳。
-2. **权重**: 用户原 偏离25/年误差25/IR25/R²15/滚动10 → agent建议 **TE30/R²25/偏离15/滚动15/IR15**(TE提主指标;IR降权因语义冲突-正IR对投资者好但对跟踪是系统性偏离,用|IR|且cap±5)。**投资哲学分歧待用户定**:用户原方案IR占25%看重"正误差效率ETF略微跑赢",agent纯看"跟得准"。
+2. **权重**: 用户原 偏离25/年误差25/IR25/R²15/滚动10 → agent建议 **TE30/R²25/偏离15/滚动15/IR15**(TE提主指标;IR降权因语义冲突-正IR对投资者好但对跟踪是系统性偏离,用|IR|且cap±5)。**✅已定(用户2026-08-08确认按推荐)**:agent实测分布合理(13.4%strong/13.6%related/23.7%approx/49.3%none);avg_dev降15%因TE提主指标后避免与TE重复衡量偏离,IR降15%因语义冲突用|IR|且cap±5。
 3. **更新频率**: 用户原每周 → agent建议**每日**(集成进build_board_etf_map.py,deploy.sh L101每日跑,6.3s无压力,数据更新鲜零新cron零运维)。主控推荐采纳。
 
 ### 设计决策:board-index语义(待用户确认)
@@ -1500,5 +1500,5 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
   - 第一优先级链:复权阶段1(在跑)-> T1 复权2/3 -> D1 ETF评分+信号灯 -> 信号凯利回测(依赖D1找靠谱ETF,卖出4模式A/B/C/D已确认)
   - 第二优先级(独立):T9 全站性能
   - T5 日图hover:已确认实施(commit 726eca7be 2026-08-06),从待办移除
-- 待用户确认:D1 的 TE/Dev 权重(推荐TE30/Dev25)(信号凯利回测3/5/7%已确认独立阈值4模式)
+- D1 权重已定✅(用户2026-08-08确认:TE30/R²25/avg_dev15/roll_std15/|IR|15,agent完整方案)。board-index语义按推荐接受。信号凯利回测4模式已确认。**D1 无待确认点,等复权->T1完成即可实施**
 - 等复权阶段1 报告 -> 接 T1
