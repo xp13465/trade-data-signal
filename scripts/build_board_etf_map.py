@@ -362,6 +362,38 @@ def _load_etf_index_map_reverse() -> dict[str, list[dict]]:
     return rev
 
 
+def _etf_index_map_amount(etf_code: str) -> float:
+    """从 etf_index_map.json 直接读指定 ETF 的 amount（元），转亿元。
+    reverse_map 跳过 status!="ok" 的 ETF（如 159905 sz_div 主动留空 status="no_track"），
+    本函数不过滤 status，直接按 code 查（用于 manual fallback 取 amount）。
+    读不到返回 0.0。
+    """
+    if not ETF_INDEX_MAP_PATH.exists():
+        return 0.0
+    try:
+        with open(ETF_INDEX_MAP_PATH, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return 0.0
+    info = d.get(etf_code)
+    if not isinstance(info, dict):
+        return 0.0
+    return round((info.get("amount", 0) or 0) / 1e8, 2)
+
+
+def _fallback_159905_amount(reverse_map: dict[str, list[dict]]) -> float:
+    """159905 amount 兜底：df_by_code 无时用 etf_index_map.json 直读（reverse_map
+    因 159905 status="no_track" 无 399324 条目，故不走 reverse_map）。"""
+    amt = _etf_index_map_amount("159905")
+    if amt > 0:
+        return amt
+    # etf_index_map.json 也无，reverse_map 399324 条目最后兜底（理论上不会有）
+    cands = reverse_map.get("399324", []) if reverse_map else []
+    if cands:
+        return round((cands[0].get("amount", 0) or 0) / 1e8, 2)
+    return 0.0
+
+
 # akshare 名称匹配兜底规则（etf_index_map.json 缺失时用 fund_etf_spot_em 名称反推 track_index_code）。
 # 与 gen_etf_index_map.py INDEX_NAME_RULES 同源，覆盖 14 指数（sz_div 主动留空）。
 # akshare fund_etf_spot_em 不返回 track_index_code 字段，名称匹配是唯一反推方式。
@@ -932,6 +964,38 @@ def main():
         out[iid] = etfs
         if not etfs:
             empty_boards.append(f"{iid} {name_by_id.get(iid, iid)}（宽基/红利/综合/港股）")
+
+    # sz_div 深证红利 manual fallback（2026-08-07）：
+    # ETF 159905"红利ETF工银"名无"深"字，gen_etf_index_map.py INDEX_NAME_RULES["sz_div"] include=[]
+    # 主动留空 -> etf_index_map.json[159905].track_index_code="" status="no_track" -> reverse_map 无
+    # 399324 -> _build_index_etf_map_auto 返空 -> board_etf_map.json["sz_div"]=[] -> 前端"无相关ETF"。
+    # 手动注入 159905（eastmoney fundf10 jbgk_159905 验证：跟踪标的=深证红利指数，业绩比较基准=
+    # 深证红利价格指数，指数代码 399324 经 eastmoney push2 f57=399324 f58=深证红利 确认）。
+    if not out.get("sz_div"):
+        _sz_code = "159905"
+        _sz_name = "红利ETF工银"
+        _r = df_by_code.get(_sz_code) if df_by_code else None
+        if _r is not None:
+            try:
+                _sz_amt = round(float(_r["成交额"]) / 1e8, 2)
+                _sz_name = str(_r["名称"])
+            except (TypeError, ValueError, KeyError):
+                _sz_amt = _fallback_159905_amount(reverse_map)
+        else:
+            _sz_amt = _fallback_159905_amount(reverse_map)
+        out["sz_div"] = [{
+            "code": _sz_code,
+            "name": _sz_name,
+            "amount": _sz_amt,
+            "approx": False,
+            "track_index_name": "深证红利指数",
+            "track_index_code": "399324",
+            "match_method": "manual_fallback",
+            "fund_type": "etf",
+        }]
+        # 移除 sz_div 的留空标记（上方 L934 循环在注入前已 append，现在已非空）
+        empty_boards = [b for b in empty_boards if not b.startswith("sz_div ")]
+        print(f"  [sz_div fallback] 注入 {_sz_code} {_sz_name} ({_sz_amt}亿) [manual_fallback]")
 
     # ── 路 A-2b：实测相似度计算 + 按相似度排序 ──
     # 每候选 vs 指数算多周期 max_err（5周期涨跌幅最大误差%），加 similarity/max_err/grade 字段
