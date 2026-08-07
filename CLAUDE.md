@@ -9,6 +9,7 @@
 - 别以"验收"为名亲手 grep 一堆--验收是确认 agent 已报的结论,不是自己去发现根因
 - 教训:compact 后曾亲手跑 6 个 Bash 查 indices 结构/renderGlobal 逻辑(调研活,违规);只 grep 一行确认清单算验收
 - **compact 恢复 5 步清单**(2026-08-07 补,防 compact 后丢 transient 状态):compact 后第一动作 5 步恢复:①读 TASKS 会话状态小节(当前在跑的 agent/待办/决策)②读 NOTES §48 近期章节 ③CronList 查活跃 cron ④stat -L 查 agent jsonl mtime 确认在跑/卡死 ⑤git log 查最近 commit 链确认上线状态。派 agent/收报告/设 cron/commit 后实时 Edit TASKS 会话状态小节
+- **reviewer PASS 后主控不 §0 复验代码 + 主控§0 与 agent 自验去重**(2026-08-07 用户定,省 token):①reviewer 是独立验收 agent(fresh context 批判性查),reviewer PASS 后主控信 reviewer,不 §0 重复 grep 代码点。主控 §0 只验上线点(push hash 在 main + curl 验功能生效层,reviewer 不验线上 deploy)+ 复验可疑 reviewer(FAIL/可疑时亲自确认再回滚/修)。即 §0 从"验代码"转为"验上线+复验可疑"②agent 自验 grep 代码点,主控 §0 不重复同点,只验 agent 自验没覆盖的。避免三层(agent 自验+主控§0+reviewer)重复 grep 代码点
 
 ## 1. 开工前先读工作模式
 每次会话开始/恢复上下文/接新任务,第一件事先读本文件(或对应 memory),不是想读才读。这是和"杜绝 token 浪费"并列的硬准则。
@@ -131,7 +132,7 @@
 - **⚠️ 每次代码改动都要独立 review + 回归测试(2026-08-06 用户强化标准)**:不只大改动,**任何**改 app.js/lab.js/style.css/后端逻辑/数据产物脚本的改动,push 上线前必须:①派独立 task-reviewer 子 agent(grep 改动文件被谁引用+跑 P0 smoke)②reviewer 通过才 push main。流程:实施 agent 改完 -> reviewer agent review -> 通过 -> 主控 push main。"改的人自己测"不算 review,必须额外一双眼睛。今天(8/6)收盘hover/Task1/预估校准上线时没派 reviewer(执行不到位,已补派回归 review),此后严格执行
 - **改动分级 + 小问题口子(2026-08-07 用户定,修订 L121 一刀切)**:review 本质是怕改坏逻辑,纯显示改无逻辑可坏,不需派 reviewer。按级别分级:
   - **A 级 小(纯显示)**:同时满足 5 条=①性质:纯显示/文案/CSS/常量配置(不动 if/for/事件绑定/数据结构/SQL/数据产物脚本) ②定位已知:改动点已知(用户指明或之前 agent 已定位行号),grep 即得,不需调研探索 ③量级:≤30 行纯改 ④验证:grep/读单点即确认正确(不需跑 smoke/多场景/curl 数据层) ⑤风险:前端代码可 git revert(不碰 DB/数据产物/后端/定时任务)。**主控直接改 + 主控 grep 自验 + 主控 push feat+main,不派实施 agent 不派 reviewer**。核心两条:纯显示不动逻辑 + 定位已知不需调研,任一不满足就升级派 agent
-  - **B 级 大(逻辑)**:逻辑分支/if/for/事件绑定/数据结构/跨函数/跨模块。派 agent 实施 + 派 reviewer agent(批判性+P0 smoke) + reviewer 通过主控 push main
+  - **B 级 大(逻辑)**:逻辑分支/if/for/事件绑定/数据结构/跨函数/跨模块。派 agent 实施 + 派 reviewer agent + reviewer 通过主控 push main。**reviewer 按影响面分级**(2026-08-07 补,省 token):①无隐藏影响面(单点逻辑,不被轮询/事件/跨函数引用):agent 自验+主控§0单点,不派 reviewer ②有隐藏影响面(轮询/事件/跨函数/数据被多模块读):派 reviewer 只查影响面+相关 smoke(不跑全 P0) ③广涉及面(跨模块/数据产物/定时任务/后端):完整 reviewer(全 P0 smoke+check_data_integrity)
   - **C 级 数据/后端**:数据产物/SQL/后端/定时任务。派 agent 实施 + 派 reviewer + 数据完整性校验(check_data_integrity.py deploy 前置) + reviewer 通过主控 push main
   - **小口子打包原则**:多个 A 级小改动(≥3 个 或合计 >50 行)凑一起=派 agent 合适(打包一个 agent 一次实施省 cherry-pick,主控改多个分散点易漏)。单个 A 级主控改,多个打包派 agent。A 级是否"过多"看分散度+总行数,不绝对按个数
   - **08-06 教训对应 C 级**(board_etf_map.json 数据产物损坏),非显示改。教训针对数据/逻辑,纯显示改不威胁逻辑,A 级不派 reviewer 合理
