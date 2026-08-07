@@ -3595,8 +3595,8 @@ function _renderLabSubNav() {
   const _EXPERIMENT_CHILDREN = ["single", "fusion"];
   const _EXPERIMENT_CHILD_LABELS = { single: "单一信号实验", fusion: "融合信号实验" };
   // custom 父tab 3级子tab: AI预警(原 custom 内容) + AI评分(原 aiscore 2级 tab 移入)
-  const _CUSTOM_CHILDREN = ["aiwarn", "aiscore"];
-  const _CUSTOM_CHILD_LABELS = { aiwarn: "🚨 AI预警", aiscore: "📈 AI评分" };
+  const _CUSTOM_CHILDREN = ["aiwarn", "aiscore", "sigkelly"];
+  const _CUSTOM_CHILD_LABELS = { aiwarn: "🚨 AI预警", aiscore: "📈 AI评分", sigkelly: "📊 信号凯利回测" };
   const isScanActive = _SCAN_CHILDREN.includes(cur);
   const isExperimentActive = _EXPERIMENT_CHILDREN.includes(cur);
   const isCustomActive = _CUSTOM_CHILDREN.includes(cur);
@@ -5768,7 +5768,7 @@ async function renderSignalLab() {
   // 如果有选中的策略，进详情页（仅单一信号模式）
   if (state.labStrategy && state.labSubMode !== "fusion" && state.labSubMode !== "retest"
       && state.labSubMode !== "ablation" && state.labSubMode !== "symmetry" && state.labSubMode !== "paramscan"
-      && state.labSubMode !== "aiwarn" && state.labSubMode !== "aiscore") {
+      && state.labSubMode !== "aiwarn" && state.labSubMode !== "aiscore" && state.labSubMode !== "sigkelly") {
     await renderLabDetail(state.labStrategy);
     return;
   }
@@ -5836,6 +5836,14 @@ async function renderSignalLab() {
   if (state.labSubMode === "aiscore") {
     await renderAIScoreListLab();
     _labSetHash("#lab?sub=aiscore");
+    _labRestoreScroll();
+    return;
+  }
+
+  // 自定义分析 > 信号凯利回测子tab -> 渲染6象限(3评级+3 ETF归类)×4模式×3周期半凯利仓位回测
+  if (state.labSubMode === "sigkelly") {
+    await renderSigKellyLab();
+    _labSetHash("#lab?sub=sigkelly");
     _labRestoreScroll();
     return;
   }
@@ -6942,6 +6950,155 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
   }
 });
 
+// === 信号凯利回测(sigkelly):6象限(3评级+3 ETF归类) x 4模式 x 3周期 半凯利仓位回测 ===
+// 数据: ./data/signal_kelly_backtest.json (后端 signal_kelly_backtest.py 生成, <100KB 走 CF Workers)
+// 布局: 顶部说明 + 周期切换tab(y1/y3/all) + 评级3卡 + ETF3卡(每卡4模式表格) + 底部色标
+async function renderSigKellyLab() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "lab-sigkelly-wrap";
+
+  // 顶部说明
+  renderPurposeNote(wrapper, PURPOSE_NOTES["lab.sigkelly"], { variant: "lab-sm" });
+
+  // 周期切换 + 参数条
+  const bar = document.createElement("div");
+  bar.className = "lab-sigkelly-bar";
+  wrapper.appendChild(bar);
+
+  // 内容 host
+  const host = document.createElement("div");
+  host.className = "lab-sigkelly-host";
+  host.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
+  wrapper.appendChild(host);
+
+  content.querySelectorAll(".lab-sigkelly-wrap").forEach((el) => el.remove());
+  content.appendChild(wrapper);
+
+  // fetch 数据(缓存到 state, 周期切换不重新 fetch)
+  if (!state.labSigKellyData) {
+    const v = _labCustomCacheBust();
+    const url = `./data/signal_kelly_backtest.json?v=${v}`;
+    try {
+      state.labSigKellyData = await fetchJSON(url);
+    } catch (e) {
+      host.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 数据加载失败</div><div class="lab-custom-error-detail">${e.message || e}</div><div class="lab-custom-error-hint">signal_kelly_backtest.json 不存在或网络异常。后端生成后自动恢复(每日收盘后更新)。</div><button type="button" class="lab-custom-retry">重试</button></div>`;
+      host.querySelector(".lab-custom-retry").onclick = () => { state.labSigKellyData = null; renderSigKellyLab(); };
+      return;
+    }
+  }
+  const data = state.labSigKellyData;
+  if (!data || !data.quadrants) {
+    host.innerHTML = `<div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 数据为空或结构异常</div><button type="button" class="lab-custom-retry">重试</button></div>`;
+    host.querySelector(".lab-custom-retry").onclick = () => { state.labSigKellyData = null; renderSigKellyLab(); };
+    return;
+  }
+
+  // 默认周期 y1
+  if (!state.labSigKellyPeriod) state.labSigKellyPeriod = "y1";
+  const period = state.labSigKellyPeriod;
+
+  _renderSigKellyBar(bar, data, period);
+  _renderSigKellyQuadrants(host, data, period);
+}
+
+// 周期切换条 + 回测参数展示
+function _renderSigKellyBar(bar, data, period) {
+  const cfg = data.config || {};
+  const periods = cfg.periods || { y1: "近1年", y3: "近3年", all: "全部" };
+  const tabsHTML = Object.keys(periods).map((k) =>
+    `<button type="button" class="lab-subnav-tab lab-sigkelly-period-btn${k === period ? " active" : ""}" data-period="${k}">${periods[k]}</button>`
+  ).join("");
+  const modes = cfg.sell_modes || {};
+  const modeStr = ["A", "B", "C", "D"].map((k) => modes[k] ? `${k}:${modes[k].label}` : k).join(" · ");
+  bar.innerHTML =
+    `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
+    `<div class="lab-sigkelly-params">` +
+      `<span>买${cfg.buy_amount || 1000}元 · 持有${cfg.hold_days || 10}天 · 卖出模式 ${modeStr}</span>` +
+      `<span class="lab-sigkelly-gen">📅 生成: ${data.generated_at || "-"}</span>` +
+    `</div>`;
+  bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((btn) => {
+    btn.onclick = () => {
+      state.labSigKellyPeriod = btn.dataset.period;
+      bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      const hostEl = document.querySelector(".lab-sigkelly-host");
+      if (hostEl && state.labSigKellyData) _renderSigKellyQuadrants(hostEl, state.labSigKellyData, btn.dataset.period);
+    };
+  });
+}
+
+// 6象限卡片网格(2组: 评级3 + ETF3)
+function _renderSigKellyQuadrants(host, data, period) {
+  const quads = data.quadrants || {};
+  const groups = [
+    { title: "按信号评级分组(10d score 评级)", keys: ["rating_high", "rating_mid", "rating_low"] },
+    { title: "按 ETF 跟踪评分分组(track_tier 归类)", keys: ["etf_strong", "etf_related", "etf_approx"] },
+  ];
+  let html = "";
+  for (const g of groups) {
+    html += `<div class="lab-sigkelly-group">`;
+    html += `<div class="lab-sigkelly-group-title">${g.title}</div>`;
+    html += `<div class="lab-sigkelly-grid">`;
+    for (const qk of g.keys) {
+      const q = quads[qk];
+      if (!q) continue;
+      html += _renderSigKellyCard(qk, q, period);
+    }
+    html += `</div></div>`;
+  }
+  html +=
+    `<div class="lab-sigkelly-legend">` +
+      `<span class="lab-sigkelly-legend-label">半凯利仓位色标:</span>` +
+      `<span class="lab-kelly-tier lab-kelly-aggressive">激进 ≥60%</span>` +
+      `<span class="lab-kelly-tier lab-kelly-balanced">均衡 30-60%</span>` +
+      `<span class="lab-kelly-tier lab-kelly-conservative">保守 <30%</span>` +
+      `<span class="lab-sigkelly-note">⚠️ 样本量 n<100 统计意义弱,仅供参考,非投资建议。半凯利=凯利比例/2(更保守)。</span>` +
+    `</div>`;
+  host.innerHTML = html;
+}
+
+// 单象限卡片: 4模式表格(A固定10天/B3%/C5%/D7%止盈)
+function _renderSigKellyCard(qk, q, period) {
+  const periods = q.periods || {};
+  const pdata = periods[period] || {};
+  const modes = ["A", "B", "C", "D"];
+  const modeLabels = { A: "固定10天", B: "3%止盈", C: "5%止盈", D: "7%止盈" };
+  let rows = "";
+  for (const m of modes) {
+    const r = pdata[m];
+    if (!r) {
+      rows += `<tr><td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td><td colspan="5" class="lab-sigkelly-empty">无数据</td></tr>`;
+      continue;
+    }
+    const hk = (r.half_kelly == null) ? 0 : r.half_kelly;
+    const tier = r.kelly_tier || "保守";
+    const tierCls = hk >= 60 ? "lab-kelly-aggressive" : hk >= 30 ? "lab-kelly-balanced" : "lab-kelly-conservative";
+    const n = r.n || 0;
+    const nStr = n < 100 ? `<span class="lab-sigkelly-nwarn" title="样本量少,统计意义弱">⚠️${n}</span>` : `${n}`;
+    const pl = r.pl_ratio;
+    const plStr = (pl == null || pl <= 0) ? "-" : pl.toFixed(2);
+    const wr = (r.win_rate == null) ? "-" : (r.win_rate * 100).toFixed(1) + "%";
+    const mr = (r.mean_return == null) ? "-" : r.mean_return.toFixed(2) + "%";
+    rows +=
+      `<tr>` +
+        `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td>` +
+        `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
+        `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
+      `</tr>`;
+  }
+  return (
+    `<div class="lab-sigkelly-card">` +
+      `<div class="lab-sigkelly-card-head">` +
+        `<div class="lab-sigkelly-card-name">${q.label || qk}</div>` +
+        `<div class="lab-sigkelly-card-desc">${q.desc || ""}</div>` +
+      `</div>` +
+      `<table class="lab-sigkelly-table">` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>均收益</th><th>样本</th></tr></thead>` +
+        `<tbody>${rows}</tbody>` +
+      `</table>` +
+    `</div>`
+  );
+}
+
 // 初始加载：读 hash 恢复 tab + 策略 + labSubMode（lab.js 在 app.js 之后加载，renderTab 已启动）
 // hash 格式：#lab?sub={labSubMode}（列表页保位）或 #lab/{strategyKey}（详情页）或 #lab（旧版默认 single）
 (function _labInitHashRestore() {
@@ -6961,7 +7118,7 @@ document.querySelectorAll("button[data-tab]").forEach((b) => {
   // 解析 ?sub= 恢复 labSubMode（列表页保位，避免 F5 回 single）
   if (queryPart) {
     const sub = new URLSearchParams(queryPart).get("sub");
-    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan", "custom", "aiwarn", "aiscore"].includes(sub)) {
+    if (sub && ["single", "fusion", "retest", "ablation", "symmetry", "paramscan", "custom", "aiwarn", "aiscore", "sigkelly"].includes(sub)) {
       // 兼容旧 hash #lab?sub=custom -> 跳转到新 aiwarn 子tab(custom 已拆为父tab)
       state.labSubMode = sub === "custom" ? "aiwarn" : sub;
     }
