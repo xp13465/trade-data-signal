@@ -300,6 +300,7 @@ main { padding: 16px 24px; }
   border-radius: 50%;
   background: var(--primary);
   animation: msb-blink 1.4s ease-in-out infinite;
+  will-change: transform, opacity;  /* P2-13: infinite 动画常驻合成层，避免每帧 repaint */
 }
 @keyframes msb-blink {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -987,6 +988,7 @@ main { padding: 16px 24px; }
   /* P0-② 左侧3px状态色条(默认灰, data-state覆盖) + P2-⑧ 玻璃拟态(半透明+backdrop-filter+多层阴影) */
   border-left: 3px solid var(--border-strong);
   overflow: hidden;
+  contain: layout style paint;  /* P2-13: KPI 卡内容独立，合成层+绘制隔离省滚动时外部 reflow/paint（本就 overflow:hidden，paint 裁剪冗余但无害） */
   transition: box-shadow 0.15s, border-color 0.15s, transform 0.1s, background-color 0.15s;
   background-color: color-mix(in srgb, var(--bg-card) 88%, transparent);
   backdrop-filter: blur(8px);
@@ -1388,6 +1390,7 @@ main { padding: 16px 24px; }
 .dyn-pulse-dot {
   width: 6px; height: 6px; border-radius: 50%; background: #2e8b57;
   animation: dyn-pulse-anim 1.6s ease-in-out infinite;
+  will-change: transform, opacity;  /* P2-13: infinite 动画常驻合成层，避免每帧 repaint */
 }
 @keyframes dyn-pulse-anim {
   0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(46,139,87,0.45); }
@@ -1926,7 +1929,7 @@ main { padding: 16px 24px; }
 }
 .collect-health[data-level="ok"] .collect-health-dot { background: #52c41a; }
 .collect-health[data-level="warn"] .collect-health-dot { background: #faad14; }
-.collect-health[data-level="error"] .collect-health-dot { background: #ff4d4f; animation: collectHealthBlink 1.4s ease-in-out infinite; }
+.collect-health[data-level="error"] .collect-health-dot { background: #ff4d4f; animation: collectHealthBlink 1.4s ease-in-out infinite; will-change: opacity; }  /* P2-13: opacity-only infinite 动画常驻合成层 */
 @keyframes collectHealthBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 .collect-health-pop {
   display: none;

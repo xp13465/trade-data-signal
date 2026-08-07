@@ -19910,19 +19910,24 @@ function initOnboarding() {
   });
 }
 
+// P2-10: 不可延迟的 init（布局/FOUC/renderTab 依赖），保持原序同步执行
 initNavStickyToggle();
 initStickyOffset();
-initBackToTop();
-initRuleButton();
 initH5();
 initSimIndices();   // 动态加载 SIM_INDICES 清单（fetch trade_sim_indices.json），renderTab 会 await
-initSimOverlay();
-initShareButton();
 initThemeSwitcher();
-initAuthButton();
-initNotifyButton();
-initOnboarding();
-initUpdateRules();
+// P2-10: 可延迟的 init（事件监听/弹窗创建/按钮绑定），requestIdleCallback 空闲时执行
+// 不在 renderTab 依赖链，无首屏/布局/数据渲染依赖；用户极早期不太可能交互这些按钮
+(window.requestIdleCallback || function (cb) { setTimeout(cb, 1); })(function () {
+  initBackToTop();
+  initRuleButton();
+  initSimOverlay();
+  initShareButton();
+  initAuthButton();
+  initNotifyButton();
+  initOnboarding();
+  initUpdateRules();
+});
 
 // === 主 tab hash 记忆 + 滚动位置恢复 ===
 // 切 tab 写 hash（replaceState 不入历史、不触发 hashchange），F5 读 hash 恢复 tab + 滚动位置。

@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a25';  // bump a24->a25: P0-4 R2边缘缓存,前端URL ssd.fx8.store -> ss.fx8.store/r2/(Worker代理+Cache API)
+const CACHE_VERSION = 'v6-20260808-a26';  // bump a25->a26: P2-13 CSS will-change+contain + P2-10 requestIdleCallback idle化
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
