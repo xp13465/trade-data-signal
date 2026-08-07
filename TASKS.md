@@ -956,7 +956,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **状态**：✅ 已实施 commit 17966eb7e（feat，待23:00+推main）。实际实施：fetchers.py提取cross_check_zt_pool公共函数（L286定义+L353调用）+ intraday三池log_collect（13处）+ 交叉验证（涨停/跌停用cross_check区分真0vs源失败，炸板只error）+ app.js L8071 _errItem显"🚨 采集失败"（比原方案改L4739更准确，直接读collect_health error状态）。未做降级源stock_zh_a_spot（交叉验证已足够）。明天盘中intraday-snapshot跑新代码验证collect_health显示error状态。详见 NOTES §48 小节AJ
 
-## 📋 2026-08-05 通知根因根治（commit 9e7c0f616，待23:00+推main）
+## ✅ 2026-08-05 通知根因根治（已上线，TASKS标注hash过期，fix在main：1fd547327+eda6a24d4）
 
 **根因**（用户反馈"13点多收到盘中异动邮件但浏览器没通知"）：
 1. 前端anomaly去重粒度太粗：app.js L7057去重key=`anomaly_${today}`（全天1次），上午9:26第一批异动弹过后13:16/13:26新异动全被去重跳过；后端邮件去重key=`type|kind|name`（标的级）新标的去重通过发邮件 = 邮件发了浏览器没通知
@@ -1007,7 +1007,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **上线状态**：3 commits（`be49e0064`+`f81a31bda`+`32a23a5f9`+`e4e265a2a`）已通过 17:50 定时任务 push main 自动带上线（§48 小节 AL 机制）。详见 NOTES §48 小节AN
 
-## 📋 2026-08-05 8/5 R2无数据根治（commit faf109e57，待23:00+推main）
+## ✅ 2026-08-05 8/5 R2无数据根治（已上线，TASKS标注hash过期，fix在main：d7f0133c2）
 
 **根因**：`intraday_snapshot.py` 盘中每 10 分钟生成 `sentiment-{rng}.json` 到主库但不上传 R2，前端 `app.js` dataUrl 对 `-all.json` 走 R2（ssd.fx8.store/data/），R2 只在 `export.py`（17:50）上传，盘中 R2 停在昨日致前端读旧数据（8/5 无数据事故）。**非 trade 镜像滞后**（曾误判，实际是 R2 上传滞后--盘中根本不上传 R2）。
 
@@ -1021,7 +1021,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **明天验证**：盘中验证 R2 `sentiment-all.json` 含 8/6 最新日期。详见 NOTES §48 小节AK
 
-## 📋 2026-08-05 信号设计方案B（commit 9df46887f，待23:00+推main）
+## ✅ 2026-08-05 信号设计方案B（已上线，TASKS标注hash过期，docs落档在main：d5426146f）
 
 **背景**：`sentiment_cyb` 在 `SCORE_IDS` 被当 close 算买卖点，但情绪分是 0-100 衍生指标非可交易标的，混入首页买卖点列表易误导且无 ETF 参考（`trade_sim`/`board_etf_map` 无 `s.` 前缀映射）。
 
@@ -1060,7 +1060,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 **待推 main**：方向C commit（待补，agent 完成后等 23:00+ 安全窗口或后续定时任务带上）
 
-## 📋 2026-08-05 信号邮件英文改中文（commit f42490af9，待推main）
+## ✅ 2026-08-05 信号邮件英文改中文（已上线，TASKS标注hash过期，fix在main：2870f564b）
 
 **背景**：信号邮件（收盘信号 / 异常波动 / 国家队信号）正文含大量英文标签和字段名（value/close/cross/vs前买/z-score 等），用户阅读不直观。
 
