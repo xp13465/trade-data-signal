@@ -5208,6 +5208,51 @@ function addCardTimeBadge(cardEl, dataDate, snap, srcClass, srcKey, isIndexSpark
   }
 }
 
+// 方案A(2026-08-07): 冰点日专用中性角标。近期冰点日卡片(recent_freeze 非空时)不复用 addCardTimeBadge,
+// 因 recent_freeze[0].date 是"冰点发生日"(历史事件),非"数据日期",用时效角标会被 getCardTimeBadge 判
+// "⚠ 滞后·MM-DD"(8/3<今日8/7 差4天)误报采集异常。改中性 t1-event 角标"📅 最新冰点日·MM-DD",
+// hover tooltip 说清缘由(冰点值+此后无新冰点+数据更新日期)。
+// recent_freeze 为空(120日无冰点)时不调用本函数,回退 addCardTimeBadge 用绿色 ovDate 时效角标(无 bug)。
+function _fmtFreezeMmdd(dateStr) {
+  if (!dateStr || dateStr.length !== 8) return dateStr || "";
+  return `${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
+}
+function getFreezeEventBadgeHTML(recent_freeze, ovDate) {
+  if (!Array.isArray(recent_freeze) || !recent_freeze.length || !recent_freeze[0] || !recent_freeze[0].date) return "";
+  const fr = recent_freeze[0];
+  const mmdd = _fmtFreezeMmdd(fr.date);
+  const v = (fr.value != null && !isNaN(fr.value)) ? Number(fr.value).toFixed(2) : "--";
+  const ovMmdd = _fmtFreezeMmdd(ovDate);
+  const tip = `最新冰点日 ${mmdd}(恐贪${v},<20 极度恐惧)。此后至今无新冰点日(恐贪回升均>20,市场正常回升),非数据异常。数据更新至 ${ovMmdd}。`;
+  return `<span class="card-time-badge t1-event" data-tip="${tip.replace(/"/g, "&quot;")}">📅 最新冰点日·${mmdd}</span>`;
+}
+// cardEl: 冻点卡片节点; recent_freeze: overview.recent_freeze; ovDate: overview.date; snap: intraday 快照
+// recent_freeze 为空(120日无冰点): 回退 addCardTimeBadge 用 ovDate + useOverviewDate=true(原 LOW-1 行为,轮询刷新)
+// recent_freeze 非空: 渲染 t1-event 中性角标, 打 data-badge-freeze/ovdate/date 供 refreshCardTimeBadges 重绘
+function addFreezeEventBadge(cardEl, recent_freeze, ovDate, snap) {
+  if (!cardEl) return;
+  if (!Array.isArray(recent_freeze) || !recent_freeze.length || !recent_freeze[0] || !recent_freeze[0].date) {
+    // 空 recent_freeze(120日无冰点): 保持原绿色时效角标行为(useOverviewDate=true 轮询刷新 ovDate), 无回归
+    addCardTimeBadge(cardEl, ovDate, snap, "t0", "", false, true);
+    return;
+  }
+  const html = getFreezeEventBadgeHTML(recent_freeze, ovDate);
+  if (!html) return;
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  const badge = tmp.firstElementChild;
+  if (!badge) return;
+  // data-badge-date: 选择器匹配(.card-time-badge[data-badge-date]) + 存冰点日供兜底;
+  // data-badge-freeze="1": refreshCardTimeBadges 据此走冰点专用重绘(读最新 _ov.recent_freeze+_ov.date);
+  // data-badge-ovdate="1": 语义同原(overview 刷新后角标需更新), 冰点分支已统一处理
+  badge.setAttribute("data-badge-date", recent_freeze[0].date || "");
+  badge.setAttribute("data-badge-src", "t0");
+  badge.setAttribute("data-badge-freeze", "1");
+  badge.setAttribute("data-badge-ovdate", "1");
+  cardEl.appendChild(badge);
+  cardEl.classList.add("has-time-badge");
+}
+
 // AZ89 P1+P2 全球指数实时报价角标(2026-07-31)：读 intraday_snapshot.global_realtime.<indexId>
 // 显示 price + chg_pct% + 时间, 涨红/跌绿/平橙(A股配色)。
 // 数据缺失(global_realtime 无该 indexId 或 snap 未就绪)不渲染, 不阻塞卡片。
@@ -5309,6 +5354,25 @@ function refreshCardTimeBadges(snap) {
     }
   }
   document.querySelectorAll(".card-time-badge[data-badge-date]").forEach((badge) => {
+    // 方案A(2026-08-07): 冰点日专用中性角标, 不走 getCardTimeBadge 时效判定(冰点日是历史事件非数据日期)。
+    // 打了 data-badge-freeze="1" 的角标, 用最新 _ov.recent_freeze[0] + _ov.date 重算中性角标(刷新冰点值/数据日期)。
+    if (badge.getAttribute("data-badge-freeze") === "1") {
+      const rf = _ov && Array.isArray(_ov.recent_freeze) ? _ov.recent_freeze : [];
+      const newHTML = getFreezeEventBadgeHTML(rf, _ov ? _ov.date : "");
+      if (newHTML) {
+        const tmp = document.createElement("div");
+        tmp.innerHTML = newHTML;
+        const newBadge = tmp.firstElementChild;
+        if (newBadge) {
+          newBadge.setAttribute("data-badge-date", rf && rf[0] && rf[0].date ? rf[0].date : "");
+          newBadge.setAttribute("data-badge-src", "t0");
+          newBadge.setAttribute("data-badge-freeze", "1");
+          newBadge.setAttribute("data-badge-ovdate", "1");
+          badge.replaceWith(newBadge);
+        }
+      }
+      return;  // 跳过下方 getCardTimeBadge 时效判定路径(冰点角标非时效语义)
+    }
     let dataDate = badge.getAttribute("data-badge-date") || "";
     const srcClass = badge.getAttribute("data-badge-src") || "t0";
     const srcKey = badge.getAttribute("data-badge-srckey") || "";
@@ -9224,10 +9288,11 @@ async function renderOverview() {
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";
   freezeCard.innerHTML = _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）" + termTip("近120日情绪冰点日(恐贪指数<20)，常对应阶段性底部"), "freeze", "无近期冰点日");
-  // 2026-08-05 修 LOW-1: 空 recent_freeze 时 useOverviewDate=true 允许 overview 轮询刷新 r.date 角标;
-  // 有冰点日时 useOverviewDate=false 保持 freeze 日期不被覆盖(原始行为, 无回归)
-  var _freezeHasDate = !!(r.recent_freeze && r.recent_freeze[0] && r.recent_freeze[0].date);
-  addCardTimeBadge(freezeCard, _freezeHasDate ? r.recent_freeze[0].date : r.date, snap, "t0", "", false, !_freezeHasDate);
+  // 方案A(2026-08-07): 冰点日专用中性角标。recent_freeze[0].date 是"冰点发生日"(历史事件)非数据日期,
+  // 复用 addCardTimeBadge 会被 getCardTimeBadge 判"⚠ 滞后·MM-DD"误报异常(8/3<今日8/7 差4天)。
+  // 改专用 t1-event 中性角标"📅 最新冰点日·MM-DD"+hover 缘由(冰点值+此后无新冰点+数据更新日期)。
+  // recent_freeze 为空(120日无冰点)时 addFreezeEventBadge 内部回退 addCardTimeBadge 用绿色 r.date 角标(无 bug)。
+  addFreezeEventBadge(freezeCard, r.recent_freeze, r.date, snap);
   // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
   freezeCard.addEventListener("click", (e) => {
     const item = e.target.closest(".sig-clickable");
