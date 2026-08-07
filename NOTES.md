@@ -8296,3 +8296,50 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 ### 九、遗留（非阻断）
 - sse_000685 的 588200 ETF 在 thsc_309049/307940/308725/308300 交叉泄漏（4个thsc未加 exclude"科创板芯片"，非本次引入）
 - 4 个 E组6 指数查不到代码留空（上证科创板人工智能/芯片设计/创业板新能源/国证自由现金流）
+
+## §48 小节AZ：ETF跟踪5维度评分算法调研（2026-08-08）
+
+### 一、背景
+- 用户发现 159536（中证2000ETF汇添富）7/27 V型尖刺（ETF +9.96% vs 指数+3.52%，7/28 -7.20% V型回落），当前 similarity=98.88%/max_err=1.12%/grade=good 严重虚高，至今收益 ETF +1.63% vs 指数 +8.19% 失真（GAP 6.56%，since_return base 踩7/27尖刺高点）。用户提供5维度加权评分算法替代。
+
+### 二、当前算法缺陷
+- `scripts/build_board_etf_map.py` L680-770 `_calc_similarity()` 算5周期（ret_5d/20d/60d/ytd/1y）累计收益差取max，只看起点->终点，对中间路径剧烈偏离完全不敏感，V型尖刺在累计里抵消骗过评级。
+- 数据源 index_daily（sentiment.db）+ etf_daily（etf_national_team.db）。前端🟢=track_index/良好=_gradeLabel/1.1%=max_err/至今收益=etf_since_return（queries.py L482-524）。
+
+### 三、新算法
+- 5项日收益率指标（非累计，弥补路径盲区）：avg_tracking_deviation 日均偏离 / annual_tracking_error 年化TE / information_ratio 信息比率 / r_squared 决定系数R² / rolling_error_std 滚动TE标准差。
+- 百分位rank归一化（防min-max异常值拉伸）加权求和得 composite 0-100。
+- 坑：IR分母TE->0设IR=0；R²横盘corr未定义设None；n<60年化不可靠降级只算avg_dev+R²。
+
+### 四、159536验证✓
+- score=65.3 -> track_tier=approx（从good降级），V型尖刺被 roll_std（稳定性51.0）+ TE（60.7）抓出。
+- 主控§0验收：159536在board csi_932000（native中证2000）对比确认，similarity=0.9888/max_err=1.1237/grade=good与报告一致，新65.3基于native对比准确。
+
+### 五、数据可得性✓
+- 零新采集，复用 etf_daily（1520只ETF）+ index_daily（158指），board_etf_map已建1140对（137板块/858ETF），92%（1051对）≥60天全5项可算，8%降级，108/108板块指数齐备。
+
+### 六、计算量✓
+- 全量1140对6.3s（numpy向量化），集成进 build_board_etf_map.py（`_calc_similarity`旁加`_calc_tracking_score`，复用L574/594已加载序列），每日17:50随update_all->deploy.sh跑，加5s无感，无需新cron。
+
+### 七、接入点✓
+- 扩 board_etf_map.json 每ETF加 track_score/track_tier + 5项原始指标（track_avg_dev/track_te/track_ir/track_r2/track_roll_std/track_n）。
+- queries.py dict（_e）自动透传（可选裁剪只留 track_score+track_tier 减体积）。
+- 前端 _etfMatchTags（L1508）加"跟踪85"徽章与旧🟢良好1.1%并列，排序（L15099）改 track_score 降序，_etfTier（L1533）改 track_tier。
+- 走CF Workers现有渠道（非R2，board_etf_map.json后端文件不直接部署）。
+
+### 八、推荐配置（实测）
+- 权重：TE30%/R²25%/avg_dev15%/roll_std15%/|IR|15%。
+- 阈值：≥80 strong / 70-79 related / 50-69 approx / <50 none。
+- 分布：13.4%/13.6%/23.7%/49.3%。
+- 新旧共存：旧similarity保留展示，新track_score做排序+归类。
+- 归档映射：strong=excellent档1 / related=good档2 / approx=warn档3 / none档3。
+
+### 九、设计决策（待用户确认）
+- 新评分对比board板块指数（非ETF自身跟踪指数），因 index_daily 仅158只指数无中证全指农牧渔等ETF native指数。
+- native在的（如159536对中证2000）对比准确；native不在的用board sw指数近似TE天然偏高（中位8%）49%落none正常（board代表性本就有限）。
+- 纯native需大幅扩展 index_daily 采集（大工程不推荐）。推荐接受board-index语义。
+
+### 十、工时与待办
+- 工时：后端计算4h+数据产物1h+前端展示4h+归类重构2h+测试上线2h=~13h（1.5-2天）。
+- 完整报告：/tmp/agent-progress-tracking-score-new.md（306行）。
+- 待办：待用户确认board-index语义+权重阈值后实施。与TASKS L1316 ETF信号灯体系重构协调（_etfMatchTags/_etfTier共改）。

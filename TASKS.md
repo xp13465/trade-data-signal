@@ -1345,6 +1345,54 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 ### 级别: B级(逻辑+显示, 跨 _etfMatchTags/_etfTier/列表渲染, 有隐藏影响面-轮询/列表渲染)
 ### 排期: 待当前活跃待办(17:50验证/getCardTimeBadge语义/后端重启)后, 或用户优先
 
+## 📋 2026-08-08 ETF跟踪5维度评分算法(调研完成✓+159536验证✓,待用户确认board-index语义+配置后实施)
+
+> 用户发现 7/27 中证2000(932000)超卖拐点信号 hoverpop 显示「159536 🟢·良好·1.1% 至今+1.63%」而指数至今+8.19%,收益差距大。159536 在7/27单日大涨(规模小抖动)致偏离,但相似度仍评良好,认为当前算法有BUG。用户提供5维度加权评分算法(偏离度/年误差/信息比率/R²/滚动误差标准差)。
+
+### 调研结论(进度文件 /tmp/agent-progress-similarity-current.md + /tmp/agent-progress-tracking-score-new.md 完整7章报告)
+- **当前算法缺陷已坐实**: `scripts/build_board_etf_map.py` L680-770 `_calc_similarity()` 算5周期(ret_5d/20d/60d/ytd/1y)**累计收益差**取max(L559 PERIODS),只看起点终点,中间路径完全不敏感。grade:<1%excellent/<5%good/≥5%warn;数据源index_daily(sentiment.db)+etf_daily(etf_national_team.db)。159536的V型尖刺(7/27 ETF+9.96% vs 指数+3.52%/7/28 ETF-7.20% vs 指数-1.70%)在累计里抵消,max_err=1.12%(ret_60d)骗过算法评"良好";since_return base踩7/27尖刺高点致至今+1.63% vs 指数+8.19% GAP6.56%。
+- **新算法可行✓**: 用**日收益率序列**(非累计)算5项指标(avg_dev/TE/IR/R²/roll_std),捕捉全路径偏离,V型尖刺会拉高avg_dev/TE/roll_std降级。**159536实测score=65.3->track_tier=approx(从good降级)✓**,V型尖刺被roll_std(稳定性51.0)+TE(60.7)抓出。主控§0验收:159536在board csi_932000(native中证2000)对比,similarity=0.9888/max_err=1.1237/grade=good与报告一致,新65.3基于native对比准确。
+- **数据齐备✓零新采集**: 复用etf_daily表(1520只ETF,20050223-20260807)+index_daily表(158指数)+board_etf_map.json(1140对ETF-板块指数)。92%(1051对)≥60共同交易日全5项可算,8%(89对)降级(≥30天算avg_dev+R²两项,余标None)。
+- **计算极快✓**: 实测全量1140对6.3s(加载1.1s+计算5.2s),单线程pandas/numpy,无需多进程。
+- **接入简单✓**: 扩board_etf_map.json每ETF加track_score/track_tier/track_avg_dev/track_te/track_ir/track_r2/track_roll_std/track_n字段;queries.py透传(裁剪只留track_score+track_tier减体积);前端_etfMatchTags并列展示(🟢·良好·1.1%·跟踪85)+排序改track_score降序+_etfTier改track_tier。走现有deploy(CF Static Assets,无R2无新cron无新upload)。
+- **工时~13h(1.5-2天)**: 后端_calc_tracking_score()4h+数据产物1h+前端4h+归类2h+测试上线2h。
+
+### 待用户定3处优化(agent建议偏离用户原方案,理由充分)
+1. **归一化**: 用户原min-max → agent建议**百分位rank**(防一个跨境ETF TE=40%拉大range致其他挤中段失区分度;跨ETF相对比较比绝对阈值公平,因board-index语境绝对TE天然偏高)。主控推荐采纳。
+2. **权重**: 用户原 偏离25/年误差25/IR25/R²15/滚动10 → agent建议 **TE30/R²25/偏离15/滚动15/IR15**(TE提主指标;IR降权因语义冲突-正IR对投资者好但对跟踪是系统性偏离,用|IR|且cap±5)。**投资哲学分歧待用户定**:用户原方案IR占25%看重"正误差效率ETF略微跑赢",agent纯看"跟得准"。
+3. **更新频率**: 用户原每周 → agent建议**每日**(集成进build_board_etf_map.py,deploy.sh L101每日跑,6.3s无压力,数据更新鲜零新cron零运维)。主控推荐采纳。
+
+### 设计决策:board-index语义(待用户确认)
+- 新评分对比board板块指数(非ETF自身跟踪指数),因 index_daily 仅158只指数无中证全指农牧渔等ETF native指数。
+- native在的(如159536对中证2000)对比准确;native不在的用board sw指数近似TE天然偏高(中位8%)49%落none正常(board代表性本就有限)。
+- 纯native需大幅扩展 index_daily 采集(大工程不推荐)。**推荐接受board-index语义**。
+
+### 归类阈值推荐配置(实测,用户veto)
+- 权重: TE30%/R²25%/avg_dev15%/roll_std15%/|IR|15%
+- 阈值: ≥80 strong(强关联,对应旧excellent<1%)/ 70-79 related(相关,旧good1-5%)/ 50-69 approx(近似,旧warn5-10%)/ <50或None none(旧warn>10%)
+- 分布(实测1140对): 13.4% strong / 13.6% related / 23.7% approx / 49.3% none
+- 归档映射: strong=excellent档1 / related=good档2 / approx=warn档3 / none档3
+- self→strong tier1(不变)/ manual_fallback→none tier3(不变)/ 数据不足(n<60)→track_score=None灰标"数据不足"
+- 新旧共存: 旧similarity保留展示,新track_score做排序+归类
+
+### 与ETF信号灯重构(L1316)协调
+- track_score独立于match_method,作**数值补充非来源替代**,不破坏信号灯5色体系(蓝/绿/草绿/橙/灰)
+- _etfTier改用track_tier后,信号灯4档(强关联/相关/近似/概念)语义不变,只是分类依据从grade换track_tier
+- 可与ETF信号灯重构(L1316)合并一个agent批次实施(都改_etfMatchTags/_etfTier,省cherry-pick)
+
+### 关键验收点(实施后)
+- [ ] 159536 track_score<70(approx/none)非"良好",验证新算法抓出V型尖刺(原型已验证65.3✓,此为生产确认)
+- [ ] 1140对中≥1051对(92%)track_score非None
+- [ ] 全量计算<10s(实测6.3s)
+- [ ] board_etf_map.json<700KB
+- [ ] 前端_etfMatchTags同时显旧标签(🟢·良好·1.1%)+新评分(跟踪85)
+- [ ] 排序按track_score降序
+- [ ] curl overview.json含track_score字段
+- [ ] sw.js CACHE_VERSION bump
+
+### 级别: C级(数据产物board_etf_map.json+后端计算+前端逻辑,跨build_board_etf_map.py/queries.py/app.js,有隐藏影响面-轮询/列表渲染/排序)
+### 排期: 待用户确认board-index语义+权重阈值后实施(3处优化已定:百分位rank✓/权重TE30R²25偏离15滚动15IR15✓/每日✓)。建议与ETF信号灯重构(L1316)合并批次。报告:/tmp/agent-progress-tracking-score-new.md(306行)
+
 ## 📋 2026-08-08 凌晨 会话收尾(序1验证✅ + 序2上线✅ + 序345串行定 + 相似度调研派其他会话)
 
 ### 序1 验证完成 ✅(部署链路 bug 修复确认)
