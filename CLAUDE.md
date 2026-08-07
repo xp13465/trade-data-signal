@@ -119,6 +119,12 @@
 ## 15. 主功能回归复查(2026-08-06 计入,2026-08-06 强化)
 - **核心一句话:新功能绝对不可以影响老功能**。站点功能日益庞大,改动影响面是网状的(一个数据文件被多模块读),单靠"改的人自己测 + 主控验关键点"覆盖不到跨模块回归
 - **⚠️ 每次代码改动都要独立 review + 回归测试(2026-08-06 用户强化标准)**:不只大改动,**任何**改 app.js/lab.js/style.css/后端逻辑/数据产物脚本的改动,push 上线前必须:①派独立 task-reviewer 子 agent(grep 改动文件被谁引用+跑 P0 smoke)②reviewer 通过才 push main。流程:实施 agent 改完 -> reviewer agent review -> 通过 -> 主控 push main。"改的人自己测"不算 review,必须额外一双眼睛。今天(8/6)收盘hover/Task1/预估校准上线时没派 reviewer(执行不到位,已补派回归 review),此后严格执行
+- **改动分级 + 小问题口子(2026-08-07 用户定,修订 L121 一刀切)**:review 本质是怕改坏逻辑,纯显示改无逻辑可坏,不需派 reviewer。按级别分级:
+  - **A 级 小(纯显示)**:同时满足 5 条=①性质:纯显示/文案/CSS/常量配置(不动 if/for/事件绑定/数据结构/SQL/数据产物脚本) ②定位已知:改动点已知(用户指明或之前 agent 已定位行号),grep 即得,不需调研探索 ③量级:≤30 行纯改 ④验证:grep/读单点即确认正确(不需跑 smoke/多场景/curl 数据层) ⑤风险:前端代码可 git revert(不碰 DB/数据产物/后端/定时任务)。**主控直接改 + 主控 grep 自验 + 主控 push feat+main,不派实施 agent 不派 reviewer**。核心两条:纯显示不动逻辑 + 定位已知不需调研,任一不满足就升级派 agent
+  - **B 级 大(逻辑)**:逻辑分支/if/for/事件绑定/数据结构/跨函数/跨模块。派 agent 实施 + 派 reviewer agent(批判性+P0 smoke) + reviewer 通过主控 push main
+  - **C 级 数据/后端**:数据产物/SQL/后端/定时任务。派 agent 实施 + 派 reviewer + 数据完整性校验(check_data_integrity.py deploy 前置) + reviewer 通过主控 push main
+  - **小口子打包原则**:多个 A 级小改动(≥3 个 或合计 >50 行)凑一起=派 agent 合适(打包一个 agent 一次实施省 cherry-pick,主控改多个分散点易漏)。单个 A 级主控改,多个打包派 agent。A 级是否"过多"看分散度+总行数,不绝对按个数
+  - **08-06 教训对应 C 级**(board_etf_map.json 数据产物损坏),非显示改。教训针对数据/逻辑,纯显示改不威胁逻辑,A 级不派 reviewer 合理
 - **大阶段回归必行**:当天开发功能多后/大阶段结束/上线前,必须做主功能快速全量回归,不等用户发现再修(那都晚了)
 - **回归机制三层**:
   ① **数据产物完整性校验**:被多模块读的关键 JSON(`board_etf_map.json`空key占比<30% / `overview.json` a_amount非空 / `intraday_snapshot.json` collected_at今日 等)生成脚本跑完自动校验,超标 fail 不让 deploy(check_data_integrity.py deploy.sh 前置,已接入)。扩展 `collect_health` 到数据产物
