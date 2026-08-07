@@ -1312,6 +1312,22 @@ const _INDEX_CODE_MAP = {
   thsc_309128: '886076',  // 军工信息化
 };
 
+// 2026-08-06 走势图卡片标题加指数代码：宽基/红利/港股指数的 symbol 兜底映射（与 indicators.yaml 同源）。
+// indexIdToCode 需 symbol 参数剥交易所前缀(sh000001->000001)，旧 JSON(indices 无 symbol 字段)用此 map 兜底。
+// 后端 queries.py 已加 symbol 字段，下次 export 后 idx.symbol 可用，此 map 作 fallback 不删（防旧缓存/未同步）。
+const _INDEX_SYMBOL_MAP = {
+  // A股宽基（market: a）
+  sh: 'sh000001', sz: 'sz399001', hs300: 'sh000300', sz50: 'sh000016',
+  csi500: 'sh000905', csi1000: 'sh000852', cyb: 'sz399006', kc50: 'sh000688',
+  bj50: 'bj899050',
+  // 红利指数（中证指数公司源，symbol 无交易所前缀）
+  csi_div: '000922', div_lowvol: '930955', sz_div: 'sz399324',
+  // 港股宽基（market: hk，symbol 为英文代码）
+  hsi: 'HSI', hstech: 'HSTECH', hscei: 'HSCEI',
+  // 全球指数（market: global，symbol 为标准 ticker）
+  us_dji: '.DJI', us_ixic: '.IXIC', us_spx: '.INX', us_ndx: '.NDX',
+};
+
 function indexIdToName(indexId) {
   // 去掉 g./s. 前缀后查表
   const key = indexId.replace(/^(g|s)\./, '');
@@ -1328,6 +1344,9 @@ function indexIdToName(indexId) {
 function indexIdToCode(indexId, symbol) {
   const key = indexId.replace(/^(g|s)\./, '');
   if (_INDEX_CODE_MAP[key]) return _INDEX_CODE_MAP[key];
+  // 2026-08-06 symbol 兜底：旧 JSON indices 无 symbol 字段时用 _INDEX_SYMBOL_MAP（与 indicators.yaml 同源）。
+  // 后端 queries.py 已加 symbol，新 export 的 idx.symbol 优先；此 fallback 防旧缓存/未同步。
+  if (!symbol) symbol = _INDEX_SYMBOL_MAP[key];
   if (!symbol) return '';
   if (/^sw_/.test(key)) return indexId;  // sw_ 申万行业保留前缀展示（sw_801030，申万代码同花顺查不到，保留前缀标识来源）
   // 宽基正则 ^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000) 会命中 sz_div/csi_div 等下划线混合 id（startsWith sz/csi），
@@ -3806,7 +3825,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
         const intradayTag = idx._snap_intraday ? ' <span class="snap-intraday-tag">⏰ 盘中实时</span>' : "";
         // 2026-08-05 概念指数(thsc_300xxx)标题追加同花顺板块代码(885xxx/886xxx)标签，方便用户对照同花顺App。
         // 宽基/行业 index_id 本身是代码不重复显示（indexIdToCode 返回空串）。
-        const _idxCodeForTitle = indexIdToCode(id);
+        const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
         const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
         const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
@@ -4228,6 +4247,9 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   modal._ctx = { indexId, signal, date, freezeVal, idxName, idxCode };
   try {
     let chartData, sigs, stats, strategy, isValue = false;
+    // 2026-08-06 弹窗 chart card 模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag）。
+    // g./s. 分支无 etfs 字段（_modalEtfs 保持 null，不渲染 ETF tag）；else 分支（常规指数）赋值 r.etfs。
+    let _modalEtfs = null;
 
     if (indexId.startsWith("g.")) {
       const key = indexId.slice(2);
@@ -4269,10 +4291,11 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
         chartData = chartData.filter(d => d.date >= filterDate);
         sigs = sigs.filter(d => d.date >= filterDate);
       }
-      // 2026-08-06 弹窗标题后追加相关 ETF tag（复用指数表现 _appendEtfLinkTag 样式+交互）。
-      // period 切换重载时 titleEl.textContent 已清空 h3 子节点（含旧 etf-tag），_appendEtfLinkTag 防重复 return 不触发，重新注入 OK。
-      // r.etfs 空（海外/国债无跟踪ETF）显示"无ETF"灰占位（同指数表现）；g./s. 分支无 etfs 字段不进入此分支。
-      _appendEtfLinkTag(titleEl.parentElement, indexId, r.etfs || [], sigs);
+      // 2026-08-06 弹窗 chart card 模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag 样式+交互）。
+      // 原 L4294 把 ETF tag 加到弹窗 header h3（标题区），现改加到 chart card h3（模拟回测按钮后，与指数表现模块一致）。
+      // 标题去重(need3-③)：header 不再显 ETF，避免 chart card 已显 ETF 时重复。
+      // r.etfs 空（海外/国债无跟踪ETF）显示"无ETF"灰占位（同指数表现）；g./s. 分支 _modalEtfs=null 不渲染。
+      _modalEtfs = r.etfs || [];
     }
     if (!chartData || !chartData.length) {
       body.innerHTML = `<div class="empty-note">暂无「${name}」走势数据</div>`;
@@ -4351,9 +4374,18 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       _srLine.textContent = _txt;
       body.appendChild(_srLine);
     }
-    const title = name + latestSuffix(chartData);
-    if (isValue) valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts);
-    else indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
+    // 2026-08-06 走势图卡片标题加指数代码(need3-①)：复用 header _idxCodeTag（L4244 已定义 _sigIdxCode），
+    // chart card 标题 name 后 latestSuffix(日期+数值) 前插入代码标签，与指数表现模块 chart card 一致。
+    const title = name + _idxCodeTag + latestSuffix(chartData);
+    // 2026-08-06 捕获 chart 实例(need3-②)：chart card 渲染后对 cardEl 调 _appendEtfLinkTag，把相关 ETF 加到模拟回测按钮后。
+    const _sigChart = isValue
+      ? valueChartWithSignals(title, chartData, sigs, {}, stats, strategy, indexId, body, _signalModalCharts)
+      : indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
+    // need3-②：弹窗模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag，仅常规指数分支 _modalEtfs 非 null 时渲染）。
+    // _prependSimBtn 已在 indexChart/valueChartWithSignals 内调用（h3 顺序 [标题][❓][模拟回测]），此处追加 ETF tag 排末尾。
+    if (_sigChart && _modalEtfs) {
+      _appendEtfLinkTag(_sigChart.getDom().parentElement, indexId, _modalEtfs, sigs);
+    }
     requestAnimationFrame(() => _signalModalCharts.forEach((c) => c && c.resize()));
   } catch (e) {
     renderErrorState(body, e, () => openSignalChartModal(indexId, signal, date, freezeVal, period, idxName, idxCode));
@@ -16069,7 +16101,50 @@ function openEtfScoreDetailModal(code) {
   const footerHTML = (typeof _labCustomFooterHTML === "function")
     ? _labCustomFooterHTML(null, null) : "";
 
-  body.innerHTML = headHTML + actionHTML + confHTML + dimsHTML + histHTML + threshHTML + footerHTML;
+  // 2026-08-06 需求1：近30日走势图区块（复用卡片 sparkline 数据源 e.ohlc 放大到弹窗 echarts）。
+  // e.ohlc = [[date,o,h,l,c],...] 近30交易日升序（etf_score_list_{buy,sell,hold}.json 字段）。
+  // 放 headHTML 后（决策头后先看走势再看手数/卖出/置信度），echarts line+areaStyle，涨红跌绿跟主题。
+  const trendHTML = (e.ohlc && e.ohlc.length >= 2)
+    ? `<div class="lab-custom-score-card lab-custom-block-gap"><div class="lab-custom-section-title">📈 近30日走势</div><div id="etfTrendChart" style="height:200px"></div></div>`
+    : "";
+
+  body.innerHTML = headHTML + trendHTML + actionHTML + confHTML + dimsHTML + histHTML + threshHTML + footerHTML;
+
+  // 需求1：echarts init 近30日走势（body.innerHTML 设置后容器存在才 init）
+  if (trendHTML) {
+    const _trendEl = body.querySelector("#etfTrendChart");
+    if (_trendEl && typeof echarts !== "undefined") {
+      const _dates = e.ohlc.map((d) => d[0]);
+      const _closes = e.ohlc.map((d) => d[4]);
+      const _isUp = _closes[_closes.length - 1] >= _closes[0];
+      const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
+      try {
+        const _trendChart = echarts.init(_trendEl);
+        _trendChart.setOption({
+          tooltip: {
+            trigger: "axis",
+            formatter: (p) => {
+              const dt = p[0] && p[0].axisValue;
+              const v = p[0] && p[0].data;
+              return fmtDate(dt) + "<br/>收盘 " + (v != null ? v.toFixed(3) : "-");
+            },
+          },
+          grid: { left: 50, right: 15, top: 15, bottom: 25 },
+          xAxis: { type: "category", data: _dates, axisLabel: { fontSize: 10, formatter: (v) => fmtDate(v) } },
+          yAxis: { type: "value", scale: true, axisLabel: { fontSize: 10 } },
+          series: [{
+            type: "line", smooth: true, symbol: "circle", symbolSize: 4,
+            data: _closes,
+            lineStyle: { color: _trendColor, width: 1.5 },
+            itemStyle: { color: _trendColor },
+            areaStyle: { color: _isUp ? "rgba(230,73,46,0.12)" : "rgba(46,139,87,0.12)" },
+          }],
+        });
+        // 弹窗 resize 时同步（modal 已 display，requestAnimationFrame 确保 DOM 布局完成）
+        requestAnimationFrame(() => _trendChart.resize());
+      } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
+    }
+  }
 
   // 折叠阈值表交互(同 openIndexAnalyzeModal)
   const toggle = body.querySelector(".lab-custom-thresh-toggle");

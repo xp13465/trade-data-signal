@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260807-a15';  // bump a14->a15: MEDIUM-1 _etfMatchTags 补 overlap🟣/kw🟡 match_method + ⚪兜底防未来漏 + LOW-1 freezeCard空recent_freeze角标刷新修复
+const CACHE_VERSION = 'v6-20260807-a16';  // bump a15->a16: ETF弹窗补近30天走势echarts + 走势图卡片标题加指数代码 + 弹窗模拟回测按钮后加相关ETF(标题去重)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
