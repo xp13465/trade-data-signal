@@ -46,7 +46,11 @@ const SIM_HREF_MAP = { gold: 'g.gold', comex_silver: 'g.comex_silver', wti_oil: 
 let _resizeTimer;
 window.addEventListener("resize", () => {
   clearTimeout(_resizeTimer);
-  _resizeTimer = setTimeout(() => charts.forEach((c) => c && c.resize()), 150);
+  _resizeTimer = setTimeout(() => {
+    charts.forEach((c) => c && c.resize());
+    // ETF 弹窗走势图不在 charts 数组（独立生命周期管理），单独 resize
+    if (_etfTrendChart) _etfTrendChart.resize();
+  }, 150);
 });
 
 // B5: lab.js 按 tab 懒加载（不访问 lab 的用户不下载 88KB lab.min.js）
@@ -15952,6 +15956,10 @@ function _renderEtfPager(scope, page, pages, total) {
 // 复用 openIndexAnalyzeModal 模式(rule-modal 骨架 + _labCustom* HTML 函数)
 // 数据来自 etf_score_list.json list item 的 dims/adapt/dim_hits/data_thresholds/history_analogy/confidence/sell_action
 // 不再额外 fetch alert_analyze_*.json(后端已把结构化明细内联进 list item, 单次加载即可弹窗)
+// 2026-08-06 修复 echarts 实例泄漏：模块级持有 _etfTrendChart，重开弹窗前 dispose 旧实例，关闭弹窗时 dispose。
+// 不放入全局 charts 数组（弹窗 open/close 生命周期与 charts 的 tab 切换 dispose 不同步，避免数组堆积死实例），
+// window resize / H5 切换时单独 resize 它。
+let _etfTrendChart = null;
 function openEtfScoreDetailModal(code) {
   // 从 _etfScoreState.all 查 item(已合并 buy/sell/hold, 含新字段)
   const e = (_etfScoreState.all || []).find((x) => x.etf_code === code);
@@ -15978,6 +15986,8 @@ function openEtfScoreDetailModal(code) {
   }
   modal.querySelector(".etf-detail-title").textContent = "🔬 " + (e.name || code) + " 决策依据";
   const body = modal.querySelector(".etf-detail-content");
+  // 重开弹窗前 dispose 旧走势图实例（用户关闭后点另一只 ETF 会再次进入此函数，旧实例随 body.innerHTML 被替换成孤儿）
+  if (_etfTrendChart) { _etfTrendChart.dispose(); _etfTrendChart = null; }
   body.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -16119,8 +16129,8 @@ function openEtfScoreDetailModal(code) {
       const _isUp = _closes[_closes.length - 1] >= _closes[0];
       const _trendColor = _isUp ? "#e6492e" : "#2e8b57";
       try {
-        const _trendChart = echarts.init(_trendEl);
-        _trendChart.setOption({
+        _etfTrendChart = echarts.init(_trendEl);
+        _etfTrendChart.setOption({
           tooltip: {
             trigger: "axis",
             formatter: (p) => {
@@ -16141,7 +16151,7 @@ function openEtfScoreDetailModal(code) {
           }],
         });
         // 弹窗 resize 时同步（modal 已 display，requestAnimationFrame 确保 DOM 布局完成）
-        requestAnimationFrame(() => _trendChart.resize());
+        requestAnimationFrame(() => _etfTrendChart && _etfTrendChart.resize());
       } catch (_e) { /* echarts init 失败不阻塞弹窗其余区块 */ }
     }
   }
@@ -16162,6 +16172,8 @@ function closeEtfScoreDetailModal() {
   const modal = document.getElementById("etfScoreDetailModal");
   if (modal) modal.classList.add("hidden");
   document.body.style.overflow = "";
+  // 关闭弹窗时 dispose 走势图 echarts 实例，释放 canvas+内部状态+事件监听，避免泄漏
+  if (_etfTrendChart) { _etfTrendChart.dispose(); _etfTrendChart = null; }
 }
 
 function _renderEtfScoreBody() {
@@ -17339,7 +17351,11 @@ function applyH5(on) {
   document.body.classList.toggle("h5", on);
   updateH5Topbar();
   // 切换 PC<->H5 时图表容器宽度变化，resize 所有 ECharts
-  setTimeout(() => charts.forEach((c) => c && c.resize()), 60);
+  setTimeout(() => {
+    charts.forEach((c) => c && c.resize());
+    // ETF 弹窗走势图不在 charts 数组，单独 resize
+    if (_etfTrendChart) _etfTrendChart.resize();
+  }, 60);
 }
 
 async function initH5Topbar() {
