@@ -1616,10 +1616,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // name 含中文/空格/括号（如"德国DAX"/"汽车芯片"）用 _escAttr 转义防属性截断，code 同理。
         var _idxNameAttr = _idxName ? ` data-idx-name="${_escAttr(_idxName)}"` : "";
         var _idxCodeAttr = _sigIdxCode ? ` data-idx-code="${_escAttr(_sigIdxCode)}"` : "";
+        // 2026-08-07 今日信号 since_return=null -> 未结算标记，hoverpop 显示灰字提示"今日信号未结算（收盘后更新）"
+        var _idxUnsettledAttr = (it.since_return == null) ? ` data-idx-unsettled="1"` : "";
         // 2026-08-06 ETF tag 从 cell 移除（cell 只留 [信号标签][⚠][评级][☑️/✖️][指数名]）。
         // 主ETF 名称(代码) 改放 hoverpop（_initTermPop.show 内 _sigEtfCache 取 top1），弹窗标题复用 _appendEtfLinkTag。
         // 概念标的（无ETF）hoverpop 不显 ETF 段；ETF 筛选按钮计数仍区分有/无，不依赖 cell 标记。
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_idxName}${_sigIdxCode ? ` <span class="idx-code-tag">${_sigIdxCode}</span>` : ""}</span></span>`;
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_idxName}${_sigIdxCode ? ` <span class="idx-code-tag">${_sigIdxCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
@@ -2084,6 +2086,12 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     // 只技术参考点列表的 index_id 有 cache；汪汪队 chip 等非 signals_today 的 hover cache 空，跳过不显。
     // 2026-08-06 指数至今收益行：cell 的 data-idx-ret/data-idx-correct 传入（_renderSignalGrid 填充），
     // 与下方 etfHtml"ETF 至今"组成两行对比，红涨绿跌，带符合/不符预测方向（since_correct 有值才显）。
+    // 2026-08-07 指数名+代码独立行（移出 idxRetHtml 块，since_return=null 时仍渲染完整路径"中证红利质量 (932315)"）。
+    // getAttribute 返回浏览器反转义后的原文，注入 innerHTML 前用 _esc 重转义防 XSS/属性截断。
+    var _idxNameRaw = el.getAttribute("data-idx-name");
+    var _idxCodeRaw = el.getAttribute("data-idx-code");
+    var _idxPrefix = _idxNameRaw ? (_esc(_idxNameRaw) + (_idxCodeRaw ? " (" + _esc(_idxCodeRaw) + ")" : "")) : "";
+    var idxNameHtml = _idxPrefix ? '<span class="term-pop-idx-name" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">📊 ' + _idxPrefix + '</span>' : "";
     var idxRetHtml = "";
     var _idxRetRaw = el.getAttribute("data-idx-ret");
     if (_idxRetRaw != null && _idxRetRaw !== "") {
@@ -2093,16 +2101,13 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         var _idxCorrectRaw = el.getAttribute("data-idx-correct");
         var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
         var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";
-        // 2026-08-06 指数至今行加指数名+代码前缀（cell data-idx-name/data-idx-code 传入，复用方案A indexIdToName/indexIdToCode）：
-        // 有 name+code -> "汽车芯片 (885945)指数至今 +13.56% · 符合预测"
-        // 有 name 无 code（宽基/行业/global 中文 symbol -> indexIdToCode 返回空）-> "德国DAX指数至今 +X%"
-        // 无 name（汪汪队 chip 等无 data-idx-name 调用点）-> 保持原"指数至今 +X%"
-        // getAttribute 返回浏览器反转义后的原文，注入 innerHTML 前用 _esc 重转义防 XSS/属性截断。
-        var _idxNameRaw = el.getAttribute("data-idx-name");
-        var _idxCodeRaw = el.getAttribute("data-idx-code");
-        var _idxPrefix = _idxNameRaw ? (_esc(_idxNameRaw) + (_idxCodeRaw ? " (" + _esc(_idxCodeRaw) + ")" : "")) : "";
         idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:' + _idxColor + '">' + _idxPrefix + '指数至今 ' + _idxRetStr + _idxDirS + '</span>';
       }
+    }
+    // 2026-08-07 今日信号未结算提示（since_return=null -> cell data-idx-unsettled，收盘后更新）
+    var _idxUnsettled = el.getAttribute("data-idx-unsettled");
+    if (_idxUnsettled === "1" && _idxPrefix) {
+      idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">' + _idxPrefix + '指数至今: 今日信号未结算（收盘后更新）</span>';
     }
     var etfHtml = "";
     var _popDate = el.getAttribute("data-date");
@@ -2129,12 +2134,12 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         if (idxName && (p === idxName || p === idx || p.startsWith(idxName + " ("))) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
-      if (locateHtml || idxRetHtml || etfHtml) html += locateHtml + idxRetHtml + etfHtml;
+      if (locateHtml || idxNameHtml || idxRetHtml || etfHtml) html += locateHtml + idxNameHtml + idxRetHtml + etfHtml;
       pop.innerHTML = html;
     } else {
       // 汪汪队 chip（无 sigType 仅 data-idx）：text 纯文本 escape 后追加 locate span（有 data-idx 时）
-      if (locateHtml || idxRetHtml || etfHtml) {
-        pop.innerHTML = _esc(text) + locateHtml + idxRetHtml + etfHtml;
+      if (locateHtml || idxNameHtml || idxRetHtml || etfHtml) {
+        pop.innerHTML = _esc(text) + locateHtml + idxNameHtml + idxRetHtml + etfHtml;
       } else {
         pop.textContent = text;
       }
@@ -4103,7 +4108,7 @@ function _signalChartModalEl() {
       // 重新加载数据（上下文存于 modal._ctx，由 openSignalChartModal 写入）
       const period = e.target.dataset.period;
       const ctx = modal._ctx || {};
-      openSignalChartModal(ctx.indexId, ctx.signal, ctx.date, ctx.freezeVal, period);
+      openSignalChartModal(ctx.indexId, ctx.signal, ctx.date, ctx.freezeVal, period, ctx.idxName, ctx.idxCode);
     });
   });
   document.body.appendChild(modal);
@@ -4156,15 +4161,15 @@ function _signalModalCutoff(chartData, period) {
   return null;
 }
 
-async function openSignalChartModal(indexId, signal, date, freezeVal, period = "3m") {
+async function openSignalChartModal(indexId, signal, date, freezeVal, period = "3m", idxName, idxCode) {
   const modal = _signalChartModalEl();
   const body = modal.querySelector(".signal-chart-content");
   const titleEl = modal.querySelector(".signal-chart-title");
   _signalModalCharts.forEach((c) => c && c.dispose());
   _signalModalCharts = [];
   renderLoadingState(body);
-  const name = indexIdToName(indexId);
-  const _sigIdxCode = indexIdToCode(indexId);
+  const name = idxName || indexIdToName(indexId);
+  const _sigIdxCode = idxCode || indexIdToCode(indexId);
   const isFreeze = signal === "freeze";
   // 2026-07-20: 删除硬编码三元链，复用 signalLabel（L310-335 已覆盖 7 种信号 + 默认 fallback "趋势转弱"）。
   // 修复 sell_stop_loss / buy_special_filtered 等漏分支落英文原值的 bug（原末尾 `: signal` 返回英文）。
@@ -4175,7 +4180,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   titleEl.innerHTML = `${_esc(name)}${_idxCodeTag} · ${_esc(sigLabel)} · ${fmtDate(date)}`;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
-  modal._ctx = { indexId, signal, date, freezeVal };
+  modal._ctx = { indexId, signal, date, freezeVal, idxName, idxCode };
   try {
     let chartData, sigs, stats, strategy, isValue = false;
 
@@ -4304,7 +4309,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     else indexChart(title, chartData, sigs, stats, strategy, body, _signalModalCharts, indexId);
     requestAnimationFrame(() => _signalModalCharts.forEach((c) => c && c.resize()));
   } catch (e) {
-    renderErrorState(body, e, () => openSignalChartModal(indexId, signal, date, freezeVal, period));
+    renderErrorState(body, e, () => openSignalChartModal(indexId, signal, date, freezeVal, period, idxName, idxCode));
   }
 }
 
@@ -9094,7 +9099,7 @@ async function renderOverview() {
     const item = e.target.closest(".sig-clickable");
     if (!item) return;
     e.preventDefault();
-    openSignalChartModal(item.dataset.idx, item.dataset.sig, item.dataset.date, item.dataset.val);
+    openSignalChartModal(item.dataset.idx, item.dataset.sig, item.dataset.date, item.dataset.val, "3m", item.dataset.idxName, item.dataset.idxCode);
   });
   colA2.appendChild(freezeCard);
 
@@ -9155,7 +9160,7 @@ async function renderOverview() {
     const item = e.target.closest(".sig-clickable");
     if (!item) return;
     e.preventDefault();
-    openSignalChartModal(item.dataset.idx, item.dataset.sig, item.dataset.date);
+    openSignalChartModal(item.dataset.idx, item.dataset.sig, item.dataset.date, undefined, "3m", item.dataset.idxName, item.dataset.idxCode);
   });
   colA2.appendChild(sigCard);
 
