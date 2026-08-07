@@ -1244,3 +1244,21 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - aaf6 schedule_stats 合并方案1: 待盘后 15:35+ 实施(intraday_snapshot.sh L335 删独立 push + L217 DATA_FILES 加 schedule_stats,省~27次/天盘中CF构建)。C级定时任务脚本,需reviewer+smoke+盘后窗口
 - build_board_etf_map.py M(_etf_index_map_amount): 待盘后 commit + 跑脚本生成 board_etf_map.json + deploy
 - 后端重启 queries.py self 注入(cgb_10y_etf sh511260 归档1,当前 overview.json 无 self 落档4 误判)
+
+## ✅ 2026-08-07 冰点日角标 bug 修复上线
+
+### Bug
+freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误报"⚠ 滞后·08-03"(实际数据新鲜 overview date=今日,8/4-8/7 恐贪回升>20 无冰点属正常)。
+
+### 修复(方案A专用中性角标)
+- 新增 helper: _fmtFreezeMmdd/getFreezeEventBadgeHTML/addFreezeEventBadge + refreshCardTimeBadges freeze 分支 + .t1-event CSS(中性蓝#3b6ea5)
+- 角标"📅 最新冰点日·08-03" + hover缘由(冰点值16.13<20+此后无新冰点恐贪回升>20+数据更新至今日+非采集异常)
+- recent_freeze 空(120日无冰点)回退 addCardTimeBadge 绿色(无回归LOW-1)
+- commit 0d1c0e630 push feat -> cherry-pick main 8eb4ee98a push main
+- reviewer a958 PASS(7项+P0 smoke+min回归)
+- 上线验证: ss.fx8.store app.min.js?v=af18479d 含"最新冰点日"+t1-event ✓
+
+### reviewer 发现(待办)
+- smoke-checklist.md P0-08 ETF id 拼写错误(写 sh000001,实际文件用短id sh-all.json/hs300-all.json),非本次改动,待修
+- INFO(非阻塞): 边界场景首屏recent_freeze非空后轮询变空,角标保留旧冰点日(原代码同样不更新且会误报,新行为更优)
+- trivial: L5215注释措辞略不准(代码正确)
