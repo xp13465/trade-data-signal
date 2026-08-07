@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a26';  // bump a25->a26: P2-13 CSS will-change+contain + P2-10 requestIdleCallback idle化
+const CACHE_VERSION = 'v6-20260808-a27';  // bump a26->a27: D1b Minor1 tooltip文案匹配track_tier 5色(强关联/相关/近似/概念)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
