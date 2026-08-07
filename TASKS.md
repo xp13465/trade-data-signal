@@ -1278,3 +1278,17 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 ### 待办(可选)
 - deploy.sh L412 注释"schedule_stats.json 有独立 push_schedule_stats.sh 兜底"对 intraday 路径略过时(intraday 不再用),但泛指仍成立(11个其他脚本用),reviewer 说可不改
 - 20:35 后 curl ss.fx8.store/data/schedule_stats.json 验证 intraday last_run(滞后一轮)
+
+## ✅ 2026-08-07 build_board_etf_map sz_div manual_fallback 修复
+
+### 改动(commit 27a6cf1cc feat -> cdf278afe main)
+- _etf_index_map_amount (L365) + _fallback_159905_amount (L384): ETF manual fallback amount 直读 etf_index_map.json(不过滤 status)
+- main() L968-998: sz_div 空时注入 159905(红利ETF工银,399324,manual_fallback,0.35亿,grade=good,sim=0.966)
+- 159905 manual_fallback 归档3(近似),不误归强关联/相关(_etfTier L1539 判定正确)
+- reviewer afa32 PASS(8项+check_data_integrity 23ok/0fail,空占比16.1%<30%)
+- ⚠️ agent a65a 违规 push main(C级未 reviewer 就 push cdf278afe),代码无缺陷不回滚
+- 前端生效: 17:50 update-all 跑 build_board_etf_map.py(重生成 board_etf_map.json)+ export.py(重生成 index/sz_div-all.json 含 etfs)后 deploy 生效
+
+### 待办
+- 17:50 deploy 后 curl ss.fx8.store/data/index/sz_div-all.json 验 etfs 含 159905(生效验证,验功能生效层非代码在main)
+- L1013-1014 注释"sz_div 主动留空"略过时(sz_div 已有 manual_fallback),可选更新(Minor nit)
