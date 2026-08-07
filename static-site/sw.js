@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260807-a20';  // bump a19->a20: 修 hoverpop 内 ETF 标签 span title 触发 term-pop 重渲染致 hoverpop 关闭 bug(加 data-no-pop)
+const CACHE_VERSION = 'v6-20260807-a21';  // bump a20->a21: 问题2 hoverpop至今收益去截断+加宽 / 问题3 ETF筛选4档归一档+标签完整 / 问题4 全球+板块chart title加_idxCodeTag
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

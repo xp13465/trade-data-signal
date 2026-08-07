@@ -1539,10 +1539,12 @@ function _etfTier(etf) {
   if (etf.grade === "good" && etf.match_method !== "manual_fallback") return 2;
   return 3;
 }
-// signal 的 ETF 档位集合：etfs 空 -> {4}；否则取所有 etf 档位的并集（可能跨多档，如一个 excellent 一个 warn）
+// signal 的 ETF 最佳档位：etfs 空 -> 4(概念)；否则取所有 etf 档位的最小值(最佳档)。
+// 2026-08-07 归一档：每标的归一个最佳档(有档1归1/无则有档2归2/无则有档3归3/无ETF归4)，
+//   避免跨档重复(如 excellent+warn 的 signal 在强关联+近似两档都显示)。
 function _signalTiers(it) {
-  if (!it || !it.etfs || !it.etfs.length) return new Set([4]);
-  return new Set(it.etfs.map(_etfTier));
+  if (!it || !it.etfs || !it.etfs.length) return 4;
+  return Math.min(...it.etfs.map(_etfTier));
 }
 
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
@@ -1608,17 +1610,12 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     return true;
   };
   // 人口筛选（window+ETF）：定义汇总条统计人口。ETF 视为人口筛选(同 window)，汇总条随 ETF 切换更新。
-  // 2026-08-05 单选改多选拆4档：sigEtfFilterSet 是选中档位数组(如["1","2","3"])，
-  //   空 = 全显(等同"全部")；signal 命中任一选中档即显示（_signalTiers 与选中集有交集）。
-  //   一个 signal 跨多档(如 excellent+warn)则各档计数+1，符合"命中任一即显示"语义。
+  // 2026-08-07 归一档：sigEtfFilterSet 是选中档位数组(如["1","2","3"])，
+  //   空 = 全显(等同"全部")；signal 归档(最佳档)在选中集内才显示。各档独立不重叠，无跨档重复。
   let popItems = windowedItems;
   if (kind === "signal" && state.sigEtfFilterSet && state.sigEtfFilterSet.length) {
     const _selSet = new Set(state.sigEtfFilterSet);
-    popItems = windowedItems.filter((it) => {
-      const _tiers = _signalTiers(it);
-      for (const t of _tiers) { if (_selSet.has(String(t))) return true; }
-      return false;
-    });
+    popItems = windowedItems.filter((it) => _selSet.has(String(_signalTiers(it))));
   }
   // 列表 = 人口 ∩ 列表子筛选(grade/correct/type)；5 个筛选正交组合(AND)
   let filtered = (kind === "signal") ? popItems.filter(_listFilter) : windowedItems;
@@ -1753,8 +1750,8 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // "总准确率 X%" hover pop:标注完整统计口径(2026-07-20 补)
     // 口径:近15交易日 signals_today 的 since_correct 至今盈亏方向命中率
     const _wfLabel = { "0_15": "近15交易日全部(默认)", "10_15": "第10-15交易日", "7_15": "第7-15交易日", "3_15": "第3-15交易日", "y_15": "排除今日(昨日~15日)" }[state.sigWindowFilter] || "近15交易日";
-    // 2026-08-05 多选适配：sigEtfFilterSet 空显""(全部)，非空显选中档名（如"（强关联+相关）"）
-    const _etfTierName = { "1": "强关联", "2": "相关", "3": "近似", "4": "概念" };
+    // 2026-08-07 归一档适配：sigEtfFilterSet 空显""(全部)，非空显选中档名（如"（强关联ETF+相关ETF）"）
+    const _etfTierName = { "1": "强关联ETF", "2": "相关ETF", "3": "有近似ETF", "4": "概念无ETF" };
     const _etfScopeLabel = (state.sigEtfFilterSet && state.sigEtfFilterSet.length)
       ? "（" + state.sigEtfFilterSet.map((t) => _etfTierName[t] || t).join("+") + "）"
       : "";
@@ -1812,11 +1809,10 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       ? ` <button class="sig-acc-reset" data-window-filter-reset="1">恢复全部</button>`
       : "";
     _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
-    // 2026-08-05 ETF 筛选按钮行：单选改多选拆4档（全部/强关联/相关/近似/概念）
+    // 2026-08-07 归一档：每标的归一个最佳档，各档计数独立不重叠
     // 档位：1强关联(self/excellent) 2相关(good非fallback) 3近似(warn/n/a/其余) 4概念(无ETF)
     // 选中态：档1-3 复用 etf-pop-grade-excellent/good/warn CSS class 着色 + sig-acc-filter-active 描边；
     //   档4 用 warn 灰（概念标的弱化）；"全部" = sigEtfFilterSet 空(全显)时 active
-    // 计数：遍历 _etfBaseItems 用 _signalTiers 算各档命中数，跨档 signal 各档都+1（命中任一即显示语义）
     const _etfSelSet = state.sigEtfFilterSet || [];
     const _eActive = (f) => {
       if (f === "all") return (!_etfSelSet.length) ? " sig-acc-filter-active" : "";
@@ -1826,10 +1822,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       `<button class="sig-acc-seg sig-acc-filter${gradeCls ? " " + gradeCls : ""}${_eActive(f)}" data-etf-filter="${f}" data-tip="${_escAttr(tip)}">${label}</button>`;
     const _tierCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
     for (const it of _etfBaseItems) {
-      for (const t of _signalTiers(it)) _tierCounts[t] = (_tierCounts[t] || 0) + 1;
+      const _t = _signalTiers(it);
+      _tierCounts[_t] = (_tierCounts[_t] || 0) + 1;
     }
     const _etfReset = _etfSelSet.length ? ` <button class="sig-acc-reset" data-etf-filter-reset="1">恢复全部</button>` : "";
-    const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/概念全部4档）")} · ${_etfBtn("强关联 " + _tierCounts[1], "1", "档1强关联：ETF自身完美自跟踪(self)或 max_err<1%(excellent)，跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关 " + _tierCounts[2], "2", "档2相关：1%≤max_err<5%(good)自动匹配，跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("近似 " + _tierCounts[3], "3", "档3近似：warn/n/a/overlap/kw/manual_fallback 等，有跟踪ETF但误差较大或来源间接", "etf-pop-grade-warn")} · ${_etfBtn("概念 " + _tierCounts[4], "4", "档4概念：无跟踪ETF的概念标的（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
+    const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/概念全部4档）")} · ${_etfBtn("强关联ETF " + _tierCounts[1], "1", "档1强关联：ETF自身完美自跟踪(self)或 max_err<1%(excellent)，跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关ETF " + _tierCounts[2], "2", "档2相关：1%≤max_err<5%(good)自动匹配，跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("有近似ETF " + _tierCounts[3], "3", "档3近似：warn/n/a/overlap/kw/manual_fallback 等，有跟踪ETF但误差较大或来源间接", "etf-pop-grade-warn")} · ${_etfBtn("概念无ETF " + _tierCounts[4], "4", "档4概念：无跟踪ETF的概念标的（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
     _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
@@ -11184,7 +11181,10 @@ async function renderGlobal(container = content) {
       if (idx.data && idx.data.length) {
         // 优先用前端 _INDEX_NAME_MAP 中文化（防 JSON name 英文化，如 kospi=KOSPI → 韩国KOSPI）
         const idxName = (_INDEX_NAME_MAP && _INDEX_NAME_MAP[id]) ? _INDEX_NAME_MAP[id] : idx.name;
-        const chart = indexChart(idxName, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
+        // 2026-08-07 走势图卡片标题加指数代码（对齐 A 股做法 b7e0b96c1）
+        const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
+        const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
+        const chart = indexChart(idxName + _idxCodeTag, idx.data, sigs, sig.stats, idx.strategy, cardGrid, charts, id);
         if (chart) {
           const cardEl = chart.getDom().parentElement;
           // 目录锚点跳转目标 id + scroll spy observe(卡片渲染完后注册)
@@ -15164,9 +15164,12 @@ function renderIndustryGrid(indices, containerOverride, emptyText) {
     }
     const closeSuffix = (_csClose != null) ? `<span class="chart-latest"> · ${fmtDate(_csDate)} ${_csClose.toFixed(2)}</span>` : "";
     const pctSuffix = (pct != null) ? ` <span class="pct-badge" style="color:${color}">${sign}${pct.toFixed(2)}%</span>` : "";
+    // 2026-08-07 板块分化标题加指数代码（对齐 A 股做法 b7e0b96c1）：申万 sw_/概念 thsc_ 等展示来源代码
+    const _idxCodeForTitle = indexIdToCode(id, idx.symbol);
+    const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
     cell.innerHTML = `
       <div class="spark-head">
-        <span class="spark-name">${_INDEX_NAME_MAP[id] || idx.name}${closeSuffix}${pctSuffix}${rotTag}</span>
+        <span class="spark-name">${_INDEX_NAME_MAP[id] || idx.name}${_idxCodeTag}${closeSuffix}${pctSuffix}${rotTag}</span>
       </div>
       ${hint ? `<div class="chart-hint">${hint}</div>` : ""}
       <div class="spark-chart"></div>
