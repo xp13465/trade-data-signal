@@ -214,7 +214,8 @@ PUSH_RC=0
   # boot.json：intraday _export_affected_json 末尾调 export_boot() 重新生成
   # （commit f43016e40），保证 boot.overview.date=今日。不 push 则前端 fetchBoot
   # 缓存旧 overview 致成交额卡显示昨日值（2026-08-06 事故根因）。
-  for _f in intraday_snapshot overview summary summary_history notifications boot; do
+  # schedule_stats：原独立 push_schedule_stats.sh，2026-08-07 合并进首次 push 省 CF 构建
+  for _f in intraday_snapshot overview summary summary_history notifications boot schedule_stats; do
     DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
   done
   # 部分文件不存在时 git 报 fatal 但 || true 继续，不影响其余 add（参考 deploy.sh L221）
@@ -326,12 +327,11 @@ echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 =
 #    deploy.sh L72 收盘后也调，兜底。失败不阻塞退出。
 "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" | tail -1 || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
 
-# 5) 独立 push schedule_stats.json 到 main（2026-07-30 方案C+R2 选项2，实时性最佳）：
-#    gen_stats 刚刷新本地 schedule_stats.json，立即独立 push 绕过 deploy.sh 时序矛盾，
-#    当轮 schedule_stats 当轮上线（不再滞后一轮等下次 rsync）。
-#    deploy.sh L216 / 本脚本 L207 for 循环均已移除 schedule_stats（避免双写撞 git lock），
-#    此处是 intraday 路径唯一 push 入口。失败不阻塞：gen_stats 已刷新本地，下一轮 intraday
-#    或其他任务脚本（us_stock/rzhb/futures/lhb/etf/update_all/update_lab）结尾会再 push。
-bash "$REPO/scripts/push_schedule_stats.sh" || echo "⚠ push_schedule_stats 失败" | tee -a "$LOG"
+# 5) schedule_stats.json 已合并进上面第一次 push 的 DATA_FILES（L217 for 循环）：
+#    原 2026-07-30 方案C 独立 push（push_schedule_stats.sh）每轮多一次 git push，
+#    盘中每10分钟 2 次 push = ~54次/天 CF 构建。合并后 schedule_stats 跟随第一次
+#    push 上线，滞后一轮（上一轮 gen_stats 版本，前端 modal 按需读无感知）。
+#    gen_stats L327 保留刷新本地 schedule_stats.json，供下一轮 rsync 进 worktree 上线。
+#    失败不阻塞：gen_stats 已刷新本地，下一轮 intraday 或其他任务脚本结尾会再带上线。
 
 exit 0
