@@ -8253,3 +8253,46 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - thsc概念指数warn是设计行为（选C不修）
 - 数据流端到端：build_board_etf_map.py TRACK_INDEX_KW -> board_etf_map.json -> queries.etf_for() L224 -> export.py index/*-all.json etfs -> 前端_bindEtfPopup
 - 语义差异（明早向用户说明）：160225 vs gz_399417=2.19% grade=good真实跟踪误差(5%现金拖累+0.7%年费)非bug，同花顺"跟踪度100%"用R²相关性非涨跌幅误差，语义不同
+
+## §48 小节AY：信号指数名中文化+hoverpop+csi_970070（2026-08-07）
+
+### 一、背景
+- 用户指出信号里 csi_932315 显示成代码裸露（应"中证红利质量（932315）"）；hoverpop"指数至今"行缺指数名+代码；E组6 csi_970070 查到新代码
+
+### 二、指数名修复（commit e7915d4a8）
+- 根因双重：后端 signals_today 不注入 name/symbol（queries.py L383 SELECT 只4字段）+ 前端 _INDEX_NAME_MAP 漏 43 concept 指数（csi_*/gz_*）
+- 方案A：后端 queries.py overview() L395 建 `_idx_meta={i["id"]:{name,symbol}}`（从 indicators.yaml 单一来源，遵守"一个指数一个名字"）注入每条 signal；前端 indexIdToCode 加 symbol 参数 + _renderSignalGrid 优先 it.name/it.symbol + _INDEX_NAME_MAP 退为兜底
+- 覆盖 43 个 concept 指数 + 未来新增自动覆盖
+
+### 三、BUG1 global 指数 symbol 中文（commit 0624fb1ef）
+- dax/ftse100/kospi/nikkei225/cac40 global 指数 symbol 是中文搜索词（新浪 fetcher 用），indexIdToCode L1334 加 `if (/[一-龥]/.test(symbol)) return '';` 不当代码显示
+- hsi(HSI)/us_spx(.INX) 英文不受影响
+
+### 四、hoverpop 指数至今行加指数名+代码（commit 0624fb1ef）
+- cell L1617-1618 加 data-idx-name/data-idx-code（复用 _idxName/_sigIdxCode，_escAttr 转义）
+- hoverpop L2101-2104 读+渲染"汽车芯片 (885945)指数至今 +13.56% · 符合预测"
+- 三种情况：name+code / name 无 code / 无 name 保持原
+
+### 五、csi_970070 创业板人工智能指数（commit e8be6022d）
+- teammate agent 查到创业板人工智能指数 sz970070（之前 E组6 遗留查不到）
+- 匹配 8 只 ETF（159363/159242等），thsc_302035 加 exclude"创业板人工智能"防交叉泄漏
+- 4 个仍查不到（上证科创板人工智能/芯片设计/创业板新能源/国证自由现金流，sina 未收录）
+
+### 六、信号数量变化
+- 路B deploy 前后真实ETF 100->153(+53)/概念 102->127(+25)/总 202->280
+- 根因路B新增 63 指数（54 有ETF+8 无ETF）触发新信号，预期行为非膨胀
+- 用户记忆概念-17 是偏差（实际+25）
+
+### 七、reviewer + deploy
+- 3 个 reviewer 全 PASS（e7915d4a8 指数名 / 0624fb1ef BUG1+hoverpop / e8be6022d csi_970070）
+- deploy（2026-08-07 08:23）：reset feat 到 origin/main + cherry-pick 3 commits + push HEAD:main fast-forward（3d4157b40..3bf0bb044）
+- export 351 JSON + check_data_integrity 23 ok + R2 index 328（含 csi_970070）
+- curl 3 域名 + R2 全通过
+
+### 八、feat 分叉
+- 本地 feat 基于 origin/main 重建，origin/feat 旧版（0171708d1），分叉
+- 代码+数据已 main 上线不阻塞，feat 同步后续清理（非 force push）
+
+### 九、遗留（非阻断）
+- sse_000685 的 588200 ETF 在 thsc_309049/307940/308725/308300 交叉泄漏（4个thsc未加 exclude"科创板芯片"，非本次引入）
+- 4 个 E组6 指数查不到代码留空（上证科创板人工智能/芯片设计/创业板新能源/国证自由现金流）
