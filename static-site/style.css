@@ -1667,12 +1667,17 @@ main { padding: 16px 24px; }
 .etf-pop-track.etf-pop-grade-good, .etf-match-tag.etf-pop-grade-good { color: #d97706; }
 .etf-pop-track.etf-pop-grade-warn, .etf-match-tag.etf-pop-grade-warn { color: var(--text-3); }
 /* D1b 5色信号灯: 蓝=self(本体) / 绿=strong(强关联) / 草绿=related(相关,绿+opacity) / 橙=approx(近似) / 暗橙=none(弱) / 灰=null(无数据,灭灯) */
-.etf-light { display: inline-block; font-size: 9px; line-height: 1; vertical-align: middle; margin-right: 1px; }
+/* 问题2(2026-08-08): 列表灯(裸 .etf-light)=12px; hoverpop/弹窗灯(.etf-match-tag 内)=14px 恢复旧 emoji 视觉大小 */
+.etf-light { display: inline-block; font-size: 12px; line-height: 1; vertical-align: middle; margin-right: 1px; }
+.etf-match-tag .etf-light { font-size: 14px; }
 .etf-light-self { color: #2563eb; }          /* 蓝 - self 本体无误差 */
 .etf-light-strong { color: #2e8b57; }         /* 绿 - strong 强关联 */
 .etf-light-related { color: #2e8b57; opacity: 0.55; }  /* 草绿 - related 相关(绿+透明度) */
-.etf-light-approx { color: #d97706; }         /* 橙 - approx 近似(仅供参考警示) */
+.etf-light-approx { color: #d97706; }         /* 橙 - approx 近似标准色(track_index warn/manual_fallback) */
 .etf-light-weak { color: #d97706; opacity: 0.6; }     /* 暗橙 - none 弱(橙+透明度,区别于approx) */
+.etf-light-red { color: #e6492e; }            /* 红 - approx 临时色 name_match */
+.etf-light-purple { color: #8b5cf6; }         /* 紫 - approx 临时色 overlap */
+.etf-light-yellow { color: #ca8a04; }         /* 黄 - approx 临时色 kw */
 .etf-light-nodata { color: var(--text-3); opacity: 0.35; }  /* 灰灭灯 - null 无数据 */
 .etf-pop-type { font-size: 9px; color: var(--text-3); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; line-height: 14px; }
 /* 2026-08-05 ETF 至今盈亏：popup 候选行内盈亏 + tag 后盈亏 + hoverpop 内联盈亏（红涨绿跌内联 color） */

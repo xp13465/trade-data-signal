@@ -1503,19 +1503,28 @@ function _gradeLabel(grade) {
 // D1b 2026-08-08: track_tier -> 信号灯 CSS class + 中文档位
 // 5色: 蓝=self(本体) / 绿=strong(强关联) / 草绿=related(相关) / 橙=approx(近似)+none(弱) / 灰=null(无数据)
 // track_tier absent(旧数据未含)时回退 grade 映射，保持向后兼容
+// 问题3(2026-08-08): approx 档按 match_method 临时色(用户定"先按计划的临时色 匹配不到临时色的就橙色")
+//   name_match -> 红 / overlap -> 紫 / kw -> 黄 / track_index+manual_fallback+其余 -> 橙(标准兜底)
+function _etfApproxCls(etf) {
+  var _mm = etf ? etf.match_method : null;
+  if (_mm === "name_match") return "etf-light-red";
+  if (_mm === "overlap") return "etf-light-purple";
+  if (_mm === "kw") return "etf-light-yellow";
+  return "etf-light-approx"; // track_index warn / manual_fallback / 其他 -> 橙(标准兜底)
+}
 function _etfLightInfo(etf) {
   if (!etf) return { cls: "etf-light-nodata", label: "无数据" };
   if (etf.match_method === "self") return { cls: "etf-light-self", label: "强关联" };
   var _t = etf.track_tier;
   if (_t === "strong") return { cls: "etf-light-strong", label: "强关联" };
   if (_t === "related") return { cls: "etf-light-related", label: "相关" };
-  if (_t === "approx") return { cls: "etf-light-approx", label: "近似" };
+  if (_t === "approx") return { cls: _etfApproxCls(etf), label: "近似" };
   if (_t === "none") return { cls: "etf-light-weak", label: "弱" };
   if (_t === null) return { cls: "etf-light-nodata", label: "无数据" };
   // _t undefined(旧数据无 track_tier) -> 回退 grade 映射
   if (etf.grade === "excellent") return { cls: "etf-light-strong", label: "强关联" };
   if (etf.grade === "good" && etf.match_method !== "manual_fallback") return { cls: "etf-light-related", label: "相关" };
-  return { cls: "etf-light-approx", label: "近似" };
+  return { cls: _etfApproxCls(etf), label: "近似" };
 }
 // D1b: match_method -> 中文来源标签(hover tooltip 用)
 function _etfSrcLabel(mm) {
@@ -1750,10 +1759,27 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         var _idxCodeAttr = _sigIdxCode ? ` data-idx-code="${_escAttr(_sigIdxCode)}"` : "";
         // 2026-08-07 今日信号 since_return=null -> 未结算标记，hoverpop 显示灰字提示"今日信号未结算（收盘后更新）"
         var _idxUnsettledAttr = (it.since_return == null) ? ` data-idx-unsettled="1"` : "";
-        // 2026-08-06 ETF tag 从 cell 移除（cell 只留 [信号标签][⚠][评级][☑️/✖️][指数名]）。
-        // 主ETF 名称(代码) 改放 hoverpop（_initTermPop.show 内 _sigEtfCache 取 top1），弹窗标题复用 _appendEtfLinkTag。
-        // 概念标的（无ETF）hoverpop 不显 ETF 段；ETF 筛选按钮计数仍区分有/无，不依赖 cell 标记。
-        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_idxName}${_sigIdxCode ? ` <span class="idx-code-tag">${_sigIdxCode}</span>` : ""}</span></span>`;
+        // 2026-08-08 ETF 信号灯加入列表(需求2): 取 top1 etf 构建灯+tooltip, 列表显 ETF名(代码) 替代指数名
+        // board_etf_map 已按 max_err 升序排好, top1 即最佳跟踪; 概念指数无ETF 显灰灯+回退指数名
+        // 布局: 信号名 灯(●) [⚠] 评级 ☑️/✖️ ETF名(代码); 优秀/相似度% 放灯 hover 不显列表(需求4)
+        var _etfTop = (it.etfs && it.etfs.length) ? it.etfs[0] : null;
+        var _cellLight, _cellName, _cellCode;
+        if (_etfTop) {
+          var _li = _etfLightInfo(_etfTop);
+          var _tpEtf = ["来源: " + _etfSrcLabel(_etfTop.match_method)];
+          if (_etfTop.grade) _tpEtf.push("分级: " + _gradeLabel(_etfTop.grade));
+          if (typeof _etfTop.similarity === "number") _tpEtf.push("相似度: " + (_etfTop.similarity * 100).toFixed(1) + "%");
+          if (typeof _etfTop.track_score === "number") _tpEtf.push("跟踪分: " + _etfTop.track_score.toFixed(1));
+          if (_li.label) _tpEtf.push("档位: " + _li.label);
+          _cellLight = '<span class="etf-light ' + _li.cls + '" data-no-pop="" title="' + _tpEtf.join(" · ") + '">●</span>';
+          _cellName = _etfTop.name || _idxName;
+          _cellCode = _etfTop.code || _sigIdxCode;
+        } else {
+          _cellLight = '<span class="etf-light etf-light-nodata" data-no-pop="" title="无跟踪ETF（概念指数）">●</span>';
+          _cellName = _idxName;
+          _cellCode = _sigIdxCode;
+        }
+        return `<span class="${cls}${scoreCls}" data-idx="${it.index_id}" data-sig="${it.signal}" data-sig-type="${_typeKey}" data-date="${it.date}"${_idxRetAttr}${_idxCorrectAttr}${_idxNameAttr}${_idxCodeAttr}${_idxUnsettledAttr} title="${_hoverTitle}"><b class="${it.signal}${(it.reason||'').includes('波段减仓')?' band_sell':''}">${signalLabel(it)}</b>${_cellLight}${warnBadge}${scoreBadge}${correctBadge} <span class="sig-idx-name">${_cellName}${_cellCode ? ` <span class="idx-code-tag">${_cellCode}</span>` : ""}</span></span>`;
       }
       return `<span class="sig-item sig-clickable" data-idx="s.${it.score_id}" data-sig="freeze" data-date="${it.date}" data-val="${it.value != null ? it.value.toFixed(1) : ""}" title="点击查看走势图"><span class="sig-freeze-name">${indexIdToName(it.score_id)}</span>=<b class="freeze-val">${it.value != null ? it.value.toFixed(1) : "-"}</b></span>`;
     };
