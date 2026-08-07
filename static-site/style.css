@@ -391,6 +391,9 @@ main { padding: 16px 24px; }
 .card-time-badge.t1-severe { color: #c62828; border-color: rgba(198,40,40,0.6); background: rgba(198,40,40,0.2); }
 /* 数据停更(源端长期停更/公式损坏/半年报,非采集故障)：灰色,区别于滞后(黄)/异常(红) */
 .card-time-badge.stale-mark { color: var(--text-3); border-color: var(--border-strong); background: rgba(128,128,128,0.15); }
+/* 冰点日事件角标(方案A 2026-08-07):中性蓝,非时效语义(冰点日是历史事件非数据日期),
+   区别于 t1-stale 黄(滞后)/t1-severe 红(异常)/绿(最新)/灰(停更)。表示"最新一次冰点发生日",非数据时效。 */
+.card-time-badge.t1-event { color: #3b6ea5; border-color: rgba(59,110,165,0.5); background: rgba(59,110,165,0.15); }
 
 /* AZ89 P1+P2 全球指数实时报价角标(2026-07-31)：右上角第二行(top:30px right:8px),避开 .card-time-badge(右上 top:6px)。
    显示 price + chg_pct% + time, 涨红/跌绿/平橙(A股配色与现有指数涨跌色一致)。
