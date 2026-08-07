@@ -1323,13 +1323,14 @@ function indexIdToName(indexId) {
 // 否则用后端注入的 symbol（indicators.yaml 单一来源）按 index_id 前缀派生展示代码：
 //   csi_932315 -> 932315, gz_399417 -> 399417（剥前缀+剥交易所前缀 sh/sz/bj）；
 //   hk_*/us_*/global 展示 symbol 原值（HSI/.DJI 等）；
-//   宽基(sh/sz/cyb/...)/行业(sw_801xxx) index_id 本身即代码，返回空串不重复展示。
+//   宽基(sh/sz/cyb/...) index_id 本身即代码，返回空串不重复展示；sw_ 申万行业展示 symbol 纯数字代码（801030 等）。
 // symbol 缺省（旧数据/非 signals_today 调用点）退回 _INDEX_CODE_MAP 或空串，保持向后兼容。
 function indexIdToCode(indexId, symbol) {
   const key = indexId.replace(/^(g|s)\./, '');
   if (_INDEX_CODE_MAP[key]) return _INDEX_CODE_MAP[key];
   if (!symbol) return '';
-  if (/^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000|sw_)/.test(key)) return '';
+  if (/^sw_/.test(key)) return symbol;  // sw_ 申万行业展示代码（symbol 纯数字 801030 等直接返回）
+  if (/^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000)/.test(key)) return '';  // 宽基不展示（index_id 即代码）
   if (/^(csi_|gz_)/.test(key)) return symbol.replace(/^(sh|sz|bj)/, '');
   if (/[一-龥]/.test(symbol)) return '';  // global 中文搜索词非代码（dax/ftse100/kospi/nikkei225/cac40，新浪 fetcher 需中文搜索词但非展示代码）
   return symbol;
