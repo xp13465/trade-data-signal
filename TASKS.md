@@ -1262,3 +1262,19 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - smoke-checklist.md P0-08 ETF id 拼写错误(写 sh000001,实际文件用短id sh-all.json/hs300-all.json),非本次改动,待修
 - INFO(非阻塞): 边界场景首屏recent_freeze非空后轮询变空,角标保留旧冰点日(原代码同样不更新且会误报,新行为更优)
 - trivial: L5215注释措辞略不准(代码正确)
+
+## ✅ 2026-08-07 schedule_stats 合并方案1 上线
+
+### 改动(intraday_snapshot.sh,commit 547414a70 feat -> b2f3d9171 main)
+- L218 DATA_FILES 加 schedule_stats(.json+.gz)
+- L335 删独立 push_schedule_stats.sh 调用
+- L328 gen_schedule_stats 保留(刷新本地)
+- 省 CF 构建: 盘中每10min 2次 push -> 1次,~54次/天 -> ~27次/天减半
+- schedule_stats 滞后一轮(10min盘中/25min-1h盘后),前端 modal 按需读无感知
+- reviewer adcf PASS(10项+check_data_integrity 23ok/0fail)
+- 20:35 intraday 运行新版(盘后验证)
+- 路径: trade-data/scripts symlink -> trade/scripts, git 在 trade/
+
+### 待办(可选)
+- deploy.sh L412 注释"schedule_stats.json 有独立 push_schedule_stats.sh 兜底"对 intraday 路径略过时(intraday 不再用),但泛指仍成立(11个其他脚本用),reviewer 说可不改
+- 20:35 后 curl ss.fx8.store/data/schedule_stats.json 验证 intraday last_run(滞后一轮)
