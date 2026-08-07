@@ -8,6 +8,7 @@
 - **展开查代码结构 / 遍历数据 / 定位根因 / 分析方案 = 调研,必派 background agent,不亲手干**
 - 别以"验收"为名亲手 grep 一堆--验收是确认 agent 已报的结论,不是自己去发现根因
 - 教训:compact 后曾亲手跑 6 个 Bash 查 indices 结构/renderGlobal 逻辑(调研活,违规);只 grep 一行确认清单算验收
+- **compact 恢复 5 步清单**(2026-08-07 补,防 compact 后丢 transient 状态):compact 后第一动作 5 步恢复:①读 TASKS 会话状态小节(当前在跑的 agent/待办/决策)②读 NOTES §48 近期章节 ③CronList 查活跃 cron ④stat -L 查 agent jsonl mtime 确认在跑/卡死 ⑤git log 查最近 commit 链确认上线状态。派 agent/收报告/设 cron/commit 后实时 Edit TASKS 会话状态小节
 
 ## 1. 开工前先读工作模式
 每次会话开始/恢复上下文/接新任务,第一件事先读本文件(或对应 memory),不是想读才读。这是和"杜绝 token 浪费"并列的硬准则。
@@ -59,7 +60,8 @@
 - ⚠️ **force-with-lease / force push 是最后手段,不是首选**(2026-07-20 gz 方案B agent 违规致 intraday 回退事故,见 NOTES §48 小节S 事故记录):non-fast-forward 时优先 `git fetch + git rebase origin/main + 重试 push`(deploy.sh L141-160 内置此机制),rebase 失败 abort 退出等人工处理。**agent 不得擅自 force-with-lease / force push,尤其推 main**;确需强推须主控确认
 - ⚠️ **deploy.sh `git add static-site/data/` 通配会带入工作区残留旧文件**(2026-07-20 事故根因):跑 deploy.sh 前确认工作区无旧版实时数据文件(尤其 `intraday_snapshot.json`,由 intraday-snapshot 定时任务独立 push,不被全量 deploy 带入);export.py 不生成 intraday_snapshot.json,工作区里的旧版会被通配带入 commit 覆盖线上新版
 - ⚠️ **盘中(09:30-15:30)不跑全量 export + deploy**:全量 export + deploy 限定 15:35 后(收盘后),盘中只跑 intraday-snapshot 定时任务推 intraday_snapshot.json。agent 接"跑全量 export"任务须先确认时点,盘中拒绝或等收盘(撞 intraday-snapshot 定时任务推 main = 互相覆盖事故)
-- ⚠️ **agent 推理"X 文件在 Y commit 里"前先核对**(2026-07-20 事故误判):用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点版本,不靠"Y commit 是 Z 时点跑的所以含 Z 时点数据"推理
+- ⚠️ **agent 推理“X 文件在 Y commit 里”前先核对**(2026-07-20 事故误判):用 `git show --stat <commit>` 或 `git log -- <file>` 确认文件实际是否在 commit 里、是哪个时点版本,不靠“Y commit 是 Z 时点跑的所以含 Z 时点数据”推理
+- ⚠️ **验上线验功能生效层非代码在 main**(2026-08-05 教训):代码在 main + 版本号上线 ≠ 功能生效。说“已上线”前 curl JSON 验数据层(字段有值/无旧字段残留)+ 让用户确认显示。教训:判断预估成交额已上线但 amount_forecast={} 空对象后端没写数值;信号过滤代码在 main 但 overview.json 旧版 signals_today 还有 s.sentiment_cyb
 
 ### 8.1 R2 存储架构准则(2026-08-01 定,按数据类别不按大小)
 - **R2 是存储架构的结构决策,不按单文件大小临时判断**。新数据类别从第一天就走 R2 架构(upload_r2 清单+前端 dataUrl R2 fallback),不等变大才补
@@ -76,6 +78,9 @@
 - 改 CSS/JS 后跑 `scripts/build_min.py`(terser minify,仅 static-site/app.js+lab.js 2对)+ `scripts/bump_asset_version.py`(md5 前 8 位破缓存)
 - 本地开发:`cd /Users/linhuichen/code/trade-data && /Users/linhuichen/code/trade/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000`(看页面+调API)或 `python -m http.server -d static-site`
 - ⚠️ **uvicorn cwd 必须是 trade-data/**(2026-07-20 方案B,根治线上读滞后镜像):让 app/db.py 的 `.absolute()` 读最新主库 `trade-data/data/sentiment.db`(inode 237343239),非 `trade/` 滞后镜像(inode 238648312,仅 deploy.sh rsync 时同步)。launchd 写 trade-data/data/,uvicorn 从 trade/ 跑会读滞后镜像致 export 漏数据(resolve 修复 commit f0f6df78 需 cwd 切 trade-data 才生效)。trade-data/app 是 symlink 指向 trade/app,代码不变。调试加 `--reload`
+- ⚠️ **改 app.js/lab.js 必 bump sw.js CACHE_VERSION**(2026-08-07 补):否则旧 Service Worker CacheFirst 缓存旧 app.min.js 致用户拿不到新代码(硬刷后退回旧数据)。build_min + bump_asset_version + **bump sw.js CACHE_VERSION** 三步缺一不可
+- ⚠️ **min 版 JS 验证用字符串非变量名**(2026-08-07 补):terser mangle 重命名 let 局部变量(_compBarsHtml 等),grep 验 min 版上线用 class 名/中文字符串(kst-comp-fill/分项构成/优秀)非变量名
+- ⚠️ **export 输出路径同步**(2026-08-07 补,§9 cwd trade-data 衍生陷阱):export.py cwd trade-data 写 JSON 落 trade-data/static-site/data/,但 deploy.sh 从 trade/static-site/data/ 推 git,两路径不同步推旧版。export 后必须 cp 或确认 rsync 同步
 
 ## 10. 切分支保护 DB(2026-07-14 已根治,作历史教训留存)
 - 历史隐患:data/sentiment.db(80MB)+ etf_national_team.db 曾进 git 跟踪,切分支时 git 用旧版覆盖污染 DB,致 2026-07-14 事故(收盘快照丢失)
@@ -91,6 +96,10 @@
 - **429配额失败**:agent came to rest(退出运行)但task-id保留,配额恢复后**优先SendMessage resume原会话**(保留上下文比重派从头高效);resume不响应/状态乱才重派新会话。**2026-07-15教训(底线:不重复犯错)**:曾误判"429原会话已终止无法resume只能重派"(a194f 429后重派afe9从头跑,浪费a194f已查的32 tool_use上下文),实际task-notification note明说"can resume",429和卡死都优先resume--**配额恢复后第一动作是SendMessage resume原会话,不是重派**
 - **came to rest**(agent完成一阶段停了等指令,非卡死非429):可随时SendMessage推进,不严格等480秒(2026-07-15 a5c6改名反复came to rest,SendMessage推进3次才完成;阈值可降到240秒)
 - 重派新会话:让新agent读原agent遗留接着做(`/tmp/agent-progress-*.md`进度文件 + 工作区半成品,如数据时效a2ce接a06704b半成品),避免从头返工
+- ⚠️ **worktree isolation SendMessage 不送达 + sm_use=0 违规**(2026-08-07 教训):worktree sidechain agent SendMessage to 'main' 返回 queued success 但不送达主控 session(harness 限制);非 worktree agent 也可能 sm_use=0(根本没执行 SendMessage 违规)。**worktree agent 必配 cron 兜底**(查进度文件 mtime+DONE 标记);**通用保险=cron 查进度文件**(不只依赖 SendMessage)
+- ⚠️ **中途改口径停旧派新**(2026-08-07 教训,ETF盈亏4轮振荡):中途改口径/方向必须停旧 agent 派新 agent 带全新规格,不能 SendMessage 让旧 agent 继续(旧规格上下文致误操作反向)。改口径=停旧派新,非 resume
+- ⚠️ **SendMessage resume 触发拒绝大重构**(2026-08-07 教训):SendMessage resume 触发“非用户确认”系统提示 agent 拒绝大重构(a11439db9 拒绝)。改派新 agent 初始 prompt 绕过(a00f4f2c8b 成功)
+- ⚠️ **API 错误别卡死/重试同调用**(2026-08-07 补,§13 图片400外的通用):400/参数无效/不支持类报错别重试同调用(2天前连续3 agent a023 400/aabd/aff 卡死),换方案或暂存任务,别逼用户重启
 
 ## 12. superpowers 融合规则(2026-07-15 装 v6.1.1)
 - superpowers 是纯 skill 库(14个,无 slash command),SessionStart hook 每次开会话强制注入 using-superpowers 全文(~800 token),且默认"1% 可能相关就主动调 skill"
@@ -104,7 +113,8 @@
 - 当前模型(glm-5.2)**只支持文本输入,不支持图片**。Read 图片/截图/视觉对比会触发 API Error 400 "Model only support text input",终止 agent
 - 派子 agent 时**禁止图片操作**(截图对比/UI 视觉看图/Read 图片验证效果)。需视觉验证的用文字描述+ASCII 示意图,或让用户自己看
 - 子 agent 撞 400 "Model only support text input" = 尝试了图片输入。若其调研已基本完成,读进度文件 + 主控补完剩余即可,无需重派从头
-- **2026-07-16 教训**:P2-4 og.png 压缩 agent 在"开始写报告"时疑似 Read og.png 验证压缩效果,撞 400 终止。但 P0-1 压缩调研已完成(坐实不可行),og.png 主控手动 magick 256色压缩补完(67KB->36KB),无损失
+- **2026-07-16 教训**:P2-4 og.png 压缩 agent 在“开始写报告”时疑似 Read og.png 验证压缩效果,撞 400 终止。但 P0-1 压缩调研已完成(坐实不可行),og.png 主控手动 magick 256色压缩补完(67KB->36KB),无损失
+- **通用 API 错误别卡死/重试同调用**(2026-08-07 补):不只图片400,任何 400/参数无效/subagent_tokens=0/不支持类报错别重试同调用。换方案(重派新 agent 初始 prompt)或暂存任务,别逼用户重启。详见 §11
 
 ## 14. 生产稳定性 P0(2026-08-04 计入,最高优先级)
 - **核心一句话:生产稳定性是 P0 第一要素**。项目已上线生产(ss.fx8.store/sss.sugas.site/s.sugas.site + ssd.fx8.store R2),定时任务撞车会导致线上数据覆盖事故/DB锁/用户看到错误数据,是不可逆生产故障
