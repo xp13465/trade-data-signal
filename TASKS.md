@@ -1345,7 +1345,35 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 ### 级别: B级(逻辑+显示, 跨 _etfMatchTags/_etfTier/列表渲染, 有隐藏影响面-轮询/列表渲染)
 ### 排期: 待当前活跃待办(17:50验证/getCardTimeBadge语义/后端重启)后, 或用户优先
 
-## 📋 2026-08-08 ETF跟踪5维度评分算法(调研✓+159536验证✓+数据语境审计✓,待用户定权重TE/Dev比例+前复权方案后实施)
+## 📋 2026-08-08 ETF复权修正(方案b+c定稿✓,3决策已定,待实施~10h,C级)
+
+> etf_daily.close未复权,512000除权20250801=1.138->0804=0.572致TE虚高50%(主控验收✓)。影响10处:115只ETF 7.6%有除权跳变120事件。**复权是ETF跟踪评分(5维度)前置依赖,必须先修**。
+
+### 方案b+c(调研报告 /tmp/agent-progress-etf-adjust.md 202行)
+- **采accum_nav**:`fund_open_fund_info_em(symbol, indicator='累计净值走势')` 已复权不跳(159915 08-01=2.6351->0804=2.6483连续✓主控验收),0.2s/只,7类ETF全覆盖。fund_etf_hist_em(东财)被封/fund_etf_hist_sina不支持adjust/mootdx不复权,均排除。
+- **计算层按需用**:收益率类(TE/IR/R²/相似度/since_return/RSI/BB)用accum_nav;OHLC类(trade_sim/Donchian/ATR)用前复权系数adj(t)=r(t)/r(latest)调整close;实时展示保持未复权(交易视角)。
+- **3决策(用户2026-08-08定)**:①TE基准=accum_nav vs指数(基金跟踪能力剔除折溢价)②存储=etf_daily加accum_nav列(SQLite ALTER ADD COLUMN O(1)不锁表)③sparkline=前复权OHLC(历史连续不误导)。
+
+### 影响面10处(主控grep确认export RSI/BB用close✓)
+- 高5(必须复权):build_board_etf_map相似度_calc_returns / 新评分_calc_tracking_score(TE虚高50%) / queries.etf_since_return / alert_score技术指标(RSI/BB假信号) / export_etf_score_list(RSI+BB+ATR)
+- 中3(需复权):simulate_trade回测成交价 / lab.js / app.js涨跌幅波动率
+- 低1(可选):sparkline K线 ｜ 无1:alert_match(只用amount)
+
+### 工时~10h + 回填窗口
+- 采集回填2h(1520只*0.2s≈5min写DB,避20:07 etf-national-team同库写锁)+计算层7文件6h+测试2h
+- 回填窗口:周六23:00-06:00 / 周日06:00-20:00(避20:05/20:07/22:00/03:00/02:00定时任务)
+
+### 级别:C级(数据产物etf_daily加列+回填+计算层7文件,有隐藏影响面-所有用close算收益处)
+### 排期:待实施。复权是ETF跟踪评分L1348前置,先复权再评分+信号灯L1316合并批次。建议周六23:00+或周日下午启动(10h分阶段:采集回填->计算层->测试)
+### 验收点(实施后)
+- [ ] accum_nav除权日不跳(159915已验✓,512000回填后复验1.1370->1.1396)
+- [ ] etf_daily加accum_nav列+1520只回填(覆盖率≥92%)
+- [ ] 10处计算层改用accum_nav/前复权(grep无遗漏用未复权close算收益)
+- [ ] 159536 TE用accum_nav不虚高(对比未复权TE 10.6%)
+- [ ] check_data_integrity + reviewer P0 smoke
+- [ ] 实时展示close保持未复权(交易视角不变)
+
+## 📋 2026-08-08 ETF跟踪5维度评分算法(调研✓+159536验证✓+数据语境审计✓,待用户定权重TE/Dev比例,复权修正完成后实施)
 
 > 用户发现 7/27 中证2000(932000)超卖拐点信号 hoverpop 显示「159536 🟢·良好·1.1% 至今+1.63%」而指数至今+8.19%,收益差距大。159536 在7/27单日大涨(规模小抖动)致偏离,但相似度仍评良好,认为当前算法有BUG。用户提供5维度加权评分算法(偏离度/年误差/信息比率/R²/滚动误差标准差)。
 
