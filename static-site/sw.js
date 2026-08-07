@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260807-a19';  // bump a18->a19: ETF筛选单选改多选拆4档(强关联/相关/近似/概念), 默认档1-3=原real_etf行为不变
+const CACHE_VERSION = 'v6-20260807-a20';  // bump a19->a20: 修 hoverpop 内 ETF 标签 span title 触发 term-pop 重渲染致 hoverpop 关闭 bug(加 data-no-pop)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
