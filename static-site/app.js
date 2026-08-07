@@ -1330,10 +1330,26 @@ function indexIdToCode(indexId, symbol) {
   if (_INDEX_CODE_MAP[key]) return _INDEX_CODE_MAP[key];
   if (!symbol) return '';
   if (/^sw_/.test(key)) return indexId;  // sw_ 申万行业保留前缀展示（sw_801030，申万代码同花顺查不到，保留前缀标识来源）
+  // 宽基正则 ^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000) 会命中 sz_div/csi_div 等下划线混合 id（startsWith sz/csi），
+  // 这是故意的：sz_div symbol="sz399324" 剥 sz -> "399324" 正确；若走 fallback return symbol 会保留 sz 前缀反而错。
+  // div_lowvol symbol="930955" 无前缀走 fallback -> "930955" 也正确。功能正确 > 正则分类精确，不改正则。
   if (/^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000)/.test(key)) return symbol.replace(/^(sh|sz|bj)/, '');  // 宽基展示代码（剥前缀，中证1000 sh000852->000852；sh 上证 sh000001->000001）
   if (/^(csi_|gz_)/.test(key)) return symbol.replace(/^(sh|sz|bj)/, '');
   if (/[一-龥]/.test(symbol)) return '';  // global 中文搜索词非代码（dax/ftse100/kospi/nikkei225/cac40，新浪 fetcher 需中文搜索词但非展示代码）
   return symbol;
+}
+
+// 返回 index_id 代码标签的 title tooltip 文案（按 index_id 前缀区分来源，避免事实错误）。
+// 旧版硬编码"同花顺板块代码"只对 thsc_ 对，对 sw_/宽基/csi_ 事实错误（2026-08-07 fix）。
+// code 参数来自 indexIdToCode()（thsc_ -> 885xxx/886xxx；sw_ -> sw_801030；csi_/gz_ -> 932315 等；宽基 -> 000001 等）。
+function idxCodeTooltip(indexId, code) {
+  if (!code) return "";
+  const key = indexId.replace(/^(g|s)\./, '');
+  if (/^thsc_/.test(key)) return `同花顺板块代码：${code}（站点 ${indexId} = 同花顺 ${code}，同一概念指数）`;
+  if (/^sw_/.test(key)) return `申万行业代码：${code}（站点 ${indexId}）`;
+  if (/^(csi_|gz_)/.test(key)) return `中证指数代码：${code}（站点 ${indexId} = 中证 ${code}）`;
+  // 宽基(sh/sz/cyb/kc50/bj50/hs300/sz50/csi500/csi1000) + 其他/global -> 通用"指数代码"
+  return `指数代码：${code}（站点 ${indexId}）`;
 }
 
 // 按 index_id + signal 关联 state.signalStats 取 10d 窗口 stats（含 score）。
@@ -2070,15 +2086,18 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     // 定位路径 HTML（提出 if(sigType) 外：技术参考点信号(sigType+data-idx) + 汪汪队 chip(仅 data-idx 无 sigType) 共用）
     // 有 data-idx 即生成 .term-pop-locate span，点击切 tab + 滚动高亮卡片（委托在下方 L1973 附近）
     var _esc = function (s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); };
+    // 2026-08-07 locate 路径优先用 cell 的 data-idx-name（后端注入 it.name 中文名），fallback 到 indexToMarketSubtab.idxName。
+    // csi_/gz_ 概念指数不在 _INDEX_NAME_MAP，indexIdToName 返回原始 id（csi_932315），用 cell data-idx-name 才显示"中证红利质量"。
+    var _idxNameRaw = el.getAttribute("data-idx-name");
     var locateHtml = "";
     if (idx && typeof indexToMarketSubtab === "function") {
       var loc = indexToMarketSubtab(idx);
       if (loc && loc.tab && loc.tabName) {
         // sentiment 分支：s.* 情绪分(subtab=null)只显示 tabName；汪汪队(subtab=national-team)显示 tabName > name
-        // 其他 tab(market)：一级tab > 二级sub-tab > 指数名
+        // 其他 tab(market)：一级tab > 二级sub-tab > 指数名（优先 _idxNameRaw 中文名，fallback loc.idxName）
         var locTxt = loc.tab === "sentiment"
           ? "📍 完整数据：" + loc.tabName + (loc.subtab ? " > " + (loc.name || "") : "")
-          : "📍 完整数据：" + loc.tabName + " > " + (loc.name || "") + " > " + (loc.idxName || "");
+          : "📍 完整数据：" + loc.tabName + " > " + (loc.name || "") + " > " + (_idxNameRaw || loc.idxName || "");
         locateHtml = '<span class="term-pop-locate" data-locate-idx="' + _esc(idx) + '">' + _esc(locTxt) + '</span>';
       }
     }
@@ -2089,7 +2108,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     // 与下方 etfHtml"ETF 至今"组成两行对比，红涨绿跌，带符合/不符预测方向（since_correct 有值才显）。
     // 2026-08-07 指数名+代码独立行（移出 idxRetHtml 块，since_return=null 时仍渲染完整路径"中证红利质量 (932315)"）。
     // getAttribute 返回浏览器反转义后的原文，注入 innerHTML 前用 _esc 重转义防 XSS/属性截断。
-    var _idxNameRaw = el.getAttribute("data-idx-name");
+    // _idxNameRaw 已在上方 locateHtml 块前读取（优先 cell data-idx-name 中文名）。
     var _idxCodeRaw = el.getAttribute("data-idx-code");
     var _idxPrefix = _idxNameRaw ? (_esc(_idxNameRaw) + (_idxCodeRaw ? " (" + _esc(_idxCodeRaw) + ")" : "")) : "";
     var idxNameHtml = _idxPrefix ? '<span class="term-pop-idx-name" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">📊 ' + _idxPrefix + '</span>' : "";
@@ -3763,7 +3782,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
         // 2026-08-05 概念指数(thsc_300xxx)标题追加同花顺板块代码(885xxx/886xxx)标签，方便用户对照同花顺App。
         // 宽基/行业 index_id 本身是代码不重复显示（indexIdToCode 返回空串）。
         const _idxCodeForTitle = indexIdToCode(id);
-        const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="同花顺板块代码：${_idxCodeForTitle}（站点 ${id} = 同花顺 ${_idxCodeForTitle}，同一概念指数）">${_idxCodeForTitle}</span>` : "";
+        const _idxCodeTag = _idxCodeForTitle ? ` <span class="idx-code-tag" title="${idxCodeTooltip(id, _idxCodeForTitle)}">${_idxCodeForTitle}</span>` : "";
         const c = indexChart((_INDEX_NAME_MAP[id] || idx.name) + _idxCodeTag + intradayTag, idx.data, sig.signals, sig.stats, idx.strategy, parent, charts, id);
         sectionCharts.push(c);
         const cardEl = c.getDom().parentElement;
@@ -4177,7 +4196,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
   // reason 传空串：sell_stop_loss fallback 返回 "ATR止损"（L318），buy_special_filtered 返回 "特买(过滤预览)"。
   const sigLabel = isFreeze ? `冰点${freezeVal ? "(" + freezeVal + ")" : ""}` : signalLabel({signal: signal, reason: ""});
   // 2026-08-07 标题追加同花顺板块代码(885xxx/886xxx)标签，和图表卡标题(L3732-3734)及信号格(L1603)风格统一。
-  const _idxCodeTag = _sigIdxCode ? ` <span class="idx-code-tag" title="同花顺板块代码：${_sigIdxCode}（站点 ${indexId} = 同花顺 ${_sigIdxCode}，同一概念指数）">${_sigIdxCode}</span>` : "";
+  const _idxCodeTag = _sigIdxCode ? ` <span class="idx-code-tag" title="${idxCodeTooltip(indexId, _sigIdxCode)}">${_sigIdxCode}</span>` : "";
   titleEl.innerHTML = `${_esc(name)}${_idxCodeTag} · ${_esc(sigLabel)} · ${fmtDate(date)}`;
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -4245,9 +4264,11 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     if (indexId && typeof indexToMarketSubtab === "function") {
       var _modalLoc = indexToMarketSubtab(indexId);
       if (_modalLoc && _modalLoc.tab && _modalLoc.tabName) {
+        // 2026-08-07 locate 路径优先用 name（idxName 参数，后端注入 it.name 中文名），fallback 到 _modalLoc.idxName。
+        // csi_/gz_ 概念指数不在 _INDEX_NAME_MAP，indexIdToName 返回原始 id（csi_932315），用 idxName 参数才显示"中证红利质量"。
         var _modalLocTxt = _modalLoc.tab === "sentiment"
           ? "📍 完整数据：" + _modalLoc.tabName
-          : "📍 完整数据：" + _modalLoc.tabName + " > " + (_modalLoc.name || "") + " > " + (_modalLoc.idxName || "");
+          : "📍 完整数据：" + _modalLoc.tabName + " > " + (_modalLoc.name || "") + " > " + (name || _modalLoc.idxName || "");
         var _modalLocEl = document.createElement("span");
         _modalLocEl.className = "term-pop-locate term-pop-locate--modal";
         _modalLocEl.setAttribute("data-locate-idx", indexId);

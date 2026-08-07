@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260807-a12';  // bump a11->a12: app.js 宽基展示代码(剥sh/sz/bj前缀) + 概念指数路由 csi_/gz_ -> industry
+const CACHE_VERSION = 'v6-20260807-a13';  // bump a12->a13: app.js idxCodeTooltip helper(tooltip 按 sw_/thsc_/csi_/宽基 前缀区分) + locate 路径优先用 cell 中文名
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
