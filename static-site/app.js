@@ -1472,6 +1472,27 @@ function _etfPnlColor(ret) {
   return (ret != null && ret >= 0) ? "#e6492e" : "#2e8b57";
 }
 
+// 2026-08-07 ETF 来源+相似度双维度标签（hoverpop/弹窗共用）
+// 来源(match_method): 🟢track_index / 🔵self / 🟡name_match / 🟠manual_fallback
+// 相似度(grade+max_err): 仅 similarity 为数字时显示(track_index 类有, self 类无)
+// 返回 ' <span ...>🟢·excellent·0.2%</span>' 或 ' <span ...>🔵</span>'(self无相似度) 或 ""(无match_method)
+function _etfMatchTags(etf) {
+  if (!etf) return "";
+  var _mm = etf.match_method;
+  var _srcEmoji = _mm === "track_index" ? "🟢" : _mm === "self" ? "🔵" : _mm === "name_match" ? "🟡" : _mm === "manual_fallback" ? "🟠" : "";
+  if (!_srcEmoji) return "";
+  var _parts = [_srcEmoji];
+  var _grade = "";
+  if (typeof etf.similarity === "number") {
+    _grade = etf.grade || "warn";
+    _parts.push(_grade);
+    if (typeof etf.max_err === "number") _parts.push(etf.max_err.toFixed(1) + "%");
+  }
+  var _title = "来源: " + _mm + (_grade ? " · 分级: " + _grade + " · 相似度: " + (etf.similarity * 100).toFixed(1) + "%" : "");
+  var _cls = _grade ? 'etf-match-tag etf-pop-grade-' + _grade : 'etf-match-tag';
+  return ' <span class="' + _cls + '" title="' + _title + '">' + _parts.join("·") + '</span>';
+}
+
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
@@ -2111,23 +2132,27 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     // _idxNameRaw 已在上方 locateHtml 块前读取（优先 cell data-idx-name 中文名）。
     var _idxCodeRaw = el.getAttribute("data-idx-code");
     var _idxPrefix = _idxNameRaw ? (_esc(_idxNameRaw) + (_idxCodeRaw ? " (" + _esc(_idxCodeRaw) + ")" : "")) : "";
-    var idxNameHtml = _idxPrefix ? '<span class="term-pop-idx-name" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">📊 ' + _idxPrefix + '</span>' : "";
-    var idxRetHtml = "";
-    var _idxRetRaw = el.getAttribute("data-idx-ret");
-    if (_idxRetRaw != null && _idxRetRaw !== "") {
-      var _idxRet = parseFloat(_idxRetRaw);
-      if (isFinite(_idxRet)) {
-        var _idxRetStr = (_idxRet >= 0 ? "+" : "") + _idxRet.toFixed(2) + "%";
-        var _idxCorrectRaw = el.getAttribute("data-idx-correct");
-        var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
-        var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";
-        idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:' + _idxColor + '">指数至今 ' + _idxRetStr + _idxDirS + '</span>';
+    // 2026-08-07 合并指数名+至今收益为单行(原 idxNameHtml+idxRetHtml 两行), 与 etfHtml 格式统一
+    var idxLineHtml = "";
+    if (_idxPrefix) {
+      var _idxRetPart = "";
+      var _idxUnsettled = el.getAttribute("data-idx-unsettled");
+      if (_idxUnsettled === "1") {
+        _idxRetPart = ' 指数至今: 今日信号未结算（收盘后更新）';
+      } else {
+        var _idxRetRaw = el.getAttribute("data-idx-ret");
+        if (_idxRetRaw != null && _idxRetRaw !== "") {
+          var _idxRet = parseFloat(_idxRetRaw);
+          if (isFinite(_idxRet)) {
+            var _idxRetStr = (_idxRet >= 0 ? "+" : "") + _idxRet.toFixed(2) + "%";
+            var _idxCorrectRaw = el.getAttribute("data-idx-correct");
+            var _idxDirS = _idxCorrectRaw === "true" ? " · 符合预测" : (_idxCorrectRaw === "false" ? " · 不符预测" : "");
+            var _idxColor = _idxRet >= 0 ? "#e6492e" : "#2e8b57";
+            _idxRetPart = ' <span style="color:' + _idxColor + '">指数至今 ' + _idxRetStr + _idxDirS + '</span>';
+          }
+        }
       }
-    }
-    // 2026-08-07 今日信号未结算提示（since_return=null -> cell data-idx-unsettled，收盘后更新）
-    var _idxUnsettled = el.getAttribute("data-idx-unsettled");
-    if (_idxUnsettled === "1" && _idxPrefix) {
-      idxRetHtml = '<span class="term-pop-idx-ret" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">指数至今: 今日信号未结算（收盘后更新）</span>';
+      idxLineHtml = '<span class="term-pop-idx-name" style="display:block;margin-top:4px;font-size:12px;color:var(--text-2)">📊 ' + _idxPrefix + _idxRetPart + '</span>';
     }
     var etfHtml = "";
     var _popDate = el.getAttribute("data-date");
@@ -2138,7 +2163,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         // 2026-08-05 名称(代码)后追加至今盈亏（top1 的，有数据才显）
         var _pnlText = _etfPnlText(_top.etf_since_return, _top.etf_price_diff);
         var _pnlInner = _pnlText ? ' <span style="color:' + _etfPnlColor(_top.etf_since_return) + '">' + _pnlText + '</span>' : "";
-        etfHtml = '<span class="term-pop-etf">🔗 ' + _esc(_top.name) + '(' + _esc(_top.code) + ')' + _pnlInner + '</span>';
+        etfHtml = '<span class="term-pop-etf">🔗 ' + _esc(_top.name) + '(' + _esc(_top.code) + ')' + _etfMatchTags(_top) + _pnlInner + '</span>';
       }
     }
     if (sigType) {
@@ -2154,12 +2179,12 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         if (idxName && (p === idxName || p === idx || p.startsWith(idxName + " ("))) return '<b class="term-pop-idx' + (isNdx ? ' term-pop-idx-ndx' : '') + '">' + _esc(p) + '</b>';
         return _esc(p);
       }).join(" · ");
-      if (locateHtml || idxNameHtml || idxRetHtml || etfHtml) html += locateHtml + idxNameHtml + idxRetHtml + etfHtml;
+      if (locateHtml || idxLineHtml || etfHtml) html += locateHtml + idxLineHtml + etfHtml;
       pop.innerHTML = html;
     } else {
       // 汪汪队 chip（无 sigType 仅 data-idx）：text 纯文本 escape 后追加 locate span（有 data-idx 时）
-      if (locateHtml || idxNameHtml || idxRetHtml || etfHtml) {
-        pop.innerHTML = _esc(text) + locateHtml + idxNameHtml + idxRetHtml + etfHtml;
+      if (locateHtml || idxLineHtml || etfHtml) {
+        pop.innerHTML = _esc(text) + locateHtml + idxLineHtml + etfHtml;
       } else {
         pop.textContent = text;
       }
@@ -8556,9 +8581,9 @@ async function renderOverview() {
       ? `<span class="card-time-badge t1-severe" data-tip="${_errItem.message || '采集异常,恢复后自动显示'}">⚠ 采集异常·${_errMmdd}</span>`
       : (k.disabled
           ? `<span class="card-time-badge t1-severe" data-tip="该指标采集异常/数据源中断,恢复后自动显示">🚨 异常</span>`
-          : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "", !_kpiT1, k.id));
-      // 步骤5: T+0 KPI 卡传 isIndexSpark=true(! _kpiT1), 用 _intradayDynamicTime(1min腾讯,和分时图同源)
-      //   替代 snap.datetime(10min粒度), KPI 卡角标时间与分时图一致(1min粒度)
+          : getCardTimeBadge(k.date, snap, _kpiT1 ? "t1" : "t0", _kpiT1 ? k.id : "", false, k.id));
+      // 2026-08-07 修复: T+0 KPI 卡 isIndexSpark 改 false(原 !_kpiT1=true), 角标走 snap.datetime(10min快照时间,如10:25)
+      //   非 _intradayDynamicTime(1min腾讯实时,如10:30), 与分时图卡片区分; KPI 卡数据源是 overview 快照非分时图,应用快照时间
     // 打 data-badge-* 属性, 让 refreshCardTimeBadges 的 .card-time-badge[data-badge-date] 选择器能选到KPI小卡角标并重绘
     // (异常badge🚨不打属性, 避免被重绘成正常badge; 异常状态由后端恢复后重新渲染整卡)
     if (_badge && !k.disabled) {
@@ -8570,8 +8595,9 @@ async function renderOverview() {
         _badgeEl.setAttribute("data-badge-date", k.date || "");
         _badgeEl.setAttribute("data-badge-src", _badgeSrc);
         if (_kpiT1 && k.id) _badgeEl.setAttribute("data-badge-srckey", k.id);
-        // 步骤5: T+0 KPI 卡打 data-badge-isdyn="1", 供 refreshCardTimeBadges 用 _intradayDynamicTime(1min) 重绘
-        if (!_kpiT1) _badgeEl.setAttribute("data-badge-isdyn", "1");
+        // 2026-08-07 修复: 删除原 if(!_kpiT1) setAttribute("data-badge-isdyn","1"),
+        //   T+0 KPI 卡不再标动态(角标用 snap.datetime 10min 粒度, 非 _intradayDynamicTime 1min 动态),
+        //   refreshCardTimeBadges 不再用 1min 重绘 KPI 卡角标
         // 2026-07-31 修复: 所有 KPI 卡(含 T+0 炸板率/封板率)打 data-badge-kpiid,
         // 供 refreshCardTimeBadges 从最新 overview.today.metrics 查新 date 更新角标,
         // 根治 9:35 后 overview 拉到新 date 但角标仍读旧 data-badge-date 显"待盘后"的 bug.
@@ -9115,7 +9141,7 @@ async function renderOverview() {
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";
   freezeCard.innerHTML = _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）" + termTip("近120日情绪冰点日(恐贪指数<20)，常对应阶段性底部"), "freeze", "无近期冰点日");
-  addCardTimeBadge(freezeCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 覆盖
+  addCardTimeBadge(freezeCard, (r.recent_freeze && r.recent_freeze[0] && r.recent_freeze[0].date) || r.date, snap, "t0", "", false, false);  // 2026-08-07: 卡片内容是冰点日(recent_freeze[0].date 非今日), useOverviewDate=false 不轮询覆盖
   // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
   freezeCard.addEventListener("click", (e) => {
     const item = e.target.closest(".sig-clickable");
@@ -14920,11 +14946,11 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
       var _pnlText = _etfPnlText(e.etf_since_return, e.etf_price_diff);
       var _pnl = _pnlText ? '<span class="etf-pop-pnl" style="color:' + _etfPnlColor(e.etf_since_return) + '">' + _pnlText + '</span>' : "";
       // 2d 跟踪度% (similarity*100) + 分级颜色(excellent<1%绿/good1-5%橙/warn>5%灰); 无 similarity(hk/global ETF) 不显
-      var _track = typeof e.similarity === "number"
-        ? '<span class="etf-pop-track etf-pop-grade-' + (e.grade || "warn") + '">' + (e.similarity * 100).toFixed(1) + '%</span>'
-        : "";
+      // 2d 同花顺模式: 候选列表按跟踪度(similarity)降序, 最相似在前; 每行显来源emoji+分级+误差% + fund_type(ETF/LOF)
+      // 2026-08-07: _track(similarity%) 改 _etfMatchTags(来源emoji·grade·max_err%), 双维度标签(复用 hoverpop 同款)
+      var _etfTags = _etfMatchTags(e);
       var _type = e.fund_type ? '<span class="etf-pop-type">' + e.fund_type.toUpperCase() + '</span>' : "";
-      return `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span>${_type}${_track}<span class="etf-pop-amt">${e.amount}亿</span>${_pnl}</div>`;
+      return `<div class="etf-pop-row" data-code="${e.code}"><span class="etf-pop-code">${e.code}</span><span class="etf-pop-name">${e.name}</span>${_type}${_etfTags}<span class="etf-pop-amt">${e.amount}亿</span>${_pnl}</div>`;
     }).join("");
   tag.appendChild(popup);
   const isTouch = window.matchMedia && window.matchMedia("(hover: none)").matches;

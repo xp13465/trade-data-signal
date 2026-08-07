@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260807-a13';  // bump a12->a13: app.js idxCodeTooltip helper(tooltip 按 sw_/thsc_/csi_/宽基 前缀区分) + locate 路径优先用 cell 中文名
+const CACHE_VERSION = 'v6-20260807-a14';  // bump a13->a14: KPI角标bug修复(T+0卡走snap.datetime非1min动态) + hoverpop指数名+至今合并单行 + ETF来源+相似度双维度标签(hoverpop/弹窗)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
