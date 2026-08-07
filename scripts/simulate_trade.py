@@ -238,8 +238,10 @@ def _get_etf_db_path():
 
 
 def _load_etf_close_map(etf_code):
-    """从 etf_daily 读 ETF close，返回 {date_str(YYYYMMDD): close}。读不到返回 {}。
-    表结构：etf_daily(date TEXT, etf_code TEXT, etf_name TEXT, close REAL, ...)。"""
+    """从 etf_daily 读 ETF 累计净值(accum_nav),返回 {date_str(YYYYMMDD): accum_nav}。读不到返回 {}。
+    表结构：etf_daily(date TEXT, etf_code TEXT, etf_name TEXT, close REAL, accum_nav REAL, ...)。
+    用 accum_nav(已复权)替代 close,除权日不跳变,回测收益正确(含分红再投)。
+    accum_nav 缺失(QDII跨境ETF等)返空{}->上层fallback指数close纯指数模拟。"""
     if not etf_code:
         return {}
     db_path = _get_etf_db_path()
@@ -248,7 +250,7 @@ def _load_etf_close_map(etf_code):
     try:
         conn = sqlite3.connect(db_path, timeout=30.0)
         rows = conn.execute(
-            "SELECT date, close FROM etf_daily WHERE etf_code=? AND close IS NOT NULL ORDER BY date",
+            "SELECT date, accum_nav FROM etf_daily WHERE etf_code=? AND accum_nav IS NOT NULL ORDER BY date",
             (etf_code,),
         ).fetchall()
         conn.close()
@@ -258,9 +260,10 @@ def _load_etf_close_map(etf_code):
 
 
 def _count_etf_days_multi(etf_codes):
-    """批量查 etf_daily 中各 ETF 的有效 close 天数（close IS NOT NULL）。
+    """批量查 etf_daily 中各 ETF 的有效 accum_nav 天数（accum_nav IS NOT NULL）。
 
     供 _pick_first_etf 方案D 过滤次新 ETF 用（min_data_days=252）。
+    用 accum_nav 而非 close,与 _load_etf_close_map 口径一致。
     返回 {etf_code: days}。读不到 DB 或异常返回 {}（调用方视 days=0 剔除）。
     """
     if not etf_codes:
@@ -273,7 +276,7 @@ def _count_etf_days_multi(etf_codes):
         placeholders = ",".join("?" * len(etf_codes))
         rows = conn.execute(
             f"SELECT etf_code, COUNT(*) FROM etf_daily "
-            f"WHERE etf_code IN ({placeholders}) AND close IS NOT NULL GROUP BY etf_code",
+            f"WHERE etf_code IN ({placeholders}) AND accum_nav IS NOT NULL GROUP BY etf_code",
             list(etf_codes),
         ).fetchall()
         conn.close()
@@ -286,8 +289,9 @@ def get_signals(index_id="sh"):
     """获取信号和价格数据。对于 g.* 全球商品，从 JSON 文件读取价格数据。
 
     ETF 替代（2026-07-28 统一）：若 index_id 在 board_etf_map.json 中映射到 ETF 候选，
-    取首位 ETF（approx 优先 false，同 approx 内 amount 降序）从 etf_daily 读 ETF close
+    取首位 ETF（approx 优先 false，同 approx 内 amount 降序）从 etf_daily 读 ETF accum_nav(累计净值,已复权)
     替代 index_daily.close（信号仍在指数生成，成交在 ETF，跟踪误差自然反映）。
+    accum_nav 已复权(除权日不跳变),回测收益含分红再投,正确反映ETF总回报。
     无映射或映射读不到数据 -> 用 index_daily.close 纯指数模拟。
     返回 (rows, last)，rows=[(date, signal, reason, close), ...]，last=(last_date, last_close)。
     """

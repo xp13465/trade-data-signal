@@ -1500,7 +1500,7 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 
 ### 会话状态(2026-08-08 01:37,用户睡了,连轴转自主推进中,cron 731cd218 每10分钟监控)
 - **复权阶段1 ✅完成验收**:accum_nav列已加etf_daily+回填,覆盖率99.96%,512000除权日accum_nav不跳✓(close 1.138->0.572腰斩 vs accum_nav 1.137->1.1396)。进度文件 /tmp/agent-progress-etf-adjust-stage1.md
-- **T1 复权阶段2/3 在跑**:agent 改计算层 accum_nav/前复权(~8h凌晨跑避高峰),进度文件 /tmp/agent-progress-etf-adjust-stage2.md。改完自验+check_data_integrity后报告主控待reviewer(不自己deploy)
+- **T1 复权阶段2/3 ✅改完待reviewer**:6文件111+/33-(b收益率类accum_nav + c OHLC类前复权 + schema),主控§0验收2点通过(build_board_etf_map L606/queries L495 accum_nav✓),自验通过(512000除权日accum_nav不跳/前复权OHLC连续/收益率含分红),check_data_integrity 23ok/0fail。**reviewer在跑**(进度 /tmp/agent-progress-t1-review.md)。reviewer通过后deploy(避02:00 backfill推main,02:10+或休盘窗口)
 - **连轴转链**:复权✅ -> T1(在跑)-> [主控派reviewer]-> D1(权重TE30/R²25/Dev15/roll15/IR15已定)-> 信号凯利回测(6象限并列3信号评级+3ETF归类+4模式A/B/C/D+3周期) | T9(独立第二)
 - **cron监控**:731cd218 每10分钟(7,17,27,37,47,57)durable,查在跑agent进度mtime+DONE,完成验收+派下一个,卡死SendMessage唤醒/重派
 - T5 日图hover:✅已实施(commit 726eca7be),从待办移除

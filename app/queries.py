@@ -476,11 +476,11 @@ def overview(conn, cfg):
                 _is_sell = _sig_type in _SELL_SIGNALS
                 _s["since_correct"] = (_since_ret < 0) if _is_sell else (_since_ret > 0)
 
-        # ETF 至今盈亏（2026-08-05）：基于 ETF 价格算信号日至今涨跌幅，注入 etfs[] 每个候选。
-        # 和指数 since_return（L449）口径一致：信号日收盘 vs 最新 ETF 收盘。今日信号无"至今"语义=None。
-        # 跨库查 etf_national_team.db（etf_daily 表，不复权）：
-        # etf_since_return=涨跌幅%(2位小数)，etf_price_diff=今日close-信号日close(3位小数，元/份)。
-        # ETF 信号日无数据（停牌/未上市）-> None，前端跳过不显。
+        # ETF 至今盈亏（2026-08-05）：基于 ETF 累计净值(accum_nav)算信号日至今涨跌幅，注入 etfs[] 每个候选。
+        # 和指数 since_return（L449）口径一致：信号日累计净值 vs 最新累计净值。今日信号无"至今"语义=None。
+        # 跨库查 etf_national_team.db（etf_daily 表 accum_nav 列,已复权除权日不跳变）：
+        # etf_since_return=涨跌幅%(2位小数)，etf_price_diff=今日accum_nav-信号日accum_nav(3位小数，元/份)。
+        # accum_nav 缺失(QDII跨境ETF等) -> None，前端跳过不显。
         _etf_codes = set()
         for _s in sigs:
             for _e in (_s.get("etfs") or []):
@@ -492,11 +492,11 @@ def overview(conn, cfg):
                 from .collector.etf_national_team import get_conn as _etf_get_conn
                 _ec = _etf_get_conn()
                 for _r in _ec.execute(
-                    "SELECT etf_code, date, close FROM etf_daily "
-                    "WHERE etf_code IN (%s) AND close IS NOT NULL" % ",".join("?" * len(_etf_codes)),
+                    "SELECT etf_code, date, accum_nav FROM etf_daily "
+                    "WHERE etf_code IN (%s) AND accum_nav IS NOT NULL" % ",".join("?" * len(_etf_codes)),
                     tuple(_etf_codes),
                 ).fetchall():
-                    _etf_close_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["close"]
+                    _etf_close_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["accum_nav"]
                 _ec.close()
             except Exception:  # noqa: BLE001
                 pass

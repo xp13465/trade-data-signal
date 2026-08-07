@@ -592,8 +592,10 @@ def _load_index_close_series() -> dict[str, list[tuple]]:
 
 
 def _load_etf_close_series() -> dict[str, list[tuple]]:
-    """批量读 etf_daily，返回 {etf_code: [(date, close), ...]} 按日期升序。
-    用于相似度计算（ETF close 序列）。读不到返回空 dict。"""
+    """批量读 etf_daily 累计净值(accum_nav),返回 {etf_code: [(date, accum_nav), ...]} 按日期升序。
+    用于相似度计算（ETF accum_nav 序列,已复权除权日不跳变）。读不到返回空 dict。
+    accum_nav 缺失的QDII跨境ETF(48只)自动跳过(WHERE accum_nav IS NOT NULL)。
+    """
     db = _get_etf_db_path()
     if not db.exists():
         print(f"⚠ etf_national_team.db 不存在: {db}，相似度计算将跳过")
@@ -601,12 +603,10 @@ def _load_etf_close_series() -> dict[str, list[tuple]]:
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute("SELECT etf_code, date, close FROM etf_daily ORDER BY etf_code, date")
+    cur.execute("SELECT etf_code, date, accum_nav FROM etf_daily WHERE accum_nav IS NOT NULL ORDER BY etf_code, date")
     series: dict[str, list[tuple]] = {}
     for r in cur:
-        if r["close"] is None:
-            continue
-        series.setdefault(r["etf_code"], []).append((r["date"], r["close"]))
+        series.setdefault(r["etf_code"], []).append((r["date"], r["accum_nav"]))
     conn.close()
     return series
 

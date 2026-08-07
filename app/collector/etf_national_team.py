@@ -340,6 +340,7 @@ CREATE TABLE IF NOT EXISTS etf_daily (
   fund_share REAL,            -- 基金份额（份）
   share_change REAL,          -- 当日份额变动 = 今日 - 昨日（份）
   share_change_pct REAL,      -- 份额变动百分比 %
+  accum_nav REAL,             -- 累计净值（已复权，除权日不跳变；fund_open_fund_info_em 回填）
   PRIMARY KEY (date, etf_code)
 );
 CREATE INDEX IF NOT EXISTS idx_etf_daily_code ON etf_daily(etf_code);
@@ -412,11 +413,12 @@ def init_db() -> None:
 
 
 def _migrate_etf_daily_ohlc(conn) -> None:
-    """阶段2: 旧 etf_daily 表升级加 open/high/low 列（幂等,已存在则跳过）。
+    """阶段2/复权: 旧 etf_daily 表升级加 open/high/low/accum_nav 列（幂等,已存在则跳过）。
     SQLite 不支持 IF NOT EXISTS for ADD COLUMN, 需先查现有列。
+    accum_nav = 累计净值(已复权),由 fund_open_fund_info_em 回填,供收益率/TE/前复权计算用。
     """
     cols = {r[1] for r in conn.execute("PRAGMA table_info(etf_daily)").fetchall()}
-    for col in ("open", "high", "low"):
+    for col in ("open", "high", "low", "accum_nav"):
         if col not in cols:
             conn.execute(f"ALTER TABLE etf_daily ADD COLUMN {col} REAL")
             print(f"  [migrate] etf_daily 加列 {col} REAL", flush=True)

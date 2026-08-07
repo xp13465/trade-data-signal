@@ -273,15 +273,18 @@ def _fetch_and_upsert_ohlc(code: str, name: str, conn) -> int:
 
 
 def _fetch_recent_ohlc(code: str, conn, days: int = OHLC_EXPORT_DAYS) -> list:
-    """从 etf_daily 表查近 N 个交易日 OHLC K线(前端 sparkline 用)。
+    """从 etf_daily 表查近 N 个交易日前复权 OHLC K线(前端 sparkline 用)。
     返回 [[date, open, high, low, close], ...] 升序(旧->新), 仅含 OHLC 全非空行。
     days 日历日回溯(含周末)约覆盖 days*0.7 交易日; 取 days*2 兜底确保够 N 交易日。
     数据不足(新ETF/采失败)返空列表, 前端 sparkline 不渲染。
+
+    前复权(2026-08-08 复权阶段2): adj_factor(t)=(accum_nav(t)/close(t))/(accum_nav(latest)/close(latest)),
+    使历史价格连续无除权跳变。accum_nav 缺失行/最新行无accum_nav时降级用未复权close。
     """
     cutoff = (_dt.datetime.now() - _dt.timedelta(days=days * 2)).strftime("%Y%m%d")
     try:
         rows = conn.execute(
-            "SELECT date, open, high, low, close FROM etf_daily "
+            "SELECT date, open, high, low, close, accum_nav FROM etf_daily "
             "WHERE etf_code=? AND date>=? "
             "AND open IS NOT NULL AND high IS NOT NULL "
             "AND low IS NOT NULL AND close IS NOT NULL "
@@ -291,7 +294,27 @@ def _fetch_recent_ohlc(code: str, conn, days: int = OHLC_EXPORT_DAYS) -> list:
         if not rows:
             return []
         # DESC 查出 -> 反转成升序(旧->新, 前端 sparkline 左->右)
-        return [[r["date"], r["open"], r["high"], r["low"], r["close"]] for r in reversed(rows)]
+        rows = list(reversed(rows))
+        # 前复权: 以最新行为基准
+        latest = rows[-1]
+        latest_nav = latest["accum_nav"]
+        latest_close = latest["close"]
+        result = []
+        if latest_nav is not None and latest_close and latest_close > 0:
+            base_ratio = latest_nav / latest_close
+            for r in rows:
+                nav = r["accum_nav"]
+                cl = r["close"]
+                if nav is not None and cl and cl > 0:
+                    adj = (nav / cl) / base_ratio
+                else:
+                    adj = 1.0
+                result.append([r["date"], r["open"] * adj, r["high"] * adj, r["low"] * adj, cl * adj])
+        else:
+            # accum_nav 缺失(QDII跨境ETF等),降级用未复权 close
+            for r in rows:
+                result.append([r["date"], r["open"], r["high"], r["low"], r["close"]])
+        return result
     except Exception:  # noqa: BLE001
         return []
 
@@ -314,9 +337,12 @@ def _has_recent_data(conn, code: str, days: int = 5) -> bool:
 def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | None:
     """计算 ETF 近期波动率(方案3 手数调整输入)。
 
-    查 etf_daily 近 lookback_days 日 OHLC,若完整行 < 20 则调
+    查 etf_daily 近 lookback_days 日前复权 OHLC,若完整行 < 20 则调
     fetch_etf_ohlc(code, start=FETCH_DAYS日前) + _upsert_daily 补采(单只~0.3s),
     再用 _atr(period=20, Wilder smoothing).iloc[-1] / close.iloc[-1] * 100 得波动率%。
+
+    前复权(2026-08-08 复权阶段2): adj_factor(t)=(accum_nav(t)/close(t))/(accum_nav(latest)/close(latest)),
+    使 ATR 不受除权日跳变污染。accum_nav 缺失时降级用未复权 close。
 
     返回 volatility%(float),数据不足/NaN/异常兜底返 None(上层降级用 base 老逻辑)。
     """
@@ -325,7 +351,7 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | Non
 
     cutoff = (_dt.datetime.now() - _dt.timedelta(days=lookback_days * 2)).strftime("%Y%m%d")
     rows = conn.execute(
-        "SELECT date, open, high, low, close FROM etf_daily "
+        "SELECT date, open, high, low, close, accum_nav FROM etf_daily "
         "WHERE etf_code=? AND date>=? "
         "AND open IS NOT NULL AND high IS NOT NULL "
         "AND low IS NOT NULL AND close IS NOT NULL "
@@ -353,7 +379,7 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | Non
                 conn.commit()
                 # 重查补采后的数据
                 rows = conn.execute(
-                    "SELECT date, open, high, low, close FROM etf_daily "
+                    "SELECT date, open, high, low, close, accum_nav FROM etf_daily "
                     "WHERE etf_code=? AND date>=? "
                     "AND open IS NOT NULL AND high IS NOT NULL "
                     "AND low IS NOT NULL AND close IS NOT NULL "
@@ -366,9 +392,33 @@ def _compute_volatility(code: str, conn, lookback_days: int = 30) -> float | Non
     if len(rows) < 20:
         return None  # 补采后仍不足,数据不足降级
 
-    high = pd.Series([r["high"] for r in rows], dtype=float)
-    low = pd.Series([r["low"] for r in rows], dtype=float)
-    close = pd.Series([r["close"] for r in rows], dtype=float)
+    # 前复权: 以最新行为基准
+    latest = rows[-1]
+    latest_nav = latest["accum_nav"]
+    latest_close = latest["close"]
+    if latest_nav is not None and latest_close and latest_close > 0:
+        base_ratio = latest_nav / latest_close
+        high_vals = []
+        low_vals = []
+        close_vals = []
+        for r in rows:
+            nav = r["accum_nav"]
+            cl = r["close"]
+            if nav is not None and cl and cl > 0:
+                adj = (nav / cl) / base_ratio
+            else:
+                adj = 1.0
+            high_vals.append(r["high"] * adj)
+            low_vals.append(r["low"] * adj)
+            close_vals.append(cl * adj)
+        high = pd.Series(high_vals, dtype=float)
+        low = pd.Series(low_vals, dtype=float)
+        close = pd.Series(close_vals, dtype=float)
+    else:
+        # accum_nav 缺失,降级用未复权
+        high = pd.Series([r["high"] for r in rows], dtype=float)
+        low = pd.Series([r["low"] for r in rows], dtype=float)
+        close = pd.Series([r["close"] for r in rows], dtype=float)
 
     try:
         atr_series = _atr(high, low, close, period=20)

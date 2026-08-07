@@ -421,6 +421,11 @@ def _load_target_close_amount(target_id: str, target_type: str):
     指数供 compute_alert_for_target 算 ATR 波动率给仓位分)。
     返回 (close, amount, ohlc_df) - ohlc_df 含 date/open/high/low/close/amount
     (ETF/指数 均返回 DataFrame,不再 None;旧调用方依赖 None 判断已迁移完毕)。
+
+    前复权(2026-08-08 复权阶段2): ETF 用 accum_nav 算 adj_factor 前复权 OHLC,
+    使 RSI/BB/Donchian/ATR/MA/52w 不受除权日跳变污染。指数无 accum_nav 保持原样。
+    adj_factor(t)=(accum_nav(t)/close(t))/(accum_nav(latest)/close(latest))。
+    amount 不复权(成交额非价格)。
     """
     if target_type == "etf":
         # ETF 显式指定列名,fetchall 返 sqlite3.Row 列表退出 with 后变 tuple,
@@ -428,13 +433,30 @@ def _load_target_close_amount(target_id: str, target_type: str):
         cols = ["date", "open", "high", "low", "close", "amount"]
         with _conn_nt() as c:
             rows = c.execute(
-                "SELECT date, open, high, low, close, amount FROM etf_daily WHERE etf_code=? "
+                "SELECT date, open, high, low, close, amount, accum_nav FROM etf_daily WHERE etf_code=? "
                 "AND close IS NOT NULL ORDER BY date",
                 (target_id,),
             ).fetchall()
         if not rows:
             return pd.Series(dtype=float), pd.Series(dtype=float), None
-        df = pd.DataFrame(rows, columns=cols).set_index("date")
+        df = pd.DataFrame(rows, columns=cols + ["accum_nav"]).set_index("date")
+        # 前复权: 以最新行为基准
+        latest_nav = df["accum_nav"].iloc[-1] if "accum_nav" in df.columns else None
+        latest_close = df["close"].iloc[-1]
+        if latest_nav is not None and not pd.isna(latest_nav) and latest_close and latest_close > 0:
+            base_ratio = latest_nav / latest_close
+            nav = df["accum_nav"]
+            cl = df["close"]
+            # adj_factor = (accum_nav/close) / (accum_nav_latest/close_latest)
+            raw_ratio = nav / cl  # accum_nav/close per row
+            adj = raw_ratio / base_ratio
+            adj = adj.fillna(1.0)  # accum_nav 缺失行不调整
+            df["open"] = df["open"] * adj
+            df["high"] = df["high"] * adj
+            df["low"] = df["low"] * adj
+            df["close"] = cl * adj
+        # 删 accum_nav 列(ohlc_df 不含此列,保持与指数版一致)
+        df = df[["open", "high", "low", "close", "amount"]]
     else:
         # 指数:补查 open/high/low(供 ATR 波动率算仓位分),无则降级用 close 近似
         cols = ["date", "open", "high", "low", "close", "amount"]
