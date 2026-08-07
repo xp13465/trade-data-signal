@@ -1330,7 +1330,7 @@ function indexIdToCode(indexId, symbol) {
   if (_INDEX_CODE_MAP[key]) return _INDEX_CODE_MAP[key];
   if (!symbol) return '';
   if (/^sw_/.test(key)) return indexId;  // sw_ 申万行业保留前缀展示（sw_801030，申万代码同花顺查不到，保留前缀标识来源）
-  if (/^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000)/.test(key)) return '';  // 宽基不展示（index_id 即代码）
+  if (/^(sh|sz|cyb|kc50|bj50|hs300|sz50|csi500|csi1000)/.test(key)) return symbol.replace(/^(sh|sz|bj)/, '');  // 宽基展示代码（剥前缀，中证1000 sh000852->000852；sh 上证 sh000001->000001）
   if (/^(csi_|gz_)/.test(key)) return symbol.replace(/^(sh|sz|bj)/, '');
   if (/[一-龥]/.test(symbol)) return '';  // global 中文搜索词非代码（dax/ftse100/kospi/nikkei225/cac40，新浪 fetcher 需中文搜索词但非展示代码）
   return symbol;
@@ -19646,8 +19646,8 @@ function indexToMarketSubtab(indexId) {
   if (_GLOBAL_INDEX_IDS.has(bare)) return { tab: "market", subtab: "global", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["global"], idxName: idxName };
   // g.* 全球指标兜底（cn10y/us10y/wti_oil/gold/comex_silver/usdcnh/a_qvix_*/brent/cn_us_spread 等）
   if (indexId.startsWith("g.")) return { tab: "market", subtab: "global", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["global"], idxName: idxName };
-  // 申万(sw_*)/同花顺(thsc_*)行业 -> industry
-  if (bare.startsWith("sw_") || bare.startsWith("thsc_")) return { tab: "market", subtab: "industry", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["industry"], idxName: idxName };
+  // 申万(sw_*)/同花顺(thsc_*)/中证(csi_*)概念行业 -> industry
+  if (bare.startsWith("sw_") || bare.startsWith("thsc_") || bare.startsWith("csi_") || bare.startsWith("gz_")) return { tab: "market", subtab: "industry", tabName: _MAIN_TAB_CN["market"], name: _MARKET_SUBTAB_CN["industry"], idxName: idxName };
   return { tab: null, subtab: null, tabName: null, name: null, idxName: "" };
 }
 const _FUND_SUBTABS = ["etf", "offshore"]; // 场内ETF / 场外基金
