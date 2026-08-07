@@ -392,14 +392,25 @@ def overview(conn, cfg):
     # 2026-08-07 注入指数中文名+代码（从 indicators.yaml 单一来源，遵守"一个指数一个名字"原则），
     # 前端 signals_today 展示"中文名（代码）"优先后端注入，_INDEX_NAME_MAP 仅作兜底。
     # _idx_meta 在循环外建一次（避免每条 signal 重建），循环内只查 map。
-    _idx_meta = {i["id"]: {"name": i.get("name"), "symbol": i.get("symbol")}
+    # func 字段用于 fund_etf_hist_sina 分支（index 本身就是 ETF，如 cgb_10y_etf sh511260）。
+    _idx_meta = {i["id"]: {"name": i.get("name"), "symbol": i.get("symbol"), "func": i.get("func")}
                  for i in cfg.get("indices", []) if i.get("enabled", True)}
     for _s in sigs:
         _meta = _idx_meta.get(_s["index_id"])
         if _meta:
             _s["name"] = _meta["name"]
             _s["symbol"] = _meta["symbol"]
-        _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
+        # fund_etf_hist_sina 分支（2026-08-07）：该 index 本身就是 ETF（indicators.yaml func=
+        # fund_etf_hist_sina，如 cgb_10y_etf symbol=sh511260），board_etf_map.json 无此 key
+        # （非板块/宽基映射）-> etf_for 返空 -> 前端"无相关ETF"。此处直接用 symbol 剥 sh/sz/bj
+        # 前缀作为 ETF 代码注入，match_method="self" 标识"index 即 ETF 自身"。自动覆盖未来同类
+        # index（如 cn10y_etf），无需改 board_etf_map.py 或硬编码 index_id。
+        if _meta and _meta.get("func") == "fund_etf_hist_sina" and _meta.get("symbol"):
+            _sym = _meta["symbol"]
+            _code = _sym[2:] if _sym[:2] in ("sh", "sz", "bj") else _sym
+            _s["etfs"] = [{"code": _code, "name": _meta.get("name") or _code, "match_method": "self"}]
+        else:
+            _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
     # 缓存 {index_id: {date: close/value}} 避免 N+1（同 index_id 多信号只查一次）。
     # 用传入 conn 查（不调 normalize.load_* 避免新建连接，遵守模块无状态原则）。
@@ -819,6 +830,7 @@ def a_stock(conn, cfg, start, end, *, cache=None, include_etf=False):
     for i in indices_for_market(cfg, "a"):
         entry = {
             "name": i["name"],
+            "symbol": i.get("symbol"),  # 2026-08-06 走势图卡片标题加指数代码（indexIdToCode 剥前缀用）
             "data": index_series(conn, i["id"], start, end, cache=cache),
             "strategy": strategy_desc(i["id"], cfg),
         }
@@ -834,6 +846,7 @@ def hk(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
     for i in indices_for_market(cfg, "hk"):
         entry = {
             "name": i["name"],
+            "symbol": i.get("symbol"),  # 2026-08-06 走势图卡片标题加指数代码
             "data": index_series(conn, i["id"], start, end, cache=cache),
             "strategy": strategy_desc(i["id"], cfg),
         }
@@ -851,7 +864,8 @@ def hk(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
 
 def global_market(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
     """复刻 /api/global。"""
-    indices = {i["id"]: {"name": i["name"], "data": index_series(conn, i["id"], start, end, cache=cache),
+    indices = {i["id"]: {"name": i["name"], "symbol": i.get("symbol"),  # 2026-08-06 走势图卡片标题加指数代码
+                         "data": index_series(conn, i["id"], start, end, cache=cache),
                          "strategy": strategy_desc(i["id"], cfg)} for i in indices_for_market(cfg, "global")}
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
     extras = {}
