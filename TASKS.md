@@ -1312,3 +1312,33 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 ### 待办
 - getCardTimeBadge 语义(T+1 数据盘中显示"滞后" vs tooltip"17:50采集"矛盾): rotation 非 T+1 已0807, 其他 T+1 卡片若仍显示"滞后"需修(盘中未到采集时点应显示"待采集"中性)
 - a948 sm_use=0 没 SendMessage(cron 兜底发现, §11 教训应证)
+
+## 📋 2026-08-07 ETF 信号灯体系重构(5色灯+hover中文+列表灯)待办
+
+### 需求(用户7点+讨论确认)
+1. hover tooltip 中文化(来源 track_index/overlap -> 本体/跟踪指数/成分重叠/名称匹配/手动兜底; 分级 excellent/good/warn -> 优秀/良好/偏差大)
+2. 信号灯在列表体现(不只 hoverpop), 布局: 信号名 灯 评级(低☑️) ETF名 代码; 优秀/相似度% 放灯 hover 不显列表
+3. 颜色5色按档+相似度(去紫🟣/黄🟡):
+   - 🔵 蓝 = self 本体无误差(强关联)
+   - 🟢 绿 = track_index 可靠(强关联, excellent/good 归档1)
+   - 草绿(🟢+透明度) = track_index 相关(归档2)
+   - 🟠 橙 = 有近似 仅供参考警示(归档3, track_index warn/manual_fallback/overlap/name_match/kw)
+   - ⚫ 灰 = 概念无ETF(归档4, 灭灯占位行对齐)
+4. 相似度放灯 hover 不外露列表
+5. 偏差大(track_index warn)归橙(非绿, 落有近似ETF)
+6. self 蓝色加至今盈亏(格式统一)
+7. hover 中文 + 去紫(overlap 按相似度归绿/草绿/橙)
+
+### 实施(B级 UI 重构, 跨 _etfMatchTags/_etfTier/列表渲染)
+- 重构 _etfMatchTags(app.js L1516): 5色灯(蓝/绿/草绿=绿+opacity/橙/灰) + hover tooltip 中文(来源+分级+相似度+至今盈亏)
+- 重构列表渲染: 灯在列表体现(信号名+灯+评级+ETF名+代码), 优秀/相似度% 放灯 hover
+- 去掉 🟣 overlap / 🟠 manual_fallback(旧) / 🟡 name_match 颜色(按相似度归绿/草绿/橙)
+- name_match/kw 归橙(统一有近似档; 若需单独黄后续调)
+- CSS .etf-match-tag 5色 + 草绿 opacity + ⚫灰灭灯占位
+- 概念无ETF ⚫ 灰灭灯占位(保持行对齐)
+
+### 待用户确认
+- name_match/kw 归橙(统一) 还是单独黄(有近似档内 name_match/kw 黄 + track_index warn/manual_fallback/overlap 橙)
+
+### 级别: B级(逻辑+显示, 跨 _etfMatchTags/_etfTier/列表渲染, 有隐藏影响面-轮询/列表渲染)
+### 排期: 待当前活跃待办(17:50验证/getCardTimeBadge语义/后端重启)后, 或用户优先
