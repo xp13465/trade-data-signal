@@ -1344,3 +1344,35 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 
 ### 级别: B级(逻辑+显示, 跨 _etfMatchTags/_etfTier/列表渲染, 有隐藏影响面-轮询/列表渲染)
 ### 排期: 待当前活跃待办(17:50验证/getCardTimeBadge语义/后端重启)后, 或用户优先
+
+## 📋 2026-08-08 凌晨 会话收尾(序1验证✅ + 序2上线✅ + 序345串行定 + 相似度调研派其他会话)
+
+### 序1 验证完成 ✅(部署链路 bug 修复确认)
+- rotation latest.date=20260807 上线 + git log 今晚 20-21 点数据 commit(schedule/backfill/futures/intraday/etf-national-team)全在 origin/main -> 部署链路恢复
+- 线上 sz_div-all.json(--resolve CF IP 验,ssd DNS 本地 dig 干扰走 DoH 确认 A 记录 104.21.46.172/172.67.168.203)含 159905(红利ETF工银,manual_fallback,grade=good,similarity=0.9672,amount=0.35)-> build_board_etf sz_div fallback 上线生效
+- ssd.fx8.store DNS 正常(DoH 权威确认,本地 dig UDP 查不到是国内 DNS 干扰非线上问题)
+
+### 序2 A级小改打包上线 ✅(commit 725e0620f5 rebase -> 106e0755c push main+feat)
+- smoke-checklist.md: C26(L95-96)/P0-08(L413)/P0-09(L420)/alert_analyze(L432)/L687/P0-08 FAIL 示例(L634)多处 index 文件名拼写 sh000001->sh(实际文件 sh-all.json / alert_analyze_sh.json,不存在 sh000001-all.json)
+- build_board_etf_map.py L1013: sz_div 注释从"主动留空"更新为"已有 manual_fallback 兜底注入 159905 红利ETF工银"
+- deploy.sh L412 注释不改(reviewer 判断泛指仍成立,11 个其他脚本用)
+- L498 trade_sim_data 路径不存在,需调研正确命名,留待后续(Minor)
+- pre-commit lint 全通过(bash -n + py_compile + 全角括号扫描);force-with-lease push feat 覆盖旧版 c6520d5d5(内容已在 main 无丢失)
+
+### 序345 串行安排(2026-08-08 用户定)
+1. **序3 getCardTimeBadge 语义修复**(B级,app.js):T+1 卡片盘中显示"⚠ 滞后"与 tooltip"17:50采集"矛盾,盘中未到采集时点应显示"待采集"中性。有隐藏影响面(refreshCardTimeBadges 轮询),派 agent+reviewer(查影响面+相关 smoke)
+2. **序5 ETF 信号灯体系重构**(B级大,app.js):5色灯(蓝/绿/草绿=绿+opacity/橙/灰)+ hover tooltip 中文 + 列表灯 + 相似度放 hover + self 蓝加盈亏 + 去紫 overlap 临时多色标记。详见上方 L1316-1346 落档。派 agent+reviewer,可分批
+3. **序4 后端重启 queries.py self 注入**(C级,等 23:00+ 盘后窗口):cgb_10y_etf sh511260 归档1,当前 overview.json 无 self 落档4 误判。派 agent+reviewer+check_data_integrity
+- 串行原因:序3+5 都改 app.js 避撞 build/push;序4 C级需盘后 export+deploy 窗口(23:00+)
+
+### 相似度算法调研(2026-08-08,用户派其他会话做,本会话不参与)
+- 用户发现 159536(中证2000ETF汇添富)相似度 BUG:727 至今指数 +8.19% vs ETF +1.63%(差6.56%),但相似度显示良好 1.1%。根因疑 727 单日大涨(规模小抖动),当前算法(max_err 单日最大误差分档 excellent<1%/good1-5%/warn>5%)未充分反映累计偏离/误差稳定性/走势同步性
+- 用户提新 5 维度综合评分算法:日均跟踪偏离度25% / 年跟踪误差25% / 信息比率25% / 决定系数R²15% / 滚动误差标准差10%,归一化0-100分排序,暴力穷举所有ETF第1名可用,用评分重新归类强关联/相关/近似,每周周末定期更新
+- **本会话调研 agent ad25795e7e4b189c4 已停(用户派其他会话做)**,等用户那边调研结果回来再落档 NOTES §48 + 实施待办
+- 当前相似度(max_err)轻量保留,与新评分共存方案待定
+
+### 会话状态(2026-08-08 凌晨,准备停止)
+- feat/main 同步(106e0755c 双向 count=0)
+- 工作区已清理:static-site/data/ 恢复 HEAD(origin/main 最新),UU 冲突解决,stash@{0} data-m-rebase dropped
+- 残留 stash:stash@{0} data-files-stash / stash@{1} autostash(旧,他日处理)
+- 序2 已上线 main;序345 串行待办;相似度调研派其他会话
