@@ -1200,3 +1200,47 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 ### 备注
 - 需求1 和"新需求3格式统一"（走势图卡片标题加指数代码等）都涉及走势图区域，可能合并一个 agent 实施省 cherry-pick
 - 场外基金相关（需求3）受限于 fund_basic 字段补齐进度（pf-stage0 阶段0 数据采集已完成 21列+6表，但指标介绍需更多字段）
+
+## 📋 2026-08-05 首页 5 前端问题待实施（API 不稳定暂缓，18 后派 agent）
+
+用户 2026-08-05 提。连续 3 agent 卡（a023 400参数无效 / aabd 卡死 / aff 卡死调研阶段），API 严重不稳定 + 14-18 高峰双叠加。5 个问题汇总待 18 后 API 稳定派 agent 一次处理。
+
+### 问题清单
+1. **grade 英文->中文**：excellent->优秀 / good->良好 / warn->偏差大。所有显示点统一改（hoverpop etf-pop-grade 标签 + 弹窗 + 筛选器）。需确认 `_gradeLabel` 函数（app.js L1500 附近）已存在与否（a1b16b 加的或既有），统一调用。
+2. **hoverpop 至今收益截断**：首页信号 hoverpop 里至今收益省略号截断。style.css 去 `text-overflow:ellipsis` + `white-space:nowrap` 改 normal 换行 + 加大 hoverpop 宽度（如 320->400px）。
+3. **4档归一档+标签完整**：用户 AskUserQuestion 定"归一档(最佳档,不重复)"方案。`_signalTiers` 改返回单最佳档：有档1归1/无则有档2归2/无则有档3归3/无ETF归4，过滤改归档N显示，计数各档独立不重叠。标签改回完整"强关联ETF/相关ETF/有近似ETF/概念无ETF"（app.js L1776-1782 _etfFilterRow + L9277-9288 click handler + _signalTiers 函数）。跨档重复根因：etfs 跨多档命中任一即显示，归一档后每标的归最佳档。
+4. **指数走势图标题代码统一**：A股指数已加 `_idxCodeTag`（b7e0b96c1），板块分化/港股板块/全球指数 chart title 没加，需统一。grep `_idxCodeTag` 使用点 + 板块分化/港股/全球 chart title 渲染处补加。
+5. **hoverpop ETF标签 hover 关闭 bug**：首页指数 hoverpop 里"相关etf后至今前面的绿灯 *warn12.9%"，鼠标放上去整个 hover 关闭。mouse event 问题，需调研 hoverpop mouseenter/mouseleave 绑定（可能 mouseleave 范围误判或 ETF 标签 span 触发 mouseleave）。
+
+### 实施约束
+- 5 问题可合并一个 agent 实施（都改 app.js/style.css，省 cherry-pick）
+- 实施后 build_min + bump_asset_version + bump sw.js CACHE_VERSION（当前 a19->a20）+ reviewer 通过 + push main
+- 避开盘后定时任务时点（15:35/16:00/17:50/20:35/22:00）+ intraday 每10分钟（:25/:35/:45/:55/:05/:15）。安全窗口 23:00+ 或午休 11:35-12:55
+- §15 派 reviewer agent 通过才 push main
+
+### 关联状态
+- main: 33d41d499（6d3f56c82 ETF 4档多选已上线，但语义问题需改归一档）
+- feat: 6d3f56c82
+- 工作区 M scripts/build_board_etf_map.py（_etf_index_map_amount 新函数，ETF manual fallback amount 修复，待盘后 15:35+ commit + 跑脚本 + deploy）
+- 后端重启加载 queries.py self 注入（cgb_10y_etf sh511260 归档1，当前 overview.json 无 self 落档4 误判）
+
+## ✅ 2026-08-07 首页 5 前端问题全部上线 + 规范落档
+
+### 5 问题(全部 ✓ 上线 main + ss.fx8.store 验证生效)
+- 问题1 grade 中文: ✓ main 7d7cbceca + ss.fx8.store(优秀/良好/偏差大 生效)
+- 问题2 hoverpop 截断: ✓ main 5e217f75f + 验证(style max-width 400px + term-pop-etf normal)
+- 问题3 4档归一档+标签: ✓ main 5e217f75f + 验证(_signalTiers Math.min 归一档 + 强关联ETF/相关ETF/有近似ETF/概念无ETF)
+- 问题4 指数标题代码统一: ✓ main 5e217f75f + 验证(_idxCodeTag 全球+板块)
+- 问题5 hover bug: ✓ main 7d7cbceca + 验证(data-no-pop 生效)
+- reviewer ad5b PASS(问题2+3+4 逐项验证,无回归)
+- index.html v=a153e2f8 + sw a21 + app.min.js/style.min.css 验证生效(§8 验功能生效层)
+
+### 规范落档(全部 ✓ 上线 main)
+- CLAUDE.md §15 改动分级+小问题口子(A级主控改不派reviewer/打包派agent/B级逻辑/C级数据): main 8379e0e50
+- CLAUDE.md 9条教训(compact恢复5步/验功能生效层/bump sw/min验证字符串/export路径同步/worktree不送达/改口径停旧派新/resume拒绝/API别卡死): main 1ee7ba450
+- claude-work-mode/ 拆分(通用 CLAUDE.md 245行 + 项目专项 PROJECT-SPECIFIC.md 133行 + README): main a91da1941
+
+### 剩余待办
+- aaf6 schedule_stats 合并方案1: 待盘后 15:35+ 实施(intraday_snapshot.sh L335 删独立 push + L217 DATA_FILES 加 schedule_stats,省~27次/天盘中CF构建)。C级定时任务脚本,需reviewer+smoke+盘后窗口
+- build_board_etf_map.py M(_etf_index_map_amount): 待盘后 commit + 跑脚本生成 board_etf_map.json + deploy
+- 后端重启 queries.py self 注入(cgb_10y_etf sh511260 归档1,当前 overview.json 无 self 落档4 误判)
