@@ -1337,8 +1337,10 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - CSS .etf-match-tag 5色 + 草绿 opacity + ⚫灰灭灯占位
 - 概念无ETF ⚫ 灰灭灯占位(保持行对齐)
 
-### 待用户确认
-- name_match/kw 归橙(统一) 还是单独黄(有近似档内 name_match/kw 黄 + track_index warn/manual_fallback/overlap 橙)
+### 有近似档多色临时标记(用户定 2026-08-07)
+- 🟠 橙 = 标准色(track_index warn/manual_fallback)
+- 🔴/🟣/🟡 = name_match/overlap 等其他 match_method 临时标记色,保留区分,用户看到后决定如何进一步归类
+- 即有近似档不统一归橙,保留 match_method 颜色区分待后续归类
 
 ### 级别: B级(逻辑+显示, 跨 _etfMatchTags/_etfTier/列表渲染, 有隐藏影响面-轮询/列表渲染)
 ### 排期: 待当前活跃待办(17:50验证/getCardTimeBadge语义/后端重启)后, 或用户优先
