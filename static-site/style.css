@@ -1658,10 +1658,19 @@ main { padding: 16px 24px; }
 .etf-pop-amt { color: var(--text-3); margin-left: auto; }
 /* 2d 同花顺模式: 跟踪度% (similarity*100) + 分级颜色 + fund_type(ETF/LOF) */
 /* 2026-08-07: .etf-match-tag = hoverpop/弹窗共用的来源emoji+grade+max_err% 标签, 共享 .etf-pop-track 的分级颜色 */
+/* D1b 2026-08-08: 5色信号灯(●) .etf-light 替代来源emoji, 颜色由 track_tier 决定 */
 .etf-pop-track, .etf-match-tag { font-size: 10px; font-weight: 600; min-width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
 .etf-pop-track.etf-pop-grade-excellent, .etf-match-tag.etf-pop-grade-excellent { color: #2e8b57; }
 .etf-pop-track.etf-pop-grade-good, .etf-match-tag.etf-pop-grade-good { color: #d97706; }
 .etf-pop-track.etf-pop-grade-warn, .etf-match-tag.etf-pop-grade-warn { color: var(--text-3); }
+/* D1b 5色信号灯: 蓝=self(本体) / 绿=strong(强关联) / 草绿=related(相关,绿+opacity) / 橙=approx(近似) / 暗橙=none(弱) / 灰=null(无数据,灭灯) */
+.etf-light { display: inline-block; font-size: 9px; line-height: 1; vertical-align: middle; margin-right: 1px; }
+.etf-light-self { color: #2563eb; }          /* 蓝 - self 本体无误差 */
+.etf-light-strong { color: #2e8b57; }         /* 绿 - strong 强关联 */
+.etf-light-related { color: #2e8b57; opacity: 0.55; }  /* 草绿 - related 相关(绿+透明度) */
+.etf-light-approx { color: #d97706; }         /* 橙 - approx 近似(仅供参考警示) */
+.etf-light-weak { color: #d97706; opacity: 0.6; }     /* 暗橙 - none 弱(橙+透明度,区别于approx) */
+.etf-light-nodata { color: var(--text-3); opacity: 0.35; }  /* 灰灭灯 - null 无数据 */
 .etf-pop-type { font-size: 9px; color: var(--text-3); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; line-height: 14px; }
 /* 2026-08-05 ETF 至今盈亏：popup 候选行内盈亏 + tag 后盈亏 + hoverpop 内联盈亏（红涨绿跌内联 color） */
 .etf-pop-pnl { margin-left: 8px; font-size: 10px; font-weight: 600; white-space: nowrap; }

@@ -1500,41 +1500,79 @@ function _etfPnlColor(ret) {
 function _gradeLabel(grade) {
   return grade === "excellent" ? "优秀" : grade === "good" ? "良好" : grade === "warn" ? "偏差大" : grade === "n/a" ? "不适用" : (grade || "");
 }
+// D1b 2026-08-08: track_tier -> 信号灯 CSS class + 中文档位
+// 5色: 蓝=self(本体) / 绿=strong(强关联) / 草绿=related(相关) / 橙=approx(近似)+none(弱) / 灰=null(无数据)
+// track_tier absent(旧数据未含)时回退 grade 映射，保持向后兼容
+function _etfLightInfo(etf) {
+  if (!etf) return { cls: "etf-light-nodata", label: "无数据" };
+  if (etf.match_method === "self") return { cls: "etf-light-self", label: "强关联" };
+  var _t = etf.track_tier;
+  if (_t === "strong") return { cls: "etf-light-strong", label: "强关联" };
+  if (_t === "related") return { cls: "etf-light-related", label: "相关" };
+  if (_t === "approx") return { cls: "etf-light-approx", label: "近似" };
+  if (_t === "none") return { cls: "etf-light-weak", label: "弱" };
+  if (_t === null) return { cls: "etf-light-nodata", label: "无数据" };
+  // _t undefined(旧数据无 track_tier) -> 回退 grade 映射
+  if (etf.grade === "excellent") return { cls: "etf-light-strong", label: "强关联" };
+  if (etf.grade === "good" && etf.match_method !== "manual_fallback") return { cls: "etf-light-related", label: "相关" };
+  return { cls: "etf-light-approx", label: "近似" };
+}
+// D1b: match_method -> 中文来源标签(hover tooltip 用)
+function _etfSrcLabel(mm) {
+  return mm === "track_index" ? "跟踪指数" : mm === "overlap" ? "成分重叠" : mm === "self" ? "本体" : mm === "kw" ? "关键词" : mm === "name_match" ? "名称匹配" : mm === "manual_fallback" ? "手动兜底" : (mm || "未知");
+}
 // 2026-08-07 ETF 来源+相似度双维度标签（hoverpop/弹窗共用）
-// 来源(match_method): 🟢track_index / 🟣overlap / 🔵self / 🟡kw|name_match / 🟠manual_fallback / ⚪未知(兜底)
-// 相似度(grade+max_err): 仅 similarity 为数字时显示(track_index/overlap/kw 类有, self 类无)
-// 返回 ' <span ...>🟢·优秀·0.2%</span>' 或 ' <span ...>🔵</span>'(self无相似度) 或 ' <span ...>⚪</span>'(未知兜底)
-// 2026-08-05 修 MEDIUM-1: 补 overlap🟣/kw🟡 + ⚪兜底(防未来新增 match_method 再漏), 删早退让未知方法仍显 similarity%
+// D1b 2026-08-08: 5色信号灯(●)替代来源emoji + track_score(跟踪XX)展示 + track_tier中文档位
+// 信号灯颜色: 蓝=self/绿=strong/草绿=related/橙=approx+none/灰=null(无数据)
+// 旧标签(grade+max_err%)保留并存; 新增跟踪分+档位中文; hover tooltip 全中文化
 function _etfMatchTags(etf) {
   if (!etf) return "";
   var _mm = etf.match_method;
-  var _srcEmoji = _mm === "track_index" ? "🟢" : _mm === "overlap" ? "🟣" : _mm === "self" ? "🔵" : _mm === "kw" ? "🟡" : _mm === "name_match" ? "🟡" : _mm === "manual_fallback" ? "🟠" : "⚪";
-  var _parts = [_srcEmoji];
+  var _light = _etfLightInfo(etf);
+  var _lightHtml = '<span class="etf-light ' + _light.cls + '">●</span>';
+  var _parts = [];
   var _grade = "";
+  // 旧标签: grade + max_err% (similarity 存在时显示)
   if (typeof etf.similarity === "number") {
     _grade = etf.grade || "warn";
     _parts.push(_gradeLabel(_grade));
     if (typeof etf.max_err === "number") _parts.push(etf.max_err.toFixed(1) + "%");
   }
-  var _title = "来源: " + (_mm || "未知") + (_grade ? " · 分级: " + _gradeLabel(_grade) + " · 相似度: " + (etf.similarity * 100).toFixed(1) + "%" : "");
+  // 新评分: 跟踪分(track_score, 0-100)
+  if (typeof etf.track_score === "number") {
+    _parts.push("跟踪" + Math.round(etf.track_score));
+  }
+  // 档位中文(self 已由信号灯蓝+label"强关联"体现, 不重复显)
+  if (_light.label && _mm !== "self") {
+    _parts.push(_light.label);
+  }
+  // hover tooltip 中文化: 来源 + 分级 + 相似度 + 跟踪分 + 档位
+  var _titleParts = ["来源: " + _etfSrcLabel(_mm)];
+  if (_grade) _titleParts.push("分级: " + _gradeLabel(_grade));
+  if (typeof etf.similarity === "number") _titleParts.push("相似度: " + (etf.similarity * 100).toFixed(1) + "%");
+  if (typeof etf.track_score === "number") _titleParts.push("跟踪分: " + etf.track_score.toFixed(1));
+  if (_light.label) _titleParts.push("档位: " + _light.label);
+  var _title = _titleParts.join(" · ");
   var _cls = _grade ? 'etf-match-tag etf-pop-grade-' + _grade : 'etf-match-tag';
   // data-no-pop: 排除 _initTermPop 全局 mouseover 捕获 [title] 弹 .term-pop 重渲染致 hoverpop 关闭的 bug
-  // 根因: 此 span 放 hoverpop(term-pop) 内, 鼠标移上去触发 findTipEl 回退 [title] -> show(span,短tooltip)
-  // -> pop 重渲染重定位缩成小框 -> 鼠标出新 pop 边界 -> mouseleave -> hide() 80ms 后整个 hoverpop 关闭
-  // 加 data-no-pop 后 findTipEl L2152 closest("[data-no-pop]") 命中返回 null, term-pop 不接管;
-  // title 仍走浏览器原生 tooltip 显示来源/分级/相似度, hoverpop 保持不关。与 L15000 .etf-tag 同款双保险
-  return ' <span class="' + _cls + '" data-no-pop="" title="' + _title + '">' + _parts.join("·") + '</span>';
+  return ' <span class="' + _cls + '" data-no-pop="" title="' + _title + '">' + _lightHtml + (_parts.length ? " " + _parts.join("·") : "") + "</span>";
 }
 
 // 2026-08-05 ETF 档位分类（单选改多选拆4档）：按 etf 质量分档，供筛选按钮多选 toggle
-// 档1 强关联：self(ETF自身完美自跟踪) 或 grade=excellent(max_err<1%)
-// 档2 相关：grade=good(1%≤max_err<5%) 且非 manual_fallback
-// 档3 近似：其余有 ETF 的（warn/n/a/overlap/kw/manual_fallback 等）
+// D1b 2026-08-08: 优先读 track_tier(strong=1/related=2/approx+none=3), 无则回退旧 grade 逻辑
+// 档1 强关联：self(ETF自身完美自跟踪) 或 track_tier=strong
+// 档2 相关：track_tier=related（旧: grade=good 且非 manual_fallback）
+// 档3 近似：track_tier=approx/none 或其余有 ETF 的（旧: warn/n/a/overlap/kw/manual_fallback 等）
 // 档4 概念：etfs 为空（无跟踪ETF的概念标的）
-// 注：grade="n/a" 既非 excellent 也非 good，落档3；self 优先判（self 类无 similarity/grade 字段）
+// 注：track_tier=null(无数据) 或 undefined(旧数据) -> 回退旧 grade 逻辑兜底
 function _etfTier(etf) {
   if (!etf) return 4;
   if (etf.match_method === "self") return 1;
+  var _t = etf.track_tier;
+  if (_t === "strong") return 1;
+  if (_t === "related") return 2;
+  if (_t === "approx" || _t === "none") return 3;
+  // _t === null(无数据) 或 undefined(旧数据) -> 回退旧 grade 逻辑
   if (etf.grade === "excellent") return 1;
   if (etf.grade === "good" && etf.match_method !== "manual_fallback") return 2;
   return 3;
@@ -15095,14 +15133,18 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
       ? `<div class="etf-pop-sig etf-pop-sig-buy">🔴 最近买类信号(${latestDate})</div>`
       : `<div class="etf-pop-sig etf-pop-sig-no">` + _t("etf_no_buy") + `(${latestDate})</div>`;
   }
-  // 2d 同花顺模式: 候选列表按跟踪度(similarity)降序, 最相似在前; 每行显跟踪度% + 分级颜色 + fund_type(ETF/LOF)
-  // board_etf_map.json 已按 max_err 升序(similarity 降序)排好, 此处 slice().sort() 防御性兜底(混合源 hk/global ETF 无 similarity 排末尾, 保持原序)
+  // D1b 2026-08-08: 候选列表按 track_score 降序(最匹配在前), null/absent 排后; 回退 similarity
+  // board_etf_map.json 已按 max_err 升序(similarity 降序)排好, 此处 slice().sort() 防御性兜底
   var _popEtfs = etfs.slice().sort(function(a, b) {
+    var ta = typeof a.track_score === "number" ? a.track_score : -1;
+    var tb = typeof b.track_score === "number" ? b.track_score : -1;
+    if (ta !== tb) return tb - ta;
+    // track_score 相同(或都无)时回退 similarity 降序
     var sa = typeof a.similarity === "number" ? a.similarity : -1;
     var sb = typeof b.similarity === "number" ? b.similarity : -1;
     return sb - sa;
   });
-  popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按跟踪度排序 · 点击复制</div>` + sigLine +
+  popup.innerHTML = `<div class="etf-pop-title">相关ETF · 按跟踪分排序 · 点击复制</div>` + sigLine +
     _popEtfs.map((e) => {
       var _pnlText = _etfPnlText(e.etf_since_return, e.etf_price_diff);
       var _pnl = _pnlText ? '<span class="etf-pop-pnl" style="color:' + _etfPnlColor(e.etf_since_return) + '">' + _pnlText + '</span>' : "";

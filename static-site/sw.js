@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260807-a22';  // bump a21->a22: 冰点日角标修复(方案A专用中性角标 t1-event+hover缘由,不再误报滞后)
+const CACHE_VERSION = 'v6-20260808-a23';  // bump a22->a23: D1b ETF跟踪评分前端(5色信号灯+track_score展示+track_tier归类+排序)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
