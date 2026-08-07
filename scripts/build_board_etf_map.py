@@ -11,12 +11,14 @@
 数据源：akshare fund_etf_spot_em()（A 股场内 ETF 实时行情，含成交额/流通市值）。
 可重复跑：python scripts/build_board_etf_map.py，覆盖 data/board_etf_map.json。
 """
+import bisect
 import json
 import sqlite3
 import sys
 from pathlib import Path
 
 import akshare as ak
+import numpy as np
 
 ROOT = Path(__file__).absolute().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -797,6 +799,227 @@ def _enrich_with_similarity(
     return sim_ok, sim_fail, lof_fetched
 
 
+# ───────────────────────────────────────────────────────────────────
+# 路 D1：ETF跟踪5维度评分（日收益率序列，捕捉全路径偏离）
+# 弥补 _calc_similarity 只看起点终点的缺陷：V型尖刺(159536)在累计里抵消骗过旧算法，
+# 新算法用日收益率 diff 捕捉全路径偏离，roll_std/TE 抓出尖刺。
+#
+# 5项指标（日收益率序列 r = diff(close)/close[:-1]，accum_nav 复权除权日不跳）：
+#   1. avg_dev  日均跟踪偏离度 mean(|r_etf - r_idx|) × 100        越低越好
+#   2. TE       年化跟踪误差 std(diff, ddof=1) × sqrt(252) × 100   越低越好
+#   3. IR       信息比率 mean(diff)×252/(std(diff)×sqrt(252))       |IR|越接近0越好
+#   4. R²       决定系数 corr(r_etf, r_idx)²                        越高越好
+#   5. roll_std 30交易日滚动TE序列的std(ddof=1)                      越低越好
+#
+# 归一化：4项百分位rank（防min-max异常值拉伸，如跨境ETF TE=40%拉大range），
+#         IR用分段函数（正负不同惩罚：正>0.5斜率80，负<-0.5斜率200）
+# 权重：TE30%/R²25%/avg_dev15%/roll_std15%/IR15%
+# 阈值：≥80 strong / 70-79 related / 50-69 approx / <50或None none
+# ───────────────────────────────────────────────────────────────────
+TRACK_WEIGHTS = {"te": 0.30, "r2": 0.25, "avg_dev": 0.15, "roll_std": 0.15, "ir": 0.15}
+
+
+def _calc_tracking_metrics(
+    idx_id: str,
+    cand_code: str,
+    fund_type: str,
+    idx_series_all: dict[str, list[tuple]],
+    etf_series_all: dict[str, list[tuple]],
+) -> dict | None:
+    """算候选 vs 指数的5项跟踪指标（原始值，非归一化）。
+
+    用日收益率序列（accum_nav/累计净值，非累计收益差），捕捉全路径偏离。
+    日期对齐：取 ETF/LOF 与指数的共同交易日交集（同 _calc_similarity）。
+
+    返回 {avg_dev, te, ir, r2, roll_std, n} 或 None（n<30 数据不足）。
+    - n>=60：全5项可算（TE/IR/roll_std 需足够样本）
+    - 30<=n<60：仅 avg_dev+R²，TE/IR/roll_std=None（sqrt(252) 放大噪声不可靠）
+    - n<30：返回 None
+    """
+    idx_series = idx_series_all.get(idx_id, [])
+    if fund_type == "lof":
+        cand_series = _fetch_lof_nav_series(cand_code)
+    else:
+        cand_series = etf_series_all.get(cand_code, [])
+    if not idx_series or not cand_series:
+        return None
+    # 日期对齐：取交集（消除交易日历差异）
+    idx_map = {d: c for d, c in idx_series}
+    cand_map = {d: c for d, c in cand_series}
+    common_dates = sorted(set(idx_map.keys()) & set(cand_map.keys()))
+    n = len(common_dates)
+    if n < 30:
+        return None  # 至少30天才能算 avg_dev+R²
+
+    idx_close = np.array([idx_map[d] for d in common_dates], dtype=float)
+    cand_close = np.array([cand_map[d] for d in common_dates], dtype=float)
+    # 日收益率（对齐后序列做 diff，消除交易日历差异）
+    r_idx = np.diff(idx_close) / idx_close[:-1]
+    r_cand = np.diff(cand_close) / cand_close[:-1]
+    diff = r_cand - r_idx
+    n_ret = len(diff)  # n-1
+
+    # 指标1: avg_dev 日均跟踪偏离度 %
+    avg_dev = float(np.mean(np.abs(diff)) * 100)
+
+    # 指标4: R² 决定系数（corr²）
+    r2 = None
+    if np.std(r_idx) >= 1e-8 and np.std(r_cand) >= 1e-8:
+        corr = np.corrcoef(r_cand, r_idx)[0, 1]
+        if not np.isnan(corr):
+            r2 = float(corr ** 2)
+
+    result: dict = {
+        "avg_dev": round(avg_dev, 4),
+        "r2": round(r2, 4) if r2 is not None else None,
+        "te": None,
+        "ir": None,
+        "roll_std": None,
+        "n": n,
+    }
+
+    # n<60（n_ret<59）：TE/IR/roll_std 不可靠，仅存 avg_dev+R²
+    if n_ret < 59:
+        return result
+
+    # n>=60：全5项可算
+    # 指标2: TE 年化跟踪误差 %
+    te = float(np.std(diff, ddof=1) * np.sqrt(252) * 100)
+    result["te"] = round(te, 4)
+
+    # 指标3: IR 信息比率（带符号，cap ±5 防极端主导）
+    if te < 0.01:  # TE<0.01% 防分母爆炸
+        ir = 0.0
+    else:
+        ir = float(np.mean(diff) * 252 / (np.std(diff, ddof=1) * np.sqrt(252)))
+        ir = max(-5.0, min(5.0, ir))
+    result["ir"] = round(ir, 4)
+
+    # 指标5: roll_std 30交易日滚动TE的标准差 %
+    # 用 sliding_window_view 向量化（替代 Python for 循环，提速 ~5x）
+    from numpy.lib.stride_tricks import sliding_window_view
+    windows = sliding_window_view(diff, 30)  # shape (n_ret-29, 30)
+    if len(windows) >= 2:
+        rolling_te = np.std(windows, axis=1, ddof=1) * np.sqrt(252) * 100
+        result["roll_std"] = round(float(np.std(rolling_te, ddof=1)), 4)
+
+    return result
+
+
+def _enrich_with_tracking_score(
+    out: dict,
+    idx_series_all: dict[str, list[tuple]],
+    etf_series_all: dict[str, list[tuple]],
+) -> tuple[int, int, int]:
+    """对所有指数的候选列表加 track_score/track_tier + 5项指标字段。
+
+    两轮计算：
+    1. 收集所有 n>=60 对的5项原始指标（用于百分位rank基线）
+    2. 百分位rank（4项）+ IR分段函数 -> 加权composite -> tier归类
+
+    n>=60: 全5项可算，track_score=0-100
+    30<=n<60: 仅 avg_dev+R² 存原始值，track_score=None（数据不足灰标）
+    n<30: 全 None
+
+    返回 (score_ok, score_none, lof_fetched) 统计数。
+    """
+    # 第一轮：算所有对的原始指标
+    metrics_by_pair: dict[tuple[str, str], dict] = {}
+    lof_fetched = 0
+    for iid in list(out.keys()):
+        if iid == "_meta":
+            continue
+        for c in out.get(iid, []):
+            code = c.get("code", "")
+            ft = c.get("fund_type", "etf")
+            if ft == "lof" and code not in _LOF_NAV_CACHE:
+                lof_fetched += 1
+            m = _calc_tracking_metrics(iid, code, ft, idx_series_all, etf_series_all)
+            if m:
+                metrics_by_pair[(iid, code)] = m
+
+    # 收集每项指标的值列表（仅 n>=60 对，全5项非None，用于百分位rank基线）
+    te_vals = sorted(m["te"] for m in metrics_by_pair.values() if m["te"] is not None)
+    r2_vals = sorted(m["r2"] for m in metrics_by_pair.values() if m["r2"] is not None)
+    avg_dev_vals = sorted(m["avg_dev"] for m in metrics_by_pair.values() if m["avg_dev"] is not None)
+    roll_std_vals = sorted(m["roll_std"] for m in metrics_by_pair.values() if m["roll_std"] is not None)
+
+    def _pct_score(sorted_vals: list, target: float, lower_better: bool) -> float:
+        """百分位rank -> 0-100 score。lower_better=True 时越低分越高。
+        ties 用 average rank（bisect_left+right 均值）。"""
+        nv = len(sorted_vals)
+        if nv == 0 or target is None:
+            return 50.0
+        left = bisect.bisect_left(sorted_vals, target)
+        right = bisect.bisect_right(sorted_vals, target)
+        pct = (left + right) / 2 / nv * 100
+        return 100 - pct if lower_better else pct
+
+    def _ir_score(ir: float) -> float:
+        """IR分段函数：|IR|<=0.5满分；正>0.5斜率80（惩罚轻）；负<-0.5斜率200（惩罚重）。"""
+        abs_ir = abs(ir)
+        if abs_ir <= 0.5:
+            return 100.0
+        if ir > 0.5:
+            return max(0.0, 100 - (ir - 0.5) * 80)
+        return max(0.0, 100 - (abs_ir - 0.5) * 200)  # ir < -0.5
+
+    # 第二轮：算 score + tier
+    score_ok = 0
+    score_none = 0
+    for iid in list(out.keys()):
+        if iid == "_meta":
+            continue
+        for c in out.get(iid, []):
+            code = c.get("code", "")
+            m = metrics_by_pair.get((iid, code))
+            if not m or m["n"] < 60:
+                # 数据不足：track_score=None，但存可得原始指标（30<=n<60 有 avg_dev+R²）
+                c["track_score"] = None
+                c["track_tier"] = "none"
+                c["track_avg_dev"] = m["avg_dev"] if m else None
+                c["track_te"] = None
+                c["track_ir"] = None
+                c["track_r2"] = m["r2"] if m else None
+                c["track_roll_std"] = None
+                c["track_n"] = m["n"] if m else 0
+                score_none += 1
+                continue
+
+            # 5项 percentile/分段 score
+            te_score = _pct_score(te_vals, m["te"], lower_better=True)
+            r2_score = _pct_score(r2_vals, m["r2"], lower_better=False)
+            avg_dev_score = _pct_score(avg_dev_vals, m["avg_dev"], lower_better=True)
+            roll_std_score = _pct_score(roll_std_vals, m["roll_std"], lower_better=True)
+            ir_score = _ir_score(m["ir"])
+
+            composite = (te_score * TRACK_WEIGHTS["te"] + r2_score * TRACK_WEIGHTS["r2"]
+                         + avg_dev_score * TRACK_WEIGHTS["avg_dev"]
+                         + roll_std_score * TRACK_WEIGHTS["roll_std"]
+                         + ir_score * TRACK_WEIGHTS["ir"])
+
+            if composite >= 80:
+                tier = "strong"
+            elif composite >= 70:
+                tier = "related"
+            elif composite >= 50:
+                tier = "approx"
+            else:
+                tier = "none"
+
+            c["track_score"] = round(composite, 1)
+            c["track_tier"] = tier
+            c["track_avg_dev"] = m["avg_dev"]
+            c["track_te"] = m["te"]
+            c["track_ir"] = m["ir"]
+            c["track_r2"] = m["r2"]
+            c["track_roll_std"] = m["roll_std"]
+            c["track_n"] = m["n"]
+            score_ok += 1
+
+    return score_ok, score_none, lof_fetched
+
+
 def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: dict) -> dict[str, list[dict]]:
     """自动采集生成指数->ETF候选映射: {index_id: [{code, name, amount, approx}, ...]}。
 
@@ -1007,8 +1230,15 @@ def main():
     sim_ok, sim_fail, lof_fetched = _enrich_with_similarity(out, idx_series_all, etf_series_all)
     print(f"  相似度计算完成: {sim_ok} 成功, {sim_fail} 数据不足(grade=n/a), {lof_fetched} 只LOF净值实时取")
 
-    # 写盘
-    OUT.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    # ── 路 D1：ETF跟踪5维度评分（日收益率5指标百分位加权）──
+    # 弥补旧算法只看起点终点的缺陷，用日收益率序列捕捉全路径偏离（V型尖刺/roll_std）
+    print("\n=== 路 D1 ETF跟踪5维度评分（日收益率5指标百分位加权）===")
+    track_ok, track_none, track_lof = _enrich_with_tracking_score(out, idx_series_all, etf_series_all)
+    print(f"  跟踪评分完成: {track_ok} 有分, {track_none} 数据不足(track_score=None), {track_lof} 只LOF净值实时取")
+
+    # 写盘（compact 格式减体积：加 track_* 8字段后 indent=2 771KB/indent=1 704KB 超 700KB，
+    # compact ~615KB 达标。后端文件 json.loads 读取不受格式影响，debug 用 python -m json.tool 查看）
+    OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     # 防静默失败校验（§15 防复现）：14 宽基/红利/港股指数中，除 sz_div（已有 manual_fallback 兜底注入 159905 红利ETF工银，靠兜底非正常匹配故不列入必填）
     # 和 bj50（无活跃跟踪ETF）外，其余 12 个必须非空。空则 exit 1，让 deploy.sh 捕获失败用旧 map，
