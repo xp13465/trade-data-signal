@@ -1292,3 +1292,23 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 ### 待办
 - 17:50 deploy 后 curl ss.fx8.store/data/index/sz_div-all.json 验 etfs 含 159905(生效验证,验功能生效层非代码在main)
 - L1013-1014 注释"sz_div 主动留空"略过时(sz_div 已有 manual_fallback),可选更新(Minor nit)
+
+## ✅ 2026-08-07 feat/main 同步紧急修复(部署链路 bug)
+
+### Bug
+- feat/iframe-theme-follow 领先 origin/main 52 commit, deploy.sh 从 feat 跑推 main non-ff 失败(rebase 撞 config/indicators.yaml + build_board_etf_map.py abort)
+- 所有靠 deploy.sh 推的盘后数据(rotation/public-fund/update_all 17:50)推不上 main, 线上卡昨日(板块轮动0806)
+- 根因: feat 含功能 commit(459df7293 路B-E组6 等)未合并 main, deploy.sh push HEAD:main non-ff
+
+### 修复(a948, commit 7b2f6c912 merge)
+- feat merge origin/main + push feat:main ff(让 main=feat)
+- 冲突: config/indicators.yaml + build_board_etf_map.py feat==main 无diff(rebase不撞)
+- feat/main 同步(双向 count=0), rotation 0807 上线(ss.fx8.store latest.date=20260807), 17:50 update_all 恢复 ff
+
+### 影响(feat 功能 commit 上 main)
+- 459df7293 路B-E组6 新增科创板芯片指数 sse_000685(reviewer PASS)上 main
+- 之前 cherry-pick 的功能 commit(问题1-5/冰点/build_board_etf/schedule_stats) feat 原版也上 main(同内容 git 识别)
+
+### 待办
+- getCardTimeBadge 语义(T+1 数据盘中显示"滞后" vs tooltip"17:50采集"矛盾): rotation 非 T+1 已0807, 其他 T+1 卡片若仍显示"滞后"需修(盘中未到采集时点应显示"待采集"中性)
+- a948 sm_use=0 没 SendMessage(cron 兜底发现, §11 教训应证)
