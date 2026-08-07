@@ -869,7 +869,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 **推荐 C1（CF Workers + D1）**，工时 7.8h 一晚够。评分引擎无需改代码（compute_all_scores(top_n=None) 已支持全量）。
 
 **8 步实施清单**：
-- [ ] 步骤0：修 upload_r2 调用 bug 3+1 处（pf_score_daily.sh:42 / pf_score_weekly.sh:42 / update_all.sh:140(offshore)+152(fund-score) 脚本路径和子命令分开）— **盘中已派 agent aedb9f06 立即做**
+- [x] 步骤0：修 upload_r2 调用 bug 3+1 处 ✅已完成(commit d5a8c8f84 R2上传恢复；2026-08-08 grep确认 pf_score_daily/weekly.sh:42+update_all.sh:146/158 均用 upload-offshore-fund/upload-fund-score 正确格式)（pf_score_daily.sh:42 / pf_score_weekly.sh:42 / update_all.sh:140(offshore)+152(fund-score) 脚本路径和子命令分开）— **盘中已派 agent aedb9f06 立即做**
 - [ ] 步骤1：export_fund_score.py L62 _query_top_funds 补 fund_basic 扩展字段（fund_company/fund_manager/setup_date/scale/management_fee/custody_fee/purchase_fee/strategy/benchmark，点击弹窗用）
 - [ ] 步骤2：手动触发 weekly 全量评分（收盘后）compute_all_scores(top_n=None, resume=True) 从 trade-data 跑，验证 fund_score 表 count ≈ 27418，预计 15-30 分钟
 - [ ] 步骤3：D1 创建（wrangler d1 create trade-fund-score）+ wrangler.jsonc 加 d1_databases binding(FUND_SCORE_DB) + 新建 scripts/sync_fund_score_to_d1.sh + pf_score daily/weekly 末尾加同步调用
@@ -900,7 +900,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 
 ### P1（首屏次要 + 后台优化，2-3h 请求数减 95%）
 - [ ] P1-6: 首屏 fetch Promise.all 并行（1-2h，首屏 -300~500ms）。证据 `app.js:6998-7034` overview->signal_stats->intraday 3 个 await 串行
-- [ ] P1-7: index.html 加 preconnect ssd.fx8.store/腾讯分时（<0.5h，首次请求 -100~300ms）
+- [~] P1-7: index.html preconnect — ssd.fx8.store 已有(L18);腾讯分时前端已换东财push2(app.js L5971 注释 WAF拦截501);前端fetch域(push2.eastmoney.com分时等)全覆盖待调研补preconnect,非纯A级降调研项（<0.5h，首次请求 -100~300ms）
 - [ ] P1-8: 首页 22 JSON 合并 boot.json（2-3h，请求数 22 -> 1）。export 合并首屏 21 个小 JSON ~250KB br
 
 ### P2（按需，滚动优化）
@@ -934,7 +934,7 @@ P1/S CSS minify ✅ 已完成（小节P）-> P0/M data JSON 预压缩 ✅ 已完
 - 改 app.js/style.css 后必跑 `scripts/build_min.py` + `scripts/bump_asset_version.py` + bump sw.js CACHE_VERSION（铁律1）
 - P0-1 改 renderTab 是高风险点（17 处 echarts.init 路径需逐一确认），建议派独立 agent 实施 + 单测覆盖
 
-## 📋 2026-08-04 跌停池采集失败根治 + 角标文案修正（明晚8-5 23:00+ 实施，排查见 /tmp/agent-stale-badge-debug.md）
+## ✅ 2026-08-04 跌停池采集失败根治 + 角标文案修正（已上线 commit 765d2e942+11af152d6+25ae693fb，2026-08-08 验收 origin/main 含，排查见 /tmp/agent-stale-badge-debug.md）
 
 **根因**：a_width_dt_count（跌停数）8-4 采集失败，intraday_snapshot.py L1305-1318 跌停池 stock_zt_pool_dtgc_em 失败分支只 print 不写 collect_log，无交叉验证（update_all 路径 fetchers.py:321-337 有，intraday 路径没复用），监控漏报 level=ok retry 永不触发。角标 getCardTimeBadge L4739 t0 源盘中 dataDate=ptd 兜底显示"⏳ 待盘后更新·08-03"误导（实际采集失败非待更新）。
 
@@ -1345,7 +1345,7 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 ### 级别: B级(逻辑+显示, 跨 _etfMatchTags/_etfTier/列表渲染, 有隐藏影响面-轮询/列表渲染)
 ### 排期: 待当前活跃待办(17:50验证/getCardTimeBadge语义/后端重启)后, 或用户优先
 
-## 📋 2026-08-08 ETF跟踪5维度评分算法(调研完成✓+159536验证✓,待用户确认board-index语义+配置后实施)
+## 📋 2026-08-08 ETF跟踪5维度评分算法(调研✓+159536验证✓+数据语境审计✓,待用户定权重TE/Dev比例+前复权方案后实施)
 
 > 用户发现 7/27 中证2000(932000)超卖拐点信号 hoverpop 显示「159536 🟢·良好·1.1% 至今+1.63%」而指数至今+8.19%,收益差距大。159536 在7/27单日大涨(规模小抖动)致偏离,但相似度仍评良好,认为当前算法有BUG。用户提供5维度加权评分算法(偏离度/年误差/信息比率/R²/滚动误差标准差)。
 
@@ -1366,6 +1366,13 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - 新评分对比board板块指数(非ETF自身跟踪指数),因 index_daily 仅158只指数无中证全指农牧渔等ETF native指数。
 - native在的(如159536对中证2000)对比准确;native不在的用board sw指数近似TE天然偏高(中位8%)49%落none正常(board代表性本就有限)。
 - 纯native需大幅扩展 index_daily 采集(大工程不推荐)。**推荐接受board-index语义**。
+
+### 数据语境审计结论(2026-08-08 track_index audit,进度文件 /tmp/agent-progress-track-index-audit.md)
+- **1140对分类实锤**: 自身跟踪591对(52%,broad_self182+csi_gz_self234+csi_gz_mixed_self175)/ 板块重叠514对(45%,sw_/thsc_编制方不同)/ 相关指数35对(3%,A50/A500子串误匹配)。approx=True不区分自身vs板块(L544统一设True)。
+- **⚠️ 2%年TE阈值过严(推翻原硬阈值)**: 10只自身跟踪ETF TE年化全>2%(2.4-10.6%,510300vs hs300=3.17%/159915vs cyb=2.40%最低仍超/159536vs中证2000=10.6%小盘难复制),因管理费/采样复制/未复权close含溢折价噪声。**avg_dev≤0.2%是更好自身跟踪分类器**(自身<0.2%除中证2000,板块重叠>0.3%)。
+- **⚠️ 未复权陷阱(实施必修,主控已验收✓)**: etf_daily.close未复权,512000除权20250801=1.138->20250804=0.572致TE虚高50%。**TE计算必须用前复权价或NAV**,否则除权日跳变污染TE。
+- **track_index_code齐备度极低**: etf_index_map.json 1571只仅181只(11.5%)有track_index_code(gen_etf_index_map.py只匹配14宽基/红利/港股);补采track_index_name->code映射仅28%覆盖(864/1200 track指数名不在config)。自身跟踪native TE覆盖受限。
+- **修正方案**: 自身跟踪591对(52%)用avg_dev≤0.2%分类器+native TE(须前复权);板块重叠514对(45%)用rank相对排序(TE天然3-33%不作绝对阈值);2%TE硬阈值降为参考非准入门槛。
 
 ### 归类阈值推荐配置(实测,用户veto)
 - 权重: TE30%/R²25%/avg_dev15%/roll_std15%/|IR|15%
@@ -1389,6 +1396,8 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - [ ] 排序按track_score降序
 - [ ] curl overview.json含track_score字段
 - [ ] sw.js CACHE_VERSION bump
+- [ ] TE计算用前复权价或NAV(512000除权20250801=1.138->0804=0.572不污染TE,主控已验收跳变✓)
+- [ ] 自身跟踪591对用avg_dev≤0.2%分类(非2%TE硬阈值,2%TE全超过严),板块重叠514对用rank排序
 
 ### 级别: C级(数据产物board_etf_map.json+后端计算+前端逻辑,跨build_board_etf_map.py/queries.py/app.js,有隐藏影响面-轮询/列表渲染/排序)
 ### 排期: 待用户确认board-index语义+权重阈值后实施(3处优化已定:百分位rank✓/权重TE30R²25偏离15滚动15IR15✓/每日✓)。建议与ETF信号灯重构(L1316)合并批次。报告:/tmp/agent-progress-tracking-score-new.md(306行)
