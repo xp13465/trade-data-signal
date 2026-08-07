@@ -1010,7 +1010,7 @@ def main():
     # 写盘
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # 防静默失败校验（§15 防复现）：14 宽基/红利/港股指数中，除 sz_div（名称无法区分，主动留空）
+    # 防静默失败校验（§15 防复现）：14 宽基/红利/港股指数中，除 sz_div（已有 manual_fallback 兜底注入 159905 红利ETF工银，靠兜底非正常匹配故不列入必填）
     # 和 bj50（无活跃跟踪ETF）外，其余 12 个必须非空。空则 exit 1，让 deploy.sh 捕获失败用旧 map，
     # 不静默覆盖线上 board_etf_map.json 为空数组（2026-08-06 事故根因：etf_index_map.json 缺失
     # 致 14 宽基全空，_load_etf_index_map_reverse 只 warning + exit 0 静默失败）。

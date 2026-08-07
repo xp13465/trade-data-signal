@@ -92,8 +92,8 @@ m=d.get('_meta',{}).get('missing',[])
 print('C14 boot._meta.missing:', m, 'FAIL' if m else 'OK')
 "
 
-# C26: index/{id}-all.json etfs 非空 (R2, 抽查 sh000001/hs300/cyb)
-for id in sh000001 hs300 cyb sz50 csi1000; do
+# C26: index/{id}-all.json etfs 非空 (R2, 抽查 sh/hs300/cyb)
+for id in sh hs300 cyb sz50 csi1000; do
   curl -s "https://ssd.fx8.store/index/${id}-all.json" | python3 -c "
 import sys,json
 try:
@@ -410,14 +410,14 @@ fi
 - **关联**: `app.js getCardTimeBadge L4740+` / `intraday_snapshot.json indices`
 
 ### P0-08 指数表现 ETF（全部无ETF拦截）
-- **数据层 curl**: `for id in sh000001 hs300 cyb sz50 csi1000; do curl -s "https://ssd.fx8.store/index/${id}-all.json" | python3 -c "import sys,json;d=json.load(sys.stdin);e=d.get('etfs',[]);print('$id etfs:',len(e) if isinstance(e,list) else e,'FAIL' if not e else 'OK')"; done`
+- **数据层 curl**: `for id in sh hs300 cyb sz50 csi1000; do curl -s "https://ssd.fx8.store/index/${id}-all.json" | python3 -c "import sys,json;d=json.load(sys.stdin);e=d.get('etfs',[]);print('$id etfs:',len(e) if isinstance(e,list) else e,'FAIL' if not e else 'OK')"; done`
 - **期望**: 各指数 etfs 字段非空(len>0)
 - **文字验证**: 指数表现区每个指数卡显示相关ETF列表(非"全部无ETF")
 - **关联**: `app.js renderIndicesSection L10602+` / `index/{id}-all.json etfs` / `data/board_etf_map.json`(根因)
 - **历史事故**: 全部无ETF(board_etf_map 27/73空数组,etf_index_map.json)
 
 ### P0-09 指数 K 线 + 信号 pin
-- **数据层 curl**: `curl -s https://ssd.fx8.store/index/sh000001-all.json | python3 -c "import sys,json;d=json.load(sys.stdin);print('ohlc:',len(d.get('ohlc',[])),'signals:',len(d.get('signals',[])))"`
+- **数据层 curl**: `curl -s https://ssd.fx8.store/index/sh-all.json | python3 -c "import sys,json;d=json.load(sys.stdin);print('ohlc:',len(d.get('ohlc',[])),'signals:',len(d.get('signals',[])))"`
 - **期望**: ohlc 非空;signals 数组存在
 - **文字验证**: 指数K线图有蜡烛数据,信号pin标记在K线上(买/卖点)
 - **关联**: `app.js renderIndicesSection L10602` / `index/{id}-all.json ohlc/signals`
@@ -429,7 +429,7 @@ fi
 - **关联**: `app.js _renderSignalGrid` / `alert.json`
 
 ### P0-11 信号走势弹窗
-- **数据层 curl**: `curl -s https://ss.fx8.store/data/alert_analyze_sh000001.json | python3 -c "import sys,json;d=json.load(sys.stdin);print('keys:',list(d.keys())[:8]);print('high:',d.get('high'),'low:',d.get('low'))"`
+- **数据层 curl**: `curl -s https://ss.fx8.store/data/alert_analyze_sh.json | python3 -c "import sys,json;d=json.load(sys.stdin);print('keys:',list(d.keys())[:8]);print('high:',d.get('high'),'low:',d.get('low'))"`
 - **期望**: 含 high/low 字段
 - **文字验证**: 点击信号弹窗显示走势图+评级历史
 - **关联**: `app.js L3401/L3442 fetchJSON alert_analyze_{iid}` / `alert_analyze_*.json`
@@ -631,7 +631,7 @@ grep -n "schedule_stats" app.js lab.js
 
 ### P0 验证结果
 - P0-01 KPI角标: OK (date=20260806, 9 scores 全 True)
-- P0-08 指数表现ETF: FAIL (sh000001 etfs=0, 全部无ETF)
+- P0-08 指数表现ETF: FAIL (sh etfs=0, 全部无ETF)
 - ...
 
 ### 数据产物校验
@@ -684,7 +684,7 @@ python3 -c "import json;d=json.load(open('static-site/data/alert.json'));print('
 # C19 notifications
 python3 -c "import json;d=json.load(open('static-site/data/notifications.json'));print('C19 notifications.date',d['date'],'FAIL' if d['date']!='$TODAY' else 'OK')"
 # C26 index etfs (R2 抽查)
-for id in sh000001 hs300 cyb; do curl -s "https://ssd.fx8.store/index/${id}-all.json" | python3 -c "import sys,json;d=json.load(sys.stdin);e=d.get('etfs',[]);print('C26 $id etfs',len(e) if isinstance(e,list) else e,'FAIL' if not e else 'OK')" 2>/dev/null; done
+for id in sh hs300 cyb; do curl -s "https://ssd.fx8.store/index/${id}-all.json" | python3 -c "import sys,json;d=json.load(sys.stdin);e=d.get('etfs',[]);print('C26 $id etfs',len(e) if isinstance(e,list) else e,'FAIL' if not e else 'OK')" 2>/dev/null; done
 ```
 
 ### 验证三层（模型只文本不能看 UI）
