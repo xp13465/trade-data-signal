@@ -1495,10 +1495,15 @@ function _etfPnlColor(ret) {
   return (ret != null && ret >= 0) ? "#e6492e" : "#2e8b57";
 }
 
+// 2026-08-07 ETF grade 英文->中文映射(excellent->优秀/good->良好/warn->偏差大/n/a->不适用);
+// grade 用于 CSS class(etf-pop-grade-*)保留英文, 仅显示文案+tooltip 改中文
+function _gradeLabel(grade) {
+  return grade === "excellent" ? "优秀" : grade === "good" ? "良好" : grade === "warn" ? "偏差大" : grade === "n/a" ? "不适用" : (grade || "");
+}
 // 2026-08-07 ETF 来源+相似度双维度标签（hoverpop/弹窗共用）
 // 来源(match_method): 🟢track_index / 🟣overlap / 🔵self / 🟡kw|name_match / 🟠manual_fallback / ⚪未知(兜底)
 // 相似度(grade+max_err): 仅 similarity 为数字时显示(track_index/overlap/kw 类有, self 类无)
-// 返回 ' <span ...>🟢·excellent·0.2%</span>' 或 ' <span ...>🔵</span>'(self无相似度) 或 ' <span ...>⚪</span>'(未知兜底)
+// 返回 ' <span ...>🟢·优秀·0.2%</span>' 或 ' <span ...>🔵</span>'(self无相似度) 或 ' <span ...>⚪</span>'(未知兜底)
 // 2026-08-05 修 MEDIUM-1: 补 overlap🟣/kw🟡 + ⚪兜底(防未来新增 match_method 再漏), 删早退让未知方法仍显 similarity%
 function _etfMatchTags(etf) {
   if (!etf) return "";
@@ -1508,12 +1513,17 @@ function _etfMatchTags(etf) {
   var _grade = "";
   if (typeof etf.similarity === "number") {
     _grade = etf.grade || "warn";
-    _parts.push(_grade);
+    _parts.push(_gradeLabel(_grade));
     if (typeof etf.max_err === "number") _parts.push(etf.max_err.toFixed(1) + "%");
   }
-  var _title = "来源: " + (_mm || "未知") + (_grade ? " · 分级: " + _grade + " · 相似度: " + (etf.similarity * 100).toFixed(1) + "%" : "");
+  var _title = "来源: " + (_mm || "未知") + (_grade ? " · 分级: " + _gradeLabel(_grade) + " · 相似度: " + (etf.similarity * 100).toFixed(1) + "%" : "");
   var _cls = _grade ? 'etf-match-tag etf-pop-grade-' + _grade : 'etf-match-tag';
-  return ' <span class="' + _cls + '" title="' + _title + '">' + _parts.join("·") + '</span>';
+  // data-no-pop: 排除 _initTermPop 全局 mouseover 捕获 [title] 弹 .term-pop 重渲染致 hoverpop 关闭的 bug
+  // 根因: 此 span 放 hoverpop(term-pop) 内, 鼠标移上去触发 findTipEl 回退 [title] -> show(span,短tooltip)
+  // -> pop 重渲染重定位缩成小框 -> 鼠标出新 pop 边界 -> mouseleave -> hide() 80ms 后整个 hoverpop 关闭
+  // 加 data-no-pop 后 findTipEl L2152 closest("[data-no-pop]") 命中返回 null, term-pop 不接管;
+  // title 仍走浏览器原生 tooltip 显示来源/分级/相似度, hoverpop 保持不关。与 L15000 .etf-tag 同款双保险
+  return ' <span class="' + _cls + '" data-no-pop="" title="' + _title + '">' + _parts.join("·") + '</span>';
 }
 
 // 2026-08-05 ETF 档位分类（单选改多选拆4档）：按 etf 质量分档，供筛选按钮多选 toggle
