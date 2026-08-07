@@ -1473,14 +1473,14 @@ function _etfPnlColor(ret) {
 }
 
 // 2026-08-07 ETF 来源+相似度双维度标签（hoverpop/弹窗共用）
-// 来源(match_method): 🟢track_index / 🔵self / 🟡name_match / 🟠manual_fallback
-// 相似度(grade+max_err): 仅 similarity 为数字时显示(track_index 类有, self 类无)
-// 返回 ' <span ...>🟢·excellent·0.2%</span>' 或 ' <span ...>🔵</span>'(self无相似度) 或 ""(无match_method)
+// 来源(match_method): 🟢track_index / 🟣overlap / 🔵self / 🟡kw|name_match / 🟠manual_fallback / ⚪未知(兜底)
+// 相似度(grade+max_err): 仅 similarity 为数字时显示(track_index/overlap/kw 类有, self 类无)
+// 返回 ' <span ...>🟢·excellent·0.2%</span>' 或 ' <span ...>🔵</span>'(self无相似度) 或 ' <span ...>⚪</span>'(未知兜底)
+// 2026-08-05 修 MEDIUM-1: 补 overlap🟣/kw🟡 + ⚪兜底(防未来新增 match_method 再漏), 删早退让未知方法仍显 similarity%
 function _etfMatchTags(etf) {
   if (!etf) return "";
   var _mm = etf.match_method;
-  var _srcEmoji = _mm === "track_index" ? "🟢" : _mm === "self" ? "🔵" : _mm === "name_match" ? "🟡" : _mm === "manual_fallback" ? "🟠" : "";
-  if (!_srcEmoji) return "";
+  var _srcEmoji = _mm === "track_index" ? "🟢" : _mm === "overlap" ? "🟣" : _mm === "self" ? "🔵" : _mm === "kw" ? "🟡" : _mm === "name_match" ? "🟡" : _mm === "manual_fallback" ? "🟠" : "⚪";
   var _parts = [_srcEmoji];
   var _grade = "";
   if (typeof etf.similarity === "number") {
@@ -1488,7 +1488,7 @@ function _etfMatchTags(etf) {
     _parts.push(_grade);
     if (typeof etf.max_err === "number") _parts.push(etf.max_err.toFixed(1) + "%");
   }
-  var _title = "来源: " + _mm + (_grade ? " · 分级: " + _grade + " · 相似度: " + (etf.similarity * 100).toFixed(1) + "%" : "");
+  var _title = "来源: " + (_mm || "未知") + (_grade ? " · 分级: " + _grade + " · 相似度: " + (etf.similarity * 100).toFixed(1) + "%" : "");
   var _cls = _grade ? 'etf-match-tag etf-pop-grade-' + _grade : 'etf-match-tag';
   return ' <span class="' + _cls + '" title="' + _title + '">' + _parts.join("·") + '</span>';
 }
@@ -9141,7 +9141,10 @@ async function renderOverview() {
   const freezeCard = document.createElement("div");
   freezeCard.className = "chart-card";
   freezeCard.innerHTML = _renderSignalGrid(r.recent_freeze, r.date, "近期冰点日（近 120 日）" + termTip("近120日情绪冰点日(恐贪指数<20)，常对应阶段性底部"), "freeze", "无近期冰点日");
-  addCardTimeBadge(freezeCard, (r.recent_freeze && r.recent_freeze[0] && r.recent_freeze[0].date) || r.date, snap, "t0", "", false, false);  // 2026-08-07: 卡片内容是冰点日(recent_freeze[0].date 非今日), useOverviewDate=false 不轮询覆盖
+  // 2026-08-05 修 LOW-1: 空 recent_freeze 时 useOverviewDate=true 允许 overview 轮询刷新 r.date 角标;
+  // 有冰点日时 useOverviewDate=false 保持 freeze 日期不被覆盖(原始行为, 无回归)
+  var _freezeHasDate = !!(r.recent_freeze && r.recent_freeze[0] && r.recent_freeze[0].date);
+  addCardTimeBadge(freezeCard, _freezeHasDate ? r.recent_freeze[0].date : r.date, snap, "t0", "", false, !_freezeHasDate);
   // 点击冰点日卡片弹窗：展示该情绪分走势图+冰点(≤20)标注
   freezeCard.addEventListener("click", (e) => {
     const item = e.target.closest(".sig-clickable");

@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260807-a14';  // bump a13->a14: KPI角标bug修复(T+0卡走snap.datetime非1min动态) + hoverpop指数名+至今合并单行 + ETF来源+相似度双维度标签(hoverpop/弹窗)
+const CACHE_VERSION = 'v6-20260807-a15';  // bump a14->a15: MEDIUM-1 _etfMatchTags 补 overlap🟣/kw🟡 match_method + ⚪兜底防未来漏 + LOW-1 freezeCard空recent_freeze角标刷新修复
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
