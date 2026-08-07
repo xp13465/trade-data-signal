@@ -404,7 +404,7 @@ def overview(conn, cfg):
         # fund_etf_hist_sina，如 cgb_10y_etf symbol=sh511260），board_etf_map.json 无此 key
         # （非板块/宽基映射）-> etf_for 返空 -> 前端"无相关ETF"。此处直接用 symbol 剥 sh/sz/bj
         # 前缀作为 ETF 代码注入，match_method="self" 标识"index 即 ETF 自身"。自动覆盖未来同类
-        # index（如 cn10y_etf），无需改 board_etf_map.py 或硬编码 index_id。
+        # index（如 cgb_10y_etf），无需改 board_etf_map.py 或硬编码 index_id。
         if _meta and _meta.get("func") == "fund_etf_hist_sina" and _meta.get("symbol"):
             _sym = _meta["symbol"]
             _code = _sym[2:] if _sym[:2] in ("sh", "sz", "bj") else _sym

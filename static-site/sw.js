@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260807-a17';  // bump a16->a17: 修复ETF弹窗走势图echarts实例泄漏(模块级持有+重开/关闭dispose+resize同步)
+const CACHE_VERSION = 'v6-20260807-a18';  // bump a17->a18: ETF弹窗走势图 dispose 改用 _disposeContainerCharts 模式(代码库既定,同 openIndexAnalyzeModal),保留 _etfTrendChart 引用用于 resize
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
