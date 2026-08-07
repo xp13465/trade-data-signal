@@ -15986,8 +15986,11 @@ function openEtfScoreDetailModal(code) {
   }
   modal.querySelector(".etf-detail-title").textContent = "🔬 " + (e.name || code) + " 决策依据";
   const body = modal.querySelector(".etf-detail-content");
-  // 重开弹窗前 dispose 旧走势图实例（用户关闭后点另一只 ETF 会再次进入此函数，旧实例随 body.innerHTML 被替换成孤儿）
-  if (_etfTrendChart) { _etfTrendChart.dispose(); _etfTrendChart = null; }
+  // 重开弹窗前 dispose 旧走势图实例：body 内旧 #etfTrendChart DOM 还在，_disposeContainerCharts 通过
+  // [_echarts_instance_] 属性捕获并 dispose（代码库既定模式，同 openIndexAnalyzeModal/_disposeContainerCharts）。
+  // _etfTrendChart 仅持有引用用于 window/H5 resize，不参与 dispose，这里置 null 释放引用。
+  _disposeContainerCharts(body);
+  _etfTrendChart = null;
   body.innerHTML = '<div class="lab-custom-loading">⏳ 加载中…</div>';
   modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
@@ -16172,8 +16175,11 @@ function closeEtfScoreDetailModal() {
   const modal = document.getElementById("etfScoreDetailModal");
   if (modal) modal.classList.add("hidden");
   document.body.style.overflow = "";
-  // 关闭弹窗时 dispose 走势图 echarts 实例，释放 canvas+内部状态+事件监听，避免泄漏
-  if (_etfTrendChart) { _etfTrendChart.dispose(); _etfTrendChart = null; }
+  // 关闭弹窗时 dispose 走势图 echarts 实例（_disposeContainerCharts 兜底释放 body 内 DOM 实例，
+  // 同 openIndexAnalyzeModal 模式；_etfTrendChart 置 null 释放 resize 引用）
+  const body = modal && modal.querySelector(".etf-detail-content");
+  if (body) _disposeContainerCharts(body);
+  _etfTrendChart = null;
 }
 
 function _renderEtfScoreBody() {
