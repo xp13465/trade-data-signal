@@ -22,5 +22,11 @@
 			"id": "7d373c3365314ec7a334ac47a73f1578",
 			"remote": true
 		}
+	],
+	// R2 bucket binding（P0-4 2026-08-08）：/r2/* 路由直读 R2 对象 + Cache API 边缘缓存 1h。
+	// 替代原 ssd.fx8.store public bucket 直链（cf-cache-status DYNAMIC 每次回源 ~1s）。
+	// upload_r2.py 仍上传到 signal-data bucket，Worker 用 binding 直读，前端改走 ss.fx8.store/r2/。
+	"r2_buckets": [
+		{ "binding": "R2_BUCKET", "bucket_name": "signal-data" }
 	]
 }

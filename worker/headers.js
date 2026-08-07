@@ -14,7 +14,7 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), accelerometer=(), gyroscope=()',
-  "Content-Security-Policy-Report-Only": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://hm.baidu.com https://zz.bdstatic.com https://push.zhanzhang.baidu.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com https://ssd.fx8.store; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
+  "Content-Security-Policy-Report-Only": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://hm.baidu.com https://zz.bdstatic.com https://push.zhanzhang.baidu.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://web.ifzq.gtimg.cn https://hm.baidu.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
 };
 
 // 有序规则：第一条匹配的生效（first-match-wins = 精确/具体优先，兜底放最后）。
@@ -99,9 +99,48 @@ function cacheControlFor(pathname) {
   return 'private, no-cache, must-revalidate';
 }
 
+// /r2/* 代理路由（P0-4 2026-08-08）：R2 binding 直读 + Cache API 边缘缓存 1h。
+// 原直链 ssd.fx8.store（R2 public bucket）cf-cache-status DYNAMIC 每次回源 ~1s；
+// 改走 Worker 代理后二次请求边缘 HIT ~50ms。R2 key = pathname 去掉 /r2/ 前缀。
+// 缓存 key 用 pathname（剥离 ?_=Date.now() cache-bust），让带 query 的请求也命中边缘缓存。
+// 所有走 R2 的数据（大range 历史/etf_score/index/industry/lab/public_fund/fund_score/trade_sim）
+// 均为收盘后低频更新，1h 边缘缓存安全。
+async function r2ProxyHandler(request, env, ctx, url) {
+  const key = decodeURIComponent(url.pathname.slice(4)); // 去掉 "/r2/"
+  if (!key || key.endsWith('/')) {
+    return new Response('Not Found', { status: 404 });
+  }
+  // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中）
+  const cacheKey = new Request(url.origin + url.pathname);
+  const cached = await caches.default.match(cacheKey);
+  if (cached) return cached;
+  // 2. R2 读取
+  let object;
+  try {
+    object = await env.R2_BUCKET.get(key);
+  } catch (e) {
+    return new Response('R2 read error: ' + (e && e.message), { status: 502 });
+  }
+  if (!object) return new Response('Not Found', { status: 404 });
+  // 3. 构造响应（边缘缓存 1h）
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('Cache-Control', 'public, max-age=3600');
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
+  const response = new Response(object.body, { headers });
+  // 4. 写边缘缓存（后台，不阻塞响应）
+  ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
+  return response;
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // /r2/* 路由：R2 对象代理 + Cache API 边缘缓存（P0-4）
+    if (url.pathname.startsWith('/r2/')) {
+      return r2ProxyHandler(request, env, ctx, url);
+    }
     // /api/* 路由分发（生产无 FastAPI：/api/auth/* 与 /api/feedback* -> authHandler 复用 session 认证，其余 /api/* -> subscribeHandler）
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/feedback')) {

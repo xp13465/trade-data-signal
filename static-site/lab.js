@@ -1545,7 +1545,7 @@ async function fetchLabFusionMatrixData(idx) {
   if (!state.labFusionMatrixDataMap) state.labFusionMatrixDataMap = {};
   if (state.labFusionMatrixDataMap[idx]) return state.labFusionMatrixDataMap[idx];
   try {
-    state.labFusionMatrixDataMap[idx] = await fetchJSON("https://ssd.fx8.store/lab/lab_backtest_fusion_" + idx + ".json");
+    state.labFusionMatrixDataMap[idx] = await fetchJSON("https://ss.fx8.store/r2/lab/lab_backtest_fusion_" + idx + ".json");
   } catch (e) {
     state.labFusionMatrixDataMap[idx] = null;
   }
@@ -1557,7 +1557,7 @@ async function fetchLabFusionMatrixData(idx) {
 async function fetchLabData() {
   if (state.labData) return state.labData;
   try {
-    state.labData = await fetchJSON("https://ssd.fx8.store/lab/lab_backtest.json");
+    state.labData = await fetchJSON("https://ss.fx8.store/r2/lab/lab_backtest.json");
   } catch (e) {
     state.labData = null;
   }
@@ -1598,7 +1598,7 @@ async function fetchLabMatrixData(idx) {
   if (!state.labMatrixDataMap) state.labMatrixDataMap = {};
   if (state.labMatrixDataMap[idx]) return state.labMatrixDataMap[idx];
   try {
-    state.labMatrixDataMap[idx] = await fetchJSON("https://ssd.fx8.store/lab/lab_backtest_" + idx + ".json");
+    state.labMatrixDataMap[idx] = await fetchJSON("https://ss.fx8.store/r2/lab/lab_backtest_" + idx + ".json");
   } catch (e) {
     state.labMatrixDataMap[idx] = null;
   }
@@ -1633,7 +1633,7 @@ async function fetchLabSimData(index) {
   if (!state.labSimDataMap) state.labSimDataMap = {};
   if (state.labSimDataMap[index]) return state.labSimDataMap[index];
   try {
-    state.labSimDataMap[index] = await fetchJSON("https://ssd.fx8.store/lab/lab_sim_" + index + "_stats.json");
+    state.labSimDataMap[index] = await fetchJSON("https://ss.fx8.store/r2/lab/lab_sim_" + index + "_stats.json");
   } catch (e) {
     state.labSimDataMap[index] = null;
   }
@@ -1647,7 +1647,7 @@ async function fetchLabFusionSimData(index) {
   if (!state.labSimFusionDataMap) state.labSimFusionDataMap = {};
   if (state.labSimFusionDataMap[index]) return state.labSimFusionDataMap[index];
   try {
-    state.labSimFusionDataMap[index] = await fetchJSON("https://ssd.fx8.store/lab/lab_sim_" + index + "_fusion_stats.json");
+    state.labSimFusionDataMap[index] = await fetchJSON("https://ss.fx8.store/r2/lab/lab_sim_" + index + "_fusion_stats.json");
   } catch (e) {
     state.labSimFusionDataMap[index] = null;
   }
@@ -1679,7 +1679,7 @@ async function fetchLabFusionSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFusionFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("https://ssd.fx8.store/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal);
+    const full = await fetchJSONProgress("https://ss.fx8.store/r2/lab/lab_sim_" + index + "_fusion_full.json", onProgress, signal);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
@@ -1711,7 +1711,7 @@ async function fetchLabRetestData(index) {
   if (!state.labRetestDataMap) state.labRetestDataMap = {};
   if (state.labRetestDataMap[index]) return state.labRetestDataMap[index];
   try {
-    state.labRetestDataMap[index] = await fetchJSON("https://ssd.fx8.store/lab/lab_retest_" + index + ".json");
+    state.labRetestDataMap[index] = await fetchJSON("https://ss.fx8.store/r2/lab/lab_retest_" + index + ".json");
   } catch (e) {
     state.labRetestDataMap[index] = null;
   }
@@ -1723,7 +1723,7 @@ async function fetchLabRetestData(index) {
 async function fetchLabRetestHonors() {
   if (state.labRetestHonors !== undefined) return state.labRetestHonors;
   try {
-    state.labRetestHonors = await fetchJSON("https://ssd.fx8.store/lab/lab_retest_honors.json");
+    state.labRetestHonors = await fetchJSON("https://ss.fx8.store/r2/lab/lab_retest_honors.json");
   } catch (e) {
     state.labRetestHonors = null;
   }
@@ -1820,7 +1820,7 @@ async function fetchLabSimFullData(index, onProgress, signal) {
   if (!stats) return null;
   state.labSimFullMap[index] = "loading";
   try {
-    const full = await fetchJSONProgress("https://ssd.fx8.store/lab/lab_sim_" + index + "_full.json", onProgress, signal);
+    const full = await fetchJSONProgress("https://ss.fx8.store/r2/lab/lab_sim_" + index + "_full.json", onProgress, signal);
     if (full && full.pairs && stats.pairs) {
       for (const pk in full.pairs) {
         const fp = full.pairs[pk];
@@ -2541,7 +2541,7 @@ async function renderLabDetail(key, container) {
     chartSection.appendChild(chartDiv);
 
     try {
-      const r = await fetchJSON(`https://ssd.fx8.store/index/${state.labIndex}-all.json`);
+      const r = await fetchJSON(`https://ss.fx8.store/r2/index/${state.labIndex}-all.json`);
       const ohlcFull = r.ohlc;
       if (!ohlcFull || !ohlcFull.length) {
         chartDiv.innerHTML = '<div class="empty-note">该指数暂无数据</div>';
@@ -3500,7 +3500,7 @@ async function _labSignalModalRender(overlay) {
     // 再由下方 cutoff 切到目标窗口。y10/all 无对应 range 用 all。
     // 静态版无 ranged JSON 固定取 -all.json 由 cutoff 前端切（全历史预热正确）。
     const apiRange = ({ y1: "3y", y3: "5y", y5: "5y", y10: "all", all: "all" }[win]) || "all";
-    const r = await fetchJSON(`https://ssd.fx8.store/index/${m.index}-all.json`);
+    const r = await fetchJSON(`https://ss.fx8.store/r2/index/${m.index}-all.json`);
     const ohlcFull = r.ohlc;
     if (!ohlcFull || !ohlcFull.length) {
       chartArea.innerHTML = '<div class="lab-signal-no-chart">该指数暂无数据</div>';
@@ -4927,7 +4927,7 @@ async function _labFusionPairModalRender(overlay) {
 
   // 并行加载：融合回测数据 + 信号图指数数据 + 融合矩阵数据
   const simDataP = fetchLabFusionSimData(m.index);
-  const chartDataP = fetchJSON(`https://ssd.fx8.store/index/${m.index}-all.json`).catch(() => null);
+  const chartDataP = fetchJSON(`https://ss.fx8.store/r2/index/${m.index}-all.json`).catch(() => null);
   const fusionMatrixP = fetchLabFusionMatrixData(m.index).catch(() => null);
   const [simData, chartData, fusionMatrixData] = await Promise.all([simDataP, chartDataP, fusionMatrixP]);
   if (m._gen !== myGen) return; // stale render
@@ -6272,8 +6272,8 @@ async function renderAIScoreListLab() {
   // fetch etf_score_list_{buy,sell}.json (P0-2 2026-08-05 拆分懒加载, 原单文件 18MB -> buy+sell ~2.6MB)
   // R2 直链(对齐 app.js, .gitignore 已踢出 git 线上 ./data/ 三域名全 404)
   // hold JSON (~13MB) 懒加载: 初始 holdHost 显示"加载持有观察"按钮, 点后才 fetch
-  const urlBuy = "https://ssd.fx8.store/data/etf_score_list_buy.json";
-  const urlSell = "https://ssd.fx8.store/data/etf_score_list_sell.json";
+  const urlBuy = "https://ss.fx8.store/r2/data/etf_score_list_buy.json";
+  const urlSell = "https://ss.fx8.store/r2/data/etf_score_list_sell.json";
   let dataBuy = null, dataSell = null;
   try {
     [dataBuy, dataSell] = await Promise.all([
@@ -6364,7 +6364,7 @@ async function _ensureLabHoldLoaded(holdHost, codeToIid, dateStr, holdCount) {
   if (st.holdLoading) return st.holdLoading;
   st.holdLoading = (async () => {
     try {
-      const r = await fetchJSON("https://ssd.fx8.store/data/etf_score_list_hold.json");
+      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json");
       const holdItems = Array.isArray(r.hold_list) ? r.hold_list : [];
       if (st.data) st.data.hold_list = holdItems;
       st.holdLoaded = true;

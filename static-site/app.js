@@ -1,7 +1,7 @@
 // 静态版前端 —— 从 web/app.js 改造，数据源由 API 改为本地 JSON 文件。
 // 改动点：
 //   1. fetchJSON URL：/api/xxx → ./data/xxx.json（各 tab 按 range 读对应文件）
-//   2. index 详情：读 https://ssd.fx8.store/index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
+//   2. index 详情：读 https://ss.fx8.store/r2/index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
 //   3. 其他逻辑（render/ruleBar/signalColor/initBackToTop/initStickyOffset）保持功能一致
 //   4. 手动补录入口已移除（与动态版一致）
 
@@ -3085,7 +3085,7 @@ function _simBtnHtml(indexId) {
   if (!hasPrivilege('trade_sim')) {
     return `<a class="sim-btn sim-btn-disabled" data-index="${indexId}" data-need-login="trade_sim" title="🔒 模拟回测为登录用户特权，点击登录">📊 模拟回测</a>`;
   }
-  return `<a href="https://ssd.fx8.store/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`;
+  return `<a href="https://ss.fx8.store/r2/trade_sim/trade_sim_${SIM_HREF_MAP[indexId] || indexId}.html" class="sim-btn" data-index="${indexId}" title="查看模拟回测详情">📊 模拟回测</a>`;
 }
 // 把 sim-btn 注入 h3 末尾（标题行内排列，排在❓之后）；h3 不存在时退到 chart-hint 前独立兄弟 DOM。
 // 注：_prependSimBtn 通常先于 _appendStrategyHint 调用（indexChart 内），此时 h3 内尚无❓，sim-btn 先追加末尾，
@@ -3387,7 +3387,7 @@ const _CACHE_TTL = 5 * 60 * 1000; // 历史类数据缓存 5 分钟
 // R2 大range 路由（2026-07-24）：all/5y/3y 从 R2 读（减 git 仓库 ~60M），小 range（3m/6m/1y）留本地减延迟。
 // fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全部跳 .gz，根治 CF .gz 4h edge 缓存滞后）。
 // 匹配 -(all|5y|3y).json 结尾 -> R2；其余 -> 本地 ./data/。
-const _R2_DATA_BASE = "https://ssd.fx8.store/data/";
+const _R2_DATA_BASE = "https://ss.fx8.store/r2/data/";
 const _R2_LARGE_RANGE_RE = /-(?:all|5y|3y)\.json$/;
 function dataUrl(filename) {
   return _R2_LARGE_RANGE_RE.test(filename) ? _R2_DATA_BASE + filename : "./data/" + filename;
@@ -4369,7 +4369,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       }
       isValue = true;
     } else {
-      const r = await fetchJSON(`https://ssd.fx8.store/index/${indexId}-all.json`);
+      const r = await fetchJSON(`https://ss.fx8.store/r2/index/${indexId}-all.json`);
       chartData = r.ohlc || [];
       sigs = r.signals || [];
       stats = r.stats || {};
@@ -11049,7 +11049,7 @@ async function renderAStock(container = content) {
   container.appendChild(indicesSection);
   // 静态版 fetcher：读 index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
   await renderIndicesSection(indicesSection, r.indices, async (id, idx) => {
-    const raw = await fetchJSON(`https://ssd.fx8.store/index/${id}-all.json`);
+    const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
   }, true);
 }
@@ -11128,7 +11128,7 @@ async function renderHK(container = content) {
   }] : [];
   const anchorBarRef = {};
   await renderIndicesSection(indicesSection, indices, async (id, idx) => {
-    const raw = await fetchJSON(`https://ssd.fx8.store/index/${id}-all.json`);
+    const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
   }, true, extraGroups, anchorBarRef);
   // 港股板块指数（复用 renderIndustryGrid，与 A 股行业网格一致）
@@ -11275,7 +11275,7 @@ async function renderGlobal(container = content) {
     gridLoading.innerHTML = '<span class="loading__spinner"></span><span class="loading__text">加载指数图表…</span>';
     cardGrid.appendChild(gridLoading);
     const sigResults = await Promise.all(
-      idxEntries.map(([id]) => fetchJSON(`https://ssd.fx8.store/index/${id}-all.json`).catch(() => null))
+      idxEntries.map(([id]) => fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`).catch(() => null))
     );
     gridLoading.remove();
     idxEntries.forEach(([id, idx], i) => {
@@ -11528,13 +11528,13 @@ async function renderSentiment() {
 // 口径：lg=股票型+混合型仓位(88魔咒专用, 范围 90%+); cninfo=全市场资产配置(含债基/货基, 范围 20%+)
 
 // 行业配置"点击展开某行业基金列表"按需 fetch 缓存(模块级, 跨 re-render 复用, 避免重复拉 2MB)
-// 数据源: https://ssd.fx8.store/public_fund/public_fund_industry_fund_map.json (方案D, 独立 JSON)
+// 数据源: https://ss.fx8.store/r2/public_fund/public_fund_industry_fund_map.json (方案D, 独立 JSON)
 let _industryFundMapCache = null;
 let _industryFundMapLoading = null;  // Promise 防并发重复 fetch
 async function _loadIndustryFundMap() {
   if (_industryFundMapCache) return _industryFundMapCache;
   if (_industryFundMapLoading) return _industryFundMapLoading;
-  _industryFundMapLoading = fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry_fund_map.json")
+  _industryFundMapLoading = fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_industry_fund_map.json")
     .catch((e) => { console.warn("[pf-fund-map] fetch failed", e?.message || e); return null; })
     .finally(() => { _industryFundMapLoading = null; });
   _industryFundMapCache = await _industryFundMapLoading;
@@ -11542,14 +11542,14 @@ async function _loadIndustryFundMap() {
 }
 
 // 制造业子行业->基金详情列表 按需 fetch 缓存(模块级, 跨 re-render 复用)
-// 数据源: https://ssd.fx8.store/public_fund/public_fund_manuf_subind_fund_map.json (方案C Step5, 独立 JSON)
+// 数据源: https://ss.fx8.store/r2/public_fund/public_fund_manuf_subind_fund_map.json (方案C Step5, 独立 JSON)
 // 重仓股拆分口径: 每只制造业基金的重仓股按申万一级子行业聚合 weight_pct/hold_value 和
 let _manufSubindFundMapCache = null;
 let _manufSubindFundMapLoading = null;  // Promise 防并发重复 fetch
 async function _loadManufSubindFundMap() {
   if (_manufSubindFundMapCache) return _manufSubindFundMapCache;
   if (_manufSubindFundMapLoading) return _manufSubindFundMapLoading;
-  _manufSubindFundMapLoading = fetchJSON("https://ssd.fx8.store/public_fund/public_fund_manuf_subind_fund_map.json")
+  _manufSubindFundMapLoading = fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_manuf_subind_fund_map.json")
     .catch((e) => { console.warn("[pf-subind-map] fetch failed", e?.message || e); return null; })
     .finally(() => { _manufSubindFundMapLoading = null; });
   _manufSubindFundMapCache = await _manufSubindFundMapLoading;
@@ -11562,14 +11562,14 @@ async function renderPublicFund(container) {
   let summary, holdings, industry, shIndex, backtest, estimate;
   try {
     [summary, holdings, industry, shIndex, backtest, estimate] = await Promise.all([
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_summary.json").catch(() => null),
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_holdings.json").catch(() => null),
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry.json").catch(() => null),
-      fetchJSON("https://ssd.fx8.store/index/hs300-all.json").catch(() => null),
+      fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_summary.json").catch(() => null),
+      fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_holdings.json").catch(() => null),
+      fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_industry.json").catch(() => null),
+      fetchJSON("https://ss.fx8.store/r2/index/hs300-all.json").catch(() => null),
       // G功能: 88魔咒历史回测+极值标注(独立 JSON, 独立计算非 7 元组)
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_position_backtest.json").catch(() => null),
+      fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_position_backtest.json").catch(() => null),
       // 今日预估仓位(日频 OLS 预估, 补 lg 周频滞后): 主图加第3条 series + 末端 markPoint 标 current
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_position_estimate.json").catch(() => null),
+      fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_position_estimate.json").catch(() => null),
     ]);
   } catch (e) {
     renderErrorState(container, e, () => renderPublicFund(container));
@@ -12198,8 +12198,8 @@ async function renderPublicFund(container) {
   let _nfScaleTs = null, _nfConcTs = null;
   try {
     [_nfScaleTs, _nfConcTs] = await Promise.all([
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_scale_change_ts.json").catch(() => null),
-      fetchJSON("https://ssd.fx8.store/public_fund/public_fund_holding_concentration_ts.json").catch(() => null),
+      fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_scale_change_ts.json").catch(() => null),
+      fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_holding_concentration_ts.json").catch(() => null),
     ]);
   } catch (e) { /* N功能面板不渲染, 不阻塞后续 Top30/行业 */ }
 
@@ -12481,7 +12481,7 @@ async function renderPublicFund(container) {
   let swDataLoaded = null;  // {data:[{name,weight,value,fundCount,industryCount,breakdown:null,avgWeight}], coverage_pct, coverage_note}
   const _loadSwIndData = async () => {
     if (swDataLoaded) return swDataLoaded;
-    const data = await fetchJSON("https://ssd.fx8.store/public_fund/public_fund_sw_industry_alloc.json").catch(() => null);
+    const data = await fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_sw_industry_alloc.json").catch(() => null);
     if (!data || !data.industries) return null;
     swDataLoaded = {
       data: data.industries.map((d) => ({
@@ -13183,7 +13183,7 @@ async function renderPublicFund(container) {
   // 本地 range 切换(3y/5y/all): 按日期过滤 series, 不依赖全局 state.range(季频 vs 日频)
   let _rotTs = null;
   try {
-    _rotTs = await fetchJSON("https://ssd.fx8.store/public_fund/public_fund_industry_rotation_ts.json").catch(() => null);
+    _rotTs = await fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_industry_rotation_ts.json").catch(() => null);
   } catch (e) { /* F面板不渲染, 不阻塞后续 Top100 */ }
 
   if (_rotTs && _rotTs.series && _rotTs.series.length && _rotTs.industries_order && _rotTs.industries_order.length) {
@@ -13500,7 +13500,7 @@ async function _renderPublicFundHomeCard(host, r, snap) {
 
   let summary;
   try {
-    summary = await fetchJSON("https://ssd.fx8.store/public_fund/public_fund_summary.json").catch(() => null);
+    summary = await fetchJSON("https://ss.fx8.store/r2/public_fund/public_fund_summary.json").catch(() => null);
     if (!summary || !summary.metrics) {
       card.innerHTML = '<h3>🏦 基金仓位信号</h3><div class="empty-note">暂无公募基金数据</div>';
       return;
@@ -15206,7 +15206,7 @@ async function _preloadIndDetail(id, idx) {
     return;
   }
   try {
-    const det = await fetchJSON("https://ssd.fx8.store/industry/industry-all-indices/" + id + "-detail.json");
+    const det = await fetchJSON("https://ss.fx8.store/r2/industry/industry-all-indices/" + id + "-detail.json");
     if (det.ohlc && idx.data && det.ohlc.length === idx.data.length && det.width && idx.width && det.width.length === idx.width.length) {
       _indDetail.set(id, det);
     } else {
@@ -15556,13 +15556,13 @@ function _buildRotationFreqList(indices) {
 
 async function _loadIndustryData(range) {
   // all/5y/3y 走拆分：31 行业小文件按需并发 fetch，避免 industry-all 29MB / industry-5y 14MB / industry-3y 9.2MB 大单文件拖慢首屏
-  if (range !== "all" && range !== "5y" && range !== "3y") return await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}.json`);
-  const meta = await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}-meta.json`);
+  if (range !== "all" && range !== "5y" && range !== "3y") return await fetchJSON(`https://ss.fx8.store/r2/industry/industry-${range}.json`);
+  const meta = await fetchJSON(`https://ss.fx8.store/r2/industry/industry-${range}-meta.json`);
   const ids = meta.index_ids || [];
   const entries = await Promise.all(
-    ids.map(async (iid) => [iid, await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}-indices/${iid}.json`)])
+    ids.map(async (iid) => [iid, await fetchJSON(`https://ss.fx8.store/r2/industry/industry-${range}-indices/${iid}.json`)])
   );
-  const conceptsRes = await fetchJSON(`https://ssd.fx8.store/industry/industry-${range}-concepts.json`);
+  const conceptsRes = await fetchJSON(`https://ss.fx8.store/r2/industry/industry-${range}-concepts.json`);
   return {
     indices: Object.fromEntries(entries),
     heatmap: meta.heatmap,
@@ -16049,7 +16049,7 @@ async function _ensureHoldLoaded() {
   if (_etfScoreState.holdLoading) return _etfScoreState.holdLoading;
   _etfScoreState.holdLoading = (async () => {
     try {
-      const r = await fetchJSON("https://ssd.fx8.store/data/etf_score_list_hold.json");
+      const r = await fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_hold.json");
       // hold_list item -> 统一格式(同 renderEtfScore 合并逻辑, side="hold")
       const holdItems = (r.hold_list || []).map((e) => ({
         etf_code: e.etf_code, name: e.name, score: e.score, side: "hold",
@@ -16632,11 +16632,11 @@ async function renderEtfScore(container) {
   // container 可选：由 renderFund 二级 tab 分发器传入 subContent；直接调用时 fallback 到全局 content
   const _c = container || content;
   // P0-2 (2026-08-05): 拆 3 JSON 懒加载, 初始并行 fetch buy+sell (~153KB br), hold 懒加载
-  // R2 直链(ssd.fx8.store/data/), 原 18MB 单文件 -> buy 1.4MB + sell 1.2MB + hold 13MB(懒加载)
+  // R2 代理(ss.fx8.store/r2/data/ + Worker Cache API 边缘缓存1h), 原 18MB 单文件 -> buy 1.4MB + sell 1.2MB + hold 13MB(懒加载)
   // buy/sell JSON 各含完整 meta + 三分类计数(buy_count/sell_count/hold_count), 从 buy 取 meta 即可
   const [rBuy, rSell] = await Promise.all([
-    fetchJSON("https://ssd.fx8.store/data/etf_score_list_buy.json"),
-    fetchJSON("https://ssd.fx8.store/data/etf_score_list_sell.json"),
+    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_buy.json"),
+    fetchJSON("https://ss.fx8.store/r2/data/etf_score_list_sell.json"),
   ]);
   const r = rBuy; // meta 从 buy JSON 取(buy/sell 同源同 meta)
   _etfScoreState.meta = {
@@ -16879,12 +16879,12 @@ async function renderFund() {
 }
 
 // ============ 场外基金评分排行（Phase A：Top100 列表 + 排序/搜索/筛选） ============
-// 数据源: R2 直链 https://ssd.fx8.store/fund_score/fund_score_top.json（83KB, Top100）
+// 数据源: R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json（83KB, Top100）
 // CF fallback: ./data/fund_score_top.json（按 §8.1 优先 R2，CF 也 200 作兜底）
 // 34 字段: fund_code/name/type/composite_score/star_rating + 6维度 + 5风险 + 经理6维 + 凯利 + 市场乘数 + final_suggestion
 // 复用 ETF 评分成熟模式: _etfScoreState / _renderEtfScoreBody / _etfScoreTier / _etfScoreColor
 // Phase A: 列表 + 排序/搜索/筛选; Phase B: 详情弹窗 5 区块; Phase C: 雷达图 + 实战筛选器
-const FUND_SCORE_TOP_URL_R2 = "https://ssd.fx8.store/fund_score/fund_score_top.json";
+const FUND_SCORE_TOP_URL_R2 = "https://ss.fx8.store/r2/fund_score/fund_score_top.json";
 const FUND_SCORE_TOP_URL_CF = "./data/fund_score_top.json";
 const FUND_SCORE_PAGE_SIZE = 50;  // Top100 分 2 页（移动端单列浏览友好）
 
@@ -17078,7 +17078,7 @@ function _renderFundScoreBody() {
 }
 
 // 场外基金评分排行（Phase A：Top100 列表 + 排序/搜索/筛选）
-// 数据源: R2 直链 https://ssd.fx8.store/fund_score/fund_score_top.json (Top100, 83KB)
+// 数据源: R2 直链 https://ss.fx8.store/r2/fund_score/fund_score_top.json (Top100, 83KB)
 // 失败 fallback: ./data/fund_score_top.json (CF Static Assets)
 // 复用 ETF 评分成熟模式（_etfScoreState / _renderEtfScoreBody），平行实现 _fundScoreState
 async function renderOffshoreFund(container) {
@@ -17623,11 +17623,11 @@ function _tradeSimFmtNum(n) {
 
 async function _tradeSimFetchStats(indexId) {
   // R2 托管：trade_sim_data/ 前缀避开 trade_sim/ HTML；fetchJSON 统一走 .json + CF br 压缩（2026-08-01 全跳 .gz）
-  return await fetchJSON('https://ssd.fx8.store/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_stats.json');
+  return await fetchJSON('https://ss.fx8.store/r2/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_stats.json');
 }
 
 async function _tradeSimFetchFull(indexId) {
-  return await fetchJSON('https://ssd.fx8.store/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
+  return await fetchJSON('https://ss.fx8.store/r2/trade_sim_data/trade_sim_' + encodeURIComponent(indexId) + '_full.json');
 }
 
 // === A10 历史相似形态匹配（皮尔逊相关 + 滑窗，O(n) 前端实时算）===
@@ -17672,7 +17672,7 @@ async function _shapeLoadSeries(indexId) {
       if (ex && ex.length) result = { name: _SHAPE_COMMODITY_NAME[exKey] || exKey, data: ex.map(function (d) { return { date: d.date, close: d.value }; }) };
     } else if (indexId && indexId.indexOf('sw_') === 0) {
       // 2026-07-20 板分化适配：申万行业指数走 index/${id}-all.json（与 _preloadIndDetail 同路径），取 ohlc[].close
-      var swJson = await fetchJSON('https://ssd.fx8.store/index/' + encodeURIComponent(indexId) + '-all.json');
+      var swJson = await fetchJSON('https://ss.fx8.store/r2/index/' + encodeURIComponent(indexId) + '-all.json');
       if (swJson && swJson.ohlc && swJson.ohlc.length) {
         var swName = (_INDEX_NAME_MAP && _INDEX_NAME_MAP[indexId]) ? _INDEX_NAME_MAP[indexId] : indexId;
         result = { name: swName, data: swJson.ohlc.map(function (d) { return { date: String(d.date), close: d.close }; }) };
@@ -17900,7 +17900,7 @@ async function _tradeSimOpenModal(indexId, openView) {
     _tradeSimState.statsData = _tradeSimStatsCache[indexId] || await _tradeSimFetchStats(indexId);
     _tradeSimStatsCache[indexId] = _tradeSimState.statsData;
   } catch (e) {
-    body.innerHTML = '<div class="trade-sim-empty">⚠ 加载失败：' + (e.message || e) + '<br><br>可访问旧版：<a href="https://ssd.fx8.store/trade_sim/trade_sim_' + encodeURIComponent(indexId) + '.html" target="_blank">静态回测页</a></div>';
+    body.innerHTML = '<div class="trade-sim-empty">⚠ 加载失败：' + (e.message || e) + '<br><br>可访问旧版：<a href="https://ss.fx8.store/r2/trade_sim/trade_sim_' + encodeURIComponent(indexId) + '.html" target="_blank">静态回测页</a></div>';
     return;
   }
   _tradeSimModalRender(ov);
