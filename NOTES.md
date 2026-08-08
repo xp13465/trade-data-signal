@@ -8343,3 +8343,30 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - 工时：后端计算4h+数据产物1h+前端展示4h+归类重构2h+测试上线2h=~13h（1.5-2天）。
 - 完整报告：/tmp/agent-progress-tracking-score-new.md（306行）。
 - 待办：待用户确认board-index语义+权重阈值后实施。与TASKS L1316 ETF信号灯体系重构协调（_etfMatchTags/_etfTier共改）。
+
+## §48 小节BA：2026-08-08 17:35 R2迁移阶段3-5+hoverpop+iOS icon 全上线✅（3 agent通知丢失用进度文件兜底）
+
+### 一、R2迁移阶段3-5全部上线main
+- **阶段3 ✅(508eabb44)**:定时任务去git push数据改R2上传+purge_cache+notify告警。deploy.sh DATA_FILES只留minJS/CSS+feed.xml,intraday_snapshot.sh去git push改upload-intraday+upload-data-files,upload_r2.py加cmd_upload_data_files+purge_cache。reviewer PASS(4个P2告警不一致后续补齐)
+- **阶段4a ✅(3f721f2d8)**:static-site/data/移出git(.gitignore catch-all `static-site/data/*`+`!feed.xml`,git rm --cached 266文件保留feed.xml)。R2唯一数据来源,Worker /data/rewrite走R2。reviewer PASS(3个P2死代码)。Phase 4b瘦身暂不做(17GB历史force push风险高)
+- **阶段5 ✅(8bfc55e8d)**:staticdata git差异化日志备份(配置+小JSON,DB暂排除超GitHub 100MB限制)。deploy.sh L523-584 staticdata备份块(best-effort rsync DB到本地db/不进git+配置+小JSON+commit+push staticdata)。reviewer PASS。灾备4层分工落地(trade git代码/staticdata git差异日志/R2 signal-backup压缩快照/R2 signal-data公开桶分发)
+- **git代码/R2数据解耦完成**:static-site/data/移出git走R2,定时任务去git push改R2上传+purge_cache,staticdata git记录差异
+
+### 二、hoverpop方案3 ✅上线main(09a599f76)
+- 移动端信号灯后文案精简:等级标签(_tierLabel)始终显+追踪分数字(span.etf-pop-score-num 仅移动端显纯数字去"跟踪分"前缀)+_details仅PC显完整文案("：跟踪分82·优秀0.5%")+省略号兜底(max-width:7em overflow:hidden text-overflow:ellipsis)。PC保持原样
+- 用户反馈"表格里信号灯后的文案和至今跌在一起了,太长了",选方案3(标签+数字)
+- reviewer PASS。§0验上线 app.min.js etf-pop-score-num 计数=1
+
+### 三、iOS apple-touch-icon ✅上线main(9e38712ea)
+- 从favicon.ico重新生成180x180(43195 bytes,旧12948,8/8 17:21)+index.html L22 ?v=9d27c273 破缓存+sw.js CACHE_VERSION a45->a46(v6-20260808-a46)
+- §0验上线 apple-touch-icon 43195 bytes+sw.js a46
+- ⚠️已添加主屏幕的需删除重添加获取新icon(iOS Safari缓存旧版,版本号破HTML link缓存但已装PWA的icon缓存独立)
+
+### 四、3 agent通知丢失(教训)
+- hoverpop reviewer(acbdac78)+iOS icon(a1d8cbef)+阶段5 reviewer(aa70e93c5)完成SendMessage未送达主控
+- 用户反馈"没那么多agent再跑,是不是又丢通知了"
+- 用进度文件(/tmp/agent-progress-*.md)+stat-L jsonl mtime兜底确认状态(§11机制生效)
+- 教训:通知丢失不丢工作,进度文件是可靠兜底;SendMessage不是100%送达,进度文件+mtime是可靠兜底
+
+### 五、待办
+- ①DB迁GitLab(用户注册后)②72h监控(阶段3-5已完成可启动)③docs/r2-deployment.md(R2部署文档8章节)④site-deployment.md R2部分补完整(当前标注迁移中)⑤reviewer P2清理(阶段3 4个P2+阶段4a 3个P2+阶段5 reviewer待出P2)
