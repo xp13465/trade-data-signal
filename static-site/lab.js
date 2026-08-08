@@ -6995,14 +6995,20 @@ async function renderSigKellyLab() {
 
   // 默认周期 y1
   if (!state.labSigKellyPeriod) state.labSigKellyPeriod = "y1";
+  if (!state.labSigKellyView) state.labSigKellyView = "card";
   const period = state.labSigKellyPeriod;
+  const view = state.labSigKellyView;
 
-  _renderSigKellyBar(bar, data, period);
-  _renderSigKellyQuadrants(host, data, period);
+  _renderSigKellyBar(bar, data, period, view);
+  if (view === "matrix") {
+    _renderSigKellyMatrix(host, data, period);
+  } else {
+    _renderSigKellyQuadrants(host, data, period);
+  }
 }
 
-// 周期切换条 + 回测参数展示
-function _renderSigKellyBar(bar, data, period) {
+// 周期切换条 + 视图切换 + 回测参数展示
+function _renderSigKellyBar(bar, data, period, view) {
   const cfg = data.config || {};
   const periods = cfg.periods || { y1: "近1年", y3: "近3年", all: "全部" };
   const tabsHTML = Object.keys(periods).map((k) =>
@@ -7010,8 +7016,33 @@ function _renderSigKellyBar(bar, data, period) {
   ).join("");
   const modes = cfg.sell_modes || {};
   const modeStr = ["A", "B", "C", "D"].map((k) => modes[k] ? `${k}:${modes[k].label}` : k).join(" · ");
+  const viewHTML =
+    `<div class="lab-sigkelly-view-toggle">` +
+      `<button type="button" class="lab-subnav-tab lab-sigkelly-view-btn${view === "card" ? " active" : ""}" data-view="card">卡片视图</button>` +
+      `<button type="button" class="lab-subnav-tab lab-sigkelly-view-btn${view === "matrix" ? " active" : ""}" data-view="matrix">对比矩阵</button>` +
+    `</div>`;
+  let matrixCtrl = "";
+  if (view === "matrix") {
+    const metrics = [
+      { k: "total_return_pct", label: "总收益率" },
+      { k: "win_rate", label: "胜率" },
+      { k: "total_profit", label: "最终盈亏" },
+      { k: "sharpe", label: "夏普" },
+      { k: "max_drawdown_pct", label: "最大回撤" },
+      { k: "annualized_return", label: "年化" },
+      { k: "calmar", label: "卡尔玛" },
+    ];
+    if (!state.labSigKellyMetric) state.labSigKellyMetric = "total_return_pct";
+    const curMetric = state.labSigKellyMetric;
+    const optHTML = metrics.map((m) =>
+      `<option value="${m.k}"${m.k === curMetric ? " selected" : ""}>${m.label}</option>`
+    ).join("");
+    matrixCtrl = `<select class="lab-sigkelly-metric-sel lab-input">${optHTML}</select>`;
+  }
   bar.innerHTML =
     `<div class="lab-sigkelly-periods">${tabsHTML}</div>` +
+    viewHTML +
+    matrixCtrl +
     `<div class="lab-sigkelly-params">` +
       `<span>买${cfg.buy_amount || 1000}元 · 持有${cfg.hold_days || 10}天 · 卖出模式 ${modeStr}</span>` +
       `<span class="lab-sigkelly-gen">📅 生成: ${data.generated_at || "-"}</span>` +
@@ -7021,9 +7052,32 @@ function _renderSigKellyBar(bar, data, period) {
       state.labSigKellyPeriod = btn.dataset.period;
       bar.querySelectorAll(".lab-sigkelly-period-btn").forEach((b) => b.classList.toggle("active", b === btn));
       const hostEl = document.querySelector(".lab-sigkelly-host");
-      if (hostEl && state.labSigKellyData) _renderSigKellyQuadrants(hostEl, state.labSigKellyData, btn.dataset.period);
+      if (hostEl && state.labSigKellyData) {
+        if (state.labSigKellyView === "matrix") _renderSigKellyMatrix(hostEl, state.labSigKellyData, btn.dataset.period);
+        else _renderSigKellyQuadrants(hostEl, state.labSigKellyData, btn.dataset.period);
+      }
     };
   });
+  bar.querySelectorAll(".lab-sigkelly-view-btn").forEach((btn) => {
+    btn.onclick = () => {
+      state.labSigKellyView = btn.dataset.view;
+      bar.querySelectorAll(".lab-sigkelly-view-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      _renderSigKellyBar(bar, data, state.labSigKellyPeriod, state.labSigKellyView);
+      const hostEl = document.querySelector(".lab-sigkelly-host");
+      if (hostEl && state.labSigKellyData) {
+        if (state.labSigKellyView === "matrix") _renderSigKellyMatrix(hostEl, state.labSigKellyData, state.labSigKellyPeriod);
+        else _renderSigKellyQuadrants(hostEl, state.labSigKellyData, state.labSigKellyPeriod);
+      }
+    };
+  });
+  const metricSel = bar.querySelector(".lab-sigkelly-metric-sel");
+  if (metricSel) {
+    metricSel.onchange = () => {
+      state.labSigKellyMetric = metricSel.value;
+      const hostEl = document.querySelector(".lab-sigkelly-host");
+      if (hostEl && state.labSigKellyData) _renderSigKellyMatrix(hostEl, state.labSigKellyData, state.labSigKellyPeriod);
+    };
+  }
 }
 
 // 6象限卡片网格(2组: 评级3 + ETF3)
@@ -7054,14 +7108,21 @@ function _renderSigKellyQuadrants(host, data, period) {
       `<span class="lab-sigkelly-note">⚠️ 样本量 n<100 统计意义弱,仅供参考,非投资建议。半凯利=凯利比例/2(更保守)。</span>` +
     `</div>`;
   host.innerHTML = html;
+  // 交易记录行点击 -> 弹窗
+  host.querySelectorAll(".lab-sigkelly-trade-row").forEach((row) => {
+    row.onclick = () => {
+      _openSigKellyTradesModal(row.dataset.quad, row.dataset.mode, row.dataset.period);
+    };
+  });
 }
 
-// 单象限卡片: 4模式表格(A固定10天/B3%/C5%/D7%止盈)
+// 单象限卡片: 4模式表格(A固定10天/B3%/C5%/D7%止盈) + 详情展开 + 跟单指引
 function _renderSigKellyCard(qk, q, period) {
   const periods = q.periods || {};
   const pdata = periods[period] || {};
   const modes = ["A", "B", "C", "D"];
   const modeLabels = { A: "固定10天", B: "3%止盈", C: "5%止盈", D: "7%止盈" };
+  const guidance = q.guidance || {};
   let rows = "";
   for (const m of modes) {
     const r = pdata[m];
@@ -7079,12 +7140,35 @@ function _renderSigKellyCard(qk, q, period) {
     const wr = (r.win_rate == null) ? "-" : (r.win_rate * 100).toFixed(1) + "%";
     const mr = (r.mean_return == null) ? "-" : r.mean_return.toFixed(2) + "%";
     rows +=
-      `<tr>` +
+      `<tr class="lab-sigkelly-trade-row" data-quad="${qk}" data-mode="${m}" data-period="${period}" title="点击查看交易记录">` +
         `<td><b>${m}</b><span class="lab-sigkelly-modelbl">${modeLabels[m] || ""}</span></td>` +
         `<td class="lab-sigkelly-hk"><span class="lab-kelly-tier ${tierCls}">${hk.toFixed(1)}%</span><span class="lab-sigkelly-tier">${tier}</span></td>` +
         `<td>${wr}</td><td>${plStr}</td><td>${mr}</td><td>${nStr}</td>` +
       `</tr>`;
   }
+  // 详情展开表(总投入/最终盈亏/总收益率/最大持仓/年化/夏普/最大回撤/卡尔玛)
+  let detailRows = "";
+  for (const m of modes) {
+    const r = pdata[m];
+    if (!r || !r.n) continue;
+    const ti = r.total_invest || 0;
+    const tp = r.total_profit || 0;
+    const tpStr = (tp >= 0 ? "+" : "") + tp.toFixed(0);
+    const trp = r.total_return_pct != null ? r.total_return_pct.toFixed(2) + "%" : "-";
+    const mc = r.max_concurrent_capital || 0;
+    const ann = r.annualized_return != null ? r.annualized_return.toFixed(2) + "%" : "-";
+    const sh = r.sharpe != null ? r.sharpe.toFixed(2) : "-";
+    const md = r.max_drawdown_pct != null ? r.max_drawdown_pct.toFixed(2) + "%" : "-";
+    const cm = r.calmar != null ? r.calmar.toFixed(2) : "-";
+    detailRows +=
+      `<tr>` +
+        `<td><b>${m}</b></td><td>${ti}</td>` +
+        `<td class="${tp >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg"}">${tpStr}</td>` +
+        `<td>${trp}</td><td>${mc}</td><td>${ann}</td>` +
+        `<td>${sh}</td><td>${md}</td><td>${cm}</td>` +
+      `</tr>`;
+  }
+  const cardId = `sigkelly-detail-${qk}`;
   return (
     `<div class="lab-sigkelly-card">` +
       `<div class="lab-sigkelly-card-head">` +
@@ -7092,11 +7176,322 @@ function _renderSigKellyCard(qk, q, period) {
         `<div class="lab-sigkelly-card-desc">${q.desc || ""}</div>` +
       `</div>` +
       `<table class="lab-sigkelly-table">` +
-        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>均收益</th><th>样本</th></tr></thead>` +
+        `<thead><tr><th>模式</th><th>半凯利仓位</th><th>胜率</th><th>盈亏比</th><th>单笔均收益率</th><th>样本</th></tr></thead>` +
         `<tbody>${rows}</tbody>` +
       `</table>` +
+      (detailRows ? (
+        `<details class="lab-sigkelly-detail"><summary>展开进阶指标</summary>` +
+        `<table class="lab-sigkelly-table lab-sigkelly-detail-table">` +
+          `<thead><tr><th>模式</th><th>总投入</th><th>最终盈亏</th><th>总收益率</th><th>最大持仓</th><th>年化</th><th>夏普</th><th>最大回撤</th><th>卡尔玛</th></tr></thead>` +
+          `<tbody>${detailRows}</tbody>` +
+        `</table></details>`
+      ) : "") +
+      `<div class="lab-sigkelly-guidance">` +
+        modes.filter((m) => guidance[m]).map((m) => `<div class="lab-sigkelly-guide-item"><b>${m}:</b> ${guidance[m]}</div>`).join("") +
+      `</div>` +
     `</div>`
   );
+}
+
+// 对比矩阵 + 热力图(行=象限, 列=卖方式, cell=指标值, 颜色深浅热力 + 高亮最优)
+function _renderSigKellyMatrix(host, data, period) {
+  const quads = data.quadrants || {};
+  const metric = state.labSigKellyMetric || "total_return_pct";
+  const metricLabels = {
+    total_return_pct: "总收益率", win_rate: "胜率", total_profit: "最终盈亏",
+    sharpe: "夏普", max_drawdown_pct: "最大回撤", annualized_return: "年化", calmar: "卡尔玛",
+  };
+  // "higher is better" 指标: 绿色越深越好; max_drawdown_pct "lower is better"
+  const lowerBetter = metric === "max_drawdown_pct";
+  const groups = [
+    { title: "按信号评级分组", keys: ["rating_high", "rating_mid", "rating_low"] },
+    { title: "按 ETF 跟踪评分分组", keys: ["etf_strong", "etf_related", "etf_approx"] },
+  ];
+  const modes = ["A", "B", "C", "D"];
+
+  // 收集所有 cell 值算 min/max(用于热力色阶)
+  const allVals = [];
+  for (const g of groups) {
+    for (const qk of g.keys) {
+      const q = quads[qk];
+      if (!q) continue;
+      const pdata = (q.periods || {})[period] || {};
+      for (const m of modes) {
+        const r = pdata[m];
+        if (r && r.n > 0 && r[metric] != null) allVals.push(r[metric]);
+      }
+    }
+  }
+  const vMin = allVals.length ? Math.min(...allVals) : 0;
+  const vMax = allVals.length ? Math.max(...allVals) : 0;
+  const vRange = vMax - vMin || 1;
+
+  // 算每列最优(用于高亮)
+  const colBest = {};
+  for (const m of modes) {
+    let best = null;
+    let bestQk = null;
+    for (const g of groups) {
+      for (const qk of g.keys) {
+        const q = quads[qk];
+        if (!q) continue;
+        const r = ((q.periods || {})[period] || {})[m];
+        if (r && r.n > 0 && r[metric] != null) {
+          if (best === null || (lowerBetter ? r[metric] < best : r[metric] > best)) {
+            best = r[metric];
+            bestQk = qk;
+          }
+        }
+      }
+    }
+    colBest[m] = bestQk;
+  }
+
+  function _heatColor(val) {
+    if (val == null) return "";
+    const t = (val - vMin) / vRange; // 0..1
+    const norm = lowerBetter ? 1 - t : t; // higher better: high=green; lower better: low=green
+    // green(120) high -> red(0) low
+    const hue = Math.round(norm * 120);
+    const alpha = 0.15 + norm * 0.45;
+    return `background:hsla(${hue},65%,45%,${alpha.toFixed(2)});`;
+  }
+
+  function _fmtVal(val) {
+    if (val == null) return "-";
+    if (metric === "win_rate") return (val * 100).toFixed(1) + "%";
+    if (metric === "total_profit") return (val >= 0 ? "+" : "") + val.toFixed(0);
+    if (metric === "total_return_pct" || metric === "annualized_return" || metric === "max_drawdown_pct")
+      return val.toFixed(2) + "%";
+    return val.toFixed(3);
+  }
+
+  let html = `<div class="lab-sigkelly-matrix-wrap">`;
+  html += `<div class="lab-sigkelly-matrix-title">对比矩阵 · ${metricLabels[metric] || metric} · ${(data.config || {}).periods?.[period] || period}</div>`;
+  for (const g of groups) {
+    html += `<div class="lab-sigkelly-matrix-group">`;
+    html += `<div class="lab-sigkelly-group-title">${g.title}</div>`;
+    html += `<table class="lab-sigkelly-matrix-table"><thead><tr><th>象限</th>`;
+    for (const m of modes) {
+      const modeLabel = (data.config || {}).sell_modes?.[m]?.label || m;
+      html += `<th>${m}<span class="lab-sigkelly-modelbl">${modeLabel}</span></th>`;
+    }
+    html += `</tr></thead><tbody>`;
+    for (const qk of g.keys) {
+      const q = quads[qk];
+      if (!q) continue;
+      const pdata = (q.periods || {})[period] || {};
+      html += `<tr><td class="lab-sigkelly-matrix-rowlabel">${q.label || qk}</td>`;
+      for (const m of modes) {
+        const r = pdata[m];
+        const val = (r && r.n > 0) ? r[metric] : null;
+        const isBest = colBest[m] === qk;
+        const style = val != null ? _heatColor(val) : "";
+        const cls = isBest ? " lab-sigkelly-matrix-best" : "";
+        html += `<td class="lab-sigkelly-matrix-cell${cls}" style="${style}">${_fmtVal(val)}</td>`;
+      }
+      html += `</tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+  html += `<div class="lab-sigkelly-matrix-legend">`;
+  html += `<span class="lab-sigkelly-legend-label">热力色阶:</span>`;
+  html += `<span class="lab-sigkelly-heat-low">${lowerBetter ? "高(差)" : "低(差)"}</span>`;
+  html += `<span class="lab-sigkelly-heat-bar"></span>`;
+  html += `<span class="lab-sigkelly-heat-high">${lowerBetter ? "低(好)" : "高(好)"}</span>`;
+  html += `<span class="lab-sigkelly-matrix-best-label">★ 最优</span>`;
+  html += `</div>`;
+  html += `</div>`;
+  host.innerHTML = html;
+}
+
+// 交易记录弹窗(懒加载 trades JSON, 按 quad x mode x period 过滤, 可排序/筛选)
+async function _openSigKellyTradesModal(quadKey, modeKey, period) {
+  const data = state.labSigKellyData;
+  if (!data) return;
+  const cfg = data.config || {};
+  const cutoffs = cfg.period_cutoffs || {};
+  const cutoff = cutoffs[period] || "0";
+  const quadLabel = (data.quadrants[quadKey] || {}).label || quadKey;
+  const modeLabel = (cfg.sell_modes || {})[modeKey]?.label || modeKey;
+
+  // 创建 overlay
+  let overlay = document.getElementById("lab-sigkelly-trades-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "lab-sigkelly-trades-overlay";
+    overlay.className = "lab-sigkelly-overlay";
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `<div class="lab-sigkelly-modal"><div class="lab-sigkelly-modal-loading">⏳ 加载交易记录…</div></div>`;
+  overlay.style.display = "flex";
+
+  // 懒加载 trades JSON(>1MB 走 R2, CF 兜底)
+  if (!state.labSigKellyTradesData) {
+    const v = _labCustomCacheBust();
+    const r2Url = `https://ssd.fx8.store/data/signal_kelly_trades.json?v=${v}`;
+    const cfUrl = `./data/signal_kelly_trades.json?v=${v}`;
+    try {
+      try {
+        const resp = await fetch(r2Url);
+        if (!resp.ok) throw new Error(`R2 ${resp.status}`);
+        state.labSigKellyTradesData = await resp.json();
+      } catch (e) {
+        const resp = await fetch(cfUrl);
+        if (!resp.ok) throw new Error(`CF ${resp.status}`);
+        state.labSigKellyTradesData = await resp.json();
+      }
+    } catch (e) {
+      overlay.innerHTML = `<div class="lab-sigkelly-modal"><div class="lab-custom-error"><div class="lab-custom-error-title">⚠️ 交易记录加载失败</div><div class="lab-custom-error-detail">${e.message || e}</div><button type="button" class="lab-custom-retry">重试</button></div></div>`;
+      overlay.querySelector(".lab-custom-retry").onclick = () => { state.labSigKellyTradesData = null; _openSigKellyTradesModal(quadKey, modeKey, period); };
+      return;
+    }
+  }
+
+  const td = state.labSigKellyTradesData;
+  const fields = td.fields || ["signal_date", "buy_date", "sell_date", "etf_code", "etf_name", "buy_price", "sell_price", "shares", "profit", "return_pct", "hold_days", "sell_reason"];
+  const rawTrades = (td.quadrants || {})[quadKey]?.[modeKey] || [];
+
+  // 按周期过滤(buy_date >= cutoff)
+  let trades = (cutoff && cutoff !== "0")
+    ? rawTrades.filter((t) => t[fields.indexOf("buy_date")] >= cutoff)
+    : rawTrades.slice();
+
+  // 渲染 modal
+  _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey);
+}
+
+function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabel, period, quadKey, modeKey) {
+  const fIdx = {};
+  fields.forEach((f, i) => { fIdx[f] = i; });
+  // 排序/筛选状态
+  if (!state._sigKellyTradeSort) state._sigKellyTradeSort = { key: "buy_date", dir: -1 };
+  if (!state._sigKellyTradeFilter) state._sigKellyTradeFilter = { etf: "", profit: "all" };
+  const sort = state._sigKellyTradeSort;
+  const filter = state._sigKellyTradeFilter;
+
+  const colDefs = [
+    { key: "buy_date", label: "买入日", sortable: true },
+    { key: "sell_date", label: "卖出日", sortable: true },
+    { key: "etf_code", label: "代码", sortable: true },
+    { key: "etf_name", label: "ETF名称", sortable: true },
+    { key: "buy_price", label: "买价", sortable: true },
+    { key: "sell_price", label: "卖价", sortable: true },
+    { key: "shares", label: "份额", sortable: true },
+    { key: "profit", label: "盈亏(元)", sortable: true },
+    { key: "return_pct", label: "收益率", sortable: true },
+    { key: "hold_days", label: "持有天", sortable: true },
+    { key: "sell_reason", label: "卖出原因", sortable: true },
+  ];
+
+  function _applyFilter() {
+    let result = trades;
+    if (filter.etf) {
+      const kw = filter.etf.toLowerCase();
+      result = result.filter((t) => {
+        const name = (t[fIdx.etf_name] || "").toLowerCase();
+        const code = (t[fIdx.etf_code] || "").toLowerCase();
+        return name.includes(kw) || code.includes(kw);
+      });
+    }
+    if (filter.profit === "pos") result = result.filter((t) => t[fIdx.profit] > 0);
+    else if (filter.profit === "neg") result = result.filter((t) => t[fIdx.profit] <= 0);
+    // 排序
+    const sk = fIdx[sort.key];
+    if (sk != null) {
+      result = result.slice().sort((a, b) => {
+        let va = a[sk], vb = b[sk];
+        if (typeof va === "string") return sort.dir * va.localeCompare(vb);
+        return sort.dir * ((va || 0) - (vb || 0));
+      });
+    }
+    return result;
+  }
+
+  function _render() {
+    const filtered = _applyFilter();
+    const winCount = trades.filter((t) => t[fIdx.profit] > 0).length;
+    const totalProfit = trades.reduce((s, t) => s + (t[fIdx.profit] || 0), 0);
+
+    let thHTML = colDefs.map((c) => {
+      const isSorted = sort.key === c.key;
+      const arrow = isSorted ? (sort.dir > 0 ? " ▲" : " ▼") : "";
+      return `<th class="lab-sigkelly-trades-th" data-key="${c.key}">${c.label}${arrow}</th>`;
+    }).join("");
+
+    let tbodyHTML = "";
+    const maxRows = 500; // 限制渲染行数防卡顿
+    const showRows = filtered.slice(0, maxRows);
+    for (const t of showRows) {
+      const pf = t[fIdx.profit] || 0;
+      const rp = t[fIdx.return_pct] || 0;
+      const pfCls = pf >= 0 ? "lab-sigkelly-pos" : "lab-sigkelly-neg";
+      tbodyHTML += `<tr>` +
+        `<td>${t[fIdx.buy_date]}</td><td>${t[fIdx.sell_date]}</td>` +
+        `<td>${t[fIdx.etf_code]}</td><td class="lab-sigkelly-trades-etfname">${t[fIdx.etf_name]}</td>` +
+        `<td>${(+t[fIdx.buy_price]).toFixed(4)}</td><td>${(+t[fIdx.sell_price]).toFixed(4)}</td>` +
+        `<td>${(+t[fIdx.shares]).toFixed(2)}</td>` +
+        `<td class="${pfCls}">${(pf >= 0 ? "+" : "") + pf.toFixed(2)}</td>` +
+        `<td class="${pfCls}">${(rp >= 0 ? "+" : "") + rp.toFixed(2)}%</td>` +
+        `<td>${t[fIdx.hold_days]}</td><td>${t[fIdx.sell_reason]}</td>` +
+      `</tr>`;
+    }
+    if (filtered.length > maxRows) {
+      tbodyHTML += `<tr><td colspan="11" class="lab-sigkelly-trades-more">仅显示前 ${maxRows} 笔(共 ${filtered.length} 笔),请用筛选缩小范围</td></tr>`;
+    }
+
+    overlay.innerHTML =
+      `<div class="lab-sigkelly-modal">` +
+        `<div class="lab-sigkelly-modal-head">` +
+          `<div class="lab-sigkelly-modal-title">📋 交易记录 · ${quadLabel} · ${modeLabel} · ${period}</div>` +
+          `<button type="button" class="lab-sigkelly-modal-close" title="关闭">✕</button>` +
+        `</div>` +
+        `<div class="lab-sigkelly-modal-stats">` +
+          `<span>共 ${trades.length} 笔</span>` +
+          `<span>盈利 ${winCount} / 亏损 ${trades.length - winCount}</span>` +
+          `<span>胜率 ${trades.length ? (winCount / trades.length * 100).toFixed(1) : 0}%</span>` +
+          `<span>总盈亏 ${(totalProfit >= 0 ? "+" : "") + totalProfit.toFixed(0)} 元</span>` +
+        `</div>` +
+        `<div class="lab-sigkelly-modal-filters">` +
+          `<input type="text" class="lab-input lab-sigkelly-filter-etf" placeholder="筛选ETF名称/代码…" value="${filter.etf}">` +
+          `<select class="lab-input lab-sigkelly-filter-profit">` +
+            `<option value="all"${filter.profit === "all" ? " selected" : ""}>全部</option>` +
+            `<option value="pos"${filter.profit === "pos" ? " selected" : ""}>仅盈利</option>` +
+            `<option value="neg"${filter.profit === "neg" ? " selected" : ""}>仅亏损</option>` +
+          `</select>` +
+        `</div>` +
+        `<div class="lab-sigkelly-modal-tablewrap">` +
+          `<table class="lab-sigkelly-trades-table">` +
+            `<thead><tr>${thHTML}</tr></thead>` +
+            `<tbody>${tbodyHTML}</tbody>` +
+          `</table>` +
+        `</div>` +
+      `</div>`;
+
+    // 关闭
+    overlay.querySelector(".lab-sigkelly-modal-close").onclick = () => { overlay.style.display = "none"; };
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.style.display = "none"; };
+    // 排序
+    overlay.querySelectorAll(".lab-sigkelly-trades-th").forEach((th) => {
+      th.onclick = () => {
+        const key = th.dataset.key;
+        if (sort.key === key) sort.dir = -sort.dir;
+        else { sort.key = key; sort.dir = -1; }
+        _render();
+      };
+    });
+    // 筛选
+    const etfInput = overlay.querySelector(".lab-sigkelly-filter-etf");
+    if (etfInput) {
+      etfInput.oninput = () => { filter.etf = etfInput.value; _render(); etfInput.focus(); };
+    }
+    const profitSel = overlay.querySelector(".lab-sigkelly-filter-profit");
+    if (profitSel) {
+      profitSel.onchange = () => { filter.profit = profitSel.value; _render(); };
+    }
+  }
+
+  _render();
 }
 
 // 初始加载：读 hash 恢复 tab + 策略 + labSubMode（lab.js 在 app.js 之后加载，renderTab 已启动）

@@ -1437,3 +1437,69 @@
 .lab-sigkelly-note { color: var(--text-4); font-size: 11px; flex-basis: 100%; }
 @media (max-width: 1200px) { .lab-sigkelly-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 760px) { .lab-sigkelly-grid { grid-template-columns: 1fr; } }
+
+/* 视图切换 + 矩阵控件 */
+.lab-sigkelly-view-toggle { display: flex; gap: 4px; }
+.lab-sigkelly-metric-sel { font-size: 12px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-1); }
+
+/* 详情展开 */
+.lab-sigkelly-detail { margin-top: 6px; }
+.lab-sigkelly-detail > summary { font-size: 11px; color: var(--text-3); cursor: pointer; padding: 4px 0; user-select: none; }
+.lab-sigkelly-detail > summary:hover { color: var(--primary); }
+.lab-sigkelly-detail-table { font-size: 11px; margin-top: 4px; }
+.lab-sigkelly-detail-table th, .lab-sigkelly-detail-table td { padding: 3px 4px; font-size: 11px; }
+.lab-sigkelly-pos { color: #52c41a; font-weight: 600; }
+.lab-sigkelly-neg { color: #d4380d; font-weight: 600; }
+[data-theme="dark"] .lab-sigkelly-pos, [data-theme="redgold"] .lab-sigkelly-pos { color: #73d13d; }
+[data-theme="dark"] .lab-sigkelly-neg, [data-theme="redgold"] .lab-sigkelly-neg { color: #ff9c9a; }
+
+/* 跟单指引 */
+.lab-sigkelly-guidance { margin-top: 8px; padding: 6px 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; line-height: 1.6; color: var(--text-3); }
+.lab-sigkelly-guide-item { padding: 1px 0; }
+.lab-sigkelly-guide-item b { color: var(--text-2); }
+
+/* 可点击交易行 */
+.lab-sigkelly-trade-row { cursor: pointer; transition: background 0.15s; }
+.lab-sigkelly-trade-row:hover { background: rgba(22,119,255,0.08); }
+
+/* 对比矩阵 */
+.lab-sigkelly-matrix-wrap { display: flex; flex-direction: column; gap: 12px; }
+.lab-sigkelly-matrix-title { font-size: 14px; font-weight: 700; color: var(--text-1); }
+.lab-sigkelly-matrix-group { }
+.lab-sigkelly-matrix-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lab-sigkelly-matrix-table th, .lab-sigkelly-matrix-table td { padding: 8px 10px; text-align: center; border: 1px solid var(--border); }
+.lab-sigkelly-matrix-table th { font-weight: 600; color: var(--text-3); font-size: 12px; background: var(--bg-card); }
+.lab-sigkelly-matrix-rowlabel { text-align: left !important; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.lab-sigkelly-matrix-cell { font-variant-numeric: tabular-nums; font-weight: 500; }
+.lab-sigkelly-matrix-best { box-shadow: inset 0 0 0 2px var(--primary); font-weight: 700; position: relative; }
+.lab-sigkelly-matrix-best::after { content: "★"; position: absolute; top: 1px; right: 3px; font-size: 10px; color: var(--primary); }
+.lab-sigkelly-matrix-legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; }
+.lab-sigkelly-heat-low { color: #d4380d; }
+.lab-sigkelly-heat-high { color: #52c41a; }
+.lab-sigkelly-heat-bar { display: inline-block; width: 80px; height: 10px; border-radius: 3px; background: linear-gradient(90deg, hsla(0,65%,45%,0.6), hsla(60,65%,45%,0.4), hsla(120,65%,45%,0.6)); }
+.lab-sigkelly-matrix-best-label { color: var(--primary); font-weight: 600; margin-left: 8px; }
+
+/* 交易记录弹窗 */
+.lab-sigkelly-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.lab-sigkelly-modal { background: var(--bg-card); border-radius: 10px; max-width: 1100px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.lab-sigkelly-modal-loading { padding: 40px; text-align: center; color: var(--text-3); font-size: 14px; }
+.lab-sigkelly-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.lab-sigkelly-modal-title { font-size: 15px; font-weight: 700; color: var(--text-1); }
+.lab-sigkelly-modal-close { background: none; border: none; font-size: 18px; color: var(--text-3); cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+.lab-sigkelly-modal-close:hover { background: var(--border); color: var(--text-1); }
+.lab-sigkelly-modal-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 16px; font-size: 12px; color: var(--text-3); border-bottom: 1px solid var(--border); }
+.lab-sigkelly-modal-filters { display: flex; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.lab-sigkelly-filter-etf { flex: 1; max-width: 240px; }
+.lab-sigkelly-filter-profit { max-width: 100px; }
+.lab-sigkelly-modal-tablewrap { overflow: auto; flex: 1; }
+.lab-sigkelly-trades-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.lab-sigkelly-trades-table th, .lab-sigkelly-trades-table td { padding: 4px 8px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.lab-sigkelly-trades-table th { font-weight: 600; color: var(--text-3); font-size: 11px; position: sticky; top: 0; background: var(--bg-card); z-index: 1; cursor: pointer; user-select: none; }
+.lab-sigkelly-trades-table th:hover { color: var(--primary); }
+.lab-sigkelly-trades-etfname { text-align: left !important; }
+.lab-sigkelly-trades-more { text-align: center; color: var(--text-4); padding: 8px; font-size: 11px; }
+@media (max-width: 760px) {
+  .lab-sigkelly-modal { max-width: 100%; max-height: 95vh; }
+  .lab-sigkelly-trades-table { font-size: 11px; }
+  .lab-sigkelly-trades-table th, .lab-sigkelly-trades-table td { padding: 3px 4px; }
+}

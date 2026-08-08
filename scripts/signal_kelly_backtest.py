@@ -106,7 +106,8 @@ def _build_best_etf(etf_map):
         if not scored:
             continue
         top = max(scored, key=lambda c: c["track_score"])
-        best[iid] = {"code": top["code"], "track_tier": top.get("track_tier", "none")}
+        best[iid] = {"code": top["code"], "track_tier": top.get("track_tier", "none"),
+                     "name": top.get("name", "")}
     return best
 
 
@@ -160,11 +161,12 @@ def _batch_load_etf_prices(etf_codes):
 
 # ── 回测 ──────────────────────────────────────────────────────────────────────
 
-def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, stop_profit):
+def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, etf_name, stop_profit):
     """单笔信号回测: 信号日买入 1000 元, 持有期内止盈或满 HOLD_DAYS 卖出。
 
     prices: 该 ETF 的 {date: accum_nav} 字典(已由调用方从 price_map 取出)。
-    返回 dict {buy_date, sell_date, buy_price, sell_price, shares, profit, return_pct, hold_days}
+    返回 dict {signal_date, buy_date, sell_date, etf_code, etf_name, buy_price,
+              sell_price, shares, profit, return_pct, hold_days, sell_reason}
     或 None(数据不足跳过)。
     """
     if not prices:
@@ -188,12 +190,14 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, stop_profit)
 
     # 模式 A: 最后一天卖出; 模式 B/C/D: 逐日检查止盈
     sell_date = future_dates[-1]  # 默认最后一天(D+10)
+    sell_reason = "到期"
     if stop_profit is not None:
         for d in future_dates:
             nav = prices[d]
             unrealized = nav / buy_price - 1  # 未实现收益率(小数)
             if unrealized >= stop_profit:
                 sell_date = d
+                sell_reason = "止盈"
                 break
 
     sell_nav = prices[sell_date]
@@ -204,14 +208,18 @@ def _backtest_one(signal_date, prices, sorted_dates_list, etf_code, stop_profit)
     hold = future_dates.index(sell_date) + 1  # D+1=1, ..., D+10=10
 
     return {
+        "signal_date": signal_date,
         "buy_date": signal_date,
         "sell_date": sell_date,
+        "etf_code": etf_code,
+        "etf_name": etf_name,
         "buy_price": round(buy_price, 6),
         "sell_price": round(sell_price, 6),
         "shares": round(shares, 6),
         "profit": round(profit, 4),
         "return_pct": round(return_pct, 4),
         "hold_days": hold,
+        "sell_reason": sell_reason,
     }
 
 
@@ -243,7 +251,93 @@ def _compute_kelly(win_rate, pl_ratio):
     return round(f_star, 4), round(half_kelly, 2), tier
 
 
-def _compute_stats(trades):
+def _max_concurrent(trades):
+    """最大同时持仓笔数: 按 buy_date/sell_date 区间重叠算(扫描线, 同日先买后卖=保守)。"""
+    if not trades:
+        return 0
+    events = []
+    for t in trades:
+        events.append((t["buy_date"], 0))   # 0=buy, 先处理(保守, 同日买入算占用)
+        events.append((t["sell_date"], 1))  # 1=sell, 后处理
+    events.sort()
+    cur = max_conc = 0
+    for _date, etype in events:
+        if etype == 0:
+            cur += 1
+            if cur > max_conc:
+                max_conc = cur
+        else:
+            cur -= 1
+    return max_conc
+
+
+def _years_from_trades(trades):
+    """从交易 buy_date 跨度算年数(用于 all 周期年化)。"""
+    if not trades:
+        return 1.0
+    dates = [t["buy_date"] for t in trades]
+    d_min = datetime.strptime(min(dates), "%Y%m%d")
+    d_max = datetime.strptime(max(dates), "%Y%m%d")
+    days = (d_max - d_min).days
+    return max(days / 365.25, 1.0 / 365.25)  # 至少1天
+
+
+def _max_drawdown(trades):
+    """最大累计收益回撤(按 sell_date 时序): 返回 (abs元, pct%)。
+
+    pct = 回撤绝对值 / 总投入 × 100。
+    """
+    if not trades:
+        return 0.0, 0.0
+    sorted_t = sorted(trades, key=lambda t: t["sell_date"])
+    cumulative = 0.0
+    peak = 0.0
+    max_dd_abs = 0.0
+    for t in sorted_t:
+        cumulative += t["profit"]
+        if cumulative > peak:
+            peak = cumulative
+        dd = peak - cumulative
+        if dd > max_dd_abs:
+            max_dd_abs = dd
+    total_invest = len(trades) * BUY_AMOUNT
+    pct = (max_dd_abs / total_invest * 100) if total_invest > 0 else 0.0
+    return round(max_dd_abs, 4), round(pct, 4)
+
+
+def _annualized_return(total_return_pct, period_key, trades):
+    """年化收益率(%)。
+
+    y1=total_return_pct; y3=(1+r)^(1/3)-1; all=(1+r)^(1/years)-1。
+    r=total_return_pct/100。负收益 r<-1 时返回0(无法开方)。
+    """
+    r = total_return_pct / 100.0
+    if r <= -1:
+        return 0.0
+    if period_key == "y1":
+        return round(total_return_pct, 4)
+    elif period_key == "y3":
+        return round(((1 + r) ** (1.0 / 3) - 1) * 100, 4)
+    else:  # all
+        years = _years_from_trades(trades)
+        if years <= 0:
+            return round(total_return_pct, 4)
+        return round(((1 + r) ** (1.0 / years) - 1) * 100, 4)
+
+
+def _guidance(quad_key, mode_key):
+    """跟单操作指引: 看到X信号 -> 信号日收盘买1000元Y类型ETF -> 持有Z天或W%止盈卖出。"""
+    quad_label = QUADRANT_META[quad_key]["label"]
+    mode_def = SELL_MODES[mode_key]
+    if mode_def["stop_profit"] is None:
+        sell_str = f"持有{HOLD_DAYS}天到期卖出"
+    else:
+        pct = int(mode_def["stop_profit"] * 100)
+        sell_str = f"持有至{pct}%止盈或{HOLD_DAYS}天到期卖出"
+    return f"看到{quad_label} → 信号日收盘买{BUY_AMOUNT}元匹配ETF → {sell_str}"
+
+
+def _compute_stats(trades, period_key="all"):
     """聚合统计: 胜率/盈亏比/mean_return/凯利/连胜连败等。"""
     n = len(trades)
     if n == 0:
@@ -254,6 +348,10 @@ def _compute_stats(trades):
             "kelly_f": 0, "half_kelly": 0, "kelly_tier": "保守",
             "max_single_win": 0, "max_single_loss": 0,
             "win_streak_max": 0, "lose_streak_max": 0,
+            "total_invest": 0, "total_profit": 0, "total_return_pct": 0,
+            "max_concurrent": 0, "max_concurrent_capital": 0,
+            "annualized_return": 0, "sharpe": 0,
+            "max_drawdown": 0, "max_drawdown_pct": 0, "calmar": 0,
         }
 
     wins = [t for t in trades if t["profit"] > 0]
@@ -297,6 +395,29 @@ def _compute_stats(trades):
             win_streak = 0
             max_lose_streak = max(max_lose_streak, lose_streak)
 
+    # 金额 + 总收益(口径修正)
+    total_invest = n * BUY_AMOUNT
+    total_profit = round(sum(t["profit"] for t in trades), 4)
+    total_return_pct = round(total_profit / total_invest * 100, 4) if total_invest > 0 else 0
+    # 最大同时持仓资金占用
+    max_conc = _max_concurrent(trades)
+    max_concurrent_capital = max_conc * BUY_AMOUNT
+    # 年化收益
+    annualized = _annualized_return(total_return_pct, period_key, trades)
+    # 夏普比率(无风险利率0, per-trade)
+    returns = [t["return_pct"] for t in trades]
+    if n > 1:
+        _mean = sum(returns) / n
+        _var = sum((x - _mean) ** 2 for x in returns) / (n - 1)
+        _std = _var ** 0.5
+        sharpe = round(_mean / _std, 4) if _std > 0 else 0
+    else:
+        sharpe = 0
+    # 最大回撤
+    max_dd_abs, max_dd_pct = _max_drawdown(trades)
+    # 卡尔玛比率
+    calmar = round(annualized / max_dd_pct, 4) if max_dd_pct > 0 else 0
+
     return {
         "n": n,
         "win_count": win_count,
@@ -313,6 +434,16 @@ def _compute_stats(trades):
         "max_single_loss": round(max_loss, 4),
         "win_streak_max": max_win_streak,
         "lose_streak_max": max_lose_streak,
+        "total_invest": total_invest,
+        "total_profit": total_profit,
+        "total_return_pct": total_return_pct,
+        "max_concurrent": max_conc,
+        "max_concurrent_capital": max_concurrent_capital,
+        "annualized_return": annualized,
+        "sharpe": sharpe,
+        "max_drawdown": max_dd_abs,
+        "max_drawdown_pct": max_dd_pct,
+        "calmar": calmar,
     }
 
 
@@ -394,7 +525,7 @@ def compute():
         sdates = sorted_dates_map.get(etf_code, [])
         any_valid = False
         for mode_key, mode_def in SELL_MODES.items():
-            result = _backtest_one(date, prices, sdates, etf_code, mode_def["stop_profit"])
+            result = _backtest_one(date, prices, sdates, etf_code, be["name"], mode_def["stop_profit"])
             if result is None:
                 continue  # 数据不足(信号日无价格/未来不足10天)
             any_valid = True
@@ -420,6 +551,7 @@ def compute():
             "hold_days": HOLD_DAYS,
             "sell_modes": SELL_MODES,
             "periods": {k: v["label"] for k, v in PERIODS.items()},
+            "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
             "rating_thresholds": {"high": RATING_HIGH, "mid": RATING_MID},
             "etf_tiers": ["strong", "related", "approx"],
             "commission_rate": COMMISSION_RATE,
@@ -431,8 +563,22 @@ def compute():
         "quadrants": {},
     }
 
+    # trades 列文件(列式存储, 每 quadrant x mode 存 all 周期全量, 前端按 cutoff 过滤 y1/y3)
+    TRADE_FIELDS = ["signal_date", "buy_date", "sell_date", "etf_code", "etf_name",
+                    "buy_price", "sell_price", "shares", "profit", "return_pct",
+                    "hold_days", "sell_reason"]
+    trades_output = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "buy_amount": BUY_AMOUNT,
+        "period_cutoffs": {k: v["cutoff"] for k, v in PERIODS.items()},
+        "fields": TRADE_FIELDS,
+        "quadrants": {},
+    }
+
     for quad_key, quad_meta in QUADRANT_META.items():
-        quad_data = {"label": quad_meta["label"], "desc": quad_meta["desc"], "periods": {}}
+        quad_data = {"label": quad_meta["label"], "desc": quad_meta["desc"], "periods": {}, "guidance": {}}
+        for mode_key in SELL_MODES:
+            quad_data["guidance"][mode_key] = _guidance(quad_key, mode_key)
         for period_key, period_def in PERIODS.items():
             cutoff = period_def["cutoff"]
             period_data = {}
@@ -443,9 +589,16 @@ def compute():
                     period_trades = [t for t in all_trades if t["buy_date"] >= cutoff]
                 else:
                     period_trades = list(all_trades)
-                period_data[mode_key] = _compute_stats(period_trades)
+                period_data[mode_key] = _compute_stats(period_trades, period_key)
             quad_data["periods"][period_key] = period_data
         output["quadrants"][quad_key] = quad_data
+        # trades 文件: 每 quadrant x mode 存 all 周期全量(列式)
+        trades_output["quadrants"][quad_key] = {}
+        for mode_key in SELL_MODES:
+            trades_output["quadrants"][quad_key][mode_key] = [
+                [t.get(f, "") for f in TRADE_FIELDS]
+                for t in quadrants[quad_key][mode_key]
+            ]
 
     # 6. 汇总打印
     print("\n=== 回测结果汇总 ===")
@@ -458,23 +611,26 @@ def compute():
                 wr = output["quadrants"][quad_key]["periods"][period_key]["A"]["win_rate"]
                 print(f"  {quad_key:14s} {period_key:3s}  A: n={n_a:5d} win_rate={wr:.3f} half_kelly={hk:.1f}%  B: n={n_b:5d}")
 
-    return output
+    return output, trades_output
 
 
 def main():
     parser = argparse.ArgumentParser(description="信号凯利回测")
     parser.add_argument("--output", default=None, help="输出 JSON 路径(默认 static-site/data/signal_kelly_backtest.json)")
+    parser.add_argument("--trades-output", default=None, help="交易记录 JSON 路径(默认 static-site/data/signal_kelly_trades.json)")
     args = parser.parse_args()
 
     output_path = args.output or os.path.join(ROOT, "static-site", "data", "signal_kelly_backtest.json")
+    trades_path = args.trades_output or os.path.join(os.path.dirname(output_path), "signal_kelly_trades.json")
 
     print("=" * 60)
     print("信号凯利回测: 6象限 × 4模式 × 3周期")
     print(f"ROOT = {ROOT}")
     print(f"输出 = {output_path}")
+    print(f"交易记录 = {trades_path}")
     print("=" * 60)
 
-    data = compute()
+    data, trades_data = compute()
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -483,12 +639,20 @@ def main():
     size = os.path.getsize(output_path)
     print(f"\n✓ 输出: {output_path} ({size} bytes = {size / 1024:.1f} KB)")
 
+    # 交易记录文件(列式存储, all 周期全量)
+    with open(trades_path, "w", encoding="utf-8") as f:
+        json.dump(trades_data, f, ensure_ascii=False, separators=(",", ":"))
+    t_size = os.path.getsize(trades_path)
+    total_trades = sum(len(v) for q in trades_data.get("quadrants", {}).values() for v in q.values())
+    print(f"✓ 交易记录: {trades_path} ({t_size} bytes = {t_size / 1024:.1f} KB, {total_trades} 笔)")
+
     # 生成 .gz
     import gzip
-    gz_path = output_path + ".gz"
-    with open(output_path, "rb") as src, gzip.open(gz_path, "wb") as dst:
-        dst.write(src.read())
-    print(f"✓ gzip: {gz_path} ({os.path.getsize(gz_path)} bytes)")
+    for p in [output_path, trades_path]:
+        gz_path = p + ".gz"
+        with open(p, "rb") as src, gzip.open(gz_path, "wb") as dst:
+            dst.write(src.read())
+        print(f"✓ gzip: {gz_path} ({os.path.getsize(gz_path)} bytes)")
 
 
 if __name__ == "__main__":
