@@ -6,11 +6,23 @@
 # us_stock_morning。
 # 每个任务的计划时点表来自 ~/Library/LaunchAgents/com.trade.*.plist 的 StartCalendarInterval。
 #
-# 检查项：
+# 检查项（6 维度, R2迁移后72h监控 2026-08-08 扩展）：
 #   1) 漏跑：当前时间落在某任务计划时点 + 30min 容忍窗口内，但 last_run < 计划时点 = 漏跑告警
 #   2) 退出失败：schedule_stats.json 中 last_exit 非 0（非 null，null=进行中/无数据不算失败）
+#   2b) log异常关键词：scan_log_anomaly 抓 Traceback/异常类名/FATAL（exit=0 不可信, 脚本吞异常漏报）
+#   3) 执行耗时：last_duration_sec 超阈值告警（intraday>10min/update_all>30min/backfill>30min）
+#   4) launchctl 加载：11 个 com.trade label 未加载 = launchd 层挂了
+#   5) 产物时效（Worker路径）：线上 overview.json collected_at vs NOW, 3域名容错, 盘中<20min
+#   6) R2直连时效：ssd.fx8.store overview/intraday collected_at 时效 + R2可达性
+#      （R2直连stale+Worker stale=upload_r2断; R2直连fresh+Worker stale=CF cache purge失效）
 #
 # 告警链路：复用 scripts/notify.py（邮件 + data/alerts/latest.md），告警不阻塞、不重试。
+# 阶段3 R2上传失败 notify 已接入: intraday_snapshot.sh upload-index/upload-intraday 失败发
+#   notify --severe --dedup-key; deploy.sh upload-all-data 等失败收集 R2_FAIL 发 notify --severe。
+#
+# 修复闭环: 告警邮件 -> 主控 Claude Code cron 定期查 alert_state.json(活跃告警)/
+#   schedule_stats.json(任务状态) -> 派 agent 修正 -> 修正后任务跑新版 exit=0/时效恢复 ->
+#   schedule_monitor 检测恢复发恢复邮件。launchd 持久(schedule_monitor/self_heal 不依赖会话)。
 # launchd 每15分钟(Minute=0,15,30,45)由 com.trade.schedule-monitor.plist 触发。
 set -uo pipefail
 REPO="${REPO:-/Users/linhuichen/code/trade-data}"
@@ -337,6 +349,52 @@ if STATS_FILE.exists():
                             f"[suppress] {s['task']} {keyword} 异常持续中, "
                             f"last_alerted={existing.get('last_alerted')}, 不重发"
                         )
+            # 维度③: 执行耗时阈值检查（R2迁移72h监控 2026-08-08）
+            # schedule_stats.json 的 last_duration_sec 字段,超阈值告警(进程退化/卡死信号)。
+            # intraday ~7min正常 >600s(10min)告警(重叠下一10min槽=下轮读旧数据);
+            # update_all ~11min正常 >1800s(30min)告警; backfill ~22min >1800s(30min)告警;
+            # us_stock_morning ~10min >900s(15min)告警。
+            # 只检查最近 24h 内完成的任务(stale 不重复告警,同 exit/log_anomaly 逻辑)。
+            # 恢复检测: dur 降回阈值内 -> key 未 seen -> L416 恢复循环自动发恢复邮件。
+            DUR_THRESHOLDS = {
+                "intraday_snapshot": 600,   # 10min
+                "update_all": 1800,         # 30min
+                "backfill_evening": 1800,   # 30min
+                "us_stock_morning": 900,    # 15min
+            }
+            _dur = s.get("last_duration_sec")
+            _dur_task = s.get("task")
+            if _dur is not None and _dur_task in DUR_THRESHOLDS:
+                _dur_thresh = DUR_THRESHOLDS[_dur_task]
+                if _dur > _dur_thresh:
+                    _dur_lr = s.get("last_run") or ""
+                    _dur_stale = False
+                    if _dur_lr:
+                        try:
+                            _dur_lr_dt = datetime.strptime(_dur_lr, "%Y-%m-%d %H:%M")
+                            if NOW - _dur_lr_dt > STALE_EXIT_THRESHOLD:
+                                _dur_stale = True
+                        except ValueError:
+                            pass
+                    if not _dur_stale:
+                        _dur_key = f"{_dur_task}|dur>{_dur_thresh}s"
+                        seen_keys_this_run.add(_dur_key)
+                        _ex_dur = alert_state.get(_dur_key)
+                        if _ex_dur is None or _ex_dur.get("status") != "active":
+                            alerts.append(
+                                f"SEVERE: {_dur_task} 执行耗时 {_dur}s 超阈值 {_dur_thresh}s "
+                                f"last_run<{_dur_lr}> (进程退化/卡死信号)"
+                            )
+                            alert_state[_dur_key] = {
+                                "status": "active",
+                                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                                "keyword": f"dur>{_dur_thresh}s",
+                                "line_sample": f"dur={_dur}s last_run={_dur_lr}",
+                            }
+                        else:
+                            print(f"[suppress] {_dur_task} 耗时超阈值持续中, "
+                                  f"last_alerted={_ex_dur.get('last_alerted')}, 不重发")
     except Exception as e:
         print(f"[warn] 解析 schedule_stats.json 失败: {e}", file=sys.stderr)
 
@@ -598,6 +656,187 @@ try:
         save_alert_state(alert_state)
 except Exception as e:
     print(f"[warn] 线上 overview.json 时效检查失败: {e}", file=sys.stderr)
+
+# 6) R2 直连时效检查（维度⑥，R2迁移后72h监控 2026-08-08）
+#    R2 公开桶(ssd.fx8.store)是前端大文件 + Worker /data/rewrite 的唯一数据源。
+#    upload_r2 失败/遗漏 -> R2 数据滞后 -> Worker 60s TTL 过期后仍读 R2 旧版 = 线上滞后。
+#    此检查直连 R2 验证 upload_r2 链路:
+#    - overview.json collected_at 时效(交易日盘中<20min, 非交易时段<24h防周末断链)
+#    - intraday_snapshot.json collected_at 时效(交易日盘中<15min)
+#    - R2 可达性(ssd.fx8.store 200响应, R2桶/网络故障告警)
+#    告警走 alert_state.json 去重(key=r2_overview_lag/r2_intraday_lag/r2_unreachable),
+#    与现有 overview_lag_3domain(Worker路径 ss.fx8.store) 对称, 两层独立检查:
+#      R2直连stale + Worker路径stale = upload_r2 断(根因在R2上传)
+#      R2直连fresh + Worker路径stale = CF cache purge 失效(根因在Worker缓存)
+#    恢复检测: 内联处理(此块在 L416 恢复循环之后运行, 不能复用该循环)。
+try:
+    R2_BASE = "https://ssd.fx8.store"
+
+    def _parse_flexible_ts(ts_str):
+        """解析 overview(YYYYMMDD HH:MM:SS) 或 intraday(ISO T+microsec) 格式时间戳"""
+        if not ts_str:
+            return None
+        for fmt in ("%Y%m%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                return datetime.strptime(ts_str, fmt)
+            except ValueError:
+                continue
+        return None
+
+    def _curl_r2_json(filename, timeout=8):
+        """curl R2 直连获取 JSON body, 返回 (data_dict, error_str)"""
+        url = f"{R2_BASE}/data/{filename}"
+        try:
+            result = subprocess.run(
+                ["/usr/bin/curl", "-sS", "--max-time", str(timeout), url],
+                capture_output=True, text=True, timeout=timeout + 4,
+            )
+        except subprocess.TimeoutExpired:
+            return None, "timeout"
+        if result.returncode != 0:
+            return None, f"curl rc={result.returncode}"
+        try:
+            return json.loads(result.stdout), None
+        except json.JSONDecodeError as e:
+            return None, f"json parse fail: {e}"
+
+    now_hm_r2 = NOW.strftime("%H%M")
+    is_r2_trading_window = (
+        _is_today_trading and "0950" <= now_hm_r2 <= "1505"
+        and not ("1130" <= now_hm_r2 < "1315")
+    )
+
+    # --- R2 可达性 + overview 时效 ---
+    ov_data_r2, ov_err_r2 = _curl_r2_json("overview.json")
+    if ov_err_r2:
+        # R2 不可达（网络/R2桶故障/upload_r2 完全断）
+        _r2_key = "r2_unreachable"
+        seen_keys_this_run.add(_r2_key)
+        _ex_r2 = alert_state.get(_r2_key)
+        if _ex_r2 is None or _ex_r2.get("status") != "active":
+            alerts.append(
+                f"SEVERE: R2 直连不可达 ssd.fx8.store/data/overview.json "
+                f"error<{ov_err_r2}> now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> "
+                f"(R2桶/网络故障, upload_r2 链路断)"
+            )
+            alert_state[_r2_key] = {
+                "status": "active",
+                "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "keyword": "r2_unreachable",
+                "line_sample": ov_err_r2,
+            }
+        else:
+            print(f"[suppress] R2 直连不可达持续中, "
+                  f"last_alerted={_ex_r2.get('last_alerted')}, 不重发")
+    else:
+        # R2 可达 -> 恢复检测(r2_unreachable)
+        _ex_r2u = alert_state.get("r2_unreachable")
+        if _ex_r2u is not None and _ex_r2u.get("status") == "active":
+            recoveries.append({
+                "task": "r2_unreachable", "keyword": "r2_unreachable",
+                "first_seen": _ex_r2u.get("first_seen", "?"),
+            })
+            _ex_r2u["status"] = "recovered"
+            _ex_r2u["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[recovery] R2 直连不可达已恢复 "
+                  f"(首次发现: {_ex_r2u.get('first_seen')})")
+
+        # overview collected_at 时效
+        ov_collected_r2 = ov_data_r2.get("collected_at") or ""
+        ov_dt_r2 = _parse_flexible_ts(ov_collected_r2)
+        if ov_dt_r2:
+            ov_lag_r2 = NOW - ov_dt_r2
+            ov_lag_min_r2 = int(ov_lag_r2.total_seconds() // 60)
+            # 交易日盘中 20min(同 overview_lag_3domain), 非交易时段 24h(防周末断链)
+            ov_thresh_r2 = timedelta(minutes=20) if is_r2_trading_window else timedelta(hours=24)
+            if ov_lag_r2 > ov_thresh_r2:
+                _r2_ov_key = "r2_overview_lag"
+                seen_keys_this_run.add(_r2_ov_key)
+                _ex_r2ov = alert_state.get(_r2_ov_key)
+                if _ex_r2ov is None or _ex_r2ov.get("status") != "active":
+                    _thresh_min = int(ov_thresh_r2.total_seconds() // 60)
+                    alerts.append(
+                        f"SEVERE: R2 overview.json 时效滞后 "
+                        f"collected_at<{ov_collected_r2}> lag={ov_lag_min_r2}min "
+                        f"threshold<{_thresh_min}min> "
+                        f"now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> (upload_r2 未推新版)"
+                    )
+                    alert_state[_r2_ov_key] = {
+                        "status": "active",
+                        "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                        "keyword": "r2_overview_lag",
+                        "line_sample": f"lag={ov_lag_min_r2}min collected_at={ov_collected_r2}",
+                    }
+                else:
+                    print(f"[suppress] R2 overview 滞后持续中, "
+                          f"last_alerted={_ex_r2ov.get('last_alerted')}, 不重发")
+            else:
+                # 恢复检测
+                _ex_r2ov = alert_state.get("r2_overview_lag")
+                if _ex_r2ov is not None and _ex_r2ov.get("status") == "active":
+                    recoveries.append({
+                        "task": "r2_overview_lag", "keyword": "r2_overview_lag",
+                        "first_seen": _ex_r2ov.get("first_seen", "?"),
+                    })
+                    _ex_r2ov["status"] = "recovered"
+                    _ex_r2ov["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                    print(f"[recovery] R2 overview 时效滞后已恢复 "
+                          f"(首次发现: {_ex_r2ov.get('first_seen')})")
+
+    # --- intraday_snapshot 时效（仅交易日盘中, 同 overview 窗口）---
+    if is_r2_trading_window:
+        id_data_r2, id_err_r2 = _curl_r2_json("intraday_snapshot.json")
+        if id_err_r2:
+            print(f"[warn] R2 intraday_snapshot 不可达: {id_err_r2} "
+                  f"(盘中才检查, 非致命)", file=sys.stderr)
+        elif id_data_r2:
+            id_collected_r2 = id_data_r2.get("collected_at") or ""
+            id_dt_r2 = _parse_flexible_ts(id_collected_r2)
+            if id_dt_r2:
+                id_lag_r2 = NOW - id_dt_r2
+                id_lag_min_r2 = int(id_lag_r2.total_seconds() // 60)
+                id_thresh_r2 = timedelta(minutes=15)
+                if id_lag_r2 > id_thresh_r2:
+                    _r2_id_key = "r2_intraday_lag"
+                    seen_keys_this_run.add(_r2_id_key)
+                    _ex_r2id = alert_state.get(_r2_id_key)
+                    if _ex_r2id is None or _ex_r2id.get("status") != "active":
+                        alerts.append(
+                            f"SEVERE: R2 intraday_snapshot.json 时效滞后 "
+                            f"collected_at<{id_collected_r2}> lag={id_lag_min_r2}min "
+                            f"threshold<15min> "
+                            f"now<{NOW.strftime('%Y-%m-%d %H:%M:%S')}> "
+                            f"(upload-intraday 未推新版)"
+                        )
+                        alert_state[_r2_id_key] = {
+                            "status": "active",
+                            "first_seen": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_alerted": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                            "keyword": "r2_intraday_lag",
+                            "line_sample": f"lag={id_lag_min_r2}min collected_at={id_collected_r2}",
+                        }
+                    else:
+                        print(f"[suppress] R2 intraday 滞后持续中, "
+                              f"last_alerted={_ex_r2id.get('last_alerted')}, 不重发")
+                else:
+                    # 恢复检测
+                    _ex_r2id = alert_state.get("r2_intraday_lag")
+                    if _ex_r2id is not None and _ex_r2id.get("status") == "active":
+                        recoveries.append({
+                            "task": "r2_intraday_lag", "keyword": "r2_intraday_lag",
+                            "first_seen": _ex_r2id.get("first_seen", "?"),
+                        })
+                        _ex_r2id["status"] = "recovered"
+                        _ex_r2id["last_recovered"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+                        print(f"[recovery] R2 intraday 时效滞后已恢复 "
+                              f"(首次发现: {_ex_r2id.get('first_seen')})")
+
+    # R2 检查在 save_alert_state(L443/L598) 之后运行, 需补存防状态丢失
+    save_alert_state(alert_state)
+except Exception as e:
+    print(f"[warn] R2 直连时效检查失败: {e}", file=sys.stderr)
 
 # 输出 + 告警
 now_str = NOW.strftime("%Y-%m-%d %H:%M:%S")
