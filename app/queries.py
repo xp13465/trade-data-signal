@@ -305,23 +305,31 @@ def _enrich_etfs_since_return(conn, indices):
         if iid in _close_map_cache:
             return _close_map_cache[iid]
         m: dict[str, float] = {}
+        # 三分支独立循环用各自正确列名，对齐 overview() _load_close_map(L561-587)。
+        # 旧实现三分支共用单循环 m[r["date"]] = r["value"]，但 else(index_daily)
+        # SQL 是 SELECT date, close，列名 close 不是 value，r["value"] 抛 IndexError。
+        # 被 cgb_10y_etf(self ETF)信号日==today 跳过掩盖；信号日≠today 即崩 export(P0)。
         if iid.startswith("g."):
             rows = conn.execute(
                 "SELECT date, value FROM daily_metric WHERE metric_id=? AND value IS NOT NULL",
                 (iid[2:],),
             ).fetchall()
+            for r in rows:
+                m[r["date"]] = r["value"]
         elif iid.startswith("s."):
             rows = conn.execute(
                 "SELECT date, value FROM score_daily WHERE score_id=? AND value IS NOT NULL",
                 (iid[2:],),
             ).fetchall()
+            for r in rows:
+                m[r["date"]] = r["value"]
         else:
             rows = conn.execute(
                 "SELECT date, close FROM index_daily WHERE index_id=? AND close IS NOT NULL",
                 (iid,),
             ).fetchall()
-        for r in rows:
-            m[r["date"]] = r["value"]
+            for r in rows:
+                m[r["date"]] = r["close"]
         _close_map_cache[iid] = m
         return m
 
