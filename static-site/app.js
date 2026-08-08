@@ -1545,12 +1545,12 @@ function _etfLightInfo(etf) {
   if (_t === "strong") return { cls: "etf-light-strong", label: "强关联" };
   if (_t === "related") return { cls: "etf-light-related", label: "相关" };
   // 问题3+5: track_low_confidence=true(共同交易日30-59,降权分) -> 估算灯(灰蓝虚线), 放 approx 前
-  // 3档拆分: low_confidence=true(30-59天降权)->估算灯 / track_tier=null(N<30或score<30)->无数据灰灯 / none(30-49真弱)->弱暗橙
+  // 3档拆分: low_confidence=true(30-59天降权)->估算灯 / track_tier=null(N<30或score<30)->极弱灰灯 / none(30-49真弱)->弱暗橙
   if (etf.track_low_confidence === true) return { cls: "etf-light-lowconf", label: "估算" };
   if (_t === "approx") return { cls: "etf-light-approx", label: "近似" };
   if (_t === "none") return { cls: "etf-light-weak", label: "弱" };
-  // track_tier=null(N<30完全无数据 或 score<30极弱) -> 无数据灰灯; low_confidence=true 已被上方分支捕获
-  if (_t === null) return { cls: "etf-light-nodata", label: "无数据" };
+  // track_tier=null(N<30完全无数据 或 score<30极弱) -> 极弱灰灯; low_confidence=true 已被上方分支捕获
+  if (_t === null) return { cls: "etf-light-nodata", label: "极弱" };
   // _t undefined(旧数据无 track_tier) -> 回退 grade 映射
   if (etf.grade === "excellent") return { cls: "etf-light-strong", label: "强关联" };
   if (etf.grade === "good" && etf.match_method !== "manual_fallback") return { cls: "etf-light-related", label: "相关" };
