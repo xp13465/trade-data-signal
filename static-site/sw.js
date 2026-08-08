@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a45';  // bump a44->a45: 移动端 hoverpop 方案3(等级标签+追踪分数字+省略号兜底,去"跟踪分"文字前缀)
+const CACHE_VERSION = 'v6-20260808-a46';  // bump a45->a46: apple-touch-icon 从favicon.ico[3]重新生成180x180(源PNG已删)+index.html加?v=破iOS缓存
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
