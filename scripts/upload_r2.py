@@ -11,6 +11,7 @@
   python3 scripts/upload_r2.py upload-public-fund         # 上传 data/public_fund* -> public_fund/
   python3 scripts/upload_r2.py upload-offshore-fund       # 上传 data/offshore_fund* -> offshore_fund/ (筛选器阶段0)
   python3 scripts/upload_r2.py upload-data-large          # 上传 data/ 顶层 >1MB .json+.gz -> data/
+  python3 scripts/upload_r2.py upload-all-data            # 上传 data/ 全量小 .json -> data/ (阶段1a双写)
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
   python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
@@ -255,13 +256,15 @@ def cmd_upload_lab():
     print(f"共上传 {ok}/{len(files)} -> {PUBLIC}/lab/")
 
 
-def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
+def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None):
     """通用 glob 上传：local_dir 下按 patterns 匹配文件，上传到 R2 r2_prefix/。
 
     R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total, failed_rels)。
     failed_rels = 失败文件的 rel 列表(相对 local_dir 的路径,如 sw_801030-all.json),
     供调用方(cmd_upload_index)打印 FAILED_FILES 行供 intraday_snapshot.sh 抓取引用到告警 body。
-    include_gz=True 时同时上传 .gz（若存在）。
+    include_gz=True 时同时上传 .gz（若存在）(注:此参数声明保留兼容,实际 .gz 由 patterns 决定匹配)。
+    exclude_fn: 可选回调 (Path) -> bool,返回 True 则跳过该文件(如 upload-all-data 排除
+    已在独立命令处理的文件,避免双副本上传)。
     单文件失败(重试3次仍错)不中断整批,继续上传后续文件。
 
     并发上传(ThreadPoolExecutor 8 线程)：186 文件串行 3-5min -> 并发约 30-60s。
@@ -277,6 +280,13 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True):
         files.extend(local_dir.glob(pat))
     # 去重 + 排序
     files = sorted(set(files))
+    # exclude_fn 过滤(如 upload-all-data 排除已在独立命令处理的文件,避免双副本)
+    if exclude_fn:
+        before = len(files)
+        files = [f for f in files if not exclude_fn(f)]
+        excluded = before - len(files)
+        if excluded:
+            print(f"  排除 {excluded} 个文件(已在独立命令处理)")
     # 方案3 通用防护:过滤 broken symlink / 不存在文件(glob 把 broken symlink 也算匹配,
     # exists() 对 broken symlink 返回 False)。trade-data/static-site/ 的 trade_sim_*.html
     # symlink 指向 trade/static-site/,目标被删时 symlink 变 broken,read_bytes 会抛
@@ -538,6 +548,46 @@ def cmd_upload_data_large():
         except Exception as e:
             print(f"[{i}/{total}] ✗ {f.name} 异常({type(e).__name__}: {e})")
     print(f"共上传 {ok}/{total} -> {PUBLIC}/data/")
+
+
+def cmd_upload_all_data():
+    """上传 static-site/data/ 下所有小 .json 文件到 R2 data/ 前缀(阶段1a 双写准备)。
+
+    为 R2 迁移阶段2(Worker /data/->R2 rewrite)准备全量 R2 数据。
+    排除已在独立命令处理的文件(避免双副本上传):
+      - index/ lab/ trade_sim/ 子目录: *.json glob 不递归,天然不匹配
+      - industry-* (upload-industry -> industry/ 前缀)
+      - public_fund* (upload-public-fund -> public_fund/ 前缀)
+      - offshore_fund* (upload-offshore-fund -> offshore_fund/ 前缀)
+      - fund_score* (upload-fund-score -> fund_score/ 前缀)
+      - etf_score_list* (upload-etf-score -> data/ 前缀,独立命令已处理)
+      - 大 range 文件 *-{all,5y,3y}.json (upload-data-large -> data/ 前缀)
+      - .gz 文件: 只传 *.json pattern,.gz 不匹配(CF 自动 br,前端已跳 .gz)
+      - feed.xml: 非 .json,*.json glob 天然不匹配
+    复用 _upload_glob 8 线程并发上传。
+    """
+    data_dir = STATIC_DIR / "data"
+    # 排除已在独立命令处理的文件前缀(和 cmd_upload_data_large exclude_prefixes 一致)
+    exclude_prefixes = (
+        "industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list",
+    )
+    # 排除大 range 文件(upload-data-large 已处理)
+    _LARGE_RANGE_RE = re.compile(r'-(?:all|5y|3y)\.json$')
+
+    def _exclude_fn(f):
+        name = f.name
+        if any(name.startswith(p) for p in exclude_prefixes):
+            return True
+        if _LARGE_RANGE_RE.search(name):
+            return True
+        return False
+
+    ok, total, _ = _upload_glob(data_dir, ["*.json"], "data", exclude_fn=_exclude_fn)
+    if total == 0:
+        print(f"⚠ 无小 .json 文件: {data_dir}/*.json")
+        return
+    if ok != total:
+        sys.exit(1)
 
 
 def _list_keys(prefix, bucket=None):
@@ -815,6 +865,8 @@ if __name__ == "__main__":
         cmd_upload_etf_score()
     elif cmd == "upload-data-large":
         cmd_upload_data_large()
+    elif cmd == "upload-all-data":
+        cmd_upload_all_data()
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-claude-backup":
@@ -840,5 +892,5 @@ if __name__ == "__main__":
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
             "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-data-large|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
-            "upload-claude-backup [path]]"
+            "upload-claude-backup [path]|upload-all-data]"
         )
