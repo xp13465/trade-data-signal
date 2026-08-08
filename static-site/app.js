@@ -12773,9 +12773,9 @@ async function renderPublicFund(container) {
   // 用 d.totalWeight(恒定权重和) 算平均权重, 不用 d.value(随 mode 变管柱子长度, 方案C bug 修复)
   const _indLabelFormatter = (p) => {
     const d = p.data;
-    if (indSort === 'avg') return (d.fundCount > 0 ? (d.totalWeight / d.fundCount).toFixed(1) : '0') + '%';
-    if (indSort === 'value') return (d.totalValue / 1e4).toFixed(2) + '亿';
-    return d.totalWeight.toFixed(1);
+    if (indSort === 'avg') return (d.fundCount > 0 ? ((d.totalWeight||0) / d.fundCount).toFixed(1) : '0') + '%';
+    if (indSort === 'value') return ((d.totalValue||0) / 1e4).toFixed(2) + '亿';
+    return (d.totalWeight||0).toFixed(1);
   };
   const indChart = echarts.init(indCard.querySelector(".pf-ind-bar"));
   charts.push(indChart);
@@ -12792,10 +12792,10 @@ async function renderPublicFund(container) {
         // 方案C bug 修复: d.value 随 mode 变(柱子长度), tooltip 用 d.totalWeight(恒定权重和) 算占比/平均权重
         // 制造业子行业(breakdown) tooltip 特殊: 显示"基于重仓股拆分"说明
         if (d.isBreakdown) {
-          const pctOfTotal = (d.totalWeight / indTotalWeight * 100).toFixed(2);
+          const pctOfTotal = ((d.totalWeight||0) / indTotalWeight * 100).toFixed(2);
           return `${d.subIndustry}（制造业子行业）<br/><br/>` +
-            `📌 权重和: <b>${d.totalWeight.toFixed(1)}</b><span style="color:var(--text-3)"> (占全行业 ${pctOfTotal}%)</span><br/>` +
-            `💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><br/>` +
+            `📌 权重和: <b>${(d.totalWeight||0).toFixed(1)}</b><span style="color:var(--text-3)"> (占全行业 ${pctOfTotal}%)</span><br/>` +
+            `💰 持仓市值: <b>${((d.totalValue||0) / 1e4).toFixed(2)} 亿</b><br/>` +
             `🏦 基金数: <b>${d.fundCount}</b> 只基金重仓该子行业<br/>` +
             `<span style="color:var(--text-3)">🔬 基于重仓股拆分（非基金直接披露）</span>`;
         }
@@ -12803,8 +12803,8 @@ async function renderPublicFund(container) {
         // 平均权重 = d.totalWeight / d.fundCount, 即平均每只基金该行业仓位%, 直观百分比(制造业≈57.9%)
         // d.totalValue = SUM(hold_value) 单位万元, /1e4 转亿
         // d.industryCount = 合并前原始分类数(>1 说明合并过, tooltip 显示合并说明)
-        const avgPct = (d.fundCount > 0 ? (d.totalWeight / d.fundCount).toFixed(1) : '0');
-        const pctOfTotal = (d.totalWeight / indTotalWeight * 100).toFixed(2);
+        const avgPct = (d.fundCount > 0 ? ((d.totalWeight||0) / d.fundCount).toFixed(1) : '0');
+        const pctOfTotal = ((d.totalWeight||0) / indTotalWeight * 100).toFixed(2);
         const mergeInfo = d.industryCount > 1
           ? (d.name === '其他'
             ? `<br/>📦 其他 = ${d.industryCount} 个长尾行业合计(权重和占全行业 ${pctOfTotal}%)<br/>`
@@ -12816,9 +12816,9 @@ async function renderPublicFund(container) {
         return `${d.name}<br/><br/><b style="font-size:13px">📊 平均权重: ${avgPct}%</b><br/>` +
           `<span style="color:var(--text-3)">= 平均每只基金把 ${avgPct}% 仓位配在该行业</span><br/>` +
           `<span style="color:var(--text-3)">(全市场 ${d.fundCount} 只基金该行业权重%的平均值)</span><br/>` +
-          `<br/>💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><span style="color:var(--text-3)"> (全市场基金该行业持仓总市值)</span><br/>` +
+          `<br/>💰 持仓市值: <b>${((d.totalValue||0) / 1e4).toFixed(2)} 亿</b><span style="color:var(--text-3)"> (全市场基金该行业持仓总市值)</span><br/>` +
           `🏦 基金数: <b>${d.fundCount}</b><span style="color:var(--text-3)"> 只基金持有该行业</span><br/>` +
-          `<br/>📌 权重和: <b>${d.totalWeight.toFixed(1)}</b><span style="color:var(--text-3)"> (占全行业 ${pctOfTotal}%)</span><br/>` +
+          `<br/>📌 权重和: <b>${(d.totalWeight||0).toFixed(1)}</b><span style="color:var(--text-3)"> (占全行业 ${pctOfTotal}%)</span><br/>` +
           `<span style="color:var(--text-3)">权重和越大 = 越多基金重配 = 抱团越集中</span>` +
           mergeInfo + manufHint;
       }},
@@ -12987,15 +12987,15 @@ async function renderPublicFund(container) {
         // treemap tooltip 从 p.data 取(同柱状图口径, 不依赖外部 indData 数组避免错位)
         // d.value = 矩形面积值(随 mode 变); tooltip 用 d.totalWeight 算占比/平均权重(恒定不随 mode 变)
         const d = p.data;
-        const avgPct = (d.fundCount > 0 ? (d.totalWeight / d.fundCount).toFixed(1) : '0');
-        const pctOfTotal = (d.totalWeight / indTotalWeight * 100).toFixed(2);
+        const avgPct = (d.fundCount > 0 ? ((d.totalWeight||0) / d.fundCount).toFixed(1) : '0');
+        const pctOfTotal = ((d.totalWeight||0) / indTotalWeight * 100).toFixed(2);
         const mergeInfo = d.industryCount > 1 ? `<br/>🔀 已合并 ${d.industryCount} 个原始分类` : '';
         const manufHint = (d.name === '制造业' && d.breakdown)
           ? `<br/><span style="color:var(--text-3)">🔬 点击查看 ${d.breakdown.length} 个申万一级子行业(基于重仓股拆分)</span>`
           : '';
-        return `${d.name}<br/><br/>📦 权重和: <b>${d.totalWeight.toFixed(1)}</b> (占 ${pctOfTotal}%)<br/>` +
+        return `${d.name}<br/><br/>📦 权重和: <b>${(d.totalWeight||0).toFixed(1)}</b> (占 ${pctOfTotal}%)<br/>` +
           `📊 平均权重: <b>${avgPct}%</b><br/>` +
-          `💰 持仓市值: <b>${(d.totalValue / 1e4).toFixed(2)} 亿</b><br/>` +
+          `💰 持仓市值: <b>${((d.totalValue||0) / 1e4).toFixed(2)} 亿</b><br/>` +
           `🏦 基金数: <b>${d.fundCount}</b>${mergeInfo}${manufHint}`;
       }},
       series: [{
@@ -13012,9 +13012,9 @@ async function renderPublicFund(container) {
           // label 跟随 treemapSort: weight->权重和占比%; avg->平均权重%; value->持仓市值亿
           formatter: (p) => {
             const d = p.data;
-            if (mode === 'avg') return `${d.name} ${(d.totalWeight / d.fundCount).toFixed(1)}%`;
-            if (mode === 'value') return `${d.name} ${(d.totalValue / 1e4).toFixed(1)}亿`;
-            const pct = (d.totalWeight / indTotalWeight * 100).toFixed(1);
+            if (mode === 'avg') return `${d.name} ${((d.totalWeight||0) / d.fundCount).toFixed(1)}%`;
+            if (mode === 'value') return `${d.name} ${((d.totalValue||0) / 1e4).toFixed(1)}亿`;
+            const pct = ((d.totalWeight||0) / indTotalWeight * 100).toFixed(1);
             return `${d.name} ${pct}%`;
           },
           fontSize: 10,

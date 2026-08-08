@@ -314,8 +314,19 @@ _ROLES_ORDER = ["top20", "中信期货", "国泰君安"]
 def overview(conn, cfg):
     """复刻 /api/overview。"""
     # 最新分数日期（作为「今日」基准；指数/部分指标可能滞后于该日）
-    row = conn.execute("SELECT max(date) FROM score_daily").fetchone()
-    score_date = row[0] if row and row[0] else last_trading_day()
+    # 治本: 用 last_trading_day() 锚定交易日，避免周末 cross_market 单条记录污染。
+    # cross_market 含全球/夜盘指标(美指/黄金周六有数据)会在非交易日异常写入 score_daily，
+    # 致 max(date) 取到周六 -> 其它依赖 A 股指标的 score(a_sentiment/fear_greed/per-index)被过滤掉。
+    # 兜底: 若该交易日盘前尚未计算评分(last_trading_day 当天还没跑 update_all)，回退到
+    # 最近一个有 a_sentiment 评分的日期(同 market_summary.py L95 口径，a_sentiment 仅交易日写入)，
+    # 保证 today.scores 始终齐全而非空对象。
+    score_date = last_trading_day()
+    _row = conn.execute(
+        "SELECT max(date) FROM score_daily WHERE score_id='a_sentiment' AND date <= ?",
+        (score_date,)
+    ).fetchone()
+    if _row and _row[0]:
+        score_date = _row[0]
     # P1 hover 分项构成：components 是 JSON string，parse 成 dict 供前端直接读。
     # a_sentiment 6维(ratio/zt/zhaban/lianban/amount/north)
     # cross_market 9维(a_width/a_fund/a_sentiment/hk/global/lhb/unlock/ipo/cov)
