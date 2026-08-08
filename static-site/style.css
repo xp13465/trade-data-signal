@@ -1576,6 +1576,7 @@ main { padding: 16px 24px; }
 .industry-grid .spark-cell .spark-chart { min-height: 120px; }
 .industry-grid .spark-name { font-size: 12px; }
 /* ETF 代码标注（行业/概念卡片，点击复制） */
+.etf-link-row { margin: -2px 0 4px; }
 .etf-tag {
   display: inline-block;
   margin-left: 5px;
@@ -1628,8 +1629,7 @@ main { padding: 16px 24px; }
   max-width: calc(100vw - 16px);
 }
 @media (max-width: 640px) {
-  .etf-popup { min-width: 0; max-width: calc(100vw - 16px); white-space: normal; }
-  .etf-pop-row { flex-wrap: wrap; }
+  .etf-popup { min-width: min(260px, calc(100vw - 16px)); max-width: calc(100vw - 16px); }
 }
 .etf-popup::before {
   content: "";

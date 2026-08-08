@@ -690,7 +690,12 @@ function _appendBackupChipRow(cardEl, id) {
   row.innerHTML = html || '<span class="signal-chip signal-chip-loading">⏳ 加载回测…</span>';
   // 2026-07-20 板分化适配：行业 spark-cell 无 h3，加 .spark-head 兜底插入点，保证 [标题][chip-row][sim-btn] 顺序
   var h3 = cardEl.querySelector("h3");
-  if (h3) h3.after(row);
+  if (h3) {
+    // 2026-08-08 问题2：etf-link-row 在 h3 后，chip-row 需在 etf-link-row 后：[h3][etf-link-row][chip-row]
+    var _etfLinkRow = cardEl.querySelector(".etf-link-row");
+    if (_etfLinkRow) _etfLinkRow.after(row);
+    else h3.after(row);
+  }
   else {
     var head = cardEl.querySelector(".spark-head");
     if (head) head.after(row);
@@ -2422,8 +2427,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
         }
         // 2026-08-08 第三行 etfHtml: ETF名(代码)+至今盈亏(格式和第一行 idxLineHtml 统一: 图标+名(代码)+±X%)
         var _pnlText = _etfPnlText(_top.etf_since_return, _top.etf_price_diff);
-        // 问题1: 盈亏加基准时点"自YYYYMMDD至今"(_popDate=信号日 data-date), 无日期回退原"至今"
-        var _pnlFull = _pnlText ? (_popDate ? "自" + _popDate + _pnlText : _pnlText) : "";
+        var _pnlFull = _pnlText || "";
         var _pnlInner = _pnlFull ? ' <span style="color:' + _etfPnlColor(_top.etf_since_return) + '">' + _pnlFull + '</span>' : "";
         etfHtml = '<span class="term-pop-etf">🔗 ' + _esc(_top.name) + '(' + _esc(_top.code) + ')' + _pnlInner + '</span>';
       }
@@ -15194,7 +15198,16 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   var sparkName = !h3 ? cardEl.querySelector(".spark-name") : null;
   var target = h3 || sparkName;
   if (!target) return;
-  if (target.querySelector(".etf-tag")) return;  // 避免重复注入
+  if (cardEl.querySelector(".etf-tag")) return;  // 避免重复注入（查整卡非仅 target）
+  // 2026-08-08 问题2：h3 走势卡布局重构--etf-tag/etf-tag-pnl 移到 h3 下方独立 .etf-link-row，
+  // h3 留 [title+code][❓][📌][🔔]，下行 .etf-link-row [etf-tag][etf-tag-pnl]，再下行 chip-row。
+  // spark-name（行业卡）保持原样（网格卡布局不同）。
+  if (h3) {
+    var etfRow = document.createElement("div");
+    etfRow.className = "etf-link-row";
+    h3.after(etfRow);
+    target = etfRow;
+  }
   // 2026-07-20 灰色兜底：无 ETF 时生成灰色占位符（用户要求：不能空白，否则用户以为坏了）
   // data-no-pop 排除 _initTermPop 捕获 title（L1475），保留原生 hover tooltip "该标的暂无相关ETF"
   if (!etfs || !etfs.length) {
