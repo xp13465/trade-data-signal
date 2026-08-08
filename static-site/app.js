@@ -1652,7 +1652,17 @@ function _signalLightInfo(it) {
 // hoverpop + cellHtml tooltip 统一用此函数取 top1, 解决 etfs[0]=最相似(560590) 与 popup top1=跟踪最好(560010) 错配
 function _topEtfByScore(etfs) {
   if (!etfs || !etfs.length) return null;
+  // 优先用后端滞回 stable_top1 标记(3天滞回防 top1 跳变, build_board_etf_map.py 标记)
+  for (var _i = 0; _i < etfs.length; _i++) {
+    if (etfs[_i] && etfs[_i].stable_top1 === true) return etfs[_i];
+  }
+  // 降级: track_score 降序, track_n<90 视为不够稳定排后(延迟纳入, 只展示不排 top1)
   return etfs.slice().sort(function(a, b) {
+    var _na = (a && typeof a.track_n === "number") ? a.track_n : 0;
+    var _nb = (b && typeof b.track_n === "number") ? b.track_n : 0;
+    var _aStable = _na >= 90;
+    var _bStable = _nb >= 90;
+    if (_aStable !== _bStable) return _bStable ? 1 : -1;  // >=90 优先, <90 排后
     var _sa = (a && typeof a.track_score === "number") ? a.track_score : -1;
     var _sb = (b && typeof b.track_score === "number") ? b.track_score : -1;
     if (_sb !== _sa) return _sb - _sa;  // track_score 降序, null/absent 排后

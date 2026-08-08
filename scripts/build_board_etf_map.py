@@ -1197,6 +1197,102 @@ def _build_index_etf_map_auto(reverse_map: dict[str, list[dict]], df_by_code: di
     return result
 
 
+# ── top1 稳定性：延迟纳入 + 3天滞回 ──
+# 延迟纳入: track_n < MIN_TRACK_N 的 ETF 不参与 top1 候选（只展示不排 top1）。
+#   阈值 90 = 60(算分最低要求) + 30(观察缓冲)，n>=90 才进候选 + 滞回 3 天。
+# 滞回: 今日 eligible top1 != 昨日 stable_top1 时计 challenge count；
+#   连续 HYSTERESIS_DAYS 天领先才切换 stable_top1，防小样本/临界点跳变。
+# 标记: stable_top1 ETF 加 stable_top1=True 字段，前端 _topEtfByScore 优先用。
+# 状态: _hysteresis 顶层 key 存 {index_id: {stable_top1, challenge}}，下次运行读取。
+MIN_TRACK_N = 90
+HYSTERESIS_DAYS = 3
+
+
+def _apply_hysteresis(out: dict) -> None:
+    """3天滞回 stable_top1：读昨日 OUT 的 _hysteresis，今日 eligible top1 连续3天领先才切换。
+
+    延迟纳入: track_n<90 的 ETF 不参与 top1 候选（只展示不排 top1）。
+    滞回: 今日 top1 != 昨日 stable_top1 时，计 challenge count；连续3天才切换。
+    标记: stable_top1 ETF 加 stable_top1=True，前端 _topEtfByScore 优先用。
+    """
+    prev_hyst = {}
+    if OUT.exists():
+        try:
+            prev_data = json.loads(OUT.read_text(encoding="utf-8"))
+            prev_hyst = prev_data.get("_hysteresis", {})
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    hyst = {}
+    for iid in list(out.keys()):
+        if iid.startswith("_"):
+            continue
+        etfs = out.get(iid, [])
+        if not etfs:
+            continue
+
+        # 清除旧标记（防上次标记残留）
+        for e in etfs:
+            e.pop("stable_top1", None)
+
+        # 今日 eligible top1（候选挑战者）：track_n>=90 且 track_score 非 None
+        eligible = [e for e in etfs
+                    if e.get("track_n", 0) >= MIN_TRACK_N
+                    and e.get("track_score") is not None]
+        today_top1_code = max(eligible, key=lambda e: e["track_score"])["code"] if eligible else None
+
+        # 昨日状态
+        prev = prev_hyst.get(iid, {})
+        prev_stable = prev.get("stable_top1")
+        prev_chal = prev.get("challenge") or {}
+        prev_chal_code = prev_chal.get("code")
+        prev_count = prev_chal.get("count", 0)
+
+        # prev_stable 已不在今日列表 -> 重置
+        today_codes = {e["code"] for e in etfs}
+        if prev_stable and prev_stable not in today_codes:
+            prev_stable = None
+
+        stable_top1 = None
+        challenge = None
+
+        if prev_stable is None:
+            # 首次/重置：用今日 eligible top1（可能 None=无候选）
+            stable_top1 = today_top1_code
+        elif today_top1_code is None:
+            # 无 eligible 挑战者，保持 prev_stable
+            stable_top1 = prev_stable
+        elif today_top1_code == prev_stable:
+            # 今日 top1 与昨日 stable 一致，保持
+            stable_top1 = prev_stable
+        else:
+            # 挑战者出现，计数
+            count = prev_count + 1 if today_top1_code == prev_chal_code else 1
+            if count >= HYSTERESIS_DAYS:
+                # 连续3天领先，切换
+                stable_top1 = today_top1_code
+            else:
+                # 保持昨日 stable，记录挑战
+                stable_top1 = prev_stable
+                challenge = {"code": today_top1_code, "count": count, "threshold": HYSTERESIS_DAYS}
+
+        hyst[iid] = {"stable_top1": stable_top1, "challenge": challenge}
+
+        # 标记 stable_top1 ETF
+        if stable_top1:
+            for e in etfs:
+                if e["code"] == stable_top1:
+                    e["stable_top1"] = True
+                    break
+
+    out["_hysteresis"] = hyst
+    _stable = sum(1 for v in hyst.values() if v.get("stable_top1") and not v.get("challenge"))
+    _challenging = sum(1 for v in hyst.values() if v.get("challenge"))
+    _none = sum(1 for v in hyst.values() if not v.get("stable_top1"))
+    print(f"\n=== 滞回 stable_top1（3天滞回 + 延迟纳入 track_n<{MIN_TRACK_N}）===")
+    print(f"  {len(hyst)} 指数: {_stable} 稳定, {_challenging} 挑战中, {_none} 无候选")
+
+
 def main():
     cfg = load_config()
     name_by_id = {i["id"]: i["name"] for i in cfg.get("indices", [])}
@@ -1412,6 +1508,11 @@ def main():
             x.get("track_score") is None,  # False(0) 在前 True(1) 在后 -> None 排最后
             -(x.get("track_score") if x.get("track_score") is not None else 0),  # 降序
         ))
+
+    # ── top1 稳定性：延迟纳入 + 3天滞回 stable_top1 ──
+    # 读昨日 OUT 的 _hysteresis 状态，今日 eligible top1(track_n>=90) 连续3天领先才切换。
+    # 标记 stable_top1 ETF 加 stable_top1=True，前端 _topEtfByScore 优先用。
+    _apply_hysteresis(out)
 
     # 写盘（compact 格式减体积：加 track_* 8字段后 indent=2 771KB/indent=1 704KB 超 700KB，
     # compact ~615KB 达标。后端文件 json.loads 读取不受格式影响，debug 用 python -m json.tool 查看）

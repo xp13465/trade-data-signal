@@ -227,11 +227,12 @@ def etf_for(index_id: str) -> dict:
     匹配到多个时全部返回，前端按体量排序展示、用户自选；匹配不到为空数组
     （不再硬塞"代理"ETF，避免名称对不上误导用户）。
 
-    track_* 字段裁剪：只透传 track_score + track_tier 减体积；
-    5项原始指标（track_avg_dev/te/ir/r2/roll_std/n）只存 board_etf_map.json 后端 debug 用。
+    track_* 字段裁剪：透传 track_score + track_tier + track_n + track_low_confidence + stable_top1；
+    4项原始指标（track_avg_dev/te/ir/r2/roll_std）只存 board_etf_map.json 后端 debug 用。
+    track_n 透传供前端延迟纳入排序（track_n<90 排后，只展示不排 top1）。
     """
     raw = _etf_map().get(index_id) or []
-    _TRACK_STRIP = {"track_avg_dev", "track_te", "track_ir", "track_r2", "track_roll_std", "track_n"}
+    _TRACK_STRIP = {"track_avg_dev", "track_te", "track_ir", "track_r2", "track_roll_std"}
     etfs = [{k: v for k, v in _e.items() if k not in _TRACK_STRIP} if isinstance(_e, dict) else _e
             for _e in raw]
     return {"etfs": etfs}

@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a55';  // bump a54->a55: A级打包 modal 6色->8类文案 + 灰灭灯lowconf修正
+const CACHE_VERSION = 'v6-20260809-a56';  // bump a55->a56: top1稳定性 stable_top1滞回+延迟纳入track_n<90排后
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
