@@ -1491,6 +1491,33 @@ function _sigTodayHint() {
 // 2026-08-05 信号 ETF 数据缓存：index_id -> etfs（_renderSignalGrid 填充，hoverpop 取 top1 显名称代码）。
 let _sigEtfCache = {};
 
+// 2026-08-08 fix: market tab 走势卡 etf-tag-pnl(至今盈亏)不显示。根因 _sigEtfCache 只在 overview tab
+// _renderSignalGrid(L1664-1670)填充,market tab 不调 renderOverview 致 _sigEtfCache 空 ->
+// _appendEtfLinkTag L15231 _cached 空 -> 不合并 etf_since_return -> _top0Text 空 -> 不生成 etf-tag-pnl。
+// 修复:从 overview signals_today.etfs 补填 _sigEtfCache(复用现有机制,_appendEtfLinkTag 不改)。
+// boot.json 已在 app init(fetchBoot->initSimIndices L24)缓存 overview,renderTab L5036 await _simIndicesPromise
+// 确保 boot 就绪后才渲染;_getCachedOverview() 绝大多数情况非空。缓存空(boot 失败/过期)时 fetch 兜底。
+async function _ensureSigEtfCacheFromOverview() {
+  var ov = _getCachedOverview();
+  if (!ov) {
+    try {
+      ov = await Promise.race([
+        fetchJSON("./data/overview.json"),
+        new Promise(function(r) { setTimeout(r, 1500); })
+      ]);
+      if (ov) _setCachedOverview(ov);
+    } catch (e) {}
+  }
+  if (!ov || !ov.signals_today) return;
+  for (var i = 0; i < ov.signals_today.length; i++) {
+    var it = ov.signals_today[i];
+    if (it.index_id && it.etfs) {
+      if (!_sigEtfCache[it.index_id + "|" + it.date]) _sigEtfCache[it.index_id + "|" + it.date] = it.etfs;
+      if (!_sigEtfCache[it.index_id]) _sigEtfCache[it.index_id] = it.etfs;
+    }
+  }
+}
+
 // 2026-08-05 ETF 至今盈亏格式化：红涨绿跌（A股配色 #e6492e/#2e8b57），正数加+，百分比+括号价格差。
 // _etfPnlText 返回纯文本（如"至今 +1.21% (+0.012)"），None/NaN 返 ""；_etfPnlColor 返回对应颜色。
 function _etfPnlText(ret, diff) {
@@ -11208,6 +11235,8 @@ async function renderAStock(container = content) {
   const indicesSection = document.createElement("div");
   indicesSection.className = "indices-section";
   container.appendChild(indicesSection);
+  // 2026-08-08 fix: 补填 _sigEtfCache 供走势卡 etf-tag-pnl 显示(overview tab _renderSignalGrid 未跑)
+  await _ensureSigEtfCacheFromOverview();
   // 静态版 fetcher：读 index/{id}-all.json 全历史，前端按 ohlc 日期范围过滤 signals
   await renderIndicesSection(indicesSection, r.indices, async (id, idx) => {
     const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
@@ -11288,6 +11317,8 @@ async function renderHK(container = content) {
     items: hkIndEntries.map(([id, idx]) => ({ key: id, name: idx.name, targetId: "industry-cell-" + id }))
   }] : [];
   const anchorBarRef = {};
+  // 2026-08-08 fix: 补填 _sigEtfCache 供走势卡 etf-tag-pnl 显示(同 renderAStock)
+  await _ensureSigEtfCacheFromOverview();
   await renderIndicesSection(indicesSection, indices, async (id, idx) => {
     const raw = await fetchJSON(`https://ss.fx8.store/r2/index/${id}-all.json`);
     return { signals: filterSignalsByRange(raw.signals, idx.data), stats: raw.stats };
