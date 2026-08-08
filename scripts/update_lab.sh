@@ -299,8 +299,50 @@ PUSH_RC=${PIPESTATUS[0]:-1}
 if [ "$PUSH_RC" -ne 0 ]; then
   echo "⚠ git push 失败（退出码 ${PUSH_RC}），尝试 fetch + rebase 重试..." | tee -a "$LOG"
   git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
+  # stash 全仓库 tracked M + untracked（防 rebase 撞 dirty working tree，复用 deploy.sh 机制）
+  STASH_CNT_BEFORE=$(git -C "$GIT_REPO" stash list 2>/dev/null | wc -l | tr -d ' ')
+  git -C "$GIT_REPO" stash push --include-untracked -m "update_lab-rebase-$(date +%Y%m%d_%H%M%S)" 2>&1 | tee -a "$LOG" || true
+  STASH_CNT_AFTER=$(git -C "$GIT_REPO" stash list 2>/dev/null | wc -l | tr -d ' ')
+  LAB_STASHED=0
+  if [ "$STASH_CNT_AFTER" -gt "$STASH_CNT_BEFORE" ]; then
+    LAB_STASHED=1
+    echo "✓ rebase 前已 stash 全仓库 tracked M + untracked 文件（stash@{0}）" | tee -a "$LOG"
+  fi
   if git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"; then
-    if git -C "$GIT_REPO" push origin main 2>&1 | tee -a "$LOG"; then
+    git -C "$GIT_REPO" push origin main 2>&1 | tee -a "$LOG"
+    PUSH2_RC=${PIPESTATUS[0]:-1}
+    # pop stash（恢复工作区改动，数据文件冲突自动解决，复用 deploy.sh pop_rebase_stash 机制）
+    if [ "$LAB_STASHED" = "1" ]; then
+      _pop_out=$(git -C "$GIT_REPO" stash pop 2>&1)
+      _pop_rc=$?
+      echo "$_pop_out" | tee -a "$LOG"
+      if [ "$_pop_rc" -ne 0 ]; then
+        _conflicted=$(git -C "$GIT_REPO" diff --name-only --diff-filter=U 2>/dev/null)
+        if [ -n "$_conflicted" ]; then
+          _non_data=""
+          for _f in $_conflicted; do
+            case "$_f" in
+              static-site/data/*.json|static-site/data/feed.xml)
+                git -C "$GIT_REPO" checkout --theirs -- "$_f" 2>&1 | tee -a "$LOG"
+                git -C "$GIT_REPO" add -- "$_f" 2>&1 | tee -a "$LOG"
+                ;;
+              *)
+                _non_data="$_non_data $_f"
+                ;;
+            esac
+          done
+          if [ -z "$_non_data" ]; then
+            git -C "$GIT_REPO" stash drop 2>&1 | tee -a "$LOG"
+            echo "✓ stash pop 数据文件冲突已自动解决(--theirs)，stash 已 drop" | tee -a "$LOG"
+          else
+            echo "⚠ stash pop 有非数据文件冲突($_non_data)，保留 stash@{0} 待手动 git stash pop" | tee -a "$LOG"
+          fi
+        else
+          echo "⚠ stash pop 失败(无冲突文件信息)，保留 stash@{0} 待手动处理" | tee -a "$LOG"
+        fi
+      fi
+    fi
+    if [ "$PUSH2_RC" -eq 0 ]; then
       echo "✓ rebase + 重试 push 成功" | tee -a "$LOG"
     else
       echo "⚠ rebase 后重试 push 仍失败" | tee -a "$LOG"
@@ -308,6 +350,10 @@ if [ "$PUSH_RC" -ne 0 ]; then
     fi
   else
     git -C "$GIT_REPO" rebase --abort 2>/dev/null || true
+    # rebase 失败也恢复 stash（避免丢工作区改动）
+    if [ "$LAB_STASHED" = "1" ]; then
+      git -C "$GIT_REPO" stash pop 2>&1 | tee -a "$LOG" || true
+    fi
     echo "⚠ rebase origin/main 失败，已 abort 保持工作区干净" | tee -a "$LOG"
     GIT_DEPLOY_RC=1
   fi

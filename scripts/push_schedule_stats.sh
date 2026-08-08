@@ -13,12 +13,10 @@
 #   - intraday_snapshot.sh 选项2：gen_stats 后调本脚本（实时性最佳，当轮 schedule_stats 当轮上线）
 #   - deploy.sh L216 移除 schedule_stats（不再由 deploy.sh push，避免和本脚本双写撞 git lock）
 #
-# 机制（复用 intraday_snapshot.sh L132-298 worktree + deploy.lock + rebase 兜底）：
-#   - 持 deploy.lock 串行化 git（阻塞，等 intraday/deploy 释放；避免 index.lock 冲突）
-#   - 独立 worktree（detached HEAD @ origin/main，不影响当前 feat 开发分支）
-#   - rsync schedule_stats.json + gzip -> git add + commit + push origin HEAD:main
-#   - non-ff fetch + rebase 兜底（严禁 force push，§8 铁律；rebase 失败 abort 退出待人工）
-#   - push 失败 notify.py --severe 告警（让 schedule_monitor 48h 监控发现）
+# 机制（阶段3：R2 上传，替代 git push worktree + deploy.lock + rebase 兜底）：
+#   - gen_stats 刷新本地 schedule_stats.json，upload-data-files 上传到 R2 + purge_cache
+#   - 无需 worktree/git push（前端走 R2，static-site/data/ 仍 tracked 作兜底）
+#   - R2 上传失败 notify.py --severe 告警（让 schedule_monitor 48h 监控发现）
 #
 # 用法：bash scripts/push_schedule_stats.sh
 # 日志：data/logs/push_schedule_stats_YYYYMMDD_HHMM.log

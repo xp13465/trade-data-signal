@@ -3,8 +3,8 @@
 #
 # 跑 .venv/bin/python -m app.collector.intraday_snapshot（秒级）：
 #   采腾讯9指数实时 + 同花顺行业实时涨跌幅，存 DB + dump static-site/data/intraday_snapshot.json
-# 然后 commit + push 该 JSON 到 main 分支（部署分支），供前端"盘中实时小结"展示。
-#   采集在主仓库跑（DB 持久化），commit+push 在独立 worktree 操作 main（不影响当前 feat 开发）。
+# 然后 upload_r2 同步该 JSON 到 R2（阶段3：替代 git push），供前端"盘中实时小结"展示。
+#   采集在主仓库跑（DB 持久化），upload_r2 直接读 REPO 上传 R2（无需 worktree/git push）。
 #
 # 进程互斥：
 #   - 快照锁 /tmp/trade_intraday_snapshot.lock（--nb 非阻塞）：防快照自身重复，秒级。
@@ -17,7 +17,7 @@
 # 用法：bash scripts/intraday_snapshot.sh [force]
 #   force: 绕过交易日闸门，非交易日也跑（补测/校准）
 # 日志：data/logs/intraday_snapshot_YYYYMMDD_HHMM.log
-# 退出码：快照采集退出码（git push 失败也计入）。
+# 退出码：快照采集退出码（R2 上传失败也计入）。
 set -uo pipefail
 # 防脚本运行期间 mac 休眠（caffeinate 跟随脚本 PID，退出自动结束）
 caffeinate -i -w $$ >/dev/null 2>&1 &

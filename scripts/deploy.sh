@@ -67,7 +67,7 @@ if [ -n "$UNMERGED" ]; then
   NON_DATA_UNMERGED=""
   for _u in $UNMERGED; do
     case "$_u" in
-      static-site/data/*.json)
+      static-site/data/*.json|static-site/data/feed.xml)
         git -C "$GIT_REPO" reset HEAD -- "$_u" 2>/dev/null || true
         git -C "$GIT_REPO" checkout origin/main -- "$_u" 2>&1 | tee -a "$LOG"
         echo "⚠ 清理 unmerged 数据文件: $_u（已 reset HEAD + checkout origin/main）" | tee -a "$LOG"
@@ -365,7 +365,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
             non_data=""
             for f in $conflicted; do
               case "$f" in
-                static-site/data/*.json)
+                static-site/data/*.json|static-site/data/feed.xml)
                   git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
                   git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
                   ;;
@@ -412,7 +412,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
         NON_DATA_CONFLICTS=""
         for f in $CONFLICTED; do
           case "$f" in
-            static-site/data/*.json)
+            static-site/data/*.json|static-site/data/feed.xml)
               git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
               git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
               ;;
@@ -453,7 +453,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
             NON_DATA2=""
             for f in $CONFLICTED2; do
               case "$f" in
-                static-site/data/*.json)
+                static-site/data/*.json|static-site/data/feed.xml)
                   git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
                   git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
                   ;;
