@@ -237,6 +237,35 @@ def etf_for(index_id: str) -> dict:
     return {"etfs": etfs}
 
 
+def _self_etf_for(iid, cfg, conn):
+    """ETF本体注入：当 index 本身就是 ETF（indicators.yaml func=fund_etf_hist_sina，
+    如 cgb_10y_etf symbol=sh511260），board_etf_map.json 无此 key（非板块/宽基映射）
+    -> etf_for 返空 -> 走势卡/弹窗/信号列表"无相关ETF"。此处直接用 symbol 剥 sh/sz/bj
+    前缀作 ETF 代码注入，match_method="self" 标识"index 即 ETF 自身"。
+    自动覆盖未来同类 index，无需改 board_etf_map.py 或硬编码 index_id。
+    返回 {"etfs":[{"code","name","match_method":"self","amount"?}]} 或 None。
+    """
+    for i in cfg.get("indices", []):
+        if i.get("id") != iid or not i.get("enabled", True):
+            continue
+        if i.get("func") == "fund_etf_hist_sina" and i.get("symbol"):
+            _sym = i["symbol"]
+            _code = _sym[2:] if _sym[:2] in ("sh", "sz", "bj") else _sym
+            _etf = {"code": _code, "name": i.get("name") or _code, "match_method": "self"}
+            # index_daily.amount 单位=元（如 cgb_10y_etf 3976292387≈39.76亿）；
+            # 无数据则不注入 amount（前端降级不显体量）
+            _self_amt = conn.execute(
+                "SELECT amount FROM index_daily WHERE index_id=? AND amount IS NOT NULL "
+                "ORDER BY date DESC LIMIT 1",
+                (iid,),
+            ).fetchone()
+            if _self_amt and _self_amt["amount"]:
+                _etf["amount"] = round(_self_amt["amount"] / 1e8, 2)
+            return {"etfs": [_etf]}
+        break  # 找到 iid 但非 fund_etf_hist_sina -> 无 self ETF
+    return None
+
+
 def industry_heatmap(conn, cfg):
     """申万一级行业近 1 日 / 近 5 日涨跌幅（用于热力图）。不受 range 影响，固定取最新。"""
     indices = indices_for_market(cfg, "industry")
@@ -418,23 +447,12 @@ def overview(conn, cfg):
         if _meta:
             _s["name"] = _meta["name"]
             _s["symbol"] = _meta["symbol"]
-        # fund_etf_hist_sina 分支（2026-08-07）：该 index 本身就是 ETF（indicators.yaml func=
-        # fund_etf_hist_sina，如 cgb_10y_etf symbol=sh511260），board_etf_map.json 无此 key
-        # （非板块/宽基映射）-> etf_for 返空 -> 前端"无相关ETF"。此处直接用 symbol 剥 sh/sz/bj
-        # 前缀作为 ETF 代码注入，match_method="self" 标识"index 即 ETF 自身"。自动覆盖未来同类
-        # index（如 cgb_10y_etf），无需改 board_etf_map.py 或硬编码 index_id。
-        if _meta and _meta.get("func") == "fund_etf_hist_sina" and _meta.get("symbol"):
-            _sym = _meta["symbol"]
-            _code = _sym[2:] if _sym[:2] in ("sh", "sz", "bj") else _sym
-            _s["etfs"] = [{"code": _code, "name": _meta.get("name") or _code, "match_method": "self"}]
-            # 2026-08-08 self ETF 体量：查 index_daily 最新非空 amount(元)，转亿注入 etfs[0]["amount"]
-            # index_daily.amount 单位=元（如 cgb_10y_etf 3976292387≈39.76亿）；无数据则不注入(前端降级不显体量)
-            _self_amt = conn.execute(
-                "SELECT amount FROM index_daily WHERE index_id=? AND amount IS NOT NULL ORDER BY date DESC LIMIT 1",
-                (_s["index_id"],),
-            ).fetchone()
-            if _self_amt and _self_amt["amount"]:
-                _s["etfs"][0]["amount"] = round(_self_amt["amount"] / 1e8, 2)
+        # ETF本体注入去重（2026-08-09）：改调 _self_etf_for helper，复用 global_market/index_detail
+        # 同一逻辑。func=fund_etf_hist_sina 的 index（如 cgb_10y_etf）本身就是 ETF，
+        # board_etf_map.json 无此 key -> etf_for 返空 -> helper 用 symbol 剥前缀注入 match_method="self"。
+        _self = _self_etf_for(_s["index_id"], cfg, conn)
+        if _self:
+            _s["etfs"] = _self["etfs"]
         else:
             _s["etfs"] = [dict(_e) for _e in (etf_for(_s["index_id"]).get("etfs") or [])]
     # 信号至今盈亏（方案B后端算）：为每条信号算 since_return（至今涨跌%）+ since_correct（对错）。
@@ -908,6 +926,12 @@ def global_market(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
             "strategy": strategy_desc(iid, cfg),
             **etf_for(iid),
         }
+        # ETF本体兜底（cgb_10y_etf 等 fund_etf_hist_sina 指数）：board_etf_map.json 无此 key
+        # -> etf_for 返空 -> 走势卡"无ETF"。此处用 symbol 剥前缀注入 self ETF。
+        if not indices[iid].get("etfs"):
+            _self = _self_etf_for(iid, cfg, conn)
+            if _self:
+                indices[iid]["etfs"] = _self["etfs"]
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
     extras = {}
     extras_signals = {}
@@ -1022,6 +1046,12 @@ def index_detail(conn, cfg, index_id, start, end, *, cache=None, stats_all_dict=
     }
     if include_etf:
         result.update(etf_for(index_id))
+        # ETF本体兜底（cgb_10y_etf 等 fund_etf_hist_sina 指数）：board_etf_map.json 无此 key
+        # -> etf_for 返空 -> 弹窗"无ETF"。此处用 symbol 剥前缀注入 self ETF。
+        if not result.get("etfs"):
+            _self = _self_etf_for(index_id, cfg, conn)
+            if _self:
+                result["etfs"] = _self["etfs"]
     return result
 
 
