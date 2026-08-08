@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a52';  // bump a51->a52: 信号弹窗至今盈亏行补信号日期+描述类别(信号配色,innerHTML)
+const CACHE_VERSION = 'v6-20260809-a53';  // bump a52->a53: 信号锚点统一(弹窗信号本身/走势卡最近)+相关ETF至今盈亏文案扩充
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

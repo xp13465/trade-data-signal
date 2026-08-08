@@ -4673,7 +4673,7 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
     // need3-②：弹窗模拟回测按钮后加相关 ETF（复用指数表现 _appendEtfLinkTag，仅常规指数分支 _modalEtfs 非 null 时渲染）。
     // _prependSimBtn 已在 indexChart/valueChartWithSignals 内调用（h3 顺序 [标题][❓][模拟回测]），此处追加 ETF tag 排末尾。
     if (_sigChart && _modalEtfs) {
-      _appendEtfLinkTag(_sigChart.getDom().parentElement, indexId, _modalEtfs, sigs);
+      _appendEtfLinkTag(_sigChart.getDom().parentElement, indexId, _modalEtfs, sigs, _matchSR);
     }
     requestAnimationFrame(() => _signalModalCharts.forEach((c) => c && c.resize()));
   } catch (e) {
@@ -15237,7 +15237,8 @@ function _bindFreqPopupToHintRows(cell, stats) {
 // 仿 _appendStrategyHint 通过 cardEl.querySelector("h3") 注入子元素（不碰 markPoint/chip 区域）。
 // etfs 为空（sh/sz 综合指数无跟踪ETF）不渲染 tag，避免硬塞"代理"ETF 误导用户。
 // 注：ETF 滞后指数，tag 仅作"信号参考"展示（ETF 已反映部分预期），非交易指令。
-function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
+function _appendEtfLinkTag(cardEl, indexId, etfs, signals, anchorSig) {
+  // 2026-08-08 anchorSig(可选,弹窗传 _matchSR=信号本身锚点;走势卡/行业卡不传=用最近信号 latest 锚点)
   if (!cardEl) return;
   var h3 = cardEl.querySelector("h3");
   // 2026-07-20 板分化适配：行业网格卡无 h3，走 spark-name 路径（仿 _appendStrategyHint L1689）
@@ -15271,7 +15272,11 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   }
   // 2026-08-05 从 signals_today 缓存合并 etf_since_return/etf_price_diff（仅 signals_today 内的 index_id 有此数据）。
   // 非副本：Object.assign 不改原 etfs 元素，新建浅拷贝避免污染 _sigEtfCache / index_detail 原始数据。
-  var _cached = _sigEtfCache[indexId];
+  // 2026-08-08 锚点语义统一：弹窗传 anchorSig(信号本身)用 per-signal key(indexId|date)取该信号锚点 ETF 盈亏；
+  // 走势卡/行业卡不传(用 latest)用 indexId key 取最近信号 ETF 盈亏。per-signal 无数据 fallback latest。
+  var _cacheKey = (anchorSig && anchorSig.date) ? (indexId + "|" + anchorSig.date) : indexId;
+  var _cached = _sigEtfCache[_cacheKey];
+  if (!_cached && anchorSig) _cached = _sigEtfCache[indexId];  // per-signal 无数据 fallback latest
   if (_cached && _cached.length) {
     var _byCode = {};
     _cached.forEach(function(e) { if (e.code) _byCode[e.code] = e; });
@@ -15283,7 +15288,9 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   // 检测最新信号（按 date 降序取最新一条），buy 类则高亮 tag
   var BUY_TYPES = { buy: 1, buy_aux: 1, buy_special: 1, buy_special_filtered: 1, buy_backup: 1 };
   var latest = null;
-  if (signals && signals.length) {
+  if (anchorSig) {
+    latest = anchorSig;  // 2026-08-08 弹窗用信号本身锚点(_matchSR)，不走 signals 降序取最新
+  } else if (signals && signals.length) {
     for (var i = 0; i < signals.length; i++) {
       var s = signals[i];
       if (!s.date) continue;
@@ -15311,12 +15318,23 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals) {
   _bindEtfPopup(target, etfs, isBuy, latestDate);
   // 2026-08-05 tag 后追加 top1 至今盈亏（有数据才显，走势图弹窗+指数卡均生效）
   // top1 = _topEtfByScore（track_score 降序），与 tag 展示/approx 标注一致
+  // 2026-08-08 文案扩充：弹窗(传 anchorSig=信号本身)显"MM-DD的类别·子描述 至今 +X% (+Y)"；
+  // 走势卡/行业卡(不传 anchorSig=最近信号)显"最近信号 MM-DD的类别·子描述 至今 +X% (+Y)"。
+  // 类别/子描述复用 openSignalChartModal _srLine 同款逻辑(_typeKey/_meta/_typeLabel/signalLabel)。
   var _top0 = _topEtfByScore(etfs);
-  var _top0Text = _top0 ? _etfPnlText(_top0.etf_since_return, _top0.etf_price_diff) : "";
-  if (_top0Text) {
-    // 问题1: title 标注盈亏基准时点"自最近信号YYYYMMDD至今"; data-no-pop 排除 _initTermPop 捕获 [title](L2313)
-    var _pnlTitle = latestDate ? '自最近信号' + latestDate + '至今' : '至今盈亏';
-    tag.insertAdjacentHTML("afterend", '<span class="etf-tag-pnl" data-no-pop="" title="' + _pnlTitle + '" style="color:' + _etfPnlColor(_top0.etf_since_return) + '">' + _top0Text + '</span>');
+  var _pnlBase = _top0 ? _etfPnlText(_top0.etf_since_return, _top0.etf_price_diff) : "";
+  if (_pnlBase) {
+    var _sigForText = anchorSig || latest;  // 弹窗用信号本身锚点，走势卡用最近信号锚点
+    var _pnlFull = _pnlBase;
+    if (_sigForText && _sigForText.date) {
+      var _tk = (_sigForText.reason || '').includes('波段减仓') ? 'band_sell' : _sigForText.signal;
+      var _tm = _SIG_TYPE_META.find(m => m.key === _tk);
+      var _tl = _tm ? _t(_tm.labelKey) : _sigForText.signal;
+      var _sl = signalLabel(_sigForText);
+      var _pf = anchorSig ? "" : "最近信号 ";
+      _pnlFull = _pf + fmtDate(_sigForText.date) + "的" + _tl + "·" + _sl + " " + _pnlBase;
+    }
+    tag.insertAdjacentHTML("afterend", '<span class="etf-tag-pnl" data-no-pop="" title="ETF至今盈亏" style="color:' + _etfPnlColor(_top0.etf_since_return) + '">' + _pnlFull + '</span>');
   }
 }
 
