@@ -8369,4 +8369,4 @@ board_etf_map.json(2b含similarity/max_err/grade/fund_type) -> queries.py etf_fo
 - 教训:通知丢失不丢工作,进度文件是可靠兜底;SendMessage不是100%送达,进度文件+mtime是可靠兜底
 
 ### 五、待办
-- ①DB迁GitLab(用户注册后)②72h监控(阶段3-5已完成可启动)③docs/r2-deployment.md(R2部署文档8章节)④site-deployment.md R2部分补完整(当前标注迁移中)⑤reviewer P2清理(阶段3 4个P2+阶段4a 3个P2+阶段5 reviewer待出P2)
+- ①~~DB迁GitLab~~取消→**DB方案A定(不进git,只R2 signal-backup异地备份+本地双副本,sqlite二进制git diff无价值,GitLab需手机验证)** ②72h监控(阶段3-5已完成可启动)③docs/r2-deployment.md(R2部署文档8章节)④site-deployment.md R2部分补完整(当前标注迁移中)⑤reviewer P2清理(阶段3 4个P2+阶段4a 3个P2+阶段5 reviewer待出P2)
