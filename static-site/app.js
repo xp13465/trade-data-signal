@@ -1541,19 +1541,22 @@ function _etfMatchTags(etf) {
   var _lightHtml = '<span class="etf-light ' + _light.cls + '"></span>';
   var _parts = [];
   var _grade = "";
-  // 旧标签: grade + max_err% (similarity 存在时显示)
+  // 档位：跟踪分(档位次重,跟踪分第三,全角：连; self 也显档位"强关联")
+  if (_light.label) {
+    var _seg = _light.label;
+    if (typeof etf.track_score === "number") _seg += "：跟踪分" + Math.round(etf.track_score);
+    _parts.push(_seg);
+  }
+  // 旧标签: grade + max_err% (相似度辅助)
   if (typeof etf.similarity === "number") {
     _grade = etf.grade || "warn";
-    _parts.push(_gradeLabel(_grade));
-    if (typeof etf.max_err === "number") _parts.push(etf.max_err.toFixed(1) + "%");
+    var _ge = _gradeLabel(_grade);
+    if (typeof etf.max_err === "number") _ge += etf.max_err.toFixed(1) + "%";
+    _parts.push(_ge);
   }
-  // 新评分: 跟踪分(track_score, 0-100)
-  if (typeof etf.track_score === "number") {
-    _parts.push("跟踪" + Math.round(etf.track_score));
-  }
-  // 档位中文(self 已由信号灯蓝+label"强关联"体现, 不重复显)
-  if (_light.label && _mm !== "self") {
-    _parts.push(_light.label);
+  // 体量(辅助; amount 单位亿)
+  if (typeof etf.amount === "number") {
+    _parts.push(etf.amount + "亿");
   }
   // hover tooltip 中文化: 来源 + 分级 + 相似度 + 跟踪分 + 档位
   var _titleParts = ["来源: " + _etfSrcLabel(_mm)];
