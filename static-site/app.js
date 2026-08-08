@@ -1103,7 +1103,7 @@ function _backupSignalChipTip(sd, scored, chip) {
   return lines.join('&#10;').replace(/"/g, '&quot;');
 }
 
-// 6色信号图例（2026-07-23 三档优化版）：4色买点(主买红/辅买玫红/追买金/备买紫) + 卖绿 + 追止损蓝，
+// 8类信号图例（2026-07-23 三档优化版）：4色买点(主买红/辅买玫红/追买金/备买紫) + 波段持有橙 + 波段减仓草绿 + 卖绿 + 追止损蓝，
 // 指数走势图上方统一展示。备买风险提示附末尾（hover pop 显示"备买稳健性弱于追买仅供参考不单独决策"）。
 // 同日多买点信号合并拼色 pin（金描边+光晕），图例不单独列拼色（用户从 pin 视觉即可辨识）。
 // 三档 chip（年化最高/最稳健/回撤最小）在每个指数卡片内 chip-row 单独一行展示，chip 自带档位标签+买点名+数值，
@@ -1994,7 +1994,7 @@ function _rerenderSigCardContent(r, snap) {
   const sigCard = document.querySelector(".sig-card");
   if (!sigCard) return;
   const isClosed = snap ? snap.is_closed : true;
-  const title = "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看6色信号与ETF跟踪指标详细解释）");
+  const title = "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）");
   const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed);
   const tmp = document.createElement("div");
   tmp.innerHTML = newHtml;
@@ -2088,8 +2088,8 @@ function termTip(text) {
   return ` <span class="term-tip" data-tip="${text}">❓</span>`;
 }
 
-// 6色技术信号解释 modal（首页"近期技术分析参考点"卡片标题 ❓ 点击弹窗，方案6）
-// hover pop 简短提示 + click 弹窗6色信号详细解释（主买/辅买/追买/备买/卖/追止损卖）
+// 8类技术信号解释 modal（首页"近期技术分析参考点"卡片标题 ❓ 点击弹窗，方案6）
+// hover pop 简短提示 + click 弹窗8类信号详细解释（主买/辅买/追买/备买/波段持有/波段减仓/卖/追止损卖）
 // 复用 .rule-modal 样式 + 内联 style（不改 CSS），与 📋 策略说明 modal 风格一致。
 const _SIGNAL_HELP_ITEMS = [
   { sig: "buy", color: "#e6492e", nameKey: "detail_buy_name", desc: "RSI(14) 上穿 30。情绪极度超卖后拐头，均值回归思路。常对应阶段性反弹起点。", warn: "均值回归思路，适合震荡市；趋势市信号少。配套：与辅买共振时较强。" },
@@ -2178,7 +2178,7 @@ function _etfLightHelpHTML() {
     + '<li><span class="etf-light etf-light-related"></span> <b>草绿</b> related 相关 - track_score 60-74,跟踪误差较小</li>'
     + '<li><span class="etf-light etf-light-approx"></span> <b>橙</b> approx 近似 - track_score 50-59,有跟踪ETF但误差较大(统一橙色)</li>'
     + '<li><span class="etf-light etf-light-weak"></span> <b>暗橙</b> none 弱 - track_score 30-49,来源间接误差大</li>'
-    + '<li><span class="etf-light etf-light-nodata"></span> <b>灰灭灯</b> - 极弱/无跟踪(track_score&lt;30 或 N&lt;30,非 lowconf)</li>'
+    + '<li><span class="etf-light etf-light-nodata"></span> <b>灰灭灯</b> - 极弱/无跟踪(track_score&lt;30 或 N&lt;30;降权 N=30-59 折扣后&lt;30 时为 lowconf 估算值)</li>'
     + '</ul>'
   );
   // 2. 跟踪分 track_score
@@ -2288,7 +2288,7 @@ function _signalHelpModalHTML(aggStats) {
   return '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>📊 技术信号 &amp; ETF信号灯参考</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + items + _etfLightHelpHTML() + '<div class="rule-modal-footer">⚠ 以上为研究标注非交易指令，详见右下角浮动 📋 策略说明。过往表现不代表未来收益。</div></div></div>';
 }
 
-// 打开6色信号 modal：异步 fetch signal_stats.json 聚合后渲染（每次打开重新渲染含最新统计）
+// 打开8类信号 modal：异步 fetch signal_stats.json 聚合后渲染（每次打开重新渲染含最新统计）
 // signal_stats.json 已导出到 static-site/data/（export.py 生成，110品种×6信号×5d/10d/20d 三窗口）
 // fetchJSON 缓存5分钟；若 fetch 失败(404/解析错误) -> aggStats=null -> 降级"数据待补"
 async function _openSignalHelpModal() {
@@ -4088,7 +4088,7 @@ function renderIndicesSection(container, indices, fetcher, foldOneRow, extraGrou
     const anchorBar = buildIndexAnchorBar(anchorGroups, "指数目录");
     if (anchorBarRef) anchorBarRef.bar = anchorBar;  // 暴露给 caller(renderHK observe 板块 cell 用)
     container.appendChild(anchorBar);
-    // 6色信号图例（4色买点+卖绿+追止损蓝）+ 备买风险提示（2026-07-21 阶段4）
+    // 8类信号图例（4色买点+波段持有橙+波段减仓草绿+卖绿+追止损蓝）+ 备买风险提示（2026-07-21 阶段4）
     container.insertAdjacentHTML("beforeend", _signalLegendHtml());
     // 渲染期间显示 loading 占位；renderOne 首次成功渲染时移除占位；若最终没有任何 chart-card 渲染则替换为"暂无数据"。
     const chartLoadingEl = document.createElement("div");
@@ -9543,7 +9543,7 @@ async function renderOverview() {
   // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
-  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看6色信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看8类信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
   addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 覆盖
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表

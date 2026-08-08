@@ -18,7 +18,7 @@
 |---|------|------|----------|------|------|----------|---------------------|
 | C1 | `board_etf_map.json` | `data/` | 空数组 key 占比 | <30% | **fail** | `scripts/build_board_etf_map.py` | 全部无ETF(27/73=37%) |
 | C2 | `index_etf_map.json` | `data/` | 文件存在 | 存在 | **fail** | fund_etf_spot_em 前序 | "etf_index_map.json丢了" |
-| C3 | `overview.json` | `static-site/data/` | `date`==今日 | == | **fail** | `static-site/export.py` | KPI显示昨日 |
+| C3 | `overview.json` | `static-site/data/` | `date`==今日或最近交易日 | == | **fail** | `static-site/export.py` | KPI显示昨日 |
 | C4 | `overview.json` | 同上 | `collected_at` 含今日 | 含 | **fail** | 同上 | 数据不更新 |
 | C5 | `overview.json` | 同上 | `today.scores` 9 key 非空 | 9/9 | **fail** | 同上 | 情绪分缺失 |
 | C6 | `overview.json` | 同上 | `industry_heatmap` len | ==31 | warn | 同上 | 行业热力图缺 |
@@ -28,7 +28,7 @@
 | C10 | `intraday_snapshot.json` | 同上 | `industries` len | ==31 | warn | 同上 | 行业实时缺 |
 | C11 | `intraday_snapshot.json` | 同上 | 盘中(`is_closed==false`)`amount_forecast` 非空 | 非空 | **fail** | 同上 | 预估成交额缺失 |
 | C12 | `intraday_snapshot.json` | 同上 | `amount_forecast` < 50000 (亿) | <50000 | **fail** | 同上 | 预估9.52万亿爆炸 |
-| C13 | `boot.json` | `static-site/data/` | `overview.date`==今日(盘中更新后) | == | **fail** | `intraday_snapshot.py` | 成交额显示昨日值 |
+| C13 | `boot.json` | `static-site/data/` | `overview.date`==今日或最近交易日(盘中更新后) | == | **fail** | `intraday_snapshot.py` | 成交额显示昨日值 |
 | C14 | `boot.json` | 同上 | `_meta.missing` == [] | 空 | **fail** | 同上 | 首屏包缺文件 |
 | C15 | `boot.json` | 同上 | `_meta.files` 含 11 个 | ==11 | warn | 同上 | 首屏包不完整 |
 | C16 | `alert.json` | `static-site/data/` | `date`==今日(盘后)或昨日(盘中) | 匹配 | **fail** | `app/alert_score.py` | 信号不更新 |
@@ -51,6 +51,11 @@
 ```bash
 # 今日日期(YYYYMMDD 无连字符,与 overview.date 格式一致)
 TODAY=$(date +%Y%m%d)
+# 最近交易日(周末取周五;法定假日仍需人工判断,非交易日 overview.date=最近交易日不算FAIL)
+DOW=$(date +%u)  # 6=周六 7=周日
+if [ "$DOW" = "6" ]; then LAST_TRADING_DAY=$(date -v-1d +%Y%m%d); \
+elif [ "$DOW" = "7" ]; then LAST_TRADING_DAY=$(date -v-2d +%Y%m%d); \
+else LAST_TRADING_DAY=$TODAY; fi
 # 周末/盘前判断: alert.json 盘后才更新,盘中 date 可能是昨日(正常)
 IS_WEEKEND=$(date +%u)  # 6=周六 7=周日
 
@@ -66,7 +71,7 @@ print(f'C1 board_etf_map: {len(empty)}/{len(keys)}={pct:.1f}% empty', 'FAIL' if 
 # C3/C5: overview date + scores
 python3 -c "
 import json; d=json.load(open('static-site/data/overview.json'))
-print('C3 overview.date:', d.get('date'), 'FAIL' if d.get('date')!='$TODAY' else 'OK')
+print('C3 overview.date:', d.get('date'), 'FAIL' if d.get('date') not in ('$TODAY','$LAST_TRADING_DAY') else 'OK')
 s=d.get('today',{}).get('scores',{})
 miss=[k for k in ['a_sentiment','cross_market','fear_greed','sentiment_csi1000','sentiment_csi500','sentiment_cyb','sentiment_hs300','sentiment_kc50','sentiment_sz50'] if not s.get(k)]
 print('C5 scores missing:', miss, 'FAIL' if miss else 'OK')
@@ -87,7 +92,7 @@ print('C12 amount_forecast<50000:', af, 'FAIL' if af is not None and af>=50000 e
 python3 -c "
 import json; d=json.load(open('static-site/data/boot.json'))
 ov=d.get('overview',{})
-print('C13 boot.overview.date:', ov.get('date'), 'FAIL' if ov.get('date')!='$TODAY' else 'OK')
+print('C13 boot.overview.date:', ov.get('date'), 'FAIL' if ov.get('date') not in ('$TODAY','$LAST_TRADING_DAY') else 'OK')
 m=d.get('_meta',{}).get('missing',[])
 print('C14 boot._meta.missing:', m, 'FAIL' if m else 'OK')
 "
@@ -132,6 +137,14 @@ DATA = os.path.join(ROOT, "data")
 TODAY = datetime.date.today().strftime("%Y%m%d")
 TODAY_ISO = datetime.date.today().isoformat()
 YESTERDAY = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y%m%d")
+# 最近交易日(周末取周五;法定假日仍需人工判断,非交易日 overview.date=最近交易日不算FAIL)
+_td = datetime.date.today()
+if _td.weekday() == 5:      # 周六 -> 周五
+    LAST_TRADING_DAY = (_td - datetime.timedelta(days=1)).strftime("%Y%m%d")
+elif _td.weekday() == 6:    # 周日 -> 周五
+    LAST_TRADING_DAY = (_td - datetime.timedelta(days=2)).strftime("%Y%m%d")
+else:
+    LAST_TRADING_DAY = TODAY
 
 def _load(path):
     try:
@@ -169,8 +182,8 @@ def check_overview():
     if err: return "fail", f"overview.json 读取失败: {err}"
     fails = []
     warns = []
-    if d.get("date") != TODAY:
-        fails.append(f"date={d.get('date')} != 今日{TODAY}")
+    if d.get("date") not in (TODAY, LAST_TRADING_DAY):
+        fails.append(f"date={d.get('date')} 非今日/最近交易日({TODAY}/{LAST_TRADING_DAY})")
     ca = str(d.get("collected_at", ""))
     if TODAY not in ca.replace("-", ""):
         fails.append(f"collected_at={ca} 不含今日")
@@ -220,9 +233,9 @@ def check_boot():
     if err: return "fail", f"boot.json 读取失败: {err}"
     fails = []; warns = []
     ov = d.get("overview", {})
-    if isinstance(ov, dict) and ov.get("date") != TODAY:
+    if isinstance(ov, dict) and ov.get("date") not in (TODAY, LAST_TRADING_DAY):
         # 盘中 boot 会更新,若仍是昨日=成交额显示昨日值 bug
-        fails.append(f"boot.overview.date={ov.get('date')} != 今日{TODAY} (成交额昨日值)")
+        fails.append(f"boot.overview.date={ov.get('date')} 非今日/最近交易日({TODAY}/{LAST_TRADING_DAY}) (成交额昨日值)")
     meta = d.get("_meta", {})
     missing = meta.get("missing", [])
     if missing:
@@ -670,15 +683,16 @@ grep -n "schedule_stats" app.js lab.js
 ### 快速全量 P0 验证（一键脚本，reviewer 可直接跑）
 ```bash
 TODAY=$(date +%Y%m%d)
+DOW=$(date +%u); if [ "$DOW" = "6" ]; then LAST_TRADING_DAY=$(date -v-1d +%Y%m%d); elif [ "$DOW" = "7" ]; then LAST_TRADING_DAY=$(date -v-2d +%Y%m%d); else LAST_TRADING_DAY=$TODAY; fi
 echo "=== P0 回归 $(date) ==="
 # C1 board_etf_map
 python3 -c "import json;d=json.load(open('data/board_etf_map.json'));k=list(d.keys());e=[x for x in k if not d[x]];print(f'C1 board_etf_map {len(e)}/{len(k)}={len(e)/len(k)*100:.0f}%', 'FAIL' if len(e)/len(k)*100>=30 else 'OK')"
 # C3 overview date
-python3 -c "import json;d=json.load(open('static-site/data/overview.json'));print('C3 overview.date',d['date'],'FAIL' if d['date']!='$TODAY' else 'OK')"
+python3 -c "import json;d=json.load(open('static-site/data/overview.json'));print('C3 overview.date',d['date'],'FAIL' if d['date'] not in ('$TODAY','$LAST_TRADING_DAY') else 'OK')"
 # C8 intraday
 python3 -c "import json;d=json.load(open('static-site/data/intraday_snapshot.json'));print('C8 intraday collected_at',d['collected_at'],'FAIL' if '$TODAY' not in d['collected_at'].replace('-','') else 'OK');print('C9 indices',len(d.get('indices',[])),'FAIL' if len(d.get('indices',[]))<17 else 'OK');af=d.get('amount_forecast');print('C12 amount_forecast',af,'FAIL' if af is None or af>=50000 else 'OK')"
 # C13 boot
-python3 -c "import json;d=json.load(open('static-site/data/boot.json'));ov=d.get('overview',{});print('C13 boot.overview.date',ov.get('date'),'FAIL' if ov.get('date')!='$TODAY' else 'OK');m=d.get('_meta',{}).get('missing',[]);print('C14 boot.missing',m,'FAIL' if m else 'OK')"
+python3 -c "import json;d=json.load(open('static-site/data/boot.json'));ov=d.get('overview',{});print('C13 boot.overview.date',ov.get('date'),'FAIL' if ov.get('date') not in ('$TODAY','$LAST_TRADING_DAY') else 'OK');m=d.get('_meta',{}).get('missing',[]);print('C14 boot.missing',m,'FAIL' if m else 'OK')"
 # C16 alert
 python3 -c "import json;d=json.load(open('static-site/data/alert.json'));print('C16 alert.date',d['date'],'high.score',d.get('high',{}).get('score'))"
 # C19 notifications
