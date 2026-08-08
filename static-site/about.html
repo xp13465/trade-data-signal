@@ -159,6 +159,65 @@
         <li>⚠️ <strong>风险提醒不是看空</strong>:符合"风险提醒为降风险非趋势放弃"理念--留意高位预警是降风险锁利润,不是趋势看空放弃,底部接回可提高收益率。</li>
       </ul>
 
+      <h4>3.2.1 ETF跟踪指标说明</h4>
+      <p>指数表现 Tab 中,每个指数标的匹配到的 ETF 旁边有一个彩色圆点(●)信号灯,以及跟踪分/相似度/分级等指标。以下说明各指标算法,帮助理解信号灯含义。</p>
+
+      <h5>① 信号灯5色分类</h5>
+      <p>信号灯颜色由 <strong>track_tier</strong>(跟踪分档)决定,反映 ETF 跟踪指数的紧密程度:</p>
+      <table>
+        <thead><tr><th>灯色</th><th>档位</th><th>条件</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td>🔵 蓝</td><td>self 本体</td><td>指数自身即 ETF(如科创50指数→588000)</td><td>完美自跟踪,无跟踪误差</td></tr>
+          <tr><td>🟢 绿</td><td>strong 强关联</td><td>track_score≥80</td><td>跟踪误差最小,推荐首选</td></tr>
+          <tr><td>🟢 草绿</td><td>related 相关</td><td>track_score 70-79</td><td>跟踪误差较小</td></tr>
+          <tr><td>🟠 橙</td><td>approx 近似</td><td>track_score 50-69</td><td>有跟踪ETF但误差较大;approx 档按匹配方式细分多色: 红=name_match(名称匹配)/紫=overlap(成分重叠)/黄=kw(关键词)/橙=track_index+其余</td></tr>
+          <tr><td>🟤 暗橙</td><td>none 弱</td><td>track_score&lt;50</td><td>来源间接,误差大</td></tr>
+          <tr><td>⚫ 灰灭灯</td><td>nodata</td><td>track_score=null(共同交易日不足60)</td><td>无数据,无法评估跟踪质量</td></tr>
+        </tbody>
+      </table>
+
+      <h5>② 跟踪分 track_score(核心指标)</h5>
+      <p>基于<strong>日收益率序列</strong>的5维度加权评分(0-100),捕捉全路径偏离(弥补相似度只看起点终点的缺陷)。5个维度及权重:</p>
+      <table>
+        <thead><tr><th>维度</th><th>权重</th><th>算法</th><th>方向</th></tr></thead>
+        <tbody>
+          <tr><td>TE 跟踪误差</td><td>30%</td><td>std(日收益差, ddof=1) × √252 × 100</td><td>越低越好</td></tr>
+          <tr><td>R² 决定系数</td><td>25%</td><td>corr(ETF日收益, 指数日收益)²</td><td>越高越好</td></tr>
+          <tr><td>avg_dev 平均偏离</td><td>15%</td><td>mean(|日收益差|) × 100</td><td>越低越好</td></tr>
+          <tr><td>roll_std 滚动标准差</td><td>15%</td><td>30交易日滚动TE序列的 std(ddof=1)</td><td>越低越好</td></tr>
+          <tr><td>IR 信息比率</td><td>15%</td><td>mean(收益差)×252 / (std×√252), cap ±5</td><td>|IR|越接近0越好</td></tr>
+        </tbody>
+      </table>
+      <p><strong>归一化</strong>: TE/R²/avg_dev/roll_std 用百分位rank(防min-max异常值拉伸,如跨境ETF TE=40%拉大range); IR 用分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。<strong>数据要求</strong>: 共同交易日≥60才出 track_score, 30-59仅存 avg_dev+R²原始值(track_score=null灰标), &lt;30全None。</p>
+      <p><strong>阈值</strong>: track_score≥80 strong / 70-79 related / 50-69 approx / &lt;50 none。</p>
+
+      <h5>③ 相似度 similarity</h5>
+      <p>5周期(5日/20日/60日/年初至今/1年)涨跌幅对比, 日期对齐取交集(≥10共同交易日):</p>
+      <ul>
+        <li><strong>max_err</strong> = 5周期中最大的 |候选ETF涨幅 − 指数涨幅|(%)</li>
+        <li><strong>similarity</strong> = 1 − max_err/100(近似跟踪度%)</li>
+      </ul>
+      <p>⚠ <strong>局限性</strong>: 只看起点到终点累计涨幅, 对中间路径(如V型尖刺在累计里抵消)不敏感。track_score 的日收益率序列分析补充此缺陷, 两个指标互补使用。</p>
+
+      <h5>④ 分级 grade</h5>
+      <p>基于 max_err 的分级(相似度辅助指标, 与 track_score 互补):</p>
+      <ul>
+        <li><strong>excellent 优秀</strong> - max_err &lt; 1%(精准跟踪)</li>
+        <li><strong>good 良好</strong> - max_err &lt; 5%(近似跟踪)</li>
+        <li><strong>warn 偏差大</strong> - max_err ≥ 5%(误差较大)</li>
+        <li><strong>n/a 不适用</strong> - 数据不足</li>
+      </ul>
+
+      <h5>⑤ 强关联 track_tier(信号灯依据)</h5>
+      <p>由 track_score 决定的最终档位, 前端信号灯颜色直接读此字段。无 track_score 时回退 grade 映射保持向后兼容:</p>
+      <ul>
+        <li><strong>strong 强关联</strong> - track_score≥80 或 self 本体 → 蓝/绿灯</li>
+        <li><strong>related 相关</strong> - track_score 70-79 → 草绿灯</li>
+        <li><strong>approx 近似</strong> - track_score 50-69 → 橙灯(按 match_method 细分红/紫/黄/橙)</li>
+        <li><strong>none 弱</strong> - track_score&lt;50 或数据不足 → 暗橙/灰灯</li>
+      </ul>
+      <p><strong>回退规则</strong>(track_score 缺失时): grade=excellent→strong / grade=good(非手动兜底)→related / 其余→approx。</p>
+
       <h3>3.3 盘面温测(sentiment)</h3>
       <p><strong>看什么</strong>:市场情绪类指标的折线图。</p>
       <ul>
