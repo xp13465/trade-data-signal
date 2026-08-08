@@ -1403,7 +1403,7 @@ P0 全 6 条已闭环（07-19 实施 + 07-20 核查线上生效）：grep 验收
 - **完成依据**：commit 10454371（后端核心）+ 920f57ed（新鲜度闸门）。全量采集 27409只 + 6新表 + 7fetcher + CLI 6命令。quarterly 全量手动跑完成（5汇总表 + 8指标 fund_metrics 全算）。前端 ui81-ui85 全上线（行业配置口径切换/88魔咒pin融合/预估仓位/申万一级/tooltip超屏修复）。详见 TASKS L731-752 + L46-53。
 
 ### 13. R2 迁移阶段1-5
-- **完成依据**：阶段1a/1b（df6597245）+ 阶段2（8a36b4b82，Worker /data/->R2 rewrite + /api/purge-cache + 分层TTL）+ 阶段3（508eabb44，定时任务去git push改R2上传）+ 阶段4a（3f721f2d8，static-site/data/移出git）+ 阶段5（8bfc55e8d，staticdata git差异化日志备份）。git代码/R2数据解耦完成。详见 TASKS L1541-1570。
+- **完成依据**：阶段1a/1b（df6597245）+ 阶段2（3b56bcb04，Worker /data/->R2 rewrite + /api/purge-cache + 分层TTL）+ 阶段3（508eabb44，定时任务去git push改R2上传）+ 阶段4a（3f721f2d8，static-site/data/移出git）+ 阶段5（8bfc55e8d，staticdata git差异化日志备份）。git代码/R2数据解耦完成。详见 TASKS L1541-1570。
 
 ### 14. lhb_count 回填
 - **完成依据**：commit 9c10f4ed2。步骤A-F全完成：新建 lhb_history_backfill.py 回填6m历史 + queries.py KPI_SPARK_METRIC_IDS 加 lhb_count + app.js _KPI_6M_TOOLTIP_IDS 加 lhb_count + build_min + bump sw + export + deploy + curl 验证 overview.json 含 lhb_count_6m。详见 TASKS L1114-1136。
