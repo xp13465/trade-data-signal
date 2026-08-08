@@ -1607,6 +1607,20 @@ function _signalLightInfo(it) {
   return { cls: _etfApproxCls(_bestApprox), label: "近似" };
 }
 
+// 2026-08-08 top1 用跟踪分降序(和 popup L15178 候选列表排序口径一致), 最相似(max_err)≠跟踪最好
+// hoverpop + cellHtml tooltip 统一用此函数取 top1, 解决 etfs[0]=最相似(560590) 与 popup top1=跟踪最好(560010) 错配
+function _topEtfByScore(etfs) {
+  if (!etfs || !etfs.length) return null;
+  return etfs.slice().sort(function(a, b) {
+    var _sa = (a && typeof a.track_score === "number") ? a.track_score : -1;
+    var _sb = (b && typeof b.track_score === "number") ? b.track_score : -1;
+    if (_sb !== _sa) return _sb - _sa;  // track_score 降序, null/absent 排后
+    var _ia = (a && typeof a.similarity === "number") ? a.similarity : -1;
+    var _ib = (b && typeof b.similarity === "number") ? b.similarity : -1;
+    return _ib - _ia;  // 回退 similarity 降序(与 popup 一致, 无值用 -1)
+  })[0];
+}
+
 function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = true) {
   if (!items || !items.length) return `<h3>${title}</h3><div class="empty-note">${emptyText}</div>`;
   // A/B 方案(2026-07-29): 评级/对错筛选 - 汇总条数字仍用全量 items(_calcSignalAccuracy),
@@ -1776,7 +1790,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
         // tooltip 保留 top1 ETF 详情(来源/分级/相似度/跟踪分), 档位字段用分组口径(_sigLight.label 非 top1 tier)
         // 列表名/代码回指数(需求2真实意图: 原列表加灯, 名/代码都是指数的, ETF详情只在灯tooltip/popup看)
         // 布局: 信号名 灯(●) [⚠] 评级 ☑️/✖️ 指数名(代码)
-        var _etfTop = (it.etfs && it.etfs.length) ? it.etfs[0] : null;
+        var _etfTop = _topEtfByScore(it.etfs);
         var _cellLight, _cellName, _cellCode;
         if (_etfTop) {
           var _sigLight = _signalLightInfo(it);
@@ -2306,7 +2320,7 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
     var _popDate = el.getAttribute("data-date");
     var _popEtfKey = (idx && _popDate && _sigEtfCache[idx + "|" + _popDate]) ? (idx + "|" + _popDate) : idx;
     if (idx && _sigEtfCache[_popEtfKey] && _sigEtfCache[_popEtfKey].length) {
-      var _top = _sigEtfCache[_popEtfKey][0];
+      var _top = _topEtfByScore(_sigEtfCache[_popEtfKey]);
       if (_top && _top.name && _top.code) {
         // 2026-08-05 名称(代码)后追加至今盈亏（top1 的，有数据才显）
         var _pnlText = _etfPnlText(_top.etf_since_return, _top.etf_price_diff);
