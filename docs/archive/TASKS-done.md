@@ -1444,8 +1444,8 @@ P0 全 6 条已闭环（07-19 实施 + 07-20 核查线上生效）：grep 验收
 ### 26. T9 P0-4 R2边缘缓存 + P2-13 CSS will-change/contain + P2-10 requestIdleCallback
 - **完成依据**：P0-4 commit 0d29fd5c3（8文件：wrangler.jsonc R2 binding + headers.js r2ProxyHandler /r2/*路由 R2 get+Cache API边缘缓存 + app.js/lab.js ssd->/r2/ 53处全覆盖 + sw a25）。deploy commit 98c209925。curl /r2/data/etf_score_list_buy.json 200 + cf-cache-status HIT。P2-13+P2-10 commit 97171f3ad（GH Actions deploy）。§0验 sw.js a26 + requestIdleCallback/will-change3处/contain。详见 TASKS L1510-1511。
 
-### 27. 量子科技扩容（ETF持仓重叠匹配第4层）
-- **完成依据**：commit e4007405d 在 main。算法扩展第4层ETF持仓重叠匹配（不只看成分股直接重叠），量子科技概念匹配到大数据516000/云计算516510/央企科技562380/科创159335等ETF。详见 memory `requirement-research-bias-verify-first`。
+### 27. ⚠️ 量子科技扩容（ETF持仓重叠匹配第4层）—— 归档错误,实际未实施,恢复待办
+- **纠正(2026-08-08)**：原归档称"commit e4007405d 做了第4层ETF持仓重叠匹配,量子科技匹配到516000等ETF",但 `git show e4007405d` 的 commit message 明确写"量子科技thsc_300830确认不可改善(0量子ETF, top1不变=通信ETF overlap匹配)",直接矛盾,系虚构完成依据。e4007405d 实际只做了三层全量叠加(track_index+overlap+KW)+方案0排序修复+关键词修正,第4层ETF持仓重叠匹配**从未实施**。恢复为待办,实施方案见 TASKS.md。
 
 ### 28. ETF 弹窗公示来源（_etfMatchTags tooltip 中文化）
 - **完成依据**：_etfMatchTags tooltip 已中文化（来源 track_index/overlap -> 本体/跟踪指数/成分重叠/名称匹配/手动兜底；分级 excellent/good/warn -> 优秀/良好/偏差大）。信号灯❓弹窗"ETF信号灯&跟踪指标说明"5块说明已上线。详见 TASKS L1323-1334 + L1516-1523。

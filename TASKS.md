@@ -1562,6 +1562,12 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **R2迁移阶段1a ✅完成**(cc594371e push feat/iframe-theme-follow,未push main):upload_r2.py 加 cmd_upload_all_data(L553)+_upload_glob exclude_fn参数(L266/L283)+deploy.sh L280 run_r2_upload upload-all-data 双写。§0验 R2 data/ 全量200(overview/intraday_snapshot/boot/alert/schedule_stats)+命令注册(L553/L868)+deploy.sh调用(L280)
 - **R2迁移阶段1b 实施中**(agent a5a38a7e01acda627,15:30派,取消原定15:40 cron db623935--用户指出不需等10min,改代码vs15:35旧版跑不冲突):intraday_snapshot.sh加R2双写(git push保留)。agent先调研intraday生成哪些文件,决定加upload-intraday精准命令vs复用upload-all-data。约束:只push feat不push main(避15:35/16:00/17:50/20:35定时push main竞争),测试只跑upload_r2.py不跑整个intraday_snapshot.sh(避撞15:35定时任务)。进度文件/tmp/agent-progress-r2-stage1b.md。完成SendMessage to main
 - **wrangler secret PURGE_SECRET**:等阶段2 agent一起做(生成密钥+存.env+用户wrangler put一次配齐避免不一致)。用户确认"等你"
+
+### 会话状态(2026-08-09 01:58,compact后续,用户睡了连轴转。凯利回测改进✅完成待reviewer+走势卡至今盈亏修复实施中)
+- **凯利回测改进 ✅完成**(commit 62782142b,10files 660insertions,未push):A3进阶指标(夏普/最大回撤/卡尔玛/总投入/总盈亏/总收益率/最大并发资金/年化)+B1全存trades(signal_kelly_trades.json 5.98MB 50312笔走R2 upload-data-large)+C3对比矩阵热力+交易记录弹窗。改 signal_kelly_backtest.py+export.py+lab.js+sw.js。自验py_compile/node-c/check_data_integrity全过。**reviewer agent a4d32863d91e41bb6在跑**(cron 6ec68c80),不跑export避撞走势卡queries.py
+- **走势卡至今盈亏修复 实施中**(agent a593ba2bd5b189415,cron ffc0110c):Layer2+3根治。调研三层根因(§0验:renderGlobal app.js L11415不调_ensureSigEtfCacheFromOverview✓)+hstech/us_dji/cac40信号窗口外+global-all/hk-all.json etfs无etf_since_return。根治:后端global_market/hk算etf_since_return嵌入etfs+前端_appendEtfLinkTag优先从etfs读。改app.js+queries.py,不碰lab.js(和凯利回测并行)。未push
+- **等**:reviewer凯利PASS+走势卡修复完成->统一deploy(凯利回测sigkelly+走势卡global/hk)+push main+curl验证。安全窗口凌晨
+- **待办**:kospi无ETF(用户defer后续排查)/intraday_snapshot.sh L170 cosmetic(1LOW)/远期3(DB迁GitLab/P2-14分时SVG/mootdx skip list)
 - **reviewer c952ecd1 18:05**:etf-tag-pnl事后复查(_ensureSigEtfCacheFromOverview影响面+P0 smoke),避14-18高峰§17
 - **待1b完成**:reviewer+1a+1b一起push main(避定时任务时点),20:35 intraday跑新版双写验证
 - **R2迁移阶段1a+1b ✅上线 main**(df6597245):cherry-pick 1a(ce9d170aa)+1b(df6597245)到main(temp分支r2-stage1-push,避checkout main碰DB§10),reviewer PASS(5项全PASS+2非阻断建议:upload-intraday失败告警/boot.json冗余优化,阶段2前补)。功能生效:17:50 deploy跑1a双写/20:35 intraday跑1b,cron a462575e 20:43验线上R2
@@ -1653,10 +1659,10 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 24. 信号灯分层调整 — strong≥75/related 60-74/approx 50-59/none 30-49/灰灭<30
 25. 5方向+6方向（P2-新-A到K+W）— commit dd504c21+a41fb2df+fc27f631+b4285988+02eae130+97134640+c703a584+4c4be0a8等
 26. T9 P0-4 R2边缘缓存+P2-13 CSS will-change+P2-10 requestIdleCallback — commit 0d29fd5c3+97171f3ad
-27. 量子科技扩容（ETF持仓重叠匹配第4层）— commit e4007405d
+27. ~~量子科技扩容（ETF持仓重叠匹配第4层）~~ — 归档错误恢复待办(commit e4007405d message自述"0量子ETF不可改善",第4层从未实施,见下方待办区)
 28. ETF弹窗公示来源（_etfMatchTags tooltip中文化）— 信号灯❓弹窗5块说明已上线
 
-### 保留真待办（不动，10条）
+### 保留真待办（不动，11条）
 - 阶段1评分引擎 / 阶段2前端UI / 阶段3场内外联动（L34-36）
 - 管理端任务看板（L37）
 - 模拟回测费率可配置（L821）
@@ -1665,6 +1671,7 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - R2迁移后72h监控（L1562）
 - R2迁移全部完成后写完整部署文档 docs/r2-deployment.md（L1563）
 - T9 P2-14（分时SVG）+ P2-15（offshore_fund 147MB）（L1511）
+- 量子科技ETF扩容第4层（ETF持仓重叠匹配）- 归档错误恢复待办。e4007405d只做了三层叠加+排序修复,commit message自述"0量子ETF不可改善"。第4层=ETF持仓∩概念成分股重叠,方案:stock_fund_stock_holder反向查找(概念股->持有它的ETF)+overlap聚合,见 /tmp/agent-progress-quantum-layer4.md
 
 ### 保留远期/搁置（不动）
 - mootdx skip list（低价值可选）
