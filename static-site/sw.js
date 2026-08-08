@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a34';  // bump a33->a34: 体量移出_etfMatchTags+hoverpop第二行独立etf-pop-amt span配色
+const CACHE_VERSION = 'v6-20260808-a35';  // bump a34->a35: 信号灯颜色 草绿#8bc34a/灯绿#008000
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
