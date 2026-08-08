@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a42';  // bump a41->a42: self ETF 511260 etf_since_return fix + 板块分化 etf-link-row 换行
+const CACHE_VERSION = 'v6-20260808-a43';  // bump a42->a43: market tab 走势卡 etf-tag-pnl 修复(_sigEtfCache 从 overview 补填)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
