@@ -260,6 +260,12 @@ echo "-> upload_r2.py upload-lab（刷 R2）..." | tee -a "$LOG"
 R2_RC=${PIPESTATUS[0]:-1}
 if [ "$R2_RC" -ne 0 ]; then
   echo "⚠ upload-lab 失败（退出码 ${R2_RC}），lab R2 可能过期" | tee -a "$LOG"
+  ALERT_TIME=$(date '+%m-%d %H:%M')
+  "$PY" "$REPO/scripts/notify.py" \
+    "[告警] update_lab R2上传失败 ${ALERT_TIME}" \
+    "upload-lab 失败(退出码 ${R2_RC})，lab/ 子目录 R2 可能过期，需手动补刷: bash scripts/upload_r2.py upload-lab<br>日志: $LOG" \
+    --severe --from-prefix "[告警]" \
+    --dedup-key update_lab_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 else
   echo "✓ R2 上传完成" | tee -a "$LOG"
 fi
@@ -273,6 +279,12 @@ echo "-> 上传顶层 lab_*.json 到 R2（upload-data-files + purge）..." | tee
 LAB_R2_RC=${PIPESTATUS[0]:-1}
 if [ "$LAB_R2_RC" -ne 0 ]; then
   echo "⚠ lab_*.json R2 上传失败（退出码 ${LAB_R2_RC}），lab 数据可能过期" | tee -a "$LOG"
+  ALERT_TIME=$(date '+%m-%d %H:%M')
+  "$PY" "$REPO/scripts/notify.py" \
+    "[告警] update_lab lab_json R2上传失败 ${ALERT_TIME}" \
+    "lab_*.json R2 上传失败(退出码 ${LAB_R2_RC})，lab 数据可能过期，需手动补刷: bash scripts/upload_r2.py upload-data-files lab_ablation.json lab_cost_compare.json lab_param_scan.json lab_short_symmetry.json<br>日志: $LOG" \
+    --severe --from-prefix "[告警]" \
+    --dedup-key update_lab_labjson_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
 fi
 
 # C) git push trade_sim.html（static-site/ 根目录，非 data/，阶段3 保留代码 push）

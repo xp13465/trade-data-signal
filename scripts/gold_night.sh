@@ -71,7 +71,8 @@ if ! "$PY" "$REPO/scripts/upload_r2.py" upload-data-files global-3m.json global-
     "gold_night global JSON R2 上传失败，前端走势图将读旧数据，需手动补刷: bash scripts/upload_r2.py upload-data-files global-3m.json global-6m.json global-1y.json<br>日志: $LOG" \
     --severe --from-prefix "[告警]" \
     --alert-issue "gold_night R2 上传失败" \
-    --alert-log "$LOG" 2>&1 | tail -3 | tee -a "$LOG" || true
+    --alert-log "$LOG" \
+    --dedup-key gold_night_r2_upload_fail --dedup-window 3600 2>&1 | tail -3 | tee -a "$LOG" || true
   exit 1
 fi
 echo "✓ global JSON R2 上传完成" | tee -a "$LOG"

@@ -47,14 +47,11 @@ if [ "$IS_TRADING" = "1" ] && [ "$CURRENT_HM" -ge 0930 ] && [ "$CURRENT_HM" -le 
   exit 1
 fi
 
-# 0.5 防通配带入工作区残留旧版 intraday 文件（事故 94c79041 直接根因）
-# deploy.sh git add static-site/data/ 通配会带入工作区任何残留文件。
-# 跑 export.py 前先恢复 intraday_snapshot.json + notifications.json 到 origin/main 版（清工作区残留），再 unstage 保持 index 干净。
-# export.py 随后重新生成覆盖；若 export.py 读滞后 DB 生成旧版（DB 不同步根因），此处无法防，需 symlink 方案。
-echo "-> 恢复 intraday_snapshot.json + notifications.json 到 origin/main 版（防工作区残留带入通配 add）..." | tee -a "$LOG"
+# 0.5 fetch origin main（后续 unmerged 检查 + rebase 需要）
+# R2 阶段4a 后 static-site/data/ 全量移出 git（仅 feed.xml tracked），
+# 原 checkout intraday_snapshot/notifications.json 防通配带入已无效（文件 gitignored），
+# DATA_FILES 改精确列表（feed.xml + min JS/CSS）不再通配 add，无残留带入风险。
 git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
-git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.json static-site/data/notifications.json 2>/dev/null && \
-  git -C "$GIT_REPO" reset HEAD -- static-site/data/intraday_snapshot.json static-site/data/notifications.json 2>/dev/null || true
 
 # 0.7 兜底：清理工作区残留 unmerged 状态（2026-07-31 根治，方案B 双保险）
 # 根因：pop_rebase_stash bug（rebase 后 stash pop 冲突只 echo 不解决）曾留 unmerged 污染，
@@ -62,12 +59,13 @@ git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.js
 # （730 信号 R2 已上线但 CF Workers ss.fx8.store / GH Pages sss.sugas.site 没拿到 730）。
 # 此兜底在 fetch 后 export 前检测：static-site/data/* 的 unmerged 强制 reset HEAD + checkout origin/main 清理；
 # 非数据文件 unmerged 则 exit 1 报警不继续（避免吞代码冲突）。
+# R2 阶段4a 后 static-site/data/ 仅 feed.xml tracked，*.json 全 gitignored 不可能 unmerged。
 UNMERGED=$(git -C "$GIT_REPO" diff --name-only --diff-filter=U 2>/dev/null)
 if [ -n "$UNMERGED" ]; then
   NON_DATA_UNMERGED=""
   for _u in $UNMERGED; do
     case "$_u" in
-      static-site/data/*.json|static-site/data/feed.xml)
+      static-site/data/*)
         git -C "$GIT_REPO" reset HEAD -- "$_u" 2>/dev/null || true
         git -C "$GIT_REPO" checkout origin/main -- "$_u" 2>&1 | tee -a "$LOG"
         echo "⚠ 清理 unmerged 数据文件: $_u（已 reset HEAD + checkout origin/main）" | tee -a "$LOG"
@@ -126,16 +124,15 @@ if [ "$CHECK_RC" -ne 0 ]; then
 fi
 echo "✓ 数据产物校验通过" | tee -a "$LOG"
 
-# 1.3 intraday_snapshot.json global_realtime 防覆盖（2026-07-31 德法角标三重根因修复）
+# 1.3 intraday_snapshot.json global_realtime 防覆盖检查（2026-07-31 德法角标三重根因修复）
 # 根因：export.py 调 load_latest_snapshot 从 DB reload 生成 intraday_snapshot.json，
-# 若 DB 镜像滞后（trade/data/sentiment.db 未同步 trade-data 主库）或旧 snapshot 行
-# 无 global_realtime，reload 丢失 global_realtime 致前端德法角标无实时数据。
-# 修复1已让 _save_db/load_latest_snapshot 补 global_realtime，此处加兜底：
-# export.py 后检查 intraday_snapshot.json 是否含 global_realtime，缺失则从 origin/main
-# 版本（intraday_snapshot.sh 推的实时版）提取 global_realtime 注入，防 deploy 覆盖丢失。
+# 若 DB 镜像滞后或旧 snapshot 行无 global_realtime，reload 丢失 global_realtime 致前端德法角标无实时数据。
+# 修复1已让 _save_db/load_latest_snapshot 补 global_realtime，此处加检查：
+# export.py 后检查 intraday_snapshot.json 是否含 global_realtime，缺失则告警（R2 阶段4a 后
+# origin/main 不再 tracked intraday_snapshot.json，原 git show 注入 fallback 已失效，仅告警）。
 echo "-> 检查 intraday_snapshot.json global_realtime 防覆盖 ..." | tee -a "$LOG"
 "$PY" - "$GIT_REPO" "$LOG" <<'PYEOF' 2>&1 | tee -a "$LOG" || true
-import json, sys, subprocess, tempfile, os
+import json, sys, os
 repo, log = sys.argv[1], sys.argv[2]
 path = os.path.join(repo, "static-site/data/intraday_snapshot.json")
 try:
@@ -148,26 +145,9 @@ if snap.get("global_realtime"):
     n = len(snap["global_realtime"])
     print(f"  ✓ intraday_snapshot.json 已含 global_realtime ({n} 个指数)，无需补")
     sys.exit(0)
-# 缺失 global_realtime -> 从 origin/main 版提取
-print("  ⚠ intraday_snapshot.json 缺 global_realtime，尝试从 origin/main 版提取注入...", flush=True)
-try:
-    content = subprocess.run(
-        ["git", "-C", repo, "show", "origin/main:static-site/data/intraday_snapshot.json"],
-        capture_output=True, text=True, timeout=30
-    ).stdout
-    origin_snap = json.loads(content)
-except Exception as e:
-    print(f"  ⚠ 无法从 origin/main 提取 intraday_snapshot.json: {e}，跳过（不阻断）")
-    sys.exit(0)
-gr = origin_snap.get("global_realtime")
-if not gr:
-    print("  ⚠ origin/main 版也无 global_realtime，跳过（intraday_snapshot.sh 下次推送时补）")
-    sys.exit(0)
-# 注入 global_realtime 到当前 snap 并写回
-snap["global_realtime"] = gr
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(snap, f, ensure_ascii=False, separators=(",", ":"))
-print(f"  ✓ 已从 origin/main 提取 global_realtime ({len(gr)} 个指数) 注入 intraday_snapshot.json")
+# 缺失 global_realtime -> 告警（R2 阶段4a 后 origin/main 不再 tracked，无法从 git 恢复）
+print("  ⚠ intraday_snapshot.json 缺 global_realtime（export.py reload 丢失？），下次 intraday_snapshot.sh 运行时自动补")
+sys.exit(0)
 PYEOF
 
 # 1.4 刷新计划任务执行统计（gen_schedule_stats.py）已移到各任务脚本结尾（2026-07-24 方案A根治）：
@@ -365,7 +345,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
             non_data=""
             for f in $conflicted; do
               case "$f" in
-                static-site/data/*.json|static-site/data/feed.xml)
+                static-site/data/*)
                   git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
                   git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
                   ;;
@@ -412,7 +392,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
         NON_DATA_CONFLICTS=""
         for f in $CONFLICTED; do
           case "$f" in
-            static-site/data/*.json|static-site/data/feed.xml)
+            static-site/data/*)
               git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
               git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
               ;;
@@ -453,7 +433,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
             NON_DATA2=""
             for f in $CONFLICTED2; do
               case "$f" in
-                static-site/data/*.json|static-site/data/feed.xml)
+                static-site/data/*)
                   git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
                   git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
                   ;;

@@ -146,8 +146,8 @@ function dataCacheTtl(pathname) {
   if (/-(?:1m|3m|6m|1y)\.json$/.test(pathname)) return 60;
   // HIGH_FREQ 60s：其他盘中实时数据
   if (/^\/data\/(?:futures|ad_line|new_high_low|position|rotation|volume_ratio|ma_alignment|signal_freq|etf_national_team_holders|etf_national_team_quarterly|global-extras-all)\.json$/.test(pathname)) return 60;
-  // MED_FREQ 600s：每日更新（signal_stats/daily_metric/futures_acc_*/fund_score_top/trade_sim_indices）
-  if (/^\/data\/(?:signal_stats|daily_metric|futures_acc_trend|futures_acc_conclusion|fund_score_top|trade_sim_indices)\.json$/.test(pathname)) return 600;
+  // MED_FREQ 600s：每日更新（signal_stats/futures_acc_*/fund_score_top/trade_sim_indices）
+  if (/^\/data\/(?:signal_stats|futures_acc_trend|futures_acc_conclusion|fund_score_top|trade_sim_indices)\.json$/.test(pathname)) return 600;
   // LOW_FREQ 3600s：历史低频（收盘后更新一次）
   return 3600;
 }

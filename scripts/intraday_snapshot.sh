@@ -164,8 +164,10 @@ echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 =
 
 # 5) schedule_stats.json 上传 R2（阶段3：替代 git push，gen_stats 后立即上传无滞后）
 #    gen_stats 刷新本地 schedule_stats.json 后，upload-data-files 上传到 R2 + purge_cache。
-#    失败不阻塞：下一轮 intraday 或其他任务脚本结尾会再上传。
-"$PY" "$REPO/scripts/upload_r2.py" upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG" || \
+#    失败不阻塞：下一轮 intraday 或其他任务脚本结尾会再上传。R2 失败发告警邮件与其他脚本一致。
+"$PY" "$REPO/scripts/upload_r2.py" upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG" || {
   echo "⚠ schedule_stats R2 上传失败，不阻塞" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[告警] intraday schedule_stats R2上传失败 ${ALERT_TIME}" "schedule_stats R2 上传失败，前端"执行统计"将读旧数据，下一轮 intraday 自动重试。需手动补刷: bash scripts/upload_r2.py upload-data-files schedule_stats.json<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key intraday_schedule_stats_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+}
 
 exit 0
