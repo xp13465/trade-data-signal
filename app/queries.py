@@ -267,6 +267,100 @@ def _self_etf_for(iid, cfg, conn):
     return None
 
 
+def _enrich_etfs_since_return(conn, indices):
+    """走势卡 ETF 至今盈亏:为 indices[iid].etfs 注入 etf_since_return + etf_price_diff。
+
+    取每个指数最新信号日(无论多旧,不限 overview signals_today 15交易日窗口),算信号日
+    ETF 累计净值(accum_nav) vs 最新累计净值的涨跌幅。所有指数(无论信号新旧)都有,
+    根治走势卡(全球/港股/A股 tab)相关ETF至今盈亏缺失(Layer2+3)。
+    复用 overview() L524-575 口径:self ETF(match_method=self)用 index_daily close,
+    其余用 etf_national_team.db etf_daily.accum_nav(已复权除权日不跳变)。
+    今日信号(最新信号日==last_trading_day)无"至今"语义=None,对齐 overview L554-555。
+    accum_nav 缺失(QDII跨境ETF等)-> None,前端跳过不显。
+    """
+    # 收集所有 etf codes(批量查一次 accum_nav,避免 N+1)
+    _etf_codes = set()
+    for _entry in indices.values():
+        for _e in (_entry.get("etfs") or []):
+            if _e.get("code"):
+                _etf_codes.add(_e["code"])
+    _etf_close_cache: dict[str, dict[str, float]] = {}
+    if _etf_codes:
+        try:
+            from .collector.etf_national_team import get_conn as _etf_get_conn
+            _ec = _etf_get_conn()
+            for _r in _ec.execute(
+                "SELECT etf_code, date, accum_nav FROM etf_daily "
+                "WHERE etf_code IN (%s) AND accum_nav IS NOT NULL" % ",".join("?" * len(_etf_codes)),
+                tuple(_etf_codes),
+            ).fetchall():
+                _etf_close_cache.setdefault(_r["etf_code"], {})[_r["date"]] = _r["accum_nav"]
+            _ec.close()
+        except Exception:  # noqa: BLE001
+            pass
+    _today = last_trading_day()
+    _close_map_cache: dict[str, dict[str, float]] = {}
+
+    def _load_close_map(iid: str) -> dict[str, float]:
+        if iid in _close_map_cache:
+            return _close_map_cache[iid]
+        m: dict[str, float] = {}
+        if iid.startswith("g."):
+            rows = conn.execute(
+                "SELECT date, value FROM daily_metric WHERE metric_id=? AND value IS NOT NULL",
+                (iid[2:],),
+            ).fetchall()
+        elif iid.startswith("s."):
+            rows = conn.execute(
+                "SELECT date, value FROM score_daily WHERE score_id=? AND value IS NOT NULL",
+                (iid[2:],),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT date, close FROM index_daily WHERE index_id=? AND close IS NOT NULL",
+                (iid,),
+            ).fetchall()
+        for r in rows:
+            m[r["date"]] = r["value"]
+        _close_map_cache[iid] = m
+        return m
+
+    for _iid, _entry in indices.items():
+        _etfs = _entry.get("etfs") or []
+        if not _etfs:
+            continue
+        # 最新信号日(无论多旧,不限于 signals_today 窗口)
+        _sig_row = conn.execute(
+            "SELECT date FROM signal_daily WHERE index_id=? ORDER BY date DESC LIMIT 1",
+            (_iid,),
+        ).fetchone()
+        _sig_date = _sig_row["date"] if _sig_row else None
+        for _e in _etfs:
+            _e["etf_since_return"] = None
+            _e["etf_price_diff"] = None
+            _code = _e.get("code")
+            # 今日信号(最新信号日==last_trading_day)无"至今"语义=None,对齐 overview L554-555
+            if not _code or not _sig_date or _sig_date == _today:
+                continue
+            # self ETF(如 511260=cgb_10y_etf)数据在 index_daily 不在 etf_daily,
+            # 用 _load_close_map(index_id) 取 close,self 的 etf_since_return=指数涨跌幅(本体即ETF)
+            if _e.get("match_method") == "self":
+                _cm = _load_close_map(_iid)
+            else:
+                _cm = _etf_close_cache.get(_code)
+            if not _cm:
+                continue
+            _sig_close = _cm.get(_sig_date)
+            if _sig_close is None:
+                continue
+            # 今日 = 最新 etf_daily.date(per-ETF 最大日期,不同 ETF 末日可能不同)
+            _today_close = _cm.get(max(_cm.keys()))
+            if _today_close is None:
+                continue
+            _e["etf_since_return"] = round((_today_close - _sig_close) / _sig_close * 100, 2)
+            _e["etf_price_diff"] = round(_today_close - _sig_close, 3)
+
+
 def industry_heatmap(conn, cfg):
     """申万一级行业近 1 日 / 近 5 日涨跌幅（用于热力图）。不受 range 影响，固定取最新。"""
     indices = indices_for_market(cfg, "industry")
@@ -888,6 +982,8 @@ def a_stock(conn, cfg, start, end, *, cache=None, include_etf=False):
         if include_etf:
             entry.update(etf_for(i["id"]))
         indices[i["id"]] = entry
+    if include_etf:
+        _enrich_etfs_since_return(conn, indices)
     return {"metrics": metrics, "indices": indices}
 
 
@@ -903,6 +999,7 @@ def hk(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
         }
         entry.update(etf_for(i["id"]))  # 2026-07-28 注入港股 ETF 候选（hsi/hstech/hscei，board_etf_map 单源）
         indices[i["id"]] = entry
+    _enrich_etfs_since_return(conn, indices)
     south = metric_series(conn, "hk_south", start, end, cache=cache)
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
     hk_industries = {i["id"]: {"name": i["name"], "data": index_series(conn, i["id"], start, end, cache=cache),
@@ -933,6 +1030,7 @@ def global_market(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
             _self = _self_etf_for(iid, cfg, conn)
             if _self:
                 indices[iid]["etfs"] = _self["etfs"]
+    _enrich_etfs_since_return(conn, indices)
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
     extras = {}
     extras_signals = {}

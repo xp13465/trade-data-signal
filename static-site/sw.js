@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260809-a57';  // bump a56->a57: 信号凯利回测改进(B1全存trades+A3进阶指标+C3对比矩阵热力)
+const CACHE_VERSION = 'v6-20260809-a58';  // bump a57->a58: 走势卡ETF至今盈亏Layer2+3根治(后端注入etf_since_return+前端优先etfs读)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

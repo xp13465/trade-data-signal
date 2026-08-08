@@ -15292,7 +15292,10 @@ function _appendEtfLinkTag(cardEl, indexId, etfs, signals, anchorSig) {
   var _cacheKey = (anchorSig && anchorSig.date) ? (indexId + "|" + anchorSig.date) : indexId;
   var _cached = _sigEtfCache[_cacheKey];
   if (!_cached && anchorSig) _cached = _sigEtfCache[indexId];  // per-signal 无数据 fallback latest
-  if (_cached && _cached.length) {
+  // 2026-08-09 Layer2+3: 走势卡 etfs 已含后端注入的 etf_since_return(最新信号日口径,
+  // global-all/hk-all/a-stock-all.json),优先用自带;无则降级 _sigEtfCache(signals_today 口径)合并。
+  var _hasBuiltinReturn = etfs.some(function(e) { return e.etf_since_return != null; });
+  if (!_hasBuiltinReturn && _cached && _cached.length) {
     var _byCode = {};
     _cached.forEach(function(e) { if (e.code) _byCode[e.code] = e; });
     etfs = etfs.map(function(e) {
