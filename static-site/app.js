@@ -4641,18 +4641,26 @@ async function openSignalChartModal(indexId, signal, date, freezeVal, period = "
       const _ret = _matchSR.since_return;
       const _correct = _matchSR.since_correct;
       const _retStr = (_ret > 0 ? "+" : "") + _ret.toFixed(2) + "%";
-      let _txt, _color;
-      // 文案按 since_correct 对错（成功/失败/中性）；颜色按 since_return 盈亏正负（A股红涨绿跌：>0红/<0绿/==0灰）
-      if (_correct === true) { _txt = `成功 · 至今盈亏 ${_retStr}`; }
-      else if (_correct === false) { _txt = `失败 · 至今盈亏 ${_retStr}`; }
-      else { _txt = `至今盈亏 ${_retStr}`; }
+      let _color;
+      // 颜色按 since_return 盈亏正负（A股红涨绿跌：>0红/<0绿/==0灰）
       if (_ret > 0) { _color = "#dc2626"; }
       else if (_ret < 0) { _color = "#16a34a"; }
       else { _color = "#6b7280"; }
       _srLine.style.color = _color;
       _srLine.style.background = `${_color}1a`;
       _srLine.style.border = `1px solid ${_color}55`;
-      _srLine.textContent = _txt;
+      // 描述类别: 日期(MM-DD)的+类型标签+子描述, 配色同 hoverpop term-pop-sig-label(内联color, _srLine非term-pop容器CSS class不生效)
+      const _typeKey = (_matchSR.reason || '').includes('波段减仓') ? 'band_sell' : _matchSR.signal;
+      const _meta = _SIG_TYPE_META.find(m => m.key === _typeKey);
+      const _typeLabel = _meta ? _t(_meta.labelKey) : _matchSR.signal;
+      const _subLabel = signalLabel(_matchSR);
+      const _sigColor = _meta ? _meta.color : '#6b7280';
+      const _descHtml = `<b style="color:${_sigColor};font-weight:700;">${fmtDate(_matchSR.date)}的${_typeLabel} · ${_subLabel}</b>`;
+      // 成功/失败 + 至今盈亏 继承整行 _color(红涨绿跌); 描述段内联信号配色
+      const _prefix = _correct === true ? '成功' : (_correct === false ? '失败' : '');
+      _srLine.innerHTML = _prefix
+        ? `${_prefix}  ·  ${_descHtml}  至今盈亏 ${_retStr}`
+        : `${_descHtml}  至今盈亏 ${_retStr}`;
       body.appendChild(_srLine);
     }
     // 2026-08-06 走势图卡片标题加指数代码(need3-①)：复用 header _idxCodeTag（L4244 已定义 _sigIdxCode），
