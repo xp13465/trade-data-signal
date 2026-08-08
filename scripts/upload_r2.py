@@ -34,13 +34,18 @@ STATIC_DIR = Path(os.environ.get("REPO", str(ROOT))) / "static-site"
 
 
 def _find_env():
-    """按优先级找 .env：脚本所在 ROOT/.env -> $GIT_REPO/.env -> 默认 trade 仓库。
+    """按优先级找 .env：脚本所在 ROOT/.env -> $GIT_REPO/.env -> $REPO/.env -> 默认 trade 仓库。
     背景：launchd 实际在 trade-data/（运行副本）下跑，trade-data/.env 不存在，
     需回退到 trade/.env（git 仓库，凭证源头）。"""
     candidates = [ROOT / ".env"]
     git_repo = os.environ.get("GIT_REPO")
     if git_repo:
         candidates.append(Path(git_repo) / ".env")
+    # REPO/.env（trade-data/.env）含 PURGE_SECRET 等 Worker 相关凭证，
+    # ROOT/.env（trade/.env）可能不含，需追加查找。
+    repo = os.environ.get("REPO")
+    if repo:
+        candidates.append(Path(repo) / ".env")
     candidates.append(Path("/Users/linhuichen/code/trade/.env"))
     for c in candidates:
         if c.exists():
@@ -52,11 +57,21 @@ def load_env():
     envf = _find_env()
     if envf is None:
         sys.exit(f"无 .env: 尝试过 {[str(c) for c in [ROOT/'.env', Path(os.environ.get('GIT_REPO',''))/'.env'] if c]}")
-    for line in envf.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+    # 加载所有存在的 .env 文件（setdefault 不覆盖已设变量，后加载的只补充缺失的如 PURGE_SECRET）
+    loaded_any = False
+    for c in [ROOT / ".env",
+              Path(os.environ.get("GIT_REPO", "")) / ".env" if os.environ.get("GIT_REPO") else None,
+              Path(os.environ.get("REPO", "")) / ".env" if os.environ.get("REPO") else None,
+              Path("/Users/linhuichen/code/trade/.env")]:
+        if c and c.exists():
+            for line in c.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+            loaded_any = True
+    if not loaded_any:
+        sys.exit(f"无 .env: 尝试过 {[str(c) for c in [ROOT/'.env'] if c]}")
 
 
 load_env()
@@ -563,7 +578,7 @@ def purge_cache(r2_keys):
         return
     cache_keys = ["/" + k for k in r2_keys]  # "data/overview.json" -> "/data/overview.json"
     body = json.dumps({"secret": secret, "keys": cache_keys}).encode()
-    conn = http.client.HTTPSConnection("ss.fx8.store", timeout=10)
+    conn = http.client.HTTPSConnection("ss.fx8.store", timeout=10, context=_CTX)
     try:
         conn.request("POST", "/api/purge-cache", body=body,
                      headers={"Content-Type": "application/json"})
@@ -654,6 +669,27 @@ def cmd_upload_intraday():
         sys.exit(1)
     # 阶段2：上传成功后清 CF 边缘缓存（purge_cache 失败不中断）
     purge_keys = [f"data/{f}" for f in files if (data_dir / f).exists()]
+    purge_cache(purge_keys)
+
+
+def cmd_upload_data_files(filenames):
+    """上传指定文件列表到 R2 data/ 前缀（阶段3：替代各脚本 git push 数据）。
+
+    filenames: 文件名列表（如 ["schedule_stats.json", "global-3m.json"]），
+    相对 STATIC_DIR/data/。上传到 R2 data/{filename}。
+    部分文件不存在自动跳过（如 notifications.json 某些时点未生成）。
+    上传后调 purge_cache 清 CF 边缘缓存。
+    """
+    data_dir = STATIC_DIR / "data"
+    existing = [f for f in filenames if (data_dir / f).exists()]
+    if not existing:
+        print(f"⚠ 无文件: {filenames}")
+        return
+    ok, total, _ = _upload_glob(data_dir, existing, "data")
+    if ok != total:
+        sys.exit(1)
+    # 阶段3：上传成功后清 CF 边缘缓存（purge_cache 失败不中断）
+    purge_keys = [f"data/{f}" for f in existing]
     purge_cache(purge_keys)
 
 
@@ -936,6 +972,13 @@ if __name__ == "__main__":
         cmd_upload_all_data()
     elif cmd == "upload-intraday":
         cmd_upload_intraday()
+    elif cmd == "upload-data-files":
+        # upload-data-files <file1> [file2] ...  上传指定文件到 R2 data/ 前缀 + purge
+        # 阶段3：替代 push_schedule_stats/gold_night/update_lab 的 git push 数据
+        files = sys.argv[2:]
+        if not files:
+            sys.exit("用法: upload-data-files <file1> [file2] ...")
+        cmd_upload_data_files(files)
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-claude-backup":
