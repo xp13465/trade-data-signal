@@ -1578,23 +1578,22 @@ function _etfMatchTags(etf) {
   var _mm = etf.match_method;
   var _light = _etfLightInfo(etf);
   var _lightHtml = '<span class="etf-light ' + _light.cls + '"></span>';
-  var _parts = [];
   var _grade = "";
+  // 2026-08-08 移动端精简: 等级标签(强关联/相关/近似)始终显示, 跟踪分+grade细节包 .etf-pop-detail
+  // CSS @media (max-width:768px) 隐藏 .etf-pop-detail, PC 保持原样(等级标签：跟踪分82·优秀0.5%)
+  var _tierLabel = _light.label;
+  var _details = [];
   // 档位：跟踪分(档位次重,跟踪分第三,全角：连; self 也显档位"强关联")
-  if (_light.label) {
-    var _seg = _light.label;
-    if (typeof etf.track_score === "number") _seg += "：跟踪分" + Math.round(etf.track_score);
-    _parts.push(_seg);
-  }
+  if (typeof etf.track_score === "number") _details.push("：跟踪分" + Math.round(etf.track_score));
   // 旧标签: grade + max_err% (相似度辅助)
   if (typeof etf.similarity === "number") {
     _grade = etf.grade || "warn";
     var _ge = _gradeLabel(_grade);
     if (typeof etf.max_err === "number") _ge += etf.max_err.toFixed(1) + "%";
-    _parts.push(_ge);
+    _details.push(_ge);
   }
   // 2026-08-08 体量移出 _etfMatchTags: popup(L15224) 已有独立 etf-pop-amt span, 此处再放会重复;
-  // hoverpop 第二行也用独立 etf-pop-amt span(需求#4 独立字段单独配色), 不放 _parts
+  // hoverpop 第二行也用独立 etf-pop-amt span(需求#4 独立字段单独配色), 不放 _details
   // hover tooltip 中文化: 来源 + 分级 + 相似度 + 跟踪分 + 档位
   var _titleParts = ["来源: " + _etfSrcLabel(_mm)];
   if (_grade) _titleParts.push("分级: " + _gradeLabel(_grade));
@@ -1603,11 +1602,18 @@ function _etfMatchTags(etf) {
   // 问题3+5: 降权(30-59天)显估算说明; 真空(n<30)显无数据说明; 真弱(<50)已显跟踪分值
   if (etf.track_low_confidence === true) _titleParts.push("估算(共同交易日N=30-59,降权分)");
   else if (etf.track_score == null) _titleParts.push("无数据(共同交易日不足)");
-  if (_light.label) _titleParts.push("档位: " + _light.label);
+  if (_tierLabel) _titleParts.push("档位: " + _tierLabel);
   var _title = _titleParts.join(" · ");
   var _cls = _grade ? 'etf-match-tag etf-pop-grade-' + _grade : 'etf-match-tag';
+  // 移动端精简: _tierLabel 始终显示, _details 包 .etf-pop-detail 移动端 display:none 隐藏
+  var _tierHtml = _tierLabel ? " " + _tierLabel : "";
+  var _detailHtml = "";
+  if (_details.length) {
+    var _prefix = _tierLabel ? (typeof etf.track_score === "number" ? "" : "·") : " ";
+    _detailHtml = '<span class="etf-pop-detail">' + _prefix + _details.join("·") + "</span>";
+  }
   // data-no-pop: 排除 _initTermPop 全局 mouseover 捕获 [title] 弹 .term-pop 重渲染致 hoverpop 关闭的 bug
-  return ' <span class="' + _cls + '" data-no-pop="" title="' + _title + '">' + _lightHtml + (_parts.length ? " " + _parts.join("·") : "") + "</span>";
+  return ' <span class="' + _cls + '" data-no-pop="" title="' + _title + '">' + _lightHtml + _tierHtml + _detailHtml + "</span>";
 }
 
 // 2026-08-05 ETF 档位分类（单选改多选拆4档）：按 etf 质量分档，供筛选按钮多选 toggle
