@@ -8,7 +8,7 @@
 // BUG-E：交互增强状态--industrySearch（行业搜索）/ heatmapRange（热力图近1日/近5日切换）。
 // 注：原 indexFilter（A 股/港股 指数筛选 select）已重构为目录锚点 chip(2026-07-20), 始终全部渲染, 点击 chip 跳转吸顶, 不再需要筛选状态
 // 筛选只控制前端显示哪些折线/行业，不影响后端数据。
-const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilterSet: ["1","2","3"] };
+const state = { tab: "overview", range: "3m", industrySearch: "", heatmapRange: "all", subtab: "a-stock", labIndex: "sh", labZone: "sell", labStrategy: null, labData: null, labSimData: null, labSimPair: null, labSimMode: "full_in", labSimPage: 0, intradaySnapshot: null, labWinSync: false, ntEtf: "510300", ntView: "overview", ntDetailRange: null, signalStats: null, sigGradeFilter: null, sigCorrectFilter: null, sigTypeFilter: null, sigWindowFilter: "0_15", sigEtfFilterSet: ["1","2","3","4"] };
 const content = document.getElementById("content");
 const charts = [];
 // 已生成模拟回测页面的品种（📊 模拟回测按钮显示条件）
@@ -1608,30 +1608,32 @@ function _etfMatchTags(etf) {
   return ' <span class="' + _cls + '" data-no-pop="" title="' + _title + '">' + _lightHtml + _tierHtml + _scoreNumHtml + _detailHtml + "</span>";
 }
 
-// 2026-08-05 ETF 档位分类（单选改多选拆4档）：按 etf 质量分档，供筛选按钮多选 toggle
-// D1b 2026-08-08: 优先读 track_tier(strong=1/related=2/approx+none=3), 无则回退旧 grade 逻辑
+// 2026-08-05 ETF 档位分类（单选改多选拆5档）：按 etf 质量分档，供筛选按钮多选 toggle
+// D1b 2026-08-08: 优先读 track_tier(strong=1/related=2/approx=3/none+null=4), 无则回退旧 grade 逻辑
 // 档1 强关联：self(ETF自身完美自跟踪) 或 track_tier=strong
 // 档2 相关：track_tier=related（旧: grade=good 且非 manual_fallback）
-// 档3 近似：track_tier=approx/none 或其余有 ETF 的（旧: warn/n/a/overlap/kw/manual_fallback 等）
-// 档4 概念：etfs 为空（无跟踪ETF的概念标的）
-// 注：track_tier=null(无数据) 或 undefined(旧数据) -> 回退旧 grade 逻辑兜底
+// 档3 有近似ETF：track_tier=approx（跟踪分50-59）
+// 档4 有跟踪ETF：track_tier=none（30-49弱）或 null（N<30/score<30极弱,有ETF但数据不足/误差大）
+// 档5 概念无ETF：etfs 为空（无匹配ETF的概念标的）
+// 注：track_tier=undefined(旧数据无 track_tier) -> 回退旧 grade 逻辑兜底
 function _etfTier(etf) {
-  if (!etf) return 4;
+  if (!etf) return 5;
   if (etf.match_method === "self") return 1;
   var _t = etf.track_tier;
   if (_t === "strong") return 1;
   if (_t === "related") return 2;
-  if (_t === "approx" || _t === "none") return 3;
-  // _t === null(无数据) 或 undefined(旧数据) -> 回退旧 grade 逻辑
+  if (_t === "approx") return 3;
+  if (_t === "none" || _t === null) return 4;
+  // _t === undefined(旧数据) -> 回退旧 grade 逻辑
   if (etf.grade === "excellent") return 1;
   if (etf.grade === "good" && etf.match_method !== "manual_fallback") return 2;
-  return 3;
+  return 4;
 }
-// signal 的 ETF 最佳档位：etfs 空 -> 4(概念)；否则取所有 etf 档位的最小值(最佳档)。
-// 2026-08-07 归一档：每标的归一个最佳档(有档1归1/无则有档2归2/无则有档3归3/无ETF归4)，
+// signal 的 ETF 最佳档位：etfs 空 -> 5(概念无ETF)；否则取所有 etf 档位的最小值(最佳档)。
+// 2026-08-07 归一档：每标的归一个最佳档(有档1归1/无则有档2归2/...无则有档4归4/无ETF归5)，
 //   避免跨档重复(如 excellent+warn 的 signal 在强关联+近似两档都显示)。
 function _signalTiers(it) {
-  if (!it || !it.etfs || !it.etfs.length) return 4;
+  if (!it || !it.etfs || !it.etfs.length) return 5;
   return Math.min(...it.etfs.map(_etfTier));
 }
 // 2026-08-08 灯统一: 列表灯改用个体 top1 口径(_topEtfByScore + _etfLightInfo),
@@ -1879,7 +1881,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     // 口径:近15交易日 signals_today 的 since_correct 至今盈亏方向命中率
     const _wfLabel = { "0_15": "近15交易日全部(默认)", "10_15": "第10-15交易日", "7_15": "第7-15交易日", "3_15": "第3-15交易日", "y_15": "排除今日(昨日~15日)" }[state.sigWindowFilter] || "近15交易日";
     // 2026-08-07 归一档适配：sigEtfFilterSet 空显""(全部)，非空显选中档名（如"（强关联ETF+相关ETF）"）
-    const _etfTierName = { "1": "强关联ETF", "2": "相关ETF", "3": "有近似ETF", "4": "概念无ETF" };
+    const _etfTierName = { "1": "强关联ETF", "2": "相关ETF", "3": "有近似ETF", "4": "有跟踪ETF", "5": "概念无ETF" };
     const _etfScopeLabel = (state.sigEtfFilterSet && state.sigEtfFilterSet.length)
       ? "（" + state.sigEtfFilterSet.map((t) => _etfTierName[t] || t).join("+") + "）"
       : "";
@@ -1938,9 +1940,9 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       : "";
     _windowBtnsHtml = `<span class="sig-acc-window sig-title-window">切换: ${_wfBtn("10日~15日", "10_15", "只看第10-15交易日(排除近9日)")} · ${_wfBtn("7日~15日", "7_15", "只看第7-15交易日(排除近6日)")} · ${_wfBtn("3日~15日", "3_15", "只看第3-15交易日(排除近2日)")} · ${_wfBtn("昨日~15日", "y_15", "排除今日,只看昨日及更早14日")}${_wfReset}</span>`;
     // 2026-08-07 归一档：每标的归一个最佳档，各档计数独立不重叠
-    // 档位：1强关联(self/excellent) 2相关(good非fallback) 3近似(warn/n/a/其余) 4概念(无ETF)
+    // 档位：1强关联(self/strong) 2相关(related) 3近似(approx) 4有跟踪(none/null弱/极弱) 5概念(无ETF)
     // 选中态：档1-3 复用 etf-pop-grade-excellent/good/warn CSS class 着色 + sig-acc-filter-active 描边；
-    //   档4 用 warn 灰（概念标的弱化）；"全部" = sigEtfFilterSet 空(全显)时 active
+    //   档4-5 用 warn 灰（弱化）；"全部" = sigEtfFilterSet 空(全显)时 active
     const _etfSelSet = state.sigEtfFilterSet || [];
     const _eActive = (f) => {
       if (f === "all") return (!_etfSelSet.length) ? " sig-acc-filter-active" : "";
@@ -1948,13 +1950,13 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
     };
     const _etfBtn = (label, f, tip, gradeCls) =>
       `<button class="sig-acc-seg sig-acc-filter${gradeCls ? " " + gradeCls : ""}${_eActive(f)}" data-etf-filter="${f}" data-tip="${_escAttr(tip)}">${label}</button>`;
-    const _tierCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    const _tierCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     for (const it of _etfBaseItems) {
       const _t = _signalTiers(it);
       _tierCounts[_t] = (_tierCounts[_t] || 0) + 1;
     }
     const _etfReset = _etfSelSet.length ? ` <button class="sig-acc-reset" data-etf-filter-reset="1">恢复全部</button>` : "";
-    const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/概念全部4档）")} · ${_etfBtn("强关联ETF " + _tierCounts[1], "1", "档1强关联：ETF本体自跟踪(self)或 track_tier=strong（绿灯，跟踪分≥75），跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关ETF " + _tierCounts[2], "2", "档2相关：track_tier=related（草绿灯，跟踪分60-74），跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("有近似ETF " + _tierCounts[3], "3", "档3近似：track_tier=approx/none（橙/暗橙灯，跟踪分<60或数据不足），有跟踪ETF但误差较大或来源间接", "etf-pop-grade-warn")} · ${_etfBtn("概念无ETF " + _tierCounts[4], "4", "档4概念：无跟踪ETF的概念标的（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
+    const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/有跟踪/概念全部5档）")} · ${_etfBtn("强关联ETF " + _tierCounts[1], "1", "档1强关联：ETF本体自跟踪(self)或 track_tier=strong（绿灯，跟踪分≥75），跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关ETF " + _tierCounts[2], "2", "档2相关：track_tier=related（草绿灯，跟踪分60-74），跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("有近似ETF " + _tierCounts[3], "3", "档3近似：track_tier=approx（橙灯，跟踪分50-59），有跟踪ETF但误差较大", "etf-pop-grade-warn")} · ${_etfBtn("有跟踪ETF " + _tierCounts[4], "4", "档4跟踪：track_tier=none/null（暗橙/灰灯，跟踪分<50或数据不足），误差较大/来源间接，信号偏弱", "etf-pop-grade-warn")} · ${_etfBtn("概念无ETF " + _tierCounts[5], "5", "档5概念：该概念无对应ETF（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
     _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
@@ -2209,15 +2211,16 @@ function _etfLightHelpHTML() {
     + '</ul>'
   );
   // 5. 强关联 track_tier
-  var b5 = _blk('强关联 track_tier',
-    '<p>由 track_score 决定的最终档位(前端信号灯颜色依据), 无 track_score 时回退 grade 映射:</p>'
+  var b5 = _blk('强关联 track_tier & 筛选5档',
+    '<p>由 track_score 决定的最终档位(前端信号灯颜色依据), 无 track_score 时回退 grade 映射。筛选按钮按此分5档:</p>'
     + _ul
-    + '<li><b>strong 强关联</b> - track_score≥75 或 self 本体 -> 蓝/绿灯</li>'
-    + '<li><b>related 相关</b> - track_score 60-74 -> 草绿灯</li>'
-    + '<li><b>approx 近似</b> - track_score 50-59 -> 橙灯(统一橙色,不按 match_method 细分)</li>'
-    + '<li><b>none 弱</b> - track_score 30-49 -> 暗橙灯(真弱); track_low_confidence=true(N=30-59降权) -> 灰蓝虚线估算灯; track_score&lt;30 或 N&lt;30 -> 灰灭灯(track_tier=null)</li>'
+    + '<li><b>strong 强关联</b> - track_score≥75 或 self 本体 -> 蓝/绿灯 -> 筛选档1强关联ETF</li>'
+    + '<li><b>related 相关</b> - track_score 60-74 -> 草绿灯 -> 筛选档2相关ETF</li>'
+    + '<li><b>approx 近似</b> - track_score 50-59 -> 橙灯(统一橙色,不按 match_method 细分) -> 筛选档3有近似ETF</li>'
+    + '<li><b>none 弱 / null 极弱</b> - track_score 30-49 -> 暗橙灯(真弱); track_score&lt;30 或 N&lt;30 -> 灰灭灯(track_tier=null,有ETF但数据不足/极弱) -> 同归筛选档4有跟踪ETF; track_low_confidence=true(N=30-59降权) -> 灰蓝虚线估算灯</li>'
+    + '<li><b>概念无ETF</b> - 无匹配ETF的概念标的(如部分综合指数) -> 筛选档5概念无ETF</li>'
     + '</ul>'
-    + '<p style="margin-top:4px;color:var(--text-3)">回退规则(track_score 缺失时): grade=excellent->strong / grade=good(非手动兜底)->related / 其余->approx</p>'
+    + '<p style="margin-top:4px;color:var(--text-3)">筛选5档: 档1强关联ETF(self/strong) / 档2相关ETF(related 60-74) / 档3有近似ETF(approx 50-59) / 档4有跟踪ETF(none弱+null极弱,有ETF但误差大/数据不足) / 档5概念无ETF(无匹配)。回退规则(track_score 缺失时): grade=excellent->strong / grade=good(非手动兜底)->related / 其余->有跟踪ETF(档4弱)</p>'
   );
   // 6. ⚠️近似标记(增强型ETF) + 估算灯说明
   var b6 = _blk('⚠️近似标记(增强型ETF) & 估算灯',

@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a48';  // bump a47->a48: hoverpop null文案"无数据"->"极弱"(灰灭灯文案统一弹窗说明)
+const CACHE_VERSION = 'v6-20260808-a49';  // bump a48->a49: ETF筛选4档拆5档(档3有近似=approx only,档4有跟踪=none+null,档5概念无ETF=无匹配 only)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
