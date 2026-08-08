@@ -1538,7 +1538,7 @@ function _etfMatchTags(etf) {
   if (!etf) return "";
   var _mm = etf.match_method;
   var _light = _etfLightInfo(etf);
-  var _lightHtml = '<span class="etf-light ' + _light.cls + '">●</span>';
+  var _lightHtml = '<span class="etf-light ' + _light.cls + '"></span>';
   var _parts = [];
   var _grade = "";
   // 旧标签: grade + max_err% (similarity 存在时显示)
@@ -1771,11 +1771,11 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
           if (typeof _etfTop.similarity === "number") _tpEtf.push("相似度: " + (_etfTop.similarity * 100).toFixed(1) + "%");
           if (typeof _etfTop.track_score === "number") _tpEtf.push("跟踪分: " + _etfTop.track_score.toFixed(1));
           if (_li.label) _tpEtf.push("档位: " + _li.label);
-          _cellLight = '<span class="etf-light ' + _li.cls + '" data-no-pop="" title="' + _tpEtf.join(" · ") + '">●</span>';
+          _cellLight = '<span class="etf-light ' + _li.cls + '" data-no-pop="" title="' + _tpEtf.join(" · ") + '"></span>';
           _cellName = _etfTop.name || _idxName;
           _cellCode = _etfTop.code || _sigIdxCode;
         } else {
-          _cellLight = '<span class="etf-light etf-light-nodata" data-no-pop="" title="无跟踪ETF（概念指数）">●</span>';
+          _cellLight = '<span class="etf-light etf-light-nodata" data-no-pop="" title="无跟踪ETF（概念指数）"></span>';
           _cellName = _idxName;
           _cellCode = _sigIdxCode;
         }
