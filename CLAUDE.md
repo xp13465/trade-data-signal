@@ -17,7 +17,7 @@
 ## 2. 监管+loop(主控只派发,不亲自干活)
 - 主控只做三件事:①派发任务(含目标+约束+验收口径)②收子 agent 总结③逐字验证关键结论(grep/SQL/读代码,不信 agent 报告)
 - **调研/定位/分析问题也派子 agent**,不只派"实施"。主上下文不做 grep/Read/方案分析这些"调研活"
-- 用 Agent 工具派子 agent(**必须 `run_in_background: true`**),**核心是等子 agent task-notification 完成报告**(通知会丢,查 jsonl mtime 兜底,见 §11)
+- 用 Agent 工具派子 agent(**必须 `run_in_background: true`** + **派完立即 CronCreate 兜底**,见 §11;SendMessage 通知会丢,cron 兜底查进度文件 DONE+jsonl mtime 防傻等。标准方案待找根因迭代,见 §11)
 - **派完立即返回控制权给用户,进入监工待命**——正文只交代"派了什么任务",然后停,不自己占着主控跑长任务。用户随时能插话更新需求,优先响应。同步 Agent 调用(不加 run_in_background)= 阻塞主控 ing 状态 = 用户插不上嘴 = 违规
 - 子 agent fresh context 跑,保持主上下文整洁省 token
 - 不问 yes/no("要我跑吗""要不要更新文档""要不要验"类自己定),自行验收连轴转
@@ -91,7 +91,10 @@
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
 ## 11. 子agent卡死/429处理(主动轮询+唤醒+重派读遗留)
-- **标准流程:agent 完成 SendMessage to 'main' 主动通知**(2026-08-05 用户定,补 task-notification 会丢的短板):agent prompt 末尾要求完成时 `SendMessage to: 'main', summary: '完成', message: '<结论摘要+关键验收点>'`,harness "Messages from teammates are delivered automatically" 自动送达主控,不需轮询。比 task-notification(agent came to rest 时 harness 自动触发,被动,会丢)更可靠--agent 主动调用工具控制发送时机和内容。**轮询是兜底**(SendMessage 极端丢时 CronCreate 每10分钟 `grep DONE` 进度文件兜底,不干等)。2026-07-21 用户定10分钟(原3分钟太频繁打扰/费token),cron 用 `7,17,27,37,47,57` 避开 :00/:30
+- **通知机制三层:L1 SendMessage(主通道)+ L2 进度文件 DONE(证据)+ L3 cron 兜底**(2026-08-05 定,2026-08-08 校正定位):①agent prompt 末尾要求完成时 `SendMessage to: 'main', summary: '完成', message: '<结论摘要+关键验收点>'` + 进度文件写 `## DONE <结论>`(L1+L2)②**L3 cron 兜底**(派 agent 后立即设,不设=傻等):`durable:true`,每10分钟 `7,17,27,37,47,57`,prompt 查 `## DONE` + `stat -L` jsonl mtime(>600s 卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。2026-07-21 用户定10分钟(原3分钟太频繁)
+- ⚠️ **cron 是兜底非标准方案**(2026-08-08 用户校正):10分钟才发现太慢,治标。**标准方案=找 SendMessage 丢失根因(见下)+ 迭代**,当前未完美靠积累。曾把 cron 当"标配"落档是错的(治标当治本)
+- ⚠️ **标准方案待找根因**(2026-08-08 定):SendMessage 丢失率近100%常态(8/8 2 reviewer ac0ed8a07/a8b63704+8/6 3 agent 全丢)。两假设:①agent 没调 SendMessage(sm_use=0 违规)②调了 harness 没送达。**验证:agent 完成时立即 grep SendMessage 查 jsonl** 区分。①则强化 prompt 或改 StructuredOutput 返回作完成信号;②则 harness 限制只能兜底+积累迭代。每次丢通知记录(agent类型/完成时点/主控状态)找规律
+- ⚠️ **2026-08-08 教训(cron 不设致傻等+状态不一致)**:§11 原把 cron 描述为"极端丢时才用"兜底,致派 agent 后不设 cron(CronList 空)纯等 SendMessage->傻等+用户来问+状态不一致。修复:派 agent 同步设 cron 兜底(虽非标准但必设防傻等),同时找根因迭代标准方案
 - 派agent的prompt要求写进度文件:**每完成一步立即echo**(每个grep/Edit都回写,不是每大步骤;2026-07-15 a194f曾只写"开始"641秒不回写致盲区),echo到 `/tmp/agent-progress-<名>.md`,主控Bash查(轻量不overflow),不依赖jsonl(大)/通知(会丢)/返回(可能429空)任一渠道
 - **卡死**(jsonl mtime>600秒没动,10分钟轮询阈值放宽):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(10分钟)仍卡死=进程已死,重派新会话
 - **429配额失败**:agent came to rest(退出运行)但task-id保留,配额恢复后**优先SendMessage resume原会话**(保留上下文比重派从头高效);resume不响应/状态乱才重派新会话。**2026-07-15教训(底线:不重复犯错)**:曾误判"429原会话已终止无法resume只能重派"(a194f 429后重派afe9从头跑,浪费a194f已查的32 tool_use上下文),实际task-notification note明说"can resume",429和卡死都优先resume--**配额恢复后第一动作是SendMessage resume原会话,不是重派**
@@ -167,9 +170,9 @@
 - **角色可兼任**:小任务一个 agent 调研+实施;大任务拆多角色(实施->reviewer->测试流水线)
 
 ### 通知与兜底机制(§11 细节,本节总览)
-- **标准流程(主动通知)**:agent 完成 `SendMessage to: 'main'` 主动通知(harness 自动送达),比 task-notification(被动会丢)可靠。prompt 末尾要求此动作
-- **进度文件**:agent 每步 echo 回写 `/tmp/agent-progress-<名>.md`(每个 grep/Edit 都回写,非每大步骤),主控 Bash 查(轻量不 overflow)
-- **兜底轮询**:SendMessage 极端丢时,CronCreate 每10分钟(`7,17,27,37,47,57` 避 :00/:30)grep DONE 进度文件;`stat -L` 查 jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)
+- **L1 主动通知**:agent 完成 `SendMessage to: 'main'`(harness 自动送达,但**丢失率近 100% 常态,不可单靠**)+ 进度文件写 `## DONE <结论>`(L2)。prompt 末尾要求这两个动作
+- **L2 进度文件**:agent 每步 echo 回写 `/tmp/agent-progress-<名>.md`(每个 grep/Edit 都回写,非每大步骤),完成写 `## DONE <结论>`,主控 Bash 查(轻量不 overflow)
+- **L3 cron 兜底**(2026-08-08,非标准方案是兜底):派 agent 后立即 CronCreate(`durable:true`,每10分钟 `7,17,27,37,47,57` 避 :00/:30),prompt 查进度文件 `## DONE` + `stat -L` jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。**不设 cron 纯等 SendMessage=傻等**(8/8 教训)。⚠️ cron 是兜底非标准方案,标准方案=找 SendMessage 丢失根因+迭代(见 §11)
 - **卡死**(jsonl mtime>600秒没动):先 SendMessage 唤醒原会话(成本低,可能卡在长工具没退出)-> 下次轮询仍卡死=进程已死,重派新会话读遗留(`/tmp/agent-progress-*` + 工作区半成品)接着做,避免从头返工
 - **429 配额失败**:配额恢复后**优先 SendMessage resume 原会话**(保留上下文比重派高效);resume 不响应/状态乱才重派。底线:不重复犯错(曾误判 429 原会话终止重派从头,浪费已查上下文)
 - **came to rest**(agent 完成一阶段停了等指令,非卡死非429):可随时 SendMessage 推进,不严格等480秒
@@ -190,5 +193,17 @@
 - 和 §14 并列:§14 避开定时任务时点(生产安全 P0),§17 避开高峰倍率(省 token);两者时点重叠时(如 15:35 既撞定时又高峰)双重规避
 - **派 agent 前看时间**:14-18 期间如非紧急,向用户说明"高峰倍率,建议 18 后跑"等用户定;用户确认立即跑不卡
 
+## 18. 犯错积累与防重犯(2026-08-08 起,每次犯错追加)
+用户定:慢慢积累经验迭代完美。每次犯错记录于此 + 防重犯条款,不重犯同类。
+- **2026-08-08 犯错 7 条**:
+  1. 通知丢失不设 cron 傻等 + 把兜底当标准方案落档(§11 校正:cron 兜底非标准,标准方案找根因迭代)
+  2. DB 方案理解反复 3 次纠正(防:关键决策前复述理解让用户确认,不臆断不反复)
+  3. 架构偏差 exclude 偏离全量本意(防:用户说"全量/全部"不擅自 exclude/清理,先确认)
+  4. .gz 断定不严谨凭 memory(防:断定前验证,memory 可能过时,不凭记忆断定)
+  5. agent 误报 trade/trade-data 混淆未识破(防:agent 关键结论 §0 验,尤其路径/文件数类)
+  6. cherry-pick 撞冲突 + 干扰后台 agent(防:切分支/checkout 前 CronList + 查后台 agent 是否改文件)
+  7. hoverpop 方案试错(防:方案先调研充分再实施,不边试边改)
+- **通知丢失标准方案(迭代中)**:见 §11。cron 兜底,标准方案=找 SendMessage 丢失根因(两假设 + 查 jsonl 验证)+ 积累场景迭代。当前未完美
+
 ## 验收铁律
-逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报"完成"不等于真完成。
+逐字验证关键结论(grep/SQL/读代码),不信 agent 报告。报“完成”不等于真完成。
