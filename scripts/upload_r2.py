@@ -274,9 +274,11 @@ def cmd_upload_lab():
 def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_fn=None):
     """通用 glob 上传：local_dir 下按 patterns 匹配文件，上传到 R2 r2_prefix/。
 
-    R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total, failed_rels)。
+    R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total, failed_rels, uploaded_keys)。
     failed_rels = 失败文件的 rel 列表(相对 local_dir 的路径,如 sw_801030-all.json),
     供调用方(cmd_upload_index)打印 FAILED_FILES 行供 intraday_snapshot.sh 抓取引用到告警 body。
+    uploaded_keys = 成功上传的 R2 key 列表(如 ["industry/industry-all.json"]),
+    供调用方调 purge_cache 清 CF edge 缓存。
     include_gz 参数已废弃(.gz 不再生成,CF 自动 br 压缩替代)。
     exclude_fn: 可选回调 (Path) -> bool,返回 True 则跳过该文件(如 upload-all-data 排除
     已在独立命令处理的文件,避免双副本上传)。
@@ -328,30 +330,32 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
             size = len(payload)
             status, data = s3_request("PUT", key, payload)
             if status == 200:
-                return (i, True, rel, size, None)
-            return (i, False, rel, size, f"status={status} {data[:200]}")
+                return (i, True, rel, size, None, key)
+            return (i, False, rel, size, f"status={status} {data[:200]}", None)
         except (OSError, FileNotFoundError) as e:
             # 文件读失败(broken symlink/权限/IO 错):size 未知填 0,跳过该文件继续整批
-            return (i, False, rel, 0, f"读文件失败({type(e).__name__}: {e})")
+            return (i, False, rel, 0, f"读文件失败({type(e).__name__}: {e})", None)
         except Exception as e:
-            return (i, False, rel, 0, f"异常({type(e).__name__}: {e})")
+            return (i, False, rel, 0, f"异常({type(e).__name__}: {e})", None)
 
     ok = 0
     failed_rels = []
+    uploaded_keys = []
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [pool.submit(_upload_one, (i, f)) for i, f in enumerate(files, 1)]
         done = 0
         for fut in as_completed(futures):
-            i, success, rel, size, err = fut.result()
+            i, success, rel, size, err, key = fut.result()
             done += 1
             if success:
                 ok += 1
+                uploaded_keys.append(key)
                 print(f"[{done}/{total}] ✓ {rel} ({size}B)")
             else:
                 print(f"[{done}/{total}] ✗ {rel} {err}")
                 failed_rels.append(str(rel))
     print(f"共上传 {ok}/{total} -> {PUBLIC}/{r2_prefix}/")
-    return ok, total, failed_rels
+    return ok, total, failed_rels, uploaded_keys
 
 
 def cmd_upload_trade_sim():
@@ -368,7 +372,7 @@ def cmd_upload_trade_sim():
     # 用 exists()(对 broken symlink 返回 False)判断是否真有可上传文件。
     if not any(f.exists() for f in ts_dir.glob("trade_sim_*.html")):
         ts_dir = ROOT / "static-site"
-    ok, total, _ = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
+    ok, total, _, _ = _upload_glob(ts_dir, ["trade_sim_*.html"], "trade_sim")
     if total == 0:
         sys.exit(f"无 trade_sim html: {ts_dir}/trade_sim_*.html")
     if ok != total:
@@ -391,7 +395,7 @@ def cmd_upload_trade_sim_json():
     ts_dir = STATIC_DIR / "data/trade_sim"
     if not ts_dir.exists() or not any(ts_dir.glob("*.json")):
         ts_dir = ROOT / "static-site" / "data" / "trade_sim"
-    ok, total, _ = _upload_glob(ts_dir, ["*.json"], "trade_sim_data")
+    ok, total, _, _ = _upload_glob(ts_dir, ["*.json"], "trade_sim_data")
     if total == 0:
         sys.exit(f"无 trade_sim json: {ts_dir}")
     if ok != total:
@@ -406,7 +410,7 @@ def cmd_upload_index():
     intraday_snapshot 盘中会重写本地 index/{iid}-all.json，deploy.sh 调本命令同步 R2。
     """
     idx_dir = STATIC_DIR / "data/index"
-    ok, total, failed_rels = _upload_glob(idx_dir, ["*.json"], "index")
+    ok, total, failed_rels, _ = _upload_glob(idx_dir, ["*.json"], "index")
     if total == 0:
         sys.exit(f"无 index json: {idx_dir}")
     if ok != total:
@@ -435,11 +439,12 @@ def cmd_upload_industry():
         "industry-3y-indices/*",
         "industry-*.json",
     ]
-    ok, total, _ = _upload_glob(data_dir, patterns, "industry")
+    ok, total, _, uploaded_keys = _upload_glob(data_dir, patterns, "industry")
     if total == 0:
         sys.exit(f"无 industry 文件: {data_dir}/industry-*")
     if ok != total:
         sys.exit(1)
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
 def cmd_upload_public_fund():
@@ -449,12 +454,13 @@ def cmd_upload_public_fund():
     架构同 lab/index/industry(按路径前缀,非大小阈值),新增品种自动走 R2 零维护。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _ = _upload_glob(data_dir, ["public_fund*.json"], "public_fund")
+    ok, total, _, uploaded_keys = _upload_glob(data_dir, ["public_fund*.json"], "public_fund")
     if total == 0:
         print(f"⚠ 无 public_fund json: {data_dir}/public_fund*.json")
         return
     if ok != total:
         sys.exit(1)
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
 def cmd_upload_offshore_fund():
@@ -465,12 +471,13 @@ def cmd_upload_offshore_fund():
     offshore_fund_basic 13MB / performance 5.8MB / manager 6.7MB / purchase_status 4.9MB / rating 2.4MB。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _ = _upload_glob(data_dir, ["offshore_fund*.json"], "offshore_fund")
+    ok, total, _, uploaded_keys = _upload_glob(data_dir, ["offshore_fund*.json"], "offshore_fund")
     if total == 0:
         print(f"⚠ 无 offshore_fund json: {data_dir}/offshore_fund*.json")
         return
     if ok != total:
         sys.exit(1)
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
 def cmd_upload_fund_score():
@@ -480,12 +487,13 @@ def cmd_upload_fund_score():
     按类别走 R2(§8.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _ = _upload_glob(data_dir, ["fund_score*.json"], "fund_score")
+    ok, total, _, uploaded_keys = _upload_glob(data_dir, ["fund_score*.json"], "fund_score")
     if total == 0:
         print(f"⚠ 无 fund_score json: {data_dir}/fund_score*.json")
         return
     if ok != total:
         sys.exit(1)
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
 def cmd_upload_etf_score():
@@ -498,12 +506,13 @@ def cmd_upload_etf_score():
     etf_score_list_buy.json ~1.4MB / sell ~1.2MB / hold ~13MB, 均 >1MB 但走独立命令非阈值兜底。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _ = _upload_glob(data_dir, ["etf_score_list_*.json"], "data")
+    ok, total, _, uploaded_keys = _upload_glob(data_dir, ["etf_score_list_*.json"], "data")
     if total == 0:
         print(f"⚠ 无 etf_score_list_* json: {data_dir}/etf_score_list_*.json")
         return
     if ok != total:
         sys.exit(1)
+    purge_cache(uploaded_keys, cache_prefix="/r2/")
 
 
 def cmd_upload_data_large():
@@ -562,10 +571,15 @@ def cmd_upload_data_large():
     print(f"共上传 {ok}/{total} -> {PUBLIC}/data/")
 
 
-def purge_cache(r2_keys):
-    """上传后调 POST /api/purge-cache 清 CF 边缘缓存，让前端读最新数据（阶段2）。
+def purge_cache(r2_keys, cache_prefix="/"):
+    """上传后调 POST /api/purge-cache 清 CF 边缘缓存，让前端读最新数据。
 
-    r2_keys: R2 key 列表（如 ["data/overview.json"]），自动加 / 前缀成 cache key。
+    r2_keys: R2 key 列表（如 ["data/overview.json"] 或 ["industry/industry-all.json"]）。
+    cache_prefix: CF edge cache key 前缀，需匹配 Worker 写缓存时的 cacheKey pathname：
+      - "/" (默认): /data/ rewrite 路由，如 /data/overview.json（dataRewriteHandler）
+      - "/r2/": /r2/ 代理路由，如 /r2/industry/industry-all.json（r2ProxyHandler）
+    Worker purgeCacheHandler 用 url.origin + keyPath 构造 cacheKey 并 caches.default.delete，
+    故 keyPath 需与 Handler 写缓存时 cacheKey 的 pathname 一致（含 /r2/ 前缀）。
     读 PURGE_SECRET env var（trade-data/.env）。Worker 侧需 wrangler secret put PURGE_SECRET。
     失败不中断上传流程（purge 是次要操作，上传是主要操作）。
     """
@@ -573,7 +587,7 @@ def purge_cache(r2_keys):
     if not secret:
         print("⚠ PURGE_SECRET 未设，跳过 cache purge（Worker /api/purge-cache 会 403）")
         return
-    cache_keys = ["/" + k for k in r2_keys]  # "data/overview.json" -> "/data/overview.json"
+    cache_keys = [cache_prefix + k for k in r2_keys]  # 如 "/data/x" 或 "/r2/industry/x"
     body = json.dumps({"secret": secret, "keys": cache_keys}).encode()
     conn = http.client.HTTPSConnection("ss.fx8.store", timeout=10, context=_CTX)
     try:
@@ -626,7 +640,7 @@ def cmd_upload_all_data():
             return True
         return False
 
-    ok, total, _ = _upload_glob(data_dir, ["*.json"], "data", exclude_fn=_exclude_fn)
+    ok, total, _, _ = _upload_glob(data_dir, ["*.json"], "data", exclude_fn=_exclude_fn)
     if total == 0:
         print(f"⚠ 无小 .json 文件: {data_dir}/*.json")
         return
@@ -661,7 +675,7 @@ def cmd_upload_intraday():
         "etf_national_team-1m.json", "etf_national_team-3m.json",
         "etf_national_team-6m.json", "etf_national_team-1y.json",
     ]
-    ok, total, _ = _upload_glob(data_dir, files, "data")
+    ok, total, _, _ = _upload_glob(data_dir, files, "data")
     if total == 0:
         print(f"⚠ 无 intraday 文件: {data_dir}")
         return
@@ -685,7 +699,7 @@ def cmd_upload_data_files(filenames):
     if not existing:
         print(f"⚠ 无文件: {filenames}")
         return
-    ok, total, _ = _upload_glob(data_dir, existing, "data")
+    ok, total, _, _ = _upload_glob(data_dir, existing, "data")
     if ok != total:
         sys.exit(1)
     # 阶段3：上传成功后清 CF 边缘缓存（purge_cache 失败不中断）
