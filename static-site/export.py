@@ -3,7 +3,7 @@
 
 查询逻辑统一在 app/queries.py（与 main.py 路由共用）。本文件只保留：
 - 进程级缓存层（series 全量缓存 + stats 缓存，包装 queries 调用，P1-2 性能优化）
-- JSON 写盘（write_json + gzip）
+- JSON 写盘（write_json）
 - industry 拆分导出（write_industry_split）
 - main() 导出流水线
 
@@ -26,7 +26,6 @@ range 处理方案（备注）：
 
 数据源：仅读 data/sentiment.db（API 只用此库；stock_daily.db 仅供采集器用，API 不读）。
 """
-import gzip
 import json
 import os
 import sqlite3
@@ -711,14 +710,6 @@ def write_json(path: Path, data):
     text = json.dumps(data, ensure_ascii=False, default=_json_default,
                       separators=(",", ":"))
     path.write_text(text, encoding="utf-8")
-    # JSON gz 方案B(MaoziYun 不支持 Content-Encoding: gzip,前端 DecompressionStream 显式解压)
-    # 方案Y: GZ_THRESHOLD=0 全量生成 .json.gz(含小文件),原 .json 保留作 fallback
-    # 旧 100KB 阈值仅大文件生成 .gz,小文件不生成致 fetchJSON .gz 优先 404 fallback;全量后无 404
-    GZ_THRESHOLD = 0
-    if len(text) >= GZ_THRESHOLD:
-        gz_path = path.with_suffix(path.suffix + ".gz")
-        with gzip.open(gz_path, "wb") as f:
-            f.write(text.encode("utf-8"))
     return len(text)
 
 
@@ -1031,25 +1022,9 @@ def main():
     print(f"  - index detail: {len(all_indices)} (all range, full history)")
     print(f"输出目录: {DATA_DIR}")
 
-    # P1-8: 合并首屏 11 个小 JSON 到 boot.json（在 gzip 批量之前，确保 boot.json 也被生成 .gz）
+    # P1-8: 合并首屏 11 个小 JSON 到 boot.json
     # 前端首屏单 fetch boot.json 分发，请求数 22 -> 1。详见 export_boot() 注释。
     export_boot()
-
-    # 批量 gzip DATA_DIR 下所有 *.json（含非本脚本导出的，如 alert.json / lab_*.json /
-    # schedule_stats.json / etf_national_team-1m.json 等）。
-    # 注意：industry-{all,5y,3y} 单文件已拆分为 indices/ 子目录（见上方 write_industry_split），
-    # 不再生成 industry-3y.json 等单文件；此处 rglob 不会扫到已删除的 stale 单文件。
-    # write_json 已对 export.py 导出的 JSON 生成 .gz，但非本脚本导出的 JSON 不会有 .gz，
-    # 致前端 fetchJSON .gz 优先命中 404（Console 红）。此处统一补齐，确保所有 .json 都有 .gz。
-    # rglob 递归扫描子目录：lab/*.json（scripts/lab/*.py 生成，不走 write_json，否则无 .gz）、
-    # index/ industry-*-indices/（write_json 已生成 .gz，此处幂等覆盖，无害）。
-    _gz_count = 0
-    for _p in sorted(DATA_DIR.rglob("*.json")):
-        _gz_path = _p.with_suffix(".json.gz")
-        with open(_p, "rb") as _src, gzip.open(_gz_path, "wb") as _dst:
-            _dst.write(_src.read())
-        _gz_count += 1
-    print(f"  批量 gzip: {_gz_count} 个 JSON -> .gz（含子目录 lab/ 等，rglob 递归）")
 
     # 生成文件后自动走 R2 优化（用户规则：不等超 300MB 才发起）
     # EXPORT_SKIP_R2=1 时跳过（deploy.sh/intraday_snapshot.sh 自己跑 R2，避免重复）

@@ -125,17 +125,6 @@ echo "-> export_notifications.py（浏览器通知源 JSON）..." | tee -a "$LOG
 ALERT_TIME=$(date '+%m-%d %H:%M')
 echo "-> 同步 intraday 数据 JSON 到 R2（阶段3：去 git push，前端走 R2）..." | tee -a "${LOG}"
 
-# 生成 .gz（本地 dev 兜底；R2/CF 用 br 压缩，前端 fetchJSON 已跳 .gz，但保留 fresh .gz 供手动 git push fallback）
-gzip -kf "$REPO/static-site/data/intraday_snapshot.json"
-gzip -kf "$REPO/static-site/data/overview.json"
-gzip -kf "$REPO/static-site/data/summary.json"
-gzip -kf "$REPO/static-site/data/schedule_stats.json"
-gzip -kf "$REPO/static-site/data/hk-1y.json"
-gzip -kf "$REPO/static-site/data/sentiment-all.json"
-gzip -kf "$REPO/static-site/data/notifications.json" 2>/dev/null || true
-gzip -kf "$REPO/static-site/data/boot.json" 2>/dev/null || true
-for f in "$REPO"/static-site/data/etf_national_team-*.json; do gzip -kf "$f" || true; done
-
 # 2.5) 同步 index/ 到 R2（走势图源 kc50-all.json 等）
 #      非阻塞：R2 失败发告警邮件（notify.py --severe），不阻断后续 upload-intraday。
 echo "-> 同步 index 到 R2（前端 R2 源）..." | tee -a "$LOG"

@@ -6,11 +6,11 @@
   python3 scripts/upload_r2.py upload <本地> <r2key>      # 上传单文件
   python3 scripts/upload_r2.py upload-lab                 # 上传 lab/*.json
   python3 scripts/upload_r2.py upload-trade-sim           # 上传 trade_sim_*.html -> trade_sim/
-  python3 scripts/upload_r2.py upload-index               # 上传 data/index/*.json+.gz -> index/
+  python3 scripts/upload_r2.py upload-index               # 上传 data/index/*.json -> index/
   python3 scripts/upload_r2.py upload-industry            # 上传 data/industry-* -> industry/
   python3 scripts/upload_r2.py upload-public-fund         # 上传 data/public_fund* -> public_fund/
   python3 scripts/upload_r2.py upload-offshore-fund       # 上传 data/offshore_fund* -> offshore_fund/ (筛选器阶段0)
-  python3 scripts/upload_r2.py upload-data-large          # 上传 data/ 顶层 >1MB .json+.gz -> data/
+  python3 scripts/upload_r2.py upload-data-large          # 上传 data/ 顶层 >1MB .json -> data/
   python3 scripts/upload_r2.py upload-all-data            # 上传 data/ 全量小 .json -> data/ (阶段1a双写)
   python3 scripts/upload_r2.py upload-db                  # 每日 DB 备份推 R2(signal-backup)
   python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
@@ -277,7 +277,7 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
     R2 key = r2_prefix/{相对 local_dir 的路径}。返回 (ok, total, failed_rels)。
     failed_rels = 失败文件的 rel 列表(相对 local_dir 的路径,如 sw_801030-all.json),
     供调用方(cmd_upload_index)打印 FAILED_FILES 行供 intraday_snapshot.sh 抓取引用到告警 body。
-    include_gz=True 时同时上传 .gz（若存在）(注:此参数声明保留兼容,实际 .gz 由 patterns 决定匹配)。
+    include_gz 参数已废弃(.gz 不再生成,CF 自动 br 压缩替代)。
     exclude_fn: 可选回调 (Path) -> bool,返回 True 则跳过该文件(如 upload-all-data 排除
     已在独立命令处理的文件,避免双副本上传)。
     单文件失败(重试3次仍错)不中断整批,继续上传后续文件。
@@ -376,12 +376,12 @@ def cmd_upload_trade_sim():
 
 
 def cmd_upload_trade_sim_json():
-    """上传 static-site/data/trade_sim/*.json + .gz 到 R2 trade_sim_data/ 前缀。
+    """上传 static-site/data/trade_sim/*.json 到 R2 trade_sim_data/ 前缀。
 
-    R2 key = trade_sim_data/trade_sim_{id}_stats.json[.gz] + trade_sim_{id}_full.json[.gz]。
+    R2 key = trade_sim_data/trade_sim_{id}_stats.json + trade_sim_{id}_full.json。
     前端改 fetchJSON -> https://ssd.fx8.store/trade_sim_data/trade_sim_{id}_stats.json。
     用 trade_sim_data/ 前缀避开现有 trade_sim/ HTML 前缀冲突。
-    export.py 生成 100 品种 × (stats+full) × (.json+.gz) = 400 文件 ~275M。
+    export.py 生成 100 品种 × (stats+full) × (.json) = 400 文件 ~275M。
     deploy.sh 调本命令同步 R2（2026-07-22 迁出 git，解决 s.sugas.site 300MB 超限 404）。
 
     simulate_trade.py 按 __file__ 写 ROOT(trade/)static-site/data/trade_sim/（非 REPO）,
@@ -391,7 +391,7 @@ def cmd_upload_trade_sim_json():
     ts_dir = STATIC_DIR / "data/trade_sim"
     if not ts_dir.exists() or not any(ts_dir.glob("*.json")):
         ts_dir = ROOT / "static-site" / "data" / "trade_sim"
-    ok, total, _ = _upload_glob(ts_dir, ["*.json", "*.json.gz"], "trade_sim_data")
+    ok, total, _ = _upload_glob(ts_dir, ["*.json"], "trade_sim_data")
     if total == 0:
         sys.exit(f"无 trade_sim json: {ts_dir}")
     if ok != total:
@@ -399,14 +399,14 @@ def cmd_upload_trade_sim_json():
 
 
 def cmd_upload_index():
-    """上传 static-site/data/index/*.json + .gz 到 R2 index/ 前缀。
+    """上传 static-site/data/index/*.json 到 R2 index/ 前缀。
 
-    R2 key = index/{id}-all.json[.gz]。
+    R2 key = index/{id}-all.json。
     前端改 fetchJSON -> https://ssd.fx8.store/index/{id}-all.json。
     intraday_snapshot 盘中会重写本地 index/{iid}-all.json，deploy.sh 调本命令同步 R2。
     """
     idx_dir = STATIC_DIR / "data/index"
-    ok, total, failed_rels = _upload_glob(idx_dir, ["*.json", "*.json.gz"], "index")
+    ok, total, failed_rels = _upload_glob(idx_dir, ["*.json"], "index")
     if total == 0:
         sys.exit(f"无 index json: {idx_dir}")
     if ok != total:
@@ -420,20 +420,20 @@ def cmd_upload_industry():
     """上传 static-site/data/industry-* 到 R2 industry/ 前缀（保留原相对路径）。
 
     覆盖：
-      - industry-{all,5y,3y}-indices/{iid}.json + {iid}-detail.json + .gz
-      - industry-{all,5y,3y}-meta.json + -concepts.json + .gz
-      - industry-{1y,3m,6m,1m}.json + .gz（非拆分 range 单文件）
+      - industry-{all,5y,3y}-indices/{iid}.json + {iid}-detail.json
+      - industry-{all,5y,3y}-meta.json + -concepts.json
+      - industry-{1y,3m,6m,1m}.json（非拆分 range 单文件）
     R2 key = industry/{原 data/ 下相对路径}，如 industry/industry-all-indices/{iid}.json。
     前端改 fetchJSON ./data/industry-X -> https://ssd.fx8.store/industry/industry-X。
     intraday_snapshot 盘中会重算 write_industry_split 重写本地文件，deploy.sh 调本命令同步 R2。
     """
     data_dir = STATIC_DIR / "data"
-    # 3 个拆分目录 + 扁平 industry-*.json[.gz]
+    # 3 个拆分目录 + 扁平 industry-*.json
     patterns = [
-        "industry-all-indices/*", "industry-all-indices/*.gz",
-        "industry-5y-indices/*", "industry-5y-indices/*.gz",
-        "industry-3y-indices/*", "industry-3y-indices/*.gz",
-        "industry-*.json", "industry-*.json.gz",
+        "industry-all-indices/*",
+        "industry-5y-indices/*",
+        "industry-3y-indices/*",
+        "industry-*.json",
     ]
     ok, total, _ = _upload_glob(data_dir, patterns, "industry")
     if total == 0:
@@ -443,13 +443,13 @@ def cmd_upload_industry():
 
 
 def cmd_upload_public_fund():
-    """上传 static-site/data/public_fund*.json + .gz 到 R2 public_fund/ 前缀(按类别,无大小阈值)。
+    """上传 static-site/data/public_fund*.json 到 R2 public_fund/ 前缀(按类别,无大小阈值)。
 
     覆盖当前 5 小样本 + 未来全量品种(public_fund-{id}-holdings-5y.json 等)。
     架构同 lab/index/industry(按路径前缀,非大小阈值),新增品种自动走 R2 零维护。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _ = _upload_glob(data_dir, ["public_fund*.json", "public_fund*.json.gz"], "public_fund")
+    ok, total, _ = _upload_glob(data_dir, ["public_fund*.json"], "public_fund")
     if total == 0:
         print(f"⚠ 无 public_fund json: {data_dir}/public_fund*.json")
         return
@@ -458,14 +458,14 @@ def cmd_upload_public_fund():
 
 
 def cmd_upload_offshore_fund():
-    """上传 static-site/data/offshore_fund*.json + .gz 到 R2 offshore_fund/ 前缀。
+    """上传 static-site/data/offshore_fund*.json 到 R2 offshore_fund/ 前缀。
 
     筛选器阶段0(2026-08-02 新增): 7 类 JSON(5 大文件 >1MB + 2 小文件, 全量后均大)。
     按类别走 R2(§8.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
     offshore_fund_basic 13MB / performance 5.8MB / manager 6.7MB / purchase_status 4.9MB / rating 2.4MB。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _ = _upload_glob(data_dir, ["offshore_fund*.json", "offshore_fund*.json.gz"], "offshore_fund")
+    ok, total, _ = _upload_glob(data_dir, ["offshore_fund*.json"], "offshore_fund")
     if total == 0:
         print(f"⚠ 无 offshore_fund json: {data_dir}/offshore_fund*.json")
         return
@@ -474,13 +474,13 @@ def cmd_upload_offshore_fund():
 
 
 def cmd_upload_fund_score():
-    """上传 static-site/data/fund_score*.json + .gz 到 R2 fund_score/ 前缀。
+    """上传 static-site/data/fund_score*.json 到 R2 fund_score/ 前缀。
 
     阶段1 评分引擎(2026-07-20 新增): fund_score.json(头部2000) + fund_score_top.json(Top100)。
     按类别走 R2(§8.1 新类别按前缀建独立命令, 不依赖 1MB 阈值兜底)。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _ = _upload_glob(data_dir, ["fund_score*.json", "fund_score*.json.gz"], "fund_score")
+    ok, total, _ = _upload_glob(data_dir, ["fund_score*.json"], "fund_score")
     if total == 0:
         print(f"⚠ 无 fund_score json: {data_dir}/fund_score*.json")
         return
@@ -489,7 +489,7 @@ def cmd_upload_fund_score():
 
 
 def cmd_upload_etf_score():
-    """上传 static-site/data/etf_score_list_*.json + .gz 到 R2 data/ 前缀。
+    """上传 static-site/data/etf_score_list_*.json 到 R2 data/ 前缀。
 
     P0-2 (2026-08-05): 原 18MB 单文件 etf_score_list.json 拆 3 JSON (buy/sell/hold),
     前端懒加载 hold (初始只加载 buy+sell ~153KB br, hold 783KB br 点"持有观察"才加载)。
@@ -498,7 +498,7 @@ def cmd_upload_etf_score():
     etf_score_list_buy.json ~1.4MB / sell ~1.2MB / hold ~13MB, 均 >1MB 但走独立命令非阈值兜底。
     """
     data_dir = STATIC_DIR / "data"
-    ok, total, _ = _upload_glob(data_dir, ["etf_score_list_*.json", "etf_score_list_*.json.gz"], "data")
+    ok, total, _ = _upload_glob(data_dir, ["etf_score_list_*.json"], "data")
     if total == 0:
         print(f"⚠ 无 etf_score_list_* json: {data_dir}/etf_score_list_*.json")
         return
@@ -507,7 +507,7 @@ def cmd_upload_etf_score():
 
 
 def cmd_upload_data_large():
-    """上传 static-site/data/ 顶层 >=1MB 或大 range(-all/-5y/-3y) 的 .json + .gz 到 R2 data/ 前缀。
+    """上传 static-site/data/ 顶层 >=1MB 或大 range(-all/-5y/-3y) 的 .json 到 R2 data/ 前缀。
 
     双源备份策略（2026-07-20 R2 优化根治 300MB）：
     - 前端暂未全改 R2 URL 的（a-stock/hk/global/sentiment/etf_national_team 大 range）：
@@ -541,9 +541,6 @@ def cmd_upload_data_large():
         # 大 range 文件(前端强制走 R2)或 >=1MB 的大文件才上传 R2
         if sz >= LARGE_THRESHOLD or _LARGE_RANGE_RE.search(f.name):
             files.append(f)
-            gz = f.with_suffix(".json.gz")
-            if gz.exists():
-                files.append(gz)
     if not files:
         print(f"⚠ 无 >{LARGE_THRESHOLD // 1024}KB 的顶层 .json: {data_dir}")
         return
@@ -606,7 +603,7 @@ def cmd_upload_all_data():
       - fund_score* (upload-fund-score -> fund_score/ 前缀)
       - etf_score_list* (upload-etf-score -> data/ 前缀,独立命令已处理)
       - 大 range 文件 *-{all,5y,3y}.json (upload-data-large -> data/ 前缀)
-      - .gz 文件: 只传 *.json pattern,.gz 不匹配(CF 自动 br,前端已跳 .gz)
+      - .gz 不再生成(CF 自动 br 压缩替代),只传 *.json pattern
       - feed.xml: 非 .json,*.json glob 天然不匹配
     复用 _upload_glob 8 线程并发上传。
     """
@@ -645,7 +642,7 @@ def cmd_upload_intraday():
     - intraday_snapshot/overview/summary/summary_history/notifications/boot/schedule_stats
     - a-stock/hk/global/sentiment 的 3m/6m/1y
     - etf_national_team 的 1m/3m/6m/1y
-    只传 .json(CF 自动 br,.gz 前端已跳 fetchJSON)。8线程并发,~23文件秒级完成。
+    只传 .json(CF 自动 br 压缩)。8线程并发,~23文件秒级完成。
     index/ 已由 upload-index(intraday_snapshot.sh L249 独立调用)处理,不在此上传。
     部分文件可能不存在(notifications/summary_history 某些时点未生成),_upload_glob 自动过滤。
     """

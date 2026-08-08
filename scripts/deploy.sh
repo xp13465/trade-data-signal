@@ -49,14 +49,12 @@ fi
 
 # 0.5 防通配带入工作区残留旧版 intraday 文件（事故 94c79041 直接根因）
 # deploy.sh git add static-site/data/ 通配会带入工作区任何残留文件。
-# 跑 export.py 前先恢复 intraday_snapshot.json/.gz + notifications.json/.gz 到 origin/main 版（清工作区残留），再 unstage 保持 index 干净。
+# 跑 export.py 前先恢复 intraday_snapshot.json + notifications.json 到 origin/main 版（清工作区残留），再 unstage 保持 index 干净。
 # export.py 随后重新生成覆盖；若 export.py 读滞后 DB 生成旧版（DB 不同步根因），此处无法防，需 symlink 方案。
-# 2026-07-29 修复 a74 回归（commit 16110044）：a74 让 intraday_snapshot/export_notifications 生成 notifications.json/.gz，
-# deploy.sh 原只恢复 intraday_snapshot 致 rebase 时 untracked notifications.json.gz checkout 冲突，futures+etf deploy 连续2天失败。
-echo "-> 恢复 intraday_snapshot.json/.gz + notifications.json/.gz 到 origin/main 版（防工作区残留带入通配 add）..." | tee -a "$LOG"
+echo "-> 恢复 intraday_snapshot.json + notifications.json 到 origin/main 版（防工作区残留带入通配 add）..." | tee -a "$LOG"
 git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
-git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz static-site/data/notifications.json static-site/data/notifications.json.gz 2>/dev/null && \
-  git -C "$GIT_REPO" reset HEAD -- static-site/data/intraday_snapshot.json static-site/data/intraday_snapshot.json.gz static-site/data/notifications.json static-site/data/notifications.json.gz 2>/dev/null || true
+git -C "$GIT_REPO" checkout origin/main -- static-site/data/intraday_snapshot.json static-site/data/notifications.json 2>/dev/null && \
+  git -C "$GIT_REPO" reset HEAD -- static-site/data/intraday_snapshot.json static-site/data/notifications.json 2>/dev/null || true
 
 # 0.7 兜底：清理工作区残留 unmerged 状态（2026-07-31 根治，方案B 双保险）
 # 根因：pop_rebase_stash bug（rebase 后 stash pop 冲突只 echo 不解决）曾留 unmerged 污染，
@@ -69,7 +67,7 @@ if [ -n "$UNMERGED" ]; then
   NON_DATA_UNMERGED=""
   for _u in $UNMERGED; do
     case "$_u" in
-      static-site/data/*.json|static-site/data/*.gz)
+      static-site/data/*.json)
         git -C "$GIT_REPO" reset HEAD -- "$_u" 2>/dev/null || true
         git -C "$GIT_REPO" checkout origin/main -- "$_u" 2>&1 | tee -a "$LOG"
         echo "⚠ 清理 unmerged 数据文件: $_u（已 reset HEAD + checkout origin/main）" | tee -a "$LOG"
@@ -169,12 +167,7 @@ if not gr:
 snap["global_realtime"] = gr
 with open(path, "w", encoding="utf-8") as f:
     json.dump(snap, f, ensure_ascii=False, separators=(",", ":"))
-# 同步 .gz
-import gzip
-gz_path = path + ".gz"
-with gzip.open(gz_path, "wt", encoding="utf-8") as f:
-    json.dump(snap, f, ensure_ascii=False, separators=(",", ":"))
-print(f"  ✓ 已从 origin/main 提取 global_realtime ({len(gr)} 个指数) 注入 intraday_snapshot.json + .gz")
+print(f"  ✓ 已从 origin/main 提取 global_realtime ({len(gr)} 个指数) 注入 intraday_snapshot.json")
 PYEOF
 
 # 1.4 刷新计划任务执行统计（gen_schedule_stats.py）已移到各任务脚本结尾（2026-07-24 方案A根治）：
@@ -285,7 +278,7 @@ if [ -n "$R2_FAIL" ]; then
 fi
 
 # 2. git add min JS/CSS + feed.xml（阶段3：数据走 R2，只 push 代码 + RSS）
-# 原数据 JSON/.gz 已由上面 R2 上传（upload-all-data 等）推到 R2，不再 git push。
+# 原数据 JSON 已由上面 R2 上传（upload-all-data 等）推到 R2，不再 git push。
 # static-site/data/ 仍 tracked，R2 故障时可手动 git add + push 兜底。
 # 保留 push：min JS/CSS（代码，build_min.py 生成）+ feed.xml（RSS，gen_rss.py 生成，非 JSON 不走 R2）。
 echo "-> git add min JS/CSS + feed.xml（阶段3：数据走 R2，只 push 代码）..." | tee -a "$LOG"
@@ -336,7 +329,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
     # 根 data/ 的 DB（sentiment.db/etf_national_team.db 已 gitignore）不会被 stash。
     # 2026-07-29 修复（etf 21:30 兜底 deploy 失败根因）：原 stash 不加 -u，untracked 文件留工作区，
     # rebase origin/main checkout 撞 origin/main 有 tracked 但工作区 untracked 的同名文件（如
-    # notifications.json.gz：deploy.sh 精确 git add DATA_FILES 列表不含它致 feat commit 里 untracked，
+    # notifications.json：deploy.sh 精确 git add DATA_FILES 列表不含它致 feat commit 里 untracked，
     # 但 intraday-snapshot 全量 add push 到 origin/main 成 tracked）-> "untracked working tree files
     # would be overwritten by checkout" -> rebase abort -> push 永久失败。加 -u 根治：rebase 前把
     # 全仓库 untracked + tracked M 全 stash 走，工作区干净，rebase 不撞 untracked。
@@ -372,7 +365,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
             non_data=""
             for f in $conflicted; do
               case "$f" in
-                static-site/data/*.json|static-site/data/*.gz)
+                static-site/data/*.json)
                   git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
                   git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
                   ;;
@@ -409,8 +402,8 @@ if [ "$PUSH_RC" -ne 0 ]; then
       fi
     else
       # 2026-07-29 修复：rebase 失败时自动解决 static-site/data/ 数据文件冲突
-      # 根因：并发 deploy push 后本地 rebase origin/main 撞 static-site/data/*.gz
-      # 二进制冲突(git 无法三方合并) -> rebase abort -> push 永久失败 ->
+      # 根因：并发 deploy push 后本地 rebase origin/main 撞 static-site/data/*.json
+      # 数据文件冲突(git 无法三方合并) -> rebase abort -> push 永久失败 ->
       # futures_backfill log_anomaly 持续告警(7-28 21:00 事故)。
       # 数据文件每次 export 全量覆盖不需合并，取 theirs(本地最新)。
       # rebase 语义：ours=origin/main(基底) theirs=本地commit(重放)=最新数据
@@ -419,7 +412,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
         NON_DATA_CONFLICTS=""
         for f in $CONFLICTED; do
           case "$f" in
-            static-site/data/*.json|static-site/data/*.gz)
+            static-site/data/*.json)
               git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
               git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
               ;;
@@ -431,7 +424,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
         if [ -z "$NON_DATA_CONFLICTS" ]; then
           # 全是数据文件冲突，已用 theirs(本地最新) 解决，进入循环处理后续连续冲突
           # 根因(2026-08-05)：feat 长期跑定时任务积累 data commit，origin/main 有
-          # intraday/futures data commit，rebase 多个连续 .gz 冲突，单次 --continue
+          # intraday/futures data commit，rebase 多个连续 .json 冲突，单次 --continue
           # 后下个 commit 又冲突 -> 直接 abort -> deploy 永久失败。
           # 修复：while 循环 checkout --theirs + git add + rebase --continue，直到
           # rebase 完成或遇非数据冲突(代码文件)才 abort，最大 10 次防死循环。
@@ -460,7 +453,7 @@ if [ "$PUSH_RC" -ne 0 ]; then
             NON_DATA2=""
             for f in $CONFLICTED2; do
               case "$f" in
-                static-site/data/*.json|static-site/data/*.gz)
+                static-site/data/*.json)
                   git -C "$GIT_REPO" checkout --theirs -- "$f" 2>&1 | tee -a "$LOG"
                   git -C "$GIT_REPO" add -- "$f" 2>&1 | tee -a "$LOG"
                   ;;
@@ -542,20 +535,8 @@ if [ -d "$STATICDATA_REPO/.git" ]; then
     [ -f "$_plist" ] && sed 's|/Users/linhuichen|/Users/USER|g' "$_plist" > "$STATICDATA_REPO/config/launchd/$(basename "$_plist")" 2>/dev/null || true
   done
 
-  # 3. rsync 小JSON（排除大文件 index-/industry-/lab-/trade_sim_[0-9] + .gz + 子目录）
+  # 3. rsync 全量 JSON 到 staticdata（全量备份，DB 不在此目录）
   rsync -a \
-    --exclude='*.gz' \
-    --exclude='index/' \
-    --exclude='industry-3y-indices/' \
-    --exclude='industry-5y-indices/' \
-    --exclude='industry-all-indices/' \
-    --exclude='lab/' \
-    --exclude='trade_sim/' \
-    --exclude='index-*' \
-    --exclude='industry-*' \
-    --exclude='lab-*' \
-    --exclude='trade_sim_*[0-9]*' \
-    --exclude='feed.xml' \
     "$REPO/static-site/data/" "$STATICDATA_REPO/data/" 2>&1 | tee -a "$LOG" || {
     echo "⚠ staticdata JSON rsync 失败,不阻塞 deploy" | tee -a "$LOG"
     STATICDATA_FAIL=1
