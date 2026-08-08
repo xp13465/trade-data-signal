@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a29';  // bump a27->a28: ETF信号灯3问题(列表加灯+CSS字号+approx临时色)
+const CACHE_VERSION = 'v6-20260808-a30';  // bump a29->a30: ETF灯方案A(列表灯用分组口径_signalLightInfo+名/代码回指数+CSS辅助色去opacity)
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)
