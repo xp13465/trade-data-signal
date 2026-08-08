@@ -1949,7 +1949,7 @@ function _rerenderSigCardContent(r, snap) {
   const sigCard = document.querySelector(".sig-card");
   if (!sigCard) return;
   const isClosed = snap ? snap.is_closed : true;
-  const title = "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）");
+  const title = "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看6色信号与ETF跟踪指标详细解释）");
   const newHtml = _renderSignalGrid(r.signals_today || [], r.date, title, "signal", "近期无技术分析参考点", isClosed);
   const tmp = document.createElement("div");
   tmp.innerHTML = newHtml;
@@ -2113,6 +2113,77 @@ const _SIG_CLASS_MAP = {
   band_sell: { card: "rule-card-band-sell", badge: "badge-band-sell" },
 };
 
+// ETF信号灯 & 跟踪指标说明 modal 内容（5块算法解释，从 build_board_etf_map.py 提取）
+// 在技术信号❓弹窗内作为第二section展示，复用 .rule-modal-content + .etf-light 圆点
+// 配色用CSS变量适配15皮肤，与行业配置❓弹窗风格一致
+function _etfLightHelpHTML() {
+  var _blk = function(title, html) {
+    return '<div style="margin-bottom:12px;padding:10px 14px;border-left:3px solid var(--primary);background:var(--bg-hover);border-radius:0 6px 6px 0">'
+      + '<div style="font-weight:700;margin-bottom:4px;color:var(--text-1)">' + title + '</div>'
+      + '<div style="font-size:13px;line-height:1.7;color:var(--text-2)">' + html + '</div>'
+      + '</div>';
+  };
+  var _ul = '<ul style="margin:4px 0 0 0;padding-left:20px;line-height:2">';
+  // 1. 信号灯5色分类
+  var b1 = _blk('信号灯5色分类',
+    '<p>每个指数标的匹配到的最佳 ETF 前有一个彩色圆点(●)信号灯,颜色由 <b>track_tier</b>(跟踪分档)决定:</p>'
+    + _ul
+    + '<li><span class="etf-light etf-light-self"></span> <b>蓝</b> self 本体 - 指数自身即ETF(如科创50指数->588000),完美自跟踪无误差</li>'
+    + '<li><span class="etf-light etf-light-strong"></span> <b>绿</b> strong 强关联 - track_score≥80,跟踪误差最小</li>'
+    + '<li><span class="etf-light etf-light-related"></span> <b>草绿</b> related 相关 - track_score 70-79,跟踪误差较小</li>'
+    + '<li><span class="etf-light etf-light-approx"></span> <b>橙</b> approx 近似 - track_score 50-69,有跟踪ETF但误差较大。approx 档按 match_method 细分多色: <span class="etf-light etf-light-red"></span>红=name_match(名称匹配) / <span class="etf-light etf-light-purple"></span>紫=overlap(成分重叠) / <span class="etf-light etf-light-yellow"></span>黄=kw(关键词) / <span class="etf-light etf-light-approx"></span>橙=track_index+其余</li>'
+    + '<li><span class="etf-light etf-light-weak"></span> <b>暗橙</b> none 弱 - track_score&lt;50,来源间接误差大</li>'
+    + '<li><span class="etf-light etf-light-nodata"></span> <b>灰灭灯</b> - 无数据(track_score=null,共同交易日不足60)</li>'
+    + '</ul>'
+  );
+  // 2. 跟踪分 track_score
+  var b2 = _blk('跟踪分 track_score',
+    '<p>基于<b>日收益率序列</b>的5维度加权评分(0-100),捕捉全路径偏离(弥补相似度只看起点终点的缺陷):</p>'
+    + _ul
+    + '<li><b>TE 跟踪误差</b> 30% - std(日收益差)×√252×100,越低越好</li>'
+    + '<li><b>R² 决定系数</b> 25% - corr(ETF,指数)²,越高越好</li>'
+    + '<li><b>avg_dev 平均偏离</b> 15% - mean(|日收益差|)×100,越低越好</li>'
+    + '<li><b>roll_std 滚动标准差</b> 15% - 30交易日滚动TE序列的std,越低越好</li>'
+    + '<li><b>IR 信息比率</b> 15% - mean(收益差)×252/(std×√252),|IR|越接近0越好</li>'
+    + '</ul>'
+    + '<p style="margin-top:4px;color:var(--text-3)">归一化: 4项百分位rank(防异常值拉伸) + IR分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。阈值: ≥80 strong / 70-79 related / 50-69 approx / &lt;50 none。共同交易日&lt;60降级为 track_score=null(灰标)。</p>'
+  );
+  // 3. 相似度 similarity
+  var b3 = _blk('相似度 similarity',
+    '<p>5周期(5日/20日/60日/年初至今/1年)涨跌幅对比, 日期对齐取交集(≥10共同交易日):</p>'
+    + _ul
+    + '<li><b>max_err</b> = 5周期中最大的 |候选涨幅 - 指数涨幅|</li>'
+    + '<li><b>similarity</b> = 1 - max_err/100(近似跟踪度%)</li>'
+    + '</ul>'
+    + '<p style="margin-top:4px;color:var(--text-3)">注意: 只看起点到终点累计涨幅, 对中间路径(如V型尖刺)不敏感 - track_score 的日收益率序列分析补充此缺陷。</p>'
+  );
+  // 4. 分级 grade
+  var b4 = _blk('分级 grade',
+    '<p>基于 max_err 的分级(相似度辅助指标, 与 track_score 互补):</p>'
+    + _ul
+    + '<li><b>excellent 优秀</b> - max_err &lt; 1%(精准跟踪)</li>'
+    + '<li><b>good 良好</b> - max_err &lt; 5%(近似跟踪)</li>'
+    + '<li><b>warn 偏差大</b> - max_err ≥ 5%(误差较大)</li>'
+    + '<li><b>n/a 不适用</b> - 数据不足</li>'
+    + '</ul>'
+  );
+  // 5. 强关联 track_tier
+  var b5 = _blk('强关联 track_tier',
+    '<p>由 track_score 决定的最终档位(前端信号灯颜色依据), 无 track_score 时回退 grade 映射:</p>'
+    + _ul
+    + '<li><b>strong 强关联</b> - track_score≥80 或 self 本体 -> 蓝/绿灯</li>'
+    + '<li><b>related 相关</b> - track_score 70-79 -> 草绿灯</li>'
+    + '<li><b>approx 近似</b> - track_score 50-69 -> 橙灯(按 match_method 细分红/紫/黄/橙)</li>'
+    + '<li><b>none 弱</b> - track_score&lt;50 或数据不足 -> 暗橙/灰灯</li>'
+    + '</ul>'
+    + '<p style="margin-top:4px;color:var(--text-3)">回退规则(track_score 缺失时): grade=excellent->strong / grade=good(非手动兜底)->related / 其余->approx</p>'
+  );
+  return '<div style="border-top:1px solid var(--border);margin:16px 0 12px;padding-top:12px">'
+    + '<h4 style="margin:0 0 10px;font-size:15px;color:var(--text-1)">ETF信号灯 & 跟踪指标说明</h4>'
+    + b1 + b2 + b3 + b4 + b5
+    + '</div>';
+}
+
 // 渲染技术信号 modal（每信号：标题 badge + 描述 + 回测 + 分析概况[动态] + 补充 + 警示）
 // aggStats: _aggregateSignalStats 返回值；null/某信号无数据 -> "数据待补"
 // 复用 rule-card / rule-badge / badge-* / rule-stat-box 等 class，与 ruleContentHtml 风格统一
@@ -2157,7 +2228,7 @@ function _signalHelpModalHTML(aggStats) {
       '<p class="rule-note">⚠ ' + _t.tsText(it.warn) + '</p>' +
       '</div>';
   }).join("");
-  return '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>📊 技术信号参考</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + items + '<div class="rule-modal-footer">⚠ 以上为研究标注非交易指令，详见右下角浮动 📋 策略说明。过往表现不代表未来收益。</div></div></div>';
+  return '<div class="rule-modal-overlay"></div><div class="rule-modal-body"><div class="rule-modal-header"><h3>📊 技术信号 &amp; ETF信号灯参考</h3><button class="rule-modal-close" aria-label="关闭">&times;</button></div><div class="rule-modal-content">' + items + _etfLightHelpHTML() + '<div class="rule-modal-footer">⚠ 以上为研究标注非交易指令，详见右下角浮动 📋 策略说明。过往表现不代表未来收益。</div></div></div>';
 }
 
 // 打开6色信号 modal：异步 fetch signal_stats.json 聚合后渲染（每次打开重新渲染含最新统计）
@@ -9406,7 +9477,7 @@ async function renderOverview() {
   // 右列：近期买卖点（近15交易日，今日高亮排首）
   const sigCard = document.createElement("div");
   sigCard.className = "chart-card sig-card";
-  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("6色技术信号参考（点击❓查看6色信号详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
+  sigCard.innerHTML = _renderSignalGrid(r.signals_today, r.date, "近期技术分析参考点（近 15 交易日 · " + _sigTodayHint() + _sigWindowSuffix() + "）" + signalHelpTip("技术信号+ETF信号灯说明（点击❓查看6色信号与ETF跟踪指标详细解释）"), "signal", "近期无技术分析参考点", snap ? snap.is_closed : true);
   addCardTimeBadge(sigCard, r.date, snap, "t0", "", false, true);  // 任务1: useOverviewDate=true, 轮询后用最新 overview.date 覆盖
   _sigCardRenderedAt = r.collected_at;  // D: 记录渲染时 collected_at, 供 _maybeRerenderSigCard 判断是否需重绘
   // B1 方案B(2026-07-27): 盘中提示 - sw_/thsc_/cgb_ 等行业概念指数不在 intraday 反哺列表
