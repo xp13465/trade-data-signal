@@ -105,12 +105,12 @@ KW: dict[str, list[str]] = {
 TRACK_INDEX_KW: dict[str, dict] = {
     # ---- 申万一级行业 ----
     "sw_801010": {"include": ["农业", "农牧", "养殖", "渔业", "牧渔"], "exclude": ["畜牧养殖"]},  # Bug6: 排除"中证畜牧养殖指数"ETF(属csi_931946)
-    "sw_801030": {"include": ["化工"], "exclude": ["细分化工"]},
+    "sw_801030": {"include": ["化工"], "exclude": ["细分化工", "易盛", "郑商所"]},  # 方案2: 加"易盛/郑商所"排除159981能源化工ETF(跟踪"易盛郑商所能源化工指数A"=郑商所商品期货指数,非化工行业股票指数)
     "sw_801040": {"include": ["钢铁"], "exclude": ["国证钢铁"]},
     "sw_801050": {"include": ["有色金属"], "exclude": ["国证有色", "中证稀有金属", "中证工业有色", "中证有色矿业"]},
     "sw_801080": {"include": ["电子"], "exclude": ["消费电子", "中证申万电子"]},  # 申万电子 vs 消费电子/中证申万电子行业
     "sw_801880": {"include": ["汽车"], "exclude": ["新能源汽车", "智能汽车", "新能源车", "中证新能源汽车"]},
-    "sw_801110": {"include": ["家电"], "exclude": []},
+    "sw_801110": {"include": ["家电", "家用电器"], "exclude": []},  # 方案2: 加"家用电器"命中159996(跟踪"中证全指家用电器指数","家电"非"家用电器"子串故原遗漏)
     "sw_801120": {"include": ["食品", "酒", "饮料"], "exclude": ["国证食品饮料", "国证粮食"]},
     "sw_801130": {"include": ["纺织", "服装", "服饰"], "exclude": []},
     "sw_801140": {"include": ["轻工", "家居", "造纸", "文娱"], "exclude": ["传媒", "智能家居"]},  # Bug7: 加"智能家居"排除"中证智能家居指数"ETF(属csi_399996)
@@ -1136,10 +1136,10 @@ def main():
             df_by_code[str(r["代码"])] = r
 
     out: dict = {"_meta": {"source": "akshare fund_etf_spot_em + fundf10 track_index",
-                           "sort_by": "max_err(升序,最相似在前); LOF净值取自fund_open_fund_info_em",
-                           "match_priority": "track_index > overlap > kw_name + similarity_calc",
+                           "sort_by": "track_score(降序,跟踪分最高在前; None排最后); LOF净值取自fund_open_fund_info_em",
+                           "match_method": "全量叠加: track_index + overlap + kw_name 合并去重(同ETF取最优来源标记), 按track_score降序排",
                            "similarity_fields": "similarity(1-max_err/100) / max_err(5周期最大误差%) / grade(excellent<1%/good<5%/warn>=5%) / fund_type(etf|lof)",
-                           "note": "候选列表含所有track_index匹配ETF+LOF; 按相似度(max_err升序)排序; "
+                           "note": "候选列表含所有来源(track_index+overlap+kw)匹配ETF+LOF; 按track_score降序排序; "
                                    "行业/概念ETF跟踪中证/国证指数非申万/同花顺精准跟踪,grade=good/warn属正常"}}
     empty_boards = []
     # 加载 fundf10 抓取的 ETF track_index 缓存
@@ -1152,53 +1152,64 @@ def main():
         print(f"  + LOF track_index 缓存 {len(lof_track_map)} 只（fund_type=lof，纳入候选池）")
         track_idx_map.update(lof_track_map)  # 合并，LOF 已标 fund_type=lof
 
-    # ── 行业/概念匹配（优先级：track_index > overlap > KW 名称）──
-    # 第1层：track_index_name 关键词匹配（fundf10 抓取的 ETF 跟踪指数名，最精准）
-    track_matched = {}  # {iid: etfs} 记录 track_index 匹配结果（含空列表），避免后续 overlap/KW 覆盖
+    # ── 行业/概念匹配（全量多来源叠加：track_index + overlap + KW 合并去重）──
+    # 用户需求：给所有指数都按不同的来源算法挂上相关ETF，合并去重后按 track_score 排序。
+    # 三层来源（优先级递减，同一ETF多来源命中取最优来源标记）：
+    #   1. track_index_name 关键词匹配（fundf10 抓取的 ETF 跟踪指数名，最精准）
+    #   2. overlap 成分股重叠（thsc 概念用东财BK成分股∩指数成分股Jaccard重叠度）
+    #   3. KW 名称子串匹配（ETF名称关键词，精度最差，兜底补充）
+    # 合并规则：后层只添加前层未匹配到的ETF（同code不覆盖），保留最优来源的match_method。
+
+    # 第1层：track_index_name 关键词匹配（所有 board_id）
     for iid in board_ids:
         etfs = _match_by_track_index(iid, track_idx_map, df_by_code)
-        track_matched[iid] = etfs
-        if etfs:
-            out[iid] = etfs
-        else:
-            out[iid] = []  # 占位，等下面 overlap/KW 兜底
+        out[iid] = etfs  # 可能为空列表，后续 overlap/KW 叠加补充
 
-    # 第2层：overlap 成分股匹配（track_index 未命中的 thsc 概念用成分股重叠补充）
-    empty_thsc = [iid for iid in board_ids
-                  if iid.startswith("thsc_") and not out.get(iid)]
-    if empty_thsc:
-        print(f"\n成分股重叠算法：{len(empty_thsc)} 个 track_index 未命中的 thsc 概念尝试重叠匹配")
+    # 第2层：overlap 成分股匹配（全量叠加：对所有 thsc 概念，不只空概念）
+    # overlap 模块覆盖 CONCEPT_BK_MAP 中 9 个 thsc 概念，合并去重（同 code 不覆盖 track_index 结果）
+    thsc_ids = [iid for iid in board_ids if iid.startswith("thsc_")]
+    if thsc_ids:
+        print(f"\n成分股重叠算法：对 {len(thsc_ids)} 个 thsc 概念叠加匹配（全量叠加，非仅空概念）")
         try:
             overlap_result = _overlap_match(df, df_by_code, excl_mask)
             for iid, etfs in overlap_result.items():
-                if etfs and not out.get(iid):
-                    # 给 overlap 匹配的 ETF 加 match_method + approx=true
-                    for e in etfs:
+                if not etfs:
+                    continue
+                existing_codes = {e["code"] for e in out.get(iid, [])}
+                added = 0
+                for e in etfs:
+                    if e["code"] not in existing_codes:
                         e.setdefault("approx", True)
                         e["match_method"] = "overlap"
-                    out[iid] = etfs
+                        out.setdefault(iid, []).append(e)
+                        existing_codes.add(e["code"])
+                        added += 1
+                if added:
+                    print(f"  [overlap叠加] {iid}: 新增 {added} 只（track_index 已有 {len(out.get(iid, [])) - added}）")
         except Exception as e:
-            print(f"  [overlap] ⚠ 重叠算法异常,保留空数组: {e}")
+            print(f"  [overlap] ⚠ 重叠算法异常,保留 track_index 结果: {e}")
 
-    # 第3层：KW 名称子串匹配（track_index + overlap 都未命中的兜底）
-    # KW 匹配是名称子串，精度最差，作为最后兜底（如 track_index 缓存缺失或 fundf10 抓取失败时）
+    # 第3层：KW 名称子串匹配（全量叠加：对所有 board_id，合并去重）
+    # KW 匹配是名称子串，精度最差，作为补充来源（如 track_index 缓存缺失或 fundf10 抓取失败时）
     for iid in board_ids:
-        if out.get(iid):
-            continue  # 已有 track_index 或 overlap 匹配
         kws = KW.get(iid, [])
         if not kws:
             continue
+        existing_codes = {e["code"] for e in out.get(iid, [])}
         mask = ~excl_mask & names.apply(lambda n: any(k in n for k in kws))
         hit = df[mask].sort_values("成交额", ascending=False)
-        etfs = []
+        added = 0
         # Bug4/Bug5: TRACK_INDEX_KW exclude 过滤防 kw 兜底纳入应属其他指数的 ETF
         # (如 515220 中证煤炭应属 csi_399998, 512580 中证环保应属 csi_000827)
         # 只影响有 exclude 的申万 board, thsc 概念 exclude=[] 不受影响
         exc_ti = TRACK_INDEX_KW.get(iid, {}).get("exclude", [])
         for _, r in hit.iterrows():
+            code = str(r["代码"])
+            if code in existing_codes:
+                continue  # 已被 track_index/overlap 匹配，不覆盖
             # 尝试从 track_idx_map 拿 track_index_name
             tin = ""
-            ti_info = track_idx_map.get(str(r["代码"]))
+            ti_info = track_idx_map.get(code)
             if ti_info:
                 tin = ti_info.get("track_index", "") or ""
             # exclude 检查：track_index_name 或 ETF名称 命中 exclude 关键词则跳过
@@ -1206,16 +1217,18 @@ def main():
                 rname_tmp = str(r["名称"])
                 if (tin and any(k in tin for k in exc_ti)) or any(k in rname_tmp for k in exc_ti):
                     continue
-            etfs.append({
-                "code": str(r["代码"]),
+            out.setdefault(iid, []).append({
+                "code": code,
                 "name": str(r["名称"]),
                 "amount": round(float(r["成交额"]) / 1e8, 2),
                 "approx": True,  # KW 名称匹配兜底，approx=true
                 "track_index_name": tin,
                 "match_method": "kw",
             })
-        if etfs:
-            out[iid] = etfs
+            existing_codes.add(code)
+            added += 1
+        if added:
+            print(f"  [kw叠加] {iid}: 新增 {added} 只（已有 {len(out.get(iid, [])) - added}）")
 
     # 记录留空板块
     for iid in board_ids:
@@ -1286,6 +1299,22 @@ def main():
     track_ok, track_none, track_lof = _enrich_with_tracking_score(out, idx_series_all, etf_series_all)
     print(f"  跟踪评分完成: {track_ok} 有分, {track_none} 数据不足(track_score=None), {track_lof} 只LOF净值实时取")
 
+    # ── 方案0排序修复：最终按 track_score 降序排（None 排最后）──
+    # _enrich_with_similarity 的 max_err 升序排是中间步骤（track_score 尚未计算），
+    # 最终排序改为 track_score 降序（track_score 需 N>=30 天日收益率数据，5维度百分位加权，
+    # 比 max_err 10天相似度更可靠）。避免 top1 是 track_score=None(N<30) 的 ETF 埋没高跟踪分 ETF。
+    # 稳定排序：同 track_score 的条目保持 max_err 升序（前序排序结果作隐式 tiebreaker）。
+    for iid in list(out.keys()):
+        if iid == "_meta":
+            continue
+        cands = out.get(iid, [])
+        if not cands:
+            continue
+        cands.sort(key=lambda x: (
+            x.get("track_score") is None,  # False(0) 在前 True(1) 在后 -> None 排最后
+            -(x.get("track_score") if x.get("track_score") is not None else 0),  # 降序
+        ))
+
     # 写盘（compact 格式减体积：加 track_* 8字段后 indent=2 771KB/indent=1 704KB 超 700KB，
     # compact ~615KB 达标。后端文件 json.loads 读取不受格式影响，debug 用 python -m json.tool 查看）
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
@@ -1332,8 +1361,8 @@ def main():
     print(f"\n留空板块（{n_empty}，无相关ETF/主动留空）:")
     for b in empty_boards:
         print(f"  {b}")
-    # 抽样展示 top1（相似度最高，max_err 最小）
-    print("\n各板块 top1（相似度最高 max_err最小）抽样:")
+    # 抽样展示 top1（track_score 最高）
+    print("\n各板块 top1（track_score最高）抽样:")
     for iid in board_ids:
         etfs = out.get(iid, [])
         if etfs:
@@ -1342,11 +1371,11 @@ def main():
             method = e.get("match_method", "?")
             tin = e.get("track_index_name", "")
             tin_tag = f" [{tin}]" if tin else ""
-            grade = e.get("grade", "?")
-            max_err = e.get("max_err")
-            err_tag = f" <max_err={max_err}% {grade}>" if max_err is not None else " <n/a>"
+            ts = e.get("track_score")
+            tier = e.get("track_tier")
+            ts_tag = f" <score={ts} {tier}>" if ts is not None else " <score=None>"
             ft = e.get("fund_type", "etf")
-            print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra} <{method}>{tin_tag}{err_tag} [{ft}]")
+            print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra} <{method}>{tin_tag}{ts_tag} [{ft}]")
 
     # 匹配方式统计（行业/概念）
     method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "empty": 0}
