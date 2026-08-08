@@ -134,6 +134,93 @@ async function r2ProxyHandler(request, env, ctx, url) {
   return response;
 }
 
+// /data/*.json -> R2 rewrite（阶段2 2026-08-08）：数据层全走 R2 binding，前端 URL 0 改动。
+// 截获 /data/*.json 请求，R2 key = pathname.slice(1)（如 "data/overview.json"）。
+// R2 404 回退 ASSETS（静态文件兜底，如 fund_score_top.json R2 key 在 fund_score/ 前缀）。
+// Cache API 边缘缓存 + 分层 TTL + /api/purge-cache 主动清除（上传新数据后调）。
+// 和 /r2/ 代理区分：/data/ 是前端原生 URL rewrite（0 改动），/r2/ 保留给大 range 直链。
+function dataCacheTtl(pathname) {
+  // HIGH_FREQ 60s：盘中高频更新（overview/intraday_snapshot/boot/notifications/summary 等）
+  if (/^\/data\/(?:overview|intraday_snapshot|boot|notifications|summary|summary_history|schedule_stats|alert)\.json$/.test(pathname)) return 60;
+  // HIGH_FREQ 60s：盘中 15min 更新的 K 线小周期（-1m/-3m/-6m/-1y）
+  if (/-(?:1m|3m|6m|1y)\.json$/.test(pathname)) return 60;
+  // HIGH_FREQ 60s：其他盘中实时数据
+  if (/^\/data\/(?:futures|ad_line|new_high_low|position|rotation|volume_ratio|ma_alignment|signal_freq|etf_national_team_holders|etf_national_team_quarterly|global-extras-all)\.json$/.test(pathname)) return 60;
+  // MED_FREQ 600s：每日更新（signal_stats/daily_metric/futures_acc_*/fund_score_top/trade_sim_indices）
+  if (/^\/data\/(?:signal_stats|daily_metric|futures_acc_trend|futures_acc_conclusion|fund_score_top|trade_sim_indices)\.json$/.test(pathname)) return 600;
+  // LOW_FREQ 3600s：历史低频（收盘后更新一次）
+  return 3600;
+}
+
+async function dataRewriteHandler(request, env, ctx, url) {
+  const pathname = url.pathname;
+  const key = decodeURIComponent(pathname.slice(1)); // "/data/overview.json" -> "data/overview.json"
+  // 1. 边缘缓存命中（key 用 pathname 剥离 query，?_=Date.now() 不影响命中）
+  const cacheKey = new Request(url.origin + pathname);
+  const cached = await caches.default.match(cacheKey);
+  if (cached) return cached;
+  // 2. R2 读取，404/错误回退 ASSETS（静态文件兜底）
+  let response;
+  try {
+    const object = await env.R2_BUCKET.get(key);
+    if (object) {
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      headers.set('etag', object.httpEtag);
+      const ttl = dataCacheTtl(pathname);
+      headers.set('Cache-Control', `public, max-age=${ttl}`);
+      for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
+      response = new Response(object.body, { headers });
+    }
+  } catch (e) {
+    // R2 错误，下面回退 ASSETS
+  }
+  if (!response) {
+    // R2 404 或错误：回退 ASSETS 静态文件（如 fund_score_top.json R2 key 在 fund_score/ 前缀）
+    const assetsResponse = await env.ASSETS.fetch(request);
+    const headers = new Headers(assetsResponse.headers);
+    const ttl = dataCacheTtl(pathname);
+    headers.set('Cache-Control', `public, max-age=${ttl}`);
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
+    response = new Response(assetsResponse.body, {
+      status: assetsResponse.status,
+      statusText: assetsResponse.statusText,
+      headers,
+    });
+  }
+  // 3. 写边缘缓存（后台，不阻塞响应；只缓存 200 响应）
+  if (response.status === 200) {
+    ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
+  }
+  return response;
+}
+
+// POST /api/purge-cache：主动清 CF 边缘缓存（upload_r2.py 上传新数据后调）。
+// body: { secret: "xxx", keys: ["/data/overview.json", ...] }
+// 遍历 keys 调 caches.default.delete，让前端下次请求回源 R2 拿最新数据。
+async function purgeCacheHandler(request, env, url) {
+  if (request.method !== 'POST') {
+    return new Response('Method Not Allowed', { status: 405 });
+  }
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+  if (!body.secret || body.secret !== env.PURGE_SECRET) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 });
+  }
+  const keys = Array.isArray(body.keys) ? body.keys : [];
+  let purged = 0;
+  for (const keyPath of keys) {
+    const cacheKey = new Request(url.origin + keyPath);
+    await caches.default.delete(cacheKey);
+    purged++;
+  }
+  return Response.json({ purged, total: keys.length });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -141,12 +228,20 @@ export default {
     if (url.pathname.startsWith('/r2/')) {
       return r2ProxyHandler(request, env, ctx, url);
     }
+    // /api/purge-cache：主动清边缘缓存（阶段2，上传新数据后调）
+    if (url.pathname === '/api/purge-cache') {
+      return purgeCacheHandler(request, env, url);
+    }
     // /api/* 路由分发（生产无 FastAPI：/api/auth/* 与 /api/feedback* -> authHandler 复用 session 认证，其余 /api/* -> subscribeHandler）
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname.startsWith('/api/auth/') || url.pathname.startsWith('/api/feedback')) {
         return authHandler(request, env);
       }
       return subscribeHandler(request, env);
+    }
+    // /data/*.json -> R2 rewrite（阶段2：数据层全走 R2 binding，前端 URL 0 改动）
+    if (url.pathname.startsWith('/data/') && url.pathname.endsWith('.json')) {
+      return dataRewriteHandler(request, env, ctx, url);
     }
     const response = await env.ASSETS.fetch(request);
     // 复制原响应 headers（保留 ETag / Content-Type / CF-Cache-Status 等），覆盖 Cache-Control，附加安全头
