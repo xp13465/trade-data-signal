@@ -1020,6 +1020,7 @@ main { padding: 16px 24px; }
 .chart-card { transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease; }
 .chart-card:not(.nt-home-card):hover {
   transform: translateY(-2px);
+  z-index: 10;
   border-color: var(--primary);
   background-color: color-mix(in srgb, var(--bg-hover) 88%, transparent);
   box-shadow: 0 4px 16px var(--shadow-strong), 0 0 0 1px var(--primary);
@@ -1678,6 +1679,7 @@ main { padding: 16px 24px; }
 .etf-light-purple { background: #8b5cf6; }         /* 紫 - approx 临时色 overlap */
 .etf-light-yellow { background: #ca8a04; }         /* 黄 - approx 临时色 kw */
 .etf-light-nodata { background: var(--text-3); opacity: 0.35; }  /* 灰灭灯 - null 无数据 */
+.etf-light-lowconf { background: color-mix(in srgb, var(--primary) 25%, var(--text-3)); border: 1.5px dashed var(--text-3); box-sizing: border-box; }  /* 灰蓝虚线 - lowconf 估算(降权分,N<60) */
 .etf-pop-type { font-size: 9px; color: var(--text-3); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; line-height: 14px; }
 /* 2026-08-05 ETF 至今盈亏：popup 候选行内盈亏 + tag 后盈亏 + hoverpop 内联盈亏（红涨绿跌内联 color） */
 .etf-pop-pnl { margin-left: 8px; font-size: 10px; font-weight: 600; white-space: nowrap; }

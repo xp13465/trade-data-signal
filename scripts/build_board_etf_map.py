@@ -917,9 +917,12 @@ def _enrich_with_tracking_score(
     1. 收集所有 n>=60 对的5项原始指标（用于百分位rank基线）
     2. 百分位rank（4项）+ IR分段函数 -> 加权composite -> tier归类
 
-    n>=60: 全5项可算，track_score=0-100
-    30<=n<60: 仅 avg_dev+R² 存原始值，track_score=None（数据不足灰标）
-    n<30: 全 None
+    n>=60: 全5项可算，track_score=0-100，track_low_confidence=False
+    30<=n<60: 降权分（A: avg_dev+R² 按原权重归一化重分配算 composite
+              + B: composite * sqrt(n/60) 可信度折扣），track_low_confidence=True
+              sqrt 折扣比线性 n/60 更温和（n=47 时降11.5% vs 降21.7%），
+              避免上市不久但跟踪好的 ETF 被过度惩罚
+    n<30: track_score=None（数据太少）
 
     返回 (score_ok, score_none, lof_fetched) 统计数。
     """
@@ -938,7 +941,8 @@ def _enrich_with_tracking_score(
             if m:
                 metrics_by_pair[(iid, code)] = m
 
-    # 收集每项指标的值列表（仅 n>=60 对，全5项非None，用于百分位rank基线）
+    # 收集每项指标的值列表（所有有该指标的 pair，用于百分位rank基线）
+    # te/roll_std 仅 n>=60 有值；avg_dev/r2 在 n>=30 即有值（含降权pair，使降权ETF在更宽群体中排名）
     te_vals = sorted(m["te"] for m in metrics_by_pair.values() if m["te"] is not None)
     r2_vals = sorted(m["r2"] for m in metrics_by_pair.values() if m["r2"] is not None)
     avg_dev_vals = sorted(m["avg_dev"] for m in metrics_by_pair.values() if m["avg_dev"] is not None)
@@ -973,20 +977,61 @@ def _enrich_with_tracking_score(
         for c in out.get(iid, []):
             code = c.get("code", "")
             m = metrics_by_pair.get((iid, code))
-            if not m or m["n"] < 60:
-                # 数据不足：track_score=None，但存可得原始指标（30<=n<60 有 avg_dev+R²）
+
+            # n<30 (not m): 数据太少，track_score=None
+            if not m:
                 c["track_score"] = None
                 c["track_tier"] = "none"
-                c["track_avg_dev"] = m["avg_dev"] if m else None
+                c["track_low_confidence"] = False
+                c["track_avg_dev"] = None
                 c["track_te"] = None
                 c["track_ir"] = None
-                c["track_r2"] = m["r2"] if m else None
+                c["track_r2"] = None
                 c["track_roll_std"] = None
-                c["track_n"] = m["n"] if m else 0
+                c["track_n"] = 0
                 score_none += 1
                 continue
 
-            # 5项 percentile/分段 score
+            # 30<=n<60: 降权分（A: 可算项归一化重分配 + B: n/60 可信度折扣）
+            if m["n"] < 60:
+                # A: 可算项(avg_dev, r2)按原权重归一化重分配，缺项权重给可算项
+                avail = []  # [(score, weight)]
+                if m["avg_dev"] is not None:
+                    avail.append((_pct_score(avg_dev_vals, m["avg_dev"], lower_better=True),
+                                  TRACK_WEIGHTS["avg_dev"]))
+                if m["r2"] is not None:
+                    avail.append((_pct_score(r2_vals, m["r2"], lower_better=False),
+                                  TRACK_WEIGHTS["r2"]))
+                total_w = sum(w for _, w in avail)
+                if total_w > 0:
+                    composite_a = sum(s * (w / total_w) for s, w in avail)
+                else:
+                    composite_a = 50.0
+                # B: 可信度折扣 sqrt(n/60)（比线性 n/60 更温和，避免短期好ETF被过度惩罚）
+                composite = composite_a * ((m["n"] / 60.0) ** 0.5)
+
+                if composite >= 80:
+                    tier = "strong"
+                elif composite >= 70:
+                    tier = "related"
+                elif composite >= 50:
+                    tier = "approx"
+                else:
+                    tier = "none"
+
+                c["track_score"] = round(composite, 1)
+                c["track_tier"] = tier
+                c["track_low_confidence"] = True
+                c["track_avg_dev"] = m["avg_dev"]
+                c["track_te"] = None
+                c["track_ir"] = None
+                c["track_r2"] = m["r2"]
+                c["track_roll_std"] = None
+                c["track_n"] = m["n"]
+                score_ok += 1
+                continue
+
+            # n>=60: 全5项 percentile/分段 score
             te_score = _pct_score(te_vals, m["te"], lower_better=True)
             r2_score = _pct_score(r2_vals, m["r2"], lower_better=False)
             avg_dev_score = _pct_score(avg_dev_vals, m["avg_dev"], lower_better=True)
@@ -1009,6 +1054,7 @@ def _enrich_with_tracking_score(
 
             c["track_score"] = round(composite, 1)
             c["track_tier"] = tier
+            c["track_low_confidence"] = False
             c["track_avg_dev"] = m["avg_dev"]
             c["track_te"] = m["te"]
             c["track_ir"] = m["ir"]
