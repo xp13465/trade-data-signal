@@ -91,12 +91,12 @@
 - 绝不能 `git restore data/sentiment.db` / `git checkout -- data/sentiment.db`(若不慎重新 add)
 
 ## 11. 子agent卡死/429处理(主动轮询+唤醒+重派读遗留)
-- **通知机制三层:L1 SendMessage(主通道)+ L2 进度文件 DONE(证据)+ L3 cron 兜底**(2026-08-05 定,2026-08-08 校正定位):①agent prompt 末尾要求完成时 `SendMessage to: 'main', summary: '完成', message: '<结论摘要+关键验收点>'` + 进度文件写 `## DONE <结论>`(L1+L2)②**L3 cron 兜底**(派 agent 后立即设,不设=傻等):`durable:true`,每10分钟 `7,17,27,37,47,57`,prompt 查 `## DONE` + `stat -L` jsonl mtime(>600s 卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。2026-07-21 用户定10分钟(原3分钟太频繁)
-- ⚠️ **cron 是兜底非标准方案**(2026-08-08 用户校正):10分钟才发现太慢,治标。**标准方案=找 SendMessage 丢失根因(见下)+ 迭代**,当前未完美靠积累。曾把 cron 当"标配"落档是错的(治标当治本)
+- **通知机制三层:L1 SendMessage(主通道)+ L2 进度文件 DONE(证据)+ L3 cron 兜底**(2026-08-05 定,2026-08-08 校正定位):①agent prompt 末尾要求完成时 `SendMessage to: 'main', summary: '完成', message: '<结论摘要+关键验收点>'` + 进度文件写 `## DONE <结论>`(L1+L2)②**L3 cron 兜底**(派 agent 后立即设,不设=傻等):`durable:true`,每15分钟 `3,18,33,48`,prompt 查 `## DONE` + `stat -L` jsonl mtime(>600s 卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。2026-07-21 定10分钟(原3分钟太频繁),2026-08-08 用户改15分钟(省cron调用)
+- ⚠️ **cron 是兜底非标准方案**(2026-08-08 用户校正):15分钟才发现太慢,治标。**标准方案=找 SendMessage 丢失根因(见下)+ 迭代**,当前未完美靠积累。曾把 cron 当"标配"落档是错的(治标当治本)
 - ⚠️ **标准方案待找根因**(2026-08-08 定):SendMessage 丢失率近100%常态(8/8 2 reviewer ac0ed8a07/a8b63704+8/6 3 agent 全丢)。两假设:①agent 没调 SendMessage(sm_use=0 违规)②调了 harness 没送达。**验证:agent 完成时立即 grep SendMessage 查 jsonl** 区分。①则强化 prompt 或改 StructuredOutput 返回作完成信号;②则 harness 限制只能兜底+积累迭代。每次丢通知记录(agent类型/完成时点/主控状态)找规律
 - ⚠️ **2026-08-08 教训(cron 不设致傻等+状态不一致)**:§11 原把 cron 描述为"极端丢时才用"兜底,致派 agent 后不设 cron(CronList 空)纯等 SendMessage->傻等+用户来问+状态不一致。修复:派 agent 同步设 cron 兜底(虽非标准但必设防傻等),同时找根因迭代标准方案
 - 派agent的prompt要求写进度文件:**每完成一步立即echo**(每个grep/Edit都回写,不是每大步骤;2026-07-15 a194f曾只写"开始"641秒不回写致盲区),echo到 `/tmp/agent-progress-<名>.md`,主控Bash查(轻量不overflow),不依赖jsonl(大)/通知(会丢)/返回(可能429空)任一渠道
-- **卡死**(jsonl mtime>600秒没动,10分钟轮询阈值放宽):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(10分钟)仍卡死=进程已死,重派新会话
+- **卡死**(jsonl mtime>900秒没动,15分钟轮询阈值):先SendMessage试唤醒原会话(成本低,agent可能卡在长工具如grep/curl没退出,SendMessage排队等它下轮处理),下次轮询(15分钟)仍卡死=进程已死,重派新会话
 - **429配额失败**:agent came to rest(退出运行)但task-id保留,配额恢复后**优先SendMessage resume原会话**(保留上下文比重派从头高效);resume不响应/状态乱才重派新会话。**2026-07-15教训(底线:不重复犯错)**:曾误判"429原会话已终止无法resume只能重派"(a194f 429后重派afe9从头跑,浪费a194f已查的32 tool_use上下文),实际task-notification note明说"can resume",429和卡死都优先resume--**配额恢复后第一动作是SendMessage resume原会话,不是重派**
 - **came to rest**(agent完成一阶段停了等指令,非卡死非429):可随时SendMessage推进,不严格等480秒(2026-07-15 a5c6改名反复came to rest,SendMessage推进3次才完成;阈值可降到240秒)
 - 重派新会话:让新agent读原agent遗留接着做(`/tmp/agent-progress-*.md`进度文件 + 工作区半成品,如数据时效a2ce接a06704b半成品),避免从头返工
@@ -172,8 +172,8 @@
 ### 通知与兜底机制(§11 细节,本节总览)
 - **L1 主动通知**:agent 完成 `SendMessage to: 'main'`(harness 自动送达,但**丢失率近 100% 常态,不可单靠**)+ 进度文件写 `## DONE <结论>`(L2)。prompt 末尾要求这两个动作
 - **L2 进度文件**:agent 每步 echo 回写 `/tmp/agent-progress-<名>.md`(每个 grep/Edit 都回写,非每大步骤),完成写 `## DONE <结论>`,主控 Bash 查(轻量不 overflow)
-- **L3 cron 兜底**(2026-08-08,非标准方案是兜底):派 agent 后立即 CronCreate(`durable:true`,每10分钟 `7,17,27,37,47,57` 避 :00/:30),prompt 查进度文件 `## DONE` + `stat -L` jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。**不设 cron 纯等 SendMessage=傻等**(8/8 教训)。⚠️ cron 是兜底非标准方案,标准方案=找 SendMessage 丢失根因+迭代(见 §11)
-- **卡死**(jsonl mtime>600秒没动):先 SendMessage 唤醒原会话(成本低,可能卡在长工具没退出)-> 下次轮询仍卡死=进程已死,重派新会话读遗留(`/tmp/agent-progress-*` + 工作区半成品)接着做,避免从头返工
+- **L3 cron 兜底**(2026-08-08,非标准方案是兜底):派 agent 后立即 CronCreate(`durable:true`,每15分钟 `3,18,33,48` 避 :00/:30),prompt 查进度文件 `## DONE` + `stat -L` jsonl mtime(非 .output symlink,symlink mtime 不准会误判卡死)。DONE->落档 TASKS+推进;卡死->resume/重派;运行中->极简报。agent 处理完 CronDelete。**不设 cron 纯等 SendMessage=傻等**(8/8 教训)。⚠️ cron 是兜底非标准方案,标准方案=找 SendMessage 丢失根因+迭代(见 §11)
+- **卡死**(jsonl mtime>900秒没动):先 SendMessage 唤醒原会话(成本低,可能卡在长工具没退出)-> 下次轮询仍卡死=进程已死,重派新会话读遗留(`/tmp/agent-progress-*` + 工作区半成品)接着做,避免从头返工
 - **429 配额失败**:配额恢复后**优先 SendMessage resume 原会话**(保留上下文比重派高效);resume 不响应/状态乱才重派。底线:不重复犯错(曾误判 429 原会话终止重派从头,浪费已查上下文)
 - **came to rest**(agent 完成一阶段停了等指令,非卡死非429):可随时 SendMessage 推进,不严格等480秒
 - **默认持久化**(§7):CronCreate 默认 durable:true;长任务进度落 git(`.superpowers/sdd/progress.md` 或 NOTES/TASKS)非 /tmp(/tmp 重启丢)
