@@ -1538,15 +1538,6 @@ function _gradeLabel(grade) {
 // D1b 2026-08-08: track_tier -> 信号灯 CSS class + 中文档位
 // 5色: 蓝=self(本体) / 绿=strong(强关联) / 草绿=related(相关) / 橙=approx(近似)+none(弱) / 灰=null(无数据)
 // track_tier absent(旧数据未含)时回退 grade 映射，保持向后兼容
-// 问题3(2026-08-08): approx 档按 match_method 临时色(用户定"先按计划的临时色 匹配不到临时色的就橙色")
-//   name_match -> 红 / overlap -> 紫 / kw -> 黄 / track_index+manual_fallback+其余 -> 橙(标准兜底)
-function _etfApproxCls(etf) {
-  var _mm = etf ? etf.match_method : null;
-  if (_mm === "name_match") return "etf-light-red";
-  if (_mm === "overlap") return "etf-light-purple";
-  if (_mm === "kw") return "etf-light-yellow";
-  return "etf-light-approx"; // track_index warn / manual_fallback / 其他 -> 橙(标准兜底)
-}
 function _etfLightInfo(etf) {
   if (!etf) return { cls: "etf-light-nodata", label: "无数据" };
   if (etf.match_method === "self") return { cls: "etf-light-self", label: "强关联" };
@@ -1554,16 +1545,16 @@ function _etfLightInfo(etf) {
   if (_t === "strong") return { cls: "etf-light-strong", label: "强关联" };
   if (_t === "related") return { cls: "etf-light-related", label: "相关" };
   // 问题3+5: track_low_confidence=true(共同交易日30-59,降权分) -> 估算灯(灰蓝虚线), 放 approx 前
-  // 3档拆分: low_confidence=true(30-59天降权)->估算灯 / track_score===null && !low_confidence(n<30真空)->无数据灰灯 / track_score<50数值(真弱)->弱暗橙
+  // 3档拆分: low_confidence=true(30-59天降权)->估算灯 / track_tier=null(N<30或score<30)->无数据灰灯 / none(30-49真弱)->弱暗橙
   if (etf.track_low_confidence === true) return { cls: "etf-light-lowconf", label: "估算" };
-  if (_t === "approx") return { cls: _etfApproxCls(etf), label: "近似" };
+  if (_t === "approx") return { cls: "etf-light-approx", label: "近似" };
   if (_t === "none") return { cls: "etf-light-weak", label: "弱" };
-  // n<30 完全无数据(track_score===null && !track_low_confidence,非降权是真空) -> 无数据灰灯; low_confidence=true 已被上方分支捕获
+  // track_tier=null(N<30完全无数据 或 score<30极弱) -> 无数据灰灯; low_confidence=true 已被上方分支捕获
   if (_t === null) return { cls: "etf-light-nodata", label: "无数据" };
   // _t undefined(旧数据无 track_tier) -> 回退 grade 映射
   if (etf.grade === "excellent") return { cls: "etf-light-strong", label: "强关联" };
   if (etf.grade === "good" && etf.match_method !== "manual_fallback") return { cls: "etf-light-related", label: "相关" };
-  return { cls: _etfApproxCls(etf), label: "近似" };
+  return { cls: "etf-light-approx", label: "近似" };
 }
 // D1b: match_method -> 中文来源标签(hover tooltip 用)
 function _etfSrcLabel(mm) {
@@ -1644,7 +1635,7 @@ function _signalTiers(it) {
   return Math.min(...it.etfs.map(_etfTier));
 }
 // 2026-08-08 灯统一: 列表灯改用个体 top1 口径(_topEtfByScore + _etfLightInfo),
-// 与 hoverpop(L2320)/cellHtml tooltip(L1789) 完全一致, 消除分组口径(tier3 首个 ETF _etfApproxCls)多色遗留
+// 与 hoverpop(L2320)/cellHtml tooltip(L1789) 完全一致, 消除分组口径多色遗留
 // _signalTiers 仍供筛选按钮(L1688 过滤 / L1913 计数)使用, 此处不再引用
 // null 守卫: 无 etfs / top1 为 null -> _etfLightInfo(null) 返灰灯 etf-light-nodata
 function _signalLightInfo(it) {
@@ -1963,7 +1954,7 @@ function _renderSignalGrid(items, todayDate, title, kind, emptyText, isClosed = 
       _tierCounts[_t] = (_tierCounts[_t] || 0) + 1;
     }
     const _etfReset = _etfSelSet.length ? ` <button class="sig-acc-reset" data-etf-filter-reset="1">恢复全部</button>` : "";
-    const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/概念全部4档）")} · ${_etfBtn("强关联ETF " + _tierCounts[1], "1", "档1强关联：ETF本体自跟踪(self)或 track_tier=strong（绿灯，跟踪分≥80），跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关ETF " + _tierCounts[2], "2", "档2相关：track_tier=related（草绿灯，跟踪分70-80），跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("有近似ETF " + _tierCounts[3], "3", "档3近似：track_tier=approx/none（橙/暗橙灯，跟踪分<70或数据不足），有跟踪ETF但误差较大或来源间接", "etf-pop-grade-warn")} · ${_etfBtn("概念无ETF " + _tierCounts[4], "4", "档4概念：无跟踪ETF的概念标的（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
+    const _etfFilterRow = `<div class="sig-acc-by-type sig-acc-etf-filter">ETF: ${_etfBtn("全部", "all", "显示全部参考点（含强关联/相关/近似/概念全部4档）")} · ${_etfBtn("强关联ETF " + _tierCounts[1], "1", "档1强关联：ETF本体自跟踪(self)或 track_tier=strong（绿灯，跟踪分≥75），跟踪误差最小", "etf-pop-grade-excellent")} · ${_etfBtn("相关ETF " + _tierCounts[2], "2", "档2相关：track_tier=related（草绿灯，跟踪分60-74），跟踪误差较小", "etf-pop-grade-good")} · ${_etfBtn("有近似ETF " + _tierCounts[3], "3", "档3近似：track_tier=approx/none（橙/暗橙灯，跟踪分<60或数据不足），有跟踪ETF但误差较大或来源间接", "etf-pop-grade-warn")} · ${_etfBtn("概念无ETF " + _tierCounts[4], "4", "档4概念：无跟踪ETF的概念标的（如部分综合指数），显灰色无ETF标", "etf-pop-grade-warn")}${_etfReset}</div>`;
     // 问题3 fix(2026-07-31): _accHtml 用 .sig-acc-wrap 包裹(summary+byType), _rerenderSigCardContent
     //   整体替换 .sig-acc-wrap, 否则切窗口时 byType 各类型数量/准确率不更新(只 summary 更新)
     _accHtml = `<div class="sig-acc-wrap">${_etfFilterRow}<div class="signal-accuracy-summary"><span class="sig-acc-total-label" data-tip="${_escAttr(_totalTip)}">总准确率 ${_fmt(_acc.total.pct)}</span> (<button class="sig-acc-seg sig-acc-filter${_cActive("true")}" data-correct-filter="true">${_acc.total.t}对</button>/<button class="sig-acc-seg sig-acc-filter${_cActive("false")}" data-correct-filter="false">${_acc.total.f}错</button>·<button class="sig-acc-seg sig-acc-filter${_cActive("null")}" data-correct-filter="null" data-tip="${_escAttr(_unsettledTip)}">${_acc.total.n}未结算</button>) | ${_seg("高", _acc.grade.high, "sig-acc-dot-high", "high")} · ${_seg("中", _acc.grade.mid, "sig-acc-dot-mid", "mid")} · ${_seg("低", _acc.grade.low, "sig-acc-dot-low", "low")}${_reset}</div>${_byTypeRow}</div>`;
@@ -2178,11 +2169,11 @@ function _etfLightHelpHTML() {
     '<p>每个指数标的匹配到的最佳 ETF 前有一个彩色圆点(●)信号灯,颜色由 <b>track_tier</b>(跟踪分档)决定:</p>'
     + _ul
     + '<li><span class="etf-light etf-light-self"></span> <b>蓝</b> self 本体 - 指数自身即ETF(如科创50指数->588000),完美自跟踪无误差</li>'
-    + '<li><span class="etf-light etf-light-strong"></span> <b>绿</b> strong 强关联 - track_score≥80,跟踪误差最小</li>'
-    + '<li><span class="etf-light etf-light-related"></span> <b>草绿</b> related 相关 - track_score 70-79,跟踪误差较小</li>'
-    + '<li><span class="etf-light etf-light-approx"></span> <b>橙</b> approx 近似 - track_score 50-69,有跟踪ETF但误差较大。approx 档按 match_method 细分多色: <span class="etf-light etf-light-red"></span>红=name_match(名称匹配) / <span class="etf-light etf-light-purple"></span>紫=overlap(成分重叠) / <span class="etf-light etf-light-yellow"></span>黄=kw(关键词) / <span class="etf-light etf-light-approx"></span>橙=track_index+其余</li>'
-    + '<li><span class="etf-light etf-light-weak"></span> <b>暗橙</b> none 弱 - track_score&lt;50,来源间接误差大</li>'
-    + '<li><span class="etf-light etf-light-nodata"></span> <b>灰灭灯</b> - 无数据(track_score=null &amp;&amp; !track_low_confidence,共同交易日N&lt;30完全无数据)</li>'
+    + '<li><span class="etf-light etf-light-strong"></span> <b>绿</b> strong 强关联 - track_score≥75,跟踪误差最小</li>'
+    + '<li><span class="etf-light etf-light-related"></span> <b>草绿</b> related 相关 - track_score 60-74,跟踪误差较小</li>'
+    + '<li><span class="etf-light etf-light-approx"></span> <b>橙</b> approx 近似 - track_score 50-59,有跟踪ETF但误差较大(统一橙色)</li>'
+    + '<li><span class="etf-light etf-light-weak"></span> <b>暗橙</b> none 弱 - track_score 30-49,来源间接误差大</li>'
+    + '<li><span class="etf-light etf-light-nodata"></span> <b>灰灭灯</b> - 极弱/无跟踪(track_score&lt;30 或 N&lt;30,非 lowconf)</li>'
     + '<li><span class="etf-light etf-light-lowconf"></span> <b>灰蓝虚线</b> lowconf 估算 - track_low_confidence=true(共同交易日N=30-59,降权分),数据不足但已估算</li>'
     + '</ul>'
   );
@@ -2196,7 +2187,7 @@ function _etfLightHelpHTML() {
     + '<li><b>roll_std 滚动标准差</b> 15% - 30交易日滚动TE序列的std,越低越好</li>'
     + '<li><b>IR 信息比率</b> 15% - mean(收益差)×252/(std×√252),|IR|越接近0越好</li>'
     + '</ul>'
-    + '<p style="margin-top:4px;color:var(--text-3)">归一化: 4项百分位rank(防异常值拉伸) + IR分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。阈值: ≥80 strong / 70-79 related / 50-69 approx / &lt;50 none。共同交易日 N=30-59 降权(track_score=null + track_low_confidence=true,灰蓝虚线估算灯); N&lt;30 完全无数据(track_score=null,灰灭灯)。</p>'
+    + '<p style="margin-top:4px;color:var(--text-3)">归一化: 4项百分位rank(防异常值拉伸) + IR分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。阈值: ≥75 strong / 60-74 related / 50-59 approx / 30-49 none / &lt;30 灰灭。共同交易日 N=30-59 降权(track_score=null + track_low_confidence=true,灰蓝虚线估算灯); N&lt;30 完全无数据(track_score=null + track_tier=null,灰灭灯)。</p>'
   );
   // 3. 相似度 similarity
   var b3 = _blk('相似度 similarity',
@@ -2221,10 +2212,10 @@ function _etfLightHelpHTML() {
   var b5 = _blk('强关联 track_tier',
     '<p>由 track_score 决定的最终档位(前端信号灯颜色依据), 无 track_score 时回退 grade 映射:</p>'
     + _ul
-    + '<li><b>strong 强关联</b> - track_score≥80 或 self 本体 -> 蓝/绿灯</li>'
-    + '<li><b>related 相关</b> - track_score 70-79 -> 草绿灯</li>'
-    + '<li><b>approx 近似</b> - track_score 50-69 -> 橙灯(按 match_method 细分红/紫/黄/橙)</li>'
-    + '<li><b>none 弱</b> - track_score&lt;50 -> 暗橙灯(真弱); track_low_confidence=true(N=30-59降权) -> 灰蓝虚线估算灯; track_score=null &amp;&amp; !low_confidence(N&lt;30) -> 灰灭灯</li>'
+    + '<li><b>strong 强关联</b> - track_score≥75 或 self 本体 -> 蓝/绿灯</li>'
+    + '<li><b>related 相关</b> - track_score 60-74 -> 草绿灯</li>'
+    + '<li><b>approx 近似</b> - track_score 50-59 -> 橙灯(统一橙色,不按 match_method 细分)</li>'
+    + '<li><b>none 弱</b> - track_score 30-49 -> 暗橙灯(真弱); track_low_confidence=true(N=30-59降权) -> 灰蓝虚线估算灯; track_score&lt;30 或 N&lt;30 -> 灰灭灯(track_tier=null)</li>'
     + '</ul>'
     + '<p style="margin-top:4px;color:var(--text-3)">回退规则(track_score 缺失时): grade=excellent->strong / grade=good(非手动兜底)->related / 其余->approx</p>'
   );
@@ -2232,11 +2223,11 @@ function _etfLightHelpHTML() {
   var b6 = _blk('⚠️近似标记(增强型ETF) & 估算灯',
     '<p>ETF 名称含"增强"字样的为<b>增强型ETF</b>,基金经理可主动偏离指数持仓以追求超额收益,故前端加 ⚠️近似 标记提示。注意两个"近似"是不同概念:</p>'
     + _ul
-    + '<li><b>track_tier="approx"</b> = 跟踪误差档位(track_score 50-69),显橙灯</li>'
+    + '<li><b>track_tier="approx"</b> = 跟踪误差档位(track_score 50-59),显橙灯</li>'
     + '<li><b>approx 布尔字段</b> = 增强型ETF标记(名称含"增强"),显 ⚠️近似 文字</li>'
     + '</ul>'
     + '<p style="margin-top:4px;color:var(--text-3)">例: 562810(增强型) + track_tier=approx -&gt; ⚠️近似 + 橙灯; 159943(非增强型) + track_tier=approx -&gt; 只橙灯无 ⚠️ 标记。两者可同时出现(增强型且跟踪误差大)或单独出现。</p>'
-    + '<p style="margin-top:6px"><span class="etf-light etf-light-lowconf"></span> <b>估算灯(灰蓝虚线)</b>: track_low_confidence=true 时亮,表示共同交易日 N&lt;60,track_score 为降权估算值(非精确评分),可信度较低。</p>'
+    + '<p style="margin-top:6px"><span class="etf-light etf-light-lowconf"></span> <b>估算灯(灰蓝虚线)</b>: track_low_confidence=true 时亮,表示共同交易日 N=30-59,track_score 为降权估算值(非精确评分),可信度较低。</p>'
   );
   return '<div style="border-top:1px solid var(--border);margin:16px 0 12px;padding-top:12px">'
     + '<h4 style="margin:0 0 10px;font-size:15px;color:var(--text-1)">ETF信号灯 & 跟踪指标说明</h4>'

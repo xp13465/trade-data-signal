@@ -978,10 +978,10 @@ def _enrich_with_tracking_score(
             code = c.get("code", "")
             m = metrics_by_pair.get((iid, code))
 
-            # n<30 (not m): 数据太少，track_score=None
+            # n<30 (not m): 数据太少，track_score=None, track_tier=null(灰灭灯)
             if not m:
                 c["track_score"] = None
-                c["track_tier"] = "none"
+                c["track_tier"] = None
                 c["track_low_confidence"] = False
                 c["track_avg_dev"] = None
                 c["track_te"] = None
@@ -1010,14 +1010,16 @@ def _enrich_with_tracking_score(
                 # B: 可信度折扣 sqrt(n/60)（比线性 n/60 更温和，避免短期好ETF被过度惩罚）
                 composite = composite_a * ((m["n"] / 60.0) ** 0.5)
 
-                if composite >= 80:
+                if composite >= 75:
                     tier = "strong"
-                elif composite >= 70:
+                elif composite >= 60:
                     tier = "related"
                 elif composite >= 50:
                     tier = "approx"
-                else:
+                elif composite >= 30:
                     tier = "none"
+                else:
+                    tier = None  # <30 灰灭灯
 
                 c["track_score"] = round(composite, 1)
                 c["track_tier"] = tier
@@ -1043,14 +1045,16 @@ def _enrich_with_tracking_score(
                          + roll_std_score * TRACK_WEIGHTS["roll_std"]
                          + ir_score * TRACK_WEIGHTS["ir"])
 
-            if composite >= 80:
+            if composite >= 75:
                 tier = "strong"
-            elif composite >= 70:
+            elif composite >= 60:
                 tier = "related"
             elif composite >= 50:
                 tier = "approx"
-            else:
+            elif composite >= 30:
                 tier = "none"
+            else:
+                tier = None  # <30 灰灭灯
 
             c["track_score"] = round(composite, 1)
             c["track_tier"] = tier

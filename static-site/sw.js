@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a46';  // bump a45->a46: apple-touch-icon 从favicon.ico[3]重新生成180x180(源PNG已删)+index.html加?v=破iOS缓存
+const CACHE_VERSION = 'v6-20260808-a47';  // bump a46->a47: 信号灯分界调整(75/60/50/30)+删approx细分死代码+弹窗说明修复
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

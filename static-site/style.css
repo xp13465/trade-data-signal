@@ -1688,9 +1688,6 @@ main { padding: 16px 24px; }
 .etf-light-related { background: #8bc34a; }  /* 草绿 - related 相关(独立实色, 绿+透明度效果不好) */
 .etf-light-approx { background: #d97706; }         /* 橙 - approx 近似标准色(track_index warn/manual_fallback) */
 .etf-light-weak { background: #b08968; }     /* 暗橙 - none 弱(独立实色, 区别于approx) */
-.etf-light-red { background: #e6492e; }            /* 红 - approx 临时色 name_match */
-.etf-light-purple { background: #8b5cf6; }         /* 紫 - approx 临时色 overlap */
-.etf-light-yellow { background: #ca8a04; }         /* 黄 - approx 临时色 kw */
 .etf-light-nodata { background: var(--text-3); opacity: 0.35; }  /* 灰灭灯 - null 无数据 */
 .etf-light-lowconf { background: color-mix(in srgb, var(--primary) 25%, var(--text-3)); border: 1.5px dashed var(--text-3); box-sizing: border-box; }  /* 灰蓝虚线 - lowconf 估算(降权分,N<60) */
 .etf-pop-type { font-size: 9px; color: var(--text-3); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; line-height: 14px; }
