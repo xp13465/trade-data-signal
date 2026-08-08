@@ -90,6 +90,21 @@ KW: dict[str, list[str]] = {
     "thsc_308870": ["数字经济"],
     "thsc_308752": ["元宇宙", "虚拟现实", "VR", "增强现实", "AR", "游戏"],  # 加"游戏"：159869游戏ETF华夏(8.13亿)归申万传媒(sw_801760)但贴合元宇宙走势，误差0.08%；不加"传媒"避免命中泛传媒ETF
     "thsc_309128": ["军工", "国防", "信息化"],
+    # ---- 宽基/红利指数（宽基全量改造 2026-08-08）----
+    # 精确 KW 避免"上证"命中上证50/180/380、"深成"命中深成长等误匹配
+    # 港股(hsi/hstech/hscei)不加KW：KW命中EXCLUDE("恒生/港股")无效，靠track_index匹配
+    "sh":       ["上证指数", "上证综指"],
+    "sz":       ["深成", "深证成指"],  # exclude 在 TRACK_INDEX_KW 过滤"深成长/深证100"
+    "hs300":    ["沪深300"],           # exclude 在 TRACK_INDEX_KW 过滤"成长/价值"
+    "sz50":     ["上证50"],            # 含"上证500"防御性排除在 TRACK_INDEX_KW
+    "csi500":   ["中证500"],           # exclude A500 在 TRACK_INDEX_KW
+    "csi1000":  ["中证1000"],
+    "cyb":      ["创业板ETF", "创业板增强"],  # 精确避免命中"创业板50/创业板综"
+    "kc50":     ["科创50"],
+    "bj50":     ["北证50"],
+    "csi_div":  ["中证红利"],          # exclude 低波/50/100/300/800 在 TRACK_INDEX_KW
+    "div_lowvol": ["红利低波"],        # exclude 50/100/300/800/恒生/港股 在 TRACK_INDEX_KW
+    # sz_div 不加KW：名"红利ETF工银"无"深"字KW不命中，已有 manual_fallback
 }
 
 # ───────────────────────────────────────────────────────────────────
@@ -240,6 +255,25 @@ TRACK_INDEX_KW: dict[str, dict] = {
     # ─ E组 ETF跟踪指数补采（上证科创板主题指数） ─
     "sse_000685": {"include": ["科创板芯片指数"], "exclude": []},  # "科创板芯片指数"精准命中track_index"上证科创板芯片指数"(588200等11只), 不命中"上证科创板芯片设计主题指数"(588780等, 属另一指数)
     "csi_970070": {"include": ["创业板人工智能"], "exclude": []},  # "创业板人工智能"精准命中track_index"创业板人工智能指数"(159242等), 不命中"中证人工智能指数"(属csi_930713)/"上证科创板人工智能指数"(未查到代码)
+    # ---- 宽基/红利/港股指数（宽基全量改造 2026-08-08）----
+    # track_index_name 关键词匹配，用于 Layer 1(_match_by_track_index) + Layer 3 KW exclude 过滤
+    # include 匹配 ETF 的 track_index_name（fundf10 抓取），exclude 过滤同前缀不同指数
+    "sh":       {"include": ["上证综合", "上证综指"], "exclude": ["上证50", "上证180", "上证380", "上证580", "上证中盘"]},
+    "sz":       {"include": ["深证成份"], "exclude": ["深成长", "深证100", "深证50", "深证主板"]},
+    "hs300":    {"include": ["沪深300"], "exclude": ["成长", "价值", "中证智选", "ESG", "红利", "等权重", "非银行", "质量", "医药", "现金流"]},
+    "sz50":     {"include": ["上证50"], "exclude": ["上证500", "AH"]},
+    "csi500":   {"include": ["中证500"], "exclude": ["A500", "质量", "信息技术"]},
+    "csi1000":  {"include": ["中证1000"], "exclude": []},
+    "cyb":      {"include": ["创业板指"], "exclude": ["创业板50", "创业板综", "创精选"]},
+    "kc50":     {"include": ["科创板50", "科创50"], "exclude": []},  # track_index_name="上证科创板50成份指数"含"科创板50"非"科创50"
+    "bj50":     {"include": ["北证50"], "exclude": []},
+    "csi_div":  {"include": ["中证红利"], "exclude": ["低波", "50", "100", "300", "800", "价值", "质量"]},
+    "div_lowvol": {"include": ["红利低波"], "exclude": ["50", "100", "300", "800", "恒生", "港股"]},
+    "sz_div":   {"include": ["深证红利"], "exclude": []},
+    # 港股 track_index_name 匹配（不经过 EXCLUDE，可匹配"恒生"ETF的 track_index_name）
+    "hsi":      {"include": ["恒生指数"], "exclude": ["恒生科技", "恒生中国企业", "恒生国企", "恒生互联", "恒生医疗", "恒生生物", "恒生消费", "恒生红利"]},
+    "hstech":   {"include": ["恒生科技"], "exclude": []},
+    "hscei":    {"include": ["恒生中国企业", "恒生国企"], "exclude": []},
 }
 
 # ETF track_index 缓存路径（fundf10 抓取，scripts/fetch_etf_track_index.py 生成）
@@ -1297,9 +1331,10 @@ def _apply_hysteresis(out: dict) -> None:
 def main():
     cfg = load_config()
     name_by_id = {i["id"]: i["name"] for i in cfg.get("indices", [])}
-    # 只为 industry/concept 生成
+    # 宽基全量改造：所有指数统一 a+b+c+d，不分层(宽基track_index单一/行业概念全量的分层取消)
+    # board_ids 收行业+概念+宽基(market=a/hk)，全球指数(market=global)和港股行业(market=hk_industry)不收
     board_ids = [i["id"] for i in cfg.get("indices", [])
-                 if i.get("market") in ("industry", "concept") and i.get("enabled", True)]
+                 if i.get("market") in ("industry", "concept", "a", "hk") and i.get("enabled", True)]
 
     df = ak.fund_etf_spot_em()
     df["成交额"] = df["成交额"].fillna(0)
@@ -1314,9 +1349,10 @@ def main():
 
     out: dict = {"_meta": {"source": "akshare fund_etf_spot_em + fundf10 track_index",
                            "sort_by": "track_score(降序,跟踪分最高在前; None排最后); LOF净值取自fund_open_fund_info_em",
-                           "match_method": "全量叠加: track_index + overlap + kw_name 合并去重(同ETF取最优来源标记), 按track_score降序排",
+                           "match_method": "全量叠加: track_index_code(base) + track_index_name + overlap + kw + holdings_overlap 合并去重, 按track_score降序排",
                            "similarity_fields": "similarity(1-max_err/100) / max_err(5周期最大误差%) / grade(excellent<1%/good<5%/warn>=5%) / fund_type(etf|lof)",
-                           "note": "候选列表含所有来源(track_index+overlap+kw)匹配ETF+LOF; 按track_score降序排序; "
+                           "note": "宽基全量改造: 所有指数(行业/概念/宽基/红利/港股)统一 a+b+c+d 全量,不分层; "
+                                   "候选列表含所有来源匹配ETF+LOF; 按track_score降序排序; "
                                    "行业/概念ETF跟踪中证/国证指数非申万/同花顺精准跟踪,grade=good/warn属正常"}}
     empty_boards = []
     # 加载 fundf10 抓取的 ETF track_index 缓存
@@ -1329,18 +1365,50 @@ def main():
         print(f"  + LOF track_index 缓存 {len(lof_track_map)} 只（fund_type=lof，纳入候选池）")
         track_idx_map.update(lof_track_map)  # 合并，LOF 已标 fund_type=lof
 
-    # ── 行业/概念匹配（全量多来源叠加：track_index + overlap + KW 合并去重）──
-    # 用户需求：给所有指数都按不同的来源算法挂上相关ETF，合并去重后按 track_score 排序。
-    # 三层来源（优先级递减，同一ETF多来源命中取最优来源标记）：
+    # ── 宽基/红利/港股指数 base：track_index_code 精准匹配（移到 Layer 1 之前作宽基base）──
+    # 宽基全量改造：_build_index_etf_map_auto 原在所有Layer后覆盖out[iid]，现移到Layer 1前
+    # 作宽基base，Layers 1-4 在此基础上叠加(merge)，不再覆盖。
+    # 覆盖 14 个指数(sh/sz/hs300/sz50/csi500/csi1000/cyb/kc50/csi_div/div_lowvol/sz_div/hsi/hstech/hscei)。
+    reverse_map = _load_etf_index_map_reverse()
+    if reverse_map:
+        index_etf_map = _build_index_etf_map_auto(reverse_map, df_by_code)
+    else:
+        # etf_index_map.json 缺失 -> akshare 名称匹配兜底（防静默失败，不退化为全空）
+        index_etf_map = _akshare_name_fallback(df_by_code)
+    for iid, etfs in index_etf_map.items():
+        out[iid] = etfs  # 宽基base，后续Layers叠加
+    print(f"\n宽基/红利/港股 base（track_index_code 精准匹配）：{len(index_etf_map)} 个指数")
+    for iid_ in index_etf_map.keys():
+        etfs_ = out.get(iid_, [])
+        if etfs_:
+            print(f"  {name_by_id.get(iid_, iid_):<10} {len(etfs_)} 只 ETF [base]")
+
+    # ── 行业/概念/宽基匹配（全量多来源叠加：track_index + overlap + KW + holdings 合并去重）──
+    # 宽基全量改造：所有指数统一 a+b+c+d，不分层(宽基track_index单一/行业概念全量的分层取消)。
+    # 四层来源（优先级递减，同一ETF多来源命中取最优来源标记）：
+    #   0. track_index_code 精准匹配（宽基base，_build_index_etf_map_auto，已在上方注入）
     #   1. track_index_name 关键词匹配（fundf10 抓取的 ETF 跟踪指数名，最精准）
     #   2. overlap 成分股重叠（thsc 概念用东财BK成分股∩指数成分股Jaccard重叠度）
     #   3. KW 名称子串匹配（ETF名称关键词，精度最差，兜底补充）
+    #   4. holdings_overlap ETF持仓重叠（thsc概念用东财BK成分股/宽基用index_stock_cons反查持仓ETF）
     # 合并规则：后层只添加前层未匹配到的ETF（同code不覆盖），保留最优来源的match_method。
 
-    # 第1层：track_index_name 关键词匹配（所有 board_id）
+    # 第1层：track_index_name 关键词匹配（所有 board_id，merge 到宽基base上）
+    # 宽基全量：宽基已有 _build_index_etf_map_auto 的 track_index_code base，此层补充 track_index_name 匹配
     for iid in board_ids:
         etfs = _match_by_track_index(iid, track_idx_map, df_by_code)
-        out[iid] = etfs  # 可能为空列表，后续 overlap/KW 叠加补充
+        if not etfs:
+            out.setdefault(iid, [])
+            continue
+        existing_codes = {e["code"] for e in out.get(iid, [])}
+        added = 0
+        for e in etfs:
+            if e["code"] not in existing_codes:
+                out.setdefault(iid, []).append(e)
+                existing_codes.add(e["code"])
+                added += 1
+        if added:
+            print(f"  [track_index叠加] {iid}: 新增 {added} 只（已有 {len(out.get(iid, [])) - added}）")
 
     # 第2层：overlap 成分股匹配（全量叠加：对所有 thsc 概念，不只空概念）
     # overlap 模块覆盖 CONCEPT_BK_MAP 中 9 个 thsc 概念，合并去重（同 code 不覆盖 track_index 结果）
@@ -1394,6 +1462,13 @@ def main():
                 rname_tmp = str(r["名称"])
                 if (tin and any(k in tin for k in exc_ti)) or any(k in rname_tmp for k in exc_ti):
                     continue
+            # 宽基 KW 误匹配过滤（正验证）：宽基指数(在 INDEX_TRACK_MAP 中)的 KW 匹配，
+            # 若 ETF 有 track_index_name 则必须匹配 TRACK_INDEX_KW include，否则过滤。
+            # 防"上证"KW命中"上证50ETF"(track_index=上证50指数≠上证综合)、
+            # "深成"KW命中"深成长ETF"(track_index=深证成长40≠深证成份)等同前缀不同指数误匹配。
+            inc_ti = TRACK_INDEX_KW.get(iid, {}).get("include", [])
+            if inc_ti and tin and not any(k in tin for k in inc_ti):
+                continue  # track_index_name 不匹配预期指数，过滤
             out.setdefault(iid, []).append({
                 "code": code,
                 "name": str(r["名称"]),
@@ -1407,18 +1482,17 @@ def main():
         if added:
             print(f"  [kw叠加] {iid}: 新增 {added} 只（已有 {len(out.get(iid, [])) - added}）")
 
-    # 第4层：ETF持仓重叠匹配（只跑1-3层<6只ETF的 thsc 概念）
-    # 通过 ak.stock_fund_stock_holder 反向查找持有概念成分股的ETF，绕过 INDEX_POOL 限制。
-    # 性能优化：已有足量ETF（>=6只）的概念跳过第4层；首次跑~10min（5概念×~50股），7天缓存后~1-2min。
-    # 阈值<6非<3：thsc_300830量子科技 Layer2 匹配5只通信ETF（同主题不够多样），
-    # Layer4 补充大数据/央企科技/云计算等不同主题ETF。
-    # 综合分=max_hold_pct*overlap_count 排序 + track_index 去重（同跟踪指数只保留最高分）。
+    # 第4层：ETF持仓重叠匹配（跑1-3层<6只ETF的 board_id，含宽基）
+    # 宽基全量改造：去掉 thsc_ 限制，宽基(sz/csi_div/sz_div/hscei等<6只ETF)也跑第4层。
+    # thsc 概念用 CONCEPT_BK_MAP(东财BK成分股)，宽基用 BROAD_INDEX_CONST_MAP(index_stock_cons)。
+    # 性能优化：已有足量ETF（>=6只）的指数跳过第4层；宽基 sh(7)/hs300(40)/csi500(35)等跳过。
+    # 首次跑宽基 sz(500股)~4min + csi_div(100股)~1min，7天缓存后~1-2min。
     holdings_candidates = [
         iid for iid in board_ids
-        if iid.startswith("thsc_") and len(out.get(iid, [])) < 6
+        if len(out.get(iid, [])) < 6
     ]
     if holdings_candidates:
-        print(f"\n持仓重叠算法（第4层）：对 {len(holdings_candidates)} 个 1-3层<6只ETF 的 thsc 概念叠加匹配")
+        print(f"\n持仓重叠算法（第4层）：对 {len(holdings_candidates)} 个 1-3层<6只ETF 的指数叠加匹配（含宽基）")
         try:
             holdings_result = _holdings_match(holdings_candidates, df_by_code, track_idx_map)
             for iid, etfs in holdings_result.items():
@@ -1437,31 +1511,15 @@ def main():
         except Exception as e:
             print(f"  [holdings] ⚠ 持仓重叠算法异常,保留前3层结果: {e}")
 
-    # 记录留空板块
+    # 记录留空板块（含宽基，宽基已在 Layer 1 前由 _build_index_etf_map_auto 注入 base）
     for iid in board_ids:
         if not out.get(iid):
             empty_boards.append(f"{iid} {name_by_id.get(iid)}")
 
-    # P2-新-G: 宽基/红利/综合/港股指数 -> 跟踪 ETF 候选（自动采集，按成交额降序）
-    # 从 data/etf_index_map.json 自动采集替代原硬编码 INDEX_ETF_MAP（2026-07-28 方案D第二阶段）。
-    # 覆盖 sh/sz/hs300/sz50/csi500/csi1000/cyb/kc50/csi_div/div_lowvol/sz_div/hsi/hstech/hscei 14 个指数
-    # （bj50 北证50 无活跃跟踪ETF，留空）。
-    # 修正原硬编码 bug：hscei 原 513900 实跟踪"中华港股通精选100"非 HSCEI，自动采集修正为 510900 居首。
-    reverse_map = _load_etf_index_map_reverse()
-    if reverse_map:
-        index_etf_map = _build_index_etf_map_auto(reverse_map, df_by_code)
-    else:
-        # etf_index_map.json 缺失 -> akshare 名称匹配兜底（防静默失败，不退化为全空）
-        index_etf_map = _akshare_name_fallback(df_by_code)
-    for iid, etfs in index_etf_map.items():
-        out[iid] = etfs
-        if not etfs:
-            empty_boards.append(f"{iid} {name_by_id.get(iid, iid)}（宽基/红利/综合/港股）")
-
     # sz_div 深证红利 manual fallback（2026-08-07）：
     # ETF 159905"红利ETF工银"名无"深"字，gen_etf_index_map.py INDEX_NAME_RULES["sz_div"] include=[]
     # 主动留空 -> etf_index_map.json[159905].track_index_code="" status="no_track" -> reverse_map 无
-    # 399324 -> _build_index_etf_map_auto 返空 -> board_etf_map.json["sz_div"]=[] -> 前端"无相关ETF"。
+    # 399324 -> _build_index_etf_map_auto 返空 -> Layers 1-4 也无新增 -> board_etf_map.json["sz_div"]=[]。
     # 手动注入 159905（eastmoney fundf10 jbgk_159905 验证：跟踪标的=深证红利指数，业绩比较基准=
     # 深证红利价格指数，指数代码 399324 经 eastmoney push2 f57=399324 f58=深证红利 确认）。
     if not out.get("sz_div"):
@@ -1562,7 +1620,7 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
-    # 摘要
+    # 摘要（宽基全量改造：board_ids 含行业/概念/宽基/红利/港股，统一统计）
     total = len(board_ids)
     n_empty = len(empty_boards)
     dist = {"0": 0, "1": 0, "2-3": 0, "4+": 0}
@@ -1576,16 +1634,17 @@ def main():
             dist["2-3"] += 1
         else:
             dist["4+"] += 1
-    print(f"生成 {OUT.name}：{total} 板块 + {len(index_etf_map)} 宽基/红利/综合/港股指数（自动采集自 etf_index_map.json）")
-    print(f"候选数分布(行业/概念): 0个={dist['0']}  1个={dist['1']}  2-3个={dist['2-3']}  4+个={dist['4+']}")
-    print(f"\n宽基/红利/综合/港股指数 ETF 联动（{len(index_etf_map)} 个，自动采集）:")
+    print(f"生成 {OUT.name}：{total} 指数（行业/概念/宽基/红利/港股，统一全量 a+b+c+d）")
+    print(f"候选数分布: 0个={dist['0']}  1个={dist['1']}  2-3个={dist['2-3']}  4+个={dist['4+']}")
+    print(f"\n宽基/红利/港股指数 ETF（{len(index_etf_map)} 个，track_index_code base + Layers叠加）:")
     for iid in index_etf_map.keys():
         etfs = out.get(iid, [])
         if etfs:
             e = etfs[0]
             extra = f" +{len(etfs)-1}" if len(etfs) > 1 else ""
             approx_tag = " [approx]" if e.get("approx") else ""
-            print(f"  {name_by_id.get(iid, iid):<10} {e['code']} {e['name']} ({e['amount']}亿){extra}{approx_tag}")
+            method = e.get("match_method", "?")
+            print(f"  {name_by_id.get(iid, iid):<10} {e['code']} {e['name']} ({e['amount']}亿){extra}{approx_tag} <{method}>")
         else:
             print(f"  {name_by_id.get(iid, iid):<10} (无匹配ETF)")
     print(f"\n留空板块（{n_empty}，无相关ETF/主动留空）:")
@@ -1607,8 +1666,8 @@ def main():
             ft = e.get("fund_type", "etf")
             print(f"  {name_by_id.get(iid, iid):<16} {e['code']} {e['name']} ({e['amount']}亿){extra} <{method}>{tin_tag}{ts_tag} [{ft}]")
 
-    # 匹配方式统计（行业/概念）
-    method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "holdings_overlap": 0, "empty": 0}
+    # 匹配方式统计（行业/概念/宽基统一）
+    method_cnt = {"track_index": 0, "overlap": 0, "kw": 0, "holdings_overlap": 0, "manual_fallback": 0, "empty": 0}
     for iid in board_ids:
         etfs = out.get(iid, [])
         if not etfs:
@@ -1616,11 +1675,12 @@ def main():
         else:
             m = etfs[0].get("match_method", "kw")
             method_cnt[m] = method_cnt.get(m, 0) + 1
-    print(f"\n匹配方式统计（行业/概念 {total} 个）:")
+    print(f"\n匹配方式统计（全部 {total} 个指数）:")
     print(f"  track_index 精准: {method_cnt['track_index']}")
     print(f"  overlap 成分股: {method_cnt['overlap']}")
     print(f"  kw 名称兜底: {method_cnt['kw']}")
     print(f"  holdings 持仓重叠: {method_cnt.get('holdings_overlap', 0)}")
+    print(f"  manual_fallback: {method_cnt.get('manual_fallback', 0)}")
     print(f"  留空: {method_cnt['empty']}")
 
 

@@ -78,6 +78,25 @@ INDEX_POOL: dict[str, dict] = {
     "931022":  {"name": "中证消费电子(21)", "kw": ["消费电子"]},
 }
 
+# ===== 2b. 宽基指数成分股池 -> {code, name} =====
+# 宽基全量改造：让宽基(market=a)也走第4层持仓重叠，用 ak.index_stock_cons 取成分股
+# （替代 thsc 概念的 fetch_concept_cons，数据源不同但输出格式一致：6位股票代码集合）
+# 港股指数(hsi/hstech/hscei)不列入：ak.index_stock_cons 不支持 HK 指数代码
+BROAD_INDEX_CONST_MAP: dict[str, dict] = {
+    "sh":       {"code": "000001", "name": "上证综指"},
+    "sz":       {"code": "399001", "name": "深证成指"},
+    "hs300":    {"code": "000300", "name": "沪深300"},
+    "sz50":     {"code": "000016", "name": "上证50"},
+    "csi500":   {"code": "000905", "name": "中证500"},
+    "csi1000":  {"code": "000852", "name": "中证1000"},
+    "cyb":      {"code": "399006", "name": "创业板指"},
+    "kc50":     {"code": "000688", "name": "科创50"},
+    "bj50":     {"code": "899050", "name": "北证50"},
+    "csi_div":  {"code": "000922", "name": "中证红利"},
+    "div_lowvol": {"code": "930955", "name": "红利低波"},
+    "sz_div":   {"code": "399324", "name": "深证红利"},
+}
+
 # 排除词（与 build_board_etf_map.py EXCLUDE 同源）
 EXCLUDE = ["债", "货币", "黄金", "白银", "原油", "海外", "美国", "日本", "德国",
            "法国", "英国", "韩国", "中韩", "亚太", "纳斯达克", "纳指", "标普", "日经",
@@ -368,8 +387,12 @@ def match_holdings_overlap(
 ) -> dict[str, list[dict]]:
     """第4层：ETF持仓重叠匹配。
 
-    对指定 thsc 概念，通过 ak.stock_fund_stock_holder 反向查找持有概念成分股的ETF。
-    绕过 INDEX_POOL 限制，直接发现持有概念股的ETF（如量子科技 -> 央企科技/通信ETF）。
+    对指定概念/宽基指数，通过 ak.stock_fund_stock_holder 反向查找持有成分股的ETF。
+    绕过 INDEX_POOL 限制，直接发现持有成分股的ETF（如量子科技 -> 央企科技/通信ETF）。
+
+    支持两类输入（宽基全量改造 2026-08-08）：
+      - thsc 概念：CONCEPT_BK_MAP 映射 -> fetch_concept_cons(东财BK板块成分股)
+      - 宽基指数：BROAD_INDEX_CONST_MAP 映射 -> fetch_index_cons(ak.index_stock_cons)
 
     算法：
       1. 采概念成分股（复用 fetch_concept_cons）
@@ -381,7 +404,7 @@ def match_holdings_overlap(
       7. track_idx_map 去重：同 track_index_name 只保留综合分最高的（防3只电信ETF占3席）
 
     参数:
-      thsc_ids: 需要跑第4层的概念ID列表（1-3层<3只ETF的概念）
+      thsc_ids: 需要跑第4层的指数ID列表（thsc概念或宽基，1-3层<6只ETF的指数）
       df_by_code: {etf_code: row}（build_board_etf_map.py 预计算，用于取 ETF 名称/成交额）
       track_idx_map: {etf_code: {track_index, ...}}（fundf10 缓存，用于按跟踪指数去重；None 跳过去重）
 
@@ -398,16 +421,22 @@ def match_holdings_overlap(
     result: dict[str, list[dict]] = {}
 
     for thsc_id in thsc_ids:
+        # 宽基全量：先查 thsc 概念(CONCEPT_BK_MAP)，再查宽基(BROAD_INDEX_CONST_MAP)
         info = CONCEPT_BK_MAP.get(thsc_id)
-        if not info:
-            result[thsc_id] = []
-            continue
-
-        bk_code = info["bk"]
-        concept_name = info["name"]
-
-        # Step 1: 采概念成分股
-        concept_stocks = fetch_concept_cons(bk_code)
+        if info:
+            bk_code = info["bk"]
+            concept_name = info["name"]
+            # Step 1: 采概念成分股（东财BK板块成分股）
+            concept_stocks = fetch_concept_cons(bk_code)
+        else:
+            broad_info = BROAD_INDEX_CONST_MAP.get(thsc_id)
+            if not broad_info:
+                result[thsc_id] = []
+                continue
+            idx_code = broad_info["code"]
+            concept_name = broad_info["name"]
+            # Step 1: 采指数成分股（ak.index_stock_cons，新浪源）
+            concept_stocks = fetch_index_cons(idx_code)
         if not concept_stocks:
             print(f"    [holdings] {thsc_id} {concept_name}: 无成分股,跳过")
             result[thsc_id] = []
