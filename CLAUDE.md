@@ -99,6 +99,7 @@
 - 重派新会话:让新agent读原agent遗留接着做(`/tmp/agent-progress-*.md`进度文件 + 工作区半成品,如数据时效a2ce接a06704b半成品),避免从头返工
 - ⚠️ **worktree isolation SendMessage 不送达 + sm_use=0 违规**(2026-08-07 教训):worktree sidechain agent SendMessage to 'main' 返回 queued success 但不送达主控 session(harness 限制);非 worktree agent 也可能 sm_use=0(根本没执行 SendMessage 违规)。**worktree agent 必配 cron 兜底**(查进度文件 mtime+DONE 标记);**通用保险=cron 查进度文件**(不只依赖 SendMessage)
 - ⚠️ **中途改口径停旧派新**(2026-08-07 教训,ETF盈亏4轮振荡):中途改口径/方向必须停旧 agent 派新 agent 带全新规格,不能 SendMessage 让旧 agent 继续(旧规格上下文致误操作反向)。改口径=停旧派新,非 resume
+- ⚠️ **停前确认规格对错,规格对优先 resume**(2026-08-08 教训):停 agent 前先对照用户最新需求确认 agent 规格对错。**规格对(已 commit 正确代码)优先 SendMessage resume 复用上下文**(省 token,TaskStop 后 task-id 保留 SendMessage 可 resume transcript 恢复,实测 af062cc257e3ce2e3 resume 成功"had no active task; resumed from transcript"),只有**真改口径**(用户明确改方向)才停旧派新。区分:真改口径=停旧派新;**误解口径**(主控理解错,agent 规格其实对)=resume 非停旧派新。教训:误解 self 去体量停了 af062cc257(其 fa6f88a2f self 补 amount 规格对),新开 ae7587bd7/ae91cb28ac fresh context 重新读代码费 token,应 resume af062cc257
 - ⚠️ **SendMessage resume 触发拒绝大重构**(2026-08-07 教训):SendMessage resume 触发“非用户确认”系统提示 agent 拒绝大重构(a11439db9 拒绝)。改派新 agent 初始 prompt 绕过(a00f4f2c8b 成功)
 - ⚠️ **API 错误别卡死/重试同调用**(2026-08-07 补,§13 图片400外的通用):400/参数无效/不支持类报错别重试同调用(2天前连续3 agent a023 400/aabd/aff 卡死),换方案或暂存任务,别逼用户重启
 
