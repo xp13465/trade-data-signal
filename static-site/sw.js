@@ -14,7 +14,7 @@
  * 版本号破缓存: 改 CACHE_VERSION 即可让所有客户端清旧缓存 + 提示刷新
  */
 
-const CACHE_VERSION = 'v6-20260808-a39';  // bump a38->a39: 至今盈亏基准时点+估算灯(lowconf)+⚠️近似标记说明+hoverpop z-index
+const CACHE_VERSION = 'v6-20260808-a40';  // bump a39->a40: 移动端 etf-popup 视口边界检测防右侧超屏 + CSS @media max-width
 const CACHE_NAME = 'tdsignal-' + CACHE_VERSION;
 
 // App Shell 关键资源预缓存(个别失败不阻塞整体)

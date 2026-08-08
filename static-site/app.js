@@ -15277,6 +15277,17 @@ function _copyEtfCode(el, code) {
   });
 }
 
+// 移动端视口边界检测：tag 靠右时 popup(min-width:260px) 右缘超屏，左移 popup 防溢出
+// 仿 .term-pop show(L2456-2464) 边界检测；popup 是 tag 的 absolute 子元素(left:0 默认对齐 tag 左缘)
+function _positionEtfPopup(tag, popup) {
+  var pw = popup.offsetWidth;
+  var tagRect = tag.getBoundingClientRect();
+  // left 相对 tag(默认0=对齐tag左缘)；右侧空间不足时左移(负值)，但不超过左边界
+  var left = Math.min(0, window.innerWidth - 8 - pw - tagRect.left);
+  left = Math.max(left, 8 - tagRect.left);
+  popup.style.left = left + "px";
+}
+
 function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
   if (!etfs || !etfs.length) return;
   const tag = cell.querySelector(".etf-tag");
@@ -15323,7 +15334,8 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
     e.stopPropagation();
     if (isTouch) {
       openByClick = popup.style.display !== "block";  // 基于 display 同步状态
-      popup.style.display = openByClick ? "block" : "none";
+      if (openByClick) { popup.style.display = "block"; _positionEtfPopup(tag, popup); }
+      else { popup.style.display = "none"; popup.style.left = ""; }
     } else {
       _copyEtfCode(tag, _topEtfByScore(etfs).code);  // PC：复制 top1（track_score 降序，与 tag 展示一致）
     }
@@ -15335,18 +15347,18 @@ function _bindEtfPopup(cell, etfs, isBuy, latestDate) {
       if (isTouch) { popup.style.display = "none"; openByClick = false; }  // 移动端复制后关闭
     });
   });
-  tag.addEventListener("mouseenter", () => { if (!openByClick) popup.style.display = "block"; });
-  tag.addEventListener("mouseleave", () => { if (!openByClick) popup.style.display = "none"; });
+  tag.addEventListener("mouseenter", () => { if (!openByClick) { popup.style.display = "block"; _positionEtfPopup(tag, popup); } });
+  tag.addEventListener("mouseleave", () => { if (!openByClick) { popup.style.display = "none"; popup.style.left = ""; } });
   // 移动端：点别处（非 tag/非 pop 内容）关闭所有 etf-popup
   if (isTouch && !document._etfPopDocBound) {
     document._etfPopDocBound = true;
     document.addEventListener("click", (e) => {
       if (e.target.closest && (e.target.closest(".etf-tag") || e.target.closest(".etf-popup"))) return;
-      document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
+      document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; } });
     }, true);
     // C：移动端滚动时关闭所有 etf-popup（CSS position:absolute 不跟随滚动，capture 捕获所有滚动容器）
     window.addEventListener("scroll", () => {
-      document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") p.style.display = "none"; });
+      document.querySelectorAll(".etf-popup").forEach((p) => { if (p.style.display === "block") { p.style.display = "none"; p.style.left = ""; } });
     }, { passive: true, capture: true });
   }
 }
