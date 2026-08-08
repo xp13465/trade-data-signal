@@ -16,7 +16,7 @@
   python3 scripts/upload_r2.py upload-claude-backup [path] # Claude 自我备份 tar.gz -> signal-backup/claude-backup/
   python3 scripts/upload_r2.py download-db <name> [dir]   # 下载最新备份(解压后.db路径到stdout)
 """
-import os, sys, re, hashlib, hmac, http.client, datetime, ssl
+import os, sys, re, hashlib, hmac, http.client, datetime, ssl, json
 from pathlib import Path
 from urllib.parse import urlparse, quote
 
@@ -550,6 +550,35 @@ def cmd_upload_data_large():
     print(f"共上传 {ok}/{total} -> {PUBLIC}/data/")
 
 
+def purge_cache(r2_keys):
+    """上传后调 POST /api/purge-cache 清 CF 边缘缓存，让前端读最新数据（阶段2）。
+
+    r2_keys: R2 key 列表（如 ["data/overview.json"]），自动加 / 前缀成 cache key。
+    读 PURGE_SECRET env var（trade-data/.env）。Worker 侧需 wrangler secret put PURGE_SECRET。
+    失败不中断上传流程（purge 是次要操作，上传是主要操作）。
+    """
+    secret = os.environ.get("PURGE_SECRET", "")
+    if not secret:
+        print("⚠ PURGE_SECRET 未设，跳过 cache purge（Worker /api/purge-cache 会 403）")
+        return
+    cache_keys = ["/" + k for k in r2_keys]  # "data/overview.json" -> "/data/overview.json"
+    body = json.dumps({"secret": secret, "keys": cache_keys}).encode()
+    conn = http.client.HTTPSConnection("ss.fx8.store", timeout=10)
+    try:
+        conn.request("POST", "/api/purge-cache", body=body,
+                     headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        data = resp.read().decode()
+        if resp.status == 200:
+            print(f"✓ Cache purged: {data}")
+        else:
+            print(f"⚠ Cache purge failed: {resp.status} {data[:200]}")
+    except Exception as e:
+        print(f"⚠ Cache purge 异常: {type(e).__name__}: {e}")
+    finally:
+        conn.close()
+
+
 def cmd_upload_all_data():
     """上传 static-site/data/ 下所有小 .json 文件到 R2 data/ 前缀(阶段1a 双写准备)。
 
@@ -588,6 +617,10 @@ def cmd_upload_all_data():
         return
     if ok != total:
         sys.exit(1)
+    # 阶段2：上传成功后清 CF 边缘缓存（purge_cache 失败不中断）
+    purge_keys = [f"data/{f.name}" for f in sorted(set(data_dir.glob("*.json")))
+                  if not _exclude_fn(f) and f.exists()]
+    purge_cache(purge_keys)
 
 
 def cmd_upload_intraday():
@@ -619,6 +652,9 @@ def cmd_upload_intraday():
         return
     if ok != total:
         sys.exit(1)
+    # 阶段2：上传成功后清 CF 边缘缓存（purge_cache 失败不中断）
+    purge_keys = [f"data/{f}" for f in files if (data_dir / f).exists()]
+    purge_cache(purge_keys)
 
 
 def _list_keys(prefix, bucket=None):
