@@ -556,7 +556,7 @@ if [ -d "$STATICDATA_REPO/.git" ]; then
     --exclude='lab-*' \
     --exclude='trade_sim_*[0-9]*' \
     --exclude='feed.xml' \
-    "$GIT_REPO/static-site/data/" "$STATICDATA_REPO/data/" 2>&1 | tee -a "$LOG" || {
+    "$REPO/static-site/data/" "$STATICDATA_REPO/data/" 2>&1 | tee -a "$LOG" || {
     echo "⚠ staticdata JSON rsync 失败,不阻塞 deploy" | tee -a "$LOG"
     STATICDATA_FAIL=1
   }
