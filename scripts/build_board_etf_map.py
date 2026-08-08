@@ -327,6 +327,86 @@ INDEX_TRACK_MAP: dict[str, dict] = {
 }
 
 
+# ───────────────────────────────────────────────────────────────────
+# 全球指数 -> 跨境 ETF 候选（KW 名称匹配 + cross_border 绕过 EXCLUDE）
+# 2026-08-09 走势图问题2：给全球指数走势卡挂相关 ETF。
+#
+# 跨境 ETF（纳指/标普/日经/德国/法国/道琼斯）track_index_code 全空（status=no_track），
+# 无法用 INDEX_TRACK_MAP 的 track_index_code 反向映射；改用 ETF 名称关键词匹配。
+# 这些关键词命中 EXCLUDE（"美国/日本/德国/法国/纳斯达克/纳指/标普/日经"），需 cross_border 绕过。
+#
+# approx=True：跨境 ETF 跟踪海外指数，含汇率/时差偏差，统一标近似
+# （us_ixic 纳指综合无精准 ETF，纳指 ETF 实跟踪纳指100，更是近似）。
+# 无跨境 ETF 的指数（ftse100/kospi/cgb_*）留空，前端显示"无ETF"。
+# ───────────────────────────────────────────────────────────────────
+GLOBAL_INDEX_KW: dict[str, dict] = {
+    "us_dji":    {"include": ["道琼斯"], "exclude": []},                # 513400 道琼斯ETF鹏华(跟踪道琼斯工业平均指数)
+    "us_spx":    {"include": ["标普500"], "exclude": []},               # 513500等(名称含"500"，自动排除"标普消费/油气/红利"等)
+    "us_ndx":    {"include": ["纳斯达克100", "纳指100"], "exclude": []}, # 159513/159659/513390等(名称含"100"，精准跟踪纳斯达克100)
+    "us_ixic":   {"include": ["纳指ETF", "纳斯达克ETF"], "exclude": ["100"]},  # 纳指综合(.IXIC)无精准ETF，纳指ETF实跟踪纳指100，approx
+    "nikkei225": {"include": ["日经"], "exclude": []},                  # 513520/513880/513000/159866等(所有日经ETF跟踪日经225)
+    "dax":       {"include": ["德国"], "exclude": []},                  # 513030/159561(德国ETF跟踪DAX30)
+    "cac40":     {"include": ["法国"], "exclude": []},                  # 513080(法国ETF跟踪CAC40)
+    "ftse100":   {"include": ["富时100"], "exclude": ["A50"]},          # 大概率无ETF留空(富时A50是A股，非富时100)
+    "kospi":     {"include": ["韩国"], "exclude": []},                  # 大概率无ETF留空
+    # cgb_idx/cgb_10y_etf/cgb_10y_future 国债类：无精准跨境ETF，不列入（留空）
+}
+
+
+def _build_global_etf_map(
+    df,
+    df_by_code: dict,
+    track_idx_map: dict[str, dict],
+) -> dict[str, list[dict]]:
+    """全球指数 -> 跨境 ETF 候选（KW 名称匹配 + cross_border 绕过 EXCLUDE）。
+
+    跨境 ETF 的 track_index_code 全空（fundf10 抓取 status=no_track），无法用
+    _build_index_etf_map_auto 的 track_index_code 反向映射；改用 ETF 名称关键词匹配。
+    GLOBAL_INDEX_KW 的关键词命中 EXCLUDE（纳指/标普/日经/德国/法国），这里不走 excl_mask，
+    直接按 include/exclude 子串匹配（cross_border 语义）。
+
+    track_index_name 优先从 track_idx_map（fundf10 缓存）取，取不到留空。
+    返回 {index_id: [{code, name, amount, approx, track_index_name, match_method, fund_type}, ...]}，
+    按成交额降序（后续 _enrich_with_tracking_score 会改按 track_score 排）。
+    """
+    result: dict[str, list[dict]] = {}
+    for iid, rule in GLOBAL_INDEX_KW.items():
+        inc = rule["include"]
+        exc = rule.get("exclude", [])
+        if not inc:
+            result[iid] = []
+            continue
+        etfs = []
+        for code, r in df_by_code.items():
+            try:
+                rname = str(r["名称"])
+            except (KeyError, TypeError):
+                continue
+            # include 任一命中 + exclude 都不命中（cross_border 绕过 EXCLUDE 防御）
+            if any(k in rname for k in inc) and not any(k in rname for k in exc):
+                try:
+                    amount = round(float(r["成交额"]) / 1e8, 2)
+                except (TypeError, ValueError, KeyError):
+                    amount = 0.0
+                # track_index_name 从 fundf10 缓存取（如 513400 道琼斯="道琼斯工业平均指数"）
+                tin = ""
+                ti_info = track_idx_map.get(code)
+                if ti_info:
+                    tin = ti_info.get("track_index", "") or ""
+                etfs.append({
+                    "code": code,
+                    "name": rname,
+                    "amount": amount,
+                    "approx": True,  # 跨境ETF含汇率/时差偏差，统一标近似
+                    "track_index_name": tin,
+                    "match_method": "kw_global",
+                    "fund_type": "etf",
+                })
+        etfs.sort(key=lambda x: x["amount"], reverse=True)
+        result[iid] = etfs
+    return result
+
+
 def _load_etf_index_map_reverse() -> dict[str, list[dict]]:
     """读 data/etf_index_map.json，建反向映射 {track_index_code: [etf_info列表]}。
 
@@ -1282,6 +1362,24 @@ def main():
         # 移除 sz_div 的留空标记（上方 L934 循环在注入前已 append，现在已非空）
         empty_boards = [b for b in empty_boards if not b.startswith("sz_div ")]
         print(f"  [sz_div fallback] 注入 {_sz_code} {_sz_name} ({_sz_amt}亿) [manual_fallback]")
+
+    # ── 全球指数 -> 跨境 ETF 候选（KW 名称匹配 + cross_border 绕过 EXCLUDE）──
+    # 2026-08-09 走势图问题2：us_dji/us_spx/us_ndx/us_ixic/nikkei225/dax/cac40/ftse100/kospi
+    # 跨境 ETF track_index_code 全空，用 ETF 名称关键词匹配（纳指/标普/日经/德国/法国 命中 EXCLUDE，需绕过）。
+    # 无跨境 ETF 的指数（ftse100/kospi）留空，前端显示"无ETF"；cgb_* 国债类不列入。
+    global_etf_map = _build_global_etf_map(df, df_by_code, track_idx_map)
+    for iid, etfs in global_etf_map.items():
+        out[iid] = etfs
+        if not etfs:
+            empty_boards.append(f"{iid} {name_by_id.get(iid, iid)}（全球指数，无跨境ETF）")
+    print(f"\n全球指数 ETF 联动（{len(global_etf_map)} 个，KW 名称匹配 + cross_border）:")
+    for iid, etfs in global_etf_map.items():
+        if etfs:
+            e = etfs[0]
+            extra = f" +{len(etfs)-1}" if len(etfs) > 1 else ""
+            print(f"  {name_by_id.get(iid, iid):<12} {e['code']} {e['name']} ({e['amount']}亿){extra} [kw_global]")
+        else:
+            print(f"  {name_by_id.get(iid, iid):<12} (无跨境ETF)")
 
     # ── 路 A-2b：实测相似度计算 + 按相似度排序 ──
     # 每候选 vs 指数算多周期 max_err（5周期涨跌幅最大误差%），加 similarity/max_err/grade 字段

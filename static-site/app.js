@@ -11512,6 +11512,11 @@ async function renderGlobal(container = content) {
           addGlobalRealtimeBadge(cardEl, id, snap);
           // 标题❓策略弹窗（2026-07-20 方案B1）：h3 末尾追加❓，hover 一句话摘要 + click 弹该指数6类策略详情 modal
           _appendStrategyHint(cardEl, id, idx.strategy);
+          // 2026-08-09 走势图问题2：全球指数走势卡补 定住/订阅/相关ETF（对齐 A股/行业走势卡）
+          // h3 末尾 [❓][📌][🔔]，下行 .etf-link-row [etf-tag][etf-tag-pnl]（_appendEtfLinkTag 内部 h3.after 建 row）
+          _appendPinBtn(cardEl, id, idx, sig);
+          _appendSubscribeBtn(cardEl, id, idxName);
+          _appendEtfLinkTag(cardEl, id, idx.etfs, sigs);
           // C7 P4 market 融合:全球指数卡下 append 紧凑分数卡
           _attachMarketScoreCard(id, idxName, cardEl);
         }

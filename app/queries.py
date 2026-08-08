@@ -896,9 +896,18 @@ def hk(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
 
 def global_market(conn, cfg, start, end, *, cache=None, stats_all_dict=None):
     """复刻 /api/global。"""
-    indices = {i["id"]: {"name": i["name"], "symbol": i.get("symbol"),  # 2026-08-06 走势图卡片标题加指数代码
-                         "data": index_series(conn, i["id"], start, end, cache=cache),
-                         "strategy": strategy_desc(i["id"], cfg)} for i in indices_for_market(cfg, "global")}
+    # 2026-08-09 走势图问题2：注入 etf_for（跨境 ETF 候选，供全球指数走势卡相关ETF展示，
+    # 对齐 industry/a_stock 的 **etf_for(iid) 结构）。board_etf_map.json 由 build_board_etf_map.py 生成。
+    indices = {}
+    for i in indices_for_market(cfg, "global"):
+        iid = i["id"]
+        indices[iid] = {
+            "name": i["name"],
+            "symbol": i.get("symbol"),  # 2026-08-06 走势图卡片标题加指数代码
+            "data": index_series(conn, iid, start, end, cache=cache),
+            "strategy": strategy_desc(iid, cfg),
+            **etf_for(iid),
+        }
     sa = stats_all_dict if stats_all_dict is not None else stats_all()
     extras = {}
     extras_signals = {}
