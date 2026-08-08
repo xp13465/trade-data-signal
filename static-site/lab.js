@@ -7483,7 +7483,18 @@ function _renderSigKellyTradesModal(overlay, trades, fields, quadLabel, modeLabe
     // 筛选
     const etfInput = overlay.querySelector(".lab-sigkelly-filter-etf");
     if (etfInput) {
-      etfInput.oninput = () => { filter.etf = etfInput.value; _render(); etfInput.focus(); };
+      // 注意:_render() 会重建 overlay.innerHTML,销毁旧 etfInput 节点(分离节点 focus 无效)。
+      // 故 _render() 后需重新 querySelector 拿新节点 focus,并尽量保留光标位置(selectionStart)。
+      etfInput.oninput = () => {
+        filter.etf = etfInput.value;
+        const selStart = etfInput.selectionStart;
+        _render();
+        const newInput = overlay.querySelector(".lab-sigkelly-filter-etf");
+        if (newInput) {
+          newInput.focus();
+          try { newInput.setSelectionRange(selStart, selStart); } catch (e) { /* ignore */ }
+        }
+      };
     }
     const profitSel = overlay.querySelector(".lab-sigkelly-filter-profit");
     if (profitSel) {

@@ -602,6 +602,7 @@ def cmd_upload_all_data():
       - offshore_fund* (upload-offshore-fund -> offshore_fund/ 前缀)
       - fund_score* (upload-fund-score -> fund_score/ 前缀)
       - etf_score_list* (upload-etf-score -> data/ 前缀,独立命令已处理)
+      - signal_kelly_trades* (5.84MB >=1MB,upload-data-large 已覆盖,防双副本)
       - 大 range 文件 *-{all,5y,3y}.json (upload-data-large -> data/ 前缀)
       - .gz 不再生成(CF 自动 br 压缩替代),只传 *.json pattern
       - feed.xml: 非 .json,*.json glob 天然不匹配
@@ -609,8 +610,10 @@ def cmd_upload_all_data():
     """
     data_dir = STATIC_DIR / "data"
     # 排除已在独立命令处理的文件前缀(和 cmd_upload_data_large exclude_prefixes 一致)
+    # signal_kelly_trades: 5.84MB >=1MB,upload-data-large 已覆盖,避免双副本上传
     exclude_prefixes = (
         "industry-", "public_fund", "offshore_fund", "fund_score", "etf_score_list",
+        "signal_kelly_trades",
     )
     # 排除大 range 文件(upload-data-large 已处理)
     _LARGE_RANGE_RE = re.compile(r'-(?:all|5y|3y)\.json$')
