@@ -39,6 +39,9 @@ data/public_fund.lock
 data/public_fund.db
 data/public_fund.db-wal
 data/public_fund.db-shm
+# export_offshore_fund 新鲜度闸门标记（P2-15，本地状态不进 git）
+data/offshore_fund_export_state.json
+data/public_fund_stage0.lock
 # F 方案（2026-07-21）：check_signals 邮件去重持久化，仅本地跨进程去重用
 data/signal_notified.json
 
