@@ -547,7 +547,11 @@ if [ -d "$STATICDATA_REPO/.git" ]; then
   if git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
     echo "✓ staticdata 无新变更,跳过 commit" | tee -a "$LOG"
   else
-    git -C "$STATICDATA_REPO" commit -m "data backup [deploy] $(date +%Y-%m-%d_%H:%M)" 2>&1 | tee -a "$LOG" || true
+    # commit message 详细化：标题含触发 pipeline 名($NAME) + 变更文件数；body 按顶层目录分类计数 top5
+    _CHANGED=$(git -C "$STATICDATA_REPO" diff --cached --name-only)
+    _N=$(printf '%s\n' "$_CHANGED" | grep -c .)
+    _BODY=$(printf '%s\n' "$_CHANGED" | sed 's|/.*||' | sort | uniq -c | sort -rn | head -5 | awk '{printf "%s %s\n", $2, $1}')
+    git -C "$STATICDATA_REPO" commit -m "data backup [$NAME] $(date +%Y-%m-%d_%H:%M) - ${_N} files" -m "$_BODY" 2>&1 | tee -a "$LOG" || true
     git -C "$STATICDATA_REPO" push origin main 2>&1 | tee -a "$LOG" || {
       echo "⚠ staticdata push 失败,不阻塞 deploy" | tee -a "$LOG"
       STATICDATA_FAIL=1
