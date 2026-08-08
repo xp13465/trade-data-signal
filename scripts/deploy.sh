@@ -268,89 +268,35 @@ run_r2_upload() {
 }
 
 echo "-> 上传 lab/trade_sim/index/industry/public_fund/offshore_fund/etf_score/data-large/all-data 到 R2 ..." | tee -a "$LOG"
-run_r2_upload "upload-lab" upload-lab || echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-trade-sim" upload-trade-sim || echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-index" upload-index || echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-industry" upload-industry || echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-public-fund" upload-public-fund || echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-offshore-fund" upload-offshore-fund || echo "⚠ upload-offshore-fund 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-etf-score" upload-etf-score || echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-data-large" upload-data-large || echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"
-run_r2_upload "upload-all-data" upload-all-data || echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"
+# 阶段3：数据唯一走 R2，上传失败需 notify 告警让 schedule_monitor 发现
+R2_FAIL=""
+run_r2_upload "upload-lab" upload-lab || { echo "⚠ upload-lab 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-lab"; }
+run_r2_upload "upload-trade-sim" upload-trade-sim || { echo "⚠ upload-trade-sim 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim"; }
+run_r2_upload "upload-trade-sim-json" upload-trade-sim-json || { echo "⚠ upload-trade-sim-json 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-trade-sim-json"; }
+run_r2_upload "upload-index" upload-index || { echo "⚠ upload-index 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-index"; }
+run_r2_upload "upload-industry" upload-industry || { echo "⚠ upload-industry 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-industry"; }
+run_r2_upload "upload-public-fund" upload-public-fund || { echo "⚠ upload-public-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-public-fund"; }
+run_r2_upload "upload-offshore-fund" upload-offshore-fund || { echo "⚠ upload-offshore-fund 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-offshore-fund"; }
+run_r2_upload "upload-etf-score" upload-etf-score || { echo "⚠ upload-etf-score 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-etf-score"; }
+run_r2_upload "upload-data-large" upload-data-large || { echo "⚠ upload-data-large 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-data-large"; }
+run_r2_upload "upload-all-data" upload-all-data || { echo "⚠ upload-all-data 失败/超时,继续部署" | tee -a "$LOG"; R2_FAIL="$R2_FAIL upload-all-data"; }
+if [ -n "$R2_FAIL" ]; then
+  "$PY" "$REPO/scripts/notify.py" "[告警] deploy R2上传失败" "deploy.sh R2 上传失败:$R2_FAIL<br>前端可能读旧数据，需手动补刷: bash scripts/upload_r2.py upload-all-data<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key deploy_r2_upload_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+fi
 
-# 2. git add 静态数据 + min JS（精确文件列表，根治通配带入残留旧文件）
-# 2026-07-20 intraday 回退事故根因：原 `git add static-site/data/` 目录级通配会带入
-# 工作区任何残留文件（含 export.py 不再生成的废弃残留，如 etf_national_team-1m.json）。
-# 改为精确文件列表：只 add export.py + deploy.sh 生成/上线的 JSON（+ .gz 副本）+ min JS。
-# - export.py: overview, tab×6ranges, industry 拆分, 单文件, etf_national_team×6ranges(无1m)
-# - 各任务脚本结尾: gen_schedule_stats(schedule_stats) [2026-07-24 方案A从 deploy.sh 移出]
-# - deploy.sh: gen_rss(feed.xml), build_min(app/lab.min.js)
-# - update_all.sh/update_lab.sh 靠 deploy 上线: alert, etf_score_list, lab_*(4个)
-# - alert_analyze_*.json 动态(40宽基+行业，新增品种自动覆盖)，用前缀通配(只匹配 alert_analyze_ 前缀)
-# - 不含: etf_national_team-1m.json(废弃), index/industry-*-indices/lab/trade_sim/(.gitignore R2托管)
-# - 不含: tab 大 range all/5y/3y + global-extras-all（R2 托管，.gitignore 移出，前端 dataUrl() 路由）
-echo "-> git add 精确文件列表（export.py + deploy.sh 生成 JSON + min JS）..." | tee -a "$LOG"
+# 2. git add min JS/CSS + feed.xml（阶段3：数据走 R2，只 push 代码 + RSS）
+# 原数据 JSON/.gz 已由上面 R2 上传（upload-all-data 等）推到 R2，不再 git push。
+# static-site/data/ 仍 tracked，R2 故障时可手动 git add + push 兜底。
+# 保留 push：min JS/CSS（代码，build_min.py 生成）+ feed.xml（RSS，gen_rss.py 生成，非 JSON 不走 R2）。
+echo "-> git add min JS/CSS + feed.xml（阶段3：数据走 R2，只 push 代码）..." | tee -a "$LOG"
 DATA_FILES=()
-# tab × 小 range 3m/6m/1y（大 range all/5y/3y + global-extras-all 已 R2 托管，.gitignore 移出减 ~58M）
-for _tab in a-stock hk global sentiment; do
-  for _rng in 3m 6m 1y; do
-    DATA_FILES+=("static-site/data/${_tab}-${_rng}.json" "static-site/data/${_tab}-${_rng}.json.gz")
-  done
-done
-# global-extras-all 已 R2 托管（upload-data-large 上传，前端 dataUrl() 路由），不进 git
-# industry: 仅 meta 留 git（3m/6m/1y 单文件 + all/5y/3y 单文件 + all/5y/3y-concepts 已 R2 托管，.gitignore 移出减 ~24M）
-# 2026-07-25 补 industry-{all,5y,3y}.json 单文件漏移（5y/all 已 untracked，3y 仍 tracked 致 7/24
-# 20:07 etf deploy rebase 撞 unstaged M 失败，stash 56770911 兜底但根因未除，现 git rm --cached 根治）
-# industry-*-meta 是 4KB 小文件，留 git 作元数据参考；前端 meta 也从 R2 读但 git 带冗余可忽略
-for _rng in all 5y 3y; do
-  DATA_FILES+=("static-site/data/industry-${_rng}-meta.json" "static-site/data/industry-${_rng}-meta.json.gz")
-done
-# etf_national_team × 小 range 1m/3m/6m/1y（大 range all/5y/3y 已 R2 托管）+ quarterly + holders
-# 1m 由 pipeline_daily export_json_files 生成(非 export.py),deploy git add 工作区最新版
-for _rng in 1m 3m 6m 1y; do
-  DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
-done
-DATA_FILES+=("static-site/data/etf_national_team_quarterly.json" "static-site/data/etf_national_team_quarterly.json.gz")
-DATA_FILES+=("static-site/data/etf_national_team_holders.json" "static-site/data/etf_national_team_holders.json.gz")
-# public_fund 7 个 JSON（export.py L410-441 生成，collector public_fund.py export_json_files 也生成同款；
-# collector 采集后 deploy.sh public-fund 推送上线。仿 etf_national_team 模式，7 类各 .json + .gz）
-# 2026-07-20 补 industry_fund_map(原漏)+ manuf_subind_fund_map(方案C Step5 新增子行业下钻到基金)
-# 2026-07-24 补 position_backtest(G功能 88 魔咒历史回测+极值标注, 独立计算非 7 元组)
-# 2026-07-20 补 holding_concentration_ts(N功能抱团集中度历史时序10期, 独立计算非 7 元组)
-# 2026-08-02 补 scale_change_ts(N功能全量规模变动时序113期, summary.scale_change_history 只20期不够)
-# 2026-08-02 补 industry_rotation_ts(F功能行业轮动时序50期27行业, 独立计算非 7 元组)
-# 2026-08-02 补 position_estimate(方案A 今日预估仓位+历史时序, 净值回归反推+lg校准, 88魔咒图"今日预估"点)
-# 2026-08-02 补 sw_industry_alloc(申万一级反查口径行业配置, 前端"行业配置"卡第四档 'sw' 切换, 独立计算非 7 元组)
-for _pf in summary holdings industry top20 asset_alloc industry_fund_map manuf_subind_fund_map position_backtest holding_concentration_ts scale_change_ts industry_rotation_ts position_estimate sw_industry_alloc; do
-  DATA_FILES+=("static-site/data/public_fund_${_pf}.json" "static-site/data/public_fund_${_pf}.json.gz")
-done
-# 单文件（export.py 生成 + deploy/update_all/update_lab 生成）
-# trade_sim_indices: export.py 生成单文件(非 R2 托管的 trade_sim/ 目录), 需入 git 否则 .gz 404
-# futures_acc_trend: 期货同向准确度每日趋势(方案A, export_futures_acc_trend 生成,
-#   读 futures_ih_detail_acc 表 1851 行 ~370KB, 单文件无 -all/-5y/-3y 拆分, 走 CF 不走 R2)
-# futures_acc_conclusion: 期货同向准确度规律结论(4条规律+当前触发状态, export_futures_acc_conclusion 生成,
-#   每日刷新幂等覆盖, 单文件~2KB 走 CF 不走 R2)
-# P0-2 (2026-08-05): etf_score_list 拆 3 JSON (buy/sell/hold), .json 走 R2(.gitignore),
-#   .gz 留 git(CF 兜底/备份); 原 etf_score_list 单文件已废弃
-for _f in boot overview futures futures_acc_trend futures_acc_conclusion ad_line volume_ratio position \
-          summary summary_history signal_freq signal_stats \
-          rotation new_high_low ma_alignment intraday_snapshot \
-          alert etf_score_list_buy etf_score_list_sell etf_score_list_hold trade_sim_indices \
-          lab_ablation lab_cost_compare lab_param_scan lab_short_symmetry signal_kelly_backtest; do
-  DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
-done
-# feed.xml（gen_rss.py 生成，非 .json）+ min JS/CSS（build_min.py 生成的全部 6 个 min 文件，
-# 2026-07-20 修复：原仅 add app.min.js/lab.min.js，漏 style.min.css/common.min.js/purpose-notes.min.js/lab.min.css，
-# 致改 CSS 后 style.min.css 不上线；9b98425c 手动补的根因根治）
+# min JS/CSS（build_min.py 生成的全部 6 个 min 文件 + feed.xml）
 DATA_FILES+=("static-site/data/feed.xml" \
   "static-site/app.min.js" "static-site/lab.min.js" \
   "static-site/common.min.js" "static-site/purpose-notes.min.js" \
   "static-site/style.min.css" "static-site/lab.min.css")
 # 精确文件列表 git add（部分文件不存在时 git 报 fatal 但继续，不影响其余 add；deploy 无 set -e 不阻塞）
 git -C "$GIT_REPO" add "${DATA_FILES[@]}" 2>&1 | tee -a "$LOG" || true
-# alert_analyze_*.json 动态列表（40 宽基+行业，新增品种自动覆盖），前缀通配只匹配 alert_analyze_
-git -C "$GIT_REPO" add static-site/data/alert_analyze_*.json static-site/data/alert_analyze_*.json.gz 2>&1 | tee -a "$LOG" || true
 
 # 3. 检查有无变更（cached diff 非空才 commit；无变更跳过 commit 但仍 push）
 if git -C "$GIT_REPO" diff --cached --quiet; then

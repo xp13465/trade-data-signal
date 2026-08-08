@@ -264,21 +264,24 @@ else
   echo "✓ R2 上传完成" | tee -a "$LOG"
 fi
 
-# B) git deploy 顶层 4 文件（static-site/data/lab_*.json）
-# 复用 deploy.sh 的 fetch + rebase + push 重试机制（non-fast-forward 时 rebase 后重试一次）。
-# lab/ 子目录移出 git（commit 8c7affc6），顶层 4 文件仍 tracked，走 git deploy。
+# B) 上传顶层 lab_*.json 到 R2（阶段3：去 git push 数据，前端走 R2）
+#    lab/ 子目录已由上面 upload-lab 上传。顶层 4 个 lab_*.json 走 upload-data-files + purge。
+#    trade_sim.html 仍走 git push（static-site/ 根目录，非 data/，非 JSON，不走 R2）。
+echo "-> 上传顶层 lab_*.json 到 R2（upload-data-files + purge）..." | tee -a "$LOG"
+"$PY" "$REPO/scripts/upload_r2.py" upload-data-files \
+  lab_ablation.json lab_cost_compare.json lab_param_scan.json lab_short_symmetry.json 2>&1 | tee -a "$LOG"
+LAB_R2_RC=${PIPESTATUS[0]:-1}
+if [ "$LAB_R2_RC" -ne 0 ]; then
+  echo "⚠ lab_*.json R2 上传失败（退出码 ${LAB_R2_RC}），lab 数据可能过期" | tee -a "$LOG"
+fi
+
+# C) git push trade_sim.html（static-site/ 根目录，非 data/，阶段3 保留代码 push）
 GIT_REPO="/Users/linhuichen/code/trade"
-echo "-> git deploy 顶层 lab_*.json（4 文件）..." | tee -a "$LOG"
-git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
-for f in lab_ablation.json lab_cost_compare.json lab_param_scan.json lab_short_symmetry.json; do
-  git -C "$GIT_REPO" add "static-site/data/$f" 2>/dev/null || true
-done
-# trade_sim.html（sh 旧版静态 HTML，根目录，git tracked，[12/12] 重生产物）
-git -C "$GIT_REPO" add static-site/trade_sim.html 2>/dev/null || true
-# 有变更才 commit（幂等：无变更跳过 commit，但仍 push 推未 push commit）
 GIT_DEPLOY_RC=0
+git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
+git -C "$GIT_REPO" add static-site/trade_sim.html 2>/dev/null || true
 if git -C "$GIT_REPO" diff --cached --quiet 2>/dev/null; then
-  echo "  顶层 lab_*.json 无变更，跳过 commit" | tee -a "$LOG"
+  echo "  trade_sim.html 无变更，跳过 commit" | tee -a "$LOG"
 else
   COMMIT_MSG="data update [lab-tl] $(date +%Y-%m-%d_%H:%M)"
   echo "-> git commit: $COMMIT_MSG" | tee -a "$LOG"
@@ -290,11 +293,10 @@ else
   fi
 fi
 # 总是 push（幂等：有未 push commit 就推，无则 up-to-date）
-echo "-> git push 顶层 lab_*.json ..." | tee -a "$LOG"
+echo "-> git push trade_sim.html ..." | tee -a "$LOG"
 git -C "$GIT_REPO" push origin main 2>&1 | tee -a "$LOG"
 PUSH_RC=${PIPESTATUS[0]:-1}
 if [ "$PUSH_RC" -ne 0 ]; then
-  # non-fast-forward：fetch 后确认本地是否落后，rebase 后重试一次
   echo "⚠ git push 失败（退出码 ${PUSH_RC}），尝试 fetch + rebase 重试..." | tee -a "$LOG"
   git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG" || true
   if git -C "$GIT_REPO" rebase origin/main 2>&1 | tee -a "$LOG"; then
@@ -317,7 +319,7 @@ END_TS=$(date +%s)
 ELAPSED=$((END_TS - START_TS))
 ELAPSED_MIN=$((ELAPSED / 60))
 echo "=== update_lab.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 耗时 ${ELAPSED}s（${ELAPSED_MIN}min）===" | tee -a "$LOG"
-echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retest=$RC5 honors=$RC_HONORS backtest=$RC6 abl=$RC_ABL cc=$RC_CC ps=$RC_PS ss=$RC_SS ts=$RC_TS r2=$R2_RC git_tl=$GIT_DEPLOY_RC" | tee -a "$LOG"
+echo "退出码汇总: sim=$RC1 fusion=$RC2 matrix=$RC3 fusion_matrix=$RC4 retest=$RC5 honors=$RC_HONORS backtest=$RC6 abl=$RC_ABL cc=$RC_CC ps=$RC_PS ss=$RC_SS ts=$RC_TS r2=$R2_RC lab_r2=$LAB_R2_RC git_tl=$GIT_DEPLOY_RC" | tee -a "$LOG"
 
 # 刷新 schedule_stats.json（2026-07-24 方案A根治：从 deploy.sh:72 移到此处，在"结束"行后调用，
 # gen_stats 能读到完整"开始+结束"对，正确配对当前任务 exit/dur，不再 pending null）

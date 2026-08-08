@@ -116,216 +116,52 @@ echo "-> export_notifications.py（浏览器通知源 JSON）..." | tee -a "$LOG
 "$PY" "$REPO/scripts/export_notifications.py" 2>&1 | tee -a "$LOG" || \
   echo "⚠ export_notifications 失败(不阻塞快照)" | tee -a "$LOG"
 
-# 2) commit + push 受影响的静态数据 JSON 到 main 分支（部署分支）
-#    用独立 git worktree 操作 main，不影响当前 feat 开发分支：
-#    - 采集在 REPO 跑（trade-data 架构：trade-data 采集，数据 JSON 写到 trade-data/static-site/data/）
-#    - git 操作在 GIT_REPO=trade 仓库（trade-data 不 git init）：worktree at origin/main
-#    - 采集器写的 JSON 从 REPO rsync 到 worktree，再 git add+commit+push origin HEAD:main
-#    持 deploy.lock 串行化 git（阻塞，等 update_all pipeline 释放；避免 index.lock 冲突）。
-#    只 add 数据文件，不碰 app.js/style.css 等（前端 agent 可能改了，-A 会把半成品提交）。
-#    用环境变量传 commit message，避免 bash -c 引号转义问题。
-COMMIT_MSG="data update [intraday] $(date +%Y-%m-%d_%H:%M)"
-export INTRADAY_COMMIT_MSG="$COMMIT_MSG"
-# ALERT_TIME 在 bash -c 外层预算：bash -c '...' 单引号字符串内不能用单引号
-# （$(date '+%m-%d %H:%M') 的单引号会破坏外层定界，致 L244 后命令解析错乱、
-# git push 步骤不执行，线上 intraday 卡上一轮时点。2026-07-31 事故根因修复）。
+# 2) 同步受影响的静态数据 JSON 到 R2（阶段3：去 git push，前端走 R2）
+#    原机制：worktree + rsync + git add/commit/push origin HEAD:main（持 deploy 锁串行）。
+#    阶段3：改只 R2 上传（upload-index + upload-intraday + purge_cache），前端 Worker /data/->R2 rewrite。
+#    static-site/data/ 仍 tracked，R2 故障时可手动 git push 兜底。
+#    采集器写 REPO/static-site/data/（trade-data），upload_r2.py 读 REPO（env）直接上传，无需 rsync。
+# ALERT_TIME 在告警中引用，外层预算避免 bash -c 引号转义问题。
 ALERT_TIME=$(date '+%m-%d %H:%M')
-export ALERT_TIME
-echo "-> commit + push 数据 JSON 到 main（独立 work tree，持 deploy 锁串行）msg=\"${COMMIT_MSG}\" ..." | tee -a "${LOG}"
-# 预初始化 PUSH_RC=0（防 set -u 下 bash -c 异常退出后 line 265 外层引用未赋值 PUSH_RC 致 unbound 噪声）
-PUSH_RC=0
-"$PY" "$REPO/scripts/with_lock.py" /tmp/trade_deploy.lock bash -c '
-  set -euo pipefail
-  # 预初始化 PUSH_RC=0（防 set -u 下兜底分支引用未赋值 PUSH_RC 致 unbound 噪声；
-  # push/rebase 各分支虽都赋值，但预初始化让任何提前引用也安全，消除 err 日志噪声）
-  PUSH_RC=0
-  REPO="${REPO:-/Users/linhuichen/code/trade-data}"
-  GIT_REPO="${GIT_REPO:-/Users/linhuichen/code/trade}"
-  # 主脚本 PY 未 export，子 bash -c 不继承非导出变量；此处必须重新定义，
-  # 否则 set -u 下 "$PY" 触发 unbound variable 致整个 commit+push 失败（2026-07-17 15:35 事故根因）。
-  PY="$REPO/.venv/bin/python"
+echo "-> 同步 intraday 数据 JSON 到 R2（阶段3：去 git push，前端走 R2）..." | tee -a "${LOG}"
 
-  # 拉取最新 origin/main（work tree 基于此创建，确保 push 是 fast-forward）
-  # git 操作在 GIT_REPO=trade 仓库（trade-data 不 git init）
-  # 2026-07-23: 去 bash -c 外层 | tee 管道改 $? 直取退出码（PIPESTATUS 在 set -u 下偶发 unbound），
-  #   内部 git/echo 命令各自 | tee -a "$LOG" 保日志完整
-  git -C "$GIT_REPO" fetch origin main 2>&1 | tee -a "$LOG"
+# 生成 .gz（本地 dev 兜底；R2/CF 用 br 压缩，前端 fetchJSON 已跳 .gz，但保留 fresh .gz 供手动 git push fallback）
+gzip -kf "$REPO/static-site/data/intraday_snapshot.json"
+gzip -kf "$REPO/static-site/data/overview.json"
+gzip -kf "$REPO/static-site/data/summary.json"
+gzip -kf "$REPO/static-site/data/schedule_stats.json"
+gzip -kf "$REPO/static-site/data/hk-1y.json"
+gzip -kf "$REPO/static-site/data/sentiment-all.json"
+gzip -kf "$REPO/static-site/data/notifications.json" 2>/dev/null || true
+gzip -kf "$REPO/static-site/data/boot.json" 2>/dev/null || true
+for f in "$REPO"/static-site/data/etf_national_team-*.json; do gzip -kf "$f" || true; done
 
-  # 清理上次崩溃残留的 stale worktree 元数据
-  git -C "$GIT_REPO" worktree prune
+# 2.5) 同步 index/ 到 R2（走势图源 kc50-all.json 等）
+#      非阻塞：R2 失败发告警邮件（notify.py --severe），不阻断后续 upload-intraday。
+echo "-> 同步 index 到 R2（前端 R2 源）..." | tee -a "$LOG"
+if ! "$PY" "$REPO/scripts/upload_r2.py" upload-index 2>&1 | tee -a "$LOG"; then
+  echo "✗ upload-index R2 失败，发告警邮件" | tee -a "$LOG"
+  FAILED_FILES=$(grep "^FAILED_FILES:" "$LOG" | tail -1 | sed "s/^FAILED_FILES: //") || true
+  OK_TOTAL=$(grep "^共上传" "$LOG" | tail -1) || true
+  "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 ${ALERT_TIME}" "走势图数据源(kc50-all.json等)未推 R2，需手动补刷 R2: bash scripts/upload_r2.py upload-index<br>汇总: ${OK_TOTAL}<br>失败文件: ${FAILED_FILES}" --severe --from-prefix "[告警]" --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+fi
 
-  # 创建独立 work tree（detached HEAD @ origin/main，即使 main 已被 trade checkout 也不冲突）
-  WORKTREE=$(mktemp -d /tmp/trade_intraday_wt.XXXXXX)
-  cleanup() {
-    git -C "$GIT_REPO" worktree remove "$WORKTREE" --force 2>/dev/null || rm -rf "$WORKTREE"
-  }
-  trap cleanup EXIT
+# 2.52) 同步 intraday 相关数据到 R2（阶段3：唯一上线渠道，替代 git push）
+#       upload-index 已处理 index/，此处上传 intraday 实际更新的小 .json：
+#       intraday_snapshot/overview/summary/summary_history/notifications/boot/schedule_stats
+#       + a-stock/hk/global/sentiment-3m/6m/1y + etf_national_team-1m/3m/6m/1y。
+#       R2 上传失败发告警邮件（notify.py --severe），让 schedule_monitor 发现。
+echo "-> 同步 intraday 数据到 R2（upload-intraday）..." | tee -a "$LOG"
+if ! "$PY" "$REPO/scripts/upload_r2.py" upload-intraday 2>&1 | tee -a "$LOG"; then
+  echo "✗ upload-intraday R2 失败，发告警邮件" | tee -a "$LOG"
+  "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 ${ALERT_TIME}" "intraday 数据(overview/intraday_snapshot/a-stock等)未推 R2，前端将读旧数据，需手动补刷: bash scripts/upload_r2.py upload-intraday<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key intraday_upload_intraday_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+fi
 
-  if ! git -C "$GIT_REPO" worktree add --detach "$WORKTREE" origin/main 2>&1 | tee -a "$LOG"; then
-    echo "✗ 创建 work tree 失败" >&2
-    exit 1
-  fi
-
-  # 刷新 schedule_stats.json 已移到脚本结尾"结束"行之后调用（2026-07-23 修复）：
-  #   原在 L124（push 前）调用太早，当前运行"结束"行尚未写入，gen_stats 看不到当前运行配对，
-  #   配合配对 bug 会把被杀的旧 pending_start 当 last_run。移到结尾后 gen_stats 能看到当前运行结束行。
-  #   代价：push 的 schedule_stats.json 反映上一轮（下一轮 rsync 进 worktree 补上），可接受。
-  #   deploy.sh L72 收盘后也调 gen_stats 兜底。
-
-  cd "$WORKTREE"
-
-  # 从 REPO 拷贝采集器刚写的数据 JSON 到 worktree（trade-data 架构：rsync trade-data->worktree）
-  # --checksum：schedule_stats.json last_run "11:30"->"13:05" size 不变+mtime同秒，quick check 跳过致线上"执行统计"intraday 行停滞；强制 MD5 比对根治
-  rsync -a --checksum "$REPO/static-site/data/." static-site/data/ 2>&1 | tee -a "$LOG"
-
-  # 生成 .gz（前端 fetchJSON 优先读 .gz，Decompression Stream 解压；
-  # 不生成则线上 .gz 滞后 .json，前端读旧 .gz = 读旧数据根因）
-  # intraday_snapshot + overview/summary/schedule_stats/hk-1y/sentiment-all 共 6 个
-  gzip -kf static-site/data/intraday_snapshot.json
-  gzip -kf static-site/data/overview.json
-  gzip -kf static-site/data/summary.json
-  gzip -kf static-site/data/schedule_stats.json
-  gzip -kf static-site/data/hk-1y.json
-  gzip -kf static-site/data/sentiment-all.json
-  # notifications.json（浏览器通知源，export_notifications.py 生成；同轮若未生成则跳过不影响其余）
-  gzip -kf static-site/data/notifications.json 2>/dev/null || true
-  # boot.json（export_boot 生成 raw+.gz，rsync 已带入 .gz，gzip -kf 兜底确保新鲜）
-  gzip -kf static-site/data/boot.json 2>/dev/null || true
-  # etf_national_team daily 全 range gzip(末日 close 更新影响所有 range 末行;
-  # 前端默认下 1y,但用户切换 3m/6m 等时按需 fetch .gz,不 gzip 则读旧 .gz = 读旧数据)
-  for f in static-site/data/etf_national_team-*.json; do gzip -kf "$f" || true; done
-
-  # 只 add 数据文件，不碰 app.js/style.css 等
-  # period .gz 通配必加：write_json 生成 raw+.gz，rsync 进 worktree 后 .gz 也在，
-  # 不 add 则 .gz 不进 commit 不 push，前端 fetchJSON 优先读 .gz = 读旧数据（停 7-21 根因）。
-  # 大 range（all/5y/3y）+ global-extras-all 已 R2 托管（2026-07-24 commit 930c8eeb .gitignore 移出减58M），
-  # 通配 a-stock-*.json 等会撞 ignored 文件致 git add 返回非0 set -e 退出子shell（2026-07-27 故障根因 bug1）。
-  # 改精确文件列表只 add 小 range（3m/6m/1y + etf 1m），参考 deploy.sh DATA_FILES 模式（L188-221）。
-  # index/ 已 R2 托管（2026-07-20 R2 阶段3 瘦身），本地 untracked 不进 git，由 upload_r2.py upload-index 刷 R2。
-  DATA_FILES=()
-  for _tab in a-stock hk global sentiment; do
-    for _rng in 3m 6m 1y; do
-      DATA_FILES+=("static-site/data/${_tab}-${_rng}.json" "static-site/data/${_tab}-${_rng}.json.gz")
-    done
-  done
-  for _rng in 1m 3m 6m 1y; do
-    DATA_FILES+=("static-site/data/etf_national_team-${_rng}.json" "static-site/data/etf_national_team-${_rng}.json.gz")
-  done
-  # boot.json：intraday _export_affected_json 末尾调 export_boot() 重新生成
-  # （commit f43016e40），保证 boot.overview.date=今日。不 push 则前端 fetchBoot
-  # 缓存旧 overview 致成交额卡显示昨日值（2026-08-06 事故根因）。
-  # schedule_stats：原独立 push_schedule_stats.sh，2026-08-07 合并进首次 push 省 CF 构建
-  for _f in intraday_snapshot overview summary summary_history notifications boot schedule_stats; do
-    DATA_FILES+=("static-site/data/${_f}.json" "static-site/data/${_f}.json.gz")
-  done
-  # 部分文件不存在时 git 报 fatal 但 || true 继续，不影响其余 add（参考 deploy.sh L221）
-  git add "${DATA_FILES[@]}" 2>&1 | tee -a "$LOG" || true
-
-  # 清掉非 add 列表的 unstaged 残留(2026-07-24 根治 rebase 阻塞隐患):
-  #   rsync -a 把 REPO/static-site/data/. 全量拷进 worktree,非 add 列表的 tracked 文件
-  #   (如 etf_score_list.json 有其他任务残留修改)会留 unstaged changes,push 撞 non-ff
-  #   走 rebase 兜底时 "error: cannot rebase: You have unstaged changes" 阻碍失败。
-  #   git add 早已把 add 列表新数据暂存进 index,此处 checkout -- . 只把工作区
-  #   非 add 列表 tracked 文件还原成 index(=HEAD)版本,清掉残留,不影响已暂存内容。
-  #   不用 git clean -fd(太激进,可能删未跟踪新文件);untracked 不阻塞 rebase 不处理。
-  git checkout -- .
-
-  if git diff --cached --quiet; then
-    echo "✓ 数据 JSON 无变更，跳过 commit" | tee -a "$LOG"
-  else
-    git commit -m "$INTRADAY_COMMIT_MSG" 2>&1 | tee -a "$LOG"
-    echo "✓ git commit 完成（work tree @ main）" | tee -a "$LOG"
-  fi
-  # 2.5) 先同步 index/ 到 R2（走势图源 kc50-all.json 等），再 git push（卡片源 overview.json）
-  #      顺序：先 R2 后 git，窗口内变成"走势图先有数据卡片后上线"，用户不会误以为数据丢了。
-  #      非阻塞：R2 失败发告警邮件（notify.py --severe），不阻断 git push（卡片照常上线，走势图缺数据需手动补刷）。
-  #      2026-07-20 修复 Bug2-1：原顺序先 git push(L156) 后 R2(L170)，2分钟窗口内卡片有信号但走势图没 pin。
-  #      2026-07-20 修复 Bug2-2：R2 失败原只 echo "不阻断 intraday" 静默，长期不一致隐患；改发告警邮件。
-  #      2026-07-23 剥离 upload-industry：268文件~15-16min 致 intraday 超 launchd ExitTimeOut=1800 被
-  #      SIGTERM 杀。industry/ 走 deploy.sh 全量管（L166 run_r2_upload upload-industry，收盘后），
-  #      盘中 industry 走势图 stale 到昨日可接受（走势图是日级历史趋势，非实时；intraday_snapshot.json
-  #      内的行业实时涨跌幅仍每30min 更新）。intraday 回归"轻量快照几秒"。
-  echo "-> 同步 index 到 R2（前端 R2 源，先于 git push）..." | tee -a "$LOG"
-  if ! "$PY" "$REPO/scripts/upload_r2.py" upload-index 2>&1 | tee -a "$LOG"; then
-    echo "✗ upload-index R2 失败，发告警邮件" | tee -a "$LOG"
-    # 抓 upload-index 输出的 FAILED_FILES 行(改动2 打印)+ 共上传汇总行,引用到告警 body
-    # tail -1 取最新一条(防 LOG 历史污染)；|| true 防 pipefail 下 grep 无匹配退出非0
-    FAILED_FILES=$(grep "^FAILED_FILES:" "$LOG" | tail -1 | sed "s/^FAILED_FILES: //") || true
-    OK_TOTAL=$(grep "^共上传" "$LOG" | tail -1) || true
-    "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 ${ALERT_TIME}" "走势图数据源(kc50-all.json等)未推 R2，卡片(overview)将上线，三处数据不一致，需手动补刷 R2: bash scripts/upload_r2.py upload-index<br>汇总: ${OK_TOTAL}<br>失败文件: ${FAILED_FILES}" --severe --from-prefix "[告警]" --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
-  fi
-
-  # 2.52) 同步 intraday 相关数据到 R2（阶段1b 双写：R2 + git 都推）
-  #       upload-index 已处理 index/，此处上传 intraday 实际更新的小 .json：
-  #       intraday_snapshot/overview/summary/summary_history/notifications/boot/schedule_stats
-  #       + a-stock/hk/global/sentiment-3m/6m/1y + etf_national_team-1m/3m/6m/1y。
-  #       失败不阻塞 git push（R2 双写 best-effort，git push 仍推数据上线）。
-  echo "-> 同步 intraday 数据到 R2（upload-intraday）..." | tee -a "$LOG"
-  if ! "$PY" "$REPO/scripts/upload_r2.py" upload-intraday 2>&1 | tee -a "$LOG"; then
-    echo "⚠ upload-intraday R2 失败，不阻塞 git push" | tee -a "$LOG"
-  fi
-
-  # 2.55) A11 异常波动盘中告警（R2同步后、push前；失败不阻塞快照/推送）
-  #       借鉴 alert_score.py L5 量能异动模式，检测急涨急跌(±3/5/7%)/放量(5日均×2)/突破(20日高低点)。
-  #       同日同标的去重(data/anomaly_notified.json)，通过 notify.py 发盘中提示邮件。
-  if ! "$PY" "$REPO/scripts/detect_intraday_anomaly.py" 2>&1 | tee -a "$LOG"; then
-    echo "⚠ detect_intraday_anomaly 失败，不阻塞快照" | tee -a "$LOG"
-  fi
-
-  # 2.6) push 含 rebase 兜底（参考 deploy.sh L155-186）
-  #      intraday 走 worktree(detached HEAD @ 旧 origin/main + 1 本地 commit)，
-  #      期间并发 agent 可能已推新 commit 到 origin/main 致本地基址落后 = non-fast-forward。
-  #      fetch 后判 HEAD 是否已在 origin/main（并发已推同内容=幂等成功）；
-  #      本地落后则 rebase origin/main 后重试 push 一次。
-  #      严禁 force-with-lease / force push（§8 铁律）；rebase 失败 abort 退出待人工。
-  #      push 最终失败（rebase 后仍失败）-> notify.py --severe 发告警 + 写 data/alerts/latest.md，
-  #      让 schedule_monitor 48h 监控能发现（修复2）。
-  set +e  # push/rebase 失败不立即退出 bash -c，走兜底判断
-  git push origin HEAD:main 2>&1 | tee -a "$LOG"
-  PUSH_RC=$?
-  if [ "$PUSH_RC" -ne 0 ]; then
-    # 可能 non-fast-forward（并发推）/ 网络/权限；fetch 后判 HEAD 是否已在 origin/main
-    git fetch origin main 2>&1 | tee -a "$LOG" || true
-    if git merge-base --is-ancestor HEAD origin/main 2>/dev/null; then
-      echo "⚠ push 返回 $PUSH_RC 但 HEAD 已在 origin/main（并发已推送），视为幂等成功"
-      PUSH_RC=0
-    else
-      echo "-> push non-fast-forward，本地落后 origin/main，rebase 后重试一次 ..." | tee -a "$LOG"
-      git rebase origin/main 2>&1 | tee -a "$LOG"
-      REBASE_RC=$?
-      if [ "$REBASE_RC" -eq 0 ]; then
-        git push origin HEAD:main 2>&1 | tee -a "$LOG"
-        PUSH_RC=$?
-        if [ "$PUSH_RC" -ne 0 ]; then
-          echo "✗ rebase 后重试 push 仍失败(退出码 $PUSH_RC)" | tee -a "$LOG"
-        fi
-      else
-        git rebase --abort 2>/dev/null || true
-        echo "✗ rebase origin/main 失败（数据 JSON 可能冲突），已 abort 保持工作区干净" | tee -a "$LOG"
-        PUSH_RC=1
-      fi
-    fi
-  fi
-  set -e
-
-  # push 最终失败 -> 告警（让 schedule_monitor 48h 监控发现）+ 退出非 0
-  if [ "$PUSH_RC" -ne 0 ]; then
-    echo "✗ git push origin HEAD:main 失败（rebase 重试后仍失败），发告警邮件 + 写 alerts/latest.md" | tee -a "$LOG"
-    "$PY" "$REPO/scripts/notify.py" \
-      "[告警] intraday push失败(非ff) ${ALERT_TIME}" \
-      "intraday_snapshot 推 main 失败，rebase 重试后仍失败。线上 overview/intraday_snapshot 等数据滞后上一轮时点，需手动修复。<br>排查：cd $GIT_REPO && git fetch origin && git log --oneline -5 origin/main 看并发推的 commit；本地 intraday worktree commit 已随 worktree 清理丢失，重跑 bash scripts/intraday_snapshot.sh force 重采+重推即可。<br>日志：$LOG" \
-      --severe \
-      --from-prefix "[告警]" \
-      --alert-issue "intraday_snapshot git push 失败(非 fast-forward, rebase 重试后仍失败)" \
-      --alert-log "$LOG" 2>&1 | tail -3 | tee -a "$LOG" || true
-    exit "$PUSH_RC"
-  fi
-  echo "✓ git push origin HEAD:main 完成" | tee -a "$LOG"
-' 2>&1
-PUSH_RC=$?
-if [ "$PUSH_RC" -ne 0 ]; then
-  echo "✗ commit/push 失败（退出码 ${PUSH_RC}），写 stderr 告警" | tee -a "$LOG" >&2
-  exit "$PUSH_RC"
+# 2.55) A11 异常波动盘中告警（R2同步后；失败不阻塞快照）
+#       借鉴 alert_score.py L5 量能异动模式，检测急涨急跌(±3/5/7%)/放量(5日均×2)/突破(20日高低点)。
+#       同日同标的去重(data/anomaly_notified.json)，通过 notify.py 发盘中提示邮件。
+if ! "$PY" "$REPO/scripts/detect_intraday_anomaly.py" 2>&1 | tee -a "$LOG"; then
+  echo "⚠ detect_intraday_anomaly 失败，不阻塞快照" | tee -a "$LOG"
 fi
 
 echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
@@ -337,11 +173,10 @@ echo "=== intraday_snapshot.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 =
 #    deploy.sh L72 收盘后也调，兜底。失败不阻塞退出。
 "$PY" "$REPO/scripts/gen_schedule_stats.py" 2>&1 | tee -a "$LOG" | tail -1 || echo "⚠ gen_schedule_stats.py 失败(退出码 $?)，不阻塞" | tee -a "$LOG"
 
-# 5) schedule_stats.json 已合并进上面第一次 push 的 DATA_FILES（L217 for 循环）：
-#    原 2026-07-30 方案C 独立 push（push_schedule_stats.sh）每轮多一次 git push，
-#    盘中每10分钟 2 次 push = ~54次/天 CF 构建。合并后 schedule_stats 跟随第一次
-#    push 上线，滞后一轮（上一轮 gen_stats 版本，前端 modal 按需读无感知）。
-#    gen_stats L327 保留刷新本地 schedule_stats.json，供下一轮 rsync 进 worktree 上线。
-#    失败不阻塞：gen_stats 已刷新本地，下一轮 intraday 或其他任务脚本结尾会再带上线。
+# 5) schedule_stats.json 上传 R2（阶段3：替代 git push，gen_stats 后立即上传无滞后）
+#    gen_stats 刷新本地 schedule_stats.json 后，upload-data-files 上传到 R2 + purge_cache。
+#    失败不阻塞：下一轮 intraday 或其他任务脚本结尾会再上传。
+"$PY" "$REPO/scripts/upload_r2.py" upload-data-files schedule_stats.json 2>&1 | tee -a "$LOG" || \
+  echo "⚠ schedule_stats R2 上传失败，不阻塞" | tee -a "$LOG"
 
 exit 0
