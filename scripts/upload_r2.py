@@ -590,6 +590,37 @@ def cmd_upload_all_data():
         sys.exit(1)
 
 
+def cmd_upload_intraday():
+    """上传 intraday 盘中更新的数据文件到 R2 data/ 前缀(阶段1b 双写)。
+
+    intraday_snapshot.sh 每10分钟跑,更新以下文件(对应 git push DATA_FILES 列表):
+    - intraday_snapshot/overview/summary/summary_history/notifications/boot/schedule_stats
+    - a-stock/hk/global/sentiment 的 3m/6m/1y
+    - etf_national_team 的 1m/3m/6m/1y
+    只传 .json(CF 自动 br,.gz 前端已跳 fetchJSON)。8线程并发,~23文件秒级完成。
+    index/ 已由 upload-index(intraday_snapshot.sh L249 独立调用)处理,不在此上传。
+    部分文件可能不存在(notifications/summary_history 某些时点未生成),_upload_glob 自动过滤。
+    """
+    data_dir = STATIC_DIR / "data"
+    files = [
+        "intraday_snapshot.json", "overview.json", "summary.json",
+        "summary_history.json", "notifications.json", "boot.json",
+        "schedule_stats.json",
+        "a-stock-3m.json", "a-stock-6m.json", "a-stock-1y.json",
+        "hk-3m.json", "hk-6m.json", "hk-1y.json",
+        "global-3m.json", "global-6m.json", "global-1y.json",
+        "sentiment-3m.json", "sentiment-6m.json", "sentiment-1y.json",
+        "etf_national_team-1m.json", "etf_national_team-3m.json",
+        "etf_national_team-6m.json", "etf_national_team-1y.json",
+    ]
+    ok, total, _ = _upload_glob(data_dir, files, "data")
+    if total == 0:
+        print(f"⚠ 无 intraday 文件: {data_dir}")
+        return
+    if ok != total:
+        sys.exit(1)
+
+
 def _list_keys(prefix, bucket=None):
     """list bucket 下 prefix 的对象 key 列表（list-type=2）。"""
     import re
@@ -867,6 +898,8 @@ if __name__ == "__main__":
         cmd_upload_data_large()
     elif cmd == "upload-all-data":
         cmd_upload_all_data()
+    elif cmd == "upload-intraday":
+        cmd_upload_intraday()
     elif cmd == "upload-db":
         cmd_upload_db()
     elif cmd == "upload-claude-backup":
@@ -892,5 +925,5 @@ if __name__ == "__main__":
             "upload-trade-sim-json|upload-index|upload-industry|upload-public-fund|"
             "upload-offshore-fund|upload-fund-score|upload-etf-score|upload-data-large|upload-db|"
             "upload <local> <key>|delete <key> [bucket]|clean-data-backup|"
-            "upload-claude-backup [path]|upload-all-data]"
+            "upload-claude-backup [path]|upload-all-data|upload-intraday]"
         )

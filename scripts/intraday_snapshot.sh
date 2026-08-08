@@ -255,6 +255,16 @@ PUSH_RC=0
     "$PY" "$REPO/scripts/notify.py" "[告警] intraday R2上传失败 ${ALERT_TIME}" "走势图数据源(kc50-all.json等)未推 R2，卡片(overview)将上线，三处数据不一致，需手动补刷 R2: bash scripts/upload_r2.py upload-index<br>汇总: ${OK_TOTAL}<br>失败文件: ${FAILED_FILES}" --severe --from-prefix "[告警]" --dedup-key intraday_upload_index_r2_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
   fi
 
+  # 2.52) 同步 intraday 相关数据到 R2（阶段1b 双写：R2 + git 都推）
+  #       upload-index 已处理 index/，此处上传 intraday 实际更新的小 .json：
+  #       intraday_snapshot/overview/summary/summary_history/notifications/boot/schedule_stats
+  #       + a-stock/hk/global/sentiment-3m/6m/1y + etf_national_team-1m/3m/6m/1y。
+  #       失败不阻塞 git push（R2 双写 best-effort，git push 仍推数据上线）。
+  echo "-> 同步 intraday 数据到 R2（upload-intraday）..." | tee -a "$LOG"
+  if ! "$PY" "$REPO/scripts/upload_r2.py" upload-intraday 2>&1 | tee -a "$LOG"; then
+    echo "⚠ upload-intraday R2 失败，不阻塞 git push" | tee -a "$LOG"
+  fi
+
   # 2.55) A11 异常波动盘中告警（R2同步后、push前；失败不阻塞快照/推送）
   #       借鉴 alert_score.py L5 量能异动模式，检测急涨急跌(±3/5/7%)/放量(5日均×2)/突破(20日高低点)。
   #       同日同标的去重(data/anomaly_notified.json)，通过 notify.py 发盘中提示邮件。
