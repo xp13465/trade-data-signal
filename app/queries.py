@@ -524,7 +524,13 @@ def overview(conn, cfg):
                 # 今日信号(date==score_date)无"至今"语义，对齐 L446-447 指数口径
                 if not _code or _sig_date == score_date:
                     continue
-                _cm = _etf_close_cache.get(_code)
+                # 2026-08-08 fix: self ETF(如 511260=cgb_10y_etf)数据在 index_daily 不在 etf_daily,
+                # _etf_close_cache 永远 None。self 时用 _load_close_map(index_id) 取 index_daily close,
+                # self 的 etf_since_return=指数 since_return(本体即ETF,正确)
+                if _e.get("match_method") == "self":
+                    _cm = _load_close_map(_s["index_id"])
+                else:
+                    _cm = _etf_close_cache.get(_code)
                 if not _cm:
                     continue
                 _sig_close = _cm.get(_sig_date)
