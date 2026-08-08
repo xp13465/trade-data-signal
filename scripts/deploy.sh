@@ -519,5 +519,68 @@ if [ "$PUSH_RC" -ne 0 ]; then
 fi
 
 echo "✓ push 成功（MaoziYun 自动拉取 git main 部署，有拉取延迟 + max-age=1200 缓存；wrangler 未安装，worker/headers.js 待迁 CF Workers 后手动 wrangler deploy）" | tee -a "$LOG"
+
+# === staticdata 备份（best-effort，失败不阻塞 deploy）===
+# 灾备第2层：每次 deploy 后 commit+push 差异化日志到 staticdata git 仓库
+# 备份内容：DB原件(本地) + 配置(脱敏) + 小JSON(差异跟踪)
+# DB 因>100MB 不进 git（git-lfs 未装），仅 rsync 到本地 staticdata/db/ 作备份
+# 灾备第3层（R2 私有桶 gz 快照）是 DB 的云端备份
+STATICDATA_REPO="${STATICDATA_REPO:-/Users/linhuichen/code/trade-data-signal-staticdata}"
+if [ -d "$STATICDATA_REPO/.git" ]; then
+  echo "-> staticdata 备份（best-effort）..." | tee -a "$LOG"
+  STATICDATA_FAIL=0
+
+  # 1. rsync DB原件到 staticdata/db/（本地备份，不进 git，.gitignore 排除 db/*.db）
+  rsync -a "$REPO/data/"*.db "$STATICDATA_REPO/db/" 2>&1 | tee -a "$LOG" || {
+    echo "⚠ staticdata DB rsync 失败,不阻塞 deploy" | tee -a "$LOG"
+    STATICDATA_FAIL=1
+  }
+
+  # 2. rsync 配置（wrangler.jsonc + launchd plist 模板脱敏）
+  cp "$GIT_REPO/wrangler.jsonc" "$STATICDATA_REPO/config/wrangler.jsonc" 2>/dev/null || true
+  for _plist in ~/Library/LaunchAgents/com.trade.*.plist; do
+    [ -f "$_plist" ] && sed 's|/Users/linhuichen|/Users/USER|g' "$_plist" > "$STATICDATA_REPO/config/launchd/$(basename "$_plist")" 2>/dev/null || true
+  done
+
+  # 3. rsync 小JSON（排除大文件 index-/industry-/lab-/trade_sim_[0-9] + .gz + 子目录）
+  rsync -a \
+    --exclude='*.gz' \
+    --exclude='index/' \
+    --exclude='industry-3y-indices/' \
+    --exclude='industry-5y-indices/' \
+    --exclude='industry-all-indices/' \
+    --exclude='lab/' \
+    --exclude='trade_sim/' \
+    --exclude='index-*' \
+    --exclude='industry-*' \
+    --exclude='lab-*' \
+    --exclude='trade_sim_*[0-9]*' \
+    --exclude='feed.xml' \
+    "$GIT_REPO/static-site/data/" "$STATICDATA_REPO/data/" 2>&1 | tee -a "$LOG" || {
+    echo "⚠ staticdata JSON rsync 失败,不阻塞 deploy" | tee -a "$LOG"
+    STATICDATA_FAIL=1
+  }
+
+  # 4. git commit + push（差异化日志，best-effort）
+  git -C "$STATICDATA_REPO" add -A 2>&1 | tee -a "$LOG" || true
+  if git -C "$STATICDATA_REPO" diff --cached --quiet 2>/dev/null; then
+    echo "✓ staticdata 无新变更,跳过 commit" | tee -a "$LOG"
+  else
+    git -C "$STATICDATA_REPO" commit -m "data backup [deploy] $(date +%Y-%m-%d_%H:%M)" 2>&1 | tee -a "$LOG" || true
+    git -C "$STATICDATA_REPO" push origin main 2>&1 | tee -a "$LOG" || {
+      echo "⚠ staticdata push 失败,不阻塞 deploy" | tee -a "$LOG"
+      STATICDATA_FAIL=1
+    }
+  fi
+
+  if [ "$STATICDATA_FAIL" = "1" ]; then
+    "$PY" "$REPO/scripts/notify.py" "[告警] staticdata备份失败" "deploy.sh staticdata备份部分失败,不阻塞deploy<br>日志: $LOG" --severe --from-prefix "[告警]" --dedup-key staticdata_backup_fail --dedup-window 1800 2>&1 | tee -a "$LOG" || true
+  else
+    echo "✓ staticdata 备份完成" | tee -a "$LOG"
+  fi
+else
+  echo "⚠ staticdata 仓库不存在($STATICDATA_REPO),跳过备份" | tee -a "$LOG"
+fi
+
 echo "=== deploy.sh 结束 $(date '+%Y-%m-%d %H:%M:%S') 退出码=0 ===" | tee -a "$LOG"
 exit 0
