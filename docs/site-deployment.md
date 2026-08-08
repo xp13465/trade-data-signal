@@ -1,7 +1,7 @@
 # 站点部署文档（site-deployment.md）
 
 > 完整站点架构盘点 + 从零重建/灾备镜像搭建指南。
-> 最后更新：2026-08-08。R2 数据层迁移进行中（阶段 1a+1b 已上线，阶段 2-5 待完成），标注处为迁移中间态。
+> 最后更新：2026-08-08。R2 数据层迁移已完成（阶段 1a-5 全部上线 main），git 代码 / R2 数据解耦，数据唯一走 R2。完整 R2 部署文档见 [docs/r2-deployment.md](r2-deployment.md)。
 
 ---
 
@@ -11,7 +11,7 @@
 2. [代码仓库与目录结构](#2-代码仓库与目录结构)
 3. [环境与依赖](#3-环境与依赖)
 4. [数据库](#4-数据库)
-5. [R2 数据层（迁移中）](#5-r2-数据层迁移中)
+5. [R2 数据层](#5-r2-数据层)
 6. [CF Workers 部署](#6-cf-workers-部署)
 7. [多域名配置](#7-多域名配置)
 8. [定时任务](#8-定时任务)
@@ -88,7 +88,7 @@
 **关键设计**：
 - 采集和 git 上线分离：trade-data 跑采集写 DB，trade 仓库 git push 上线（deploy.sh rsync 同步）
 - 线上前端只读静态 JSON，不依赖 DB（DB untracked 不进 git）
-- R2 托管大文件（历史 K 线 all/5y/3y、index/、industry/、lab/、trade_sim/、public_fund/），CF Workers 托管小文件
+- R2 托管所有数据文件（小 JSON 经 Worker /data/ rewrite 直读 R2，大文件经 /r2/ 代理或 ssd.fx8.store 直链），CF Workers 只托管代码 + min JS/CSS
 - 多域名冗余：3 个独立托管平台 + 1 个 R2 直链，任一不可达不影响整体可用性
 
 ---
@@ -163,7 +163,7 @@ trade/
 │   ├── _headers                 # CF Pages 安全头+缓存分层（Worker 接管时回退）
 │   ├── about.html / privacy.html
 │   ├── export.py                # SQLite -> JSON 导出脚本
-│   ├── data/                    # 预生成 JSON（git push 上线 + R2 上传）
+│   ├── data/                    # 预生成 JSON（R2 上传，不进 git）
 │   │   ├── overview.json        # 今日快照
 │   │   ├── a-stock-{3m,6m,1y}.json  # 小 range 留 git
 │   │   ├── ...                  # 大 range (all/5y/3y) 走 R2，.gitignore 移出
@@ -410,9 +410,9 @@ cd /Users/linhuichen/code/trade
 
 ---
 
-## 5. R2 数据层（迁移中）
+## 5. R2 数据层
 
-> **状态**：阶段 1a（upload-all-data 双写）+ 阶段 1b（worker /data/ rewrite）已上线 main。阶段 2-5 待完成（前端 dataUrl 全面改走 /r2/ 路由、小文件也迁 R2 等）。本节描述当前中间态，完整 R2 迁移方案待 `docs/r2-deployment.md`（待写）补充。
+> **状态**：R2 迁移阶段 1a-5 已全部上线 main（2026-08-08）。git 代码 / R2 数据解耦完成，`static-site/data/` 移出 git 走 R2 唯一数据来源，定时任务去 git push 改 R2 上传 + purge_cache + notify，staticdata git 差异化日志备份。完整架构 + 重建步骤见 [docs/r2-deployment.md](r2-deployment.md)。
 
 ### 5.1 R2 Bucket 清单
 
@@ -428,33 +428,34 @@ cd /Users/linhuichen/code/trade
 | `upload-lab` | lab/*.json | `lab/` | 策略实验室数据 |
 | `upload-trade-sim` | trade_sim_*.html | `trade_sim/` | 回测 HTML 页面 |
 | `upload-trade-sim-json` | trade_sim_*_stats.json + _full.json | `trade_sim_data/` | 回测统计数据 |
-| `upload-index` | data/index/*.json+.gz | `index/` | 44 指数全历史 |
+| `upload-index` | data/index/*.json | `index/` | 44 指数全历史 |
 | `upload-industry` | data/industry-* | `industry/` | 行业数据（拆分目录+单文件） |
 | `upload-public-fund` | data/public_fund* | `public_fund/` | 公募基金数据 |
 | `upload-offshore-fund` | data/offshore_fund* | `offshore_fund/` | 场外基金（100K+ 只） |
 | `upload-fund-score` | data/fund_score* | `fund_score/` | 基金评分 |
 | `upload-etf-score` | data/etf_score_list_*.json | `data/` | ETF 评分（buy/sell/hold） |
-| `upload-data-large` | data/ 顶层 >1MB .json+.gz | `data/` | 大 JSON（all/5y/3y 等） |
-| `upload-all-data` | data/ 全量小 .json | `data/` | 阶段 1a 双写（小文件也上 R2） |
-| `upload-intraday` | intraday_snapshot.json + notifications.json | `data/` | 盘中实时快照 |
+| `upload-data-large` | data/ 顶层 >1MB 或大 range .json | `data/` | 大 JSON（all/5y/3y 等） |
+| `upload-all-data` | data/ 全量小 .json | `data/` | 全量小文件上 R2（排除已走独立命令的） |
+| `upload-intraday` | intraday 相关 23 文件 | `data/` | 盘中实时快照 |
+| `upload-data-files <f1> [f2]...` | 指定文件列表 | `data/` | 精准上传指定文件 |
 | `upload-db` | sentiment.db + etf_national_team.db | `backup/` + `weekly/` + `monthly/` | DB 异地备份（signal-backup 桶） |
 | `upload-claude-backup` | Claude 自我备份 tar.gz | `claude-backup/` | Claude 配置异地备份 |
 | `list [prefix]` | 列对象 | - | 查询 |
 | `download-db <name>` | 下载最新 DB 备份 | - | 恢复用 |
 
-### 5.3 前端 R2 访问方式（当前中间态）
+### 5.3 前端 R2 访问方式
 
-- **大 range 历史**（`*-(all|5y|3y).json`）：前端 `dataUrl()` helper 路由到 `https://ssd.fx8.store/data/`（R2 公开桶直链）
+- **所有 /data/*.json**：Worker `/data/` rewrite -> R2 binding 直读，前端 URL 零改动。R2 404 回退 ASSETS（静态文件兜底）。Cache API 边缘缓存 + 分层 TTL（60s/600s/3600s）+ `/api/purge-cache` 主动清除
+- **大 range 历史**（`*-(all|5y|3y).json`）：前端 `dataUrl()` helper 路由到 `https://ssd.fx8.store/data/`（R2 公开桶直链）或 Worker `/r2/` 代理
 - **index/industry/lab/trade_sim/public_fund/fund_score**：前端硬编码 `https://ssd.fx8.store/{prefix}/` URL
-- **小文件**：走 CF Workers Static Assets（git push 上线）
-- **阶段 2（进行中）**：worker/headers.js 新增 `/data/*.json` rewrite → R2 binding 直读，前端 URL 0 改动。R2 404 回退 ASSETS（静态文件兜底）
 
-### 5.4 Worker R2 代理路由（阶段 2，进行中）
+### 5.4 Worker R2 代理路由
 
-worker/headers.js 实现两条 R2 路由：
+worker/headers.js 实现三条 R2 路由：
 
 1. `/r2/*` 代理（P0-4）：R2 binding 直读 + Cache API 边缘缓存 1h。替代原 ssd.fx8.store public bucket 直链（cf-cache-status DYNAMIC 每次回源 ~1s），二次请求边缘 HIT ~50ms
-2. `/data/*.json` rewrite（阶段 2）：截获 /data/*.json 请求，R2 key = `data/overview.json`。R2 404 回退 ASSETS。Cache API 边缘缓存 + 分层 TTL + `/api/purge-cache` 主动清除
+2. `/data/*.json` rewrite（阶段 2）：截获 /data/*.json 请求，R2 key = `data/overview.json`。R2 404 回退 ASSETS。Cache API 边缘缓存 + 分层 TTL（60s/600s/3600s）+ `/api/purge-cache` 主动清除
+3. `/api/purge-cache`（阶段 2）：POST + PURGE_SECRET 认证，清除指定 R2 key 的边缘缓存。upload_r2.py 上传新数据后自动调用
 
 ### 5.5 创建 R2 Bucket
 
@@ -512,7 +513,7 @@ npx wrangler r2 bucket create signal-backup
 - **安全头**：HSTS preload / nosniff / X-Frame-Options / Referrer-Policy / Permissions-Policy / CSP-Report-Only
 - **缓存分层**：版本化 JS/CSS 1 年 immutable / HTML no-store / 实时数据 60s / 历史 1h-6h
 - **`/r2/*` 代理**：R2 binding 直读 + Cache API 边缘缓存（阶段 P0-4）
-- **`/data/*.json` rewrite**：R2 binding 直读 + ASSETS 回退（阶段 2，进行中）
+- **`/data/*.json` rewrite**：R2 binding 直读 + ASSETS 回退（阶段 2）
 - **`/api/purge-cache`**：POST + PURGE_SECRET 认证，清除指定 R2 key 的边缘缓存
 - **`/api/subscribe`**：CRUD 订阅接口，SUBSCRIBE_KV 存储 + SUBSCRIBE_PASSWORD 认证
 - **`/api/auth/*`**：OAuth 路由（Gitee/GitHub/Google），Web Crypto HMAC session
@@ -583,7 +584,7 @@ npx wrangler kv namespace create SUBSCRIBE_KV
 
 ### s.sugas.site 瘦身注意
 
-s.sugas.site 有 300MB 总大小限制。大文件（all/5y/3y、index/、industry/、lab/、trade_sim/）已走 R2（ssd.fx8.store），不推 s.sugas.site。`static-site/data/` 中留 git 的小文件总量需控制在 300MB 以下。
+s.sugas.site 有 300MB 总大小限制。`static-site/data/` 已移出 git（走 R2），不推 s.sugas.site。s.sugas.site 仅作兜底镜像（从 git main 拉 static-site/ 代码 + min JS/CSS）。
 
 ---
 
@@ -867,7 +868,7 @@ launchctl list | grep trade
 2. **CF Workers 配置**：新建 Worker（如 `trade-data-signal-backup`），绑定新域名，wrangler.jsonc 修改 `name` 字段
 3. **数据恢复**：
    - DB 从 R2 `signal-backup` 桶下载最新备份（`upload_r2.py download-db`）
-   - static-site/data 从 git main 分支恢复（小文件）+ R2 `signal-data` 桶恢复（大文件）
+   - static-site/data 从 R2 `signal-data` 桶恢复（upload_r2.py upload-all-data 重新填充）+ staticdata git 恢复小 JSON
 4. **定时任务**：加载相同 plist（修改路径），可错开时点避免与主站同时采集（或只做备份不采集）
 5. **R2 共享**：灾备机可共用同一 R2 bucket（只读），或创建独立 bucket 定期同步
 
@@ -877,19 +878,22 @@ launchctl list | grep trade
 |---|---|---|
 | 代码 | GitHub 仓库 `xp13465/trade-data-signal` | `git clone` |
 | DB | R2 `signal-backup` 桶（日/周/月三层） | `upload_r2.py download-db` |
-| 静态 JSON（小） | git main 分支 `static-site/data/` | `git pull` |
+| 静态 JSON（小） | R2 `signal-data` 桶 + staticdata git | `upload_r2.py list data/` 或 `git pull` staticdata |
 | 静态 JSON（大） | R2 `signal-data` 桶 | `upload_r2.py list` + 下载 |
 | 配置 | `.example` 模板 + 手动填入 | `cp *.example *.json` |
 | Claude 配置 | R2 `signal-backup/claude-backup/` | `upload_r2.py upload-claude-backup` |
 
 ### 10.4 静态数据备份仓库（staticdata）
 
-用户 2026-08-08 规划新建 `git@github.com:xp13465/trade-data-signal-staticdata.git`，用于：
-- DB 备份的 git 冗余（R2 之外的第三层）
-- static-site/data 全量 JSON 的 git 备份（含 .gitignore 移出的大文件）
-- 定期推送（launchd 定时任务，待配置）
+`git@github.com:xp13465/trade-data-signal-staticdata.git`，本地路径 `/Users/linhuichen/code/trade-data-signal-staticdata`。
 
-> 此仓库为灾备补充，不替代 R2 备份。R2 备份是主备份机制（自动化每日跑），staticdata 是手动/定期 git 冗余。
+deploy.sh 每次 deploy 后自动备份（best-effort，失败不阻塞 deploy）：
+- **DB 原件** rsync 到 `staticdata/db/`（本地备份，不进 git，GitHub 100MB 限制）
+- **配置**（wrangler.jsonc + launchd plist 脱敏）cp 到 `staticdata/config/`
+- **全量 JSON** rsync 到 `staticdata/data/`（git diff 追踪每日变化）
+- **git commit + push** 差异化日志（`data backup [deploy] YYYY-MM-DD_HH:MM`）
+
+> 此仓库为灾备第 2 层（差异化日志），不替代 R2 备份（第 3/4 层）。DB 因 >100MB 不进 git，仅 rsync 本地 + R2 signal-backup 私有桶 gz 快照异地备份。详见 [r2-deployment.md 第 6 节](r2-deployment.md#6-staticdata-git-备份)。
 
 ---
 
@@ -1057,4 +1061,4 @@ curl -s https://ss.fx8.store/manifest.json | python3 -m json.tool | head -5
 - [数据源说明](data-sources.md) - akshare/mootdx/baostock 等
 - [Smoke 清单](smoke-checklist.md) - 主功能回归验证
 - [static-site/DEPLOY.md](../static-site/DEPLOY.md) - 旧版静态部署说明（已过时，参考用）
-- `docs/r2-deployment.md`（待写） - R2 数据层完整迁移方案
+- [R2 部署文档](r2-deployment.md) - R2 数据层完整架构 + 重建步骤 + 排障
