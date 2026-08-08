@@ -314,7 +314,7 @@ def _upload_glob(local_dir, glob_patterns, r2_prefix, include_gz=True, exclude_f
         files = [f for f in files if f.exists()]
     if not files:
         print(f"⚠ {local_dir} 下 {glob_patterns} 无匹配文件")
-        return 0, 0, []
+        return 0, 0, [], []
     total = len(files)
 
     def _upload_one(idx_f):
