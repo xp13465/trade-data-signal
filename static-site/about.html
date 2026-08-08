@@ -17,7 +17,7 @@
   <meta property="og:url" content="https://ss.fx8.store/about.html">
   <meta property="og:image" content="https://ss.fx8.store/og.png">
   <meta property="og:locale" content="zh_CN">
-  <link rel="stylesheet" href="./style.min.css?v=1c457cf4">
+  <link rel="stylesheet" href="./style.min.css?v=7f826a79">
   <link rel="stylesheet" href="./lab.min.css?v=30817f3c">
   <!-- 防闪烁:CSS 加载后、body 渲染前读 localStorage 提前设 data-theme -->
   <script>
@@ -172,7 +172,8 @@
           <tr><td>🟢 草绿</td><td>related 相关</td><td>track_score 70-79</td><td>跟踪误差较小</td></tr>
           <tr><td>🟠 橙</td><td>approx 近似</td><td>track_score 50-69</td><td>有跟踪ETF但误差较大;approx 档按匹配方式细分多色: 红=name_match(名称匹配)/紫=overlap(成分重叠)/黄=kw(关键词)/橙=track_index+其余</td></tr>
           <tr><td>🟤 暗橙</td><td>none 弱</td><td>track_score&lt;50</td><td>来源间接,误差大</td></tr>
-          <tr><td>⚫ 灰灭灯</td><td>nodata</td><td>track_score=null(共同交易日不足60)</td><td>无数据,无法评估跟踪质量</td></tr>
+          <tr><td>⚫ 灰灭灯</td><td>nodata</td><td>track_score=null &amp;&amp; !track_low_confidence(共同交易日N&lt;30)</td><td>完全无数据,无法评估跟踪质量</td></tr>
+          <tr><td>🔵 灰蓝虚线</td><td>lowconf 估算</td><td>track_low_confidence=true(共同交易日N=30-59)</td><td>共同交易日30-59,跟踪分为降权估算值,可信度较低</td></tr>
         </tbody>
       </table>
 
@@ -188,7 +189,7 @@
           <tr><td>IR 信息比率</td><td>15%</td><td>mean(收益差)×252 / (std×√252), cap ±5</td><td>|IR|越接近0越好</td></tr>
         </tbody>
       </table>
-      <p><strong>归一化</strong>: TE/R²/avg_dev/roll_std 用百分位rank(防min-max异常值拉伸,如跨境ETF TE=40%拉大range); IR 用分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。<strong>数据要求</strong>: 共同交易日≥60才出 track_score, 30-59仅存 avg_dev+R²原始值(track_score=null灰标), &lt;30全None。</p>
+      <p><strong>归一化</strong>: TE/R²/avg_dev/roll_std 用百分位rank(防min-max异常值拉伸,如跨境ETF TE=40%拉大range); IR 用分段函数(|IR|≤0.5满分, 正&gt;0.5斜率80轻惩罚, 负&lt;-0.5斜率200重惩罚)。<strong>数据要求</strong>: 共同交易日≥60才出 track_score; N=30-59 降权(track_score=null + track_low_confidence=true,灰蓝虚线估算灯); N&lt;30 完全无数据(track_score=null,灰灭灯)。</p>
       <p><strong>阈值</strong>: track_score≥80 strong / 70-79 related / 50-69 approx / &lt;50 none。</p>
 
       <h5>③ 相似度 similarity</h5>
@@ -214,9 +215,18 @@
         <li><strong>strong 强关联</strong> - track_score≥80 或 self 本体 → 蓝/绿灯</li>
         <li><strong>related 相关</strong> - track_score 70-79 → 草绿灯</li>
         <li><strong>approx 近似</strong> - track_score 50-69 → 橙灯(按 match_method 细分红/紫/黄/橙)</li>
-        <li><strong>none 弱</strong> - track_score&lt;50 或数据不足 → 暗橙/灰灯</li>
+        <li><strong>none 弱</strong> - track_score&lt;50 → 暗橙灯(真弱); track_low_confidence=true(N=30-59降权) → 灰蓝虚线估算灯; track_score=null &amp;&amp; !low_confidence(N&lt;30) → 灰灭灯</li>
       </ul>
       <p><strong>回退规则</strong>(track_score 缺失时): grade=excellent→strong / grade=good(非手动兜底)→related / 其余→approx。</p>
+
+      <h5>⑥ ⚠️近似标记(增强型ETF) & 估算灯</h5>
+      <p>ETF 名称含"增强"字样的为<strong>增强型ETF</strong>,基金经理可主动偏离指数持仓以追求超额收益,前端加 ⚠️近似 标记提示。注意两个"近似"是不同概念:</p>
+      <ul>
+        <li><strong>track_tier="approx"</strong> - 跟踪误差档位(track_score 50-69),显橙灯</li>
+        <li><strong>approx 布尔字段</strong> - 增强型ETF标记(名称含"增强"),显 ⚠️近似 文字</li>
+      </ul>
+      <p>例: 562810(增强型) + track_tier=approx -&gt; ⚠️近似 + 橙灯; 159943(非增强型) + track_tier=approx -&gt; 只橙灯无 ⚠️ 标记。两者可同时出现(增强型且跟踪误差大)或单独出现。</p>
+      <p><strong>估算灯(灰蓝虚线)</strong>: track_low_confidence=true 时亮,表示共同交易日 N&lt;60,track_score 为降权估算值(非精确评分),可信度较低。</p>
 
       <h3>3.3 盘面温测(sentiment)</h3>
       <p><strong>看什么</strong>:市场情绪类指标的折线图。</p>
