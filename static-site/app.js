@@ -1554,10 +1554,8 @@ function _etfMatchTags(etf) {
     if (typeof etf.max_err === "number") _ge += etf.max_err.toFixed(1) + "%";
     _parts.push(_ge);
   }
-  // 体量(辅助; amount 单位亿)
-  if (typeof etf.amount === "number") {
-    _parts.push(etf.amount + "亿");
-  }
+  // 2026-08-08 体量移出 _etfMatchTags: popup(L15224) 已有独立 etf-pop-amt span, 此处再放会重复;
+  // hoverpop 第二行也用独立 etf-pop-amt span(需求#4 独立字段单独配色), 不放 _parts
   // hover tooltip 中文化: 来源 + 分级 + 相似度 + 跟踪分 + 档位
   var _titleParts = ["来源: " + _etfSrcLabel(_mm)];
   if (_grade) _titleParts.push("分级: " + _gradeLabel(_grade));
@@ -2328,13 +2326,15 @@ const _WIDTH_CALIBER_TIP = "涨跌家数口径：akshare 新浪(sina)源全市�
       if (_top && _top.name && _top.code) {
         var _isSelf = _top.match_method === "self";
         // 2026-08-08 第二行 etfMetaHtml: 灯+档位+跟踪分+相似度+体量(由重到轻)
-        // self: 蓝灯+强关联+本体就是ETF+体量; 非self: 复用 _etfMatchTags(已含灯+档位+跟踪分+相似度+体量,无ETF代码)
+        // 体量独立 etf-pop-amt span 单独配色(同 popup L15222), 不内联在 _etfMatchTags 中
+        // self: 蓝灯+强关联+本体就是ETF+体量; 非self: _etfMatchTags(灯+档位+跟踪分+相似度,无ETF代码)+体量
         if (_isSelf) {
           var _selfMeta = '<span class="etf-light etf-light-self"></span> 强关联 本体就是ETF';
-          if (typeof _top.amount === "number") _selfMeta += " " + _top.amount + "亿";
+          if (typeof _top.amount === "number") _selfMeta += ' <span class="etf-pop-amt">' + _top.amount + "亿</span>";
           etfMetaHtml = '<span class="term-pop-etf-meta">' + _selfMeta + '</span>';
         } else {
-          etfMetaHtml = '<span class="term-pop-etf-meta">' + _etfMatchTags(_top).trim() + '</span>';
+          var _amtHtml = (typeof _top.amount === "number") ? ' <span class="etf-pop-amt">' + _top.amount + "亿</span>" : "";
+          etfMetaHtml = '<span class="term-pop-etf-meta">' + _etfMatchTags(_top).trim() + _amtHtml + '</span>';
         }
         // 2026-08-08 第三行 etfHtml: ETF名(代码)+至今盈亏(格式和第一行 idxLineHtml 统一: 图标+名(代码)+±X%)
         var _pnlText = _etfPnlText(_top.etf_since_return, _top.etf_price_diff);
