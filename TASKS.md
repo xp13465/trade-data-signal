@@ -1566,3 +1566,8 @@ freeze card 复用 addCardTimeBadge(数据时效角标)传冰点事件日8/3,误
 - **R2迁移阶段1a-5 全部上线main**:阶段1a/1b(df6597245)+阶段2(8a36b4b82)+阶段3(508eabb44)+阶段4a(3f721f2d8)+阶段5(8bfc55e8d)。git代码/R2数据解耦完成,static-site/data/移出git走R2唯一数据来源,定时任务去git push改R2上传+purge_cache+notify,staticdata git差异化日志备份
 - **3 agent完成通知丢失**(用户反馈"没那么多agent再跑,是不是又丢通知了"):hoverpop reviewer(acbdac78)+iOS icon(a1d8cbef)+阶段5 reviewer(aa70e93c5)完成SendMessage未送达主控,用进度文件兜底确认状态(§11 进度文件+stat-L mtime机制生效)。教训:通知丢失不丢工作,进度文件是可靠兜底
 - **⚠️待办**:①DB迁GitLab(用户注册后)②72h监控(阶段3-5已完成,可启动)③docs/r2-deployment.md(R2部署文档8章节)④site-deployment.md R2部分补完整(当前标注迁移中)⑤reviewer P2清理(阶段3 4个P2告警不一致+阶段4a 3个P2死代码+阶段5 reviewer待出P2)
+
+### 会话状态(2026-08-08 18:20,reviewer PASS→cherry-pick staticdata fix→派gz-cleanup agent)
+- **2 reviewer PASS**(通知再次丢失,进度文件兜底):staticdata reviewer(ac0ed8a07 18:02完成)+etf-tag-pnl reviewer(a8b63704 18:13完成)都PASS,SendMessage未送达主控,查/tmp/agent-progress-*.md查到结论。staticdata PASS(feed.xml+deploy.sh rsync源无回归)+etf-tag-pnl PASS(_sigEtfCache影响面/时序/兜底/smoke全PASS,2项smoke FAIL是checklist路径过时非本次改动)
+- **deploy.sh staticdata rsync源 fix ✅cherry-pick到main**(79f9d81bc,b75ab0965在feat):L559 rsync源 GIT_REPO->REPO(trade-data数据生成处),staticdata备份不再依赖空目录trade/static-site/data/
+- **派gz-cleanup agent**(a77eca635aa29767c,18:20):用户确认"全量迁移+清理.gz"。任务:①清理.gz生成逻辑4处(export.py GZ_THRESHOLD+rglob/intraday_snapshot.sh 8个.gz/upload_r2.py *.json.gz pattern/deploy.sh .gz防御)②删本地852个.gz(127MB)③清R2 .gz ④staticdata rsync去exclude全量迁移。C级,改完push feat→reviewer→主控cherry-pick。进度文件/tmp/agent-progress-gz-cleanup.md
